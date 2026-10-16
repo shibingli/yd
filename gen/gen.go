@@ -30,14 +30,14 @@ import (
 
 	"github.com/spf13/afero"
 
-	"github.com/yun-dev/yd/afs"
-	"github.com/yun-dev/yd/errx"
-	"github.com/yun-dev/yd/logx"
+	"github.com/shibingli/yd/afs"
+	"github.com/shibingli/yd/errx"
+	"github.com/shibingli/yd/logx"
 )
 
 // FrameworkModule 是 yd 框架自身的模块路径，用作生成代码引用框架包时的默认导入前缀。
 // FrameworkModule is the module path of the yd framework itself; it is the default import prefix for framework packages in generated code.
-const FrameworkModule = "github.com/yun-dev/yd"
+const FrameworkModule = "github.com/shibingli/yd"
 
 // GeneratedMarker 是每个生成文件首行的标记，用于把生成物与手写代码区分开。
 // GeneratedMarker is the marker on the first line of every generated file; it separates generated artifacts from hand-written code.

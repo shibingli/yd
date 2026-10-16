@@ -24,7 +24,7 @@ yd 深度融合 **Go 1.27+ / Htmx 4.0 / Tailwind v4**，消除传统前后端分
 
 ```bash
 # 安装 CLI
-go install github.com/yun-dev/yd/cmd/yd@latest
+go install github.com/shibingli/yd/cmd/yd@latest
 
 # 初始化项目（交互式选择可选组件）
 yd new myapp

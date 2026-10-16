@@ -8,7 +8,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/yun-dev/yd/errx"
+	"github.com/shibingli/yd/errx"
 )
 
 // Prompt asks one question and returns the typed answer, or def when the answer is empty. | Prompt 提出一个问题并返回用户输入的答案，答案为空时返回 def。

@@ -14,7 +14,7 @@ import (
 	"time"
 
 	"github.com/coder/websocket"
-	"github.com/yun-dev/yd/b64x"
+	"github.com/shibingli/yd/b64x"
 )
 
 // ---------------------------------------------------------------- Interop scaffolding | 互操作脚手架

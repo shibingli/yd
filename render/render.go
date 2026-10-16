@@ -29,8 +29,8 @@ import (
 
 	"github.com/spf13/afero"
 
-	"github.com/yun-dev/yd/afs"
-	"github.com/yun-dev/yd/errx"
+	"github.com/shibingli/yd/afs"
+	"github.com/shibingli/yd/errx"
 )
 
 // Sentinel errors. | 哨兵错误。

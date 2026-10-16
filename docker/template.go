@@ -9,8 +9,8 @@ import (
 
 	"github.com/spf13/afero"
 
-	"github.com/yun-dev/yd/afs"
-	"github.com/yun-dev/yd/errx"
+	"github.com/shibingli/yd/afs"
+	"github.com/shibingli/yd/errx"
 )
 
 // Template sentinel errors. | 模板相关哨兵错误。

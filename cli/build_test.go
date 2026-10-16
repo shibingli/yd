@@ -19,8 +19,8 @@ import (
 	"testing"
 
 	"github.com/spf13/pflag"
-	"github.com/yun-dev/yd/build"
-	"github.com/yun-dev/yd/version"
+	"github.com/shibingli/yd/build"
+	"github.com/shibingli/yd/version"
 )
 
 // ---------------------------------------------------------------- Test helpers | 测试辅助
@@ -208,7 +208,7 @@ func cliFakeGoBuildWith(magic []byte) *cliFakeExec {
 func newBuildDir(t *testing.T) string {
 	t.Helper()
 	dir := t.TempDir()
-	if err := os.WriteFile(filepath.Join(dir, "go.mod"), []byte("module github.com/yun-dev/yd\n\ngo 1.27\n"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, "go.mod"), []byte("module github.com/shibingli/yd\n\ngo 1.27\n"), 0o644); err != nil {
 		t.Fatalf("写入 go.mod 失败: %v", err)
 	}
 	return dir
@@ -510,9 +510,9 @@ func TestBuildPassesLDFlagsTagsAndOffline(t *testing.T) {
 		"-tags sqlite,redis,extra",
 		"-s -w",
 		"-X example.com/mode=release",
-		"github.com/yun-dev/yd/version.Version=" + version.Version,
-		"github.com/yun-dev/yd/version.Commit=" + version.Commit,
-		"github.com/yun-dev/yd/version.Date=" + version.Date,
+		"github.com/shibingli/yd/version.Version=" + version.Version,
+		"github.com/shibingli/yd/version.Commit=" + version.Commit,
+		"github.com/shibingli/yd/version.Date=" + version.Date,
 	} {
 		if !strings.Contains(joined, want) {
 			t.Errorf("go build 参数缺少 %q：\n%s", want, joined)

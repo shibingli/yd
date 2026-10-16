@@ -17,9 +17,9 @@ import (
 
 	"github.com/spf13/afero"
 	"github.com/spf13/pflag"
-	"github.com/yun-dev/yd/errx"
-	"github.com/yun-dev/yd/logx"
-	"github.com/yun-dev/yd/scaffold"
+	"github.com/shibingli/yd/errx"
+	"github.com/shibingli/yd/logx"
+	"github.com/shibingli/yd/scaffold"
 )
 
 // newCommandName is the command word of the scaffolding command. | newCommandName 是脚手架命令的命令词。

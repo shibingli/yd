@@ -5,7 +5,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/yun-dev/yd/errx"
+	"github.com/shibingli/yd/errx"
 )
 
 // typeTime 是时间字段在生成代码中的 Go 类型名。

@@ -14,10 +14,10 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/yun-dev/yd/errx"
-	"github.com/yun-dev/yd/jsonx"
-	"github.com/yun-dev/yd/logx"
-	"github.com/yun-dev/yd/sse"
+	"github.com/shibingli/yd/errx"
+	"github.com/shibingli/yd/jsonx"
+	"github.com/shibingli/yd/logx"
+	"github.com/shibingli/yd/sse"
 )
 
 // DevReloadPath is the dev-only SSE endpoint that pushes browser reload events. | DevReloadPath 是仅开发模式注册的 SSE 端点，用于推送浏览器刷新事件。

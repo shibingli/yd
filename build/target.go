@@ -3,7 +3,7 @@ package build
 import (
 	"strings"
 
-	"github.com/yun-dev/yd/errx"
+	"github.com/shibingli/yd/errx"
 )
 
 // ErrInvalidTarget indicates that a target string is not a known GOOS/GOARCH pair. | ErrInvalidTarget 表示目标字符串不是已知的 GOOS/GOARCH 组合。

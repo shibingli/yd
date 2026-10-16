@@ -13,7 +13,7 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 
-	"github.com/yun-dev/yd/server"
+	"github.com/shibingli/yd/server"
 )
 
 // rawCodec passes []byte payloads through untouched. | rawCodec 原样透传 []byte 载荷。

@@ -10,8 +10,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/yun-dev/yd/errx"
-	"github.com/yun-dev/yd/jsonx"
+	"github.com/shibingli/yd/errx"
+	"github.com/shibingli/yd/jsonx"
 )
 
 // HandlerFunc is the unified signature for route handlers and middleware. | HandlerFunc 是路由处理函数与中间件的统一签名。

@@ -18,7 +18,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/yun-dev/yd/errx"
+	"github.com/shibingli/yd/errx"
 )
 
 // Protocol constants. | 协议常量。

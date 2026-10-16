@@ -23,9 +23,9 @@ import (
 
 	"github.com/spf13/afero"
 
-	"github.com/yun-dev/yd/build"
-	"github.com/yun-dev/yd/errx"
-	"github.com/yun-dev/yd/logx"
+	"github.com/shibingli/yd/build"
+	"github.com/shibingli/yd/errx"
+	"github.com/shibingli/yd/logx"
 )
 
 // Build sentinel errors. | 构建相关哨兵错误。

@@ -13,8 +13,8 @@ import (
 
 	"github.com/andybalholm/brotli"
 	"github.com/klauspost/compress/zstd"
-	"github.com/yun-dev/yd/errx"
-	"github.com/yun-dev/yd/router"
+	"github.com/shibingli/yd/errx"
+	"github.com/shibingli/yd/router"
 )
 
 // bigBody is a compressible payload well above the default MinSize. | bigBody 是一段远大于默认 MinSize 的可压缩负载。

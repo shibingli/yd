@@ -85,8 +85,8 @@ func TestNoDirectEncodingImports(t *testing.T) {
 		allowedDir string
 		hint       string
 	}{
-		{`"encoding/json"`, "jsonx/", "请改用 github.com/yun-dev/yd/jsonx（Marshal/Unmarshal/NewEncoder/NewDecoder/Valid）"},
-		{`"encoding/base64"`, "b64x/", "请改用 github.com/yun-dev/yd/b64x（StdEncoding/URLEncoding/… 及其 Encode/Decode/AppendEncode/AppendDecode）"},
+		{`"encoding/json"`, "jsonx/", "请改用 github.com/shibingli/yd/jsonx（Marshal/Unmarshal/NewEncoder/NewDecoder/Valid）"},
+		{`"encoding/base64"`, "b64x/", "请改用 github.com/shibingli/yd/b64x（StdEncoding/URLEncoding/… 及其 Encode/Decode/AppendEncode/AppendDecode）"},
 	}
 
 	for _, f := range scanGoFiles(t, repoRoot(t)) {
@@ -134,7 +134,7 @@ func TestNoStdlibLogOrPrintfLogging(t *testing.T) {
 			continue
 		}
 		if hasImport(f.lines, `"log"`) {
-			t.Errorf("%s 直接 import 了标准库 log；日志必须统一使用 github.com/yun-dev/yd/logx", f.rel)
+			t.Errorf("%s 直接 import 了标准库 log；日志必须统一使用 github.com/shibingli/yd/logx", f.rel)
 		}
 		for i, l := range f.lines {
 			trimmed := strings.TrimSpace(l)

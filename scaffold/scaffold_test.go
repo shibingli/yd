@@ -13,10 +13,10 @@ import (
 	"testing"
 
 	"github.com/spf13/afero"
-	"github.com/yun-dev/yd/afs"
-	"github.com/yun-dev/yd/assets"
-	"github.com/yun-dev/yd/jsonx"
-	"github.com/yun-dev/yd/scaffold"
+	"github.com/shibingli/yd/afs"
+	"github.com/shibingli/yd/assets"
+	"github.com/shibingli/yd/jsonx"
+	"github.com/shibingli/yd/scaffold"
 )
 
 // demoName 是绝大多数用例使用的项目名（目标 FS 中的目录名）。
@@ -345,7 +345,7 @@ func TestGenerateMainGoIsMinimalCompilableSkeleton(t *testing.T) {
 	pr, _ := generateMem(t, scaffold.DefaultOptions("main-app"))
 	main := pr.read("cmd/app/main.go")
 	for _, want := range []string{
-		`"github.com/yun-dev/yd/logx"`,
+		`"github.com/shibingli/yd/logx"`,
 		"ListenAndServe",
 		"http.Server",
 		"signal.NotifyContext",
@@ -355,7 +355,7 @@ func TestGenerateMainGoIsMinimalCompilableSkeleton(t *testing.T) {
 			t.Errorf("cmd/app/main.go 缺少 %q:\n%s", want, main)
 		}
 	}
-	if strings.Contains(main, "github.com/yun-dev/yd/app") {
+	if strings.Contains(main, "github.com/shibingli/yd/app") {
 		t.Error("app 包尚不可用时不应 import 它")
 	}
 }
@@ -444,10 +444,10 @@ func TestLocalReplaceAddsGoModReplace(t *testing.T) {
 	pr, _ := generateMem(t, o)
 
 	gomod := pr.read("go.mod")
-	if !strings.Contains(gomod, "require github.com/yun-dev/yd") {
+	if !strings.Contains(gomod, "require github.com/shibingli/yd") {
 		t.Errorf("go.mod 缺少框架 require:\n%s", gomod)
 	}
-	if !strings.Contains(gomod, "replace github.com/yun-dev/yd => /srv/yd") {
+	if !strings.Contains(gomod, "replace github.com/shibingli/yd => /srv/yd") {
 		t.Errorf("go.mod 缺少 replace 指向本地仓库:\n%s", gomod)
 	}
 }

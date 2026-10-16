@@ -10,7 +10,7 @@ import (
 	"strings"
 
 	"github.com/tjfoc/gmsm/sm2"
-	"github.com/yun-dev/yd/errx"
+	"github.com/shibingli/yd/errx"
 )
 
 // Object identifiers related to national cryptography. | 国密相关对象标识符（OID）。

@@ -10,9 +10,9 @@ import (
 
 	"github.com/spf13/afero"
 
-	"github.com/yun-dev/yd/afs"
-	"github.com/yun-dev/yd/render"
-	"github.com/yun-dev/yd/router"
+	"github.com/shibingli/yd/afs"
+	"github.com/shibingli/yd/render"
+	"github.com/shibingli/yd/router"
 )
 
 // newTemplateFS writes the given files into a fresh in-memory asset filesystem

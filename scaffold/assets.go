@@ -3,10 +3,10 @@ package scaffold
 import (
 	"strings"
 
-	"github.com/yun-dev/yd/assets"
-	"github.com/yun-dev/yd/errx"
-	"github.com/yun-dev/yd/jsonx"
-	"github.com/yun-dev/yd/web"
+	"github.com/shibingli/yd/assets"
+	"github.com/shibingli/yd/errx"
+	"github.com/shibingli/yd/jsonx"
+	"github.com/shibingli/yd/web"
 )
 
 // projectMeta 是写入 .yd.json 的工程元信息，供 yd dev / yd build / yd assets 读取。

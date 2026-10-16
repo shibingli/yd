@@ -32,8 +32,8 @@ import (
 	"bytes"
 	"strings"
 
-	"github.com/yun-dev/yd/errx"
-	"github.com/yun-dev/yd/jsonx"
+	"github.com/shibingli/yd/errx"
+	"github.com/shibingli/yd/jsonx"
 	"go.yaml.in/yaml/v3"
 )
 

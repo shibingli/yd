@@ -3,8 +3,8 @@ package jwt
 import (
 	"time"
 
-	"github.com/yun-dev/yd/errx"
-	"github.com/yun-dev/yd/jsonx"
+	"github.com/shibingli/yd/errx"
+	"github.com/shibingli/yd/jsonx"
 )
 
 // Claims is a read-only view over the decoded JWT payload. | Claims 是解码后 JWT 载荷的只读视图。

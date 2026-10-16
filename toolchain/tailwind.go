@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/yun-dev/yd/errx"
+	"github.com/shibingli/yd/errx"
 )
 
 // EnvTailwindBin is the environment variable holding the tailwindcss path. | EnvTailwindBin 是保存 tailwindcss 路径的环境变量。

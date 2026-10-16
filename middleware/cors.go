@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/yun-dev/yd/router"
+	"github.com/shibingli/yd/router"
 )
 
 // CORSOptions configures the CORS middleware.

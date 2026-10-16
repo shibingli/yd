@@ -12,10 +12,10 @@ import (
 	"gorm.io/gorm"
 	gormlogger "gorm.io/gorm/logger"
 
-	"github.com/yun-dev/yd/afs"
-	"github.com/yun-dev/yd/config"
-	"github.com/yun-dev/yd/data/gormx"
-	"github.com/yun-dev/yd/logx"
+	"github.com/shibingli/yd/afs"
+	"github.com/shibingli/yd/config"
+	"github.com/shibingli/yd/data/gormx"
+	"github.com/shibingli/yd/logx"
 )
 
 // NewLogger 的返回值必须满足 GORM 的日志接口；其动态类型还应额外实现

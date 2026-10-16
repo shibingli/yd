@@ -10,9 +10,9 @@ import (
 
 	"github.com/spf13/afero"
 
-	"github.com/yun-dev/yd/afs"
-	"github.com/yun-dev/yd/jsonx"
-	"github.com/yun-dev/yd/router"
+	"github.com/shibingli/yd/afs"
+	"github.com/shibingli/yd/jsonx"
+	"github.com/shibingli/yd/router"
 )
 
 // fixtureDir is the catalog directory used by every fixture filesystem. | fixtureDir 是所有夹具文件系统使用的语言目录。

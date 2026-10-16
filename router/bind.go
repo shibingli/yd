@@ -9,8 +9,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/yun-dev/yd/errx"
-	"github.com/yun-dev/yd/jsonx"
+	"github.com/shibingli/yd/errx"
+	"github.com/shibingli/yd/jsonx"
 )
 
 // Binding errors, declared once at package level. | 绑定错误，在包级声明一次。

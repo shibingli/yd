@@ -15,7 +15,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/yun-dev/yd/logx"
+	"github.com/shibingli/yd/logx"
 )
 
 // The helper child identifies itself through these two environment variables and appends a start marker to a file. | 辅助子进程通过这两个环境变量识别自己，并把启动标记写进文件。

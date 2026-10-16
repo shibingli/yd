@@ -11,7 +11,7 @@ import (
 	"github.com/spf13/afero"
 	"github.com/spf13/pflag"
 
-	"github.com/yun-dev/yd/config"
+	"github.com/shibingli/yd/config"
 )
 
 // watchTimeout is the deadline for waiting on a config file watch callback. | watchTimeout 是等待配置文件监视回调的时限。

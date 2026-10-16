@@ -10,8 +10,8 @@ import (
 	"strings"
 
 	"github.com/tjfoc/gmsm/sm3"
-	"github.com/yun-dev/yd/b64x"
-	"github.com/yun-dev/yd/errx"
+	"github.com/shibingli/yd/b64x"
+	"github.com/shibingli/yd/errx"
 )
 
 const (

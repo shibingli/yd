@@ -8,8 +8,8 @@ import (
 	"errors"
 
 	"github.com/spf13/afero"
-	"github.com/yun-dev/yd/afs"
-	"github.com/yun-dev/yd/errx"
+	"github.com/shibingli/yd/afs"
+	"github.com/shibingli/yd/errx"
 )
 
 // VerifyReport groups the assets by verification outcome. | VerifyReport 按校验结果对资产分组。

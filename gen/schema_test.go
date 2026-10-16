@@ -10,7 +10,7 @@ import (
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
 
-	"github.com/yun-dev/yd/gen"
+	"github.com/shibingli/yd/gen"
 )
 
 // openSQLite 打开一个测试专用的内存库；DSN 以测试名唯一化，避免用例之间互相污染。

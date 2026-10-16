@@ -12,7 +12,7 @@ import (
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
 
-	"github.com/yun-dev/yd/gen"
+	"github.com/shibingli/yd/gen"
 )
 
 // writeMemFile writes a file into fs, creating the parent directories on the way. | writeMemFile 写入文件，并沿途创建父目录。

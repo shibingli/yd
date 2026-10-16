@@ -3,7 +3,7 @@
 // The pipeline is driven by Options and has four stages: | 流水线由 Options 驱动，共四个阶段：
 //
 //  1. an optional Tailwind CSS pass that trims and minifies the stylesheet so that it can be embedded; |  1. 可选的 Tailwind CSS 阶段，剪裁压缩样式表以便内嵌；
-//  2. version injection through `-ldflags -X github.com/yun-dev/yd/version.*`; |  2. 通过 `-ldflags -X github.com/yun-dev/yd/version.*` 注入版本信息；
+//  2. version injection through `-ldflags -X github.com/shibingli/yd/version.*`; |  2. 通过 `-ldflags -X github.com/shibingli/yd/version.*` 注入版本信息；
 //  3. CGO-free compilation (`CGO_ENABLED=0`) for every requested target; |  3. 为每个目标平台执行无 CGO 编译（`CGO_ENABLED=0`）；
 //  4. verification of every artifact: existence, size and executable magic. |  4. 校验每个产物：存在性、大小与可执行魔数。
 //
@@ -24,8 +24,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/yun-dev/yd/errx"
-	"github.com/yun-dev/yd/logx"
+	"github.com/shibingli/yd/errx"
+	"github.com/shibingli/yd/logx"
 )
 
 // Sentinel errors of the packaging pipeline. | 打包流水线的哨兵错误。
@@ -75,7 +75,7 @@ type Options struct {
 	// making builds reproducible. The yd CLI enables it by default. | TrimPath 追加
 	// -trimpath，从二进制中剔除本地文件系统路径并使构建可复现；yd 命令行默认开启。
 	TrimPath bool
-	// Version, Commit and Date are injected into github.com/yun-dev/yd/version. | Version、Commit 与 Date 会被注入 github.com/yun-dev/yd/version。
+	// Version, Commit and Date are injected into github.com/shibingli/yd/version. | Version、Commit 与 Date 会被注入 github.com/shibingli/yd/version。
 	Version string
 	// Commit is the git revision recorded at build time. | Commit 是构建时记录的 git 修订。
 	Commit string

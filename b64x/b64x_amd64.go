@@ -10,7 +10,7 @@ import (
 
 	"github.com/cristalhq/base64"
 
-	"github.com/yun-dev/yd/errx"
+	"github.com/shibingli/yd/errx"
 )
 
 // Encoding is a Base64 codec that internally delegates to the SIMD-accelerated github.com/cristalhq/base64. | Encoding 是 Base64 编解码器，内部委托给 SIMD 加速的 github.com/cristalhq/base64。

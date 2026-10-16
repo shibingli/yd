@@ -35,9 +35,9 @@ import (
 	"time"
 
 	"github.com/spf13/afero"
-	"github.com/yun-dev/yd/afs"
-	"github.com/yun-dev/yd/errx"
-	"github.com/yun-dev/yd/jsonx"
+	"github.com/shibingli/yd/afs"
+	"github.com/shibingli/yd/errx"
+	"github.com/shibingli/yd/jsonx"
 )
 
 // Package-level sentinel errors; every failure path references one of them so callers can branch with

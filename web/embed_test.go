@@ -20,9 +20,9 @@ import (
 	"time"
 
 	"github.com/spf13/afero"
-	"github.com/yun-dev/yd/afs"
-	"github.com/yun-dev/yd/jsonx"
-	"github.com/yun-dev/yd/web"
+	"github.com/shibingli/yd/afs"
+	"github.com/shibingli/yd/jsonx"
+	"github.com/shibingli/yd/web"
 )
 
 // lockFilePath is the asset manifest path inside the embedded tree. | lockFilePath 是内嵌目录树中资产清单的路径。

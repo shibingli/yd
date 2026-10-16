@@ -6,8 +6,8 @@ import (
 	"net/url"
 	"strings"
 
-	"github.com/yun-dev/yd/b64x"
-	"github.com/yun-dev/yd/errx"
+	"github.com/shibingli/yd/b64x"
+	"github.com/shibingli/yd/errx"
 )
 
 // acceptKey computes the Sec-WebSocket-Accept value as specified by RFC 6455 §4.2.2. | acceptKey 按 RFC 6455 §4.2.2 计算 Sec-WebSocket-Accept。

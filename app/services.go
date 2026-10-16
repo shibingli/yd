@@ -5,8 +5,8 @@ import (
 	"errors"
 	"io"
 
-	"github.com/yun-dev/yd/errx"
-	"github.com/yun-dev/yd/logx"
+	"github.com/shibingli/yd/errx"
+	"github.com/shibingli/yd/logx"
 )
 
 // Service keys reserved by the framework. | 框架预留的服务键。

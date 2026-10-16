@@ -3,7 +3,7 @@ package version
 
 import "runtime/debug"
 
-// 以下变量通过 -ldflags "-X github.com/yun-dev/yd/version.Version=..." 注入。
+// 以下变量通过 -ldflags "-X github.com/shibingli/yd/version.Version=..." 注入。
 var (
 	// Version 语义化版本号，例如 v1.0.0。
 	Version = "dev"

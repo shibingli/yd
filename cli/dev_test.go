@@ -14,8 +14,8 @@ import (
 
 	"github.com/spf13/afero"
 	"github.com/spf13/pflag"
-	"github.com/yun-dev/yd/config"
-	"github.com/yun-dev/yd/toolchain"
+	"github.com/shibingli/yd/config"
+	"github.com/shibingli/yd/toolchain"
 )
 
 // devOutBuffer is a concurrency-safe writer: the dev loop forwards child output into it from its own goroutine while the test reads it. | devOutBuffer 是并发安全的写入端：开发主循环在自己的 goroutine 里把子进程输出转发进来，测试则并行读取。

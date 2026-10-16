@@ -13,8 +13,8 @@ import (
 	"text/tabwriter"
 
 	"github.com/spf13/pflag"
-	"github.com/yun-dev/yd/assets"
-	"github.com/yun-dev/yd/errx"
+	"github.com/shibingli/yd/assets"
+	"github.com/shibingli/yd/errx"
 )
 
 // The assets command's flag names. | assets 命令的标志名。

@@ -8,8 +8,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/yun-dev/yd/afs"
-	"github.com/yun-dev/yd/web"
+	"github.com/shibingli/yd/afs"
+	"github.com/shibingli/yd/web"
 )
 
 // Guard tests for the component layer: the markup and the stylesheet must agree. | 组件层的守卫测试：标记与样式表必须一致。

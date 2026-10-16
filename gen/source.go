@@ -15,7 +15,7 @@ import (
 
 	"github.com/spf13/afero"
 
-	"github.com/yun-dev/yd/errx"
+	"github.com/shibingli/yd/errx"
 )
 
 // gormModelName 是 gorm.Model 的限定名；内嵌它等价于内嵌主键与两个时间戳列。

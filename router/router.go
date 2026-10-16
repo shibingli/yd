@@ -7,8 +7,8 @@ import (
 	"sync"
 
 	"github.com/spf13/afero"
-	"github.com/yun-dev/yd/afs"
-	"github.com/yun-dev/yd/errx"
+	"github.com/shibingli/yd/afs"
+	"github.com/shibingli/yd/errx"
 )
 
 // Default configuration values. | 默认配置值。

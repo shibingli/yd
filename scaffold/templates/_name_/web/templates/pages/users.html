@@ -1,0 +1,69 @@
+{{/*
+  pages/users.html —— 用户管理片段：搜索、表格与新建表单（htmx 局部刷新闭环）。
+  pages/users.html — the user management fragment: search, table and the create form (an htmx partial-refresh loop).
+
+  状态码契约（三层各自说清楚，前端不做任何命令式判断）：
+  Status-code contract (spelled out on all three layers, with no imperative front-end branch):
+    * 成功：GET/POST /users 返回本片段，htmx 以 innerMorph 换入 #yd-workspace，
+      因此表格、空状态与筛选关键字一起更新，滚动位置与未提交的输入都保留；
+    * success: GET/POST /users answer with this fragment, which htmx morphs into #yd-workspace with innerMorph, so the
+      table, the empty state and the active keyword update together while scroll and unsaved input survive;
+    * 校验失败：POST /users 返回 422 + pages/error.html 渲染的错误片段，
+      由表单上的 hx-status:422="target:#yd-errors swap:innerHTML" 声明式换入全局错误槽位，输入值原样保留；
+    * validation failure: POST /users answers 422 plus the fragment rendered from pages/error.html, swapped into the
+      global error slot declaratively by the form's hx-status:422="target:#yd-errors swap:innerHTML", with the typed
+      values kept;
+    * 其它失败：控制器以对应状态码返回同一个错误片段，语义完全一致。
+    * any other failure: the controller returns the same error fragment with the matching status code, so the semantics
+      never diverge.
+
+  数据契约 | Data contract: .Users .Total .Keyword .Empty。
+
+  新建表单用 <details> 折叠，不依赖任何脚本即可展开；提交按钮只在展开后可见，键盘与无脚本环境同样可用。
+  The create form collapses through <details> and therefore needs no script to open; its submit button only appears once
+  expanded, and keyboard-only or script-less environments work just as well.
+*/}}
+<section class="yd-page" data-yd-page="users" aria-labelledby="yd-users-title">
+  <header class="yd-page__header">
+    <div>
+      <h1 class="yd-page__title" id="yd-users-title">用户管理 | Users</h1>
+      <p class="yd-page__subtitle">
+        共 {{ .Total }} 条 | {{ .Total }} in total{{ with .Keyword }} · 关键字「{{ . }}」 | keyword "{{ . }}"{{ end }}
+      </p>
+    </div>
+    <div class="yd-page__actions">
+      <span class="yd-badge yd-badge--muted">内存仓储 | in-memory store</span>
+    </div>
+  </header>
+
+  <form class="yd-filters" role="search" method="get" action="/users"
+        hx-get="/users" hx-target="#yd-workspace" hx-swap="innerMorph" hx-push-url="true"
+        hx-trigger="input changed delay:300ms from:#yd-users-search, submit">
+    <label class="sr-only" for="yd-users-search">按名称或邮箱搜索 | Search by name or e-mail</label>
+    <input class="yd-input" id="yd-users-search" name="q" type="search" autocomplete="off"
+           value="{{ .Keyword }}" placeholder="名称或邮箱 | name or e-mail">
+    <button type="submit" class="yd-btn yd-btn--ghost">搜索 | Search</button>
+  </form>
+
+  {{/* 错误槽位不在这里：它是 layouts/base.html 上的全局 #yd-errors，位于工作区之外，
+       因此工作区被 morph 掉时已显示的错误不会随之消失，也不会出现重复 id。
+       The error slot is not here: it is the global #yd-errors of layouts/base.html, outside the workspace, so a
+       workspace morph never takes a visible error down with it and no duplicate id can appear. */}}
+
+  <section class="yd-card yd-section" id="yd-users-table" aria-labelledby="yd-users-table-title">
+    <h2 class="sr-only" id="yd-users-table-title">用户列表 | User list</h2>
+    {{ template "partials/users/list" . }}
+  </section>
+
+  <section class="yd-card yd-section">
+    <details class="yd-details" {{ if .Empty }}open{{ end }}>
+      <summary class="yd-details__summary">新建用户 | Create a user</summary>
+      {{ template "partials/users/form" . }}
+      <p class="yd-hint">
+        演练账号 | demo account: <code class="yd-code">admin@example.com</code> / <code class="yd-code">admin</code>
+        —— 口令经国密 SM2 加密后才离开浏览器，服务端只接收密文。
+        the password leaves the browser only as an SM2 ciphertext and the server receives nothing else.
+      </p>
+    </details>
+  </section>
+</section>

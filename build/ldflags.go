@@ -4,7 +4,7 @@ import "strings"
 
 // VersionPackage is the import path of the package holding the version variables
 // that -ldflags -X injects into. | VersionPackage 是承载版本变量、由 -ldflags -X 注入的包的导入路径。
-const VersionPackage = "github.com/yun-dev/yd/version"
+const VersionPackage = "github.com/shibingli/yd/version"
 
 // GenerateLDFlags returns the argv fragment appended to `go build` for version
 // injection, shaped as ["-ldflags", "<flags>"]. | GenerateLDFlags 返回追加到 `go build`

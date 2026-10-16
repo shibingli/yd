@@ -13,7 +13,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/yun-dev/yd/errx"
+	"github.com/shibingli/yd/errx"
 )
 
 // Sentinel errors of the development self-signed certificate path, all testable with errors.Is. | 开发自签证书路径的哨兵错误，均可通过 errors.Is 判定。

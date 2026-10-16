@@ -8,7 +8,7 @@ import (
 	"math/big"
 
 	"github.com/tjfoc/gmsm/sm2"
-	"github.com/yun-dev/yd/errx"
+	"github.com/shibingli/yd/errx"
 )
 
 var (

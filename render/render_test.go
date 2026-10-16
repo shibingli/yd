@@ -8,8 +8,8 @@ import (
 
 	"github.com/spf13/afero"
 
-	"github.com/yun-dev/yd/afs"
-	"github.com/yun-dev/yd/render"
+	"github.com/shibingli/yd/afs"
+	"github.com/shibingli/yd/render"
 )
 
 // writeTemplates 把若干模板文件写入内存文件系统。

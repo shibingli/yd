@@ -28,7 +28,7 @@
 //     further matching with errors.Is. | errors.Is 进一步匹配。
 package b64x
 
-import "github.com/yun-dev/yd/errx"
+import "github.com/shibingli/yd/errx"
 
 var (
 	// ErrShortBuffer indicates the destination buffer is shorter than DecodedLen(len(src)) and cannot hold the decode result. | ErrShortBuffer 表示目标缓冲区长度小于 DecodedLen(len(src))，无法容纳解码结果。

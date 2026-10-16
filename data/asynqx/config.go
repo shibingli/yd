@@ -1,6 +1,6 @@
 package asynqx
 
-import "github.com/yun-dev/yd/config"
+import "github.com/shibingli/yd/config"
 
 // OptionsFromConfig maps the asynq section of the framework config onto Options. | OptionsFromConfig 把框架配置的 asynq 段映射为 Options。
 //

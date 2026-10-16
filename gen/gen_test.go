@@ -14,8 +14,8 @@ import (
 
 	"github.com/spf13/afero"
 
-	"github.com/yun-dev/yd/afs"
-	"github.com/yun-dev/yd/gen"
+	"github.com/shibingli/yd/afs"
+	"github.com/shibingli/yd/gen"
 )
 
 // sampleModel 是生成器测试夹具：含主键、字符串、文本、数值与时间字段，并开启时间戳。
@@ -151,7 +151,7 @@ func TestGenerateProducesFormattedGoCode(t *testing.T) {
 		if !strings.Contains(svc, `"example.com/blog/internal/repository"`) {
 			t.Errorf("生成代码未使用 Options.Package 作为内部导入前缀:\n%s", svc)
 		}
-		if !strings.Contains(svc, `"github.com/yun-dev/yd/errx"`) || !strings.Contains(svc, `"github.com/yun-dev/yd/logx"`) {
+		if !strings.Contains(svc, `"github.com/shibingli/yd/errx"`) || !strings.Contains(svc, `"github.com/shibingli/yd/logx"`) {
 			t.Error("生成代码未引用框架 errx/logx 包")
 		}
 		if strings.Contains(svc, "fmt.Errorf") {

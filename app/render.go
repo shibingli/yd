@@ -10,10 +10,10 @@ import (
 
 	"github.com/spf13/afero"
 
-	"github.com/yun-dev/yd/errx"
-	"github.com/yun-dev/yd/htmx"
-	"github.com/yun-dev/yd/render"
-	"github.com/yun-dev/yd/router"
+	"github.com/shibingli/yd/errx"
+	"github.com/shibingli/yd/htmx"
+	"github.com/shibingli/yd/render"
+	"github.com/shibingli/yd/router"
 )
 
 // newRenderer builds the facade's default renderer over the asset filesystem.

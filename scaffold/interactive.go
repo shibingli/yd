@@ -6,7 +6,7 @@ import (
 	"io"
 	"strings"
 
-	"github.com/yun-dev/yd/errx"
+	"github.com/shibingli/yd/errx"
 )
 
 // 交互提示与解析用到的固定文案（逐条中英同步）。 | Fixed prompt and parsing copy for the interview (bilingual line by line).

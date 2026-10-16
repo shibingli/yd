@@ -9,8 +9,8 @@ import (
 	"testing"
 
 	"github.com/spf13/afero"
-	"github.com/yun-dev/yd/assets"
-	"github.com/yun-dev/yd/scaffold"
+	"github.com/shibingli/yd/assets"
+	"github.com/shibingli/yd/scaffold"
 )
 
 // readMemFile reads a file from the in-memory file system, failing the test when it is missing. | readMemFile 从内存文件系统读取文件，缺失时让测试失败。
@@ -60,7 +60,7 @@ func TestNewCommandGeneratesProject(t *testing.T) {
 	}
 
 	gomod := filepath.ToSlash(readMemFile(t, te.env.FS, "demo/go.mod"))
-	for _, want := range []string{"module example.com/demo", "replace github.com/yun-dev/yd => " + filepath.ToSlash(localRepo)} {
+	for _, want := range []string{"module example.com/demo", "replace github.com/shibingli/yd => " + filepath.ToSlash(localRepo)} {
 		if !strings.Contains(gomod, want) {
 			t.Errorf("go.mod 缺少 %q:\n%s", want, gomod)
 		}
@@ -244,7 +244,7 @@ func TestNewCommandResolvesWorkDirAndRelativeReplace(t *testing.T) {
 		t.Fatal("项目未落在 WorkDir 之下")
 	}
 	gomod := readMemFile(t, fs, filepath.Join("sandbox", "dev", "app", "go.mod"))
-	want := "replace github.com/yun-dev/yd => " + filepath.Join("sandbox", "dev", "..", "yd")
+	want := "replace github.com/shibingli/yd => " + filepath.Join("sandbox", "dev", "..", "yd")
 	if !strings.Contains(filepath.ToSlash(gomod), filepath.ToSlash(want)) {
 		t.Errorf("相对 --local-replace 未以 WorkDir 为基准解析:\n%s\n期望包含 %s", gomod, filepath.ToSlash(want))
 	}

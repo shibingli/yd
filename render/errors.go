@@ -1,6 +1,6 @@
 package render
 
-import "github.com/yun-dev/yd/errx"
+import "github.com/shibingli/yd/errx"
 
 // Sentinel errors for template loading. | 模板加载相关的哨兵错误。
 var (

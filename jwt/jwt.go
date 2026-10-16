@@ -38,9 +38,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/yun-dev/yd/b64x"
-	"github.com/yun-dev/yd/errx"
-	"github.com/yun-dev/yd/router"
+	"github.com/shibingli/yd/b64x"
+	"github.com/shibingli/yd/errx"
+	"github.com/shibingli/yd/router"
 )
 
 // Alg is a JWS algorithm name as it appears in the "alg" header parameter. | Alg 是出现在 "alg" 头部参数中的 JWS 算法名。

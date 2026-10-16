@@ -22,8 +22,8 @@ import (
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 
-	"github.com/yun-dev/yd/errx"
-	"github.com/yun-dev/yd/logx"
+	"github.com/shibingli/yd/errx"
+	"github.com/shibingli/yd/logx"
 )
 
 // 支持的驱动名，取值为 Options.Driver 接受的字符串。

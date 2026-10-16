@@ -12,8 +12,8 @@ import (
 	"testing"
 
 	"github.com/spf13/afero"
-	"github.com/yun-dev/yd/afs"
-	"github.com/yun-dev/yd/assets"
+	"github.com/shibingli/yd/afs"
+	"github.com/shibingli/yd/assets"
 )
 
 // countingRT counts every RoundTrip; CLI tests use it to prove that no request was issued. | countingRT 统计每次 RoundTrip，CLI 测试用它证明没有发起请求。

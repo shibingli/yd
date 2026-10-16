@@ -6,7 +6,7 @@ import (
 	"sync"
 	"sync/atomic"
 
-	"github.com/yun-dev/yd/router"
+	"github.com/shibingli/yd/router"
 )
 
 // defaultQueueSize is the default buffer length of a subscriber's event channel. | defaultQueueSize 是订阅者事件通道的默认缓冲长度。

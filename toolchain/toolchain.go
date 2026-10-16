@@ -11,7 +11,7 @@ import (
 	"runtime"
 	"sync"
 
-	"github.com/yun-dev/yd/errx"
+	"github.com/shibingli/yd/errx"
 )
 
 // Declared sentinels of the package. | 本包声明的哨兵错误。

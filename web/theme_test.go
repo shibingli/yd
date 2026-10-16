@@ -8,8 +8,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/yun-dev/yd/afs"
-	"github.com/yun-dev/yd/web"
+	"github.com/shibingli/yd/afs"
+	"github.com/shibingli/yd/web"
 )
 
 // Stylesheet paths inside the embedded tree. | 内嵌目录树中的样式文件路径。

@@ -8,7 +8,7 @@ import (
 	"testing"
 
 	"github.com/tjfoc/gmsm/sm3"
-	"github.com/yun-dev/yd/b64x"
+	"github.com/shibingli/yd/b64x"
 )
 
 // sm3EmptyHex is the standard vector for the empty message from GB/T 32905-2016. | sm3EmptyHex 是 GB/T 32905-2016 附录给出的空串示例向量。

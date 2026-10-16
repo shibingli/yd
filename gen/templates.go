@@ -6,7 +6,7 @@ import (
 	"sync"
 	"text/template"
 
-	"github.com/yun-dev/yd/errx"
+	"github.com/shibingli/yd/errx"
 )
 
 // artifactTemplates 内嵌全部生成物模板。

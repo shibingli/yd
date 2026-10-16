@@ -1,89 +1,109 @@
-// Package controller 承载 HTTP 处理器：只做编排，业务逻辑放 internal/service。
-// Package controller holds the HTTP handlers: they only orchestrate, business logic lives in internal/service.
+// 本文件是 controller 包的用户管理端点：列表与创建都以 HTML 片段应答，供 htmx 就地换入。
+// This file is the user management part of package controller: both the list and the create endpoint answer with HTML
+// fragments for htmx to swap in place.
+
 package controller
 
 import (
 	"errors"
 	"net/http"
-	"strings"
 
+	"{{ .Module }}/internal/meta"
 	"{{ .Module }}/internal/service"
+	"{{ .YdModule }}/htmx"
+	"{{ .YdModule }}/logx"
+	"{{ .YdModule }}/router"
 )
 
-// 响应文案：面向用户的内容保持中英同步，便于 htmx 片段直接回显。
-// Response copy: user-facing text stays bilingual so htmx fragments can echo it as-is.
-const (
-	// msgIndex 是首页片段文案。 | msgIndex is the home fragment copy.
-	msgIndex = "it works | 运行正常"
-	// msgHealthOK 是健康检查通过文案。 | msgHealthOK is the healthy-check copy.
-	msgHealthOK = "ok | 正常"
-	// msgUserNotFound 是用户不存在时的文案。 | msgUserNotFound is shown when the user does not exist.
-	msgUserNotFound = "user not found | 用户不存在"
-)
-
-// Home 返回首页 HTML 片段。 | Home returns the home page HTML fragment.
+// List 列出用户（GET /users），可用 q 做关键字筛选。
+// List returns the users (GET /users), optionally filtered by the q keyword.
 //
-// @Summary 首页片段 | Home fragment
-// @Description 整页请求返回布局，htmx 请求只返回内容片段。 | Full pages return the layout, htmx requests return the fragment only.
-// @Tags pages
-// @Produce html
-// @Success 200 {string} string "首页片段 | home fragment"
-// @Router / [get]
-func Home(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	writeFragment(w, `<section id="yd-workspace"><h1>`+msgIndex+`</h1></section>`)
-}
-
-// Health 返回健康检查片段，供容器探针与负载均衡使用。 | Health returns the health fragment used by container probes and load balancers.
+// 关键字无匹配时返回 200 + 空状态片段，而不是 404：片段端点的状态码一旦不是 2xx，htmx 默认就不做交换，
+// 用户会看到「点了没反应」。因此「没有匹配」在这里是内容问题，不是协议错误。
+// A keyword with no match answers 200 plus the empty-state fragment rather than 404: a fragment endpoint that does not
+// answer 2xx makes htmx skip the swap by default and the user sees "nothing happened". "No match" is therefore a content
+// concern here, not a protocol error.
 //
-// @Summary 健康检查 | Health check
-// @Description 返回纯文本 ok，不依赖任何外部组件。 | Returns the plain text ok without touching any external component.
-// @Tags ops
-// @Produce text/plain
-// @Success 200 {string} string "ok | 正常"
-// @Router /healthz [get]
-func Health(w http.ResponseWriter, _ *http.Request) {
-	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
-	writeFragment(w, msgHealthOK)
-}
-
-// ListUsers 以 HTML 片段返回用户列表。 | ListUsers returns the user list as an HTML fragment.
-//
-// @Summary 用户列表片段 | User list fragment
-// @Description 校验失败返回 422 错误片段，由 hx-status:422 声明式接管。 | Validation failures return a 422 error fragment taken over declaratively by hx-status:422.
+// @Summary List users | 用户列表
+// @Description Renders pages/users.html. A full-page request gets the layout-wrapped page, an htmx request gets only the
+// @Description fragment; a keyword without matches yields the empty-state fragment with status 200.
+// @Description 渲染 pages/users.html：整页请求返回布局包裹的页面，htmx 请求只返回片段；关键字无匹配时以 200 返回空状态片段。
 // @Tags users
+// @Accept html
 // @Produce html
-// @Success 200 {string} string "用户列表片段 | user list fragment"
-// @Failure 422 {string} string "校验失败 | validation failed"
+// @Param q query string false "case-insensitive name or e-mail filter | 名称或邮箱的模糊匹配关键字（大小写不敏感）"
+// @Param HX-Request header string false "htmx partial request | htmx 局部请求标记"
+// @Success 200 {object} string "user list page or fragment | 用户列表整页或片段"
+// @Failure 500 {object} string "internal error fragment | 内部错误片段"
 // @Router /users [get]
-func ListUsers(w http.ResponseWriter, r *http.Request) {
-	users, err := service.ListUsers(r.Context(), strings.TrimSpace(r.URL.Query().Get("q")))
-	if err != nil {
-		if errors.Is(err, service.ErrUserNotFound) {
-			w.Header().Set("Content-Type", "text/html; charset=utf-8")
-			w.WriteHeader(http.StatusNotFound)
-			writeFragment(w, `<p class="text-content-muted">`+msgUserNotFound+`</p>`)
-			return
-		}
-		http.Error(w, "internal error | 服务器内部错误", http.StatusInternalServerError)
+func (c *Controller) List(ctx *router.Ctx) {
+	keyword := ctx.Query("q")
+
+	data := map[string]any{"Keyword": keyword, "Empty": false}
+	users, err := service.List(ctx, keyword)
+	switch {
+	case errors.Is(err, service.ErrUserNotFound):
+		// 筛选没有命中：仍然是成功响应，只是内容为空状态。 | A filter with no hit is still a success response, only the content is the empty state.
+		data["Empty"] = true
+	case err != nil:
+		c.failService(ctx, err)
 		return
+	default:
+		data["Users"] = users
+		data["Total"] = len(users)
 	}
 
-	var b strings.Builder
-	b.WriteString(`<ul id="user-list" class="divide-y divide-border-subtle">`)
-	for _, u := range users {
-		b.WriteString(`<li class="py-2">` + u.Display() + `</li>`)
-	}
-	b.WriteString(`</ul>`)
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	writeFragment(w, b.String())
+	c.render(ctx, http.StatusOK, TplUsers, c.view(ctx, "用户管理 | Users", data))
 }
 
-// writeFragment 写出一个 HTML 片段（响应体不换行，便于 htmx 直接换入）。
-// writeFragment writes one HTML fragment (with no trailing newline so htmx can swap it straight in).
-func writeFragment(w http.ResponseWriter, body string) {
-	if _, err := w.Write([]byte(body)); err != nil {
-		// 客户端断开属正常现象，交由中间件统一记录。 | A client disconnect is normal and is logged by the middleware.
+// Create 创建用户（POST /users）。
+// Create creates a user (POST /users).
+//
+// 校验失败返回 422 + 错误片段，由表单上的 hx-status:422="target:#yd-errors swap:outerHTML" 声明式换入；
+// 控制器不返回任何 JSON 错误体，也不用 302 重定向。
+// A failed validation answers 422 plus the error fragment swapped in declaratively by the form's
+// hx-status:422="target:#yd-errors swap:outerHTML"; the controller returns no JSON error body and does not redirect.
+//
+// @Summary Create user | 创建用户
+// @Description Validates the submitted name and e-mail address in internal/service; on success the refreshed list
+// @Description fragment is returned together with a yd:toast event, on a validation failure the 422 error fragment is returned.
+// @Description 由 internal/service 校验提交的名称与邮箱：成功时返回刷新后的列表片段并附带 yd:toast 事件，校验失败时返回 422 错误片段。
+// @Tags users
+// @Accept form
+// @Produce html
+// @Param name formData string true "display name | 显示名"
+// @Param email formData string true "login e-mail address | 登录邮箱"
+// @Param HX-Request header string false "htmx partial request | htmx 局部请求标记"
+// @Success 200 {object} string "refreshed user list fragment | 刷新后的用户列表片段"
+// @Failure 422 {object} string "validation error fragment | 校验错误片段"
+// @Failure 500 {object} string "internal error fragment | 内部错误片段"
+// @Router /users [post]
+func (c *Controller) Create(ctx *router.Ctx) {
+	created, err := service.Create(ctx, service.CreateInput{
+		Name:  ctx.FormValue("name"),
+		Email: ctx.FormValue("email"),
+	})
+	if err != nil {
+		c.failService(ctx, err)
 		return
 	}
+
+	// 事件必须在响应头写出之前触发：htmx 通过 HX-Trigger 把它派发到页面，由页面自行决定提示与刷新。
+	// The event must fire before the response headers are written: htmx dispatches it through HX-Trigger and the page
+	// decides for itself how to toast and refresh.
+	htmx.TriggerFromCtx(ctx, htmx.Event{
+		Name: meta.ToastEvent,
+		Detail: map[string]any{
+			"level": "success",
+			"text":  "已创建用户 " + created.Display() + " | user " + created.Display() + " created",
+		},
+	})
+	c.app.Logger().Info("user created | 用户已创建",
+		logx.Int64("id", created.ID),
+		logx.Str("email", created.Email),
+	)
+
+	// 直接复用列表渲染：htmx 不需要重定向，列表就地更新，且刷新后仍保留当前筛选关键字。
+	// Reuse the list rendering: htmx needs no redirect, the list updates in place and keeps the current filter keyword.
+	c.List(ctx)
 }

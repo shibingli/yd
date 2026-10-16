@@ -8,8 +8,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/yun-dev/yd/jsonx"
-	"github.com/yun-dev/yd/router"
+	"github.com/shibingli/yd/jsonx"
+	"github.com/shibingli/yd/router"
 )
 
 // ---------------------------------------------------------------- Test scaffolding | 测试脚手架

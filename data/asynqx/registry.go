@@ -5,8 +5,8 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/yun-dev/yd/errx"
-	"github.com/yun-dev/yd/logx"
+	"github.com/shibingli/yd/errx"
+	"github.com/shibingli/yd/logx"
 )
 
 // Payload is the decoded JSON body of a task. | Payload 是任务已解码的 JSON 载荷。

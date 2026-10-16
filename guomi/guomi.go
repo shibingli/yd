@@ -11,7 +11,7 @@
 //   - Composing them here pins the ciphertext byte layout and handles empty plaintext correctly. | 如此可严格定义密文字节布局并正确处理空明文。
 //   - SM2 signing and verification follow GB/T 32918.2 through gmsm, using the default user ID "1234567812345678". | SM2 签名/验签按 GB/T 32918.2 使用 gmsm 实现，用户标识为默认值 "1234567812345678"。
 //   - SM4 modes (CBC, GCM and ECB) build on crypto/cipher over the SM4 block cipher. | SM4 的工作模式（CBC/GCM/ECB）基于标准库 crypto/cipher 组合。
-//   - Base64 encoding goes through the framework wrapper github.com/yun-dev/yd/b64x. | Base64 编解码统一走框架自封装层 github.com/yun-dev/yd/b64x。
+//   - Base64 encoding goes through the framework wrapper github.com/shibingli/yd/b64x. | Base64 编解码统一走框架自封装层 github.com/shibingli/yd/b64x。
 //
 // Standards | 标准依据：
 //
@@ -28,7 +28,7 @@
 //	sealed, err := guomi.SealGCM(key, nonce, msg, aad) // SM4-GCM sealed box | SM4-GCM 加密并认证
 package guomi
 
-import "github.com/yun-dev/yd/errx"
+import "github.com/shibingli/yd/errx"
 
 // Fixed algorithm-related lengths in bytes. | 算法相关的固定长度常量（单位：字节）。
 const (

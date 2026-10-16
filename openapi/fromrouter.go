@@ -5,7 +5,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/yun-dev/yd/router"
+	"github.com/shibingli/yd/router"
 )
 
 // FromRouter derives a document from the routes registered on r. | FromRouter 依据 r 上已注册的路由推导文档。

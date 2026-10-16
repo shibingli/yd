@@ -1,0 +1,175 @@
+// 本文件是 controller 包的首页与静态资源类端点：它们不承载业务状态，只验证路由、渲染与内容协商。
+// This file is the home and asset-like part of package controller: these endpoints carry no business state and only
+// exercise routing, rendering and content negotiation.
+
+package controller
+
+import (
+	"bytes"
+	"image"
+	"image/color"
+	"image/draw"
+	"image/png"
+	"net/http"
+
+	"{{ .Module }}/internal/meta"
+	"{{ .Module }}/internal/model"
+	"{{ .Module }}/internal/service"
+	"{{ .YdModule }}/errx"
+	"{{ .YdModule }}/guomi"
+	"{{ .YdModule }}/logx"
+	"{{ .YdModule }}/router"
+)
+
+// placeholderSize 是占位图的边长（像素）。 | placeholderSize is the placeholder's edge length in pixels.
+const placeholderSize = 96
+
+// Index 首页：整页请求返回布局包裹的页面，htmx 请求只返回内容片段。
+// Index serves the home page: a full-page request gets the layout-wrapped page while an htmx request gets only the content fragment.
+//
+// @Summary Home page | 首页
+// @Description Renders pages/home.html. Without HX-Request the fragment is wrapped in layouts/base.html, with
+// @Description HX-Request: true only the fragment is returned, which is how htmx performs a partial navigation.
+// @Description 渲染 pages/home.html：不带 HX-Request 时片段由 layouts/base.html 包裹，带 HX-Request: true 时只返回片段，
+// @Description 这正是 htmx 局部导航所依赖的语义。
+// @Tags pages
+// @Accept html
+// @Produce html
+// @Param HX-Request header string false "htmx partial request | htmx 局部请求标记"
+// @Success 200 {object} string "home page or fragment | 首页整页或片段"
+// @Failure 500 {object} string "render failure fragment | 渲染失败片段"
+// @Router / [get]
+func (c *Controller) Index(ctx *router.Ctx) {
+	c.render(ctx, http.StatusOK, TplHome, c.view(ctx, meta.Name, map[string]any{
+		"Users": homeUsers(ctx),
+	}))
+}
+
+// Health 健康检查：供容器探针与负载均衡使用，永远只回 "ok"。
+// Health is the liveness probe for containers and load balancers; it always answers "ok".
+//
+// @Summary Health probe | 健康检查
+// @Description Answers the literal text "ok" so probes never need to parse a body format.
+// @Description 固定返回文本 "ok"，探针无需解析任何响应体格式。
+// @Tags ops
+// @Accept text
+// @Produce text
+// @Success 200 {string} string "ok"
+// @Router /healthz [get]
+func (c *Controller) Health(ctx *router.Ctx) {
+	ctx.SetHeader("Cache-Control", "no-store")
+	if err := ctx.String(http.StatusOK, "ok"); err != nil {
+		c.app.Logger().Warn("health probe write failed | 健康检查写出失败", logx.Err(err))
+	}
+}
+
+// Avatar 头像占位图：验证单段混合捕获模式 /avatar/:id.jpg。
+// Avatar serves a placeholder avatar: it exercises the single-segment mixed capture pattern /avatar/:id.jpg.
+//
+// @Summary Avatar placeholder | 头像占位图
+// @Description Derives a deterministic PNG from the captured id and echoes it back in the X-YD-Avatar header, which
+// @Description makes the mixed capture pattern observable from a plain HTTP client.
+// @Description 依据捕获到的 id 生成确定性 PNG，并通过 X-YD-Avatar 响应头回显，便于用普通 HTTP 客户端观察混合捕获的结果。
+// @Tags assets
+// @Accept image
+// @Produce image
+// @Param id path string true "avatar id, captured without the .jpg suffix | 头像 ID，不含 .jpg 后缀"
+// @Success 200 {file} file "PNG placeholder | PNG 占位图"
+// @Failure 500 {object} string "encoding failure fragment | 编码失败片段"
+// @Router /avatar/{id}.jpg [get]
+func (c *Controller) Avatar(ctx *router.Ctx) {
+	id := ctx.Param("id")
+	// 回显捕获值：测试与排障不必解码图片即可确认路由把 :id 与 .jpg 正确切开。
+	// Echoing the captured value lets tests and debugging confirm the split between :id and .jpg without decoding the image.
+	ctx.SetHeader("X-YD-Avatar", id)
+	c.writePNG(ctx, "avatar:"+id)
+}
+
+// Report 报表占位图：验证「动态段 + 静态后缀」模式 /report/:id-xx.png。
+// Report serves a placeholder report: it exercises the "dynamic segment plus static suffix" pattern /report/:id-xx.png.
+//
+// @Summary Report placeholder | 报表占位图
+// @Description Captures only the leading id of /report/:id-xx.png and echoes it in the X-YD-Report header; the "-xx.png"
+// @Description part is a fixed suffix declared by the route pattern.
+// @Description 只捕获 /report/:id-xx.png 的前导 id，并通过 X-YD-Report 响应头回显；"-xx.png" 是路由模式声明的固定后缀。
+// @Tags assets
+// @Accept image
+// @Produce image
+// @Param id path string true "report id, captured before the -xx.png suffix | 报表 ID，不含 -xx.png 后缀"
+// @Success 200 {file} file "PNG placeholder | PNG 占位图"
+// @Failure 500 {object} string "encoding failure fragment | 编码失败片段"
+// @Router /report/{id}-xx.png [get]
+func (c *Controller) Report(ctx *router.Ctx) {
+	id := ctx.Param("id")
+	ctx.SetHeader("X-YD-Report", id)
+	c.writePNG(ctx, "report:"+id)
+}
+
+// writePNG 生成占位图并写出；失败时退化为错误片段，绝不以半个 PNG 结束响应。
+// writePNG renders the placeholder and writes it out; on failure it degrades to the error fragment instead of ending the response with half a PNG.
+func (c *Controller) writePNG(ctx *router.Ctx, seed string) {
+	data, err := placeholderPNG(seed)
+	if err != nil {
+		c.app.Logger().Error("placeholder encode failed | 占位图编码失败", logx.Err(err), logx.Str("seed", seed))
+		c.fail(ctx, http.StatusInternalServerError, msgInternal)
+		return
+	}
+
+	// 占位图由 seed 唯一决定，因此可以放心交给浏览器与反向代理长期缓存。
+	// The placeholder is fully determined by its seed, so browsers and reverse proxies may cache it for long.
+	ctx.SetHeader("Cache-Control", "public, max-age=300")
+	if err := ctx.Blob(http.StatusOK, "image/png", data); err != nil {
+		c.app.Logger().Warn("placeholder write failed | 占位图写出失败", logx.Err(err), logx.Str("seed", seed))
+	}
+}
+
+// placeholderPNG 由 seed 生成确定性占位图：同一 seed 永远得到同一张图。
+// placeholderPNG derives a deterministic placeholder from seed: the same seed always yields the same image.
+//
+// 绘图只使用标准库（image/png），不引入图形依赖：这里要证明的是路由捕获与响应写出，而不是绘图能力。
+// Drawing uses the standard library only (image/png) and pulls in no graphics dependency: what is proven here is route
+// capture and response writing, not drawing skill.
+func placeholderPNG(seed string) ([]byte, error) {
+	digest := guomi.Sum([]byte(seed))
+
+	// 底色取品牌蓝，再按摘要前三个字节微调：颜色与 seed 一一对应，肉眼即可区分不同 id。
+	// The base tone is the brand blue, tinted by the first three digest bytes: the colour maps one to one onto the seed,
+	// so different ids differ at a glance.
+	bg := color.RGBA{
+		R: 0x1d + digest[0]/8,
+		G: 0x4e + digest[1]/8,
+		B: 0xd8 + digest[2]/8,
+		A: 0xff,
+	}
+	// 中央方块取互补的浅色，深浅同样来自摘要。
+	// The centre square takes a complementary light tone whose depth also comes from the digest.
+	fg := color.RGBA{
+		R: 0xff - digest[3]/3,
+		G: 0xff - digest[4]/3,
+		B: 0xff - digest[5]/3,
+		A: 0xff,
+	}
+
+	img := image.NewRGBA(image.Rect(0, 0, placeholderSize, placeholderSize))
+	draw.Draw(img, img.Bounds(), &image.Uniform{C: bg}, image.Point{}, draw.Src)
+	inset := placeholderSize / 4
+	draw.Draw(img, image.Rect(inset, inset, placeholderSize-inset, placeholderSize-inset), &image.Uniform{C: fg}, image.Point{}, draw.Src)
+
+	var buf bytes.Buffer
+	if err := png.Encode(&buf, img); err != nil {
+		return nil, errx.Wrap(err, ErrPlaceholder)
+	}
+	return buf.Bytes(), nil
+}
+
+// homeUsers 取首页要显示的用户列表；这里读失败不值得让首页 500，降级为空列表并留下日志。
+// homeUsers loads the user list shown on the home page; a read failure is not worth a 500 on the home page, so it
+// degrades to an empty list and leaves a log line behind.
+func homeUsers(ctx *router.Ctx) []model.User {
+	users, err := service.List(ctx, "")
+	if err != nil {
+		logx.Default().Warn("home user list unavailable | 首页用户列表不可用", logx.Err(err))
+		return nil
+	}
+	return users
+}

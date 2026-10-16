@@ -10,7 +10,7 @@ import (
 	"github.com/alicebob/miniredis/v2"
 	"github.com/redis/go-redis/v9"
 
-	"github.com/yun-dev/yd/data/redisx"
+	"github.com/shibingli/yd/data/redisx"
 )
 
 // newMiniRedis starts an in-process Redis server for the test. | newMiniRedis 为测试启动进程内 Redis 服务。

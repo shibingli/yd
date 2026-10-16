@@ -12,7 +12,7 @@ import (
 
 	"github.com/spf13/afero"
 	"github.com/spf13/pflag"
-	"github.com/yun-dev/yd/logx"
+	"github.com/shibingli/yd/logx"
 )
 
 // probeSeq numbers the probe commands registered by the tests. | probeSeq 为测试注册的探针命令编号。

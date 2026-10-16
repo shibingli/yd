@@ -7,7 +7,7 @@ import (
 	"strings"
 
 	"github.com/spf13/afero"
-	"github.com/yun-dev/yd/errx"
+	"github.com/shibingli/yd/errx"
 )
 
 // .env errors, declared once at package level. | .env 错误，在包级声明一次。

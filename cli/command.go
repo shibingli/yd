@@ -6,7 +6,7 @@ import (
 
 	"github.com/spf13/afero"
 	"github.com/spf13/pflag"
-	"github.com/yun-dev/yd/config"
+	"github.com/shibingli/yd/config"
 )
 
 // Command describes one subcommand of the yd CLI. | Command 描述 yd CLI 的一个子命令。

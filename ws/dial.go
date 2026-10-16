@@ -11,8 +11,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/yun-dev/yd/b64x"
-	"github.com/yun-dev/yd/errx"
+	"github.com/shibingli/yd/b64x"
+	"github.com/shibingli/yd/errx"
 )
 
 // DialOptions holds the client handshake parameters. | DialOptions 是客户端握手参数。

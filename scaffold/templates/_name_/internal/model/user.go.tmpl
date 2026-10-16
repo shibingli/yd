@@ -1,10 +1,14 @@
 // Package model 定义领域模型与数据库映射结构。 | Package model defines the domain models and their database mappings.
 package model
 
-import "strconv"
+import (
+	"strconv"
+	"strings"
+	"time"
+)
 
-// User 是用户模型；接入 GORM 后可直接把标签换成 gorm 标签。
-// User is the user model; once GORM is wired in, swap the tags for gorm ones.
+// User 是用户模型；接入 GORM 后把 json 标签保留、另加 gorm 标签即可。
+// User is the user model; once GORM is wired in, keep the json tags and add gorm ones.
 type User struct {
 	// ID 是主键。 | ID is the primary key.
 	ID int64 `json:"id"`
@@ -12,10 +16,37 @@ type User struct {
 	Name string `json:"name"`
 	// Email 是登录邮箱。 | Email is the login address.
 	Email string `json:"email"`
+	// PasswordHash 是口令散列（PBKDF2-HMAC-SM3），绝不出现在 JSON 与日志里。
+	// PasswordHash is the password hash (PBKDF2-HMAC-SM3); it never reaches JSON or the logs.
+	PasswordHash string `json:"-"`
+	// Roles 是角色列表，用于权限判定。 | Roles is the role list used for authorisation.
+	Roles []string `json:"roles,omitempty"`
+	// CreatedAt 是创建时间（UTC）。 | CreatedAt is the creation time (UTC).
+	CreatedAt time.Time `json:"created_at"`
 }
 
 // Display 返回列表展示文本（片段渲染时直接拼接，务必保持纯文本）。
 // Display returns the text shown in lists (it is concatenated straight into fragments, so keep it plain text).
 func (u User) Display() string {
 	return "#" + strconv.FormatInt(u.ID, 10) + " " + u.Name
+}
+
+// Initial 返回头像占位用的首字符（大写），用于列表与导航。
+// Initial returns the first character (upper-cased) used as the avatar placeholder in lists and navigation.
+func (u User) Initial() string {
+	trimmed := strings.TrimSpace(u.Name)
+	if trimmed == "" {
+		return "?"
+	}
+	return strings.ToUpper(trimmed[:1])
+}
+
+// HasRole 报告用户是否具备指定角色（大小写不敏感）。 | HasRole reports whether the user holds a role (case-insensitively).
+func (u User) HasRole(role string) bool {
+	for _, r := range u.Roles {
+		if strings.EqualFold(r, role) {
+			return true
+		}
+	}
+	return false
 }

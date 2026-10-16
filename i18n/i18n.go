@@ -15,7 +15,7 @@ import (
 	"github.com/spf13/afero"
 	"github.com/spf13/viper"
 
-	"github.com/yun-dev/yd/errx"
+	"github.com/shibingli/yd/errx"
 )
 
 // catalogExtensions is the set of file extensions recognized as language catalogs. | catalogExtensions 是被识别为语言文件的文件扩展名集合。

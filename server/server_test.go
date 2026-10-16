@@ -12,8 +12,8 @@ import (
 
 	"github.com/quic-go/quic-go/http3"
 	"github.com/spf13/afero"
-	"github.com/yun-dev/yd/afs"
-	"github.com/yun-dev/yd/config"
+	"github.com/shibingli/yd/afs"
+	"github.com/shibingli/yd/config"
 )
 
 // protoHandler echoes the negotiated protocol version. | protoHandler 回显协商出的协议版本。

@@ -28,7 +28,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/yun-dev/yd/jsonx"
+	"github.com/shibingli/yd/jsonx"
 )
 
 // Chrome pages render the dashboard shell; standalone pages must not. | 带外壳的页面渲染管理后台骨架；独立页面不得渲染它。

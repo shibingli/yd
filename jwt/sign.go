@@ -14,9 +14,9 @@ import (
 	"math/big"
 	"sync"
 
-	"github.com/yun-dev/yd/b64x"
-	"github.com/yun-dev/yd/errx"
-	"github.com/yun-dev/yd/jsonx"
+	"github.com/shibingli/yd/b64x"
+	"github.com/shibingli/yd/errx"
+	"github.com/shibingli/yd/jsonx"
 )
 
 // This file holds the signing and verification core. | 本文件是签发与校验的核心。

@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** 实现 `github.com/yun-dev/yd` —— 一个 Go 1.27+ 全栈 Web 框架库 + `yd` 脚手架 CLI，交付从 `yd new` 到 `yd docker` 的完整生命周期能力，后端融合 Htmx 4.0 事件总线与 Tailwind v4 样式体系。
+**Goal:** 实现 `github.com/shibingli/yd` —— 一个 Go 1.27+ 全栈 Web 框架库 + `yd` 脚手架 CLI，交付从 `yd new` 到 `yd docker` 的完整生命周期能力，后端融合 Htmx 4.0 事件总线与 Tailwind v4 样式体系。
 
 **Architecture:** 单一 Go Module，同时承载「框架库」（可被脚手架生成的项目 import）+「CLI」（`cmd/yd`）+「内嵌模板与前端资产」（`go:embed`）。框架库内部自研核心原语（配置引擎、基数树路由、零拷贝日志、自适应 JSON/Base64、RFC6455 WebSocket、国密套件），外部生态（GORM / go-redis / asynq / quic-go / grpc）以独立子包适配。路由实现 `http.Handler`，因此 HTTP/1.1、H2C、HTTP/3、ACME 与 gRPC 双通道可复用同一 Handler。前端资产全部 `go:embed` 进二进制，通过带校验和的资产清单支持在线更新与完全离线运行。
 
@@ -15,7 +15,7 @@
 ## Global Constraints
 
 - **语言版本底线**：`go 1.27.2`（go.mod `go` 指令写 `1.27.2`），允许更高。
-- **模块路径**：`github.com/yun-dev/yd`；CLI 二进制名 `yd`；环境变量前缀 **`YD_`**
+- **模块路径**：`github.com/shibingli/yd`；CLI 二进制名 `yd`；环境变量前缀 **`YD_`**
   （需求基线原文写 `YUNGO_`，团队决定统一改为 `YD_`；基线文档只读不改，以本计划为准）。
 - **提交纪律**：中文 Conventional Commits + 固定署名尾行
   `Co-Authored-By: Eric Shi <shibingli@sina.com>`；
@@ -94,7 +94,7 @@ yd/
 - Test: `internal/repotest/repo_test.go`（校验治理文件存在且内容符合硬约束）
 
 **Interfaces:**
-- Produces: 模块 `github.com/yun-dev/yd`，`go 1.27.2`；后续所有包以此为根。
+- Produces: 模块 `github.com/shibingli/yd`，`go 1.27.2`；后续所有包以此为根。
 
 - [ ] **Step 1: 写失败测试** `internal/repotest/repo_test.go`
   - 断言 `LICENSE` 含 `Apache License`、`Version 2.0, January 2004`、且行数 > 180；
@@ -108,7 +108,7 @@ yd/
   - `go.mod`：module + go 1.27.2；
   - `LICENSE`：Apache License 2.0 完整原文（含 APPENDIX）；
   - `.gitignore` / `.gitattributes`：**逐字**复制 Spec §二.3 给出的两份模板（去掉"请谨慎使用此类代码。"提示行）；
-  - `CLAUDE.md`：技术栈版本表、仓库地址 `https://github.com/yun-dev/yd`、协议 Apache-2.0、归属 YunDev、代码风格（错误包装 `%w`、包内禁止 `init()` 副作用、导出符号必须有文档注释、热路径禁止反射）；
+  - `CLAUDE.md`：技术栈版本表、仓库地址 `https://github.com/shibingli/yd`、协议 Apache-2.0、归属 YunDev、代码风格（错误包装 `%w`、包内禁止 `init()` 副作用、导出符号必须有文档注释、热路径禁止反射）；
   - `AGENTS.md`：修改权限边界（不得改 `docs/需求设计说明书.md`）、Test-and-Fix 自愈流程（编译失败→修→重跑，最多 3 轮）、安全合规检查清单（国密、密钥不入库、依赖白名单）；
   - `docs/developer_guidelines.md`：前后端协同约束（端点必须返回 HTML 片段而非 JSON、`hx-*` 命名、模板目录约定、新增 htmx 扩展须登记 assets.lock.json）；
   - `Dockerfile`：多阶段 `golang:1.27-alpine` → `scratch`（见 Task 31 详细约定）。
@@ -883,7 +883,7 @@ yd/
 - Produces:
   - `type Options struct{ Dir string; Output string /* 默认 bin/<name> */; Targets []Target; LDFlags []string; Tags []string; Tailwind TailwindOptions; Embed bool; Offline bool /* 强制 -mod=vendor */; TrimPath bool /* 默认 true */; Version, Commit, Date string }`
   - `type Target struct{ GOOS, GOARCH string }`；`func ParseTargets(s string) ([]Target, error)`（`"linux/amd64,linux/arm64,windows/amd64"`）
-  - `func Build(ctx context.Context, o Options, log *logx.Logger) (*Report, error)`：步骤 ①（可选）Tailwind 剪裁压缩：`toolchain.BuildCSS(minify)` 输出 `web/static/css/yd.css`；② 版本注入 `-ldflags "-s -w -X github.com/yun-dev/yd/version.Version=…"`；③ `go build`（`CGO_ENABLED=0`、`-trimpath`）；④ 多目标时输出 `dist/<name>_<os>_<arch>[.exe]`，单目标输出 `--output`；⑤ 校验产物大小与 `file` 头（PE/ELF magic）。
+  - `func Build(ctx context.Context, o Options, log *logx.Logger) (*Report, error)`：步骤 ①（可选）Tailwind 剪裁压缩：`toolchain.BuildCSS(minify)` 输出 `web/static/css/yd.css`；② 版本注入 `-ldflags "-s -w -X github.com/shibingli/yd/version.Version=…"`；③ `go build`（`CGO_ENABLED=0`、`-trimpath`）；④ 多目标时输出 `dist/<name>_<os>_<arch>[.exe]`，单目标输出 `--output`；⑤ 校验产物大小与 `file` 头（PE/ELF magic）。
   - `version` 包：`version.Version/Commit/Date` + `version.String()`。
   - CLI `yd build`：`--os --arch --targets --output --tailwind/--no-tailwind --minify --offline --tags --ldflags`；默认当前平台；`--all` 展开为 linux/amd64,linux/arm64,darwin/arm64,windows/amd64。
 - 硬规则：产物必须**单文件无依赖**（静态链接，`CGO_ENABLED=0`），`scratch` 镜像可直接运行。

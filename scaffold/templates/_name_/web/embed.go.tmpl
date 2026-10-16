@@ -1,0 +1,161 @@
+// Package web 把本项目的前端资产（模板、样式、脚本与语言目录）内嵌进二进制，并提供给 app 门面。
+// Package web embeds this project's front-end assets (templates, styles, scripts and message catalogues) into the
+// binary and hands them to the app facade.
+//
+// 目录契约（与 .yd.json 的 assetRoot 一致）： | Directory contract (matching assetRoot in .yd.json):
+//
+//	templates/  html/template 模板树，运行时渲染（模板动作在请求期执行，生成期原样保留） | the html/template tree, rendered at runtime (its actions run per request and survive generation untouched)
+//	static/     静态资源，经 /static 提供 | static assets served under /static
+//	langs/      i18n 文案目录，每语言一个文件 | message catalogues, one file per language
+//
+// 两类资产合并策略： | How the two asset sources merge:
+//   - 项目资产（本包内嵌副本 / 开发期磁盘副本）始终优先； | project assets (this package's embedded copy, or the on-disk copy in development) always win;
+//   - 框架资产（{{ .YdModule }}/web）兜底提供 vendor 脚本、编译好的 yd.css 与国密/i18n 脚本。 | framework assets ({{ .YdModule }}/web) fill the gaps: vendored scripts, the compiled yd.css and the guomi/i18n scripts.
+//
+// 框架的 templates/ 子树刻意不参与合并：它属于框架自带示例布局，与本项目的模板树混在一起会污染模板集。
+// The framework's templates/ subtree is deliberately left out of the merge: it belongs to the framework's own sample
+// layout, and mixing it into this project's tree would pollute the template set.
+//
+// 全部资产路径都是 "/" 分隔且满足 fs.ValidPath，因此在 Windows 与 Linux 上行为一致。
+// Every asset path is "/"-separated and satisfies fs.ValidPath, so behaviour is identical on Windows and Linux.
+package web
+
+import (
+	"embed"
+	"io/fs"
+	"os"
+	"path/filepath"
+
+	"github.com/spf13/afero"
+
+	"{{ .Module }}/internal/meta"
+	"{{ .YdModule }}/afs"
+	frameworkweb "{{ .YdModule }}/web"
+)
+
+// 资产子树与开发期目录名。 | Asset subtree names and the development directory name.
+const (
+	// templatesDir 是模板子树。 | templatesDir is the template subtree.
+	templatesDir = "templates"
+	// staticDir 是静态资源子树。 | staticDir is the static asset subtree.
+	staticDir = "static"
+	// langsDir 是语言目录子树。 | langsDir is the message catalogue subtree.
+	langsDir = meta.LangsDir
+)
+
+// embedded 承载本项目的全部前端资产；all: 前缀确保下划线/点号开头的文件同样被打包。
+// embedded carries every front-end asset of this project; the all: prefix keeps dot- and underscore-prefixed files in.
+//
+//go:embed all:templates all:static all:langs
+var embedded embed.FS
+
+// Assets 返回交给 app.WithFS 的资产文件系统，templates/、static/ 与 langs/ 位于其根下。
+// Assets returns the asset filesystem handed to app.WithFS, with templates/, static/ and langs/ at its root.
+//
+// 开发期（app.env 非 production）以磁盘上的资产目录覆盖内嵌副本，模板与样式的改动无需重新编译即可生效；
+// 生产期直接使用内嵌副本，二进制可脱离源码树运行（scratch 镜像里没有 web/ 目录）。
+// In development (app.env is not production) the on-disk asset directory shadows the embedded copy, so template and
+// style edits take effect without recompiling; in production the embedded copy is used, letting the binary run
+// without its source tree (a scratch image ships no web/ directory).
+func Assets() afs.FS {
+	if !meta.IsDevelopment() {
+		return afs.NewEmbed(embedded)
+	}
+	root, ok := developmentRoot()
+	if !ok {
+		// 找不到磁盘资产：退回内嵌副本，绝不因为开发期布局差异而启动失败。 | No on-disk assets: fall back to the embedded copy instead of failing to boot.
+		return afs.NewEmbed(embedded)
+	}
+	return afero.NewCopyOnWriteFs(afs.NewEmbed(embedded), afs.NewOS(root))
+}
+
+// Static 返回 /static 的合并文件系统：本项目 static/ 覆盖框架 static/，再由开发期磁盘副本覆盖两者。
+// Static returns the merged filesystem served under /static: this project's static/ shadows the framework's, and the
+// on-disk copy shadows both during development.
+//
+// 框架子树缺失说明框架资产布局被改动，属于装配错误，调用方应拒绝启动而不是发出 404 的空页面。
+// A missing framework subtree means the framework asset layout changed: that is an assembly error, so the caller
+// should refuse to start rather than serve empty 404 pages.
+func Static() (afs.FS, error) {
+	framework, err := frameworkStatic()
+	if err != nil {
+		return nil, err
+	}
+
+	project, err := sub(embedded, staticDir)
+	if err != nil {
+		return nil, err
+	}
+	merged := afero.NewCopyOnWriteFs(framework, project)
+
+	if !meta.IsDevelopment() {
+		return merged, nil
+	}
+	root, ok := developmentRoot()
+	if !ok {
+		return merged, nil
+	}
+	return afero.NewCopyOnWriteFs(merged, afs.NewOS(filepath.Join(root, staticDir))), nil
+}
+
+// Langs 返回语言目录子树，供 i18n.New 直接以该子树的根为目录根加载文案。
+// Langs returns the message catalogue subtree, which i18n.New loads with the subtree root as its catalogue root.
+//
+// 文案只在启动期读取一次，因此这里始终使用内嵌副本，不受开发期覆盖影响。
+// Catalogues are read once at startup, so this always uses the embedded copy and ignores the development overlay.
+func Langs() afs.FS {
+	sub, err := sub(embedded, langsDir)
+	if err != nil {
+		// 语言目录缺失时降级为空树：i18n.New 会据此报告 ErrNoCatalogs，由调用方决定如何处置。
+		// A missing catalogue tree degrades to an empty tree: i18n.New then reports ErrNoCatalogs and the caller decides.
+		return afs.NewMem()
+	}
+	return sub
+}
+
+// frameworkStatic 返回框架 static/ 子树（vendor 脚本、yd.css 与国密/i18n 脚本的来源）。
+// frameworkStatic returns the framework's static/ subtree (the source of the vendored scripts, yd.css and the guomi/i18n scripts).
+func frameworkStatic() (afs.FS, error) {
+	from, ok := frameworkweb.FS().(afero.FromIOFS)
+	if !ok {
+		// 框架资产不再是 io/fs 后端：返回内存空树，由调用方决定是否继续。（框架当前实现必然是 io/fs 后端。）
+		// The framework assets are no longer an io/fs backend: return an empty in-memory tree and let the caller decide.
+		return afs.NewMem(), nil
+	}
+	sub, err := fs.Sub(from.FS, staticDir)
+	if err != nil {
+		return nil, err
+	}
+	return afs.NewEmbed(sub), nil
+}
+
+// sub 在 io/fs 语义的内嵌资产上定位子树；内嵌后端要求 "/" 路径，因此这里用 fs.Sub 而非 afero 的 BasePathFs。
+// sub locates a subtree inside the io/fs-backed embedded assets; because that backend requires "/" paths this uses
+// fs.Sub rather than afero's BasePathFs (which joins with the OS separator and breaks fs.ValidPath on Windows).
+func sub(parent fs.FS, dir string) (afs.FS, error) {
+	sub, err := fs.Sub(parent, dir)
+	if err != nil {
+		return nil, err
+	}
+	return afs.NewEmbed(sub), nil
+}
+
+// developmentRoot 定位开发期的资产根目录（默认 {{ .AssetRoot }}）。
+// developmentRoot locates the development asset root ({{ .AssetRoot }} by default).
+//
+// 候选顺序：当前工作目录下的资产根、可执行文件所在目录下的资产根；两者都不存在时返回 false。
+// Candidates in order: the asset root under the current working directory, then under the executable's directory;
+// false means neither exists.
+func developmentRoot() (string, bool) {
+	candidates := make([]string, 0, 2)
+	candidates = append(candidates, meta.AssetRoot)
+	if exe, err := os.Executable(); err == nil {
+		candidates = append(candidates, filepath.Join(filepath.Dir(exe), meta.AssetRoot))
+	}
+	for _, dir := range candidates {
+		if info, err := os.Stat(dir); err == nil && info.IsDir() {
+			return dir, true
+		}
+	}
+	return "", false
+}

@@ -1,0 +1,112 @@
+// 本文件是 controller 包的登录端点：服务端只接收国密密文，明文口令永不进入请求体。
+// This file is the login part of package controller: the server only ever accepts a national-cryptography ciphertext,
+// and a plain-text password never enters a request body.
+
+package controller
+
+import (
+	"net/http"
+	"strings"
+
+	"{{ .Module }}/internal/meta"
+	"{{ .Module }}/internal/service"
+	"{{ .YdModule }}/htmx"
+	"{{ .YdModule }}/logx"
+	"{{ .YdModule }}/router"
+)
+
+// encryptedMarker 是 X-YD-Encrypted 请求头的约定取值，由 web/static/js/yd-guomi-htmx.js 写入。
+// encryptedMarker is the agreed value of the X-YD-Encrypted request header, written by web/static/js/yd-guomi-htmx.js.
+const encryptedMarker = "sm2"
+
+// Pubkey 输出 SM2 公钥（十六进制文本），供前端加密表单按需预取。
+// Pubkey returns the SM2 public key as hexadecimal text, prefetched on demand by the encrypting front-end form.
+//
+// 公钥每次进程启动时重新生成，因此响应必须禁缓存，否则浏览器会拿旧公钥加密、服务端解不开。
+// The key pair is regenerated on every process start, so the response must forbid caching: otherwise a browser encrypts
+// with a stale key and the server cannot decrypt it.
+//
+// @Summary SM2 public key | SM2 公钥
+// @Description Returns the process-local SM2 public key as lowercase hexadecimal text, which the front-end encryptor
+// @Description fetches through data-yd-pubkey and caches for the lifetime of the page.
+// @Description 以十六进制文本返回进程内 SM2 公钥；前端加密器通过 data-yd-pubkey 预取，并在页面存活期间缓存。
+// @Tags auth
+// @Accept text
+// @Produce text
+// @Success 200 {string} string "hex encoded SM2 public key | 十六进制 SM2 公钥"
+// @Failure 503 {object} string "key pair unavailable | 密钥对不可用"
+// @Router /guomi/pubkey [get]
+func (c *Controller) Pubkey(ctx *router.Ctx) {
+	key := c.publicKey()
+	ctx.SetHeader("Cache-Control", "no-store")
+	if key == "" {
+		c.fail(ctx, http.StatusServiceUnavailable, msgInternal)
+		return
+	}
+	if err := ctx.String(http.StatusOK, key); err != nil {
+		c.app.Logger().Warn("public key write failed | 公钥写出失败", logx.Err(err))
+	}
+}
+
+// Login 校验登录（POST /login）。
+// Login verifies the credentials (POST /login).
+//
+// 链路：读取 X-YD-Encrypted 头确认 sm2 标记 → Base64 解码 → SM2 解密 → 与口令散列常量时间比对。
+// 任何一步失败都以 400/401 + 错误片段结束，绝不回落到明文比较。
+// The chain is: read the X-YD-Encrypted header for the sm2 marker, Base64 decode, SM2 decrypt, then compare against the
+// password hash in constant time. A failure at any step ends with 400/401 plus the error fragment and never falls back
+// to a plain-text comparison.
+//
+// @Summary Sign in | 登录
+// @Description Reads the SM2 ciphertext from the password field (X-YD-Encrypted: sm2), decrypts it in
+// @Description internal/service and compares it against the PBKDF2-HMAC-SM3 password hash; on success the home fragment is
+// @Description returned together with a yd:toast event, otherwise the 400/401 error fragment is returned.
+// @Description 从 password 字段读取 SM2 密文（请求头 X-YD-Encrypted: sm2），在 internal/service 中解密并与
+// @Description PBKDF2-HMAC-SM3 口令散列比对：成功返回首页片段并附带 yd:toast 事件，失败返回 400/401 错误片段。
+// @Tags auth
+// @Accept form
+// @Produce html
+// @Param X-YD-Encrypted header string true "must be sm2 | 必须为 sm2"
+// @Param email formData string true "login e-mail address | 登录邮箱"
+// @Param password formData string true "Base64 SM2 ciphertext of the password | 口令的 Base64 SM2 密文"
+// @Param HX-Request header string false "htmx partial request | htmx 局部请求标记"
+// @Success 200 {object} string "signed-in home fragment | 登录后的首页片段"
+// @Failure 400 {object} string "encrypted payload missing or undecryptable | 缺少密文或密文无法解密"
+// @Failure 401 {object} string "invalid credentials | 凭据无效"
+// @Router /login [post]
+func (c *Controller) Login(ctx *router.Ctx) {
+	if c.auth == nil {
+		// 密钥对未装配：明确拒绝，而不是以 nil 指针崩溃或放行。 | Without a key pair: refuse clearly instead of panicking on a nil pointer or letting the request through.
+		c.failService(ctx, service.ErrAuthKey)
+		return
+	}
+
+	encrypted := strings.EqualFold(strings.TrimSpace(ctx.Header("X-YD-Encrypted")), encryptedMarker)
+	user, err := c.auth.Login(ctx, ctx.FormValue("email"), ctx.FormValue("password"), encrypted)
+	if err != nil {
+		c.failService(ctx, err)
+		return
+	}
+
+	// 审计日志只记录账号标识，不记录口令、密文或密钥。 | The audit log records the account identifier only — never the password, the ciphertext or any key.
+	c.app.Logger().Info("login succeeded | 登录成功",
+		logx.Int64("id", user.ID),
+		logx.Str("email", user.Email),
+	)
+
+	htmx.TriggerFromCtx(ctx, htmx.Event{
+		Name: meta.ToastEvent,
+		Detail: map[string]any{
+			"level": "success",
+			"text":  "欢迎回来，" + user.Display() + " | welcome back, " + user.Display(),
+		},
+	})
+
+	// 会话（cookie / 服务端 session）不在本骨架范围内：接入后在此签发凭据并写入 Set-Cookie。
+	// Sessions (a cookie or a server-side store) are out of scope for this skeleton: once added, issue the credential and
+	// write Set-Cookie right here.
+	c.render(ctx, http.StatusOK, TplHome, c.view(ctx, meta.Name, map[string]any{
+		"SignedIn": user.Display(),
+		"Users":    homeUsers(ctx),
+	}))
+}

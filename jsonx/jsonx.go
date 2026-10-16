@@ -41,7 +41,7 @@
 package jsonx
 
 import (
-	"github.com/yun-dev/yd/errx"
+	"github.com/shibingli/yd/errx"
 )
 
 var (

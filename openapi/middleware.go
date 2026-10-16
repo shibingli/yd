@@ -3,7 +3,7 @@ package openapi
 import (
 	"net/http"
 
-	"github.com/yun-dev/yd/router"
+	"github.com/shibingli/yd/router"
 )
 
 // Handler returns the router handler serving the JSON document and the built-in

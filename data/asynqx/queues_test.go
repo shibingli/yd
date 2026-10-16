@@ -9,7 +9,7 @@ import (
 
 	"github.com/hibiken/asynq"
 
-	"github.com/yun-dev/yd/data/asynqx"
+	"github.com/shibingli/yd/data/asynqx"
 )
 
 // TestQueueWeightsParsedFromString asserts the comma-separated queue grammar and its rejections. | TestQueueWeightsParsedFromString 断言逗号分隔的队列语法与各类非法输入。

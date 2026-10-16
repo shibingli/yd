@@ -6,8 +6,8 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/yun-dev/yd/config"
-	"github.com/yun-dev/yd/logx"
+	"github.com/shibingli/yd/config"
+	"github.com/shibingli/yd/logx"
 )
 
 // TLSConfig holds the certificate source for HTTPS. | TLSConfig 描述 HTTPS 的证书来源。

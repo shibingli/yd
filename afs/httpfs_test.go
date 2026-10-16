@@ -9,7 +9,7 @@ import (
 	"testing/fstest"
 
 	"github.com/spf13/afero"
-	"github.com/yun-dev/yd/afs"
+	"github.com/shibingli/yd/afs"
 )
 
 // serve 用 http.FileServer 走一遍真实请求路径。

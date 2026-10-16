@@ -1,6 +1,6 @@
 package gormx
 
-import "github.com/yun-dev/yd/config"
+import "github.com/shibingli/yd/config"
 
 // OptionsFromConfig 从配置的 db 段映射出 Options。
 //

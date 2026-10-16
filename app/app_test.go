@@ -18,12 +18,12 @@ import (
 
 	"github.com/spf13/afero"
 
-	"github.com/yun-dev/yd/afs"
-	"github.com/yun-dev/yd/config"
-	"github.com/yun-dev/yd/logx"
-	"github.com/yun-dev/yd/render"
-	"github.com/yun-dev/yd/router"
-	"github.com/yun-dev/yd/server"
+	"github.com/shibingli/yd/afs"
+	"github.com/shibingli/yd/config"
+	"github.com/shibingli/yd/logx"
+	"github.com/shibingli/yd/render"
+	"github.com/shibingli/yd/router"
+	"github.com/shibingli/yd/server"
 )
 
 // TestMain silences the global logger so that the middleware chain wired by

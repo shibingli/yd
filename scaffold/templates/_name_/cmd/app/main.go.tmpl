@@ -1,98 +1,162 @@
-// Command app 是 {{ .Name }} 的可执行入口：启动 HTTP 服务并优雅退出。 | Command app is the executable entry point of {{ .Name }}: it starts the HTTP server and shuts it down gracefully.
+// Command app 是 {{ .Name }} 的可执行入口：装配框架门面、注册路由并优雅退出。 | Command app is the executable entry point of {{ .Name }}: it assembles the framework facade, registers the routes and exits gracefully.
 //
-// 本入口刻意只用标准库 HTTP 服务器，框架侧仅取 logx 与 errx：
-// 骨架因此不依赖任何框架子系统即可编译运行，便于先跑通再逐步接入。
-// This entry point deliberately uses the standard library HTTP server and takes only logx and errx from the framework:
-// the skeleton therefore compiles and runs without any framework subsystem, so it can be extended step by step.
+// 装配顺序：日志 → 退出信号 → 资产/配置门面 → 中间件 → 静态挂载 → 路由。
+// Assembly order: logger → shutdown signal → assets/configuration facade → middleware → static mount → routes.
 //
-// 需要 Htmx/Tailwind/中间件全量装配时，改用框架的 app 门面：
-//   a, err := app.Default(); if err != nil { ... }; router.Mount(a); err = a.Run(ctx)
-// 并把 internal/router 与 internal/controller 的处理器签名换成框架 router 的 router.HandlerFunc / router.Ctx。
-// For the full Htmx/Tailwind/middleware assembly, switch to the framework's app facade:
-//   a, err := app.Default(); if err != nil { ... }; router.Mount(a); err = a.Run(ctx)
-// and move the handler signatures in internal/router and internal/controller onto router.HandlerFunc / router.Ctx.
+// 这里使用 app.New 而不是 app.Default：Default 固定使用框架内嵌资产，既不接受 app.WithFS，
+// 也无法把本项目的 web/templates 与 web/static 交给渲染器与 /static 处理器。
+// This entry point uses app.New rather than app.Default: Default pins the framework's embedded assets, accepts no
+// app.WithFS and therefore cannot feed this project's web/templates and web/static to the renderer or the /static
+// handler. assemble 复刻了 Default 的全部约定（同一组中间件、同一个 /static 前缀、同一份 i18n 装配），
+// 只把资产源换成本项目的 web 包。
+// assemble replicates every Default convention (the same middleware chain, the same /static prefix, the same i18n
+// wiring) and swaps only the asset source for this project's web package.
+// 若某个项目不需要自带资产，入口可以退回一行 a, err := app.Default()。
+// A project that needs no assets of its own can fall back to the single line a, err := app.Default().
 package main
 
 import (
 	"context"
-	"errors"
-	"net/http"
 	"os"
 	"os/signal"
+{{- if .I18n }}
+	"strings"
+{{- end }}
 	"syscall"
-	"time"
 
+	"{{ .Module }}/internal/meta"
 	"{{ .Module }}/internal/middleware"
 	"{{ .Module }}/internal/router"
-	"github.com/yun-dev/yd/errx"
-	"github.com/yun-dev/yd/logx"
+	"{{ .Module }}/web"
+	"{{ .YdModule }}/app"
+	"{{ .YdModule }}/errx"
+{{- if .I18n }}
+	"{{ .YdModule }}/i18n"
+{{- end }}
+	"{{ .YdModule }}/logx"
+	ydmw "{{ .YdModule }}/middleware"
 )
 
-// 服务端超时参数：避免慢连接耗尽连接表。 | Server timeouts: they keep slow connections from exhausting the connection table.
-const (
-	// readHeaderTimeout 限制请求头读取时间。 | readHeaderTimeout caps how long reading request headers may take.
-	readHeaderTimeout = 5 * time.Second
-	// writeTimeout 限制单次响应写入时间。 | writeTimeout caps how long writing one response may take.
-	writeTimeout = 30 * time.Second
-	// shutdownTimeout 限制优雅退出的等待时间。 | shutdownTimeout caps how long a graceful shutdown waits.
-	shutdownTimeout = 10 * time.Second
-	// defaultPort 是未配置 YD_SERVER_PORT 时的监听端口。 | defaultPort is used when YD_SERVER_PORT is unset.
-	defaultPort = "8080"
+// 启动期哨兵错误：装配链上任一步失败都以它们为根因，日志与退出码据此统一处理。
+// Startup sentinels: any failing step of the assembly chain roots in one of them, so logs and the exit code stay uniform.
+var (
+	// ErrAssemble 表示应用门面装配失败（资产、配置或渲染器任一步出错）。 | ErrAssemble reports a facade assembly failure (assets, configuration or renderer).
+	ErrAssemble = errx.New("application assembly failed | 应用装配失败")
+	// ErrStatic 表示静态资产文件系统不可用。 | ErrStatic reports an unusable static asset filesystem.
+	ErrStatic = errx.New("static assets unavailable | 静态资产不可用")
+{{- if .I18n }}
+	// ErrI18n 表示语言目录加载失败。 | ErrI18n reports a failed message catalogue load.
+	ErrI18n = errx.New("message catalogues unavailable | 语言目录不可用")
+{{- end }}
 )
 
-// ErrListen 表示 HTTP 服务异常终止（非正常关闭）。 | ErrListen reports an HTTP server that died abnormally (not a graceful close).
-var ErrListen = errx.New("http server terminated unexpectedly | HTTP 服务器异常终止")
-
-// main 构造日志、路由与 HTTP 服务，等待退出信号后优雅关闭。
-// main wires the logger, the router and the HTTP server, then waits for a shutdown signal.
-//
-// http.ListenAndServe 的极简形态等价于 srv.ListenAndServe()，这里保留超时配置以免裸用默认值。
-// The plain http.ListenAndServe shortcut is equivalent to srv.ListenAndServe(); the timeouts are configured here on purpose.
+// main 是进程入口：构造日志与退出上下文，装配成功后阻塞运行，直到收到退出信号。
+// main is the process entry point: it builds the logger and the shutdown context, then blocks in Run until a signal arrives.
 func main() {
-	log := logx.New(logx.Options{Service: "{{ .Name }}", Caller: true})
+	// 日志先于一切装配：任何一步失败都必须留下可检索的记录，且日志器本身不会失败。
+	// The logger comes first: a failure anywhere downstream must leave a searchable record, and the logger itself cannot fail.
+	log := logx.New(logx.Options{Service: meta.Name, Caller: true})
+	logx.SetDefault(log)
 
+	// 退出信号经 context 传递：SIGINT/SIGTERM 触发优雅退出，在途请求被等待收尾。
+	// Shutdown signals travel through the context: SIGINT/SIGTERM triggers a graceful exit that drains in-flight requests.
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	mux := http.NewServeMux()
-	router.Mount(mux)
-
-	srv := &http.Server{
-		Addr:              ":" + port(),
-		Handler:           middleware.Recover(log)(mux),
-		ReadHeaderTimeout: readHeaderTimeout,
-		WriteTimeout:      writeTimeout,
+	application, err := assemble(log)
+	if err != nil {
+		log.Error("application assembly failed | 应用装配失败", logx.Err(err))
+		os.Exit(1)
 	}
 
-	go func() {
-		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
-			log.Error("http server aborted | HTTP 服务器异常终止", logx.Err(errx.Wrap(err, ErrListen)))
-			stop()
-		}
-	}()
-
-	log.Info("server started | 服务器已启动",
-		logx.Str("addr", srv.Addr),
-		logx.Strs("features", router.Features),
+	log.Info("application assembled | 应用已装配",
+		logx.Str("name", meta.Name),
+		logx.Str("module", meta.Module),
+		logx.Str("version", meta.Version),
+		logx.Str("env", meta.Env()),
+		logx.Strs("features", meta.Features),
 	)
 
-	<-ctx.Done()
-	log.Info("shutdown started | 开始优雅退出")
-
-	shutdownCtx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
-	defer cancel()
-	if err := srv.Shutdown(shutdownCtx); err != nil {
-		log.Error("shutdown failed | 优雅退出失败", logx.Err(err))
-		return
+	if err := application.Run(ctx); err != nil {
+		log.Error("application stopped with an error | 应用异常退出", logx.Err(err))
+		os.Exit(1)
 	}
-	log.Info("server stopped | 服务器已停止")
+	log.Info("application stopped | 应用已停止")
 }
 
-// port 返回 YD_SERVER_PORT 指定的端口，未配置时回退到默认端口。
-// port returns the port from YD_SERVER_PORT, falling back to the default one.
-func port() string {
-	if p := os.Getenv("YD_SERVER_PORT"); p != "" {
-		return p
+// assemble 装配应用门面：资产 → 配置 → 中间件 → 静态挂载 → i18n → 路由。
+// assemble wires the facade: assets → configuration → middleware → static mount → i18n → routes.
+//
+// 返回的错误一律可 errors.Is 判定到包级哨兵，调用方无须解析文案。
+// Every returned error satisfies errors.Is against a package-level sentinel, so callers never parse messages.
+func assemble(log *logx.Logger) (*app.App, error) {
+	static, err := web.Static()
+	if err != nil {
+		return nil, errx.WrapDetail(err, ErrStatic, "root=%s", meta.AssetRoot)
 	}
-	return defaultPort
+
+	application, err := app.New(
+		app.WithFS(web.Assets()),
+		app.WithLogger(log),
+		app.WithConfigDir(meta.ConfigDir),
+	)
+	if err != nil {
+		return nil, errx.Wrap(err, ErrAssemble)
+	}
+
+	// 中间件顺序与 app.Default 保持一致（恢复 → 请求 ID → 访问日志 → 压缩 → CORS），
+	// 其后追加本项目的补充中间件：顺序即执行顺序，安全头必须在最外层之外尽早生效。
+	// The middleware order matches app.Default (recover → request id → access log → compress → CORS) with this
+	// project's extras appended: the order is the execution order, and security headers should land as early as possible.
+	application.Use(
+		ydmw.Recover(log),
+		ydmw.RequestID(""),
+		ydmw.AccessLog(log),
+		ydmw.Compress(ydmw.CompressOptions{}),
+		ydmw.CORS(ydmw.CORSOptions{}),
+		middleware.Security(),
+	)
+
+	// 静态资源前缀与框架默认值一致；web.Static 已合并框架 vendor 脚本与本项目样式。
+	// The static prefix matches the framework default; web.Static has already merged the framework's vendored scripts with this project's styles.
+	application.Router().StaticFS("/static", static)
+{{- if .I18n }}
+
+	if err := registerI18n(application, log); err != nil {
+		return nil, err
+	}
+{{- end }}
+
+	if err := router.Register(application); err != nil {
+		return nil, err
+	}
+	return application, nil
 }
+{{- if .I18n }}
+
+// registerI18n 从资产树加载语言目录并挂上语言解析中间件。 | registerI18n loads the catalogues from the asset tree and mounts the locale middleware.
+//
+// 与 app.Default 的差别仅有目录来源：这里读取本项目的 web/langs，而不是框架内嵌文案。
+// The only difference from app.Default is the catalogue source: this reads the project's web/langs instead of the framework's embedded messages.
+// 默认语言优先取配置项 i18n.default_lang，缺失时回退到 internal/meta 的常量，保证两条路径给出同一个值。
+// The default language prefers the i18n.default_lang configuration key and falls back to the internal/meta constant, so both paths agree.
+func registerI18n(application *app.App, log *logx.Logger) error {
+	defaultLang := strings.TrimSpace(application.Config().GetString("i18n.default_lang"))
+	if defaultLang == "" {
+		defaultLang = meta.DefaultLang
+	}
+
+	bundle, err := i18n.New(web.Langs(), ".", defaultLang)
+	if err != nil {
+		return errx.WrapDetail(err, ErrI18n, "default_lang=%s", defaultLang)
+	}
+
+	application.Set(app.ServiceI18n, bundle)
+	application.Use(i18n.Middleware(bundle, i18n.Options{}))
+	log.Info("i18n catalogues loaded | 语言目录已加载",
+		logx.Str("default", bundle.DefaultLang()),
+		logx.Strs("langs", bundle.Langs()),
+	)
+	return nil
+}
+{{- end }}

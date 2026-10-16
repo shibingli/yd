@@ -1,0 +1,116 @@
+// 本文件是 service 包的鉴权部分：SM2 解密 + 口令散列比对，全程不落地明文。
+// This file is the authentication part of package service: SM2 decryption plus password hash comparison, with the plaintext never landing anywhere.
+
+package service
+
+import (
+	"context"
+	"strings"
+
+	"{{ .Module }}/internal/model"
+	"{{ .Module }}/internal/repository"
+	"{{ .YdModule }}/b64x"
+	"{{ .YdModule }}/errx"
+	"{{ .YdModule }}/guomi"
+)
+
+// 鉴权哨兵错误：调用方按它们决定 400/401，从来不解析文案。
+// Authentication sentinels: callers map them onto 400/401 and never parse the messages.
+var (
+	// ErrAuthKey 表示 SM2 密钥对生成失败。 | ErrAuthKey reports a failed SM2 key pair generation.
+	ErrAuthKey = errx.New("auth: failed to generate the SM2 key pair | auth：SM2 密钥对生成失败")
+	// ErrEmailRequired 表示登录请求缺少邮箱。 | ErrEmailRequired reports a login request without an e-mail address.
+	ErrEmailRequired = errx.New("e-mail address is required | 邮箱不能为空")
+	// ErrCipherMissing 表示请求没有携带加密载荷或缺失 sm2 标记。 | ErrCipherMissing reports a missing encrypted payload or the absence of the sm2 marker.
+	ErrCipherMissing = errx.New("encrypted payload missing | 缺少加密载荷")
+	// ErrCipherInvalid 表示密文无法解码或解密。 | ErrCipherInvalid reports a ciphertext that cannot be decoded or decrypted.
+	ErrCipherInvalid = errx.New("invalid ciphertext | 密文无法解密")
+	// ErrCredentials 表示邮箱与口令不匹配（不区分账号不存在与口令错误，避免账号枚举）。
+	// ErrCredentials reports a credential mismatch (the missing-account and wrong-password cases are merged to prevent enumeration).
+	ErrCredentials = errx.New("invalid credentials | 凭据无效")
+)
+
+// Auth 持有进程内的 SM2 私钥，并对外暴露对应公钥。
+// Auth holds the in-process SM2 private key and publishes the matching public key.
+//
+// 私钥随进程启动生成，因此重启后前端需要重新取一次公钥（yd-guomi-htmx.js 会按 URL 缓存并自动重取）。
+// The private key is generated at process start, so clients refetch the public key after a restart
+// (yd-guomi-htmx.js caches it per URL and refetches automatically).
+// 生产环境应改由密钥管理服务注入私钥，本骨架刻意不落盘密钥。
+// Production should inject the private key from a key management service; this skeleton deliberately persists no key.
+type Auth struct {
+	// priv 是进程内 SM2 私钥。 | priv is the in-process SM2 private key.
+	priv *guomi.PrivateKey
+}
+
+// NewAuth 生成进程内 SM2 密钥对。 | NewAuth generates the in-process SM2 key pair.
+func NewAuth() (*Auth, error) {
+	priv, err := guomi.GenerateKey()
+	if err != nil {
+		return nil, errx.Wrap(err, ErrAuthKey)
+	}
+	return &Auth{priv: priv}, nil
+}
+
+// PublicKeyHex 返回公钥的十六进制表示，供 /guomi/pubkey 端点与前端加密使用。
+// PublicKeyHex returns the hexadecimal public key used by the /guomi/pubkey endpoint and the front-end encryption.
+func (a *Auth) PublicKeyHex() string {
+	if a == nil || a.priv == nil {
+		return ""
+	}
+	return a.priv.Public().Hex()
+}
+
+// Login 校验登录凭据：先按 Base64 解码再按 SM2 解密，最后与口令散列比对。
+// Login verifies the credentials: Base64 decoding, then SM2 decryption, then the password hash comparison.
+//
+// encrypted 来自请求头 X-YD-Encrypted 是否为 sm2：未标记的请求一律拒绝，避免明文口令进入服务端。
+// encrypted reflects whether the X-YD-Encrypted request header says sm2: unmarked requests are always rejected so a
+// plain-text password never reaches the server.
+func (a *Auth) Login(ctx context.Context, email, ciphertext string, encrypted bool) (model.User, error) {
+	trimmedEmail := strings.TrimSpace(email)
+	if trimmedEmail == "" {
+		return model.User{}, ErrEmailRequired
+	}
+	if !encrypted || strings.TrimSpace(ciphertext) == "" {
+		return model.User{}, ErrCipherMissing
+	}
+	if a == nil || a.priv == nil {
+		return model.User{}, ErrAuthKey
+	}
+
+	// 前端（web/static/js/yd-guomi-htmx.js）以标准 Base64 承载 SM2 密文。
+	// The front end (web/static/js/yd-guomi-htmx.js) carries the SM2 ciphertext in standard Base64.
+	raw, err := b64x.StdEncoding.DecodeString(strings.TrimSpace(ciphertext))
+	if err != nil {
+		return model.User{}, errx.WrapDetail(err, ErrCipherInvalid, "ciphertext_len=%d", len(ciphertext))
+	}
+
+	plain, err := guomi.DecryptRaw(a.priv, raw)
+	if err != nil {
+		return model.User{}, errx.WrapDetail(err, ErrCipherInvalid, "ciphertext_len=%d", len(raw))
+	}
+	defer zero(plain)
+
+	user, ok := repository.FindByEmail(ctx, trimmedEmail)
+	if !ok {
+		return model.User{}, ErrCredentials
+	}
+
+	matched, err := guomi.VerifyPassword(user.PasswordHash, string(plain))
+	if err != nil {
+		return model.User{}, errx.Wrap(err, ErrCredentials)
+	}
+	if !matched {
+		return model.User{}, ErrCredentials
+	}
+	return user, nil
+}
+
+// zero 就地清零敏感字节切片，缩小明文在内存中的存活窗口。
+// zero wipes a sensitive byte slice in place, shrinking the window in which the plaintext stays in memory.
+func zero(b []byte) {
+	for i := range b {
+		b[i] = 0
+	}
+}

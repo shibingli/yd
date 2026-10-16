@@ -1,0 +1,159 @@
+// Package controller 承载 HTTP 处理器：只做编排与数据组装，业务规则一律放 internal/service。
+// Package controller holds the HTTP handlers: they only orchestrate and assemble data, and every business rule lives in internal/service.
+//
+// 三条硬性约定： | Three hard rules:
+//   - 每个处理器上方的注释块都是完整的 OpenAPI 3.0 注解（见 docs/developer_guidelines.md §9.2），yd build 据此生成文档； | every handler carries a complete OpenAPI 3.0 annotation block above it (see docs/developer_guidelines.md §9.2), which yd build turns into the document;
+//   - 端点返回 HTML 片段而不是 JSON（/events、/ws 是流式端点，/guomi/pubkey 是纯文本公钥）； | endpoints answer with HTML fragments rather than JSON (/events and /ws are streaming, /guomi/pubkey returns the public key as plain text);
+//   - 状态码由业务哨兵映射而来（errors.Is），绝不解析错误文案。 | status codes are derived from the business sentinels via errors.Is and never from parsing error messages.
+package controller
+
+import (
+	"errors"
+	"net/http"
+
+	"{{ .Module }}/internal/meta"
+	"{{ .Module }}/internal/service"
+	"{{ .YdModule }}/app"
+	"{{ .YdModule }}/errx"
+	"{{ .YdModule }}/logx"
+	"{{ .YdModule }}/router"
+)
+
+// 模板名：与 web/templates 下的路径一一对应，渲染引擎按该名称查找。
+// Template names: they match the paths under web/templates one to one, which is how the render engine looks them up.
+const (
+	// TplHome 是首页片段（也是整页请求的内容区）。 | TplHome is the home fragment (the content region of full-page requests as well).
+	TplHome = "pages/home.html"
+	// TplUsers 是用户管理片段。 | TplUsers is the user management fragment.
+	TplUsers = "pages/users.html"
+	// TplRealtime 是实时推送演示片段。 | TplRealtime is the realtime demo fragment.
+	TplRealtime = "pages/realtime.html"
+	// TplError 是校验失败片段，由前端的 hx-status:422 声明式换入。 | TplError is the validation failure fragment swapped in by the front end's hx-status:422.
+	TplError = "pages/error.html"
+)
+
+// 面向用户的兜底文案：未知错误只回显这一句，绝不把内部细节带出服务端。
+// User-facing fallback copy: unknown errors show this single line and never leak internal details.
+const (
+	// msgInternal 是 500 的兜底文案。 | msgInternal is the fallback copy for 500.
+	msgInternal = "服务器内部错误，请稍后重试 | Internal server error, please retry later"
+	// msgUnauthorized 是登录失败的兜底文案。 | msgUnauthorized is the fallback copy for a failed login.
+	msgUnauthorized = "邮箱或口令不正确 | Wrong e-mail address or password"
+)
+
+// ErrPlaceholder 表示占位图编码失败（几乎只可能因为内存耗尽）。 | ErrPlaceholder reports a failed placeholder image encoding (practically only possible when memory is exhausted).
+var ErrPlaceholder = errx.New("controller: placeholder image encoding failed | controller：占位图编码失败")
+
+// Controller 持有应用门面与业务服务：门面负责渲染与配置，服务负责规则。
+// Controller holds the application facade and the business services: the facade renders and configures, the services own the rules.
+type Controller struct {
+	// app 是应用门面（渲染、日志、配置）。 | app is the application facade (rendering, logging, configuration).
+	app *app.App
+	// auth 是鉴权服务。 | auth is the authentication service.
+	auth *service.Auth
+}
+
+// New 装配控制器；auth 为 nil 时登录端点会以 ErrAuthKey 拒绝请求，而不是空指针崩溃。
+// New wires the controller; a nil auth makes the login endpoint fail with ErrAuthKey instead of panicking.
+func New(a *app.App, auth *service.Auth) *Controller {
+	return &Controller{app: a, auth: auth}
+}
+
+// view 构造页面数据：所有模板共享的字段在这里注入一次，页面只需追加自己的键。
+// view builds the page data: every field shared by all templates is injected once here, and pages only add their own keys.
+func (c *Controller) view(ctx *router.Ctx, title string, extra map[string]any) map[string]any {
+	data := map[string]any{
+		"Title":           title,
+		"Name":            meta.Name,
+		"Module":          meta.Module,
+		"Description":     meta.Description,
+		"Version":         meta.Version,
+		"GoVersion":       meta.GoVersion,
+		"HtmxVersion":     meta.HtmxVersion,
+		"TailwindVersion": meta.TailwindVersion,
+		"Features":        meta.Features,
+		"Scripts":         meta.HtmxExtScripts,
+		"Path":            ctx.Path(),
+		"PublicKey":       c.publicKey(),
+	}
+	for k, v := range extra {
+		data[k] = v
+	}
+	return data
+}
+
+// publicKey 返回 SM2 公钥；鉴权服务缺失时返回空串，模板按空值隐藏加密表单。
+// publicKey returns the SM2 public key; without an auth service it returns an empty string and templates hide the encrypted form.
+func (c *Controller) publicKey() string {
+	if c.auth == nil {
+		return ""
+	}
+	return c.auth.PublicKeyHex()
+}
+
+// render 渲染片段或整页：app.Render 依据 HX-Request 与 HX-Request-Type 自动选择「只片段」还是「布局包裹片段」。
+// render renders a fragment or a whole page: app.Render picks "fragment only" or "layout-wrapped fragment" from HX-Request and HX-Request-Type.
+func (c *Controller) render(ctx *router.Ctx, status int, name string, data map[string]any) {
+	if err := c.app.Render(ctx, status, name, data); err != nil {
+		c.app.Logger().Error("render failed | 渲染失败",
+			logx.Err(err),
+			logx.Str("template", name),
+			logx.Str("path", ctx.Path()),
+		)
+	}
+}
+
+// fail 输出错误片段：状态码 + pages/error.html。
+// fail writes the error fragment: the status code plus pages/error.html.
+//
+// htmx 侧由表单上的 hx-status:422="target:#yd-errors swap:innerHTML" 声明式接管，
+// 因此这里既不需要额外的响应头，也不需要前端为失败路径写命令式代码。
+// The htmx side takes it over declaratively through hx-status:422="target:#yd-errors swap:innerHTML" on the form, so
+// neither an extra response header nor imperative front-end code for the failure path is needed.
+func (c *Controller) fail(ctx *router.Ctx, status int, messages ...string) {
+	list := make([]map[string]any, 0, len(messages))
+	for _, m := range messages {
+		list = append(list, map[string]any{"Text": m})
+	}
+	c.render(ctx, status, TplError, c.view(ctx, "请求未通过校验 | Request failed validation", map[string]any{
+		"Status": status,
+		"Errors": list,
+	}))
+}
+
+// failService 把业务哨兵映射为状态码与文案，并输出错误片段。
+// failService maps a business sentinel onto a status code and copy, then writes the error fragment.
+func (c *Controller) failService(ctx *router.Ctx, err error) {
+	status, message := statusFor(err)
+	if status >= http.StatusInternalServerError {
+		// 500 必须留下完整错误链，供中间件的访问日志与告警消费。 | A 500 must leave the full error chain for the access log and for alerting.
+		c.app.Logger().Error("request failed | 请求失败",
+			logx.Err(err),
+			logx.Str("path", ctx.Path()),
+			logx.Str("method", ctx.Method()),
+		)
+	}
+	c.fail(ctx, status, message)
+}
+
+// statusFor 把哨兵错误映射为 HTTP 状态码与用户可见文案。
+// statusFor maps a sentinel error onto an HTTP status code and the copy shown to the user.
+func statusFor(err error) (int, string) {
+	switch {
+	case errors.Is(err, service.ErrUserNameRequired),
+		errors.Is(err, service.ErrUserEmailInvalid),
+		errors.Is(err, service.ErrUserEmailTaken):
+		// 校验失败一律 422：与前端的 hx-status:422 契约对齐，且语义比 400 更精确。
+		// Validation failures are always 422: it matches the front end's hx-status:422 contract and is more precise than 400.
+		return http.StatusUnprocessableEntity, err.Error()
+	case errors.Is(err, service.ErrUserNotFound):
+		return http.StatusNotFound, err.Error()
+	case errors.Is(err, service.ErrCipherMissing), errors.Is(err, service.ErrCipherInvalid), errors.Is(err, service.ErrEmailRequired):
+		// 加密链路本身出错：告知客户端重新取公钥后重试，而不是回落到明文。 | The encryption chain failed: ask the client to refetch the key rather than falling back to plain text.
+		return http.StatusBadRequest, err.Error()
+	case errors.Is(err, service.ErrCredentials), errors.Is(err, service.ErrAuthKey):
+		return http.StatusUnauthorized, msgUnauthorized
+	default:
+		return http.StatusInternalServerError, msgInternal
+	}
+}

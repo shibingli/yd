@@ -1,0 +1,88 @@
+// Package meta 集中本项目的元信息：模板、控制器、路由与文档共用同一份取值。
+// Package meta holds this project's metadata: templates, controllers, routers and docs all read one source.
+package meta
+
+import (
+	"os"
+	"strings"
+)
+
+// 元信息常量由 yd new 依据脚手架参数写入；需要改动请回到脚手架模板重新生成。
+// The metadata constants below are written by yd new from the scaffold options; change them in the template and regenerate.
+const (
+	// Name 是项目名（同时也是默认模块路径的最后一段）。 | Name is the project name (also the last segment of the default module path).
+	Name = "{{ .Name }}"
+	// Module 是 Go 模块路径，前端脚本与文档引用它以免写死。 | Module is the Go module path, referenced by front-end scripts and docs instead of being hard-coded.
+	Module = "{{ .Module }}"
+	// Version 是应用版本，发布时可用 -ldflags 覆盖。 | Version is the application version, overridable with -ldflags at release time.
+	Version = "0.1.0"
+	// Description 是应用简介，写入 OpenAPI 文档与页面 <meta name="description">。
+	// Description is the application blurb, written into the OpenAPI document and the page's <meta name="description">.
+	Description = "{{ .Name }} —— yd 框架生成的后台应用 | {{ .Name }} — an admin application scaffolded with the yd framework"
+
+	// GoVersion、HtmxVersion、TailwindVersion 是脚手架锁定的技术栈版本，页面页脚与文档据此避免写死。
+	// GoVersion, HtmxVersion and TailwindVersion are the stack versions locked by the scaffold, so pages and docs never hard-code them.
+	GoVersion       = "{{ .GoVersion }}"
+	HtmxVersion     = "{{ .HtmxVersion }}"
+	TailwindVersion = "{{ .TailwindVersion }}"
+
+	// AssetRoot 是前端资产目录，与 .yd.json 的 assetRoot 保持一致。 | AssetRoot is the front-end asset directory, matching assetRoot in .yd.json.
+	AssetRoot = "{{ .AssetRoot }}"
+	// ConfigDir 是配置文件目录，交给 app.WithConfigDir 使用。 | ConfigDir is the configuration directory handed to app.WithConfigDir.
+	ConfigDir = "configs"
+	// LangsDir 是语言目录所在的资子树名。 | LangsDir is the asset subtree holding the message catalogues.
+	LangsDir = "langs"
+
+	// DefaultLang 与 FallbackLang 是语言目录的默认值与回退值，与 configs/config.yaml 的 i18n 段一致。
+	// DefaultLang and FallbackLang are the catalogue defaults, consistent with the i18n section of configs/config.yaml.
+	DefaultLang  = "zh-CN"
+	FallbackLang = "en"
+
+	// EnvPrefix 是环境变量前缀。 | EnvPrefix is the environment variable prefix.
+	EnvPrefix = "YD_"
+	// ConfigEnvKey 是运行环境所在的配置键。 | ConfigEnvKey is the configuration key holding the runtime environment.
+	ConfigEnvKey = "app.env"
+	// EnvProduction 与 EnvDevelopment 是运行环境的两个取值。 | EnvProduction and EnvDevelopment are the two runtime environment values.
+	EnvProduction  = "production"
+	EnvDevelopment = "development"
+
+	// ToastEvent 是服务端下发提示的事件名，控制器通过 HX-Trigger 触发，页面在 body 上订阅。
+	// ToastEvent is the event name of a server-sent toast: controllers fire it through HX-Trigger and pages subscribe on the body.
+	ToastEvent = "yd:toast"
+)
+
+// Features 列出本项目启用的可选特性，供启动日志与运维自检读取（与脚手架参数同源）。
+// Features lists the optional features enabled in this project, read by the startup log and by operations checks (same source as the scaffold options).
+var Features = []string{
+{{- range .Features }}
+	"{{ . }}",
+{{- end }}
+}
+
+// HtmxExtScripts 是所选 Htmx 扩展的本地脚本路径，base.html 依序装载，顺序与脚手架参数一致。
+// HtmxExtScripts holds the local script paths of the selected Htmx extensions; base.html loads them in order, matching the scaffold options.
+var HtmxExtScripts = []string{
+{{- range .HtmxExtScripts }}
+	"{{ . }}",
+{{- end }}
+}
+
+// Env 返回运行环境名：优先取环境变量 YD_APP_ENV，未设置时按开发环境处理。
+// Env returns the runtime environment: it prefers the YD_APP_ENV environment variable and falls back to development.
+//
+// 未知环境一律按开发处理，与框架 app 门面对 isDevelopment 的判定保持一致，
+// 避免新项目因为漏配环境名而失去模板热重载。
+// An unknown environment counts as development, matching isDevelopment in the framework's app facade, so a fresh
+// project never loses template hot reloading just because the environment name is unset.
+func Env() string {
+	if v := strings.TrimSpace(os.Getenv(EnvPrefix + "APP_ENV")); v != "" {
+		return v
+	}
+	return EnvDevelopment
+}
+
+// IsProduction 报告当前是否为生产环境。 | IsProduction reports whether the runtime environment is production.
+func IsProduction() bool { return strings.EqualFold(Env(), EnvProduction) }
+
+// IsDevelopment 报告当前是否为开发环境。 | IsDevelopment reports whether the runtime environment is development.
+func IsDevelopment() bool { return !IsProduction() }

@@ -16,7 +16,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/yun-dev/yd/errx"
+	"github.com/shibingli/yd/errx"
 )
 
 // ErrFlusherUnsupported is returned by NewWriter when the http.ResponseWriter does not implement http.Flusher. | ErrFlusherUnsupported 在 http.ResponseWriter 未实现 http.Flusher 时由 NewWriter 返回。

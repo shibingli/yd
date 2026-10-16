@@ -7,8 +7,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/yun-dev/yd/jsonx"
-	"github.com/yun-dev/yd/router"
+	"github.com/shibingli/yd/jsonx"
+	"github.com/shibingli/yd/router"
 	"go.yaml.in/yaml/v3"
 )
 

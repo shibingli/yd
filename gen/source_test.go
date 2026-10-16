@@ -8,7 +8,7 @@ import (
 
 	"github.com/spf13/afero"
 
-	"github.com/yun-dev/yd/gen"
+	"github.com/shibingli/yd/gen"
 )
 
 // sourcePost 是一段贴近真实项目的模型源码：内嵌 gorm.Model、gorm/json/yd 三种标签、

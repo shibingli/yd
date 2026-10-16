@@ -9,10 +9,10 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/yun-dev/yd/errx"
-	"github.com/yun-dev/yd/jsonx"
-	"github.com/yun-dev/yd/logx"
-	"github.com/yun-dev/yd/router"
+	"github.com/shibingli/yd/errx"
+	"github.com/shibingli/yd/jsonx"
+	"github.com/shibingli/yd/logx"
+	"github.com/shibingli/yd/router"
 )
 
 // ---------------------------------------------------------------- test helpers | 测试辅助

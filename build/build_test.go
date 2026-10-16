@@ -15,7 +15,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/yun-dev/yd/logx"
+	"github.com/shibingli/yd/logx"
 )
 
 // ---------------------------------------------------------------- Test helpers | 测试辅助
@@ -166,14 +166,14 @@ func writeFile(t *testing.T, path, body string) {
 }
 
 // newTestModule writes a minimal Go module into a temp dir. The module path matches
-// the real repository on purpose: the -X flag targets github.com/yun-dev/yd/version,
+// the real repository on purpose: the -X flag targets github.com/shibingli/yd/version,
 // so the injected package has to live at exactly that import path. | newTestModule 在临时
-// 目录写入最小 Go 模块。模块路径刻意与真实仓库一致：-X 目标为 github.com/yun-dev/yd/version，
+// 目录写入最小 Go 模块。模块路径刻意与真实仓库一致：-X 目标为 github.com/shibingli/yd/version，
 // 因此被注入的包必须位于该导入路径之下。
 func newTestModule(t *testing.T) string {
 	t.Helper()
 	dir := t.TempDir()
-	writeFile(t, filepath.Join(dir, "go.mod"), "module github.com/yun-dev/yd\n\ngo 1.27\n")
+	writeFile(t, filepath.Join(dir, "go.mod"), "module github.com/shibingli/yd\n\ngo 1.27\n")
 	writeFile(t, filepath.Join(dir, "version", "version.go"), `package version
 
 var (
@@ -189,7 +189,7 @@ func String() string { return Version + "|" + Commit + "|" + Date }
 import (
 	"os"
 
-	"github.com/yun-dev/yd/version"
+	"github.com/shibingli/yd/version"
 )
 
 func main() { _, _ = os.Stdout.WriteString(version.String()) }
@@ -271,7 +271,7 @@ func TestBuildProducesStaticBinary(t *testing.T) {
 	if err != nil {
 		t.Fatalf("go version -m 失败: %v\n%s", err, meta)
 	}
-	for _, want := range []string{"github.com/yun-dev/yd", "-trimpath", "CGO_ENABLED=0"} {
+	for _, want := range []string{"github.com/shibingli/yd", "-trimpath", "CGO_ENABLED=0"} {
 		if !strings.Contains(string(meta), want) {
 			t.Errorf("go version -m 输出缺少 %q:\n%s", want, meta)
 		}
@@ -377,9 +377,9 @@ func TestGenerateLDFlags(t *testing.T) {
 	for _, want := range []string{
 		"-s", "-w",
 		"-X main.build=ci",
-		"-X github.com/yun-dev/yd/version.Version=v1.2.3",
-		"-X github.com/yun-dev/yd/version.Commit=deadbee",
-		"-X github.com/yun-dev/yd/version.Date=2026-10-16T08:00:00Z",
+		"-X github.com/shibingli/yd/version.Version=v1.2.3",
+		"-X github.com/shibingli/yd/version.Commit=deadbee",
+		"-X github.com/shibingli/yd/version.Date=2026-10-16T08:00:00Z",
 	} {
 		if !strings.Contains(got[1], want) {
 			t.Errorf("GenerateLDFlags 值 %q 缺少 %q", got[1], want)

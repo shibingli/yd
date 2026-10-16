@@ -4,28 +4,53 @@ package service
 
 import (
 	"context"
+	"net/mail"
 	"strings"
 
 	"{{ .Module }}/internal/model"
 	"{{ .Module }}/internal/repository"
-	"github.com/yun-dev/yd/errx"
+	"{{ .YdModule }}/errx"
 )
 
-// ErrUserNotFound 表示按条件没有匹配到任何用户。 | ErrUserNotFound reports that no user matched the condition.
-var ErrUserNotFound = errx.New("user not found | 用户不存在")
+// 用户领域的哨兵错误：控制器据此决定 HTTP 状态码，绝不比较错误字符串。
+// Sentinels of the user domain: controllers map them onto HTTP status codes and never compare error strings.
+var (
+	// ErrUserNotFound 表示按条件没有匹配到任何用户。 | ErrUserNotFound reports that no user matched the condition.
+	ErrUserNotFound = errx.New("user not found | 用户不存在")
+	// ErrUserNameRequired 表示创建用户时缺少名称。 | ErrUserNameRequired reports a missing name when creating a user.
+	ErrUserNameRequired = errx.New("user name is required | 用户名不能为空")
+	// ErrUserEmailInvalid 表示邮箱格式不合法。 | ErrUserEmailInvalid reports a malformed e-mail address.
+	ErrUserEmailInvalid = errx.New("invalid e-mail address | 邮箱格式不正确")
+	// ErrUserEmailTaken 表示邮箱已被占用。 | ErrUserEmailTaken reports an e-mail address already in use.
+	ErrUserEmailTaken = errx.New("e-mail address already registered | 邮箱已被占用")
+)
 
-// ListUsers 返回用户列表：关键字为空时返回全部，否则按名称/邮箱做大小写不敏感匹配。
-// ListUsers returns the user list: an empty keyword yields everyone, otherwise names and e-mails are matched case-insensitively.
-func ListUsers(ctx context.Context, keyword string) ([]model.User, error) {
+// CreateInput 是创建用户的入参：控制器只负责绑定与转交，校验规则全部落在本层。
+// CreateInput is the user creation payload: controllers only bind and forward it, every rule lives in this layer.
+type CreateInput struct {
+	// Name 是显示名。 | Name is the display name.
+	Name string
+	// Email 是登录邮箱。 | Email is the login address.
+	Email string
+}
+
+// List 返回用户列表：关键字为空时返回全部，否则按名称与邮箱做大小写不敏感匹配。
+// List returns the user list: an empty keyword yields everyone, otherwise names and e-mail addresses are matched case-insensitively.
+//
+// 关键字无匹配时返回 ErrUserNotFound，而不是空列表：控制器据此区分「没有数据」与「筛选没有结果」。
+// A keyword with no match returns ErrUserNotFound instead of an empty slice, so controllers can tell "no data" from "no result".
+func List(ctx context.Context, keyword string) ([]model.User, error) {
 	users, err := repository.List(ctx)
 	if err != nil {
 		return nil, errx.Wrap(err, ErrUserNotFound)
 	}
-	if keyword == "" {
+
+	trimmed := strings.TrimSpace(keyword)
+	if trimmed == "" {
 		return users, nil
 	}
 
-	kw := strings.ToLower(keyword)
+	kw := strings.ToLower(trimmed)
 	matched := make([]model.User, 0, len(users))
 	for _, u := range users {
 		if strings.Contains(strings.ToLower(u.Name), kw) || strings.Contains(strings.ToLower(u.Email), kw) {
@@ -33,20 +58,39 @@ func ListUsers(ctx context.Context, keyword string) ([]model.User, error) {
 		}
 	}
 	if len(matched) == 0 {
-		return nil, errx.Detail(ErrUserNotFound, "keyword=%s", keyword)
+		return nil, errx.Detail(ErrUserNotFound, "keyword=%s", trimmed)
 	}
 	return matched, nil
 }
 
-// CreateUser 校验并创建用户；名称与邮箱都必须非空。 | CreateUser validates and creates a user; both name and e-mail are required.
-func CreateUser(ctx context.Context, u model.User) (model.User, error) {
-	if strings.TrimSpace(u.Name) == "" || strings.TrimSpace(u.Email) == "" {
-		return model.User{}, errx.Detail(ErrUserInvalid, "name=%q email=%q", u.Name, u.Email)
+// Create 校验并创建用户：名称非空、邮箱可解析且未被占用。
+// Create validates and creates a user: the name must be non-empty and the e-mail address parseable and unused.
+//
+// 校验失败一律返回 ErrUserNameRequired、ErrUserEmailInvalid 或 ErrUserEmailTaken，调用方按哨兵判定。
+// A failed validation returns ErrUserNameRequired, ErrUserEmailInvalid or ErrUserEmailTaken, and callers test the sentinels.
+func Create(ctx context.Context, in CreateInput) (model.User, error) {
+	name := strings.TrimSpace(in.Name)
+	if name == "" {
+		return model.User{}, ErrUserNameRequired
 	}
 
-	u.ID = repository.Create(ctx, u)
-	return u, nil
-}
+	email := strings.TrimSpace(in.Email)
+	addr, err := mail.ParseAddress(email)
+	if err != nil || addr.Address != email {
+		return model.User{}, errx.Detail(ErrUserEmailInvalid, "email=%q", email)
+	}
 
-// ErrUserInvalid 表示创建用户的入参不合法。 | ErrUserInvalid reports invalid input for user creation.
-var ErrUserInvalid = errx.New("invalid user payload | 用户入参不合法")
+	taken, err := repository.Exists(ctx, email)
+	if err != nil {
+		return model.User{}, errx.Wrap(err, ErrUserEmailTaken)
+	}
+	if taken {
+		return model.User{}, errx.Detail(ErrUserEmailTaken, "email=%q", email)
+	}
+
+	return repository.Create(ctx, model.User{
+		Name:  name,
+		Email: email,
+		Roles: []string{"member"},
+	})
+}

@@ -6,7 +6,7 @@ import (
 
 	"gorm.io/gorm"
 
-	"github.com/yun-dev/yd/errx"
+	"github.com/shibingli/yd/errx"
 )
 
 // 字段描述串支持的类型标记；左侧是用户输入，右侧是生成的 Go 类型与默认控件。

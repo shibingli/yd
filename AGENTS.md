@@ -54,7 +54,7 @@
 - [ ] **注入面**：SQL 只允许通过 GORM 参数化查询；模板输出默认走 `html/template` 转义，使用 `template.HTML` 必须写明可信来源。
 - [ ] **请求边界**：外部输入必须限长（WebSocket `MaxMessageSize`、请求体 `MaxBytesReader`），并设置读写超时。
 - [ ] **JSON/Base64 统一走封装层**：全仓禁止 `import "encoding/json"` 与 `import "encoding/base64"`，
-      一律使用 `github.com/yun-dev/yd/jsonx` 与 `github.com/yun-dev/yd/b64x`。
+      一律使用 `github.com/shibingli/yd/jsonx` 与 `github.com/shibingli/yd/b64x`。
       自检：`grep -rn '"encoding/json"\|"encoding/base64"' --include=*.go .` 无命中。
 - [ ] **中英文同步（注释 + 日志文案）**：所有注释与所有日志文案逐行采用
       `English | 中文`（竖线分割，英文在前、中文在后）。豁免：编译指令、生成标记、注释内代码示例/树状图/URL。

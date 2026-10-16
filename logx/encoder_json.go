@@ -5,8 +5,8 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/yun-dev/yd/b64x"
-	"github.com/yun-dev/yd/jsonx"
+	"github.com/shibingli/yd/b64x"
+	"github.com/shibingli/yd/jsonx"
 )
 
 // hexDigits is the hexadecimal character table used by \u00XX escapes. | hexDigits 是 \u00XX 转义使用的十六进制字符表。

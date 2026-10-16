@@ -6,7 +6,7 @@ import (
 	"os"
 	"time"
 
-	"github.com/yun-dev/yd/errx"
+	"github.com/shibingli/yd/errx"
 )
 
 // Sentinel errors of the verification stage. | 校验阶段的哨兵错误。

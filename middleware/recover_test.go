@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/yun-dev/yd/router"
+	"github.com/shibingli/yd/router"
 )
 
 func TestRecoverReturns500AndLogs(t *testing.T) {

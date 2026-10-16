@@ -30,9 +30,9 @@ import (
 
 	"github.com/hibiken/asynq"
 
-	"github.com/yun-dev/yd/errx"
-	"github.com/yun-dev/yd/jsonx"
-	"github.com/yun-dev/yd/logx"
+	"github.com/shibingli/yd/errx"
+	"github.com/shibingli/yd/jsonx"
+	"github.com/shibingli/yd/logx"
 )
 
 // Declared sentinel errors, testable with errors.Is. | 已声明的哨兵错误，可用 errors.Is 判定。

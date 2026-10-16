@@ -5,7 +5,7 @@ import (
 	"crypto/rand"
 
 	"github.com/tjfoc/gmsm/sm4"
-	"github.com/yun-dev/yd/errx"
+	"github.com/shibingli/yd/errx"
 )
 
 // maxGCMNonceSize is the longest nonce SealGCM and OpenGCM accept. | maxGCMNonceSize 是 SealGCM/OpenGCM 允许的最大 nonce 长度。

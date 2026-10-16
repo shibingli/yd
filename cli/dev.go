@@ -7,8 +7,8 @@ import (
 	"fmt"
 
 	"github.com/spf13/pflag"
-	"github.com/yun-dev/yd/logx"
-	"github.com/yun-dev/yd/toolchain"
+	"github.com/shibingli/yd/logx"
+	"github.com/shibingli/yd/toolchain"
 )
 
 // devCommandName is the command word of the development server command. | devCommandName 是开发服务器命令的命令词。

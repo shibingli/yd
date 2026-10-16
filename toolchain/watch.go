@@ -11,7 +11,7 @@ import (
 
 	"github.com/fsnotify/fsnotify"
 
-	"github.com/yun-dev/yd/errx"
+	"github.com/shibingli/yd/errx"
 )
 
 // DefaultDebounce is the default window used to coalesce file events. | DefaultDebounce 是文件事件的默认抖动合并窗口。

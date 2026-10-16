@@ -1,0 +1,27 @@
+{{/*
+  partials/users/row.html —— 单行用户（由 partials/users/list.html 引用）。
+  partials/users/row.html — a single user row (referenced by partials/users/list.html).
+
+  数据契约 | Data contract: model.User 本身，因此模板里的 . 就是一行用户，而不是外层页面数据。
+  The model.User itself: the dot inside this file is one user, not the surrounding page data.
+
+  行 id 由用户主键拼出：即使将来加入行内编辑，交换目标也已经有稳定的名字。
+  The row id is derived from the primary key, so even after in-row editing arrives the swap target already has a
+  stable name.
+*/}}
+{{- define "partials/users/row" -}}
+<tr class="yd-table__row" id="yd-user-{{ .ID }}">
+  <td class="yd-table__td">
+    <span class="yd-avatar yd-avatar--sm" aria-hidden="true">{{ .Initial }}</span>
+    <span class="yd-table__primary">{{ .Display }}</span>
+  </td>
+  <td class="yd-table__td"><a class="yd-link" href="mailto:{{ .Email }}">{{ .Email }}</a></td>
+  <td class="yd-table__td">
+    {{ range .Roles }}<span class="yd-badge yd-badge--info">{{ . }}</span>{{ end }}
+  </td>
+  {{/* 时间按固定布局格式化，不做本地化转换：服务端给什么就显示什么，避免同一份数据在不同时区看起来不一样。
+       The time uses a fixed layout and is never converted: what the server produced is what is shown, so one record
+       never looks different depending on the viewer's time zone. */}}
+  <td class="yd-table__td yd-table__td--muted">{{ .CreatedAt.Format "2006-01-02 15:04" }}</td>
+</tr>
+{{- end -}}

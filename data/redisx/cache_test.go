@@ -12,8 +12,8 @@ import (
 	"github.com/alicebob/miniredis/v2"
 	"github.com/redis/go-redis/v9"
 
-	"github.com/yun-dev/yd/data/redisx"
-	"github.com/yun-dev/yd/jsonx"
+	"github.com/shibingli/yd/data/redisx"
+	"github.com/shibingli/yd/jsonx"
 )
 
 // cachedUser is the payload type exercised by the cache tests. | cachedUser 是缓存用例使用的载荷类型。

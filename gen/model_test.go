@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/yun-dev/yd/gen"
+	"github.com/shibingli/yd/gen"
 )
 
 // TestParseFieldsSpec 覆盖 `name:string:required` 形式的字段描述解析与类型映射。

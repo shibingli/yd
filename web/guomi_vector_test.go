@@ -1,8 +1,8 @@
 // Package web tests the browser assets shipped by the framework. | Package web 测试框架提供的前端资产。
 //
 // This file owns the SM2/SM3/SM4 interoperability contract between the Go package
-// github.com/yun-dev/yd/guomi and the dependency-free JavaScript sandbox in
-// web/static/js/yd-guomi.js: | 本文件承载 Go 包 github.com/yun-dev/yd/guomi 与无依赖 JS 沙箱
+// github.com/shibingli/yd/guomi and the dependency-free JavaScript sandbox in
+// web/static/js/yd-guomi.js: | 本文件承载 Go 包 github.com/shibingli/yd/guomi 与无依赖 JS 沙箱
 // web/static/js/yd-guomi.js 之间的 SM2/SM3/SM4 互操作契约：
 //
 //   - TestGuomiJSVectors writes testdata/guomi_vectors.json with a fixed private key and a
@@ -27,10 +27,10 @@ import (
 	"testing"
 
 	"github.com/tjfoc/gmsm/sm2"
-	"github.com/yun-dev/yd/b64x"
-	"github.com/yun-dev/yd/errx"
-	"github.com/yun-dev/yd/guomi"
-	"github.com/yun-dev/yd/jsonx"
+	"github.com/shibingli/yd/b64x"
+	"github.com/shibingli/yd/errx"
+	"github.com/shibingli/yd/guomi"
+	"github.com/shibingli/yd/jsonx"
 )
 
 var (

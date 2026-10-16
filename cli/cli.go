@@ -31,10 +31,10 @@ import (
 
 	"github.com/spf13/afero"
 	"github.com/spf13/pflag"
-	"github.com/yun-dev/yd/config"
-	"github.com/yun-dev/yd/errx"
-	"github.com/yun-dev/yd/logx"
-	"github.com/yun-dev/yd/version"
+	"github.com/shibingli/yd/config"
+	"github.com/shibingli/yd/errx"
+	"github.com/shibingli/yd/logx"
+	"github.com/shibingli/yd/version"
 )
 
 // Package-level sentinel errors, declared once so every failure path can be matched with errors.Is. | 包级哨兵错误，

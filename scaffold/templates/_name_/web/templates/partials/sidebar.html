@@ -1,0 +1,65 @@
+{{/*
+  partials/sidebar.html —— 左侧常驻导航（只在 base.html 里被引用一次）。
+  partials/sidebar.html — the persistent left navigation (referenced exactly once, from base.html).
+
+  本文件只定义模板、不产出正文：render 引擎把模板树解析进同一个模板集，
+  因此页面用 {{template "partials/sidebar" .}} 取用，外壳只存在一份。
+  This file defines templates and renders no body: the render engine parses the whole tree into one template set, so a
+  page pulls it in with {{template "partials/sidebar" .}} and the chrome exists in exactly one place.
+
+  数据契约 | Data contract: .Path（当前路径，用于高亮）、.Name、.Version、.Features。
+
+  导航链接三件事一起写：hx-get 取片段、hx-target 指向工作区、hx-push-url 写入历史，
+  因此浏览器前进/后退与直接访问 URL 都能得到同一个页面。
+  Every navigation link does three things at once: hx-get fetches the fragment, hx-target points at the workspace and
+  hx-push-url records history, so back/forward and a direct URL hit both land on the same page.
+*/}}
+{{- define "partials/sidebar" -}}
+<aside class="yd-sidebar" data-yd-sidebar aria-label="主导航 | Main navigation">
+  <div class="yd-sidebar__brand">
+    <a class="yd-brand" href="/" hx-get="/" hx-target="#yd-workspace" hx-swap="innerMorph" hx-push-url="true">
+      <span class="yd-brand__mark" aria-hidden="true">yd</span>
+      <span class="yd-brand__name">{{ .Name }}</span>
+    </a>
+  </div>
+
+  <nav class="yd-nav" aria-label="站点导航 | Site navigation">
+    <p class="yd-nav__section">总览 | Overview</p>
+    <a class="yd-nav__link" href="/" hx-get="/" hx-target="#yd-workspace" hx-swap="innerMorph" hx-push-url="true"
+       data-yd-nav="home"{{ if eq .Path "/" }} aria-current="page"{{ end }}>
+      <span class="yd-nav__label">首页 | Home</span>
+    </a>
+
+    <p class="yd-nav__section">数据 | Data</p>
+    <a class="yd-nav__link" href="/users" hx-get="/users" hx-target="#yd-workspace" hx-swap="innerMorph" hx-push-url="true"
+       data-yd-nav="users"{{ if eq .Path "/users" }} aria-current="page"{{ end }}>
+      <span class="yd-nav__label">用户管理 | Users</span>
+    </a>
+
+    <p class="yd-nav__section">实时 | Realtime</p>
+    <a class="yd-nav__link" href="/realtime" hx-get="/realtime" hx-target="#yd-workspace" hx-swap="innerMorph" hx-push-url="true"
+       data-yd-nav="realtime"{{ if eq .Path "/realtime" }} aria-current="page"{{ end }}>
+      <span class="yd-nav__label">SSE 与 WebSocket | SSE &amp; WebSocket</span>
+    </a>
+
+    <p class="yd-nav__section">接口 | API</p>
+    <a class="yd-nav__link" href="/docs" data-yd-nav="docs">
+      <span class="yd-nav__label">接口文档 | API docs</span>
+    </a>
+    <a class="yd-nav__link" href="/openapi.json" data-yd-nav="openapi">
+      <span class="yd-nav__label">OpenAPI 3.0 JSON</span>
+    </a>
+  </nav>
+
+  <div class="yd-sidebar__footer">
+    <p class="yd-hint">版本 | Version {{ .Version }}</p>
+    {{- with .Features }}
+    <ul class="yd-hint">
+      {{- range . }}
+      <li>{{ . }}</li>
+      {{- end }}
+    </ul>
+    {{- end }}
+  </div>
+</aside>
+{{- end -}}

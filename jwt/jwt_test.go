@@ -19,8 +19,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/yun-dev/yd/b64x"
-	"github.com/yun-dev/yd/router"
+	"github.com/shibingli/yd/b64x"
+	"github.com/shibingli/yd/router"
 )
 
 // ---------------------------------------------------------------- Shared fixtures | 共享夹具

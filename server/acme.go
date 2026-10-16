@@ -7,7 +7,7 @@ import (
 
 	"golang.org/x/crypto/acme/autocert"
 
-	"github.com/yun-dev/yd/errx"
+	"github.com/shibingli/yd/errx"
 )
 
 // Sentinel errors of the ACME manager, all testable with errors.Is. | ACME 管理器的哨兵错误，均可通过 errors.Is 判定。

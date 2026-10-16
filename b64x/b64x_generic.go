@@ -5,7 +5,7 @@ package b64x
 import (
 	"encoding/base64"
 
-	"github.com/yun-dev/yd/errx"
+	"github.com/shibingli/yd/errx"
 )
 
 // Encoding is a Base64 codec that delegates to the standard library encoding/base64 on non-amd64 platforms | Encoding 是 Base64 编解码器，在非 amd64 平台或指定 b64x_std 标签时委托给标准库

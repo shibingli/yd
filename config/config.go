@@ -32,7 +32,7 @@ import (
 	"github.com/spf13/afero"
 	"github.com/spf13/pflag"
 	"github.com/spf13/viper"
-	"github.com/yun-dev/yd/errx"
+	"github.com/shibingli/yd/errx"
 )
 
 const (

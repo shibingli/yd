@@ -13,7 +13,7 @@ import (
 	"testing"
 
 	"github.com/spf13/afero"
-	"github.com/yun-dev/yd/afs"
+	"github.com/shibingli/yd/afs"
 )
 
 const (

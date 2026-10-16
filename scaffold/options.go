@@ -1,7 +1,7 @@
 package scaffold
 
 import (
-	"github.com/yun-dev/yd/errx"
+	"github.com/shibingli/yd/errx"
 )
 
 // Options 描述一次项目生成的全部输入。 | Options describes every input of one project generation.
@@ -87,7 +87,7 @@ const (
 	// TailwindVersion 是样式管道的 Tailwind 版本。 | TailwindVersion is the Tailwind version of the styling pipeline.
 	TailwindVersion = "v4"
 	// YdModule 是框架自身的模块路径。 | YdModule is the module path of the framework itself.
-	YdModule = "github.com/yun-dev/yd"
+	YdModule = "github.com/shibingli/yd"
 	// AssetRoot 是生成项目的前端资产根目录，写入 .yd.json。 | AssetRoot is the front-end asset root written into .yd.json.
 	AssetRoot = "web"
 )

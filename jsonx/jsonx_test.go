@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/yun-dev/yd/jsonx"
+	"github.com/shibingli/yd/jsonx"
 )
 
 // address is the address struct nested inside profile, used to verify nesting and omitempty semantics. | address 是被 profile 嵌套引用的地址结构，用于验证嵌套与 omitempty 语义。

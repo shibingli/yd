@@ -1,4 +1,4 @@
-module github.com/yun-dev/yd
+module github.com/shibingli/yd
 
 go 1.27.2
 

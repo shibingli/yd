@@ -11,8 +11,8 @@ import (
 	"text/template"
 
 	"github.com/spf13/afero"
-	"github.com/yun-dev/yd/afs"
-	"github.com/yun-dev/yd/errx"
+	"github.com/shibingli/yd/afs"
+	"github.com/shibingli/yd/errx"
 )
 
 // templateFS 内嵌 scaffold/templates 下的全部模板。
@@ -34,7 +34,11 @@ const (
 	sharedDir = "_shared"
 	// projectDir 存放渲染后写入项目根的文件，其路径中的 _name_ 占位符替换为项目名。 | projectDir holds rendered files; its `_name_` path placeholder becomes the project name.
 	projectDir = "_name_"
-	// tmplSuffix 是模板文件后缀，渲染后从输出路径中剔除。 | tmplSuffix is the template suffix, stripped from the output path.
+	// tmplSuffix 是脚手架模板文件后缀：带此后缀的文件由 text/template 在生成期渲染，
+	// 后缀本身从输出路径中剔除；不带此后缀的文件逐字节原样落到生成项目里。
+	// tmplSuffix is the scaffold template suffix: a file carrying it is rendered by text/template at
+	// generation time and loses the suffix in its output path, while a file without it is copied
+	// byte for byte into the generated project.
 	tmplSuffix = ".tmpl"
 	// dotPrefix 把 dot-x 形式的模板名映射为生成物里的隐藏文件 .x。 | dotPrefix maps a dot-x template name onto the hidden file .x in the output.
 	dotPrefix = "dot-"
@@ -186,6 +190,10 @@ func projectPrefix(name string) string {
 //   - 段名 `_name_` 替换为项目名，因此全部产出都落在 <name>/ 之下； | the `_name_` segment becomes the project name, so every artefact lands under <name>/;
 //   - 末段的 .tmpl 后缀被剔除； | the trailing .tmpl suffix is dropped;
 //   - 末段的 dot- 前缀映射为隐藏文件前缀 "."（如 dot-env.template → .env.template）。 | a leading dot- maps onto the hidden-file dot (dot-env.template → .env.template).
+//
+// 无 .tmpl 后缀的文件同样只做路径映射：它们逐字节复制，不参与生成期渲染。
+// A file without the .tmpl suffix only gets the same path mapping: it is copied byte for byte and
+// never rendered at generation time.
 func outputPath(tmplPath, name string) string {
 	rel := strings.TrimPrefix(tmplPath, templateRoot+"/")
 	segments := strings.Split(rel, "/")
@@ -228,6 +236,16 @@ func plan(o Options) ([]plannedFile, error) {
 		if strings.HasPrefix(rel, sharedDir+"/") {
 			// 原样复制（LICENSE、.gitignore、.gitattributes 等固定文件，逐字节保持一致）。 | Verbatim copy (LICENSE and other fixed files stay byte-identical).
 			files = append(files, plannedFile{path: projectPrefix(o.Name) + path.Base(rel), content: data})
+			return nil
+		}
+
+		// 不带 .tmpl 后缀的文件原样复制：生成项目的运行期模板（html/template）、
+		// 样式与脚本里的 {{ }} 属于运行时动作而非生成时动作，必须逐字节保留。
+		// A file without the .tmpl suffix is copied verbatim: the {{ }} actions inside the generated
+		// project's runtime templates (html/template), styles and scripts are runtime — not
+		// generation-time — syntax and must survive byte for byte.
+		if !strings.HasSuffix(rel, tmplSuffix) {
+			files = append(files, plannedFile{path: outputPath(p, o.Name), content: data})
 			return nil
 		}
 

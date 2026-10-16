@@ -8,7 +8,7 @@
 |---|---|
 | 项目名 | yd（YunDev 全栈 Web 框架及脚手架） |
 | 归属团队 | YunDev（https://yun-dev.cn 、 https://yun-dev.net） |
-| 源码仓库 | https://github.com/yun-dev/yd |
+| 源码仓库 | https://github.com/shibingli/yd |
 | 开源协议 | Apache-2.0（见 `LICENSE`，二次开发与商业衍生完全合规） |
 | 需求基线 | `docs/需求设计说明书.md`（**只读**，任何代理不得修改） |
 | 实施计划 | `docs/superpowers/plans/` |
@@ -49,7 +49,7 @@
 1. **包结构**：一个文件一个职责；文件超过约 600 行或承担两类职责即拆分。
 2. **错误处理（强制）**：
    - **所有错误必须在包级用 `errors` 声明为哨兵**：`var ErrBadPattern = errx.New("invalid pattern | 非法的路由模式")`
-     （`errx` 即 `github.com/yun-dev/yd/errx`，是对 `errors` 的声明式薄封装）；
+     （`errx` 即 `github.com/shibingli/yd/errx`，是对 `errors` 的声明式薄封装）；
    - **默认禁止 `fmt.Errorf`**。需要附加格式化细节时用 `errx.Detail(ErrX, "%q ...", v)`；
      需要保留底层错误时用 `errx.Wrap(err, ErrX)` 或 `errx.WrapDetail(err, ErrX, fmt, args...)`；
    - 错误文案必须**中英同步**：`English | 中文`（与注释、日志文案同一规则）；
@@ -76,7 +76,7 @@
 3.1.1 **日志一律使用自研 `logx`（强制）**：
    - 全仓禁止 `import "log"`（标准库）、禁止 `fmt.Print*` 作为日志输出、
      禁止引入 zap/zerolog/logrus 等第三方日志库；
-   - 统一使用 `github.com/yun-dev/yd/logx`（`logx.New` / `Default()` 及其 `Debug/Info/Warn/Error/Fatal`）；
+   - 统一使用 `github.com/shibingli/yd/logx`（`logx.New` / `Default()` 及其 `Debug/Info/Warn/Error/Fatal`）；
    - **唯一例外**：`server` 包为满足 `http.Server.ErrorLog`（要求 `*log.Logger`）而写的
      适配器，其输出必须转发进 `logx`；
    - 自检：`grep -rn '"log"' --include=*.go . | grep -v '^./server/'` 必须无命中。
@@ -102,9 +102,9 @@
    `openapi` 包负责从源码解析这些注解并与路由树合并，生成完整文档。
 4. **热路径禁止反射**：HTTP 请求处理、序列化、日志、JWT 校验路径不得使用 `reflect`；反射仅允许出现在启动期装配、代码生成与 OpenAPI Schema 构建中。
 4.1 **JSON 与 Base64 必须走框架封装层**（强制）：
-   - 任何 JSON 编解码一律使用 `github.com/yun-dev/yd/jsonx`（`Marshal`/`Unmarshal`/`NewEncoder`/`NewDecoder`/`Valid`），
+   - 任何 JSON 编解码一律使用 `github.com/shibingli/yd/jsonx`（`Marshal`/`Unmarshal`/`NewEncoder`/`NewDecoder`/`Valid`），
      **禁止**直接 `import "encoding/json"`；
-   - 任何 Base64 编解码一律使用 `github.com/yun-dev/yd/b64x`（`StdEncoding`/`URLEncoding`/`RawStdEncoding`/`RawURLEncoding`
+   - 任何 Base64 编解码一律使用 `github.com/shibingli/yd/b64x`（`StdEncoding`/`URLEncoding`/`RawStdEncoding`/`RawURLEncoding`
      及其 `Encode`/`Decode`/`AppendEncode`/`AppendDecode`），**禁止**直接 `import "encoding/base64"`；
    - 唯一例外：第三方库（如 gmsm）自身实现内部的编解码，以及 `logx` 为满足零拷贝而手写的
      JSON 字节拼装（它不得引入 `encoding/json`）。

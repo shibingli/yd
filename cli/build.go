@@ -14,10 +14,10 @@ import (
 	"time"
 
 	"github.com/spf13/pflag"
-	"github.com/yun-dev/yd/build"
-	"github.com/yun-dev/yd/errx"
-	"github.com/yun-dev/yd/logx"
-	"github.com/yun-dev/yd/version"
+	"github.com/shibingli/yd/build"
+	"github.com/shibingli/yd/errx"
+	"github.com/shibingli/yd/logx"
+	"github.com/shibingli/yd/version"
 )
 
 // buildCommandName is the command word of the production build command. | buildCommandName 是生产构建命令的命令词。
@@ -83,8 +83,8 @@ func init() {
 		Name:  buildCommandName,
 		Short: "build the production binary | 构建生产二进制",
 		Long: "Compile the production binary for one or more GOOS/GOARCH targets, inject the version\n" +
-			"recorded by github.com/yun-dev/yd/version through -ldflags and verify every artifact.\n" +
-			"为一个或多个 GOOS/GOARCH 目标编译生产二进制，经 -ldflags 注入 github.com/yun-dev/yd/version\n" +
+			"recorded by github.com/shibingli/yd/version through -ldflags and verify every artifact.\n" +
+			"为一个或多个 GOOS/GOARCH 目标编译生产二进制，经 -ldflags 注入 github.com/shibingli/yd/version\n" +
 			"记录的版本信息，并校验每个产物。",
 		Usage: buildUsageLine,
 		Flags: registerBuildFlags,
@@ -126,8 +126,8 @@ func runBuild(ctx context.Context, env *Env) error {
 }
 
 // buildOptions assembles the build package options from the parsed flags. The version triple comes
-// straight from github.com/yun-dev/yd/version, so a binary built by yd records which yd built it. |
-// buildOptions 依据已解析的标志组装 build 包选项。版本三元组直接取自 github.com/yun-dev/yd/version，
+// straight from github.com/shibingli/yd/version, so a binary built by yd records which yd built it. |
+// buildOptions 依据已解析的标志组装 build 包选项。版本三元组直接取自 github.com/shibingli/yd/version，
 // 因此由 yd 构建出的二进制会记录构建它的 yd 版本。
 func buildOptions(env *Env, fs *pflag.FlagSet, log *logx.Logger) (build.Options, error) {
 	targets, err := buildTargets(fs)

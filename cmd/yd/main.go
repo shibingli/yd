@@ -15,10 +15,10 @@ import (
 	"os/signal"
 	"syscall"
 
-	"github.com/yun-dev/yd/afs"
-	"github.com/yun-dev/yd/cli"
-	"github.com/yun-dev/yd/logx"
-	"github.com/yun-dev/yd/version"
+	"github.com/shibingli/yd/afs"
+	"github.com/shibingli/yd/cli"
+	"github.com/shibingli/yd/logx"
+	"github.com/shibingli/yd/version"
 )
 
 // Process exit codes. | 进程退出码。

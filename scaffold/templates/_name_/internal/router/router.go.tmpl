@@ -1,43 +1,239 @@
-// Package router 负责把控制器挂载到路由表，并集中登记本项目的可选特性。
+// Package router 把控制器挂载到路由表，并集中登记本项目的可选特性。
 // Package router mounts controllers onto the mux and keeps the project's optional features in one place.
+//
+// 本包同时是 OpenAPI 文档的装配处：注解写在处理器上（见 docs/developer_guidelines.md §9.2），
+// 文档在启动时由路由树与注解合并生成，因此新增端点后无需再手工维护任何清单。
+// This package also assembles the OpenAPI document: annotations live on the handlers (see
+// docs/developer_guidelines.md §9.2) and the document is merged from the route tree and those annotations at startup, so
+// no hand-maintained list has to follow a new endpoint.
 package router
 
 import (
-	"net/http"
+	"context"
 
 	"{{ .Module }}/internal/controller"
+	"{{ .Module }}/internal/meta"
+	"{{ .Module }}/internal/service"
+	"{{ .YdModule }}/afs"
+	"{{ .YdModule }}/app"
+	"{{ .YdModule }}/errx"
+	"{{ .YdModule }}/logx"
+	"{{ .YdModule }}/openapi"
+	"{{ .YdModule }}/sse"
 )
 
-// Features 列出本项目启用的可选特性，供启动日志与运维自检读取。
-// Features lists the optional features enabled in this project, read by the startup log and by operations checks.
-var Features = []string{
-{{- range .Features }}
-	"{{ . }}",
-{{- end }}
+// 对外契约常量：路径与静态前缀在这里声明一次，文档、中间件与测试都引用它们。
+// Public contract constants: paths and the static prefix are declared once here and referenced by the document, by
+// middleware and by tests.
+const (
+	// OpenAPIPath 是 OpenAPI JSON 文档的端点，与框架默认值一致。 | OpenAPIPath is the endpoint serving the OpenAPI JSON document, matching the framework default.
+	OpenAPIPath = "/openapi.json"
+	// DocsPath 是内置文档查看器的端点，与框架默认值一致。 | DocsPath is the endpoint serving the built-in documentation viewer, matching the framework default.
+	DocsPath = "/docs"
+	// StaticPrefix 是静态资源前缀，与 app.Default 的挂载点一致。 | StaticPrefix is the static asset prefix, matching the mount point of app.Default.
+	StaticPrefix = "/static"
+	// AnnotationDir 是存放 OpenAPI 注解的源码目录。 | AnnotationDir is the source directory holding the OpenAPI annotations.
+	AnnotationDir = "internal"
+)
+
+// 装配期哨兵错误：Register 返回的错误都能用 errors.Is 判定到其中某一个。
+// Assembly sentinels: every error returned by Register satisfies errors.Is against one of them.
+var (
+	// ErrNilApp 表示传入的门面为空。 | ErrNilApp reports a nil facade.
+	ErrNilApp = errx.New("router: nil application facade | router：应用门面为空")
+	// ErrAuth 表示国密密钥对装配失败。 | ErrAuth reports a failed national-cryptography key pair assembly.
+	ErrAuth = errx.New("router: authentication service unavailable | router：鉴权服务装配失败")
+	// ErrTicker 表示实时推送器启动失败。 | ErrTicker reports a failed realtime publisher start.
+	ErrTicker = errx.New("router: realtime publisher failed to start | router：实时推送启动失败")
+)
+
+// Register 把全部端点登记到应用门面上。
+// Register mounts every endpoint on the application facade.
+//
+// 返回值而非直接 panic：装配失败必须由 main 统一记录并决定退出码，库代码不替调用方决定进程命运。
+// It returns an error rather than panicking: main records the failure and decides the exit code, and library code never
+// decides the process's fate for its caller.
+func Register(a *app.App) error {
+	if a == nil {
+		return ErrNilApp
+	}
+
+	auth, err := service.NewAuth()
+	if err != nil {
+		return errx.Wrap(err, ErrAuth)
+	}
+	ctrl := controller.New(a, auth)
+
+	// 事件广播器与推送器由路由层持有：它们是端点的基础设施，不是业务状态。
+	// The broker and the publisher are owned here: they are endpoint infrastructure, not business state.
+	broker := sse.NewBroker(sse.BrokerOptions{})
+	ticker := service.NewTicker(broker, service.DefaultTickInterval)
+
+	registerPages(a, ctrl)
+	registerAssets(a, ctrl)
+	registerRealtime(a, ctrl, broker, ticker)
+	registerAuth(a, ctrl)
+
+	if err := startTicker(a, ticker, broker); err != nil {
+		return err
+	}
+
+	registerOpenAPI(a)
+	registerFeatures(a)
+	return nil
 }
 
-// Mount 把全部控制器注册到 mux 上。 | Mount registers every controller on mux.
+// registerPages 登记页面与表单端点。 | registerPages mounts the pages and the form endpoints.
+func registerPages(a *app.App, ctrl *controller.Controller) {
+	a.GET("/", ctrl.Index)
+	a.GET("/healthz", ctrl.Health)
+	a.GET("/users", ctrl.List)
+	a.POST("/users", ctrl.Create)
+}
+
+// registerAssets 登记占位图端点，它们同时是混合捕获模式的活文档。
+// registerAssets mounts the placeholder endpoints, which double as living documentation of the mixed capture patterns.
 //
-// 路由模式支持单段内混合参数与静态后缀（如 /avatar/:id.jpg、/report/:id-xx.png）。
-// Route patterns support mixed dynamic segments and static suffixes (e.g. /avatar/:id.jpg, /report/:id-xx.png).
-func Mount(mux *http.ServeMux) {
-	mux.HandleFunc("/", controller.Home)
-	mux.HandleFunc("/healthz", controller.Health)
-	mux.HandleFunc("/users", controller.ListUsers)
+// 两个模式都是合法且被测试覆盖的：
+//   - /avatar/:id.jpg —— 单段内「参数 + 静态后缀」，:id 捕获 .jpg 之前的全部内容；
+//   - /report/:id-xx.png —— 单段内「参数 + 静态后缀」，后缀 -xx.png 整体固定。
+//
+// Both patterns are legal and covered by tests:
+//   - /avatar/:id.jpg — "parameter plus static suffix" inside one segment, where :id captures everything before .jpg;
+//   - /report/:id-xx.png — the same shape with the fixed suffix -xx.png.
+func registerAssets(a *app.App, ctrl *controller.Controller) {
+	a.GET("/avatar/:id.jpg", ctrl.Avatar)
+	a.GET("/report/:id-xx.png", ctrl.Report)
+}
+
+// registerRealtime 登记实时推送端点：SSE 与 WebSocket 共用同一个推送器。
+// registerRealtime mounts the realtime endpoints: SSE and WebSocket share one publisher.
+func registerRealtime(a *app.App, ctrl *controller.Controller, broker *sse.Broker, ticker *service.Ticker) {
+	a.GET("/realtime", ctrl.Page)
+	a.GET("/events", ctrl.Stream(broker))
+	a.GET("/ws", ctrl.Socket(ticker))
+}
+
+// registerAuth 登记国密登录端点：公钥可取，密文可验，明文不可达。
+// registerAuth mounts the national-cryptography endpoints: the key is public, the ciphertext is verifiable and the
+// plaintext never arrives.
+func registerAuth(a *app.App, ctrl *controller.Controller) {
+	a.GET("/guomi/pubkey", ctrl.Pubkey)
+	a.POST("/login", ctrl.Login)
+}
+
+// startTicker 启动实时推送，并把停止动作挂到关停钩子上。
+// startTicker starts the realtime publisher and hangs its stop action on the shutdown hook.
+//
+// 推送协程与进程同生命周期：用可取消的 context 派生，再由 OnShutdown 取消并等待退出，
+// 因此优雅退出时不会留下仍在写事件的孤儿协程。
+// The publisher lives as long as the process: it derives from a cancellable context and OnShutdown cancels it and waits
+// for it, so a graceful exit leaves no orphan goroutine still writing events.
+func startTicker(a *app.App, ticker *service.Ticker, broker *sse.Broker) error {
+	ctx, cancel := context.WithCancel(context.Background())
+	if err := ticker.Start(ctx); err != nil {
+		cancel()
+		return errx.Wrap(err, ErrTicker)
+	}
+
+	a.OnShutdown(func(context.Context) error {
+		// 先停推送再关广播器：颠倒顺序会让订阅者读到已关闭的通道。
+		// Stop the publisher before closing the broker: the other order lets subscribers read a closed channel.
+		ticker.Stop()
+		broker.Close()
+		cancel()
+		return nil
+	})
+
+	ticker.LogStart(a.Logger(), broker.Clients(service.EventsTopic))
+	return nil
+}
+
+// registerOpenAPI 生成 OpenAPI 文档并挂载 JSON 端点与内置查看器。
+// registerOpenAPI builds the OpenAPI document and mounts the JSON endpoint together with the built-in viewer.
+//
+// 注解解析失败不是致命错误：生产镜像通常不含源码，此时文档退化为路由树自动推导的骨架，
+// 端点依旧可用，而告警会指出注解覆盖率下降了。
+// A failed annotation parse is not fatal: production images usually ship no source, the document then degrades to the
+// skeleton derived from the route tree, the endpoints keep working and the warning reports the lost coverage.
+func registerOpenAPI(a *app.App) {
+	opts := openapi.Options{Path: OpenAPIPath, DocsPath: DocsPath, Title: meta.Name + " API"}
+	report := &openapi.Report{}
+
+	doc := openapi.FromRouterWithAnnotations(a.Router(), openAPIInfo(), opts, annotations(a), report)
+	handler := openapi.Handler(doc, opts)
+	a.GET(opts.Path, handler)
+	a.GET(opts.DocsPath, handler)
+
+	a.Logger().Info("openapi document ready | OpenAPI 文档已生成",
+		logx.Str("path", opts.Path),
+		logx.Str("docs", opts.DocsPath),
+		logx.Int("matched", len(report.Matched)),
+		logx.Int("missing", len(report.Missing)),
+		logx.Int("orphan", len(report.Orphan)),
+		logx.Int("incomplete", len(report.Incomplete)),
+	)
+}
+
+// openAPIInfo 返回文档元信息，取值全部来自 internal/meta，避免文档与代码漂移。
+// openAPIInfo returns the document metadata; every value comes from internal/meta so the document cannot drift from the code.
+func openAPIInfo() openapi.Info {
+	return openapi.Info{
+		Title:       meta.Name + " API",
+		Description: meta.Description,
+		Version:     meta.Version,
+		License:     openapi.License{Name: "Apache-2.0"},
+	}
+}
+
+// annotations 解析源码中的 OpenAPI 注解；源码不可用时返回 nil，由路由树兜底。
+// annotations parses the OpenAPI annotations from the source tree; when the source is unavailable it returns nil and the
+// route tree takes over.
+func annotations(a *app.App) map[string]openapi.Annotation {
+	parsed, err := openapi.ParseAnnotations(afs.NewOS("."), []string{AnnotationDir})
+	if err != nil {
+		a.Logger().Warn("openapi annotations unavailable, derived from the route tree instead | OpenAPI 注解不可用，改由路由树推导",
+			logx.Err(err),
+			logx.Str("dir", AnnotationDir),
+		)
+		return nil
+	}
+	return parsed
+}
+
+// registerFeatures 登记本项目启用的可选特性。
+// registerFeatures mounts the optional features enabled in this project.
+//
+// 每个特性在这里只登记「装配点」：具体实现随功能落地时补进对应分支，开关本身由脚手架参数决定，
+// 因此开关打开却尚未实现时也能一眼看出缺口在哪。
+// Each feature registers only its assembly point here: the implementation arrives with the feature and goes into the
+// matching branch, while the switches themselves come from the scaffold options, so an enabled-but-unimplemented
+// feature leaves a visible gap instead of silently doing nothing.
+func registerFeatures(a *app.App) {
 {{- if .Redis }}
 
-	// TODO(redis) 注册 Redis 缓存装饰器（cache.Decorator）与失效钩子。 | Register the Redis cache decorator (cache.Decorator) and its invalidation hooks.
+	// TODO(redis) 在此注册 Redis 缓存装饰器与失效钩子（cache.Decorator），并复用框架的 redisx 客户端。
+	// TODO(redis) Register the Redis cache decorator and its invalidation hooks (cache.Decorator) here, reusing the framework's redisx client.
+	_ = a
 {{- end }}
 {{- if .Asynq }}
 
-	// TODO(asynq) 注册 Asynq 任务处理器（task.Handler）与队列权重。 | Register Asynq task handlers (task.Handler) and queue weights.
+	// TODO(asynq) 在此注册 Asynq 任务处理器（task.Handler）与队列权重，处理器内部只调用 internal/service。
+	// TODO(asynq) Register Asynq task handlers (task.Handler) and queue weights here; handlers call internal/service and nothing else.
+	_ = a
 {{- end }}
 {{- if .GRPC }}
 
-	// TODO(grpc) 在双通道上注册 gRPC 服务（grpc.Server.RegisterService）。 | Register gRPC services on the dual channel (grpc.Server.RegisterService).
+	// TODO(grpc) 在此把 gRPC 服务注册到双通道（grpc.Server.RegisterService）上，与 HTTP 共享同一组 service。
+	// TODO(grpc) Register gRPC services on the dual channel (grpc.Server.RegisterService) here, sharing the same services as HTTP.
+	_ = a
 {{- end }}
 {{- if .I18n }}
 
-	// TODO(i18n) 装配多语言解析中间件（i18n.Middleware）与文案目录。 | Wire the locale middleware (i18n.Middleware) and the message catalogues.
+	// TODO(i18n) 语言目录已由 main 装配并注册为 app.ServiceI18n；新增文案请改 web/langs/*.yaml，
+	// TODO(i18n) 控制器用 i18n.FromContext(ctx).T(key) 取词，模板继续使用数据映射中的中英对照文案。
+	// TODO(i18n) The catalogues are already wired by main and registered as app.ServiceI18n; add copy in web/langs/*.yaml,
+	// TODO(i18n) read it in controllers through i18n.FromContext(ctx).T(key) and keep templates on the bilingual data keys.
+	_ = a
 {{- end }}
 }

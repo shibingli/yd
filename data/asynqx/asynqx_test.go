@@ -13,8 +13,8 @@ import (
 	"github.com/alicebob/miniredis/v2"
 	"github.com/hibiken/asynq"
 
-	"github.com/yun-dev/yd/data/asynqx"
-	"github.com/yun-dev/yd/logx"
+	"github.com/shibingli/yd/data/asynqx"
+	"github.com/shibingli/yd/logx"
 )
 
 // timeout bounds every wait for asynchronous work in this file. | timeout 限制本文件中所有异步等待的上限。

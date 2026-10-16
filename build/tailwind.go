@@ -9,8 +9,8 @@ import (
 	"runtime"
 	"strings"
 
-	"github.com/yun-dev/yd/errx"
-	"github.com/yun-dev/yd/logx"
+	"github.com/shibingli/yd/errx"
+	"github.com/shibingli/yd/logx"
 )
 
 // Sentinel errors of the asset stage. | 资产阶段的哨兵错误。

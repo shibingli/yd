@@ -1,6 +1,6 @@
 package redisx
 
-import "github.com/yun-dev/yd/config"
+import "github.com/shibingli/yd/config"
 
 // OptionsFromConfig maps the redis section of the framework config onto Options. | OptionsFromConfig 把框架配置的 redis 段映射为 Options。
 //

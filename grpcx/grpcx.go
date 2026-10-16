@@ -16,8 +16,8 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/reflection"
 
-	"github.com/yun-dev/yd/config"
-	"github.com/yun-dev/yd/logx"
+	"github.com/shibingli/yd/config"
+	"github.com/shibingli/yd/logx"
 )
 
 // Transport modes. | 传输模式常量。

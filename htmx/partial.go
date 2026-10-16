@@ -7,8 +7,8 @@ import (
 	"io"
 	"strings"
 
-	"github.com/yun-dev/yd/errx"
-	"github.com/yun-dev/yd/router"
+	"github.com/shibingli/yd/errx"
+	"github.com/shibingli/yd/router"
 )
 
 // ErrWritePartial indicates the rendered <hx-partial> block could not be written to w. | ErrWritePartial 表示无法把渲染好的 <hx-partial> 区块写入 w。

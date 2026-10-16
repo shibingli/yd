@@ -111,7 +111,7 @@ var maxControlPayload = 125 // RFC 6455 §5.5 | RFC 6455 §5.5 规定
 ### 9.1.1 日志统一使用 logx
 
 - 全仓**禁止** `import "log"`、禁止 `fmt.Print*` 当日志、禁止 zap/zerolog/logrus 等第三方日志库。
-- 统一使用 `github.com/yun-dev/yd/logx`，字段用 `logx.Str/Int/Dur/Err` 等强类型构造函数。
+- 统一使用 `github.com/shibingli/yd/logx`，字段用 `logx.Str/Int/Dur/Err` 等强类型构造函数。
 - **唯一例外**：`server` 包为 `http.Server.ErrorLog` 必须提供 `*log.Logger` 而写的适配器，
   其输出必须转发给 `logx`。
 - 自检：`grep -rn '"log"' --include=*.go . | grep -v '^./server/'` 无命中；

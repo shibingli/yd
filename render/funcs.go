@@ -12,8 +12,8 @@ import (
 
 	"github.com/spf13/afero"
 
-	"github.com/yun-dev/yd/errx"
-	"github.com/yun-dev/yd/jsonx"
+	"github.com/shibingli/yd/errx"
+	"github.com/shibingli/yd/jsonx"
 )
 
 // assetCache memoizes content hashes so templates do not re-read files. | assetCache 缓存内容哈希，避免模板重复读取文件。

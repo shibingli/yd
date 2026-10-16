@@ -13,10 +13,10 @@ import (
 
 	"github.com/spf13/afero"
 	"github.com/spf13/pflag"
-	"github.com/yun-dev/yd/docker"
-	"github.com/yun-dev/yd/jsonx"
-	"github.com/yun-dev/yd/logx"
-	"github.com/yun-dev/yd/version"
+	"github.com/shibingli/yd/docker"
+	"github.com/shibingli/yd/jsonx"
+	"github.com/shibingli/yd/logx"
+	"github.com/shibingli/yd/version"
 )
 
 // dockerCommandName is the command word of the container command. | dockerCommandName 是容器命令的命令词。

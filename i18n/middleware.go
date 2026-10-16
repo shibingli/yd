@@ -3,7 +3,7 @@ package i18n
 import (
 	"strings"
 
-	"github.com/yun-dev/yd/router"
+	"github.com/shibingli/yd/router"
 )
 
 // CtxKey is the router context key holding the request translator. | CtxKey 是路由上下文中保存请求译者的键。
