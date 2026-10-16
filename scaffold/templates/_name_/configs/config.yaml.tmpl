@@ -1,0 +1,62 @@
+# {{ .Name }} 配置基线（分层配置的最低优先级：框架默认值之上、本地文件之下）
+# {{ .Name }} baseline configuration (lowest precedence: above framework defaults, below the local file)
+#
+# 优先级：命令行参数 > 环境变量(.env) > 配置文件 > 框架默认值
+# Precedence: command-line flags > environment variables (.env) > config files > framework defaults
+# 环境变量前缀 YD_，下划线映射多级嵌套：YD_SERVER_PORT -> server.port
+# Environment variables use the YD_ prefix, underscores map onto nested keys: YD_SERVER_PORT -> server.port
+
+server:
+  port: 8080          # 监听端口 | listening port
+  h2c: true           # 开启 HTTP/2 Cleartext | enable HTTP/2 Cleartext
+  http3: false        # 开启 HTTP/3 (QUIC) | enable HTTP/3 (QUIC)
+  read_timeout: 15s   # 读超时 | read timeout
+  write_timeout: 30s  # 写超时 | write timeout
+
+log:
+  level: info         # debug | info | warn | error
+  format: json        # json | console
+  caller: true        # 记录调用位置 | record the call site
+{{- if ne .DB "none" }}
+
+db:
+  driver: {{ .DB }}   # mysql | postgres | sqlite
+  dsn: "{{ .DBDSN }}"
+  max_conn: 100       # 连接池上限 | connection pool ceiling
+  slow_threshold: 200ms   # 慢查询阈值 | slow query threshold
+{{- end }}
+{{- if .Redis }}
+
+redis:
+  mode: single        # single | sentinel | cluster
+  addr: 127.0.0.1:6379
+  db: 0
+  pool_size: 100
+{{- end }}
+{{- if .Asynq }}
+
+asynq:
+  queues: "critical:3,default:2,low:1"   # 队列与权重 | queues and weights
+  concurrency: 10                        # 并发消费者数 | concurrent consumers
+{{- end }}
+{{- if .GRPC }}
+
+grpc:
+  enabled: true
+  port: 9090
+  max_recv_bytes: 4194304   # 单条消息上限 4MiB | per-message ceiling 4MiB
+{{- end }}
+{{- if .I18n }}
+
+i18n:
+  default: zh-CN
+  fallback: en
+  dir: configs/i18n
+{{- end }}
+{{- if .Tailwind }}
+
+tailwind:
+  input: {{ .AssetRoot }}/static/css/app.css
+  output: {{ .AssetRoot }}/static/css/yd.css
+  minify: true
+{{- end }}

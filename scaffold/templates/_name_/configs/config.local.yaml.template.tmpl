@@ -1,0 +1,38 @@
+# {{ .Name }} 本地覆盖配置模板（复制为 configs/config.local.yaml；该文件不入库）
+# {{ .Name }} local override template (copy it to configs/config.local.yaml; that file is never committed)
+#
+# 本地文件优先级高于 configs/config.yaml，低于环境变量与命令行参数。
+# The local file overrides configs/config.yaml, but stays below environment variables and flags.
+
+server:
+  port: 8080
+
+log:
+  level: debug       # 本地开发用 debug | debug for local development
+  format: console    # 本地开发用人类可读格式 | human-readable format for local development
+{{- if ne .DB "none" }}
+
+db:
+  driver: {{ .DB }}
+  dsn: "{{ .DBDSN }}"
+{{- end }}
+{{- if .Redis }}
+
+redis:
+  addr: 127.0.0.1:6379
+{{- end }}
+{{- if .Asynq }}
+
+asynq:
+  concurrency: 4
+{{- end }}
+{{- if .GRPC }}
+
+grpc:
+  enabled: true
+{{- end }}
+{{- if .I18n }}
+
+i18n:
+  default: zh-CN
+{{- end }}

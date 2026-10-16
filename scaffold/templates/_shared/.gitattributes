@@ -1,0 +1,10 @@
+* text=auto eol=lf
+*.go text
+*.html text
+*.css text
+*.js text
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary

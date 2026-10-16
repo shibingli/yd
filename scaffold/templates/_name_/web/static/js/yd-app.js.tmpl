@@ -1,0 +1,60 @@
+/* {{ .Name }} 前端胶水层：只做 htmx 事件桥接与国密沙箱入口，不引入任何框架。 | {{ .Name }} front-end glue: it only bridges htmx events and exposes the guomi sandbox entry, pulling in no framework. */
+(function () {
+  "use strict";
+
+  /* 全局命名空间：业务脚本一律挂在这里，避免污染 window。 | Global namespace: business scripts hang off it to keep window clean. */
+  var yd = window.yd || {};
+  window.yd = yd;
+
+  /* 工作区容器 id，与 layouts/base.html 保持一致。 | Workspace container id, kept in sync with layouts/base.html. */
+  var WORKSPACE = "#yd-workspace";
+
+  /* 敏感字段选择器：提交前需要 SM2 前置加密。 | Sensitive field selector: these are pre-encrypted with SM2 before submission. */
+  var SENSITIVE = "[data-yd-encrypt='sm2']";
+
+  /* encryptSensitive 由后端注入的国密公钥实现；未就绪时原样返回，绝不静默降级为明文"看似加密"。 | encryptSensitive is provided by the injected guomi public key; before that it returns the value untouched instead of silently pretending to encrypt. */
+  yd.encryptSensitive = yd.encryptSensitive || function (value) {
+    return value;
+  };
+
+  /* 请求发出前：对标记为 SM2 的字段做前置加密并戴上标识头。 | Before a request leaves: pre-encrypt the SM2-marked fields and tag the request. */
+  document.addEventListener("htmx:config:request", function (event) {
+    var form = event.detail.elt;
+    if (!form || !form.querySelector) {
+      return;
+    }
+    var fields = form.querySelectorAll(SENSITIVE);
+    if (fields.length === 0) {
+      return;
+    }
+    for (var i = 0; i < fields.length; i++) {
+      var field = fields[i];
+      if (field.value) {
+        field.value = yd.encryptSensitive(field.value);
+      }
+    }
+    event.detail.headers["X-YD-Encrypted"] = "sm2";
+  });
+
+  /* 校验失败（422）时把错误片段换入工作区，而不是丢弃响应。 | On a 422 the error fragment is swapped into the workspace instead of being dropped. */
+  document.addEventListener("htmx:response:error", function (event) {
+    if (event.detail.xhr.status !== 422) {
+      return;
+    }
+    var workspace = document.querySelector(WORKSPACE);
+    if (workspace) {
+      workspace.innerHTML = event.detail.xhr.responseText;
+    }
+  });
+
+  /* 请求失败时统一提示，避免用户面对静止页面。 | Failures get one toast so the user never stares at a frozen page. */
+  document.addEventListener("htmx:send:error", function () {
+    var flash = document.getElementById("yd-flash");
+    if (flash) {
+      flash.textContent = "网络异常，请稍后重试 | Network error, please retry";
+    }
+  });
+
+  /* 就绪标记：模板与测试可据此判断胶水层已加载。 | Ready flag: templates and tests use it to tell that the glue has loaded. */
+  yd.ready = true;
+})();

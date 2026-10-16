@@ -1,0 +1,52 @@
+// Package service 是业务层：编排仓储、施加规则，并通过 errx 哨兵向控制器暴露失败语义。
+// Package service is the business layer: it orchestrates repositories, applies rules and exposes failures to controllers via errx sentinels.
+package service
+
+import (
+	"context"
+	"strings"
+
+	"{{ .Module }}/internal/model"
+	"{{ .Module }}/internal/repository"
+	"github.com/yun-dev/yd/errx"
+)
+
+// ErrUserNotFound 表示按条件没有匹配到任何用户。 | ErrUserNotFound reports that no user matched the condition.
+var ErrUserNotFound = errx.New("user not found | 用户不存在")
+
+// ListUsers 返回用户列表：关键字为空时返回全部，否则按名称/邮箱做大小写不敏感匹配。
+// ListUsers returns the user list: an empty keyword yields everyone, otherwise names and e-mails are matched case-insensitively.
+func ListUsers(ctx context.Context, keyword string) ([]model.User, error) {
+	users, err := repository.List(ctx)
+	if err != nil {
+		return nil, errx.Wrap(err, ErrUserNotFound)
+	}
+	if keyword == "" {
+		return users, nil
+	}
+
+	kw := strings.ToLower(keyword)
+	matched := make([]model.User, 0, len(users))
+	for _, u := range users {
+		if strings.Contains(strings.ToLower(u.Name), kw) || strings.Contains(strings.ToLower(u.Email), kw) {
+			matched = append(matched, u)
+		}
+	}
+	if len(matched) == 0 {
+		return nil, errx.Detail(ErrUserNotFound, "keyword=%s", keyword)
+	}
+	return matched, nil
+}
+
+// CreateUser 校验并创建用户；名称与邮箱都必须非空。 | CreateUser validates and creates a user; both name and e-mail are required.
+func CreateUser(ctx context.Context, u model.User) (model.User, error) {
+	if strings.TrimSpace(u.Name) == "" || strings.TrimSpace(u.Email) == "" {
+		return model.User{}, errx.Detail(ErrUserInvalid, "name=%q email=%q", u.Name, u.Email)
+	}
+
+	u.ID = repository.Create(ctx, u)
+	return u, nil
+}
+
+// ErrUserInvalid 表示创建用户的入参不合法。 | ErrUserInvalid reports invalid input for user creation.
+var ErrUserInvalid = errx.New("invalid user payload | 用户入参不合法")

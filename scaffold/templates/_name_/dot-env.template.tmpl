@@ -1,0 +1,55 @@
+# {{ .Name }} 环境变量模板（复制为 .env 后按需修改）
+# {{ .Name }} environment template (copy it to .env and adjust as needed)
+#
+# 优先级：命令行参数 > 环境变量(.env) > 配置文件 > 框架默认值
+# Precedence: command-line flags > environment variables (.env) > config files > framework defaults
+# 前缀 YD_，下划线自动映射为多级嵌套结构：YD_DB_MAXCONN -> db.maxconn
+# The YD_ prefix is mandatory; underscores map onto nested keys: YD_DB_MAXCONN -> db.maxconn
+
+YD_SERVER_PORT=8080
+YD_SERVER_H2C=true
+YD_SERVER_HTTP3_ENABLED=false
+
+YD_LOG_LEVEL=info
+YD_LOG_FORMAT=json
+{{- if ne .DB "none" }}
+
+# 数据库：mysql | postgres | sqlite
+# Database: mysql | postgres | sqlite
+YD_DB_DRIVER={{ .DB }}
+YD_DB_DSN={{ .DBDSN }}
+YD_DB_MAXCONN=100
+YD_DB_SLOW_THRESHOLD=200ms
+{{- end }}
+{{- if .Redis }}
+
+# Redis：single | sentinel | cluster
+# Redis: single | sentinel | cluster
+YD_REDIS_MODE=single
+YD_REDIS_ADDR=127.0.0.1:6379
+{{- end }}
+{{- if .Asynq }}
+
+# 异步任务队列
+# Asynchronous task queue
+YD_ASYNQ_QUEUES="critical:3,default:2,low:1"
+YD_ASYNQ_CONCURRENCY=10
+{{- end }}
+{{- if .GRPC }}
+
+# gRPC 双通道
+# gRPC dual channel
+YD_GRPC_ENABLED=true
+YD_GRPC_PORT=9090
+{{- end }}
+{{- if .I18n }}
+
+# 国际化
+# Internationalisation
+YD_I18N_DEFAULT=zh-CN
+YD_I18N_FALLBACK=en
+{{- end }}
+
+# 国密（仅开发环境使用测试向量，生产环境必须走密钥管理服务）
+# Guomi crypto (development uses test vectors only; production must use a key management service)
+YD_GUOMI_SM2_PRIVATE_KEY=

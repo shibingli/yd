@@ -1,0 +1,21 @@
+<!-- 首页内容片段：htmx 请求只返回本片段，整页请求由 layouts/base.html 包裹。 | Home content fragment: htmx requests get this fragment alone, full-page requests are wrapped by layouts/base.html. -->
+<section id="yd-page-home" class="space-y-4">
+  <h1 class="text-2xl font-semibold text-content">{{ .Name }} 已就绪 | {{ .Name }} is ready</h1>
+  <p class="text-content-muted">
+    后端直接返回 HTML 片段，前端由 Htmx 作为事件总线驱动。
+    The backend returns HTML fragments directly and Htmx drives the front end as an event bus.
+  </p>
+
+  <form hx-post="/users" hx-target="#yd-workspace" hx-swap="innerMorph" hx-validate="true">
+    <label class="block text-sm" for="name">名称 | Name</label>
+    <input id="name" name="name" required class="mb-2 w-full rounded border border-border-subtle px-3 py-2">
+
+    <label class="block text-sm" for="email">邮箱 | E-mail</label>
+    <input id="email" name="email" type="email" required class="mb-2 w-full rounded border border-border-subtle px-3 py-2">
+
+    <!-- 敏感字段提交前由前端国密沙箱做 SM2 前置加密。 | Sensitive fields are pre-encrypted with SM2 by the front-end guomi sandbox. -->
+    <input id="idcard" name="idcard" data-yd-encrypt="sm2" class="mb-3 w-full rounded border border-border-subtle px-3 py-2">
+
+    <button type="submit" class="rounded bg-brand-600 px-4 py-2 text-white">提交 | Submit</button>
+  </form>
+</section>

@@ -1,0 +1,35 @@
+# {{ .Name }} 生产镜像：多阶段构建 + scratch 运行时（约十几 MB）
+# {{ .Name }} production image: multi-stage build with a scratch runtime (roughly a dozen MB)
+#
+# 由 `yd docker` 自动调用；也可直接 `docker build -t {{ .Name }}:latest .`
+# Invoked by `yd docker`; you can also run `docker build -t {{ .Name }}:latest .` directly.
+
+FROM golang:1.27-alpine AS builder
+
+WORKDIR /src
+
+# 依赖层缓存：先只复制模块描述文件（go.sum 由 `go mod tidy` 生成）
+# Dependency layer cache: copy only the module descriptor files first (go.sum is produced by `go mod tidy`)
+COPY go.mod go.sum ./
+RUN go mod download
+
+COPY . .
+
+# 静态资源（Htmx/Tailwind 产物）已由 `yd build` 通过 go:embed 嵌入二进制，
+# 此处只需产出静态链接的单文件可执行程序。
+# Static assets (Htmx/Tailwind output) are already embedded into the binary by `yd build` via go:embed,
+# so this stage only has to produce a statically linked single-file executable.
+RUN CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags "-s -w" -o /out/app ./cmd/app
+
+FROM scratch
+
+# 时区与根证书：scratch 镜像不含任何运行时依赖，需要显式复制。
+# Time zone data and root certificates: the scratch image ships no runtime dependency, so they are copied explicitly.
+COPY --from=builder /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/
+COPY --from=builder /usr/share/zoneinfo /usr/share/zoneinfo
+
+COPY --from=builder /out/app /app
+
+EXPOSE 8080
+
+ENTRYPOINT ["/app"]

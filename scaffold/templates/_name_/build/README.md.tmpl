@@ -1,0 +1,30 @@
+# build/
+
+{{ .Name }} 的构建辅助目录：存放构建期生成物、打包脚本与产物清单。
+
+## 约定
+
+- 本目录**只放构建配置与脚本**，产物一律写入 `bin/` 或 `dist/`（均已被 `.gitignore` 忽略）。
+- 不要在此目录放置 Go 包：所有 Go 源码都在 `cmd/` 与 `internal/` 下。
+- 单文件产物的要求：`CGO_ENABLED=0` 静态链接，`scratch` 镜像可直接运行。
+
+## 常用命令
+
+```bash
+yd build                       # 当前平台静态打包，产物 bin/{{ .Name }}
+yd build --all                 # linux/amd64、linux/arm64、darwin/arm64、windows/amd64
+yd build --offline             # 强制 -mod=vendor，禁止触网
+yd docker --tag {{ .Name }}:latest   # 基于 scratch 的多阶段镜像构建
+```
+
+## CI 建议顺序
+
+```
+1. go vet ./... && go test ./... -race
+2. yd build --all
+3. yd docker --tag {{ .Name }}:$VERSION
+4. 校验产物大小与 file 头（PE/ELF magic）
+```
+
+依赖的前端资产在构建前由 Tailwind 阶段裁剪压缩（`{{ .AssetRoot }}/static/css/yd.css`），
+再经 `go:embed` 嵌入二进制，因此镜像内无需任何运行时依赖。

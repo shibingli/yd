@@ -1,0 +1,43 @@
+// Package router 负责把控制器挂载到路由表，并集中登记本项目的可选特性。
+// Package router mounts controllers onto the mux and keeps the project's optional features in one place.
+package router
+
+import (
+	"net/http"
+
+	"{{ .Module }}/internal/controller"
+)
+
+// Features 列出本项目启用的可选特性，供启动日志与运维自检读取。
+// Features lists the optional features enabled in this project, read by the startup log and by operations checks.
+var Features = []string{
+{{- range .Features }}
+	"{{ . }}",
+{{- end }}
+}
+
+// Mount 把全部控制器注册到 mux 上。 | Mount registers every controller on mux.
+//
+// 路由模式支持单段内混合参数与静态后缀（如 /avatar/:id.jpg、/report/:id-xx.png）。
+// Route patterns support mixed dynamic segments and static suffixes (e.g. /avatar/:id.jpg, /report/:id-xx.png).
+func Mount(mux *http.ServeMux) {
+	mux.HandleFunc("/", controller.Home)
+	mux.HandleFunc("/healthz", controller.Health)
+	mux.HandleFunc("/users", controller.ListUsers)
+{{- if .Redis }}
+
+	// TODO(redis) 注册 Redis 缓存装饰器（cache.Decorator）与失效钩子。 | Register the Redis cache decorator (cache.Decorator) and its invalidation hooks.
+{{- end }}
+{{- if .Asynq }}
+
+	// TODO(asynq) 注册 Asynq 任务处理器（task.Handler）与队列权重。 | Register Asynq task handlers (task.Handler) and queue weights.
+{{- end }}
+{{- if .GRPC }}
+
+	// TODO(grpc) 在双通道上注册 gRPC 服务（grpc.Server.RegisterService）。 | Register gRPC services on the dual channel (grpc.Server.RegisterService).
+{{- end }}
+{{- if .I18n }}
+
+	// TODO(i18n) 装配多语言解析中间件（i18n.Middleware）与文案目录。 | Wire the locale middleware (i18n.Middleware) and the message catalogues.
+{{- end }}
+}

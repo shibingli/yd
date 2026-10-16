@@ -1,0 +1,13 @@
+module {{ .Module }}
+
+go {{ .GoVersion }}
+{{- if .LocalReplace }}
+
+require {{ .YdModule }} v0.0.0-00010101000000-000000000000
+
+replace {{ .YdModule }} => {{ .LocalReplace }}
+{{- else }}
+
+// 框架依赖 github.com/yun-dev/yd 在模块发布后由 go mod tidy 引入。 | The framework dependency github.com/yun-dev/yd is pulled in by go mod tidy once the module is published.
+// 开发期可用 yd new 的 --local-replace 参数指向本地框架仓库。 | During development, point yd new at a local framework checkout with its --local-replace argument.
+{{- end }}

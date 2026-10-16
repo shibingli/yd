@@ -1,0 +1,60 @@
+# {{ .Name }}
+
+基于 [yd](https://github.com/yun-dev/yd) 全栈单体（Modern Monolith）框架生成的项目：
+Go {{ .GoVersion }} + Htmx {{ .HtmxVersion }} + Tailwind CSS {{ .TailwindVersion }}，后端直接返回 HTML 片段，前端由 Htmx 作为事件总线驱动。
+
+- 模块路径：`{{ .Module }}`
+- 开源协议：{{ .License }}（见 `LICENSE`）
+- 资产根目录：`{{ .AssetRoot }}`
+
+## 已选特性
+
+| 特性 | 状态 |
+|---|---|
+| 数据库 | {{ .DB }} |
+| redis 缓存 | {{ .Redis }} |
+| asynq 队列 | {{ .Asynq }} |
+| grpc 双通道 | {{ .GRPC }} |
+| i18n | {{ .I18n }} |
+| tailwind | {{ .Tailwind }} |
+| htmx 扩展 | {{ range $i, $e := .HtmxExts }}{{ if $i }}, {{ end }}{{ $e }}{{ end }} |
+
+## 目录结构
+
+```
+{{ .Name }}/
+├── cmd/app/            # 程序入口
+├── internal/           # 业务代码（controller / service / repository / model / middleware / router）
+├── configs/            # 分层配置（config.yaml + config.local.yaml.template）
+├── {{ .AssetRoot }}/            # 前端资产（templates / static / assets.lock.json）
+├── build/              # 构建产物与打包说明
+└── docs/               # 协同约束与文档
+```
+
+## 快速开始
+
+```bash
+# 1. 拉取依赖（模块发布后）
+go mod tidy
+
+# 2. 本地开发（热重载：Go 编译重启 + Tailwind 监听 + 模板局部刷新）
+yd dev
+
+# 3. 跨平台静态打包（Tailwind 剪裁压缩 + go:embed + 单二进制）
+yd build
+
+# 4. 构建 scratch 生产镜像
+yd docker --tag {{ .Name }}:latest
+```
+
+## 环境变量
+
+环境变量前缀固定 `YD_`，下划线自动映射为多级嵌套（`YD_SERVER_PORT` → `server.port`）。
+优先级由高到低：**命令行参数 > 环境变量（含 `.env`）> 配置文件 > 框架默认值**。
+复制 `.env.template` 为 `.env` 后按需修改，`.env` 不入库。
+
+## 团队约定
+
+- 注释与日志文案逐行中英同步（`English | 中文`）；错误用 `errx` 声明哨兵；日志走 `logx`；JSON/Base64 走 `jsonx`/`b64x`。
+- 提交信息使用中文 Conventional Commits，署名固定 `Co-Authored-By: Eric Shi <shibingli@sina.com>`。
+- 详见 `CLAUDE.md`、`AGENTS.md` 与 `docs/developer_guidelines.md`。

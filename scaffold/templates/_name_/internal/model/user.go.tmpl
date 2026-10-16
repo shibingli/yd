@@ -1,0 +1,21 @@
+// Package model 定义领域模型与数据库映射结构。 | Package model defines the domain models and their database mappings.
+package model
+
+import "strconv"
+
+// User 是用户模型；接入 GORM 后可直接把标签换成 gorm 标签。
+// User is the user model; once GORM is wired in, swap the tags for gorm ones.
+type User struct {
+	// ID 是主键。 | ID is the primary key.
+	ID int64 `json:"id"`
+	// Name 是显示名。 | Name is the display name.
+	Name string `json:"name"`
+	// Email 是登录邮箱。 | Email is the login address.
+	Email string `json:"email"`
+}
+
+// Display 返回列表展示文本（片段渲染时直接拼接，务必保持纯文本）。
+// Display returns the text shown in lists (it is concatenated straight into fragments, so keep it plain text).
+func (u User) Display() string {
+	return "#" + strconv.FormatInt(u.ID, 10) + " " + u.Name
+}

@@ -1,0 +1,79 @@
+# AGENTS.md — {{ .Name }} 自主 AI Agent 自动化规约
+
+面向在 **{{ .Name }}**（模块 `{{ .Module }}`）项目内自主执行「代码修复 / 功能迭代」的 AI Agent。
+本文件定义修改权限边界、测试自愈流程（Test-and-Fix）与安全合规检查清单。
+
+## 1. 修改权限边界
+
+**允许直接修改**
+
+- 业务源码：`cmd/`、`internal/controller/`、`internal/service/`、`internal/repository/`、`internal/model/`、`internal/middleware/`、`internal/router/`
+- 前端：`{{ .AssetRoot }}/templates/`、`{{ .AssetRoot }}/static/`
+- 测试与文档：`*_test.go`、`testdata/**`、`docs/**`
+
+**禁止修改**
+
+- `LICENSE` 的授权条款正文（仅允许更新末尾版权行）。
+- `{{ .AssetRoot }}/assets.lock.json` 中已锁定的校验和 —— 依赖升级必须走 `yd assets update` 重新锁定，禁止手改。
+- `.yd.json` 中由脚手架写入的 `name`/`module`/`assetRoot` 字段。
+
+**需要人工确认**
+
+- 新增第三方依赖（尤其引入 cgo 或超过 1MB 体积的依赖）。
+- 变更公开 API 的破坏性签名（须在提交信息中标注 `BREAKING CHANGE`）。
+- 修改 `configs/config.yaml` 的默认值。
+
+## 2. 测试自愈流程（Test-and-Fix）
+
+任何修改都必须以如下闭环收尾，**最多 3 轮**；3 轮未收敛则停止并输出诊断报告，不得继续盲改。
+
+```
+1. go build ./...            # 编译 | build
+   └─ 失败 → 读编译错误 → 定点修复 → 回到 1
+2. go vet ./...              # 静态检查 | vet
+   └─ 告警 → 修复 → 回到 1
+3. go test ./... -race       # 单元测试 | unit tests
+   └─ 失败 → 用系统化调试定位根因（禁止改测试断言来"通过"）→ 修复 → 回到 1
+4. GOOS=linux GOARCH=arm64 CGO_ENABLED=0 go build ./...   # 交叉编译护栏 | cross-build guard
+5. yd assets verify --offline                              # 资产完整性 | asset integrity
+```
+
+自愈规则：不得通过删除/注释测试、放宽断言、`t.Skip` 让流水线变绿；修复缺陷必须先补一条能复现缺陷的测试。
+
+## 3. 安全合规检查清单
+
+提交前逐条自检：
+
+- [ ] **密钥零硬编码**：源码、模板、测试夹具中不得出现真实密钥/口令/Token。
+- [ ] **国密合规**：敏感数据加解密必须走 `guomi`（SM2/SM3/SM4），口令存储用 SM3 + 盐 + 迭代，禁止 MD5/SHA1。
+- [ ] **传输加密**：前端敏感字段提交必须声明式触发 SM2 前置加密（`data-yd-encrypt="sm2"`）。
+- [ ] **注入面**：SQL 只允许参数化查询；模板输出默认走 `html/template` 转义。
+- [ ] **请求边界**：外部输入必须限长（`MaxBytesReader`、WebSocket `MaxMessageSize`）并设置读写超时。
+- [ ] **JSON/Base64 统一走封装层**：一律 `jsonx` 与 `b64x`，禁止 `import "encoding/json"` 与 `"encoding/base64"`。
+- [ ] **中英文同步（注释 + 日志文案）**：逐行 `English | 中文`（竖线分割，英文在前、中文在后）。
+- [ ] **日志统一走 logx**：禁止标准库 `log`、禁止 `fmt.Print*` 当日志、禁止第三方日志库。
+- [ ] **错误统一声明为哨兵**：包级 `var ErrX = errx.New("english | 中文")`；禁止 `fmt.Errorf`；判定只用 `errors.Is` / `errors.As`。
+- [ ] **环境变量前缀**：一律 `YD_`，下划线自动转多级嵌套（`YD_SERVER_PORT` → `server.port`）。
+- [ ] **资产完整性**：`{{ .AssetRoot }}/assets.lock.json` 中每项必须有 sha256，且 `yd assets verify --offline` 通过。
+
+## 4. 提交纪律（强制，Agent 必须遵守）
+
+- **提交信息一律使用中文 Conventional Commits**：
+  ```
+  <类型>(<范围>): <中文简述>
+
+  <可选正文>
+
+  Co-Authored-By: Eric Shi <shibingli@sina.com>
+  ```
+- **署名口径唯一**：所有提交一律 `Co-Authored-By: Eric Shi <shibingli@sina.com>`，不得替换、不得省略。
+- **严禁任何 Claude / Anthropic / AI 相关内容**出现在提交信息、作者信息、脚注、分支名、PR 描述、
+  代码注释与文档中（含 `Claude`、`claude`、`Anthropic`、`noreply@anthropic.com`、`🤖` 等）。
+- Agent 自动化流程创建提交前必须先设置作者身份：
+  `git -c user.name="Eric Shi" -c user.email="shibingli@sina.com" commit ...`
+
+## 5. 交付物要求
+
+- 每个功能变更须包含：实现 + 单元测试 +（如涉及用户可见行为）`docs/` 下的说明更新。
+- 新增包须在包文档注释中说明其职责边界与不做什么。
+- 生成的代码变更须能通过 `yd gen` 幂等重放（重复执行不产生 diff）。

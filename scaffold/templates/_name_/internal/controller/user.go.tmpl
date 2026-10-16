@@ -1,0 +1,89 @@
+// Package controller 承载 HTTP 处理器：只做编排，业务逻辑放 internal/service。
+// Package controller holds the HTTP handlers: they only orchestrate, business logic lives in internal/service.
+package controller
+
+import (
+	"errors"
+	"net/http"
+	"strings"
+
+	"{{ .Module }}/internal/service"
+)
+
+// 响应文案：面向用户的内容保持中英同步，便于 htmx 片段直接回显。
+// Response copy: user-facing text stays bilingual so htmx fragments can echo it as-is.
+const (
+	// msgIndex 是首页片段文案。 | msgIndex is the home fragment copy.
+	msgIndex = "it works | 运行正常"
+	// msgHealthOK 是健康检查通过文案。 | msgHealthOK is the healthy-check copy.
+	msgHealthOK = "ok | 正常"
+	// msgUserNotFound 是用户不存在时的文案。 | msgUserNotFound is shown when the user does not exist.
+	msgUserNotFound = "user not found | 用户不存在"
+)
+
+// Home 返回首页 HTML 片段。 | Home returns the home page HTML fragment.
+//
+// @Summary 首页片段 | Home fragment
+// @Description 整页请求返回布局，htmx 请求只返回内容片段。 | Full pages return the layout, htmx requests return the fragment only.
+// @Tags pages
+// @Produce html
+// @Success 200 {string} string "首页片段 | home fragment"
+// @Router / [get]
+func Home(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	writeFragment(w, `<section id="yd-workspace"><h1>`+msgIndex+`</h1></section>`)
+}
+
+// Health 返回健康检查片段，供容器探针与负载均衡使用。 | Health returns the health fragment used by container probes and load balancers.
+//
+// @Summary 健康检查 | Health check
+// @Description 返回纯文本 ok，不依赖任何外部组件。 | Returns the plain text ok without touching any external component.
+// @Tags ops
+// @Produce text/plain
+// @Success 200 {string} string "ok | 正常"
+// @Router /healthz [get]
+func Health(w http.ResponseWriter, _ *http.Request) {
+	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	writeFragment(w, msgHealthOK)
+}
+
+// ListUsers 以 HTML 片段返回用户列表。 | ListUsers returns the user list as an HTML fragment.
+//
+// @Summary 用户列表片段 | User list fragment
+// @Description 校验失败返回 422 错误片段，由 hx-status:422 声明式接管。 | Validation failures return a 422 error fragment taken over declaratively by hx-status:422.
+// @Tags users
+// @Produce html
+// @Success 200 {string} string "用户列表片段 | user list fragment"
+// @Failure 422 {string} string "校验失败 | validation failed"
+// @Router /users [get]
+func ListUsers(w http.ResponseWriter, r *http.Request) {
+	users, err := service.ListUsers(r.Context(), strings.TrimSpace(r.URL.Query().Get("q")))
+	if err != nil {
+		if errors.Is(err, service.ErrUserNotFound) {
+			w.Header().Set("Content-Type", "text/html; charset=utf-8")
+			w.WriteHeader(http.StatusNotFound)
+			writeFragment(w, `<p class="text-content-muted">`+msgUserNotFound+`</p>`)
+			return
+		}
+		http.Error(w, "internal error | 服务器内部错误", http.StatusInternalServerError)
+		return
+	}
+
+	var b strings.Builder
+	b.WriteString(`<ul id="user-list" class="divide-y divide-border-subtle">`)
+	for _, u := range users {
+		b.WriteString(`<li class="py-2">` + u.Display() + `</li>`)
+	}
+	b.WriteString(`</ul>`)
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	writeFragment(w, b.String())
+}
+
+// writeFragment 写出一个 HTML 片段（响应体不换行，便于 htmx 直接换入）。
+// writeFragment writes one HTML fragment (with no trailing newline so htmx can swap it straight in).
+func writeFragment(w http.ResponseWriter, body string) {
+	if _, err := w.Write([]byte(body)); err != nil {
+		// 客户端断开属正常现象，交由中间件统一记录。 | A client disconnect is normal and is logged by the middleware.
+		return
+	}
+}

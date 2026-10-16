@@ -1,0 +1,98 @@
+// Command app 是 {{ .Name }} 的可执行入口：启动 HTTP 服务并优雅退出。 | Command app is the executable entry point of {{ .Name }}: it starts the HTTP server and shuts it down gracefully.
+//
+// 本入口刻意只用标准库 HTTP 服务器，框架侧仅取 logx 与 errx：
+// 骨架因此不依赖任何框架子系统即可编译运行，便于先跑通再逐步接入。
+// This entry point deliberately uses the standard library HTTP server and takes only logx and errx from the framework:
+// the skeleton therefore compiles and runs without any framework subsystem, so it can be extended step by step.
+//
+// 需要 Htmx/Tailwind/中间件全量装配时，改用框架的 app 门面：
+//   a, err := app.Default(); if err != nil { ... }; router.Mount(a); err = a.Run(ctx)
+// 并把 internal/router 与 internal/controller 的处理器签名换成框架 router 的 router.HandlerFunc / router.Ctx。
+// For the full Htmx/Tailwind/middleware assembly, switch to the framework's app facade:
+//   a, err := app.Default(); if err != nil { ... }; router.Mount(a); err = a.Run(ctx)
+// and move the handler signatures in internal/router and internal/controller onto router.HandlerFunc / router.Ctx.
+package main
+
+import (
+	"context"
+	"errors"
+	"net/http"
+	"os"
+	"os/signal"
+	"syscall"
+	"time"
+
+	"{{ .Module }}/internal/middleware"
+	"{{ .Module }}/internal/router"
+	"github.com/yun-dev/yd/errx"
+	"github.com/yun-dev/yd/logx"
+)
+
+// 服务端超时参数：避免慢连接耗尽连接表。 | Server timeouts: they keep slow connections from exhausting the connection table.
+const (
+	// readHeaderTimeout 限制请求头读取时间。 | readHeaderTimeout caps how long reading request headers may take.
+	readHeaderTimeout = 5 * time.Second
+	// writeTimeout 限制单次响应写入时间。 | writeTimeout caps how long writing one response may take.
+	writeTimeout = 30 * time.Second
+	// shutdownTimeout 限制优雅退出的等待时间。 | shutdownTimeout caps how long a graceful shutdown waits.
+	shutdownTimeout = 10 * time.Second
+	// defaultPort 是未配置 YD_SERVER_PORT 时的监听端口。 | defaultPort is used when YD_SERVER_PORT is unset.
+	defaultPort = "8080"
+)
+
+// ErrListen 表示 HTTP 服务异常终止（非正常关闭）。 | ErrListen reports an HTTP server that died abnormally (not a graceful close).
+var ErrListen = errx.New("http server terminated unexpectedly | HTTP 服务器异常终止")
+
+// main 构造日志、路由与 HTTP 服务，等待退出信号后优雅关闭。
+// main wires the logger, the router and the HTTP server, then waits for a shutdown signal.
+//
+// http.ListenAndServe 的极简形态等价于 srv.ListenAndServe()，这里保留超时配置以免裸用默认值。
+// The plain http.ListenAndServe shortcut is equivalent to srv.ListenAndServe(); the timeouts are configured here on purpose.
+func main() {
+	log := logx.New(logx.Options{Service: "{{ .Name }}", Caller: true})
+
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
+	mux := http.NewServeMux()
+	router.Mount(mux)
+
+	srv := &http.Server{
+		Addr:              ":" + port(),
+		Handler:           middleware.Recover(log)(mux),
+		ReadHeaderTimeout: readHeaderTimeout,
+		WriteTimeout:      writeTimeout,
+	}
+
+	go func() {
+		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			log.Error("http server aborted | HTTP 服务器异常终止", logx.Err(errx.Wrap(err, ErrListen)))
+			stop()
+		}
+	}()
+
+	log.Info("server started | 服务器已启动",
+		logx.Str("addr", srv.Addr),
+		logx.Strs("features", router.Features),
+	)
+
+	<-ctx.Done()
+	log.Info("shutdown started | 开始优雅退出")
+
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
+	defer cancel()
+	if err := srv.Shutdown(shutdownCtx); err != nil {
+		log.Error("shutdown failed | 优雅退出失败", logx.Err(err))
+		return
+	}
+	log.Info("server stopped | 服务器已停止")
+}
+
+// port 返回 YD_SERVER_PORT 指定的端口，未配置时回退到默认端口。
+// port returns the port from YD_SERVER_PORT, falling back to the default one.
+func port() string {
+	if p := os.Getenv("YD_SERVER_PORT"); p != "" {
+		return p
+	}
+	return defaultPort
+}

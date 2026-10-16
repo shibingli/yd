@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<!-- 整页骨架：左侧常驻/折叠导航 + 顶部状态栏 + 中央高吞吐工作区。 | Full-page shell: persistent/collapsible left navigation, top status bar and a central high-throughput workspace. -->
+<!-- htmx 4 的属性继承是显式的：父元素属性必须加 :inherited 修饰符才会被子元素继承。 | Htmx 4 attributes are inherited explicitly: a parent attribute needs the :inherited modifier to reach children. -->
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{ .Name }}</title>
+  <!-- 样式产物由 yd dev / yd build 生成：Tailwind 编译到 yd.css。 | The style artefact is produced by yd dev / yd build: Tailwind compiles into yd.css. -->
+  <link rel="stylesheet" href="/static/css/{{ if .Tailwind }}yd.css{{ else }}app.css{{ end }}">
+  <!-- 前端资产一律由本机提供（go:embed 打包），严禁引用公网 CDN。 | Front-end assets are always served locally (embedded via go:embed); public CDNs are forbidden. -->
+  <script src="/static/js/vendor/htmx.min.js" defer></script>
+{{- range .HtmxExtScripts }}
+  <script src="{{ . }}" defer></script>
+{{- end }}
+  <script src="/static/js/yd-app.js" defer></script>
+</head>
+<body class="bg-surface text-content">
+  <!-- 顶部状态栏（可放全局搜索、告警、用户菜单）。 | Top status bar (global search, alerts, user menu). -->
+  <header id="yd-topbar" class="flex h-12 items-center justify-between border-b border-border-subtle px-4">
+    <a href="/" class="font-semibold text-brand-600" hx-boost="true">{{ .Name }}</a>
+    <span class="text-content-muted text-sm">Htmx {{ .HtmxVersion }} · Tailwind {{ .TailwindVersion }} · Go {{ .GoVersion }}</span>
+  </header>
+
+  <div class="flex min-h-screen">
+    <!-- 左侧导航：内容由 partials/sidebar.html 提供，导航跳转默认提升为局部无刷新。 | Left navigation: its markup lives in partials/sidebar.html and its links boost into local refresh-free swaps. -->
+    <aside id="yd-sidebar"
+           class="w-56 shrink-0 border-r border-border-subtle"
+           hx-target:inherited="#yd-workspace"
+           hx-select:inherited="#yd-workspace"
+           hx-push-url:inherited="true">
+    </aside>
+
+    <!-- 中央工作区：所有菜单切换与表单提交都换入此处，实现 SPA 级丝滑体验。 | Central workspace: every menu switch and form submit swaps in here for a SPA-grade experience. -->
+    <main id="yd-workspace" class="flex-1 p-6">
+      <!-- 首屏骨架屏，片段到达后被替换。 | First-paint skeleton, replaced once the fragment arrives. -->
+      <div class="yd-skeleton" hx-indicator="this"></div>
+    </main>
+  </div>
+
+  <!-- flash 片段容器：由 partials/flash.html 渲染。 | Flash container rendered from partials/flash.html. -->
+  <div id="yd-flash" class="pointer-events-none fixed inset-x-0 top-14 flex justify-center"></div>
+</body>
+</html>

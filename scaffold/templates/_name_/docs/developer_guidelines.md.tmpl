@@ -1,0 +1,89 @@
+# 前后端协同约束（{{ .Name }}）
+
+{{ .Name }}（模块 `{{ .Module }}`）采用「全栈单体（Modern Monolith）」模式：**后端直接返回 HTML 片段，前端由 Htmx {{ .HtmxVersion }} 作为事件总线驱动**。本文件是本项目前后端协作的强制契约。
+
+## 1. 响应契约
+
+| 规则 | 说明 |
+|---|---|
+| **端点返回 HTML 片段，不是 JSON** | 除显式标注为 API 的端点（`/api/**`、`/openapi.json`）外，所有控制器必须返回 HTML 片段。 |
+| **区分整页与片段** | 通过请求头 `HX-Request: true` 判定。整页请求返回布局 + 内容；htmx 请求只返回内容片段。 |
+| **校验失败返回 422** | 表单校验失败返回 `422` + 错误片段（`pages/error.html`），模板中用 `hx-status:422="target:#yd-errors"` 声明式接管。 |
+| **重定向走 Htmx 头** | 局部跳转用 `HX-Location`，整页跳转用 `HX-Redirect`，禁止在片段响应里塞 `<meta refresh>`。 |
+| **多区域更新** | 需要同时更新多个区域时输出多个带 `hx-swap-oob` 的片段，或统一换入 `#yd-workspace`。 |
+
+## 2. 模板目录约定
+
+```
+{{ .AssetRoot }}/templates/
+├── layouts/     # 整页骨架（base.html）
+├── partials/    # 可复用片段（sidebar、flash、table、form、modal、skeleton）
+└── pages/       # 业务页面（整页与其片段视图共用一份文件）
+```
+
+- 片段命名：`<资源>/<动作>.html`，例如 `users/list.html`、`users/row.html`、`users/form.html`。
+- 禁止在模板中书写内联样式表；样式一律来自 Tailwind v4 语义化类（`bg-surface`、`text-content`、`border-border-subtle`、`bg-brand-600` …）。
+- 禁止硬编码颜色字面量（`#1d4ed8` 之类）；需要新色值请在 `{{ .AssetRoot }}/static/css/app.css` 的 `@theme` 中新增语义变量。
+- 所有面向用户的文案必须带 `data-yd-i18n="<key>"`（前端 i18n 键）。
+
+## 3. Htmx {{ .HtmxVersion }} 属性约定
+
+- **属性继承是显式的**：父元素上的属性必须加 `:inherited` 修饰符才会被子元素继承，例如
+  `<nav hx-target:inherited="#yd-workspace" hx-push-url:inherited="true">`。这是最容易踩的坑。
+- 全局导航使用 `hx-boost`，工作区容器 id 固定为 `yd-workspace`。
+- 需要保留输入状态（表格内联编辑）时用 `hx-swap="outerMorph"` / `"innerMorph"`；需要彻底重置表单时用 `outerHTML`。
+- 耗时操作必须提供 `hx-indicator` + `.htmx-indicator` 元素；首屏骨架屏使用 `.yd-skeleton`。
+- 慢查询/长任务用 `hx-indicator` 配合 `.yd-skeleton` 骨架屏占位，不得出现白屏。
+- 扩展脚本随页面加载即生效（htmx 4 不再需要 `hx-ext` 属性）：本项目启用 {{ range $i, $e := .HtmxExts }}{{ if $i }}、{{ end }}`{{ $e }}`{{ end }}。
+- 内建能力无需额外文件：`hx-encoding="application/json"`、`hx-validate="true"`、`hx-status:<码>` 与 `HX-Retarget` / `HX-Reswap` / `HX-Reselect`。
+
+## 4. 前端依赖治理
+
+- 所有前端库由 `{{ .AssetRoot }}/assets.lock.json` 登记（名称、版本、URL、路径、sha256、协议）；该清单由脚手架从框架同名清单复制并裁剪到本项目所选的 Htmx 扩展，校验和随条目一同带过来，无需首次运行时重新计算。
+- **在线更新**：`yd assets update`（`--check` 仅报告、`--source` 指定源）。
+- **离线使用**：`yd assets verify --offline` 校验本地完整性；离线环境严禁触网，缺失即报错。
+- 严禁从公网 CDN 动态引入；所有资产经 `go:embed` 打进二进制。
+- 升级 htmx/Alpine 版本后必须重跑 `yd assets verify` 与模板测试。
+
+## 5. 国密安全闭环
+
+- **传输前置加密**：含敏感字段的表单声明 `data-yd-encrypt="sm2"`，前端在 `htmx:config:request` 阶段用服务端公钥加密标记字段，并附加 `X-YD-Encrypted: sm2` 头；后端据此用 SM2 私钥解密。
+- **完整性校验**：静态资产与本地缓存凭证通过 SM3 摘要比对校验完整性。
+- **口令**：后端仅存 SM3 + 盐 + 迭代的哈希结果，比较必须使用常量时间函数。
+
+## 6. 配置与环境变量
+
+- 环境变量前缀固定 **`YD_`**，下划线自动映射为多级嵌套：`YD_SERVER_PORT` → `server.port`、`YD_DB_MAXCONN` → `db.maxconn`。
+- 优先级：命令行参数 > 环境变量（含 `.env`）> 配置文件（`configs/config.local.yaml` > `configs/config.yaml`）> 框架默认值。
+- `.env` 不得入库（`.gitignore` 已忽略），随仓只提供 `.env.template`。
+
+## 7. 后端协同约束
+
+- 控制器只做编排；业务逻辑放 `internal/service`，数据访问放 `internal/repository`。
+- 一切外部输入必须限长并校验；错误统一经 `internal/middleware` 的恢复中间件与错误片段输出。
+- 错误一律在包级用 `errx.New` 声明哨兵，禁止 `fmt.Errorf`；判定只用 `errors.Is` / `errors.As`。
+- 日志一律走 `logx`，文案中英同步。
+- 新增端点后必须重新生成 OpenAPI 文档（`yd build` 自动完成）并确认 `/docs` 可见。
+
+## 8. 注释与日志文案（强制）
+
+所有注释（包文档、导出符号 doc、行内注释）**以及所有日志文案**逐行中英文同步，
+以半角竖线 `|` 分割、**英文在前、中文在后**、两侧各留一个空格：
+
+```go
+// List returns the newest users first. | List 按最新优先返回用户列表。
+log.Info("server started | 服务器已启动", logx.Str("addr", addr))
+```
+
+豁免：`//go:build` 编译指令、`// Code generated ... DO NOT EDIT.` 标记、注释内的代码示例/目录树/URL。
+
+## 9. 提交纪律
+
+- 提交信息使用**中文 Conventional Commits**：`<类型>(<范围>): <中文简述>`。
+- 所有提交结尾固定：
+
+  ```
+  Co-Authored-By: Eric Shi <shibingli@sina.com>
+  ```
+
+- 提交信息、作者、PR 描述、代码注释中**严禁出现任何 Claude / Anthropic / AI 助手相关内容**。

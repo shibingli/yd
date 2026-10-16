@@ -1,0 +1,58 @@
+// Package repository 是数据访问层：只负责读写数据，不承载业务规则。
+// Package repository is the data access layer: it only reads and writes data and holds no business rule.
+package repository
+
+import (
+	"context"
+	"sort"
+	"sync"
+
+	"{{ .Module }}/internal/model"
+)
+
+// 进程内示例数据：接好数据库驱动后替换为 GORM 查询即可，函数签名保持不变。
+// In-process sample data: once the database driver is wired in, replace this with GORM queries and keep the signatures.
+var (
+	// mu 保护 store 与 nextID。 | mu guards store and nextID.
+	mu sync.RWMutex
+	// store 是按 ID 索引的内存表。 | store is the in-memory table indexed by ID.
+	store = map[int64]model.User{
+		1: {ID: 1, Name: "admin | 管理员", Email: "admin@example.com"},
+		2: {ID: 2, Name: "guest | 访客", Email: "guest@example.com"},
+	}
+	// nextID 是下一个自增主键。 | nextID is the next auto-increment key.
+	nextID int64 = 3
+)
+
+// List 返回全部用户，按 ID 升序排列。 | List returns every user ordered by ascending ID.
+func List(_ context.Context) ([]model.User, error) {
+	mu.RLock()
+	defer mu.RUnlock()
+
+	users := make([]model.User, 0, len(store))
+	for _, u := range store {
+		users = append(users, u)
+	}
+	sort.Slice(users, func(i, j int) bool { return users[i].ID < users[j].ID })
+	return users, nil
+}
+
+// Get 按 ID 返回单个用户，不存在时返回 (model.User{}, false)。 | Get returns one user by ID, or (model.User{}, false) when absent.
+func Get(_ context.Context, id int64) (model.User, bool) {
+	mu.RLock()
+	defer mu.RUnlock()
+
+	u, ok := store[id]
+	return u, ok
+}
+
+// Create 写入一个新用户并返回其自增 ID。 | Create inserts a new user and returns its auto-increment ID.
+func Create(_ context.Context, u model.User) int64 {
+	mu.Lock()
+	defer mu.Unlock()
+
+	u.ID = nextID
+	nextID++
+	store[u.ID] = u
+	return u.ID
+}

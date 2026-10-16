@@ -1,0 +1,80 @@
+/* {{ .Name }} 样式入口：所有页面样式都从这里出发，禁止在 HTML 中写内联样式表。 | {{ .Name }} style entry: every page style starts here; inline style sheets in HTML are forbidden. */
+{{- if .Tailwind }}
+/* Tailwind v4 由 Go 脚手架静默编译（无 Node.js 管道），产物写入 {{ .AssetRoot }}/static/css/yd.css。 | Tailwind v4 is compiled silently by the Go toolchain (no Node.js pipeline) into {{ .AssetRoot }}/static/css/yd.css. */
+@import "tailwindcss";
+
+/* 扫描范围：模板与 Go 源码中的类名都会被裁剪保留。 | Scan scope: class names found in templates and Go sources are kept by the purger. */
+@source "../../templates/**/*.html";
+@source "../../../internal/**/*.go";
+
+/* 语义化主题变量（蓝色系主色调）：页面只引用语义名，不写颜色字面量。 | Semantic theme variables (blue brand scale): pages reference semantic names, never raw colour literals. */
+@theme {
+  /* 品牌色阶 | brand scale */
+  --color-brand-50: #eff6ff;
+  --color-brand-100: #dbeafe;
+  --color-brand-200: #bfdbfe;
+  --color-brand-500: #3b82f6;
+  --color-brand-600: #1d4ed8;
+  --color-brand-700: #1e40af;
+
+  /* 语义色 | semantic colours */
+  --color-surface: #ffffff;
+  --color-content: #0f172a;
+  --color-content-muted: #64748b;
+  --color-border-subtle: #e2e8f0;
+}
+
+/* 首屏骨架屏：片段到达前占位，避免白屏。 | First-paint skeleton: it holds the place until the fragment arrives and avoids a blank screen. */
+.yd-skeleton {
+  min-height: 4rem;
+  border-radius: 0.5rem;
+  background-image: linear-gradient(90deg, var(--color-border-subtle) 25%, var(--color-surface) 50%, var(--color-border-subtle) 75%);
+  background-size: 200% 100%;
+}
+
+/* htmx 指示器默认隐藏，请求进行中显示。 | htmx indicators stay hidden and appear while a request is in flight. */
+.htmx-indicator {
+  opacity: 0;
+  transition: opacity 150ms ease-in;
+}
+
+.htmx-request .htmx-indicator,
+.htmx-request.htmx-indicator {
+  opacity: 1;
+}
+{{- else }}
+/* 未启用 Tailwind：保留最小基础样式，语义变量名与 Tailwind 模式保持一致，便于后续切换。 | Tailwind is disabled: a minimal base sheet keeps the semantic variable names identical to the Tailwind mode so switching later stays cheap. */
+:root {
+  /* 品牌色阶 | brand scale */
+  --color-brand-50: #eff6ff;
+  --color-brand-600: #1d4ed8;
+
+  /* 语义色 | semantic colours */
+  --color-surface: #ffffff;
+  --color-content: #0f172a;
+  --color-content-muted: #64748b;
+  --color-border-subtle: #e2e8f0;
+}
+
+body {
+  margin: 0;
+  background: var(--color-surface);
+  color: var(--color-content);
+  font-family: system-ui, -apple-system, "Segoe UI", "Noto Sans SC", sans-serif;
+}
+
+.yd-skeleton {
+  min-height: 4rem;
+  border-radius: 0.5rem;
+  background: var(--color-border-subtle);
+}
+
+.htmx-indicator {
+  opacity: 0;
+}
+
+.htmx-request .htmx-indicator,
+.htmx-request.htmx-indicator {
+  opacity: 1;
+}
+{{- end }}
