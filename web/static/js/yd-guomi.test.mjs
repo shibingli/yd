@@ -1,15 +1,26 @@
 // Node test suite for the pure-JS guomi sandbox (SM2 / SM3 / SM4). | 纯 JS 国密沙箱（SM2/SM3/SM4）的 Node 测试套件。
 // Run: node web/static/js/yd-guomi.test.mjs | 运行：node web/static/js/yd-guomi.test.mjs
 //
-// This file is also executed by web/guomi_vector_test.go (TestGuomiJSVectors), | 本文件同时由 web/guomi_vector_test.go（TestGuomiJSVectors）驱动执行，
-// which first writes testdata/guomi_vectors.json from the Go side. | 该测试会先在 Go 侧写出 testdata/guomi_vectors.json。
+// This file is also executed by web/guomi_vector_test.go, which injects three paths through the
+// environment so that every artefact stays inside the temporary directory that test owns: | 本文件同时由
+// web/guomi_vector_test.go 驱动执行，该测试通过环境变量注入三个路径，使全部产物都留在它持有的临时目录内：
+//   - YD_GUOMI_VECTORS: the Go vectors this suite consumes; | YD_GUOMI_VECTORS：本套件消费的 Go 向量；
+//   - YD_GUOMI_JS_VECTORS: where the full JavaScript vector file is written for Go to decrypt and
+//     verify, random-k entries included; | YD_GUOMI_JS_VECTORS：完整 JS 向量文件的写出路径，供 Go 侧解密与验签，含随机 k 条目；
+//   - YD_GUOMI_JS_FIXTURE: where the deterministic subset is written, which Go compares byte for
+//     byte with the checked-in web/testdata/guomi_js_vectors.json. | YD_GUOMI_JS_FIXTURE：确定性子集的写出路径，
+//     Go 会将其与签入的 web/testdata/guomi_js_vectors.json 逐字节比对。
+//
 // The suite therefore covers both directions of the interoperability contract: | 因此本套件覆盖互操作契约的双向：
 //   - JS consumes Go vectors: SM3 digests, SM2 ciphertexts (fixed k included) and signatures, SM4-CBC/GCM. | JS 消费 Go 向量：SM3 摘要、SM2 密文（含固定 k）与签名、SM4-CBC/GCM。
-//   - JS writes testdata/guomi_js_vectors.json for the Go side to decrypt / verify. | JS 写出 testdata/guomi_js_vectors.json 供 Go 侧解密/验签。
+//   - JS writes the vectors for the Go side to decrypt / verify; the entries encrypted with a fresh
+//     random k never leave the temporary file, so no run can dirty the repository. | JS 写出向量供 Go 侧解密/验签；
+//     使用全新随机 k 加密的条目绝不离开临时文件，因此任何运行都不会弄脏仓库。
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -41,7 +52,7 @@ const FALLBACK_SM4_IV = '000102030405060708090a0b0c0d0e0f';
 const FALLBACK_SM4_NONCE = '000102030405060708090a0b';
 const FALLBACK_FIXED_K = 'a1b2c3d4e5f60718293a4b5c6d7e8f90a1b2c3d4e5f60718293a4b5c6d7e8f90';
 
-// Locate the vector directory; the Go test always writes into web/testdata. | 定位向量目录；Go 测试始终写入 web/testdata。
+// Locate the checked-in fixture directory of a standalone run. | 定位独立运行时签入夹具所在目录。
 function locateVectorDir() {
   const candidates = [
     resolve(scriptDir, '..', '..', 'testdata'),
@@ -59,9 +70,19 @@ function loadJsonIfExists(path) {
   return JSON.parse(readFileSync(path, 'utf8'));
 }
 
+// Vector paths. The Go test injects all three through the environment; a standalone run reads the
+// checked-in fixture and writes into the operating system temporary directory, so neither way
+// touches the repository. | 向量路径。Go 测试通过环境变量注入全部三个路径；独立运行时读取签入夹具、
+// 写入操作系统临时目录，两种方式都不触碰仓库。
+const ENV_GO_VECTORS = 'YD_GUOMI_VECTORS';
+const ENV_JS_VECTORS = 'YD_GUOMI_JS_VECTORS';
+const ENV_JS_FIXTURE = 'YD_GUOMI_JS_FIXTURE';
+const goVectorsPath = process.env[ENV_GO_VECTORS] || join(locateVectorDir(), 'guomi_vectors.json');
+const jsVectorsPath = process.env[ENV_JS_VECTORS] || join(tmpdir(), 'yd-guomi-js-vectors.json');
+const jsFixturePath = process.env[ENV_JS_FIXTURE] || join(tmpdir(), 'yd-guomi-js-fixture.json');
+
 const util = ydGuomi.util;
-const vectorDir = locateVectorDir();
-const goVectors = loadJsonIfExists(join(vectorDir, 'guomi_vectors.json'));
+const goVectors = loadJsonIfExists(goVectorsPath);
 const bytes = (data) => util.toBytes(data);
 const hex = (data) => util.bytesToHex(bytes(data));
 
@@ -202,7 +223,7 @@ test('SM2 key generation, signing and encryption round-trip | SM2 密钥生成�
 });
 
 test('SM3 vectors produced by Go match the JS implementation | Go 生成的 SM3 向量与 JS 实现一致', (t) => {
-  if (!goVectors) return t.skip('testdata/guomi_vectors.json missing; run go test ./web/ -run TestGuomi first | 缺少 testdata/guomi_vectors.json，请先运行 go test ./web/ -run TestGuomi');
+  if (!goVectors) return t.skip(`Go vectors missing at ${goVectorsPath}; run go test ./web/ first | 缺少 ${goVectorsPath} 处的 Go 向量，请先运行 go test ./web/`);
   assert.ok(goVectors.sm3.length >= 4);
   for (const vector of goVectors.sm3) {
     const data = util.hexToBytes(vector.dataHex);
@@ -215,7 +236,7 @@ test('SM3 vectors produced by Go match the JS implementation | Go 生成的 SM3 
 });
 
 test('SM2: JS decrypts Go ciphertexts and reproduces the fixed-k ciphertext | SM2：JS 解 Go 密文并复现固定 k 密文', (t) => {
-  if (!goVectors) return t.skip('testdata/guomi_vectors.json missing | 缺少 testdata/guomi_vectors.json');
+  if (!goVectors) return t.skip(`Go vectors missing at ${goVectorsPath} | 缺少 ${goVectorsPath} 处的 Go 向量`);
   const { sm2 } = goVectors;
   // The Go private key must derive the very same public key point in JS. | Go 私钥在 JS 侧必须推导出完全相同的公钥点。
   assert.equal(ydGuomi.sm2.derivePublicKey(sm2.privateKeyHex), sm2.publicKeyHex);
@@ -229,6 +250,15 @@ test('SM2: JS decrypts Go ciphertexts and reproduces the fixed-k ciphertext | SM
       // Byte-level proof: C1 || C3 || C2 and the KDF must match Go exactly. | 字节级证据：C1 || C3 || C2 与 KDF 必须与 Go 完全一致。
       const reproduced = ydGuomi.sm2.encrypt(sm2.publicKeyHex, util.hexToBytes(vector.plainHex), { k: vector.fixedKHex });
       assert.equal(util.bytesToHex(reproduced), vector.cipherHex, `${vector.name} fixed-k`);
+      // The reproduced bytes are deterministic, so they belong in the checked-in fixture that Go
+      // decrypts: a fixed-k entry recorded here can never drift. | 复现出的字节是确定性的，
+      // 因此写入由 Go 解密的签入夹具：此处记录的固定 k 条目绝不会漂移。
+      jsVectors.sm2.encryptions.push({
+        name: `${vector.name} (js fixed-k)`,
+        plainHex: vector.plainHex,
+        cipherHex: util.bytesToHex(reproduced),
+        fixedKHex: vector.fixedKHex,
+      });
     }
   }
 
@@ -249,8 +279,17 @@ test('SM2: JS decrypts Go ciphertexts and reproduces the fixed-k ciphertext | SM
       // Byte-level proof: ZA, e = SM3(ZA||data), r, s and the DER encoding must all match Go. | 字节级证据：ZA、e = SM3(ZA||data)、r、s 与 DER 编码必须与 Go 完全一致。
       const reproduced = util.bytesToHex(ydGuomi.sm2.sign(sm2.privateKeyHex, data, { k: vector.fixedKHex }));
       assert.equal(reproduced, vector.signatureHex, `${vector.name} fixed-k`);
+      // Recorded for the checked-in fixture: Go verifies this DER signature with its own primitives. | 记入签入夹具：Go 会用自己的原语验签这条 DER 签名。
+      jsVectors.sm2.signatures.push({
+        name: `${vector.name} (js fixed-k)`,
+        dataHex: vector.dataHex,
+        signatureHex: reproduced,
+        fixedKHex: vector.fixedKHex,
+      });
     }
   }
+  const fixedKCount = sm2.encryptions.filter((vector) => vector.fixedKHex).length;
+  t.diagnostic(`decrypted ${sm2.encryptions.length} Go ciphertext(s), ${fixedKCount} of them fixed-k, and verified ${sm2.signatures.length} Go signature(s) | 解密 ${sm2.encryptions.length} 条 Go 密文（其中 ${fixedKCount} 条为固定 k），并验签 ${sm2.signatures.length} 条 Go 签名`);
 });
 
 test('SM2: JS signs with the Go key for the Go side to verify | SM2：JS 用 Go 密钥签名供 Go 侧验签', () => {
@@ -453,12 +492,38 @@ test('verifyIntegrity compares the SM3 digest of a fetched asset | verifyIntegri
 
 test('JS vectors are exported for the Go side | 导出 JS 向量供 Go 侧消费', () => {
   assert.ok(jsVectors.sm3.length >= 3);
-  assert.ok(jsVectors.sm2.encryptions.length >= 3);
-  assert.ok(jsVectors.sm2.signatures.length >= 3);
   assert.ok(jsVectors.sm4.cbc.length >= 4);
   assert.ok(jsVectors.sm4.gcm.length >= 3);
+  // The random-k coverage is asserted on its own, so fixed-k entries cannot mask a lost case. | 随机 k 覆盖单独断言，固定 k 条目无法掩盖用例的丢失。
+  const randomEncryptions = jsVectors.sm2.encryptions.filter((vector) => !vector.fixedKHex);
+  const randomSignatures = jsVectors.sm2.signatures.filter((vector) => !vector.fixedKHex);
+  assert.ok(randomEncryptions.length >= 3, `random-k encryptions: ${randomEncryptions.length}`);
+  assert.ok(randomSignatures.length >= 3, `random-k signatures: ${randomSignatures.length}`);
   assert.ok(jsVectors.htmxTransport.length >= 1);
-  mkdirSync(vectorDir, { recursive: true });
-  writeFileSync(join(vectorDir, 'guomi_js_vectors.json'), `${JSON.stringify(jsVectors, null, 2)}\n`, 'utf8');
-  assert.ok(existsSync(join(vectorDir, 'guomi_js_vectors.json')));
+
+  // The deterministic subset: the checked-in fixture must never carry an entry whose randomiser
+  // came from crypto, because such an entry differs on every run. | 确定性子集：签入夹具绝不能带有随机数
+  // 来自 crypto 的条目，因为此类条目每次运行都不同。
+  const fixture = {
+    version: jsVectors.version,
+    generatedBy: jsVectors.generatedBy,
+    note: jsVectors.note,
+    sm3: jsVectors.sm3,
+    sm2: {
+      privateKeyHex: jsVectors.sm2.privateKeyHex,
+      publicKeyHex: jsVectors.sm2.publicKeyHex,
+      encryptions: jsVectors.sm2.encryptions.filter((vector) => vector.fixedKHex),
+      signatures: jsVectors.sm2.signatures.filter((vector) => vector.fixedKHex),
+    },
+    sm4: jsVectors.sm4,
+    htmxTransport: [],
+  };
+  assert.ok(fixture.sm2.encryptions.length >= 4, `fixed-k encryptions: ${fixture.sm2.encryptions.length}`);
+  assert.ok(fixture.sm2.signatures.length >= 1, `fixed-k signatures: ${fixture.sm2.signatures.length}`);
+
+  for (const [path, payload] of [[jsVectorsPath, jsVectors], [jsFixturePath, fixture]]) {
+    mkdirSync(dirname(path), { recursive: true });
+    writeFileSync(path, `${JSON.stringify(payload, null, 2)}\n`, 'utf8');
+    assert.ok(existsSync(path), `${path} was written`);
+  }
 });

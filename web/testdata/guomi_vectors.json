@@ -1,7 +1,7 @@
 {
   "version": 1,
   "generatedBy": "go",
-  "note": "regenerate with: go test ./web/ -run TestGuomi -v | 重新生成：go test ./web/ -run TestGuomi -v",
+  "note": "regenerate with: YD_GUOMI_WRITE_FIXTURES=1 go test ./web/ -run TestFixturesAreDeterministic | 重新生成：YD_GUOMI_WRITE_FIXTURES=1 go test ./web/ -run TestFixturesAreDeterministic",
   "sm3": [
     {
       "name": "abc GB/T 32905",
@@ -101,18 +101,6 @@
         "cipherHex": "7b73bb8afda69d32a8b55a3fc4764a7ba2667d14ddf17e79fba1b121dd0f4ef84a74309e275dd811177339f895e30cba1bf8499afedd5bcd844f7f0e141150bf9a9ea58b0aa340bce286da49a891ceb2e1a3f7a44f5fb1191753a502a59db73e73263259af67ec3320f314b992d4f7ac7550118069f206ffb838b165a38ab3f4a6f4f06aa63d936668c02e0db88f2851ae60771f11195e140ee9fd81a7b3e5db54f997f36e6f421252fcfc9129b5d6c5d80a54ed5c2b763a15676de203f71ce4078a102f",
         "fixedKHex": "a1b2c3d4e5f60718293a4b5c6d7e8f90a1b2c3d4e5f60718293a4b5c6d7e8f91",
         "layout": "C1=x1||y1 64B(no 0x04) | C3=SM3(x2||msg||y2) 32B | C2=msg xor KDF(x2||y2) len(msg) | C1=x1||y1 共 64 字节（无 0x04） | C3=SM3(x2||msg||y2) 32 字节 | C2=明文异或 KDF(x2||y2)，长度与明文一致"
-      },
-      {
-        "name": "framework-encryptraw",
-        "plainHex": "67756f6d692e456e6372797074526177207c20e6a186e69eb6e58e9fe5a78be5af86e69687",
-        "cipherHex": "d2cd7ca93c02addaf08e62856b59ae375fc36a39e5ee0e01d1af3676925da88c5a0778efdb9be1fb8e01d348a186dd1201f0ed081932875e3a6a880d05bc1cc41db339a142559ba11822c5435ad36bfdd012696fcb7c21ea99ef267673cfdab8767d03c0072d451223f4dd6b641cc48ccfb1bbdfde453972781b28b199a06147d50a6d47a6",
-        "layout": "C1=x1||y1 64B(no 0x04) | C3=SM3(x2||msg||y2) 32B | C2=msg xor KDF(x2||y2) len(msg) | C1=x1||y1 共 64 字节（无 0x04） | C3=SM3(x2||msg||y2) 32 字节 | C2=明文异或 KDF(x2||y2)，长度与明文一致"
-      },
-      {
-        "name": "framework-encryptraw-empty",
-        "plainHex": "",
-        "cipherHex": "e37dab7d71c6521e9f8cea29e2aa85666884db660a87621fad963346031e9d2f7744e5df3a73c9528f9621a74c380371703e815a7f4dade33d59a91303dda2eb37004ae32bfadd6c4d27d44cdad953adc04224053a5511f9d24224f2039aea9a",
-        "layout": "C1=x1||y1 64B(no 0x04) | C3=SM3(x2||msg||y2) 32B | C2=msg xor KDF(x2||y2) len(msg) | C1=x1||y1 共 64 字节（无 0x04） | C3=SM3(x2||msg||y2) 32 字节 | C2=明文异或 KDF(x2||y2)，长度与明文一致"
       }
     ],
     "signatures": [
@@ -122,18 +110,6 @@
         "signatureHex": "3046022100c3d6e7292f26521c9bb1a4504685ced21bc847ca5aa0624ef266c42431a10b01022100b32ed38ccb38a89afc1b5feba522a982f5d236c4dce749259233ba7936a72849",
         "algorithm": "SM3(ZA||data) with uid 1234567812345678, DER SEQUENCE{INTEGER r, INTEGER s} | SM3(ZA||data)，用户标识 1234567812345678，DER SEQUENCE{INTEGER r, INTEGER s}",
         "fixedKHex": "a1b2c3d4e5f60718293a4b5c6d7e8f90a1b2c3d4e5f60718293a4b5c6d7e8f91"
-      },
-      {
-        "name": "framework-Sign",
-        "dataHex": "79642073616e64626f78207369676e6174757265207c20e6b299e7aeb1e7adbee5908d",
-        "signatureHex": "3045022100895a19c96b715945b57ce0991bf818f21adc36da0ed9d46a27f263a266eb290102203cd3a6954467b8b422f9adc1bf05c69f24bd0ed4e3d6bae19208b2a58c6da81f",
-        "algorithm": "SM3(ZA||data) with uid 1234567812345678, DER SEQUENCE{INTEGER r, INTEGER s} | SM3(ZA||data)，用户标识 1234567812345678，DER SEQUENCE{INTEGER r, INTEGER s}"
-      },
-      {
-        "name": "framework-Sign-empty",
-        "dataHex": "",
-        "signatureHex": "3045022100e7bbf747bbbda7de4bccb27839f468b96315b6d0c4c22cee9f594bfb3630b3b402202e328320dedd911d470f0da102a5601835f22606c0ca02cb21ee7db942d2a03a",
-        "algorithm": "SM3(ZA||data) with uid 1234567812345678, DER SEQUENCE{INTEGER r, INTEGER s} | SM3(ZA||data)，用户标识 1234567812345678，DER SEQUENCE{INTEGER r, INTEGER s}"
       }
     ]
   },
