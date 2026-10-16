@@ -457,7 +457,18 @@ func (c *Conn) writeControlFrame(op OpCode, p []byte, deadline time.Time) error 
 
 // writeFrame assembles and sends a single frame. | writeFrame 组装并发送单个帧。
 func (c *Conn) writeFrame(fin bool, op OpCode, payload []byte) error {
+	// The whole frame — header, mask key and (for clients) the shared mask
+	// buffer — must be built **inside** the write lock. Building the masked
+	// copy before locking would let two concurrent writers race on c.maskBuf,
+	// which the documented "concurrent writers are serialized" contract
+	// forbids. | 整个帧（帧头、掩码键，以及客户端共用的掩码缓冲）都必须在写锁**内**
+	// 构造：若在加锁前构造掩码副本，两个并发写协程会竞争 c.maskBuf，违背
+	// 「并发写被串行化」的契约。
 	var hdr [maxHeaderSize]byte
+
+	c.writeMu.Lock()
+	defer c.writeMu.Unlock()
+
 	n := writeFrameHeader(hdr[:], fin, op, c.isClient, int64(len(payload)))
 	body := payload
 	if c.isClient {
@@ -476,8 +487,6 @@ func (c *Conn) writeFrame(fin bool, op OpCode, payload []byte) error {
 		maskBytes(key, 0, body)
 	}
 
-	c.writeMu.Lock()
-	defer c.writeMu.Unlock()
 	bufs := net.Buffers{hdr[:n], body}
 	if _, err := bufs.WriteTo(c.conn); err != nil {
 		return err
