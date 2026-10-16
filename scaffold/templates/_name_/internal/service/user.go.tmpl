@@ -13,64 +13,64 @@ import (
 	"{{ .YdModule }}/errx"
 )
 
-// 用户业务哨兵：控制器的 422 分支按它们判定。 | User business sentinels: the 422 branch of the controllers is decided by them.
+// User business sentinels: the 422 branch of the controllers is decided by them. | 用户业务哨兵：控制器的 422 分支按它们判定。
 var (
-	// ErrUserNameRequired 表示登录名为空。 | ErrUserNameRequired reports an empty sign-in name.
+	// ErrUserNameRequired reports an empty sign-in name. | ErrUserNameRequired 表示登录名为空。
 	ErrUserNameRequired = errx.New("user name is required | 用户名称不能为空")
-	// ErrUserEmailInvalid 表示邮箱格式不正确。 | ErrUserEmailInvalid reports a malformed e-mail address.
+	// ErrUserEmailInvalid reports a malformed e-mail address. | ErrUserEmailInvalid 表示邮箱格式不正确。
 	ErrUserEmailInvalid = errx.New("invalid e-mail address | 邮箱格式不正确")
-	// ErrUserPasswordWeak 表示口令强度不足。 | ErrUserPasswordWeak reports a password that is too weak.
+	// ErrUserPasswordWeak reports a password that is too weak. | ErrUserPasswordWeak 表示口令强度不足。
 	ErrUserPasswordWeak = errx.New("the password must be at least 8 characters long | 口令至少需要 8 位")
-	// ErrUserNotFound 表示本租户内没有该用户（其它租户的用户同样报它，避免探测）。 | ErrUserNotFound reports a user that this tenant does not hold (a user of another tenant reports the same, so nothing can be probed).
+	// ErrUserNotFound reports a user that this tenant does not hold (a user of another tenant reports the same, so nothing can be probed). | ErrUserNotFound 表示本租户内没有该用户（其它租户的用户同样报它，避免探测）。
 	ErrUserNotFound = errx.New("user not found | 用户不存在")
-	// ErrRoleUnknown 表示分配了不存在的角色名。 | ErrRoleUnknown reports an assignment of a role name that does not exist.
+	// ErrRoleUnknown reports an assignment of a role name that does not exist. | ErrRoleUnknown 表示分配了不存在的角色名。
 	ErrRoleUnknown = errx.New("unknown role | 角色不存在")
-	// ErrSelfOperation 表示对自己执行了危险操作（如停用自己）。 | ErrSelfOperation reports a dangerous operation on one's own account (disabling oneself, for instance).
+	// ErrSelfOperation reports a dangerous operation on one's own account (disabling oneself, for instance). | ErrSelfOperation 表示对自己执行了危险操作（如停用自己）。
 	ErrSelfOperation = errx.New("you cannot disable your own account | 不能停用自己的账号")
 )
 
-// 邮箱与口令的长度边界。 | Length bounds for the e-mail address and the password.
+// Length bounds for the e-mail address and the password. | 邮箱与口令的长度边界。
 const (
 	maxEmailLen = 128
 	maxNameLen  = 64
 )
 
-// CreateUserInput 是新建用户的表单输入；Password 是 SM2 密文。 | CreateUserInput is the create form's input; Password is the SM2 ciphertext.
+// CreateUserInput is the create form's input; Password is the SM2 ciphertext. | CreateUserInput 是新建用户的表单输入；Password 是 SM2 密文。
 type CreateUserInput struct {
-	// Username 是登录名，租户内唯一。 | Username is the sign-in name, unique inside the tenant.
+	// Username is the sign-in name, unique inside the tenant. | Username 是登录名，租户内唯一。
 	Username string
-	// Email 是可选的联络邮箱。 | Email is the optional contact address.
+	// Email is the optional contact address. | Email 是可选的联络邮箱。
 	Email string
-	// DisplayName 是可选的展示名称。 | DisplayName is the optional human-readable name.
+	// DisplayName is the optional human-readable name. | DisplayName 是可选的展示名称。
 	DisplayName string
-	// Password 是 SM2 密文形态的初始口令。 | Password is the initial password as SM2 ciphertext.
+	// Password is the initial password as SM2 ciphertext. | Password 是 SM2 密文形态的初始口令。
 	Password []byte
-	// Scheme 是 X-YD-Encrypted 请求头取值。 | Scheme is the X-YD-Encrypted request header value.
+	// Scheme is the X-YD-Encrypted request header value. | Scheme 是 X-YD-Encrypted 请求头取值。
 	Scheme string
-	// Roles 是初始角色名集合；为空时分配 member。 | Roles is the initial role name set; empty assigns member.
+	// Roles is the initial role name set; empty assigns member. | Roles 是初始角色名集合；为空时分配 member。
 	Roles []string
 }
 
 // UpdateUserInput 是修改用户资料的表单输入（不含口令与角色，它们各有各的入口）。
 // UpdateUserInput is the profile form's input (no password and no roles; each of those has an entry point of its own).
 type UpdateUserInput struct {
-	// UserID 是被修改的用户。 | UserID is the user being changed.
+	// UserID is the user being changed. | UserID 是被修改的用户。
 	UserID string
-	// Username 是登录名。 | Username is the sign-in name.
+	// Username is the sign-in name. | Username 是登录名。
 	Username string
-	// Email 是联络邮箱。 | Email is the contact address.
+	// Email is the contact address. | Email 是联络邮箱。
 	Email string
-	// DisplayName 是展示名称。 | DisplayName is the human-readable name.
+	// DisplayName is the human-readable name. | DisplayName 是展示名称。
 	DisplayName string
 }
 
-// UserService 编排用户生命周期。 | UserService orchestrates the user lifecycle.
+// UserService orchestrates the user lifecycle. | UserService 编排用户生命周期。
 type UserService struct {
-	// users 是用户仓储。 | users is the user repository.
+	// users is the user repository. | users 是用户仓储。
 	users *repository.UserRepo
-	// roles 是角色仓储，用于校验角色名与渲染表单。 | roles is the role repository, used to validate role names and to render forms.
+	// roles is the role repository, used to validate role names and to render forms. | roles 是角色仓储，用于校验角色名与渲染表单。
 	roles *repository.RoleRepo
-	// auth 提供 SM2 解密：口令只以密文进入本层。 | auth supplies SM2 decryption: a password only enters this layer as ciphertext.
+	// auth supplies SM2 decryption: a password only enters this layer as ciphertext. | auth 提供 SM2 解密：口令只以密文进入本层。
 	auth *AuthService
 }
 
@@ -108,7 +108,7 @@ func (s *UserService) List(ctx context.Context, tenantID, keyword string) ([]mod
 	return matched, nil
 }
 
-// Get 返回本租户内的一个用户。 | Get returns one user of this tenant.
+// Get returns one user of this tenant. | Get 返回本租户内的一个用户。
 func (s *UserService) Get(ctx context.Context, tenantID, userID string) (model.User, error) {
 	return s.users.Get(ctx, tenantID, userID)
 }
@@ -148,7 +148,7 @@ func (s *UserService) Create(ctx context.Context, tenantID string, in CreateUser
 	})
 }
 
-// Update 覆盖用户的资料字段（不含角色与口令）。 | Update replaces the user's profile fields (roles and password excluded).
+// Update replaces the user's profile fields (roles and password excluded). | Update 覆盖用户的资料字段（不含角色与口令）。
 func (s *UserService) Update(ctx context.Context, tenantID string, in UpdateUserInput) (model.User, error) {
 	username := strings.TrimSpace(in.Username)
 	if username == "" {
@@ -172,7 +172,7 @@ func (s *UserService) Update(ctx context.Context, tenantID string, in UpdateUser
 	return record, nil
 }
 
-// SetRoles 覆盖用户的角色集合，是「角色分配」的唯一入口。 | SetRoles replaces the user's role set and is the single entry point of role assignment.
+// SetRoles replaces the user's role set and is the single entry point of role assignment. | SetRoles 覆盖用户的角色集合，是「角色分配」的唯一入口。
 func (s *UserService) SetRoles(ctx context.Context, tenantID, userID string, names []string) error {
 	roles, err := s.normaliseRoles(ctx, tenantID, names)
 	if err != nil {
@@ -203,7 +203,7 @@ func (s *UserService) Disable(ctx context.Context, tenantID, userID, actorID str
 	return s.users.SetStatus(ctx, tenantID, userID, model.StatusDisabled)
 }
 
-// Enable 启用用户。 | Enable enables a user.
+// Enable enables a user. | Enable 启用用户。
 func (s *UserService) Enable(ctx context.Context, tenantID, userID string) error {
 	return s.users.SetStatus(ctx, tenantID, userID, model.StatusActive)
 }
@@ -214,7 +214,7 @@ func (s *UserService) RotateSecKey(ctx context.Context, tenantID, userID string)
 	return s.users.RotateSecKey(ctx, tenantID, userID)
 }
 
-// Roles 返回本租户的角色清单，供用户表单的角色多选渲染。 | Roles returns this tenant's roles for the role checkboxes of the user form.
+// Roles returns this tenant's roles for the role checkboxes of the user form. | Roles 返回本租户的角色清单，供用户表单的角色多选渲染。
 func (s *UserService) Roles(ctx context.Context, tenantID string) ([]model.Role, error) {
 	return s.roles.List(ctx, tenantID)
 }

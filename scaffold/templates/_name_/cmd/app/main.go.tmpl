@@ -1,4 +1,4 @@
-// Command app 是 {{ .Name }} 的可执行入口：装配框架门面、注册路由并优雅退出。 | Command app is the executable entry point of {{ .Name }}: it assembles the framework facade, registers the routes and exits gracefully.
+// Command app is the executable entry point of {{ .Name }}: it assembles the framework facade, registers the routes and exits gracefully. | Command app 是 {{ .Name }} 的可执行入口：装配框架门面、注册路由并优雅退出。
 //
 // 装配顺序：日志 → 退出信号 → 资产/配置门面 → 中间件 → 静态挂载 → 路由。
 // Assembly order: logger → shutdown signal → assets/configuration facade → middleware → static mount → routes.
@@ -47,11 +47,11 @@ import (
 // 启动期哨兵错误：装配链上任一步失败都以它们为根因，日志与退出码据此统一处理。
 // Startup sentinels: any failing step of the assembly chain roots in one of them, so logs and the exit code stay uniform.
 var (
-	// ErrAssemble 表示应用门面装配失败（资产、配置或渲染器任一步出错）。 | ErrAssemble reports a facade assembly failure (assets, configuration or renderer).
+	// ErrAssemble reports a facade assembly failure (assets, configuration or renderer). | ErrAssemble 表示应用门面装配失败（资产、配置或渲染器任一步出错）。
 	ErrAssemble = errx.New("application assembly failed | 应用装配失败")
-	// ErrStatic 表示静态资产文件系统不可用。 | ErrStatic reports an unusable static asset filesystem.
+	// ErrStatic reports an unusable static asset filesystem. | ErrStatic 表示静态资产文件系统不可用。
 	ErrStatic = errx.New("static assets unavailable | 静态资产不可用")
-	// ErrI18n 表示语言目录加载失败。 | ErrI18n reports a failed message catalogue load.
+	// ErrI18n reports a failed message catalogue load. | ErrI18n 表示语言目录加载失败。
 	ErrI18n = errx.New("message catalogues unavailable | 语言目录不可用")
 	// ErrService 表示服务管理器动作失败（安装、卸载、启动、停止、重启或状态查询）。
 	// ErrService reports a failed service manager action (install, uninstall, start, stop, restart or a status query).
@@ -205,7 +205,7 @@ func assemble(log *logx.Logger) (*app.App, error) {
 	return application, nil
 }
 
-// registerI18n 从资产树加载语言目录并挂上语言解析中间件。 | registerI18n loads the catalogues from the asset tree and mounts the locale middleware.
+// registerI18n loads the catalogues from the asset tree and mounts the locale middleware. | registerI18n 从资产树加载语言目录并挂上语言解析中间件。
 //
 // 与 app.Default 的差别仅有目录来源：这里读取本项目的 web/i18n，而不是框架内嵌文案。
 // The only difference from app.Default is the catalogue source: this reads the project's web/i18n instead of the framework's embedded messages.

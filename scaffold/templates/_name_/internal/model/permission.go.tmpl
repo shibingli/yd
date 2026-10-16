@@ -14,35 +14,35 @@ import (
 	"{{ .YdModule }}/auth"
 )
 
-// Permission 是能力标识，与框架 auth.Permission 同型。 | Permission is a capability token, identical to auth.Permission.
+// Permission is a capability token, identical to auth.Permission. | Permission 是能力标识，与框架 auth.Permission 同型。
 type Permission = auth.Permission
 
-// 本项目的能力标识：一处声明，路由、模板与权限矩阵三处引用。 | This project's capability tokens: declared once, referenced by the router, the templates and the permission matrix.
+// This project's capability tokens: declared once, referenced by the router, the templates and the permission matrix. | 本项目的能力标识：一处声明，路由、模板与权限矩阵三处引用。
 const (
-	// PermTenantRead 允许查看租户列表与详情。 | PermTenantRead admits reading the tenant list and one tenant.
+	// PermTenantRead admits reading the tenant list and one tenant. | PermTenantRead 允许查看租户列表与详情。
 	PermTenantRead Permission = "tenant:read"
-	// PermTenantWrite 允许新建与修改租户。 | PermTenantWrite admits creating and updating tenants.
+	// PermTenantWrite admits creating and updating tenants. | PermTenantWrite 允许新建与修改租户。
 	PermTenantWrite Permission = "tenant:write"
-	// PermUserRead 允许查看本租户的用户。 | PermUserRead admits reading the users of the current tenant.
+	// PermUserRead admits reading the users of the current tenant. | PermUserRead 允许查看本租户的用户。
 	PermUserRead Permission = "user:read"
-	// PermUserWrite 允许新建、修改与禁用用户。 | PermUserWrite admits creating, updating and disabling users.
+	// PermUserWrite admits creating, updating and disabling users. | PermUserWrite 允许新建、修改与禁用用户。
 	PermUserWrite Permission = "user:write"
-	// PermRoleRead 允许查看角色。 | PermRoleRead admits reading roles.
+	// PermRoleRead admits reading roles. | PermRoleRead 允许查看角色。
 	PermRoleRead Permission = "role:read"
-	// PermRoleWrite 允许新建、修改与删除角色。 | PermRoleWrite admits creating, updating and deleting roles.
+	// PermRoleWrite admits creating, updating and deleting roles. | PermRoleWrite 允许新建、修改与删除角色。
 	PermRoleWrite Permission = "role:write"
-	// PermPermissionRead 允许查看权限矩阵。 | PermPermissionRead admits reading the permission matrix.
+	// PermPermissionRead admits reading the permission matrix. | PermPermissionRead 允许查看权限矩阵。
 	PermPermissionRead Permission = "permission:read"
 )
 
 // PermissionInfo 是一条权限的展示元数据，供权限矩阵页分组渲染。
 // PermissionInfo is the display metadata of one capability, used by the permission matrix page to group rows.
 type PermissionInfo struct {
-	// Key 是能力标识本身。 | Key is the capability token itself.
+	// Key is the capability token itself. | Key 是能力标识本身。
 	Key Permission
-	// Module 是所属模块，权限矩阵按它分组。 | Module is the owning module; the matrix groups rows by it.
+	// Module is the owning module; the matrix groups rows by it. | Module 是所属模块，权限矩阵按它分组。
 	Module string
-	// Label 是中英对照的说明。 | Label is the bilingual description.
+	// Label is the bilingual description. | Label 是中英对照的说明。
 	Label string
 }
 
@@ -66,7 +66,7 @@ func Permissions() []PermissionInfo {
 	return out
 }
 
-// PermissionKeys 返回全部能力标识，顺序与 Permissions 一致。 | PermissionKeys returns every capability token in the same order as Permissions.
+// PermissionKeys returns every capability token in the same order as Permissions. | PermissionKeys 返回全部能力标识，顺序与 Permissions 一致。
 func PermissionKeys() []Permission {
 	out := make([]Permission, 0, len(permissionCatalogue))
 	for _, p := range permissionCatalogue {
@@ -75,7 +75,7 @@ func PermissionKeys() []Permission {
 	return out
 }
 
-// ValidPermission 报告标识是否落在本项目的权限目录内。 | ValidPermission reports whether the token exists in this project's catalogue.
+// ValidPermission reports whether the token exists in this project's catalogue. | ValidPermission 报告标识是否落在本项目的权限目录内。
 func ValidPermission(p Permission) bool {
 	for _, item := range permissionCatalogue {
 		if item.Key == p {
@@ -100,24 +100,24 @@ func PermissionLabel(p Permission) string {
 // Built-in role names: the seed data and every new tenant create roles under these four names, which is also the list
 // protected from deletion.
 const (
-	// RoleOwner 是租户所有者，拥有全部权限。 | RoleOwner is the tenant owner and holds every capability.
+	// RoleOwner is the tenant owner and holds every capability. | RoleOwner 是租户所有者，拥有全部权限。
 	RoleOwner = "owner"
-	// RoleAdmin 是管理员，能管理用户与角色，但看不到租户侧写操作。 | RoleAdmin manages users and roles without tenant write access.
+	// RoleAdmin manages users and roles without tenant write access. | RoleAdmin 是管理员，能管理用户与角色，但看不到租户侧写操作。
 	RoleAdmin = "admin"
-	// RoleAuditor 是审计员，只有读权限。 | RoleAuditor is the auditor and only holds read capabilities.
+	// RoleAuditor is the auditor and only holds read capabilities. | RoleAuditor 是审计员，只有读权限。
 	RoleAuditor = "auditor"
-	// RoleMember 是普通成员，没有任何管理权限。 | RoleMember is an ordinary member and holds no administrative capability.
+	// RoleMember is an ordinary member and holds no administrative capability. | RoleMember 是普通成员，没有任何管理权限。
 	RoleMember = "member"
 )
 
 // RoleTemplate 描述一个内置角色：名称、说明与它授予的权限。
 // RoleTemplate describes one built-in role: its name, its description and the capabilities it grants.
 type RoleTemplate struct {
-	// Name 是角色名，租户内唯一。 | Name is the role name, unique inside a tenant.
+	// Name is the role name, unique inside a tenant. | Name 是角色名，租户内唯一。
 	Name string
-	// Description 是中英对照的说明。 | Description is the bilingual note.
+	// Description is the bilingual note. | Description 是中英对照的说明。
 	Description string
-	// Permissions 是被授予的能力。 | Permissions are the granted capabilities.
+	// Permissions are the granted capabilities. | Permissions 是被授予的能力。
 	Permissions []Permission
 }
 
@@ -148,7 +148,7 @@ func BuiltinRoles() []RoleTemplate {
 	}
 }
 
-// IsBuiltinRole 报告角色名是否为内置角色（内置角色不允许删除）。 | IsBuiltinRole reports whether the name is built-in (built-in roles cannot be deleted).
+// IsBuiltinRole reports whether the name is built-in (built-in roles cannot be deleted). | IsBuiltinRole 报告角色名是否为内置角色（内置角色不允许删除）。
 func IsBuiltinRole(name string) bool {
 	for _, tpl := range BuiltinRoles() {
 		if strings.EqualFold(tpl.Name, strings.TrimSpace(name)) {

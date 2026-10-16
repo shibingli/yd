@@ -26,13 +26,13 @@ import (
 //go:embed all:templates
 var templateFS embed.FS
 
-// 模板根目录与两个特殊子目录。 | The template root and its two special sub-directories.
+// The template root and its two special sub-directories. | 模板根目录与两个特殊子目录。
 const (
-	// templateRoot 是内嵌模板的根路径。 | templateRoot is the root path of the embedded templates.
+	// templateRoot is the root path of the embedded templates. | templateRoot 是内嵌模板的根路径。
 	templateRoot = "templates"
-	// sharedDir 存放原样复制（不渲染）的文件：LICENSE、.gitignore、.gitattributes 与资产目录。 | sharedDir holds verbatim (non-rendered) files: LICENSE, .gitignore, .gitattributes and the asset catalogue.
+	// sharedDir holds verbatim (non-rendered) files: LICENSE, .gitignore, .gitattributes and the asset catalogue. | sharedDir 存放原样复制（不渲染）的文件：LICENSE、.gitignore、.gitattributes 与资产目录。
 	sharedDir = "_shared"
-	// projectDir 存放渲染后写入项目根的文件，其路径中的 _name_ 占位符替换为项目名。 | projectDir holds rendered files; its `_name_` path placeholder becomes the project name.
+	// projectDir holds rendered files; its `_name_` path placeholder becomes the project name. | projectDir 存放渲染后写入项目根的文件，其路径中的 _name_ 占位符替换为项目名。
 	projectDir = "_name_"
 	// tmplSuffix 是脚手架模板文件后缀：带此后缀的文件由 text/template 在生成期渲染，
 	// 后缀本身从输出路径中剔除；不带此后缀的文件逐字节原样落到生成项目里。
@@ -40,9 +40,9 @@ const (
 	// generation time and loses the suffix in its output path, while a file without it is copied
 	// byte for byte into the generated project.
 	tmplSuffix = ".tmpl"
-	// dotPrefix 把 dot-x 形式的模板名映射为生成物里的隐藏文件 .x。 | dotPrefix maps a dot-x template name onto the hidden file .x in the output.
+	// dotPrefix maps a dot-x template name onto the hidden file .x in the output. | dotPrefix 把 dot-x 形式的模板名映射为生成物里的隐藏文件 .x。
 	dotPrefix = "dot-"
-	// assetCatalogName 是生成项目里的资产清单名：框架 web/assets.lock.json 经扩展裁剪后的副本。 | assetCatalogName is the asset manifest name inside a generated project: a copy of the framework's web/assets.lock.json trimmed to the selected extensions.
+	// assetCatalogName is the asset manifest name inside a generated project: a copy of the framework's web/assets.lock.json trimmed to the selected extensions. | assetCatalogName 是生成项目里的资产清单名：框架 web/assets.lock.json 经扩展裁剪后的副本。
 	assetCatalogName = "assets.lock.json"
 )
 
@@ -50,20 +50,20 @@ const (
 // namePattern constrains the project name (also the directory name): a letter followed by letters, digits, dots, underscores or dashes.
 var namePattern = regexp.MustCompile(`^[A-Za-z][A-Za-z0-9._-]*$`)
 
-// modulePattern 约束模块路径：至少两段，段间用 "/" 分隔。 | modulePattern constrains the module path: at least two segments separated by "/".
+// modulePattern constrains the module path: at least two segments separated by "/". | modulePattern 约束模块路径：至少两段，段间用 "/" 分隔。
 var modulePattern = regexp.MustCompile(`^[a-z0-9][a-z0-9._~-]*(\.[a-z0-9._~-]+)?(/[A-Za-z0-9._~-]+)+$`)
 
-// plannedFile 是渲染完成、尚未落盘的目标文件。 | plannedFile is a rendered target file that has not been written yet.
+// plannedFile is a rendered target file that has not been written yet. | plannedFile 是渲染完成、尚未落盘的目标文件。
 type plannedFile struct {
-	// path 是项目相对路径，"/" 分隔。 | path is the project-relative, "/"-separated path.
+	// path is the project-relative, "/"-separated path. | path 是项目相对路径，"/" 分隔。
 	path string
-	// content 是最终写出的字节。 | content is the exact byte payload to write.
+	// content is the exact byte payload to write. | content 是最终写出的字节。
 	content []byte
 }
 
-// view 是模板渲染上下文：Options 的派生化视图。 | view is the template context: a derived view of Options.
+// view is the template context: a derived view of Options. | view 是模板渲染上下文：Options 的派生化视图。
 type view struct {
-	// 项目元信息 | project metadata
+	// project metadata | 项目元信息
 	Name         string
 	Module       string
 	DB           string
@@ -71,20 +71,20 @@ type view struct {
 	LocalReplace string
 	AssetRoot    string
 
-	// 版本与框架常量 | versions and framework constants
+	// versions and framework constants | 版本与框架常量
 	GoVersion       string
 	HtmxVersion     string
 	TailwindVersion string
 	YdModule        string
 
-	// 派生字段 | derived fields
+	// derived fields | 派生字段
 	DBDSN    string
 	HtmxExts []string
 
 	Features       []string
 	HtmxExtScripts []string
 
-	// 特性开关 | feature switches
+	// feature switches | 特性开关
 	Redis    bool
 	Asynq    bool
 	GRPC     bool
@@ -93,7 +93,7 @@ type view struct {
 	Tailwind bool
 }
 
-// newView 由规范化后的选项构造模板上下文。 | newView builds the template context from normalised options.
+// newView builds the template context from normalised options. | newView 由规范化后的选项构造模板上下文。
 func newView(o Options) view {
 	return view{
 		Name:            o.Name,
@@ -160,7 +160,7 @@ func extScripts(exts []string) []string {
 	return scripts
 }
 
-// extScript 是扩展注册名到本地脚本路径的映射（严禁 CDN 引用）。 | extScript maps extension names onto local script paths (CDN references are forbidden).
+// extScript maps extension names onto local script paths (CDN references are forbidden). | extScript 是扩展注册名到本地脚本路径的映射（严禁 CDN 引用）。
 var extScript = map[string]string{
 	ExtWS:      "/static/js/vendor/hx-ws.min.js",
 	ExtSSE:     "/static/js/vendor/hx-sse.min.js",
@@ -168,10 +168,10 @@ var extScript = map[string]string{
 	ExtAlpine:  "/static/js/vendor/hx-alpine-compat.min.js",
 }
 
-// extNames 是合法扩展名的固定顺序，用于校验与错误提示。 | extNames is the canonical order of valid extensions, used for validation and error hints.
+// extNames is the canonical order of valid extensions, used for validation and error hints. | extNames 是合法扩展名的固定顺序，用于校验与错误提示。
 var extNames = []string{ExtWS, ExtSSE, ExtPreload, ExtAlpine}
 
-// dsnFor 依据数据库驱动生成示例 DSN（默认值仅供本地开发）。 | dsnFor builds a sample DSN per driver (the defaults only fit local development).
+// dsnFor builds a sample DSN per driver (the defaults only fit local development). | dsnFor 依据数据库驱动生成示例 DSN（默认值仅供本地开发）。
 func dsnFor(db, name string) string {
 	switch db {
 	case DBSQLite:
@@ -191,12 +191,12 @@ func projectPrefix(name string) string {
 	return name + "/"
 }
 
-// outputPath 把模板路径映射为目标文件系统上的输出路径。 | outputPath maps a template path onto an output path inside the target filesystem.
+// outputPath maps a template path onto an output path inside the target filesystem. | outputPath 把模板路径映射为目标文件系统上的输出路径。
 //
-// 规则 | Rules:
-//   - 段名 `_name_` 替换为项目名，因此全部产出都落在 <name>/ 之下； | the `_name_` segment becomes the project name, so every artefact lands under <name>/;
-//   - 末段的 .tmpl 后缀被剔除； | the trailing .tmpl suffix is dropped;
-//   - 末段的 dot- 前缀映射为隐藏文件前缀 "."（如 dot-env.template → .env.template）。 | a leading dot- maps onto the hidden-file dot (dot-env.template → .env.template).
+// Rules: | 规则
+//   - the `_name_` segment becomes the project name, so every artefact lands under <name>/; | 段名 `_name_` 替换为项目名，因此全部产出都落在 <name>/ 之下；
+//   - the trailing .tmpl suffix is dropped; | 末段的 .tmpl 后缀被剔除；
+//   - a leading dot- maps onto the hidden-file dot (dot-env.template → .env.template). | 末段的 dot- 前缀映射为隐藏文件前缀 "."（如 dot-env.template → .env.template）。
 //
 // 无 .tmpl 后缀的文件同样只做路径映射：它们逐字节复制，不参与生成期渲染。
 // A file without the .tmpl suffix only gets the same path mapping: it is copied byte for byte and
@@ -241,7 +241,7 @@ func plan(o Options) ([]plannedFile, error) {
 
 		rel := strings.TrimPrefix(p, templateRoot+"/")
 		if strings.HasPrefix(rel, sharedDir+"/") {
-			// 原样复制（LICENSE、.gitignore、.gitattributes 等固定文件，逐字节保持一致）。 | Verbatim copy (LICENSE and other fixed files stay byte-identical).
+			// Verbatim copy (LICENSE and other fixed files stay byte-identical). | 原样复制（LICENSE、.gitignore、.gitattributes 等固定文件，逐字节保持一致）。
 			files = append(files, plannedFile{path: projectPrefix(o.Name) + path.Base(rel), content: data})
 			return nil
 		}
@@ -281,7 +281,7 @@ func plan(o Options) ([]plannedFile, error) {
 	return files, nil
 }
 
-// render 用 text/template 渲染单个模板。 | render renders one template with text/template.
+// render renders one template with text/template. | render 用 text/template 渲染单个模板。
 func render(data []byte, name string, v view) ([]byte, error) {
 	tmpl, err := template.New(name).Parse(string(data))
 	if err != nil {
@@ -295,7 +295,7 @@ func render(data []byte, name string, v view) ([]byte, error) {
 	return buf.Bytes(), nil
 }
 
-// sortFiles 按路径字典序稳定排序，保证输出顺序与幂等性。 | sortFiles sorts by path so the output order stays stable and idempotent.
+// sortFiles sorts by path so the output order stays stable and idempotent. | sortFiles 按路径字典序稳定排序，保证输出顺序与幂等性。
 func sortFiles(files []plannedFile) {
 	sort.Slice(files, func(i, j int) bool { return files[i].path < files[j].path })
 }

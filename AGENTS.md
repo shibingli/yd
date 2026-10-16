@@ -6,7 +6,7 @@
 
 **允许直接修改**
 
-- 源码目录：`config/`、`afs/`、`jsonx/`、`b64x/`、`logx/`、`router/`、`render/`、`htmx/`、`sse/`、`ws/`、`jwt/`、`guomi/`、`middleware/`、`i18n/`、`openapi/`、`server/`、`grpcx/`、`lifecycle/`、`service/`、`data/**`、`app/`、`cli/`、`scaffold/`、`gen/`、`build/`、`docker/`、`assets/`、`toolchain/`、`web/**`
+- 源码目录：`config/`、`afs/`、`jsonx/`、`b64x/`、`logx/`、`router/`、`render/`、`htmx/`、`sse/`、`ws/`、`jwt/`、`guomi/`、`middleware/`、`i18n/`、`openapi/`、`server/`、`grpcx/`、`lifecycle/`、`service/`、`data/**`、`app/`、`cli/`、`scaffold/`、`gen/`、`build/`、`docker/`、`ko/`、`assets/`、`toolchain/`、`web/**`
 - 测试与文档：`*_test.go`、`testdata/**`、`docs/**`（除需求基线）
 
 **禁止修改**
@@ -93,6 +93,11 @@
 - [ ] **敏感日志**：访问日志与慢查询日志不得输出口令、Token、密钥明文；使用 `logger.ParamsFilter` 屏蔽。
 - [ ] **CORS**：`AllowCredentials=true` 时禁止回显 `*`。
 - [ ] **资产完整性**：`web/assets.lock.json` 中每项必须有 sha256，且 `yd assets verify --offline` 通过。
+- [ ] **镜像打包**：镜像一律经 `yd ko`（Go 源码直出，无需 Dockerfile）或 `yd docker`（多阶段 Dockerfile）产出，
+      **禁止**另行手写 `docker build` 参数或自拼 ko 命令行；ko 属**可选外部工具**（`--binary` → `YD_KO_BIN` →
+      `<项目>/.yd/tools/ko[.exe]` → `PATH`），缺失时只返回 `ko.ErrBinaryNotFound` 并提示
+      `go install github.com/google/ko@latest`，**不得**让 `yd build` / `yd dev` / `go test` 或 CI 失败；
+      **不得**新增 ko 的 Go 依赖（`go.mod` 不因本特性变化）；两条路径的产物都必须是 `CGO_ENABLED=0` 静态链接。
 
 ## 4. 提交纪律（强制，Agent 必须遵守）
 

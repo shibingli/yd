@@ -1,4 +1,4 @@
-// 本文件是租户仓储：把 auth.Store 的租户方法包装成模型层的读写。 | This file is the tenant repository: it wraps the tenant methods of auth.Store into model-layer reads and writes.
+// This file is the tenant repository: it wraps the tenant methods of auth.Store into model-layer reads and writes. | 本文件是租户仓储：把 auth.Store 的租户方法包装成模型层的读写。
 //
 // 换成 GORM 时本文件不需要修改：只要注入的 auth.Store 换了实现，这里的方法就自动落到 SQL 上。
 // Nothing here changes when GORM arrives: swap the injected auth.Store and these methods hit SQL on their own.
@@ -19,14 +19,14 @@ import (
 // TenantRepo 提供租户的读取与创建；多租户的硬边界由 auth.Store 保证，本层不再重复校验。
 // TenantRepo reads and creates tenants; the hard boundary of multi-tenancy is enforced by auth.Store and is not checked twice here.
 type TenantRepo struct {
-	// store 是鉴权服务的持有者。 | store owns the auth service.
+	// store owns the auth service. | store 是鉴权服务的持有者。
 	store *Store
 }
 
-// NewTenantRepo 基于 Store 构造租户仓储。 | NewTenantRepo builds a tenant repository over a Store.
+// NewTenantRepo builds a tenant repository over a Store. | NewTenantRepo 基于 Store 构造租户仓储。
 func NewTenantRepo(store *Store) *TenantRepo { return &TenantRepo{store: store} }
 
-// List 按创建时间返回全部租户。 | List returns every tenant ordered by creation time.
+// List returns every tenant ordered by creation time. | List 按创建时间返回全部租户。
 func (r *TenantRepo) List(ctx context.Context) ([]model.Tenant, error) {
 	list, err := r.store.Auth().ListTenants(ctx)
 	if err != nil {
@@ -35,7 +35,7 @@ func (r *TenantRepo) List(ctx context.Context) ([]model.Tenant, error) {
 	return model.TenantsFromAuth(list), nil
 }
 
-// Get 按 ID 返回租户，未知 ID 返回包装了 auth.ErrNotFound 的错误。 | Get returns the tenant of that id and reports an error wrapping auth.ErrNotFound for an unknown one.
+// Get returns the tenant of that id and reports an error wrapping auth.ErrNotFound for an unknown one. | Get 按 ID 返回租户，未知 ID 返回包装了 auth.ErrNotFound 的错误。
 func (r *TenantRepo) Get(ctx context.Context, tenantID string) (model.Tenant, error) {
 	t, err := r.store.Auth().GetTenant(ctx, tenantID)
 	if err != nil {
@@ -60,7 +60,7 @@ func (r *TenantRepo) BySlug(ctx context.Context, slug string) (model.Tenant, err
 	return model.Tenant{}, errTenantMissing
 }
 
-// Create 新建租户；标识重复时返回包装了 auth.ErrConflict 的错误。 | Create adds a tenant and reports an error wrapping auth.ErrConflict for a duplicate slug.
+// Create adds a tenant and reports an error wrapping auth.ErrConflict for a duplicate slug. | Create 新建租户；标识重复时返回包装了 auth.ErrConflict 的错误。
 func (r *TenantRepo) Create(ctx context.Context, slug, name string) (model.Tenant, error) {
 	t, err := r.store.Auth().CreateTenant(ctx, slug, name)
 	if err != nil {
@@ -69,7 +69,7 @@ func (r *TenantRepo) Create(ctx context.Context, slug, name string) (model.Tenan
 	return model.TenantFromAuth(t), nil
 }
 
-// Ensure 返回该标识的租户，不存在时创建（幂等）。 | Ensure returns the tenant of that slug, creating it when absent (idempotent).
+// Ensure returns the tenant of that slug, creating it when absent (idempotent). | Ensure 返回该标识的租户，不存在时创建（幂等）。
 func (r *TenantRepo) Ensure(ctx context.Context, slug, name string) (model.Tenant, error) {
 	if existing, err := r.BySlug(ctx, slug); err == nil {
 		return existing, nil

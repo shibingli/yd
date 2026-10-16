@@ -164,7 +164,7 @@ func (p project) at(rel string) string {
 	return p.name + "/" + rel
 }
 
-// read 读取项目文件，失败即终止用例。 | read reads a project file and fails the case on error.
+// read reads a project file and fails the case on error. | read 读取项目文件，失败即终止用例。
 func (p project) read(rel string) string {
 	p.t.Helper()
 	b, err := afero.ReadFile(p.fs, p.at(rel))
@@ -174,7 +174,7 @@ func (p project) read(rel string) string {
 	return string(b)
 }
 
-// exists 报告项目文件是否存在。 | exists reports whether a project file exists.
+// exists reports whether a project file exists. | exists 报告项目文件是否存在。
 func (p project) exists(rel string) bool {
 	return afs.Exists(p.fs, p.at(rel))
 }
@@ -462,7 +462,7 @@ func TestGenerateIdempotentSkipsIdentical(t *testing.T) {
 		t.Errorf("模块路径不稳定: %q vs %q", second.ModulePath, first.ModulePath)
 	}
 
-	// 幂等性：内容不被改写，关键文件仍然正确。 | Idempotence: nothing is rewritten and the key files stay correct.
+	// Idempotence: nothing is rewritten and the key files stay correct. | 幂等性：内容不被改写，关键文件仍然正确。
 	if got := pr.read("go.mod"); !strings.Contains(got, "module github.com/yun-dev/idem-app") {
 		t.Errorf("二次生成后 go.mod 内容异常:\n%s", got)
 	}
@@ -701,7 +701,7 @@ func TestGeneratedGovernanceDocsStateConstraints(t *testing.T) {
 		"jsonx",
 		"b64x",
 		"YD_",
-		// 技术栈版本（模板以粗体书写，逐字校验需求规定的版本号）。 | Stack versions (the template bolds them; the mandated version literals are checked verbatim).
+		// Stack versions (the template bolds them; the mandated version literals are checked verbatim). | 技术栈版本（模板以粗体书写，逐字校验需求规定的版本号）。
 		"Go **1.27.2**",
 		"Htmx **4.0.0**",
 		"Tailwind CSS **v4**",
@@ -849,13 +849,13 @@ func runGo(goBin, dir string, offline bool, args ...string) (string, error) {
 	return string(out), err
 }
 
-// 真实服务验证用到的时间与体积上限 | Time and size bounds of the live-server checks
+// Time and size bounds of the live-server checks | 真实服务验证用到的时间与体积上限
 const (
 	// startupTimeout 是等待生成的应用就绪的上限：首次启动要建连、装配模板并绑定端口。
 	// startupTimeout bounds the wait for the generated application to become ready: the first start has to connect,
 	// assemble its templates and bind the port.
 	startupTimeout = 30 * time.Second
-	// httpTimeout 是单条普通请求的上限。 | httpTimeout bounds one ordinary request.
+	// httpTimeout bounds one ordinary request. | httpTimeout 是单条普通请求的上限。
 	httpTimeout = 10 * time.Second
 	// sseTimeout 是等待一帧 SSE 推送的上限（推送间隔 5 秒，留足心跳与调度余量）。
 	// sseTimeout bounds the wait for one SSE frame (the push interval is five seconds, leaving room for heartbeats and scheduling).
@@ -1220,18 +1220,18 @@ func TestGeneratedAppServesFrameworkFeatures(t *testing.T) {
 // internal/meta and are kept here for the assertions, while assertSeedCredentialsDocumented verifies them verbatim so
 // neither side can drift away on its own.
 const (
-	// probeTenant 是演示租户的标识（登录表单的租户字段）。 | probeTenant is the demo tenant's key (the sign-in form's tenant field).
+	// probeTenant is the demo tenant's key (the sign-in form's tenant field). | probeTenant 是演示租户的标识（登录表单的租户字段）。
 	probeTenant = "demo"
-	// probeAdmin 是演示租户的管理员登录名。 | probeAdmin is the demo tenant's administrator sign-in name.
+	// probeAdmin is the demo tenant's administrator sign-in name. | probeAdmin 是演示租户的管理员登录名。
 	probeAdmin = "admin"
-	// probeAdminPassword 是演示租户管理员的初始口令。 | probeAdminPassword is the demo administrator's initial password.
+	// probeAdminPassword is the demo administrator's initial password. | probeAdminPassword 是演示租户管理员的初始口令。
 	probeAdminPassword = "Admin@123456"
 	// probeOpsTenant 是第二个租户的标识，也是跨租户用例里「另一个租户」的名字。
 	// probeOpsTenant is the second tenant's key and the name of "the other tenant" in the cross-tenant cases.
 	probeOpsTenant = "acme"
-	// probeOpsAdmin 是第二个租户的管理员登录名。 | probeOpsAdmin is the second tenant's administrator sign-in name.
+	// probeOpsAdmin is the second tenant's administrator sign-in name. | probeOpsAdmin 是第二个租户的管理员登录名。
 	probeOpsAdmin = "acme-admin"
-	// probeOpsPassword 是第二个租户管理员的初始口令。 | probeOpsPassword is the second tenant administrator's initial password.
+	// probeOpsPassword is the second tenant administrator's initial password. | probeOpsPassword 是第二个租户管理员的初始口令。
 	probeOpsPassword = "Acme@123456"
 	// probeUserPassword 是探针自己建的账号所用的口令，长度满足口令强度下限。
 	// probeUserPassword is the password of the accounts the probe creates itself, long enough to clear the strength floor.
@@ -1743,7 +1743,7 @@ func newProbeClient(t *testing.T, timeout time.Duration) *http.Client {
 // langTransport appends Accept-Language: en to every request that does not carry one.
 type langTransport struct{}
 
-// RoundTrip 实现 http.RoundTripper。 | RoundTrip implements http.RoundTripper.
+// RoundTrip implements http.RoundTripper. | RoundTrip 实现 http.RoundTripper。
 func (langTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 	if req.Header.Get("Accept-Language") == "" {
 		req.Header.Set("Accept-Language", "en")

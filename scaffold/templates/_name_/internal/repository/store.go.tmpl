@@ -6,12 +6,12 @@
 // The current implementation is the in-memory one (auth.NewMemoryStore): data dies with the process, which is fine for
 // development and demos.
 //
-// 换成 GORM 的步骤（三步，业务代码一行都不用改）： | Swapping in GORM takes three steps and changes no business code:
-//  1. 建一个实现 auth.Store 的结构体，接口里的每个方法都带 tenantID，SQL 里必须把它写进 WHERE； | write a struct implementing auth.Store; every method takes a tenantID and the SQL must carry it in the WHERE clause;
+// Swapping in GORM takes three steps and changes no business code: | 换成 GORM 的步骤（三步，业务代码一行都不用改）：
+//  1. write a struct implementing auth.Store; every method takes a tenantID and the SQL must carry it in the WHERE clause; | 建一个实现 auth.Store 的结构体，接口里的每个方法都带 tenantID，SQL 里必须把它写进 WHERE；
 //     auth.Store 的契约是「外部或未知实体一律返回 auth.ErrNotFound，绝不返回 auth.ErrForbidden」，
-//     这样调用方无法探测别的租户是否存在数据。 | the contract of auth.Store is "a foreign or unknown entity always reports auth.ErrNotFound and never auth.ErrForbidden", so no caller can probe for another tenant's data;
-//  2. 把 Open 里的 auth.NewMemoryStore() 换成你的构造函数（例如 gormstore.New(db)），并让 Close 关闭连接池； | replace auth.NewMemoryStore() in Open with your constructor (say gormstore.New(db)) and let Close release the pool;
-//  3. 用 internal/model 的建表语句迁移（GORM AutoMigrate 或自备 SQL），字段名与标签已经对齐。 | migrate with the DDL of internal/model (GORM AutoMigrate or your own SQL); the column names already match the tags.
+//     the contract of auth.Store is "a foreign or unknown entity always reports auth.ErrNotFound and never auth.ErrForbidden", so no caller can probe for another tenant's data; | 这样调用方无法探测别的租户是否存在数据。
+//  2. replace auth.NewMemoryStore() in Open with your constructor (say gormstore.New(db)) and let Close release the pool; | 把 Open 里的 auth.NewMemoryStore() 换成你的构造函数（例如 gormstore.New(db)），并让 Close 关闭连接池；
+//  3. migrate with the DDL of internal/model (GORM AutoMigrate or your own SQL); the column names already match the tags. | 用 internal/model 的建表语句迁移（GORM AutoMigrate 或自备 SQL），字段名与标签已经对齐。
 package repository
 
 import (
@@ -27,11 +27,11 @@ import (
 	"{{ .YdModule }}/logx"
 )
 
-// 存储层哨兵错误：装配与种子数据失败都能用 errors.Is 判定。 | Storage sentinels: assembly and seeding failures are both reachable through errors.Is.
+// Storage sentinels: assembly and seeding failures are both reachable through errors.Is. | 存储层哨兵错误：装配与种子数据失败都能用 errors.Is 判定。
 var (
-	// ErrOpen 表示鉴权服务或令牌签发器装配失败。 | ErrOpen reports a failed auth service or token issuer assembly.
+	// ErrOpen reports a failed auth service or token issuer assembly. | ErrOpen 表示鉴权服务或令牌签发器装配失败。
 	ErrOpen = errx.New("repository: auth store assembly failed | repository：鉴权存储装配失败")
-	// ErrSeed 表示演示种子数据写入失败。 | ErrSeed reports a failed demo seed write.
+	// ErrSeed reports a failed demo seed write. | ErrSeed 表示演示种子数据写入失败。
 	ErrSeed = errx.New("repository: demo seed failed | repository：演示数据写入失败")
 )
 
@@ -41,34 +41,34 @@ var (
 // and nothing about whether some other tenant exists.
 var errTenantMissing = errx.Detail(auth.ErrNotFound, "no tenant matches that slug | 没有与该标识匹配的租户")
 
-// Options 配置 Store。 | Options configures a Store.
+// Options configures a Store. | Options 配置 Store。
 type Options struct {
-	// Log 接收种子数据与降级告警；为空时使用 logx.Default()。 | Log receives seed and degradation warnings; empty selects logx.Default().
+	// Log receives seed and degradation warnings; empty selects logx.Default(). | Log 接收种子数据与降级告警；为空时使用 logx.Default()。
 	Log *logx.Logger
-	// MasterKey 是封装每用户 sec_key 的主密钥，短于 auth.MinMasterKeyLen 会被拒绝。 | MasterKey seals every per-user sec_key and is refused below auth.MinMasterKeyLen.
+	// MasterKey seals every per-user sec_key and is refused below auth.MinMasterKeyLen. | MasterKey 是封装每用户 sec_key 的主密钥，短于 auth.MinMasterKeyLen 会被拒绝。
 	MasterKey []byte
-	// Issuer 是令牌的 iss 声明；为空时取框架默认值。 | Issuer is the token iss claim; empty selects the framework default.
+	// Issuer is the token iss claim; empty selects the framework default. | Issuer 是令牌的 iss 声明；为空时取框架默认值。
 	Issuer string
-	// TTL 是令牌有效期；<= 0 时取框架默认值。 | TTL is the token lifetime; <= 0 selects the framework default.
+	// TTL is the token lifetime; <= 0 selects the framework default. | TTL 是令牌有效期；<= 0 时取框架默认值。
 	TTL time.Duration
 }
 
 // Store 持有框架的鉴权服务与令牌签发器（本类型只做装配，不做业务判断）。
 // Store owns the framework auth service and token issuer (this type only assembles them; it makes no business decision).
 type Store struct {
-	// svc 是租户、用户、角色与口令生命周期的唯一入口。 | svc is the single entry point to tenants, users, roles and the password lifecycle.
+	// svc is the single entry point to tenants, users, roles and the password lifecycle. | svc 是租户、用户、角色与口令生命周期的唯一入口。
 	svc *auth.Service
 	// raw 是持久化实现本身，只用于 auth.Service 没有暴露的按登录名查找（登录与种子数据的幂等判定都要它）。
 	// raw is the persistence implementation itself, used only for the username lookup auth.Service does not expose (both
 	// the sign-in path and the idempotence check of the seed need it).
 	raw auth.Store
-	// issuer 用每用户 sec_key 签发与校验令牌。 | issuer signs and verifies tokens with each user's own sec_key.
+	// issuer signs and verifies tokens with each user's own sec_key. | issuer 用每用户 sec_key 签发与校验令牌。
 	issuer *auth.TokenIssuer
-	// log 记录种子数据与开发期降级。 | log records seeding and development-time degradation.
+	// log records seeding and development-time degradation. | log 记录种子数据与开发期降级。
 	log *logx.Logger
 }
 
-// Open 装配 Store：内存实现 + 框架鉴权服务 + 令牌签发器。 | Open assembles a Store: the memory implementation plus the framework auth service and token issuer.
+// Open assembles a Store: the memory implementation plus the framework auth service and token issuer. | Open 装配 Store：内存实现 + 框架鉴权服务 + 令牌签发器。
 //
 // 主密钥为空时 auth.NewService 会生成临时主密钥并输出告警，仅限开发：进程重启后已入库的 sec_key 无法解密。
 // With an empty master key, auth.NewService generates a temporary one and warns, which is development-only: stored
@@ -92,7 +92,7 @@ func Open(o Options) (*Store, error) {
 	return &Store{svc: svc, raw: raw, issuer: issuer, log: log}, nil
 }
 
-// Auth 返回框架鉴权服务，供中间件与权限判定使用。 | Auth returns the framework auth service used by the middleware and by permission checks.
+// Auth returns the framework auth service used by the middleware and by permission checks. | Auth 返回框架鉴权服务，供中间件与权限判定使用。
 func (s *Store) Auth() *auth.Service { return s.svc }
 
 // Raw 返回鉴权存储实现本身：auth.Service 只暴露了按 ID 的读取，按登录名查找要落到这一层。
@@ -102,27 +102,27 @@ func (s *Store) Auth() *auth.Service { return s.svc }
 // Swapping the implementation redirects this automatically (Open is the only assembly point) and no business code or test changes.
 func (s *Store) Raw() auth.Store { return s.raw }
 
-// Issuer 返回令牌签发器，供 auth.Middleware 与登录流程使用。 | Issuer returns the token issuer used by auth.Middleware and by the sign-in flow.
+// Issuer returns the token issuer used by auth.Middleware and by the sign-in flow. | Issuer 返回令牌签发器，供 auth.Middleware 与登录流程使用。
 func (s *Store) Issuer() *auth.TokenIssuer { return s.issuer }
 
-// Close 释放存储资源；内存实现无需释放，换成 GORM 后在这里关闭连接池。 | Close releases storage resources; the memory implementation needs nothing and a GORM store closes its pool here.
+// Close releases storage resources; the memory implementation needs nothing and a GORM store closes its pool here. | Close 释放存储资源；内存实现无需释放，换成 GORM 后在这里关闭连接池。
 func (s *Store) Close() error { return nil }
 
-// seedSpec 描述一个演示租户及其管理员账号。 | seedSpec describes one demo tenant together with its administrator account.
+// seedSpec describes one demo tenant together with its administrator account. | seedSpec 描述一个演示租户及其管理员账号。
 type seedSpec struct {
-	// Slug 是租户标识，同时是登录页的租户字段取值。 | Slug is the tenant key and the value of the tenant field on the sign-in page.
+	// Slug is the tenant key and the value of the tenant field on the sign-in page. | Slug 是租户标识，同时是登录页的租户字段取值。
 	Slug string
-	// Name 是租户展示名。 | Name is the tenant display name.
+	// Name is the tenant display name. | Name 是租户展示名。
 	Name string
-	// Username 是管理员登录名。 | Username is the administrator sign-in name.
+	// Username is the administrator sign-in name. | Username 是管理员登录名。
 	Username string
-	// Password 是管理员初始口令（首次登录后必须修改）。 | Password is the administrator's initial password (it must be changed after the first sign-in).
+	// Password is the administrator's initial password (it must be changed after the first sign-in). | Password 是管理员初始口令（首次登录后必须修改）。
 	Password string
-	// Email 是管理员联络邮箱。 | Email is the administrator contact address.
+	// Email is the administrator contact address. | Email 是管理员联络邮箱。
 	Email string
 }
 
-// seedSpecs 返回全部演示租户；第二个租户专门用来在开发期验证跨租户隔离。 | seedSpecs returns every demo tenant; the second one exists to verify cross-tenant isolation by hand.
+// seedSpecs returns every demo tenant; the second one exists to verify cross-tenant isolation by hand. | seedSpecs 返回全部演示租户；第二个租户专门用来在开发期验证跨租户隔离。
 func seedSpecs() []seedSpec {
 	return []seedSpec{
 		{
@@ -166,7 +166,7 @@ func (s *Store) Seed(ctx context.Context) error {
 	return nil
 }
 
-// ensureTenant 按标识取租户，不存在时创建；返回的是租户记录本身。 | ensureTenant returns the tenant of that slug, creating it when absent.
+// ensureTenant returns the tenant of that slug, creating it when absent. | ensureTenant 按标识取租户，不存在时创建；返回的是租户记录本身。
 func (s *Store) ensureTenant(ctx context.Context, spec seedSpec) (*auth.Tenant, error) {
 	tenants, err := s.svc.ListTenants(ctx)
 	if err != nil {
@@ -180,7 +180,7 @@ func (s *Store) ensureTenant(ctx context.Context, spec seedSpec) (*auth.Tenant, 
 	return s.svc.CreateTenant(ctx, spec.Slug, spec.Name)
 }
 
-// ensureAdmin 按登录名取管理员，不存在时创建并授予 owner 角色。 | ensureAdmin returns the administrator of that username, creating it with the owner role when absent.
+// ensureAdmin returns the administrator of that username, creating it with the owner role when absent. | ensureAdmin 按登录名取管理员，不存在时创建并授予 owner 角色。
 func (s *Store) ensureAdmin(ctx context.Context, tenant *auth.Tenant, spec seedSpec) error {
 	if _, err := s.Raw().GetUserByUsername(ctx, tenant.ID, spec.Username); err == nil {
 		return nil

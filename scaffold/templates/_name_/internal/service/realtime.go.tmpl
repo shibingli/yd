@@ -18,19 +18,19 @@ import (
 // The public realtime contract: topic, target selector and swap strategy are shared by the endpoint and the front-end
 // templates and live in one place so they cannot drift apart.
 const (
-	// EventsTopic 是 SSE 主题名，/events 端点与发布方共用。 | EventsTopic is the SSE topic shared by the /events endpoint and the publisher.
+	// EventsTopic is the SSE topic shared by the /events endpoint and the publisher. | EventsTopic 是 SSE 主题名，/events 端点与发布方共用。
 	EventsTopic = "yd.events"
-	// ClockTarget 是时钟片段的选择器，与 pages/realtime.html 的容器一致。 | ClockTarget is the clock fragment's selector, matching the container in pages/realtime.html.
+	// ClockTarget is the clock fragment's selector, matching the container in pages/realtime.html. | ClockTarget 是时钟片段的选择器，与 pages/realtime.html 的容器一致。
 	ClockTarget = "#yd-clock"
-	// ClockSwap 是时钟片段的替换策略：就地形态替换，避免整块重建导致闪烁。 | ClockSwap is the clock swap strategy: an in-place morph swap that avoids a full rebuild and its flicker.
+	// ClockSwap is the clock swap strategy: an in-place morph swap that avoids a full rebuild and its flicker. | ClockSwap 是时钟片段的替换策略：就地形态替换，避免整块重建导致闪烁。
 	ClockSwap = "innerMorph"
-	// TickEvent 是随片段一并下发的客户端事件名，页面按需订阅。 | TickEvent is the client-side event shipped along with the fragment; pages subscribe to it on demand.
+	// TickEvent is the client-side event shipped along with the fragment; pages subscribe to it on demand. | TickEvent 是随片段一并下发的客户端事件名，页面按需订阅。
 	TickEvent = "yd:tick"
-	// DefaultTickInterval 是默认推送间隔。 | DefaultTickInterval is the default push interval.
+	// DefaultTickInterval is the default push interval. | DefaultTickInterval 是默认推送间隔。
 	DefaultTickInterval = 5 * time.Second
 )
 
-// ErrTickerRunning 表示同一实例被重复启动。 | ErrTickerRunning reports a second start on the same instance.
+// ErrTickerRunning reports a second start on the same instance. | ErrTickerRunning 表示同一实例被重复启动。
 var ErrTickerRunning = errx.New("ticker already running | 时钟已在运行")
 
 // Ticker 周期性把时钟片段推送给 EventsTopic 的订阅者。
@@ -40,15 +40,15 @@ var ErrTickerRunning = errx.New("ticker already running | 时钟已在运行")
 // The fragment is rendered server-side (HTML rather than JSON) to stay consistent with htmx's swap semantics; the
 // front end assembles nothing.
 type Ticker struct {
-	// broker 是事件广播器。 | broker is the event broadcaster.
+	// broker is the event broadcaster. | broker 是事件广播器。
 	broker *sse.Broker
-	// interval 是推送间隔。 | interval is the push interval.
+	// interval is the push interval. | interval 是推送间隔。
 	interval time.Duration
-	// started 是启动时刻，用于计算运行时长。 | started is the start instant, used to compute the uptime.
+	// started is the start instant, used to compute the uptime. | started 是启动时刻，用于计算运行时长。
 	started time.Time
-	// done 在后台协程退出后关闭。 | done is closed once the background goroutine has returned.
+	// done is closed once the background goroutine has returned. | done 在后台协程退出后关闭。
 	done chan struct{}
-	// cancel 中止后台协程。 | cancel stops the background goroutine.
+	// cancel stops the background goroutine. | cancel 中止后台协程。
 	cancel context.CancelFunc
 }
 

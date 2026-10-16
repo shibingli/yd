@@ -319,11 +319,11 @@ func (c *Controller) RotateUserSecKey(ctx *router.Ctx) {
 // rather than the whole page, and $ inside a nested template points at that template's own argument, so both values have
 // to travel with the card instead of being reached for as $.Xxx inside the row.
 type userCard struct {
-	// KeyEndpoint 是 SM2 公钥地址，供重置口令表单声明式加密使用。 | KeyEndpoint is the SM2 public-key URL used by the password-reset form's declarative encryption.
+	// KeyEndpoint is the SM2 public-key URL used by the password-reset form's declarative encryption. | KeyEndpoint 是 SM2 公钥地址，供重置口令表单声明式加密使用。
 	KeyEndpoint string
-	// Roles 是角色的候选项（含勾选状态）。 | Roles holds the role options including their ticked state.
+	// Roles holds the role options including their ticked state. | Roles 是角色的候选项（含勾选状态）。
 	Roles []model.RoleOption
-	// User 是这一行用户。 | User is the user of this row.
+	// User is the user of this row. | User 是这一行用户。
 	User model.User
 	// CanWrite 表示当前访问者可以写用户，决定行内表单是否渲染。字段按内存对齐排序，布尔值收在末尾（与 model.RoleOption 同一约定）。
 	// CanWrite reports whether the visitor may write users, which decides whether the inline forms are rendered. Fields

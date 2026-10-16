@@ -19,11 +19,11 @@ import (
 // UserRepo 提供用户的读写、角色分配、口令与 sec_key 生命周期。
 // UserRepo provides user reads and writes plus role assignment and the password and sec_key lifecycle.
 type UserRepo struct {
-	// store 是鉴权服务的持有者。 | store owns the auth service.
+	// store owns the auth service. | store 是鉴权服务的持有者。
 	store *Store
 }
 
-// NewUserRepo 基于 Store 构造用户仓储。 | NewUserRepo builds a user repository over a Store.
+// NewUserRepo builds a user repository over a Store. | NewUserRepo 基于 Store 构造用户仓储。
 func NewUserRepo(store *Store) *UserRepo { return &UserRepo{store: store} }
 
 // List 返回该租户的全部用户；租户未知时返回包装了 auth.ErrNotFound 的错误。
@@ -46,7 +46,7 @@ func (r *UserRepo) Get(ctx context.Context, tenantID, userID string) (model.User
 	return model.UserFromAuth(u), nil
 }
 
-// ByUsername 按登录名返回该租户下的用户。 | ByUsername returns the user of that tenant by sign-in name.
+// ByUsername returns the user of that tenant by sign-in name. | ByUsername 按登录名返回该租户下的用户。
 func (r *UserRepo) ByUsername(ctx context.Context, tenantID, username string) (model.User, error) {
 	u, err := r.store.Raw().GetUserByUsername(ctx, tenantID, username)
 	if err != nil {
@@ -105,7 +105,7 @@ func (r *UserRepo) SetStatus(ctx context.Context, tenantID, userID string, statu
 	return r.store.Auth().UpdateUser(ctx, tenantID, record)
 }
 
-// RotateSecKey 轮换 sec_key：旧令牌全部失效，口令不变。 | RotateSecKey rotates the sec_key: every old token dies and the password stays.
+// RotateSecKey rotates the sec_key: every old token dies and the password stays. | RotateSecKey 轮换 sec_key：旧令牌全部失效，口令不变。
 func (r *UserRepo) RotateSecKey(ctx context.Context, tenantID, userID string) error {
 	return r.store.Auth().RotateSecKey(ctx, tenantID, userID)
 }
@@ -116,7 +116,7 @@ func (r *UserRepo) Authenticate(ctx context.Context, tenantID, username, passwor
 	return r.store.Auth().Authenticate(ctx, tenantID, username, password)
 }
 
-// Permissions 返回用户的权限全集（由角色名展开而来）。 | Permissions returns the user's full capability set, expanded from the role names.
+// Permissions returns the user's full capability set, expanded from the role names. | Permissions 返回用户的权限全集（由角色名展开而来）。
 func (r *UserRepo) Permissions(u *auth.User) []model.Permission {
 	perms := r.store.Auth().PermissionsOf(u)
 	out := make([]model.Permission, 0, len(perms))

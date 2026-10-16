@@ -365,3 +365,38 @@ Windows 走 SCM、Linux 走 systemd、macOS 走 launchd。禁止为单个平台�
   `install|uninstall|start|stop|restart|status`，`run` 只属于应用二进制。
 - **测试不得真的装服务**：`service` 包经 `newControlHandle` 注入、CLI 经 `serviceControlFunc` / `serviceBuildFunc`
   打桩，覆盖动作映射、名字/描述来源、不支持平台与权限失败路径；测试进程内不得出现真实 SCM / `systemctl` / `launchctl` 调用。
+
+## 17. 镜像打包契约（ko）
+
+镜像有**两个且只有两个**入口：`yd docker`（多阶段 Dockerfile → `scratch`）与 `yd ko`
+（`github.com/shibingli/yd/ko`，从 Go 源码直出镜像，**没有 Dockerfile 这一环**）。
+两者都调用**外部 CLI**（docker / ko）完成构建，因此不引入任何 Go 构建期依赖。
+**禁止**在脚本、CI 或文档里另行手写 `docker build` 参数或自拼 ko 命令行：标签、平台、基础镜像与仓库
+都必须经这两条命令解析，否则打包行为会散成彼此不一致的副本。
+
+**分工**：需要定制构建步骤（装系统包、拷额外文件）走 `yd docker` 与 `Dockerfile`；
+标准的「单二进制 + 空镜像」交付走 `yd ko`，它不需要 Dockerfile，也不要求本机装 docker。
+
+| 项 | 值 |
+|---|---|
+| 命令行 | `yd ko [--repo R] [--tags a,b] [--platforms linux/amd64,linux/arm64] [--base-image X] [--package ./cmd/app] [--local] [--push] [--binary PATH] [--dir DIR]` |
+| 配置键 | `ko.binary` / `ko.repository` / `ko.tags` / `ko.platforms` / `ko.base_image` / `ko.packages` / `ko.local` / `ko.push`（`YD_KO_*` 自动映射） |
+| 二进制解析 | `--binary` → `YD_KO_BIN` → `<项目>/.yd/tools/ko[.exe]` → `PATH` |
+| 哨兵 | `ko.ErrBinaryNotFound` / `ko.ErrNoRepository` / `ko.ErrBuildFailed` / `ko.ErrInvalidOptions` |
+
+- **ko 是可选外部工具**：找不到二进制时返回 `ko.ErrBinaryNotFound` 并给出安装提示
+  （`go install github.com/google/ko@latest`），**绝不 panic**；缺失只影响 `yd ko` 自身，
+  **不得**让 `yd build` / `yd dev` / `yd gen` / `go test` 或 CI 失败（与 `betteralign` 缺失同一口径）。
+- **禁止把 ko 当 Go 依赖**：不得 `require github.com/google/ko`，也不得 import 它的包来「省一次外部进程」；
+  `go.mod` 不得因打包能力新增任何依赖。
+- **标志落在 ko 侧的真实形态**：仓库经 `KO_DOCKER_REPO` 传给 ko，多平台走 ko 的 `--platform`（**单数**，
+  `--platforms` 是本命令的标志名），基础镜像走 `KO_DEFAULTBASEIMAGE`，标签走 `--tags`；
+  `--local` 对应 ko 的 `-L/--local`（装进本机 docker 守护进程，不出网），`--push` 对应 ko 的 `--push`。
+- **产物形态**：两条路径产出的都必须是 `CGO_ENABLED=0` 静态链接的二进制（交叉编译护栏见 AGENTS.md §2/§3），
+  前端资产由 `go:embed` 嵌入，镜像内无任何运行时依赖。
+- **离线/内网**：ko 只把源码编译成镜像层，需要网络的只有「拉基础镜像」与「推结果」两处——
+  基础镜像先同步进内网 registry 再用 `--base-image`（或 `ko.base_image`）指向它；`--repo` 指向内网仓库并先登录
+  （凭据留在 Docker 的凭据配置里，ko 复用）；完全不出网的本机验证用 `--local`。内网 registry 走标准 TLS 校验，
+  请把内网 CA 装进系统信任库，不要指望关掉校验。
+- **测试口径**：打包命令不得在测试里真的执行外部二进制——`docker` 与 `service` 都经注入点打桩，
+  `ko` 沿用同一口径（覆盖二进制解析顺序、缺仓库、构建失败与非法参数路径）。

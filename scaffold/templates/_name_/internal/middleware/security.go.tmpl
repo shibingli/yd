@@ -42,11 +42,11 @@ const (
 		"font-src 'self'; " +
 		"connect-src 'self'"
 
-	// referrerPolicy 只向跨源请求暴露来源，不泄漏路径与查询串。 | referrerPolicy exposes the origin only to cross-origin requests and leaks neither the path nor the query string.
+	// referrerPolicy exposes the origin only to cross-origin requests and leaks neither the path nor the query string. | referrerPolicy 只向跨源请求暴露来源，不泄漏路径与查询串。
 	referrerPolicy = "strict-origin-when-cross-origin"
-	// permissionsPolicy 关闭本项目用不到的浏览器能力。 | permissionsPolicy switches off the browser capabilities this project never uses.
+	// permissionsPolicy switches off the browser capabilities this project never uses. | permissionsPolicy 关闭本项目用不到的浏览器能力。
 	permissionsPolicy = "camera=(), geolocation=(), microphone=(), payment=(), usb=()"
-	// hstsMaxAge 是 HSTS 的生效秒数（一年）。 | hstsMaxAge is the HSTS lifetime in seconds (one year).
+	// hstsMaxAge is the HSTS lifetime in seconds (one year). | hstsMaxAge 是 HSTS 的生效秒数（一年）。
 	hstsMaxAge = 31536000
 )
 
@@ -54,7 +54,7 @@ const (
 // SecurityOptions is the switch set of Security: the zero value is the production-grade strict setting and is relaxed
 // only where genuinely required.
 type SecurityOptions struct {
-	// ContentSecurityPolicy 覆盖默认 CSP 取值；为空时使用 cspPolicy。 | ContentSecurityPolicy overrides the default CSP value; empty means cspPolicy.
+	// ContentSecurityPolicy overrides the default CSP value; empty means cspPolicy. | ContentSecurityPolicy 覆盖默认 CSP 取值；为空时使用 cspPolicy。
 	ContentSecurityPolicy string
 	// DisableHSTS 关闭 HSTS：仅在本地用 HTTP 调试时使用，HTTPS 部署永远不要关闭它。
 	// DisableHSTS switches HSTS off: meant for local HTTP debugging only, and never switched off in an HTTPS deployment.

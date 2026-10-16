@@ -159,3 +159,23 @@ yd gen module|crud   # 低代码生成（DB Schema 或 Go Struct）
    `WorkingDirectory` 里的路径必须是绝对路径（Windows 忽略工作目录，始终在系统目录启动进程）。
 
 服务名缺省取 `configs/config.yaml` 的 `service.name`，其次 `app.name`；安装与卸载的完整步骤见 README 的「安装为系统服务」。
+
+## 11. 镜像打包（ko 与 Dockerfile）（强制）
+
+镜像只有两个入口：`yd docker`（Dockerfile 多阶段构建）与 `yd ko`（Go 源码直出，底层驱动 ko 外部 CLI）。
+**禁止**在脚本、CI 配置或文档里另起炉灶手写 `docker build` 参数，或自己拼一串 ko 命令——标签、平台、基础镜像与仓库
+都由这两条命令统一解析，绕开它们等于让打包行为散落成彼此不一致的副本。
+
+1. **分工**：需要定制构建步骤（装系统包、拷额外文件）就走 `yd docker` 与仓库根目录的 `Dockerfile`；
+   标准的「单二进制 + 空镜像」交付走 `yd ko`，它不需要 Dockerfile，也不要求本机装 docker。
+2. **命令行唯一**：`yd ko [--repo R] [--tags a,b] [--platforms linux/amd64,linux/arm64] [--base-image X]
+   [--package ./cmd/app] [--local] [--push] [--binary PATH] [--dir DIR]`；配置键 `ko.binary` / `ko.repository` /
+   `ko.tags` / `ko.platforms` / `ko.base_image` / `ko.packages` / `ko.local` / `ko.push`（`YD_KO_*` 环境变量生效），
+   优先级仍是「命令行 > 环境变量 > 配置文件 > 缺省值」。注意 ko 自己的标志是单数 `--platform`，`--platforms` 是本命令的标志名。
+3. **ko 是可选外部工具**：二进制按 `--binary` → `YD_KO_BIN` → `<项目>/.yd/tools/ko[.exe]` → `PATH` 解析；
+   找不到时只让 `yd ko` 返回哨兵并打印安装提示（`go install github.com/google/ko@latest`），
+   **不得**因此让 `yd build` / `yd dev` / `go test` / CI 失败，也不得在代码里 panic。
+4. **禁止把 ko 当 Go 依赖**：不许 `require github.com/google/ko`，也不许 import 它的包来「省一次外部进程」——
+   依赖克制是硬约束，打包工具一律走外部 CLI。
+5. **产物形态不变**：无论走哪条路径，镜像里都必须是一个 `CGO_ENABLED=0` 静态链接的二进制
+   （交叉编译护栏见 AGENTS.md），前端资产已由 `go:embed` 嵌入，镜像内不需要任何运行时依赖。

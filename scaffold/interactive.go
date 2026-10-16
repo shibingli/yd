@@ -9,39 +9,39 @@ import (
 	"github.com/shibingli/yd/errx"
 )
 
-// 交互提示与解析用到的固定文案（逐条中英同步）。 | Fixed prompt and parsing copy for the interview (bilingual line by line).
+// Fixed prompt and parsing copy for the interview (bilingual line by line). | 交互提示与解析用到的固定文案（逐条中英同步）。
 const (
-	// promptName 询问项目名。 | promptName asks for the project name.
+	// promptName asks for the project name. | promptName 询问项目名。
 	promptName = "项目名 | Project name"
-	// promptModule 询问模块路径。 | promptModule asks for the module path.
+	// promptModule asks for the module path. | promptModule 询问模块路径。
 	promptModule = "模块路径 | Module path"
-	// promptDB 询问数据库驱动。 | promptDB asks for the database driver.
+	// promptDB asks for the database driver. | promptDB 询问数据库驱动。
 	promptDB = "数据库 (mysql/postgres/sqlite/none) | Database (mysql/postgres/sqlite/none)"
-	// promptRedis 询问是否接入 Redis。 | promptRedis asks whether Redis is wanted.
+	// promptRedis asks whether Redis is wanted. | promptRedis 询问是否接入 Redis。
 	promptRedis = "启用 Redis 缓存 (y/n) | Enable Redis cache (y/n)"
-	// promptAsynq 询问是否接入 asynq。 | promptAsynq asks whether asynq is wanted.
+	// promptAsynq asks whether asynq is wanted. | promptAsynq 询问是否接入 asynq。
 	promptAsynq = "启用 Asynq 队列 (y/n) | Enable Asynq queue (y/n)"
-	// promptGRPC 询问是否开启 gRPC。 | promptGRPC asks whether gRPC is wanted.
+	// promptGRPC asks whether gRPC is wanted. | promptGRPC 询问是否开启 gRPC。
 	promptGRPC = "启用 gRPC 双通道 (y/n) | Enable gRPC dual channel (y/n)"
-	// promptI18n 询问是否开启国际化。 | promptI18n asks whether i18n is wanted.
+	// promptI18n asks whether i18n is wanted. | promptI18n 询问是否开启国际化。
 	promptI18n = "启用 i18n (y/n) | Enable i18n (y/n)"
-	// promptTailwind 询问是否接入 Tailwind。 | promptTailwind asks whether Tailwind is wanted.
+	// promptTailwind asks whether Tailwind is wanted. | promptTailwind 询问是否接入 Tailwind。
 	promptTailwind = "启用 Tailwind (y/n) | Enable Tailwind (y/n)"
-	// promptExts 询问 Htmx 扩展列表。 | promptExts asks for the Htmx extension list.
+	// promptExts asks for the Htmx extension list. | promptExts 询问 Htmx 扩展列表。
 	promptExts = "Htmx 扩展 (ws/sse/preload/alpine，逗号分隔) | Htmx extensions (comma separated)"
-	// promptLicense 询问开源协议。 | promptLicense asks for the licence.
+	// promptLicense asks for the licence. | promptLicense 询问开源协议。
 	promptLicense = "开源协议 | License"
-	// noneAnswer 表示清空列表类回答（如不启用任何 Htmx 扩展）。 | noneAnswer clears list answers (for example: no Htmx extension at all).
+	// noneAnswer clears list answers (for example: no Htmx extension at all). | noneAnswer 表示清空列表类回答（如不启用任何 Htmx 扩展）。
 	noneAnswer = "none"
 )
 
-// ErrAnswerInvalid 表示交互回答无法解析。 | ErrAnswerInvalid reports an unparsable interactive answer.
+// ErrAnswerInvalid reports an unparsable interactive answer. | ErrAnswerInvalid 表示交互回答无法解析。
 var ErrAnswerInvalid = errx.New("invalid answer | 回答无法解析")
 
-// Interactive 逐项询问缺失的选项并返回补齐后的 Options。 | Interactive asks for the missing options one by one and returns the completed Options.
+// Interactive asks for the missing options one by one and returns the completed Options. | Interactive 逐项询问缺失的选项并返回补齐后的 Options。
 //
-// isTTY 为 false 时（管道、CI）不打印任何提示、不读取输入，直接返回补齐默认值后的 base。 | When isTTY is false (pipes, CI) nothing is printed and no input is read: base is returned with defaults filled in.
-// isTTY 为 true 时从 in 逐行读取回答，空行表示接受方括号中的默认值，读到 EOF 即停止询问。 | When isTTY is true answers are read line by line from in; an empty line accepts the bracketed default, and EOF stops the interview.
+// When isTTY is false (pipes, CI) nothing is printed and no input is read: base is returned with defaults filled in. | isTTY 为 false 时（管道、CI）不打印任何提示、不读取输入，直接返回补齐默认值后的 base。
+// When isTTY is true answers are read line by line from in; an empty line accepts the bracketed default, and EOF stops the interview. | isTTY 为 true 时从 in 逐行读取回答，空行表示接受方括号中的默认值，读到 EOF 即停止询问。
 func Interactive(in io.Reader, out io.Writer, base Options, isTTY bool) (Options, error) {
 	base = withDefaults(base)
 	if !isTTY {
@@ -78,7 +78,7 @@ func Interactive(in io.Reader, out io.Writer, base Options, isTTY bool) (Options
 		return base, err
 	}
 
-	// 模块路径的默认值跟随项目名（用户显式指定的模块路径保持不变）。 | The module default follows the project name unless it was set explicitly.
+	// The module default follows the project name unless it was set explicitly. | 模块路径的默认值跟随项目名（用户显式指定的模块路径保持不变）。
 	modDef := base.Module
 	if modDef == "" || modDef == defaultModule(base.Name) {
 		modDef = defaultModule(name)
@@ -161,7 +161,7 @@ func ParseExtensions(s string) ([]string, error) {
 	return exts, nil
 }
 
-// withDefaults 补齐空字段的默认值（不改动已显式给定的布尔开关）。 | withDefaults fills empty fields without touching explicitly given boolean switches.
+// withDefaults fills empty fields without touching explicitly given boolean switches. | withDefaults 补齐空字段的默认值（不改动已显式给定的布尔开关）。
 func withDefaults(o Options) Options {
 	if strings.TrimSpace(o.DB) == "" {
 		o.DB = DBDefault
@@ -175,12 +175,12 @@ func withDefaults(o Options) Options {
 	return o
 }
 
-// dbValues 返回支持的数据库驱动取值（固定顺序，便于提示与测试）。 | dbValues returns the supported drivers in a fixed order for hints and tests.
+// dbValues returns the supported drivers in a fixed order for hints and tests. | dbValues 返回支持的数据库驱动取值（固定顺序，便于提示与测试）。
 func dbValues() []string {
 	return []string{DBMySQL, DBPostgres, DBSQLite, DBNone}
 }
 
-// yesNo 把布尔开关渲染为提示用的 y/n。 | yesNo renders a boolean switch as the y/n hint.
+// yesNo renders a boolean switch as the y/n hint. | yesNo 把布尔开关渲染为提示用的 y/n。
 func yesNo(v bool) string {
 	if v {
 		return "y"
@@ -188,7 +188,7 @@ func yesNo(v bool) string {
 	return "n"
 }
 
-// parseYesNo 解析 y/n 形式的回答，空回答由调用方先行处理。 | parseYesNo parses a y/n answer; empty answers are handled by the caller.
+// parseYesNo parses a y/n answer; empty answers are handled by the caller. | parseYesNo 解析 y/n 形式的回答，空回答由调用方先行处理。
 func parseYesNo(s string) (bool, error) {
 	switch strings.ToLower(strings.TrimSpace(s)) {
 	case "y", "yes", "true", "1", "on", "是":
@@ -200,7 +200,7 @@ func parseYesNo(s string) (bool, error) {
 	}
 }
 
-// defaultModule 返回项目名对应的默认模块路径。 | defaultModule returns the default module path of a project name.
+// defaultModule returns the default module path of a project name. | defaultModule 返回项目名对应的默认模块路径。
 func defaultModule(name string) string {
 	return "github.com/yun-dev/" + name
 }

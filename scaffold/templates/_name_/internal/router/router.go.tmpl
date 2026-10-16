@@ -31,16 +31,16 @@ import (
 // Public contract constants: paths and the static prefix are declared once here and referenced by the document, by
 // middleware and by tests.
 const (
-	// OpenAPIPath 是 OpenAPI JSON 文档的端点，与框架默认值一致。 | OpenAPIPath is the endpoint serving the OpenAPI JSON document, matching the framework default.
+	// OpenAPIPath is the endpoint serving the OpenAPI JSON document, matching the framework default. | OpenAPIPath 是 OpenAPI JSON 文档的端点，与框架默认值一致。
 	OpenAPIPath = "/openapi.json"
-	// DocsPath 是内置文档查看器的端点，与框架默认值一致。 | DocsPath is the endpoint serving the built-in documentation viewer, matching the framework default.
+	// DocsPath is the endpoint serving the built-in documentation viewer, matching the framework default. | DocsPath 是内置文档查看器的端点，与框架默认值一致。
 	DocsPath = "/docs"
-	// StaticPrefix 是静态资源前缀，与 app.Default 的挂载点一致。 | StaticPrefix is the static asset prefix, matching the mount point of app.Default.
+	// StaticPrefix is the static asset prefix, matching the mount point of app.Default. | StaticPrefix 是静态资源前缀，与 app.Default 的挂载点一致。
 	StaticPrefix = "/static"
-	// AnnotationDir 是存放 OpenAPI 注解的源码目录。 | AnnotationDir is the source directory holding the OpenAPI annotations.
+	// AnnotationDir is the source directory holding the OpenAPI annotations. | AnnotationDir 是存放 OpenAPI 注解的源码目录。
 	AnnotationDir = "internal"
 
-	// LoginPath 是登录页与登录提交的端点：未登录的浏览请求都被送到这里。 | LoginPath is the sign-in page and the sign-in submission: every anonymous browsing request lands here.
+	// LoginPath is the sign-in page and the sign-in submission: every anonymous browsing request lands here. | LoginPath 是登录页与登录提交的端点：未登录的浏览请求都被送到这里。
 	LoginPath = "/login"
 )
 
@@ -48,22 +48,22 @@ const (
 // Authentication configuration keys: they match the auth section of configs/config.yaml and can be overridden through
 // environment variables (YD_AUTH_MASTER_KEY, YD_AUTH_TOKEN_TTL).
 const (
-	// configMasterKey 是封装每用户 sec_key 的主密钥。 | configMasterKey is the master key sealing every per-user sec_key.
+	// configMasterKey is the master key sealing every per-user sec_key. | configMasterKey 是封装每用户 sec_key 的主密钥。
 	configMasterKey = "auth.master_key"
-	// configTokenTTL 是令牌有效期，取值形如 "2h"。 | configTokenTTL is the token lifetime, written as "2h" and the like.
+	// configTokenTTL is the token lifetime, written as "2h" and the like. | configTokenTTL 是令牌有效期，取值形如 "2h"。
 	configTokenTTL = "auth.token_ttl"
 )
 
 // 装配期哨兵错误：Register 返回的错误都能用 errors.Is 判定到其中某一个。
 // Assembly sentinels: every error returned by Register satisfies errors.Is against one of them.
 var (
-	// ErrNilApp 表示传入的门面为空。 | ErrNilApp reports a nil facade.
+	// ErrNilApp reports a nil facade. | ErrNilApp 表示传入的门面为空。
 	ErrNilApp = errx.New("router: nil application facade | router：应用门面为空")
-	// ErrAuth 表示鉴权存储、主密钥或令牌签发器装配失败。 | ErrAuth reports a failed auth store, master key or token issuer assembly.
+	// ErrAuth reports a failed auth store, master key or token issuer assembly. | ErrAuth 表示鉴权存储、主密钥或令牌签发器装配失败。
 	ErrAuth = errx.New("router: authentication service unavailable | router：鉴权服务装配失败")
-	// ErrSeed 表示演示种子数据写入失败。 | ErrSeed reports a failed demo seed write.
+	// ErrSeed reports a failed demo seed write. | ErrSeed 表示演示种子数据写入失败。
 	ErrSeed = errx.New("router: demo seed failed | router：演示数据写入失败")
-	// ErrTicker 表示实时推送器启动失败。 | ErrTicker reports a failed realtime publisher start.
+	// ErrTicker reports a failed realtime publisher start. | ErrTicker 表示实时推送器启动失败。
 	ErrTicker = errx.New("router: realtime publisher failed to start | router：实时推送启动失败")
 )
 
@@ -147,10 +147,10 @@ func registerPublic(a *app.App, ctrl *controller.Controller) {
 // registerProtected 登记需要有效会话的业务端点，并按能力逐条挂上权限守卫。
 // registerProtected mounts the business endpoints that need a valid session and hangs one permission guard on each.
 //
-// 链路顺序本身就是一条论证，不能调换： | The order of the chain is itself the argument and must not be reshuffled:
-//  1. middleware.Promote —— 把 cookie 里的令牌提升为 Authorization，浏览器与 API 客户端从此走同一条路径； | Promote lifts the cookie token into Authorization, after which browsers and API clients share one path;
-//  2. auth.Middleware —— 校验签名、有效期与每用户 sec_key，并把用户放进上下文； | auth.Middleware verifies the signature, the validity and the per-user sec_key and stores the user in the context;
-//  3. middleware.Tenant —— 以令牌的 tid 声明为准定租户，请求头或子域名指向别的租户即 403。 | middleware.Tenant settles the tenant from the token's tid claim and refuses a header or subdomain naming another tenant with 403.
+// The order of the chain is itself the argument and must not be reshuffled: | 链路顺序本身就是一条论证，不能调换：
+//  1. Promote lifts the cookie token into Authorization, after which browsers and API clients share one path; | middleware.Promote —— 把 cookie 里的令牌提升为 Authorization，浏览器与 API 客户端从此走同一条路径；
+//  2. auth.Middleware verifies the signature, the validity and the per-user sec_key and stores the user in the context; | auth.Middleware —— 校验签名、有效期与每用户 sec_key，并把用户放进上下文；
+//  3. middleware.Tenant settles the tenant from the token's tid claim and refuses a header or subdomain naming another tenant with 403. | middleware.Tenant —— 以令牌的 tid 声明为准定租户，请求头或子域名指向别的租户即 403。
 //
 // 第三层必须排在第二层之后：它优先信任令牌，而令牌正是第二层校验的产物；顺序颠倒会让任何请求头都变成可信输入。
 // The third layer must follow the second: it trusts the token first, and the token is the product of the second layer — the

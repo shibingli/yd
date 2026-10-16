@@ -1,11 +1,11 @@
 // Package controller 承载 HTTP 处理器：只做编排与数据组装，业务规则一律放 internal/service。
 // Package controller holds the HTTP handlers: they only orchestrate and assemble data, and every business rule lives in internal/service.
 //
-// 四条硬性约定： | Four hard rules:
-//   - 每个处理器上方的注释块都是完整的 OpenAPI 3.0 注解（见 docs/developer_guidelines.md §9.2），yd build 据此生成文档； | every handler carries a complete OpenAPI 3.0 annotation block above it (see docs/developer_guidelines.md §9.2), which yd build turns into the document;
-//   - 端点返回 HTML 片段而不是 JSON（/events、/ws 是流式端点，/guomi/pubkey 是纯文本公钥）； | endpoints answer with HTML fragments rather than JSON (/events and /ws are streaming, /guomi/pubkey returns the public key as plain text);
-//   - 多租户是硬边界：每一次业务调用都带着上下文里的租户 ID，跨租户的读写在 service/repository 两层各拦一次； | multi-tenancy is a hard boundary: every business call carries the tenant id from the context, and cross-tenant reads and writes are refused in both the service and the repository layer;
-//   - 状态码由业务哨兵映射而来（errors.Is），绝不解析错误文案。 | status codes are derived from the business sentinels via errors.Is and never from parsing error messages.
+// Four hard rules: | 四条硬性约定：
+//   - every handler carries a complete OpenAPI 3.0 annotation block above it (see docs/developer_guidelines.md §9.2), which yd build turns into the document; | 每个处理器上方的注释块都是完整的 OpenAPI 3.0 注解（见 docs/developer_guidelines.md §9.2），yd build 据此生成文档；
+//   - endpoints answer with HTML fragments rather than JSON (/events and /ws are streaming, /guomi/pubkey returns the public key as plain text); | 端点返回 HTML 片段而不是 JSON（/events、/ws 是流式端点，/guomi/pubkey 是纯文本公钥）；
+//   - multi-tenancy is a hard boundary: every business call carries the tenant id from the context, and cross-tenant reads and writes are refused in both the service and the repository layer; | 多租户是硬边界：每一次业务调用都带着上下文里的租户 ID，跨租户的读写在 service/repository 两层各拦一次；
+//   - status codes are derived from the business sentinels via errors.Is and never from parsing error messages. | 状态码由业务哨兵映射而来（errors.Is），绝不解析错误文案。
 package controller
 
 import (
@@ -31,34 +31,34 @@ import (
 // 模板名：与 web/templates 下的路径一一对应，渲染引擎按该名称查找。
 // Template names: they match the paths under web/templates one to one, which is how the render engine looks them up.
 const (
-	// TplHome 是首页片段（也是整页请求的内容区）。 | TplHome is the home fragment (the content region of full-page requests as well).
+	// TplHome is the home fragment (the content region of full-page requests as well). | TplHome 是首页片段（也是整页请求的内容区）。
 	TplHome = "pages/home.html"
-	// TplLogin 是登录页片段；未登录用户唯一能看到的页面。 | TplLogin is the sign-in fragment, the only page an anonymous visitor ever sees.
+	// TplLogin is the sign-in fragment, the only page an anonymous visitor ever sees. | TplLogin 是登录页片段；未登录用户唯一能看到的页面。
 	TplLogin = "pages/login.html"
-	// TplUsers 是用户管理片段。 | TplUsers is the user management fragment.
+	// TplUsers is the user management fragment. | TplUsers 是用户管理片段。
 	TplUsers = "pages/users.html"
-	// TplTenants 是租户管理片段。 | TplTenants is the tenant management fragment.
+	// TplTenants is the tenant management fragment. | TplTenants 是租户管理片段。
 	TplTenants = "pages/tenants.html"
-	// TplRoles 是角色管理片段。 | TplRoles is the role management fragment.
+	// TplRoles is the role management fragment. | TplRoles 是角色管理片段。
 	TplRoles = "pages/roles.html"
-	// TplPermissions 是权限矩阵片段。 | TplPermissions is the permission matrix fragment.
+	// TplPermissions is the permission matrix fragment. | TplPermissions 是权限矩阵片段。
 	TplPermissions = "pages/permissions.html"
-	// TplAccount 是账号自助片段（改密与 sec_key 轮换）。 | TplAccount is the self-service account fragment (password change and sec_key rotation).
+	// TplAccount is the self-service account fragment (password change and sec_key rotation). | TplAccount 是账号自助片段（改密与 sec_key 轮换）。
 	TplAccount = "pages/account.html"
-	// TplRealtime 是实时推送演示片段。 | TplRealtime is the realtime demo fragment.
+	// TplRealtime is the realtime demo fragment. | TplRealtime 是实时推送演示片段。
 	TplRealtime = "pages/realtime.html"
-	// TplError 是校验失败片段，由前端的 hx-status:422 声明式换入。 | TplError is the validation failure fragment swapped in by the front end's hx-status:422.
+	// TplError is the validation failure fragment swapped in by the front end's hx-status:422. | TplError 是校验失败片段，由前端的 hx-status:422 声明式换入。
 	TplError = "pages/error.html"
 )
 
 // 列表片段名：增删改之后返回的就是它们，因此 htmx 只换工作区、不重载整页。
 // Fragment names of the lists: every mutation answers with one of them, so htmx swaps the workspace instead of reloading the page.
 const (
-	// TplUsersList 是用户列表片段。 | TplUsersList is the user list fragment.
+	// TplUsersList is the user list fragment. | TplUsersList 是用户列表片段。
 	TplUsersList = "partials/users/list.html"
-	// TplTenantsList 是租户列表片段。 | TplTenantsList is the tenant list fragment.
+	// TplTenantsList is the tenant list fragment. | TplTenantsList 是租户列表片段。
 	TplTenantsList = "partials/tenants/list.html"
-	// TplRolesList 是角色列表片段。 | TplRolesList is the role list fragment.
+	// TplRolesList is the role list fragment. | TplRolesList 是角色列表片段。
 	TplRolesList = "partials/roles/list.html"
 )
 
@@ -66,87 +66,87 @@ const (
 // Public path constants: templates, controllers and the router read one set of values, so the front-end script can never
 // fetch the public key from a misspelled address.
 const (
-	// PubkeyPath 是 SM2 公钥端点；登录表单的 data-yd-pubkey 与文档都指向它。 | PubkeyPath is the SM2 public-key endpoint that the sign-in form's data-yd-pubkey and the docs point at.
+	// PubkeyPath is the SM2 public-key endpoint that the sign-in form's data-yd-pubkey and the docs point at. | PubkeyPath 是 SM2 公钥端点；登录表单的 data-yd-pubkey 与文档都指向它。
 	PubkeyPath = "/guomi/pubkey"
-	// LoginPath 是登录页路径，登出与拒绝跳转都回到这里。 | LoginPath is the sign-in path that sign-out and refusals lead back to.
+	// LoginPath is the sign-in path that sign-out and refusals lead back to. | LoginPath 是登录页路径，登出与拒绝跳转都回到这里。
 	LoginPath = "/login"
 )
 
 // 面向用户的兜底文案：未知错误只回显这一句，绝不把内部细节带出服务端。
 // User-facing fallback copy: unknown errors show this single line and never leak internal details.
 const (
-	// msgInternal 是 500 的兜底文案。 | msgInternal is the fallback copy for 500.
+	// msgInternal is the fallback copy for 500. | msgInternal 是 500 的兜底文案。
 	msgInternal = "服务器内部错误，请稍后重试 | Internal server error, please retry later"
 	// msgUnauthorized 是登录失败的兜底文案：租户不存在与口令错误共用它，避免探测租户是否存在。
 	// msgUnauthorized is the fallback copy for a failed sign-in; an unknown tenant and a wrong password share it so tenant existence cannot be probed.
 	msgUnauthorized = "租户、用户名或口令不正确 | Wrong tenant, user name or password"
-	// msgForbidden 是越权访问的兜底文案。 | msgForbidden is the fallback copy for a refused escalation attempt.
+	// msgForbidden is the fallback copy for a refused escalation attempt. | msgForbidden 是越权访问的兜底文案。
 	msgForbidden = "没有权限执行该操作 | You are not allowed to perform this action"
 )
 
 // 分页与列表上限：内存仓储一次返回全部记录，这里只作为渲染护栏。
 // Paging and list bounds: the in-memory store returns every record at once and this only guards the render.
 const (
-	// defaultPageSize 是一屏展示的记录条数上限。 | defaultPageSize caps the rows rendered on one screen.
+	// defaultPageSize caps the rows rendered on one screen. | defaultPageSize 是一屏展示的记录条数上限。
 	defaultPageSize = 200
-	// maxFormFieldLen 限制单个表单字段的长度，避免超长输入进入业务层。 | maxFormFieldLen caps one form field so oversized input never reaches the business layer.
+	// maxFormFieldLen caps one form field so oversized input never reaches the business layer. | maxFormFieldLen 限制单个表单字段的长度，避免超长输入进入业务层。
 	maxFormFieldLen = 256
 )
 
 // 表单字段名：控制器、模板与端到端测试引用同一组常量，避免任何一处写错字符串。
 // Form field names: controllers, templates and end-to-end tests read one set of constants, so no layer can spell a name wrong.
 const (
-	// FieldUsername 是登录名（登录与建号共用）。 | FieldUsername is the sign-in name (shared by sign-in and user creation).
+	// FieldUsername is the sign-in name (shared by sign-in and user creation). | FieldUsername 是登录名（登录与建号共用）。
 	FieldUsername = "username"
-	// FieldPassword 是口令字段，取值永远是 SM2 密文。 | FieldPassword is the password field; its value is always SM2 ciphertext.
+	// FieldPassword is the password field; its value is always SM2 ciphertext. | FieldPassword 是口令字段，取值永远是 SM2 密文。
 	FieldPassword = "password"
-	// FieldTenant 是登录表单里的租户标识（slug 或 tn_ ID）。 | FieldTenant is the tenant key of the sign-in form (a slug or a tn_ id).
+	// FieldTenant is the tenant key of the sign-in form (a slug or a tn_ id). | FieldTenant 是登录表单里的租户标识（slug 或 tn_ ID）。
 	FieldTenant = "tenant"
-	// FieldKeyword 是列表筛选关键字。 | FieldKeyword is the list filter keyword.
+	// FieldKeyword is the list filter keyword. | FieldKeyword 是列表筛选关键字。
 	FieldKeyword = "q"
-	// FieldRoles 是用户表单里的角色多选。 | FieldRoles is the role multiple-choice of the user form.
+	// FieldRoles is the role multiple-choice of the user form. | FieldRoles 是用户表单里的角色多选。
 	FieldRoles = "roles"
-	// FieldStatus 是启用/停用表单的目标状态。 | FieldStatus is the target status of the enable/disable form.
+	// FieldStatus is the target status of the enable/disable form. | FieldStatus 是启用/停用表单的目标状态。
 	FieldStatus = "status"
-	// FieldPermission 是权限矩阵里被切换的能力标识。 | FieldPermission is the capability toggled in the permission matrix.
+	// FieldPermission is the capability toggled in the permission matrix. | FieldPermission 是权限矩阵里被切换的能力标识。
 	FieldPermission = "permission"
-	// FieldGranted 是权限矩阵里「授予或回收」的选择。 | FieldGranted is the grant-or-revoke choice of the permission matrix.
+	// FieldGranted is the grant-or-revoke choice of the permission matrix. | FieldGranted 是权限矩阵里「授予或回收」的选择。
 	FieldGranted = "granted"
-	// FieldName 是租户与角色的名称字段。 | FieldName is the name field of a tenant or a role.
+	// FieldName is the name field of a tenant or a role. | FieldName 是租户与角色的名称字段。
 	FieldName = "name"
-	// FieldSlug 是租户标识字段。 | FieldSlug is the tenant slug field.
+	// FieldSlug is the tenant slug field. | FieldSlug 是租户标识字段。
 	FieldSlug = "slug"
-	// FieldDescription 是角色描述字段。 | FieldDescription is the role description field.
+	// FieldDescription is the role description field. | FieldDescription 是角色描述字段。
 	FieldDescription = "description"
-	// FieldEmail 是邮箱字段。 | FieldEmail is the e-mail field.
+	// FieldEmail is the e-mail field. | FieldEmail 是邮箱字段。
 	FieldEmail = "email"
-	// FieldDisplayName 是展示名称字段。 | FieldDisplayName is the human-readable name field.
+	// FieldDisplayName is the human-readable name field. | FieldDisplayName 是展示名称字段。
 	FieldDisplayName = "display_name"
-	// FieldConfirm 是二次输入的新口令字段。 | FieldConfirm is the repeated new-password field.
+	// FieldConfirm is the repeated new-password field. | FieldConfirm 是二次输入的新口令字段。
 	FieldConfirm = "confirm"
-	// FieldCurrent 是当前口令字段。 | FieldCurrent is the current-password field.
+	// FieldCurrent is the current-password field. | FieldCurrent 是当前口令字段。
 	FieldCurrent = "current"
 )
 
-// ErrPlaceholder 表示占位图编码失败（几乎只可能因为内存耗尽）。 | ErrPlaceholder reports a failed placeholder image encoding (practically only possible when memory is exhausted).
+// ErrPlaceholder reports a failed placeholder image encoding (practically only possible when memory is exhausted). | ErrPlaceholder 表示占位图编码失败（几乎只可能因为内存耗尽）。
 var ErrPlaceholder = errx.New("controller: placeholder image encoding failed | controller：占位图编码失败")
 
 // Controller 持有应用门面与业务服务：门面负责渲染与配置，服务负责规则。
 // Controller holds the application facade and the business services: the facade renders and configures, the services own the rules.
 type Controller struct {
-	// app 是应用门面（渲染、日志、配置）。 | app is the application facade (rendering, logging, configuration).
+	// app is the application facade (rendering, logging, configuration). | app 是应用门面（渲染、日志、配置）。
 	app *app.App
-	// store 持有鉴权存储与令牌签发器，鉴权中间件与控制器共用同一份。 | store owns the auth store and the token issuer, shared by the auth middleware and the controllers.
+	// store owns the auth store and the token issuer, shared by the auth middleware and the controllers. | store 持有鉴权存储与令牌签发器，鉴权中间件与控制器共用同一份。
 	store *repository.Store
-	// auth 是登录、改密与 sec_key 轮换服务。 | auth serves sign-in, password changes and sec_key rotation.
+	// auth serves sign-in, password changes and sec_key rotation. | auth 是登录、改密与 sec_key 轮换服务。
 	auth *service.AuthService
-	// tenants 是租户服务。 | tenants is the tenant service.
+	// tenants is the tenant service. | tenants 是租户服务。
 	tenants *service.TenantService
-	// users 是用户服务。 | users is the user service.
+	// users is the user service. | users 是用户服务。
 	users *service.UserService
-	// roles 是角色与权限矩阵服务。 | roles is the role and permission-matrix service.
+	// roles is the role and permission-matrix service. | roles 是角色与权限矩阵服务。
 	roles *service.RoleService
-	// log 记录装配与业务事件。 | log records assembly and business events.
+	// log records assembly and business events. | log 记录装配与业务事件。
 	log *logx.Logger
 }
 
@@ -181,10 +181,10 @@ func New(a *app.App, store *repository.Store, log *logx.Logger) (*Controller, er
 	}, nil
 }
 
-// Issuer 返回令牌签发器，路由层用它装配鉴权中间件。 | Issuer returns the token issuer, which the router uses to assemble the auth middleware.
+// Issuer returns the token issuer, which the router uses to assemble the auth middleware. | Issuer 返回令牌签发器，路由层用它装配鉴权中间件。
 func (c *Controller) Issuer() *auth.TokenIssuer { return c.auth.Issuer() }
 
-// PublicKey 返回 SM2 公钥的十六进制形式。 | PublicKey returns the hexadecimal SM2 public key.
+// PublicKey returns the hexadecimal SM2 public key. | PublicKey 返回 SM2 公钥的十六进制形式。
 func (c *Controller) PublicKey() string { return c.auth.PublicKeyHex() }
 
 // ResolveTenant 把租户标识或租户 ID 解析为租户 ID，签名与 middleware.TenantResolver 一致，因此可以直接注入中间件。
@@ -324,7 +324,7 @@ func field(ctx *router.Ctx, name string) string {
 // auth.DecryptLoginPayload accepts both that and the raw form.
 func payload(ctx *router.Ctx, name string) []byte { return []byte(field(ctx, name)) }
 
-// scheme 读取国密载荷的标记请求头。 | scheme reads the marker header of a national-cryptography payload.
+// scheme reads the marker header of a national-cryptography payload. | scheme 读取国密载荷的标记请求头。
 func scheme(ctx *router.Ctx) string { return ctx.Header(auth.LoginEncryptedHeader) }
 
 // formValues 返回同名表单字段的全部取值（多选框与复选框由此读取）。
@@ -391,14 +391,14 @@ func (c *Controller) failService(ctx *router.Ctx, err error) {
 	}
 	status, message := statusFor(err)
 	if status >= http.StatusInternalServerError {
-		// 500 必须留下完整错误链，供中间件的访问日志与告警消费。 | A 500 must leave the full error chain for the access log and for alerting.
+		// A 500 must leave the full error chain for the access log and for alerting. | 500 必须留下完整错误链，供中间件的访问日志与告警消费。
 		c.log.Error("request failed | 请求失败",
 			logx.Err(err),
 			logx.Str("path", ctx.Path()),
 			logx.Str("method", ctx.Method()),
 		)
 	} else {
-		// 4xx 只记一行：越权与校验失败是业务事件，不是故障。 | A 4xx leaves one line: an escalation attempt or a validation failure is a business event, not an incident.
+		// A 4xx leaves one line: an escalation attempt or a validation failure is a business event, not an incident. | 4xx 只记一行：越权与校验失败是业务事件，不是故障。
 		c.log.Warn("request refused | 请求被拒绝",
 			logx.Err(err),
 			logx.Str("path", ctx.Path()),

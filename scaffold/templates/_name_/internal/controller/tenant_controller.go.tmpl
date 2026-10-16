@@ -103,9 +103,9 @@ func (c *Controller) tenantsPage(ctx *router.Ctx, status int, keyword, message s
 // tenantRow 把一行租户与「是否当前请求所属」绑在一起：当前租户不允许被误当成可随意试验的对象。
 // tenantRow binds one tenant row to whether it is the one this request belongs to, which marks the current tenant as off-limits for casual experiments.
 type tenantRow struct {
-	// Tenant 是租户本身。 | Tenant is the tenant itself.
+	// Tenant is the tenant itself. | Tenant 是租户本身。
 	Tenant model.Tenant
-	// Current 表示它就是当前请求所属的租户。 | Current marks it as the tenant this very request belongs to.
+	// Current marks it as the tenant this very request belongs to. | Current 表示它就是当前请求所属的租户。
 	Current bool
 }
 

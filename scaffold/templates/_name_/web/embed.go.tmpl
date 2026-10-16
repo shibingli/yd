@@ -2,15 +2,15 @@
 // Package web embeds this project's front-end assets (templates, styles, scripts and message catalogues) into the
 // binary and hands them to the app facade.
 //
-// 目录契约（与 .yd.json 的 assetRoot 一致）： | Directory contract (matching assetRoot in .yd.json):
+// Directory contract (matching assetRoot in .yd.json): | 目录契约（与 .yd.json 的 assetRoot 一致）：
 //
-//	templates/  html/template 模板树，运行时渲染（模板动作在请求期执行，生成期原样保留） | the html/template tree, rendered at runtime (its actions run per request and survive generation untouched)
-//	static/     静态资源，经 /static 提供 | static assets served under /static
-//	i18n/       i18n 文案目录，每语言一个文件（zh-CN.yaml、en.yaml） | message catalogues, one file per language (zh-CN.yaml, en.yaml)
+//	the html/template tree, rendered at runtime (its actions run per request and survive generation untouched) | templates/  html/template 模板树，运行时渲染（模板动作在请求期执行，生成期原样保留）
+//	static assets served under /static | static/     静态资源，经 /static 提供
+//	message catalogues, one file per language (zh-CN.yaml, en.yaml) | i18n/       i18n 文案目录，每语言一个文件（zh-CN.yaml、en.yaml）
 //
-// 两类资产合并策略： | How the two asset sources merge:
-//   - 项目资产（本包内嵌副本 / 开发期磁盘副本）始终优先； | project assets (this package's embedded copy, or the on-disk copy in development) always win;
-//   - 框架资产（{{ .YdModule }}/web）兜底提供 vendor 脚本、编译好的 yd.css 与国密/i18n 脚本。 | framework assets ({{ .YdModule }}/web) fill the gaps: vendored scripts, the compiled yd.css and the guomi/i18n scripts.
+// How the two asset sources merge: | 两类资产合并策略：
+//   - project assets (this package's embedded copy, or the on-disk copy in development) always win; | 项目资产（本包内嵌副本 / 开发期磁盘副本）始终优先；
+//   - framework assets ({{ .YdModule }}/web) fill the gaps: vendored scripts, the compiled yd.css and the guomi/i18n scripts. | 框架资产（{{ .YdModule }}/web）兜底提供 vendor 脚本、编译好的 yd.css 与国密/i18n 脚本。
 //
 // 框架的 templates/ 子树刻意不参与合并：它属于框架自带示例布局，与本项目的模板树混在一起会污染模板集。
 // The framework's templates/ subtree is deliberately left out of the merge: it belongs to the framework's own sample
@@ -33,13 +33,13 @@ import (
 	frameworkweb "{{ .YdModule }}/web"
 )
 
-// 资产子树与开发期目录名。 | Asset subtree names and the development directory name.
+// Asset subtree names and the development directory name. | 资产子树与开发期目录名。
 const (
-	// templatesDir 是模板子树。 | templatesDir is the template subtree.
+	// templatesDir is the template subtree. | templatesDir 是模板子树。
 	templatesDir = "templates"
-	// staticDir 是静态资源子树。 | staticDir is the static asset subtree.
+	// staticDir is the static asset subtree. | staticDir 是静态资源子树。
 	staticDir = "static"
-	// i18nDir 是语言目录子树。 | i18nDir is the message catalogue subtree.
+	// i18nDir is the message catalogue subtree. | i18nDir 是语言目录子树。
 	i18nDir = meta.I18nDir
 )
 
@@ -63,7 +63,7 @@ func Assets() afs.FS {
 	}
 	root, ok := developmentRoot()
 	if !ok {
-		// 找不到磁盘资产：退回内嵌副本，绝不因为开发期布局差异而启动失败。 | No on-disk assets: fall back to the embedded copy instead of failing to boot.
+		// No on-disk assets: fall back to the embedded copy instead of failing to boot. | 找不到磁盘资产：退回内嵌副本，绝不因为开发期布局差异而启动失败。
 		return afs.NewEmbed(embedded)
 	}
 	return afero.NewCopyOnWriteFs(afs.NewEmbed(embedded), afs.NewOS(root))

@@ -15,6 +15,7 @@ yd build                       # 当前平台静态打包，产物 bin/{{ .Name 
 yd build --all                 # linux/amd64、linux/arm64、darwin/arm64、windows/amd64
 yd build --offline             # 强制 -mod=vendor，禁止触网
 yd docker --tag {{ .Name }}:latest   # 基于 scratch 的多阶段镜像构建
+yd ko --repo registry.example.com/{{ .Name }} --tags latest --push   # from the source, no Dockerfile | 源码直出，无需 Dockerfile
 ```
 
 ## CI 建议顺序
@@ -23,8 +24,13 @@ yd docker --tag {{ .Name }}:latest   # 基于 scratch 的多阶段镜像构建
 1. go vet ./... && go test ./... -race
 2. yd build --all
 3. yd docker --tag {{ .Name }}:$VERSION
-4. 校验产物大小与 file 头（PE/ELF magic）
+4. yd ko --repo $REGISTRY/{{ .Name }} --tags $VERSION --platforms linux/amd64,linux/arm64 --push
+5. 校验产物大小与 file 头（PE/ELF magic）
 ```
+
+第 3 步与第 4 步是同一次交付的两条可选路径（Dockerfile 构建 vs 源码直出），按目标环境二选一或都跑。
+`yd ko` 依赖可选的 ko 外部工具：流水线里没装它时**跳过该步即可**，不要让整个构建失败
+（安装：`go install github.com/google/ko@latest`；镜像仓库、标签与平台也可写进 `configs/config.yaml` 的 `ko` 段）。
 
 依赖的前端资产在构建前由 Tailwind 阶段裁剪压缩（`{{ .AssetRoot }}/static/css/yd.css`），
 再经 `go:embed` 嵌入二进制，因此镜像内无需任何运行时依赖。

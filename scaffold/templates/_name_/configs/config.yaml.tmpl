@@ -86,3 +86,19 @@ service:
   restart_on_exit: true      # 异常退出后自动重启（Windows OnFailure=restart，POSIX Restart=always） | restart after an unexpected exit (Windows OnFailure=restart, POSIX Restart=always)
   env:                       # 服务的额外环境变量；列表形式保留键名大小写，映射形式会被配置引擎转为小写 | extra environment variables; the list form keeps the name case, the mapping form is lower-cased
     - YD_SERVER_PORT=8080
+
+# Image packaging without a Dockerfile | 无 Dockerfile 打包
+# `yd ko` builds the image straight from the Go sources by driving the external ko CLI, which is NOT a Go dependency of this project | `yd ko` 驱动 ko 外部 CLI 从 Go 源码直出容器镜像，ko 不是本项目的 Go 依赖
+# It stands next to `yd docker` (a multi-stage Dockerfile build), and both paths must yield the same artifact: a CGO_ENABLED=0 statically linked binary | 它与 yd docker（多阶段 Dockerfile 构建）并列，两条路径都必须产出 CGO_ENABLED=0 静态链接的二进制
+# Binary resolution order: --binary -> YD_KO_BIN -> <project>/.yd/tools/ko[.exe] -> PATH | 二进制解析顺序：--binary -> YD_KO_BIN -> <项目>/.yd/tools/ko[.exe] -> PATH
+# A missing ko only fails `yd ko` with an install hint (go install github.com/google/ko@latest); it never blocks build, dev or test | ko 缺失只让 yd ko 报错并给出安装提示（go install github.com/google/ko@latest），不阻塞 build/dev/test
+# Every key below is overridable through the YD_KO_* prefix: YD_KO_REPOSITORY -> ko.repository, and so on | 下面每个键都可由 YD_KO_* 前缀覆盖：YD_KO_REPOSITORY -> ko.repository，其余同理
+ko:
+  binary: ""            # path to the ko binary; empty follows the resolution order above | ko 可执行文件路径；留空按上面的顺序解析
+  repository: ""        # image repository handed to ko as KO_DOCKER_REPO; empty without --repo refuses to build unless --local is set | 镜像仓库，作为 KO_DOCKER_REPO 传给 ko；留空且未给 --repo 时拒绝构建，改用 --local 除外
+  tags: []              # image tags such as [latest, v1.0.0]; empty keeps ko's default latest | 镜像标签，如 [latest, v1.0.0]；留空沿用 ko 缺省的 latest
+  platforms: []         # target platforms such as [linux/amd64, linux/arm64]; empty takes every platform the base image supports | 目标平台，如 [linux/amd64, linux/arm64]；留空取基础镜像支持的全部平台
+  base_image: ""        # base image override (KO_DEFAULTBASEIMAGE); on an intranet point it at a locally cached image | 覆盖基础镜像（KO_DEFAULTBASEIMAGE）；内网填本地缓存的基础镜像地址
+  packages: []          # Go packages to build such as [./cmd/app]; empty uses the project entry point | 要打包的 Go 包，如 [./cmd/app]；留空用项目入口
+  local: false          # true equals ko's --local: load into the local docker daemon instead of pushing | true 等价于 ko 的 --local：装进本地 docker 守护进程而不推送
+  push: false           # true equals ko's --push: push to the repository once the build succeeds | true 等价于 ko 的 --push：构建成功后推送到 repository

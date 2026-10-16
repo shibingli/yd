@@ -2,10 +2,10 @@
 // Package service holds the business orchestration: rules, validation and transaction boundaries live here and the
 // controllers only assemble data.
 //
-// 三条硬性约定： | Three hard rules:
-//   - 业务错误一律是包级哨兵（errx），调用方用 errors.Is 判定，绝不解析文案，也绝不用 fmt.Errorf； | every business error is a package-level sentinel (errx) judged through errors.Is; no caller parses a message and fmt.Errorf is never used;
-//   - 多租户是硬边界：每个方法的第一个业务参数都是 tenantID，仓储层再校验一次； | multi-tenancy is a hard boundary: every method takes a tenantID first and the repository checks it again;
-//   - 口令只以 SM2 密文进入本层：解密后立刻交给 auth 包散列，明文不落任何结构体字段。 | a password only enters this layer as SM2 ciphertext: it is decrypted, handed straight to the auth package for hashing and never kept in a struct field.
+// Three hard rules: | 三条硬性约定：
+//   - every business error is a package-level sentinel (errx) judged through errors.Is; no caller parses a message and fmt.Errorf is never used; | 业务错误一律是包级哨兵（errx），调用方用 errors.Is 判定，绝不解析文案，也绝不用 fmt.Errorf；
+//   - multi-tenancy is a hard boundary: every method takes a tenantID first and the repository checks it again; | 多租户是硬边界：每个方法的第一个业务参数都是 tenantID，仓储层再校验一次；
+//   - a password only enters this layer as SM2 ciphertext: it is decrypted, handed straight to the auth package for hashing and never kept in a struct field. | 口令只以 SM2 密文进入本层：解密后立刻交给 auth 包散列，明文不落任何结构体字段。
 package service
 
 import (
@@ -19,60 +19,60 @@ import (
 	"{{ .YdModule }}/logx"
 )
 
-// 业务哨兵错误：控制器用 errors.Is 把它们映射为状态码与文案。 | Business sentinels: the controllers map them onto status codes and copy through errors.Is.
+// Business sentinels: the controllers map them onto status codes and copy through errors.Is. | 业务哨兵错误：控制器用 errors.Is 把它们映射为状态码与文案。
 var (
-	// ErrCredentials 表示登录名或口令不正确（两者不可区分，避免探测用户是否存在）。 | ErrCredentials reports a wrong sign-in name or password (the two are indistinguishable, so user existence cannot be probed).
+	// ErrCredentials reports a wrong sign-in name or password (the two are indistinguishable, so user existence cannot be probed). | ErrCredentials 表示登录名或口令不正确（两者不可区分，避免探测用户是否存在）。
 	ErrCredentials = errx.New("invalid username or password | 用户名或口令不正确")
-	// ErrCipherRequired 表示口令没有以 SM2 密文提交：明文链路一律拒绝。 | ErrCipherRequired reports a password that did not arrive as SM2 ciphertext; the plaintext path is refused outright.
+	// ErrCipherRequired reports a password that did not arrive as SM2 ciphertext; the plaintext path is refused outright. | ErrCipherRequired 表示口令没有以 SM2 密文提交：明文链路一律拒绝。
 	ErrCipherRequired = errx.New("the password must be submitted as an SM2 ciphertext | 口令必须以 SM2 密文提交")
-	// ErrCipherInvalid 表示 SM2 密文无法解密，通常因为客户端缓存了旧公钥。 | ErrCipherInvalid reports an undecryptable SM2 payload, usually because the client cached an old public key.
+	// ErrCipherInvalid reports an undecryptable SM2 payload, usually because the client cached an old public key. | ErrCipherInvalid 表示 SM2 密文无法解密，通常因为客户端缓存了旧公钥。
 	ErrCipherInvalid = errx.New("the SM2 payload cannot be decrypted | SM2 密文无法解密")
-	// ErrCipherKeyMissing 表示服务端 SM2 密钥对装配失败。 | ErrCipherKeyMissing reports a failed server-side SM2 key pair assembly.
+	// ErrCipherKeyMissing reports a failed server-side SM2 key pair assembly. | ErrCipherKeyMissing 表示服务端 SM2 密钥对装配失败。
 	ErrCipherKeyMissing = errx.New("the SM2 key pair is unavailable | SM2 密钥对不可用")
-	// ErrAuthUnavailable 表示鉴权存储或令牌签发器缺失。 | ErrAuthUnavailable reports a missing auth store or token issuer.
+	// ErrAuthUnavailable reports a missing auth store or token issuer. | ErrAuthUnavailable 表示鉴权存储或令牌签发器缺失。
 	ErrAuthUnavailable = errx.New("the auth store is unavailable | 鉴权存储不可用")
-	// ErrPasswordMismatch 表示两次输入的新口令不一致。 | ErrPasswordMismatch reports two new passwords that do not match.
+	// ErrPasswordMismatch reports two new passwords that do not match. | ErrPasswordMismatch 表示两次输入的新口令不一致。
 	ErrPasswordMismatch = errx.New("the two passwords do not match | 两次输入的口令不一致")
 )
 
 // LoginInput 是一次登录请求的全部输入；Password 是 SM2 密文（原始字节或标准 Base64）。
 // LoginInput carries every input of one sign-in request; Password is the SM2 ciphertext (raw bytes or standard Base64).
 type LoginInput struct {
-	// TenantID 是已解析出的租户 ID。 | TenantID is the already resolved tenant id.
+	// TenantID is the already resolved tenant id. | TenantID 是已解析出的租户 ID。
 	TenantID string
-	// Username 是租户内的登录名（不是邮箱）。 | Username is the sign-in name inside the tenant (not the e-mail address).
+	// Username is the sign-in name inside the tenant (not the e-mail address). | Username 是租户内的登录名（不是邮箱）。
 	Username string
-	// Password 是 SM2 密文。 | Password is the SM2 ciphertext.
+	// Password is the SM2 ciphertext. | Password 是 SM2 密文。
 	Password []byte
-	// Scheme 是 X-YD-Encrypted 请求头取值，只有 sm2 被接受。 | Scheme is the X-YD-Encrypted request header value; only sm2 is accepted.
+	// Scheme is the X-YD-Encrypted request header value; only sm2 is accepted. | Scheme 是 X-YD-Encrypted 请求头取值，只有 sm2 被接受。
 	Scheme string
 }
 
 // ChangePasswordInput 是一次改密请求：三段密文都来自同一个前端会话。
 // ChangePasswordInput carries one password change: all three ciphertexts come from the same front-end session.
 type ChangePasswordInput struct {
-	// Current 是当前口令的 SM2 密文。 | Current is the SM2 ciphertext of the current password.
+	// Current is the SM2 ciphertext of the current password. | Current 是当前口令的 SM2 密文。
 	Current []byte
-	// Next 是新口令的 SM2 密文。 | Next is the SM2 ciphertext of the new password.
+	// Next is the SM2 ciphertext of the new password. | Next 是新口令的 SM2 密文。
 	Next []byte
-	// Confirm 是重复输入的新口令 SM2 密文；为空时不校验重复。 | Confirm is the repeated new password as SM2 ciphertext; an empty value skips the repetition check.
+	// Confirm is the repeated new password as SM2 ciphertext; an empty value skips the repetition check. | Confirm 是重复输入的新口令 SM2 密文；为空时不校验重复。
 	Confirm []byte
-	// Scheme 是 X-YD-Encrypted 请求头取值。 | Scheme is the X-YD-Encrypted request header value.
+	// Scheme is the X-YD-Encrypted request header value. | Scheme 是 X-YD-Encrypted 请求头取值。
 	Scheme string
 }
 
 // AuthService 编排登录、令牌与账号自身的口令/sec_key 生命周期。
 // AuthService orchestrates sign-in, tokens and the account's own password and sec_key lifecycle.
 type AuthService struct {
-	// store 持有鉴权服务与令牌签发器。 | store owns the auth service and the token issuer.
+	// store owns the auth service and the token issuer. | store 持有鉴权服务与令牌签发器。
 	store *repository.Store
-	// users 是用户仓储，用于改密与 sec_key 轮换。 | users is the user repository used by password changes and sec_key rotation.
+	// users is the user repository used by password changes and sec_key rotation. | users 是用户仓储，用于改密与 sec_key 轮换。
 	users *repository.UserRepo
-	// priv 是进程内的 SM2 私钥，只用于解密登录与改密载荷。 | priv is the in-process SM2 private key, used only to decrypt sign-in and password-change payloads.
+	// priv is the in-process SM2 private key, used only to decrypt sign-in and password-change payloads. | priv 是进程内的 SM2 私钥，只用于解密登录与改密载荷。
 	priv *guomi.PrivateKey
-	// pub 是公钥的十六进制形式，公开给浏览器。 | pub is the hexadecimal public key handed to the browser.
+	// pub is the hexadecimal public key handed to the browser. | pub 是公钥的十六进制形式，公开给浏览器。
 	pub string
-	// log 记录登录失败与密钥轮换。 | log records failed sign-ins and key rotations.
+	// log records failed sign-ins and key rotations. | log 记录登录失败与密钥轮换。
 	log *logx.Logger
 }
 
@@ -99,22 +99,22 @@ func NewAuthService(store *repository.Store, log *logx.Logger) (*AuthService, er
 	return &AuthService{store: store, users: repository.NewUserRepo(store), priv: priv, pub: priv.Public().Hex(), log: log}, nil
 }
 
-// PublicKeyHex 返回 SM2 公钥的十六进制形式。 | PublicKeyHex returns the hexadecimal SM2 public key.
+// PublicKeyHex returns the hexadecimal SM2 public key. | PublicKeyHex 返回 SM2 公钥的十六进制形式。
 func (s *AuthService) PublicKeyHex() string { return s.pub }
 
-// Issuer 返回令牌签发器，供 auth.Middleware 使用。 | Issuer returns the token issuer used by auth.Middleware.
+// Issuer returns the token issuer used by auth.Middleware. | Issuer 返回令牌签发器，供 auth.Middleware 使用。
 func (s *AuthService) Issuer() *auth.TokenIssuer { return s.store.Issuer() }
 
-// Permissions 返回用户的权限全集。 | Permissions returns the user's full capability set.
+// Permissions returns the user's full capability set. | Permissions 返回用户的权限全集。
 func (s *AuthService) Permissions(u *auth.User) []model.Permission { return s.users.Permissions(u) }
 
-// HasPermission 判定用户是否持有某项能力。 | HasPermission reports whether the user holds a capability.
+// HasPermission reports whether the user holds a capability. | HasPermission 判定用户是否持有某项能力。
 func (s *AuthService) HasPermission(u *auth.User, p model.Permission) bool { return s.users.HasPermission(u, p) }
 
-// SeedPasswordUnchanged 报告用户是否仍在使用脚手架下发的默认口令。 | SeedPasswordUnchanged reports whether the user still uses the default password handed out by the scaffold.
+// SeedPasswordUnchanged reports whether the user still uses the default password handed out by the scaffold. | SeedPasswordUnchanged 报告用户是否仍在使用脚手架下发的默认口令。
 func (s *AuthService) SeedPasswordUnchanged(u *auth.User) bool { return s.store.SeedPasswordUnchanged(u) }
 
-// Login 解密口令并签发票据。 | Login decrypts the password and issues a token.
+// Login decrypts the password and issues a token. | Login 解密口令并签发票据。
 //
 // 失败路径刻意不区分「用户不存在」「口令错误」「用户被禁用」，它们都以 ErrCredentials 结束。
 // The failure path deliberately merges "no such user", "wrong password" and "disabled user" into ErrCredentials.

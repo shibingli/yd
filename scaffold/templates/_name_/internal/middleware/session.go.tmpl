@@ -11,17 +11,17 @@ import (
 	"{{ .YdModule }}/router"
 )
 
-// SessionOptions 配置 Promote。 | SessionOptions configures Promote.
+// SessionOptions configures Promote. | SessionOptions 配置 Promote。
 type SessionOptions struct {
-	// Cookie 是承载令牌的 cookie 名，默认 internal/meta 的 TokenCookie。 | Cookie is the cookie carrying the token, internal/meta's TokenCookie by default.
+	// Cookie is the cookie carrying the token, internal/meta's TokenCookie by default. | Cookie 是承载令牌的 cookie 名，默认 internal/meta 的 TokenCookie。
 	Cookie string
-	// Header 是目标请求头，默认 Authorization。 | Header is the destination header, Authorization by default.
+	// Header is the destination header, Authorization by default. | Header 是目标请求头，默认 Authorization。
 	Header string
-	// Prefix 是请求头的认证方案前缀，默认 "Bearer "。 | Prefix is the authentication scheme prefix, "Bearer " by default.
+	// Prefix is the authentication scheme prefix, "Bearer " by default. | Prefix 是请求头的认证方案前缀，默认 "Bearer "。
 	Prefix string
 }
 
-// withDefaults 用约定取值填充空字段。 | withDefaults fills the empty fields with the documented defaults.
+// withDefaults fills the empty fields with the documented defaults. | withDefaults 用约定取值填充空字段。
 func (o SessionOptions) withDefaults() SessionOptions {
 	if o.Cookie == "" {
 		o.Cookie = meta.TokenCookie

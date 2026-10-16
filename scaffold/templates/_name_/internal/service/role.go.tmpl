@@ -12,38 +12,38 @@ import (
 	"{{ .YdModule }}/errx"
 )
 
-// 角色业务哨兵。 | Role business sentinels.
+// Role business sentinels. | 角色业务哨兵。
 var (
-	// ErrRoleNameRequired 表示角色名为空。 | ErrRoleNameRequired reports an empty role name.
+	// ErrRoleNameRequired reports an empty role name. | ErrRoleNameRequired 表示角色名为空。
 	ErrRoleNameRequired = errx.New("role name is required | 角色名称不能为空")
-	// ErrPermissionUnknown 表示提交了权限目录之外的能力标识。 | ErrPermissionUnknown reports a capability token outside the catalogue.
+	// ErrPermissionUnknown reports a capability token outside the catalogue. | ErrPermissionUnknown 表示提交了权限目录之外的能力标识。
 	ErrPermissionUnknown = errx.New("unknown permission | 未知的权限标识")
-	// ErrBuiltinRoleProtected 表示试图删除内置角色。 | ErrBuiltinRoleProtected reports an attempt to delete a built-in role.
+	// ErrBuiltinRoleProtected reports an attempt to delete a built-in role. | ErrBuiltinRoleProtected 表示试图删除内置角色。
 	ErrBuiltinRoleProtected = errx.New("built-in roles cannot be deleted | 内置角色不允许删除")
-	// ErrRoleNotFound 表示本租户内没有该角色。 | ErrRoleNotFound reports a role this tenant does not hold.
+	// ErrRoleNotFound reports a role this tenant does not hold. | ErrRoleNotFound 表示本租户内没有该角色。
 	ErrRoleNotFound = errx.New("role not found | 角色不存在")
 )
 
-// 角色名的长度边界。 | Length bounds of a role name.
+// Length bounds of a role name. | 角色名的长度边界。
 const maxRoleNameLen = 64
 
-// RoleService 编排角色与权限矩阵。 | RoleService orchestrates roles and the permission matrix.
+// RoleService orchestrates roles and the permission matrix. | RoleService 编排角色与权限矩阵。
 type RoleService struct {
-	// repo 是角色仓储。 | repo is the role repository.
+	// repo is the role repository. | repo 是角色仓储。
 	repo *repository.RoleRepo
 }
 
-// NewRoleService 基于 Store 构造角色业务。 | NewRoleService builds the role business layer over a Store.
+// NewRoleService builds the role business layer over a Store. | NewRoleService 基于 Store 构造角色业务。
 func NewRoleService(store *repository.Store) *RoleService {
 	return &RoleService{repo: repository.NewRoleRepo(store)}
 }
 
-// List 返回本租户的角色清单。 | List returns this tenant's roles.
+// List returns this tenant's roles. | List 返回本租户的角色清单。
 func (s *RoleService) List(ctx context.Context, tenantID string) ([]model.Role, error) {
 	return s.repo.List(ctx, tenantID)
 }
 
-// Get 按 ID 返回本租户内的角色。 | Get returns one role of this tenant by id.
+// Get returns one role of this tenant by id. | Get 按 ID 返回本租户内的角色。
 func (s *RoleService) Get(ctx context.Context, tenantID, roleID string) (model.Role, error) {
 	list, err := s.repo.List(ctx, tenantID)
 	if err != nil {

@@ -19,9 +19,9 @@ import (
 // Timing of the push endpoints: the heartbeat and the reconnect interval shape the front-end experience and are kept
 // separate from the push interval.
 const (
-	// heartbeatInterval 是 SSE 的注释帧心跳间隔，用于穿透中间设备的空闲超时。 | heartbeatInterval is the SSE comment-frame heartbeat, which keeps idle timeouts in middleboxes from dropping the stream.
+	// heartbeatInterval is the SSE comment-frame heartbeat, which keeps idle timeouts in middleboxes from dropping the stream. | heartbeatInterval 是 SSE 的注释帧心跳间隔，用于穿透中间设备的空闲超时。
 	heartbeatInterval = 15 * time.Second
-	// retryInterval 是 SSE 断线后的重连间隔建议值。 | retryInterval is the suggested reconnect interval after an SSE disconnect.
+	// retryInterval is the suggested reconnect interval after an SSE disconnect. | retryInterval 是 SSE 断线后的重连间隔建议值。
 	retryInterval = 3 * time.Second
 )
 

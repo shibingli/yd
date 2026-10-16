@@ -12,27 +12,27 @@ import (
 // projectMeta 是写入 .yd.json 的工程元信息，供 yd dev / yd build / yd assets 读取。
 // projectMeta is the project metadata written to .yd.json and read by yd dev, yd build and yd assets.
 type projectMeta struct {
-	// Name 是项目名（同时是目录名）。 | Name is the project name (also the directory name).
+	// Name is the project name (also the directory name). | Name 是项目名（同时是目录名）。
 	Name string `json:"name"`
-	// Module 是 go.mod 的模块路径。 | Module is the go.mod module path.
+	// Module is the go.mod module path. | Module 是 go.mod 的模块路径。
 	Module string `json:"module"`
-	// AssetRoot 是前端资产根目录。 | AssetRoot is the front-end asset root.
+	// AssetRoot is the front-end asset root. | AssetRoot 是前端资产根目录。
 	AssetRoot string `json:"assetRoot"`
-	// Features 记录所选组件开关。 | Features records the selected component switches.
+	// Features records the selected component switches. | Features 记录所选组件开关。
 	Features projectFeatures `json:"features"`
 }
 
-// projectFeatures 是 .yd.json 中 features 段的字段集。 | projectFeatures is the field set of the features section in .yd.json.
+// projectFeatures is the field set of the features section in .yd.json. | projectFeatures 是 .yd.json 中 features 段的字段集。
 type projectFeatures struct {
-	// DB 是数据库驱动（含 none）。 | DB is the database driver (including none).
+	// DB is the database driver (including none). | DB 是数据库驱动（含 none）。
 	DB string `json:"db"`
-	// HtmxExts 是所选 Htmx 扩展。 | HtmxExts lists the selected Htmx extensions.
+	// HtmxExts lists the selected Htmx extensions. | HtmxExts 是所选 Htmx 扩展。
 	HtmxExts []string `json:"htmxExts"`
-	// Redis 表示是否接入 go-redis。 | Redis tells whether go-redis is wired in.
+	// Redis tells whether go-redis is wired in. | Redis 表示是否接入 go-redis。
 	Redis bool `json:"redis"`
-	// Asynq 表示是否接入 asynq。 | Asynq tells whether asynq is wired in.
+	// Asynq tells whether asynq is wired in. | Asynq 表示是否接入 asynq。
 	Asynq bool `json:"asynq"`
-	// GRPC 表示是否开启 gRPC 双通道。 | GRPC tells whether the gRPC dual channel is enabled.
+	// GRPC tells whether the gRPC dual channel is enabled. | GRPC 表示是否开启 gRPC 双通道。
 	GRPC bool `json:"grpc"`
 	// Auth 表示多租户 + 用户 / 角色 / 权限的登录鉴权链路已接入。
 	// Auth tells whether the multi-tenant sign-in chain — users, roles and capabilities — is wired in.
@@ -43,9 +43,9 @@ type projectFeatures struct {
 	// entry exists so yd dev, yd build and operations checks read it exactly like any other switch instead of relying on
 	// someone remembering that this project always has a sign-in.
 	Auth bool `json:"auth"`
-	// I18n 表示是否开启国际化。 | I18n tells whether internationalisation is enabled.
+	// I18n tells whether internationalisation is enabled. | I18n 表示是否开启国际化。
 	I18n bool `json:"i18n"`
-	// Tailwind 表示是否接入 Tailwind v4。 | Tailwind tells whether Tailwind v4 is wired in.
+	// Tailwind tells whether Tailwind v4 is wired in. | Tailwind 表示是否接入 Tailwind v4。
 	Tailwind bool `json:"tailwind"`
 }
 
@@ -150,7 +150,7 @@ func marshalIndent(v any) ([]byte, error) {
 	return append(data, '\n'), nil
 }
 
-// containsString 判断 list 是否包含 value。 | containsString reports whether list contains value.
+// containsString reports whether list contains value. | containsString 判断 list 是否包含 value。
 func containsString(list []string, value string) bool {
 	for _, item := range list {
 		if item == value {

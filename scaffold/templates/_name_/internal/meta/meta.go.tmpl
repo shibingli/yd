@@ -10,11 +10,11 @@ import (
 // 元信息常量由 yd new 依据脚手架参数写入；需要改动请回到脚手架模板重新生成。
 // The metadata constants below are written by yd new from the scaffold options; change them in the template and regenerate.
 const (
-	// Name 是项目名（同时也是默认模块路径的最后一段）。 | Name is the project name (also the last segment of the default module path).
+	// Name is the project name (also the last segment of the default module path). | Name 是项目名（同时也是默认模块路径的最后一段）。
 	Name = "{{ .Name }}"
-	// Module 是 Go 模块路径，前端脚本与文档引用它以免写死。 | Module is the Go module path, referenced by front-end scripts and docs instead of being hard-coded.
+	// Module is the Go module path, referenced by front-end scripts and docs instead of being hard-coded. | Module 是 Go 模块路径，前端脚本与文档引用它以免写死。
 	Module = "{{ .Module }}"
-	// Version 是应用版本，发布时可用 -ldflags 覆盖。 | Version is the application version, overridable with -ldflags at release time.
+	// Version is the application version, overridable with -ldflags at release time. | Version 是应用版本，发布时可用 -ldflags 覆盖。
 	Version = "0.1.0"
 	// Description 是应用简介，写入 OpenAPI 文档与页面 <meta name="description">。
 	// Description is the application blurb, written into the OpenAPI document and the page's <meta name="description">.
@@ -26,11 +26,11 @@ const (
 	HtmxVersion     = "{{ .HtmxVersion }}"
 	TailwindVersion = "{{ .TailwindVersion }}"
 
-	// AssetRoot 是前端资产目录，与 .yd.json 的 assetRoot 保持一致。 | AssetRoot is the front-end asset directory, matching assetRoot in .yd.json.
+	// AssetRoot is the front-end asset directory, matching assetRoot in .yd.json. | AssetRoot 是前端资产目录，与 .yd.json 的 assetRoot 保持一致。
 	AssetRoot = "{{ .AssetRoot }}"
-	// ConfigDir 是配置文件目录，交给 app.WithConfigDir 使用。 | ConfigDir is the configuration directory handed to app.WithConfigDir.
+	// ConfigDir is the configuration directory handed to app.WithConfigDir. | ConfigDir 是配置文件目录，交给 app.WithConfigDir 使用。
 	ConfigDir = "configs"
-	// I18nDir 是语言目录所在的资子树名。 | I18nDir is the asset subtree holding the message catalogues.
+	// I18nDir is the asset subtree holding the message catalogues. | I18nDir 是语言目录所在的资子树名。
 	I18nDir = "i18n"
 
 	// DefaultLang 与 FallbackLang 是语言目录的默认值与回退值，与 configs/config.yaml 的 i18n 段一致。
@@ -38,11 +38,11 @@ const (
 	DefaultLang  = "zh-CN"
 	FallbackLang = "en"
 
-	// EnvPrefix 是环境变量前缀。 | EnvPrefix is the environment variable prefix.
+	// EnvPrefix is the environment variable prefix. | EnvPrefix 是环境变量前缀。
 	EnvPrefix = "YD_"
-	// ConfigEnvKey 是运行环境所在的配置键。 | ConfigEnvKey is the configuration key holding the runtime environment.
+	// ConfigEnvKey is the configuration key holding the runtime environment. | ConfigEnvKey 是运行环境所在的配置键。
 	ConfigEnvKey = "app.env"
-	// EnvProduction 与 EnvDevelopment 是运行环境的两个取值。 | EnvProduction and EnvDevelopment are the two runtime environment values.
+	// EnvProduction and EnvDevelopment are the two runtime environment values. | EnvProduction 与 EnvDevelopment 是运行环境的两个取值。
 	EnvProduction  = "production"
 	EnvDevelopment = "development"
 
@@ -54,15 +54,15 @@ const (
 // 会话与多租户的对外契约常量：中间件、控制器、模板与文档引用同一份取值。
 // Public contract constants of sessions and multi-tenancy: middleware, controllers, templates and docs all read one source.
 const (
-	// TenantHeader 是承载租户标识的请求头；子域名与令牌 tid 声明是另外两条来源。 | TenantHeader carries the tenant key; the subdomain and the token's tid claim are the other two sources.
+	// TenantHeader carries the tenant key; the subdomain and the token's tid claim are the other two sources. | TenantHeader 是承载租户标识的请求头；子域名与令牌 tid 声明是另外两条来源。
 	TenantHeader = "X-Tenant"
-	// AuthHeader 是承载令牌的请求头，与框架 auth.DefaultTokenLookup 一致。 | AuthHeader carries the token and matches the framework's auth.DefaultTokenLookup.
+	// AuthHeader carries the token and matches the framework's auth.DefaultTokenLookup. | AuthHeader 是承载令牌的请求头，与框架 auth.DefaultTokenLookup 一致。
 	AuthHeader = "Authorization"
-	// BearerPrefix 是 Authorization 的认证方案前缀。 | BearerPrefix is the authentication scheme prefix of Authorization.
+	// BearerPrefix is the authentication scheme prefix of Authorization. | BearerPrefix 是 Authorization 的认证方案前缀。
 	BearerPrefix = "Bearer "
-	// TokenCookie 是浏览器会话所用的 cookie 名；令牌以 HttpOnly 写入，脚本读不到它。 | TokenCookie is the cookie name of the browser session; the token is written HttpOnly so no script can read it.
+	// TokenCookie is the cookie name of the browser session; the token is written HttpOnly so no script can read it. | TokenCookie 是浏览器会话所用的 cookie 名；令牌以 HttpOnly 写入，脚本读不到它。
 	TokenCookie = "yd_token"
-	// TokenIssuerName 写入令牌的 iss 声明。 | TokenIssuerName is written into the iss claim of every token.
+	// TokenIssuerName is written into the iss claim of every token. | TokenIssuerName 写入令牌的 iss 声明。
 	TokenIssuerName = "yd"
 
 	// DevMasterKey 是内置的开发主密钥：仅在 auth.master_key 未配置时启用，目的是让种子账号开箱即可登录。
@@ -81,28 +81,28 @@ const (
 // The clear-text passwords appear here and nowhere else, are used only by the very first seed write, and what the store
 // keeps is always a hashed password plus a per-user sec_key.
 const (
-	// SeedTenantSlug 是演示租户的标识（X-Tenant 请求头与子域名都用它）。 | SeedTenantSlug is the demo tenant's key (the X-Tenant header and the subdomain both use it).
+	// SeedTenantSlug is the demo tenant's key (the X-Tenant header and the subdomain both use it). | SeedTenantSlug 是演示租户的标识（X-Tenant 请求头与子域名都用它）。
 	SeedTenantSlug = "demo"
-	// SeedTenantName 是演示租户的展示名。 | SeedTenantName is the demo tenant's display name.
+	// SeedTenantName is the demo tenant's display name. | SeedTenantName 是演示租户的展示名。
 	SeedTenantName = "演示租户 | Demo tenant"
-	// SeedAdminUsername 是演示租户的管理员登录名（登录用登录名，不是邮箱）。 | SeedAdminUsername is the demo tenant's administrator sign-in name (sign-in uses the name, not the address).
+	// SeedAdminUsername is the demo tenant's administrator sign-in name (sign-in uses the name, not the address). | SeedAdminUsername 是演示租户的管理员登录名（登录用登录名，不是邮箱）。
 	SeedAdminUsername = "admin"
-	// SeedAdminEmail 是演示租户管理员的邮箱。 | SeedAdminEmail is the demo administrator's e-mail address.
+	// SeedAdminEmail is the demo administrator's e-mail address. | SeedAdminEmail 是演示租户管理员的邮箱。
 	SeedAdminEmail = "admin@example.com"
-	// SeedAdminPassword 是演示租户管理员的初始口令。 | SeedAdminPassword is the demo administrator's initial password.
+	// SeedAdminPassword is the demo administrator's initial password. | SeedAdminPassword 是演示租户管理员的初始口令。
 	SeedAdminPassword = "Admin@123456"
 
 	// SeedOpsSlug 是第二个租户的标识：它让「跨租户不可见」成为一条可被自动化验证的硬边界，而不是一句承诺。
 	// SeedOpsSlug is the second tenant's key: it turns "tenants cannot see each other" into an automation-verifiable hard
 	// boundary instead of a promise.
 	SeedOpsSlug = "acme"
-	// SeedOpsName 是第二个租户的展示名。 | SeedOpsName is the second tenant's display name.
+	// SeedOpsName is the second tenant's display name. | SeedOpsName 是第二个租户的展示名。
 	SeedOpsName = "示例租户 ACME | Sample tenant ACME"
-	// SeedOpsAdminUsername 是第二个租户的管理员登录名。 | SeedOpsAdminUsername is the second tenant's administrator sign-in name.
+	// SeedOpsAdminUsername is the second tenant's administrator sign-in name. | SeedOpsAdminUsername 是第二个租户的管理员登录名。
 	SeedOpsAdminUsername = "acme-admin"
-	// SeedOpsAdminEmail 是第二个租户管理员的邮箱。 | SeedOpsAdminEmail is the second tenant administrator's e-mail address.
+	// SeedOpsAdminEmail is the second tenant administrator's e-mail address. | SeedOpsAdminEmail 是第二个租户管理员的邮箱。
 	SeedOpsAdminEmail = "acme-admin@example.com"
-	// SeedOpsAdminPassword 是第二个租户管理员的初始口令。 | SeedOpsAdminPassword is the second tenant administrator's initial password.
+	// SeedOpsAdminPassword is the second tenant administrator's initial password. | SeedOpsAdminPassword 是第二个租户管理员的初始口令。
 	SeedOpsAdminPassword = "Acme@123456"
 
 	// SeedPasswordNotice 是首登必改口令的提示文案，登录页、首页横幅与 README 引用同一句。
@@ -141,8 +141,8 @@ func Env() string {
 	return EnvDevelopment
 }
 
-// IsProduction 报告当前是否为生产环境。 | IsProduction reports whether the runtime environment is production.
+// IsProduction reports whether the runtime environment is production. | IsProduction 报告当前是否为生产环境。
 func IsProduction() bool { return strings.EqualFold(Env(), EnvProduction) }
 
-// IsDevelopment 报告当前是否为开发环境。 | IsDevelopment reports whether the runtime environment is development.
+// IsDevelopment reports whether the runtime environment is development. | IsDevelopment 报告当前是否为开发环境。
 func IsDevelopment() bool { return !IsProduction() }

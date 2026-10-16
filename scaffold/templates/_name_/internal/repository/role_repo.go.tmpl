@@ -16,16 +16,16 @@ import (
 	"{{ .YdModule }}/auth"
 )
 
-// RoleRepo 提供角色的读取、覆盖写入与删除。 | RoleRepo reads, upserts and deletes roles.
+// RoleRepo reads, upserts and deletes roles. | RoleRepo 提供角色的读取、覆盖写入与删除。
 type RoleRepo struct {
-	// store 是鉴权服务的持有者。 | store owns the auth service.
+	// store owns the auth service. | store 是鉴权服务的持有者。
 	store *Store
 }
 
-// NewRoleRepo 基于 Store 构造角色仓储。 | NewRoleRepo builds a role repository over a Store.
+// NewRoleRepo builds a role repository over a Store. | NewRoleRepo 基于 Store 构造角色仓储。
 func NewRoleRepo(store *Store) *RoleRepo { return &RoleRepo{store: store} }
 
-// List 按名称返回该租户的全部角色。 | List returns every role of the tenant ordered by name.
+// List returns every role of the tenant ordered by name. | List 按名称返回该租户的全部角色。
 func (r *RoleRepo) List(ctx context.Context, tenantID string) ([]model.Role, error) {
 	list, err := r.store.Auth().ListRoles(ctx, tenantID)
 	if err != nil {
@@ -70,7 +70,7 @@ func (r *RoleRepo) Upsert(ctx context.Context, tenantID, name, description strin
 	return model.RoleFromAuth(saved), nil
 }
 
-// Delete 删除角色；内置角色由业务层拦截，仓储层不做特例。 | Delete removes a role; the built-in guard lives in the business layer, not here.
+// Delete removes a role; the built-in guard lives in the business layer, not here. | Delete 删除角色；内置角色由业务层拦截，仓储层不做特例。
 func (r *RoleRepo) Delete(ctx context.Context, tenantID, roleID string) error {
 	return r.store.Auth().DeleteRole(ctx, tenantID, roleID)
 }

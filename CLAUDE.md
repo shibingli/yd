@@ -268,3 +268,30 @@ yd assets verify --offline   # 离线完整性校验
   `ErrUnknownAction` 等，调用方用 `errors.Is` 判定；权限失败必须提示管理员（Windows）/ root（POSIX）。
 - **密钥不进服务文件**：unit 文件与 SCM 配置对运维可读，主密钥与数据库口令只经 `YD_*` 环境变量注入，
   `service.env` 中不得出现真实密钥。
+
+## 13. 镜像打包（ko 与 Dockerfile）（强制）
+
+镜像有两个、且只有两个入口：**`yd docker`**（多阶段 Dockerfile → `scratch`）与 **`yd ko`**
+（`github.com/shibingli/yd/ko`，从 Go 源码直出镜像，**没有 Dockerfile 这一环**）。
+**禁止**在脚本、CI 或文档里另行手写 `docker build` 参数或自拼 ko 命令行；两条路径的标志、标签、平台与基础镜像
+都必须在各自命令里统一解析，绕过它等于让打包行为散成彼此不一致的副本。
+
+- **分工**：需要定制构建步骤（装系统包、拷额外文件）走 `yd docker` 与仓库根目录的 `Dockerfile`；
+  标准的「单二进制 + 空镜像」交付走 `yd ko`，它不需要 Dockerfile，也不要求本机有 docker 守护进程。
+- **调用方式同构**：两者都调用**外部 CLI**（docker / ko）完成实际构建，因此 CI 与开发机只需装好对应工具，
+  不引入任何 Go 构建期依赖。
+- **CLI**：`yd ko [--repo R] [--tags a,b] [--platforms linux/amd64,linux/arm64] [--base-image X]
+  [--package ./cmd/app] [--local] [--push] [--binary PATH] [--dir DIR]`。
+- **配置键**：`ko.binary` / `ko.repository` / `ko.tags` / `ko.platforms` / `ko.base_image` / `ko.packages` /
+  `ko.local` / `ko.push`，`YD_KO_*` 环境变量由既有前缀机制自动映射；优先级不变
+  （命令行参数 > 环境变量 > 配置文件 > 框架默认值）。
+- **二进制解析顺序**：`--binary` → `YD_KO_BIN` → `<项目>/.yd/tools/ko[.exe]` → `PATH`；
+  找不到时返回 `ko.ErrBinaryNotFound` 并给出 `go install github.com/google/ko@latest` 提示，
+  **绝不 panic**（与 `betteralign` 缺失时的口径一致）。
+- **ko 属可选外部工具**：缺失只影响 `yd ko` 自身，**不得**让 `yd build` / `yd dev` / `yd gen` / `go test` 或 CI 失败。
+- **禁止把 ko 作为 Go 依赖**：不得 `require github.com/google/ko`，也不得 import 它的包来「省一次外部进程」；
+  ko 只经外部 CLI 调用（见第 4.8 条「依赖克制」）。同理，`go.mod` 不得因本特性新增任何依赖。
+- **产物形态**：两条路径产出的都必须是 `CGO_ENABLED=0` 静态链接的二进制，前端资产由 `go:embed` 嵌入，
+  镜像内无任何运行时依赖。
+- **错误一律哨兵**：`ko.ErrBinaryNotFound` / `ko.ErrNoRepository` / `ko.ErrBuildFailed` / `ko.ErrInvalidOptions`，
+  调用方用 `errors.Is` 判定（见第 4.2 条「错误处理」）。

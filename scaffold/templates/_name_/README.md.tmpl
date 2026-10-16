@@ -174,6 +174,69 @@ sudo systemctl enable --now {{ .Name }}
 systemctl status {{ .Name }}
 ```
 
+## 无 Dockerfile 打包（ko）
+
+镜像有两条并列的打包路径，产物要求一致（`CGO_ENABLED=0` 静态链接、可直接跑在 `scratch` 级空镜像里），
+区别只在镜像从哪里来：
+
+| 路径 | 输入 | 说明 |
+|---|---|---|
+| `yd docker` | `Dockerfile` | 多阶段构建：`golang` 阶段编译 → `scratch` 阶段运行；构建逻辑写在 Dockerfile 里，需要本机有 docker |
+| `yd ko` | Go 源码 | 直接编译并组装镜像层，**不需要 Dockerfile**；只用到一个 ko 可执行文件 |
+
+`yd ko` 驱动的是 ko 的外部 CLI（与 `yd docker` 调用 docker CLI 同构），**ko 不是本项目的 Go 依赖**，
+不进 `go.mod`：它是**可选外部工具**，没安装只会让 `yd ko` 失败并给出安装提示
+（`go install github.com/google/ko@latest`），`yd build` / `yd dev` / `go test` 一概不受影响。
+二进制解析顺序：`--binary` → `YD_KO_BIN` → `<项目>/.yd/tools/ko[.exe]` → `PATH`。
+
+```bash
+# 1. Build and load into the local docker daemon, no push | 构建并装进本地 docker 守护进程，不推送
+yd ko --local --repo {{ .Name }}
+
+# 2. Build and push to an image registry | 构建并推送到镜像仓库
+yd ko --repo registry.example.com/{{ .Name }} --tags latest,v1.0.0 --push
+
+# 3. Multi-platform build: one manifest list for linux/amd64 and linux/arm64 | 多平台构建：一次产出 linux/amd64 与 linux/arm64 的 manifest list
+yd ko --repo registry.example.com/{{ .Name }} --tags v1.0.0 \
+      --platforms linux/amd64,linux/arm64 --push
+
+# 4. Override the base image (the default is cgr.dev/chainguard/static) | 覆盖基础镜像（缺省 cgr.dev/chainguard/static）
+yd ko --repo registry.example.com/{{ .Name }} --base-image registry.example.com/base/static:latest --push
+
+# 5. Pick the entry package and the working directory | 指定入口包与工作目录
+yd ko --package ./cmd/app --dir . --repo registry.example.com/{{ .Name }} --push
+```
+
+- **`--local` 与 `--push` 的区别**：`--local` 把结果装进本机 docker 守护进程（等价于 ko 的 `-L/--local`），
+  **不出网、不需要仓库**，镜像名形如 `ko.local/<导入路径>`，适合本机跑一遍；`--push` 把结果推到 `--repo`
+  指定的仓库（等价于 ko 的 `--push`），交付与部署走这条。两者含义不同，不能互相替代：自测用 `--local`，
+  交付用 `--push`。推送前请先在目标仓库登录（`docker login`，ko 复用 Docker 的凭据配置 `~/.docker/config.json`；
+  也可以直接用 ko 自己的 `ko login`）。
+- **多平台**：`--platforms linux/amd64,linux/arm64` 落到 ko 的 `--platform`（**注意 ko 侧的标志是单数 `--platform`**），
+  一次构建产出 manifest list；传 `all` 则取基础镜像支持的全部平台。多平台结果面向仓库分发，本机验证用单平台 + `--local` 即可。
+- **基础镜像**：`--base-image` 覆盖 ko 的缺省基础镜像 `cgr.dev/chainguard/static`（ko 读的是 `KO_DEFAULTBASEIMAGE`）。
+  基础镜像决定镜像里的证书、时区与运行账号，替换前先确认替代品同样**不含 shell 与包管理器**，
+  否则镜像体积与攻击面都会退回到普通发行版镜像的水平。
+- **配置固化**：`configs/config.yaml` 的 `ko` 段（`YD_KO_*` 环境变量同样生效）可以写仓库、标签、平台与基础镜像，
+  一次配好之后日常只需 `yd ko`；命令行标志优先于配置，配置优先于缺省值。
+
+### 离线 / 内网怎么打
+
+ko 只把 Go 源码编译成镜像层，唯一需要联网的部分是**拉取基础镜像**和**推送结果**，因此离线环境只要把这两处搬到内网即可：
+
+1. **基础镜像先搬进内网**：在外网把 `cgr.dev/chainguard/static` 同步到内网 registry（例如
+   `registry.internal/base/static:latest`），然后用 `--base-image registry.internal/base/static:latest`
+   指定它，或把地址写进 `configs/config.yaml` 的 `ko.base_image`（等价的 `YD_KO_BASE_IMAGE`）固化下来。
+   从那以后构建不再访问公网，源码编译完全在本机完成。
+2. **结果推内网 registry**：把 `--repo` 指向内网仓库（如 `--repo registry.internal/{{ .Name }}`），
+   推送前先登录一次，凭据留在 Docker 的凭据配置里即可被 ko 复用。内网 registry 走标准 TLS 校验，
+   请让它的证书由内网 CA 签发并把该 CA 装进系统信任库——不要指望关掉校验。
+3. **完全不出网的本机验证**：`yd ko --local --repo {{ .Name }}` 只需要一个能被本机读取的基础镜像，
+   结果直接装进本地 docker 守护进程，全程不碰任何仓库。
+4. **配合 `yd build --offline`**：镜像之前的那一步（Tailwind 剪裁 + `go:embed` + 静态编译）可用
+   `yd build --offline` 强制 `-mod=vendor`，整条链路都不触网。容器内不需要任何运行时依赖，
+   前端资产已经嵌进同一个二进制里。
+
 ## 界面约定
 
 - **国际化**：文案在 `{{ .AssetRoot }}/i18n/{zh-CN,en}.yaml`，模板只写 `{{ "tr \"nav.users\"" }}` 这样的键；

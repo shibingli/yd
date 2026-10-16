@@ -13,31 +13,31 @@ import (
 	"{{ .YdModule }}/errx"
 )
 
-// 租户业务哨兵。 | Tenant business sentinels.
+// Tenant business sentinels. | 租户业务哨兵。
 var (
-	// ErrTenantMissing 表示请求没有指明租户。 | ErrTenantMissing reports a request that names no tenant.
+	// ErrTenantMissing reports a request that names no tenant. | ErrTenantMissing 表示请求没有指明租户。
 	ErrTenantMissing = errx.New("a tenant must be selected | 必须选择租户")
-	// ErrTenantNameRequired 表示租户名称为空。 | ErrTenantNameRequired reports an empty tenant name.
+	// ErrTenantNameRequired reports an empty tenant name. | ErrTenantNameRequired 表示租户名称为空。
 	ErrTenantNameRequired = errx.New("tenant name is required | 租户名称不能为空")
-	// ErrTenantSlugInvalid 表示租户标识不合法：只允许小写字母、数字与连字符。 | ErrTenantSlugInvalid reports an illegal tenant slug: lower-case letters, digits and dashes only.
+	// ErrTenantSlugInvalid reports an illegal tenant slug: lower-case letters, digits and dashes only. | ErrTenantSlugInvalid 表示租户标识不合法：只允许小写字母、数字与连字符。
 	ErrTenantSlugInvalid = errx.New("the tenant slug may only contain lower-case letters, digits and dashes | 租户标识只能包含小写字母、数字与连字符")
 )
 
-// 租户标识的长度边界（含连字符）。 | Length bounds of a tenant slug (dashes included).
+// Length bounds of a tenant slug (dashes included). | 租户标识的长度边界（含连字符）。
 const (
 	minSlugLen = 2
 	maxSlugLen = 32
 )
 
-// TenantService 编排租户生命周期。 | TenantService orchestrates the tenant lifecycle.
+// TenantService orchestrates the tenant lifecycle. | TenantService 编排租户生命周期。
 type TenantService struct {
-	// repo 是租户仓储。 | repo is the tenant repository.
+	// repo is the tenant repository. | repo 是租户仓储。
 	repo *repository.TenantRepo
-	// roles 用于为新租户写入内置角色。 | roles initialises the built-in roles of a new tenant.
+	// roles initialises the built-in roles of a new tenant. | roles 用于为新租户写入内置角色。
 	roles *repository.RoleRepo
 }
 
-// NewTenantService 基于 Store 构造租户业务。 | NewTenantService builds the tenant business layer over a Store.
+// NewTenantService builds the tenant business layer over a Store. | NewTenantService 基于 Store 构造租户业务。
 func NewTenantService(store *repository.Store) *TenantService {
 	return &TenantService{repo: repository.NewTenantRepo(store), roles: repository.NewRoleRepo(store)}
 }
@@ -48,7 +48,7 @@ func (s *TenantService) List(ctx context.Context) ([]model.Tenant, error) {
 	return s.repo.List(ctx)
 }
 
-// Get 按 ID 返回租户。 | Get returns the tenant of that id.
+// Get returns the tenant of that id. | Get 按 ID 返回租户。
 func (s *TenantService) Get(ctx context.Context, tenantID string) (model.Tenant, error) {
 	return s.repo.Get(ctx, tenantID)
 }

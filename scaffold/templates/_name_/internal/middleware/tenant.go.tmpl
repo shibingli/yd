@@ -16,44 +16,44 @@ import (
 	"{{ .YdModule }}/router"
 )
 
-// 租户解析哨兵：控制器把它们映射为 400 与 403。 | Tenant resolution sentinels: the controllers map them onto 400 and 403.
+// Tenant resolution sentinels: the controllers map them onto 400 and 403. | 租户解析哨兵：控制器把它们映射为 400 与 403。
 var (
-	// ErrTenantRequired 表示请求没有指明租户（既无令牌，也无请求头，也无子域名）。 | ErrTenantRequired reports a request that names no tenant (no token, no header and no subdomain).
+	// ErrTenantRequired reports a request that names no tenant (no token, no header and no subdomain). | ErrTenantRequired 表示请求没有指明租户（既无令牌，也无请求头，也无子域名）。
 	ErrTenantRequired = errx.New("the request does not name a tenant | 请求未指明租户")
-	// ErrTenantMismatch 表示请求头指明的租户与令牌所属租户不一致：这是越权，一律拒绝。 | ErrTenantMismatch reports a header naming a tenant other than the token's: that is privilege escalation and is refused outright.
+	// ErrTenantMismatch reports a header naming a tenant other than the token's: that is privilege escalation and is refused outright. | ErrTenantMismatch 表示请求头指明的租户与令牌所属租户不一致：这是越权，一律拒绝。
 	ErrTenantMismatch = errx.New("the named tenant does not match the tenant of the token | 请求指明的租户与令牌所属租户不一致")
 )
 
-// 上下文键：租户 ID 与租户标识。 | Context keys: the tenant id and the tenant slug.
+// Context keys: the tenant id and the tenant slug. | 上下文键：租户 ID 与租户标识。
 const (
-	// TenantIDKey 保存已解析的租户 ID。 | TenantIDKey holds the resolved tenant id.
+	// TenantIDKey holds the resolved tenant id. | TenantIDKey 保存已解析的租户 ID。
 	TenantIDKey = "yd.tenant_id"
-	// TenantSlugKey 保存已解析的租户标识。 | TenantSlugKey holds the resolved tenant slug.
+	// TenantSlugKey holds the resolved tenant slug. | TenantSlugKey 保存已解析的租户标识。
 	TenantSlugKey = "yd.tenant_slug"
 )
 
-// subdomainPrefixes 是不被当作租户标识的首段主机名。 | subdomainPrefixes lists the leading host labels that are never read as a tenant slug.
+// subdomainPrefixes lists the leading host labels that are never read as a tenant slug. | subdomainPrefixes 是不被当作租户标识的首段主机名。
 var subdomainPrefixes = map[string]bool{"www": true, "api": true, "static": true, "assets": true, "admin": true}
 
 // TenantResolver 把「租户标识或租户 ID」解析为租户 ID，实现由 internal/service 提供。
 // TenantResolver maps "tenant slug or tenant id" onto a tenant id; internal/service supplies the implementation.
 type TenantResolver func(ctx context.Context, key string) (string, error)
 
-// TenantOptions 配置 Tenant。 | TenantOptions configures Tenant.
+// TenantOptions configures Tenant. | TenantOptions 配置 Tenant。
 type TenantOptions struct {
-	// ErrorHandler 渲染解析失败；为空时输出纯文本状态码。 | ErrorHandler renders a resolution failure; empty writes a plain-text status instead.
+	// ErrorHandler renders a resolution failure; empty writes a plain-text status instead. | ErrorHandler 渲染解析失败；为空时输出纯文本状态码。
 	ErrorHandler func(*router.Ctx, error)
-	// Resolver 是解析函数，必须由调用方注入（业务规则不属于中间件）。 | Resolver is the resolution function and must be injected by the caller (business rules never live in middleware).
+	// Resolver is the resolution function and must be injected by the caller (business rules never live in middleware). | Resolver 是解析函数，必须由调用方注入（业务规则不属于中间件）。
 	Resolver TenantResolver
-	// Header 是承载租户标识的请求头，默认 X-Tenant。 | Header is the request header carrying the tenant key, X-Tenant by default.
+	// Header is the request header carrying the tenant key, X-Tenant by default. | Header 是承载租户标识的请求头，默认 X-Tenant。
 	Header string
-	// Required 为 true 时，解析不出租户一律以 400 拒绝。 | Required refuses a request without a resolvable tenant with 400.
+	// Required refuses a request without a resolvable tenant with 400. | Required 为 true 时，解析不出租户一律以 400 拒绝。
 	Required bool
-	// Subdomain 为 true 时允许用子域名（acme.example.com）指明租户。 | Subdomain allows the subdomain form (acme.example.com) to name the tenant.
+	// Subdomain allows the subdomain form (acme.example.com) to name the tenant. | Subdomain 为 true 时允许用子域名（acme.example.com）指明租户。
 	Subdomain bool
 }
 
-// withDefaults 用约定取值填充空字段。 | withDefaults fills the empty fields with the documented defaults.
+// withDefaults fills the empty fields with the documented defaults. | withDefaults 用约定取值填充空字段。
 func (o TenantOptions) withDefaults() TenantOptions {
 	if o.Header == "" {
 		o.Header = meta.TenantHeader
@@ -61,12 +61,12 @@ func (o TenantOptions) withDefaults() TenantOptions {
 	return o
 }
 
-// Tenant 解析请求的租户并写入上下文。 | Tenant resolves the tenant of the request and stores it in the context.
+// Tenant resolves the tenant of the request and stores it in the context. | Tenant 解析请求的租户并写入上下文。
 //
-// 解析顺序（首个命中即胜出），这条顺序就是多租户的信任边界： | The resolution order is the trust boundary of multi-tenancy, first hit wins:
-//  1. 已认证用户所属的租户 —— 令牌里的 tid 声明经签名校验，是唯一可信的来源； | the tenant of the authenticated user: the tid claim of the token is signed and is the only trusted source;
-//  2. X-Tenant 请求头（标识或 tn_ ID）； | the X-Tenant request header (a slug or a tn_ id);
-//  3. 子域名（acme.example.com）。 | the subdomain (acme.example.com).
+// The resolution order is the trust boundary of multi-tenancy, first hit wins: | 解析顺序（首个命中即胜出），这条顺序就是多租户的信任边界：
+//  1. the tenant of the authenticated user: the tid claim of the token is signed and is the only trusted source; | 已认证用户所属的租户 —— 令牌里的 tid 声明经签名校验，是唯一可信的来源；
+//  2. the X-Tenant request header (a slug or a tn_ id); | X-Tenant 请求头（标识或 tn_ ID）；
+//  3. the subdomain (acme.example.com). | 子域名（acme.example.com）。
 //
 // 当 1 命中且 2 或 3 也指明了另一个租户时，请求以 ErrTenantMismatch（403）被拒绝：
 // 否则任何持有 A 租户令牌的人都能靠一个请求头读到 B 租户的数据。
@@ -89,7 +89,7 @@ func Tenant(o TenantOptions) router.Middleware {
 			named = subdomain(c.Host())
 		}
 
-		// 令牌优先：命中它之后，任何「另一个租户」的说法都是越权。 | The token wins: once it hits, any other tenant is an escalation attempt.
+		// The token wins: once it hits, any other tenant is an escalation attempt. | 令牌优先：命中它之后，任何「另一个租户」的说法都是越权。
 		if user, ok := auth.CurrentUser(c); ok && user != nil {
 			if named != "" {
 				namedID, err := o.resolve(c, named)
@@ -137,7 +137,7 @@ func (o TenantOptions) resolve(c *router.Ctx, key string) (string, error) {
 	return o.Resolver(c.Request.Context(), key)
 }
 
-// TenantID 返回 Tenant 写入的租户 ID。 | TenantID returns the tenant id stored by Tenant.
+// TenantID returns the tenant id stored by Tenant. | TenantID 返回 Tenant 写入的租户 ID。
 func TenantID(c *router.Ctx) (string, bool) {
 	value, ok := c.Get(TenantIDKey)
 	if !ok {
@@ -147,7 +147,7 @@ func TenantID(c *router.Ctx) (string, bool) {
 	return id, ok && id != ""
 }
 
-// TenantSlug 返回请求中指明的租户标识（可能是空的：令牌里只带 ID）。 | TenantSlug returns the tenant key the request named (it may be empty because a token only carries the id).
+// TenantSlug returns the tenant key the request named (it may be empty because a token only carries the id). | TenantSlug 返回请求中指明的租户标识（可能是空的：令牌里只带 ID）。
 func TenantSlug(c *router.Ctx) (string, bool) {
 	value, ok := c.Get(TenantSlugKey)
 	if !ok {
