@@ -39,11 +39,11 @@ type globalFlagSpec struct {
 	name string
 	// short is the one-letter shorthand, empty when the flag has none. | short 是单字母简写，无简写时为空。
 	short string
+	// usage is the bilingual help text. | usage 是双语的帮助文案。
+	usage string
 	// isString marks the two string-valued global flags; the rest are booleans. | isString 标记两个字符串型
 	// 全局标志，其余均为布尔型。
 	isString bool
-	// usage is the bilingual help text. | usage 是双语的帮助文案。
-	usage string
 }
 
 // globalFlagSpecs lists the global flags in help order. | globalFlagSpecs 按帮助顺序列出全局标志。

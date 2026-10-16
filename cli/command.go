@@ -20,6 +20,12 @@ import (
 // same command is not supported. | 一个 Command 值按顺序执行：Run 不接收自己的标志集，而是通过 Flags
 // 安装的闭包读取已解析的标志，因此不支持对同一命令并发调用 Execute。
 type Command struct {
+	// Flags registers the command's own flags; it may be nil for a command without flags and is called
+	// before Run on every Execute. | Flags 注册命令自身的标志；无标志的命令可以留空，它在每次 Execute 中
+	// 先于 Run 被调用。
+	Flags func(*pflag.FlagSet)
+	// Run executes the command; it must not be nil. | Run 执行命令，不得为空。
+	Run func(ctx context.Context, env *Env) error
 	// Name is the command word typed after yd. | Name 是紧跟在 yd 之后的命令词。
 	Name string
 	// Short is the one-line summary shown in the command list. | Short 是命令列表中显示的一行摘要。
@@ -30,12 +36,6 @@ type Command struct {
 	// Usage is the usage line, e.g. "yd assets update [--check] [--offline]". | Usage 是用法行，例如
 	// "yd assets update [--check] [--offline]"。
 	Usage string
-	// Flags registers the command's own flags; it may be nil for a command without flags and is called
-	// before Run on every Execute. | Flags 注册命令自身的标志；无标志的命令可以留空，它在每次 Execute 中
-	// 先于 Run 被调用。
-	Flags func(*pflag.FlagSet)
-	// Run executes the command; it must not be nil. | Run 执行命令，不得为空。
-	Run func(ctx context.Context, env *Env) error
 }
 
 // Env carries everything a command is allowed to touch. | Env 承载命令可以触及的一切。
