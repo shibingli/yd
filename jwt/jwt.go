@@ -112,14 +112,14 @@ func supported(a Alg) bool {
 
 // Header is the decoded JOSE header of a token. | Header 是 token 解码后的 JOSE 头部。
 type Header struct {
+	// Extra holds the string-valued header parameters other than alg, typ and kid; it is nil when there is none. | Extra 保存 alg、typ、kid 之外取值为字符串的头部参数；没有时该字段为 nil。
+	Extra map[string]string
 	// Alg is the "alg" parameter. | Alg 是 "alg" 参数。
 	Alg Alg
 	// Typ is the "typ" parameter; it is informational and never validated. | Typ 是 "typ" 参数；它仅供参考，从不参与校验。
 	Typ string
 	// Kid is the "kid" parameter, handed to KeyFunc so that keys can rotate. | Kid 是 "kid" 参数，会交给 KeyFunc 以支持密钥轮换。
 	Kid string
-	// Extra holds the string-valued header parameters other than alg, typ and kid; it is nil when there is none. | Extra 保存 alg、typ、kid 之外取值为字符串的头部参数；没有时该字段为 nil。
-	Extra map[string]string
 }
 
 // KeyFunc resolves the verification key of a token from its header. | KeyFunc 依据 token 头部为其解析出校验密钥。
@@ -134,6 +134,12 @@ type KeyFunc func(header Header) (any, error)
 
 // ParseOptions controls verification. | ParseOptions 控制校验行为。
 type ParseOptions struct {
+	// Now overrides the clock; it lets tests run deterministically. | Now 用于替换时钟，便于实现确定性测试。
+	Now func() time.Time
+	// Issuer, when non-empty, must equal the iss claim. | Issuer 非空时必须与 iss 声明相等。
+	Issuer string
+	// Audience, when non-empty, must be contained in the aud claim. | Audience 非空时必须包含于 aud 声明。
+	Audience string
 	// ValidAlgs restricts the accepted algorithms; nil means every supported algorithm. | ValidAlgs 限定可接受的算法；nil 表示全部受支持的算法。
 	//
 	// Setting it is recommended: the allow list is the first line of defence against algorithm confusion. | 建议显式设置：
@@ -141,14 +147,8 @@ type ParseOptions struct {
 	ValidAlgs []Alg
 	// Leeway is the tolerance applied to exp and nbf to absorb clock skew. | Leeway 是施加于 exp 与 nbf 的容差，用于吸收时钟漂移。
 	Leeway time.Duration
-	// Issuer, when non-empty, must equal the iss claim. | Issuer 非空时必须与 iss 声明相等。
-	Issuer string
-	// Audience, when non-empty, must be contained in the aud claim. | Audience 非空时必须包含于 aud 声明。
-	Audience string
 	// RequireExp rejects a token without an exp claim. | RequireExp 拒绝缺少 exp 声明的 token。
 	RequireExp bool
-	// Now overrides the clock; it lets tests run deterministically. | Now 用于替换时钟，便于实现确定性测试。
-	Now func() time.Time
 }
 
 // Token is a verified token. | Token 是一个已通过校验的 token。
@@ -277,14 +277,14 @@ const DefaultCtxKey = "jwt.token"
 type MiddlewareOptions struct {
 	// KeyFunc resolves the verification key; a nil KeyFunc fails every request instead of panicking. | KeyFunc 解析校验密钥；为空时每个请求都失败，而不是 panic。
 	KeyFunc KeyFunc
-	// ParseOptions is forwarded to Parse verbatim. | ParseOptions 原样转发给 Parse。
-	ParseOptions ParseOptions
+	// ErrorHandler renders the failure; nil means 401 with a short plain-text body. | ErrorHandler 负责输出失败响应；为空表示返回 401 与简短纯文本正文。
+	ErrorHandler func(*router.Ctx, error)
 	// TokenLookup selects where the token is read from; the accepted forms are listed on Middleware. | TokenLookup 指定 token 的读取位置；可用形式见 Middleware 文档。
 	TokenLookup string
 	// CtxKey is the router context key holding the *Token; see DefaultCtxKey. | CtxKey 是保存 *Token 的路由上下文键；见 DefaultCtxKey。
 	CtxKey string
-	// ErrorHandler renders the failure; nil means 401 with a short plain-text body. | ErrorHandler 负责输出失败响应；为空表示返回 401 与简短纯文本正文。
-	ErrorHandler func(*router.Ctx, error)
+	// ParseOptions is forwarded to Parse verbatim. | ParseOptions 原样转发给 Parse。
+	ParseOptions ParseOptions
 }
 
 // Middleware verifies the token of a request and stores the *Token in the router context. | Middleware 校验请求携带的令牌，并把 *Token 存入路由上下文。

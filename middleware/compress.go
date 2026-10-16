@@ -171,25 +171,25 @@ type CompressOptions struct {
 	// Algorithms is the priority list; the array order is the weight order. | Algorithms 是优先级列表，数组顺序即权重顺序。
 	// Defaults to []Algorithm{Brotli, Zstd, Gzip}. | 默认为 []Algorithm{Brotli, Zstd, Gzip}。
 	Algorithms []Algorithm
+	// ExcludePatterns is a list of path prefixes that are never wrapped. | ExcludePatterns 是永不包装的路径前缀列表。
+	// Defaults to {"/ws", "/sse", "/events"} and replaces those defaults when set. | 默认为 {"/ws", "/sse", "/events"}，一旦配置即替换默认值。
+	ExcludePatterns []string
 	// MinSize is the smallest body that is worth compressing; 0 means 1024 bytes.
 	// | MinSize 是值得压缩的最小正文长度；0 表示 1024 字节。
 	MinSize int
 	// Level is the codec compression level; 0 keeps each codec's own default.
 	// | Level 是编解码器的压缩级别；0 表示沿用各自的默认级别。
 	Level int
-	// ExcludePatterns is a list of path prefixes that are never wrapped. | ExcludePatterns 是永不包装的路径前缀列表。
-	// Defaults to {"/ws", "/sse", "/events"} and replaces those defaults when set. | 默认为 {"/ws", "/sse", "/events"}，一旦配置即替换默认值。
-	ExcludePatterns []string
 }
 
 // compressConfig is the normalized, immutable configuration of one Compress instance.
 // | compressConfig 是单个 Compress 实例归一化后的不可变配置。
 type compressConfig struct {
+	pools   [3]*encoderPool
 	algos   []Algorithm
+	exclude []string
 	minSize int
 	level   int
-	exclude []string
-	pools   [3]*encoderPool
 }
 
 // newCompressConfig normalizes o and prepares one encoder pool per algorithm.
@@ -273,17 +273,17 @@ func Compress(o CompressOptions) router.Middleware {
 // At that point the middleware either starts the encoder or, when compression is impossible,
 // switches to a plain pass-through and hands the context back to the original writer. | 达到阈值时要么启动编码器，要么在无法压缩时切换为直通，并把上下文交还给原始写入器。
 type compressWriter struct {
-	ctx     *router.Ctx
 	rw      http.ResponseWriter
-	algo    Algorithm
+	enc     encoder
+	err     error
+	ctx     *router.Ctx
 	pool    *encoderPool
+	buf     []byte
+	algo    Algorithm
 	minSize int
 
 	code    int
 	decided bool
-	enc     encoder
-	buf     []byte
-	err     error
 	closed  bool
 }
 
@@ -481,8 +481,8 @@ type encoder interface {
 
 // encoderPool pools encoders of a single algorithm and level. | encoderPool 池化同一算法与级别的编码器。
 type encoderPool struct {
-	level int
 	pool  sync.Pool
+	level int
 	algo  Algorithm
 }
 

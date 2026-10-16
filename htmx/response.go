@@ -37,10 +37,10 @@ const (
 // Used together with hx-trigger="<event name> from:body" in a template, it lets any region refresh itself when the event arrives, | 配合模板中的 hx-trigger="<事件名> from:body" 使用，可让任意区域在事件到达时自行刷新，
 // which avoids the server having to assemble large blocks of HTML. | 从而避免服务端拼装大段 HTML。
 type Event struct {
-	// Name is the event name and must not be empty; events with an empty name are ignored. | Name 是事件名，不可为空；为空的事件会被忽略。
-	Name string
 	// Detail is the payload shipped along with the event; it may be nil (written as null in the JSON form). | Detail 是随事件下发的负载，可为 nil（JSON 形式下写为 null）。
 	Detail any
+	// Name is the event name and must not be empty; events with an empty name are ignored. | Name 是事件名，不可为空；为空的事件会被忽略。
+	Name string
 }
 
 // triggerHeaderValue computes the value of HX-Trigger; the second return value reports whether the header needs to be written. | triggerHeaderValue 计算 HX-Trigger 的取值；第二个返回值表示是否需要写出该头。
@@ -110,6 +110,9 @@ func ReplaceURL(w http.ResponseWriter, url string) { w.Header().Set(headerReplac
 func Redirect(w http.ResponseWriter, url string) { w.Header().Set(headerRedirect, url) }
 
 // Location describes the contents of HX-Location, i.e. an AJAX navigation that does not reload the whole page. | Location 描述 HX-Location 的内容，即一次不刷新整页的 AJAX 跳转。
+//
+// betteralign: skip —— the field order is deliberately kept, because it is the JSON key order of the HX-Location value and TestLocationHeaderBarePathAndJSON pins that exact order. | betteralign: skip —— 字段顺序有意保持不变：它就是 HX-Location 取值的 JSON 键序，TestLocationHeaderBarePathAndJSON 正是对该顺序做了断言。
+// Applying the suggestion would move Path/Target/Swap/Select behind Headers and break that contract, so this struct stays out of the reordering pass. | 采纳建议会把 Path/Target/Swap/Select 移到 Headers 之后并破坏该约定，因此这个结构体不参与本次重排。
 type Location struct {
 	// Path is the target URL. | Path 是目标 URL。
 	Path string `json:"path,omitempty"`

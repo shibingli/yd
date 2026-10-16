@@ -30,9 +30,9 @@ type Handler func(context.Context, Payload) error
 // NewServer. It is safe for concurrent use: reads take the read lock, Register takes the | 它可安全并发使用：读取取读锁，Register 取写锁。
 // write lock.
 type Registry struct {
-	mu       sync.RWMutex
-	handlers map[string]Handler
 	err      error
+	handlers map[string]Handler
+	mu       sync.RWMutex
 }
 
 // NewRegistry returns an empty registry. | NewRegistry 返回空注册表。
@@ -119,12 +119,12 @@ type TaskContext struct {
 	Type string
 	// Queue is the queue the task was pulled from. | Queue 是任务被取出的队列。
 	Queue string
+	// TraceID is the trace id carried in the task headers; empty when the producer sent none. | TraceID 是任务头中携带的链路 id；生产端未提供时为空。
+	TraceID string
 	// RetryCount is the number of retries so far; 0 on the first run. | RetryCount 是已重试次数；首次执行时为 0。
 	RetryCount int
 	// MaxRetry is the maximum number of retries configured for the task. | MaxRetry 是任务配置的最大重试次数。
 	MaxRetry int
-	// TraceID is the trace id carried in the task headers; empty when the producer sent none. | TraceID 是任务头中携带的链路 id；生产端未提供时为空。
-	TraceID string
 }
 
 // headerTraceID is the task header key that carries the trace id across process hops. | headerTraceID 是跨进程传递链路 id 的任务头键。

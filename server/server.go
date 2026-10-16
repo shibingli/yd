@@ -55,23 +55,24 @@ var (
 // header. | HTTP/1.1 与 h2c 共用 TCP 监听（Go 1.24+ 通过 http.Protocols 原生支持明文
 // HTTP/2，无需外部 h2c 包）；HTTP/3 运行在 QUIC（UDP）监听上，并通过 Alt-Svc 头对外通告。
 type Server struct {
-	opts   Options
+	ln     net.Listener
 	logger *logx.Logger
 
-	mu      sync.Mutex
-	started bool
-
-	ln      net.Listener
 	httpSrv *http.Server
 	h3Srv   *http3.Server
 	acme    *acmeManager
 
-	tcpPort int
-	h3Port  int
-	altSvc  string
-
 	serveErr chan error
 	done     chan struct{}
+	altSvc   string
+
+	opts Options
+
+	tcpPort int
+	h3Port  int
+
+	mu      sync.Mutex
+	started bool
 }
 
 // New creates a Server from options. | New 依据参数创建服务器。

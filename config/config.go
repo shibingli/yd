@@ -74,6 +74,10 @@ var (
 
 // Options describes the input parameters of a single Load; the zero value uses the framework's conventional defaults. | Options 描述一次 Load 的输入参数，零值即采用框架约定默认。
 type Options struct {
+	// FS is the filesystem used to read config files and .env, defaulting to afero.NewOsFs(). | FS 是读取配置文件与 .env 的文件系统，默认为 afero.NewOsFs()。
+	FS afero.Fs
+	// Flags is the optional command-line flag set; passing nil to BindFlags falls back to this value. | Flags 是可选命令行标志集；BindFlags 传入 nil 时会回退到该值。
+	Flags *pflag.FlagSet
 	// Name is the config instance name, used only for diagnostics (e.g. watch error messages). | Name 是配置实例名称，仅用于诊断信息（例如监视错误提示）。
 	Name string
 	// ConfigDir is the config file search directory, defaulting to ".". | ConfigDir 是配置文件搜索目录，默认为 "."。
@@ -85,10 +89,6 @@ type Options struct {
 	EnvPrefix string
 	// EnvFile is the .env file path, defaulting to ".env". | EnvFile 是 .env 文件路径，默认为 ".env"。
 	EnvFile string
-	// FS is the filesystem used to read config files and .env, defaulting to afero.NewOsFs(). | FS 是读取配置文件与 .env 的文件系统，默认为 afero.NewOsFs()。
-	FS afero.Fs
-	// Flags is the optional command-line flag set; passing nil to BindFlags falls back to this value. | Flags 是可选命令行标志集；BindFlags 传入 nil 时会回退到该值。
-	Flags *pflag.FlagSet
 }
 
 // Config is the handle of the layered configuration engine. | Config 是分层配置引擎的句柄。
@@ -96,19 +96,20 @@ type Options struct {
 // It embeds *viper.Viper, so read APIs such as Get/GetInt/GetString/Set are directly available; | 内嵌 *viper.Viper，因此 Get/GetInt/GetString/Set 等读取 API 直接可用；
 // this type additionally provides command-line binding, file watching and strongly typed decoding. | 本类型额外提供命令行绑定、文件监视与强类型解码能力。
 type Config struct {
+	fs       afero.Fs
+	watchErr error
 	*viper.Viper
 
+	flags *pflag.FlagSet
+
 	name        string
-	fs          afero.Fs
-	flags       *pflag.FlagSet
 	configDir   string
 	configName  string
 	configType  string
 	configFile  string
 	configLocal string
 
-	watchMu  sync.RWMutex
-	watchErr error
+	watchMu sync.RWMutex
 }
 
 // Load builds a config instance in the order "defaults → .env → config files". | Load 按「默认值 → .env → 配置文件」的顺序构建配置实例。

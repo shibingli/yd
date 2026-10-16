@@ -206,6 +206,9 @@ func ModelFromFields(name string, fields []Field, o ModelOptions) (*Model, error
 // ModelOptions overrides the values derived when building a model from a field list;
 // every field means the same as its StructOptions counterpart.
 type ModelOptions struct {
+	// Timestamps 显式开关 CreatedAt / UpdatedAt 字段，nil 表示开启。
+	// Timestamps explicitly toggles the CreatedAt / UpdatedAt fields; nil means enabled.
+	Timestamps *bool
 	// Name 覆盖模型名（导出形式），为空时取 name 参数的导出形式。
 	// Name overrides the model name (exported form); when empty the exported form of the name argument is used.
 	Name string
@@ -215,9 +218,6 @@ type ModelOptions struct {
 	// Module 是业务模块名，用作 OpenAPI 的 @Tags。
 	// Module is the business module name used as the OpenAPI @Tags value.
 	Module string
-	// Timestamps 显式开关 CreatedAt / UpdatedAt 字段，nil 表示开启。
-	// Timestamps explicitly toggles the CreatedAt / UpdatedAt fields; nil means enabled.
-	Timestamps *bool
 }
 
 // ModelFromTable 读取数据库表的列元数据并推导模型。

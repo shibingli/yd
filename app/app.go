@@ -105,21 +105,23 @@ const (
 // New 构建一次；此后路由辅助方法、服务容器与关闭钩子均可安全并发使用，
 // 只有 Run 与 Close 之间不可并发调用。
 type App struct {
+	fs       afero.Fs
+	renderer router.Renderer
+
 	cfg      *config.Config
 	log      *logx.Logger
-	fs       afero.Fs
 	router   *router.Router
 	server   *server.Server
-	renderer router.Renderer
+	services map[string]any
 
 	configDir      string
 	layout         string
 	serverMutators []func(*server.Options)
 
+	hooks []shutdownHook
+
 	// mu guards services and hooks. | mu 保护 services 与 hooks。
-	mu       sync.Mutex
-	services map[string]any
-	hooks    []shutdownHook
+	mu sync.Mutex
 }
 
 // Option customizes an App while it is being wired. | Option 在装配过程中定制 App。

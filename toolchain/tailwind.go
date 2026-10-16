@@ -24,6 +24,8 @@ const DefaultCSSOutput = "web/static/css/yd.css"
 //
 // Resolution order, highest priority first: Bin, ConfigBin, EnvBin, the locally installed binary under LocalDir/.yd/tools, and finally PATH. | 解析顺序由高到低：Bin、ConfigBin、EnvBin、LocalDir/.yd/tools 下的本地安装、最后是 PATH。
 type ToolOptions struct {
+	// PathLookup resolves a bare command name; nil means exec.LookPath. | PathLookup 解析裸命令名；nil 表示 exec.LookPath。
+	PathLookup func(string) (string, error)
 	// Bin is the explicit --tailwind-bin flag value. | Bin 是 --tailwind-bin 标志的显式取值。
 	Bin string
 	// ConfigBin is the tailwind.bin configuration value. | ConfigBin 是配置项 tailwind.bin 的取值。
@@ -32,8 +34,6 @@ type ToolOptions struct {
 	EnvBin string
 	// LocalDir is the project root that hosts .yd/tools/tailwindcss[.exe]. | LocalDir 是承载 .yd/tools/tailwindcss[.exe] 的项目根目录。
 	LocalDir string
-	// PathLookup resolves a bare command name; nil means exec.LookPath. | PathLookup 解析裸命令名；nil 表示 exec.LookPath。
-	PathLookup func(string) (string, error)
 }
 
 // ResolveTailwind resolves the tailwindcss executable following the documented precedence chain. | ResolveTailwind 按文档化的优先级链解析 tailwindcss 可执行文件。
@@ -105,12 +105,12 @@ type CSSOptions struct {
 	Input string
 	// Output is the compiled stylesheet; empty means DefaultCSSOutput. | Output 是编译产物样式表；空表示 DefaultCSSOutput。
 	Output string
+	// Content lists extra scan paths; Tailwind v4 projects using @source may leave it empty. | Content 是额外扫描路径；使用 @source 指令的 Tailwind v4 项目可留空。
+	Content []string
 	// Minify turns on CSS minification. | Minify 开启 CSS 压缩。
 	Minify bool
 	// Watch keeps the process alive in Tailwind watch mode. | Watch 让进程以 Tailwind watch 模式常驻。
 	Watch bool
-	// Content lists extra scan paths; Tailwind v4 projects using @source may leave it empty. | Content 是额外扫描路径；使用 @source 指令的 Tailwind v4 项目可留空。
-	Content []string
 }
 
 // Args returns the argv passed to the tailwindcss binary. | Args 返回传给 tailwindcss 二进制的 argv。

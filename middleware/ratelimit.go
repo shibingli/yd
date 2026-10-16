@@ -22,41 +22,41 @@ const defaultRateLimitCleanup = time.Minute
 // RateLimitOptions configures the token-bucket rate limiter.
 // | RateLimitOptions 配置令牌桶限流器。
 type RateLimitOptions struct {
+	// KeyFunc derives the bucket key; nil means the client IP from Ctx.RealIP. | KeyFunc 派生桶的键；nil 表示使用 Ctx.RealIP 得到的客户端地址。
+	KeyFunc func(*router.Ctx) string
+	// Logger, when non-nil, records every throttled request. | Logger 非 nil 时记录每一次被限流的请求。
+	Logger *logx.Logger
 	// Rate is the number of tokens replenished per second. | Rate 是每秒补充的令牌数。
 	Rate float64
 	// Burst is the bucket capacity, i.e. how many requests may pass at once. | Burst 是桶容量，即一次性允许通过的请求数。
 	Burst int
-	// KeyFunc derives the bucket key; nil means the client IP from Ctx.RealIP. | KeyFunc 派生桶的键；nil 表示使用 Ctx.RealIP 得到的客户端地址。
-	KeyFunc func(*router.Ctx) string
 	// CleanupInterval is the minimum delay between two lazy sweeps. | CleanupInterval 是两次惰性清理之间的最小间隔。
 	CleanupInterval time.Duration
-	// Logger, when non-nil, records every throttled request. | Logger 非 nil 时记录每一次被限流的请求。
-	Logger *logx.Logger
 }
 
 // rateLimiter holds the sharded token buckets. | rateLimiter 持有分片令牌桶。
 type rateLimiter struct {
+	keyFunc  func(*router.Ctx) string
+	logger   *logx.Logger
+	shards   [rateLimitShards]rateLimitShard
 	rate     float64
 	burst    float64
 	burstInt int
 	interval time.Duration
-	keyFunc  func(*router.Ctx) string
-	logger   *logx.Logger
-	shards   [rateLimitShards]rateLimitShard
 	mask     uint32
 }
 
 // rateLimitShard is one independently locked shard. | rateLimitShard 是一个独立加锁的分片。
 type rateLimitShard struct {
-	mu        sync.Mutex
-	buckets   map[string]*tokenBucket
 	lastSweep time.Time
+	buckets   map[string]*tokenBucket
+	mu        sync.Mutex
 }
 
 // tokenBucket is a single client's bucket state. | tokenBucket 是单个客户端的桶状态。
 type tokenBucket struct {
-	tokens float64
 	last   time.Time
+	tokens float64
 }
 
 // newRateLimiter normalizes o into a usable limiter. | newRateLimiter 把 o 归一化为可用的限流器。

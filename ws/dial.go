@@ -19,6 +19,8 @@ import (
 type DialOptions struct {
 	// Headers are extra request headers. | Headers 为附加请求头。
 	Headers http.Header
+	// TLSConfig is the TLS configuration used for wss. | TLSConfig 为 wss 场景的 TLS 配置。
+	TLSConfig *tls.Config
 	// Subprotocols are the subprotocols the client wants. | Subprotocols 为客户端期望的子协议。
 	Subprotocols []string
 	// HandshakeTimeout is the connect and handshake timeout, 10s by default. | HandshakeTimeout 为建连与握手超时，默认 10s。
@@ -27,8 +29,6 @@ type DialOptions struct {
 	ReadBufferSize int
 	// MaxMessageSize is the per-message limit, 32MB by default. | MaxMessageSize 为单条消息上限，默认 32MB。
 	MaxMessageSize int64
-	// TLSConfig is the TLS configuration used for wss. | TLSConfig 为 wss 场景的 TLS 配置。
-	TLSConfig *tls.Config
 }
 
 // Dial initiates a WebSocket handshake as a client and returns the connection. | Dial 作为客户端发起 WebSocket 握手并返回连接。

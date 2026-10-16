@@ -105,13 +105,13 @@
       {
         "name": "framework-encryptraw",
         "plainHex": "67756f6d692e456e6372797074526177207c20e6a186e69eb6e58e9fe5a78be5af86e69687",
-        "cipherHex": "90fe3fd1dd78ebd34c8eb1ca88cc75c62d68af72223bcc77838013e62855c4b483823c624dfa8aa0b005887838deb2ac74dca84ccaffc8e4b47ad64f9e1a599ef39bb5ef54fb7fd31e585d3f9d13c708b991fce1ec98fc8cf325884b3bc4b75cf8ad6bedce388a708542fac1d48c2efd79ca701e40892c52dbb218435b03180a924f02d2b8",
+        "cipherHex": "d2cd7ca93c02addaf08e62856b59ae375fc36a39e5ee0e01d1af3676925da88c5a0778efdb9be1fb8e01d348a186dd1201f0ed081932875e3a6a880d05bc1cc41db339a142559ba11822c5435ad36bfdd012696fcb7c21ea99ef267673cfdab8767d03c0072d451223f4dd6b641cc48ccfb1bbdfde453972781b28b199a06147d50a6d47a6",
         "layout": "C1=x1||y1 64B(no 0x04) | C3=SM3(x2||msg||y2) 32B | C2=msg xor KDF(x2||y2) len(msg) | C1=x1||y1 共 64 字节（无 0x04） | C3=SM3(x2||msg||y2) 32 字节 | C2=明文异或 KDF(x2||y2)，长度与明文一致"
       },
       {
         "name": "framework-encryptraw-empty",
         "plainHex": "",
-        "cipherHex": "a1765fff9c3cb76cf71f95fdb93848c7f350e567f9a6e14556795a865bbbad52a37df22be13daa67c82de4bda61b7c0b6df86206f96b13b1e27bf0d2d08a9b63bf9d0ab6d277b1231bc27625682cbbea121f2759f42ccd94820df0e8dde96665",
+        "cipherHex": "e37dab7d71c6521e9f8cea29e2aa85666884db660a87621fad963346031e9d2f7744e5df3a73c9528f9621a74c380371703e815a7f4dade33d59a91303dda2eb37004ae32bfadd6c4d27d44cdad953adc04224053a5511f9d24224f2039aea9a",
         "layout": "C1=x1||y1 64B(no 0x04) | C3=SM3(x2||msg||y2) 32B | C2=msg xor KDF(x2||y2) len(msg) | C1=x1||y1 共 64 字节（无 0x04） | C3=SM3(x2||msg||y2) 32 字节 | C2=明文异或 KDF(x2||y2)，长度与明文一致"
       }
     ],
@@ -126,13 +126,13 @@
       {
         "name": "framework-Sign",
         "dataHex": "79642073616e64626f78207369676e6174757265207c20e6b299e7aeb1e7adbee5908d",
-        "signatureHex": "30450221008f1f53fb914ff55d78d1aba37c47ff1b1dcfbef79f7fa1b817fe29510df9cc7e0220697c03373fcc0ad0499eadf431f9460cfb85cb9166b77df7b59d8c4c4b3f4bf0",
+        "signatureHex": "3045022100895a19c96b715945b57ce0991bf818f21adc36da0ed9d46a27f263a266eb290102203cd3a6954467b8b422f9adc1bf05c69f24bd0ed4e3d6bae19208b2a58c6da81f",
         "algorithm": "SM3(ZA||data) with uid 1234567812345678, DER SEQUENCE{INTEGER r, INTEGER s} | SM3(ZA||data)，用户标识 1234567812345678，DER SEQUENCE{INTEGER r, INTEGER s}"
       },
       {
         "name": "framework-Sign-empty",
         "dataHex": "",
-        "signatureHex": "3045022100db8c368ec9a4aefe070a06bb74d8124e5001778d79cb68074356e1b4ff39c663022003f53ec586a1488b44c0b30ac119180af4086090e2265e7c8ed83094668f0a19",
+        "signatureHex": "3045022100e7bbf747bbbda7de4bccb27839f468b96315b6d0c4c22cee9f594bfb3630b3b402202e328320dedd911d470f0da102a5601835f22606c0ca02cb21ee7db942d2a03a",
         "algorithm": "SM3(ZA||data) with uid 1234567812345678, DER SEQUENCE{INTEGER r, INTEGER s} | SM3(ZA||data)，用户标识 1234567812345678，DER SEQUENCE{INTEGER r, INTEGER s}"
       }
     ]

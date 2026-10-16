@@ -7,6 +7,7 @@ import (
 // tmplView 是渲染一个模块全部生成物时共享的视图数据。
 // tmplView is the shared view data for rendering every artifact of one module.
 type tmplView struct {
+
 	// Marker 是生成标记，写在每个生成物首行。
 	// Marker is the generated-file marker written on the first line of every artifact.
 	Marker string
@@ -35,6 +36,26 @@ type tmplView struct {
 	// Event is the htmx event fired after a module change, for example post:changed.
 	Event string
 
+	// SearchArgs 是搜索 SQL 中与 SearchColumns 对应的参数占位文本。
+	// SearchArgs is the placeholder text matching SearchColumns in the search SQL.
+	SearchArgs string
+	// SearchWhere 是搜索用的 SQL 条件文本。
+	// SearchWhere is the SQL condition text used for searching.
+	SearchWhere string
+
+	// PkgModel 是模型包的导入路径。
+	// PkgModel is the import path of the model package.
+	PkgModel string
+	// PkgRepo 是仓储包的导入路径。
+	// PkgRepo is the import path of the repository package.
+	PkgRepo string
+	// PkgService 是服务包的导入路径。
+	// PkgService is the import path of the service package.
+	PkgService string
+	// PkgController 是控制器包的导入路径。
+	// PkgController is the import path of the controller package.
+	PkgController string
+
 	// Fields 是模型字段（不含自动补写的时间戳字段）。
 	// Fields are the model fields (without the automatically added timestamp fields).
 	Fields []Field
@@ -50,21 +71,16 @@ type tmplView struct {
 	// TimeFields 是需要补写的时间戳字段。
 	// TimeFields are the timestamp fields that must be added.
 	TimeFields []Field
-	// HasFile 报告表单是否含文件字段，决定表单是否需要 multipart 编码。
-	// HasFile reports whether the form carries a file field and therefore needs multipart encoding.
-	HasFile bool
 	// SearchColumns 是可搜索的字符串列名。
 	// SearchColumns are the searchable string column names.
 	SearchColumns []string
-	// SearchArgs 是搜索 SQL 中与 SearchColumns 对应的参数占位文本。
-	// SearchArgs is the placeholder text matching SearchColumns in the search SQL.
-	SearchArgs string
-	// SearchWhere 是搜索用的 SQL 条件文本。
-	// SearchWhere is the SQL condition text used for searching.
-	SearchWhere string
 	// Primary 是主键字段。
 	// Primary is the primary key field.
 	Primary Field
+
+	// HasFile 报告表单是否含文件字段，决定表单是否需要 multipart 编码。
+	// HasFile reports whether the form carries a file field and therefore needs multipart encoding.
+	HasFile bool
 
 	// HasSearch 报告是否存在可搜索的字符串列。
 	// HasSearch reports whether the model has searchable string columns.
@@ -84,19 +100,6 @@ type tmplView struct {
 	// CtrlStrings 报告控制器层是否需要导入 strings 包（搜索或表单取值都要用到 TrimSpace）。
 	// CtrlStrings reports whether the controller layer needs to import the strings package (both search and form binding call TrimSpace).
 	CtrlStrings bool
-
-	// PkgModel 是模型包的导入路径。
-	// PkgModel is the import path of the model package.
-	PkgModel string
-	// PkgRepo 是仓储包的导入路径。
-	// PkgRepo is the import path of the repository package.
-	PkgRepo string
-	// PkgService 是服务包的导入路径。
-	// PkgService is the import path of the service package.
-	PkgService string
-	// PkgController 是控制器包的导入路径。
-	// PkgController is the import path of the controller package.
-	PkgController string
 }
 
 // moduleRef 记录一个已生成模块的注册信息，用于 routes_gen.go 的标记区块。
@@ -114,12 +117,12 @@ type moduleRef struct {
 // routesGenView is the data for rendering routes_gen.go and its marker block.
 type routesGenView struct {
 	*tmplView
-	// Modules 是按注册顺序排列的模块清单。
-	// Modules is the module list in registration order.
-	Modules []moduleRef
 	// Block 是已渲染好的标记区块文本，仅在整文件渲染时使用。
 	// Block is the already rendered marker block, used only when rendering the whole file.
 	Block string
+	// Modules 是按注册顺序排列的模块清单。
+	// Modules is the module list in registration order.
+	Modules []moduleRef
 }
 
 // 时间戳字段的固定形态，用于判断模型是否已有创建/更新时间列。

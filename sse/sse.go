@@ -48,12 +48,12 @@ type Event struct {
 	ID string
 	// Name corresponds to the `event:` field, i.e. the event type; empty means the default message event. | Name 对应 `event:` 字段，即事件类型；为空表示默认的 message 事件。
 	Name string
+	// Comment is a comment line (`: `); clients ignore its content, and it is commonly used for heartbeat keep-alive and debugging. | Comment 是注释行（`: `），客户端会忽略其内容，常用于心跳保活与调试。
+	Comment string
 	// Data corresponds to the `data:` field and may contain newlines (CR / CRLF / LF are all split into lines). | Data 对应 `data:` 字段，可包含换行（CR / CRLF / LF 均按行拆分）。
 	Data []byte
 	// Retry corresponds to the `retry:` field, i.e. the client reconnect interval; when >0 it is written in milliseconds. | Retry 对应 `retry:` 字段，即客户端重连间隔；>0 时以毫秒为单位输出。
 	Retry time.Duration
-	// Comment is a comment line (`: `); clients ignore its content, and it is commonly used for heartbeat keep-alive and debugging. | Comment 是注释行（`: `），客户端会忽略其内容，常用于心跳保活与调试。
-	Comment string
 }
 
 // Options holds the behavior parameters of Writer and Handler. | Options 是 Writer 与 Handler 的行为参数。
@@ -74,15 +74,16 @@ type Options struct {
 type Writer struct {
 	w       io.Writer
 	flusher http.Flusher
-	options Options
-	buf     []byte
-
-	mu     sync.Mutex
-	closed bool
-
-	hbMu    sync.Mutex
 	stop    chan struct{}
 	stopped chan struct{}
+	buf     []byte
+
+	options Options
+
+	mu sync.Mutex
+
+	hbMu   sync.Mutex
+	closed bool
 }
 
 // NewWriter establishes an event stream: it sets the SSE response headers and checks the Flusher capability. | NewWriter 建立一条事件流：设置 SSE 响应头并校验 Flusher 能力。

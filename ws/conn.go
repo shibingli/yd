@@ -22,36 +22,41 @@ import (
 // net.Conn directly by default (no bufio layer), and the slice returned by ReadMessage points into the connection's internal reuse buffer; | net.Conn（无 bufio 中间层），ReadMessage 返回的切片指向连接内部复用缓冲；
 // that slice is valid **until the next read operation**; copy it yourself if you need to hold it longer. | 该切片在**下一次读操作前**有效，需要长期持有请自行复制。
 type Conn struct {
-	conn     net.Conn
-	br       *bufio.Reader // non-nil only when ReadBufferSize > 0 | 仅在 ReadBufferSize > 0 时非空
-	opts     Options
-	isClient bool
+	conn net.Conn
 
-	readBuf   []byte
-	maskBuf   []byte
-	headerBuf [maxHeaderSize]byte
-
-	msgOp       OpCode // type of the current fragmented message; 0 means no message in progress | 当前分片消息的类型，0 表示无进行中消息
-	msgLen      int64  // bytes accumulated for the current message | 当前消息已累积字节数
-	frameLen    int64  // total payload length of the current frame | 当前帧载荷总长度
-	frameRemain int64  // bytes of the current frame still unread | 当前帧剩余未读字节
-	frameFin    bool
-	maskKey     [4]byte
-	frameMasked bool
-	utf8        utf8State
-
-	readErr       error
-	closeSent     bool
-	closeReceived bool
-	closeMu       sync.Mutex
-
-	writeMu sync.Mutex
+	readErr error
+	br      *bufio.Reader // non-nil only when ReadBufferSize > 0 | 仅在 ReadBufferSize > 0 时非空
 
 	pingHandler  func(string) error
 	pongHandler  func(string) error
 	closeHandler func(CloseCode, string) error
 
 	subprotocol string
+
+	readBuf []byte
+	maskBuf []byte
+
+	opts Options
+
+	utf8 utf8State
+
+	msgLen      int64 // bytes accumulated for the current message | 当前消息已累积字节数
+	frameLen    int64 // total payload length of the current frame | 当前帧载荷总长度
+	frameRemain int64 // bytes of the current frame still unread | 当前帧剩余未读字节
+	closeMu     sync.Mutex
+
+	writeMu sync.Mutex
+
+	headerBuf [maxHeaderSize]byte
+
+	maskKey  [4]byte
+	isClient bool
+
+	msgOp         OpCode // type of the current fragmented message; 0 means no message in progress | 当前分片消息的类型，0 表示无进行中消息
+	frameFin      bool
+	frameMasked   bool
+	closeSent     bool
+	closeReceived bool
 }
 
 // newConn constructs the connection object. | newConn 构造连接对象。
@@ -145,8 +150,8 @@ func (c *Conn) ReadMessage() (OpCode, []byte, error) {
 // MessageReader streams one message; control frames (ping/pong/close) are handled automatically underneath. | MessageReader 流式读取一条消息；控件帧（ping/pong/close）在底层自动处理。
 type MessageReader struct {
 	c         *Conn
-	op        OpCode
 	remaining int64
+	op        OpCode
 	done      bool
 }
 

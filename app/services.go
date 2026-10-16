@@ -34,8 +34,8 @@ const serviceHookPrefix = "service:"
 // shutdownHook is one shutdown task: a name for diagnostics plus its function.
 // | shutdownHook 是一项关闭任务：一个用于诊断的名称与执行函数。
 type shutdownHook struct {
-	name string
 	fn   func(context.Context) error
+	name string
 }
 
 // Set stores a service under name. | Set 以 name 存放一个服务。

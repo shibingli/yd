@@ -13,12 +13,12 @@ import (
 type node struct {
 	seg      *Segment
 	static   map[string]*node
-	mixed    []*node
 	param    *node
 	wildcard *node
 
 	handlers map[string]any
 	pattern  string
+	mixed    []*node
 }
 
 func newNode(seg *Segment) *node { return &node{seg: seg} }

@@ -46,6 +46,12 @@ type Annotation struct {
 	Summary string
 	// Description joins multiple @Description lines with a newline. | Description 以换行连接多行 @Description。
 	Description string
+	// RouterPath is the template path of @Router, for example /users/{id}. | RouterPath 为 @Router 的模板路径，例如 /users/{id}。
+	RouterPath string
+	// RouterMethod is the upper cased HTTP method of @Router. | RouterMethod 为 @Router 的大写 HTTP 方法。
+	RouterMethod string
+	// Pos is the "file:line" of the block, used for diagnostics. | Pos 为注解块的 "文件:行号"，用于诊断。
+	Pos string
 	// Tags lists the @Tags values. | Tags 列出 @Tags 取值。
 	Tags []string
 	// Accept lists the @Accept media tokens, for example json. | Accept 列出 @Accept 媒体标记，例如 json。
@@ -60,38 +66,35 @@ type Annotation struct {
 	Failure []AnnotationResponse
 	// Security lists the @Security scheme names. | Security 列出 @Security 方案名。
 	Security []string
-	// RouterPath is the template path of @Router, for example /users/{id}. | RouterPath 为 @Router 的模板路径，例如 /users/{id}。
-	RouterPath string
-	// RouterMethod is the upper cased HTTP method of @Router. | RouterMethod 为 @Router 的大写 HTTP 方法。
-	RouterMethod string
-	// Pos is the "file:line" of the block, used for diagnostics. | Pos 为注解块的 "文件:行号"，用于诊断。
-	Pos string
 }
 
 // AnnotationParam is one @Param declaration. | AnnotationParam 是一条 @Param 声明。
 type AnnotationParam struct {
+	// Schema is the derived schema; body parameters produce a component reference. | Schema 为推导出的
+	// Schema；body 参数会生成组件引用。
+	Schema *Schema
 	// Name is the parameter name. | Name 为参数名。
 	Name string
 	// In is path, query, header, cookie or body. | In 取 path、query、header、cookie 或 body。
 	In string
 	// Type is the declared type token, for example string or model.User. | Type 为声明的类型标记，例如 string 或 model.User。
 	Type string
-	// Required reports the fourth @Param token. | Required 对应 @Param 的第四个标记。
-	Required bool
 	// Description is the quoted trailing text, kept verbatim. | Description 为引号包裹的尾部文本，原样保留。
 	Description string
 	// Example is the example bound by a following @Example line, kept verbatim. | Example 为紧随
 	// 其后的 @Example 行绑定的示例，原样保留。
 	Example string
-	// Schema is the derived schema; body parameters produce a component reference. | Schema 为推导出的
-	// Schema；body 参数会生成组件引用。
-	Schema *Schema
+	// Required reports the fourth @Param token. | Required 对应 @Param 的第四个标记。
+	Required bool
 }
 
 // AnnotationResponse is one @Success or @Failure declaration. | AnnotationResponse 是一条 @Success 或 @Failure 声明。
 type AnnotationResponse struct {
-	// Code is the status code, 0 for the default response. | Code 为状态码，0 表示默认响应。
-	Code int
+
+	// schema is the fully resolved schema of the response, including array shapes that
+	// Type and Ref cannot express. | schema 是响应完全解析后的 Schema，涵盖 Type 与 Ref
+	// 无法表达的数组成员类型。
+	schema *Schema
 	// Type is the declared type token. | Type 为声明的类型标记。
 	Type string
 	// Ref is the component reference derived from "{object} X" style annotations, empty
@@ -103,10 +106,8 @@ type AnnotationResponse struct {
 	// 其后的 @Example 行绑定的示例，原样保留。
 	Example string
 
-	// schema is the fully resolved schema of the response, including array shapes that
-	// Type and Ref cannot express. | schema 是响应完全解析后的 Schema，涵盖 Type 与 Ref
-	// 无法表达的数组成员类型。
-	schema *Schema
+	// Code is the status code, 0 for the default response. | Code 为状态码，0 表示默认响应。
+	Code int
 }
 
 // Report summarizes annotation coverage. | Report 汇总注解覆盖情况。

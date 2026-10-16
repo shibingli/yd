@@ -58,17 +58,17 @@ var (
 
 // Options configures an Engine. | Options 配置渲染引擎。
 type Options struct {
+	// Funcs are extra template functions, merged over the defaults. | Funcs 是额外的模板函数，会覆盖同名默认函数。
+	Funcs template.FuncMap
 	// Root is the directory scanned for templates; empty means "templates". | Root 是模板扫描目录，空表示 "templates"。
 	Root string
+	// LeftDelim and RightDelim override the default action delimiters. | LeftDelim 与 RightDelim 覆盖默认的动作分隔符。
+	LeftDelim  string
+	RightDelim string
 	// Exts lists the file extensions to parse; empty means [".html", ".gotmpl"]. | Exts 列出参与解析的扩展名，空表示 [".html", ".gotmpl"]。
 	Exts []string
 	// Dev disables caching so edits take effect immediately. | Dev 关闭缓存，使改动立即生效。
 	Dev bool
-	// Funcs are extra template functions, merged over the defaults. | Funcs 是额外的模板函数，会覆盖同名默认函数。
-	Funcs template.FuncMap
-	// LeftDelim and RightDelim override the default action delimiters. | LeftDelim 与 RightDelim 覆盖默认的动作分隔符。
-	LeftDelim  string
-	RightDelim string
 }
 
 func (o Options) normalize() Options {
@@ -87,17 +87,19 @@ func (o Options) normalize() Options {
 // It is safe for concurrent use. | 可安全并发使用。
 type Engine struct {
 	fsys afero.Fs
-	opts Options
-
-	mu    sync.RWMutex
-	tmpl  *template.Template
-	names []string
+	tmpl *template.Template
 
 	// source is the pristine parse result: it is never executed, so it can be
 	// cloned for every execution that needs its own template functions.
 	// | source 是未经执行的解析结果：它从不被执行，因此可为每次需要独立模板函数的
 	// 执行克隆一次。
 	source *template.Template
+
+	names []string
+
+	opts Options
+
+	mu sync.RWMutex
 }
 
 // New loads every template under the configured root. | New 加载配置根目录下的全部模板。

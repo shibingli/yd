@@ -191,10 +191,10 @@ var (
 
 // CloseError indicates that one side ended the connection with a close frame. | CloseError 表示对端或本端以关闭帧结束连接。
 type CloseError struct {
-	// Code is the close status code. | Code 为关闭状态码。
-	Code CloseCode
 	// Text is the close reason (UTF-8). | Text 为关闭原因（UTF-8）。
 	Text string
+	// Code is the close status code. | Code 为关闭状态码。
+	Code CloseCode
 }
 
 func (e *CloseError) Error() string {
@@ -206,6 +206,10 @@ func (e *CloseError) Error() string {
 
 // Options holds the server-side upgrade parameters. | Options 是服务端升级参数。
 type Options struct {
+	// CheckOrigin validates the Origin; when nil, the same-origin policy is used. | CheckOrigin 校验 Origin；为 nil 时使用同源策略。
+	CheckOrigin func(*http.Request) bool
+	// Subprotocols are the subprotocols the server supports, chosen by order of priority. | Subprotocols 为服务端支持的子协议，按顺序优先级选择。
+	Subprotocols []string
 	// ReadBufferSize is the read buffer size; <=0 means 4096. | ReadBufferSize 为读缓冲大小，<=0 时取 4096。
 	ReadBufferSize int
 	// WriteBufferSize is the write buffer size; <=0 means 4096. | WriteBufferSize 为写缓冲大小，<=0 时取 4096。
@@ -214,10 +218,6 @@ type Options struct {
 	HandshakeTimeout time.Duration
 	// MaxMessageSize is the per-message limit; <=0 means 32MB. | MaxMessageSize 为单条消息上限，<=0 时取 32MB。
 	MaxMessageSize int64
-	// Subprotocols are the subprotocols the server supports, chosen by order of priority. | Subprotocols 为服务端支持的子协议，按顺序优先级选择。
-	Subprotocols []string
-	// CheckOrigin validates the Origin; when nil, the same-origin policy is used. | CheckOrigin 校验 Origin；为 nil 时使用同源策略。
-	CheckOrigin func(*http.Request) bool
 	// DisableCompression is a reserved field: this implementation does not enable permessage-deflate. | DisableCompression 保留字段：本实现未启用 permessage-deflate。
 	DisableCompression bool
 }

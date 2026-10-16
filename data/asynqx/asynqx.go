@@ -79,6 +79,18 @@ const defaultRetention = 24 * time.Hour
 // falls back to consuming only the default queue, ShutdownTimeout falls back to asynq's | ShutdownTimeout 回落到 asynq 默认值，
 // default, and a nil RetryDelayFunc keeps asynq's own retry policy. | RetryDelayFunc 为 nil 时沿用 asynq 自身的重试策略。
 type Options struct {
+
+	// err records a problem found while the options were built from config (OptionsFromConfig), | err 记录从配置构建选项时发现的问题（OptionsFromConfig）；
+	// which cannot return an error without changing its signature; Err surfaces it and it | 该函数在不改变签名的前提下无法返回错误；Err 暴露它，
+	// blocks NewClient and Server.Start. | 并阻断 NewClient 与 Server.Start。
+	err error
+	// Queues maps a queue name to its weight, for example {"critical":3,"default":2,"low":1}; | Queues 是队列名到权重的映射，例如 {"critical":3,"default":2,"low":1}；
+	// an empty map means the server consumes only the default queue. | 空表表示只消费 default 队列。
+	Queues map[string]int
+	// RetryDelayFunc computes the delay before the retryCount-th retry; nil keeps asynq's | RetryDelayFunc 计算第 retryCount 次重试前的延迟；nil 表示沿用 asynq 自身策略，
+	// own policy, and ExponentialBackoff builds one. | ExponentialBackoff 可构造一个。
+	RetryDelayFunc func(retryCount int, err error, task *asynq.Task) time.Duration
+
 	// RedisAddr is the address of the task broker, "host:port"; it is used when the | RedisAddr 是任务中间件的地址，"host:port"；
 	// asynq.RedisClientOpt handed to NewClient / NewServer carries no address. | 当传给 NewClient / NewServer 的 asynq.RedisClientOpt 未带地址时使用它。
 	RedisAddr string
@@ -88,23 +100,12 @@ type Options struct {
 	RedisDB int
 	// Concurrency is the number of tasks processed in parallel; <=0 follows the CPU count. | Concurrency 是并行处理的任务数；<=0 时取 CPU 核数。
 	Concurrency int
-	// Queues maps a queue name to its weight, for example {"critical":3,"default":2,"low":1}; | Queues 是队列名到权重的映射，例如 {"critical":3,"default":2,"low":1}；
-	// an empty map means the server consumes only the default queue. | 空表表示只消费 default 队列。
-	Queues map[string]int
-	// StrictPriority makes the server drain a higher-weight queue before touching a lower one; | StrictPriority 让服务端先清空高权重队列再处理低权重队列；
-	// false makes the weight a sampling ratio that avoids starving low-weight queues. | false 时权重退化为采样比例，低权重队列不会被饿死。
-	StrictPriority bool
 	// ShutdownTimeout bounds how long Shutdown waits for in-flight handlers; <=0 uses the | ShutdownTimeout 限制 Shutdown 等待在途处理器的时长；<=0 时使用 asynq 默认值。
 	// asynq default.
 	ShutdownTimeout time.Duration
-	// RetryDelayFunc computes the delay before the retryCount-th retry; nil keeps asynq's | RetryDelayFunc 计算第 retryCount 次重试前的延迟；nil 表示沿用 asynq 自身策略，
-	// own policy, and ExponentialBackoff builds one. | ExponentialBackoff 可构造一个。
-	RetryDelayFunc func(retryCount int, err error, task *asynq.Task) time.Duration
-
-	// err records a problem found while the options were built from config (OptionsFromConfig), | err 记录从配置构建选项时发现的问题（OptionsFromConfig）；
-	// which cannot return an error without changing its signature; Err surfaces it and it | 该函数在不改变签名的前提下无法返回错误；Err 暴露它，
-	// blocks NewClient and Server.Start. | 并阻断 NewClient 与 Server.Start。
-	err error
+	// StrictPriority makes the server drain a higher-weight queue before touching a lower one; | StrictPriority 让服务端先清空高权重队列再处理低权重队列；
+	// false makes the weight a sampling ratio that avoids starving low-weight queues. | false 时权重退化为采样比例，低权重队列不会被饿死。
+	StrictPriority bool
 }
 
 // Err returns the latent error recorded while the options were built; nil when they are usable. | Err 返回构建选项时记录的潜在错误；选项可用时为 nil。
@@ -204,13 +205,15 @@ func (c *Client) Close() error {
 
 // Server consumes tasks and dispatches them to a Registry. | Server 消费任务并分发给 Registry。
 type Server struct {
-	reg *Registry
 	rc  asynq.RedisClientOpt
-	opt Options
+	reg *Registry
 	log *logx.Logger
 
+	srv *asynq.Server
+
+	opt Options
+
 	mu      sync.Mutex
-	srv     *asynq.Server
 	started bool
 }
 

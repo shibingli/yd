@@ -55,6 +55,14 @@ type ExecCommandFunc func(ctx context.Context, name string, args ...string) *exe
 
 // Options configures one image build. | Options 配置一次镜像构建。
 type Options struct {
+	// BuildArgs are passed as --build-arg in sorted key order, so the argv stays deterministic. | BuildArgs 按键排序后以 --build-arg 传入，保证 argv 稳定可复现。
+	BuildArgs map[string]string
+	// PrepareAssets overrides the asset stage; nil means build.BuildTailwind, which
+	// is silently skipped when the project has no Tailwind stylesheet. | PrepareAssets 覆盖资产阶段；
+	// 为 nil 表示使用 build.BuildTailwind，项目没有 Tailwind 样式表时会静默跳过。
+	PrepareAssets func(ctx context.Context, dir string, log *logx.Logger) error
+	// ExecCommand overrides the external command constructor; nil means exec.CommandContext. | ExecCommand 覆盖外部命令构造器；为 nil 表示 exec.CommandContext。
+	ExecCommand ExecCommandFunc
 	// Dir is the project directory and the docker build context; empty means the current directory. | Dir 是项目目录与 docker 构建上下文；为空表示当前目录。
 	Dir string
 	// Dockerfile is the recipe path relative to Dir (or absolute); empty means Dockerfile. | Dockerfile 是相对 Dir（或绝对）的配方路径；为空表示 Dockerfile。
@@ -63,26 +71,18 @@ type Options struct {
 	Tag string
 	// Platform is the target platform passed to --platform, e.g. linux/amd64. | Platform 是传给 --platform 的目标平台，例如 linux/amd64。
 	Platform string
-	// NoCache disables the docker build cache. | NoCache 关闭 docker 构建缓存。
-	NoCache bool
-	// BuildArgs are passed as --build-arg in sorted key order, so the argv stays deterministic. | BuildArgs 按键排序后以 --build-arg 传入，保证 argv 稳定可复现。
-	BuildArgs map[string]string
 	// Target selects a build stage through --target. | Target 通过 --target 选择构建阶段。
 	Target string
-	// Push asks the builder to push the result (--push). | Push 要求构建器推送结果（--push）。
-	Push bool
 	// DockerBin overrides the docker CLI; empty means docker. | DockerBin 覆盖 docker CLI；为空表示 docker。
 	DockerBin string
+	// NoCache disables the docker build cache. | NoCache 关闭 docker 构建缓存。
+	NoCache bool
+	// Push asks the builder to push the result (--push). | Push 要求构建器推送结果（--push）。
+	Push bool
 	// WithAssets refreshes the embedded stylesheet before building, so that the
 	// go:embed assets baked into the image are never stale. | WithAssets 在构建前刷新内嵌样式表，
 	// 保证烘进镜像的 go:embed 资产不过期。
 	WithAssets bool
-	// PrepareAssets overrides the asset stage; nil means build.BuildTailwind, which
-	// is silently skipped when the project has no Tailwind stylesheet. | PrepareAssets 覆盖资产阶段；
-	// 为 nil 表示使用 build.BuildTailwind，项目没有 Tailwind 样式表时会静默跳过。
-	PrepareAssets func(ctx context.Context, dir string, log *logx.Logger) error
-	// ExecCommand overrides the external command constructor; nil means exec.CommandContext. | ExecCommand 覆盖外部命令构造器；为 nil 表示 exec.CommandContext。
-	ExecCommand ExecCommandFunc
 }
 
 // Result reports one finished image build. | Result 报告一次已完成的镜像构建。

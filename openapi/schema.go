@@ -13,34 +13,34 @@ const refPrefix = "#/components/schemas/"
 
 // Schema is the subset of JSON Schema used by this package. | Schema 是本包使用的 JSON Schema 子集。
 type Schema struct {
-	// Type is the JSON type. | Type 为 JSON 类型。
-	Type string `json:"type,omitempty"`
-	// Format refines the type, for example int64 or date-time. | Format 细化类型，例如 int64 或 date-time。
-	Format string `json:"format,omitempty"`
-	// Ref is serialized as $ref; when it is set the other fields stay empty. | Ref 序列化为 $ref；当其非空时其余字段保持为空。
-	Ref string `json:"$ref,omitempty"`
+	// Example is a sample value, filled by @Example annotations. | Example 为示例值，由 @Example 注解填充。
+	Example any `json:"example,omitempty"`
 	// Properties describes object members. | Properties 描述对象成员。
 	Properties map[string]*Schema `json:"properties,omitempty"`
 	// Items describes array elements. | Items 描述数组元素。
 	Items *Schema `json:"items,omitempty"`
-	// Required lists mandatory object members, sorted. | Required 列出必填对象成员，已排序。
-	Required []string `json:"required,omitempty"`
-	// Enum lists the allowed values. | Enum 列出允许取值。
-	Enum []any `json:"enum,omitempty"`
-	// Example is a sample value, filled by @Example annotations. | Example 为示例值，由 @Example 注解填充。
-	Example any `json:"example,omitempty"`
-	// Description explains the schema, filled by @Description annotations or doc prose. | Description
-	// 说明 Schema 含义，由 @Description 注解或 doc 正文填充。
-	Description string `json:"description,omitempty"`
 	// Minimum is the inclusive lower bound of a numeric value, filled by @Minimum. | Minimum
 	// 为数字取值的闭下界，由 @Minimum 填充。
 	Minimum *float64 `json:"minimum,omitempty"`
 	// Maximum is the inclusive upper bound of a numeric value, filled by @Maximum. | Maximum
 	// 为数字取值的闭上界，由 @Maximum 填充。
 	Maximum *float64 `json:"maximum,omitempty"`
+	// Type is the JSON type. | Type 为 JSON 类型。
+	Type string `json:"type,omitempty"`
+	// Format refines the type, for example int64 or date-time. | Format 细化类型，例如 int64 或 date-time。
+	Format string `json:"format,omitempty"`
+	// Ref is serialized as $ref; when it is set the other fields stay empty. | Ref 序列化为 $ref；当其非空时其余字段保持为空。
+	Ref string `json:"$ref,omitempty"`
+	// Description explains the schema, filled by @Description annotations or doc prose. | Description
+	// 说明 Schema 含义，由 @Description 注解或 doc 正文填充。
+	Description string `json:"description,omitempty"`
 	// Pattern is the regular expression a string value must match, filled by @Pattern. | Pattern
 	// 为字符串取值必须匹配的正则表达式，由 @Pattern 填充。
 	Pattern string `json:"pattern,omitempty"`
+	// Required lists mandatory object members, sorted. | Required 列出必填对象成员，已排序。
+	Required []string `json:"required,omitempty"`
+	// Enum lists the allowed values. | Enum 列出允许取值。
+	Enum []any `json:"enum,omitempty"`
 	// Nullable allows an explicit null, filled by @Nullable. | Nullable 允许显式 null，由 @Nullable 填充。
 	Nullable bool `json:"nullable,omitempty"`
 	// Deprecated marks the value as deprecated, filled by @Deprecated. | Deprecated 标记取值已废弃，由 @Deprecated 填充。
@@ -56,13 +56,13 @@ type Schema struct {
 type Builder struct {
 	doc  *Document
 	keys map[string]routeRef
-	// registered lists the names passed to RegisterSchema, in call order. | registered 按调用顺序
-	// 记录传给 RegisterSchema 的名字。
-	registered []string
 	// annotated records the names that received type annotations. | annotated 记录收到类型注解的名字。
 	annotated map[string]bool
 	// enums records the names of the enum schemas merged into the document. | enums 记录合并进文档的枚举 Schema 名。
 	enums map[string]bool
+	// registered lists the names passed to RegisterSchema, in call order. | registered 按调用顺序
+	// 记录传给 RegisterSchema 的名字。
+	registered []string
 }
 
 // routeRef locates a registered operation inside the document. | routeRef 定位文档中已注册的操作。

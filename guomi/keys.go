@@ -33,17 +33,17 @@ type algorithmIdentifier struct {
 
 // pkcs8PrivateKey is the minimal PKCS#8 PrivateKeyInfo structure of RFC 5208. | pkcs8PrivateKey 是 PKCS#8 PrivateKeyInfo 的最小结构（RFC 5208）。
 type pkcs8PrivateKey struct {
-	Version    int
 	Algorithm  algorithmIdentifier
 	PrivateKey []byte
+	Version    int
 }
 
 // ecPrivateKey is the SEC1 ECPrivateKey structure of RFC 5915. | ecPrivateKey 是 SEC1 ECPrivateKey 结构（RFC 5915）。
 type ecPrivateKey struct {
-	Version       int
 	PrivateKey    []byte
 	NamedCurveOID asn1.ObjectIdentifier `asn1:"optional,explicit,tag:0"`
 	PublicKey     asn1.BitString        `asn1:"optional,explicit,tag:1"`
+	Version       int
 }
 
 // subjectPublicKeyInfo is the X.509 SubjectPublicKeyInfo structure of RFC 5280. | subjectPublicKeyInfo 是 X.509 SubjectPublicKeyInfo 结构（RFC 5280）。

@@ -28,24 +28,24 @@ const defaultHTTPTimeout = 30 * time.Second
 type UpdateOptions struct {
 	// FS holds both the manifest and the assets; nil means the OS file system. | FS 承载清单与资产；为空表示操作系统文件系统。
 	FS afero.Fs
+	// HTTPClient performs the downloads; a client is required online, and offline mode hands out a
+	// tripwire when the caller supplies none. | HTTPClient 执行下载；在线模式需要客户端，离线模式下调用方
+	// 未提供客户端时会装入一个拦截器。
+	HTTPClient *http.Client
 	// ManifestPath is the lock file location; empty means DefaultManifestPath. | ManifestPath 是锁文件位置；为空表示 DefaultManifestPath。
 	ManifestPath string
 	// Root is the directory asset paths resolve against; empty means DefaultRoot. | Root 是资产路径解析所依据的目录；为空表示 DefaultRoot。
 	Root string
+	// Sources is the mirror chain for this call; empty falls back to Manifest.Sources, then DefaultSources. | Sources 是本次调用的镜像链；为空时回退到 Manifest.Sources，再回退到 DefaultSources。
+	Sources []string
+	// Concurrency is the download fan-out; 0 means DefaultConcurrency. | Concurrency 是下载并发度；0 表示 DefaultConcurrency。
+	Concurrency int
 	// Offline forbids every network access: only local files are inspected and nothing is written. | Offline 禁止一切网络访问：只检查本地文件，且不写入任何内容。
 	Offline bool
 	// CheckOnly reports what would change without writing a file or the manifest. | CheckOnly 只报告将要发生的变化，不写文件也不写清单。
 	CheckOnly bool
 	// Force re-locks an asset whose downloaded content no longer matches the recorded checksum. | Force 对下载内容与记录校验和不符的资产重新锁定。
 	Force bool
-	// Sources is the mirror chain for this call; empty falls back to Manifest.Sources, then DefaultSources. | Sources 是本次调用的镜像链；为空时回退到 Manifest.Sources，再回退到 DefaultSources。
-	Sources []string
-	// HTTPClient performs the downloads; a client is required online, and offline mode hands out a
-	// tripwire when the caller supplies none. | HTTPClient 执行下载；在线模式需要客户端，离线模式下调用方
-	// 未提供客户端时会装入一个拦截器。
-	HTTPClient *http.Client
-	// Concurrency is the download fan-out; 0 means DefaultConcurrency. | Concurrency 是下载并发度；0 表示 DefaultConcurrency。
-	Concurrency int
 }
 
 // UpdateReport summarizes one Update run. | UpdateReport 概述一次 Update 的结果。
@@ -80,14 +80,14 @@ const (
 
 // assetResult is one worker's outcome, kept in a per-index slot so no goroutine ever shares a value. | assetResult 是单个 worker 的结果，按索引独占存放，任何 goroutine 都不共享同一份数据。
 type assetResult struct {
-	// name is the asset name reported back to the caller. | name 是回报给调用方的资产名。
-	name string
-	// state is the outcome. | state 是结果状态。
-	state decision
 	// err is set only for stateFailed. | err 仅在 stateFailed 时非空。
 	err error
+	// name is the asset name reported back to the caller. | name 是回报给调用方的资产名。
+	name string
 	// sha256 and size are the values to write back into the lock. | sha256 与 size 是要回写进锁定的取值。
 	sha256 string
+	// state is the outcome. | state 是结果状态。
+	state decision
 	// size is the locked byte length. | size 是锁定的字节长度。
 	size int64
 }

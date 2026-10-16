@@ -48,11 +48,11 @@ var (
 // All mutable state sits behind a RWMutex, so hot reloading with Reload while requests keep translating is safe. | 全部可变状态由 RWMutex 保护，因此可以在请求持续翻译的同时用 Reload 热重载。
 type Bundle struct {
 	fsys        afero.Fs                  // Catalog filesystem. | 语言文件所在的文件系统。
+	catalogs    map[string]map[string]any // Normalized tag -> nested catalog. | 归一化标签 -> 嵌套目录。
 	dir         string                    // Catalog directory inside fsys. | fsys 内的语言目录。
 	defaultLang string                    // Fallback language tag. | 兜底语言标签。
-	mu          sync.RWMutex              // Guards the catalog map and the tag list below. | 保护下方的目录映射与标签列表。
-	catalogs    map[string]map[string]any // Normalized tag -> nested catalog. | 归一化标签 -> 嵌套目录。
 	langs       []string                  // Ascending tag list. | 升序排列的语言标签列表。
+	mu          sync.RWMutex              // Guards the catalog map and the tag list below. | 保护下方的目录映射与标签列表。
 }
 
 // New loads every catalog file under dir as one language. | New 加载 dir 下的所有语言文件，每个文件即一种语言。

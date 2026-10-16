@@ -18,18 +18,16 @@ const (
 
 // RouteInfo describes a registered route, used for OpenAPI documents and diagnostic output. | RouteInfo 描述一条已注册的路由，供 OpenAPI 文档与诊断输出使用。
 type RouteInfo struct {
+	// Handler is the final handler (without the middleware attached to the route group). | Handler 为最终处理器（不含该路由组挂载的中间件）。
+	Handler HandlerFunc
 	// Method is the HTTP method. | Method 为 HTTP 方法。
 	Method string
 	// Pattern is the original pattern as registered (including :param and *wildcard). | Pattern 为注册时的原始模式（含 :param、*wildcard）。
 	Pattern string
-	// Handler is the final handler (without the middleware attached to the route group). | Handler 为最终处理器（不含该路由组挂载的中间件）。
-	Handler HandlerFunc
 }
 
 // Options holds the router construction parameters. | Options 是路由器构造参数。
 type Options struct {
-	// MaxBodySize limits the request body size in bytes; <=0 means 32MB. | MaxBodySize 限制请求体大小（字节），<=0 时取 32MB。
-	MaxBodySize int64
 	// NotFound is a custom 404 handler. | NotFound 自定义 404 处理器。
 	NotFound HandlerFunc
 	// MethodNotAllowed is a custom 405 handler; when nil an empty response with an Allow header is written. | MethodNotAllowed 自定义 405 处理器；为 nil 时输出带 Allow 头的空响应。
@@ -37,21 +35,24 @@ type Options struct {
 	// PanicHandler is a custom panic handler; when nil the panic keeps propagating upward, | PanicHandler 自定义 panic 处理器；为 nil 时 panic 会继续向上抛出，
 	// leaving it to outer middleware such as middleware.Recover. | 交由 middleware.Recover 等外层中间件处理。
 	PanicHandler func(c *Ctx, recovered any)
+	// MaxBodySize limits the request body size in bytes; <=0 means 32MB. | MaxBodySize 限制请求体大小（字节），<=0 时取 32MB。
+	MaxBodySize int64
 	// AutoOptions, when true, automatically answers OPTIONS requests for registered paths (returning an Allow header). | AutoOptions 为 true 时，对已注册路径自动响应 OPTIONS 请求（返回 Allow 头）。
 	AutoOptions bool
 }
 
 // Router is an HTTP router based on the self-developed radix tree, implementing http.Handler. | Router 是基于自研基数树的 HTTP 路由，实现 http.Handler。
 type Router struct {
-	tree     *Tree
+	pool     sync.Pool
 	renderer Renderer
+	tree     *Tree
 	options  Options
 
-	mu       sync.RWMutex
 	routes   []RouteInfo
 	groups   []*Group
-	pool     sync.Pool
 	globalMW []Middleware
+
+	mu sync.RWMutex
 }
 
 // New creates a router. | New 创建一个路由器。

@@ -51,22 +51,30 @@ type CommandFunc func(ctx context.Context, name string, args ...string) *exec.Cm
 
 // ReloadEvent is the JSON payload pushed to the browser by the reload endpoint. | ReloadEvent 是热重载端点推送给浏览器的 JSON 负载。
 type ReloadEvent struct {
+	// At is when the change was observed. | At 是观测到变更的时间。
+	At time.Time `json:"at"`
 	// Path is the changed path relative to the project root. | Path 是相对项目根目录的变更路径。
 	Path string `json:"path"`
 	// Op is the merged change operation. | Op 是合并后的变更操作。
 	Op string `json:"op"`
 	// Kind is the change classification: go, config or web. | Kind 是变更分类：go、config 或 web。
 	Kind string `json:"kind"`
-	// At is when the change was observed. | At 是观测到变更的时间。
-	At time.Time `json:"at"`
 }
 
 // DevOptions configures a DevRunner; the zero value means the full dev experience with every default applied. | DevOptions 配置 DevRunner；零值即应用全部默认值的完整开发体验。
 type DevOptions struct {
+	// Out receives the child stdout and stderr; nil means os.Stdout. | Out 接收子进程 stdout 与 stderr；nil 表示 os.Stdout。
+	Out io.Writer
+	// Log is the logger; nil means logx.Default(). | Log 是日志器；nil 表示 logx.Default()。
+	Log *logx.Logger
+	// Build compiles the application; nil means the built-in go build. | Build 编译应用；nil 表示内置的 go build。
+	Build BuildFunc
+	// Command creates the child process; nil means ExecCommand. | Command 创建子进程；nil 表示 ExecCommand。
+	Command CommandFunc
+	// OnChildExit runs after a child has been reaped; nil means no callback. | OnChildExit 在子进程被回收后调用；nil 表示无回调。
+	OnChildExit func(pid int, err error)
 	// Dir is the project root; empty means the current directory. | Dir 是项目根目录；空表示当前目录。
 	Dir string
-	// Port is injected into the child as YD_SERVER_PORT; <=0 means no injection. | Port 以 YD_SERVER_PORT 注入子进程；<=0 表示不注入。
-	Port int
 	// Package is the go build target; empty means ".". | Package 是 go build 目标；空表示 "."。
 	Package string
 	// TailwindBin is the tailwindcss executable; empty means resolving through ResolveTailwind. | TailwindBin 是 tailwindcss 可执行文件；空表示走 ResolveTailwind 解析。
@@ -77,30 +85,22 @@ type DevOptions struct {
 	TailwindInput string
 	// TailwindOutput is the compiled stylesheet; empty means DefaultCSSOutput. | TailwindOutput 是编译产物样式表；空表示 DefaultCSSOutput。
 	TailwindOutput string
-	// NoTailwind disables the CSS build entirely (the --no-tailwind flag). | NoTailwind 完全关闭 CSS 构建（--no-tailwind 标志）。
-	NoTailwind bool
-	// NoWatch disables file watching: build and start the app once (the --no-watch flag). | NoWatch 关闭文件监听：只构建并启动一次应用（--no-watch 标志）。
-	NoWatch bool
-	// NoReload disables the dev-only reload endpoint (the --no-reload flag). | NoReload 关闭仅开发模式的热重载端点（--no-reload 标志）。
-	NoReload bool
-	// Debounce is the file event coalescing window; <=0 means DefaultDebounce. | Debounce 是文件事件抖动合并窗口；<=0 表示 DefaultDebounce。
-	Debounce time.Duration
 	// Roots are the watched roots; empty means []string{Dir}. | Roots 是监听根目录；空表示 []string{Dir}。
 	Roots []string
 	// Ignore adds directory names or paths on top of DefaultIgnoreDirs. | Ignore 在 DefaultIgnoreDirs 之上追加目录名或路径。
 	Ignore []string
 	// AppArgs are extra arguments passed to the child process. | AppArgs 是传给子进程的额外参数。
 	AppArgs []string
-	// Log is the logger; nil means logx.Default(). | Log 是日志器；nil 表示 logx.Default()。
-	Log *logx.Logger
-	// Out receives the child stdout and stderr; nil means os.Stdout. | Out 接收子进程 stdout 与 stderr；nil 表示 os.Stdout。
-	Out io.Writer
-	// Build compiles the application; nil means the built-in go build. | Build 编译应用；nil 表示内置的 go build。
-	Build BuildFunc
-	// Command creates the child process; nil means ExecCommand. | Command 创建子进程；nil 表示 ExecCommand。
-	Command CommandFunc
-	// OnChildExit runs after a child has been reaped; nil means no callback. | OnChildExit 在子进程被回收后调用；nil 表示无回调。
-	OnChildExit func(pid int, err error)
+	// Port is injected into the child as YD_SERVER_PORT; <=0 means no injection. | Port 以 YD_SERVER_PORT 注入子进程；<=0 表示不注入。
+	Port int
+	// Debounce is the file event coalescing window; <=0 means DefaultDebounce. | Debounce 是文件事件抖动合并窗口；<=0 表示 DefaultDebounce。
+	Debounce time.Duration
+	// NoTailwind disables the CSS build entirely (the --no-tailwind flag). | NoTailwind 完全关闭 CSS 构建（--no-tailwind 标志）。
+	NoTailwind bool
+	// NoWatch disables file watching: build and start the app once (the --no-watch flag). | NoWatch 关闭文件监听：只构建并启动一次应用（--no-watch 标志）。
+	NoWatch bool
+	// NoReload disables the dev-only reload endpoint (the --no-reload flag). | NoReload 关闭仅开发模式的热重载端点（--no-reload 标志）。
+	NoReload bool
 }
 
 // changeKind classifies a file change for the dev loop. | changeKind 为开发主循环分类文件变更。
@@ -128,21 +128,21 @@ type childProc struct {
 //
 // Run owns every goroutine it starts and terminates them before returning; the caller stops the loop by cancelling the context it passed in, which is the Ctrl+C equivalent. | Run 负责它启动的所有 goroutine，并在返回前终止它们；调用方通过取消传入的上下文来停止循环，这正是 Ctrl+C 的等价物。
 type DevRunner struct {
-	opts DevOptions
-	log  *logx.Logger
-	out  io.Writer
-	hub  *sse.Broker
+	out io.Writer
+	log *logx.Logger
+	hub *sse.Broker
 
 	done     chan struct{}
-	closeOne sync.Once
-
-	mu       sync.Mutex
-	running  bool
 	watcher  *Watcher
 	child    *childProc
 	bin      string
+	opts     DevOptions
 	starts   int
 	restarts int
+	closeOne sync.Once
+
+	mu      sync.Mutex
+	running bool
 }
 
 // NewDevRunner normalizes options and creates the runner. | NewDevRunner 归一化配置并创建运行器。

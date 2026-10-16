@@ -43,6 +43,15 @@ type ExecCommandFunc func(ctx context.Context, name string, args ...string) *exe
 
 // Options configures one packaging run. | Options 配置一次打包运行。
 type Options struct {
+	// TailwindFunc overrides the built-in Tailwind implementation; nil means
+	// BuildTailwind, and the CLI injects toolchain.BuildCSS here once it exists. | TailwindFunc 覆盖内置的
+	// Tailwind 实现；为 nil 表示使用 BuildTailwind，toolchain 包就绪后由命令行注入 toolchain.BuildCSS。
+	TailwindFunc TailwindFunc
+	// ExecCommand overrides the external command constructor; nil means
+	// exec.CommandContext. | ExecCommand 覆盖外部命令构造器；为 nil 表示 exec.CommandContext。
+	ExecCommand ExecCommandFunc
+	// Tailwind configures the optional stylesheet stage. | Tailwind 配置可选的样式表阶段。
+	Tailwind TailwindOptions
 	// Dir is the project directory, i.e. the module root; empty means the current directory. | Dir 是项目目录（模块根）；为空表示当前目录。
 	Dir string
 	// Output is the artifact path of a single-target build; empty means bin/<name>.
@@ -56,14 +65,22 @@ type Options struct {
 	Name string
 	// Package is the build entry passed to the toolchain; empty means "." (the module root). | Package 是传给工具链的构建入口；为空表示 "."（模块根）。
 	Package string
+	// Version, Commit and Date are injected into github.com/shibingli/yd/version. | Version、Commit 与 Date 会被注入 github.com/shibingli/yd/version。
+	Version string
+	// Commit is the git revision recorded at build time. | Commit 是构建时记录的 git 修订。
+	Commit string
+	// Date is the RFC3339 build timestamp. | Date 是 RFC3339 格式的构建时间。
+	Date string
 	// Targets are the GOOS/GOARCH pairs to build; empty means the host platform. | Targets 是待构建的 GOOS/GOARCH 组合；为空表示主机平台。
 	Targets []Target
 	// LDFlags are extra linker flags appended after -s -w. | LDFlags 是追加在 -s -w 之后的额外链接参数。
 	LDFlags []string
 	// Tags are the build tags joined with commas and passed through -tags. | Tags 是以逗号连接并经 -tags 传入的构建标签。
 	Tags []string
-	// Tailwind configures the optional stylesheet stage. | Tailwind 配置可选的样式表阶段。
-	Tailwind TailwindOptions
+	// Env holds extra environment variables for the toolchain, overriding both the
+	// process environment and the defaults installed by Build. | Env 保存传给工具链的额外环境变量，
+	// 优先于进程环境与 Build 安装的默认值。
+	Env []string
 	// Embed marks the binary as carrying go:embed assets, which turns the Tailwind
 	// stage on even when Tailwind.Enabled is false, so that the embedded stylesheet
 	// is always regenerated before compilation. | Embed 标记二进制内嵌 go:embed 资产；即使
@@ -75,23 +92,6 @@ type Options struct {
 	// making builds reproducible. The yd CLI enables it by default. | TrimPath 追加
 	// -trimpath，从二进制中剔除本地文件系统路径并使构建可复现；yd 命令行默认开启。
 	TrimPath bool
-	// Version, Commit and Date are injected into github.com/shibingli/yd/version. | Version、Commit 与 Date 会被注入 github.com/shibingli/yd/version。
-	Version string
-	// Commit is the git revision recorded at build time. | Commit 是构建时记录的 git 修订。
-	Commit string
-	// Date is the RFC3339 build timestamp. | Date 是 RFC3339 格式的构建时间。
-	Date string
-	// Env holds extra environment variables for the toolchain, overriding both the
-	// process environment and the defaults installed by Build. | Env 保存传给工具链的额外环境变量，
-	// 优先于进程环境与 Build 安装的默认值。
-	Env []string
-	// TailwindFunc overrides the built-in Tailwind implementation; nil means
-	// BuildTailwind, and the CLI injects toolchain.BuildCSS here once it exists. | TailwindFunc 覆盖内置的
-	// Tailwind 实现；为 nil 表示使用 BuildTailwind，toolchain 包就绪后由命令行注入 toolchain.BuildCSS。
-	TailwindFunc TailwindFunc
-	// ExecCommand overrides the external command constructor; nil means
-	// exec.CommandContext. | ExecCommand 覆盖外部命令构造器；为 nil 表示 exec.CommandContext。
-	ExecCommand ExecCommandFunc
 }
 
 // Artifact describes one verified build output. | Artifact 描述一个已校验的构建产物。

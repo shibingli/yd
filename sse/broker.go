@@ -42,10 +42,10 @@ type topic struct {
 //
 // Delivery is non-blocking: a frame is dropped and counted when a slow consumer's channel is full, without slowing down other subscribers. | 投递是非阻塞的：慢消费者的通道满时丢帧并计数，不会拖慢其它订阅者。
 type Broker struct {
-	opts BrokerOptions
+	topics map[string]*topic
+	opts   BrokerOptions
 
 	mu     sync.RWMutex
-	topics map[string]*topic
 	closed bool
 }
 

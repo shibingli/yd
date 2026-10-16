@@ -125,11 +125,11 @@ func skipValue(b []byte, i int) (int, bool) {
 // key and val hold the raw member bytes (the key without its quotes and still escaped, the value as written). | key 与 val 保存成员的原始字节（键去掉引号但保留转义，值原样保留）。
 type scanner struct {
 	b         []byte
+	key       []byte
+	val       []byte
 	i         int
 	needComma bool
 	err       bool
-	key       []byte
-	val       []byte
 }
 
 // init points the scanner at the first member of b and reports whether b starts a JSON object. | init 把扫描器指向 b 的第一个成员，并报告 b 是否以 JSON 对象开头。

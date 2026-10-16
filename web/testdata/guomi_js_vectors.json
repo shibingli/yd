@@ -86,34 +86,34 @@
       {
         "name": "js-random-k 0B",
         "plainHex": "",
-        "cipherHex": "6931288dc50c536b99b221b8bc59c0a78d7866bb57444fae1e6a6799b6120b681578f22101cddf17fa6ce5faf0463be4801e3e0caeb3384d3eaaafdcd79cab007b6e5a3bbc97c5b8c75dcea895eeb2c95f65ab7acbbf4b9c0a890c1da454aac1"
+        "cipherHex": "10230e2cfccda07661126724d0af87334c7bd17371506f8336ed42757fedfbd796f9b9c0b1d0e999ff2181b8f4715b2845bd0499c4035b5fbe7ba6aaaca1ab6c4d08894c9f069d5303085a7ad0a3b0c95a58fbb6a1d316ab23bb2c2e1e71cdd4"
       },
       {
         "name": "js-random-k 28B",
         "plainHex": "73616e64626f78206c6f67696e207c20e6b299e7aeb1e799bbe5bd95",
-        "cipherHex": "2269246bf41c522e26512b33a166e38ad72e58daf67df17720051de38c757d660884daa7a582e01bf2d04b99d5594d855937e4fb3fc958a342a1404532da9ca3d6f26f305654fc54b412e7d76785ab743accb203c6785ac291b203bd162f2de2bae52b915a5607614bbb19c195a83a24e6870286f02886362efd8f90"
+        "cipherHex": "baa9275eb4cd92e32e3a0f24dad5eaebad41b8e715adee059a64c60d12c9a18ca4d66db970ca5a0f88c3ce7f7c7b15f2cd1f6dd592771634cfd926522453f1788c0134cfa3115f2049113e044f4749bb40db7f8881c2b792da0f7d17cedb7ba8d39afc06e3e6cc7f918f204c34fe4c6c0a74c6d39a3d08f692c0171c"
       },
       {
         "name": "js-random-k 6B",
         "plainHex": "ff00ff00a5a5",
-        "cipherHex": "c32ae13bc9be0144b0d330f8c4bab772d91d2e0249a6510b3eff81188910b24732e71c15a19c2e7c172df27c61b16d5ea9ce89eb9deea7100cbaaade9e40294e134b28fce2626c3d4c030982e6fbe092802113db01825aab02f719beacf2244338ed7c991f6e"
+        "cipherHex": "121004e62e7feb4f4951df19e3af4bc873e0e608fb63df1142ce144de78b234a412d5eee0f9ba4354d1a8b990e15670734c5362aebea74473a235a8375d838d069d554b0eb3912e53a23dfb3fc007f180ed13d06a27673be5ce3ec1d3b159b31a797e83ea20f"
       }
     ],
     "signatures": [
       {
         "name": "js 17B",
         "dataHex": "7964206c6f67696e207c20e799bbe5bd95",
-        "signatureHex": "304502200f34a21abc0b24d483e9ded3b7c7b6a6a6e91da3a5737838d29e7d4507d033e3022100ab8b95b910bfa8285012e26401cec41e6f6372d206bb39bb47bdb7e04d3038f4"
+        "signatureHex": "3045022058316435f5d7e1df366f535469d8b5cad093eb998f14a6b91fabf498c381b451022100d702feb1a5708d0a4043518f54638e0ce2ca7850512ceea1262a966502fe3261"
       },
       {
         "name": "js 0B",
         "dataHex": "",
-        "signatureHex": "3044022037ee701bb88996ef297dab70883c2e4be3ba602291a92b5268a84953f5f1da5c022052e180717b82c5ef61d57159492a741b8ee3dbc068a93811a524e8edb0d63906"
+        "signatureHex": "3045022100ac03a1202ab1ff80aa9520c0ad4e58a128746dc5d34c7dc107e39df0b5f3bb88022021f734a23bd49c492cd3a179cb633d3c813d4fc3b4e41b94f8ec8bd1c698ac33"
       },
       {
         "name": "js 4B",
         "dataHex": "ff00ff00",
-        "signatureHex": "3045022100a072d8090105c26e0018b6e27605a2877c2273b4139dd0aaf51c15ac14c0364e02200e053c0923c3614e4338a1eaaaafdc7834d06ecb3a570682cf89568720f6456a"
+        "signatureHex": "304402206ccf84c02743d46667c9291d53753289783ae465f4581f0f4c8ee3ff475d1f85022069000e6657165c7bb720c7ccd13e784cba16919aaf98cadc63c061be05e2492d"
       }
     ]
   },
@@ -238,7 +238,7 @@
   "htmxTransport": [
     {
       "name": "js login password | JS 登录口令",
-      "fieldBase64": "9Q7H9dCRMTFwe8OrTKUjXhkeRWAiuI2V5Ck/5lNlJoPeHIGAhGvEDC6DIRtSgKUrMdgUb440hlaEBmRgAF+/jZkdWSXhdXjnwfMTXNI4cZMIpfGD4U91SnR7VbWvu1f1z7kzBwGQJ3OFp3GK0L7bvtI=",
+      "fieldBase64": "BmjsSPOzbF14LC1NnH9W2rwifWDXuZubXEyPGFGaIeDwGJx75CnLw/tS8ROhV3fXDo7r2/n6vIRJYpxC3MVzqKLF5RO0HhJGP2D/X8v5QbsmiGtGhT7Soj+VWbcpfVG+7yQ9IZCaGvTN/i7WBmwlCMU=",
       "plainHex": "7040737377307264207c20e58fa3e4bba4"
     }
   ]

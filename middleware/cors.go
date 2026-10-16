@@ -33,9 +33,9 @@ type CORSOptions struct {
 // originPattern is a parsed entry of CORSOptions.AllowOrigins.
 // | originPattern 是 CORSOptions.AllowOrigins 中一条解析后的规则。
 type originPattern struct {
-	any    bool   // "*" matches any host. | "*" 匹配任意主机。
 	scheme string // "" means any scheme. | 空串表示不限协议。
 	host   string // lowercase; a leading dot means subdomain matching. | 小写；以点开头表示子域匹配。
+	any    bool   // "*" matches any host. | "*" 匹配任意主机。
 }
 
 // parseOriginPattern parses one AllowOrigins entry. | parseOriginPattern 解析一条 AllowOrigins 规则。

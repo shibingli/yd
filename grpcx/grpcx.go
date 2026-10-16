@@ -30,8 +30,6 @@ const (
 
 // Options configures the gRPC channel. | Options 配置 gRPC 通道。
 type Options struct {
-	// Enabled turns gRPC on. | Enabled 开启 gRPC。
-	Enabled bool
 	// Mode is ModeSamePort or ModeSeparate. | Mode 取 ModeSamePort 或 ModeSeparate。
 	Mode string
 	// Port is the listener port for ModeSeparate. | Port 是 ModeSeparate 下的监听端口。
@@ -40,6 +38,8 @@ type Options struct {
 	MaxRecvMsgSize int
 	// MaxSendMsgSize limits outbound messages in bytes. | MaxSendMsgSize 限制出站消息字节数。
 	MaxSendMsgSize int
+	// Enabled turns gRPC on. | Enabled 开启 gRPC。
+	Enabled bool
 	// Reflection registers the server reflection service. | Reflection 注册服务端反射服务。
 	Reflection bool
 }

@@ -40,8 +40,8 @@ const maxTailBytes = 8 << 10
 
 // tailBuffer is an io.Writer that keeps only the trailing bytes, so a chatty tool cannot exhaust memory. | tailBuffer 是只保留末尾若干字节的 io.Writer，避免啰嗦的工具耗尽内存。
 type tailBuffer struct {
-	mu  sync.Mutex
 	buf []byte
+	mu  sync.Mutex
 }
 
 // Write appends p and trims the buffer to the last maxTailBytes bytes. | Write 追加 p 并把缓冲裁剪到末尾 maxTailBytes 字节。

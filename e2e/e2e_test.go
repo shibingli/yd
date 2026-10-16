@@ -130,24 +130,48 @@ func TestScaffoldBuildRun(t *testing.T) {
 		}
 	})
 
-	t.Run("整页与 htmx 片段语义", func(t *testing.T) {
-		addr, stop := startApp(t, filepath.Join(project))
+	// 生成的项目内置多租户鉴权：未登录时不允许看到工作区，
+	// 受保护端点的 htmx 请求也不得返回任何数据。
+	// The generated project ships multi-tenant auth: without a token the
+	// workspace must stay hidden and htmx requests to protected endpoints must
+	// not return any data. Authenticated flows (SM2 login, fragment rendering,
+	// cross-tenant denial) are asserted in depth by
+	// scaffold.TestGeneratedAppSupportsAuth.
+	t.Run("未登录被拦截且登录页可达", func(t *testing.T) {
+		addr, stop := startApp(t, project)
 		defer stop()
 
-		full := httpGet(t, "http://"+addr+"/", nil)
-		if full.status != http.StatusOK {
-			t.Fatalf("整页请求状态 = %d", full.status)
+		// 不跟随重定向，直接观察服务端的安全决策。
+		// Do not follow redirects: assert the server's own security decision.
+		full := httpGetRaw(t, "http://"+addr+"/", nil)
+		if full.status >= 300 && full.status < 400 {
+			if loc := full.header.Get("Location"); !strings.Contains(loc, "/login") {
+				t.Errorf("未登录访问 / 应重定向到登录页，实际 Location=%q", loc)
+			}
+		} else if full.status != http.StatusOK {
+			t.Errorf("未登录访问 / 的状态 = %d, 期望 3xx 重定向或 200 登录页", full.status)
 		}
-		if !strings.Contains(strings.ToLower(full.body), "<html") {
-			t.Errorf("整页响应应包含 <html>，实际前 120 字节: %q", head(full.body, 120))
+		// 无论走哪条分支，响应里都不得出现已登录才有的元素。
+		if strings.Contains(full.body, `hx-post="/logout"`) {
+			t.Errorf("未登录响应中出现了登出入口: 前 200 字节=%q", head(full.body, 200))
 		}
 
-		partial := httpGet(t, "http://"+addr+"/", map[string]string{"HX-Request": "true"})
-		if partial.status != http.StatusOK {
-			t.Fatalf("片段请求状态 = %d", partial.status)
+		login := httpGet(t, "http://"+addr+"/login", nil)
+		if login.status != http.StatusOK {
+			t.Fatalf("登录页状态 = %d", login.status)
 		}
-		if strings.Contains(strings.ToLower(partial.body), "<html") {
-			t.Errorf("htmx 片段响应不应包含 <html>，实际前 120 字节: %q", head(partial.body, 120))
+		if !strings.Contains(login.body, `type="password"`) {
+			t.Errorf("登录页缺少口令输入框: 前 200 字节=%q", head(login.body, 200))
+		}
+		if strings.Contains(strings.ToLower(login.body), "cdn.") ||
+			regexp.MustCompile(`(src|href)="http`).MatchString(login.body) {
+			t.Error("登录页引用了外部 CDN（违反零 CDN 约束）")
+		}
+
+		// 受保护端点的 htmx 请求在未登录时不得返回 200。
+		partial := httpGet(t, "http://"+addr+"/users", map[string]string{"HX-Request": "true"})
+		if partial.status == http.StatusOK {
+			t.Errorf("未登录的 htmx 请求不应成功: 状态=%d 前 120 字节=%q", partial.status, head(partial.body, 120))
 		}
 	})
 
@@ -256,6 +280,31 @@ func httpGet(t *testing.T, url string, hdr map[string]string) httpResult {
 		Transport: &http.Transport{
 			TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
 		},
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		t.Fatalf("请求 %s 失败: %v", url, err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	b, _ := io.ReadAll(resp.Body)
+	return httpResult{status: resp.StatusCode, body: string(b), header: resp.Header}
+}
+
+// httpGetRaw performs a GET without following redirects, so the caller can
+// assert the server's own status code and Location header. | httpGetRaw 发起不跟随
+// 重定向的 GET，使调用方能断言服务端自身给出的状态码与 Location 头。
+func httpGetRaw(t *testing.T, url string, hdr map[string]string) httpResult {
+	t.Helper()
+	req, err := http.NewRequest(http.MethodGet, url, nil)
+	if err != nil {
+		t.Fatalf("构造请求失败: %v", err)
+	}
+	for k, v := range hdr {
+		req.Header.Set(k, v)
+	}
+	client := &http.Client{
+		Timeout:       5 * time.Second,
+		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
 	}
 	resp, err := client.Do(req)
 	if err != nil {

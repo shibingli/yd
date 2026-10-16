@@ -84,6 +84,46 @@ ok  github.com/shibingli/yd/e2e  26.829s
 | 脚手架 | 45 个文件真实生成 → 离线编译 → 启动 → 9 项 HTTP 断言（含 SSE 推送、WS 回显、国密登录链路、422 校验闭环） |
 | 前端 | htmx 4.0.0 与 10 个扩展、Alpine、Idiomorph 全部内嵌并锁定 sha256；模板引用的 149 个 `.yd-*` 类全部有定义 |
 
+## 3.1 Linux 侧门禁（WSL Ubuntu-24.04）
+
+项目在 WSL 中位于 **Linux 原生文件系统**（`~/yd-wsl`，非 `/mnt/*`）时：
+
+```
+$ go vet ./...
+VET_OK                    # 零输出
+$ go test -race ./...
+RACE_OK                   # 全部包通过，零竞态
+```
+
+环境：`go1.27.2 linux/amd64` + `gcc 13.3.0`（原生 `-race`，无需 clang 变通）。
+构建期已实测：`go build ./...` 在 Linux 上通过。
+
+## 3.2 多租户鉴权与内存对齐（第二轮需求）
+
+| 能力 | 验收证据 |
+|---|---|
+| 多租户 + RBAC + 登录授权 | `auth` 包 40 个测试；`TestNoGlobalSigningKeyFallback` 逐一遍历「看起来合理的全局密钥」（主密钥、其 SM3 摘要、由主密钥派生的 SM4 密钥、租户 ID、用户名、口令、库中密文等）作为验签密钥，全部 `jwt.ErrSignatureInvalid`；正向对照仅该用户自己的 `sec_key` 能验通 |
+| 每用户 `sec_key` | 签发路径唯一（`TokenIssuer.Issue` 首句即取该用户密钥）；`KeyFunc` 仅凭 `kid` 取密钥、不解析未验签载荷；已验签的 `sub`/`tid` 必须与头部一致，堵住「用自己的密钥签发冒充他人」 |
+| 跨租户隔离 | `auth`：`TestCrossTenantAccessIsDenied`；生成项目：`TestGeneratedAppSupportsAuth/跨租户提权被拒绝且不泄漏数据`（403 且响应中**完全没有**用户数据，反向对照同租户 200 有数据） |
+| 落库形态 | `TestPasswordsAndSecKeysAreNeverStoredInPlaintext`：库中无明文口令，`EncryptedSecKey` 不等于明文密钥 |
+| 前端 i18n | `web` 包：218 个 `tr` 键在 `zh-CN` 与 `en` 两份目录中双向零缺失（各 258 条）；`TestLanguageSwitchReloadsWorkspaceViaHtmx` 断言语言切换走 htmx 局部重取而非整页跳转 |
+| 前端主题 | `TestThemeSwitchHasThreeStatesAndNoFlash`：`light/dark/system` 三态 + `<head>` 内先行应用（消除首屏闪烁） |
+| OpenAPI 注解 | 结构体/常量/变量三级注解与示例，实测 JSON 中可见；iota 常量块被推断为 `enum: [0,1,2]` |
+| betteralign | 105 个结构体、57 个文件完成字段重排，结构体体积 −104 字节、指针字节 −2040 字节；经 token 级校验确认为纯行序变化；唯一跳过项 `htmx.Location`（字段序即 `HX-Location` 的 JSON 键序且有精确断言）；`yd align --apply` 迭代到不动点并报告遍数 |
+
+## 3.3 端到端（第三轮：含鉴权）
+
+```
+$ go test -tags e2e ./e2e/ -count=1 -timeout 30m
+--- PASS: TestScaffoldBuildRun (14.71s)     # 生成 66 个文件 → 编译 → 启动 → HTTP 断言
+--- PASS: TestCrossCompile (9.02s)          # linux/amd64、linux/arm64、windows/amd64 真实产物
+--- PASS: TestAssetsVerifyOffline (3.33s)
+ok  github.com/shibingli/yd/e2e  27.117s
+```
+
+未登录的安全姿态已被断言：`GET /` 未带令牌时服务端返回 3xx 且 `Location` 指向 `/login`，
+响应中不出现登出入口；受保护端点的 htmx 请求在未登录时不得返回 200。
+
 ## 4. 已知限制与未覆盖项
 
 1. **HTTP/3 需要 TLS**（QUIC 强制 TLS 1.3）。开发态在未配置证书时会生成一次性自签证书

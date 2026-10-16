@@ -53,10 +53,10 @@ const (
 
 // Token is the smallest matching unit inside a path segment. | Token 是路径段内的最小匹配单元。
 type Token struct {
-	// Kind is the token kind. | Kind 为词法单元类型。
-	Kind TokenKind
 	// Text is the literal text for TokenLiteral and the parameter name for TokenParam. | Text 在 TokenLiteral 时为字面量文本，在 TokenParam 时为参数名。
 	Text string
+	// Kind is the token kind. | Kind 为词法单元类型。
+	Kind TokenKind
 }
 
 // SegmentKind distinguishes the match category of a path segment. | SegmentKind 区分路径段的匹配类别。
@@ -77,17 +77,17 @@ const (
 type Segment struct {
 	// Raw is the raw text of the segment (without the "/" separator). | Raw 为该段的原始文本（不含分隔符 "/"）。
 	Raw string
-	// Kind is the match category of the segment. | Kind 为该段的匹配类别。
-	Kind SegmentKind
-	// Tokens is the token sequence inside the segment (a single literal token for SegStatic). | Tokens 为段内的词法单元序列（SegStatic 时为单个字面量单元）。
-	Tokens []Token
 	// Name is the parameter name for SegParam and SegWildcard. | Name 在 SegParam 与 SegWildcard 时为参数名。
 	Name string
 	// Literal is the **unescaped** literal text for SegStatic, used for exact matching and indexing. | Literal 在 SegStatic 时为**反转义后**的字面量文本，用于精确匹配与建索引。
 	// For example the pattern `/a\:b` has Literal "a:b", while Raw is `a\:b`. | 例如模式 `/a\:b` 的 Literal 为 "a:b"，而 Raw 为 `a\:b`。
 	Literal string
+	// Tokens is the token sequence inside the segment (a single literal token for SegStatic). | Tokens 为段内的词法单元序列（SegStatic 时为单个字面量单元）。
+	Tokens []Token
 	// LiteralLen is the total number of literal characters in the segment, used for match priority (the more specific, the higher the priority). | LiteralLen 为该段内字面量字符总数，用于匹配优先级（越具体越优先）。
 	LiteralLen int
+	// Kind is the match category of the segment. | Kind 为该段的匹配类别。
+	Kind SegmentKind
 	// TrailingSlash marks this segment as the empty segment at the end of the pattern, meaning the pattern ends with "/". | TrailingSlash 标记该段是模式末尾的空段，表示模式以 "/" 结尾。
 	TrailingSlash bool
 }
@@ -272,10 +272,10 @@ const mixMemoMaxRetain = 4096
 // mixMatcher performs memoized backtracking matching inside a single mixed segment. | mixMatcher 在单个混合段内执行带记忆化的回溯匹配。
 type mixMatcher struct {
 	seg   *Segment
+	owner *mixMemo
 	value string
 	memo  []int32
 	gen   int32
-	owner *mixMemo
 }
 
 func acquireMixMatcher(seg *Segment, value string) *mixMatcher {

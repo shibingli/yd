@@ -39,15 +39,15 @@ type Ctx struct {
 	// Params holds the path parameters captured for this request. | Params 保存本次请求捕获到的路径参数。
 	Params *Params
 
-	router   *Router
+	router *Router
+
+	query    url.Values
+	keys     map[string]any
 	handlers []HandlerFunc
 	index    int
 	status   int
 	written  bool
 	aborted  bool
-
-	query url.Values
-	keys  map[string]any
 }
 
 // reset prepares the value for reuse. | reset 为复用做准备。

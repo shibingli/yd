@@ -36,16 +36,16 @@ const (
 
 // TailwindOptions configures the optional Tailwind CSS stage. | TailwindOptions 配置可选的 Tailwind CSS 阶段。
 type TailwindOptions struct {
-	// Enabled turns the stage on. | Enabled 启用该阶段。
-	Enabled bool
-	// Minify asks tailwindcss for the minified output. | Minify 要求 tailwindcss 输出压缩结果。
-	Minify bool
 	// Bin overrides the tailwindcss executable; empty means auto-detection. | Bin 覆盖 tailwindcss 可执行文件；为空表示自动探测。
 	Bin string
 	// Input is the scanned stylesheet; empty means DefaultTailwindInput. | Input 是被扫描的样式表；为空表示 DefaultTailwindInput。
 	Input string
 	// Output is the minified stylesheet; empty means DefaultTailwindOutput. | Output 是压缩后的样式表；为空表示 DefaultTailwindOutput。
 	Output string
+	// Enabled turns the stage on. | Enabled 启用该阶段。
+	Enabled bool
+	// Minify asks tailwindcss for the minified output. | Minify 要求 tailwindcss 输出压缩结果。
+	Minify bool
 }
 
 // TailwindFunc builds the Tailwind stylesheet and returns the number of bytes

@@ -48,27 +48,27 @@ const (
 type Options struct {
 	// Writer is the log output destination; nil means os.Stdout. | Writer 是日志输出目标；nil 表示 os.Stdout。
 	Writer io.Writer
-	// Level is the log level threshold; calls below it are discarded, and the zero value is InfoLevel. | Level 是日志级别阈值，低于该级别的调用被丢弃；零值即 InfoLevel。
-	Level Level
+	// ExitFunc is the function called after Fatal writes its log record, meant to terminate the process; nil means os.Exit. | ExitFunc 是 Fatal 记录日志之后调用的函数，用于结束进程；nil 表示 os.Exit。
+	// Tests can replace it in order to observe the exit code. | 测试可替换它以观察退出码。
+	ExitFunc func(int)
 	// Format is the output format: "json" (the default) or "console"; any other value is treated as "json". | Format 是输出格式："json"（默认）或 "console"；其它取值按 "json" 处理。
 	Format string
 	// TimeFormat is the Go reference time layout of the timestamp; empty means taking the default layout for the Format | TimeFormat 是时间戳的 Go 参考时间布局；空表示按 Format 取默认布局
 	// (millisecond-precision RFC3339 for JSON, "15:04:05.000" for console), and times are always rendered as UTC. | （JSON 为毫秒精度 RFC3339，console 为 "15:04:05.000"），时间一律按 UTC 渲染。
 	// A custom layout must not contain '"', '\\' or control characters, otherwise the output will not be valid JSON. | 自定义布局中不得出现 '"'、'\\' 或控制字符，否则输出将不是合法 JSON。
 	TimeFormat string
-	// When Caller is true every log record carries the call site (of the form file.go:123, with the file name only). | Caller 为 true 时每条日志附带调用位置（形如 file.go:123，只含文件名）。
-	Caller bool
 	// Service is the service name; when non-empty it is written to the service field of every log record. | Service 是服务名；非空时写入每条日志的 service 字段。
 	Service string
-	// ExitFunc is the function called after Fatal writes its log record, meant to terminate the process; nil means os.Exit. | ExitFunc 是 Fatal 记录日志之后调用的函数，用于结束进程；nil 表示 os.Exit。
-	// Tests can replace it in order to observe the exit code. | 测试可替换它以观察退出码。
-	ExitFunc func(int)
+	// Level is the log level threshold; calls below it are discarded, and the zero value is InfoLevel. | Level 是日志级别阈值，低于该级别的调用被丢弃；零值即 InfoLevel。
+	Level Level
+	// When Caller is true every log record carries the call site (of the form file.go:123, with the file name only). | Caller 为 true 时每条日志附带调用位置（形如 file.go:123，只含文件名）。
+	Caller bool
 }
 
 // core is the write state shared by one Logger family (the derivation chain of With/Named). | core 是同一 Logger 家族（With/Named 派生链）共享的写入状态。
 type core struct {
-	mu    sync.Mutex   // Serializes writes so that a single line is never torn apart under concurrency. | 串行化写入，保证并发时单行不被拆散
 	w     io.Writer    // Output destination, never changed after creation. | 输出目标，创建后不再变更
+	mu    sync.Mutex   // Serializes writes so that a single line is never torn apart under concurrency. | 串行化写入，保证并发时单行不被拆散
 	level atomic.Int32 // Current level threshold (lock-free read, hot path). | 当前级别阈值（无锁读取，热路径）
 }
 
@@ -78,13 +78,13 @@ type core struct {
 // but their fields do not affect each other: appending fields to a child Logger never changes the parent Logger. | 但字段互不影响：向子 Logger 追加字段不会改变父 Logger。
 type Logger struct {
 	core       *core
-	fields     []Field // Persistent fields accumulated by With. | With 累积的持久字段
+	exit       func(int)
 	name       string
 	service    string
 	timeFormat string
+	fields     []Field // Persistent fields accumulated by With. | With 累积的持久字段
 	caller     bool
 	console    bool // true means console format. | true 表示 console 格式
-	exit       func(int)
 }
 
 // New creates a Logger from o. | New 依据 o 创建 Logger。

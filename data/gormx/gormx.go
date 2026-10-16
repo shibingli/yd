@@ -72,6 +72,9 @@ type Options struct {
 	Driver string
 	// DSN 是驱动对应的数据源串；SQLite 可用 "file::memory:?cache=shared" 打开内存库。
 	DSN string
+	// LogLevel 是 GORM 日志级别，接受 silent / error / warn / info，
+	// 空值与无法识别的取值回落到 warn（慢查询与错误）。
+	LogLevel string
 	// MaxOpenConns 是连接池最大打开连接数，<=0 时取默认值 100。
 	MaxOpenConns int
 	// MaxIdleConns 是连接池最大空闲连接数，<=0 时取默认值 10。
@@ -82,9 +85,6 @@ type Options struct {
 	ConnMaxIdleTime time.Duration
 	// SlowThreshold 是慢查询阈值，<=0 时取默认值 200ms。
 	SlowThreshold time.Duration
-	// LogLevel 是 GORM 日志级别，接受 silent / error / warn / info，
-	// 空值与无法识别的取值回落到 warn（慢查询与错误）。
-	LogLevel string
 	// PrepareStmt 是配置层 db.prepare_stmt 的映射字段。
 	//
 	// 预编译语句缓存属于框架硬规则，Open 恒以 true 装配（零值即框架默认），
@@ -96,9 +96,9 @@ type Options struct {
 
 // Config 把 Options 与 logx 日志器绑在一起，便于在装配层之间整体传递。
 type Config struct {
-	Options
 	// Logger 是 GORM 日志的承载者；为 nil 时使用 logx.Default()。
 	Logger *logx.Logger
+	Options
 }
 
 // Open 打开数据库并完成连接池、日志与预编译语句的装配。

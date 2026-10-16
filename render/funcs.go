@@ -18,8 +18,8 @@ import (
 
 // assetCache memoizes content hashes so templates do not re-read files. | assetCache 缓存内容哈希，避免模板重复读取文件。
 type assetCache struct {
-	mu   sync.RWMutex
 	seen map[string]string
+	mu   sync.RWMutex
 }
 
 // Funcs returns the default template function map. | Funcs 返回默认模板函数表。

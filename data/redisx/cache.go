@@ -68,8 +68,8 @@ type CacheOptions struct {
 // single-flight group serializes the loads of one key. | 单飞组则串行化同一个键的加载。
 type Cache[T any] struct {
 	cli   redis.UniversalClient
-	opt   CacheOptions
 	group singleflight.Group
+	opt   CacheOptions
 }
 
 // entryState describes what a redis lookup found. | entryState 描述一次 Redis 查询的结果。

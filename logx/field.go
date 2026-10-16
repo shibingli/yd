@@ -53,18 +53,18 @@ const errorKey = "error"
 //
 // Field can only be created through this package's constructors; the zero value (UnknownType) is skipped when encoding. | Field 只能通过本包的构造函数创建，零值（UnknownType）在编码时被跳过。
 type Field struct {
+	// obj carries cold-path values (the boxed value of AnyType, the []string of StringsType). | obj 承载冷路径值（AnyType 装箱值、StringsType 的 []string）。
+	obj any
 	// Key is the field name; when it is empty and the type is RawType it means a keyless fragment injection. | Key 是字段名；为空且类型为 RawType 时表示无键的片段注入。
 	Key string
-	// Type is the type tag of the field value. | Type 是字段值的类型标签。
-	Type FieldType
-	// num carries the bit pattern or numeric value of Int/Int64/Uint64/Float64/Bool/Dur/Time. | num 承载 Int/Int64/Uint64/Float64/Bool/Dur/Time 的位模式或数值。
-	num uint64
 	// str carries the text of StringType and ErrorType. | str 承载 StringType 与 ErrorType 的文本。
 	str string
 	// bs carries the raw bytes of BytesType and the JSON fragment of RawType (the caller's data is not copied). | bs 承载 BytesType 的原始字节与 RawType 的 JSON 片段（不复制调用方数据）。
 	bs []byte
-	// obj carries cold-path values (the boxed value of AnyType, the []string of StringsType). | obj 承载冷路径值（AnyType 装箱值、StringsType 的 []string）。
-	obj any
+	// num carries the bit pattern or numeric value of Int/Int64/Uint64/Float64/Bool/Dur/Time. | num 承载 Int/Int64/Uint64/Float64/Bool/Dur/Time 的位模式或数值。
+	num uint64
+	// Type is the type tag of the field value. | Type 是字段值的类型标签。
+	Type FieldType
 }
 
 // Str returns a string field. The string is not copied, so the caller must not modify its underlying memory before the log is written. | Str 返回字符串字段。该字符串不被复制，调用方不得在日志写入前改写其底层内存。

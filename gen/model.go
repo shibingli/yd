@@ -37,21 +37,6 @@ type Field struct {
 	// JSONName 是 JSON 与表单字段名。
 	// JSONName is the JSON and form field name.
 	JSONName string
-	// Primary 报告该列是否为主键。
-	// Primary reports whether the column is the primary key.
-	Primary bool
-	// Nullable 报告该列是否允许 NULL。
-	// Nullable reports whether the column allows NULL.
-	Nullable bool
-	// Indexed 报告该列是否建了普通索引。
-	// Indexed reports whether the column carries a plain index.
-	Indexed bool
-	// Unique 报告该列是否有唯一约束。
-	// Unique reports whether the column carries a unique constraint.
-	Unique bool
-	// Size 是列的字符长度上限，0 表示不限。
-	// Size is the column length limit; 0 means unlimited.
-	Size int
 	// Comment 是列注释，写入生成注释。
 	// Comment is the column comment, emitted as a generated comment.
 	Comment string
@@ -64,6 +49,21 @@ type Field struct {
 	// Validate 是逗号分隔的校验规则，例如 "required,max=120"。
 	// Validate is a comma separated rule list, for example "required,max=120".
 	Validate string
+	// Size 是列的字符长度上限，0 表示不限。
+	// Size is the column length limit; 0 means unlimited.
+	Size int
+	// Primary 报告该列是否为主键。
+	// Primary reports whether the column is the primary key.
+	Primary bool
+	// Nullable 报告该列是否允许 NULL。
+	// Nullable reports whether the column allows NULL.
+	Nullable bool
+	// Indexed 报告该列是否建了普通索引。
+	// Indexed reports whether the column carries a plain index.
+	Indexed bool
+	// Unique 报告该列是否有唯一约束。
+	// Unique reports whether the column carries a unique constraint.
+	Unique bool
 }
 
 // Rules 返回逗号分隔的校验规则列表，空白项被忽略。
@@ -556,6 +556,9 @@ func defaultWidget(goType string) string {
 // StructOptions 覆盖从结构体推导模型时的自动取值。
 // StructOptions overrides the values derived from a struct.
 type StructOptions struct {
+	// Timestamps 显式开关 CreatedAt / UpdatedAt 字段的生成，nil 表示按结构体自动判定。
+	// Timestamps explicitly toggles the CreatedAt / UpdatedAt fields; nil means detecting them from the struct.
+	Timestamps *bool
 	// Name 覆盖模型名（导出形式）。
 	// Name overrides the model name (exported form).
 	Name string
@@ -565,9 +568,6 @@ type StructOptions struct {
 	// Module 是业务模块名，用作 OpenAPI 的 @Tags。
 	// Module is the business module name used as the OpenAPI @Tags value.
 	Module string
-	// Timestamps 显式开关 CreatedAt / UpdatedAt 字段的生成，nil 表示按结构体自动判定。
-	// Timestamps explicitly toggles the CreatedAt / UpdatedAt fields; nil means detecting them from the struct.
-	Timestamps *bool
 }
 
 // TableOptions 覆盖从数据库表推导模型时的自动取值。

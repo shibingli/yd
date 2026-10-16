@@ -51,6 +51,10 @@ func isTypeDirective(name string) bool {
 // documented in plain English carries that text into the schema. | @Description 与 @Example
 // 之外，字段 doc 的正文也会作为说明兜底，因此纯文字说明的字段同样能把文本带进 Schema。
 type FieldAnnotation struct {
+	// Minimum is the @Minimum bound, nil when the directive is absent. | Minimum 为 @Minimum 下界，缺指令时为 nil。
+	Minimum *float64
+	// Maximum is the @Maximum bound, nil when the directive is absent. | Maximum 为 @Maximum 上界，缺指令时为 nil。
+	Maximum *float64
 	// Name is the JSON name the annotation applies to: the json tag name, or the Go field
 	// name when untagged. It is also the key of SchemaAnnotation.Fields. | Name 为注解作用的
 	// JSON 名：json 标签名，无标签时取 Go 字段名；同时是 SchemaAnnotation.Fields 的键。
@@ -62,23 +66,19 @@ type FieldAnnotation struct {
 	Example string
 	// Format is the @Format value, for example uuid. | Format 为 @Format 取值，例如 uuid。
 	Format string
-	// Enum lists the @Enum values, which are space or comma separated. | Enum 列出 @Enum 取值，以空格或逗号分隔。
-	Enum []string
-	// Minimum is the @Minimum bound, nil when the directive is absent. | Minimum 为 @Minimum 下界，缺指令时为 nil。
-	Minimum *float64
-	// Maximum is the @Maximum bound, nil when the directive is absent. | Maximum 为 @Maximum 上界，缺指令时为 nil。
-	Maximum *float64
 	// Pattern is the @Pattern regular expression. | Pattern 为 @Pattern 正则表达式。
 	Pattern string
+	// Pos is the "file:line" of the field annotation, used for diagnostics. | Pos 为字段注解的
+	// "文件:行号"，用于诊断。
+	Pos string
+	// Enum lists the @Enum values, which are space or comma separated. | Enum 列出 @Enum 取值，以空格或逗号分隔。
+	Enum []string
 	// Nullable reports whether @Nullable is present. | Nullable 报告是否出现 @Nullable。
 	Nullable bool
 	// Deprecated reports whether @Deprecated is present. | Deprecated 报告是否出现 @Deprecated。
 	Deprecated bool
 	// ReadOnly reports whether @ReadOnly is present. | ReadOnly 报告是否出现 @ReadOnly。
 	ReadOnly bool
-	// Pos is the "file:line" of the field annotation, used for diagnostics. | Pos 为字段注解的
-	// "文件:行号"，用于诊断。
-	Pos string
 }
 
 // SchemaAnnotation is the parsed form of the annotations attached to one struct type. | SchemaAnnotation
@@ -149,11 +149,11 @@ type EnumAnnotation struct {
 	// Type is the @Type value or the inferred literal kind: string, integer, number or
 	// boolean. | Type 为 @Type 取值或推断出的字面量种类：string、integer、number 或 boolean。
 	Type string
-	// Values lists the enum values in source order. | Values 按源码顺序列出枚举取值。
-	Values []EnumValue
 	// Pos is the "file:line" of the const block annotation, used for diagnostics. | Pos 为常量块
 	// 注解的 "文件:行号"，用于诊断。
 	Pos string
+	// Values lists the enum values in source order. | Values 按源码顺序列出枚举取值。
+	Values []EnumValue
 }
 
 // VarAnnotation is the parsed form of the annotations attached to one variable. | VarAnnotation
@@ -679,11 +679,11 @@ type docBlock struct {
 	// directives maps a lower cased directive name to its verbatim arguments. | directives
 	// 把小写指令名映射到原样参数。
 	directives map[string][]string
+	// pos is the "file:line" of the comment block. | pos 为注释块的 "文件:行号"。
+	pos string
 	// prose lists the non-directive lines, used as the description fallback. | prose 列出非指令行，
 	// 作为描述的兜底。
 	prose []string
-	// pos is the "file:line" of the comment block. | pos 为注释块的 "文件:行号"。
-	pos string
 }
 
 // newDocBlock splits the given comment groups into a docBlock. | newDocBlock 把给定的注释组拆分为 docBlock。

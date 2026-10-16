@@ -59,16 +59,16 @@ const (
 
 // Document is the root object of an OpenAPI 3.0 document. | Document 是 OpenAPI 3.0 文档的根对象。
 type Document struct {
-	// OpenAPI is the specification version, always SpecVersion when serialized. | OpenAPI 为规范版本，序列化时始终为 SpecVersion。
-	OpenAPI string `json:"openapi"`
-	// Info carries the metadata section. | Info 承载元数据段。
-	Info Info `json:"info"`
-	// Servers lists the target servers. | Servers 列出目标服务器。
-	Servers []Server `json:"servers,omitempty"`
 	// Paths maps an OpenAPI path template to its operations. | Paths 把 OpenAPI 路径模板映射到操作。
 	Paths map[string]PathItem `json:"paths"`
 	// Components holds reusable schemas. | Components 存放可复用 Schema。
 	Components Components `json:"components,omitempty"`
+	// Info carries the metadata section. | Info 承载元数据段。
+	Info Info `json:"info"`
+	// OpenAPI is the specification version, always SpecVersion when serialized. | OpenAPI 为规范版本，序列化时始终为 SpecVersion。
+	OpenAPI string `json:"openapi"`
+	// Servers lists the target servers. | Servers 列出目标服务器。
+	Servers []Server `json:"servers,omitempty"`
 }
 
 // Info is the metadata section of a document. | Info 是文档的元数据段。
@@ -134,6 +134,10 @@ type PathItem struct {
 
 // Operation describes a single endpoint. | Operation 描述单个端点。
 type Operation struct {
+	// RequestBody describes the request payload. | RequestBody 描述请求载荷。
+	RequestBody *RequestBody `json:"requestBody,omitempty"`
+	// Responses maps a status code to its response. | Responses 把状态码映射到响应。
+	Responses map[string]Response `json:"responses,omitempty"`
 	// Summary is a one line summary. | Summary 为一行摘要。
 	Summary string `json:"summary,omitempty"`
 	// Description is the long form description. | Description 为详细描述。
@@ -144,35 +148,31 @@ type Operation struct {
 	Tags []string `json:"tags,omitempty"`
 	// Parameters lists path, query, header and cookie parameters. | Parameters 列出路径、查询、请求头与 Cookie 参数。
 	Parameters []Parameter `json:"parameters,omitempty"`
-	// RequestBody describes the request payload. | RequestBody 描述请求载荷。
-	RequestBody *RequestBody `json:"requestBody,omitempty"`
-	// Responses maps a status code to its response. | Responses 把状态码映射到响应。
-	Responses map[string]Response `json:"responses,omitempty"`
 }
 
 // Parameter describes one operation parameter. | Parameter 描述一个操作参数。
 type Parameter struct {
-	// Name is the parameter name. | Name 为参数名。
-	Name string `json:"name"`
-	// In is one of path, query, header or cookie. | In 取 path、query、header 或 cookie。
-	In string `json:"in"`
-	// Required marks mandatory parameters; path parameters are always required. | Required 标记必填参数；路径参数恒为必填。
-	Required bool `json:"required,omitempty"`
-	// Description explains the parameter. | Description 说明参数含义。
-	Description string `json:"description,omitempty"`
 	// Example is a sample value, filled by an @Example line below the @Param. | Example 为示例值，
 	// 由 @Param 下方的 @Example 行填充。
 	Example any `json:"example,omitempty"`
 	// Schema is the value schema. | Schema 为取值 Schema。
 	Schema *Schema `json:"schema,omitempty"`
+	// Name is the parameter name. | Name 为参数名。
+	Name string `json:"name"`
+	// In is one of path, query, header or cookie. | In 取 path、query、header 或 cookie。
+	In string `json:"in"`
+	// Description explains the parameter. | Description 说明参数含义。
+	Description string `json:"description,omitempty"`
+	// Required marks mandatory parameters; path parameters are always required. | Required 标记必填参数；路径参数恒为必填。
+	Required bool `json:"required,omitempty"`
 }
 
 // Response describes one response. | Response 描述一个响应。
 type Response struct {
-	// Description explains the response. | Description 说明响应含义。
-	Description string `json:"description"`
 	// Content maps a media type to its payload schema. | Content 把媒体类型映射到载荷 Schema。
 	Content map[string]MediaType `json:"content,omitempty"`
+	// Description explains the response. | Description 说明响应含义。
+	Description string `json:"description"`
 }
 
 // MediaType binds a schema to a media type. | MediaType 把 Schema 绑定到媒体类型。
@@ -187,10 +187,10 @@ type MediaType struct {
 
 // RequestBody describes a request payload. | RequestBody 描述请求载荷。
 type RequestBody struct {
-	// Required marks a mandatory payload. | Required 标记载荷是否必填。
-	Required bool `json:"required,omitempty"`
 	// Content maps a media type to its payload schema. | Content 把媒体类型映射到载荷 Schema。
 	Content map[string]MediaType `json:"content,omitempty"`
+	// Required marks a mandatory payload. | Required 标记载荷是否必填。
+	Required bool `json:"required,omitempty"`
 }
 
 // Components holds reusable document fragments. | Components 存放可复用的文档片段。
@@ -201,21 +201,21 @@ type Components struct {
 
 // Options configures how the document endpoints are served. | Options 配置文档端点的提供方式。
 type Options struct {
+	// TypeAnnotations carries explicitly parsed type annotations, which take precedence over
+	// SourceDirs. | TypeAnnotations 携带显式解析的类型注解，优先于 SourceDirs。
+	TypeAnnotations *TypeAnnotations
 	// Path is the endpoint returning the JSON document; empty means DefaultPath. | Path 是返回 JSON 文档的端点，留空表示 DefaultPath。
 	Path string
 	// DocsPath is the endpoint returning the built-in viewer; empty means DefaultDocsPath. | DocsPath 是返回内置查看器的端点，留空表示 DefaultDocsPath。
 	DocsPath string
 	// Title is the viewer page title; empty falls back to Info.Title. | Title 为查看器页面标题，留空时回退到 Info.Title。
 	Title string
-	// Blocked disables both endpoints, which is how production switches docs off. | Blocked 关闭两个端点，生产环境据此下线文档。
-	Blocked bool
 	// SourceDirs lists the source directories holding type annotations; when TypeAnnotations
 	// is nil, FromRouterWithAnnotations parses them from these directories. | SourceDirs 列出
 	// 存放类型注解的源码目录；TypeAnnotations 为 nil 时由 FromRouterWithAnnotations 从这些目录解析。
 	SourceDirs []string
-	// TypeAnnotations carries explicitly parsed type annotations, which take precedence over
-	// SourceDirs. | TypeAnnotations 携带显式解析的类型注解，优先于 SourceDirs。
-	TypeAnnotations *TypeAnnotations
+	// Blocked disables both endpoints, which is how production switches docs off. | Blocked 关闭两个端点，生产环境据此下线文档。
+	Blocked bool
 }
 
 // withDefaults returns a copy with empty paths replaced by the defaults and a

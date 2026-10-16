@@ -120,10 +120,10 @@ type Asset struct {
 	SHA256 string `json:"sha256,omitempty"`
 	// License is the SPDX identifier of the upstream license (e.g. "MIT","0BSD"). | License 是上游许可的 SPDX 标识（例如 "MIT"、"0BSD"）。
 	License string `json:"license,omitempty"`
-	// Size is the byte length of the locked content, 0 when unknown. | Size 是锁定内容的字节长度，未知时为 0。
-	Size int64 `json:"size,omitempty"`
 	// Kind is one of the Kind* constants. | Kind 取 Kind* 常量之一。
 	Kind string `json:"kind,omitempty"`
+	// Size is the byte length of the locked content, 0 when unknown. | Size 是锁定内容的字节长度，未知时为 0。
+	Size int64 `json:"size,omitempty"`
 	// Required marks assets the application cannot run without; Required assets get a full verify. | Required 标记应用缺少即无法运行的资产；Required 资产会做完整校验。
 	Required bool `json:"required,omitempty"`
 }
@@ -139,14 +139,14 @@ func (a Asset) LocalPath(root string) string {
 
 // Manifest is the checked-in lock file describing every vendored front-end asset. | Manifest 是签入仓库的锁文件，描述全部 vendoring 的前端资产。
 type Manifest struct {
-	// Version is the schema version, written as CurrentManifestVersion. | Version 是结构版本，写入 CurrentManifestVersion。
-	Version int `json:"version"`
 	// GeneratedAt is the UTC timestamp of the last write. | GeneratedAt 是最近一次写入的 UTC 时间。
 	GeneratedAt time.Time `json:"generated_at"`
 	// Sources is the mirror chain used by Update when no per-call sources are given. | Sources 是 Update 在未传入本次源列表时使用的镜像链。
 	Sources []string `json:"sources,omitempty"`
 	// Assets is the locked asset list, kept sorted by name. | Assets 是锁定资产列表，按名字排序保存。
 	Assets []Asset `json:"assets"`
+	// Version is the schema version, written as CurrentManifestVersion. | Version 是结构版本，写入 CurrentManifestVersion。
+	Version int `json:"version"`
 }
 
 // LoadManifest reads and validates a manifest from fs. | LoadManifest 从 fs 读取并校验清单。

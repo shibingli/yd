@@ -39,12 +39,12 @@ type WatchOptions struct {
 //
 // Op holds one or more change names joined by "+" in the fixed order create, write, remove, rename, chmod. | Op 是一个或多个变更名，按 create、write、remove、rename、chmod 的固定顺序以 "+" 连接。
 type Event struct {
+	// At is the time the last change of this path was observed. | At 是该路径最后一次变更被观测到的时间。
+	At time.Time
 	// Path is the absolute path of the changed entry. | Path 是发生变更的条目的绝对路径。
 	Path string
 	// Op is the merged operation name. | Op 是合并后的操作名。
 	Op string
-	// At is the time the last change of this path was observed. | At 是该路径最后一次变更被观测到的时间。
-	At time.Time
 }
 
 // opNames lists the change names in their fixed merge order. | opNames 按固定合并顺序列出变更名。
@@ -61,8 +61,8 @@ var opNames = []struct {
 
 // pending is the merged state of one changed path. | pending 是单个变更路径的合并状态。
 type pending struct {
-	ops fsnotify.Op
 	at  time.Time
+	ops fsnotify.Op
 }
 
 // Watcher turns raw file system notifications into debounced Event values. | Watcher 把原始文件系统通知转换为抖动合并后的 Event。
@@ -72,24 +72,25 @@ type pending struct {
 // Notification errors reported by the backend are not actionable at this layer (the watched tree stays registered) and are therefore dropped. | 后端报告的通知错误在本层无法处理（被监听的目录树保持注册），因此直接丢弃。
 // Close is idempotent, and the events channel is closed once the background loop has stopped. | Close 幂等，事件通道会在后台循环停止后关闭。
 type Watcher struct {
-	debounce time.Duration
-	names    map[string]struct{}
-	paths    []string
-	roots    []string
-	fsw      *fsnotify.Watcher
-	timer    *time.Timer
-	events   chan Event
-	done     chan struct{}
-	closeOne sync.Once
-	wg       sync.WaitGroup
-
-	// mu guards dirs, which Close and WatchCount read from other goroutines. | mu 保护 dirs：Close 与 WatchCount 会从其它 goroutine 读取它。
-	mu   sync.Mutex
-	dirs map[string]struct{}
+	names  map[string]struct{}
+	fsw    *fsnotify.Watcher
+	timer  *time.Timer
+	events chan Event
+	done   chan struct{}
+	dirs   map[string]struct{}
 
 	// pending, order and the timer are only touched by the loop goroutine. | pending、order 与计时器只由循环 goroutine 访问。
 	pending map[string]*pending
+	paths   []string
+	roots   []string
 	order   []string
+	wg      sync.WaitGroup
+
+	debounce time.Duration
+	closeOne sync.Once
+
+	// mu guards dirs, which Close and WatchCount read from other goroutines. | mu 保护 dirs：Close 与 WatchCount 会从其它 goroutine 读取它。
+	mu sync.Mutex
 }
 
 // NewWatcher creates a watcher and starts the background loop. | NewWatcher 创建监听器并启动后台循环。

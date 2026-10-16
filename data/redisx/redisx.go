@@ -63,16 +63,19 @@ type Options struct {
 	// Addr is the address of the single node, or the only seed address of the other modes; | Addr 是单机地址，或其它模式唯一的种子地址；
 	// it takes effect only when Addrs is empty. | 仅当 Addrs 为空时生效。
 	Addr string
-	// Addrs is the sentinel address list or the cluster seed list. | Addrs 是哨兵地址列表或集群种子列表。
-	Addrs []string
 	// Username is the ACL user name; empty means the default user. | Username 是 ACL 用户名，空值表示默认用户。
 	Username string
 	// Password is the authentication password; empty means no authentication. | Password 是认证口令，空值表示不认证。
 	Password string
-	// DB is the database index, effective in single and sentinel modes only. | DB 是库序号，仅在单机与哨兵模式下生效。
-	DB int
 	// MasterName is the sentinel-monitored master name, required in sentinel mode. | MasterName 是哨兵监控的主节点名，哨兵模式下必填。
 	MasterName string
+	// KeyPrefix is the key namespace shared by every key the framework writes; pass it to | KeyPrefix 是框架写入的键共享的命名空间；
+	// CacheOptions.Prefix when building a Cache decorator. | 构造缓存装饰器时应把它传给 CacheOptions.Prefix。
+	KeyPrefix string
+	// Addrs is the sentinel address list or the cluster seed list. | Addrs 是哨兵地址列表或集群种子列表。
+	Addrs []string
+	// DB is the database index, effective in single and sentinel modes only. | DB 是库序号，仅在单机与哨兵模式下生效。
+	DB int
 	// PoolSize is the maximum number of socket connections per node; <=0 means the go-redis default. | PoolSize 是每个节点的最大连接数；<=0 表示使用 go-redis 默认值。
 	PoolSize int
 	// MinIdleConns is the number of connections kept warm per node; <=0 means the go-redis default. | MinIdleConns 是每个节点保活的空闲连接数；<=0 表示使用 go-redis 默认值。
@@ -83,9 +86,6 @@ type Options struct {
 	ReadTimeout time.Duration
 	// WriteTimeout bounds one socket write; 0 means the go-redis default. | WriteTimeout 限制单次 socket 写；0 表示使用 go-redis 默认值。
 	WriteTimeout time.Duration
-	// KeyPrefix is the key namespace shared by every key the framework writes; pass it to | KeyPrefix 是框架写入的键共享的命名空间；
-	// CacheOptions.Prefix when building a Cache decorator. | 构造缓存装饰器时应把它传给 CacheOptions.Prefix。
-	KeyPrefix string
 }
 
 // Open builds a universal client for o without performing any round trip. | Open 为 o 构造通用客户端，且不进行任何网络往返。

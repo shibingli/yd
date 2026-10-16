@@ -139,12 +139,12 @@ var allAlgs = []Alg{HS256, HS384, HS512, RS256, RS384, RS512, PS256, PS384, PS51
 
 // SignOptions carries the non-claim part of a token. | SignOptions 承载 token 中与声明无关的部分。
 type SignOptions struct {
-	// Kid sets the "kid" header parameter; empty means the parameter is omitted. | Kid 设置 "kid" 头部参数；为空表示省略该参数。
-	Kid string
 	// Header adds extra header parameters. | Header 附加额外的头部参数。
 	//
 	// The reserved names alg, typ and kid are ignored, so this map can never override them. | 保留名 alg、typ 与 kid 会被忽略，因此该 map 无法覆盖它们。
 	Header map[string]string
+	// Kid sets the "kid" header parameter; empty means the parameter is omitted. | Kid 设置 "kid" 头部参数；为空表示省略该参数。
+	Kid string
 }
 
 // Sign builds a compact JWS from claims and key. | Sign 用 claims 与 key 生成紧凑 JWS。
