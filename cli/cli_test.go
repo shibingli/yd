@@ -456,10 +456,13 @@ func TestCommandsAreSortedAndUnique(t *testing.T) {
 	}
 }
 
-// TestPlaceholderCommandsNotImplemented 五个占位命令返回尚未实现的哨兵错误。
-// TestPlaceholderCommandsNotImplemented has the five placeholder commands return the not-implemented sentinel.
+// TestPlaceholderCommandsNotImplemented 尚未交付的占位命令返回尚未实现的哨兵错误。
+// TestPlaceholderCommandsNotImplemented has every still-unimplemented placeholder command return the not-implemented sentinel.
+//
+// 清单取自 notImplemented 自身的登记，因此交付某个命令的任务无需再修改本测试。 | The list comes from
+// notImplemented's own bookkeeping, so landing a command never requires editing this test.
 func TestPlaceholderCommandsNotImplemented(t *testing.T) {
-	for _, name := range []string{"build", "dev", "docker", "gen", "new"} {
+	for _, name := range placeholderNames {
 		te := newTestEnv(t, nil, "", false)
 		err := Execute(context.Background(), []string{name}, te.env)
 		if !errors.Is(err, ErrNotImplemented) {

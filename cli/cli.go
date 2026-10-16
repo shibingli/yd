@@ -398,8 +398,17 @@ func findCommand(name string) (Command, bool) {
 	return c, ok
 }
 
+// placeholderNames records the commands still backed by notImplemented, in registration order. | placeholderNames
+// 按注册顺序记录仍由 notImplemented 支撑的命令。
+//
+// The placeholder test derives its list from here, so a task that lands a real Run simply stops calling
+// notImplemented and the test follows automatically. | 占位测试从这里取清单，因此真正交付命令的任务只需
+// 不再调用 notImplemented，测试会自动跟随。
+var placeholderNames []string
+
 // notImplemented builds the Run function of a command that a later task will implement. | notImplemented 构造后续任务才会实现的命令的 Run 函数。
 func notImplemented(name string) func(context.Context, *Env) error {
+	placeholderNames = append(placeholderNames, name)
 	return func(context.Context, *Env) error {
 		return errx.Detail(ErrNotImplemented, "yd %s", name)
 	}
