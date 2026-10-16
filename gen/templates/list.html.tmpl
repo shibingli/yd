@@ -1,0 +1,44 @@
+<!-- <% .Marker %> -->
+<%/* 列表片段：数据上下文是 controller 传入的 <Name>Page。整页请求会由框架的渲染器
+     用布局包裹，htmx 请求则只拿到这一段，因此搜索与翻页都只替换本模块。<br>
+     List fragment: the data context is the <Name>Page built by the controller. A whole-page
+     request is wrapped in the layout by the framework renderer while an htmx request receives
+     this section alone, so search and paging only replace the module itself. */%>
+<section class="yd-card yd-module" id="<% .Snake %>-module" hx-target="#<% .Snake %>-module" hx-swap="outerHTML">
+  <header class="yd-module-header">
+    <h2 class="yd-title"><% .Name %></h2>
+    <div class="yd-toolbar">
+<% if .HasSearch %>      <form class="yd-search" hx-get="<% .Route %>" hx-target="#<% .Snake %>-module" hx-swap="outerHTML" hx-trigger="submit, keyup changed delay:300ms from:find input">
+        <input class="yd-input" type="search" name="q" value="{{ .Query }}" placeholder="搜索 | Search" aria-label="搜索 | Search">
+        <button class="yd-btn" type="submit">搜索 | Search</button>
+      </form>
+<% end %>      <button class="yd-btn yd-btn-primary" type="button" hx-get="<% .Route %>/new" hx-target="#<% .Snake %>-form" hx-swap="innerHTML">新建 | New</button>
+    </div>
+  </header>
+
+  <div class="yd-form-slot" id="<% .Snake %>-form"></div>
+
+  <table class="yd-table" id="<% .Snake %>-table">
+    <thead>
+      <tr>
+<% range .ListFields %>        <th class="yd-th" scope="col"><%.SafeLabel%></th>
+<% end %>        <th class="yd-th" scope="col">操作 | Actions</th>
+      </tr>
+    </thead>
+    <tbody id="<% .Snake %>-rows">
+      {{ range .Items }}{{ template "<% .Snake %>/row.html" . }}{{ end }}
+    </tbody>
+  </table>
+
+  <footer class="yd-module-footer">
+    <p class="yd-hint">共 {{ .Total }} 条，第 {{ .Page }} 页，每页 {{ .Size }} 条 | {{ .Total }} records, page {{ .Page }}, {{ .Size }} per page</p>
+    <nav class="yd-pagination">
+      {{ if .HasPrev }}
+      <a class="yd-btn" href="<% .Route %>?page={{ .PrevPage }}&amp;size={{ .Size }}{{ if .Query }}&amp;q={{ .Query }}{{ end }}" hx-get="<% .Route %>?page={{ .PrevPage }}&amp;size={{ .Size }}{{ if .Query }}&amp;q={{ .Query }}{{ end }}">上一页 | Prev</a>
+      {{ end }}
+      {{ if .HasNext }}
+      <a class="yd-btn" href="<% .Route %>?page={{ .NextPage }}&amp;size={{ .Size }}{{ if .Query }}&amp;q={{ .Query }}{{ end }}" hx-get="<% .Route %>?page={{ .NextPage }}&amp;size={{ .Size }}{{ if .Query }}&amp;q={{ .Query }}{{ end }}">下一页 | Next</a>
+      {{ end }}
+    </nav>
+  </footer>
+</section>

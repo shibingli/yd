@@ -1,0 +1,7 @@
+<!-- <% .Marker %> -->
+<%/* 字段局部片段：供手写页面复用的表单字段标记，与 form.html 完全一致。
+     渲染时数据上下文需带 Item（controller 传入的 <Name>FormData），字段从 .Item 读取。<br>
+     Shared field partial: the same form-field markup as form.html, reusable from hand-written
+     pages. The data context must carry Item (the <Name>FormData built by the controller); every
+     field is read from .Item. */%>
+<% template "fields_block.tmpl" . %>

@@ -1,0 +1,15 @@
+<%/* 该文件是生成期的共享片段模板，不是生成物：它同时被 form.html.tmpl 与 fields.html.tmpl
+     引用，从而让表单片段与 _fields.html 局部片段共用同一份字段标记。 */%>
+<%/* This file is a shared generation-time fragment, not an artifact: both form.html.tmpl and
+     fields.html.tmpl include it, so the form fragment and the _fields.html partial carry the
+     very same field markup. */%><% range .FormFields %><% $id := printf "%s-%s" $.Snake .Column %>    <div class="yd-field">
+      <label class="yd-label" for="<% $id %>"><% .SafeLabel %></label>
+<% if .IsCheckbox %>      <input class="yd-checkbox" id="<% $id %>" name="<% .Column %>" type="checkbox" value="1"{{ if .Item.<%.GoName%> }} checked{{ end }}>
+<% else if .IsTextarea %>      <textarea class="yd-textarea" id="<% $id %>" name="<% .Column %>" rows="6"<% if .Required %> required<% end %><% if gt .MaxLength 0 %> maxlength="<%.MaxLength%>"<% end %>>{{ .Item.<%.GoName%> }}</textarea>
+<% else if .IsTime %>      <input class="yd-input" id="<% $id %>" name="<% .Column %>" type="<% .InputType %>" value="{{ if .Item.<%.GoName%>.IsZero }}{{ else }}{{ .Item.<%.GoName%>.Format "<%.TimeLayout%>" }}{{ end }}"<% if .Required %> required<% end %>>
+<% else if .IsFile %>      <input class="yd-input" id="<% $id %>" name="<% .Column %>" type="file"<% if ne (.RuleValue "accept") "" %> accept="<% .RuleValue "accept" %>"<% end %>>
+      <p class="yd-hint">已保存：{{ .Item.<%.GoName%> }} | Stored: {{ .Item.<%.GoName%> }}</p>
+<% else %>      <input class="yd-input" id="<% $id %>" name="<% .Column %>" type="<% .InputType %>" value="{{ .Item.<%.GoName%> }}"<% if .Required %> required<% end %><% if gt .MaxLength 0 %> maxlength="<%.MaxLength%>"<% end %><% if and .IsNumber (ne .MinValue "") %> min="<%.MinValue%>"<% end %>>
+<% end %>      <p class="yd-hint"><%.CommentText%></p>
+    </div>
+<% end %>

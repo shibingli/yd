@@ -1,0 +1,14 @@
+<!-- <% .Marker %> -->
+<%/* 行片段：数据上下文是单条 model.<Name>。列表用它拼 tbody，详情与更新返回同一份片段，
+     因此 htmx 可以直接把响应换进表格行。<br>
+     Row fragment: the data context is one model.<Name>. The list uses it to build the tbody,
+     and the detail and update handlers return the very same fragment, so htmx can swap the
+     response straight into a table row. */%>
+<tr class="yd-row" id="<% .Snake %>-{{ .<%.Primary.GoName%> }}">
+<% range .ListFields %><% if .IsTime %>  <td class="yd-cell">{{ if .<%.GoName%>.IsZero }}-{{ else }}{{ .<%.GoName%>.Format "<%.TimeLayout%>" }}{{ end }}</td>
+<% else %>  <td class="yd-cell">{{ .<%.GoName%> }}</td>
+<% end %><% end %>  <td class="yd-cell yd-row-actions">
+    <button class="yd-btn" type="button" hx-get="<% .Route %>/{{ .<%.Primary.GoName%> }}/edit" hx-target="#<% .Snake %>-form" hx-swap="innerHTML">编辑 | Edit</button>
+    <button class="yd-btn yd-btn-danger" type="button" hx-delete="<% .Route %>/{{ .<%.Primary.GoName%> }}" hx-target="#<% .Snake %>-{{ .<%.Primary.GoName%> }}" hx-swap="delete" hx-confirm="删除这条<% .Name %>记录？| Delete this <% .Snake %> record?">删除 | Delete</button>
+  </td>
+</tr>

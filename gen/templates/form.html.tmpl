@@ -1,0 +1,16 @@
+<!-- <% .Marker %> -->
+<%/* 表单片段：既可独立渲染（htmx 拉取），也可与 _fields.html 共享字段标记。
+     数据上下文是 controller 传入的 <Name>FormData，字段标记统一读取 .Item。<br>
+     Form fragment: rendered standalone (fetched by htmx) while sharing its field markup with
+     _fields.html. The data context is the <Name>FormData built by the controller, and the field
+     markup always reads .Item. */%>
+<section class="yd-card yd-form-panel" id="<% .Snake %>-form-panel">
+  <h3 class="yd-subtitle">{{ .Heading }} <% .Name %></h3>
+  <div class="yd-form-error-slot" id="<% .Snake %>-form-error"></div>
+  <form class="yd-form" {{ if eq .Method "put" }}hx-put{{ else }}hx-post{{ end }}="{{ .Action }}" hx-target="{{ .Target }}" hx-swap="{{ .Swap }}"<% if .HasFile %> enctype="multipart/form-data"<% end %>>
+<% template "fields_block.tmpl" . %>    <div class="yd-form-actions">
+      <button class="yd-btn yd-btn-primary" type="submit">保存 | Save</button>
+      <button class="yd-btn" type="reset">重置 | Reset</button>
+    </div>
+  </form>
+</section>
