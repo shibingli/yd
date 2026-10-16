@@ -8,10 +8,8 @@ import (
 	"os/exec"
 	"path"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"sync"
-	"syscall"
 	"time"
 
 	"github.com/shibingli/yd/errx"
@@ -31,9 +29,6 @@ const devTopic = "yd.dev.reload"
 
 // devHeartbeat is the SSE keep-alive interval of the reload endpoint. | devHeartbeat 是热重载端点的 SSE 保活间隔。
 const devHeartbeat = 15 * time.Second
-
-// childGracePeriod is how long a child may take to exit before it is killed. | childGracePeriod 是子进程被强杀前允许的退出时间。
-const childGracePeriod = 3 * time.Second
 
 // EnvDev and EnvDevPort are injected into the child process. | EnvDev 与 EnvDevPort 会被注入子进程。
 const (
@@ -118,15 +113,10 @@ const (
 	kindWeb changeKind = "web"
 )
 
-// childProc tracks one running child process. | childProc 追踪一个运行中的子进程。
-type childProc struct {
-	cmd  *exec.Cmd
-	done chan struct{}
-}
-
 // DevRunner drives the `yd dev` loop: initial build, child process, watcher and reload endpoint. | DevRunner 驱动 `yd dev` 主循环：首次构建、子进程、监听器与热重载端点。
 //
 // Run owns every goroutine it starts and terminates them before returning; the caller stops the loop by cancelling the context it passed in, which is the Ctrl+C equivalent. | Run 负责它启动的所有 goroutine，并在返回前终止它们；调用方通过取消传入的上下文来停止循环，这正是 Ctrl+C 的等价物。
+// The child process is reaped on every exit path of Run, including panics, so a failed or interrupted dev session never leaves an orphan behind. | 无论 Run 以哪条路径退出（包括 panic），子进程都会被回收，因此失败或中断的开发会话不会留下孤儿进程。
 type DevRunner struct {
 	out io.Writer
 	log *logx.Logger
@@ -139,6 +129,7 @@ type DevRunner struct {
 	opts     DevOptions
 	starts   int
 	restarts int
+	reaped   int
 	closeOne sync.Once
 
 	mu      sync.Mutex
@@ -200,11 +191,14 @@ func NewDevRunner(o DevOptions) (*DevRunner, error) {
 // Run builds, starts and watches until ctx is cancelled. | Run 构建、启动并监听，直到 ctx 被取消。
 //
 // It returns nil on a graceful shutdown. | 优雅退出时返回 nil。
+// Every exit path reaps the child: a normal return, an error return and a panic all pass through the deferred stopChild, which signals the child, kills it after the grace period and waits for its reaper. | 每条退出路径都会回收子进程：普通返回、错误返回与 panic 都会经过延迟的 stopChild——它先发信号，超宽限期后强杀，并等待回收 goroutine 收尸。
 func (r *DevRunner) Run(ctx context.Context) error {
 	if !r.begin() {
 		return errx.Detail(ErrDevRunning, "Run called while already running | Run 在运行中被重复调用")
 	}
+	// 延迟调用后进先出：先停子进程，再释放运行标记。 | Defers run last-in-first-out: the child is stopped first, the running flag is released after.
 	defer r.finish()
+	defer r.stopChild()
 
 	if !r.opts.NoTailwind {
 		r.buildCSS(ctx)
@@ -220,13 +214,11 @@ func (r *DevRunner) Run(ctx context.Context) error {
 	if r.opts.NoWatch {
 		r.log.Info("dev: file watching disabled | dev: 已关闭文件监听", logx.Str("dir", r.opts.Dir))
 		<-ctx.Done()
-		r.stopChild()
 		return nil
 	}
 
 	w, err := NewWatcher(WatchOptions{Roots: r.opts.Roots, Ignore: r.opts.Ignore, Debounce: r.opts.Debounce})
 	if err != nil {
-		r.stopChild()
 		return err
 	}
 	r.setWatcher(w)
@@ -241,11 +233,9 @@ func (r *DevRunner) Run(ctx context.Context) error {
 		select {
 		case <-ctx.Done():
 			r.log.Info("dev: shutting down | dev: 正在退出")
-			r.stopChild()
 			return nil
 		case ev, ok := <-w.Events():
 			if !ok {
-				r.stopChild()
 				return nil
 			}
 			r.handle(ctx, ev)
@@ -278,6 +268,27 @@ func (r *DevRunner) Restarts() int {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	return r.restarts
+}
+
+// ChildPID returns the PID of the child the runner currently tracks, or 0 when there is none. | ChildPID 返回运行器当前追踪的子进程 PID，没有子进程时返回 0。
+//
+// It is the observable handle behind the leak guards: a PID that is still reported after Run returned is a child that was never reaped. | 它是泄漏守卫所依赖的可观测句柄：Run 返回后仍被报告的 PID 就是一个从未被回收的子进程。
+func (r *DevRunner) ChildPID() int {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.child == nil {
+		return 0
+	}
+	return r.child.pid
+}
+
+// Reaped returns how many child processes have been reaped by Wait so far. | Reaped 返回迄今为止已被 Wait 收尸的子进程数量。
+//
+// Together with Starts it states the invariant the leak guards assert: after Run returned, Starts and Reaped are equal. | 它与 Starts 一起构成泄漏守卫断言的不变式：Run 返回后 Starts 与 Reaped 相等。
+func (r *DevRunner) Reaped() int {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.reaped
 }
 
 // SubscribeReload subscribes to the reload payloads for process-local hosts. | SubscribeReload 供进程内的宿主订阅刷新负载。
@@ -366,83 +377,6 @@ func (r *DevRunner) absPath(p string) string {
 		return p
 	}
 	return filepath.Join(r.opts.Dir, p)
-}
-
-// startChild launches the compiled binary and forwards its output. | startChild 启动编译产物并转发其输出。
-func (r *DevRunner) startChild(ctx context.Context, bin string) error {
-	cmd := r.opts.Command(ctx, bin, r.opts.AppArgs...)
-	cmd.Dir = r.opts.Dir
-	cmd.Stdout = r.out
-	cmd.Stderr = r.out
-	cmd.Env = childEnv(cmd, r.opts.Port)
-	if err := cmd.Start(); err != nil {
-		return errx.WrapDetail(err, ErrChildStart, "exec %s | 启动 %s", bin, bin)
-	}
-
-	proc := &childProc{cmd: cmd, done: make(chan struct{})}
-	pid := cmd.Process.Pid
-	r.mu.Lock()
-	r.child = proc
-	r.starts++
-	r.mu.Unlock()
-	r.log.Info("dev: child started | dev: 子进程已启动",
-		logx.Str("bin", bin), logx.Int("pid", pid), logx.Int("port", r.opts.Port))
-	go r.waitChild(proc)
-	return nil
-}
-
-// childEnv adds the dev markers to the environment the child inherits. | childEnv 在子进程继承的环境上追加开发标记。
-func childEnv(cmd *exec.Cmd, port int) []string {
-	env := cmd.Environ()
-	env = append(env, EnvDev+"=1")
-	if port > 0 {
-		env = append(env, EnvDevPort+"="+strconv.Itoa(port))
-	}
-	return env
-}
-
-// waitChild reaps a child and reports its exit. | waitChild 回收子进程并上报其退出。
-func (r *DevRunner) waitChild(p *childProc) {
-	err := p.cmd.Wait()
-	pid := 0
-	if p.cmd.Process != nil {
-		pid = p.cmd.Process.Pid
-	}
-	close(p.done)
-	if r.opts.OnChildExit != nil {
-		r.opts.OnChildExit(pid, err)
-	}
-	if err != nil {
-		r.log.Debug("dev: child exited | dev: 子进程已退出", logx.Int("pid", pid), logx.Err(err))
-		return
-	}
-	r.log.Info("dev: child exited cleanly | dev: 子进程正常退出", logx.Int("pid", pid))
-}
-
-// stopChild terminates the running child, politely first and forcibly after the grace period. | stopChild 终止运行中的子进程：先请求优雅退出，超过宽限期后强制结束。
-func (r *DevRunner) stopChild() {
-	r.mu.Lock()
-	p := r.child
-	r.child = nil
-	r.mu.Unlock()
-	if p == nil || p.cmd.Process == nil {
-		return
-	}
-	pid := p.cmd.Process.Pid
-	// Windows 不支持 SIGTERM，Signal 返回错误即直接强杀。 | Windows has no SIGTERM; a Signal error means killing right away.
-	if err := p.cmd.Process.Signal(syscall.SIGTERM); err != nil {
-		_ = p.cmd.Process.Kill()
-	}
-	select {
-	case <-p.done:
-	case <-time.After(childGracePeriod):
-		_ = p.cmd.Process.Kill()
-		select {
-		case <-p.done:
-		case <-time.After(childGracePeriod):
-		}
-	}
-	r.log.Info("dev: child stopped | dev: 子进程已停止", logx.Int("pid", pid))
 }
 
 // restart optionally rebuilds and then replaces the child process. | restart 可选地重新编译，然后替换子进程。

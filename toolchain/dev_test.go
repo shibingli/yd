@@ -24,6 +24,11 @@ const (
 	devHelperMarkerEnv = "YD_DEV_HELPER_MARKER"
 )
 
+// devHelperMaxLifetime bounds how long the helper blocks before exiting on its own. | devHelperMaxLifetime 限定辅助进程在自行退出之前阻塞的最长时间。
+//
+// The bound is a safety net: a bug in the reaping path or in a guard can then only orphan the helper for a while instead of forever. | 该上限是一张安全网：回收路径或守卫自身出现缺陷时，辅助进程最多只会短暂成为孤儿，而不是永远。
+const devHelperMaxLifetime = 2 * time.Minute
+
 // TestDevHelperChildProcess is started as a real child process by DevRunner; it skips itself in a normal run. | TestDevHelperChildProcess 被 DevRunner 以真实子进程方式启动；普通测试运行时直接跳过。
 func TestDevHelperChildProcess(t *testing.T) {
 	if os.Getenv(devHelperEnv) != "1" {
@@ -38,8 +43,9 @@ func TestDevHelperChildProcess(t *testing.T) {
 	}
 	// This line verifies that the child stdout is forwarded. | 这行输出用于验证子进程 stdout 被转发。
 	_, _ = os.Stdout.WriteString("dev-helper-started\n")
-	// Block until the parent terminates this process. | 阻塞直到父进程终止自己。
-	for {
+	// Block until the parent terminates this process, or until the safety-net lifetime expires. | 阻塞直到父进程终止自己，或直到安全网上限到期。
+	deadline := time.Now().Add(devHelperMaxLifetime)
+	for time.Now().Before(deadline) {
 		time.Sleep(100 * time.Millisecond)
 	}
 }
@@ -72,6 +78,7 @@ type devHarness struct {
 	mu      sync.Mutex
 	cmds    []*exec.Cmd
 	exited  map[int]bool
+	dir     string
 	marker  string
 	factory CommandFunc
 }
@@ -99,6 +106,17 @@ func (h *devHarness) exitCount() int {
 	return len(h.exited)
 }
 
+// exitedPIDs returns a snapshot of the PIDs whose exit the callback reported. | exitedPIDs 返回回调已上报过退出的 PID 快照。
+func (h *devHarness) exitedPIDs() []int {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	out := make([]int, 0, len(h.exited))
+	for pid := range h.exited {
+		out = append(out, pid)
+	}
+	return out
+}
+
 // newDevHarness builds a child process factory that does not depend on the real Go toolchain. | newDevHarness 构造一个不依赖真实 Go 工具链的子进程工厂。
 func newDevHarness(t *testing.T, dir string) *devHarness {
 	t.Helper()
@@ -106,7 +124,7 @@ func newDevHarness(t *testing.T, dir string) *devHarness {
 	if err != nil {
 		t.Fatalf("取测试二进制路径失败 | os.Executable: %v", err)
 	}
-	h := &devHarness{exited: map[int]bool{}, marker: filepath.Join(dir, "child.log")}
+	h := &devHarness{exited: map[int]bool{}, dir: dir, marker: filepath.Join(dir, "child.log")}
 	h.factory = func(ctx context.Context, name string, args ...string) *exec.Cmd {
 		cmd := exec.Command(exe, "-test.run=^TestDevHelperChildProcess$")
 		cmd.Env = append(os.Environ(), devHelperEnv+"=1", devHelperMarkerEnv+"="+h.marker)
@@ -123,6 +141,49 @@ func (h *devHarness) onExit(pid int, _ error) {
 	h.mu.Lock()
 	h.exited[pid] = true
 	h.mu.Unlock()
+}
+
+// newRunner builds a runner for one scenario and registers the cleanup that reaps every child which outlived Run. | newRunner 为一个场景构建运行器，并登记清理：回收所有比 Run 活得更久的子进程。
+//
+// The cleanup is registered before any session cleanup, so cleanups run in the right order: the session stops Run first, the harness reaps afterwards. | 该清理比任何会话清理登记得更早，因此清理顺序正确：会话先停掉 Run，随后由测试夹具回收。
+func (h *devHarness) newRunner(t *testing.T, out io.Writer, mutate func(*DevOptions)) *DevRunner {
+	t.Helper()
+	r, err := NewDevRunner(h.devOptions(h.dir, out, mutate))
+	if err != nil {
+		t.Fatalf("NewDevRunner 返回错误 | NewDevRunner: %v", err)
+	}
+	t.Cleanup(func() { h.reapLeftovers(t, r) })
+	return r
+}
+
+// reapLeftovers kills any child that outlived Run and reports it as a test failure. | reapLeftovers 终止一切比 Run 活得更久的子进程，并将其上报为测试失败。
+//
+// It runs even when the test body failed, which is what keeps a failing assertion or a t.Fatal from turning into an orphan process. | 即使测试主体失败它也会运行，从而避免断言失败或 t.Fatal 变成孤儿进程。
+func (h *devHarness) reapLeftovers(t *testing.T, r *DevRunner) {
+	t.Helper()
+	if pid := r.ChildPID(); pid > 0 {
+		t.Errorf("Run 返回后仍追踪着子进程 %d | Run still tracks child %d after returning", pid, pid)
+		killAndWait(pid)
+	}
+	// 回调报告过退出的 PID 必须真的从系统进程表中消失。 | A PID the callback reported as reaped must really be gone from the system process table.
+	for _, pid := range h.exitedPIDs() {
+		if !ProcessAlive(pid) {
+			continue
+		}
+		t.Errorf("子进程 %d 已被回调上报退出但仍在运行 | child %d was reported reaped but is still running", pid, pid)
+		killAndWait(pid)
+	}
+}
+
+// killAndWait terminates one leftover child process and waits for the system to stop seeing it. | killAndWait 终止一个残留子进程，并等待系统不再看到它。
+//
+// os.FindProcess is only used here as a handle to a process this test started, never as a liveness check. | 这里只把 os.FindProcess 当作本测试所启动进程的句柄，绝不把它当作存活判断。
+func killAndWait(pid int) {
+	p, err := os.FindProcess(pid)
+	if err == nil {
+		_ = p.Kill()
+	}
+	_ = waitGone(pid, 10*time.Second)
 }
 
 // devOptions assembles a dev configuration backed by a fake builder and a fake child. | devOptions 组装一份使用假构建器与假子进程的开发配置。
@@ -143,28 +204,98 @@ func (h *devHarness) devOptions(dir string, out io.Writer, mutate func(*DevOptio
 	return o
 }
 
+// devRun owns one Run call: its cleanup cancels the context and waits for Run to return, so the test binary can never exit while a child is still being reaped. | devRun 掌管一次 Run 调用：清理时取消上下文并等待 Run 返回，因此测试二进制绝不会在子进程仍待回收时退出。
+type devRun struct {
+	runner   *DevRunner
+	cancel   context.CancelFunc
+	done     chan struct{}
+	err      error
+	panicV   any
+	panicked bool
+	allow    bool
+}
+
+// startDevRun launches Run in the background and registers the cleanup that stops it. | startDevRun 在后台启动 Run，并登记停止它的清理。
+//
+// The panic recovery exists so that a panicking Run fails only its own test instead of killing the whole test binary. | panic 恢复的存在，使 panic 的 Run 只让本测试失败，而不会杀死整个测试二进制。
+func startDevRun(t *testing.T, r *DevRunner) *devRun {
+	t.Helper()
+	ctx, cancel := context.WithCancel(context.Background())
+	s := &devRun{runner: r, cancel: cancel, done: make(chan struct{})}
+	go func() {
+		defer close(s.done)
+		defer func() {
+			if v := recover(); v != nil {
+				s.panicV, s.panicked = v, true
+			}
+		}()
+		s.err = r.Run(ctx)
+	}()
+	t.Cleanup(func() { s.cleanup(t) })
+	return s
+}
+
+// expectPanic marks the panic of this session as expected, so cleanup does not report it. | expectPanic 把本会话的 panic 标记为预期，清理时不再上报。
+func (s *devRun) expectPanic() { s.allow = true }
+
+// stop cancels the context, waits for Run to return and reports its error. | stop 取消上下文、等待 Run 返回并报告其错误。
+func (s *devRun) stop(t *testing.T) error {
+	t.Helper()
+	s.cancel()
+	s.wait(t, 30*time.Second)
+	return s.err
+}
+
+// wait blocks until Run returned. | wait 阻塞直到 Run 返回。
+func (s *devRun) wait(t *testing.T, timeout time.Duration) {
+	t.Helper()
+	select {
+	case <-s.done:
+	case <-time.After(timeout):
+		t.Fatalf("等待超时：Run 未返回 | timed out waiting for Run to return")
+	}
+}
+
+// panicValue waits for Run to finish unwinding and returns the recovered panic value. | panicValue 等待 Run 完成栈展开并返回恢复到的 panic 值。
+func (s *devRun) panicValue(t *testing.T) any {
+	t.Helper()
+	s.wait(t, 30*time.Second)
+	return s.panicV
+}
+
+// cleanup is the t.Cleanup body: it always stops Run and reports an unexpected panic without aborting the remaining cleanups. | cleanup 是 t.Cleanup 的主体：它总是停掉 Run，并在出现未预期 panic 时上报而不中断后续清理。
+func (s *devRun) cleanup(t *testing.T) {
+	t.Helper()
+	s.cancel()
+	select {
+	case <-s.done:
+	case <-time.After(30 * time.Second):
+		t.Errorf("清理超时：Run 未返回 | cleanup timed out waiting for Run to return")
+		return
+	}
+	if s.panicked && !s.allow {
+		t.Errorf("Run 发生了未预期的 panic：%v | Run panicked unexpectedly: %v", s.panicV, s.panicV)
+	}
+}
+
+// waitChildPID waits until the runner tracks a running child and returns its PID. | waitChildPID 等待运行器追踪到运行中的子进程并返回其 PID。
+func waitChildPID(t *testing.T, r *DevRunner) int {
+	t.Helper()
+	waitFor(t, 15*time.Second, "子进程 PID 可观测 | an observable child PID", func() bool { return r.ChildPID() > 0 })
+	return r.ChildPID()
+}
+
 func TestDevRestartsChildOnGoChange(t *testing.T) {
 	dir := t.TempDir()
 	h := newDevHarness(t, dir)
 	out := &syncBuffer{}
-	r, err := NewDevRunner(h.devOptions(dir, out, nil))
-	if err != nil {
-		t.Fatalf("NewDevRunner 返回错误 | NewDevRunner: %v", err)
-	}
-
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	done := make(chan error, 1)
-	go func() { done <- r.Run(ctx) }()
+	r := h.newRunner(t, out, nil)
+	s := startDevRun(t, r)
 
 	waitFor(t, 10*time.Second, "首次启动子进程 | the first child start", func() bool { return r.Starts() == 1 })
 	waitFor(t, 10*time.Second, "子进程启动标记 | the child start marker", func() bool { return markerHas(h.marker, "start") })
 
-	first := h.started()[0]
-	if first.Process == nil {
-		t.Fatal("子进程未真正启动 | the child process was never started")
-	}
-	firstPID := first.Process.Pid
+	firstPID := waitChildPID(t, r)
 
 	// Touch a Go source file → a rebuild and a child restart are expected. | 修改 Go 源文件 → 期望重新编译并重启子进程。
 	writeFile(t, filepath.Join(dir, "main.go"), "package main\n\nfunc main() {}\n")
@@ -185,20 +316,18 @@ func TestDevRestartsChildOnGoChange(t *testing.T) {
 	}
 
 	// The Ctrl+C equivalent: cancel the context → Run returns gracefully and terminates the child. | 等价于 Ctrl+C：取消上下文 → Run 优雅返回并终止子进程。
-	cancel()
-	select {
-	case err := <-done:
-		if err != nil {
-			t.Fatalf("Run 返回错误 | Run: %v", err)
-		}
-	case <-time.After(15 * time.Second):
-		t.Fatal("取消后 Run 未返回 | Run did not return after cancel")
+	if err := s.stop(t); err != nil {
+		t.Fatalf("Run 返回错误 | Run: %v", err)
 	}
 
 	// No child may survive the shutdown. | 退出后必须没有存活的子进程。
 	waitFor(t, 15*time.Second, "退出时终止全部子进程 | every child being terminated on shutdown", func() bool {
 		return h.exitCount() == 2 && h.hasExited(startedPID(h.started(), 1))
 	})
+	// Run must not return while it still holds a child. | Run 不得在仍持有子进程时返回。
+	if pid := r.ChildPID(); pid != 0 {
+		t.Errorf("Run 返回后仍追踪着子进程 %d | Run still tracks child %d after returning", pid, pid)
+	}
 }
 
 // startedPID returns the PID of the i-th launched child, or -1 when out of range. | startedPID 返回第 i 次启动的子进程 PID，越界返回 -1。
@@ -228,20 +357,14 @@ func TestDevReloadEndpointOnlyInDevMode(t *testing.T) {
 	h := newDevHarness(t, dir)
 
 	t.Run("关闭热重载时端点不存在 | the endpoint is absent when reload is off", func(t *testing.T) {
-		r, err := NewDevRunner(h.devOptions(dir, io.Discard, func(o *DevOptions) {
+		r := h.newRunner(t, io.Discard, func(o *DevOptions) {
 			o.NoReload = true
 			o.NoWatch = true
-		}))
-		if err != nil {
-			t.Fatalf("NewDevRunner 返回错误 | NewDevRunner: %v", err)
-		}
+		})
 		if r.ReloadEnabled() {
 			t.Fatal("关闭热重载后 ReloadEnabled 仍为 true | ReloadEnabled is still true")
 		}
-		ctx, cancel := context.WithCancel(context.Background())
-		defer cancel()
-		done := make(chan error, 1)
-		go func() { done <- r.Run(ctx) }()
+		s := startDevRun(t, r)
 		waitFor(t, 15*time.Second, "启动子进程 | the child start", func() bool { return r.Starts() == 1 })
 
 		srv := httptest.NewServer(r.Handler())
@@ -254,22 +377,17 @@ func TestDevReloadEndpointOnlyInDevMode(t *testing.T) {
 		if resp.StatusCode != http.StatusNotFound {
 			t.Fatalf("状态码 = %d，期望 404 | want 404", resp.StatusCode)
 		}
-		cancel()
-		<-done
+		if err := s.stop(t); err != nil {
+			t.Fatalf("Run 返回错误 | Run: %v", err)
+		}
 	})
 
 	t.Run("开启热重载时推送 reload 事件 | reload events are pushed when enabled", func(t *testing.T) {
-		r, err := NewDevRunner(h.devOptions(dir, io.Discard, nil))
-		if err != nil {
-			t.Fatalf("NewDevRunner 返回错误 | NewDevRunner: %v", err)
-		}
+		r := h.newRunner(t, io.Discard, nil)
 		if !r.ReloadEnabled() {
 			t.Fatal("开发模式下 ReloadEnabled 为 false | ReloadEnabled is false in dev mode")
 		}
-		ctx, cancel := context.WithCancel(context.Background())
-		defer cancel()
-		done := make(chan error, 1)
-		go func() { done <- r.Run(ctx) }()
+		s := startDevRun(t, r)
 		waitFor(t, 15*time.Second, "启动子进程 | the child start", func() bool { return r.Starts() == 1 })
 
 		srv := httptest.NewServer(r.Handler())
@@ -331,14 +449,8 @@ func TestDevReloadEndpointOnlyInDevMode(t *testing.T) {
 			}
 		}
 
-		cancel()
-		select {
-		case err := <-done:
-			if err != nil {
-				t.Fatalf("Run 返回错误 | Run: %v", err)
-			}
-		case <-time.After(15 * time.Second):
-			t.Fatal("取消后 Run 未返回 | Run did not return after cancel")
+		if err := s.stop(t); err != nil {
+			t.Fatalf("Run 返回错误 | Run: %v", err)
 		}
 	})
 }
@@ -358,19 +470,16 @@ func TestDevRunnerValidation(t *testing.T) {
 	t.Run("重复运行返回哨兵 | running twice returns the sentinel", func(t *testing.T) {
 		dir := t.TempDir()
 		h := newDevHarness(t, dir)
-		r, err := NewDevRunner(h.devOptions(dir, io.Discard, func(o *DevOptions) { o.NoWatch = true }))
-		if err != nil {
-			t.Fatalf("NewDevRunner 返回错误 | NewDevRunner: %v", err)
-		}
-		ctx, cancel := context.WithCancel(context.Background())
-		defer cancel()
-		go func() { _ = r.Run(ctx) }()
+		r := h.newRunner(t, io.Discard, func(o *DevOptions) { o.NoWatch = true })
+		s := startDevRun(t, r)
 		waitFor(t, 15*time.Second, "启动子进程 | the child start", func() bool { return r.Starts() == 1 })
 
-		if err := r.Run(ctx); err == nil {
+		if err := r.Run(context.Background()); err == nil {
 			t.Fatal("重复 Run 未返回错误 | a second Run returned no error")
 		}
-		cancel()
+		if err := s.stop(t); err != nil {
+			t.Fatalf("Run 返回错误 | Run: %v", err)
+		}
 	})
 }
 
