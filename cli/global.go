@@ -147,3 +147,19 @@ func flagStrings(fs *pflag.FlagSet, name string) []string {
 	}
 	return v
 }
+
+// flagStringSlice reads a comma-separated repeatable string flag, returning nil when it is absent or
+// of another type. It is the sibling of flagStrings for pflag.StringSlice flags, which GetStringArray
+// deliberately refuses; one entry may itself hold a list, e.g. --platforms linux/amd64,linux/arm64. | flagStringSlice
+// 读取逗号分隔的可重复字符串标志，标志缺失或类型不符时返回 nil。它是 flagStrings 在 pflag.StringSlice 标志上的
+// 对应物——GetStringArray 有意不接受该类型；单项内部可以自带列表，例如 --platforms linux/amd64,linux/arm64。
+func flagStringSlice(fs *pflag.FlagSet, name string) []string {
+	if fs == nil || fs.Lookup(name) == nil {
+		return nil
+	}
+	v, err := fs.GetStringSlice(name)
+	if err != nil {
+		return nil
+	}
+	return v
+}

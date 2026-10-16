@@ -38,7 +38,15 @@ cd myapp
 yd dev        # 热重载开发：Go 自动编译重启 + Tailwind 监听 + 模板局部刷新
 yd gen crud user --fields "name:string,age:int"
 yd build      # 跨平台静态打包 → 单文件无依赖二进制
-yd docker     # 基于 scratch 的生产镜像（约十几 MB）
+
+# 镜像打包：两条并列路径，产物一致（CGO_ENABLED=0 静态链接，约十几 MB）
+yd docker     # 走 Dockerfile 多阶段构建（golang → scratch）
+yd ko         # 无 Dockerfile：ko 从 Go 源码直出镜像（可选外部工具，不进 go.mod）
+yd ko --repo registry.example.com/myapp --tags v1.0.0 \
+      --platforms linux/amd64,linux/arm64 --push   # 多平台 + 推送
+
+# 服务化：安装为 Windows 服务 / systemd / launchd，停止时走优雅退出
+yd service install --name myapp
 
 # 前端依赖治理：在线更新 + 离线独立使用
 yd assets update          # 拉取并锁定 sha256（不匹配即拒绝写入）
