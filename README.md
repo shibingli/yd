@@ -35,6 +35,10 @@ yd dev        # 热重载开发：Go 自动编译重启 + Tailwind 监听 + 模�
 yd gen crud user --fields "name:string,age:int"
 yd build      # 跨平台静态打包 → 单文件无依赖二进制
 yd docker     # 基于 scratch 的生产镜像（约十几 MB）
+
+# 前端依赖治理：在线更新 + 离线独立使用
+yd assets update          # 拉取并锁定 sha256（不匹配即拒绝写入）
+yd assets verify --offline  # 离线校验，绝不触网
 ```
 
 ## 架构一览
@@ -69,23 +73,42 @@ yd dev --port 7070          # 命令行最高优先级
 
 ## 目录结构
 
+### 框架库
+
+```
+config/        分层配置引擎（viper + pflag + .env，前缀 YD_）
+afs/           afero 抽象文件系统门面（OS / MemFS / go:embed）
+jsonx/ b64x/   硬件自适应 JSON / Base64（sonic+base64x ↔ go-json+stdlib，构建标签分流）
+logx/          零拷贝结构化日志（sync.Pool 字节缓冲直写 io.Writer）
+errx/          声明式哨兵错误原语（禁止 fmt.Errorf 的统一替代）
+router/        自研基数树路由（单段内混合参数与静态后缀捕获）
+render/        模板引擎（afero 模板集 · Dev 免缓存 · asset/dict/json/hx）
+htmx/          Htmx 4 服务端辅助（HX-* 响应头 · hx-partial · OOB）
+sse/ ws/       W3C 事件流广播 · RFC6455 WebSocket（自研握手与帧编解码）
+jwt/           免反射 JWT（claims 扫描零分配，拒绝 alg:none 与算法混淆）
+guomi/         国密 SM2/SM3/SM4（纯 Go；SM2 KDF 与 C1C3C2 按 GB/T 32918.4 实现）
+middleware/    Recover · RequestID · AccessLog · CORS · RateLimit · gzip/br/zstd 协商
+i18n/          YAML/TOML/JSON 目录 + Accept-Language q 值协商
+openapi/       OpenAPI 3.0 文档（源码注解解析 + 路由树合并 + 零 CDN 查看器）
+server/        HTTP/1.1 + H2C + HTTP/3(QUIC) + ACME + 优雅退出
+grpcx/         gRPC 双通道（同端口按内容类型分流）
+data/          gormx（PrepareStmt + 慢查询打点）· redisx（泛型缓存装饰器）· asynqx（加权队列）
+app/           应用门面（路由/渲染/服务容器/优雅退出）
+web/           内嵌前端资产（templates/ · static/ · assets.lock.json）
+```
+
+### 脚手架能力
+
 ```
 cmd/yd/        CLI 入口
-config/        分层配置引擎（viper + pflag + .env）
-afs/           afero 抽象文件系统门面
-jsonx/ b64x/   硬件自适应 JSON / Base64（构建标签分流）
-logx/          零拷贝日志
-router/        基数树路由（部分路径与后缀混合匹配）
-render/ htmx/  模板引擎与 Htmx 4 服务端辅助
-sse/ ws/       SSE 流与 RFC6455 WebSocket
-jwt/ guomi/    免反射 JWT 与国密套件
-middleware/    压缩 · CORS · 限流 · i18n · 访问日志
-openapi/       OpenAPI 3.0 文档与内置查看器
-server/ grpcx/ HTTP/1.1+H2C+HTTP/3+ACME 与 gRPC 双通道
-data/          GORM · Redis · asynq 插件
-app/           应用门面
-web/           内嵌前端资产（templates/ static/ assets.lock.json）
-scaffold/ gen/ build/ docker/ assets/ toolchain/  脚手架能力
+cli/           命令实现：new · dev · gen · build · docker · assets
+scaffold/      yd new 的项目模板（golang-standards 布局 + 治理文件）
+gen/           低代码生成器（DB Schema / Go Struct → 路由 · 控制器 · htmx 模板）
+toolchain/     Tailwind 二进制解析与 CSS 构建 · 文件监听（抖动合并）
+build/         跨平台静态打包（版本注入 · go:embed · 离线 vendor 模式）
+docker/        scratch 多阶段镜像构建
+assets/        前端依赖在线更新 + sha256 锁定 + 离线校验
+e2e/           端到端验收（-tags e2e）
 ```
 
 ## 许可
