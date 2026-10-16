@@ -59,11 +59,11 @@ yd docker     # 基于 scratch 的生产镜像（约十几 MB）
 
 ## 配置优先级
 
-命令行参数（pflag） > 环境变量（`YUNGO_` 前缀，含 `.env`） > 配置文件（YAML/TOML/JSON） > 框架默认值
+命令行参数（pflag） > 环境变量（`YD_` 前缀，含 `.env`） > 配置文件（YAML/TOML/JSON） > 框架默认值
 
 ```bash
-YUNGO_DB_MAXCONN=200        # → db.maxconn
-YUNGO_SERVER_PORT=9090      # → server.port
+YD_DB_MAXCONN=200           # → db.maxconn
+YD_SERVER_PORT=9090         # → server.port
 yd dev --port 7070          # 命令行最高优先级
 ```
 

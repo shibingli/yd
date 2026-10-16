@@ -53,11 +53,33 @@
 - [ ] **依赖白名单**：新增依赖须为活跃维护的纯 Go 库，且无已知高危 CVE；不得引入运行时 CDN。
 - [ ] **注入面**：SQL 只允许通过 GORM 参数化查询；模板输出默认走 `html/template` 转义，使用 `template.HTML` 必须写明可信来源。
 - [ ] **请求边界**：外部输入必须限长（WebSocket `MaxMessageSize`、请求体 `MaxBytesReader`），并设置读写超时。
+- [ ] **JSON/Base64 统一走封装层**：全仓禁止 `import "encoding/json"` 与 `import "encoding/base64"`，
+      一律使用 `github.com/yun-dev/yd/jsonx` 与 `github.com/yun-dev/yd/b64x`。
+      自检：`grep -rn '"encoding/json"\|"encoding/base64"' --include=*.go .` 无命中。
 - [ ] **敏感日志**：访问日志与慢查询日志不得输出口令、Token、密钥明文；使用 `logger.ParamsFilter` 屏蔽。
 - [ ] **CORS**：`AllowCredentials=true` 时禁止回显 `*`。
 - [ ] **资产完整性**：`web/assets.lock.json` 中每项必须有 sha256，且 `yd assets verify --offline` 通过。
 
-## 4. 交付物要求
+## 4. 提交纪律（强制，Agent 必须遵守）
+
+- **提交信息一律使用中文 Conventional Commits**，格式：
+  ```
+  <类型>(<范围>): <中文简述>
+
+  <可选正文>
+
+  Co-Authored-By: Eric Shi <shibingli@sina.com>
+  ```
+- **署名口径唯一**：本仓所有提交一律使用 `Co-Authored-By: Eric Shi <shibingli@sina.com>`，
+  不得替换、不得省略、不得追加其他署名。
+- **严禁任何 Claude / Anthropic / AI 相关内容**出现在提交信息、作者信息、脚注、
+  分支名、PR 描述、代码注释与文档中（含 `Claude`、`claude`、`Anthropic`、
+  `noreply@anthropic.com`、`Generated with Claude Code`、`🤖` 等）。
+  提交前自检：`git log -1 --format=%B | grep -iE 'claude|anthropic'` 必须无输出。
+- Agent 在自动化流程中创建提交时，必须先设置作者身份：
+  `git -c user.name="Eric Shi" -c user.email="shibingli@sina.com" commit ...`
+
+## 5. 交付物要求
 
 - 每个功能变更须包含：实现 + 单元测试 + （如涉及用户可见行为）`docs/` 下的说明更新。
 - 新增包须在包文档注释中说明其职责边界与不做什么。

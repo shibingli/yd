@@ -64,7 +64,28 @@ web/templates/
 - **完整性校验**：静态资产与本地缓存凭证通过 `ydGuomi.verifyIntegrity(url, expectSm3Hex)` 做 SM3 摘要比对。
 - **口令**：后端仅存 `guomi.HashPassword`（SM3 + 盐 + 多轮迭代）结果，比较用常量时间函数。
 
-## 7. 后端协同约束
+## 7. 配置与环境变量
+
+- 环境变量前缀固定 **`YD_`**，下划线自动映射为多级嵌套：
+  `YD_SERVER_PORT` → `server.port`，`YD_DB_MAXCONN` → `db.maxconn`。
+- 优先级：命令行参数 > 环境变量（含 `.env`） > 配置文件 > 框架默认值。
+- 生成项目的 `.env` 不得入库（`.gitignore` 已忽略），随仓提供 `.env.template`。
+
+> 需求基线 `docs/需求设计说明书.md` 原文使用 `YUNGO_` 前缀，团队已统一改为 `YD_`；
+> 基线文档保持只读，本约定为最终口径。
+
+## 8. 提交纪律
+
+- 提交信息使用**中文 Conventional Commits**：`<类型>(<范围>): <中文简述>`。
+- 署名口径唯一，所有提交结尾固定为：
+
+  ```
+  Co-Authored-By: Eric Shi <shibingli@sina.com>
+  ```
+
+- 提交信息、作者、PR 描述、代码注释中**严禁出现任何 Claude / Anthropic / AI 助手相关内容**。
+
+## 9. 后端协同约束
 
 - 路由模式支持**混合分段**：`/avatar/:id.jpg`、`/report/:id-xx.png` 合法，参数名不得重复。
 - 控制器只做编排；业务逻辑放 `internal/service`，数据访问放 `internal/repository`。

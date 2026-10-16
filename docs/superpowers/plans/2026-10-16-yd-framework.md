@@ -15,13 +15,21 @@
 ## Global Constraints
 
 - **语言版本底线**：`go 1.27.2`（go.mod `go` 指令写 `1.27.2`），允许更高。
-- **模块路径**：`github.com/yun-dev/yd`；CLI 二进制名 `yd`；环境变量前缀 `YUNGO_`。
+- **模块路径**：`github.com/yun-dev/yd`；CLI 二进制名 `yd`；环境变量前缀 **`YD_`**
+  （需求基线原文写 `YUNGO_`，团队决定统一改为 `YD_`；基线文档只读不改，以本计划为准）。
+- **提交纪律**：中文 Conventional Commits + 固定署名尾行
+  `Co-Authored-By: Eric Shi <shibingli@sina.com>`；
+  提交信息、作者、PR 与代码注释中**严禁出现任何 Claude / Anthropic / AI 助手相关内容**。
+  自检：`git log -1 --format=%B | grep -iE 'claude|anthropic'` 必须无输出。
 - **开源协议**：Apache-2.0（`LICENSE` 必须为完整 Apache License 2.0 原文）。归属团队 YunDev（yun-dev.cn、yun-dev.net）。
-- **配置优先级（高→低）**：命令行参数 > 环境变量(含 `.env`) > 配置文件(yaml/v3 / TOML) > `viper.SetDefault` 默认值。环境变量 `YUNGO_DB_MAXCONN` 必须映射到 `db.maxconn`。
+- **配置优先级（高→低）**：命令行参数 > 环境变量(含 `.env`) > 配置文件(yaml/v3 / TOML) > `viper.SetDefault` 默认值。环境变量 `YD_DB_MAXCONN` 必须映射到 `db.maxconn`。
 - **前端资产零 CDN**：运行时严禁从公网 CDN 动态引入；全部 `go:embed`。同时支持在线更新（`yd assets update`）与离线独立使用（`yd assets --offline`，校验和不符即失败）。
 - **架构规范**：脚手架产物严格遵循 golang-standards/project-layout；Docker 产物基于 `scratch`。
 - **国密组件**：仅允许纯 Go 实现（gmsm），禁止 cgo/外挂非 Go 组件。
 - **零拷贝主张**：日志、WebSocket、Base64、JWT 载荷路径不得引入中间字符串/缓冲区复制；热路径禁止反射。
+- **JSON/Base64 统一封装层（强制）**：全仓禁止 `import "encoding/json"` 与 `import "encoding/base64"`，
+  JSON 一律走 `jsonx`，Base64 一律走 `b64x`；`logx` 的零拷贝编码器手写 JSON 字节，同样不得引入 `encoding/json`。
+  守卫测试见 Task 1 的 `internal/repotest`。
 - **默认蓝色主题**：Tailwind v4 `@theme` 语义化变量，主色为蓝色系。
 - 所有包必须 `go vet ./...` 通过；`CGO_ENABLED=0` 下可交叉编译到 linux/amd64、linux/arm64、windows/amd64。
 
@@ -87,7 +95,9 @@ yd/
   - 断言 `LICENSE` 含 `Apache License`、`Version 2.0, January 2004`、且行数 > 180；
   - 断言 `.gitignore` 逐行包含规范中给出的 22 行（含 `bin/`、`dist/`、`.tailwindcss/`、`node_modules/`）；
   - 断言 `.gitattributes` 包含 `* text=auto eol=lf` 与 `*.png binary`；
-  - 断言 `CLAUDE.md` 含 `Apache-2.0`、`YunDev`、`go 1.27`；断言 `AGENTS.md` 含 `Test-and-Fix`。
+  - 断言 `CLAUDE.md` 含 `Apache-2.0`、`YunDev`、`go 1.27`、`YD_`、`Co-Authored-By: Eric Shi <shibingli@sina.com>`；
+  - 断言 `AGENTS.md` 含 `Test-and-Fix` 与同一署名口径；
+  - 断言 `CLAUDE.md`/`AGENTS.md` 中出现 `claude`/`anthropic` 的行**仅限**"禁止出现"这类约束语句本身（提交纪律自检）。
 - [ ] **Step 2: 运行测试确认失败** `go test ./internal/repotest/ -run TestGovernanceFiles -v` → FAIL（文件不存在）
 - [ ] **Step 3: 创建文件**
   - `go.mod`：module + go 1.27.2；
@@ -120,8 +130,8 @@ yd/
 - 关键规则：`SetEnvPrefix("YUNGO")`、`SetEnvKeyReplacer(strings.NewReplacer(".", "_"))`、`AutomaticEnv()`；`.env` 通过 afero 读取并 `SetDefault` 注入（env 优先），**不覆盖已存在的真实环境变量**；配置文件支持 yaml/yaml.v3/toml/json，搜索 `ConfigDir` 与 `.`；`ConfigName` 默认 `config`，并按 `config.<ext>` 与 `config.local.<ext>` 顺序合并（local 覆盖）。
 
 - [ ] **Step 1: 写失败测试** `config/config_test.go`
-  - `TestPriorityFlagBeatsEnvAndFile`：文件写 `server.port: 8080`、env `YUNGO_SERVER_PORT=9090`、flag `--port` 未设置 → 期望 `9090`；`flag.Set("port","7070")` 后再 `BindFlags` → 期望 `7070`。**必须**做到「未显式设置的 flag（含默认值 8080）不得覆盖 env」——实现手法：`BindFlags` 前对每个 flag 检查 `f.Changed`，未 Changed 则改用 `SetDefault` 从 `f.DefValue` 注入。
-  - `TestNestedEnvMappingFromDotEnv`：`.env` 内 `YUNGO_DB_MAXCONN=42` → `GetInt("db.maxconn")==42`。
+  - `TestPriorityFlagBeatsEnvAndFile`：文件写 `server.port: 8080`、env `YD_SERVER_PORT=9090`、flag `--port` 未设置 → 期望 `9090`；`flag.Set("port","7070")` 后再 `BindFlags` → 期望 `7070`。**必须**做到「未显式设置的 flag（含默认值 8080）不得覆盖 env」——实现手法：`BindFlags` 前对每个 flag 检查 `f.Changed`，未 Changed 则改用 `SetDefault` 从 `f.DefValue` 注入。
+  - `TestNestedEnvMappingFromDotEnv`：`.env` 内 `YD_DB_MAXCONN=42` → `GetInt("db.maxconn")==42`。
   - `TestTypedUnmarshal`：`Unmarshal(&struct{ Server struct{ Port int } }{})` 得到 9090。
   - `TestConfigLocalOverridesBase`：`config.yaml` 与 `config.local.yaml` 同时存在，后者胜出。
   - `TestWatchReload`：写入新文件内容后 200ms 内 `fn` 被调用一次。
@@ -842,7 +852,7 @@ yd/
 **Interfaces:**
 - Consumes: `afs`、`cli`、`toolchain`。
 - Produces:
-  - `toolchain.ResolveTailwind(o ToolOptions) (string, error)` —— 解析顺序：`--bin` 标志 > 配置 `tailwind.bin` > 环境 `YUNGO_TAILWIND_BIN` > `.yd/tools/tailwindcss[.exe]` > `PATH`；找不到返回 `ErrToolNotFound`（可被 `yd assets` 下载安装）。
+  - `toolchain.ResolveTailwind(o ToolOptions) (string, error)` —— 解析顺序：`--bin` 标志 > 配置 `tailwind.bin` > 环境 `YD_TAILWIND_BIN` > `.yd/tools/tailwindcss[.exe]` > `PATH`；找不到返回 `ErrToolNotFound`（可被 `yd assets` 下载安装）。
   - `type BuildResult struct{ CSSPath string; Bytes int; Duration time.Duration }`；`toolchain.BuildCSS(ctx, bin, o CSSOptions) (*BuildResult, error)`，`CSSOptions{ Input string /* web/static/css/app.css */; Output string /* web/static/css/app.css 编译产物? → 用 web/static/css/yd.css */; Minify bool; Watch bool; Content []string /* 扫描的模板/Go 源路径，Tailwind v4 用 @source 指令时可为空 */ }`
   - `toolchain.NewWatcher(o WatchOptions) (*Watcher, error)`，`WatchOptions{ Roots []string; Ignore []string /* 默认 .git,bin,dist,node_modules,.tailwindcss */; Debounce time.Duration /* 200ms */ }`；`(*Watcher).Events() <-chan Event`、`Close()`
   - `cli/dev.go`：`yd dev` 主循环 —— ① 首次全量构建（CSS + Go）；② 启动子进程 `go run`/`bin/.dev-app` 并转发 stdout/stderr；③ 监听 `.go`/`configs/**`/`web/templates/**`/`web/static/**`；④ Go 变更 → 重新编译 + 重启子进程；CSS/模板变更 → 仅触发 Tailwind 重建 + 浏览器通过 SSE 事件 `reload` 触发无刷新局部刷新（后端注入 `/__yd/dev` SSE 端点，生产禁用）；⑤ `Ctrl+C` 优雅退出（先 SIGTERM 子进程再 Kill）。
