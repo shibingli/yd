@@ -1,0 +1,57 @@
+{{/*
+  pages/permissions.html — the permission matrix: roles as columns, permissions as rows.
+  pages/permissions.html — 权限矩阵：角色为列，权限为行。
+
+  Naming | 命名:
+    pages/permissions.html     full document | 整页文档
+    pages/permissions.content  workspace fragment, and the target of every cell | 工作区片段，也是每个格子的交换目标
+
+  Where the matrix sits in the workflow | 矩阵在工作流中的位置:
+    pages/roles.html edits one role's whole permission set; this page edits one permission across
+    every role. Both write the same rows, so they are two views of one table rather than two
+    sources of truth, and each view links to the other.
+    pages/roles.html 编辑一个角色的整套权限；本页编辑一项权限在各角色上的授予。
+    两者写的是同一批数据，因此是同一张表的两个视图而不是两个真源，且互相链接。
+
+  The legend is not decoration | 图例不是装饰:
+    A checkbox alone cannot say what an unchecked box means — "denied" and "not applicable" look
+    identical — so the legend names both states in the same words the accessible names use.
+    一个复选框无法说明未勾选意味着什么——「未授予」与「不适用」长得一模一样——
+    因此图例用与可访问名称相同的措辞把两种状态都写出来。
+
+  Data contract | 数据契约:
+    .Roles  []{ID, Key, Label} the matrix columns | 矩阵的列
+    .Matrix []{Key, Label, Cells []{Value, Granted}} the matrix rows | 矩阵的行
+    .Errors see partials/form.errors | 见 partials/form.errors
+*/}}
+
+{{- define "pages/permissions.html" -}}
+{{template "dashboard.open" .}}{{template "pages/permissions.content" .}}{{template "dashboard.close" .}}
+{{- end -}}
+
+{{- define "pages/permissions.content" -}}
+<section class="yd-page" data-yd-page="permissions" data-yd-i18n-attr="aria-labelledby:permissions.title">
+  <header class="yd-page__header">
+    <div>
+      <h1 class="yd-page__title" id="yd-permissions-title" data-yd-i18n="permissions.title">{{tr "permissions.title"}}</h1>
+      <p class="yd-page__subtitle" data-yd-i18n="permissions.subtitle">{{tr "permissions.subtitle"}}</p>
+    </div>
+    <div class="yd-page__actions">
+      <a class="yd-btn yd-btn--ghost" href="/roles" hx-get="/roles" hx-target="#yd-workspace" hx-swap="innerMorph" hx-push-url="true"
+         data-yd-i18n="nav.roles">{{tr "nav.roles"}}</a>
+    </div>
+  </header>
+
+  {{template "partials/form.errors" .}}
+
+  <section class="yd-card yd-section" id="yd-permissions-matrix" aria-labelledby="yd-permissions-matrix-title">
+    <h2 class="yd-section__title" id="yd-permissions-matrix-title" data-yd-i18n="permissions.matrix.title">{{tr "permissions.matrix.title"}}</h2>
+    <p class="yd-section__hint" data-yd-i18n="permissions.matrix.hint">{{tr "permissions.matrix.hint"}}</p>
+    <p class="yd-hint">
+      <span class="yd-badge yd-badge--success" data-yd-i18n="permissions.legend.granted">{{tr "permissions.legend.granted"}}</span>
+      <span class="yd-badge yd-badge--muted" data-yd-i18n="permissions.legend.denied">{{tr "permissions.legend.denied"}}</span>
+    </p>
+    {{template "partials/permissions/matrix" .}}
+  </section>
+</section>
+{{- end -}}

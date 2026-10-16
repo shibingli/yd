@@ -85,7 +85,12 @@
     <form class="yd-filters" method="get" action="/realtime"
           hx-get="/realtime" hx-target="#yd-workspace" hx-swap="innerMorph" hx-push-url="true"
           hx-trigger="change from:#yd-realtime-channel, submit">
-      <label class="sr-only" for="yd-realtime-channel" data-yd-i18n="realtime.channel">{{tr "realtime.channel"}}</label>
+      {{/* The label is a leaf sibling of the channel names below, so it is keyed channel.label: a
+           message named realtime.channel would collide with realtime.channel.orders once the
+           loader flattens the catalogue into dotted paths. | 该标签与下方的频道名是同层叶子，
+           因此键名为 channel.label：加载器把目录摊平成点分路径后，
+           名为 realtime.channel 的消息会与 realtime.channel.orders 冲突。 */}}
+      <label class="sr-only" for="yd-realtime-channel" data-yd-i18n="realtime.channel.label">{{tr "realtime.channel.label"}}</label>
       <select class="yd-select" id="yd-realtime-channel" name="channel">
         <option value="orders" data-yd-i18n="realtime.channel.orders">{{tr "realtime.channel.orders"}}</option>
         <option value="audit" data-yd-i18n="realtime.channel.audit">{{tr "realtime.channel.audit"}}</option>

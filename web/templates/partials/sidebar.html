@@ -68,6 +68,34 @@
       <span class="yd-nav__label" data-yd-i18n="nav.i18n_demo">{{tr "nav.i18n_demo"}}</span>
     </a>
 
+    {{/* Access control sits between the workspace and the system group: tenants, roles and the
+         permission matrix are one workflow, and the tenant is the boundary every other page assumes.
+         访问控制位于工作台与系统组之间：租户、角色与权限矩阵属于同一条工作流，
+         而租户正是其它页面默认存在的硬边界。 */}}
+    <p class="yd-nav__section" data-yd-i18n="nav.section.access">{{tr "nav.section.access"}}</p>
+
+    <a class="yd-nav__link" href="/tenants" hx-get="/tenants" hx-target="#yd-workspace" hx-swap="innerMorph" hx-push-url="true" data-yd-nav="tenants">
+      <svg class="yd-nav__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+        <path d="M4 21V7l8-4 8 4v14M4 21h16M9 21v-5h6v5M9 10h.01M15 10h.01" stroke-linecap="round" stroke-linejoin="round"></path>
+      </svg>
+      <span class="yd-nav__label" data-yd-i18n="nav.tenants">{{tr "nav.tenants"}}</span>
+    </a>
+
+    <a class="yd-nav__link" href="/roles" hx-get="/roles" hx-target="#yd-workspace" hx-swap="innerMorph" hx-push-url="true" data-yd-nav="roles">
+      <svg class="yd-nav__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+        <path d="M12 3l7 3v6c0 4.2-2.9 7.7-7 9-4.1-1.3-7-4.8-7-9V6l7-3Z" stroke-linejoin="round"></path>
+        <path d="M9.5 12.5 11 14l3.5-3.5" stroke-linecap="round" stroke-linejoin="round"></path>
+      </svg>
+      <span class="yd-nav__label" data-yd-i18n="nav.roles">{{tr "nav.roles"}}</span>
+    </a>
+
+    <a class="yd-nav__link" href="/permissions" hx-get="/permissions" hx-target="#yd-workspace" hx-swap="innerMorph" hx-push-url="true" data-yd-nav="permissions">
+      <svg class="yd-nav__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+        <path d="M4 6h16M4 12h16M4 18h16M8 4v4M15 10v4M11 16v4" stroke-linecap="round"></path>
+      </svg>
+      <span class="yd-nav__label" data-yd-i18n="nav.permissions">{{tr "nav.permissions"}}</span>
+    </a>
+
     <p class="yd-nav__section" data-yd-i18n="nav.section.system">{{tr "nav.section.system"}}</p>
 
     <a class="yd-nav__link" href="/settings" hx-get="/settings" hx-target="#yd-workspace" hx-swap="innerMorph" hx-push-url="true" data-yd-nav="settings">

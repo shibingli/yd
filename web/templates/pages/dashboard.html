@@ -30,7 +30,14 @@
       <form class="yd-filters" method="get" action="/dashboard"
             hx-get="/dashboard" hx-target="#yd-workspace" hx-swap="innerMorph" hx-push-url="true"
             hx-trigger="change from:#yd-dashboard-range, submit">
-        <label class="sr-only" for="yd-dashboard-range" data-yd-i18n="dashboard.range">{{tr "dashboard.range"}}</label>
+        {{/* The label is a *leaf* sibling of the options below, so it is named range.label rather
+             than range: the loader flattens keys into dotted paths, and a message called
+             dashboard.range could not coexist with the messages dashboard.range.24h and friends —
+             one of the two would silently shadow the other. | 该标签与下方的选项是同一层级的*叶子*，
+             因此命名为 range.label 而不是 range：加载器把键摊平成点分路径，
+             名为 dashboard.range 的消息无法与 dashboard.range.24h 等消息共存——
+             两者之一会静默遮蔽另一个。 */}}
+        <label class="sr-only" for="yd-dashboard-range" data-yd-i18n="dashboard.range.label">{{tr "dashboard.range.label"}}</label>
         <select class="yd-select" id="yd-dashboard-range" name="range">
           <option value="24h" data-yd-i18n="dashboard.range.24h">{{tr "dashboard.range.24h"}}</option>
           <option value="7d" selected data-yd-i18n="dashboard.range.7d">{{tr "dashboard.range.7d"}}</option>

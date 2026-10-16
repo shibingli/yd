@@ -1,0 +1,73 @@
+{{/*
+  pages/roles.html — role administration: live search, one dialog for create and edit.
+  pages/roles.html — 角色管理：实时搜索、新建与编辑共用一个对话框。
+
+  Naming | 命名:
+    pages/roles.html     full document | 整页文档
+    pages/roles.content  workspace fragment | 工作区片段
+
+  A role is a set of permissions inside one tenant | 角色是租户内的一组权限:
+    The same role name in two tenants is two unrelated rows, so nothing on this page is addressed
+    globally and every permission it offers was filtered by the tenant already.
+    两个租户里的同名角色是两行互不相干的数据，因此本页没有任何全局寻址，
+    它提供的每项权限都已被租户过滤过。
+
+  Cross links | 交叉跳转:
+    The permission matrix is the other half of this workflow: the dialog edits one role's whole set,
+    the matrix edits one permission across every role. Both are linked so an administrator can start
+    from whichever half they already have in mind.
+    权限矩阵是这条工作流的另一半：对话框编辑一个角色的整套权限，
+    矩阵编辑一项权限在各个角色上的授予。两者互相链接，
+    管理员因此可以从自己先想到的那一半入手。
+
+  Data contract | 数据契约:
+    .Roles       rows, see partials/roles/row.html | 行数据，见 partials/roles/row.html
+    .Pagination  see partials/pagination.html | 见 partials/pagination.html
+    .Errors      see partials/form.errors | 见 partials/form.errors
+    .Permissions options for the multi-select | 多选的选项
+    .Role        optional, prefills the dialog | 可选，预填对话框
+*/}}
+
+{{- define "pages/roles.html" -}}
+{{template "dashboard.open" .}}{{template "pages/roles.content" .}}{{template "dashboard.close" .}}
+{{- end -}}
+
+{{- define "pages/roles.content" -}}
+<section class="yd-page" data-yd-page="roles" data-yd-i18n-attr="aria-labelledby:roles.title">
+  <header class="yd-page__header">
+    <div>
+      <h1 class="yd-page__title" id="yd-roles-title" data-yd-i18n="roles.title">{{tr "roles.title"}}</h1>
+      <p class="yd-page__subtitle" data-yd-i18n="roles.subtitle">{{tr "roles.subtitle"}}</p>
+    </div>
+    <div class="yd-page__actions">
+      <a class="yd-btn yd-btn--ghost" href="/permissions" hx-get="/permissions" hx-target="#yd-workspace" hx-swap="innerMorph" hx-push-url="true"
+         data-yd-i18n="permissions.matrix.title">{{tr "permissions.matrix.title"}}</a>
+      <button type="button" class="yd-btn yd-btn--primary"
+              hx-get="/roles/new" hx-target="#yd-role-form-body" hx-swap="innerHTML"
+              data-yd-modal-open="yd-role-dialog"
+              data-yd-i18n="roles.create">{{tr "roles.create"}}</button>
+    </div>
+  </header>
+
+  {{template "partials/form.errors" .}}
+
+  <form class="yd-filters" role="search" method="get" action="/roles"
+        hx-get="/roles" hx-target="#yd-roles-table" hx-swap="outerMorph" hx-push-url="true"
+        hx-trigger="input changed delay:300ms from:#yd-roles-search, submit">
+    <label class="sr-only" for="yd-roles-search" data-yd-i18n="roles.search">{{tr "roles.search"}}</label>
+    <input class="yd-input" id="yd-roles-search" name="q" type="search" autocomplete="off"
+           placeholder="{{tr "roles.search_placeholder"}}" data-yd-i18n-attr="placeholder:roles.search_placeholder">
+    <button type="submit" class="yd-btn yd-btn--ghost" data-yd-i18n="action.search">{{tr "action.search"}}</button>
+  </form>
+
+  <section class="yd-card yd-section" id="yd-roles-table" aria-labelledby="yd-roles-table-title">
+    <h2 class="sr-only" id="yd-roles-table-title" data-yd-i18n="roles.table">{{tr "roles.table"}}</h2>
+    {{template "partials/roles/list" .}}
+    {{template "partials/pagination" .}}
+  </section>
+
+  {{template "partials/modal.open" (dict "ID" "yd-role-dialog" "TitleKey" "roles.form.dialog_title" "Title" (tr "roles.form.dialog_title"))}}
+    <div id="yd-role-form-body">{{template "partials/skeleton" .}}</div>
+  {{template "partials/modal.close" .}}
+</section>
+{{- end -}}

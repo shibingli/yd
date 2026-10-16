@@ -1,0 +1,60 @@
+{{/*
+  partials/tenants/row.html — one row of the tenant table (referenced by partials/tenants/list.html).
+  partials/tenants/row.html — 租户表格的单行（由 partials/tenants/list.html 引用）。
+
+  Data contract — the dot is one row | 数据契约 —— 点号就是一行:
+    .ID .Slug .Name .Created .Status .StatusKey .Disabled
+
+  The slug is the tenant boundary | 标识就是租户边界:
+    Every other entity in the system is addressed through a tenant, so the slug is shown as code and
+    never translated: it is the value an operator has to type into a config file.
+    系统中的其它实体都经租户寻址，因此标识以代码样式展示且永不翻译：
+    它是运维要写进配置文件里的那个值。
+
+  Disabling a tenant | 停用租户:
+    Disabling blocks sign-in for every user of that tenant at once. The confirm question therefore
+    names the blast radius, and the disable/enable pair is the only state change a listing row owns.
+    The question is bound through data-yd-i18n-attr as well, because hx-confirm is an attribute and
+    would otherwise keep the language it was rendered in.
+    停用会一次阻断该租户全体用户的登录，因此确认文案会点明影响范围；
+    停用/启用这一对也是列表行唯一拥有的状态变更。
+    该询问同样经 data-yd-i18n-attr 绑定，因为 hx-confirm 是属性，
+    否则它会停在渲染时的语言。
+*/}}
+{{- define "partials/tenants/row" -}}
+<tr class="yd-table__row" id="yd-tenant-{{.ID}}">
+  <td class="yd-table__td"><code class="yd-code">{{.Slug}}</code></td>
+  <td class="yd-table__td"><span class="yd-table__primary">{{.Name}}</span></td>
+  <td class="yd-table__td">
+    <span class="yd-badge yd-badge--{{.Status}}" data-yd-i18n="{{.StatusKey}}">{{.Status}}</span>
+  </td>
+  <td class="yd-table__td">{{.Created}}</td>
+  <td class="yd-table__td yd-table__td--actions">
+    <button type="button" class="yd-btn yd-btn--ghost yd-btn--sm"
+            hx-get="/tenants/{{.ID}}" hx-target="closest tr" hx-swap="outerMorph"
+            data-yd-i18n="action.refresh">{{tr "action.refresh"}}</button>
+    <button type="button" class="yd-btn yd-btn--ghost yd-btn--sm"
+            hx-get="/tenants/{{.ID}}/edit" hx-target="#yd-tenant-form-body" hx-swap="innerHTML"
+            data-yd-modal-open="yd-tenant-dialog"
+            data-yd-i18n="action.edit">{{tr "action.edit"}}</button>
+    {{if .Disabled}}
+    <button type="button" class="yd-btn yd-btn--ghost yd-btn--sm"
+            hx-post="/tenants/{{.ID}}/enable" hx-target="#yd-tenants-table" hx-swap="outerMorph"
+            hx-confirm="{{tr "tenants.enable_confirm"}}"
+            data-yd-i18n="tenants.action.enable"
+            data-yd-i18n-attr="hx-confirm:tenants.enable_confirm">{{tr "tenants.action.enable"}}</button>
+    {{else}}
+    <button type="button" class="yd-btn yd-btn--ghost yd-btn--sm"
+            hx-post="/tenants/{{.ID}}/disable" hx-target="#yd-tenants-table" hx-swap="outerMorph"
+            hx-confirm="{{tr "tenants.disable_confirm"}}"
+            data-yd-i18n="tenants.action.disable"
+            data-yd-i18n-attr="hx-confirm:tenants.disable_confirm">{{tr "tenants.action.disable"}}</button>
+    {{end}}
+    <button type="button" class="yd-btn yd-btn--ghost yd-btn--sm"
+            hx-delete="/tenants/{{.ID}}" hx-target="closest tr" hx-swap="delete"
+            hx-confirm="{{tr "tenants.delete_confirm"}}"
+            data-yd-i18n="action.delete"
+            data-yd-i18n-attr="hx-confirm:tenants.delete_confirm">{{tr "action.delete"}}</button>
+  </td>
+</tr>
+{{- end -}}

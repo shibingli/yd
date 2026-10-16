@@ -1,0 +1,31 @@
+{{/*
+  partials/roles/list.html — the role table and its empty state (referenced by pages/roles.html).
+  partials/roles/list.html — 角色表格与空状态（由 pages/roles.html 引用）。
+
+  Data contract | 数据契约:
+    .Roles []{ID, Name, Description, Permissions []{Value, Key, Label}} see partials/roles/row.html
+  The row count is reported by .Pagination in the page, not repeated here.
+  行数由页面中的 .Pagination 报告，这里不重复。
+*/}}
+{{- define "partials/roles/list" -}}
+<div class="yd-table__wrap" data-yd-table>
+  <table class="yd-table" data-yd-i18n-attr="aria-label:roles.table">
+    <caption class="sr-only" data-yd-i18n="roles.table">{{tr "roles.table"}}</caption>
+    <thead class="yd-table__head">
+      <tr>
+        <th class="yd-table__th" scope="col" data-yd-i18n="roles.column.name">{{tr "roles.column.name"}}</th>
+        <th class="yd-table__th" scope="col" data-yd-i18n="roles.column.description">{{tr "roles.column.description"}}</th>
+        <th class="yd-table__th" scope="col" data-yd-i18n="roles.column.permissions">{{tr "roles.column.permissions"}}</th>
+        <th class="yd-table__th yd-table__th--actions" scope="col" data-yd-i18n="roles.column.actions">{{tr "roles.column.actions"}}</th>
+      </tr>
+    </thead>
+    <tbody id="yd-roles-rows" class="yd-table__body" hx-swap="outerMorph">
+      {{with .Roles}}{{range .}}{{template "partials/roles/row" .}}{{end}}{{else}}
+      <tr class="yd-table__row yd-table__row--empty">
+        <td class="yd-table__td" colspan="4" data-yd-i18n="roles.empty">{{tr "roles.empty"}}</td>
+      </tr>
+      {{end}}
+    </tbody>
+  </table>
+</div>
+{{- end -}}

@@ -9,7 +9,13 @@
   Data contract (map or struct) | 数据契约（map 或结构体）:
     .Title      optional page title | 可选的页面标题
     .Lang       current language tag, e.g. "zh-CN" | 当前语言标签，如 "zh-CN"
-    .Theme      "light" or "dark", pre-rendered from the yd_theme cookie | "light" 或 "dark"，由服务端依据 yd_theme cookie 预渲染
+    .Theme      "light", "dark" or "system", pre-rendered from the yd_theme cookie
+                | "light"、"dark" 或 "system"，由服务端依据 yd_theme cookie 预渲染
+                An explicit light/dark choice is already correct on the first byte; "system" is the
+                one case only the browser can decide, and yd-theme-boot.js resolves it inside
+                <head> before the stylesheet so the first painted frame is already right.
+                明确的浅色/深色选择在首字节就已正确；"system" 是只有浏览器能决定的唯一情况，
+                由 yd-theme-boot.js 在 <head> 内、样式表之前解析，因此首帧即为正确主题。
     .I18nJSON   catalog envelope already serialized by the i18n package | i18n 包序列化好的目录信封
                 It MUST be template.JS: html/template treats <script type="application/json">
                 as a JavaScript container and json.Marshal's every other type, so template.HTML
@@ -25,6 +31,12 @@
     1. Scripts and styles are always local /static/... paths; no http and no CDN | 脚本与样式一律使用本地 /static/... 路径，禁止 http 与 CDN
     2. Every user-facing string carries a data-yd-i18n key so the language can be switched without a reload | 每个面向用户的文案都带 data-yd-i18n 键，语言热切换无需刷新
     3. Only semantic classes from app.css and Tailwind utilities are used; no literal colour values | 只用 app.css 的语义化类与 Tailwind 工具类，不写字面色值
+    4. Exactly one script is synchronous, and it is yd-theme-boot.js: it sits in <head> ahead of the
+       stylesheet because resolving "system" after the deferred scripts would paint one wrong frame.
+       Every other script is deferred and stays in the single order of base.scripts.
+    4. 全站只有一段同步脚本，即 yd-theme-boot.js：它位于 <head> 中、样式表之前，
+       因为若等 defer 脚本执行后再解析 "system"，就会先画出一帧错误的主题。
+       其余脚本一律 defer，并固定为 base.scripts 的唯一顺序。
 */}}
 
 {{- define "base.head" -}}
@@ -33,6 +45,12 @@
 <meta name="color-scheme" content="light dark">
 <meta name="description" content="{{tr "app.description"}}">
 <title>{{with .Title}}{{.}} · {{end}}{{tr "app.name"}}</title>
+{{/* First-paint theme, ahead of the stylesheet and therefore synchronous: it only reads the
+     yd_theme preference and writes <html data-theme>, so nothing blocks on the network and no
+     wrong frame is ever painted. yd-app.js takes over the interactive three-state switch.
+     首屏主题，位于样式表之前，因此是同步脚本：它只读取 yd_theme 偏好并写入 <html data-theme>，
+     既不等待网络，也绝不画出错误的帧。交互式三态切换由随后加载的 yd-app.js 接管。 */}}
+<script src="/static/js/yd-theme-boot.js"></script>
 <link rel="stylesheet" href="/static/css/yd.css">
 {{/* The server injects the current catalog as JSON: no extra request, fully offline. | 服务端把当前语言目录以 JSON 注入：不额外发请求，完全离线可用。 */}}
 {{/* Envelope shape | 信封结构: {"lang":"…","fallback":"…","catalogs":{"<lang>":{…}}} */}}

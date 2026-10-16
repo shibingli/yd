@@ -36,7 +36,7 @@
   {{template "partials/form.errors" .}}
 
   <form class="yd-card yd-form yd-section" method="post" action="/settings"
-        hx-post="/settings" hx-target="#yd-settings-form" hx-swap="outerMorph" hx-status:422="target:#errors" novalidate>
+        hx-post="/settings" hx-target="#yd-settings-form" hx-swap="outerMorph" hx-status:422="target:#errors swap:innerHTML" novalidate>
     <div id="yd-settings-form">
       <h2 class="yd-section__title" data-yd-i18n="settings.general">{{tr "settings.general"}}</h2>
 

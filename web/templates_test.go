@@ -32,13 +32,23 @@ import (
 )
 
 // Chrome pages render the dashboard shell; standalone pages must not. | 带外壳的页面渲染管理后台骨架；独立页面不得渲染它。
-var chromePages = []string{"dashboard", "pages/users.html", "pages/settings.html", "pages/realtime.html", "pages/i18n_demo.html"}
+var chromePages = []string{
+	"dashboard",
+	"pages/users.html", "pages/tenants.html", "pages/roles.html", "pages/permissions.html",
+	"pages/settings.html", "pages/realtime.html", "pages/i18n_demo.html",
+}
 
 // standalonePages are the two pages that must work without any shell. | 两个必须脱离外壳独立工作的页面。
 var standalonePages = []string{"pages/login.html", "pages/error.html"}
 
-// scriptsInOrder is the single allowed script order of the layout. | 布局唯一允许的脚本顺序。
+// scriptsInOrder is the single allowed script order of the layout. It is one script longer than
+// base.scripts: yd-theme-boot.js is synchronous and sits in <head> ahead of the stylesheet, because
+// resolving the "system" theme after the deferred scripts would paint one wrong frame.
+// scriptsInOrder 是布局唯一允许的脚本顺序。它比 base.scripts 多一段：
+// yd-theme-boot.js 是同步脚本、位于 <head> 中样式表之前，
+// 因为若等 defer 脚本执行后再解析 "system" 主题，就会先画出一帧错误的主题。
 var scriptsInOrder = []string{
+	"/static/js/yd-theme-boot.js",
 	"/static/js/vendor/htmx.min.js",
 	"/static/js/vendor/hx-head.min.js",
 	"/static/js/vendor/hx-targets.min.js",
@@ -65,6 +75,7 @@ var (
 	i18nKeyRe     = regexp.MustCompile(`data-yd-i18n="([^"]*)"`)
 	i18nAttrRe    = regexp.MustCompile(`data-yd-i18n-attr="([^"]*)"`)
 	i18nKeySyntax = regexp.MustCompile(`^[A-Za-z0-9]+(\.[A-Za-z0-9_-]+)+$`)
+	idRe          = regexp.MustCompile(`\sid="([^"]+)"`)
 	colorRe       = regexp.MustCompile(`style="[^"]*(#[0-9a-fA-F]{3,8}|rgba?\(|hsla?\()`)
 	forbiddenRefs = []string{
 		"http://",
@@ -156,6 +167,73 @@ func templateData() map[string]any {
 				"Email": "yun@example.com", "EmailKey": "users.email",
 				"Role": "admin", "RoleKey": "users.role.admin",
 				"Status": "active", "StatusKey": "users.status.active",
+				"Disabled": false,
+				"Roles":    []map[string]any{{"Value": "admin", "Key": "users.role.admin", "Label": "Administrator"}},
+			},
+			{
+				// The second row is disabled and holds no role, so both branches of
+				// partials/users/row.html (enable instead of disable, the empty role list) execute.
+				// 第二行已禁用且未持有角色，因此 partials/users/row.html 的两个分支
+				//（显示「启用」而非「禁用」、角色为空）都会执行。
+				// NameKey/EmailKey/RoleKey are still required by the legacy partials/table.html that
+				// pages/dashboard.html renders; partials/users/row.html deliberately ignores them.
+				// NameKey/EmailKey/RoleKey 仍是 pages/dashboard.html 所用的旧局部模板
+				// partials/table.html 需要的；partials/users/row.html 有意忽略它们。
+				"ID": "2", "Initials": "L", "Name": "Lan",
+				"Email": "lan@example.com", "EmailKey": "users.email",
+				"NameKey": "users.name", "RoleKey": "users.role.viewer",
+				"Status": "disabled", "StatusKey": "users.status.disabled",
+				"Disabled": true,
+			},
+		},
+		"Tenants": []map[string]any{
+			// A tenant name is data, so the option carries no translation key; only the status badge
+			// of the row does. | 租户名是数据，因此选项不带翻译键；只有行内的状态徽标带键。
+			{
+				"ID": "1", "Slug": "acme", "Name": "Acme", "Created": "2026-01-02",
+				"Status": "active", "StatusKey": "tenants.status.active", "Disabled": false,
+				"Value": "acme", "Selected": true,
+			},
+			{
+				"ID": "2", "Slug": "globex", "Name": "Globex", "Created": "2026-02-03",
+				"Status": "disabled", "StatusKey": "tenants.status.disabled", "Disabled": true,
+				"Value": "globex",
+			},
+		},
+		"Roles": []map[string]any{
+			// One entry serves both readers: partials/roles/list.html reads ID/Name/Description/
+			// Permissions, the checkbox group of partials/users/form.html reads Value/Key/Label/Checked.
+			// 同一条记录同时服务两个读者：partials/roles/list.html 读 ID/Name/Description/Permissions，
+			// partials/users/form.html 的复选框组读 Value/Key/Label/Checked。
+			{
+				"ID": "1", "Name": "Administrator", "Description": "Full control inside the tenant",
+				"Value": "1", "Key": "users.role.admin", "Label": "Administrator", "Checked": true,
+				"Permissions": []map[string]any{
+					{"Value": "user", "Key": "permissions.group.user", "Label": "User"},
+					{"Value": "role", "Key": "permissions.group.role", "Label": "Role"},
+				},
+			},
+			{
+				"ID": "2", "Name": "Viewer", "Description": "Read only",
+				"Value": "2", "Key": "users.role.viewer", "Label": "Viewer", "Checked": false,
+			},
+		},
+		"Permissions": []map[string]any{
+			{"Value": "user", "Key": "permissions.group.user", "Label": "User", "Checked": true},
+			{"Value": "role", "Key": "permissions.group.role", "Label": "Role", "Checked": false},
+		},
+		"Matrix": []map[string]any{
+			// The first cell is granted and the second is not, so both the checked and the unchecked
+			// branch of the matrix — including the two aria-label keys — are rendered.
+			// 第一个格子已授予、第二个未授予，因此矩阵的勾选与未勾选两个分支
+			//（连同两个 aria-label 键）都会被渲染。
+			{
+				"Key": "permissions.group.user", "Label": "User",
+				"GroupKey": "permissions.group.user", "Group": "User",
+				"Cells": []map[string]any{
+					{"Value": "1", "Granted": true},
+					{"Value": "2", "Granted": false},
+				},
 			},
 		},
 		"Pagination": map[string]any{
@@ -277,11 +355,18 @@ func TestAllTemplatesParse(t *testing.T) {
 		"dashboard", "dashboard.open", "dashboard.close",
 		"partials/sidebar", "partials/topbar", "partials/flash", "partials/confirm",
 		"partials/table", "partials/pagination", "partials/skeleton", "partials/skeleton.cards",
-		"partials/form.errors", "partials/form.field", "partials/form.select",
+		"partials/form.errors", "partials/form.error-items", "partials/form.field", "partials/form.select",
 		"partials/form.check", "partials/form.actions",
 		"partials/modal.open", "partials/modal.close",
+		"partials/users/list", "partials/users/row", "partials/users/form",
+		"partials/tenants/list", "partials/tenants/row", "partials/tenants/form",
+		"partials/roles/list", "partials/roles/row", "partials/roles/form",
+		"partials/permissions/matrix",
 		"pages/login.html", "pages/dashboard.html", "pages/dashboard.content",
 		"pages/users.html", "pages/users.content",
+		"pages/tenants.html", "pages/tenants.content",
+		"pages/roles.html", "pages/roles.content",
+		"pages/permissions.html", "pages/permissions.content",
 		"pages/settings.html", "pages/settings.content",
 		"pages/realtime.html", "pages/realtime.content",
 		"pages/i18n_demo.html", "pages/i18n_demo.content",
@@ -430,7 +515,7 @@ func TestLoginFormDeclaresGuomiEncryption(t *testing.T) {
 		`data-yd-encrypt="sm2"`,
 		`data-yd-pubkey="/api/guomi/pubkey"`,
 		`hx-post="/login"`,
-		`hx-status:422="target:#errors"`,
+		`hx-status:422="target:#errors swap:innerHTML"`,
 		`id="errors"`,
 		`data-yd-lang=`,
 	}
@@ -491,14 +576,131 @@ func TestFormsUseHtmxWithStatusHandling(t *testing.T) {
 		t.Fatal("no form handles 422: validation errors would be lost | 没有表单处理 422：校验错误会丢失")
 	}
 
-	// Every page with a validated form must render the error region. | 每个带校验表单的页面都必须渲染错误区域。
-	for _, page := range []string{"pages/login.html", "pages/users.html", "pages/settings.html", "pages/i18n_demo.html"} {
+	// Every page that hosts a validated form must render the error region, and every form — whether
+	// it sits in the page or is fetched into a dialog — must route 422 into it.
+	// 每个承载校验表单的页面都必须渲染错误区域；每个表单——无论内联在页面里还是被取进对话框——
+	// 都必须把 422 路由进它。
+	for _, page := range []string{
+		"pages/login.html", "pages/users.html", "pages/tenants.html", "pages/roles.html",
+		"pages/permissions.html", "pages/settings.html", "pages/i18n_demo.html",
+	} {
 		html := execute(t, tmpl, page)
 		if !strings.Contains(html, `id="errors"`) {
 			t.Errorf("%s: missing the #errors region | %s 缺少 #errors 区域", page, page)
 		}
-		if !strings.Contains(html, `hx-status:422="target:#errors"`) {
-			t.Errorf("%s: no form routes 422 into #errors | %s 没有表单把 422 路由到 #errors", page, page)
+		if got := strings.Count(html, `id="errors"`); got != 1 {
+			t.Errorf("%s: the #errors region appears %d times, want exactly 1 | %s 中 #errors 区域出现 %d 次，应为 1 次", page, got, page, got)
+		}
+	}
+
+	// The dialog forms are answered as fragments, so the routing lives in the partial, not the page.
+	// 对话框表单以片段应答，因此这条路由位于局部模板而不是页面里。
+	for _, name := range []string{
+		"pages/login.html", "pages/settings.html", "pages/i18n_demo.html",
+		"partials/users/form", "partials/tenants/form", "partials/roles/form",
+	} {
+		html := execute(t, tmpl, name)
+		if !strings.Contains(html, `hx-status:422="target:#errors swap:innerHTML"`) {
+			t.Errorf("%s: no form routes 422 into #errors | %s 没有表单把 422 路由到 #errors", name, name)
+		}
+	}
+}
+
+// executeWith renders one named template with explicit data instead of the shared fixture.
+// executeWith 用显式数据而不是共享固定数据渲染指定名称的模板。
+func executeWith(t *testing.T, tmpl *template.Template, name string, data any) string {
+	t.Helper()
+	var buf bytes.Buffer
+	if err := tmpl.ExecuteTemplate(&buf, name, data); err != nil {
+		t.Fatalf("execute %s: %v", name, err)
+	}
+	return buf.String()
+}
+
+// TestFormPartialsRenderInBothModes renders the three dialog forms with an edit payload: the create
+// branch runs in TestAllTemplatesParse, and a branch that never executes would hide its own errors.
+// TestFormPartialsRenderInBothModes 用编辑态数据渲染三个对话框表单：
+// 新建分支已由 TestAllTemplatesParse 执行，而从未执行的分支会把自身的错误藏起来。
+func TestFormPartialsRenderInBothModes(t *testing.T) {
+	tmpl := loadTemplates(t)
+
+	// The tenant slug is the one field that must not change after creation, so the edit answer
+	// renders it read-only and says why; the create answer renders it editable instead.
+	// 租户标识是创建后唯一不可修改的字段，因此编辑应答把它渲染为只读并说明原因，
+	// 新建应答则渲染为可编辑。
+	edit := templateData()
+	edit["FormAction"] = "/tenants/1"
+	edit["Tenant"] = map[string]any{"Name": "Acme", "Slug": "acme"}
+	html := executeWith(t, tmpl, "partials/tenants/form", edit)
+	for _, needle := range []string{
+		`action="/tenants/1"`, `hx-post="/tenants/1"`,
+		`id="yd-tenant-slug" name="slug" type="text" value="acme" readonly`,
+		`tenants.field.slug_locked`,
+	} {
+		if !strings.Contains(html, needle) {
+			t.Errorf("partials/tenants/form (edit): missing %s | partials/tenants/form（编辑）缺少 %s", needle, needle)
+		}
+	}
+	if strings.Contains(execute(t, tmpl, "partials/tenants/form"), "readonly") {
+		t.Error("partials/tenants/form (create): the slug must stay editable | partials/tenants/form（新建）：标识必须可编辑")
+	}
+
+	// A role edit pre-fills the name and checks the permissions the role already holds.
+	editRole := templateData()
+	editRole["FormAction"] = "/roles/1"
+	editRole["Role"] = map[string]any{"Name": "Viewer", "Description": "Read only"}
+	html = executeWith(t, tmpl, "partials/roles/form", editRole)
+	for _, needle := range []string{`hx-post="/roles/1"`, `value="Viewer"`, `id="yd-role-permission-user" name="permissions" value="user" checked`} {
+		if !strings.Contains(html, needle) {
+			t.Errorf("partials/roles/form (edit): missing %s | partials/roles/form（编辑）缺少 %s", needle, needle)
+		}
+	}
+
+	// The password is required only while creating: renaming an account must never force a new one.
+	// The shared fixture carries .User, so the create case is exercised by dropping it.
+	// 口令只在新建时必填：给账号改名绝不能逼着重新设定口令。
+	// 共享固定数据带着 .User，因此新建场景要把它去掉才能触发。
+	create := templateData()
+	delete(create, "User")
+	if got := fieldTag(t, executeWith(t, tmpl, "partials/users/form", edit), "yd-user-password"); strings.Contains(got, "required") {
+		t.Errorf("partials/users/form (edit): the password became required: %s | partials/users/form（编辑）：口令变成了必填：%s", got, got)
+	}
+	if got := fieldTag(t, executeWith(t, tmpl, "partials/users/form", create), "yd-user-password"); !strings.Contains(got, "required") || !strings.Contains(got, `data-yd-sensitive="true"`) {
+		t.Errorf("partials/users/form (create): the initial password must be required and transported encrypted: %s | partials/users/form（新建）：初始口令必须必填且加密传输：%s", got, got)
+	}
+}
+
+// fieldTag returns the whole <input> tag that carries the given id, so an assertion about one field
+// cannot accidentally match a different one.
+// fieldTag 返回带指定 id 的整个 <input> 标签，使针对某个字段的断言不会误命中另一个字段。
+func fieldTag(t *testing.T, html, id string) string {
+	t.Helper()
+	pattern := regexp.MustCompile(`(?s)<input[^>]*\sid="` + regexp.QuoteMeta(id) + `"[^>]*>`)
+	tag := pattern.FindString(html)
+	if tag == "" {
+		t.Fatalf("no <input id=%q> in the rendered output | 渲染结果中没有 <input id=%q>", id, id)
+	}
+	return tag
+}
+
+// TestNewPagesKeepElementIdsUnique proves one dialog per page really does keep every id unique: the
+// create button and the row edit button fill the same body, so no field id is rendered twice.
+// TestNewPagesKeepElementIdsUnique 证明「每页一个对话框」确实让每个 id 唯一：
+// 新建按钮与行内编辑按钮填充同一个正文，因此没有任何字段 id 会被渲染两次。
+func TestNewPagesKeepElementIdsUnique(t *testing.T) {
+	tmpl := loadTemplates(t)
+
+	for _, page := range []string{"pages/users.html", "pages/tenants.html", "pages/roles.html", "pages/permissions.html"} {
+		html := execute(t, tmpl, page)
+		seen := map[string]bool{}
+		for _, match := range idRe.FindAllStringSubmatch(html, -1) {
+			if seen[match[1]] {
+				t.Errorf("%s: duplicate id %q | %s 中出现重复 id %q", page, match[1], page, match[1])
+			}
+			seen[match[1]] = true
+		}
+		if len(seen) == 0 {
+			t.Errorf("%s: no id rendered at all | %s 没有渲染出任何 id", page, page)
 		}
 	}
 }

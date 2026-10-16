@@ -8,6 +8,7 @@
 //	static/js/vendor/   third-party JavaScript locked by assets.lock.json | 由 assets.lock.json 锁定的第三方 JavaScript
 //	static/css/         Tailwind v4 source app.css plus the committed build artifact yd.css | Tailwind v4 源文件 app.css 与签入仓库的编译产物 yd.css
 //	templates/          page templates consumed by the render package | 供 render 包使用的页面模板
+//	i18n/               built-in message catalogues loaded by i18n.New and injected into the layout | 由 i18n.New 加载并注入布局的内置消息目录
 //	assets.lock.json    front-end asset manifest carrying sha256 checksums | 携带 sha256 校验和的前端资产清单
 //
 // The assets package (Task 27) owns Manifest and its verification helpers; | assets 包（Task 27）负责 Manifest 及其校验辅助函数，

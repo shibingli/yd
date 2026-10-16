@@ -1,0 +1,47 @@
+{{/*
+  partials/roles/row.html — one row of the role table (referenced by partials/roles/list.html).
+  partials/roles/row.html — 角色表格的单行（由 partials/roles/list.html 引用）。
+
+  Data contract — the dot is one row | 数据契约 —— 点号就是一行:
+    .ID .Name .Description .Permissions []{Value, Key, Label}
+
+  Permissions are shown as badges, never as a count | 权限以徽标展示，而不是一个数字:
+    A count tells an administrator that something changed but not what; the badges are the actual
+    answer to "what may this role do", and they are the same names the permission matrix uses.
+    数字只告诉管理员「有东西变了」，却不说是哪一件；徽标才是「这个角色能做什么」的真正答案，
+    而且用的就是权限矩阵里的同一批名称。
+
+  Delete confirmation | 删除确认:
+    hx-confirm is an attribute, so the question is bound through data-yd-i18n-attr and follows a
+    language switch like any other string of the page.
+    hx-confirm 是属性，因此该询问经 data-yd-i18n-attr 绑定，
+    与页面其余文案一样跟随语言切换。
+*/}}
+{{- define "partials/roles/row" -}}
+<tr class="yd-table__row" id="yd-role-{{.ID}}">
+  <td class="yd-table__td"><span class="yd-table__primary">{{.Name}}</span></td>
+  <td class="yd-table__td">{{.Description}}</td>
+  {{/* The accessible name of the cell states what the badges are; the badges themselves are the
+       translatable permission names.
+       该单元格的可访问名称说明这些徽标是什么；徽标本身则是可翻译的权限名。 */}}
+  <td class="yd-table__td" data-yd-i18n-attr="aria-label:roles.permissions.selected" aria-label="{{tr "roles.permissions.selected"}}">
+    {{with .Permissions}}{{range .}}<span class="yd-badge yd-badge--muted" data-yd-i18n="{{.Key}}">{{.Label}}</span>{{end}}{{else}}
+    <span class="yd-hint" data-yd-i18n="roles.permissions.none">{{tr "roles.permissions.none"}}</span>
+    {{end}}
+  </td>
+  <td class="yd-table__td yd-table__td--actions">
+    <button type="button" class="yd-btn yd-btn--ghost yd-btn--sm"
+            hx-get="/roles/{{.ID}}" hx-target="closest tr" hx-swap="outerMorph"
+            data-yd-i18n="action.refresh">{{tr "action.refresh"}}</button>
+    <button type="button" class="yd-btn yd-btn--ghost yd-btn--sm"
+            hx-get="/roles/{{.ID}}/edit" hx-target="#yd-role-form-body" hx-swap="innerHTML"
+            data-yd-modal-open="yd-role-dialog"
+            data-yd-i18n="action.edit">{{tr "action.edit"}}</button>
+    <button type="button" class="yd-btn yd-btn--ghost yd-btn--sm"
+            hx-delete="/roles/{{.ID}}" hx-target="closest tr" hx-swap="delete"
+            hx-confirm="{{tr "roles.delete_confirm"}}"
+            data-yd-i18n="action.delete"
+            data-yd-i18n-attr="hx-confirm:roles.delete_confirm">{{tr "action.delete"}}</button>
+  </td>
+</tr>
+{{- end -}}

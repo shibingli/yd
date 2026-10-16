@@ -1,0 +1,102 @@
+{{/*
+  partials/users/row.html — one row of the user administration table (referenced by partials/users/list.html).
+  partials/users/row.html — 用户管理表格的单行（由 partials/users/list.html 引用）。
+
+  Data contract — the dot is one row, not the page | 数据契约 —— 点号就是一行，而不是页面数据:
+    .ID          primary key, also the suffix of the row id | 主键，同时是行 id 的后缀
+    .Initials    avatar text, decorative only | 头像文字，仅作装饰
+    .Name        user name, raw data | 用户名称，原始数据
+    .Email       e-mail, raw data | 邮箱，原始数据
+    .Status      "active" or "disabled", the badge modifier | "active" 或 "disabled"，徽标修饰符
+    .StatusKey   translation key of the status text | 状态文案的翻译键
+    .Disabled    true when the account cannot sign in | 账号无法登录时为 true
+    .Roles       []{Value, Key, Label} the roles held inside the tenant | 租户内持有的角色
+
+  Translatable versus raw | 可翻译与原始数据:
+    Only copy carries a key: the status badge and the role badges are translated on a language
+    switch, while the name and the e-mail are data and therefore carry none. Tagging data with a
+    key would replace the user's own name with the word "user" the moment the language changes.
+    只有文案才带键：状态徽标与角色徽标会随语言切换被翻译，而名称与邮箱是数据，因此不带键。
+    给数据也挂上键，会在切换语言的瞬间把用户名替换成「用户」这个词。
+
+  Row id and refresh | 行 id 与刷新:
+    "yd-user-<id>" is the stable swap target of the row; the refresh button morphs that very <tr>,
+    so focus, scroll and any half-typed value inside the row survive the update.
+    "yd-user-<id>" 是该行稳定的交换目标；刷新按钮只 morph 这个 <tr>，
+    行内的焦点、滚动位置与未提交的输入因此都保留。
+
+  Destructive actions | 破坏性操作:
+    Disable, rotate-key and delete each carry an hx-confirm question, so the user is asked without
+    a server round trip and the wording lives in the same catalogue as the rest of the page. The
+    question is also bound through data-yd-i18n-attr, because hx-confirm is an attribute: without
+    that hook a language switch would leave the confirmation in the language it was rendered in.
+    禁用、轮换密钥与删除都带 hx-confirm 询问，无需往返服务端即可确认，
+    文案与页面其余部分共用同一份目录。该询问还经 data-yd-i18n-attr 绑定，
+    因为 hx-confirm 是一个属性：没有这个钩子，语言切换会让确认文案停在它被渲染时的语言。
+
+  sec_key rotation | sec_key 轮换:
+    The button posts to /users/{id}/rotate_key; the handler answers with the new key exactly once
+    (a fragment plus an HX-Trigger flash), because a rotated secret is never shown again.
+    该按钮 POST 到 /users/{id}/rotate_key；处理函数只回显一次新密钥
+    （片段加 HX-Trigger 闪现），因为轮换后的密钥不会再展示第二次。
+*/}}
+{{- define "partials/users/row" -}}
+<tr class="yd-table__row" id="yd-user-{{.ID}}">
+  <td class="yd-table__td">
+    <span class="yd-avatar yd-avatar--sm" aria-hidden="true">{{.Initials}}</span>
+    <span class="yd-table__primary">{{.Name}}</span>
+  </td>
+  <td class="yd-table__td">{{.Email}}</td>
+  <td class="yd-table__td">
+    {{with .Roles}}{{range .}}<span class="yd-badge yd-badge--muted" data-yd-i18n="{{.Key}}">{{.Label}}</span>{{end}}{{else}}
+    <span class="yd-hint" data-yd-i18n="users.role.none">{{tr "users.role.none"}}</span>
+    {{end}}
+  </td>
+  <td class="yd-table__td">
+    <span class="yd-badge yd-badge--{{.Status}}" data-yd-i18n="{{.StatusKey}}">{{.Status}}</span>
+  </td>
+  <td class="yd-table__td yd-table__td--actions">
+    <button type="button" class="yd-btn yd-btn--ghost yd-btn--sm"
+            hx-get="/users/{{.ID}}" hx-target="closest tr" hx-swap="outerMorph"
+            data-yd-i18n="action.refresh">{{tr "action.refresh"}}</button>
+    {{/* The edit button opens the shared dialog through yd-app.js and lets htmx fetch the form into
+         its body in the same click; the dialog is shared with create, so every field id stays unique
+         in the document.
+         编辑按钮经 yd-app.js 打开共用的对话框，并在同一次点击里让 htmx 把表单取进其正文；
+         该对话框与新建共用，因此每个字段 id 在文档中都是唯一的。 */}}
+    <button type="button" class="yd-btn yd-btn--ghost yd-btn--sm"
+            hx-get="/users/{{.ID}}/edit" hx-target="#yd-user-form-body" hx-swap="innerHTML"
+            data-yd-modal-open="yd-user-dialog"
+            data-yd-i18n="action.edit">{{tr "action.edit"}}</button>
+    {{if .Disabled}}
+    <button type="button" class="yd-btn yd-btn--ghost yd-btn--sm"
+            hx-post="/users/{{.ID}}/enable" hx-target="#yd-users-table" hx-swap="outerMorph"
+            hx-confirm="{{tr "users.enable_confirm"}}"
+            data-yd-i18n="users.action.enable"
+            data-yd-i18n-attr="hx-confirm:users.enable_confirm">{{tr "users.action.enable"}}</button>
+    {{else}}
+    <button type="button" class="yd-btn yd-btn--ghost yd-btn--sm"
+            hx-post="/users/{{.ID}}/disable" hx-target="#yd-users-table" hx-swap="outerMorph"
+            hx-confirm="{{tr "users.disable_confirm"}}"
+            data-yd-i18n="users.action.disable"
+            data-yd-i18n-attr="hx-confirm:users.disable_confirm">{{tr "users.action.disable"}}</button>
+    {{end}}
+    {{/* One element carrying both hooks is supported: data-yd-i18n writes the text, then
+         data-yd-i18n-attr writes the attributes of the very same node, comma separated.
+         同一个元素可以同时挂两个钩子：data-yd-i18n 先写文本，随后 data-yd-i18n-attr 写同一节点的属性，
+         多个属性以逗号分隔。 */}}
+    <button type="button" class="yd-btn yd-btn--ghost yd-btn--sm"
+            hx-post="/users/{{.ID}}/rotate_key" hx-target="#yd-users-table" hx-swap="outerMorph"
+            hx-confirm="{{tr "users.rotate_key_confirm"}}"
+            data-yd-i18n="users.action.rotate_key"
+            data-yd-i18n-attr="title:users.action.rotate_key_hint, hx-confirm:users.rotate_key_confirm"
+            title="{{tr "users.action.rotate_key_hint"}}">{{tr "users.action.rotate_key"}}</button>
+    {{/* hx-swap="delete" removes the row once the server has confirmed the deletion. | hx-swap="delete" 在服务端确认删除后移除该行。 */}}
+    <button type="button" class="yd-btn yd-btn--ghost yd-btn--sm"
+            hx-delete="/users/{{.ID}}" hx-target="closest tr" hx-swap="delete"
+            hx-confirm="{{tr "users.delete_confirm"}}"
+            data-yd-i18n="action.delete"
+            data-yd-i18n-attr="hx-confirm:users.delete_confirm">{{tr "action.delete"}}</button>
+  </td>
+</tr>
+{{- end -}}

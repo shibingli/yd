@@ -54,7 +54,13 @@
         {{/* Server-side interpolation uses the same catalog through the tr template function. | 服务端插值经 tr 模板函数使用同一份目录。 */}}
         <dd data-yd-i18n="i18n.sample.interpolated" data-yd-i18n-args='{"name":"YunDev"}'>{{tr "i18n.sample.interpolated" "YunDev"}}</dd>
         <dt data-yd-i18n="i18n.sample.missing_label">{{tr "i18n.sample.missing_label"}}</dt>
-        <dd class="yd-code" data-yd-i18n="i18n.sample.missing">{{tr "i18n.sample.missing"}}</dd>
+        {{/* The key is built at render time on purpose: this row demonstrates the "missing key falls
+             back to the key name" rule, and a literal key here would have to exist in both catalogs
+             (TestEveryTrKeyHasBothCatalogs), which is exactly what the row must not do.
+             该键刻意在渲染期拼出：本行演示「缺失键回退为键名」的规则，
+             若写成字面键，它就必须存在于两份目录中（TestEveryTrKeyHasBothCatalogs），
+             而那正是本行不能做的事。 */}}
+        <dd class="yd-code" data-yd-i18n="i18n.sample.missing">{{tr (printf "i18n.sample.%s" "missing")}}</dd>
       </dl>
     </section>
 
@@ -80,7 +86,7 @@
     <h2 class="yd-section__title" id="yd-i18n-persist" data-yd-i18n="i18n.persist.title">{{tr "i18n.persist.title"}}</h2>
     {{template "partials/form.errors" .}}
     <form class="yd-form yd-form--inline" method="post" action="/i18n_demo"
-          hx-post="/i18n_demo" hx-target="#yd-i18n-persist" hx-swap="outerMorph" hx-status:422="target:#errors"
+          hx-post="/i18n_demo" hx-target="#yd-i18n-persist" hx-swap="outerMorph" hx-status:422="target:#errors swap:innerHTML"
           hx-trigger="submit">
       {{template "partials/form.select" (dict
           "ID" "yd-i18n-preferred" "Name" "lang"

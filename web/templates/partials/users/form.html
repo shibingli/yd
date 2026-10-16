@@ -1,0 +1,95 @@
+{{/*
+  partials/users/form.html — the create/edit user form (referenced by pages/users.html).
+  partials/users/form.html — 新建/编辑用户表单（由 pages/users.html 引用）。
+
+  One form for both paths | 两种路径共用一个表单:
+    Create and edit differ only in the URL the form posts to, so the markup exists once. The handler
+    sets .FormAction on an edit response ("/users/<id>") and leaves it empty on a create response,
+    where the fallback below takes over.
+    新建与编辑只差一个提交地址，因此标记只有一份。编辑应答由处理函数设置 .FormAction（"/users/<id>"），
+    新建应答留空，此时由下方的兜底值接管。
+
+  Field-level encryption | 字段级加密:
+    The initial password is marked Sensitive, so yd-guomi-htmx.js encrypts it as soon as (and only
+    when) the form itself declares data-yd-encrypt; the sign-in form is the one that must declare it,
+    and an authenticated admin form opts in only once its handler accepts X-YD-Encrypted.
+    初始口令标记为 Sensitive，因此只在表单自身声明 data-yd-encrypt 时才会被 yd-guomi-htmx.js 加密；
+    必须声明它的是登录表单，而登录后的管理表单要等其处理函数接受 X-YD-Encrypted 之后再选择加入。
+
+  Failure contract | 失败契约:
+    hx-status:422="target:#errors swap:innerHTML" swaps the item list of partials/form.error-items
+    into the page's single #errors slot, so the typed values and the slot itself both survive.
+    hx-status:422="target:#errors swap:innerHTML" 把 partials/form.error-items 的条目列表交换进
+    页面唯一的 #errors 落点，因此已输入的值与落点本身都保留。
+
+  Data contract | 数据契约:
+    .User       optional, the user being edited | 可选，正在编辑的用户
+    .FormAction optional post target for an edit | 编辑时的提交地址（可选）
+    .Tenants    []{Value, Key, Label, Selected} the tenant the user belongs to | 用户所属租户
+    .Roles      []{Value, Key, Label, Checked} the roles assignable inside that tenant | 该租户内可分配的角色
+    The two status states are not data: they come from the users.status.* keys of the catalogue, and a
+    state the catalogue does not name would be a state the interface cannot explain.
+    两种状态不是数据：它们取自目录中的 users.status.* 键，目录没有命名的状态，
+    也就是界面无法解释的状态。
+*/}}
+{{- define "partials/users/form" -}}
+{{- $action := "/users" -}}{{- with .FormAction -}}{{- $action = . -}}{{- end -}}
+{{- $name := "" -}}{{- $email := "" -}}{{- with .User -}}{{- $name = .Name -}}{{- $email = .Email -}}{{- end -}}
+<form class="yd-form" method="post" action="{{$action}}" hx-post="{{$action}}"
+      hx-target="#yd-users-table" hx-swap="outerMorph"
+      hx-status:422="target:#errors swap:innerHTML"
+      novalidate>
+  {{/* The dialog title is generic, so the form says which mode it is in; both keys already exist for
+       the row button and the header button, which keeps the wording identical everywhere.
+       对话框标题是通用的，因此由表单说明自己处于哪种模式；两个键已经用于行内按钮与页头按钮，
+       这保证同一件事在各处用词完全一致。 */}}
+  <p class="yd-section__hint" data-yd-i18n="{{if .User}}action.edit{{else}}users.create{{end}}">{{if .User}}{{tr "action.edit"}}{{else}}{{tr "users.create"}}{{end}}</p>
+  {{template "partials/form.field" (dict
+      "ID" "yd-user-name" "Name" "name" "Type" "text" "Value" $name
+      "LabelKey" "users.field.name" "Label" (tr "users.field.name")
+      "Autocomplete" "off" "Required" true)}}
+
+  {{template "partials/form.field" (dict
+      "ID" "yd-user-email" "Name" "email" "Type" "email" "Value" $email
+      "LabelKey" "users.field.email" "Label" (tr "users.field.email")
+      "PlaceholderKey" "users.field.email_placeholder" "Placeholder" ""
+      "Autocomplete" "off" "Required" true)}}
+
+  {{/* The password is required only while creating: an edit response must never force the admin
+       to type a new one just to rename the account.
+       只有新建时口令才必填：编辑应答绝不能逼管理员为了改名而重新输入口令。 */}}
+  {{template "partials/form.field" (dict
+      "ID" "yd-user-password" "Name" "password" "Type" "password" "Value" ""
+      "LabelKey" "users.field.password" "Label" (tr "users.field.password")
+      "Autocomplete" "new-password" "Required" (not .User) "Sensitive" true)}}
+
+  {{template "partials/form.select" (dict
+      "ID" "yd-user-tenant" "Name" "tenant"
+      "LabelKey" "users.field.tenant" "Label" (tr "users.field.tenant")
+      "Options" .Tenants)}}
+
+  {{/* A user holds a set of roles, not one role: the checkbox group is what makes that visible.
+       用户持有的是一组角色而不是单个角色：复选框组正是让这件事可见的形式。 */}}
+  <fieldset class="yd-checks">
+    <legend class="yd-field__label" data-yd-i18n="users.field.roles">{{tr "users.field.roles"}}</legend>
+    {{with .Roles}}{{range .}}
+    <div class="yd-field yd-field--check">
+      <input class="yd-checkbox" type="checkbox" id="yd-user-role-{{.Value}}" name="roles" value="{{.Value}}" {{if .Checked}}checked{{end}}>
+      <label class="yd-field__label" for="yd-user-role-{{.Value}}" data-yd-i18n="{{.Key}}">{{.Label}}</label>
+    </div>
+    {{end}}{{else}}
+    <p class="yd-hint" data-yd-i18n="users.role.none">{{tr "users.role.none"}}</p>
+    {{end}}
+    <p class="yd-field__hint" data-yd-i18n="users.field.roles_hint">{{tr "users.field.roles_hint"}}</p>
+  </fieldset>
+
+  {{template "partials/form.select" (dict
+      "ID" "yd-user-status" "Name" "status"
+      "LabelKey" "users.field.status" "Label" (tr "users.field.status")
+      "Options" (list
+          (dict "Value" "active" "Key" "users.status.active" "Label" (tr "users.status.active") "Selected" true)
+          (dict "Value" "disabled" "Key" "users.status.disabled" "Label" (tr "users.status.disabled"))))}}
+
+  {{template "partials/form.actions" (dict "SubmitKey" "action.save" "Submit" (tr "action.save"))}}
+</form>
+{{- end -}}

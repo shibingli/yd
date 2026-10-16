@@ -19,6 +19,9 @@
   Htmx 4 的属性继承是显式的：祖先必须写出 ":inherited" 修饰符才会被继承，因此下方写在 <body> 上。
 
   Data contract: base.html plus .Breadcrumbs, .User, .Flashes, .Nav. | 数据契约：见 base.html，另有 .Breadcrumbs、.User、.Flashes、.Nav。
+  .Theme is rendered onto <html> as-is, so "system" reaches the browser and yd-theme-boot.js can
+  resolve it against the operating system before the first paint. | .Theme 被原样渲染到 <html> 上，
+  因此 "system" 会送达浏览器，由 yd-theme-boot.js 在首帧之前按操作系统偏好解析。
 */}}
 
 {{- define "dashboard.open" -}}

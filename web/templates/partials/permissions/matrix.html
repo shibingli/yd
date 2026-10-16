@@ -1,0 +1,75 @@
+{{/*
+  partials/permissions/matrix.html — the role × permission matrix (referenced by pages/permissions.html).
+  partials/permissions/matrix.html — 角色 × 权限矩阵（由 pages/permissions.html 引用）。
+
+  Each cell is its own request | 每个格子都是独立的请求:
+    A checkbox posts its own change and morphs this whole wrapper back, so a grant never depends on
+    the state of any other cell, and a lost response can be retried by clicking again.
+    每个复选框各自提交变更并把整个容器 morph 回来，因此一次授予不依赖任何其它格子的状态，
+    响应丢失时再点一次即可重试。
+
+  Why there is no <form> here | 为什么这里没有 <form>:
+    Wrapping the grid in a form would make every checkbox a value of one giant submission and would
+    need a submit button nobody wants; htmx sends the triggering control's own name/value pair, so
+    one checkbox is exactly one well-formed request.
+    把网格包进表单，会让每个复选框都变成一次巨型提交里的一个值，还得配一个没人想要的提交按钮；
+    htmx 会发送触发控件自身的 name/value 对，因此一个复选框恰好就是一次完整、自洽的请求。
+
+  The pending state is the new one | 待提交状态就是目标状态:
+    The checkbox is already at its new value when the request leaves, so the handler receives the
+    target state explicitly instead of having to guess whether the click granted or revoked.
+    请求发出时复选框已经是新值，因此处理函数收到的是明确的目标状态，
+    不必去猜这次点击是授予还是回收。
+
+  Data contract | 数据契约:
+    .Roles  []{ID, Key, Label} the columns | 矩阵的列
+    .Matrix []{Key, Label, GroupKey, Group, Cells []{Value, Granted}} the rows
+            | 矩阵的行
+    .Errors see partials/form.errors | 见 partials/form.errors
+
+  The group badge, not a group heading | 用组徽标而不是分组标题:
+    A heading row would have to span every column, and its colspan would go stale the moment a
+    tenant adds a role. A badge on the row header says the same thing with no column count in it.
+    分组标题行必须横跨所有列，而它的 colspan 会在租户新增一个角色的瞬间过期。
+    行表头上的徽标表达了同一件事，却不含任何列数。
+*/}}
+{{- define "partials/permissions/matrix" -}}
+<div class="yd-table__wrap" data-yd-table>
+  <table class="yd-table yd-matrix" data-yd-i18n-attr="aria-label:permissions.matrix.title">
+    <caption class="sr-only" data-yd-i18n="permissions.matrix.title">{{tr "permissions.matrix.title"}}</caption>
+    <thead class="yd-table__head">
+      <tr>
+        <th class="yd-table__th" scope="col" data-yd-i18n="permissions.column.permission">{{tr "permissions.column.permission"}}</th>
+        {{with .Roles}}{{range .}}
+        <th class="yd-table__th" scope="col" data-yd-i18n="{{.Key}}">{{.Label}}</th>
+        {{end}}{{end}}
+      </tr>
+    </thead>
+    <tbody id="yd-permissions-rows" class="yd-table__body" hx-swap="outerMorph">
+      {{with .Matrix}}{{range .}}
+      <tr class="yd-table__row" id="yd-permission-{{.Key}}">
+        {{/* Row header, not a data cell: the permission name is what the row is about. | 行表头而非数据格：权限名正是该行的主题。 */}}
+        <th class="yd-table__th yd-matrix__name" scope="row">
+          <span data-yd-i18n="{{.Key}}">{{.Label}}</span>
+          <span class="yd-badge yd-badge--muted" data-yd-i18n="{{.GroupKey}}">{{.Group}}</span>
+        </th>
+        {{with .Cells}}{{range .}}
+        <td class="yd-table__td">
+          <input class="yd-checkbox" type="checkbox" name="grant" value="{{.Value}}" {{if .Granted}}checked{{end}}
+                 hx-post="/permissions" hx-target="#yd-permissions-matrix" hx-swap="outerMorph" hx-trigger="change"
+                 hx-status:422="target:#errors swap:innerHTML"
+                 hx-vals='{"granted":"{{if .Granted}}false{{else}}true{{end}}"}'
+                 data-yd-i18n-attr="aria-label:{{if .Granted}}permissions.toggle.revoke{{else}}permissions.toggle.grant{{end}}"
+                 aria-label="{{if .Granted}}{{tr "permissions.toggle.revoke"}}{{else}}{{tr "permissions.toggle.grant"}}{{end}}">
+        </td>
+        {{end}}{{end}}
+      </tr>
+      {{end}}{{else}}
+      <tr class="yd-table__row yd-table__row--empty">
+        <td class="yd-table__td" colspan="6" data-yd-i18n="permissions.empty">{{tr "permissions.empty"}}</td>
+      </tr>
+      {{end}}
+    </tbody>
+  </table>
+</div>
+{{- end -}}

@@ -1,0 +1,58 @@
+{{/*
+  partials/tenants/form.html — the create/edit tenant form (referenced by pages/tenants.html).
+  partials/tenants/form.html — 新建/编辑租户表单（由 pages/tenants.html 引用）。
+
+  Data contract | 数据契约:
+    .Tenant     optional, the tenant being edited | 可选，正在编辑的租户
+    .FormAction optional post target for an edit | 编辑时的提交地址（可选）
+
+  The slug is the one field that cannot be edited safely | 标识是唯一不能安全修改的字段:
+    Users, roles and tokens are all addressed through it, so a rename would silently repoint every
+    one of them. An edit response therefore renders it read-only, and only creation asks for it.
+    用户、角色与令牌都以它为寻址依据，因此改名会悄悄改掉它们全部指向的对象。
+    编辑应答因此把它渲染为只读，只有新建才要求填写。
+*/}}
+{{- define "partials/tenants/form" -}}
+{{- $action := "/tenants" -}}{{- with .FormAction -}}{{- $action = . -}}{{- end -}}
+{{- $name := "" -}}{{- $slug := "" -}}{{- with .Tenant -}}{{- $name = .Name -}}{{- $slug = .Slug -}}{{- end -}}
+<form class="yd-form" method="post" action="{{$action}}" hx-post="{{$action}}"
+      hx-target="#yd-tenants-table" hx-swap="outerMorph"
+      hx-status:422="target:#errors swap:innerHTML"
+      novalidate>
+  <p class="yd-section__hint" data-yd-i18n="{{if .Tenant}}action.edit{{else}}tenants.create{{end}}">{{if .Tenant}}{{tr "action.edit"}}{{else}}{{tr "tenants.create"}}{{end}}</p>
+
+  {{/* An existing slug is rendered read-only rather than disabled: readonly still submits the value
+       with the form, so no shadow hidden field is needed to carry it, and the hint says why the field
+       refuses to change. Creation renders the same field editable, with a format hint instead.
+       已存在的标识渲染为 read-only 而不是 disabled：read-only 仍会随表单提交该值，
+       因此不需要一个影子 hidden 字段来携带它，提示行则说明该字段为何拒绝修改。
+       新建时同一个字段渲染为可编辑，改为给出格式提示。 */}}
+  {{if .Tenant}}
+  <div class="yd-field" data-yd-field="slug">
+    <label class="yd-field__label" for="yd-tenant-slug" data-yd-i18n="tenants.field.slug">{{tr "tenants.field.slug"}}</label>
+    <input class="yd-input" id="yd-tenant-slug" name="slug" type="text" value="{{$slug}}" readonly>
+    <p class="yd-field__hint" data-yd-i18n="tenants.field.slug_locked">{{tr "tenants.field.slug_locked"}}</p>
+  </div>
+  {{else}}
+  {{template "partials/form.field" (dict
+      "ID" "yd-tenant-slug" "Name" "slug" "Type" "text" "Value" $slug
+      "LabelKey" "tenants.field.slug" "Label" (tr "tenants.field.slug")
+      "PlaceholderKey" "tenants.field.slug_placeholder" "Placeholder" ""
+      "Autocomplete" "off" "Required" true)}}
+  {{end}}
+
+  {{template "partials/form.field" (dict
+      "ID" "yd-tenant-name" "Name" "name" "Type" "text" "Value" $name
+      "LabelKey" "tenants.field.name" "Label" (tr "tenants.field.name")
+      "Autocomplete" "off" "Required" true)}}
+
+  {{template "partials/form.select" (dict
+      "ID" "yd-tenant-status" "Name" "status"
+      "LabelKey" "tenants.field.status" "Label" (tr "tenants.field.status")
+      "Options" (list
+          (dict "Value" "active" "Key" "tenants.status.active" "Label" (tr "tenants.status.active") "Selected" true)
+          (dict "Value" "disabled" "Key" "tenants.status.disabled" "Label" (tr "tenants.status.disabled"))))}}
+
+  {{template "partials/form.actions" (dict "SubmitKey" "action.save" "Submit" (tr "action.save"))}}
+</form>
+{{- end -}}

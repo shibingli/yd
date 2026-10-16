@@ -1,21 +1,47 @@
 {{/*
-  pages/users.html — user management: live search, create dialog, morphing rows.
-  pages/users.html — 用户管理：实时搜索、新建对话框、morph 行更新。
+  pages/users.html — user administration: live search, one dialog for create and edit, row actions.
+  pages/users.html — 用户管理：实时搜索、新建与编辑共用一个对话框、行内状态操作。
 
   Naming | 命名:
     pages/users.html     full document | 整页文档
     pages/users.content  workspace fragment | 工作区片段
 
+  One dialog, two entry points | 一个对话框，两个入口:
+    Create and edit share a single dialog whose body is fetched into #yd-user-form-body: the header
+    button asks for /users/new, a row button asks for /users/<id>/edit. One dialog means each field
+    id exists exactly once in the document — two dialogs would duplicate every id, and the second
+    label of a duplicated pair would focus the first field of the *other* dialog.
+    新建与编辑共用一个对话框，正文由 fetch 取进 #yd-user-form-body：页头按钮请求 /users/new，
+    行内按钮请求 /users/<id>/edit。共用对话框意味着每个字段 id 在文档中只出现一次 ——
+    两个对话框会让每个 id 都重复，而重复 id 中后面那个 label 会聚焦到*另一个*对话框的第一个字段上。
+
   Interactions | 交互:
-    * The search form debounces 300ms and targets only the table region, so the surrounding
-      chrome, the open dialog and the scroll position are never touched.
+    * The search form debounces 300ms and targets only the table region, so the surrounding chrome,
+      an open dialog and the scroll position are never touched.
     * 搜索表单防抖 300ms 且只瞄准表格区域，因此外围外壳、已打开的对话框与滚动位置都不受影响。
-    * The create form answers 422 by swapping the fragment into #errors while the dialog keeps
-      the typed values.
-    * 新建表单在 422 时把片段交换进 #errors，对话框保留已输入的值。
+    * One #errors slot serves every form on the page. That is exactly why the slot is a slot and not
+      a replaceable block: the dialog and the search form both answer 422, and neither may carry an
+      id="errors" of its own. The innerHTML swap keeps the single slot in place between answers.
+    * 全页的表单共用同一个 #errors 落点。这正是它必须是「落点」而不是「可替换区块」的原因：
+      对话框与搜索表单都会返回 422，谁都不能自带一个 id="errors"；innerHTML 交换让唯一的落点留在原处。
+    * Row actions cover the three state changes of Task 4: assign roles in the dialog, disable or
+      enable the account, and rotate its sec_key so every token it ever signed becomes worthless.
+    * 行内操作覆盖任务 4 的三类状态变更：在对话框里分配角色、禁用或启用账号、
+      以及轮换 sec_key，使该用户此前签发的所有令牌立即作废。
+    * A successful save may clear the dialog from the server side: htmx.RenderPartials writes one
+      <hx-partial> block per region, so the answer can replace #yd-users-table and empty
+      #yd-user-form-body in the same response without a line of client script.
+    * 保存成功可由服务端清空对话框：htmx.RenderPartials 为每个区域写一个 <hx-partial> 块，
+      因此同一次应答既能替换 #yd-users-table、也能清空 #yd-user-form-body，无需一行客户端脚本。
 
   Data contract | 数据契约:
-    .Users, .Pagination, .Errors  see partials/table.html and partials/pagination.html
+    .Users       rows, see partials/users/row.html | 行数据，见 partials/users/row.html
+    .Pagination  see partials/pagination.html | 见 partials/pagination.html
+    .Errors      see partials/form.errors | 见 partials/form.errors
+    .Tenants     options for the tenant select | 租户下拉的选项
+    .Roles       options for the role checkboxes | 角色复选框的选项
+    .User        optional; when set the dialog pre-fills and labels itself as an edit
+                 | 可选；设置后对话框预填自身并把自己标注为编辑
 */}}
 
 {{- define "pages/users.html" -}}
@@ -30,9 +56,22 @@
       <p class="yd-page__subtitle" data-yd-i18n="users.subtitle">{{tr "users.subtitle"}}</p>
     </div>
     <div class="yd-page__actions">
-      <button type="button" class="yd-btn yd-btn--primary" data-yd-modal-open="yd-user-create" data-yd-i18n="users.create">{{tr "users.create"}}</button>
+      {{/* data-yd-modal-open opens the dialog and hx-get fills it: the click does both, and neither
+           half depends on the other.
+           data-yd-modal-open 打开对话框、hx-get 填充它：一次点击同时完成，
+           两半互不依赖。 */}}
+      <button type="button" class="yd-btn yd-btn--primary"
+              hx-get="/users/new" hx-target="#yd-user-form-body" hx-swap="innerHTML"
+              data-yd-modal-open="yd-user-dialog"
+              data-yd-i18n="users.create">{{tr "users.create"}}</button>
     </div>
   </header>
+
+  {{/* The single error slot of the page, outside the dialog: a workspace morph keeps it, and a 422
+       from any form writes into it without ever duplicating the id.
+       全页唯一的错误落点，位于对话框之外：工作区 morph 不会带走它，
+       任何表单的 422 都写进它，且绝不产生重复 id。 */}}
+  {{template "partials/form.errors" .}}
 
   <form class="yd-filters" role="search" method="get" action="/users"
         hx-get="/users" hx-target="#yd-users-table" hx-swap="outerMorph" hx-push-url="true"
@@ -45,35 +84,16 @@
 
   <section class="yd-card yd-section" id="yd-users-table" aria-labelledby="yd-users-table-title">
     <h2 class="sr-only" id="yd-users-table-title" data-yd-i18n="users.table">{{tr "users.table"}}</h2>
-    {{template "partials/table" .}}
+    {{template "partials/users/list" .}}
     {{template "partials/pagination" .}}
   </section>
 
-  {{template "partials/modal.open" (dict "ID" "yd-user-create" "TitleKey" "users.create" "Title" (tr "users.create"))}}
-    {{template "partials/form.errors" .}}
-    <form class="yd-form" method="post" action="/users"
-          hx-post="/users" hx-target="#yd-users-table" hx-swap="outerMorph" hx-status:422="target:#errors" novalidate>
-      {{template "partials/form.field" (dict
-          "ID" "yd-user-name" "Name" "name" "Type" "text" "Value" ""
-          "LabelKey" "users.field.name" "Label" (tr "users.field.name")
-          "Autocomplete" "off" "Required" true)}}
-      {{template "partials/form.field" (dict
-          "ID" "yd-user-email" "Name" "email" "Type" "email" "Value" ""
-          "LabelKey" "users.field.email" "Label" (tr "users.field.email")
-          "PlaceholderKey" "users.field.email_placeholder" "Placeholder" ""
-          "Autocomplete" "off" "Required" true)}}
-      {{template "partials/form.field" (dict
-          "ID" "yd-user-password" "Name" "password" "Type" "password" "Value" ""
-          "LabelKey" "users.field.password" "Label" (tr "users.field.password")
-          "Autocomplete" "new-password" "Required" true "Sensitive" true)}}
-      {{template "partials/form.select" (dict
-          "ID" "yd-user-role" "Name" "role" "LabelKey" "users.field.role" "Label" (tr "users.field.role")
-          "Options" (list
-              (dict "Value" "viewer" "Key" "users.role.viewer" "Label" (tr "users.role.viewer") "Selected" true)
-              (dict "Value" "editor" "Key" "users.role.editor" "Label" (tr "users.role.editor"))
-              (dict "Value" "admin" "Key" "users.role.admin" "Label" (tr "users.role.admin"))))}}
-      {{template "partials/form.actions" (dict "SubmitKey" "action.create" "Submit" (tr "action.create"))}}
-    </form>
+  {{template "partials/modal.open" (dict "ID" "yd-user-dialog" "TitleKey" "users.form.dialog_title" "Title" (tr "users.form.dialog_title"))}}
+    {{/* The body starts as a skeleton and is replaced by partials/users/form on the first click;
+         the dialog title stays generic because only the fetched form can say which mode it is in.
+         正文先是一副骨架，首次点击时被 partials/users/form 替换；
+         对话框标题保持通用，因为只有取回的表单才知道自己处于哪种模式。 */}}
+    <div id="yd-user-form-body">{{template "partials/skeleton" .}}</div>
   {{template "partials/modal.close" .}}
 </section>
 {{- end -}}

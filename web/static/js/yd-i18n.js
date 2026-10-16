@@ -8,8 +8,10 @@
  *   t(key, args)                      translate, falling back to the fallback catalog then to key
  *                                     | 翻译，缺失时回退 fallback 语言，再回退到 key 本身
  *   t.n(value, opts)                  format a number or a date with Intl | 用 Intl 格式化数字或日期
- *   setLang(lang)                     switch, persist to localStorage + yd_lang cookie + <html lang>
- *                                     | 切换语言，并持久化到 localStorage、yd_lang cookie 与 <html lang>
+ *   setLang(lang)                     switch, persist to localStorage + yd_lang cookie + <html lang>,
+ *                                     then refetch #yd-workspace through htmx
+ *                                     | 切换语言，并持久化到 localStorage、yd_lang cookie 与 <html lang>，
+ *                                       随后经 htmx 重新取回 #yd-workspace
  *   current()                         the active language tag | 当前语言标签
  *   on(fn)                            subscribe to language changes, returns an unsubscribe function
  *                                     | 订阅语言变化，返回取消订阅函数
@@ -33,6 +35,15 @@
  *      因此 morph 交换不会重复劳动，也不会覆盖用户的修改。
  *   3. No dependency, no build step: plain ES5-compatible UMD that also runs under node:test.
  *      无依赖、无构建：纯 UMD，同时可在 node:test 下运行。
+ *   4. A switch is immediate *and* server-accurate: the in-place rewrite below repaints the page
+ *      with the catalog already in memory (no blank frame), and setLang then asks the server for
+ *      the current URL again and swaps the answer into #yd-workspace, so every server-rendered
+ *      string — pages, partials, flash messages — follows the new language too. Standalone pages
+ *      without a #yd-workspace (the sign-in card) keep the in-place rewrite only.
+ *      切换既即时又与服务端一致：下面的就地重写用已在内存中的目录重绘页面（不出现空白帧），
+ *      随后 setLang 以当前 URL 向服务端重新取回片段并换入 #yd-workspace，
+ *      使每一处服务端渲染的文案（页面、局部片段、闪现消息）同样跟随新语言。
+ *      没有 #yd-workspace 的独立页面（登录卡片）只做就地重写。
  */
 (function (root, factory) {
   'use strict';
@@ -50,6 +61,7 @@
   var COOKIE_KEY = 'yd_lang'; // cookie name read by the server | 服务端读取的 cookie 名
   var CATALOG_ID = 'yd-i18n-catalog'; // id of the injected envelope | 注入信封的 id
   var BIND_SELECTOR = '[data-yd-i18n],[data-yd-i18n-attr],[data-yd-lang]';
+  var WORKSPACE_SELECTOR = '#yd-workspace'; // the region the server re-renders on a language switch | 语言切换时由服务端重新渲染的区域
   var ONE_YEAR = 31536000; // cookie max-age in seconds | cookie 有效期（秒）
 
   // state holds the resolved language, the catalogs and the subscribers.
@@ -598,9 +610,47 @@
     return api;
   }
 
-  // setLang switches the language: it persists the choice, updates <html lang> and rewrites the
-  // page in place, so a hot switch never needs a reload.
-  // setLang 切换语言：持久化选择、更新 <html lang> 并就地重写页面，热切换无需刷新。
+  // refetchWorkspace asks htmx to fetch the current URL again and swap the answer into
+  // #yd-workspace with innerHTML. The server sees HX-Request and answers with the workspace
+  // fragment rendered in the language of the freshly written yd_lang cookie, which is how
+  // server-side copy, flash messages and every server-rendered partial follow a hot switch
+  // without a full page load.
+  // History is explicitly left alone: the URL never changes, so a push would only add a
+  // duplicate entry to the back stack. It returns false when there is nothing to refetch —
+  // no htmx, or a standalone page such as the sign-in card that has no workspace at all.
+  // refetchWorkspace 让 htmx 重新请求当前 URL，并把结果以 innerHTML 换入 #yd-workspace。
+  // 服务端看到 HX-Request 后，会按刚写入的 yd_lang cookie 渲染工作区片段，
+  // 服务端文案、闪现消息以及每一处服务端渲染的局部片段因此都能跟随热切换，而无需整页加载。
+  // 历史记录被显式放过：URL 从未变化，push 只会给后退栈增加一条重复记录。
+  // 无 htmx、或登录卡片这类没有工作区的独立页面会返回 false（无事可做）。
+  function refetchWorkspace() {
+    var e = env();
+    var api = e.htmx;
+    var d = doc();
+    if (!api || typeof api.ajax !== 'function' || !d || typeof d.querySelector !== 'function') {
+      return false;
+    }
+    if (!d.querySelector(WORKSPACE_SELECTOR)) {
+      return false;
+    }
+    var location = d.location || {};
+    var url = text(location.pathname) || '/';
+    if (location.search) {
+      url += text(location.search);
+    }
+    api.ajax('GET', url, {
+      target: WORKSPACE_SELECTOR,
+      swap: 'innerHTML',
+      push: false
+    });
+    return true;
+  }
+
+  // setLang switches the language: it persists the choice, updates <html lang>, rewrites the page
+  // in place so the switch is visible immediately, and finally refetches the workspace so the
+  // server-rendered copy agrees with the new language. The page itself never reloads.
+  // setLang 切换语言：持久化选择、更新 <html lang>、就地重写页面使切换立刻可见，
+  // 最后重新取回工作区，使服务端渲染的文案与新语言一致。页面本身从不刷新。
   function setLang(lang) {
     var next = text(lang);
     if (!next) {
@@ -611,6 +661,7 @@
     applyDocumentLang(next);
     bind(doc(), true);
     emit();
+    refetchWorkspace();
     return next;
   }
 
@@ -638,6 +689,9 @@
       };
     },
     bind: bind,
+    // refetch re-reads the workspace from the server in the active language.
+    // refetch 以当前语言从服务端重新取回工作区。
+    refetch: refetchWorkspace,
     available: catalogKeys,
     // t is the translation function; t.n formats numbers and dates.
     // t 是翻译函数；t.n 负责数字与日期格式化。

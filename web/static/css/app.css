@@ -1867,4 +1867,53 @@
       transition: none;
     }
   }
+
+  /* ---------------------------------------------------------------- access control | 访问控制 */
+
+  /* Checkbox group of a permission multi-select: an auto-filling grid of .yd-field--check rows. | 权限多选的复选框组：由 .yd-field--check 行组成的自适应网格。 */
+  .yd-checks {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(12rem, 1fr));
+    gap: 0.5rem 1rem;
+    margin: 0;
+    padding: 0.75rem 1rem;
+    border: 1px solid var(--color-border-subtle);
+    border-radius: var(--radius-card);
+    background-color: var(--color-surface-muted);
+  }
+
+  /* The group label sits in the fieldset border area and is not a grid item, but a trailing hint is:
+     it has to span the whole grid instead of occupying one 12rem cell.
+     分组标签位于 fieldset 的边框区域、并不是网格项，而末尾的提示行是：
+     它必须横跨整个网格，而不是占住一个 12rem 的格子。 */
+  .yd-checks > .yd-field__hint,
+  .yd-checks > .yd-hint {
+    grid-column: 1 / -1;
+    margin: 0;
+  }
+
+  /* Role x permission grid: wide enough to stay readable, scrolled by .yd-table__wrap. | 角色 × 权限网格：保证可读的宽度，由 .yd-table__wrap 横向滚动。 */
+  .yd-matrix {
+    min-width: 44rem;
+  }
+
+  /* Every column but the permission names is centred, and that is what turns the table into a matrix. | 除权限名外的各列居中，正是这一点把表格变成了矩阵。 */
+  .yd-matrix th:not(:first-child),
+  .yd-matrix td:not(:first-child) {
+    text-align: center;
+  }
+
+  /* Row header of the matrix: the permission name and its group badge on one line. | 矩阵的行表头：权限名与其分组徽标在同一行。 */
+  .yd-matrix__name {
+    white-space: nowrap;
+  }
+
+  .yd-matrix__name .yd-badge {
+    margin-left: 0.375rem;
+  }
+
+  /* Two badges in one table cell need air between them: the markup cannot insert a safe whitespace. | 同一表格单元格里的两个徽标之间需要留白：标记无法安全地插入空白。 */
+  .yd-table__td .yd-badge + .yd-badge {
+    margin-left: 0.25rem;
+  }
 }

@@ -1,0 +1,32 @@
+{{/*
+  partials/tenants/list.html — the tenant table and its empty state (referenced by pages/tenants.html).
+  partials/tenants/list.html — 租户表格与空状态（由 pages/tenants.html 引用）。
+
+  Data contract | 数据契约:
+    .Tenants []{ID, Slug, Name, Created, Status, StatusKey, Disabled} see partials/tenants/row.html
+  The row count is reported by .Pagination in the page, not repeated here.
+  行数由页面中的 .Pagination 报告，这里不重复。
+*/}}
+{{- define "partials/tenants/list" -}}
+<div class="yd-table__wrap" data-yd-table>
+  <table class="yd-table" data-yd-i18n-attr="aria-label:tenants.table">
+    <caption class="sr-only" data-yd-i18n="tenants.table">{{tr "tenants.table"}}</caption>
+    <thead class="yd-table__head">
+      <tr>
+        <th class="yd-table__th" scope="col" data-yd-i18n="tenants.column.slug">{{tr "tenants.column.slug"}}</th>
+        <th class="yd-table__th" scope="col" data-yd-i18n="tenants.column.name">{{tr "tenants.column.name"}}</th>
+        <th class="yd-table__th" scope="col" data-yd-i18n="tenants.column.status">{{tr "tenants.column.status"}}</th>
+        <th class="yd-table__th" scope="col" data-yd-i18n="tenants.column.created">{{tr "tenants.column.created"}}</th>
+        <th class="yd-table__th yd-table__th--actions" scope="col" data-yd-i18n="tenants.column.actions">{{tr "tenants.column.actions"}}</th>
+      </tr>
+    </thead>
+    <tbody id="yd-tenants-rows" class="yd-table__body" hx-swap="outerMorph">
+      {{with .Tenants}}{{range .}}{{template "partials/tenants/row" .}}{{end}}{{else}}
+      <tr class="yd-table__row yd-table__row--empty">
+        <td class="yd-table__td" colspan="5" data-yd-i18n="tenants.empty">{{tr "tenants.empty"}}</td>
+      </tr>
+      {{end}}
+    </tbody>
+  </table>
+</div>
+{{- end -}}

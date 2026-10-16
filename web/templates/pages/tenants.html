@@ -1,0 +1,69 @@
+{{/*
+  pages/tenants.html — tenant administration: live search, one dialog for create and edit.
+  pages/tenants.html — 租户管理：实时搜索、新建与编辑共用一个对话框。
+
+  Naming | 命名:
+    pages/tenants.html     full document | 整页文档
+    pages/tenants.content  workspace fragment | 工作区片段
+
+  Why tenants come first | 为什么租户排在最前:
+    A tenant is the hard boundary of the whole data model: every user, role and token belongs to one,
+    and a cross-tenant read is answered with 404 rather than a permission error, so the boundary
+    never even confirms that the other tenant's resource exists.
+    租户是整个数据模型的硬边界：每个用户、角色与令牌都属于某一个租户，
+    跨租户读取以 404 而不是权限错误应答，因此这条边界连「对方的资源是否存在」都不会确认。
+
+  Dialog and error slot | 对话框与错误落点:
+    Create and edit share #yd-tenant-dialog, so every field id exists once, and the page keeps the
+    single #errors slot that both of them write into through hx-status:422.
+    新建与编辑共用 #yd-tenant-dialog，因此每个字段 id 只出现一次；
+    页面保留唯一的 #errors 落点，两者都通过 hx-status:422 写进它。
+
+  Data contract | 数据契约:
+    .Tenants     rows, see partials/tenants/row.html | 行数据，见 partials/tenants/row.html
+    .Pagination  see partials/pagination.html | 见 partials/pagination.html
+    .Errors      see partials/form.errors | 见 partials/form.errors
+    .Tenant      optional, prefills the dialog and locks the slug | 可选，预填对话框并锁定标识
+*/}}
+
+{{- define "pages/tenants.html" -}}
+{{template "dashboard.open" .}}{{template "pages/tenants.content" .}}{{template "dashboard.close" .}}
+{{- end -}}
+
+{{- define "pages/tenants.content" -}}
+<section class="yd-page" data-yd-page="tenants" data-yd-i18n-attr="aria-labelledby:tenants.title">
+  <header class="yd-page__header">
+    <div>
+      <h1 class="yd-page__title" id="yd-tenants-title" data-yd-i18n="tenants.title">{{tr "tenants.title"}}</h1>
+      <p class="yd-page__subtitle" data-yd-i18n="tenants.subtitle">{{tr "tenants.subtitle"}}</p>
+    </div>
+    <div class="yd-page__actions">
+      <button type="button" class="yd-btn yd-btn--primary"
+              hx-get="/tenants/new" hx-target="#yd-tenant-form-body" hx-swap="innerHTML"
+              data-yd-modal-open="yd-tenant-dialog"
+              data-yd-i18n="tenants.create">{{tr "tenants.create"}}</button>
+    </div>
+  </header>
+
+  {{template "partials/form.errors" .}}
+
+  <form class="yd-filters" role="search" method="get" action="/tenants"
+        hx-get="/tenants" hx-target="#yd-tenants-table" hx-swap="outerMorph" hx-push-url="true"
+        hx-trigger="input changed delay:300ms from:#yd-tenants-search, submit">
+    <label class="sr-only" for="yd-tenants-search" data-yd-i18n="tenants.search">{{tr "tenants.search"}}</label>
+    <input class="yd-input" id="yd-tenants-search" name="q" type="search" autocomplete="off"
+           placeholder="{{tr "tenants.search_placeholder"}}" data-yd-i18n-attr="placeholder:tenants.search_placeholder">
+    <button type="submit" class="yd-btn yd-btn--ghost" data-yd-i18n="action.search">{{tr "action.search"}}</button>
+  </form>
+
+  <section class="yd-card yd-section" id="yd-tenants-table" aria-labelledby="yd-tenants-table-title">
+    <h2 class="sr-only" id="yd-tenants-table-title" data-yd-i18n="tenants.table">{{tr "tenants.table"}}</h2>
+    {{template "partials/tenants/list" .}}
+    {{template "partials/pagination" .}}
+  </section>
+
+  {{template "partials/modal.open" (dict "ID" "yd-tenant-dialog" "TitleKey" "tenants.form.dialog_title" "Title" (tr "tenants.form.dialog_title"))}}
+    <div id="yd-tenant-form-body">{{template "partials/skeleton" .}}</div>
+  {{template "partials/modal.close" .}}
+</section>
+{{- end -}}

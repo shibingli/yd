@@ -1,0 +1,348 @@
+# yd 管理后台中文语言目录 | yd admin shell Chinese message catalogue
+#
+# 键名一律为小写点分路径，与 web/templates/** 中的 {{tr "..."}}、data-yd-i18n 与
+# data-yd-i18n-attr 一一对应；加载时键名由 viper 统一归一化为小写，
+# 因此 lang.zh-CN 与 lang.zh-cn 是同一个键。
+# Keys are lower-case dotted paths matching every {{tr "..."}}, data-yd-i18n and
+# data-yd-i18n-attr under web/templates/**; the loader lower-cases keys, so lang.zh-CN
+# and lang.zh-cn are one and the same key.
+#
+# 缺失键的回退顺序为「当前语言 → 默认语言 → 键名本身」，因此这里少写一个键
+# 会让页面上直接出现键名，TestEveryTrKeyHasBothCatalogs 会拦住这种情况。
+# A missing key falls back through "current language -> default language -> the key itself",
+# so an omission shows the bare key on the page; TestEveryTrKeyHasBothCatalogs blocks that.
+app:
+  name: yd 框架
+  version: yd 框架 v1
+  description: yd 全栈 Web 框架：多租户鉴权、htmx 局部刷新与国密加密开箱即用。
+
+a11y:
+  skip_to_content: 跳到主内容
+
+nav:
+  main: 主导航
+  toggle: 折叠或展开导航
+  logout: 退出登录
+  dashboard: 仪表盘
+  users: 用户
+  tenants: 租户
+  roles: 角色
+  permissions: 权限
+  realtime: 实时推送
+  i18n_demo: 国际化示例
+  settings: 设置
+  section:
+    main: 工作台
+    access: 访问控制
+    system: 系统
+
+topbar:
+  region: 顶部状态栏
+  breadcrumb: 面包屑导航
+  home: 首页
+  search: 全局搜索
+  search_placeholder: 搜索用户、租户或角色…
+  language: 界面语言
+  profile: 用户菜单
+  theme:
+    toggle: 切换明暗主题
+  menu:
+    settings: 账号设置
+    language: 语言与地区
+    logout: 退出登录
+
+action:
+  apply: 应用
+  cancel: 取消
+  close: 关闭
+  confirm: 确认
+  create: 新建
+  delete: 删除
+  edit: 编辑
+  refresh: 刷新
+  reset: 重置
+  retry: 重试
+  save: 保存
+  search: 搜索
+
+common:
+  confirm_title: 请确认操作
+  confirm_body: 该操作不可撤销，确定继续吗？
+  loading: 加载中
+  page: 第
+  of: 共
+  pagination: 分页
+
+flash:
+  region: 通知
+
+lang:
+  zh-CN: 简体中文
+  en: English
+
+login:
+  title: 登录
+  subtitle: 使用租户账号登录 yd 管理后台。
+  username: 账号
+  username_placeholder: 邮箱或用户名
+  password: 口令
+  password_placeholder: 请输入口令
+  remember: 记住我
+  forgot: 忘记口令？
+  submit: 登录
+  guomi_hint: 口令经 SM2 加密后传输，服务端不接触明文。
+  error:
+    failed: 账号或口令不正确，请重试。
+    hint: 连续失败会被限流；忘记口令请联系租户管理员。
+
+dashboard:
+  title: 仪表盘
+  subtitle: 租户内的关键指标、最近动态与快捷入口。
+  # range.label 与下面的选项同为叶子：range 若既是消息又是父级，摊平后会与其子键相互遮蔽。
+  # range.label is a leaf beside the options below: a message named range would shadow its own children once flattened.
+  range:
+    label: 时间范围
+    "24h": 最近 24 小时
+    "7d": 最近 7 天
+    "30d": 最近 30 天
+  kpi.empty: 当前范围内暂无指标
+  kpi.users: 活跃用户
+  kpi.users_trend: 较上一周期
+  recent.title: 最近动态
+  recent.all: 查看全部用户
+
+users:
+  title: 用户
+  subtitle: 用户始终属于某个租户，并持有该租户内的角色与权限。
+  name: 用户
+  email: 邮箱
+  create: 新建用户
+  search: 搜索用户
+  search_placeholder: 姓名或邮箱…
+  table: 用户列表
+  empty: 暂无用户
+  saved: 用户已保存。
+  deleted: 用户已删除。
+  disabled: 已禁用该用户，其令牌立即失效。
+  enabled: 已启用该用户。
+  key_rotated: 密钥已轮换，该用户此前签发的令牌全部失效。
+  delete_confirm: 删除用户会同时回收其全部令牌，确定继续吗？
+  disable_confirm: 禁用后该用户的全部令牌立即失效，确定继续吗？
+  enable_confirm: 启用后该用户可以重新登录，确定继续吗？
+  rotate_key_confirm: 轮换 sec_key 后旧令牌立即失效，确定继续吗？
+  error:
+    name: 请填写用户名称。
+  column:
+    user: 用户
+    email: 邮箱
+    role: 角色
+    status: 状态
+    actions: 操作
+  field:
+    name: 用户名称
+    email: 邮箱
+    email_placeholder: name@example.com
+    password: 初始口令
+    role: 角色
+    tenant: 所属租户
+    roles: 角色
+    roles_hint: 角色决定该用户在租户内可用的一组权限。
+    status: 状态
+  role:
+    none: 未分配
+    viewer: 只读
+    editor: 编辑
+    admin: 管理员
+  status:
+    active: 正常
+    disabled: 已禁用
+  action:
+    disable: 禁用
+    enable: 启用
+    rotate_key: 轮换密钥
+    rotate_key_hint: 轮换 sec_key 会让该用户已签发的全部令牌立即失效。
+  form:
+    dialog_title: 用户信息
+
+tenants:
+  title: 租户
+  subtitle: 租户是数据的硬边界：任何跨租户读取都会以 404 拒绝，且不泄露资源是否存在。
+  create: 新建租户
+  search: 搜索租户
+  search_placeholder: 名称或标识…
+  table: 租户列表
+  empty: 暂无租户
+  saved: 租户已保存。
+  deleted: 租户已删除。
+  disabled: 该租户已停用，其全部用户无法登录。
+  enabled: 该租户已启用。
+  delete_confirm: 删除租户会同时移除其全部用户与角色，确定继续吗？
+  disable_confirm: 停用后该租户的全体用户都无法登录，确定继续吗？
+  enable_confirm: 启用后该租户的用户可以重新登录，确定继续吗？
+  column:
+    slug: 标识
+    name: 名称
+    status: 状态
+    created: 创建时间
+    actions: 操作
+  field:
+    name: 租户名称
+    slug: 租户标识
+    slug_placeholder: 小写字母、数字与连字符，例如 acme
+    slug_locked: 标识创建后不可修改：用户、角色与令牌都以它为寻址依据。
+    status: 状态
+  status:
+    active: 正常
+    disabled: 已停用
+  action:
+    disable: 停用
+    enable: 启用
+  form:
+    dialog_title: 租户信息
+
+roles:
+  title: 角色
+  subtitle: 角色是权限的集合，权限判定始终以租户为边界。
+  create: 新建角色
+  search: 搜索角色
+  search_placeholder: 角色名称…
+  table: 角色列表
+  empty: 暂无角色
+  saved: 角色已保存。
+  deleted: 角色已删除。
+  delete_confirm: 删除角色会让持有它的用户立即失去相应权限，确定继续吗？
+  permissions.none: 未授予任何权限
+  permissions.selected: 已选权限
+  column:
+    name: 名称
+    description: 说明
+    permissions: 权限
+    actions: 操作
+  field:
+    name: 角色名称
+    description: 说明
+    description_placeholder: 一句话说明该角色的职责
+    permissions: 权限多选
+    permissions_hint: 勾选该角色在租户内可用的每一项权限。
+  form:
+    dialog_title: 角色信息
+
+permissions:
+  title: 权限
+  subtitle: 角色 × 权限矩阵：勾选即授予，取消即回收。
+  matrix:
+    title: 权限矩阵
+    hint: 每行是一项权限、每列是一个角色；变更立即提交，无需保存。
+    granted: 已授予
+    denied: 未授予
+  column:
+    permission: 权限
+  legend:
+    granted: 已授予
+    denied: 未授予
+  empty: 暂无可展示的角色或权限
+  saved: 权限已更新。
+  group:
+    user: 用户
+    role: 角色
+    tenant: 租户
+    audit: 审计
+  toggle:
+    grant: 授予该权限
+    revoke: 回收该权限
+
+settings:
+  title: 设置
+  subtitle: 账号资料、界面偏好与语言；所有改动都会持久化。
+  general: 基本资料
+  field:
+    name: 显示名称
+    email: 邮箱
+    email_placeholder: name@example.com
+    timezone: 时区
+    timezone_hint: 通知与统计都按该时区换算。
+    theme: 主题
+  notify.email: 邮件通知
+  notify.realtime: 站内实时通知
+  timezone:
+    shanghai: 亚洲/上海（UTC+8）
+    utc: 协调世界时（UTC）
+    new_york: 美洲/纽约（UTC-5）
+  theme:
+    light: 浅色
+    dark: 深色
+    system: 跟随系统
+  language: 界面语言
+  language_hint: 切换后通过 htmx 局部重取工作区，页面不会整页刷新。
+  danger:
+    title: 危险操作
+    hint: 重置会清空本账号的个性化配置，且不可撤销。
+    confirm: 确定重置本账号的全部配置吗？
+    action: 重置本账号
+
+realtime:
+  title: 实时推送
+  subtitle: hx-sse 与 hx-ws 建立的持久连接，断线时顶部会出现重连提示。
+  # channel.label 与下方的频道名同为叶子，理由同上。
+  # channel.label is a leaf beside the channel names below, for the same reason.
+  channel:
+    label: 频道
+    audit: 审计事件
+    orders: 订单事件
+  events.title: 事件流
+  events.hint: 每条事件按到达顺序追加，工作区其余部分不受影响。
+  sse:
+    title: Server-Sent Events
+    badge: 服务端推送
+    hint: 单向数据流，适合通知与日志。
+    log: 事件日志
+    placeholder: 等待服务端事件…
+  ws:
+    title: WebSocket
+    badge: 双向通道
+    hint: 双向数据流，适合协作与命令下发。
+    label: 发送内容
+    log: 消息日志
+    placeholder: 等待服务端消息…
+    placeholder_input: 输入要发送的消息…
+    send: 发送
+  status:
+    open: 已连接
+    connecting: 连接中
+    closed: 已断开
+    idle: 空闲
+    reconnecting: 连接已断开，正在重连…
+
+i18n:
+  title: 国际化
+  subtitle: 中英两份目录同时驱动服务端渲染与客户端热切换。
+  switch:
+    title: 语言切换
+    hint: 切换语言由 htmx 局部重取工作区，页面本身不会整页刷新。
+  current: 当前语言
+  samples:
+    title: 文案示例
+  sample:
+    greeting_label: 普通文案
+    greeting: 你好，世界！
+    interpolated_label: 带参数的文案
+    interpolated: '{{.name}}，欢迎回来！'
+    missing_label: 缺失键的回退（显示键名本身）
+  format:
+    title: 数字与日期
+    hint: 数字、百分比、金额与日期都由 Intl 按当前语言格式化。
+    number: 数字
+    percent: 百分比
+    currency: 金额
+    date: 日期
+    datetime: 日期时间
+  persist:
+    title: 偏好持久化
+    field: 首选语言
+    hint: 选择结果写入 localStorage 与 yd_lang cookie，刷新后保持一致。
+
+error:
+  title: 出错了
+  server: 服务器内部错误，请稍后重试。
+  back_home: 返回首页
+  support: 若问题持续存在，请把追踪编号提供给支持团队。

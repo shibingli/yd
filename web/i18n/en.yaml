@@ -1,0 +1,346 @@
+# yd admin shell English message catalogue | yd 管理后台英文语言目录
+#
+# 键名必须与 zh-CN.yaml 完全一致：两份目录的键集合由
+# TestEveryTrKeyHasBothCatalogs 逐一比对。
+# The key set must be identical to zh-CN.yaml; TestEveryTrKeyHasBothCatalogs compares the two
+# catalogues key by key.
+#
+# 缺失键的回退顺序为「当前语言 → 默认语言 → 键名本身」，因此这里少写一个键
+# 会让页面上直接出现键名，TestEveryTrKeyHasBothCatalogs 会拦住这种情况。
+# A missing key falls back through "current language -> default language -> the key itself",
+# so an omission shows the bare key on the page; TestEveryTrKeyHasBothCatalogs blocks that.
+app:
+  name: yd framework
+  version: yd framework v1
+  description: "The yd full-stack web framework: multi-tenant auth, htmx partial updates and SM crypto out of the box."
+
+a11y:
+  skip_to_content: Skip to content
+
+nav:
+  main: Main navigation
+  toggle: Collapse or expand the navigation
+  logout: Sign out
+  dashboard: Dashboard
+  users: Users
+  tenants: Tenants
+  roles: Roles
+  permissions: Permissions
+  realtime: Realtime
+  i18n_demo: i18n demo
+  settings: Settings
+  section:
+    main: Workspace
+    access: Access control
+    system: System
+
+topbar:
+  region: Top bar
+  breadcrumb: Breadcrumb
+  home: Home
+  search: Global search
+  search_placeholder: Search users, tenants or roles…
+  language: Interface language
+  profile: Account menu
+  theme:
+    toggle: Toggle light and dark theme
+  menu:
+    settings: Account settings
+    language: Language and region
+    logout: Sign out
+
+action:
+  apply: Apply
+  cancel: Cancel
+  close: Close
+  confirm: Confirm
+  create: Create
+  delete: Delete
+  edit: Edit
+  refresh: Refresh
+  reset: Reset
+  retry: Retry
+  save: Save
+  search: Search
+
+common:
+  confirm_title: Please confirm
+  confirm_body: This action cannot be undone. Continue?
+  loading: Loading
+  page: Page
+  of: of
+  pagination: Pagination
+
+flash:
+  region: Notifications
+
+lang:
+  zh-CN: 简体中文
+  en: English
+
+login:
+  title: Sign in
+  subtitle: Sign in to the yd admin shell with your tenant account.
+  username: Account
+  username_placeholder: E-mail or username
+  password: Password
+  password_placeholder: Enter your password
+  remember: Remember me
+  forgot: Forgot your password?
+  submit: Sign in
+  guomi_hint: The password is encrypted with SM2 before it leaves the browser.
+  error:
+    failed: Wrong account or password, please try again.
+    hint: Repeated failures are rate limited; ask your tenant administrator for a reset.
+
+dashboard:
+  title: Dashboard
+  subtitle: Key metrics, recent activity and shortcuts inside your tenant.
+  # range.label is a leaf beside the options below: a message named range would shadow its own children once flattened.
+  # range.label 与下面的选项同为叶子：range 若既是消息又是父级，摊平后会与其子键相互遮蔽。
+  range:
+    label: Time range
+    "24h": Last 24 hours
+    "7d": Last 7 days
+    "30d": Last 30 days
+  kpi.empty: No metric in the selected range
+  kpi.users: Active users
+  kpi.users_trend: versus the previous period
+  recent.title: Recent activity
+  recent.all: View all users
+
+users:
+  title: Users
+  subtitle: Every user belongs to one tenant and holds a set of roles inside it.
+  name: User
+  email: E-mail
+  create: Create user
+  search: Search users
+  search_placeholder: Name or e-mail…
+  table: User list
+  empty: No user yet
+  saved: The user was saved.
+  deleted: The user was deleted.
+  disabled: The user is disabled and every token of theirs is void.
+  enabled: The user is enabled again.
+  key_rotated: The key was rotated; every token issued to this user is now void.
+  delete_confirm: Deleting the user revokes every token of theirs. Continue?
+  disable_confirm: Disabling revokes every token of this user immediately. Continue?
+  enable_confirm: Enabling lets the user sign in again. Continue?
+  rotate_key_confirm: Rotating sec_key invalidates the old tokens immediately. Continue?
+  error:
+    name: A user name is required.
+  column:
+    user: User
+    email: E-mail
+    role: Roles
+    status: Status
+    actions: Actions
+  field:
+    name: User name
+    email: E-mail
+    email_placeholder: name@example.com
+    password: Initial password
+    role: Role
+    tenant: Tenant
+    roles: Roles
+    roles_hint: Roles decide which permissions the user holds inside the tenant.
+    status: Status
+  role:
+    none: No role
+    viewer: Viewer
+    editor: Editor
+    admin: Administrator
+  status:
+    active: Active
+    disabled: Disabled
+  action:
+    disable: Disable
+    enable: Enable
+    rotate_key: Rotate key
+    rotate_key_hint: Rotating sec_key immediately invalidates every token already issued to this user.
+  form:
+    dialog_title: User details
+
+tenants:
+  title: Tenants
+  subtitle: "A tenant is a hard data boundary: any cross-tenant read is refused with 404 and leaks nothing about existence."
+  create: Create tenant
+  search: Search tenants
+  search_placeholder: Name or slug…
+  table: Tenant list
+  empty: No tenant yet
+  saved: The tenant was saved.
+  deleted: The tenant was deleted.
+  disabled: The tenant is disabled and none of its users can sign in.
+  enabled: The tenant is enabled again.
+  delete_confirm: Deleting the tenant removes all of its users and roles. Continue?
+  disable_confirm: Disabling blocks sign-in for every user of this tenant. Continue?
+  enable_confirm: Enabling lets the users of this tenant sign in again. Continue?
+  column:
+    slug: Slug
+    name: Name
+    status: Status
+    created: Created
+    actions: Actions
+  field:
+    name: Tenant name
+    slug: Tenant slug
+    slug_placeholder: Lower-case letters, digits and hyphens, for example acme
+    slug_locked: "The slug cannot change after creation: users, roles and tokens are all addressed through it."
+    status: Status
+  status:
+    active: Active
+    disabled: Disabled
+  action:
+    disable: Disable
+    enable: Enable
+  form:
+    dialog_title: Tenant details
+
+roles:
+  title: Roles
+  subtitle: A role is a set of permissions, and permission checks are always scoped to one tenant.
+  create: Create role
+  search: Search roles
+  search_placeholder: Role name…
+  table: Role list
+  empty: No role yet
+  saved: The role was saved.
+  deleted: The role was deleted.
+  delete_confirm: Deleting the role strips the matching permissions from its holders immediately. Continue?
+  permissions.none: No permission granted
+  permissions.selected: Selected permissions
+  column:
+    name: Name
+    description: Description
+    permissions: Permissions
+    actions: Actions
+  field:
+    name: Role name
+    description: Description
+    description_placeholder: One sentence describing what the role is for
+    permissions: Permission checklist
+    permissions_hint: Tick every permission the role may use inside the tenant.
+  form:
+    dialog_title: Role details
+
+permissions:
+  title: Permissions
+  subtitle: "The role × permission matrix: tick to grant, untick to revoke."
+  matrix:
+    title: Permission matrix
+    hint: Each row is a permission and each column a role; changes are submitted at once, with no save button.
+    granted: Granted
+    denied: Not granted
+  column:
+    permission: Permission
+  legend:
+    granted: Granted
+    denied: Not granted
+  empty: No role or permission to show yet
+  saved: The permissions were updated.
+  group:
+    user: User
+    role: Role
+    tenant: Tenant
+    audit: Audit
+  toggle:
+    grant: Grant this permission
+    revoke: Revoke this permission
+
+settings:
+  title: Settings
+  subtitle: Profile, interface preferences and language; every change is persisted.
+  general: Profile
+  field:
+    name: Display name
+    email: E-mail
+    email_placeholder: name@example.com
+    timezone: Time zone
+    timezone_hint: Notifications and reports are converted to this zone.
+    theme: Theme
+  notify.email: E-mail notifications
+  notify.realtime: In-app realtime notifications
+  timezone:
+    shanghai: Asia/Shanghai (UTC+8)
+    utc: Coordinated Universal Time (UTC)
+    new_york: America/New_York (UTC-5)
+  theme:
+    light: Light
+    dark: Dark
+    system: Follow the system
+  language: Interface language
+  language_hint: Switching refetches the workspace through htmx; the page itself never reloads.
+  danger:
+    title: Danger zone
+    hint: Resetting clears the personalised configuration of this account and cannot be undone.
+    confirm: Reset every setting of this account?
+    action: Reset this account
+
+realtime:
+  title: Realtime
+  subtitle: Persistent connections opened by hx-sse and hx-ws; a reconnect banner appears at the top while a stream is down.
+  # channel.label is a leaf beside the channel names below, for the same reason.
+  # channel.label 与下方的频道名同为叶子，理由同上。
+  channel:
+    label: Channel
+    audit: Audit events
+    orders: Order events
+  events.title: Event stream
+  events.hint: Each event is appended in arrival order and the rest of the workspace stays untouched.
+  sse:
+    title: Server-Sent Events
+    badge: Server push
+    hint: A one-way stream, well suited to notifications and logs.
+    log: Event log
+    placeholder: Waiting for server events…
+  ws:
+    title: WebSocket
+    badge: Two-way channel
+    hint: A two-way stream, well suited to collaboration and commands.
+    label: Payload
+    log: Message log
+    placeholder: Waiting for server messages…
+    placeholder_input: Type the message to send…
+    send: Send
+  status:
+    open: Connected
+    connecting: Connecting
+    closed: Disconnected
+    idle: Idle
+    reconnecting: The stream is down; reconnecting…
+
+i18n:
+  title: Internationalisation
+  subtitle: Two catalogues drive both the server render and the in-place client switch.
+  switch:
+    title: Language switch
+    hint: Switching the language refetches the workspace through htmx; the page itself never reloads.
+  current: Current language
+  samples:
+    title: Message samples
+  sample:
+    greeting_label: Plain message
+    greeting: Hello, world!
+    interpolated_label: Message with an argument
+    interpolated: 'Welcome back, {{.name}}!'
+    missing_label: Fallback of a missing key (shows the key itself)
+  format:
+    title: Numbers and dates
+    hint: Numbers, percentages, currency and dates are formatted with Intl in the active language.
+    number: Number
+    percent: Percentage
+    currency: Currency
+    date: Date
+    datetime: Date and time
+  persist:
+    title: Preference persistence
+    field: Preferred language
+    hint: The choice is stored in localStorage and the yd_lang cookie, so a reload keeps it.
+
+error:
+  title: Something went wrong
+  server: Internal server error, please retry later.
+  back_home: Back to the dashboard
+  support: If the problem persists, hand the trace id to the support team.

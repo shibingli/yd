@@ -1,0 +1,63 @@
+{{/*
+  partials/roles/form.html — the create/edit role form with the permission multi-select.
+  partials/roles/form.html — 带权限多选的新建/编辑角色表单。
+
+  Data contract | 数据契约:
+    .Role       optional, the role being edited | 可选，正在编辑的角色
+    .FormAction optional post target for an edit | 编辑时的提交地址（可选）
+    .Permissions []{Value, Key, Label, Checked} every permission the tenant can grant
+                 | 该租户可授予的全部权限
+
+  Why checkboxes and not a multi-<select> | 为什么用复选框而不是多选 <select>:
+    A multi-select hides the unselected options behind a scrolled list and needs a modifier key to
+    add one, so it is unusable on a touch device; a checkbox group shows the whole grantable set at
+    once and every option is one tap. The group is a <fieldset> so that a screen reader announces
+    how many options and which legend they belong to.
+    多选 <select> 把未选项藏在可滚动列表里、添加一项还要按修饰键，因此在触摸设备上不可用；
+    复选框组一次展示全部可授予项，每一项都只需一次点击。整组用 <fieldset>，
+    屏幕阅读器因此能报出选项数量与所属的 legend。
+
+  Unchecked means "not granted" | 未勾选即「未授予」:
+    The browser sends only the checked boxes, so an empty permission set is exactly the absence of
+    the field. The handler must therefore treat a missing list as "revoke everything", not as "leave
+    it alone" — anything else would make permissions impossible to remove.
+    浏览器只发送被勾选的框，因此「权限集为空」就等于该字段整体缺席。
+    处理函数必须把缺失的列表当作「全部回收」，而不是「保持原样」——
+    否则权限将永远无法被取消。
+*/}}
+{{- define "partials/roles/form" -}}
+{{- $action := "/roles" -}}{{- with .FormAction -}}{{- $action = . -}}{{- end -}}
+{{- $name := "" -}}{{- $description := "" -}}{{- with .Role -}}{{- $name = .Name -}}{{- $description = .Description -}}{{- end -}}
+<form class="yd-form" method="post" action="{{$action}}" hx-post="{{$action}}"
+      hx-target="#yd-roles-table" hx-swap="outerMorph"
+      hx-status:422="target:#errors swap:innerHTML"
+      novalidate>
+  <p class="yd-section__hint" data-yd-i18n="{{if .Role}}action.edit{{else}}roles.create{{end}}">{{if .Role}}{{tr "action.edit"}}{{else}}{{tr "roles.create"}}{{end}}</p>
+
+  {{template "partials/form.field" (dict
+      "ID" "yd-role-name" "Name" "name" "Type" "text" "Value" $name
+      "LabelKey" "roles.field.name" "Label" (tr "roles.field.name")
+      "Autocomplete" "off" "Required" true)}}
+
+  {{template "partials/form.field" (dict
+      "ID" "yd-role-description" "Name" "description" "Type" "text" "Value" $description
+      "LabelKey" "roles.field.description" "Label" (tr "roles.field.description")
+      "PlaceholderKey" "roles.field.description_placeholder" "Placeholder" ""
+      "Autocomplete" "off" "Required" false)}}
+
+  <fieldset class="yd-checks">
+    <legend class="yd-field__label" data-yd-i18n="roles.field.permissions">{{tr "roles.field.permissions"}}</legend>
+    {{with .Permissions}}{{range .}}
+    <div class="yd-field yd-field--check">
+      <input class="yd-checkbox" type="checkbox" id="yd-role-permission-{{.Value}}" name="permissions" value="{{.Value}}" {{if .Checked}}checked{{end}}>
+      <label class="yd-field__label" for="yd-role-permission-{{.Value}}" data-yd-i18n="{{.Key}}">{{.Label}}</label>
+    </div>
+    {{end}}{{else}}
+    <p class="yd-hint" data-yd-i18n="permissions.empty">{{tr "permissions.empty"}}</p>
+    {{end}}
+    <p class="yd-field__hint" data-yd-i18n="roles.field.permissions_hint">{{tr "roles.field.permissions_hint"}}</p>
+  </fieldset>
+
+  {{template "partials/form.actions" (dict "SubmitKey" "action.save" "Submit" (tr "action.save"))}}
+</form>
+{{- end -}}

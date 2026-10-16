@@ -3,32 +3,47 @@
   partials/form.html — 各页面共用的表单构件。
 
   Blocks | 区块:
-    partials/form.errors  the single #errors region of a page, targeted by hx-status:422
-                          | 页面唯一的 #errors 区域，由 hx-status:422 指定为目标
-    partials/form.field   label + input + hint, driven by a dict | 由 dict 驱动的 标签 + 输入框 + 提示
-    partials/form.select  label + select | 标签 + 下拉框
-    partials/form.check   label + checkbox | 标签 + 复选框
-    partials/form.actions submit + cancel buttons | 提交与取消按钮
+    partials/form.errors      the single #errors slot of a page | 页面唯一的 #errors 落点
+    partials/form.error-items the item list every failing answer must return | 每个失败应答都必须返回的条目列表
+    partials/form.field       label + input + hint, driven by a dict | 由 dict 驱动的 标签 + 输入框 + 提示
+    partials/form.select      label + select | 标签 + 下拉框
+    partials/form.check       label + checkbox | 标签 + 复选框
+    partials/form.actions     submit + cancel buttons | 提交与取消按钮
 
   Field dict keys | 字段 dict 的键:
     ID, Name, Type, Value, LabelKey, Label, PlaceholderKey, HintKey, Autocomplete, Required,
     Sensitive (adds data-yd-sensitive so yd-guomi-htmx.js encrypts the value before transport),
-    Options (select only: []{Value, Key, Label}).
+    Options (select only: []{Value, Key, Label}; Key is optional and is omitted for data options
+    such as a tenant name, which must never be rewritten by a language switch).
+    ID、Name、Type、Value、LabelKey、Label、PlaceholderKey、HintKey、Autocomplete、Required、
+    Sensitive（生成 data-yd-sensitive，使 yd-guomi-htmx.js 在传输前加密该值）、
+    Options（仅 select：[]{Value, Key, Label}；Key 可选，租户名这类数据选项要省略它，
+    因为语言切换绝不能改写它们）。
 
   Validation handling | 校验处理:
-    A form declares hx-status:422="target:#errors": when the server answers 422 the response
-    body is swapped into #errors while the form itself stays untouched, so the user keeps
-    every value they typed.
-    表单声明 hx-status:422="target:#errors"：服务端返回 422 时，响应体被交换进 #errors，
-    表单本身保持不变，用户已输入的内容全部保留。
+    A form declares hx-status:422="target:#errors swap:innerHTML": when the server answers 422
+    the response body is swapped into the *inside* of #errors while the form and the slot itself
+    stay untouched, so the user keeps every value they typed and the slot survives the swap.
+    表单声明 hx-status:422="target:#errors swap:innerHTML"：服务端返回 422 时，响应体被交换进
+    #errors 的*内部*，表单与落点本身保持不变，因此用户已输入的内容全部保留，落点也不会被换掉。
+
+  Response body contract | 应答正文契约:
+    The swapped body is partials/form.error-items, i.e. the <p> list *without* the slot div.
+    innerHTML is what makes the slot idempotent: a body that carried a second <div id="errors">
+    would nest a duplicate id inside the slot, and the next swap would bury it one level deeper.
+    被交换的正文是 partials/form.error-items，即*不含*落点 div 的 <p> 列表。
+    innerHTML 正是落点幂等的原因：若正文再带一个 <div id="errors">，就会在落点内嵌套出重复 id，
+    下一次交换只会把它再埋深一层。
 */}}
 
+{{- define "partials/form.error-items" -}}
+{{with .Errors}}{{range .}}
+<p class="yd-form-error" {{with .Key}}data-yd-i18n="{{.}}"{{end}}>{{.Message}}</p>
+{{end}}{{end}}
+{{- end -}}
+
 {{- define "partials/form.errors" -}}
-<div id="errors" class="yd-form-errors" role="alert" aria-live="assertive" data-yd-errors>
-  {{with .Errors}}{{range .}}
-  <p class="yd-form-error" {{with .Key}}data-yd-i18n="{{.}}"{{end}}>{{.Message}}</p>
-  {{end}}{{end}}
-</div>
+<div id="errors" class="yd-form-errors" role="alert" aria-live="assertive" data-yd-errors>{{template "partials/form.error-items" .}}</div>
 {{- end -}}
 
 {{- define "partials/form.field" -}}
@@ -49,7 +64,11 @@
   <label class="yd-field__label" for="{{.ID}}" data-yd-i18n="{{.LabelKey}}">{{.Label}}</label>
   <select class="yd-select" id="{{.ID}}" name="{{.Name}}">
     {{with .Options}}{{range .}}
-    <option value="{{.Value}}" {{if .Selected}}selected{{end}} data-yd-i18n="{{.Key}}">{{.Label}}</option>
+    {{/* An option key is optional: a tenant option is data, and tagging it with a key would replace
+         the tenant's own name with the catalogue word on the next language switch.
+         选项的键是可选的：租户选项是数据，给它挂上键会在下次切换语言时
+         把租户自己的名字换成目录里的词。 */}}
+    <option value="{{.Value}}" {{if .Selected}}selected{{end}} {{with .Key}}data-yd-i18n="{{.}}"{{end}}>{{.Label}}</option>
     {{end}}{{end}}
   </select>
   {{if .HintKey}}<p class="yd-field__hint" data-yd-i18n="{{.HintKey}}">{{.Hint}}</p>{{end}}

@@ -12,10 +12,14 @@
     并附带 X-YD-Encrypted: sm2 头。公钥由 data-yd-pubkey 一次性拉取并缓存在内存中。
 
   Failure handling | 失败处理:
-    The server answers 422 with htmx.ErrorFragment bodies; hx-status:422 swaps them into
-    #errors and leaves the form (and the typed password) untouched.
-    服务端以 422 返回 htmx.ErrorFragment 片段；hx-status:422 把它们交换进 #errors，
-    表单与已输入的密码保持不变。
+    The server answers 422 (validation), 400 (encryption chain) and 401 (bad credentials) with
+    htmx.ErrorFragment bodies. All three statuses are routed into #errors by hx-status:4xx, so a
+    failed sign-in is echoed where the user is looking while the form — and the typed password —
+    stays untouched. The 401 case is what makes a wrong password visible at all: it is the only
+    failure a correct client can still produce.
+    服务端以 422（校验失败）、400（加密链路）与 401（凭据无效）返回 htmx.ErrorFragment 片段；
+    三种状态都由 hx-status:4xx 路由进 #errors，因此登录失败会在用户视线所在处回显，
+    而表单与已输入的密码保持不变。401 是让「口令错误」可见的那一条：它是客户端正确时唯一还可能失败的情况。
 
   Success is a single navigation: the handler replies with HX-Redirect: /dashboard.
   成功时只跳转一次：处理函数应答 HX-Redirect: /dashboard。
@@ -36,10 +40,22 @@
     <h1 class="yd-auth__title" data-yd-i18n="login.title">{{tr "login.title"}}</h1>
     <p class="yd-auth__subtitle" data-yd-i18n="login.subtitle">{{tr "login.subtitle"}}</p>
 
+    {{/* Error echo slot | 错误回显位:
+         #errors is a permanent landing zone, not an optional block: the 400/401/422 fragments all
+         swap into it, so it must already exist at first paint.
+         The fragment body is the same shape partials/form.errors itself renders, and the 401 case
+         is keyed "login.error.failed" by the handler (see web/i18n/*.yaml).
+         #errors 是常驻落点而非可选区块：400/401/422 三种片段都交换进它，因此首帧就必须存在。
+         片段结构与 partials/form.errors 自身渲染的一致；401 分支由处理函数以键 "login.error.failed" 生成
+         （见 web/i18n/*.yaml）。 */}}
     {{template "partials/form.errors" .}}
+    <p class="yd-hint" data-yd-i18n="login.error.hint">{{tr "login.error.hint"}}</p>
 
     <form class="yd-form" method="post" action="/login"
-          hx-post="/login" hx-target="#yd-login-card" hx-swap="outerMorph" hx-status:422="target:#errors"
+          hx-post="/login" hx-target="#yd-login-card" hx-swap="outerMorph"
+          hx-status:400="target:#errors swap:innerHTML"
+          hx-status:401="target:#errors swap:innerHTML"
+          hx-status:422="target:#errors swap:innerHTML"
           data-yd-encrypt="sm2" data-yd-pubkey="/api/guomi/pubkey" novalidate>
       {{template "partials/form.field" (dict
           "ID" "yd-login-username" "Name" "username" "Type" "text" "Value" ""
