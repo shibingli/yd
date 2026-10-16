@@ -633,7 +633,9 @@ yd/
 
 - [ ] **Step 1: 写失败测试**
   - `TestSM3StandardVector`：`"abc"` → `66c7f0f462eeedd9d1f2d46bdc10e4e24167c4875cf2f7a2297da02b8f4ba8e0`（GB/T 32905-2016 官方向量）。
-  - `TestSM3LongVector`：64 次 `"abcd"` 重复 → `debe9ff92275b8a138604889c18e5a4d6fdb70e5387e5765293dcba39c0c5732`。
+  - `TestSM3LongVector`：`"abcd"` 重复 **16** 次（512 比特消息）→ `debe9ff92275b8a138604889c18e5a4d6fdb70e5387e5765293dcba39c0c5732`
+    （GB/T 32905-2016 示例 2；注意 `"abcd"` 重复 64 次是 256 字节，其真值为
+    `b965764c8bebb091c7602b74afd34eefb531dccb4e0076d9b7cd813199b45971`，已用 OpenSSL 独立复核）。
   - `TestSM2EncryptDecryptRoundTrip`（含空串、1 字节、1MB）、`TestSM2SignVerifyAndTamperFails`、`TestSM2PEMRoundTrip`、`TestSM2CrossCheckWithGmsm`。
   - `TestSM4CBCRoundTripWithPKCS7`、`TestSM4GCMRoundTripAndTamperFails`、`TestSM4KeyLengthValidated`。
   - `TestPasswordHashAndVerify`（含错误密码、编码格式含迭代数与盐）。

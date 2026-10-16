@@ -14,7 +14,7 @@ import (
 	"github.com/tjfoc/gmsm/sm2"
 )
 
-// mustKey 生成一对测试用 SM2 密钥，失败即终止测试。
+// mustKey generates a pair of SM2 test keys and fails the test on error. | mustKey 生成一对测试用 SM2 密钥，失败即终止测试。
 func mustKey(t *testing.T) (*PrivateKey, *PublicKey) {
 	t.Helper()
 	priv, err := GenerateKey()
@@ -27,7 +27,7 @@ func mustKey(t *testing.T) (*PrivateKey, *PublicKey) {
 	return priv, priv.Public()
 }
 
-// randBytes 生成 n 字节密码学安全随机数据。
+// randBytes generates n bytes of cryptographically secure random data. | randBytes 生成 n 字节密码学安全随机数据。
 func randBytes(t *testing.T, n int) []byte {
 	t.Helper()
 	b := make([]byte, n)
@@ -37,7 +37,7 @@ func randBytes(t *testing.T, n int) []byte {
 	return b
 }
 
-// leftPad32 把大整数补足为 32 字节大端表示。
+// leftPad32 left-pads a big integer to its 32-byte big-endian form. | leftPad32 把大整数补足为 32 字节大端表示。
 func leftPad32(x *big.Int) []byte {
 	b := x.Bytes()
 	if len(b) >= SM2CoordinateSize {
@@ -46,7 +46,7 @@ func leftPad32(x *big.Int) []byte {
 	return append(make([]byte, SM2CoordinateSize-len(b)), b...)
 }
 
-// TestGenerateKeyIsValidAndRandom 校验生成密钥的取值范围、曲线有效性与随机性。
+// TestGenerateKeyIsValidAndRandom checks the value range, curve validity and randomness of generated keys. | TestGenerateKeyIsValidAndRandom 校验生成密钥的取值范围、曲线有效性与随机性。
 func TestGenerateKeyIsValidAndRandom(t *testing.T) {
 	priv, pub := mustKey(t)
 	raw := priv.Raw()
@@ -81,7 +81,7 @@ func TestGenerateKeyIsValidAndRandom(t *testing.T) {
 	}
 }
 
-// TestSM2EncryptDecryptRoundTrip 覆盖 ASN.1 与原始两种密文格式的往返（含空串、1 字节、1KB、1MB）。
+// TestSM2EncryptDecryptRoundTrip covers both ciphertext formats, ASN.1 and raw, over empty, 1-byte, 1 KB and 1 MB payloads. | TestSM2EncryptDecryptRoundTrip 覆盖 ASN.1 与原始两种密文格式的往返（含空串、1 字节、1KB、1MB）。
 func TestSM2EncryptDecryptRoundTrip(t *testing.T) {
 	priv, pub := mustKey(t)
 
@@ -126,7 +126,7 @@ func TestSM2EncryptDecryptRoundTrip(t *testing.T) {
 				t.Fatalf("原始格式往返不一致: got %d 字节, want %d 字节", len(gotRaw), len(data))
 			}
 
-			// 同一明文两次加密必须因随机数不同而不同。
+			// Encrypting the same plaintext twice must differ because of the random nonce. | 同一明文两次加密必须因随机数不同而不同。
 			rawCT2, err := EncryptRaw(pub, data)
 			if err != nil {
 				t.Fatalf("第二次 EncryptRaw 返回错误: %v", err)
@@ -138,10 +138,9 @@ func TestSM2EncryptDecryptRoundTrip(t *testing.T) {
 	}
 }
 
-// TestSM2EncryptRawLayout 锁定原始密文的字节布局，供前端 JS 实现对齐。
+// TestSM2EncryptRawLayout pins the byte layout of the raw ciphertext for the JavaScript front end to match. | TestSM2EncryptRawLayout 锁定原始密文的字节布局，供前端 JS 实现对齐。
 //
-// 布局：X1(32) || Y1(32) || C3(32) || C2(len(明文))，不含未压缩点标识 0x04，
-// 且 C3 = SM3(x2 || M || y2)。
+// Layout: X1(32) || Y1(32) || C3(32) || C2(len(plaintext)), with no uncompressed point marker 0x04, and C3 = SM3(x2 || M || y2). | 布局：X1(32) || Y1(32) || C3(32) || C2(len(明文))，不含未压缩点标识 0x04，且 C3 = SM3(x2 || M || y2)。
 func TestSM2EncryptRawLayout(t *testing.T) {
 	priv, pub := mustKey(t)
 	data := []byte("layout-probe|前端互操作|guomi")
@@ -154,7 +153,7 @@ func TestSM2EncryptRawLayout(t *testing.T) {
 		t.Fatalf("原始密文长度 = %d, want %d", len(rawCT), 96+len(data))
 	}
 
-	// 与 gmsm 的 C1C3C2 密文逐字节比对：gmsm 多出一个前导 0x04，其余完全一致。
+	// Compare against gmsm's C1C3C2 ciphertext: gmsm adds one leading 0x04, the rest is identical. | 与 gmsm 的 C1C3C2 密文逐字节比对：gmsm 多出一个前导 0x04，其余完全一致。
 	g, err := sm2.Encrypt(pub.Raw(), data, rand.Reader, sm2.C1C3C2)
 	if err != nil {
 		t.Fatalf("gmsm sm2.Encrypt 返回错误: %v", err)
@@ -162,16 +161,16 @@ func TestSM2EncryptRawLayout(t *testing.T) {
 	if len(g) != 97+len(data) || g[0] != 0x04 {
 		t.Fatalf("gmsm 原始密文 = %d 字节且首字节 0x%02x, want %d 字节且首字节 0x04", len(g), g[0], 97+len(data))
 	}
-	_ = g // 布局比对见下面的确定性检查（两次加密随机数不同，只能比长度与前缀）
+	_ = g // The layout comparison is the deterministic check below; the two ciphertexts use different random nonces so only length and prefix can be compared. | 布局比对见下面的确定性检查（两次加密随机数不同，只能比长度与前缀）。
 
-	// 前 64 字节必须是曲线上的点 (X1, Y1)。
+	// The first 64 bytes must be a point (X1, Y1) on the curve. | 前 64 字节必须是曲线上的点 (X1, Y1)。
 	x1 := new(big.Int).SetBytes(rawCT[:32])
 	y1 := new(big.Int).SetBytes(rawCT[32:64])
 	if !pub.Raw().Curve.IsOnCurve(x1, y1) {
 		t.Fatal("原始密文的 C1 不是 SM2 曲线上的点")
 	}
 
-	// C3 必须等于 SM3(x2 || M || y2)，其中 (x2, y2) = d * C1。
+	// C3 must equal SM3(x2 || M || y2), where (x2, y2) = d * C1. | C3 必须等于 SM3(x2 || M || y2)，其中 (x2, y2) = d * C1。
 	x2, y2 := pub.Raw().Curve.ScalarMult(x1, y1, priv.Raw().D.Bytes())
 	tm := make([]byte, 0, len(data)+64)
 	tm = append(tm, leftPad32(x2)...)
@@ -182,7 +181,7 @@ func TestSM2EncryptRawLayout(t *testing.T) {
 		t.Fatalf("C3 = %x, want SM3(x2||M||y2) = %x", rawCT[64:96], wantC3)
 	}
 
-	// 剥掉 0x04 的 gmsm 密文必须能被本包解密；我们补回 0x04 后 gmsm 也必须能解密。
+	// gmsm's ciphertext without the 0x04 must decrypt here, and our ciphertext with 0x04 restored must decrypt in gmsm. | 剥掉 0x04 的 gmsm 密文必须能被本包解密；我们补回 0x04 后 gmsm 也必须能解密。
 	gRaw := g[1:]
 	back, err := DecryptRaw(priv, gRaw)
 	if err != nil || !bytes.Equal(back, data) {
@@ -195,12 +194,12 @@ func TestSM2EncryptRawLayout(t *testing.T) {
 	}
 }
 
-// TestSM2EncryptDecryptCrossCheckWithGmsm 与 gmsm 双向交叉校验密文格式。
+// TestSM2EncryptDecryptCrossCheckWithGmsm cross-checks ciphertext formats in both directions against gmsm. | TestSM2EncryptDecryptCrossCheckWithGmsm 与 gmsm 双向交叉校验密文格式。
 func TestSM2EncryptDecryptCrossCheckWithGmsm(t *testing.T) {
 	priv, pub := mustKey(t)
 	data := []byte("cross-check|gmsm|SM2|国密")
 
-	// 本包 ASN.1 密文 → gmsm 解密。
+	// Our ASN.1 ciphertext into gmsm. | 本包 ASN.1 密文 → gmsm 解密。
 	ct, err := Encrypt(pub, data)
 	if err != nil {
 		t.Fatalf("Encrypt 返回错误: %v", err)
@@ -209,7 +208,7 @@ func TestSM2EncryptDecryptCrossCheckWithGmsm(t *testing.T) {
 		t.Fatalf("gmsm DecryptAsn1(本包密文) = (%d 字节, %v), want (%d 字节, nil)", len(got), err, len(data))
 	}
 
-	// gmsm ASN.1 密文 → 本包解密。
+	// gmsm's ASN.1 ciphertext into us. | gmsm ASN.1 密文 → 本包解密。
 	gCT, err := sm2.EncryptAsn1(pub.Raw(), data, rand.Reader)
 	if err != nil {
 		t.Fatalf("gmsm EncryptAsn1 返回错误: %v", err)
@@ -218,7 +217,7 @@ func TestSM2EncryptDecryptCrossCheckWithGmsm(t *testing.T) {
 		t.Fatalf("Decrypt(gmsm 密文) = (%d 字节, %v), want (%d 字节, nil)", len(got), err, len(data))
 	}
 
-	// gmsm 原始密文（含 0x04）→ 本包 DecryptRaw（去 0x04）。
+	// gmsm's raw ciphertext with 0x04 into DecryptRaw without it. | gmsm 原始密文（含 0x04）→ 本包 DecryptRaw（去 0x04）。
 	gRaw, err := sm2.Encrypt(pub.Raw(), data, rand.Reader, sm2.C1C3C2)
 	if err != nil {
 		t.Fatalf("gmsm Encrypt 返回错误: %v", err)
@@ -227,7 +226,7 @@ func TestSM2EncryptDecryptCrossCheckWithGmsm(t *testing.T) {
 		t.Fatalf("DecryptRaw(gmsm 原始密文) = (%d 字节, %v), want (%d 字节, nil)", len(got), err, len(data))
 	}
 
-	// 本包签名 → gmsm 验签；gmsm 签名 → 本包验签。
+	// Our signature into gmsm and gmsm's signature into us. | 本包签名 → gmsm 验签；gmsm 签名 → 本包验签。
 	sig, err := Sign(priv, data)
 	if err != nil {
 		t.Fatalf("Sign 返回错误: %v", err)
@@ -244,7 +243,7 @@ func TestSM2EncryptDecryptCrossCheckWithGmsm(t *testing.T) {
 	}
 }
 
-// TestSM2SignVerifyAndTamperFails 校验签名语义：正确验签通过，任何一字节改动必须失败。
+// TestSM2SignVerifyAndTamperFails checks the signature semantics: a correct signature verifies, and any single-byte change must fail. | TestSM2SignVerifyAndTamperFails 校验签名语义：正确验签通过，任何一字节改动必须失败。
 func TestSM2SignVerifyAndTamperFails(t *testing.T) {
 	priv, pub := mustKey(t)
 	_, otherPub := mustKey(t)
@@ -262,7 +261,7 @@ func TestSM2SignVerifyAndTamperFails(t *testing.T) {
 		t.Fatalf("Verify(正确签名) = (%v, %v), want (true, nil)", ok, err)
 	}
 
-	// 改一个字节的消息。
+	// Change one message byte. | 改一个字节的消息。
 	for _, i := range []int{0, len(data) / 2, len(data) - 1} {
 		tampered := append([]byte{}, data...)
 		tampered[i] ^= 0x01
@@ -275,7 +274,7 @@ func TestSM2SignVerifyAndTamperFails(t *testing.T) {
 		}
 	}
 
-	// 改一个字节的签名。
+	// Change one signature byte. | 改一个字节的签名。
 	for _, i := range []int{1, len(sig) / 2, len(sig) - 1} {
 		tampered := append([]byte{}, sig...)
 		tampered[i] ^= 0x01
@@ -288,7 +287,7 @@ func TestSM2SignVerifyAndTamperFails(t *testing.T) {
 		}
 	}
 
-	// 另一把公钥验签必须失败；空签名/垃圾签名也必须失败。
+	// Another public key must fail to verify, and so must empty or garbage signatures. | 另一把公钥验签必须失败；空签名/垃圾签名也必须失败。
 	if ok, _ := Verify(otherPub, data, sig); ok {
 		t.Fatal("换用其他公钥验签仍通过")
 	}
@@ -298,7 +297,7 @@ func TestSM2SignVerifyAndTamperFails(t *testing.T) {
 		}
 	}
 
-	// 十六进制签名 API。
+	// The hex signature API. | 十六进制签名 API。
 	sigHex, err := SignHex(priv, data)
 	if err != nil {
 		t.Fatalf("SignHex 返回错误: %v", err)
@@ -321,7 +320,7 @@ func TestSM2SignVerifyAndTamperFails(t *testing.T) {
 		t.Fatalf("VerifyHex(非法十六进制) = (%v, %v), want (false, err)", ok, err)
 	}
 
-	// 空指针必须返回错误而不是 panic。
+	// Nil receivers must return an error rather than panic. | 空指针必须返回错误而不是 panic。
 	if _, err := Sign(nil, data); err == nil {
 		t.Fatal("Sign(nil) 未返回错误")
 	}
@@ -336,7 +335,7 @@ func TestSM2SignVerifyAndTamperFails(t *testing.T) {
 	}
 }
 
-// TestSM2PEMAndHexRoundTrip 校验 PEM/十六进制密钥编码的往返与非法输入拒绝。
+// TestSM2PEMAndHexRoundTrip checks PEM and hex key encoding round trips and the rejection of invalid input. | TestSM2PEMAndHexRoundTrip 校验 PEM/十六进制密钥编码的往返与非法输入拒绝。
 func TestSM2PEMAndHexRoundTrip(t *testing.T) {
 	priv, pub := mustKey(t)
 
@@ -354,7 +353,7 @@ func TestSM2PEMAndHexRoundTrip(t *testing.T) {
 	if len(rest) != 0 {
 		t.Fatalf("私钥 PEM 存在多余数据: %d 字节", len(rest))
 	}
-	// SM2 曲线 OID 1.2.156.10197.1.301 的 DER 编码必须出现在 PKCS#8 中。
+	// The DER encoding of the SM2 curve OID 1.2.156.10197.1.301 must appear in the PKCS#8 body. | SM2 曲线 OID 1.2.156.10197.1.301 的 DER 编码必须出现在 PKCS#8 中。
 	if !bytes.Contains(block.Bytes, []byte{0x06, 0x08, 0x2a, 0x81, 0x1c, 0xcf, 0x55, 0x01, 0x82, 0x2d}) {
 		t.Fatal("私钥 PKCS#8 中缺少 SM2 曲线 OID")
 	}
@@ -383,7 +382,7 @@ func TestSM2PEMAndHexRoundTrip(t *testing.T) {
 		t.Fatal("公钥 PEM 往返后坐标不一致")
 	}
 
-	// 十六进制：私钥 64 字符小写；公钥 04||X||Y 共 130 字符小写。
+	// Hex: the private key is 64 lowercase characters, the public key is 04||X||Y in 130 lowercase characters. | 十六进制：私钥 64 字符小写；公钥 04||X||Y 共 130 字符小写。
 	privHex := priv.Hex()
 	if privHex != strings.ToLower(privHex) {
 		t.Fatalf("私钥十六进制应为小写: %s", privHex)
@@ -426,7 +425,7 @@ func TestSM2PEMAndHexRoundTrip(t *testing.T) {
 		t.Fatalf("PublicKeyToHex(priv.Public()) = %s, want %s", got, pubHex)
 	}
 
-	// 非法输入。
+	// Invalid input. | 非法输入。
 	if _, err := PrivateKeyFromHex("zz" + "00"); err == nil {
 		t.Fatal("PrivateKeyFromHex(非法十六进制) 未返回错误")
 	}
@@ -448,7 +447,7 @@ func TestSM2PEMAndHexRoundTrip(t *testing.T) {
 	if _, err := ParsePublicKeyPEM([]byte("not a pem")); err == nil {
 		t.Fatal("ParsePublicKeyPEM(垃圾数据) 未返回错误")
 	}
-	// 类型错配：把公钥 PEM 当私钥解析。
+	// Type mismatch: parse a public key PEM as a private key. | 类型错配：把公钥 PEM 当私钥解析。
 	if _, err := ParsePrivateKeyPEM(pubPEM); err == nil {
 		t.Fatal("ParsePrivateKeyPEM(公钥 PEM) 未返回错误")
 	}
@@ -460,7 +459,7 @@ func TestSM2PEMAndHexRoundTrip(t *testing.T) {
 	}
 }
 
-// TestSM2DecryptRejectsInvalidInput 校验解密对非法密文的健壮性（绝不 panic）。
+// TestSM2DecryptRejectsInvalidInput checks decryption robustness against malformed ciphertext, which must never panic. | TestSM2DecryptRejectsInvalidInput 校验解密对非法密文的健壮性（绝不 panic）。
 func TestSM2DecryptRejectsInvalidInput(t *testing.T) {
 	priv, pub := mustKey(t)
 	data := []byte("tamper-probe-国密")
@@ -473,37 +472,37 @@ func TestSM2DecryptRejectsInvalidInput(t *testing.T) {
 	if _, err := DecryptRaw(priv, make([]byte, 95)); !errors.Is(err, ErrInvalidCiphertext) {
 		t.Fatalf("DecryptRaw(95 字节) 的错误 = %v, want ErrInvalidCiphertext", err)
 	}
-	// C1 被替换为不在曲线上的点：必须返回错误而不是 panic。
+	// Replacing C1 with a point off the curve must return an error rather than panic. | C1 被替换为不在曲线上的点：必须返回错误而不是 panic。
 	badPoint := append([]byte{}, rawCT...)
 	copy(badPoint[:64], make([]byte, 64))
 	if _, err := DecryptRaw(priv, badPoint); !errors.Is(err, ErrInvalidCiphertext) {
 		t.Fatalf("DecryptRaw(无效 C1) 的错误 = %v, want ErrInvalidCiphertext", err)
 	}
-	// 篡改 C3。
+	// Tamper with C3. | 篡改 C3。
 	tamperC3 := append([]byte{}, rawCT...)
 	tamperC3[70] ^= 0x01
-	if _, err := DecryptRaw(priv, tamperC3); err == nil {
-		t.Fatal("DecryptRaw(篡改 C3) 未返回错误")
+	if _, err := DecryptRaw(priv, tamperC3); !errors.Is(err, ErrDecrypt) {
+		t.Fatalf("DecryptRaw(篡改 C3) 的错误 = %v, want ErrDecrypt", err)
 	}
-	// 篡改 C2。
+	// Tamper with C2. | 篡改 C2。
 	tamperC2 := append([]byte{}, rawCT...)
 	tamperC2[len(tamperC2)-1] ^= 0x01
-	if _, err := DecryptRaw(priv, tamperC2); err == nil {
-		t.Fatal("DecryptRaw(篡改 C2) 未返回错误")
+	if _, err := DecryptRaw(priv, tamperC2); !errors.Is(err, ErrDecrypt) {
+		t.Fatalf("DecryptRaw(篡改 C2) 的错误 = %v, want ErrDecrypt", err)
 	}
-	// ASN.1 垃圾数据。
+	// Garbage ASN.1. | ASN.1 垃圾数据。
 	for _, bad := range [][]byte{nil, {}, {0x30, 0x03, 0x02, 0x01, 0x01}, []byte("garbage")} {
-		if _, err := Decrypt(priv, bad); err == nil {
-			t.Fatalf("Decrypt(%x) 未返回错误", bad)
+		if _, err := Decrypt(priv, bad); !errors.Is(err, ErrInvalidCiphertext) {
+			t.Fatalf("Decrypt(%x) 的错误 = %v, want ErrInvalidCiphertext", bad, err)
 		}
 	}
-	// ASN.1 结构正确但 C1 不在曲线上。
+	// A well-formed ASN.1 structure whose C1 is off the curve. | ASN.1 结构正确但 C1 不在曲线上。
 	asn1CT, err := Encrypt(pub, data)
 	if err != nil {
 		t.Fatalf("Encrypt 返回错误: %v", err)
 	}
 	asn1CT[len(asn1CT)-1] ^= 0x01
-	if _, err := Decrypt(priv, asn1CT); err == nil {
-		t.Fatal("Decrypt(篡改 ASN.1 密文) 未返回错误")
+	if _, err := Decrypt(priv, asn1CT); !errors.Is(err, ErrDecrypt) {
+		t.Fatalf("Decrypt(篡改 ASN.1 密文) 的错误 = %v, want ErrDecrypt", err)
 	}
 }

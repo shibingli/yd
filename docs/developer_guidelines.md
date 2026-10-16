@@ -156,7 +156,22 @@ var ErrBadPattern = errx.New("invalid pattern | 非法的路由模式")
 判定一律 `errors.Is` / `errors.As`；禁止比较错误字符串。
 唯一例外：`errx` 包自身内部实现。
 
-### 10.3 自检
+### 10.3 errx 双语格式串的 printf 陷阱
+
+`errx.Detail` / `errx.WrapDetail` 的格式串若把同一个动词中英各写一遍，`go vet` 的
+printf 检查会因参数个数不匹配而报警。正确做法是使用**显式参数索引**：
+
+```go
+// 错误写法：vet 报 "format %d reads arg #3, but call has 2 args"
+errx.Detail(ErrLen, "C3 length %d, want %d | C3 长度 %d，期望 %d", got, want, got, want)
+
+// 正确写法：显式索引复用同一个参数
+errx.Detail(ErrLen, "C3 length %[1]d, want %[2]d | C3 长度 %[1]d，期望 %[2]d", got, want)
+```
+
+若两侧语义不同（不是简单重复），应拆成两个哨兵或只在一侧带格式细节。
+
+### 10.4 自检
 
 ```bash
 grep -rn 'fmt\.Errorf' --include=*.go . | grep -v '^./errx/'   # 必须无命中

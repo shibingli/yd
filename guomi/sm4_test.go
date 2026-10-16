@@ -8,7 +8,7 @@ import (
 	"testing"
 )
 
-// TestSM4GBStandardVector 校验 GB/T 32907-2016 附录 A.1 的单分组标准向量。
+// TestSM4GBStandardVector checks the single-block standard vector of GB/T 32907-2016 appendix A.1. | TestSM4GBStandardVector 校验 GB/T 32907-2016 附录 A.1 的单分组标准向量。
 func TestSM4GBStandardVector(t *testing.T) {
 	key, err := hex.DecodeString("0123456789abcdeffedcba9876543210")
 	if err != nil {
@@ -40,7 +40,7 @@ func TestSM4GBStandardVector(t *testing.T) {
 	}
 }
 
-// TestSM4KeyLengthValidated 校验 16 字节密钥强制约束在各入口生效。
+// TestSM4KeyLengthValidated checks that the 16-byte key constraint holds on every entry point. | TestSM4KeyLengthValidated 校验 16 字节密钥强制约束在各入口生效。
 func TestSM4KeyLengthValidated(t *testing.T) {
 	iv := bytes.Repeat([]byte{0x01}, SM4IVSize)
 	nonce := bytes.Repeat([]byte{0x02}, SM4GCMNonceSize)
@@ -82,7 +82,7 @@ func TestSM4KeyLengthValidated(t *testing.T) {
 	}
 }
 
-// TestSM4CBCRoundTripWithPKCS7 覆盖 PKCS#7 填充下 CBC 的往返（含非 16 字节倍数长度）。
+// TestSM4CBCRoundTripWithPKCS7 covers CBC round trips under PKCS#7 padding, including lengths that are not multiples of 16. | TestSM4CBCRoundTripWithPKCS7 覆盖 PKCS#7 填充下 CBC 的往返（含非 16 字节倍数长度）。
 func TestSM4CBCRoundTripWithPKCS7(t *testing.T) {
 	key := bytes.Repeat([]byte{0x11}, SM4KeySize)
 	iv := bytes.Repeat([]byte{0x22}, SM4IVSize)
@@ -98,7 +98,7 @@ func TestSM4CBCRoundTripWithPKCS7(t *testing.T) {
 			if len(ct) != wantLen {
 				t.Fatalf("密文长度 = %d, want %d（含整块 PKCS#7 填充）", len(ct), wantLen)
 			}
-			// 相同密钥与 IV 必须得到确定性的密文。
+			// The same key and IV must produce deterministic ciphertext. | 相同密钥与 IV 必须得到确定性的密文。
 			again, err := EncryptCBC(key, iv, plaintext)
 			if err != nil {
 				t.Fatalf("第二次 EncryptCBC 返回错误: %v", err)
@@ -116,21 +116,21 @@ func TestSM4CBCRoundTripWithPKCS7(t *testing.T) {
 		})
 	}
 
-	// IV 长度校验。
+	// IV length validation. | IV 长度校验。
 	if _, err := EncryptCBC(key, make([]byte, SM4IVSize-1), []byte("x")); !errors.Is(err, ErrInvalidIVLength) {
 		t.Fatalf("EncryptCBC(15 字节 IV) 的错误 = %v, want ErrInvalidIVLength", err)
 	}
 	if _, err := DecryptCBC(key, make([]byte, SM4IVSize+1), make([]byte, SM4BlockSize)); !errors.Is(err, ErrInvalidIVLength) {
 		t.Fatalf("DecryptCBC(17 字节 IV) 的错误 = %v, want ErrInvalidIVLength", err)
 	}
-	// 密文长度非分组整数倍。
+	// Ciphertext length that is not a multiple of the block size. | 密文长度非分组整数倍。
 	if _, err := DecryptCBC(key, iv, make([]byte, SM4BlockSize+1)); !errors.Is(err, ErrInvalidCiphertext) {
 		t.Fatalf("DecryptCBC(17 字节密文) 的错误 = %v, want ErrInvalidCiphertext", err)
 	}
 	if _, err := DecryptCBC(key, iv, nil); !errors.Is(err, ErrInvalidCiphertext) {
 		t.Fatalf("DecryptCBC(空密文) 的错误 = %v, want ErrInvalidCiphertext", err)
 	}
-	// 篡改填充：把最后一字节改成非法填充值必然失败。
+	// Tampered padding: an invalid final padding byte must always fail. | 篡改填充：把最后一字节改成非法填充值必然失败。
 	ct, err := EncryptCBC(key, iv, []byte("padding-probe"))
 	if err != nil {
 		t.Fatalf("EncryptCBC 返回错误: %v", err)
@@ -144,7 +144,7 @@ func TestSM4CBCRoundTripWithPKCS7(t *testing.T) {
 	}
 }
 
-// TestSM4GCMRoundTripAndTamperFails 覆盖 GCM 的往返与 AEAD 完整性校验。
+// TestSM4GCMRoundTripAndTamperFails covers GCM round trips and AEAD integrity checking. | TestSM4GCMRoundTripAndTamperFails 覆盖 GCM 的往返与 AEAD 完整性校验。
 func TestSM4GCMRoundTripAndTamperFails(t *testing.T) {
 	key := bytes.Repeat([]byte{0x33}, SM4KeySize)
 	nonce := bytes.Repeat([]byte{0x44}, SM4GCMNonceSize)
@@ -166,7 +166,7 @@ func TestSM4GCMRoundTripAndTamperFails(t *testing.T) {
 		t.Fatalf("GCM 往返不一致: %x, want %x", back, plaintext)
 	}
 
-	// 篡改密文 / 认证标签 / AAD 必须失败。
+	// Tampering with the ciphertext, the tag or the AAD must fail. | 篡改密文 / 认证标签 / AAD 必须失败。
 	tamper := func(mutate func([]byte)) {
 		t.Helper()
 		broken := append([]byte{}, ct...)
@@ -191,7 +191,7 @@ func TestSM4GCMRoundTripAndTamperFails(t *testing.T) {
 		t.Fatal("密文被截断时 OpenGCM 未返回错误")
 	}
 
-	// 空明文/空 AAD 也应可往返。
+	// Empty plaintext and empty AAD must round-trip as well. | 空明文/空 AAD 也应可往返。
 	empty, err := SealGCM(key, nonce, nil, nil)
 	if err != nil {
 		t.Fatalf("SealGCM(空明文) 返回错误: %v", err)
@@ -201,7 +201,7 @@ func TestSM4GCMRoundTripAndTamperFails(t *testing.T) {
 	}
 }
 
-// TestSM4GCMNonceLengths 校验 nonce 长度策略：12 字节推荐，其他长度允许但必须校验。
+// TestSM4GCMNonceLengths checks the nonce length policy: 12 bytes are recommended, other lengths are allowed but validated. | TestSM4GCMNonceLengths 校验 nonce 长度策略：12 字节推荐，其他长度允许但必须校验。
 func TestSM4GCMNonceLengths(t *testing.T) {
 	key := bytes.Repeat([]byte{0x55}, SM4KeySize)
 	plaintext := []byte("nonce-length-probe")
@@ -227,7 +227,7 @@ func TestSM4GCMNonceLengths(t *testing.T) {
 	}
 }
 
-// TestSM4ECBRoundTrip 覆盖 ECB（仅协议兼容）的往返。
+// TestSM4ECBRoundTrip covers ECB round trips, which exist for protocol compatibility only. | TestSM4ECBRoundTrip 覆盖 ECB（仅协议兼容）的往返。
 func TestSM4ECBRoundTrip(t *testing.T) {
 	key := bytes.Repeat([]byte{0x66}, SM4KeySize)
 
@@ -249,7 +249,7 @@ func TestSM4ECBRoundTrip(t *testing.T) {
 		}
 	}
 
-	// 相同明文块必须产生相同密文块（ECB 的固有特性，仅用于协议兼容）。
+	// Identical plaintext blocks must produce identical ciphertext blocks, an inherent ECB property kept for protocol compatibility only. | 相同明文块必须产生相同密文块（ECB 的固有特性，仅用于协议兼容）。
 	block := []byte("0123456789abcdef")
 	ct, err := EncryptECB(key, append(append([]byte{}, block...), block...))
 	if err != nil {
@@ -263,7 +263,7 @@ func TestSM4ECBRoundTrip(t *testing.T) {
 	}
 }
 
-// TestSM4RandomKeyAndIV 校随机密钥/IV 的长度与随机性。
+// TestSM4RandomKeyAndIV checks the length and randomness of random keys and IVs. | TestSM4RandomKeyAndIV 校验随机密钥/IV 的长度与随机性。
 func TestSM4RandomKeyAndIV(t *testing.T) {
 	k1, err := RandomKey()
 	if err != nil {

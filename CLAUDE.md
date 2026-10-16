@@ -53,6 +53,8 @@
    - **默认禁止 `fmt.Errorf`**。需要附加格式化细节时用 `errx.Detail(ErrX, "%q ...", v)`；
      需要保留底层错误时用 `errx.Wrap(err, ErrX)` 或 `errx.WrapDetail(err, ErrX, fmt, args...)`；
    - 错误文案必须**中英同步**：`English | 中文`（与注释、日志文案同一规则）；
+   - 双语格式串若两侧都要动词，**必须使用显式参数索引**（`%[1]d`），否则 `go vet`
+     会因参数个数不匹配报警；语义不同则拆哨兵，不要硬凑一行；
    - 调用方一律用 `errors.Is` / `errors.As` 判定，禁止字符串匹配判断错误类型；
    - 禁止 `panic` 跨包传播（仅允许在 `MustXxx` 初始化辅助中出现）；
    - 唯一例外：`errx` 包自身内部实现需要 `fmt.Sprintf` 拼接文案。
