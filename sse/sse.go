@@ -9,7 +9,6 @@
 package sse
 
 import (
-	"errors"
 	"io"
 	"net/http"
 	"strconv"
@@ -24,8 +23,7 @@ import (
 //
 // An event stream must be delivered frame by frame; a response writer lacking Flush capability (such as some middleware wrappers) | 事件流必须逐帧送达客户端，缺少 Flush 能力的响应写入器（如部分中间件包装器）
 // would leave events sitting in a buffer, so this case is judged unusable outright. | 会把事件滞留在缓冲区，因此这种情况直接判定为不可用。
-var ErrFlusherUnsupported = errors.New(
-	"sse: http.ResponseWriter 未实现 http.Flusher，无法推送事件流")
+var ErrFlusherUnsupported = errx.New("sse: response writer does not support flushing | sse：响应写入器不支持 flush")
 
 // ErrWriteStream is returned when the assembled event stream frame cannot be written to the response writer. | ErrWriteStream 在组装好的事件流帧无法写入响应写入器时返回。
 //

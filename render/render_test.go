@@ -70,6 +70,47 @@ func TestRenderLayoutWithPartial(t *testing.T) {
 	}
 }
 
+// TestEscapesUserDataByDefault 锁定 html/template 的转义语义。
+// TestEscapesUserDataByDefault pins the escaping semantics of html/template.
+//
+// 这是安全回归测试：若有人把引擎换回 text/template，用户数据会被原样写入页面，
+// 直接构成 XSS。只有显式转换的 template.HTML 才允许绕过转义。
+// This is a security regression test: switching the engine back to text/template
+// would write user data into the page verbatim, i.e. a direct XSS. Only values
+// explicitly typed template.HTML may bypass escaping.
+func TestEscapesUserDataByDefault(t *testing.T) {
+	mem := writeTemplates(t, map[string]string{
+		"templates/a.html": `<h1>{{ .Title }}</h1><div>{{ .Trusted }}</div><a href="{{ .Link }}">x</a>`,
+	})
+	e, err := render.New(mem, render.Options{})
+	if err != nil {
+		t.Fatalf("New 失败: %v", err)
+	}
+
+	var buf bytes.Buffer
+	if err := e.Render(&buf, "a.html", map[string]any{
+		"Title":   `<script>alert(1)</script>`,
+		"Trusted": template.HTML(`<b>ok</b>`),
+		"Link":    `javascript:alert(2)`,
+	}); err != nil {
+		t.Fatalf("渲染失败: %v", err)
+	}
+	out := buf.String()
+
+	if strings.Contains(out, "<script>alert(1)</script>") {
+		t.Fatalf("用户数据未被转义（XSS 风险）: %q", out)
+	}
+	if !strings.Contains(out, "&lt;script&gt;") {
+		t.Fatalf("期望出现转义后的实体: %q", out)
+	}
+	if !strings.Contains(out, "<b>ok</b>") {
+		t.Fatalf("显式 template.HTML 应原样输出: %q", out)
+	}
+	if strings.Contains(out, `href="javascript:alert(2)"`) {
+		t.Fatalf("危险 URL 方案未被拦截: %q", out)
+	}
+}
+
 func TestNamesAreRelativeSlashPaths(t *testing.T) {
 	mem := writeTemplates(t, map[string]string{
 		"templates/layouts/base.html": `base`,
@@ -162,7 +203,12 @@ func TestNoTemplatesReturnsSentinel(t *testing.T) {
 
 func TestFuncsDictDefaultAndJSON(t *testing.T) {
 	mem := writeTemplates(t, map[string]string{
-		"templates/a.html": `{{ $d := dict "Title" "T" "N" 3 }}{{ $d.Title }}|{{ default "fallback" "" }}|{{ json $d }}`,
+		// json 辅助函数返回 template.JS，只在 <script> 上下文原样输出 ——
+		// 放在 HTML 文本上下文里 html/template 会按文本转义，这是正确的安全行为。
+		// The json helper returns template.JS, which is emitted verbatim only in a
+		// <script> context; in HTML text context html/template escapes it, and that
+		// escaping is the correct, safe behaviour.
+		"templates/a.html": `{{ $d := dict "Title" "T" "N" 3 }}{{ $d.Title }}|{{ default "fallback" "" }}|<script>const d = {{ json $d }};</script>`,
 	})
 	e, err := render.New(mem, render.Options{})
 	if err != nil {
@@ -177,11 +223,26 @@ func TestFuncsDictDefaultAndJSON(t *testing.T) {
 		t.Fatalf("dict/default 输出异常: %q", out)
 	}
 	if !strings.Contains(out, `"Title":"T"`) {
-		t.Fatalf("json 辅助函数输出异常: %q", out)
+		t.Fatalf("json 辅助函数在 script 上下文应原样输出: %q", out)
 	}
-	// jsonx 默认转义 HTML 敏感字符，可安全嵌入 <script>
-	if strings.Contains(out, "<") && strings.Contains(out, "</script") {
-		t.Fatalf("json 输出未转义: %q", out)
+
+	// 恶意数据即使取自 map 也必须被转义为 <，从而无法闭合 </script>
+	mem2 := writeTemplates(t, map[string]string{
+		"templates/b.html": `<script>const x = {{ json .Evil }};</script>`,
+	})
+	e2, err := render.New(mem2, render.Options{})
+	if err != nil {
+		t.Fatalf("New 失败: %v", err)
+	}
+	var buf2 bytes.Buffer
+	if err := e2.Render(&buf2, "b.html", map[string]any{"Evil": "</script><img src=x onerror=alert(1)>"}); err != nil {
+		t.Fatalf("渲染失败: %v", err)
+	}
+	if strings.Contains(buf2.String(), "</script><img") {
+		t.Fatalf("json 辅助函数未阻止脚本闭合注入: %q", buf2.String())
+	}
+	if !strings.Contains(buf2.String(), `<`) {
+		t.Fatalf("json 辅助函数应把 < 转义为 \\u003c: %q", buf2.String())
 	}
 }
 

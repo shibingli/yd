@@ -1,5 +1,13 @@
 // Package render loads html/template sets from an afero filesystem. | Package render 从 afero 文件系统加载 html/template 模板集。
 //
+// This engine is built on html/template, not text/template: every value
+// interpolated into a template is contextually escaped, which is what makes it
+// safe to render user-supplied data. Values that must reach the page verbatim
+// have to be typed template.HTML explicitly, so escaping is always an opt-out
+// rather than the default. | 本引擎基于 html/template 而非 text/template：所有插入
+// 模板的值都会按上下文转义，这正是渲染用户数据时的安全前提。需要原样输出的值必须
+// 显式声明为 template.HTML，即转义永远是「显式关闭」而非默认行为。
+//
 // Templates are addressed by their slash-separated path relative to the scan
 // root, for example "layouts/base.html" or "pages/users.html". Every file
 // under the root is parsed into one template set, so partials can be invoked
@@ -11,13 +19,13 @@
 package render
 
 import (
+	"html/template"
 	"io"
 	"io/fs"
 	"path"
 	"sort"
 	"strings"
 	"sync"
-	"text/template"
 
 	"github.com/spf13/afero"
 

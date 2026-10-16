@@ -3,6 +3,7 @@ package app
 import (
 	"bytes"
 	"errors"
+	"html/template"
 	"io"
 	"strings"
 	"testing"
@@ -10,10 +11,13 @@ import (
 	"github.com/spf13/afero"
 
 	"github.com/yun-dev/yd/afs"
+	"github.com/yun-dev/yd/render"
+	"github.com/yun-dev/yd/router"
 )
 
-// newTemplateFS writes the given templates into a fresh in-memory filesystem
-// and returns the templates subtree. | newTemplateFS 把给定模板写入全新的内存文件系统并返回 templates 子树。
+// newTemplateFS writes the given files into a fresh in-memory asset filesystem
+// and returns it, so "templates/..." paths sit at its root. | newTemplateFS 把给定
+// 文件写入全新的内存资产文件系统并返回，使 "templates/..." 路径位于其根下。
 func newTemplateFS(t *testing.T, files map[string]string) afero.Fs {
 	t.Helper()
 
@@ -23,15 +27,11 @@ func newTemplateFS(t *testing.T, files map[string]string) afero.Fs {
 			t.Fatalf("写入 %s 失败: %v", path, err)
 		}
 	}
-	tpl, err := assetDir(fsys, assetsTemplatesDir)
-	if err != nil {
-		t.Fatalf("assetDir(%q) 失败: %v", assetsTemplatesDir, err)
-	}
-	return tpl
+	return fsys
 }
 
 // renderString renders name through r and returns the output. | renderString 通过 r 渲染 name 并返回输出。
-func renderString(t *testing.T, r *templateRenderer, name string, data any) string {
+func renderString(t *testing.T, r router.Renderer, name string, data any) string {
 	t.Helper()
 
 	var buf bytes.Buffer
@@ -41,11 +41,11 @@ func renderString(t *testing.T, r *templateRenderer, name string, data any) stri
 	return buf.String()
 }
 
-func TestTemplateRendererRendersByRelativePath(t *testing.T) {
-	r, err := newTemplateRenderer(newTemplateFS(t, map[string]string{
+func TestDefaultRendererRendersByRelativePath(t *testing.T) {
+	r, err := newRenderer(newTemplateFS(t, map[string]string{
 		"templates/layouts/base.html": testLayout,
 		"templates/pages/home.html":   testPage,
-	}), rendererOptions{})
+	}), false)
 	if err != nil {
 		t.Fatalf("构建渲染器失败: %v", err)
 	}
@@ -54,19 +54,19 @@ func TestTemplateRendererRendersByRelativePath(t *testing.T) {
 		t.Errorf("片段输出 = %q, 期望 %q", got, wantFragment)
 	}
 
-	// A plain string is escaped by html/template, which is exactly why the
-	// layout convention injects template.HTML. | 普通 string 会被 html/template 转义，
-	// 这正是布局约定注入 template.HTML 的原因。
-	data := map[string]any{ContentKey: "<b>x</b>", "Title": "yd"}
-	if got := renderString(t, r, DefaultLayout, data); !strings.Contains(got, "&lt;b&gt;") {
-		t.Errorf("布局输出 = %q, 期望 string 型 Content 被转义", got)
+	// The layout receives the fragment as template.HTML, so its markup reaches
+	// the page verbatim instead of being escaped. | 布局以 template.HTML 接收片段，
+	// 因此其标记原样进入页面而不是被转义。
+	data := map[string]any{ContentKey: template.HTML("<b>x</b>"), "Title": "yd"}
+	if got := renderString(t, r, DefaultLayout, data); !strings.Contains(got, "<b>x</b>") {
+		t.Errorf("布局输出 = %q, 期望 template.HTML 型 Content 原样输出", got)
 	}
 }
 
-func TestTemplateRendererCachesUnlessDev(t *testing.T) {
-	tpl := newTemplateFS(t, map[string]string{"templates/one.html": "<p>one</p>"})
+func TestDefaultRendererCachesUnlessDev(t *testing.T) {
+	fsys := newTemplateFS(t, map[string]string{"templates/one.html": "<p>one</p>"})
 
-	cached, err := newTemplateRenderer(tpl, rendererOptions{})
+	cached, err := newRenderer(fsys, false)
 	if err != nil {
 		t.Fatalf("构建渲染器失败: %v", err)
 	}
@@ -75,14 +75,14 @@ func TestTemplateRendererCachesUnlessDev(t *testing.T) {
 	}
 
 	// Rewriting the template must not affect an already cached renderer. | 改写模板不得影响已缓存的渲染器。
-	if err := afero.WriteFile(tpl, "one.html", []byte("<p>two</p>"), 0o644); err != nil {
+	if err := afero.WriteFile(fsys, "templates/one.html", []byte("<p>two</p>"), 0o644); err != nil {
 		t.Fatalf("改写模板失败: %v", err)
 	}
 	if got := renderString(t, cached, "one.html", nil); got != "<p>one</p>" {
 		t.Errorf("缓存输出 = %q, 期望仍为旧内容", got)
 	}
 
-	dev, err := newTemplateRenderer(tpl, rendererOptions{Dev: true})
+	dev, err := newRenderer(fsys, true)
 	if err != nil {
 		t.Fatalf("构建 dev 渲染器失败: %v", err)
 	}
@@ -91,34 +91,49 @@ func TestTemplateRendererCachesUnlessDev(t *testing.T) {
 	}
 }
 
-func TestTemplateRendererWithoutTemplatesDir(t *testing.T) {
-	// No templates directory at all: the renderer stays usable but finds nothing. | 完全没有模板目录：渲染器仍可用，但找不到任何模板。
-	r, err := newTemplateRenderer(afs.NewMem(), rendererOptions{})
+func TestDefaultRendererWithoutTemplates(t *testing.T) {
+	// A filesystem without a templates directory: the renderer still builds,
+	// and rendering reports the missing template. | 没有模板目录的文件系统：
+	// 渲染器仍可构建，渲染时报告模板缺失。
+	r, err := newRenderer(afs.NewMem(), false)
 	if err != nil {
 		t.Fatalf("缺少模板目录时不应报错: %v", err)
 	}
-	if err := r.Render(io.Discard, "pages/home.html", nil); !errors.Is(err, ErrTemplateNotFound) {
-		t.Errorf("Render 错误 = %v, 期望 ErrTemplateNotFound", err)
+	if err := r.Render(io.Discard, "pages/home.html", nil); err == nil {
+		t.Error("没有模板时 Render 必须报错")
+	}
+
+	// An existing but empty templates directory behaves the same. | 存在但为空的模板目录行为一致。
+	mem := afs.NewMem()
+	if err := mem.MkdirAll(assetsTemplatesDir, 0o755); err != nil {
+		t.Fatalf("创建模板目录失败: %v", err)
+	}
+	empty, err := newRenderer(mem, false)
+	if err != nil {
+		t.Fatalf("空模板目录不应报错: %v", err)
+	}
+	if err := empty.Render(io.Discard, "pages/home.html", nil); !errors.Is(err, render.ErrNoTemplates) {
+		t.Errorf("空模板目录 Render 错误 = %v, 期望 render.ErrNoTemplates", err)
 	}
 }
 
-func TestTemplateRendererReportsParseErrors(t *testing.T) {
+func TestDefaultRendererReportsParseErrors(t *testing.T) {
 	broken := func() afero.Fs {
 		return newTemplateFS(t, map[string]string{"templates/bad.html": "{{ if }}"})
 	}
 
 	// Eager mode fails fast at construction. | 立即模式在构造期快速失败。
-	if _, err := newTemplateRenderer(broken(), rendererOptions{}); !errors.Is(err, ErrTemplateParse) {
-		t.Errorf("立即模式构造错误 = %v, 期望 ErrTemplateParse", err)
+	if _, err := newRenderer(broken(), false); !errors.Is(err, render.ErrParseTemplate) {
+		t.Errorf("立即模式构造错误 = %v, 期望 render.ErrParseTemplate", err)
 	}
 
 	// Hot-reload mode surfaces the error on render instead. | 热重载模式在渲染时暴露错误。
-	dev, err := newTemplateRenderer(broken(), rendererOptions{Dev: true})
+	dev, err := newRenderer(broken(), true)
 	if err != nil {
 		t.Fatalf("dev 模式构造不应报错: %v", err)
 	}
-	if err := dev.Render(io.Discard, "bad.html", nil); !errors.Is(err, ErrTemplateParse) {
-		t.Errorf("dev 模式 Render 错误 = %v, 期望 ErrTemplateParse", err)
+	if err := dev.Render(io.Discard, "bad.html", nil); !errors.Is(err, render.ErrParseTemplate) {
+		t.Errorf("dev 模式 Render 错误 = %v, 期望 render.ErrParseTemplate", err)
 	}
 }
 

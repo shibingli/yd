@@ -14,10 +14,11 @@
 package ws
 
 import (
-	"errors"
 	"fmt"
 	"net/http"
 	"time"
+
+	"github.com/yun-dev/yd/errx"
 )
 
 // Protocol constants. | 协议常量。
@@ -155,37 +156,37 @@ func validCloseCode(c CloseCode) bool {
 // Error variables. | 错误变量。
 var (
 	// ErrHandshake indicates that the WebSocket handshake failed. | ErrHandshake 表示 WebSocket 握手失败。
-	ErrHandshake = errors.New("ws: 握手失败")
+	ErrHandshake = errx.New("ws: handshake failed | ws：握手失败")
 	// ErrHijackUnsupported indicates that the underlying connection does not support Hijack. | ErrHijackUnsupported 表示底层连接不支持 Hijack。
 	// WebSocket cannot be obtained through an upgrade over HTTP/2 and HTTP/3; on those protocols use the RFC 8441 | HTTP/2 与 HTTP/3 无法通过升级获得 WebSocket；这些协议下应使用 RFC 8441 的
 	// Extended CONNECT (not provided by this implementation), or switch to SSE. | Extended CONNECT（本实现未提供），或改用 SSE。
-	ErrHijackUnsupported = errors.New("ws: 底层连接不支持 Hijack（HTTP/2 与 HTTP/3 无法升级为 WebSocket，请改用 SSE）")
+	ErrHijackUnsupported = errx.New("ws: underlying connection does not support Hijack (HTTP/2 and HTTP/3 cannot upgrade to WebSocket; use SSE instead) | ws：底层连接不支持 Hijack（HTTP/2 与 HTTP/3 无法升级为 WebSocket，请改用 SSE）")
 	// ErrOriginNotAllowed indicates that the Origin check did not pass. | ErrOriginNotAllowed 表示 Origin 校验未通过。
-	ErrOriginNotAllowed = errors.New("ws: Origin 校验未通过")
+	ErrOriginNotAllowed = errx.New("ws: Origin check failed | ws：Origin 校验未通过")
 	// ErrProtocol indicates that the peer violated an RFC 6455 protocol constraint. | ErrProtocol 表示对端违反 RFC 6455 协议约束。
-	ErrProtocol = errors.New("ws: 协议错误")
+	ErrProtocol = errx.New("ws: protocol error | ws：协议错误")
 	// ErrMessageTooBig indicates that a message exceeded MaxMessageSize. | ErrMessageTooBig 表示消息超过 MaxMessageSize。
-	ErrMessageTooBig = errors.New("ws: 消息超过大小上限")
+	ErrMessageTooBig = errx.New("ws: message exceeds the size limit | ws：消息超过大小上限")
 	// ErrInvalidUTF8 indicates that a text message is not valid UTF-8. | ErrInvalidUTF8 表示文本消息不是合法 UTF-8。
-	ErrInvalidUTF8 = errors.New("ws: 文本消息不是合法 UTF-8")
+	ErrInvalidUTF8 = errx.New("ws: text message is not valid UTF-8 | ws：文本消息不是合法 UTF-8")
 	// ErrCloseSent indicates that the close frame has been sent, so no further data frame may be written. | ErrCloseSent 表示关闭帧已发出，此后不得再写数据帧。
-	ErrCloseSent = errors.New("ws: 关闭帧已发出")
+	ErrCloseSent = errx.New("ws: close frame already sent | ws：关闭帧已发出")
 	// ErrUnexpectedEOF indicates that the connection dropped before a close frame arrived (corresponding to 1006). | ErrUnexpectedEOF 表示未收到关闭帧连接即断开（对应 1006）。
-	ErrUnexpectedEOF = errors.New("ws: 连接异常断开")
+	ErrUnexpectedEOF = errx.New("ws: connection dropped before a close frame arrived | ws：连接异常断开")
 	// ErrControlTooLarge indicates that a control frame payload exceeds 125 bytes. | ErrControlTooLarge 表示控制帧载荷超过 125 字节。
-	ErrControlTooLarge = errors.New("ws: 控制帧载荷超过 125 字节")
+	ErrControlTooLarge = errx.New("ws: control frame payload exceeds 125 bytes | ws：控制帧载荷超过 125 字节")
 	// ErrFragmentedControl indicates that a control frame was fragmented. | ErrFragmentedControl 表示控制帧被分片。
-	ErrFragmentedControl = errors.New("ws: 控制帧不得分片")
+	ErrFragmentedControl = errx.New("ws: control frames must not be fragmented | ws：控制帧不得分片")
 	// ErrReservedBits indicates that RSV bits were set while no extension had been negotiated. | ErrReservedBits 表示在未协商扩展时设置了 RSV 位。
-	ErrReservedBits = errors.New("ws: 未协商扩展却设置了 RSV 位")
+	ErrReservedBits = errx.New("ws: RSV bits set without a negotiated extension | ws：未协商扩展却设置了 RSV 位")
 	// ErrMaskMismatch indicates that the masking direction violates RFC 6455 (clients must mask, servers must not mask). | ErrMaskMismatch 表示掩码方向不符合 RFC 6455（客户端必须掩码、服务端必须不掩码）。
-	ErrMaskMismatch = errors.New("ws: 掩码方向不符合 RFC 6455")
+	ErrMaskMismatch = errx.New("ws: masking direction violates RFC 6455 | ws：掩码方向不符合 RFC 6455")
 	// ErrBadOpCode indicates a reserved opcode. | ErrBadOpCode 表示保留操作码。
-	ErrBadOpCode = errors.New("ws: 保留了非法操作码")
+	ErrBadOpCode = errx.New("ws: reserved opcode | ws：保留了非法操作码")
 	// ErrContinuationWithoutStart indicates that a continuation frame was received with no starting frame. | ErrContinuationWithoutStart 表示收到没有起始帧的续帧。
-	ErrContinuationWithoutStart = errors.New("ws: 收到没有起始帧的续帧")
+	ErrContinuationWithoutStart = errx.New("ws: continuation frame without a starting frame | ws：收到没有起始帧的续帧")
 	// ErrNewDataDuringFragment indicates that a new message started before the fragmented one had finished. | ErrNewDataDuringFragment 表示分片消息未结束就开始了新消息。
-	ErrNewDataDuringFragment = errors.New("ws: 分片消息未结束即出现新的数据帧")
+	ErrNewDataDuringFragment = errx.New("ws: new data frame arrived before the fragmented message ended | ws：分片消息未结束即出现新的数据帧")
 )
 
 // CloseError indicates that one side ended the connection with a close frame. | CloseError 表示对端或本端以关闭帧结束连接。

@@ -160,9 +160,9 @@ func WithServerOptions(fn func(*server.Options)) Option {
 	}
 }
 
-// WithRenderer injects a template renderer (for example the dedicated render
-// engine), replacing the built-in html/template renderer. | WithRenderer 注入模板
-// 渲染器（例如专用渲染引擎），替换内置的 html/template 渲染器。
+// WithRenderer injects a template renderer, replacing the built-in render
+// engine (see newRenderer). | WithRenderer 注入模板渲染器，替换内置渲染引擎
+// （见 newRenderer）。
 func WithRenderer(rd router.Renderer) Option { return func(a *App) { a.renderer = rd } }
 
 // New wires a fully usable application. | New 装配一个可直接使用的应用。
@@ -209,15 +209,11 @@ func New(opts ...Option) (*App, error) {
 	a.router = router.New()
 
 	if a.renderer == nil {
-		tplFS, err := assetDir(a.fs, assetsTemplatesDir)
+		engine, err := newRenderer(a.fs, isDevelopment(a.cfg))
 		if err != nil {
 			return nil, err
 		}
-		rd, err := newTemplateRenderer(tplFS, rendererOptions{Dev: isDevelopment(a.cfg)})
-		if err != nil {
-			return nil, err
-		}
-		a.renderer = rd
+		a.renderer = engine
 	}
 	a.router.SetRenderer(a.renderer)
 

@@ -2,7 +2,6 @@ package ws
 
 import (
 	"crypto/sha1"
-	"errors"
 	"net/http"
 	"net/url"
 	"strings"
@@ -155,4 +154,4 @@ func selectSubprotocol(r *http.Request, supported []string) string {
 }
 
 // errNotSwitchingProtocols indicates that the peer did not return 101. | errNotSwitchingProtocols 表示对端未返回 101。
-var errNotSwitchingProtocols = errors.New("ws: 对端未返回 101 Switching Protocols")
+var errNotSwitchingProtocols = errx.New("ws: peer did not return 101 Switching Protocols | ws：对端未返回 101 Switching Protocols")

@@ -21,6 +21,7 @@ import (
 	"github.com/yun-dev/yd/afs"
 	"github.com/yun-dev/yd/config"
 	"github.com/yun-dev/yd/logx"
+	"github.com/yun-dev/yd/render"
 	"github.com/yun-dev/yd/router"
 	"github.com/yun-dev/yd/server"
 )
@@ -380,8 +381,36 @@ func TestRenderAppliesStatusAndReportsMissingTemplates(t *testing.T) {
 	b := newTestApp(t, map[string]string{"templates/layouts/base.html": testLayout})
 	b.GET("/missing", func(c *router.Ctx) { renderErr = b.Render(c, http.StatusOK, "pages/nope.html", nil) })
 	doRequest(t, b, http.MethodGet, "/missing", nil)
-	if !errors.Is(renderErr, ErrTemplateNotFound) {
-		t.Errorf("Render 错误 = %v, 期望 ErrTemplateNotFound", renderErr)
+	// The built-in render engine reports the render package's sentinel. | 内置渲染引擎报告 render 包的哨兵。
+	if !errors.Is(renderErr, render.ErrTemplateNotFound) {
+		t.Errorf("Render 错误 = %v, 期望 render.ErrTemplateNotFound", renderErr)
+	}
+}
+
+// TestRenderFailureWritesNothing covers the buffering contract: a template that
+// fails halfway through must never leave a half-written body in the response.
+// | TestRenderFailureWritesNothing 覆盖缓冲契约：渲染中途失败的模板绝不能在响应里
+// 留下半截正文。
+func TestRenderFailureWritesNothing(t *testing.T) {
+	// The page emits text and then fails on the nil field chain. | 页面先输出文本，随后在 nil 字段链上失败。
+	a := newTestApp(t, map[string]string{
+		"templates/layouts/base.html": testLayout,
+		"templates/pages/boom.html":   `<p>partial</p>{{ .A.B }}`,
+	})
+
+	var renderErr error
+	a.GET("/boom", func(c *router.Ctx) {
+		renderErr = a.Render(c, http.StatusOK, "pages/boom.html", map[string]any{"A": nil})
+	})
+
+	for _, headers := range []map[string]string{nil, {"HX-Request": "true"}} {
+		rec := doRequest(t, a, http.MethodGet, "/boom", headers)
+		if renderErr == nil {
+			t.Fatal("渲染必须失败")
+		}
+		if rec.Body.Len() != 0 {
+			t.Errorf("渲染失败后(headers=%v)正文 = %q, 期望为空", headers, rec.Body.String())
+		}
 	}
 }
 

@@ -367,6 +367,11 @@ func TestBrokerFanoutToMultipleSubscribers(t *testing.T) {
 	}
 }
 
+// TestBrokerSlowConsumerDoesNotBlock asserts that a subscriber which never reads cannot block the publisher, | TestBrokerSlowConsumerDoesNotBlock 断言从不读取的订阅者不会阻塞发布方，
+// and that the healthy subscriber still receives frames, with the first one being the first published. | 且健康订阅者仍能收到事件，且首个事件就是最早发布的那一条。
+//
+// The test advances on channel signals only: it waits for the fast consumer's own signal before asserting, | 本用例仅以 channel 信号推进时序：断言之前先等待快消费者自己发出的信号，
+// so the verdict does not depend on when the runtime happens to schedule that goroutine (polling a wall clock made it flaky). | 因此结论不依赖运行时何时调度该 goroutine（此前的墙钟轮询正是偶发失败的来源）。
 func TestBrokerSlowConsumerDoesNotBlock(t *testing.T) {
 	b := NewBroker(BrokerOptions{QueueSize: 1})
 	defer b.Close()
@@ -376,17 +381,16 @@ func TestBrokerSlowConsumerDoesNotBlock(t *testing.T) {
 	fast, fastCancel := b.Subscribe("t")
 	defer fastCancel()
 
-	var (
-		mu       sync.Mutex
-		got      []string
-		fastDone = make(chan struct{})
-	)
+	// firstRec carries the first frame the fast consumer takes off its channel; fastDone reports that the consumer loop has ended. | firstRec 承载快消费者从通道取走的第一帧；fastDone 表示消费循环已结束。
+	firstRec := make(chan string, 1)
+	fastDone := make(chan struct{})
 	go func() {
 		defer close(fastDone)
 		for e := range fast {
-			mu.Lock()
-			got = append(got, e.ID)
-			mu.Unlock()
+			select {
+			case firstRec <- e.ID:
+			default: // only the first frame is signalled | 仅对首帧发信号
+			}
 		}
 	}()
 
@@ -404,25 +408,33 @@ func TestBrokerSlowConsumerDoesNotBlock(t *testing.T) {
 		t.Fatal("慢消费者阻塞了 Publish")
 	}
 
-	// The slow consumer reads not a single byte, so frames must be dropped and the counter must keep rising. | 慢消费者一个字节都不读，必然丢帧且计数递增。
-	waitFor(t, 2*time.Second, "丢弃计数递增", func() bool { return b.Dropped("t") > 0 })
-
-	mu.Lock()
-	received := len(got)
-	first := ""
-	if received > 0 {
-		first = got[0]
+	// The slow consumer reads not a single byte, so every frame after the first one is dropped: once done is closed | 慢消费者一个字节都不读，因此第一帧之后的每一帧都被丢弃：done 关闭后
+	// (which happens-before the checks below) the drop counter cannot still be zero. | （对下述检查建立 happens-before）丢弃计数不可能仍为 0。
+	if dropped := b.Dropped("t"); dropped == 0 {
+		t.Fatalf("Dropped(t) = 0，期望 > 0")
 	}
-	mu.Unlock()
-	if received == 0 {
+	// What the slow consumer has not read is never delivered: its single buffered frame stays queued, and later frames | 慢消费者未读取的事件不会被投递出来：它那唯一一帧缓冲始终留在通道里，
+	// are neither queued in its place nor handed over. | 后续事件既不顶替它也不被交付。
+	if queued := len(slow); queued != 1 {
+		t.Fatalf("慢消费者待读事件数 = %d，期望 1", queued)
+	}
+
+	// Block on the fast consumer's own signal instead of polling the wall clock. | 阻塞等待快消费者自身的信号，而不是轮询墙钟。
+	select {
+	case first := <-firstRec:
+		if first != "0" {
+			t.Errorf("快消费者首个事件 = %q，期望 0", first)
+		}
+	case <-time.After(5 * time.Second):
 		t.Fatal("快消费者没有及时收到任何事件")
 	}
-	if first != "0" {
-		t.Errorf("快消费者首个事件 = %q，期望 0", first)
-	}
-	// Events the slow consumer has not read must not be delivered (preserving the non-blocking semantics). | 慢消费者未读取的事件不得被投递出来（保持非阻塞语义）。
-	if slow == nil {
-		t.Fatal("Subscribe 返回了 nil 通道")
+
+	// Close must end the consumer loop. | Close 必须结束消费循环。
+	b.Close()
+	select {
+	case <-fastDone:
+	case <-time.After(5 * time.Second):
+		t.Fatal("Broker.Close 之后消费循环未退出")
 	}
 }
 
