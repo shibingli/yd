@@ -6,7 +6,7 @@
 
 **允许直接修改**
 
-- 源码目录：`config/`、`afs/`、`jsonx/`、`b64x/`、`logx/`、`router/`、`render/`、`htmx/`、`sse/`、`ws/`、`jwt/`、`guomi/`、`middleware/`、`i18n/`、`openapi/`、`server/`、`grpcx/`、`data/**`、`app/`、`cli/`、`scaffold/`、`gen/`、`build/`、`docker/`、`assets/`、`toolchain/`、`web/**`
+- 源码目录：`config/`、`afs/`、`jsonx/`、`b64x/`、`logx/`、`router/`、`render/`、`htmx/`、`sse/`、`ws/`、`jwt/`、`guomi/`、`middleware/`、`i18n/`、`openapi/`、`server/`、`grpcx/`、`lifecycle/`、`service/`、`data/**`、`app/`、`cli/`、`scaffold/`、`gen/`、`build/`、`docker/`、`assets/`、`toolchain/`、`web/**`
 - 测试与文档：`*_test.go`、`testdata/**`、`docs/**`（除需求基线）
 
 **禁止修改**
@@ -78,6 +78,18 @@
       语言切换走 htmx 局部刷新，主题支持 light/dark/system 三态并持久化。
 - [ ] **OpenAPI 注释完整**：对外 HTTP 处理器的 doc 注释必须含完整注解块
       （`@Summary/@Description/@Tags/@Accept/@Produce/@Param/@Success/@Failure/@Security/@Router`），缺项即未完成。
+- [ ] **优雅退出**：关停顺序固定为「长连接钩子 → HTTP/3 关闭 → HTTP 排空 → 强制关闭残留 hijack 连接 →
+      gRPC 优雅停止 → 逆序 `OnShutdown` 钩子」，任何入口不得打乱；**长连接必须登记**
+      （WebSocket 传 `ws.Options.Tracker` 并发 1001 关闭帧、SSE 传 `sse.Options.Tracker`，
+      其它用 `app.Lifecycle().Add`），处理器必须监听关闭信号而不是只等对端断开；
+      宽限期只有 `server.Options.ShutdownTimeout` 一处；**禁止**在关闭路径上 `os.Exit` / `log.Fatal`。
+      自检：新增长连接时补一条「挂着连接仍能在宽限期内退出」的测试。
+- [ ] **服务化只走 `service` 包**：安装/卸载/启停一律经 `yd service <动作>` 或入口的 `-service <动作>`，
+      **禁止**手写注册表项 / systemd unit / init 脚本，**禁止** fork 或 daemonize 自建后台；
+      服务停止只取消 context 并等待业务返回（`service.Run`），**禁止**在 Stop 路径 `os.Exit`；
+      测试不得真的调用 SCM / `systemctl` / `launchctl`（用注入点打桩）。
+- [ ] **交叉编译必须过**：新增依赖或平台相关符号后，`GOOS=linux GOARCH=arm64 CGO_ENABLED=0 go build ./...`
+      必须通过——上游库常把常量声明在 `*_windows.go` 里，直接引用只在 Windows 编得过。
 - [ ] **敏感日志**：访问日志与慢查询日志不得输出口令、Token、密钥明文；使用 `logger.ParamsFilter` 屏蔽。
 - [ ] **CORS**：`AllowCredentials=true` 时禁止回显 `*`。
 - [ ] **资产完整性**：`web/assets.lock.json` 中每项必须有 sha256，且 `yd assets verify --offline` 通过。

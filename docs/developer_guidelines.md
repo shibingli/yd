@@ -304,3 +304,64 @@ betteralign -apply ./...     # 等价于 yd align --apply
 - 控制器只做编排；业务逻辑放 `internal/service`，数据访问放 `internal/repository`。
 - 一切外部输入必须限长并校验；错误统一经 `middleware.Recover` + `app.Render` 输出用户可读的 HTML 错误片段（`pages/error.html`）。
 - 新增端点后必须重新生成 `openapi.json`（`yd build` 自动完成）并确认 `/docs` 可见。
+
+## 15. 优雅退出契约（长连接）
+
+后端退出时必须**主动终止长连接**，否则进程会一直挂到宽限期结束或被强杀。框架提供三处接入点：
+
+- **WebSocket**：给 `ws.Options.Tracker` 传 `ws.NewConnSet()`（或任何满足 `ws.Tracker` 的实现）。
+  退出流程调用 `CloseAll(ws.CloseGoingAway, "...")`：连接先发 **1001（going away）** 关闭帧、再关套接字；
+  连接在 `Close` / `CloseNow` 以及任何终止性读错误处自行取消登记，追踪表不会泄漏条目。
+  `ws.Tracker` 故意声明在 `ws` 包内，`ws` 不反向依赖 `lifecycle`。
+- **SSE**：给 `sse.Options.Tracker` 传 `sse.NewWriterSet(broker)`。`WriterSet.Shutdown()` 会逐个
+  停止心跳 → 写最终注释帧 `server shutting down | 服务器正在退出`（**必须 flush**）→ 关闭写入器，
+  最后关闭 `Broker`（释放订阅协程）。用 `sse.Handler` 时它会监听 `Writer.Done()` 自动返回；
+  自行编写的流式处理器也必须 `select` 该通道。
+- **其它自增长连接**：用 `app.Lifecycle().Add(name, fn)`（或 `server.Lifecycle()`）登记关闭函数；
+  注册表并发安全、`remove` 幂等、同名钩子**后注册者原位生效**，`Shutdown` 按**注册逆序**执行且幂等，
+  超时的钩子记为 `lifecycle.ErrShutdownTimeout`，panic 被恢复并记为 `lifecycle.ErrHookPanic`。
+
+**退出顺序**（`app.Run` / `app.Shutdown` 统一实现，不得调整）：
+
+1. `lifecycle` 的 `Done()` 在关闭开始时**立即关闭**，钩子按逆序执行（长连接在此收尾）；
+2. HTTP/3 关闭 → `http.Server.Shutdown` 排空（停止接入 + 等待进行中的请求）；
+3. **强制关闭**排空后仍存活的 hijack 连接（`server` 包装 `http.Hijacker` 登记真实 `net.Conn`，
+   `http.Server.Shutdown` 对 hijacked 连接一无所知，不补这一步对端会一直挂着）；
+4. gRPC：`grpcx.Shutdown(ctx, srv)` 或 `app.WithGRPC(srv)`——先 `GracefulStop`，宽限期过后 `Stop()` 强制停止
+  （`grpcx.ErrShutdownTimeout` / `app.ErrGRPCShutdown`）；
+5. 逆序执行 `app.OnShutdown` 钩子与 `Set` 注册的 `io.Closer` 服务。
+
+- **宽限期只有一个来源**：`server.Options.ShutdownTimeout`（缺省 `app.defaultShutdownTimeout`，10s）；
+  超时步骤只记错误，绝不阻断后续步骤，最终由 `errors.Join` 聚合返回。
+- 长连接处理器**不得只依赖对端断开**：必须同时 `select` 请求上下文与关闭信号（`sse.Writer.Done()` 等），
+  否则排空会被拖到宽限期；关闭过程中新建立的连接一律被拒绝。
+- 应用入口只允许 `app.Run(ctx)` / `app.Shutdown(ctx)`；自行 `http.ListenAndServe` 或缓存 hijack 裸连接绕过登记
+  都会破坏上述顺序，视为缺陷。
+
+## 16. 服务化部署契约（服务模式）
+
+框架的 `service` 包（底层 `github.com/kardianos/service` v1.3.0）是**唯一的系统服务入口**：
+Windows 走 SCM、Linux 走 systemd、macOS 走 launchd。禁止为单个平台手写注册表项 / unit 文件 / init 脚本。
+
+生成项目的入口（`cmd/app/main.go`）有三种运行模式，**出口只有一个**——`app.Run` 的优雅退出（见 §15）：
+
+| 模式 | 触发条件 | 行为 |
+|---|---|---|
+| 前台 | 有终端且未给 `-service` | `application.Run(ctx)`，SIGINT/SIGTERM 触发优雅退出 |
+| 服务模式 | 被服务管理器拉起（无终端，`service.Interactive()` 为 false）或显式 `-service run` | `service.Run(opts, fn)` 托管 `application.Run` |
+| 控制动作 | `-service install\|uninstall\|start\|stop\|restart\|status` | 一次服务管理器调用后返回，不装配端口、不进前台循环 |
+
+- **停止只取消 context，绝不 `os.Exit`**：服务管理器发来 Stop 时，`service.Run` 取消传给 `application.Run`
+  的 context 并**等待它返回**（缺省宽限 30s，超时返回 `service.ErrStopTimeout`）。在途请求与长连接由
+  §15 的关停序列收尾；任何 `os.Exit` / `panic` / `log.Fatal` 都会硬切断请求，并让服务管理器把「停止」
+  记成异常退出。
+- **不要包一层 shell**：systemd 的 `ExecStart`、SCM 的 `binPath` 都必须直接指向二进制（`/opt/<app>/bin/<app> -service run`），
+  写成 `sh -c "…"` 会让停止信号传不到进程，优雅退出退化成超时强杀。
+- **配置文件进不了服务管理器**：`configs/config.yaml` 的 `service.*` 段只在下次 `yd service install`
+  时写入；`arguments` 与 `working_directory` 里的路径必须绝对（Windows 忽略工作目录）。
+- **密钥不进服务文件**：unit 文件与 SCM 配置对运维可读，主密钥与数据库口令一律经 `YD_*` 环境变量注入。
+- **运维侧等价命令**：`yd service <动作> [--name N] [--binary PATH] [--dir DIR] [--user U] [--args "…"]`，
+  与运行期 `-service <动作>` 落到同一个 `service.Control`；动作集为
+  `install|uninstall|start|stop|restart|status`，`run` 只属于应用二进制。
+- **测试不得真的装服务**：`service` 包经 `newControlHandle` 注入、CLI 经 `serviceControlFunc` / `serviceBuildFunc`
+  打桩，覆盖动作映射、名字/描述来源、不支持平台与权限失败路径；测试进程内不得出现真实 SCM / `systemctl` / `launchctl` 调用。

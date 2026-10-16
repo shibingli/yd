@@ -235,6 +235,8 @@ func TestGovernanceStatesNewConstraints(t *testing.T) {
 			"多租户",          // 租户硬边界 | tenant boundary
 			"betteralign",  // 内存对齐要求 | memory alignment
 			"data-yd-i18n", // 前端 i18n 约定 | frontend i18n contract
+			"优雅退出",         // 关停顺序与长连接登记 | shutdown order and long-lived connection tracking
+			"kardianos",    // 服务化唯一入口 | the single service-manager entry point
 		},
 		"AGENTS.md": {
 			"Co-Authored-By: Eric Shi <shibingli@sina.com>",
@@ -243,6 +245,9 @@ func TestGovernanceStatesNewConstraints(t *testing.T) {
 			"jsonx", "b64x",
 			"OpenAPI",
 			"claude", // 必须出现"禁止 claude 相关内容"的约束 | must state the prohibition
+			"优雅退出",
+			"service", // 服务化约束 | service-mode constraint
+			"交叉编译",    // 平台相关符号护栏 | platform-specific symbol guard
 		},
 		"docs/developer_guidelines.md": {
 			"YD_",
@@ -252,6 +257,7 @@ func TestGovernanceStatesNewConstraints(t *testing.T) {
 			"sec_key",
 			"betteralign",
 			"data-yd-i18n",
+			"优雅退出",
 		},
 	}
 	for name, wants := range checks {
@@ -273,6 +279,30 @@ func TestEnvTemplateUsesYDPrefix(t *testing.T) {
 	}
 	if !strings.Contains(content, "YD_SERVER_PORT") || !strings.Contains(content, "YD_DB_MAXCONN") {
 		t.Error(".env.template 未使用 YD_ 前缀示例")
+	}
+}
+
+// TestLongLivedPackagesDoNotImportLifecycle 强制长连接包与关闭编排之间的依赖方向。
+// TestLongLivedPackagesDoNotImportLifecycle enforces the dependency direction between the long-lived connection packages and the shutdown orchestrator.
+//
+// ws 与 sse 只声明自己的最小「关闭信号」接口，由 app 侧注入实现；若它们反向 import
+// lifecycle，依赖图会成环，且这两个包将无法脱离关闭编排单独复用。
+// ws and sse declare their own minimal "shutdown signal" interface, implemented on the app side;
+// importing lifecycle back would create a cycle and make both packages unusable without the
+// orchestrator.
+func TestLongLivedPackagesDoNotImportLifecycle(t *testing.T) {
+	const lifecyclePath = "github.com/shibingli/yd/lifecycle"
+	for _, f := range scanGoFiles(t, repoRoot(t)) {
+		if f.isTest {
+			continue
+		}
+		if !strings.HasPrefix(f.rel, "ws/") && !strings.HasPrefix(f.rel, "sse/") {
+			continue
+		}
+		if hasImport(f.lines, `"`+lifecyclePath+`"`) {
+			t.Errorf("%s 反向 import 了 %s；长连接包只应声明自己的最小关闭信号接口，"+
+				"由 app 侧注入实现，避免依赖成环", f.rel, lifecyclePath)
+		}
 	}
 }
 

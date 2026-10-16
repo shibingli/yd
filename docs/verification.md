@@ -10,13 +10,14 @@
 
 | 检查 | 命令 | 结果 |
 |---|---|---|
-| 构建 | `go build ./...` | 通过（32 个包 + 根包 `yd`） |
+| 构建 | `go build ./...` | 通过（36 个包 + 根包 `yd`） |
 | 静态检查 | `go vet ./...` | 零输出 |
 | 格式 | `gofmt -l .` | 零输出 |
-| 单元测试 | `go test ./... -count=1` | **32 个包 ok，0 失败** |
-| 竞态检测 | `CGO_ENABLED=1 CC=clang go test -race ./...` | **31 个包 ok，0 竞态** |
+| 单元测试 | `go test ./... -count=1` | **36 个包 ok，0 失败** |
+| 竞态检测 | `CGO_ENABLED=1 CC=clang go test -race ./...` | **36 个包 ok，0 竞态** |
 | 交叉编译 | `GOOS=linux GOARCH=arm64 CGO_ENABLED=0 go build ./...` | 通过 |
 | 交叉编译 | `GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build ./...` | 通过 |
+| 模块一致性 | `go mod tidy -diff` | 零输出 |
 | 规范守卫 | `go test ./internal/repotest/` | 通过 |
 
 ### 1.1 规范守卫覆盖的强制约束
@@ -124,6 +125,39 @@ ok  github.com/shibingli/yd/e2e  27.117s
 未登录的安全姿态已被断言：`GET /` 未带令牌时服务端返回 3xx 且 `Location` 指向 `/login`，
 响应中不出现登出入口；受保护端点的 htmx 请求在未登录时不得返回 200。
 
+## 3.4 优雅退出与系统服务化（第四轮需求）
+
+| 能力 | 验收证据 |
+|---|---|
+| 长连接不再泄漏 | `ws`：`TestConnSetClosesLiveConnectionWith1001`——httptest 起真实服务端，用同步通道（非 sleep）确认连接已登记，`CloseAll(CloseGoingAway, …)` 后客户端读到关闭码 **1001**，处理器 3s 内返回且登记表归零。`sse`：`TestWriterSetShutdownTerminatesStream` 确认最终注释帧已 flush、其后无心跳帧；`TestWriterSetShutdownReleasesSubscribers` 确认 `Broker` 一并收口、订阅通道释放 |
+| 退出耗时**上界确定** | `server/shutdown_test.go`：挂 **8 条永久阻塞的 hijack 连接**时 `Shutdown` 实测 **516.9µs**（宽限期 10s，断言上界 3s），并同时校验 8 条连接的读阻塞确实被打断——即连接真被强制关闭，而非「快速返回但不作为」 |
+| 关闭顺序 | `app`：`TestShutdownClosesLongConnectionsBeforeHooks` 断言顺序严格等于 `[lifecycle:stream, drain:handler, grpc:graceful, hooks]`；`TestShutdownCollectsEveryStageError` 断言各阶段错误可逐一 `errors.Is` 命中，且某阶段耗尽宽限期后后续钩子仍执行 |
+| 错误聚合 | 超时步骤**只记错误、不阻断后续**（`lifecycle.ErrShutdownTimeout`、`grpcx.ErrShutdownTimeout`） |
+| `lifecycle` 契约 | 12 项测试：逆序、幂等（并发调用共享同一聚合错误）、`Done()` 立即关闭、钩子 panic 被恢复记为 `ErrHookPanic`、`Add` 幂等 remove、**并发 `Add`/`Shutdown` 在 `-race` 下干净** |
+| 系统服务化 | `service` 包 23 项 + `cli` 的服务相关 22 项全部通过；**测试过程不产生真实的 SCM / `systemctl` / `launchctl` 调用**（经 `newControlHandle`、`serviceControlFunc`、`serviceBuildFunc` 注入点打桩） |
+| 服务停止即优雅退出 | `service.Run` 的 Stop 路径只取消传给业务的 context 并等待其返回（缺省宽限 30s，超时 `ErrStopTimeout`），**无 `os.Exit`**；生成项目 `cmd/app/main.go` 的服务模式调用 `service.Run(opts, application.Run)`，与前台模式共用同一条关闭路径 |
+| 脚手架同步 | 生成项目含 `-service <动作>` 入口、`configs/config.yaml` 的 `service:` 段、README「安装为系统服务」章节（含 Windows `sc` 与 systemd 单元示例）；`TestRealGenerateCompilesWithGoBuild` 确认 66 个文件生成后仍可 `go build` |
+
+### 3.4.1 集成期发现并修复的两个真实缺陷
+
+两条都不是靠「跑一遍测试」发现的，而是靠**门禁交叉验证**：
+
+1. **`service.OnFailure` 是 Windows 专有符号**。上游 `kardianos/service` 把 `OnFailure` /
+   `OnFailureRestart` 声明在 `service_windows.go`（文件名后缀即构建约束），直接引用只在 Windows
+   编得过——`go build ./...` 在本机是绿的，`GOOS=linux GOARCH=arm64` 才暴露
+   `undefined: service.OnFailure`。修法：按本包既有做法改用字面量常量
+   （`onFailureKey = "OnFailure"` / `onFailureRestartValue = "restart"`），并在注释里写明原因。
+   **护栏**：`AGENTS.md` 新增「交叉编译必须过」清单项；`e2e.TestCrossCompile` 会构建三平台的
+   `./cmd/yd`，正是能捕获该类缺陷的门禁。
+2. **hijack 包装器吞掉了 `io.ReaderFrom` 快速路径**。`server` 为登记 hijack 连接而包装
+   `http.ResponseWriter`，但内嵌接口只提升接口自身的方法，`net/http` 响应写入器额外实现的
+   `io.ReaderFrom`（sendfile / writev 快速路径）随之消失；由于该包装会装在**每一个** HTTP/1.1
+   请求上，静态资源响应会整体退回逐块拷贝。修法：显式补回 `ReadFrom`，底层不具备该能力时用
+   匿名结构体只暴露 `Write`，避免 `io.Copy` 递归回自身。
+   **变异验证**：把 `ReadFrom` 改名后，`TestReadFromKeepsUnderlyingFastPath` 与
+   `TestWrapperOverRealConnectionKeepsFastPath`（后者在**真实 HTTP/1.1 连接**上断言）
+   双双以预期文案转红，还原后恢复绿——护栏真实有效。
+
 ## 4. 已知限制与未覆盖项
 
 1. **HTTP/3 需要 TLS**（QUIC 强制 TLS 1.3）。开发态在未配置证书时会生成一次性自签证书
@@ -144,3 +178,8 @@ ok  github.com/shibingli/yd/e2e  27.117s
    （`TestDebounceCoalescesRapidEvents`、`TestWatcherSeesNestedDirectories`、
    `TestWatcherLifecycle`、`TestDevReloadEndpointOnlyInDevMode` 均 PASS）。
    这是 WSL 挂载的文件系统事件限制，与框架无关。
+8. **真实的系统服务安装未在本机验收**：`yd service install` 会修改操作系统状态（注册 SCM 服务、
+   写 systemd unit），因此测试全部经注入点打桩，只断言「动作 → 服务管理器调用」的映射、名称推导、
+   平台不支持与权限不足四条路径。真实安装需要管理员（Windows）/ root（POSIX）。
+9. **系统服务的启停需要真实服务管理器**：服务模式下的优雅退出由 `service.Run` 的 ctx 取消驱动，
+   已由单元测试覆盖；但「SCM / systemd 真的把停止信号送进来」这一段依赖宿主环境，未在 CI 中跑。

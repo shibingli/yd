@@ -218,3 +218,53 @@ yd docker            # 基于 scratch 的多阶段镜像构建
 yd assets update     # 在线更新前端依赖并锁定校验和
 yd assets verify --offline   # 离线完整性校验
 ```
+
+## 11. 优雅退出（强制）
+
+**关停顺序固定**，任何入口都不得打乱（`server.Server.Shutdown` → `app.App.Shutdown` → `app.Run` 均实现同一序列）：
+
+1. **关闭 `lifecycle` 的 `Done()` 信号并执行长连接钩子**（按注册逆序）——长连接在此收尾；
+2. 关闭 HTTP/3 监听；
+3. `http.Server.Shutdown` **排空**：停止接入、等待进行中的请求；
+4. **强制关闭排空后仍存活的 hijack 连接**（`server` 通过包装 `http.Hijacker` 登记真实 `net.Conn`）；
+5. gRPC 优雅停止，宽限期过后 `Stop()` 强制停止；
+6. 逆序执行 `app.OnShutdown` 钩子（释放 DB / Redis / 队列等）；
+7. 全部错误以 `errors.Join` 聚合返回，超时步骤**记为错误但绝不阻断后续步骤**。
+
+- **长连接必须注册**：WebSocket 传 `ws.Options.Tracker`（退出时发 **1001 going away** 关闭帧再关套接字），
+  SSE 传 `sse.Options.Tracker`（默认停止心跳、写最终注释帧并 flush、再关 `Broker`），
+  其它自增长连接用 `app.Lifecycle().Add(name, fn)` 登记；`lifecycle.Registry` 并发安全、`Shutdown` 幂等、
+  钩子 panic 被恢复（`ErrHookPanic`）、内建 `ErrHookFailed` / `ErrShutdownTimeout`；
+- 连接处理器**必须监听关闭信号**（`lifecycle.Registry.Done()` / `sse.Writer.Done()`），
+  不得只靠对端断开，否则 HTTP 排空会一直拖到宽限期；
+- 只允许存在**一个宽限期**：`server.Options.ShutdownTimeout`（`app` 未显式设置时取 `defaultShutdownTimeout`）；
+  任何自行 `go` 出去的关闭协程都必须能回答「它何时退出」；
+- **禁止绕过门面**：应用入口一律用 `app.Run(ctx)` / `app.Shutdown(ctx)`；
+  自行 `http.ListenAndServe`、或把 hijack 得到的裸 `net.Conn` 缓存到别处绕过登记，都视为缺陷。
+
+## 12. 服务化部署（强制）
+
+`service` 包（`github.com/shibingli/yd/service`，底层 `github.com/kardianos/service` v1.3.0）
+是**唯一的系统服务入口**：Windows 走 SCM、Linux 走 systemd、macOS 走 launchd。
+**禁止**为某个平台手写注册表项、unit 文件或 init 脚本，也**禁止**在业务代码里 fork / daemonize 自建后台进程。
+
+- **两条调用路径，同一份语义**：运维侧用 `yd service <动作>`，被托管的应用侧用入口的 `-service <动作>`；
+  两者都落到 `service.Control(o, a)`，动作取 `install|uninstall|start|stop|restart|status`，
+  未知动作以 `ErrUnknownAction` 拒绝（`run` 只属于应用二进制）。
+- **配置来源**：`service.name` / `display_name` / `description` / `executable` / `arguments` /
+  `working_directory` / `user_name` / `depends_on` / `env` / `restart_on_exit`（环境变量 `YD_SERVICE_*`），
+  统一经 `service.OptionsFromConfig(cfg)` 读取。服务名回退顺序：
+  `--name` → `service.name` → `.yd.json` 的 `name` → 工作目录名。
+- **CLI**：`yd service <动作> [--name N] [--display-name D] [--description X] [--binary PATH]
+  [--dir DIR] [--user U] [--args "..."]`；省略 `--binary` 时先找 `bin/<项目名>[.exe]`，
+  找不到就用 `build` 包编译一次，仍失败则给出「先 `yd build` 或传 `--binary`」的提示。
+- **停止语义**：`service.Run` 收到停止只**取消传给业务的 context 并等待其返回**（缺省宽限 30s，超时
+  `ErrStopTimeout`）；**禁止**用 `os.Exit` / `panic` / `log.Fatal` 「停服务」，收尾一律委托 `app.Run`（见「优雅退出」一节）。
+- **控制动作不启服务**：`install|uninstall|start|stop|restart|status` 只执行一次服务管理器调用就返回，
+  不得装配端口或进入前台循环。
+- **测试不得真的装服务**：`service` 包经 `newControlHandle` 注入，`cli` 经 `serviceControlFunc` /
+  `serviceBuildFunc` 打桩；测试进程内不得出现真实的 SCM / `systemctl` / `launchctl` 调用。
+- **错误一律哨兵**：`ErrUnsupportedPlatform`（无受支持的服务管理器）、`ErrNotInstalled`、`ErrPermissionDenied`、
+  `ErrUnknownAction` 等，调用方用 `errors.Is` 判定；权限失败必须提示管理员（Windows）/ root（POSIX）。
+- **密钥不进服务文件**：unit 文件与 SCM 配置对运维可读，主密钥与数据库口令只经 `YD_*` 环境变量注入，
+  `service.env` 中不得出现真实密钥。
