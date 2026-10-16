@@ -107,6 +107,8 @@ func Upgrade(w http.ResponseWriter, r *http.Request, o Options) (*Conn, error) {
 
 	c := newConn(netConn, o, false)
 	c.subprotocol = sub
+	// 登记必须在握手响应写出之后：此刻连接已是可用的 WebSocket，关闭帧才有意义。| Registration happens after the handshake response: only then is the connection a usable WebSocket that a close frame can address.
+	c.setTracker(o.Tracker)
 	// a client may pipeline data right after the handshake, so the read buffer returned by Hijack may already hold content; | 客户端可能在握手后立刻流水线发送数据，Hijack 返回的读缓冲里可能已有内容，
 	// in that case the buffer must keep being used, or frames would be lost. | 此时必须继续使用该缓冲，否则会丢帧。
 	if brw != nil && brw.Reader.Buffered() > 0 {

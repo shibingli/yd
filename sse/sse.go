@@ -58,6 +58,10 @@ type Event struct {
 
 // Options holds the behavior parameters of Writer and Handler. | Options 是 Writer 与 Handler 的行为参数。
 type Options struct {
+	// Tracker, when non-nil, registers every Writer built by NewWriter so that a shutdown can terminate all streams at once. | Tracker 非 nil 时登记 NewWriter 建立的每个 Writer，使退出流程能一次终止全部事件流。
+	//
+	// The writer unregisters itself from Close, so the set never leaks entries. | 写入器会在 Close 中自行取消登记，因此集合不会泄漏条目。
+	Tracker *WriterSet
 	// Heartbeat is the heartbeat interval; when >0, Handler periodically sends a `: ping` comment frame. | Heartbeat 是心跳间隔；>0 时 Handler 会周期性发送 `: ping` 注释帧。
 	Heartbeat time.Duration
 	// Retry is the default reconnect interval used when an event sets no Retry of its own (still written in milliseconds). | Retry 是事件自身未设置 Retry 时采用的默认重连间隔（仍以毫秒输出）。
@@ -76,14 +80,17 @@ type Writer struct {
 	flusher http.Flusher
 	stop    chan struct{}
 	stopped chan struct{}
+	done    chan struct{}
 	buf     []byte
+	untrack func()
 
 	options Options
 
 	mu sync.Mutex
 
-	hbMu   sync.Mutex
-	closed bool
+	hbMu    sync.Mutex
+	trackMu sync.Mutex
+	closed  bool
 }
 
 // NewWriter establishes an event stream: it sets the SSE response headers and checks the Flusher capability. | NewWriter 建立一条事件流：设置 SSE 响应头并校验 Flusher 能力。
@@ -105,12 +112,45 @@ func NewWriter(w http.ResponseWriter, o Options) (*Writer, error) {
 	h.Set("Cache-Control", "no-cache, no-transform")
 	h.Set("Connection", "keep-alive")
 	h.Set("X-Accel-Buffering", "no")
-	return &Writer{
+	out := &Writer{
 		w:       w,
 		flusher: f,
 		options: o,
 		buf:     make([]byte, 0, o.BufferSize),
-	}, nil
+		done:    make(chan struct{}),
+	}
+	out.setTracker(o.Tracker)
+	return out, nil
+}
+
+// Done returns a channel closed once this writer is closed. | Done 返回本写入器关闭后被关闭的通道。
+//
+// A streaming handler can select on it to return as soon as a shutdown closes
+// the stream, instead of blocking on an event channel that may never receive
+// another frame. | 流式处理器可以 select 监听它，在退出流程关闭事件流时立即返回，
+// 而不必阻塞在一个可能永远收不到新帧的事件通道上。
+func (w *Writer) Done() <-chan struct{} { return w.done }
+
+// setTracker registers the writer with a writer set and arms automatic untracking. | setTracker 把写入器登记到写入器集合，并装配自动取消登记。
+func (w *Writer) setTracker(s *WriterSet) {
+	if s == nil {
+		return
+	}
+	untrack := s.Track(w)
+	w.trackMu.Lock()
+	w.untrack = untrack
+	w.trackMu.Unlock()
+}
+
+// detach removes the writer from its set; it is idempotent. | detach 把写入器从集合中移除；该方法是幂等的。
+func (w *Writer) detach() {
+	w.trackMu.Lock()
+	untrack := w.untrack
+	w.untrack = nil
+	w.trackMu.Unlock()
+	if untrack != nil {
+		untrack()
+	}
 }
 
 // WriteEvent writes one event and flushes it immediately. | WriteEvent 写出一条事件并立即刷新。
@@ -173,6 +213,8 @@ func (w *Writer) Heartbeat(d time.Duration) {
 //
 // Writes after closing (WriteEvent / WriteData / Comment / Heartbeat) are all no-ops. | 关闭后的写入（WriteEvent / WriteData / Comment / Heartbeat）均为无操作。
 func (w *Writer) Close() error {
+	// 先离开追踪集合：退出流程不会再向一条正在关闭的事件流写帧。| Leave the tracked set first: a shutdown will no longer write into a stream that is closing.
+	w.detach()
 	w.stopHeartbeat()
 	w.mu.Lock()
 	defer w.mu.Unlock()
@@ -180,6 +222,7 @@ func (w *Writer) Close() error {
 		return nil
 	}
 	w.closed = true
+	close(w.done)
 	w.flusher.Flush()
 	return nil
 }

@@ -234,9 +234,17 @@ func Handler(b *Broker, topic string, o Options) router.HandlerFunc {
 		defer cancel()
 
 		done := c.Request.Context().Done()
+		// 事件流被关闭（例如退出流程调用 WriterSet.Shutdown）时立即返回，
+		// 否则处理器会一直阻塞在事件通道上，把 HTTP 排空拖到宽限期结束。
+		// Return as soon as the stream is closed (for example by WriterSet.Shutdown),
+		// otherwise the handler blocks on the event channel and drags the HTTP drain
+		// out to the grace period.
+		streamClosed := w.Done()
 		for {
 			select {
 			case <-done:
+				return
+			case <-streamClosed:
 				return
 			case e, ok := <-ch:
 				if !ok {

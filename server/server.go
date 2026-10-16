@@ -17,6 +17,7 @@ import (
 	"github.com/quic-go/quic-go/http3"
 
 	"github.com/shibingli/yd/errx"
+	"github.com/shibingli/yd/lifecycle"
 	"github.com/shibingli/yd/logx"
 )
 
@@ -45,6 +46,12 @@ var (
 
 	// ErrCertLoadFailed reports a certificate pair that could not be loaded. | ErrCertLoadFailed 表示证书对加载失败。
 	ErrCertLoadFailed = errx.New("server: failed to load the certificate | server：加载证书失败")
+
+	// ErrGracefulShutdown reports that in-flight requests did not drain within the grace period. | ErrGracefulShutdown 表示宽限期内仍有进行中的请求未排空。
+	ErrGracefulShutdown = errx.New("server: graceful shutdown did not finish before the deadline | server：宽限期内未能完成优雅退出")
+
+	// ErrShutdownHook reports a failure in a registered lifecycle shutdown hook. | ErrShutdownHook 表示已注册的生命周期关闭钩子执行失败。
+	ErrShutdownHook = errx.New("server: shutdown hook failed | server：关闭钩子执行失败")
 )
 
 // Server multiplexes HTTP/1.1, h2c and HTTP/3 over one handler. | Server 在同一处理器上复用 HTTP/1.1、h2c 与 HTTP/3。
@@ -55,22 +62,30 @@ var (
 // header. | HTTP/1.1 与 h2c 共用 TCP 监听（Go 1.24+ 通过 http.Protocols 原生支持明文
 // HTTP/2，无需外部 h2c 包）；HTTP/3 运行在 QUIC（UDP）监听上，并通过 Alt-Svc 头对外通告。
 type Server struct {
-	ln     net.Listener
-	logger *logx.Logger
-
-	httpSrv *http.Server
-	h3Srv   *http3.Server
-	acme    *acmeManager
+	ln        net.Listener
+	logger    *logx.Logger
+	httpSrv   *http.Server
+	h3Srv     *http3.Server
+	acme      *acmeManager
+	lifecycle *lifecycle.Registry
 
 	serveErr chan error
 	done     chan struct{}
-	altSvc   string
+
+	// hijacked holds every connection a handler took over with http.Hijacker;
+	// http.Server.Shutdown does not know about them, so the server must close
+	// them itself. | hijacked 保存处理器通过 http.Hijacker 接管的全部连接；
+	// http.Server.Shutdown 对它们一无所知，因此服务器必须自行关闭。
+	hijacked map[*trackedConn]struct{}
+
+	altSvc string
 
 	opts Options
 
 	tcpPort int
 	h3Port  int
 
+	// mu guards the mutable state above: started, the listeners and hijacked. | mu 保护上述可变状态：started、监听器与 hijacked。
 	mu      sync.Mutex
 	started bool
 }
@@ -83,15 +98,28 @@ func New(o Options) *Server {
 		l = logx.Default()
 	}
 	return &Server{
-		opts:     o,
-		logger:   l,
-		serveErr: make(chan error, 4),
-		done:     make(chan struct{}),
+		opts:      o,
+		logger:    l,
+		serveErr:  make(chan error, 4),
+		done:      make(chan struct{}),
+		lifecycle: lifecycle.NewRegistry(),
+		hijacked:  make(map[*trackedConn]struct{}, 4),
 	}
 }
 
 // Options returns the normalized options. | Options 返回规范化后的参数。
 func (s *Server) Options() Options { return s.opts }
+
+// Lifecycle returns the shutdown registry that runs before the server drains. | Lifecycle 返回在服务器排空之前运行的关闭注册表。
+//
+// Long-lived endpoints register their teardown here (for example a ws.ConnSet
+// closing every WebSocket with 1001, or an sse.WriterSet terminating every
+// event stream): the registry is closed first so those connections start
+// winding down while ordinary requests are still being drained, and their
+// errors are aggregated into Shutdown's result. | 长连接端点在此登记拆除逻辑
+// （例如用 1001 关闭全部 WebSocket 的 ws.ConnSet，或终止全部事件流的 sse.WriterSet）：
+// 注册表最先被关闭，使长连接在普通请求仍在排空时就开始收尾，其错误也会聚合进 Shutdown 的结果。
+func (s *Server) Lifecycle() *lifecycle.Registry { return s.lifecycle }
 
 // Addr returns the bound TCP address (valid after Start). | Addr 返回已绑定的 TCP 地址（Start 之后有效）。
 func (s *Server) Addr() string {
@@ -167,7 +195,8 @@ func (s *Server) Start() error {
 		s.altSvc = fmt.Sprintf(`h3=":%d"; ma=86400`, port)
 	}
 
-	handler := s.buildHandler()
+	// 最外层登记 hijack 连接：http.Server.Shutdown 不会关闭它们，只有服务器自己知道它们的存在。| Outermost layer registers hijacked connections: http.Server.Shutdown never closes them, and only the server knows about them.
+	handler := s.trackHijack(s.buildHandler())
 	if s.h3Srv != nil {
 		s.h3Srv.Handler = handler
 	}
@@ -252,12 +281,33 @@ func (s *Server) Errors() <-chan error { return s.serveErr }
 // Done is closed when a fatal serve error occurs. | Done 在出现致命服务错误时关闭。
 func (s *Server) Done() <-chan struct{} { return s.done }
 
-// Shutdown gracefully stops both listeners. | Shutdown 优雅停止两个监听。
+// Shutdown gracefully stops both listeners in five ordered steps. | Shutdown 按五个有序步骤优雅停止两个监听。
 //
-// HTTP/3 is closed first (it cannot drain), then the TCP server drains
-// in-flight requests within the shutdown timeout. | 先关闭 HTTP/3（它无法排空），
-// 再由 TCP 服务器在退出超时内排空进行中的请求。
+// The order matters, because http.Server.Shutdown only knows about ordinary
+// requests: it neither closes hijacked connections (WebSocket) nor interrupts a
+// response that is still streaming (SSE), so those two would otherwise hold the
+// process until it is killed. | 顺序很重要：http.Server.Shutdown 只认识普通请求——
+// 它既不关闭被 hijack 的连接（WebSocket），也不打断仍在流式输出的响应（SSE），
+// 因此这两类连接会把进程一直拖到被外部强杀。 Steps | 步骤：
+//
+//  1. the lifecycle registry is closed: Done() closes immediately so long-lived
+//     connections start winding down, and its hooks run in parallel with step 3
+//     under the same grace period; | 关闭 lifecycle 注册表：Done() 立即关闭，
+//     长连接开始收尾，其钩子与第 3 步在同一个宽限期内并行执行；
+//  2. HTTP/3 is closed outright (QUIC cannot drain); | 直接关闭 HTTP/3（QUIC 无法排空）；
+//  3. the HTTP server drains in-flight requests until ctx expires; | HTTP 服务器排空进行中的请求，直到 ctx 到期；
+//  4. every connection still hijacked by a handler is force-closed; | 强制关闭所有仍被处理器 hijack 的连接；
+//  5. the errors of all steps are joined. | 汇总全部步骤的错误。
+//
+// The caller's ctx is the grace period for the whole sequence, so Shutdown
+// returns on time even when a peer refuses to go away. A nil ctx is treated as
+// context.Background. | 调用方的 ctx 是整个流程的宽限期，因此即使对端拒绝离开，
+// Shutdown 也会按时返回。ctx 为 nil 时按 context.Background 处理。
 func (s *Server) Shutdown(ctx context.Context) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+
 	s.mu.Lock()
 	if !s.started {
 		s.mu.Unlock()
@@ -267,16 +317,45 @@ func (s *Server) Shutdown(ctx context.Context) error {
 	hs := s.httpSrv
 	s.mu.Unlock()
 
+	// 注册表若已被更早的调用方关闭（例如 app 先关长连接），其错误由该调用方汇报，这里不重复聚合；
+	// 无论谁先调用，Shutdown 都保证注册表已关闭且钩子已结束。
+	// If the registry was already shut down by an earlier caller (for example the app closing long
+	// connections first), that caller reports its error and it is not aggregated twice here; either way
+	// this call guarantees the registry is closed and its hooks have finished.
+	ownsLifecycle := !s.lifecycle.ShuttingDown()
+
+	// ① 关闭 lifecycle 的 Done() 信号并执行钩子，与 ③ 的请求排空并行。| ① Close the lifecycle Done() signal and run its hooks, in parallel with the drain of ③.
+	hooks := make(chan error, 1)
+	go func() {
+		hookErr := s.lifecycle.Shutdown(ctx)
+		if !ownsLifecycle {
+			hookErr = nil
+		}
+		hooks <- hookErr
+	}()
+
 	var errs []error
+
+	// ② HTTP/3 无法排空，直接关闭。| ② HTTP/3 cannot drain, so it is closed outright.
 	if h3 != nil {
 		if err := h3.Close(); err != nil {
 			errs = append(errs, err)
 		}
 	}
+
+	// ③ 排空进行中的普通请求；hijack 出去的连接不在 http.Server 的追踪范围内。| ③ Drain in-flight ordinary requests; hijacked connections are outside http.Server's tracking.
 	if hs != nil {
 		if err := hs.Shutdown(ctx); err != nil {
-			errs = append(errs, err)
+			errs = append(errs, errx.Wrap(err, ErrGracefulShutdown))
 		}
+	}
+
+	// ④ 强制关闭仍然存活的 hijack 连接（WebSocket 等），否则对端会一直挂着。| ④ Force-close surviving hijacked connections (WebSocket and friends), otherwise the peer stays hanging.
+	errs = append(errs, s.closeHijacked()...)
+
+	// ⑤ 汇总钩子与以上各步的错误。| ⑤ Aggregate the hook errors with those of the steps above.
+	if err := <-hooks; err != nil {
+		errs = append(errs, errx.Wrap(err, ErrShutdownHook))
 	}
 
 	s.mu.Lock()

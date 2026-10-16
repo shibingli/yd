@@ -19,8 +19,11 @@
 //     where io.Closer values are released automatically on shutdown (see
 //     services.go); | 服务容器：以字符串为键存放 DB/Redis/Asynq/I18n 句柄，
 //     实现 io.Closer 的值在关闭时自动释放（见 services.go）；
-//   - lifecycle: Run blocks on the server and then runs every shutdown hook in
-//     reverse registration order. | 生命周期：Run 阻塞在服务器上，随后按注册逆序执行关闭钩子。
+//   - lifecycle: Run blocks on the server and then runs the full shutdown
+//     sequence (see Shutdown): long-lived connections, HTTP drain, gRPC, and
+//     finally every shutdown hook in reverse registration order. | 生命周期：
+//     Run 阻塞在服务器上，随后执行完整的退出流程（见 Shutdown）：长连接、
+//     HTTP 排空、gRPC，最后按注册逆序执行全部关闭钩子。
 //
 // Non-goals | 不做的事：
 //
@@ -107,6 +110,7 @@ const (
 type App struct {
 	fs       afero.Fs
 	renderer router.Renderer
+	grpc     GRPCServer
 
 	cfg      *config.Config
 	log      *logx.Logger
@@ -119,6 +123,9 @@ type App struct {
 	serverMutators []func(*server.Options)
 
 	hooks []shutdownHook
+
+	// grpcOnce guards the gRPC shutdown stage so it runs at most once. | grpcOnce 保证 gRPC 退出阶段最多执行一次。
+	grpcOnce sync.Once
 
 	// mu guards services and hooks. | mu 保护 services 与 hooks。
 	mu sync.Mutex
@@ -336,12 +343,14 @@ func (a *App) OPTIONS(pattern string, h router.HandlerFunc) { a.router.OPTIONS(p
 // ---------------------------------------------------------------- lifecycle | 生命周期
 
 // Run starts the HTTP server and blocks until ctx is cancelled, a signal
-// arrives or a fatal serve error occurs; it then stops the server gracefully
-// and runs every shutdown hook in reverse registration order. | Run 启动 HTTP
-// 服务器并阻塞，直到 ctx 被取消、收到信号或出现致命服务错误；
-// 随后优雅停止服务器，并按注册逆序执行全部关闭钩子。
+// arrives or a fatal serve error occurs; it then runs the full shutdown
+// sequence (see Shutdown): long-lived connections first, then the HTTP drain,
+// then gRPC, then every shutdown hook in reverse registration order. | Run 启动
+// HTTP 服务器并阻塞，直到 ctx 被取消、收到信号或出现致命服务错误；
+// 随后执行完整的退出流程（见 Shutdown）：先关闭长连接，再排空 HTTP，然后停止 gRPC，
+// 最后按注册逆序执行全部关闭钩子。
 //
-// The serve error and the joined hook errors are returned together. | 服务错误与聚合后的钩子错误一并返回。
+// The serve error and the joined shutdown errors are returned together. | 服务错误与聚合后的退出错误一并返回。
 func (a *App) Run(ctx context.Context) error {
 	if ctx == nil {
 		ctx = context.Background()
@@ -359,7 +368,7 @@ func (a *App) Run(ctx context.Context) error {
 	// Shutdown runs on a fresh context: the caller's ctx is already done. | 关闭使用全新的上下文：调用方的 ctx 此时已结束。
 	closeCtx, cancel := context.WithTimeout(context.Background(), a.shutdownTimeout())
 	defer cancel()
-	closeErr := a.Close(closeCtx)
+	closeErr := a.Shutdown(closeCtx)
 
 	return errors.Join(runErr, closeErr)
 }

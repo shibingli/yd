@@ -208,6 +208,11 @@ func (e *CloseError) Error() string {
 type Options struct {
 	// CheckOrigin validates the Origin; when nil, the same-origin policy is used. | CheckOrigin 校验 Origin；为 nil 时使用同源策略。
 	CheckOrigin func(*http.Request) bool
+	// Tracker, when non-nil, registers every connection established by Upgrade, so that a shutdown can close them all at once. | Tracker 非 nil 时登记 Upgrade 建立的每条连接，使退出流程能一次关闭全部连接。
+	//
+	// The connection untracks itself from Close / CloseNow as well as from any terminating read error, so the
+	// tracker never leaks entries. | 连接会在 Close / CloseNow 以及任何终止性读错误处自行取消登记，因此追踪表不会泄漏条目。
+	Tracker Tracker
 	// Subprotocols are the subprotocols the server supports, chosen by order of priority. | Subprotocols 为服务端支持的子协议，按顺序优先级选择。
 	Subprotocols []string
 	// ReadBufferSize is the read buffer size; <=0 means 4096. | ReadBufferSize 为读缓冲大小，<=0 时取 4096。

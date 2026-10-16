@@ -30,6 +30,7 @@ type Conn struct {
 	pingHandler  func(string) error
 	pongHandler  func(string) error
 	closeHandler func(CloseCode, string) error
+	untrack      func()
 
 	subprotocol string
 
@@ -46,6 +47,9 @@ type Conn struct {
 	closeMu     sync.Mutex
 
 	writeMu sync.Mutex
+
+	// trackMu guards untrack, which Close / CloseNow consume exactly once. | trackMu 保护 untrack，Close / CloseNow 恰好消费一次。
+	trackMu sync.Mutex
 
 	headerBuf [maxHeaderSize]byte
 
@@ -66,6 +70,48 @@ func newConn(nc net.Conn, o Options, isClient bool) *Conn {
 		c.br = bufio.NewReaderSize(nc, o.ReadBufferSize)
 	}
 	return c
+}
+
+// ---------------------------------------------------------------- Tracking | 追踪
+
+// setTracker registers c with t and arms automatic untracking. | setTracker 把 c 登记到 t，并装配自动取消登记。
+//
+// The untrack function returned by the tracker is idempotent, so it is safe for
+// several close paths to race for it. | 追踪器返回的取消登记函数是幂等的，因此多条关闭路径竞争它也是安全的。
+func (c *Conn) setTracker(t Tracker) {
+	if t == nil {
+		return
+	}
+	untrack := t.Track(c)
+	c.trackMu.Lock()
+	c.untrack = untrack
+	c.trackMu.Unlock()
+}
+
+// detach removes c from its tracker. | detach 把 c 从追踪表中移除。
+//
+// It is idempotent and consumes the untrack function, so a connection that has
+// already been detached (or was never tracked) is left untouched. | 它幂等且会消费取消登记函数，
+// 因此已经取消登记（或从未登记）的连接不受影响。
+func (c *Conn) detach() {
+	c.trackMu.Lock()
+	untrack := c.untrack
+	c.untrack = nil
+	c.trackMu.Unlock()
+	if untrack != nil {
+		untrack()
+	}
+}
+
+// setReadErr records a terminating read error and detaches the connection. | setReadErr 记录终止性读错误并取消连接登记。
+//
+// A connection that hit a terminating read error can never serve another
+// message, so leaving it in the tracker would only leak memory until shutdown. | 遇到终止性读错误的连接不可能再服务任何消息，
+// 继续留在追踪表里只会在退出前持续占用内存。
+func (c *Conn) setReadErr(err error) error {
+	c.readErr = err
+	c.detach()
+	return err
 }
 
 // ---------------------------------------------------------------- Basic accessors | 基本访问
@@ -203,8 +249,7 @@ func (r *MessageReader) Read(p []byte) (int, error) {
 		if err == io.EOF || err == io.ErrUnexpectedEOF {
 			final = ErrUnexpectedEOF
 		}
-		r.c.readErr = final
-		return n, final
+		return n, r.c.setReadErr(final)
 	}
 	return n, nil
 }
@@ -243,11 +288,10 @@ func (c *Conn) nextDataFrame(remaining *int64) error {
 	for {
 		h, err := readFrameHeader(c.reader(), c.headerBuf[:])
 		if err != nil {
-			c.readErr = err
 			if err == io.EOF || err == io.ErrUnexpectedEOF {
-				c.readErr = ErrUnexpectedEOF
+				err = ErrUnexpectedEOF
 			}
-			return c.readErr
+			return c.setReadErr(err)
 		}
 		if err := c.validateHeader(h); err != nil {
 			return err
@@ -331,8 +375,7 @@ func (c *Conn) handleControl(h frameHeader) error {
 			if err == io.EOF || err == io.ErrUnexpectedEOF {
 				err = ErrUnexpectedEOF
 			}
-			c.readErr = err
-			return err
+			return c.setReadErr(err)
 		}
 		if h.masked {
 			maskBytes(h.maskKey, 0, payload)
@@ -366,8 +409,7 @@ func (c *Conn) handleCloseFrame(payload []byte) error {
 	code, text, perr := parseClosePayload(payload)
 	if perr != nil {
 		_ = c.writeClose(CloseProtocolError, "")
-		c.readErr = perr
-		return perr
+		return c.setReadErr(perr)
 	}
 
 	closeMu := &c.closeMu
@@ -385,13 +427,11 @@ func (c *Conn) handleCloseFrame(payload []byte) error {
 	}
 	if c.closeHandler != nil {
 		if err := c.closeHandler(code, text); err != nil {
-			c.readErr = err
-			return err
+			return c.setReadErr(err)
 		}
 	}
 	ce := &CloseError{Code: code, Text: text}
-	c.readErr = ce
-	return ce
+	return c.setReadErr(ce)
 }
 
 // fail records the read error, sends the corresponding close frame, and returns that error. | fail 记录读错误、发送对应关闭帧并返回该错误。
@@ -403,8 +443,7 @@ func (c *Conn) fail(code CloseCode, err error) error {
 	if !sent {
 		_ = c.writeClose(code, "")
 	}
-	c.readErr = err
-	return err
+	return c.setReadErr(err)
 }
 
 // ---------------------------------------------------------------- Writing | 写入
@@ -515,8 +554,13 @@ func (c *Conn) writeCloseRaw(payload []byte) error {
 	return c.writeControlFrame(CloseMessage, payload, time.Now().Add(closeTimeout))
 }
 
-// Close shuts down gracefully: it sends a close frame and then closes the underlying connection. | Close 优雅关闭：发送关闭帧后关闭底层连接。
+// Close shuts down gracefully: it leaves the tracker, sends a close frame and then closes the underlying connection. | Close 优雅关闭：先离开追踪表，发送关闭帧后关闭底层连接。
+//
+// Untracking happens first so that a concurrent CloseAll never sees (and never
+// writes to) a connection that is already on its way out. | 先取消登记，
+// 使并发的 CloseAll 不会看到（也不会写入）已经在关闭途中的连接。
 func (c *Conn) Close(code CloseCode, reason string) error {
+	c.detach()
 	err := c.writeClose(code, reason)
 	closeErr := c.conn.Close()
 	if err != nil && err != ErrCloseSent {
@@ -525,8 +569,9 @@ func (c *Conn) Close(code CloseCode, reason string) error {
 	return closeErr
 }
 
-// CloseNow closes the underlying TCP connection immediately, without sending a close frame. | CloseNow 立即关闭底层 TCP 连接，不发送关闭帧。
+// CloseNow leaves the tracker and closes the underlying TCP connection immediately, without sending a close frame. | CloseNow 离开追踪表并立即关闭底层 TCP 连接，不发送关闭帧。
 func (c *Conn) CloseNow() error {
+	c.detach()
 	c.closeMu.Lock()
 	c.closeSent = true
 	c.closeMu.Unlock()
