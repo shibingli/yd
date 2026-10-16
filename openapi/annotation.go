@@ -80,6 +80,9 @@ type AnnotationParam struct {
 	Required bool
 	// Description is the quoted trailing text, kept verbatim. | Description 为引号包裹的尾部文本，原样保留。
 	Description string
+	// Example is the example bound by a following @Example line, kept verbatim. | Example 为紧随
+	// 其后的 @Example 行绑定的示例，原样保留。
+	Example string
 	// Schema is the derived schema; body parameters produce a component reference. | Schema 为推导出的
 	// Schema；body 参数会生成组件引用。
 	Schema *Schema
@@ -96,6 +99,9 @@ type AnnotationResponse struct {
 	Ref string
 	// Description is the quoted trailing text, kept verbatim. | Description 为引号包裹的尾部文本，原样保留。
 	Description string
+	// Example is the example bound by a following @Example line, kept verbatim. | Example 为紧随
+	// 其后的 @Example 行绑定的示例，原样保留。
+	Example string
 
 	// schema is the fully resolved schema of the response, including array shapes that
 	// Type and Ref cannot express. | schema 是响应完全解析后的 Schema，涵盖 Type 与 Ref
@@ -124,6 +130,17 @@ type Report struct {
 	// without @Router cannot be keyed and are listed by Pos instead. | Incomplete 列出缺少
 	// @Summary、@Tags 或 @Success 的注解键；没有 @Router 的注解块无法建键，改以 Pos 列出。
 	Incomplete []string
+	// AnnotatedTypes lists the names of the annotated types: struct annotations and const
+	// block enums, sorted. | AnnotatedTypes 列出被注解的类型名：结构体注解与常量块枚举，已排序。
+	AnnotatedTypes []string
+	// UnannotatedTypes lists the names registered by reflection through RegisterSchema that
+	// carry no annotation, sorted. | UnannotatedTypes 列出经 RegisterSchema 反射注册但没有任何
+	// 注解的类型名，已排序。
+	UnannotatedTypes []string
+	// EnumCount is the number of enum annotations: found in source by CollectFromSource, or
+	// merged into the document by FromRouterWithAnnotations. | EnumCount 是枚举报注解数量：
+	// CollectFromSource 统计源码中发现的数量，FromRouterWithAnnotations 统计合并进文档的数量。
+	EnumCount int
 }
 
 // ParseAnnotations walks dirs inside fsys, parses annotation blocks from non-test Go
@@ -156,9 +173,11 @@ func ParseAnnotations(fsys afero.Fs, dirs []string) (map[string]Annotation, erro
 	return out, nil
 }
 
-// CollectFromSource parses annotations and returns a source level coverage report,
-// which build tooling can print to list endpoints that still need annotations. | CollectFromSource
-// 解析注解并返回源码级别的覆盖报告，构建工具可据此列出仍缺注解的端点。
+// The same directories are scanned for type annotations, so AnnotatedTypes and EnumCount
+// describe the structs, const blocks and variables of the source as well; UnannotatedTypes
+// requires reflection knowledge and is filled by Builder.TypeCoverage instead. | 同一批目录也会
+// 被扫描以收集类型注解，因此 AnnotatedTypes 与 EnumCount 同时描述源码中的结构体、常量块与变量；
+// UnannotatedTypes 需要反射信息，改由 Builder.TypeCoverage 填写。
 func CollectFromSource(fsys afero.Fs, dirs []string) (*Report, error) {
 	blocks, err := parseAnnotationFiles(fsys, dirs)
 	if err != nil {
@@ -182,6 +201,13 @@ func CollectFromSource(fsys afero.Fs, dirs []string) (*Report, error) {
 	}
 	sort.Strings(report.Matched)
 	sort.Strings(report.Incomplete)
+
+	types, err := ParseTypeAnnotations(fsys, dirs)
+	if err != nil {
+		return nil, err
+	}
+	report.AnnotatedTypes = types.TypeNames()
+	report.EnumCount = len(types.Enums)
 	return report, nil
 }
 
@@ -233,6 +259,7 @@ func (a Annotation) operation(path string, params []Parameter) Operation {
 			In:          location,
 			Required:    p.Required || location == "path",
 			Description: p.Description,
+			Example:     exampleValue(p.Example),
 			Schema:      p.Schema,
 		})
 		declared[p.Name] = true
@@ -240,7 +267,7 @@ func (a Annotation) operation(path string, params []Parameter) Operation {
 	if body, ok := a.bodyParam(); ok {
 		op.RequestBody = &RequestBody{
 			Required: body.Required,
-			Content:  contentFor(defaultMedia(a.Accept), body.Schema),
+			Content:  contentFor(defaultMedia(a.Accept), body.Schema, exampleValue(body.Example)),
 		}
 	}
 	op = mergePathParams(op, params)
@@ -265,7 +292,7 @@ func (a Annotation) responses() map[string]Response {
 		}
 		out[code] = Response{
 			Description: responseDescription(r),
-			Content:     contentFor(a.Produce, r.schema),
+			Content:     contentFor(a.Produce, r.schema, exampleValue(r.Example)),
 		}
 	}
 	return out
@@ -285,8 +312,9 @@ func responseDescription(r AnnotationResponse) string {
 }
 
 // contentFor expands media tokens into an OpenAPI content map; no tokens means no
-// content section. | contentFor 把媒体标记展开为 OpenAPI content 映射；无标记时不生成 content。
-func contentFor(media []string, schema *Schema) map[string]MediaType {
+// content section, and the example is attached to every media type. | contentFor 把媒体标记
+// 展开为 OpenAPI content 映射；无标记时不生成 content，示例会附加到每个媒体类型上。
+func contentFor(media []string, schema *Schema, example any) map[string]MediaType {
 	if len(media) == 0 {
 		return nil
 	}
@@ -296,7 +324,7 @@ func contentFor(media []string, schema *Schema) map[string]MediaType {
 		if name == "" {
 			continue
 		}
-		out[name] = MediaType{Schema: schema}
+		out[name] = MediaType{Schema: schema, Example: example}
 	}
 	if len(out) == 0 {
 		return nil
@@ -427,9 +455,13 @@ func mergeUniqueSorted(dst, items []string) []string {
 	return out
 }
 
-// parseAnnotationFiles parses every candidate Go file below dirs in a deterministic
-// order. | parseAnnotationFiles 按确定性顺序解析 dirs 下的全部候选 Go 文件。
-func parseAnnotationFiles(fsys afero.Fs, dirs []string) ([]Annotation, error) {
+// annotationFiles lists every candidate Go file below dirs in a deterministic order. | annotationFiles
+// 按确定性顺序列出 dirs 下的全部候选 Go 文件。
+//
+// Both the handler dialect and the type dialect scan the same file set, so the two parsers
+// always agree on what is in scope. | 处理器方言与类型方言扫描同一批文件，因此两个解析器的可见
+// 范围始终一致。
+func annotationFiles(fsys afero.Fs, dirs []string) ([]string, error) {
 	var files []string
 	for _, dir := range dirs {
 		err := afero.Walk(fsys, dir, func(path string, info os.FileInfo, err error) error {
@@ -454,7 +486,16 @@ func parseAnnotationFiles(fsys afero.Fs, dirs []string) ([]Annotation, error) {
 		}
 	}
 	sort.Strings(files)
+	return files, nil
+}
 
+// parseAnnotationFiles parses the handler annotation blocks of every candidate Go file
+// below dirs. | parseAnnotationFiles 解析 dirs 下全部候选 Go 文件的处理器注解块。
+func parseAnnotationFiles(fsys afero.Fs, dirs []string) ([]Annotation, error) {
+	files, err := annotationFiles(fsys, dirs)
+	if err != nil {
+		return nil, err
+	}
 	var out []Annotation
 	for _, path := range files {
 		src, err := afero.ReadFile(fsys, path)
@@ -506,13 +547,20 @@ func isCommentLine(line string) bool {
 }
 
 // parseAnnotationBlock parses one comment block; ok is false when it holds no known
-// directive. | parseAnnotationBlock 解析单个注释块；不含已知指令时 ok 为 false。
+// directive, or when the block belongs to the type dialect. | parseAnnotationBlock 解析单个
+// 注释块；不含已知指令或属于类型方言时 ok 为 false。
 func parseAnnotationBlock(block []string, path string, line int) (Annotation, bool) {
+	if blockHasTypeDirective(block) {
+		return Annotation{}, false
+	}
 	a := Annotation{Pos: fmt.Sprintf("%s:%d", path, line)}
 	found := false
+	var (
+		bindKind string
+		bindSpan [2]int
+	)
 	for _, raw := range block {
-		body := strings.TrimSpace(strings.TrimRight(raw, "\r"))
-		body = strings.TrimSpace(strings.TrimPrefix(body, "//"))
+		body := commentBody(raw)
 		if !strings.HasPrefix(body, "@") {
 			continue
 		}
@@ -540,16 +588,34 @@ func parseAnnotationBlock(block []string, path string, line int) (Annotation, bo
 			a.Produce = append(a.Produce, splitTokens(args)...)
 			found = true
 		case "param":
+			before := len(a.Params)
 			if p, ok := parseParam(args); ok {
 				a.Params = append(a.Params, p)
 			}
+			if len(a.Params) > before {
+				bindKind, bindSpan = "param", [2]int{before, len(a.Params)}
+			}
 			found = true
 		case "success":
+			before := len(a.Success)
 			a.Success = append(a.Success, parseResponses(args)...)
+			if len(a.Success) > before {
+				bindKind, bindSpan = "success", [2]int{before, len(a.Success)}
+			}
 			found = true
 		case "failure":
+			before := len(a.Failure)
 			a.Failure = append(a.Failure, parseResponses(args)...)
+			if len(a.Failure) > before {
+				bindKind, bindSpan = "failure", [2]int{before, len(a.Failure)}
+			}
 			found = true
+		case "example":
+			// 绑定到最近一条声明；未绑定到任何声明的 @Example 不算注解，避免误吞类型注解块。
+			// Binds to the latest declaration; an unbound @Example is not an annotation, so type annotation blocks never leak in.
+			if bindExample(&a, bindKind, bindSpan, args) {
+				found = true
+			}
 		case "security":
 			a.Security = append(a.Security, splitTokens(args)...)
 			found = true
@@ -559,6 +625,60 @@ func parseAnnotationBlock(block []string, path string, line int) (Annotation, bo
 		}
 	}
 	return a, found
+}
+
+// commentBody strips the comment marker and the surrounding space of one comment line. | commentBody
+// 去掉单行注释的注释符与首尾空白。
+func commentBody(raw string) string {
+	body := strings.TrimSpace(strings.TrimRight(raw, "\r"))
+	return strings.TrimSpace(strings.TrimPrefix(body, "//"))
+}
+
+// blockHasTypeDirective reports whether a comment block carries a directive that only the
+// type dialect understands, such as @Name or @Enum; such a block annotates a struct, a const
+// block or a variable and never a handler. | blockHasTypeDirective 报告注释块是否含 @Name、@Enum
+// 之类仅类型方言可识别的指令；这类注释块注解的是结构体、常量块或变量，而不是处理器。
+func blockHasTypeDirective(block []string) bool {
+	for _, raw := range block {
+		body := commentBody(raw)
+		if !strings.HasPrefix(body, "@") {
+			continue
+		}
+		name, _ := splitDirective(body[1:])
+		if typeOnlyDirectives[name] {
+			return true
+		}
+	}
+	return false
+}
+
+// bindExample attaches an @Example line to the most recent @Param, @Success or @Failure
+// declaration and reports whether the example was bound; every entry produced by a comma
+// separated status code list receives the same example. | bindExample 把 @Example 行绑定到最近
+// 一条 @Param、@Success 或 @Failure 声明并报告是否绑定成功；逗号分隔的状态码展开出的每条响应
+// 都会得到同一个示例。
+func bindExample(a *Annotation, kind string, span [2]int, example string) bool {
+	if a == nil || kind == "" || span[1] <= span[0] {
+		return false
+	}
+	switch kind {
+	case "param":
+		for i := span[0]; i < span[1] && i < len(a.Params); i++ {
+			a.Params[i].Example = example
+		}
+		return true
+	case "success":
+		for i := span[0]; i < span[1] && i < len(a.Success); i++ {
+			a.Success[i].Example = example
+		}
+		return true
+	case "failure":
+		for i := span[0]; i < span[1] && i < len(a.Failure); i++ {
+			a.Failure[i].Example = example
+		}
+		return true
+	}
+	return false
 }
 
 // splitDirective splits "@Summary text" into its lower cased name and arguments. | splitDirective

@@ -132,7 +132,72 @@ var maxControlPayload = 125 // RFC 6455 §5.5 | RFC 6455 §5.5 规定
 | `@Security` | 鉴权端点必填 | 例：`@Security BearerAuth` |
 | `@Router` | 必填 | `路径 [方法]`，路径参数用 `{name}` |
 
-`yd build` 会调用 `openapi` 包解析上述注解并与路由树合并，缺失注解的端点会在构建报告中列出。
+紧随 `@Param` / `@Success` / `@Failure` 之后的 `@Example` 行绑定到该声明（写进
+`Parameter.Example`、`MediaType.Example`），支持内联 JSON 与普通字符串：
+
+```go
+// @Param id path string true "用户 ID | user id"
+// @Example u_1
+// @Success 200 {object} model.User "用户详情 | user detail"
+// @Example {"id":"u_1","name":"admin"}
+```
+
+同一套方言同样适用于结构体/常量/变量级别（`openapi.ParseTypeAnnotations` 用 `go/parser` + `go/ast`
+解析，`openapi.Builder.AddTypeAnnotations` 合并进组件 Schema），不写这些注解也能生成文档：
+
+| 级别 | 注解 | 说明 |
+|---|---|---|
+| 结构体 | `@Name` / `@Description` / `@Example` | 写在 `type X struct` 的 doc 上，示例写进 `Schema.Example`；字段注解写在字段的 doc 或行尾注释上，支持 `@Description`、`@Example`、`@Format`、`@Enum`（空格分隔）、`@Minimum`、`@Maximum`、`@Pattern`、`@Nullable`、`@Deprecated`、`@ReadOnly` |
+| 常量块 | `@Name` / `@Description` / `@Type` / `@Enum` | `@Enum value:说明, value2:说明`（逗号分隔）；不写 `@Enum` 时按字面量推断，`iota` 按序号推断 |
+| 变量 | `@Name` / `@Schema` / `@Example` | 把示例写回 `@Schema` 指向的组件 Schema；该 Schema 已有 `@Example` 时以结构体自身的为准 |
+
+```go
+// @Name User
+// @Description 系统用户账号 | A system user account
+// @Example {"id":"u_1","name":"admin","status":"active"}
+type User struct {
+	// @Format uuid
+	// @Example u_1
+	ID string `json:"id"`
+	// @Enum active disabled
+	// @Description 账号状态 | Account status
+	Status string `json:"status"`
+	// @Minimum 0
+	// @Maximum 150
+	Age int `json:"age"`
+}
+
+// @Name UserStatus
+// @Description 账号状态 | Account status
+// @Type string
+// @Enum active:启用 | enabled, disabled:禁用 | disabled
+const (
+	StatusActive   Status = "active"
+	StatusDisabled Status = "disabled"
+)
+
+// @Name UserLevel（不写 @Enum 时按 iota 序号推断为 0, 1, 2）
+const (
+	LevelGuest Level = iota
+	LevelMember
+	LevelAdmin
+)
+
+// @Name UserQuery
+// @Description 用户查询条件 | User query
+type UserQuery struct {
+	// @Enum name id
+	Field string `json:"field"`
+}
+
+// @Name DefaultQuery
+// @Schema UserQuery
+// @Example {"field":"id"}
+var DefaultQuery = UserQuery{Field: "id"}
+```
+
+`yd build` 会调用 `openapi` 包解析上述注解并与路由树合并，缺失注解的端点会在构建报告中列出；
+`openapi.Report` 另外报告 `AnnotatedTypes`、`UnannotatedTypes`（反射注册但无注解的类型）与 `EnumCount`。
 
 ## 10. 错误处理规范（强制）
 

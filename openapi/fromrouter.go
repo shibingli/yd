@@ -5,6 +5,9 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/spf13/afero"
+
+	"github.com/shibingli/yd/logx"
 	"github.com/shibingli/yd/router"
 )
 
@@ -16,9 +19,10 @@ import (
 // 会合并进每个操作，因此 /report/:id-xx.png 变为 /report/{id}-xx.png，/static/*filepath 变为
 // /static/{filepath}。
 //
-// o only provides the fallback document title (Info.Title wins when set); the serving
-// endpoints are configured by Handler. | o 仅用于提供文档标题兜底（Info.Title 非空时优先）；
-// 服务端点由 Handler 配置。
+// o only provides the fallback document title (Info.Title wins when set), the type annotation
+// sources (TypeAnnotations or SourceDirs) and the serving endpoints configured by Handler. | o
+// 仅用于提供文档标题兜底（Info.Title 非空时优先）、类型注解来源（TypeAnnotations 或 SourceDirs）
+// 以及由 Handler 配置的服务端点。
 func FromRouter(r *router.Router, info Info, o Options) *Document {
 	return FromRouterWithAnnotations(r, info, o, nil, nil)
 }
@@ -32,8 +36,17 @@ func FromRouter(r *router.Router, info Info, o Options) *Document {
 // with a default 200 response. | 注解优先于自动推导：有注解的路由使用注解描述的操作，
 // 其余路由使用带默认 200 响应的最小操作。
 //
+// Type annotations are merged automatically: o.TypeAnnotations is used when set, otherwise
+// they are parsed from o.SourceDirs over the operating system file system, and a parse
+// failure is logged instead of failing the document. Example values, descriptions, enums and
+// variable samples therefore reach the component schemas without extra wiring. | 类型注解会自动
+// 合并：o.TypeAnnotations 非空时直接使用，否则从 o.SourceDirs 经操作系统文件系统解析；解析失败
+// 只记录日志，不会让文档构建失败。因此示例、描述、枚举与变量样例无需额外装配即可进入组件 Schema。
+//
 // The report is filled with the router aware coverage view (Matched, Missing, Orphan,
-// Incomplete). | report 会被写入结合路由的覆盖视图（Matched、Missing、Orphan、Incomplete）。
+// Incomplete) and, when type annotations were merged, with AnnotatedTypes,
+// UnannotatedTypes and EnumCount. | report 会被写入结合路由的覆盖视图（Matched、Missing、Orphan、
+// Incomplete）；合并过类型注解时还会写入 AnnotatedTypes、UnannotatedTypes 与 EnumCount。
 //
 // Both annots and report may be nil. | annots 与 report 均允许为 nil。
 func FromRouterWithAnnotations(r *router.Router, info Info, o Options, annots map[string]Annotation, report *Report) *Document {
@@ -73,13 +86,45 @@ func FromRouterWithAnnotations(r *router.Router, info Info, o Options, annots ma
 			orphan = append(orphan, key)
 		}
 	}
+
+	types := resolveTypeAnnotations(o)
+	if types != nil {
+		b.AddTypeAnnotations(types)
+	}
 	if report != nil {
 		report.Matched = mergeUniqueSorted(nil, matched)
 		report.Missing = mergeUniqueSorted(nil, missing)
 		report.Orphan = mergeUniqueSorted(nil, orphan)
 		report.Incomplete = mergeUniqueSorted(report.Incomplete, incompleteKeys(annots))
+		if types != nil {
+			coverage := b.TypeCoverage()
+			report.AnnotatedTypes = mergeUniqueSorted(report.AnnotatedTypes, coverage.Annotated)
+			report.UnannotatedTypes = mergeUniqueSorted(report.UnannotatedTypes, coverage.Unannotated)
+			report.EnumCount = coverage.Enums
+		}
 	}
 	return b.Build()
+}
+
+// resolveTypeAnnotations returns the type annotations to merge: the ones the caller provided
+// explicitly, or the ones parsed from Options.SourceDirs over the operating system file
+// system; a parse failure is logged and yields nil so that the document still builds. |
+// resolveTypeAnnotations 返回待合并的类型注解：调用方显式提供的，或从 Options.SourceDirs 经
+// 操作系统文件系统解析出的；解析失败时记录日志并返回 nil，保证文档仍能构建。
+func resolveTypeAnnotations(o Options) *TypeAnnotations {
+	if o.TypeAnnotations != nil {
+		return o.TypeAnnotations
+	}
+	if len(o.SourceDirs) == 0 {
+		return nil
+	}
+	types, err := ParseTypeAnnotations(afero.NewOsFs(), o.SourceDirs)
+	if err != nil {
+		logx.Default().Warn("openapi: type annotations not merged | openapi：类型注解未合并",
+			logx.Strs("dirs", o.SourceDirs), logx.Err(err))
+		return nil
+	}
+	return types
 }
 
 // autoOperation is the minimal operation used for routes without annotation. | autoOperation

@@ -100,6 +100,10 @@
    // @Router /users/{id} [get]
    ```
    `openapi` 包负责从源码解析这些注解并与路由树合并，生成完整文档。
+   注解同样适用于结构体/常量/变量级别：结构体用 `@Name`/`@Description`/`@Example`，字段用
+   `@Description`/`@Example`/`@Format`/`@Enum`/`@Minimum`/`@Maximum`/`@Pattern`/`@Nullable`/`@Deprecated`/`@ReadOnly`，
+   常量块用 `@Name`/`@Description`/`@Type`/`@Enum`（缺省时按字面量与 iota 推断），变量用
+   `@Name`/`@Schema`/`@Example`，由 `openapi.ParseTypeAnnotations` 解析、`Builder.AddTypeAnnotations` 合并。
 4. **热路径禁止反射**：HTTP 请求处理、序列化、日志、JWT 校验路径不得使用 `reflect`；反射仅允许出现在启动期装配、代码生成与 OpenAPI Schema 构建中。
 4.1 **JSON 与 Base64 必须走框架封装层**（强制）：
    - 任何 JSON 编解码一律使用 `github.com/shibingli/yd/jsonx`（`Marshal`/`Unmarshal`/`NewEncoder`/`NewDecoder`/`Valid`），

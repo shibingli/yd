@@ -160,6 +160,9 @@ type Parameter struct {
 	Required bool `json:"required,omitempty"`
 	// Description explains the parameter. | Description 说明参数含义。
 	Description string `json:"description,omitempty"`
+	// Example is a sample value, filled by an @Example line below the @Param. | Example 为示例值，
+	// 由 @Param 下方的 @Example 行填充。
+	Example any `json:"example,omitempty"`
 	// Schema is the value schema. | Schema 为取值 Schema。
 	Schema *Schema `json:"schema,omitempty"`
 }
@@ -176,6 +179,10 @@ type Response struct {
 type MediaType struct {
 	// Schema is the payload schema. | Schema 为载荷 Schema。
 	Schema *Schema `json:"schema,omitempty"`
+	// Example is a sample payload, filled by an @Example line below the @Success, @Failure or
+	// body @Param it belongs to. | Example 为示例载荷，由所属的 @Success、@Failure 或 body
+	// @Param 下方的 @Example 行填充。
+	Example any `json:"example,omitempty"`
 }
 
 // RequestBody describes a request payload. | RequestBody 描述请求载荷。
@@ -202,6 +209,13 @@ type Options struct {
 	Title string
 	// Blocked disables both endpoints, which is how production switches docs off. | Blocked 关闭两个端点，生产环境据此下线文档。
 	Blocked bool
+	// SourceDirs lists the source directories holding type annotations; when TypeAnnotations
+	// is nil, FromRouterWithAnnotations parses them from these directories. | SourceDirs 列出
+	// 存放类型注解的源码目录；TypeAnnotations 为 nil 时由 FromRouterWithAnnotations 从这些目录解析。
+	SourceDirs []string
+	// TypeAnnotations carries explicitly parsed type annotations, which take precedence over
+	// SourceDirs. | TypeAnnotations 携带显式解析的类型注解，优先于 SourceDirs。
+	TypeAnnotations *TypeAnnotations
 }
 
 // withDefaults returns a copy with empty paths replaced by the defaults and a

@@ -27,10 +27,26 @@ type Schema struct {
 	Required []string `json:"required,omitempty"`
 	// Enum lists the allowed values. | Enum 列出允许取值。
 	Enum []any `json:"enum,omitempty"`
-	// Example is a sample value. | Example 为示例值。
+	// Example is a sample value, filled by @Example annotations. | Example 为示例值，由 @Example 注解填充。
 	Example any `json:"example,omitempty"`
-	// Description explains the schema. | Description 说明 Schema 含义。
+	// Description explains the schema, filled by @Description annotations or doc prose. | Description
+	// 说明 Schema 含义，由 @Description 注解或 doc 正文填充。
 	Description string `json:"description,omitempty"`
+	// Minimum is the inclusive lower bound of a numeric value, filled by @Minimum. | Minimum
+	// 为数字取值的闭下界，由 @Minimum 填充。
+	Minimum *float64 `json:"minimum,omitempty"`
+	// Maximum is the inclusive upper bound of a numeric value, filled by @Maximum. | Maximum
+	// 为数字取值的闭上界，由 @Maximum 填充。
+	Maximum *float64 `json:"maximum,omitempty"`
+	// Pattern is the regular expression a string value must match, filled by @Pattern. | Pattern
+	// 为字符串取值必须匹配的正则表达式，由 @Pattern 填充。
+	Pattern string `json:"pattern,omitempty"`
+	// Nullable allows an explicit null, filled by @Nullable. | Nullable 允许显式 null，由 @Nullable 填充。
+	Nullable bool `json:"nullable,omitempty"`
+	// Deprecated marks the value as deprecated, filled by @Deprecated. | Deprecated 标记取值已废弃，由 @Deprecated 填充。
+	Deprecated bool `json:"deprecated,omitempty"`
+	// ReadOnly marks a value the server owns, filled by @ReadOnly. | ReadOnly 标记由服务端拥有的取值，由 @ReadOnly 填充。
+	ReadOnly bool `json:"readOnly,omitempty"`
 }
 
 // Builder assembles a Document incrementally. | Builder 以增量方式装配 Document。
@@ -40,6 +56,13 @@ type Schema struct {
 type Builder struct {
 	doc  *Document
 	keys map[string]routeRef
+	// registered lists the names passed to RegisterSchema, in call order. | registered 按调用顺序
+	// 记录传给 RegisterSchema 的名字。
+	registered []string
+	// annotated records the names that received type annotations. | annotated 记录收到类型注解的名字。
+	annotated map[string]bool
+	// enums records the names of the enum schemas merged into the document. | enums 记录合并进文档的枚举 Schema 名。
+	enums map[string]bool
 }
 
 // routeRef locates a registered operation inside the document. | routeRef 定位文档中已注册的操作。
@@ -58,7 +81,9 @@ func NewBuilder(info Info) *Builder {
 			Paths:      map[string]PathItem{},
 			Components: Components{Schemas: map[string]*Schema{}},
 		},
-		keys: map[string]routeRef{},
+		keys:      map[string]routeRef{},
+		annotated: map[string]bool{},
+		enums:     map[string]bool{},
 	}
 }
 
@@ -111,11 +136,17 @@ func (b *Builder) AddAnnotations(annots map[string]Annotation) {
 //     become plain objects, time.Time becomes a date-time string and []byte a base64
 //     string. | 指针被解引用，切片与数组变为 array，map 与接口变为普通 object，
 //     time.Time 变为 date-time 字符串，[]byte 变为 base64 字符串。
+//
+// The registered name is remembered so that TypeCoverage can report reflected types that
+// carry no annotation; RegisterSchemaWithAnnotations and AddTypeAnnotations then enrich the
+// schema with the type level annotations. | 注册名会被记录，以便 TypeCoverage 报告没有注解的反射
+// 类型；随后可由 RegisterSchemaWithAnnotations 与 AddTypeAnnotations 用类型级注解补全该 Schema。
 func (b *Builder) RegisterSchema(name string, v any) string {
 	if b.doc.Components.Schemas == nil {
 		b.doc.Components.Schemas = map[string]*Schema{}
 	}
 	b.doc.Components.Schemas[name] = schemaOfValue(v)
+	b.registered = append(b.registered, name)
 	return refPrefix + name
 }
 
