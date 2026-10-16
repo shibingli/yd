@@ -12,7 +12,7 @@
 
   数据契约 | Data contract: .Status（HTTP 状态码）、.Errors（[{.Text}] 列表）。
 */}}
-<div class="yd-errors__body" role="alert" aria-live="assertive">
+<div class="yd-errors__body" role="alert" aria-live="assertive" data-yd-dismissable>
   <p class="yd-errors__title">
     请求未通过校验（HTTP {{ .Status }}）| Request failed validation (HTTP {{ .Status }})
   </p>
@@ -22,9 +22,13 @@
     {{ end }}
   </ul>
   {{/* 失败是状态而非页面：关掉提示后用户仍在原表单上，已填内容一个都没丢。
+       按钮只带一个标记不带选择器：yd-app.js 清空它最内层的可关闭容器，
+       于是片段换入槽位时清空槽位、整页渲染时只清空消息块，两种情形共用同一条脚本。
        A failure is a state rather than a page: after dismissing the notice the user is still on the same form with
-       every typed value intact. */}}
-  <button type="button" class="yd-btn yd-btn--ghost yd-btn--sm" data-yd-dismiss="closest .yd-errors">
+       every typed value intact. The button carries a flag and no selector: yd-app.js empties the innermost
+       dismissable container, so it clears the slot when the fragment was swapped in and only the message block on a
+       whole-page render — one script path for both. */}}
+  <button type="button" class="yd-btn yd-btn--ghost yd-btn--sm" data-yd-dismiss>
     知道了 | Dismiss
   </button>
 </div>

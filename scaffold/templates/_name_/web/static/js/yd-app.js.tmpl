@@ -1,4 +1,4 @@
-/* {{ .Name }} 前端胶水层：只做 htmx 事件桥接与国密沙箱入口，不引入任何框架。 | {{ .Name }} front-end glue: it only bridges htmx events and exposes the guomi sandbox entry, pulling in no framework. */
+/* {{ .Name }} 前端胶水层：只把 htmx 的生命周期事件翻译成页面状态，不引入任何框架。 | {{ .Name }} front-end glue: it only translates htmx lifecycle events into page state and pulls in no framework. */
 (function () {
   "use strict";
 
@@ -6,55 +6,166 @@
   var yd = window.yd || {};
   window.yd = yd;
 
-  /* 工作区容器 id，与 layouts/base.html 保持一致。 | Workspace container id, kept in sync with layouts/base.html. */
-  var WORKSPACE = "#yd-workspace";
+  /* 就绪标记：未完成初始化前为 false，模板与测试据此判断胶水层是否已加载。 | Ready flag: false until initialisation completes, which is how templates and tests tell that the glue has loaded. */
+  yd.ready = false;
 
-  /* 敏感字段选择器：提交前需要 SM2 前置加密。 | Sensitive field selector: these are pre-encrypted with SM2 before submission. */
-  var SENSITIVE = "[data-yd-encrypt='sm2']";
-
-  /* encryptSensitive 由后端注入的国密公钥实现；未就绪时原样返回，绝不静默降级为明文"看似加密"。 | encryptSensitive is provided by the injected guomi public key; before that it returns the value untouched instead of silently pretending to encrypt. */
-  yd.encryptSensitive = yd.encryptSensitive || function (value) {
-    return value;
+  /* 与模板共享的选择器与事件名，写在一处避免两侧漂移。 | Selectors and event names shared with the templates, kept in one place so the two sides cannot drift apart. */
+  var SELECTORS = {
+    /* 工作区：htmx 的导航与局部刷新都换入这里。 | Workspace: htmx navigations and partial refreshes swap into it. */
+    workspace: "#yd-workspace",
+    /* 通知容器：服务端事件与本地提示都追加到这里。 | Notice container: server events and local notices are appended here. */
+    flash: "#yd-flash",
+    /* 连接状态条：掉线时显示，恢复后隐藏。 | Connection banner: shown on a drop and hidden once reconnected. */
+    connection: "#yd-connection",
+    /* 连接状态标签：右侧的状态徽标。 | Connection badge: the state pill on the right. */
+    badge: "[data-yd-connection-state]",
+    /* 可关闭容器：错误片段与提示条都位于其中之一里。 | Dismissable container: both the error fragment and the notices sit inside one. */
+    dismissable: "[data-yd-dismissable], [data-yd-errors-outlet]"
   };
 
-  /* 请求发出前：对标记为 SM2 的字段做前置加密并戴上标识头。 | Before a request leaves: pre-encrypt the SM2-marked fields and tag the request. */
-  document.addEventListener("htmx:config:request", function (event) {
-    var form = event.detail.elt;
-    if (!form || !form.querySelector) {
+  /* 服务端事件名：与控制器的 meta.ToastEvent 一致。 | Server event names: they match meta.ToastEvent in the controller. */
+  var EVENTS = {
+    /* toast 由 HX-Trigger 下发，detail 形如 {level, text}。 | toast arrives through HX-Trigger with a detail shaped like {level, text}. */
+    toast: "yd:toast",
+    /* tick 与每帧推送同行，供只想计数而不想换内容的区域使用。 | tick travels with every pushed frame for regions that count instead of swapping. */
+    tick: "yd:tick"
+  };
+
+  /* state 保存跨片段存活的状态：连接是长连接，而承载它的元素会随导航被替换，因此状态不能只存在 DOM 上。
+     state holds the state that outlives a fragment: a connection is long-lived while the element carrying it is
+     replaced on navigation, so the state cannot live in the DOM alone. */
+  var state = {
+    /* open 为真表示至少一条实时通道当前是连着的。 | open is true while at least one realtime channel is connected. */
+    open: false
+  };
+
+  /* connectionEvents 汇总四个生命周期事件：连接建立与断开各两条通道，处理逻辑完全一致。 | connectionEvents collects the four lifecycle events: two channels times two transitions, all handled identically. */
+  var connectionEvents = {
+    "htmx:sse:after:connection": true,
+    "htmx:ws:after:connection": true
+  };
+  var disconnectionEvents = {
+    "htmx:sse:close": true,
+    "htmx:sse:error": true,
+    "htmx:ws:close": true,
+    "htmx:ws:error": true
+  };
+
+  /* appendNotice 追加一条通知；容器不存在时静默返回，绝不因为缺少装饰性元素而抛错。 | appendNotice appends one notice and returns quietly when the container is missing, so a decorative element can never break the page. */
+  function appendNotice(text, level) {
+    var flash = document.querySelector(SELECTORS.flash);
+    if (!flash || !text) {
+      return null;
+    }
+
+    /* 提示条插入到连接状态条之前：状态条始终位于列表末尾，视觉位置因此不会跳动。
+       Notices are inserted before the connection banner, which always stays last so nothing shifts around visually. */
+    var banner = document.getElementById("yd-connection");
+    var item = document.createElement("div");
+    item.className = "yd-flash__item" + (level ? " yd-flash__item--" + level : "");
+    item.setAttribute("role", "status");
+
+    var label = document.createElement("span");
+    label.className = "yd-flash__text";
+    /* textContent 而不是 innerHTML：服务端文案也可能包含尖括号，绝不能当标记解析。
+       textContent rather than innerHTML: server copy may contain angle brackets and must never be parsed as markup. */
+    label.textContent = text;
+    item.appendChild(label);
+
+    var close = document.createElement("button");
+    close.type = "button";
+    close.className = "yd-btn yd-btn--ghost yd-btn--sm";
+    close.setAttribute("data-yd-dismiss", "");
+    close.textContent = "关闭 | Close";
+    item.appendChild(close);
+
+    flash.insertBefore(item, banner || null);
+    return item;
+  }
+
+  /* setConnection 切换连接状态：状态条与状态徽标必须同时变化，否则用户会看到自相矛盾的界面。
+     setConnection flips the connection state: the banner and the badge must change together or the page contradicts itself. */
+  function setConnection(connected) {
+    state.open = connected;
+
+    var banner = document.querySelector(SELECTORS.connection);
+    if (banner) {
+      banner.hidden = connected;
+    }
+
+    var badges = document.querySelectorAll(SELECTORS.badge);
+    for (var i = 0; i < badges.length; i++) {
+      badges[i].setAttribute("data-yd-connection-state", connected ? "open" : "closed");
+      badges[i].textContent = connected ? "实时连接正常 | connected" : "连接已断开 | disconnected";
+    }
+  }
+
+  /* dismiss 清空最近的可关闭容器：错误片段与提示条共用同一条退场路径。 | dismiss empties the nearest dismissable container so the error fragment and the notices share one exit path. */
+  function dismiss(element) {
+    var box = element && element.closest ? element.closest(SELECTORS.dismissable) : null;
+    if (box) {
+      box.innerHTML = "";
+      return true;
+    }
+    return false;
+  }
+
+  /* 事件委托：提示条是运行期生成的，逐个绑定会在每次换入后失效。 | Event delegation: notices are created at runtime, so per-element listeners would go stale after every swap. */
+  document.addEventListener("click", function (event) {
+    var target = event.target;
+    if (!target || !target.closest) {
       return;
     }
-    var fields = form.querySelectorAll(SENSITIVE);
-    if (fields.length === 0) {
+
+    var dismisser = target.closest("[data-yd-dismiss]");
+    if (dismisser && dismiss(dismisser)) {
+      event.preventDefault();
       return;
     }
-    for (var i = 0; i < fields.length; i++) {
-      var field = fields[i];
-      if (field.value) {
-        field.value = yd.encryptSensitive(field.value);
-      }
+
+    /* 重新加载按钮只负责重开订阅：局部刷新的状态由服务端决定，前端不做增量修补。 | The reload button only re-opens the subscription: partial-refresh state is the server's call and the front end never patches it incrementally. */
+    if (target.closest("[data-yd-reload]")) {
+      event.preventDefault();
+      window.location.reload();
     }
-    event.detail.headers["X-YD-Encrypted"] = "sm2";
   });
 
-  /* 校验失败（422）时把错误片段换入工作区，而不是丢弃响应。 | On a 422 the error fragment is swapped into the workspace instead of being dropped. */
-  document.addEventListener("htmx:response:error", function (event) {
-    if (event.detail.xhr.status !== 422) {
-      return;
-    }
-    var workspace = document.querySelector(WORKSPACE);
-    if (workspace) {
-      workspace.innerHTML = event.detail.xhr.responseText;
-    }
+  /* 服务端提示：HX-Trigger 的 detail 直接就是事件负载，控制器不需要拼装任何提示 HTML。 | Server notices: the HX-Trigger detail is the payload itself, so controllers assemble no notice markup. */
+  document.addEventListener(EVENTS.toast, function (event) {
+    var detail = event.detail || {};
+    appendNotice(detail.text, detail.level);
   });
 
-  /* 请求失败时统一提示，避免用户面对静止页面。 | Failures get one toast so the user never stares at a frozen page. */
+  /* 连接生命周期：SSE 与 WebSocket 的四个事件走同一条路径。 | Connection lifecycle: the four SSE and WebSocket events take a single path. */
+  Object.keys(connectionEvents).forEach(function (name) {
+    document.addEventListener(name, function () {
+      setConnection(true);
+    });
+  });
+  Object.keys(disconnectionEvents).forEach(function (name) {
+    document.addEventListener(name, function () {
+      setConnection(false);
+    });
+  });
+
+  /* 网络层失败与状态码失败是两件事：前者在这里提示，后者由表单的 hx-status 声明式处理。 | A transport failure and a status-code failure are two different things: the former is reported here while the latter is handled declaratively by the form's hx-status. */
   document.addEventListener("htmx:send:error", function () {
-    var flash = document.getElementById("yd-flash");
-    if (flash) {
-      flash.textContent = "网络异常，请稍后重试 | Network error, please retry";
+    appendNotice("网络异常，请稍后重试 | Network error, please retry", "error");
+  });
+
+  /* 换入新内容后把状态徽标恢复成追踪到的连接状态：新片段只带 idle 初值，直接照它显示会让在线用户看到「已断开」。
+     After new content is swapped in the badge is brought back in line with the tracked connection state: a fresh
+     fragment only carries the idle default and showing that verbatim would tell a connected user they are offline. */
+  document.addEventListener("htmx:after:swap", function () {
+    if (document.querySelector(SELECTORS.badge)) {
+      setConnection(state.open);
     }
   });
 
-  /* 就绪标记：模板与测试可据此判断胶水层已加载。 | Ready flag: templates and tests use it to tell that the glue has loaded. */
+  /* 国密装配：加密由 yd-guomi-htmx 以声明式属性接管，这里只负责安装一次。 | Guomi assembly: encryption is taken over by yd-guomi-htmx through declarative attributes, so this only installs it once. */
+  if (window.ydGuomiHtmx && typeof window.ydGuomiHtmx.install === "function") {
+    window.ydGuomiHtmx.install();
+  }
+
   yd.ready = true;
 })();

@@ -59,10 +59,10 @@ func (c *Controller) List(ctx *router.Ctx) {
 // Create 创建用户（POST /users）。
 // Create creates a user (POST /users).
 //
-// 校验失败返回 422 + 错误片段，由表单上的 hx-status:422="target:#yd-errors swap:outerHTML" 声明式换入；
+// 校验失败返回 422 + 错误片段，由表单上的 hx-status:422="target:#yd-errors swap:innerHTML" 声明式换入；
 // 控制器不返回任何 JSON 错误体，也不用 302 重定向。
 // A failed validation answers 422 plus the error fragment swapped in declaratively by the form's
-// hx-status:422="target:#yd-errors swap:outerHTML"; the controller returns no JSON error body and does not redirect.
+// hx-status:422="target:#yd-errors swap:innerHTML"; the controller returns no JSON error body and does not redirect.
 //
 // @Summary Create user | 创建用户
 // @Description Validates the submitted name and e-mail address in internal/service; on success the refreshed list

@@ -10,9 +10,9 @@ import (
 	"strings"
 	"text/template"
 
-	"github.com/spf13/afero"
 	"github.com/shibingli/yd/afs"
 	"github.com/shibingli/yd/errx"
+	"github.com/spf13/afero"
 )
 
 // templateFS 内嵌 scaffold/templates 下的全部模板。

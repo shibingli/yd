@@ -1,22 +1,31 @@
 package scaffold_test
 
 import (
+	"bufio"
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
+	"io"
+	"net"
+	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
+	"time"
 
-	"github.com/spf13/afero"
 	"github.com/shibingli/yd/afs"
 	"github.com/shibingli/yd/assets"
 	"github.com/shibingli/yd/jsonx"
 	"github.com/shibingli/yd/scaffold"
+	"github.com/shibingli/yd/ws"
+	"github.com/spf13/afero"
 )
 
 // demoName 是绝大多数用例使用的项目名（目标 FS 中的目录名）。
@@ -26,6 +35,10 @@ const demoName = "demo-app"
 // requiredFiles 是需求基线要求生成的项目相对路径清单（相对 <name>/，"/" 分隔）。
 // requiredFiles is the project-relative list of files the requirements baseline demands
 // (relative to <name>/, "/"-separated).
+//
+// 顺序即 plan() 的排序结果，清单同时被 slices.Equal 逐项比对，因此新增或删除模板必须同步改这里。
+// The order is the one plan() produces and the list is compared item by item with slices.Equal, so adding or removing a
+// template must be mirrored here.
 var requiredFiles = []string{
 	".env.template",
 	".gitattributes",
@@ -42,20 +55,36 @@ var requiredFiles = []string{
 	"configs/config.yaml",
 	"docs/developer_guidelines.md",
 	"go.mod",
+	"internal/controller/auth.go",
+	"internal/controller/controller.go",
+	"internal/controller/home.go",
+	"internal/controller/realtime.go",
 	"internal/controller/user.go",
-	"internal/middleware/recover.go",
+	"internal/meta/meta.go",
+	"internal/middleware/security.go",
 	"internal/model/user.go",
 	"internal/repository/user.go",
 	"internal/router/router.go",
+	"internal/service/auth.go",
+	"internal/service/realtime.go",
 	"internal/service/user.go",
 	"web/assets.lock.json",
+	"web/embed.go",
+	"web/langs/en.yaml",
+	"web/langs/zh-CN.yaml",
 	"web/static/css/app.css",
 	"web/static/js/yd-app.js",
 	"web/templates/layouts/base.html",
 	"web/templates/pages/error.html",
 	"web/templates/pages/home.html",
+	"web/templates/pages/realtime.html",
+	"web/templates/pages/users.html",
 	"web/templates/partials/flash.html",
+	"web/templates/partials/login.html",
 	"web/templates/partials/sidebar.html",
+	"web/templates/partials/users/form.html",
+	"web/templates/partials/users/list.html",
+	"web/templates/partials/users/row.html",
 }
 
 // specGitignore 是需求基线 §二.3 的 .gitignore 模板逐字内容（已去掉提示行）。
@@ -339,24 +368,40 @@ func TestGenerateDockerfileUsesScratchMultiStage(t *testing.T) {
 	}
 }
 
-// TestGenerateMainGoIsMinimalCompilableSkeleton 断言 main.go 是可编译的最小骨架（app 包未就绪时的兜底形态）。
-// TestGenerateMainGoIsMinimalCompilableSkeleton asserts the main.go fallback skeleton (the app package is not ready yet).
+// TestGenerateMainGoIsMinimalCompilableSkeleton 断言 main.go 只做装配、信号与退出三件事，业务一律不在入口里。
+// TestGenerateMainGoIsMinimalCompilableSkeleton asserts main.go does exactly three things — assemble, react to signals,
+// exit — and keeps every business concern out of the entry point.
 func TestGenerateMainGoIsMinimalCompilableSkeleton(t *testing.T) {
 	pr, _ := generateMem(t, scaffold.DefaultOptions("main-app"))
 	main := pr.read("cmd/app/main.go")
 	for _, want := range []string{
-		`"github.com/shibingli/yd/logx"`,
-		"ListenAndServe",
-		"http.Server",
+		`"` + scaffold.YdModule + `/app"`,
+		`"` + scaffold.YdModule + `/errx"`,
+		`"` + scaffold.YdModule + `/logx"`,
+		`"` + scaffold.YdModule + `/middleware"`,
 		"signal.NotifyContext",
-		"srv.Shutdown",
+		// 门面装配：本项目资产经 app.WithFS 交给渲染器与 /static，而不是退回框架内嵌资产。
+		// Facade assembly: this project's assets reach the renderer and /static through app.WithFS instead of falling back
+		// to the framework's embedded ones.
+		"app.New(",
+		"app.WithFS(web.Assets())",
+		`StaticFS("/static"`,
+		"router.Register(application)",
+		"application.Run(ctx)",
+		"os.Exit(1)",
 	} {
 		if !strings.Contains(main, want) {
 			t.Errorf("cmd/app/main.go 缺少 %q:\n%s", want, main)
 		}
 	}
-	if strings.Contains(main, "github.com/shibingli/yd/app") {
-		t.Error("app 包尚不可用时不应 import 它")
+
+	// 服务器生命周期归 app 门面：入口再手写监听与关闭就等于把框架的优雅退出绕过去了。
+	// The server lifecycle belongs to the app facade: hand-written listeners and shutdowns in the entry point would
+	// bypass the framework's graceful exit.
+	for _, unwanted := range []string{"ListenAndServe", "http.Server", "srv.Shutdown"} {
+		if strings.Contains(main, unwanted) {
+			t.Errorf("cmd/app/main.go 不应再手写 %q（监听与优雅退出由 app.Run 接管）:\n%s", unwanted, main)
+		}
 	}
 }
 
@@ -737,4 +782,563 @@ func runGo(goBin, dir string, offline bool, args ...string) (string, error) {
 	cmd.Env = env
 	out, err := cmd.CombinedOutput()
 	return string(out), err
+}
+
+// 真实服务验证用到的时间与体积上限 | Time and size bounds of the live-server checks
+const (
+	// startupTimeout 是等待生成的应用就绪的上限：首次启动要建连、装配模板并绑定端口。
+	// startupTimeout bounds the wait for the generated application to become ready: the first start has to connect,
+	// assemble its templates and bind the port.
+	startupTimeout = 30 * time.Second
+	// httpTimeout 是单条普通请求的上限。 | httpTimeout bounds one ordinary request.
+	httpTimeout = 10 * time.Second
+	// sseTimeout 是等待一帧 SSE 推送的上限（推送间隔 5 秒，留足心跳与调度余量）。
+	// sseTimeout bounds the wait for one SSE frame (the push interval is five seconds, leaving room for heartbeats and scheduling).
+	sseTimeout = 20 * time.Second
+	// maxBodyBytes 限制单个响应体的读取量，避免断言把一条数据流整条读进内存。
+	// maxBodyBytes caps how much of one response body is read so an assertion never pulls a whole stream into memory.
+	maxBodyBytes = 1 << 20
+)
+
+// TestGeneratedAppServesFrameworkFeatures 端到端跑通「生成 → 编译 → 启动 → 访问」。
+// TestGeneratedAppServesFrameworkFeatures runs the whole chain — generate, compile, start, request.
+//
+// 生成与编译沿用 TestRealGenerateCompilesWithGoBuild 的方式（真实临时目录 + --local-replace 指向本仓库），
+// 随后把产物启在随机空闲端口上，用真实 HTTP 请求逐条断言：整页与片段、OpenAPI 文档与自包含的 /docs、
+// 混合捕获路由、静态资产、SSE、WebSocket 以及表单校验的 422 契约。
+// Generation and compilation follow TestRealGenerateCompilesWithGoBuild (a real temp directory plus --local-replace
+// pointing at this repository); the artefact is then started on a random free port and every capability is asserted
+// through real HTTP requests: whole page versus fragment, the OpenAPI document and the self-contained /docs, the
+// mixed-capture routes, static assets, SSE, WebSocket and the 422 contract of form validation.
+func TestGeneratedAppServesFrameworkFeatures(t *testing.T) {
+	if testing.Short() {
+		t.Skip("短模式跳过真实服务验证 | skipped in short mode")
+	}
+	goBin, err := exec.LookPath("go")
+	if err != nil {
+		t.Skipf("未找到 go 工具链，跳过真实服务验证: %v", err)
+	}
+
+	dir := t.TempDir()
+	o := scaffold.DefaultOptions("yd-serve-probe")
+	// 与服务验证无关的依赖一律不引入：模板、路由与实时通道都不需要数据库。
+	// Anything unrelated to the serving checks is left out: templates, routes and the realtime channels need no database.
+	o.DB = scaffold.DBNone
+	o.LocalReplace = filepath.ToSlash(repoRoot(t))
+	if _, err := scaffold.Generate(context.Background(), o, afs.NewOS(dir), nil); err != nil {
+		t.Fatalf("真实生成失败: %v", err)
+	}
+
+	projDir := filepath.Join(dir, o.Name)
+	bin := filepath.Join(projDir, "app")
+	if runtime.GOOS == "windows" {
+		bin += ".exe"
+	}
+	output, err := runGo(goBin, projDir, true, "build", "-mod=mod", "-o", bin, "./cmd/app")
+	if err != nil {
+		t.Logf("GOPROXY=off 编译失败，回退到环境代理重试:\n%s", output)
+		output, err = runGo(goBin, projDir, false, "build", "-mod=mod", "-o", bin, "./cmd/app")
+	}
+	if err != nil {
+		t.Fatalf("生成的骨架无法编译: %v\n%s", err, output)
+	}
+
+	base := startGeneratedApp(t, bin, projDir)
+	client := &http.Client{Timeout: httpTimeout}
+	streamClient := &http.Client{Timeout: sseTimeout}
+
+	t.Run("健康检查", func(t *testing.T) {
+		resp, body := getText(t, client, base+"/healthz", nil)
+		if resp.StatusCode != http.StatusOK {
+			t.Fatalf("GET /healthz 状态码 = %d, 期望 200", resp.StatusCode)
+		}
+		if strings.TrimSpace(body) != "ok" {
+			t.Errorf("GET /healthz 响应体 = %q, 期望 ok", body)
+		}
+	})
+
+	t.Run("整页渲染", func(t *testing.T) {
+		resp, body := getText(t, client, base+"/", nil)
+		if resp.StatusCode != http.StatusOK {
+			t.Fatalf("GET / 状态码 = %d, 期望 200\n%s", resp.StatusCode, body)
+		}
+		for _, want := range []string{"<html", `id="yd-workspace"`, "/static/css/yd.css"} {
+			if !strings.Contains(body, want) {
+				t.Errorf("GET / 缺少 %q:\n%s", want, body)
+			}
+		}
+	})
+
+	t.Run("htmx 局部请求只返回片段", func(t *testing.T) {
+		resp, body := getText(t, client, base+"/", map[string]string{"HX-Request": "true"})
+		if resp.StatusCode != http.StatusOK {
+			t.Fatalf("HX-Request GET / 状态码 = %d, 期望 200\n%s", resp.StatusCode, body)
+		}
+		if strings.Contains(body, "<html") {
+			t.Errorf("HX-Request 请求不应返回整页 HTML:\n%s", body)
+		}
+		if !strings.Contains(body, `data-yd-page="home"`) {
+			t.Errorf("HX-Request 响应不是首页片段:\n%s", body)
+		}
+	})
+
+	t.Run("OpenAPI 文档与自包含 /docs", func(t *testing.T) {
+		resp, doc := getText(t, client, base+"/openapi.json", nil)
+		if resp.StatusCode != http.StatusOK {
+			t.Fatalf("GET /openapi.json 状态码 = %d, 期望 200", resp.StatusCode)
+		}
+		for _, want := range []string{
+			`"3.0`,
+			`"/avatar/{id}.jpg"`,
+			`"/report/{id}-xx.png"`,
+			`"/users"`,
+			`"/events"`,
+			`"/ws"`,
+			`"/login"`,
+			`"/guomi/pubkey"`,
+			`"/realtime"`,
+			// 注解里的摘要：出现它就证明注解块被真正解析，而不是仅由路由树兜底推导（未解析的兜底操作没有 summary）。
+			// A summary coming from an annotation proves the annotation blocks were really parsed instead of the
+			// document being derived from the route tree alone (a fallback operation carries no summary).
+			"Health probe",
+			"WebSocket echo and push",
+		} {
+			if !strings.Contains(doc, want) {
+				t.Errorf("GET /openapi.json 缺少 %q:\n%s", want, doc)
+			}
+		}
+
+		assertAnnotatedOperations(t, doc)
+
+		respDocs, docs := getText(t, client, base+"/docs", nil)
+		if respDocs.StatusCode != http.StatusOK {
+			t.Fatalf("GET /docs 状态码 = %d, 期望 200", respDocs.StatusCode)
+		}
+		if !strings.Contains(docs, "<html") {
+			t.Errorf("GET /docs 不是完整页面:\n%s", docs)
+		}
+		// 文档页必须自包含：任何绝对 URL 都可能在内网/离线环境里挂住整个页面。
+		// The viewer must be self-contained: any absolute URL could hang the whole page on an intranet or offline host.
+		for _, unwanted := range []string{"http://", "https://", "//unpkg.com", "//cdn."} {
+			if strings.Contains(docs, unwanted) {
+				t.Errorf("GET /docs 含外部引用 %q（必须完全自包含）:\n%s", unwanted, docs)
+			}
+		}
+	})
+
+	t.Run("混合捕获路由", func(t *testing.T) {
+		resp, _ := getText(t, client, base+"/avatar/42.jpg", nil)
+		if resp.StatusCode != http.StatusOK {
+			t.Fatalf("GET /avatar/42.jpg 状态码 = %d, 期望 200", resp.StatusCode)
+		}
+		// X-YD-Avatar 是控制器回显的捕获值：它等于 42 就说明 :id 与 .jpg 被正确切开。
+		// X-YD-Avatar echoes the captured value: 42 proves the split between :id and the .jpg suffix.
+		if got := resp.Header.Get("X-YD-Avatar"); got != "42" {
+			t.Errorf("X-YD-Avatar = %q, 期望 42（混合捕获失败）", got)
+		}
+		if ct := resp.Header.Get("Content-Type"); !strings.Contains(ct, "image/png") {
+			t.Errorf("Content-Type = %q, 期望 image/png", ct)
+		}
+
+		// 后缀是模式的一部分：换一个后缀就不该再命中。
+		// The suffix is part of the pattern: any other suffix must no longer match.
+		respMiss, _ := getText(t, client, base+"/avatar/42.png", nil)
+		if respMiss.StatusCode != http.StatusNotFound {
+			t.Errorf("GET /avatar/42.png 状态码 = %d, 期望 404（后缀属于路由模式）", respMiss.StatusCode)
+		}
+
+		respReport, _ := getText(t, client, base+"/report/7-xx.png", nil)
+		if respReport.StatusCode != http.StatusOK {
+			t.Fatalf("GET /report/7-xx.png 状态码 = %d, 期望 200", respReport.StatusCode)
+		}
+		if got := respReport.Header.Get("X-YD-Report"); got != "7" {
+			t.Errorf("X-YD-Report = %q, 期望 7（动态段 + 静态后缀被正确切开）", got)
+		}
+	})
+
+	t.Run("静态资产", func(t *testing.T) {
+		resp, body := getText(t, client, base+"/static/js/vendor/htmx.min.js", nil)
+		if resp.StatusCode != http.StatusOK {
+			t.Fatalf("GET /static/js/vendor/htmx.min.js 状态码 = %d, 期望 200", resp.StatusCode)
+		}
+		if len(body) < 1000 || !strings.Contains(body, "htmx") {
+			t.Errorf("htmx.min.js 内容异常（长度 %d 字节）", len(body))
+		}
+	})
+
+	t.Run("SSE 推送时钟片段", func(t *testing.T) {
+		req, err := http.NewRequest(http.MethodGet, base+"/events", nil)
+		if err != nil {
+			t.Fatalf("构造 SSE 请求失败: %v", err)
+		}
+		resp, err := streamClient.Do(req)
+		if err != nil {
+			t.Fatalf("GET /events 失败: %v", err)
+		}
+		defer func() { _ = resp.Body.Close() }()
+
+		if resp.StatusCode != http.StatusOK {
+			t.Fatalf("GET /events 状态码 = %d, 期望 200", resp.StatusCode)
+		}
+		if ct := resp.Header.Get("Content-Type"); !strings.HasPrefix(ct, "text/event-stream") {
+			t.Fatalf("GET /events Content-Type = %q, 期望 text/event-stream", ct)
+		}
+
+		// 推送器启动时立即发一帧，因此第一秒内就该读到带 hx-partial 信封的数据行；
+		// 读取放在协程里，主协程用超时兜底，绝不因为一条挂住的流让整个用例卡死。
+		// The publisher sends a frame the moment it starts, so a data line carrying an hx-partial envelope should arrive
+		// within the first second. The read runs in a goroutine with a timeout on the main one, so a stuck stream can
+		// never wedge the case.
+		frames := make(chan string, 1)
+		go func() {
+			buf := bufio.NewReader(resp.Body)
+			var acc strings.Builder
+			for {
+				line, err := buf.ReadString('\n')
+				acc.WriteString(line)
+				if err != nil {
+					return
+				}
+				if strings.Contains(acc.String(), "<hx-partial") && strings.Contains(acc.String(), `hx-target="#yd-clock"`) {
+					frames <- acc.String()
+					return
+				}
+			}
+		}()
+
+		select {
+		case frame := <-frames:
+			for _, want := range []string{"event: yd.events", "<hx-partial", `hx-target="#yd-clock"`, "<time"} {
+				if !strings.Contains(frame, want) {
+					t.Errorf("SSE 帧缺少 %q:\n%s", want, frame)
+				}
+			}
+		case <-time.After(sseTimeout):
+			t.Fatalf("%s 内未收到 SSE 推送帧", sseTimeout)
+		}
+	})
+
+	t.Run("WebSocket 回显与推送", func(t *testing.T) {
+		ctx, cancel := context.WithTimeout(context.Background(), sseTimeout)
+		defer cancel()
+
+		// 用框架自带的客户端握手：与浏览器相同的子协议，且会校验 Sec-WebSocket-Accept。
+		// The handshake uses the framework's own client: the same subprotocol a browser asks for, with the
+		// Sec-WebSocket-Accept response verified.
+		conn, err := ws.Dial(ctx, "ws"+strings.TrimPrefix(base, "http")+"/ws", ws.DialOptions{Subprotocols: []string{"htmx"}})
+		if err != nil {
+			t.Fatalf("WebSocket 握手失败: %v", err)
+		}
+		defer func() { _ = conn.CloseNow() }()
+
+		// OnOpen 里的推送协程立刻写一帧，因此第一条消息就是时钟片段。
+		// The push goroutine started in OnOpen writes one frame immediately, so the first message is the clock fragment.
+		if err := conn.SetReadDeadline(time.Now().Add(sseTimeout)); err != nil {
+			t.Fatalf("设置读超时失败: %v", err)
+		}
+		op, frame, err := conn.ReadMessage()
+		if err != nil {
+			t.Fatalf("读取服务端推送失败: %v", err)
+		}
+		if op != ws.TextMessage {
+			t.Fatalf("推送帧类型 = %v, 期望文本帧", op)
+		}
+		for _, want := range []string{"<hx-partial", `hx-target="#yd-clock"`} {
+			if !strings.Contains(string(frame), want) {
+				t.Errorf("推送帧缺少 %q:\n%s", want, frame)
+			}
+		}
+
+		// htmx 信封的 BODY 由默认回显实现原样送回；推送与回显可能交错，因此循环读到回显为止。
+		// The envelope BODY is echoed verbatim by the default implementation; pushes and echoes can interleave, so the
+		// loop reads until the echo shows up.
+		if err := conn.WriteMessage(ws.TextMessage, []byte(`{"BODY":"ping"}`)); err != nil {
+			t.Fatalf("写出 htmx 信封失败: %v", err)
+		}
+		echoed := false
+		for deadline := time.Now().Add(sseTimeout); time.Now().Before(deadline); {
+			if err := conn.SetReadDeadline(time.Now().Add(5 * time.Second)); err != nil {
+				t.Fatalf("设置读超时失败: %v", err)
+			}
+			_, got, err := conn.ReadMessage()
+			if err != nil {
+				break
+			}
+			if strings.Contains(string(got), "ping") {
+				echoed = true
+				break
+			}
+		}
+		if !echoed {
+			t.Error("WebSocket 未把 htmx 信封的 BODY 回显回来")
+		}
+	})
+
+	t.Run("表单校验与列表闭环", func(t *testing.T) {
+		// 校验失败（htmx 请求）：422 + 错误片段，且片段必须只是错误槽位的内容，不能是整页。
+		// A validation failure on an htmx request: 422 plus the error fragment, which must be the error slot's content
+		// only and never a whole page.
+		hx := map[string]string{"HX-Request": "true"}
+		resp, body := postForm(t, client, base+"/users", map[string]string{"name": "", "email": "nobody@example.com"}, hx)
+		if resp.StatusCode != http.StatusUnprocessableEntity {
+			t.Fatalf("空名称 POST /users 状态码 = %d, 期望 422\n%s", resp.StatusCode, body)
+		}
+		for _, want := range []string{"yd-errors__body", "user name is required"} {
+			if !strings.Contains(body, want) {
+				t.Errorf("422 错误片段缺少 %q:\n%s", want, body)
+			}
+		}
+		if strings.Contains(body, "<html") {
+			t.Errorf("HX-Request 的 422 响应不应是整页（表单用 hx-status:422 直接换入 #yd-errors）:\n%s", body)
+		}
+
+		// 校验失败（普通表单提交）：同样是 422，但由布局包裹成整页——浏览器禁用脚本后仍要能读到错误。
+		// A validation failure on a plain form post: the same 422, wrapped in the layout as a whole page, because a
+		// browser with scripting disabled still has to be able to read the error.
+		respPlain, bodyPlain := postForm(t, client, base+"/users", map[string]string{"name": "", "email": "nobody@example.com"}, nil)
+		if respPlain.StatusCode != http.StatusUnprocessableEntity {
+			t.Fatalf("非 htmx 的空名称 POST /users 状态码 = %d, 期望 422\n%s", respPlain.StatusCode, bodyPlain)
+		}
+		for _, want := range []string{"<html", "yd-errors__body", "user name is required"} {
+			if !strings.Contains(bodyPlain, want) {
+				t.Errorf("非 htmx 的 422 整页缺少 %q:\n%s", want, bodyPlain)
+			}
+		}
+
+		// 邮箱非法同样是 422，但文案不同：状态码由哨兵映射，文案来自哨兵本身。
+		// A malformed e-mail is a 422 too, with different copy: the status comes from the sentinel mapping and the copy
+		// from the sentinel itself.
+		respBad, bodyBad := postForm(t, client, base+"/users", map[string]string{"name": "Alice", "email": "not-an-email"}, hx)
+		if respBad.StatusCode != http.StatusUnprocessableEntity {
+			t.Fatalf("非法邮箱 POST /users 状态码 = %d, 期望 422\n%s", respBad.StatusCode, bodyBad)
+		}
+		if !strings.Contains(bodyBad, "invalid e-mail address") {
+			t.Errorf("422 错误片段缺少邮箱校验文案:\n%s", bodyBad)
+		}
+
+		// 成功：200 + 刷新后的列表片段 + HX-Trigger 下发的 yd:toast 事件。
+		// Success: 200 plus the refreshed list fragment plus the yd:toast event carried by HX-Trigger.
+		respOK, bodyOK := postForm(t, client, base+"/users", map[string]string{"name": "Alice", "email": "alice@example.com"}, hx)
+		if respOK.StatusCode != http.StatusOK {
+			t.Fatalf("POST /users 状态码 = %d, 期望 200\n%s", respOK.StatusCode, bodyOK)
+		}
+		if trigger := respOK.Header.Get("HX-Trigger"); !strings.Contains(trigger, "yd:toast") {
+			t.Errorf("HX-Trigger = %q, 期望包含 yd:toast", trigger)
+		}
+		if !strings.Contains(bodyOK, "alice@example.com") {
+			t.Errorf("创建后返回的列表片段不含新用户:\n%s", bodyOK)
+		}
+
+		// 列表与关键字筛选都返回片段（HX-Request），无匹配时是 200 + 空状态而不是 404。
+		// Both the list and its keyword filter answer with fragments (HX-Request), and a filter without a match is a 200
+		// plus the empty state rather than a 404.
+		respList, list := getText(t, client, base+"/users?q=alice", map[string]string{"HX-Request": "true"})
+		if respList.StatusCode != http.StatusOK || !strings.Contains(list, "alice@example.com") {
+			t.Errorf("GET /users?q=alice 未命中新用户（状态码 %d）:\n%s", respList.StatusCode, list)
+		}
+		respMiss, miss := getText(t, client, base+"/users?q=nobody-here", map[string]string{"HX-Request": "true"})
+		if respMiss.StatusCode != http.StatusOK {
+			t.Errorf("无匹配的筛选状态码 = %d, 期望 200（内容为空状态）", respMiss.StatusCode)
+		}
+		if !strings.Contains(miss, "no user matches") {
+			t.Errorf("无匹配的筛选未返回空状态片段:\n%s", miss)
+		}
+	})
+}
+
+// startGeneratedApp 在随机空闲端口上启动生成的应用，返回基地址，并在用例结束时终止进程。
+// startGeneratedApp starts the generated application on a random free port, returns its base URL and kills the process
+// when the case ends.
+//
+// 端口经 YD_SERVER_PORT 注入（映射到 server.port），因此不与开发机上任何常驻服务抢端口；
+// 启动输出被收集起来，就绪等待超时时一并打印，排障不必再手动复现。
+// The port is injected through YD_SERVER_PORT (mapped onto server.port), so no resident service on the developer machine
+// can collide; the startup output is collected and printed when the readiness wait times out, which keeps debugging free
+// of manual reproduction.
+func startGeneratedApp(t *testing.T, bin, dir string) string {
+	t.Helper()
+
+	port := freePort(t)
+	cmd := exec.Command(bin)
+	cmd.Dir = dir
+	cmd.Env = append(os.Environ(),
+		"GOWORK=off",
+		"YD_SERVER_PORT="+strconv.Itoa(port),
+		"YD_LOG_FORMAT=console",
+	)
+	var logs bytes.Buffer
+	cmd.Stdout = &logs
+	cmd.Stderr = &logs
+	if err := cmd.Start(); err != nil {
+		t.Fatalf("启动生成的应用失败: %v", err)
+	}
+	t.Cleanup(func() {
+		if cmd.Process != nil {
+			_ = cmd.Process.Kill()
+			_, _ = cmd.Process.Wait()
+		}
+	})
+
+	base := "http://127.0.0.1:" + strconv.Itoa(port)
+	probe := &http.Client{Timeout: httpTimeout}
+	deadline := time.Now().Add(startupTimeout)
+	for ready := false; !ready; {
+		resp, err := probe.Get(base + "/healthz")
+		if err == nil {
+			_, _ = io.Copy(io.Discard, resp.Body)
+			_ = resp.Body.Close()
+			ready = resp.StatusCode == http.StatusOK
+		}
+		if !ready && time.Now().After(deadline) {
+			t.Fatalf("生成的应用未在 %s 内就绪:\n%s", startupTimeout, logs.String())
+		}
+		if !ready {
+			time.Sleep(100 * time.Millisecond)
+		}
+	}
+
+	t.Logf("生成的应用已就绪: %s", base)
+	return base
+}
+
+// freePort 向内核申请一个空闲端口并立即释放，把它留给生成的应用独占监听。
+// freePort asks the kernel for a free port and releases it at once, leaving it for the generated application to bind.
+func freePort(t *testing.T) int {
+	t.Helper()
+
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("申请空闲端口失败: %v", err)
+	}
+	defer func() { _ = listener.Close() }()
+
+	addr, ok := listener.Addr().(*net.TCPAddr)
+	if !ok {
+		t.Fatalf("监听地址类型异常: %T", listener.Addr())
+	}
+	return addr.Port
+}
+
+// getText 发起 GET 请求并返回响应与响应体文本，附加请求头由 headers 给出。
+// getText performs a GET request and returns the response together with its body as text, with extra headers applied.
+func getText(t *testing.T, client *http.Client, url string, headers map[string]string) (*http.Response, string) {
+	t.Helper()
+
+	req, err := http.NewRequest(http.MethodGet, url, nil)
+	if err != nil {
+		t.Fatalf("构造请求失败: %v", err)
+	}
+	for name, value := range headers {
+		req.Header.Set(name, value)
+	}
+	return doText(t, client, req)
+}
+
+// postForm 以 application/x-www-form-urlencoded 提交表单并返回响应与响应体文本。
+// postForm submits a form as application/x-www-form-urlencoded and returns the response with its body as text.
+// postForm 提交一份表单；headers 用来区分 htmx 请求（HX-Request: true）与普通表单提交，两者拿到的错误响应形态不同。
+// postForm submits a form; headers tell an htmx request (HX-Request: true) apart from a plain form post, which get
+// different shapes of error response.
+func postForm(t *testing.T, client *http.Client, target string, values map[string]string, headers map[string]string) (*http.Response, string) {
+	t.Helper()
+
+	form := url.Values{}
+	for name, value := range values {
+		form.Set(name, value)
+	}
+	req, err := http.NewRequest(http.MethodPost, target, strings.NewReader(form.Encode()))
+	if err != nil {
+		t.Fatalf("构造表单请求失败: %v", err)
+	}
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	for name, value := range headers {
+		req.Header.Set(name, value)
+	}
+	return doText(t, client, req)
+}
+
+// frameworkStaticPath 是框架静态资源挂载点：它由 app.StaticFS 自动登记，框架侧没有业务注解块。
+// frameworkStaticPath is the framework's static asset mount: app.StaticFS registers it automatically and the framework
+// side carries no business annotation block for it.
+const frameworkStaticPath = "/static/{filepath}"
+
+// httpMethodKeys 是 OpenAPI 路径条目里真正的操作键，其余键（parameters 等）属于路径级字段。
+// httpMethodKeys are the real operation keys inside one OpenAPI path item; the remaining keys (parameters and the like)
+// are path-level fields.
+var httpMethodKeys = map[string]bool{
+	"get": true, "put": true, "post": true, "delete": true,
+	"options": true, "head": true, "patch": true, "trace": true,
+}
+
+// assertAnnotatedOperations 校验每个业务操作都带着注解块产出的摘要与标签：只要有一个操作退回路由树兜底的裸操作，
+// 就说明该处理器的注解块缺失或没被解析，docs/developer_guidelines.md §9.2 的覆盖率要求即被破坏。
+// assertAnnotatedOperations checks that every business operation carries the summary and tags produced by its annotation
+// block: as soon as one operation falls back to the bare route-tree operation, that handler's annotation block is either
+// missing or unparsed and the coverage rule of docs/developer_guidelines.md §9.2 is broken.
+//
+// 唯一的例外是框架自带的静态挂载点：它不是业务端点，也不该由生成的项目写注解。
+// The only exception is the framework's own static mount: it is no business endpoint and the generated project is not
+// supposed to annotate it.
+func assertAnnotatedOperations(t *testing.T, doc string) {
+	t.Helper()
+
+	var parsed struct {
+		Paths map[string]map[string]json.RawMessage `json:"paths"`
+	}
+	if err := json.Unmarshal([]byte(doc), &parsed); err != nil {
+		t.Fatalf("解析 /openapi.json 失败: %v\n%s", err, doc)
+	}
+
+	annotated, fallback := 0, 0
+	for path, item := range parsed.Paths {
+		for method, raw := range item {
+			if !httpMethodKeys[method] {
+				continue
+			}
+			if path == frameworkStaticPath {
+				fallback++
+				continue
+			}
+
+			var op struct {
+				Summary string   `json:"summary"`
+				Tags    []string `json:"tags"`
+			}
+			if err := json.Unmarshal(raw, &op); err != nil {
+				t.Errorf("解析 %s %s 的操作对象失败: %v", method, path, err)
+				continue
+			}
+			if op.Summary == "" || len(op.Tags) == 0 {
+				t.Errorf("%s %s 缺少注解摘要或标签（注解未生效？summary=%q tags=%v）", method, path, op.Summary, op.Tags)
+				continue
+			}
+			annotated++
+		}
+	}
+
+	if annotated == 0 {
+		t.Fatalf("OpenAPI 文档里没有任何带注解的操作:\n%s", doc)
+	}
+	if fallback != 1 {
+		t.Errorf("框架静态挂载点数量 = %d, 期望 1（%s）", fallback, frameworkStaticPath)
+	}
+	t.Logf("OpenAPI 注解覆盖: %d 个业务操作全部带摘要与标签，%d 个框架挂载点由路由树兜底", annotated, fallback)
+}
+
+// doText 执行请求并读出响应体文本；读取量以 maxBodyBytes 封顶，响应体始终关闭。
+// doText runs the request and reads its body as text, capped at maxBodyBytes, with the body always closed.
+func doText(t *testing.T, client *http.Client, req *http.Request) (*http.Response, string) {
+	t.Helper()
+
+	resp, err := client.Do(req)
+	if err != nil {
+		t.Fatalf("请求 %s %s 失败: %v", req.Method, req.URL, err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	body, err := io.ReadAll(io.LimitReader(resp.Body, maxBodyBytes))
+	if err != nil {
+		t.Fatalf("读取 %s %s 响应失败: %v", req.Method, req.URL, err)
+	}
+	return resp, string(body)
 }

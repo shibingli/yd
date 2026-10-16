@@ -14,10 +14,10 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/spf13/afero"
 	"github.com/shibingli/yd/afs"
 	"github.com/shibingli/yd/errx"
 	"github.com/shibingli/yd/logx"
+	"github.com/spf13/afero"
 )
 
 // Result 描述一次生成的产出清单。 | Result describes the output of a single generation run.

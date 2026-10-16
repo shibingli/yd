@@ -1,0 +1,50 @@
+# {{ .Name }} 的英文语言目录 | English message catalogue for {{ .Name }}
+#
+# 与 zh-CN.yaml 的键集合一一对应：缺键会回落到默认语言，因此这里宁可留空也不删键。
+# The key set matches zh-CN.yaml one to one: a missing key falls back to the default language, so a key is better left
+# empty here than removed.
+app:
+  name: "{{ .Name }}"
+  tagline: an admin application scaffolded with the yd framework
+  module: "{{ .Module }}"
+nav:
+  home: Home
+  users: Users
+  realtime: Realtime
+  api_docs: API docs
+  health: Health
+page:
+  home:
+    title: Home
+  users:
+    title: Users
+    subtitle: "%d in total"
+    keyword: keyword %s
+  realtime:
+    title: Realtime
+    subtitle: one frame every %s
+  error:
+    title: Request failed validation
+action:
+  search: Search
+  create: Create
+  send: Send
+  sign_in: Sign in
+  dismiss: Dismiss
+  reload: Reload
+user:
+  name_required: the display name is required
+  email_invalid: the e-mail address is not valid
+  email_taken: that e-mail address is already taken
+  empty: there are no users yet
+  no_match: no user matches, try another keyword
+toast:
+  user_created: the user was created
+  welcome: welcome back, %s
+realtime:
+  connecting: connecting
+  disconnected: the realtime connection dropped and is reconnecting
+error:
+  not_found: Not found
+  unauthorized: Wrong e-mail address or password
+  internal: Internal server error, please retry later

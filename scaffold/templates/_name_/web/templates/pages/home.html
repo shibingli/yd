@@ -82,6 +82,19 @@
     {{ end }}
   </section>
 
+  <section class="yd-card yd-section" aria-labelledby="yd-home-login">
+    <header class="yd-section__header">
+      <h2 class="yd-section__title" id="yd-home-login">国密登录 | National-cryptography sign-in</h2>
+      <span class="yd-badge yd-badge--muted">SM2 · <a class="yd-link" href="/guomi/pubkey">/guomi/pubkey</a></span>
+    </header>
+    <p class="yd-section__hint">
+      口令在浏览器里用 SM2 加密后才发出，服务端解密并与口令散列比对；明文永远不进入请求体。
+      the password is encrypted with SM2 in the browser before it leaves and the server decrypts it to compare against
+      the password hash, so clear text never enters a request body.
+    </p>
+    {{ template "partials/login" . }}
+  </section>
+
   <section class="yd-card yd-section">
     <h2 class="yd-section__title">下一步 | Next steps</h2>
     <ol class="yd-list yd-list--ordered">

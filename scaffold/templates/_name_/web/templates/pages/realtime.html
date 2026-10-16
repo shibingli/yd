@@ -1,0 +1,106 @@
+{{/*
+  pages/realtime.html —— 实时推送演示片段：SSE 与 WebSocket 共用同一个时钟容器。
+  pages/realtime.html — the realtime demo fragment: SSE and WebSocket feed the same clock container.
+
+  htmx 4 的扩展语法（旧属性已移除，写错不会报错，只会静默失效）：
+  The htmx 4 extension syntax (the legacy attributes are gone; a wrong spelling fails silently, not loudly):
+    * SSE：hx-sse:connect="<url>" 在加载时打开数据流，并把每条无名消息交换进元素自身；
+      hx-sse:close="<event>" 在收到该名称的事件时关闭数据流；
+    * SSE: hx-sse:connect="<url>" opens the stream on load and swaps every unnamed message into the element itself,
+      while hx-sse:close="<event>" closes the stream once an event of that name arrives;
+    * WebSocket：hx-ws:connect="<url>" 打开套接字，hx-ws:send 标记触发发送的元素，
+      载荷由 hx-include="closest [data-yd-ws-composer]" 从所在输入区收集。
+    * WebSocket: hx-ws:connect="<url>" opens the socket and hx-ws:send marks the element that sends on its trigger,
+      with the payload pulled from the surrounding composer by hx-include="closest [data-yd-ws-composer]".
+
+  服务端推来的不是裸 HTML 而是 <hx-partial hx-target="…" hx-swap="…"> 信封（见 sse.Broker.PublishHTML 与
+  ws.Conn.WriteHtmxFragment），因此目标与交换策略由服务端决定：同一个 #yd-clock 既能被 SSE 也能被
+  WebSocket 刷新，页面不需要为两条通道写两套逻辑。
+  What the server pushes is not bare HTML but an <hx-partial hx-target="…" hx-swap="…"> envelope (see
+  sse.Broker.PublishHTML and ws.Conn.WriteHtmxFragment), so the target and the swap strategy are the server's call:
+  one #yd-clock is refreshed by both SSE and WebSocket and the page needs no per-channel logic.
+
+  数据契约 | Data contract: .Topic .Target .Swap .Interval .ListUsers。
+*/}}
+<section class="yd-page" data-yd-page="realtime" aria-labelledby="yd-realtime-title">
+  <header class="yd-page__header">
+    <div>
+      <h1 class="yd-page__title" id="yd-realtime-title">实时推送 | Realtime</h1>
+      <p class="yd-page__subtitle">
+        主题 <code class="yd-code">{{ .Topic }}</code> · 每 {{ .Interval }} 推送一帧 | one frame every {{ .Interval }}
+      </p>
+    </div>
+    <div class="yd-page__actions">
+      <span class="yd-badge yd-badge--info" data-yd-connection-state="idle">等待连接 | waiting</span>
+    </div>
+  </header>
+
+  <div class="yd-grid yd-grid--2">
+    <section class="yd-card yd-section" aria-labelledby="yd-sse-title">
+      <header class="yd-section__header">
+        <h2 class="yd-section__title" id="yd-sse-title">服务端事件流 | Server-sent events</h2>
+        <span class="yd-badge yd-badge--muted">SSE</span>
+      </header>
+      <p class="yd-section__hint">
+        推送目标 {{ .Target }} · 替换策略 {{ .Swap }}，均由服务端信封给出 | target and swap both come from the server envelope
+      </p>
+      {{/* 该元素自己开流、自己接收：无名消息交换进元素自身，具名事件（如 yd:tick）只派发 DOM 事件，
+           由 yd-app.js 之类的订阅者按需消费。初始内容与推送片段结构一致，交换时不会跳动。
+           The element opens the stream and receives into itself: unnamed messages swap into the element, while named
+           events such as yd:tick only fire a DOM event for subscribers like yd-app.js. The initial content matches the
+           pushed fragment's shape, so a swap never shifts the layout. */}}
+      <div class="yd-clock" id="yd-clock" role="timer" aria-live="off"
+           hx-sse:connect="/events" hx-sse:close="yd:close"
+           hx-target="this" hx-swap="innerMorph">
+        <time class="font-mono text-lg" datetime="">--:--:--</time>
+        <span class="text-content-muted ms-2 text-sm">连接中 | connecting</span>
+      </div>
+    </section>
+
+    <section class="yd-card yd-section" aria-labelledby="yd-ws-title">
+      <header class="yd-section__header">
+        <h2 class="yd-section__title" id="yd-ws-title">WebSocket 回显与推送 | WebSocket echo and push</h2>
+        <span class="yd-badge yd-badge--muted">WS</span>
+      </header>
+      <p class="yd-section__hint">
+        发出去的消息会被原样回显；同时服务端按同一节拍把时钟推给 {{ .Target }} | messages are echoed verbatim while the server pushes the clock to the same target
+      </p>
+      {{/* 回显消息以 beforeend 追加，因此这里是一条可滚动的对话记录而不是被覆盖的一块内容。
+           Echoed messages are appended with beforeend, which makes this a scrollable log instead of an overwritten block. */}}
+      <div class="yd-stream yd-stream--log" id="yd-ws-stream" role="log" aria-live="polite" aria-relevant="additions"
+           hx-ws:connect="/ws" hx-target="this" hx-swap="beforeend">
+        <p class="yd-stream__placeholder">连接后这里会出现回显与服务端推送 | echoes and server pushes appear here once connected</p>
+      </div>
+
+      {{/* 输入区是 div 而不是 form：它从不离开页面，只把内容喂给套接字。
+           The composer is a div rather than a form: it never leaves the page, it only feeds the socket. */}}
+      <div class="yd-composer" data-yd-ws-composer>
+        <label class="sr-only" for="yd-ws-message">要发送的消息 | Message to send</label>
+        <input class="yd-input yd-composer__input" id="yd-ws-message" name="message" type="text"
+               autocomplete="off" placeholder="输入后回车或点发送 | type, then press enter or send">
+        <button type="button" class="yd-btn yd-btn--primary"
+                hx-ws:send="true" hx-include="closest [data-yd-ws-composer]">发送 | Send</button>
+      </div>
+    </section>
+  </div>
+
+  <section class="yd-card yd-section" aria-labelledby="yd-realtime-data">
+    <h2 class="yd-section__title" id="yd-realtime-data">推送可携带的数据 | Data a push can carry</h2>
+    <p class="yd-section__hint">
+      推送片段由服务端渲染，因此它读到的正是这一份内存数据 | pushed fragments are rendered server-side and therefore read exactly this in-memory data
+    </p>
+    {{ with .ListUsers }}
+    <ul class="yd-list">
+      {{ range . }}
+      <li class="yd-list__item">
+        <span class="yd-avatar yd-avatar--sm" aria-hidden="true">{{ .Initial }}</span>
+        <span class="yd-list__primary">{{ .Display }}</span>
+        <span class="yd-hint">{{ .Email }}</span>
+      </li>
+      {{ end }}
+    </ul>
+    {{ else }}
+    <p class="yd-hint">暂无用户 | no users yet</p>
+    {{ end }}
+  </section>
+</section>

@@ -65,10 +65,20 @@ type SecurityOptions struct {
 // Security writes a set of security response headers; the defaults are conservative, so it can be mounted on the
 // middleware chain with no extra configuration.
 //
+// 选项可变参：装配期写 Security() 即得到默认严格取值，确需覆盖时才传入一个 SecurityOptions，
+// 因此调用处不必为「保持默认」而写一个空结构体字面量。
+// The options are variadic: Security() at assembly time yields the strict defaults and a SecurityOptions overrides only
+// what genuinely needs overriding, so no call site writes an empty struct literal just to keep the defaults.
+//
 // 实现要点：所有头在 c.Next() 之前写入。响应头一旦随响应体写出就无法再修改，因此顺序不能颠倒。
 // Implementation note: every header is written before c.Next(). Once the response body is written the headers are
 // frozen, so the order cannot be swapped.
-func Security(o SecurityOptions) router.Middleware {
+func Security(options ...SecurityOptions) router.Middleware {
+	var o SecurityOptions
+	if len(options) > 0 {
+		o = options[0]
+	}
+
 	policy := o.ContentSecurityPolicy
 	if policy == "" {
 		policy = cspPolicy

@@ -1,0 +1,54 @@
+{{/*
+  partials/login.html —— 国密登录表单（由 pages/home.html 引用）。
+  partials/login.html — the national-cryptography sign-in form (referenced by pages/home.html).
+
+  加密链路由三个声明式属性驱动，页面里没有一行拼装密文的脚本：
+  Three declarative attributes drive the encryption chain and the page assembles a single byte of ciphertext itself:
+    * data-yd-encrypt="sm2"    声明算法；非 sm2 的取值会让 yd-guomi-htmx.js 直接取消请求；
+    * data-yd-encrypt="sm2"    declares the algorithm; any other value makes yd-guomi-htmx.js cancel the request outright;
+    * data-yd-pubkey="/guomi/pubkey"  公钥地址，htmx 换入内容后即预取并缓存，提交时同步可用；
+    * data-yd-pubkey="/guomi/pubkey"  the key URL, prefetched and cached as soon as htmx swaps content in, so it is
+      available synchronously at submit time;
+    * data-yd-sensitive        标记不得明文外发的字段，其值在请求体里被替换为密文的 Base64。
+    * data-yd-sensitive        marks the field that must never leave in clear text: its body value is replaced by the
+      Base64 of the ciphertext.
+
+  失败即关闭：取不到公钥时该模块取消请求并警告，绝不降级为明文发送——所以服务端尽可以直接拒收没有
+  X-YD-Encrypted: sm2 请求头的登录。
+  Fail closed: when the key cannot be obtained the module cancels the request with a warning instead of degrading to
+  clear text, which is why the server may reject any sign-in without the X-YD-Encrypted: sm2 header outright.
+
+  数据契约 | Data contract: .PublicKey（十进制十六进制串，空串表示密钥对不可用）。
+*/}}
+{{- define "partials/login" -}}
+<form class="yd-form" method="post" action="/login"
+      data-yd-encrypt="sm2" data-yd-pubkey="/guomi/pubkey"
+      hx-post="/login" hx-target="#yd-workspace" hx-swap="innerMorph"
+      hx-status:400="target:#yd-errors swap:innerHTML"
+      hx-status:401="target:#yd-errors swap:innerHTML"
+      hx-disabled-elt="find button[type='submit']"
+      novalidate>
+  <div class="yd-form__field">
+    <label class="yd-form__label" for="yd-login-email">邮箱 | E-mail</label>
+    <input class="yd-input" id="yd-login-email" name="email" type="email"
+           autocomplete="username" required value="admin@example.com">
+  </div>
+  <div class="yd-form__field">
+    <label class="yd-form__label" for="yd-login-password">口令 | Password</label>
+    {{/* 口令字段带 data-yd-sensitive：明文只存在于输入框里，请求体中是 SM2 密文。
+         The password field carries data-yd-sensitive: the clear text lives in the input only, while the request body
+         carries the SM2 ciphertext. */}}
+    <input class="yd-input" id="yd-login-password" name="password" type="password"
+           autocomplete="current-password" required value="admin" data-yd-sensitive>
+  </div>
+  <div class="yd-form__actions">
+    {{/* 公钥不可用时按钮保持禁用：与其提交一个必然被拒的明文请求，不如把原因说清楚。
+         The button stays disabled while the key is unavailable: rather than submitting a clear-text request that is
+         bound to be rejected, the reason is stated right here. */}}
+    <button type="submit" class="yd-btn yd-btn--primary" {{ if not .PublicKey }}disabled{{ end }}>登录 | Sign in</button>
+    {{ if not .PublicKey }}
+    <span class="yd-hint">密钥对不可用，登录已停用 | the key pair is unavailable, signing in is disabled</span>
+    {{ end }}
+  </div>
+</form>
+{{- end -}}

@@ -71,7 +71,7 @@
        控制器渲染的错误片段只有内容、没有 id，因此整页渲染时也不会出现重复 id。
        The error fragment rendered by controllers carries content only and no id, so a whole-page render never produces a
        duplicate id either. */}}
-  <div id="yd-errors" class="yd-errors" role="alert" aria-live="assertive"></div>
+  <div id="yd-errors" class="yd-errors" role="alert" aria-live="assertive" data-yd-errors-outlet></div>
 
   {{/* 工作区：htmx 的整页导航与局部导航都换入这里，因此外围外壳与滚动位置不会被重建。
        The workspace: both full and partial htmx navigations swap into here, so the surrounding chrome and the scroll
