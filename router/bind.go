@@ -2,7 +2,6 @@ package router
 
 import (
 	"errors"
-	"fmt"
 	"io"
 	"net/url"
 	"reflect"
@@ -10,11 +9,31 @@ import (
 	"strings"
 	"time"
 
+	"github.com/yun-dev/yd/errx"
 	"github.com/yun-dev/yd/jsonx"
 )
 
-// ErrUnsupportedMediaType indicates the request body cannot be bound according to the declared content type. | ErrUnsupportedMediaType 表示请求体无法按声明的内容类型绑定。
-var ErrUnsupportedMediaType = errors.New("router: 不支持的请求内容类型")
+// Binding errors, declared once at package level. | 绑定错误，在包级声明一次。
+var (
+	// ErrUnsupportedMediaType indicates the request body cannot be bound according to the declared content type. | ErrUnsupportedMediaType 表示请求体无法按声明的内容类型绑定。
+	ErrUnsupportedMediaType = errx.New("router: unsupported request content type | router：不支持的请求内容类型")
+	// ErrBadBindTarget indicates the Bind target is nil, is not a pointer, or is neither a struct nor a map. | ErrBadBindTarget 表示 Bind 目标为 nil、不是指针，或既不是结构体也不是 map。
+	ErrBadBindTarget = errx.New("router: invalid bind target | router：非法的绑定目标")
+	// ErrBodyTooLarge indicates the request body exceeds the configured size limit. | ErrBodyTooLarge 表示请求体超出配置的大小限制。
+	ErrBodyTooLarge = errx.New("router: request body too large | router：请求体超出大小限制")
+	// ErrReadBody indicates the request body could not be read. | ErrReadBody 表示无法读取请求体。
+	ErrReadBody = errx.New("router: failed to read request body | router：读取请求体失败")
+	// ErrDecodeJSON indicates the JSON request body could not be decoded. | ErrDecodeJSON 表示 JSON 请求体无法解码。
+	ErrDecodeJSON = errx.New("router: failed to decode JSON body | router：JSON 解码失败")
+	// ErrParseForm indicates the request form could not be parsed. | ErrParseForm 表示无法解析请求表单。
+	ErrParseForm = errx.New("router: failed to parse form | router：解析表单失败")
+	// ErrBindField indicates a struct field could not be bound from its textual value. | ErrBindField 表示结构体字段无法从文本值绑定。
+	ErrBindField = errx.New("router: failed to bind field | router：字段绑定失败")
+	// ErrUnsupportedFieldType indicates the field type has no binding rule. | ErrUnsupportedFieldType 表示该字段类型没有对应的绑定规则。
+	ErrUnsupportedFieldType = errx.New("router: unsupported field type | router：不支持的字段类型")
+	// ErrBadTimeFormat indicates the time value matches none of the supported layouts. | ErrBadTimeFormat 表示时间值不匹配任何受支持的布局。
+	ErrBadTimeFormat = errx.New("router: invalid time format | router：时间格式非法")
+)
 
 // Bind binds request parameters to v according to Content-Type. | Bind 依据 Content-Type 把请求参数绑定到 v。
 //
@@ -26,7 +45,7 @@ var ErrUnsupportedMediaType = errors.New("router: 不支持的请求内容类型
 // Binding uses reflection, so it is only for request entry points; hot paths such as serialization and logging do not rely on it. | 绑定使用反射，因此仅用于请求入口；序列化与日志等热路径不依赖本函数。
 func (c *Ctx) Bind(v any) error {
 	if v == nil {
-		return errors.New("router: Bind 目标不能为 nil")
+		return errx.Detail(ErrBadBindTarget, "target must not be nil")
 	}
 	ct := c.Request.Header.Get("Content-Type")
 	if i := strings.IndexByte(ct, ';'); i >= 0 {
@@ -36,22 +55,22 @@ func (c *Ctx) Bind(v any) error {
 	case ct == "application/json" || strings.HasSuffix(ct, "+json"):
 		body, err := io.ReadAll(io.LimitReader(c.Request.Body, c.router.maxBodySize()+1))
 		if err != nil {
-			return fmt.Errorf("router: 读取请求体失败: %w", err)
+			return errx.Wrap(err, ErrReadBody)
 		}
 		if int64(len(body)) > c.router.maxBodySize() {
-			return errors.New("router: 请求体超出大小限制")
+			return ErrBodyTooLarge
 		}
 		if len(body) == 0 {
 			return nil
 		}
 		if err := jsonx.Unmarshal(body, v); err != nil {
-			return fmt.Errorf("router: JSON 解码失败: %w", err)
+			return errx.Wrap(err, ErrDecodeJSON)
 		}
 		return nil
 	case ct == "application/x-www-form-urlencoded" || ct == "multipart/form-data" || strings.HasPrefix(ct, "multipart/form-data"):
 		if err := c.Request.ParseMultipartForm(c.router.maxBodySize()); err != nil {
 			if err := c.Request.ParseForm(); err != nil {
-				return fmt.Errorf("router: 解析表单失败: %w", err)
+				return errx.Wrap(err, ErrParseForm)
 			}
 		}
 		return bindValues(v, c.Request.Form)
@@ -64,7 +83,7 @@ func (c *Ctx) Bind(v any) error {
 		}
 		return nil
 	default:
-		return fmt.Errorf("%w: %s", ErrUnsupportedMediaType, ct)
+		return errx.Detail(ErrUnsupportedMediaType, "%s", ct)
 	}
 }
 
@@ -72,7 +91,7 @@ func (c *Ctx) Bind(v any) error {
 func bindValues(v any, values url.Values) error {
 	rv := reflect.ValueOf(v)
 	if rv.Kind() != reflect.Pointer || rv.IsNil() {
-		return errors.New("router: Bind 目标必须是非 nil 指针")
+		return errx.Detail(ErrBadBindTarget, "target must be a non-nil pointer")
 	}
 	rv = rv.Elem()
 	switch rv.Kind() {
@@ -80,7 +99,7 @@ func bindValues(v any, values url.Values) error {
 		return bindStruct(rv, values)
 	case reflect.Map:
 		if rv.Type().Key().Kind() != reflect.String {
-			return errors.New("router: map 的键必须是字符串类型")
+			return errx.Detail(ErrBadBindTarget, "map key must be a string")
 		}
 		if rv.IsNil() {
 			rv.Set(reflect.MakeMap(rv.Type()))
@@ -93,7 +112,7 @@ func bindValues(v any, values url.Values) error {
 		}
 		return nil
 	default:
-		return errors.New("router: Bind 目标必须是结构体或 map")
+		return errx.Detail(ErrBadBindTarget, "target must be a struct or map")
 	}
 }
 
@@ -165,7 +184,7 @@ func setFieldValue(fv reflect.Value, raw, fieldName string) error {
 	if fv.Type() == timeType {
 		t, err := parseTime(raw)
 		if err != nil {
-			return fmt.Errorf("字段 %s: %w", fieldName, err)
+			return errx.WrapDetail(err, ErrBindField, "field %s", fieldName)
 		}
 		fv.Set(reflect.ValueOf(t))
 		return nil
@@ -176,25 +195,25 @@ func setFieldValue(fv reflect.Value, raw, fieldName string) error {
 	case reflect.Bool:
 		b, err := strconv.ParseBool(raw)
 		if err != nil {
-			return fmt.Errorf("字段 %s: %w", fieldName, err)
+			return errx.WrapDetail(err, ErrBindField, "field %s", fieldName)
 		}
 		fv.SetBool(b)
 	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
 		n, err := strconv.ParseInt(raw, 10, 64)
 		if err != nil {
-			return fmt.Errorf("字段 %s: %w", fieldName, err)
+			return errx.WrapDetail(err, ErrBindField, "field %s", fieldName)
 		}
 		fv.SetInt(n)
 	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
 		n, err := strconv.ParseUint(raw, 10, 64)
 		if err != nil {
-			return fmt.Errorf("字段 %s: %w", fieldName, err)
+			return errx.WrapDetail(err, ErrBindField, "field %s", fieldName)
 		}
 		fv.SetUint(n)
 	case reflect.Float32, reflect.Float64:
 		f, err := strconv.ParseFloat(raw, 64)
 		if err != nil {
-			return fmt.Errorf("字段 %s: %w", fieldName, err)
+			return errx.WrapDetail(err, ErrBindField, "field %s", fieldName)
 		}
 		fv.SetFloat(f)
 	case reflect.Slice:
@@ -202,9 +221,9 @@ func setFieldValue(fv reflect.Value, raw, fieldName string) error {
 			fv.Set(reflect.ValueOf([]string{raw}))
 			return nil
 		}
-		return fmt.Errorf("字段 %s: 不支持的切片元素类型 %s", fieldName, fv.Type().Elem())
+		return errx.Detail(ErrUnsupportedFieldType, "field %s: unsupported slice element type %s", fieldName, fv.Type().Elem())
 	default:
-		return fmt.Errorf("字段 %s: 不支持的类型 %s", fieldName, fv.Type())
+		return errx.Detail(ErrUnsupportedFieldType, "field %s: unsupported type %s", fieldName, fv.Type())
 	}
 	return nil
 }
@@ -215,5 +234,5 @@ func parseTime(raw string) (time.Time, error) {
 			return t, nil
 		}
 	}
-	return time.Time{}, fmt.Errorf("时间格式非法: %q", raw)
+	return time.Time{}, errx.Detail(ErrBadTimeFormat, "%q", raw)
 }

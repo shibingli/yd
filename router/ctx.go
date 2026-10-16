@@ -2,7 +2,6 @@ package router
 
 import (
 	"encoding/xml"
-	"errors"
 	"io"
 	"mime/multipart"
 	"net"
@@ -11,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/yun-dev/yd/errx"
 	"github.com/yun-dev/yd/jsonx"
 )
 
@@ -277,7 +277,7 @@ func (c *Ctx) HTMLString(code int, s string) error {
 // HTML renders with the injected template engine and writes it as text/html. | HTML 使用已注入的模板引擎渲染并以 text/html 输出。
 func (c *Ctx) HTML(code int, name string, data any) error {
 	if c.router.renderer == nil {
-		return errors.New("router: 未注入模板渲染器，请使用 SetRenderer 或 c.HTMLString")
+		return errx.Detail(ErrNoRenderer, "use SetRenderer or c.HTMLString")
 	}
 	c.SetHeader("Content-Type", "text/html; charset=utf-8")
 	c.WriteHeader(code)
@@ -339,10 +339,13 @@ func (c *Ctx) NoContent(code ...int) error {
 	return nil
 }
 
+// ErrRedirectStatus is returned by c.Redirect when the status code is outside the 3xx range. | ErrRedirectStatus 在重定向状态码不在 3xx 区间时由 c.Redirect 返回。
+var ErrRedirectStatus = errx.New("router: redirect status must be in the 3xx range | router：重定向状态码必须在 3xx 区间")
+
 // Redirect writes a redirect response. | Redirect 输出重定向响应。
 func (c *Ctx) Redirect(code int, location string) error {
 	if code < 300 || code > 399 {
-		return errors.New("router: 重定向状态码必须在 3xx 区间")
+		return ErrRedirectStatus
 	}
 	http.Redirect(c.Writer, c.Request, location, code)
 	c.written = true

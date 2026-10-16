@@ -15,14 +15,37 @@ import (
 	"syscall"
 
 	"github.com/quic-go/quic-go/http3"
+
+	"github.com/yun-dev/yd/errx"
 	"github.com/yun-dev/yd/logx"
 )
 
-// ErrNoHandler is returned when Start is called without a handler. | ErrNoHandler 表示未提供处理器就调用 Start。
-var ErrNoHandler = errors.New("server: 未设置 Handler")
+// Sentinel errors of this package, all testable with errors.Is. | 本包的哨兵错误，均可通过 errors.Is 判定。
+var (
+	// ErrNoHandler is returned when Start is called without a handler. | ErrNoHandler 表示未提供处理器就调用 Start。
+	ErrNoHandler = errx.New("server: no handler configured | server：未设置 Handler")
 
-// ErrAlreadyStarted is returned by a second Start call. | ErrAlreadyStarted 表示重复调用 Start。
-var ErrAlreadyStarted = errors.New("server: 服务器已启动")
+	// ErrAlreadyStarted is returned by a second Start call. | ErrAlreadyStarted 表示重复调用 Start。
+	ErrAlreadyStarted = errx.New("server: server already started | server：服务器已启动")
+
+	// ErrListen reports a TCP listener that could not be bound. | ErrListen 表示 TCP 监听绑定失败。
+	ErrListen = errx.New("server: failed to listen | server：监听失败")
+
+	// ErrHTTP3RequiresTLS reports HTTP/3 enabled without any TLS configuration (QUIC mandates TLS 1.3). | ErrHTTP3RequiresTLS 表示启用 HTTP/3 却没有 TLS 配置（QUIC 强制 TLS 1.3）。
+	ErrHTTP3RequiresTLS = errx.New("server: HTTP/3 requires a TLS configuration (QUIC mandates TLS 1.3) | server：启用 HTTP/3 需要 TLS 配置（QUIC 强制 TLS 1.3）")
+
+	// ErrHTTPServerExited reports the TCP (HTTP/1.1 + h2c) server stopping unexpectedly. | ErrHTTPServerExited 表示 TCP（HTTP/1.1 + h2c）服务异常退出。
+	ErrHTTPServerExited = errx.New("server: HTTP server exited | server：HTTP 服务退出")
+
+	// ErrHTTP3ServerExited reports the HTTP/3 server stopping unexpectedly. | ErrHTTP3ServerExited 表示 HTTP/3 服务异常退出。
+	ErrHTTP3ServerExited = errx.New("server: HTTP/3 server exited | server：HTTP/3 服务退出")
+
+	// ErrTLSFilesMissing reports TLS enabled without cert_file and key_file. | ErrTLSFilesMissing 表示启用 TLS 却缺少 cert_file 与 key_file。
+	ErrTLSFilesMissing = errx.New("server: enabling TLS requires cert_file and key_file | server：启用 TLS 必须提供 cert_file 与 key_file")
+
+	// ErrCertLoadFailed reports a certificate pair that could not be loaded. | ErrCertLoadFailed 表示证书对加载失败。
+	ErrCertLoadFailed = errx.New("server: failed to load the certificate | server：加载证书失败")
+)
 
 // Server multiplexes HTTP/1.1, h2c and HTTP/3 over one handler. | Server 在同一处理器上复用 HTTP/1.1、h2c 与 HTTP/3。
 //
@@ -114,7 +137,7 @@ func (s *Server) Start() error {
 
 	ln, err := net.Listen("tcp", s.opts.addr())
 	if err != nil {
-		return fmt.Errorf("server: 监听 %s 失败: %w", s.opts.addr(), err)
+		return errx.WrapDetail(err, ErrListen, "addr %s | 地址 %s", s.opts.addr(), s.opts.addr())
 	}
 	s.ln = ln
 	s.tcpPort = ln.Addr().(*net.TCPAddr).Port
@@ -129,7 +152,7 @@ func (s *Server) Start() error {
 		s.h3Port = port
 		if tlsConf == nil {
 			_ = ln.Close()
-			return errors.New("server: 启用 HTTP/3 需要 TLS 配置（QUIC 强制 TLS 1.3）")
+			return ErrHTTP3RequiresTLS
 		}
 		// QUIC 需要独立的 ALPN 集合，必须克隆后修改，避免影响 TCP 侧的协商
 		h3TLS := tlsConf.Clone()
@@ -181,7 +204,7 @@ func (s *Server) Start() error {
 			err = s.httpSrv.Serve(ln)
 		}
 		if err != nil && !errors.Is(err, http.ErrServerClosed) {
-			s.reportErr(fmt.Errorf("server: HTTP 服务退出: %w", err))
+			s.reportErr(errx.Wrap(err, ErrHTTPServerExited))
 		}
 	}()
 
@@ -189,7 +212,7 @@ func (s *Server) Start() error {
 	if s.h3Srv != nil {
 		go func() {
 			if err := s.h3Srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
-				s.reportErr(fmt.Errorf("server: HTTP/3 服务退出: %w", err))
+				s.reportErr(errx.Wrap(err, ErrHTTP3ServerExited))
 			}
 		}()
 	}
@@ -351,11 +374,11 @@ func (s *Server) buildTLSConfig() (*tls.Config, error) {
 
 	case s.opts.TLS.Enabled:
 		if s.opts.TLS.CertFile == "" || s.opts.TLS.KeyFile == "" {
-			return nil, errors.New("server: 启用 TLS 必须提供 cert_file 与 key_file")
+			return nil, ErrTLSFilesMissing
 		}
 		cert, err := tls.LoadX509KeyPair(s.opts.TLS.CertFile, s.opts.TLS.KeyFile)
 		if err != nil {
-			return nil, fmt.Errorf("server: 加载证书失败: %w", err)
+			return nil, errx.Wrap(err, ErrCertLoadFailed)
 		}
 		return &tls.Config{
 			Certificates: []tls.Certificate{cert},

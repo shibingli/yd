@@ -2,11 +2,24 @@ package server
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"strings"
 
 	"golang.org/x/crypto/acme/autocert"
+
+	"github.com/yun-dev/yd/errx"
+)
+
+// Sentinel errors of the ACME manager, all testable with errors.Is. | ACME 管理器的哨兵错误，均可通过 errors.Is 判定。
+var (
+	// ErrACMEDomainsRequired reports ACME enabled without any domain. | ErrACMEDomainsRequired 表示启用 ACME 却没有配置任何域名。
+	ErrACMEDomainsRequired = errx.New("server: enabling ACME requires at least one domain | server：启用 ACME 必须配置至少一个域名")
+
+	// ErrACMEHostMissing reports an empty host handed to the non-strict host policy. | ErrACMEHostMissing 表示非严格主机策略收到空主机名。
+	ErrACMEHostMissing = errx.New("acme: missing server name | acme：缺少服务器名")
+
+	// ErrACMEUninitialized reports a nil or uninitialized ACME manager. | ErrACMEUninitialized 表示 ACME 管理器为 nil 或未初始化。
+	ErrACMEUninitialized = errx.New("server: ACME is not initialized | server：ACME 未初始化")
 )
 
 // acmeChallengePrefix is the well-known path served by the ACME HTTP-01 challenge. | acmeChallengePrefix 是 ACME HTTP-01 质询使用的 well-known 路径。
@@ -26,7 +39,7 @@ type acmeManager struct {
 // 重启后仍可续期；严格模式下主机策略会拒绝未知域名，避免错误部署耗尽 ACME 配额。
 func newACMEManager(cfg ACMEConfig) (*acmeManager, error) {
 	if len(cfg.Domains) == 0 {
-		return nil, errors.New("server: 启用 ACME 必须配置至少一个域名")
+		return nil, ErrACMEDomainsRequired
 	}
 	cacheDir := cfg.CacheDir
 	if cacheDir == "" {
@@ -41,7 +54,7 @@ func newACMEManager(cfg ACMEConfig) (*acmeManager, error) {
 		}
 		policy = func(_ context.Context, host string) error {
 			if host == "" {
-				return errors.New("acme: 缺少服务器名")
+				return ErrACMEHostMissing
 			}
 			return nil
 		}
@@ -58,7 +71,7 @@ func newACMEManager(cfg ACMEConfig) (*acmeManager, error) {
 // HostPolicy exposes the effective policy for diagnostics and tests. | HostPolicy 暴露生效的策略，供诊断与测试使用。
 func (a *acmeManager) HostPolicy(ctx context.Context, host string) error {
 	if a == nil || a.hostPolicy == nil {
-		return errors.New("server: ACME 未初始化")
+		return ErrACMEUninitialized
 	}
 	return a.hostPolicy(ctx, host)
 }

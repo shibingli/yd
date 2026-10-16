@@ -29,11 +29,20 @@
 package openapi
 
 import (
-	"fmt"
+	"bytes"
 	"strings"
 
+	"github.com/yun-dev/yd/errx"
 	"github.com/yun-dev/yd/jsonx"
 	"go.yaml.in/yaml/v3"
+)
+
+// Serialization errors, declared once at package level. | 序列化错误，在包级声明一次。
+var (
+	// ErrMarshal means the document could not be serialized. | ErrMarshal 表示文档无法序列化。
+	ErrMarshal = errx.New("openapi: failed to marshal document | openapi：文档序列化失败")
+	// ErrDecode means the serialized document could not be decoded back. | ErrDecode 表示序列化后的文档无法解码回结构。
+	ErrDecode = errx.New("openapi: failed to decode document | openapi：文档反序列化失败")
 )
 
 // Specification version and default endpoints. | 规范版本与默认端点。
@@ -244,7 +253,7 @@ func (d *Document) JSON() ([]byte, error) {
 	doc := d.normalized()
 	raw, err := jsonx.MarshalIndent(&doc, "", "  ")
 	if err != nil {
-		return nil, fmt.Errorf("openapi: marshal document: %w", err)
+		return nil, errx.Wrap(err, ErrMarshal)
 	}
 	return raw, nil
 }
@@ -258,15 +267,20 @@ func (d *Document) YAML() ([]byte, error) {
 	doc := d.normalized()
 	raw, err := jsonx.Marshal(&doc)
 	if err != nil {
-		return nil, fmt.Errorf("openapi: marshal document: %w", err)
+		return nil, errx.Wrap(err, ErrMarshal)
 	}
 	var tree any
 	if err := jsonx.Unmarshal(raw, &tree); err != nil {
-		return nil, fmt.Errorf("openapi: decode document: %w", err)
+		return nil, errx.Wrap(err, ErrDecode)
 	}
-	out, err := yaml.Marshal(tree)
-	if err != nil {
-		return nil, fmt.Errorf("openapi: marshal yaml: %w", err)
+	var buf bytes.Buffer
+	encoder := yaml.NewEncoder(&buf)
+	encoder.SetIndent(2)
+	if err := encoder.Encode(tree); err != nil {
+		return nil, errx.Wrap(err, ErrMarshal)
 	}
-	return out, nil
+	if err := encoder.Close(); err != nil {
+		return nil, errx.Wrap(err, ErrMarshal)
+	}
+	return buf.Bytes(), nil
 }

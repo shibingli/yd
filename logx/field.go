@@ -126,7 +126,7 @@ func Dur(k string, v time.Duration) Field {
 // Err returns an error field whose key name is fixed to "error". | Err 返回错误字段，键名固定为 "error"。
 //
 // The error chain is expanded with errors.Unwrap (including the multi-branch expansion of errors.Join) and then joined with ": "; | 错误链会被 errors.Unwrap（含 errors.Join 的多路展开）展开后按 ": " 拼接；
-// if a layer's message is already contained in an outer message (as with the "%w" form of fmt.Errorf), it is skipped to avoid duplication. | 若某层消息已被上层消息包含（如 fmt.Errorf 的 "%w" 形式），则跳过以免重复。
+// if a layer's message is already contained in an outer message (as with the rendering of errx.Wrap), it is skipped to avoid duplication. | 若某层消息已被上层消息包含（如 errx.Wrap 的渲染结果），则跳过以免重复。
 // When err is nil it returns the zero-value field, which is skipped entirely when encoding. | err 为 nil 时返回零值字段，编码时整条跳过。
 func Err(err error) Field {
 	return errField(errorKey, err)

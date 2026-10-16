@@ -19,16 +19,10 @@ const RequestIDKey = "request_id"
 // hexDigits is the lowercase hexadecimal alphabet. | hexDigits 是小写十六进制字符表。
 const hexDigits = "0123456789abcdef"
 
-// RequestID returns a middleware that assigns every request a unique id.
-//
-// | RequestID 返回为每个请求分配唯一 ID 的中间件。
-//
-// The id is taken from the header named by header (default X-Request-Id) when present,
-// otherwise a fresh UUIDv4 is generated with crypto/rand. The id is stored in the context
-// under RequestIDKey and echoed back in the same response header.
-//
-// | 若请求中带有 header 指定的头（默认 X-Request-Id）则沿用其值，否则用 crypto/rand 生成新的 UUIDv4；
-// | ID 以 RequestIDKey 存入上下文，并通过同名响应头回显。
+// RequestID returns a middleware that assigns every request a unique id. | RequestID 返回为每个请求分配唯一 ID 的中间件。
+// The id is taken from the header named by header — X-Request-Id when header is empty — and a
+// fresh UUIDv4 generated with crypto/rand is used when that header is absent. | 若请求带有 header 指定的头（header 为空时默认 X-Request-Id）则沿用其值，否则用 crypto/rand 生成新的 UUIDv4。
+// The id is stored in the context under RequestIDKey and echoed in the same response header. | ID 以 RequestIDKey 存入上下文，并通过同名响应头回显。
 func RequestID(header string) router.Middleware {
 	name := header
 	if name == "" {

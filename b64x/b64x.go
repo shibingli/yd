@@ -28,13 +28,13 @@
 //     further matching with errors.Is. | errors.Is 进一步匹配。
 package b64x
 
-import "errors"
+import "github.com/yun-dev/yd/errx"
 
 var (
 	// ErrShortBuffer indicates the destination buffer is shorter than DecodedLen(len(src)) and cannot hold the decode result. | ErrShortBuffer 表示目标缓冲区长度小于 DecodedLen(len(src))，无法容纳解码结果。
-	ErrShortBuffer = errors.New("b64x: 目标缓冲区过短")
+	ErrShortBuffer = errx.New("b64x: destination buffer is too short | b64x：目标缓冲区过短")
 
-	// ErrInvalidData indicates the input is not valid Base64 data; the underlying backend's original error is also wrapped | ErrInvalidData 表示输入不是合法的 Base64 数据；底层后端的原始错误通过
-	// via fmt.Errorf's %w, so it can be matched with errors.Is. | fmt.Errorf 的 %w 一并包装，可用 errors.Is 匹配。
-	ErrInvalidData = errors.New("b64x: 非法的 Base64 数据")
+	// ErrInvalidData indicates the input is not valid Base64 data; the underlying backend's original error is also annotated | ErrInvalidData 表示输入不是合法的 Base64 数据；底层后端的原始错误通过
+	// with errx.Wrap, so it can be matched with errors.Is. | errx.Wrap 一并注解，可用 errors.Is 匹配。
+	ErrInvalidData = errx.New("b64x: invalid Base64 data | b64x：非法的 Base64 数据")
 )

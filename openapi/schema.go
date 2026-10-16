@@ -304,7 +304,7 @@ func jsonFieldName(field reflect.StructField) (string, string) {
 	return name, opts
 }
 
-// mergePathParamsappends path parameters that the caller has not declared yet. | mergePathParams
+// mergePathParams appends path parameters that the caller has not declared yet. | mergePathParams
 // 追加调用方尚未声明的路径参数。
 func mergePathParams(o Operation, params []Parameter) Operation {
 	if len(params) == 0 {

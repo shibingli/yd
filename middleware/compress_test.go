@@ -13,11 +13,15 @@ import (
 
 	"github.com/andybalholm/brotli"
 	"github.com/klauspost/compress/zstd"
+	"github.com/yun-dev/yd/errx"
 	"github.com/yun-dev/yd/router"
 )
 
 // bigBody is a compressible payload well above the default MinSize. | bigBody 是一段远大于默认 MinSize 的可压缩负载。
 var bigBody = strings.Repeat("<p>yd framework compresses well</p>", 200)
+
+// errRoundTripMismatch reports a response that did not survive the compression round trip. | errRoundTripMismatch 表示响应未能通过压缩往返校验。
+var errRoundTripMismatch = errx.New("compression round trip mismatch | 压缩往返不一致")
 
 // wrappedByCompress reports whether w is the compression wrapper. | wrappedByCompress 报告 w 是否为压缩包装器。
 func wrappedByCompress(w http.ResponseWriter) bool {
@@ -62,7 +66,7 @@ func decompressBody(t *testing.T, encoding string, b []byte) string {
 	}
 }
 
-// ---------------------------------------------------------------- 编码协商
+// ---------------------------------------------------------------- encoding negotiation | 编码协商
 
 func TestNegotiateQValues(t *testing.T) {
 	def := []Algorithm{Brotli, Zstd, Gzip}
@@ -144,14 +148,16 @@ func TestAlgorithmNameAndEncoding(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------- 压缩往返
+// ---------------------------------------------------------------- compression round trip | 压缩往返
 
 func TestCompressGzipRoundTrip(t *testing.T) {
 	r := router.New()
 	r.Use(Compress(CompressOptions{Algorithms: []Algorithm{Gzip}}))
 	r.GET("/page", func(c *router.Ctx) {
+		c.SetHeader("X-Custom", "kept")
 		c.SetHeader("Content-Type", "text/html; charset=utf-8")
-		_ = c.String(http.StatusOK, bigBody)
+		c.WriteHeader(http.StatusOK)
+		_, _ = c.Writer.Write([]byte(bigBody))
 	})
 
 	rec := doReq(r, http.MethodGet, "/page", map[string]string{"Accept-Encoding": "gzip"}, "")
@@ -175,6 +181,9 @@ func TestCompressGzipRoundTrip(t *testing.T) {
 	}
 	if got := rec.Header().Get("Content-Type"); got != "text/html; charset=utf-8" {
 		t.Fatalf("Content-Type = %q, 处理器设置的其它头部必须保留", got)
+	}
+	if got := rec.Header().Get("X-Custom"); got != "kept" {
+		t.Fatalf("X-Custom = %q, 处理器设置的其它头部必须保留", got)
 	}
 }
 
@@ -206,7 +215,7 @@ func TestBrotliAndZstdPreferredOverGzip(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------- 跳过规则
+// ---------------------------------------------------------------- skip rules | 跳过规则
 
 // requireUncompressed asserts the response kept its plain body and no encoding headers. | requireUncompressed 断言响应保持明文正文且没有编码相关头部。
 func requireUncompressed(t *testing.T, rec *httptest.ResponseRecorder, wantBody string) {
@@ -397,9 +406,21 @@ func TestCompressSkipsUpgradeRequest(t *testing.T) {
 	}
 }
 
-func TestCompressExcludePatterns(t *testing.T) {
+// A configured list replaces the built-in defaults. | 显式配置的列表会替换内置默认值。
+func TestCompressExcludePatternsReplaceDefaults(t *testing.T) {
 	r := router.New()
 	r.Use(Compress(CompressOptions{ExcludePatterns: []string{"/assets"}}))
+	r.GET("/ws/socket", func(c *router.Ctx) { _ = c.String(http.StatusOK, bigBody) })
+
+	rec := doReq(r, http.MethodGet, "/ws/socket", map[string]string{"Accept-Encoding": "gzip"}, "")
+	if got := rec.Header().Get("Content-Encoding"); got != "gzip" {
+		t.Fatalf("Content-Encoding = %q, 自定义排除列表应替换默认前缀表", got)
+	}
+}
+
+func TestCompressExcludePatterns(t *testing.T) {
+	r := router.New()
+	r.Use(Compress(CompressOptions{ExcludePatterns: []string{"/assets", "/ws", "/sse", "/events"}}))
 	for _, p := range []string{"/assets/app.js", "/ws/socket", "/sse/stream", "/events/feed", "/page"} {
 		path := p
 		r.GET(path, func(c *router.Ctx) { _ = c.String(http.StatusOK, path+bigBody) })
@@ -453,7 +474,7 @@ func TestCompressLevelOption(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------- 复用与并发
+// ---------------------------------------------------------------- pooling and concurrency | 复用与并发
 
 func TestEncoderPoolReuse(t *testing.T) {
 	r := router.New()
@@ -471,11 +492,11 @@ func TestEncoderPoolReuse(t *testing.T) {
 			defer wg.Done()
 			rec := doReq(r, http.MethodGet, "/page", map[string]string{"Accept-Encoding": enc}, "")
 			if got := rec.Header().Get("Content-Encoding"); got != enc {
-				errs <- fmt.Errorf("第 %d 轮 Content-Encoding = %q, 期望 %q", i, got, enc)
+				errs <- errx.Detail(errRoundTripMismatch, "第 %d 轮 Content-Encoding = %q, 期望 %q", i, got, enc)
 				return
 			}
 			if got := decompressBody(t, enc, rec.Body.Bytes()); got != bigBody {
-				errs <- fmt.Errorf("第 %d 轮往返结果不一致", i)
+				errs <- errx.Detail(errRoundTripMismatch, "第 %d 轮往返结果不一致", i)
 			}
 		}(i, enc)
 	}

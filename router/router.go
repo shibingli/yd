@@ -1,7 +1,6 @@
 package router
 
 import (
-	"errors"
 	"net/http"
 	"sort"
 	"strings"
@@ -9,6 +8,7 @@ import (
 
 	"github.com/spf13/afero"
 	"github.com/yun-dev/yd/afs"
+	"github.com/yun-dev/yd/errx"
 )
 
 // Default configuration values. | 默认配置值。
@@ -333,4 +333,4 @@ func redirectTrailingSlash(c *Ctx, path, rawQuery string) {
 }
 
 // ErrNoRenderer is returned by c.HTML when no template renderer has been injected. | ErrNoRenderer 在未注入模板渲染器时由 c.HTML 返回。
-var ErrNoRenderer = errors.New("router: 未注入模板渲染器")
+var ErrNoRenderer = errx.New("router: no template renderer injected | router：未注入模板渲染器")

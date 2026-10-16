@@ -6,8 +6,6 @@
 package i18n
 
 import (
-	"errors"
-	"fmt"
 	"path/filepath"
 	"sort"
 	"strconv"
@@ -16,6 +14,8 @@ import (
 
 	"github.com/spf13/afero"
 	"github.com/spf13/viper"
+
+	"github.com/yun-dev/yd/errx"
 )
 
 // catalogExtensions is the set of file extensions recognized as language catalogs. | catalogExtensions 是被识别为语言文件的文件扩展名集合。
@@ -29,13 +29,19 @@ var catalogExtensions = map[string]bool{
 // Sentinel errors of this package, all testable with errors.Is. | 本包的哨兵错误，均可通过 errors.Is 判定。
 var (
 	// ErrNilFS reports a nil filesystem passed to New. | ErrNilFS 表示传给 New 的文件系统为 nil。
-	ErrNilFS = errors.New("i18n: 文件系统为 nil")
+	ErrNilFS = errx.New("i18n: nil filesystem | i18n：文件系统为 nil")
 	// ErrEmptyDefaultLang reports an empty default language. | ErrEmptyDefaultLang 表示默认语言为空。
-	ErrEmptyDefaultLang = errors.New("i18n: 默认语言不能为空")
+	ErrEmptyDefaultLang = errx.New("i18n: empty default language | i18n：默认语言不能为空")
 	// ErrNoCatalogs reports a directory holding no readable catalog file. | ErrNoCatalogs 表示语言目录下没有任何可读取的语言文件。
-	ErrNoCatalogs = errors.New("i18n: 语言目录下没有任何语言文件")
+	ErrNoCatalogs = errx.New("i18n: no catalog files under the language directory | i18n：语言目录下没有任何语言文件")
 	// ErrDefaultLangMissing reports a default language without catalog file. | ErrDefaultLangMissing 表示默认语言缺少对应的语言文件。
-	ErrDefaultLangMissing = errors.New("i18n: 默认语言缺少对应的语言文件")
+	ErrDefaultLangMissing = errx.New("i18n: default language has no catalog file | i18n：默认语言缺少对应的语言文件")
+	// ErrReadDir reports a catalog directory that could not be read. | ErrReadDir 表示语言目录无法读取。
+	ErrReadDir = errx.New("i18n: failed to read the language directory | i18n：读取语言目录失败")
+	// ErrParseCatalog reports a catalog file that could not be parsed. | ErrParseCatalog 表示语言文件无法解析。
+	ErrParseCatalog = errx.New("i18n: failed to parse the catalog file | i18n：解析语言文件失败")
+	// ErrCatalogNotMap reports a catalog file whose top level is not a key-value map. | ErrCatalogNotMap 表示语言文件的顶层不是键值映射。
+	ErrCatalogNotMap = errx.New("i18n: catalog file top level must be a key-value map | i18n：语言文件的顶层必须是键值映射")
 )
 
 // Bundle holds every loaded catalog and hands out translators for them. | Bundle 持有全部已加载的语言目录，并按语言派发译者。
@@ -52,6 +58,7 @@ type Bundle struct {
 // New loads every catalog file under dir as one language. | New 加载 dir 下的所有语言文件，每个文件即一种语言。
 // The file base name is the language tag and `_` is normalized to `-`; files without a supported extension and hidden files are skipped, and when several files share one tag the one sorting last by file name wins. | 文件名（去扩展名）即语言标签，`_` 归一化为 `-`；扩展名不受支持的文件与隐藏文件被跳过，多个文件映射到同一标签时按文件名字典序靠后者胜出。
 // Misconfiguration is reported as an error wrapping ErrNilFS, ErrEmptyDefaultLang, ErrNoCatalogs or ErrDefaultLangMissing. | 配置错误会返回包装了 ErrNilFS、ErrEmptyDefaultLang、ErrNoCatalogs 或 ErrDefaultLangMissing 的错误。
+// A failed read or parse is annotated with ErrReadDir, ErrParseCatalog or ErrCatalogNotMap. | 读取或解析失败会以 ErrReadDir、ErrParseCatalog 或 ErrCatalogNotMap 注解。
 func New(fsys afero.Fs, dir string, defaultLang string) (*Bundle, error) {
 	if fsys == nil {
 		return nil, ErrNilFS
@@ -69,7 +76,7 @@ func New(fsys afero.Fs, dir string, defaultLang string) (*Bundle, error) {
 		return nil, err
 	}
 	if _, ok := b.catalogs[def]; !ok {
-		return nil, fmt.Errorf("i18n: %w: %s", ErrDefaultLangMissing, def)
+		return nil, errx.Detail(ErrDefaultLangMissing, "language %s | 语言 %s", def, def)
 	}
 	return b, nil
 }
@@ -93,7 +100,7 @@ func (b *Bundle) Reload() error {
 func (b *Bundle) load() (map[string]map[string]any, []string, error) {
 	entries, err := afero.ReadDir(b.fsys, b.dir)
 	if err != nil {
-		return nil, nil, fmt.Errorf("i18n: 读取语言目录 %s 失败: %w", b.dir, err)
+		return nil, nil, errx.WrapDetail(err, ErrReadDir, "dir %s | 目录 %s", b.dir, b.dir)
 	}
 
 	catalogs := make(map[string]map[string]any, len(entries))
@@ -113,13 +120,13 @@ func (b *Bundle) load() (map[string]map[string]any, []string, error) {
 		file := filepath.Join(b.dir, entry.Name())
 		catalog, err := parseCatalog(b.fsys, file)
 		if err != nil {
-			return nil, nil, fmt.Errorf("i18n: 解析语言文件 %s 失败: %w", file, err)
+			return nil, nil, errx.WrapDetail(err, ErrParseCatalog, "file %s | 文件 %s", file, file)
 		}
 		catalogs[tag] = catalog
 	}
 
 	if len(catalogs) == 0 {
-		return nil, nil, fmt.Errorf("i18n: %w: %s", ErrNoCatalogs, b.dir)
+		return nil, nil, errx.Detail(ErrNoCatalogs, "dir %s | 目录 %s", b.dir, b.dir)
 	}
 
 	langs := make([]string, 0, len(catalogs))
@@ -140,7 +147,7 @@ func parseCatalog(fsys afero.Fs, file string) (map[string]any, error) {
 	}
 	catalog, ok := normalizeValue(v.AllSettings()).(map[string]any)
 	if !ok {
-		return nil, fmt.Errorf("i18n: 语言文件 %s 的顶层必须是键值映射", file)
+		return nil, errx.Detail(ErrCatalogNotMap, "file %s | 文件 %s", file, file)
 	}
 	return catalog, nil
 }

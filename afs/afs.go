@@ -11,13 +11,29 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
-	"fmt"
 	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
 
 	"github.com/spf13/afero"
+	"github.com/yun-dev/yd/errx"
+)
+
+// File operation errors, declared once at package level. | 文件操作错误，在包级声明一次。
+var (
+	// ErrRelPath indicates the relative path from the source directory could not be computed. | ErrRelPath 表示无法计算源路径与源目录之间的相对路径。
+	ErrRelPath = errx.New("afs: failed to compute relative path | afs：计算相对路径失败")
+	// ErrMkdir indicates the target directory could not be created. | ErrMkdir 表示无法创建目标目录。
+	ErrMkdir = errx.New("afs: failed to create directory | afs：创建目录失败")
+	// ErrReadFile indicates the file content could not be read. | ErrReadFile 表示无法读取文件内容。
+	ErrReadFile = errx.New("afs: failed to read file | afs：读取文件失败")
+	// ErrWriteFile indicates the file content could not be written. | ErrWriteFile 表示无法写入文件内容。
+	ErrWriteFile = errx.New("afs: failed to write file | afs：写入文件失败")
+	// ErrOpenFile indicates the file could not be opened. | ErrOpenFile 表示无法打开文件。
+	ErrOpenFile = errx.New("afs: failed to open file | afs：打开文件失败")
+	// ErrHashFile indicates the file hash could not be computed while streaming. | ErrHashFile 表示无法流式计算文件哈希。
+	ErrHashFile = errx.New("afs: failed to hash file | afs：计算文件哈希失败")
 )
 
 // FS 是 afero.Fs 的类型别名：afero 生态中的任意实现（OsFs、MemMapFs、
@@ -59,26 +75,26 @@ func CopyDir(src, dst FS, srcDir, dstDir string) error {
 
 		rel, err := filepath.Rel(srcDir, path)
 		if err != nil {
-			return fmt.Errorf("afs: 计算 %s 相对 %s 的路径失败: %w", path, srcDir, err)
+			return errx.WrapDetail(err, ErrRelPath, "%s relative to %s", path, srcDir)
 		}
 		target := filepath.Join(dstDir, rel)
 
 		if info.IsDir() {
 			if err := dst.MkdirAll(target, 0o755); err != nil {
-				return fmt.Errorf("afs: 创建目录 %s 失败: %w", target, err)
+				return errx.WrapDetail(err, ErrMkdir, "%s", target)
 			}
 			return nil
 		}
 
 		data, err := afero.ReadFile(src, path)
 		if err != nil {
-			return fmt.Errorf("afs: 读取源文件 %s 失败: %w", path, err)
+			return errx.WrapDetail(err, ErrReadFile, "%s", path)
 		}
 		if err := dst.MkdirAll(filepath.Dir(target), 0o755); err != nil {
-			return fmt.Errorf("afs: 创建目录 %s 失败: %w", target, err)
+			return errx.WrapDetail(err, ErrMkdir, "%s", target)
 		}
 		if err := afero.WriteFile(dst, target, data, 0o644); err != nil {
-			return fmt.Errorf("afs: 写入目标文件 %s 失败: %w", target, err)
+			return errx.WrapDetail(err, ErrWriteFile, "%s", target)
 		}
 		return nil
 	})
@@ -93,7 +109,7 @@ func WriteFileIfChanged(fs FS, path string, data []byte) (bool, error) {
 	if Exists(fs, path) {
 		old, err := afero.ReadFile(fs, path)
 		if err != nil {
-			return false, fmt.Errorf("afs: 读取 %s 失败: %w", path, err)
+			return false, errx.WrapDetail(err, ErrReadFile, "%s", path)
 		}
 		if bytes.Equal(old, data) {
 			return false, nil
@@ -102,11 +118,11 @@ func WriteFileIfChanged(fs FS, path string, data []byte) (bool, error) {
 
 	if dir := filepath.Dir(path); dir != "." {
 		if err := fs.MkdirAll(dir, 0o755); err != nil {
-			return false, fmt.Errorf("afs: 创建目录 %s 失败: %w", dir, err)
+			return false, errx.WrapDetail(err, ErrMkdir, "%s", dir)
 		}
 	}
 	if err := afero.WriteFile(fs, path, data, 0o644); err != nil {
-		return false, fmt.Errorf("afs: 写入 %s 失败: %w", path, err)
+		return false, errx.WrapDetail(err, ErrWriteFile, "%s", path)
 	}
 	return true, nil
 }
@@ -123,13 +139,13 @@ func Exists(fs FS, path string) bool {
 func Sha256File(fs FS, path string) (string, error) {
 	f, err := fs.Open(path)
 	if err != nil {
-		return "", fmt.Errorf("afs: 打开 %s 失败: %w", path, err)
+		return "", errx.WrapDetail(err, ErrOpenFile, "%s", path)
 	}
 	defer func() { _ = f.Close() }()
 
 	h := sha256.New()
 	if _, err := io.Copy(h, f); err != nil {
-		return "", fmt.Errorf("afs: 计算 %s 的 SHA-256 失败: %w", path, err)
+		return "", errx.WrapDetail(err, ErrHashFile, "%s", path)
 	}
 	return hex.EncodeToString(h.Sum(nil)), nil
 }

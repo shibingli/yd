@@ -1,6 +1,7 @@
 package openapi
 
 import (
+	"errors"
 	"strings"
 	"testing"
 
@@ -171,8 +172,8 @@ func TestCollectFromSourceReport(t *testing.T) {
 		t.Errorf("source-only report must leave Missing/Orphan empty | 仅源码解析时 Missing/Orphan 应为空: %+v", report)
 	}
 
-	if _, err := CollectFromSource(memFSWithAnnotations(t), []string{"/nope"}); err == nil {
-		t.Errorf("missing directory must return an error | 目录不存在时应返回错误")
+	if _, err := CollectFromSource(memFSWithAnnotations(t), []string{"/nope"}); !errors.Is(err, ErrScan) {
+		t.Errorf("missing directory must return ErrScan, got %v | 目录不存在时应返回 ErrScan，实际为 %v", err, err)
 	}
 }
 

@@ -8,18 +8,11 @@ import (
 	"github.com/yun-dev/yd/router"
 )
 
-// AccessLog returns a middleware that logs one record per request.
-//
-// | AccessLog 返回每个请求记录一条日志的中间件。
-//
-// Recorded fields: method, path, status, bytes, duration (milliseconds in JSON output) and
-// request_id (filled in when RequestID runs earlier in the chain). Upgrade requests are not
-// wrapped so the WebSocket handshake keeps a usable http.Hijacker, and a nil logger turns
-// the middleware into a pass-through.
-//
-// | 记录字段：method、path、status、bytes、duration（JSON 中为毫秒）与 request_id
-// |（在 RequestID 位于链上更早位置时才有值）。升级请求不做包装，以保证 WebSocket 握手仍有可用的
-// | http.Hijacker；日志器为 nil 时该中间件退化为直通。
+// AccessLog returns a middleware that logs one record per request. | AccessLog 返回每个请求记录一条日志的中间件。
+// Recorded fields are method, path, query, status, bytes, remote_ip, duration — milliseconds in JSON
+// output — and request_id, which is filled when RequestID runs earlier in the chain. | 记录字段包括 method、path、query、status、bytes、remote_ip、duration（JSON 中为毫秒）以及 request_id（RequestID 位于链上更早位置时才有值）。
+// Upgrade requests are not wrapped so the WebSocket handshake keeps a usable http.Hijacker. | 升级请求不做包装，以保证 WebSocket 握手仍有可用的 http.Hijacker。
+// A nil logger turns the middleware into a pass-through. | 日志器为 nil 时该中间件退化为直通。
 func AccessLog(l *logx.Logger) router.Middleware {
 	return func(c *router.Ctx) {
 		if l == nil || isUpgradeRequest(c.Request) {

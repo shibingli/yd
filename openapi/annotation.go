@@ -10,6 +10,15 @@ import (
 	"strings"
 
 	"github.com/spf13/afero"
+	"github.com/yun-dev/yd/errx"
+)
+
+// Source scanning errors, declared once at package level. | 源码扫描错误，在包级声明一次。
+var (
+	// ErrScan means the annotation directories could not be traversed. | ErrScan 表示注解目录无法遍历。
+	ErrScan = errx.New("openapi: failed to scan annotation sources | openapi：注解源码扫描失败")
+	// ErrRead means an annotation source file could not be read. | ErrRead 表示注解源文件无法读取。
+	ErrRead = errx.New("openapi: failed to read annotation source | openapi：注解源文件读取失败")
 )
 
 // Annotation is the parsed form of one handler annotation block. | Annotation 是单个处理器注解块的解析结果。
@@ -441,7 +450,7 @@ func parseAnnotationFiles(fsys afero.Fs, dirs []string) ([]Annotation, error) {
 			return nil
 		})
 		if err != nil {
-			return nil, fmt.Errorf("openapi: walk annotations in %q: %w", dir, err)
+			return nil, errx.WrapDetail(err, ErrScan, "walk %q", dir)
 		}
 	}
 	sort.Strings(files)
@@ -450,7 +459,7 @@ func parseAnnotationFiles(fsys afero.Fs, dirs []string) ([]Annotation, error) {
 	for _, path := range files {
 		src, err := afero.ReadFile(fsys, path)
 		if err != nil {
-			return nil, fmt.Errorf("openapi: read %q: %w", path, err)
+			return nil, errx.WrapDetail(err, ErrRead, "%q", path)
 		}
 		out = append(out, parseFileAnnotations(path, string(src))...)
 	}
@@ -656,7 +665,10 @@ func parseResponses(args string) []AnnotationResponse {
 		index++
 	}
 	description := strings.Join(fields[index:], " ")
-	schema := schemaForResponse(kind, token)
+	var schema *Schema
+	if kind != "" || token != "" {
+		schema = schemaForResponse(kind, token)
+	}
 
 	var out []AnnotationResponse
 	for _, code := range strings.Split(fields[0], ",") {

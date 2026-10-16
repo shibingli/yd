@@ -144,7 +144,7 @@ func closePayload(code CloseCode, text string) []byte {
 	return buf
 }
 
-// parseClosePayload 解析关闭帧载荷。
+// parseClosePayload parses a close frame payload. | parseClosePayload 解析关闭帧载荷。
 func parseClosePayload(p []byte) (CloseCode, string, error) {
 	switch {
 	case len(p) == 0:

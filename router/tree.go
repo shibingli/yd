@@ -1,9 +1,10 @@
 package router
 
 import (
-	"fmt"
 	"sort"
 	"strings"
+
+	"github.com/yun-dev/yd/errx"
 )
 
 // node is a single node of the radix tree; each node corresponds to one segment in the path. | node 是基数树的单个节点，每个节点对应路径中的一个分段。
@@ -92,7 +93,7 @@ func (t *Tree) Add(method, pattern string, handler any) error {
 		n.handlers = make(map[string]any, 4)
 	}
 	if _, dup := n.handlers[method]; dup {
-		return fmt.Errorf("%w: %s %s", ErrConflict, method, pattern)
+		return errx.Detail(ErrConflict, "%s %s", method, pattern)
 	}
 	n.handlers[method] = handler
 	n.pattern = pattern

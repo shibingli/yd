@@ -14,12 +14,12 @@ import (
 	"time"
 )
 
-// ---------------------------------------------------------------- 测试脚手架
+// ---------------------------------------------------------------- Test scaffolding | 测试脚手架
 
-// tcpPair 建立一对已连接的 TCP 连接，返回 (服务端侧, 客户端侧)。
+// tcpPair establishes a pair of connected TCP connections and returns (server side, client side). | tcpPair 建立一对已连接的 TCP 连接，返回 (服务端侧, 客户端侧)。
 //
-// 使用真实 TCP 而非 net.Pipe：TCP 有内核缓冲，写入不会因对端尚未读取而阻塞，
-// 便于构造「先写完整帧、再读取」的确定性测试序列。
+// Real TCP is used rather than net.Pipe: TCP has kernel buffers, so a write does not block just because the peer has not read yet, | 使用真实 TCP 而非 net.Pipe：TCP 有内核缓冲，写入不会因对端尚未读取而阻塞，
+// which makes deterministic "write a full frame, then read" test sequences easy to build. | 便于构造「先写完整帧、再读取」的确定性测试序列。
 func tcpPair(t *testing.T) (net.Conn, net.Conn) {
 	t.Helper()
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
@@ -52,7 +52,7 @@ func tcpPair(t *testing.T) (net.Conn, net.Conn) {
 	return r.c, cli
 }
 
-// connPair 返回 (服务端 Conn, 客户端 Conn)。
+// connPair returns (server Conn, client Conn). | connPair 返回 (服务端 Conn, 客户端 Conn)。
 func connPair(t *testing.T, o Options) (*Conn, *Conn) {
 	t.Helper()
 	ss, cs := tcpPair(t)
@@ -60,14 +60,14 @@ func connPair(t *testing.T, o Options) (*Conn, *Conn) {
 	return newConn(ss, oo, false), newConn(cs, oo, true)
 }
 
-// dialPair 返回 (服务端 Conn, 客户端裸连接)，裸连接供手工构造非法帧。
+// dialPair returns (server Conn, raw client connection); the raw connection is for hand-crafting invalid frames. | dialPair 返回 (服务端 Conn, 客户端裸连接)，裸连接供手工构造非法帧。
 func dialPair(t *testing.T, o Options) (*Conn, net.Conn) {
 	t.Helper()
 	ss, cs := tcpPair(t)
 	return newConn(ss, o.normalize(), false), cs
 }
 
-// rawFrame 手工构造一个帧（含可选 RSV1），用于构造非法输入。
+// rawFrame hand-crafts a frame (with an optional RSV1 bit) for building invalid input. | rawFrame 手工构造一个帧（含可选 RSV1），用于构造非法输入。
 func rawFrame(fin, rsv1 bool, op OpCode, masked bool, key [4]byte, payload []byte) []byte {
 	var hdr [maxHeaderSize]byte
 	n := writeFrameHeader(hdr[:], fin, op, masked, int64(len(payload)))
@@ -89,7 +89,7 @@ func rawFrame(fin, rsv1 bool, op OpCode, masked bool, key [4]byte, payload []byt
 
 var testKey = [4]byte{0x37, 0xfa, 0x21, 0x3d}
 
-// expectCloseCode 从客户端侧连接读取服务端发来的关闭帧并校验状态码。
+// expectCloseCode reads the close frame the server sent from the client-side connection and checks the status code. | expectCloseCode 从客户端侧连接读取服务端发来的关闭帧并校验状态码。
 func expectCloseCode(t *testing.T, cli *Conn) CloseCode {
 	t.Helper()
 	_ = cli.SetReadDeadline(time.Now().Add(3 * time.Second))
@@ -101,10 +101,10 @@ func expectCloseCode(t *testing.T, cli *Conn) CloseCode {
 	return ce.Code
 }
 
-// ---------------------------------------------------------------- 握手
+// ---------------------------------------------------------------- Handshake | 握手
 
 func TestAcceptKeyRFCExample(t *testing.T) {
-	// RFC 6455 §1.3 官方示例
+	// official example from RFC 6455 §1.3 | RFC 6455 §1.3 官方示例
 	got := acceptKey("dGhlIHNhbXBsZSBub25jZQ==")
 	if got != "s3pPLMBiTxaQ9kYGzzhZRbK+xOo=" {
 		t.Fatalf("Sec-WebSocket-Accept = %q, 期望 s3pPLMBiTxaQ9kYGzzhZRbK+xOo=", got)
@@ -244,8 +244,8 @@ func TestDialRejectsBadAccept(t *testing.T) {
 }
 
 func TestUpgradeOnHTTP2ReturnsTypedError(t *testing.T) {
-	// ResponseWriter 不实现 Hijacker（HTTP/2 / HTTP/3 语义）时必须返回明确错误，
-	// 而不是静默失败或 panic。
+	// when the ResponseWriter does not implement Hijacker (HTTP/2 / HTTP/3 semantics) a clear error must be returned, | ResponseWriter 不实现 Hijacker（HTTP/2 / HTTP/3 语义）时必须返回明确错误，
+	// rather than failing silently or panicking. | 而不是静默失败或 panic。
 	req := httptest.NewRequest(http.MethodGet, "/ws", nil)
 	req.Header.Set("Connection", "Upgrade")
 	req.Header.Set("Upgrade", "websocket")
@@ -269,7 +269,7 @@ func (w nonHijackWriter) Header() http.Header {
 func (w nonHijackWriter) Write(b []byte) (int, error) { return len(b), nil }
 func (w nonHijackWriter) WriteHeader(int)             {}
 
-// ---------------------------------------------------------------- 协议违规
+// ---------------------------------------------------------------- Protocol violations | 协议违规
 
 func TestReadUnmaskedClientFrameFails1002(t *testing.T) {
 	srv, cli := connPair(t, Options{})
@@ -325,7 +325,7 @@ func TestMultiByteRuneSplitAcrossFramesIsValid(t *testing.T) {
 	defer func() { _ = srv.CloseNow() }()
 	defer func() { _ = cli.CloseNow() }()
 
-	// "中" = E4 B8 AD，前两个字节放第一帧，末字节放续帧
+	// "中" = E4 B8 AD: the first two bytes go into the first frame and the last byte into a continuation frame | "中" = E4 B8 AD，前两个字节放第一帧，末字节放续帧
 	part1 := []byte{0xE4, 0xB8}
 	part2 := []byte{0xAD, '!'}
 	var wire []byte
@@ -422,7 +422,7 @@ func TestProtocolViolationsTable(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------- 分片与控制帧
+// ---------------------------------------------------------------- Fragmentation and control frames | 分片与控制帧
 
 func TestFragmentedMessageWithInterleavedPing(t *testing.T) {
 	srv, cli := connPair(t, Options{})
@@ -445,7 +445,7 @@ func TestFragmentedMessageWithInterleavedPing(t *testing.T) {
 		t.Fatalf("消息 = %q (op=%v), 期望 Hello", data, op)
 	}
 
-	// 服务端应已自动回复 pong（原始帧：0x8A + 长度 + "hb"）
+	// the server should have replied with a pong automatically (raw frame: 0x8A + length + "hb") | 服务端应已自动回复 pong（原始帧：0x8A + 长度 + "hb"）
 	_ = cli.conn.SetReadDeadline(time.Now().Add(3 * time.Second))
 	var head [2]byte
 	if _, err := io.ReadFull(cli.conn, head[:]); err != nil {
@@ -471,11 +471,11 @@ func TestPingAndPongHandlers(t *testing.T) {
 	var pinged string
 	srv.SetPingHandler(func(s string) error {
 		pinged = s
-		return nil // 自行处理后不再自动回复 pong
+		return nil // handled here, so no automatic pong is sent | 自行处理后不再自动回复 pong
 	})
 
-	// 控制帧在「寻找下一条数据消息」的读取过程中被处理，
-	// 因此再补一条数据消息，让服务端把中间的 ping 读掉。
+	// control frames are handled while reading onward toward the next data message, | 控制帧在「寻找下一条数据消息」的读取过程中被处理，
+	// so one more data message is sent afterwards, letting the server consume the ping in between. | 因此再补一条数据消息，让服务端把中间的 ping 读掉。
 	if err := cli.WriteMessage(TextMessage, []byte("before")); err != nil {
 		t.Fatalf("写入失败: %v", err)
 	}
@@ -531,7 +531,7 @@ func TestWriteMessageAfterCloseReturnsErrCloseSent(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------- 内存与资源
+// ---------------------------------------------------------------- Memory and resources | 内存与资源
 
 func TestReadMessageReusesBuffer(t *testing.T) {
 	srv, cli := connPair(t, Options{})
@@ -552,10 +552,10 @@ func TestReadMessageReusesBuffer(t *testing.T) {
 		}
 	}
 
-	// 预热一次，让内部缓冲分配到位
+	// warm up once so the internal buffer gets allocated | 预热一次，让内部缓冲分配到位
 	send("warm-up-payload-0000000000")
 
-	// 随后两次读取必须复用同一底层缓冲（首字节地址一致）
+	// the next two reads must reuse the same underlying buffer (same address for the first byte) | 随后两次读取必须复用同一底层缓冲（首字节地址一致）
 	if err := cli.WriteMessage(BinaryMessage, []byte("aaaaaaaaaa")); err != nil {
 		t.Fatalf("写入失败: %v", err)
 	}
@@ -602,7 +602,7 @@ func TestNoGoroutineLeakAfterConnectCloseCycles(t *testing.T) {
 			t.Fatalf("写入失败: %v", err)
 		}
 		_ = c.SetReadDeadline(time.Now().Add(2 * time.Second))
-		_, _, _ = c.ReadMessage() // 服务端读到 EOF 后关闭，客户端读取会报错
+		_, _, _ = c.ReadMessage() // the server closes after reading EOF, so the client read reports an error | 服务端读到 EOF 后关闭，客户端读取会报错
 		_ = c.CloseNow()
 	}
 	srv.Close()

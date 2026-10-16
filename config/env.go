@@ -2,12 +2,20 @@ package config
 
 import (
 	"errors"
-	"fmt"
 	"io/fs"
 	"os"
 	"strings"
 
 	"github.com/spf13/afero"
+	"github.com/yun-dev/yd/errx"
+)
+
+// .env errors, declared once at package level. | .env 错误，在包级声明一次。
+var (
+	// ErrReadEnvFile indicates the .env file exists but could not be read. | ErrReadEnvFile 表示 .env 文件存在但无法读取。
+	ErrReadEnvFile = errx.New("config: failed to read env file | config：读取环境文件失败")
+	// ErrInjectEnv indicates an environment variable could not be set from the .env file. | ErrInjectEnv 表示无法从 .env 文件注入环境变量。
+	ErrInjectEnv = errx.New("config: failed to inject environment variable | config：注入环境变量失败")
 )
 
 // loadEnvFile reads the .env file via afero and injects its key-value pairs into the process environment variables. | loadEnvFile 通过 afero 读取 .env 文件，并把其中的键值注入进程环境变量。
@@ -24,7 +32,7 @@ func (c *Config) loadEnvFile(path string) error {
 		if errors.Is(err, fs.ErrNotExist) {
 			return nil
 		}
-		return fmt.Errorf("config: 读取环境文件 %s 失败: %w", path, err)
+		return errx.WrapDetail(err, ErrReadEnvFile, "%s", path)
 	}
 
 	for key, val := range parseDotEnv(data) {
@@ -32,7 +40,7 @@ func (c *Config) loadEnvFile(path string) error {
 			continue // Real environment variables take precedence; overwriting is forbidden. | 真实环境变量优先，禁止覆盖
 		}
 		if err := os.Setenv(key, val); err != nil {
-			return fmt.Errorf("config: 注入环境变量 %s 失败: %w", key, err)
+			return errx.WrapDetail(err, ErrInjectEnv, "%s", key)
 		}
 	}
 	return nil

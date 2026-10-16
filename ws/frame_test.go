@@ -64,7 +64,7 @@ func TestReadFrameHeaderRoundTrip(t *testing.T) {
 }
 
 func TestReadFrameHeaderRejectsHugeLength(t *testing.T) {
-	// RFC 6455 §5.2：64 位长度的最高位必须为 0
+	// RFC 6455 §5.2: the most significant bit of a 64-bit length must be 0 | RFC 6455 §5.2：64 位长度的最高位必须为 0
 	hdr := []byte{0x82, 0x7f, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff}
 	var buf [8]byte
 	if _, err := readFrameHeader(bytes.NewReader(hdr), buf[:]); err != ErrMessageTooBig {
@@ -79,7 +79,7 @@ func TestReadFrameHeaderShortInput(t *testing.T) {
 	}
 }
 
-// TestMaskBytesRFCExample 使用 RFC 6455 §5.7 的官方掩码示例。
+// TestMaskBytesRFCExample uses the official masking example from RFC 6455 §5.7. | TestMaskBytesRFCExample 使用 RFC 6455 §5.7 的官方掩码示例。
 func TestMaskBytesRFCExample(t *testing.T) {
 	key := [4]byte{0x37, 0xfa, 0x21, 0x3d}
 	payload := []byte("Hello")
@@ -88,7 +88,7 @@ func TestMaskBytesRFCExample(t *testing.T) {
 	if !bytes.Equal(payload, want) {
 		t.Fatalf("掩码结果 = % x, 期望 % x", payload, want)
 	}
-	// XOR 自反：再次掩码即还原
+	// XOR is self-inverse: masking again restores the original | XOR 自反：再次掩码即还原
 	maskBytes(key, 0, payload)
 	if string(payload) != "Hello" {
 		t.Fatalf("还原失败: %q", payload)
@@ -105,7 +105,7 @@ func TestMaskBytesAllOffsetsAndLengths(t *testing.T) {
 		for _, length := range []int{0, 1, 2, 3, 4, 5, 7, 8, 9, 15, 16, 17, 63, 64, 65, 255, 300} {
 			buf := make([]byte, length)
 			copy(buf, original[:length])
-			// 模拟「偏移 offset 处的切片」
+			// simulate "a slice located at offset offset" | 模拟「偏移 offset 处的切片」
 			pre := make([]byte, length)
 			copy(pre, buf)
 			maskBytes(key, offset, pre)
@@ -123,7 +123,7 @@ func TestMaskBytesAllOffsetsAndLengths(t *testing.T) {
 }
 
 func TestUtf8IncrementalValidation(t *testing.T) {
-	// "中" = E4 B8 AD，跨帧拆分也必须判定为合法
+	// "中" = E4 B8 AD; it must also be judged valid when split across frames | "中" = E4 B8 AD，跨帧拆分也必须判定为合法
 	var s utf8State
 	if !s.write([]byte{0xE4}) {
 		t.Fatal("首字节不应立即判非法")
@@ -141,22 +141,22 @@ func TestUtf8IncrementalValidation(t *testing.T) {
 		t.Fatal("序列完成后应视为完整")
 	}
 
-	// 非法续字节
+	// invalid continuation byte | 非法续字节
 	var bad utf8State
 	if bad.write([]byte{0xE4, 0x28}) {
 		t.Fatal("非法续字节必须判失败")
 	}
-	// 过长编码 C0 80
+	// overlong encoding C0 80 | 过长编码 C0 80
 	var overlong utf8State
 	if overlong.write([]byte{0xC0, 0x80}) {
 		t.Fatal("过长编码必须判失败")
 	}
-	// 代理区码点 ED A0 80（U+D800）
+	// surrogate code point ED A0 80 (U+D800) | 代理区码点 ED A0 80（U+D800）
 	var surrogate utf8State
 	if surrogate.write([]byte{0xED, 0xA0, 0x80}) {
 		t.Fatal("代理区码点必须判失败")
 	}
-	// 超范围 F5
+	// out of range F5 | 超范围 F5
 	var tooBig utf8State
 	if tooBig.write([]byte{0xF5, 0x80, 0x80, 0x80}) {
 		t.Fatal("超出 U+10FFFF 必须判失败")
@@ -176,7 +176,7 @@ func TestClosePayloadRoundTrip(t *testing.T) {
 	if _, _, err := parseClosePayload([]byte{0x03}); err == nil {
 		t.Fatal("单字节载荷必须判协议错误")
 	}
-	// 保留码 1005 不得出现在线上
+	// the reserved code 1005 must not appear on the wire | 保留码 1005 不得出现在线上
 	reserved := make([]byte, 2)
 	binary.BigEndian.PutUint16(reserved, uint16(CloseNoStatusReceived))
 	if _, _, err := parseClosePayload(reserved); err == nil {

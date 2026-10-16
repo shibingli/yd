@@ -29,8 +29,8 @@ func TestAccessLogRecordsFields(t *testing.T) {
 	}
 
 	entry := onlyRecord(t, buf)
-	if entry["msg"] != "access" {
-		t.Errorf("msg = %v, 期望 access", entry["msg"])
+	if entry["msg"] != "access | 访问日志" {
+		t.Errorf("msg = %v, 期望中英同步的访问日志文案", entry["msg"])
 	}
 	if entry["method"] != http.MethodGet {
 		t.Errorf("method = %v, 期望 GET", entry["method"])

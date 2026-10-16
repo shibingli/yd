@@ -3,19 +3,19 @@ package middleware
 import (
 	"bufio"
 	"bytes"
-	"errors"
 	"net"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
 
+	"github.com/yun-dev/yd/errx"
 	"github.com/yun-dev/yd/jsonx"
 	"github.com/yun-dev/yd/logx"
 	"github.com/yun-dev/yd/router"
 )
 
-// ---------------------------------------------------------------- 测试辅助
+// ---------------------------------------------------------------- test helpers | 测试辅助
 
 // newTestLogger returns a JSON logger writing records into buf. | newTestLogger 返回一个把 JSON 记录写入 buf 的日志器。
 func newTestLogger() (*logx.Logger, *bytes.Buffer) {
@@ -77,7 +77,7 @@ func doReqFrom(r *router.Router, method, target, remoteAddr string, hdr map[stri
 func newRecorder() *httptest.ResponseRecorder { return httptest.NewRecorder() }
 
 // errNoHijack is returned by the fake hijacker below. | errNoHijack 由下面的假 Hijacker 返回。
-var errNoHijack = errors.New("test: 不支持 Hijack")
+var errNoHijack = errx.New("hijack unsupported | 不支持 Hijack")
 
 // hijackRecorder adds http.Hijacker to a response recorder. | hijackRecorder 为响应记录器补充 http.Hijacker 能力。
 type hijackRecorder struct {
@@ -97,7 +97,7 @@ func newUpgradeRequest(target string) *http.Request {
 	return req
 }
 
-// ---------------------------------------------------------------- Chain
+// ---------------------------------------------------------------- Chain | 组合
 
 func TestChainRunsInOrder(t *testing.T) {
 	var order []string

@@ -6,7 +6,7 @@
 //   - 把连接池参数落到 sql.DB，并按框架硬规则默认开启预编译语句缓存；
 //   - 用 logx 承载 GORM 的日志：慢查询只经 logx.SlowQuery 打点（零反射、零字符串拼接），
 //     并由 ParamsFilter 屏蔽口令、Token 等敏感实参；
-//   - 提供 AutoMigrate / Health / Close 等生命周期辅助函数。
+//   - 提供 AutoMigrate / Health / Close 等生命周期辅助函数，失败路径统一返回包级哨兵错误。
 //
 // 不做什么：不定义模型与业务查询、不做连接以外的资源管理（缓存、迁移版本表），
 // 也不替调用方决定 DSN 之外的重试与降级策略。
@@ -14,8 +14,6 @@ package gormx
 
 import (
 	"context"
-	"errors"
-	"fmt"
 	"strings"
 	"time"
 
@@ -24,6 +22,7 @@ import (
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 
+	"github.com/yun-dev/yd/errx"
 	"github.com/yun-dev/yd/logx"
 )
 
@@ -49,11 +48,23 @@ const (
 	redactedPlaceholder = "?"
 )
 
-// ErrUnsupportedDriver 表示 Options.Driver 不是受支持的驱动，可用 errors.Is 判定。
-var ErrUnsupportedDriver = errors.New("gormx: 不支持的数据库驱动")
-
-// ErrNilDB 表示生命周期函数收到了 nil 的 *gorm.DB，可用 errors.Is 判定。
-var ErrNilDB = errors.New("gormx: *gorm.DB 为 nil")
+// 包级哨兵错误：所有失败路径都引用下列声明，调用方一律用 errors.Is 判定。
+var (
+	// ErrUnsupportedDriver indicates that Options.Driver is not one of the supported drivers. | ErrUnsupportedDriver 表示 Options.Driver 不在受支持的驱动之列。
+	ErrUnsupportedDriver = errx.New("gormx: unsupported driver | gormx：不支持的驱动")
+	// ErrNilDB indicates that a lifecycle helper received a nil *gorm.DB. | ErrNilDB 表示生命周期函数收到了 nil 的 *gorm.DB。
+	ErrNilDB = errx.New("gormx: nil *gorm.DB | gormx：*gorm.DB 为 nil")
+	// ErrOpenFailed indicates that gorm.Open failed. | ErrOpenFailed 表示 gorm.Open 失败。
+	ErrOpenFailed = errx.New("gormx: failed to open database | gormx：打开数据库失败")
+	// ErrConnPoolUnavailable indicates that the underlying *sql.DB could not be retrieved from *gorm.DB. | ErrConnPoolUnavailable 表示无法从 *gorm.DB 取回底层 *sql.DB。
+	ErrConnPoolUnavailable = errx.New("gormx: underlying *sql.DB unavailable | gormx：无法获取底层 *sql.DB")
+	// ErrMigrateFailed indicates that AutoMigrate failed. | ErrMigrateFailed 表示自动迁移失败。
+	ErrMigrateFailed = errx.New("gormx: auto migrate failed | gormx：自动迁移失败")
+	// ErrHealthCheckFailed indicates that the database ping failed. | ErrHealthCheckFailed 表示数据库探活失败。
+	ErrHealthCheckFailed = errx.New("gormx: database health check failed | gormx：数据库探活失败")
+	// ErrCloseFailed indicates that closing the connection pool failed. | ErrCloseFailed 表示关闭连接池失败。
+	ErrCloseFailed = errx.New("gormx: failed to close database | gormx：关闭数据库失败")
+)
 
 // Options 描述一次 Open 的输入参数，零值即框架默认配置。
 type Options struct {
@@ -110,7 +121,8 @@ func Open(o Options, l *logx.Logger) (*gorm.DB, error) {
 		SkipDefaultTransaction: o.SkipDefaultTransaction,
 	})
 	if err != nil {
-		return nil, fmt.Errorf("gormx: 打开 %s 数据库失败: %w", strings.TrimSpace(o.Driver), err)
+		driver := strings.TrimSpace(o.Driver)
+		return nil, errx.WrapDetail(err, ErrOpenFailed, "driver %q | 驱动 %q", driver, driver)
 	}
 	if err := applyPool(db, o); err != nil {
 		_ = Close(db)
@@ -132,8 +144,9 @@ func dialectorFor(driver, dsn string) (gorm.Dialector, error) {
 	case DriverPostgres:
 		return postgres.Open(dsn), nil
 	default:
-		return nil, fmt.Errorf("gormx: %q 不在受支持的驱动 %s/%s/%s 之列: %w",
-			driver, DriverMySQL, DriverPostgres, DriverSQLite, ErrUnsupportedDriver)
+		return nil, errx.Detail(ErrUnsupportedDriver,
+			"driver %q is not one of mysql/postgres/sqlite | 驱动 %q 不在 mysql/postgres/sqlite 之列",
+			driver, driver)
 	}
 }
 
@@ -144,7 +157,7 @@ func dialectorFor(driver, dsn string) (gorm.Dialector, error) {
 func applyPool(db *gorm.DB, o Options) error {
 	sqlDB, err := db.DB()
 	if err != nil {
-		return fmt.Errorf("gormx: 获取底层 *sql.DB 失败: %w", err)
+		return errx.Wrap(err, ErrConnPoolUnavailable)
 	}
 
 	maxOpen := o.MaxOpenConns
@@ -162,45 +175,37 @@ func applyPool(db *gorm.DB, o Options) error {
 	return nil
 }
 
-// AutoMigrate 迁移 models 对应的表结构；db 为 nil 时返回 ErrNilDB。
+// AutoMigrate 迁移 models 对应的表结构；db 为 nil 时返回 ErrNilDB，失败返回 ErrMigrateFailed。
 func AutoMigrate(db *gorm.DB, models ...any) error {
 	if db == nil {
 		return ErrNilDB
 	}
-	if err := db.AutoMigrate(models...); err != nil {
-		return fmt.Errorf("gormx: 自动迁移失败: %w", err)
-	}
-	return nil
+	return errx.Wrap(db.AutoMigrate(models...), ErrMigrateFailed)
 }
 
-// Health 以 ctx 为限探活数据库（底层 sql.DB.PingContext）；db 为 nil 时返回 ErrNilDB。
+// Health 以 ctx 为限探活数据库（底层 sql.DB.PingContext）；
+// db 为 nil 时返回 ErrNilDB，探活失败返回 ErrHealthCheckFailed。
 func Health(ctx context.Context, db *gorm.DB) error {
 	if db == nil {
 		return ErrNilDB
 	}
 	sqlDB, err := db.DB()
 	if err != nil {
-		return fmt.Errorf("gormx: 获取底层 *sql.DB 失败: %w", err)
+		return errx.Wrap(err, ErrConnPoolUnavailable)
 	}
-	if err := sqlDB.PingContext(ctx); err != nil {
-		return fmt.Errorf("gormx: 数据库探活失败: %w", err)
-	}
-	return nil
+	return errx.Wrap(sqlDB.PingContext(ctx), ErrHealthCheckFailed)
 }
 
-// Close 关闭底层连接池并释放全部连接；db 为 nil 时返回 ErrNilDB。
+// Close 关闭底层连接池并释放全部连接；db 为 nil 时返回 ErrNilDB，失败返回 ErrCloseFailed。
 func Close(db *gorm.DB) error {
 	if db == nil {
 		return ErrNilDB
 	}
 	sqlDB, err := db.DB()
 	if err != nil {
-		return fmt.Errorf("gormx: 获取底层 *sql.DB 失败: %w", err)
+		return errx.Wrap(err, ErrConnPoolUnavailable)
 	}
-	if err := sqlDB.Close(); err != nil {
-		return fmt.Errorf("gormx: 关闭数据库失败: %w", err)
-	}
-	return nil
+	return errx.Wrap(sqlDB.Close(), ErrCloseFailed)
 }
 
 // ParamsFilter 返回脱敏后的 SQL 与实参：SQL 原样返回，每个 "?" 位置上的实参

@@ -11,10 +11,10 @@ import (
 	"github.com/yun-dev/yd/b64x"
 )
 
-// acceptKey 按 RFC 6455 §4.2.2 计算 Sec-WebSocket-Accept。
+// acceptKey computes the Sec-WebSocket-Accept value as specified by RFC 6455 §4.2.2. | acceptKey 按 RFC 6455 §4.2.2 计算 Sec-WebSocket-Accept。
 //
 // Accept = base64( SHA1( Sec-WebSocket-Key + "258EAFA5-E914-47DA-95CA-C5AB0DC85B11" ) )
-// 计算复用框架的 b64x 自适应 Base64 层（amd64 走 SIMD 加速实现）。
+// The computation reuses the framework's b64x adaptive Base64 layer (the amd64 path uses a SIMD-accelerated implementation). | 计算复用框架的 b64x 自适应 Base64 层（amd64 走 SIMD 加速实现）。
 func acceptKey(key string) string {
 	h := sha1.New()
 	_, _ = h.Write([]byte(key))
@@ -23,7 +23,7 @@ func acceptKey(key string) string {
 	return b64x.StdEncoding.EncodeToString(sum)
 }
 
-// headerContainsToken 报告以逗号分隔的头部中是否包含指定 token（大小写不敏感）。
+// headerContainsToken reports whether a comma-separated header contains the given token (case-insensitive). | headerContainsToken 报告以逗号分隔的头部中是否包含指定 token（大小写不敏感）。
 func headerContainsToken(h http.Header, name, token string) bool {
 	for _, v := range h.Values(name) {
 		for _, part := range strings.Split(v, ",") {
@@ -35,11 +35,11 @@ func headerContainsToken(h http.Header, name, token string) bool {
 	return false
 }
 
-// Upgrade 把 HTTP 请求升级为 WebSocket 连接。
+// Upgrade turns an HTTP request into a WebSocket connection. | Upgrade 把 HTTP 请求升级为 WebSocket 连接。
 //
-// 失败时已写出相应的 HTTP 错误响应，返回的错误可用于日志。
-// 注意：升级依赖 http.Hijacker，因此仅适用于 HTTP/1.1 连接；
-// HTTP/2 与 HTTP/3 会返回 ErrHijackUnsupported（请改用 SSE）。
+// On failure the corresponding HTTP error response has already been written, and the returned error can be used for logging. | 失败时已写出相应的 HTTP 错误响应，返回的错误可用于日志。
+// Note: the upgrade relies on http.Hijacker, so it only applies to HTTP/1.1 connections; | 注意：升级依赖 http.Hijacker，因此仅适用于 HTTP/1.1 连接；
+// HTTP/2 and HTTP/3 return ErrHijackUnsupported (use SSE instead). | HTTP/2 与 HTTP/3 会返回 ErrHijackUnsupported（请改用 SSE）。
 func Upgrade(w http.ResponseWriter, r *http.Request, o Options) (*Conn, error) {
 	o = o.normalize()
 
@@ -108,22 +108,22 @@ func Upgrade(w http.ResponseWriter, r *http.Request, o Options) (*Conn, error) {
 
 	c := newConn(netConn, o, false)
 	c.subprotocol = sub
-	// 客户端可能在握手后立刻流水线发送数据，Hijack 返回的读缓冲里可能已有内容，
-	// 此时必须继续使用该缓冲，否则会丢帧。
+	// a client may pipeline data right after the handshake, so the read buffer returned by Hijack may already hold content; | 客户端可能在握手后立刻流水线发送数据，Hijack 返回的读缓冲里可能已有内容，
+	// in that case the buffer must keep being used, or frames would be lost. | 此时必须继续使用该缓冲，否则会丢帧。
 	if brw != nil && brw.Reader.Buffered() > 0 {
 		c.br = brw.Reader
 	}
 	return c, nil
 }
 
-// checkOrigin 执行 Origin 校验；custom 为 nil 时使用同源策略。
+// checkOrigin performs the Origin check; when custom is nil, the same-origin policy is used. | checkOrigin 执行 Origin 校验；custom 为 nil 时使用同源策略。
 func checkOrigin(r *http.Request, custom func(*http.Request) bool) bool {
 	if custom != nil {
 		return custom(r)
 	}
 	origin := r.Header.Get("Origin")
 	if origin == "" {
-		return true // 非浏览器客户端（无 Origin）放行
+		return true // non-browser clients (no Origin) are allowed through | 非浏览器客户端（无 Origin）放行
 	}
 	u, err := url.Parse(origin)
 	if err != nil {
@@ -132,7 +132,7 @@ func checkOrigin(r *http.Request, custom func(*http.Request) bool) bool {
 	return strings.EqualFold(u.Host, r.Host)
 }
 
-// selectSubprotocol 从客户端提供的子协议中按服务端优先级挑选一个。
+// selectSubprotocol picks one of the client-offered subprotocols according to server priority. | selectSubprotocol 从客户端提供的子协议中按服务端优先级挑选一个。
 func selectSubprotocol(r *http.Request, supported []string) string {
 	if len(supported) == 0 {
 		return ""
@@ -154,5 +154,5 @@ func selectSubprotocol(r *http.Request, supported []string) string {
 	return ""
 }
 
-// errNotSwitchingProtocols 表示对端未返回 101。
+// errNotSwitchingProtocols indicates that the peer did not return 101. | errNotSwitchingProtocols 表示对端未返回 101。
 var errNotSwitchingProtocols = errors.New("ws: 对端未返回 101 Switching Protocols")

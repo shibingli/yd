@@ -27,8 +27,8 @@ func TestRecoverReturns500AndLogs(t *testing.T) {
 	if entry["level"] != "error" {
 		t.Errorf("level = %v, 期望 error", entry["level"])
 	}
-	if entry["msg"] != "panic recovered" {
-		t.Errorf("msg = %v, 期望 panic recovered", entry["msg"])
+	if entry["msg"] != "panic recovered | 捕获到 panic" {
+		t.Errorf("msg = %v, 期望中英同步的 panic 文案", entry["msg"])
 	}
 	if entry["panic"] != "kaboom" {
 		t.Errorf("panic 字段 = %v, 期望 kaboom", entry["panic"])

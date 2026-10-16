@@ -1,14 +1,14 @@
 package logx
 
 import (
-	"errors"
-	"fmt"
 	"strconv"
 	"strings"
+
+	"github.com/yun-dev/yd/errx"
 )
 
 // ErrUnknownLevel indicates that ParseLevel encountered an unrecognized level name. | ErrUnknownLevel 表示 ParseLevel 遇到了无法识别的级别名。
-var ErrUnknownLevel = errors.New("logx: 未知日志级别")
+var ErrUnknownLevel = errx.New("logx: unknown log level | logx：未知日志级别")
 
 // Level is a log level. Larger values are more severe. | Level 是日志级别。取值越大越严重。
 //
@@ -68,5 +68,5 @@ func ParseLevel(s string) (Level, error) {
 	case "fatal":
 		return FatalLevel, nil
 	}
-	return InfoLevel, fmt.Errorf("logx: 无法解析日志级别 %q: %w", s, ErrUnknownLevel)
+	return InfoLevel, errx.Detail(ErrUnknownLevel, "level %q | 级别 %q", s, s)
 }

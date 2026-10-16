@@ -164,16 +164,11 @@ func (lim *rateLimiter) sweepLocked(shard *rateLimitShard, now time.Time) {
 	}
 }
 
-// RateLimit returns a sharded token-bucket limiter middleware.
-//
-// | RateLimit 返回分片令牌桶限流中间件。
-//
+// RateLimit returns a middleware backed by sharded token buckets. | RateLimit 返回分片令牌桶限流中间件。
 // Over-limit requests are answered with 429 plus Retry-After and the X-RateLimit-Limit,
-// X-RateLimit-Remaining and X-RateLimit-Reset headers; the same three headers are also set
-// on allowed responses. Buckets are swept lazily, so the middleware needs no goroutine.
-//
-// | 超限请求返回 429，并带上 Retry-After 与 X-RateLimit-Limit、X-RateLimit-Remaining、
-// | X-RateLimit-Reset；被放行的响应同样携带这三个头部。桶采用惰性清理，因此不占用任何后台 goroutine。
+// X-RateLimit-Remaining and X-RateLimit-Reset headers. | 超限请求返回 429，并带上 Retry-After 与 X-RateLimit-Limit、X-RateLimit-Remaining、X-RateLimit-Reset。
+// The same three headers are also set on allowed responses. | 被放行的响应同样携带这三个头部。
+// Buckets are swept lazily, so the middleware needs no goroutine of its own. | 桶采用惰性清理，因此不占用任何后台 goroutine。
 func RateLimit(o RateLimitOptions) router.Middleware {
 	lim := newRateLimiter(o)
 	return func(c *router.Ctx) {

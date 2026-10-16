@@ -4,7 +4,8 @@ package b64x
 
 import (
 	"encoding/base64"
-	"fmt"
+
+	"github.com/yun-dev/yd/errx"
 )
 
 // Encoding is a Base64 codec that delegates to the standard library encoding/base64 on non-amd64 platforms | Encoding 是 Base64 编解码器，在非 amd64 平台或指定 b64x_std 标签时委托给标准库
@@ -57,7 +58,7 @@ func (e *Encoding) Decode(dst, src []byte) (int, error) {
 	}
 	n, err := e.enc.Decode(dst, src)
 	if err != nil {
-		return 0, fmt.Errorf("%w: %w", ErrInvalidData, err)
+		return 0, errx.Wrap(err, ErrInvalidData)
 	}
 	return n, nil
 }
@@ -70,7 +71,7 @@ func (e *Encoding) DecodeString(s string) ([]byte, error) {
 	}
 	out, err := e.enc.DecodeString(s)
 	if err != nil {
-		return nil, fmt.Errorf("%w: %w", ErrInvalidData, err)
+		return nil, errx.Wrap(err, ErrInvalidData)
 	}
 	return out, nil
 }
@@ -85,7 +86,7 @@ func (e *Encoding) AppendDecode(dst, src []byte) ([]byte, error) {
 	}
 	out, err := e.enc.AppendDecode(dst, src)
 	if err != nil {
-		return dst, fmt.Errorf("%w: %w", ErrInvalidData, err)
+		return dst, errx.Wrap(err, ErrInvalidData)
 	}
 	return out, nil
 }

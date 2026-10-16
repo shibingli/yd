@@ -31,6 +31,15 @@ type probeRow struct {
 // TableName 固定表名，避免测试依赖 GORM 的复数化规则。
 func (probeRow) TableName() string { return "gormx_probe_rows" }
 
+// slowSeedRow 是慢查询用例的种子模型。
+type slowSeedRow struct {
+	ID   uint
+	Name string
+}
+
+// TableName 固定表名，供日志断言匹配。
+func (slowSeedRow) TableName() string { return "gormx_slow_seeds" }
+
 // memoryDSN 返回进程内内存库的 DSN。
 //
 // 每个测试使用独立命名（mode=memory&cache=shared）而非共享的 "file::memory:"，
@@ -97,24 +106,32 @@ func TestOpenSQLiteWithPrepareStmtEnabled(t *testing.T) {
 
 // TestSlowQueryLoggedThroughLogx 断言超过阈值的查询经 logx.SlowQuery 打点，
 // 日志中出现 slow_query 与 duration 字段。
+//
+// 用例刻意使用批量写入：单条 DDL/INSERT 的实际耗时可能不足一个时钟步长
+// （实测本机 time.Now 的最小非零步长约 50µs），此时 elapsed 为 0 而不算慢查询，
+// 批量语句则可稳定超过阈值。
 func TestSlowQueryLoggedThroughLogx(t *testing.T) {
 	var buf bytes.Buffer
 	db := openProbe(t, gormx.Options{SlowThreshold: time.Nanosecond, LogLevel: "warn"}, newBufLogger(&buf))
 
-	if err := db.Exec("CREATE TABLE gormx_slow_probe (id INTEGER PRIMARY KEY)").Error; err != nil {
-		t.Fatalf("建表失败: %v", err)
+	if err := gormx.AutoMigrate(db, &slowSeedRow{}); err != nil {
+		t.Fatalf("AutoMigrate 失败: %v", err)
+	}
+
+	rows := make([]slowSeedRow, 500)
+	for i := range rows {
+		rows[i] = slowSeedRow{Name: "seed"}
 	}
 	buf.Reset()
-
-	if err := db.Exec("INSERT INTO gormx_slow_probe (id) VALUES (?)", 1).Error; err != nil {
-		t.Fatalf("写入失败: %v", err)
+	if err := db.CreateInBatches(rows, len(rows)).Error; err != nil {
+		t.Fatalf("批量写入失败: %v", err)
 	}
 
 	out := buf.String()
 	if out == "" {
 		t.Fatal("慢查询未产生任何日志")
 	}
-	for _, want := range []string{`"slow_query":true`, `"duration"`, `"sql"`, `"rows"`, "gormx_slow_probe", `"level":"warn"`} {
+	for _, want := range []string{`"slow_query":true`, `"duration"`, `"sql"`, `"rows"`, "gormx_slow_seeds", `"level":"warn"`} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("慢查询日志缺少 %s: %s", want, out)
 		}
@@ -198,8 +215,8 @@ func TestAutoMigrateAndHealth(t *testing.T) {
 	if err := gormx.Close(db); err != nil {
 		t.Fatalf("Close 失败: %v", err)
 	}
-	if err := gormx.Health(ctx, db); err == nil {
-		t.Fatal("Close 之后 Health 应返回错误")
+	if err := gormx.Health(ctx, db); !errors.Is(err, gormx.ErrHealthCheckFailed) {
+		t.Fatalf("Close 之后 Health 的错误 = %v，期望包装 ErrHealthCheckFailed", err)
 	}
 }
 
@@ -245,7 +262,8 @@ func TestParamsFilterRedactsSensitive(t *testing.T) {
 	}
 }
 
-// TestUnsupportedDriverReturnsTypedError 断言未知驱动返回可判定的类型化错误。
+// TestUnsupportedDriverReturnsTypedError 断言未知驱动返回可判定的类型化错误，
+// 且文案中英同步。
 func TestUnsupportedDriverReturnsTypedError(t *testing.T) {
 	for _, driver := range []string{"oracle", "mongodb", "SQL Server"} {
 		db, err := gormx.Open(gormx.Options{Driver: driver, DSN: "dsn"}, nil)
@@ -259,6 +277,46 @@ func TestUnsupportedDriverReturnsTypedError(t *testing.T) {
 		if !strings.Contains(err.Error(), driver) {
 			t.Fatalf("错误信息 %q 应包含驱动名 %q", err.Error(), driver)
 		}
+		if !strings.Contains(err.Error(), " | ") {
+			t.Fatalf("错误文案未中英同步: %v", err)
+		}
+	}
+}
+
+// TestLifecycleSentinels 断言生命周期函数的失败路径都返回包级哨兵错误，
+// 文案中英同步且可用 errors.Is 判定。
+func TestLifecycleSentinels(t *testing.T) {
+	ctx := context.Background()
+
+	nilCases := map[string]error{
+		"AutoMigrate": gormx.AutoMigrate(nil, &probeRow{}),
+		"Health":      gormx.Health(ctx, nil),
+		"Close":       gormx.Close(nil),
+	}
+	for name, err := range nilCases {
+		if !errors.Is(err, gormx.ErrNilDB) {
+			t.Fatalf("%s(nil) 的错误 = %v，期望 ErrNilDB", name, err)
+		}
+	}
+
+	for _, sentinel := range []error{
+		gormx.ErrNilDB,
+		gormx.ErrUnsupportedDriver,
+		gormx.ErrOpenFailed,
+		gormx.ErrConnPoolUnavailable,
+		gormx.ErrMigrateFailed,
+		gormx.ErrHealthCheckFailed,
+		gormx.ErrCloseFailed,
+	} {
+		if !strings.Contains(sentinel.Error(), " | ") {
+			t.Fatalf("哨兵错误文案未中英同步: %v", sentinel)
+		}
+	}
+
+	// 未知模型（此处用不存在的表名）触发迁移失败路径。
+	db := openProbe(t, gormx.Options{}, newBufLogger(&bytes.Buffer{}))
+	if err := gormx.AutoMigrate(db, "gormx_missing_model"); !errors.Is(err, gormx.ErrMigrateFailed) {
+		t.Fatalf("迁移未知模型的错误 = %v，期望包装 ErrMigrateFailed", err)
 	}
 }
 

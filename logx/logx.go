@@ -260,7 +260,7 @@ func SlowQuery(l *Logger, sql string, rows int64, elapsed time.Duration, err err
 	if l == nil || !l.Enabled(WarnLevel) {
 		return
 	}
-	const msg = "slow query"
+	const msg = "slow query | 慢查询"
 	if err != nil {
 		l.Warn(msg,
 			Bool("slow_query", true),

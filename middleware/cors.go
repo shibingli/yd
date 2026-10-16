@@ -14,13 +14,9 @@ import (
 // | CORSOptions 配置 CORS 中间件。
 type CORSOptions struct {
 	// AllowOrigins lists the allowed origins. | AllowOrigins 列出允许的来源。
-	//
-	// "*" matches every origin, "*.example.com" matches the subdomains of example.com,
-	// and any other value is matched literally (optionally prefixed with a scheme, e.g.
-	// "https://app.yd.dev"). An empty list allows no cross-origin caller at all.
-	//
-	// | "*" 匹配任意来源，"*.example.com" 匹配 example.com 的子域，其余取值按字面量匹配
-	// |（可带协议前缀，如 "https://app.yd.dev"）；列表为空时不允许任何跨源调用。
+	// "*" matches every origin and "*.example.com" matches the subdomains of example.com. | "*" 匹配任意来源，"*.example.com" 匹配 example.com 的子域。
+	// Any other value is matched literally, optionally prefixed with a scheme. | 其余取值按字面量匹配，可以带协议前缀。
+	// An empty list allows no cross-origin caller at all. | 列表为空时不允许任何跨源调用。
 	AllowOrigins []string
 	// AllowMethods lists the methods echoed on preflight requests. | AllowMethods 列出预检请求回显的方法。
 	AllowMethods []string
@@ -102,18 +98,12 @@ func matchOrigin(origin string, patterns []originPattern, credentials bool) (boo
 	return false, ""
 }
 
-// CORS returns a middleware that applies the given cross-origin policy.
-//
-// | CORS 返回应用给定跨源策略的中间件。
-//
-// Three rules are enforced: with AllowCredentials the header never carries "*" (the concrete
-// origin is echoed instead); preflight requests (OPTIONS plus Access-Control-Request-Method)
-// are answered with 204 and short-circuit the chain; an unmatched origin simply receives no
-// CORS headers instead of an error.
-//
-// | 三条硬规则：开启 AllowCredentials 时绝不回 "*"（改为回显具体来源）；预检请求
-// |（OPTIONS 且带 Access-Control-Request-Method）直接以 204 短路；来源未匹配时不写任何 CORS 头，
-// | 而不是返回错误。
+// CORS returns a middleware that applies the given cross-origin policy. | CORS 返回应用给定跨源策略的中间件。
+// Three rules are enforced. | 该中间件强制三条硬规则。
+// With AllowCredentials the response never carries "*" and echoes the concrete origin instead. | 开启 AllowCredentials 时绝不回 "*"，改为回显具体来源。
+// Preflight requests — OPTIONS plus Access-Control-Request-Method — are answered with 204 and
+// short-circuit the chain. | 预检请求（OPTIONS 且带 Access-Control-Request-Method）直接以 204 短路。
+// An unmatched origin receives no CORS headers at all instead of an error. | 来源未匹配时不写任何 CORS 头，而不是返回错误。
 func CORS(o CORSOptions) router.Middleware {
 	patterns := make([]originPattern, 0, len(o.AllowOrigins))
 	for _, raw := range o.AllowOrigins {

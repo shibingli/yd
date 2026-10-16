@@ -171,7 +171,7 @@ func readUntil(t *testing.T, r io.Reader, want string, timeout time.Duration) st
 	}
 }
 
-// ---------------------------------------------------------------- Writer | Writer
+// ---------------------------------------------------------------- Writer
 
 func TestWriterExactWireFormat(t *testing.T) {
 	rec := newFlushRecorder()
@@ -330,7 +330,7 @@ func TestHeartbeatEmitsCommentAndStopsOnClose(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------- Broker | Broker
+// ---------------------------------------------------------------- Broker
 
 func TestBrokerFanoutToMultipleSubscribers(t *testing.T) {
 	b := NewBroker(BrokerOptions{QueueSize: 8})
@@ -518,7 +518,7 @@ func TestBrokerPublishHTMLLineFormat(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------- Handler | Handler
+// ---------------------------------------------------------------- Handler
 
 // sseServer starts an SSE endpoint mounted at /events. | sseServer 启动一个挂在 /events 上的 SSE 端点。
 func sseServer(t *testing.T, b *Broker, topic string, o Options) (*httptest.Server, *router.Router) {

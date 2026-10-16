@@ -66,16 +66,10 @@ func (a Algorithm) Encoding() string {
 	}
 }
 
-// ParseAcceptEncoding parses an Accept-Encoding header into encoding → q-value pairs.
-//
-// | ParseAcceptEncoding 把 Accept-Encoding 头解析为「编码 → q 值」映射。
-//
-// Names are lowercased, a missing or malformed q defaults to 1 and q=0 is preserved so
-// callers can treat the encoding as explicitly disabled. The wildcard entry is kept under
-// the key "*".
-//
-// | 编码名统一小写；缺失或非法的 q 按 1 处理，q=0 原样保留，便于调用方把该编码视为显式禁用；
-// | 通配项以键 "*" 保存。
+// ParseAcceptEncoding parses an Accept-Encoding header into encoding → q-value pairs. | ParseAcceptEncoding 把 Accept-Encoding 头解析为「编码 → q 值」映射。
+// Names are lowercased and a missing or malformed q defaults to 1. | 编码名统一小写；缺失或非法的 q 按 1 处理。
+// q=0 is preserved so callers can treat that encoding as explicitly disabled. | q=0 原样保留，便于调用方把该编码视为显式禁用。
+// The wildcard entry is kept under the key "*". | 通配项以键 "*" 保存。
 func ParseAcceptEncoding(h string) map[string]float64 {
 	h = strings.TrimSpace(h)
 	if h == "" {
@@ -133,18 +127,11 @@ func parseQValue(params string) float64 {
 	return 1
 }
 
-// Negotiate picks the best algorithm the client accepts.
-//
-// | Negotiate 选出客户端可接受的最优算法。
-//
-// Higher q-values win; ties are broken by the order of algos, which therefore doubles as the
-// priority list. Encodings with q=0 are disabled, a "*" entry stands for every algorithm not
-// listed explicitly, and an empty Accept-Encoding (or an empty algos slice, which falls back
-// to the default priority list) reports no usable algorithm.
-//
-// | q 值高者优先；q 值相同时按 algos 顺序决定，因此该顺序也即优先级表。q=0 表示该编码被禁用；
-// | "*" 代表所有未显式列出的算法；Accept-Encoding 为空时（或 algos 为空、退回默认优先级表时）
-// | 报告没有可用算法。
+// Negotiate picks the best algorithm the client accepts. | Negotiate 选出客户端可接受的最优算法。
+// Higher q-values win and ties are broken by the order of algos, which is therefore the priority list. | q 值高者优先，q 值相同时按 algos 顺序决定，因此该顺序即优先级表。
+// Encodings with q=0 are disabled and a "*" entry stands for every algorithm not listed explicitly. | q=0 表示该编码被禁用；"*" 代表所有未显式列出的算法。
+// An empty Accept-Encoding reports no usable algorithm, and an empty algos slice falls back to the
+// default priority list. | Accept-Encoding 为空时报告没有可用算法；algos 为空时退回默认优先级表。
 func Negotiate(acceptEncoding string, algos []Algorithm) (Algorithm, bool) {
 	if len(algos) == 0 {
 		algos = defaultAlgorithms
@@ -182,7 +169,6 @@ func Negotiate(acceptEncoding string, algos []Algorithm) (Algorithm, bool) {
 // | CompressOptions 配置压缩中间件。
 type CompressOptions struct {
 	// Algorithms is the priority list; the array order is the weight order. | Algorithms 是优先级列表，数组顺序即权重顺序。
-	//
 	// Defaults to []Algorithm{Brotli, Zstd, Gzip}. | 默认为 []Algorithm{Brotli, Zstd, Gzip}。
 	Algorithms []Algorithm
 	// MinSize is the smallest body that is worth compressing; 0 means 1024 bytes.
@@ -191,10 +177,8 @@ type CompressOptions struct {
 	// Level is the codec compression level; 0 keeps each codec's own default.
 	// | Level 是编解码器的压缩级别；0 表示沿用各自的默认级别。
 	Level int
-	// ExcludePatterns is a list of path prefixes that are never wrapped.
-	// | ExcludePatterns 是永不包装的路径前缀列表。
-	//
-	// Defaults to {"/ws", "/sse", "/events"}. | 默认为 {"/ws", "/sse", "/events"}。
+	// ExcludePatterns is a list of path prefixes that are never wrapped. | ExcludePatterns 是永不包装的路径前缀列表。
+	// Defaults to {"/ws", "/sse", "/events"} and replaces those defaults when set. | 默认为 {"/ws", "/sse", "/events"}，一旦配置即替换默认值。
 	ExcludePatterns []string
 }
 
@@ -227,7 +211,7 @@ func newCompressConfig(o CompressOptions) *compressConfig {
 		cfg.exclude = defaultExcludePatterns
 	}
 	for i := range cfg.pools {
-		cfg.pools[i] = &encoderPool{level: cfg.level}
+		cfg.pools[i] = &encoderPool{algo: Algorithm(i), level: cfg.level}
 	}
 	return cfg
 }
@@ -251,21 +235,13 @@ func (cfg *compressConfig) skip(c *router.Ctx) bool {
 	return false
 }
 
-// Compress returns a middleware that compresses responses with brotli, zstd or gzip.
-//
-// | Compress 返回用 brotli、zstd 或 gzip 压缩响应的中间件。
-//
-// The encoding is chosen from the request's Accept-Encoding by Negotiate. HEAD requests,
-// protocol upgrades, excluded path prefixes, SSE responses, bodiless and already encoded
-// responses, bodies below MinSize and responses carrying Cache-Control: no-transform are
-// never wrapped; a compressed response gains Content-Encoding and Vary: Accept-Encoding
-// while Content-Length is dropped. Encoders are taken from a sync.Pool and returned to it
-// when the response finishes.
-//
-// | 编码由 Negotiate 依据请求的 Accept-Encoding 选出。HEAD 请求、协议升级、命中排除前缀、
-// | SSE 响应、无正文或已编码的响应、小于 MinSize 的正文以及带 Cache-Control: no-transform 的
-// | 响应一律不包装；被压缩的响应会带上 Content-Encoding 与 Vary: Accept-Encoding 并删除
-// | Content-Length。编码器取自 sync.Pool，并在响应结束时归还。
+// Compress returns a middleware that compresses responses with brotli, zstd or gzip. | Compress 返回用 brotli、zstd 或 gzip 压缩响应的中间件。
+// The encoding is chosen from the request's Accept-Encoding by Negotiate. | 编码由 Negotiate 依据请求的 Accept-Encoding 选出。
+// HEAD requests, protocol upgrades, excluded path prefixes, SSE responses, bodiless or already
+// encoded responses, bodies below MinSize and responses carrying Cache-Control: no-transform are
+// never wrapped. | HEAD 请求、协议升级、命中排除前缀、SSE 响应、无正文或已编码的响应、小于 MinSize 的正文，以及带 Cache-Control: no-transform 的响应一律不包装。
+// A compressed response gains Content-Encoding and Vary: Accept-Encoding while Content-Length is
+// dropped, and its encoder comes from a sync.Pool that it returns to when the response finishes. | 被压缩的响应会带上 Content-Encoding 与 Vary: Accept-Encoding 并删除 Content-Length；编码器取自 sync.Pool，并在响应结束时归还。
 func Compress(o CompressOptions) router.Middleware {
 	cfg := newCompressConfig(o)
 	return func(c *router.Ctx) {
@@ -292,16 +268,10 @@ func Compress(o CompressOptions) router.Middleware {
 	}
 }
 
-// compressWriter defers the response header until the body size is known.
-//
-// | compressWriter 延迟写出响应头，直到正文长度可知。
-//
-// Writes are buffered until they reach MinSize; at that point the middleware either starts
-// the encoder or, when compression is impossible, switches to a plain pass-through and hands
-// the context back to the original writer.
-//
-// | 写入先被缓冲，直到累计长度达到 MinSize：此时要么启动编码器，要么在无法压缩时切换为直通，
-// | 并把上下文交还给原始写入器。
+// compressWriter defers the response header until the body size is known. | compressWriter 延迟写出响应头，直到正文长度可知。
+// Writes are buffered until they reach MinSize. | 写入先被缓冲，直到累计长度达到 MinSize。
+// At that point the middleware either starts the encoder or, when compression is impossible,
+// switches to a plain pass-through and hands the context back to the original writer. | 达到阈值时要么启动编码器，要么在无法压缩时切换为直通，并把上下文交还给原始写入器。
 type compressWriter struct {
 	ctx     *router.Ctx
 	rw      http.ResponseWriter
@@ -386,8 +356,10 @@ func (w *compressWriter) Flush() {
 	if !w.decided {
 		w.passThrough()
 	}
-	if f, ok := w.enc.(interface{ Flush() error }); ok && w.enc != nil {
-		_ = f.Flush()
+	if w.enc != nil {
+		if f, ok := w.enc.(interface{ Flush() error }); ok {
+			_ = f.Flush()
+		}
 	}
 	if f, ok := w.rw.(http.Flusher); ok {
 		f.Flush()

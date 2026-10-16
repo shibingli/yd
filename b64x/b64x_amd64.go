@@ -4,12 +4,13 @@ package b64x
 
 import (
 	"bytes"
-	"fmt"
 	"slices"
 	"strings"
 	"sync"
 
 	"github.com/cristalhq/base64"
+
+	"github.com/yun-dev/yd/errx"
 )
 
 // Encoding is a Base64 codec that internally delegates to the SIMD-accelerated github.com/cristalhq/base64. | Encoding 是 Base64 编解码器，内部委托给 SIMD 加速的 github.com/cristalhq/base64。
@@ -95,7 +96,7 @@ func (e *Encoding) Decode(dst, src []byte) (int, error) {
 	defer releaseScratch(p)
 	n, err := e.enc.Decode(*p, plain)
 	if err != nil {
-		return 0, fmt.Errorf("%w: %w", ErrInvalidData, err)
+		return 0, errx.Wrap(err, ErrInvalidData)
 	}
 	copy(dst, (*p)[:n])
 	return n, nil
@@ -111,7 +112,7 @@ func (e *Encoding) DecodeString(s string) ([]byte, error) {
 		// Fast path: no newlines, hand it straight to the underlying layer (which converts the string without copying internally and allocates only the result buffer). | 快路径：无换行，直接交给底层（其内部零拷贝转换 string，只分配结果缓冲区）。
 		out, err := e.enc.DecodeString(s)
 		if err != nil {
-			return nil, fmt.Errorf("%w: %w", ErrInvalidData, err)
+			return nil, errx.Wrap(err, ErrInvalidData)
 		}
 		return out, nil
 	}
@@ -126,7 +127,7 @@ func (e *Encoding) DecodeString(s string) ([]byte, error) {
 	out := make([]byte, e.safeDecodedLen(len(plain)))
 	n, err := e.enc.Decode(out, plain)
 	if err != nil {
-		return nil, fmt.Errorf("%w: %w", ErrInvalidData, err)
+		return nil, errx.Wrap(err, ErrInvalidData)
 	}
 	return out[:n], nil
 }
@@ -148,7 +149,7 @@ func (e *Encoding) AppendDecode(dst, src []byte) ([]byte, error) {
 	dst = slices.Grow(dst, room)[:base+room]
 	n, err := e.enc.Decode(dst[base:], plain)
 	if err != nil {
-		return dst[:base], fmt.Errorf("%w: %w", ErrInvalidData, err)
+		return dst[:base], errx.Wrap(err, ErrInvalidData)
 	}
 	return dst[:base+n], nil
 }
