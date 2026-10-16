@@ -159,7 +159,42 @@ feat(router): 支持单段内混合参数与静态后缀捕获
 Co-Authored-By: Eric Shi <shibingli@sina.com>
 ```
 
-## 7. 常用命令
+## 7. 多租户与鉴权（强制）
+
+- **租户是硬边界**：任何按 ID 读写实体的方法都必须同时校验 `TenantID`；
+  跨租户访问一律返回 404/403，**不得返回任何数据**，也不得泄露资源是否存在。
+- **每用户独立 JWT 密钥（强制）**：创建用户时生成该用户专属的 `sec_key`；
+  签发与验签**只允许**使用该用户的 `sec_key`，**严禁**任何全局 JWT 密钥作为兜底。
+  令牌的 `kid` 承载用户 ID，验签方据此取密钥，**不得为取密钥而解析未验签的载荷**。
+- **密钥与口令的落库形态**：口令只存 `guomi.HashPassword`（SM3 + 盐 + 多轮）结果；
+  `sec_key` 以 SM4 加密存储，主密钥来自配置/环境变量，**不得**明文入库、不得写进日志。
+- **失效语义**：用户被禁用、被删除或轮换 `sec_key` 后，其既有令牌必须立即失效。
+- **权限判定**：`auth.RequirePermission("user:create")`；无权限返回 403，
+  且不得因为「先查存在性再查权限」而泄露资源是否存在。
+- **敏感字段传输**：口令等敏感字段必须由前端 SM2 加密后提交
+  （`data-yd-encrypt="sm2"` + `X-YD-Encrypted: sm2`），服务端用 `guomi.DecryptRaw` 解密。
+
+## 8. 内存对齐（betteralign）
+
+- 提交前必须对改动过的包执行内存对齐检查；**推荐**直接应用：
+  ```bash
+  betteralign -apply ./...        # 或 yd align --apply
+  ```
+- 结构体字段顺序以「减少 GC 扫描的指针字节数与结构体体积」为准；
+  重排后必须保持字段语义、JSON/GORM 标签与可读性，`go test ./...` 必须仍然通过。
+- `betteralign` 缺失时：`go install github.com/dkorolev/betteralign/cmd/betteralign@latest`，
+  或把二进制放到 `.yd/tools/`。该工具是**可选**依赖，缺失不得导致构建失败。
+
+## 9. 前端 i18n 与主题（强制）
+
+- 所有面向用户的文案必须带 `data-yd-i18n="key"`，并在 `web/i18n/{zh-CN,en}.yaml` 中提供
+  **中英两份**目录；缺失键回退顺序为「当前语言 → 默认语言 → 键名本身」。
+- 语言切换必须**局部刷新**（htmx 重取 `#yd-workspace`），不得整页跳转；
+  语言与主题都必须持久化（localStorage + cookie），刷新后保持一致。
+- 主题支持 `light` / `dark` / `system` 三态，切换即时生效且不得出现闪烁；
+  颜色一律来自 `@theme` 语义变量，禁止硬编码色值。
+
+## 10. 常用命令
 
 ```bash
 yd new <project>     # 初始化项目（交互式选择组件）

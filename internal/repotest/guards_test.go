@@ -231,6 +231,10 @@ func TestGovernanceStatesNewConstraints(t *testing.T) {
 			"OpenAPI",       // OpenAPI 注解要求 | OpenAPI annotations
 			"jsonx", "b64x", // 编解码统一封装层 | codec wrappers
 			"errx", "fmt.Errorf", // 错误声明式哨兵 | declared sentinel errors
+			"sec_key",      // 每用户 JWT 密钥 | per-user JWT key
+			"多租户",          // 租户硬边界 | tenant boundary
+			"betteralign",  // 内存对齐要求 | memory alignment
+			"data-yd-i18n", // 前端 i18n 约定 | frontend i18n contract
 		},
 		"AGENTS.md": {
 			"Co-Authored-By: Eric Shi <shibingli@sina.com>",
@@ -245,6 +249,9 @@ func TestGovernanceStatesNewConstraints(t *testing.T) {
 			"Co-Authored-By: Eric Shi <shibingli@sina.com>",
 			"logx",
 			"OpenAPI",
+			"sec_key",
+			"betteralign",
+			"data-yd-i18n",
 		},
 	}
 	for name, wants := range checks {

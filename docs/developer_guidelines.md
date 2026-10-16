@@ -178,7 +178,41 @@ grep -rn 'fmt\.Errorf' --include=*.go . | grep -v '^./errx/'   # 必须无命中
 grep -rn 'errors\.New' --include=*.go . | grep -v '^./errx/'   # 允许，但优先用 errx.New 统一风格
 ```
 
-## 11. 后端协同约束
+## 11. 多租户与鉴权契约
+
+| 规则 | 说明 |
+|---|---|
+| **租户硬边界** | 任何按 ID 读写实体的服务方法都必须带 `tenantID` 并校验；跨租户访问返回 404/403，**不得返回数据**，也不得泄露资源是否存在。 |
+| **每用户 JWT 密钥** | 创建用户时生成该用户专属 `sec_key`；签发与验签**只允许**用它，**禁止任何全局兜底密钥**。令牌 `kid` 承载用户 ID，验签方据此取密钥，不得为取密钥而解析未验签载荷。 |
+| **落库形态** | 口令只存 `guomi.HashPassword` 结果；`sec_key` 以 SM4-GCM 加密存储；二者都**不得**明文入库或写进日志。 |
+| **失效语义** | 用户禁用/删除/轮换 `sec_key` 后，既有令牌必须立即失效。 |
+| **权限判定** | `auth.RequirePermission("user:create")`；无权限返回 403，且不得因「先查存在性再查权限」泄露资源存在性。 |
+| **前端传输加密** | 口令等敏感字段必须由前端 SM2 加密后提交（`data-yd-encrypt="sm2"` + `X-YD-Encrypted: sm2`），后端用 `guomi.DecryptRaw` 解密。 |
+
+## 12. 内存对齐（betteralign）
+
+提交前对改动过的包执行内存对齐检查，推荐直接应用：
+
+```bash
+betteralign -apply ./...     # 等价于 yd align --apply
+```
+
+- 字段顺序以「减少 GC 扫描的指针字节数与结构体体积」为准；重排后必须保持字段语义、
+  JSON/GORM/模板标签随字段移动，且 `go test ./...` 仍然通过。
+- `betteralign` 是**可选**外部工具：缺失不得导致构建失败；
+  安装方式 `go install github.com/dkorolev/betteralign/cmd/betteralign@latest`
+  或把二进制放到 `.yd/tools/`。
+
+## 13. 前端 i18n 与主题契约
+
+- 所有面向用户文案必须带 `data-yd-i18n="key"`，并在 `web/i18n/{zh-CN,en}.yaml` 中提供中英两份；
+  回退顺序为「当前语言 → 默认语言 → 键名本身」。
+- 语言切换必须**局部刷新**（htmx 重取 `#yd-workspace`），不得整页跳转；
+  语言与主题都持久化（localStorage + cookie），刷新后保持一致。
+- 主题支持 `light` / `dark` / `system` 三态，切换即时生效且**不得闪烁**；
+  颜色一律来自 `@theme` 语义变量，禁止硬编码色值。
+
+## 14. 后端协同约束
 
 - 路由模式支持**混合分段**：`/avatar/:id.jpg`、`/report/:id-xx.png` 合法，参数名不得重复。
 - 控制器只做编排；业务逻辑放 `internal/service`，数据访问放 `internal/repository`。

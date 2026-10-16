@@ -64,6 +64,15 @@
       （改用 `errx.Detail` / `errx.Wrap` / `errx.WrapDetail`）；错误文案中英同步；
       判定只用 `errors.Is` / `errors.As`。
       自检：`grep -rn 'fmt\.Errorf' --include=*.go . | grep -v '^./errx/'` 无命中。
+- [ ] **多租户隔离**：任何按 ID 读写实体的路径都必须校验 `TenantID`；跨租户访问返回 403/404
+      且不泄露资源存在性。
+- [ ] **每用户 JWT 密钥**：令牌只允许用该用户的 `sec_key` 签发与验签，**禁止全局兜底密钥**；
+      `sec_key` 必须以 SM4 加密存储，口令只存 `guomi.HashPassword` 结果。
+- [ ] **令牌失效**：用户禁用/删除/轮换 `sec_key` 后旧令牌必须立即失效。
+- [ ] **内存对齐**：提交前运行 `betteralign -apply ./...`（或 `yd align --apply`），
+      重排后 `go test ./...` 必须仍然通过；工具缺失不得导致构建失败。
+- [ ] **前端 i18n 与主题**：新增文案必须有 `data-yd-i18n` 且中英目录齐全；
+      语言切换走 htmx 局部刷新，主题支持 light/dark/system 三态并持久化。
 - [ ] **OpenAPI 注释完整**：对外 HTTP 处理器的 doc 注释必须含完整注解块
       （`@Summary/@Description/@Tags/@Accept/@Produce/@Param/@Success/@Failure/@Security/@Router`），缺项即未完成。
 - [ ] **敏感日志**：访问日志与慢查询日志不得输出口令、Token、密钥明文；使用 `logger.ParamsFilter` 屏蔽。
