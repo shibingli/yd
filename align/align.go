@@ -16,6 +16,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"runtime"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -37,6 +38,11 @@ const LocalToolDir = ".yd/tools"
 
 // DefaultTarget is the package pattern analyzed when Options.Targets is empty. | DefaultTarget 是 Options.Targets 为空时分析的包模式。
 const DefaultTarget = "./..."
+
+// DefaultMaxPasses caps the number of -apply passes when Options.MaxPasses is not set. | DefaultMaxPasses 是 Options.MaxPasses 未设置时 -apply 的遍数上限。
+//
+// One pass is not always enough: the analyzer's rewrite of a struct is not idempotent, so a second run over the already rewritten sources usually finds further pointer-byte savings, and the loop keeps applying until the diagnostics reach zero or stop shrinking. | 单遍并不总是足够：分析器对结构体的重写并非幂等，对已重写的源码再跑一遍通常还能发现进一步的指针字节收益，因此循环会持续应用，直到诊断归零或不再减少。
+const DefaultMaxPasses = 5
 
 // toolName is the bare command name of the analyzer. | toolName 是分析器的裸命令名。
 const toolName = "betteralign"
@@ -170,6 +176,8 @@ type Options struct {
 	ExcludeDirs []string
 	// ExcludeFiles lists file patterns to skip; one entry may itself hold a comma-separated list. | ExcludeFiles 列出要跳过的文件模式；单项内部也可用逗号分隔。
 	ExcludeFiles []string
+	// MaxPasses caps the -apply passes; 0 means DefaultMaxPasses and a run without Apply always executes exactly one pass. | MaxPasses 限定 -apply 的遍数上限；0 表示 DefaultMaxPasses，未开启 Apply 的运行始终只执行一遍。
+	MaxPasses int
 	// Apply writes the suggested field order back to the sources. | Apply 把建议的字段顺序写回源码。
 	Apply bool
 	// IncludeTests brings test files into the analysis. | IncludeTests 把测试文件纳入分析。
@@ -221,18 +229,23 @@ func nonEmpty(in []string) []string {
 type Report struct {
 	// Output is the analyzer's combined stdout and stderr, capped at maxOutputKeep bytes. | Output 是分析器合并后的 stdout 与 stderr，上限为 maxOutputKeep 字节。
 	Output string
-	// Diagnostics counts the structs the analyzer asked to reorder. | Diagnostics 统计分析器建议重排的结构体数量。
+	// Diagnostics counts the structs the analyzer asked to reorder; with Apply it is the count left after the last pass, and 0 therefore means the tree is aligned. | Diagnostics 统计分析器建议重排的结构体数量；开启 Apply 时它是最后一遍结束后剩余的数量，因此 0 表示整棵树已对齐。
 	Diagnostics int
-	// Duration is how long the analyzer ran. | Duration 是分析器运行耗时。
+	// Passes is how many passes were executed; a run without Apply always reports one. | Passes 是实际执行的遍数；未开启 Apply 的运行恒为一遍。
+	Passes int
+	// Duration is how long the analyzer ran, summed over all passes. | Duration 是分析器运行耗时，多遍时为其总和。
 	Duration time.Duration
 	// Applied reports whether this run was asked to write the suggestions back. | Applied 报告本次运行是否被要求把建议写回源码。
 	Applied bool
+	// Converged reports whether the loop stopped because the diagnostics reached zero or stopped shrinking; it is false when the pass limit was hit while they were still shrinking. | Converged 报告循环是否因诊断归零或不再减少而结束；当诊断仍在减少却已触及遍数上限时它为 false。
+	Converged bool
 }
 
 // Run executes the analyzer and turns its output into a Report. | Run 执行分析器并把输出汇总为 Report。
 //
 // A missing binary yields ErrToolNotFound (carrying the installation hint), a binary older than the module's Go version yields ErrToolTooOld, and any other failure is wrapped in ErrRunFailed together with the tool's output. | 二进制缺失返回 ErrToolNotFound（带安装提示），二进制低于模块的 Go 版本返回 ErrToolTooOld，其它失败连同工具输出包装进 ErrRunFailed。
 // The exit code singlechecker uses for "diagnostics reported" counts as a successful run. | singlechecker 表示「已报告诊断」的退出码按成功处理。
+// With Apply the analyzer is run repeatedly until it converges, because one pass does not always reach a fixed point. | 开启 Apply 时会反复执行分析器直到收敛，因为单遍并不总能到达不动点。
 func Run(ctx context.Context, o Options, log *logx.Logger) (*Report, error) {
 	if ctx == nil {
 		ctx = context.Background()
@@ -245,6 +258,71 @@ func Run(ctx context.Context, o Options, log *logx.Logger) (*Report, error) {
 		}
 		bin = resolved
 	}
+	if !o.Apply {
+		return runOnce(ctx, bin, o, log)
+	}
+	return runApplyLoop(ctx, bin, o, log)
+}
+
+// runApplyLoop applies the analyzer until it converges, hits the pass limit, or fails. | runApplyLoop 反复应用分析器，直到收敛、触及遍数上限或失败。
+//
+// The stop rules are, in order: a pass with zero diagnostics (aligned), a pass whose diagnostics did not shrink (no further progress), and the pass limit. Only the pass limit leaves Converged false, and that case is logged as a warning because raising MaxPasses would keep improving the layout. | 结束规则依次为：某遍诊断为零（已对齐）、某遍诊断未再减少（已无进展）、以及触及遍数上限。只有触及上限会让 Converged 为 false，该情形会记录告警，因为提高 MaxPasses 仍能继续改善布局。
+func runApplyLoop(ctx context.Context, bin string, o Options, log *logx.Logger) (*Report, error) {
+	limit := o.MaxPasses
+	if limit <= 0 {
+		limit = DefaultMaxPasses
+	}
+	total := &Report{Applied: true}
+	var buf strings.Builder
+	previous := -1
+	for pass := 1; pass <= limit; pass++ {
+		rep, err := runOnce(ctx, bin, o, log)
+		total.Passes = pass
+		total.Diagnostics = rep.Diagnostics
+		total.Duration += rep.Duration
+		appendPassOutput(&buf, pass, rep.Output)
+		if err != nil {
+			total.Output = buf.String()
+			return total, err
+		}
+		if rep.Diagnostics == 0 || (previous >= 0 && rep.Diagnostics >= previous) {
+			total.Converged = true
+			break
+		}
+		previous = rep.Diagnostics
+	}
+	total.Output = buf.String()
+	if !total.Converged && log != nil {
+		log.Warn("align: diagnostics are still shrinking at the pass limit | align：达到遍数上限时诊断数仍在下降",
+			logx.Int("passes", total.Passes), logx.Int("diagnostics", total.Diagnostics), logx.Int("max_passes", limit))
+	}
+	return total, nil
+}
+
+// appendPassOutput appends one pass's output, labelled from the second pass on, keeping the aggregate within maxOutputKeep. | appendPassOutput 追加一遍的输出（自第二遍起加标签），并把总量控制在上限内。
+func appendPassOutput(buf *strings.Builder, pass int, text string) {
+	body := strings.TrimSpace(text)
+	if body != "" {
+		if pass > 1 {
+			buf.WriteString("--- pass ")
+			buf.WriteString(strconv.Itoa(pass))
+			buf.WriteString(" | 第 ")
+			buf.WriteString(strconv.Itoa(pass))
+			buf.WriteString(" 遍 ---\n")
+		}
+		buf.WriteString(body)
+		buf.WriteByte('\n')
+	}
+	if buf.Len() > maxOutputKeep {
+		trimmed := buf.String()[:maxOutputKeep]
+		buf.Reset()
+		buf.WriteString(trimmed)
+		buf.WriteString("... | 输出已截断\n")
+	}
+}
+
+// runOnce executes exactly one analyzer pass. | runOnce 执行恰好一遍分析。
+func runOnce(ctx context.Context, bin string, o Options, log *logx.Logger) (*Report, error) {
 	args := o.Args()
 	if log != nil {
 		log.Debug("align: running betteralign | align：正在运行 betteralign",
@@ -263,11 +341,14 @@ func Run(ctx context.Context, o Options, log *logx.Logger) (*Report, error) {
 
 	start := time.Now()
 	err := cmd.Run()
+	// A single pass is never cut short by the pass limit, so it always counts as converged. | 单遍绝不会被遍数上限截断，因此它总是算作已收敛。
 	rep := &Report{
 		Diagnostics: out.Diagnostics(),
+		Passes:      1,
 		Applied:     o.Apply,
 		Output:      out.String(),
 		Duration:    time.Since(start),
+		Converged:   true,
 	}
 	if err == nil {
 		return rep, nil

@@ -1,8 +1,10 @@
 package align
 
 import (
+	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -46,6 +48,85 @@ func writeFakeTool(t *testing.T, dir string, lines []string, code int) string {
 	p := filepath.Join(dir, "fake-betteralign.sh")
 	if err := os.WriteFile(p, []byte(b.String()), 0o755); err != nil {
 		t.Fatalf("写入假分析器失败：%v | write fake analyzer: %v", err, err)
+	}
+	return p
+}
+
+// writeIteratingTool writes a fake analyzer that replays a different number of diagnostics on every invocation: the invocation counter lives in a file next to the script, so a test can drive the apply loop pass by pass. | writeIteratingTool 写一个假分析器：每次调用回放不同数量的诊断，调用计数保存在脚本旁边的文件里，因此测试可以逐遍驱动 apply 循环。
+//
+// A step of zero makes that invocation exit cleanly, which is exactly what the real analyzer does once a tree is aligned. | 某一步为 0 时该次调用干净退出，这正是真实分析器在整棵树对齐后的行为。
+func writeIteratingTool(t *testing.T, dir string, steps []int) string {
+	t.Helper()
+	if len(steps) == 0 {
+		t.Fatal("steps 不能为空 | steps must not be empty")
+	}
+	diagnostics := func(count int) []string {
+		out := make([]string, 0, count)
+		for i := 0; i < count; i++ {
+			out = append(out, fmt.Sprintf(
+				`E:\repo\pkg\file.go:%d:14: struct with %d pointer bytes could be %d (lowers GC scan-work estimate)`,
+				i+1, 64+i, 32+i))
+		}
+		return out
+	}
+	exitCode := func(count int) int {
+		if count == 0 {
+			return 0
+		}
+		return exitDiagnostics
+	}
+
+	if runtime.GOOS == "windows" {
+		var b strings.Builder
+		b.WriteString("@echo off\r\n")
+		b.WriteString("set \"state=%~dp0passes.count\"\r\n")
+		b.WriteString("set n=0\r\n")
+		b.WriteString("if exist \"%state%\" set /p n=<\"%state%\"\r\n")
+		b.WriteString("set /a n=n+1\r\n")
+		b.WriteString(">\"%state%\" echo %n%\r\n")
+		for i := range steps {
+			b.WriteString(fmt.Sprintf("if %%n%%==%d goto p%d\r\n", i+1, i+1))
+		}
+		b.WriteString(fmt.Sprintf("goto p%d\r\n", len(steps))) // 超出的调用沿用最后一步。 | Later invocations replay the last step.
+		for i, count := range steps {
+			b.WriteString(fmt.Sprintf(":p%d\r\n", i+1))
+			for _, line := range diagnostics(count) {
+				b.WriteString("echo " + line + "\r\n")
+			}
+			b.WriteString(fmt.Sprintf("exit /b %d\r\n", exitCode(count)))
+		}
+		p := filepath.Join(dir, "iterating-betteralign.cmd")
+		if err := os.WriteFile(p, []byte(b.String()), 0o755); err != nil {
+			t.Fatalf("写入迭代假分析器失败：%v | write the iterating fake analyzer: %v", err, err)
+		}
+		return p
+	}
+
+	var b strings.Builder
+	b.WriteString("#!/bin/sh\n")
+	b.WriteString("d=$(dirname \"$0\")\n")
+	b.WriteString("s=\"$d/passes.count\"\n")
+	b.WriteString("n=0\n")
+	b.WriteString("[ -f \"$s\" ] && n=$(cat \"$s\")\n")
+	b.WriteString("n=$((n+1))\n")
+	b.WriteString("echo \"$n\" > \"$s\"\n")
+	b.WriteString("case \"$n\" in\n")
+	for i, count := range steps {
+		b.WriteString(fmt.Sprintf("%d)\n", i+1))
+		for _, line := range diagnostics(count) {
+			b.WriteString("  printf '%s\\n' '" + line + "'\n")
+		}
+		b.WriteString(fmt.Sprintf("  exit %d\n  ;;\n", exitCode(count)))
+	}
+	b.WriteString("*)\n")
+	for _, line := range diagnostics(steps[len(steps)-1]) {
+		b.WriteString("  printf '%s\\n' '" + line + "'\n")
+	}
+	b.WriteString(fmt.Sprintf("  exit %d\n  ;;\n", exitCode(steps[len(steps)-1])))
+	b.WriteString("esac\n")
+	p := filepath.Join(dir, "iterating-betteralign.sh")
+	if err := os.WriteFile(p, []byte(b.String()), 0o755); err != nil {
+		t.Fatalf("写入迭代假分析器失败：%v | write the iterating fake analyzer: %v", err, err)
 	}
 	return p
 }
@@ -228,6 +309,13 @@ func TestRunParsesDiagnostics(t *testing.T) {
 		if !strings.Contains(rep.Output, "-apply") {
 			t.Errorf("Output 未回显 -apply：\n%s | Output misses -apply", rep.Output)
 		}
+		// 该假工具每遍都回放同样的 3 条诊断：第 2 遍未再下降，循环就此收敛。 | The fake replays the same three diagnostics every pass, so pass 2 shrinks nothing and the loop converges there.
+		if rep.Passes != 2 {
+			t.Errorf("Passes = %d，期望 2 | want 2", rep.Passes)
+		}
+		if !rep.Converged {
+			t.Error("诊断不再下降即收敛，Converged 应为 true | a non-shrinking pass converges")
+		}
 	})
 
 	t.Run("退出码 0 表示没有告警 | exit code 0 means no diagnostics", func(t *testing.T) {
@@ -283,6 +371,120 @@ func TestRunMissingToolReturnsSentinel(t *testing.T) {
 	if !strings.Contains(err.Error(), InstallHint) {
 		t.Errorf("哨兵文案缺少安装提示 %q：%v | missing the install hint", InstallHint, err)
 	}
+}
+
+// TestApplyIteratesToFixpoint covers every stop rule of the apply loop. | TestApplyIteratesToFixpoint 覆盖 apply 循环的每一条结束规则。
+//
+// The analyzer's rewrite is not idempotent, so the command must keep applying until the diagnostics reach zero or stop shrinking - and must say so when the pass limit cut the run short. | 分析器的重写并非幂等，因此命令必须持续应用到诊断归零或不再减少为止；当遍数上限截断运行时，也必须说出来。
+func TestApplyIteratesToFixpoint(t *testing.T) {
+	t.Run("未开启 --apply 时只跑一遍 | a run without --apply executes exactly one pass", func(t *testing.T) {
+		dir := t.TempDir()
+		bin := writeIteratingTool(t, dir, []int{3, 0})
+		rep, err := Run(context.Background(), Options{Bin: bin, Dir: dir}, testLogger())
+		if err != nil {
+			t.Fatalf("Run 返回错误：%v | Run: %v", err, err)
+		}
+		if rep.Passes != 1 {
+			t.Errorf("Passes = %d，期望 1 | want 1", rep.Passes)
+		}
+		if rep.Diagnostics != 3 {
+			t.Errorf("Diagnostics = %d，期望 3 | want 3", rep.Diagnostics)
+		}
+		if !rep.Converged {
+			t.Error("单遍运行必然算作已收敛 | a single pass must count as converged")
+		}
+	})
+
+	t.Run("单遍收敛 | one pass converges", func(t *testing.T) {
+		dir := t.TempDir()
+		bin := writeIteratingTool(t, dir, []int{0})
+		rep, err := Run(context.Background(), Options{Bin: bin, Dir: dir, Apply: true}, testLogger())
+		if err != nil {
+			t.Fatalf("Run 返回错误：%v | Run: %v", err, err)
+		}
+		if rep.Passes != 1 || rep.Diagnostics != 0 || !rep.Converged {
+			t.Errorf("Passes=%d Diagnostics=%d Converged=%v，期望 1/0/true | want 1/0/true",
+				rep.Passes, rep.Diagnostics, rep.Converged)
+		}
+	})
+
+	t.Run("两遍收敛 | two passes converge", func(t *testing.T) {
+		dir := t.TempDir()
+		bin := writeIteratingTool(t, dir, []int{3, 0})
+		rep, err := Run(context.Background(), Options{Bin: bin, Dir: dir, Apply: true}, testLogger())
+		if err != nil {
+			t.Fatalf("Run 返回错误：%v | Run: %v", err, err)
+		}
+		if rep.Passes != 2 {
+			t.Errorf("Passes = %d，期望 2 | want 2", rep.Passes)
+		}
+		if rep.Diagnostics != 0 {
+			t.Errorf("Diagnostics = %d，期望 0 | want 0", rep.Diagnostics)
+		}
+		if !rep.Converged {
+			t.Error("Converged = false，期望 true | want true")
+		}
+	})
+
+	t.Run("不再下降即停止 | the loop stops once the count stops shrinking", func(t *testing.T) {
+		dir := t.TempDir()
+		bin := writeIteratingTool(t, dir, []int{3, 3, 3})
+		rep, err := Run(context.Background(), Options{Bin: bin, Dir: dir, Apply: true}, testLogger())
+		if err != nil {
+			t.Fatalf("Run 返回错误：%v | Run: %v", err, err)
+		}
+		if rep.Passes != 2 {
+			t.Errorf("Passes = %d，期望在第 2 遍停止 | want the loop to stop after pass 2", rep.Passes)
+		}
+		if rep.Diagnostics != 3 {
+			t.Errorf("Diagnostics = %d，期望 3 | want 3", rep.Diagnostics)
+		}
+		if !rep.Converged {
+			t.Error("不再下降属于收敛，Converged 应为 true | no progress is a converged stop")
+		}
+		if !strings.Contains(rep.Output, "--- pass 2 | 第 2 遍 ---") {
+			t.Errorf("多遍输出应带遍次标签：\n%s | multi-pass output must label each pass", rep.Output)
+		}
+	})
+
+	t.Run("达到上限仍在下降时告警 | hitting the limit while still shrinking warns", func(t *testing.T) {
+		dir := t.TempDir()
+		bin := writeIteratingTool(t, dir, []int{5, 4, 3, 2, 1})
+		var logs bytes.Buffer
+		log := logx.New(logx.Options{Writer: &logs, Level: logx.DebugLevel, Format: "console"})
+
+		rep, err := Run(context.Background(), Options{Bin: bin, Dir: dir, Apply: true, MaxPasses: 3}, log)
+		if err != nil {
+			t.Fatalf("Run 返回错误：%v | Run: %v", err, err)
+		}
+		if rep.Passes != 3 {
+			t.Errorf("Passes = %d，期望用满上限 3 遍 | want the limit of 3", rep.Passes)
+		}
+		if rep.Diagnostics != 3 {
+			t.Errorf("Diagnostics = %d，期望最后一遍的 3 | want the last pass's 3", rep.Diagnostics)
+		}
+		if rep.Converged {
+			t.Error("触及上限时 Converged 应为 false | the limit stop must not report convergence")
+		}
+		if got := logs.String(); !strings.Contains(got, "pass limit |") {
+			t.Errorf("缺少双语告警日志：\n%s | the bilingual warning is missing", got)
+		}
+	})
+
+	t.Run("默认上限为 5 遍 | the default limit is five passes", func(t *testing.T) {
+		dir := t.TempDir()
+		bin := writeIteratingTool(t, dir, []int{6, 5, 4, 3, 2, 1})
+		rep, err := Run(context.Background(), Options{Bin: bin, Dir: dir, Apply: true}, testLogger())
+		if err != nil {
+			t.Fatalf("Run 返回错误：%v | Run: %v", err, err)
+		}
+		if rep.Passes != DefaultMaxPasses {
+			t.Errorf("Passes = %d，期望默认上限 %d 遍 | want the default limit of %d", rep.Passes, DefaultMaxPasses, DefaultMaxPasses)
+		}
+		if rep.Converged {
+			t.Error("六步递减用满 5 遍仍未归零，Converged 应为 false | six shrinking steps never reach zero within five passes")
+		}
+	})
 }
 
 // TestRunRealBetteralignOnRepoPackage runs the analyzer for real over one subpackage of this repository. | TestRunRealBetteralignOnRepoPackage 对本仓库的一个子包真实执行分析器。

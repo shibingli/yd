@@ -97,3 +97,10 @@ ok  github.com/shibingli/yd/e2e  26.829s
    环境会跳过该验证（不应视为通过）。
 6. **`cli/interact.go` 每问一次新建 `bufio.Reader`**：一次性交付多行的输入源只能回答第一个
    问题；真实终端逐行输入不受影响。
+7. **WSL 下项目必须放在 Linux 原生文件系统**：`/mnt/c`、`/mnt/d` 等 DrvFs/9p 挂载不投递
+   inotify 事件，`yd dev` 的热重载会静默失效。实测证据：同一份代码在 `/mnt/d` 上
+   `TestDevReloadEndpointOnlyInDevMode` 失败（20s 未收到 reload 事件），
+   复制到 WSL 原生 ext4（`~/yd-wsl`）后**全部监听用例通过**
+   （`TestDebounceCoalescesRapidEvents`、`TestWatcherSeesNestedDirectories`、
+   `TestWatcherLifecycle`、`TestDevReloadEndpointOnlyInDevMode` 均 PASS）。
+   这是 WSL 挂载的文件系统事件限制，与框架无关。

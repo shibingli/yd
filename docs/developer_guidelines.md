@@ -254,6 +254,18 @@ grep -rn 'errors\.New' --include=*.go . | grep -v '^./errx/'   # 允许，但优
 | **权限判定** | `auth.RequirePermission("user:create")`；无权限返回 403，且不得因「先查存在性再查权限」泄露资源存在性。 |
 | **前端传输加密** | 口令等敏感字段必须由前端 SM2 加密后提交（`data-yd-encrypt="sm2"` + `X-YD-Encrypted: sm2`），后端用 `guomi.DecryptRaw` 解密。 |
 
+## 11.1 WSL 下的开发位置（重要）
+
+`yd dev` 的文件监听依赖操作系统原生的文件系统事件（Linux 为 inotify）。**在 WSL 中，`/mnt/c`、`/mnt/d` 等
+DrvFs/9p 挂载不会投递 inotify 事件**，因此把项目放在 `/mnt/*` 下会导致热重载静默失效
+（表现为「改了文件但服务不重启」）。
+
+- ✅ 正确：项目放在 Linux 原生文件系统，如 `~/projects/myapp`
+- ❌ 错误：项目放在 `/mnt/d/...` 后在里面执行 `yd dev`
+- 该限制与框架无关：任何基于 inotify 的工具（air、reflex、watchexec、jest --watch）在 `/mnt/*` 下同样失效。
+- 因为这条差异，Linux 侧的完整测试必须在**原生文件系统**上运行；在 `/mnt/*` 上会看到
+  `toolchain` 的监听用例失败，而这不是代码缺陷。
+
 ## 12. 内存对齐（betteralign）
 
 提交前对改动过的包执行内存对齐检查，推荐直接应用：
@@ -265,8 +277,17 @@ betteralign -apply ./...     # 等价于 yd align --apply
 - 字段顺序以「减少 GC 扫描的指针字节数与结构体体积」为准；重排后必须保持字段语义、
   JSON/GORM/模板标签随字段移动，且 `go test ./...` 仍然通过。
 - `betteralign` 是**可选**外部工具：缺失不得导致构建失败；
-  安装方式 `go install github.com/dkorolev/betteralign/cmd/betteralign@latest`
+  安装方式 `go install github.com/dkorunic/betteralign/cmd/betteralign@latest`
   或把二进制放到 `.yd/tools/`。
+- **工具链版本**：betteralign 必须用**不低于本模块 `go` 指令版本**的 Go 构建，否则会报
+  `package requires newer Go version` 或
+  `export data version ... is greater than maximum supported version`；
+  按上面的 `go install` 重装即可（它默认使用本机最新工具链）。
+- `yd align --apply` **迭代到不动点**：默认最多 5 遍，`--max-passes N` 覆盖默认值；
+  每遍后诊断数归零或不再下降即停止，摘要以 `passes | 遍数: N` 报告实际遍数，
+  达到上限仍在下降时给出告警。单遍 `betteralign -apply` 不保证收敛。
+- 工具版本过旧时 `yd align` 打印重装提示并返回非零（哨兵 `align.ErrToolTooOld`），
+  不 panic、不阻塞构建。
 
 ## 13. 前端 i18n 与主题契约
 

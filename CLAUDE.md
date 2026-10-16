@@ -186,8 +186,17 @@ Co-Authored-By: Eric Shi <shibingli@sina.com>
   ```
 - 结构体字段顺序以「减少 GC 扫描的指针字节数与结构体体积」为准；
   重排后必须保持字段语义、JSON/GORM 标签与可读性，`go test ./...` 必须仍然通过。
-- `betteralign` 缺失时：`go install github.com/dkorolev/betteralign/cmd/betteralign@latest`，
+- `betteralign` 缺失时：`go install github.com/dkorunic/betteralign/cmd/betteralign@latest`，
   或把二进制放到 `.yd/tools/`。该工具是**可选**依赖，缺失不得导致构建失败。
+- **工具链版本**：betteralign 必须用**不低于本模块 `go` 指令版本**的 Go 构建，否则会报
+  `package requires newer Go version` 或
+  `export data version ... is greater than maximum supported version`；
+  按上面的 `go install` 重装即可（它默认使用本机最新工具链）。
+- `yd align --apply` 会**迭代到不动点**：默认最多 5 遍，`--max-passes N` 可覆盖；
+  每遍后诊断数归零或不再下降即停止，摘要以 `passes | 遍数: N` 报告实际遍数。
+  单遍 `betteralign -apply` 不保证收敛，可能需要再跑一遍。
+- 工具版本过旧时 `yd align` 打印重装提示并返回非零（哨兵 `align.ErrToolTooOld`），
+  但绝不 panic，也不阻塞构建。
 
 ## 9. 前端 i18n 与主题（强制）
 
