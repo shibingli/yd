@@ -59,7 +59,7 @@
     fallback: '',
     catalogs: {},
     listeners: [],
-    bound: false
+    boundDoc: null
   };
 
   // env returns the global object, which keeps the module usable in node:test.
@@ -93,30 +93,47 @@
     return value === undefined || value === null ? null : value;
   }
 
-  // parseJSON parses the injected envelope, undoing the escaping html/template applies when the
-  // catalog is interpolated as a plain string instead of template.HTML.
-  // parseJSON 解析注入的信封；当目录以普通字符串而非 template.HTML 插值时，
-  // html/template 会做实体转义，这里把实体还原回去。
+  // tryParse returns the parsed value, or null when the text is not JSON at all.
+  // tryParse 返回解析结果；文本完全不是 JSON 时返回 null。
+  function tryParse(raw) {
+    try {
+      return JSON.parse(raw);
+    } catch (err) {
+      return null;
+    }
+  }
+
+  // parseJSON parses the injected envelope and survives the two shapes html/template can produce:
+  //   1. a raw JSON object, when the handler passes template.JS (the supported contract);
+  //   2. a quoted JSON *string*, because html/template treats <script type="application/json"> as a
+  //      JavaScript container and json.Marshal's every other type, template.HTML included.
+  // Entity escaping (a text-context injection) is undone as a last resort.
+  // parseJSON 解析注入的信封，并兼容 html/template 可能产生的两种形态：
+  //   1. 原始 JSON 对象——处理函数传 template.JS 时（受支持的契约）；
+  //   2. 带引号的 JSON *字符串*——因为 html/template 把 <script type="application/json">
+  //      当作 JavaScript 容器，对包括 template.HTML 在内的其它类型一律 json.Marshal；
+  // 最后再兜底还原一次实体转义（文本上下文注入时的产物）。
   function parseJSON(raw) {
     if (!raw) {
       return null;
     }
-    try {
-      return JSON.parse(raw);
-    } catch (err) {
-      /* fall through to the unescaping path | 落到实体还原分支 */
+    var value = tryParse(raw);
+    if (value === null) {
+      var unescaped = text(raw)
+        .replace(/&(?:quot|#34);/g, '"')
+        .replace(/&(?:apos|#39);/g, "'")
+        .replace(/&lt;/g, '<')
+        .replace(/&gt;/g, '>')
+        .replace(/&amp;/g, '&');
+      value = tryParse(unescaped);
     }
-    var unescaped = text(raw)
-      .replace(/&(?:quot|#34);/g, '"')
-      .replace(/&(?:apos|#39);/g, "'")
-      .replace(/&lt;/g, '<')
-      .replace(/&gt;/g, '>')
-      .replace(/&amp;/g, '&');
-    try {
-      return JSON.parse(unescaped);
-    } catch (err2) {
-      return null;
+    if (typeof value === 'string') {
+      var inner = tryParse(value);
+      if (inner !== null) {
+        return inner;
+      }
     }
+    return value;
   }
 
   // readInjected reads and parses <script id="yd-i18n-catalog" type="application/json">.
@@ -533,15 +550,15 @@
     bind(doc());
   }
 
-  // listen registers the DOM level hooks once; it is a no-op without a document.
-  // listen 只注册一次 DOM 层钩子；没有文档时为空操作。
+  // listen registers the DOM level hook once per document; it is a no-op without one.
+  // listen 为每个文档只注册一次 DOM 钩子；没有文档时为空操作。
   function listen() {
     var d = doc();
-    if (!d || state.bound || typeof d.addEventListener !== 'function') {
+    if (!d || typeof d.addEventListener !== 'function' || state.boundDoc === d) {
       return;
     }
     d.addEventListener('htmx:after:swap', onAfterSwap);
-    state.bound = true;
+    state.boundDoc = d;
   }
 
   // init resolves the catalogs and the active language, then translates the current DOM.

@@ -11,7 +11,14 @@
     .Lang       current language tag, e.g. "zh-CN" | 当前语言标签，如 "zh-CN"
     .Theme      "light" or "dark", pre-rendered from the yd_theme cookie | "light" 或 "dark"，由服务端依据 yd_theme cookie 预渲染
     .I18nJSON   catalog envelope already serialized by the i18n package | i18n 包序列化好的目录信封
-                It MUST be template.HTML, otherwise html/template escapes the quotes | 必须是 template.HTML，否则引号会被 html/template 转义
+                It MUST be template.JS: html/template treats <script type="application/json">
+                as a JavaScript container and json.Marshal's every other type, so template.HTML
+                or a plain string would arrive as a quoted JSON *string*. yd-i18n.js unwraps that
+                case too, but template.JS is the supported contract.
+                必须是 template.JS：html/template 把 <script type="application/json"> 当作
+                JavaScript 容器，对其它类型一律调用 json.Marshal，因此 template.HTML 或普通字符串
+                会变成被引号包裹的 JSON *字符串*。yd-i18n.js 也能解开这种情况，
+                但受支持的契约是 template.JS。
     .Flashes    flash messages, see partials/flash.html | 闪现消息，见 partials/flash.html
 
   Hard rules | 硬规则:

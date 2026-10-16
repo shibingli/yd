@@ -688,6 +688,18 @@
     return { stream: out, allZero: allZero };
   }
 
+  // parseRandomiserOption normalises opts.k, accepting hex text or 32 bytes. | parseRandomiserOption 归一化 opts.k，接受十六进制文本或 32 字节。
+  //
+  // A pinned randomiser is a test affordance: it makes ciphertexts and signatures reproducible, and
+  // it must still be a valid scalar. | 固定随机数是测试用的能力：它让密文与签名可复现，同时必须仍是合法标量。
+  function parseRandomiserOption(value) {
+    if (value === undefined || value === null) {
+      return null;
+    }
+    var text = typeof value === 'string' ? value : bytesToHex(toBytes(value));
+    return parseScalar(text, 'randomiser | 随机数');
+  }
+
   // sm2Encrypt encrypts bytes into the raw C1C3C2 layout used by guomi.EncryptRaw. | sm2Encrypt 把字节加密为 guomi.EncryptRaw 使用的原始 C1C3C2 布局。
   //
   // opts.k pins the randomiser for reproducible vectors; opts.c1Prefix prepends the 0x04 marker. | opts.k 固定随机数以产出可复现向量；opts.c1Prefix 前置 0x04 标识字节。
@@ -695,7 +707,7 @@
     var options = opts || {};
     var point = parsePublicKey(publicKeyHex);
     var message = toBytes(data);
-    var fixed = options.k === undefined || options.k === null ? null : parseScalar(toBytes(options.k).length === 32 ? bytesToHex(toBytes(options.k)) : String(options.k), 'randomiser | 随机数');
+    var fixed = parseRandomiserOption(options.k);
     for (var attempt = 0; attempt < 64; attempt++) {
       var k = fixed === null ? randomScalar() : fixed;
       var c1 = scalarBaseMult(k);
@@ -758,10 +770,22 @@
     return message;
   }
 
+  // ciphertextBytes normalises a ciphertext argument, decoding a hex dump as hex instead of text. | ciphertextBytes 规范化密文参数：十六进制转储按十六进制解码，而不按文本处理。
+  //
+  // A binary ciphertext has no meaningful text form, so a pure-hex string that is long enough to hold the
+  // 96-byte C1||C3 header is always a hex dump (this is how the Go vectors hand ciphertexts over). | 二进制密文没有
+  // 有意义的文本形式，因此凡是能容纳 96 字节 C1||C3 头的纯十六进制字符串必定是转储（Go 向量即以此方式交付密文）。
+  function ciphertextBytes(ciphertext) {
+    if (typeof ciphertext === 'string' && ciphertext.length >= 192 && ciphertext.length % 2 === 0 && /^[0-9a-fA-F]+$/.test(ciphertext)) {
+      return hexToBytes(ciphertext);
+    }
+    return toBytes(ciphertext);
+  }
+
   // sm2Decrypt decrypts the raw layout, auto-detecting the optional 0x04 marker. | sm2Decrypt 解密原始布局，并自动识别可选的 0x04 标识字节。
   function sm2Decrypt(privateKeyHex, ciphertext, opts) {
     var options = opts || {};
-    var bytes = toBytes(ciphertext);
+    var bytes = ciphertextBytes(ciphertext);
     var prefixed = options.c1Prefix;
     if (prefixed === true) {
       if (bytes.length === 0 || bytes[0] !== 0x04) {
@@ -883,11 +907,9 @@
   function sm2Sign(privateKeyHex, data, opts) {
     var options = opts || {};
     var scalar = parseScalar(privateKeyHex, 'private key | 私钥');
-    var point = parseScalar(privateKeyHex, 'private key | 私钥');
-    void point;
     var publicPoint = scalarBaseMult(scalar);
     var e = sm2Digest(publicPoint, toBytes(data));
-    var fixed = options.k === undefined || options.k === null ? null : parseScalar(String(options.k), 'randomiser | 随机数');
+    var fixed = parseRandomiserOption(options.k);
     var dInv = modInv(1n + scalar, CURVE.n);
     for (var attempt = 0; attempt < 64; attempt++) {
       var k = fixed === null ? randomScalar() : fixed;
@@ -942,11 +964,12 @@
     if (t === 0n) {
       return false;
     }
-    var sum = jacobianAdd(
-      { x: scalarBaseMult(s).x, y: scalarBaseMult(s).y, z: 1n },
-      { x: scalarMult(t, point).x, y: scalarMult(t, point).y, z: 1n }
-    );
-    var affine = jacobianToAffine(sum);
+    var sG = scalarBaseMult(s);
+    var tP = scalarMult(t, point);
+    if (!sG || !tP) {
+      return false;
+    }
+    var affine = jacobianToAffine(jacobianAdd({ x: sG.x, y: sG.y, z: 1n }, { x: tP.x, y: tP.y, z: 1n }));
     if (!affine) {
       return false;
     }
@@ -1183,29 +1206,30 @@
     return value;
   }
 
-  // gcmLengthBlock renders the trailing 64-bit lengths of AAD and ciphertext. | gcmLengthBlock 渲染尾部 64 位的 AAD 与密文长度。
+  // gcmLengthBlock renders the trailing 64-bit big-endian lengths of AAD and ciphertext. | gcmLengthBlock 渲染尾部 64 位大端的 AAD 与密文长度。
+  //
+  // Both fields are full 64-bit values: a 64-byte ciphertext already exceeds one byte of length. | 两个字段都是完整 64 位：64 字节密文的位长就已超过一个字节的容量。
   function gcmLengthBlock(aadLength, ciphertextLength) {
     var out = new Uint8Array(16);
-    var aadBits = aadLength * 8;
-    var cipherBits = ciphertextLength * 8;
-    out[0] = Math.floor(aadBits / 72057594037927936) & 0xff;
-    out[7] = aadBits & 0xff;
-    out[8] = Math.floor(cipherBits / 72057594037927936) & 0xff;
-    out[15] = cipherBits & 0xff;
+    out.set(bigIntToBytesBE(BigInt(aadLength) * 8n, 8), 0);
+    out.set(bigIntToBytesBE(BigInt(ciphertextLength) * 8n, 8), 8);
     return out;
   }
 
   // gcmDeriveCounter builds the initial counter block J0 from the nonce. | gcmDeriveCounter 由 nonce 构造初始计数块 J0。
+  //
+  // For a non-96-bit nonce the counter is GHASH_H(nonce || [0^64 || len(nonce)*8]_64); the nonce and
+  // the 16-byte length block are concatenated first and zero-padded afterwards, which is what
+  // crypto/cipher does, so the block boundaries match Go for every nonce length. | 随机数非 96 位时，
+  // 计数块为 GHASH_H(nonce || [0^64 || len(nonce)*8]_64)；nonce 与 16 字节长度块先拼接、末尾再补零，
+  // 与 crypto/cipher 一致，因此任意长度 nonce 的分块边界都与 Go 相同。
   function gcmDeriveCounter(hashKey, nonce) {
     if (nonce.length === 12) {
       return bytesToBigIntBE(concatBytes(nonce, new Uint8Array([0x00, 0x00, 0x00, 0x01])));
     }
-    var padding = (16 - (nonce.length % 16)) % 16;
-    var lengthBlock = new Uint8Array(8);
-    var nonceBits = nonce.length * 8;
-    lengthBlock[0] = Math.floor(nonceBits / 72057594037927936) & 0xff;
-    lengthBlock[7] = nonceBits & 0xff;
-    return gcmHashData(0n, hashKey, concatBytes(nonce, new Uint8Array(padding), lengthBlock));
+    var lengthBlock = new Uint8Array(16);
+    lengthBlock.set(bigIntToBytesBE(BigInt(nonce.length) * 8n, 8), 8);
+    return gcmHashData(0n, hashKey, concatBytes(nonce, lengthBlock));
   }
 
   // gcmInc32 increments the low 32 bits of the counter block. | gcmInc32 递增计数块的低 32 位。

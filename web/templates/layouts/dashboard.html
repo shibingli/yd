@@ -47,7 +47,11 @@
 </html>
 {{- end -}}
 
-{{/* "dashboard" renders the shell around the dashboard page itself. | "dashboard" 把外壳套在仪表盘页面上渲染。 */}}
+{{/* "dashboard" is a plain alias of the dashboard page: it must compose the open/close shell
+     around pages/dashboard.content, never around pages/dashboard.html, which already carries the
+     shell itself and would nest two <main id="yd-workspace"> elements.
+     "dashboard" 只是仪表盘页面的别名：必须用 open/close 外壳包住 pages/dashboard.content，
+     而绝不能包住已经自带外壳的 pages/dashboard.html，否则会嵌套出两个 <main id="yd-workspace">。 */}}
 {{- define "dashboard" -}}
-{{template "dashboard.open" .}}{{template "pages/dashboard.html" .}}{{template "dashboard.close" .}}
+{{template "pages/dashboard.html" .}}
 {{- end -}}

@@ -20,8 +20,13 @@ const scriptDir = dirname(fileURLToPath(import.meta.url));
 
 // Official GB/T 32905-2016 vectors. | GB/T 32905-2016 官方向量。
 const SM3_ABC = '66c7f0f462eeedd9d1f2d46bdc10e4e24167c4875cf2f7a2297da02b8f4ba8e0';
+// The GB/T 32905 example message is "abcd" repeated 16 times, that is 64 bytes. | GB/T 32905 的算例消息是 "abcd" 重复 16 次，即 64 字节。
 const SM3_ABCD_X64 = 'debe9ff92275b8a138604889c18e5a4d6fdb70e5387e5765293dcba39c0c5732';
 const SM3_EMPTY = '1ab21d8355cfa17f8e61194831e81a8f22bec8c728fefb747ed035eb5082aa2b';
+// "abcd" repeated 64 times, that is 256 bytes or four blocks; cross-checked with openssl dgst -sm3. | "abcd" 重复 64 次即 256 字节共四块；已用 openssl dgst -sm3 交叉校验。
+const SM3_ABCD_X256 = 'b965764c8bebb091c7602b74afd34eefb531dccb4e0076d9b7cd813199b45971';
+const ABCD_X64 = 'abcd'.repeat(16);
+const ABCD_X256 = 'abcd'.repeat(64);
 // GB/T 32918 recommended curve parameters: H = 1*G and N*G = infinity. | GB/T 32918 推荐曲线参数：1*G 与 N*G 为无穷远点。
 const GENERATOR_HEX = '04' +
   '32c4ae2c1f1981195f9904466a39c9948fe30bbff2660be1715a4589334c74c7' +
@@ -97,7 +102,8 @@ test('ready() resolves and the exported surface is complete | ready() 可解析�
 
 test('SM3 official vectors | SM3 官方向量', () => {
   assert.equal(ydGuomi.sm3Hex('abc'), SM3_ABC);
-  assert.equal(ydGuomi.sm3Hex('abcd'.repeat(64)), SM3_ABCD_X64);
+  assert.equal(ydGuomi.sm3Hex(ABCD_X64), SM3_ABCD_X64);
+  assert.equal(ydGuomi.sm3Hex(ABCD_X256), SM3_ABCD_X256);
   assert.equal(ydGuomi.sm3Hex(''), SM3_EMPTY);
   assert.equal(hex(ydGuomi.sm3('abc')), SM3_ABC);
   // Both inputs must produce identical bytes: string and Uint8Array. | 字符串与 Uint8Array 两种入参必须产出完全相同的字节。
@@ -105,14 +111,15 @@ test('SM3 official vectors | SM3 官方向量', () => {
   for (const [name, dataHex, digestHex] of [
     ['abc', util.bytesToHex(util.utf8Encode('abc')), SM3_ABC],
     ['empty', '', SM3_EMPTY],
-    ['abcd-x64', util.bytesToHex(util.utf8Encode('abcd'.repeat(64))), SM3_ABCD_X64],
+    ['abcd-x16-64B', util.bytesToHex(util.utf8Encode(ABCD_X64)), SM3_ABCD_X64],
+    ['abcd-x64-256B', util.bytesToHex(util.utf8Encode(ABCD_X256)), SM3_ABCD_X256],
   ]) {
     jsVectors.sm3.push({ name: `${name} (js)`, dataHex, digestHex });
   }
 });
 
 test('SM3 incremental updates match the one-shot digest | SM3 增量更新与一次性摘要一致', () => {
-  const message = 'abcd'.repeat(64);
+  const message = ABCD_X256;
   const oneShot = hex(ydGuomi.sm3(message));
   for (const chunk of [1, 7, 63, 64, 65, 100]) {
     const stream = ydGuomi.sm3Stream();
@@ -153,14 +160,17 @@ test('byte utilities round-trip explicitly | 字节工具显式往返', () => {
 
 test('SM2 curve constants agree with GB/T 32918 | SM2 曲线常量与 GB/T 32918 一致', () => {
   // d = 1 must yield the published generator point, which pins the curve parameters. | d = 1 必须得到公开的基点，从而锁定曲线参数。
-  assert.equal(ydGuomi.sm2.derivePublicKey('01'), GENERATOR_HEX);
   assert.equal(ydGuomi.sm2.derivePublicKey('0'.repeat(63) + '1'), GENERATOR_HEX);
+  // An 0x prefix and mixed case are tolerated and must not change the result. | 容忍 0x 前缀与大小写混用，且不得改变结果。
+  assert.equal(ydGuomi.sm2.derivePublicKey('0X' + '0'.repeat(62) + '01'), GENERATOR_HEX);
   assert.equal(util.bytesToHex(util.bigIntToBytesBE(ydGuomi.sm2.constants.p, 32)), CURVE_P_HEX);
   assert.equal(util.bytesToHex(util.bigIntToBytesBE(ydGuomi.sm2.constants.n, 32)), CURVE_ORDER_HEX);
-  // Scalars outside [1, n-1] must be rejected. | 超出 [1, n-1] 的标量必须被拒绝。
-  assert.throws(() => ydGuomi.sm2.derivePublicKey('00'), (err) => err.code === 'invalid-key');
+  // Scalars that are too short, too long or outside [1, n-1] must be rejected. | 过短、过长或超出 [1, n-1] 的标量必须被拒绝。
+  assert.throws(() => ydGuomi.sm2.derivePublicKey('01'), (err) => err.code === 'invalid-key');
+  assert.throws(() => ydGuomi.sm2.derivePublicKey('0'.repeat(65) + '1'), (err) => err.code === 'invalid-key');
+  assert.throws(() => ydGuomi.sm2.derivePublicKey('00'.repeat(32)), (err) => err.code === 'invalid-key');
   assert.throws(() => ydGuomi.sm2.derivePublicKey(CURVE_ORDER_HEX), (err) => err.code === 'invalid-key');
-  assert.throws(() => ydGuomi.sm2.derivePublicKey('abcd'), (err) => err.code === 'invalid-key');
+  assert.throws(() => ydGuomi.sm2.derivePublicKey('zz'.repeat(32)), (err) => err.code === 'invalid-hex');
 });
 
 test('SM2 key generation, signing and encryption round-trip | SM2 密钥生成、签名与加解密往返', async () => {
@@ -222,9 +232,32 @@ test('SM2: JS decrypts Go ciphertexts and reproduces the fixed-k ciphertext | SM
     }
   }
 
+  // A ciphertext read straight out of the vector JSON as a hex dump must decrypt as bytes, not as text. | 直接从向量 JSON 以十六进制转储读入的密文必须按字节解密，而不是按文本。
+  for (const vector of sm2.encryptions) {
+    assert.equal(util.bytesToHex(ydGuomi.sm2.decrypt(sm2.privateKeyHex, vector.cipherHex)), vector.plainHex, `${vector.name} hex-string decrypt`);
+  }
+  // Below the 96-byte header a pure-hex string is never a ciphertext dump, so the text path stays in force. | 不足 96 字节头时纯十六进制字符串不可能是密文转储，因此文本路径保持生效。
+  assert.throws(() => ydGuomi.sm2.decrypt(sm2.privateKeyHex, 'abcd'.repeat(10)), (err) => err.code === 'invalid-ciphertext');
+
+  assert.ok(sm2.signatures.length >= 1);
+
+  for (const vector of sm2.signatures) {
+    const data = util.hexToBytes(vector.dataHex);
+    assert.equal(ydGuomi.sm2.verify(sm2.publicKeyHex, data, vector.signatureHex), true, `${vector.name} verify`);
+    assert.equal(ydGuomi.sm2.verify(sm2.publicKeyHex, util.utf8Encode('tampered | 篡改'), vector.signatureHex), false, `${vector.name} negative`);
+    if (vector.fixedKHex) {
+      // Byte-level proof: ZA, e = SM3(ZA||data), r, s and the DER encoding must all match Go. | 字节级证据：ZA、e = SM3(ZA||data)、r、s 与 DER 编码必须与 Go 完全一致。
+      const reproduced = util.bytesToHex(ydGuomi.sm2.sign(sm2.privateKeyHex, data, { k: vector.fixedKHex }));
+      assert.equal(reproduced, vector.signatureHex, `${vector.name} fixed-k`);
+    }
+  }
+});
+
+test('SM2: JS signs with the Go key for the Go side to verify | SM2：JS 用 Go 密钥签名供 Go 侧验签', () => {
   // JS re-encrypts with a fresh random k and hands the result to Go. | JS 用全新随机 k 重新加密，把结果交给 Go。
   for (const plainHex of ['', util.bytesToHex(util.utf8Encode('sandbox login | 沙箱登录')), 'ff00ff00a5a5']) {
-    const ciphertext = ydGuomi.sm2.encrypt(sm2.publicKeyHex, util.hexToBytes(plainHex));
+    const ciphertext = ydGuomi.sm2.encrypt(publicKeyHex, util.hexToBytes(plainHex));
+    assert.equal(util.bytesToHex(ydGuomi.sm2.decrypt(privateKeyHex, ciphertext)), plainHex);
     jsVectors.sm2.encryptions.push({
       name: `js-random-k ${plainHex.length / 2}B`,
       plainHex,
@@ -232,15 +265,6 @@ test('SM2: JS decrypts Go ciphertexts and reproduces the fixed-k ciphertext | SM
     });
   }
 
-  assert.ok(sm2.signatures.length >= 1);
-  for (const vector of sm2.signatures) {
-    const data = util.hexToBytes(vector.dataHex);
-    assert.equal(ydGuomi.sm2.verify(sm2.publicKeyHex, data, vector.signatureHex), true, `${vector.name} verify`);
-    assert.equal(ydGuomi.sm2.verify(sm2.publicKeyHex, util.utf8Encode('tampered | 篡改'), vector.signatureHex), false, `${vector.name} negative`);
-  }
-});
-
-test('SM2: JS signs with the Go key for the Go side to verify | SM2：JS 用 Go 密钥签名供 Go 侧验签', () => {
   for (const data of [util.utf8Encode('yd login | 登录'), new Uint8Array(0), new Uint8Array([0xff, 0x00, 0xff, 0x00])]) {
     const signature = ydGuomi.sm2.sign(privateKeyHex, data);
     assert.equal(ydGuomi.sm2.verify(publicKeyHex, data, signature), true);

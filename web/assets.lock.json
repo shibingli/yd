@@ -2,7 +2,8 @@
   "version": 1,
   "generated_at": "2026-10-16T08:43:20Z",
   "sources": [
-    "https://cdn.jsdelivr.net/npm"
+    "https://cdn.jsdelivr.net/npm/{pkg}@{ver}/{file}",
+    "https://unpkg.com/{pkg}@{ver}/{file}"
   ],
   "assets": [
     {

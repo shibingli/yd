@@ -91,6 +91,11 @@ const (
 
 	// jsTestScriptName is the Node test entry point relative to the repository root. | jsTestScriptName 是相对仓库根目录的 Node 测试入口。
 	jsTestScriptName = "web/static/js/yd-guomi.test.mjs"
+
+	// fixedRandomSize is how many bytes gmsm reads for one SM2 randomiser:
+	// params.BitSize/8+8 = 256/8+8 = 40 for sm2p256v1. | fixedRandomSize 是 gmsm 派生一个 SM2 随机数所读取的字节数：
+	// 对 sm2p256v1 而言为 params.BitSize/8+8 = 256/8+8 = 40。
+	fixedRandomSize = 40
 )
 
 // sm3Vector is one SM3 digest vector. | sm3Vector 是一条 SM3 摘要向量。
@@ -139,6 +144,11 @@ type sm2SignatureVector struct {
 
 	// Algorithm documents the signature construction. | Algorithm 记录签名构造方式。
 	Algorithm string `json:"algorithm,omitempty"`
+
+	// FixedKHex is the effective randomiser when the signature is deterministic, so JavaScript
+	// can reproduce the exact signature bytes with one scalar. | FixedKHex 是确定性签名所使用的有效随机数，
+	// 使 JS 侧可用一个标量复现完全相同的签名字节。
+	FixedKHex string `json:"fixedKHex,omitempty"`
 }
 
 // sm2Vectors is the SM2 section shared by both directions. | sm2Vectors 是两个方向共用的 SM2 段。
@@ -281,10 +291,11 @@ type fixedReader struct {
 	buf []byte
 }
 
-// Read copies the fixed buffer into p and never fails. | Read 把固定缓冲区拷入 p，永不失败。
+// Read copies the fixed buffer and reports how many bytes it actually wrote, so io.ReadFull sees
+// the whole stream and no unwritten tail can be mistaken for randomness. | Read 拷贝固定缓冲区并如实报告
+// 实际写入的字节数，使 io.ReadFull 拿到完整字节流，未写入的尾部不会被误当作随机数据。
 func (r *fixedReader) Read(p []byte) (int, error) {
-	copy(p, r.buf)
-	return len(p), nil
+	return copy(p, r.buf), nil
 }
 
 // TestGuomiJSVectors writes the Go side vectors and runs the Node suite over them. | TestGuomiJSVectors 写出 Go 侧向量并对其运行 Node 套件。
@@ -461,7 +472,7 @@ func writeGoVectors(t *testing.T) guomiVectorFile {
 	vectors := guomiVectorFile{
 		Version:     1,
 		GeneratedBy: "go",
-		Note: "regenerate with: go test ./web/ -run TestGuomi -v | 重新生成：go test ./web/ -run TestGuomi -v",
+		Note:        "regenerate with: go test ./web/ -run TestGuomi -v | 重新生成：go test ./web/ -run TestGuomi -v",
 		SM3:         goSM3Vectors(),
 		SM2: sm2Vectors{
 			PrivateKeyHex:   vectorPrivateKeyHex,
@@ -486,7 +497,8 @@ func writeGoVectors(t *testing.T) guomiVectorFile {
 		t.Fatalf("%v: %v", errVectorIO, err)
 	}
 	t.Logf("wrote %s with %d SM3, %d SM2 ciphertext and %d SM4 vectors | 已写出 %s：%d 条 SM3、%d 条 SM2 密文与 %d 条 SM4 向量",
-		path, len(vectors.SM3), len(vectors.SM2.Encryptions), len(vectors.SM4.CBC)+len(vectors.SM4.GCM), path)
+		path, len(vectors.SM3), len(vectors.SM2.Encryptions), len(vectors.SM4.CBC)+len(vectors.SM4.GCM),
+		path, len(vectors.SM3), len(vectors.SM2.Encryptions), len(vectors.SM4.CBC)+len(vectors.SM4.GCM))
 	return vectors
 }
 
@@ -534,21 +546,20 @@ func goSM2Encryptions(t *testing.T, publicKey *guomi.PublicKey, privateKey *guom
 
 	plaintexts := []struct{ name, text string }{
 		{"ascii", "yd sandbox login"},
-		{"empty", ""},
 		{"utf8 CJK | 中文", "国密前端沙箱 | guomi sandbox"},
 	}
 	var vectors []sm2EncryptionVector
 	for _, plaintext := range plaintexts {
-		vectors = append(vectors, deterministicEncryption(t, publicKey, plaintext.name, []byte(plaintext.text)))
+		vectors = append(vectors, deterministicEncryption(t, publicKey, privateKey, plaintext.name, []byte(plaintext.text)))
 	}
 	binary := []byte{0xff, 0x00, 0xff, 0x00, 0xa5, 0x5a, 0x00, 0x01}
-	vectors = append(vectors, deterministicEncryption(t, publicKey, "binary", binary))
+	vectors = append(vectors, deterministicEncryption(t, publicKey, privateKey, "binary", binary))
 	// 100 bytes cross the 32-byte KDF block boundary, which is where implementations diverge. | 100 字节跨越 32 字节 KDF 分块边界，正是各实现容易分歧之处。
 	long := make([]byte, 100)
 	for i := range long {
 		long[i] = byte(i)
 	}
-	vectors = append(vectors, deterministicEncryption(t, publicKey, "kdf-multi-block-100B", long))
+	vectors = append(vectors, deterministicEncryption(t, publicKey, privateKey, "kdf-multi-block-100B", long))
 
 	for _, plaintext := range []struct{ name, text string }{
 		{"framework-encryptraw", "guomi.EncryptRaw | 框架原始密文"},
@@ -575,16 +586,18 @@ func goSM2Encryptions(t *testing.T, publicKey *guomi.PublicKey, privateKey *guom
 // deterministicEncryption builds one raw ciphertext with the fixed randomiser and asserts that
 // Go accepts it, so the layout claim is proven on the Go side first. | deterministicEncryption
 // 使用固定随机数构造一条原始密文，并断言 Go 能接受它，从而先在 Go 侧坐实布局声明。
-func deterministicEncryption(t *testing.T, publicKey *guomi.PublicKey, name string, plaintext []byte) sm2EncryptionVector {
+func deterministicEncryption(t *testing.T, publicKey *guomi.PublicKey, privateKey *guomi.PrivateKey, name string, plaintext []byte) sm2EncryptionVector {
 	t.Helper()
 
-	k, ok := new(big.Int).SetString(vectorFixedKHex, 16)
-	if !ok {
-		t.Fatalf("fixed randomiser %q is not hex | 固定随机数 %q 不是合法十六进制", vectorFixedKHex, vectorFixedKHex)
+	if len(plaintext) == 0 {
+		// gmsm's kdf reports "all zero" for klen == 0, which makes Encrypt retry forever on a
+		// fixed reader. The empty plaintext is therefore covered by EncryptRaw instead. | gmsm 的 kdf
+		// 对 klen == 0 返回「全零」判定，这会让 Encrypt 在固定随机源上无限重试；空明文改由 EncryptRaw 覆盖。
+		t.Fatalf("deterministic empty plaintext is unsupported by gmsm | gmsm 不支持确定性的空明文")
 	}
-	reader := &fixedReader{buf: paddedBytes(k, guomi.SM2CoordinateSize)}
+	effective, stream := fixedRandomiser(t)
 	// gmsm emits one leading 0x04 marker byte that guomi.EncryptRaw does not use. | gmsm 会多输出一个前导 0x04 标识字节，而 guomi.EncryptRaw 不使用它。
-	ciphertext, err := sm2.Encrypt(publicKey.Raw(), plaintext, reader, sm2.C1C3C2)
+	ciphertext, err := sm2.Encrypt(publicKey.Raw(), plaintext, &fixedReader{buf: stream}, sm2.C1C3C2)
 	if err != nil {
 		t.Fatalf("gmsm Encrypt(%s) | gmsm Encrypt(%s): %v", name, name, err)
 	}
@@ -595,7 +608,7 @@ func deterministicEncryption(t *testing.T, publicKey *guomi.PublicKey, name stri
 	if len(raw) != 2*guomi.SM2CoordinateSize+guomi.SM3Size+len(plaintext) {
 		t.Fatalf("raw ciphertext length %d, want %d | 原始密文长度 %d，期望 %d", len(raw), 2*guomi.SM2CoordinateSize+guomi.SM3Size+len(plaintext), len(raw), 2*guomi.SM2CoordinateSize+guomi.SM3Size+len(plaintext))
 	}
-	back, err := guomi.DecryptRaw(privateKeyFromPublic(t, publicKey), raw)
+	back, err := guomi.DecryptRaw(privateKey, raw)
 	if err != nil {
 		t.Fatalf("guomi.DecryptRaw(%s) | guomi.DecryptRaw(%s): %v", name, name, err)
 	}
@@ -606,19 +619,36 @@ func deterministicEncryption(t *testing.T, publicKey *guomi.PublicKey, name stri
 		Name:      name,
 		PlainHex:  hex.EncodeToString(plaintext),
 		CipherHex: hex.EncodeToString(raw),
-		FixedKHex: vectorFixedKHex,
+		FixedKHex: hex.EncodeToString(paddedBytes(effective, guomi.SM2CoordinateSize)),
 		Layout:    ciphertextLayout,
 	}
 }
 
-// privateKeyFromPublic re-derives the framework private key from the fixed scalar. | privateKeyFromPublic 由固定标量重新推导框架私钥。
-func privateKeyFromPublic(t *testing.T, _ *guomi.PublicKey) *guomi.PrivateKey {
+// fixedRandomiser returns the byte stream gmsm consumes for one signature or ciphertext, plus the
+// effective scalar it derives from that stream. | fixedRandomiser 返回 gmsm 为一次签名或加密消费的字节流，
+// 以及它由该字节流派生出的有效标量。
+//
+// gmsm's randFieldElement reads params.BitSize/8+8 bytes and maps them through k = B mod (n-1) + 1,
+// so the seed is not the scalar itself. Recording the effective scalar keeps the vectors
+// reproducible from JavaScript with the single value it can consume. | gmsm 的 randFieldElement 读取
+// params.BitSize/8+8 字节并按 k = B mod (n-1) + 1 映射，因此种子并不等于标量本身。记录有效标量
+// 使 JS 侧仅凭这一个可直接消费的数值即可复现向量。
+func fixedRandomiser(t *testing.T) (*big.Int, []byte) {
 	t.Helper()
-	privateKey, err := guomi.PrivateKeyFromHex(vectorPrivateKeyHex)
-	if err != nil {
-		t.Fatalf("private key | 私钥: %v", err)
+
+	seed, ok := new(big.Int).SetString(vectorFixedKHex, 16)
+	if !ok {
+		t.Fatalf("fixed randomiser %q is not hex | 固定随机数 %q 不是合法十六进制", vectorFixedKHex, vectorFixedKHex)
 	}
-	return privateKey
+	stream := paddedBytes(seed, fixedRandomSize)
+
+	order := sm2.P256Sm2().Params().N
+	effective := new(big.Int).Mod(new(big.Int).SetBytes(stream), new(big.Int).Sub(order, big.NewInt(1)))
+	effective.Add(effective, big.NewInt(1))
+	if effective.Sign() <= 0 || effective.Cmp(order) >= 0 {
+		t.Fatalf("effective randomiser %s is outside [1, n-1] | 有效随机数 %s 超出 [1, n-1]", effective, effective)
+	}
+	return effective, stream
 }
 
 // goSM2Signatures returns one deterministic DER signature plus one produced by guomi.Sign. | goSM2Signatures 返回一条确定性 DER 签名和一条由 guomi.Sign 产生的签名。
@@ -626,11 +656,8 @@ func goSM2Signatures(t *testing.T, privateKey *guomi.PrivateKey, publicKey *guom
 	t.Helper()
 
 	message := []byte("yd sandbox signature | 沙箱签名")
-	k, ok := new(big.Int).SetString(vectorFixedKHex, 16)
-	if !ok {
-		t.Fatalf("fixed randomiser %q is not hex | 固定随机数 %q 不是合法十六进制", vectorFixedKHex, vectorFixedKHex)
-	}
-	r, s, err := sm2.Sm2Sign(privateKey.Raw(), message, nil, &fixedReader{buf: paddedBytes(k, guomi.SM2CoordinateSize)})
+	effective, stream := fixedRandomiser(t)
+	r, s, err := sm2.Sm2Sign(privateKey.Raw(), message, nil, &fixedReader{buf: stream})
 	if err != nil {
 		t.Fatalf("gmsm Sm2Sign | gmsm Sm2Sign: %v", err)
 	}
@@ -657,7 +684,13 @@ func goSM2Signatures(t *testing.T, privateKey *guomi.PrivateKey, publicKey *guom
 	}
 
 	return []sm2SignatureVector{
-		{Name: "deterministic-fixed-k", DataHex: hex.EncodeToString(message), SignatureHex: hex.EncodeToString(der), Algorithm: signatureAlgorithm},
+		{
+			Name:         "deterministic-fixed-k",
+			DataHex:      hex.EncodeToString(message),
+			SignatureHex: hex.EncodeToString(der),
+			Algorithm:    signatureAlgorithm,
+			FixedKHex:    hex.EncodeToString(paddedBytes(effective, guomi.SM2CoordinateSize)),
+		},
 		{Name: "framework-Sign", DataHex: hex.EncodeToString(message), SignatureHex: randomHex, Algorithm: signatureAlgorithm},
 		{Name: "framework-Sign-empty", DataHex: "", SignatureHex: emptyHex, Algorithm: signatureAlgorithm},
 	}
@@ -680,7 +713,10 @@ func goSM4Vectors(t *testing.T) sm4Vectors {
 		t.Fatalf("sm4 nonce | SM4 随机数: %v", err)
 	}
 
-	cbcPlaintexts := []struct{ name string; data []byte }{
+	cbcPlaintexts := []struct {
+		name string
+		data []byte
+	}{
 		{"empty", []byte{}},
 		{"block-16B", []byte("0123456789abcdef")},
 		{"utf8 CJK | 中文", []byte("国密沙箱")},
@@ -707,10 +743,10 @@ func goSM4Vectors(t *testing.T) sm4Vectors {
 	}
 
 	gcmInputs := []struct {
-		name           string
-		nonce          []byte
-		aad            []byte
-		plaintext      []byte
+		name      string
+		nonce     []byte
+		aad       []byte
+		plaintext []byte
 	}{
 		{"nonce-12-aad-empty-plain-empty", nonce, []byte{}, []byte{}},
 		{"nonce-12-aad-5B-plain-16B", nonce, []byte{0x01, 0x23, 0x45, 0x67, 0x89}, []byte("0123456789abcdef")},
@@ -763,7 +799,7 @@ func runNodeTest(t *testing.T) ([]byte, error) {
 	t.Helper()
 
 	if _, err := exec.LookPath("node"); err != nil {
-		t.Skipf("skipping: node is not available on PATH (%v); install Node.js to run the javascript guomi suite | 跳过：PATH 中没有 node（%v），请安装 Node.js 以运行 JS 国密套件", err)
+		t.Skipf("skipping: node is not available on PATH (%v); install Node.js to run the javascript guomi suite | 跳过：PATH 中没有 node（%v），请安装 Node.js 以运行 JS 国密套件", err, err)
 		return nil, nil
 	}
 
