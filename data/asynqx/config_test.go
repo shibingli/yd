@@ -79,7 +79,7 @@ asynq:
 		t.Fatalf("高位重试延迟 = %v，期望封顶 5s（含抖动）", got)
 	}
 
-	// 空配置回落到 config.Defaults 注册的 asynq 默认值。 | An empty config falls back to the asynq defaults registered by config.Defaults.
+	// An empty config falls back to the asynq defaults registered by config.Defaults. | 空配置回落到 config.Defaults 注册的 asynq 默认值。
 	def := asynqx.OptionsFromConfig(loadConfig(t, ""))
 	if want := map[string]int{"critical": 3, "default": 2, "low": 1}; !maps.Equal(def.Queues, want) {
 		t.Fatalf("默认 Queues = %v，期望 %v", def.Queues, want)
@@ -94,7 +94,7 @@ asynq:
 		t.Fatalf("默认配置 Err = %v，期望 nil", err)
 	}
 
-	// nil 配置返回零值 Options 而不是 panic。 | A nil config yields zero Options instead of panicking.
+	// A nil config yields zero Options instead of panicking. | nil 配置返回零值 Options 而不是 panic。
 	if z := asynqx.OptionsFromConfig(nil); z.Concurrency != 0 || z.RedisAddr != "" || z.Err() != nil {
 		t.Fatalf("nil 配置 Options = %+v，期望零值且无错误", z)
 	}

@@ -72,7 +72,7 @@ func TestOpenSingleSentinelClusterModes(t *testing.T) {
 		t.Fatalf("集群模式客户端类型 = %T，期望 *redis.ClusterClient", cluster)
 	}
 
-	// 空 Mode 回落到单机（与 config.Defaults 的 redis.mode 默认值一致）。 | An empty Mode falls back to single, matching config.Defaults.
+	// An empty Mode falls back to single, matching config.Defaults. | 空 Mode 回落到单机（与 config.Defaults 的 redis.mode 默认值一致）。
 	fallback, err := redisx.Open(redisx.Options{Addr: mr.Addr()})
 	if err != nil {
 		t.Fatalf("空 Mode Open 失败: %v", err)
@@ -170,13 +170,13 @@ redis:
 	}
 	assertOptionsEqual(t, got, want)
 
-	// 空配置回落到 config.Defaults 注册的 redis 默认值。 | An empty config falls back to the redis defaults registered by config.Defaults.
+	// An empty config falls back to the redis defaults registered by config.Defaults. | 空配置回落到 config.Defaults 注册的 redis 默认值。
 	def := redisx.OptionsFromConfig(loadConfig(t, ""))
 	if def.Mode != redisx.ModeSingle || def.Addr != "127.0.0.1:6379" {
 		t.Fatalf("默认 Options = %+v，期望 single/127.0.0.1:6379", def)
 	}
 
-	// nil 配置返回零值 Options 而不是 panic。 | A nil config yields zero Options instead of panicking.
+	// A nil config yields zero Options instead of panicking. | nil 配置返回零值 Options 而不是 panic。
 	if z := redisx.OptionsFromConfig(nil); !reflect.DeepEqual(z, redisx.Options{}) {
 		t.Fatalf("nil 配置 Options = %+v，期望零值", z)
 	}

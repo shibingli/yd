@@ -42,13 +42,13 @@ func defaultProcessAlive(pid int) bool {
 		if err != nil {
 			return true
 		}
-		// 过滤器保证输出里只可能出现该 PID 的进程行。 | The filter guarantees that only the line of that PID can appear.
+		// The filter guarantees that only the line of that PID can appear. | 过滤器保证输出里只可能出现该 PID 的进程行。
 		return strings.Contains(string(out), strconv.Itoa(pid))
 	}
 	if err == nil {
 		return true
 	}
-	// kill -0 以非零退出即进程不存在；其余错误（例如 kill 缺失）按存活处理。 | A non-zero exit of kill -0 means the process is gone; any other error (a missing kill, for instance) counts as alive.
+	// A non-zero exit of kill -0 means the process is gone; any other error (a missing kill, for instance) counts as alive. | kill -0 以非零退出即进程不存在；其余错误（例如 kill 缺失）按存活处理。
 	var exitErr *exec.ExitError
 	return !errors.As(err, &exitErr)
 }
@@ -92,13 +92,13 @@ func (r *DevRunner) startChild(ctx context.Context, bin string) error {
 		r.forgetChild(proc)
 		return errx.WrapDetail(err, ErrChildStart, "exec %s | 启动 %s", bin, bin)
 	}
-	// PID 必须在启动回收 goroutine 之前取出：此后不再触碰 cmd，避免与 Wait 竞争。 | Take the PID before starting the reaper: cmd must not be touched afterwards, or it would race with Wait.
+	// Take the PID before starting the reaper: cmd must not be touched afterwards, or it would race with Wait. | PID 必须在启动回收 goroutine 之前取出：此后不再触碰 cmd，避免与 Wait 竞争。
 	pid := cmd.Process.Pid
 	r.mu.Lock()
 	proc.pid = pid
 	r.starts++
 	r.mu.Unlock()
-	// 先起回收 goroutine：即使其后任何一步 panic，子进程也一定被 Wait 收尸。 | Start the reaper first: even if a later step panics, the child is still reaped by Wait.
+	// Start the reaper first: even if a later step panics, the child is still reaped by Wait. | 先起回收 goroutine：即使其后任何一步 panic，子进程也一定被 Wait 收尸。
 	go r.waitChild(proc, pid)
 	r.log.Info("dev: child started | dev: 子进程已启动",
 		logx.Str("bin", bin), logx.Int("pid", pid), logx.Int("port", r.opts.Port))
@@ -139,12 +139,12 @@ func (r *DevRunner) takeChild() *childProc {
 func (r *DevRunner) waitChild(p *childProc, pid int) {
 	err := p.cmd.Wait()
 	r.forgetChild(p)
-	// reaped 必须在 done 关闭之前自增，stopChild 的等待返回后计数才是确定的。 | reaped must be incremented before done is closed, so the count is settled once stopChild stops waiting.
+	// reaped must be incremented before done is closed, so the count is settled once stopChild stops waiting. | reaped 必须在 done 关闭之前自增，stopChild 的等待返回后计数才是确定的。
 	r.mu.Lock()
 	r.reaped++
 	r.mu.Unlock()
 	close(p.done)
-	// 回调在所有路径上都会触发：只要子进程启动成功，回收 goroutine 就一定被启动。 | The callback fires on every path: once a child started, the reaper goroutine is always running.
+	// The callback fires on every path: once a child started, the reaper goroutine is always running. | 回调在所有路径上都会触发：只要子进程启动成功，回收 goroutine 就一定被启动。
 	if r.opts.OnChildExit != nil {
 		r.opts.OnChildExit(pid, err)
 	}
@@ -164,19 +164,19 @@ func (r *DevRunner) stopChild() {
 	if p == nil {
 		return
 	}
-	// 启动尝试结束之前 pid 不可信。 | pid is not trustworthy until the spawn attempt has finished.
+	// pid is not trustworthy until the spawn attempt has finished. | 启动尝试结束之前 pid 不可信。
 	<-p.ready
 	if p.err != nil || p.pid == 0 {
 		return
 	}
-	// Windows 不支持 SIGTERM，Signal 返回错误即直接强杀。 | Windows has no SIGTERM; a Signal error means killing right away.
+	// Windows has no SIGTERM; a Signal error means killing right away. | Windows 不支持 SIGTERM，Signal 返回错误即直接强杀。
 	if err := p.cmd.Process.Signal(syscall.SIGTERM); err != nil {
 		_ = p.cmd.Process.Kill()
 	}
 	if !childReaped(p.done, childGracePeriod) {
 		_ = p.cmd.Process.Kill()
 		if !childReaped(p.done, childGracePeriod) {
-			// 宽限期内仍未被收尸：把事实写进日志，绝不静默返回。 | Still not reaped within the grace period: record the fact in the log, never return silently.
+			// Still not reaped within the grace period: record the fact in the log, never return silently. | 宽限期内仍未被收尸：把事实写进日志，绝不静默返回。
 			r.log.Error("dev: child survived SIGTERM and Kill, it may leak | dev: 子进程在 SIGTERM 与 Kill 之后仍然存活，可能泄漏",
 				logx.Int("pid", p.pid), logx.Bool("alive", ProcessAlive(p.pid)))
 			return

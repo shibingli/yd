@@ -124,7 +124,7 @@ func Resolve(o ToolOptions) (string, error) {
 			return p, nil
 		}
 	}
-	// 最后回退 PATH 上的 betteralign 命令。 | Finally fall back to the betteralign command on PATH.
+	// Finally fall back to the betteralign command on PATH. | 最后回退 PATH 上的 betteralign 命令。
 	if p, err := lookup(toolName); err == nil && p != "" {
 		return p, nil
 	}
@@ -135,7 +135,7 @@ func Resolve(o ToolOptions) (string, error) {
 
 // resolveCandidate turns one configured value into an existing executable. | resolveCandidate 把一个配置取值变成真实存在的可执行文件。
 func resolveCandidate(value string, lookup func(string) (string, error)) (string, bool) {
-	// 裸命令名（无路径分隔符）交给 PATH 查找。 | A bare command name (no separator) goes through PATH lookup.
+	// A bare command name (no separator) goes through PATH lookup. | 裸命令名（无路径分隔符）交给 PATH 查找。
 	if !strings.ContainsAny(value, `/\`) {
 		p, err := lookup(value)
 		if err != nil || p == "" {
@@ -356,7 +356,7 @@ func runOnce(ctx context.Context, bin string, o Options, log *logx.Logger) (*Rep
 	if ctxErr := ctx.Err(); ctxErr != nil {
 		return rep, errx.WrapDetail(ctxErr, ErrRunFailed, "betteralign cancelled | betteralign 被取消：%v", err)
 	}
-	// 退出码 3 表示「发现了诊断」：分析本身是成功的。 | Exit code 3 means "diagnostics found": the analysis itself succeeded.
+	// Exit code 3 means "diagnostics found": the analysis itself succeeded. | 退出码 3 表示「发现了诊断」：分析本身是成功的。
 	var exitErr *exec.ExitError
 	if errors.As(err, &exitErr) && exitErr.ExitCode() == exitDiagnostics {
 		if log != nil {

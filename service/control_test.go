@@ -143,7 +143,7 @@ func TestControlDrivesTheMatchingServiceCall(t *testing.T) {
 		if len(fake.calls) != 1 || fake.calls[0] != tc.method {
 			t.Errorf("%s 应只调用 %s, 实际 %v", tc.action, tc.method, fake.calls)
 		}
-		// 摘要必须中英同步，并带上服务名与平台名。 | The summary must be bilingual and carry the service and platform names.
+		// The summary must be bilingual and carry the service and platform names. | 摘要必须中英同步，并带上服务名与平台名。
 		if !strings.Contains(result, " | ") || !strings.Contains(result, "shop-service") || !strings.Contains(result, "linux-systemd") {
 			t.Errorf("%s 的结果应为中英同步的摘要: %q", tc.action, result)
 		}

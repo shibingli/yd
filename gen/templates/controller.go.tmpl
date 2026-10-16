@@ -217,8 +217,8 @@ func bind<%.Name%>Input(c *router.Ctx) (service.<%.Name%>Input, error) {
 // List 返回<%.Module%>列表片段。
 // List returns the <%.Snake%> list fragment.
 //
-// @Summary 列出 <%.Name%> | List <%.Name%>s
-// @Description 返回分页后的 <%.Name%> 列表 HTML 片段；htmx 请求替换模块区域，普通请求由布局包裹成整页。 | Returns the paged <%.Name%> list as an HTML fragment: an htmx request replaces the module region while a plain request is wrapped into a full page by the layout.
+// @Summary List <%.Name%>s | 列出 <%.Name%>
+// @Description Returns the paged <%.Name%> list as an HTML fragment: an htmx request replaces the module region while a plain request is wrapped into a full page by the layout. | 返回分页后的 <%.Name%> 列表 HTML 片段；htmx 请求替换模块区域，普通请求由布局包裹成整页。
 // @Tags <%.Module%>
 // @Accept html
 // @Produce html
@@ -257,8 +257,8 @@ func (ctl *<%.Name%>Controller) List(c *router.Ctx) {
 // New 返回新建<%.Module%>的空表单片段。
 // New returns the empty <%.Snake%> form fragment used for creation.
 //
-// @Summary 新建 <%.Name%> 表单 | New <%.Name%> form
-// @Description 返回用于新建的 <%.Name%> 空表单 HTML 片段。 | Returns the empty <%.Name%> form as an HTML fragment.
+// @Summary New <%.Name%> form | 新建 <%.Name%> 表单
+// @Description Returns the empty <%.Name%> form as an HTML fragment. | 返回用于新建的 <%.Name%> 空表单 HTML 片段。
 // @Tags <%.Module%>
 // @Accept html
 // @Produce html
@@ -283,8 +283,8 @@ func (ctl *<%.Name%>Controller) New(c *router.Ctx) {
 // Create 接收表单并写入新的<%.Module%>记录。
 // Create accepts the form and writes a new <%.Snake%> record.
 //
-// @Summary 创建 <%.Name%> | Create <%.Name%>
-// @Description 校验表单后写入记录，成功返回新行片段并派发 htmx 事件，校验失败返回 422 错误片段。 | Validates the form and writes the record, answering with the new row fragment plus an htmx event on success and with a 422 error fragment on a validation failure.
+// @Summary Create <%.Name%> | 创建 <%.Name%>
+// @Description Validates the form and writes the record, answering with the new row fragment plus an htmx event on success and with a 422 error fragment on a validation failure. | 校验表单后写入记录，成功返回新行片段并派发 htmx 事件，校验失败返回 422 错误片段。
 // @Tags <%.Module%>
 // @Accept form
 // @Produce html
@@ -320,8 +320,8 @@ func (ctl *<%.Name%>Controller) Create(c *router.Ctx) {
 // Show 返回单条<%.Module%>的行片段。
 // Show returns the row fragment of one <%.Snake%> record.
 //
-// @Summary <%.Name%> 详情 | <%.Name%> detail
-// @Description 按主键返回单条记录的行 HTML 片段，记录不存在时返回 404 错误片段。 | Returns one record as a row HTML fragment and answers with a 404 error fragment when the record is absent.
+// @Summary <%.Name%> detail | <%.Name%> 详情
+// @Description Returns one record as a row HTML fragment and answers with a 404 error fragment when the record is absent. | 按主键返回单条记录的行 HTML 片段，记录不存在时返回 404 错误片段。
 // @Tags <%.Module%>
 // @Accept html
 // @Produce html
@@ -351,8 +351,8 @@ func (ctl *<%.Name%>Controller) Show(c *router.Ctx) {
 // Edit 返回回填了记录的表单片段。
 // Edit returns the form fragment prefilled with the record.
 //
-// @Summary 编辑 <%.Name%> 表单 | Edit <%.Name%> form
-// @Description 按主键返回回填后的 <%.Name%> 表单 HTML 片段，记录不存在时返回 404 错误片段。 | Returns the prefilled <%.Name%> form as an HTML fragment and answers with a 404 error fragment when the record is absent.
+// @Summary Edit <%.Name%> form | 编辑 <%.Name%> 表单
+// @Description Returns the prefilled <%.Name%> form as an HTML fragment and answers with a 404 error fragment when the record is absent. | 按主键返回回填后的 <%.Name%> 表单 HTML 片段，记录不存在时返回 404 错误片段。
 // @Tags <%.Module%>
 // @Accept html
 // @Produce html
@@ -392,8 +392,8 @@ func (ctl *<%.Name%>Controller) Edit(c *router.Ctx) {
 // Update 接收表单并覆盖写入<%.Module%>记录。
 // Update accepts the form and overwrites the <%.Snake%> record.
 //
-// @Summary 更新 <%.Name%> | Update <%.Name%>
-// @Description 校验表单后按主键覆盖写入，成功返回更新后的行片段，校验失败返回 422、记录缺失返回 404。 | Validates the form and overwrites the record by primary key, answering with the updated row fragment on success, 422 on a validation failure and 404 when the record is absent.
+// @Summary Update <%.Name%> | 更新 <%.Name%>
+// @Description Validates the form and overwrites the record by primary key, answering with the updated row fragment on success, 422 on a validation failure and 404 when the record is absent. | 校验表单后按主键覆盖写入，成功返回更新后的行片段，校验失败返回 422、记录缺失返回 404。
 // @Tags <%.Module%>
 // @Accept form
 // @Produce html
@@ -440,8 +440,8 @@ func (ctl *<%.Name%>Controller) Update(c *router.Ctx) {
 // Delete 删除<%.Module%>记录，成功时返回空正文。
 // Delete removes the <%.Snake%> record and answers with an empty body on success.
 //
-// @Summary 删除 <%.Name%> | Delete <%.Name%>
-// @Description 按主键删除记录；成功返回空正文，htmx 依 hx-swap="delete" 移除该行，记录缺失返回 404 错误片段。 | Deletes the record by primary key; on success the body is empty so htmx removes the row through hx-swap="delete", while a missing record answers with a 404 error fragment.
+// @Summary Delete <%.Name%> | 删除 <%.Name%>
+// @Description Deletes the record by primary key; on success the body is empty so htmx removes the row through hx-swap="delete", while a missing record answers with a 404 error fragment. | 按主键删除记录；成功返回空正文，htmx 依 hx-swap="delete" 移除该行，记录缺失返回 404 错误片段。
 // @Tags <%.Module%>
 // @Accept html
 // @Produce html

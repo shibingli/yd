@@ -118,7 +118,7 @@ func NewWatcher(o WatchOptions) (*Watcher, error) {
 			continue
 		}
 		if strings.ContainsAny(n, `/\`) {
-			// 形如 gen/out 或 /abs/path 的忽略项按路径前缀匹配。 | Entries like gen/out or /abs/path match by path prefix.
+			// Entries like gen/out or /abs/path match by path prefix. | 形如 gen/out 或 /abs/path 的忽略项按路径前缀匹配。
 			abs, err := filepath.Abs(n)
 			if err != nil {
 				abs = filepath.Clean(n)
@@ -192,7 +192,7 @@ func (w *Watcher) Close() {
 
 // ignore reports whether an absolute path must be skipped. | ignore 判断某个绝对路径是否必须跳过。
 func (w *Watcher) ignore(abs string) bool {
-	// 目录名只在根目录以下匹配，避免根目录自身的名字误伤整棵树。 | Name matching starts below the roots, so a root named like an ignored dir does not mute the whole tree.
+	// Name matching starts below the roots, so a root named like an ignored dir does not mute the whole tree. | 目录名只在根目录以下匹配，避免根目录自身的名字误伤整棵树。
 	target := abs
 	for _, root := range w.roots {
 		rel, err := filepath.Rel(root, abs)
@@ -227,7 +227,7 @@ func (w *Watcher) watchTree(dir string) error {
 	if err := w.addDir(dir); err != nil {
 		return err
 	}
-	// 递归注册：fsnotify 在 Windows 上不递归，必须逐个目录 Add。 | Register recursively: fsnotify does not recurse on Windows, so every directory is added individually.
+	// Register recursively: fsnotify does not recurse on Windows, so every directory is added individually. | 递归注册：fsnotify 在 Windows 上不递归，必须逐个目录 Add。
 	_ = filepath.WalkDir(dir, func(p string, d fs.DirEntry, err error) error {
 		if err != nil || !d.IsDir() {
 			return nil
@@ -344,7 +344,7 @@ func (w *Watcher) loop() {
 			if !ok {
 				return
 			}
-			// 新建目录立即纳入监听，新包与新模板目录里的文件才会被跟踪。 | A new directory is registered immediately so files inside new packages and template dirs are tracked.
+			// A new directory is registered immediately so files inside new packages and template dirs are tracked. | 新建目录立即纳入监听，新包与新模板目录里的文件才会被跟踪。
 			if ev.Op&fsnotify.Create != 0 {
 				if info, err := os.Stat(ev.Name); err == nil && info.IsDir() && !w.ignore(absPath(ev.Name)) {
 					_ = w.watchTree(absPath(ev.Name))

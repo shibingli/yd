@@ -212,7 +212,7 @@ func TestTaskContextInjectedWithTraceID(t *testing.T) {
 		t.Fatal("等待处理器超时")
 	}
 
-	// trace id 也写入 asynq 任务头，跨进程/跨服务可继续传递。 | The trace id is also written into the asynq task headers so it survives process hops.
+	// The trace id is also written into the asynq task headers so it survives process hops. | trace id 也写入 asynq 任务头，跨进程/跨服务可继续传递。
 	insp := newInspector(t, cli)
 	taskInfo, err := insp.GetTaskInfo("default", info.ID)
 	if err != nil {
@@ -222,7 +222,7 @@ func TestTaskContextInjectedWithTraceID(t *testing.T) {
 		t.Fatalf("任务头 trace_id = %q，期望 trace-xyz", taskInfo.Headers["trace_id"])
 	}
 
-	// 注入的子 logger 带任务字段，日志可按 task_id / trace_id 串联。 | The injected child logger carries task fields, so logs can be correlated by task_id / trace_id.
+	// The injected child logger carries task fields, so logs can be correlated by task_id / trace_id. | 注入的子 logger 带任务字段，日志可按 task_id / trace_id 串联。
 	out := sink.String()
 	for _, want := range []string{"trace-xyz", "trace_id", "task_id", info.ID} {
 		if !strings.Contains(out, want) {
@@ -335,7 +335,7 @@ func TestShutdownStopsServer(t *testing.T) {
 		t.Fatal("取消上下文后 Run 未返回")
 	}
 
-	// 关闭后入队的任务不再被消费，停留在 pending。 | Tasks enqueued after shutdown stay pending instead of being consumed.
+	// Tasks enqueued after shutdown stay pending instead of being consumed. | 关闭后入队的任务不再被消费，停留在 pending。
 	second, err := cli.Enqueue(context.Background(), "drain:probe", nil)
 	if err != nil {
 		t.Fatalf("关闭后 Enqueue 失败: %v", err)
@@ -349,7 +349,7 @@ func TestShutdownStopsServer(t *testing.T) {
 		t.Fatalf("关闭后任务状态 = %v，期望 pending", info.State)
 	}
 
-	// Shutdown 幂等：重复调用不 panic、不阻塞。 | Shutdown is idempotent: repeating it neither panics nor blocks.
+	// Shutdown is idempotent: repeating it neither panics nor blocks. | Shutdown 幂等：重复调用不 panic、不阻塞。
 	shutdownDone := make(chan struct{})
 	go func() {
 		srv.Shutdown()
@@ -404,7 +404,7 @@ func TestEnqueueValidation(t *testing.T) {
 		t.Fatalf("不可序列化载荷错误 = %v，期望 ErrEncodeFailed", err)
 	}
 
-	// 连接参数直接取自 Options 的兜底字段。 | Connection parameters fall back to the Options fields.
+	// Connection parameters fall back to the Options fields. | 连接参数直接取自 Options 的兜底字段。
 	fallback, err := asynqx.NewClient(asynq.RedisClientOpt{}, asynqx.Options{RedisAddr: mr.Addr()})
 	if err != nil {
 		t.Fatalf("Options 兜底地址 NewClient 失败: %v", err)

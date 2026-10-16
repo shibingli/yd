@@ -70,7 +70,7 @@ func TestCacheGetOrLoadCachesAndReuses(t *testing.T) {
 		t.Fatalf("loader 调用 %d 次，期望 1 次", n)
 	}
 
-	// 缓存条目带 TTL，避免写入永久键。 | The entry carries a TTL, so no permanent key is written.
+	// The entry carries a TTL, so no permanent key is written. | 缓存条目带 TTL，避免写入永久键。
 	ttl, err := cli.TTL(ctx, "cache:user:7").Result()
 	if err != nil {
 		t.Fatalf("TTL 查询失败: %v", err)
@@ -186,7 +186,7 @@ func TestCacheNegativeTTLCachesNotFound(t *testing.T) {
 		t.Fatalf("loader 调用 %d 次，期望 1 次（负缓存应挡住穿透）", n)
 	}
 
-	// Get 把负缓存条目当作未命中上报，调用方不会把零值误当真实值。 | Get reports a negative entry as a miss, so a zero value is never mistaken for real data.
+	// Get reports a negative entry as a miss, so a zero value is never mistaken for real data. | Get 把负缓存条目当作未命中上报，调用方不会把零值误当真实值。
 	if _, ok, err := cache.Get(ctx, "user:404"); ok || err != nil {
 		t.Fatalf("负缓存 Get = (_, %v, %v)，期望 (_, false, nil)", ok, err)
 	}
@@ -199,7 +199,7 @@ func TestCacheNegativeTTLCachesNotFound(t *testing.T) {
 		t.Fatalf("负缓存 TTL = %v，期望落在 (0, 30s] 内", ttl)
 	}
 
-	// 实体出现后，Invalidate 让下一次调用重新走 loader。 | Once the entity exists, Invalidate makes the next call hit the loader again.
+	// Once the entity exists, Invalidate makes the next call hit the loader again. | 实体出现后，Invalidate 让下一次调用重新走 loader。
 	if err := cache.Invalidate(ctx, "user:404"); err != nil {
 		t.Fatalf("Invalidate 失败: %v", err)
 	}
@@ -266,7 +266,7 @@ func TestCacheUsesAdaptiveJSON(t *testing.T) {
 		t.Fatalf("原始载荷 = %s，期望 JSON 对象文本", raw)
 	}
 
-	// 反向互通：外部用 jsonx 写入的载荷必须能被 Get 读出。 | Interop in reverse: a payload written externally with jsonx is readable by Get.
+	// Interop in reverse: a payload written externally with jsonx is readable by Get. | 反向互通：外部用 jsonx 写入的载荷必须能被 Get 读出。
 	external, err := jsonx.Marshal(cachedUser{ID: 6, Name: "external"})
 	if err != nil {
 		t.Fatalf("jsonx.Marshal 失败: %v", err)
@@ -336,7 +336,7 @@ func TestLoadManyPipelinesMissing(t *testing.T) {
 	}
 	mu.Unlock()
 
-	// 回填后再次调用不再唤醒 loader。 | After the backfill the second call no longer wakes the loader.
+	// After the backfill the second call no longer wakes the loader. | 回填后再次调用不再唤醒 loader。
 	if _, err := cache.LoadMany(ctx, keys, loader); err != nil {
 		t.Fatalf("二次 LoadMany 失败: %v", err)
 	}
@@ -346,7 +346,7 @@ func TestLoadManyPipelinesMissing(t *testing.T) {
 		t.Fatalf("回填后 loader 调用 %d 次，期望仍为 1 次", calls)
 	}
 
-	// 回填值确实写进了 Redis，并带上 TTL。 | The loaded value really landed in Redis, with a TTL attached.
+	// The loaded value really landed in Redis, with a TTL attached. | 回填值确实写进了 Redis，并带上 TTL。
 	ttl, err := cli.TTL(ctx, "cache:user:3").Result()
 	if err != nil {
 		t.Fatalf("TTL 查询失败: %v", err)

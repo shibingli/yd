@@ -209,7 +209,7 @@ func TestScaffoldBuildRun(t *testing.T) {
 	})
 }
 
-// TestCrossCompile 验证三个目标平台的交叉编译。 | TestCrossCompile verifies cross-compilation for three targets.
+// TestCrossCompile verifies cross-compilation for three targets. | TestCrossCompile 验证三个目标平台的交叉编译。
 func TestCrossCompile(t *testing.T) {
 	root := repoRoot(t)
 	outDir := t.TempDir()
@@ -247,7 +247,7 @@ func TestCrossCompile(t *testing.T) {
 	}
 }
 
-// TestAssetsVerifyOffline 验证离线资产校验。 | TestAssetsVerifyOffline verifies offline asset verification.
+// TestAssetsVerifyOffline verifies offline asset verification. | TestAssetsVerifyOffline 验证离线资产校验。
 func TestAssetsVerifyOffline(t *testing.T) {
 	root := repoRoot(t)
 	out, err := runYD(t, buildYD(t), root, "assets", "verify", "--offline")

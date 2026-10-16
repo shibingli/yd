@@ -52,7 +52,7 @@ func newHtmxHarness(t *testing.T) *htmxHarness {
 		OnOpen: func(*Conn) { h.chat.opened <- struct{}{} },
 		OnMessage: func(c *Conn, m HtmxMessage) {
 			h.chat.messages <- m
-			// 回调里写出片段，验证 WriteHtmxFragment 在真实端点上可用 | write a fragment from the callback to prove WriteHtmxFragment works on a live endpoint
+			// write a fragment from the callback to prove WriteHtmxFragment works on a live endpoint | 回调里写出片段，验证 WriteHtmxFragment 在真实端点上可用
 			_ = c.WriteHtmxFragment("#chat", "beforeend", "<p>"+m.Body+"</p>")
 		},
 		OnClose:      func(_ *Conn, err error) { h.chat.closed <- err },
@@ -169,7 +169,7 @@ func TestHtmxHandlerEchoAndCallbacks(t *testing.T) {
 	t.Run("OnMessage 为 nil 时回显 BODY", func(t *testing.T) {
 		c := h.dial(t, "/echo")
 
-		// 请求直接用 JSON 字面量构造，独立校验 HEADERS / BODY 字段名 | the request is a raw JSON literal, independently verifying the HEADERS / BODY field names
+		// the request is a raw JSON literal, independently verifying the HEADERS / BODY field names | 请求直接用 JSON 字面量构造，独立校验 HEADERS / BODY 字段名
 		const in = `{"HEADERS":{"hx-target":"#log","hx-swap":"beforeend"},"BODY":"raw json body | 原始 JSON 正文"}`
 		if err := c.WriteMessage(TextMessage, []byte(in)); err != nil {
 			t.Fatalf("写入信封失败: %v", err)
@@ -190,7 +190,7 @@ func TestHtmxHandlerEchoAndCallbacks(t *testing.T) {
 		if echo.Body != "raw json body | 原始 JSON 正文" {
 			t.Fatalf("回显 BODY = %q, 期望 %q", echo.Body, "raw json body | 原始 JSON 正文")
 		}
-		// 请求侧的 HEADERS 不应被当作响应指令回送 | the request-side HEADERS must not be echoed back as response directives
+		// the request-side HEADERS must not be echoed back as response directives | 请求侧的 HEADERS 不应被当作响应指令回送
 		var shape map[string]any
 		if err := jsonx.Unmarshal(got, &shape); err != nil {
 			t.Fatalf("回显形状解析失败: %v", err)
@@ -202,7 +202,7 @@ func TestHtmxHandlerEchoAndCallbacks(t *testing.T) {
 			t.Fatalf("回显必须携带 BODY: %s", got)
 		}
 
-		// 同一连接上继续第二条，证明读循环持续工作 | a second message on the same connection proves the loop keeps running
+		// a second message on the same connection proves the loop keeps running | 同一连接上继续第二条，证明读循环持续工作
 		if err := c.WriteMessage(TextMessage, []byte(`{"HEADERS":{},"BODY":"second | 第二条"}`)); err != nil {
 			t.Fatalf("写入第二条失败: %v", err)
 		}
@@ -243,7 +243,7 @@ func TestHtmxHandlerEchoAndCallbacks(t *testing.T) {
 				t.Fatalf("OnMessage 第 %d 条 HEADERS = %v", i, msg.Headers)
 			}
 
-			// 回调里写出的片段必须逐字节到达 | the fragment written from the callback must arrive byte for byte
+			// the fragment written from the callback must arrive byte for byte | 回调里写出的片段必须逐字节到达
 			op, got := readOrFail(t, c, "回调片段")
 			want := `<hx-partial hx-target="#chat" hx-swap="beforeend"><p>` + body + `</p></hx-partial>`
 			if op != TextMessage || string(got) != want {
@@ -251,7 +251,7 @@ func TestHtmxHandlerEchoAndCallbacks(t *testing.T) {
 			}
 		}
 
-		// 客户端发起关闭后 OnClose 必须收到对端的关闭码与原因 | after the client closes, OnClose must receive the peer's close code and reason
+		// after the client closes, OnClose must receive the peer's close code and reason | 客户端发起关闭后 OnClose 必须收到对端的关闭码与原因
 		_ = c.Close(CloseNormalClosure, "client done | 客户端结束")
 		closeErr := recvOrTimeout(t, h.chat.closed, 3*time.Second, "OnClose 回调")
 		var ce *CloseError

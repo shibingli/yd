@@ -90,11 +90,11 @@ func TestNoChildProcessLeaks(t *testing.T) {
 				if pid <= 0 {
 					t.Fatalf("场景未产生可观测的 PID | the scenario produced no observable PID")
 				}
-				// (a) 代码侧：退出必须被观测到。 | (a) Code side: the exit must have been observed.
+				// (a) Code side: the exit must have been observed. | (a) 代码侧：退出必须被观测到。
 				if !waitExitObserved(h, pid, guardSettle) {
 					t.Errorf("未观察到子进程 %d 的退出 | the exit of child %d was never observed", pid, pid)
 				}
-				// (b) 系统侧：PID 必须已从系统进程表中消失。 | (b) System side: the PID must be gone from the system process table.
+				// (b) System side: the PID must be gone from the system process table. | (b) 系统侧：PID 必须已从系统进程表中消失。
 				if !waitGone(pid, guardSettle) {
 					t.Errorf("子进程 %d 在 Run 返回后仍被系统看到 | child %d is still visible to the system after Run returned", pid, pid)
 				}
@@ -147,10 +147,10 @@ func scenarioCancelAfterFailedRebuild(t *testing.T, dir string, h *devHarness) (
 	s := startDevRun(t, r)
 	pid := waitChildPID(t, r)
 
-	// 改动 Go 源文件触发重新编译，而这次编译必然失败。 | Touch a Go source file to trigger a rebuild that is bound to fail.
+	// Touch a Go source file to trigger a rebuild that is bound to fail. | 改动 Go 源文件触发重新编译，而这次编译必然失败。
 	writeFile(t, filepath.Join(dir, "main.go"), "package main\n\nfunc main() {}\n")
 	waitFor(t, 15*time.Second, "第二次构建调用 | the second build call", func() bool { return calls.Load() >= 2 })
-	// 编译失败不得动到正在运行的子进程。 | A failed build must not touch the running child.
+	// A failed build must not touch the running child. | 编译失败不得动到正在运行的子进程。
 	if got := r.ChildPID(); got != pid {
 		t.Fatalf("编译失败后子进程被替换 %d -> %d | the child was replaced after a failed build: %d -> %d", pid, got, pid, got)
 	}
@@ -205,7 +205,7 @@ func scenarioBuilderPanic(t *testing.T, dir string, h *devHarness) (*DevRunner, 
 	s.expectPanic()
 	pid := waitChildPID(t, r)
 
-	// 改动 Go 源文件触发第二次构建，而它必定 panic。 | Touch a Go source file to trigger the second build, which is bound to panic.
+	// Touch a Go source file to trigger the second build, which is bound to panic. | 改动 Go 源文件触发第二次构建，而它必定 panic。
 	writeFile(t, filepath.Join(dir, "main.go"), "package main\n\nfunc main() {}\n")
 	if v := s.panicValue(t); v == nil {
 		t.Fatal("期望 panic 穿出 Run | want a panic out of Run")
@@ -265,7 +265,7 @@ func TestProcessAliveProbe(t *testing.T) {
 			t.Fatalf("启动辅助进程失败 | start the helper: %v", err)
 		}
 		pid := cmd.Process.Pid
-		// 无论断言成败，辅助进程都必须被终止并收尸。 | However the assertions end, the helper must be terminated and reaped.
+		// However the assertions end, the helper must be terminated and reaped. | 无论断言成败，辅助进程都必须被终止并收尸。
 		t.Cleanup(func() {
 			_ = cmd.Process.Kill()
 			_ = cmd.Wait()
@@ -273,7 +273,7 @@ func TestProcessAliveProbe(t *testing.T) {
 		if !ProcessAlive(pid) {
 			t.Fatalf("运行中的子进程 %d 被判为不存在 | the running child %d was reported gone", pid, pid)
 		}
-		// 终止并收尸之后，探针必须判定它已消失。 | Once killed and reaped, the probe must report it gone.
+		// Once killed and reaped, the probe must report it gone. | 终止并收尸之后，探针必须判定它已消失。
 		_ = cmd.Process.Kill()
 		_ = cmd.Wait()
 		if !waitGone(pid, 10*time.Second) {
@@ -293,14 +293,14 @@ func TestProcProbeStubChild(t *testing.T) {
 	}
 	switch mode {
 	case procProbeStubEcho:
-		// 回显参数：Windows 分支据此在看到 PID。 | Echo the arguments so the Windows branch sees the PID.
+		// Echo the arguments so the Windows branch sees the PID. | 回显参数：Windows 分支据此在看到 PID。
 		_, _ = os.Stdout.WriteString(strings.Join(os.Args[1:], " ") + "\n")
 		os.Exit(0)
 	case procProbeStubQuiet:
-		// 空输出 + 退出码 0：Windows 分支据此判定进程不存在。 | Empty output with exit code 0: the Windows branch reports the process gone.
+		// Empty output with exit code 0: the Windows branch reports the process gone. | 空输出 + 退出码 0：Windows 分支据此判定进程不存在。
 		os.Exit(0)
 	default:
-		// 非零退出：Unix 分支据此判定进程不存在。 | A non-zero exit: the Unix branch reports the process gone.
+		// A non-zero exit: the Unix branch reports the process gone. | 非零退出：Unix 分支据此判定进程不存在。
 		os.Exit(3)
 	}
 }
@@ -323,7 +323,7 @@ func TestProcessAliveUsesCommandFactory(t *testing.T) {
 	if err != nil {
 		t.Fatalf("取测试二进制路径失败 | os.Executable: %v", err)
 	}
-	// 「已消失」的桩：Windows 依据空输出判定，Unix 依据非零退出码判定。 | The "gone" stub: Windows judges by an empty output, Unix by a non-zero exit code.
+	// The "gone" stub: Windows judges by an empty output, Unix by a non-zero exit code. | 「已消失」的桩：Windows 依据空输出判定，Unix 依据非零退出码判定。
 	mode := procProbeStubEcho
 	goneMode := procProbeStubQuiet
 	if runtime.GOOS != "windows" {
@@ -331,12 +331,12 @@ func TestProcessAliveUsesCommandFactory(t *testing.T) {
 	}
 	original := ExecCommand
 	ExecCommand = func(ctx context.Context, _ string, args ...string) *exec.Cmd {
-		// 把探针自身的参数原样交给桩，桩再回显它们。 | Hand the probe's own arguments to the stub, which echoes them back.
+		// Hand the probe's own arguments to the stub, which echoes them back. | 把探针自身的参数原样交给桩，桩再回显它们。
 		cmd := exec.CommandContext(ctx, exe, "-test.run=^TestProcProbeStubChild$", "--", strings.Join(args, " "))
 		cmd.Env = append(os.Environ(), procProbeStubEnv+"="+mode)
 		return cmd
 	}
-	// 恢复注入点：清理阶段仍要用真实探针判断残留子进程。 | Restore the seam: the cleanup still needs the real probe to judge leftover children.
+	// Restore the seam: the cleanup still needs the real probe to judge leftover children. | 恢复注入点：清理阶段仍要用真实探针判断残留子进程。
 	defer func() { ExecCommand = original }()
 
 	const stubPID = 4242

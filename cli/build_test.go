@@ -237,7 +237,7 @@ const buildModule = "yd"
 
 // ---------------------------------------------------------------- Tests | 测试
 
-// TestBuildCommandRegistered build 只注册一次且标志齐全，Register 对重名会 panic。 | build must stay registered exactly once with every flag: Register panics on duplicates.
+// build must stay registered exactly once with every flag: Register panics on duplicates. | TestBuildCommandRegistered build 只注册一次且标志齐全，Register 对重名会 panic。
 func TestBuildCommandRegistered(t *testing.T) {
 	count := 0
 	for _, c := range Commands() {

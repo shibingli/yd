@@ -84,7 +84,7 @@ func TestExponentialBackoffMonotonicAndCapped(t *testing.T) {
 		prev = got
 	}
 
-	// 高位封顶：即使重试次数极大也不溢出、不超过上限。 | Deep retries neither overflow nor exceed the cap.
+	// Deep retries neither overflow nor exceed the cap. | 高位封顶：即使重试次数极大也不溢出、不超过上限。
 	for _, n := range []int{9, 20, 64, 1024} {
 		got := backoff(n, nil, task)
 		if got < max || got > max+max/10 {
@@ -92,12 +92,12 @@ func TestExponentialBackoffMonotonicAndCapped(t *testing.T) {
 		}
 	}
 
-	// n <= 0 视为首次重试。 | n <= 0 is treated as the first retry.
+	// n <= 0 is treated as the first retry. | n <= 0 视为首次重试。
 	if got := backoff(0, nil, task); got < base || got > base+base/10 {
 		t.Fatalf("n=0 延迟 = %v，期望首次重试档 [%v, %v]", got, base, base+base/10)
 	}
 
-	// 抖动：同一档多次取值不应完全相同。 | Jitter: repeated calls at one step must not all be identical.
+	// Jitter: repeated calls at one step must not all be identical. | 抖动：同一档多次取值不应完全相同。
 	seen := make(map[time.Duration]struct{})
 	for range 32 {
 		seen[backoff(3, nil, task)] = struct{}{}
@@ -106,7 +106,7 @@ func TestExponentialBackoffMonotonicAndCapped(t *testing.T) {
 		t.Fatalf("n=3 的 32 次取值只有 %d 种，抖动缺失", len(seen))
 	}
 
-	// base > max 时立即封顶；base <= 0 时返回 0。 | base > max clamps immediately; base <= 0 yields zero.
+	// base > max clamps immediately; base <= 0 yields zero. | base > max 时立即封顶；base <= 0 时返回 0。
 	if got := asynqx.ExponentialBackoff(10*time.Second, time.Second)(1, nil, task); got < max || got > max+max/10 {
 		t.Fatalf("base>max 延迟 = %v，期望封顶在 %v 附近", got, max)
 	}
@@ -134,7 +134,7 @@ func TestRegistryDeclarativeLookup(t *testing.T) {
 		t.Fatalf("合法注册后 Err = %v，期望 nil", err)
 	}
 
-	// Handlers 返回副本：调用方改动不影响注册表。 | Handlers returns a copy, so caller mutations do not reach the registry.
+	// Handlers returns a copy, so caller mutations do not reach the registry. | Handlers 返回副本：调用方改动不影响注册表。
 	snapshot := reg.Handlers()
 	delete(snapshot, "a")
 	snapshot["c"] = h
@@ -142,7 +142,7 @@ func TestRegistryDeclarativeLookup(t *testing.T) {
 		t.Fatalf("改动快照后 Handlers 数量 = %d，期望仍为 2", got)
 	}
 
-	// 非法注册不 panic，而是记录为启动期错误。 | An invalid registration does not panic; it is recorded as a startup error.
+	// An invalid registration does not panic; it is recorded as a startup error. | 非法注册不 panic，而是记录为启动期错误。
 	reg.Register("", h)
 	reg.Register("d", nil)
 	if err := reg.Err(); !errors.Is(err, asynqx.ErrEmptyTaskType) {

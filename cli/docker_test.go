@@ -131,7 +131,7 @@ func newDockerProject(t *testing.T, files map[string]string) (string, afero.Fs) 
 
 // ---------------------------------------------------------------- Tests | 测试
 
-// TestDockerCommandRegistered docker 只注册一次且标志齐全，Register 对重名会 panic。 | docker must stay registered exactly once with every flag: Register panics on duplicates.
+// docker must stay registered exactly once with every flag: Register panics on duplicates. | TestDockerCommandRegistered docker 只注册一次且标志齐全，Register 对重名会 panic。
 func TestDockerCommandRegistered(t *testing.T) {
 	count := 0
 	for _, c := range Commands() {
@@ -163,7 +163,7 @@ func TestDockerCommandRegistered(t *testing.T) {
 	}
 }
 
-// TestDockerCommandHelp docker --help 必须列出全部标志并且不执行构建。 | docker --help must list every flag without building anything.
+// docker --help must list every flag without building anything. | TestDockerCommandHelp docker --help 必须列出全部标志并且不执行构建。
 func TestDockerCommandHelp(t *testing.T) {
 	te := newTestEnv(t, nil, "", false)
 	if err := Execute(context.Background(), []string{"docker", "--help"}, te.env); err != nil {
@@ -182,7 +182,7 @@ func TestDockerCommandHelp(t *testing.T) {
 	}
 }
 
-// TestDockerUnknownFlagErrors 未知标志必须包装为 ErrFlagParse。 | An unknown flag must be wrapped into ErrFlagParse.
+// An unknown flag must be wrapped into ErrFlagParse. | TestDockerUnknownFlagErrors 未知标志必须包装为 ErrFlagParse。
 func TestDockerUnknownFlagErrors(t *testing.T) {
 	te := newTestEnv(t, nil, "", false)
 	if err := Execute(context.Background(), []string{"docker", "--nope"}, te.env); !errors.Is(err, ErrFlagParse) {
@@ -190,7 +190,7 @@ func TestDockerUnknownFlagErrors(t *testing.T) {
 	}
 }
 
-// TestDockerDefaultTagFromMeta .yd.json 记录项目名时，缺省标签为 <项目名>:<版本>，且探活在构建之前。 | With a project name in .yd.json the default tag is <project>:<version>, and the daemon probe precedes the build.
+// With a project name in .yd.json the default tag is <project>:<version>, and the daemon probe precedes the build. | TestDockerDefaultTagFromMeta .yd.json 记录项目名时，缺省标签为 <项目名>:<版本>，且探活在构建之前。
 func TestDockerDefaultTagFromMeta(t *testing.T) {
 	fake := cliFakeDocker()
 	useDockerExec(t, fake)
@@ -215,7 +215,7 @@ func TestDockerDefaultTagFromMeta(t *testing.T) {
 	}
 }
 
-// TestDockerDefaultTagFromDirName .yd.json 缺失、损坏或未记录名字时，缺省标签回退为 <目录名>:<版本>。 | A missing, broken or nameless .yd.json falls back to the <directory>:<version> tag.
+// A missing, broken or nameless .yd.json falls back to the <directory>:<version> tag. | TestDockerDefaultTagFromDirName .yd.json 缺失、损坏或未记录名字时，缺省标签回退为 <目录名>:<版本>。
 func TestDockerDefaultTagFromDirName(t *testing.T) {
 	cases := []struct {
 		name  string
@@ -246,7 +246,7 @@ func TestDockerDefaultTagFromDirName(t *testing.T) {
 	}
 }
 
-// TestDockerTagFlagWins --tag 原样覆盖缺省标签。 | --tag overrides the default tag verbatim.
+// --tag overrides the default tag verbatim. | TestDockerTagFlagWins --tag 原样覆盖缺省标签。
 func TestDockerTagFlagWins(t *testing.T) {
 	fake := cliFakeDocker()
 	useDockerExec(t, fake)
@@ -266,7 +266,7 @@ func TestDockerTagFlagWins(t *testing.T) {
 	}
 }
 
-// TestDockerNoAssetsMapsToWithAssets --no-assets 必须映射为 WithAssets=false。 | --no-assets must map onto WithAssets=false.
+// --no-assets must map onto WithAssets=false. | TestDockerNoAssetsMapsToWithAssets --no-assets 必须映射为 WithAssets=false。
 func TestDockerNoAssetsMapsToWithAssets(t *testing.T) {
 	cases := []struct {
 		name string
@@ -286,7 +286,7 @@ func TestDockerNoAssetsMapsToWithAssets(t *testing.T) {
 	}
 }
 
-// TestDockerAssetsStageRunsUnlessDisabled 资产阶段默认执行，--no-assets 时不执行。 | The asset stage runs by default and never under --no-assets.
+// The asset stage runs by default and never under --no-assets. | TestDockerAssetsStageRunsUnlessDisabled 资产阶段默认执行，--no-assets 时不执行。
 func TestDockerAssetsStageRunsUnlessDisabled(t *testing.T) {
 	fake := cliFakeDocker()
 	useDockerExec(t, fake)
@@ -313,7 +313,7 @@ func TestDockerAssetsStageRunsUnlessDisabled(t *testing.T) {
 	}
 }
 
-// TestDockerForwardsBuildFlags 平台、缓存、Dockerfile、阶段、推送与 docker CLI 必须原样出现在 argv 中。 | Platform, cache, Dockerfile, stage, push and the docker CLI must all reach the argv verbatim.
+// Platform, cache, Dockerfile, stage, push and the docker CLI must all reach the argv verbatim. | TestDockerForwardsBuildFlags 平台、缓存、Dockerfile、阶段、推送与 docker CLI 必须原样出现在 argv 中。
 func TestDockerForwardsBuildFlags(t *testing.T) {
 	fake := cliFakeDocker()
 	useDockerExec(t, fake)
@@ -354,7 +354,7 @@ func TestDockerForwardsBuildFlags(t *testing.T) {
 	}
 }
 
-// TestDockerUsesBuiltinDockerfileWithoutProjectFile 项目没有 Dockerfile 时使用内置模板而不是失败。 | A project without a Dockerfile falls back to the built-in template instead of failing.
+// A project without a Dockerfile falls back to the built-in template instead of failing. | TestDockerUsesBuiltinDockerfileWithoutProjectFile 项目没有 Dockerfile 时使用内置模板而不是失败。
 func TestDockerUsesBuiltinDockerfileWithoutProjectFile(t *testing.T) {
 	fake := cliFakeDocker()
 	// The built-in template is materialized to a temporary file that is removed as soon as the
@@ -389,7 +389,7 @@ func TestDockerUsesBuiltinDockerfileWithoutProjectFile(t *testing.T) {
 	}
 }
 
-// TestDockerReportsResult 构建结果必须依次报告镜像引用、镜像 ID 与日志行数。 | The report must show the image reference, the parsed image id and the log line count.
+// The report must show the image reference, the parsed image id and the log line count. | TestDockerReportsResult 构建结果必须依次报告镜像引用、镜像 ID 与日志行数。
 func TestDockerReportsResult(t *testing.T) {
 	fake := cliFakeDocker()
 	useDockerExec(t, fake)
@@ -416,7 +416,7 @@ func TestDockerReportsResult(t *testing.T) {
 	}
 }
 
-// TestDockerDaemonUnavailablePropagates 守护进程探活失败时返回 docker.ErrDaemonUnavailable 且不打印结果。 | A failing daemon probe returns docker.ErrDaemonUnavailable and prints nothing.
+// A failing daemon probe returns docker.ErrDaemonUnavailable and prints nothing. | TestDockerDaemonUnavailablePropagates 守护进程探活失败时返回 docker.ErrDaemonUnavailable 且不打印结果。
 func TestDockerDaemonUnavailablePropagates(t *testing.T) {
 	fake := cliFakeDocker()
 	fake.handler = func(_ string, args []string) (string, int) {

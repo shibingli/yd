@@ -85,7 +85,7 @@ func devWaitFor(t *testing.T, timeout time.Duration, cond func() bool) {
 	t.Fatalf("等待超时（%v）| timed out after %v", timeout, timeout)
 }
 
-// TestDevOptionsFromFlags 标志必须整份映射到 toolchain 选项。 | Every flag must map onto a toolchain option.
+// Every flag must map onto a toolchain option. | TestDevOptionsFromFlags 标志必须整份映射到 toolchain 选项。
 func TestDevOptionsFromFlags(t *testing.T) {
 	dir := t.TempDir()
 	fs := devParseFlags(t,
@@ -128,7 +128,7 @@ func TestDevOptionsFromFlags(t *testing.T) {
 	}
 }
 
-// TestDevDefaults 未传标志时必须落到 toolchain 默认值。 | Without flags the toolchain defaults must apply.
+// Without flags the toolchain defaults must apply. | TestDevDefaults 未传标志时必须落到 toolchain 默认值。
 func TestDevDefaults(t *testing.T) {
 	env := &Env{WorkDir: t.TempDir(), Out: io.Discard}
 	o := devOptions(env, devParseFlags(t))
@@ -159,7 +159,7 @@ func TestDevPortPrefersFlagOverConfig(t *testing.T) {
 	}
 }
 
-// TestDevTailwindBinFromConfig 配置里的 tailwind.bin 必须传给解析链。 | tailwind.bin must feed the resolution chain.
+// tailwind.bin must feed the resolution chain. | TestDevTailwindBinFromConfig 配置里的 tailwind.bin 必须传给解析链。
 func TestDevTailwindBinFromConfig(t *testing.T) {
 	env := devEnvWithConfig(t, 8080)
 	env.Cfg.Set(keyDevTailwindBin, "C:/tools/from-config/tailwindcss.exe")
@@ -173,7 +173,7 @@ func TestDevTailwindBinFromConfig(t *testing.T) {
 	}
 }
 
-// TestDevCommandRegisteredOnce 保证 dev 只注册一次：Register 对重名会 panic。 | dev must stay registered exactly once: Register panics on duplicates.
+// dev must stay registered exactly once: Register panics on duplicates. | TestDevCommandRegisteredOnce 保证 dev 只注册一次：Register 对重名会 panic。
 func TestDevCommandRegisteredOnce(t *testing.T) {
 	count := 0
 	for _, c := range Commands() {
@@ -207,7 +207,7 @@ func TestDevMissingProjectDirFailsFast(t *testing.T) {
 	}
 }
 
-// TestDevHelpListsFlags 六个标志都必须出现在帮助文本里。 | All six flags must show up in the help text.
+// All six flags must show up in the help text. | TestDevHelpListsFlags 六个标志都必须出现在帮助文本里。
 func TestDevHelpListsFlags(t *testing.T) {
 	te := newTestEnv(t, nil, "", false)
 	if err := Execute(context.Background(), []string{"dev", "--help"}, te.env); err != nil {

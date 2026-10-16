@@ -89,12 +89,12 @@ func HtmxHandler(o HtmxOptions) router.HandlerFunc {
 	return func(c *router.Ctx) {
 		conn, err := Upgrade(c.Writer, c.Request, opts)
 		if err != nil {
-			// Upgrade 已写出 HTTP 错误响应，这里只补一条可观测日志 | Upgrade has already written the HTTP error response; only an observable log record is added here
+			// Upgrade has already written the HTTP error response; only an observable log record is added here | Upgrade 已写出 HTTP 错误响应，这里只补一条可观测日志
 			logx.Default().Warn("ws: htmx endpoint upgrade failed | ws：htmx 端点升级失败",
 				logx.Str("path", c.Path()), logx.Err(err))
 			return
 		}
-		// 读循环结束后连接不再可用，统一在退出时关闭底层 TCP | the connection is unusable once the loop ends, so the underlying TCP is always closed on exit
+		// the connection is unusable once the loop ends, so the underlying TCP is always closed on exit | 读循环结束后连接不再可用，统一在退出时关闭底层 TCP
 		defer func() { _ = conn.CloseNow() }()
 
 		loopErr := serveHtmx(conn, o)
@@ -115,7 +115,7 @@ func serveHtmx(conn *Conn, o HtmxOptions) error {
 			return err
 		}
 		if op != TextMessage {
-			// htmx 只交换文本信封，其它类型按 1003 判定为不支持的数据 | htmx exchanges text envelopes only; any other type is 1003 unsupported data
+			// htmx exchanges text envelopes only; any other type is 1003 unsupported data | htmx 只交换文本信封，其它类型按 1003 判定为不支持的数据
 			_ = conn.Close(CloseUnsupportedData, closeReasonHtmxType)
 			return ErrHtmxMessageType
 		}

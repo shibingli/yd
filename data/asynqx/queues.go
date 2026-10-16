@@ -81,7 +81,7 @@ func ExponentialBackoff(base, max time.Duration) func(int, error, *asynq.Task) t
 		delay := min(base, ceil)
 		for i := 1; i < n && delay < ceil; i++ {
 			if delay > ceil-delay {
-				// 再翻一倍就会越过上限：直接封顶，避免乘法溢出。 | Doubling again would pass the cap: clamp instead of overflowing.
+				// Doubling again would pass the cap: clamp instead of overflowing. | 再翻一倍就会越过上限：直接封顶，避免乘法溢出。
 				delay = ceil
 				break
 			}

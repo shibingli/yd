@@ -71,7 +71,7 @@ func ResolveTailwind(o ToolOptions) (string, error) {
 			return p, nil
 		}
 	}
-	// 最后回退 PATH 上的 tailwindcss 命令。 | Finally fall back to the tailwindcss command on PATH.
+	// Finally fall back to the tailwindcss command on PATH. | 最后回退 PATH 上的 tailwindcss 命令。
 	if p, err := lookup("tailwindcss"); err == nil && p != "" {
 		return p, nil
 	}
@@ -80,7 +80,7 @@ func ResolveTailwind(o ToolOptions) (string, error) {
 
 // resolveCandidate turns one configured value into an existing executable. | resolveCandidate 把一个配置取值变成真实存在的可执行文件。
 func resolveCandidate(value string, lookup func(string) (string, error)) (string, bool) {
-	// 裸命令名（无路径分隔符）交给 PATH 查找。 | A bare command name (no separator) goes through PATH lookup.
+	// A bare command name (no separator) goes through PATH lookup. | 裸命令名（无路径分隔符）交给 PATH 查找。
 	if !strings.ContainsAny(value, `/\`) {
 		p, err := lookup(value)
 		if err != nil || p == "" {

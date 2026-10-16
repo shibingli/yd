@@ -89,7 +89,7 @@ type FieldAnnotation struct {
 //	// User is the account entity. | User 是账号实体。
 //	//
 //	// @Name User
-//	// @Description 系统用户账号 | A system user account
+//	A system user account | // @Description 系统用户账号
 //	// @Example {"id":"u_1","name":"admin","status":"active"}
 //	type User struct { ... }
 type SchemaAnnotation struct {
@@ -127,7 +127,7 @@ type EnumValue struct {
 //	// Status values. | 状态取值。
 //	//
 //	// @Name UserStatus
-//	// @Description 账号状态 | Account status
+//	Account status | // @Description 账号状态
 //	// @Type string
 //	// @Enum active:启用 | enabled, disabled:禁用 | disabled
 //	const (

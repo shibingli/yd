@@ -196,7 +196,7 @@ func (r *DevRunner) Run(ctx context.Context) error {
 	if !r.begin() {
 		return errx.Detail(ErrDevRunning, "Run called while already running | Run 在运行中被重复调用")
 	}
-	// 延迟调用后进先出：先停子进程，再释放运行标记。 | Defers run last-in-first-out: the child is stopped first, the running flag is released after.
+	// Defers run last-in-first-out: the child is stopped first, the running flag is released after. | 延迟调用后进先出：先停子进程，再释放运行标记。
 	defer r.finish()
 	defer r.stopChild()
 
@@ -475,7 +475,7 @@ func (r *DevRunner) serveReload(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 	defer func() { _ = sw.Close() }()
-	// 立即发一帧注释并刷出响应头，客户端不必等到第一次变更才拿到响应。 | Flush an initial comment frame so the client gets its response before the first change.
+	// Flush an initial comment frame so the client gets its response before the first change. | 立即发一帧注释并刷出响应头，客户端不必等到第一次变更才拿到响应。
 	if err := sw.Comment("connected | 已连接"); err != nil {
 		return
 	}

@@ -165,7 +165,7 @@ func (h *devHarness) reapLeftovers(t *testing.T, r *DevRunner) {
 		t.Errorf("Run 返回后仍追踪着子进程 %d | Run still tracks child %d after returning", pid, pid)
 		killAndWait(pid)
 	}
-	// 回调报告过退出的 PID 必须真的从系统进程表中消失。 | A PID the callback reported as reaped must really be gone from the system process table.
+	// A PID the callback reported as reaped must really be gone from the system process table. | 回调报告过退出的 PID 必须真的从系统进程表中消失。
 	for _, pid := range h.exitedPIDs() {
 		if !ProcessAlive(pid) {
 			continue

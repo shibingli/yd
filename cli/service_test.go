@@ -183,7 +183,7 @@ func TestServiceActionMapsToTheServiceCall(t *testing.T) {
 	for _, tc := range cases {
 		te, dir := newServiceProject(t)
 		rec := useServiceControl(t)
-		// 只有安装会登记程序路径，这里给出产物只为让安装动作有东西可登记。 | Only an install registers the path, so the artifact only serves that action.
+		// Only an install registers the path, so the artifact only serves that action. | 只有安装会登记程序路径，这里给出产物只为让安装动作有东西可登记。
 		writeServiceFile(t, te.env.FS, filepath.Join(dir, "bin", serviceProject), "artifact")
 
 		if err := runServiceCommand(t, te, tc.word); err != nil {
@@ -204,7 +204,7 @@ func TestServiceActionMapsToTheServiceCall(t *testing.T) {
 	}
 }
 
-// TestServiceInstallReportsInstalledArtifact 安装时报告登记的程序路径。 | TestServiceInstallReportsInstalledArtifact expects the registered executable to be reported.
+// TestServiceInstallReportsInstalledArtifact expects the registered executable to be reported. | TestServiceInstallReportsInstalledArtifact 安装时报告登记的程序路径。
 func TestServiceInstallReportsInstalledArtifact(t *testing.T) {
 	te, dir := newServiceProject(t)
 	useServiceControl(t)
@@ -327,7 +327,7 @@ func TestServiceNameFallsBackToProjectMetadata(t *testing.T) {
 		t.Errorf("显示名与描述应回退到服务名, 实际 %q / %q", rec.seen.DisplayName, rec.seen.Description)
 	}
 
-	// 工作目录没有 .yd.json 时回退为目录名。 | Without .yd.json in the working directory the directory name is the fallback.
+	// Without .yd.json in the working directory the directory name is the fallback. | 工作目录没有 .yd.json 时回退为目录名。
 	bare := newTestEnv(t, nil, "", false)
 	bare.env.WorkDir = te.env.WorkDir
 	if err := runServiceCommand(t, bare, "status"); err != nil {

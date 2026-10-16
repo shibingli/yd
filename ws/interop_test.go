@@ -139,8 +139,8 @@ func TestInteropServerOurImplClientCoder(t *testing.T) {
 	c.SetReadLimit(4 << 20)
 
 	t.Run("ping 由我方服务端自动应答", func(t *testing.T) {
-		// coder/websocket 的 Ping 自身不读连接，必须由另一个协程读取才能处理 pong； | coder/websocket's Ping does not read the connection itself, so another goroutine must read for the pong to be handled;
-		// 我方服务端在读路径上自动回送 pong，这里用「写入 + 读取回显」的往返驱动客户端读循环。 | our server answers the pong automatically on its read path, so round trips of write + read drive the client's read loop.
+		// coder/websocket's Ping does not read the connection itself, so another goroutine must read for the pong to be handled; | coder/websocket 的 Ping 自身不读连接，必须由另一个协程读取才能处理 pong；
+		// our server answers the pong automatically on its read path, so round trips of write + read drive the client's read loop. | 我方服务端在读路径上自动回送 pong，这里用「写入 + 读取回显」的往返驱动客户端读循环。
 		type pingResult struct{ err error }
 		ping := make(chan pingResult, 1)
 		go func() { ping <- pingResult{err: c.Ping(ctx)} }()
@@ -170,7 +170,7 @@ func TestInteropServerOurImplClientCoder(t *testing.T) {
 		if pr.err != nil {
 			t.Fatalf("ping 未收到 pong: %v", pr.err)
 		}
-		// 排空驱动消息的读取事件，保持后续子用例看到的事件序列从零开始 | drain the driver events so later sub-tests observe an event stream starting at zero
+		// drain the driver events so later sub-tests observe an event stream starting at zero | 排空驱动消息的读取事件，保持后续子用例看到的事件序列从零开始
 		for i := 0; i < wrote; i++ {
 			ev := recvOrTimeout(t, events, 5*time.Second, "我方服务端读取结果")
 			if ev.err != nil || ev.op != TextMessage || ev.n != len("ping driver") {
@@ -273,8 +273,8 @@ func TestInteropServerOurImplClientCoder(t *testing.T) {
 		})
 
 		t.Run("对端分片发送（我方重组）", func(t *testing.T) {
-			// coder/websocket 的 Writer 每次 Write 产生一个非 FIN 数据帧，Close 写出收尾帧， | each Write of coder/websocket's Writer emits one non-FIN data frame and Close writes the final frame,
-			// 因此这里真正走的是我方服务端的续帧重组路径。 | so this genuinely exercises our server's continuation-frame reassembly.
+			// each Write of coder/websocket's Writer emits one non-FIN data frame and Close writes the final frame, | coder/websocket 的 Writer 每次 Write 产生一个非 FIN 数据帧，Close 写出收尾帧，
+			// so this genuinely exercises our server's continuation-frame reassembly. | 因此这里真正走的是我方服务端的续帧重组路径。
 			const parts = 4
 			chunk := strings.Repeat("分片 | fragment ", 64)
 			w, err := c.Writer(ctx, websocket.MessageText)
@@ -320,7 +320,7 @@ func TestInteropServerOurImplClientCoder(t *testing.T) {
 			writeErr <- nil
 		}()
 
-		// 读与写并发进行；服务端逐条回显，因此顺序必须保持 | reads run concurrently with writes; the server echoes one by one, so the order must hold
+		// reads run concurrently with writes; the server echoes one by one, so the order must hold | 读与写并发进行；服务端逐条回显，因此顺序必须保持
 		for i := 0; i < n; i++ {
 			want := fmt.Sprintf("msg-%03d | 并发", i)
 			typ, got, err := c.Read(ctx)
@@ -421,7 +421,7 @@ func TestInteropServerCoderClientOurImpl(t *testing.T) {
 		}
 	})
 
-	// 三段读写都成功即证明对端服务端完整收到了我方客户端（含掩码）的帧 | three successful round trips prove the peer server fully accepted our (masked) frames
+	// three successful round trips prove the peer server fully accepted our (masked) frames | 三段读写都成功即证明对端服务端完整收到了我方客户端（含掩码）的帧
 	for i := 0; i < 3; i++ {
 		if err := recvOrTimeout(t, events, 10*time.Second, "对端服务端读取结果"); err != nil {
 			t.Fatalf("对端服务端第 %d 次读取失败: %v", i, err)
@@ -445,7 +445,7 @@ func TestInteropCloseHandshake(t *testing.T) {
 		}
 		defer func() { _ = c.CloseNow() }()
 
-		// coder/websocket 的 Close 会等待对端回送同一关闭码；返回 nil 即证明我方服务端的回送完全正确 | coder/websocket's Close waits for the peer to echo the same code; nil proves our echo is correct
+		// coder/websocket's Close waits for the peer to echo the same code; nil proves our echo is correct | coder/websocket 的 Close 会等待对端回送同一关闭码；返回 nil 即证明我方服务端的回送完全正确
 		if err := c.Close(websocket.StatusGoingAway, reason); err != nil {
 			t.Fatalf("关闭握手失败（我方服务端未正确回送关闭帧）: %v", err)
 		}
@@ -477,7 +477,7 @@ func TestInteropCloseHandshake(t *testing.T) {
 			t.Fatalf("写出关闭帧失败: %v", err)
 		}
 
-		// 对端服务端必须观察到完全一致的关闭码与原因 | the peer server must observe exactly the same close code and reason
+		// the peer server must observe exactly the same close code and reason | 对端服务端必须观察到完全一致的关闭码与原因
 		peerErr := recvOrTimeout(t, events, 5*time.Second, "对端服务端关闭结果")
 		var ce websocket.CloseError
 		if !errors.As(peerErr, &ce) {
@@ -490,7 +490,7 @@ func TestInteropCloseHandshake(t *testing.T) {
 			t.Fatalf("CloseStatus = %v, 期望 %v", got, websocket.StatusNormalClosure)
 		}
 
-		// 我方客户端读到的回送关闭帧同样一致（对端按 RFC 回送同一码与原因） | the echo our client reads carries the same code and reason the peer echoed per the RFC
+		// the echo our client reads carries the same code and reason the peer echoed per the RFC | 我方客户端读到的回送关闭帧同样一致（对端按 RFC 回送同一码与原因）
 		_, _, readErr := c.ReadMessage()
 		var ours *CloseError
 		if !errors.As(readErr, &ours) {
@@ -515,7 +515,7 @@ func TestInteropCloseHandshake(t *testing.T) {
 				observed <- err
 				return
 			}
-			// 服务端主动关闭：先发送关闭帧，再读取对端回送，完成一次完整的关闭握手 | server-initiated close: send the close frame, then read the peer's echo, completing a full handshake
+			// server-initiated close: send the close frame, then read the peer's echo, completing a full handshake | 服务端主动关闭：先发送关闭帧，再读取对端回送，完成一次完整的关闭握手
 			if err := conn.WriteControl(CloseMessage, closeFramePayload(CloseServiceRestart, reason), time.Now().Add(5*time.Second)); err != nil {
 				observed <- err
 				return
@@ -541,7 +541,7 @@ func TestInteropCloseHandshake(t *testing.T) {
 			t.Fatalf("写入触发消息失败: %v", err)
 		}
 
-		// 对端客户端必须读到与我方服务端发出的关闭码、原因完全一致的关闭帧 | the peer client must read a close frame identical to what our server sent
+		// the peer client must read a close frame identical to what our server sent | 对端客户端必须读到与我方服务端发出的关闭码、原因完全一致的关闭帧
 		_, _, readErr := c.Read(ctx)
 		var ce websocket.CloseError
 		if !errors.As(readErr, &ce) {
@@ -551,7 +551,7 @@ func TestInteropCloseHandshake(t *testing.T) {
 			t.Fatalf("对端客户端读到关闭 = (%v, %q), 期望 (%v, %q)", ce.Code, ce.Reason, websocket.StatusServiceRestart, reason)
 		}
 
-		// 我方服务端读到的回送也必须一致 | the echo our server reads must match as well
+		// the echo our server reads must match as well | 我方服务端读到的回送也必须一致
 		if ev := recvOrTimeout(t, observed, 5*time.Second, "我方服务端关闭回送"); ev != nil {
 			var ours *CloseError
 			if !errors.As(ev, &ours) {
@@ -581,7 +581,7 @@ func rawHandshakeServer(t *testing.T, accept func(key string) string) *httptest.
 		defer func() { _ = conn.Close() }()
 		_, _ = conn.Write([]byte("HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: " +
 			accept(r.Header.Get("Sec-WebSocket-Key")) + "\r\n\r\n"))
-		// 保持连接直到客户端关闭，避免成功路径上被提前断开 | keep the connection until the client closes so the success path is not cut short
+		// keep the connection until the client closes so the success path is not cut short | 保持连接直到客户端关闭，避免成功路径上被提前断开
 		_, _ = io.Copy(io.Discard, conn)
 	}))
 	t.Cleanup(srv.Close)
@@ -603,7 +603,7 @@ func TestInteropDialRejectsBadAccept(t *testing.T) {
 	})
 
 	t.Run("正确的 Accept 被接受", func(t *testing.T) {
-		// 用标准库 SHA1 与 b64x 独立计算 Accept，不依赖本包的 acceptKey | compute the Accept independently with the standard SHA1 and b64x, not with this package's acceptKey
+		// compute the Accept independently with the standard SHA1 and b64x, not with this package's acceptKey | 用标准库 SHA1 与 b64x 独立计算 Accept，不依赖本包的 acceptKey
 		srv := rawHandshakeServer(t, func(key string) string {
 			sum := sha1.Sum([]byte(key + "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"))
 			return b64x.StdEncoding.EncodeToString(sum[:])

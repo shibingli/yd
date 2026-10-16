@@ -50,7 +50,7 @@ func (b *tailBuffer) Write(p []byte) (int, error) {
 	defer b.mu.Unlock()
 	b.buf = append(b.buf, p...)
 	if len(b.buf) > maxTailBytes {
-		// 前向复制，源在目标之后，重叠安全。 | Forward copy with the source after the destination: overlap-safe.
+		// Forward copy with the source after the destination: overlap-safe. | 前向复制，源在目标之后，重叠安全。
 		b.buf = append(b.buf[:0], b.buf[len(b.buf)-maxTailBytes:]...)
 	}
 	return len(p), nil

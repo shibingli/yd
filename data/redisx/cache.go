@@ -121,7 +121,7 @@ func (c *Cache[T]) GetOrLoad(ctx context.Context, key string, load func(context.
 	}
 
 	shared, err, _ := c.group.Do(c.key(key), func() (any, error) {
-		// 二次确认：等待单飞期间其它调用者可能已经完成回填。 | Re-check: another caller may have filled the key while this one waited.
+		// Re-check: another caller may have filled the key while this one waited. | 二次确认：等待单飞期间其它调用者可能已经完成回填。
 		switch v, state, err := c.find(ctx, key); {
 		case err != nil:
 			return nil, err
@@ -135,7 +135,7 @@ func (c *Cache[T]) GetOrLoad(ctx context.Context, key string, load func(context.
 		if loadErr != nil {
 			if errors.Is(loadErr, ErrNotFound) && c.opt.NegativeTTL > 0 {
 				if writeErr := c.write(ctx, key, []byte(negativePayload), c.ttl(c.opt.NegativeTTL)); writeErr != nil {
-					// 负缓存不是调用方要的结果：保留 ErrNotFound，同时不隐藏写入失败。 | The negative entry is not what the caller asked for: keep ErrNotFound and still surface the write failure.
+					// The negative entry is not what the caller asked for: keep ErrNotFound and still surface the write failure. | 负缓存不是调用方要的结果：保留 ErrNotFound，同时不隐藏写入失败。
 					return nil, errors.Join(loadErr, writeErr)
 				}
 			}
@@ -152,7 +152,7 @@ func (c *Cache[T]) GetOrLoad(ctx context.Context, key string, load func(context.
 	if v, ok := shared.(T); ok {
 		return v, nil
 	}
-	// 仅当 T 是可空接口类型且 loader 返回 nil 时才会走到这里。 | Reached only when T is an interface type and the loader returned nil.
+	// Reached only when T is an interface type and the loader returned nil. | 仅当 T 是可空接口类型且 loader 返回 nil 时才会走到这里。
 	return zero, nil
 }
 
@@ -220,7 +220,7 @@ func (c *Cache[T]) LoadMany(ctx context.Context, keys []string, loader func(cont
 		return nil, ErrNilClient
 	}
 
-	// 去重：重复键只会读一次、也只交给 loader 一次。 | Dedupe: a repeated key is read once and handed to the loader once.
+	// Dedupe: a repeated key is read once and handed to the loader once. | 去重：重复键只会读一次、也只交给 loader 一次。
 	unique := make([]string, 0, len(keys))
 	requested := make(map[string]struct{}, len(keys))
 	for _, k := range keys {

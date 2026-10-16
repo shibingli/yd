@@ -96,7 +96,7 @@ func TestAssetsListPrintsTable(t *testing.T) {
 	}
 }
 
-// TestAssetsListMissingManifestErrors 清单缺失时 list 报错。 | TestAssetsListMissingManifestErrors fails when the manifest is absent.
+// TestAssetsListMissingManifestErrors fails when the manifest is absent. | TestAssetsListMissingManifestErrors 清单缺失时 list 报错。
 func TestAssetsListMissingManifestErrors(t *testing.T) {
 	te := newTestEnv(t, nil, "", false)
 	err := Execute(context.Background(), []string{"assets", "list"}, te.env)

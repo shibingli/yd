@@ -309,7 +309,7 @@ func TestRunParsesDiagnostics(t *testing.T) {
 		if !strings.Contains(rep.Output, "-apply") {
 			t.Errorf("Output 未回显 -apply：\n%s | Output misses -apply", rep.Output)
 		}
-		// 该假工具每遍都回放同样的 3 条诊断：第 2 遍未再下降，循环就此收敛。 | The fake replays the same three diagnostics every pass, so pass 2 shrinks nothing and the loop converges there.
+		// The fake replays the same three diagnostics every pass, so pass 2 shrinks nothing and the loop converges there. | 该假工具每遍都回放同样的 3 条诊断：第 2 遍未再下降，循环就此收敛。
 		if rep.Passes != 2 {
 			t.Errorf("Passes = %d，期望 2 | want 2", rep.Passes)
 		}
