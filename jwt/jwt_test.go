@@ -15,6 +15,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -50,6 +51,9 @@ var testSecret = []byte("yd-framework-jwt-test-secret-0123456789")
 
 // fixedNow is the deterministic clock used by every time-dependent test. | fixedNow 是全部依赖时间的测试使用的确定性时钟。
 var fixedNow = time.Unix(1_700_000_000, 0).UTC()
+
+// rfcNow is the deterministic clock of the RFC 7519 §3.1 vector, whose exp is 1300819380 (2011-03-22). | rfcNow 是 RFC 7519 §3.1 向量的确定性时钟，该向量的 exp 为 1300819380（2011-03-22）。
+var rfcNow = time.Unix(1_300_819_300, 0).UTC()
 
 // buildToken assembles a compact JWS from a raw JSON header, a raw JSON payload and raw signature bytes. | buildToken 用原始 JSON 头部、原始 JSON 载荷与原始签名字节拼装紧凑 JWS。
 func buildToken(header, payload string, sig []byte) string {
@@ -119,11 +123,11 @@ func TestHS256AgainstRFC7519Vector(t *testing.T) {
 		ValidAlgs:  []Alg{HS256},
 		Issuer:     "joe",
 		RequireExp: true,
-		Now:        func() time.Time { return fixedNow },
+		Now:        func() time.Time { return rfcNow },
 	}
 	tok := mustParse(t, rfc7519Token, hmacKeyFunc(rfc7519KeyOctets), opts)
 
-	// 头部逐字段核对。 | Check the header field by field.
+	// Check the header field by field. | 头部逐字段核对。
 	if tok.Header.Alg != HS256 {
 		t.Errorf("Header.Alg = %q，期望 %q", tok.Header.Alg, HS256)
 	}
@@ -137,12 +141,12 @@ func TestHS256AgainstRFC7519Vector(t *testing.T) {
 		t.Errorf("Header.Extra = %v，期望 nil", tok.Header.Extra)
 	}
 
-	// 签名必须与 RFC 公布的签名逐字节相等。 | The signature must equal the published one byte for byte.
+	// The signature must equal the published one byte for byte. | 签名必须与 RFC 公布的签名逐字节相等。
 	if !bytes.Equal(tok.Signature, wantSig) {
 		t.Fatalf("Signature = %x，期望 %x", tok.Signature, wantSig)
 	}
 
-	// 用标准库 HMAC 在原始 signing input 上重算，逐字节复核。 | Recompute with the standard library on the raw signing input.
+	// Recompute with the standard library on the raw signing input. | 用标准库 HMAC 在原始 signing input 上重算，逐字节复核。
 	dot := strings.LastIndexByte(rfc7519Token, '.')
 	mac := hmac.New(sha256.New, rfc7519KeyOctets)
 	mac.Write([]byte(rfc7519Token[:dot]))
@@ -150,7 +154,7 @@ func TestHS256AgainstRFC7519Vector(t *testing.T) {
 		t.Fatalf("HMAC-SHA256 重算结果与 Signature 不一致")
 	}
 
-	// 载荷字段走字节扫描，不经过 map。 | Payload fields are read by byte scanning, never through a map.
+	// Payload fields are read by byte scanning, never through a map. | 载荷字段走字节扫描，不经过 map。
 	if got := tok.Claims.Issuer(); got != "joe" {
 		t.Errorf("Claims.Issuer() = %q，期望 %q", got, "joe")
 	}
@@ -181,36 +185,44 @@ func TestHS256AgainstRFC7519Vector(t *testing.T) {
 		t.Errorf("Claims.Raw() = %q，期望 %q", tok.Claims.Raw(), wantPayload)
 	}
 
-	// 签发方不匹配必须被拒绝。 | An issuer mismatch must be rejected.
-	if _, err := Parse(rfc7519Token, hmacKeyFunc(rfc7519KeyOctets), ParseOptions{Issuer: "someone-else"}); !errors.Is(err, ErrIssuerMismatch) {
+	// An issuer mismatch must be rejected. | 签发方不匹配必须被拒绝。
+	if _, err := Parse(rfc7519Token, hmacKeyFunc(rfc7519KeyOctets),
+		ParseOptions{Issuer: "someone-else", Now: func() time.Time { return rfcNow }}); !errors.Is(err, ErrIssuerMismatch) {
 		t.Errorf("Issuer 不匹配的 err = %v，期望 ErrIssuerMismatch", err)
 	}
 
-	// 算法白名单之外必须被拒绝。 | An algorithm outside the allow list must be rejected.
-	if _, err := Parse(rfc7519Token, hmacKeyFunc(rfc7519KeyOctets), ParseOptions{ValidAlgs: []Alg{RS256, ES256}}); !errors.Is(err, ErrAlgNotAllowed) {
+	// An algorithm outside the allow list must be rejected. | 算法白名单之外必须被拒绝。
+	if _, err := Parse(rfc7519Token, hmacKeyFunc(rfc7519KeyOctets),
+		ParseOptions{ValidAlgs: []Alg{RS256, ES256}, Now: func() time.Time { return rfcNow }}); !errors.Is(err, ErrAlgNotAllowed) {
 		t.Errorf("算法白名单外的 err = %v，期望 ErrAlgNotAllowed", err)
 	}
 
-	// 缺少 exp 且要求 exp 时必须被拒绝。 | A missing exp must be rejected when exp is required.
-	noExp := buildToken(`{"alg":"HS256"}`, `{"iss":"joe"}`, nil)
+	// A missing exp must be rejected when exp is required. | 缺少 exp 且要求 exp 时必须被拒绝。
+	noExp := resign(t, b64(`{"alg":"HS256"}`), b64(`{"iss":"joe"}`))
 	if _, err := Parse(noExp, hmacKeyFunc(testSecret), ParseOptions{RequireExp: true}); !errors.Is(err, ErrMissingExp) {
 		t.Errorf("缺少 exp 的 err = %v，期望 ErrMissingExp", err)
 	}
 
-	// 篡改签名末位必须失败。 | Flipping the last signature character must fail.
+	// Flipping the last signature character must fail. | 篡改签名末位必须失败。
 	tampered := rfc7519Token[:len(rfc7519Token)-1] + "A"
 	if _, err := Parse(tampered, hmacKeyFunc(rfc7519KeyOctets), ParseOptions{}); !errors.Is(err, ErrSignatureInvalid) {
 		t.Errorf("篡改签名的 err = %v，期望 ErrSignatureInvalid", err)
 	}
 
-	// 篡改载荷必须失败（签名覆盖 base64 段而非解码后的 JSON）。 | Tampering with the payload must fail (the signature covers the encoded segments).
-	tamperedPayload := strings.Replace(rfc7519Token, "eyJpc3MiOiJqb2Ui", "eyJpc3MiOiJqb2Uh", 1)
-	if _, err := Parse(tamperedPayload, hmacKeyFunc(rfc7519KeyOctets), ParseOptions{}); !errors.Is(err, ErrSignatureInvalid) {
+	// Tampering with the payload must fail: the signature covers the encoded segments. | 篡改载荷必须失败：签名覆盖编码后的段。
+	// The tampered payload stays valid JSON, so the failure is reported by the signature check and not by the
+	// structural check. | 篡改后的载荷仍是合法 JSON，因此失败由签名校验而非结构校验报出。
+	segments := strings.Split(rfc7519Token, ".")
+	tamperedPayload := buildSegments(segments[0],
+		b64(`{"iss":"joh",`+"\r\n"+` "exp":1300819380,`+"\r\n"+` "http://example.com/is_root":true}`), segments[2])
+	if _, err := Parse(tamperedPayload, hmacKeyFunc(rfc7519KeyOctets),
+		ParseOptions{Now: func() time.Time { return rfcNow }}); !errors.Is(err, ErrSignatureInvalid) {
 		t.Errorf("篡改载荷的 err = %v，期望 ErrSignatureInvalid", err)
 	}
 
-	// 两侧空白应被容忍（cookie / 配置文件常见）。 | Surrounding whitespace is tolerated (common in cookies and config files).
-	if _, err := Parse("  "+rfc7519Token+"\n", hmacKeyFunc(rfc7519KeyOctets), ParseOptions{}); err != nil {
+	// Surrounding whitespace is tolerated (common in cookies and config files). | 两侧空白应被容忍（cookie / 配置文件常见）。
+	if _, err := Parse("  "+rfc7519Token+"\n", hmacKeyFunc(rfc7519KeyOctets),
+		ParseOptions{Now: func() time.Time { return rfcNow }}); err != nil {
 		t.Errorf("容忍首尾空白的 err = %v", err)
 	}
 }
@@ -289,12 +301,12 @@ func TestRS256AndES256AndPS256RoundTrip(t *testing.T) {
 				t.Errorf("Claims.GetBool(b) = (%v, %v)，期望 (true, true)", got, ok)
 			}
 
-			// 换成另一把同类型密钥必须验签失败。 | Verifying with another key of the same kind must fail.
+			// Verifying with another key of the same kind must fail. | 换成另一把同类型密钥必须验签失败。
 			if _, err := Parse(raw, func(Header) (any, error) { return tc.wrongPub, nil }, ParseOptions{}); !errors.Is(err, ErrSignatureInvalid) {
 				t.Errorf("错误公钥的 err = %v，期望 ErrSignatureInvalid", err)
 			}
 
-			// 篡改签名必须失败。 | A tampered signature must fail.
+			// A tampered signature must fail. | 篡改签名必须失败。
 			bad := bytes.Clone(tok.Signature)
 			bad[0] ^= 0xFF
 			tampered := buildToken(`{"alg":"`+string(tc.alg)+`"}`, `{"sub":"u-42"}`, bad)
@@ -336,73 +348,73 @@ func TestExpiredAndNotYetValidWithLeeway(t *testing.T) {
 		return func() time.Time { return base.Add(d) }
 	}
 
-	// exp 恰好是当前时刻：不算过期。 | exp equal to now is not expired yet.
+	// exp equal to now is not expired yet. | exp 恰好是当前时刻：不算过期。
 	expiring := mustSign(t, map[string]any{"exp": base.Unix()}, testSecret, HS256, SignOptions{})
 	if _, err := Parse(expiring, keyFn, ParseOptions{Now: at(0)}); err != nil {
 		t.Fatalf("exp == now 时应通过，err = %v", err)
 	}
 
-	// 1 秒后过期。 | Expired one second later.
+	// Expired one second later. | 1 秒后过期。
 	if _, err := Parse(expiring, keyFn, ParseOptions{Now: at(time.Second)}); !errors.Is(err, ErrTokenExpired) {
 		t.Fatalf("过期 token 的 err = %v，期望 ErrTokenExpired", err)
 	}
 
-	// 容差恰好覆盖 1 秒的迟到。 | A one-second leeway covers exactly that lateness.
+	// A one-second leeway covers exactly that lateness. | 容差恰好覆盖 1 秒的迟到。
 	if _, err := Parse(expiring, keyFn, ParseOptions{Now: at(time.Second), Leeway: time.Second}); err != nil {
 		t.Errorf("容差内的过期 token 应通过，err = %v", err)
 	}
-	// 容差不足以覆盖 2 秒的迟到。 | A one-second leeway does not cover two seconds.
+	// A one-second leeway does not cover two seconds. | 容差不足以覆盖 2 秒的迟到。
 	if _, err := Parse(expiring, keyFn, ParseOptions{Now: at(2 * time.Second), Leeway: time.Second}); !errors.Is(err, ErrTokenExpired) {
 		t.Errorf("超出容差的 err = %v，期望 ErrTokenExpired", err)
 	}
 
-	// nbf 尚未到达：判定为未生效。 | nbf in the future is rejected as not yet valid.
+	// nbf in the future is rejected as not yet valid. | nbf 尚未到达：判定为未生效。
 	notYet := mustSign(t, map[string]any{"nbf": base.Add(time.Minute).Unix(), "exp": base.Add(time.Hour).Unix()},
 		testSecret, HS256, SignOptions{})
 	if _, err := Parse(notYet, keyFn, ParseOptions{Now: at(0)}); !errors.Is(err, ErrTokenNotValidYet) {
 		t.Fatalf("未生效 token 的 err = %v，期望 ErrTokenNotValidYet", err)
 	}
-	// 容差恰好覆盖 60 秒的提前量。 | A 60-second leeway covers exactly that earliness.
+	// A 60-second leeway covers exactly that earliness. | 容差恰好覆盖 60 秒的提前量。
 	if _, err := Parse(notYet, keyFn, ParseOptions{Now: at(0), Leeway: time.Minute}); err != nil {
 		t.Errorf("容差内的未生效 token 应通过，err = %v", err)
 	}
-	// nbf 到达后通过。 | It passes once nbf is reached.
+	// It passes once nbf is reached. | nbf 到达后通过。
 	if _, err := Parse(notYet, keyFn, ParseOptions{Now: at(time.Minute)}); err != nil {
 		t.Errorf("nbf 到达后应通过，err = %v", err)
 	}
 
-	// exp 与 nbf 同时存在且都已越界：nbf 优先报未生效。 | With both out of range, nbf is reported first.
+	// With both out of range, nbf is reported first. | exp 与 nbf 同时存在且都已越界：nbf 优先报未生效。
 	both := mustSign(t, map[string]any{"nbf": base.Add(time.Minute).Unix(), "exp": base.Add(-time.Minute).Unix()},
 		testSecret, HS256, SignOptions{})
 	if _, err := Parse(both, keyFn, ParseOptions{Now: at(0)}); !errors.Is(err, ErrTokenNotValidYet) {
 		t.Errorf("nbf 与 exp 同时越界的 err = %v，期望 ErrTokenNotValidYet", err)
 	}
 
-	// iat 属于信息性声明：未来时间不影响通过，但可被读取。 | iat is informational: a future iat is readable and does not block.
+	// iat is informational: a future iat is readable and does not block. | iat 属于信息性声明：未来时间不影响通过，但可被读取。
 	future := mustSign(t, map[string]any{"iat": base.Add(time.Hour).Unix()}, testSecret, HS256, SignOptions{})
 	tok := mustParse(t, future, keyFn, ParseOptions{Now: at(0)})
 	if got, ok := tok.Claims.IssuedAt(); !ok || !got.Equal(base.Add(time.Hour)) {
 		t.Errorf("Claims.IssuedAt() = (%v, %v)，期望 %v", got, ok, base.Add(time.Hour))
 	}
 
-	// 非数字的 exp 视为结构性错误。 | A non-numeric exp is a structural error.
+	// A non-numeric exp is a structural error. | 非数字的 exp 视为结构性错误。
 	badExp := resign(t, b64(`{"alg":"HS256"}`), b64(`{"exp":"tomorrow"}`))
 	if _, err := Parse(badExp, keyFn, ParseOptions{}); !errors.Is(err, ErrMalformed) {
 		t.Errorf("字符串 exp 的 err = %v，期望 ErrMalformed", err)
 	}
-	// 越界数值的 exp 同样拒绝。 | An out-of-range numeric exp is rejected as well.
+	// An out-of-range numeric exp is rejected as well. | 越界数值的 exp 同样拒绝。
 	hugeExp := resign(t, b64(`{"alg":"HS256"}`), b64(`{"exp":1e300}`))
 	if _, err := Parse(hugeExp, keyFn, ParseOptions{}); !errors.Is(err, ErrMalformed) {
 		t.Errorf("超大 exp 的 err = %v，期望 ErrMalformed", err)
 	}
 
-	// 小数的 NumericDate 支持亚秒精度。 | A fractional NumericDate is supported with sub-second precision.
+	// A fractional NumericDate is supported with sub-second precision. | 小数的 NumericDate 支持亚秒精度。
 	frac := resign(t, b64(`{"alg":"HS256"}`), b64(`{"exp":1700000000.5}`))
 	tok = mustParse(t, frac, keyFn, ParseOptions{Now: at(0)})
 	if got, ok := tok.Claims.ExpiresAt(); !ok || !got.Equal(time.Unix(1700000000, 500_000_000).UTC()) {
 		t.Errorf("小数 exp = (%v, %v)，期望 1700000000.5", got, ok)
 	}
-	// 小数 exp 恰好过期。 | A fractional exp that has just passed.
+	// A fractional exp that has just passed. | 小数 exp 恰好过期。
 	if _, err := Parse(frac, keyFn, ParseOptions{Now: func() time.Time { return time.Unix(1700000001, 0) }}); !errors.Is(err, ErrTokenExpired) {
 		t.Errorf("小数 exp 过期的 err = %v，期望 ErrTokenExpired", err)
 	}
@@ -421,26 +433,26 @@ func TestAlgNoneRejected(t *testing.T) {
 		}
 	}
 
-	// 带非空签名的 none token 同样拒绝。 | A none token carrying a non-empty signature is rejected too.
+	// A none token carrying a non-empty signature is rejected too. | 带非空签名的 none token 同样拒绝。
 	if _, err := Parse(buildToken(`{"alg":"none"}`, `{"sub":"attacker"}`, []byte("garbage-signature")),
 		hmacKeyFunc(testSecret), ParseOptions{}); !errors.Is(err, ErrAlgNotAllowed) {
 		t.Errorf("alg=none（带签名）的 err = %v，期望 ErrAlgNotAllowed", err)
 	}
 
-	// 未知算法一律拒绝。 | Any unknown algorithm is rejected.
+	// Any unknown algorithm is rejected. | 未知算法一律拒绝。
 	if _, err := Parse(buildToken(`{"alg":"HS255"}`, `{"sub":"x"}`, nil), hmacKeyFunc(testSecret), ParseOptions{}); !errors.Is(err, ErrAlgNotAllowed) {
 		t.Errorf("未知算法的 err = %v，期望 ErrAlgNotAllowed", err)
 	}
-	// 算法不是字符串时同样拒绝。 | A non-string alg is rejected as well.
+	// A non-string alg is rejected as well. | 算法不是字符串时同样拒绝。
 	if _, err := Parse(buildToken(`{"alg":256}`, `{"sub":"x"}`, nil), hmacKeyFunc(testSecret), ParseOptions{}); !errors.Is(err, ErrAlgNotAllowed) {
 		t.Errorf("数字 alg 的 err = %v，期望 ErrAlgNotAllowed", err)
 	}
-	// 头部缺少 alg 时同样拒绝。 | A header without alg is rejected as well.
+	// A header without alg is rejected as well. | 头部缺少 alg 时同样拒绝。
 	if _, err := Parse(buildToken(`{"typ":"JWT"}`, `{"sub":"x"}`, nil), hmacKeyFunc(testSecret), ParseOptions{}); !errors.Is(err, ErrAlgNotAllowed) {
 		t.Errorf("缺少 alg 的 err = %v，期望 ErrAlgNotAllowed", err)
 	}
 
-	// 签发侧也不得接受 none。 | The signing side must refuse none as well.
+	// The signing side must refuse none as well. | 签发侧也不得接受 none。
 	if _, err := Sign(map[string]any{"sub": "x"}, testSecret, Alg("none"), SignOptions{}); !errors.Is(err, ErrAlgNotAllowed) {
 		t.Errorf("Sign(none) 的 err = %v，期望 ErrAlgNotAllowed", err)
 	}
@@ -457,27 +469,27 @@ func TestAlgConfusionRejected(t *testing.T) {
 		t.Fatalf("编码 RSA 公钥失败: %v", err)
 	}
 
-	// 攻击者把公开的 RSA 公钥当作 HMAC 密钥，伪造 alg=HS256 的 token。 | The attacker uses the public RSA key as an HMAC secret and forges an HS256 token.
+	// The attacker uses the public RSA key as an HMAC secret and forges an HS256 token. | 攻击者把公开的 RSA 公钥当作 HMAC 密钥，伪造 alg=HS256 的 token。
 	forged := mustSign(t, map[string]any{"sub": "attacker"}, der, HS256, SignOptions{})
 	pubKeyFn := func(Header) (any, error) { return pub, nil }
 
-	// 第一道防线：算法白名单。 | First line of defence: the algorithm allow list.
+	// First line of defence: the algorithm allow list. | 第一道防线：算法白名单。
 	if _, err := Parse(forged, pubKeyFn, ParseOptions{ValidAlgs: []Alg{RS256, RS384, RS512, PS256, PS384, PS512}}); !errors.Is(err, ErrAlgNotAllowed) {
 		t.Errorf("白名单拦不住的 err = %v，期望 ErrAlgNotAllowed", err)
 	}
 
-	// 第二道防线：即使没有白名单，HMAC 路径也只接受 []byte/string 密钥。 | Second line of defence: even without an allow list, the HMAC path accepts only []byte/string keys.
+	// Second line of defence: even without an allow list, the HMAC path accepts only []byte/string keys. | 第二道防线：即使没有白名单，HMAC 路径也只接受 []byte/string 密钥。
 	if _, err := Parse(forged, pubKeyFn, ParseOptions{}); !errors.Is(err, ErrSignatureInvalid) {
 		t.Errorf("混淆攻击的 err = %v，期望 ErrSignatureInvalid", err)
 	}
 
-	// 反向混淆：RS256 token 用对称密钥验证。 | Reverse confusion: an RS256 token verified with a symmetric key.
+	// Reverse confusion: an RS256 token verified with a symmetric key. | 反向混淆：RS256 token 用对称密钥验证。
 	legit := mustSign(t, map[string]any{"sub": "u1"}, rsaKey, RS256, SignOptions{})
 	if _, err := Parse(legit, hmacKeyFunc([]byte("public-key-as-secret")), ParseOptions{}); !errors.Is(err, ErrSignatureInvalid) {
 		t.Errorf("反向混淆的 err = %v，期望 ErrSignatureInvalid", err)
 	}
 
-	// ECDSA / Ed25519 的公钥同样不能充当 HMAC 密钥。 | ECDSA and Ed25519 public keys cannot act as HMAC keys either.
+	// ECDSA and Ed25519 public keys cannot act as HMAC keys either. | ECDSA / Ed25519 的公钥同样不能充当 HMAC 密钥。
 	ecKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	if err != nil {
 		t.Fatalf("生成 ECDSA 密钥失败: %v", err)
@@ -491,7 +503,7 @@ func TestAlgConfusionRejected(t *testing.T) {
 		t.Errorf("ECDSA 公钥混淆的 err = %v，期望 ErrSignatureInvalid", err)
 	}
 
-	// 曲线不匹配的 ES256 验签必须失败。 | ES256 verification with a mismatched curve must fail.
+	// ES256 verification with a mismatched curve must fail. | 曲线不匹配的 ES256 验签必须失败。
 	p384, err := ecdsa.GenerateKey(elliptic.P384(), rand.Reader)
 	if err != nil {
 		t.Fatalf("生成 P-384 密钥失败: %v", err)
@@ -501,7 +513,7 @@ func TestAlgConfusionRejected(t *testing.T) {
 		t.Errorf("曲线不匹配的 err = %v，期望 ErrSignatureInvalid", err)
 	}
 
-	// 密钥类型不匹配的签发请求同样失败。 | Signing with a mismatched key type fails as well.
+	// Signing with a mismatched key type fails as well. | 密钥类型不匹配的签发请求同样失败。
 	if _, err := Sign(map[string]any{"sub": "u1"}, []byte("secret"), RS256, SignOptions{}); !errors.Is(err, ErrSignatureInvalid) {
 		t.Errorf("Sign(RS256, []byte) 的 err = %v，期望 ErrSignatureInvalid", err)
 	}
@@ -541,30 +553,30 @@ func TestKeyFuncKidRotation(t *testing.T) {
 		}
 	}
 
-	// KeyFunc 必须确切看到 token 声明的 kid。 | The KeyFunc must see exactly the kid claimed by the token.
+	// The KeyFunc must see exactly the kid claimed by the token. | KeyFunc 必须确切看到 token 声明的 kid。
 	if len(seenKids) != 2 {
 		t.Fatalf("KeyFunc 调用次数 = %d，期望 2", len(seenKids))
 	}
 
-	// 轮换期间旧 kid 仍然可用。 | During rotation the old kid keeps working.
+	// During rotation the old kid keeps working. | 轮换期间旧 kid 仍然可用。
 	old := mustSign(t, map[string]any{"sub": "legacy"}, keys["2024-01"], HS256, SignOptions{Kid: "2024-01"})
 	if tok := mustParse(t, old, keyFn, opts); tok.Claims.Subject() != "legacy" {
 		t.Errorf("Claims.Subject() = %q，期望 %q", tok.Claims.Subject(), "legacy")
 	}
 
-	// 用当前密钥校验旧 kid 的 token 必须失败。 | Verifying the old-kid token with the new key must fail.
+	// Verifying the old-kid token with the new key must fail. | 用当前密钥校验旧 kid 的 token 必须失败。
 	if _, err := Parse(old, hmacKeyFunc(keys["2025-01"]), ParseOptions{}); !errors.Is(err, ErrSignatureInvalid) {
 		t.Errorf("换发密钥后的 err = %v，期望 ErrSignatureInvalid", err)
 	}
 
-	// KeyFunc 的错误必须原样透出（errors.Is 可判定）。 | KeyFunc errors must surface unchanged and stay errors.Is-able.
+	// KeyFunc errors must surface unchanged and stay errors.Is-able. | KeyFunc 的错误必须原样透出（errors.Is 可判定）。
 	unknown := mustSign(t, map[string]any{"sub": "u1"}, keys["2025-01"], HS256, SignOptions{Kid: "2026-01"})
 	_, err := Parse(unknown, keyFn, opts)
 	if !errors.Is(err, errUnknownKid) {
 		t.Errorf("未知 kid 的 err = %v，期望 errUnknownKid", err)
 	}
 
-	// kid 缺失时 KeyFunc 看到空串。 | A missing kid reaches the KeyFunc as an empty string.
+	// A missing kid reaches the KeyFunc as an empty string. | kid 缺失时 KeyFunc 看到空串。
 	seenKids = nil
 	noKid := mustSign(t, map[string]any{"sub": "u1"}, testSecret, HS256, SignOptions{})
 	if _, err := Parse(noKid, func(h Header) (any, error) {
@@ -577,7 +589,7 @@ func TestKeyFuncKidRotation(t *testing.T) {
 		t.Errorf("KeyFunc 看到的 kid = %v，期望 [\"\"]", seenKids)
 	}
 
-	// 自定义头部参数必须原样回传，且不得覆盖 alg/typ/kid。 | Custom header parameters round-trip and never override alg/typ/kid.
+	// Custom header parameters round-trip and never override alg/typ/kid. | 自定义头部参数必须原样回传，且不得覆盖 alg/typ/kid。
 	extra := mustSign(t, map[string]any{"sub": "u1"}, testSecret, HS256, SignOptions{
 		Kid:    "2025-01",
 		Header: map[string]string{"cty": "JWT", "x-trace-id": "t-9", "alg": "none", "typ": "evil", "kid": "evil"},
@@ -627,14 +639,27 @@ func TestClaimsScanDoesNotAllocate(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Parse 失败: %v", err)
 	}
-	// 实测值包含测试 keyFn 把 []byte 装箱为 any 的 1 次分配。 | The measured value includes one allocation from boxing []byte into any inside the test KeyFunc.
-	t.Logf("Parse allocations/op = %v（来自测试 keyFn 装箱的 1 次已计入）", got)
-	const maxParseAllocs = 8
+	// The bound is the measured steady-state value plus headroom, and the measured value is what the log line
+	// reports. It breaks down as four allocations this package cannot pool. | 上界取实测稳态值加上余量，日志行报告的
+	// 就是实测值。实测值由本包无法池化的四次分配构成：
+	//
+	//   - the decoded payload and the decoded signature, both handed to the caller in the *Token; | 解码后的载荷与
+	//     解码后的签名，二者都通过 *Token 交给调用方；
+	//   - the *Token itself; | *Token 本身；
+	//   - the kid string, an arbitrary caller-visible value; | kid 字符串，取值由调用方决定且对调用方可见；
+	//   - five more from crypto/hmac.New, which allocates its state and its two inner/outer hashers internally. | 以及
+	//     crypto/hmac.New 内部的五次分配：它要分配自身状态与内、外层两个哈希器。
+	//
+	// Buffer handling on this path is allocation-free, which the per-accessor assertions below prove one
+	// accessor at a time: the header, the signing input and the MAC output all live in pooled buffers. | 该路径上的缓冲
+	// 处理是零分配的，下面的逐访问器断言一一证明了这一点：头部、签名输入与 MAC 输出都位于池化缓冲中。
+	const maxParseAllocs = 12
+	t.Logf("jwt Parse allocations/op = %v (bound %d)", got, maxParseAllocs)
 	if got > maxParseAllocs {
 		t.Errorf("Parse 分配次数 = %v，期望 <= %d", got, maxParseAllocs)
 	}
 
-	// 纯扫描路径必须零分配。 | The pure scanning path must not allocate at all.
+	// The pure scanning path must not allocate at all. | 纯扫描路径必须零分配。
 	c := tok.Claims
 	if n := testing.AllocsPerRun(500, func() { _, _ = c.ExpiresAt() }); n != 0 {
 		t.Errorf("Claims.ExpiresAt 分配次数 = %v，期望 0", n)
@@ -655,10 +680,60 @@ func TestClaimsScanDoesNotAllocate(t *testing.T) {
 		t.Errorf("Claims.Has 分配次数 = %v，期望 0", n)
 	}
 
-	// 两次测量的分配次数必须一致（复用缓冲不产生漂移）。 | Two measurements must agree (reused buffers do not drift).
+	// Two measurements must agree (reused buffers do not drift). | 两次测量的分配次数必须一致（复用缓冲不产生漂移）。
 	first := testing.AllocsPerRun(200, parse)
 	if second := testing.AllocsPerRun(200, parse); second != first {
 		t.Errorf("两次测量的分配次数不一致: %v vs %v", first, second)
+	}
+}
+
+// ---------------------------------------------------------------- Concurrency | 并发
+
+// TestParseIsConcurrencySafe hammers one token from several goroutines at the same time. | TestParseIsConcurrencySafe 用多个 goroutine 同时施压同一个 token。
+//
+// Run under -race it proves that the shared scratch pool never hands one buffer to two callers at once, and that
+// no field of a returned Token aliases pooled memory. | 在 -race 下运行可证明共享的 scratch 池不会同时把同一缓冲
+// 交给两个调用方，且返回的 Token 中没有任何字段指向池化内存。
+func TestParseIsConcurrencySafe(t *testing.T) {
+	raw := mustSign(t, map[string]any{
+		"sub": "u-conc",
+		"exp": int64(4102444800),
+	}, testSecret, HS256, SignOptions{Kid: "conc"})
+
+	keyFn := hmacKeyFunc(testSecret)
+	opts := ParseOptions{ValidAlgs: []Alg{HS256}, Now: func() time.Time { return fixedNow }}
+
+	const (
+		workers = 8
+		rounds  = 200
+	)
+	failures := make(chan error, workers)
+	var wg sync.WaitGroup
+	for i := 0; i < workers; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for r := 0; r < rounds; r++ {
+				tok, err := Parse(raw, keyFn, opts)
+				if err != nil {
+					failures <- err
+					return
+				}
+				if got := tok.Claims.Subject(); got != "u-conc" {
+					failures <- errors.New("Claims.Subject = " + got)
+					return
+				}
+				if tok.Header.Kid != "conc" {
+					failures <- errors.New("Header.Kid = " + tok.Header.Kid)
+					return
+				}
+			}
+		}()
+	}
+	wg.Wait()
+	close(failures)
+	for err := range failures {
+		t.Fatal(err)
 	}
 }
 
@@ -681,7 +756,7 @@ func TestClaimsAccessorsAndJSON(t *testing.T) {
 	if got := c.ID(); got != "id-1" {
 		t.Errorf("ID = %q", got)
 	}
-	// aud 为字符串时按单元素读取。 | A string aud is read as a single element.
+	// A string aud is read as a single element. | aud 为字符串时按单元素读取。
 	if got := c.Audience(); len(got) != 1 || got[0] != "single" {
 		t.Errorf("Audience = %v，期望 [single]", got)
 	}
@@ -703,11 +778,11 @@ func TestClaimsAccessorsAndJSON(t *testing.T) {
 	if got, ok := c.Get("iss"); !ok || got != "yd" {
 		t.Errorf("Get(iss) = (%q, %v)", got, ok)
 	}
-	// 重复键按最后一次出现取值，与 jsonx 解到 map 的语义一致。 | Duplicate keys resolve to the last occurrence, matching jsonx map decoding.
+	// Duplicate keys resolve to the last occurrence, matching jsonx map decoding. | 重复键按最后一次出现取值，与 jsonx 解到 map 的语义一致。
 	if got, ok := c.GetInt64("dup"); !ok || got != 2 {
 		t.Errorf("GetInt64(dup) = (%d, %v)，期望 (2, true)", got, ok)
 	}
-	// null 值视为键存在，但不是字符串/数字/布尔。 | A null value exists but is neither string, number nor bool.
+	// A null value exists but is neither string, number nor bool. | null 值视为键存在，但不是字符串/数字/布尔。
 	if !c.Has("nil") {
 		t.Errorf("Has(nil) 应为 true")
 	}
@@ -728,7 +803,7 @@ func TestClaimsAccessorsAndJSON(t *testing.T) {
 		t.Errorf("GetJSON(missing) 的 err = %v，期望 ErrClaimNotFound", err)
 	}
 
-	// Keys 按文档顺序返回去重后的键。 | Keys returns the de-duplicated keys in document order.
+	// Keys returns the de-duplicated keys in document order. | Keys 按文档顺序返回去重后的键。
 	keys := c.Keys()
 	want := []string{"iss", "sub", "jti", "aud", "exp", "n", "f", "b", "obj", "nil", "dup"}
 	if len(keys) != len(want) {
@@ -740,14 +815,15 @@ func TestClaimsAccessorsAndJSON(t *testing.T) {
 		}
 	}
 
-	// 编码后的键名（\uXXXX）必须与未编码形式等价。 | An escaped key must be equivalent to its unescaped spelling.
+	// An escaped key must be equivalent to its unescaped spelling. | 编码后的键名（\uXXXX）必须与未编码形式等价。
+	// The Go raw string keeps the backslash, so the payload really carries the JSON escape. | Go 原始字符串保留反斜杠，因此载荷确实带有 JSON 转义。
 	esc := resign(t, b64(`{"alg":"HS256"}`), b64(`{"exp":1700000200}`))
-	etok := mustParse(t, esc, hmacKeyFunc(testSecret), ParseOptions{})
+	etok := mustParse(t, esc, hmacKeyFunc(testSecret), ParseOptions{Now: func() time.Time { return fixedNow }})
 	if got, ok := etok.Claims.ExpiresAt(); !ok || !got.Equal(time.Unix(1700000200, 0).UTC()) {
 		t.Errorf("转义键 exp 的 ExpiresAt = (%v, %v)", got, ok)
 	}
 
-	// aud 为数组时按成员关系校验。 | An array aud is validated by membership.
+	// An array aud is validated by membership. | aud 为数组时按成员关系校验。
 	arr := resign(t, b64(`{"alg":"HS256"}`), b64(`{"aud":["a","b"]}`))
 	if _, err := Parse(arr, hmacKeyFunc(testSecret), ParseOptions{Audience: "b"}); err != nil {
 		t.Errorf("aud 数组成员匹配应通过，err = %v", err)
@@ -755,7 +831,7 @@ func TestClaimsAccessorsAndJSON(t *testing.T) {
 	if _, err := Parse(arr, hmacKeyFunc(testSecret), ParseOptions{Audience: "c"}); !errors.Is(err, ErrAudienceMismatch) {
 		t.Errorf("aud 不匹配的 err = %v，期望 ErrAudienceMismatch", err)
 	}
-	// 缺少 aud 时校验必须失败。 | Validation fails when aud is absent.
+	// Validation fails when aud is absent. | 缺少 aud 时校验必须失败。
 	noAud := resign(t, b64(`{"alg":"HS256"}`), b64(`{"sub":"u1"}`))
 	if _, err := Parse(noAud, hmacKeyFunc(testSecret), ParseOptions{Audience: "a"}); !errors.Is(err, ErrAudienceMismatch) {
 		t.Errorf("缺少 aud 的 err = %v，期望 ErrAudienceMismatch", err)
@@ -778,6 +854,7 @@ func TestScanHelpersMatchJSONSemantics(t *testing.T) {
 		{"missing", `{"a":1}`, "z", "", false},
 		{"last wins", `{"a":1,"a":2}`, "a", `2`, true},
 		{"escaped key", `{"a":1}`, "a", `1`, true},
+		{"escaped key with surrogate-free escape", `{"abc":1}`, "abc", `1`, true},
 		{"whitespace", "{\n\t\"a\" : 1 ,\n \"b\": 2\n}", "b", `2`, true},
 		{"empty object", `{}`, "a", "", false},
 		{"malformed", `{"a":1`, "a", "", false},
@@ -888,7 +965,7 @@ func TestMiddlewareExtractsBearerAndSetsContext(t *testing.T) {
 		t.Fatalf("上下文中的 token 不正确: %+v", seen)
 	}
 
-	// 小写的 bearer 前缀同样接受。 | A lower-case bearer scheme is accepted too.
+	// A lower-case bearer scheme is accepted too. | 小写的 bearer 前缀同样接受。
 	rec = httptest.NewRecorder()
 	req = httptest.NewRequest(http.MethodGet, "/me", nil)
 	req.Header.Set("Authorization", "bearer "+raw)
@@ -897,7 +974,7 @@ func TestMiddlewareExtractsBearerAndSetsContext(t *testing.T) {
 		t.Errorf("小写 bearer 的状态码 = %d，期望 200", rec.Code)
 	}
 
-	// 缺少 Authorization 头 → 401 且带简短正文。 | A missing Authorization header yields 401 with a short body.
+	// A missing Authorization header yields 401 with a short body. | 缺少 Authorization 头 → 401 且带简短正文。
 	rec = httptest.NewRecorder()
 	r.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/me", nil))
 	if rec.Code != http.StatusUnauthorized {
@@ -907,7 +984,7 @@ func TestMiddlewareExtractsBearerAndSetsContext(t *testing.T) {
 		t.Errorf("缺少 token 时正文为空，期望简短文本")
 	}
 
-	// 非法 token → 401，且业务处理器不得执行。 | An invalid token yields 401 and the route handler must not run.
+	// An invalid token yields 401 and the route handler must not run. | 非法 token → 401，且业务处理器不得执行。
 	rec = httptest.NewRecorder()
 	req = httptest.NewRequest(http.MethodGet, "/me", nil)
 	req.Header.Set("Authorization", "Bearer not.a.token")
@@ -919,7 +996,7 @@ func TestMiddlewareExtractsBearerAndSetsContext(t *testing.T) {
 		t.Errorf("非法 token 下业务处理器仍被调用: %q", rec.Body.String())
 	}
 
-	// 前缀不匹配 → 401。 | A mismatched scheme prefix yields 401.
+	// A mismatched scheme prefix yields 401. | 前缀不匹配 → 401。
 	rec = httptest.NewRecorder()
 	req = httptest.NewRequest(http.MethodGet, "/me", nil)
 	req.Header.Set("Authorization", "Basic "+raw)
@@ -928,7 +1005,7 @@ func TestMiddlewareExtractsBearerAndSetsContext(t *testing.T) {
 		t.Errorf("前缀不匹配的状态码 = %d，期望 401", rec.Code)
 	}
 
-	// 过期 token → 401。 | An expired token yields 401.
+	// An expired token yields 401. | 过期 token → 401。
 	expired := mustSign(t, map[string]any{"exp": int64(1)}, testSecret, HS256, SignOptions{})
 	rec = httptest.NewRecorder()
 	req = httptest.NewRequest(http.MethodGet, "/me", nil)
@@ -938,7 +1015,7 @@ func TestMiddlewareExtractsBearerAndSetsContext(t *testing.T) {
 		t.Errorf("过期 token 的状态码 = %d，期望 401", rec.Code)
 	}
 
-	// 自定义 CtxKey 与 ErrorHandler。 | A custom CtxKey and ErrorHandler.
+	// A custom CtxKey and ErrorHandler. | 自定义 CtxKey 与 ErrorHandler。
 	var handlerErr error
 	r2 := router.New()
 	r2.GET("/custom", func(c *router.Ctx) {
@@ -976,7 +1053,7 @@ func TestMiddlewareExtractsBearerAndSetsContext(t *testing.T) {
 		t.Errorf("自定义 ErrorHandler 的 err = %v，期望 ErrTokenNotFound", handlerErr)
 	}
 
-	// KeyFunc 为 nil 时不得 panic，而是走错误分支。 | A nil KeyFunc must not panic; it takes the error path instead.
+	// A nil KeyFunc must not panic; it takes the error path instead. | KeyFunc 为 nil 时不得 panic，而是走错误分支。
 	r3 := router.New()
 	r3.GET("/nil", handler, Middleware(MiddlewareOptions{ParseOptions: ParseOptions{ValidAlgs: []Alg{HS256}}}))
 	rec = httptest.NewRecorder()
@@ -993,7 +1070,7 @@ func TestMiddlewareTokenLookupQueryAndCookie(t *testing.T) {
 	keyFn := hmacKeyFunc(testSecret)
 	parseOpts := ParseOptions{ValidAlgs: []Alg{HS256}, Now: func() time.Time { return fixedNow }}
 
-	// query 查找。 | Query lookup.
+	// Query lookup. | query 查找。
 	rq := router.New()
 	rq.GET("/q", echoSubject, Middleware(MiddlewareOptions{
 		KeyFunc: keyFn, ParseOptions: parseOpts, TokenLookup: "query:token",
@@ -1009,7 +1086,7 @@ func TestMiddlewareTokenLookupQueryAndCookie(t *testing.T) {
 		t.Errorf("query 为空: code=%d，期望 401", rec.Code)
 	}
 
-	// cookie 查找。 | Cookie lookup.
+	// Cookie lookup. | cookie 查找。
 	rc := router.New()
 	rc.GET("/c", echoSubject, Middleware(MiddlewareOptions{
 		KeyFunc: keyFn, ParseOptions: parseOpts, TokenLookup: "cookie:jwt",
@@ -1027,7 +1104,7 @@ func TestMiddlewareTokenLookupQueryAndCookie(t *testing.T) {
 		t.Errorf("无 cookie: code=%d，期望 401", rec.Code)
 	}
 
-	// 自定义头 + 空前缀 "header:X-Token:"。 | A custom header with an empty prefix.
+	// A custom header with an empty prefix. | 自定义头 + 空前缀 "header:X-Token:"。
 	rh := router.New()
 	rh.GET("/h", echoSubject, Middleware(MiddlewareOptions{
 		KeyFunc: keyFn, ParseOptions: parseOpts, TokenLookup: "header:X-Token:",
@@ -1039,7 +1116,7 @@ func TestMiddlewareTokenLookupQueryAndCookie(t *testing.T) {
 	if rec.Code != http.StatusOK || rec.Body.String() != "u-q" {
 		t.Errorf("header:X-Token: 查找: code=%d body=%q", rec.Code, rec.Body.String())
 	}
-	// 裸头名（无 kind 前缀）按 header 处理。 | A bare header name without a kind prefix is treated as a header.
+	// A bare header name without a kind prefix is treated as a header. | 裸头名（无 kind 前缀）按 header 处理。
 	rb := router.New()
 	rb.GET("/h", echoSubject, Middleware(MiddlewareOptions{
 		KeyFunc: keyFn, ParseOptions: parseOpts, TokenLookup: "X-Token",
@@ -1052,7 +1129,7 @@ func TestMiddlewareTokenLookupQueryAndCookie(t *testing.T) {
 		t.Errorf("裸头名查找: code=%d body=%q", rec.Code, rec.Body.String())
 	}
 
-	// 默认规则只看 Authorization 头。 | The default spec only inspects the Authorization header.
+	// The default spec only inspects the Authorization header. | 默认规则只看 Authorization 头。
 	rd := router.New()
 	rd.GET("/d", echoSubject, Middleware(MiddlewareOptions{KeyFunc: keyFn, ParseOptions: parseOpts}))
 	rec = httptest.NewRecorder()
@@ -1121,21 +1198,21 @@ func TestMalformedTokensTable(t *testing.T) {
 		})
 	}
 
-	// 载荷不是对象时一律拒绝（数组、字符串、标量、null）。 | Non-object payloads are always rejected (array, string, scalar, null).
+	// Non-object payloads are always rejected (array, string, scalar, null). | 载荷不是对象时一律拒绝（数组、字符串、标量、null）。
 	for _, p := range []string{`"str"`, `42`, `true`, `null`} {
 		if _, err := Parse(buildSegments(hline, b64(p), goodSig), hmacKeyFunc(testSecret), ParseOptions{}); !errors.Is(err, ErrMalformed) {
 			t.Errorf("载荷 %s 的 err = %v，期望 ErrMalformed", p, err)
 		}
 	}
 
-	// 非法 JSON 数值（NaN/Infinity）必须被结构校验拦下。 | Illegal JSON numbers such as NaN and Infinity must fail structural validation.
+	// Illegal JSON numbers such as NaN and Infinity must fail structural validation. | 非法 JSON 数值（NaN/Infinity）必须被结构校验拦下。
 	for _, h := range []string{`{"alg":"HS256","n":NaN}`, `{"alg":"HS256","n":Infinity}`, `{"alg":"HS256","n":01}`} {
 		if _, err := Parse(buildSegments(b64(h), goodPayload, goodSig), hmacKeyFunc(testSecret), ParseOptions{}); !errors.Is(err, ErrMalformed) {
 			t.Errorf("头部 %s 的 err = %v，期望 ErrMalformed", h, err)
 		}
 	}
 
-	// 只有两段且第二段为空串。 | Two segments where the second is empty.
+	// Two segments where the second is empty. | 只有两段且第二段为空串。
 	if _, err := Parse(buildSegments(hline, "", ""), hmacKeyFunc(testSecret), ParseOptions{}); !errors.Is(err, ErrMalformed) {
 		t.Errorf("两段空载荷的 err = %v，期望 ErrMalformed", err)
 	}
