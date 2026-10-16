@@ -3,7 +3,7 @@ package redisx_test
 import (
 	"context"
 	"errors"
-	"strings"
+	"reflect"
 	"testing"
 	"time"
 
@@ -177,19 +177,15 @@ redis:
 	}
 
 	// nil 配置返回零值 Options 而不是 panic。 | A nil config yields zero Options instead of panicking.
-	if z := redisx.OptionsFromConfig(nil); z != (redisx.Options{}) {
+	if z := redisx.OptionsFromConfig(nil); !reflect.DeepEqual(z, redisx.Options{}) {
 		t.Fatalf("nil 配置 Options = %+v，期望零值", z)
 	}
 }
 
-// assertOptionsEqual compares two option sets field by field (Options holds a slice, so it is not comparable). | assertOptionsEqual 逐字段比较两组 Options（含切片，struct 本身不可比较）。
+// assertOptionsEqual compares two option sets (Options holds a slice, so it is not comparable). | assertOptionsEqual 比较两组 Options（含切片，struct 本身不可比较）。
 func assertOptionsEqual(t *testing.T, got, want redisx.Options) {
 	t.Helper()
-	if strings.Join(got.Addrs, ",") != strings.Join(want.Addrs, ",") {
-		t.Fatalf("Addrs = %v，期望 %v", got.Addrs, want.Addrs)
-	}
-	got.Addrs, want.Addrs = nil, nil
-	if got != want {
+	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("Options = %+v，期望 %+v", got, want)
 	}
 }

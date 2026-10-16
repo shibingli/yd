@@ -345,6 +345,15 @@ func TestLoadManyPipelinesMissing(t *testing.T) {
 	if calls != 1 {
 		t.Fatalf("回填后 loader 调用 %d 次，期望仍为 1 次", calls)
 	}
+
+	// 回填值确实写进了 Redis，并带上 TTL。 | The loaded value really landed in Redis, with a TTL attached.
+	ttl, err := cli.TTL(ctx, "cache:user:3").Result()
+	if err != nil {
+		t.Fatalf("TTL 查询失败: %v", err)
+	}
+	if ttl <= 0 || ttl > time.Minute {
+		t.Fatalf("回填条目 TTL = %v，期望落在 (0, 1m] 内", ttl)
+	}
 }
 
 // TestLoadManyLoaderErrorLeavesCacheClean asserts a batch failure writes nothing back. | TestLoadManyLoaderErrorLeavesCacheClean 断言批量失败时不回填任何数据。
