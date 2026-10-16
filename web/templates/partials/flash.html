@@ -1,0 +1,39 @@
+{{/*
+  partials/flash.html — flash messages and the realtime connection banner.
+  partials/flash.html — 闪现消息与实时连接提示条。
+
+  Data contract | 数据契约:
+    .Flashes  []{Level, Key, Message, Args} where Level is one of info/success/warn/error
+              Level 取 info/success/warn/error 之一
+    Level -> CSS class mapping is .yd-flash__item--<level>, defined in app.css.
+    级别到 CSS 类的映射为 .yd-flash__item--<level>，定义在 app.css。
+
+  The region is announced by screen readers (aria-live), and htmx replaces it wholesale on
+  every swap because the layout always renders it inside the shell.
+  该区域由读屏软件播报（aria-live），并且每次交换都会整体替换，因为布局始终在壳内渲染它。
+
+  #yd-connection is toggled by yd-app.js on the htmx:sse:* events: hidden while the stream is
+  healthy, visible while it is reconnecting.
+  #yd-connection 由 yd-app.js 在 htmx:sse:* 事件上切换：连接正常时隐藏，重连时显示。
+*/}}
+
+{{- define "partials/flash" -}}
+<div id="yd-flash" class="yd-flash" role="status" aria-live="polite" data-yd-i18n-attr="aria-label:flash.region" aria-label="{{tr "flash.region"}}">
+  {{with .Flashes}}{{range .}}
+  <div class="yd-flash__item yd-flash__item--{{.Level}}" role="alert" data-yd-flash-item>
+    <span class="yd-flash__text" {{with .Key}}data-yd-i18n="{{.}}"{{end}}>{{.Message}}</span>
+    <button type="button" class="yd-flash__close" data-yd-flash-dismiss
+            data-yd-i18n-attr="aria-label:action.close" aria-label="{{tr "action.close"}}">
+      <svg class="yd-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+        <path d="M6 6l12 12M18 6 6 18" stroke-linecap="round"></path>
+      </svg>
+    </button>
+  </div>
+  {{end}}{{end}}
+
+  <div id="yd-connection" class="yd-flash__item yd-flash__item--warn" role="status" data-yd-connection hidden>
+    <span class="yd-flash__text" data-yd-i18n="realtime.status.reconnecting">{{tr "realtime.status.reconnecting"}}</span>
+    <button type="button" class="yd-btn yd-btn--ghost" data-yd-reconnect data-yd-i18n="action.retry">{{tr "action.retry"}}</button>
+  </div>
+</div>
+{{- end -}}

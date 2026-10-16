@@ -1,0 +1,109 @@
+{{/*
+  pages/settings.html — account and interface settings.
+  pages/settings.html — 账号与界面设置。
+
+  Naming | 命名:
+    pages/settings.html     full document | 整页文档
+    pages/settings.content  workspace fragment | 工作区片段
+
+  Interactions | 交互:
+    * The settings form posts with htmx and answers 422 into #errors; on success the handler
+      replies with HX-Trigger so partials/flash.html can show the toast.
+    * 设置表单以 htmx 提交，422 时把片段写入 #errors；成功时处理函数用 HX-Trigger 应答，
+      由 partials/flash.html 展示提示。
+    * Language buttons are handled by yd-i18n.js (instant, no reload) while the theme select is
+      handled by yd-app.js ([data-yd-theme-set]) and persisted to localStorage plus a cookie.
+    * 语言按钮由 yd-i18n.js 处理（即时生效、不刷新）；主题下拉由 yd-app.js
+      （[data-yd-theme-set]）处理，并持久化到 localStorage 与 cookie。
+
+  Data contract: .Errors, .User, .Settings{Timezone, Theme, Lang, NotifyEmail, NotifyRealtime}
+  | 数据契约：.Errors、.User、.Settings{Timezone, Theme, Lang, NotifyEmail, NotifyRealtime}
+*/}}
+
+{{- define "pages/settings.html" -}}
+{{template "dashboard.open" .}}{{template "pages/settings.content" .}}{{template "dashboard.close" .}}
+{{- end -}}
+
+{{- define "pages/settings.content" -}}
+<section class="yd-page" data-yd-page="settings" data-yd-i18n-attr="aria-labelledby:settings.title">
+  <header class="yd-page__header">
+    <div>
+      <h1 class="yd-page__title" id="yd-settings-title" data-yd-i18n="settings.title">{{tr "settings.title"}}</h1>
+      <p class="yd-page__subtitle" data-yd-i18n="settings.subtitle">{{tr "settings.subtitle"}}</p>
+    </div>
+  </header>
+
+  {{template "partials/form.errors" .}}
+
+  <form class="yd-card yd-form yd-section" method="post" action="/settings"
+        hx-post="/settings" hx-target="#yd-settings-form" hx-swap="outerMorph" hx-status:422="target:#errors" novalidate>
+    <div id="yd-settings-form">
+      <h2 class="yd-section__title" data-yd-i18n="settings.general">{{tr "settings.general"}}</h2>
+
+      {{template "partials/form.field" (dict
+          "ID" "yd-settings-name" "Name" "name" "Type" "text" "Value" ""
+          "LabelKey" "settings.field.name" "Label" (tr "settings.field.name")
+          "Autocomplete" "name" "Required" true)}}
+
+      {{template "partials/form.field" (dict
+          "ID" "yd-settings-email" "Name" "email" "Type" "email" "Value" ""
+          "LabelKey" "settings.field.email" "Label" (tr "settings.field.email")
+          "PlaceholderKey" "settings.field.email_placeholder" "Placeholder" ""
+          "Autocomplete" "email" "Required" true)}}
+
+      {{template "partials/form.select" (dict
+          "ID" "yd-settings-timezone" "Name" "timezone"
+          "LabelKey" "settings.field.timezone" "Label" (tr "settings.field.timezone")
+          "HintKey" "settings.field.timezone_hint"
+          "Options" (list
+              (dict "Value" "Asia/Shanghai" "Key" "settings.timezone.shanghai" "Label" (tr "settings.timezone.shanghai") "Selected" true)
+              (dict "Value" "UTC" "Key" "settings.timezone.utc" "Label" (tr "settings.timezone.utc"))
+              (dict "Value" "America/New_York" "Key" "settings.timezone.new_york" "Label" (tr "settings.timezone.new_york"))))}}
+
+      {{/* Written inline (not through the partial) because it carries data-yd-theme-set,
+           the hook yd-app.js uses to apply the new theme immediately.
+           直接内联（不经由局部模板），因为它带 data-yd-theme-set —— yd-app.js 用来即时应用新主题的钩子。 */}}
+      <div class="yd-field" data-yd-field="theme">
+        <label class="yd-field__label" for="yd-settings-theme" data-yd-i18n="settings.field.theme">{{tr "settings.field.theme"}}</label>
+        <select class="yd-select" id="yd-settings-theme" name="theme" data-yd-theme-set>
+          <option value="light" data-yd-i18n="settings.theme.light">{{tr "settings.theme.light"}}</option>
+          <option value="dark" data-yd-i18n="settings.theme.dark">{{tr "settings.theme.dark"}}</option>
+          <option value="system" selected data-yd-i18n="settings.theme.system">{{tr "settings.theme.system"}}</option>
+        </select>
+      </div>
+
+      {{template "partials/form.check" (dict
+          "ID" "yd-settings-notify-email" "Name" "notify_email" "Value" "1"
+          "LabelKey" "settings.notify.email" "Label" (tr "settings.notify.email"))}}
+      {{template "partials/form.check" (dict
+          "ID" "yd-settings-notify-realtime" "Name" "notify_realtime" "Value" "1" "Checked" true
+          "LabelKey" "settings.notify.realtime" "Label" (tr "settings.notify.realtime"))}}
+
+      <div class="yd-form__actions">
+        <button type="submit" class="yd-btn yd-btn--primary" data-yd-i18n="action.save">{{tr "action.save"}}</button>
+        <button type="reset" class="yd-btn yd-btn--ghost" data-yd-i18n="action.reset">{{tr "action.reset"}}</button>
+      </div>
+    </div>
+  </form>
+
+  <section class="yd-card yd-section" aria-labelledby="yd-settings-language">
+    <h2 class="yd-section__title" id="yd-settings-language" data-yd-i18n="settings.language">{{tr "settings.language"}}</h2>
+    <p class="yd-section__hint" data-yd-i18n="settings.language_hint">{{tr "settings.language_hint"}}</p>
+    {{/* Hot switching: yd-i18n.js rewrites every data-yd-i18n node in place. | 热切换：yd-i18n.js 就地重写所有 data-yd-i18n 节点。 */}}
+    <div class="yd-lang" role="group" data-yd-i18n-attr="aria-label:settings.language" aria-label="{{tr "settings.language"}}">
+      <button type="button" class="yd-lang__btn" data-yd-lang="zh-CN" data-yd-i18n="lang.zh-CN">{{tr "lang.zh-CN"}}</button>
+      <button type="button" class="yd-lang__btn" data-yd-lang="en" data-yd-i18n="lang.en">{{tr "lang.en"}}</button>
+    </div>
+  </section>
+
+  <section class="yd-card yd-section yd-section--danger" aria-labelledby="yd-settings-danger">
+    <h2 class="yd-section__title" id="yd-settings-danger" data-yd-i18n="settings.danger.title">{{tr "settings.danger.title"}}</h2>
+    <p class="yd-section__hint" data-yd-i18n="settings.danger.hint">{{tr "settings.danger.hint"}}</p>
+    <form class="yd-form" method="post" action="/settings/reset"
+          hx-post="/settings/reset" hx-target="#yd-workspace" hx-swap="innerMorph"
+          hx-confirm="{{tr "settings.danger.confirm"}}">
+      <button type="submit" class="yd-btn yd-btn--danger" data-yd-i18n="settings.danger.action">{{tr "settings.danger.action"}}</button>
+    </form>
+  </section>
+</section>
+{{- end -}}

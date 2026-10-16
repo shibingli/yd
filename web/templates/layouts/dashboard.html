@@ -1,0 +1,53 @@
+{{/*
+  layouts/dashboard.html — admin chrome: persistent/collapsible left navigation, top status bar and the central workspace.
+  layouts/dashboard.html — 管理后台外壳：左侧常驻/折叠导航、顶部状态栏与中央工作区。
+
+  The shell is split into "dashboard.open" and "dashboard.close" because html/template
+  needs constant template names: a page composes open + its own fragment + close, so the
+  chrome lives in exactly one place instead of being copied into every page.
+  外壳被拆成 "dashboard.open" 与 "dashboard.close"，因为 html/template 只接受常量模板名：
+  页面用 open + 自己的片段 + close 组合，外壳因此只存在一份，不必复制到每个页面。
+
+  Page naming convention | 页面命名约定:
+    pages/<name>.html           full document, HX-Request absent | 整页文档，非 htmx 请求
+    pages/<name>.content        workspace fragment, HX-Request present | 工作区片段，htmx 请求
+  Both are served from the same URL; the handler picks by htmx.IsPartial(r).
+  两者由同一 URL 提供，处理函数依据 htmx.IsPartial(r) 选择。
+
+  Htmx 4 inheritance is explicit: attributes are only inherited when the ancestor spells
+  out the ":inherited" modifier, which is why it appears on <body> below.
+  Htmx 4 的属性继承是显式的：祖先必须写出 ":inherited" 修饰符才会被继承，因此下方写在 <body> 上。
+
+  Data contract: base.html plus .Breadcrumbs, .User, .Flashes, .Nav. | 数据契约：见 base.html，另有 .Breadcrumbs、.User、.Flashes、.Nav。
+*/}}
+
+{{- define "dashboard.open" -}}
+<!doctype html>
+<html lang="{{.Lang}}" data-theme="{{.Theme}}">
+{{template "base.head" .}}
+<body class="yd-shell bg-surface text-content antialiased"
+      hx-target:inherited="#yd-workspace"
+      hx-swap:inherited="innerMorph"
+      hx-push-url:inherited="true"
+      hx-indicator:inherited="#yd-progress">
+<a class="yd-skip-link" href="#yd-workspace" data-yd-i18n="a11y.skip_to_content">{{tr "a11y.skip_to_content"}}</a>
+{{template "partials/sidebar" .}}
+<div class="yd-main">
+{{template "partials/topbar" .}}
+<main id="yd-workspace" class="yd-workspace" tabindex="-1" data-yd-workspace>
+{{- end -}}
+
+{{- define "dashboard.close" -}}
+</main>
+{{template "partials/flash" .}}
+{{template "partials/confirm" .}}
+</div>
+{{template "base.scripts" .}}
+</body>
+</html>
+{{- end -}}
+
+{{/* "dashboard" renders the shell around the dashboard page itself. | "dashboard" 把外壳套在仪表盘页面上渲染。 */}}
+{{- define "dashboard" -}}
+{{template "dashboard.open" .}}{{template "pages/dashboard.html" .}}{{template "dashboard.close" .}}
+{{- end -}}

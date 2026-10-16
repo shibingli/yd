@@ -1,0 +1,79 @@
+{{/*
+  pages/users.html — user management: live search, create dialog, morphing rows.
+  pages/users.html — 用户管理：实时搜索、新建对话框、morph 行更新。
+
+  Naming | 命名:
+    pages/users.html     full document | 整页文档
+    pages/users.content  workspace fragment | 工作区片段
+
+  Interactions | 交互:
+    * The search form debounces 300ms and targets only the table region, so the surrounding
+      chrome, the open dialog and the scroll position are never touched.
+    * 搜索表单防抖 300ms 且只瞄准表格区域，因此外围外壳、已打开的对话框与滚动位置都不受影响。
+    * The create form answers 422 by swapping the fragment into #errors while the dialog keeps
+      the typed values.
+    * 新建表单在 422 时把片段交换进 #errors，对话框保留已输入的值。
+
+  Data contract | 数据契约:
+    .Users, .Pagination, .Errors  see partials/table.html and partials/pagination.html
+*/}}
+
+{{- define "pages/users.html" -}}
+{{template "dashboard.open" .}}{{template "pages/users.content" .}}{{template "dashboard.close" .}}
+{{- end -}}
+
+{{- define "pages/users.content" -}}
+<section class="yd-page" data-yd-page="users" data-yd-i18n-attr="aria-labelledby:users.title">
+  <header class="yd-page__header">
+    <div>
+      <h1 class="yd-page__title" id="yd-users-title" data-yd-i18n="users.title">{{tr "users.title"}}</h1>
+      <p class="yd-page__subtitle" data-yd-i18n="users.subtitle">{{tr "users.subtitle"}}</p>
+    </div>
+    <div class="yd-page__actions">
+      <button type="button" class="yd-btn yd-btn--primary" data-yd-modal-open="yd-user-create" data-yd-i18n="users.create">{{tr "users.create"}}</button>
+    </div>
+  </header>
+
+  <form class="yd-filters" role="search" method="get" action="/users"
+        hx-get="/users" hx-target="#yd-users-table" hx-swap="outerMorph" hx-push-url="true"
+        hx-trigger="input changed delay:300ms from:#yd-users-search, submit">
+    <label class="sr-only" for="yd-users-search" data-yd-i18n="users.search">{{tr "users.search"}}</label>
+    <input class="yd-input" id="yd-users-search" name="q" type="search" autocomplete="off"
+           placeholder="{{tr "users.search_placeholder"}}" data-yd-i18n-attr="placeholder:users.search_placeholder">
+    <button type="submit" class="yd-btn yd-btn--ghost" data-yd-i18n="action.search">{{tr "action.search"}}</button>
+  </form>
+
+  <section class="yd-card yd-section" id="yd-users-table" aria-labelledby="yd-users-table-title">
+    <h2 class="sr-only" id="yd-users-table-title" data-yd-i18n="users.table">{{tr "users.table"}}</h2>
+    {{template "partials/table" .}}
+    {{template "partials/pagination" .}}
+  </section>
+
+  {{template "partials/modal.open" (dict "ID" "yd-user-create" "TitleKey" "users.create" "Title" (tr "users.create"))}}
+    {{template "partials/form.errors" .}}
+    <form class="yd-form" method="post" action="/users"
+          hx-post="/users" hx-target="#yd-users-table" hx-swap="outerMorph" hx-status:422="target:#errors" novalidate>
+      {{template "partials/form.field" (dict
+          "ID" "yd-user-name" "Name" "name" "Type" "text" "Value" ""
+          "LabelKey" "users.field.name" "Label" (tr "users.field.name")
+          "Autocomplete" "off" "Required" true)}}
+      {{template "partials/form.field" (dict
+          "ID" "yd-user-email" "Name" "email" "Type" "email" "Value" ""
+          "LabelKey" "users.field.email" "Label" (tr "users.field.email")
+          "PlaceholderKey" "users.field.email_placeholder" "Placeholder" ""
+          "Autocomplete" "off" "Required" true)}}
+      {{template "partials/form.field" (dict
+          "ID" "yd-user-password" "Name" "password" "Type" "password" "Value" ""
+          "LabelKey" "users.field.password" "Label" (tr "users.field.password")
+          "Autocomplete" "new-password" "Required" true "Sensitive" true)}}
+      {{template "partials/form.select" (dict
+          "ID" "yd-user-role" "Name" "role" "LabelKey" "users.field.role" "Label" (tr "users.field.role")
+          "Options" (list
+              (dict "Value" "viewer" "Key" "users.role.viewer" "Label" (tr "users.role.viewer") "Selected" true)
+              (dict "Value" "editor" "Key" "users.role.editor" "Label" (tr "users.role.editor"))
+              (dict "Value" "admin" "Key" "users.role.admin" "Label" (tr "users.role.admin"))))}}
+      {{template "partials/form.actions" (dict "SubmitKey" "action.create" "Submit" (tr "action.create"))}}
+    </form>
+  {{template "partials/modal.close" .}}
+</section>
+{{- end -}}

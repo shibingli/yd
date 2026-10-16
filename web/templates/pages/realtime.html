@@ -1,0 +1,97 @@
+{{/*
+  pages/realtime.html — Server-Sent Events and WebSocket demo panels.
+  pages/realtime.html — 服务端推送（SSE）与 WebSocket 示例面板。
+
+  Htmx 4 extension syntax | Htmx 4 扩展语法:
+    * SSE: hx-sse:connect="<url>" opens the stream on load and swaps every unnamed message
+      into the element itself; hx-sse:close="<event>" closes the stream when an event with that
+      name arrives. The legacy sse-connect / sse-swap attributes are removed in htmx 4.
+    * SSE：hx-sse:connect="<url>" 在加载时打开流，并把每条无名消息交换进元素自身；
+      hx-sse:close="<event>" 在收到该名称的事件时关闭流。旧版 sse-connect / sse-swap
+      属性在 htmx 4 中已移除。
+    * WebSocket: hx-ws:connect="<url>" opens the socket, hx-ws:send marks the element that
+      sends on its trigger; the payload is the surrounding composer, pulled in with
+      hx-include="closest [data-yd-ws-composer]".
+    * WebSocket：hx-ws:connect="<url>" 打开连接，hx-ws:send 标记触发发送的元素；
+      载荷取自所在输入区，通过 hx-include="closest [data-yd-ws-composer]" 收集。
+
+  yd-app.js listens to htmx:sse:* and htmx:ws:* and flips #yd-connection plus the status pill,
+  which is how a dropped stream becomes visible without a reload.
+  yd-app.js 监听 htmx:sse:* 与 htmx:ws:*，切换 #yd-connection 与状态标签，
+  掉线因此无需刷新即可见。
+*/}}
+
+{{- define "pages/realtime.html" -}}
+{{template "dashboard.open" .}}{{template "pages/realtime.content" .}}{{template "dashboard.close" .}}
+{{- end -}}
+
+{{- define "pages/realtime.content" -}}
+<section class="yd-page" data-yd-page="realtime" data-yd-i18n-attr="aria-labelledby:realtime.title">
+  <header class="yd-page__header">
+    <div>
+      <h1 class="yd-page__title" id="yd-realtime-title" data-yd-i18n="realtime.title">{{tr "realtime.title"}}</h1>
+      <p class="yd-page__subtitle" data-yd-i18n="realtime.subtitle">{{tr "realtime.subtitle"}}</p>
+    </div>
+    <div class="yd-page__actions">
+      <span class="yd-badge yd-badge--info" data-yd-connection-state="idle" data-yd-i18n="realtime.status.idle">{{tr "realtime.status.idle"}}</span>
+    </div>
+  </header>
+
+  <div class="yd-grid yd-grid--2">
+    <section class="yd-card yd-section" aria-labelledby="yd-sse-title">
+      <header class="yd-section__header">
+        <h2 class="yd-section__title" id="yd-sse-title" data-yd-i18n="realtime.sse.title">{{tr "realtime.sse.title"}}</h2>
+        <span class="yd-badge yd-badge--muted" data-yd-i18n="realtime.sse.badge">{{tr "realtime.sse.badge"}}</span>
+      </header>
+      <p class="yd-section__hint" data-yd-i18n="realtime.sse.hint">{{tr "realtime.sse.hint"}}</p>
+
+      {{/* Unnamed messages are appended here; named ones only fire DOM events. | 无名消息追加到这里；具名消息只派发 DOM 事件。 */}}
+      <div class="yd-stream" id="yd-sse-stream" role="log" aria-live="polite" aria-relevant="additions"
+           hx-sse:connect="/events" hx-sse:close="yd:close" hx-target="this" hx-swap="beforeend"
+           data-yd-i18n-attr="aria-label:realtime.sse.log" aria-label="{{tr "realtime.sse.log"}}">
+        <p class="yd-stream__placeholder" data-yd-i18n="realtime.sse.placeholder">{{tr "realtime.sse.placeholder"}}</p>
+      </div>
+    </section>
+
+    <section class="yd-card yd-section" aria-labelledby="yd-ws-title">
+      <header class="yd-section__header">
+        <h2 class="yd-section__title" id="yd-ws-title" data-yd-i18n="realtime.ws.title">{{tr "realtime.ws.title"}}</h2>
+        <span class="yd-badge yd-badge--muted" data-yd-i18n="realtime.ws.badge">{{tr "realtime.ws.badge"}}</span>
+      </header>
+      <p class="yd-section__hint" data-yd-i18n="realtime.ws.hint">{{tr "realtime.ws.hint"}}</p>
+
+      <div class="yd-stream" id="yd-ws-stream" role="log" aria-live="polite" aria-relevant="additions"
+           hx-ws:connect="/ws" hx-target="this" hx-swap="beforeend"
+           data-yd-i18n-attr="aria-label:realtime.ws.log" aria-label="{{tr "realtime.ws.log"}}">
+        <p class="yd-stream__placeholder" data-yd-i18n="realtime.ws.placeholder">{{tr "realtime.ws.placeholder"}}</p>
+      </div>
+
+      {{/* A div, not a form: the composer never leaves the page, it only feeds the socket. | 用 div 而不是 form：输入区不离开页面，只把内容喂给套接字。 */}}
+      <div class="yd-composer" data-yd-ws-composer>
+        <label class="sr-only" for="yd-ws-message" data-yd-i18n="realtime.ws.label">{{tr "realtime.ws.label"}}</label>
+        <input class="yd-input yd-composer__input" id="yd-ws-message" name="message" type="text" autocomplete="off"
+               placeholder="{{tr "realtime.ws.placeholder_input"}}" data-yd-i18n-attr="placeholder:realtime.ws.placeholder_input">
+        <button type="button" class="yd-btn yd-btn--primary"
+                hx-ws:send="true" hx-include="closest [data-yd-ws-composer]"
+                data-yd-i18n="realtime.ws.send">{{tr "realtime.ws.send"}}</button>
+      </div>
+    </section>
+  </div>
+
+  <section class="yd-card yd-section" aria-labelledby="yd-realtime-events">
+    <h2 class="yd-section__title" id="yd-realtime-events" data-yd-i18n="realtime.events.title">{{tr "realtime.events.title"}}</h2>
+    <p class="yd-section__hint" data-yd-i18n="realtime.events.hint">{{tr "realtime.events.hint"}}</p>
+    {{/* Filtering is a normal htmx GET: the fragment endpoint may itself hold or open a stream. | 过滤仍是普通的 htmx GET：片段端点自身可以持有或打开数据流。 */}}
+    <form class="yd-filters" method="get" action="/realtime"
+          hx-get="/realtime" hx-target="#yd-workspace" hx-swap="innerMorph" hx-push-url="true"
+          hx-trigger="change from:#yd-realtime-channel, submit">
+      <label class="sr-only" for="yd-realtime-channel" data-yd-i18n="realtime.channel">{{tr "realtime.channel"}}</label>
+      <select class="yd-select" id="yd-realtime-channel" name="channel">
+        <option value="orders" data-yd-i18n="realtime.channel.orders">{{tr "realtime.channel.orders"}}</option>
+        <option value="audit" data-yd-i18n="realtime.channel.audit">{{tr "realtime.channel.audit"}}</option>
+      </select>
+      <button type="submit" class="yd-btn yd-btn--ghost" data-yd-i18n="action.apply">{{tr "action.apply"}}</button>
+    </form>
+  </section>
+</section>
+{{- end -}}

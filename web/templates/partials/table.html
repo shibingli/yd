@@ -1,0 +1,66 @@
+{{/*
+  partials/table.html — data table with morphing rows.
+  partials/table.html — 带 morph 行更新的数据表格。
+
+  Row contract | 行契约:
+    * Every row is addressed by id "yd-user-<id>" so an upsert style response can find it.
+    * 每行以 "yd-user-<id>" 为 id，便于 upsert 式响应定位。
+    * A row refresh swaps with outerMorph: the whole <tr> is morphed, so input state, focus
+      and scroll inside the row survive the update (that is the point of morphing).
+    * 行刷新使用 outerMorph：整个 <tr> 被 morph，行内的输入状态、焦点与滚动位置都会保留
+      （这正是 morph 的意义）。
+    * Deletion uses the built-in hx-confirm so no server round trip is needed to ask.
+    * 删除使用内建的 hx-confirm，询问用户无需往返服务端。
+
+  Data contract | 数据契约:
+    .Users      []{ID, Initials, Name, Email, Role, RoleKey, Status, StatusKey}
+    .EmptyKey   translation key of the empty state | 空状态的翻译键
+    .TableLabel translation key of the table caption | 表格标题的翻译键
+*/}}
+
+{{- define "partials/table" -}}
+<div class="yd-table__wrap" data-yd-table>
+  <table class="yd-table" data-yd-i18n-attr="aria-label:users.table">
+    <caption class="sr-only" data-yd-i18n="users.table">{{tr "users.table"}}</caption>
+    <thead class="yd-table__head">
+      <tr>
+        <th class="yd-table__th" scope="col" data-yd-i18n="users.column.user">{{tr "users.column.user"}}</th>
+        <th class="yd-table__th" scope="col" data-yd-i18n="users.column.email">{{tr "users.column.email"}}</th>
+        <th class="yd-table__th" scope="col" data-yd-i18n="users.column.role">{{tr "users.column.role"}}</th>
+        <th class="yd-table__th" scope="col" data-yd-i18n="users.column.status">{{tr "users.column.status"}}</th>
+        <th class="yd-table__th yd-table__th--actions" scope="col" data-yd-i18n="users.column.actions">{{tr "users.column.actions"}}</th>
+      </tr>
+    </thead>
+    {{/* outerMorph on the body keeps unsubmitted filter inputs of sibling rows intact. | 表格体上的 outerMorph 会保留其它行中未提交的输入内容。 */}}
+    <tbody id="yd-users-rows" class="yd-table__body" hx-swap="outerMorph">
+      {{with .Users}}{{range .}}
+      <tr class="yd-table__row" id="yd-user-{{.ID}}">
+        <td class="yd-table__td">
+          <span class="yd-avatar yd-avatar--sm" aria-hidden="true">{{.Initials}}</span>
+          <span class="yd-table__primary" data-yd-i18n="{{.NameKey}}">{{.Name}}</span>
+        </td>
+        <td class="yd-table__td" data-yd-i18n="{{.EmailKey}}">{{.Email}}</td>
+        <td class="yd-table__td" data-yd-i18n="{{.RoleKey}}">{{.Role}}</td>
+        <td class="yd-table__td">
+          <span class="yd-badge yd-badge--{{.Status}}" data-yd-i18n="{{.StatusKey}}">{{.Status}}</span>
+        </td>
+        <td class="yd-table__td yd-table__td--actions">
+          <button type="button" class="yd-btn yd-btn--ghost yd-btn--sm"
+                  hx-get="/users/{{.ID}}" hx-target="closest tr" hx-swap="outerMorph"
+                  data-yd-i18n="action.refresh">{{tr "action.refresh"}}</button>
+          {{/* hx-swap="delete" removes the target row once the server confirms. | hx-swap="delete" 在服务端确认后删除目标行。 */}}
+          <button type="button" class="yd-btn yd-btn--ghost yd-btn--sm"
+                  hx-delete="/users/{{.ID}}" hx-target="closest tr" hx-swap="delete"
+                  hx-confirm="{{tr "users.delete_confirm"}}"
+                  data-yd-i18n="action.delete">{{tr "action.delete"}}</button>
+        </td>
+      </tr>
+      {{end}}{{else}}
+      <tr class="yd-table__row yd-table__row--empty">
+        <td class="yd-table__td" colspan="5" data-yd-i18n="users.empty">{{tr "users.empty"}}</td>
+      </tr>
+      {{end}}
+    </tbody>
+  </table>
+</div>
+{{- end -}}

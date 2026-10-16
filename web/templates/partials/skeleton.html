@@ -1,0 +1,37 @@
+{{/*
+  partials/skeleton.html — loading placeholders.
+  partials/skeleton.html — 加载占位骨架。
+
+  Pair them with hx-indicator: the skeleton sits inside a .htmx-indicator wrapper, so htmx
+  hides it until a request is in flight and the .htmx-request class is applied.
+  与 hx-indicator 搭配：骨架放在 .htmx-indicator 容器内，
+  htmx 会先隐藏它，直到请求在途并加上 .htmx-request 类才显示。
+
+  Blocks | 区块:
+    partials/skeleton        body rows for partials/table.html | 表格体占位行
+    partials/skeleton.cards  KPI card placeholders for the dashboard | 仪表盘 KPI 卡片占位
+*/}}
+
+{{- define "partials/skeleton" -}}
+<div class="yd-skeleton" role="status" data-yd-i18n-attr="aria-label:common.loading" aria-label="{{tr "common.loading"}}">
+  {{range $i := (list 1 2 3 4 5)}}
+  <div class="yd-skeleton__row">
+    <span class="yd-skeleton__block yd-skeleton__block--sm"></span>
+    <span class="yd-skeleton__block"></span>
+    <span class="yd-skeleton__block yd-skeleton__block--xs"></span>
+    <span class="yd-skeleton__block yd-skeleton__block--sm"></span>
+  </div>
+  {{end}}
+</div>
+{{- end -}}
+
+{{- define "partials/skeleton.cards" -}}
+<div class="yd-skeleton yd-skeleton--cards" role="status" data-yd-i18n-attr="aria-label:common.loading" aria-label="{{tr "common.loading"}}">
+  {{range $i := (list 1 2 3 4)}}
+  <div class="yd-skeleton__card">
+    <span class="yd-skeleton__block yd-skeleton__block--xs"></span>
+    <span class="yd-skeleton__block yd-skeleton__block--lg"></span>
+  </div>
+  {{end}}
+</div>
+{{- end -}}

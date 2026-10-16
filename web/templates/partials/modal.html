@@ -1,0 +1,31 @@
+{{/*
+  partials/modal.html — modal dialog shell.
+  partials/modal.html — 模态对话框外壳。
+
+  Like the dashboard layout it is split into open/close because html/template only accepts
+  constant template names, letting a page put any form between the two halves.
+  与仪表盘布局一样拆成 open/close：html/template 只接受常量模板名，
+  因此页面可以把任意表单放在两半之间。
+
+  Dict keys | dict 的键:
+    ID        DOM id, also the value of data-yd-modal | DOM id，同时是 data-yd-modal 的取值
+    TitleKey  translation key of the title | 标题的翻译键
+    Title     server-rendered title text | 服务端渲染好的标题文本
+
+  Open it with a button carrying data-yd-modal-open="<ID>"; yd-app.js toggles the hidden
+  attribute and moves focus, and [data-yd-modal-close] inside closes it again.
+  用携带 data-yd-modal-open="<ID>" 的按钮打开；yd-app.js 切换 hidden 属性并移动焦点，
+  内部的 [data-yd-modal-close] 负责关闭。
+*/}}
+
+{{- define "partials/modal.open" -}}
+<div id="{{.ID}}" class="yd-modal" role="dialog" aria-modal="true" hidden data-yd-modal="{{.ID}}">
+  <div class="yd-modal__backdrop" data-yd-modal-close></div>
+  <div class="yd-modal__panel yd-card">
+    <h2 class="yd-modal__title" {{with .TitleKey}}data-yd-i18n="{{.}}"{{end}}>{{.Title}}</h2>
+{{- end -}}
+
+{{- define "partials/modal.close" -}}
+  </div>
+</div>
+{{- end -}}

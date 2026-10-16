@@ -1,0 +1,71 @@
+{{/*
+  partials/form.html — form building blocks shared by every page.
+  partials/form.html — 各页面共用的表单构件。
+
+  Blocks | 区块:
+    partials/form.errors  the single #errors region of a page, targeted by hx-status:422
+                          | 页面唯一的 #errors 区域，由 hx-status:422 指定为目标
+    partials/form.field   label + input + hint, driven by a dict | 由 dict 驱动的 标签 + 输入框 + 提示
+    partials/form.select  label + select | 标签 + 下拉框
+    partials/form.check   label + checkbox | 标签 + 复选框
+    partials/form.actions submit + cancel buttons | 提交与取消按钮
+
+  Field dict keys | 字段 dict 的键:
+    ID, Name, Type, Value, LabelKey, Label, PlaceholderKey, HintKey, Autocomplete, Required,
+    Sensitive (adds data-yd-sensitive so yd-guomi-htmx.js encrypts the value before transport),
+    Options (select only: []{Value, Key, Label}).
+
+  Validation handling | 校验处理:
+    A form declares hx-status:422="target:#errors": when the server answers 422 the response
+    body is swapped into #errors while the form itself stays untouched, so the user keeps
+    every value they typed.
+    表单声明 hx-status:422="target:#errors"：服务端返回 422 时，响应体被交换进 #errors，
+    表单本身保持不变，用户已输入的内容全部保留。
+*/}}
+
+{{- define "partials/form.errors" -}}
+<div id="errors" class="yd-form-errors" role="alert" aria-live="assertive" data-yd-errors>
+  {{with .Errors}}{{range .}}
+  <p class="yd-form-error" {{with .Key}}data-yd-i18n="{{.}}"{{end}}>{{.Message}}</p>
+  {{end}}{{end}}
+</div>
+{{- end -}}
+
+{{- define "partials/form.field" -}}
+<div class="yd-field" data-yd-field="{{.Name}}">
+  <label class="yd-field__label" for="{{.ID}}" data-yd-i18n="{{.LabelKey}}">{{.Label}}</label>
+  <input class="yd-input" id="{{.ID}}" name="{{.Name}}" type="{{.Type}}" value="{{.Value}}"
+         {{with .Autocomplete}}autocomplete="{{.}}"{{end}}
+         {{if .Required}}required{{end}}
+         {{if .Sensitive}}data-yd-sensitive="true"{{end}}
+         {{with .PlaceholderKey}}data-yd-i18n-attr="placeholder:{{.}}"{{end}}
+         placeholder="{{.Placeholder}}">
+  {{if .HintKey}}<p class="yd-field__hint" data-yd-i18n="{{.HintKey}}">{{.Hint}}</p>{{end}}
+</div>
+{{- end -}}
+
+{{- define "partials/form.select" -}}
+<div class="yd-field" data-yd-field="{{.Name}}">
+  <label class="yd-field__label" for="{{.ID}}" data-yd-i18n="{{.LabelKey}}">{{.Label}}</label>
+  <select class="yd-select" id="{{.ID}}" name="{{.Name}}">
+    {{with .Options}}{{range .}}
+    <option value="{{.Value}}" {{if .Selected}}selected{{end}} data-yd-i18n="{{.Key}}">{{.Label}}</option>
+    {{end}}{{end}}
+  </select>
+  {{if .HintKey}}<p class="yd-field__hint" data-yd-i18n="{{.HintKey}}">{{.Hint}}</p>{{end}}
+</div>
+{{- end -}}
+
+{{- define "partials/form.check" -}}
+<div class="yd-field yd-field--check">
+  <input class="yd-checkbox" type="checkbox" id="{{.ID}}" name="{{.Name}}" value="{{.Value}}" {{if .Checked}}checked{{end}}>
+  <label class="yd-field__label" for="{{.ID}}" data-yd-i18n="{{.LabelKey}}">{{.Label}}</label>
+</div>
+{{- end -}}
+
+{{- define "partials/form.actions" -}}
+<div class="yd-form__actions">
+  <button type="submit" class="yd-btn yd-btn--primary" data-yd-i18n="{{.SubmitKey}}">{{.Submit}}</button>
+  <button type="button" class="yd-btn yd-btn--ghost" data-yd-modal-close data-yd-i18n="action.cancel">{{tr "action.cancel"}}</button>
+</div>
+{{- end -}}

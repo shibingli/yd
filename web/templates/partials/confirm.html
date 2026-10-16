@@ -1,0 +1,39 @@
+{{/*
+  partials/confirm.html — reusable confirmation dialog.
+  partials/confirm.html — 可复用的确认对话框。
+
+  It is a plain hidden block instead of <dialog> so it renders identically without JavaScript
+  and can be swapped in by htmx; yd-app.js opens it from [data-yd-modal-open] and closes it
+  from [data-yd-modal-close], while [data-yd-modal-confirm] submits the pending action.
+  它是不依赖 <dialog> 的隐藏区块，无 JavaScript 也能正确渲染，并可由 htmx 交换进来；
+  yd-app.js 通过 [data-yd-modal-open] 打开、通过 [data-yd-modal-close] 关闭，
+  由 [data-yd-modal-confirm] 提交待确认的动作用。
+
+  Multi-region responses | 多区域响应:
+    Prefer the htmx 4 mechanism on the server side — htmx.RenderPartials writes one
+    <hx-partial hx-target="#yd-flash" hx-swap="beforeend">…</hx-partial> block per region —
+    and keep hx-swap-oob only as a compatibility path (htmx.OOB).
+    服务端优先使用 htmx 4 机制：htmx.RenderPartials 为每个区域写出
+    <hx-partial hx-target="#yd-flash" hx-swap="beforeend">…</hx-partial> 区块；
+    hx-swap-oob（htmx.OOB）仅作为兼容路径保留。
+
+  Destructive actions may also use the built-in hx-confirm attribute, demonstrated by the
+  delete button of partials/table.html.
+  破坏性操作也可使用内建的 hx-confirm 属性，见 partials/table.html 的删除按钮。
+*/}}
+
+{{- define "partials/confirm" -}}
+<div id="yd-confirm" class="yd-modal" role="dialog" aria-modal="true" hidden
+     data-yd-modal="yd-confirm"
+     data-yd-i18n-attr="aria-labelledby:common.confirm_title">
+  <div class="yd-modal__backdrop" data-yd-modal-close></div>
+  <div class="yd-modal__panel yd-card">
+    <h2 class="yd-modal__title" id="yd-confirm-title" data-yd-i18n="common.confirm_title">{{tr "common.confirm_title"}}</h2>
+    <p class="yd-modal__body" data-yd-modal-body data-yd-i18n="common.confirm_body">{{tr "common.confirm_body"}}</p>
+    <div class="yd-modal__actions">
+      <button type="button" class="yd-btn yd-btn--ghost" data-yd-modal-close data-yd-i18n="action.cancel">{{tr "action.cancel"}}</button>
+      <button type="button" class="yd-btn yd-btn--danger" data-yd-modal-confirm data-yd-i18n="action.confirm">{{tr "action.confirm"}}</button>
+    </div>
+  </div>
+</div>
+{{- end -}}

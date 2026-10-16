@@ -1,0 +1,30 @@
+/*
+  yd built-in placeholder stylesheet | yd 内置占位样式表
+
+  It only defines the brand tokens so that a freshly assembled app renders
+  something readable; projects replace it with their Tailwind build output.
+  | 它只定义品牌变量，使刚装配好的应用即有可读的样式；项目应替换为自身的
+  Tailwind 构建产物。
+*/
+:root {
+  --yd-brand: #2563eb;
+  --yd-surface: #ffffff;
+  --yd-text: #1f2937;
+}
+
+body {
+  margin: 0;
+  font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+  color: var(--yd-text);
+  background: var(--yd-surface);
+}
+
+main {
+  max-width: 72rem;
+  margin: 0 auto;
+  padding: 1.5rem;
+}
+
+a {
+  color: var(--yd-brand);
+}

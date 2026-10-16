@@ -1,0 +1,91 @@
+{{/*
+  partials/sidebar.html — persistent (collapsible) left navigation.
+  partials/sidebar.html — 常驻（可折叠）左侧导航。
+
+  Navigation contract | 导航契约:
+    * hx-boost:inherited="true" makes every descendant <a>/<form> an htmx request without
+      repeating the attribute; plain href stays for no-JS and crawler fallback.
+    * hx-boost:inherited="true" 让所有后代 <a>/<form> 自动成为 htmx 请求，无需逐个重复该属性；
+      同时保留普通 href，兜底无 JS 与爬虫场景。
+    * Every link also declares hx-get pointing at the very same URL: the handler answers with
+      the workspace fragment when HX-Request is present and with the full document otherwise.
+    * 每个链接同时显式声明 hx-get，指向同一个 URL：有 HX-Request 时处理函数返回工作区片段，
+      否则返回整页文档。
+    * #yd-workspace, innerMorph and push-url come from the layout through :inherited; they are
+      repeated here on the active link only to keep the intent readable.
+    * #yd-workspace、innerMorph 与 push-url 由布局经 :inherited 继承；此处仅在当前项重复一次以便阅读。
+
+  Collapse state is remembered by yd-app.js in localStorage under "yd_sidebar".
+  折叠状态由 yd-app.js 记忆在 localStorage 的 "yd_sidebar" 键中。
+*/}}
+
+{{- define "partials/sidebar" -}}
+<aside id="yd-sidebar" class="yd-sidebar" data-yd-sidebar data-collapsed="false"
+       data-yd-i18n-attr="aria-label:nav.main" aria-label="{{tr "nav.main"}}">
+  <div class="yd-sidebar__brand">
+    <a class="yd-brand" href="/dashboard" hx-get="/dashboard" hx-target="#yd-workspace" hx-swap="innerMorph" hx-push-url="true">
+      <span class="yd-brand__mark" aria-hidden="true">yd</span>
+      <span class="yd-brand__name" data-yd-i18n="app.name">{{tr "app.name"}}</span>
+    </a>
+    <button type="button" class="yd-icon-btn yd-sidebar__toggle" data-yd-sidebar-toggle aria-controls="yd-sidebar" aria-expanded="true">
+      <svg class="yd-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+        <path d="M4 6h16M4 12h16M4 18h16" stroke-linecap="round"></path>
+      </svg>
+      <span class="sr-only" data-yd-i18n="nav.toggle">{{tr "nav.toggle"}}</span>
+    </button>
+  </div>
+
+  {{/* hx-boost:inherited is what actually boosts the links: htmx 4 never inherits implicitly. | 真正生效的是 hx-boost:inherited：htmx 4 不做隐式继承。 */}}
+  <nav class="yd-nav" hx-boost:inherited="true" data-yd-i18n-attr="aria-label:nav.section.main" aria-label="{{tr "nav.section.main"}}">
+    <p class="yd-nav__section" data-yd-i18n="nav.section.main">{{tr "nav.section.main"}}</p>
+
+    <a class="yd-nav__link" href="/dashboard" hx-get="/dashboard" hx-target="#yd-workspace" hx-swap="innerMorph" hx-push-url="true" data-yd-nav="dashboard">
+      <svg class="yd-nav__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+        <path d="M4 13h6V4H4v9Zm10 7h6v-9h-6v9ZM4 20h6v-4H4v4Zm10-11h6V4h-6v5Z" stroke-linejoin="round"></path>
+      </svg>
+      <span class="yd-nav__label" data-yd-i18n="nav.dashboard">{{tr "nav.dashboard"}}</span>
+    </a>
+
+    <a class="yd-nav__link" href="/users" hx-get="/users" hx-target="#yd-workspace" hx-swap="innerMorph" hx-push-url="true" data-yd-nav="users">
+      <svg class="yd-nav__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+        <path d="M16 19v-1a4 4 0 0 0-4-4H7a4 4 0 0 0-4 4v1M9.5 10.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7ZM21 19v-1a4 4 0 0 0-3-3.87" stroke-linecap="round" stroke-linejoin="round"></path>
+      </svg>
+      <span class="yd-nav__label" data-yd-i18n="nav.users">{{tr "nav.users"}}</span>
+    </a>
+
+    <a class="yd-nav__link" href="/realtime" hx-get="/realtime" hx-target="#yd-workspace" hx-swap="innerMorph" hx-push-url="true" data-yd-nav="realtime">
+      <svg class="yd-nav__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+        <path d="M3 12h4l2.5 6 5-14 2.5 8h4" stroke-linecap="round" stroke-linejoin="round"></path>
+      </svg>
+      <span class="yd-nav__label" data-yd-i18n="nav.realtime">{{tr "nav.realtime"}}</span>
+    </a>
+
+    <a class="yd-nav__link" href="/i18n_demo" hx-get="/i18n_demo" hx-target="#yd-workspace" hx-swap="innerMorph" hx-push-url="true" data-yd-nav="i18n_demo">
+      <svg class="yd-nav__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+        <path d="M4 5h9M8.5 5v2c0 3.5-1.5 6-4 8M6 11c1.5 2 3.5 3.5 6 4.5" stroke-linecap="round" stroke-linejoin="round"></path>
+        <path d="M13 21l4-10 4 10M14.5 17.5h5" stroke-linecap="round" stroke-linejoin="round"></path>
+      </svg>
+      <span class="yd-nav__label" data-yd-i18n="nav.i18n_demo">{{tr "nav.i18n_demo"}}</span>
+    </a>
+
+    <p class="yd-nav__section" data-yd-i18n="nav.section.system">{{tr "nav.section.system"}}</p>
+
+    <a class="yd-nav__link" href="/settings" hx-get="/settings" hx-target="#yd-workspace" hx-swap="innerMorph" hx-push-url="true" data-yd-nav="settings">
+      <svg class="yd-nav__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+        <path d="M12 15.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7Z" stroke-linejoin="round"></path>
+        <path d="M19.4 15a1.7 1.7 0 0 0 .34 1.87l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.7 1.7 0 0 0-2.87 1.2V21a2 2 0 1 1-4 0v-.11A1.7 1.7 0 0 0 6 19.4a1.7 1.7 0 0 0-1.87.34l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.7 1.7 0 0 0 1.6 15a1.7 1.7 0 0 0-1.54-1H0a2 2 0 1 1 0-4h.11A1.7 1.7 0 0 0 1.6 9a1.7 1.7 0 0 0-.34-1.87l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.7 1.7 0 0 0 6 4.6h.09A1.7 1.7 0 0 0 7.6 3V2.9a2 2 0 1 1 4 0V3a1.7 1.7 0 0 0 2.87 1.2l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.7 1.7 0 0 0 19.4 9v.09a1.7 1.7 0 0 0 1.6 1.51H21a2 2 0 1 1 0 4h-.11a1.7 1.7 0 0 0-1.49 1Z" stroke-linecap="round" stroke-linejoin="round"></path>
+      </svg>
+      <span class="yd-nav__label" data-yd-i18n="nav.settings">{{tr "nav.settings"}}</span>
+    </a>
+  </nav>
+
+  <div class="yd-sidebar__footer">
+    <span class="yd-sidebar__version" data-yd-i18n="app.version">{{tr "app.version"}}</span>
+    {{/* Logout stays an htmx form: the handler answers with HX-Redirect and the browser navigates once. | 退出登录仍走 htmx：处理函数用 HX-Redirect 应答，浏览器只跳转一次。 */}}
+    <form class="yd-sidebar__logout" method="post" action="/logout"
+          hx-post="/logout" hx-target="#yd-workspace" hx-swap="innerMorph">
+      <button type="submit" class="yd-btn yd-btn--ghost yd-btn--block" data-yd-i18n="nav.logout">{{tr "nav.logout"}}</button>
+    </form>
+  </div>
+</aside>
+{{- end -}}

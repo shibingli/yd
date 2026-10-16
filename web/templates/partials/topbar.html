@@ -1,0 +1,96 @@
+{{/*
+  partials/topbar.html — top status bar: breadcrumb, global search, language switch, theme switch, user menu.
+  partials/topbar.html — 顶部状态栏：面包屑、全局搜索、语言切换、主题切换、用户菜单。
+
+  Data contract | 数据契约:
+    .Breadcrumbs  []{Key, Label, Href} where Href is empty for the current crumb | Href 为空表示当前项
+    .User         {Name, Email, Role, Initials}
+    .Langs        []{"zh-CN", "en"} the catalogs the server actually loaded | 服务端实际加载的语言标签
+    .Lang         the active language | 当前语言
+
+  #yd-progress is the shared htmx indicator: the layout inherits it with hx-indicator:inherited,
+  and .htmx-indicator plus .htmx-request come from the htmx runtime and app.css.
+  #yd-progress 是共享的 htmx 指示器：布局通过 hx-indicator:inherited 继承，
+  .htmx-indicator 与 .htmx-request 由 htmx 运行时与 app.css 提供。
+
+  The language buttons are handled by yd-i18n.js ([data-yd-lang]) and the theme button by
+  yd-app.js ([data-yd-theme-toggle]); the user menu is Alpine, which needs no build step.
+  语言按钮由 yd-i18n.js（[data-yd-lang]）处理，主题按钮由 yd-app.js（[data-yd-theme-toggle]）处理；
+  用户菜单使用 Alpine，无需任何构建步骤。
+*/}}
+
+{{- define "partials/topbar" -}}
+<header id="yd-topbar" class="yd-topbar" data-yd-i18n-attr="aria-label:topbar.region" aria-label="{{tr "topbar.region"}}">
+  <div id="yd-progress" class="yd-progress htmx-indicator" role="progressbar" aria-hidden="true"></div>
+
+  <nav class="yd-breadcrumb" data-yd-i18n-attr="aria-label:topbar.breadcrumb" aria-label="{{tr "topbar.breadcrumb"}}">
+    <ol class="yd-breadcrumb__list">
+      <li class="yd-breadcrumb__item">
+        <a class="yd-breadcrumb__link" href="/dashboard" hx-get="/dashboard" hx-target="#yd-workspace" hx-swap="innerMorph" hx-push-url="true"
+           data-yd-i18n="topbar.home">{{tr "topbar.home"}}</a>
+      </li>
+      {{with .Breadcrumbs}}{{range .}}
+      <li class="yd-breadcrumb__item">
+        {{if .Href}}
+        <a class="yd-breadcrumb__link" href="{{.Href}}" hx-get="{{.Href}}" hx-target="#yd-workspace" hx-swap="innerMorph" hx-push-url="true"
+           {{with .Key}}data-yd-i18n="{{.}}"{{end}}>{{.Label}}</a>
+        {{else}}
+        <span class="yd-breadcrumb__current" aria-current="page" {{with .Key}}data-yd-i18n="{{.}}"{{end}}>{{.Label}}</span>
+        {{end}}
+      </li>
+      {{end}}{{end}}
+    </ol>
+  </nav>
+
+  <form class="yd-search" role="search" method="get" action="/search"
+        hx-get="/search" hx-target="#yd-workspace" hx-swap="innerMorph" hx-push-url="true">
+    <label class="sr-only" for="yd-search-input" data-yd-i18n="topbar.search">{{tr "topbar.search"}}</label>
+    <input class="yd-input yd-search__input" id="yd-search-input" name="q" type="search" autocomplete="off"
+           placeholder="{{tr "topbar.search_placeholder"}}" data-yd-i18n-attr="placeholder:topbar.search_placeholder">
+    <button type="submit" class="yd-btn yd-btn--ghost" data-yd-i18n="action.search">{{tr "action.search"}}</button>
+  </form>
+
+  <div class="yd-topbar__actions">
+    <div class="yd-lang" role="group" data-yd-i18n-attr="aria-label:topbar.language" aria-label="{{tr "topbar.language"}}">
+      {{with .Langs}}{{range .}}
+      <button type="button" class="yd-lang__btn" data-yd-lang="{{.}}" data-yd-i18n="lang.{{.}}">{{tr (printf "lang.%s" .)}}</button>
+      {{end}}{{else}}
+      <button type="button" class="yd-lang__btn" data-yd-lang="zh-CN" data-yd-i18n="lang.zh-CN">{{tr "lang.zh-CN"}}</button>
+      <button type="button" class="yd-lang__btn" data-yd-lang="en" data-yd-i18n="lang.en">{{tr "lang.en"}}</button>
+      {{end}}
+    </div>
+
+    <button type="button" class="yd-icon-btn" data-yd-theme-toggle aria-pressed="false"
+            data-yd-i18n-attr="aria-label:topbar.theme.toggle" aria-label="{{tr "topbar.theme.toggle"}}">
+      <svg class="yd-icon yd-icon--light" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+        <circle cx="12" cy="12" r="4"></circle>
+        <path d="M12 2v2M12 20v2M2 12h2M20 12h2M5 5l1.5 1.5M17.5 17.5 19 19M19 5l-1.5 1.5M6.5 17.5 5 19" stroke-linecap="round"></path>
+      </svg>
+      <svg class="yd-icon yd-icon--dark" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+        <path d="M20 14.5A8.5 8.5 0 0 1 9.5 4a8.5 8.5 0 1 0 10.5 10.5Z" stroke-linejoin="round"></path>
+      </svg>
+      <span class="sr-only" data-yd-i18n="topbar.theme.toggle">{{tr "topbar.theme.toggle"}}</span>
+    </button>
+
+    <div class="yd-user" x-data="{open:false}" @keydown.escape.window="open=false">
+      <button type="button" class="yd-user__trigger" @click="open=!open" :aria-expanded="open" aria-expanded="false" aria-haspopup="menu">
+        <span class="yd-avatar" aria-hidden="true">{{with .User}}{{.Initials}}{{else}}yd{{end}}</span>
+        <span class="yd-user__name" data-yd-i18n="topbar.profile">{{tr "topbar.profile"}}</span>
+      </button>
+      <div class="yd-user__menu" role="menu" x-show="open" @click.outside="open=false" style="display:none">
+        <p class="yd-user__meta">
+          <span class="yd-user__title">{{with .User}}{{.Name}}{{else}}yd{{end}}</span>
+          <span class="yd-user__subtitle">{{with .User}}{{.Email}}{{end}}</span>
+        </p>
+        <a class="yd-user__item" role="menuitem" href="/settings" hx-get="/settings" hx-target="#yd-workspace" hx-swap="innerMorph" hx-push-url="true"
+           data-yd-i18n="topbar.menu.settings">{{tr "topbar.menu.settings"}}</a>
+        <a class="yd-user__item" role="menuitem" href="/i18n_demo" hx-get="/i18n_demo" hx-target="#yd-workspace" hx-swap="innerMorph" hx-push-url="true"
+           data-yd-i18n="topbar.menu.language">{{tr "topbar.menu.language"}}</a>
+        <form class="yd-user__item" method="post" action="/logout" hx-post="/logout" hx-target="#yd-workspace" hx-swap="innerMorph">
+          <button type="submit" class="yd-user__link" data-yd-i18n="topbar.menu.logout">{{tr "topbar.menu.logout"}}</button>
+        </form>
+      </div>
+    </div>
+  </div>
+</header>
+{{- end -}}

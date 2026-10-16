@@ -1,0 +1,10 @@
+# yd built-in Chinese catalog | yd 内置中文语言目录
+#
+# Keys are normalized to lower case; message bodies keep their original
+# spelling. | 键名统一归一化为小写，消息正文保留原始拼写。
+app:
+  name: yd 框架
+  welcome: 欢迎使用 yd 框架
+error:
+  not_found: 未找到
+  internal: 服务器内部错误

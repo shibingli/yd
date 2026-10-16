@@ -1,0 +1,7 @@
+# yd built-in English catalog | yd 内置英文语言目录
+app:
+  name: yd framework
+  welcome: Welcome to the yd framework
+error:
+  not_found: Not found
+  internal: Internal server error

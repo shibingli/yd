@@ -1,0 +1,22 @@
+<!DOCTYPE html>
+<!--
+  yd default layout | yd 默认布局
+
+  Whole pages are wrapped by app.Render: the rendered fragment arrives through
+  the Content key as trusted HTML, and every key of the caller's map data stays
+  reachable. | 整页由 app.Render 包裹：已渲染的片段以可信 HTML 经 Content 键传入，
+  调用方映射数据中的其余键仍然可访问。
+-->
+<html lang="{{ with .Lang }}{{ . }}{{ else }}zh-CN{{ end }}">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{ with .Title }}{{ . }}{{ else }}yd{{ end }}</title>
+  <link rel="stylesheet" href="/static/app.css">
+</head>
+<body>
+  <main>
+    {{ .Content }}
+  </main>
+</body>
+</html>

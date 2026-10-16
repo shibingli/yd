@@ -1,0 +1,78 @@
+{{/*
+  pages/login.html — standalone sign-in page (the only page without the dashboard chrome).
+  pages/login.html — 独立的登录页（唯一不带管理后台外壳的页面）。
+
+  Transport pre-encryption | 传输前置加密:
+    data-yd-encrypt="sm2" tells yd-guomi-htmx.js to encrypt every field marked
+    data-yd-sensitive with SM2 (C1C3C2, byte-identical to guomi.Encrypt) during the
+    htmx:config:request phase and to send X-YD-Encrypted: sm2 along.
+    The public key is fetched once from data-yd-pubkey and cached in memory.
+    data-yd-encrypt="sm2" 指示 yd-guomi-htmx.js 在 htmx:config:request 阶段，
+    用 SM2（C1C3C2，与 guomi.Encrypt 字节级一致）加密所有标记了 data-yd-sensitive 的字段，
+    并附带 X-YD-Encrypted: sm2 头。公钥由 data-yd-pubkey 一次性拉取并缓存在内存中。
+
+  Failure handling | 失败处理:
+    The server answers 422 with htmx.ErrorFragment bodies; hx-status:422 swaps them into
+    #errors and leaves the form (and the typed password) untouched.
+    服务端以 422 返回 htmx.ErrorFragment 片段；hx-status:422 把它们交换进 #errors，
+    表单与已输入的密码保持不变。
+
+  Success is a single navigation: the handler replies with HX-Redirect: /dashboard.
+  成功时只跳转一次：处理函数应答 HX-Redirect: /dashboard。
+*/}}
+
+{{- define "pages/login.html" -}}
+<!doctype html>
+<html lang="{{.Lang}}" data-theme="{{.Theme}}">
+{{template "base.head" .}}
+<body class="yd-auth bg-surface text-content antialiased">
+<main class="yd-auth__main">
+  <div id="yd-login-card" class="yd-auth__card yd-card">
+    <div class="yd-auth__brand">
+      <span class="yd-brand__mark" aria-hidden="true">yd</span>
+      <span class="yd-brand__name" data-yd-i18n="app.name">{{tr "app.name"}}</span>
+    </div>
+
+    <h1 class="yd-auth__title" data-yd-i18n="login.title">{{tr "login.title"}}</h1>
+    <p class="yd-auth__subtitle" data-yd-i18n="login.subtitle">{{tr "login.subtitle"}}</p>
+
+    {{template "partials/form.errors" .}}
+
+    <form class="yd-form" method="post" action="/login"
+          hx-post="/login" hx-target="#yd-login-card" hx-swap="outerMorph" hx-status:422="target:#errors"
+          data-yd-encrypt="sm2" data-yd-pubkey="/api/guomi/pubkey" novalidate>
+      {{template "partials/form.field" (dict
+          "ID" "yd-login-username" "Name" "username" "Type" "text" "Value" ""
+          "LabelKey" "login.username" "Label" (tr "login.username")
+          "PlaceholderKey" "login.username_placeholder" "Placeholder" ""
+          "Autocomplete" "username" "Required" true "Sensitive" true)}}
+
+      {{template "partials/form.field" (dict
+          "ID" "yd-login-password" "Name" "password" "Type" "password" "Value" ""
+          "LabelKey" "login.password" "Label" (tr "login.password")
+          "PlaceholderKey" "login.password_placeholder" "Placeholder" ""
+          "Autocomplete" "current-password" "Required" true "Sensitive" true)}}
+
+      <div class="yd-form__row">
+        {{template "partials/form.check" (dict
+            "ID" "yd-login-remember" "Name" "remember" "Value" "1"
+            "LabelKey" "login.remember" "Label" (tr "login.remember"))}}
+        <a class="yd-link" href="/reset" data-yd-i18n="login.forgot">{{tr "login.forgot"}}</a>
+      </div>
+
+      <button type="submit" class="yd-btn yd-btn--primary yd-btn--block" data-yd-i18n="login.submit">{{tr "login.submit"}}</button>
+    </form>
+
+    <p class="yd-hint" data-yd-i18n="login.guomi_hint">{{tr "login.guomi_hint"}}</p>
+
+    {{/* Language can be switched before signing in; yd-i18n.js re-renders in place. | 登录前即可切换语言；yd-i18n.js 原地重绘。 */}}
+    <div class="yd-lang yd-lang--auth" role="group" data-yd-i18n-attr="aria-label:topbar.language" aria-label="{{tr "topbar.language"}}">
+      <button type="button" class="yd-lang__btn" data-yd-lang="zh-CN" data-yd-i18n="lang.zh-CN">{{tr "lang.zh-CN"}}</button>
+      <button type="button" class="yd-lang__btn" data-yd-lang="en" data-yd-i18n="lang.en">{{tr "lang.en"}}</button>
+    </div>
+  </div>
+</main>
+{{template "base.scripts" .}}
+</body>
+</html>
+{{- end -}}

@@ -1,0 +1,186 @@
+@import "tailwindcss";
+
+/* Explicit Tailwind sources. | Tailwind 显式扫描源。                                                */
+/* @source paths are resolved relative to THIS stylesheet, so "../../templates" is web/templates. | @source 路径相对本样式文件解析，故 "../../templates" 即 web/templates。 */
+/* The Go pattern scans template strings embedded in handlers and controllers. | Go 通配用于扫描处理器与控制器中内嵌的模板字符串。        */
+@source "../../templates/**/*.html";
+@source "../../../internal/**/*.go";
+
+/* Theme switch is driven by the [data-theme] attribute on <html>, not by prefers-color-scheme, | 主题切换由 <html> 上的 [data-theme] 属性驱动，而非 prefers-color-scheme，
+   so the dark: variant is rebound to that attribute to keep both mechanisms consistent. | 因此把 dark: 变体重新绑定到该属性，使两套机制保持一致。 */
+@custom-variant dark (&:where([data-theme="dark"], [data-theme="dark"] *));
+
+/* Design tokens. | 设计令牌。 */
+/* Every --color-* entry becomes a Tailwind color (bg-surface, text-content, border-border-subtle, ...) | 每个 --color-* 条目都会生成对应的 Tailwind 颜色（bg-surface、text-content、border-border-subtle 等），
+   and is redefined for dark mode in the [data-theme="dark"] block below. | 并在下方的 [data-theme="dark"] 块中为暗色模式重新定义。 */
+@theme {
+  /* Brand scale, blue, 11 steps. | 品牌色阶，蓝色系，共 11 阶。 */
+  --color-brand-50: #eff6ff;
+  --color-brand-100: #dbeafe;
+  --color-brand-200: #bfdbfe;
+  --color-brand-300: #93c5fd;
+  --color-brand-400: #60a5fa;
+  --color-brand-500: #3b82f6;
+  --color-brand-600: #2563eb;
+  --color-brand-700: #1d4ed8;
+  --color-brand-800: #1e40af;
+  --color-brand-900: #1e3a8a;
+  --color-brand-950: #172554;
+
+  /* Semantic surface / content / border tokens. | 语义化的表面、内容与边框令牌。 */
+  --color-surface: #ffffff;
+  --color-surface-muted: #f8fafc;
+  --color-content: #0f172a;
+  --color-content-muted: #64748b;
+  --color-border-subtle: #e2e8f0;
+  --color-danger: #dc2626;
+
+  /* Typography. | 字体。 */
+  --font-sans: "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+
+  /* Shape and elevation. | 圆角与阴影。 */
+  --radius-card: 0.875rem;
+  --shadow-card: 0 1px 2px rgb(2 6 23 / 0.06), 0 8px 24px -12px rgb(2 6 23 / 0.18);
+
+  /* Layout scale. | 布局尺度。 */
+  --spacing-sidebar: 16rem;
+  --spacing-sidebar-collapsed: 4.5rem;
+}
+
+/* Light theme values, the default. | 亮色主题取值，即默认值。 */
+:root {
+  color-scheme: light;
+  --color-surface: #ffffff;
+  --color-surface-muted: #f8fafc;
+  --color-content: #0f172a;
+  --color-content-muted: #64748b;
+  --color-border-subtle: #e2e8f0;
+  --color-danger: #dc2626;
+}
+
+/* Dark theme overrides; must stay after :root so it wins on equal specificity. | 暗色主题覆盖；必须位于 :root 之后，才能在同等特异性下胜出。 */
+[data-theme="dark"] {
+  color-scheme: dark;
+  --color-surface: #0b1220;
+  --color-surface-muted: #111c2f;
+  --color-content: #e6edf7;
+  --color-content-muted: #94a3b8;
+  --color-border-subtle: #1e293b;
+  --color-danger: #f87171;
+}
+
+/* Admin component layer. | 管理端组件层。 */
+/* Everything here is variable driven: no literal color value may appear in a template or in this layer. | 本层完全由变量驱动：模板与本层内都不得出现字面色值。 */
+/* Declared in @layer components so that utility classes in markup still win over these defaults. | 声明在 @layer components 中，使标记里的工具类仍能覆盖这些默认值。 */
+@layer components {
+  /* Fixed left navigation, collapsible to the icon rail width. | 固定左侧导航，可折叠为图标栏宽度。 */
+  .yd-sidebar {
+    display: flex;
+    flex: 0 0 auto;
+    flex-direction: column;
+    gap: 0.25rem;
+    width: var(--spacing-sidebar);
+    padding: 0.75rem;
+    background-color: var(--color-surface);
+    border-right: 1px solid var(--color-border-subtle);
+    color: var(--color-content);
+    transition: width 180ms ease;
+  }
+
+  .yd-sidebar.is-collapsed,
+  .yd-sidebar[data-collapsed="true"] {
+    width: var(--spacing-sidebar-collapsed);
+  }
+
+  /* Sticky application header. | 吸顶应用顶栏。 */
+  .yd-topbar {
+    position: sticky;
+    top: 0;
+    z-index: 30;
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    min-height: 3.5rem;
+    padding: 0 1rem;
+    background-color: var(--color-surface);
+    border-bottom: 1px solid var(--color-border-subtle);
+    color: var(--color-content);
+  }
+
+  /* Elevated content panel. | 带层级的内容面板。 */
+  .yd-card {
+    padding: 1.25rem;
+    background-color: var(--color-surface);
+    border: 1px solid var(--color-border-subtle);
+    border-radius: var(--radius-card);
+    box-shadow: var(--shadow-card);
+    color: var(--color-content);
+  }
+
+  /* Data table. | 数据表格。 */
+  .yd-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.875rem;
+    line-height: 1.5;
+    color: var(--color-content);
+  }
+
+  .yd-table th,
+  .yd-table td {
+    padding: 0.625rem 0.875rem;
+    text-align: left;
+    border-bottom: 1px solid var(--color-border-subtle);
+  }
+
+  .yd-table thead th {
+    background-color: var(--color-surface-muted);
+    color: var(--color-content-muted);
+    font-weight: 600;
+    white-space: nowrap;
+  }
+
+  .yd-table tbody tr:hover {
+    background-color: var(--color-surface-muted);
+  }
+
+  /* Request indicator: hidden until htmx marks the issuing element with .htmx-request. | 请求指示器：htmx 给发起元素加上 .htmx-request 之前保持隐藏。 */
+  .htmx-indicator {
+    opacity: 0;
+    transition: opacity 150ms ease;
+  }
+
+  .htmx-request .htmx-indicator,
+  .htmx-request.htmx-indicator {
+    opacity: 1;
+  }
+
+  /* Loading placeholder with a sweep highlight derived from the border token. | 加载占位块，其扫光高亮取自边框令牌。 */
+  .yd-skeleton {
+    border-radius: var(--radius-card);
+    background-color: var(--color-surface-muted);
+    background-image: linear-gradient(90deg, transparent, var(--color-border-subtle), transparent);
+    background-size: 200% 100%;
+    background-repeat: no-repeat;
+    animation: yd-skeleton-sweep 1.4s ease-in-out infinite;
+  }
+
+  @keyframes yd-skeleton-sweep {
+    from {
+      background-position: 150% 0;
+    }
+
+    to {
+      background-position: -50% 0;
+    }
+  }
+
+  /* Field level validation message. | 字段级校验提示。 */
+  .yd-form-error {
+    display: block;
+    margin-top: 0.25rem;
+    font-size: 0.8125rem;
+    line-height: 1.25rem;
+    color: var(--color-danger);
+  }
+}

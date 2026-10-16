@@ -1,0 +1,54 @@
+{{/*
+  layouts/base.html — site skeleton: <head>, i18n catalog injection and script order.
+  layouts/base.html — 全站骨架：<head>、i18n 目录注入与脚本装载顺序。
+
+  Template names defined here | 本文件定义的模板名:
+    base.head     shared <head> fragment, including the i18n catalog script | 共享 <head> 片段，含 i18n 目录脚本
+    base.scripts  every local script in the single allowed order | 按唯一允许的顺序装载全部本地脚本
+
+  Data contract (map or struct) | 数据契约（map 或结构体）:
+    .Title      optional page title | 可选的页面标题
+    .Lang       current language tag, e.g. "zh-CN" | 当前语言标签，如 "zh-CN"
+    .Theme      "light" or "dark", pre-rendered from the yd_theme cookie | "light" 或 "dark"，由服务端依据 yd_theme cookie 预渲染
+    .I18nJSON   catalog envelope already serialized by the i18n package | i18n 包序列化好的目录信封
+                It MUST be template.HTML, otherwise html/template escapes the quotes | 必须是 template.HTML，否则引号会被 html/template 转义
+    .Flashes    flash messages, see partials/flash.html | 闪现消息，见 partials/flash.html
+
+  Hard rules | 硬规则:
+    1. Scripts and styles are always local /static/... paths; no http and no CDN | 脚本与样式一律使用本地 /static/... 路径，禁止 http 与 CDN
+    2. Every user-facing string carries a data-yd-i18n key so the language can be switched without a reload | 每个面向用户的文案都带 data-yd-i18n 键，语言热切换无需刷新
+    3. Only semantic classes from app.css and Tailwind utilities are used; no literal colour values | 只用 app.css 的语义化类与 Tailwind 工具类，不写字面色值
+*/}}
+
+{{- define "base.head" -}}
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<meta name="description" content="{{tr "app.description"}}">
+<title>{{with .Title}}{{.}} · {{end}}{{tr "app.name"}}</title>
+<link rel="stylesheet" href="/static/css/yd.css">
+{{/* The server injects the current catalog as JSON: no extra request, fully offline. | 服务端把当前语言目录以 JSON 注入：不额外发请求，完全离线可用。 */}}
+{{/* Envelope shape | 信封结构: {"lang":"…","fallback":"…","catalogs":{"<lang>":{…}}} */}}
+<script id="yd-i18n-catalog" type="application/json">{{.I18nJSON}}</script>
+{{- end -}}
+
+{{- define "base.scripts" -}}
+{{/* Single allowed order: htmx core, hx-* extensions, Alpine, compat, guomi, i18n, app. | 唯一允许的顺序：htmx 核心、hx-* 扩展、Alpine、兼容层、国密、i18n、应用。 */}}
+{{/* defer keeps the order while never blocking rendering. | defer 保证顺序且不阻塞渲染。 */}}
+<script src="/static/js/vendor/htmx.min.js" defer></script>
+<script src="/static/js/vendor/hx-head.min.js" defer></script>
+<script src="/static/js/vendor/hx-targets.min.js" defer></script>
+<script src="/static/js/vendor/hx-upsert.min.js" defer></script>
+<script src="/static/js/vendor/hx-pending.min.js" defer></script>
+<script src="/static/js/vendor/hx-preload.min.js" defer></script>
+<script src="/static/js/vendor/hx-multipart.min.js" defer></script>
+<script src="/static/js/vendor/hx-download.min.js" defer></script>
+<script src="/static/js/vendor/hx-sse.min.js" defer></script>
+<script src="/static/js/vendor/hx-ws.min.js" defer></script>
+<script src="/static/js/vendor/alpine.min.js" defer></script>
+<script src="/static/js/vendor/hx-alpine-compat.min.js" defer></script>
+<script src="/static/js/yd-guomi.js" defer></script>
+<script src="/static/js/yd-guomi-htmx.js" defer></script>
+<script src="/static/js/yd-i18n.js" defer></script>
+<script src="/static/js/yd-app.js" defer></script>
+{{- end -}}

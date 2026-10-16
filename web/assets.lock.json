@@ -1,0 +1,152 @@
+{
+  "version": 1,
+  "generated_at": "2026-10-16T08:43:20Z",
+  "sources": [
+    "https://cdn.jsdelivr.net/npm"
+  ],
+  "assets": [
+    {
+      "name": "htmx",
+      "version": "4.0.0",
+      "url": "https://cdn.jsdelivr.net/npm/htmx.org@4.0.0/dist/htmx.min.js",
+      "path": "static/js/vendor/htmx.min.js",
+      "sha256": "e484d9171a9db30a39c8f16e3d709d4137f3211c659f8e6125816635033d593f",
+      "license": "0BSD",
+      "size": 36716,
+      "kind": "js",
+      "required": true
+    },
+    {
+      "name": "hx-sse",
+      "version": "4.0.0",
+      "url": "https://cdn.jsdelivr.net/npm/htmx.org@4.0.0/dist/ext/hx-sse.min.js",
+      "path": "static/js/vendor/hx-sse.min.js",
+      "sha256": "8a834680c4000a9034d79228872372a92e140c810a075cb6d4a76690dfc13085",
+      "license": "0BSD",
+      "size": 6225,
+      "kind": "js",
+      "required": false
+    },
+    {
+      "name": "hx-ws",
+      "version": "4.0.0",
+      "url": "https://cdn.jsdelivr.net/npm/htmx.org@4.0.0/dist/ext/hx-ws.min.js",
+      "path": "static/js/vendor/hx-ws.min.js",
+      "sha256": "a7c11e4eca05417d6299bb40aaacca01572e44605389fc4d5ef12be408a4d03b",
+      "license": "0BSD",
+      "size": 8515,
+      "kind": "js",
+      "required": false
+    },
+    {
+      "name": "hx-preload",
+      "version": "4.0.0",
+      "url": "https://cdn.jsdelivr.net/npm/htmx.org@4.0.0/dist/ext/hx-preload.min.js",
+      "path": "static/js/vendor/hx-preload.min.js",
+      "sha256": "4b371ded066297c9648df1eb925cbbe926606951e3a2d2a909657814c6de4472",
+      "license": "0BSD",
+      "size": 1761,
+      "kind": "js",
+      "required": false
+    },
+    {
+      "name": "hx-targets",
+      "version": "4.0.0",
+      "url": "https://cdn.jsdelivr.net/npm/htmx.org@4.0.0/dist/ext/hx-targets.min.js",
+      "path": "static/js/vendor/hx-targets.min.js",
+      "sha256": "6e9892834f899c471ca935e180ba2b8c3349d0cb9b80a608b81953388fdb690f",
+      "license": "0BSD",
+      "size": 485,
+      "kind": "js",
+      "required": false
+    },
+    {
+      "name": "hx-upsert",
+      "version": "4.0.0",
+      "url": "https://cdn.jsdelivr.net/npm/htmx.org@4.0.0/dist/ext/hx-upsert.min.js",
+      "path": "static/js/vendor/hx-upsert.min.js",
+      "sha256": "9e516c6608f765b568559a4caed3c3121eff2702fb7ce012f21775639d2699c3",
+      "license": "0BSD",
+      "size": 922,
+      "kind": "js",
+      "required": false
+    },
+    {
+      "name": "hx-head",
+      "version": "4.0.0",
+      "url": "https://cdn.jsdelivr.net/npm/htmx.org@4.0.0/dist/ext/hx-head.min.js",
+      "path": "static/js/vendor/hx-head.min.js",
+      "sha256": "3a66e5f61dffb79e315d1d9420d3601ebea6e5af90ad4342e5634566ab2e61bd",
+      "license": "0BSD",
+      "size": 2420,
+      "kind": "js",
+      "required": false
+    },
+    {
+      "name": "hx-pending",
+      "version": "4.0.0",
+      "url": "https://cdn.jsdelivr.net/npm/htmx.org@4.0.0/dist/ext/hx-pending.min.js",
+      "path": "static/js/vendor/hx-pending.min.js",
+      "sha256": "6be1cca5a0499e667d84fab7466a6fb0f76990fe7c920dd53f0d1221580c1dc4",
+      "license": "0BSD",
+      "size": 1505,
+      "kind": "js",
+      "required": false
+    },
+    {
+      "name": "hx-multipart",
+      "version": "4.0.0",
+      "url": "https://cdn.jsdelivr.net/npm/htmx.org@4.0.0/dist/ext/hx-multipart.min.js",
+      "path": "static/js/vendor/hx-multipart.min.js",
+      "sha256": "961f51d1b7b57c9bf56798a09f3241baf0248593731f8ff41d56037c3de99126",
+      "license": "0BSD",
+      "size": 13892,
+      "kind": "js",
+      "required": false
+    },
+    {
+      "name": "hx-download",
+      "version": "4.0.0",
+      "url": "https://cdn.jsdelivr.net/npm/htmx.org@4.0.0/dist/ext/hx-download.min.js",
+      "path": "static/js/vendor/hx-download.min.js",
+      "sha256": "dba268e2de5de73bc6bef0b8aa79f642f0e0b20792d7ac2c1e5030f6e4c56ce7",
+      "license": "0BSD",
+      "size": 1272,
+      "kind": "js",
+      "required": false
+    },
+    {
+      "name": "alpinejs",
+      "version": "3.17.4",
+      "url": "https://cdn.jsdelivr.net/npm/alpinejs@3.17.4/dist/cdn.min.js",
+      "path": "static/js/vendor/alpine.min.js",
+      "sha256": "232519394c6c8fdba6f362b1d9da16106db513cdbf899011f00daab4051df31c",
+      "license": "MIT",
+      "size": 55891,
+      "kind": "js",
+      "required": true
+    },
+    {
+      "name": "hx-alpine-compat",
+      "version": "4.0.0",
+      "url": "https://cdn.jsdelivr.net/npm/htmx.org@4.0.0/dist/ext/hx-alpine-compat.min.js",
+      "path": "static/js/vendor/hx-alpine-compat.min.js",
+      "sha256": "d2047ba85b277df33b44a890a470213246d0e8f7458ffa766e77c7347551767e",
+      "license": "0BSD",
+      "size": 1742,
+      "kind": "js",
+      "required": false
+    },
+    {
+      "name": "idiomorph",
+      "version": "0.8.0",
+      "url": "https://cdn.jsdelivr.net/npm/idiomorph@0.8.0/dist/idiomorph.min.js",
+      "path": "static/js/vendor/idiomorph.min.js",
+      "sha256": "4cbd535caf7663a51eda9bce6595371c384fc430d54b8d414e29a61167f19f96",
+      "license": "0BSD",
+      "size": 10587,
+      "kind": "js",
+      "required": true
+    }
+  ]
+}

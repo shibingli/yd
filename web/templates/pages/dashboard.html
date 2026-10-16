@@ -1,0 +1,74 @@
+{{/*
+  pages/dashboard.html — dashboard workspace: KPI cards, filters and recent activity.
+  pages/dashboard.html — 仪表盘工作区：KPI 卡片、筛选器与最近动态。
+
+  Naming | 命名:
+    pages/dashboard.html          full document, composed with the dashboard chrome
+                                  | 整页文档，由管理后台外壳组合而成
+    pages/dashboard.content       workspace fragment served when hx-target:inherited="#yd-workspace"
+                                  | 当 hx-target:inherited="#yd-workspace" 命中时返回的工作区片段
+
+  Data contract | 数据契约:
+    .Stats  []{Key, Label, Value, TrendKey, Trend}
+    .Users  []{ID, Initials, Name, NameKey, Email, EmailKey, Role, RoleKey, Status, StatusKey}
+    .Range  {From, To} current filter values | 当前筛选值
+*/}}
+
+{{- define "pages/dashboard.html" -}}
+{{template "dashboard.open" .}}{{template "pages/dashboard.content" .}}{{template "dashboard.close" .}}
+{{- end -}}
+
+{{- define "pages/dashboard.content" -}}
+<section class="yd-page" data-yd-page="dashboard" data-yd-i18n-attr="aria-labelledby:dashboard.title">
+  <header class="yd-page__header">
+    <div>
+      <h1 class="yd-page__title" id="yd-dashboard-title" data-yd-i18n="dashboard.title">{{tr "dashboard.title"}}</h1>
+      <p class="yd-page__subtitle" data-yd-i18n="dashboard.subtitle">{{tr "dashboard.subtitle"}}</p>
+    </div>
+    <div class="yd-page__actions">
+      {{/* Filter is an htmx GET: same URL, fragment answer, URL pushed, no reload. | 筛选走 htmx GET：同一 URL、返回片段、推送地址、不刷新。 */}}
+      <form class="yd-filters" method="get" action="/dashboard"
+            hx-get="/dashboard" hx-target="#yd-workspace" hx-swap="innerMorph" hx-push-url="true"
+            hx-trigger="change from:#yd-dashboard-range, submit">
+        <label class="sr-only" for="yd-dashboard-range" data-yd-i18n="dashboard.range">{{tr "dashboard.range"}}</label>
+        <select class="yd-select" id="yd-dashboard-range" name="range">
+          <option value="24h" data-yd-i18n="dashboard.range.24h">{{tr "dashboard.range.24h"}}</option>
+          <option value="7d" selected data-yd-i18n="dashboard.range.7d">{{tr "dashboard.range.7d"}}</option>
+          <option value="30d" data-yd-i18n="dashboard.range.30d">{{tr "dashboard.range.30d"}}</option>
+        </select>
+        <button type="submit" class="yd-btn yd-btn--ghost" data-yd-i18n="action.apply">{{tr "action.apply"}}</button>
+      </form>
+      <button type="button" class="yd-btn yd-btn--primary"
+              hx-get="/dashboard/kpis" hx-target="#yd-dashboard-kpis" hx-swap="outerMorph" hx-indicator="#yd-kpi-loading"
+              data-yd-i18n="action.refresh">{{tr "action.refresh"}}</button>
+    </div>
+  </header>
+
+  {{/* The skeleton is hidden until the request is in flight, then htmx adds .htmx-request. | 骨架在请求在途前隐藏，在途时 htmx 会加上 .htmx-request。 */}}
+  <div id="yd-kpi-loading" class="htmx-indicator">{{template "partials/skeleton.cards" .}}</div>
+
+  <div id="yd-dashboard-kpis" class="yd-kpis">
+    {{with .Stats}}{{range .}}
+    <article class="yd-card yd-kpi">
+      <p class="yd-kpi__label" data-yd-i18n="{{.Key}}">{{.Label}}</p>
+      <p class="yd-kpi__value">{{.Value}}</p>
+      <p class="yd-kpi__trend" data-yd-i18n="{{.TrendKey}}">{{.Trend}}</p>
+    </article>
+    {{end}}{{else}}
+    <article class="yd-card yd-kpi">
+      <p class="yd-kpi__label" data-yd-i18n="dashboard.kpi.empty">{{tr "dashboard.kpi.empty"}}</p>
+    </article>
+    {{end}}
+  </div>
+
+  <section class="yd-card yd-section" aria-labelledby="yd-dashboard-recent">
+    <header class="yd-section__header">
+      <h2 class="yd-section__title" id="yd-dashboard-recent" data-yd-i18n="dashboard.recent.title">{{tr "dashboard.recent.title"}}</h2>
+      <a class="yd-link" href="/users" hx-get="/users" hx-target="#yd-workspace" hx-swap="innerMorph" hx-push-url="true"
+         data-yd-i18n="dashboard.recent.all">{{tr "dashboard.recent.all"}}</a>
+    </header>
+    {{template "partials/table" .}}
+    {{template "partials/pagination" .}}
+  </section>
+</section>
+{{- end -}}

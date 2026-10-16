@@ -1,0 +1,43 @@
+{{/*
+  pages/error.html — standalone error page shared by 4xx and 5xx responses.
+  pages/error.html — 4xx 与 5xx 共用的独立错误页。
+
+  It deliberately avoids the dashboard chrome: an unauthenticated or broken session must be
+  able to render it, so it only depends on the base skeleton.
+  它故意不带管理后台外壳：未认证或会话损坏时也要能渲染，因此只依赖基础骨架。
+
+  Data contract | 数据契约:
+    .Error{Status, TitleKey, MessageKey, Message, Detail}
+    .Lang, .Theme, .I18nJSON — see layouts/base.html | 见 layouts/base.html
+*/}}
+
+{{- define "pages/error.html" -}}
+<!doctype html>
+<html lang="{{.Lang}}" data-theme="{{.Theme}}">
+{{template "base.head" .}}
+<body class="yd-error bg-surface text-content antialiased">
+<main class="yd-error__main">
+  <div class="yd-error__card yd-card">
+    <p class="yd-error__status" data-yd-error-status>{{with .Error}}{{.Status}}{{else}}500{{end}}</p>
+    <h1 class="yd-error__title" data-yd-i18n="{{with .Error}}{{.TitleKey}}{{else}}error.title{{end}}">
+      {{with .Error}}{{.Title}}{{else}}{{tr "error.title"}}{{end}}
+    </h1>
+    <p class="yd-error__message" data-yd-i18n="{{with .Error}}{{.MessageKey}}{{else}}error.server{{end}}">
+      {{with .Error}}{{.Message}}{{else}}{{tr "error.server"}}{{end}}
+    </p>
+    {{with .Error}}{{with .Detail}}<pre class="yd-error__detail yd-code">{{.}}</pre>{{end}}{{end}}
+
+    <div class="yd-error__actions">
+      {{/* hx-get on the same URL re-runs the request in place; the plain href still works. | 对同一 URL 使用 hx-get 可就地重试；普通 href 依然可用。 */}}
+      <a class="yd-btn yd-btn--primary" href="/dashboard" hx-get="/dashboard" hx-target="#yd-workspace" hx-swap="innerMorph"
+         data-yd-i18n="error.back_home">{{tr "error.back_home"}}</a>
+      <button type="button" class="yd-btn yd-btn--ghost" data-yd-retry data-yd-i18n="action.retry">{{tr "action.retry"}}</button>
+    </div>
+
+    <p class="yd-hint" data-yd-i18n="error.support">{{tr "error.support"}}</p>
+  </div>
+</main>
+{{template "base.scripts" .}}
+</body>
+</html>
+{{- end -}}

@@ -1017,11 +1017,13 @@ yd/
 
 **Interfaces:**
 - Produces：
-  - `app.css` 结构：
+  - `app.css` 结构（**`@source` 相对样式表自身解析，不是相对 cwd** —— Tailwind v4 语义；
+    路径写错不会报错，只会产出近乎空的样式表，因此必须有守卫测试）：
     ```css
     @import "tailwindcss";
-    @source "../../internal/**/*.go";      /* 扫描 Go 内嵌模板字符串 */
-    @source "../templates/**/*.html";
+    /* app.css 在 web/static/css/，故需上溯两级到 web/ 再进入 templates 与 internal */
+    @source "../../templates/**/*.html";
+    @source "../../../internal/**/*.go";   /* 扫描 Go 内嵌模板字符串 */
     @theme {
       --color-brand-50: …; … --color-brand-950: …;   /* 蓝色系 11 阶 */
       --color-surface: …; --color-surface-muted: …;
@@ -1038,6 +1040,18 @@ yd/
   - 主题切换：`:root` / `[data-theme="dark"]` 双份语义变量，`yd-app.js` 持久化到 `localStorage`。
   - 语义化类名必须以变量驱动（`bg-surface text-content border-border-subtle`），**禁止**在模板里散落硬编码色值。
 - 硬规则：产物 `yd.css` 必须签入仓库（保证无 Tailwind 二进制时也能离线构建与运行）；`yd build` 会用二进制重新生成并覆盖。
+- 硬规则：**`app.css` 组件层必须覆盖 `web/templates/**` 实际引用的全部 `.yd-*` 类名**；模板定稿后重跑 Tailwind
+  并加断言"模板引用的每个 `.yd-*` 类都能在 `yd.css` 中找到定义"。
+- 实测备注：htmx 4.0.0 与 Idiomorph 0.8.0 的许可证是 **0BSD**（非 BSD-2-Clause），Alpine 3.17.4 为 MIT，
+  `assets.lock.json` 以包内 LICENSE 为准。
+- 实测备注：Tailwind `--minify` 会保留自身的 `/*! tailwindcss … */` 版权横幅，
+  产物校验需先剥离该横幅再断言"无其它注释块"。
+- 硬规则：**`app.css` 的组件层必须覆盖 `web/templates/**` 实际引用的全部 `.yd-*` 类名**。
+  模板定稿后需重新扩展组件层并重建 `yd.css`；测试断言"模板引用的每个 `.yd-*` 类都能在产物中找到定义"。
+- 备注：htmx 4.0.0 与 Idiomorph 0.8.0 的许可证为 **0BSD**（非 BSD-2-Clause），Alpine 为 MIT；
+  `assets.lock.json` 记录以包内 LICENSE 为准。
+- 备注：Tailwind `--minify` 会保留自身的 `/*! tailwindcss … */` 版权横幅，
+  产物校验需先剥离该横幅再断言"无其它注释块"。
 
 - [ ] **Step 1: 写失败测试**：`TestThemeDefinesBlueBrandScaleAndSemanticTokens`（解析 `app.css`，断言 `--color-brand-500` 等 11 阶齐全 + 语义变量存在）、`TestDarkThemeOverridesSemanticTokens`、`TestBuiltCssIsMinifiedAndNonEmpty`（`yd.css` 存在且 > 3KB、无 `/*` 注释块）、`TestNoHardcodedHexInTemplates`（`web/templates/**` 内不得出现 `#rrggbb` 字面色值）。
 - [ ] **Step 2: 运行确认失败** `go test ./web/ -run 'TestTheme|TestDark|TestBuiltCss|TestNoHardcoded' -v` → FAIL

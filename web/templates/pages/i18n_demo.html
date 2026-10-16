@@ -1,0 +1,98 @@
+{{/*
+  pages/i18n_demo.html — language hot switching, interpolation and Intl formatting.
+  pages/i18n_demo.html — 语言热切换、插值与 Intl 格式化。
+
+  Everything here is rewritten in place: yd-i18n.js walks [data-yd-i18n] and
+  [data-yd-i18n-attr] nodes, so switching the language never reloads the page and never
+  re-fetches a fragment from the server.
+  本页内容全部原地重写：yd-i18n.js 遍历 [data-yd-i18n] 与 [data-yd-i18n-attr] 节点，
+  切换语言既不会刷新页面，也不会重新向服务端取片段。
+
+  Numbers and dates go through t.n(value, opts), which delegates to Intl.NumberFormat and
+  Intl.DateTimeFormat with the active language. yd-app.js fills the [data-yd-format] cells.
+  数字与日期走 t.n(value, opts)，由 Intl.NumberFormat 与 Intl.DateTimeFormat 按当前语言格式化；
+  [data-yd-format] 单元格由 yd-app.js 填充。
+
+  The save form is the only server round trip on this page; it persists the preference and
+  answers 422 into #errors when the language tag is unknown.
+  保存表单是本页唯一的服务端往返：持久化偏好，语言标签未知时以 422 写入 #errors。
+*/}}
+
+{{- define "pages/i18n_demo.html" -}}
+{{template "dashboard.open" .}}{{template "pages/i18n_demo.content" .}}{{template "dashboard.close" .}}
+{{- end -}}
+
+{{- define "pages/i18n_demo.content" -}}
+<section class="yd-page" data-yd-page="i18n_demo" data-yd-i18n-attr="aria-labelledby:i18n.title">
+  <header class="yd-page__header">
+    <div>
+      <h1 class="yd-page__title" id="yd-i18n-title" data-yd-i18n="i18n.title">{{tr "i18n.title"}}</h1>
+      <p class="yd-page__subtitle" data-yd-i18n="i18n.subtitle">{{tr "i18n.subtitle"}}</p>
+    </div>
+  </header>
+
+  <section class="yd-card yd-section" aria-labelledby="yd-i18n-switch">
+    <h2 class="yd-section__title" id="yd-i18n-switch" data-yd-i18n="i18n.switch.title">{{tr "i18n.switch.title"}}</h2>
+    <p class="yd-section__hint" data-yd-i18n="i18n.switch.hint">{{tr "i18n.switch.hint"}}</p>
+    <div class="yd-lang" role="group" data-yd-i18n-attr="aria-label:i18n.switch.title" aria-label="{{tr "i18n.switch.title"}}">
+      <button type="button" class="yd-lang__btn" data-yd-lang="zh-CN" data-yd-i18n="lang.zh-CN">{{tr "lang.zh-CN"}}</button>
+      <button type="button" class="yd-lang__btn" data-yd-lang="en" data-yd-i18n="lang.en">{{tr "lang.en"}}</button>
+    </div>
+    <p class="yd-hint">
+      <span data-yd-i18n="i18n.current">{{tr "i18n.current"}}</span>
+      <span class="yd-code" data-yd-lang-current>{{.Lang}}</span>
+    </p>
+  </section>
+
+  <div class="yd-grid yd-grid--2">
+    <section class="yd-card yd-section" aria-labelledby="yd-i18n-samples">
+      <h2 class="yd-section__title" id="yd-i18n-samples" data-yd-i18n="i18n.samples.title">{{tr "i18n.samples.title"}}</h2>
+      <dl class="yd-dl">
+        <dt data-yd-i18n="i18n.sample.greeting_label">{{tr "i18n.sample.greeting_label"}}</dt>
+        <dd data-yd-i18n="i18n.sample.greeting">{{tr "i18n.sample.greeting"}}</dd>
+        <dt data-yd-i18n="i18n.sample.interpolated_label">{{tr "i18n.sample.interpolated_label"}}</dt>
+        {{/* Server-side interpolation uses the same catalog through the tr template function. | 服务端插值经 tr 模板函数使用同一份目录。 */}}
+        <dd data-yd-i18n="i18n.sample.interpolated" data-yd-i18n-args='{"name":"YunDev"}'>{{tr "i18n.sample.interpolated" "YunDev"}}</dd>
+        <dt data-yd-i18n="i18n.sample.missing_label">{{tr "i18n.sample.missing_label"}}</dt>
+        <dd class="yd-code" data-yd-i18n="i18n.sample.missing">{{tr "i18n.sample.missing"}}</dd>
+      </dl>
+    </section>
+
+    <section class="yd-card yd-section" aria-labelledby="yd-i18n-format">
+      <h2 class="yd-section__title" id="yd-i18n-format" data-yd-i18n="i18n.format.title">{{tr "i18n.format.title"}}</h2>
+      <p class="yd-section__hint" data-yd-i18n="i18n.format.hint">{{tr "i18n.format.hint"}}</p>
+      <dl class="yd-dl">
+        <dt data-yd-i18n="i18n.format.number">{{tr "i18n.format.number"}}</dt>
+        <dd class="yd-code" data-yd-format="number" data-yd-format-value="1234567.891"></dd>
+        <dt data-yd-i18n="i18n.format.percent">{{tr "i18n.format.percent"}}</dt>
+        <dd class="yd-code" data-yd-format="percent" data-yd-format-value="0.2567"></dd>
+        <dt data-yd-i18n="i18n.format.currency">{{tr "i18n.format.currency"}}</dt>
+        <dd class="yd-code" data-yd-format="currency" data-yd-format-value="9876.5"></dd>
+        <dt data-yd-i18n="i18n.format.date">{{tr "i18n.format.date"}}</dt>
+        <dd class="yd-code" data-yd-format="date" data-yd-format-value="2026-10-16T09:30:00Z"></dd>
+        <dt data-yd-i18n="i18n.format.datetime">{{tr "i18n.format.datetime"}}</dt>
+        <dd class="yd-code" data-yd-format="datetime" data-yd-format-value="2026-10-16T09:30:00Z"></dd>
+      </dl>
+    </section>
+  </div>
+
+  <section class="yd-card yd-section" aria-labelledby="yd-i18n-persist">
+    <h2 class="yd-section__title" id="yd-i18n-persist" data-yd-i18n="i18n.persist.title">{{tr "i18n.persist.title"}}</h2>
+    {{template "partials/form.errors" .}}
+    <form class="yd-form yd-form--inline" method="post" action="/i18n_demo"
+          hx-post="/i18n_demo" hx-target="#yd-i18n-persist" hx-swap="outerMorph" hx-status:422="target:#errors"
+          hx-trigger="submit">
+      {{template "partials/form.select" (dict
+          "ID" "yd-i18n-preferred" "Name" "lang"
+          "LabelKey" "i18n.persist.field" "Label" (tr "i18n.persist.field")
+          "HintKey" "i18n.persist.hint"
+          "Options" (list
+              (dict "Value" "zh-CN" "Key" "lang.zh-CN" "Label" (tr "lang.zh-CN") "Selected" true)
+              (dict "Value" "en" "Key" "lang.en" "Label" (tr "lang.en"))))}}
+      <div class="yd-form__actions">
+        <button type="submit" class="yd-btn yd-btn--primary" data-yd-i18n="action.save">{{tr "action.save"}}</button>
+      </div>
+    </form>
+  </section>
+</section>
+{{- end -}}
