@@ -35,8 +35,21 @@
   --color-border-subtle: #e2e8f0;
   --color-danger: #dc2626;
 
+  /* Status colours of badges, flashes and KPI trends. | 徽标、闪现消息与 KPI 趋势所用的状态色。 */
+  --color-success: #16a34a;
+  --color-warning: #d97706;
+  --color-info: #0284c7;
+
+  /* Interactive accent: links, focus rings, active navigation. | 交互强调色：链接、焦点环与当前导航项。 */
+  --color-accent: #2563eb;
+
+  /* Foreground drawn on a solid accent fill; the brand scale is shared by both themes, so this value is never overridden. | 实心强调色之上的前景色；品牌色阶为两套主题共用，故本值无需覆盖。 */
+  --color-on-accent: #ffffff;
+
   /* Typography. | 字体。 */
   --font-sans: "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+  /* Monospace stack for code, translation keys and stream payloads. | 用于代码、翻译键与数据流载荷的等宽字体栈。 */
+  --font-mono: ui-monospace, "SFMono-Regular", "JetBrains Mono", Menlo, Consolas, "Liberation Mono", monospace;
 
   /* Shape and elevation. | 圆角与阴影。 */
   --radius-card: 0.875rem;
@@ -56,6 +69,10 @@
   --color-content-muted: #64748b;
   --color-border-subtle: #e2e8f0;
   --color-danger: #dc2626;
+  --color-success: #16a34a;
+  --color-warning: #d97706;
+  --color-info: #0284c7;
+  --color-accent: #2563eb;
 }
 
 /* Dark theme overrides; must stay after :root so it wins on equal specificity. | 暗色主题覆盖；必须位于 :root 之后，才能在同等特异性下胜出。 */
@@ -67,20 +84,112 @@
   --color-content-muted: #94a3b8;
   --color-border-subtle: #1e293b;
   --color-danger: #f87171;
+  --color-success: #4ade80;
+  --color-warning: #fbbf24;
+  --color-info: #38bdf8;
+  --color-accent: #60a5fa;
 }
 
 /* Admin component layer. | 管理端组件层。 */
 /* Everything here is variable driven: no literal color value may appear in a template or in this layer. | 本层完全由变量驱动：模板与本层内都不得出现字面色值。 */
 /* Declared in @layer components so that utility classes in markup still win over these defaults. | 声明在 @layer components 中，使标记里的工具类仍能覆盖这些默认值。 */
 @layer components {
+  /* ---------------------------------------------------------------- shell | 外壳 */
+
+  /* Page root: a row holding the collapsible rail and the scrolling workspace. | 页面根节点：容纳可折叠导航栏与滚动工作区的横向容器。 */
+  .yd-shell {
+    display: flex;
+    min-height: 100vh;
+    background-color: var(--color-surface-muted);
+    color: var(--color-content);
+    font-family: var(--font-sans);
+  }
+
+  /* Column right of the rail; min-width:0 stops a wide table from stretching the whole row. | 导航栏右侧的列；min-width:0 防止宽表格撑开整行。 */
+  .yd-main {
+    display: flex;
+    flex: 1 1 auto;
+    flex-direction: column;
+    min-width: 0;
+  }
+
+  /* Swap target of every htmx navigation, focused programmatically after a swap. | 每次 htmx 导航的交换目标，交换后由脚本程序化聚焦。 */
+  .yd-workspace {
+    display: flex;
+    flex: 1 1 auto;
+    flex-direction: column;
+    min-width: 0;
+    padding: 1.5rem;
+  }
+
+  .yd-workspace:focus-visible {
+    outline: 2px solid var(--color-accent);
+    outline-offset: -2px;
+  }
+
+  /* Keyboard-only "skip to content" link, parked off screen until it takes focus. | 仅键盘可见的「跳到内容」链接，聚焦前停在屏幕之外。 */
+  .yd-skip-link {
+    position: absolute;
+    top: -3rem;
+    left: 1rem;
+    z-index: 80;
+    padding: 0.5rem 0.875rem;
+    border-radius: 0.5rem;
+    background-color: var(--color-brand-600);
+    color: var(--color-on-accent);
+    font-size: 0.875rem;
+    text-decoration: none;
+    transition: top 120ms ease;
+  }
+
+  .yd-skip-link:focus-visible {
+    top: 0.75rem;
+    outline: 2px solid var(--color-brand-700);
+    outline-offset: 2px;
+  }
+
+  /* htmx request bar pinned to the top edge of the header. | 贴住顶栏上沿的 htmx 请求条。 */
+  .yd-progress {
+    position: absolute;
+    inset: 0 0 auto;
+    height: 2px;
+    overflow: hidden;
+    background-color: transparent;
+  }
+
+  .yd-progress::after {
+    content: "";
+    display: block;
+    width: 40%;
+    height: 100%;
+    background-color: var(--color-brand-500);
+    animation: yd-progress-slide 1.1s ease-in-out infinite;
+  }
+
+  @keyframes yd-progress-slide {
+    from {
+      transform: translateX(-100%);
+    }
+
+    to {
+      transform: translateX(350%);
+    }
+  }
+
+  /* ---------------------------------------------------------------- sidebar | 侧边栏 */
+
   /* Fixed left navigation, collapsible to the icon rail width. | 固定左侧导航，可折叠为图标栏宽度。 */
   .yd-sidebar {
     display: flex;
+    position: sticky;
+    top: 0;
     flex: 0 0 auto;
     flex-direction: column;
     gap: 0.25rem;
     width: var(--spacing-sidebar);
+    height: 100vh;
     padding: 0.75rem;
+    overflow: hidden;
     background-color: var(--color-surface);
     border-right: 1px solid var(--color-border-subtle);
     color: var(--color-content);
@@ -91,6 +200,68 @@
   .yd-sidebar[data-collapsed="true"] {
     width: var(--spacing-sidebar-collapsed);
   }
+
+  /* Brand lock-up above the navigation: mark, product name and the rail toggle. | 导航上方的品牌组合：标记、产品名与折叠开关。 */
+  .yd-sidebar__brand {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem;
+    padding: 0.25rem 0.25rem 0.75rem;
+  }
+
+  /* Collapse control; aria-expanded is kept in sync by yd-app.js. | 折叠控件；aria-expanded 由 yd-app.js 同步维护。 */
+  .yd-sidebar__toggle {
+    flex: 0 0 auto;
+  }
+
+  /* Footer holding the build version and the logout form. | 存放构建版本与退出表单的底栏。 */
+  .yd-sidebar__footer {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    margin-top: auto;
+    padding-top: 0.75rem;
+    border-top: 1px solid var(--color-border-subtle);
+  }
+
+  /* Build version label at the foot of the rail. | 导航栏底部的构建版本标签。 */
+  .yd-sidebar__version {
+    font-size: 0.75rem;
+    color: var(--color-content-muted);
+  }
+
+  /* Form wrapping the logout button, margin free so the rail footer keeps its own spacing. | 包裹退出按钮的表单，去掉外边距以保持栏脚自身间距。 */
+  .yd-sidebar__logout {
+    margin: 0;
+  }
+
+  /* Collapsed rail: names stay in the DOM for assistive tech but are clipped to a 1px box. | 折叠成图标栏：名称仍留在 DOM 中以供辅助技术读取，仅被裁剪成 1px 的盒子。 */
+  .yd-sidebar[data-collapsed="true"] .yd-brand__name,
+  .yd-sidebar[data-collapsed="true"] .yd-nav__section,
+  .yd-sidebar[data-collapsed="true"] .yd-nav__label,
+  .yd-sidebar[data-collapsed="true"] .yd-sidebar__version {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    margin: -1px;
+    padding: 0;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+
+  /* Collapsed rail centres what remains and drops the footer, whose logout lives in the topbar user menu. | 折叠后剩余内容居中，并隐藏底栏——其退出登录入口由顶栏用户菜单提供。 */
+  .yd-sidebar[data-collapsed="true"] .yd-brand,
+  .yd-sidebar[data-collapsed="true"] .yd-nav__link {
+    justify-content: center;
+  }
+
+  .yd-sidebar[data-collapsed="true"] .yd-sidebar__footer {
+    display: none;
+  }
+
+  /* ---------------------------------------------------------------- topbar | 顶栏 */
 
   /* Sticky application header. | 吸顶应用顶栏。 */
   .yd-topbar {
@@ -107,6 +278,440 @@
     color: var(--color-content);
   }
 
+  /* Right-hand cluster: language switch, theme toggle and user menu. | 右侧簇：语言切换、主题开关与用户菜单。 */
+  .yd-topbar__actions {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    margin-left: auto;
+  }
+
+  /* ---------------------------------------------------------------- brand | 品牌 */
+
+  /* Product lock-up used by the rail and by the sign-in card. | 产品标识组合，供导航栏与登录卡片使用。 */
+  .yd-brand {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    min-width: 0;
+    border-radius: 0.5rem;
+    color: var(--color-content);
+    font-weight: 600;
+    text-decoration: none;
+  }
+
+  .yd-brand:focus-visible {
+    outline: 2px solid var(--color-accent);
+    outline-offset: 2px;
+  }
+
+  /* Square badge carrying the two letter mark. | 承载两字母标记的方形徽章。 */
+  .yd-brand__mark {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex: 0 0 auto;
+    width: 1.75rem;
+    height: 1.75rem;
+    border-radius: 0.5rem;
+    background-color: var(--color-brand-600);
+    color: var(--color-on-accent);
+    font-size: 0.8125rem;
+    font-weight: 700;
+    line-height: 1;
+    letter-spacing: 0.02em;
+  }
+
+  /* Product name beside the mark, ellipsised when the rail narrows. | 标记旁的产品名，导航栏变窄时以省略号截断。 */
+  .yd-brand__name {
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+  }
+
+  /* ---------------------------------------------------------------- navigation | 导航 */
+
+  /* Scrollable link stack of the rail. | 导航栏中可滚动的链接列表。 */
+  .yd-nav {
+    display: flex;
+    flex: 1 1 auto;
+    flex-direction: column;
+    gap: 0.125rem;
+    min-height: 0;
+    overflow-y: auto;
+  }
+
+  /* Group caption inside the link stack. | 链接列表中的分组标题。 */
+  .yd-nav__section {
+    margin: 0.75rem 0.5rem 0.25rem;
+    font-size: 0.6875rem;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--color-content-muted);
+  }
+
+  /* One navigation row in the rail. | 导航栏中的单个导航行。 */
+  .yd-nav__link {
+    display: flex;
+    align-items: center;
+    gap: 0.625rem;
+    padding: 0.5rem 0.625rem;
+    border-radius: 0.5rem;
+    color: var(--color-content-muted);
+    font-size: 0.875rem;
+    text-decoration: none;
+    transition: background-color 120ms ease, color 120ms ease;
+  }
+
+  .yd-nav__link:hover {
+    background-color: var(--color-surface-muted);
+    color: var(--color-content);
+  }
+
+  .yd-nav__link:focus-visible {
+    outline: 2px solid var(--color-accent);
+    outline-offset: -2px;
+  }
+
+  /* Current page as marked by yd-app.js: aria-current plus data-active, cued by weight and an inset bar, never by colour alone. | yd-app.js 标记的当前页：aria-current 加 data-active，用字重与内嵌色条提示，绝不只靠颜色。 */
+  .yd-nav__link[data-active="true"],
+  .yd-nav__link[aria-current="page"] {
+    background-color: color-mix(in oklab, var(--color-accent) 14%, transparent);
+    box-shadow: inset 2px 0 0 var(--color-accent);
+    color: var(--color-content);
+    font-weight: 600;
+  }
+
+  /* Sizing is mandatory: the inline SVGs carry no width or height attribute. | 尺寸不可省略：内联 SVG 没有 width 与 height 属性。 */
+  .yd-nav__icon {
+    flex: 0 0 auto;
+    width: 1.25rem;
+    height: 1.25rem;
+  }
+
+  /* Link text, clipped to a 1px box once the rail collapses. | 链接文字，导航栏折叠后被裁剪为 1px 的盒子。 */
+  .yd-nav__label {
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+  }
+
+  /* ---------------------------------------------------------------- breadcrumb | 面包屑 */
+
+  .yd-breadcrumb {
+    min-width: 0;
+  }
+
+  /* List reset into a single wrapping row. | 重置为单行且允许换行的列表。 */
+  .yd-breadcrumb__list {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.375rem;
+    margin: 0;
+    padding: 0;
+    font-size: 0.875rem;
+    list-style: none;
+  }
+
+  /* One crumb, its separator included. | 单个面包屑，含其分隔符。 */
+  .yd-breadcrumb__item {
+    display: flex;
+    align-items: center;
+    gap: 0.375rem;
+  }
+
+  /* Separator drawn with a pseudo element so the markup needs no extra node. | 用伪元素绘制分隔符，标记无需额外节点。 */
+  .yd-breadcrumb__item + .yd-breadcrumb__item::before {
+    content: "/";
+    color: var(--color-content-muted);
+  }
+
+  /* Every crumb except the last one. | 除末级之外的每个面包屑。 */
+  .yd-breadcrumb__link {
+    border-radius: 0.25rem;
+    color: var(--color-content-muted);
+    text-decoration: none;
+  }
+
+  .yd-breadcrumb__link:hover {
+    color: var(--color-content);
+    text-decoration: underline;
+  }
+
+  .yd-breadcrumb__link:focus-visible {
+    outline: 2px solid var(--color-accent);
+    outline-offset: 2px;
+  }
+
+  /* Last crumb: plain text, announced as the current page. | 末级面包屑：纯文本，并以当前页身份播报。 */
+  .yd-breadcrumb__current {
+    color: var(--color-content);
+    font-weight: 500;
+  }
+
+  /* ---------------------------------------------------------------- button | 按钮 */
+
+  /* Neutral button; the variants below only repaint it. | 中性按钮；下方各变体只改变其配色。 */
+  .yd-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.375rem;
+    padding: 0.5rem 0.875rem;
+    border: 1px solid var(--color-border-subtle);
+    border-radius: 0.5rem;
+    background-color: var(--color-surface);
+    color: var(--color-content);
+    font: inherit;
+    font-size: 0.875rem;
+    font-weight: 500;
+    line-height: 1.25rem;
+    text-align: center;
+    text-decoration: none;
+    cursor: pointer;
+    transition: background-color 120ms ease, border-color 120ms ease, color 120ms ease;
+  }
+
+  .yd-btn:not(:disabled):hover {
+    background-color: var(--color-surface-muted);
+  }
+
+  .yd-btn:focus-visible {
+    outline: 2px solid var(--color-accent);
+    outline-offset: 2px;
+  }
+
+  /* Disabled buttons keep their shape but lose the pointer and the hover repaint. | 禁用按钮保持外形，但不可点击且不响应悬停。 */
+  .yd-btn:disabled,
+  .yd-btn[aria-disabled="true"] {
+    opacity: 0.55;
+    cursor: not-allowed;
+  }
+
+  /* Primary action: the only solid brand fill in the shell. | 主要操作：外壳中唯一的实心品牌填充。 */
+  .yd-btn--primary {
+    border-color: transparent;
+    background-color: var(--color-brand-600);
+    color: var(--color-on-accent);
+  }
+
+  .yd-btn--primary:not(:disabled):hover {
+    background-color: var(--color-brand-700);
+  }
+
+  /* Quiet action: no chrome until it is hovered. | 次要操作：悬停前不显示边框与底色。 */
+  .yd-btn--ghost {
+    border-color: transparent;
+    background-color: transparent;
+    color: var(--color-content-muted);
+  }
+
+  .yd-btn--ghost:not(:disabled):hover {
+    background-color: var(--color-surface-muted);
+    color: var(--color-content);
+  }
+
+  /* Destructive action, tinted from the danger token so both themes keep their own red. | 破坏性操作：取自 danger 令牌的淡色，两套主题各自保留自己的红。 */
+  .yd-btn--danger {
+    border-color: color-mix(in oklab, var(--color-danger) 45%, transparent);
+    background-color: color-mix(in oklab, var(--color-danger) 12%, transparent);
+    color: var(--color-danger);
+  }
+
+  .yd-btn--danger:not(:disabled):hover {
+    background-color: color-mix(in oklab, var(--color-danger) 22%, transparent);
+  }
+
+  /* Compact button for table rows and section headers. | 用于表格行与区块标题的紧凑按钮。 */
+  .yd-btn--sm {
+    padding: 0.25rem 0.625rem;
+    font-size: 0.8125rem;
+  }
+
+  /* Full-width button, used by the sign-in form. | 占满整行的按钮，登录表单使用。 */
+  .yd-btn--block {
+    width: 100%;
+  }
+
+  /* Square icon-only button, used by the rail toggle, the theme switch and the flash close. | 方形纯图标按钮，供导航折叠、主题开关与闪现关闭使用。 */
+  .yd-icon-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex: 0 0 auto;
+    width: 2.25rem;
+    height: 2.25rem;
+    padding: 0;
+    border: 1px solid transparent;
+    border-radius: 0.5rem;
+    background-color: transparent;
+    color: var(--color-content-muted);
+    cursor: pointer;
+    transition: background-color 120ms ease, color 120ms ease;
+  }
+
+  .yd-icon-btn:not(:disabled):hover {
+    background-color: var(--color-surface-muted);
+    color: var(--color-content);
+  }
+
+  .yd-icon-btn:focus-visible {
+    outline: 2px solid var(--color-accent);
+    outline-offset: 2px;
+  }
+
+  .yd-icon-btn:disabled {
+    opacity: 0.55;
+    cursor: not-allowed;
+  }
+
+  /* Pressed state of a toggle button, driven by the aria-pressed yd-app.js keeps in sync. | 开关按钮的按下态，由 yd-app.js 维护的 aria-pressed 驱动。 */
+  .yd-icon-btn[aria-pressed="true"] {
+    background-color: color-mix(in oklab, var(--color-accent) 16%, transparent);
+    color: var(--color-accent);
+  }
+
+  /* Inline glyph; sizing is mandatory because the SVGs declare no width or height. | 内联图标；SVG 未声明宽高，故尺寸不可省略。 */
+  .yd-icon {
+    flex: 0 0 auto;
+    width: 1.125rem;
+    height: 1.125rem;
+  }
+
+  /* The theme button ships both glyphs and shows the one naming the active theme. | 主题按钮同时携带两个图标，只显示与当前主题相符的那一个。 */
+  .yd-icon--dark {
+    display: none;
+  }
+
+  /* Sun glyph, swapped out once the dark theme is active. | 太阳图标，暗色主题生效后被替换掉。 */
+  [data-theme="dark"] .yd-icon--light {
+    display: none;
+  }
+
+  [data-theme="dark"] .yd-icon--dark {
+    display: inline-block;
+  }
+
+  /* ---------------------------------------------------------------- avatar | 头像 */
+
+  /* Initials bubble; the tint derives from the accent token, so it follows the theme. | 首字母气泡；底色由 accent 令牌派生，因此随主题变化。 */
+  .yd-avatar {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex: 0 0 auto;
+    width: 2rem;
+    height: 2rem;
+    border-radius: 999px;
+    background-color: color-mix(in oklab, var(--color-accent) 16%, transparent);
+    color: var(--color-accent);
+    font-size: 0.8125rem;
+    font-weight: 600;
+    line-height: 1;
+    vertical-align: middle;
+  }
+
+  /* Small avatar for dense rows. | 紧凑行使用的小尺寸头像。 */
+  .yd-avatar--sm {
+    width: 1.5rem;
+    height: 1.5rem;
+    font-size: 0.6875rem;
+  }
+
+  /* ---------------------------------------------------------------- badge | 徽标 */
+
+  /* Pill for statuses and counters; the base look stays neutral so an unknown level still reads well. | 状态与计数的胶囊标签；基础样式保持中性，未知级别也能正常呈现。 */
+  .yd-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+    padding: 0.125rem 0.5rem;
+    border: 1px solid transparent;
+    border-radius: 999px;
+    background-color: var(--color-surface-muted);
+    color: var(--color-content-muted);
+    font-size: 0.75rem;
+    font-weight: 500;
+    line-height: 1.25rem;
+    white-space: nowrap;
+  }
+
+  /* Neutral badge for a value that carries no status. | 无状态取值使用的中性徽标。 */
+  .yd-badge--muted {
+    background-color: var(--color-surface-muted);
+    color: var(--color-content-muted);
+  }
+
+  /* Informational badge. | 信息类徽标。 */
+  .yd-badge--info {
+    border-color: color-mix(in oklab, var(--color-info) 35%, transparent);
+    background-color: color-mix(in oklab, var(--color-info) 12%, transparent);
+    color: var(--color-info);
+  }
+
+  /* Success badge, e.g. an operation that finished cleanly. | 成功徽标，例如干净完成的操作。 */
+  .yd-badge--success {
+    border-color: color-mix(in oklab, var(--color-success) 35%, transparent);
+    background-color: color-mix(in oklab, var(--color-success) 12%, transparent);
+    color: var(--color-success);
+  }
+
+  /* Active badge, the status the account table renders most often. | 启用徽标，账号表格中最常出现的状态。 */
+  .yd-badge--active {
+    border-color: color-mix(in oklab, var(--color-success) 35%, transparent);
+    background-color: color-mix(in oklab, var(--color-success) 12%, transparent);
+    color: var(--color-success);
+  }
+
+  /* Warning badge. | 警告类徽标。 */
+  .yd-badge--warn {
+    border-color: color-mix(in oklab, var(--color-warning) 35%, transparent);
+    background-color: color-mix(in oklab, var(--color-warning) 14%, transparent);
+    color: var(--color-warning);
+  }
+
+  /* Error badge. | 错误徽标。 */
+  .yd-badge--error {
+    border-color: color-mix(in oklab, var(--color-danger) 35%, transparent);
+    background-color: color-mix(in oklab, var(--color-danger) 12%, transparent);
+    color: var(--color-danger);
+  }
+
+  /* Disabled badge. | 禁用徽标。 */
+  .yd-badge--disabled {
+    border-color: color-mix(in oklab, var(--color-danger) 35%, transparent);
+    background-color: color-mix(in oklab, var(--color-danger) 12%, transparent);
+    color: var(--color-danger);
+  }
+
+  /* Realtime pill: yd-app.js writes the stream state onto data-yd-connection-state. | 实时状态标签：yd-app.js 把数据流状态写入 data-yd-connection-state。 */
+  .yd-badge[data-yd-connection-state="open"] {
+    border-color: color-mix(in oklab, var(--color-success) 35%, transparent);
+    background-color: color-mix(in oklab, var(--color-success) 12%, transparent);
+    color: var(--color-success);
+  }
+
+  .yd-badge[data-yd-connection-state="connecting"] {
+    border-color: color-mix(in oklab, var(--color-warning) 35%, transparent);
+    background-color: color-mix(in oklab, var(--color-warning) 14%, transparent);
+    color: var(--color-warning);
+  }
+
+  .yd-badge[data-yd-connection-state="closed"] {
+    border-color: color-mix(in oklab, var(--color-danger) 35%, transparent);
+    background-color: color-mix(in oklab, var(--color-danger) 12%, transparent);
+    color: var(--color-danger);
+  }
+
+  .yd-badge[data-yd-connection-state="idle"] {
+    background-color: var(--color-surface-muted);
+    color: var(--color-content-muted);
+  }
+
+  /* ---------------------------------------------------------------- card | 卡片 */
+
   /* Elevated content panel. | 带层级的内容面板。 */
   .yd-card {
     padding: 1.25rem;
@@ -116,6 +721,140 @@
     box-shadow: var(--shadow-card);
     color: var(--color-content);
   }
+
+  /* ---------------------------------------------------------------- page | 页面 */
+
+  /* Workspace page: one column, one vertical rhythm for every direct child. | 工作区页面：单列布局，所有直接子元素共享同一垂直间距。 */
+  .yd-page {
+    display: flex;
+    flex-direction: column;
+    gap: 1.5rem;
+  }
+
+  /* Page title block and page actions on one wrapping row. | 页面标题块与页面操作同处一行并可换行。 */
+  .yd-page__header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 1rem;
+    flex-wrap: wrap;
+  }
+
+  /* Page heading, an h1 in every page template. | 页面主标题，在所有页面模板中均为 h1。 */
+  .yd-page__title {
+    margin: 0;
+    font-size: 1.5rem;
+    font-weight: 600;
+    line-height: 1.2;
+    color: var(--color-content);
+  }
+
+  /* One-line description under the heading. | 主标题下的一句话描述。 */
+  .yd-page__subtitle {
+    margin: 0.25rem 0 0;
+    font-size: 0.875rem;
+    color: var(--color-content-muted);
+  }
+
+  /* Buttons and links that belong to the page as a whole. | 属于整个页面的按钮与链接。 */
+  .yd-page__actions {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+  }
+
+  /* ---------------------------------------------------------------- section | 区块 */
+
+  /* Panel section; usually combined with .yd-card, hence the flex column that spaces its parts. | 面板区块；常与 .yd-card 连用，故用纵向弹性列拉开内部间距。 */
+  .yd-section {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+  }
+
+  /* Section heading and its trailing control. | 区块标题与其尾部控件。 */
+  .yd-section__header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+    flex-wrap: wrap;
+  }
+
+  /* Heading of a card section. | 卡片区块的标题。 */
+  .yd-section__title {
+    margin: 0;
+    font-size: 1rem;
+    font-weight: 600;
+    color: var(--color-content);
+  }
+
+  /* Muted note beside a section title. | 区块标题旁的弱化说明。 */
+  .yd-section__hint {
+    margin: 0;
+    font-size: 0.8125rem;
+    color: var(--color-content-muted);
+  }
+
+  /* Destructive section: the border carries the danger tint on top of the card border. | 危险区块：在卡片边框之上叠加 danger 淡色。 */
+  .yd-section--danger {
+    border-color: color-mix(in oklab, var(--color-danger) 45%, var(--color-border-subtle));
+  }
+
+  /* ---------------------------------------------------------------- kpi | 指标卡 */
+
+  .yd-kpis {
+    display: grid;
+    gap: 1rem;
+    grid-template-columns: repeat(auto-fit, minmax(13rem, 1fr));
+  }
+
+  /* Single metric; the card supplies padding and elevation. | 单个指标；内边距与层级由 card 提供。 */
+  .yd-kpi {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+  }
+
+  /* What the metric measures. | 指标衡量的是什么。 */
+  .yd-kpi__label {
+    margin: 0;
+    font-size: 0.8125rem;
+    color: var(--color-content-muted);
+  }
+
+  /* The metric itself, the largest text in the card. | 指标数值，卡片中最大的文字。 */
+  .yd-kpi__value {
+    margin: 0;
+    font-size: 1.75rem;
+    font-weight: 600;
+    line-height: 1.15;
+    color: var(--color-content);
+  }
+
+  /* Change against the previous period, tinted with the success token. | 与上期的变化量，使用 success 令牌着色。 */
+  .yd-kpi__trend {
+    margin: 0;
+    font-size: 0.75rem;
+    color: var(--color-success);
+  }
+
+  /* ---------------------------------------------------------------- grid | 栅格 */
+
+  /* Responsive grid for side by side panels. | 并排面板所用的响应式栅格。 */
+  .yd-grid {
+    display: grid;
+    gap: 1.5rem;
+    grid-template-columns: repeat(auto-fit, minmax(18rem, 1fr));
+  }
+
+  /* Two column flavour, wider minimum so panels stay readable. | 两列变体，最小宽度更大以保证面板可读。 */
+  .yd-grid--2 {
+    grid-template-columns: repeat(auto-fit, minmax(20rem, 1fr));
+  }
+
+  /* ---------------------------------------------------------------- table | 表格 */
 
   /* Data table. | 数据表格。 */
   .yd-table {
@@ -144,6 +883,762 @@
     background-color: var(--color-surface-muted);
   }
 
+  /* Scroll container giving the table a frame; min-width:0 keeps it from stretching the flex column. | 给表格加外框的滚动容器；min-width:0 防止其撑开弹性列。 */
+  .yd-table__wrap {
+    min-width: 0;
+    max-width: 100%;
+    overflow-x: auto;
+    border: 1px solid var(--color-border-subtle);
+    border-radius: var(--radius-card);
+    background-color: var(--color-surface);
+  }
+
+  /* The frame draws the last separator, so the final row must not repeat it. | 外框已充当最后一条分隔线，故末行不再重复绘制。 */
+  .yd-table__wrap .yd-table tbody tr:last-child td {
+    border-bottom: 0;
+  }
+
+  /* Header band of the table. | 表格的表头色带。 */
+  .yd-table__head {
+    background-color: var(--color-surface-muted);
+  }
+
+  /* Header cell, never wrapped so the column width stays stable. | 表头单元格，不换行以保持列宽稳定。 */
+  .yd-table__th {
+    font-weight: 600;
+    white-space: nowrap;
+  }
+
+  /* Body group; vertical alignment is delegated to the cells. | 表格主体分组；垂直对齐交由单元格处理。 */
+  .yd-table__body {
+    vertical-align: middle;
+  }
+
+  /* One body row; only the hover repaint is animated. | 单个数据行；只有悬停底色参与过渡。 */
+  .yd-table__row {
+    transition: background-color 120ms ease;
+  }
+
+  /* Empty result set: one centred, muted cell. | 空结果集：一个居中的弱化单元格。 */
+  .yd-table__row--empty .yd-table__td {
+    padding: 1.5rem 0.875rem;
+    text-align: center;
+    color: var(--color-content-muted);
+  }
+
+  /* Body cell; the shared padding comes from the table rules above. | 数据单元格；通用内边距由上方表格规则提供。 */
+  .yd-table__td {
+    vertical-align: middle;
+  }
+
+  /* Action column header: right aligned and never wrapped, so the row buttons stay on one line. | 操作列表头：右对齐且不换行，行内按钮始终在同一行。 */
+  .yd-table__th--actions {
+    text-align: right;
+    white-space: nowrap;
+  }
+
+  /* Action cell holding the buttons of a row. | 存放行内按钮的操作单元格。 */
+  .yd-table__td--actions {
+    text-align: right;
+    white-space: nowrap;
+  }
+
+  /* Primary cell of a row, e.g. the user name next to the avatar. | 行的主单元格，例如头像旁的用户名。 */
+  .yd-table__primary {
+    font-weight: 600;
+    color: var(--color-content);
+  }
+
+  .yd-table__td .yd-avatar {
+    margin-right: 0.5rem;
+  }
+
+  /* ---------------------------------------------------------------- pagination | 分页 */
+
+  .yd-pagination {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    flex-wrap: wrap;
+  }
+
+  /* Row range text, e.g. 1 to 20 of 137. | 行区间文案，例如「1 至 20，共 137」。 */
+  .yd-pagination__summary {
+    display: flex;
+    align-items: center;
+    gap: 0.375rem;
+    margin: 0;
+    font-size: 0.8125rem;
+    color: var(--color-content-muted);
+  }
+
+  /* Page number list, reset from the browser default. | 页码列表，已重置浏览器默认样式。 */
+  .yd-pagination__list {
+    display: flex;
+    align-items: center;
+    gap: 0.25rem;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+
+  /* One slot of the page number list. | 页码列表中的单个槽位。 */
+  .yd-pagination__item {
+    display: flex;
+  }
+
+  /* Current page number inside the summary line. | 摘要行中的当前页码。 */
+  .yd-pagination__current {
+    color: var(--color-content);
+    font-weight: 600;
+  }
+
+  /* Total row count inside the summary line. | 摘要行中的总条数。 */
+  .yd-pagination__total {
+    color: var(--color-content);
+    font-weight: 600;
+  }
+
+  /* Page number and previous/next control. | 页码与上一页/下一页控件。 */
+  .yd-pagination__link {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 2rem;
+    height: 2rem;
+    padding: 0 0.5rem;
+    border: 1px solid var(--color-border-subtle);
+    border-radius: 0.5rem;
+    background-color: var(--color-surface);
+    color: var(--color-content);
+    font-size: 0.8125rem;
+    text-decoration: none;
+  }
+
+  .yd-pagination__link:hover {
+    background-color: var(--color-surface-muted);
+  }
+
+  .yd-pagination__link:focus-visible {
+    outline: 2px solid var(--color-accent);
+    outline-offset: 2px;
+  }
+
+  /* Current page renders as a span, so the pressed look replaces the hover repaint. | 当前页渲染为 span，故用按下态外观取代悬停效果。 */
+  .yd-pagination__link--current,
+  .yd-pagination__link[aria-current="page"] {
+    border-color: color-mix(in oklab, var(--color-accent) 45%, transparent);
+    background-color: color-mix(in oklab, var(--color-accent) 14%, transparent);
+    color: var(--color-accent);
+    font-weight: 600;
+  }
+
+  /* ---------------------------------------------------------------- modal | 对话框 */
+
+  /* Hidden until yd-app.js sets data-open; the hidden attribute shown without scripts is handled by preflight. | 在 yd-app.js 设置 data-open 前保持隐藏；无脚本时由 preflight 处理 hidden 属性。 */
+  .yd-modal {
+    position: fixed;
+    inset: 0;
+    z-index: 60;
+    display: none;
+    align-items: center;
+    justify-content: center;
+    padding: 1rem;
+  }
+
+  .yd-modal[data-open="true"] {
+    display: flex;
+  }
+
+  /* Click-to-close scrim; the tint derives from the content token so it flips with the theme. | 点击关闭的遮罩；底色由 content 令牌派生，随主题翻转。 */
+  .yd-modal__backdrop {
+    position: absolute;
+    inset: 0;
+    background-color: color-mix(in oklab, var(--color-content) 45%, transparent);
+  }
+
+  /* Panel; .yd-card supplies the border, radius, padding and shadow. | 面板；边框、圆角、内边距与阴影由 .yd-card 提供。 */
+  .yd-modal__panel {
+    position: relative;
+    z-index: 1;
+    width: min(32rem, 100%);
+    max-height: calc(100vh - 2rem);
+    overflow-y: auto;
+    animation: yd-modal-in 140ms ease-out;
+  }
+
+  @keyframes yd-modal-in {
+    from {
+      opacity: 0;
+      transform: translateY(0.5rem);
+    }
+
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+
+  /* Dialog heading. | 对话框标题。 */
+  .yd-modal__title {
+    margin: 0 0 0.75rem;
+    font-size: 1.125rem;
+    font-weight: 600;
+    color: var(--color-content);
+  }
+
+  /* Dialog body text. | 对话框正文。 */
+  .yd-modal__body {
+    margin: 0;
+    font-size: 0.875rem;
+    line-height: 1.4rem;
+    color: var(--color-content-muted);
+  }
+
+  /* Right-aligned confirm and cancel buttons. | 右对齐的确认与取消按钮。 */
+  .yd-modal__actions {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+    margin-top: 1.25rem;
+  }
+
+  /* ---------------------------------------------------------------- form | 表单 */
+
+  /* Vertical form; --inline flips it into a single wrapping row. | 纵向表单；--inline 变体将其改为单行并可换行。 */
+  .yd-form {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+  }
+
+  /* Filter form that puts every control on one wrapping row. | 把所有控件排在一行并允许换行的筛选表单。 */
+  .yd-form--inline {
+    flex-direction: row;
+    align-items: flex-end;
+    flex-wrap: wrap;
+  }
+
+  /* Row holding a checkbox and its trailing link, as on the sign-in card. | 容纳复选框与其尾部链接的一行，见登录卡片。 */
+  .yd-form__row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+    flex-wrap: wrap;
+  }
+
+  /* Submit and reset buttons of a form. | 表单的提交与重置按钮。 */
+  .yd-form__actions {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+  }
+
+  /* Validation region; an empty one collapses to zero height because only the gap is styled. | 校验区域；由于只设置了间距，为空时高度收缩为零。 */
+  .yd-form-errors {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+  }
+
+  /* Field level validation message. | 字段级校验提示。 */
+  .yd-form-error {
+    display: block;
+    margin-top: 0.25rem;
+    font-size: 0.8125rem;
+    line-height: 1.25rem;
+    color: var(--color-danger);
+  }
+
+  .yd-form-errors .yd-form-error {
+    margin-top: 0;
+  }
+
+  /* One labelled control: label, control and optional hint. | 单个带标签的控件：标签、控件与可选提示。 */
+  .yd-field {
+    display: flex;
+    flex-direction: column;
+    gap: 0.375rem;
+    min-width: 0;
+  }
+
+  /* Checkbox row: control first, label beside it. | 复选框行：控件在前，标签紧随其后。 */
+  .yd-field--check {
+    flex-direction: row;
+    align-items: center;
+    gap: 0.5rem;
+  }
+
+  /* Label of a single control. | 单个控件的标签。 */
+  .yd-field__label {
+    font-size: 0.875rem;
+    font-weight: 500;
+    color: var(--color-content);
+  }
+
+  /* Permanent helper text under a control. | 控件下方常驻的辅助说明。 */
+  .yd-field__hint {
+    margin: 0;
+    font-size: 0.8125rem;
+    color: var(--color-content-muted);
+  }
+
+  /* Text control used by fields, filters, search and the WebSocket composer. | 文本框：字段、筛选、搜索与 WebSocket 输入区使用。 */
+  .yd-input {
+    padding: 0.5rem 0.75rem;
+    border: 1px solid var(--color-border-subtle);
+    border-radius: 0.5rem;
+    background-color: var(--color-surface);
+    color: var(--color-content);
+    font: inherit;
+    font-size: 0.875rem;
+    line-height: 1.25rem;
+  }
+
+  .yd-input::placeholder {
+    color: var(--color-content-muted);
+  }
+
+  /* Native select sharing the skin of the input. | 与输入框共用外观的原生下拉框。 */
+  .yd-select {
+    padding: 0.5rem 0.75rem;
+    border: 1px solid var(--color-border-subtle);
+    border-radius: 0.5rem;
+    background-color: var(--color-surface);
+    color: var(--color-content);
+    font: inherit;
+    font-size: 0.875rem;
+    line-height: 1.25rem;
+  }
+
+  .yd-input:not(:disabled):hover,
+  .yd-select:not(:disabled):hover {
+    border-color: color-mix(in oklab, var(--color-accent) 40%, var(--color-border-subtle));
+  }
+
+  /* Focus ring built from the accent token in both themes, replacing the UA outline. | 两套主题下均由 accent 令牌构建的焦点环，替换浏览器默认轮廓。 */
+  .yd-input:focus-visible,
+  .yd-select:focus-visible {
+    outline: none;
+    border-color: var(--color-accent);
+    box-shadow: 0 0 0 3px color-mix(in oklab, var(--color-accent) 25%, transparent);
+  }
+
+  .yd-input:disabled,
+  .yd-select:disabled {
+    background-color: var(--color-surface-muted);
+    color: var(--color-content-muted);
+    cursor: not-allowed;
+  }
+
+  /* Native checkbox recoloured through accent-color, no custom widget involved. | 原生复选框经 accent-color 着色，不引入自定义控件。 */
+  .yd-checkbox {
+    flex: 0 0 auto;
+    width: 1rem;
+    height: 1rem;
+    accent-color: var(--color-accent);
+  }
+
+  .yd-checkbox:focus-visible {
+    outline: 2px solid var(--color-accent);
+    outline-offset: 2px;
+  }
+
+  /* Secondary note under a control or a card. | 控件或卡片下方的补充说明。 */
+  .yd-hint {
+    margin: 0;
+    font-size: 0.8125rem;
+    color: var(--color-content-muted);
+  }
+
+  /* Inline text link. | 行内文字链接。 */
+  .yd-link {
+    border-radius: 0.25rem;
+    color: var(--color-accent);
+    font-weight: 500;
+    text-decoration: none;
+  }
+
+  .yd-link:hover {
+    text-decoration: underline;
+  }
+
+  .yd-link:focus-visible {
+    outline: 2px solid var(--color-accent);
+    outline-offset: 2px;
+  }
+
+  /* ---------------------------------------------------------------- forms in chrome | 顶栏中的表单 */
+
+  /* Filter bar above a table; its controls sit on one wrapping row. | 表格上方的筛选条；控件排在可换行的一行内。 */
+  .yd-filters {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+  }
+
+  /* Global search form of the header. | 顶栏的全局搜索表单。 */
+  .yd-search {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    flex: 1 1 auto;
+    max-width: 22rem;
+  }
+
+  /* Controls placed directly on a filter or search row stretch to fill the free space. | 直接位于筛选或搜索行中的控件会伸展填满剩余空间。 */
+  .yd-filters > .yd-input,
+  .yd-filters > .yd-select,
+  .yd-search > .yd-input {
+    flex: 1 1 10rem;
+    min-width: 0;
+    width: auto;
+  }
+
+  /* Search box in the header; the flex container above sizes it. | 顶栏搜索框；尺寸由上方弹性容器决定。 */
+  .yd-search__input {
+    min-width: 0;
+  }
+
+  /* ---------------------------------------------------------------- language switch | 语言切换 */
+
+  /* Segmented control holding one button per catalog. | 分段控件，每个语言目录一个按钮。 */
+  .yd-lang {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.125rem;
+    padding: 0.125rem;
+    border: 1px solid var(--color-border-subtle);
+    border-radius: 999px;
+    background-color: var(--color-surface-muted);
+  }
+
+  /* Standalone flavour used on the sign-in card. | 登录卡片上使用的独立变体。 */
+  .yd-lang--auth {
+    align-self: center;
+    margin-top: 1.25rem;
+  }
+
+  /* One language option in the segmented control. | 分段控件中的单个语言选项。 */
+  .yd-lang__btn {
+    padding: 0.25rem 0.625rem;
+    border: 1px solid transparent;
+    border-radius: 999px;
+    background-color: transparent;
+    color: var(--color-content-muted);
+    font: inherit;
+    font-size: 0.75rem;
+    font-weight: 500;
+    cursor: pointer;
+  }
+
+  .yd-lang__btn:hover {
+    color: var(--color-content);
+  }
+
+  .yd-lang__btn:focus-visible {
+    outline: 2px solid var(--color-accent);
+    outline-offset: 2px;
+  }
+
+  /* Active language, kept in sync by yd-i18n.js through aria-pressed and data-yd-lang-active. | 当前语言，由 yd-i18n.js 经 aria-pressed 与 data-yd-lang-active 维护。 */
+  .yd-lang__btn[aria-pressed="true"],
+  .yd-lang__btn[data-yd-lang-active="true"] {
+    border-color: var(--color-border-subtle);
+    background-color: var(--color-surface);
+    color: var(--color-content);
+    font-weight: 600;
+  }
+
+  /* ---------------------------------------------------------------- user menu | 用户菜单 */
+
+  /* Alpine driven dropdown anchored to the trigger. | 由 Alpine 驱动、锚定在触发按钮上的下拉菜单。 */
+  .yd-user {
+    position: relative;
+  }
+
+  /* Button that opens the user menu. | 打开用户菜单的按钮。 */
+  .yd-user__trigger {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.25rem 0.5rem;
+    border: 1px solid transparent;
+    border-radius: 999px;
+    background-color: transparent;
+    color: var(--color-content);
+    font: inherit;
+    font-size: 0.875rem;
+    cursor: pointer;
+  }
+
+  .yd-user__trigger:hover {
+    background-color: var(--color-surface-muted);
+  }
+
+  .yd-user__trigger:focus-visible {
+    outline: 2px solid var(--color-accent);
+    outline-offset: 2px;
+  }
+
+  /* Display name beside the avatar. | 头像旁的显示名。 */
+  .yd-user__name {
+    white-space: nowrap;
+  }
+
+  /* Panel; display is left to Alpine's x-show, so no display property may be declared here. | 面板；显示与否交给 Alpine 的 x-show，故此处不得声明 display。 */
+  .yd-user__menu {
+    position: absolute;
+    top: calc(100% + 0.5rem);
+    right: 0;
+    z-index: 40;
+    width: 14rem;
+    padding: 0.375rem;
+    border: 1px solid var(--color-border-subtle);
+    border-radius: 0.75rem;
+    background-color: var(--color-surface);
+    box-shadow: var(--shadow-card);
+  }
+
+  /* Name and address block at the top of the menu. | 菜单顶部的姓名与邮箱区块。 */
+  .yd-user__meta {
+    display: flex;
+    flex-direction: column;
+    gap: 0.125rem;
+    margin: 0 0 0.375rem;
+    padding: 0.5rem 0.625rem;
+    border-bottom: 1px solid var(--color-border-subtle);
+  }
+
+  /* Display name of the signed-in user. | 已登录用户的显示名。 */
+  .yd-user__title {
+    font-size: 0.875rem;
+    font-weight: 600;
+    color: var(--color-content);
+  }
+
+  /* Address of the signed-in user, ellipsised when long. | 已登录用户的邮箱，过长时以省略号截断。 */
+  .yd-user__subtitle {
+    overflow: hidden;
+    font-size: 0.75rem;
+    color: var(--color-content-muted);
+    text-overflow: ellipsis;
+  }
+
+  /* One menu row; links and the logout form share it, so the form itself draws no padding. | 单个菜单行；链接与退出表单共用，故表单本身不绘制内边距。 */
+  .yd-user__item {
+    display: block;
+    width: 100%;
+    margin: 0;
+    padding: 0.5rem 0.625rem;
+    border: 0;
+    border-radius: 0.5rem;
+    background-color: transparent;
+    color: var(--color-content);
+    font: inherit;
+    font-size: 0.875rem;
+    text-align: left;
+    text-decoration: none;
+    cursor: pointer;
+  }
+
+  .yd-user__item:hover {
+    background-color: var(--color-surface-muted);
+  }
+
+  .yd-user__item:focus-visible {
+    outline: 2px solid var(--color-accent);
+    outline-offset: -2px;
+  }
+
+  form.yd-user__item {
+    padding: 0;
+  }
+
+  form.yd-user__item:hover {
+    background-color: transparent;
+  }
+
+  /* Submit button inside the logout row; it paints the row so the form can stay padding free. | 退出行内的提交按钮；由它绘制该行，表单因此可保持无内边距。 */
+  .yd-user__link {
+    display: block;
+    width: 100%;
+    padding: 0.5rem 0.625rem;
+    border: 0;
+    border-radius: 0.5rem;
+    background-color: transparent;
+    color: inherit;
+    font: inherit;
+    font-size: 0.875rem;
+    text-align: left;
+    cursor: pointer;
+  }
+
+  .yd-user__link:hover {
+    background-color: var(--color-surface-muted);
+  }
+
+  .yd-user__link:focus-visible {
+    outline: 2px solid var(--color-accent);
+    outline-offset: -2px;
+  }
+
+  /* ---------------------------------------------------------------- composer and stream | 输入区与数据流 */
+
+  /* WebSocket input row: text field plus send button. | WebSocket 输入行：文本框加发送按钮。 */
+  .yd-composer {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+  }
+
+  /* Message box of the WebSocket composer. | WebSocket 输入区的消息输入框。 */
+  .yd-composer__input {
+    flex: 1 1 auto;
+    min-width: 0;
+  }
+
+  /* Append-only log of SSE and WebSocket messages. | 服务端推送与 WebSocket 消息的追加式日志。 */
+  .yd-stream {
+    display: flex;
+    flex-direction: column;
+    gap: 0.375rem;
+    max-height: 18rem;
+    min-height: 6rem;
+    overflow-y: auto;
+    padding: 0.75rem;
+    border: 1px solid var(--color-border-subtle);
+    border-radius: 0.5rem;
+    background-color: var(--color-surface-muted);
+    color: var(--color-content);
+    font-family: var(--font-mono);
+    font-size: 0.8125rem;
+    line-height: 1.35rem;
+  }
+
+  /* Shown while no message has arrived yet. | 尚无消息到达时显示的占位文案。 */
+  .yd-stream__placeholder {
+    margin: 0;
+    color: var(--color-content-muted);
+  }
+
+  /* ---------------------------------------------------------------- typography helpers | 排版辅助 */
+
+  /* Inline or block snippet: translation keys, formatted values and error details. | 行内或块级片段：翻译键、格式化取值与错误详情。 */
+  .yd-code {
+    padding: 0.125rem 0.375rem;
+    border: 1px solid var(--color-border-subtle);
+    border-radius: 0.375rem;
+    background-color: var(--color-surface-muted);
+    color: var(--color-content);
+    font-family: var(--font-mono);
+    font-size: 0.8125rem;
+  }
+
+  /* Definition list used by the i18n and formatting panels. | i18n 与格式化面板使用的定义列表。 */
+  .yd-dl {
+    display: grid;
+    gap: 0.5rem 1rem;
+    grid-template-columns: minmax(6rem, max-content) 1fr;
+    margin: 0;
+    font-size: 0.875rem;
+  }
+
+  .yd-dl dt {
+    color: var(--color-content-muted);
+    font-weight: 500;
+  }
+
+  .yd-dl dd {
+    margin: 0;
+    color: var(--color-content);
+  }
+
+  /* ---------------------------------------------------------------- flash | 闪现消息 */
+
+  /* Toast stack; #yd-connection is pushed into it by yd-app.js while a stream is down. | 提示堆栈；数据流断开时 yd-app.js 会把 #yd-connection 放入其中。 */
+  .yd-flash {
+    position: fixed;
+    right: 1rem;
+    bottom: 1rem;
+    z-index: 70;
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    max-width: min(24rem, calc(100vw - 2rem));
+  }
+
+  /* One message; the level is carried by the left border and by the alert role, not by colour alone. | 单条消息；级别由左侧边框与 alert 角色承载，不只依赖颜色。 */
+  .yd-flash__item {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.75rem;
+    padding: 0.75rem 1rem;
+    border: 1px solid var(--color-border-subtle);
+    border-left: 3px solid var(--color-border-subtle);
+    border-radius: 0.5rem;
+    background-color: var(--color-surface);
+    color: var(--color-content);
+    box-shadow: var(--shadow-card);
+    font-size: 0.875rem;
+    line-height: 1.35rem;
+  }
+
+  /* Informational level of partials/flash.html. | partials/flash.html 的信息级别。 */
+  .yd-flash__item--info {
+    border-left-color: var(--color-info);
+  }
+
+  /* Success level of partials/flash.html. | partials/flash.html 的成功级别。 */
+  .yd-flash__item--success {
+    border-left-color: var(--color-success);
+  }
+
+  /* Warning level, the one the offline banner also wears. | 警告级别，离线横幅也沿用该级别。 */
+  .yd-flash__item--warn {
+    border-left-color: var(--color-warning);
+  }
+
+  /* Error level of partials/flash.html. | partials/flash.html 的错误级别。 */
+  .yd-flash__item--error {
+    border-left-color: var(--color-danger);
+  }
+
+  /* Message text, taking the space left by the close button. | 消息文本，占据关闭按钮之外的空间。 */
+  .yd-flash__text {
+    flex: 1 1 auto;
+    min-width: 0;
+  }
+
+  /* Dismiss button of one message. | 单条消息的关闭按钮。 */
+  .yd-flash__close {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex: 0 0 auto;
+    padding: 0;
+    border: 0;
+    border-radius: 0.375rem;
+    background-color: transparent;
+    color: var(--color-content-muted);
+    cursor: pointer;
+  }
+
+  .yd-flash__close:hover {
+    color: var(--color-content);
+  }
+
+  .yd-flash__close:focus-visible {
+    outline: 2px solid var(--color-accent);
+    outline-offset: 2px;
+  }
+
   /* Request indicator: hidden until htmx marks the issuing element with .htmx-request. | 请求指示器：htmx 给发起元素加上 .htmx-request 之前保持隐藏。 */
   .htmx-indicator {
     opacity: 0;
@@ -154,6 +1649,18 @@
   .htmx-request.htmx-indicator {
     opacity: 1;
   }
+
+  /* The KPI skeleton is an in-flow child of the page, so it must collapse instead of merely fading, | KPI 骨架是页面中的常规流子元素，因此必须折叠而不是仅仅淡出，
+     or it would reserve its height for the whole session; out-of-flow indicators keep the opacity fade above. | 否则它会整场占用高度；脱离文档流的指示器仍沿用上方的透明度渐变。 */
+  .yd-page > .htmx-indicator {
+    display: none;
+  }
+
+  .yd-page > .htmx-request.htmx-indicator {
+    display: block;
+  }
+
+  /* ---------------------------------------------------------------- skeleton | 骨架屏 */
 
   /* Loading placeholder with a sweep highlight derived from the border token. | 加载占位块，其扫光高亮取自边框令牌。 */
   .yd-skeleton {
@@ -175,12 +1682,189 @@
     }
   }
 
-  /* Field level validation message. | 字段级校验提示。 */
-  .yd-form-error {
-    display: block;
-    margin-top: 0.25rem;
-    font-size: 0.8125rem;
-    line-height: 1.25rem;
-    color: var(--color-danger);
+  /* Placeholder rows standing in for a table body. | 顶替表格体的占位行。 */
+  .yd-skeleton__row {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 0.5rem 0.75rem;
+  }
+
+  /* One placeholder bar inside a skeleton row. | 骨架行中的单个占位条。 */
+  .yd-skeleton__block {
+    flex: 1 1 auto;
+    height: 0.875rem;
+    border-radius: 0.375rem;
+    background-color: var(--color-border-subtle);
+  }
+
+  /* Fixed width placeholders for the narrow columns of a row. | 行内窄列所用的固定宽度占位块。 */
+  .yd-skeleton__block--xs {
+    flex: 0 0 4rem;
+  }
+
+  /* Medium fixed-width placeholder. | 中等固定宽度的占位块。 */
+  .yd-skeleton__block--sm {
+    flex: 0 0 7rem;
+  }
+
+  /* Tall placeholder standing in for a metric value. | 顶替指标数值的高占位块。 */
+  .yd-skeleton__block--lg {
+    flex: 0 0 60%;
+    height: 1.5rem;
+  }
+
+  /* Card grid flavour used by the dashboard KPI placeholder. | 仪表盘 KPI 占位所用的卡片栅格变体。 */
+  .yd-skeleton--cards {
+    display: grid;
+    gap: 1rem;
+    grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr));
+    background-image: none;
+  }
+
+  /* One placeholder card of the KPI grid. | KPI 栅格中的单个占位卡片。 */
+  .yd-skeleton__card {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    padding: 1.25rem;
+    border: 1px solid var(--color-border-subtle);
+    border-radius: var(--radius-card);
+    background-color: var(--color-surface);
+  }
+
+  /* ---------------------------------------------------------------- auth pages | 认证页 */
+
+  /* Sign-in shell: the only body that is not the admin chrome. | 登录外壳：唯一不使用管理后台外壳的页面主体。 */
+  .yd-auth {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 100vh;
+    padding: 1.5rem;
+    color: var(--color-content);
+    font-family: var(--font-sans);
+  }
+
+  /* Width-capped column holding the sign-in card. | 承载登录卡片、限制最大宽度的列。 */
+  .yd-auth__main {
+    width: min(26rem, 100%);
+  }
+
+  /* Sign-in card: brand, headings, form and the language switch. | 登录卡片：品牌、标题、表单与语言切换。 */
+  .yd-auth__card {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+  }
+
+  /* Product lock-up above the login form. | 登录表单上方的产品标识。 */
+  .yd-auth__brand {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+  }
+
+  /* Sign-in heading. | 登录页标题。 */
+  .yd-auth__title {
+    margin: 0;
+    font-size: 1.375rem;
+    font-weight: 600;
+    color: var(--color-content);
+  }
+
+  /* Sign-in secondary line. | 登录页副标题。 */
+  .yd-auth__subtitle {
+    margin: 0;
+    font-size: 0.875rem;
+    color: var(--color-content-muted);
+  }
+
+  /* ---------------------------------------------------------------- error page | 错误页 */
+
+  /* Error shell, deliberately independent of the dashboard chrome. | 错误外壳，刻意不依赖管理后台外壳。 */
+  .yd-error {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 100vh;
+    padding: 1.5rem;
+    color: var(--color-content);
+    font-family: var(--font-sans);
+  }
+
+  /* Width-capped column holding the error card. | 承载错误卡片、限制最大宽度的列。 */
+  .yd-error__main {
+    width: min(34rem, 100%);
+  }
+
+  /* Error card body, left aligned so the status code anchors the block. | 错误卡片主体，左对齐使状态码锚定整块。 */
+  .yd-error__card {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.75rem;
+  }
+
+  /* Oversized status code, the page's single accent element. | 放大的状态码，全页唯一的强调元素。 */
+  .yd-error__status {
+    margin: 0;
+    color: var(--color-accent);
+    font-family: var(--font-mono);
+    font-size: 2.25rem;
+    font-weight: 700;
+    line-height: 1;
+  }
+
+  /* Short human title of the failure. | 故障的简短可读标题。 */
+  .yd-error__title {
+    margin: 0;
+    font-size: 1.25rem;
+    font-weight: 600;
+    color: var(--color-content);
+  }
+
+  /* Explanation of the failure. | 故障说明。 */
+  .yd-error__message {
+    margin: 0;
+    font-size: 0.875rem;
+    color: var(--color-content-muted);
+  }
+
+  /* Stack trace or diagnostic payload, wrapping long tokens instead of scrolling sideways. | 堆栈或诊断载荷，长记号折行而不横向滚动。 */
+  .yd-error__detail {
+    max-width: 100%;
+    margin: 0;
+    padding: 0.75rem 1rem;
+    overflow-x: auto;
+    white-space: pre-wrap;
+    word-break: break-word;
+    color: var(--color-content-muted);
+  }
+
+  /* Ways out: retry, go home or go back. | 出路：重试、回首页或返回。 */
+  .yd-error__actions {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+  }
+
+  /* ---------------------------------------------------------------- motion | 动效 */
+
+  /* Honour the reduced motion preference: the sweep, the request bar and the dialog entry are decorative. | 尊重「减少动态效果」偏好：扫光、请求条与对话框入场都只是装饰。 */
+  @media (prefers-reduced-motion: reduce) {
+    .yd-skeleton,
+    .yd-progress::after,
+    .yd-modal__panel {
+      animation: none;
+    }
+
+    .yd-sidebar,
+    .yd-skip-link,
+    .yd-nav__link,
+    .yd-table__row {
+      transition: none;
+    }
   }
 }
