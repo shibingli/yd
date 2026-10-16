@@ -2,11 +2,19 @@ package htmx
 
 import (
 	"bytes"
-	"fmt"
 	"io"
 	"net/http"
 
+	"github.com/yun-dev/yd/errx"
 	"github.com/yun-dev/yd/jsonx"
+)
+
+// Response errors, declared once at package level. | 响应错误，在包级声明一次。
+var (
+	// ErrBadStatus indicates the HTTP status code given to Error is outside the legal 100-999 range. | ErrBadStatus 表示传给 Error 的 HTTP 状态码不在合法的 100-999 区间。
+	ErrBadStatus = errx.New("htmx: invalid HTTP status code | htmx：非法的 HTTP 状态码")
+	// ErrWriteFragment indicates the error fragment could not be written to the response. | ErrWriteFragment 表示无法把错误片段写入响应。
+	ErrWriteFragment = errx.New("htmx: failed to write error fragment | htmx：写出错误片段失败")
 )
 
 // Htmx 4 response header names. | Htmx 4 响应头名称。
@@ -173,12 +181,12 @@ func Reselect(w http.ResponseWriter, selector string) { w.Header().Set(headerRes
 // otherwise an error is returned and nothing is written. | 否则返回错误且不写出任何内容。
 func Error(w http.ResponseWriter, status int, msg string) error {
 	if status < 100 || status > 999 {
-		return fmt.Errorf("htmx: 非法 HTTP 状态码 %d", status)
+		return errx.Detail(ErrBadStatus, "status %[1]d is out of range | 状态码 %[1]d 超出合法区间", status)
 	}
 	w.Header().Set(headerContentType, contentTypeHTML)
 	w.WriteHeader(status)
 	if _, err := io.WriteString(w, string(ErrorFragment(msg))); err != nil {
-		return fmt.Errorf("htmx: 写出错误片段失败: %w", err)
+		return errx.Wrap(err, ErrWriteFragment)
 	}
 	return nil
 }

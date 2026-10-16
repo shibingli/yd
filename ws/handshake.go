@@ -3,12 +3,12 @@ package ws
 import (
 	"crypto/sha1"
 	"errors"
-	"fmt"
 	"net/http"
 	"net/url"
 	"strings"
 
 	"github.com/yun-dev/yd/b64x"
+	"github.com/yun-dev/yd/errx"
 )
 
 // acceptKey computes the Sec-WebSocket-Accept value as specified by RFC 6455 §4.2.2. | acceptKey 按 RFC 6455 §4.2.2 计算 Sec-WebSocket-Accept。
@@ -46,27 +46,27 @@ func Upgrade(w http.ResponseWriter, r *http.Request, o Options) (*Conn, error) {
 	if r.Method != http.MethodGet {
 		w.Header().Set("Allow", http.MethodGet)
 		http.Error(w, "WebSocket 握手必须使用 GET", http.StatusMethodNotAllowed)
-		return nil, fmt.Errorf("%w: 方法 %s", ErrHandshake, r.Method)
+		return nil, errx.Detail(ErrHandshake, "method %[1]s | 方法 %[1]s", r.Method)
 	}
 	if !headerContainsToken(r.Header, "Connection", "upgrade") {
 		http.Error(w, "Connection 头缺少 upgrade", http.StatusBadRequest)
-		return nil, fmt.Errorf("%w: Connection 头缺少 upgrade", ErrHandshake)
+		return nil, errx.Detail(ErrHandshake, "Connection header lacks upgrade | Connection 头缺少 upgrade")
 	}
 	if !strings.EqualFold(strings.TrimSpace(r.Header.Get("Upgrade")), "websocket") {
 		http.Error(w, "Upgrade 头必须为 websocket", http.StatusBadRequest)
-		return nil, fmt.Errorf("%w: Upgrade 头非法", ErrHandshake)
+		return nil, errx.Detail(ErrHandshake, "Upgrade header is invalid | Upgrade 头非法")
 	}
 	if v := r.Header.Get("Sec-WebSocket-Version"); v != "13" {
 		w.Header().Set("Sec-WebSocket-Version", "13")
 		http.Error(w, "仅支持 WebSocket 版本 13", http.StatusUpgradeRequired)
-		return nil, fmt.Errorf("%w: 版本 %q 不受支持", ErrHandshake, v)
+		return nil, errx.Detail(ErrHandshake, "unsupported version %[1]q | 版本 %[1]q 不受支持", v)
 	}
 
 	key := r.Header.Get("Sec-WebSocket-Key")
 	decoded, err := b64x.StdEncoding.DecodeString(key)
 	if err != nil || len(decoded) != 16 {
 		http.Error(w, "Sec-WebSocket-Key 必须是 16 字节的 base64", http.StatusBadRequest)
-		return nil, fmt.Errorf("%w: Sec-WebSocket-Key 非法", ErrHandshake)
+		return nil, errx.Detail(ErrHandshake, "invalid Sec-WebSocket-Key | Sec-WebSocket-Key 非法")
 	}
 
 	if !checkOrigin(r, o.CheckOrigin) {
@@ -83,7 +83,7 @@ func Upgrade(w http.ResponseWriter, r *http.Request, o Options) (*Conn, error) {
 	}
 	netConn, brw, err := hj.Hijack()
 	if err != nil {
-		return nil, fmt.Errorf("%w: Hijack 失败: %v", ErrHandshake, err)
+		return nil, errx.WrapDetail(err, ErrHandshake, "Hijack failed | Hijack 失败")
 	}
 
 	var sb strings.Builder
@@ -103,7 +103,7 @@ func Upgrade(w http.ResponseWriter, r *http.Request, o Options) (*Conn, error) {
 
 	if _, err := netConn.Write([]byte(sb.String())); err != nil {
 		_ = netConn.Close()
-		return nil, fmt.Errorf("%w: 写入握手响应失败: %v", ErrHandshake, err)
+		return nil, errx.WrapDetail(err, ErrHandshake, "failed to write handshake response | 写入握手响应失败")
 	}
 
 	c := newConn(netConn, o, false)

@@ -10,13 +10,14 @@ package sse
 
 import (
 	"errors"
-	"fmt"
 	"io"
 	"net/http"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/yun-dev/yd/errx"
 )
 
 // ErrFlusherUnsupported is returned by NewWriter when the http.ResponseWriter does not implement http.Flusher. | ErrFlusherUnsupported 在 http.ResponseWriter 未实现 http.Flusher 时由 NewWriter 返回。
@@ -25,6 +26,12 @@ import (
 // would leave events sitting in a buffer, so this case is judged unusable outright. | 会把事件滞留在缓冲区，因此这种情况直接判定为不可用。
 var ErrFlusherUnsupported = errors.New(
 	"sse: http.ResponseWriter 未实现 http.Flusher，无法推送事件流")
+
+// ErrWriteStream is returned when the assembled event stream frame cannot be written to the response writer. | ErrWriteStream 在组装好的事件流帧无法写入响应写入器时返回。
+//
+// It keeps the underlying write error on the same chain, so errors.Is matches both the sentinel and that error | 它把底层写入错误保留在同一条链上，因此 errors.Is 既能匹配哨兵也能匹配该错误，
+// (typical causes are a dropped client connection or a closed response body). | （常见原因是客户端断连或响应体已关闭）。
+var ErrWriteStream = errx.New("sse: failed to write event stream | sse：写出事件流失败")
 
 // Default values. | 默认值。
 const (
@@ -252,7 +259,7 @@ func (w *Writer) writeEventLocked(e Event, forceData bool) error {
 func (w *Writer) flushLocked(buf []byte) error {
 	w.buf = buf
 	if _, err := w.w.Write(buf); err != nil {
-		return fmt.Errorf("sse: 写出事件流失败: %w", err)
+		return errx.Wrap(err, ErrWriteStream)
 	}
 	w.flusher.Flush()
 	return nil

@@ -5,7 +5,6 @@ import (
 	"context"
 	"crypto/rand"
 	"crypto/tls"
-	"fmt"
 	"net"
 	"net/http"
 	"net/url"
@@ -13,6 +12,7 @@ import (
 	"time"
 
 	"github.com/yun-dev/yd/b64x"
+	"github.com/yun-dev/yd/errx"
 )
 
 // DialOptions holds the client handshake parameters. | DialOptions 是客户端握手参数。
@@ -38,12 +38,12 @@ type DialOptions struct {
 func Dial(ctx context.Context, rawURL string, o DialOptions) (*Conn, error) {
 	u, err := url.Parse(rawURL)
 	if err != nil {
-		return nil, fmt.Errorf("%w: URL 解析失败: %v", ErrHandshake, err)
+		return nil, errx.WrapDetail(err, ErrHandshake, "URL parsing failed | URL 解析失败")
 	}
 	switch u.Scheme {
 	case "ws", "wss":
 	default:
-		return nil, fmt.Errorf("%w: 仅支持 ws/wss，得到 %q", ErrHandshake, u.Scheme)
+		return nil, errx.Detail(ErrHandshake, "only ws/wss are supported, got %[1]q | 仅支持 ws/wss，得到 %[1]q", u.Scheme)
 	}
 
 	timeout := o.HandshakeTimeout
@@ -71,7 +71,7 @@ func Dial(ctx context.Context, rawURL string, o DialOptions) (*Conn, error) {
 		netConn, err = dialer.DialContext(ctx, "tcp", host)
 	}
 	if err != nil {
-		return nil, fmt.Errorf("%w: 建连失败: %v", ErrHandshake, err)
+		return nil, errx.WrapDetail(err, ErrHandshake, "connect failed | 建连失败")
 	}
 
 	// generate a 16-byte random key | 生成 16 字节随机 key
@@ -114,32 +114,32 @@ func Dial(ctx context.Context, rawURL string, o DialOptions) (*Conn, error) {
 	_ = netConn.SetDeadline(deadline)
 	if _, err := netConn.Write([]byte(sb.String())); err != nil {
 		_ = netConn.Close()
-		return nil, fmt.Errorf("%w: 发送握手请求失败: %v", ErrHandshake, err)
+		return nil, errx.WrapDetail(err, ErrHandshake, "failed to send handshake request | 发送握手请求失败")
 	}
 
 	br := bufio.NewReader(netConn)
 	resp, err := http.ReadResponse(br, &http.Request{Method: http.MethodGet})
 	if err != nil {
 		_ = netConn.Close()
-		return nil, fmt.Errorf("%w: 读取握手响应失败: %v", ErrHandshake, err)
+		return nil, errx.WrapDetail(err, ErrHandshake, "failed to read handshake response | 读取握手响应失败")
 	}
 	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusSwitchingProtocols {
 		_ = netConn.Close()
-		return nil, fmt.Errorf("%w: %v (状态 %d)", errNotSwitchingProtocols, errNotSwitchingProtocols, resp.StatusCode)
+		return nil, errx.Detail(errNotSwitchingProtocols, "status %[1]d | 状态 %[1]d", resp.StatusCode)
 	}
 	if !headerContainsToken(resp.Header, "Connection", "upgrade") {
 		_ = netConn.Close()
-		return nil, fmt.Errorf("%w: 响应 Connection 头非法", ErrHandshake)
+		return nil, errx.Detail(ErrHandshake, "response Connection header is invalid | 响应 Connection 头非法")
 	}
 	if !strings.EqualFold(strings.TrimSpace(resp.Header.Get("Upgrade")), "websocket") {
 		_ = netConn.Close()
-		return nil, fmt.Errorf("%w: 响应 Upgrade 头非法", ErrHandshake)
+		return nil, errx.Detail(ErrHandshake, "response Upgrade header is invalid | 响应 Upgrade 头非法")
 	}
 	if got, want := resp.Header.Get("Sec-WebSocket-Accept"), acceptKey(key); got != want {
 		_ = netConn.Close()
-		return nil, fmt.Errorf("%w: Sec-WebSocket-Accept 不匹配（收到 %q）", ErrHandshake, got)
+		return nil, errx.Detail(ErrHandshake, "Sec-WebSocket-Accept mismatch, got %[1]q | Sec-WebSocket-Accept 不匹配（收到 %[1]q）", got)
 	}
 	_ = netConn.SetDeadline(time.Time{})
 

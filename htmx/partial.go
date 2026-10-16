@@ -2,14 +2,17 @@ package htmx
 
 import (
 	"bytes"
-	"fmt"
 	"html"
 	"html/template"
 	"io"
 	"strings"
 
+	"github.com/yun-dev/yd/errx"
 	"github.com/yun-dev/yd/router"
 )
+
+// ErrWritePartial indicates the rendered <hx-partial> block could not be written to w. | ErrWritePartial 表示无法把渲染好的 <hx-partial> 区块写入 w。
+var ErrWritePartial = errx.New("htmx: failed to write hx-partial | htmx：写出 hx-partial 失败")
 
 // Partial describes one <hx-partial> block, the multi-region update mechanism preferred by Htmx 4. | Partial 描述一个 <hx-partial> 区块，即 Htmx 4 首选的多区域更新机制。
 //
@@ -53,7 +56,7 @@ func RenderPartials(w io.Writer, parts ...Partial) error {
 	}
 
 	if _, err := w.Write(buf.Bytes()); err != nil {
-		return fmt.Errorf("htmx: 写出 hx-partial 失败: %w", err)
+		return errx.Wrap(err, ErrWritePartial)
 	}
 	return nil
 }
