@@ -10,7 +10,6 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
-	"strconv"
 	"sync"
 	"syscall"
 
@@ -41,6 +40,12 @@ var (
 	// ErrHTTP3ServerExited reports the HTTP/3 server stopping unexpectedly. | ErrHTTP3ServerExited 表示 HTTP/3 服务异常退出。
 	ErrHTTP3ServerExited = errx.New("server: HTTP/3 server exited | server：HTTP/3 服务退出")
 
+	// ErrHTTP3Listen reports a QUIC (UDP) socket that could not be bound. | ErrHTTP3Listen 表示 QUIC（UDP）套接字绑定失败。
+	ErrHTTP3Listen = errx.New("server: cannot bind the HTTP/3 UDP socket | server：无法绑定 HTTP/3 的 UDP 套接字")
+
+	// ErrHTTP3Close reports a QUIC (UDP) socket that could not be closed. | ErrHTTP3Close 表示 QUIC（UDP）套接字关闭失败。
+	ErrHTTP3Close = errx.New("server: cannot close the HTTP/3 UDP socket | server：无法关闭 HTTP/3 的 UDP 套接字")
+
 	// ErrTLSFilesMissing reports TLS enabled without cert_file and key_file. | ErrTLSFilesMissing 表示启用 TLS 却缺少 cert_file 与 key_file。
 	ErrTLSFilesMissing = errx.New("server: enabling TLS requires cert_file and key_file | server：启用 TLS 必须提供 cert_file 与 key_file")
 
@@ -66,6 +71,7 @@ type Server struct {
 	logger    *logx.Logger
 	httpSrv   *http.Server
 	h3Srv     *http3.Server
+	h3Conn    net.PacketConn
 	acme      *acmeManager
 	lifecycle *lifecycle.Registry
 
@@ -138,7 +144,7 @@ func (s *Server) HTTP3Addr() string {
 	if s.h3Port == 0 {
 		return ""
 	}
-	return net.JoinHostPort(s.opts.Host, strconv.Itoa(s.h3Port))
+	return s.h3PublicAddr()
 }
 
 // AltSvc returns the Alt-Svc header value; empty when HTTP/3 is off. | AltSvc 返回 Alt-Svc 头取值，未启用 HTTP/3 时为空。
@@ -174,20 +180,24 @@ func (s *Server) Start() error {
 	// HTTP/3 必须在构建处理器**之前**确定：Alt-Svc 通告需要注入处理器链，
 	// 而通告内容依赖最终绑定的 UDP 端口。
 	if s.opts.HTTP3.Enabled {
-		port := s.opts.HTTP3.Port
-		if port == 0 {
-			port = s.tcpPort
-		}
-		s.h3Port = port
 		if tlsConf == nil {
 			_ = ln.Close()
 			return ErrHTTP3RequiresTLS
 		}
+		// UDP 绑定在这里同步完成，端口号也取自真正绑定的套接字。| The UDP bind happens here,
+		// synchronously, and the port is taken from the socket that was really bound.
+		h3Conn, port, err := s.bindHTTP3()
+		if err != nil {
+			_ = ln.Close()
+			return err
+		}
+		s.h3Conn = h3Conn
+		s.h3Port = port
 		// QUIC 需要独立的 ALPN 集合，必须克隆后修改，避免影响 TCP 侧的协商
 		h3TLS := tlsConf.Clone()
 		h3TLS.NextProtos = []string{"h3"}
 		s.h3Srv = &http3.Server{
-			Addr:      s.opts.h3Addr(s.tcpPort),
+			Addr:      h3Conn.LocalAddr().String(),
 			Port:      port,
 			TLSConfig: h3TLS,
 			Handler:   nil, // 在处理器构建完成后回填
@@ -238,10 +248,12 @@ func (s *Server) Start() error {
 		}
 	}()
 
-	// UDP 侧
+	// UDP 侧：套接字已在 Start 返回前绑定，这里只负责服务它。| UDP side: the socket was already
+	// bound before Start returned, so this only serves it.
 	if s.h3Srv != nil {
+		conn := s.h3Conn
 		go func() {
-			if err := s.h3Srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			if err := s.h3Srv.Serve(conn); err != nil && !errors.Is(err, http.ErrServerClosed) {
 				s.reportErr(errx.Wrap(err, ErrHTTP3ServerExited))
 			}
 		}()
@@ -250,7 +262,7 @@ func (s *Server) Start() error {
 	// 注意：此处仍持有 s.mu，不能调用会再次加锁的 Addr()/HTTP3Addr()
 	h3Addr := ""
 	if s.h3Port != 0 {
-		h3Addr = net.JoinHostPort(s.opts.Host, strconv.Itoa(s.h3Port))
+		h3Addr = s.h3PublicAddr()
 	}
 	s.logger.Info("server started | 服务器已启动",
 		logx.Str("addr", ln.Addr().String()),
@@ -314,6 +326,7 @@ func (s *Server) Shutdown(ctx context.Context) error {
 		return nil
 	}
 	h3 := s.h3Srv
+	h3Conn := s.h3Conn
 	hs := s.httpSrv
 	s.mu.Unlock()
 
@@ -336,10 +349,19 @@ func (s *Server) Shutdown(ctx context.Context) error {
 
 	var errs []error
 
-	// ② HTTP/3 无法排空，直接关闭。| ② HTTP/3 cannot drain, so it is closed outright.
+	// ② HTTP/3 无法排空，直接关闭。http3.Server.Close 只关闭它自己创建的监听器，
+	// 而这里的套接字由 Start 绑定后交给 Serve，因此必须自行关闭，否则 UDP 端口会一直占着。
+	// | ② HTTP/3 cannot drain, so it is closed outright. http3.Server.Close only closes listeners it
+	// created itself, and this socket was bound by Start and handed to Serve, so it has to be closed
+	// here or the UDP port stays occupied.
 	if h3 != nil {
 		if err := h3.Close(); err != nil {
 			errs = append(errs, err)
+		}
+	}
+	if h3Conn != nil {
+		if err := h3Conn.Close(); err != nil {
+			errs = append(errs, errx.Wrap(err, ErrHTTP3Close))
 		}
 	}
 

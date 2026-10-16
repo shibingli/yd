@@ -157,6 +157,28 @@ ok  github.com/shibingli/yd/e2e  27.117s
    **变异验证**：把 `ReadFrom` 改名后，`TestReadFromKeepsUnderlyingFastPath` 与
    `TestWrapperOverRealConnectionKeepsFastPath`（后者在**真实 HTTP/1.1 连接**上断言）
    双双以预期文案转红，还原后恢复绿——护栏真实有效。
+3. **HTTP/3 的 UDP 绑定失败被完全吞掉**（既有缺陷，非本轮引入）。`TestAltSvcHeaderAndHTTP3RoundTrip`
+   间歇失败（基线提交上 `-count=5` 挂 5 轮），症状是客户端以 `timeout: no recent network activity`
+   超时。定位过程：先用**裸 `http3.Server` + 显式 `net.ListenUDP` + `Serve(conn)`** 做对照，
+   回环往返 **4.87ms 成功**，排除环境（防火墙 / 本机 QUIC 不可用）；再把 yd 的构造方式
+   （`Addr` 复用 TCP 端口 + goroutine 里 `ListenAndServe`）原样复刻，拿到决定性证据：
+
+   ```
+   listen udp 127.0.0.1:56159: bind: An attempt was made to access a socket in a way forbidden by its access permissions.
+   ```
+
+   两个缺陷叠加：① UDP 复用 TCP 的端口号，而 Windows 上该号码落在**保留区间**时绑定会被直接拒绝
+   （TCP 端口是随机临时端口，因此时好时坏）；② 绑定发生在 goroutine 里，**失败无人上报**——
+   `Start()` 返回 nil、`HTTP3Addr()` 报出看似健康的地址、`Alt-Svc` 通告一个无人监听的端点，
+   唯一的症状就是客户端静默超时。
+   修法：`bindHTTP3` 在 `Start()` 返回前**同步**绑定，端口号取自真正绑定的套接字；自动模式下
+   复用失败则回退到系统分配的 UDP 端口并让 Alt-Svc 通告真实端口，显式配置的端口则严格报错
+   （`ErrHTTP3Listen`）；套接字由服务器自行关闭（`ErrHTTP3Close`），因为 `http3.Server.Close`
+   只关它自己创建的监听器。
+   **验证**：新增 5 项回归测试（Start 返回时端口已被占用 / 关闭后端口释放 / 自动模式回退且
+   Alt-Svc 通告真实端口 / 显式端口失败可从 `Start` 用 `errors.Is` 命中 / 真实 QUIC 往返连跑 8 轮），
+   并在 `-race` 下 `-count=10` 全绿、整个 `server` 包 `-count=5` 全绿（修复前为 `-count=5` 挂 3 轮）。
+   **变异验证**：移除回退分支后 `TestHTTP3FallsBackToOSAssignedPort` 以 `ErrHTTP3Listen` 转红。
 
 ## 4. 已知限制与未覆盖项
 
