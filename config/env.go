@@ -10,14 +10,14 @@ import (
 	"github.com/spf13/afero"
 )
 
-// loadEnvFile 通过 afero 读取 .env 文件，并把其中的键值注入进程环境变量。
+// loadEnvFile reads the .env file via afero and injects its key-value pairs into the process environment variables. | loadEnvFile 通过 afero 读取 .env 文件，并把其中的键值注入进程环境变量。
 //
-// 注入规则：
-//   - 仅当同名变量在真实环境中**不存在**时才调用 os.Setenv，
-//     因此真实环境变量永远高于 .env，绝不被覆盖；
-//   - 注入后的键与普通环境变量等价（例如 YD_DB_MAXCONN 对应 db.maxconn），
-//     在 viper 的优先级中位于配置文件之上；
-//   - 文件不存在是正常情况（未使用 .env 的项目），返回 nil。
+// Injection rules: | 注入规则：
+//   - os.Setenv is called only when a variable of the same name does **not** exist in the real environment, |   - 仅当同名变量在真实环境中**不存在**时才调用 os.Setenv，
+//     so real environment variables always outrank .env and are never overwritten; |     因此真实环境变量永远高于 .env，绝不被覆盖；
+//   - injected keys are equivalent to ordinary environment variables (e.g. YD_DB_MAXCONN corresponds to db.maxconn), |   - 注入后的键与普通环境变量等价（例如 YD_DB_MAXCONN 对应 db.maxconn），
+//     and rank above config files in viper's precedence; |     在 viper 的优先级中位于配置文件之上；
+//   - a missing file is normal (a project not using .env) and returns nil. |   - 文件不存在是正常情况（未使用 .env 的项目），返回 nil。
 func (c *Config) loadEnvFile(path string) error {
 	data, err := afero.ReadFile(c.fs, path)
 	if err != nil {
@@ -29,7 +29,7 @@ func (c *Config) loadEnvFile(path string) error {
 
 	for key, val := range parseDotEnv(data) {
 		if _, exists := os.LookupEnv(key); exists {
-			continue // 真实环境变量优先，禁止覆盖
+			continue // Real environment variables take precedence; overwriting is forbidden. | 真实环境变量优先，禁止覆盖
 		}
 		if err := os.Setenv(key, val); err != nil {
 			return fmt.Errorf("config: 注入环境变量 %s 失败: %w", key, err)
@@ -38,20 +38,20 @@ func (c *Config) loadEnvFile(path string) error {
 	return nil
 }
 
-// parseDotEnv 解析 .env 文本，支持：
+// parseDotEnv parses .env text, supporting: | parseDotEnv 解析 .env 文本，支持：
 //
-//   - 空行与 # 开头的整行注释（以及 UTF-8 BOM）；
-//   - export 前缀（export KEY=VALUE）；
-//   - 单引号（原样保留）与双引号（解析 \n \r \t \" \\ 转义）包裹的值；
-//   - 裸值中的行内注释（# 前必须有空白）；
-//   - CRLF 换行；同名键后者覆盖前者。
+//   - blank lines and whole-line comments starting with # (plus a UTF-8 BOM); |   - 空行与 # 开头的整行注释（以及 UTF-8 BOM）；
+//   - the export prefix (export KEY=VALUE); |   - export 前缀（export KEY=VALUE）；
+//   - values wrapped in single quotes (kept as-is) or double quotes (with \n \r \t \" \\ escapes parsed); |   - 单引号（原样保留）与双引号（解析 \n \r \t \" \\ 转义）包裹的值；
+//   - inline comments in bare values (# must be preceded by whitespace); |   - 裸值中的行内注释（# 前必须有空白）；
+//   - CRLF line endings; for duplicate keys the later one overrides the earlier. |   - CRLF 换行；同名键后者覆盖前者。
 //
-// 无法识别的行（无 = 号、键名为空或含空白/引号）会被静默跳过，
-// 以保证 .env 的容错性。
+// Unrecognized lines (no = sign, empty key, or key containing whitespace/quotes) are silently skipped, | 无法识别的行（无 = 号、键名为空或含空白/引号）会被静默跳过，
+// to keep .env parsing tolerant. | 以保证 .env 的容错性。
 func parseDotEnv(data []byte) map[string]string {
 	out := make(map[string]string)
 	text := string(data)
-	// 容忍 UTF-8 BOM（EF BB BF）。
+	// Tolerate a UTF-8 BOM (EF BB BF). | 容忍 UTF-8 BOM（EF BB BF）。
 	if len(text) >= 3 && text[0] == 0xEF && text[1] == 0xBB && text[2] == 0xBF {
 		text = text[3:]
 	}
@@ -77,7 +77,7 @@ func parseDotEnv(data []byte) map[string]string {
 	return out
 }
 
-// unquoteEnvValue 处理 .env 的值部分：剥离包裹引号，或按需截断裸值的行内注释。
+// unquoteEnvValue handles the value part of .env: strips wrapping quotes, or truncates an inline comment in a bare value as needed. | unquoteEnvValue 处理 .env 的值部分：剥离包裹引号，或按需截断裸值的行内注释。
 func unquoteEnvValue(v string) string {
 	if v == "" {
 		return ""
@@ -99,7 +99,7 @@ func unquoteEnvValue(v string) string {
 				return inner
 			}
 		}
-		// 引号未闭合：退化为裸值处理。
+		// Unclosed quote: fall back to bare-value handling. | 引号未闭合：退化为裸值处理。
 	}
 
 	for i := 0; i < len(v); i++ {
@@ -113,7 +113,7 @@ func unquoteEnvValue(v string) string {
 	return v
 }
 
-// unescapeDoubleQuoted 解析双引号值中的转义序列，未知转义按原文保留。
+// unescapeDoubleQuoted parses escape sequences inside a double-quoted value; unknown escapes are kept verbatim. | unescapeDoubleQuoted 解析双引号值中的转义序列，未知转义按原文保留。
 func unescapeDoubleQuoted(v string) string {
 	if !strings.ContainsRune(v, '\\') {
 		return v

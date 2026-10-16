@@ -9,7 +9,7 @@ import (
 	"testing"
 )
 
-// randomBytes 返回 n 字节确定性伪随机数据（固定种子，保证测试可复现）。
+// randomBytes returns n bytes of deterministic pseudo-random data (fixed seed, guaranteeing reproducible tests). | randomBytes 返回 n 字节确定性伪随机数据（固定种子，保证测试可复现）。
 func randomBytes(n int) []byte {
 	b := make([]byte, n)
 	rnd := rand.New(rand.NewSource(int64(n) + 1))
@@ -19,8 +19,8 @@ func randomBytes(n int) []byte {
 	return b
 }
 
-// TestStdEncodingMatchesStdlib 对长度 0..256 的输入逐一与 encoding/base64 对拍：
-// 编码、解码、追加式编解码全部一致，并覆盖含不可解码字符的错误情形。
+// TestStdEncodingMatchesStdlib cross-checks inputs of length 0..256 one by one against encoding/base64: | TestStdEncodingMatchesStdlib 对长度 0..256 的输入逐一与 encoding/base64 对拍：
+// encoding, decoding and append-style codec are all identical, and the error cases containing undecodable characters are covered. | 编码、解码、追加式编解码全部一致，并覆盖含不可解码字符的错误情形。
 func TestStdEncodingMatchesStdlib(t *testing.T) {
 	for n := 0; n <= 256; n++ {
 		src := randomBytes(n)
@@ -39,7 +39,7 @@ func TestStdEncodingMatchesStdlib(t *testing.T) {
 			t.Fatalf("n=%d: AppendEncode = %q，期望 %q", n, got, wantEnc)
 		}
 
-		// 解码路径与标准库对拍（长度、内容、错误三者一致）。
+		// The decode path is cross-checked against the standard library (length, content and error all identical). | 解码路径与标准库对拍（长度、内容、错误三者一致）。
 		stdOut := make([]byte, stdb64.StdEncoding.DecodedLen(len(wantEnc)))
 		stdN, stdErr := stdb64.StdEncoding.Decode(stdOut, []byte(wantEnc))
 		out := make([]byte, StdEncoding.DecodedLen(len(wantEnc)))
@@ -68,7 +68,7 @@ func TestStdEncodingMatchesStdlib(t *testing.T) {
 			t.Fatalf("n=%d: AppendDecode 未正确追加（got %d 字节）", n, len(appended))
 		}
 
-		// 换行容错：encoding/base64 会忽略 \r 与 \n，两个后端语义必须一致。
+		// Newline tolerance: encoding/base64 ignores \r and \n, so the semantics of both backends must be identical. | 换行容错：encoding/base64 会忽略 \r 与 \n，两个后端语义必须一致。
 		var wrapped strings.Builder
 		for i, c := range wantEnc {
 			if i > 0 && i%4 == 0 {
@@ -98,7 +98,7 @@ func TestStdEncodingMatchesStdlib(t *testing.T) {
 			continue
 		}
 
-		// 不可解码字符：把编码串中间一个字符替换为 '!'，两个实现都必须报错。
+		// Undecodable character: replacing one character in the middle of the encoded string with '!' must make both implementations report an error. | 不可解码字符：把编码串中间一个字符替换为 '!'，两个实现都必须报错。
 		bad := []byte(wantEnc)
 		bad[len(bad)/2] = '!'
 		if _, err := StdEncoding.Decode(make([]byte, StdEncoding.DecodedLen(len(bad))), bad); err == nil {
@@ -113,8 +113,8 @@ func TestStdEncodingMatchesStdlib(t *testing.T) {
 	}
 }
 
-// TestURLAndRawVariants 覆盖 URL 安全与无填充两类变体：输出与标准库逐一对拍，
-// 并校验字母表与填充符的差异。
+// TestURLAndRawVariants covers the URL-safe and unpadded variants: outputs are cross-checked against the standard library one by one, | TestURLAndRawVariants 覆盖 URL 安全与无填充两类变体：输出与标准库逐一对拍，
+// and the differences in alphabet and padding character are verified. | 并校验字母表与填充符的差异。
 func TestURLAndRawVariants(t *testing.T) {
 	variants := []struct {
 		name    string
@@ -137,7 +137,7 @@ func TestURLAndRawVariants(t *testing.T) {
 				if got != want {
 					t.Fatalf("n=%d: EncodeToString = %q，期望 %q", n, got, want)
 				}
-				// 填充符只在最后不足 3 字节且带填充的编码中出现。
+				// The padding character only appears in padded encodings whose final group is shorter than 3 bytes. | 填充符只在最后不足 3 字节且带填充的编码中出现。
 				wantPad := v.padded && n%3 != 0
 				if strings.ContainsRune(got, '=') != wantPad {
 					t.Fatalf("n=%d: 填充符不符合预期（期望填充=%v）: %q", n, wantPad, got)
@@ -166,7 +166,7 @@ func TestURLAndRawVariants(t *testing.T) {
 				}
 			}
 
-			// 字母表差异的确定性样例：0xFB 0xEF 0xBE 在标准字母表下为 "++++"、URL 下为 "----"。
+			// Deterministic sample of the alphabet difference: 0xFB 0xEF 0xBE is "++++" under the standard alphabet and "----" under the URL alphabet. | 字母表差异的确定性样例：0xFB 0xEF 0xBE 在标准字母表下为 "++++"、URL 下为 "----"。
 			sample := []byte{0xFB, 0xEF, 0xBE}
 			if got, want := v.enc.EncodeToString(sample), v.std.EncodeToString(sample); got != want {
 				t.Fatalf("样例编码 = %q，期望 %q", got, want)
@@ -185,7 +185,7 @@ func TestURLAndRawVariants(t *testing.T) {
 	}
 }
 
-// TestAppendEncodePreallocates 验证容量充足时 AppendEncode 复用底层数组（&dst[0] 指针不变）。
+// TestAppendEncodePreallocates verifies that AppendEncode reuses the underlying array when capacity is sufficient (the &dst[0] pointer stays unchanged). | TestAppendEncodePreallocates 验证容量充足时 AppendEncode 复用底层数组（&dst[0] 指针不变）。
 func TestAppendEncodePreallocates(t *testing.T) {
 	src := randomBytes(200)
 	want := StdEncoding.EncodeToString(src)
@@ -208,7 +208,7 @@ func TestAppendEncodePreallocates(t *testing.T) {
 		t.Fatalf("追加内容 = %q，期望 %q", out[8:], want)
 	}
 
-	// 容量不足时必须扩容，且不能破坏原有数据。
+	// When capacity is insufficient it must grow, and must not corrupt the existing data. | 容量不足时必须扩容，且不能破坏原有数据。
 	small := make([]byte, 8, 8)
 	copy(small, "prefix!!")
 	out = StdEncoding.AppendEncode(small, src)
@@ -217,7 +217,7 @@ func TestAppendEncodePreallocates(t *testing.T) {
 	}
 }
 
-// TestAppendDecodeReusesBuffer 验证容量充足时 AppendDecode 复用底层数组并保持追加语义。
+// TestAppendDecodeReusesBuffer verifies that AppendDecode reuses the underlying array when capacity is sufficient and keeps append semantics. | TestAppendDecodeReusesBuffer 验证容量充足时 AppendDecode 复用底层数组并保持追加语义。
 func TestAppendDecodeReusesBuffer(t *testing.T) {
 	src := randomBytes(200)
 	encoded := StdEncoding.EncodeToString(src)
@@ -240,7 +240,7 @@ func TestAppendDecodeReusesBuffer(t *testing.T) {
 		t.Fatalf("解码结果不一致（got %d 字节，期望 %d 字节）", len(out)-4, len(src))
 	}
 
-	// 连续追加：第二次调用仍复用同一底层数组。
+	// Consecutive appends: the second call still reuses the same underlying array. | 连续追加：第二次调用仍复用同一底层数组。
 	out, err = StdEncoding.AppendDecode(out, []byte(encoded))
 	if err != nil {
 		t.Fatalf("第二次 AppendDecode 失败: %v", err)
@@ -253,7 +253,7 @@ func TestAppendDecodeReusesBuffer(t *testing.T) {
 	}
 }
 
-// TestAppendDecodeKeepsCapacity 验证解码不会越过可用容量写入：结果之外的哨兵字节至多被内部写余量触碰 1 字节。
+// TestAppendDecodeKeepsCapacity verifies that decoding does not write past the available capacity: sentinel bytes beyond the result are touched by at most 1 byte of the internal write margin. | TestAppendDecodeKeepsCapacity 验证解码不会越过可用容量写入：结果之外的哨兵字节至多被内部写余量触碰 1 字节。
 func TestAppendDecodeKeepsCapacity(t *testing.T) {
 	src := randomBytes(300)
 	encoded := StdEncoding.EncodeToString(src)
@@ -278,7 +278,7 @@ func TestAppendDecodeKeepsCapacity(t *testing.T) {
 	}
 }
 
-// TestDecodeErrorOnInvalid 覆盖非法输入的错误语义：返回 (0, err)，错误可用 errors.Is 判定。
+// TestDecodeErrorOnInvalid covers the error semantics of invalid input: it returns (0, err), and the error can be classified with errors.Is. | TestDecodeErrorOnInvalid 覆盖非法输入的错误语义：返回 (0, err)，错误可用 errors.Is 判定。
 func TestDecodeErrorOnInvalid(t *testing.T) {
 	cases := []struct {
 		name string
@@ -350,7 +350,7 @@ func TestDecodeErrorOnInvalid(t *testing.T) {
 	})
 }
 
-// TestEncodedLenDecodedLenMatchStdlib 校验长度函数与 encoding/base64 完全一致。
+// TestEncodedLenDecodedLenMatchStdlib verifies that the length functions match encoding/base64 exactly. | TestEncodedLenDecodedLenMatchStdlib 校验长度函数与 encoding/base64 完全一致。
 func TestEncodedLenDecodedLenMatchStdlib(t *testing.T) {
 	variants := []struct {
 		name string
@@ -376,7 +376,7 @@ func TestEncodedLenDecodedLenMatchStdlib(t *testing.T) {
 	}
 }
 
-// TestBackendNameIsKnown 校验 Backend 只返回两个约定名称之一。
+// TestBackendNameIsKnown verifies that Backend returns only one of the two agreed names. | TestBackendNameIsKnown 校验 Backend 只返回两个约定名称之一。
 func TestBackendNameIsKnown(t *testing.T) {
 	switch got := Backend(); got {
 	case "base64x", "encoding/base64":
@@ -386,7 +386,7 @@ func TestBackendNameIsKnown(t *testing.T) {
 	}
 }
 
-// TestEncodingsAreUsable 确认四个编码变体均已初始化且可独立工作。
+// TestEncodingsAreUsable confirms that all four encoding variants are initialized and can work independently. | TestEncodingsAreUsable 确认四个编码变体均已初始化且可独立工作。
 func TestEncodingsAreUsable(t *testing.T) {
 	src := []byte("yun-dev yd framework")
 	for name, enc := range map[string]*Encoding{

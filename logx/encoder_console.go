@@ -5,13 +5,13 @@ import (
 	"time"
 )
 
-// appendConsoleRecord 将一条完整记录（含结尾换行）按人类可读的 console 格式追加到 dst。
+// appendConsoleRecord appends one complete record (including the trailing newline) to dst in the human-readable console format. | appendConsoleRecord 将一条完整记录（含结尾换行）按人类可读的 console 格式追加到 dst。
 //
-// 记录形状：
+// Record shape: | 记录形状：
 //
 //	15:04:05.000 LEVEL service logger (file.go:12) msg key=value key2=3
 //
-// 其中 service/logger/caller 仅在配置后出现，字段值按需引号包裹。
+// Here service/logger/caller appear only once configured, and field values are quoted when needed. | 其中 service/logger/caller 仅在配置后出现，字段值按需引号包裹。
 func appendConsoleRecord(dst []byte, l *Logger, lvl Level, t time.Time, msg, caller string, extra []Field) []byte {
 	dst = appendTime(dst, t, l.timeFormat)
 	dst = append(dst, ' ')
@@ -36,7 +36,7 @@ func appendConsoleRecord(dst []byte, l *Logger, lvl Level, t time.Time, msg, cal
 	return append(dst, '\n')
 }
 
-// appendConsoleFields 依次编码一组字段。
+// appendConsoleFields encodes a group of fields in order. | appendConsoleFields 依次编码一组字段。
 func appendConsoleFields(dst []byte, fields []Field, timeFormat string) []byte {
 	for i := range fields {
 		dst = appendConsoleField(dst, &fields[i], timeFormat)
@@ -44,8 +44,8 @@ func appendConsoleFields(dst []byte, fields []Field, timeFormat string) []byte {
 	return dst
 }
 
-// appendConsoleField 将单个字段编码为 " key=value" 追加到 dst。
-// UnknownType 字段跳过；字符串与时长使用人类可读形式，其余类型复用 JSON 值编码。
+// appendConsoleField encodes a single field as " key=value" and appends it to dst. | appendConsoleField 将单个字段编码为 " key=value" 追加到 dst。
+// UnknownType fields are skipped; strings and durations use human-readable forms, while all other types reuse the JSON value encoder. | UnknownType 字段跳过；字符串与时长使用人类可读形式，其余类型复用 JSON 值编码。
 func appendConsoleField(dst []byte, f *Field, timeFormat string) []byte {
 	if f.Type == UnknownType {
 		return dst
@@ -69,8 +69,8 @@ func appendConsoleField(dst []byte, f *Field, timeFormat string) []byte {
 	return appendJSONValue(dst, f, timeFormat)
 }
 
-// appendConsoleString 在 console 格式下输出字符串：无歧义时原样输出，否则用 Go 转义
-// （strconv.AppendQuote，例如换行输出为 \n、控制字符输出为 \x01）。
+// appendConsoleString outputs a string in console format: verbatim when unambiguous, otherwise with Go escaping | appendConsoleString 在 console 格式下输出字符串：无歧义时原样输出，否则用 Go 转义
+// (strconv.AppendQuote, so a newline is written as \n and a control character as \x01). | （strconv.AppendQuote，例如换行输出为 \n、控制字符输出为 \x01）。
 func appendConsoleString(dst []byte, s string) []byte {
 	if consoleSafe(s) {
 		return append(dst, s...)
@@ -78,7 +78,7 @@ func appendConsoleString(dst []byte, s string) []byte {
 	return strconv.AppendQuote(dst, s)
 }
 
-// consoleSafe 报告 s 能否不加引号地出现在 console 行中。
+// consoleSafe reports whether s can appear unquoted in a console line. | consoleSafe 报告 s 能否不加引号地出现在 console 行中。
 func consoleSafe(s string) bool {
 	if s == "" {
 		return false
@@ -91,7 +91,7 @@ func consoleSafe(s string) bool {
 	return true
 }
 
-// appendHumanDuration 以人类可读形式追加时长：ns / µs / ms / s。
+// appendHumanDuration appends a duration in human-readable form: ns / µs / ms / s. | appendHumanDuration 以人类可读形式追加时长：ns / µs / ms / s。
 func appendHumanDuration(dst []byte, ns int64) []byte {
 	if ns == 0 {
 		return append(dst, "0s"...)
@@ -116,7 +116,7 @@ func appendHumanDuration(dst []byte, ns int64) []byte {
 	}
 }
 
-// levelLabel 返回 5 字符定宽的级别标签，便于肉眼纵向扫描。
+// levelLabel returns a fixed-width 5-character level label, making vertical scanning by eye easy. | levelLabel 返回 5 字符定宽的级别标签，便于肉眼纵向扫描。
 func levelLabel(lvl Level) string {
 	switch lvl {
 	case DebugLevel:

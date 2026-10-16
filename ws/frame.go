@@ -5,7 +5,7 @@ import (
 	"io"
 )
 
-// frameHeader 是解析后的帧头。
+// frameHeader is a parsed frame header. | frameHeader 是解析后的帧头。
 type frameHeader struct {
 	fin     bool
 	rsv1    bool
@@ -17,9 +17,9 @@ type frameHeader struct {
 	length  int64
 }
 
-// readFrameHeader 从 r 读取并解析帧头。
+// readFrameHeader reads and parses a frame header from r. | readFrameHeader 从 r 读取并解析帧头。
 //
-// 传入的 buf 用于暂存扩展长度与掩码键，长度至少为 8，避免分配。
+// The supplied buf is used to hold the extended length and the mask key; it must be at least 8 bytes long so that no allocation is needed. | 传入的 buf 用于暂存扩展长度与掩码键，长度至少为 8，避免分配。
 func readFrameHeader(r io.Reader, buf []byte) (frameHeader, error) {
 	var h frameHeader
 	var head [2]byte
@@ -46,7 +46,7 @@ func readFrameHeader(r io.Reader, buf []byte) (frameHeader, error) {
 		}
 		v := binary.BigEndian.Uint64(buf[:8])
 		if v > 1<<62 {
-			// RFC 6455 §5.2：最高位必须为 0，且长度不得超过实现上限
+			// RFC 6455 §5.2: the most significant bit must be 0, and the length must not exceed the implementation limit | RFC 6455 §5.2：最高位必须为 0，且长度不得超过实现上限
 			return h, ErrMessageTooBig
 		}
 		length = int64(v)
@@ -61,9 +61,9 @@ func readFrameHeader(r io.Reader, buf []byte) (frameHeader, error) {
 	return h, nil
 }
 
-// writeFrameHeader 把帧头写入 dst，返回写入字节数。
+// writeFrameHeader writes a frame header into dst and returns the number of bytes written. | writeFrameHeader 把帧头写入 dst，返回写入字节数。
 //
-// dst 需至少 maxHeaderSize 字节，通常来自栈上数组。
+// dst must be at least maxHeaderSize bytes long; it usually comes from a stack array. | dst 需至少 maxHeaderSize 字节，通常来自栈上数组。
 func writeFrameHeader(dst []byte, fin bool, opcode OpCode, masked bool, payloadLen int64) int {
 	b0 := byte(opcode)
 	if fin {
@@ -95,10 +95,10 @@ func writeFrameHeader(dst []byte, fin bool, opcode OpCode, masked bool, payloadL
 	}
 }
 
-// maskBytes 以 key 对 b 做 XOR 掩码变换，pos 为 b[0] 在整条消息中的偏移。
+// maskBytes applies the XOR mask transform with key to b, where pos is the offset of b[0] within the whole message. | maskBytes 以 key 对 b 做 XOR 掩码变换，pos 为 b[0] 在整条消息中的偏移。
 //
-// XOR 是自反的：同一函数既用于加掩码也用于解掩码。
-// 对长度 >= 8 的片段按 8 字节字（uint64）批量处理，减少逐字节开销。
+// XOR is self-inverse: the same function both applies and removes the mask. | XOR 是自反的：同一函数既用于加掩码也用于解掩码。
+// Chunks of length >= 8 are processed in 8-byte words (uint64) to reduce per-byte overhead. | 对长度 >= 8 的片段按 8 字节字（uint64）批量处理，减少逐字节开销。
 func maskBytes(key [4]byte, pos int, b []byte) int {
 	if len(b) == 0 {
 		return 0
@@ -151,15 +151,4 @@ func parseClosePayload(p []byte) (CloseCode, string, error) {
 		return CloseNoStatusReceived, "", nil
 	case len(p) == 1:
 		return CloseProtocolError, "", ErrProtocol
-	default:
-		code := CloseCode(binary.BigEndian.Uint16(p[:2]))
-		if !validCloseCode(code) {
-			return CloseProtocolError, "", ErrProtocol
-		}
-		text := string(p[2:])
-		if !utf8Valid([]byte(text)) {
-			return CloseInvalidFramePayloadData, "", ErrInvalidUTF8
-		}
-		return code, text, nil
-	}
-}
+	defau

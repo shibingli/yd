@@ -27,6 +27,11 @@
 - **架构规范**：脚手架产物严格遵循 golang-standards/project-layout；Docker 产物基于 `scratch`。
 - **国密组件**：仅允许纯 Go 实现（gmsm），禁止 cgo/外挂非 Go 组件。
 - **零拷贝主张**：日志、WebSocket、Base64、JWT 载荷路径不得引入中间字符串/缓冲区复制；热路径禁止反射。
+- **中英文同步注释（强制）**：所有注释逐行采用 `English | 中文` 形式（半角竖线分割，英文在前、中文在后，
+  竖线两侧各一个空格）。豁免：`//go:build` 指令、`// Code generated ... DO NOT EDIT.`、注释内代码示例/目录树/URL。
+- **OpenAPI 注释必须完整（强制）**：对外 HTTP 处理器的 doc 注释必须含完整注解块
+  （`@Summary/@Description/@Tags/@Accept/@Produce/@Param/@Success/@Failure/@Security/@Router`），缺项视为未完成；
+  `openapi` 包负责从源码解析注解并与路由树合并。
 - **JSON/Base64 统一封装层（强制）**：全仓禁止 `import "encoding/json"` 与 `import "encoding/base64"`，
   JSON 一律走 `jsonx`，Base64 一律走 `b64x`；`logx` 的零拷贝编码器手写 JSON 字节，同样不得引入 `encoding/json`。
   守卫测试见 Task 1 的 `internal/repotest`。

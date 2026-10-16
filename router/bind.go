@@ -13,17 +13,17 @@ import (
 	"github.com/yun-dev/yd/jsonx"
 )
 
-// ErrUnsupportedMediaType 表示请求体无法按声明的内容类型绑定。
+// ErrUnsupportedMediaType indicates the request body cannot be bound according to the declared content type. | ErrUnsupportedMediaType 表示请求体无法按声明的内容类型绑定。
 var ErrUnsupportedMediaType = errors.New("router: 不支持的请求内容类型")
 
-// Bind 依据 Content-Type 把请求参数绑定到 v。
+// Bind binds request parameters to v according to Content-Type. | Bind 依据 Content-Type 把请求参数绑定到 v。
 //
-//   - application/json → 使用框架自适应 JSON 层（jsonx）解码请求体；
-//   - application/x-www-form-urlencoded 或 multipart/form-data → 表单字段；
-//   - 其他 → 依次尝试 query 与表单。
+//   - application/json → the framework's adaptive JSON layer (jsonx) decodes the request body; |   - application/json → 使用框架自适应 JSON 层（jsonx）解码请求体；
+//   - application/x-www-form-urlencoded or multipart/form-data → form fields; |   - application/x-www-form-urlencoded 或 multipart/form-data → 表单字段；
+//   - anything else → try the query string and then the form, in that order. |   - 其他 → 依次尝试 query 与表单。
 //
-// 结构体字段按 `json`、`form`、`query` 标签匹配，其次按大小写不敏感的同名字段匹配。
-// 绑定使用反射，因此仅用于请求入口；序列化与日志等热路径不依赖本函数。
+// Struct fields are matched by their `json`, `form`, `query` tags, then by an identically named field ignoring case. | 结构体字段按 `json`、`form`、`query` 标签匹配，其次按大小写不敏感的同名字段匹配。
+// Binding uses reflection, so it is only for request entry points; hot paths such as serialization and logging do not rely on it. | 绑定使用反射，因此仅用于请求入口；序列化与日志等热路径不依赖本函数。
 func (c *Ctx) Bind(v any) error {
 	if v == nil {
 		return errors.New("router: Bind 目标不能为 nil")
@@ -68,7 +68,7 @@ func (c *Ctx) Bind(v any) error {
 	}
 }
 
-// bindValues 把 url.Values 绑定到结构体/映射。
+// bindValues binds url.Values to a struct or a map. | bindValues 把 url.Values 绑定到结构体/映射。
 func bindValues(v any, values url.Values) error {
 	rv := reflect.ValueOf(v)
 	if rv.Kind() != reflect.Pointer || rv.IsNil() {
@@ -127,7 +127,7 @@ func bindStruct(rv reflect.Value, values url.Values) error {
 	return errors.Join(errs...)
 }
 
-// fieldName 依 form → query → json 标签顺序确定绑定名，缺省用字段名。
+// fieldName determines the binding name in form → query → json tag order, defaulting to the field name. | fieldName 依 form → query → json 标签顺序确定绑定名，缺省用字段名。
 func fieldName(field reflect.StructField) string {
 	for _, tag := range []string{"form", "query", "json"} {
 		if tagv, ok := field.Tag.Lookup(tag); ok {
@@ -144,7 +144,7 @@ func lookupValue(values url.Values, name string) (string, bool) {
 	if vs, ok := values[name]; ok && len(vs) > 0 {
 		return vs[0], true
 	}
-	// 大小写不敏感回退
+	// case-insensitive fallback | 大小写不敏感回退
 	for k, vs := range values {
 		if strings.EqualFold(k, name) && len(vs) > 0 {
 			return vs[0], true

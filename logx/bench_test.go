@@ -6,7 +6,7 @@ import (
 	"time"
 )
 
-// TestDisabledPathIsAllocationFree 是回归护栏：禁用级别下调用不得产生任何堆分配。
+// TestDisabledPathIsAllocationFree is a regression guard: a call at a disabled level must not allocate any heap memory. | TestDisabledPathIsAllocationFree 是回归护栏：禁用级别下调用不得产生任何堆分配。
 func TestDisabledPathIsAllocationFree(t *testing.T) {
 	l := New(Options{Writer: io.Discard, Level: ErrorLevel})
 	allocs := testing.AllocsPerRun(1000, func() {
@@ -17,7 +17,7 @@ func TestDisabledPathIsAllocationFree(t *testing.T) {
 	}
 }
 
-// BenchmarkInfoFields 测量启用级别下「一条 5 字段 JSON 日志」的端到端开销。
+// BenchmarkInfoFields measures the end-to-end cost of "one 5-field JSON log record" at an enabled level. | BenchmarkInfoFields 测量启用级别下「一条 5 字段 JSON 日志」的端到端开销。
 func BenchmarkInfoFields(b *testing.B) {
 	l := New(Options{Writer: io.Discard, Level: InfoLevel})
 	b.ReportAllocs()
@@ -33,7 +33,7 @@ func BenchmarkInfoFields(b *testing.B) {
 	}
 }
 
-// BenchmarkConsoleFields 测量 console 格式的编码开销。
+// BenchmarkConsoleFields measures the encoding cost of the console format. | BenchmarkConsoleFields 测量 console 格式的编码开销。
 func BenchmarkConsoleFields(b *testing.B) {
 	l := New(Options{Writer: io.Discard, Format: "console", Level: InfoLevel})
 	b.ReportAllocs()
@@ -48,7 +48,7 @@ func BenchmarkConsoleFields(b *testing.B) {
 	}
 }
 
-// BenchmarkSlowQuery 测量慢查询打点路径（WarnLevel）的开销。
+// BenchmarkSlowQuery measures the cost of the slow-query instrumentation path (WarnLevel). | BenchmarkSlowQuery 测量慢查询打点路径（WarnLevel）的开销。
 func BenchmarkSlowQuery(b *testing.B) {
 	l := New(Options{Writer: io.Discard, Level: InfoLevel})
 	b.ReportAllocs()
@@ -58,7 +58,7 @@ func BenchmarkSlowQuery(b *testing.B) {
 	}
 }
 
-// BenchmarkDisabledLevel 测量低于阈值的调用开销，并断言零分配（回归护栏）。
+// BenchmarkDisabledLevel measures the cost of a call below the threshold and asserts zero allocations (regression guard). | BenchmarkDisabledLevel 测量低于阈值的调用开销，并断言零分配（回归护栏）。
 func BenchmarkDisabledLevel(b *testing.B) {
 	l := New(Options{Writer: io.Discard, Level: ErrorLevel})
 	allocs := testing.AllocsPerRun(1000, func() {

@@ -2,12 +2,13 @@ package guomi
 
 import (
 	"bytes"
-	"encoding/base64"
 	"encoding/hex"
+	"errors"
 	"strings"
 	"testing"
 
 	"github.com/tjfoc/gmsm/sm3"
+	"github.com/yun-dev/yd/b64x"
 )
 
 // sm3Hex 是 GB/T 32905-2016 标准附录给出的示例向量。
@@ -178,14 +179,14 @@ func TestPasswordHashAndVerify(t *testing.T) {
 	if parts[1] != "100000" {
 		t.Fatalf("默认迭代次数 = %q, want 100000", parts[1])
 	}
-	salt, err := base64.StdEncoding.DecodeString(parts[2])
+	salt, err := b64x.StdEncoding.DecodeString(parts[2])
 	if err != nil {
 		t.Fatalf("盐不是合法 Base64: %v", err)
 	}
 	if len(salt) != DefaultSaltLen {
 		t.Fatalf("默认盐长度 = %d, want %d", len(salt), DefaultSaltLen)
 	}
-	sum, err := base64.StdEncoding.DecodeString(parts[3])
+	sum, err := b64x.StdEncoding.DecodeString(parts[3])
 	if err != nil {
 		t.Fatalf("散列不是合法 Base64: %v", err)
 	}
@@ -229,7 +230,7 @@ func TestPasswordHashAndVerify(t *testing.T) {
 	if cparts[1] != "1000" {
 		t.Fatalf("自定义迭代次数 = %q, want 1000", cparts[1])
 	}
-	csalt, err := base64.StdEncoding.DecodeString(cparts[2])
+	csalt, err := b64x.StdEncoding.DecodeString(cparts[2])
 	if err != nil || len(csalt) != 8 {
 		t.Fatalf("自定义盐 = %d 字节 (err=%v), want 8", len(csalt), err)
 	}
@@ -270,7 +271,7 @@ func TestPasswordHashAndVerify(t *testing.T) {
 		if ok {
 			t.Fatalf("VerifyPassword(%q) = true, want false", e)
 		}
-		if !errorsIs(err, ErrInvalidPasswordHash) {
+		if !errors.Is(err, ErrInvalidPasswordHash) {
 			t.Fatalf("VerifyPassword(%q) 的错误 %v 不是 ErrInvalidPasswordHash", e, err)
 		}
 	}

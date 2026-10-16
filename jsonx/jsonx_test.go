@@ -14,15 +14,15 @@ import (
 	"github.com/yun-dev/yd/jsonx"
 )
 
-// address 是被 profile 嵌套引用的地址结构，用于验证嵌套与 omitempty 语义。
+// address is the address struct nested inside profile, used to verify nesting and omitempty semantics. | address 是被 profile 嵌套引用的地址结构，用于验证嵌套与 omitempty 语义。
 type address struct {
 	City string `json:"city"`
 	Zip  string `json:"zip,omitempty"`
 }
 
-// profile 覆盖 jsonx 需要与 encoding/json 保持一致的各类标准类型：
-// struct / map / slice / 指针 / 嵌套 / json.RawMessage / time.Time /
-// omitempty / []byte（base64）。
+// profile covers the standard types that jsonx must keep consistent with encoding/json: | profile 覆盖 jsonx 需要与 encoding/json 保持一致的各类标准类型：
+// struct / map / slice / pointer / nesting / json.RawMessage / time.Time / | struct / map / slice / 指针 / 嵌套 / json.RawMessage / time.Time /
+// omitempty / []byte (base64). | omitempty / []byte（base64）。
 type profile struct {
 	Name      string             `json:"name"`
 	Age       int                `json:"age"`
@@ -42,7 +42,7 @@ type profile struct {
 	HTML      string             `json:"html"`
 }
 
-// sampleProfile 返回一个尽量覆盖各类标准类型的样本值。
+// sampleProfile returns a sample value covering as many standard types as possible. | sampleProfile 返回一个尽量覆盖各类标准类型的样本值。
 func sampleProfile() profile {
 	return profile{
 		Name:      "Ada <Lovelace> & Co",
@@ -64,8 +64,8 @@ func sampleProfile() profile {
 	}
 }
 
-// TestRoundTripStandardTypes 验证标准类型（struct/map/slice/指针/嵌套/
-// json.RawMessage/time.Time/omitempty/[]byte base64）的往返语义与 encoding/json 一致。
+// TestRoundTripStandardTypes verifies that the round-trip semantics of standard types (struct/map/slice/pointer/nesting/ | TestRoundTripStandardTypes 验证标准类型（struct/map/slice/指针/嵌套/
+// json.RawMessage/time.Time/omitempty/[]byte base64) match encoding/json. | json.RawMessage/time.Time/omitempty/[]byte base64）的往返语义与 encoding/json 一致。
 func TestRoundTripStandardTypes(t *testing.T) {
 	in := sampleProfile()
 
@@ -82,7 +82,7 @@ func TestRoundTripStandardTypes(t *testing.T) {
 		t.Fatalf("encoding/json.Marshal: %v", err)
 	}
 
-	// 与标准库逐字节对齐：字段顺序、map key 排序、HTML 转义、时间格式、base64 均需一致。
+	// Byte-for-byte alignment with the standard library: field order, map key sorting, HTML escaping, time format and base64 must all match. | 与标准库逐字节对齐：字段顺序、map key 排序、HTML 转义、时间格式、base64 均需一致。
 	if !bytes.Equal(got, want) {
 		t.Fatalf("Marshal 输出与标准库不一致\njsonx : %s\nstdlib: %s", got, want)
 	}
@@ -167,8 +167,8 @@ func TestRoundTripStandardTypes(t *testing.T) {
 	})
 
 	t.Run("html_escaped", func(t *testing.T) {
-		// 字符串中的 & < > 必须转义为 & < >，且不得出现裸字符。
-		// 这里只断言转义序列的尾部（避开转义写法本身），避免测试源码歧义。
+		// The & < > inside the string must be escaped to & < >, and no bare character may appear. | 字符串中的 & < > 必须转义为 & < >，且不得出现裸字符。
+		// Only the tail of the escape sequences is asserted here (avoiding the escape spelling itself), to prevent ambiguity in the test source. | 这里只断言转义序列的尾部（避开转义写法本身），避免测试源码歧义。
 		raw := string(got)
 		for _, esc := range []string{"u0026", "u003c", "u003e"} {
 			if !strings.Contains(raw, esc) {
@@ -181,7 +181,7 @@ func TestRoundTripStandardTypes(t *testing.T) {
 	})
 }
 
-// TestUnmarshalIntoAnyMatchesStdlib 验证解析到 any 时的动态类型与标准库一致。
+// TestUnmarshalIntoAnyMatchesStdlib verifies that the dynamic types when unmarshalling into any match the standard library. | TestUnmarshalIntoAnyMatchesStdlib 验证解析到 any 时的动态类型与标准库一致。
 func TestUnmarshalIntoAnyMatchesStdlib(t *testing.T) {
 	const doc = `{"i":1,"neg":-2,"f":3.5,"big":1000000,"s":"<&>","b":true,"n":null,` +
 		`"arr":[1,2.5,true,null,"x"],"nest":{"deep":{"k":"v"}},"empty":{},"emptyArr":[]}`
@@ -222,7 +222,7 @@ func TestUnmarshalIntoAnyMatchesStdlib(t *testing.T) {
 	}
 }
 
-// TestMarshalIndentMatchesStdlibShape 验证缩进输出与 encoding/json.MarshalIndent 形状一致。
+// TestMarshalIndentMatchesStdlibShape verifies that the indented output matches the shape of encoding/json.MarshalIndent. | TestMarshalIndentMatchesStdlibShape 验证缩进输出与 encoding/json.MarshalIndent 形状一致。
 func TestMarshalIndentMatchesStdlibShape(t *testing.T) {
 	in := sampleProfile()
 
@@ -250,15 +250,15 @@ func TestMarshalIndentMatchesStdlibShape(t *testing.T) {
 			if !bytes.Contains(got, []byte("\n")) {
 				t.Fatalf("缩进输出应包含换行: %q", got)
 			}
-			// 首行是 "{"，不带前缀也不带缩进；后续行带 prefix+indent。
+			// The first line is "{", carrying neither prefix nor indent; subsequent lines carry prefix+indent. | 首行是 "{"，不带前缀也不带缩进；后续行带 prefix+indent。
 			if !bytes.HasPrefix(got, []byte("{")) {
 				t.Fatalf("首行不应带前缀/缩进: %q", got)
 			}
 			if tc.indent != "" && !bytes.Contains(got, []byte("\n"+tc.prefix+tc.indent)) {
 				t.Fatalf("后续行应以 prefix+indent 开头: %q", got)
 			}
-			// 缩进输出（无 prefix 时）必须能解析回语义相同的值。
-			// 注意：带非空 prefix 时标准库输出含注释式前缀，本身不是合法 JSON。
+			// The indented output (when prefix is empty) must parse back into a semantically identical value. | 缩进输出（无 prefix 时）必须能解析回语义相同的值。
+			// Note: with a non-empty prefix the standard library output contains comment-style prefixes and is not valid JSON itself. | 注意：带非空 prefix 时标准库输出含注释式前缀，本身不是合法 JSON。
 			if tc.prefix == "" {
 				var back profile
 				if err := jsonx.Unmarshal(got, &back); err != nil {
@@ -272,7 +272,7 @@ func TestMarshalIndentMatchesStdlibShape(t *testing.T) {
 	}
 }
 
-// TestEncoderDecoderStream 验证流式编解码：换行分隔、HTML 转义开关、UseNumber、io.EOF。
+// TestEncoderDecoderStream verifies streaming encode/decode: newline separation, the HTML escaping switch, UseNumber and io.EOF. | TestEncoderDecoderStream 验证流式编解码：换行分隔、HTML 转义开关、UseNumber、io.EOF。
 func TestEncoderDecoderStream(t *testing.T) {
 	var buf bytes.Buffer
 	enc := jsonx.NewEncoder(&buf)
@@ -328,7 +328,7 @@ func TestEncoderDecoderStream(t *testing.T) {
 		if !strings.Contains(off.String(), html) {
 			t.Fatalf("SetEscapeHTML(false) 后不应转义，实际 %q", off.String())
 		}
-		// 关闭转义后仍是合法 JSON，且能原样解回。
+		// After escaping is turned off the output is still valid JSON and can be decoded back as-is. | 关闭转义后仍是合法 JSON，且能原样解回。
 		var back string
 		if err := jsonx.Unmarshal(bytes.TrimSpace(off.Bytes()), &back); err != nil || back != html {
 			t.Fatalf("关闭转义后的输出解析失败: %v %q", err, back)
@@ -355,16 +355,16 @@ func TestEncoderDecoderStream(t *testing.T) {
 	})
 }
 
-// TestValid 验证 Valid 的判定与 encoding/json.Valid 一致，
-// 并显式标注 sonic 后端在非法转义序列上的已知宽松区。
+// TestValid verifies that Valid's judgement matches encoding/json.Valid, | TestValid 验证 Valid 的判定与 encoding/json.Valid 一致，
+// and explicitly marks the known lenient region of the sonic backend on illegal escape sequences. | 并显式标注 sonic 后端在非法转义序列上的已知宽松区。
 func TestValid(t *testing.T) {
-	// 三个后端都必须判为合法的输入。
+	// Inputs that all three backends must judge as valid. | 三个后端都必须判为合法的输入。
 	valid := []string{
 		`{}`, `[]`, `null`, `true`, `false`, `0`, `-1.5e10`, `"str"`,
 		`{"a":[1,{"b":null}]}`, `"<"`, "  {\"a\":1}  ", `[1,2,3]`,
 		`{"a":1,"a":2}`, `"😀"`, `[[[]]]`, `{"":0}`,
 	}
-	// 结构性非法的输入：三个后端都必须判为非法，且与标准库一致。
+	// Structurally invalid inputs: all three backends must judge them invalid, consistent with the standard library. | 结构性非法的输入：三个后端都必须判为非法，且与标准库一致。
 	invalid := []string{
 		``, `   `, `{`, `{"a":1,}`, `[1,2`, `{'a':1}`, `{"a":1} extra`,
 		`tru`, `01`, `[1 2]`, `nul`, `[1,]`, `{"a":}`, `1.`, `.1`, `+1`,
@@ -382,10 +382,10 @@ func TestValid(t *testing.T) {
 		}
 	}
 
-	// 已知宽松区：sonic 的 Valid 只做结构校验，不校验字符串内的非法转义序列
-	// （\x、\u12、\q）与未转义控制字符，因此比标准库宽松。这里只要求
-	// jsonx 永不比标准库更严格，避免把后端差异当成框架回归。
-	backslash := string([]byte{92}) // 单个反斜杠，避免测试源码中的转义歧义
+	// Known lenient region: sonic's Valid only performs structural validation and does not validate illegal escape sequences | 已知宽松区：sonic 的 Valid 只做结构校验，不校验字符串内的非法转义序列
+	// inside strings (\x, \u12, \q) or unescaped control characters, so it is more lenient than the standard library. Here we only require | （\x、\u12、\q）与未转义控制字符，因此比标准库宽松。这里只要求
+	// that jsonx is never stricter than the standard library, avoiding treating a backend difference as a framework regression. | jsonx 永不比标准库更严格，避免把后端差异当成框架回归。
+	backslash := string([]byte{92}) // a single backslash, avoiding escape ambiguity in the test source | 单个反斜杠，避免测试源码中的转义歧义
 	lenient := []string{
 		`"` + backslash + `x"`,
 		`"` + backslash + `u12"`,
@@ -404,7 +404,7 @@ func TestValid(t *testing.T) {
 	}
 }
 
-// TestBackendNameIsKnown 验证 Backend() 返回已知名称且与运行架构相符。
+// TestBackendNameIsKnown verifies that Backend() returns a known name matching the running architecture. | TestBackendNameIsKnown 验证 Backend() 返回已知名称且与运行架构相符。
 func TestBackendNameIsKnown(t *testing.T) {
 	name := jsonx.Backend()
 	t.Logf("GOARCH=%s 生效的 JSON 后端为 %q", runtime.GOARCH, name)
@@ -431,8 +431,8 @@ func TestBackendNameIsKnown(t *testing.T) {
 	}
 }
 
-// TestUnmarshalErrorPropagates 验证后端错误会被传播，且可由 ErrSyntax /
-// ErrTypeMismatch 做跨后端判定。
+// TestUnmarshalErrorPropagates verifies that backend errors are propagated and can be classified across backends | TestUnmarshalErrorPropagates 验证后端错误会被传播，且可由 ErrSyntax /
+// with ErrSyntax / ErrTypeMismatch. | ErrTypeMismatch 做跨后端判定。
 func TestUnmarshalErrorPropagates(t *testing.T) {
 	t.Run("syntax", func(t *testing.T) {
 		var out map[string]any

@@ -1,11 +1,11 @@
-// Package sse 实现 W3C Server-Sent Events（text/event-stream）写入器与进程内发布订阅广播器。
+// Package sse implements a W3C Server-Sent Events (text/event-stream) writer and an in-process publish/subscribe broadcaster. | Package sse 实现 W3C Server-Sent Events（text/event-stream）写入器与进程内发布订阅广播器。
 //
-// 写入器严格遵循事件流格式：一个事件由若干字段行组成，字段行之间以 LF 分隔，
-// 事件以空行结束；字段行顺序固定为 comment → id → event → retry → data。
-// data 字段可跨多行（每条 `data:` 行由客户端以 LF 拼接），值中的 CR / CRLF / LF
-// 都会被规整为独立的数据行，绝不会原样出现在单行字段中。
+// The writer strictly follows the event stream format: one event consists of several field lines separated by LF, | 写入器严格遵循事件流格式：一个事件由若干字段行组成，字段行之间以 LF 分隔，
+// and the event ends with a blank line; the field line order is fixed as comment → id → event → retry → data. | 事件以空行结束；字段行顺序固定为 comment → id → event → retry → data。
+// The data field may span several lines (each `data:` line is joined by the client with LF), and CR / CRLF / LF inside a value | data 字段可跨多行（每条 `data:` 行由客户端以 LF 拼接），值中的 CR / CRLF / LF
+// are all normalized into separate data lines, never appearing verbatim inside a single-line field. | 都会被规整为独立的数据行，绝不会原样出现在单行字段中。
 //
-// 本包与 router 无缝集成，可直接作为 Htmx SSE 扩展的服务端端点使用。
+// This package integrates seamlessly with router and can be used directly as the server endpoint of the Htmx SSE extension. | 本包与 router 无缝集成，可直接作为 Htmx SSE 扩展的服务端端点使用。
 package sse
 
 import (
@@ -19,53 +19,53 @@ import (
 	"time"
 )
 
-// ErrFlusherUnsupported 在 http.ResponseWriter 未实现 http.Flusher 时由 NewWriter 返回。
+// ErrFlusherUnsupported is returned by NewWriter when the http.ResponseWriter does not implement http.Flusher. | ErrFlusherUnsupported 在 http.ResponseWriter 未实现 http.Flusher 时由 NewWriter 返回。
 //
-// 事件流必须逐帧送达客户端，缺少 Flush 能力的响应写入器（如部分中间件包装器）
-// 会把事件滞留在缓冲区，因此这种情况直接判定为不可用。
+// An event stream must be delivered frame by frame; a response writer lacking Flush capability (such as some middleware wrappers) | 事件流必须逐帧送达客户端，缺少 Flush 能力的响应写入器（如部分中间件包装器）
+// would leave events sitting in a buffer, so this case is judged unusable outright. | 会把事件滞留在缓冲区，因此这种情况直接判定为不可用。
 var ErrFlusherUnsupported = errors.New(
 	"sse: http.ResponseWriter 未实现 http.Flusher，无法推送事件流")
 
-// 默认值。
+// Default values. | 默认值。
 const (
-	// defaultBufferSize 是单帧组装缓冲的初始容量（字节）。
+	// defaultBufferSize is the initial capacity of the per-frame assembly buffer (in bytes). | defaultBufferSize 是单帧组装缓冲的初始容量（字节）。
 	defaultBufferSize = 512
-	// heartbeatComment 是心跳帧携带的注释文本。
+	// heartbeatComment is the comment text carried by heartbeat frames. | heartbeatComment 是心跳帧携带的注释文本。
 	heartbeatComment = "ping"
 )
 
-// Event 描述一条 SSE 事件。
+// Event describes one SSE event. | Event 描述一条 SSE 事件。
 //
-// 空字符串（或空 Data）对应的字段行不会被输出；Data 支持多行内容，
-// 写出时会被拆成多条 `data:` 行。
+// Field lines corresponding to empty strings (or to an empty Data) are not written out; Data supports multi-line content | 空字符串（或空 Data）对应的字段行不会被输出；Data 支持多行内容，
+// and is split into several `data:` lines when written. | 写出时会被拆成多条 `data:` 行。
 type Event struct {
-	// ID 对应 `id:` 字段；客户端断线重连时会通过 Last-Event-ID 请求头回传。
+	// ID corresponds to the `id:` field; clients return it via the Last-Event-ID request header when reconnecting after a disconnect. | ID 对应 `id:` 字段；客户端断线重连时会通过 Last-Event-ID 请求头回传。
 	ID string
-	// Name 对应 `event:` 字段，即事件类型；为空表示默认的 message 事件。
+	// Name corresponds to the `event:` field, i.e. the event type; empty means the default message event. | Name 对应 `event:` 字段，即事件类型；为空表示默认的 message 事件。
 	Name string
-	// Data 对应 `data:` 字段，可包含换行（CR / CRLF / LF 均按行拆分）。
+	// Data corresponds to the `data:` field and may contain newlines (CR / CRLF / LF are all split into lines). | Data 对应 `data:` 字段，可包含换行（CR / CRLF / LF 均按行拆分）。
 	Data []byte
-	// Retry 对应 `retry:` 字段，即客户端重连间隔；>0 时以毫秒为单位输出。
+	// Retry corresponds to the `retry:` field, i.e. the client reconnect interval; when >0 it is written in milliseconds. | Retry 对应 `retry:` 字段，即客户端重连间隔；>0 时以毫秒为单位输出。
 	Retry time.Duration
-	// Comment 是注释行（`: `），客户端会忽略其内容，常用于心跳保活与调试。
+	// Comment is a comment line (`: `); clients ignore its content, and it is commonly used for heartbeat keep-alive and debugging. | Comment 是注释行（`: `），客户端会忽略其内容，常用于心跳保活与调试。
 	Comment string
 }
 
-// Options 是 Writer 与 Handler 的行为参数。
+// Options holds the behavior parameters of Writer and Handler. | Options 是 Writer 与 Handler 的行为参数。
 type Options struct {
-	// Heartbeat 是心跳间隔；>0 时 Handler 会周期性发送 `: ping` 注释帧。
+	// Heartbeat is the heartbeat interval; when >0, Handler periodically sends a `: ping` comment frame. | Heartbeat 是心跳间隔；>0 时 Handler 会周期性发送 `: ping` 注释帧。
 	Heartbeat time.Duration
-	// Retry 是事件自身未设置 Retry 时采用的默认重连间隔（仍以毫秒输出）。
+	// Retry is the default reconnect interval used when an event sets no Retry of its own (still written in milliseconds). | Retry 是事件自身未设置 Retry 时采用的默认重连间隔（仍以毫秒输出）。
 	Retry time.Duration
-	// BufferSize 是单帧组装缓冲的初始容量；<=0 时取 512。
+	// BufferSize is the initial capacity of the per-frame assembly buffer; <=0 means 512. | BufferSize 是单帧组装缓冲的初始容量；<=0 时取 512。
 	BufferSize int
 }
 
-// Writer 把事件按 W3C 事件流格式写入 http.ResponseWriter。
+// Writer writes events to an http.ResponseWriter in the W3C event stream format. | Writer 把事件按 W3C 事件流格式写入 http.ResponseWriter。
 //
-// 字段输出顺序固定为 comment → id → event → retry → data 行 → 空行。
-// Writer 内部串行化写入，可被多个 goroutine 并发调用（例如业务处理器与心跳 goroutine）；
-// Close 之后的所有写入均为无操作。
+// The field output order is fixed as comment → id → event → retry → data lines → blank line. | 字段输出顺序固定为 comment → id → event → retry → data 行 → 空行。
+// Writer serializes writes internally and may be called concurrently from several goroutines (for example the business handler and the heartbeat goroutine); | Writer 内部串行化写入，可被多个 goroutine 并发调用（例如业务处理器与心跳 goroutine）；
+// all writes after Close are no-ops. | Close 之后的所有写入均为无操作。
 type Writer struct {
 	w       io.Writer
 	flusher http.Flusher
@@ -80,12 +80,12 @@ type Writer struct {
 	stopped chan struct{}
 }
 
-// NewWriter 建立一条事件流：设置 SSE 响应头并校验 Flusher 能力。
+// NewWriter establishes an event stream: it sets the SSE response headers and checks the Flusher capability. | NewWriter 建立一条事件流：设置 SSE 响应头并校验 Flusher 能力。
 //
-// 响应头固定为 `Content-Type: text/event-stream; charset=utf-8`、
-// `Cache-Control: no-cache, no-transform`、`Connection: keep-alive`、
-// `X-Accel-Buffering: no`（禁用 Nginx 缓冲，保证逐帧送达）。
-// 当 w 未实现 http.Flusher 时返回 ErrFlusherUnsupported。
+// The response headers are fixed to `Content-Type: text/event-stream; charset=utf-8`, | 响应头固定为 `Content-Type: text/event-stream; charset=utf-8`、
+// `Cache-Control: no-cache, no-transform`, `Connection: keep-alive`, and | `Cache-Control: no-cache, no-transform`、`Connection: keep-alive`、
+// `X-Accel-Buffering: no` (which disables Nginx buffering so frames arrive one at a time). | `X-Accel-Buffering: no`（禁用 Nginx 缓冲，保证逐帧送达）。
+// It returns ErrFlusherUnsupported when w does not implement http.Flusher. | 当 w 未实现 http.Flusher 时返回 ErrFlusherUnsupported。
 func NewWriter(w http.ResponseWriter, o Options) (*Writer, error) {
 	f, ok := w.(http.Flusher)
 	if !ok {
@@ -107,28 +107,28 @@ func NewWriter(w http.ResponseWriter, o Options) (*Writer, error) {
 	}, nil
 }
 
-// WriteEvent 写出一条事件并立即刷新。
+// WriteEvent writes one event and flushes it immediately. | WriteEvent 写出一条事件并立即刷新。
 //
-// 事件以空行结束；Data 中的换行会被拆分为多条 `data:` 行。
-// Retry 为 0 时回退到 Options.Retry。
+// The event ends with a blank line; newlines inside Data are split into several `data:` lines. | 事件以空行结束；Data 中的换行会被拆分为多条 `data:` 行。
+// When Retry is 0 it falls back to Options.Retry. | Retry 为 0 时回退到 Options.Retry。
 func (w *Writer) WriteEvent(e Event) error {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	return w.writeEventLocked(e, false)
 }
 
-// WriteData 以默认事件类型（message）写出一条仅含 data 字段的事件。
+// WriteData writes an event carrying only the data field, with the default event type (message). | WriteData 以默认事件类型（message）写出一条仅含 data 字段的事件。
 //
-// 等价于 WriteEvent(Event{Data: []byte(s)})，但即使 s 为空也会输出一行 `data: `。
+// It is equivalent to WriteEvent(Event{Data: []byte(s)}), except that it emits one `data: ` line even when s is empty. | 等价于 WriteEvent(Event{Data: []byte(s)})，但即使 s 为空也会输出一行 `data: `。
 func (w *Writer) WriteData(s string) error {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	return w.writeEventLocked(Event{Data: []byte(s)}, true)
 }
 
-// Comment 写出一条注释帧（`: <text>`），客户端会忽略其内容。
+// Comment writes a comment frame (`: <text>`), whose content clients ignore. | Comment 写出一条注释帧（`: <text>`），客户端会忽略其内容。
 //
-// 多行文本会逐行加上 `: ` 前缀；Heartbeat 内部即使用本方法发送 `: ping`。
+// Multi-line text gets a `: ` prefix added to every line; Heartbeat itself uses this method to send `: ping`. | 多行文本会逐行加上 `: ` 前缀；Heartbeat 内部即使用本方法发送 `: ping`。
 func (w *Writer) Comment(text string) error {
 	w.mu.Lock()
 	defer w.mu.Unlock()
@@ -140,10 +140,10 @@ func (w *Writer) Comment(text string) error {
 	return w.flushLocked(buf)
 }
 
-// Heartbeat 启动后台心跳：每隔 d 发送一帧 `: ping` 注释，用于保活并及早发现断线。
+// Heartbeat starts a background heartbeat: it sends one `: ping` comment frame every d, to keep the connection alive and detect disconnects early. | Heartbeat 启动后台心跳：每隔 d 发送一帧 `: ping` 注释，用于保活并及早发现断线。
 //
-// 重复调用会先停止上一次心跳再按新间隔重启；d <= 0 表示仅停止心跳。
-// 心跳 goroutine 在 Close 或写出失败时退出。
+// Calling it again first stops the previous heartbeat and then restarts it with the new interval; d <= 0 means stopping the heartbeat only. | 重复调用会先停止上一次心跳再按新间隔重启；d <= 0 表示仅停止心跳。
+// The heartbeat goroutine exits on Close or on a failed write. | 心跳 goroutine 在 Close 或写出失败时退出。
 func (w *Writer) Heartbeat(d time.Duration) {
 	w.hbMu.Lock()
 	defer w.hbMu.Unlock()
@@ -163,9 +163,9 @@ func (w *Writer) Heartbeat(d time.Duration) {
 	go w.heartbeatLoop(d, stop, done)
 }
 
-// Close 停止心跳、刷新缓冲并关闭事件流；重复调用是安全的。
+// Close stops the heartbeat, flushes the buffer, and closes the event stream; calling it repeatedly is safe. | Close 停止心跳、刷新缓冲并关闭事件流；重复调用是安全的。
 //
-// 关闭后的写入（WriteEvent / WriteData / Comment / Heartbeat）均为无操作。
+// Writes after closing (WriteEvent / WriteData / Comment / Heartbeat) are all no-ops. | 关闭后的写入（WriteEvent / WriteData / Comment / Heartbeat）均为无操作。
 func (w *Writer) Close() error {
 	w.stopHeartbeat()
 	w.mu.Lock()
@@ -178,9 +178,9 @@ func (w *Writer) Close() error {
 	return nil
 }
 
-// ---------------------------------------------------------------- 内部实现
+// ---------------------------------------------------------------- Internal implementation | 内部实现
 
-// heartbeatLoop 周期性发送心跳注释，直到 stop 关闭或写出失败。
+// heartbeatLoop sends heartbeat comments periodically until stop is closed or a write fails. | heartbeatLoop 周期性发送心跳注释，直到 stop 关闭或写出失败。
 func (w *Writer) heartbeatLoop(d time.Duration, stop, done chan struct{}) {
 	defer close(done)
 	ticker := time.NewTicker(d)
@@ -197,14 +197,14 @@ func (w *Writer) heartbeatLoop(d time.Duration, stop, done chan struct{}) {
 	}
 }
 
-// stopHeartbeat 停止心跳 goroutine 并等待其退出。
+// stopHeartbeat stops the heartbeat goroutine and waits for it to exit. | stopHeartbeat 停止心跳 goroutine 并等待其退出。
 func (w *Writer) stopHeartbeat() {
 	w.hbMu.Lock()
 	defer w.hbMu.Unlock()
 	w.stopHeartbeatLocked()
 }
 
-// stopHeartbeatLocked 在持有 hbMu 的前提下停止并等待心跳 goroutine。
+// stopHeartbeatLocked stops and waits for the heartbeat goroutine while holding hbMu. | stopHeartbeatLocked 在持有 hbMu 的前提下停止并等待心跳 goroutine。
 func (w *Writer) stopHeartbeatLocked() {
 	stop, done := w.stop, w.stopped
 	w.stop, w.stopped = nil, nil
@@ -217,7 +217,7 @@ func (w *Writer) stopHeartbeatLocked() {
 	}
 }
 
-// writeEventLocked 组装并写出一个完整事件帧；forceData 为 true 时即使 Data 为空也输出 data 行。
+// writeEventLocked assembles and writes one complete event frame; when forceData is true it emits a data line even for an empty Data. | writeEventLocked 组装并写出一个完整事件帧；forceData 为 true 时即使 Data 为空也输出 data 行。
 func (w *Writer) writeEventLocked(e Event, forceData bool) error {
 	if w.closed {
 		return nil
@@ -248,7 +248,7 @@ func (w *Writer) writeEventLocked(e Event, forceData bool) error {
 	return w.flushLocked(buf)
 }
 
-// flushLocked 写出组好的帧并立即刷新；必须在持有 w.mu 时调用。
+// flushLocked writes the assembled frame and flushes immediately; it must be called while holding w.mu. | flushLocked 写出组好的帧并立即刷新；必须在持有 w.mu 时调用。
 func (w *Writer) flushLocked(buf []byte) error {
 	w.buf = buf
 	if _, err := w.w.Write(buf); err != nil {
@@ -258,7 +258,7 @@ func (w *Writer) flushLocked(buf []byte) error {
 	return nil
 }
 
-// retryMillis 计算本条事件应输出的 retry 毫秒数；返回 0 表示不输出该字段。
+// retryMillis computes the retry milliseconds this event should emit; a return of 0 means the field is omitted. | retryMillis 计算本条事件应输出的 retry 毫秒数；返回 0 表示不输出该字段。
 func retryMillis(event, fallback time.Duration) uint64 {
 	d := event
 	if d <= 0 {
@@ -269,12 +269,12 @@ func retryMillis(event, fallback time.Duration) uint64 {
 	}
 	ms := uint64(d / time.Millisecond)
 	if ms == 0 {
-		ms = 1 // 不足 1ms 也按 1ms 输出，避免出现 `retry: 0`
+		ms = 1 // anything under 1ms is emitted as 1ms anyway, so that `retry: 0` never appears | 不足 1ms 也按 1ms 输出，避免出现 `retry: 0`
 	}
 	return ms
 }
 
-// appendCommentLines 把注释文本按 CRLF / CR / LF 拆行，逐行追加 `: <line>`。
+// appendCommentLines splits the comment text on CRLF / CR / LF and appends `: <line>` for every line. | appendCommentLines 把注释文本按 CRLF / CR / LF 拆行，逐行追加 `: <line>`。
 func appendCommentLines(buf []byte, text string) []byte {
 	if strings.ContainsAny(text, "\r\n") {
 		text = strings.ReplaceAll(text, "\r\n", "\n")
@@ -295,7 +295,7 @@ func appendCommentLines(buf []byte, text string) []byte {
 	}
 }
 
-// appendDataLines 把 data 按 CRLF / CR / LF 拆行，逐行追加 `data: <line>`。
+// appendDataLines splits data on CRLF / CR / LF and appends `data: <line>` for every line. | appendDataLines 把 data 按 CRLF / CR / LF 拆行，逐行追加 `data: <line>`。
 func appendDataLines(buf, data []byte) []byte {
 	start := 0
 	for i := 0; i < len(data); i++ {
@@ -314,14 +314,14 @@ func appendDataLines(buf, data []byte) []byte {
 	return appendDataLine(buf, data[start:])
 }
 
-// appendDataLine 追加单行 `data:`。
+// appendDataLine appends a single `data:` line. | appendDataLine 追加单行 `data:`。
 func appendDataLine(buf, line []byte) []byte {
 	buf = append(buf, "data: "...)
 	buf = append(buf, line...)
 	return append(buf, '\n')
 }
 
-// appendSingleLine 追加 s 并剔除其中的 CR / LF（id、event 字段必须是单行）。
+// appendSingleLine appends s with any CR / LF stripped out (the id and event fields must be single-line). | appendSingleLine 追加 s 并剔除其中的 CR / LF（id、event 字段必须是单行）。
 func appendSingleLine(buf []byte, s string) []byte {
 	if !strings.ContainsAny(s, "\r\n") {
 		return append(buf, s...)

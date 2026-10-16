@@ -7,7 +7,7 @@ import (
 	"testing"
 )
 
-// find 是测试辅助：在树上查找并返回命中的处理器标签与参数表。
+// find is a test helper: it looks up the tree and returns the matched handler tag and parameter map. | find 是测试辅助：在树上查找并返回命中的处理器标签与参数表。
 func find(t *testing.T, tr *Tree, method, path string) (string, map[string]string, bool, bool) {
 	t.Helper()
 	ps := acquireParams()
@@ -39,7 +39,7 @@ func TestTreeMixedSuffix(t *testing.T) {
 	}{
 		{path: "/avatar/photo.jpg", id: "photo", hit: true},
 		{path: "/avatar/my.photo.jpg", id: "my.photo", hit: true},
-		{path: "/avatar/.jpg", hit: false}, // 参数必须非空
+		{path: "/avatar/.jpg", hit: false}, // the parameter must be non-empty | 参数必须非空
 		{path: "/avatar/photo.png", hit: false},
 		{path: "/avatar/a/b.jpg", hit: false},
 	}
@@ -72,7 +72,7 @@ func TestTreeMixedWithDashSuffix(t *testing.T) {
 		t.Fatal("/report/42-yy.png 不应命中")
 	}
 
-	// 最短优先下的最长可行前缀：静态后缀必须被剥离
+	// longest viable prefix under shortest-first: the static suffix must be stripped | 最短优先下的最长可行前缀：静态后缀必须被剥离
 	got, params, _, hit = find(t, tr, http.MethodGet, "/report/a-b-xx.png")
 	if !hit || params["id"] != "a-b" {
 		t.Fatalf("id 应为 a-b, 实际 %q (hit=%v handler=%q)", params["id"], hit, got)
@@ -142,7 +142,7 @@ func TestTreeWildcardCatchAll(t *testing.T) {
 		t.Fatalf("空通配捕获 = %q (hit=%v)", params["filepath"], hit)
 	}
 
-	// /static 未命中，但补尾斜杠可命中 → tsr
+	// /static does not match, but adding the trailing slash does → tsr | /static 未命中，但补尾斜杠可命中 → tsr
 	_, _, tsr, hit := find(t, tr, http.MethodGet, "/static")
 	if hit || !tsr {
 		t.Fatalf("/static 应触发尾斜杠重定向: hit=%v tsr=%v", hit, tsr)

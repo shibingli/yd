@@ -213,7 +213,7 @@ func (s *Server) reportErr(err error) {
 	select {
 	case s.serveErr <- err:
 	default:
-		s.logger.Error("服务器错误通道已满", logx.Err(err))
+		s.logger.Error("server error channel is full | 服务器错误通道已满", logx.Err(err))
 	}
 	select {
 	case <-s.done:
@@ -258,7 +258,7 @@ func (s *Server) Shutdown(ctx context.Context) error {
 	s.mu.Lock()
 	s.started = false
 	s.mu.Unlock()
-	s.logger.Info("服务器已停止")
+	s.logger.Info("server stopped | 服务器已停止")
 	return errors.Join(errs...)
 }
 
@@ -295,7 +295,7 @@ func (s *Server) buildHandler() http.Handler {
 	if s.opts.ACME.Enabled {
 		mgr, err := newACMEManager(s.opts.ACME)
 		if err != nil {
-			s.logger.Error("ACME 初始化失败", logx.Err(err))
+			s.logger.Error("ACME initialization failed | ACME 初始化失败", logx.Err(err))
 		} else {
 			s.acme = mgr
 			challenge := mgr.manager.HTTPHandler(nil)
@@ -369,7 +369,7 @@ func (s *Server) buildTLSConfig() (*tls.Config, error) {
 		if err != nil {
 			return nil, err
 		}
-		s.logger.Warn("HTTP/3 已启用但未配置证书，使用临时自签证书（仅限开发）")
+		s.logger.Warn("HTTP/3 enabled without certificates, using an ephemeral self-signed one (development only) | HTTP/3 已启用但未配置证书，使用临时自签证书（仅限开发）")
 		return &tls.Config{
 			Certificates: []tls.Certificate{cert},
 			MinVersion:   tls.VersionTLS12,

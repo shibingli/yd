@@ -103,7 +103,7 @@ func TestMatchSegment(t *testing.T) {
 		{pattern: "/:y-:m-:d.html", value: "2026-10-16.html", want: map[string]string{"y": "2026", "m": "10", "d": "16"}, ok: true},
 		{pattern: "/:y-:m-:d.html", value: "2026-10.html", ok: false},
 		{pattern: "/:a.:b", value: "x.y", want: map[string]string{"a": "x", "b": "y"}, ok: true},
-		// 最短优先（左到右非贪婪）：a 先取最短可行前缀
+		// shortest first (left-to-right non-greedy): a takes the shortest viable prefix first | 最短优先（左到右非贪婪）：a 先取最短可行前缀
 		{pattern: "/:a.:b", value: "x.y.z", want: map[string]string{"a": "x", "b": "y.z"}, ok: true},
 	}
 	for _, tc := range cases {
@@ -136,7 +136,7 @@ func TestMatchSegment(t *testing.T) {
 }
 
 func TestMatchSegmentMillionCharTerminates(t *testing.T) {
-	// 病态输入：单段极长且反复回溯，必须快速终止（记忆化保证多项式复杂度）
+	// pathological input: a single extremely long segment with repeated backtracking must terminate quickly (memoization guarantees polynomial complexity) | 病态输入：单段极长且反复回溯，必须快速终止（记忆化保证多项式复杂度）
 	segs, err := ParsePattern("/:a-:b-:c-end")
 	if err != nil {
 		t.Fatalf("解析失败: %v", err)

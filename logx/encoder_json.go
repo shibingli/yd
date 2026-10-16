@@ -9,21 +9,21 @@ import (
 	"github.com/yun-dev/yd/jsonx"
 )
 
-// hexDigits 是 \u00XX 转义使用的十六进制字符表。
+// hexDigits is the hexadecimal character table used by \u00XX escapes. | hexDigits 是 \u00XX 转义使用的十六进制字符表。
 const hexDigits = "0123456789abcdef"
 
-// appendJSONRecord 将一条完整记录（含结尾换行）按 JSON 追加到 dst。
+// appendJSONRecord appends one complete record (including the trailing newline) to dst as JSON. | appendJSONRecord 将一条完整记录（含结尾换行）按 JSON 追加到 dst。
 //
-// 记录形状固定为：
+// The record shape is fixed: | 记录形状固定为：
 //
 //	{"level":..,"ts":..[,"service":..][,"logger":..][,"caller":..],"msg":..,<字段...>}
 //
-// 持久字段（With 累积）先于本次调用的字段输出。
+// Persistent fields (accumulated by With) are written before the fields of the current call. | 持久字段（With 累积）先于本次调用的字段输出。
 func appendJSONRecord(dst []byte, l *Logger, lvl Level, t time.Time, msg, caller string, extra []Field) []byte {
 	dst = append(dst, `{"level":`...)
 	dst = appendJSONString(dst, lvl.String())
 	dst = append(dst, `,"ts":"`...)
-	// 时间布局由使用方控制，直接内联（Options.TimeFormat 文档已限制布局内容）。
+	// The time layout is controlled by the caller and inlined directly (the Options.TimeFormat documentation already restricts layout contents). | 时间布局由使用方控制，直接内联（Options.TimeFormat 文档已限制布局内容）。
 	dst = appendTime(dst, t, l.timeFormat)
 	dst = append(dst, '"')
 	if l.service != "" {
@@ -45,7 +45,7 @@ func appendJSONRecord(dst []byte, l *Logger, lvl Level, t time.Time, msg, caller
 	return append(dst, '}', '\n')
 }
 
-// appendJSONFields 依次编码一组字段。
+// appendJSONFields encodes a group of fields in order. | appendJSONFields 依次编码一组字段。
 func appendJSONFields(dst []byte, fields []Field, timeFormat string) []byte {
 	for i := range fields {
 		dst = appendJSONField(dst, &fields[i], timeFormat)
@@ -53,10 +53,10 @@ func appendJSONFields(dst []byte, fields []Field, timeFormat string) []byte {
 	return dst
 }
 
-// appendJSONField 将单个字段编码为 JSON 成员（含前导逗号）追加到 dst。
+// appendJSONField encodes a single field as a JSON member (including the leading comma) and appends it to dst. | appendJSONField 将单个字段编码为 JSON 成员（含前导逗号）追加到 dst。
 //
-// UnknownType 字段（含 Err(nil) 的结果）整条跳过；Key 为空且类型为 RawType 时
-// 原样注入片段（Raw），其余无键字段同样跳过。
+// UnknownType fields (including the result of Err(nil)) are skipped entirely; when Key is empty and the type is RawType the | UnknownType 字段（含 Err(nil) 的结果）整条跳过；Key 为空且类型为 RawType 时
+// fragment is injected verbatim (Raw); other keyless fields are skipped as well. | 原样注入片段（Raw），其余无键字段同样跳过。
 func appendJSONField(dst []byte, f *Field, timeFormat string) []byte {
 	switch {
 	case f.Type == UnknownType:
@@ -73,7 +73,7 @@ func appendJSONField(dst []byte, f *Field, timeFormat string) []byte {
 	return appendJSONValue(dst, f, timeFormat)
 }
 
-// appendJSONValue 仅编码字段的值部分（不含键与前导逗号）。
+// appendJSONValue encodes only the value part of a field (without the key or leading comma). | appendJSONValue 仅编码字段的值部分（不含键与前导逗号）。
 func appendJSONValue(dst []byte, f *Field, timeFormat string) []byte {
 	switch f.Type {
 	case StringType, ErrorType:
@@ -96,7 +96,7 @@ func appendJSONValue(dst []byte, f *Field, timeFormat string) []byte {
 		dst = appendTime(dst, time.Unix(0, int64(f.num)), timeFormat)
 		return append(dst, '"')
 	case DurationType:
-		// 毫秒数（float64），便于机器聚合。
+		// Milliseconds (float64), which makes machine aggregation easy. | 毫秒数（float64），便于机器聚合。
 		return appendJSONFloat(dst, float64(int64(f.num))/float64(time.Millisecond))
 	case BytesType:
 		dst = append(dst, '"')
@@ -105,13 +105,13 @@ func appendJSONValue(dst []byte, f *Field, timeFormat string) []byte {
 	case AnyType:
 		return appendJSONAny(dst, f.obj)
 	case RawType:
-		// 调用方保证片段是合法 JSON。
+		// The caller guarantees that the fragment is valid JSON. | 调用方保证片段是合法 JSON。
 		return append(dst, f.bs...)
 	}
 	return append(dst, "null"...)
 }
 
-// appendJSONStrings 追加 []string 的 JSON 数组。
+// appendJSONStrings appends the JSON array of a []string. | appendJSONStrings 追加 []string 的 JSON 数组。
 func appendJSONStrings(dst []byte, ss []string) []byte {
 	dst = append(dst, '[')
 	for i, s := range ss {
@@ -123,7 +123,7 @@ func appendJSONStrings(dst []byte, ss []string) []byte {
 	return append(dst, ']')
 }
 
-// appendJSONFloat 追加 float64；NaN 与 ±Inf 输出 null（JSON 无对应字面量）。
+// appendJSONFloat appends a float64; NaN and ±Inf are output as null (JSON has no matching literal). | appendJSONFloat 追加 float64；NaN 与 ±Inf 输出 null（JSON 无对应字面量）。
 func appendJSONFloat(dst []byte, v float64) []byte {
 	if math.IsNaN(v) || math.IsInf(v, 0) {
 		return append(dst, "null"...)
@@ -131,8 +131,8 @@ func appendJSONFloat(dst []byte, v float64) []byte {
 	return strconv.AppendFloat(dst, v, 'g', -1, 64)
 }
 
-// appendJSONAny 编码 Any 慢路径的装箱值：使用 encoding/json（内部反射 + 额外分配）。
-// 编码失败时输出描述该错误的 JSON 字符串，保证结果始终是合法 JSON。
+// appendJSONAny encodes the boxed value of the Any slow path: it uses encoding/json (reflection inside, plus extra allocations). | appendJSONAny 编码 Any 慢路径的装箱值：使用 encoding/json（内部反射 + 额外分配）。
+// When encoding fails it outputs a JSON string describing the error, so the result is always valid JSON. | 编码失败时输出描述该错误的 JSON 字符串，保证结果始终是合法 JSON。
 func appendJSONAny(dst []byte, v any) []byte {
 	b, err := jsonx.Marshal(v)
 	if err != nil {
@@ -141,10 +141,10 @@ func appendJSONAny(dst []byte, v any) []byte {
 	return append(dst, b...)
 }
 
-// appendJSONString 把 s 按 JSON 字符串规则转义并追加到 dst（含两侧引号）。
+// appendJSONString escapes s according to JSON string rules and appends it to dst (including the quotes on both sides). | appendJSONString 把 s 按 JSON 字符串规则转义并追加到 dst（含两侧引号）。
 //
-// 转义 '"'、'\\' 与全部 C0 控制字符（\b \f \n \r \t 用短转义，其余用 \u00XX）；
-// 输入假定为合法 UTF-8，多字节序列原样透传，因此中文不会被转成 \uXXXX。
+// Escapes '"', '\\' and all C0 control characters (\b \f \n \r \t use the short escapes, the rest use \u00XX); | 转义 '"'、'\\' 与全部 C0 控制字符（\b \f \n \r \t 用短转义，其余用 \u00XX）；
+// The input is assumed to be valid UTF-8 and multi-byte sequences pass through verbatim, so Chinese text is never converted to \uXXXX. | 输入假定为合法 UTF-8，多字节序列原样透传，因此中文不会被转成 \uXXXX。
 func appendJSONString(dst []byte, s string) []byte {
 	dst = append(dst, '"')
 	start := 0

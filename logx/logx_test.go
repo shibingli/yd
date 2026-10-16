@@ -13,9 +13,9 @@ import (
 	"time"
 )
 
-// ---------- 测试辅助 ----------
+// ---------- Test helpers ---------- | ---------- 测试辅助 ----------
 
-// jsonLines 把 buf 中的每一行按 JSON 解析，任一行不合法立即失败。
+// jsonLines parses each line in buf as JSON and fails immediately if any line is invalid. | jsonLines 把 buf 中的每一行按 JSON 解析，任一行不合法立即失败。
 func jsonLines(t *testing.T, buf *bytes.Buffer) []map[string]any {
 	t.Helper()
 	raw := buf.String()
@@ -37,7 +37,7 @@ func jsonLines(t *testing.T, buf *bytes.Buffer) []map[string]any {
 	return recs
 }
 
-// sortedKeys 返回 m 的键（升序），仅用于错误信息。
+// sortedKeys returns the keys of m in ascending order, used only for error messages. | sortedKeys 返回 m 的键（升序），仅用于错误信息。
 func sortedKeys(m map[string]any) []string {
 	ks := make([]string, 0, len(m))
 	for k := range m {
@@ -47,7 +47,7 @@ func sortedKeys(m map[string]any) []string {
 	return ks
 }
 
-// countingWriter 统计 Write 调用次数与字节数，用于验证「每行一次 Write」。
+// countingWriter counts Write calls and bytes, used to verify "one Write per line". | countingWriter 统计 Write 调用次数与字节数，用于验证「每行一次 Write」。
 type countingWriter struct {
 	writes int
 	bytes  int
@@ -59,7 +59,7 @@ func (w *countingWriter) Write(p []byte) (int, error) {
 	return len(p), nil
 }
 
-// syncingWriter 额外实现 Sync() error，用于验证 Logger.Sync。
+// syncingWriter additionally implements Sync() error, used to verify Logger.Sync. | syncingWriter 额外实现 Sync() error，用于验证 Logger.Sync。
 type syncingWriter struct {
 	buf   bytes.Buffer
 	syncs int
@@ -72,7 +72,7 @@ func (w *syncingWriter) Sync() error {
 	return nil
 }
 
-// wrappedErr 的 Error 不包含内部错误消息，用于验证 Err 真的展开了错误链。
+// wrappedErr's Error does not contain the inner error message, used to verify that Err really expands the error chain. | wrappedErr 的 Error 不包含内部错误消息，用于验证 Err 真的展开了错误链。
 type wrappedErr struct {
 	msg string
 	err error
@@ -81,7 +81,7 @@ type wrappedErr struct {
 func (e *wrappedErr) Error() string { return e.msg }
 func (e *wrappedErr) Unwrap() error { return e.err }
 
-// ---------- JSON 形状 ----------
+// ---------- JSON shape ---------- | ---------- JSON 形状 ----------
 
 func TestJSONShapeStable(t *testing.T) {
 	var buf bytes.Buffer
@@ -106,7 +106,7 @@ func TestJSONShapeStable(t *testing.T) {
 	}
 	got := recs[0]
 
-	// 顶层键集合必须稳定：不配置 Caller/Name 时不得出现额外键。
+	// The top-level key set must be stable: no extra keys may appear when Caller/Name are not configured. | 顶层键集合必须稳定：不配置 Caller/Name 时不得出现额外键。
 	want := []string{"at", "count", "level", "msg", "ok", "ratio", "service", "took", "ts", "user"}
 	if ks := sortedKeys(got); !equalStrings(ks, want) {
 		t.Fatalf("顶层键 = %v，期望 %v", ks, want)
@@ -140,7 +140,7 @@ func TestJSONShapeStable(t *testing.T) {
 	if got["ratio"] != 0.5 {
 		t.Errorf("ratio = %#v，期望 0.5", got["ratio"])
 	}
-	// JSON 中 Duration 以毫秒数表达（文档语义）。
+	// In JSON, Duration is expressed as milliseconds (the documented semantics). | JSON 中 Duration 以毫秒数表达（文档语义）。
 	if got["took"] != float64(3) {
 		t.Errorf("took = %#v，期望毫秒数 3", got["took"])
 	}
@@ -161,7 +161,7 @@ func equalStrings(a, b []string) bool {
 	return true
 }
 
-// ---------- 级别 ----------
+// ---------- Levels ---------- | ---------- 级别 ----------
 
 func TestLevelFiltering(t *testing.T) {
 	var buf bytes.Buffer
@@ -281,7 +281,7 @@ func TestWithAddsPersistentFields(t *testing.T) {
 		t.Fatal("With 派生的子 logger 必须共享 core（writer/mutex/level）")
 	}
 
-	// 持久字段必须排在本次调用字段之前。
+	// Persistent fields must come before the fields of the current call. | 持久字段必须排在本次调用字段之前。
 	line := buf.String()
 	lines := strings.Split(strings.TrimSuffix(line, "\n"), "\n")
 	if strings.Index(lines[1], `"req"`) > strings.Index(lines[1], `"extra"`) {
@@ -329,7 +329,7 @@ func TestSetLevelAffectsDerivedLoggers(t *testing.T) {
 	}
 }
 
-// ---------- 错误字段 ----------
+// ---------- Error fields ---------- | ---------- 错误字段 ----------
 
 func TestErrFieldUnwraps(t *testing.T) {
 	root := errors.New("connection refused")
@@ -349,9 +349,9 @@ func TestErrFieldUnwraps(t *testing.T) {
 
 	wants := []string{
 		"dial failed: connection refused",
-		"query failed: connection refused", // 不重复内层消息
+		"query failed: connection refused", // The inner message is not repeated. | 不重复内层消息
 		joined.Error(),
-		"", // Err(nil) → 无 error 键
+		"", // Err(nil) → no error key. | Err(nil) → 无 error 键
 	}
 	for i, want := range wants {
 		got, ok := recs[i]["error"]
@@ -367,7 +367,7 @@ func TestErrFieldUnwraps(t *testing.T) {
 	}
 }
 
-// ---------- console 格式 ----------
+// ---------- console format ---------- | ---------- console 格式 ----------
 
 func TestConsoleFormatHumanReadable(t *testing.T) {
 	var buf bytes.Buffer
@@ -409,14 +409,14 @@ func TestConsoleFormatHumanReadable(t *testing.T) {
 	}
 }
 
-// ---------- 慢查询 ----------
+// ---------- Slow query ---------- | ---------- 慢查询 ----------
 
 func TestSlowQueryFields(t *testing.T) {
 	var buf bytes.Buffer
 	l := New(Options{Writer: &buf, Level: InfoLevel})
 	SlowQuery(l, "SELECT * FROM users WHERE id = ?", 7, 12*time.Millisecond, nil)
 	SlowQuery(l, "UPDATE t SET a = 1", 0, 1500*time.Microsecond, errors.New("deadlock"))
-	SlowQuery(nil, "SELECT 1", 0, time.Millisecond, nil) // nil logger 不应 panic
+	SlowQuery(nil, "SELECT 1", 0, time.Millisecond, nil) // a nil logger must not panic. | nil logger 不应 panic
 
 	recs := jsonLines(t, &buf)
 	if len(recs) != 2 {
@@ -432,7 +432,7 @@ func TestSlowQueryFields(t *testing.T) {
 	if first["rows"] != float64(7) {
 		t.Errorf("rows = %#v，期望 7", first["rows"])
 	}
-	if first["duration"] != float64(12) { // 毫秒数
+	if first["duration"] != float64(12) { // milliseconds. | 毫秒数
 		t.Errorf("duration = %#v，期望毫秒数 12", first["duration"])
 	}
 	if _, ok := first["error"]; ok {
@@ -450,7 +450,7 @@ func TestSlowQueryFields(t *testing.T) {
 		t.Errorf("error = %#v，期望 deadlock", second["error"])
 	}
 
-	// 阈值高于 WarnLevel 时零输出。
+	// Nothing is output when the threshold is above WarnLevel. | 阈值高于 WarnLevel 时零输出。
 	l.SetLevel(ErrorLevel)
 	SlowQuery(l, "SELECT 1", 1, time.Second, nil)
 	if got := jsonLines(t, &buf); len(got) != 2 {
@@ -458,7 +458,7 @@ func TestSlowQueryFields(t *testing.T) {
 	}
 }
 
-// ---------- 并发 ----------
+// ---------- Concurrency ---------- | ---------- 并发 ----------
 
 func TestConcurrentWritesAreNotInterleaved(t *testing.T) {
 	var buf bytes.Buffer
@@ -471,7 +471,7 @@ func TestConcurrentWritesAreNotInterleaved(t *testing.T) {
 		go func(g int) {
 			defer wg.Done()
 			for i := 0; i < perG; i++ {
-				// 超过 1KB 的载荷会触发缓冲扩容，覆盖扩容路径。
+				// A payload above 1KB triggers buffer growth, covering the growth path. | 超过 1KB 的载荷会触发缓冲扩容，覆盖扩容路径。
 				l.Info("concurrent", Int("g", g), Int("i", i), Str("pad", strings.Repeat("x", 1024)))
 			}
 		}(g)
@@ -515,8 +515,8 @@ func TestOneWritePerRecord(t *testing.T) {
 	}
 }
 
-// TestHugeRecordIsWrittenIntact 覆盖超过 64KB 回池上限的大记录：缓冲区必须正确扩容，
-// 且不回池的缓冲不得影响后续日志。
+// TestHugeRecordIsWrittenIntact covers a huge record above the 64KB pool-return limit: the buffer must grow correctly, | TestHugeRecordIsWrittenIntact 覆盖超过 64KB 回池上限的大记录：缓冲区必须正确扩容，
+// and a buffer that is not returned to the pool must not affect subsequent log records. | 且不回池的缓冲不得影响后续日志。
 func TestHugeRecordIsWrittenIntact(t *testing.T) {
 	var buf bytes.Buffer
 	l := New(Options{Writer: &buf, Level: DebugLevel})
@@ -536,7 +536,7 @@ func TestHugeRecordIsWrittenIntact(t *testing.T) {
 	}
 }
 
-// ---------- 转义 ----------
+// ---------- Escaping ---------- | ---------- 转义 ----------
 
 func TestJSONEscaping(t *testing.T) {
 	tricky := "quote\" back\\slash nl\n tab\t cr\r ctrl\x01 esc\x1b delim中文\""
@@ -581,7 +581,7 @@ func TestJSONEscaping(t *testing.T) {
 	}
 }
 
-// ---------- 其他字段类型 ----------
+// ---------- Other field types ---------- | ---------- 其他字段类型 ----------
 
 func TestBytesFieldIsBase64(t *testing.T) {
 	payload := []byte{0x00, 0x01, 0xff, 'h', 'i'}
@@ -679,7 +679,7 @@ func TestCustomTimeFormat(t *testing.T) {
 	}
 }
 
-// ---------- Caller / Fatal / 默认 Logger ----------
+// ---------- Caller / Fatal / Default Logger ---------- | ---------- Caller / Fatal / 默认 Logger ----------
 
 func TestCallerAttribution(t *testing.T) {
 	var buf bytes.Buffer

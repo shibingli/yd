@@ -48,7 +48,47 @@
 
 1. **包结构**：一个文件一个职责；文件超过约 600 行或承担两类职责即拆分。
 2. **错误处理**：一律 `fmt.Errorf("...: %w", err)` 包装；导出错误变量供 `errors.Is` 判定；禁止 `panic` 跨包传播（仅允许在 `MustXxx` 初始化辅助中出现）。
-3. **文档注释**：所有导出符号必须有以符号名开头的 Go doc 注释（中文，技术名词保留英文）。
+3. **文档注释（强制）**：所有导出符号必须有以符号名开头的 Go doc 注释。
+3.1 **中英文同步（注释与日志文案）**：所有注释（包文档、导出符号 doc、行内注释）
+   **以及所有日志文案**，必须**中英文同步**，以半角竖线 `|` 分割，
+   **英文在前、中文在后**，两侧各留一个空格：
+
+   ```go
+   // Marshal encodes v and returns the JSON bytes. | Marshal 把 v 编码为 JSON 字节并返回。
+   func Marshal(v any) ([]byte, error)
+   ```
+
+   - 多行注释**逐行**遵循同一格式，便于左右对照阅读。
+   - 日志文案示例：`l.Info("server started | 服务器已启动", logx.Str("addr", addr))`。
+   - 豁免：`//go:build` 等编译指令、`// Code generated ... DO NOT EDIT.` 生成标记、
+     注释内的代码示例/树状图/接口签名块、URL 与纯符号行。
+3.1.1 **日志一律使用自研 `logx`（强制）**：
+   - 全仓禁止 `import "log"`（标准库）、禁止 `fmt.Print*` 作为日志输出、
+     禁止引入 zap/zerolog/logrus 等第三方日志库；
+   - 统一使用 `github.com/yun-dev/yd/logx`（`logx.New` / `Default()` 及其 `Debug/Info/Warn/Error/Fatal`）；
+   - **唯一例外**：`server` 包为满足 `http.Server.ErrorLog`（要求 `*log.Logger`）而写的
+     适配器，其输出必须转发进 `logx`；
+   - 自检：`grep -rn '"log"' --include=*.go . | grep -v '^./server/'` 必须无命中。
+3.2 **OpenAPI 注释必须完整**：所有对外 HTTP 处理器必须在其 doc 注释中给出**完整**的
+   OpenAPI 3.0 注解块（缺项视为未完成），字段齐全：
+
+   ```go
+   // GetUser returns one user as an HTML fragment. | GetUser 以 HTML 片段返回单个用户。
+   //
+   // @Summary 获取用户详情 | Get user detail
+   // @Description 返回用户详情片段；htmx 请求返回局部片段，整页请求返回完整页面。 | ...
+   // @Tags users
+   // @Accept json
+   // @Produce html,json
+   // @Param id path string true "用户 ID | user id"
+   // @Param body body CreateUserRequest true "创建参数 | create payload"
+   // @Success 200 {object} model.User "用户详情 | user detail"
+   // @Success 422 {object} htmx.ErrorFragment "校验失败 | validation failed"
+   // @Failure 404 {string} string "未找到 | not found"
+   // @Security BearerAuth
+   // @Router /users/{id} [get]
+   ```
+   `openapi` 包负责从源码解析这些注解并与路由树合并，生成完整文档。
 4. **热路径禁止反射**：HTTP 请求处理、序列化、日志、JWT 校验路径不得使用 `reflect`；反射仅允许出现在启动期装配、代码生成与 OpenAPI Schema 构建中。
 4.1 **JSON 与 Base64 必须走框架封装层**（强制）：
    - 任何 JSON 编解码一律使用 `github.com/yun-dev/yd/jsonx`（`Marshal`/`Unmarshal`/`NewEncoder`/`NewDecoder`/`Valid`），

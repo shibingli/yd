@@ -15,26 +15,26 @@ import (
 	"github.com/yun-dev/yd/b64x"
 )
 
-// DialOptions 是客户端握手参数。
+// DialOptions holds the client handshake parameters. | DialOptions 是客户端握手参数。
 type DialOptions struct {
-	// Headers 为附加请求头。
+	// Headers are extra request headers. | Headers 为附加请求头。
 	Headers http.Header
-	// Subprotocols 为客户端期望的子协议。
+	// Subprotocols are the subprotocols the client wants. | Subprotocols 为客户端期望的子协议。
 	Subprotocols []string
-	// HandshakeTimeout 为建连与握手超时，默认 10s。
+	// HandshakeTimeout is the connect and handshake timeout, 10s by default. | HandshakeTimeout 为建连与握手超时，默认 10s。
 	HandshakeTimeout time.Duration
-	// ReadBufferSize 为读缓冲大小；<=0 表示不引入中间缓冲（直读连接）。
+	// ReadBufferSize is the read buffer size; <=0 means no intermediate buffer is introduced (read the connection directly). | ReadBufferSize 为读缓冲大小；<=0 表示不引入中间缓冲（直读连接）。
 	ReadBufferSize int
-	// MaxMessageSize 为单条消息上限，默认 32MB。
+	// MaxMessageSize is the per-message limit, 32MB by default. | MaxMessageSize 为单条消息上限，默认 32MB。
 	MaxMessageSize int64
-	// TLSConfig 为 wss 场景的 TLS 配置。
+	// TLSConfig is the TLS configuration used for wss. | TLSConfig 为 wss 场景的 TLS 配置。
 	TLSConfig *tls.Config
 }
 
-// Dial 作为客户端发起 WebSocket 握手并返回连接。
+// Dial initiates a WebSocket handshake as a client and returns the connection. | Dial 作为客户端发起 WebSocket 握手并返回连接。
 //
-// 支持 ws:// 与 wss://；同时校验服务端返回的 Sec-WebSocket-Accept，
-// 因此也可用于互操作测试与自检。
+// It supports ws:// and wss:// and also verifies the Sec-WebSocket-Accept returned by the server, | 支持 ws:// 与 wss://；同时校验服务端返回的 Sec-WebSocket-Accept，
+// so it can likewise be used for interop testing and self-checks. | 因此也可用于互操作测试与自检。
 func Dial(ctx context.Context, rawURL string, o DialOptions) (*Conn, error) {
 	u, err := url.Parse(rawURL)
 	if err != nil {
@@ -74,7 +74,7 @@ func Dial(ctx context.Context, rawURL string, o DialOptions) (*Conn, error) {
 		return nil, fmt.Errorf("%w: 建连失败: %v", ErrHandshake, err)
 	}
 
-	// 生成 16 字节随机 key
+	// generate a 16-byte random key | 生成 16 字节随机 key
 	var keyRaw [16]byte
 	if _, err := rand.Read(keyRaw[:]); err != nil {
 		_ = netConn.Close()
@@ -149,7 +149,7 @@ func Dial(ctx context.Context, rawURL string, o DialOptions) (*Conn, error) {
 	}
 	c := newConn(netConn, Options{ReadBufferSize: o.ReadBufferSize, MaxMessageSize: maxSize}, true)
 	c.subprotocol = resp.Header.Get("Sec-WebSocket-Protocol")
-	// ReadResponse 的 bufio.Reader 可能已缓冲了对端的第一帧
+	// the bufio.Reader used by ReadResponse may already have buffered the peer's first frame | ReadResponse 的 bufio.Reader 可能已缓冲了对端的第一帧
 	if br.Buffered() > 0 || o.ReadBufferSize > 0 {
 		c.br = br
 	}

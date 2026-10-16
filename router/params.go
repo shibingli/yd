@@ -2,34 +2,34 @@ package router
 
 import "sync"
 
-// Param 是一个已捕获的路径参数。
+// Param is a captured path parameter. | Param 是一个已捕获的路径参数。
 type Param struct {
-	// Key 为参数名。
+	// Key is the parameter name. | Key 为参数名。
 	Key string
-	// Value 为捕获到的原始值（不做百分号解码，保留原始编码）。
+	// Value is the captured raw value (no percent-decoding, the original encoding is kept). | Value 为捕获到的原始值（不做百分号解码，保留原始编码）。
 	Value string
 }
 
-// Params 持有单次请求捕获到的全部路径参数。
+// Params holds all path parameters captured for a single request. | Params 持有单次请求捕获到的全部路径参数。
 //
-// Params 由 sync.Pool 复用，仅在当前请求的生命周期内有效；
-// 若需在请求结束后继续持有，请自行复制字符串。
+// Params is reused from a sync.Pool and is only valid for the lifetime of the current request; | Params 由 sync.Pool 复用，仅在当前请求的生命周期内有效；
+// copy the strings yourself if you need to keep them after the request ends. | 若需在请求结束后继续持有，请自行复制字符串。
 type Params struct {
 	ps []Param
 }
 
-// Len 返回已捕获参数的个数。
+// Len returns the number of captured parameters. | Len 返回已捕获参数的个数。
 func (p *Params) Len() int { return len(p.ps) }
 
-// Reset 清空已捕获参数但保留底层容量，供对象池复用。
+// Reset clears the captured parameters but keeps the underlying capacity, for object pool reuse. | Reset 清空已捕获参数但保留底层容量，供对象池复用。
 func (p *Params) Reset() { p.ps = p.ps[:0] }
 
-// Append 追加一个参数捕获。
+// Append appends one parameter capture. | Append 追加一个参数捕获。
 func (p *Params) Append(key, value string) {
 	p.ps = append(p.ps, Param{Key: key, Value: value})
 }
 
-// Truncate 把参数数量回退到 n，供回溯匹配失败时回滚。
+// Truncate rolls the parameter count back to n, used to roll back when backtracking matching fails. | Truncate 把参数数量回退到 n，供回溯匹配失败时回滚。
 func (p *Params) Truncate(n int) {
 	if n < 0 {
 		n = 0
@@ -40,7 +40,7 @@ func (p *Params) Truncate(n int) {
 	p.ps = p.ps[:n]
 }
 
-// Get 返回指定名称参数的值，不存在时返回空字符串。
+// Get returns the value of the named parameter, or an empty string when it does not exist. | Get 返回指定名称参数的值，不存在时返回空字符串。
 func (p *Params) Get(name string) string {
 	for i := range p.ps {
 		if p.ps[i].Key == name {
@@ -50,7 +50,7 @@ func (p *Params) Get(name string) string {
 	return ""
 }
 
-// Has 判断指定名称的参数是否存在（值允许为空）。
+// Has reports whether the named parameter exists (its value may be empty). | Has 判断指定名称的参数是否存在（值允许为空）。
 func (p *Params) Has(name string) bool {
 	for i := range p.ps {
 		if p.ps[i].Key == name {
@@ -60,14 +60,14 @@ func (p *Params) Has(name string) bool {
 	return false
 }
 
-// Each 按捕获顺序遍历参数。
+// Each iterates over the parameters in capture order. | Each 按捕获顺序遍历参数。
 func (p *Params) Each(fn func(key, value string)) {
 	for i := range p.ps {
 		fn(p.ps[i].Key, p.ps[i].Value)
 	}
 }
 
-// Keys 返回全部参数名（新切片，按捕获顺序）。
+// Keys returns all parameter names (a new slice, in capture order). | Keys 返回全部参数名（新切片，按捕获顺序）。
 func (p *Params) Keys() []string {
 	keys := make([]string, len(p.ps))
 	for i := range p.ps {
@@ -76,7 +76,7 @@ func (p *Params) Keys() []string {
 	return keys
 }
 
-// Values 返回全部参数值（新切片，按捕获顺序）。
+// Values returns all parameter values (a new slice, in capture order). | Values 返回全部参数值（新切片，按捕获顺序）。
 func (p *Params) Values() []string {
 	vals := make([]string, len(p.ps))
 	for i := range p.ps {
@@ -91,19 +91,19 @@ var paramsPool = sync.Pool{
 	},
 }
 
-// acquireParams 从对象池取一个空的 Params。
+// acquireParams takes an empty Params from the pool. | acquireParams 从对象池取一个空的 Params。
 func acquireParams() *Params {
 	p := paramsPool.Get().(*Params)
 	p.Reset()
 	return p
 }
 
-// releaseParams 把 Params 归还对象池。
+// releaseParams returns a Params to the pool. | releaseParams 把 Params 归还对象池。
 func releaseParams(p *Params) {
 	if p == nil {
 		return
 	}
-	// 防止异常大的参数切片长期占用内存
+	// prevent an abnormally large parameter slice from occupying memory for a long time | 防止异常大的参数切片长期占用内存
 	if cap(p.ps) > 64 {
 		return
 	}

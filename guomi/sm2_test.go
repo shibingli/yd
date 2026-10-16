@@ -427,7 +427,7 @@ func TestSM2PEMAndHexRoundTrip(t *testing.T) {
 	}
 
 	// 非法输入。
-	if _, err := PrivateKeyFromHex("zz"+"00"); err == nil {
+	if _, err := PrivateKeyFromHex("zz" + "00"); err == nil {
 		t.Fatal("PrivateKeyFromHex(非法十六进制) 未返回错误")
 	}
 	if _, err := PrivateKeyFromHex(strings.Repeat("0", 64)); err == nil {

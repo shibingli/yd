@@ -85,7 +85,56 @@ web/templates/
 
 - 提交信息、作者、PR 描述、代码注释中**严禁出现任何 Claude / Anthropic / AI 助手相关内容**。
 
-## 9. 后端协同约束
+## 9. 注释规范（强制）
+
+### 9.1 中英文同步（注释与日志文案）
+
+所有注释（包文档、导出符号 doc 注释、行内注释）**以及所有日志文案** **逐行**采用中英文同步形式，
+以半角竖线 `|` 分割，**英文在前、中文在后**，竖线两侧各留一个空格：
+
+```go
+l.Info("server started | 服务器已启动", logx.Str("addr", addr)) // 日志文案同样中英同步 | log messages follow the same rule
+```
+
+```go
+// Compress negotiates the encoding by q-values. | Compress 依据 q 值协商压缩编码。
+func Compress(o CompressOptions) router.Middleware
+
+var maxControlPayload = 125 // RFC 6455 §5.5 | RFC 6455 §5.5 规定
+```
+
+**豁免**（无需中英对照）：`//go:build` 等编译指令、`// Code generated ... DO NOT EDIT.` 标记、
+注释内部的代码示例 / 目录树 / 接口签名块 / URL。
+
+`yd build` 与测试守卫会同时检查注释与日志文案，未同步者视为未完成。
+
+### 9.1.1 日志统一使用 logx
+
+- 全仓**禁止** `import "log"`、禁止 `fmt.Print*` 当日志、禁止 zap/zerolog/logrus 等第三方日志库。
+- 统一使用 `github.com/yun-dev/yd/logx`，字段用 `logx.Str/Int/Dur/Err` 等强类型构造函数。
+- **唯一例外**：`server` 包为 `http.Server.ErrorLog` 必须提供 `*log.Logger` 而写的适配器，
+  其输出必须转发给 `logx`。
+- 自检：`grep -rn '"log"' --include=*.go . | grep -v '^./server/'` 无命中；
+  `grep -rn 'fmt.Print' --include=*.go .` 无命中。
+
+### 9.2 OpenAPI 注释必须完整
+
+所有对外 HTTP 处理器的 doc 注释必须给出完整 OpenAPI 3.0 注解块，缺项视为未完成：
+
+| 注解 | 是否必填 | 说明 |
+|---|---|---|
+| `@Summary` | 必填 | 一句话摘要（中英同步） |
+| `@Description` | 必填 | 详细说明，含 htmx 片段/整页语义差异 |
+| `@Tags` | 必填 | 分组名 |
+| `@Accept` / `@Produce` | 必填 | 例：`@Produce html,json` |
+| `@Param` | 有参数必填 | `名称 位置 类型 是否必填 "描述"`，位置取 `path/query/header/body/formData` |
+| `@Success` / `@Failure` | 必填 | 至少各一条，形如 `200 {object} model.User "描述"` |
+| `@Security` | 鉴权端点必填 | 例：`@Security BearerAuth` |
+| `@Router` | 必填 | `路径 [方法]`，路径参数用 `{name}` |
+
+`yd build` 会调用 `openapi` 包解析上述注解并与路由树合并，缺失注解的端点会在构建报告中列出。
+
+## 10. 后端协同约束
 
 - 路由模式支持**混合分段**：`/avatar/:id.jpg`、`/report/:id-xx.png` 合法，参数名不得重复。
 - 控制器只做编排；业务逻辑放 `internal/service`，数据访问放 `internal/repository`。

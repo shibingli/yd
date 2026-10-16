@@ -14,11 +14,11 @@ import (
 	"github.com/yun-dev/yd/config"
 )
 
-// watchTimeout 是等待配置文件监视回调的时限。
-// Windows 上 fsnotify 的投递延迟高于 Linux，这里给出 500ms 的宽松上限。
+// watchTimeout is the deadline for waiting on a config file watch callback. | watchTimeout 是等待配置文件监视回调的时限。
+// fsnotify delivery latency on Windows is higher than on Linux, so a generous 500ms upper bound is used here. | Windows 上 fsnotify 的投递延迟高于 Linux，这里给出 500ms 的宽松上限。
 const watchTimeout = 500 * time.Millisecond
 
-// writeTestFile 在真实文件系统上写入测试夹具。
+// writeTestFile writes a test fixture on the real filesystem. | writeTestFile 在真实文件系统上写入测试夹具。
 func writeTestFile(t *testing.T, path, content string) {
 	t.Helper()
 	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
@@ -26,7 +26,7 @@ func writeTestFile(t *testing.T, path, content string) {
 	}
 }
 
-// writeMemFile 在内存文件系统上写入测试夹具。
+// writeMemFile writes a test fixture on an in-memory filesystem. | writeMemFile 在内存文件系统上写入测试夹具。
 func writeMemFile(t *testing.T, fs afero.Fs, path, content string) {
 	t.Helper()
 	if err := afero.WriteFile(fs, path, []byte(content), 0o644); err != nil {
@@ -34,15 +34,15 @@ func writeMemFile(t *testing.T, fs afero.Fs, path, content string) {
 	}
 }
 
-// absentEnvFile 返回一个必定不存在的 .env 路径，
-// 避免测试意外读取到仓库根目录下开发者本地的 .env。
+// absentEnvFile returns a guaranteed-nonexistent .env path, | absentEnvFile 返回一个必定不存在的 .env 路径，
+// so tests do not accidentally read a developer's local .env in the repository root. | 避免测试意外读取到仓库根目录下开发者本地的 .env。
 func absentEnvFile(t *testing.T) string {
 	t.Helper()
 	return filepath.Join(t.TempDir(), "absent.env")
 }
 
-// isolateEnv 先清空给定环境变量，并在测试结束后恢复其原有取值，
-// 使 .env 注入与真实环境变量之间的断言保持确定性。
+// isolateEnv first clears the given environment variables and restores their original values after the test, | isolateEnv 先清空给定环境变量，并在测试结束后恢复其原有取值，
+// keeping assertions between .env injection and real environment variables deterministic. | 使 .env 注入与真实环境变量之间的断言保持确定性。
 func isolateEnv(t *testing.T, keys ...string) {
 	t.Helper()
 	type snapshot struct {
@@ -69,8 +69,8 @@ func isolateEnv(t *testing.T, keys ...string) {
 	})
 }
 
-// TestPriorityFlagBeatsEnvAndFile 覆盖 Review Focus #2：带非空默认值的 pflag
-// 在未显式传参时不得覆盖环境变量与配置文件；显式传参时命令行必须最高优先级。
+// TestPriorityFlagBeatsEnvAndFile covers Review Focus #2: a pflag with a non-empty default value | TestPriorityFlagBeatsEnvAndFile 覆盖 Review Focus #2：带非空默认值的 pflag
+// must not override environment variables or config files when not explicitly passed; when explicitly passed, the command line must win. | 在未显式传参时不得覆盖环境变量与配置文件；显式传参时命令行必须最高优先级。
 func TestPriorityFlagBeatsEnvAndFile(t *testing.T) {
 	dir := t.TempDir()
 	writeTestFile(t, filepath.Join(dir, "config.yaml"), "server:\n  port: 8080\n")
@@ -93,12 +93,12 @@ func TestPriorityFlagBeatsEnvAndFile(t *testing.T) {
 		t.Fatalf("BindFlags 失败: %v", err)
 	}
 
-	// flag 未 Changed（值为默认值 8080），env 必须胜过文件与 flag 默认值。
+	// flag not Changed (value is the default 8080); env must beat both the file and the flag default. | flag 未 Changed（值为默认值 8080），env 必须胜过文件与 flag 默认值。
 	if got := c.GetInt("server.port"); got != 9090 {
 		t.Fatalf("未传参时 server.port = %d，期望环境变量胜出为 9090", got)
 	}
 
-	// 显式传参后命令行最高优先级。
+	// After being passed explicitly, the command line has the highest precedence. | 显式传参后命令行最高优先级。
 	if err := fs.Set("port", "7070"); err != nil {
 		t.Fatalf("设置 flag 失败: %v", err)
 	}
@@ -110,8 +110,8 @@ func TestPriorityFlagBeatsEnvAndFile(t *testing.T) {
 	}
 }
 
-// TestUnchangedFlagDefaultLosesToConfigFile 断言未 Changed 的 flag 默认值
-// 只作为最低优先级层，配置文件仍然胜出。
+// TestUnchangedFlagDefaultLosesToConfigFile asserts that an unchanged flag's default value | TestUnchangedFlagDefaultLosesToConfigFile 断言未 Changed 的 flag 默认值
+// serves only as the lowest-precedence layer, and the config file still wins. | 只作为最低优先级层，配置文件仍然胜出。
 func TestUnchangedFlagDefaultLosesToConfigFile(t *testing.T) {
 	dir := t.TempDir()
 	writeTestFile(t, filepath.Join(dir, "config.yaml"), "server:\n  port: 6080\n")
@@ -132,10 +132,10 @@ func TestUnchangedFlagDefaultLosesToConfigFile(t *testing.T) {
 	}
 }
 
-// TestUnchangedFlagDefaultInjectedAsTypedDefault 断言未 Changed 的 flag 默认值
-// 按 pflag 类型解析后注入**默认值层**，而不是登记成旗标绑定：
-// 取值必须是 time.Duration 这类强类型（BindPFlag 会原样返回字符串），
-// 且 IsSet 必须为真（旗标绑定的未变更默认值不会被 IsSet 看到）。
+// TestUnchangedFlagDefaultInjectedAsTypedDefault asserts that an unchanged flag's default value | TestUnchangedFlagDefaultInjectedAsTypedDefault 断言未 Changed 的 flag 默认值
+// is parsed by pflag type and injected into the **default layer**, rather than registered as a flag binding: | 按 pflag 类型解析后注入**默认值层**，而不是登记成旗标绑定：
+// the retrieved value must be a strong type such as time.Duration (BindPFlag would return the string verbatim), | 取值必须是 time.Duration 这类强类型（BindPFlag 会原样返回字符串），
+// and IsSet must be true (an unchanged default value from a flag binding is not visible to IsSet). | 且 IsSet 必须为真（旗标绑定的未变更默认值不会被 IsSet 看到）。
 func TestUnchangedFlagDefaultInjectedAsTypedDefault(t *testing.T) {
 	fs := pflag.NewFlagSet("typed-defaults", pflag.ContinueOnError)
 	fs.Duration("ttl", 30*time.Second, "缓存生存期")
@@ -181,8 +181,8 @@ func TestUnchangedFlagDefaultInjectedAsTypedDefault(t *testing.T) {
 	}
 }
 
-// TestNestedEnvMappingFromDotEnv 断言 .env 中的 YD_DB_MAXCONN 能映射到
-// 嵌套键 db.maxconn，并且解析支持注释、空行、引号与 export 前缀。
+// TestNestedEnvMappingFromDotEnv asserts that YD_DB_MAXCONN in .env maps to | TestNestedEnvMappingFromDotEnv 断言 .env 中的 YD_DB_MAXCONN 能映射到
+// the nested key db.maxconn, and that parsing supports comments, blank lines, quotes and the export prefix. | 嵌套键 db.maxconn，并且解析支持注释、空行、引号与 export 前缀。
 func TestNestedEnvMappingFromDotEnv(t *testing.T) {
 	isolateEnv(t,
 		"YD_DB_MAXCONN",
@@ -224,7 +224,7 @@ YD_REDIS_ADDR=127.0.0.1:6380 # 行内注释
 	}
 }
 
-// TestTypedUnmarshal 断言分层合并结果可以强类型解码到结构体。
+// TestTypedUnmarshal asserts that the layered merge result can be strongly-typed decoded into a struct. | TestTypedUnmarshal 断言分层合并结果可以强类型解码到结构体。
 func TestTypedUnmarshal(t *testing.T) {
 	dir := t.TempDir()
 	writeTestFile(t, filepath.Join(dir, "config.yaml"), "server:\n  port: 8080\n")
@@ -235,7 +235,7 @@ func TestTypedUnmarshal(t *testing.T) {
 		t.Fatalf("Load 失败: %v", err)
 	}
 
-	// 注意：snake_case 的配置键必须通过 mapstructure tag 映射到 Go 字段名。
+	// Note: snake_case config keys must be mapped to Go field names via mapstructure tags. | 注意：snake_case 的配置键必须通过 mapstructure tag 映射到 Go 字段名。
 	var got struct {
 		Server struct {
 			Port        int           `mapstructure:"port"`
@@ -280,8 +280,8 @@ func TestTypedUnmarshal(t *testing.T) {
 	}
 }
 
-// TestConfigLocalOverridesBase 断言 config.local.<ext> 覆盖 config.<ext>，
-// 且未被覆盖的键保持基础值（深合并而非整体替换）。
+// TestConfigLocalOverridesBase asserts that config.local.<ext> overrides config.<ext>, | TestConfigLocalOverridesBase 断言 config.local.<ext> 覆盖 config.<ext>，
+// and that keys which are not overridden keep their base values (deep merge rather than wholesale replacement). | 且未被覆盖的键保持基础值（深合并而非整体替换）。
 func TestConfigLocalOverridesBase(t *testing.T) {
 	mem := afero.NewMemMapFs()
 	writeMemFile(t, mem, "config.yaml", "server:\n  port: 8080\napp:\n  name: base\n")
@@ -309,7 +309,7 @@ func TestConfigLocalOverridesBase(t *testing.T) {
 	}
 }
 
-// TestWatchReload 断言文件变更后监视回调被触发，且回调能看到重新加载后的取值。
+// TestWatchReload asserts that the watch callback fires after a file change and that it sees the reloaded values. | TestWatchReload 断言文件变更后监视回调被触发，且回调能看到重新加载后的取值。
 func TestWatchReload(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "config.yaml")
@@ -360,7 +360,7 @@ func TestWatchReload(t *testing.T) {
 		t.Fatalf("%v 内未收到文件变更回调（calls=%d, WatchErr=%v）", watchTimeout, got, c.WatchErr())
 	}
 
-	// 排空可能重复的 fsnotify 事件：所有写操作都发生在监视 goroutine 内。
+	// Drain possibly duplicated fsnotify events: all writes happen inside the watcher goroutine. | 排空可能重复的 fsnotify 事件：所有写操作都发生在监视 goroutine 内。
 	time.Sleep(100 * time.Millisecond)
 
 	mu.Lock()
@@ -373,8 +373,8 @@ func TestWatchReload(t *testing.T) {
 	}
 }
 
-// TestBindFlagsFallsBackToOptionsFlags 断言 BindFlags 传入 nil 时
-// 回退到 Options.Flags 提供的标志集。
+// TestBindFlagsFallsBackToOptionsFlags asserts that passing nil to BindFlags | TestBindFlagsFallsBackToOptionsFlags 断言 BindFlags 传入 nil 时
+// falls back to the flag set provided by Options.Flags. | 回退到 Options.Flags 提供的标志集。
 func TestBindFlagsFallsBackToOptionsFlags(t *testing.T) {
 	fs := pflag.NewFlagSet("options-flags", pflag.ContinueOnError)
 	fs.String("host", "0.0.0.0", "监听地址")
@@ -395,7 +395,7 @@ func TestBindFlagsFallsBackToOptionsFlags(t *testing.T) {
 	}
 }
 
-// TestUnknownFlagReturnsError 断言映射引用了不存在的 flag 时返回可判定的错误。
+// TestUnknownFlagReturnsError asserts that referencing a nonexistent flag in the mapping returns a checkable error. | TestUnknownFlagReturnsError 断言映射引用了不存在的 flag 时返回可判定的错误。
 func TestUnknownFlagReturnsError(t *testing.T) {
 	fs := pflag.NewFlagSet("unknown", pflag.ContinueOnError)
 	fs.String("port", "", "监听端口")
@@ -414,7 +414,7 @@ func TestUnknownFlagReturnsError(t *testing.T) {
 	}
 }
 
-// TestDefaultsAppliedWhenNothingSet 断言无文件、无 env、无 flag 时全部安全底线默认值生效。
+// TestDefaultsAppliedWhenNothingSet asserts that all safety-net defaults take effect with no file, no env and no flag. | TestDefaultsAppliedWhenNothingSet 断言无文件、无 env、无 flag 时全部安全底线默认值生效。
 func TestDefaultsAppliedWhenNothingSet(t *testing.T) {
 	c, err := config.Load(config.Options{
 		Name:      "defaults",
@@ -470,7 +470,7 @@ func TestDefaultsAppliedWhenNothingSet(t *testing.T) {
 	}
 }
 
-// TestEnvDoesNotOverrideRealEnvVar 断言 .env 永不覆盖已存在的真实环境变量。
+// TestEnvDoesNotOverrideRealEnvVar asserts that .env never overrides an already existing real environment variable. | TestEnvDoesNotOverrideRealEnvVar 断言 .env 永不覆盖已存在的真实环境变量。
 func TestEnvDoesNotOverrideRealEnvVar(t *testing.T) {
 	t.Setenv("YD_APP_NAME", "from-real-env")
 

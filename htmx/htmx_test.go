@@ -13,7 +13,7 @@ import (
 	"github.com/yun-dev/yd/router"
 )
 
-// reqWithHeaders 构造一个带指定请求头的测试请求。
+// reqWithHeaders builds a test request carrying the given headers. | reqWithHeaders 构造一个带指定请求头的测试请求。
 func reqWithHeaders(headers map[string]string) *http.Request {
 	r := httptest.NewRequest(http.MethodGet, "/yd", nil)
 	for k, v := range headers {
@@ -22,12 +22,12 @@ func reqWithHeaders(headers map[string]string) *http.Request {
 	return r
 }
 
-// errWriter 是一个总是写入失败的 io.Writer，用于验证错误传播。
+// errWriter is an io.Writer whose writes always fail, used to verify error propagation. | errWriter 是一个总是写入失败的 io.Writer，用于验证错误传播。
 type errWriter struct{ err error }
 
 func (w errWriter) Write([]byte) (int, error) { return 0, w.err }
 
-// ---------------------------------------------------------------- 请求侧判定
+// ---------------------------------------------------------------- Request-side detection | 请求侧判定
 
 func TestIsRequestBoostedAndRequestType(t *testing.T) {
 	cases := []struct {
@@ -171,7 +171,7 @@ func TestIsHistoryRestoreAndIsPartial(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------- 响应头
+// ---------------------------------------------------------------- Response headers | 响应头
 
 func TestTriggerSingleAndJSON(t *testing.T) {
 	cases := []struct {
@@ -394,7 +394,7 @@ func TestTriggerFromCtxAndFromHeader(t *testing.T) {
 		t.Errorf("TriggerFromCtx JSON = %q, 期望 %q", got, `{"table":{"page":2}}`)
 	}
 
-	TriggerFromCtx(nil, Event{Name: "refresh"}) // 不应 panic
+	TriggerFromCtx(nil, Event{Name: "refresh"}) // must not panic | 不应 panic
 
 	rec3 := httptest.NewRecorder()
 	TriggerFromHeader(rec3, "refresh")
@@ -403,7 +403,7 @@ func TestTriggerFromCtxAndFromHeader(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------- 渲染辅助
+// ---------------------------------------------------------------- Rendering helpers | 渲染辅助
 
 func TestPartialsRenderExactMarkup(t *testing.T) {
 	var buf bytes.Buffer
@@ -550,12 +550,12 @@ func TestErrorFragmentEscapesHTML(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------- 命名守卫
+// ---------------------------------------------------------------- Naming guard | 命名守卫
 
-// TestNoHtmx2OnlyNamesAppear 断言整个包的源码中不出现 Htmx 2 专有标识，
-// 防止后续改动误用旧版本命名（Htmx 4 已改名或移除这些标识）。
+// TestNoHtmx2OnlyNamesAppear asserts that no Htmx 2 only identifier appears anywhere in the package source, | TestNoHtmx2OnlyNamesAppear 断言整个包的源码中不出现 Htmx 2 专有标识，
+// guarding later changes against misusing the old naming (Htmx 4 has renamed or removed these identifiers). | 防止后续改动误用旧版本命名（Htmx 4 已改名或移除这些标识）。
 func TestNoHtmx2OnlyNamesAppear(t *testing.T) {
-	// 分片拼接：避免本测试文件自身命中被扫描的字符串。
+	// Split concatenation: keeps this test file itself from matching the strings being scanned. | 分片拼接：避免本测试文件自身命中被扫描的字符串。
 	forbidden := []string{
 		"hx-disabled" + "-elt",
 		"hx" + "-vars",

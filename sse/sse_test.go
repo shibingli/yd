@@ -16,9 +16,9 @@ import (
 	"github.com/yun-dev/yd/router"
 )
 
-// ---------------------------------------------------------------- 测试辅助
+// ---------------------------------------------------------------- Test helpers | 测试辅助
 
-// flushRecorder 是记录写入字节、可并发访问且实现 http.Flusher 的响应写入器假实现。
+// flushRecorder is a fake response writer that records the bytes written, is safe for concurrent access, and implements http.Flusher. | flushRecorder 是记录写入字节、可并发访问且实现 http.Flusher 的响应写入器假实现。
 type flushRecorder struct {
 	mu      sync.Mutex
 	header  http.Header
@@ -56,28 +56,28 @@ func (f *flushRecorder) Flush() {
 	f.mu.Unlock()
 }
 
-// String 返回已写出字节的快照。
+// String returns a snapshot of the bytes written so far. | String 返回已写出字节的快照。
 func (f *flushRecorder) String() string {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return f.buf.String()
 }
 
-// Len 返回已写出的字节数。
+// Len returns the number of bytes written so far. | Len 返回已写出的字节数。
 func (f *flushRecorder) Len() int {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return f.buf.Len()
 }
 
-// Flushes 返回 Flush 被调用的次数。
+// Flushes returns the number of times Flush was called. | Flushes 返回 Flush 被调用的次数。
 func (f *flushRecorder) Flushes() int {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return f.flushes
 }
 
-// plainWriter 只实现 http.ResponseWriter，刻意不实现 http.Flusher。
+// plainWriter implements only http.ResponseWriter and deliberately does not implement http.Flusher. | plainWriter 只实现 http.ResponseWriter，刻意不实现 http.Flusher。
 type plainWriter struct {
 	header http.Header
 	buf    bytes.Buffer
@@ -99,7 +99,7 @@ func (p *plainWriter) WriteHeader(code int) {
 	}
 }
 
-// waitFor 轮询等待条件成立，超时即判定失败。
+// waitFor polls until the condition holds, and fails the test on timeout. | waitFor 轮询等待条件成立，超时即判定失败。
 func waitFor(t *testing.T, timeout time.Duration, what string, cond func() bool) {
 	t.Helper()
 	deadline := time.Now().Add(timeout)
@@ -112,7 +112,7 @@ func waitFor(t *testing.T, timeout time.Duration, what string, cond func() bool)
 	t.Fatalf("等待超时: %s", what)
 }
 
-// recvEvent 在超时内从 ch 收取一个事件。
+// recvEvent receives one event from ch within the timeout. | recvEvent 在超时内从 ch 收取一个事件。
 func recvEvent(t *testing.T, ch <-chan Event, timeout time.Duration) Event {
 	t.Helper()
 	select {
@@ -124,7 +124,7 @@ func recvEvent(t *testing.T, ch <-chan Event, timeout time.Duration) Event {
 	}
 }
 
-// readUntil 从 r 持续读取，直到出现 want 或超时，返回已读到的内容快照。
+// readUntil keeps reading from r until want appears or the timeout expires, returning a snapshot of what has been read. | readUntil 从 r 持续读取，直到出现 want 或超时，返回已读到的内容快照。
 func readUntil(t *testing.T, r io.Reader, want string, timeout time.Duration) string {
 	t.Helper()
 	var (
@@ -171,7 +171,7 @@ func readUntil(t *testing.T, r io.Reader, want string, timeout time.Duration) st
 	}
 }
 
-// ---------------------------------------------------------------- Writer
+// ---------------------------------------------------------------- Writer | Writer
 
 func TestWriterExactWireFormat(t *testing.T) {
 	rec := newFlushRecorder()
@@ -194,7 +194,7 @@ func TestWriterExactWireFormat(t *testing.T) {
 		t.Fatalf("线格式不匹配:\n got = %q\nwant = %q", got, want)
 	}
 
-	// 响应头必须符合 SSE 约定。
+	// The response headers must follow the SSE conventions. | 响应头必须符合 SSE 约定。
 	wantHeaders := map[string]string{
 		"Content-Type":      "text/event-stream; charset=utf-8",
 		"Cache-Control":     "no-cache, no-transform",
@@ -211,8 +211,8 @@ func TestWriterExactWireFormat(t *testing.T) {
 	}
 }
 
-// TestWriterFieldOrderAndCRNormalization 断言固定字段顺序
-// （comment → id → event → retry → data 行 → 空行）以及 CR/CRLF 归一化。
+// TestWriterFieldOrderAndCRNormalization asserts the fixed field order | TestWriterFieldOrderAndCRNormalization 断言固定字段顺序
+// (comment → id → event → retry → data lines → blank line) as well as CR/CRLF normalization. | （comment → id → event → retry → data 行 → 空行）以及 CR/CRLF 归一化。
 func TestWriterFieldOrderAndCRNormalization(t *testing.T) {
 	rec := newFlushRecorder()
 	w, err := NewWriter(rec, Options{})
@@ -235,7 +235,7 @@ func TestWriterFieldOrderAndCRNormalization(t *testing.T) {
 	}
 }
 
-// TestWriterDataAndCommentOnlyFrames 覆盖 WriteData / Comment 两个便捷入口。
+// TestWriterDataAndCommentOnlyFrames covers the two convenience entry points WriteData / Comment. | TestWriterDataAndCommentOnlyFrames 覆盖 WriteData / Comment 两个便捷入口。
 func TestWriterDataAndCommentOnlyFrames(t *testing.T) {
 	rec := newFlushRecorder()
 	w, err := NewWriter(rec, Options{})
@@ -254,7 +254,7 @@ func TestWriterDataAndCommentOnlyFrames(t *testing.T) {
 		t.Fatalf("线格式不匹配:\n got = %q\nwant = %q", got, want)
 	}
 
-	// id/event 字段中的换行必须被清除，不得破坏单行结构。
+	// Newlines inside the id/event fields must be stripped, without breaking the single-line structure. | id/event 字段中的换行必须被清除，不得破坏单行结构。
 	rec2 := newFlushRecorder()
 	w2, err := NewWriter(rec2, Options{})
 	if err != nil {
@@ -268,8 +268,8 @@ func TestWriterDataAndCommentOnlyFrames(t *testing.T) {
 	}
 }
 
-// TestWriterRetryFromOptions 断言 Options.Retry 作为默认重连间隔，
-// 且 Event.Retry 优先；Retry 为 0 时不得输出 retry 字段。
+// TestWriterRetryFromOptions asserts that Options.Retry serves as the default reconnect interval | TestWriterRetryFromOptions 断言 Options.Retry 作为默认重连间隔，
+// and that Event.Retry takes precedence; no retry field may be emitted when Retry is 0. | 且 Event.Retry 优先；Retry 为 0 时不得输出 retry 字段。
 func TestWriterRetryFromOptions(t *testing.T) {
 	rec := newFlushRecorder()
 	w, err := NewWriter(rec, Options{Retry: 2 * time.Second})
@@ -313,7 +313,7 @@ func TestHeartbeatEmitsCommentAndStopsOnClose(t *testing.T) {
 	if err := w.Close(); err != nil {
 		t.Fatalf("Close 返回错误: %v", err)
 	}
-	// 幂等：重复 Close 不得 panic。
+	// Idempotence: a repeated Close must not panic. | 幂等：重复 Close 不得 panic。
 	if err := w.Close(); err != nil {
 		t.Fatalf("重复 Close 返回错误: %v", err)
 	}
@@ -324,13 +324,13 @@ func TestHeartbeatEmitsCommentAndStopsOnClose(t *testing.T) {
 		t.Fatalf("Close 之后心跳仍在输出：字节数 %d → %d", after, got)
 	}
 
-	// 关闭后的写入为无操作，且不得 panic。
+	// Writes after closing are no-ops and must not panic. | 关闭后的写入为无操作，且不得 panic。
 	if err := w.WriteEvent(Event{ID: "x"}); err != nil {
 		t.Fatalf("关闭后写入返回错误: %v", err)
 	}
 }
 
-// ---------------------------------------------------------------- Broker
+// ---------------------------------------------------------------- Broker | Broker
 
 func TestBrokerFanoutToMultipleSubscribers(t *testing.T) {
 	b := NewBroker(BrokerOptions{QueueSize: 8})
@@ -356,7 +356,7 @@ func TestBrokerFanoutToMultipleSubscribers(t *testing.T) {
 			t.Errorf("订阅者 %d 收到 %q/%q，期望 1/2", i, e1.ID, e2.ID)
 		}
 	}
-	// 其他 topic 不得串流。
+	// Other topics must not leak into this stream. | 其他 topic 不得串流。
 	select {
 	case e := <-ch1:
 		t.Fatalf("收到非本 topic 的事件: %+v", e)
@@ -404,7 +404,7 @@ func TestBrokerSlowConsumerDoesNotBlock(t *testing.T) {
 		t.Fatal("慢消费者阻塞了 Publish")
 	}
 
-	// 慢消费者一个字节都不读，必然丢帧且计数递增。
+	// The slow consumer reads not a single byte, so frames must be dropped and the counter must keep rising. | 慢消费者一个字节都不读，必然丢帧且计数递增。
 	waitFor(t, 2*time.Second, "丢弃计数递增", func() bool { return b.Dropped("t") > 0 })
 
 	mu.Lock()
@@ -420,7 +420,7 @@ func TestBrokerSlowConsumerDoesNotBlock(t *testing.T) {
 	if first != "0" {
 		t.Errorf("快消费者首个事件 = %q，期望 0", first)
 	}
-	// 慢消费者未读取的事件不得被投递出来（保持非阻塞语义）。
+	// Events the slow consumer has not read must not be delivered (preserving the non-blocking semantics). | 慢消费者未读取的事件不得被投递出来（保持非阻塞语义）。
 	if slow == nil {
 		t.Fatal("Subscribe 返回了 nil 通道")
 	}
@@ -437,7 +437,7 @@ func TestBrokerUnsubscribeIdempotentAndStopsDelivery(t *testing.T) {
 	}
 
 	cancel()
-	cancel() // 幂等：不得 panic
+	cancel() // idempotent: must not panic | 幂等：不得 panic
 
 	if got := b.Clients("t"); got != 0 {
 		t.Fatalf("取消后 Clients(t) = %d，期望 0", got)
@@ -450,14 +450,14 @@ func TestBrokerUnsubscribeIdempotentAndStopsDelivery(t *testing.T) {
 	case <-time.After(time.Second):
 		t.Fatal("取消后订阅通道应被关闭")
 	}
-	b.Publish("t", Event{ID: "2"}) // 不得 panic
+	b.Publish("t", Event{ID: "2"}) // must not panic | 不得 panic
 }
 
 func TestBrokerCloseClosesAllSubscriptions(t *testing.T) {
 	b := NewBroker(BrokerOptions{})
 	ch, cancel := b.Subscribe("t")
 	b.Close()
-	b.Close() // 幂等
+	b.Close() // idempotent | 幂等
 
 	if got := b.Clients("t"); got != 0 {
 		t.Fatalf("Close 后 Clients(t) = %d，期望 0", got)
@@ -470,9 +470,9 @@ func TestBrokerCloseClosesAllSubscriptions(t *testing.T) {
 	default:
 		t.Fatal("Close 应立即关闭订阅通道")
 	}
-	cancel() // 不得 panic
+	cancel() // must not panic | 不得 panic
 
-	// 关闭后的发布为无操作。
+	// Publishing after closing is a no-op. | 关闭后的发布为无操作。
 	b.Publish("t", Event{ID: "1"})
 	if _, cancel2 := b.Subscribe("t"); cancel2 == nil {
 		t.Fatal("已关闭的 Broker 仍需返回可调用的取消函数")
@@ -496,7 +496,7 @@ func TestBrokerPublishHTMLLineFormat(t *testing.T) {
 		t.Fatalf("Event.Data = %q，期望 %q", e.Data, want)
 	}
 
-	// 送上线后的完整字节流。
+	// The complete byte stream as sent over the wire. | 送上线后的完整字节流。
 	rec := newFlushRecorder()
 	w, err := NewWriter(rec, Options{})
 	if err != nil {
@@ -510,7 +510,7 @@ func TestBrokerPublishHTMLLineFormat(t *testing.T) {
 		t.Fatalf("线格式不匹配:\n got = %q\nwant = %q", got, wantWire)
 	}
 
-	// 属性必须转义，防止注入。
+	// Attributes must be escaped to prevent injection. | 属性必须转义，防止注入。
 	b.PublishHTML("msgs", `" onload="x`, "outerHTML", "v")
 	esc := recvEvent(t, ch, time.Second)
 	if strings.Contains(string(esc.Data), `hx-target="" onload=`) {
@@ -518,9 +518,9 @@ func TestBrokerPublishHTMLLineFormat(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------- Handler
+// ---------------------------------------------------------------- Handler | Handler
 
-// sseServer 启动一个挂在 /events 上的 SSE 端点。
+// sseServer starts an SSE endpoint mounted at /events. | sseServer 启动一个挂在 /events 上的 SSE 端点。
 func sseServer(t *testing.T, b *Broker, topic string, o Options) (*httptest.Server, *router.Router) {
 	t.Helper()
 	r := router.New()
@@ -530,7 +530,7 @@ func sseServer(t *testing.T, b *Broker, topic string, o Options) (*httptest.Serv
 	return srv, r
 }
 
-// getAsync 异步发起 GET，返回响应通道（SSE 长连接在首个事件前不会返回响应头）。
+// getAsync issues a GET asynchronously and returns a response channel (an SSE long-lived connection does not deliver response headers before the first event). | getAsync 异步发起 GET，返回响应通道（SSE 长连接在首个事件前不会返回响应头）。
 func getAsync(t *testing.T, url string, hdr map[string]string) <-chan *http.Response {
 	t.Helper()
 	out := make(chan *http.Response, 1)
@@ -617,7 +617,7 @@ func TestHandlerCleansUpOnClientDisconnect(t *testing.T) {
 
 	waitFor(t, 2*time.Second, "订阅建立", func() bool { return b.Clients("live") == 1 })
 
-	// 触发一次写出，客户端才会拿到响应头。
+	// Trigger one write so that the client actually receives the response headers. | 触发一次写出，客户端才会拿到响应头。
 	b.Publish("live", Event{ID: "1", Data: []byte("first")})
 	var resp *http.Response
 	select {
@@ -632,7 +632,7 @@ func TestHandlerCleansUpOnClientDisconnect(t *testing.T) {
 		t.Fatalf("未收到首个事件，实际 %q", body)
 	}
 
-	// 客户端断开 → 服务端必须清理订阅。
+	// Client disconnect → the server must clean up the subscription. | 客户端断开 → 服务端必须清理订阅。
 	if err := resp.Body.Close(); err != nil {
 		t.Fatalf("关闭响应体失败: %v", err)
 	}
@@ -710,9 +710,9 @@ func TestHandlerRejectsNonFlusher(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------- 并发与泄漏
+// ---------------------------------------------------------------- Concurrency and leaks | 并发与泄漏
 
-// TestWriterConcurrentWritesAreSerialized 用并发写入验证帧不会交错（配合 -race）。
+// TestWriterConcurrentWritesAreSerialized uses concurrent writes to verify that frames do not interleave (run with -race). | TestWriterConcurrentWritesAreSerialized 用并发写入验证帧不会交错（配合 -race）。
 func TestWriterConcurrentWritesAreSerialized(t *testing.T) {
 	rec := newFlushRecorder()
 	w, err := NewWriter(rec, Options{})
@@ -752,7 +752,7 @@ func TestWriterConcurrentWritesAreSerialized(t *testing.T) {
 	}
 }
 
-// TestHeartbeatRestartDoesNotLeakGoroutines 断言重复启停心跳不会残留 goroutine。
+// TestHeartbeatRestartDoesNotLeakGoroutines asserts that repeatedly starting and stopping the heartbeat leaves no goroutines behind. | TestHeartbeatRestartDoesNotLeakGoroutines 断言重复启停心跳不会残留 goroutine。
 func TestHeartbeatRestartDoesNotLeakGoroutines(t *testing.T) {
 	rec := newFlushRecorder()
 	w, err := NewWriter(rec, Options{})
@@ -762,8 +762,8 @@ func TestHeartbeatRestartDoesNotLeakGoroutines(t *testing.T) {
 
 	base := runtime.NumGoroutine()
 	for i := 0; i < 20; i++ {
-		w.Heartbeat(time.Hour) // 间隔很长：本轮不会真的写出心跳
-		w.Heartbeat(0)         // 立即停止并等待 goroutine 退出
+		w.Heartbeat(time.Hour) // very long interval: no heartbeat is actually written in this round | 间隔很长：本轮不会真的写出心跳
+		w.Heartbeat(0)         // stop immediately and wait for the goroutine to exit | 立即停止并等待 goroutine 退出
 	}
 	waitFor(t, time.Second, "goroutine 回落到基线", func() bool {
 		return runtime.NumGoroutine() <= base
@@ -772,7 +772,7 @@ func TestHeartbeatRestartDoesNotLeakGoroutines(t *testing.T) {
 	if err := w.Close(); err != nil {
 		t.Fatalf("Close 返回错误: %v", err)
 	}
-	// Close 之后不得再写出任何字节。
+	// No bytes may be written after Close. | Close 之后不得再写出任何字节。
 	before := rec.Len()
 	w.Heartbeat(time.Millisecond)
 	time.Sleep(20 * time.Millisecond)
