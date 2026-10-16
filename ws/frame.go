@@ -103,7 +103,7 @@ func maskBytes(key [4]byte, pos int, b []byte) int {
 	if len(b) == 0 {
 		return 0
 	}
-	// 先对齐到 4 字节边界
+	// first align to the 4-byte boundary | 先对齐到 4 字节边界
 	if head := (4 - pos%4) % 4; head > 0 && head <= len(b) {
 		for i := 0; i < head; i++ {
 			b[i] ^= key[(pos+i)%4]
@@ -117,7 +117,7 @@ func maskBytes(key [4]byte, pos int, b []byte) int {
 		return len(b)
 	}
 
-	// 批量处理 8 字节
+	// process in 8-byte words | 批量处理 8 字节
 	var kb [8]byte
 	kb[0], kb[1], kb[2], kb[3] = key[0], key[1], key[2], key[3]
 	kb[4], kb[5], kb[6], kb[7] = key[0], key[1], key[2], key[3]
@@ -133,7 +133,7 @@ func maskBytes(key [4]byte, pos int, b []byte) int {
 	return len(b)
 }
 
-// closePayload 构造关闭帧载荷：2 字节状态码 + 原因文本。
+// closePayload builds a close frame payload: a 2-byte status code followed by the reason text. | closePayload 构造关闭帧载荷：2 字节状态码 + 原因文本。
 func closePayload(code CloseCode, text string) []byte {
 	if code == CloseNoStatusReceived {
 		return nil
@@ -151,4 +151,15 @@ func parseClosePayload(p []byte) (CloseCode, string, error) {
 		return CloseNoStatusReceived, "", nil
 	case len(p) == 1:
 		return CloseProtocolError, "", ErrProtocol
-	defau
+	default:
+		code := CloseCode(binary.BigEndian.Uint16(p[:2]))
+		if !validCloseCode(code) {
+			return CloseProtocolError, "", ErrProtocol
+		}
+		text := string(p[2:])
+		if !utf8Valid([]byte(text)) {
+			return CloseInvalidFramePayloadData, "", ErrInvalidUTF8
+		}
+		return code, text, nil
+	}
+}

@@ -1096,7 +1096,7 @@ func TestMalformedTokensTable(t *testing.T) {
 		{"empty", "", ErrMalformed},
 		{"blank", "   ", ErrMalformed},
 		{"one segment", "abc", ErrMalformed},
-		{"two segments", buildSegments(hline, goodPayload, ""), ErrMalformed},
+		{"two segments", hline + "." + goodPayload, ErrMalformed},
 		{"four segments", buildSegments(hline, goodPayload, goodSig) + ".extra", ErrMalformed},
 		{"empty header", buildSegments("", goodPayload, goodSig), ErrMalformed},
 		{"empty payload", buildSegments(hline, "", goodSig), ErrMalformed},
@@ -1140,4 +1140,3 @@ func TestMalformedTokensTable(t *testing.T) {
 		t.Errorf("两段空载荷的 err = %v，期望 ErrMalformed", err)
 	}
 }
-                                                                                                                                                                                                                                                                                                         
