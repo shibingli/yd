@@ -109,6 +109,10 @@ const (
 	HtmxVersion = "4.0.0"
 	// TailwindVersion is the Tailwind CSS release used to build the stylesheet. | TailwindVersion 是构建样式表所用的 Tailwind CSS 版本。
 	TailwindVersion = "4.3.3"
+	// ServiceLibrary is the service manager integration used for native installs. | ServiceLibrary 是用于原生服务安装的服务管理器集成库。
+	ServiceLibrary = "github.com/kardianos/service"
+	// ServiceLibraryVersion is the pinned version of ServiceLibrary. | ServiceLibraryVersion 是 ServiceLibrary 锁定的版本。
+	ServiceLibraryVersion = "v1.3.0"
 )
 
 // BuildInfo describes the toolchain that compiled the running binary. | BuildInfo 描述编译当前二进制的工具链。

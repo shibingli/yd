@@ -109,6 +109,71 @@ yd docker --tag {{ .Name }}:latest
 | `auth.master_key` | `YD_AUTH_MASTER_KEY` | 封装每个用户的 `sec_key`。留空时使用内置开发密钥并告警，**生产环境必须注入** |
 | `auth.token_ttl` | `YD_AUTH_TOKEN_TTL` | 令牌有效期（如 `2h`），登录 cookie 的 `MaxAge` 与它同源 |
 
+## 安装为系统服务
+
+`yd service` 把构建产物注册为系统服务：Windows 走服务控制管理器（SCM），Linux 走 systemd，macOS 走 launchd。
+先 `yd build` 产出 `bin/{{ .Name }}[.exe]`，再安装；安装与变更服务需要管理员（Windows）或 root（Linux/macOS）权限。
+
+```bash
+# 1. 构建产物（约定落点 bin/{{ .Name }}[.exe]）
+yd build
+
+# 2. 安装并启动（服务名缺省取 .yd.json 的 name，其次目录名；可用 --name 覆盖）
+yd service install
+yd service start
+
+# 3. 状态 / 重启 / 停止 / 卸载
+yd service status
+yd service restart
+yd service stop
+yd service uninstall
+```
+
+常用标志：`--name`、`--display-name`、`--description`、`--binary`、`--dir`、`--user`、`--args "-service run"`。
+服务名、显示名、描述、运行账号、启动参数、依赖与自动重启也可写进 `configs/config.yaml` 的 `service` 段
+（`YD_SERVICE_*` 环境变量同样生效）。省略 `--binary` 时按 `bin/<项目名>[.exe]` 查找，找不到就用 `build` 包编译一次。
+
+程序入口有三种运行模式：前台（开发调试）、服务模式（被服务管理器拉起，或显式 `-service run`）、控制动作
+（`-service install|uninstall|start|stop|restart|status`）。服务模式的停止只取消 context 并等待 `app.Run` 返回——
+在途请求被等待收尾，进程绝不 `os.Exit`；因此 `ExecStart` 不要包一层 shell（如 `sh -c`），否则停止信号传不到进程。
+
+Windows（管理员 PowerShell / cmd）：
+
+```bat
+:: 等价于 yd service install：直接调用 SCM；卸载用 sc delete {{ .Name }}
+sc create {{ .Name }} binPath= "D:\apps\{{ .Name }}\bin\{{ .Name }}.exe -service run" start= auto
+sc start {{ .Name }}
+sc query {{ .Name }}
+```
+
+Linux（systemd，root）：
+
+```ini
+# /etc/systemd/system/{{ .Name }}.service
+[Unit]
+Description={{ .Name }}
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/{{ .Name }}
+ExecStart=/opt/{{ .Name }}/bin/{{ .Name }} -service run
+Restart=always
+RestartSec=5
+# 口令与主密钥只经环境变量注入，绝不写进单元文件
+Environment=YD_AUTH_MASTER_KEY=
+
+[Install]
+WantedBy=multi-user.target
+```
+
+```bash
+sudo systemctl daemon-reload
+sudo systemctl enable --now {{ .Name }}
+systemctl status {{ .Name }}
+```
+
 ## 界面约定
 
 - **国际化**：文案在 `{{ .AssetRoot }}/i18n/{zh-CN,en}.yaml`，模板只写 `{{ "tr \"nav.users\"" }}` 这样的键；

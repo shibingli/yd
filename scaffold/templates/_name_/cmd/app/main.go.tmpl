@@ -13,6 +13,16 @@
 // wiring) and swaps only the asset source for this project's web package.
 // 若某个项目不需要自带资产，入口可以退回一行 a, err := app.Default()。
 // A project that needs no assets of its own can fall back to the single line a, err := app.Default().
+//
+// 运行模式有三种，由参数与终端探测决定：前台（开发与调试的默认路径）、服务模式（被 Windows SCM /
+// systemd / launchd 拉起，或显式 -service run）、控制动作（-service install|uninstall|start|stop|restart|status
+// 只执行一次服务管理器调用）。三种模式都只有一个出口——app.Run 的优雅退出；服务模式的停止只取消
+// context 并等待 Run 返回，进程绝不 os.Exit。
+// There are three run modes, selected by the arguments and the terminal probe: foreground (the default for
+// development and debugging), service mode (started by the Windows SCM, systemd or launchd, or asked for with
+// -service run) and a control action (-service install|uninstall|start|stop|restart|status performs exactly one
+// service manager call). All three have a single exit: the graceful shutdown of app.Run; a service stop only
+// cancels the context and waits for Run to return, and the process never calls os.Exit.
 package main
 
 import (
@@ -31,6 +41,7 @@ import (
 	"{{ .YdModule }}/i18n"
 	"{{ .YdModule }}/logx"
 	ydmw "{{ .YdModule }}/middleware"
+	"{{ .YdModule }}/service"
 )
 
 // 启动期哨兵错误：装配链上任一步失败都以它们为根因，日志与退出码据此统一处理。
@@ -42,10 +53,14 @@ var (
 	ErrStatic = errx.New("static assets unavailable | 静态资产不可用")
 	// ErrI18n 表示语言目录加载失败。 | ErrI18n reports a failed message catalogue load.
 	ErrI18n = errx.New("message catalogues unavailable | 语言目录不可用")
+	// ErrService 表示服务管理器动作失败（安装、卸载、启动、停止、重启或状态查询）。
+	// ErrService reports a failed service manager action (install, uninstall, start, stop, restart or a status query).
+	ErrService = errx.New("service action failed | 服务动作失败")
 )
 
-// main 是进程入口：构造日志与退出上下文，装配成功后阻塞运行，直到收到退出信号。
-// main is the process entry point: it builds the logger and the shutdown context, then blocks in Run until a signal arrives.
+// main 是进程入口：构造日志与退出上下文，装配成功后按前台或服务模式运行。
+// main is the process entry point: it builds the logger and the shutdown context, then runs in foreground or
+// service mode once the assembly succeeded.
 func main() {
 	// 日志先于一切装配：任何一步失败都必须留下可检索的记录，且日志器本身不会失败。
 	// The logger comes first: a failure anywhere downstream must leave a searchable record, and the logger itself cannot fail.
@@ -71,11 +86,73 @@ func main() {
 		logx.Strs("features", meta.Features),
 	)
 
-	if err := application.Run(ctx); err != nil {
+	if err := runApplication(ctx, application, log); err != nil {
 		log.Error("application stopped with an error | 应用异常退出", logx.Err(err))
 		os.Exit(1)
 	}
 	log.Info("application stopped | 应用已停止")
+}
+
+// runApplication 按参数与终端探测选择运行模式，并等待本次运行收尾。
+// runApplication selects the run mode from the arguments and the terminal probe, then waits for that run to finish.
+func runApplication(ctx context.Context, application *app.App, log *logx.Logger) error {
+	action, given := service.IsServiceArg(os.Args[1:])
+	opts := serviceOptions(application)
+
+	// 控制动作：只执行一次服务管理器调用，不进前台循环，也不等待任何请求。
+	// -service install|uninstall|start|stop|restart|status 属于这一类；未知动作由 service.Control 判为错误。
+	// A control action performs exactly one service manager call and neither enters the foreground loop nor waits
+	// for a request: -service install|uninstall|start|stop|restart|status belong here, and service.Control rejects
+	// any other action word as an error.
+	if given && action != service.ActionRun {
+		result, err := service.Control(opts, action)
+		if err != nil {
+			return errx.WrapDetail(err, ErrService, "action=%s", action)
+		}
+		log.Info("service action finished | 服务动作已完成",
+			logx.Str("action", string(action)),
+			logx.Str("result", result),
+		)
+		return nil
+	}
+
+	// 服务模式：被服务管理器拉起时没有终端（Interactive 为 false），或调用方显式给出 -service run。
+	// 托管期间的停止只取消 runCtx——app.Run 收到取消后自行收尾，进程绝不 os.Exit。
+	// Service mode: a managed start has no terminal (Interactive is false), or the caller asked for it with
+	// -service run. A stop during hosting only cancels runCtx: app.Run finishes its own shutdown after the
+	// cancellation, and the process never calls os.Exit.
+	if given || !service.Interactive() {
+		log.Info("running under the service manager | 正在服务管理器下运行", logx.Str("service", opts.Name))
+		return service.Run(opts, func(runCtx context.Context) error {
+			return application.Run(runCtx)
+		})
+	}
+
+	// 前台模式：开发与调试的默认路径，退出信号经 ctx 传入。
+	// Foreground mode: the default for development and debugging, where the shutdown signal arrives through ctx.
+	return application.Run(ctx)
+}
+
+// serviceOptions 从已装配的配置推导服务选项：service.* 段优先，缺失时回退到项目元信息。
+// serviceOptions derives the service options from the assembled configuration: the service.* section wins and the
+// project metadata is the fallback.
+func serviceOptions(application *app.App) service.Options {
+	opts := service.OptionsFromConfig(application.Config())
+	if opts.Name == "" {
+		opts.Name = meta.Name
+	}
+	if opts.DisplayName == "" {
+		opts.DisplayName = meta.Name
+	}
+	if opts.Description == "" {
+		opts.Description = meta.Name
+	}
+	if len(opts.Arguments) == 0 {
+		// 缺省参数显式进入服务模式，被服务管理器拉起时不再依赖终端探测。
+		// The default arguments enter service mode explicitly, so a managed start no longer relies on the terminal probe.
+		opts.Arguments = []string{"-service", "run"}
+	}
+	return opts
 }
 
 // assemble 装配应用门面：资产 → 配置 → 中间件 → 静态挂载 → i18n → 路由。

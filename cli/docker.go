@@ -45,8 +45,9 @@ const (
 // dockerUsageLine is the usage line of the docker command. | dockerUsageLine 是 docker 命令的用法行。
 const dockerUsageLine = "yd docker [--tag <project>:<version>] [--platform linux/amd64] [flags]"
 
-// dockerProjectMetaName is the metadata file `yd new` writes and the docker command reads for the
-// project name. | dockerProjectMetaName 是 `yd new` 写入、docker 命令用于读取项目名的元信息文件。
+// dockerProjectMetaName is the metadata file `yd new` writes and the docker and service commands
+// read for the project name. | dockerProjectMetaName 是 `yd new` 写入、docker 与 service 命令用于读取
+// 项目名的元信息文件。
 const dockerProjectMetaName = ".yd.json"
 
 // dockerFallbackProject is the project name used when neither .yd.json nor the working directory
@@ -136,7 +137,7 @@ func dockerTag(env *Env, fs *pflag.FlagSet) string {
 	if tag := strings.TrimSpace(flagString(fs, flagDockerTag)); tag != "" {
 		return tag
 	}
-	return dockerProjectName(env) + ":" + dockerProjectVersion()
+	return projectName(env, env.WorkDir) + ":" + dockerProjectVersion()
 }
 
 // dockerProjectVersion returns the version stamped into the default tag: the ldflags-injected
@@ -149,23 +150,25 @@ func dockerProjectVersion() string {
 	return "dev"
 }
 
-// dockerProjectName derives the project name from the name recorded in .yd.json, falling back to
-// the base name of the working directory. | dockerProjectName 从 .yd.json 记录的名字推导项目名，回退为工作目录的目录名。
-func dockerProjectName(env *Env) string {
-	if name := dockerMetaName(env); name != "" {
+// projectName derives the project name from the name recorded in .yd.json below dir, falling back
+// to the directory name. It is shared by the docker command (default image tag) and the service
+// command (service name and artifact name). | projectName 从 dir 之下 .yd.json 记录的名字推导项目名，
+// 回退为目录名。它由 docker 命令（缺省镜像标签）与 service 命令（服务名与产物名）共用。
+func projectName(env *Env, dir string) string {
+	if name := projectMetaName(env, dir); name != "" {
 		return name
 	}
-	return dockerBaseName(env.WorkDir)
+	return dirBaseName(dir)
 }
 
-// dockerMetaName reads the project name recorded in .yd.json. An unreadable or nameless metadata
-// file is not an error, it simply yields "", so the caller falls back to the directory name. | dockerMetaName
+// projectMetaName reads the project name recorded in .yd.json. An unreadable or nameless metadata
+// file is not an error, it simply yields "", so the caller falls back to the directory name. | projectMetaName
 // 读取 .yd.json 记录的项目名。元信息文件无法读取或未记录名字都不算错误，只返回 ""，由调用方回退到目录名。
-func dockerMetaName(env *Env) string {
+func projectMetaName(env *Env, dir string) string {
 	if env == nil || env.FS == nil {
 		return ""
 	}
-	data, err := afero.ReadFile(env.FS, filepath.Join(env.WorkDir, dockerProjectMetaName))
+	data, err := afero.ReadFile(env.FS, filepath.Join(dir, dockerProjectMetaName))
 	if err != nil {
 		return ""
 	}
@@ -176,10 +179,10 @@ func dockerMetaName(env *Env) string {
 	return strings.TrimSpace(meta.Name)
 }
 
-// dockerBaseName returns the directory name of dir, resolving a relative dir against the process
-// working directory so that the default tag stays stable. | dockerBaseName 返回 dir 的目录名，相对路径会按进程
+// dirBaseName returns the directory name of dir, resolving a relative dir against the process
+// working directory so that the default tag stays stable. | dirBaseName 返回 dir 的目录名，相对路径会按进程
 // 工作目录展开，使缺省标签保持稳定。
-func dockerBaseName(dir string) string {
+func dirBaseName(dir string) string {
 	if dir == "" {
 		dir = "."
 	}

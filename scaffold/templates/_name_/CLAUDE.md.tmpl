@@ -140,3 +140,22 @@ yd gen module|crud   # 低代码生成（DB Schema 或 Go Struct）
   两份目录的键集合必须严格一致（脚手架测试会逐键核对），少一个键页面就会把键名原样显示出来。
 - 主题（浅色 / 深色 / 跟随系统）与语言切换都是纯客户端行为，落在 `{{ .AssetRoot }}/static/js/yd-app.js`；
   内容安全策略只允许 `script-src 'self'`，因此**禁止内联脚本**与内联样式。
+
+## 10. 服务化部署（强制）
+
+`cmd/app` 既能前台运行，也能被 Windows SCM / systemd / launchd 托管；两种模式共用同一条优雅退出路径。
+
+1. **服务模式不许另起一套进程**：入口检测到服务模式（无终端，或显式 `-service run`）时，把 `application.Run`
+   交给 `service.Run` 托管。**禁止**为了「后台运行」而 fork、daemonize 或动手写双进程；也**禁止**在入口里
+   手写监听与关闭（`ListenAndServe`、`srv.Shutdown` 之类），那等于绕过 `app.Run` 的收尾。
+2. **停止只取消 context，绝不 `os.Exit`**：服务管理器发来 Stop 时，`service.Run` 取消 runCtx 并等待
+   `application.Run` 返回，在途请求与长连接由框架自己收尾。任何绕过这条路径的 `os.Exit`、`panic` 或
+   `log.Fatal` 都会硬切断请求，并让「停止」在服务管理器里表现为异常退出。
+3. **控制动作不启服务**：`-service install|uninstall|start|stop|restart|status` 只执行一次服务管理器调用就返回，
+   这条路径**不得**装配端口、不得进入前台循环。
+4. **密钥与口令不进服务文件**：`service` 段只描述服务本身（名称、显示名、描述、账号、参数、自动重启），
+   主密钥与数据库口令一律经环境变量（`YD_*`）注入；服务管理器生成的文件是运维可读的，写进去等于公开。
+5. **改配置要重装**：`service.*` 的改动只在下次 `yd service install` 时写入服务管理器；`arguments` 与
+   `WorkingDirectory` 里的路径必须是绝对路径（Windows 忽略工作目录，始终在系统目录启动进程）。
+
+服务名缺省取 `configs/config.yaml` 的 `service.name`，其次 `app.name`；安装与卸载的完整步骤见 README 的「安装为系统服务」。
