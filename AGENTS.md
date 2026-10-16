@@ -60,6 +60,10 @@
       `English | 中文`（竖线分割，英文在前、中文在后）。豁免：编译指令、生成标记、注释内代码示例/树状图/URL。
 - [ ] **日志统一走 logx**：全仓禁止 `import "log"`（`server` 包的 `http.Server.ErrorLog`
       适配器除外，且其输出必须转发进 logx），禁止 `fmt.Print*` 当日志，禁止第三方日志库。
+- [ ] **错误统一声明为哨兵**：包级 `var ErrX = errx.New("english | 中文")`；**禁止 `fmt.Errorf`**
+      （改用 `errx.Detail` / `errx.Wrap` / `errx.WrapDetail`）；错误文案中英同步；
+      判定只用 `errors.Is` / `errors.As`。
+      自检：`grep -rn 'fmt\.Errorf' --include=*.go . | grep -v '^./errx/'` 无命中。
 - [ ] **OpenAPI 注释完整**：对外 HTTP 处理器的 doc 注释必须含完整注解块
       （`@Summary/@Description/@Tags/@Accept/@Produce/@Param/@Success/@Failure/@Security/@Router`），缺项即未完成。
 - [ ] **敏感日志**：访问日志与慢查询日志不得输出口令、Token、密钥明文；使用 `logger.ParamsFilter` 屏蔽。

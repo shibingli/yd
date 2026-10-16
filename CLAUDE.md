@@ -47,7 +47,16 @@
 ## 4. 代码风格指引
 
 1. **包结构**：一个文件一个职责；文件超过约 600 行或承担两类职责即拆分。
-2. **错误处理**：一律 `fmt.Errorf("...: %w", err)` 包装；导出错误变量供 `errors.Is` 判定；禁止 `panic` 跨包传播（仅允许在 `MustXxx` 初始化辅助中出现）。
+2. **错误处理（强制）**：
+   - **所有错误必须在包级用 `errors` 声明为哨兵**：`var ErrBadPattern = errx.New("invalid pattern | 非法的路由模式")`
+     （`errx` 即 `github.com/yun-dev/yd/errx`，是对 `errors` 的声明式薄封装）；
+   - **默认禁止 `fmt.Errorf`**。需要附加格式化细节时用 `errx.Detail(ErrX, "%q ...", v)`；
+     需要保留底层错误时用 `errx.Wrap(err, ErrX)` 或 `errx.WrapDetail(err, ErrX, fmt, args...)`；
+   - 错误文案必须**中英同步**：`English | 中文`（与注释、日志文案同一规则）；
+   - 调用方一律用 `errors.Is` / `errors.As` 判定，禁止字符串匹配判断错误类型；
+   - 禁止 `panic` 跨包传播（仅允许在 `MustXxx` 初始化辅助中出现）；
+   - 唯一例外：`errx` 包自身内部实现需要 `fmt.Sprintf` 拼接文案。
+   - 自检：`grep -rn 'fmt\.Errorf' --include=*.go . | grep -v '^./errx/'` 必须无命中。
 3. **文档注释（强制）**：所有导出符号必须有以符号名开头的 Go doc 注释。
 3.1 **中英文同步（注释与日志文案）**：所有注释（包文档、导出符号 doc、行内注释）
    **以及所有日志文案**，必须**中英文同步**，以半角竖线 `|` 分割，

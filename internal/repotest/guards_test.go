@@ -195,6 +195,28 @@ func TestLogMessagesAreBilingual(t *testing.T) {
 	}
 }
 
+// TestNoFmtErrorfOutsideErrx 强制错误统一声明为哨兵。
+// TestNoFmtErrorfOutsideErrx enforces that errors are declared as sentinels.
+//
+// 默认禁止 fmt.Errorf：附加细节用 errx.Detail，保留底层错误用 errx.Wrap /
+// errx.WrapDetail。唯一例外是 errx 包自身的实现。
+// fmt.Errorf is forbidden by default: use errx.Detail for extra context and
+// errx.Wrap / errx.WrapDetail to keep the underlying error. The only exemption
+// is the errx package implementation itself.
+func TestNoFmtErrorfOutsideErrx(t *testing.T) {
+	for _, f := range scanGoFiles(t, repoRoot(t)) {
+		if f.isTest || strings.HasPrefix(f.rel, "errx/") || strings.HasPrefix(f.rel, "internal/repotest/") {
+			continue
+		}
+		for i, l := range f.lines {
+			if strings.Contains(l, "fmt.Errorf(") {
+				t.Errorf("%s:%d 使用了 fmt.Errorf；请改为 errx.Detail/errx.Wrap/errx.WrapDetail，"+
+					"并把哨兵错误在包级用 errx.New 声明", f.rel, i+1)
+			}
+		}
+	}
+}
+
 // TestGovernanceStatesNewConstraints 校验治理文件已写入新约束。
 // TestGovernanceStatesNewConstraints checks that governance docs state the new rules.
 func TestGovernanceStatesNewConstraints(t *testing.T) {
@@ -208,6 +230,7 @@ func TestGovernanceStatesNewConstraints(t *testing.T) {
 			"禁止在提交信息",       // 提交纪律 | commit discipline
 			"OpenAPI",       // OpenAPI 注解要求 | OpenAPI annotations
 			"jsonx", "b64x", // 编解码统一封装层 | codec wrappers
+			"errx", "fmt.Errorf", // 错误声明式哨兵 | declared sentinel errors
 		},
 		"AGENTS.md": {
 			"Co-Authored-By: Eric Shi <shibingli@sina.com>",

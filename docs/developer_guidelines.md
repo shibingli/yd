@@ -134,7 +134,36 @@ var maxControlPayload = 125 // RFC 6455 §5.5 | RFC 6455 §5.5 规定
 
 `yd build` 会调用 `openapi` 包解析上述注解并与路由树合并，缺失注解的端点会在构建报告中列出。
 
-## 10. 后端协同约束
+## 10. 错误处理规范（强制）
+
+### 10.1 声明式哨兵错误
+
+所有错误在包级声明一次，文案中英同步：
+
+```go
+// ErrBadPattern 表示路由模式语法非法。 | ErrBadPattern reports an invalid route pattern.
+var ErrBadPattern = errx.New("invalid pattern | 非法的路由模式")
+```
+
+### 10.2 默认禁止 fmt.Errorf
+
+| 场景 | 允许的写法 | 禁止的写法 |
+|---|---|---|
+| 附加格式化细节 | `errx.Detail(ErrBadPattern, "%q must start with /", p)` | ~~`fmt.Errorf("%w: %q ...", ErrBadPattern, p)`~~ |
+| 保留底层错误 | `errx.Wrap(err, ErrReadBody)` | ~~`fmt.Errorf("read body: %w", err)`~~ |
+| 两者都要 | `errx.WrapDetail(err, ErrQuery, "table=%s", t)` | ~~`fmt.Errorf("%w: table=%s: %v", ...)`~~ |
+
+判定一律 `errors.Is` / `errors.As`；禁止比较错误字符串。
+唯一例外：`errx` 包自身内部实现。
+
+### 10.3 自检
+
+```bash
+grep -rn 'fmt\.Errorf' --include=*.go . | grep -v '^./errx/'   # 必须无命中
+grep -rn 'errors\.New' --include=*.go . | grep -v '^./errx/'   # 允许，但优先用 errx.New 统一风格
+```
+
+## 11. 后端协同约束
 
 - 路由模式支持**混合分段**：`/avatar/:id.jpg`、`/report/:id-xx.png` 合法，参数名不得重复。
 - 控制器只做编排；业务逻辑放 `internal/service`，数据访问放 `internal/repository`。
