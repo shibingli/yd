@@ -71,6 +71,56 @@ func scanGoFiles(t *testing.T, root string) []goFile {
 	return files
 }
 
+// scanTemplateFiles 遍历仓库中的全部 .tmpl 模板文件。
+// scanTemplateFiles walks every .tmpl template file in the repository.
+//
+// 模板会被渲染成用户项目的源码与配置，其注释与出厂代码的注释受同一条中英规则约束。
+// Templates are rendered into a user project's sources and configuration, so their comments fall
+// under the same bilingual rule as shipped code.
+func scanTemplateFiles(t *testing.T, root string) []goFile {
+	t.Helper()
+	var files []goFile
+	err := filepath.Walk(root, func(p string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+		if info.IsDir() {
+			if skippedDirs[info.Name()] {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if !strings.HasSuffix(p, ".tmpl") {
+			return nil
+		}
+		b, err := os.ReadFile(p)
+		if err != nil {
+			return err
+		}
+		rel, err := filepath.Rel(root, p)
+		if err != nil {
+			return err
+		}
+		rel = filepath.ToSlash(rel)
+		src := string(b)
+		files = append(files, goFile{
+			rel:     rel,
+			src:     src,
+			isTest:  false,
+			lines:   strings.Split(strings.ReplaceAll(src, "\r\n", "\n"), "\n"),
+			absPath: p,
+		})
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("扫描模板文件失败: %v", err)
+	}
+	if len(files) == 0 {
+		t.Fatal("未扫描到任何模板文件，守卫测试可能失效")
+	}
+	return files
+}
+
 // TestNoDirectEncodingImports 强制 JSON / Base64 编解码统一走 jsonx / b64x。
 // TestNoDirectEncodingImports enforces that JSON/Base64 always go through jsonx/b64x.
 //
@@ -237,6 +287,7 @@ func TestGovernanceStatesNewConstraints(t *testing.T) {
 			"data-yd-i18n", // 前端 i18n 约定 | frontend i18n contract
 			"优雅退出",         // 关停顺序与长连接登记 | shutdown order and long-lived connection tracking
 			"kardianos",    // 服务化唯一入口 | the single service-manager entry point
+			"yd ko",        // 无 Dockerfile 打包路径 | the Dockerfile-less packaging path
 		},
 		"AGENTS.md": {
 			"Co-Authored-By: Eric Shi <shibingli@sina.com>",
@@ -248,6 +299,7 @@ func TestGovernanceStatesNewConstraints(t *testing.T) {
 			"优雅退出",
 			"service", // 服务化约束 | service-mode constraint
 			"交叉编译",    // 平台相关符号护栏 | platform-specific symbol guard
+			"yd ko",   // 镜像打包只走既有入口 | image packaging only through the existing entry points
 		},
 		"docs/developer_guidelines.md": {
 			"YD_",
@@ -302,6 +354,99 @@ func TestLongLivedPackagesDoNotImportLifecycle(t *testing.T) {
 		if hasImport(f.lines, `"`+lifecyclePath+`"`) {
 			t.Errorf("%s 反向 import 了 %s；长连接包只应声明自己的最小关闭信号接口，"+
 				"由 app 侧注入实现，避免依赖成环", f.rel, lifecyclePath)
+		}
+	}
+}
+
+// cjkRe 匹配中日韩统一表意文字。| cjkRe matches CJK unified ideographs.
+var cjkRe = regexp.MustCompile(`[\p{Han}]`)
+
+// commentLineRe 拆出一条注释行的「前缀」与「正文」。前缀包含注释符、列表符号与 OpenAPI 注解名，
+// 它们必须留在行首，不参与中英交换。
+// commentLineRe splits a comment line into its prefix and body. The prefix holds the comment
+// marker, a list bullet and an OpenAPI annotation name: all of them stay at the front and take no
+// part in the language swap.
+var commentLineRe = regexp.MustCompile(`^(\s*(?://|#)+\s*(?:[-*]\s+|\d+\.\s+)?(?:@[A-Za-z]+\s+)?)(.*)$`)
+
+// TestBilingualCommentsAreEnglishFirst 强制注释与日志文案「英文在前、中文在后」。
+// TestBilingualCommentsAreEnglishFirst enforces the English-first order of bilingual comments.
+//
+// 规则见 CLAUDE.md §3.1。判定方式很窄，只抓真正违规的形态：一行注释按 " | " 恰好切成两段，
+// 且左段含中文、右段不含——那一定是「中文在前」。取值列表（`# 数据库：mysql | postgres | sqlite`）
+// 与注释里的表格行（正文以 `|` 开头）都切成两段以上或以 `|` 起头，天然不在此列。
+// 测试文件整体豁免：它们会内嵌 Go 源码作为夹具，夹具里的注释行必须逐字保留
+// （openapi 的注解解析用例正是如此），与 TestLogMessagesAreBilingual 的豁免理由一致。
+// The rule is CLAUDE.md §3.1. The check is deliberately narrow and only catches the genuine
+// violation: a comment line that splits into exactly two parts on " | " with CJK on the left and
+// none on the right is Chinese-first. Value lists and table rows inside comments split into more
+// than two parts or start with "|", so they never match. Test files are exempt wholesale because
+// they embed Go sources as fixtures whose comment lines must stay verbatim — the openapi annotation
+// tests are exactly that case — mirroring the exemption in TestLogMessagesAreBilingual.
+func TestBilingualCommentsAreEnglishFirst(t *testing.T) {
+	for _, f := range scanGoFiles(t, repoRoot(t)) {
+		if f.isTest || strings.HasPrefix(f.rel, "internal/repotest/") {
+			continue
+		}
+		checkCommentOrder(t, f.rel, f.lines, false)
+	}
+	for _, f := range scanTemplateFiles(t, repoRoot(t)) {
+		checkCommentOrder(t, f.rel, f.lines, true)
+	}
+}
+
+// checkCommentOrder reports every Chinese-first bilingual comment in one file. | checkCommentOrder 报告单个文件中所有「中文在前」的双语注释。
+func checkCommentOrder(t *testing.T, rel string, lines []string, allowHash bool) {
+	t.Helper()
+	for i, l := range lines {
+		m := commentLineRe.FindStringSubmatch(strings.TrimRight(l, " \t"))
+		if m == nil {
+			continue
+		}
+		marker, body := m[1], m[2]
+		if !allowHash && strings.HasPrefix(strings.TrimLeft(marker, " \t"), "#") {
+			continue
+		}
+		if !strings.Contains(body, " | ") {
+			continue
+		}
+		parts := strings.Split(body, " | ")
+		if len(parts) != 2 {
+			continue // 取值列表或表格行 | a value list or a table row
+		}
+		left, right := strings.TrimSpace(parts[0]), strings.TrimSpace(parts[1])
+		if left == "" || right == "" || strings.HasPrefix(left, "|") {
+			continue
+		}
+		if cjkRe.MatchString(left) && !cjkRe.MatchString(right) {
+			t.Errorf("%s:%d 注释为「中文在前」，规则要求「英文在前、中文在后」：%s\n"+
+				"    应写成 `// English text | 中文文本`（CLAUDE.md §3.1）", rel, i+1, strings.TrimSpace(l))
+		}
+	}
+}
+
+// koImportRe 匹配对 ko 库的 import 行（含其子包）。| koImportRe matches an import line of the ko library, subpackages included.
+var koImportRe = regexp.MustCompile(`^\s*(?:[A-Za-z_][A-Za-z0-9_]*\s+)?"github\.com/google/ko(?:/[^"]*)?"\s*$`)
+
+// TestKoStaysAnExternalTool 强制 ko 只作为外部 CLI 使用，不得成为 Go 依赖。
+// TestKoStaysAnExternalTool enforces that ko stays an external CLI rather than a Go dependency.
+//
+// ko 作为库会把 go-containerregistry 等一大串依赖拖进本模块，违反依赖克制；
+// 本仓对 docker / betteralign / Tailwind 一律采用「外部工具 + 注入点 + 缺失时优雅降级」的范式，
+// ko 必须保持一致。
+// Pulling ko in as a library drags go-containerregistry and a long tail of dependencies into this
+// module, which the dependency-restraint rule forbids; docker, betteralign and Tailwind are all
+// handled as external tools behind an injection point that degrades gracefully when missing, and
+// ko has to stay consistent with that.
+func TestKoStaysAnExternalTool(t *testing.T) {
+	for _, f := range scanGoFiles(t, repoRoot(t)) {
+		if strings.HasPrefix(f.rel, "internal/repotest/") {
+			continue // 守卫自身引用了该字面量 | the guard itself quotes the literal
+		}
+		for i, l := range f.lines {
+			if koImportRe.MatchString(strings.TrimRight(l, " \t")) {
+				t.Errorf("%s:%d import 了 ko 的 Go 库；ko 只能作为外部 CLI 调用"+
+					"（见 CLAUDE.md「镜像打包」一节）", f.rel, i+1)
+			}
 		}
 	}
 }

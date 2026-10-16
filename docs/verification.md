@@ -10,11 +10,11 @@
 
 | 检查 | 命令 | 结果 |
 |---|---|---|
-| 构建 | `go build ./...` | 通过（36 个包 + 根包 `yd`） |
+| 构建 | `go build ./...` | 通过（37 个包 + 根包 `yd`） |
 | 静态检查 | `go vet ./...` | 零输出 |
 | 格式 | `gofmt -l .` | 零输出 |
-| 单元测试 | `go test ./... -count=1` | **36 个包 ok，0 失败** |
-| 竞态检测 | `CGO_ENABLED=1 CC=clang go test -race ./...` | **36 个包 ok，0 竞态** |
+| 单元测试 | `go test ./... -count=1` | **37 个包 ok，0 失败** |
+| 竞态检测 | `CGO_ENABLED=1 CC=clang go test -race ./...` | **37 个包 ok，0 竞态** |
 | 交叉编译 | `GOOS=linux GOARCH=arm64 CGO_ENABLED=0 go build ./...` | 通过 |
 | 交叉编译 | `GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build ./...` | 通过 |
 | 模块一致性 | `go mod tidy -diff` | 零输出 |
@@ -180,6 +180,48 @@ ok  github.com/shibingli/yd/e2e  27.117s
    并在 `-race` 下 `-count=10` 全绿、整个 `server` 包 `-count=5` 全绿（修复前为 `-count=5` 挂 3 轮）。
    **变异验证**：移除回退分支后 `TestHTTP3FallsBackToOSAssignedPort` 以 `ErrHTTP3Listen` 转红。
 
+## 3.5 无 Dockerfile 打包（ko，第五轮需求）
+
+| 能力 | 验收证据 |
+|---|---|
+| 无 Dockerfile 出镜像 | `ko` 包 41 个用例 + `cli` 的 11 个 ko 用例全部通过（`-race`）；`yd ko` 实际生成的命令行为 `ko build --base-import-paths --push=<bool> [--local] [--tags …] [--platform …] <packages>` |
+| ko 仍是外部工具 | **`go.mod` / `go.sum` 零改动**（`grep -c "google/ko" go.mod go.sum` = 0/0）；守卫 `TestKoStaysAnExternalTool` 扫描全仓 import，引入 ko 库即失败（已变异验证） |
+| 不意外推送 | ko 自身的 `--push` **默认为 true**，因此 `yd ko` **始终显式传** `--push=true|false`。独立实测（假 ko 回显 argv）：默认 → `--push=false`、传 `--push` → `--push=true`、`--local` → `--push=false --local` |
+| 仓库与基础镜像 | ko 没有 `--repository`/`--base` 标志，二者只经环境变量传递；实测子进程收到 `KO_DOCKER_REPO=registry.example.com/team/app`、`KO_DEFAULTBASEIMAGE=cgr.dev/chainguard/static:latest` |
+| 缺失时不阻塞 | `yd ko --binary <不存在>` → 双语安装提示（`go install github.com/google/ko@latest` + `.yd/tools`）+ 哨兵 `ErrBinaryNotFound`，退出码 1、**无 panic**；`yd build` / `yd dev` / `go test` 一概不受影响 |
+| 无仓库时拒绝构建 | 未配仓库且未给 `--local` → `ErrNoRepository`，提示给出 `--repo` / `ko.repository` / `KO_DOCKER_REPO` / `--local` 四条出路 |
+
+**据官方文档与源码核对后纠正的四处想当然**（这些若照最初的契约实现都会出错）：
+
+1. ko 侧标志是**单数 `--platform`**，不存在 `--platforms`；且逗号拼接形式**已被 ko 废弃**，故逐值重复传入。
+2. 仓库**没有** `--repository` 标志，只能走 `KO_DOCKER_REPO`（`ko.local` 等价于 `--local --preserve-import-paths`）。
+3. 基础镜像**没有**对应标志，走 `KO_DEFAULTBASEIMAGE`（缺省 `cgr.dev/chainguard/static`），该环境变量覆盖 `.ko.yaml`。
+4. `--push` **默认 true**——照搬会变成「不传参数就推到远端仓库」，属危险默认值。
+
+来源：<https://ko.build/reference/ko_build/>、<https://ko.build/configuration/>、
+<https://ko.build/features/multi-platform/>，以及 ko-build/ko 源码 `pkg/commands/options/{publish,build,validate}.go`、
+`pkg/commands/resolver.go`、`pkg/build/options.go`。
+
+## 3.6 双语注释语序归一（第五轮附带）
+
+CLAUDE.md §3.1 要求注释与日志文案「英文在前、中文在后」，但此前**没有任何守卫检查语序**，
+欠账累积到 **641 行 / 71 个文件**（出厂代码 160、测试 102、脚手架模板 368 …按修正前统计）。
+
+- **出厂代码的日志与哨兵文案零违规**：293 处「中文在前」全部落在测试断言消息里，而规则约束的是
+  注释与日志文案，测试断言不在其列（既有守卫 `TestLogMessagesAreBilingual` 也是同样口径）。
+- 归一化只处理**纯注释行**，且仅当按 ` | ` 恰切成两段、左段含中文而右段不含时才交换；
+  取值列表（`# 数据库：mysql | postgres | sqlite`）与注释内的表格行天然不匹配，保持原样。
+- 新增守卫 `TestBilingualCommentsAreEnglishFirst`：扫描非测试的 `.go` 与全部 `.tmpl`，
+  已变异验证（写入一行「中文在前」的注释立即转红）。**测试文件整体豁免**——它们会内嵌 Go 源码作夹具，
+  夹具里的注释必须逐字保留（`openapi` 的注解解析用例正是如此）。
+
+**过程中修正的一处脚本缺陷**：首轮归一化把 OpenAPI 注解的**结构**改坏了，例如
+`// @Description 账号状态 | Account status` 被交换成 `// Account status | @Description 账号状态`——
+`@Description` 是注解语法而不是语言片段，必须留在行首。受影响的是
+`openapi/typeannotation_test.go`（测试夹具，已整体还原并回归通过）与
+`gen/templates/controller.go.tmpl`（14 行，按「注解名 + 英文 + 中文」重新生成）。
+守卫的切分正则因此把注解名并入「前缀」，不再参与交换。
+
 ## 4. 已知限制与未覆盖项
 
 1. **HTTP/3 需要 TLS**（QUIC 强制 TLS 1.3）。开发态在未配置证书时会生成一次性自签证书
@@ -205,3 +247,8 @@ ok  github.com/shibingli/yd/e2e  27.117s
    平台不支持与权限不足四条路径。真实安装需要管理员（Windows）/ root（POSIX）。
 9. **系统服务的启停需要真实服务管理器**：服务模式下的优雅退出由 `service.Run` 的 ctx 取消驱动，
    已由单元测试覆盖；但「SCM / systemd 真的把停止信号送进来」这一段依赖宿主环境，未在 CI 中跑。
+10. **`yd ko` 的真实产物未在本机验收**：本机未安装 ko，验收用的是**回显 argv 的假 ko 二进制**，
+    覆盖到命令拼装、环境变量传递、输出解析与四条错误路径；真实镜像构建需要 ko 二进制、
+    基础镜像与（推送时的）仓库凭据。这与 `yd docker` 未做真实镜像构建的口径一致。
+11. **`ko.*` 未在 `config/defaults.go` 注册默认值**：与既有的 `service.*` 一致，
+    缺省值由 `OptionsFromConfig` 的回退给出。
