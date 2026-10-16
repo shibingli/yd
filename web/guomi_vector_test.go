@@ -26,11 +26,11 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/tjfoc/gmsm/sm2"
 	"github.com/shibingli/yd/b64x"
 	"github.com/shibingli/yd/errx"
 	"github.com/shibingli/yd/guomi"
 	"github.com/shibingli/yd/jsonx"
+	"github.com/tjfoc/gmsm/sm2"
 )
 
 var (

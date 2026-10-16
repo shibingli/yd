@@ -9,9 +9,9 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/tjfoc/gmsm/sm3"
 	"github.com/shibingli/yd/b64x"
 	"github.com/shibingli/yd/errx"
+	"github.com/tjfoc/gmsm/sm3"
 )
 
 const (

@@ -9,8 +9,8 @@ import (
 	"math/big"
 	"strings"
 
-	"github.com/tjfoc/gmsm/sm2"
 	"github.com/shibingli/yd/errx"
+	"github.com/tjfoc/gmsm/sm2"
 )
 
 // Object identifiers related to national cryptography. | 国密相关对象标识符（OID）。

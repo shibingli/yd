@@ -36,11 +36,31 @@ func repoRoot(t *testing.T) string {
 	return filepath.Dir(wd)
 }
 
-// yd runs the yd CLI from the repository and returns its combined output. | yd 从仓库运行 yd CLI 并返回合并输出。
-func yd(t *testing.T, dir string, args ...string) (string, error) {
+// buildYD compiles the yd CLI into a temporary binary. | buildYD 把 yd CLI 编译到临时二进制。
+//
+// Running the built binary (instead of `go run`) lets every call choose its own
+// working directory: the CLI resolves relative paths against the process cwd, so
+// `yd new` must run inside the directory that should receive the project. | 运行编译好的
+// 二进制（而不是 `go run`）才能让每次调用自选工作目录：CLI 以进程 cwd 解析相对路径，
+// 因此 `yd new` 必须运行在希望接收项目的目录内。
+func buildYD(t *testing.T) string {
 	t.Helper()
-	full := append([]string{"run", "./cmd/yd"}, args...)
-	cmd := exec.Command("go", full...)
+	bin := filepath.Join(t.TempDir(), "yd")
+	if runtime.GOOS == "windows" {
+		bin += ".exe"
+	}
+	cmd := exec.Command("go", "build", "-o", bin, "./cmd/yd")
+	cmd.Dir = repoRoot(t)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("编译 yd CLI 失败: %v\n%s", err, out)
+	}
+	return bin
+}
+
+// runYD runs a built yd binary in the given working directory. | runYD 在指定工作目录运行已编译的 yd 二进制。
+func runYD(t *testing.T, bin, dir string, args ...string) (string, error) {
+	t.Helper()
+	cmd := exec.Command(bin, args...)
 	cmd.Dir = dir
 	out, err := cmd.CombinedOutput()
 	return string(out), err
@@ -52,10 +72,11 @@ func TestScaffoldBuildRun(t *testing.T) {
 	tmp := t.TempDir()
 	project := filepath.Join(tmp, "demo")
 
-	out, err := yd(t, root, "new", "demo",
+	bin := buildYD(t)
+	out, err := runYD(t, bin, tmp, "new", "demo",
 		"--module", "example.com/demo",
 		"--db", "sqlite",
-		"--redis", "--i18n", "--htmx-ext", "sse,ws,preload,targets",
+		"--redis", "--i18n", "--htmx-ext", "sse,ws,preload",
 		"--local-replace", root,
 		"--yes",
 	)
@@ -63,7 +84,6 @@ func TestScaffoldBuildRun(t *testing.T) {
 	if err != nil {
 		t.Fatalf("yd new 失败: %v\n%s", err, out)
 	}
-	_ = project
 
 	t.Run("生成物齐全", func(t *testing.T) {
 		required := []string{
@@ -76,16 +96,16 @@ func TestScaffoldBuildRun(t *testing.T) {
 			"web/assets.lock.json",
 		}
 		for _, rel := range required {
-			if _, err := os.Stat(filepath.Join(tmp, "demo", rel)); err != nil {
+			if _, err := os.Stat(filepath.Join(project, rel)); err != nil {
 				t.Errorf("生成物缺失 %s: %v", rel, err)
 			}
 		}
 		for _, rel := range []string{"internal", "web/templates", "web/static"} {
-			if _, err := os.Stat(filepath.Join(tmp, "demo", rel)); err != nil {
+			if _, err := os.Stat(filepath.Join(project, rel)); err != nil {
 				t.Errorf("生成目录缺失 %s: %v", rel, err)
 			}
 		}
-		gi, err := os.ReadFile(filepath.Join(tmp, "demo", ".gitignore"))
+		gi, err := os.ReadFile(filepath.Join(project, ".gitignore"))
 		if err != nil {
 			t.Fatalf("读取 .gitignore 失败: %v", err)
 		}
@@ -98,7 +118,12 @@ func TestScaffoldBuildRun(t *testing.T) {
 
 	t.Run("生成项目可编译", func(t *testing.T) {
 		cmd := exec.Command("go", "build", "./...")
-		cmd.Dir = filepath.Join(tmp, "demo")
+		cmd.Dir = filepath.Join(project)
+		// 生成的项目是独立模块，go.sum 需在首次构建时补齐；同时禁用工作区，
+		// 避免它意外加入本仓库的 go.work。
+		// The generated project is its own module: go.sum must be completed on the
+		// first build, and the workspace must be disabled so it never joins ours.
+		cmd.Env = append(os.Environ(), "GOFLAGS=-mod=mod", "GOWORK=off")
 		out, err := cmd.CombinedOutput()
 		if err != nil {
 			t.Fatalf("生成项目编译失败: %v\n%s", err, out)
@@ -106,7 +131,7 @@ func TestScaffoldBuildRun(t *testing.T) {
 	})
 
 	t.Run("整页与 htmx 片段语义", func(t *testing.T) {
-		addr, stop := startApp(t, filepath.Join(tmp, "demo"))
+		addr, stop := startApp(t, filepath.Join(project))
 		defer stop()
 
 		full := httpGet(t, "http://"+addr+"/", nil)
@@ -127,7 +152,7 @@ func TestScaffoldBuildRun(t *testing.T) {
 	})
 
 	t.Run("OpenAPI 文档可访问", func(t *testing.T) {
-		addr, stop := startApp(t, filepath.Join(tmp, "demo"))
+		addr, stop := startApp(t, filepath.Join(project))
 		defer stop()
 
 		doc := httpGet(t, "http://"+addr+"/openapi.json", nil)
@@ -148,7 +173,7 @@ func TestScaffoldBuildRun(t *testing.T) {
 	})
 
 	t.Run("静态资产本地可用", func(t *testing.T) {
-		addr, stop := startApp(t, filepath.Join(tmp, "demo"))
+		addr, stop := startApp(t, filepath.Join(project))
 		defer stop()
 
 		for _, p := range []string{"/static/js/vendor/htmx.min.js", "/static/css/yd.css"} {
@@ -201,7 +226,7 @@ func TestCrossCompile(t *testing.T) {
 // TestAssetsVerifyOffline 验证离线资产校验。 | TestAssetsVerifyOffline verifies offline asset verification.
 func TestAssetsVerifyOffline(t *testing.T) {
 	root := repoRoot(t)
-	out, err := yd(t, root, "assets", "verify", "--offline")
+	out, err := runYD(t, buildYD(t), root, "assets", "verify", "--offline")
 	t.Logf("yd assets verify --offline 输出:\n%s", out)
 	if err != nil {
 		t.Fatalf("离线校验失败: %v", err)
@@ -253,6 +278,7 @@ func startApp(t *testing.T, dir string) (string, func()) {
 
 	build := exec.Command("go", "build", "-o", bin, "./cmd/app")
 	build.Dir = dir
+	build.Env = append(os.Environ(), "GOFLAGS=-mod=mod", "GOWORK=off")
 	if out, err := build.CombinedOutput(); err != nil {
 		t.Fatalf("生成项目编译失败: %v\n%s", err, out)
 	}

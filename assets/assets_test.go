@@ -12,8 +12,8 @@ import (
 	"sync/atomic"
 	"testing"
 
-	"github.com/spf13/afero"
 	"github.com/shibingli/yd/afs"
+	"github.com/spf13/afero"
 )
 
 const (

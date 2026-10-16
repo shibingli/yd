@@ -12,6 +12,8 @@ var (
 	ErrWalkTemplates = errx.New("cannot walk templates | 遍历模板目录失败")
 	// ErrExecuteTemplate reports a failure while executing a template. | ErrExecuteTemplate 表示模板执行失败。
 	ErrExecuteTemplate = errx.New("cannot execute template | 模板执行失败")
+	// ErrCloneTemplate reports a failure while cloning the template set for one execution. | ErrCloneTemplate 表示克隆模板集失败（用于单次执行）。
+	ErrCloneTemplate = errx.New("cannot clone template set | 无法克隆模板集")
 	// ErrAssetNotFound reports a missing asset for the asset helper. | ErrAssetNotFound 表示 asset 辅助函数找不到资源。
 	ErrAssetNotFound = errx.New("asset not found | 资源不存在")
 	// ErrDictOddArgs reports an odd argument count for the dict helper. | ErrDictOddArgs 表示 dict 辅助函数的参数个数为奇数。

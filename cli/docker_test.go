@@ -15,11 +15,11 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/spf13/afero"
-	"github.com/spf13/pflag"
 	"github.com/shibingli/yd/docker"
 	"github.com/shibingli/yd/logx"
 	"github.com/shibingli/yd/version"
+	"github.com/spf13/afero"
+	"github.com/spf13/pflag"
 )
 
 // cliDockerImageID is the image id carried by the canned build output: the sha256 prefix plus 64

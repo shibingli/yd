@@ -12,12 +12,12 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/spf13/afero"
-	"github.com/spf13/pflag"
 	"github.com/shibingli/yd/data/gormx"
 	"github.com/shibingli/yd/errx"
 	"github.com/shibingli/yd/gen"
 	"github.com/shibingli/yd/logx"
+	"github.com/spf13/afero"
+	"github.com/spf13/pflag"
 )
 
 // genCommandName is the command word of the generator command. | genCommandName 是生成器命令的命令词。

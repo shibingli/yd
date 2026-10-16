@@ -18,9 +18,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/spf13/pflag"
 	"github.com/shibingli/yd/build"
 	"github.com/shibingli/yd/version"
+	"github.com/spf13/pflag"
 )
 
 // ---------------------------------------------------------------- Test helpers | 测试辅助

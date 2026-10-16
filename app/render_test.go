@@ -5,12 +5,14 @@ import (
 	"errors"
 	"html/template"
 	"io"
+	"net/http"
 	"strings"
 	"testing"
 
 	"github.com/spf13/afero"
 
 	"github.com/shibingli/yd/afs"
+	"github.com/shibingli/yd/i18n"
 	"github.com/shibingli/yd/render"
 	"github.com/shibingli/yd/router"
 )
@@ -173,5 +175,92 @@ func TestAssetDirResolvesEmbeddedSubtrees(t *testing.T) {
 	}
 	if afs.Exists(missing, "app.css") {
 		t.Error("缺失子树必须是空的")
+	}
+}
+
+// translatorTemplates is the fixture of the tr integration tests: a layout and two
+// fragments that translate through {{ tr "..." }}, plus the two catalogs the i18n
+// middleware negotiates. | translatorTemplates 是 tr 集成测试的夹具：一个布局与两个经
+// `{{ tr "..." }}` 翻译的片段，以及 i18n 中间件参与协商的两份语言目录。
+func translatorTemplates() map[string]string {
+	return map[string]string{
+		"templates/layouts/base.html": `<!DOCTYPE html><html><head><title>{{ tr "app.name" }}</title></head><body>{{ .Content }}</body></html>`,
+		"templates/pages/home.html":   `<h1>{{ tr "page.title" }}</h1>`,
+		"langs/en.yaml":               "app:\n  name: yd-en\npage:\n  title: Home\n",
+		"langs/zh-CN.yaml":            "app:\n  name: yd-zh\npage:\n  title: 首页\n",
+	}
+}
+
+// TestRenderFollowsRequestLanguage proves the whole chain on a real request: the i18n
+// middleware negotiates the language, Render injects the translator into the data and the
+// engine resolves {{ tr "..." }} through it. | TestRenderFollowsRequestLanguage 证明整条链路
+// 在真实请求上成立：i18n 中间件协商语言，Render 把译者注入数据，引擎经由它解析 `{{ tr "..." }}`。
+func TestRenderFollowsRequestLanguage(t *testing.T) {
+	a := newTestApp(t, translatorTemplates())
+	bundle, err := a.i18nBundle()
+	if err != nil {
+		t.Fatalf("加载语言目录失败: %v | loading the catalogs failed: %v", err, err)
+	}
+	a.Use(i18n.Middleware(bundle, i18n.Options{}))
+	a.GET("/home", renderHandler(t, a, http.StatusOK, "pages/home.html", testData()))
+
+	cases := []struct {
+		target string // Request target. | 请求地址。
+		title  string // Expected fragment title. | 期望的片段标题。
+		app    string // Expected layout title. | 期望的布局标题。
+	}{
+		{"/home?lang=en", "Home", "yd-en"},
+		{"/home?lang=zh-CN", "首页", "yd-zh"},
+		{"/home", "首页", "yd-zh"}, // No hint at all resolves to the default language. | 没有任何线索时解析为默认语言。
+	}
+	for _, tc := range cases {
+		body := doRequest(t, a, http.MethodGet, tc.target, nil).Body.String()
+		if !strings.Contains(body, "<h1>"+tc.title+"</h1>") {
+			t.Errorf("GET %s: 片段未按请求语言渲染: %q | GET %s: the fragment is not translated: %q", tc.target, body, tc.target, body)
+		}
+		if !strings.Contains(body, "<title>"+tc.app+"</title>") {
+			t.Errorf("GET %s: 布局未按请求语言渲染: %q | GET %s: the layout is not translated: %q", tc.target, body, tc.target, body)
+		}
+	}
+}
+
+// TestRenderWithoutI18nKeepsKeys proves the fallback end of the contract: an application
+// that never installed the middleware renders the keys, so a missing catalog stays visible
+// instead of breaking the page. | TestRenderWithoutI18nKeepsKeys 证明契约的另一端：
+// 从未安装中间件的应用渲染键本身，缺失的语言目录因此可见，而不是让页面出错。
+func TestRenderWithoutI18nKeepsKeys(t *testing.T) {
+	a := newTestApp(t, translatorTemplates())
+	a.GET("/home", renderHandler(t, a, http.StatusOK, "pages/home.html", testData()))
+
+	body := doRequest(t, a, http.MethodGet, "/home", nil).Body.String()
+	for _, want := range []string{"<h1>page.title</h1>", "<title>app.name</title>"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("未启用 i18n 时必须回退为键 %s: %q | without i18n the rendered output must carry the key %s: %q", want, body, want, body)
+		}
+	}
+}
+
+// TestRenderWrapsNonMapDataForTranslator pins the data convention for non-map data: the
+// original value stays reachable as .Data and the translator is injected next to it, exactly
+// as the layout already receives it. | TestRenderWrapsNonMapDataForTranslator 固定非 map
+// 数据的数据约定：原值仍可通过 .Data 访问，译者与它并列注入，与布局既有的接收方式一致。
+func TestRenderWrapsNonMapDataForTranslator(t *testing.T) {
+	files := translatorTemplates()
+	files["templates/pages/profile.html"] = `<h1>{{ .Data.Name }}</h1><p>{{ tr "page.title" }}</p>`
+
+	a := newTestApp(t, files)
+	bundle, err := a.i18nBundle()
+	if err != nil {
+		t.Fatalf("加载语言目录失败: %v | loading the catalogs failed: %v", err, err)
+	}
+	a.Use(i18n.Middleware(bundle, i18n.Options{}))
+	a.GET("/profile", renderHandler(t, a, http.StatusOK, "pages/profile.html", struct{ Name string }{Name: "Yun"}))
+
+	body := doRequest(t, a, http.MethodGet, "/profile?lang=en", nil).Body.String()
+	if !strings.Contains(body, "<h1>Yun</h1>") {
+		t.Errorf("结构体数据必须以 .Data 可达: %q | struct data must stay reachable as .Data: %q", body, body)
+	}
+	if !strings.Contains(body, "<p>Home</p>") {
+		t.Errorf("结构体数据下 {{ tr }} 仍须按请求语言渲染: %q | with struct data {{ tr }} must still follow the request language: %q", body, body)
 	}
 }

@@ -7,8 +7,8 @@ import (
 	"encoding/hex"
 	"math/big"
 
-	"github.com/tjfoc/gmsm/sm2"
 	"github.com/shibingli/yd/errx"
+	"github.com/tjfoc/gmsm/sm2"
 )
 
 var (

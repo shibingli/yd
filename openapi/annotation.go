@@ -9,8 +9,8 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/spf13/afero"
 	"github.com/shibingli/yd/errx"
+	"github.com/spf13/afero"
 )
 
 // Source scanning errors, declared once at package level. | 源码扫描错误，在包级声明一次。

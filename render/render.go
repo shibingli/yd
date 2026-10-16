@@ -16,6 +16,19 @@
 // 斜杠路径寻址，例如 "layouts/base.html" 或 "pages/users.html"。根目录下的每个文件
 // 都会被解析进同一个模板集，因此任意页面都可按名称调用局部模板。Dev 模式跳过缓存，
 // 模板改动无需重启即可生效，`yd dev` 依赖该行为。
+//
+// User-facing text is written as `{{ tr "some.key" }}`. The engine ships no
+// catalog of its own: a translator is injected through the render data under
+// TranslatorKey, and tr returns the key when none is injected. | 面向用户的文案写作
+// `{{ tr "some.key" }}`。引擎本身不附带任何语言目录：译者通过渲染数据中的
+// TranslatorKey 键注入，未注入时 tr 返回键本身。
+//
+//	data := map[string]any{render.TranslatorKey: translator, "Users": users}
+//	if err := engine.Render(w, "pages/users.html", data); err != nil { ... }
+//
+// The value under TranslatorKey must satisfy Translator, as i18n.Translator
+// does; the app facade fills the key in for every request. | TranslatorKey 下的值
+// 必须满足 Translator，i18n.Translator 即如此；app 门面会为每个请求填入该键。
 package render
 
 import (
@@ -79,6 +92,12 @@ type Engine struct {
 	mu    sync.RWMutex
 	tmpl  *template.Template
 	names []string
+
+	// source is the pristine parse result: it is never executed, so it can be
+	// cloned for every execution that needs its own template functions.
+	// | source 是未经执行的解析结果：它从不被执行，因此可为每次需要独立模板函数的
+	// 执行克隆一次。
+	source *template.Template
 }
 
 // New loads every template under the configured root. | New 加载配置根目录下的全部模板。
@@ -179,8 +198,21 @@ func (e *Engine) load() error {
 		names = append(names, f.name)
 	}
 
+	// tmpl stays pristine: it is the clone source of every execution that needs
+	// its own template functions. html/template rewrites the parse trees while
+	// escaping and refuses to clone a set that has been executed, so the set
+	// executed as is has to be a twin of the source. | tmpl 保持原始：它是每次需要
+	// 独立模板函数的执行的克隆源。html/template 在转义时会改写解析树，并拒绝克隆已执行过的
+	// 集合，因此直接执行的那个集合必须是原始集合的孪生副本。
+	source := tmpl
+	executed, err := source.Clone()
+	if err != nil {
+		return errx.WrapDetail(err, ErrCloneTemplate, "root=%s", e.opts.Root)
+	}
+
 	e.mu.Lock()
-	e.tmpl = tmpl
+	e.tmpl = executed
+	e.source = source
 	e.names = names
 	e.mu.Unlock()
 	return nil
@@ -224,25 +256,63 @@ func (e *Engine) matchExt(p string) bool {
 }
 
 // Render executes the named template into w. | Render 把指定名称的模板渲染到 w。
+//
+// A translator injected into a map[string]any data value under TranslatorKey
+// (see Translator) is bound to `tr` for this execution only. | 通过
+// TranslatorKey 键注入 map[string]any 型数据的译者（见 Translator）仅对本次执行绑定到 `tr`。
 func (e *Engine) Render(w io.Writer, name string, data any) error {
 	if e.opts.Dev {
 		if err := e.load(); err != nil {
 			return err
 		}
 	}
-	e.mu.RLock()
-	tmpl := e.tmpl
-	e.mu.RUnlock()
-	if tmpl == nil {
-		return errx.Detail(ErrTemplateNotFound, "name=%s", name)
+	tmpl, err := e.executionSet(data)
+	if err != nil {
+		return err
 	}
-	if tmpl.Lookup(name) == nil {
+	if tmpl == nil || tmpl.Lookup(name) == nil {
 		return errx.Detail(ErrTemplateNotFound, "name=%s", name)
 	}
 	if err := tmpl.ExecuteTemplate(w, name, data); err != nil {
 		return errx.WrapDetail(err, ErrExecuteTemplate, "name=%s", name)
 	}
 	return nil
+}
+
+// executionSet returns the template set data must be executed with. | executionSet 返回执行 data 应使用的模板集。
+//
+// Without an injected translator it hands back the cached set as is, which is
+// the path every render without i18n takes. | 未注入译者时原样返回缓存集合，
+// 这是所有未启用 i18n 的渲染所走的路径。
+//
+// With one it clones the pristine set and rebinds "tr" to that translator for
+// this execution only: a template set is shared between goroutines and its
+// function map cannot be swapped after escaping, so a per-execution copy is the
+// only safe way to give two concurrent requests two different translators. | 注入译者时
+// 则克隆原始集合并仅对本次执行把 "tr" 重新绑定到该译者：模板集在多个 goroutine 间共享，
+// 且其函数表在转义后无法替换，因此「每次执行一份副本」是让两个并发请求使用两个不同译者的
+// 唯一安全做法。
+//
+// A "tr" registered through Options.Funcs wins and disables the binding. | 经
+// Options.Funcs 注册的 "tr" 优先，并会关闭该绑定。
+func (e *Engine) executionSet(data any) (*template.Template, error) {
+	e.mu.RLock()
+	executed, source := e.tmpl, e.source
+	e.mu.RUnlock()
+
+	translator := translatorFrom(data)
+	if _, own := e.opts.Funcs["tr"]; own || translator == nil {
+		return executed, nil
+	}
+	if source == nil {
+		return executed, nil
+	}
+
+	bound, err := source.Clone()
+	if err != nil {
+		return nil, errx.Wrap(err, ErrCloneTemplate)
+	}
+	return bound.Funcs(template.FuncMap{"tr": translatorFunc(translator)}), nil
 }
 
 // Exists reports whether a template name is known. | Exists 报告模板名是否为已知模板。

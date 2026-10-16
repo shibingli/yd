@@ -10,9 +10,9 @@ import (
 	"sync/atomic"
 	"testing"
 
+	"github.com/shibingli/yd/logx"
 	"github.com/spf13/afero"
 	"github.com/spf13/pflag"
-	"github.com/shibingli/yd/logx"
 )
 
 // probeSeq numbers the probe commands registered by the tests. | probeSeq 为测试注册的探针命令编号。

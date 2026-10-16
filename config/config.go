@@ -29,10 +29,10 @@ import (
 	"time"
 
 	"github.com/fsnotify/fsnotify"
+	"github.com/shibingli/yd/errx"
 	"github.com/spf13/afero"
 	"github.com/spf13/pflag"
 	"github.com/spf13/viper"
-	"github.com/shibingli/yd/errx"
 )
 
 const (

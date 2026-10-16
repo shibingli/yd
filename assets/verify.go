@@ -7,9 +7,9 @@ package assets
 import (
 	"errors"
 
-	"github.com/spf13/afero"
 	"github.com/shibingli/yd/afs"
 	"github.com/shibingli/yd/errx"
+	"github.com/spf13/afero"
 )
 
 // VerifyReport groups the assets by verification outcome. | VerifyReport 按校验结果对资产分组。

@@ -5,8 +5,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/spf13/afero"
 	"github.com/shibingli/yd/router"
+	"github.com/spf13/afero"
 )
 
 // annotatedSource is a fake handler file written into a memory file system. | annotatedSource 是写入内存文件系统的假处理器源码。

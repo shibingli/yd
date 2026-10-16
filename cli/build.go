@@ -13,11 +13,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/spf13/pflag"
 	"github.com/shibingli/yd/build"
 	"github.com/shibingli/yd/errx"
 	"github.com/shibingli/yd/logx"
 	"github.com/shibingli/yd/version"
+	"github.com/spf13/pflag"
 )
 
 // buildCommandName is the command word of the production build command. | buildCommandName 是生产构建命令的命令词。

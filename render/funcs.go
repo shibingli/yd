@@ -26,9 +26,14 @@ type assetCache struct {
 //
 // The map is rebuilt on every call so callers can safely add their own
 // entries without affecting other engines. | 每次调用都重建函数表，调用方可安全增补而不影响其它引擎。
+//
+// "tr" is included: it returns the message key itself until a translator is
+// injected through the render data, see TranslatorKey and tr. | 其中包含 "tr"：
+// 在通过渲染数据注入译者之前它返回消息键本身，见 TranslatorKey 与 tr。
 func Funcs(fsys afero.Fs) template.FuncMap {
 	cache := &assetCache{seen: map[string]string{}}
 	return template.FuncMap{
+		"tr":        tr,
 		"dict":      dict,
 		"list":      list,
 		"default":   dfault,

@@ -16,9 +16,9 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/spf13/afero"
 	"github.com/shibingli/yd/afs"
 	"github.com/shibingli/yd/errx"
+	"github.com/spf13/afero"
 )
 
 // defaultHTTPTimeout bounds a single asset download. | defaultHTTPTimeout 限制单次资产下载的耗时。

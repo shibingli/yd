@@ -8,9 +8,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/spf13/afero"
 	"github.com/shibingli/yd/assets"
 	"github.com/shibingli/yd/scaffold"
+	"github.com/spf13/afero"
 )
 
 // readMemFile reads a file from the in-memory file system, failing the test when it is missing. | readMemFile 从内存文件系统读取文件，缺失时让测试失败。

@@ -6,9 +6,9 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/spf13/afero"
 	"github.com/shibingli/yd/afs"
 	"github.com/shibingli/yd/errx"
+	"github.com/spf13/afero"
 )
 
 // Default configuration values. | 默认配置值。

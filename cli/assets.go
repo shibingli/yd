@@ -12,9 +12,9 @@ import (
 	"strings"
 	"text/tabwriter"
 
-	"github.com/spf13/pflag"
 	"github.com/shibingli/yd/assets"
 	"github.com/shibingli/yd/errx"
+	"github.com/spf13/pflag"
 )
 
 // The assets command's flag names. | assets 命令的标志名。

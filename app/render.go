@@ -12,6 +12,7 @@ import (
 
 	"github.com/shibingli/yd/errx"
 	"github.com/shibingli/yd/htmx"
+	"github.com/shibingli/yd/i18n"
 	"github.com/shibingli/yd/render"
 	"github.com/shibingli/yd/router"
 )
@@ -63,6 +64,12 @@ func newRenderer(fsys afero.Fs, dev bool) (*render.Engine, error) {
 // The body is buffered and written only once rendering succeeded, so a template
 // error never leaves a half-written page in the response. | 正文先写入缓冲，
 // 渲染成功后才输出，因此模板错误不会在响应里留下半截页面。
+//
+// The translator installed by the i18n middleware is injected into the data
+// under render.TranslatorKey (see withTranslator), which is what makes the
+// `{{ tr "..." }}` calls of the framework templates follow the request
+// language. | i18n 中间件装入的译者会以 render.TranslatorKey 为键注入数据
+// （见 withTranslator），框架模板中的 `{{ tr "..." }}` 因此跟随请求语言。
 func (a *App) Render(c *router.Ctx, status int, name string, data any) error {
 	if c == nil {
 		return ErrNilContext
@@ -73,6 +80,8 @@ func (a *App) Render(c *router.Ctx, status int, name string, data any) error {
 	if a.renderer == nil {
 		return ErrNoRenderer
 	}
+
+	data = withTranslator(data, translatorFor(c))
 
 	if htmx.IsPartial(c.Request) {
 		return a.renderFragment(c, status, name, data)
@@ -123,6 +132,54 @@ func (a *App) writeHTML(c *router.Ctx, status int, body []byte) error {
 	}
 	_, err := c.Writer.Write(body)
 	return err
+}
+
+// translatorFor returns the translator the i18n middleware installed for c. | translatorFor 返回 i18n 中间件为 c 装入的译者。
+//
+// It reports nil when the middleware is absent, which keeps `tr` on its key
+// fallback and keeps the render data untouched. | 未安装中间件时返回 nil，
+// 此时 `tr` 退回返回键本身，渲染数据也保持不变。
+func translatorFor(c *router.Ctx) render.Translator {
+	if t := i18n.FromContext(c); t != nil {
+		return t
+	}
+	return nil
+}
+
+// withTranslator returns data with the request translator added under
+// render.TranslatorKey, so that the engine resolves `{{ tr "..." }}` through it.
+// | withTranslator 返回在 render.TranslatorKey 下加入请求译者的数据，使引擎经由它解析
+// `{{ tr "..." }}`。
+//
+// Map data is copied, never mutated, so a caller keeps ownership of its own map;
+// an existing key of the same name is overwritten. | map 型数据会被复制而不被修改，
+// 调用方仍拥有自己的映射；已存在的同名键会被覆盖。
+//
+// Data of any other shape (a struct, a slice, nil) is wrapped into a
+// map[string]any as layoutData wraps it for the layout — the original value
+// stays reachable as .Data — following the facade's single data convention.
+// | 其它形态的数据（结构体、切片、nil）按 layoutData 对布局的包装方式包进
+// map[string]any（原值仍可通过 .Data 访问），沿用门面唯一的数据约定。
+//
+// A nil translator (i18n not wired) returns data unchanged, so an application
+// without language catalogs renders exactly as it did before. | 译者 nil
+// （未装配 i18n）时原样返回数据，因此没有语言目录的应用渲染结果与之前完全一致。
+func withTranslator(data any, t render.Translator) any {
+	if t == nil {
+		return data
+	}
+
+	out := make(map[string]any, 2)
+	if src, ok := data.(map[string]any); ok {
+		out = make(map[string]any, len(src)+1)
+		for k, v := range src {
+			out[k] = v
+		}
+	} else if data != nil {
+		out[DataKey] = data
+	}
+	out[render.TranslatorKey] = t
+	return out
 }
 
 // layoutData builds the data handed to the layout. | layoutData 构造交给布局的数据。
