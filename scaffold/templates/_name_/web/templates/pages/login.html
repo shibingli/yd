@@ -1,0 +1,50 @@
+{{/*
+  pages/login.html —— 登录页：未登录用户唯一能看到的页面，也是被中间件拒绝后的落点。
+  pages/login.html — the sign-in page: the only page an anonymous visitor ever reaches and the landing point after a
+  middleware refusal.
+
+  它是片段而不是 define：app.Render 渲染本文件得到 .Content，再注入 layouts/base.html；带 HX-Request: true 的请求
+  （登录失败的局部刷新）只返回本文件渲染出的 HTML。
+  It is a fragment rather than a define: app.Render renders this file into .Content and injects it into
+  layouts/base.html, while a request carrying HX-Request: true — the partial refresh of a failed sign-in — receives this
+  file's HTML alone.
+
+  数据契约 | Data contract: .Error .Username .SeedTenant .SeedNotice .KeyEndpoint .PublicKey .TenantHeader
+  （见 internal/controller/auth_controller.go 的 loginData）。
+
+  默认凭据刻意不写在页面上：README 里有一节专门讲种子账号，页面只提租户标识与「首登必改」这一句，
+  否则一份生成即跑的演示环境会把口令散落在每一处能写字的地方。
+  The default credentials are deliberately absent from this page: the README has a section on the seeded accounts while
+  the page only names the tenant key and the mandatory-password-change sentence — otherwise a demo environment that runs
+  right after generation would scatter the password across every surface that can hold text.
+*/}}
+<section class="yd-page yd-page--centered" data-yd-page="login" aria-labelledby="yd-login-title">
+  <div class="yd-card yd-login-card">
+    <header class="yd-section__header">
+      <h1 class="yd-section__title" id="yd-login-title">{{ tr "login.title" }}</h1>
+      <span class="yd-badge yd-badge--muted">SM2 · <a class="yd-link" href="{{ .KeyEndpoint }}">{{ .KeyEndpoint }}</a></span>
+    </header>
+    <p class="yd-section__hint">{{ tr "login.subtitle" }}</p>
+
+    {{/* 失败提示：控制器以 401 把这一份片段整体换回工作区，因此错误框与表单永远在同一份渲染里成对出现。
+         Failure notice: the controller swaps this whole fragment back into the workspace with a 401, so the error box and
+         the form always appear together in one single render. */}}
+    {{ with .Error }}
+    <div class="yd-banner yd-banner--error" role="alert" data-yd-login-error>
+      <span class="yd-banner__text">{{ . }}</span>
+    </div>
+    {{ end }}
+
+    {{ template "partials/login" . }}
+
+    <hr class="yd-divider">
+    <dl class="yd-meta">
+      <dt class="yd-meta__key">{{ tr "login.tenant_label" }}</dt>
+      <dd class="yd-meta__value"><code class="yd-code">{{ .SeedTenant }}</code></dd>
+      <dt class="yd-meta__key">{{ tr "login.notice_label" }}</dt>
+      <dd class="yd-meta__value">{{ .SeedNotice }}</dd>
+      <dt class="yd-meta__key">{{ tr "login.credentials_label" }}</dt>
+      <dd class="yd-meta__value">{{ tr "login.credentials_hint" }}</dd>
+    </dl>
+  </div>
+</section>

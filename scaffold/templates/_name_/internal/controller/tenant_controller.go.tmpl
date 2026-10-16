@@ -1,0 +1,134 @@
+// 本文件是租户管理端点：列表与新建。
+// This file holds the tenant management endpoints: listing and creation.
+
+package controller
+
+import (
+	"net/http"
+	"strings"
+
+	"{{ .Module }}/internal/middleware"
+	"{{ .Module }}/internal/model"
+	"{{ .YdModule }}/logx"
+	"{{ .YdModule }}/router"
+)
+
+// Tenants 渲染租户列表与新建表单。
+// Tenants renders the tenant list together with the creation form.
+//
+// @Summary Tenant list | 租户列表
+// @Description Renders pages/tenants.html with every tenant the platform knows about. The list is platform-wide by
+// @Description design: tenants are the boundary of everything else, so the capability guarding this page is the rarest
+// @Description one in the catalogue and the operation is annotated with BearerAuth like every other business endpoint.
+// @Description 渲染 pages/tenants.html，列出平台上的全部租户。列表按设计是平台级的：租户是其它一切数据的边界，因此看守本页的
+// @Description 能力是全目录里最稀缺的一项；与其它业务端点一样，本操作标注 BearerAuth。
+// @Tags tenants
+// @Accept html
+// @Produce html
+// @Param q query string false "keyword matched against slug and name | 匹配标识与名称的关键字"
+// @Param HX-Request header string false "htmx partial request | htmx 局部请求标记"
+// @Success 200 {object} string "tenant page or fragment | 租户整页或片段"
+// @Failure 401 {object} string "no session | 无有效会话"
+// @Failure 403 {object} string "missing tenant:read | 缺少 tenant:read"
+// @Security BearerAuth
+// @Router /tenants [get]
+func (c *Controller) Tenants(ctx *router.Ctx) {
+	c.tenantsPage(ctx, http.StatusOK, field(ctx, FieldKeyword), "")
+}
+
+// CreateTenant 新建租户：slug 即 X-Tenant 请求头与子域名的取值，因此它与名称一起在业务层校验。
+// CreateTenant adds a tenant: the slug is what the X-Tenant header and the subdomain carry, so it is validated in the business layer together with the name.
+//
+// @Summary Create tenant | 新建租户
+// @Description Creates a tenant and seeds its four built-in roles (owner, admin, auditor, member) in one step, so a new
+// @Description tenant is immediately usable for user administration. The slug must be unique, at least two characters and
+// @Description limited to lower-case letters, digits and dashes, because it is also the subdomain label.
+// @Description 新建租户并一次性播种它的四个内置角色（owner、admin、auditor、member），因此新租户立刻可以开始管用户。标识必须唯一、
+// @Description 至少两个字符且只含小写字母、数字与连字符——它同时是子域名标签。
+// @Tags tenants
+// @Accept html
+// @Produce html
+// @Param slug formData string true "tenant key, also the subdomain label | 租户标识，同时是子域名标签"
+// @Param name formData string true "display name | 展示名称"
+// @Success 200 {object} string "refreshed tenant list fragment | 刷新后的租户列表片段"
+// @Failure 401 {object} string "no session | 无有效会话"
+// @Failure 403 {object} string "missing tenant:write | 缺少 tenant:write"
+// @Failure 409 {object} string "slug already taken | 标识已被占用"
+// @Failure 422 {object} string "validation failure | 校验失败"
+// @Security BearerAuth
+// @Router /tenants [post]
+func (c *Controller) CreateTenant(ctx *router.Ctx) {
+	slug := field(ctx, FieldSlug)
+	name := field(ctx, FieldName)
+
+	tenant, err := c.tenants.Create(ctx.Request.Context(), slug, name)
+	if err != nil {
+		c.failService(ctx, err)
+		return
+	}
+	c.log.Info("tenant created | 租户已创建",
+		logx.Str("slug", tenant.Slug),
+		logx.Str("tenant", tenant.ID),
+	)
+	c.tenantsPage(ctx, http.StatusOK, "", "租户已创建 | tenant created")
+}
+
+// tenantsPage 渲染租户列表片段（keyword 过滤），message 非空时附带一条提示。
+// tenantsPage renders the tenant list fragment (filtered by keyword) and attaches a notice when message is non-empty.
+func (c *Controller) tenantsPage(ctx *router.Ctx, status int, keyword, message string) {
+	list, err := c.tenants.List(ctx.Request.Context())
+	if err != nil {
+		c.failService(ctx, err)
+		return
+	}
+
+	filtered := make([]tenantRow, 0, len(list))
+	for _, tenant := range list {
+		if !matches(keyword, tenant.Slug, tenant.Name, tenant.ID) {
+			continue
+		}
+		filtered = append(filtered, tenantRow{Tenant: tenant, Current: tenant.ID == currentTenantID(ctx)})
+	}
+	if message != "" {
+		c.toast(ctx, message)
+	}
+	c.render(ctx, status, TplTenants, c.view(ctx, "租户管理 | Tenants", map[string]any{
+		"Rows":    filtered,
+		"Total":   len(filtered),
+		"Keyword": keyword,
+		"Empty":   len(filtered) == 0,
+	}))
+}
+
+// tenantRow 把一行租户与「是否当前请求所属」绑在一起：当前租户不允许被误当成可随意试验的对象。
+// tenantRow binds one tenant row to whether it is the one this request belongs to, which marks the current tenant as off-limits for casual experiments.
+type tenantRow struct {
+	// Tenant 是租户本身。 | Tenant is the tenant itself.
+	Tenant model.Tenant
+	// Current 表示它就是当前请求所属的租户。 | Current marks it as the tenant this very request belongs to.
+	Current bool
+}
+
+// currentTenantID 返回当前请求的租户 ID，缺失时返回空串（登录页没有租户，这是正常状态）。
+// currentTenantID returns the tenant id of the request and an empty string when there is none, which is normal on the sign-in page.
+func currentTenantID(ctx *router.Ctx) string {
+	if id, ok := middleware.TenantID(ctx); ok {
+		return id
+	}
+	return ""
+}
+
+// matches 报告 keyword 是否命中任一字段（空关键字一律命中）。
+// matches reports whether keyword hits any field, with an empty keyword hitting everything.
+func matches(keyword string, fields ...string) bool {
+	if keyword == "" {
+		return true
+	}
+	needle := strings.ToLower(keyword)
+	for _, f := range fields {
+		if strings.Contains(strings.ToLower(f), needle) {
+			return true
+		}
+	}
+	return false
+}

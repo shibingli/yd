@@ -7,32 +7,37 @@
   The empty state belongs to the fragment rather than to a separate template: "the filter matched nothing" and "the list
   is empty" are the same thing to a user, and two rendering paths would only drift apart over time.
 
-  数据契约 | Data contract: .Users（[]model.User，可为空）、.Empty（筛选无结果的标记）。
-  行由 partials/users/row.html 渲染，因此单行结构只存在一份。
+  数据契约 | Data contract: .Cards（[]userCard，可为空）、.Empty（筛选无结果的标记）、.Actor（当前登录用户 ID）、
+  .CanUserWrite（是否渲染行内表单）。行由 partials/users/row.html 渲染，因此单行结构只存在一份。
+  Rows are rendered by partials/users/row.html, so the shape of one row exists exactly once.
 */}}
 {{- define "partials/users/list" -}}
 <div class="yd-table__wrap" data-yd-table>
-  <table class="yd-table" aria-label="用户列表 | User list">
-    <caption class="sr-only">用户列表 | User list</caption>
+  <table class="yd-table" aria-label="{{ tr "page.users.title" }}">
+    <caption class="sr-only">{{ tr "page.users.title" }}</caption>
     <thead class="yd-table__head">
       <tr>
-        <th class="yd-table__th" scope="col">用户 | User</th>
-        <th class="yd-table__th" scope="col">邮箱 | E-mail</th>
-        <th class="yd-table__th" scope="col">角色 | Roles</th>
-        <th class="yd-table__th" scope="col">创建时间 | Created</th>
+        <th class="yd-table__th" scope="col">{{ tr "field.user" }}</th>
+        <th class="yd-table__th" scope="col">{{ tr "field.email" }}</th>
+        <th class="yd-table__th" scope="col">{{ tr "field.roles" }}</th>
+        <th class="yd-table__th" scope="col">{{ tr "field.status" }}</th>
+        <th class="yd-table__th" scope="col">{{ tr "field.created" }}</th>
+        {{- if .CanUserWrite }}
+        <th class="yd-table__th" scope="col">{{ tr "field.actions" }}</th>
+        {{- end }}
       </tr>
     </thead>
     {{/* 表格体只用 outerMorph：行内的输入状态、焦点与滚动位置在局部交换后依然保留。
          The body uses outerMorph only: input state, focus and scroll inside a row survive a partial swap. */}}
     <tbody id="yd-users-rows" class="yd-table__body" hx-swap="outerMorph">
-      {{ with .Users }}
+      {{ with .Cards }}
       {{ range . }}
       {{ template "partials/users/row" . }}
       {{ end }}
       {{ else }}
       <tr class="yd-table__row yd-table__row--empty">
-        <td class="yd-table__td" colspan="4">
-          {{ if $.Empty }}没有匹配的用户，换个关键字试试 | no user matches, try another keyword{{ else }}还没有任何用户 | there are no users yet{{ end }}
+        <td class="yd-table__td" colspan="{{ if $.CanUserWrite }}6{{ else }}5{{ end }}">
+          {{ if $.Empty }}{{ tr "user.no_match" }}{{ else }}{{ tr "user.empty" }}{{ end }}
         </td>
       </tr>
       {{ end }}

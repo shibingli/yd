@@ -16,28 +16,37 @@ type projectMeta struct {
 	Name string `json:"name"`
 	// Module 是 go.mod 的模块路径。 | Module is the go.mod module path.
 	Module string `json:"module"`
-	// Features 记录所选组件开关。 | Features records the selected component switches.
-	Features projectFeatures `json:"features"`
 	// AssetRoot 是前端资产根目录。 | AssetRoot is the front-end asset root.
 	AssetRoot string `json:"assetRoot"`
+	// Features 记录所选组件开关。 | Features records the selected component switches.
+	Features projectFeatures `json:"features"`
 }
 
 // projectFeatures 是 .yd.json 中 features 段的字段集。 | projectFeatures is the field set of the features section in .yd.json.
 type projectFeatures struct {
 	// DB 是数据库驱动（含 none）。 | DB is the database driver (including none).
 	DB string `json:"db"`
+	// HtmxExts 是所选 Htmx 扩展。 | HtmxExts lists the selected Htmx extensions.
+	HtmxExts []string `json:"htmxExts"`
 	// Redis 表示是否接入 go-redis。 | Redis tells whether go-redis is wired in.
 	Redis bool `json:"redis"`
 	// Asynq 表示是否接入 asynq。 | Asynq tells whether asynq is wired in.
 	Asynq bool `json:"asynq"`
 	// GRPC 表示是否开启 gRPC 双通道。 | GRPC tells whether the gRPC dual channel is enabled.
 	GRPC bool `json:"grpc"`
+	// Auth 表示多租户 + 用户 / 角色 / 权限的登录鉴权链路已接入。
+	// Auth tells whether the multi-tenant sign-in chain — users, roles and capabilities — is wired in.
+	//
+	// 与其它开关不同，它没有对应的脚手架参数：鉴权是每个生成项目都带的能力，写进清单是为了让
+	// yd dev / yd build 与运维自检能像读其它开关一样读到它，而不是靠人记得「这个项目一定有登录」。
+	// Unlike the other switches it has no scaffold option: authentication ships with every generated project, and the
+	// entry exists so yd dev, yd build and operations checks read it exactly like any other switch instead of relying on
+	// someone remembering that this project always has a sign-in.
+	Auth bool `json:"auth"`
 	// I18n 表示是否开启国际化。 | I18n tells whether internationalisation is enabled.
 	I18n bool `json:"i18n"`
 	// Tailwind 表示是否接入 Tailwind v4。 | Tailwind tells whether Tailwind v4 is wired in.
 	Tailwind bool `json:"tailwind"`
-	// HtmxExts 是所选 Htmx 扩展。 | HtmxExts lists the selected Htmx extensions.
-	HtmxExts []string `json:"htmxExts"`
 }
 
 // frameworkManifestName 是框架资产清单在 web 内嵌目录树里的路径。
@@ -86,6 +95,7 @@ func generatedDocs(o Options, v view, m *assets.Manifest) ([]plannedFile, error)
 			GRPC:     o.GRPC,
 			I18n:     o.I18n,
 			Tailwind: o.Tailwind,
+			Auth:     true,
 			HtmxExts: o.HtmxExts,
 		},
 		AssetRoot: AssetRoot,

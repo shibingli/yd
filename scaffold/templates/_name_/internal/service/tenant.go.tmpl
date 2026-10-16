@@ -1,0 +1,124 @@
+// 本文件是租户业务：租户的创建、解析与内置角色的初始化。
+// This file is the tenant business layer: creating, resolving and initialising a tenant's built-in roles.
+
+package service
+
+import (
+	"context"
+	"strings"
+	"unicode"
+
+	"{{ .Module }}/internal/model"
+	"{{ .Module }}/internal/repository"
+	"{{ .YdModule }}/errx"
+)
+
+// 租户业务哨兵。 | Tenant business sentinels.
+var (
+	// ErrTenantMissing 表示请求没有指明租户。 | ErrTenantMissing reports a request that names no tenant.
+	ErrTenantMissing = errx.New("a tenant must be selected | 必须选择租户")
+	// ErrTenantNameRequired 表示租户名称为空。 | ErrTenantNameRequired reports an empty tenant name.
+	ErrTenantNameRequired = errx.New("tenant name is required | 租户名称不能为空")
+	// ErrTenantSlugInvalid 表示租户标识不合法：只允许小写字母、数字与连字符。 | ErrTenantSlugInvalid reports an illegal tenant slug: lower-case letters, digits and dashes only.
+	ErrTenantSlugInvalid = errx.New("the tenant slug may only contain lower-case letters, digits and dashes | 租户标识只能包含小写字母、数字与连字符")
+)
+
+// 租户标识的长度边界（含连字符）。 | Length bounds of a tenant slug (dashes included).
+const (
+	minSlugLen = 2
+	maxSlugLen = 32
+)
+
+// TenantService 编排租户生命周期。 | TenantService orchestrates the tenant lifecycle.
+type TenantService struct {
+	// repo 是租户仓储。 | repo is the tenant repository.
+	repo *repository.TenantRepo
+	// roles 用于为新租户写入内置角色。 | roles initialises the built-in roles of a new tenant.
+	roles *repository.RoleRepo
+}
+
+// NewTenantService 基于 Store 构造租户业务。 | NewTenantService builds the tenant business layer over a Store.
+func NewTenantService(store *repository.Store) *TenantService {
+	return &TenantService{repo: repository.NewTenantRepo(store), roles: repository.NewRoleRepo(store)}
+}
+
+// List 返回全部租户（仅限已持有 tenant:read 的调用方，鉴权在路由层完成）。
+// List returns every tenant (only for a caller holding tenant:read; the route layer enforces that).
+func (s *TenantService) List(ctx context.Context) ([]model.Tenant, error) {
+	return s.repo.List(ctx)
+}
+
+// Get 按 ID 返回租户。 | Get returns the tenant of that id.
+func (s *TenantService) Get(ctx context.Context, tenantID string) (model.Tenant, error) {
+	return s.repo.Get(ctx, tenantID)
+}
+
+// Resolve 把「租户标识或租户 ID」解析为租户 ID，供租户中间件使用。
+// Resolve maps "tenant slug or tenant id" onto a tenant id and is what the tenant middleware calls.
+//
+// 未指明租户返回 ErrTenantMissing，标识未知返回包装了 auth.ErrNotFound 的错误：两者都是 400，
+// 且都不泄露「该标识对应的租户是否存在数据」。
+// A request naming no tenant reports ErrTenantMissing and an unknown slug reports an error wrapping auth.ErrNotFound:
+// both become 400 and neither leaks whether any tenant holds data behind that slug.
+func (s *TenantService) Resolve(ctx context.Context, key string) (string, error) {
+	trimmed := strings.TrimSpace(key)
+	if trimmed == "" {
+		return "", ErrTenantMissing
+	}
+	if strings.HasPrefix(trimmed, "tn_") {
+		if _, err := s.repo.Get(ctx, trimmed); err != nil {
+			return "", err
+		}
+		return trimmed, nil
+	}
+
+	tenant, err := s.repo.BySlug(ctx, trimmed)
+	if err != nil {
+		return "", err
+	}
+	return tenant.ID, nil
+}
+
+// Create 新建租户并立刻写入四个内置角色，因此新租户开箱即可分配权限。
+// Create adds a tenant and writes its four built-in roles at once, so the tenant can hand out permissions right away.
+func (s *TenantService) Create(ctx context.Context, slug, name string) (model.Tenant, error) {
+	cleanSlug := strings.ToLower(strings.TrimSpace(slug))
+	cleanName := strings.TrimSpace(name)
+
+	if cleanName == "" {
+		return model.Tenant{}, ErrTenantNameRequired
+	}
+	if !validSlug(cleanSlug) {
+		return model.Tenant{}, ErrTenantSlugInvalid
+	}
+
+	tenant, err := s.repo.Create(ctx, cleanSlug, cleanName)
+	if err != nil {
+		return model.Tenant{}, err
+	}
+	if err := s.roles.Ensure(ctx, tenant.ID); err != nil {
+		return model.Tenant{}, err
+	}
+	return tenant, nil
+}
+
+// validSlug 校验租户标识：小写字母开头，允许小写字母、数字与连字符，长度受限。
+// validSlug checks a tenant slug: it starts with a lower-case letter, allows lower-case letters, digits and dashes, and respects the length bounds.
+func validSlug(slug string) bool {
+	if len(slug) < minSlugLen || len(slug) > maxSlugLen {
+		return false
+	}
+	if slug[0] < 'a' || slug[0] > 'z' {
+		return false
+	}
+	for _, r := range slug {
+		switch {
+		case r >= 'a' && r <= 'z', r >= '0' && r <= '9', r == '-':
+		case unicode.IsSpace(r):
+			return false
+		default:
+			return false
+		}
+	}
+	return !strings.HasSuffix(slug, "-")
+}

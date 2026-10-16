@@ -9,10 +9,12 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"net/http/cookiejar"
 	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"slices"
 	"strconv"
@@ -22,10 +24,13 @@ import (
 
 	"github.com/shibingli/yd/afs"
 	"github.com/shibingli/yd/assets"
+	"github.com/shibingli/yd/b64x"
+	"github.com/shibingli/yd/guomi"
 	"github.com/shibingli/yd/jsonx"
 	"github.com/shibingli/yd/scaffold"
 	"github.com/shibingli/yd/ws"
 	"github.com/spf13/afero"
+	"go.yaml.in/yaml/v3"
 )
 
 // demoName 是绝大多数用例使用的项目名（目标 FS 中的目录名）。
@@ -55,33 +60,54 @@ var requiredFiles = []string{
 	"configs/config.yaml",
 	"docs/developer_guidelines.md",
 	"go.mod",
-	"internal/controller/auth.go",
+	"internal/controller/auth_controller.go",
 	"internal/controller/controller.go",
 	"internal/controller/home.go",
 	"internal/controller/realtime.go",
-	"internal/controller/user.go",
+	"internal/controller/role_controller.go",
+	"internal/controller/tenant_controller.go",
+	"internal/controller/user_controller.go",
 	"internal/meta/meta.go",
 	"internal/middleware/security.go",
+	"internal/middleware/session.go",
+	"internal/middleware/tenant.go",
+	"internal/model/permission.go",
+	"internal/model/role.go",
+	"internal/model/tenant.go",
 	"internal/model/user.go",
-	"internal/repository/user.go",
+	"internal/repository/role_repo.go",
+	"internal/repository/store.go",
+	"internal/repository/tenant_repo.go",
+	"internal/repository/user_repo.go",
 	"internal/router/router.go",
 	"internal/service/auth.go",
 	"internal/service/realtime.go",
+	"internal/service/role.go",
+	"internal/service/tenant.go",
 	"internal/service/user.go",
 	"web/assets.lock.json",
 	"web/embed.go",
-	"web/langs/en.yaml",
-	"web/langs/zh-CN.yaml",
+	"web/i18n/en.yaml",
+	"web/i18n/zh-CN.yaml",
 	"web/static/css/app.css",
 	"web/static/js/yd-app.js",
 	"web/templates/layouts/base.html",
+	"web/templates/pages/account.html",
 	"web/templates/pages/error.html",
 	"web/templates/pages/home.html",
+	"web/templates/pages/login.html",
+	"web/templates/pages/permissions.html",
 	"web/templates/pages/realtime.html",
+	"web/templates/pages/roles.html",
+	"web/templates/pages/tenants.html",
 	"web/templates/pages/users.html",
 	"web/templates/partials/flash.html",
 	"web/templates/partials/login.html",
+	"web/templates/partials/roles/form.html",
+	"web/templates/partials/roles/list.html",
 	"web/templates/partials/sidebar.html",
+	"web/templates/partials/tenants/form.html",
+	"web/templates/partials/tenants/list.html",
 	"web/templates/partials/users/form.html",
 	"web/templates/partials/users/list.html",
 	"web/templates/partials/users/row.html",
@@ -285,6 +311,11 @@ func TestGenerateHiddenFilesNotLostOnMemFS(t *testing.T) {
 	}
 	if meta.Features["tailwind"] != true {
 		t.Errorf(".yd.json features.tailwind = %v, 期望 true", meta.Features["tailwind"])
+	}
+	// 鉴权不随开关：生成的项目一律登记 auth，开关关掉它等于把一个没有租户边界的骨架发出去。
+	// Auth is not switchable: every generated project registers it, and switching it off would ship a skeleton with no tenant boundary.
+	if meta.Features["auth"] != true {
+		t.Errorf(".yd.json features.auth = %v, 期望 true", meta.Features["auth"])
 	}
 }
 
@@ -676,6 +707,15 @@ func TestGeneratedGovernanceDocsStateConstraints(t *testing.T) {
 		"Tailwind CSS **v4**",
 		"redis",
 		"asynq",
+		// 鉴权链路：多租户边界、能力守卫与会话顺序必须在助手的全局上下文里写明。
+		// The authentication chain: the tenant boundary, the capability guards and the session order must be spelled out for the assistant.
+		"auth.RequirePermission",
+		"middleware.TenantID",
+		"auth.ErrNotFound",
+		"middleware.Promote",
+		"auth.LoginEncryptedHeader",
+		"SeedPasswordNotice",
+		"web/i18n",
 	} {
 		if !strings.Contains(claude, want) {
 			t.Errorf("CLAUDE.md 缺少 %q", want)
@@ -687,14 +727,39 @@ func TestGeneratedGovernanceDocsStateConstraints(t *testing.T) {
 	}
 
 	agents := pr.read("AGENTS.md")
-	for _, want := range []string{"Test-and-Fix", "logx", "jsonx", "b64x", "errx", "YD_", "Co-Authored-By: Eric Shi <shibingli@sina.com>"} {
+	for _, want := range []string{
+		"Test-and-Fix", "logx", "jsonx", "b64x", "errx", "YD_", "Co-Authored-By: Eric Shi <shibingli@sina.com>",
+		// 安全清单里的鉴权条目：租户隔离、能力守卫、会话顺序、文案双语。
+		// The authentication items of the security checklist: tenant isolation, capability guards, session order and bilingual copy.
+		"auth.RequirePermission",
+		"middleware.TenantID",
+		"ErrNotFound",
+		"middleware.Promote",
+		"SeedPasswordNotice",
+		"web/i18n",
+	} {
 		if !strings.Contains(agents, want) {
 			t.Errorf("AGENTS.md 缺少 %q", want)
 		}
 	}
 
 	guide := pr.read("docs/developer_guidelines.md")
-	for _, want := range []string{"hx-", "layouts/", "partials/", "pages/", "assets.lock.json", "YD_", "HX-Request"} {
+	for _, want := range []string{
+		"hx-", "layouts/", "partials/", "pages/", "assets.lock.json", "YD_", "HX-Request",
+		// 鉴权与多租户一节：链路顺序、越权即 404、能力守卫与国密载荷都在协同约束里。
+		// The authentication and multi-tenancy section: the chain order, "escalation is a 404", the capability guards and the national-cryptography payload all live in the collaboration contract.
+		"middleware.Promote",
+		"auth.Middleware",
+		"middleware.Tenant",
+		"auth.ErrNotFound",
+		"auth.RequirePermission",
+		"sm2",
+		"yd_lang",
+		"data-theme",
+		// 注解契约的小节号被生成的源码引用，缺了它源码里的 §9.2 就指向空气。
+		// The annotation section number is referenced by the generated sources; without it the §9.2 in the code points at nothing.
+		"§9.2",
+	} {
 		if !strings.Contains(guide, want) {
 			t.Errorf("docs/developer_guidelines.md 缺少 %q", want)
 		}
@@ -814,38 +879,21 @@ func TestGeneratedAppServesFrameworkFeatures(t *testing.T) {
 	if testing.Short() {
 		t.Skip("短模式跳过真实服务验证 | skipped in short mode")
 	}
-	goBin, err := exec.LookPath("go")
-	if err != nil {
-		t.Skipf("未找到 go 工具链，跳过真实服务验证: %v", err)
-	}
 
-	dir := t.TempDir()
-	o := scaffold.DefaultOptions("yd-serve-probe")
-	// 与服务验证无关的依赖一律不引入：模板、路由与实时通道都不需要数据库。
-	// Anything unrelated to the serving checks is left out: templates, routes and the realtime channels need no database.
-	o.DB = scaffold.DBNone
-	o.LocalReplace = filepath.ToSlash(repoRoot(t))
-	if _, err := scaffold.Generate(context.Background(), o, afs.NewOS(dir), nil); err != nil {
-		t.Fatalf("真实生成失败: %v", err)
-	}
+	_, base := startProbeApp(t, "yd-serve-probe")
 
-	projDir := filepath.Join(dir, o.Name)
-	bin := filepath.Join(projDir, "app")
-	if runtime.GOOS == "windows" {
-		bin += ".exe"
-	}
-	output, err := runGo(goBin, projDir, true, "build", "-mod=mod", "-o", bin, "./cmd/app")
-	if err != nil {
-		t.Logf("GOPROXY=off 编译失败，回退到环境代理重试:\n%s", output)
-		output, err = runGo(goBin, projDir, false, "build", "-mod=mod", "-o", bin, "./cmd/app")
-	}
-	if err != nil {
-		t.Fatalf("生成的骨架无法编译: %v\n%s", err, output)
-	}
+	// 会话不再是可选项：/ 与 /users 都落在受保护组里，因此探针先用默认凭据登录，此后每条请求都带着那枚 cookie
+	// （中间件 Promote 会把它提升为 Authorization，浏览器与 API 客户端因此走同一条校验路径）。
+	// A session is no longer optional: / and /users live inside the protected group, so the probe signs in with the
+	// default credentials first and every request afterwards carries that cookie (middleware.Promote lifts it into
+	// Authorization, which is how browsers and API clients end up sharing one verification path).
+	client := newProbeClient(t, httpTimeout)
+	token := signIn(t, client, base, probeTenant, probeAdmin, probeAdminPassword)
 
-	base := startGeneratedApp(t, bin, projDir)
-	client := &http.Client{Timeout: httpTimeout}
-	streamClient := &http.Client{Timeout: sseTimeout}
+	// 流式端点自己带令牌，因此另起一个客户端：它的超时按一帧推送的等待时间放宽。
+	// The streaming endpoints carry the token themselves, so they get a client of their own with the timeout widened to
+	// the wait for one pushed frame.
+	streamClient := newProbeClient(t, sseTimeout)
 
 	t.Run("健康检查", func(t *testing.T) {
 		resp, body := getText(t, client, base+"/healthz", nil)
@@ -971,6 +1019,10 @@ func TestGeneratedAppServesFrameworkFeatures(t *testing.T) {
 		if err != nil {
 			t.Fatalf("构造 SSE 请求失败: %v", err)
 		}
+		// 流式端点同样在受保护组里：浏览器靠 cookie（Promote 提升），脚本客户端直接带请求头。
+		// The streaming endpoint is protected as well: a browser relies on the cookie that Promote lifts while a scripted
+		// client sends the header directly.
+		req.Header.Set("Authorization", "Bearer "+token)
 		resp, err := streamClient.Do(req)
 		if err != nil {
 			t.Fatalf("GET /events 失败: %v", err)
@@ -1022,10 +1074,15 @@ func TestGeneratedAppServesFrameworkFeatures(t *testing.T) {
 		ctx, cancel := context.WithTimeout(context.Background(), sseTimeout)
 		defer cancel()
 
-		// 用框架自带的客户端握手：与浏览器相同的子协议，且会校验 Sec-WebSocket-Accept。
+		// 用框架自带的客户端握手：与浏览器相同的子协议，且会校验 Sec-WebSocket-Accept；
+		// 升级请求也要带令牌，否则握手会被鉴权中间件挡在 401 上。
 		// The handshake uses the framework's own client: the same subprotocol a browser asks for, with the
-		// Sec-WebSocket-Accept response verified.
-		conn, err := ws.Dial(ctx, "ws"+strings.TrimPrefix(base, "http")+"/ws", ws.DialOptions{Subprotocols: []string{"htmx"}})
+		// Sec-WebSocket-Accept response verified. The upgrade request has to carry the token too, otherwise the auth
+		// middleware stops it at 401.
+		conn, err := ws.Dial(ctx, "ws"+strings.TrimPrefix(base, "http")+"/ws", ws.DialOptions{
+			Subprotocols: []string{"htmx"},
+			Headers:      http.Header{"Authorization": []string{"Bearer " + token}},
+		})
 		if err != nil {
 			t.Fatalf("WebSocket 握手失败: %v", err)
 		}
@@ -1076,12 +1133,14 @@ func TestGeneratedAppServesFrameworkFeatures(t *testing.T) {
 
 	t.Run("表单校验与列表闭环", func(t *testing.T) {
 		// 校验失败（htmx 请求）：422 + 错误片段，且片段必须只是错误槽位的内容，不能是整页。
+		// 登录名与邮箱的校验发生在口令解密之前，因此这两条用例可以只发普通表单字段。
 		// A validation failure on an htmx request: 422 plus the error fragment, which must be the error slot's content
-		// only and never a whole page.
+		// only and never a whole page. The sign-in name and the address are checked before any password is decrypted,
+		// which is why these two cases may post plain form fields.
 		hx := map[string]string{"HX-Request": "true"}
-		resp, body := postForm(t, client, base+"/users", map[string]string{"name": "", "email": "nobody@example.com"}, hx)
+		resp, body := postForm(t, client, base+"/users", map[string]string{"username": "", "email": "nobody@example.com"}, hx)
 		if resp.StatusCode != http.StatusUnprocessableEntity {
-			t.Fatalf("空名称 POST /users 状态码 = %d, 期望 422\n%s", resp.StatusCode, body)
+			t.Fatalf("空登录名 POST /users 状态码 = %d, 期望 422\n%s", resp.StatusCode, body)
 		}
 		for _, want := range []string{"yd-errors__body", "user name is required"} {
 			if !strings.Contains(body, want) {
@@ -1095,9 +1154,9 @@ func TestGeneratedAppServesFrameworkFeatures(t *testing.T) {
 		// 校验失败（普通表单提交）：同样是 422，但由布局包裹成整页——浏览器禁用脚本后仍要能读到错误。
 		// A validation failure on a plain form post: the same 422, wrapped in the layout as a whole page, because a
 		// browser with scripting disabled still has to be able to read the error.
-		respPlain, bodyPlain := postForm(t, client, base+"/users", map[string]string{"name": "", "email": "nobody@example.com"}, nil)
+		respPlain, bodyPlain := postForm(t, client, base+"/users", map[string]string{"username": "", "email": "nobody@example.com"}, nil)
 		if respPlain.StatusCode != http.StatusUnprocessableEntity {
-			t.Fatalf("非 htmx 的空名称 POST /users 状态码 = %d, 期望 422\n%s", respPlain.StatusCode, bodyPlain)
+			t.Fatalf("非 htmx 的空登录名 POST /users 状态码 = %d, 期望 422\n%s", respPlain.StatusCode, bodyPlain)
 		}
 		for _, want := range []string{"<html", "yd-errors__body", "user name is required"} {
 			if !strings.Contains(bodyPlain, want) {
@@ -1108,7 +1167,7 @@ func TestGeneratedAppServesFrameworkFeatures(t *testing.T) {
 		// 邮箱非法同样是 422，但文案不同：状态码由哨兵映射，文案来自哨兵本身。
 		// A malformed e-mail is a 422 too, with different copy: the status comes from the sentinel mapping and the copy
 		// from the sentinel itself.
-		respBad, bodyBad := postForm(t, client, base+"/users", map[string]string{"name": "Alice", "email": "not-an-email"}, hx)
+		respBad, bodyBad := postForm(t, client, base+"/users", map[string]string{"username": "Alice", "email": "not-an-email"}, hx)
 		if respBad.StatusCode != http.StatusUnprocessableEntity {
 			t.Fatalf("非法邮箱 POST /users 状态码 = %d, 期望 422\n%s", respBad.StatusCode, bodyBad)
 		}
@@ -1117,8 +1176,17 @@ func TestGeneratedAppServesFrameworkFeatures(t *testing.T) {
 		}
 
 		// 成功：200 + 刷新后的列表片段 + HX-Trigger 下发的 yd:toast 事件。
-		// Success: 200 plus the refreshed list fragment plus the yd:toast event carried by HX-Trigger.
-		respOK, bodyOK := postForm(t, client, base+"/users", map[string]string{"name": "Alice", "email": "alice@example.com"}, hx)
+		// 口令必须是 SM2 密文并附上 sm2 标记头：服务端拒绝任何明文口令链路，这条路径正是登录之外的第二个解密入口。
+		// Success: 200 plus the refreshed list fragment plus the yd:toast event carried by HX-Trigger. The password must
+		// arrive as SM2 ciphertext with the sm2 marker header: the server refuses any plaintext password path, and this is
+		// the second decryption entry point next to sign-in.
+		respOK, bodyOK := postFormValues(t, client, base+"/users", url.Values{
+			"username":     {"alice"},
+			"email":        {"alice@example.com"},
+			"display_name": {"Alice"},
+			"password":     {sm2Cipher(t, client, base, probeUserPassword)},
+			"roles":        {"member"},
+		}, map[string]string{"HX-Request": "true", "X-YD-Encrypted": "sm2"})
 		if respOK.StatusCode != http.StatusOK {
 			t.Fatalf("POST /users 状态码 = %d, 期望 200\n%s", respOK.StatusCode, bodyOK)
 		}
@@ -1146,6 +1214,634 @@ func TestGeneratedAppServesFrameworkFeatures(t *testing.T) {
 	})
 }
 
+// 探针使用的种子凭据与契约常量：与生成项目的 internal/meta 同源，这里各留一份供断言使用，
+// assertSeedCredentialsDocumented 会逐字回验一次，因此两边不会各自漂移。
+// The seed credentials and contract constants the probes use: they share one source with the generated project's
+// internal/meta and are kept here for the assertions, while assertSeedCredentialsDocumented verifies them verbatim so
+// neither side can drift away on its own.
+const (
+	// probeTenant 是演示租户的标识（登录表单的租户字段）。 | probeTenant is the demo tenant's key (the sign-in form's tenant field).
+	probeTenant = "demo"
+	// probeAdmin 是演示租户的管理员登录名。 | probeAdmin is the demo tenant's administrator sign-in name.
+	probeAdmin = "admin"
+	// probeAdminPassword 是演示租户管理员的初始口令。 | probeAdminPassword is the demo administrator's initial password.
+	probeAdminPassword = "Admin@123456"
+	// probeOpsTenant 是第二个租户的标识，也是跨租户用例里「另一个租户」的名字。
+	// probeOpsTenant is the second tenant's key and the name of "the other tenant" in the cross-tenant cases.
+	probeOpsTenant = "acme"
+	// probeOpsAdmin 是第二个租户的管理员登录名。 | probeOpsAdmin is the second tenant's administrator sign-in name.
+	probeOpsAdmin = "acme-admin"
+	// probeOpsPassword 是第二个租户管理员的初始口令。 | probeOpsPassword is the second tenant administrator's initial password.
+	probeOpsPassword = "Acme@123456"
+	// probeUserPassword 是探针自己建的账号所用的口令，长度满足口令强度下限。
+	// probeUserPassword is the password of the accounts the probe creates itself, long enough to clear the strength floor.
+	probeUserPassword = "Probe@123456"
+	// tokenCookieName 是会话 cookie 名，与生成项目的 internal/meta.TokenCookie 一致。
+	// tokenCookieName is the session cookie name, matching internal/meta.TokenCookie of the generated project.
+	tokenCookieName = "yd_token"
+	// forbiddenCopy 是越权兜底文案（controller.msgForbidden）的中文半句：出现它就说明 403 是文档化的拒绝。
+	// forbiddenCopy is the Chinese half of the escalation fallback copy (controller.msgForbidden): its presence proves the
+	// 403 is the documented refusal.
+	forbiddenCopy = "没有权限执行该操作"
+)
+
+// assertSeedCredentialsDocumented 逐字回验种子凭据与首登改密提示确实落在生成项目的源码与 README 里。
+// assertSeedCredentialsDocumented verifies verbatim that the seed credentials and the first-sign-in notice really land in
+// the generated project's source and README.
+func assertSeedCredentialsDocumented(t *testing.T, projDir string) {
+	t.Helper()
+
+	raw, err := os.ReadFile(filepath.Join(projDir, "internal", "meta", "meta.go"))
+	if err != nil {
+		t.Fatalf("读取 internal/meta/meta.go 失败: %v", err)
+	}
+	for _, want := range []string{
+		`SeedTenantSlug = "` + probeTenant + `"`,
+		`SeedAdminUsername = "` + probeAdmin + `"`,
+		`SeedAdminPassword = "` + probeAdminPassword + `"`,
+		`SeedOpsSlug = "` + probeOpsTenant + `"`,
+		`SeedOpsAdminUsername = "` + probeOpsAdmin + `"`,
+		`SeedOpsAdminPassword = "` + probeOpsPassword + `"`,
+		`SeedPasswordNotice = "`,
+		`TokenCookie = "` + tokenCookieName + `"`,
+	} {
+		if !strings.Contains(string(raw), want) {
+			t.Errorf("internal/meta/meta.go 缺少 %q", want)
+		}
+	}
+
+	readme, err := os.ReadFile(filepath.Join(projDir, "README.md"))
+	if err != nil {
+		t.Fatalf("读取 README.md 失败: %v", err)
+	}
+	// README 是默认凭据与改密提醒唯一的对外落点：两个口令与那句提示都必须在这里出现。
+	// The README is the one outward landing place of the default credentials and the password notice: both passwords and
+	// that very sentence have to show up in it.
+	for _, want := range []string{probeAdminPassword, probeOpsPassword, "SeedPasswordNotice", probeTenant, probeOpsTenant} {
+		if !strings.Contains(string(readme), want) {
+			t.Errorf("README.md 缺少 %q", want)
+		}
+	}
+}
+
+// assertNoUserData 断言响应里一行用户数据都没有：任何一条用户记录都会带上邮箱，因此域名出现即为泄漏。
+// assertNoUserData asserts the response carries not a single user record: every one of them comes with an address, so the
+// presence of the domain is the leak.
+func assertNoUserData(t *testing.T, where, body string) {
+	t.Helper()
+
+	for _, leak := range []string{"@example.com", probeOpsAdmin, probeAdmin + "@"} {
+		if strings.Contains(body, leak) {
+			t.Errorf("%s 泄漏了用户数据 %q:\n%s", where, leak, body)
+		}
+	}
+}
+
+// TestGeneratedAppSupportsAuth 端到端验证登录鉴权链路：未登录被拒、默认凭据 + SM2 密文登录、令牌访问受保护片段，
+// 以及两条拒绝路径——跨租户提权与能力不足。
+// TestGeneratedAppSupportsAuth runs the authentication chain end to end: the anonymous refusal, sign-in with the default
+// credentials and an SM2 payload, token access to a protected fragment, and the two refusal paths — cross-tenant
+// escalation and a missing capability.
+//
+// 探针只用框架自己的 guomi 构造请求，不依赖浏览器：口令按前端的方式加密成标准 Base64 的 SM2 密文，
+// 令牌从登录响应的 cookie 里取出来，此后既可以用 cookie（浏览器形态）也可以用 Authorization 请求头（API 形态）。
+// The probe builds its requests with the framework's own guomi package and needs no browser: the password is encrypted the
+// way the front end does it — standard Base64 over an SM2 ciphertext — and the token is read out of the sign-in response's
+// cookie, after which it is usable both as a cookie (the browser shape) and as an Authorization header (the API shape).
+func TestGeneratedAppSupportsAuth(t *testing.T) {
+	if testing.Short() {
+		t.Skip("短模式跳过真实鉴权验证 | skipped in short mode")
+	}
+
+	projDir, base := startProbeApp(t, "yd-auth-probe")
+	assertSeedCredentialsDocumented(t, projDir)
+
+	t.Run("未登录被挡在受保护端点之外", func(t *testing.T) {
+		anon := newProbeClient(t, httpTimeout)
+
+		// 普通浏览请求：303 到登录页，而不是把 / 的内容直接吐出来。
+		// A plain browsing request: a 303 to the sign-in page instead of the content of /.
+		resp, body := getText(t, anon, base+"/", nil)
+		if resp.StatusCode != http.StatusSeeOther {
+			t.Fatalf("未登录 GET / 状态码 = %d, 期望 303\n%s", resp.StatusCode, body)
+		}
+		if loc := resp.Header.Get("Location"); loc != "/login" {
+			t.Errorf("未登录 GET / 的 Location = %q, 期望 /login", loc)
+		}
+		assertNoUserData(t, "未登录 GET /", body)
+
+		// htmx 与 API 客户端拿到 401 片段：把它们丢到登录整页上毫无帮助。
+		// htmx and API clients get the 401 fragment: dropping them on a whole sign-in page helps nobody.
+		respHX, bodyHX := getText(t, anon, base+"/", map[string]string{"HX-Request": "true"})
+		if respHX.StatusCode != http.StatusUnauthorized {
+			t.Fatalf("未登录 HX-Request GET / 状态码 = %d, 期望 401\n%s", respHX.StatusCode, bodyHX)
+		}
+		if strings.Contains(bodyHX, "<html") {
+			t.Errorf("未登录的 401 应是错误片段而不是整页:\n%s", bodyHX)
+		}
+		assertNoUserData(t, "未登录 HX-Request GET /", bodyHX)
+
+		// 用户列表对匿名请求同样只有 401，一行用户都不给。
+		// The user list answers an anonymous request with the same 401 and not one row.
+		respUsers, users := getText(t, anon, base+"/users", map[string]string{"HX-Request": "true"})
+		if respUsers.StatusCode != http.StatusUnauthorized {
+			t.Fatalf("未登录 GET /users 状态码 = %d, 期望 401\n%s", respUsers.StatusCode, users)
+		}
+		assertNoUserData(t, "未登录 GET /users", users)
+
+		// 登录页本身必须可达：拒绝要给出一条出路。
+		// The sign-in page itself stays reachable: a refusal has to leave a way forward.
+		respLogin, login := getText(t, anon, base+"/login", nil)
+		if respLogin.StatusCode != http.StatusOK {
+			t.Fatalf("GET /login 状态码 = %d, 期望 200\n%s", respLogin.StatusCode, login)
+		}
+		if !strings.Contains(login, `data-yd-page="login"`) {
+			t.Errorf("GET /login 不是登录页:\n%s", login)
+		}
+	})
+
+	t.Run("默认凭据加 SM2 密文登录拿到令牌", func(t *testing.T) {
+		anon := newProbeClient(t, httpTimeout)
+
+		// 明文口令没有 sm2 标记头：整条明文链路都必须被拒绝，否则国密前置加密就形同虚设。
+		// A plaintext password without the sm2 marker header: the whole plaintext path has to be refused, otherwise the
+		// front-loaded national-cryptography encryption would be decoration.
+		respPlain, bodyPlain := postForm(t, anon, base+"/login", map[string]string{
+			"tenant": probeTenant, "username": probeAdmin, "password": probeAdminPassword,
+		}, nil)
+		if respPlain.StatusCode != http.StatusBadRequest {
+			t.Fatalf("明文口令 POST /login 状态码 = %d, 期望 400\n%s", respPlain.StatusCode, bodyPlain)
+		}
+		if token := sessionToken(t, anon, base); token != "" {
+			t.Error("被拒绝的登录不应写下会话 cookie")
+		}
+
+		// 口令错误与租户不存在回同一句、同一个状态码：登录接口匿名可达，任何差异都是租户枚举的旁路。
+		// A wrong password and an unknown tenant answer with one sentence and one status: the endpoint is anonymous, so any
+		// difference would be a side channel for enumerating tenants.
+		for name, form := range map[string]map[string]string{
+			"口令错误":  {"tenant": probeTenant, "username": probeAdmin, "password": sm2Cipher(t, anon, base, "Wrong@123456")},
+			"租户不存在": {"tenant": "no-such-tenant", "username": probeAdmin, "password": sm2Cipher(t, anon, base, probeAdminPassword)},
+		} {
+			resp, body := postForm(t, anon, base+"/login", form, map[string]string{"X-YD-Encrypted": "sm2"})
+			if resp.StatusCode != http.StatusUnauthorized {
+				t.Fatalf("%s POST /login 状态码 = %d, 期望 401\n%s", name, resp.StatusCode, body)
+			}
+			if !strings.Contains(body, "Wrong tenant, user name or password") {
+				t.Errorf("%s 的 401 未回显统一文案:\n%s", name, body)
+			}
+			if token := sessionToken(t, anon, base); token != "" {
+				t.Errorf("%s 之后不应有会话 cookie", name)
+			}
+		}
+
+		// 成功路径：默认凭据 + SM2 密文 → 303 到工作区 + HttpOnly 的会话 cookie。
+		// The success path: the default credentials plus an SM2 payload → a 303 to the workspace and an HttpOnly session cookie.
+		browser := newProbeClient(t, httpTimeout)
+		resp, body := postForm(t, browser, base+"/login", map[string]string{
+			"tenant": probeTenant, "username": probeAdmin, "password": sm2Cipher(t, browser, base, probeAdminPassword),
+		}, map[string]string{"X-YD-Encrypted": "sm2"})
+		if resp.StatusCode != http.StatusSeeOther {
+			t.Fatalf("登录 POST /login 状态码 = %d, 期望 303\n%s", resp.StatusCode, body)
+		}
+		if loc := resp.Header.Get("Location"); loc != "/" {
+			t.Errorf("登录成功后的 Location = %q, 期望 /", loc)
+		}
+
+		var session *http.Cookie
+		for _, c := range resp.Cookies() {
+			if c.Name == tokenCookieName {
+				session = c
+			}
+		}
+		if session == nil {
+			t.Fatalf("登录响应没有写入 %s cookie", tokenCookieName)
+		}
+		if !session.HttpOnly {
+			t.Error("会话 cookie 必须是 HttpOnly（脚本拿不走会话）")
+		}
+		if session.Value == "" {
+			t.Error("会话 cookie 的令牌为空")
+		}
+		if token := sessionToken(t, browser, base); token != session.Value {
+			t.Errorf("cookie jar 里的令牌 = %q, 响应里的令牌 = %q", token, session.Value)
+		}
+	})
+
+	t.Run("带令牌访问受保护端点返回片段", func(t *testing.T) {
+		browser := newProbeClient(t, httpTimeout)
+		token := signIn(t, browser, base, probeTenant, probeAdmin, probeAdminPassword)
+
+		// 浏览器形态：请求里只有 cookie，没有 Authorization，令牌由中间件 Promote 提升上来的。
+		// The browser shape: the request carries the cookie and no Authorization at all, so the token must have been
+		// lifted by middleware.Promote.
+		resp, body := getText(t, browser, base+"/", map[string]string{"HX-Request": "true"})
+		if resp.StatusCode != http.StatusOK {
+			t.Fatalf("已登录 HX-Request GET / 状态码 = %d, 期望 200\n%s", resp.StatusCode, body)
+		}
+		if strings.Contains(body, "<html") {
+			t.Errorf("HX-Request 请求不应返回整页 HTML:\n%s", body)
+		}
+		if !strings.Contains(body, `data-yd-page="home"`) {
+			t.Errorf("已登录的 HX-Request 响应不是首页片段:\n%s", body)
+		}
+
+		// API 形态：显式 Authorization、没有 cookie，走的是同一条校验路径。
+		// The API shape: an explicit Authorization with no cookie, verified along the very same path.
+		api := newProbeClient(t, httpTimeout)
+		respAPI, bodyAPI := getText(t, api, base+"/users", map[string]string{
+			"HX-Request":    "true",
+			"Authorization": "Bearer " + token,
+		})
+		if respAPI.StatusCode != http.StatusOK {
+			t.Fatalf("带令牌 GET /users 状态码 = %d, 期望 200\n%s", respAPI.StatusCode, bodyAPI)
+		}
+		if strings.Contains(bodyAPI, "<html") {
+			t.Errorf("HX-Request 的用户列表不应是整页:\n%s", bodyAPI)
+		}
+		for _, want := range []string{`data-yd-page="users"`, probeAdmin + "@example.com"} {
+			if !strings.Contains(bodyAPI, want) {
+				t.Errorf("带令牌的用户列表片段缺少 %q:\n%s", want, bodyAPI)
+			}
+		}
+	})
+
+	t.Run("跨租户提权被拒绝且不泄漏数据", func(t *testing.T) {
+		browser := newProbeClient(t, httpTimeout)
+		token := signIn(t, browser, base, probeTenant, probeAdmin, probeAdminPassword)
+
+		// demo 的令牌 + acme 的请求头：令牌声明优先，请求头一旦指向别的租户就是提权，一律 403。
+		// The demo token with the acme header: the token's claim wins and a header naming another tenant is escalation, refused with 403.
+		resp, body := getText(t, browser, base+"/users", map[string]string{
+			"HX-Request": "true",
+			"X-Tenant":   probeOpsTenant,
+		})
+		if resp.StatusCode != http.StatusForbidden {
+			t.Fatalf("跨租户 GET /users 状态码 = %d, 期望 403\n%s", resp.StatusCode, body)
+		}
+		if !strings.Contains(body, forbiddenCopy) {
+			t.Errorf("跨租户的 403 未回显越权文案:\n%s", body)
+		}
+		assertNoUserData(t, "跨租户 GET /users", body)
+
+		// 同一枚令牌用 API 形态（显式请求头）提权，结果必须一模一样。
+		// The same token escalating in the API shape (an explicit header) has to end exactly the same way.
+		api := newProbeClient(t, httpTimeout)
+		respAPI, bodyAPI := getText(t, api, base+"/users", map[string]string{
+			"HX-Request":    "true",
+			"Authorization": "Bearer " + token,
+			"X-Tenant":      probeOpsTenant,
+		})
+		if respAPI.StatusCode != http.StatusForbidden {
+			t.Fatalf("API 形态跨租户 GET /users 状态码 = %d, 期望 403\n%s", respAPI.StatusCode, bodyAPI)
+		}
+		assertNoUserData(t, "API 形态跨租户 GET /users", bodyAPI)
+
+		// 反向确认：同一枚令牌指向自己的租户时数据照常返回，因此上面的 403 说的是「租户对不上」而不是「令牌坏了」。
+		// The reverse check: the same token naming its own tenant returns data as usual, so the 403 above says "the tenant
+		// does not match" and not "the token is broken".
+		respOwn, own := getText(t, browser, base+"/users", map[string]string{
+			"HX-Request": "true",
+			"X-Tenant":   probeTenant,
+		})
+		if respOwn.StatusCode != http.StatusOK || !strings.Contains(own, probeAdmin+"@example.com") {
+			t.Errorf("令牌指向自己租户时未返回数据（状态码 %d）:\n%s", respOwn.StatusCode, own)
+		}
+
+		// 另一个租户的令牌在自己租户里同样是好的，换成 demo 的请求头才被拒绝，且不泄漏 demo 侧的任何一行数据。
+		// The other tenant's token works just as well inside its own tenant and is refused only when it names demo, without
+		// leaking a single row of demo's data.
+		ops := newProbeClient(t, httpTimeout)
+		signIn(t, ops, base, probeOpsTenant, probeOpsAdmin, probeOpsPassword)
+		respOps, opsBody := getText(t, ops, base+"/users", map[string]string{"HX-Request": "true"})
+		if respOps.StatusCode != http.StatusOK || !strings.Contains(opsBody, probeOpsAdmin+"@example.com") {
+			t.Fatalf("acme 令牌读自己的用户列表失败（状态码 %d）:\n%s", respOps.StatusCode, opsBody)
+		}
+		respCross, crossBody := getText(t, ops, base+"/users", map[string]string{
+			"HX-Request": "true",
+			"X-Tenant":   probeTenant,
+		})
+		if respCross.StatusCode != http.StatusForbidden {
+			t.Fatalf("acme 令牌读 demo 用户列表状态码 = %d, 期望 403\n%s", respCross.StatusCode, crossBody)
+		}
+		assertNoUserData(t, "acme 令牌读 demo 用户列表", crossBody)
+	})
+
+	t.Run("缺少能力的令牌访问高权限端点被拒绝", func(t *testing.T) {
+		// 用 demo 管理员建两个账号：member 没有任何能力，auditor 只有读能力。
+		// Two accounts created by the demo administrator: member holds nothing and auditor holds read capabilities only.
+		admin := newProbeClient(t, httpTimeout)
+		adminToken := signIn(t, admin, base, probeTenant, probeAdmin, probeAdminPassword)
+		createProbeUser(t, admin, base, adminToken, "probe-member", "member", "probe-member@example.com")
+		createProbeUser(t, admin, base, adminToken, "probe-auditor", "auditor", "probe-auditor@example.com")
+
+		hx := map[string]string{"HX-Request": "true"}
+
+		// member：令牌本身有效（会话即可访问的首页给 200），但用户列表要 user:read → 403。
+		// member: the token itself is valid (the session-only home page answers 200) while the user list needs user:read → 403.
+		member := newProbeClient(t, httpTimeout)
+		signIn(t, member, base, probeTenant, "probe-member", probeUserPassword)
+		respHome, home := getText(t, member, base+"/", hx)
+		if respHome.StatusCode != http.StatusOK {
+			t.Fatalf("member 访问首页状态码 = %d, 期望 200（令牌有效）\n%s", respHome.StatusCode, home)
+		}
+		respMember, memberBody := getText(t, member, base+"/users", hx)
+		if respMember.StatusCode != http.StatusForbidden {
+			t.Fatalf("member GET /users 状态码 = %d, 期望 403\n%s", respMember.StatusCode, memberBody)
+		}
+		if !strings.Contains(memberBody, forbiddenCopy) {
+			t.Errorf("member 的 403 未回显越权文案:\n%s", memberBody)
+		}
+		assertNoUserData(t, "member GET /users", memberBody)
+
+		// auditor：读能力在（列表 200，且能看到自己），写能力不在（新建租户 403）。
+		// auditor: the read capability is there (the list answers 200 and shows the account itself) and the write one is not
+		// (creating a tenant is a 403).
+		auditor := newProbeClient(t, httpTimeout)
+		signIn(t, auditor, base, probeTenant, "probe-auditor", probeUserPassword)
+		respAud, audBody := getText(t, auditor, base+"/users", hx)
+		if respAud.StatusCode != http.StatusOK || !strings.Contains(audBody, "probe-auditor@example.com") {
+			t.Fatalf("auditor GET /users 状态码 = %d, 期望 200 且能看到自己\n%s", respAud.StatusCode, audBody)
+		}
+		respWrite, writeBody := postForm(t, auditor, base+"/tenants", map[string]string{
+			"name": "Escalation probe",
+			"slug": "escalation-probe",
+		}, hx)
+		if respWrite.StatusCode != http.StatusForbidden {
+			t.Fatalf("auditor POST /tenants 状态码 = %d, 期望 403\n%s", respWrite.StatusCode, writeBody)
+		}
+		if !strings.Contains(writeBody, forbiddenCopy) {
+			t.Errorf("auditor 的 403 未回显越权文案:\n%s", writeBody)
+		}
+
+		// 越权写入确实没有发生：管理员再读一次租户列表，那个标识不在里面。
+		// The refused write really did not happen: the administrator reads the tenant list once more and that key is not in it.
+		respTenants, tenants := getText(t, admin, base+"/tenants", hx)
+		if respTenants.StatusCode != http.StatusOK {
+			t.Fatalf("管理员 GET /tenants 状态码 = %d, 期望 200\n%s", respTenants.StatusCode, tenants)
+		}
+		if strings.Contains(tenants, "escalation-probe") {
+			t.Errorf("被拒绝的越权写入居然生效了:\n%s", tenants)
+		}
+	})
+}
+
+// TestGeneratedI18nCatalogueCoversEveryTrKey 断言模板用到的 tr 键与两份语言目录的键集合严格一致。
+// TestGeneratedI18nCatalogueCoversEveryTrKey asserts the tr keys used by the templates and the key sets of both
+// catalogues agree exactly.
+//
+// 少一个键，页面上出现的就是键名本身；多一个键，则是一句永远不会被读到的文案。
+// A missing key makes the page show the key itself, and a stale one is a sentence nobody ever reads.
+func TestGeneratedI18nCatalogueCoversEveryTrKey(t *testing.T) {
+	pr, _ := generateMem(t, scaffold.DefaultOptions("i18n-app"))
+
+	used := map[string]string{}
+	for _, rel := range requiredFiles {
+		if !strings.HasPrefix(rel, "web/templates/") || !strings.HasSuffix(rel, ".html") {
+			continue
+		}
+		for _, match := range trKeyPattern.FindAllStringSubmatch(pr.read(rel), -1) {
+			if _, seen := used[match[1]]; !seen {
+				used[match[1]] = rel
+			}
+		}
+	}
+	if len(used) == 0 {
+		t.Fatal("模板里没有找到任何 tr 键")
+	}
+
+	zh := readCatalogue(t, pr, "web/i18n/zh-CN.yaml")
+	en := readCatalogue(t, pr, "web/i18n/en.yaml")
+
+	for key, where := range used {
+		if _, ok := zh[key]; !ok {
+			t.Errorf("zh-CN.yaml 缺少 %q（%s 用到）", key, where)
+		}
+		if _, ok := en[key]; !ok {
+			t.Errorf("en.yaml 缺少 %q（%s 用到）", key, where)
+		}
+	}
+	for key := range zh {
+		if _, ok := used[key]; !ok {
+			t.Errorf("zh-CN.yaml 的 %q 没有任何模板引用", key)
+		}
+	}
+	for key := range en {
+		if _, ok := used[key]; !ok {
+			t.Errorf("en.yaml 的 %q 没有任何模板引用", key)
+		}
+	}
+	// 两份目录的键集合必须严格一致：一边多出键意味着另一边会显示出键名。
+	// The two catalogues must agree exactly: a key living in only one of them means the other shows the key name.
+	if len(zh) != len(en) {
+		t.Errorf("语言目录键数不一致: zh-CN=%d, en=%d", len(zh), len(en))
+	}
+	t.Logf("i18n 覆盖: %d 个 tr 键在 zh-CN 与 en 两份目录里都能命中", len(used))
+}
+
+// trKeyPattern 抽取模板里的 tr 键名：`tr "键"`，键名不含引号。
+// trKeyPattern extracts the tr key names used by a template: `tr "key"`, where the key holds no quote.
+var trKeyPattern = regexp.MustCompile(`\btr\s+"([^"]+)"`)
+
+// readCatalogue 读取一份语言目录并把嵌套结构摊平成点分键，规则与 i18n.drill 一致（每段小写）。
+// readCatalogue reads one catalogue and flattens the nested structure into dotted keys with the same rule i18n.drill
+// uses (every segment lower-cased).
+func readCatalogue(t *testing.T, pr project, rel string) map[string]string {
+	t.Helper()
+
+	var raw map[string]any
+	if err := yaml.Unmarshal([]byte(pr.read(rel)), &raw); err != nil {
+		t.Fatalf("%s 不是合法 YAML: %v", rel, err)
+	}
+
+	flat := map[string]string{}
+	var walk func(prefix string, node map[string]any)
+	walk = func(prefix string, node map[string]any) {
+		for key, value := range node {
+			dotted := strings.ToLower(key)
+			if prefix != "" {
+				dotted = prefix + "." + strings.ToLower(key)
+			}
+			if nested, ok := value.(map[string]any); ok {
+				walk(dotted, nested)
+				continue
+			}
+			flat[dotted] = ""
+		}
+	}
+	walk("", raw)
+	if len(flat) == 0 {
+		t.Fatalf("%s 里没有任何键", rel)
+	}
+	return flat
+}
+
+// startProbeApp 生成项目、编译它并在随机端口上启动，返回项目目录与基地址。
+// startProbeApp generates the project, compiles it and starts it on a random free port, returning the project directory
+// and the base URL.
+func startProbeApp(t *testing.T, name string) (string, string) {
+	t.Helper()
+
+	goBin, err := exec.LookPath("go")
+	if err != nil {
+		t.Skipf("未找到 go 工具链，跳过端到端验证: %v", err)
+	}
+
+	dir := t.TempDir()
+	o := scaffold.DefaultOptions(name)
+	// 与端到端验证无关的依赖一律不引入：模板、路由与鉴权链路都不需要数据库。
+	// Anything unrelated to the end-to-end checks is left out: templates, routes and the authentication chain need no database.
+	o.DB = scaffold.DBNone
+	o.LocalReplace = filepath.ToSlash(repoRoot(t))
+	if _, err := scaffold.Generate(context.Background(), o, afs.NewOS(dir), nil); err != nil {
+		t.Fatalf("真实生成失败: %v", err)
+	}
+
+	projDir := filepath.Join(dir, o.Name)
+	bin := filepath.Join(projDir, "app")
+	if runtime.GOOS == "windows" {
+		bin += ".exe"
+	}
+	output, err := runGo(goBin, projDir, true, "build", "-mod=mod", "-o", bin, "./cmd/app")
+	if err != nil {
+		t.Logf("GOPROXY=off 编译失败，回退到环境代理重试:\n%s", output)
+		output, err = runGo(goBin, projDir, false, "build", "-mod=mod", "-o", bin, "./cmd/app")
+	}
+	if err != nil {
+		t.Fatalf("生成的骨架无法编译: %v\n%s", err, output)
+	}
+	return projDir, startGeneratedApp(t, bin, projDir)
+}
+
+// newProbeClient 返回端到端探针使用的客户端：带 cookie jar（浏览器会话）、固定英文文案、且从不自行跟随重定向。
+// newProbeClient returns the client the end-to-end probes use: it carries a cookie jar (the browser session), pins the
+// copy to English and never follows a redirect on its own.
+//
+// 语言固定为英文的理由：断言咬住的是文案本身（空状态、错误提示），而默认语言是中文；
+// Accept-Language 是 i18n 中间件四个来源里的最后一个，永不与模板里的 tr 键冲突。
+// The language is pinned to English because the assertions bite on the copy itself (empty states, error hints) while the
+// default language is Chinese; Accept-Language is the last of the i18n middleware's four sources and never clashes with a
+// tr key written in a template.
+func newProbeClient(t *testing.T, timeout time.Duration) *http.Client {
+	t.Helper()
+
+	jar, err := cookiejar.New(nil)
+	if err != nil {
+		t.Fatalf("构造 cookie jar 失败: %v", err)
+	}
+	return &http.Client{
+		Timeout:   timeout,
+		Jar:       jar,
+		Transport: langTransport{},
+		// 不跟随重定向：303 与它的 Location 本身就是被测契约的一部分。
+		// Redirects are never followed: the 303 and its Location are part of the contract under test.
+		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
+	}
+}
+
+// langTransport 给每条请求补上 Accept-Language: en（已有取值时不动）。
+// langTransport appends Accept-Language: en to every request that does not carry one.
+type langTransport struct{}
+
+// RoundTrip 实现 http.RoundTripper。 | RoundTrip implements http.RoundTripper.
+func (langTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	if req.Header.Get("Accept-Language") == "" {
+		req.Header.Set("Accept-Language", "en")
+	}
+	return http.DefaultTransport.RoundTrip(req)
+}
+
+// sm2Cipher 取服务端公钥并把明文口令加密成前端提交的形态：原始 C1C3C2 密文的标准 Base64。
+// sm2Cipher fetches the server's public key and encrypts a clear-text password into the shape the front end submits:
+// standard Base64 over the raw C1C3C2 ciphertext.
+func sm2Cipher(t *testing.T, client *http.Client, base, plain string) string {
+	t.Helper()
+
+	resp, body := getText(t, client, base+"/guomi/pubkey", nil)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("GET /guomi/pubkey 状态码 = %d, 期望 200", resp.StatusCode)
+	}
+	pub, err := guomi.PublicKeyFromHex(strings.TrimSpace(body))
+	if err != nil {
+		t.Fatalf("解析 SM2 公钥失败: %v", err)
+	}
+	cipher, err := guomi.EncryptRaw(pub, []byte(plain))
+	if err != nil {
+		t.Fatalf("SM2 加密失败: %v", err)
+	}
+	return b64x.StdEncoding.EncodeToString(cipher)
+}
+
+// signIn 用默认凭据（或任意账号）完成一次登录，返回会话令牌。
+// signIn performs one sign-in with the default credentials (or any account) and returns the session token.
+//
+// 口令按前端的方式加密后提交：登录接口不接受任何明文口令。
+// The password is encrypted the way the front end does it: the endpoint accepts no clear-text password at all.
+func signIn(t *testing.T, client *http.Client, base, tenant, username, password string) string {
+	t.Helper()
+
+	resp, body := postForm(t, client, base+"/login", map[string]string{
+		"tenant":   tenant,
+		"username": username,
+		"password": sm2Cipher(t, client, base, password),
+	}, map[string]string{"X-YD-Encrypted": "sm2"})
+	if resp.StatusCode != http.StatusSeeOther {
+		t.Fatalf("登录 %s@%s 状态码 = %d, 期望 303\n%s", username, tenant, resp.StatusCode, body)
+	}
+
+	token := sessionToken(t, client, base)
+	if token == "" {
+		t.Fatalf("登录 %s@%s 成功后 cookie jar 里没有 %s", username, tenant, tokenCookieName)
+	}
+	return token
+}
+
+// sessionToken 从 cookie jar 里读出会话令牌，空串表示这个客户端还没有会话。
+// sessionToken reads the session token out of the cookie jar; an empty string means the client holds no session.
+func sessionToken(t *testing.T, client *http.Client, base string) string {
+	t.Helper()
+
+	if client.Jar == nil {
+		t.Fatal("探针客户端必须带 cookie jar")
+	}
+	u, err := url.Parse(base)
+	if err != nil {
+		t.Fatalf("解析基地址 %q 失败: %v", base, err)
+	}
+	for _, cookie := range client.Jar.Cookies(u) {
+		if cookie.Name == tokenCookieName && cookie.Value != "" {
+			return cookie.Value
+		}
+	}
+	return ""
+}
+
+// createProbeUser 以管理员身份建一个账号（已登录的客户端 + 显式令牌），并断言新账号出现在返回的列表片段里。
+// createProbeUser creates an account as the administrator (a signed-in client plus an explicit token) and asserts the new
+// account shows up in the returned list fragment.
+//
+// 口令同样只能是 SM2 密文：建号是登录之外的第二个解密入口，明文一律拒绝。
+// The password can only be SM2 ciphertext here as well: user creation is the second decryption entry point beside sign-in
+// and plaintext is refused outright.
+func createProbeUser(t *testing.T, client *http.Client, base, token, username, role, email string) {
+	t.Helper()
+
+	resp, body := postFormValues(t, client, base+"/users", url.Values{
+		"username":     {username},
+		"email":        {email},
+		"display_name": {username},
+		"password":     {sm2Cipher(t, client, base, probeUserPassword)},
+		"roles":        {role},
+	}, map[string]string{
+		"HX-Request":     "true",
+		"X-YD-Encrypted": "sm2",
+		"Authorization":  "Bearer " + token,
+	})
+	if resp.StatusCode != http.StatusOK || !strings.Contains(body, email) {
+		t.Fatalf("建号 %s 失败（状态码 %d）:\n%s", username, resp.StatusCode, body)
+	}
+}
+
 // startGeneratedApp 在随机空闲端口上启动生成的应用，返回基地址，并在用例结束时终止进程。
 // startGeneratedApp starts the generated application on a random free port, returns its base URL and kills the process
 // when the case ends.
@@ -1163,6 +1859,10 @@ func startGeneratedApp(t *testing.T, bin, dir string) string {
 	cmd.Dir = dir
 	cmd.Env = append(os.Environ(),
 		"GOWORK=off",
+		// 探针只从本机回环访问：绑定 127.0.0.1 既不依赖通配地址的绑定权限，也不会把端口暴露到局域网。
+		// The probe only ever reaches the app over the loopback interface: binding 127.0.0.1 needs no wildcard-bind
+		// permission and never exposes the port to the local network.
+		"YD_SERVER_HOST=127.0.0.1",
 		"YD_SERVER_PORT="+strconv.Itoa(port),
 		"YD_LOG_FORMAT=console",
 	)
@@ -1234,11 +1934,9 @@ func getText(t *testing.T, client *http.Client, url string, headers map[string]s
 	return doText(t, client, req)
 }
 
-// postForm 以 application/x-www-form-urlencoded 提交表单并返回响应与响应体文本。
-// postForm submits a form as application/x-www-form-urlencoded and returns the response with its body as text.
-// postForm 提交一份表单；headers 用来区分 htmx 请求（HX-Request: true）与普通表单提交，两者拿到的错误响应形态不同。
-// postForm submits a form; headers tell an htmx request (HX-Request: true) apart from a plain form post, which get
-// different shapes of error response.
+// postForm 提交一份单值表单；headers 用来区分 htmx 请求（HX-Request: true）与普通表单提交，两者拿到的错误响应形态不同。
+// postForm submits a single-valued form; headers tell an htmx request (HX-Request: true) apart from a plain form post,
+// which get different shapes of error response.
 func postForm(t *testing.T, client *http.Client, target string, values map[string]string, headers map[string]string) (*http.Response, string) {
 	t.Helper()
 
@@ -1246,7 +1944,19 @@ func postForm(t *testing.T, client *http.Client, target string, values map[strin
 	for name, value := range values {
 		form.Set(name, value)
 	}
-	req, err := http.NewRequest(http.MethodPost, target, strings.NewReader(form.Encode()))
+	return postFormValues(t, client, target, form, headers)
+}
+
+// postFormValues 以 application/x-www-form-urlencoded 提交表单并返回响应与响应体文本。
+// postFormValues submits a form as application/x-www-form-urlencoded and returns the response with its body as text.
+//
+// 与 postForm 的差别只有一处：它接受 url.Values，因此可以提交重复字段（建号表单的 roles 就是多值）。
+// The only difference from postForm is that it takes url.Values, so repeated fields can be submitted (the roles field of
+// the user-creation form is multi-valued).
+func postFormValues(t *testing.T, client *http.Client, target string, values url.Values, headers map[string]string) (*http.Response, string) {
+	t.Helper()
+
+	req, err := http.NewRequest(http.MethodPost, target, strings.NewReader(values.Encode()))
 	if err != nil {
 		t.Fatalf("构造表单请求失败: %v", err)
 	}

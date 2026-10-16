@@ -1,0 +1,50 @@
+{{/*
+  pages/roles.html —— 角色管理片段：租户内的角色清单与新建表单。
+  pages/roles.html — the role management fragment: this tenant's role list plus the create form.
+
+  角色是租户内的数据：同一个名字（owner、admin……）在两个租户里是两条互不相干的记录，
+  因此给 A 租户加一个权限不会让 B 租户的任何人多出任何能力。
+  A role is tenant data: the same name (owner, admin …) is two unrelated records inside two tenants, so granting a
+  capability in tenant A never hands any ability to anybody in tenant B.
+
+  状态码契约 | Status-code contract:
+    * 成功：GET/POST /roles 返回本片段，htmx 以 innerMorph 换入 #yd-workspace；
+    * success: GET/POST /roles answer with this fragment, which htmx morphs into #yd-workspace with innerMorph;
+    * 校验失败：422（角色名必填、权限标识必须落在目录内）+ pages/error.html；
+    * validation failure: 422 (a role name is required and every capability must exist in the catalogue) plus
+      pages/error.html;
+    * 冲突：409（内置角色不可删除）走同一条路径。
+    * conflict: 409 (a built-in role cannot be deleted) takes the same path.
+
+  数据契约 | Data contract: .Roles .Catalogue .Total .Empty .CanRoleWrite。
+*/}}
+<section class="yd-page" data-yd-page="roles" aria-labelledby="yd-roles-title">
+  <header class="yd-page__header">
+    <div>
+      <h1 class="yd-page__title" id="yd-roles-title">{{ tr "page.roles.title" }}</h1>
+      <p class="yd-page__subtitle">{{ tr "page.roles.subtitle" .Total }}</p>
+    </div>
+    <div class="yd-page__actions">
+      {{- if .CanPermissionRead }}
+      <a class="yd-btn yd-btn--ghost" href="/permissions" hx-get="/permissions" hx-target="#yd-workspace" hx-swap="innerMorph" hx-push-url="true">
+        {{ tr "nav.permissions" }}
+      </a>
+      {{- end }}
+    </div>
+  </header>
+
+  <section class="yd-card yd-section" aria-labelledby="yd-roles-list-title">
+    <h2 class="sr-only" id="yd-roles-list-title">{{ tr "page.roles.table_title" }}</h2>
+    {{ template "partials/roles/list" . }}
+  </section>
+
+  {{- if .CanRoleWrite }}
+  <section class="yd-card yd-section">
+    <details class="yd-details" {{ if .Empty }}open{{ end }}>
+      <summary class="yd-details__summary">{{ tr "page.roles.create" }}</summary>
+      {{ template "partials/roles/form" . }}
+      <p class="yd-hint">{{ tr "page.roles.create_hint" }}</p>
+    </details>
+  </section>
+  {{- end }}
+</section>

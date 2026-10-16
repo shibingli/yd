@@ -1,6 +1,6 @@
-// 本文件是 controller 包的首页与静态资源类端点：它们不承载业务状态，只验证路由、渲染与内容协商。
-// This file is the home and asset-like part of package controller: these endpoints carry no business state and only
-// exercise routing, rendering and content negotiation.
+// 本文件是 controller 包的首页与静态资源类端点：它们是登录后的落地页，以及两个只验证路由与渲染的占位图端点。
+// This file holds the home and asset-like part of package controller: the landing page after sign-in plus the two
+// placeholder endpoints that exercise routing and rendering only.
 
 package controller
 
@@ -14,7 +14,6 @@ import (
 
 	"{{ .Module }}/internal/meta"
 	"{{ .Module }}/internal/model"
-	"{{ .Module }}/internal/service"
 	"{{ .YdModule }}/errx"
 	"{{ .YdModule }}/guomi"
 	"{{ .YdModule }}/logx"
@@ -24,24 +23,53 @@ import (
 // placeholderSize 是占位图的边长（像素）。 | placeholderSize is the placeholder's edge length in pixels.
 const placeholderSize = 96
 
+// recentLimit 是首页展示的最近用户条数：首页是概览而不是清单，完整名单在 /users。
+// recentLimit caps the recent users shown on the home page: the home page is an overview, not a list, and the full roster lives at /users.
+const recentLimit = 5
+
 // Index 首页：整页请求返回布局包裹的页面，htmx 请求只返回内容片段。
 // Index serves the home page: a full-page request gets the layout-wrapped page while an htmx request gets only the content fragment.
 //
 // @Summary Home page | 首页
-// @Description Renders pages/home.html. Without HX-Request the fragment is wrapped in layouts/base.html, with
-// @Description HX-Request: true only the fragment is returned, which is how htmx performs a partial navigation.
-// @Description 渲染 pages/home.html：不带 HX-Request 时片段由 layouts/base.html 包裹，带 HX-Request: true 时只返回片段，
-// @Description 这正是 htmx 局部导航所依赖的语义。
+// @Description Renders pages/home.html for the tenant of the token: the counters, the recent users of that tenant and the
+// @Description SSE clock. The numbers come from tenant-scoped reads, so two tenants watching the same deployment never
+// @Description see each other's rows. Without HX-Request the fragment is wrapped in layouts/base.html, with HX-Request:
+// @Description true only the fragment is returned, which is how htmx performs a partial navigation.
+// @Description 为令牌所属租户渲染 pages/home.html：计数器、该租户的最近用户与 SSE 时钟。数字来自按租户过滤的读取，因此观察同一份
+// @Description 部署的两个租户永远看不到对方的记录。不带 HX-Request 时片段由 layouts/base.html 包裹，带 HX-Request: true 时只返回
+// @Description 片段，这正是 htmx 局部导航所依赖的语义。
 // @Tags pages
 // @Accept html
 // @Produce html
 // @Param HX-Request header string false "htmx partial request | htmx 局部请求标记"
 // @Success 200 {object} string "home page or fragment | 首页整页或片段"
+// @Failure 400 {object} string "no tenant in context | 上下文没有租户"
+// @Failure 401 {object} string "no session | 无有效会话"
 // @Failure 500 {object} string "render failure fragment | 渲染失败片段"
+// @Security BearerAuth
 // @Router / [get]
 func (c *Controller) Index(ctx *router.Ctx) {
+	tenantID, ok := c.tenantID(ctx)
+	if !ok {
+		return
+	}
+
+	users, err := c.users.List(ctx.Request.Context(), tenantID, "")
+	if err != nil {
+		c.failService(ctx, err)
+		return
+	}
+	roles, err := c.roles.List(ctx.Request.Context(), tenantID)
+	if err != nil {
+		c.failService(ctx, err)
+		return
+	}
+
 	c.render(ctx, http.StatusOK, TplHome, c.view(ctx, meta.Name, map[string]any{
-		"Users": homeUsers(ctx),
+		"Users":      head(users, recentLimit),
+		"UserCount":  len(users),
+		"RoleCount":  len(roles),
+		"Permission": len(model.PermissionKeys()),
 	}))
 }
 
@@ -49,8 +77,9 @@ func (c *Controller) Index(ctx *router.Ctx) {
 // Health is the liveness probe for containers and load balancers; it always answers "ok".
 //
 // @Summary Health probe | 健康检查
-// @Description Answers the literal text "ok" so probes never need to parse a body format.
-// @Description 固定返回文本 "ok"，探针无需解析任何响应体格式。
+// @Description Answers the literal text "ok" so probes never need to parse a body format. The endpoint is deliberately
+// @Description public: a probe that needed a token would report a healthy process as down whenever the auth store hiccups.
+// @Description 固定返回文本 "ok"，探针无需解析任何响应体格式。该端点刻意公开：需要令牌的探针会在鉴权存储抖动时把健康的进程报成故障。
 // @Tags ops
 // @Accept text
 // @Produce text
@@ -59,7 +88,7 @@ func (c *Controller) Index(ctx *router.Ctx) {
 func (c *Controller) Health(ctx *router.Ctx) {
 	ctx.SetHeader("Cache-Control", "no-store")
 	if err := ctx.String(http.StatusOK, "ok"); err != nil {
-		c.app.Logger().Warn("health probe write failed | 健康检查写出失败", logx.Err(err))
+		c.log.Warn("health probe write failed | 健康检查写出失败", logx.Err(err))
 	}
 }
 
@@ -68,14 +97,18 @@ func (c *Controller) Health(ctx *router.Ctx) {
 //
 // @Summary Avatar placeholder | 头像占位图
 // @Description Derives a deterministic PNG from the captured id and echoes it back in the X-YD-Avatar header, which
-// @Description makes the mixed capture pattern observable from a plain HTTP client.
-// @Description 依据捕获到的 id 生成确定性 PNG，并通过 X-YD-Avatar 响应头回显，便于用普通 HTTP 客户端观察混合捕获的结果。
+// @Description makes the mixed capture pattern observable from a plain HTTP client. The response is cacheable because the
+// @Description image is a pure function of the id.
+// @Description 依据捕获到的 id 生成确定性 PNG，并通过 X-YD-Avatar 响应头回显，便于用普通 HTTP 客户端观察混合捕获的结果；图片是 id 的
+// @Description 纯函数，因此响应可以放心缓存。
 // @Tags assets
 // @Accept image
 // @Produce image
 // @Param id path string true "avatar id, captured without the .jpg suffix | 头像 ID，不含 .jpg 后缀"
 // @Success 200 {file} file "PNG placeholder | PNG 占位图"
+// @Failure 401 {object} string "no session | 无有效会话"
 // @Failure 500 {object} string "encoding failure fragment | 编码失败片段"
+// @Security BearerAuth
 // @Router /avatar/{id}.jpg [get]
 func (c *Controller) Avatar(ctx *router.Ctx) {
 	id := ctx.Param("id")
@@ -97,7 +130,9 @@ func (c *Controller) Avatar(ctx *router.Ctx) {
 // @Produce image
 // @Param id path string true "report id, captured before the -xx.png suffix | 报表 ID，不含 -xx.png 后缀"
 // @Success 200 {file} file "PNG placeholder | PNG 占位图"
+// @Failure 401 {object} string "no session | 无有效会话"
 // @Failure 500 {object} string "encoding failure fragment | 编码失败片段"
+// @Security BearerAuth
 // @Router /report/{id}-xx.png [get]
 func (c *Controller) Report(ctx *router.Ctx) {
 	id := ctx.Param("id")
@@ -110,7 +145,7 @@ func (c *Controller) Report(ctx *router.Ctx) {
 func (c *Controller) writePNG(ctx *router.Ctx, seed string) {
 	data, err := placeholderPNG(seed)
 	if err != nil {
-		c.app.Logger().Error("placeholder encode failed | 占位图编码失败", logx.Err(err), logx.Str("seed", seed))
+		c.log.Error("placeholder encode failed | 占位图编码失败", logx.Err(err), logx.Str("seed", seed))
 		c.fail(ctx, http.StatusInternalServerError, msgInternal)
 		return
 	}
@@ -119,7 +154,7 @@ func (c *Controller) writePNG(ctx *router.Ctx, seed string) {
 	// The placeholder is fully determined by its seed, so browsers and reverse proxies may cache it for long.
 	ctx.SetHeader("Cache-Control", "public, max-age=300")
 	if err := ctx.Blob(http.StatusOK, "image/png", data); err != nil {
-		c.app.Logger().Warn("placeholder write failed | 占位图写出失败", logx.Err(err), logx.Str("seed", seed))
+		c.log.Warn("placeholder write failed | 占位图写出失败", logx.Err(err), logx.Str("seed", seed))
 	}
 }
 
@@ -162,14 +197,11 @@ func placeholderPNG(seed string) ([]byte, error) {
 	return buf.Bytes(), nil
 }
 
-// homeUsers 取首页要显示的用户列表；这里读失败不值得让首页 500，降级为空列表并留下日志。
-// homeUsers loads the user list shown on the home page; a read failure is not worth a 500 on the home page, so it
-// degrades to an empty list and leaves a log line behind.
-func homeUsers(ctx *router.Ctx) []model.User {
-	users, err := service.List(ctx, "")
-	if err != nil {
-		logx.Default().Warn("home user list unavailable | 首页用户列表不可用", logx.Err(err))
-		return nil
+// head 截取列表的前 n 条，列表更短时原样返回。
+// head returns the first n records of a list and the list itself when it is shorter.
+func head(list []model.User, n int) []model.User {
+	if n <= 0 || len(list) <= n {
+		return list
 	}
-	return users
+	return list[:n]
 }

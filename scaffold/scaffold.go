@@ -26,12 +26,12 @@ import (
 // Every path is relative to the target filesystem and already carries the project directory prefix
 // (as in <name>/go.mod), separated by "/".
 type Result struct {
+	// ModulePath 是写入 go.mod 的模块路径。 | ModulePath is the module path written into go.mod.
+	ModulePath string
 	// Files 是本次真实写入（或覆盖）的路径，已排序。 | Files lists the paths really written (or overwritten), sorted.
 	Files []string
 	// Skipped 是内容与模板一致、因而未改动的路径，已排序。 | Skipped lists the paths left untouched because their content already matched, sorted.
 	Skipped []string
-	// ModulePath 是写入 go.mod 的模块路径。 | ModulePath is the module path written into go.mod.
-	ModulePath string
 }
 
 // Generate 依据 o 渲染模板并写入 fs，返回产出清单。 | Generate renders the templates described by o into fs and returns the produced file list.

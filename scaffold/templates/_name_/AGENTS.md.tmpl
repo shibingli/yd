@@ -8,7 +8,7 @@
 **允许直接修改**
 
 - 业务源码：`cmd/`、`internal/controller/`、`internal/service/`、`internal/repository/`、`internal/model/`、`internal/middleware/`、`internal/router/`
-- 前端：`{{ .AssetRoot }}/templates/`、`{{ .AssetRoot }}/static/`
+- 前端：`{{ .AssetRoot }}/templates/`、`{{ .AssetRoot }}/static/`、`{{ .AssetRoot }}/i18n/`
 - 测试与文档：`*_test.go`、`testdata/**`、`docs/**`
 
 **禁止修改**
@@ -44,7 +44,12 @@
 
 提交前逐条自检：
 
-- [ ] **密钥零硬编码**：源码、模板、测试夹具中不得出现真实密钥/口令/Token。
+- [ ] **密钥零硬编码**：源码、模板、测试夹具中不得出现真实密钥/口令/Token（种子口令是文档化的演示凭据，且仅存在于 `internal/meta`）。
+- [ ] **租户隔离**：查询一律带 `tenantID`，且只取自 `middleware.TenantID(ctx)`（令牌 `tid` 声明）；
+      跨租户或未知实体返回 `auth.ErrNotFound`，绝不返回 `ErrForbidden`，避免响应差异变成租户枚举的探针。
+- [ ] **能力守卫**：受保护端点必须在路由上声明 `auth.RequirePermission(model.PermXxx)`，处理器内不再重复判权；
+      `registerPublic` 只允许登录、登出、健康检查与 SM2 公钥四个端点。
+- [ ] **会话顺序**：`middleware.Promote` → `auth.Middleware` → `middleware.Tenant` 的顺序不可调换，租户中间件必须拿到已校验的身份。
 - [ ] **国密合规**：敏感数据加解密必须走 `guomi`（SM2/SM3/SM4），口令存储用 SM3 + 盐 + 迭代，禁止 MD5/SHA1。
 - [ ] **传输加密**：前端敏感字段提交必须声明式触发 SM2 前置加密（`data-yd-encrypt="sm2"`）。
 - [ ] **注入面**：SQL 只允许参数化查询；模板输出默认走 `html/template` 转义。
@@ -53,6 +58,8 @@
 - [ ] **中英文同步（注释 + 日志文案）**：逐行 `English | 中文`（竖线分割，英文在前、中文在后）。
 - [ ] **日志统一走 logx**：禁止标准库 `log`、禁止 `fmt.Print*` 当日志、禁止第三方日志库。
 - [ ] **错误统一声明为哨兵**：包级 `var ErrX = errx.New("english | 中文")`；禁止 `fmt.Errorf`；判定只用 `errors.Is` / `errors.As`。
+- [ ] **文案双语**：面向用户的文案写进 `{{ .AssetRoot }}/i18n/{zh-CN,en}.yaml`（两份键集合严格一致，逐键核对），
+      模板只写 `tr "键名"`；CSP 只允许 `script-src 'self'`，因此禁止内联脚本与内联样式。
 - [ ] **环境变量前缀**：一律 `YD_`，下划线自动转多级嵌套（`YD_SERVER_PORT` → `server.port`）。
 - [ ] **资产完整性**：`{{ .AssetRoot }}/assets.lock.json` 中每项必须有 sha256，且 `yd assets verify --offline` 通过。
 
@@ -75,5 +82,7 @@
 ## 5. 交付物要求
 
 - 每个功能变更须包含：实现 + 单元测试 +（如涉及用户可见行为）`docs/` 下的说明更新。
+- 涉及用户可见行为时，两份语言目录必须同时更新，否则页面会显示出键名而不是文案。
+- 首登改密提醒（`meta.SeedPasswordNotice`）在登录页、首页横幅、账号页与 README 中共用同一句，不得各写一份。
 - 新增包须在包文档注释中说明其职责边界与不做什么。
 - 生成的代码变更须能通过 `yd gen` 幂等重放（重复执行不产生 diff）。

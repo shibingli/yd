@@ -1,0 +1,110 @@
+{{/*
+  pages/account.html —— 账号自助页：当前身份、能力全集、改密与 sec_key 轮换。
+  pages/account.html — the self-service page: the current identity, the full capability set, the password change and the
+  sec_key rotation.
+
+  改密与轮换 sec_key 都会让本枚令牌立即失效（令牌绑定在 sec_key 上，而两者都轮换它），因此两个表单的
+  成功结果都是「回到登录页重新登录」，而不是「留在原地继续操作」——页面如实说明这一点，用户才不会以为出了故障。
+  Both the password change and the sec_key rotation kill this very token at once (tokens are bound to the sec_key and
+  either operation rotates it), so both forms succeed by landing back on the sign-in page rather than by staying put. The
+  page says so plainly, which is what keeps the behaviour from looking like a failure.
+
+  数据契约 | Data contract: .User .Tenant .Roles .Permissions .SeedPassword .SeedNotice .KeyEndpoint .PublicKey。
+*/}}
+<section class="yd-page" data-yd-page="account" aria-labelledby="yd-account-title">
+  <header class="yd-page__header">
+    <div>
+      <h1 class="yd-page__title" id="yd-account-title">{{ tr "page.account.title" }}</h1>
+      <p class="yd-page__subtitle">{{ tr "page.account.subtitle" }}</p>
+    </div>
+    <div class="yd-page__actions">
+      {{ with .Tenant }}<span class="yd-badge yd-badge--info">{{ .Display }}</span>{{ end }}
+    </div>
+  </header>
+
+  {{ if .SeedPassword }}
+  <div class="yd-banner yd-banner--warn" role="alert">
+    <span class="yd-banner__text">{{ .SeedNotice }}</span>
+  </div>
+  {{ end }}
+
+  <div class="yd-grid yd-grid--2">
+    <section class="yd-card yd-section" aria-labelledby="yd-account-identity">
+      <h2 class="yd-section__title" id="yd-account-identity">{{ tr "page.account.identity" }}</h2>
+      <dl class="yd-meta">
+        <dt class="yd-meta__key">{{ tr "field.username" }}</dt>
+        <dd class="yd-meta__value"><code class="yd-code">{{ .User.Username }}</code></dd>
+        <dt class="yd-meta__key">{{ tr "field.display_name" }}</dt>
+        <dd class="yd-meta__value">{{ .User.Display }}</dd>
+        <dt class="yd-meta__key">{{ tr "field.email" }}</dt>
+        <dd class="yd-meta__value">{{ .User.Email }}</dd>
+        <dt class="yd-meta__key">{{ tr "field.tenant" }}</dt>
+        <dd class="yd-meta__value">
+          {{ with .Tenant }}{{ .Display }} · <code class="yd-code">{{ .Slug }}</code>{{ end }}
+        </dd>
+        <dt class="yd-meta__key">{{ tr "field.roles" }}</dt>
+        <dd class="yd-meta__value">
+          {{ range .Roles }}<span class="yd-badge yd-badge--muted">{{ . }}</span>{{ else }}<span class="yd-hint">{{ tr "role.none" }}</span>{{ end }}
+        </dd>
+      </dl>
+    </section>
+
+    {{/* 能力全集：这一块直接把服务端判定用的那个集合摊开给用户看，因此「为什么我看不到用户管理」
+         这个问题在页面上就能回答，而不必去读一遍角色配置。
+         The full capability set: this block lays out the very collection the server authorizes against, which is what
+         answers "why can I not see user management" right on the page instead of through a role configuration. */}}
+    <section class="yd-card yd-section" aria-labelledby="yd-account-permissions">
+      <h2 class="yd-section__title" id="yd-account-permissions">{{ tr "page.account.permissions" }}</h2>
+      <p class="yd-role__permissions">
+        {{ range .Permissions }}<span class="yd-badge yd-badge--info">{{ . }}</span>{{ else }}<span class="yd-hint">{{ tr "page.account.no_permission" }}</span>{{ end }}
+      </p>
+      <p class="yd-section__hint">{{ tr "page.account.permissions_hint" }}</p>
+    </section>
+  </div>
+
+  <section class="yd-card yd-section" aria-labelledby="yd-account-password">
+    <h2 class="yd-section__title" id="yd-account-password">{{ tr "account.change_password" }}</h2>
+    <p class="yd-section__hint">{{ tr "page.account.password_hint" }}</p>
+    {{/* 三个口令字段各自带 data-yd-sensitive：一次请求里有多个敏感字段时，模块逐个替换，请求体里不留一处明文。
+         All three password fields carry data-yd-sensitive: with several sensitive fields in one request the module
+         replaces each of them, so no clear text survives anywhere in the body. */}}
+    <form class="yd-form" method="post" action="/account/password"
+          data-yd-encrypt="sm2" data-yd-pubkey="{{ .KeyEndpoint }}"
+          hx-post="/account/password" hx-target="#yd-workspace" hx-swap="innerMorph"
+          hx-status:400="target:#yd-errors swap:innerHTML"
+          hx-status:401="target:#yd-errors swap:innerHTML"
+          hx-status:422="target:#yd-errors swap:innerHTML"
+          hx-disabled-elt="find button[type='submit']"
+          novalidate>
+      <div class="yd-form__field">
+        <label class="yd-form__label" for="yd-account-current">{{ tr "field.current_password" }}</label>
+        <input class="yd-input" id="yd-account-current" name="current" type="password"
+               autocomplete="current-password" required data-yd-sensitive>
+      </div>
+      <div class="yd-form__field">
+        <label class="yd-form__label" for="yd-account-next">{{ tr "field.new_password" }}</label>
+        <input class="yd-input" id="yd-account-next" name="password" type="password"
+               autocomplete="new-password" required data-yd-sensitive>
+      </div>
+      <div class="yd-form__field">
+        <label class="yd-form__label" for="yd-account-confirm">{{ tr "field.confirm_password" }}</label>
+        <input class="yd-input" id="yd-account-confirm" name="confirm" type="password"
+               autocomplete="new-password" required data-yd-sensitive>
+      </div>
+      <div class="yd-form__actions">
+        <button type="submit" class="yd-btn yd-btn--primary">{{ tr "ui.save" }}</button>
+        <span class="yd-hint">{{ tr "page.account.sign_out_after" }}</span>
+      </div>
+    </form>
+  </section>
+
+  <section class="yd-card yd-section" aria-labelledby="yd-account-seckey">
+    <h2 class="yd-section__title" id="yd-account-seckey">{{ tr "account.rotate_key" }}</h2>
+    <p class="yd-section__hint">{{ tr "page.account.seckey_hint" }}</p>
+    <form method="post" action="/account/sec-key" hx-post="/account/sec-key" hx-target="#yd-workspace" hx-swap="innerMorph">
+      <div class="yd-form__actions">
+        <button type="submit" class="yd-btn yd-btn--ghost">{{ tr "ui.rotate_key" }}</button>
+      </div>
+    </form>
+  </section>
+</section>

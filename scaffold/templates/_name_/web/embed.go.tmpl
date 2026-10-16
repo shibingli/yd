@@ -6,7 +6,7 @@
 //
 //	templates/  html/template 模板树，运行时渲染（模板动作在请求期执行，生成期原样保留） | the html/template tree, rendered at runtime (its actions run per request and survive generation untouched)
 //	static/     静态资源，经 /static 提供 | static assets served under /static
-//	langs/      i18n 文案目录，每语言一个文件 | message catalogues, one file per language
+//	i18n/       i18n 文案目录，每语言一个文件（zh-CN.yaml、en.yaml） | message catalogues, one file per language (zh-CN.yaml, en.yaml)
 //
 // 两类资产合并策略： | How the two asset sources merge:
 //   - 项目资产（本包内嵌副本 / 开发期磁盘副本）始终优先； | project assets (this package's embedded copy, or the on-disk copy in development) always win;
@@ -39,18 +39,18 @@ const (
 	templatesDir = "templates"
 	// staticDir 是静态资源子树。 | staticDir is the static asset subtree.
 	staticDir = "static"
-	// langsDir 是语言目录子树。 | langsDir is the message catalogue subtree.
-	langsDir = meta.LangsDir
+	// i18nDir 是语言目录子树。 | i18nDir is the message catalogue subtree.
+	i18nDir = meta.I18nDir
 )
 
 // embedded 承载本项目的全部前端资产；all: 前缀确保下划线/点号开头的文件同样被打包。
 // embedded carries every front-end asset of this project; the all: prefix keeps dot- and underscore-prefixed files in.
 //
-//go:embed all:templates all:static all:langs
+//go:embed all:templates all:static all:i18n
 var embedded embed.FS
 
-// Assets 返回交给 app.WithFS 的资产文件系统，templates/、static/ 与 langs/ 位于其根下。
-// Assets returns the asset filesystem handed to app.WithFS, with templates/, static/ and langs/ at its root.
+// Assets 返回交给 app.WithFS 的资产文件系统，templates/、static/ 与 i18n/ 位于其根下。
+// Assets returns the asset filesystem handed to app.WithFS, with templates/, static/ and i18n/ at its root.
 //
 // 开发期（app.env 非 production）以磁盘上的资产目录覆盖内嵌副本，模板与样式的改动无需重新编译即可生效；
 // 生产期直接使用内嵌副本，二进制可脱离源码树运行（scratch 镜像里没有 web/ 目录）。
@@ -98,13 +98,13 @@ func Static() (afs.FS, error) {
 	return afero.NewCopyOnWriteFs(merged, afs.NewOS(filepath.Join(root, staticDir))), nil
 }
 
-// Langs 返回语言目录子树，供 i18n.New 直接以该子树的根为目录根加载文案。
-// Langs returns the message catalogue subtree, which i18n.New loads with the subtree root as its catalogue root.
+// I18n 返回语言目录子树，供 i18n.New 直接以该子树的根为目录根加载文案。
+// I18n returns the message catalogue subtree, which i18n.New loads with the subtree root as its catalogue root.
 //
 // 文案只在启动期读取一次，因此这里始终使用内嵌副本，不受开发期覆盖影响。
 // Catalogues are read once at startup, so this always uses the embedded copy and ignores the development overlay.
-func Langs() afs.FS {
-	sub, err := sub(embedded, langsDir)
+func I18n() afs.FS {
+	sub, err := sub(embedded, i18nDir)
 	if err != nil {
 		// 语言目录缺失时降级为空树：i18n.New 会据此报告 ErrNoCatalogs，由调用方决定如何处置。
 		// A missing catalogue tree degrades to an empty tree: i18n.New then reports ErrNoCatalogs and the caller decides.

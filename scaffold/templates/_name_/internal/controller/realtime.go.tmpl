@@ -30,21 +30,24 @@ const (
 //
 // @Summary Realtime demo page | 实时推送演示页
 // @Description Renders pages/realtime.html, which subscribes to the SSE endpoint through sse-swap and to the
-// @Description WebSocket endpoint through the htmx WebSocket extension.
+// @Description WebSocket endpoint through the htmx WebSocket extension. Both channels push the same server-rendered clock
+// @Description fragment, so one target element is fed twice and a broken channel is visible at a glance.
 // @Description 渲染 pages/realtime.html：页面通过 sse-swap 订阅 SSE 端点，并通过 htmx 的 WebSocket 扩展订阅 WebSocket 端点。
+// @Description 两条通道推送的是同一份服务端渲染的时钟片段，因此同一个目标元素被两路刷新，坏掉的通道一眼可见。
 // @Tags pages
 // @Accept html
 // @Produce html
 // @Param HX-Request header string false "htmx partial request | htmx 局部请求标记"
 // @Success 200 {object} string "realtime page or fragment | 实时演示整页或片段"
+// @Failure 401 {object} string "no session | 无有效会话"
+// @Security BearerAuth
 // @Router /realtime [get]
 func (c *Controller) Page(ctx *router.Ctx) {
 	c.render(ctx, http.StatusOK, TplRealtime, c.view(ctx, "实时推送 | Realtime", map[string]any{
-		"Topic":     service.EventsTopic,
-		"Target":    service.ClockTarget,
-		"Swap":      service.ClockSwap,
-		"Interval":  service.DefaultTickInterval.String(),
-		"ListUsers": homeUsers(ctx),
+		"Topic":    service.EventsTopic,
+		"Target":   service.ClockTarget,
+		"Swap":     service.ClockSwap,
+		"Interval": service.DefaultTickInterval.String(),
 	}))
 }
 
@@ -66,6 +69,8 @@ func (c *Controller) Page(ctx *router.Ctx) {
 // @Produce text
 // @Param Last-Event-ID header string false "last received event id for resumption | 断点续传所用的最后事件 ID"
 // @Success 200 {string} string "text/event-stream | 事件流"
+// @Failure 401 {object} string "no session | 无有效会话"
+// @Security BearerAuth
 // @Router /events [get]
 func (c *Controller) Stream(broker *sse.Broker) router.HandlerFunc {
 	return sse.Handler(broker, service.EventsTopic, sse.Options{
@@ -96,6 +101,8 @@ func (c *Controller) Stream(broker *sse.Broker) router.HandlerFunc {
 // @Param Upgrade header string true "must be websocket | 必须为 websocket"
 // @Success 101 {string} string "switching protocols | 协议切换"
 // @Failure 400 {object} string "upgrade failure written by the framework | 框架写出的升级失败响应"
+// @Failure 401 {object} string "no session | 无有效会话"
+// @Security BearerAuth
 // @Router /ws [get]
 func (c *Controller) Socket(ticker *service.Ticker) router.HandlerFunc {
 	return ws.HtmxHandler(ws.HtmxOptions{

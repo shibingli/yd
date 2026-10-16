@@ -1,0 +1,96 @@
+// 本文件是角色仓储：角色永远属于一个租户，同名角色在租户之间互不影响。
+// This file is the role repository: a role always belongs to one tenant and a role name never collides across tenants.
+//
+// 换成 GORM 时本文件不需要修改；角色名与权限列表建议在数据库上建 `UNIQUE(tenant_id, name)` 索引，
+// 与 internal/model.Role 的标签一致。
+// Nothing here changes when GORM arrives; add a `UNIQUE(tenant_id, name)` index in the database, matching the tags of
+// internal/model.Role.
+
+package repository
+
+import (
+	"context"
+	"strings"
+
+	"{{ .Module }}/internal/model"
+	"{{ .YdModule }}/auth"
+)
+
+// RoleRepo 提供角色的读取、覆盖写入与删除。 | RoleRepo reads, upserts and deletes roles.
+type RoleRepo struct {
+	// store 是鉴权服务的持有者。 | store owns the auth service.
+	store *Store
+}
+
+// NewRoleRepo 基于 Store 构造角色仓储。 | NewRoleRepo builds a role repository over a Store.
+func NewRoleRepo(store *Store) *RoleRepo { return &RoleRepo{store: store} }
+
+// List 按名称返回该租户的全部角色。 | List returns every role of the tenant ordered by name.
+func (r *RoleRepo) List(ctx context.Context, tenantID string) ([]model.Role, error) {
+	list, err := r.store.Auth().ListRoles(ctx, tenantID)
+	if err != nil {
+		return nil, err
+	}
+	return model.RolesFromAuth(list), nil
+}
+
+// ByName 按名称返回角色；不存在时返回 false，而不是错误（权限矩阵大量按名查找）。
+// ByName returns the role of that name; a missing name reports false rather than an error (the permission matrix looks roles up by name all the time).
+func (r *RoleRepo) ByName(ctx context.Context, tenantID, name string) (model.Role, bool, error) {
+	list, err := r.List(ctx, tenantID)
+	if err != nil {
+		return model.Role{}, false, err
+	}
+	target := strings.TrimSpace(name)
+	for _, role := range list {
+		if strings.EqualFold(role.Name, target) {
+			return role, true, nil
+		}
+	}
+	return model.Role{}, false, nil
+}
+
+// Upsert 覆盖写入角色：同 ID 或同租户内同名都会被替换，返回落库后的记录（含生成的 ID）。
+// Upsert writes a role: the same id or the same name inside the tenant is replaced, and the stored record (with its generated id) comes back.
+func (r *RoleRepo) Upsert(ctx context.Context, tenantID, name, description string, perms []model.Permission) (model.Role, error) {
+	payload := make([]string, 0, len(perms))
+	for _, p := range perms {
+		payload = append(payload, string(p))
+	}
+
+	saved, err := r.store.Auth().UpsertRole(ctx, tenantID, &auth.Role{
+		TenantID:    tenantID,
+		Name:        strings.TrimSpace(name),
+		Description: strings.TrimSpace(description),
+		Permissions: payload,
+	})
+	if err != nil {
+		return model.Role{}, err
+	}
+	return model.RoleFromAuth(saved), nil
+}
+
+// Delete 删除角色；内置角色由业务层拦截，仓储层不做特例。 | Delete removes a role; the built-in guard lives in the business layer, not here.
+func (r *RoleRepo) Delete(ctx context.Context, tenantID, roleID string) error {
+	return r.store.Auth().DeleteRole(ctx, tenantID, roleID)
+}
+
+// Ensure 幂等写入四个内置角色（owner / admin / auditor / member）。
+// Ensure writes the four built-in roles idempotently (owner, admin, auditor and member).
+//
+// 已有的同名角色不被覆盖：使用者改过的权限不该在下次启动时被悄悄改回去。
+// An existing role of the same name is left alone: a permission set the user edited must not be silently reverted on
+// the next start.
+func (r *RoleRepo) Ensure(ctx context.Context, tenantID string) error {
+	for _, tpl := range model.BuiltinRoles() {
+		if _, ok, err := r.ByName(ctx, tenantID, tpl.Name); err != nil {
+			return err
+		} else if ok {
+			continue
+		}
+		if _, err := r.Upsert(ctx, tenantID, tpl.Name, tpl.Description, tpl.Permissions); err != nil {
+			return err
+		}
+	}
+	return nil
+}

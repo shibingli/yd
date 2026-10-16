@@ -12,6 +12,12 @@ type Options struct {
 	Module string
 	// DB 是数据库驱动：mysql、postgres、sqlite 或 none。 | DB is the database driver: mysql, postgres, sqlite or none.
 	DB string
+	// License 是开源协议标识，当前仅支持 Apache-2.0。 | License is the license identifier; only Apache-2.0 is supported today.
+	License string
+	// LocalReplace 非空时向 go.mod 写入 replace 指向本地 yd 仓库（开发期联调）。 | A non-empty LocalReplace adds a go.mod replace pointing at a local yd checkout (development only).
+	LocalReplace string
+	// HtmxExts 是需要随项目加载的 Htmx 4 扩展（ws、sse、preload、alpine）。 | HtmxExts lists the Htmx 4 extensions to ship with the project (ws, sse, preload, alpine).
+	HtmxExts []string
 	// Redis 表示是否接入 go-redis 缓存。 | Redis enables the go-redis cache integration.
 	Redis bool
 	// Asynq 表示是否接入 asynq 分布式任务队列。 | Asynq enables the asynq distributed task queue.
@@ -22,14 +28,8 @@ type Options struct {
 	I18n bool
 	// Tailwind 表示是否接入 Tailwind v4 样式管道。 | Tailwind enables the Tailwind v4 styling pipeline.
 	Tailwind bool
-	// HtmxExts 是需要随项目加载的 Htmx 4 扩展（ws、sse、preload、alpine）。 | HtmxExts lists the Htmx 4 extensions to ship with the project (ws, sse, preload, alpine).
-	HtmxExts []string
-	// License 是开源协议标识，当前仅支持 Apache-2.0。 | License is the license identifier; only Apache-2.0 is supported today.
-	License string
 	// Force 为 true 时覆盖内容不同的既有文件，否则报错。 | Force overwrites existing files with different content instead of failing.
 	Force bool
-	// LocalReplace 非空时向 go.mod 写入 replace 指向本地 yd 仓库（开发期联调）。 | A non-empty LocalReplace adds a go.mod replace pointing at a local yd checkout (development only).
-	LocalReplace string
 }
 
 // DefaultOptions 返回以 name 为项目名的默认选项。 | DefaultOptions returns the default options for the project called name.

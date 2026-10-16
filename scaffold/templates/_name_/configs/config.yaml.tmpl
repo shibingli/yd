@@ -17,6 +17,12 @@ log:
   level: info         # debug | info | warn | error
   format: json        # json | console
   caller: true        # 记录调用位置 | record the call site
+
+# 鉴权与会话：主密钥封装每个用户的 sec_key，改动它等于让此前签发的全部令牌失效。
+# Authentication and sessions: the master key seals every user's sec_key, and changing it invalidates every token issued so far.
+auth:
+  master_key: ""      # 生产环境必须通过 YD_AUTH_MASTER_KEY 注入；留空时使用内置开发密钥并告警 | production must inject it through YD_AUTH_MASTER_KEY; empty selects the built-in development key with a warning
+  token_ttl: 2h       # 令牌有效期，登录 cookie 的 MaxAge 与它同源 | token lifetime, shared with the MaxAge of the sign-in cookie
 {{- if ne .DB "none" }}
 
 db:

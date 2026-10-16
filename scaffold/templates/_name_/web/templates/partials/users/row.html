@@ -2,26 +2,141 @@
   partials/users/row.html —— 单行用户（由 partials/users/list.html 引用）。
   partials/users/row.html — a single user row (referenced by partials/users/list.html).
 
-  数据契约 | Data contract: model.User 本身，因此模板里的 . 就是一行用户，而不是外层页面数据。
-  The model.User itself: the dot inside this file is one user, not the surrounding page data.
+  数据契约 | Data contract: userCard（.User 是 model.User，.Roles 是带勾选状态的 []model.RoleOption，
+  .CanWrite 决定行内表单是否存在，.KeyEndpoint 是 SM2 公钥地址）。
+  The userCard (.User is a model.User, .Roles is the []model.RoleOption with their ticked state, .CanWrite decides whether
+  the inline forms exist and .KeyEndpoint is the SM2 public-key URL).
 
-  行 id 由用户主键拼出：即使将来加入行内编辑，交换目标也已经有稳定的名字。
-  The row id is derived from the primary key, so even after in-row editing arrives the swap target already has a
-  stable name.
+  行模板的取数只落在自己的实参上：行由 list.html 带着一个 userCard 调起，嵌套模板里的 $ 指向的正是这个卡片而不是
+  页面数据，所以页面级取值随卡片传进来，行里也就没有一处 $.Xxx 需要读者回头去猜它指向哪一层。
+  A row reads from its own argument only: list.html invokes it with one userCard, and $ inside a nested template points at
+  that card rather than at the page data, so the page-level values travel in with the card and no $.Xxx in the row leaves a
+  reader guessing which layer it reaches.
+
+  行 id 由用户主键拼出：htmx 以 outerMorph 换回整张表，这个 id 让「哪一行刚刚变过」在 DOM 里也读得出来。
+  The row id is derived from the primary key: htmx morphs the whole table back, and this id is what makes "which row just
+  changed" readable in the DOM as well.
+
+  五种写操作各自独立成表单，而不是揉进一个提交：改资料不会顺手重置口令，重置口令也不会顺手改角色，
+  每一次点击都只发出它自己那一件事——服务端的接口同样是一次一个。
+  The five write operations are separate forms rather than one combined submit: editing a profile never resets a
+  password and resetting a password never rewrites roles, so one click sends exactly one thing — and the server's
+  endpoints are one-per-operation in the same way.
 */}}
 {{- define "partials/users/row" -}}
-<tr class="yd-table__row" id="yd-user-{{ .ID }}">
+{{/* 当前行的主键先存进 $id：range 一路走下来，. 早已不是这一行了，而行内 DOM id 仍要靠它保持唯一。 */}}
+{{/* The row's primary key is captured in $id first: by the time the ranges are done the dot is far from being this row any
+     more, while the inline DOM ids still have to stay unique. */}}
+{{- $id := .User.ID -}}
+<tr class="yd-table__row" id="yd-user-{{ $id }}">
   <td class="yd-table__td">
-    <span class="yd-avatar yd-avatar--sm" aria-hidden="true">{{ .Initial }}</span>
-    <span class="yd-table__primary">{{ .Display }}</span>
+    <span class="yd-avatar yd-avatar--sm" aria-hidden="true">{{ .User.Initial }}</span>
+    <span class="yd-table__primary">{{ .User.Display }}</span>
+    <code class="yd-code">{{ .User.Username }}</code>
   </td>
-  <td class="yd-table__td"><a class="yd-link" href="mailto:{{ .Email }}">{{ .Email }}</a></td>
+  <td class="yd-table__td"><a class="yd-link" href="mailto:{{ .User.Email }}">{{ .User.Email }}</a></td>
   <td class="yd-table__td">
-    {{ range .Roles }}<span class="yd-badge yd-badge--info">{{ . }}</span>{{ end }}
+    {{ range .User.Roles }}<span class="yd-badge yd-badge--info">{{ . }}</span>{{ else }}<span class="yd-hint">{{ tr "role.none" }}</span>{{ end }}
+  </td>
+  <td class="yd-table__td">
+    {{ if .User.Active }}
+    <span class="yd-badge yd-badge--ok">{{ tr "status.active" }}</span>
+    {{ else }}
+    <span class="yd-badge yd-badge--warn">{{ tr "status.disabled" }}</span>
+    {{ end }}
   </td>
   {{/* 时间按固定布局格式化，不做本地化转换：服务端给什么就显示什么，避免同一份数据在不同时区看起来不一样。
        The time uses a fixed layout and is never converted: what the server produced is what is shown, so one record
        never looks different depending on the viewer's time zone. */}}
-  <td class="yd-table__td yd-table__td--muted">{{ .CreatedAt.Format "2006-01-02 15:04" }}</td>
+  <td class="yd-table__td yd-table__td--muted">{{ .User.CreatedAt.Format "2006-01-02 15:04" }}</td>
+
+  {{- if .CanWrite }}
+  <td class="yd-table__td yd-table__td--actions">
+    <details class="yd-details">
+      <summary class="yd-details__summary">{{ tr "ui.edit" }}</summary>
+
+      {{/* 改资料：只覆盖登录名、邮箱与展示名，表单里根本没有口令字段，因此它无法顺手发出一个凭据。 */}}
+      <form class="yd-form yd-form--inline" method="post" action="/users/{{ .User.ID }}"
+            hx-post="/users/{{ .User.ID }}" hx-status:422="target:#yd-errors swap:innerHTML" novalidate>
+        <div class="yd-form__field">
+          <label class="yd-form__label" for="yd-user-{{ .User.ID }}-username">{{ tr "field.username" }}</label>
+          <input class="yd-input" id="yd-user-{{ .User.ID }}-username" name="username" type="text"
+                 required maxlength="64" value="{{ .User.Username }}">
+        </div>
+        <div class="yd-form__field">
+          <label class="yd-form__label" for="yd-user-{{ .User.ID }}-display">{{ tr "field.display_name" }}</label>
+          <input class="yd-input" id="yd-user-{{ .User.ID }}-display" name="display_name" type="text"
+                 maxlength="64" value="{{ .User.DisplayName }}">
+        </div>
+        <div class="yd-form__field">
+          <label class="yd-form__label" for="yd-user-{{ .User.ID }}-email">{{ tr "field.email" }}</label>
+          <input class="yd-input" id="yd-user-{{ .User.ID }}-email" name="email" type="email"
+                 maxlength="254" value="{{ .User.Email }}">
+        </div>
+        <div class="yd-form__actions">
+          <button type="submit" class="yd-btn yd-btn--primary yd-btn--sm">{{ tr "ui.save" }}</button>
+        </div>
+      </form>
+
+      <hr class="yd-divider">
+
+      {{/* 分配角色：勾选集合整体覆盖用户当前的角色；提交为空时服务端回落到 member，不会留下一个无角色的账号。 */}}
+      <form class="yd-form yd-form--inline" method="post" action="/users/{{ .User.ID }}/roles"
+            hx-post="/users/{{ .User.ID }}/roles" hx-status:422="target:#yd-errors swap:innerHTML" novalidate>
+        <fieldset class="yd-form__fieldset">
+          <legend class="yd-form__label">{{ tr "field.roles" }}</legend>
+          {{ range .Roles }}
+          <label class="yd-check" for="yd-user-{{ $id }}-role-{{ .Name }}">
+            <input class="yd-check__input" id="yd-user-{{ $id }}-role-{{ .Name }}" type="checkbox"
+                   name="roles" value="{{ .Name }}"{{ if .Selected }} checked{{ end }}>
+            <span class="yd-check__label">{{ .Name }}</span>
+            <span class="yd-hint">{{ .Description }}</span>
+          </label>
+          {{ end }}
+        </fieldset>
+        <div class="yd-form__actions">
+          <button type="submit" class="yd-btn yd-btn--primary yd-btn--sm">{{ tr "ui.assign" }}</button>
+        </div>
+      </form>
+
+      <hr class="yd-divider">
+
+      {{/* 重置口令：口令同样以 SM2 密文提交，因此这个表单和登录表单共用同一套声明式属性；
+           重置会轮换目标账号的 sec_key，它手上的旧令牌立即失效，而执行重置的管理员自己不受影响。 */}}
+      <form class="yd-form yd-form--inline" method="post" action="/users/{{ .User.ID }}/password"
+            data-yd-encrypt="sm2" data-yd-pubkey="{{ .KeyEndpoint }}"
+            hx-post="/users/{{ .User.ID }}/password"
+            hx-status:400="target:#yd-errors swap:innerHTML"
+            hx-status:422="target:#yd-errors swap:innerHTML" novalidate>
+        <div class="yd-form__field">
+          <label class="yd-form__label" for="yd-user-{{ .User.ID }}-password">{{ tr "page.users.new_password" }}</label>
+          <input class="yd-input" id="yd-user-{{ .User.ID }}-password" name="password" type="password"
+                 autocomplete="new-password" required data-yd-sensitive>
+        </div>
+        <div class="yd-form__actions">
+          <button type="submit" class="yd-btn yd-btn--ghost yd-btn--sm">{{ tr "ui.reset_password" }}</button>
+        </div>
+      </form>
+
+      <hr class="yd-divider">
+
+      <div class="yd-form__actions">
+        {{/* 启停：按钮本身携带目标状态，因此不需要隐藏字段，也不可能出现「点了停用却提交了启用」。 */}}
+        <form method="post" action="/users/{{ .User.ID }}/status" hx-post="/users/{{ .User.ID }}/status">
+          {{ if .User.Active }}
+          <button type="submit" name="status" value="disabled" class="yd-btn yd-btn--ghost yd-btn--sm">{{ tr "ui.disable" }}</button>
+          {{ else }}
+          <button type="submit" name="status" value="active" class="yd-btn yd-btn--ghost yd-btn--sm">{{ tr "ui.enable" }}</button>
+          {{ end }}
+        </form>
+
+        {{/* 轮换 sec_key：口令不变、令牌全废，设备丢失时用的就是它。 */}}
+        <form method="post" action="/users/{{ .User.ID }}/sec-key" hx-post="/users/{{ .User.ID }}/sec-key">
+          <button type="submit" class="yd-btn yd-btn--ghost yd-btn--sm">{{ tr "ui.rotate_key" }}</button>
+        </form>
+      </div>
+    </details>
+  </td>
+  {{- end }}
 </tr>
 {{- end -}}

@@ -1,21 +1,26 @@
 // Package router 把控制器挂载到路由表，并集中登记本项目的可选特性。
 // Package router mounts controllers onto the mux and keeps the project's optional features in one place.
 //
-// 本包同时是 OpenAPI 文档的装配处：注解写在处理器上（见 docs/developer_guidelines.md §9.2），
+// 本包同时是鉴权链路的装配处与 OpenAPI 文档的装配处：注解写在处理器上（见 docs/developer_guidelines.md §9.2），
 // 文档在启动时由路由树与注解合并生成，因此新增端点后无需再手工维护任何清单。
-// This package also assembles the OpenAPI document: annotations live on the handlers (see
+// This package assembles both the authentication chain and the OpenAPI document: annotations live on the handlers (see
 // docs/developer_guidelines.md §9.2) and the document is merged from the route tree and those annotations at startup, so
 // no hand-maintained list has to follow a new endpoint.
 package router
 
 import (
 	"context"
+	"time"
 
 	"{{ .Module }}/internal/controller"
 	"{{ .Module }}/internal/meta"
+	"{{ .Module }}/internal/middleware"
+	"{{ .Module }}/internal/model"
+	"{{ .Module }}/internal/repository"
 	"{{ .Module }}/internal/service"
 	"{{ .YdModule }}/afs"
 	"{{ .YdModule }}/app"
+	"{{ .YdModule }}/auth"
 	"{{ .YdModule }}/errx"
 	"{{ .YdModule }}/logx"
 	"{{ .YdModule }}/openapi"
@@ -34,6 +39,19 @@ const (
 	StaticPrefix = "/static"
 	// AnnotationDir 是存放 OpenAPI 注解的源码目录。 | AnnotationDir is the source directory holding the OpenAPI annotations.
 	AnnotationDir = "internal"
+
+	// LoginPath 是登录页与登录提交的端点：未登录的浏览请求都被送到这里。 | LoginPath is the sign-in page and the sign-in submission: every anonymous browsing request lands here.
+	LoginPath = "/login"
+)
+
+// 鉴权配置键：与 configs/config.yaml 的 auth 段一一对应，可用环境变量覆盖（YD_AUTH_MASTER_KEY、YD_AUTH_TOKEN_TTL）。
+// Authentication configuration keys: they match the auth section of configs/config.yaml and can be overridden through
+// environment variables (YD_AUTH_MASTER_KEY, YD_AUTH_TOKEN_TTL).
+const (
+	// configMasterKey 是封装每用户 sec_key 的主密钥。 | configMasterKey is the master key sealing every per-user sec_key.
+	configMasterKey = "auth.master_key"
+	// configTokenTTL 是令牌有效期，取值形如 "2h"。 | configTokenTTL is the token lifetime, written as "2h" and the like.
+	configTokenTTL = "auth.token_ttl"
 )
 
 // 装配期哨兵错误：Register 返回的错误都能用 errors.Is 判定到其中某一个。
@@ -41,8 +59,10 @@ const (
 var (
 	// ErrNilApp 表示传入的门面为空。 | ErrNilApp reports a nil facade.
 	ErrNilApp = errx.New("router: nil application facade | router：应用门面为空")
-	// ErrAuth 表示国密密钥对装配失败。 | ErrAuth reports a failed national-cryptography key pair assembly.
+	// ErrAuth 表示鉴权存储、主密钥或令牌签发器装配失败。 | ErrAuth reports a failed auth store, master key or token issuer assembly.
 	ErrAuth = errx.New("router: authentication service unavailable | router：鉴权服务装配失败")
+	// ErrSeed 表示演示种子数据写入失败。 | ErrSeed reports a failed demo seed write.
+	ErrSeed = errx.New("router: demo seed failed | router：演示数据写入失败")
 	// ErrTicker 表示实时推送器启动失败。 | ErrTicker reports a failed realtime publisher start.
 	ErrTicker = errx.New("router: realtime publisher failed to start | router：实时推送启动失败")
 )
@@ -58,21 +78,38 @@ func Register(a *app.App) error {
 		return ErrNilApp
 	}
 
-	auth, err := service.NewAuth()
+	// 存储与鉴权服务在整个进程里只有一份：登录签发的令牌与中间件校验的令牌因此必然出自同一个签发器与同一份 sec_key。
+	// One store and one auth service per process: the token signed at sign-in and the token verified by the middleware can
+	// only ever come from the same issuer and the same sec_key.
+	store, err := repository.Open(repository.Options{
+		Log:       a.Logger(),
+		MasterKey: masterKey(a),
+		Issuer:    meta.TokenIssuerName,
+		TTL:       tokenTTL(a),
+	})
 	if err != nil {
 		return errx.Wrap(err, ErrAuth)
 	}
-	ctrl := controller.New(a, auth)
+	a.OnShutdown(func(context.Context) error { return store.Close() })
+
+	// 种子数据是幂等的（按标识、按名称、按登录名判定），因此每次启动都可以放心调用。
+	// The seed is idempotent (decided by slug, by name and by username), so calling it on every start is safe.
+	if err := store.Seed(context.Background()); err != nil {
+		return errx.Wrap(err, ErrSeed)
+	}
+
+	ctrl, err := controller.New(a, store, a.Logger())
+	if err != nil {
+		return errx.Wrap(err, ErrAuth)
+	}
 
 	// 事件广播器与推送器由路由层持有：它们是端点的基础设施，不是业务状态。
 	// The broker and the publisher are owned here: they are endpoint infrastructure, not business state.
 	broker := sse.NewBroker(sse.BrokerOptions{})
 	ticker := service.NewTicker(broker, service.DefaultTickInterval)
 
-	registerPages(a, ctrl)
-	registerAssets(a, ctrl)
-	registerRealtime(a, ctrl, broker, ticker)
-	registerAuth(a, ctrl)
+	registerPublic(a, ctrl)
+	registerProtected(a, ctrl, broker, ticker)
 
 	if err := startTicker(a, ticker, broker); err != nil {
 		return err
@@ -83,43 +120,124 @@ func Register(a *app.App) error {
 	return nil
 }
 
-// registerPages 登记页面与表单端点。 | registerPages mounts the pages and the form endpoints.
-func registerPages(a *app.App, ctrl *controller.Controller) {
-	a.GET("/", ctrl.Index)
-	a.GET("/healthz", ctrl.Health)
-	a.GET("/users", ctrl.List)
-	a.POST("/users", ctrl.Create)
-}
-
-// registerAssets 登记占位图端点，它们同时是混合捕获模式的活文档。
-// registerAssets mounts the placeholder endpoints, which double as living documentation of the mixed capture patterns.
+// registerPublic 登记匿名可达的端点：登录页、登录提交、登出、健康检查与 SM2 公钥。
+// registerPublic mounts the anonymously reachable endpoints: the sign-in page, the sign-in submission, sign-out, the
+// health probe and the SM2 public key.
 //
-// 两个模式都是合法且被测试覆盖的：
-//   - /avatar/:id.jpg —— 单段内「参数 + 静态后缀」，:id 捕获 .jpg 之前的全部内容；
-//   - /report/:id-xx.png —— 单段内「参数 + 静态后缀」，后缀 -xx.png 整体固定。
+// 公开组仍然跑租户中间件（Required 为 false）：登录页需要认识「acme.example.com 这个子域是谁」才能预填租户字段，
+// 而 Required 为 false 保证了一个什么也没指明的请求照样能渲染出登录表单。
+// The public group still runs the tenant middleware with Required false: the sign-in page has to know which tenant
+// acme.example.com names in order to pre-fill the field, while Required false keeps a request that names no tenant
+// renderable.
+func registerPublic(a *app.App, ctrl *controller.Controller) {
+	g := a.Group("", middleware.Tenant(middleware.TenantOptions{
+		Resolver:     ctrl.ResolveTenant,
+		ErrorHandler: ctrl.Deny,
+	}))
+
+	g.GET(LoginPath, ctrl.LoginPage)
+	g.POST(LoginPath, ctrl.Login)
+	// 登出是幂等的清理动作，刻意公开：cookie 里那枚令牌早已失效时，仍然要能把它扔掉。
+	// Sign-out is an idempotent cleanup and is deliberately public: a cookie whose token is long dead must still be droppable.
+	g.POST("/logout", ctrl.Logout)
+	g.GET("/healthz", ctrl.Health)
+	g.GET("/guomi/pubkey", ctrl.Pubkey)
+}
+
+// registerProtected 登记需要有效会话的业务端点，并按能力逐条挂上权限守卫。
+// registerProtected mounts the business endpoints that need a valid session and hangs one permission guard on each.
 //
-// Both patterns are legal and covered by tests:
-//   - /avatar/:id.jpg — "parameter plus static suffix" inside one segment, where :id captures everything before .jpg;
-//   - /report/:id-xx.png — the same shape with the fixed suffix -xx.png.
-func registerAssets(a *app.App, ctrl *controller.Controller) {
-	a.GET("/avatar/:id.jpg", ctrl.Avatar)
-	a.GET("/report/:id-xx.png", ctrl.Report)
+// 链路顺序本身就是一条论证，不能调换： | The order of the chain is itself the argument and must not be reshuffled:
+//  1. middleware.Promote —— 把 cookie 里的令牌提升为 Authorization，浏览器与 API 客户端从此走同一条路径； | Promote lifts the cookie token into Authorization, after which browsers and API clients share one path;
+//  2. auth.Middleware —— 校验签名、有效期与每用户 sec_key，并把用户放进上下文； | auth.Middleware verifies the signature, the validity and the per-user sec_key and stores the user in the context;
+//  3. middleware.Tenant —— 以令牌的 tid 声明为准定租户，请求头或子域名指向别的租户即 403。 | middleware.Tenant settles the tenant from the token's tid claim and refuses a header or subdomain naming another tenant with 403.
+//
+// 第三层必须排在第二层之后：它优先信任令牌，而令牌正是第二层校验的产物；顺序颠倒会让任何请求头都变成可信输入。
+// The third layer must follow the second: it trusts the token first, and the token is the product of the second layer — the
+// other order would turn any request header into trusted input.
+//
+// 权限守卫只挂在业务端点上：首页、实时演示、账号页与两个占位图只要求「有一个有效会话」，
+// 因为它们展示的是「我是谁」，而不是「我能不能动别人的数据」。
+// The guards hang on the business endpoints only: the home page, the realtime demo, the account page and the two
+// placeholders require nothing beyond a valid session, because what they show is who I am and not whether I may touch
+// somebody else's data.
+func registerProtected(a *app.App, ctrl *controller.Controller, broker *sse.Broker, ticker *service.Ticker) {
+	g := a.Group("",
+		middleware.Promote(middleware.SessionOptions{}),
+		auth.Middleware(auth.MiddlewareOptions{Issuer: ctrl.Issuer(), ErrorHandler: ctrl.Deny}),
+		middleware.Tenant(middleware.TenantOptions{
+			Required:     true,
+			Subdomain:    true,
+			Resolver:     ctrl.ResolveTenant,
+			ErrorHandler: ctrl.Deny,
+		}),
+	)
+
+	// 会话即可访问：个人落地页、账号自助与实时演示。
+	// Session-only: the personal landing page, self-service account actions and the realtime demo.
+	g.GET("/", ctrl.Index)
+	g.GET("/realtime", ctrl.Page)
+	g.GET("/account", ctrl.Account)
+	g.POST("/account/password", ctrl.ChangePassword)
+	g.POST("/account/sec-key", ctrl.RotateSecKey)
+
+	// 占位图端点：既是混合捕获模式的活文档，也是「静态资源必须带会话」的样板。
+	// The placeholder endpoints: living documentation of the mixed capture patterns and the template for "even an asset needs a session".
+	g.GET("/avatar/:id.jpg", ctrl.Avatar)
+	g.GET("/report/:id-xx.png", ctrl.Report)
+
+	// 实时通道：SSE 与 WebSocket 共用同一个推送器。
+	// The realtime channels: SSE and WebSocket share one publisher.
+	g.GET("/events", ctrl.Stream(broker))
+	g.GET("/ws", ctrl.Socket(ticker))
+
+	// 租户：读写的门槛是全目录里最高的一对能力，因为租户是其它一切数据的边界。
+	// Tenants: the rarest pair of capabilities guards them, because tenants are the boundary of everything else.
+	g.GET("/tenants", ctrl.Tenants, auth.RequirePermission(model.PermTenantRead))
+	g.POST("/tenants", ctrl.CreateTenant, auth.RequirePermission(model.PermTenantWrite))
+
+	// 用户：列表与全部变更动作分属读、写两个能力，且每一次调用都带着上下文里的租户 ID。
+	// Users: the list and every mutation sit behind the read and write capabilities, and every call carries the tenant id from the context.
+	g.GET("/users", ctrl.Users, auth.RequirePermission(model.PermUserRead))
+	g.POST("/users", ctrl.CreateUser, auth.RequirePermission(model.PermUserWrite))
+	g.POST("/users/:id", ctrl.UpdateUser, auth.RequirePermission(model.PermUserWrite))
+	g.POST("/users/:id/roles", ctrl.SetUserRoles, auth.RequirePermission(model.PermUserWrite))
+	g.POST("/users/:id/status", ctrl.SetUserStatus, auth.RequirePermission(model.PermUserWrite))
+	g.POST("/users/:id/password", ctrl.SetUserPassword, auth.RequirePermission(model.PermUserWrite))
+	g.POST("/users/:id/sec-key", ctrl.RotateUserSecKey, auth.RequirePermission(model.PermUserWrite))
+
+	// 角色与权限矩阵：矩阵的每一格都是一次授权变更，因此与角色写权限同门槛。
+	// Roles and the permission matrix: every cell of the matrix is an authorisation change, so it sits behind the role write capability too.
+	g.GET("/roles", ctrl.Roles, auth.RequirePermission(model.PermRoleRead))
+	g.POST("/roles", ctrl.SaveRole, auth.RequirePermission(model.PermRoleWrite))
+	g.POST("/roles/:id/permissions", ctrl.ToggleRolePermission, auth.RequirePermission(model.PermRoleWrite))
+	g.POST("/roles/:id/delete", ctrl.DeleteRole, auth.RequirePermission(model.PermRoleWrite))
+	g.GET("/permissions", ctrl.Permissions, auth.RequirePermission(model.PermPermissionRead))
 }
 
-// registerRealtime 登记实时推送端点：SSE 与 WebSocket 共用同一个推送器。
-// registerRealtime mounts the realtime endpoints: SSE and WebSocket share one publisher.
-func registerRealtime(a *app.App, ctrl *controller.Controller, broker *sse.Broker, ticker *service.Ticker) {
-	a.GET("/realtime", ctrl.Page)
-	a.GET("/events", ctrl.Stream(broker))
-	a.GET("/ws", ctrl.Socket(ticker))
+// masterKey 取封装 sec_key 的主密钥：优先配置（生产环境用 YD_AUTH_MASTER_KEY 注入），未配置时退回内置开发密钥并告警。
+// masterKey reads the key sealing every sec_key: configuration wins (production injects YD_AUTH_MASTER_KEY) and the
+// built-in development key takes over with a warning when nothing is configured.
+//
+// 开发密钥存在的理由：种子账号必须开箱即可登录。它的代价是进程重启后内存里的 sec_key 仍能解开，
+// 因此告警必须显式说出来，而不是让使用者以为默认就是安全的。
+// The development key exists so the seeded account works out of the box; the price is that the in-memory sec_keys stay
+// readable across restarts, which is exactly what the warning says out loud instead of letting anyone assume safety.
+func masterKey(a *app.App) []byte {
+	if key := a.Config().GetString(configMasterKey); key != "" {
+		return []byte(key)
+	}
+	a.Logger().Warn("auth.master_key is unset, the scaffold's development key is in use: inject YD_AUTH_MASTER_KEY in production | 未配置 auth.master_key，正在使用脚手架内置的开发密钥：生产环境请注入 YD_AUTH_MASTER_KEY")
+	return []byte(meta.DevMasterKey)
 }
 
-// registerAuth 登记国密登录端点：公钥可取，密文可验，明文不可达。
-// registerAuth mounts the national-cryptography endpoints: the key is public, the ciphertext is verifiable and the
-// plaintext never arrives.
-func registerAuth(a *app.App, ctrl *controller.Controller) {
-	a.GET("/guomi/pubkey", ctrl.Pubkey)
-	a.POST("/login", ctrl.Login)
+// tokenTTL 取令牌有效期：配置缺省或解析不出时长时退回框架默认值。
+// tokenTTL reads the token lifetime and falls back to the framework default when nothing parses.
+func tokenTTL(a *app.App) time.Duration {
+	if ttl := a.Config().Duration(configTokenTTL); ttl > 0 {
+		return ttl
+	}
+	return auth.DefaultTokenTTL
 }
 
 // startTicker 启动实时推送，并把停止动作挂到关停钩子上。
@@ -177,6 +295,12 @@ func registerOpenAPI(a *app.App) {
 
 // openAPIInfo 返回文档元信息，取值全部来自 internal/meta，避免文档与代码漂移。
 // openAPIInfo returns the document metadata; every value comes from internal/meta so the document cannot drift from the code.
+//
+// 安全方案说明：全部受保护端点都标注 @Security BearerAuth，即 Authorization: Bearer <token>；
+// 框架的文档结构目前只生成 components.schemas，因此安全方案本身没有可声明的落点，前端与测试按上面这行把它带上即可。
+// Security note: every protected endpoint is annotated with @Security BearerAuth, meaning Authorization: Bearer <token>.
+// The framework's document structure emits components.schemas only, so the scheme itself has no place to be declared
+// yet; clients and tests simply send the header as written above.
 func openAPIInfo() openapi.Info {
 	return openapi.Info{
 		Title:       meta.Name + " API",
@@ -238,10 +362,10 @@ func registerFeatures(a *app.App) {
 {{- end }}
 {{- if .I18n }}
 
-	// TODO(i18n) 语言目录已由 main 装配并注册为 app.ServiceI18n；新增文案请改 web/langs/*.yaml，
-	// TODO(i18n) 控制器用 i18n.FromContext(ctx).T(key) 取词，模板继续使用数据映射中的中英对照文案。
-	// TODO(i18n) The catalogues are already wired by main and registered as app.ServiceI18n; add copy in web/langs/*.yaml,
-	// TODO(i18n) read it in controllers through i18n.FromContext(ctx).T(key) and keep templates on the bilingual data keys.
+	// TODO(i18n) 语言目录已由 main 装配并注册为 app.ServiceI18n；新增文案请改 web/i18n/*.yaml，
+	// TODO(i18n) 控制器用 i18n.FromContext(ctx).T(key) 取词，模板用 tr 函数取词（tr "nav.home"），权限与角色的展示文案走 model.PermissionLabel。
+	// TODO(i18n) The catalogues are already wired by main and registered as app.ServiceI18n; add copy in web/i18n/*.yaml,
+	// TODO(i18n) read it in controllers through i18n.FromContext(ctx).T(key), in templates through the tr helper (tr "nav.home") and through model.PermissionLabel for capability and role copy.
 	_ = a
 {{- end }}
 }

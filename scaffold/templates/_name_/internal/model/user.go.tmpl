@@ -1,52 +1,129 @@
-// Package model 定义领域模型与数据库映射结构。 | Package model defines the domain models and their database mappings.
+// Package model 承载本项目的领域模型：GORM 标签齐备，但模型层不依赖任何 ORM。
+// Package model holds this project's domain models: the GORM tags are complete, yet the layer depends on no ORM.
+//
+// 三条硬性约定： | Three hard rules:
+//   - 多租户是硬边界：每个用户、每个角色都必须带 TenantID，任何按 ID 的查询都必须同时带上租户； | multi-tenancy is a hard boundary: every user and every role carries a TenantID and every lookup by id takes the tenant as well;
+//   - 模型与框架 auth 包之间只通过本文件的 FromAuth / ToAuth 转换，业务代码不直接摸 auth.User； | the models and the framework's auth package meet only in the FromAuth / ToAuth converters below, so business code never touches auth.User;
+//   - 模型绝不携带明文口令与明文 sec_key：auth.User 里的散列与密文一律不进入模型。 | a model never carries a plaintext password or a plaintext sec_key: the hash and the ciphertext of auth.User stay out of the model.
 package model
 
 import (
-	"strconv"
 	"strings"
 	"time"
+
+	"{{ .YdModule }}/auth"
 )
 
-// User 是用户模型；接入 GORM 后把 json 标签保留、另加 gorm 标签即可。
-// User is the user model; once GORM is wired in, keep the json tags and add gorm ones.
+// User 是租户内的一个主体；字段顺序按内存对齐排布（时间 → 短字符串 → 切片）。
+// User is one subject inside a tenant; its fields are ordered for memory alignment (times → short strings → slices).
+//
+// PasswordHash 与 EncryptedSecKey 刻意不在模型里：它们只存在于 auth 包内部，
+// 需要它们的代码走 internal/repository，而不是把它抄进模型四处传递。
+// PasswordHash and EncryptedSecKey are deliberately absent: they live inside the auth package only, and the code that
+// needs them goes through internal/repository instead of copying them into a model and passing it around.
 type User struct {
-	// ID 是主键。 | ID is the primary key.
-	ID int64 `json:"id"`
-	// Name 是显示名。 | Name is the display name.
-	Name string `json:"name"`
-	// Email 是登录邮箱。 | Email is the login address.
-	Email string `json:"email"`
-	// PasswordHash 是口令散列（PBKDF2-HMAC-SM3），绝不出现在 JSON 与日志里。
-	// PasswordHash is the password hash (PBKDF2-HMAC-SM3); it never reaches JSON or the logs.
-	PasswordHash string `json:"-"`
-	// Roles 是角色列表，用于权限判定。 | Roles is the role list used for authorisation.
-	Roles []string `json:"roles,omitempty"`
 	// CreatedAt 是创建时间（UTC）。 | CreatedAt is the creation time (UTC).
-	CreatedAt time.Time `json:"created_at"`
+	CreatedAt time.Time `json:"created_at" gorm:"column:created_at;autoCreateTime;index"`
+	// UpdatedAt 是最后修改时间（UTC）。 | UpdatedAt is the last mutation time (UTC).
+	UpdatedAt time.Time `json:"updated_at" gorm:"column:updated_at;autoUpdateTime"`
+	// ID 是主键，形如 us_xxx，同时是 JWT 的 kid。 | ID is the primary key (us_xxx) and doubles as the JWT kid.
+	ID string `json:"id" gorm:"column:id;type:varchar(64);primaryKey"`
+	// TenantID 是所属租户，参与每一次查询与每一次 sec_key 绑定。 | TenantID is the owning tenant and takes part in every lookup and every sec_key binding.
+	TenantID string `json:"tenant_id" gorm:"column:tenant_id;type:varchar(64);not null;index:idx_users_tenant_username,unique,priority:1"`
+	// Username 是租户内唯一的登录名。 | Username is the sign-in name, unique inside the tenant.
+	Username string `json:"username" gorm:"column:username;type:varchar(64);not null;uniqueIndex:idx_users_tenant_username,priority:2"`
+	// Email 是可选的联络邮箱，不作为登录键。 | Email is the optional contact address and is not a sign-in key.
+	Email string `json:"email" gorm:"column:email;type:varchar(128);index"`
+	// DisplayName 是可选的展示名称。 | DisplayName is the optional human-readable name.
+	DisplayName string `json:"display_name" gorm:"column:display_name;type:varchar(128)"`
+	// Status 是生命周期状态，非激活态无法签发令牌。 | Status is the lifecycle state; a non-active user can be issued no token.
+	Status Status `json:"status" gorm:"column:status;type:varchar(16);not null;default:active;index"`
+	// Roles 保存租户内的角色名，悬空的名字不授予任何权限。 | Roles holds role names of the tenant; a dangling name grants nothing.
+	Roles []string `json:"roles" gorm:"column:roles;serializer:json;type:text"`
 }
 
-// Display 返回列表展示文本（片段渲染时直接拼接，务必保持纯文本）。
-// Display returns the text shown in lists (it is concatenated straight into fragments, so keep it plain text).
-func (u User) Display() string {
-	return "#" + strconv.FormatInt(u.ID, 10) + " " + u.Name
-}
-
-// Initial 返回头像占位用的首字符（大写），用于列表与导航。
-// Initial returns the first character (upper-cased) used as the avatar placeholder in lists and navigation.
-func (u User) Initial() string {
-	trimmed := strings.TrimSpace(u.Name)
-	if trimmed == "" {
-		return "?"
+// UserFromAuth 把框架用户转成本项目模型；口令散列与 sec_key 密文被刻意丢弃。
+// UserFromAuth converts a framework user into this project's model and deliberately drops the password hash and the sealed sec_key.
+func UserFromAuth(u *auth.User) User {
+	if u == nil {
+		return User{}
 	}
-	return strings.ToUpper(trimmed[:1])
+	return User{
+		CreatedAt:   u.CreatedAt,
+		UpdatedAt:   u.UpdatedAt,
+		ID:          u.ID,
+		TenantID:    u.TenantID,
+		Username:    u.Username,
+		Email:       u.Email,
+		DisplayName: u.DisplayName,
+		Status:      u.Status,
+		Roles:       append([]string(nil), u.Roles...),
+	}
 }
 
-// HasRole 报告用户是否具备指定角色（大小写不敏感）。 | HasRole reports whether the user holds a role (case-insensitively).
-func (u User) HasRole(role string) bool {
+// UsersFromAuth 批量转换用户记录。 | UsersFromAuth converts a batch of user records.
+func UsersFromAuth(list []*auth.User) []User {
+	out := make([]User, 0, len(list))
+	for _, u := range list {
+		out = append(out, UserFromAuth(u))
+	}
+	return out
+}
+
+// ToAuth 把模型转回框架用户，供写入路径使用；调用方必须自行补齐散列与密文。
+// ToAuth converts the model back into a framework user for the write path; the caller has to fill in the hash and the ciphertext.
+func (u User) ToAuth() *auth.User {
+	return &auth.User{
+		CreatedAt:   u.CreatedAt,
+		UpdatedAt:   u.UpdatedAt,
+		ID:          u.ID,
+		TenantID:    u.TenantID,
+		Username:    u.Username,
+		Email:       u.Email,
+		DisplayName: u.DisplayName,
+		Status:      u.Status,
+		Roles:       append([]string(nil), u.Roles...),
+	}
+}
+
+// Display 返回列表展示文本：优先展示名称，其次登录名（片段直接拼接，保持纯文本）。
+// Display returns the text shown in lists, preferring the display name and falling back to the username (fragments
+// concatenate it straight in, so keep it plain text).
+func (u User) Display() string {
+	if name := strings.TrimSpace(u.DisplayName); name != "" {
+		return name
+	}
+	return u.Username
+}
+
+// Initial 返回徽标占位用的首字符（大写）。 | Initial returns the first character (upper-cased) used by the badge placeholder.
+func (u User) Initial() string {
+	for _, candidate := range []string{u.DisplayName, u.Username, u.Email} {
+		if trimmed := strings.TrimSpace(candidate); trimmed != "" {
+			return strings.ToUpper(trimmed[:1])
+		}
+	}
+	return "?"
+}
+
+// Active 报告用户是否可用。 | Active reports whether the user is usable.
+func (u User) Active() bool { return u.Status == StatusActive }
+
+// HasRole 报告用户是否持有该角色名（大小写不敏感）。 | HasRole reports whether the user holds that role name (case-insensitively).
+func (u User) HasRole(name string) bool {
+	target := strings.TrimSpace(name)
 	for _, r := range u.Roles {
-		if strings.EqualFold(r, role) {
+		if strings.EqualFold(strings.TrimSpace(r), target) {
 			return true
 		}
 	}
 	return false
+}
+
+// RoleList 返回逗号分隔的角色名，供列表片段的一行展示。 | RoleList returns the comma-joined role names shown on one line of a list fragment.
+func (u User) RoleList() string {
+	if len(u.Roles) == 0 {
+		return ""
+	}
+	return strings.Join(u.Roles, ", ")
 }

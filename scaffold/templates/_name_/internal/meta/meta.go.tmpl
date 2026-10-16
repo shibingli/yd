@@ -30,8 +30,8 @@ const (
 	AssetRoot = "{{ .AssetRoot }}"
 	// ConfigDir 是配置文件目录，交给 app.WithConfigDir 使用。 | ConfigDir is the configuration directory handed to app.WithConfigDir.
 	ConfigDir = "configs"
-	// LangsDir 是语言目录所在的资子树名。 | LangsDir is the asset subtree holding the message catalogues.
-	LangsDir = "langs"
+	// I18nDir 是语言目录所在的资子树名。 | I18nDir is the asset subtree holding the message catalogues.
+	I18nDir = "i18n"
 
 	// DefaultLang 与 FallbackLang 是语言目录的默认值与回退值，与 configs/config.yaml 的 i18n 段一致。
 	// DefaultLang and FallbackLang are the catalogue defaults, consistent with the i18n section of configs/config.yaml.
@@ -49,6 +49,66 @@ const (
 	// ToastEvent 是服务端下发提示的事件名，控制器通过 HX-Trigger 触发，页面在 body 上订阅。
 	// ToastEvent is the event name of a server-sent toast: controllers fire it through HX-Trigger and pages subscribe on the body.
 	ToastEvent = "yd:toast"
+)
+
+// 会话与多租户的对外契约常量：中间件、控制器、模板与文档引用同一份取值。
+// Public contract constants of sessions and multi-tenancy: middleware, controllers, templates and docs all read one source.
+const (
+	// TenantHeader 是承载租户标识的请求头；子域名与令牌 tid 声明是另外两条来源。 | TenantHeader carries the tenant key; the subdomain and the token's tid claim are the other two sources.
+	TenantHeader = "X-Tenant"
+	// AuthHeader 是承载令牌的请求头，与框架 auth.DefaultTokenLookup 一致。 | AuthHeader carries the token and matches the framework's auth.DefaultTokenLookup.
+	AuthHeader = "Authorization"
+	// BearerPrefix 是 Authorization 的认证方案前缀。 | BearerPrefix is the authentication scheme prefix of Authorization.
+	BearerPrefix = "Bearer "
+	// TokenCookie 是浏览器会话所用的 cookie 名；令牌以 HttpOnly 写入，脚本读不到它。 | TokenCookie is the cookie name of the browser session; the token is written HttpOnly so no script can read it.
+	TokenCookie = "yd_token"
+	// TokenIssuerName 写入令牌的 iss 声明。 | TokenIssuerName is written into the iss claim of every token.
+	TokenIssuerName = "yd"
+
+	// DevMasterKey 是内置的开发主密钥：仅在 auth.master_key 未配置时启用，目的是让种子账号开箱即可登录。
+	// 生产环境必须通过 YD_AUTH_MASTER_KEY 覆盖它，否则进程重启后内存中的 sec_key 仍可解开——路由层会为此告警。
+	// DevMasterKey is the built-in development master key: it applies only while auth.master_key is unset and exists so the
+	// seeded account works out of the box. Production must override it through YD_AUTH_MASTER_KEY, otherwise the in-memory
+	// sec_keys stay readable across restarts — the router warns about exactly that.
+	DevMasterKey = "yd-scaffold-development-master-key-please-replace"
+)
+
+// 种子数据：一条命令即得到可登录的演示环境，README 与登录页展示的默认凭据都取自这里。
+// Seed data: one command yields a sign-in-ready demo environment, and the default credentials shown by the README and by
+// the sign-in page are read from here.
+//
+// 口令明文只出现在这一处，且仅在首次种子写入时使用；数据库里保存的永远是 SM2/SM3 散列过的口令与逐用户 sec_key。
+// The clear-text passwords appear here and nowhere else, are used only by the very first seed write, and what the store
+// keeps is always a hashed password plus a per-user sec_key.
+const (
+	// SeedTenantSlug 是演示租户的标识（X-Tenant 请求头与子域名都用它）。 | SeedTenantSlug is the demo tenant's key (the X-Tenant header and the subdomain both use it).
+	SeedTenantSlug = "demo"
+	// SeedTenantName 是演示租户的展示名。 | SeedTenantName is the demo tenant's display name.
+	SeedTenantName = "演示租户 | Demo tenant"
+	// SeedAdminUsername 是演示租户的管理员登录名（登录用登录名，不是邮箱）。 | SeedAdminUsername is the demo tenant's administrator sign-in name (sign-in uses the name, not the address).
+	SeedAdminUsername = "admin"
+	// SeedAdminEmail 是演示租户管理员的邮箱。 | SeedAdminEmail is the demo administrator's e-mail address.
+	SeedAdminEmail = "admin@example.com"
+	// SeedAdminPassword 是演示租户管理员的初始口令。 | SeedAdminPassword is the demo administrator's initial password.
+	SeedAdminPassword = "Admin@123456"
+
+	// SeedOpsSlug 是第二个租户的标识：它让「跨租户不可见」成为一条可被自动化验证的硬边界，而不是一句承诺。
+	// SeedOpsSlug is the second tenant's key: it turns "tenants cannot see each other" into an automation-verifiable hard
+	// boundary instead of a promise.
+	SeedOpsSlug = "acme"
+	// SeedOpsName 是第二个租户的展示名。 | SeedOpsName is the second tenant's display name.
+	SeedOpsName = "示例租户 ACME | Sample tenant ACME"
+	// SeedOpsAdminUsername 是第二个租户的管理员登录名。 | SeedOpsAdminUsername is the second tenant's administrator sign-in name.
+	SeedOpsAdminUsername = "acme-admin"
+	// SeedOpsAdminEmail 是第二个租户管理员的邮箱。 | SeedOpsAdminEmail is the second tenant administrator's e-mail address.
+	SeedOpsAdminEmail = "acme-admin@example.com"
+	// SeedOpsAdminPassword 是第二个租户管理员的初始口令。 | SeedOpsAdminPassword is the second tenant administrator's initial password.
+	SeedOpsAdminPassword = "Acme@123456"
+
+	// SeedPasswordNotice 是首登必改口令的提示文案，登录页、首页横幅与 README 引用同一句。
+	// SeedPasswordNotice is the mandatory password-change notice shown at first sign-in; the sign-in page, the home
+	// banner and the README quote the same sentence.
+	SeedPasswordNotice = "首次登录后请立即修改默认口令 | change the default password right after the first sign-in"
 )
 
 // Features 列出本项目启用的可选特性，供启动日志与运维自检读取（与脚手架参数同源）。

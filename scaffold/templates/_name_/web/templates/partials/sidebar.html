@@ -7,7 +7,13 @@
   This file defines templates and renders no body: the render engine parses the whole tree into one template set, so a
   page pulls it in with {{template "partials/sidebar" .}} and the chrome exists in exactly one place.
 
-  数据契约 | Data contract: .Path（当前路径，用于高亮）、.Name、.Version、.Features。
+  数据契约 | Data contract：.Path（当前路径，用于高亮）、.Name、.Version、.Features、
+  .SignedIn 与六个能力布尔值 .CanTenantRead/.CanUserRead/.CanRoleRead/.CanPermissionRead（写权限只影响页面内的按钮）。
+
+  权限决定可见性：导航项是「能不能进这个页面」的第一道提示，真正的边界在服务端——每条路由都挂着
+  auth.RequirePermission，即使有人手敲 URL，越权请求也会在中间件层被拒。
+  Permissions decide visibility: a nav item is the first hint of whether a page is reachable, and the real boundary is
+  server-side — every route carries auth.RequirePermission, so typing the URL by hand still meets the middleware.
 
   导航链接三件事一起写：hx-get 取片段、hx-target 指向工作区、hx-push-url 写入历史，
   因此浏览器前进/后退与直接访问 URL 都能得到同一个页面。
@@ -15,7 +21,7 @@
   hx-push-url records history, so back/forward and a direct URL hit both land on the same page.
 */}}
 {{- define "partials/sidebar" -}}
-<aside class="yd-sidebar" data-yd-sidebar aria-label="主导航 | Main navigation">
+<aside class="yd-sidebar" data-yd-sidebar aria-label="{{ tr "nav.main" }}">
   <div class="yd-sidebar__brand">
     <a class="yd-brand" href="/" hx-get="/" hx-target="#yd-workspace" hx-swap="innerMorph" hx-push-url="true">
       <span class="yd-brand__mark" aria-hidden="true">yd</span>
@@ -23,36 +29,79 @@
     </a>
   </div>
 
-  <nav class="yd-nav" aria-label="站点导航 | Site navigation">
-    <p class="yd-nav__section">总览 | Overview</p>
+  <nav class="yd-nav" aria-label="{{ tr "nav.site" }}">
+    {{- if .SignedIn }}
+    <p class="yd-nav__section">{{ tr "nav.group.overview" }}</p>
     <a class="yd-nav__link" href="/" hx-get="/" hx-target="#yd-workspace" hx-swap="innerMorph" hx-push-url="true"
        data-yd-nav="home"{{ if eq .Path "/" }} aria-current="page"{{ end }}>
-      <span class="yd-nav__label">首页 | Home</span>
+      <span class="yd-nav__label">{{ tr "nav.home" }}</span>
     </a>
 
-    <p class="yd-nav__section">数据 | Data</p>
+    {{/* 访问控制一组：每一项各自对应一条能力，读权限决定「看不看得见」，写权限只决定页面内的按钮。 */}}
+    {{/* The access-control group: one nav item per capability, where a read permission decides whether it appears and a
+         write permission only decides which buttons a page shows. */}}
+    {{- if or .CanTenantRead .CanUserRead .CanRoleRead .CanPermissionRead }}
+    <p class="yd-nav__section">{{ tr "nav.group.access" }}</p>
+    {{- end }}
+    {{- if .CanTenantRead }}
+    <a class="yd-nav__link" href="/tenants" hx-get="/tenants" hx-target="#yd-workspace" hx-swap="innerMorph" hx-push-url="true"
+       data-yd-nav="tenants"{{ if hasPrefix .Path "/tenants" }} aria-current="page"{{ end }}>
+      <span class="yd-nav__label">{{ tr "nav.tenants" }}</span>
+    </a>
+    {{- end }}
+    {{- if .CanUserRead }}
     <a class="yd-nav__link" href="/users" hx-get="/users" hx-target="#yd-workspace" hx-swap="innerMorph" hx-push-url="true"
-       data-yd-nav="users"{{ if eq .Path "/users" }} aria-current="page"{{ end }}>
-      <span class="yd-nav__label">用户管理 | Users</span>
+       data-yd-nav="users"{{ if hasPrefix .Path "/users" }} aria-current="page"{{ end }}>
+      <span class="yd-nav__label">{{ tr "nav.users" }}</span>
+    </a>
+    {{- end }}
+    {{- if .CanRoleRead }}
+    <a class="yd-nav__link" href="/roles" hx-get="/roles" hx-target="#yd-workspace" hx-swap="innerMorph" hx-push-url="true"
+       data-yd-nav="roles"{{ if hasPrefix .Path "/roles" }} aria-current="page"{{ end }}>
+      <span class="yd-nav__label">{{ tr "nav.roles" }}</span>
+    </a>
+    {{- end }}
+    {{- if .CanPermissionRead }}
+    <a class="yd-nav__link" href="/permissions" hx-get="/permissions" hx-target="#yd-workspace" hx-swap="innerMorph" hx-push-url="true"
+       data-yd-nav="permissions"{{ if hasPrefix .Path "/permissions" }} aria-current="page"{{ end }}>
+      <span class="yd-nav__label">{{ tr "nav.permissions" }}</span>
+    </a>
+    {{- end }}
+
+    <p class="yd-nav__section">{{ tr "nav.group.self" }}</p>
+    <a class="yd-nav__link" href="/account" hx-get="/account" hx-target="#yd-workspace" hx-swap="innerMorph" hx-push-url="true"
+       data-yd-nav="account"{{ if hasPrefix .Path "/account" }} aria-current="page"{{ end }}>
+      <span class="yd-nav__label">{{ tr "nav.account" }}</span>
     </a>
 
-    <p class="yd-nav__section">实时 | Realtime</p>
+    <p class="yd-nav__section">{{ tr "nav.group.realtime" }}</p>
     <a class="yd-nav__link" href="/realtime" hx-get="/realtime" hx-target="#yd-workspace" hx-swap="innerMorph" hx-push-url="true"
-       data-yd-nav="realtime"{{ if eq .Path "/realtime" }} aria-current="page"{{ end }}>
-      <span class="yd-nav__label">SSE 与 WebSocket | SSE &amp; WebSocket</span>
+       data-yd-nav="realtime"{{ if hasPrefix .Path "/realtime" }} aria-current="page"{{ end }}>
+      <span class="yd-nav__label">{{ tr "nav.realtime" }}</span>
     </a>
+    {{- end }}
 
-    <p class="yd-nav__section">接口 | API</p>
+    {{/* 接口一组不需要会话：OpenAPI 文档与健康检查本来就是给运维与外部调用方看的，登录页上也要能找到它们。
+         The API group needs no session: the OpenAPI document and the health probe exist for operators and for outside
+         callers, and the sign-in page must be able to reach them too. */}}
+    {{/* /docs 与 /openapi.json 是普通链接而不是 htmx 导航：前者是框架渲染的整页 HTML，
+         换进工作区会把一个 <html> 嵌进另一个 <html> 里。
+         /docs and /openapi.json are plain links rather than htmx navigations: the former is a whole HTML page rendered by
+         the framework, and swapping it into the workspace would nest one <html> inside another. */}}
+    <p class="yd-nav__section">{{ tr "nav.group.api" }}</p>
     <a class="yd-nav__link" href="/docs" data-yd-nav="docs">
-      <span class="yd-nav__label">接口文档 | API docs</span>
+      <span class="yd-nav__label">{{ tr "nav.docs" }}</span>
     </a>
     <a class="yd-nav__link" href="/openapi.json" data-yd-nav="openapi">
       <span class="yd-nav__label">OpenAPI 3.0 JSON</span>
     </a>
+    <a class="yd-nav__link" href="/healthz" data-yd-nav="health">
+      <span class="yd-nav__label">{{ tr "nav.health" }}</span>
+    </a>
   </nav>
 
   <div class="yd-sidebar__footer">
-    <p class="yd-hint">版本 | Version {{ .Version }}</p>
+    <p class="yd-hint">{{ tr "nav.version" }} {{ .Version }}</p>
     {{- with .Features }}
     <ul class="yd-hint">
       {{- range . }}

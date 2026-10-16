@@ -1,0 +1,58 @@
+{{/*
+  pages/tenants.html —— 租户管理片段：多租户的第一层界面。
+  pages/tenants.html — the tenant management fragment: the first surface of multi-tenancy.
+
+  这一页只列出租户，不列出任何租户里的数据：跨租户的读写不是在页面上被藏起来，而是在仓储层就查不到
+  （tenant_id 参与每一次查询），所以这里即便有人手工拼一个 ID，也得不到另一个租户的任何一行。
+  This page lists tenants and none of their data: cross-tenant reads and writes are not hidden by the page, they simply
+  do not resolve in the repository (tenant_id takes part in every query), so hand-assembling an id here yields no row of
+  another tenant either.
+
+  状态码契约 | Status-code contract:
+    * 成功：GET/POST /tenants 返回本片段，htmx 以 innerMorph 换入 #yd-workspace；
+    * success: GET/POST /tenants answer with this fragment, which htmx morphs into #yd-workspace with innerMorph;
+    * 校验失败：422（名称必填、标识只能是小写字母数字与连字符）+ pages/error.html，由 hx-status 换入全局错误槽位；
+    * validation failure: 422 (a name is required and the slug may only hold lower-case letters, digits and dashes) plus
+      pages/error.html, swapped into the global error slot by hx-status;
+    * 冲突：409（标识已被占用）走同一条路径。
+    * conflict: 409 (the slug is taken) takes the same path.
+
+  数据契约 | Data contract: .Rows .Total .Keyword .Empty .CanTenantWrite。
+*/}}
+<section class="yd-page" data-yd-page="tenants" aria-labelledby="yd-tenants-title">
+  <header class="yd-page__header">
+    <div>
+      <h1 class="yd-page__title" id="yd-tenants-title">{{ tr "page.tenants.title" }}</h1>
+      <p class="yd-page__subtitle">
+        {{ tr "page.tenants.subtitle" .Total }}{{ with .Keyword }} · {{ tr "page.users.keyword" . }}{{ end }}
+      </p>
+    </div>
+    <div class="yd-page__actions">
+      <span class="yd-badge yd-badge--muted">{{ tr "page.tenants.scope" }}</span>
+    </div>
+  </header>
+
+  <form class="yd-filters" role="search" method="get" action="/tenants"
+        hx-get="/tenants" hx-target="#yd-workspace" hx-swap="innerMorph" hx-push-url="true"
+        hx-trigger="input changed delay:300ms from:#yd-tenants-search, submit">
+    <label class="sr-only" for="yd-tenants-search">{{ tr "page.tenants.search_label" }}</label>
+    <input class="yd-input" id="yd-tenants-search" name="q" type="search" autocomplete="off"
+           value="{{ .Keyword }}" placeholder="{{ tr "page.tenants.search_placeholder" }}">
+    <button type="submit" class="yd-btn yd-btn--ghost">{{ tr "ui.search" }}</button>
+  </form>
+
+  <section class="yd-card yd-section" aria-labelledby="yd-tenants-table-title">
+    <h2 class="sr-only" id="yd-tenants-table-title">{{ tr "page.tenants.table_title" }}</h2>
+    {{ template "partials/tenants/list" . }}
+  </section>
+
+  {{- if .CanTenantWrite }}
+  <section class="yd-card yd-section">
+    <details class="yd-details" {{ if .Empty }}open{{ end }}>
+      <summary class="yd-details__summary">{{ tr "page.tenants.create" }}</summary>
+      {{ template "partials/tenants/form" . }}
+      <p class="yd-hint">{{ tr "page.tenants.create_hint" }}</p>
+    </details>
+  </section>
+  {{- end }}
+</section>

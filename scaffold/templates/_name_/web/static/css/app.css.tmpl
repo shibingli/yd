@@ -78,3 +78,212 @@ body {
   opacity: 1;
 }
 {{- end }}
+
+/* ============================================================================================
+   主题：三态（浅色 / 深色 / 跟随系统）由 <html data-theme> 上的一个属性承载，页面结构完全不变。
+   Theme: the three states (light, dark, system) ride on a single attribute on <html data-theme> and the page structure
+   never changes with them.
+
+   深色只重写语义变量，因此所有引用语义名的规则（含 Tailwind 编译出的 bg-surface、text-content）一起跟随；
+   写死色值的地方会在这里暴露出来——那正是它们该被修掉的时候。
+   Dark mode only redefines the semantic variables, so every rule that references a semantic name — Tailwind's compiled
+   bg-surface and text-content included — follows along; a hard-coded colour shows up right here, which is exactly when
+   it should be fixed.
+   ============================================================================================ */
+/* 语义色补充：危险色在两种主题下各有一个取值，因此页面里不出现任何色值字面量。 */
+/* Additional semantic colours: the danger colour has one value per theme, which keeps every colour literal out of the
+   pages. */
+:root {
+  --color-danger: #dc2626;
+}
+
+:root[data-theme="dark"] {
+  --color-brand-50: #172554;
+  --color-brand-100: #1e3a8a;
+  --color-brand-200: #1e40af;
+  --color-brand-500: #3b82f6;
+  --color-brand-600: #2563eb;
+  --color-brand-700: #60a5fa;
+
+  --color-danger: #f87171;
+
+  --color-surface: #0b1120;
+  --color-content: #e2e8f0;
+  --color-content-muted: #94a3b8;
+  --color-border-subtle: #1e293b;
+}
+
+/* 跟随系统：同一个变量表，但只在系统偏好为深色时生效，且不能覆盖用户手选的 light/dark。 */
+/* System: the same variable table, applied only while the operating system prefers dark, and never overriding an
+   explicit light or dark choice. */
+@media (prefers-color-scheme: dark) {
+  :root[data-theme="auto"] {
+    --color-brand-50: #172554;
+    --color-brand-100: #1e3a8a;
+    --color-brand-200: #1e40af;
+    --color-brand-500: #3b82f6;
+    --color-brand-600: #2563eb;
+    --color-brand-700: #60a5fa;
+
+    --color-danger: #f87171;
+
+    --color-surface: #0b1120;
+    --color-content: #e2e8f0;
+    --color-content-muted: #94a3b8;
+    --color-border-subtle: #1e293b;
+  }
+}
+
+/* 主题按钮上的三个标签：哪一个是可见的完全由 <html data-theme> 决定，脚本因此不需要知道任何一句文案。 */
+/* The three labels on the theme button: which one is visible is decided entirely by <html data-theme>, so the script
+   never has to know a single sentence of copy. */
+.yd-theme__state {
+  display: none;
+}
+
+:root[data-theme="light"] [data-yd-theme-state="light"],
+:root[data-theme="dark"] [data-yd-theme-state="dark"],
+:root[data-theme="auto"] [data-yd-theme-state="auto"] {
+  display: inline;
+}
+
+/* ============================================================================================
+   本项目补充的语义组件：只写语义名与变量，不写色值字面量（与 yd.css 的约定一致）。
+   Semantic components added by this project: semantic names and variables only, never colour literals (the same contract
+   as yd.css).
+   ============================================================================================ */
+/* 语言切换 | language switch */
+.yd-switch {
+  display: inline-flex;
+  gap: 0.25rem;
+  align-items: center;
+}
+
+.yd-switch__item {
+  padding: 0.125rem 0.5rem;
+  border-radius: 9999px;
+  color: var(--color-content-muted);
+  text-decoration: none;
+  font-size: 0.8125rem;
+}
+
+.yd-switch__item--on {
+  background: var(--color-brand-600);
+  color: var(--color-surface);
+}
+
+/* 身份区 | identity block */
+.yd-user {
+  display: inline-flex;
+  gap: 0.375rem;
+  align-items: center;
+}
+
+.yd-user__name {
+  font-weight: 600;
+}
+
+/* 横幅：首登提示与登录失败共用同一条带 | banners: the first-sign-in notice and a failed sign-in share one strip */
+.yd-banner {
+  display: flex;
+  gap: 0.75rem;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.625rem 0.875rem;
+  margin: 0 0 0.75rem;
+  border: 1px solid var(--color-border-subtle);
+  border-radius: 0.5rem;
+}
+
+.yd-banner--warn {
+  border-color: var(--color-brand-500);
+}
+
+.yd-banner--error {
+  border-color: var(--color-danger);
+}
+
+.yd-banner__text {
+  font-size: 0.875rem;
+}
+
+/* 登录页：整页只有一张卡片，因此不需要栅格 | sign-in page: one card is all there is, so no grid is involved */
+.yd-page--centered {
+  display: flex;
+  justify-content: center;
+}
+
+.yd-login-card {
+  width: 100%;
+  max-width: 26rem;
+}
+
+/* 定义列表：身份、账号页与登录页的信息对 | definition lists: the key/value pairs of the identity, account and sign-in pages */
+.yd-meta {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 0.375rem 0.75rem;
+  margin: 0.75rem 0;
+}
+
+.yd-meta__key {
+  color: var(--color-content-muted);
+  font-size: 0.8125rem;
+}
+
+.yd-meta__value {
+  margin: 0;
+}
+
+/* 角色卡片 | role cards */
+.yd-cards {
+  display: grid;
+  gap: 0.75rem;
+  grid-template-columns: repeat(auto-fill, minmax(18rem, 1fr));
+}
+
+.yd-role__permissions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem;
+}
+
+/* 勾选项：角色与权限都用它，因此标签、说明与输入框的相对位置只定义一次 */
+/* Check rows: roles and capabilities both use them, so the relative position of label, hint and input is defined once */
+.yd-check {
+  display: flex;
+  gap: 0.5rem;
+  align-items: baseline;
+  padding: 0.125rem 0;
+}
+
+.yd-check__label {
+  font-weight: 500;
+}
+
+.yd-divider {
+  border: 0;
+  border-top: 1px solid var(--color-border-subtle);
+  margin: 0.75rem 0;
+}
+
+/* 表单字段：标签在输入框上方，提示在下方 | form fields: the label sits above the input and the hint below it */
+.yd-form__field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  margin-bottom: 0.5rem;
+}
+
+.yd-form__label {
+  font-size: 0.8125rem;
+  font-weight: 600;
+}
+
+.yd-form__fieldset {
+  border: 1px solid var(--color-border-subtle);
+  border-radius: 0.5rem;
+  padding: 0.5rem 0.75rem;
+  margin: 0.5rem 0;
+}
+

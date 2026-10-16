@@ -1,96 +1,272 @@
-// Package service 是业务层：编排仓储、施加规则，并通过 errx 哨兵向控制器暴露失败语义。
-// Package service is the business layer: it orchestrates repositories, applies rules and exposes failures to controllers via errx sentinels.
+// 本文件是用户业务：校验、角色分配与状态切换；一切读写都带着租户 ID。
+// This file is the user business layer: validation, role assignment and lifecycle switches; every read and write carries the tenant id.
+
 package service
 
 import (
 	"context"
-	"net/mail"
 	"strings"
 
 	"{{ .Module }}/internal/model"
 	"{{ .Module }}/internal/repository"
+	"{{ .YdModule }}/auth"
 	"{{ .YdModule }}/errx"
 )
 
-// 用户领域的哨兵错误：控制器据此决定 HTTP 状态码，绝不比较错误字符串。
-// Sentinels of the user domain: controllers map them onto HTTP status codes and never compare error strings.
+// 用户业务哨兵：控制器的 422 分支按它们判定。 | User business sentinels: the 422 branch of the controllers is decided by them.
 var (
-	// ErrUserNotFound 表示按条件没有匹配到任何用户。 | ErrUserNotFound reports that no user matched the condition.
-	ErrUserNotFound = errx.New("user not found | 用户不存在")
-	// ErrUserNameRequired 表示创建用户时缺少名称。 | ErrUserNameRequired reports a missing name when creating a user.
-	ErrUserNameRequired = errx.New("user name is required | 用户名不能为空")
-	// ErrUserEmailInvalid 表示邮箱格式不合法。 | ErrUserEmailInvalid reports a malformed e-mail address.
+	// ErrUserNameRequired 表示登录名为空。 | ErrUserNameRequired reports an empty sign-in name.
+	ErrUserNameRequired = errx.New("user name is required | 用户名称不能为空")
+	// ErrUserEmailInvalid 表示邮箱格式不正确。 | ErrUserEmailInvalid reports a malformed e-mail address.
 	ErrUserEmailInvalid = errx.New("invalid e-mail address | 邮箱格式不正确")
-	// ErrUserEmailTaken 表示邮箱已被占用。 | ErrUserEmailTaken reports an e-mail address already in use.
-	ErrUserEmailTaken = errx.New("e-mail address already registered | 邮箱已被占用")
+	// ErrUserPasswordWeak 表示口令强度不足。 | ErrUserPasswordWeak reports a password that is too weak.
+	ErrUserPasswordWeak = errx.New("the password must be at least 8 characters long | 口令至少需要 8 位")
+	// ErrUserNotFound 表示本租户内没有该用户（其它租户的用户同样报它，避免探测）。 | ErrUserNotFound reports a user that this tenant does not hold (a user of another tenant reports the same, so nothing can be probed).
+	ErrUserNotFound = errx.New("user not found | 用户不存在")
+	// ErrRoleUnknown 表示分配了不存在的角色名。 | ErrRoleUnknown reports an assignment of a role name that does not exist.
+	ErrRoleUnknown = errx.New("unknown role | 角色不存在")
+	// ErrSelfOperation 表示对自己执行了危险操作（如停用自己）。 | ErrSelfOperation reports a dangerous operation on one's own account (disabling oneself, for instance).
+	ErrSelfOperation = errx.New("you cannot disable your own account | 不能停用自己的账号")
 )
 
-// CreateInput 是创建用户的入参：控制器只负责绑定与转交，校验规则全部落在本层。
-// CreateInput is the user creation payload: controllers only bind and forward it, every rule lives in this layer.
-type CreateInput struct {
-	// Name 是显示名。 | Name is the display name.
-	Name string
-	// Email 是登录邮箱。 | Email is the login address.
+// 邮箱与口令的长度边界。 | Length bounds for the e-mail address and the password.
+const (
+	maxEmailLen = 128
+	maxNameLen  = 64
+)
+
+// CreateUserInput 是新建用户的表单输入；Password 是 SM2 密文。 | CreateUserInput is the create form's input; Password is the SM2 ciphertext.
+type CreateUserInput struct {
+	// Username 是登录名，租户内唯一。 | Username is the sign-in name, unique inside the tenant.
+	Username string
+	// Email 是可选的联络邮箱。 | Email is the optional contact address.
 	Email string
+	// DisplayName 是可选的展示名称。 | DisplayName is the optional human-readable name.
+	DisplayName string
+	// Password 是 SM2 密文形态的初始口令。 | Password is the initial password as SM2 ciphertext.
+	Password []byte
+	// Scheme 是 X-YD-Encrypted 请求头取值。 | Scheme is the X-YD-Encrypted request header value.
+	Scheme string
+	// Roles 是初始角色名集合；为空时分配 member。 | Roles is the initial role name set; empty assigns member.
+	Roles []string
 }
 
-// List 返回用户列表：关键字为空时返回全部，否则按名称与邮箱做大小写不敏感匹配。
-// List returns the user list: an empty keyword yields everyone, otherwise names and e-mail addresses are matched case-insensitively.
+// UpdateUserInput 是修改用户资料的表单输入（不含口令与角色，它们各有各的入口）。
+// UpdateUserInput is the profile form's input (no password and no roles; each of those has an entry point of its own).
+type UpdateUserInput struct {
+	// UserID 是被修改的用户。 | UserID is the user being changed.
+	UserID string
+	// Username 是登录名。 | Username is the sign-in name.
+	Username string
+	// Email 是联络邮箱。 | Email is the contact address.
+	Email string
+	// DisplayName 是展示名称。 | DisplayName is the human-readable name.
+	DisplayName string
+}
+
+// UserService 编排用户生命周期。 | UserService orchestrates the user lifecycle.
+type UserService struct {
+	// users 是用户仓储。 | users is the user repository.
+	users *repository.UserRepo
+	// roles 是角色仓储，用于校验角色名与渲染表单。 | roles is the role repository, used to validate role names and to render forms.
+	roles *repository.RoleRepo
+	// auth 提供 SM2 解密：口令只以密文进入本层。 | auth supplies SM2 decryption: a password only enters this layer as ciphertext.
+	auth *AuthService
+}
+
+// NewUserService 基于 Store 构造用户业务；auth 提供口令解密，缺失时新建用户与改密都会以 ErrCipherKeyMissing 结束。
+// NewUserService builds the user business layer over a Store; auth decrypts the password and a missing one makes user
+// creation and password changes end in ErrCipherKeyMissing.
+func NewUserService(store *repository.Store, auth *AuthService) *UserService {
+	return &UserService{users: repository.NewUserRepo(store), roles: repository.NewRoleRepo(store), auth: auth}
+}
+
+// List 返回本租户的用户，keyword 非空时按登录名、邮箱与展示名做不区分大小写的过滤。
+// List returns the users of this tenant, filtered case-insensitively by sign-in name, e-mail and display name when keyword is non-empty.
 //
-// 关键字无匹配时返回 ErrUserNotFound，而不是空列表：控制器据此区分「没有数据」与「筛选没有结果」。
-// A keyword with no match returns ErrUserNotFound instead of an empty slice, so controllers can tell "no data" from "no result".
-func List(ctx context.Context, keyword string) ([]model.User, error) {
-	users, err := repository.List(ctx)
+// 过滤放在这一层而不是仓储层：内存实现没有查询能力，换成 SQL 时把 keyword 下推成 WHERE 即可（此处留有注释）。
+// The filter lives here rather than in the repository because the memory store cannot query; with SQL, push keyword
+// down into the WHERE clause instead.
+func (s *UserService) List(ctx context.Context, tenantID, keyword string) ([]model.User, error) {
+	list, err := s.users.List(ctx, tenantID)
 	if err != nil {
-		return nil, errx.Wrap(err, ErrUserNotFound)
+		return nil, err
 	}
 
-	trimmed := strings.TrimSpace(keyword)
-	if trimmed == "" {
-		return users, nil
+	needle := strings.ToLower(strings.TrimSpace(keyword))
+	if needle == "" {
+		return list, nil
 	}
-
-	kw := strings.ToLower(trimmed)
-	matched := make([]model.User, 0, len(users))
-	for _, u := range users {
-		if strings.Contains(strings.ToLower(u.Name), kw) || strings.Contains(strings.ToLower(u.Email), kw) {
+	matched := make([]model.User, 0, len(list))
+	for _, u := range list {
+		if strings.Contains(strings.ToLower(u.Username), needle) ||
+			strings.Contains(strings.ToLower(u.Email), needle) ||
+			strings.Contains(strings.ToLower(u.DisplayName), needle) {
 			matched = append(matched, u)
 		}
-	}
-	if len(matched) == 0 {
-		return nil, errx.Detail(ErrUserNotFound, "keyword=%s", trimmed)
 	}
 	return matched, nil
 }
 
-// Create 校验并创建用户：名称非空、邮箱可解析且未被占用。
-// Create validates and creates a user: the name must be non-empty and the e-mail address parseable and unused.
-//
-// 校验失败一律返回 ErrUserNameRequired、ErrUserEmailInvalid 或 ErrUserEmailTaken，调用方按哨兵判定。
-// A failed validation returns ErrUserNameRequired, ErrUserEmailInvalid or ErrUserEmailTaken, and callers test the sentinels.
-func Create(ctx context.Context, in CreateInput) (model.User, error) {
-	name := strings.TrimSpace(in.Name)
-	if name == "" {
+// Get 返回本租户内的一个用户。 | Get returns one user of this tenant.
+func (s *UserService) Get(ctx context.Context, tenantID, userID string) (model.User, error) {
+	return s.users.Get(ctx, tenantID, userID)
+}
+
+// Create 新建用户：先校验，再解密口令，最后由 auth 包散列口令并生成 sec_key。
+// Create adds a user: validate first, decrypt the password second and let the auth package hash it and generate the sec_key last.
+func (s *UserService) Create(ctx context.Context, tenantID string, in CreateUserInput) (model.User, error) {
+	username := strings.TrimSpace(in.Username)
+	if username == "" {
 		return model.User{}, ErrUserNameRequired
 	}
-
+	if len(username) > maxNameLen {
+		return model.User{}, ErrUserNameRequired
+	}
 	email := strings.TrimSpace(in.Email)
-	addr, err := mail.ParseAddress(email)
-	if err != nil || addr.Address != email {
-		return model.User{}, errx.Detail(ErrUserEmailInvalid, "email=%q", email)
+	if email != "" && !validEmail(email) {
+		return model.User{}, ErrUserEmailInvalid
 	}
-
-	taken, err := repository.Exists(ctx, email)
+	if s.auth == nil {
+		return model.User{}, ErrCipherKeyMissing
+	}
+	password, err := s.auth.decrypt(in.Password, in.Scheme)
 	if err != nil {
-		return model.User{}, errx.Wrap(err, ErrUserEmailTaken)
-	}
-	if taken {
-		return model.User{}, errx.Detail(ErrUserEmailTaken, "email=%q", email)
+		return model.User{}, err
 	}
 
-	return repository.Create(ctx, model.User{
-		Name:  name,
-		Email: email,
-		Roles: []string{"member"},
+	roles, err := s.normaliseRoles(ctx, tenantID, in.Roles)
+	if err != nil {
+		return model.User{}, err
+	}
+	return s.users.Create(ctx, tenantID, auth.CreateUserInput{
+		Username:    username,
+		Email:       email,
+		DisplayName: strings.TrimSpace(in.DisplayName),
+		Password:    password,
+		Roles:       roles,
 	})
+}
+
+// Update 覆盖用户的资料字段（不含角色与口令）。 | Update replaces the user's profile fields (roles and password excluded).
+func (s *UserService) Update(ctx context.Context, tenantID string, in UpdateUserInput) (model.User, error) {
+	username := strings.TrimSpace(in.Username)
+	if username == "" {
+		return model.User{}, ErrUserNameRequired
+	}
+	email := strings.TrimSpace(in.Email)
+	if email != "" && !validEmail(email) {
+		return model.User{}, ErrUserEmailInvalid
+	}
+
+	record, err := s.users.Get(ctx, tenantID, in.UserID)
+	if err != nil {
+		return model.User{}, ErrUserNotFound
+	}
+	record.Username = username
+	record.Email = email
+	record.DisplayName = strings.TrimSpace(in.DisplayName)
+	if err := s.users.Update(ctx, tenantID, record); err != nil {
+		return model.User{}, err
+	}
+	return record, nil
+}
+
+// SetRoles 覆盖用户的角色集合，是「角色分配」的唯一入口。 | SetRoles replaces the user's role set and is the single entry point of role assignment.
+func (s *UserService) SetRoles(ctx context.Context, tenantID, userID string, names []string) error {
+	roles, err := s.normaliseRoles(ctx, tenantID, names)
+	if err != nil {
+		return err
+	}
+	return s.users.SetRoles(ctx, tenantID, userID, roles)
+}
+
+// SetPassword 由管理员重置他人口令（同时轮换 sec_key，旧令牌立即失效）。
+// SetPassword lets an administrator reset somebody else's password (the sec_key rotates too, so old tokens die at once).
+func (s *UserService) SetPassword(ctx context.Context, tenantID, userID string, password []byte, scheme string) error {
+	if s.auth == nil {
+		return ErrCipherKeyMissing
+	}
+	plain, err := s.auth.decrypt(password, scheme)
+	if err != nil {
+		return err
+	}
+	return s.users.SetPassword(ctx, tenantID, userID, plain)
+}
+
+// Disable 停用用户；actorID 与目标相同时以 ErrSelfOperation 拒绝，避免管理员把自己锁在门外。
+// Disable disables a user; when actorID equals the target it refuses with ErrSelfOperation, so an administrator can never lock themselves out.
+func (s *UserService) Disable(ctx context.Context, tenantID, userID, actorID string) error {
+	if userID == actorID {
+		return ErrSelfOperation
+	}
+	return s.users.SetStatus(ctx, tenantID, userID, model.StatusDisabled)
+}
+
+// Enable 启用用户。 | Enable enables a user.
+func (s *UserService) Enable(ctx context.Context, tenantID, userID string) error {
+	return s.users.SetStatus(ctx, tenantID, userID, model.StatusActive)
+}
+
+// RotateSecKey 轮换某一用户的 sec_key：旧令牌全部失效，口令不变。
+// RotateSecKey rotates one user's sec_key: every old token dies and the password stays.
+func (s *UserService) RotateSecKey(ctx context.Context, tenantID, userID string) error {
+	return s.users.RotateSecKey(ctx, tenantID, userID)
+}
+
+// Roles 返回本租户的角色清单，供用户表单的角色多选渲染。 | Roles returns this tenant's roles for the role checkboxes of the user form.
+func (s *UserService) Roles(ctx context.Context, tenantID string) ([]model.Role, error) {
+	return s.roles.List(ctx, tenantID)
+}
+
+// normaliseRoles 校验并去重角色名：空集合落到 member，未知名称以 ErrRoleUnknown 拒绝（失败即关闭）。
+// normaliseRoles validates and de-duplicates role names: an empty set becomes member and an unknown name is refused with ErrRoleUnknown (fail closed).
+func (s *UserService) normaliseRoles(ctx context.Context, tenantID string, names []string) ([]string, error) {
+	catalogue, err := s.roles.List(ctx, tenantID)
+	if err != nil {
+		return nil, err
+	}
+	known := make(map[string]string, len(catalogue))
+	for _, role := range catalogue {
+		known[strings.ToLower(role.Name)] = role.Name
+	}
+
+	out := make([]string, 0, len(names))
+	seen := make(map[string]struct{}, len(names))
+	for _, name := range names {
+		canonical, ok := known[strings.ToLower(strings.TrimSpace(name))]
+		if !ok {
+			return nil, ErrRoleUnknown
+		}
+		if _, dup := seen[canonical]; dup {
+			continue
+		}
+		seen[canonical] = struct{}{}
+		out = append(out, canonical)
+	}
+	if len(out) == 0 {
+		if canonical, ok := known[model.RoleMember]; ok {
+			out = append(out, canonical)
+		}
+	}
+	return out, nil
+}
+
+// validEmail 做保守的邮箱校验：一个 @、两侧非空、域名里有点且不含空白。
+// validEmail performs a conservative check: exactly one @, non-empty sides, a dotted domain and no whitespace.
+//
+// 刻意不用正则：邮箱的完整语法远比这里需要的复杂，而「发一封信验证」才是唯一的真判据，这里只挡住明显的手误。
+// No regular expression on purpose: the full grammar of an address is far more complex than this layer needs, a
+// confirmation mail is the only real proof and this only rejects obvious typos.
+func validEmail(email string) bool {
+	if len(email) > maxEmailLen || strings.ContainsAny(email, " \t\r\n") {
+		return false
+	}
+	at := strings.IndexByte(email, '@')
+	if at <= 0 || at != strings.LastIndexByte(email, '@') || at == len(email)-1 {
+		return false
+	}
+	domain := email[at+1:]
+	dot := strings.IndexByte(domain, '.')
+	return dot > 0 && dot < len(domain)-1
 }

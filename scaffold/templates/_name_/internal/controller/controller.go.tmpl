@@ -1,20 +1,29 @@
 // Package controller 承载 HTTP 处理器：只做编排与数据组装，业务规则一律放 internal/service。
 // Package controller holds the HTTP handlers: they only orchestrate and assemble data, and every business rule lives in internal/service.
 //
-// 三条硬性约定： | Three hard rules:
+// 四条硬性约定： | Four hard rules:
 //   - 每个处理器上方的注释块都是完整的 OpenAPI 3.0 注解（见 docs/developer_guidelines.md §9.2），yd build 据此生成文档； | every handler carries a complete OpenAPI 3.0 annotation block above it (see docs/developer_guidelines.md §9.2), which yd build turns into the document;
 //   - 端点返回 HTML 片段而不是 JSON（/events、/ws 是流式端点，/guomi/pubkey 是纯文本公钥）； | endpoints answer with HTML fragments rather than JSON (/events and /ws are streaming, /guomi/pubkey returns the public key as plain text);
+//   - 多租户是硬边界：每一次业务调用都带着上下文里的租户 ID，跨租户的读写在 service/repository 两层各拦一次； | multi-tenancy is a hard boundary: every business call carries the tenant id from the context, and cross-tenant reads and writes are refused in both the service and the repository layer;
 //   - 状态码由业务哨兵映射而来（errors.Is），绝不解析错误文案。 | status codes are derived from the business sentinels via errors.Is and never from parsing error messages.
 package controller
 
 import (
+	"context"
 	"errors"
 	"net/http"
+	"strings"
 
 	"{{ .Module }}/internal/meta"
+	"{{ .Module }}/internal/middleware"
+	"{{ .Module }}/internal/model"
+	"{{ .Module }}/internal/repository"
 	"{{ .Module }}/internal/service"
 	"{{ .YdModule }}/app"
+	"{{ .YdModule }}/auth"
 	"{{ .YdModule }}/errx"
+	"{{ .YdModule }}/htmx"
+	"{{ .YdModule }}/i18n"
 	"{{ .YdModule }}/logx"
 	"{{ .YdModule }}/router"
 )
@@ -24,12 +33,43 @@ import (
 const (
 	// TplHome 是首页片段（也是整页请求的内容区）。 | TplHome is the home fragment (the content region of full-page requests as well).
 	TplHome = "pages/home.html"
+	// TplLogin 是登录页片段；未登录用户唯一能看到的页面。 | TplLogin is the sign-in fragment, the only page an anonymous visitor ever sees.
+	TplLogin = "pages/login.html"
 	// TplUsers 是用户管理片段。 | TplUsers is the user management fragment.
 	TplUsers = "pages/users.html"
+	// TplTenants 是租户管理片段。 | TplTenants is the tenant management fragment.
+	TplTenants = "pages/tenants.html"
+	// TplRoles 是角色管理片段。 | TplRoles is the role management fragment.
+	TplRoles = "pages/roles.html"
+	// TplPermissions 是权限矩阵片段。 | TplPermissions is the permission matrix fragment.
+	TplPermissions = "pages/permissions.html"
+	// TplAccount 是账号自助片段（改密与 sec_key 轮换）。 | TplAccount is the self-service account fragment (password change and sec_key rotation).
+	TplAccount = "pages/account.html"
 	// TplRealtime 是实时推送演示片段。 | TplRealtime is the realtime demo fragment.
 	TplRealtime = "pages/realtime.html"
 	// TplError 是校验失败片段，由前端的 hx-status:422 声明式换入。 | TplError is the validation failure fragment swapped in by the front end's hx-status:422.
 	TplError = "pages/error.html"
+)
+
+// 列表片段名：增删改之后返回的就是它们，因此 htmx 只换工作区、不重载整页。
+// Fragment names of the lists: every mutation answers with one of them, so htmx swaps the workspace instead of reloading the page.
+const (
+	// TplUsersList 是用户列表片段。 | TplUsersList is the user list fragment.
+	TplUsersList = "partials/users/list.html"
+	// TplTenantsList 是租户列表片段。 | TplTenantsList is the tenant list fragment.
+	TplTenantsList = "partials/tenants/list.html"
+	// TplRolesList 是角色列表片段。 | TplRolesList is the role list fragment.
+	TplRolesList = "partials/roles/list.html"
+)
+
+// 对外路径常量：模板、控制器与路由引用同一份取值，前端脚本取公钥时也不会写错地址。
+// Public path constants: templates, controllers and the router read one set of values, so the front-end script can never
+// fetch the public key from a misspelled address.
+const (
+	// PubkeyPath 是 SM2 公钥端点；登录表单的 data-yd-pubkey 与文档都指向它。 | PubkeyPath is the SM2 public-key endpoint that the sign-in form's data-yd-pubkey and the docs point at.
+	PubkeyPath = "/guomi/pubkey"
+	// LoginPath 是登录页路径，登出与拒绝跳转都回到这里。 | LoginPath is the sign-in path that sign-out and refusals lead back to.
+	LoginPath = "/login"
 )
 
 // 面向用户的兜底文案：未知错误只回显这一句，绝不把内部细节带出服务端。
@@ -37,8 +77,55 @@ const (
 const (
 	// msgInternal 是 500 的兜底文案。 | msgInternal is the fallback copy for 500.
 	msgInternal = "服务器内部错误，请稍后重试 | Internal server error, please retry later"
-	// msgUnauthorized 是登录失败的兜底文案。 | msgUnauthorized is the fallback copy for a failed login.
-	msgUnauthorized = "邮箱或口令不正确 | Wrong e-mail address or password"
+	// msgUnauthorized 是登录失败的兜底文案：租户不存在与口令错误共用它，避免探测租户是否存在。
+	// msgUnauthorized is the fallback copy for a failed sign-in; an unknown tenant and a wrong password share it so tenant existence cannot be probed.
+	msgUnauthorized = "租户、用户名或口令不正确 | Wrong tenant, user name or password"
+	// msgForbidden 是越权访问的兜底文案。 | msgForbidden is the fallback copy for a refused escalation attempt.
+	msgForbidden = "没有权限执行该操作 | You are not allowed to perform this action"
+)
+
+// 分页与列表上限：内存仓储一次返回全部记录，这里只作为渲染护栏。
+// Paging and list bounds: the in-memory store returns every record at once and this only guards the render.
+const (
+	// defaultPageSize 是一屏展示的记录条数上限。 | defaultPageSize caps the rows rendered on one screen.
+	defaultPageSize = 200
+	// maxFormFieldLen 限制单个表单字段的长度，避免超长输入进入业务层。 | maxFormFieldLen caps one form field so oversized input never reaches the business layer.
+	maxFormFieldLen = 256
+)
+
+// 表单字段名：控制器、模板与端到端测试引用同一组常量，避免任何一处写错字符串。
+// Form field names: controllers, templates and end-to-end tests read one set of constants, so no layer can spell a name wrong.
+const (
+	// FieldUsername 是登录名（登录与建号共用）。 | FieldUsername is the sign-in name (shared by sign-in and user creation).
+	FieldUsername = "username"
+	// FieldPassword 是口令字段，取值永远是 SM2 密文。 | FieldPassword is the password field; its value is always SM2 ciphertext.
+	FieldPassword = "password"
+	// FieldTenant 是登录表单里的租户标识（slug 或 tn_ ID）。 | FieldTenant is the tenant key of the sign-in form (a slug or a tn_ id).
+	FieldTenant = "tenant"
+	// FieldKeyword 是列表筛选关键字。 | FieldKeyword is the list filter keyword.
+	FieldKeyword = "q"
+	// FieldRoles 是用户表单里的角色多选。 | FieldRoles is the role multiple-choice of the user form.
+	FieldRoles = "roles"
+	// FieldStatus 是启用/停用表单的目标状态。 | FieldStatus is the target status of the enable/disable form.
+	FieldStatus = "status"
+	// FieldPermission 是权限矩阵里被切换的能力标识。 | FieldPermission is the capability toggled in the permission matrix.
+	FieldPermission = "permission"
+	// FieldGranted 是权限矩阵里「授予或回收」的选择。 | FieldGranted is the grant-or-revoke choice of the permission matrix.
+	FieldGranted = "granted"
+	// FieldName 是租户与角色的名称字段。 | FieldName is the name field of a tenant or a role.
+	FieldName = "name"
+	// FieldSlug 是租户标识字段。 | FieldSlug is the tenant slug field.
+	FieldSlug = "slug"
+	// FieldDescription 是角色描述字段。 | FieldDescription is the role description field.
+	FieldDescription = "description"
+	// FieldEmail 是邮箱字段。 | FieldEmail is the e-mail field.
+	FieldEmail = "email"
+	// FieldDisplayName 是展示名称字段。 | FieldDisplayName is the human-readable name field.
+	FieldDisplayName = "display_name"
+	// FieldConfirm 是二次输入的新口令字段。 | FieldConfirm is the repeated new-password field.
+	FieldConfirm = "confirm"
+	// FieldCurrent 是当前口令字段。 | FieldCurrent is the current-password field.
+	FieldCurrent = "current"
 )
 
 // ErrPlaceholder 表示占位图编码失败（几乎只可能因为内存耗尽）。 | ErrPlaceholder reports a failed placeholder image encoding (practically only possible when memory is exhausted).
@@ -49,58 +136,233 @@ var ErrPlaceholder = errx.New("controller: placeholder image encoding failed | c
 type Controller struct {
 	// app 是应用门面（渲染、日志、配置）。 | app is the application facade (rendering, logging, configuration).
 	app *app.App
-	// auth 是鉴权服务。 | auth is the authentication service.
-	auth *service.Auth
+	// store 持有鉴权存储与令牌签发器，鉴权中间件与控制器共用同一份。 | store owns the auth store and the token issuer, shared by the auth middleware and the controllers.
+	store *repository.Store
+	// auth 是登录、改密与 sec_key 轮换服务。 | auth serves sign-in, password changes and sec_key rotation.
+	auth *service.AuthService
+	// tenants 是租户服务。 | tenants is the tenant service.
+	tenants *service.TenantService
+	// users 是用户服务。 | users is the user service.
+	users *service.UserService
+	// roles 是角色与权限矩阵服务。 | roles is the role and permission-matrix service.
+	roles *service.RoleService
+	// log 记录装配与业务事件。 | log records assembly and business events.
+	log *logx.Logger
 }
 
-// New 装配控制器；auth 为 nil 时登录端点会以 ErrAuthKey 拒绝请求，而不是空指针崩溃。
-// New wires the controller; a nil auth makes the login endpoint fail with ErrAuthKey instead of panicking.
-func New(a *app.App, auth *service.Auth) *Controller {
-	return &Controller{app: a, auth: auth}
+// New 装配控制器：业务服务在这里一次性构造，彼此共享同一个 Store 与同一个 AuthService。
+// New wires the controller: the services are built once here and share one Store and one AuthService.
+//
+// 共享 AuthService 是硬要求：SM2 密钥对只应存在一份，登录解密、建号解密与改密解密必须用同一把私钥，
+// 否则浏览器取到的公钥与解密用的私钥就会错位。
+// Sharing one AuthService is mandatory: exactly one SM2 key pair may exist, because sign-in, user creation and password
+// changes all have to decrypt with the very same private key — two key pairs would silently mismatch the public key the
+// browser fetched.
+func New(a *app.App, store *repository.Store, log *logx.Logger) (*Controller, error) {
+	if a == nil || store == nil {
+		return nil, service.ErrAuthUnavailable
+	}
+	if log == nil {
+		log = logx.Default()
+	}
+
+	authSvc, err := service.NewAuthService(store, log)
+	if err != nil {
+		return nil, err
+	}
+	return &Controller{
+		app:     a,
+		store:   store,
+		auth:    authSvc,
+		tenants: service.NewTenantService(store),
+		users:   service.NewUserService(store, authSvc),
+		roles:   service.NewRoleService(store),
+		log:     log,
+	}, nil
+}
+
+// Issuer 返回令牌签发器，路由层用它装配鉴权中间件。 | Issuer returns the token issuer, which the router uses to assemble the auth middleware.
+func (c *Controller) Issuer() *auth.TokenIssuer { return c.auth.Issuer() }
+
+// PublicKey 返回 SM2 公钥的十六进制形式。 | PublicKey returns the hexadecimal SM2 public key.
+func (c *Controller) PublicKey() string { return c.auth.PublicKeyHex() }
+
+// ResolveTenant 把租户标识或租户 ID 解析为租户 ID，签名与 middleware.TenantResolver 一致，因此可以直接注入中间件。
+// ResolveTenant maps a tenant key or id onto a tenant id; its signature is middleware.TenantResolver, so the tenant
+// middleware takes it as-is.
+//
+// 解析规则留在 internal/service（业务规则不下沉到中间件），中间件只负责「什么时候问、问到结果怎么用」。
+// The resolution rule stays in internal/service (business rules never sink into middleware) and the middleware only
+// decides when to ask and what to do with the answer.
+func (c *Controller) ResolveTenant(ctx context.Context, key string) (string, error) {
+	return c.tenants.Resolve(ctx, key)
+}
+
+// Deny 渲染中间件层的拒绝：鉴权中间件、权限校验与租户校验共用它，因此「被拒绝」的页面表现只有一种。
+// Deny renders a refusal raised in a middleware: the auth middleware, the permission guard and the tenant check all
+// share it, so a refused request looks the same whichever layer refused it.
+//
+// 未登录的普通浏览请求改送登录页而不是丢一个错误片段：浏览器地址栏里的 /users 换成一个 401 页面毫无帮助，
+// 换成登录页才给人一条出路；htmx 请求与 API 客户端（带 Authorization、不认 HTML）继续得到 401 片段。
+// A plain browsing request without a session goes to the sign-in page instead of receiving an error fragment: answering
+// /users with a 401 page helps nobody, while the sign-in page offers a way forward; htmx requests and API clients
+// (which send Authorization and do not parse HTML) keep getting the 401 fragment.
+func (c *Controller) Deny(ctx *router.Ctx, err error) {
+	status, message := statusFor(err)
+	if status == http.StatusUnauthorized && !htmx.IsRequest(ctx.Request) {
+		c.clearSession(ctx)
+		c.redirect(ctx, "/login")
+		return
+	}
+	c.log.Warn("middleware refused the request | 中间件拒绝了请求",
+		logx.Err(err),
+		logx.Str("path", ctx.Path()),
+		logx.Str("method", ctx.Method()),
+		logx.Int("status", status),
+	)
+	c.fail(ctx, status, message)
 }
 
 // view 构造页面数据：所有模板共享的字段在这里注入一次，页面只需追加自己的键。
 // view builds the page data: every field shared by all templates is injected once here, and pages only add their own keys.
+//
+// .User 在未登录时是真正的 nil（而不是装了 nil 指针的接口）：模板里的 {{ "{{ if .User }}" }} 才能按预期判假。
+// .User is a genuine nil when nobody is signed in rather than an interface holding a nil pointer, which is what makes
+// {{ "{{ if .User }}" }} behave as written in the templates.
 func (c *Controller) view(ctx *router.Ctx, title string, extra map[string]any) map[string]any {
 	data := map[string]any{
-		"Title":           title,
-		"Name":            meta.Name,
-		"Module":          meta.Module,
-		"Description":     meta.Description,
-		"Version":         meta.Version,
-		"GoVersion":       meta.GoVersion,
-		"HtmxVersion":     meta.HtmxVersion,
-		"TailwindVersion": meta.TailwindVersion,
-		"Features":        meta.Features,
-		"Scripts":         meta.HtmxExtScripts,
-		"Path":            ctx.Path(),
-		"PublicKey":       c.publicKey(),
+		"Title":             title,
+		"Name":              meta.Name,
+		"Module":            meta.Module,
+		"Description":       meta.Description,
+		"Version":           meta.Version,
+		"GoVersion":         meta.GoVersion,
+		"HtmxVersion":       meta.HtmxVersion,
+		"TailwindVersion":   meta.TailwindVersion,
+		"Features":          meta.Features,
+		"Scripts":           meta.HtmxExtScripts,
+		"Path":              ctx.Path(),
+		"PublicKey":         c.PublicKey(),
+		"KeyEndpoint":       PubkeyPath,
+		"Lang":              c.lang(ctx),
+		"TenantHeader":      meta.TenantHeader,
+		"SeedNotice":        meta.SeedPasswordNotice,
+		"User":              nil,
+		"Tenant":            nil,
+		"SignedIn":          false,
+		"SeedPassword":      false,
+		"CanTenantRead":     false,
+		"CanTenantWrite":    false,
+		"CanUserRead":       false,
+		"CanUserWrite":      false,
+		"CanRoleRead":       false,
+		"CanRoleWrite":      false,
+		"CanPermissionRead": false,
+		"Permissions":       []model.Permission{},
 	}
 	for k, v := range extra {
 		data[k] = v
 	}
+
+	user, ok := auth.CurrentUser(ctx)
+	if !ok || user == nil {
+		return data
+	}
+
+	// 页面拿到的是 internal/model 的用户视图而不是框架的 *auth.User：模板需要的是展示名与头像首字母这类派生值，
+	// 而它们只定义在模型层；把框架结构体直接塞进模板会让每一个页面各自重算一遍。
+	// Pages receive the internal/model view rather than the framework's *auth.User: what a template needs are derived
+	// values such as the display name and the avatar initial, which live in the model layer alone. Handing the framework
+	// struct to a template would make every page recompute them.
+	data["User"] = model.UserFromAuth(user)
+	data["SignedIn"] = true
+	data["Permissions"] = c.auth.Permissions(user)
+	data["SeedPassword"] = c.auth.SeedPasswordUnchanged(user)
+	// 六个布尔值一次算好：模板函数表里没有「切片是否包含」这类助手，而导航项与按钮的显隐只该由服务端的判断决定，
+	// 页面里出现一行权限推断就等于把授权规则抄到了视图层。
+	// Six booleans are computed once here: the template function map has no "does the slice contain" helper, and whether a
+	// navigation item or a button shows must be the server's call — one permission inference in a page would be a copy of
+	// the authorization rule living in the view layer.
+	data["CanTenantRead"] = c.auth.HasPermission(user, model.PermTenantRead)
+	data["CanTenantWrite"] = c.auth.HasPermission(user, model.PermTenantWrite)
+	data["CanUserRead"] = c.auth.HasPermission(user, model.PermUserRead)
+	data["CanUserWrite"] = c.auth.HasPermission(user, model.PermUserWrite)
+	data["CanRoleRead"] = c.auth.HasPermission(user, model.PermRoleRead)
+	data["CanRoleWrite"] = c.auth.HasPermission(user, model.PermRoleWrite)
+	data["CanPermissionRead"] = c.auth.HasPermission(user, model.PermPermissionRead)
+
+	if tenantID, ok := middleware.TenantID(ctx); ok {
+		data["TenantID"] = tenantID
+		if tenant, err := c.tenants.Get(ctx.Request.Context(), tenantID); err == nil {
+			data["Tenant"] = tenant
+		}
+	}
 	return data
 }
 
-// publicKey 返回 SM2 公钥；鉴权服务缺失时返回空串，模板按空值隐藏加密表单。
-// publicKey returns the SM2 public key; without an auth service it returns an empty string and templates hide the encrypted form.
-func (c *Controller) publicKey() string {
-	if c.auth == nil {
-		return ""
+// lang 返回请求语言；i18n 未装配时回退到 meta.DefaultLang，页面 lang 属性因此永不为空。
+// lang returns the request language and falls back to meta.DefaultLang when i18n is not wired, so the lang attribute is never empty.
+func (c *Controller) lang(ctx *router.Ctx) string {
+	if t := i18n.FromContext(ctx); t != nil {
+		return t.Lang()
 	}
-	return c.auth.PublicKeyHex()
+	return meta.DefaultLang
+}
+
+// field 读取并裁剪一个表单字段，同时限制长度。
+// field reads and trims one form field, capping its length.
+func field(ctx *router.Ctx, name string) string {
+	value := strings.TrimSpace(ctx.FormValue(name))
+	if len(value) > maxFormFieldLen {
+		value = value[:maxFormFieldLen]
+	}
+	return value
+}
+
+// payload 读取一个密文字段并还原为字节：前端提交的是 Base64，auth.DecryptLoginPayload 两种形态都接受。
+// payload reads a ciphertext field and turns it back into bytes: the front end submits Base64 while
+// auth.DecryptLoginPayload accepts both that and the raw form.
+func payload(ctx *router.Ctx, name string) []byte { return []byte(field(ctx, name)) }
+
+// scheme 读取国密载荷的标记请求头。 | scheme reads the marker header of a national-cryptography payload.
+func scheme(ctx *router.Ctx) string { return ctx.Header(auth.LoginEncryptedHeader) }
+
+// formValues 返回同名表单字段的全部取值（多选框与复选框由此读取）。
+// formValues returns every value of a form field with the same name, which is how checkbox groups are read.
+//
+// 先调一次 FormValue：它会完成表单解析并受 MaxBodySize 限制，随后 Request.Form 才持有全部同名取值。
+// It calls FormValue once first: that parses the body under the MaxBodySize bound, and only then does Request.Form hold
+// every value sharing the name.
+func formValues(ctx *router.Ctx, name string) []string {
+	_ = ctx.FormValue(name)
+	values := ctx.Request.Form[name]
+	out := make([]string, 0, len(values))
+	for _, v := range values {
+		trimmed := strings.TrimSpace(v)
+		if trimmed == "" || len(trimmed) > maxFormFieldLen {
+			continue
+		}
+		out = append(out, trimmed)
+	}
+	return out
 }
 
 // render 渲染片段或整页：app.Render 依据 HX-Request 与 HX-Request-Type 自动选择「只片段」还是「布局包裹片段」。
 // render renders a fragment or a whole page: app.Render picks "fragment only" or "layout-wrapped fragment" from HX-Request and HX-Request-Type.
 func (c *Controller) render(ctx *router.Ctx, status int, name string, data map[string]any) {
 	if err := c.app.Render(ctx, status, name, data); err != nil {
-		c.app.Logger().Error("render failed | 渲染失败",
+		c.log.Error("render failed | 渲染失败",
 			logx.Err(err),
 			logx.Str("template", name),
 			logx.Str("path", ctx.Path()),
 		)
 	}
+}
+
+// toast 下发一条浏览器提示：事件名由 internal/meta 定义，页面在 body 上订阅。
+// toast fires one browser-side notice: the event name comes from internal/meta and the page subscribes on the body.
+func (c *Controller) toast(ctx *router.Ctx, message string) {
+	htmx.TriggerFromCtx(ctx, htmx.Event{Name: meta.ToastEvent, Detail: message})
 }
 
 // fail 输出错误片段：状态码 + pages/error.html。
@@ -124,10 +386,20 @@ func (c *Controller) fail(ctx *router.Ctx, status int, messages ...string) {
 // failService 把业务哨兵映射为状态码与文案，并输出错误片段。
 // failService maps a business sentinel onto a status code and copy, then writes the error fragment.
 func (c *Controller) failService(ctx *router.Ctx, err error) {
+	if err == nil {
+		return
+	}
 	status, message := statusFor(err)
 	if status >= http.StatusInternalServerError {
 		// 500 必须留下完整错误链，供中间件的访问日志与告警消费。 | A 500 must leave the full error chain for the access log and for alerting.
-		c.app.Logger().Error("request failed | 请求失败",
+		c.log.Error("request failed | 请求失败",
+			logx.Err(err),
+			logx.Str("path", ctx.Path()),
+			logx.Str("method", ctx.Method()),
+		)
+	} else {
+		// 4xx 只记一行：越权与校验失败是业务事件，不是故障。 | A 4xx leaves one line: an escalation attempt or a validation failure is a business event, not an incident.
+		c.log.Warn("request refused | 请求被拒绝",
 			logx.Err(err),
 			logx.Str("path", ctx.Path()),
 			logx.Str("method", ctx.Method()),
@@ -136,23 +408,84 @@ func (c *Controller) failService(ctx *router.Ctx, err error) {
 	c.fail(ctx, status, message)
 }
 
+// redirect 让浏览器换一个地址：htmx 请求走 HX-Redirect，普通请求走 303。
+// redirect sends the browser elsewhere: an htmx request gets HX-Redirect and a plain one a 303.
+func (c *Controller) redirect(ctx *router.Ctx, target string) {
+	if htmx.IsRequest(ctx.Request) {
+		htmx.Redirect(ctx.Writer, target)
+		if err := ctx.String(http.StatusOK, ""); err != nil {
+			c.log.Warn("redirect write failed | 重定向写出失败", logx.Err(err))
+		}
+		return
+	}
+	if err := ctx.Redirect(http.StatusSeeOther, target); err != nil {
+		c.log.Warn("redirect write failed | 重定向写出失败", logx.Err(err))
+	}
+}
+
+// tenantID 取出当前请求的租户 ID；缺失时以 400 结束响应并返回 false。
+// tenantID reads the tenant id of the current request and ends the response with a 400 when it is missing.
+//
+// 受保护端点上的租户由令牌的 tid 声明决定（见 internal/middleware/tenant.go），因此这里取不到只可能是装配错误，
+// 但它依然以业务错误收场，而不是继续往下读一个空租户的数据。
+// On a protected endpoint the tenant comes from the token's tid claim (see internal/middleware/tenant.go), so a miss can
+// only be an assembly mistake — and it still ends as a business error instead of reading data for an empty tenant.
+func (c *Controller) tenantID(ctx *router.Ctx) (string, bool) {
+	if id, ok := middleware.TenantID(ctx); ok {
+		return id, true
+	}
+	c.fail(ctx, http.StatusBadRequest, service.ErrTenantMissing.Error())
+	return "", false
+}
+
 // statusFor 把哨兵错误映射为 HTTP 状态码与用户可见文案。
 // statusFor maps a sentinel error onto an HTTP status code and the copy shown to the user.
 func statusFor(err error) (int, string) {
 	switch {
 	case errors.Is(err, service.ErrUserNameRequired),
 		errors.Is(err, service.ErrUserEmailInvalid),
-		errors.Is(err, service.ErrUserEmailTaken):
+		errors.Is(err, service.ErrUserPasswordWeak),
+		errors.Is(err, service.ErrPasswordMismatch),
+		errors.Is(err, service.ErrRoleUnknown),
+		errors.Is(err, service.ErrRoleNameRequired),
+		errors.Is(err, service.ErrPermissionUnknown),
+		errors.Is(err, service.ErrTenantNameRequired),
+		errors.Is(err, service.ErrTenantSlugInvalid):
 		// 校验失败一律 422：与前端的 hx-status:422 契约对齐，且语义比 400 更精确。
 		// Validation failures are always 422: it matches the front end's hx-status:422 contract and is more precise than 400.
 		return http.StatusUnprocessableEntity, err.Error()
-	case errors.Is(err, service.ErrUserNotFound):
+	case errors.Is(err, service.ErrUserNotFound), errors.Is(err, service.ErrRoleNotFound):
 		return http.StatusNotFound, err.Error()
-	case errors.Is(err, service.ErrCipherMissing), errors.Is(err, service.ErrCipherInvalid), errors.Is(err, service.ErrEmailRequired):
-		// 加密链路本身出错：告知客户端重新取公钥后重试，而不是回落到明文。 | The encryption chain failed: ask the client to refetch the key rather than falling back to plain text.
+	case errors.Is(err, middleware.ErrTenantRequired),
+		errors.Is(err, auth.ErrTenantRequired),
+		errors.Is(err, service.ErrCipherRequired),
+		errors.Is(err, service.ErrCipherInvalid),
+		errors.Is(err, service.ErrCipherKeyMissing),
+		errors.Is(err, service.ErrTenantMissing):
+		// 加密链路与租户解析出错：告知客户端换一枚新公钥或补上租户后重试，而不是回落到明文。
+		// The encryption chain or the tenant resolution failed: ask the client to refetch the key or to name a tenant rather than falling back to plain text.
 		return http.StatusBadRequest, err.Error()
-	case errors.Is(err, service.ErrCredentials), errors.Is(err, service.ErrAuthKey):
+	case errors.Is(err, service.ErrCredentials),
+		errors.Is(err, service.ErrAuthUnavailable),
+		errors.Is(err, auth.ErrTokenInvalid),
+		errors.Is(err, auth.ErrInvalidCredentials),
+		errors.Is(err, auth.ErrUserDisabled):
+		// 令牌无效、口令不符与被停用共用同一句：鉴权失败的对内分类足够细，对外则必须一样粗。
+		// An invalid token, a wrong password and a disabled user share one sentence: the internal classification is fine
+		// grained while the outward one has to stay coarse.
 		return http.StatusUnauthorized, msgUnauthorized
+	case errors.Is(err, auth.ErrNotFound):
+		return http.StatusNotFound, err.Error()
+	case errors.Is(err, auth.ErrWeakPassword), errors.Is(err, auth.ErrInvalidInput):
+		// 框架 sentinel 与项目 sentinel 落在同一个状态码上：调用方分辨不出拒绝来自哪一层。
+		// Framework sentinels land on the same status codes as this project's own, so a caller cannot tell which layer refused.
+		return http.StatusUnprocessableEntity, err.Error()
+	case errors.Is(err, auth.ErrForbidden), errors.Is(err, middleware.ErrTenantMismatch):
+		// 跨租户访问与越权访问都落在这里：对外只回一句，不回显任何租户或用户信息。
+		// Cross-tenant access and privilege escalation both land here: one sentence goes out and no tenant or user information ever does.
+		return http.StatusForbidden, msgForbidden
+	case errors.Is(err, service.ErrSelfOperation), errors.Is(err, service.ErrBuiltinRoleProtected), errors.Is(err, auth.ErrConflict):
+		return http.StatusConflict, err.Error()
 	default:
 		return http.StatusInternalServerError, msgInternal
 	}

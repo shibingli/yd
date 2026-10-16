@@ -1,53 +1,70 @@
 {{/*
-  partials/login.html —— 国密登录表单（由 pages/home.html 引用）。
-  partials/login.html — the national-cryptography sign-in form (referenced by pages/home.html).
+  partials/login.html —— 国密登录表单（由 pages/login.html 引用；登录页也是未登录用户唯一能看到的页面）。
+  partials/login.html — the national-cryptography sign-in form (referenced by pages/login.html, the only page an
+  anonymous visitor ever reaches).
 
   加密链路由三个声明式属性驱动，页面里没有一行拼装密文的脚本：
   Three declarative attributes drive the encryption chain and the page assembles a single byte of ciphertext itself:
-    * data-yd-encrypt="sm2"    声明算法；非 sm2 的取值会让 yd-guomi-htmx.js 直接取消请求；
-    * data-yd-encrypt="sm2"    declares the algorithm; any other value makes yd-guomi-htmx.js cancel the request outright;
-    * data-yd-pubkey="/guomi/pubkey"  公钥地址，htmx 换入内容后即预取并缓存，提交时同步可用；
-    * data-yd-pubkey="/guomi/pubkey"  the key URL, prefetched and cached as soon as htmx swaps content in, so it is
+    * data-yd-encrypt="sm2"          声明算法；非 sm2 的取值会让 yd-guomi-htmx.js 直接取消请求；
+    * data-yd-encrypt="sm2"          declares the algorithm; any other value makes yd-guomi-htmx.js cancel the request;
+    * data-yd-pubkey="<url>"         公钥地址，htmx 换入内容后即预取并缓存，提交时同步可用；
+    * data-yd-pubkey="<url>"         the key URL, prefetched and cached as soon as htmx swaps content in, so it is
       available synchronously at submit time;
-    * data-yd-sensitive        标记不得明文外发的字段，其值在请求体里被替换为密文的 Base64。
-    * data-yd-sensitive        marks the field that must never leave in clear text: its body value is replaced by the
-      Base64 of the ciphertext.
+    * data-yd-sensitive              标记不得明文外发的字段，其值在请求体里被替换为密文的 Base64。
+    * data-yd-sensitive              marks the field that must never leave in clear text: its body value is replaced by
+      the Base64 of the ciphertext.
 
   失败即关闭：取不到公钥时该模块取消请求并警告，绝不降级为明文发送——所以服务端尽可以直接拒收没有
-  X-YD-Encrypted: sm2 请求头的登录。
+  X-YD-Encrypted: sm2 请求头的登录（见 internal/service/auth.go）。
   Fail closed: when the key cannot be obtained the module cancels the request with a warning instead of degrading to
-  clear text, which is why the server may reject any sign-in without the X-YD-Encrypted: sm2 header outright.
+  clear text, which is why the server may reject any sign-in without the X-YD-Encrypted: sm2 header outright (see
+  internal/service/auth.go).
 
-  数据契约 | Data contract: .PublicKey（十进制十六进制串，空串表示密钥对不可用）。
+  失败回显：租户、用户名或口令不对时，控制器以 401 重渲染 pages/login.html，把 .Error 与已填的 .Username 一起带回来，
+  这里只负责把它们显示出来；hx-status:401 让 htmx 真的换入这份片段。
+  Failure echo: when the tenant, the user name or the password is wrong the controller re-renders pages/login.html with a
+  401 and brings .Error back together with the typed .Username, which this file only has to display; hx-status:401 is what
+  makes htmx swap that fragment in.
+
+  数据契约 | Data contract: .KeyEndpoint .PublicKey .Username .Error .SeedNotice。
 */}}
 {{- define "partials/login" -}}
-<form class="yd-form" method="post" action="/login"
-      data-yd-encrypt="sm2" data-yd-pubkey="/guomi/pubkey"
+<form class="yd-form yd-form--login" method="post" action="/login"
+      data-yd-encrypt="sm2" data-yd-pubkey="{{ .KeyEndpoint }}"
       hx-post="/login" hx-target="#yd-workspace" hx-swap="innerMorph"
-      hx-status:400="target:#yd-errors swap:innerHTML"
-      hx-status:401="target:#yd-errors swap:innerHTML"
+      hx-status:401="target:#yd-workspace swap:innerHTML"
+      hx-status:422="target:#yd-workspace swap:innerHTML"
       hx-disabled-elt="find button[type='submit']"
       novalidate>
   <div class="yd-form__field">
-    <label class="yd-form__label" for="yd-login-email">邮箱 | E-mail</label>
-    <input class="yd-input" id="yd-login-email" name="email" type="email"
-           autocomplete="username" required value="admin@example.com">
+    <label class="yd-form__label" for="yd-login-tenant">{{ tr "field.tenant" }}</label>
+    {{/* 租户标识与用户名都带 value：失败回显时这两项原样返回，用户只需重敲口令。
+         Both the tenant key and the user name carry a value: a failed attempt returns them unchanged, so only the
+         password has to be typed again. */}}
+    <input class="yd-input" id="yd-login-tenant" name="tenant" type="text"
+           autocomplete="organization" required value="{{ .SeedTenant }}" maxlength="64">
+    <span class="yd-hint">{{ tr "login.tenant_hint" }}</span>
   </div>
   <div class="yd-form__field">
-    <label class="yd-form__label" for="yd-login-password">口令 | Password</label>
-    {{/* 口令字段带 data-yd-sensitive：明文只存在于输入框里，请求体中是 SM2 密文。
+    <label class="yd-form__label" for="yd-login-username">{{ tr "field.username" }}</label>
+    <input class="yd-input" id="yd-login-username" name="username" type="text"
+           autocomplete="username" required value="{{ .Username }}" maxlength="64">
+  </div>
+  <div class="yd-form__field">
+    <label class="yd-form__label" for="yd-login-password">{{ tr "field.password" }}</label>
+    {{/* 口令字段带 data-yd-sensitive：明文只存在于输入框里，请求体中是 SM2 密文的 Base64。
          The password field carries data-yd-sensitive: the clear text lives in the input only, while the request body
-         carries the SM2 ciphertext. */}}
+         carries the Base64 of the SM2 ciphertext. */}}
     <input class="yd-input" id="yd-login-password" name="password" type="password"
-           autocomplete="current-password" required value="admin" data-yd-sensitive>
+           autocomplete="current-password" required data-yd-sensitive>
   </div>
   <div class="yd-form__actions">
     {{/* 公钥不可用时按钮保持禁用：与其提交一个必然被拒的明文请求，不如把原因说清楚。
-         The button stays disabled while the key is unavailable: rather than submitting a clear-text request that is
-         bound to be rejected, the reason is stated right here. */}}
-    <button type="submit" class="yd-btn yd-btn--primary" {{ if not .PublicKey }}disabled{{ end }}>登录 | Sign in</button>
+         The button stays disabled while the key is unavailable: rather than submitting a clear-text request that is bound
+         to be rejected, the reason is stated right here. */}}
+    <button type="submit" class="yd-btn yd-btn--primary" {{ if not .PublicKey }}disabled{{ end }}>{{ tr "ui.sign_in" }}</button>
     {{ if not .PublicKey }}
-    <span class="yd-hint">密钥对不可用，登录已停用 | the key pair is unavailable, signing in is disabled</span>
+    <span class="yd-hint">{{ tr "login.key_unavailable" }}</span>
     {{ end }}
   </div>
 </form>

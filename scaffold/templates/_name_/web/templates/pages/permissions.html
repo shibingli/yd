@@ -1,0 +1,74 @@
+{{/*
+  pages/permissions.html —— 权限矩阵：一张只读的对照表，回答「哪个角色被授予了什么」。
+  pages/permissions.html — the permission matrix: a read-only cross-reference that answers "what is each role granted".
+
+  只读是有意的：写操作全部发生在角色页（那里提交之后返回的正是角色页本身），因此这里不会出现
+  「点完一个开关，回来的却是另一个界面」这种半路换页。矩阵的价值在于一屏看全，而不是又一个编辑入口。
+  Read-only is deliberate: every write happens on the roles page, where a submission answers with that very page, so the
+  matrix never leaves the user on a different screen half way through an edit. Its value is seeing everything at once
+  rather than offering yet another editing surface.
+
+  横轴是角色、纵轴是能力目录：两边都取自服务端（角色来自本租户的角色表，能力来自编译期常量目录），
+  因此这张表既不会漏掉刚建的角色，也不会列出不存在的标识。
+  The columns are roles and the rows are the capability catalogue: both come from the server (the roles from this
+  tenant's role table and the capabilities from the compile-time catalogue), so the table can neither miss a
+  freshly created role nor offer a token that does not exist.
+
+  数据契约 | Data contract: .Roles .Catalogue .CanRoleWrite（决定是否给出前往角色页的入口）。
+*/}}
+<section class="yd-page" data-yd-page="permissions" aria-labelledby="yd-permissions-title">
+  <header class="yd-page__header">
+    <div>
+      <h1 class="yd-page__title" id="yd-permissions-title">{{ tr "page.permissions.title" }}</h1>
+      <p class="yd-page__subtitle">{{ tr "page.permissions.subtitle" }}</p>
+    </div>
+    <div class="yd-page__actions">
+      {{- if .CanRoleWrite }}
+      <a class="yd-btn yd-btn--primary" href="/roles" hx-get="/roles" hx-target="#yd-workspace" hx-swap="innerMorph" hx-push-url="true">
+        {{ tr "page.permissions.edit_roles" }}
+      </a>
+      {{- end }}
+    </div>
+  </header>
+
+  <section class="yd-card yd-section" aria-labelledby="yd-permissions-table-title">
+    <h2 class="sr-only" id="yd-permissions-table-title">{{ tr "page.permissions.table_title" }}</h2>
+    <div class="yd-table__wrap" data-yd-table>
+      <table class="yd-table" aria-label="{{ tr "page.permissions.title" }}">
+        <caption class="sr-only">{{ tr "page.permissions.title" }}</caption>
+        <thead class="yd-table__head">
+          <tr>
+            <th class="yd-table__th" scope="col">{{ tr "field.permission" }}</th>
+            <th class="yd-table__th" scope="col">{{ tr "field.module" }}</th>
+            {{ range .Roles }}
+            <th class="yd-table__th" scope="col">{{ .Name }}</th>
+            {{ end }}
+          </tr>
+        </thead>
+        <tbody class="yd-table__body">
+          {{ range $item := .Catalogue }}
+          <tr class="yd-table__row">
+            <td class="yd-table__td"><code class="yd-code">{{ $item.Key }}</code></td>
+            <td class="yd-table__td yd-table__td--muted">{{ $item.Label }} · <code class="yd-code">{{ $item.Module }}</code></td>
+            {{ range $role := $.Roles }}
+            <td class="yd-table__td">
+              {{/* 授予与否由 model.Role.Granted(权限) 判定，页面不做任何推断：矩阵与鉴权读的是同一个方法。 */}}
+              {{/* Whether it is granted comes from model.Role.Granted(capability) and the page infers nothing: the matrix
+                   and the authorization path read one and the same method. */}}
+              {{ if $role.Granted $item.Key }}
+              <span class="yd-badge yd-badge--ok" aria-hidden="true">✓</span>
+              <span class="sr-only">{{ tr "permission.granted" }}</span>
+              {{ else }}
+              <span class="yd-hint" aria-hidden="true">—</span>
+              <span class="sr-only">{{ tr "permission.denied" }}</span>
+              {{ end }}
+            </td>
+            {{ end }}
+          </tr>
+          {{ end }}
+        </tbody>
+      </table>
+    </div>
+    <p class="yd-section__hint">{{ tr "page.permissions.hint" }}</p>
+  </section>
+</section>

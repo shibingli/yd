@@ -1,6 +1,6 @@
 {{/*
-  layouts/base.html —— 全站骨架：<head>、左侧导航、工作区与脚本装载顺序。
-  layouts/base.html — the site skeleton: <head>, the left navigation, the workspace and the script order.
+  layouts/base.html —— 全站骨架：<head>、左侧导航、顶栏、工作区与脚本装载顺序。
+  layouts/base.html — the site skeleton: <head>, the left navigation, the top bar, the workspace and the script order.
 
   与框架示例布局的区别：本文件不是 {{define}} 片段，而是被渲染的整页。
   app.Render 先渲染控制器给出的片段，再把片段 HTML 通过 .Content 注入这里。
@@ -14,8 +14,12 @@
     .Features        启用的特性清单 | enabled feature list
     .Scripts         所选 htmx 扩展的本地脚本路径 | local script paths of the selected htmx extensions
     .Path            当前请求路径，用于导航高亮 | current request path, used to highlight the active nav item
+    .Lang            当前语言标签 | the negotiated language tag
     .PublicKey       SM2 公钥（十六进制），供登录表单预取 | SM2 public key in hex, prefetched by the sign-in form
-    .Lang            仅启用 i18n 时存在 | present only when i18n is enabled
+    .SeedNotice      首登必改口令的提示文案 | the mandatory first-sign-in password notice
+    .User .Tenant .SignedIn .SeedPassword               当前身份 | the current identity
+    .CanTenantRead .CanTenantWrite .CanUserRead .CanUserWrite .CanRoleRead .CanRoleWrite .CanPermissionRead
+                     六个能力布尔值，导航项与按钮的显隐只读它们 | six capability booleans that alone decide which nav items and buttons appear
     .Content         控制器渲染好的片段 HTML（template.HTML） | the fragment HTML rendered by the controller (template.HTML)
 
   硬规则 | Hard rules:
@@ -32,8 +36,17 @@
        be linked into the browser as-is.
     3. 只使用 app.css 的语义化类（yd-*）与 Tailwind 工具类，不写字面色值。
     3. Only the semantic yd-* classes of app.css and Tailwind utilities are used; no literal colour values.
+    4. 文案一律经 tr 取词（web/i18n/*.yaml），页面里不写字面文案；缺少目录时 tr 原样回显键名，
+       页面结构因此仍然完整。
+    4. Every string is looked up through tr (web/i18n/*.yaml) and no literal copy is written into a page; without a
+       catalogue tr echoes the key itself, so the page structure stays intact either way.
+    5. 主题与语言切换都不刷新整页：语言链接是 htmx 局部导航（只换 #yd-workspace），主题按钮只改
+       <html data-theme>；yd-app.js 把两者的选择分别记在 cookie 与 localStorage 里。
+    5. Neither the theme nor the language switch reloads the whole page: the language links are htmx partial
+       navigations (they swap #yd-workspace only) and the theme button only rewrites <html data-theme>; yd-app.js
+       remembers the two choices in a cookie and in localStorage respectively.
 */}}<!doctype html>
-<html lang="{{ with .Lang }}{{ . }}{{ else }}zh-CN{{ end }}" data-theme="light">
+<html lang="{{ .Lang }}" data-theme="light">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -47,7 +60,7 @@
       hx-target:inherited="#yd-workspace"
       hx-swap:inherited="innerMorph"
       hx-push-url:inherited="true">
-<a class="yd-skip-link" href="#yd-workspace">跳到主内容 | Skip to content</a>
+<a class="yd-skip-link" href="#yd-workspace">{{ tr "ui.skip" }}</a>
 
 {{ template "partials/sidebar" . }}
 
@@ -57,12 +70,68 @@
       <p class="yd-topbar__title">{{ .Name }}</p>
       <p class="yd-topbar__subtitle">v{{ .Version }} · Go {{ .GoVersion }} · htmx {{ .HtmxVersion }} · Tailwind {{ .TailwindVersion }}</p>
     </div>
-    <nav class="yd-topbar__right" aria-label="辅助链接 | Utility links">
-      <a class="yd-btn yd-btn--ghost yd-btn--sm" href="/healthz">健康检查 | Health</a>
+    <nav class="yd-topbar__right" aria-label="{{ tr "ui.utility_links" }}">
+      {{/* 语言切换：两个链接各自带上 ?lang= 查询参数，htmx 只把工作区换掉，因此滚动位置与已展开的表单都还在。
+           点击时 yd-app.js 另写一个 yd_lang cookie，后续不带查询参数的请求（如表单 POST）也跟随同一语言。
+           Language switch: each link carries its own ?lang= query parameter and htmx swaps the workspace alone, so the
+           scroll position and any expanded form survive. yd-app.js also writes a yd_lang cookie on click, which keeps
+           later requests without the parameter — form posts, for instance — on the same language. */}}
+      <span class="yd-switch" role="group" aria-label="{{ tr "ui.language" }}">
+        <a class="yd-switch__item{{ if eq .Lang "zh-CN" }} yd-switch__item--on{{ end }}"
+           href="{{ .Path }}?lang=zh-CN" data-yd-lang="zh-CN"
+           hx-get="{{ .Path }}?lang=zh-CN" hx-target="#yd-workspace" hx-swap="innerMorph" hx-push-url="true">中文</a>
+        <a class="yd-switch__item{{ if eq .Lang "en" }} yd-switch__item--on{{ end }}"
+           href="{{ .Path }}?lang=en" data-yd-lang="en"
+           hx-get="{{ .Path }}?lang=en" hx-target="#yd-workspace" hx-swap="innerMorph" hx-push-url="true">English</a>
+      </span>
+
+      {{/* 三态主题：按钮只切换 <html data-theme>，三个标签各自可见与否完全由 CSS 决定，
+           因此脚本里没有一句文案，语言切换后标签自动跟着变。
+           Three-state theme: the button only flips <html data-theme> and CSS alone decides which of the three labels is
+           visible, so the script holds no copy at all and the labels follow a language switch by themselves. */}}
+      <button type="button" class="yd-btn yd-btn--ghost yd-btn--sm" data-yd-theme-toggle
+              aria-label="{{ tr "ui.theme" }}" title="{{ tr "ui.theme" }}">
+        <span class="yd-theme__state" data-yd-theme-state="light">{{ tr "ui.theme_light" }}</span>
+        <span class="yd-theme__state" data-yd-theme-state="dark">{{ tr "ui.theme_dark" }}</span>
+        <span class="yd-theme__state" data-yd-theme-state="auto">{{ tr "ui.theme_auto" }}</span>
+      </button>
+
+      <a class="yd-btn yd-btn--ghost yd-btn--sm" href="/healthz">{{ tr "nav.health" }}</a>
       <a class="yd-btn yd-btn--ghost yd-btn--sm" href="/openapi.json">OpenAPI</a>
-      <a class="yd-btn yd-btn--ghost yd-btn--sm" href="/docs">接口文档 | API docs</a>
+      <a class="yd-btn yd-btn--ghost yd-btn--sm" href="/docs">{{ tr "nav.docs" }}</a>
+
+      {{/* 身份区：未登录时只显示一句提示与登录入口；已登录时显示头像、展示名与租户名。
+           租户名来自令牌的 tid 声明，因此它显示的永远是本次会话真正所属的租户，而不是请求头里写的那个。
+           Identity block: an anonymous visitor sees a hint and a way in, while a signed-in one sees the avatar, the
+           display name and the tenant. The tenant comes from the token's tid claim, so what is shown is the tenant the
+           session really belongs to rather than whatever a header claims. */}}
+      {{ if .SignedIn }}
+      <span class="yd-user">
+        <span class="yd-avatar yd-avatar--sm" aria-hidden="true">{{ .User.Initial }}</span>
+        <span class="yd-user__name">{{ .User.Display }}</span>
+        {{ with .Tenant }}<span class="yd-badge yd-badge--info">{{ .Display }}</span>{{ end }}
+      </span>
+      <form method="post" action="/logout" hx-post="/logout" hx-target="#yd-workspace" hx-swap="innerMorph">
+        <button type="submit" class="yd-btn yd-btn--ghost yd-btn--sm" data-yd-signout>{{ tr "ui.sign_out" }}</button>
+      </form>
+      {{ else }}
+      <a class="yd-btn yd-btn--primary yd-btn--sm" href="/login">{{ tr "ui.sign_in" }}</a>
+      {{ end }}
     </nav>
   </header>
+
+  {{/* 首登必改口令横幅：账号仍在使用种子口令时出现，指向账号页的改密表单。
+       它不是装饰：种子口令写在 README 与登录页上，只有让它在页面上一直可见，才有人真的会去改。
+       The mandatory first-sign-in banner appears while the account still uses the seeded password and points at the
+       password form of the account page. It is not decoration: the seeded password is printed in the README and on the
+       sign-in page, and it is only ever changed if the reminder stays visible. */}}
+  {{ if .SeedPassword }}
+  <div class="yd-banner yd-banner--warn" role="alert" data-yd-seed-password>
+    <span class="yd-banner__text">{{ .SeedNotice }}</span>
+    <a class="yd-btn yd-btn--ghost yd-btn--sm" href="/account"
+       hx-get="/account" hx-target="#yd-workspace" hx-swap="innerMorph" hx-push-url="true">{{ tr "account.change_password" }}</a>
+  </div>
+  {{ end }}
 
   {{/* 全局错误槽位：表单的 hx-status 只指向这个选择器，因此它必须在每个页面上都存在，
        而且要放在工作区之外——工作区被 morph 掉时，槽位与已显示的错误不该一起消失。
@@ -83,14 +152,18 @@
   {{ template "partials/flash" . }}
 
   <footer class="yd-footer">
-    <p>由 yd 框架生成 | Generated by the yd framework · {{ .Module }}</p>
+    <p>{{ tr "app.tagline" }} · {{ .Module }}</p>
   </footer>
 </div>
 
 {{/* 脚本顺序（唯一允许的顺序）：htmx 核心 → 所选扩展 → 国密加解密 → 本项目脚本。
      全部带 defer：既保持执行顺序，又不阻塞首屏渲染。
+     主题与语言的选择都在 yd-app.js 里落地，因此这里不需要任何内联脚本——CSP 只允许 'self'，
+     内联脚本本来也会被浏览器直接拒绝。
      Script order (the only allowed order): htmx core → selected extensions → guomi crypto → this project's script.
-     All carry defer: the order is preserved and first paint is never blocked. */}}
+     All carry defer: the order is preserved and first paint is never blocked. Theme and language choices are applied in
+     yd-app.js, so no inline script is needed here — the CSP allows 'self' only, and an inline script would be rejected by
+     the browser anyway. */}}
 <script src="/static/js/vendor/htmx.min.js" defer></script>
 {{- range .Scripts }}
 <script src="{{ . }}" defer></script>

@@ -1,116 +1,219 @@
-// 本文件是 service 包的鉴权部分：SM2 解密 + 口令散列比对，全程不落地明文。
-// This file is the authentication part of package service: SM2 decryption plus password hash comparison, with the plaintext never landing anywhere.
-
+// Package service 承载业务编排：规则、校验与事务边界都在这里，控制器只做数据组装。
+// Package service holds the business orchestration: rules, validation and transaction boundaries live here and the
+// controllers only assemble data.
+//
+// 三条硬性约定： | Three hard rules:
+//   - 业务错误一律是包级哨兵（errx），调用方用 errors.Is 判定，绝不解析文案，也绝不用 fmt.Errorf； | every business error is a package-level sentinel (errx) judged through errors.Is; no caller parses a message and fmt.Errorf is never used;
+//   - 多租户是硬边界：每个方法的第一个业务参数都是 tenantID，仓储层再校验一次； | multi-tenancy is a hard boundary: every method takes a tenantID first and the repository checks it again;
+//   - 口令只以 SM2 密文进入本层：解密后立刻交给 auth 包散列，明文不落任何结构体字段。 | a password only enters this layer as SM2 ciphertext: it is decrypted, handed straight to the auth package for hashing and never kept in a struct field.
 package service
 
 import (
 	"context"
-	"strings"
 
 	"{{ .Module }}/internal/model"
 	"{{ .Module }}/internal/repository"
-	"{{ .YdModule }}/b64x"
+	"{{ .YdModule }}/auth"
 	"{{ .YdModule }}/errx"
 	"{{ .YdModule }}/guomi"
+	"{{ .YdModule }}/logx"
 )
 
-// 鉴权哨兵错误：调用方按它们决定 400/401，从来不解析文案。
-// Authentication sentinels: callers map them onto 400/401 and never parse the messages.
+// 业务哨兵错误：控制器用 errors.Is 把它们映射为状态码与文案。 | Business sentinels: the controllers map them onto status codes and copy through errors.Is.
 var (
-	// ErrAuthKey 表示 SM2 密钥对生成失败。 | ErrAuthKey reports a failed SM2 key pair generation.
-	ErrAuthKey = errx.New("auth: failed to generate the SM2 key pair | auth：SM2 密钥对生成失败")
-	// ErrEmailRequired 表示登录请求缺少邮箱。 | ErrEmailRequired reports a login request without an e-mail address.
-	ErrEmailRequired = errx.New("e-mail address is required | 邮箱不能为空")
-	// ErrCipherMissing 表示请求没有携带加密载荷或缺失 sm2 标记。 | ErrCipherMissing reports a missing encrypted payload or the absence of the sm2 marker.
-	ErrCipherMissing = errx.New("encrypted payload missing | 缺少加密载荷")
-	// ErrCipherInvalid 表示密文无法解码或解密。 | ErrCipherInvalid reports a ciphertext that cannot be decoded or decrypted.
-	ErrCipherInvalid = errx.New("invalid ciphertext | 密文无法解密")
-	// ErrCredentials 表示邮箱与口令不匹配（不区分账号不存在与口令错误，避免账号枚举）。
-	// ErrCredentials reports a credential mismatch (the missing-account and wrong-password cases are merged to prevent enumeration).
-	ErrCredentials = errx.New("invalid credentials | 凭据无效")
+	// ErrCredentials 表示登录名或口令不正确（两者不可区分，避免探测用户是否存在）。 | ErrCredentials reports a wrong sign-in name or password (the two are indistinguishable, so user existence cannot be probed).
+	ErrCredentials = errx.New("invalid username or password | 用户名或口令不正确")
+	// ErrCipherRequired 表示口令没有以 SM2 密文提交：明文链路一律拒绝。 | ErrCipherRequired reports a password that did not arrive as SM2 ciphertext; the plaintext path is refused outright.
+	ErrCipherRequired = errx.New("the password must be submitted as an SM2 ciphertext | 口令必须以 SM2 密文提交")
+	// ErrCipherInvalid 表示 SM2 密文无法解密，通常因为客户端缓存了旧公钥。 | ErrCipherInvalid reports an undecryptable SM2 payload, usually because the client cached an old public key.
+	ErrCipherInvalid = errx.New("the SM2 payload cannot be decrypted | SM2 密文无法解密")
+	// ErrCipherKeyMissing 表示服务端 SM2 密钥对装配失败。 | ErrCipherKeyMissing reports a failed server-side SM2 key pair assembly.
+	ErrCipherKeyMissing = errx.New("the SM2 key pair is unavailable | SM2 密钥对不可用")
+	// ErrAuthUnavailable 表示鉴权存储或令牌签发器缺失。 | ErrAuthUnavailable reports a missing auth store or token issuer.
+	ErrAuthUnavailable = errx.New("the auth store is unavailable | 鉴权存储不可用")
+	// ErrPasswordMismatch 表示两次输入的新口令不一致。 | ErrPasswordMismatch reports two new passwords that do not match.
+	ErrPasswordMismatch = errx.New("the two passwords do not match | 两次输入的口令不一致")
 )
 
-// Auth 持有进程内的 SM2 私钥，并对外暴露对应公钥。
-// Auth holds the in-process SM2 private key and publishes the matching public key.
-//
-// 私钥随进程启动生成，因此重启后前端需要重新取一次公钥（yd-guomi-htmx.js 会按 URL 缓存并自动重取）。
-// The private key is generated at process start, so clients refetch the public key after a restart
-// (yd-guomi-htmx.js caches it per URL and refetches automatically).
-// 生产环境应改由密钥管理服务注入私钥，本骨架刻意不落盘密钥。
-// Production should inject the private key from a key management service; this skeleton deliberately persists no key.
-type Auth struct {
-	// priv 是进程内 SM2 私钥。 | priv is the in-process SM2 private key.
-	priv *guomi.PrivateKey
+// LoginInput 是一次登录请求的全部输入；Password 是 SM2 密文（原始字节或标准 Base64）。
+// LoginInput carries every input of one sign-in request; Password is the SM2 ciphertext (raw bytes or standard Base64).
+type LoginInput struct {
+	// TenantID 是已解析出的租户 ID。 | TenantID is the already resolved tenant id.
+	TenantID string
+	// Username 是租户内的登录名（不是邮箱）。 | Username is the sign-in name inside the tenant (not the e-mail address).
+	Username string
+	// Password 是 SM2 密文。 | Password is the SM2 ciphertext.
+	Password []byte
+	// Scheme 是 X-YD-Encrypted 请求头取值，只有 sm2 被接受。 | Scheme is the X-YD-Encrypted request header value; only sm2 is accepted.
+	Scheme string
 }
 
-// NewAuth 生成进程内 SM2 密钥对。 | NewAuth generates the in-process SM2 key pair.
-func NewAuth() (*Auth, error) {
+// ChangePasswordInput 是一次改密请求：三段密文都来自同一个前端会话。
+// ChangePasswordInput carries one password change: all three ciphertexts come from the same front-end session.
+type ChangePasswordInput struct {
+	// Current 是当前口令的 SM2 密文。 | Current is the SM2 ciphertext of the current password.
+	Current []byte
+	// Next 是新口令的 SM2 密文。 | Next is the SM2 ciphertext of the new password.
+	Next []byte
+	// Confirm 是重复输入的新口令 SM2 密文；为空时不校验重复。 | Confirm is the repeated new password as SM2 ciphertext; an empty value skips the repetition check.
+	Confirm []byte
+	// Scheme 是 X-YD-Encrypted 请求头取值。 | Scheme is the X-YD-Encrypted request header value.
+	Scheme string
+}
+
+// AuthService 编排登录、令牌与账号自身的口令/sec_key 生命周期。
+// AuthService orchestrates sign-in, tokens and the account's own password and sec_key lifecycle.
+type AuthService struct {
+	// store 持有鉴权服务与令牌签发器。 | store owns the auth service and the token issuer.
+	store *repository.Store
+	// users 是用户仓储，用于改密与 sec_key 轮换。 | users is the user repository used by password changes and sec_key rotation.
+	users *repository.UserRepo
+	// priv 是进程内的 SM2 私钥，只用于解密登录与改密载荷。 | priv is the in-process SM2 private key, used only to decrypt sign-in and password-change payloads.
+	priv *guomi.PrivateKey
+	// pub 是公钥的十六进制形式，公开给浏览器。 | pub is the hexadecimal public key handed to the browser.
+	pub string
+	// log 记录登录失败与密钥轮换。 | log records failed sign-ins and key rotations.
+	log *logx.Logger
+}
+
+// NewAuthService 装配鉴权服务：进程启动时生成一对 SM2 密钥。
+// NewAuthService assembles the auth service and generates one SM2 key pair at process start.
+//
+// 密钥对随进程生命周期：浏览器每次打开登录页都会重新取公钥，因此重启不会让任何客户端卡住；
+// 需要跨重启稳定的部署请把私钥放进 KMS 或配置，并在 NewAuthService 里换成从密钥源构造。
+// The key pair lives as long as the process: the browser refetches the public key whenever it opens the sign-in page,
+// so a restart never wedges a client; a deployment that needs a stable key loads it from a KMS or the configuration and
+// builds it here instead.
+func NewAuthService(store *repository.Store, log *logx.Logger) (*AuthService, error) {
+	if store == nil || store.Auth() == nil || store.Issuer() == nil {
+		return nil, ErrAuthUnavailable
+	}
+	if log == nil {
+		log = logx.Default()
+	}
+
 	priv, err := guomi.GenerateKey()
 	if err != nil {
-		return nil, errx.Wrap(err, ErrAuthKey)
+		return nil, errx.Wrap(err, ErrCipherKeyMissing)
 	}
-	return &Auth{priv: priv}, nil
+	return &AuthService{store: store, users: repository.NewUserRepo(store), priv: priv, pub: priv.Public().Hex(), log: log}, nil
 }
 
-// PublicKeyHex 返回公钥的十六进制表示，供 /guomi/pubkey 端点与前端加密使用。
-// PublicKeyHex returns the hexadecimal public key used by the /guomi/pubkey endpoint and the front-end encryption.
-func (a *Auth) PublicKeyHex() string {
-	if a == nil || a.priv == nil {
-		return ""
-	}
-	return a.priv.Public().Hex()
-}
+// PublicKeyHex 返回 SM2 公钥的十六进制形式。 | PublicKeyHex returns the hexadecimal SM2 public key.
+func (s *AuthService) PublicKeyHex() string { return s.pub }
 
-// Login 校验登录凭据：先按 Base64 解码再按 SM2 解密，最后与口令散列比对。
-// Login verifies the credentials: Base64 decoding, then SM2 decryption, then the password hash comparison.
+// Issuer 返回令牌签发器，供 auth.Middleware 使用。 | Issuer returns the token issuer used by auth.Middleware.
+func (s *AuthService) Issuer() *auth.TokenIssuer { return s.store.Issuer() }
+
+// Permissions 返回用户的权限全集。 | Permissions returns the user's full capability set.
+func (s *AuthService) Permissions(u *auth.User) []model.Permission { return s.users.Permissions(u) }
+
+// HasPermission 判定用户是否持有某项能力。 | HasPermission reports whether the user holds a capability.
+func (s *AuthService) HasPermission(u *auth.User, p model.Permission) bool { return s.users.HasPermission(u, p) }
+
+// SeedPasswordUnchanged 报告用户是否仍在使用脚手架下发的默认口令。 | SeedPasswordUnchanged reports whether the user still uses the default password handed out by the scaffold.
+func (s *AuthService) SeedPasswordUnchanged(u *auth.User) bool { return s.store.SeedPasswordUnchanged(u) }
+
+// Login 解密口令并签发票据。 | Login decrypts the password and issues a token.
 //
-// encrypted 来自请求头 X-YD-Encrypted 是否为 sm2：未标记的请求一律拒绝，避免明文口令进入服务端。
-// encrypted reflects whether the X-YD-Encrypted request header says sm2: unmarked requests are always rejected so a
-// plain-text password never reaches the server.
-func (a *Auth) Login(ctx context.Context, email, ciphertext string, encrypted bool) (model.User, error) {
-	trimmedEmail := strings.TrimSpace(email)
-	if trimmedEmail == "" {
-		return model.User{}, ErrEmailRequired
-	}
-	if !encrypted || strings.TrimSpace(ciphertext) == "" {
-		return model.User{}, ErrCipherMissing
-	}
-	if a == nil || a.priv == nil {
-		return model.User{}, ErrAuthKey
-	}
-
-	// 前端（web/static/js/yd-guomi-htmx.js）以标准 Base64 承载 SM2 密文。
-	// The front end (web/static/js/yd-guomi-htmx.js) carries the SM2 ciphertext in standard Base64.
-	raw, err := b64x.StdEncoding.DecodeString(strings.TrimSpace(ciphertext))
+// 失败路径刻意不区分「用户不存在」「口令错误」「用户被禁用」，它们都以 ErrCredentials 结束。
+// The failure path deliberately merges "no such user", "wrong password" and "disabled user" into ErrCredentials.
+func (s *AuthService) Login(ctx context.Context, in LoginInput) (*auth.LoginResult, error) {
+	password, err := s.decrypt(in.Password, in.Scheme)
 	if err != nil {
-		return model.User{}, errx.WrapDetail(err, ErrCipherInvalid, "ciphertext_len=%d", len(ciphertext))
+		return nil, err
 	}
 
-	plain, err := guomi.DecryptRaw(a.priv, raw)
+	result, err := s.store.Auth().Login(ctx, in.TenantID, in.Username, password, s.store.Issuer())
 	if err != nil {
-		return model.User{}, errx.WrapDetail(err, ErrCipherInvalid, "ciphertext_len=%d", len(raw))
+		// 只有审计意义，不含口令与散列；租户与登录名足以定位一次失败尝试。
+		// Recorded for audit only, with neither the password nor its hash; the tenant and the sign-in name are enough
+		// to locate a failed attempt.
+		s.log.Warn("sign-in refused | 登录被拒绝",
+			logx.Str("tenant", in.TenantID),
+			logx.Str("username", in.Username),
+			logx.Err(err),
+		)
+		return nil, errx.Wrap(err, ErrCredentials)
 	}
-	defer zero(plain)
 
-	user, ok := repository.FindByEmail(ctx, trimmedEmail)
-	if !ok {
-		return model.User{}, ErrCredentials
-	}
-
-	matched, err := guomi.VerifyPassword(user.PasswordHash, string(plain))
-	if err != nil {
-		return model.User{}, errx.Wrap(err, ErrCredentials)
-	}
-	if !matched {
-		return model.User{}, ErrCredentials
-	}
-	return user, nil
+	s.log.Info("sign-in succeeded | 登录成功",
+		logx.Str("tenant", result.User.TenantID),
+		logx.Str("user", result.User.ID),
+		logx.Str("username", result.User.Username),
+	)
+	return result, nil
 }
 
-// zero 就地清零敏感字节切片，缩小明文在内存中的存活窗口。
-// zero wipes a sensitive byte slice in place, shrinking the window in which the plaintext stays in memory.
-func zero(b []byte) {
-	for i := range b {
-		b[i] = 0
+// ChangePassword 校验当前口令后设置新口令；auth 包会同时轮换 sec_key，让旧令牌立即失效。
+// ChangePassword verifies the current password and then sets the new one; the auth package also rotates the sec_key, so every old token dies at once.
+func (s *AuthService) ChangePassword(ctx context.Context, tenantID, userID string, in ChangePasswordInput) error {
+	current, err := s.decrypt(in.Current, in.Scheme)
+	if err != nil {
+		return err
 	}
+	next, err := s.decrypt(in.Next, in.Scheme)
+	if err != nil {
+		return err
+	}
+	// 两段密文必须各自解密后再比较：SM2 是随机化加密，同一个口令的两次密文完全不同，密文层面的相等判断毫无意义。
+	// Both ciphertexts must be decrypted before they can be compared: SM2 is randomised, so the same password encrypts
+	// differently every time and comparing the ciphertexts would prove nothing.
+	if len(in.Confirm) > 0 {
+		confirm, err := s.decrypt(in.Confirm, in.Scheme)
+		if err != nil {
+			return err
+		}
+		if confirm != next {
+			return ErrPasswordMismatch
+		}
+	}
+
+	record, err := s.store.Auth().GetUser(ctx, tenantID, userID)
+	if err != nil {
+		return err
+	}
+	if _, err := s.store.Auth().Authenticate(ctx, tenantID, record.Username, current); err != nil {
+		return ErrCredentials
+	}
+	if err := s.users.SetPassword(ctx, tenantID, userID, next); err != nil {
+		return err
+	}
+
+	s.log.Info("password changed and the sec_key rotated | 口令已修改并轮换了 sec_key",
+		logx.Str("tenant", tenantID),
+		logx.Str("user", userID),
+	)
+	return nil
+}
+
+// RotateSecKey 轮换某一用户的 sec_key：旧令牌全部失效，口令不变。
+// RotateSecKey rotates one user's sec_key: every old token dies and the password stays.
+func (s *AuthService) RotateSecKey(ctx context.Context, tenantID, userID string) error {
+	if err := s.users.RotateSecKey(ctx, tenantID, userID); err != nil {
+		return err
+	}
+	s.log.Info("sec_key rotated | 已轮换 sec_key", logx.Str("tenant", tenantID), logx.Str("user", userID))
+	return nil
+}
+
+// decrypt 把 SM2 密文还原为口令：请求头必须是 sm2，密文为空或解不开都以哨兵拒绝。
+// decrypt turns an SM2 payload back into a password: the header must say sm2 and an empty or undecryptable payload is refused with a sentinel.
+//
+// auth.DecryptLoginPayload 同时接受原始密文与标准 Base64，与前端 yd-guomi-htmx.js 提交的形态一致。
+// auth.DecryptLoginPayload accepts both the raw ciphertext and standard Base64, matching what the front-end
+// yd-guomi-htmx.js submits.
+func (s *AuthService) decrypt(payload []byte, scheme string) (string, error) {
+	if !auth.LoginEncryptedScheme(scheme) {
+		return "", ErrCipherRequired
+	}
+	if len(payload) == 0 {
+		return "", ErrCipherRequired
+	}
+
+	password, err := auth.DecryptLoginPayload(payload, s.priv)
+	if err != nil {
+		return "", errx.Wrap(err, ErrCipherInvalid)
+	}
+	return password, nil
 }

@@ -11,20 +11,29 @@
 | **校验失败返回 422** | 表单校验失败返回 `422` + 错误片段（`pages/error.html`），模板中用 `hx-status:422="target:#yd-errors"` 声明式接管。 |
 | **重定向走 Htmx 头** | 局部跳转用 `HX-Location`，整页跳转用 `HX-Redirect`，禁止在片段响应里塞 `<meta refresh>`。 |
 | **多区域更新** | 需要同时更新多个区域时输出多个带 `hx-swap-oob` 的片段，或统一换入 `#yd-workspace`。 |
+| **未登录的两种答复** | 普通浏览请求（不带 `HX-Request`）被送到登录页：`303 → /login`；htmx 请求与带 `Authorization` 的 API 客户端得到 `401` 片段。同一个拒绝由 `Controller.Deny` 统一渲染，因此「被拒绝」只有一种页面表现。 |
+| **越权一律 404** | 跨租户或未知实体返回 `auth.ErrNotFound`（404 语义），绝不返回 `403`：响应差异一旦存在，就等于把「另一个租户有没有这条数据」告诉调用方。`403` 只留给「身份有效但能力不足」这一种情形。 |
 
 ## 2. 模板目录约定
 
 ```
 {{ .AssetRoot }}/templates/
 ├── layouts/     # 整页骨架（base.html）
-├── partials/    # 可复用片段（sidebar、flash、table、form、modal、skeleton）
-└── pages/       # 业务页面（整页与其片段视图共用一份文件）
+├── partials/    # 可复用片段（sidebar、users/list、users/row、tenants/form、roles/list、login、flash）
+└── pages/       # 业务页面（login、home、users、tenants、roles、permissions、account、realtime、error）
 ```
 
-- 片段命名：`<资源>/<动作>.html`，例如 `users/list.html`、`users/row.html`、`users/form.html`。
+- 片段命名：`<资源>/<动作>.html`，例如 `users/list.html`、`users/row.html`、`users/form.html`；片段首行用
+  `{{ "{{- define \"partials/<资源>/<动作>\" -}}" }}` 命名，页面用 `{{ "{{ template \"partials/users/list\" . }}" }}` 引入（数据契约写在文件头的注释里）。
 - 禁止在模板中书写内联样式表；样式一律来自 Tailwind v4 语义化类（`bg-surface`、`text-content`、`border-border-subtle`、`bg-brand-600` …）。
 - 禁止硬编码颜色字面量（`#1d4ed8` 之类）；需要新色值请在 `{{ .AssetRoot }}/static/css/app.css` 的 `@theme` 中新增语义变量。
-- 所有面向用户的文案必须带 `data-yd-i18n="<key>"`（前端 i18n 键）。
+- 面向用户的文案一律写进 `{{ .AssetRoot }}/i18n/{zh-CN,en}.yaml`，模板只写 `{{ "{{ tr \"page.users.title\" }}" }}`（带参数时
+  `{{ "{{ tr \"page.users.subtitle\" .Total }}" }}`）。两份目录的键集合必须严格一致：少一个键，页面上出现的就是键名本身。
+- 需要「某权限是否可见」这类判断时，由控制器把布尔值算好放进页面数据（`Can*`），模板只读结果：
+  模板函数表刻意不提供「切片是否包含」之类的助手，否则授权规则会以第二种实现散落到视图层。
+- 主题与语言切换是纯客户端行为（`{{ .AssetRoot }}/static/js/yd-app.js`）：`<html data-theme="light|dark|auto">` 承载主题，
+  `?lang=` 与 `yd_lang` cookie 承载语言，htmx 只换入 `#yd-workspace`，因此语言切换不刷新整页。
+  CSP 只允许 `script-src 'self'`，**禁止内联脚本与内联样式**。
 
 ## 3. Htmx {{ .HtmxVersion }} 属性约定
 
@@ -57,15 +66,81 @@
 - 优先级：命令行参数 > 环境变量（含 `.env`）> 配置文件（`configs/config.local.yaml` > `configs/config.yaml`）> 框架默认值。
 - `.env` 不得入库（`.gitignore` 已忽略），随仓只提供 `.env.template`。
 
-## 7. 后端协同约束
+## 7. 鉴权链路与多租户
+
+受保护端点的中间件顺序本身就是一条论证，**不可调换**（见 `internal/router` 的 `registerProtected`）：
+
+```
+middleware.Promote   →   auth.Middleware   →   middleware.Tenant
+cookie 里的令牌          验签 / 有效期 /         以令牌的 tid 声明定租户，
+提升为 Authorization     每用户 sec_key         与请求头或子域名不一致即 403
+```
+
+- **令牌来源唯一**：浏览器用 HttpOnly 的 `yd_token` cookie 存令牌，`Promote` 把它提升成 `Authorization: Bearer <token>`；
+  htmx 与 API 客户端直接带请求头。两者此后走同一条校验路径，令牌怎么存不影响鉴权逻辑。
+- **租户只信令牌**：`middleware.Tenant` 在鉴权之后运行，因此它读到的是已校验的身份。子域名与 `X-Tenant` 请求头
+  只在**匿名**请求里用于解析租户（登录页预填租户字段）；带令牌的请求一旦与令牌声明不一致，立即 403。
+- **能力守卫挂在路由上**：`g.GET("/users", ctrl.Users, auth.RequirePermission(model.PermUserRead))`。
+  处理器内部不再重复判权；页面上「显示还是隐藏」由控制器算好的 `Can*` 布尔值决定。
+- **能力全集与文案同源**：能力常量与展示名在 `internal/model`（`PermTenantRead`、`PermissionLabel`），
+  角色名与内置角色也在那里（`RoleOwner`、`RoleAdmin`、`RoleMember`、`RoleViewer`）。
+- **改密与 `sec_key` 轮换即全域登出**：令牌绑定在每用户 `sec_key` 上，两者都会轮换它，此前签发的令牌立刻失效；
+  实现必须同时清掉会话 cookie。
+- **CSRF 的第一道墙**：会话 cookie 是 `SameSite=Lax` + `HttpOnly`，跨站表单 POST 不会携带它；需要更强保证时，
+  给写操作加同源校验，或让前端改用 `Authorization` 请求头。
+
+## 8. 后端协同约束
 
 - 控制器只做编排；业务逻辑放 `internal/service`，数据访问放 `internal/repository`。
+  鉴权相关的四层各有边界：`controller` 不碰 `auth.Store`，`service` 不渲染任何 HTML，`repository` 只装配框架的
+  `auth` 服务并守住「跨租户即 `ErrNotFound`」这条契约，`model` 只声明模型、能力常量与展示文案。
 - 一切外部输入必须限长并校验；错误统一经 `internal/middleware` 的恢复中间件与错误片段输出。
 - 错误一律在包级用 `errx.New` 声明哨兵，禁止 `fmt.Errorf`；判定只用 `errors.Is` / `errors.As`。
 - 日志一律走 `logx`，文案中英同步。
-- 新增端点后必须重新生成 OpenAPI 文档（`yd build` 自动完成）并确认 `/docs` 可见。
+- 新增端点后，先在 `internal/controller` 写好带完整注解的处理器（§9.2），再在 `internal/router` 的 `registerProtected`
+  里挂上能力守卫；`yd build` 会自动带上文档，`/docs` 应能立刻看到它。
 
-## 8. 注释与日志文案（强制）
+## 9. 接口文档与注解
+
+### 9.1 覆盖率
+
+文档由**路由树与处理器注解合并**生成（`internal/router` 的 `registerOpenAPI`），因此：
+
+- 新增端点后不必维护任何清单，但**必须**在处理器上方补一段完整注解；只有路由、没有注解的端点会退化成一个
+  没有摘要、没有参数、没有响应示例的空操作，等于把文档的可用性交还给读者去猜。
+- 注解解析失败**不是**致命错误：生产镜像常常不含源码，此时文档退化为路由树推导的骨架并打印 `missing` / `incomplete`
+  计数。启动日志里这三个数字（`matched` / `missing` / `orphan` / `incomplete`）就是覆盖率报表，出现非零值即视为需要补注解。
+- 文档端点 `/openapi.json` 与查看器 `/docs` 与其它端点一同由门面提供；查看器必须完全自包含（不得引用任何绝对 URL），
+  否则内网或离线环境会挂住整页。
+
+### 9.2 注解格式
+
+一段注解就是紧贴处理器上方的一组 `// @关键字` 注释行，**中英同步**写在同一个关键字后（英文在前、` | ` 分隔）：
+
+```go
+// Health 返回健康检查结果。 | Health reports the health probe result.
+//
+// @Summary Health probe | 健康检查
+// @Description Returns "ok" as text/plain without touching any dependency, which is what a container probe or a load
+// @Description balancer needs. | 以 text/plain 返回 "ok"，不触碰任何依赖，容器探针与负载均衡器要的正是这个。
+// @Tags system
+// @Accept text
+// @Produce text
+// @Success 200 {string} string "the literal ok | 字面量 ok"
+// @Router /healthz [get]
+func (c *Controller) Health(ctx *router.Ctx) { /* ... */ }
+```
+
+约定：
+
+- 关键字：`@Summary` `@Description` `@Tags` `@Accept` `@Produce` `@Param` `@Success` `@Failure` `@Security` `@Router`。
+- `@Param` 的形状是 `名字 位置 类型 是否必填 "说明"`，位置取 `query` / `path` / `header` / `formData` / `body`；
+  表单端点用 `formData`，htmx 局部请求与国密标记头用 `header`（例如 `HX-Request`、`X-YD-Encrypted`）。
+- `@Security BearerAuth` 只写在受保护端点上，代表 `Authorization: Bearer <token>`；公开端点（登录、登出、健康检查、公钥）不写。
+- 路径写**路由模式**（含参数，如 `/users/:id/roles`），与处理器实际挂载的位置一致；写错不会报错，只会成为一个孤儿注解。
+- 状态码与实现一致：校验失败 `422`、未登录 `401`、越权 `404`（见 §1 的「越权一律 404」）、未知路由 `404`。
+
+## 10. 注释与日志文案（强制）
 
 所有注释（包文档、导出符号 doc、行内注释）**以及所有日志文案**逐行中英文同步，
 以半角竖线 `|` 分割、**英文在前、中文在后**、两侧各留一个空格：
@@ -77,7 +152,7 @@ log.Info("server started | 服务器已启动", logx.Str("addr", addr))
 
 豁免：`//go:build` 编译指令、`// Code generated ... DO NOT EDIT.` 标记、注释内的代码示例/目录树/URL。
 
-## 9. 提交纪律
+## 11. 提交纪律
 
 - 提交信息使用**中文 Conventional Commits**：`<类型>(<范围>): <中文简述>`。
 - 所有提交结尾固定：

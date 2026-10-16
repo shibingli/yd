@@ -10,6 +10,12 @@ server:
 log:
   level: debug       # 本地开发用 debug | debug for local development
   format: console    # 本地开发用人类可读格式 | human-readable format for local development
+
+# 本文件不入库，因此真实主密钥写在这里是安全的；留空则退回内置开发密钥。
+# This file is never committed, so a real master key belongs here; leaving it empty falls back to the development key.
+auth:
+  master_key: ""
+  token_ttl: 12h     # 本地开发把会话放长，免得反复登录 | a longer session locally, so sign-in is not repeated constantly
 {{- if ne .DB "none" }}
 
 db:

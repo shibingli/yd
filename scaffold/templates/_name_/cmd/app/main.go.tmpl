@@ -19,9 +19,7 @@ import (
 	"context"
 	"os"
 	"os/signal"
-{{- if .I18n }}
 	"strings"
-{{- end }}
 	"syscall"
 
 	"{{ .Module }}/internal/meta"
@@ -30,9 +28,7 @@ import (
 	"{{ .Module }}/web"
 	"{{ .YdModule }}/app"
 	"{{ .YdModule }}/errx"
-{{- if .I18n }}
 	"{{ .YdModule }}/i18n"
-{{- end }}
 	"{{ .YdModule }}/logx"
 	ydmw "{{ .YdModule }}/middleware"
 )
@@ -44,10 +40,8 @@ var (
 	ErrAssemble = errx.New("application assembly failed | 应用装配失败")
 	// ErrStatic 表示静态资产文件系统不可用。 | ErrStatic reports an unusable static asset filesystem.
 	ErrStatic = errx.New("static assets unavailable | 静态资产不可用")
-{{- if .I18n }}
 	// ErrI18n 表示语言目录加载失败。 | ErrI18n reports a failed message catalogue load.
 	ErrI18n = errx.New("message catalogues unavailable | 语言目录不可用")
-{{- end }}
 )
 
 // main 是进程入口：构造日志与退出上下文，装配成功后阻塞运行，直到收到退出信号。
@@ -120,33 +114,35 @@ func assemble(log *logx.Logger) (*app.App, error) {
 	// 静态资源前缀与框架默认值一致；web.Static 已合并框架 vendor 脚本与本项目样式。
 	// The static prefix matches the framework default; web.Static has already merged the framework's vendored scripts with this project's styles.
 	application.Router().StaticFS("/static", static)
-{{- if .I18n }}
 
+	// 语言目录无条件装配：所有页面与片段都用 tr 取词，缺少目录时模板会把键名原样显示出来。
+	// The catalogues are wired unconditionally: every page and fragment is written with the tr helper, and without a
+	// catalogue the templates would render the key names themselves.
 	if err := registerI18n(application, log); err != nil {
 		return nil, err
 	}
-{{- end }}
 
 	if err := router.Register(application); err != nil {
 		return nil, err
 	}
 	return application, nil
 }
-{{- if .I18n }}
 
 // registerI18n 从资产树加载语言目录并挂上语言解析中间件。 | registerI18n loads the catalogues from the asset tree and mounts the locale middleware.
 //
-// 与 app.Default 的差别仅有目录来源：这里读取本项目的 web/langs，而不是框架内嵌文案。
-// The only difference from app.Default is the catalogue source: this reads the project's web/langs instead of the framework's embedded messages.
-// 默认语言优先取配置项 i18n.default_lang，缺失时回退到 internal/meta 的常量，保证两条路径给出同一个值。
-// The default language prefers the i18n.default_lang configuration key and falls back to the internal/meta constant, so both paths agree.
+// 与 app.Default 的差别仅有目录来源：这里读取本项目的 web/i18n，而不是框架内嵌文案。
+// The only difference from app.Default is the catalogue source: this reads the project's web/i18n instead of the framework's embedded messages.
+// 默认语言优先取配置项 i18n.default_lang（该配置段由脚手架的语言开关决定是否写入 configs/config.yaml），
+// 缺失时回退到 internal/meta 的常量，保证两条路径给出同一个值。
+// The default language prefers the i18n.default_lang configuration key (whether that section reaches configs/config.yaml
+// is decided by the scaffold's language switch) and falls back to the internal/meta constant so both paths agree.
 func registerI18n(application *app.App, log *logx.Logger) error {
 	defaultLang := strings.TrimSpace(application.Config().GetString("i18n.default_lang"))
 	if defaultLang == "" {
 		defaultLang = meta.DefaultLang
 	}
 
-	bundle, err := i18n.New(web.Langs(), ".", defaultLang)
+	bundle, err := i18n.New(web.I18n(), ".", defaultLang)
 	if err != nil {
 		return errx.WrapDetail(err, ErrI18n, "default_lang=%s", defaultLang)
 	}
@@ -159,4 +155,3 @@ func registerI18n(application *app.App, log *logx.Logger) error {
 	)
 	return nil
 }
-{{- end }}

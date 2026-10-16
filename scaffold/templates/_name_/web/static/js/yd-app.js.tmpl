@@ -123,6 +123,24 @@
       return;
     }
 
+    /* 主题按钮：只切 <html data-theme>，页面一处都不重建。 | The theme button only flips <html data-theme> and rebuilds nothing. */
+    if (target.closest("[data-yd-theme-toggle]")) {
+      event.preventDefault();
+      cycleTheme();
+      return;
+    }
+
+    /* 语言链接：记下选择后直接放行——htmx 会把 ?lang= 请求的结果换进工作区，
+       而没有 htmx 时同一个 href 就是一次普通导航，两条路径共用一份标记。
+       A language link: the choice is recorded and the event is let through — htmx swaps the result of the ?lang=
+       request into the workspace while the very same href is an ordinary navigation without htmx, so one set of markup
+       serves both paths. */
+    var langLink = target.closest("[data-yd-lang]");
+    if (langLink) {
+      rememberLang(langLink.getAttribute("data-yd-lang"));
+      return;
+    }
+
     /* 重新加载按钮只负责重开订阅：局部刷新的状态由服务端决定，前端不做增量修补。 | The reload button only re-opens the subscription: partial-refresh state is the server's call and the front end never patches it incrementally. */
     if (target.closest("[data-yd-reload]")) {
       event.preventDefault();
@@ -161,6 +179,62 @@
       setConnection(state.open);
     }
   });
+
+  /* 主题与语言：两者都是纯客户端选择，因此各自有一处存放，谁也不去打扰服务端。
+     Theme and language: both are purely client-side choices, so each has exactly one place to live and neither bothers
+     the server. */
+
+  /* 三态主题的存储键与顺序（顺序即按钮循环的顺序）。 | The storage key and the order of the three theme states, which is the order the button cycles through. */
+  var THEME_KEY = "yd_theme";
+  var THEMES = ["light", "dark", "auto"];
+
+  /* 语言 cookie 与 i18n 中间件的默认来源同名：不写这个 cookie，切换只对带查询参数的那一次请求有效。 */
+  /* The language cookie carries the very name the i18n middleware reads by default: without it a switch would only last
+     for the one request carrying the query parameter. */
+  var LANG_COOKIE = "yd_lang";
+  var LANG_MAX_AGE = 31536000;
+
+  /* readTheme 读回用户上次的选择；localStorage 在隐私窗口里可能直接抛错，因此每次都夹一层 try。 | readTheme reads the user's last choice; localStorage may throw outright in a private window, so every access is wrapped. */
+  function readTheme() {
+    try {
+      var value = window.localStorage.getItem(THEME_KEY);
+      return THEMES.indexOf(value) >= 0 ? value : null;
+    } catch (error) {
+      return null;
+    }
+  }
+
+  /* applyTheme 只改 <html> 上的一个属性：三个标签谁可见由 app.css 决定，脚本里没有一句文案。 | applyTheme writes one attribute on <html> and nothing else: app.css decides which of the three labels shows, so the script holds no copy. */
+  function applyTheme(theme) {
+    document.documentElement.setAttribute("data-theme", theme);
+  }
+
+  /* cycleTheme 按固定顺序循环并记住结果，返回新状态供调用方使用。 | cycleTheme cycles in a fixed order and remembers the result, returning the new state to its caller. */
+  function cycleTheme() {
+    var current = document.documentElement.getAttribute("data-theme") || THEMES[0];
+    var index = THEMES.indexOf(current);
+    var next = THEMES[(index + 1) % THEMES.length];
+    applyTheme(next);
+    try {
+      window.localStorage.setItem(THEME_KEY, next);
+    } catch (error) {
+      /* 写不进去也不影响本次会话：状态已经落在 DOM 上了。 | A failed write does not affect this session: the state already sits in the DOM. */
+    }
+    return next;
+  }
+
+  /* rememberLang 把语言写进 cookie，后续的表单 POST 因此不需要任何额外参数。 | rememberLang writes the language into a cookie so that later form posts need no extra parameter. */
+  function rememberLang(lang) {
+    if (!lang) {
+      return;
+    }
+    document.cookie = LANG_COOKIE + "=" + encodeURIComponent(lang) + ";path=/;max-age=" + LANG_MAX_AGE + ";samesite=lax";
+  }
+
+  /* 首屏就应用已存的主题：defer 脚本在解析结束后、首次绘制之前运行，因此不会有可见的闪烁。 */
+  /* The stored theme is applied at first paint: a deferred script runs after parsing and before the first paint, so no
+     flash is visible. */
+  applyTheme(readTheme() || THEMES[0]);
 
   /* 国密装配：加密由 yd-guomi-htmx 以声明式属性接管，这里只负责安装一次。 | Guomi assembly: encryption is taken over by yd-guomi-htmx through declarative attributes, so this only installs it once. */
   if (window.ydGuomiHtmx && typeof window.ydGuomiHtmx.install === "function") {

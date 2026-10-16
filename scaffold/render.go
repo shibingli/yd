@@ -71,14 +71,6 @@ type view struct {
 	LocalReplace string
 	AssetRoot    string
 
-	// 特性开关 | feature switches
-	Redis    bool
-	Asynq    bool
-	GRPC     bool
-	I18n     bool
-	Tailwind bool
-	HtmxExts []string
-
 	// 版本与框架常量 | versions and framework constants
 	GoVersion       string
 	HtmxVersion     string
@@ -86,9 +78,19 @@ type view struct {
 	YdModule        string
 
 	// 派生字段 | derived fields
-	DBDSN          string
+	DBDSN    string
+	HtmxExts []string
+
 	Features       []string
 	HtmxExtScripts []string
+
+	// 特性开关 | feature switches
+	Redis    bool
+	Asynq    bool
+	GRPC     bool
+	Auth     bool
+	I18n     bool
+	Tailwind bool
 }
 
 // newView 由规范化后的选项构造模板上下文。 | newView builds the template context from normalised options.
@@ -103,6 +105,7 @@ func newView(o Options) view {
 		Redis:           o.Redis,
 		Asynq:           o.Asynq,
 		GRPC:            o.GRPC,
+		Auth:            true,
 		I18n:            o.I18n,
 		Tailwind:        o.Tailwind,
 		HtmxExts:        o.HtmxExts,
@@ -129,6 +132,10 @@ func featuresOf(o Options) []string {
 	if o.GRPC {
 		features = append(features, "grpc")
 	}
+	// 鉴权不随选项开关：生成项目一律带多租户登录链路，因此这里恒定登记一次。
+	// Authentication is not an option: a generated project always ships the multi-tenant sign-in chain, so it is recorded
+	// here unconditionally.
+	features = append(features, "auth")
 	if o.I18n {
 		features = append(features, "i18n")
 	}

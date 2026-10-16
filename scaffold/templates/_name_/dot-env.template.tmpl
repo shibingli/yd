@@ -53,3 +53,10 @@ YD_I18N_FALLBACK=en
 # 国密（仅开发环境使用测试向量，生产环境必须走密钥管理服务）
 # Guomi crypto (development uses test vectors only; production must use a key management service)
 YD_GUOMI_SM2_PRIVATE_KEY=
+
+# 鉴权与会话：主密钥封装每个用户的 sec_key，令牌有效期决定登录会话的时长。
+# Authentication and sessions: the master key seals every user's sec_key and the token lifetime bounds the session.
+# 留空即使用脚手架内置的开发密钥——仅供开发，生产环境必须换成密钥管理服务下发的取值。
+# Empty selects the scaffold's built-in development key — development only; production must inject one from a key service.
+YD_AUTH_MASTER_KEY=
+YD_AUTH_TOKEN_TTL=2h
