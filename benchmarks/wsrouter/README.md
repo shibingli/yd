@@ -13,6 +13,9 @@ CGO_ENABLED=1 go test -run TestCompat -race -v
 
 # 性能基准
 go test -run '^$' -bench . -benchmem -benchtime=1s -count=5
+
+# 仅 router 静动态路由对比
+go test -run '^$' -bench '^BenchmarkRouters$' -benchmem -benchtime=1s -count=5
 ```
 
 服务端统一通过 `router.Router` 注册 `/ws` 路由，处理器内调用 `ws.Upgrade`，与实际脚手架生成的接入方式一致。
@@ -95,6 +98,42 @@ router 每次连接约增加 **59 ns（约 5.5%）**，分配次数不变。握�
 ## 接入方式对比
 
 `BenchmarkRouterModes` 对原始 `http.Handler`、`router.GETRaw`、`router.GET` 三种接入方式做稳态回显。由于握手在计时循环之外，三种方式的差异属于噪声（例如 1 KiB 分别为 62.1 / 58.6 / 57.4 µs），说明 router 只影响连接建立期，不影响每消息的读写路径。
+
+## Router 静态/动态路由性能
+
+`BenchmarkRouters` 在**进程内**对比路由匹配本身（不经过网络），使用 `RunParallel` 与无操作的 `ResponseWriter`，覆盖静态、参数、深层参数、通配与未命中五类路径。参与对比的库：标准库 `http.ServeMux`（Go 1.22 模式）、gin v1.12.0、chi v5.5.0、echo v4.16.0、httprouter v1.3.0、fiber v3.6.1。
+
+### 延迟（ns/op，越低越好，5 次中位数）
+
+| 路由器 | static | param | deep | wildcard | miss |
+|---|---:|---:|---:|---:|---:|
+| **yd router** | **5.2** | **5.4** | **5.4** | **5.4** | **8.5** |
+| httprouter | 5.1 | 23.6 | 23.4 | 22.4 | 96.9 |
+| gin | 8.9 | 10.9 | 11.9 | 11.4 | 13.0 |
+| echo | 9.2 | 11.0 | 12.4 | 9.8 | 340.6 |
+| fiber | 26.9 | 30.1 | 37.2 | 30.3 | 37.5 |
+| stdlib `ServeMux` | 56.8 | 70.3 | 71.7 | 129.7 | 251.8 |
+| chi | 200.3 | 349.4 | 380.9 | 352.3 | 231.1 |
+
+### 分配（B/op / allocs/op）
+
+| 路由器 | static | param | deep | wildcard | miss |
+|---|---:|---:|---:|---:|---:|
+| **yd router** | **0 / 0** | **0 / 0** | **0 / 0** | **0 / 0** | **0 / 0** |
+| gin | 0 / 0 | 0 / 0 | 0 / 0 | 0 / 0 | 0 / 0 |
+| fiber | 0 / 0 | 0 / 0 | 0 / 0 | 0 / 0 | 0 / 0 |
+| httprouter | 0 / 0 | 32 / 1 | 32 / 1 | 32 / 1 | 48 / 3 |
+| echo | 0 / 0 | 0 / 0 | 0 / 0 | 0 / 0 | 456 / 8 |
+| stdlib `ServeMux` | 0 / 0 | 16 / 1 | 16 / 1 | 88 / 5 | 192 / 12 |
+| chi | 368 / 2 | 704 / 4 | 704 / 4 | 704 / 4 | 416 / 5 |
+
+结论：
+
+- **yd router 在五类路径上均为最快或并列最快**，且是唯一在所有路径（含未命中）保持零分配的实现。
+- httprouter 静态路径与 yd 并列（5.1 vs 5.2 ns），但参数/深层/通配路径慢约 4 倍，未命中慢约 11 倍，并且动态路径有分配。
+- gin/echo 命中路径约 9–13 ns、零分配；echo 未命中退化到 340 ns / 8 次分配。
+- 标准库 `ServeMux` 为 57–252 ns 并带分配；chi 为 200–381 ns、2–5 次分配；fiber 为 27–39 ns、零分配。
+- 这组数据只反映路由匹配开销；上面的 ws + router 端到端数据才包含网络与握手成本。
 
 ## 测试环境
 
