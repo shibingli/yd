@@ -79,6 +79,12 @@ func (c *Controller) Stream(broker *sse.Broker) router.HandlerFunc {
 	})
 }
 
+// HTTP/2 与 HTTP/3 的 WebSocket 绑定在请求流上：处理器必须阻塞到连接结束，返回即结束流。
+// HTTP/1.1 的 hijack 连接则可以把 Conn 交给其它协程后返回。
+// On HTTP/2 and HTTP/3 the WebSocket is bound to the request stream: the handler must stay alive
+// until the connection ends — returning closes the stream. An HTTP/1.1 hijacked connection may be
+// handed to another goroutine before returning.
+//
 // Socket 构造 WebSocket 端点处理器：内建回显，并周期性主动推送时钟片段。
 // Socket builds the WebSocket endpoint handler: the echo behaviour is built in and the clock fragment is pushed
 // periodically on top of it.

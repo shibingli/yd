@@ -303,7 +303,7 @@ func TestGenerateHiddenFilesNotLostOnMemFS(t *testing.T) {
 	}
 
 	env := pr.read(".env.template")
-	for _, want := range []string{"YD_SERVER_PORT", "YD_DB_DRIVER", "YD_LOG_LEVEL"} {
+	for _, want := range []string{"YD_SERVER_PORT", "YD_DB_DRIVER", "YD_LOG_LEVEL", "YD_SERVER_HTTP2_EXTENDED_CONNECT"} {
 		if !strings.Contains(env, want) {
 			t.Errorf(".env.template 缺少 %q", want)
 		}
@@ -374,6 +374,9 @@ func TestGenerateFeaturesReflectedInConfigAndRoutes(t *testing.T) {
 	pr, _ := generateMem(t, o)
 
 	cfg := pr.read("configs/config.yaml")
+	if !strings.Contains(cfg, "extended_connect: false") {
+		t.Errorf("config.yaml 缺少 server.http2.extended_connect 示例:\n%s", cfg)
+	}
 	for _, want := range []string{"postgres", "redis:", "asynq:", "grpc:", "i18n:"} {
 		if !strings.Contains(cfg, want) {
 			t.Errorf("开启全部特性时 config.yaml 缺少 %q:\n%s", want, cfg)
@@ -385,6 +388,11 @@ func TestGenerateFeaturesReflectedInConfigAndRoutes(t *testing.T) {
 		if !strings.Contains(router, want) {
 			t.Errorf("开启全部特性时 internal/router/router.go 缺少 %q 注册代码:\n%s", want, router)
 		}
+	}
+
+	realtime := pr.read("internal/controller/realtime.go")
+	if !strings.Contains(realtime, "必须阻塞到连接结束") {
+		t.Errorf("realtime.go 缺少 HTTP/2/3 处理器生命周期说明:\n%s", realtime)
 	}
 
 	plain := scaffold.DefaultOptions("plain-app")

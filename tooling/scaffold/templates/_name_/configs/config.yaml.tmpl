@@ -9,6 +9,12 @@
 server:
   port: 8080          # 监听端口 | listening port
   h2c: true           # 开启 HTTP/2 Cleartext | enable HTTP/2 Cleartext
+  http2:
+    # 强制 RFC 8441（WebSocket over HTTP/2）；需要进程以 GODEBUG=http2xconnect=1 启动。
+    # yd dev / yd service install / yd docker 会在该值为 true 时自动配置。
+    # Force RFC 8441 (WebSocket over HTTP/2); the process must start with GODEBUG=http2xconnect=1.
+    # yd dev, yd service install and yd docker configure it automatically when true.
+    extended_connect: false
   http3: false        # 开启 HTTP/3 (QUIC) | enable HTTP/3 (QUIC)
   read_timeout: 15s   # 读超时 | read timeout
   write_timeout: 30s  # 写超时 | write timeout
