@@ -29,9 +29,9 @@ const (
 // inputs and cloudwego/base64x (AVX2/SSE) for the rest. | Encoding 是 amd64 上按尺寸
 // 分流的 Base64 编解码器：小输入走 cristalhq，其余走 cloudwego/base64x（AVX2/SSE）。
 type Encoding struct {
-	cw  cwb64.Encoding   // large-input SIMD codec | 大输入 SIMD 编解码器
 	cr  *crb64.Encoding  // small-input codec | 小输入编解码器
 	dec *base64.Encoding // newline fallback for the small path | 小输入路径的换行回退
+	cw  cwb64.Encoding   // large-input SIMD codec | 大输入 SIMD 编解码器
 }
 
 var (
