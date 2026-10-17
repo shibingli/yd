@@ -77,6 +77,9 @@ type Options struct {
 
 	// H2C enables cleartext HTTP/2 (h2c) on the same port. | H2C 在同端口开启明文 HTTP/2（h2c）。
 	H2C bool
+	// ForceHTTP2ExtendedConnect makes Start fail unless the process was started with | ForceHTTP2ExtendedConnect 使 Start 在进程未以
+	// GODEBUG=http2xconnect=1 启动时失败（仅在 HTTP/2 可能启用时检查）。 | GODEBUG=http2xconnect=1 启动时返回错误（仅在 HTTP/2 可能启用时检查）。
+	ForceHTTP2ExtendedConnect bool
 }
 
 // OptionsFromConfig reads server settings from the layered config. | OptionsFromConfig 从分层配置读取服务器设置。
@@ -91,14 +94,15 @@ func OptionsFromConfig(c *config.Config) Options {
 	host := c.GetString("server.host")
 	port := c.GetInt("server.port")
 	o := Options{
-		Host:              host,
-		Port:              port,
-		H2C:               c.GetBool("server.h2c"),
-		ReadTimeout:       c.Duration("server.read_timeout"),
-		WriteTimeout:      c.Duration("server.write_timeout"),
-		IdleTimeout:       c.Duration("server.idle_timeout"),
-		ShutdownTimeout:   c.Duration("server.shutdown_timeout"),
-		ReadHeaderTimeout: c.Duration("server.read_header_timeout"),
+		Host:                      host,
+		Port:                      port,
+		H2C:                       c.GetBool("server.h2c"),
+		ForceHTTP2ExtendedConnect: c.GetBool("server.http2.extended_connect"),
+		ReadTimeout:               c.Duration("server.read_timeout"),
+		WriteTimeout:              c.Duration("server.write_timeout"),
+		IdleTimeout:               c.Duration("server.idle_timeout"),
+		ShutdownTimeout:           c.Duration("server.shutdown_timeout"),
+		ReadHeaderTimeout:         c.Duration("server.read_header_timeout"),
 	}
 	o.TLS = TLSConfig{
 		Enabled:  c.GetBool("server.tls.enabled"),

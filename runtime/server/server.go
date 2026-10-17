@@ -17,6 +17,7 @@ import (
 
 	"github.com/shibingli/yd/core/errx"
 	"github.com/shibingli/yd/core/logx"
+	"github.com/shibingli/yd/http/protocol"
 	"github.com/shibingli/yd/runtime/lifecycle"
 )
 
@@ -54,6 +55,11 @@ var (
 
 	// ErrGracefulShutdown reports that in-flight requests did not drain within the grace period. | ErrGracefulShutdown 表示宽限期内仍有进行中的请求未排空。
 	ErrGracefulShutdown = errx.New("server: graceful shutdown did not finish before the deadline | server：宽限期内未能完成优雅退出")
+
+	// ErrHTTP2ExtendedConnectRequired reports that server.http2.extended_connect is on
+	// but the process started without GODEBUG=http2xconnect=1. | ErrHTTP2ExtendedConnectRequired
+	// 表示 server.http2.extended_connect 已开启，但进程启动时没有 GODEBUG=http2xconnect=1。
+	ErrHTTP2ExtendedConnectRequired = errx.New("server: server.http2.extended_connect is enabled but GODEBUG lacks http2xconnect=1; start the process with GODEBUG=http2xconnect=1 (yd dev, yd service install and yd docker configure it automatically; Windows services must be installed through yd service) | server：已启用 server.http2.extended_connect，但 GODEBUG 缺少 http2xconnect=1；请以 GODEBUG=http2xconnect=1 启动进程（yd dev、yd service install 与 yd docker 会自动配置；Windows 服务必须经 yd service 安装）")
 
 	// ErrShutdownHook reports a failure in a registered lifecycle shutdown hook. | ErrShutdownHook 表示已注册的生命周期关闭钩子执行失败。
 	ErrShutdownHook = errx.New("server: shutdown hook failed | server：关闭钩子执行失败")
@@ -168,6 +174,13 @@ func (s *Server) Start() error {
 	tlsConf, err := s.buildTLSConfig()
 	if err != nil {
 		return err
+	}
+	// HTTP/2 extended CONNECT is enabled by a process-start GODEBUG switch; the
+	// server can only verify it, never set it. Fail closed when the operator
+	// asked for it explicitly. | HTTP/2 extended CONNECT 由进程启动前的 GODEBUG 开关启用；
+	// 服务器只能校验，无法补设。显式要求时必须失败关闭。
+	if s.opts.ForceHTTP2ExtendedConnect && (tlsConf != nil || s.opts.H2C) && !protocol.H2ExtendedConnectEnabled() {
+		return ErrHTTP2ExtendedConnectRequired
 	}
 
 	ln, err := net.Listen("tcp", s.opts.addr())

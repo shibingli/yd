@@ -355,6 +355,12 @@ func (a *App) Run(ctx context.Context) error {
 	if ctx == nil {
 		ctx = context.Background()
 	}
+	// Honor server.http2.extended_connect before serving: the standard library
+	// reads GODEBUG in package init, so a re-exec may be required. | 在提供服务前执行
+	// server.http2.extended_connect：标准库在包 init 时读取 GODEBUG，因此可能需要重启进程。
+	if err := ensureHTTP2ExtendedConnect(a.server.Options(), reexecFunc); err != nil {
+		return err
+	}
 	a.log.Info("application starting | 应用启动中",
 		logx.Str("addr", a.server.Addr()),
 		logx.Str("env", a.env()),

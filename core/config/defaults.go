@@ -18,6 +18,7 @@ func Defaults(c *Config) {
 	v.SetDefault("server.idle_timeout", 60*time.Second)
 	v.SetDefault("server.shutdown_timeout", 10*time.Second)
 	v.SetDefault("server.h2c", true)
+	v.SetDefault("server.http2.extended_connect", false)
 	v.SetDefault("server.http3.enabled", false)
 	v.SetDefault("server.acme.enabled", false)
 

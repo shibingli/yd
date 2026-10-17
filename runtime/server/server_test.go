@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"crypto/tls"
+	"errors"
 	"io"
 	"net"
 	"net/http"
@@ -304,4 +305,35 @@ func TestRunStopsOnContextCancel(t *testing.T) {
 	case <-time.After(5 * time.Second):
 		t.Fatal("Run did not exit when ctx was canceled | Run 未随 ctx 取消而退出")
 	}
+}
+
+// TestStartRequiresHTTP2ExtendedConnect proves the force switch fails closed. | TestStartRequiresHTTP2ExtendedConnect 证明强制开关失败关闭。
+func TestStartRequiresHTTP2ExtendedConnect(t *testing.T) {
+	t.Setenv("GODEBUG", "")
+	srv := New(Options{
+		Host:                      "127.0.0.1",
+		Port:                      0,
+		Handler:                   protoHandler(),
+		H2C:                       true,
+		ForceHTTP2ExtendedConnect: true,
+	})
+	err := srv.Start()
+	if !errors.Is(err, ErrHTTP2ExtendedConnectRequired) {
+		t.Fatalf("Start = %v, want ErrHTTP2ExtendedConnectRequired | Start = %v，期望 ErrHTTP2ExtendedConnectRequired", err, err)
+	}
+}
+
+// TestStartAllowsConfiguredHTTP2ExtendedConnect proves an already-set GODEBUG passes. | TestStartAllowsConfiguredHTTP2ExtendedConnect 证明已设置 GODEBUG 时启动成功。
+func TestStartAllowsConfiguredHTTP2ExtendedConnect(t *testing.T) {
+	t.Setenv("GODEBUG", "http2xconnect=1")
+	_ = newTestServer(t, func(o *Options) {
+		o.H2C = true
+		o.ForceHTTP2ExtendedConnect = true
+	})
+}
+
+// TestStartDoesNotRequireWhenDisabled proves the default path is unchanged. | TestStartDoesNotRequireWhenDisabled 证明默认路径不变。
+func TestStartDoesNotRequireWhenDisabled(t *testing.T) {
+	t.Setenv("GODEBUG", "")
+	_ = newTestServer(t, func(o *Options) { o.H2C = true })
 }
