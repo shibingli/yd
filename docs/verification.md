@@ -823,6 +823,55 @@ goccy/go-json v0.11.2、json-iterator v1.1.12、cristalhq/base64 v0.1.2、segmen
 
 相对排序与 Windows 完全一致；差异来自 WSL 调度与 CPU 频率。
 
+## 3.17 OpenAPI 模型补全与稳定性（第十五轮）
+
+### 3.17.1 对象覆盖
+
+`http/openapi` 的文档模型现已覆盖 OpenAPI 3.0.3 的全部核心对象；3.1.1 的新增对象与字段通过
+`LatestSpecVersion` 显式启用。原有类型与字段保持不变，新增项全部带 `omitempty`：
+
+| 对象 | 本轮补齐 |
+|---|---|
+| Document | `webhooks`（3.1）、`jsonSchemaDialect`（3.1）、`tags`、`security`、`externalDocs` |
+| Info / License | `summary`（3.1）、`identifier`（3.1）；`contact` 与 `license` 零值不再输出空对象 |
+| Server | `variables` |
+| PathItem | `$ref`、`summary`、`description`、`servers`、`parameters`、`trace` |
+| Operation | `deprecated`、`security`、`servers`、`callbacks`、`externalDocs` |
+| Parameter | `$ref`、`style`、`explode`、`deprecated`、`allowEmptyValue`、`allowReserved`、`examples`、`content` |
+| Header | `$ref`、`style`、`explode`、`allowReserved`、`examples`、`content` |
+| MediaType / Encoding | `encoding`（含 `contentType`、`headers`、`style`、`explode`、`allowReserved`） |
+| Response | `headers`、`links`（类型化 `Link`）、`$ref` |
+| Components | `securitySchemes`、`parameters`、`responses`、`requestBodies`、`headers`、`examples`、`links`、`callbacks`、`pathItems`（3.1） |
+| Schema | 组合关键字 `allOf` / `oneOf` / `anyOf` / `not`、`discriminator`、`xml`、`additionalProperties`、`default`、`title`、`writeOnly`、`exclusiveMinimum` / `exclusiveMaximum`、`multipleOf`、长度/数量约束；3.1 下另有 `const`、`examples`、类型数组（`Types`）与 JSON Schema 2020-12 的 `$id` / `$defs` / `$anchor` / `$dynamicRef`、`if/then/else`、`prefixItems` / `contains`、`patternProperties`、`dependent*`、`content*`、`unevaluated*` |
+
+### 3.17.2 注解兼容性
+
+- 新增 `@ID`（operationId）、`@Deprecated`、`@Header`（支持 `all` 伪状态码）。
+- `@Security` 支持作用域（`@Security OAuth2 read:users`）与 swaggo 布尔运算符（`&&` 与、`||` 或），
+  生成标准的 `[]SecurityRequirement`。
+- `{object} string`、`{object} file` 不再生成悬空的组件引用；`{file} file` 生成
+  `string/binary`，与常见 Swagger 方言一致。
+- `formData` 参数转换为 `application/x-www-form-urlencoded` 或 `multipart/form-data` 请求体
+  （由 `@Accept` 决定），不再作为非法参数位置输出。
+- 支持 Go 复合类型标记（`[]model.User`、`map[string]int`）与 swaggo 包装语法
+  （`model.Result{data=model.User,code=int}`，生成 `allOf`）。
+- `@Param` 支持 swaggo 属性：`Enums(...)`、`default(...)`、`example(...)`、`Minimum/Maximum`、
+  `MinLength/MaxLength`、`MinItems/MaxItems`、`Pattern(...)`、`Format(...)`，枚举按 Schema 类型
+  保持整型/浮点/布尔语义。
+- `@Deprecated` 同时属于类型方言：处理器注释块只要含 `@Router` / `@Summary` 等处理器专有指令，
+  仍按处理器注解解析，不会被类型解析器抢走。
+
+### 3.17.3 校验与稳定性
+
+`Document.Validate()` 一次返回全部问题（`errors.Join`，均可用 `errors.Is(err, ErrInvalidDocument)` 匹配）：
+标题/版本、路径以 `/` 开头、操作至少一个响应、状态码与媒体类型合法、路径参数已声明且必填、
+operationId 唯一、安全方案已声明且类型字段齐全、组件 Schema 引用可解析、参数位置受支持。
+
+`Handler` 现在在首次请求时序列化一次并缓存两份载荷，带强 ETag 与 `If-None-Match`（含 `*` 与弱校验器）
+返回 304；并发请求共享同一快照，不会重复编码，也不会观察到写到一半的文档。`NewBuilder` 初始化全部
+组件映射，直接赋值不再触发 nil map panic。脚手架在装配期声明 `BearerAuth` 并调用 `Validate()`，
+不合规只告警、不阻断启动。
+
 ## 4. 已知限制与未覆盖项
 
 1. **HTTP/3 需要 TLS**（QUIC 强制 TLS 1.3）。开发态在未配置证书时会生成一次性自签证书
@@ -872,3 +921,10 @@ goccy/go-json v0.11.2、json-iterator v1.1.12、cristalhq/base64 v0.1.2、segmen
     因此可能编码失败的值应使用 `JSON`（先完整序列化，失败时干净地返回 500）。
 19. **SM2 验签成本来自 gmsm**：约 1.35 ms、1965 allocs/op（big.Int 运算与临时对象），
     框架层未替换算法实现；需要更快验签应在上游优化或改用其他曲线/协议。
+20. **OpenAPI 不建模 `x-*` 厂商扩展**：模型覆盖规范核心对象，任意扩展键需要自定义结构体；
+    这不影响规范校验与常见客户端。若需要扩展，应在生成文档后自行后处理 JSON。
+21. **3.1 Schema 关键字要求版本同步**：模型已覆盖 JSON Schema 2020-12 的主要关键字（`type`
+    数组、`$id` / `$defs` / `$anchor` / `$dynamicRef`、`if/then/else`、`prefixItems` / `contains`、
+    `contentEncoding` / `contentMediaType`、`unevaluatedProperties` / `unevaluatedItems` 等），
+    但这些字段在 3.0.3 中不被规范允许；使用它们时必须把 `Document.OpenAPI` 设为
+    `LatestSpecVersion`，否则请只用 3.0 字段。

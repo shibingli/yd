@@ -105,7 +105,7 @@ func TestParseAnnotationsFromSource(t *testing.T) {
 	if a.Pos == "" || !strings.Contains(a.Pos, "handlers.go:") {
 		t.Errorf("pos = %q | Pos 应包含 文件:行号", a.Pos)
 	}
-	if !hasString(a.Security, "BearerAuth") {
+	if len(a.Security) != 1 || len(a.Security[0]["BearerAuth"]) != 0 {
 		t.Errorf("security = %v | Security 解析不正确", a.Security)
 	}
 

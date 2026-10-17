@@ -298,6 +298,20 @@ func registerOpenAPI(a *app.App) {
 	report := &openapi.Report{}
 
 	doc := openapi.FromRouterWithAnnotations(a.Router(), openAPIInfo(), opts, annotations(a), report)
+	// 受保护端点统一标注 @Security BearerAuth，方案本身在这里声明，客户端据此生成 Authorization 头。
+	// Protected endpoints are annotated with @Security BearerAuth; the scheme is declared here so clients can build the
+	// Authorization header from the document.
+	doc.AddSecurityScheme("BearerAuth", openapi.SecurityScheme{
+		Type:         "http",
+		Scheme:       "bearer",
+		BearerFormat: "JWT",
+		Description:  "Per-user JWT issued by the framework, sent as Authorization: Bearer <token>. | 框架签发的每用户 JWT，以 Authorization: Bearer <token> 发送。",
+	})
+	if err := doc.Validate(); err != nil {
+		a.Logger().Warn("openapi document is not fully compliant, serving it anyway | OpenAPI 文档未完全符合规范，仍照常提供",
+			logx.Err(err),
+		)
+	}
 	handler := openapi.Handler(doc, opts)
 	a.GET(opts.Path, handler)
 	a.GET(opts.DocsPath, handler)
@@ -316,10 +330,10 @@ func registerOpenAPI(a *app.App) {
 // openAPIInfo returns the document metadata; every value comes from internal/meta so the document cannot drift from the code.
 //
 // 安全方案说明：全部受保护端点都标注 @Security BearerAuth，即 Authorization: Bearer <token>；
-// 框架的文档结构目前只生成 components.schemas，因此安全方案本身没有可声明的落点，前端与测试按上面这行把它带上即可。
+// 方案本身由 registerOpenAPI 写入 components.securitySchemes，文档因此可以直接驱动客户端鉴权。
 // Security note: every protected endpoint is annotated with @Security BearerAuth, meaning Authorization: Bearer <token>.
-// The framework's document structure emits components.schemas only, so the scheme itself has no place to be declared
-// yet; clients and tests simply send the header as written above.
+// registerOpenAPI declares the scheme under components.securitySchemes, so the document can drive client authentication
+// directly.
 func openAPIInfo() openapi.Info {
 	return openapi.Info{
 		Title:       meta.Name + " API",

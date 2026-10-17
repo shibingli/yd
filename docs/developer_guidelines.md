@@ -127,10 +127,18 @@ var maxControlPayload = 125 // RFC 6455 §5.5 | RFC 6455 §5.5 规定
 | `@Description` | 必填 | 详细说明，含 htmx 片段/整页语义差异 |
 | `@Tags` | 必填 | 分组名 |
 | `@Accept` / `@Produce` | 必填 | 例：`@Produce html,json` |
-| `@Param` | 有参数必填 | `名称 位置 类型 是否必填 "描述"`，位置取 `path/query/header/body/formData` |
-| `@Success` / `@Failure` | 必填 | 至少各一条，形如 `200 {object} model.User "描述"` |
-| `@Security` | 鉴权端点必填 | 例：`@Security BearerAuth` |
+| `@Param` | 有参数必填 | `名称 位置 类型 是否必填 "描述"`，位置取 `path/query/header/body/formData`；`formData` 会转成表单/多部分请求体，参数末尾可跟 `Enums(...)`、`default(...)`、`Minimum(...)`、`Maximum(...)`、`Format(...)` 等属性 |
+| `@Success` / `@Failure` | 必填 | 至少各一条，形如 `200 {object} model.User "描述"`；类型写内建类型（`string`、`file` 等）时生成内联 Schema，不产生悬空引用 |
+| `@Header` | 有响应头时填 | `状态码 {类型} 头名 "描述"`，状态码写 `all` 表示全部响应 |
+| `@Security` | 鉴权端点必填 | 例：`@Security BearerAuth`；带作用域写 `@Security OAuth2 read:users`，`&&` 表示同时满足、`||` 表示任选其一 |
+| `@ID` | 建议填 | 唯一 `operationId`，同一文档内不得重复 |
+| `@Deprecated` | 废弃端点填 | 标记操作为已废弃 |
 | `@Router` | 必填 | `路径 [方法]`，路径参数用 `{name}` |
+
+引用的安全方案必须存在于 `components.securitySchemes`；脚手架已在 `registerOpenAPI` 中声明
+`BearerAuth`（http/bearer/JWT），自定义方案用 `doc.AddSecurityScheme` 添加。
+`doc.Validate()` 会一次性检查标题/版本、响应码、路径参数、operationId 唯一性、安全方案引用与
+组件 Schema 引用，装配期调用最合适。
 
 紧随 `@Param` / `@Success` / `@Failure` 之后的 `@Example` 行绑定到该声明（写进
 `Parameter.Example`、`MediaType.Example`），支持内联 JSON 与普通字符串：

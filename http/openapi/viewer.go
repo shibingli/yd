@@ -22,6 +22,13 @@ func renderViewer(d *Document, o Options) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
+	return renderViewerWithJSON(doc, o, raw)
+}
+
+// renderViewerWithJSON renders the viewer from an already serialized document, so the handler
+// can share one encoding between the JSON endpoint and the page. | renderViewerWithJSON 使用已
+// 序列化的文档渲染查看器，使处理器能在 JSON 端点与页面之间共用一次编码。
+func renderViewerWithJSON(doc Document, o Options, raw []byte) ([]byte, error) {
 	page := strings.Replace(viewerTemplate, viewerTitlePlaceholder, html.EscapeString(o.title(doc.Info)), 1)
 	page = strings.Replace(page, viewerDataPlaceholder, escapeJSONForScript(raw), 1)
 	return []byte(page), nil
@@ -157,9 +164,10 @@ noscript{display:block;padding:14px 18px;color:var(--muted)}
     if (!content) { return '<p class="hint">None | 无</p>'; }
     var html = '';
     Object.keys(content).sort().forEach(function (media) {
-      var schema = (content[media] || {}).schema;
+      var mediaType = content[media] || {};
       html += '<div class="media"><span class="mono">' + esc(media) + '</span>';
-      if (schema) { html += '<pre class="code">' + esc(JSON.stringify(schema, null, 2)) + '</pre>'; }
+      if (mediaType.schema) { html += '<pre class="code">' + esc(JSON.stringify(mediaType.schema, null, 2)) + '</pre>'; }
+      if (mediaType.example !== undefined) { html += '<pre class="code">' + esc(JSON.stringify(mediaType.example, null, 2)) + '</pre>'; }
       html += '</div>';
     });
     return html || '<p class="hint">None | 无</p>';
@@ -186,6 +194,16 @@ noscript{display:block;padding:14px 18px;color:var(--muted)}
     var meta = [];
     if (op.operationId) { meta.push('operationId: ' + op.operationId); }
     if (op.tags && op.tags.length) { meta.push('tags: ' + op.tags.join(', ')); }
+    if (op.deprecated) { meta.push('deprecated | 已废弃'); }
+    if (op.security && op.security.length) {
+      var security = op.security.map(function (req) {
+        return Object.keys(req).map(function (name) {
+          var scopes = req[name] || [];
+          return scopes.length ? name + ' [' + scopes.join(', ') + ']' : name;
+        }).join(' && ');
+      }).join(' || ');
+      meta.push('security: ' + security);
+    }
     if (meta.length) { html += '<p class="meta">' + esc(meta.join('  |  ')) + '</p>'; }
     if (op.summary) { html += '<p class="summary">' + esc(op.summary) + '</p>'; }
     if (op.description) { html += '<p class="description">' + esc(op.description) + '</p>'; }
@@ -222,6 +240,16 @@ noscript{display:block;padding:14px 18px;color:var(--muted)}
       codes.forEach(function (code) {
         var res = responses[code] || {};
         html += '<div class="response"><div class="resp-head"><span class="code">' + esc(code) + '</span>' + esc(res.description || '') + '</div>';
+        var headers = res.headers || {};
+        var headerNames = Object.keys(headers).sort();
+        if (headerNames.length) {
+          html += '<table><thead><tr><th>Header | 响应头</th><th>Schema</th><th>Description | 说明</th></tr></thead><tbody>';
+          headerNames.forEach(function (name) {
+            var header = headers[name] || {};
+            html += '<tr><td class="mono">' + esc(name) + '</td><td class="mono">' + esc(schemaLabel(header.schema)) + '</td><td>' + esc(header.description) + '</td></tr>';
+          });
+          html += '</tbody></table>';
+        }
         html += renderContent(res.content);
         html += '</div>';
       });

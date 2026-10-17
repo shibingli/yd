@@ -55,7 +55,7 @@ func findParam(params []Parameter, name string) *Parameter {
 
 // operationsOf returns every non-nil operation of a path item. | operationsOf 返回路径项中所有非空操作。
 func operationsOf(pi PathItem) []*Operation {
-	return []*Operation{pi.Get, pi.Post, pi.Put, pi.Patch, pi.Delete, pi.Head, pi.Options}
+	return []*Operation{pi.Get, pi.Post, pi.Put, pi.Patch, pi.Delete, pi.Head, pi.Options, pi.Trace}
 }
 
 // hasString reports whether the slice contains want. | hasString 报告切片是否包含 want。

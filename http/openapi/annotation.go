@@ -35,12 +35,19 @@ var (
 //	// @Param body body CreateUserRequest true "create payload | 创建参数"
 //	// @Success 200 {object} model.User "user detail | 用户详情"
 //	// @Failure 404 {string} string "not found | 未找到"
+//	// @ID get-user
 //	// @Security BearerAuth
+//	// @Header 200 {string} X-Request-Id "request id | 请求 ID"
 //	// @Router /users/{id} [get]
 //
 // Directive arguments are kept verbatim, including the bilingual "|" separator, so
 // both "English | 中文" and "中文 | English" orderings survive untouched. | 指令参数原样保留，
 // 含中英分隔符 "|"，因此 "English | 中文" 与 "中文 | English" 两种顺序都不会被截断。
+//
+// Supported directives: @Summary, @Description, @Tags, @Accept, @Produce, @Param,
+// @Success, @Failure, @Header, @Example, @Security, @ID, @Deprecated and @Router. | 支持的
+// 指令：@Summary、@Description、@Tags、@Accept、@Produce、@Param、@Success、@Failure、@Header、
+// @Example、@Security、@ID、@Deprecated 与 @Router。
 type Annotation struct {
 	// Summary is the single line summary taken from the first @Summary. | Summary 取自首个 @Summary 的一行摘要。
 	Summary string
@@ -50,6 +57,8 @@ type Annotation struct {
 	RouterPath string
 	// RouterMethod is the upper cased HTTP method of @Router. | RouterMethod 为 @Router 的大写 HTTP 方法。
 	RouterMethod string
+	// OperationID is the unique operation identifier taken from @ID. | OperationID 为取自 @ID 的唯一操作标识。
+	OperationID string
 	// Pos is the "file:line" of the block, used for diagnostics. | Pos 为注解块的 "文件:行号"，用于诊断。
 	Pos string
 	// Tags lists the @Tags values. | Tags 列出 @Tags 取值。
@@ -64,8 +73,29 @@ type Annotation struct {
 	Success []AnnotationResponse
 	// Failure lists the @Failure responses. | Failure 列出 @Failure 响应。
 	Failure []AnnotationResponse
-	// Security lists the @Security scheme names. | Security 列出 @Security 方案名。
-	Security []string
+	// Headers lists the @Header declarations. | Headers 列出 @Header 声明。
+	Headers []AnnotationHeader
+	// Security lists the @Security requirements; several requirements are OR-ed, several
+	// schemes in one requirement are AND-ed. | Security 列出 @Security 要求；多个要求之间为或，
+	// 同一要求内的多个方案之间为与。
+	Security []SecurityRequirement
+	// Deprecated reports the presence of @Deprecated. | Deprecated 报告是否出现 @Deprecated。
+	Deprecated bool
+}
+
+// AnnotationHeader is one @Header declaration attached to a response. | AnnotationHeader 是附加到
+// 响应上的一条 @Header 声明。
+type AnnotationHeader struct {
+	// Code is the status code the header belongs to, or "all" for every response. | Code 为响应头
+	// 所属的状态码；"all" 表示全部响应。
+	Code string
+	// Name is the header name. | Name 为响应头名。
+	Name string
+	// Type is the declared type token, for example string. | Type 为声明的类型标记，例如 string。
+	Type string
+	// Description is the quoted trailing text, kept verbatim. | Description 为引号包裹的尾部文本，
+	// 原样保留。
+	Description string
 }
 
 // AnnotationParam is one @Param declaration. | AnnotationParam 是一条 @Param 声明。
@@ -244,14 +274,42 @@ func (a Annotation) operation(path string, params []Parameter) Operation {
 	op := Operation{
 		Summary:     a.Summary,
 		Description: a.Description,
+		OperationID: a.OperationID,
 		Tags:        a.Tags,
+		Security:    a.Security,
+		Deprecated:  a.Deprecated,
 	}
-	declared := make(map[string]bool, len(a.Params))
+	var (
+		formProps    map[string]*Schema
+		formRequired []string
+	)
 	for _, p := range a.Params {
-		if strings.EqualFold(p.In, "body") {
+		location := strings.ToLower(strings.TrimSpace(p.In))
+		if location == "body" {
 			continue
 		}
-		location := strings.ToLower(strings.TrimSpace(p.In))
+		if location == "formdata" || location == "form" {
+			// OpenAPI 3.0 has no formData parameter location: form fields become the properties
+			// of a form or multipart request body. | OpenAPI 3.0 没有 formData 参数位置：表单字段
+			// 会变成 form 或 multipart 请求体的属性。
+			if p.Schema == nil || p.Schema.Ref != "" {
+				continue
+			}
+			if formProps == nil {
+				formProps = map[string]*Schema{}
+			}
+			if p.Description != "" && p.Schema.Description == "" {
+				p.Schema.Description = p.Description
+			}
+			if p.Schema.Example == nil && p.Example != "" {
+				p.Schema.Example = exampleValue(p.Example)
+			}
+			formProps[p.Name] = p.Schema
+			if p.Required {
+				formRequired = append(formRequired, p.Name)
+			}
+			continue
+		}
 		if location == "" {
 			location = "query"
 		}
@@ -263,17 +321,41 @@ func (a Annotation) operation(path string, params []Parameter) Operation {
 			Example:     exampleValue(p.Example),
 			Schema:      p.Schema,
 		})
-		declared[p.Name] = true
 	}
 	if body, ok := a.bodyParam(); ok {
 		op.RequestBody = &RequestBody{
 			Required: body.Required,
 			Content:  contentFor(defaultMedia(a.Accept), body.Schema, exampleValue(body.Example)),
 		}
+	} else if len(formProps) > 0 {
+		sort.Strings(formRequired)
+		op.RequestBody = &RequestBody{
+			Required: len(formRequired) > 0,
+			Content: contentFor(formMedia(a.Accept), &Schema{
+				Type:       "object",
+				Properties: formProps,
+				Required:   formRequired,
+			}, nil),
+		}
 	}
 	op = mergePathParams(op, params)
 	op.Responses = a.responses()
 	return op
+}
+
+// formMedia selects the request body media type of form parameters, honouring an explicit
+// multipart or form @Accept token. | formMedia 选择表单参数的请求体媒体类型，优先采用显式的
+// multipart 或 form @Accept 标记。
+func formMedia(media []string) []string {
+	for _, token := range media {
+		switch strings.ToLower(strings.TrimSpace(token)) {
+		case "multipart":
+			return []string{"multipart"}
+		case "form":
+			return []string{"form"}
+		}
+	}
+	return []string{"form"}
 }
 
 // responses converts the annotated responses into the OpenAPI response map. | responses
@@ -294,7 +376,28 @@ func (a Annotation) responses() map[string]Response {
 		out[code] = Response{
 			Description: responseDescription(r),
 			Content:     contentFor(a.Produce, r.schema, exampleValue(r.Example)),
+			Headers:     a.headersFor(code),
 		}
+	}
+	return out
+}
+
+// headersFor returns the @Header declarations attached to one response code; the pseudo code
+// "all" contributes to every response. | headersFor 返回附加到某个状态码上的 @Header 声明；
+// 伪状态码 "all" 会附加到每个响应。
+func (a Annotation) headersFor(code string) map[string]*Header {
+	var out map[string]*Header
+	for _, h := range a.Headers {
+		if !strings.EqualFold(h.Code, "all") && h.Code != strings.ToLower(code) {
+			continue
+		}
+		if h.Name == "" {
+			continue
+		}
+		if out == nil {
+			out = map[string]*Header{}
+		}
+		out[h.Name] = &Header{Description: h.Description, Schema: schemaForTypeName(h.Type)}
 	}
 	return out
 }
@@ -379,7 +482,20 @@ func refForType(token string) string {
 
 // schemaForTypeName maps an annotation type token to a schema. | schemaForTypeName 把注解类型标记映射为 Schema。
 func schemaForTypeName(token string) *Schema {
-	name := strings.ToLower(strings.TrimPrefix(strings.TrimSpace(token), "*"))
+	raw := strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(token), "*"))
+	// Swaggo also accepts Go composite type tokens: []T becomes an array and map[K]V an object
+	// with typed additional properties. | swaggo 也接受 Go 复合类型标记：[]T 变为数组，
+	// map[K]V 变为带类型 additionalProperties 的对象。
+	if strings.HasPrefix(raw, "[]") {
+		return &Schema{Type: "array", Items: schemaForTypeName(strings.TrimPrefix(raw, "[]"))}
+	}
+	if strings.HasPrefix(raw, "map[") {
+		if close := strings.IndexByte(raw, ']'); close >= 0 && close+1 < len(raw) {
+			return &Schema{Type: "object", AdditionalProperties: schemaForTypeName(raw[close+1:])}
+		}
+		return &Schema{Type: "object"}
+	}
+	name := strings.ToLower(raw)
 	switch name {
 	case "", "string":
 		return &Schema{Type: "string"}
@@ -397,27 +513,96 @@ func schemaForTypeName(token string) *Schema {
 		return &Schema{Type: "array"}
 	case "object":
 		return &Schema{Type: "object"}
+	case "file", "binary":
+		return &Schema{Type: "string", Format: "binary"}
+	case "any", "interface{}", "map", "map[string]any":
+		return &Schema{Type: "object"}
 	}
 	return &Schema{Ref: refForType(token)}
+}
+
+// primitiveSchema reports whether token names a built-in type rather than a model. | primitiveSchema
+// 报告 token 是否命名内建类型而不是模型。
+func primitiveSchema(token string) *Schema {
+	s := schemaForTypeName(token)
+	if s.Ref != "" {
+		return nil
+	}
+	return s
 }
 
 // schemaForParam derives the schema of a parameter; a body parameter always refers to
 // a component. | schemaForParam 推导参数的 Schema；body 参数始终引用组件。
 func schemaForParam(in, token string) *Schema {
 	if strings.EqualFold(strings.TrimSpace(in), "body") {
-		return &Schema{Ref: refForType(token)}
+		return schemaForObjectLike(token)
 	}
 	return schemaForTypeName(token)
+}
+
+// schemaForObjectLike maps an object type token to a schema, supporting the swaggo wrapper
+// syntax "model.Result{data=model.User,code=int}". | schemaForObjectLike 把对象类型标记映射为
+// Schema，并支持 swaggo 的包装语法 "model.Result{data=model.User,code=int}"。
+//
+// A wrapper with field overrides becomes an allOf of the wrapper reference and an inline object
+// carrying the overridden properties, which is the only 3.0-compatible way to refine a
+// referenced schema. | 带字段覆盖的包装类型会变成「包装引用 + 承载覆盖属性的内联对象」的 allOf，
+// 这是 3.0 中细化被引用 Schema 的唯一兼容做法。
+func schemaForObjectLike(token string) *Schema {
+	token = strings.TrimSpace(token)
+	if token == "" {
+		return &Schema{Type: "object"}
+	}
+	open := strings.IndexByte(token, '{')
+	if open < 0 || !strings.HasSuffix(token, "}") {
+		// schemaForTypeName already covers primitives, pointers, slices and maps. | schemaForTypeName
+		// 已覆盖内建类型、指针、切片与 map。
+		return schemaForTypeName(token)
+	}
+	baseToken := strings.TrimSpace(token[:open])
+	overrides := parseSchemaOverrides(token[open+1 : len(token)-1])
+	var allOf []*Schema
+	if baseToken != "" {
+		if s := primitiveSchema(baseToken); s != nil {
+			return s
+		}
+		allOf = append(allOf, &Schema{Ref: refForType(baseToken)})
+	}
+	if len(overrides) > 0 {
+		allOf = append(allOf, &Schema{Type: "object", Properties: overrides})
+	}
+	if len(allOf) == 0 {
+		return &Schema{Type: "object"}
+	}
+	return &Schema{AllOf: allOf}
+}
+
+// parseSchemaOverrides parses "data=model.User,code=int" into property schemas. | parseSchemaOverrides
+// 把 "data=model.User,code=int" 解析为属性 Schema。
+func parseSchemaOverrides(s string) map[string]*Schema {
+	var out map[string]*Schema
+	for _, field := range strings.Split(s, ",") {
+		name, typ, ok := strings.Cut(strings.TrimSpace(field), "=")
+		name = strings.TrimSpace(name)
+		typ = strings.TrimSpace(typ)
+		if !ok || name == "" || typ == "" {
+			continue
+		}
+		if out == nil {
+			out = map[string]*Schema{}
+		}
+		out[name] = schemaForTypeName(typ)
+	}
+	return out
 }
 
 // schemaForResponse derives the schema of an annotated response. | schemaForResponse 推导注解响应的 Schema。
 func schemaForResponse(kind, token string) *Schema {
 	switch kind {
 	case "object":
-		if strings.TrimSpace(token) == "" {
-			return &Schema{Type: "object"}
-		}
-		return &Schema{Ref: refForType(token)}
+		// "{object} string" and "{object} file" name built-in types, not components. | "{object}
+		// string" 与 "{object} file" 命名的是内建类型，不是组件。
+		return schemaForObjectLike(token)
 	case "array":
 		return &Schema{Type: "array", Items: schemaForTypeName(token)}
 	default:
@@ -618,7 +803,20 @@ func parseAnnotationBlock(block []string, path string, line int) (Annotation, bo
 				found = true
 			}
 		case "security":
-			a.Security = append(a.Security, splitTokens(args)...)
+			a.Security = append(a.Security, parseSecurity(args)...)
+			found = true
+		case "id":
+			if a.OperationID == "" {
+				a.OperationID = strings.TrimSpace(args)
+			}
+			found = true
+		case "deprecated":
+			a.Deprecated = !strings.EqualFold(strings.TrimSpace(args), "false")
+			found = true
+		case "header":
+			if h, ok := parseHeader(args); ok {
+				a.Headers = append(a.Headers, h)
+			}
 			found = true
 		case "router":
 			a.RouterPath, a.RouterMethod = parseRouter(args)
@@ -635,11 +833,28 @@ func commentBody(raw string) string {
 	return strings.TrimSpace(strings.TrimPrefix(body, "//"))
 }
 
+// handlerOnlyDirectives are the directives that only a handler annotation uses. | handlerOnlyDirectives
+// 是仅处理器注解使用的指令。
+var handlerOnlyDirectives = map[string]bool{
+	"summary": true, "tags": true, "accept": true, "produce": true,
+	"param": true, "success": true, "failure": true, "security": true,
+	"router": true, "header": true, "id": true,
+}
+
 // blockHasTypeDirective reports whether a comment block carries a directive that only the
-// type dialect understands, such as @Name or @Enum; such a block annotates a struct, a const
-// block or a variable and never a handler. | blockHasTypeDirective 报告注释块是否含 @Name、@Enum
-// 之类仅类型方言可识别的指令；这类注释块注解的是结构体、常量块或变量，而不是处理器。
+// type dialect understands, such as @Name or @Enum, and no handler-only directive; such a
+// block annotates a struct, a const block or a variable and never a handler. | blockHasTypeDirective
+// 报告注释块是否含 @Name、@Enum 之类仅类型方言可识别的指令，且不含仅处理器使用的指令；这类注释块
+// 注解的是结构体、常量块或变量，而不是处理器。
+//
+// The disambiguation matters for directives shared by both dialects: @Deprecated on a handler
+// marks the operation deprecated, while on a struct field it marks the property, so a block
+// that also carries @Router or @Summary stays a handler annotation. | 这种区分对两个方言共用的
+// 指令很重要：处理器上的 @Deprecated 标记操作已废弃，结构体字段上的则标记属性，因此同时带有
+// @Router 或 @Summary 的注释块仍属于处理器注解。
 func blockHasTypeDirective(block []string) bool {
+	hasType := false
+	hasHandler := false
 	for _, raw := range block {
 		body := commentBody(raw)
 		if !strings.HasPrefix(body, "@") {
@@ -647,10 +862,13 @@ func blockHasTypeDirective(block []string) bool {
 		}
 		name, _ := splitDirective(body[1:])
 		if typeOnlyDirectives[name] {
-			return true
+			hasType = true
+		}
+		if handlerOnlyDirectives[name] {
+			hasHandler = true
 		}
 	}
-	return false
+	return hasType && !hasHandler
 }
 
 // bindExample attaches an @Example line to the most recent @Param, @Success or @Failure
@@ -759,11 +977,107 @@ func parseParam(args string) (AnnotationParam, bool) {
 		Type:     fields[2],
 		Required: strings.EqualFold(fields[3], "true"),
 	}
-	if len(fields) > 4 {
-		p.Description = strings.Join(fields[4:], " ")
+	rest := fields[4:]
+	// Swaggo puts parameter attributes after the quoted description; they are recognised from
+	// the end so a description that merely contains parentheses stays intact. | swaggo 把参数
+	// 属性放在引号说明之后；这里从末尾识别属性，因此仅含括号的说明不会被误拆。
+	attrs := map[string]string{}
+	end := len(rest)
+	for end > 0 {
+		name, value, ok := parseParamAttribute(rest[end-1])
+		if !ok {
+			break
+		}
+		if _, dup := attrs[name]; !dup {
+			attrs[name] = value
+		}
+		end--
+	}
+	if end > 0 {
+		p.Description = strings.Join(rest[:end], " ")
 	}
 	p.Schema = schemaForParam(p.In, p.Type)
+	applyParamAttributes(p.Schema, attrs)
+	if example, ok := attrs["example"]; ok && p.Example == "" {
+		p.Example = example
+	}
 	return p, true
+}
+
+// parseParamAttribute parses one "Name(value)" parameter attribute. | parseParamAttribute 解析
+// 单个 "Name(value)" 参数属性。
+func parseParamAttribute(field string) (name, value string, ok bool) {
+	open := strings.IndexByte(field, '(')
+	if open <= 0 || !strings.HasSuffix(field, ")") {
+		return "", "", false
+	}
+	name = strings.ToLower(strings.TrimSpace(field[:open]))
+	switch name {
+	case "enums", "default", "example", "minimum", "maximum",
+		"minlength", "maxlength", "minitems", "maxitems", "pattern", "format":
+	default:
+		return "", "", false
+	}
+	return name, strings.TrimSpace(field[open+1 : len(field)-1]), true
+}
+
+// applyParamAttributes writes the recognised swaggo attributes into the parameter schema. | applyParamAttributes
+// 把可识别的 swaggo 属性写入参数 Schema。
+//
+// Constraints on a component reference are skipped: they belong to the referenced schema, and
+// emitting them next to $ref would be ignored by OpenAPI 3.0. | 组件引用上的约束会被跳过：它们
+// 属于被引用的 Schema，写在 $ref 旁边会被 OpenAPI 3.0 忽略。
+func applyParamAttributes(s *Schema, attrs map[string]string) {
+	if s == nil || s.Ref != "" || len(attrs) == 0 {
+		return
+	}
+	if raw, ok := attrs["enums"]; ok {
+		for _, item := range strings.Split(raw, ",") {
+			item = strings.TrimSpace(item)
+			if item != "" {
+				s.Enum = append(s.Enum, enumValue(item, s.Type))
+			}
+		}
+	}
+	if raw, ok := attrs["default"]; ok {
+		s.Default = exampleValue(raw)
+	}
+	if raw, ok := attrs["minimum"]; ok {
+		if f, err := strconv.ParseFloat(raw, 64); err == nil {
+			s.Minimum = &f
+		}
+	}
+	if raw, ok := attrs["maximum"]; ok {
+		if f, err := strconv.ParseFloat(raw, 64); err == nil {
+			s.Maximum = &f
+		}
+	}
+	if raw, ok := attrs["minlength"]; ok {
+		if n, err := strconv.Atoi(raw); err == nil {
+			s.MinLength = &n
+		}
+	}
+	if raw, ok := attrs["maxlength"]; ok {
+		if n, err := strconv.Atoi(raw); err == nil {
+			s.MaxLength = &n
+		}
+	}
+	if raw, ok := attrs["minitems"]; ok {
+		if n, err := strconv.Atoi(raw); err == nil {
+			s.MinItems = &n
+		}
+	}
+	if raw, ok := attrs["maxitems"]; ok {
+		if n, err := strconv.Atoi(raw); err == nil {
+			s.MaxItems = &n
+		}
+	}
+	if raw, ok := attrs["pattern"]; ok {
+		s.Pattern = raw
+	}
+	if raw, ok := attrs["format"]; ok {
+		s.Format = raw
+	}
 }
 
 // parseResponses parses "@Success 200 {object} model.User "description"" style
@@ -807,6 +1121,84 @@ func parseResponses(args string) []AnnotationResponse {
 		out = append(out, res)
 	}
 	return out
+}
+
+// parseSecurity parses one @Security directive into OpenAPI security requirements. | parseSecurity
+// 把一条 @Security 指令解析为 OpenAPI 安全要求。
+//
+// The swaggo boolean operators are honoured: "&&" combines schemes into one requirement
+// (AND) and "||" produces separate requirements (OR). The first token of each term is the
+// scheme name and the remaining tokens are its scopes. | 支持 swaggo 的布尔运算符："&&" 把方案
+// 合并进同一个要求（与），"||" 产生多个要求（或）。每个项的第一个标记是方案名，其余标记是作用域。
+func parseSecurity(args string) []SecurityRequirement {
+	args = strings.TrimSpace(args)
+	if args == "" {
+		return nil
+	}
+	orParts := strings.Split(args, "||")
+	out := make([]SecurityRequirement, 0, len(orParts))
+	for _, orPart := range orParts {
+		req := SecurityRequirement{}
+		for _, andPart := range strings.Split(orPart, "&&") {
+			scheme, scopes := parseSecurityTerm(andPart)
+			if scheme != "" {
+				req[scheme] = scopes
+			}
+		}
+		if len(req) > 0 {
+			out = append(out, req)
+		}
+	}
+	return out
+}
+
+// parseSecurityTerm parses "Scheme scope1 scope2" into the scheme name and its scopes. | parseSecurityTerm
+// 把 "Scheme scope1 scope2" 解析为方案名与作用域。
+func parseSecurityTerm(s string) (string, []string) {
+	fields := splitFields(s)
+	if len(fields) == 0 {
+		return "", nil
+	}
+	tokens := splitTokens(strings.Join(fields[1:], " "))
+	scopes := make([]string, 0, len(tokens))
+	for _, token := range tokens {
+		// Accept both "read write" and the bracketed "[read,write]" form. | 同时接受
+		// "read write" 与方括号包裹的 "[read,write]" 形式。
+		token = strings.Trim(token, "[]")
+		if token != "" {
+			scopes = append(scopes, token)
+		}
+	}
+	return fields[0], scopes
+}
+
+// parseHeader parses "@Header 200 {string} X-Request-Id "description"" and its "all"
+// variant. | parseHeader 解析 "@Header 200 {string} X-Request-Id "说明"" 及 "all" 变体。
+func parseHeader(args string) (AnnotationHeader, bool) {
+	fields := splitFields(args)
+	if len(fields) < 3 {
+		return AnnotationHeader{}, false
+	}
+	code := strings.ToLower(strings.TrimSpace(fields[0]))
+	if code == "" {
+		return AnnotationHeader{}, false
+	}
+	index := 1
+	typ := "string"
+	if strings.HasPrefix(fields[index], "{") && strings.HasSuffix(fields[index], "}") {
+		if t := strings.TrimSpace(strings.Trim(fields[index], "{}")); t != "" {
+			typ = t
+		}
+		index++
+	}
+	if index >= len(fields) {
+		return AnnotationHeader{}, false
+	}
+	h := AnnotationHeader{Code: code, Name: fields[index], Type: typ}
+	if index+1 < len(fields) {
+		h.Description = strings.Join(fields[index+1:], " ")
+	}
+	return h, true
 }
 
 // parseRouter parses "/users/{id} [get]" into the template path and the upper cased

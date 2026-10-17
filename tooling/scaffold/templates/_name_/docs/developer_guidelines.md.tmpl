@@ -145,10 +145,22 @@ func (c *Controller) Health(ctx *router.Ctx) { /* ... */ }
 
 约定：
 
-- 关键字：`@Summary` `@Description` `@Tags` `@Accept` `@Produce` `@Param` `@Success` `@Failure` `@Security` `@Router`。
+- 关键字：`@Summary` `@Description` `@Tags` `@Accept` `@Produce` `@Param` `@Success` `@Failure` `@Header`
+  `@Example` `@Security` `@ID` `@Deprecated` `@Router`。
 - `@Param` 的形状是 `名字 位置 类型 是否必填 "说明"`，位置取 `query` / `path` / `header` / `formData` / `body`；
-  表单端点用 `formData`，htmx 局部请求与国密标记头用 `header`（例如 `HX-Request`、`X-YD-Encrypted`）。
+  表单端点用 `formData`（会按 `@Accept` 转成 `application/x-www-form-urlencoded` 或
+  `multipart/form-data` 请求体），htmx 局部请求与国密标记头用 `header`（例如 `HX-Request`、`X-YD-Encrypted`）。
+  类型写 `model.User` 这类模型名时会生成组件引用，写 `string` / `int` / `bool` / `file` 等内建类型时生成内联 Schema；
+  `[]model.User`、`map[string]int` 与 `model.Result{data=model.User}` 也可直接书写。
+  参数末尾可跟 swaggo 属性：`Enums(...)`、`default(...)`、`Minimum(...)`、`Maximum(...)`、`Format(...)` 等。
+- `@ID` 声明唯一的 `operationId`，同一次文档里不得重复；`@Deprecated` 标记操作已废弃（也用于字段级
+  类型注解，处理器注释块只要还有 `@Router` / `@Summary` 就会被正确归入处理器方言）。
+- `@Header` 的形状是 `状态码 {类型} 响应头名 "说明"`，状态码写 `all` 表示所有响应都带该头；
+  例如 `@Header 201 {string} Location "资源地址"`。
 - `@Security BearerAuth` 只写在受保护端点上，代表 `Authorization: Bearer <token>`；公开端点（登录、登出、健康检查、公钥）不写。
+  需要作用域时写成 `@Security OAuth2 read:users write:users`；同一行用 `&&` 表示同时满足多个方案，
+  用 `||` 表示任选其一。所有引用的方案都必须先在文档的 `components.securitySchemes` 中声明
+  （脚手架已声明 `BearerAuth`）。
 - 路径写**路由模式**（含参数，如 `/users/:id/roles`），与处理器实际挂载的位置一致；写错不会报错，只会成为一个孤儿注解。
 - 状态码与实现一致：校验失败 `422`、未登录 `401`、越权 `404`（见 §1 的「越权一律 404」）、未知路由 `404`。
 
