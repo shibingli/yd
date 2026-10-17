@@ -4,6 +4,7 @@ import (
 	"io"
 	"net"
 	"testing"
+	"time"
 )
 
 // countingConn records how many Write calls reached the transport. | countingConn 记录真正到达传输层的 Write 调用次数。
@@ -80,5 +81,62 @@ func TestReadMessageGrowsToMessageSize(t *testing.T) {
 	}
 	if cap(c.readBuf) > size+1024 {
 		t.Fatalf("read buffer capacity = %d, want <= %d | 读缓冲容量 = %d，期望 <= %d", cap(c.readBuf), size+1024, cap(c.readBuf), size+1024)
+	}
+}
+
+// controlConn feeds a fixed control-frame payload and discards writes. | controlConn 提供固定的控制帧载荷并丢弃写入。
+type controlConn struct {
+	src [maxControlPayload]byte
+	off int
+}
+
+// Read copies the remaining payload. | Read 复制剩余载荷。
+func (c *controlConn) Read(p []byte) (int, error) {
+	if c.off >= len(c.src) {
+		return 0, io.EOF
+	}
+	n := copy(p, c.src[c.off:])
+	c.off += n
+	return n, nil
+}
+
+// Write discards the frame. | Write 丢弃帧。
+func (c *controlConn) Write(p []byte) (int, error) { return len(p), nil }
+
+// Close is a no-op. | Close 为空操作。
+func (c *controlConn) Close() error { return nil }
+
+// LocalAddr returns nil. | LocalAddr 返回 nil。
+func (c *controlConn) LocalAddr() net.Addr { return nil }
+
+// RemoteAddr returns nil. | RemoteAddr 返回 nil。
+func (c *controlConn) RemoteAddr() net.Addr { return nil }
+
+// SetDeadline is a no-op. | SetDeadline 为空操作。
+func (c *controlConn) SetDeadline(time.Time) error { return nil }
+
+// SetReadDeadline is a no-op. | SetReadDeadline 为空操作。
+func (c *controlConn) SetReadDeadline(time.Time) error { return nil }
+
+// SetWriteDeadline is a no-op. | SetWriteDeadline 为空操作。
+func (c *controlConn) SetWriteDeadline(time.Time) error { return nil }
+
+// TestHandleControlDoesNotAllocate pins that answering a ping with a full
+// payload does not allocate. | TestHandleControlDoesNotAllocate 固定「应答携带完整
+// 载荷的 ping 不产生分配」。
+func TestHandleControlDoesNotAllocate(t *testing.T) {
+	nc := &controlConn{}
+	c := newConn(nc, Options{WriteBufferSize: 1024}, false)
+	defer func() { _ = c.CloseNow() }()
+	h := frameHeader{fin: true, opcode: PingMessage, length: maxControlPayload}
+
+	allocs := testing.AllocsPerRun(100, func() {
+		nc.off = 0
+		if err := c.handleControl(h); err != nil {
+			t.Fatalf("handleControl: %v | handleControl：%v", err, err)
+		}
+	})
+	if allocs != 0 {
+		t.Fatalf("handleControl allocations = %v, want 0 | handleControl 分配次数 = %v，期望 0", allocs, allocs)
 	}
 }

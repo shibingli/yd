@@ -86,6 +86,11 @@ type Conn struct {
 
 	headerBuf [maxHeaderSize]byte
 
+	// controlBuf stages control-frame payloads on the read goroutine; control
+	// frames are at most 125 bytes, so reusing it removes a per-frame allocation. | controlBuf
+	// 在读协程暂存控制帧载荷；控制帧至多 125 字节，复用它可去掉每帧一次分配。
+	controlBuf [maxControlPayload]byte
+
 	// writeHeaderBuf is the outbound counterpart of headerBuf; keeping it on the connection means a
 	// frame header never escapes to the heap, and read/write can still run concurrently. | writeHeaderBuf
 	// 是 headerBuf 的出方向对应物；把它放在连接上，帧头因此不会上堆，同时读写仍可并发。
@@ -568,7 +573,7 @@ func (c *Conn) validateHeader(h frameHeader) error {
 
 // handleControl reads and handles a control frame. | handleControl 读取并处理控制帧。
 func (c *Conn) handleControl(h frameHeader) error {
-	payload := make([]byte, h.length)
+	payload := c.controlBuf[:h.length]
 	if h.length > 0 {
 		if err := c.readFull(payload); err != nil {
 			if err == io.EOF || err == io.ErrUnexpectedEOF {
