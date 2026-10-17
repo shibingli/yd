@@ -72,28 +72,17 @@ func encodeSIMD(dst, src []byte, url bool) int {
 	if len(src) < 28 || len(dst) < 32 {
 		return 0
 	}
-	var shufArr = [16]int8{1, 0, 2, 1, 4, 3, 5, 4, 7, 6, 8, 7, 10, 9, 11, 10}
-	var maskLoArr = [16]uint16{0xfc00, 0x0fc0, 0xfc00, 0x0fc0, 0xfc00, 0x0fc0, 0xfc00, 0x0fc0, 0xfc00, 0x0fc0, 0xfc00, 0x0fc0, 0xfc00, 0x0fc0, 0xfc00, 0x0fc0}
-	var maskHiArr = [16]uint16{0x03f0, 0x003f, 0x03f0, 0x003f, 0x03f0, 0x003f, 0x03f0, 0x003f, 0x03f0, 0x003f, 0x03f0, 0x003f, 0x03f0, 0x003f, 0x03f0, 0x003f}
-	var mulHiArr = [16]uint16{0x0040, 0x0400, 0x0040, 0x0400, 0x0040, 0x0400, 0x0040, 0x0400, 0x0040, 0x0400, 0x0040, 0x0400, 0x0040, 0x0400, 0x0040, 0x0400}
-	var mulLoArr = [16]uint16{0x0010, 0x0100, 0x0010, 0x0100, 0x0010, 0x0100, 0x0010, 0x0100, 0x0010, 0x0100, 0x0010, 0x0100, 0x0010, 0x0100, 0x0010, 0x0100}
-	var lutArr = [32]int8{
-		71, -4, -4, -4, -4, -4, -4, -4, -4, -4, -4, -19, -16, 65, 0, 0,
-		71, -4, -4, -4, -4, -4, -4, -4, -4, -4, -4, -19, -16, 65, 0, 0,
-	}
-
-	shuffle := archsimd.LoadInt8x16Array(&shufArr)
-	lut := archsimd.LoadInt8x16(lutArr[:16])
-	maskLo8 := archsimd.LoadUint16x8(maskLoArr[:8])
-	maskHi8 := archsimd.LoadUint16x8(maskHiArr[:8])
-	mulHi8 := archsimd.LoadUint16x8(mulHiArr[:8])
-	mulLo8 := archsimd.LoadUint16x8(mulLoArr[:8])
-
-	lut32 := archsimd.LoadInt8x32(lutArr[:])
-	maskLo16 := archsimd.LoadUint16x16(maskLoArr[:])
-	maskHi16 := archsimd.LoadUint16x16(maskHiArr[:])
-	mulHi16 := archsimd.LoadUint16x16(mulHiArr[:])
-	mulLo16 := archsimd.LoadUint16x16(mulLoArr[:])
+	shuffle := archsimd.LoadInt8x16(simdShuf16[:])
+	lut := archsimd.LoadInt8x16(simdLut16[:])
+	lut32 := archsimd.LoadInt8x32(simdLut32[:])
+	maskLo8 := archsimd.LoadUint16x8(simdMaskLo8[:])
+	maskHi8 := archsimd.LoadUint16x8(simdMaskHi8[:])
+	mulHi8 := archsimd.LoadUint16x8(simdMulHi8[:])
+	mulLo8 := archsimd.LoadUint16x8(simdMulLo8[:])
+	maskLo16 := archsimd.LoadUint16x16(simdMaskLo16[:])
+	maskHi16 := archsimd.LoadUint16x16(simdMaskHi16[:])
+	mulHi16 := archsimd.LoadUint16x16(simdMulHi16[:])
+	mulLo16 := archsimd.LoadUint16x16(simdMulLo16[:])
 	b51x32, b26x32, b13x32 := archsimd.BroadcastUint8x32(51), archsimd.BroadcastUint8x32(26), archsimd.BroadcastUint8x32(13)
 	b62x32, b63x32, dashx32, underx32 := archsimd.BroadcastUint8x32(62), archsimd.BroadcastUint8x32(63), archsimd.BroadcastUint8x32('-'), archsimd.BroadcastUint8x32('_')
 	b51x16, b26x16, b13x16 := archsimd.BroadcastUint8x16(51), archsimd.BroadcastUint8x16(26), archsimd.BroadcastUint8x16(13)
@@ -148,11 +137,9 @@ func decodeSIMD(dst, src []byte, url bool) (int, int) {
 	if url {
 		plus, slash = '-', '_'
 	}
-	var mulArr = [32]int8{64, 1, 64, 1, 64, 1, 64, 1, 64, 1, 64, 1, 64, 1, 64, 1, 64, 1, 64, 1, 64, 1, 64, 1, 64, 1, 64, 1, 64, 1, 64, 1}
-	var packArr = [16]int8{2, 1, 0, 6, 5, 4, 10, 9, 8, 14, 13, 12, 15, 15, 15, 15}
-	mul32 := archsimd.LoadInt8x32(mulArr[:])
-	mul16 := archsimd.LoadInt8x16(mulArr[:16])
-	pack16 := archsimd.LoadInt8x16(packArr[:])
+	mul32 := archsimd.LoadInt8x32(simdMul32[:])
+	mul16 := archsimd.LoadInt8x16(simdMul16[:])
+	pack16 := archsimd.LoadInt8x16(simdPack16[:])
 
 	upperA32 := archsimd.BroadcastUint8x32('A')
 	upperZ32 := archsimd.BroadcastUint8x32('Z')
@@ -229,32 +216,12 @@ func encodeSIMD512(dst, src []byte, url bool) int {
 	if len(src) < 52 || len(dst) < 64 {
 		return 0
 	}
-	var shufArr = [16]int8{1, 0, 2, 1, 4, 3, 5, 4, 7, 6, 8, 7, 10, 9, 11, 10}
-	var maskLoArr [32]uint16
-	var maskHiArr [32]uint16
-	var mulHiArr [32]uint16
-	var mulLoArr [32]uint16
-	for j := range maskLoArr {
-		if j&1 == 0 {
-			maskLoArr[j], maskHiArr[j] = 0xfc00, 0x03f0
-			mulHiArr[j], mulLoArr[j] = 0x0040, 0x0010
-		} else {
-			maskLoArr[j], maskHiArr[j] = 0x0fc0, 0x003f
-			mulHiArr[j], mulLoArr[j] = 0x0400, 0x0100
-		}
-	}
-	lutBase := [16]int8{71, -4, -4, -4, -4, -4, -4, -4, -4, -4, -4, -19, -16, 65, 0, 0}
-	var lutArr [64]int8
-	for j := range lutArr {
-		lutArr[j] = lutBase[j&15]
-	}
-
-	shuffle := archsimd.LoadInt8x16(shufArr[:])
-	maskLo := archsimd.LoadUint16x32(maskLoArr[:])
-	maskHi := archsimd.LoadUint16x32(maskHiArr[:])
-	mulHi := archsimd.LoadUint16x32(mulHiArr[:])
-	mulLo := archsimd.LoadUint16x32(mulLoArr[:])
-	lut := archsimd.LoadInt8x64(lutArr[:])
+	shuffle := archsimd.LoadInt8x16(simdShuf16[:])
+	maskLo := archsimd.LoadUint16x32(simdMaskLo32[:])
+	maskHi := archsimd.LoadUint16x32(simdMaskHi32[:])
+	mulHi := archsimd.LoadUint16x32(simdMulHi32[:])
+	mulLo := archsimd.LoadUint16x32(simdMulLo32[:])
+	lut := archsimd.LoadInt8x64(simdLut64[:])
 	zero32 := archsimd.BroadcastUint8x32(0)
 	zero64 := archsimd.BroadcastUint8x64(0)
 	i, o := 0, 0
@@ -296,17 +263,8 @@ func decodeSIMD512(dst, src []byte, url bool) (int, int) {
 	if url {
 		plus, slash = '-', '_'
 	}
-	var mulArr [64]int8
-	for j := range mulArr {
-		if j&1 == 0 {
-			mulArr[j] = 64
-		} else {
-			mulArr[j] = 1
-		}
-	}
-	var packArr = [16]int8{2, 1, 0, 6, 5, 4, 10, 9, 8, 14, 13, 12, 15, 15, 15, 15}
-	mul := archsimd.LoadInt8x64(mulArr[:])
-	pack := archsimd.LoadInt8x16(packArr[:])
+	mul := archsimd.LoadInt8x64(simdMul64[:])
+	pack := archsimd.LoadInt8x16(simdPack16[:])
 
 	upperA := archsimd.BroadcastUint8x64('A')
 	upperZ := archsimd.BroadcastUint8x64('Z')
@@ -356,38 +314,12 @@ func encodeSIMD512VBMI(dst, src []byte, url bool) int {
 	if len(src) < 64 || len(dst) < 64 {
 		return 0
 	}
-	pattern := [16]uint8{1, 0, 2, 1, 4, 3, 5, 4, 7, 6, 8, 7, 10, 9, 11, 10}
-	var inArr [64]uint8
-	for g := 0; g < 4; g++ {
-		for j := 0; j < 16; j++ {
-			inArr[g*16+j] = uint8(g*12) + pattern[j]
-		}
-	}
-	var maskLoArr [32]uint16
-	var maskHiArr [32]uint16
-	var mulHiArr [32]uint16
-	var mulLoArr [32]uint16
-	for j := range maskLoArr {
-		if j&1 == 0 {
-			maskLoArr[j], maskHiArr[j] = 0xfc00, 0x03f0
-			mulHiArr[j], mulLoArr[j] = 0x0040, 0x0010
-		} else {
-			maskLoArr[j], maskHiArr[j] = 0x0fc0, 0x003f
-			mulHiArr[j], mulLoArr[j] = 0x0400, 0x0100
-		}
-	}
-	lutBase := [16]int8{71, -4, -4, -4, -4, -4, -4, -4, -4, -4, -4, -19, -16, 65, 0, 0}
-	var lutArr [64]int8
-	for j := range lutArr {
-		lutArr[j] = lutBase[j&15]
-	}
-
-	inShuf := archsimd.LoadUint8x64(inArr[:])
-	maskLo := archsimd.LoadUint16x32(maskLoArr[:])
-	maskHi := archsimd.LoadUint16x32(maskHiArr[:])
-	mulHi := archsimd.LoadUint16x32(mulHiArr[:])
-	mulLo := archsimd.LoadUint16x32(mulLoArr[:])
-	lut := archsimd.LoadInt8x64(lutArr[:])
+	inShuf := archsimd.LoadUint8x64(simdInShuf64[:])
+	maskLo := archsimd.LoadUint16x32(simdMaskLo32[:])
+	maskHi := archsimd.LoadUint16x32(simdMaskHi32[:])
+	mulHi := archsimd.LoadUint16x32(simdMulHi32[:])
+	mulLo := archsimd.LoadUint16x32(simdMulLo32[:])
+	lut := archsimd.LoadInt8x64(simdLut64[:])
 	i, o := 0, 0
 	for i+64 <= len(src) && o+64 <= len(dst) {
 		in := archsimd.LoadUint8x64(src[i:]).Permute(inShuf).AsUint16x32()
@@ -420,21 +352,8 @@ func decodeSIMD512VBMI2(dst, src []byte, url bool) (int, int) {
 	if len(src) < 64 || len(dst) < 64 {
 		return 0, 0
 	}
-	var mulArr [64]int8
-	for j := range mulArr {
-		if j&1 == 0 {
-			mulArr[j] = 64
-		} else {
-			mulArr[j] = 1
-		}
-	}
-	var packArr [64]int8
-	packBase := [16]int8{2, 1, 0, 6, 5, 4, 10, 9, 8, 14, 13, 12, 15, 15, 15, 15}
-	for j := range packArr {
-		packArr[j] = packBase[j&15]
-	}
-	mul := archsimd.LoadInt8x64(mulArr[:])
-	pack := archsimd.LoadInt8x64(packArr[:])
+	mul := archsimd.LoadInt8x64(simdMul64[:])
+	pack := archsimd.LoadInt8x64(simdPack64[:])
 	loLUT := archsimd.LoadInt8x64(simdLoLUT[:])
 	hiLUT := archsimd.LoadInt8x64(simdHiLUT[:])
 	rollLUT := archsimd.LoadInt8x64(simdRollLUT[:])
