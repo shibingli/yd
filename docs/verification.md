@@ -737,6 +737,29 @@ WSL Ubuntu-24.04（同为 Go 1.27.2）上分别测量；所有实现保持纯 Go
   `AppendDecode` 仍保证不把部分结果交给调用方。包文档已同步。
 - 降级后端（非 amd64 或 `b64x_std`）本来就是标准库，语义一致。
 
+### 3.15.3.1 Base64 后端重排（cloudwego / cristalhq / std）
+
+本轮把 amd64 后端从 cristalhq/base64 切换为 **cloudwego/base64x**（AVX2/SSE）；
+cristalhq 覆盖的非 amd64 架构使用 cristalhq/base64；loong64 或 `b64x_std` 回退标准库。
+amd64 实测（Windows，i9-10980HK，`-benchmem -benchtime=150ms`）：
+
+| 操作 | 尺寸 | b64x（cloudwego） | stdlib | 倍数 |
+|---|---:|---:|---:|---:|
+| Encode | 1 KiB | 101 ns / 10.1 GB/s | 926 ns / 1.1 GB/s | 9.1× |
+| Encode | 64 KiB | 5.34 µs / 12.3 GB/s | 57.6 µs / 1.1 GB/s | 10.8× |
+| Decode | 1 KiB | 159 ns / 6.4 GB/s | 1007 ns / 1.0 GB/s | 6.3× |
+| Decode | 64 KiB | 7.84 µs / 8.4 GB/s | 64.5 µs / 1.0 GB/s | 8.2× |
+| EncodeToString | 1 KiB | 377 ns，1 alloc | 1395 ns，2 allocs | 3.7× |
+| DecodeString | 1 KiB | 351 ns，1 alloc | 1184 ns，1 alloc | 3.4× |
+| AppendEncode / AppendDecode | 1 KiB | 98 / 167 ns，0 allocs | — | — |
+
+- 16 B 小输入三者接近（cloudwego 编码 18.8 ns、stdlib 19.0 ns）；大载荷优势来自 SIMD。
+- `AppendEncode`/`AppendDecode` 使用 cloudwego 的 `EncodeUnsafe`/`DecodeUnsafe` 直接扩展
+  目标切片，保持 0 allocs；`DecodeUnsafe` 可能写至 `DecodedLen` 之后几个字节，`b64x`
+  在容量中预留 4 字节余量，且不把余量暴露给调用方。
+- 非 amd64 的 cristalhq 后端保留「含 CR/LF 的输入回退标准库」的语义；`b64x_std` 与
+  loong64 使用标准库。
+
 ### 3.15.4 JSON 编解码对照
 
 新增 `core/jsonx` 基准（与 `encoding/json` 对拍，测试文件允许把标准库当预言机）：
@@ -805,12 +828,13 @@ goccy/go-json v0.11.2、json-iterator v1.1.12、cristalhq/base64 v0.1.2、segmen
 | 解码 | 1 KiB | 497 | 835 | 498 | **112** |
 | 解码 | 64 KiB | 30.2 µs | 53.1 µs | 31.0 µs | **5.7 µs** |
 
-- 小尺寸（≤ 256 B）：cristalhq（也就是 b64x 的切片后端）最快；
-  segmentio/asm 的 SIMD 在极小输入上有固定开销。
+- 小尺寸（≤ 256 B）：cristalhq（旧 b64x 切片后端）最快；segmentio/asm 的 SIMD 在极小输入上有固定开销。
 - 1 KiB 以上：`segmentio/asm` 快 4–9×（64 KiB 编码/解码约 12.6/10.3 GB/s），
   是当前生态里最快的实现；但它是一个额外的汇编依赖（仅 amd64/arm64），
   引入需按「依赖克制」单独评估，本轮未替换。
-- `b64x` 现在的组合已拿到两端的较优解：切片接口走 cristalhq，字符串入口走标准库。
+- **注意**：上表是切换前的 b64x 数据。本轮之后 amd64 统一走 cloudwego/base64x，
+  其 64 KiB 编码/解码约 12.3/8.4 GB/s（见 §3.15.3.1），已接近 segmentio/asm；
+  非 amd64 走 cristalhq/base64。
 
 ### 3.16.4 Linux 对照（WSL Ubuntu-24.04）
 

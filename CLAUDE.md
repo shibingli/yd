@@ -22,7 +22,7 @@
 - 文件系统：afero v1.15（OsFs / MemFs 无缝切换的 Mockable FS）
 - 命令行：pflag v1.0.10（POSIX 风格，替代标准库 `flag`）
 - JSON：**自适应分流** —— amd64 走 sonic（JIT + SIMD），非 x86_64 走 go-json；构建标签 `jsonx_std` 可强制标准库
-- Base64：**自适应分流** —— amd64 走 base64x（SIMD 硬件加速），非 x86_64 降级 `encoding/base64`；标签 `b64x_std`
+- Base64：**自适应分流** —— amd64 走 `cloudwego/base64x`（AVX2/SSE），非 amd64 走 `cristalhq/base64`，loong64 或 `b64x_std` 标签回退 `encoding/base64`
 - 数据：GORM v1.31（默认 `PrepareStmt: true`）、go-redis v9（单机/哨兵/集群）、asynq v0.26（Redis 驱动分布式队列）
 - 网络：HTTP/1.1 + H2C + HTTP/3(QUIC, quic-go) + 内置 ACME 自动签发续期
 - 安全：国密 SM2/SM3/SM4（**纯 Go**，gmsm），严禁 cgo 与非 Go 原生组件

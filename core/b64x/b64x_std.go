@@ -1,4 +1,4 @@
-//go:build !amd64 || b64x_std
+//go:build loong64 || b64x_std
 
 package b64x
 
@@ -8,8 +8,9 @@ import (
 	"github.com/shibingli/yd/core/errx"
 )
 
-// Encoding is a Base64 codec that delegates to the standard library encoding/base64 on non-amd64 platforms | Encoding 是 Base64 编解码器，在非 amd64 平台或指定 b64x_std 标签时委托给标准库
-// or when the b64x_std tag is specified. Its method set is exactly the same as the base64x backend of b64x, and the two are directly interchangeable. | encoding/base64。方法集与 b64x 的 base64x 后端完全一致，可直接互换。
+// Encoding is a Base64 codec that delegates to the standard library encoding/base64 on | Encoding 是 Base64 编解码器，在没有第三方后端的架构
+// architectures without a third-party backend (currently loong64) or when the b64x_std | （当前为 loong64）或指定 b64x_std 标签时委托给标准库
+// tag is specified. Its method set is exactly the same as the other backends, and they are directly interchangeable. | encoding/base64。方法集与其他后端完全一致，可直接互换。
 type Encoding struct {
 	enc *base64.Encoding // underlying standard library codec | 底层标准库编解码器
 }
@@ -25,7 +26,7 @@ var (
 	RawURLEncoding = &Encoding{enc: base64.RawURLEncoding}
 )
 
-// Backend returns the name of the backend used by the current build. On non-amd64 platforms or with the b64x_std tag specified it is "encoding/base64". | Backend 返回当前构建使用的后端名称。非 amd64 平台或指定 b64x_std 标签时为 "encoding/base64"。
+// Backend returns the name of the backend used by the current build. On architectures without a third-party backend or with the b64x_std tag specified it is "encoding/base64". | Backend 返回当前构建使用的后端名称。没有第三方后端的架构或指定 b64x_std 标签时为 "encoding/base64"。
 func Backend() string { return "encoding/base64" }
 
 // EncodedLen returns the encoded length of an n-byte source, exactly matching encoding/base64.Encoding.EncodedLen. | EncodedLen 返回 n 字节源码编码后的长度，与 encoding/base64.Encoding.EncodedLen 完全一致。

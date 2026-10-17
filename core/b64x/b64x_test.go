@@ -253,7 +253,9 @@ func TestAppendDecodeReusesBuffer(t *testing.T) {
 	}
 }
 
-// TestAppendDecodeKeepsCapacity verifies that decoding does not write past the available capacity: sentinel bytes beyond the result are touched by at most 1 byte of the internal write margin. | TestAppendDecodeKeepsCapacity 验证解码不会越过可用容量写入：结果之外的哨兵字节至多被内部写余量触碰 1 字节。
+// TestAppendDecodeKeepsCapacity verifies that decoding does not write past the reserved
+// capacity: sentinel bytes beyond the SIMD write slack are untouched. | TestAppendDecodeKeepsCapacity
+// 验证解码不会越过预留容量写入：SIMD 写余量之外的哨兵字节保持不变。
 func TestAppendDecodeKeepsCapacity(t *testing.T) {
 	src := randomBytes(300)
 	encoded := StdEncoding.EncodeToString(src)
@@ -271,7 +273,7 @@ func TestAppendDecodeKeepsCapacity(t *testing.T) {
 	if !bytes.Equal(out, src) {
 		t.Fatal("the decoded result is inconsistent | 解码结果不一致")
 	}
-	for i := len(out) + 1; i < len(raw); i++ {
+	for i := len(out) + decodeWriteSlack; i < len(raw); i++ {
 		if raw[i] != sentinel {
 			t.Fatalf("索引 %d（结果末尾之后 %d 字节）被越界写入", i, i-len(out))
 		}
@@ -376,13 +378,13 @@ func TestEncodedLenDecodedLenMatchStdlib(t *testing.T) {
 	}
 }
 
-// TestBackendNameIsKnown verifies that Backend returns only one of the two agreed names. | TestBackendNameIsKnown 校验 Backend 只返回两个约定名称之一。
+// TestBackendNameIsKnown verifies that Backend returns only one of the agreed names. | TestBackendNameIsKnown 校验 Backend 只返回约定名称之一。
 func TestBackendNameIsKnown(t *testing.T) {
 	switch got := Backend(); got {
-	case "base64x", "encoding/base64":
+	case "cloudwego/base64x", "cristalhq/base64", "encoding/base64":
 		t.Logf("当前 Base64 后端：%s", got)
 	default:
-		t.Fatalf("Backend() = %q，期望 \"base64x\" 或 \"encoding/base64\"", got)
+		t.Fatalf("Backend() = %q，期望 cloudwego/base64x、cristalhq/base64 或 encoding/base64", got)
 	}
 }
 

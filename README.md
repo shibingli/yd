@@ -111,7 +111,7 @@ yd dev --port 7070          # 命令行最高优先级
 core/          与领域无关的基础原语
   config/      分层配置引擎（viper + pflag + .env，前缀 YD_）
   afs/         afero 抽象文件系统门面（OS / MemFS / go:embed）
-  jsonx/ b64x/ 硬件自适应 JSON / Base64（sonic+base64x ↔ go-json+stdlib，构建标签分流）
+  jsonx/ b64x/ 硬件自适应 JSON / Base64（sonic ↔ go-json；cloudwego ↔ cristalhq ↔ stdlib）
   logx/        零拷贝结构化日志（sync.Pool 字节缓冲直写 io.Writer）
   errx/        声明式哨兵错误原语（禁止 fmt.Errorf 的统一替代）
   version/     版本信息（-ldflags 注入）

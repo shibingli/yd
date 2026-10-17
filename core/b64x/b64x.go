@@ -2,26 +2,33 @@
 //
 // Backend routing (determined by build tags, fully transparent to callers): | 后端分流（由构建标签决定，对调用方完全透明）：
 //
-//   - amd64 without the b64x_std tag: the SIMD-accelerated github.com/cristalhq/base64 for the
-//     slice APIs (Encode/Decode/AppendEncode/AppendDecode), with encoding/base64 for inputs containing
-//     CR/LF and for DecodeString, whose allocating string form measured faster in the standard library;
-//     Backend() returns "base64x"; | amd64 且未指定 b64x_std 标签：切片接口（Encode/Decode/AppendEncode/
-//     AppendDecode）使用 SIMD 加速的 github.com/cristalhq/base64；含 CR/LF 的输入与 DecodeString
-//     使用 encoding/base64（实测标准库的分配式字符串入口更快）；Backend() 返回 "base64x"；
-//   - other architectures (arm64/riscv64/...) or with the b64x_std tag set explicitly: the standard library | 其他架构（arm64/riscv64/...）或显式指定 b64x_std 标签：使用标准库
-//     encoding/base64, Backend() returns "encoding/base64". | encoding/base64，Backend() 返回 "encoding/base64"。
+//   - amd64 without the b64x_std tag: the AVX2/SSE-accelerated github.com/cloudwego/base64x
+//     for every method, including the append forms, which extend the destination slice
+//     directly; Backend() returns "cloudwego/base64x"; | amd64 且未指定 b64x_std 标签：所有方法使用
+//     AVX2/SSE 加速的 github.com/cloudwego/base64x，追加式接口直接扩展目标切片；Backend() 返回
+//     "cloudwego/base64x"；
+//   - other architectures that cristalhq supports (386/arm/arm64/riscv64/ppc64le/s390x/...)
+//     without the b64x_std tag: github.com/cristalhq/base64, with encoding/base64 for
+//     CR/LF-bearing input and for the allocating string form; Backend() returns "cristalhq/base64"; | 其他
+//     cristalhq 支持的架构（386/arm/arm64/riscv64/ppc64le/s390x/...）且未指定 b64x_std 标签：使用
+//     github.com/cristalhq/base64；含 CR/LF 的输入与分配式字符串入口回退到 encoding/base64；
+//     Backend() 返回 "cristalhq/base64"；
+//   - architectures without a third-party backend (currently loong64) or with the b64x_std
+//     tag set explicitly: the standard library encoding/base64, Backend() returns
+//     "encoding/base64". | 没有第三方后端支持的架构（当前为 loong64）或显式指定 b64x_std 标签：
+//     使用标准库 encoding/base64，Backend() 返回 "encoding/base64"。
 //
-// Both backends expose exactly the same symbols and semantics: the four encoding variants | 两个后端暴露完全相同的符号与语义：StdEncoding、RawStdEncoding、URLEncoding、
+// All backends expose exactly the same symbols and semantics: the four encoding variants | 所有后端暴露完全相同的符号与语义：StdEncoding、RawStdEncoding、URLEncoding、
 // StdEncoding, RawStdEncoding, URLEncoding and RawURLEncoding, plus the Encoding methods | RawURLEncoding 四个编码变体，以及 Encoding 的 Encode、Decode、EncodeToString、
 // Encode, Decode, EncodeToString, DecodeString, EncodedLen, DecodedLen, AppendEncode and AppendDecode, | DecodeString、EncodedLen、DecodedLen、AppendEncode、AppendDecode 方法，
 // with length calculations and encoding results byte-for-byte identical to encoding/base64. | 长度计算与编码结果均与 encoding/base64 逐字节一致。
 //
 // Zero copy: AppendEncode and AppendDecode reuse the underlying array of the destination buffer when its capacity is sufficient, | 零拷贝：AppendEncode、AppendDecode 在目标缓冲区容量充足时复用其底层数组，
-// producing no new allocation; DecodeString allocates only the result. On amd64 the base64x backend encodes and decodes with | 不产生新的分配；DecodeString 只分配结果本身。amd64 上 base64x 后端用 SIMD 编解码器处理切片接口，
-// the SIMD codec (about 2x faster than encoding/base64) and falls back to encoding/base64 for inputs containing CR/LF and for | 比 encoding/base64 约快 2 倍；含 CR/LF 的输入与分配式的 DecodeString 回退到标准库。
-// the allocating DecodeString form. Decode writes directly into dst, and the fallback backend behaves the same. | Decode 直接写入 dst，降级后端的行为完全相同。
+// producing no new allocation; DecodeString allocates only the result. On amd64 cloudwego/base64x delivers roughly | 不产生新的分配；DecodeString 只分配结果本身。amd64 上 cloudwego/base64x 的吞吐约为
+// 8-12x encoding/base64 for 1 KiB-64 KiB payloads; cristalhq/base64 is used on the other supported architectures. | encoding/base64 的 8-12 倍（1 KiB-64 KiB 载荷）；其他受支持架构使用 cristalhq/base64。
+// Decode writes directly into dst, and every backend behaves the same. | Decode 直接写入 dst，所有后端行为一致。
 //
-// Differences from encoding/base64 (both backends behave identically): | 与 encoding/base64 的差异（两个后端行为一致）：
+// Differences from encoding/base64 (all backends behave identically): | 与 encoding/base64 的差异（所有后端行为一致）：
 //
 //   - on decode failure Decode returns (0, err); like encoding/base64 it may leave partial output in dst. | 解码失败时 Decode 返回 (0, err)；
 //     DecodeString returns (nil, err) and AppendDecode returns dst unchanged, so those two never hand a partial result to the caller. | 与 encoding/base64 一样，dst 可能留有部分输出。DecodeString 返回 (nil, err)，AppendDecode 原样返回 dst，这两者绝不会把部分结果交给调用方；
@@ -32,6 +39,12 @@
 package b64x
 
 import "github.com/shibingli/yd/core/errx"
+
+// decodeWriteSlack is spare capacity reserved for SIMD decoders, which may write a
+// few bytes past DecodedLen while filling a block. It is never exposed in the
+// returned slice. | decodeWriteSlack 是给 SIMD 解码器预留的额外容量：填充块时可能写
+// 过 DecodedLen 几个字节，但它绝不会出现在返回切片中。
+const decodeWriteSlack = 4
 
 var (
 	// ErrShortBuffer indicates the destination buffer is shorter than DecodedLen(len(src)) and cannot hold the decode result. | ErrShortBuffer 表示目标缓冲区长度小于 DecodedLen(len(src))，无法容纳解码结果。
