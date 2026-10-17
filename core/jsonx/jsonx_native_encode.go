@@ -3,6 +3,7 @@
 package jsonx
 
 import (
+	"bytes"
 	"encoding"
 	stdjson "encoding/json"
 	"reflect"
@@ -20,9 +21,13 @@ import (
 // timeCacheEntry caches one formatted RFC 3339 timestamp. | timeCacheEntry 缓存一个已格式化的
 // RFC 3339 时间戳。
 type timeCacheEntry struct {
-	k time.Time
-	b [40]byte
-	n uint8
+	k       time.Time
+	b       [40]byte
+	full    [64]byte
+	key     [16]byte
+	n       uint8
+	keyLen  uint8
+	fullLen uint8
 }
 
 type encoder struct {
@@ -390,6 +395,7 @@ func buildStructEncoder(t reflect.Type) encodeFunc {
 		omitEmpty bool
 		quoted    bool
 		fastOK    bool
+		full      func(*encoder, unsafe.Pointer) error
 	}
 	list := make([]encField, len(fields))
 	allFast := true
@@ -425,10 +431,53 @@ func buildStructEncoder(t reflect.Type) encodeFunc {
 			allFast = false
 		}
 	}
+	for i := range list {
+		f := &list[i]
+		if f.typ != timeType || !f.fastOK || f.omitEmpty || f.quoted || len(f.fastKey) > 16 {
+			continue
+		}
+		key := append([]byte(nil), f.fastKey...)
+		f.full = func(e *encoder, p unsafe.Pointer) error {
+			tt := (*time.Time)(p)
+			entry := &e.timeCache[uint64(tt.UnixNano())&3]
+			if entry.fullLen != 0 && entry.k == *tt && int(entry.keyLen) == len(key) && bytes.Equal(entry.key[:len(key)], key) {
+				e.buf = append(e.buf, entry.full[:entry.fullLen]...)
+				return nil
+			}
+			if y := tt.Year(); y < 0 || y >= 10000 {
+				return errx.Detail(errUnsupported, "time year %d out of range | 时间年份 %d 超出范围", y, y)
+			}
+			var full [64]byte
+			n := copy(full[:], key)
+			full[n] = '"'
+			n++
+			formatted := tt.AppendFormat(full[n:n], time.RFC3339Nano)
+			if len(formatted) > cap(full)-n {
+				return errx.Detail(errUnsupported, "time formatting overflow | 时间格式化溢出")
+			}
+			copy(full[n:], formatted)
+			n += len(formatted)
+			full[n] = '"'
+			n++
+			e.buf = append(e.buf, full[:n]...)
+			copy(entry.full[:], full[:n])
+			entry.fullLen = uint8(n)
+			entry.keyLen = uint8(len(key))
+			copy(entry.key[:], key)
+			entry.k = *tt
+			return nil
+		}
+	}
 	fastEnc := func(e *encoder, base unsafe.Pointer) error {
 		e.buf = append(e.buf, '{')
 		for i := range list {
 			f := &list[i]
+			if f.full != nil {
+				if err := f.full(e, unsafe.Add(base, f.offset)); err != nil {
+					return err
+				}
+				continue
+			}
 			e.buf = append(e.buf, f.fastKey...)
 			if err := f.fast(e, unsafe.Add(base, f.offset)); err != nil {
 				return err
