@@ -16,11 +16,30 @@ type Encoding struct {
 	decode   [256]uint8
 	pad      byte
 	raw      bool
+	simd     uint8
 }
+
+// simdEncode and simdDecode are installed by the optional SIMD build. | simdEncode 与 simdDecode
+// 由可选的 SIMD 构建安装；未启用时保持 nil 并走标量路径。
+var (
+	simdEncode func(dst, src []byte, url bool) int
+	simdDecode func(dst, src []byte, url bool) (int, int)
+)
+
+const (
+	stdAlpha = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
+	urlAlpha = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_"
+)
 
 // newEncoding builds one encoding from its alphabet. | newEncoding 根据字母表构造一个编码器。
 func newEncoding(alpha string, padded bool) *Encoding {
 	e := &Encoding{raw: !padded}
+	switch alpha {
+	case stdAlpha:
+		e.simd = 1
+	case urlAlpha:
+		e.simd = 2
+	}
 	copy(e.alphabet[:], alpha)
 	for i := range e.decode {
 		e.decode[i] = 0xFF
@@ -36,13 +55,13 @@ func newEncoding(alpha string, padded bool) *Encoding {
 
 var (
 	// StdEncoding is the standard Base64 encoding defined by RFC 4648. | StdEncoding 是 RFC 4648 定义的标准 Base64 编码。
-	StdEncoding = newEncoding("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/", true)
+	StdEncoding = newEncoding(stdAlpha, true)
 	// RawStdEncoding is the standard Base64 encoding without padding. | RawStdEncoding 是省略填充的标准 Base64 编码。
-	RawStdEncoding = newEncoding("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/", false)
+	RawStdEncoding = newEncoding(stdAlpha, false)
 	// URLEncoding is the URL-safe Base64 encoding with padding. | URLEncoding 是带填充的 URL 安全 Base64 编码。
-	URLEncoding = newEncoding("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_", true)
+	URLEncoding = newEncoding(urlAlpha, true)
 	// RawURLEncoding is the URL-safe Base64 encoding without padding. | RawURLEncoding 是省略填充的 URL 安全 Base64 编码。
-	RawURLEncoding = newEncoding("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_", false)
+	RawURLEncoding = newEncoding(urlAlpha, false)
 )
 
 // Backend returns the active backend name for this build. | Backend 返回当前构建使用的后端名称。
@@ -70,6 +89,11 @@ func (e *Encoding) Encode(dst, src []byte) {
 		return
 	}
 	di := 0
+	if simdEncode != nil && e.simd != 0 {
+		n := simdEncode(dst, src, e.simd == 2)
+		di = n / 3 * 4
+		src = src[n:]
+	}
 	for len(src) >= 12 {
 		for j := 0; j < 12; j += 3 {
 			v := uint(src[j])<<16 | uint(src[j+1])<<8 | uint(src[j+2])
@@ -137,6 +161,9 @@ func (e *Encoding) Decode(dst, src []byte) (int, error) {
 		return 0, ErrShortBuffer
 	}
 	out, i := 0, 0
+	if simdDecode != nil && e.simd != 0 {
+		i, out = simdDecode(dst, src, e.simd == 2)
+	}
 	for i+4 <= len(src) {
 		a := e.decode[src[i]]
 		b := e.decode[src[i+1]]
