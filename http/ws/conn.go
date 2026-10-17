@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"crypto/rand"
 	"encoding/binary"
+	"errors"
 	"io"
 	"net"
 	"sync"
@@ -288,10 +289,15 @@ func (c *Conn) nextDataFrame(remaining *int64) error {
 	for {
 		h, err := readFrameHeader(c.reader(), c.headerBuf[:])
 		if err != nil {
-			if err == io.EOF || err == io.ErrUnexpectedEOF {
-				err = ErrUnexpectedEOF
+			switch {
+			case errors.Is(err, ErrFrameLengthMSB):
+				// an invalid length field is a protocol error, so answer 1002; an intact but oversized length stays 1009 below | 长度字段非法属于协议错误，应答 1002；长度合法但超限则在下面回 1009
+				return c.fail(CloseProtocolError, err)
+			case err == io.EOF || err == io.ErrUnexpectedEOF:
+				return c.setReadErr(ErrUnexpectedEOF)
+			default:
+				return c.setReadErr(err)
 			}
-			return c.setReadErr(err)
 		}
 		if err := c.validateHeader(h); err != nil {
 			return err
@@ -323,7 +329,8 @@ func (c *Conn) nextDataFrame(remaining *int64) error {
 		c.frameMasked = h.masked
 		c.maskKey = h.maskKey
 
-		if c.msgLen+h.length > c.opts.MaxMessageSize {
+		if h.length > c.opts.MaxMessageSize-c.msgLen {
+			// subtraction avoids int64 overflow when a legal 64-bit length is near the maximum | 相减可避免合法 64 位长度接近最大值时的 int64 溢出
 			return c.fail(CloseMessageTooBig, ErrMessageTooBig)
 		}
 		*remaining = h.length
@@ -404,11 +411,16 @@ func (c *Conn) handleControl(h frameHeader) error {
 }
 
 // handleCloseFrame handles the peer's close frame: it echoes a close frame back as the RFC requires and returns a *CloseError. | handleCloseFrame 处理对端关闭帧：按 RFC 回送关闭帧并返回 *CloseError。
+//
+// Once both sides have exchanged Close frames the server closes the underlying TCP connection (RFC 6455 §7.1.1); | 双方交换关闭帧后服务端关闭底层 TCP（RFC 6455 §7.1.1）；
+// the *CloseError is still recorded and returned, so callers keep observing it on this and later reads. | *CloseError 仍会被记录并返回，调用方在本条及后续读取中依然能观察到它。
 func (c *Conn) handleCloseFrame(payload []byte) error {
 	c.closeReceived = true
 	code, text, perr := parseClosePayload(payload)
 	if perr != nil {
-		_ = c.writeClose(CloseProtocolError, "")
+		// follow the parser's own classification: 1002 for an invalid code, 1007 for invalid UTF-8 | 采用解析器自身的分类：非法关闭码回 1002，非法 UTF-8 回 1007
+		_ = c.writeClose(code, "")
+		c.closeTransport()
 		return c.setReadErr(perr)
 	}
 
@@ -427,14 +439,31 @@ func (c *Conn) handleCloseFrame(payload []byte) error {
 	}
 	if c.closeHandler != nil {
 		if err := c.closeHandler(code, text); err != nil {
+			c.closeTransport()
 			return c.setReadErr(err)
 		}
 	}
+	c.closeTransport()
 	ce := &CloseError{Code: code, Text: text}
 	return c.setReadErr(ce)
 }
 
+// closeTransport closes the underlying TCP connection after the close frame has been written. | closeTransport 在关闭帧写出后关闭底层 TCP 连接。
+//
+// RFC 6455 §7.1.1 requires the server to close the underlying TCP connection as soon as the close handshake completes; | RFC 6455 §7.1.1 要求服务端在关闭握手完成后立即关闭底层 TCP；
+// the client instead waits for the server's FIN (it MAY close earlier at the caller's discretion). | 客户端则等待服务端的 FIN（也可由调用方提前关闭）。
+// The close frame is written synchronously before this call, so the peer reads the status code before the FIN; | 关闭帧在此调用前已同步写出，对端会先读到状态码再收到 FIN；
+// closing before the write would surface as a reset and hide the code. | 若在写出之前关闭，对端只会看到 RST 而读不到关闭码。
+func (c *Conn) closeTransport() {
+	if c.isClient {
+		return
+	}
+	_ = c.conn.Close()
+}
+
 // fail records the read error, sends the corresponding close frame, and returns that error. | fail 记录读错误、发送对应关闭帧并返回该错误。
+//
+// The close frame is written before the transport is closed (server side), so the peer can still read the code. | 关闭帧先于传输层关闭写出（服务端），对端仍能读到关闭码。
 func (c *Conn) fail(code CloseCode, err error) error {
 	closeMu := &c.closeMu
 	closeMu.Lock()
@@ -443,6 +472,7 @@ func (c *Conn) fail(code CloseCode, err error) error {
 	if !sent {
 		_ = c.writeClose(code, "")
 	}
+	c.closeTransport()
 	return c.setReadErr(err)
 }
 
@@ -450,11 +480,19 @@ func (c *Conn) fail(code CloseCode, err error) error {
 
 // WriteMessage writes one complete message. | WriteMessage 写入一条完整消息。
 //
+// Only TextMessage and BinaryMessage are accepted: WriteMessage always emits a single FIN frame, so it cannot | 仅接受 TextMessage 与 BinaryMessage：WriteMessage 总是发出单个 FIN 帧，因此既不能
+// continue a fragmented message (a bare continuation would violate RFC 6455 §5.4) and must not emit control | 续接分片消息（无起始帧的续帧违反 RFC 6455 §5.4），也不能发出控制帧
+// frames (they have their own API) or reserved opcodes (§5.2). | （控制帧有专用 API）或保留操作码（§5.2）。
+//
 // A server writes without masking (RFC 6455 §5.1); a client generates a random mask per frame, | 服务端写入不加掩码（RFC 6455 §5.1）；客户端写入会按帧生成随机掩码，
 // in which case the payload is copied into an internal masking buffer before it is sent. | 此时载荷需要复制到内部掩码缓冲后再发出。
 func (c *Conn) WriteMessage(op OpCode, p []byte) error {
-	if op.IsControl() {
-		return ErrProtocol
+	switch op {
+	case TextMessage, BinaryMessage:
+	case ContinuationMessage:
+		return ErrWriteContinuation
+	default:
+		return ErrWriteMessageOpcode
 	}
 	c.closeMu.Lock()
 	sent := c.closeSent
@@ -467,16 +505,25 @@ func (c *Conn) WriteMessage(op OpCode, p []byte) error {
 
 // WriteControl writes a control frame (close/ping/pong) with an optional write deadline. | WriteControl 写入控制帧（close/ping/pong），可指定写超时。
 //
+// Only PingMessage, PongMessage and CloseMessage are accepted; reserved control opcodes (0xB-0xF) and data opcodes | 仅接受 PingMessage、PongMessage 与 CloseMessage；保留控制操作码（0xB-0xF）与数据操作码
+// have no meaning here (RFC 6455 §5.2/§5.5). A close payload is validated before it goes on the wire: reserved or | 在此没有意义（RFC 6455 §5.2/§5.5）。关闭载荷在写出前会被校验：保留或未分配
+// unassigned status codes and non-UTF-8 reasons are rejected with ErrInvalidCloseCode / ErrInvalidCloseReason. | 状态码与非 UTF-8 原因会以 ErrInvalidCloseCode / ErrInvalidCloseReason 拒绝。
+//
 // Writing a close frame records the "close sent" state, after which any data frame write returns ErrCloseSent, | 写入关闭帧会登记「已发送关闭」状态，此后任何数据帧写入都返回 ErrCloseSent，
 // and sending a close frame again likewise returns ErrCloseSent (RFC 6455 §5.5.1: a close frame is sent at most once). | 重复发送关闭帧同样返回 ErrCloseSent（RFC 6455 §5.5.1：关闭帧至多发送一次）。
 func (c *Conn) WriteControl(op OpCode, p []byte, deadline time.Time) error {
-	if !op.IsControl() {
-		return ErrProtocol
+	switch op {
+	case PingMessage, PongMessage, CloseMessage:
+	default:
+		return ErrWriteControlOpcode
 	}
 	if len(p) > maxControlPayload {
 		return ErrControlTooLarge
 	}
 	if op == CloseMessage {
+		if err := validateOutboundClosePayload(p); err != nil {
+			return err
+		}
 		c.closeMu.Lock()
 		if c.closeSent {
 			c.closeMu.Unlock()
@@ -556,13 +603,25 @@ func (c *Conn) writeCloseRaw(payload []byte) error {
 
 // Close shuts down gracefully: it leaves the tracker, sends a close frame and then closes the underlying connection. | Close 优雅关闭：先离开追踪表，发送关闭帧后关闭底层连接。
 //
+// The status code and reason are validated first: reserved/unassigned codes and non-UTF-8 reasons are never | 状态码与原因会先被校验：保留/未分配状态码与非 UTF-8 原因绝不会写上线，
+// written; the connection is still terminated with a status-less close frame and the validation error is returned. | 连接仍会以无状态码关闭帧终止，并返回校验错误。
+//
 // Untracking happens first so that a concurrent CloseAll never sees (and never
 // writes to) a connection that is already on its way out. | 先取消登记，
 // 使并发的 CloseAll 不会看到（也不会写入）已经在关闭途中的连接。
 func (c *Conn) Close(code CloseCode, reason string) error {
 	c.detach()
-	err := c.writeClose(code, reason)
+	verr := validateOutboundClose(code, reason)
+	var err error
+	if verr != nil {
+		err = c.writeCloseRaw(nil)
+	} else {
+		err = c.writeClose(code, reason)
+	}
 	closeErr := c.conn.Close()
+	if verr != nil {
+		return verr
+	}
 	if err != nil && err != ErrCloseSent {
 		return err
 	}

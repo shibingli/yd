@@ -3,6 +3,8 @@ package ws
 import (
 	"encoding/binary"
 	"io"
+
+	"github.com/shibingli/yd/core/errx"
 )
 
 // frameHeader is a parsed frame header. | frameHeader 是解析后的帧头。
@@ -45,9 +47,9 @@ func readFrameHeader(r io.Reader, buf []byte) (frameHeader, error) {
 			return h, err
 		}
 		v := binary.BigEndian.Uint64(buf[:8])
-		if v > 1<<62 {
-			// RFC 6455 §5.2: the most significant bit must be 0, and the length must not exceed the implementation limit | RFC 6455 §5.2：最高位必须为 0，且长度不得超过实现上限
-			return h, ErrMessageTooBig
+		if v&(1<<63) != 0 {
+			// RFC 6455 §5.2: the most significant bit of a 64-bit length MUST be 0; an invalid length field is a protocol error (1002), not a size error | RFC 6455 §5.2：64 位长度的最高位必须为 0；长度字段非法属于协议错误（1002），而不是大小超限
+			return h, ErrFrameLengthMSB
 		}
 		length = int64(v)
 	}
@@ -134,6 +136,9 @@ func maskBytes(key [4]byte, pos int, b []byte) int {
 }
 
 // closePayload builds a close frame payload: a 2-byte status code followed by the reason text. | closePayload 构造关闭帧载荷：2 字节状态码 + 原因文本。
+//
+// It is the internal encoder: callers are responsible for validating the values first (see validateOutboundClose), | 它是内部编码器：调用方需先校验取值（见 validateOutboundClose），
+// because the library itself must still be able to emit server-generated codes on the protocol-error paths. | 因为库自身在协议错误路径上仍需发出由它按规则生成的合法码。
 func closePayload(code CloseCode, text string) []byte {
 	if code == CloseNoStatusReceived {
 		return nil
@@ -142,6 +147,51 @@ func closePayload(code CloseCode, text string) []byte {
 	binary.BigEndian.PutUint16(buf[:2], uint16(code))
 	copy(buf[2:], text)
 	return buf
+}
+
+// validateOutboundCloseCode rejects status codes that must never appear on the wire (RFC 6455 §7.4). | validateOutboundCloseCode 拒绝绝不允许出现在线上的状态码（RFC 6455 §7.4）。
+//
+// This covers the reserved codes 1005/1006/1015, the unassigned values below 1000, 1004 and 1016-2999, | 覆盖保留码 1005/1006/1015、未分配区间（小于 1000、1004、1016-2999）
+// and values above 4999; it never rewrites the value, it reports it. | 以及大于 4999 的取值；它绝不改写取值，只做报告。
+func validateOutboundCloseCode(code CloseCode) error {
+	if !validCloseCode(code) {
+		return errx.Detail(ErrInvalidCloseCode,
+			"%[1]d is reserved or unassigned | %[1]d 为保留或未分配状态码", uint16(code))
+	}
+	return nil
+}
+
+// validateOutboundClose validates the status code and reason of a close frame before it is sent. | validateOutboundClose 在关闭帧发出前校验其状态码与原因。
+func validateOutboundClose(code CloseCode, reason string) error {
+	if err := validateOutboundCloseCode(code); err != nil {
+		return err
+	}
+	if len(reason) > maxControlPayload-2 {
+		return errx.Detail(ErrControlTooLarge,
+			"close reason is %[1]d bytes, at most %[2]d are allowed | 关闭原因 %[1]d 字节，最多允许 %[2]d 字节", len(reason), maxControlPayload-2)
+	}
+	if !utf8Valid([]byte(reason)) {
+		return ErrInvalidCloseReason
+	}
+	return nil
+}
+
+// validateOutboundClosePayload validates a raw close frame payload supplied through WriteControl. | validateOutboundClosePayload 校验经 WriteControl 传入的原始关闭帧载荷。
+func validateOutboundClosePayload(p []byte) error {
+	switch len(p) {
+	case 0:
+		return nil
+	case 1:
+		return errx.Detail(ErrInvalidCloseCode,
+			"a close payload of %[1]d byte cannot carry a 2-byte status code | %[1]d 字节的关闭载荷无法承载 2 字节状态码", len(p))
+	}
+	if err := validateOutboundCloseCode(CloseCode(binary.BigEndian.Uint16(p[:2]))); err != nil {
+		return err
+	}
+	if !utf8Valid(p[2:]) {
+		return ErrInvalidCloseReason
+	}
+	return nil
 }
 
 // parseClosePayload parses a close frame payload. | parseClosePayload 解析关闭帧载荷。

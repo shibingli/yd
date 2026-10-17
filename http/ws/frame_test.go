@@ -3,6 +3,7 @@ package ws
 import (
 	"bytes"
 	"encoding/binary"
+	"errors"
 	"io"
 	"testing"
 )
@@ -64,11 +65,18 @@ func TestReadFrameHeaderRoundTrip(t *testing.T) {
 }
 
 func TestReadFrameHeaderRejectsHugeLength(t *testing.T) {
-	// RFC 6455 §5.2: the most significant bit of a 64-bit length must be 0 | RFC 6455 §5.2：64 位长度的最高位必须为 0
+	// RFC 6455 §5.2: the most significant bit of a 64-bit length must be 0, which is a protocol error rather than a size error | RFC 6455 §5.2：64 位长度的最高位必须为 0，这属于协议错误而非大小超限
 	hdr := []byte{0x82, 0x7f, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff}
 	var buf [8]byte
-	if _, err := readFrameHeader(bytes.NewReader(hdr), buf[:]); err != ErrMessageTooBig {
-		t.Fatalf("err = %v, 期望 ErrMessageTooBig", err)
+	if _, err := readFrameHeader(bytes.NewReader(hdr), buf[:]); !errors.Is(err, ErrFrameLengthMSB) {
+		t.Fatalf("err = %v, 期望 ErrFrameLengthMSB", err)
+	}
+
+	// a legal 64-bit length with the MSB clear must parse: the size limit is enforced later, as 1009 | 最高位为 0 的合法 64 位长度必须能解析：大小上限稍后以 1009 判定
+	legal := []byte{0x82, 0x7f, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00}
+	h, err := readFrameHeader(bytes.NewReader(legal), buf[:])
+	if err != nil || h.length != 1<<32 {
+		t.Fatalf("合法 64 位长度解析结果 h=%+v err=%v", h, err)
 	}
 }
 

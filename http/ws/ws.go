@@ -187,6 +187,22 @@ var (
 	ErrContinuationWithoutStart = errx.New("ws: continuation frame without a starting frame | ws：收到没有起始帧的续帧")
 	// ErrNewDataDuringFragment indicates that a new message started before the fragmented one had finished. | ErrNewDataDuringFragment 表示分片消息未结束就开始了新消息。
 	ErrNewDataDuringFragment = errx.New("ws: new data frame arrived before the fragmented message ended | ws：分片消息未结束即出现新的数据帧")
+	// ErrFrameLengthMSB indicates that a 64-bit payload length has its most significant bit set, which RFC 6455 §5.2 forbids. | ErrFrameLengthMSB 表示 64 位载荷长度的最高位被置 1，RFC 6455 §5.2 禁止这种编码。
+	ErrFrameLengthMSB = errx.New("ws: frame payload length has the most significant bit set | ws：帧载荷长度的最高位被置 1")
+	// ErrWriteContinuation indicates that WriteMessage was given a bare continuation frame (fragmentation is not exposed by the write API). | ErrWriteContinuation 表示 WriteMessage 收到了没有起始帧的续帧（写 API 不暴露分片能力）。
+	ErrWriteContinuation = errx.New("ws: a continuation frame cannot start a message; WriteMessage writes complete messages only | ws：续帧不能作为消息的起始帧；WriteMessage 只写完整消息")
+	// ErrWriteMessageOpcode indicates that WriteMessage was given an opcode other than text or binary (control frames use WriteControl; 0x3-0x7 and 0xB-0xF are reserved). | ErrWriteMessageOpcode 表示 WriteMessage 收到的不是文本或二进制操作码（控制帧请用 WriteControl；0x3-0x7 与 0xB-0xF 为保留码）。
+	ErrWriteMessageOpcode = errx.New("ws: WriteMessage accepts only text or binary opcodes | ws：WriteMessage 只接受文本或二进制操作码")
+	// ErrWriteControlOpcode indicates that WriteControl was given an opcode other than close, ping or pong. | ErrWriteControlOpcode 表示 WriteControl 收到的不是 close、ping 或 pong 操作码。
+	ErrWriteControlOpcode = errx.New("ws: WriteControl accepts only close, ping or pong opcodes | ws：WriteControl 只接受 close、ping 或 pong 操作码")
+	// ErrInvalidCloseCode indicates that an outbound close frame carries a reserved or unassigned status code. | ErrInvalidCloseCode 表示出站关闭帧携带了保留或未分配的状态码。
+	ErrInvalidCloseCode = errx.New("ws: close status code is reserved or unassigned and must not appear on the wire | ws：关闭状态码为保留或未分配，不得出现在线上")
+	// ErrInvalidCloseReason indicates that an outbound close reason is not valid UTF-8. | ErrInvalidCloseReason 表示出站关闭原因不是合法 UTF-8。
+	ErrInvalidCloseReason = errx.New("ws: close reason must be valid UTF-8 | ws：关闭原因必须是合法 UTF-8")
+	// ErrUnrequestedSubprotocol indicates that the server selected a subprotocol the client never offered (RFC 6455 §4.1). | ErrUnrequestedSubprotocol 表示服务端选择了客户端未提议的子协议（RFC 6455 §4.1）。
+	ErrUnrequestedSubprotocol = errx.New("ws: server selected a subprotocol the client did not offer | ws：服务端选择了客户端未提议的子协议")
+	// ErrUnrequestedExtension indicates that the server enabled an extension the client never offered (RFC 6455 §4.1). | ErrUnrequestedExtension 表示服务端启用了客户端未提议的扩展（RFC 6455 §4.1）。
+	ErrUnrequestedExtension = errx.New("ws: server enabled an extension the client did not offer | ws：服务端启用了客户端未提议的扩展")
 )
 
 // CloseError indicates that one side ended the connection with a close frame. | CloseError 表示对端或本端以关闭帧结束连接。

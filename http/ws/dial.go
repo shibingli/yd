@@ -8,6 +8,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"slices"
 	"strings"
 	"time"
 
@@ -141,6 +142,37 @@ func Dial(ctx context.Context, rawURL string, o DialOptions) (*Conn, error) {
 		_ = netConn.Close()
 		return nil, errx.Detail(ErrHandshake, "Sec-WebSocket-Accept mismatch, got %[1]q | Sec-WebSocket-Accept 不匹配（收到 %[1]q）", got)
 	}
+	// RFC 6455 §4.1: the server may only select one of the subprotocols the client offered; | RFC 6455 §4.1：服务端只能从客户端提议的子协议中选择一个；
+	// an empty selection is legal (the connection then has no subprotocol). | 服务端不选择也是合法的（此时连接没有子协议）。
+	offered := resp.Header.Values("Sec-WebSocket-Protocol")
+	if len(offered) > 1 {
+		_ = netConn.Close()
+		return nil, errx.Wrap(
+			errx.Detail(ErrUnrequestedSubprotocol,
+				"server sent %[1]d Sec-WebSocket-Protocol headers, at most one is allowed | 服务端发送了 %[1]d 个 Sec-WebSocket-Protocol 头，最多允许一个", len(offered)),
+			ErrHandshake)
+	}
+	selected := ""
+	if len(offered) == 1 {
+		selected = strings.TrimSpace(offered[0])
+	}
+	if selected != "" && !slices.Contains(o.Subprotocols, selected) {
+		_ = netConn.Close()
+		return nil, errx.Wrap(
+			errx.Detail(ErrUnrequestedSubprotocol,
+				"server selected %[1]q, which the client did not offer | 服务端选择了客户端未提议的 %[1]q", selected),
+			ErrHandshake)
+	}
+	// RFC 6455 §4.1: an extension may only be activated when the client offered it. | RFC 6455 §4.1：只有客户端提议过的扩展才能被启用。
+	// This client never offers any, so an extension in the response would silently corrupt every compressed frame; | 本客户端从不提议扩展，因此响应中的扩展会让所有压缩帧被当成普通帧解析而**静默损坏**；
+	// reject instead of continuing. | 必须拒绝而不是继续。
+	if exts := resp.Header.Values("Sec-WebSocket-Extensions"); len(exts) > 0 {
+		_ = netConn.Close()
+		return nil, errx.Wrap(
+			errx.Detail(ErrUnrequestedExtension,
+				"server sent %[1]q, which the client did not offer | 服务端发送了客户端未提议的 %[1]q", strings.Join(exts, ", ")),
+			ErrHandshake)
+	}
 	_ = netConn.SetDeadline(time.Time{})
 
 	maxSize := o.MaxMessageSize
@@ -148,7 +180,7 @@ func Dial(ctx context.Context, rawURL string, o DialOptions) (*Conn, error) {
 		maxSize = defaultMaxMessageSize
 	}
 	c := newConn(netConn, Options{ReadBufferSize: o.ReadBufferSize, MaxMessageSize: maxSize}, true)
-	c.subprotocol = resp.Header.Get("Sec-WebSocket-Protocol")
+	c.subprotocol = selected
 	// the bufio.Reader used by ReadResponse may already have buffered the peer's first frame | ReadResponse 的 bufio.Reader 可能已缓冲了对端的第一帧
 	if br.Buffered() > 0 || o.ReadBufferSize > 0 {
 		c.br = br
