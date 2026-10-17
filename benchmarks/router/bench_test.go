@@ -1,4 +1,4 @@
-package wsrouter
+package routerbench
 
 import (
 	"net/http"

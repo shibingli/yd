@@ -1,17 +1,13 @@
-module github.com/shibingli/yd/benchmarks/wsrouter
+module github.com/shibingli/yd/benchmarks/router
 
 go 1.27.2
 
 require (
-	github.com/coder/websocket v1.8.15
 	github.com/gin-gonic/gin v1.12.0
 	github.com/go-chi/chi/v5 v5.5.0
-	github.com/gobwas/ws v1.4.0
 	github.com/gofiber/fiber/v3 v3.6.1
-	github.com/gorilla/websocket v1.5.3
 	github.com/julienschmidt/httprouter v1.3.0
 	github.com/labstack/echo/v4 v4.16.0
-	github.com/lxzan/gws v1.10.2
 	github.com/shibingli/yd v0.0.0
 	github.com/valyala/fasthttp v1.75.0
 )
@@ -27,8 +23,6 @@ require (
 	github.com/go-playground/locales v0.14.1 // indirect
 	github.com/go-playground/universal-translator v0.18.1 // indirect
 	github.com/go-playground/validator/v10 v10.30.1 // indirect
-	github.com/gobwas/httphead v0.1.0 // indirect
-	github.com/gobwas/pool v0.2.1 // indirect
 	github.com/goccy/go-json v0.11.2 // indirect
 	github.com/goccy/go-yaml v1.19.2 // indirect
 	github.com/gofiber/schema v1.8.8 // indirect

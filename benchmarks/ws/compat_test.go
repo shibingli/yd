@@ -1,4 +1,4 @@
-package wsrouter
+package wsbench
 
 import (
 	"bufio"
@@ -17,7 +17,6 @@ import (
 	"github.com/gobwas/ws"
 	"github.com/gorilla/websocket"
 	"github.com/lxzan/gws"
-	ydrouter "github.com/shibingli/yd/http/router"
 	ourws "github.com/shibingli/yd/http/ws"
 )
 
@@ -37,9 +36,8 @@ func compatCases() []compatCase {
 
 func ourServer(t *testing.T, comp bool, subs []string) (string, func()) {
 	t.Helper()
-	r := ydrouter.New()
-	r.GET("/ws", func(c *ydrouter.Ctx) {
-		conn, err := ourws.Upgrade(c.Writer, c.Request, ourws.Options{EnableCompression: comp, Subprotocols: subs})
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		conn, err := ourws.Upgrade(w, r, ourws.Options{EnableCompression: comp, Subprotocols: subs})
 		if err != nil {
 			t.Errorf("our upgrade: %v", err)
 			return
@@ -54,9 +52,8 @@ func ourServer(t *testing.T, comp bool, subs []string) (string, func()) {
 				return
 			}
 		}
-	})
-	srv := httptest.NewServer(r)
-	return "ws" + strings.TrimPrefix(srv.URL, "http") + "/ws", srv.Close
+	}))
+	return "ws" + strings.TrimPrefix(srv.URL, "http"), srv.Close
 }
 
 func coderServer(t *testing.T, comp bool, subs []string) (string, func()) {

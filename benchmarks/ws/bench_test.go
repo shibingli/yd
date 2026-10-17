@@ -1,4 +1,4 @@
-package wsrouter
+package wsbench
 
 import (
 	"bufio"
@@ -8,7 +8,6 @@ import (
 	"io"
 	"net"
 	"net/http"
-	"net/http/httptest"
 	"sync"
 	"testing"
 	"time"
@@ -17,7 +16,6 @@ import (
 	"github.com/gobwas/ws"
 	"github.com/gorilla/websocket"
 	"github.com/lxzan/gws"
-	ydrouter "github.com/shibingli/yd/http/router"
 	ourws "github.com/shibingli/yd/http/ws"
 )
 
@@ -98,11 +96,11 @@ func readToEOF(r io.Reader, buf []byte) (int, error) {
 	}
 }
 
-// startOurServer starts our echo server in one integration mode. | startOurServer 以指定集成模式启动本项目回显服务端。
-func startOurServer(b *testing.B, mode string, size int) (string, func()) {
+// startOurServer starts our echo server behind a plain HTTP handler. | startOurServer 在普通 HTTP 处理器后启动本项目回显服务端。
+func startOurServer(b *testing.B, size int) (string, func()) {
 	b.Helper()
 	bufSize := bufSizeFor(size)
-	echo := func(w http.ResponseWriter, r *http.Request) {
+	return startHTTP(b, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		c, err := ourws.Upgrade(w, r, ourws.Options{ReadBufferSize: bufSize})
 		if err != nil {
 			b.Errorf("our upgrade: %v", err)
@@ -118,39 +116,20 @@ func startOurServer(b *testing.B, mode string, size int) (string, func()) {
 				return
 			}
 		}
-	}
-	switch mode {
-	case "raw-http":
-		return startHTTP(b, http.HandlerFunc(echo))
-	case "router-get":
-		r := ydrouter.New()
-		r.GET("/ws", func(c *ydrouter.Ctx) { echo(c.Writer, c.Request) })
-		return startHTTP(b, r)
-	case "router-getraw":
-		r := ydrouter.New()
-		r.GETRaw("/ws", echo)
-		return startHTTP(b, r)
-	default:
-		b.Fatalf("unknown integration mode %q", mode)
-		return "", nil
-	}
+	}))
 }
 
 // ---------------------------------------------------------------- ours | 本项目
 
 func benchmarkOur(b *testing.B, size int) {
-	benchmarkOurMode(b, size, "router-get")
-}
-
-func benchmarkOurMode(b *testing.B, size int, mode string) {
 	b.Helper()
 	bufSize := bufSizeFor(size)
-	addr, stop := startOurServer(b, mode, size)
+	addr, stop := startOurServer(b, size)
 	defer stop()
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	c, err := ourws.Dial(ctx, "ws://"+addr+"/ws", ourws.DialOptions{ReadBufferSize: bufSize})
+	c, err := ourws.Dial(ctx, "ws://"+addr, ourws.DialOptions{ReadBufferSize: bufSize})
 	if err != nil {
 		b.Fatalf("our dial: %v", err)
 	}
@@ -532,20 +511,6 @@ func BenchmarkEcho(b *testing.B) {
 	}
 }
 
-// BenchmarkRouterModes compares steady-state echo through the raw HTTP handler,
-// the context-free GETRaw route and the full GET/Ctx route. The upgrade happens
-// outside the timed loop, so the differences are noise; the benchmark verifies
-// that the integration mode does not affect the per-message path. | BenchmarkRouterModes
-// 对比原始 HTTP 处理器、无上下文 GETRaw 路由与完整 GET/Ctx 路由的稳态回显。握手在计时循环之外，
-// 因此差异属于噪声；该基准用于确认接入方式不影响每消息路径。
-func BenchmarkRouterModes(b *testing.B) {
-	for _, size := range []int{32, 1 << 10, 64 << 10} {
-		for _, mode := range []string{"raw-http", "router-getraw", "router-get"} {
-			b.Run(fmt.Sprintf("%s/%d", mode, size), func(b *testing.B) { benchmarkOurMode(b, size, mode) })
-		}
-	}
-}
-
 // BenchmarkEchoConcurrent measures aggregate throughput with one connection per
 // parallel goroutine. | BenchmarkEchoConcurrent 测量每个并行协程一条连接时的聚合吞吐。
 func BenchmarkEchoConcurrent(b *testing.B) {
@@ -554,13 +519,13 @@ func BenchmarkEchoConcurrent(b *testing.B) {
 	bufSize := bufSizeFor(size)
 
 	b.Run("our", func(b *testing.B) {
-		addr, stop := startOurServer(b, "router-get", size)
+		addr, stop := startOurServer(b, size)
 		defer stop()
 		b.SetBytes(int64(size))
 		b.ReportAllocs()
 		b.ResetTimer()
 		b.RunParallel(func(pb *testing.PB) {
-			c, err := ourws.Dial(context.Background(), "ws://"+addr+"/ws", ourws.DialOptions{ReadBufferSize: bufSize})
+			c, err := ourws.Dial(context.Background(), "ws://"+addr, ourws.DialOptions{ReadBufferSize: bufSize})
 			if err != nil {
 				b.Error(err)
 				return
@@ -651,85 +616,4 @@ func BenchmarkEchoConcurrent(b *testing.B) {
 			}
 		})
 	})
-}
-
-// benchConn discards writes and reports EOF on reads. | benchConn 丢弃写入并在读取时返回 EOF。
-type benchConn struct{ written int }
-
-// Read reports EOF. | Read 返回 EOF。
-func (c *benchConn) Read([]byte) (int, error) { return 0, io.EOF }
-
-// Write counts and discards the bytes. | Write 计数并丢弃字节。
-func (c *benchConn) Write(p []byte) (int, error) { c.written += len(p); return len(p), nil }
-
-// Close is a no-op. | Close 为空操作。
-func (c *benchConn) Close() error { return nil }
-
-// LocalAddr returns nil. | LocalAddr 返回 nil。
-func (c *benchConn) LocalAddr() net.Addr { return nil }
-
-// RemoteAddr returns nil. | RemoteAddr 返回 nil。
-func (c *benchConn) RemoteAddr() net.Addr { return nil }
-
-// SetDeadline is a no-op. | SetDeadline 为空操作。
-func (c *benchConn) SetDeadline(time.Time) error { return nil }
-
-// SetReadDeadline is a no-op. | SetReadDeadline 为空操作。
-func (c *benchConn) SetReadDeadline(time.Time) error { return nil }
-
-// SetWriteDeadline is a no-op. | SetWriteDeadline 为空操作。
-func (c *benchConn) SetWriteDeadline(time.Time) error { return nil }
-
-// benchHijacker is a ResponseWriter+Hijacker backed by a discard connection. | benchHijacker 是由丢弃连接支撑的 ResponseWriter+Hijacker。
-type benchHijacker struct {
-	header http.Header
-	conn   net.Conn
-	brw    *bufio.ReadWriter
-}
-
-// Header returns the response header map. | Header 返回响应头映射。
-func (w *benchHijacker) Header() http.Header { return w.header }
-
-// Write discards the bytes. | Write 丢弃字节。
-func (w *benchHijacker) Write(p []byte) (int, error) { return len(p), nil }
-
-// WriteHeader is a no-op. | WriteHeader 为空操作。
-func (w *benchHijacker) WriteHeader(int) {}
-
-// Hijack returns the pre-built connection and buffers. | Hijack 返回预构造的连接与缓冲。
-func (w *benchHijacker) Hijack() (net.Conn, *bufio.ReadWriter, error) { return w.conn, w.brw, nil }
-
-// BenchmarkUpgradeRouter measures the per-connection upgrade cost through a
-// raw HTTP handler and through the router. | BenchmarkUpgradeRouter 测量原始 HTTP 处理器
-// 与 router 两条路径的每连接握手开销。
-func BenchmarkUpgradeRouter(b *testing.B) {
-	req := httptest.NewRequest(http.MethodGet, "/ws", nil)
-	req.Header.Set("Connection", "Upgrade")
-	req.Header.Set("Upgrade", "websocket")
-	req.Header.Set("Sec-WebSocket-Version", "13")
-	req.Header.Set("Sec-WebSocket-Key", "dGhlIHNhbXBsZSBub25jZQ==")
-	sink := &benchConn{}
-	brw := bufio.NewReadWriter(bufio.NewReaderSize(sink, 4096), bufio.NewWriterSize(sink, 4096))
-	hw := &benchHijacker{header: make(http.Header), conn: sink, brw: brw}
-	upgrade := func(w http.ResponseWriter, r *http.Request) {
-		c, err := ourws.Upgrade(w, r, ourws.Options{})
-		if err == nil {
-			_ = c.CloseNow()
-		}
-	}
-	r := ydrouter.New()
-	r.GET("/ws", func(c *ydrouter.Ctx) { upgrade(c.Writer, c.Request) })
-	handlers := map[string]http.Handler{
-		"raw-http": http.HandlerFunc(upgrade),
-		"router":   r,
-	}
-	for name, h := range handlers {
-		b.Run(name, func(b *testing.B) {
-			b.ReportAllocs()
-			b.ResetTimer()
-			for i := 0; i < b.N; i++ {
-				h.ServeHTTP(hw, req)
-			}
-		})
-	}
 }
