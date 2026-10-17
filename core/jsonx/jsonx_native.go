@@ -13,6 +13,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"unicode/utf8"
 
 	"github.com/shibingli/yd/core/b64x"
@@ -82,84 +83,346 @@ func typeErr(format string, args ...any) error {
 
 var errUnsupported = errx.New("jsonx: unsupported value | jsonx：不支持的值")
 
+// encodeFunc encodes one value of a fixed Go type. | encodeFunc 编码一个固定 Go 类型的值。
+type encodeFunc func(*encoder, reflect.Value) error
+
+// encodeCache maps each reflected type to its compiled encoder. | encodeCache 把反射类型映射到已编译的编码器。
+var encodeCache sync.Map
+
+// encoderFor returns the cached encoder for t, building it on first use. | encoderFor 返回 t 的缓存编码器，
+// 首次调用时构建。
+func encoderFor(t reflect.Type) encodeFunc {
+	if f, ok := encodeCache.Load(t); ok {
+		return f.(encodeFunc)
+	}
+	f := buildEncoder(t)
+	encodeCache.Store(t, f)
+	return f
+}
+
 func (e *encoder) value(v reflect.Value) error {
 	if !v.IsValid() {
 		e.buf = append(e.buf, "null"...)
 		return nil
 	}
-	if v.Kind() == reflect.Interface {
-		if v.IsNil() {
-			e.buf = append(e.buf, "null"...)
+	return encoderFor(v.Type())(e, v)
+}
+
+func encodeNull(e *encoder) {
+	e.buf = append(e.buf, "null"...)
+}
+
+func buildEncoder(t reflect.Type) encodeFunc {
+	if t == numberType {
+		return func(e *encoder, v reflect.Value) error {
+			s := v.String()
+			if !isValidNumber(s) {
+				return errx.Detail(errUnsupported, "invalid number %q | 非法数字 %q", s, s)
+			}
+			e.buf = append(e.buf, s...)
 			return nil
 		}
-		return e.value(v.Elem())
 	}
-	if v.Kind() == reflect.Pointer {
-		if v.IsNil() {
-			e.buf = append(e.buf, "null"...)
-			return nil
+	if t.Kind() == reflect.Interface {
+		return func(e *encoder, v reflect.Value) error {
+			if v.IsNil() {
+				encodeNull(e)
+				return nil
+			}
+			return e.value(v.Elem())
 		}
-		if cachedTraits(v.Type()).marshaler {
+	}
+	tr := cachedTraits(t)
+	if t.Kind() == reflect.Pointer {
+		switch {
+		case tr.marshaler:
+			return func(e *encoder, v reflect.Value) error {
+				if v.IsNil() {
+					encodeNull(e)
+					return nil
+				}
+				return e.marshaler(v.Interface().(stdjson.Marshaler))
+			}
+		case tr.textMarshaler:
+			return func(e *encoder, v reflect.Value) error {
+				if v.IsNil() {
+					encodeNull(e)
+					return nil
+				}
+				return encodeText(e, v)
+			}
+		default:
+			return func(e *encoder, v reflect.Value) error {
+				if v.IsNil() {
+					encodeNull(e)
+					return nil
+				}
+				return e.value(v.Elem())
+			}
+		}
+	}
+	if tr.marshaler {
+		return func(e *encoder, v reflect.Value) error {
 			return e.marshaler(v.Interface().(stdjson.Marshaler))
 		}
-		return e.value(v.Elem())
-	}
-	if v.Type() == numberType {
-		s := v.String()
-		if !isValidNumber(s) {
-			return errx.Detail(errUnsupported, "invalid number %q | 非法数字 %q", s, s)
-		}
-		e.buf = append(e.buf, s...)
-		return nil
-	}
-	tr := cachedTraits(v.Type())
-	if tr.marshaler {
-		return e.marshaler(v.Interface().(stdjson.Marshaler))
-	}
-	if v.CanAddr() && cachedTraits(v.Addr().Type()).marshaler {
-		return e.marshaler(v.Addr().Interface().(stdjson.Marshaler))
 	}
 	if tr.textMarshaler {
-		text, err := v.Interface().(encoding.TextMarshaler).MarshalText()
-		if err != nil {
-			return err
+		return func(e *encoder, v reflect.Value) error {
+			return encodeText(e, v)
 		}
-		e.str(string(text))
-		return nil
 	}
-	switch v.Kind() {
+	norm := buildKindEncoder(t)
+	if reflect.PointerTo(t).Implements(marshalerType) {
+		return func(e *encoder, v reflect.Value) error {
+			if v.CanAddr() {
+				return e.marshaler(v.Addr().Interface().(stdjson.Marshaler))
+			}
+			return norm(e, v)
+		}
+	}
+	return norm
+}
+
+func encodeText(e *encoder, v reflect.Value) error {
+	text, err := v.Interface().(encoding.TextMarshaler).MarshalText()
+	if err != nil {
+		return err
+	}
+	e.str(string(text))
+	return nil
+}
+
+func buildKindEncoder(t reflect.Type) encodeFunc {
+	switch t.Kind() {
 	case reflect.Bool:
-		e.buf = strconv.AppendBool(e.buf, v.Bool())
-	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
-		e.buf = strconv.AppendInt(e.buf, v.Int(), 10)
-	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64, reflect.Uintptr:
-		e.buf = strconv.AppendUint(e.buf, v.Uint(), 10)
-	case reflect.Float32:
-		return e.float(v.Float(), 32)
-	case reflect.Float64:
-		return e.float(v.Float(), 64)
-	case reflect.String:
-		e.str(v.String())
-	case reflect.Slice:
-		if v.IsNil() {
-			e.buf = append(e.buf, "null"...)
+		return func(e *encoder, v reflect.Value) error {
+			e.buf = strconv.AppendBool(e.buf, v.Bool())
 			return nil
 		}
-		if v.Type().Elem().Kind() == reflect.Uint8 {
+	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
+		return func(e *encoder, v reflect.Value) error {
+			e.buf = strconv.AppendInt(e.buf, v.Int(), 10)
+			return nil
+		}
+	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64, reflect.Uintptr:
+		return func(e *encoder, v reflect.Value) error {
+			e.buf = strconv.AppendUint(e.buf, v.Uint(), 10)
+			return nil
+		}
+	case reflect.Float32:
+		return func(e *encoder, v reflect.Value) error {
+			return e.float(v.Float(), 32)
+		}
+	case reflect.Float64:
+		return func(e *encoder, v reflect.Value) error {
+			return e.float(v.Float(), 64)
+		}
+	case reflect.String:
+		return func(e *encoder, v reflect.Value) error {
+			e.str(v.String())
+			return nil
+		}
+	case reflect.Slice:
+		return buildSliceEncoder(t)
+	case reflect.Array:
+		return buildArrayEncoder(t)
+	case reflect.Map:
+		return buildMapEncoder(t)
+	case reflect.Struct:
+		return buildStructEncoder(t)
+	default:
+		return func(e *encoder, v reflect.Value) error {
+			return errx.Detail(errUnsupported, "unsupported type %s | 不支持的类型 %s", t, t)
+		}
+	}
+}
+
+// lazyEncoder defers resolving an element encoder until the first value is encoded.
+// 延迟到首次编码时才解析元素编码器，使递归类型不会在构建期无限递归。
+func lazyEncoder(t reflect.Type) func() encodeFunc {
+	var slot atomic.Pointer[encodeFunc]
+	return func() encodeFunc {
+		if f := slot.Load(); f != nil {
+			return *f
+		}
+		f := encoderFor(t)
+		slot.Store(&f)
+		return f
+	}
+}
+
+func buildSliceEncoder(t reflect.Type) encodeFunc {
+	if t.Elem().Kind() == reflect.Uint8 {
+		return func(e *encoder, v reflect.Value) error {
+			if v.IsNil() {
+				encodeNull(e)
+				return nil
+			}
 			e.str(b64x.StdEncoding.EncodeToString(v.Bytes()))
 			return nil
 		}
-		return e.array(v)
-	case reflect.Array:
-		return e.array(v)
-	case reflect.Map:
-		return e.object(v)
-	case reflect.Struct:
-		return e.structValue(v)
-	default:
-		return errx.Detail(errUnsupported, "unsupported type %s | 不支持的类型 %s", v.Type(), v.Type())
 	}
-	return nil
+	elem := lazyEncoder(t.Elem())
+	return func(e *encoder, v reflect.Value) error {
+		if v.IsNil() {
+			encodeNull(e)
+			return nil
+		}
+		enc := elem()
+		e.buf = append(e.buf, '[')
+		for i := 0; i < v.Len(); i++ {
+			if i > 0 {
+				e.buf = append(e.buf, ',')
+			}
+			if err := enc(e, v.Index(i)); err != nil {
+				return err
+			}
+		}
+		e.buf = append(e.buf, ']')
+		return nil
+	}
+}
+
+func buildArrayEncoder(t reflect.Type) encodeFunc {
+	elem := lazyEncoder(t.Elem())
+	return func(e *encoder, v reflect.Value) error {
+		enc := elem()
+		e.buf = append(e.buf, '[')
+		for i := 0; i < v.Len(); i++ {
+			if i > 0 {
+				e.buf = append(e.buf, ',')
+			}
+			if err := enc(e, v.Index(i)); err != nil {
+				return err
+			}
+		}
+		e.buf = append(e.buf, ']')
+		return nil
+	}
+}
+
+func buildMapKeyEncoder(t reflect.Type) func(reflect.Value) (string, error) {
+	switch t.Kind() {
+	case reflect.String:
+		return func(k reflect.Value) (string, error) { return k.String(), nil }
+	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
+		return func(k reflect.Value) (string, error) { return strconv.FormatInt(k.Int(), 10), nil }
+	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64, reflect.Uintptr:
+		return func(k reflect.Value) (string, error) { return strconv.FormatUint(k.Uint(), 10), nil }
+	}
+	if t.Implements(textMarshalerType) {
+		return func(k reflect.Value) (string, error) {
+			text, err := k.Interface().(encoding.TextMarshaler).MarshalText()
+			if err != nil {
+				return "", err
+			}
+			return string(text), nil
+		}
+	}
+	return func(k reflect.Value) (string, error) {
+		return "", errx.Detail(errUnsupported, "unsupported map key type %s | 不支持的 map 键类型 %s", t, t)
+	}
+}
+
+func buildMapEncoder(t reflect.Type) encodeFunc {
+	key := buildMapKeyEncoder(t.Key())
+	elem := lazyEncoder(t.Elem())
+	type kv struct {
+		key string
+		val reflect.Value
+	}
+	return func(e *encoder, v reflect.Value) error {
+		if v.IsNil() {
+			encodeNull(e)
+			return nil
+		}
+		enc := elem()
+		entries := make([]kv, 0, v.Len())
+		iter := v.MapRange()
+		for iter.Next() {
+			name, err := key(iter.Key())
+			if err != nil {
+				return err
+			}
+			entries = append(entries, kv{key: name, val: iter.Value()})
+		}
+		sort.Slice(entries, func(i, j int) bool { return entries[i].key < entries[j].key })
+		e.buf = append(e.buf, '{')
+		for i, entry := range entries {
+			if i > 0 {
+				e.buf = append(e.buf, ',')
+			}
+			e.str(entry.key)
+			e.buf = append(e.buf, ':')
+			if err := enc(e, entry.val); err != nil {
+				return err
+			}
+		}
+		e.buf = append(e.buf, '}')
+		return nil
+	}
+}
+
+func buildStructEncoder(t reflect.Type) encodeFunc {
+	fields := cachedStruct(t).fields
+	type encField struct {
+		name      string
+		index     []int
+		direct    int
+		enc       encodeFunc
+		omitEmpty bool
+		quoted    bool
+	}
+	list := make([]encField, len(fields))
+	for i, f := range fields {
+		direct := -1
+		if len(f.index) == 1 {
+			direct = f.index[0]
+		}
+		list[i] = encField{
+			name:      f.name,
+			index:     f.index,
+			direct:    direct,
+			enc:       encoderFor(f.typ),
+			omitEmpty: f.omitEmpty,
+			quoted:    f.quoted,
+		}
+	}
+	return func(e *encoder, v reflect.Value) error {
+		e.buf = append(e.buf, '{')
+		first := true
+		for i := range list {
+			f := &list[i]
+			var fv reflect.Value
+			if f.direct >= 0 {
+				fv = v.Field(f.direct)
+			} else {
+				var ok bool
+				fv, ok = fieldByIndex(v, f.index)
+				if !ok {
+					continue
+				}
+			}
+			if f.omitEmpty && isEmptyValue(fv) {
+				continue
+			}
+			if !first {
+				e.buf = append(e.buf, ',')
+			}
+			first = false
+			e.str(f.name)
+			e.buf = append(e.buf, ':')
+			if f.quoted {
+				if err := e.quotedValue(fv); err != nil {
+					return err
+				}
+			} else if err := f.enc(e, fv); err != nil {
+				return err
+			}
+		}
+		e.buf = append(e.buf, '}')
+		return nil
+	}
 }
 
 func (e *encoder) marshaler(m stdjson.Marshaler) error {
@@ -238,66 +501,10 @@ func hexDigit(b byte) byte {
 	return hex[b&0xF]
 }
 
-func (e *encoder) array(v reflect.Value) error {
-	e.buf = append(e.buf, '[')
-	for i := 0; i < v.Len(); i++ {
-		if i > 0 {
-			e.buf = append(e.buf, ',')
-		}
-		if err := e.value(v.Index(i)); err != nil {
-			return err
-		}
-	}
-	e.buf = append(e.buf, ']')
-	return nil
-}
-
-func (e *encoder) object(v reflect.Value) error {
-	type kv struct {
-		key string
-		val reflect.Value
-	}
-	entries := make([]kv, 0, v.Len())
-	iter := v.MapRange()
-	for iter.Next() {
-		k := iter.Key()
-		var name string
-		if k.Kind() == reflect.String {
-			name = k.String()
-		} else if k.CanInterface() {
-			if m, ok := k.Interface().(encoding.TextMarshaler); ok {
-				b, err := m.MarshalText()
-				if err != nil {
-					return err
-				}
-				name = string(b)
-			} else {
-				return errx.Detail(errUnsupported, "unsupported map key type %s | 不支持的 map 键类型 %s", k.Type(), k.Type())
-			}
-		} else {
-			return errx.Detail(errUnsupported, "unsupported map key | 不支持的 map 键")
-		}
-		entries = append(entries, kv{key: name, val: iter.Value()})
-	}
-	sort.Slice(entries, func(i, j int) bool { return entries[i].key < entries[j].key })
-	e.buf = append(e.buf, '{')
-	for i, entry := range entries {
-		if i > 0 {
-			e.buf = append(e.buf, ',')
-		}
-		e.str(entry.key)
-		e.buf = append(e.buf, ':')
-		if err := e.value(entry.val); err != nil {
-			return err
-		}
-	}
-	e.buf = append(e.buf, '}')
-	return nil
-}
-
 // fieldInfo is one exported struct field. | fieldInfo 是一个可导出的结构体字段。
 type fieldInfo struct {
 	name      string
+	typ       reflect.Type
 	index     []int
 	omitEmpty bool
 	quoted    bool
@@ -374,7 +581,7 @@ func collectFields(t reflect.Type, index []int) []fieldInfo {
 		if name == "" {
 			name = f.Name
 		}
-		out = append(out, fieldInfo{name: name, index: idx, omitEmpty: strings.Contains(opts, "omitempty"), quoted: strings.Contains(opts, "string")})
+		out = append(out, fieldInfo{name: name, typ: f.Type, index: idx, omitEmpty: strings.Contains(opts, "omitempty"), quoted: strings.Contains(opts, "string")})
 	}
 	return out
 }
@@ -387,36 +594,6 @@ func parseTag(tag string) (string, string) {
 		return tag[:i], tag[i+1:]
 	}
 	return tag, ""
-}
-
-func (e *encoder) structValue(v reflect.Value) error {
-	fields := cachedStruct(v.Type()).fields
-	e.buf = append(e.buf, '{')
-	first := true
-	for _, f := range fields {
-		fv, ok := fieldByIndex(v, f.index)
-		if !ok {
-			continue
-		}
-		if f.omitEmpty && isEmptyValue(fv) {
-			continue
-		}
-		if !first {
-			e.buf = append(e.buf, ',')
-		}
-		first = false
-		e.str(f.name)
-		e.buf = append(e.buf, ':')
-		if f.quoted {
-			if err := e.quotedValue(fv); err != nil {
-				return err
-			}
-		} else if err := e.value(fv); err != nil {
-			return err
-		}
-	}
-	e.buf = append(e.buf, '}')
-	return nil
 }
 
 func fieldByIndex(v reflect.Value, index []int) (reflect.Value, bool) {
@@ -501,53 +678,277 @@ func (d *decoder) skipSpace() {
 	}
 }
 
+// decodeFunc decodes one JSON value into a fixed Go type. | decodeFunc 把一个 JSON 值解析进固定 Go 类型。
+type decodeFunc func(*decoder, reflect.Value) error
+
+// decodeCache maps each reflected type to its compiled decoder. | decodeCache 把反射类型映射到已编译的解码器。
+var decodeCache sync.Map
+
+// decoderFor returns the cached decoder for t, building it on first use. | decoderFor 返回 t 的缓存解码器，
+// 首次调用时构建。
+func decoderFor(t reflect.Type) decodeFunc {
+	if f, ok := decodeCache.Load(t); ok {
+		return f.(decodeFunc)
+	}
+	f := buildDecoder(t)
+	decodeCache.Store(t, f)
+	return f
+}
+
 func (d *decoder) value(v reflect.Value) error {
 	d.skipSpace()
 	if d.pos >= len(d.data) {
 		return syntaxErr("unexpected end of JSON input | JSON 输入意外结束")
 	}
-	if v.Kind() == reflect.Pointer {
-		if d.data[d.pos] == 'n' {
-			if err := d.literal("null"); err != nil {
+	return decoderFor(v.Type())(d, v)
+}
+
+// lazyDecoder defers resolving an element decoder until the first value is decoded.
+// 延迟到首次解码时才解析元素解码器，使递归类型不会在构建期无限递归。
+func lazyDecoder(t reflect.Type) func() decodeFunc {
+	var slot atomic.Pointer[decodeFunc]
+	return func() decodeFunc {
+		if f := slot.Load(); f != nil {
+			return *f
+		}
+		f := decoderFor(t)
+		slot.Store(&f)
+		return f
+	}
+}
+
+func buildDecoder(t reflect.Type) decodeFunc {
+	if t == rawMessageType {
+		return func(d *decoder, v reflect.Value) error {
+			raw, err := d.captureValue()
+			if err != nil {
 				return err
 			}
-			v.SetZero()
+			v.SetBytes(raw)
 			return nil
 		}
-		if v.IsNil() {
-			v.Set(reflect.New(v.Type().Elem()))
-		}
-		return d.value(v.Elem())
 	}
-	if v.Type() == rawMessageType {
-		raw, err := d.captureValue()
-		if err != nil {
-			return err
+	if t == numberType {
+		return func(d *decoder, v reflect.Value) error {
+			if d.data[d.pos] == '"' {
+				s, err := d.parseString()
+				if err != nil {
+					return err
+				}
+				v.SetString(s)
+				return nil
+			}
+			s, err := d.parseNumber()
+			if err != nil {
+				return err
+			}
+			v.SetString(s)
+			return nil
 		}
-		v.SetBytes(raw)
-		return nil
 	}
-	if v.CanAddr() && cachedTraits(v.Addr().Type()).unmarshaler {
-		raw, err := d.captureValue()
-		if err != nil {
-			return err
+	if t.Kind() == reflect.Interface {
+		if t.NumMethod() == 0 {
+			return func(d *decoder, v reflect.Value) error {
+				x, err := d.valueAny()
+				if err != nil {
+					return err
+				}
+				if x == nil {
+					v.SetZero()
+				} else {
+					v.Set(reflect.ValueOf(x))
+				}
+				return nil
+			}
 		}
-		return v.Addr().Interface().(stdjson.Unmarshaler).UnmarshalJSON(raw)
+		return func(d *decoder, v reflect.Value) error {
+			if err := d.literal("null"); err == nil {
+				v.SetZero()
+				return nil
+			}
+			return typeErr("cannot unmarshal into non-empty interface %s | 无法解析进非空接口 %s", t, t)
+		}
 	}
-	if v.Kind() == reflect.Interface && v.NumMethod() == 0 {
-		x, err := d.valueAny()
-		if err != nil {
-			return err
+	tr := cachedTraits(t)
+	if t.Kind() == reflect.Pointer {
+		elem := lazyDecoder(t.Elem())
+		switch {
+		case tr.unmarshaler:
+			return func(d *decoder, v reflect.Value) error {
+				if d.data[d.pos] == 'n' {
+					if err := d.literal("null"); err != nil {
+						return err
+					}
+					v.SetZero()
+					return nil
+				}
+				if v.IsNil() {
+					v.Set(reflect.New(t.Elem()))
+				}
+				return decodeUnmarshaler(d, v)
+			}
+		case tr.textUnmarshaler:
+			return func(d *decoder, v reflect.Value) error {
+				if d.data[d.pos] == 'n' {
+					if err := d.literal("null"); err != nil {
+						return err
+					}
+					v.SetZero()
+					return nil
+				}
+				if d.data[d.pos] == '"' {
+					if v.IsNil() {
+						v.Set(reflect.New(t.Elem()))
+					}
+					return decodeTextUnmarshaler(d, v)
+				}
+				if v.IsNil() {
+					v.Set(reflect.New(t.Elem()))
+				}
+				return elem()(d, v.Elem())
+			}
+		default:
+			return func(d *decoder, v reflect.Value) error {
+				if d.data[d.pos] == 'n' {
+					if err := d.literal("null"); err != nil {
+						return err
+					}
+					v.SetZero()
+					return nil
+				}
+				if v.IsNil() {
+					v.Set(reflect.New(t.Elem()))
+				}
+				return elem()(d, v.Elem())
+			}
 		}
-		if x == nil {
-			v.SetZero()
-		} else {
-			v.Set(reflect.ValueOf(x))
-		}
-		return nil
 	}
-	if v.Type() == numberType {
-		if d.data[d.pos] == '"' {
+	if tr.unmarshaler {
+		return func(d *decoder, v reflect.Value) error {
+			return decodeUnmarshaler(d, v)
+		}
+	}
+	norm := buildKindDecoder(t)
+	if reflect.PointerTo(t).Implements(unmarshalerType) {
+		return func(d *decoder, v reflect.Value) error {
+			if v.CanAddr() {
+				return decodeUnmarshaler(d, v.Addr())
+			}
+			return norm(d, v)
+		}
+	}
+	if tr.textUnmarshaler {
+		return func(d *decoder, v reflect.Value) error {
+			if d.data[d.pos] == '"' {
+				return decodeTextUnmarshaler(d, v)
+			}
+			return norm(d, v)
+		}
+	}
+	return norm
+}
+
+func decodeUnmarshaler(d *decoder, v reflect.Value) error {
+	raw, err := d.captureValue()
+	if err != nil {
+		return err
+	}
+	return v.Interface().(stdjson.Unmarshaler).UnmarshalJSON(raw)
+}
+
+func decodeTextUnmarshaler(d *decoder, v reflect.Value) error {
+	s, err := d.parseString()
+	if err != nil {
+		return err
+	}
+	return v.Interface().(encoding.TextUnmarshaler).UnmarshalText([]byte(s))
+}
+
+func buildKindDecoder(t reflect.Type) decodeFunc {
+	switch t.Kind() {
+	case reflect.Bool:
+		return func(d *decoder, v reflect.Value) error {
+			if d.data[d.pos] == 'n' {
+				return d.literal("null")
+			}
+			x, err := d.parseBool()
+			if err != nil {
+				return err
+			}
+			v.SetBool(x)
+			return nil
+		}
+	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
+		bits := t.Bits()
+		return func(d *decoder, v reflect.Value) error {
+			if d.data[d.pos] == 'n' {
+				return d.literal("null")
+			}
+			if d.data[d.pos] == '"' {
+				return typeErr("cannot unmarshal string into %s | 无法把字符串解析进 %s", t, t)
+			}
+			s, err := d.parseNumber()
+			if err != nil {
+				return err
+			}
+			if strings.ContainsAny(s, ".eE") {
+				return typeErr("cannot unmarshal number %s into %s | 无法把数字 %s 解析进 %s", s, t, s, t)
+			}
+			n, err := strconv.ParseInt(s, 10, bits)
+			if err != nil {
+				return typeErr("number %s overflows %s | 数字 %s 超出 %s", s, t, s, t)
+			}
+			v.SetInt(n)
+			return nil
+		}
+	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64, reflect.Uintptr:
+		bits := t.Bits()
+		return func(d *decoder, v reflect.Value) error {
+			if d.data[d.pos] == 'n' {
+				return d.literal("null")
+			}
+			if d.data[d.pos] == '"' {
+				return typeErr("cannot unmarshal string into %s | 无法把字符串解析进 %s", t, t)
+			}
+			s, err := d.parseNumber()
+			if err != nil {
+				return err
+			}
+			if strings.ContainsAny(s, ".eE-") {
+				return typeErr("cannot unmarshal number %s into %s | 无法把数字 %s 解析进 %s", s, t, s, t)
+			}
+			n, err := strconv.ParseUint(s, 10, bits)
+			if err != nil {
+				return typeErr("number %s overflows %s | 数字 %s 超出 %s", s, t, s, t)
+			}
+			v.SetUint(n)
+			return nil
+		}
+	case reflect.Float32, reflect.Float64:
+		bits := t.Bits()
+		return func(d *decoder, v reflect.Value) error {
+			if d.data[d.pos] == 'n' {
+				return d.literal("null")
+			}
+			s, err := d.parseNumber()
+			if err != nil {
+				return err
+			}
+			n, err := strconv.ParseFloat(s, bits)
+			if err != nil {
+				return typeErr("number %s overflows %s | 数字 %s 超出 %s", s, t, s, t)
+			}
+			v.SetFloat(n)
+			return nil
+		}
+	case reflect.String:
+		return func(d *decoder, v reflect.Value) error {
+			if d.data[d.pos] == 'n' {
+				return d.literal("null")
+			}
+			if d.data[d.pos] != '"' {
+				return typeErr("cannot unmarshal non-string into %s | 无法把非字符串解析进 %s", t, t)
+			}
 			s, err := d.parseString()
 			if err != nil {
 				return err
@@ -555,138 +956,307 @@ func (d *decoder) value(v reflect.Value) error {
 			v.SetString(s)
 			return nil
 		}
-		s, err := d.parseNumber()
-		if err != nil {
-			return err
+	case reflect.Slice:
+		if t.Elem().Kind() == reflect.Uint8 {
+			return func(d *decoder, v reflect.Value) error {
+				if d.data[d.pos] == 'n' {
+					if err := d.literal("null"); err != nil {
+						return err
+					}
+					v.SetZero()
+					return nil
+				}
+				if d.data[d.pos] != '"' {
+					return typeErr("cannot unmarshal non-string into %s | 无法把非字符串解析进 %s", t, t)
+				}
+				s, err := d.parseString()
+				if err != nil {
+					return err
+				}
+				out, err := b64x.StdEncoding.DecodeString(s)
+				if err != nil {
+					return errx.Wrap(err, ErrTypeMismatch)
+				}
+				v.SetBytes(out)
+				return nil
+			}
 		}
-		v.SetString(s)
-		return nil
+		return buildSliceDecoder(t)
+	case reflect.Array:
+		return buildArrayDecoder(t)
+	case reflect.Map:
+		return buildMapDecoder(t)
+	case reflect.Struct:
+		return buildStructDecoder(t)
+	default:
+		return func(d *decoder, v reflect.Value) error {
+			return typeErr("cannot unmarshal into %s | 无法解析进 %s", t, t)
+		}
 	}
-	if v.CanAddr() && cachedTraits(v.Addr().Type()).textUnmarshaler && d.data[d.pos] == '"' {
-		s, err := d.parseString()
-		if err != nil {
-			return err
-		}
-		return v.Addr().Interface().(encoding.TextUnmarshaler).UnmarshalText([]byte(s))
-	}
-	switch d.data[d.pos] {
-	case 'n':
-		if err := d.literal("null"); err != nil {
-			return err
-		}
-		switch v.Kind() {
-		case reflect.Interface, reflect.Map, reflect.Pointer, reflect.Slice:
-			v.SetZero()
-		}
-		return nil
-	case 't', 'f':
-		x, err := d.parseBool()
-		if err != nil {
-			return err
-		}
-		if v.Kind() != reflect.Bool {
-			return typeErr("cannot unmarshal bool into %s | 无法把布尔值解析进 %s", v.Type(), v.Type())
-		}
-		v.SetBool(x)
-		return nil
-	case '"':
-		if v.Kind() == reflect.Slice && v.Type().Elem().Kind() == reflect.Uint8 {
-			s, err := d.parseString()
-			if err != nil {
+}
+
+func buildSliceDecoder(t reflect.Type) decodeFunc {
+	elem := lazyDecoder(t.Elem())
+	return func(d *decoder, v reflect.Value) error {
+		if d.data[d.pos] == 'n' {
+			if err := d.literal("null"); err != nil {
 				return err
 			}
-			out, err := b64x.StdEncoding.DecodeString(s)
-			if err != nil {
-				return errx.Wrap(err, ErrTypeMismatch)
-			}
-			v.SetBytes(out)
+			v.SetZero()
 			return nil
 		}
-		s, err := d.parseString()
-		if err != nil {
-			return err
+		if d.data[d.pos] != '[' {
+			return typeErr("cannot unmarshal non-array into %s | 无法把非数组解析进 %s", t, t)
 		}
-		if v.Kind() != reflect.String {
-			return typeErr("cannot unmarshal string into %s | 无法把字符串解析进 %s", v.Type(), v.Type())
-		}
-		v.SetString(s)
-		return nil
-	case '{':
-		return d.object(v)
-	case '[':
-		return d.array(v)
-	default:
-		return d.numberValue(v)
-	}
-}
-
-func (d *decoder) object(v reflect.Value) error {
-	switch v.Kind() {
-	case reflect.Map:
-		return d.mapValue(v)
-	case reflect.Struct:
-		return d.structValue(v)
-	default:
-		return typeErr("cannot unmarshal object into %s | 无法把对象解析进 %s", v.Type(), v.Type())
-	}
-}
-
-func (d *decoder) structValue(v reflect.Value) error {
-	if d.data[d.pos] != '{' {
-		return typeErr("cannot unmarshal non-object into %s | 无法把非对象解析进 %s", v.Type(), v.Type())
-	}
-	d.pos++
-	info := cachedStruct(v.Type())
-	byName, byFold := info.byName, info.byFold
-	d.skipSpace()
-	if d.pos < len(d.data) && d.data[d.pos] == '}' {
+		enc := elem()
 		d.pos++
-		return nil
-	}
-	for {
 		d.skipSpace()
-		if d.pos >= len(d.data) || d.data[d.pos] != '"' {
-			return syntaxErr("expected object key | 期望对象键")
+		if d.pos < len(d.data) && d.data[d.pos] == ']' {
+			d.pos++
+			if !v.IsNil() {
+				v.SetLen(0)
+			}
+			return nil
 		}
-		key, err := d.parseString()
-		if err != nil {
-			return err
+		if v.IsNil() {
+			v.Set(reflect.MakeSlice(t, 0, 4))
 		}
-		d.skipSpace()
-		if d.pos >= len(d.data) || d.data[d.pos] != ':' {
-			return syntaxErr("expected ':' after object key | 对象键之后期望 ':'")
-		}
-		d.pos++
-		f, ok := byName[key]
-		if !ok {
-			f, ok = byFold[strings.ToLower(key)]
-		}
-		if !ok {
-			if err := d.skipValue(); err != nil {
+		i := 0
+		for {
+			if i >= v.Len() {
+				v.Set(reflect.Append(v, reflect.Zero(t.Elem())))
+			}
+			d.skipSpace()
+			if d.pos >= len(d.data) {
+				return syntaxErr("unexpected end of array | 数组意外结束")
+			}
+			if err := enc(d, v.Index(i)); err != nil {
 				return err
 			}
-		} else {
-			fv, ok := fieldByIndexAlloc(v, f.index)
+			i++
+			d.skipSpace()
+			if d.pos >= len(d.data) {
+				return syntaxErr("unexpected end of array | 数组意外结束")
+			}
+			switch d.data[d.pos] {
+			case ',':
+				d.pos++
+			case ']':
+				d.pos++
+				if i < v.Len() {
+					v.SetLen(i)
+				}
+				return nil
+			default:
+				return syntaxErr("expected ',' or ']' in array | 数组中期望 ',' 或 ']'")
+			}
+		}
+	}
+}
+
+func buildArrayDecoder(t reflect.Type) decodeFunc {
+	elem := lazyDecoder(t.Elem())
+	return func(d *decoder, v reflect.Value) error {
+		if d.data[d.pos] == 'n' {
+			return d.literal("null")
+		}
+		if d.data[d.pos] != '[' {
+			return typeErr("cannot unmarshal non-array into %s | 无法把非数组解析进 %s", t, t)
+		}
+		enc := elem()
+		d.pos++
+		d.skipSpace()
+		if d.pos < len(d.data) && d.data[d.pos] == ']' {
+			d.pos++
+			return nil
+		}
+		i := 0
+		for {
+			d.skipSpace()
+			if d.pos >= len(d.data) {
+				return syntaxErr("unexpected end of array | 数组意外结束")
+			}
+			if i < v.Len() {
+				if err := enc(d, v.Index(i)); err != nil {
+					return err
+				}
+			} else if err := d.skipValue(); err != nil {
+				return err
+			}
+			i++
+			d.skipSpace()
+			if d.pos >= len(d.data) {
+				return syntaxErr("unexpected end of array | 数组意外结束")
+			}
+			switch d.data[d.pos] {
+			case ',':
+				d.pos++
+			case ']':
+				d.pos++
+				return nil
+			default:
+				return syntaxErr("expected ',' or ']' in array | 数组中期望 ',' 或 ']'")
+			}
+		}
+	}
+}
+
+func buildMapDecoder(t reflect.Type) decodeFunc {
+	if t.Key().Kind() != reflect.String {
+		return func(d *decoder, v reflect.Value) error {
+			return typeErr("unsupported map key type %s | 不支持的 map 键类型 %s", t.Key(), t.Key())
+		}
+	}
+	elem := lazyDecoder(t.Elem())
+	keyType := t.Key()
+	return func(d *decoder, v reflect.Value) error {
+		if d.data[d.pos] == 'n' {
+			if err := d.literal("null"); err != nil {
+				return err
+			}
+			v.SetZero()
+			return nil
+		}
+		if d.data[d.pos] != '{' {
+			return typeErr("cannot unmarshal non-object into %s | 无法把非对象解析进 %s", t, t)
+		}
+		enc := elem()
+		if v.IsNil() {
+			v.Set(reflect.MakeMap(t))
+		}
+		d.pos++
+		d.skipSpace()
+		if d.pos < len(d.data) && d.data[d.pos] == '}' {
+			d.pos++
+			return nil
+		}
+		for {
+			d.skipSpace()
+			if d.pos >= len(d.data) || d.data[d.pos] != '"' {
+				return syntaxErr("expected object key | 期望对象键")
+			}
+			key, err := d.parseString()
+			if err != nil {
+				return err
+			}
+			d.skipSpace()
+			if d.pos >= len(d.data) || d.data[d.pos] != ':' {
+				return syntaxErr("expected ':' after object key | 对象键之后期望 ':'")
+			}
+			d.pos++
+			elemValue := reflect.New(t.Elem()).Elem()
+			d.skipSpace()
+			if d.pos >= len(d.data) {
+				return syntaxErr("unexpected end of object | 对象意外结束")
+			}
+			if err := enc(d, elemValue); err != nil {
+				return err
+			}
+			mapKey := reflect.New(keyType).Elem()
+			mapKey.SetString(key)
+			v.SetMapIndex(mapKey, elemValue)
+			d.skipSpace()
+			if d.pos >= len(d.data) {
+				return syntaxErr("unexpected end of object | 对象意外结束")
+			}
+			switch d.data[d.pos] {
+			case ',':
+				d.pos++
+			case '}':
+				d.pos++
+				return nil
+			default:
+				return syntaxErr("expected ',' or '}' in object | 对象中期望 ',' 或 '}'")
+			}
+		}
+	}
+}
+
+func buildStructDecoder(t reflect.Type) decodeFunc {
+	info := cachedStruct(t)
+	type decField struct {
+		index []int
+		dec   func() decodeFunc
+	}
+	fields := make([]*decField, len(info.fields))
+	byName := make(map[string]int, len(info.fields))
+	byFold := make(map[string]int, len(info.fields))
+	for i, f := range info.fields {
+		fields[i] = &decField{index: f.index, dec: lazyDecoder(f.typ)}
+		byName[f.name] = i
+		byFold[strings.ToLower(f.name)] = i
+	}
+	lookup := func(key string) (*decField, bool) {
+		i, ok := byName[key]
+		if !ok {
+			i, ok = byFold[strings.ToLower(key)]
+		}
+		if !ok {
+			return nil, false
+		}
+		return fields[i], true
+	}
+	return func(d *decoder, v reflect.Value) error {
+		if d.data[d.pos] == 'n' {
+			return d.literal("null")
+		}
+		if d.data[d.pos] != '{' {
+			return typeErr("cannot unmarshal non-object into %s | 无法把非对象解析进 %s", t, t)
+		}
+		d.pos++
+		d.skipSpace()
+		if d.pos < len(d.data) && d.data[d.pos] == '}' {
+			d.pos++
+			return nil
+		}
+		for {
+			d.skipSpace()
+			if d.pos >= len(d.data) || d.data[d.pos] != '"' {
+				return syntaxErr("expected object key | 期望对象键")
+			}
+			key, err := d.parseString()
+			if err != nil {
+				return err
+			}
+			d.skipSpace()
+			if d.pos >= len(d.data) || d.data[d.pos] != ':' {
+				return syntaxErr("expected ':' after object key | 对象键之后期望 ':'")
+			}
+			d.pos++
+			f, ok := lookup(key)
 			if !ok {
 				if err := d.skipValue(); err != nil {
 					return err
 				}
-			} else if err := d.value(fv); err != nil {
-				return err
+			} else {
+				fv, ok := fieldByIndexAlloc(v, f.index)
+				if !ok {
+					if err := d.skipValue(); err != nil {
+						return err
+					}
+				} else {
+					d.skipSpace()
+					if d.pos >= len(d.data) {
+						return syntaxErr("unexpected end of object | 对象意外结束")
+					}
+					if err := f.dec()(d, fv); err != nil {
+						return err
+					}
+				}
 			}
-		}
-		d.skipSpace()
-		if d.pos >= len(d.data) {
-			return syntaxErr("unexpected end of object | 对象意外结束")
-		}
-		switch d.data[d.pos] {
-		case ',':
-			d.pos++
-		case '}':
-			d.pos++
-			return nil
-		default:
-			return syntaxErr("expected ',' or '}' in object | 对象中期望 ',' 或 '}'")
+			d.skipSpace()
+			if d.pos >= len(d.data) {
+				return syntaxErr("unexpected end of object | 对象意外结束")
+			}
+			switch d.data[d.pos] {
+			case ',':
+				d.pos++
+			case '}':
+				d.pos++
+				return nil
+			default:
+				return syntaxErr("expected ',' or '}' in object | 对象中期望 ',' 或 '}'")
+			}
 		}
 	}
 }
@@ -705,141 +1275,6 @@ func fieldByIndexAlloc(v reflect.Value, index []int) (reflect.Value, bool) {
 		v = v.Field(i)
 	}
 	return v, v.CanSet()
-}
-
-func (d *decoder) mapValue(v reflect.Value) error {
-	if v.Kind() != reflect.Map {
-		return typeErr("cannot unmarshal object into %s | 无法把对象解析进 %s", v.Type(), v.Type())
-	}
-	if v.Type().Key().Kind() != reflect.String {
-		return typeErr("unsupported map key type %s | 不支持的 map 键类型 %s", v.Type().Key(), v.Type().Key())
-	}
-	if v.IsNil() {
-		v.Set(reflect.MakeMap(v.Type()))
-	}
-	d.pos++
-	d.skipSpace()
-	if d.pos < len(d.data) && d.data[d.pos] == '}' {
-		d.pos++
-		return nil
-	}
-	for {
-		d.skipSpace()
-		if d.pos >= len(d.data) || d.data[d.pos] != '"' {
-			return syntaxErr("expected object key | 期望对象键")
-		}
-		key, err := d.parseString()
-		if err != nil {
-			return err
-		}
-		d.skipSpace()
-		if d.pos >= len(d.data) || d.data[d.pos] != ':' {
-			return syntaxErr("expected ':' after object key | 对象键之后期望 ':'")
-		}
-		d.pos++
-		elem := reflect.New(v.Type().Elem()).Elem()
-		if err := d.value(elem); err != nil {
-			return err
-		}
-		v.SetMapIndex(reflect.ValueOf(key).Convert(v.Type().Key()), elem)
-		d.skipSpace()
-		if d.pos >= len(d.data) {
-			return syntaxErr("unexpected end of object | 对象意外结束")
-		}
-		switch d.data[d.pos] {
-		case ',':
-			d.pos++
-		case '}':
-			d.pos++
-			return nil
-		default:
-			return syntaxErr("expected ',' or '}' in object | 对象中期望 ',' 或 '}'")
-		}
-	}
-}
-
-func (d *decoder) array(v reflect.Value) error {
-	if v.Kind() != reflect.Slice && v.Kind() != reflect.Array {
-		return typeErr("cannot unmarshal array into %s | 无法把数组解析进 %s", v.Type(), v.Type())
-	}
-	d.pos++
-	d.skipSpace()
-	if d.pos < len(d.data) && d.data[d.pos] == ']' {
-		d.pos++
-		return nil
-	}
-	if v.Kind() == reflect.Slice && v.IsNil() {
-		v.Set(reflect.MakeSlice(v.Type(), 0, 4))
-	}
-	i := 0
-	for {
-		if v.Kind() == reflect.Slice {
-			if i >= v.Len() {
-				v.Set(reflect.Append(v, reflect.Zero(v.Type().Elem())))
-			}
-			if err := d.value(v.Index(i)); err != nil {
-				return err
-			}
-		} else {
-			if i < v.Len() {
-				if err := d.value(v.Index(i)); err != nil {
-					return err
-				}
-			} else if err := d.skipValue(); err != nil {
-				return err
-			}
-		}
-		i++
-		d.skipSpace()
-		if d.pos >= len(d.data) {
-			return syntaxErr("unexpected end of array | 数组意外结束")
-		}
-		switch d.data[d.pos] {
-		case ',':
-			d.pos++
-		case ']':
-			d.pos++
-			return nil
-		default:
-			return syntaxErr("expected ',' or ']' in array | 数组中期望 ',' 或 ']'")
-		}
-	}
-}
-
-func (d *decoder) numberValue(v reflect.Value) error {
-	s, err := d.parseNumber()
-	if err != nil {
-		return err
-	}
-	switch v.Kind() {
-	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
-		if strings.ContainsAny(s, ".eE") {
-			return typeErr("cannot unmarshal number %s into %s | 无法把数字 %s 解析进 %s", s, v.Type(), s, v.Type())
-		}
-		n, err := strconv.ParseInt(s, 10, v.Type().Bits())
-		if err != nil {
-			return typeErr("number %s overflows %s | 数字 %s 超出 %s", s, v.Type(), s, v.Type())
-		}
-		v.SetInt(n)
-	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64, reflect.Uintptr:
-		if strings.ContainsAny(s, ".eE-") {
-			return typeErr("cannot unmarshal number %s into %s | 无法把数字 %s 解析进 %s", s, v.Type(), s, v.Type())
-		}
-		n, err := strconv.ParseUint(s, 10, v.Type().Bits())
-		if err != nil {
-			return typeErr("number %s overflows %s | 数字 %s 超出 %s", s, v.Type(), s, v.Type())
-		}
-		v.SetUint(n)
-	case reflect.Float32, reflect.Float64:
-		n, err := strconv.ParseFloat(s, v.Type().Bits())
-		if err != nil {
-			return typeErr("number %s overflows %s | 数字 %s 超出 %s", s, v.Type(), s, v.Type())
-		}
-		v.SetFloat(n)
-	default:
-		return typeErr("cannot unmarshal number into %s | 无法把数字解析进 %s", v.Type(), v.Type())
-	}
-	return nil
 }
 
 func (d *decoder) valueAny() (any, error) {
