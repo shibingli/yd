@@ -184,7 +184,7 @@ func TestNegotiateQValues(t *testing.T) {
 		{"通配取列表首位", "*", def, Brotli, true},
 		{"星号 q=0 只放行显式编码", "*;q=0, gzip", def, Gzip, true},
 		{"星号 q=0 且无显式编码则不压缩", "*;q=0", def, 0, false},
-		{"空算法列表退回默认优先级", "gzip, br, zstd", nil, Brotli, true},
+		{"空算法列表退回默认优先级（zstd 居首）", "gzip, br, zstd", nil, Zstd, true},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -281,7 +281,7 @@ func TestCompressGzipRoundTrip(t *testing.T) {
 	}
 }
 
-func TestBrotliAndZstdPreferredOverGzip(t *testing.T) {
+func TestDefaultPriorityPrefersZstd(t *testing.T) {
 	r := router.New()
 	r.Use(Compress(CompressOptions{}))
 	r.GET("/page", func(c *router.Ctx) { _ = c.String(http.StatusOK, bigBody) })
@@ -290,7 +290,7 @@ func TestBrotliAndZstdPreferredOverGzip(t *testing.T) {
 		accept   string
 		encoding string
 	}{
-		{"gzip, br, zstd", "br"},
+		{"gzip, br, zstd", "zstd"},
 		{"gzip", "gzip"},
 		{"zstd", "zstd"},
 		{"br;q=0.1, zstd;q=0.9", "zstd"},

@@ -28,7 +28,19 @@ const (
 
 // defaultAlgorithms is the priority order used when CompressOptions.Algorithms is empty.
 // | defaultAlgorithms 是 CompressOptions.Algorithms 为空时使用的优先级顺序。
-var defaultAlgorithms = []Algorithm{Brotli, Zstd, Gzip}
+//
+// Zstd leads because on dynamic payloads it matches or beats brotli's ratio at a fraction of the
+// CPU cost (see docs/verification.md §3.19); brotli stays second for clients that do not accept
+// zstd, and gzip is the universal fallback. | Zstd 居首是因为在动态载荷上它的压缩率与 brotli
+// 持平或更好，而 CPU 成本低得多（见 docs/verification.md §3.19）；brotli 留给不接受 zstd 的
+// 客户端，gzip 作为通用兜底。
+var defaultAlgorithms = []Algorithm{Zstd, Brotli, Gzip}
+
+// defaultBrotliQuality is the brotli quality used when CompressOptions.Level is zero. Quality 4
+// keeps brotli's ratio while cutting its CPU cost substantially compared with the library default
+// of 6. | defaultBrotliQuality 是 CompressOptions.Level 为零时使用的 brotli 质量。质量 4 保持
+// brotli 的压缩率，同时比库默认的 6 显著降低 CPU 成本。
+const defaultBrotliQuality = 4
 
 // defaultExcludePatterns is the prefix list used when CompressOptions.ExcludePatterns is empty.
 // | defaultExcludePatterns 是 CompressOptions.ExcludePatterns 为空时使用的前缀排除表。
@@ -252,7 +264,7 @@ func parseQValueNoAlloc(params string) float64 {
 // | CompressOptions 配置压缩中间件。
 type CompressOptions struct {
 	// Algorithms is the priority list; the array order is the weight order. | Algorithms 是优先级列表，数组顺序即权重顺序。
-	// Defaults to []Algorithm{Brotli, Zstd, Gzip}. | 默认为 []Algorithm{Brotli, Zstd, Gzip}。
+	// Defaults to []Algorithm{Zstd, Brotli, Gzip}. | 默认为 []Algorithm{Zstd, Brotli, Gzip}。
 	Algorithms []Algorithm
 	// ExcludePatterns is a list of path prefixes that are never wrapped. | ExcludePatterns 是永不包装的路径前缀列表。
 	// Defaults to {"/ws", "/sse", "/events"} and replaces those defaults when set. | 默认为 {"/ws", "/sse", "/events"}，一旦配置即替换默认值。
@@ -260,8 +272,9 @@ type CompressOptions struct {
 	// MinSize is the smallest body that is worth compressing; 0 means 1024 bytes.
 	// | MinSize 是值得压缩的最小正文长度；0 表示 1024 字节。
 	MinSize int
-	// Level is the codec compression level; 0 keeps each codec's own default.
-	// | Level 是编解码器的压缩级别；0 表示沿用各自的默认级别。
+	// Level is the codec compression level; 0 uses the middleware defaults (brotli quality 4,
+	// zstd and gzip at their codec defaults). | Level 是编解码器的压缩级别；0 表示使用中间件默认值
+	// （brotli 质量 4，zstd 与 gzip 沿用各自默认级别）。
 	Level int
 }
 
@@ -725,7 +738,7 @@ func (p *encoderPool) newEncoder(w io.Writer) encoder {
 		return zw
 	case Brotli:
 		if p.level == 0 {
-			return brotli.NewWriter(w)
+			return brotli.NewWriterLevel(w, defaultBrotliQuality)
 		}
 		return brotli.NewWriterLevel(w, clampLevel(p.level, brotli.BestSpeed, brotli.BestCompression))
 	case Zstd:

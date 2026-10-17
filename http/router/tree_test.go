@@ -10,8 +10,7 @@ import (
 // find is a test helper: it looks up the tree and returns the matched handler tag and parameter map. | find 是测试辅助：在树上查找并返回命中的处理器标签与参数表。
 func find(t *testing.T, tr *Tree, method, path string) (string, map[string]string, bool, bool) {
 	t.Helper()
-	ps := acquireParams()
-	defer releaseParams(ps)
+	ps := &Params{}
 	h, tsr := tr.Find(method, path, ps)
 	if h == nil {
 		return "", nil, tsr, false
@@ -273,8 +272,7 @@ func TestTreeFindNoAlloc(t *testing.T) {
 	mustAdd(t, tr, http.MethodGet, "/static/*filepath", "wild")
 	mustAdd(t, tr, http.MethodGet, "/plain/path", "static")
 
-	ps := acquireParams()
-	defer releaseParams(ps)
+	ps := &Params{}
 
 	cases := []string{"/users/42", "/static/css/app.css", "/plain/path"}
 	for _, path := range cases {

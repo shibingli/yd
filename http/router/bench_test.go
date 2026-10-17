@@ -55,6 +55,34 @@ func BenchmarkRouterMixedSegment(b *testing.B) {
 	}
 }
 
+func BenchmarkRouterWildcard(b *testing.B) {
+	r := New()
+	r.GET("/files/*filepath", func(c *Ctx) { _ = c.Param("filepath"); _ = c.NoContent() })
+	req := benchRouterRequest("/files/a/b/c.txt")
+	rec := httptest.NewRecorder()
+
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		rec.Body.Reset()
+		r.ServeHTTP(rec, req)
+	}
+}
+
+func BenchmarkRouterMiss(b *testing.B) {
+	r := New()
+	r.GET("/api/v1/users/:id", func(c *Ctx) { _ = c.NoContent() })
+	req := benchRouterRequest("/nope")
+	rec := httptest.NewRecorder()
+
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		rec.Body.Reset()
+		r.ServeHTTP(rec, req)
+	}
+}
+
 func BenchmarkDownloadBytes(b *testing.B) {
 	content := make([]byte, 4096)
 	r := New()

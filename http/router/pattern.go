@@ -216,9 +216,8 @@ func parseSegment(raw string) (Segment, error) {
 // This function is a convenience wrapper around matchSegmentInto; on hot paths use matchSegmentInto directly | 该函数为 matchSegmentInto 的便捷包装；热路径请直接使用 matchSegmentInto
 // to avoid allocating a slice for the capture result. | 以避免为捕获结果分配切片。
 func matchSegment(seg *Segment, value string) ([]Param, bool) {
-	ps := acquireParams()
-	defer releaseParams(ps)
-	if !matchSegmentInto(seg, value, ps) {
+	var ps Params
+	if !matchSegmentInto(seg, value, &ps) {
 		return nil, false
 	}
 	out := make([]Param, ps.Len())

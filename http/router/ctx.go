@@ -40,32 +40,57 @@ type Ctx struct {
 	// Params holds the path parameters captured for this request. | Params 保存本次请求捕获到的路径参数。
 	Params *Params
 
+	// paramStore backs Params so that no second object pool is needed per request. | paramStore
+	// 为 Params 提供存储，从而不必为每个请求再走一次对象池。
+	paramStore Params
+
 	router *Router
 
 	query       url.Values
 	keys        map[string]any
+	path        string
 	handlers    []HandlerFunc
 	index       int
 	status      int
 	written     bool
 	aborted     bool
 	bodyLimited bool // request body already wrapped by http.MaxBytesReader | 请求体已由 http.MaxBytesReader 包装
+	// borrowed marks handlers as the immutable route chain owned by the tree; it must never be
+	// appended to or written through. | borrowed 标记 handlers 为路由树持有的不可变调用链，
+	// 不得向其追加或经它写入。
+	borrowed bool
 }
 
 // reset prepares the value for reuse. | reset 为复用做准备。
 func (c *Ctx) reset(w http.ResponseWriter, r *http.Request, rt *Router) {
 	c.Writer = w
 	c.Request = r
-	c.Params = nil
 	c.router = rt
-	// keep the backing array of handlers for reuse (just zero the slice length) | 保留 handlers 的底层数组以便复用（切片长度归零即可）
-	c.handlers = c.handlers[:0]
+	// Drop an abnormally large parameter slice instead of retaining it for the life of the
+	// pooled context; ordinary requests keep the backing array. | 异常大的参数切片不随池化上下文长期
+	// 保留；普通请求保留底层数组。
+	if cap(c.paramStore.ps) > 64 {
+		c.paramStore.ps = nil
+	} else {
+		c.paramStore.ps = c.paramStore.ps[:0]
+	}
+	c.Params = &c.paramStore
+	// Keep the backing array of handlers for reuse, except when it was borrowed from the tree:
+	// appending through that slice would overwrite the immutable route chain. | 保留 handlers 的
+	// 底层数组以便复用，但从路由树借用时必须丢弃：经该切片追加会覆写不可变的调用链。
+	if c.borrowed {
+		c.handlers = nil
+		c.borrowed = false
+	} else {
+		c.handlers = c.handlers[:0]
+	}
 	c.index = -1
 	c.status = 0
 	c.written = false
 	c.aborted = false
 	c.bodyLimited = false
 	c.query = nil
+	c.path = ""
 	if c.keys != nil {
 		clear(c.keys)
 	}
@@ -102,7 +127,16 @@ func (c *Ctx) Router() *Router { return c.router }
 func (c *Ctx) Method() string { return c.Request.Method }
 
 // Path returns the request path (in its original encoded form). | Path 返回请求路径（原始编码形式）。
-func (c *Ctx) Path() string { return c.Request.URL.EscapedPath() }
+//
+// The value is computed once by ServeHTTP and cached on the context, so middleware and handlers
+// can call Path repeatedly without rescanning the URL. | 该值由 ServeHTTP 计算一次并缓存在上下文上，
+// 中间件与处理器可以反复调用 Path 而无需重复扫描 URL。
+func (c *Ctx) Path() string {
+	if c.path != "" {
+		return c.path
+	}
+	return c.Request.URL.EscapedPath()
+}
 
 // URI returns the path and the query string. | URI 返回路径与查询串。
 func (c *Ctx) URI() string { return c.Request.URL.RequestURI() }

@@ -27,6 +27,13 @@ const (
 // carries wiring errors. | routeTableBrokenBody 是路由表存在接线错误时 ServeHTTP 写出的响应正文。
 const routeTableBrokenBody = "router: route table is invalid | router：路由表存在接线错误"
 
+// Fallback response bodies are byte slices so that writing them does not convert a string on
+// every miss. | 兜底响应正文预置为字节切片，避免每次未命中都做一次字符串到字节切片的转换。
+var (
+	methodNotAllowedBody = []byte("method not allowed | 方法不允许")
+	notFoundBody         = []byte("not found | 未找到")
+)
+
 // Route wiring errors, declared once at package level. | 路由接线错误，在包级声明一次。
 var (
 	// ErrNilHandler indicates a nil handler or a nil middleware inside a call chain. | ErrNilHandler 表示调用链中存在空的处理器或中间件。
@@ -65,19 +72,39 @@ type Router struct {
 	pool     sync.Pool
 	renderer Renderer
 	tree     *Tree
-	options  Options
+
+	// state is the immutable serving snapshot: global middleware plus the broken flag. It is
+	// replaced only during wiring, so the request path performs a single pointer load instead
+	// of taking the registration lock (and touching its cache line) on every request. | state
+	// 是不可变的服务快照：全局中间件与损坏标记。它只在装配期替换，因此请求路径只需一次指针加载，
+	// 不必每个请求都去抢注册锁（并触碰其缓存行）。
+	state   atomic.Pointer[serveState]
+	options Options
 
 	routes   []RouteInfo
 	groups   []*Group
 	globalMW []Middleware
 	errs     []error
 
-	// broken is set once a wiring error is recorded, so ServeHTTP can refuse to serve
-	// without taking the registration lock on every request. | 一旦登记接线错误就置位，
-	// 使 ServeHTTP 无需在每个请求上获取注册锁即可拒绝服务。
-	broken atomic.Bool
-
 	mu sync.RWMutex
+	// brokenFlag is the registration-side source of truth behind state.broken. | brokenFlag 是
+	// state.broken 在注册侧的权威来源。
+	brokenFlag bool
+}
+
+// serveState is the immutable snapshot read by ServeHTTP. | serveState 是 ServeHTTP 读取的不可变快照。
+type serveState struct {
+	globalMW []Middleware
+	broken   bool
+}
+
+// publishStateLocked replaces the serving snapshot; the caller must hold mu. | publishStateLocked
+// 替换服务快照；调用方必须持有 mu。
+func (r *Router) publishStateLocked() {
+	r.state.Store(&serveState{
+		globalMW: append([]Middleware(nil), r.globalMW...),
+		broken:   r.brokenFlag,
+	})
 }
 
 // New creates a router. | New 创建一个路由器。
@@ -91,6 +118,7 @@ func New(opts ...func(*Options)) *Router {
 	}
 	r := &Router{tree: NewTree(), options: o}
 	r.pool.New = func() any { return &Ctx{} }
+	r.state.Store(&serveState{})
 	return r
 }
 
@@ -123,6 +151,7 @@ func (r *Router) Use(mw ...Middleware) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.globalMW = append(r.globalMW, mw...)
+	r.publishStateLocked()
 }
 
 // Group creates a route group with a common prefix and middleware. | Group 创建一个带公共前缀与中间件的路由组。
@@ -202,8 +231,9 @@ func (r *Router) recordWiringError(err error) {
 	}
 	r.mu.Lock()
 	r.errs = append(r.errs, err)
+	r.brokenFlag = true
+	r.publishStateLocked()
 	r.mu.Unlock()
-	r.broken.Store(true)
 }
 
 // Validate reports every wiring error collected while routes were registered, plus any
@@ -220,7 +250,10 @@ func (r *Router) Validate() error {
 	r.mu.RUnlock()
 	if err := r.validateTree(); err != nil {
 		errs = append(errs, err)
-		r.broken.Store(true)
+		r.mu.Lock()
+		r.brokenFlag = true
+		r.publishStateLocked()
+		r.mu.Unlock()
 	}
 	return errors.Join(errs...)
 }
@@ -293,7 +326,8 @@ func (r *Router) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	// A route table with recorded wiring errors must never serve traffic, not even the
 	// routes that did register successfully. | 存在接线错误记录的路由表绝不能对外服务，
 	// 即使其中某些路由注册成功了也不行。
-	if r.broken.Load() {
+	state := r.state.Load()
+	if state == nil || state.broken {
 		http.Error(w, routeTableBrokenBody, http.StatusInternalServerError)
 		return
 	}
@@ -305,15 +339,12 @@ func (r *Router) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	// bytes to temp files. | 每个请求只包装一次请求体读取。ParseMultipartForm 的参数是内存提示而不是
 	// 请求体上限，缺少这层包装时 multipart 上传可以超出 MaxBodySize 并把任意字节落到临时文件。
 	c.limitBody()
-	params := acquireParams()
-	c.Params = params
 
 	defer func() {
 		if rec := recover(); rec != nil {
 			if r.options.PanicHandler != nil {
 				r.options.PanicHandler(c, rec)
 			} else {
-				releaseParams(params)
 				c.Params = nil
 				c.Request = nil
 				c.Writer = nil
@@ -325,12 +356,10 @@ func (r *Router) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 				panic(rec)
 			}
 		}
-		releaseParams(params)
 		c.Params = nil
 		c.Request = nil
 		c.Writer = nil
 		c.keys = nil
-		c.handlers = c.handlers[:0]
 		r.pool.Put(c)
 	}()
 
@@ -338,6 +367,7 @@ func (r *Router) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	if path == "" {
 		path = "/"
 	}
+	c.path = path
 
 	handler, tsr := r.tree.Find(req.Method, path, c.Params)
 	// HEAD falls back to GET: the server discards the body of a HEAD response, so the handler can be
@@ -360,13 +390,12 @@ func (r *Router) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 			}
 			if r.options.MethodNotAllowed != nil {
 				c.SetHeader("Allow", strings.Join(withOptions(methods, r.options.AutoOptions), ", "))
-				r.setChain(c, nil, r.options.MethodNotAllowed)
+				r.setChain(c, state.globalMW, nil, r.options.MethodNotAllowed)
 				c.Next()
 				return
 			}
 			c.SetHeader("Allow", strings.Join(withOptions(methods, r.options.AutoOptions), ", "))
-			c.SetStatus(http.StatusMethodNotAllowed)
-			_ = c.String(http.StatusMethodNotAllowed, "method not allowed | 方法不允许")
+			writeFallback(c, http.StatusMethodNotAllowed, methodNotAllowedBody)
 			return
 		}
 		if tsr {
@@ -374,12 +403,11 @@ func (r *Router) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 			return
 		}
 		if r.options.NotFound != nil {
-			r.setChain(c, nil, r.options.NotFound)
+			r.setChain(c, state.globalMW, nil, r.options.NotFound)
 			c.Next()
 			return
 		}
-		c.SetStatus(http.StatusNotFound)
-		_ = c.String(http.StatusNotFound, "not found | 未找到")
+		writeFallback(c, http.StatusNotFound, notFoundBody)
 		return
 	}
 
@@ -393,17 +421,42 @@ func (r *Router) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 		http.Error(w, routeTableBrokenBody, http.StatusInternalServerError)
 		return
 	}
-	r.setChain(c, routeChain, nil)
+	r.setChain(c, state.globalMW, routeChain, nil)
+	// The overwhelmingly common case is a single business handler with no global middleware;
+	// calling it directly skips the Next loop without changing middleware semantics. | 最常见的
+	// 情况是没有全局中间件的单个业务处理器；直接调用可以跳过 Next 循环，且不改变中间件语义。
+	if len(c.handlers) == 1 {
+		// Keep the same index semantics as Next: a handler that calls Next() must see the chain
+		// exhausted, not re-enter itself. | 与 Next 保持相同的索引语义：处理器内部调用 Next 时必须
+		// 看到调用链已结束，而不是再次进入自身。
+		c.index = 0
+		c.handlers[0](c)
+		return
+	}
 	c.Next()
 }
 
 // setChain assembles "global middleware → route chain (or a single fallback handler)" and writes it into the reusable buffer of c. | setChain 组装「全局中间件 → 路由链（或单个兜底处理器）」并写入 c 的复用缓冲区。
 //
-// It reuses the backing array of Ctx.handlers, so the hot path that hits an existing route performs no heap allocation. | 复用 Ctx 的 handlers 底层数组，命中已有路由的热路径不产生堆分配。
-func (r *Router) setChain(c *Ctx, route []HandlerFunc, tail HandlerFunc) {
-	r.mu.RLock()
-	c.handlers = append(c.handlers[:0], r.globalMW...)
-	r.mu.RUnlock()
+// The global middleware slice comes from the immutable serveState snapshot, so no lock is taken;
+// the function reuses the backing array of Ctx.handlers, so the hot path that hits an existing
+// route performs no heap allocation. | 全局中间件切片来自不可变的 serveState 快照，因此无需加锁；
+// 函数复用 Ctx.handlers 的底层数组，命中已有路由的热路径不产生堆分配。
+func (r *Router) setChain(c *Ctx, globalMW []Middleware, route []HandlerFunc, tail HandlerFunc) {
+	// With no global middleware the route chain is already exactly what Next must run, so borrow
+	// it instead of copying; reset drops the borrowed slice before the context is reused. | 没有
+	// 全局中间件时，路由链本身就是 Next 要执行的序列，直接借用而不是复制；上下文复用前由 reset
+	// 丢弃借用的切片。
+	if tail == nil && len(globalMW) == 0 {
+		c.handlers = route
+		c.borrowed = true
+		return
+	}
+	if c.borrowed {
+		c.handlers = nil
+		c.borrowed = false
+	}
+	c.handlers = append(c.handlers[:0], globalMW...)
 	if tail != nil {
 		c.handlers = append(c.handlers, tail)
 		return
@@ -440,6 +493,14 @@ func withOptions(methods []string, auto bool) []string {
 	}
 	sort.Strings(out)
 	return out
+}
+
+// writeFallback writes a plain text fallback response with a precomputed body. | writeFallback
+// 使用预置正文写出纯文本兜底响应。
+func writeFallback(c *Ctx, code int, body []byte) {
+	c.SetHeader("Content-Type", "text/plain; charset=utf-8")
+	c.WriteHeader(code)
+	_, _ = c.Writer.Write(body)
 }
 
 // redirectTrailingSlash builds the trailing slash redirect: 301 for GET, 308 for the other methods to preserve method and body. | redirectTrailingSlash 生成尾斜杠重定向：GET 用 301，其余方法用 308 保留方法与请求体。

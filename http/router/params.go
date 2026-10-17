@@ -1,7 +1,5 @@
 package router
 
-import "sync"
-
 // Param is a captured path parameter. | Param 是一个已捕获的路径参数。
 type Param struct {
 	// Key is the parameter name. | Key 为参数名。
@@ -12,8 +10,9 @@ type Param struct {
 
 // Params holds all path parameters captured for a single request. | Params 持有单次请求捕获到的全部路径参数。
 //
-// Params is reused from a sync.Pool and is only valid for the lifetime of the current request; | Params 由 sync.Pool 复用，仅在当前请求的生命周期内有效；
-// copy the strings yourself if you need to keep them after the request ends. | 若需在请求结束后继续持有，请自行复制字符串。
+// Params is owned by the pooled Ctx and is only valid for the lifetime of the current request;
+// copy the strings yourself if you need to keep them after the request ends. | Params 由池化的
+// Ctx 持有，仅在当前请求的生命周期内有效；若需在请求结束后继续持有，请自行复制字符串。
 type Params struct {
 	ps []Param
 }
@@ -83,30 +82,4 @@ func (p *Params) Values() []string {
 		vals[i] = p.ps[i].Value
 	}
 	return vals
-}
-
-var paramsPool = sync.Pool{
-	New: func() any {
-		return &Params{ps: make([]Param, 0, 8)}
-	},
-}
-
-// acquireParams takes an empty Params from the pool. | acquireParams 从对象池取一个空的 Params。
-func acquireParams() *Params {
-	p := paramsPool.Get().(*Params)
-	p.Reset()
-	return p
-}
-
-// releaseParams returns a Params to the pool. | releaseParams 把 Params 归还对象池。
-func releaseParams(p *Params) {
-	if p == nil {
-		return
-	}
-	// prevent an abnormally large parameter slice from occupying memory for a long time | 防止异常大的参数切片长期占用内存
-	if cap(p.ps) > 64 {
-		return
-	}
-	p.Reset()
-	paramsPool.Put(p)
 }

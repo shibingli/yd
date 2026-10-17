@@ -15,16 +15,98 @@ var ErrUnknownSegment = errx.New("router: unknown segment type | router：未知
 // Child nodes are ordered by match priority: static > mixed (more literals first) > pure param > wildcard. | 子节点按匹配优先级排列：静态 > 混合（字面量越多越优先）> 纯参数 > 通配。
 type node struct {
 	seg      *Segment
-	static   map[string]*node
 	param    *node
 	wildcard *node
 
-	handlers map[string]any
-	pattern  string
+	// staticMap takes over once a node has more static children than staticSliceLimit; small
+	// fan-out stays a linear scan, which avoids the hashing cost on every request. | 静态子节点
+	// 超过 staticSliceLimit 后改用 staticMap；小扇出保持线性扫描，避免每个请求都付出哈希开销。
+	staticMap map[string]*node
+	pattern   string
+	static    []staticChild
+
+	handlers []methodHandler
 	mixed    []*node
 }
 
+// methodHandler is one method-to-handler binding of a terminal node. | methodHandler 是终止节点上
+// 的一条「方法到处理器」绑定。
+type methodHandler struct {
+	handler any
+	method  string
+}
+
+// handler returns the handler registered for method. | handler 返回 method 注册的处理器。
+func (n *node) handler(method string) (any, bool) {
+	for i := range n.handlers {
+		if n.handlers[i].method == method {
+			return n.handlers[i].handler, true
+		}
+	}
+	return nil, false
+}
+
+// addHandler binds method to handler and reports false when it was already bound. | addHandler
+// 把 method 绑定到 handler；已绑定时返回 false。
+func (n *node) addHandler(method string, handler any) bool {
+	for i := range n.handlers {
+		if n.handlers[i].method == method {
+			return false
+		}
+	}
+	n.handlers = append(n.handlers, methodHandler{method: method, handler: handler})
+	return true
+}
+
+// staticChild is one static child edge. | staticChild 是一条静态子边。
+type staticChild struct {
+	node *node
+	name string
+}
+
+// staticSliceLimit is the fan-out up to which a linear scan beats a map lookup. | staticSliceLimit
+// 是线性扫描优于映射查找的扇出上限。
+const staticSliceLimit = 8
+
 func newNode(seg *Segment) *node { return &node{seg: seg} }
+
+// staticChild returns the static child named name. | staticChild 返回名为 name 的静态子节点。
+func (n *node) staticChild(name string) (*node, bool) {
+	if n.staticMap != nil {
+		c, ok := n.staticMap[name]
+		return c, ok
+	}
+	for i := range n.static {
+		if n.static[i].name == name {
+			return n.static[i].node, true
+		}
+	}
+	return nil, false
+}
+
+// ensureStaticChild returns the static child for name, creating it when necessary. | ensureStaticChild
+// 返回 name 对应的静态子节点，必要时创建。
+func (n *node) ensureStaticChild(name string, seg Segment) *node {
+	if c, ok := n.staticChild(name); ok {
+		return c
+	}
+	c := newNode(&seg)
+	if n.staticMap != nil {
+		n.staticMap[name] = c
+		return c
+	}
+	if len(n.static) < staticSliceLimit {
+		n.static = append(n.static, staticChild{name: name, node: c})
+		return c
+	}
+	n.staticMap = make(map[string]*node, len(n.static)*2)
+	for _, child := range n.static {
+		n.staticMap[child.name] = child.node
+	}
+	n.staticMap[name] = c
+	n.static = nil
+	return c
+}
 
 // child returns the child node corresponding to seg (creating it when necessary), or an
 // error when the segment kind is unknown. | child 返回（必要时创建）与 seg 对应的子节点；
@@ -32,15 +114,7 @@ func newNode(seg *Segment) *node { return &node{seg: seg} }
 func (n *node) child(seg Segment) (*node, error) {
 	switch seg.Kind {
 	case SegStatic:
-		if n.static == nil {
-			n.static = make(map[string]*node, 4)
-		}
-		if c, ok := n.static[seg.Literal]; ok {
-			return c, nil
-		}
-		c := newNode(&seg)
-		n.static[seg.Literal] = c
-		return c, nil
+		return n.ensureStaticChild(seg.Literal, seg), nil
 	case SegParam:
 		if n.param == nil {
 			n.param = newNode(&seg)
@@ -98,13 +172,9 @@ func (t *Tree) Add(method, pattern string, handler any) error {
 		}
 		n = next
 	}
-	if n.handlers == nil {
-		n.handlers = make(map[string]any, 4)
-	}
-	if _, dup := n.handlers[method]; dup {
+	if !n.addHandler(method, handler) {
 		return errx.Detail(ErrConflict, "%s %s", method, pattern)
 	}
-	n.handlers[method] = handler
 	n.pattern = pattern
 	return nil
 }
@@ -129,7 +199,7 @@ func (t *Tree) lookup(method, path string, ps *Params) (any, bool) {
 		return nil, false
 	}
 	if path == "/" {
-		return t.root.handlers[method], t.root.handlers[method] != nil
+		return t.root.handler(method)
 	}
 	return matchNode(t.root, path, 1, method, ps)
 }
@@ -147,7 +217,7 @@ func matchNode(n *node, path string, start int, method string, ps *Params) (any,
 	last := end == len(path)
 
 	// 1) static segment: an exact match comes first | 1) 静态段：完全匹配优先
-	if c, ok := n.static[val]; ok {
+	if c, ok := n.staticChild(val); ok {
 		if h, ok := descend(c, path, end, last, method, ps); ok {
 			return h, true
 		}
@@ -179,7 +249,7 @@ func matchNode(n *node, path string, start int, method string, ps *Params) (any,
 	if n.wildcard != nil {
 		mark := ps.Len()
 		ps.Append(n.wildcard.seg.Name, path[start:])
-		if h, ok := n.wildcard.handlers[method]; ok {
+		if h, ok := n.wildcard.handler(method); ok {
 			return h, true
 		}
 		ps.Truncate(mark)
@@ -191,8 +261,7 @@ func matchNode(n *node, path string, start int, method string, ps *Params) (any,
 // descend takes the handler directly when the current segment is the last one, otherwise it continues with the next segment. | descend 在当前分段即为末段时直接取处理器，否则继续匹配下一分段。
 func descend(c *node, path string, end int, last bool, method string, ps *Params) (any, bool) {
 	if last {
-		h, ok := c.handlers[method]
-		return h, ok
+		return c.handler(method)
 	}
 	return matchNode(c, path, end+1, method, ps)
 }
@@ -210,9 +279,8 @@ func (t *Tree) tsr(method, path string) bool {
 
 // allowedOnce reports whether a handler for method exists on the alt path. | allowedOnce 报告 alt 路径上是否存在 method 的处理器。
 func (t *Tree) allowedOnce(path, method string) bool {
-	ps := acquireParams()
-	defer releaseParams(ps)
-	_, ok := t.lookup(method, path, ps)
+	var ps Params
+	_, ok := t.lookup(method, path, &ps)
 	return ok
 }
 
@@ -220,19 +288,73 @@ func (t *Tree) allowedOnce(path, method string) bool {
 //
 // Unlike Find, it ignores method and collects the method set of every reachable terminal node. | 与 Find 不同，它忽略 method，收集所有可达终止节点上的方法集。
 func (t *Tree) Allowed(path string) []string {
-	ps := acquireParams()
-	defer releaseParams(ps)
-	set := make(map[string]struct{}, 8)
-	t.collectMethods(path, ps, set)
-	if len(set) == 0 {
+	var ps Params
+	// A 404 needs only "does any method exist here?"; answering that question allocates nothing,
+	// while building the method set (needed only for 405 and Allow) may allocate. | 404 只需要判断
+	// 「这里是否存在任一方法」，该判断零分配；只有 405 与 Allow 才需要构建方法集。
+	if !t.hasAnyMethod(path, &ps) {
 		return nil
 	}
+	set := make(map[string]struct{}, 8)
+	t.collectMethods(path, &ps, set)
 	methods := make([]string, 0, len(set))
-	for m := range set {
-		methods = append(methods, m)
+	for method := range set {
+		methods = append(methods, method)
 	}
 	sort.Strings(methods)
 	return methods
+}
+
+// hasAnyMethod reports whether any method is registered on path, without allocating. | hasAnyMethod
+// 报告 path 上是否注册了任一方法，且不产生分配。
+func (t *Tree) hasAnyMethod(path string, ps *Params) bool {
+	if path == "" || path[0] != '/' {
+		return false
+	}
+	if path == "/" {
+		return len(t.root.handlers) > 0
+	}
+	return hasMethodsNode(t.root, path, 1, ps)
+}
+
+// hasMethodsNode mirrors collectNode but stops at the first terminal node. | hasMethodsNode 与
+// collectNode 结构相同，但在第一个终止节点处立即返回。
+func hasMethodsNode(n *node, path string, start int, ps *Params) bool {
+	end := start
+	for end < len(path) && path[end] != '/' {
+		end++
+	}
+	val := path[start:end]
+	last := end == len(path)
+
+	terminal := func(c *node) bool {
+		if last {
+			return len(c.handlers) > 0
+		}
+		return hasMethodsNode(c, path, end+1, ps)
+	}
+
+	if c, ok := n.staticChild(val); ok && terminal(c) {
+		return true
+	}
+	for _, c := range n.mixed {
+		mark := ps.Len()
+		matched := matchSegmentInto(c.seg, val, ps)
+		ps.Truncate(mark)
+		if matched && terminal(c) {
+			return true
+		}
+	}
+	if n.param != nil && val != "" {
+		mark := ps.Len()
+		ps.Append(n.param.seg.Name, val)
+		ok := terminal(n.param)
+		ps.Truncate(mark)
+		if ok {
+			return true
+		}
+	}
+	return n.wildcard != nil && len(n.wildcard.handlers) > 0
 }
 
 func (t *Tree) collectMethods(path string, ps *Params, out map[string]struct{}) {
@@ -240,8 +362,8 @@ func (t *Tree) collectMethods(path string, ps *Params, out map[string]struct{}) 
 		return
 	}
 	if path == "/" {
-		for m := range t.root.handlers {
-			out[m] = struct{}{}
+		for i := range t.root.handlers {
+			out[t.root.handlers[i].method] = struct{}{}
 		}
 		return
 	}
@@ -258,15 +380,15 @@ func collectNode(n *node, path string, start int, ps *Params, out map[string]str
 
 	harvest := func(c *node) {
 		if last {
-			for m := range c.handlers {
-				out[m] = struct{}{}
+			for i := range c.handlers {
+				out[c.handlers[i].method] = struct{}{}
 			}
 			return
 		}
 		collectNode(c, path, end+1, ps, out)
 	}
 
-	if c, ok := n.static[val]; ok {
+	if c, ok := n.staticChild(val); ok {
 		harvest(c)
 	}
 	for _, c := range n.mixed {
@@ -285,8 +407,8 @@ func collectNode(n *node, path string, start int, ps *Params, out map[string]str
 	if n.wildcard != nil {
 		mark := ps.Len()
 		ps.Append(n.wildcard.seg.Name, path[start:])
-		for m := range n.wildcard.handlers {
-			out[m] = struct{}{}
+		for i := range n.wildcard.handlers {
+			out[n.wildcard.handlers[i].method] = struct{}{}
 		}
 		ps.Truncate(mark)
 	}
@@ -302,21 +424,30 @@ func (t *Tree) Walk(fn func(method, pattern string, handler any)) {
 func walkNode(n *node, fn func(method, pattern string, handler any)) {
 	if len(n.handlers) > 0 {
 		methods := make([]string, 0, len(n.handlers))
-		for m := range n.handlers {
-			methods = append(methods, m)
+		for i := range n.handlers {
+			methods = append(methods, n.handlers[i].method)
 		}
 		sort.Strings(methods)
-		for _, m := range methods {
-			fn(m, n.pattern, n.handlers[m])
+		for _, method := range methods {
+			handler, _ := n.handler(method)
+			fn(method, n.pattern, handler)
 		}
 	}
-	keys := make([]string, 0, len(n.static))
-	for k := range n.static {
-		keys = append(keys, k)
-	}
-	sort.Strings(keys)
-	for _, k := range keys {
-		walkNode(n.static[k], fn)
+	if n.staticMap != nil {
+		keys := make([]string, 0, len(n.staticMap))
+		for name := range n.staticMap {
+			keys = append(keys, name)
+		}
+		sort.Strings(keys)
+		for _, name := range keys {
+			walkNode(n.staticMap[name], fn)
+		}
+	} else {
+		children := append([]staticChild(nil), n.static...)
+		sort.Slice(children, func(i, j int) bool { return children[i].name < children[j].name })
+		for _, child := range children {
+			walkNode(child.node, fn)
+		}
 	}
 	for _, c := range n.mixed {
 		walkNode(c, fn)
