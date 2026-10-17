@@ -6,11 +6,11 @@
 
 Go 1.27 · Htmx 4.0 · Tailwind v4 —— 极致性能、极低认知负载、高生产力的 Go 全栈单体方案
 
+[![GitHub](https://img.shields.io/badge/GitHub-shibingli%2Fyd-181717.svg?logo=github&logoColor=white)](https://github.com/shibingli/yd)
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 [![Go](https://img.shields.io/badge/Go-1.27-00ADD8.svg?logo=go&logoColor=white)](https://go.dev/dl/)
 [![Htmx](https://img.shields.io/badge/Htmx-4.0-3366CC.svg)](https://htmx.org)
 [![Tailwind CSS](https://img.shields.io/badge/Tailwind_CSS-v4-38BDF8.svg?logo=tailwindcss&logoColor=white)](https://tailwindcss.com)
-[![GitHub](https://img.shields.io/badge/GitHub-shibingli%2Fyd-181717.svg?logo=github&logoColor=white)](https://github.com/shibingli/yd)
 
 </div>
 
