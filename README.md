@@ -52,6 +52,10 @@ yd service install --name myapp
 yd assets update          # 拉取并锁定 sha256（不匹配即拒绝写入）
 yd assets verify --offline  # 离线校验，绝不触网
 
+# 依赖升级与模板版本同步：脚手架版本从 go.mod / assets.lock.json 派生，不手抄
+yd versions check         # 离线校验生成文件与真源一致（CI 可用）
+yd versions upgrade       # Go 模块 + npm 资产一并升级，并重新生成脚手架常量
+
 # 权限：注册表是角色与权限的唯一来源，check 抓拼写错误与裸字符串
 yd authz list             # 打印注册表（16 权限 / 4 角色，四种引用形态）
 yd authz check            # 静态校验，有错非零退出（可进 CI）

@@ -415,6 +415,13 @@ func renderSource(tmpl string, a Asset) (string, bool) {
 
 // packageParts splits a package URL into its package name, version and file path. | packageParts 把包地址拆分为包名、版本与文件路径。
 //
+// PackageParts splits an npm-style asset URL into its package name, version and file path. | PackageParts 把 npm 风格的资产地址拆成包名、版本与文件路径。
+//
+// It is the parser behind the {pkg}/{ver}/{file} placeholders; exporting it lets the version tooling
+// share exactly the same interpretation of an asset URL. | 它是 {pkg}/{ver}/{file} 占位符背后的解析器；
+// 导出它使版本工具复用对资产地址的完全相同解释。
+func PackageParts(rawURL string) (pkg, ver, file string) { return packageParts(rawURL) }
+
 // The layout of both jsDelivr and unpkg is `/{npm}/{pkg}@{ver}/{file}`, where {pkg} may be scoped
 // (`@scope/name`); the leading "npm" segment is dropped and the version is only recognized on a
 // segment that carries an "@" past its first character, which is what keeps a scope's "@" from being
@@ -493,7 +500,7 @@ func fetchOne(ctx context.Context, client *http.Client, u string) ([]byte, error
 	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode < 200 || resp.StatusCode > 299 {
-		return nil, errx.Detail(ErrDownloadFailed, "%s: HTTP %d", u, resp.StatusCode)
+		return nil, errx.Detail(ErrDownloadFailed, "%[1]s: HTTP %[2]d | %[1]s：HTTP 状态 %[2]d", u, resp.StatusCode)
 	}
 	data, err := readLimited(resp.Body, maxAssetSize)
 	if err != nil {

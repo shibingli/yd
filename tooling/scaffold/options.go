@@ -63,7 +63,14 @@ const (
 	DBPostgres = "postgres"
 )
 
-// Supported Htmx 4 extension registration names. | 支持的 Htmx 4 扩展注册名。
+// Supported Htmx 4 extension registration names, covering the complete extension set shipped in
+// htmx.org 4.x. | 支持的 Htmx 4 扩展注册名，覆盖 htmx.org 4.x 随包发布的完整扩展集。
+//
+// The three compatibility / policy layers are selectable but never enabled by default: csp gates
+// attribute processing behind a nonce and needs site configuration, while compat and htmx-2-compat
+// restore htmx 2 semantics and would undo the 4.x behaviour the scaffold is built around. | 三个兼容/
+// 策略层可选但从不默认启用：csp 要求站点配置 nonce 才放行属性处理，compat 与 htmx-2-compat 恢复
+// htmx 2 语义，会抵消脚手架所基于的 4.x 行为。
 const (
 	// ExtWS is the WebSocket bidirectional extension. | ExtWS 是 WebSocket 双向通信扩展。
 	ExtWS = "ws"
@@ -73,18 +80,49 @@ const (
 	ExtPreload = "preload"
 	// ExtAlpine is the Alpine.js compatibility extension. | ExtAlpine 是 Alpine.js 兼容扩展。
 	ExtAlpine = "alpine"
+	// ExtTargets is the extended target-selection extension. | ExtTargets 是扩展目标选择扩展。
+	ExtTargets = "targets"
+	// ExtHead is the response-head processing extension. | ExtHead 是响应头处理扩展。
+	ExtHead = "head"
+	// ExtUpsert is the upsert swap-style extension. | ExtUpsert 是 upsert 交换风格扩展。
+	ExtUpsert = "upsert"
+	// ExtPending is the pending-request indicator extension. | ExtPending 是请求进行中指示扩展。
+	ExtPending = "pending"
+	// ExtMultipart is the multipart form upload extension. | ExtMultipart 是多部分表单上传扩展。
+	ExtMultipart = "multipart"
+	// ExtDownload is the file-download response extension. | ExtDownload 是文件下载响应扩展。
+	ExtDownload = "download"
+	// ExtBrowserIndicator is the browser navigation indicator extension. | ExtBrowserIndicator 是浏览器导航指示扩展。
+	ExtBrowserIndicator = "browser-indicator"
+	// ExtHistoryCache is the history cache extension. | ExtHistoryCache 是历史缓存扩展。
+	ExtHistoryCache = "history-cache"
+	// ExtLive is the reactive live-expression extension. | ExtLive 是响应式 live 表达式扩展。
+	ExtLive = "live"
+	// ExtPrompt restores htmx 2's hx-prompt attribute. | ExtPrompt 恢复 htmx 2 的 hx-prompt 属性。
+	ExtPrompt = "prompt"
+	// ExtPTag is the per-element polling-tag extension. | ExtPTag 是按元素轮询标签扩展。
+	ExtPTag = "ptag"
+	// ExtCSP is the CSP nonce enforcement extension. | ExtCSP 是 CSP nonce 强制扩展。
+	ExtCSP = "csp"
+	// ExtCompat is the htmx 2 compatibility extension. | ExtCompat 是 htmx 2 兼容扩展。
+	ExtCompat = "compat"
+	// ExtHtmx2Compat is the alternate htmx 2 compatibility build. | ExtHtmx2Compat 是另一个 htmx 2 兼容构建。
+	ExtHtmx2Compat = "htmx-2-compat"
 )
 
 // LicenseApache2 is the only supported license identifier. | LicenseApache2 是当前唯一支持的开源协议标识。
 const LicenseApache2 = "Apache-2.0"
 
 // Version constants used by the templates, kept in sync with the requirements baseline. | 模板渲染使用的版本常量，必须与需求基线保持一致。
+// GoVersion and HtmxVersion live in version_generated.go: they are derived from go.mod and
+// web/assets.lock.json by `yd versions sync`, so a dependency upgrade cannot leave the templates
+// stale. Tailwind has no pinned binary version (the standalone compiler is resolved from PATH or
+// .yd/tools), which is why only its major label is hand-maintained here. | GoVersion 与 HtmxVersion
+// 位于 version_generated.go：它们由 `yd versions sync` 从 go.mod 与 web/assets.lock.json 推导，
+// 因此依赖升级不会让模板停留在旧版本。Tailwind 没有锁定的二进制版本（standalone 编译器从 PATH
+// 或 .yd/tools 解析），所以这里只手工维护它的大版本标签。
 const (
-	// GoVersion is the Go version written into the generated go.mod. | GoVersion 是生成项目 go.mod 中的 Go 版本。
-	GoVersion = "1.27.2"
-	// HtmxVersion is the Htmx version used as the front-end event bus. | HtmxVersion 是前端事件总线的 Htmx 版本。
-	HtmxVersion = "4.0.0"
-	// TailwindVersion is the Tailwind version of the styling pipeline. | TailwindVersion 是样式管道的 Tailwind 版本。
+	// TailwindVersion is the Tailwind major version of the styling pipeline. | TailwindVersion 是样式管道的 Tailwind 大版本。
 	TailwindVersion = "v4"
 	// YdModule is the module path of the framework itself. | YdModule 是框架自身的模块路径。
 	YdModule = "github.com/shibingli/yd"

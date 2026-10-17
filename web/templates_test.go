@@ -23,13 +23,13 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
-	"regexp"
 	"slices"
 	"sort"
 	"strings"
 	"testing"
 
 	"github.com/shibingli/yd/core/jsonx"
+	"github.com/shibingli/yd/core/regexpx"
 	"github.com/shibingli/yd/security/authz"
 )
 
@@ -101,6 +101,11 @@ var scriptsInOrder = []string{
 	"/static/js/vendor/hx-preload.min.js",
 	"/static/js/vendor/hx-multipart.min.js",
 	"/static/js/vendor/hx-download.min.js",
+	"/static/js/vendor/hx-browser-indicator.min.js",
+	"/static/js/vendor/hx-history-cache.min.js",
+	"/static/js/vendor/hx-live.min.js",
+	"/static/js/vendor/hx-prompt.min.js",
+	"/static/js/vendor/hx-ptag.min.js",
 	"/static/js/vendor/hx-sse.min.js",
 	"/static/js/vendor/hx-ws.min.js",
 	"/static/js/vendor/alpine.min.js",
@@ -113,17 +118,17 @@ var scriptsInOrder = []string{
 }
 
 var (
-	scriptSrcRe   = regexp.MustCompile(`<script[^>]*\ssrc="([^"]+)"`)
-	scriptTagRe   = regexp.MustCompile(`(?s)<script\b[^>]*>`)
-	formTagRe     = regexp.MustCompile(`(?s)<form\b[^>]*>`)
-	catalogRe     = regexp.MustCompile(`(?s)<script id="yd-i18n-catalog" type="application/json">(.*?)</script>`)
-	authzRe       = regexp.MustCompile(`(?s)<script id="` + authz.AuthzScriptID + `" type="application/json">(.*?)</script>`)
-	i18nKeyRe     = regexp.MustCompile(`data-yd-i18n="([^"]*)"`)
-	i18nAttrRe    = regexp.MustCompile(`data-yd-i18n-attr="([^"]*)"`)
-	i18nKeySyntax = regexp.MustCompile(`^[A-Za-z0-9]+(\.[A-Za-z0-9_-]+)+$`)
-	idRe          = regexp.MustCompile(`\sid="([^"]+)"`)
-	authzGuardRe  = regexp.MustCompile(`data-yd-(perm|role)="([^"]*)"`)
-	colorRe       = regexp.MustCompile(`style="[^"]*(#[0-9a-fA-F]{3,8}|rgba?\(|hsla?\()`)
+	scriptSrcRe   = regexpx.MustCompile(`<script[^>]*\ssrc="([^"]+)"`)
+	scriptTagRe   = regexpx.MustCompile(`(?s)<script\b[^>]*>`)
+	formTagRe     = regexpx.MustCompile(`(?s)<form\b[^>]*>`)
+	catalogRe     = regexpx.MustCompile(`(?s)<script id="yd-i18n-catalog" type="application/json">(.*?)</script>`)
+	authzRe       = regexpx.MustCompile(`(?s)<script id="` + authz.AuthzScriptID + `" type="application/json">(.*?)</script>`)
+	i18nKeyRe     = regexpx.MustCompile(`data-yd-i18n="([^"]*)"`)
+	i18nAttrRe    = regexpx.MustCompile(`data-yd-i18n-attr="([^"]*)"`)
+	i18nKeySyntax = regexpx.MustCompile(`^[A-Za-z0-9]+(\.[A-Za-z0-9_-]+)+$`)
+	idRe          = regexpx.MustCompile(`\sid="([^"]+)"`)
+	authzGuardRe  = regexpx.MustCompile(`data-yd-(perm|role)="([^"]*)"`)
+	colorRe       = regexpx.MustCompile(`style="[^"]*(#[0-9a-fA-F]{3,8}|rgba?\(|hsla?\()`)
 	forbiddenRefs = []string{
 		"http://",
 		"https://",
@@ -374,7 +379,7 @@ func loadTemplates(t *testing.T) *template.Template {
 
 // definedNameRe extracts the quoted names of the list reported by DefinedTemplates.
 // definedNameRe 提取 DefinedTemplates 所报告列表中的带引号模板名。
-var definedNameRe = regexp.MustCompile(`"([^"]+)"`)
+var definedNameRe = regexpx.MustCompile(`"([^"]+)"`)
 
 // definedNames lists the content templates of the set: html/template renders DefinedTemplates as
 // the sentence `defined templates are: "a", "b"`, while text/template uses ";" separators, so both
@@ -752,7 +757,7 @@ func TestFormPartialsRenderInBothModes(t *testing.T) {
 // fieldTag 返回带指定 id 的整个 <input> 标签，使针对某个字段的断言不会误命中另一个字段。
 func fieldTag(t *testing.T, html, id string) string {
 	t.Helper()
-	pattern := regexp.MustCompile(`(?s)<input[^>]*\sid="` + regexp.QuoteMeta(id) + `"[^>]*>`)
+	pattern := regexpx.MustCompile(`(?s)<input[^>]*\sid="` + regexpx.QuoteMeta(id) + `"[^>]*>`)
 	tag := pattern.FindString(html)
 	if tag == "" {
 		t.Fatalf("no <input id=%q> in the rendered output | 渲染结果中没有 <input id=%q>", id, id)

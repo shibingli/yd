@@ -28,7 +28,7 @@ const (
 	// promptTailwind asks whether Tailwind is wanted. | promptTailwind 询问是否接入 Tailwind。
 	promptTailwind = "启用 Tailwind (y/n) | Enable Tailwind (y/n)"
 	// promptExts asks for the Htmx extension list. | promptExts 询问 Htmx 扩展列表。
-	promptExts = "Htmx 扩展 (ws/sse/preload/alpine，逗号分隔) | Htmx extensions (comma separated)"
+	promptExts = "Htmx 扩展 (逗号分隔，名称见 `yd new --help`) | Htmx extensions (comma separated, names in `yd new --help`)"
 	// promptLicense asks for the licence. | promptLicense 询问开源协议。
 	promptLicense = "开源协议 | License"
 	// noneAnswer clears list answers (for example: no Htmx extension at all). | noneAnswer 表示清空列表类回答（如不启用任何 Htmx 扩展）。
@@ -95,7 +95,7 @@ func Interactive(in io.Reader, out io.Writer, base Options, isTTY bool) (Options
 		return base, err
 	}
 	if !containsString(dbValues(), db) {
-		return base, errx.Detail(ErrDBUnsupported, "%q (want: %s)", db, strings.Join(dbValues(), ", "))
+		return base, errx.Detail(ErrDBUnsupported, "%[1]q (want: %[2]s) | %[1]q（期望: %[2]s）", db, strings.Join(dbValues(), ", "))
 	}
 	base.DB = db
 
@@ -115,7 +115,7 @@ func Interactive(in io.Reader, out io.Writer, base Options, isTTY bool) (Options
 		}
 		parsed, err := parseYesNo(answer)
 		if err != nil {
-			return base, errx.WrapDetail(err, ErrAnswerInvalid, "prompt=%s", toggle.prompt)
+			return base, errx.WrapDetail(err, ErrAnswerInvalid, "prompt=%[1]s | 提示=%[1]s", toggle.prompt)
 		}
 		*toggle.value = parsed
 	}
@@ -154,7 +154,7 @@ func ParseExtensions(s string) ([]string, error) {
 			continue
 		}
 		if !containsString(extNames, ext) {
-			return nil, errx.Detail(ErrHtmxExtUnknown, "%q (want: %s)", ext, strings.Join(extNames, ", "))
+			return nil, errx.Detail(ErrHtmxExtUnknown, "%[1]q (want: %[2]s) | %[1]q（期望: %[2]s）", ext, strings.Join(extNames, ", "))
 		}
 		exts = append(exts, ext)
 	}
@@ -196,7 +196,7 @@ func parseYesNo(s string) (bool, error) {
 	case "n", "no", "false", "0", "off", "否":
 		return false, nil
 	default:
-		return false, errx.Detail(ErrAnswerInvalid, "%q (want y/n)", s)
+		return false, errx.Detail(ErrAnswerInvalid, "%[1]q (want y/n) | %[1]q（期望 y/n）", s)
 	}
 }
 

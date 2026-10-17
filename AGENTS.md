@@ -40,6 +40,7 @@
      必须在报告里写明「因缺少 C 工具链未跑 -race」，不得静默略过。
 4. GOOS=linux GOARCH=arm64 CGO_ENABLED=0 go build ./...   # 交叉编译护栏
 5. go run ./cmd/yd assets verify --offline                 # 资产完整性
+6. go run ./cmd/yd versions check                          # 脚手架版本与 go.mod / 资产锁一致
 ```
 
 自愈规则：
@@ -58,6 +59,8 @@
 - [ ] **传输加密**：前端敏感字段提交必须声明式触发 SM2 前置加密（`data-yd-encrypt="sm2"`）。
 - [ ] **依赖白名单**：新增依赖须为活跃维护的纯 Go 库，且无已知高危 CVE；不得引入运行时 CDN。
 - [ ] **注入面**：SQL 只允许通过 GORM 参数化查询；模板输出默认走 `html/template` 转义，使用 `template.HTML` 必须写明可信来源。
+- [ ] **正则安全**：所有正则必须经 `core/regexpx`（RE2 兼容模式 + 强制匹配超时），禁止直接 `import "regexp"` 或 `"github.com/dlclark/regexp2"`；不得关闭超时（回溯正则可被恶意输入触发灾难性回溯）。
+- [ ] **版本同步**：改动 `go.mod` 或 `web/assets.lock.json` 后必须运行 `yd versions sync`；提交里必须同时包含 `tooling/scaffold/version_generated.go` 的更新，且 `yd versions check` 通过。
 - [ ] **请求边界**：外部输入必须限长（WebSocket `MaxMessageSize`、请求体 `MaxBytesReader`），并设置读写超时。
 - [ ] **JSON/Base64 统一走封装层**：全仓禁止 `import "encoding/json"` 与 `import "encoding/base64"`，
       一律使用 `github.com/shibingli/yd/core/jsonx` 与 `github.com/shibingli/yd/core/b64x`。

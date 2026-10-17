@@ -14,7 +14,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"regexp"
 	"runtime"
 	"slices"
 	"strconv"
@@ -25,6 +24,7 @@ import (
 	"github.com/shibingli/yd/core/afs"
 	"github.com/shibingli/yd/core/b64x"
 	"github.com/shibingli/yd/core/jsonx"
+	"github.com/shibingli/yd/core/regexpx"
 	"github.com/shibingli/yd/http/ws"
 	"github.com/shibingli/yd/security/authz"
 	"github.com/shibingli/yd/security/guomi"
@@ -571,8 +571,12 @@ func TestGeneratedProjectWiresAuthzRegistry(t *testing.T) {
 func TestGenerateDockerfileUsesScratchMultiStage(t *testing.T) {
 	pr, _ := generateMem(t, scaffold.DefaultOptions("docker-app"))
 	df := pr.read("Dockerfile")
+	goTag := scaffold.GoVersion
+	if parts := strings.SplitN(goTag, ".", 3); len(parts) >= 2 {
+		goTag = parts[0] + "." + parts[1]
+	}
 	for _, want := range []string{
-		"FROM golang:1.27-alpine AS builder",
+		"FROM golang:" + goTag + "-alpine AS builder",
 		"FROM scratch",
 		"CGO_ENABLED=0",
 		"ca-certificates",
@@ -1480,7 +1484,7 @@ func assertSeedCredentialsDocumented(t *testing.T, projDir string) {
 	// the development fallback has exactly one name (DevSeedAdminPassword). The check matches an assignment at an
 	// identifier boundary, so DevSeedAdminPassword is never mistaken for one while SeedAdminPassword = "..." always is.
 	for _, banned := range []string{"SeedAdminPassword", "SeedOpsAdminPassword"} {
-		decl := regexp.MustCompile(`(?m)(^|[^A-Za-z0-9_])` + banned + `\s*=`)
+		decl := regexpx.MustCompile(`(?m)(^|[^A-Za-z0-9_])` + banned + `\s*=`)
 		if decl.MatchString(metaSrc) {
 			t.Errorf("internal/meta/meta.go 仍含硬编码口令常量 %s", banned)
 		}
@@ -2053,7 +2057,7 @@ func TestGeneratedI18nCatalogueCoversEveryTrKey(t *testing.T) {
 
 // trKeyPattern 抽取模板里的 tr 键名：`tr "键"`，键名不含引号。
 // trKeyPattern extracts the tr key names used by a template: `tr "key"`, where the key holds no quote.
-var trKeyPattern = regexp.MustCompile(`\btr\s+"([^"]+)"`)
+var trKeyPattern = regexpx.MustCompile(`\btr\s+"([^"]+)"`)
 
 // readCatalogue 读取一份语言目录并把嵌套结构摊平成点分键，规则与 i18n.drill 一致（每段小写）。
 // readCatalogue reads one catalogue and flattens the nested structure into dotted keys with the same rule i18n.drill
@@ -2463,4 +2467,46 @@ func doText(t *testing.T, client *http.Client, req *http.Request) (*http.Respons
 		t.Fatalf("读取 %s %s 响应失败: %v", req.Method, req.URL, err)
 	}
 	return resp, string(body)
+}
+
+// TestGenerateSupportsTheFullHtmx4ExtensionSet 断言全部 htmx 4 扩展都能被选中、裁剪进清单并写入 meta 脚本表。
+// TestGenerateSupportsTheFullHtmx4ExtensionSet asserts that every htmx 4 extension can be selected,
+// survives the manifest trim and lands in the generated meta script list.
+func TestGenerateSupportsTheFullHtmx4ExtensionSet(t *testing.T) {
+	o := scaffold.DefaultOptions("ext-app")
+	o.HtmxExts = scaffold.Extensions()
+	pr, _ := generateMem(t, o)
+
+	lock := pr.read("web/assets.lock.json")
+	for _, name := range []string{"hx-live", "hx-alpine-compat", "hx-browser-indicator", "hx-csp", "hx-compat", "htmx-2-compat"} {
+		if !strings.Contains(lock, `"`+name+`"`) {
+			t.Errorf("assets.lock.json 缺少资产 %q", name)
+		}
+	}
+
+	meta := pr.read("internal/meta/meta.go")
+	for _, want := range []string{
+		"/static/js/vendor/hx-ws.min.js",
+		"/static/js/vendor/hx-sse.min.js",
+		"/static/js/vendor/hx-preload.min.js",
+		"/static/js/vendor/hx-alpine-compat.min.js",
+		"/static/js/vendor/hx-targets.min.js",
+		"/static/js/vendor/hx-head.min.js",
+		"/static/js/vendor/hx-upsert.min.js",
+		"/static/js/vendor/hx-pending.min.js",
+		"/static/js/vendor/hx-multipart.min.js",
+		"/static/js/vendor/hx-download.min.js",
+		"/static/js/vendor/hx-browser-indicator.min.js",
+		"/static/js/vendor/hx-history-cache.min.js",
+		"/static/js/vendor/hx-live.min.js",
+		"/static/js/vendor/hx-prompt.min.js",
+		"/static/js/vendor/hx-ptag.min.js",
+		"/static/js/vendor/hx-csp.min.js",
+		"/static/js/vendor/hx-compat.min.js",
+		"/static/js/vendor/htmx-2-compat.min.js",
+	} {
+		if !strings.Contains(meta, want) {
+			t.Errorf("meta.go 缺少脚本 %q", want)
+		}
+	}
 }

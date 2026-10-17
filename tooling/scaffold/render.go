@@ -5,13 +5,13 @@ import (
 	"embed"
 	"os"
 	"path"
-	"regexp"
 	"sort"
 	"strings"
 	"text/template"
 
 	"github.com/shibingli/yd/core/afs"
 	"github.com/shibingli/yd/core/errx"
+	"github.com/shibingli/yd/core/regexpx"
 	"github.com/shibingli/yd/data/gormx"
 	"github.com/spf13/afero"
 )
@@ -49,10 +49,10 @@ const (
 
 // namePattern 约束项目名（同时用作目录名）：字母开头，后接字母、数字、点、下划线或中划线。
 // namePattern constrains the project name (also the directory name): a letter followed by letters, digits, dots, underscores or dashes.
-var namePattern = regexp.MustCompile(`^[A-Za-z][A-Za-z0-9._-]*$`)
+var namePattern = regexpx.MustCompile(`^[A-Za-z][A-Za-z0-9._-]*$`)
 
 // modulePattern constrains the module path: at least two segments separated by "/". | modulePattern 约束模块路径：至少两段，段间用 "/" 分隔。
-var modulePattern = regexp.MustCompile(`^[a-z0-9][a-z0-9._~-]*(\.[a-z0-9._~-]+)?(/[A-Za-z0-9._~-]+)+$`)
+var modulePattern = regexpx.MustCompile(`^[a-z0-9][a-z0-9._~-]*(\.[a-z0-9._~-]+)?(/[A-Za-z0-9._~-]+)+$`)
 
 // plannedFile is a rendered target file that has not been written yet. | plannedFile 是渲染完成、尚未落盘的目标文件。
 type plannedFile struct {
@@ -74,6 +74,7 @@ type view struct {
 
 	// versions and framework constants | 版本与框架常量
 	GoVersion       string
+	GoMajorMinor    string
 	HtmxVersion     string
 	TailwindVersion string
 	YdModule        string
@@ -111,6 +112,7 @@ func newView(o Options) view {
 		Tailwind:        o.Tailwind,
 		HtmxExts:        o.HtmxExts,
 		GoVersion:       GoVersion,
+		GoMajorMinor:    goMajorMinor(GoVersion),
 		HtmxVersion:     HtmxVersion,
 		TailwindVersion: TailwindVersion,
 		YdModule:        YdModule,
@@ -163,14 +165,39 @@ func extScripts(exts []string) []string {
 
 // extScript maps extension names onto local script paths (CDN references are forbidden). | extScript 是扩展注册名到本地脚本路径的映射（严禁 CDN 引用）。
 var extScript = map[string]string{
-	ExtWS:      "/static/js/vendor/hx-ws.min.js",
-	ExtSSE:     "/static/js/vendor/hx-sse.min.js",
-	ExtPreload: "/static/js/vendor/hx-preload.min.js",
-	ExtAlpine:  "/static/js/vendor/hx-alpine-compat.min.js",
+	ExtWS:               "/static/js/vendor/hx-ws.min.js",
+	ExtSSE:              "/static/js/vendor/hx-sse.min.js",
+	ExtPreload:          "/static/js/vendor/hx-preload.min.js",
+	ExtAlpine:           "/static/js/vendor/hx-alpine-compat.min.js",
+	ExtTargets:          "/static/js/vendor/hx-targets.min.js",
+	ExtHead:             "/static/js/vendor/hx-head.min.js",
+	ExtUpsert:           "/static/js/vendor/hx-upsert.min.js",
+	ExtPending:          "/static/js/vendor/hx-pending.min.js",
+	ExtMultipart:        "/static/js/vendor/hx-multipart.min.js",
+	ExtDownload:         "/static/js/vendor/hx-download.min.js",
+	ExtBrowserIndicator: "/static/js/vendor/hx-browser-indicator.min.js",
+	ExtHistoryCache:     "/static/js/vendor/hx-history-cache.min.js",
+	ExtLive:             "/static/js/vendor/hx-live.min.js",
+	ExtPrompt:           "/static/js/vendor/hx-prompt.min.js",
+	ExtPTag:             "/static/js/vendor/hx-ptag.min.js",
+	ExtCSP:              "/static/js/vendor/hx-csp.min.js",
+	ExtCompat:           "/static/js/vendor/hx-compat.min.js",
+	ExtHtmx2Compat:      "/static/js/vendor/htmx-2-compat.min.js",
 }
 
 // extNames is the canonical order of valid extensions, used for validation and error hints. | extNames 是合法扩展名的固定顺序，用于校验与错误提示。
-var extNames = []string{ExtWS, ExtSSE, ExtPreload, ExtAlpine}
+var extNames = []string{
+	ExtWS, ExtSSE, ExtPreload, ExtAlpine,
+	ExtTargets, ExtHead, ExtUpsert, ExtPending, ExtMultipart, ExtDownload,
+	ExtBrowserIndicator, ExtHistoryCache, ExtLive, ExtPrompt, ExtPTag,
+	ExtCSP, ExtCompat, ExtHtmx2Compat,
+}
+
+// Extensions returns the supported Htmx 4 extension names in canonical order. | Extensions 按固定顺序返回支持的 Htmx 4 扩展名。
+//
+// The returned slice is a copy: callers may reorder or truncate it without affecting validation. | 返回的是副本：
+// 调用方可以重排或截断它，而不会影响校验。
+func Extensions() []string { return append([]string(nil), extNames...) }
 
 // dsnFor builds a sample DSN per driver (the address and credentials only fit local development). | dsnFor 依据数据库驱动生成示例 DSN（仅地址与凭据是本地开发用的默认值）。
 //
@@ -245,7 +272,7 @@ func plan(o Options) ([]plannedFile, error) {
 	src := afs.NewEmbed(templateFS)
 	err := afs.Walk(src, templateRoot, func(p string, info os.FileInfo, err error) error {
 		if err != nil {
-			return errx.WrapDetail(err, ErrTemplateRead, "path=%s", p)
+			return errx.WrapDetail(err, ErrTemplateRead, "path=%[1]s | 路径=%[1]s", p)
 		}
 		if info.IsDir() {
 			return nil
@@ -253,7 +280,7 @@ func plan(o Options) ([]plannedFile, error) {
 
 		data, err := afero.ReadFile(src, p)
 		if err != nil {
-			return errx.WrapDetail(err, ErrTemplateRead, "path=%s", p)
+			return errx.WrapDetail(err, ErrTemplateRead, "path=%[1]s | 路径=%[1]s", p)
 		}
 
 		rel := strings.TrimPrefix(p, templateRoot+"/")
@@ -302,12 +329,12 @@ func plan(o Options) ([]plannedFile, error) {
 func render(data []byte, name string, v view) ([]byte, error) {
 	tmpl, err := template.New(name).Parse(string(data))
 	if err != nil {
-		return nil, errx.WrapDetail(err, ErrTemplateRender, "path=%s", name)
+		return nil, errx.WrapDetail(err, ErrTemplateRender, "path=%[1]s | 路径=%[1]s", name)
 	}
 
 	var buf bytes.Buffer
 	if err := tmpl.Execute(&buf, v); err != nil {
-		return nil, errx.WrapDetail(err, ErrTemplateRender, "path=%s", name)
+		return nil, errx.WrapDetail(err, ErrTemplateRender, "path=%[1]s | 路径=%[1]s", name)
 	}
 	return buf.Bytes(), nil
 }
@@ -315,4 +342,18 @@ func render(data []byte, name string, v view) ([]byte, error) {
 // sortFiles sorts by path so the output order stays stable and idempotent. | sortFiles 按路径字典序稳定排序，保证输出顺序与幂等性。
 func sortFiles(files []plannedFile) {
 	sort.Slice(files, func(i, j int) bool { return files[i].path < files[j].path })
+}
+
+// goMajorMinor trims the patch number for Docker image tags: 1.27.2 becomes 1.27. | goMajorMinor 去掉补丁号以用于 Docker 镜像标签：1.27.2 变成 1.27。
+//
+// The golang images are published with major.minor tags, so deriving this value from the same
+// GoVersion the generated go.mod uses keeps the builder image from drifting behind the language
+// version. | golang 镜像按大版本.次版本发布，因此从生成 go.mod 所用的同一个 GoVersion 派生该值，
+// 使构建镜像不会落后于语言版本。
+func goMajorMinor(v string) string {
+	parts := strings.SplitN(v, ".", 3)
+	if len(parts) < 2 {
+		return v
+	}
+	return parts[0] + "." + parts[1]
 }

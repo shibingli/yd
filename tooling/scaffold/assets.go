@@ -66,10 +66,24 @@ const extAssetPrefix = "hx-"
 // 两者并非总是一一对应（alpine 对应 hx-alpine-compat），因此必须显式映射而不是拼前缀。
 // The two are not always aligned (alpine maps onto hx-alpine-compat), so the mapping is explicit rather than prefix-derived.
 var extAsset = map[string]string{
-	ExtWS:      "hx-ws",
-	ExtSSE:     "hx-sse",
-	ExtPreload: "hx-preload",
-	ExtAlpine:  "hx-alpine-compat",
+	ExtWS:               "hx-ws",
+	ExtSSE:              "hx-sse",
+	ExtPreload:          "hx-preload",
+	ExtAlpine:           "hx-alpine-compat",
+	ExtTargets:          "hx-targets",
+	ExtHead:             "hx-head",
+	ExtUpsert:           "hx-upsert",
+	ExtPending:          "hx-pending",
+	ExtMultipart:        "hx-multipart",
+	ExtDownload:         "hx-download",
+	ExtBrowserIndicator: "hx-browser-indicator",
+	ExtHistoryCache:     "hx-history-cache",
+	ExtLive:             "hx-live",
+	ExtPrompt:           "hx-prompt",
+	ExtPTag:             "hx-ptag",
+	ExtCSP:              "hx-csp",
+	ExtCompat:           "hx-compat",
+	ExtHtmx2Compat:      "htmx-2-compat",
 }
 
 // frameworkManifest 读取框架内嵌的资产清单（web/assets.lock.json 的唯一真源）。
@@ -77,7 +91,7 @@ var extAsset = map[string]string{
 func frameworkManifest() (*assets.Manifest, error) {
 	m, err := assets.LoadManifest(web.FS(), frameworkManifestName)
 	if err != nil {
-		return nil, errx.WrapDetail(err, ErrTemplateRead, "path=web/%s", frameworkManifestName)
+		return nil, errx.WrapDetail(err, ErrTemplateRead, "path=web/%[1]s | 路径=web/%[1]s", frameworkManifestName)
 	}
 	return m, nil
 }

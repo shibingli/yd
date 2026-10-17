@@ -75,6 +75,12 @@ func init() {
 			"front-end assets.\n" +
 			"依据内嵌模板生成新项目，随后铺开它的配置与前端资产。\n" +
 			"\n" +
+			"Htmx 4 extensions | Htmx 4 扩展: ws, sse, preload, alpine, targets, head, upsert, pending,\n" +
+			"multipart, download, browser-indicator, history-cache, live, prompt, ptag, csp, compat,\n" +
+			"htmx-2-compat. The last three are opt-in: csp needs a nonce policy, and compat / htmx-2-compat\n" +
+			"restore htmx 2 semantics.\n" +
+			"最后三项为显式选项：csp 需要 nonce 策略，compat / htmx-2-compat 恢复 htmx 2 语义。\n" +
+			"\n" +
 			"Without --yes an interactive terminal is asked for every option that was not passed as a flag;\n" +
 			"a pipe or CI run keeps every default, so the command stays scriptable.\n" +
 			"未传 --yes 时，交互终端会被逐项询问未被标志指定的选项；管道或 CI 环境一律取默认值，因此命令可脚本化。",
@@ -93,7 +99,7 @@ func registerNewFlags(fs *pflag.FlagSet) {
 	fs.Bool(flagNewGRPC, false, "enable the gRPC dual channel | 开启 gRPC 双通道")
 	fs.Bool(flagNewI18n, false, "enable i18n | 开启国际化")
 	fs.Bool(flagNewTailwind, false, "wire in Tailwind CSS v4 | 接入 Tailwind CSS v4")
-	fs.StringArray(flagNewHtmxExt, nil, "Htmx extension: ws/sse/preload/alpine, repeatable | Htmx 扩展：ws/sse/preload/alpine，可重复")
+	fs.StringArray(flagNewHtmxExt, nil, "Htmx extension name, repeatable (full list in the command help) | Htmx 扩展名，可重复（完整列表见命令帮助）")
 	fs.String(flagNewLicense, "", "licence identifier, defaults to Apache-2.0 | 开源协议标识，默认为 Apache-2.0")
 	fs.Bool(flagNewForce, false, "overwrite files that differ from the templates | 覆盖与模板不一致的文件")
 	fs.BoolP(flagNewYes, "y", false, "keep every default without prompting | 取默认值，不提问")
