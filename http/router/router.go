@@ -345,7 +345,6 @@ func (r *Router) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 			if r.options.PanicHandler != nil {
 				r.options.PanicHandler(c, rec)
 			} else {
-				c.Params = nil
 				c.Request = nil
 				c.Writer = nil
 				c.keys = nil
@@ -356,51 +355,55 @@ func (r *Router) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 				panic(rec)
 			}
 		}
-		c.Params = nil
 		c.Request = nil
 		c.Writer = nil
 		c.keys = nil
 		r.pool.Put(c)
 	}()
 
-	path := req.URL.EscapedPath()
+	path := fastEscapedPath(req.URL)
 	if path == "" {
 		path = "/"
 	}
 	c.path = path
 
-	handler, tsr := r.tree.Find(req.Method, path, c.Params)
+	handler, tsr, noPath := r.tree.find(req.Method, path, c.Params)
 	// HEAD falls back to GET: the server discards the body of a HEAD response, so the handler can be
 	// shared. | HEAD 回退到 GET：服务器会丢弃 HEAD 响应的正文，因此处理器可以复用。
 	if handler == nil && req.Method == http.MethodHead {
 		c.Params.Truncate(0)
-		if h, t := r.tree.Find(http.MethodGet, path, c.Params); h != nil {
-			handler, tsr = h, t
+		if h, t, np := r.tree.find(http.MethodGet, path, c.Params); h != nil {
+			handler, tsr, noPath = h, t, np
 		}
 	}
 
-	// No match: check the trailing slash redirect first, then 405, and finally 404. | 未命中：优先判定尾斜杠重定向，再判定 405，最后 404。
+	// No match: check 405 and the trailing slash redirect first, then 404. A structural miss
+	// (no root edge matches the first segment) rules both out, so it goes straight to 404. | 未命中：
+	// 先判定 405 与尾斜杠重定向，最后 404。结构性未命中（根节点没有任何边匹配第一个分段）已排除
+	// 前两者，因此直接返回 404。
 	if handler == nil {
-		methods := r.tree.Allowed(path)
-		if len(methods) > 0 {
-			if req.Method == http.MethodOptions && r.options.AutoOptions {
+		if !noPath {
+			methods := r.tree.Allowed(path)
+			if len(methods) > 0 {
+				if req.Method == http.MethodOptions && r.options.AutoOptions {
+					c.SetHeader("Allow", strings.Join(withOptions(methods, r.options.AutoOptions), ", "))
+					_ = c.NoContent()
+					return
+				}
+				if r.options.MethodNotAllowed != nil {
+					c.SetHeader("Allow", strings.Join(withOptions(methods, r.options.AutoOptions), ", "))
+					r.setChain(c, state.globalMW, nil, r.options.MethodNotAllowed)
+					c.Next()
+					return
+				}
 				c.SetHeader("Allow", strings.Join(withOptions(methods, r.options.AutoOptions), ", "))
-				_ = c.NoContent()
+				writeFallback(c, http.StatusMethodNotAllowed, methodNotAllowedBody)
 				return
 			}
-			if r.options.MethodNotAllowed != nil {
-				c.SetHeader("Allow", strings.Join(withOptions(methods, r.options.AutoOptions), ", "))
-				r.setChain(c, state.globalMW, nil, r.options.MethodNotAllowed)
-				c.Next()
+			if tsr {
+				redirectTrailingSlash(c, path, req.URL.RawQuery)
 				return
 			}
-			c.SetHeader("Allow", strings.Join(withOptions(methods, r.options.AutoOptions), ", "))
-			writeFallback(c, http.StatusMethodNotAllowed, methodNotAllowedBody)
-			return
-		}
-		if tsr {
-			redirectTrailingSlash(c, path, req.URL.RawQuery)
-			return
 		}
 		if r.options.NotFound != nil {
 			r.setChain(c, state.globalMW, nil, r.options.NotFound)

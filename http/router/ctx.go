@@ -90,7 +90,6 @@ func (c *Ctx) reset(w http.ResponseWriter, r *http.Request, rt *Router) {
 	c.aborted = false
 	c.bodyLimited = false
 	c.query = nil
-	c.path = ""
 	if c.keys != nil {
 		clear(c.keys)
 	}
@@ -135,7 +134,7 @@ func (c *Ctx) Path() string {
 	if c.path != "" {
 		return c.path
 	}
-	return c.Request.URL.EscapedPath()
+	return fastEscapedPath(c.Request.URL)
 }
 
 // URI returns the path and the query string. | URI 返回路径与查询串。
@@ -231,7 +230,19 @@ func (c *Ctx) QueryValuesAll(key string) []string { return c.QueryValues()[key] 
 // argument is only an in-memory budget. | 这层包装才是流式读取时真正执行 MaxBodySize 的地方；
 // ParseMultipartForm 的参数只是内存预算。
 func (c *Ctx) limitBody() {
-	if c.bodyLimited || c.Request == nil || c.Request.Body == nil || c.Request.Body == http.NoBody {
+	if c.bodyLimited || c.Request == nil || c.Request.Body == nil {
+		return
+	}
+	// net/http gives a body-less GET or HEAD http.NoBody and ContentLength 0; skipping them here
+	// avoids an interface comparison on the most common requests. Chunked bodies have
+	// ContentLength -1 and still take the wrapper. | net/http 对无正文的 GET/HEAD 给出
+	// http.NoBody 且 ContentLength 为 0；在这里跳过它们可以避免最常见请求上的接口比较。分块正文的
+	// ContentLength 为 -1，仍会走包装。
+	if c.Request.ContentLength == 0 &&
+		(c.Request.Method == http.MethodGet || c.Request.Method == http.MethodHead) {
+		return
+	}
+	if c.Request.Body == http.NoBody {
 		return
 	}
 	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, c.router.maxBodySize())

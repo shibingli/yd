@@ -33,6 +33,19 @@ func TestBorrowedChainIsDroppedOnReset(t *testing.T) {
 	}
 }
 
+// TestMethodNotAllowedOnRoot protects the structural-miss shortcut: "/" registered for GET must
+// still answer POST with 405, not 404. | TestMethodNotAllowedOnRoot 保护结构性未命中短路：根路径
+// 注册了 GET 时，POST 仍须返回 405 而不是 404。
+func TestMethodNotAllowedOnRoot(t *testing.T) {
+	r := New()
+	r.GET("/", func(c *Ctx) { _ = c.NoContent() })
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/", nil))
+	if rec.Code != http.StatusMethodNotAllowed {
+		t.Fatalf("POST / = %d, want 405 | 根路径未注册方法应返回 405", rec.Code)
+	}
+}
+
 // TestSingleHandlerNextDoesNotReenter protects the fast path's index semantics: Next from the
 // only handler must end the chain, exactly as it did through the generic loop. | TestSingleHandlerNextDoesNotReenter
 // 保护快路径的索引语义：唯一处理器内部调用 Next 必须结束调用链，与通用循环一致。

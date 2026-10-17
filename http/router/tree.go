@@ -1,11 +1,68 @@
 package router
 
 import (
+	"net/http"
 	"sort"
 	"strings"
 
 	"github.com/shibingli/yd/core/errx"
 )
+
+// methodID is a compact identifier for a standard HTTP method. | methodID 是标准 HTTP 方法的紧凑标识。
+// Zero means an uncommon method that must be compared by name. | 零表示必须按名称比较的非标准方法。
+type methodID uint8
+
+const (
+	methodGet methodID = iota + 1
+	methodHead
+	methodPost
+	methodPut
+	methodPatch
+	methodDelete
+	methodOptions
+	methodTrace
+	methodConnect
+)
+
+// methodKey carries the method name and its precomputed identifier through tree matching. | methodKey
+// 在树匹配过程中携带方法名及其预计算标识。
+type methodKey struct {
+	name  string
+	id    methodID
+	known bool
+}
+
+// newMethodKey resolves method once per request. | newMethodKey 每个请求解析一次方法。
+func newMethodKey(method string) methodKey {
+	id, known := methodOf(method)
+	return methodKey{name: method, id: id, known: known}
+}
+
+// methodOf maps a standard method to its identifier. | methodOf 把标准方法映射为标识。
+func methodOf(method string) (methodID, bool) {
+	switch method {
+	case http.MethodGet:
+		return methodGet, true
+	case http.MethodHead:
+		return methodHead, true
+	case http.MethodPost:
+		return methodPost, true
+	case http.MethodPut:
+		return methodPut, true
+	case http.MethodPatch:
+		return methodPatch, true
+	case http.MethodDelete:
+		return methodDelete, true
+	case http.MethodOptions:
+		return methodOptions, true
+	case http.MethodTrace:
+		return methodTrace, true
+	case http.MethodConnect:
+		return methodConnect, true
+	default:
+		return 0, false
+	}
+}
 
 // ErrUnknownSegment indicates a segment kind the tree cannot place. | ErrUnknownSegment 表示树无法安放的段类型。
 var ErrUnknownSegment = errx.New("router: unknown segment type | router：未知的段类型")
@@ -34,27 +91,45 @@ type node struct {
 type methodHandler struct {
 	handler any
 	method  string
+	id      methodID
 }
 
-// handler returns the handler registered for method. | handler 返回 method 注册的处理器。
-func (n *node) handler(method string) (any, bool) {
+// handlerFor returns the handler registered for key. | handlerFor 返回 key 注册的处理器。
+//
+// Standard methods compare one integer; only uncommon methods fall back to comparing the
+// caller-provided name. | 标准方法只比较一个整数；只有非标准方法才回退到比较调用方给出的名称。
+func (n *node) handlerFor(key methodKey) (any, bool) {
+	if key.known {
+		for i := range n.handlers {
+			if n.handlers[i].id == key.id {
+				return n.handlers[i].handler, true
+			}
+		}
+		return nil, false
+	}
 	for i := range n.handlers {
-		if n.handlers[i].method == method {
+		if n.handlers[i].method == key.name {
 			return n.handlers[i].handler, true
 		}
 	}
 	return nil, false
 }
 
+// handler returns the handler registered for method. | handler 返回 method 注册的处理器。
+func (n *node) handler(method string) (any, bool) {
+	return n.handlerFor(newMethodKey(method))
+}
+
 // addHandler binds method to handler and reports false when it was already bound. | addHandler
 // 把 method 绑定到 handler；已绑定时返回 false。
 func (n *node) addHandler(method string, handler any) bool {
+	id, _ := methodOf(method)
 	for i := range n.handlers {
 		if n.handlers[i].method == method {
 			return false
 		}
 	}
-	n.handlers = append(n.handlers, methodHandler{method: method, handler: handler})
+	n.handlers = append(n.handlers, methodHandler{method: method, handler: handler, id: id})
 	return true
 }
 
@@ -75,6 +150,15 @@ func (n *node) staticChild(name string) (*node, bool) {
 	if n.staticMap != nil {
 		c, ok := n.staticMap[name]
 		return c, ok
+	}
+	switch len(n.static) {
+	case 0:
+		return nil, false
+	case 1:
+		if n.static[0].name == name {
+			return n.static[0].node, true
+		}
+		return nil, false
 	}
 	for i := range n.static {
 		if n.static[i].name == name {
@@ -187,28 +271,80 @@ func (t *Tree) Add(method, pattern string, handler any) error {
 // This function performs no heap allocation on static/param/wildcard segments; path segments are raw string slices | 该函数在静态/参数/通配段上不产生堆分配；路径分段以原始字符串切片表示，
 // and are not percent-decoded (for example /a%2Fb.jpg captures "a%2Fb"). | 不做百分号解码（例如 /a%2Fb.jpg 捕获到的是 "a%2Fb"）。
 func (t *Tree) Find(method, path string, ps *Params) (any, bool) {
-	if h, ok := t.lookup(method, path, ps); ok {
-		return h, false
+	handler, tsr, _ := t.find(method, path, ps)
+	return handler, tsr
+}
+
+// find is Find plus a structural miss flag: noPath reports that the first segment matches no
+// root edge at all, so neither a 405 (another method on the same path) nor a trailing slash
+// redirect can exist. ServeHTTP uses it to answer unknown top-level paths after one lookup
+// instead of walking the tree two more times. | find 是 Find 加上结构性未命中标记：noPath 表示
+// 第一个分段在根节点上没有任何边可匹配，因此既不可能有 405（同路径的其它方法），也不可能有
+// 尾斜杠重定向。ServeHTTP 据此在一次查找后直接应答未知的顶层路径，而不是再遍历两次树。
+func (t *Tree) find(method, path string, ps *Params) (any, bool, bool) {
+	key := newMethodKey(method)
+	if path == "" || path[0] != '/' {
+		return nil, false, true
 	}
-	return nil, t.tsr(method, path)
+	if path == "/" {
+		handler, _ := t.root.handlerFor(key)
+		// A root registered for another method still needs the 405 path; only a completely
+		// empty root can be answered as a structural miss. | 根节点注册了其它方法时仍需走 405 判定；
+		// 只有完全空的根节点才算结构性未命中。
+		return handler, false, len(t.root.handlers) == 0
+	}
+	if h, ok := matchNode(t.root, path, 1, key, ps); ok {
+		return h, false, false
+	}
+	if !t.rootCanMatch(firstSegment(path), ps) {
+		return nil, false, true
+	}
+	return nil, t.tsr(key, path), false
+}
+
+// firstSegment returns the first path segment without its leading slash. | firstSegment 返回去掉
+// 前导斜杠的第一个路径分段。
+func firstSegment(path string) string {
+	end := 1
+	for end < len(path) && path[end] != '/' {
+		end++
+	}
+	return path[1:end]
+}
+
+// rootCanMatch reports whether any root edge can consume the first segment. | rootCanMatch 报告根
+// 节点是否有任一边能够消费第一个分段。
+func (t *Tree) rootCanMatch(segment string, ps *Params) bool {
+	if _, ok := t.root.staticChild(segment); ok {
+		return true
+	}
+	for _, child := range t.root.mixed {
+		mark := ps.Len()
+		matched := matchSegmentInto(child.seg, segment, ps)
+		ps.Truncate(mark)
+		if matched {
+			return true
+		}
+	}
+	return t.root.param != nil || t.root.wildcard != nil
 }
 
 // lookup ignores the trailing slash redirect and performs the match directly. | lookup 忽略尾斜杠重定向，直接执行匹配。
-func (t *Tree) lookup(method, path string, ps *Params) (any, bool) {
+func (t *Tree) lookup(key methodKey, path string, ps *Params) (any, bool) {
 	if path == "" || path[0] != '/' {
 		return nil, false
 	}
 	if path == "/" {
-		return t.root.handler(method)
+		return t.root.handlerFor(key)
 	}
-	return matchNode(t.root, path, 1, method, ps)
+	return matchNode(t.root, path, 1, key, ps)
 }
 
 // matchNode matches the segment of path that starts at start, beginning from node n. | matchNode 从节点 n 开始匹配 path 中起始于 start 的那个分段。
 //
 // start is the index of the current segment's first character in path; segments are separated by '/', and the trailing empty segment | start 为当前分段首字符在 path 中的下标；分段以 '/' 分隔，末尾空段
 // (a path ending with "/") is represented as a segment with an empty value. | （路径以 "/" 结尾）会被表示为一个空值分段。
-func matchNode(n *node, path string, start int, method string, ps *Params) (any, bool) {
+func matchNode(n *node, path string, start int, key methodKey, ps *Params) (any, bool) {
 	end := start
 	for end < len(path) && path[end] != '/' {
 		end++
@@ -217,8 +353,15 @@ func matchNode(n *node, path string, start int, method string, ps *Params) (any,
 	last := end == len(path)
 
 	// 1) static segment: an exact match comes first | 1) 静态段：完全匹配优先
+	// descend is inlined at every call site: the extra wrapper would cost one call per segment
+	// on the hottest path, and the recursion below is the only real branch. | 每个调用点都内联
+	// descend：额外包装会在最热路径上为每个分段多一次调用，真正的分支只有下面的递归。
 	if c, ok := n.staticChild(val); ok {
-		if h, ok := descend(c, path, end, last, method, ps); ok {
+		if last {
+			if h, ok := c.handlerFor(key); ok {
+				return h, true
+			}
+		} else if h, ok := matchNode(c, path, end+1, key, ps); ok {
 			return h, true
 		}
 	}
@@ -227,7 +370,11 @@ func matchNode(n *node, path string, start int, method string, ps *Params) (any,
 	for _, c := range n.mixed {
 		mark := ps.Len()
 		if matchSegmentInto(c.seg, val, ps) {
-			if h, ok := descend(c, path, end, last, method, ps); ok {
+			if last {
+				if h, ok := c.handlerFor(key); ok {
+					return h, true
+				}
+			} else if h, ok := matchNode(c, path, end+1, key, ps); ok {
 				return h, true
 			}
 		}
@@ -238,7 +385,11 @@ func matchNode(n *node, path string, start int, method string, ps *Params) (any,
 	if n.param != nil && val != "" {
 		mark := ps.Len()
 		ps.Append(n.param.seg.Name, val)
-		if h, ok := descend(n.param, path, end, last, method, ps); ok {
+		if last {
+			if h, ok := n.param.handlerFor(key); ok {
+				return h, true
+			}
+		} else if h, ok := matchNode(n.param, path, end+1, key, ps); ok {
 			return h, true
 		}
 		ps.Truncate(mark)
@@ -249,7 +400,7 @@ func matchNode(n *node, path string, start int, method string, ps *Params) (any,
 	if n.wildcard != nil {
 		mark := ps.Len()
 		ps.Append(n.wildcard.seg.Name, path[start:])
-		if h, ok := n.wildcard.handler(method); ok {
+		if h, ok := n.wildcard.handlerFor(key); ok {
 			return h, true
 		}
 		ps.Truncate(mark)
@@ -258,29 +409,21 @@ func matchNode(n *node, path string, start int, method string, ps *Params) (any,
 	return nil, false
 }
 
-// descend takes the handler directly when the current segment is the last one, otherwise it continues with the next segment. | descend 在当前分段即为末段时直接取处理器，否则继续匹配下一分段。
-func descend(c *node, path string, end int, last bool, method string, ps *Params) (any, bool) {
-	if last {
-		return c.handler(method)
-	}
-	return matchNode(c, path, end+1, method, ps)
-}
-
 // tsr reports whether the path would match if only the trailing slash differed. | tsr 判断路径是否只差一个尾斜杠就能命中。
-func (t *Tree) tsr(method, path string) bool {
+func (t *Tree) tsr(key methodKey, path string) bool {
 	if path == "" || path == "/" {
 		return false
 	}
 	if alt, found := strings.CutSuffix(path, "/"); found {
-		return t.allowedOnce(alt, method)
+		return t.allowedOnce(alt, key)
 	}
-	return t.allowedOnce(path+"/", method)
+	return t.allowedOnce(path+"/", key)
 }
 
 // allowedOnce reports whether a handler for method exists on the alt path. | allowedOnce 报告 alt 路径上是否存在 method 的处理器。
-func (t *Tree) allowedOnce(path, method string) bool {
+func (t *Tree) allowedOnce(path string, key methodKey) bool {
 	var ps Params
-	_, ok := t.lookup(method, path, &ps)
+	_, ok := t.lookup(key, path, &ps)
 	return ok
 }
 
