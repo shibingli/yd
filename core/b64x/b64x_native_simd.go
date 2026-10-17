@@ -4,9 +4,52 @@ package b64x
 
 import "simd/archsimd"
 
+// SIMD nibble lookup tables for the standard alphabet. | 标准字母表的 SIMD 半字节查找表。
+var (
+	simdLoLUT   [64]int8
+	simdHiLUT   [64]int8
+	simdRollLUT [64]int8
+)
+
 // init installs the widest available kernel: AVX-512 with VBMI/VBMI2 first, then AVX-512, then
 // AVX2. | init 安装当前 CPU 支持的最宽内核：优先 AVX-512 + VBMI/VBMI2，其次 AVX-512，最后 AVX2。
 func init() {
+	var loBase, hiBase, rollBase [16]int8
+	for lo := 0; lo < 16; lo++ {
+		v := int8(-128)
+		if lo != 11 && lo != 15 {
+			v |= 0x01
+		}
+		if lo >= 10 {
+			v |= 0x02
+		}
+		if lo == 0 {
+			v |= 0x04
+		}
+		if lo >= 11 {
+			v |= 0x08
+		}
+		if lo == 0 {
+			v |= 0x10
+		}
+		if lo >= 11 {
+			v |= 0x20
+		}
+		loBase[lo] = v
+	}
+	for hi := 0; hi < 16; hi++ {
+		hiBase[hi] = -128
+	}
+	for hi := 2; hi <= 7; hi++ {
+		hiBase[hi] = int8(1 << uint(hi-2))
+	}
+	rollBase[3], rollBase[4], rollBase[5] = 4, -65, -65
+	rollBase[6], rollBase[7] = -71, -71
+	for j := 0; j < 64; j++ {
+		simdLoLUT[j] = loBase[j&15]
+		simdHiLUT[j] = hiBase[j&15]
+		simdRollLUT[j] = rollBase[j&15]
+	}
 	avx512 := archsimd.X86.AVX512()
 	switch {
 	case avx512 && archsimd.X86.AVX512VBMI() && archsimd.X86.AVX512VBMI2():
@@ -361,12 +404,11 @@ func encodeSIMD512VBMI(dst, src []byte, url bool) int {
 // bytes with VPCOMPRESSB. | decodeSIMD512VBMI2 每次校验并映射 64 个字符，再用 VPCOMPRESSB
 // 压缩出 48 个有效字节。
 func decodeSIMD512VBMI2(dst, src []byte, url bool) (int, int) {
+	if url {
+		return decodeSIMD512(dst, src, true)
+	}
 	if len(src) < 64 || len(dst) < 64 {
 		return 0, 0
-	}
-	plus, slash := byte('+'), byte('/')
-	if url {
-		plus, slash = '-', '_'
 	}
 	var mulArr [64]int8
 	for j := range mulArr {
@@ -383,34 +425,28 @@ func decodeSIMD512VBMI2(dst, src []byte, url bool) (int, int) {
 	}
 	mul := archsimd.LoadInt8x64(mulArr[:])
 	pack := archsimd.LoadInt8x64(packArr[:])
+	loLUT := archsimd.LoadInt8x64(simdLoLUT[:])
+	hiLUT := archsimd.LoadInt8x64(simdHiLUT[:])
+	rollLUT := archsimd.LoadInt8x64(simdRollLUT[:])
 	packMask := archsimd.Mask8x64FromBits(0x0FFF0FFF0FFF0FFF)
-
-	upperA := archsimd.BroadcastUint8x64('A')
-	upperZ := archsimd.BroadcastUint8x64('Z')
-	lowerA := archsimd.BroadcastUint8x64('a')
-	lowerZ := archsimd.BroadcastUint8x64('z')
-	digit0 := archsimd.BroadcastUint8x64('0')
-	digit9 := archsimd.BroadcastUint8x64('9')
-	plusB := archsimd.BroadcastUint8x64(plus)
-	slashB := archsimd.BroadcastUint8x64(slash)
 	zero := archsimd.BroadcastUint8x64(0)
+	plus := archsimd.BroadcastUint8x64('+')
+	slash := archsimd.BroadcastUint8x64('/')
+	hiMask := archsimd.BroadcastUint16x32(0x0F0F)
+	loMask := archsimd.BroadcastUint8x64(0x0F)
 	i, o := 0, 0
 	for i+64 <= len(src) && o+64 <= len(dst) {
 		c := archsimd.LoadUint8x64(src[i:])
-		upper := c.GreaterEqual(upperA).And(c.LessEqual(upperZ))
-		lower := c.GreaterEqual(lowerA).And(c.LessEqual(lowerZ))
-		digit := c.GreaterEqual(digit0).And(c.LessEqual(digit9))
-		plusMask := c.Equal(plusB)
-		slashMask := c.Equal(slashB)
-		if upper.Or(lower).Or(digit).Or(plusMask).Or(slashMask).ToBits() != ^uint64(0) {
+		hi := c.AsUint16x32().ShiftAllRight(4).And(hiMask).AsUint8x64()
+		lo := c.And(loMask)
+		loV := loLUT.PermuteOrZeroGrouped(lo.AsInt8x64()).AsUint8x64()
+		hiV := hiLUT.PermuteOrZeroGrouped(hi.AsInt8x64()).AsUint8x64()
+		if loV.And(hiV).Equal(zero).ToBits() != ^uint64(0) {
 			break
 		}
-		v := zero
-		v = c.Sub(upperA).IfElse(upper, v)
-		v = c.Sub(lowerA).Add(archsimd.BroadcastUint8x64(26)).IfElse(lower, v)
-		v = c.Sub(digit0).Add(archsimd.BroadcastUint8x64(52)).IfElse(digit, v)
-		v = archsimd.BroadcastUint8x64(62).IfElse(plusMask, v)
-		v = archsimd.BroadcastUint8x64(63).IfElse(slashMask, v)
+		v := c.Add(rollLUT.PermuteOrZeroGrouped(hi.AsInt8x64()).AsUint8x64())
+		v = archsimd.BroadcastUint8x64(62).IfElse(c.Equal(plus), v)
+		v = archsimd.BroadcastUint8x64(63).IfElse(c.Equal(slash), v)
 		pairs := v.DotProductPairsSaturated(mul).AsUint32x16()
 		groups := pairs.And(archsimd.BroadcastUint32x16(0xFFFF)).ShiftAllLeft(12).Or(pairs.ShiftAllRight(16)).AsUint8x64()
 		groups.PermuteOrZeroGrouped(pack).Compress(packMask).Store(dst[o:])
@@ -420,6 +456,6 @@ func decodeSIMD512VBMI2(dst, src []byte, url bool) (int, int) {
 	if i == 0 {
 		return 0, 0
 	}
-	ni, no := decodeSIMD(dst[o:], src[i:], url)
+	ni, no := decodeSIMD(dst[o:], src[i:], false)
 	return i + ni, o + no
 }
