@@ -164,3 +164,101 @@ func BenchmarkBackendsDecodeString(b *testing.B) {
 		})
 	}
 }
+
+// BenchmarkBackendsCrossover finds the size where cloudwego overtakes cristalhq
+// for each direction, so the runtime thresholds can be set from data. | BenchmarkBackendsCrossover
+// 找出每个方向上 cloudwego 超过 cristalhq 的尺寸，用数据确定运行期阈值。
+func BenchmarkBackendsCrossover(b *testing.B) {
+	sizes := []int{8, 16, 32, 64, 128, 256, 512, 1024}
+	for _, size := range sizes {
+		src := benchBuf(size)
+		dst := make([]byte, stdb64.StdEncoding.EncodedLen(size))
+		b.Run(fmt.Sprintf("encode/cloudwego/%d", size), func(b *testing.B) {
+			b.SetBytes(int64(size))
+			b.ReportAllocs()
+			b.ResetTimer()
+			for i := 0; i < b.N; i++ {
+				cwb64.StdEncoding.Encode(dst, src)
+			}
+		})
+		b.Run(fmt.Sprintf("encode/cristalhq/%d", size), func(b *testing.B) {
+			b.SetBytes(int64(size))
+			b.ReportAllocs()
+			b.ResetTimer()
+			for i := 0; i < b.N; i++ {
+				crb64.StdEncoding.Encode(dst, src)
+			}
+		})
+		encoded := make([]byte, stdb64.StdEncoding.EncodedLen(size))
+		stdb64.StdEncoding.Encode(encoded, src)
+		out := make([]byte, stdb64.StdEncoding.DecodedLen(len(encoded)))
+		b.Run(fmt.Sprintf("decode/cloudwego/%d", size), func(b *testing.B) {
+			b.SetBytes(int64(size))
+			b.ReportAllocs()
+			b.ResetTimer()
+			for i := 0; i < b.N; i++ {
+				if _, err := cwb64.StdEncoding.Decode(out, encoded); err != nil {
+					b.Fatal(err)
+				}
+			}
+		})
+		b.Run(fmt.Sprintf("decode/cristalhq/%d", size), func(b *testing.B) {
+			b.SetBytes(int64(size))
+			b.ReportAllocs()
+			b.ResetTimer()
+			for i := 0; i < b.N; i++ {
+				if _, err := crb64.StdEncoding.Decode(out, encoded); err != nil {
+					b.Fatal(err)
+				}
+			}
+		})
+	}
+}
+
+// BenchmarkBackendsCrossoverString finds the string-form crossover. | BenchmarkBackendsCrossoverString 找出字符串入口的交叉点。
+func BenchmarkBackendsCrossoverString(b *testing.B) {
+	for _, size := range []int{16, 32, 64, 128, 256, 512} {
+		src := benchBuf(size)
+		b.Run(fmt.Sprintf("encode_string/cloudwego/%d", size), func(b *testing.B) {
+			b.SetBytes(int64(size))
+			b.ReportAllocs()
+			b.ResetTimer()
+			for i := 0; i < b.N; i++ {
+				benchSinkString = cwb64.StdEncoding.EncodeToString(src)
+			}
+		})
+		b.Run(fmt.Sprintf("encode_string/cristalhq/%d", size), func(b *testing.B) {
+			b.SetBytes(int64(size))
+			b.ReportAllocs()
+			b.ResetTimer()
+			for i := 0; i < b.N; i++ {
+				benchSinkString = crb64.StdEncoding.EncodeToString(src)
+			}
+		})
+		encoded := stdb64.StdEncoding.EncodeToString(src)
+		b.Run(fmt.Sprintf("decode_string/cloudwego/%d", size), func(b *testing.B) {
+			b.SetBytes(int64(size))
+			b.ReportAllocs()
+			b.ResetTimer()
+			for i := 0; i < b.N; i++ {
+				out, err := cwb64.StdEncoding.DecodeString(encoded)
+				if err != nil {
+					b.Fatal(err)
+				}
+				benchSinkBytes = out
+			}
+		})
+		b.Run(fmt.Sprintf("decode_string/cristalhq/%d", size), func(b *testing.B) {
+			b.SetBytes(int64(size))
+			b.ReportAllocs()
+			b.ResetTimer()
+			for i := 0; i < b.N; i++ {
+				out, err := crb64.StdEncoding.DecodeString(encoded)
+				if err != nil {
+					b.Fatal(err)
+				}
+				benchSinkBytes = out
+			}
+		})
+	}
+}

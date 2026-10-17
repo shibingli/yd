@@ -381,7 +381,7 @@ func TestEncodedLenDecodedLenMatchStdlib(t *testing.T) {
 // TestBackendNameIsKnown verifies that Backend returns only one of the agreed names. | TestBackendNameIsKnown 校验 Backend 只返回约定名称之一。
 func TestBackendNameIsKnown(t *testing.T) {
 	switch got := Backend(); got {
-	case "cloudwego/base64x", "cristalhq/base64", "encoding/base64":
+	case "cloudwego/base64x+cristalhq", "cloudwego/base64x", "cristalhq/base64", "encoding/base64":
 		t.Logf("当前 Base64 后端：%s", got)
 	default:
 		t.Fatalf("Backend() = %q，期望 cloudwego/base64x、cristalhq/base64 或 encoding/base64", got)

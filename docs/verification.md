@@ -739,24 +739,31 @@ WSL Ubuntu-24.04（同为 Go 1.27.2）上分别测量；所有实现保持纯 Go
 
 ### 3.15.3.1 Base64 后端重排（cloudwego / cristalhq / std）
 
-本轮把 amd64 后端从 cristalhq/base64 切换为 **cloudwego/base64x**（AVX2/SSE）；
-cristalhq 覆盖的非 amd64 架构使用 cristalhq/base64；loong64 或 `b64x_std` 回退标准库。
-amd64 实测（Windows，i9-10980HK，`-benchmem -benchtime=150ms`）：
+本轮把 amd64 后端从 cristalhq/base64 切换为**按尺寸分流的混合后端**：小于实测交叉点
+（32 B）的输入使用 cristalhq（SIMD 启动开销更低），其余使用 **cloudwego/base64x**
+（AVX2/SSE）；编码与解码分别实测、分别设阈值。cristalhq 覆盖的非 amd64 架构使用
+cristalhq/base64；loong64 或 `b64x_std` 回退标准库。
+amd64 实测（Windows，i9-10980HK，`-benchmem -benchtime=150ms`，混合后端）：
 
-| 操作 | 尺寸 | b64x（cloudwego） | stdlib | 倍数 |
+| 操作 | 尺寸 | b64x（混合） | stdlib | 倍数 |
 |---|---:|---:|---:|---:|
-| Encode | 1 KiB | 101 ns / 10.1 GB/s | 926 ns / 1.1 GB/s | 9.1× |
-| Encode | 64 KiB | 5.34 µs / 12.3 GB/s | 57.6 µs / 1.1 GB/s | 10.8× |
-| Decode | 1 KiB | 159 ns / 6.4 GB/s | 1007 ns / 1.0 GB/s | 6.3× |
-| Decode | 64 KiB | 7.84 µs / 8.4 GB/s | 64.5 µs / 1.0 GB/s | 8.2× |
-| EncodeToString | 1 KiB | 377 ns，1 alloc | 1395 ns，2 allocs | 3.7× |
-| DecodeString | 1 KiB | 351 ns，1 alloc | 1184 ns，1 alloc | 3.4× |
-| AppendEncode / AppendDecode | 1 KiB | 98 / 167 ns，0 allocs | — | — |
+| Encode | 16 B | 15.2 ns | 16.4 ns | 1.1× |
+| Encode | 1 KiB | 87.6 ns / 11.7 GB/s | 830 ns / 1.2 GB/s | 9.5× |
+| Encode | 64 KiB | 5.04 µs / 13.0 GB/s | 54.4 µs / 1.2 GB/s | 10.8× |
+| Decode | 16 B | 20.0 ns | 28.8 ns | 1.4× |
+| Decode | 1 KiB | 143 ns / 7.1 GB/s | 913 ns / 1.1 GB/s | 6.4× |
+| Decode | 64 KiB | 7.55 µs / 8.7 GB/s | 61.1 µs / 1.1 GB/s | 8.1× |
+| EncodeToString | 16 B | 30.5 ns，1 alloc | 35.3 ns，1 alloc | 1.2× |
+| EncodeToString | 1 KiB | 289 ns，1 alloc | 1208 ns，2 allocs | 4.2× |
+| DecodeString | 16 B | 39.9 ns，1 alloc | 42.4 ns，1 alloc | 1.1× |
+| DecodeString | 1 KiB | 346 ns，1 alloc | 1141 ns，1 alloc | 3.3× |
 
-- 16 B 小输入三者接近（cloudwego 编码 18.8 ns、stdlib 19.0 ns）；大载荷优势来自 SIMD。
-- `AppendEncode`/`AppendDecode` 使用 cloudwego 的 `EncodeUnsafe`/`DecodeUnsafe` 直接扩展
-  目标切片，保持 0 allocs；`DecodeUnsafe` 可能写至 `DecodedLen` 之后几个字节，`b64x`
-  在容量中预留 4 字节余量，且不把余量暴露给调用方。
+- 交叉点实测：编码 8/16 B 为 cristalhq 领先（10.9/14.4 ns 对 14.6/18.8 ns），
+  32 B 基本持平，64 B 起 cloudwego 领先（21.5 对 30.9 ns）；解码同样在 32 B 附近交叉。
+  阈值取 `encodeSwitchBytes = 32`、`decodeSwitchBytes = 32`（按解码后尺寸）。
+- `AppendEncode`/`AppendDecode` 小输入走 cristalhq，大输入走 cloudwego 的
+  `EncodeUnsafe`/`DecodeUnsafe`，均保持 0 allocs；`DecodeUnsafe` 可能写至 `DecodedLen`
+  之后几个字节，`b64x` 在容量中预留 4 字节余量，且不把余量暴露给调用方。
 - 非 amd64 的 cristalhq 后端保留「含 CR/LF 的输入回退标准库」的语义；`b64x_std` 与
   loong64 使用标准库。
 
