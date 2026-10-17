@@ -3,6 +3,7 @@
 package jsonx
 
 import (
+	"bytes"
 	"reflect"
 	"strconv"
 	"strings"
@@ -181,7 +182,23 @@ func buildFastFieldDecoder(t reflect.Type) fastFieldDec {
 			if err != nil {
 				return err
 			}
-			return (*time.Time)(p).UnmarshalJSON(raw)
+			if len(raw) == 4 && raw[0] == 'n' {
+				return (*time.Time)(p).UnmarshalJSON(raw)
+			}
+			if int(d.timeLen) == len(raw) && len(raw) <= len(d.timeRaw) && bytes.Equal(d.timeRaw[:len(raw)], raw) {
+				*(*time.Time)(p) = d.timeVal
+				return nil
+			}
+			tt := (*time.Time)(p)
+			if err := tt.UnmarshalJSON(raw); err != nil {
+				return err
+			}
+			if len(raw) <= len(d.timeRaw) {
+				copy(d.timeRaw[:], raw)
+				d.timeLen = uint8(len(raw))
+				d.timeVal = *tt
+			}
+			return nil
 		}
 	}
 	if t == stringSliceType {

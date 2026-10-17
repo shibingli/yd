@@ -11,6 +11,7 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
+	"time"
 	"unsafe"
 
 	"github.com/shibingli/yd/core/errx"
@@ -19,7 +20,10 @@ import (
 type decoder struct {
 	data      []byte
 	arena     []byte
+	timeVal   time.Time
+	timeRaw   [40]byte
 	pos       int
+	timeLen   uint8
 	useNumber bool
 	skipLen   bool
 }

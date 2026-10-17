@@ -247,6 +247,9 @@ func wordHasControl(x uint64) bool {
 const (
 	wordQuote32     uint32 = 0x22222222
 	wordBackslash32 uint32 = 0x5c5c5c5c
+	wordLessThan32  uint32 = 0x3c3c3c3c
+	wordGreater32   uint32 = 0x3e3e3e3e
+	wordAmpersand32 uint32 = 0x26262626
 )
 
 // wordHasZero32 reports whether any byte of x is zero. | wordHasZero32 \u62a5\u544a x \u4e2d\u662f\u5426\u6709\u4efb\u4e00\u5b57\u8282\u4e3a\u96f6\u3002
@@ -270,6 +273,15 @@ func (e *encoder) str(s string) {
 			goto slow
 		}
 		i += 8
+	}
+	for len(s)-i >= 4 {
+		x := binary.LittleEndian.Uint32(unsafe.Slice(unsafe.StringData(s[i:]), 4))
+		if x&0x80808080 != 0 || wordHasControl32(x) ||
+			wordHasZero32(x^wordQuote32) || wordHasZero32(x^wordBackslash32) ||
+			(e.escapeHTML && (wordHasZero32(x^wordLessThan32) || wordHasZero32(x^wordGreater32) || wordHasZero32(x^wordAmpersand32))) {
+			goto slow
+		}
+		i += 4
 	}
 	for ; i < len(s); i++ {
 		c := s[i]
