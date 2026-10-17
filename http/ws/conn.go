@@ -110,6 +110,7 @@ type Conn struct {
 	closeSent     bool
 	closeReceived bool
 	msgCompressed bool
+	msgFirstFrame bool // current frame starts a message rather than continuing one | 当前帧是消息首帧而不是续帧
 
 	// writeCompression toggles outbound compression after negotiation; the inbound direction always honours the negotiation. | writeCompression 在协商后切换出站压缩；入站方向始终遵循协商结果。
 	writeCompression atomic.Bool
@@ -265,6 +266,31 @@ func (c *Conn) ReadMessage() (OpCode, []byte, error) {
 		return 0, nil, err
 	}
 	c.readBuf = c.readBuf[:0]
+	// Fast path: a single uncompressed frame that is already fully buffered can
+	// be returned straight from the bufio buffer, avoiding a payload copy. The
+	// returned slice is valid until the next read, exactly like readBuf. | 快路径：
+	// 已完整缓冲的单帧未压缩消息直接从 bufio 缓冲返回，省去一次载荷复制。返回切片
+	// 与 readBuf 一样只在下一次读操作前有效。
+	if !r.compressed && c.msgFirstFrame && c.frameFin && r.remaining > 0 &&
+		c.br != nil && r.remaining <= int64(c.br.Buffered()) {
+		if payload, perr := c.br.Peek(int(r.remaining)); perr == nil {
+			if c.frameMasked {
+				maskBytes(c.maskKey, 0, payload)
+			}
+			if op == TextMessage && (!c.utf8.write(payload) || !c.utf8.complete()) {
+				return 0, nil, c.fail(CloseInvalidFramePayloadData, ErrInvalidUTF8)
+			}
+			if _, derr := c.br.Discard(len(payload)); derr != nil {
+				return 0, nil, c.setReadErr(derr)
+			}
+			c.frameRemain = 0
+			r.done = true
+			c.msgOp = 0
+			c.msgLen = 0
+			c.msgCompressed = false
+			return op, payload, nil
+		}
+	}
 	buf := c.readBuf
 	for {
 		// A finished uncompressed frame needs no room: the next read only
@@ -505,11 +531,13 @@ func (c *Conn) nextDataFrame(remaining *int64) error {
 			c.msgOp = h.opcode
 			// RSV1 marks a compressed message and is only legal on the first frame of one (RFC 7692 §6.1). | RSV1 标记压缩消息，且只允许出现在消息首帧（RFC 7692 §6.1）。
 			c.msgCompressed = h.rsv1
+			c.msgFirstFrame = true
 			c.utf8.reset()
 		case ContinuationMessage:
 			if c.msgOp == 0 {
 				return c.fail(CloseProtocolError, ErrContinuationWithoutStart)
 			}
+			c.msgFirstFrame = false
 		}
 
 		c.frameLen = h.length

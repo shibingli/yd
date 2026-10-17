@@ -2,20 +2,19 @@ package ws
 
 import (
 	"encoding/binary"
-	"unicode/utf8"
 )
 
 // utf8State is the cross-frame state of incremental UTF-8 validation. | utf8State 是增量 UTF-8 校验的跨帧状态。
 //
-// A text message may be fragmented and a multi-byte character may straddle a frame boundary, so utf8.Valid cannot simply be called | 文本消息可能被分片，一个多字节字符也可能跨帧边界，因此不能对每一帧
-// on each frame on its own — the part of an unfinished sequence left at the end of the previous frame must be carried over. | 单独调用 utf8.Valid —— 必须携带上一帧末尾未完成序列的部分。
+// A text message may be fragmented and a multi-byte character may straddle a chunk boundary, so a chunk cannot be validated | 文本消息可能被分片，一个多字节字符也可能跨分块边界，因此不能
+// on its own: the unfinished sequence left at the end of the previous chunk must be carried over. | 单独校验每个分块：必须携带上一分块末尾未完成的序列。
 type utf8State struct {
-	// partial holds the prefix of a multi-byte sequence that is not complete yet (at most 3 bytes). | partial 保存尚未凑齐的多字节序列前缀（最多 3 字节）。
-	partial [4]byte
-	// n is the number of bytes accumulated in partial. | n 为 partial 中已累积的字节数。
-	n int
-	// need is the total number of bytes the current sequence should reach. | need 为当前序列应达到的总字节数。
-	need int
+	// lead is the lead byte of the multi-byte sequence in progress. | lead 是进行中多字节序列的首字节。
+	lead byte
+	// n is the number of bytes already seen of the current sequence. | n 是当前序列已看到的字节数。
+	n uint8
+	// need is the total number of bytes the current sequence should reach. | need 是当前序列应达到的总字节数。
+	need uint8
 }
 
 // reset clears the state and starts a new message. | reset 清空状态，开始一条新消息。
@@ -68,21 +67,39 @@ func (s *utf8State) write(p []byte) bool {
 			default:
 				return false
 			}
-			s.partial[0] = b
+			s.lead = b
 			s.n = 1
 			continue
 		}
 		if b&0xC0 != 0x80 { // a continuation byte must be 10xxxxxx | 续字节必须是 10xxxxxx
 			return false
 		}
-		s.partial[s.n] = b
+		if s.n == 1 {
+			// Check the second-byte ranges that rule out overlong forms,
+			// surrogates and code points beyond U+10FFFF (RFC 3629). | 检查第二
+			// 字节的取值区间，排除过长编码、代理区与超出 U+10FFFF 的码点（RFC 3629）。
+			switch s.lead {
+			case 0xE0:
+				if b < 0xA0 {
+					return false
+				}
+			case 0xED:
+				if b > 0x9F {
+					return false
+				}
+			case 0xF0:
+				if b < 0x90 {
+					return false
+				}
+			case 0xF4:
+				if b > 0x8F {
+					return false
+				}
+			}
+		}
 		s.n++
 		if s.n < s.need {
 			continue
-		}
-		// the sequence is complete; let the standard library make the final call (covering details such as surrogates) | 序列凑齐，用标准库做最终判定（覆盖代理区等细节）
-		if !utf8.Valid(s.partial[:s.n]) {
-			return false
 		}
 		s.n = 0
 	}

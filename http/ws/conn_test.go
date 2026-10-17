@@ -1,6 +1,7 @@
 package ws
 
 import (
+	"bytes"
 	"io"
 	"net"
 	"testing"
@@ -138,5 +139,34 @@ func TestHandleControlDoesNotAllocate(t *testing.T) {
 	})
 	if allocs != 0 {
 		t.Fatalf("handleControl allocations = %v, want 0 | handleControl 分配次数 = %v，期望 0", allocs, allocs)
+	}
+}
+
+// TestReadMessageUsesBufferedFastPath pins that a fully buffered single frame
+// is returned without growing readBuf (that is, without a payload copy).
+// | TestReadMessageUsesBufferedFastPath 固定「已完整缓冲的单帧消息不扩容
+// readBuf（即不复制载荷）就返回」。
+func TestReadMessageUsesBufferedFastPath(t *testing.T) {
+	server, client := net.Pipe()
+	c := newConn(server, Options{ReadBufferSize: 64 << 10, MaxMessageSize: 64 << 10}, true)
+	defer func() { _ = c.CloseNow() }()
+
+	payload := bytes.Repeat([]byte("fast"), 256)
+	go func() {
+		frame := make([]byte, maxHeaderSize+len(payload))
+		n := writeFrameHeader(frame, true, BinaryMessage, false, int64(len(payload)))
+		copy(frame[n:], payload)
+		_, _ = client.Write(frame)
+	}()
+
+	op, got, err := c.ReadMessage()
+	if err != nil {
+		t.Fatalf("ReadMessage: %v | ReadMessage：%v", err, err)
+	}
+	if op != BinaryMessage || !bytes.Equal(got, payload) {
+		t.Fatalf("message = (%v, %d bytes), want (%v, %d bytes) | 消息 = (%v, %d 字节)，期望 (%v, %d 字节)", op, len(got), BinaryMessage, len(payload), op, len(got), BinaryMessage, len(payload))
+	}
+	if cap(c.readBuf) != 0 {
+		t.Fatalf("read buffer capacity = %d, want 0 (fast path unused) | 读缓冲容量 = %d，期望 0（快路径未生效）", cap(c.readBuf), cap(c.readBuf))
 	}
 }
