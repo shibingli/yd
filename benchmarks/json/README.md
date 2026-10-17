@@ -56,15 +56,15 @@ go test -run '^$' -bench . -benchmem -count=5 -tags jsonx_native
 
 | 实现 | Marshal | Unmarshal | Marshal B/op / allocs | Unmarshal B/op / allocs |
 |---|---:|---:|---:|---:|
-| go-json | **260,832 ns** | 527,733 ns | 166 KB / 2 | **224 KB / 1,005** |
-| **yd-jsonx（native）** | 271,232 ns | **487,097 ns** | **164 KB / 3** | 293 KB / 1,006 |
+| go-json | **249,248 ns** | 512,823 ns | 166 KB / 2 | **224 KB / 1,005** |
+| **yd-jsonx（native）** | 250,985 ns | **483,143 ns** | **164 KB / 3** | 293 KB / 1,006 |
 | sonic-std | 475,995 ns | 912,402 ns | 228 KB / 1,004 | 686 KB / 7,013 |
 | jsoniter-compat | 596,248 ns | 1,019,462 ns | 214 KB / 1,002 | 459 KB / 11,344 |
 | stdlib | 707,678 ns | 1,572,033 ns | 165 KB / 3 | 381 KB / 5,009 |
 
-结论：Unmarshal 比 go-json 快约 8%，Marshal 慢约 4%；相对 sonic、jsoniter 与标准库，
-两个方向都明显领先。n=1 时 Marshal 约 324 ns（go-json 约 278 ns），n=100 时约
-27 µs（go-json 约 25 µs）；小载荷仍以 go-json 略优。基准对 CPU 频率与子基准顺序敏感，
+结论：Marshal 与 go-json 基本持平（251 vs 249 µs，差异在噪声内），Unmarshal 快约 6%；
+相对 sonic、jsoniter 与标准库，两个方向都明显领先。n=1 时 Marshal 约 324 ns（go-json
+约 278 ns），n=100 时约 24–27 µs（go-json 约 25 µs）；小载荷仍以 go-json 略优。基准对 CPU 频率与子基准顺序敏感，
 跨进程独立运行的波动可达约 15%。
 
 本后端相对早期反射实现的优化：
@@ -78,7 +78,7 @@ go test -run '^$' -bench . -benchmem -count=5 -tags jsonx_native
 - 解码器缓存上一条 `time.Time` 的原始文本，重复时间戳直接复用；命中前直接扫描字符串
   token，不经过通用 `skipValue`；
 - 编码端按缓存的类型体积估算直接分配输出缓冲，避免尾部整块复制；对完全相同的
-  `time.Time` 复用已格式化的 RFC 3339 结果。
+  `time.Time` 把 key 与格式化结果作为整块缓存，命中时一次 append 写入。
 
 解码 B/op 高于 go-json，主要因为后者采用更激进的字符串零拷贝；本后端选择与标准库一致的
 复制语义。该后端仍在实验阶段，默认构建不会启用。
