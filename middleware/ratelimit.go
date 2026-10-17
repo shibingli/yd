@@ -3,6 +3,7 @@ package middleware
 import (
 	"math"
 	"net/http"
+	"net/textproto"
 	"strconv"
 	"sync"
 	"time"
@@ -14,6 +15,23 @@ import (
 // rateLimitShards is the number of independently locked buckets maps.
 // | rateLimitShards 是相互独立加锁的桶映射分片数。
 const rateLimitShards = 16
+
+// rateLimitHeaderKeys holds the canonical keys of the rate-limit headers, computed once.
+// | rateLimitHeaderKeys 保存限流响应头的规范 key，只计算一次。
+//
+// The public spelling stays X-RateLimit-*; Go's canonical form lowercases the tail of each
+// hyphenated word, and precomputing it avoids re-canonicalizing (and heap-copying) the three
+// keys on every request. Lookups through http.Header remain case-insensitive. | 对外拼写仍是
+// X-RateLimit-*；Go 的规范形式会把每个连字符词的尾部小写，预计算可避免每请求重新规范化
+// （并堆复制）这三个 key。通过 http.Header 的读取仍然大小写不敏感。
+var rateLimitHeaderKeys = [...]string{
+	textproto.CanonicalMIMEHeaderKey("X-RateLimit-Limit"),
+	textproto.CanonicalMIMEHeaderKey("X-RateLimit-Remaining"),
+	textproto.CanonicalMIMEHeaderKey("X-RateLimit-Reset"),
+}
+
+// rateLimitRetryKey is the canonical Retry-After key. | rateLimitRetryKey 是 Retry-After 的规范 key。
+var rateLimitRetryKey = textproto.CanonicalMIMEHeaderKey("Retry-After")
 
 // defaultRateLimitCleanup is the lazy sweep interval used when CleanupInterval is zero.
 // | defaultRateLimitCleanup 是 CleanupInterval 为零时使用的惰性清理间隔。
@@ -36,14 +54,15 @@ type RateLimitOptions struct {
 
 // rateLimiter holds the sharded token buckets. | rateLimiter 持有分片令牌桶。
 type rateLimiter struct {
-	keyFunc  func(*router.Ctx) string
-	logger   *logx.Logger
-	shards   [rateLimitShards]rateLimitShard
-	rate     float64
-	burst    float64
-	burstInt int
-	interval time.Duration
-	mask     uint32
+	keyFunc    func(*router.Ctx) string
+	logger     *logx.Logger
+	limitValue string
+	shards     [rateLimitShards]rateLimitShard
+	rate       float64
+	burst      float64
+	burstInt   int
+	interval   time.Duration
+	mask       uint32
 }
 
 // rateLimitShard is one independently locked shard. | rateLimitShard 是一个独立加锁的分片。
@@ -79,6 +98,7 @@ func newRateLimiter(o RateLimitOptions) *rateLimiter {
 		}
 	}
 	lim.burst = float64(lim.burstInt)
+	lim.limitValue = strconv.Itoa(lim.burstInt)
 	if lim.interval <= 0 {
 		lim.interval = defaultRateLimitCleanup
 	}
@@ -150,6 +170,23 @@ func (lim *rateLimiter) resetAfter(tokens float64) time.Duration {
 	return time.Duration((lim.burst - tokens) / lim.rate * float64(time.Second))
 }
 
+// joinNumbers renders a and b into one string and returns the two halves. | joinNumbers 把 a 与 b
+// 渲染进同一个字符串，并返回两半。
+// Both returned strings share one allocation, which is why a pair of numeric header values costs
+// a single formatter allocation. | 两个返回的字符串共享同一次分配，因此一对数值头部值只需一次
+// 格式化分配。
+func joinNumbers(a, b int64) (string, string) {
+	// The scratch array is large enough for two full int64 values and the separator.
+	// | 暂存数组足以容纳两个完整 int64 值与分隔符。
+	var scratch [41]byte
+	out := strconv.AppendInt(scratch[:0], a, 10)
+	split := len(out)
+	out = append(out, '|')
+	out = strconv.AppendInt(out, b, 10)
+	s := string(out)
+	return s[:split], s[split+1:]
+}
+
 // sweepLocked drops buckets that have become indistinguishable from a fresh one.
 // | sweepLocked 丢弃那些已经与新建桶没有区别的桶。
 func (lim *rateLimiter) sweepLocked(shard *rateLimitShard, now time.Time) {
@@ -175,10 +212,16 @@ func RateLimit(o RateLimitOptions) router.Middleware {
 		key := lim.keyFunc(c)
 		res := lim.allow(key, time.Now())
 
+		// The three numeric values share one backing string and one slice array, so the
+		// allowed path costs two allocations instead of the former eight. | 三个数值共享
+		// 一个后备字符串与一个切片数组，使放行路径的分配从原来的八次降到两次。
+		remaining, reset := joinNumbers(int64(res.remaining), int64(math.Ceil(res.reset.Seconds())))
+		vals := new([3]string)
+		vals[0], vals[1], vals[2] = lim.limitValue, remaining, reset
 		h := c.Writer.Header()
-		h.Set("X-RateLimit-Limit", strconv.Itoa(lim.burstInt))
-		h.Set("X-RateLimit-Remaining", strconv.Itoa(res.remaining))
-		h.Set("X-RateLimit-Reset", strconv.FormatInt(int64(math.Ceil(res.reset.Seconds())), 10))
+		h[rateLimitHeaderKeys[0]] = vals[0:1:1]
+		h[rateLimitHeaderKeys[1]] = vals[1:2:2]
+		h[rateLimitHeaderKeys[2]] = vals[2:3:3]
 
 		if res.ok {
 			c.Next()
@@ -189,7 +232,7 @@ func RateLimit(o RateLimitOptions) router.Middleware {
 		if wait < 1 {
 			wait = 1
 		}
-		h.Set("Retry-After", strconv.Itoa(wait))
+		h[rateLimitRetryKey] = []string{strconv.Itoa(wait)}
 		if lim.logger != nil {
 			lim.logger.Warn("rate limit exceeded | 触发限流",
 				logx.Str("key", key),

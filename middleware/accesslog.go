@@ -2,11 +2,21 @@ package middleware
 
 import (
 	"net/http"
+	"sync"
 	"time"
 
 	"github.com/shibingli/yd/core/logx"
 	"github.com/shibingli/yd/http/router"
 )
+
+// countingWriterPool recycles the access-log wrapper, removing one allocation per request.
+// | countingWriterPool 复用访问日志包装器，消除每请求一次分配。
+//
+// The wrapper is returned only after its fields have been read for the log record and the
+// context has been detached from it; no reference survives the request, so reuse cannot leak
+// status or byte counts across requests. | 只有日志记录读完其字段、且上下文已与其解绑之后，
+// 包装器才会被归还；请求结束后不再存在引用，因此复用不会让状态码或字节数跨请求泄漏。
+var countingWriterPool = sync.Pool{New: func() any { return new(countingWriter) }}
 
 // AccessLog returns a middleware that logs one record per request. | AccessLog 返回每个请求记录一条日志的中间件。
 // Recorded fields are method, path, query, status, bytes, remote_ip, duration — milliseconds in JSON
@@ -20,7 +30,10 @@ func AccessLog(l *logx.Logger) router.Middleware {
 			return
 		}
 		start := time.Now()
-		cw := &countingWriter{ResponseWriter: c.Writer}
+		cw := countingWriterPool.Get().(*countingWriter)
+		cw.ResponseWriter = c.Writer
+		cw.status = 0
+		cw.bytes = 0
 		c.Writer = cw
 
 		defer func() {
@@ -48,6 +61,13 @@ func AccessLog(l *logx.Logger) router.Middleware {
 				logx.Str("remote_ip", c.RealIP()),
 				logx.Dur("duration", time.Since(start)),
 			)
+			// Every field has been consumed and the context no longer points at the wrapper,
+			// so it can safely serve another request. | 所有字段都已消费，上下文也不再指向
+			// 该包装器，因此可以安全地服务下一个请求。
+			cw.ResponseWriter = nil
+			cw.status = 0
+			cw.bytes = 0
+			countingWriterPool.Put(cw)
 			if rec != nil {
 				// Re-raise instead of swallowing: the request must not continue after a panic, and
 				// the outer Recover middleware owns the final response. | 重新抛出而不是吞掉 panic：

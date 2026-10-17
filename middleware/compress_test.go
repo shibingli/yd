@@ -68,6 +68,100 @@ func decompressBody(t *testing.T, encoding string, b []byte) string {
 
 // ---------------------------------------------------------------- encoding negotiation | 编码协商
 
+// negotiateReference is the original map-based implementation, kept only as a differential
+// oracle for the allocation-free scanner. | negotiateReference 是原先基于 map 的实现，
+// 仅作为无分配扫描器的差分对照。
+func negotiateReference(acceptEncoding string, algos []Algorithm) (Algorithm, bool) {
+	if len(algos) == 0 {
+		algos = defaultAlgorithms
+	}
+	q := ParseAcceptEncoding(acceptEncoding)
+	if len(q) == 0 {
+		return 0, false
+	}
+	star, hasStar := q["*"]
+	best := Algorithm(0)
+	bestQ := 0.0
+	found := false
+	for _, a := range algos {
+		v, ok := q[a.Encoding()]
+		if !ok {
+			if !hasStar {
+				continue
+			}
+			v = star
+		}
+		if v <= 0 {
+			continue
+		}
+		if !found || v > bestQ {
+			best, bestQ, found = a, v, true
+		}
+	}
+	if !found {
+		return 0, false
+	}
+	return best, true
+}
+
+// TestNegotiateMatchesReference asserts the allocation-free scanner agrees with the map-based
+// reference on every awkward header shape. | TestNegotiateMatchesReference 断言无分配扫描器在
+// 各种刁钻头部形态上都与基于 map 的参考实现一致。
+func TestNegotiateMatchesReference(t *testing.T) {
+	headers := []string{
+		"",
+		"   ",
+		",",
+		",,",
+		"gzip",
+		"GZIP",
+		" gzip ",
+		"\tgzip\t",
+		"gzip,",
+		",gzip",
+		"gzip,,br",
+		"gzip;q=0.8, br;q=0.5, *;q=0.1, zstd;q=0",
+		"gzip; q=0.8",
+		"gzip ; q = 0.8",
+		"gzip;q=0",
+		"gzip;Q=0",
+		"gzip;q=0, gzip;q=1",
+		"gzip;q=1, gzip;q=0",
+		"gzip;q=2",
+		"gzip;q=-1",
+		"gzip;q=abc",
+		"gzip;level=9",
+		"gzip;level=9;q=0.4",
+		"*",
+		"*;q=0",
+		"*;q=0, gzip",
+		"gzip;q=0, *;q=0.5",
+		"deflate, identity",
+		"br;q=0.3, gzip;q=0.3",
+		"br;q=0.3, zstd;q=0.3, gzip;q=0.3",
+		"x-gzip, gzip",
+		";q=1",
+	}
+	algoSets := [][]Algorithm{
+		nil,
+		{Gzip},
+		{Brotli, Zstd, Gzip},
+		{Gzip, Zstd, Brotli},
+		{Zstd, Gzip},
+		{Gzip, Brotli, Zstd, Gzip},
+	}
+	for _, accept := range headers {
+		for _, algos := range algoSets {
+			want, wantOK := negotiateReference(accept, algos)
+			got, gotOK := Negotiate(accept, algos)
+			if gotOK != wantOK || (gotOK && got != want) {
+				t.Errorf("Negotiate(%q, %v) = (%v, %v), 参考实现 = (%v, %v)",
+					accept, algos, got, gotOK, want, wantOK)
+			}
+		}
+	}
+}
+
 func TestNegotiateQValues(t *testing.T) {
 	def := []Algorithm{Brotli, Zstd, Gzip}
 	cases := []struct {

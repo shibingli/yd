@@ -10,6 +10,7 @@ import (
 	"github.com/andybalholm/brotli"
 	"github.com/klauspost/compress/gzip"
 	"github.com/klauspost/compress/zstd"
+	"github.com/shibingli/yd/core/bufpool"
 	"github.com/shibingli/yd/http/router"
 )
 
@@ -132,25 +133,55 @@ func parseQValue(params string) float64 {
 // Encodings with q=0 are disabled and a "*" entry stands for every algorithm not listed explicitly. | q=0 表示该编码被禁用；"*" 代表所有未显式列出的算法。
 // An empty Accept-Encoding reports no usable algorithm, and an empty algos slice falls back to the
 // default priority list. | Accept-Encoding 为空时报告没有可用算法；algos 为空时退回默认优先级表。
+// The scan performs no allocations, which keeps it off the per-request heap. | 该扫描不产生任何分配，因而不会进入每请求的堆分配路径。
 func Negotiate(acceptEncoding string, algos []Algorithm) (Algorithm, bool) {
 	if len(algos) == 0 {
 		algos = defaultAlgorithms
 	}
-	q := ParseAcceptEncoding(acceptEncoding)
-	if len(q) == 0 {
-		return 0, false
+	// The common three-algorithm setup stays on the stack; longer lists fall back to the heap.
+	// | 常见的三算法配置完全留在栈上；更长的列表才退回堆分配。
+	var smallQ [8]float64
+	var smallSeen [8]bool
+	q, seen := smallQ[:], smallSeen[:]
+	if len(algos) > len(smallQ) {
+		q = make([]float64, len(algos))
+		seen = make([]bool, len(algos))
 	}
-	star, hasStar := q["*"]
+	var wildcard float64
+	hasWildcard := false
+
+	for rest := acceptEncoding; len(rest) > 0; {
+		entry := rest
+		if i := strings.IndexByte(rest, ','); i >= 0 {
+			entry, rest = rest[:i], rest[i+1:]
+		} else {
+			rest = ""
+		}
+		name, qv, ok := parseAcceptEntry(entry)
+		if !ok {
+			continue
+		}
+		if name == "*" {
+			wildcard, hasWildcard = qv, true
+			continue
+		}
+		for i, a := range algos {
+			if i < len(q) && strings.EqualFold(name, a.Encoding()) {
+				q[i], seen[i] = qv, true
+			}
+		}
+	}
+
 	best := Algorithm(0)
 	bestQ := 0.0
 	found := false
-	for _, a := range algos {
-		v, ok := q[a.Encoding()]
+	for i, a := range algos {
+		v, ok := q[i], seen[i]
 		if !ok {
-			if !hasStar {
+			if !hasWildcard {
 				continue
 			}
-			v = star
+			v = wildcard
 		}
 		if v <= 0 {
 			continue
@@ -163,6 +194,58 @@ func Negotiate(acceptEncoding string, algos []Algorithm) (Algorithm, bool) {
 		return 0, false
 	}
 	return best, true
+}
+
+// parseAcceptEntry splits one Accept-Encoding list entry into its case-insensitive name
+// and q-value. | parseAcceptEntry 把一条 Accept-Encoding 列表项拆成名称与 q 值。
+// The name is returned as written; callers compare it with strings.EqualFold so no lowercase copy
+// is allocated. | 名称按原样返回；调用方用 strings.EqualFold 比较，因此不会分配小写副本。
+func parseAcceptEntry(entry string) (string, float64, bool) {
+	entry = strings.TrimSpace(entry)
+	if entry == "" {
+		return "", 0, false
+	}
+	name, params := entry, ""
+	if i := strings.IndexByte(entry, ';'); i >= 0 {
+		name, params = strings.TrimSpace(entry[:i]), entry[i+1:]
+	}
+	if name == "" {
+		return "", 0, false
+	}
+	return name, parseQValueNoAlloc(params), true
+}
+
+// parseQValueNoAlloc is the allocation-free equivalent of parseQValue. | parseQValueNoAlloc 是 parseQValue 的无分配等价实现。
+func parseQValueNoAlloc(params string) float64 {
+	for len(params) > 0 {
+		part := params
+		if i := strings.IndexByte(params, ';'); i >= 0 {
+			part, params = params[:i], params[i+1:]
+		} else {
+			params = ""
+		}
+		part = strings.TrimSpace(part)
+		if len(part) < 1 || (part[0] != 'q' && part[0] != 'Q') {
+			continue
+		}
+		rest := strings.TrimSpace(part[1:])
+		if !strings.HasPrefix(rest, "=") {
+			continue
+		}
+		v, err := strconv.ParseFloat(strings.TrimSpace(rest[1:]), 64)
+		if err != nil {
+			return 1
+		}
+		switch {
+		case v < 0:
+			return 0
+		case v > 1:
+			return 1
+		default:
+			return v
+		}
+	}
+	return 1
 }
 
 // CompressOptions configures the compression middleware.
@@ -236,12 +319,14 @@ func (cfg *compressConfig) skip(c *router.Ctx) bool {
 }
 
 // Compress returns a middleware that compresses responses with brotli, zstd or gzip. | Compress 返回用 brotli、zstd 或 gzip 压缩响应的中间件。
-// The encoding is chosen from the request's Accept-Encoding by Negotiate. | 编码由 Negotiate 依据请求的 Accept-Encoding 选出。
+// The encoding is chosen from the request's Accept-Encoding by Negotiate, and only once a response
+// is actually large enough to compress. | 编码由 Negotiate 依据请求的 Accept-Encoding 选出，且只在响应确实大到值得压缩时才协商。
 // HEAD requests, protocol upgrades, excluded path prefixes, SSE responses, bodiless or already
 // encoded responses, bodies below MinSize and responses carrying Cache-Control: no-transform are
 // never wrapped. | HEAD 请求、协议升级、命中排除前缀、SSE 响应、无正文或已编码的响应、小于 MinSize 的正文，以及带 Cache-Control: no-transform 的响应一律不包装。
 // A compressed response gains Content-Encoding and Vary: Accept-Encoding while Content-Length is
-// dropped, and its encoder comes from a sync.Pool that it returns to when the response finishes. | 被压缩的响应会带上 Content-Encoding 与 Vary: Accept-Encoding 并删除 Content-Length；编码器取自 sync.Pool，并在响应结束时归还。
+// dropped, and its encoder and pending body buffer come from pools that are returned when the
+// response finishes. | 被压缩的响应会带上 Content-Encoding 与 Vary: Accept-Encoding 并删除 Content-Length；编码器与待压缩正文缓冲均取自池，并在响应结束时归还。
 func Compress(o CompressOptions) router.Middleware {
 	cfg := newCompressConfig(o)
 	return func(c *router.Ctx) {
@@ -249,23 +334,66 @@ func Compress(o CompressOptions) router.Middleware {
 			c.Next()
 			return
 		}
-		algo, ok := Negotiate(c.Request.Header.Get("Accept-Encoding"), cfg.algos)
-		if !ok {
+		// A missing header can never negotiate, so skip the wrapper altogether. | 请求头缺失时必然协商失败，直接跳过包装。
+		accept := c.Request.Header.Get("Accept-Encoding")
+		if accept == "" {
 			c.Next()
 			return
 		}
-		cw := &compressWriter{
-			ctx:     c,
-			rw:      c.Writer,
-			algo:    algo,
-			pool:    cfg.pools[algo],
-			minSize: cfg.minSize,
-		}
+		cw := acquireCompressWriter(c, accept, cfg)
 		c.Writer = cw
 		// finish also runs while a panic unwinds, so buffers never leak. | panic 展开时 finish 同样会执行，缓冲不会泄漏。
 		defer cw.finish()
 		c.Next()
 	}
+}
+
+// compressWriterPool recycles the per-request wrapper so the skip path does not allocate one.
+// | compressWriterPool 复用每请求的包装器，使跳过路径不再分配它。
+var compressWriterPool = sync.Pool{New: func() any { return new(compressWriter) }}
+
+// acquireCompressWriter takes a wrapper from the pool and points it at c. | acquireCompressWriter 从池中取出包装器并指向 c。
+func acquireCompressWriter(c *router.Ctx, accept string, cfg *compressConfig) *compressWriter {
+	w := compressWriterPool.Get().(*compressWriter)
+	w.ctx = c
+	w.rw = c.Writer
+	w.cfg = cfg
+	w.accept = accept
+	w.minSize = cfg.minSize
+	return w
+}
+
+// releaseCompressWriter clears every request-scoped reference before pooling the wrapper.
+// | releaseCompressWriter 在归还包装器前清除所有与请求相关的引用。
+func releaseCompressWriter(w *compressWriter) {
+	w.ctx = nil
+	w.rw = nil
+	w.cfg = nil
+	w.enc = nil
+	w.sink = encoderSink{}
+	w.pool = nil
+	w.err = nil
+	w.buf = nil
+	w.accept = ""
+	w.algo = 0
+	w.code = 0
+	w.minSize = 0
+	w.decided = false
+	w.closed = false
+	compressWriterPool.Put(w)
+}
+
+// appendBuffer appends p to dst, taking a pooled block when dst lacks capacity.
+// | appendBuffer 把 p 追加到 dst；容量不足时从池中取新块。
+func appendBuffer(dst, p []byte) []byte {
+	need := len(dst) + len(p)
+	if need <= cap(dst) {
+		return append(dst, p...)
+	}
+	grown := bufpool.Get(need)
+	grown = append(grown, dst...)
+	bufpool.Put(dst)
+	return append(grown, p...)
 }
 
 // compressWriter defers the response header until the body size is known. | compressWriter 延迟写出响应头，直到正文长度可知。
@@ -277,7 +405,10 @@ type compressWriter struct {
 	enc     encoder
 	err     error
 	ctx     *router.Ctx
+	cfg     *compressConfig
 	pool    *encoderPool
+	accept  string
+	sink    encoderSink
 	buf     []byte
 	algo    Algorithm
 	minSize int
@@ -285,6 +416,62 @@ type compressWriter struct {
 	code    int
 	decided bool
 	closed  bool
+}
+
+// encoderSinkSize bounds the pooled buffer that coalesces encoder output. | encoderSinkSize 限制合并编码器输出的池化缓冲大小。
+const encoderSinkSize = 4 << 10
+
+// encoderSink coalesces encoder writes into one pooled buffer before they reach the response
+// writer. | encoderSink 在编码器输出到达响应写入器之前，用一个池化缓冲合并这些小写入。
+type encoderSink struct {
+	dst io.Writer
+	buf []byte
+}
+
+// reset points the sink at dst and takes a pooled buffer. | reset 把槽指向 dst 并取得池化缓冲。
+func (s *encoderSink) reset(dst io.Writer) {
+	s.dst = dst
+	s.buf = bufpool.Get(encoderSinkSize)
+}
+
+// Write buffers p, or writes it straight through when it is already large. | Write 缓冲 p；
+// 若 p 本身已足够大则直接写出。
+func (s *encoderSink) Write(p []byte) (int, error) {
+	if len(p) >= encoderSinkSize && len(s.buf) == 0 {
+		return s.dst.Write(p)
+	}
+	if len(s.buf)+len(p) > encoderSinkSize {
+		// Flush first so the pooled buffer never has to grow; large writes then bypass it.
+		// | 先冲刷，池化缓冲因此永不扩容；随后的大块写入直接绕过它。
+		if err := s.flush(); err != nil {
+			return 0, err
+		}
+		if len(p) >= encoderSinkSize {
+			return s.dst.Write(p)
+		}
+	}
+	s.buf = append(s.buf, p...)
+	return len(p), nil
+}
+
+// flush pushes buffered output to the destination. | flush 把缓冲输出推送到目标写入器。
+func (s *encoderSink) flush() error {
+	if len(s.buf) == 0 {
+		return nil
+	}
+	n, err := s.dst.Write(s.buf)
+	if err == nil && n < len(s.buf) {
+		err = io.ErrShortWrite
+	}
+	s.buf = s.buf[:0]
+	return err
+}
+
+// release returns the buffer to the pool. | release 把缓冲归还到池中。
+func (s *encoderSink) release() {
+	bufpool.Put(s.buf)
+	s.buf = nil
+	s.dst = nil
 }
 
 // statusAllowsCompression reports whether a body may follow the given status code.
@@ -340,7 +527,7 @@ func (w *compressWriter) Write(p []byte) (int, error) {
 		}
 		return w.rw.Write(p)
 	}
-	w.buf = append(w.buf, p...)
+	w.buf = appendBuffer(w.buf, p)
 	if len(w.buf) >= w.minSize {
 		w.beginCompress()
 	}
@@ -360,6 +547,7 @@ func (w *compressWriter) Flush() {
 		if f, ok := w.enc.(interface{ Flush() error }); ok {
 			_ = f.Flush()
 		}
+		_ = w.sink.flush()
 	}
 	if f, ok := w.rw.(http.Flusher); ok {
 		f.Flush()
@@ -385,8 +573,8 @@ func (w *compressWriter) headersAllowCompression() bool {
 	return true
 }
 
-// beginCompress writes the header and starts the encoder, flushing the buffered body into it.
-// | beginCompress 写出响应头并启动编码器，把已缓冲的正文冲入其中。
+// beginCompress negotiates the encoding, writes the header and starts the encoder, flushing the
+// buffered body into it. | beginCompress 协商编码、写出响应头并启动编码器，把已缓冲的正文冲入其中。
 func (w *compressWriter) beginCompress() {
 	if w.decided {
 		return
@@ -395,7 +583,15 @@ func (w *compressWriter) beginCompress() {
 		w.passThrough()
 		return
 	}
-	enc := w.pool.get(w.rw)
+	algo, ok := Negotiate(w.accept, w.cfg.algos)
+	if !ok {
+		w.passThrough()
+		return
+	}
+	w.algo = algo
+	w.pool = w.cfg.pools[algo]
+	w.sink.reset(w.rw)
+	enc := w.pool.get(&w.sink)
 	if enc == nil {
 		w.passThrough()
 		return
@@ -417,8 +613,14 @@ func (w *compressWriter) beginCompress() {
 		if _, err := w.enc.Write(w.buf); err != nil {
 			w.err = err
 		}
-		w.buf = nil
+		w.releaseBuf()
 	}
+}
+
+// releaseBuf returns the pending body buffer to the pool. | releaseBuf 把待压缩正文缓冲归还到池中。
+func (w *compressWriter) releaseBuf() {
+	bufpool.Put(w.buf)
+	w.buf = nil
 }
 
 // passThrough writes the buffered body unchanged and stops wrapping.
@@ -441,7 +643,7 @@ func (w *compressWriter) passThrough() {
 		if err != nil {
 			w.err = err
 		}
-		w.buf = nil
+		w.releaseBuf()
 	}
 	w.detach()
 }
@@ -454,7 +656,8 @@ func (w *compressWriter) detach() {
 	}
 }
 
-// finish closes the encoder and returns it to the pool. | finish 关闭编码器并把它归还到池中。
+// finish closes the encoder, returns the pending buffer and the wrapper to their pools.
+// | finish 关闭编码器，并把待压缩缓冲与包装器归还到各自的池中。
 func (w *compressWriter) finish() {
 	if w.closed {
 		return
@@ -466,10 +669,14 @@ func (w *compressWriter) finish() {
 	}
 	if w.enc != nil {
 		_ = w.enc.Close()
+		_ = w.sink.flush()
 		w.pool.put(w.enc)
 		w.enc = nil
 	}
+	w.sink.release()
+	w.releaseBuf()
 	w.detach()
+	releaseCompressWriter(w)
 }
 
 // encoder is a reusable compression stream. | encoder 是可复用的压缩流。

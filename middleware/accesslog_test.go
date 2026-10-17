@@ -1,9 +1,14 @@
 package middleware
 
 import (
+	"bytes"
 	"net/http"
+	"strings"
+	"sync"
 	"testing"
 
+	"github.com/shibingli/yd/core/jsonx"
+	"github.com/shibingli/yd/core/logx"
 	"github.com/shibingli/yd/http/router"
 )
 
@@ -95,6 +100,109 @@ func TestAccessLogCountsChunksAndKeepsFlush(t *testing.T) {
 	entry := onlyRecord(t, buf)
 	if got := numField(t, entry, "bytes"); got != float64(len("onetwothree")) {
 		t.Errorf("bytes = %v, 期望 %d", got, len("onetwothree"))
+	}
+}
+
+// syncBuffer is a mutex-guarded log sink for parallel access-log tests.
+// | syncBuffer 是并行访问日志测试所使用的互斥锁保护日志接收器。
+type syncBuffer struct {
+	mu  sync.Mutex
+	buf bytes.Buffer
+}
+
+// Write appends p under the lock. | Write 在锁内追加 p。
+func (b *syncBuffer) Write(p []byte) (int, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.Write(p)
+}
+
+// String returns the collected output under the lock. | String 在锁内返回已收集的输出。
+func (b *syncBuffer) String() string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.String()
+}
+
+// TestAccessLogConcurrentReuseIsIsolated drives many requests through a pooled countingWriter and
+// asserts every log record still carries its own status and byte count. A stale field surviving
+// the pool would show up here as a mismatched record under -race and in the counts.
+// | TestAccessLogConcurrentReuseIsIsolated 让大量请求复用池化的 countingWriter，
+// 断言每条日志仍携带自身的状态码与字节数。若有字段在归还后残留，这里会在 -race 下或计数校验中暴露。
+func TestAccessLogConcurrentReuseIsIsolated(t *testing.T) {
+	type routeCase struct {
+		path   string
+		body   string
+		status int
+	}
+	routes := []routeCase{
+		{"/r0", "", http.StatusOK},
+		{"/r1", "a", http.StatusOK},
+		{"/r2", "bb", http.StatusCreated},
+		{"/r3", strings.Repeat("c", 37), http.StatusAccepted},
+		{"/r4", strings.Repeat("d", 129), http.StatusNonAuthoritativeInfo},
+	}
+	byPath := make(map[string]routeCase, len(routes))
+
+	sink := &syncBuffer{}
+	log := logx.New(logx.Options{Writer: sink, Level: logx.DebugLevel})
+	r := router.New()
+	r.Use(AccessLog(log))
+	for _, rt := range routes {
+		rt := rt
+		byPath[rt.path] = rt
+		r.GET(rt.path, func(c *router.Ctx) { _ = c.String(rt.status, rt.body) })
+	}
+
+	const (
+		workers    = 16
+		iterations = 100
+	)
+	var wg sync.WaitGroup
+	for w := 0; w < workers; w++ {
+		wg.Add(1)
+		go func(w int) {
+			defer wg.Done()
+			for i := 0; i < iterations; i++ {
+				rt := routes[(w+i)%len(routes)]
+				rec := doReq(r, http.MethodGet, rt.path, nil, "")
+				if rec.Code != rt.status {
+					t.Errorf("%s: code = %d, 期望 %d", rt.path, rec.Code, rt.status)
+				}
+				if rec.Body.String() != rt.body {
+					t.Errorf("%s: body = %q, 期望 %q", rt.path, rec.Body.String(), rt.body)
+				}
+			}
+		}(w)
+	}
+	wg.Wait()
+
+	counts := make(map[string]int, len(routes))
+	for _, line := range strings.Split(strings.TrimSpace(sink.String()), "\n") {
+		if line == "" {
+			continue
+		}
+		entry := map[string]any{}
+		if err := jsonx.Unmarshal([]byte(line), &entry); err != nil {
+			t.Fatalf("日志行不是合法 JSON: %v (行内容 %q)", err, line)
+		}
+		path, _ := entry["path"].(string)
+		want, ok := byPath[path]
+		if !ok {
+			t.Fatalf("日志中的 path = %q 不属于任何测试路由", path)
+		}
+		counts[path]++
+		if got := numField(t, entry, "status"); got != float64(want.status) {
+			t.Errorf("%s: 日志 status = %v, 期望 %d", path, got, want.status)
+		}
+		if got := numField(t, entry, "bytes"); got != float64(len(want.body)) {
+			t.Errorf("%s: 日志 bytes = %v, 期望 %d", path, got, len(want.body))
+		}
+	}
+	for _, rt := range routes {
+		if counts[rt.path] == 0 {
+			t.Errorf("%s: 没有对应的日志记录", rt.path)
+		}
 	}
 }
 

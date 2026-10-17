@@ -220,6 +220,36 @@ func BenchmarkRateLimit(b *testing.B) {
 	benchServe(b, r, req, benchExpectBody(benchSmallBody))
 }
 
+// BenchmarkCompressNegotiate compares the old map-based Accept-Encoding parse with the
+// allocation-free scanner used by Negotiate. The map case is the "before" reference: it is the
+// exact path Compress used to run on every request. | BenchmarkCompressNegotiate 对比旧的基于 map 的
+// Accept-Encoding 解析与 Negotiate 使用的无分配扫描器。map 用例即「优化前」参考：它正是
+// Compress 过去每个请求都会走的路径。
+func BenchmarkCompressNegotiate(b *testing.B) {
+	const accept = "gzip, deflate, br;q=0.9, zstd;q=0.8, *;q=0.1"
+	algos := []Algorithm{Brotli, Zstd, Gzip}
+	b.Run("map_parse", func(b *testing.B) {
+		b.ReportAllocs()
+		for i := 0; i < b.N; i++ {
+			benchNegotiateSink = ParseAcceptEncoding(accept)
+		}
+	})
+	b.Run("scan_negotiate", func(b *testing.B) {
+		b.ReportAllocs()
+		for i := 0; i < b.N; i++ {
+			benchAlgoSink, benchBoolSink = Negotiate(accept, algos)
+		}
+	})
+}
+
+// benchNegotiateSink and benchAlgoSink keep benchmark results observable. | benchNegotiateSink 与
+// benchAlgoSink 让基准结果不被编译器消除。
+var (
+	benchNegotiateSink map[string]float64
+	benchAlgoSink      Algorithm
+	benchBoolSink      bool
+)
+
 // BenchmarkCompress covers both sides of the compression middleware. The skip cases measure the
 // wrapper overhead when the response is too small or already encoded; the 16 KiB cases measure the
 // full compression path for HTML and JSON, each pinned to one algorithm so the codecs can be compared.
