@@ -8,10 +8,13 @@
 //     numbers are written straight into the buffer through strconv.AppendXxx, and strings are escaped in place according to JSON rules; |     数值一律经 strconv.AppendXxx 直写缓冲，字符串按 JSON 规则就地转义；
 //   - Callers can hoist the level check with Enabled, avoiding field construction at disabled levels; |   - 调用方可用 Enabled 把级别判断前置，避免在禁用级别上构造字段；
 //     the disabled path allocates nothing (guaranteed by the allocation guard in BenchmarkDisabledLevel); |     禁用路径零分配（由 BenchmarkDisabledLevel 的分配护栏保证）；
+//   - Every record carries the process id (pid) and, when the platform reports one, the host name, both captured once in New; |   - 每条记录都带进程号（pid），平台能提供时还带主机名（host），两者都在 New 时取一次并缓存；
 //   - Times are always output as UTC, with default layouts of millisecond-precision RFC3339 (JSON) and "15:04:05.000" (console); |   - 时间一律按 UTC 输出，默认布局为毫秒精度 RFC3339（JSON）与 "15:04:05.000"（console）；
 //   - time.Duration is output as milliseconds (float64) in JSON and as a human-readable string in console; |   - time.Duration 在 JSON 中输出毫秒数（float64），在 console 中输出人类可读字符串；
 //   - []byte fields are output as base64 (RFC 4648 standard encoding), matching the encoding/json convention for []byte; |   - []byte 字段按 base64（RFC 4648 标准编码）输出，与 encoding/json 对 []byte 的约定一致；
-//   - Any is the slow path: known types are normalized in place to reflection-free representations, and unknown types fall back to encoding/json. |   - Any 为慢路径：已知类型就地归一为无反射表示，未知类型回退 encoding/json。
+//   - Any is the slow path: known types are normalized in place to reflection-free representations, and unknown types fall back to encoding/json; |   - Any 为慢路径：已知类型就地归一为无反射表示，未知类型回退 encoding/json；
+//   - Async is opt-in: producers encode locally and a dedicated writer goroutine coalesces whole records into batched writes, |   - Async 为显式开启：生产者在本地完成编码，专用写协程把完整记录合并为批量写，
+//     with a bounded queue and blocking backpressure; the default remains one synchronous Write per record. |     队列有界且采用阻塞背压；默认仍为每条记录一次同步 Write。
 //
 // Basic usage: | 基本用法：
 //
@@ -42,11 +45,24 @@ const (
 
 	// defaultExitCode is the default exit code Fatal passes to ExitFunc. | defaultExitCode 是 Fatal 调用 ExitFunc 时使用的默认退出码。
 	defaultExitCode = 1
+
+	// PipeBufSize is the POSIX PIPE_BUF atomic-write boundary (4096 bytes on Linux). | PipeBufSize 是 POSIX PIPE_BUF 的原子写边界（Linux 为 4096 字节）。
+	//
+	// Writes of at most this many bytes to a pipe are atomic on POSIX systems; longer writes may | 在 POSIX 系统上，写入管道的单次写不超过该字节数时是原子的；更长的写可能
+	// be split by the kernel and interleave with writes from other processes. This requires the record | 被内核拆分并与其他进程的写交错。这要求整条记录（同步模式）或整个批次（异步模式）
+	// (sync mode) or batch (async mode) to stay within the boundary when the destination is a pipe. | 在目的地为管道时保持在该边界内。
+	PipeBufSize = 4096
 )
 
 // Options configures a Logger. Every field may be left at its zero value, and the zero value means the default configuration. | Options 配置 Logger。所有字段都可留零值，零值即默认配置。
 type Options struct {
 	// Writer is the log output destination; nil means os.Stdout. | Writer 是日志输出目标；nil 表示 os.Stdout。
+	//
+	// Concurrent use is serialized per Logger family (core), but not across separately created | 同一个 Logger 家族（core）内的并发使用会被串行化，但分别创建的
+	// Loggers: two Loggers writing to the same Writer have independent locks. When several processes | Logger 之间不会：两个写同一 Writer 的 Logger 各有独立锁。多个进程写同一个
+	// append to one file, open it with OpenFile (O_APPEND) so every Write lands at the current end; | 文件时，用 OpenFile（O_APPEND）打开，使每次 Write 都落在当前末尾；
+	// when the destination is a pipe, keep each record (and, in async mode, each batch) within | 目的地为管道时，让每条记录（异步模式下是每个批次）保持在
+	// PipeBufSize, because POSIX only makes writes up to PIPE_BUF atomic across processes. | PipeBufSize 以内，因为 POSIX 只保证不超过 PIPE_BUF 的写在进程间是原子的。
 	Writer io.Writer
 	// ExitFunc is the function called after Fatal writes its log record, meant to terminate the process; nil means os.Exit. | ExitFunc 是 Fatal 记录日志之后调用的函数，用于结束进程；nil 表示 os.Exit。
 	// Tests can replace it in order to observe the exit code. | 测试可替换它以观察退出码。
@@ -63,11 +79,38 @@ type Options struct {
 	Level Level
 	// When Caller is true every log record carries the call site (of the form file.go:123, with the file name only). | Caller 为 true 时每条日志附带调用位置（形如 file.go:123，只含文件名）。
 	Caller bool
+	// Async enables the optional asynchronous, batched writer. | Async 启用可选的异步批量写入器。
+	//
+	// When Async is false (the default) every log call encodes into a pooled buffer and performs one | Async 为 false（默认）时，每次日志调用在池化缓冲中编码后，在锁内执行一次
+	// synchronous Write under the lock before returning; this is the historical semantics and is kept | 同步 Write 才返回；这是既有语义，完整保留。
+	// intact. When Async is true, log calls encode into a pooled buffer and enqueue it, returning before | Async 为 true 时，日志调用在池化缓冲中编码后入队，在写协程完成实际写出之前就返回；
+	// the record has been written; a dedicated writer goroutine drains a bounded queue and coalesces | 专用写协程排空有界队列，把完整记录合并成批次，每批执行一次 Write。
+	// whole records into one Write per batch. Each record is still whole and never interleaved with | 每条记录仍完整，不与其他记录交错；
+	// another; the durability semantics change: returning from a log call no longer means the record | 但持久性语义改变：日志调用返回不再代表记录已写入 Writer。
+	// reached the Writer. Call Sync when that must be guaranteed, and call Close before exiting (Fatal | 需要确保已写出时调用 Sync；进程退出前必须调用 Close（Fatal 会自动先 Sync）。
+	// flushes automatically). When the queue is full producers block (backpressure); records are never | 队列满时生产者阻塞等待（背压），记录不会被丢弃。
+	// dropped. Close is mandatory in async mode, otherwise the writer goroutine stays alive. | 异步模式下必须调用 Close，否则写协程会一直存活。
+	// Record integrity and completeness are guaranteed, but call order is not: the writer drains | 记录的完整性与不丢失有保证，但调用顺序不保证：写协程排空多个独立的环，
+	// several independent rings, so records from one goroutine may be written in a different | 因此同一 goroutine 的记录可能以不同于调用顺序的次序写出。需要严格顺序时
+	// order than they were logged. Keep Async false when strict ordering is required. | 保持 Async 为 false。
+	Async bool
+	// QueueSize is the total number of records the async queue can hold before producers are blocked | QueueSize 是异步队列在生产者被阻塞（背压）之前能容纳的记录总数；
+	// (backpressure); zero means 8192. The value is rounded up to a power of two per ring and clamped | 零表示 8192。该值按每个环向上取整为 2 的幂，并夹紧到总计
+	// to [1024, 262144] records in total. It is ignored when Async is false. | [1024, 262144] 条。Async 为 false 时忽略。
+	QueueSize int
+	// BatchBytes is the maximum number of bytes coalesced into one Write in async mode; zero means | BatchBytes 是异步模式下合并进一次 Write 的最大字节数；零表示
+	// 64 KiB. It is ignored when Async is false. | 64 KiB。Async 为 false 时忽略。
+	// When the destination is a pipe, set BatchBytes to at most PipeBufSize so each batch stays within | 目的地为管道时，把 BatchBytes 设为不超过 PipeBufSize，使每个批次保持在
+	// the POSIX atomic-write boundary; a single record larger than BatchBytes is written on its own and | POSIX 原子写边界内；单条记录大于 BatchBytes 时单独写出，
+	// is therefore only atomic up to the destination's own limits. | 因此只在目的地自身的限制内保持原子。
+	BatchBytes int
 }
 
 // core is the write state shared by one Logger family (the derivation chain of With/Named). | core 是同一 Logger 家族（With/Named 派生链）共享的写入状态。
 type core struct {
-	w     io.Writer    // Output destination, never changed after creation. | 输出目标，创建后不再变更
+	w io.Writer // Output destination, never changed after creation. | 输出目标，创建后不再变更
+	// async is nil in the default synchronous mode; when non-nil it owns the writer goroutine and rings. | async 在默认同步模式下为 nil；非 nil 时承载写协程与各个环。
+	async *asyncState
 	mu    sync.Mutex   // Serializes writes so that a single line is never torn apart under concurrency. | 串行化写入，保证并发时单行不被拆散
 	level atomic.Int32 // Current level threshold (lock-free read, hot path). | 当前级别阈值（无锁读取，热路径）
 }
@@ -81,8 +124,10 @@ type Logger struct {
 	exit       func(int)
 	name       string
 	service    string
+	host       string
 	timeFormat string
 	fields     []Field // Persistent fields accumulated by With. | With 累积的持久字段
+	pid        int     // Process id captured once in New and never re-read on the hot path. | New 时取一次、热路径不再读取的进程号
 	caller     bool
 	console    bool // true means console format. | true 表示 console 格式
 }
@@ -91,6 +136,9 @@ type Logger struct {
 //
 // Defaults: Writer is os.Stdout, Level is InfoLevel, Format is "json" and | 默认值：Writer 为 os.Stdout、Level 为 InfoLevel、Format 为 "json"、
 // ExitFunc is os.Exit. | ExitFunc 为 os.Exit。
+// The process id and host name are captured here once, never on the logging hot path; when the | 进程号与主机名在这里取一次，日志热路径不再获取；平台无法提供主机名时
+// platform cannot report a host name the host field is omitted from every record. | 主机名为空，所有记录都省略 host 字段。
+// When o.Async is true the dedicated writer goroutine starts here; the caller must eventually call Close. | o.Async 为 true 时专用写协程在此启动；调用方最终必须调用 Close。
 func New(o Options) *Logger {
 	w := o.Writer
 	if w == nil {
@@ -103,7 +151,8 @@ func New(o Options) *Logger {
 	c := &core{w: w}
 	c.level.Store(int32(o.Level))
 
-	l := &Logger{core: c, exit: exit, service: o.Service, caller: o.Caller, timeFormat: o.TimeFormat}
+	host, _ := os.Hostname()
+	l := &Logger{core: c, exit: exit, service: o.Service, caller: o.Caller, timeFormat: o.TimeFormat, pid: os.Getpid(), host: host}
 	if o.Format == formatConsole {
 		l.console = true
 		if l.timeFormat == "" {
@@ -111,6 +160,9 @@ func New(o Options) *Logger {
 		}
 	} else if l.timeFormat == "" {
 		l.timeFormat = defaultJSONTimeFormat
+	}
+	if o.Async {
+		c.startAsync(o.QueueSize, o.BatchBytes)
 	}
 	return l
 }
@@ -160,11 +212,12 @@ func (l *Logger) Warn(msg string, fields ...Field) { l.log(WarnLevel, msg, field
 // Error logs at ErrorLevel; it returns immediately when below the threshold. | Error 以 ErrorLevel 记录日志；低于阈值时立即返回。
 func (l *Logger) Error(msg string, fields ...Field) { l.log(ErrorLevel, msg, fields) }
 
-// Fatal logs at FatalLevel and then calls Options.ExitFunc (os.Exit(1) by default). | Fatal 以 FatalLevel 记录日志，随后调用 Options.ExitFunc（默认 os.Exit(1)）。
+// Fatal logs at FatalLevel, flushes pending records and then calls Options.ExitFunc (os.Exit(1) by default). | Fatal 以 FatalLevel 记录日志，先冲刷待写记录，随后调用 Options.ExitFunc（默认 os.Exit(1)）。
 //
 // If a custom ExitFunc does not terminate the process, Fatal returns normally; the caller should then handle the rest of the flow itself. | 自定义 ExitFunc 若不结束进程，Fatal 会正常返回；此时调用方应自行处理后续流程。
 func (l *Logger) Fatal(msg string, fields ...Field) {
 	l.log(FatalLevel, msg, fields)
+	_ = l.Sync()
 	l.exit(defaultExitCode)
 }
 
@@ -199,13 +252,28 @@ func (l *Logger) Named(name string) *Logger {
 	return &child
 }
 
-// Sync flushes the underlying writer: when the writer implements Sync() error (such as *os.File) it is called and its error returned, | Sync 刷新底层写入器：写入器实现 Sync() error 时（如 *os.File）调用它并返回其错误，
-// otherwise it returns nil. | 否则返回 nil。
+// Sync flushes the underlying writer: in the default synchronous mode every record has already been written, so this only calls | Sync 刷新底层写入器：默认同步模式下所有记录都已写出，因此这里只调用
+// the writer's Sync() error method when it has one (such as *os.File) and returns its error; otherwise it returns nil. | 写入器实现的 Sync() error 方法（如 *os.File）并返回其错误；没有实现时返回 nil。
+//
+// In async mode Sync first waits until every record enqueued before this call has been written and the | 异步模式下，Sync 先等待本次调用之前入队的所有记录写出、
+// current batch has been flushed, and then calls the writer's Sync method; records enqueued concurrently | 当前批次冲刷完毕，再调用写入器的 Sync 方法；与此并发的入队记录
+// by other goroutines may or may not be included. After Close, Sync returns nil. | 可能包含也可能不包含。Close 之后 Sync 返回 nil。
 func (l *Logger) Sync() error {
-	l.core.mu.Lock()
-	defer l.core.mu.Unlock()
-	if s, ok := l.core.w.(interface{ Sync() error }); ok {
-		return s.Sync()
+	if a := l.core.async; a != nil {
+		return l.syncAsync(a)
+	}
+	return l.core.syncWriter()
+}
+
+// Close stops the optional async writer goroutine after draining and flushing every record | Close 在排空并冲刷所有已入队记录之后停止可选的异步写协程，
+// enqueued before the call, and then calls the writer's Sync method when it has one. It is idempotent | 随后在写入器实现时调用其 Sync 方法。它是幂等的，
+// and safe to call concurrently with logging and Sync. Log calls that race with Close are discarded. | 且可与日志和 Sync 并发调用；与 Close 竞争的日志调用会被丢弃。
+//
+// In the default synchronous mode Close is a no-op: the Logger does not own the Writer and never closes it. | 默认同步模式下 Close 是无操作：Logger 不拥有 Writer，也从不关闭它。
+// Async mode requires Close (or the writer goroutine leaks), and Fatal flushes automatically before exit. | 异步模式必须调用 Close（否则写协程泄漏）；Fatal 在退出前会自动冲刷。
+func (l *Logger) Close() error {
+	if a := l.core.async; a != nil {
+		return l.closeAsync(a)
 	}
 	return nil
 }
@@ -213,8 +281,10 @@ func (l *Logger) Sync() error {
 // Writer returns the log output destination. | Writer 返回日志输出目标。
 func (l *Logger) Writer() io.Writer { return l.core.w }
 
-// log is the hot path for recording one log line: level check → take a pooled buffer → encode → a single Write → return the buffer. | log 是记录一条日志的热路径：级别判断 → 取池化缓冲 → 编码 → 单次 Write → 归还缓冲。
+// log is the hot path for recording one log line: level check → take a pooled buffer → encode → publish. | log 是记录一条日志的热路径：级别判断 → 取池化缓冲 → 编码 → 发布。
 //
+// In the default synchronous mode publishing is a single Write under the lock; in async mode it is a | 默认同步模式下发布是在锁内执行一次 Write；异步模式下发布是把缓冲指针
+// lock-free enqueue of the buffer pointer, and the writer goroutine owns the buffer from then on. | 无锁入队，此后缓冲由写协程接管。
 // fields is only read and never retained, so the caller's variadic slice can stay on the stack— | fields 只被读取、不会被保存，因此调用方的可变参数切片可留在栈上——
 // this is what makes the disabled-level path allocation-free (see BenchmarkDisabledLevel). | 这是禁用级别路径零分配的前提（见 BenchmarkDisabledLevel）。
 // Write errors are ignored (the zero-copy path does not retry); use Sync when flush errors must be observed. | 写入错误被忽略（零拷贝路径不做重试），需要感知刷盘错误时使用 Sync。
@@ -232,6 +302,10 @@ func (l *Logger) log(lvl Level, msg string, fields []Field) {
 		b.buf = appendConsoleRecord(b.buf, l, lvl, now, msg, caller, fields)
 	} else {
 		b.buf = appendJSONRecord(b.buf, l, lvl, now, msg, caller, fields)
+	}
+	if a := l.core.async; a != nil {
+		a.pushBuffer(b)
+		return
 	}
 	l.core.write(b.buf)
 	putBuffer(b)

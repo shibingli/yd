@@ -6,7 +6,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -107,9 +109,19 @@ func TestJSONShapeStable(t *testing.T) {
 	got := recs[0]
 
 	// The top-level key set must be stable: no extra keys may appear when Caller/Name are not configured. | 顶层键集合必须稳定：不配置 Caller/Name 时不得出现额外键。
-	want := []string{"at", "count", "level", "msg", "ok", "ratio", "service", "took", "ts", "user"}
+	want := []string{"at", "count", "level", "msg", "ok", "pid", "ratio", "service", "took", "ts", "user"}
+	if l.host != "" {
+		want = append(want, "host")
+	}
+	sort.Strings(want)
 	if ks := sortedKeys(got); !equalStrings(ks, want) {
 		t.Fatalf("顶层键 = %v，期望 %v", ks, want)
+	}
+	if pid, ok := got["pid"].(float64); !ok || int(pid) != os.Getpid() {
+		t.Errorf("pid = %#v，期望当前进程号 %d", got["pid"], os.Getpid())
+	}
+	if l.host != "" && got["host"] != l.host {
+		t.Errorf("host = %#v，期望 %q", got["host"], l.host)
 	}
 
 	if got["level"] != "info" {
@@ -395,6 +407,12 @@ func TestConsoleFormatHumanReadable(t *testing.T) {
 	}
 	if fields[1] != "INFO" {
 		t.Errorf("console 第二 token = %q，期望 INFO", fields[1])
+	}
+	if !strings.Contains(line, "pid="+strconv.Itoa(os.Getpid())) {
+		t.Errorf("console 行缺少当前进程号: %q", line)
+	}
+	if l.host != "" && !strings.Contains(line, "host=") {
+		t.Errorf("console 行缺少主机名 %q: %q", l.host, line)
 	}
 	for _, want := range []string{"yd", "hello", "user=alice", "count=3", "took=1.5ms"} {
 		if !strings.Contains(line, want) {

@@ -9,14 +9,22 @@ import (
 //
 // Record shape: | 记录形状：
 //
-//	15:04:05.000 LEVEL service logger (file.go:12) msg key=value key2=3
+//	15:04:05.000 LEVEL pid=1234 host=box service logger (file.go:12) msg key=value key2=3
 //
-// Here service/logger/caller appear only once configured, and field values are quoted when needed. | 其中 service/logger/caller 仅在配置后出现，字段值按需引号包裹。
+// Here pid always appears, host appears when the platform reports one, service/logger/caller appear | 其中 pid 总是出现，host 在平台能提供时出现，service/logger/caller 仅在配置后出现，
 func appendConsoleRecord(dst []byte, l *Logger, lvl Level, t time.Time, msg, caller string, extra []Field) []byte {
 	dst = appendTime(dst, t, l.timeFormat)
 	dst = append(dst, ' ')
 	dst = append(dst, levelLabel(lvl)...)
 	dst = append(dst, ' ')
+	dst = append(dst, "pid="...)
+	dst = strconv.AppendInt(dst, int64(l.pid), 10)
+	dst = append(dst, ' ')
+	if l.host != "" {
+		dst = append(dst, "host="...)
+		dst = appendConsoleString(dst, l.host)
+		dst = append(dst, ' ')
+	}
 	if l.service != "" {
 		dst = append(dst, l.service...)
 		dst = append(dst, ' ')

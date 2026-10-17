@@ -16,8 +16,10 @@ const hexDigits = "0123456789abcdef"
 //
 // The record shape is fixed: | 记录形状固定为：
 //
-//	{"level":..,"ts":..[,"service":..][,"logger":..][,"caller":..],"msg":..,<字段...>}
+//	{"level":..,"ts":..[,"service":..][,"logger":..][,"caller":..],"pid":..[,"host":..],"msg":..,<字段...>}
 //
+// The pid and host identify the emitting process, which makes records from several processes | pid 与 host 标识产生该记录的进程，使多个进程写同一目的地时的记录
+// sharing one destination attributable; both are captured once in New, so this stays allocation-free. | 可以归属到具体进程；两者都在 New 时取一次，因此这里仍保持零分配。
 // Persistent fields (accumulated by With) are written before the fields of the current call. | 持久字段（With 累积）先于本次调用的字段输出。
 func appendJSONRecord(dst []byte, l *Logger, lvl Level, t time.Time, msg, caller string, extra []Field) []byte {
 	dst = append(dst, `{"level":`...)
@@ -37,6 +39,12 @@ func appendJSONRecord(dst []byte, l *Logger, lvl Level, t time.Time, msg, caller
 	if caller != "" {
 		dst = append(dst, `,"caller":`...)
 		dst = appendJSONString(dst, caller)
+	}
+	dst = append(dst, `,"pid":`...)
+	dst = strconv.AppendInt(dst, int64(l.pid), 10)
+	if l.host != "" {
+		dst = append(dst, `,"host":`...)
+		dst = appendJSONString(dst, l.host)
 	}
 	dst = append(dst, `,"msg":`...)
 	dst = appendJSONString(dst, msg)
