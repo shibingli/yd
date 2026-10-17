@@ -122,10 +122,24 @@ type Conn struct {
 
 // newConn constructs the connection object. | newConn 构造连接对象。
 func newConn(nc net.Conn, o Options, isClient bool) *Conn {
+	return newConnWithBuffers(nc, o, isClient, nil, nil)
+}
+
+// newConnWithBuffers constructs the connection object, reusing br and bw when
+// they are non-nil. The caller owns the buffers and must ensure they wrap nc
+// and are not in use elsewhere. | newConnWithBuffers 构造连接对象；br 与 bw 非 nil
+// 时直接复用。调用方拥有这些缓冲，并须确保它们包装的是 nc 且未被其它方使用。
+func newConnWithBuffers(nc net.Conn, o Options, isClient bool, br *bufio.Reader, bw *bufio.Writer) *Conn {
 	writeBufs := make(net.Buffers, 2)
 	c := &Conn{conn: nc, opts: o, isClient: isClient, kind: TransportTCP, writeBase: writeBufs, writeList: writeBufs}
-	if o.ReadBufferSize > 0 {
+	if br != nil {
+		c.br = br
+	} else if o.ReadBufferSize > 0 {
 		c.br = bufio.NewReaderSize(nc, o.ReadBufferSize)
+	}
+	if bw != nil {
+		c.bw = bw
+		return c
 	}
 	writeSize := o.WriteBufferSize
 	if writeSize <= 0 {

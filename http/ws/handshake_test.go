@@ -1,7 +1,10 @@
 package ws
 
 import (
+	"bufio"
+	"net"
 	"net/http"
+	"net/http/httptest"
 	"testing"
 )
 
@@ -36,5 +39,81 @@ func TestSelectSubprotocolDoesNotAllocate(t *testing.T) {
 	allocs := testing.AllocsPerRun(100, func() { subprotocolSink = selectSubprotocol(r, supported) })
 	if allocs != 0 {
 		t.Fatalf("selectSubprotocol allocations = %v, want 0 | selectSubprotocol 分配次数 = %v，期望 0", allocs, allocs)
+	}
+}
+
+// hijackWriter is a ResponseWriter+Hijacker backed by a sink connection. | hijackWriter 是由丢弃连接支撑的 ResponseWriter+Hijacker。
+type hijackWriter struct {
+	header http.Header
+	conn   net.Conn
+	brw    *bufio.ReadWriter
+}
+
+// Header returns the response header map. | Header 返回响应头映射。
+func (w *hijackWriter) Header() http.Header { return w.header }
+
+// Write discards the response bytes. | Write 丢弃响应字节。
+func (w *hijackWriter) Write(p []byte) (int, error) { return len(p), nil }
+
+// WriteHeader is a no-op. | WriteHeader 为空操作。
+func (w *hijackWriter) WriteHeader(int) {}
+
+// Hijack returns the pre-built connection and buffers. | Hijack 返回预构造的连接与缓冲。
+func (w *hijackWriter) Hijack() (net.Conn, *bufio.ReadWriter, error) { return w.conn, w.brw, nil }
+
+// TestUpgradeReusesHijackBuffers pins that the HTTP server's already-allocated
+// read/write buffers are reused when their sizes match, instead of allocating a
+// second pair per connection. | TestUpgradeReusesHijackBuffers 固定「尺寸匹配时
+// 复用 HTTP 服务器已分配的读写缓冲」，而不是为每条连接再分配一对。
+func TestUpgradeReusesHijackBuffers(t *testing.T) {
+	nc := &sinkConn{}
+	brw := bufio.NewReadWriter(
+		bufio.NewReaderSize(nc, defaultReadBufferSize),
+		bufio.NewWriterSize(nc, defaultWriteBufferSize),
+	)
+	w := &hijackWriter{header: make(http.Header), conn: nc, brw: brw}
+	r := httptest.NewRequest(http.MethodGet, "/ws", nil)
+	r.Header.Set("Connection", "Upgrade")
+	r.Header.Set("Upgrade", "websocket")
+	r.Header.Set("Sec-WebSocket-Version", "13")
+	r.Header.Set("Sec-WebSocket-Key", "dGhlIHNhbXBsZSBub25jZQ==")
+
+	c, err := Upgrade(w, r, Options{})
+	if err != nil {
+		t.Fatalf("Upgrade: %v | Upgrade：%v", err, err)
+	}
+	defer func() { _ = c.CloseNow() }()
+	if c.br != brw.Reader {
+		t.Fatalf("read buffer was not reused | 读缓冲未被复用")
+	}
+	if c.bw != brw.Writer {
+		t.Fatalf("write buffer was not reused | 写缓冲未被复用")
+	}
+}
+
+// BenchmarkUpgrade measures a full HTTP/1.1 upgrade with reusable hijack
+// buffers, isolating handshake allocation and CPU cost. | BenchmarkUpgrade 测量
+// 使用可复用劫持缓冲的完整 HTTP/1.1 升级，隔离握手分配与 CPU 开销。
+func BenchmarkUpgrade(b *testing.B) {
+	nc := &sinkConn{}
+	brw := bufio.NewReadWriter(
+		bufio.NewReaderSize(nc, defaultReadBufferSize),
+		bufio.NewWriterSize(nc, defaultWriteBufferSize),
+	)
+	w := &hijackWriter{header: make(http.Header), conn: nc, brw: brw}
+	r := httptest.NewRequest(http.MethodGet, "/ws", nil)
+	r.Header.Set("Connection", "Upgrade")
+	r.Header.Set("Upgrade", "websocket")
+	r.Header.Set("Sec-WebSocket-Version", "13")
+	r.Header.Set("Sec-WebSocket-Key", "dGhlIHNhbXBsZSBub25jZQ==")
+
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		c, err := Upgrade(w, r, Options{})
+		if err != nil {
+			b.Fatalf("Upgrade: %v | Upgrade：%v", err, err)
+		}
+		_ = c.CloseNow()
 	}
 }

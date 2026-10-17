@@ -1,6 +1,7 @@
 package ws
 
 import (
+	"bufio"
 	"crypto/sha1"
 	"errors"
 	"net"
@@ -127,6 +128,39 @@ func Upgrade(w http.ResponseWriter, r *http.Request, o Options) (*Conn, error) {
 		return nil, errx.WrapDetail(err, ErrHandshake, "Hijack failed | Hijack 失败")
 	}
 
+	// The HTTP server hands over its bufio pair with the hijacked connection.
+	// Reuse it when the sizes match (the common case), avoiding a second pair of
+	// 4 KiB buffers per connection. Pending writer bytes must be flushed before
+	// the 101 response goes directly to netConn. | HTTP 服务器随劫持连接交出它的
+	// bufio 对；尺寸匹配（常见情况）时复用，避免每条连接再分配一对 4 KiB 缓冲。
+	// 写缓冲中的待发字节必须在 101 响应直接写 netConn 之前刷出。
+	var br *bufio.Reader
+	var bw *bufio.Writer
+	if brw != nil {
+		if brw.Writer != nil {
+			if brw.Writer.Buffered() > 0 {
+				if err := brw.Writer.Flush(); err != nil {
+					_ = netConn.Close()
+					return nil, errx.WrapDetail(err, ErrHandshake,
+						"failed to flush hijacked buffers | 刷新劫持缓冲失败")
+				}
+			}
+			if brw.Writer.Size() == o.WriteBufferSize {
+				brw.Writer.Reset(netConn)
+				bw = brw.Writer
+			}
+		}
+		if brw.Reader != nil {
+			if brw.Reader.Buffered() > 0 {
+				// Pipelined bytes must survive: use the reader as-is. | 流水线字节必须保留：原样使用该读取器。
+				br = brw.Reader
+			} else if brw.Reader.Size() == o.ReadBufferSize {
+				brw.Reader.Reset(netConn)
+				br = brw.Reader
+			}
+		}
+	}
+
 	// Build the 101 response directly in a byte slice: the previous
 	// strings.Builder path copied the whole response one more time when it was
 	// converted for Write. | 直接在字节切片中构造 101 响应：原先的
@@ -155,16 +189,11 @@ func Upgrade(w http.ResponseWriter, r *http.Request, o Options) (*Conn, error) {
 		return nil, errx.WrapDetail(err, ErrHandshake, "failed to write handshake response | 写入握手响应失败")
 	}
 
-	c := newConn(netConn, o, false)
+	c := newConnWithBuffers(netConn, o, false, br, bw)
 	c.subprotocol = sub
 	c.setCompression(compCfg)
 	// Registration must happen after the handshake response is written: only then is the connection a usable WebSocket that a close frame can address. | 登记必须在握手响应写出之后：此刻连接已是可用的 WebSocket，关闭帧才有意义。
 	c.setTracker(o.Tracker)
-	// a client may pipeline data right after the handshake, so the read buffer returned by Hijack may already hold content; | 客户端可能在握手后立刻流水线发送数据，Hijack 返回的读缓冲里可能已有内容，
-	// in that case the buffer must keep being used, or frames would be lost. | 此时必须继续使用该缓冲，否则会丢帧。
-	if brw != nil && brw.Reader.Buffered() > 0 {
-		c.br = brw.Reader
-	}
 	return c, nil
 }
 
