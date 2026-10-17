@@ -3,7 +3,6 @@ package openapi
 import (
 	"fmt"
 	"go/ast"
-	"go/parser"
 	"go/token"
 	"reflect"
 	"strconv"
@@ -219,28 +218,11 @@ type TypeAnnotations struct {
 // The same name declared twice keeps the first occurrence, which keeps the result
 // deterministic across files. | 同名声明以先出现者为准，保证结果在不同文件间是确定的。
 func ParseTypeAnnotations(fsys afero.Fs, dirs []string) (*TypeAnnotations, error) {
-	files, err := annotationFiles(fsys, dirs)
+	source, err := scanSource(fsys, dirs, false, true)
 	if err != nil {
 		return nil, err
 	}
-	types := &TypeAnnotations{
-		Schemas: map[string]SchemaAnnotation{},
-		Enums:   map[string]EnumAnnotation{},
-		Vars:    map[string]VarAnnotation{},
-	}
-	fset := token.NewFileSet()
-	for _, path := range files {
-		src, err := afero.ReadFile(fsys, path)
-		if err != nil {
-			return nil, errx.WrapDetail(err, ErrRead, "%q", path)
-		}
-		file, err := parser.ParseFile(fset, path, src, parser.ParseComments)
-		if err != nil {
-			return nil, errx.WrapDetail(err, ErrTypeParse, "%q", path)
-		}
-		types.collectFile(fset, file)
-	}
-	return types, nil
+	return source.Types, nil
 }
 
 // TypeNames returns the sorted, de-duplicated names of every annotated type: struct

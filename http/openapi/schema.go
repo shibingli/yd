@@ -6,8 +6,6 @@ import (
 	"sort"
 	"strings"
 	"time"
-
-	"github.com/shibingli/yd/core/jsonx"
 )
 
 // refPrefix is the prefix of a component schema reference. | refPrefix 是组件 Schema 引用前缀。
@@ -29,6 +27,19 @@ type Schema struct {
 	// AdditionalProperties is either a bool or a *Schema describing members not listed in
 	// Properties. | AdditionalProperties 取 bool 或 *Schema，描述未列在 Properties 中的成员。
 	AdditionalProperties any `json:"additionalProperties,omitempty"`
+	// Const is the only allowed value, an OpenAPI 3.1 / JSON Schema addition. | Const 为唯一允许
+	// 的取值，是 OpenAPI 3.1 / JSON Schema 的新增内容。
+	Const any `json:"const,omitempty"`
+	// UnevaluatedProperties is either a bool or a *Schema applied to members not evaluated by
+	// other subschemas. | UnevaluatedProperties 取 bool 或 *Schema，应用于其它子 Schema 未评估的
+	// 成员。
+	UnevaluatedProperties any `json:"unevaluatedProperties,omitempty"`
+	// UnevaluatedItems is either a bool or a *Schema applied to array items not evaluated by
+	// other subschemas. | UnevaluatedItems 取 bool 或 *Schema，应用于其它子 Schema 未评估的数组元素。
+	UnevaluatedItems any `json:"unevaluatedItems,omitempty"`
+	// Extensions holds specification extensions; every key must start with "x-". | Extensions
+	// 保存规范扩展；每个键都必须以 "x-" 开头。
+	Extensions map[string]any `json:"-"`
 	// Properties describes object members. | Properties 描述对象成员。
 	Properties map[string]*Schema `json:"properties,omitempty"`
 	// Items describes array elements. | Items 描述数组元素。
@@ -43,17 +54,6 @@ type Schema struct {
 	// ExternalDocs points at the external documentation of the schema. | ExternalDocs 指向该 Schema
 	// 的外部文档。
 	ExternalDocs *ExternalDocs `json:"externalDocs,omitempty"`
-	// Const is the only allowed value, an OpenAPI 3.1 / JSON Schema addition. | Const 为唯一允许
-	// 的取值，是 OpenAPI 3.1 / JSON Schema 的新增内容。
-	Const any `json:"const,omitempty"`
-	// Examples lists sample values, an OpenAPI 3.1 addition; Example remains the 3.0 form. | Examples
-	// 列出示例值，是 OpenAPI 3.1 的新增内容；Example 仍为 3.0 形式。
-	Examples []any `json:"examples,omitempty"`
-	// Types is emitted as the JSON Schema 2020-12 type array when non-empty, an OpenAPI 3.1
-	// addition that replaces Type; it is not serialized under its own name. | Types 非空时以
-	// JSON Schema 2020-12 的类型数组形式序列化为 type，是 OpenAPI 3.1 中取代 Type 的新增内容；
-	// 它不会以自身名字序列化。
-	Types []string `json:"-"`
 	// Defs maps a name to a reusable subschema ($defs), a JSON Schema 2020-12 keyword. | Defs 把
 	// 名字映射到可复用子 Schema（$defs），是 JSON Schema 2020-12 关键字。
 	Defs map[string]*Schema `json:"$defs,omitempty"`
@@ -72,20 +72,44 @@ type Schema struct {
 	Contains *Schema `json:"contains,omitempty"`
 	// ContentSchema describes decoded string content. | ContentSchema 描述解码后的字符串内容。
 	ContentSchema *Schema `json:"contentSchema,omitempty"`
-	// PrefixItems describes the leading array elements positionally. | PrefixItems 按位置描述数组
-	// 开头元素。
-	PrefixItems []*Schema `json:"prefixItems,omitempty"`
 	// If, Then and Else express conditional validation. | If、Then 与 Else 表达条件校验。
 	If   *Schema `json:"if,omitempty"`
 	Then *Schema `json:"then,omitempty"`
 	Else *Schema `json:"else,omitempty"`
-	// UnevaluatedProperties is either a bool or a *Schema applied to members not evaluated by
-	// other subschemas. | UnevaluatedProperties 取 bool 或 *Schema，应用于其它子 Schema 未评估的
-	// 成员。
-	UnevaluatedProperties any `json:"unevaluatedProperties,omitempty"`
-	// UnevaluatedItems is either a bool or a *Schema applied to array items not evaluated by
-	// other subschemas. | UnevaluatedItems 取 bool 或 *Schema，应用于其它子 Schema 未评估的数组元素。
-	UnevaluatedItems any `json:"unevaluatedItems,omitempty"`
+	// MinContains is the minimum number of matching array elements. | MinContains 为匹配数组元素的
+	// 最小数量。
+	MinContains *int `json:"minContains,omitempty"`
+	// MaxContains is the maximum number of matching array elements. | MaxContains 为匹配数组元素的
+	// 最大数量。
+	MaxContains *int `json:"maxContains,omitempty"`
+	// Minimum is the inclusive lower bound of a numeric value, filled by @Minimum. | Minimum
+	// 为数字取值的闭下界，由 @Minimum 填充。
+	Minimum *float64 `json:"minimum,omitempty"`
+	// Maximum is the inclusive upper bound of a numeric value, filled by @Maximum. | Maximum
+	// 为数字取值的闭上界，由 @Maximum 填充。
+	Maximum *float64 `json:"maximum,omitempty"`
+	// MultipleOf requires the numeric value to be a multiple of it. | MultipleOf 要求数字取值是其倍数。
+	MultipleOf *float64 `json:"multipleOf,omitempty"`
+	// MinLength is the minimum string length. | MinLength 为字符串最小长度。
+	MinLength *int `json:"minLength,omitempty"`
+	// MaxLength is the maximum string length. | MaxLength 为字符串最大长度。
+	MaxLength *int `json:"maxLength,omitempty"`
+	// MinItems is the minimum array length. | MinItems 为数组最小长度。
+	MinItems *int `json:"minItems,omitempty"`
+	// MaxItems is the maximum array length. | MaxItems 为数组最大长度。
+	MaxItems *int `json:"maxItems,omitempty"`
+	// MinProperties is the minimum object member count. | MinProperties 为对象成员最小数量。
+	MinProperties *int `json:"minProperties,omitempty"`
+	// MaxProperties is the maximum object member count. | MaxProperties 为对象成员最大数量。
+	MaxProperties *int `json:"maxProperties,omitempty"`
+	// ExclusiveMinimumValue is the numeric form of an exclusive lower bound, an OpenAPI 3.1
+	// addition that takes precedence over ExclusiveMinimum. | ExclusiveMinimumValue 是开下界的
+	// 数值形式，是 OpenAPI 3.1 的新增内容，优先于 ExclusiveMinimum。
+	ExclusiveMinimumValue *float64 `json:"-"`
+	// ExclusiveMaximumValue is the numeric form of an exclusive upper bound, an OpenAPI 3.1
+	// addition that takes precedence over ExclusiveMaximum. | ExclusiveMaximumValue 是开上界的
+	// 数值形式，是 OpenAPI 3.1 的新增内容，优先于 ExclusiveMaximum。
+	ExclusiveMaximumValue *float64 `json:"-"`
 	// ID is the schema identifier ($id). | ID 为 Schema 标识（$id）。
 	ID string `json:"$id,omitempty"`
 	// SchemaDialect selects the JSON Schema dialect of this subschema ($schema). | SchemaDialect
@@ -107,38 +131,6 @@ type Schema struct {
 	// ContentMediaType declares the string content media type. | ContentMediaType 声明字符串内容
 	// 媒体类型。
 	ContentMediaType string `json:"contentMediaType,omitempty"`
-	// MinContains is the minimum number of matching array elements. | MinContains 为匹配数组元素的
-	// 最小数量。
-	MinContains *int `json:"minContains,omitempty"`
-	// MaxContains is the maximum number of matching array elements. | MaxContains 为匹配数组元素的
-	// 最大数量。
-	MaxContains *int `json:"maxContains,omitempty"`
-	// AllOf requires the value to match every schema. | AllOf 要求取值满足每一个 Schema。
-	AllOf []*Schema `json:"allOf,omitempty"`
-	// OneOf requires the value to match exactly one schema. | OneOf 要求取值恰好满足一个 Schema。
-	OneOf []*Schema `json:"oneOf,omitempty"`
-	// AnyOf requires the value to match at least one schema. | AnyOf 要求取值至少满足一个 Schema。
-	AnyOf []*Schema `json:"anyOf,omitempty"`
-	// Minimum is the inclusive lower bound of a numeric value, filled by @Minimum. | Minimum
-	// 为数字取值的闭下界，由 @Minimum 填充。
-	Minimum *float64 `json:"minimum,omitempty"`
-	// Maximum is the inclusive upper bound of a numeric value, filled by @Maximum. | Maximum
-	// 为数字取值的闭上界，由 @Maximum 填充。
-	Maximum *float64 `json:"maximum,omitempty"`
-	// MultipleOf requires the numeric value to be a multiple of it. | MultipleOf 要求数字取值是其倍数。
-	MultipleOf *float64 `json:"multipleOf,omitempty"`
-	// MinLength is the minimum string length. | MinLength 为字符串最小长度。
-	MinLength *int `json:"minLength,omitempty"`
-	// MaxLength is the maximum string length. | MaxLength 为字符串最大长度。
-	MaxLength *int `json:"maxLength,omitempty"`
-	// MinItems is the minimum array length. | MinItems 为数组最小长度。
-	MinItems *int `json:"minItems,omitempty"`
-	// MaxItems is the maximum array length. | MaxItems 为数组最大长度。
-	MaxItems *int `json:"maxItems,omitempty"`
-	// MinProperties is the minimum object member count. | MinProperties 为对象成员最小数量。
-	MinProperties *int `json:"minProperties,omitempty"`
-	// MaxProperties is the maximum object member count. | MaxProperties 为对象成员最大数量。
-	MaxProperties *int `json:"maxProperties,omitempty"`
 	// Type is the JSON type. | Type 为 JSON 类型。
 	Type string `json:"type,omitempty"`
 	// Format refines the type, for example int64 or date-time. | Format 细化类型，例如 int64 或 date-time。
@@ -153,6 +145,23 @@ type Schema struct {
 	// Pattern is the regular expression a string value must match, filled by @Pattern. | Pattern
 	// 为字符串取值必须匹配的正则表达式，由 @Pattern 填充。
 	Pattern string `json:"pattern,omitempty"`
+	// Examples lists sample values, an OpenAPI 3.1 addition; Example remains the 3.0 form. | Examples
+	// 列出示例值，是 OpenAPI 3.1 的新增内容；Example 仍为 3.0 形式。
+	Examples []any `json:"examples,omitempty"`
+	// Types is emitted as the JSON Schema 2020-12 type array when non-empty, an OpenAPI 3.1
+	// addition that replaces Type; it is not serialized under its own name. | Types 非空时以
+	// JSON Schema 2020-12 的类型数组形式序列化为 type，是 OpenAPI 3.1 中取代 Type 的新增内容；
+	// 它不会以自身名字序列化。
+	Types []string `json:"-"`
+	// PrefixItems describes the leading array elements positionally. | PrefixItems 按位置描述数组
+	// 开头元素。
+	PrefixItems []*Schema `json:"prefixItems,omitempty"`
+	// AllOf requires the value to match every schema. | AllOf 要求取值满足每一个 Schema。
+	AllOf []*Schema `json:"allOf,omitempty"`
+	// OneOf requires the value to match exactly one schema. | OneOf 要求取值恰好满足一个 Schema。
+	OneOf []*Schema `json:"oneOf,omitempty"`
+	// AnyOf requires the value to match at least one schema. | AnyOf 要求取值至少满足一个 Schema。
+	AnyOf []*Schema `json:"anyOf,omitempty"`
 	// Required lists mandatory object members, sorted. | Required 列出必填对象成员，已排序。
 	Required []string `json:"required,omitempty"`
 	// Enum lists the allowed values. | Enum 列出允许取值。
@@ -178,6 +187,9 @@ type Schema struct {
 // Discriminator selects the concrete schema of a polymorphic value. | Discriminator 为多态取值选择
 // 具体 Schema。
 type Discriminator struct {
+	// Extensions holds specification extensions; every key must start with "x-". | Extensions
+	// 保存规范扩展；每个键都必须以 "x-" 开头。
+	Extensions map[string]any `json:"-"`
 	// Mapping maps a discriminator value to a schema name or reference. | Mapping 把鉴别值映射到
 	// Schema 名或引用。
 	Mapping map[string]string `json:"mapping,omitempty"`
@@ -187,6 +199,9 @@ type Discriminator struct {
 
 // XML carries the XML representation hints of a schema. | XML 承载 Schema 的 XML 表示提示。
 type XML struct {
+	// Extensions holds specification extensions; every key must start with "x-". | Extensions
+	// 保存规范扩展；每个键都必须以 "x-" 开头。
+	Extensions map[string]any `json:"-"`
 	// Name is the element name. | Name 为元素名。
 	Name string `json:"name,omitempty"`
 	// Namespace is the element namespace. | Namespace 为元素命名空间。
@@ -209,16 +224,17 @@ func (s Schema) MarshalJSON() ([]byte, error) {
 		Default               any                 `json:"default,omitempty"`
 		AdditionalProperties  any                 `json:"additionalProperties,omitempty"`
 		Const                 any                 `json:"const,omitempty"`
+		UnevaluatedProperties any                 `json:"unevaluatedProperties,omitempty"`
+		UnevaluatedItems      any                 `json:"unevaluatedItems,omitempty"`
+		Type                  any                 `json:"type,omitempty"`
+		ExclusiveMinimum      any                 `json:"exclusiveMinimum,omitempty"`
+		ExclusiveMaximum      any                 `json:"exclusiveMaximum,omitempty"`
 		Properties            map[string]*Schema  `json:"properties,omitempty"`
 		Items                 *Schema             `json:"items,omitempty"`
 		Not                   *Schema             `json:"not,omitempty"`
 		Discriminator         *Discriminator      `json:"discriminator,omitempty"`
 		XML                   *XML                `json:"xml,omitempty"`
 		ExternalDocs          *ExternalDocs       `json:"externalDocs,omitempty"`
-		AllOf                 []*Schema           `json:"allOf,omitempty"`
-		OneOf                 []*Schema           `json:"oneOf,omitempty"`
-		AnyOf                 []*Schema           `json:"anyOf,omitempty"`
-		Examples              []any               `json:"examples,omitempty"`
 		Defs                  map[string]*Schema  `json:"$defs,omitempty"`
 		PatternProperties     map[string]*Schema  `json:"patternProperties,omitempty"`
 		DependentRequired     map[string][]string `json:"dependentRequired,omitempty"`
@@ -226,13 +242,9 @@ func (s Schema) MarshalJSON() ([]byte, error) {
 		PropertyNames         *Schema             `json:"propertyNames,omitempty"`
 		Contains              *Schema             `json:"contains,omitempty"`
 		ContentSchema         *Schema             `json:"contentSchema,omitempty"`
-		PrefixItems           []*Schema           `json:"prefixItems,omitempty"`
 		If                    *Schema             `json:"if,omitempty"`
 		Then                  *Schema             `json:"then,omitempty"`
 		Else                  *Schema             `json:"else,omitempty"`
-		UnevaluatedProperties any                 `json:"unevaluatedProperties,omitempty"`
-		UnevaluatedItems      any                 `json:"unevaluatedItems,omitempty"`
-		Type                  any                 `json:"type,omitempty"`
 		Minimum               *float64            `json:"minimum,omitempty"`
 		Maximum               *float64            `json:"maximum,omitempty"`
 		MultipleOf            *float64            `json:"multipleOf,omitempty"`
@@ -257,14 +269,17 @@ func (s Schema) MarshalJSON() ([]byte, error) {
 		Title                 string              `json:"title,omitempty"`
 		Description           string              `json:"description,omitempty"`
 		Pattern               string              `json:"pattern,omitempty"`
+		AllOf                 []*Schema           `json:"allOf,omitempty"`
+		OneOf                 []*Schema           `json:"oneOf,omitempty"`
+		AnyOf                 []*Schema           `json:"anyOf,omitempty"`
+		Examples              []any               `json:"examples,omitempty"`
+		PrefixItems           []*Schema           `json:"prefixItems,omitempty"`
 		Required              []string            `json:"required,omitempty"`
 		Enum                  []any               `json:"enum,omitempty"`
 		Nullable              bool                `json:"nullable,omitempty"`
 		Deprecated            bool                `json:"deprecated,omitempty"`
 		ReadOnly              bool                `json:"readOnly,omitempty"`
 		WriteOnly             bool                `json:"writeOnly,omitempty"`
-		ExclusiveMinimum      bool                `json:"exclusiveMinimum,omitempty"`
-		ExclusiveMaximum      bool                `json:"exclusiveMaximum,omitempty"`
 		UniqueItems           bool                `json:"uniqueItems,omitempty"`
 	}
 	w := wire{
@@ -325,8 +340,8 @@ func (s Schema) MarshalJSON() ([]byte, error) {
 		Deprecated:            s.Deprecated,
 		ReadOnly:              s.ReadOnly,
 		WriteOnly:             s.WriteOnly,
-		ExclusiveMinimum:      s.ExclusiveMinimum,
-		ExclusiveMaximum:      s.ExclusiveMaximum,
+		ExclusiveMinimum:      exclusiveBound(s.ExclusiveMinimumValue, s.ExclusiveMinimum),
+		ExclusiveMaximum:      exclusiveBound(s.ExclusiveMaximumValue, s.ExclusiveMaximum),
 		UniqueItems:           s.UniqueItems,
 	}
 	if len(s.Types) > 0 {
@@ -334,7 +349,19 @@ func (s Schema) MarshalJSON() ([]byte, error) {
 	} else if s.Type != "" {
 		w.Type = s.Type
 	}
-	return jsonx.Marshal(w)
+	return marshalWithExtensions(w, s.Extensions)
+}
+
+// exclusiveBound renders the 3.1 numeric exclusive bound when it is set, otherwise the 3.0
+// boolean form. | exclusiveBound 在数值开界存在时输出 3.1 形式，否则输出 3.0 的布尔形式。
+func exclusiveBound(value *float64, flag bool) any {
+	if value != nil {
+		return *value
+	}
+	if flag {
+		return true
+	}
+	return nil
 }
 
 // Builder assembles a Document incrementally. | Builder 以增量方式装配 Document。

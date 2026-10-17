@@ -17,6 +17,12 @@
 //     FromRouterWithAnnotations，把 router.Routes() 转换为路径，并合并从处理器源码解析出的
 //     @Summary 风格注解。
 //
+// ParseSource scans the source tree once and returns both handler and type annotations;
+// Document.Validate checks the structural rules and the 3.0/3.1 dialect, and every struct based
+// object carries x-* extensions through its Extensions field. | ParseSource 一次扫描源码树并返回
+// 处理器注解与类型注解；Document.Validate 检查结构规则与 3.0/3.1 方言；所有以结构体表示的对象都
+// 通过 Extensions 字段承载 x-* 扩展。
+//
 // Handler serves both the JSON document and the built-in viewer without referencing
 // any external CDN. | Handler 同时提供 JSON 文档与内置查看器，且不引用任何外部 CDN。
 //
@@ -72,6 +78,9 @@ const (
 // Document is the root object of an OpenAPI 3.0 or 3.1 document. | Document 是 OpenAPI 3.0 或
 // 3.1 文档的根对象。
 type Document struct {
+	// Extensions holds specification extensions; every key must start with "x-". | Extensions
+	// 保存规范扩展；每个键都必须以 "x-" 开头。
+	Extensions map[string]any `json:"-"`
 	// Paths maps an OpenAPI path template to its operations. | Paths 把 OpenAPI 路径模板映射到操作。
 	Paths map[string]PathItem `json:"paths"`
 	// Webhooks maps a webhook name to its path item; this is an OpenAPI 3.1 addition. | Webhooks
@@ -102,6 +111,9 @@ type Document struct {
 
 // Info is the metadata section of a document. | Info 是文档的元数据段。
 type Info struct {
+	// Extensions holds specification extensions; every key must start with "x-". | Extensions
+	// 保存规范扩展；每个键都必须以 "x-" 开头。
+	Extensions map[string]any `json:"-"`
 	// Title is the API title. | Title 为 API 标题。
 	Title string `json:"title"`
 	// Description is the API description. | Description 为 API 描述。
@@ -142,17 +154,30 @@ func (i Info) MarshalJSON() ([]byte, error) {
 		Summary:        i.Summary,
 		TermsOfService: i.TermsOfService,
 	}
-	if i.Contact != (Contact{}) {
+	if !i.Contact.empty() {
 		w.Contact = &i.Contact
 	}
-	if i.License != (License{}) {
+	if !i.License.empty() {
 		w.License = &i.License
 	}
-	return jsonx.Marshal(w)
+	return marshalWithExtensions(w, i.Extensions)
+}
+
+// empty reports whether the contact carries no value. | empty 报告联系人段是否为空。
+func (c Contact) empty() bool {
+	return c.Name == "" && c.URL == "" && c.Email == "" && len(c.Extensions) == 0
+}
+
+// empty reports whether the license carries no value. | empty 报告许可协议段是否为空。
+func (l License) empty() bool {
+	return l.Name == "" && l.URL == "" && l.Identifier == "" && len(l.Extensions) == 0
 }
 
 // Contact is the contact section of Info. | Contact 是 Info 的联系人段。
 type Contact struct {
+	// Extensions holds specification extensions; every key must start with "x-". | Extensions
+	// 保存规范扩展；每个键都必须以 "x-" 开头。
+	Extensions map[string]any `json:"-"`
 	// Name is the contact name. | Name 为联系人名称。
 	Name string `json:"name,omitempty"`
 	// URL is the contact page. | URL 为联系人页面。
@@ -163,6 +188,9 @@ type Contact struct {
 
 // License is the license section of Info. | License 是 Info 的许可协议段。
 type License struct {
+	// Extensions holds specification extensions; every key must start with "x-". | Extensions
+	// 保存规范扩展；每个键都必须以 "x-" 开头。
+	Extensions map[string]any `json:"-"`
 	// Name is the license name. | Name 为许可协议名称。
 	Name string `json:"name,omitempty"`
 	// URL is the license text. | URL 为许可协议正文。
@@ -175,6 +203,9 @@ type License struct {
 
 // Server describes one target server. | Server 描述一台目标服务器。
 type Server struct {
+	// Extensions holds specification extensions; every key must start with "x-". | Extensions
+	// 保存规范扩展；每个键都必须以 "x-" 开头。
+	Extensions map[string]any `json:"-"`
 	// Variables holds the values of the {variable} placeholders in URL. | Variables 保存 URL 中
 	// {variable} 占位符的取值。
 	Variables map[string]ServerVariable `json:"variables,omitempty"`
@@ -186,6 +217,9 @@ type Server struct {
 
 // ServerVariable is one server URL variable. | ServerVariable 是服务器 URL 的一个变量。
 type ServerVariable struct {
+	// Extensions holds specification extensions; every key must start with "x-". | Extensions
+	// 保存规范扩展；每个键都必须以 "x-" 开头。
+	Extensions map[string]any `json:"-"`
 	// Default is the value used when the client does not supply one. | Default 是客户端未提供时
 	// 使用的取值。
 	Default string `json:"default"`
@@ -197,6 +231,9 @@ type ServerVariable struct {
 
 // Tag describes one operation tag. | Tag 描述一个操作用标签。
 type Tag struct {
+	// Extensions holds specification extensions; every key must start with "x-". | Extensions
+	// 保存规范扩展；每个键都必须以 "x-" 开头。
+	Extensions map[string]any `json:"-"`
 	// ExternalDocs points at the external documentation of the tag. | ExternalDocs 指向该标签的
 	// 外部文档。
 	ExternalDocs *ExternalDocs `json:"externalDocs,omitempty"`
@@ -208,6 +245,9 @@ type Tag struct {
 
 // ExternalDocs points at documentation outside the document. | ExternalDocs 指向文档之外的外部文档。
 type ExternalDocs struct {
+	// Extensions holds specification extensions; every key must start with "x-". | Extensions
+	// 保存规范扩展；每个键都必须以 "x-" 开头。
+	Extensions map[string]any `json:"-"`
 	// URL is the documentation address. | URL 为文档地址。
 	URL string `json:"url"`
 	// Description explains the target. | Description 说明目标内容。
@@ -226,6 +266,9 @@ type SecurityRequirement map[string][]string
 // SecurityScheme declares an authentication scheme referenced by SecurityRequirement. | SecurityScheme
 // 声明由 SecurityRequirement 引用的认证方案。
 type SecurityScheme struct {
+	// Extensions holds specification extensions; every key must start with "x-". | Extensions
+	// 保存规范扩展；每个键都必须以 "x-" 开头。
+	Extensions map[string]any `json:"-"`
 	// Flows holds the OAuth 2 flows, required when Type is "oauth2". | Flows 保存 OAuth 2 流程，
 	// Type 为 "oauth2" 时必填。
 	Flows *OAuthFlows `json:"flows,omitempty"`
@@ -252,6 +295,9 @@ type SecurityScheme struct {
 
 // OAuthFlows groups the OAuth 2 flows supported by a scheme. | OAuthFlows 汇总一个方案支持的 OAuth 2 流程。
 type OAuthFlows struct {
+	// Extensions holds specification extensions; every key must start with "x-". | Extensions
+	// 保存规范扩展；每个键都必须以 "x-" 开头。
+	Extensions map[string]any `json:"-"`
 	// Implicit is the implicit grant flow. | Implicit 为隐式授权流程。
 	Implicit *OAuthFlow `json:"implicit,omitempty"`
 	// Password is the resource owner password flow. | Password 为资源所有者口令流程。
@@ -264,6 +310,9 @@ type OAuthFlows struct {
 
 // OAuthFlow describes one OAuth 2 flow. | OAuthFlow 描述一个 OAuth 2 流程。
 type OAuthFlow struct {
+	// Extensions holds specification extensions; every key must start with "x-". | Extensions
+	// 保存规范扩展；每个键都必须以 "x-" 开头。
+	Extensions map[string]any `json:"-"`
 	// Scopes maps a scope name to its description, required for every flow. | Scopes 把作用域名
 	// 映射到说明，每个流程都必填。
 	Scopes map[string]string `json:"scopes"`
@@ -278,6 +327,9 @@ type OAuthFlow struct {
 // PathItem groups the operations available on one path, keyed by lower case HTTP
 // method names. | PathItem 汇总一个路径上的可用操作，以 HTTP 方法小写名作为键。
 type PathItem struct {
+	// Extensions holds specification extensions; every key must start with "x-". | Extensions
+	// 保存规范扩展；每个键都必须以 "x-" 开头。
+	Extensions map[string]any `json:"-"`
 	// Get is the GET operation. | Get 为 GET 操作。
 	Get *Operation `json:"get,omitempty"`
 	// Post is the POST operation. | Post 为 POST 操作。
@@ -310,6 +362,9 @@ type PathItem struct {
 
 // Operation describes a single endpoint. | Operation 描述单个端点。
 type Operation struct {
+	// Extensions holds specification extensions; every key must start with "x-". | Extensions
+	// 保存规范扩展；每个键都必须以 "x-" 开头。
+	Extensions map[string]any `json:"-"`
 	// RequestBody describes the request payload. | RequestBody 描述请求载荷。
 	RequestBody *RequestBody `json:"requestBody,omitempty"`
 	// ExternalDocs points at the external documentation of the operation. | ExternalDocs 指向该操作
@@ -344,6 +399,9 @@ type Operation struct {
 
 // Example is a reusable example object. | Example 是可复用的示例对象。
 type Example struct {
+	// Extensions holds specification extensions; every key must start with "x-". | Extensions
+	// 保存规范扩展；每个键都必须以 "x-" 开头。
+	Extensions map[string]any `json:"-"`
 	// Value is the literal example value. | Value 为字面示例值。
 	Value any `json:"value,omitempty"`
 	// Summary is a one line summary. | Summary 为一行摘要。
@@ -356,6 +414,9 @@ type Example struct {
 
 // Parameter describes one operation parameter. | Parameter 描述一个操作参数。
 type Parameter struct {
+	// Extensions holds specification extensions; every key must start with "x-". | Extensions
+	// 保存规范扩展；每个键都必须以 "x-" 开头。
+	Extensions map[string]any `json:"-"`
 	// Example is a sample value, filled by an @Example line below the @Param. | Example 为示例值，
 	// 由 @Param 下方的 @Example 行填充。
 	Example any `json:"example,omitempty"`
@@ -394,6 +455,9 @@ type Parameter struct {
 
 // Header describes one response header. | Header 描述一个响应头。
 type Header struct {
+	// Extensions holds specification extensions; every key must start with "x-". | Extensions
+	// 保存规范扩展；每个键都必须以 "x-" 开头。
+	Extensions map[string]any `json:"-"`
 	// Schema is the header value schema. | Schema 为响应头取值 Schema。
 	Schema *Schema `json:"schema,omitempty"`
 	// Example is a sample value. | Example 为示例值。
@@ -424,6 +488,9 @@ type Header struct {
 
 // Response describes one response. | Response 描述一个响应。
 type Response struct {
+	// Extensions holds specification extensions; every key must start with "x-". | Extensions
+	// 保存规范扩展；每个键都必须以 "x-" 开头。
+	Extensions map[string]any `json:"-"`
 	// Content maps a media type to its payload schema. | Content 把媒体类型映射到载荷 Schema。
 	Content map[string]MediaType `json:"content,omitempty"`
 	// Headers maps a header name to its description. | Headers 把响应头名映射到说明。
@@ -438,6 +505,9 @@ type Response struct {
 
 // MediaType binds a schema to a media type. | MediaType 把 Schema 绑定到媒体类型。
 type MediaType struct {
+	// Extensions holds specification extensions; every key must start with "x-". | Extensions
+	// 保存规范扩展；每个键都必须以 "x-" 开头。
+	Extensions map[string]any `json:"-"`
 	// Schema is the payload schema. | Schema 为载荷 Schema。
 	Schema *Schema `json:"schema,omitempty"`
 	// Example is a sample payload, filled by an @Example line below the @Success, @Failure or
@@ -454,6 +524,9 @@ type MediaType struct {
 // Encoding describes how one request body property is serialized. | Encoding 描述单个请求体属性的
 // 序列化方式。
 type Encoding struct {
+	// Extensions holds specification extensions; every key must start with "x-". | Extensions
+	// 保存规范扩展；每个键都必须以 "x-" 开头。
+	Extensions map[string]any `json:"-"`
 	// Headers maps a header name to its description. | Headers 把响应头名映射到说明。
 	Headers map[string]*Header `json:"headers,omitempty"`
 	// Explode controls array and object serialization. | Explode 控制数组与对象的序列化方式。
@@ -473,6 +546,9 @@ type Callback map[string]PathItem
 // Link describes a relationship between a response and another operation. | Link 描述响应与另一个
 // 操作之间的关系。
 type Link struct {
+	// Extensions holds specification extensions; every key must start with "x-". | Extensions
+	// 保存规范扩展；每个键都必须以 "x-" 开头。
+	Extensions map[string]any `json:"-"`
 	// Parameters maps a target parameter name to its value or runtime expression. | Parameters
 	// 把目标参数名映射到取值或运行时表达式。
 	Parameters map[string]any `json:"parameters,omitempty"`
@@ -491,6 +567,9 @@ type Link struct {
 
 // RequestBody describes a request payload. | RequestBody 描述请求载荷。
 type RequestBody struct {
+	// Extensions holds specification extensions; every key must start with "x-". | Extensions
+	// 保存规范扩展；每个键都必须以 "x-" 开头。
+	Extensions map[string]any `json:"-"`
 	// Content maps a media type to its payload schema. | Content 把媒体类型映射到载荷 Schema。
 	Content map[string]MediaType `json:"content,omitempty"`
 	// Description explains the payload. | Description 说明载荷含义。
@@ -504,6 +583,9 @@ type RequestBody struct {
 
 // Components holds reusable document fragments. | Components 存放可复用的文档片段。
 type Components struct {
+	// Extensions holds specification extensions; every key must start with "x-". | Extensions
+	// 保存规范扩展；每个键都必须以 "x-" 开头。
+	Extensions map[string]any `json:"-"`
 	// Schemas maps a component name to its schema. | Schemas 把组件名映射到 Schema。
 	Schemas map[string]*Schema `json:"schemas,omitempty"`
 	// SecuritySchemes maps a scheme name to its declaration. | SecuritySchemes 把方案名映射到声明。

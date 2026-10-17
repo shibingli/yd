@@ -50,6 +50,16 @@ func (d *Document) Validate() error {
 		add("unsupported openapi version %q, want 3.0.x or 3.1.x | 不支持的 openapi 版本 %q，应为 3.0.x 或 3.1.x",
 			doc.OpenAPI, doc.OpenAPI)
 	}
+	uses31, uses30 := documentSchemaDialect(doc)
+	if isOpenAPI31(doc.OpenAPI) {
+		if uses30 {
+			add("document uses OpenAPI 3.0 schema keywords (nullable or boolean exclusive bounds) under %q; use Types and numeric exclusive bounds | 文档在 %q 下使用了 OpenAPI 3.0 Schema 关键字（nullable 或布尔开界）；请改用 Types 与数值开界",
+				doc.OpenAPI, doc.OpenAPI)
+		}
+	} else if uses31 || documentUses31Metadata(doc) {
+		add("document uses OpenAPI 3.1 features but declares %q; set openapi to 3.1.x | 文档使用了 OpenAPI 3.1 特性但声明版本为 %q；请把 openapi 设为 3.1.x",
+			doc.OpenAPI, doc.OpenAPI)
+	}
 	validateServers(doc.Servers, "document", add)
 	if doc.ExternalDocs != nil && strings.TrimSpace(doc.ExternalDocs.URL) == "" {
 		add("externalDocs.url is required | externalDocs.url 为必填项")

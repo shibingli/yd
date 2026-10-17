@@ -296,8 +296,12 @@ func startTicker(a *app.App, ticker *service.Ticker, broker *sse.Broker) error {
 func registerOpenAPI(a *app.App) {
 	opts := openapi.Options{Path: OpenAPIPath, DocsPath: DocsPath, Title: meta.Name + " API"}
 	report := &openapi.Report{}
+	source := parseSource(a)
+	// 处理器注解与类型注解来自同一次扫描，避免重复遍历与解析源码目录。
+	// Both dialects come from the same scan, so the source tree is walked and parsed only once.
+	opts.TypeAnnotations = source.Types
 
-	doc := openapi.FromRouterWithAnnotations(a.Router(), openAPIInfo(), opts, annotations(a), report)
+	doc := openapi.FromRouterWithAnnotations(a.Router(), openAPIInfo(), opts, source.Annotations, report)
 	// 受保护端点统一标注 @Security BearerAuth，方案本身在这里声明，客户端据此生成 Authorization 头。
 	// Protected endpoints are annotated with @Security BearerAuth; the scheme is declared here so clients can build the
 	// Authorization header from the document.
@@ -343,9 +347,9 @@ func openAPIInfo() openapi.Info {
 	}
 }
 
-// annotations 解析源码中的 OpenAPI 注解；源码不可用时返回 nil，由路由树兜底。
-// annotations parses the OpenAPI annotations from the source tree; when the source is unavailable it returns nil and the
-// route tree takes over.
+// parseSource 一次扫描同时解析处理器注解与类型注解；源码不可用时返回空结果，由路由树兜底。
+// parseSource parses both handler and type annotations in one scan; when the source is unavailable it returns an empty
+// result and the route tree takes over.
 //
 // 根参数必须是空串而不是 "."：afs.NewOS(".") 会退化成 afero.BasePathFs，而它在 filepath.Clean 之后用前缀判断目录边界，
 // "." 前缀永远匹配不上 "internal" 这类相对路径，任何读取都会得到 ErrNotExist，注解会静默全部丢失。
@@ -354,16 +358,16 @@ func openAPIInfo() openapi.Info {
 // the directory boundary by string prefix after filepath.Clean, and the "." prefix never matches a relative path such as
 // "internal", so every read returns ErrNotExist and all annotations are silently lost. afs.NewOS("") yields a plain OS
 // filesystem rooted at the process working directory instead.
-func annotations(a *app.App) map[string]openapi.Annotation {
-	parsed, err := openapi.ParseAnnotations(afs.NewOS(""), []string{AnnotationDir})
+func parseSource(a *app.App) *openapi.Source {
+	source, err := openapi.ParseSource(afs.NewOS(""), []string{AnnotationDir})
 	if err != nil {
 		a.Logger().Warn("openapi annotations unavailable, derived from the route tree instead | OpenAPI 注解不可用，改由路由树推导",
 			logx.Err(err),
 			logx.Str("dir", AnnotationDir),
 		)
-		return nil
+		return &openapi.Source{}
 	}
-	return parsed
+	return source
 }
 
 // registerFeatures 登记本项目启用的可选特性。

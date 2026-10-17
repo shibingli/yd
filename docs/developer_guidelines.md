@@ -207,6 +207,12 @@ var DefaultQuery = UserQuery{Field: "id"}
 `yd build` 会调用 `openapi` 包解析上述注解并与路由树合并，缺失注解的端点会在构建报告中列出；
 `openapi.Report` 另外报告 `AnnotatedTypes`、`UnannotatedTypes`（反射注册但无注解的类型）与 `EnumCount`。
 
+注解收集推荐使用 `openapi.ParseSource(fsys, dirs)`：一次遍历、一次读取同时返回处理器注解与类型注解，
+避免 `ParseAnnotations` + `ParseTypeAnnotations` 的两次扫描（脚手架已采用该入口）。需要程序化补充
+规范扩展时，在构造对象时给它的 `Extensions` 字段赋值即可，例如
+`&openapi.Operation{Extensions: map[string]any{"x-codegen": "..."}}`；扩展会提升到对象层级，
+键必须以 `x-` 开头，否则序列化返回 `ErrInvalidExtension`。
+
 ## 10. 错误处理规范（强制）
 
 ### 10.1 声明式哨兵错误

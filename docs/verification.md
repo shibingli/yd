@@ -861,7 +861,52 @@ goccy/go-json v0.11.2、json-iterator v1.1.12、cristalhq/base64 v0.1.2、segmen
 - `@Deprecated` 同时属于类型方言：处理器注释块只要含 `@Router` / `@Summary` 等处理器专有指令，
   仍按处理器注解解析，不会被类型解析器抢走。
 
-### 3.17.3 校验与稳定性
+### 3.17.3 规范扩展（x-*）
+
+- 所有以结构体表示的 OpenAPI 对象都带 `Extensions map[string]any`，序列化时**提升到对象层级**
+  （不产生嵌套的 `extensions` 字段），解码时自动回收。
+- 键必须以 `x-` 开头；否则 `JSON()` 返回包装了 `ErrInvalidExtension` 的错误，绝不覆盖标准字段。
+- 合并采用字节拼接而不是解码再编码，因此数值精度与字段顺序保持不变；扩展键按字典序输出。
+- `Paths`、`Responses`、`Callback` 仍以 `map` 表示，任意扩展需要改变公开 Go 类型，因此不在支持范围；
+  这三类对象仍可正常读写其标准成员。
+- Schema 的 3.1 类型数组、数值开界（`exclusiveMinimum`/`exclusiveMaximum`）在序列化与反序列化
+  两端都受支持；3.0 的布尔开界继续原样工作。
+
+### 3.17.4 方言兼容校验
+
+`Validate()` 会检查 3.0/3.1 混用：3.0 文档中出现 3.1 专属字段（`webhooks`、`jsonSchemaDialect`、
+`info.summary`、`license.identifier`、`components.pathItems`、`mutualTLS`、3.1 Schema 关键字等）会报错；
+3.1 文档中出现 `nullable` 或布尔开界也会报错，提示改用 `Types` 与数值开界。错误仍统一包装
+`ErrInvalidDocument`，可用 `errors.Is` 判定。
+
+### 3.17.5 查看器完整渲染
+
+`/docs` 现在渲染：文档概览、服务器与变量、标签、全局安全、安全方案及 OAuth 流程、Webhook、
+组件计数；操作级参数（含 path 级共享参数合并）、请求体、响应、响应头、链接、回调、扩展；
+Schema 的 `$ref`、类型数组、`allOf`/`oneOf`/`anyOf`/`not`、`prefixItems`/`contains`、
+`if/then/else`、`additionalProperties`/`unevaluated*`、约束、枚举、示例、discriminator/xml 等。
+数据岛使用 JSON Unicode 转义而不是 HTML 实体，恶意字符串无法提前关闭 `<script>`，且能被
+`JSON.parse` 原样还原；外部文档只对 `http(s)`/`mailto` 生成链接。
+
+### 3.17.6 注解收集并行化
+
+- 新增 `openapi.ParseSource(fsys, dirs)`：**一次遍历、一次读取、一次解析**同时得到处理器注解与
+  类型注解，替代 `ParseAnnotations` + `ParseTypeAnnotations` 的两次扫描。
+- 文件读取与解析按 `GOMAXPROCS` 组成有界协程池并行执行；每个文件的 `token.FileSet` 独立，
+  `go/parser` 使用 `SkipObjectResolution`；结果按排序后的文件顺序合并，输出与调度无关。
+- 廉价预过滤：不含 `type/const/var` 声明或不含任何类型方言指令的文件直接跳过 `go/parser`；
+  不含 `@` 的文件跳过处理器注解扫描。
+- 基准（Windows，MemMapFs，含双方言注解的源文件）：
+
+  | 文件数 | one-pass | two-pass | 串行 | 并行加速 |
+  |---:|---:|---:|---:|---:|
+  | 64 | 1.17 ms | 1.59 ms | 1.31 ms | 1.12× |
+  | 256 | 3.19 ms | 3.31 ms | 5.24 ms | 1.64× |
+
+  真实磁盘上第二次目录遍历与文件读取的收益通常高于内存文件系统；内存文件系统中并行收益主要来自
+  `go/parser` 的 CPU 部分。
+
+### 3.17.7 校验与稳定性
 
 `Document.Validate()` 一次返回全部问题（`errors.Join`，均可用 `errors.Is(err, ErrInvalidDocument)` 匹配）：
 标题/版本、路径以 `/` 开头、操作至少一个响应、状态码与媒体类型合法、路径参数已声明且必填、
@@ -870,7 +915,7 @@ operationId 唯一、安全方案已声明且类型字段齐全、组件 Schema 
 `Handler` 现在在首次请求时序列化一次并缓存两份载荷，带强 ETag 与 `If-None-Match`（含 `*` 与弱校验器）
 返回 304；并发请求共享同一快照，不会重复编码，也不会观察到写到一半的文档。`NewBuilder` 初始化全部
 组件映射，直接赋值不再触发 nil map panic。脚手架在装配期声明 `BearerAuth` 并调用 `Validate()`，
-不合规只告警、不阻断启动。
+不合规只告警、不阻断启动；注解收集改用 `ParseSource` 单次扫描。
 
 ## 4. 已知限制与未覆盖项
 
@@ -921,8 +966,9 @@ operationId 唯一、安全方案已声明且类型字段齐全、组件 Schema 
     因此可能编码失败的值应使用 `JSON`（先完整序列化，失败时干净地返回 500）。
 19. **SM2 验签成本来自 gmsm**：约 1.35 ms、1965 allocs/op（big.Int 运算与临时对象），
     框架层未替换算法实现；需要更快验签应在上游优化或改用其他曲线/协议。
-20. **OpenAPI 不建模 `x-*` 厂商扩展**：模型覆盖规范核心对象，任意扩展键需要自定义结构体；
-    这不影响规范校验与常见客户端。若需要扩展，应在生成文档后自行后处理 JSON。
+20. **`Paths` / `Responses` / `Callback` 不承载任意 `x-*` 扩展**：这三类对象以 `map` 表示，
+    任意扩展需要改变公开 Go 类型；其余全部结构体对象均支持 `Extensions`。这三类对象的标准成员
+    读写不受影响。
 21. **3.1 Schema 关键字要求版本同步**：模型已覆盖 JSON Schema 2020-12 的主要关键字（`type`
     数组、`$id` / `$defs` / `$anchor` / `$dynamicRef`、`if/then/else`、`prefixItems` / `contains`、
     `contentEncoding` / `contentMediaType`、`unevaluatedProperties` / `unevaluatedItems` 等），

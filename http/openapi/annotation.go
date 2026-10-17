@@ -186,22 +186,11 @@ type Report struct {
 // same key the first one wins. | 没有 @Router 的注解块无法建键，会被忽略；两个块声明同一
 // 键时以先出现者为准。
 func ParseAnnotations(fsys afero.Fs, dirs []string) (map[string]Annotation, error) {
-	blocks, err := parseAnnotationFiles(fsys, dirs)
+	source, err := scanSource(fsys, dirs, true, false)
 	if err != nil {
 		return nil, err
 	}
-	out := make(map[string]Annotation, len(blocks))
-	for _, a := range blocks {
-		key := a.key()
-		if key == "" {
-			continue
-		}
-		if _, dup := out[key]; dup {
-			continue
-		}
-		out[key] = a
-	}
-	return out, nil
+	return source.Annotations, nil
 }
 
 // The same directories are scanned for type annotations, so AnnotatedTypes and EnumCount
@@ -210,13 +199,13 @@ func ParseAnnotations(fsys afero.Fs, dirs []string) (map[string]Annotation, erro
 // 被扫描以收集类型注解，因此 AnnotatedTypes 与 EnumCount 同时描述源码中的结构体、常量块与变量；
 // UnannotatedTypes 需要反射信息，改由 Builder.TypeCoverage 填写。
 func CollectFromSource(fsys afero.Fs, dirs []string) (*Report, error) {
-	blocks, err := parseAnnotationFiles(fsys, dirs)
+	source, err := scanSource(fsys, dirs, true, true)
 	if err != nil {
 		return nil, err
 	}
 	report := &Report{}
-	seen := make(map[string]bool, len(blocks))
-	for _, a := range blocks {
+	seen := make(map[string]bool, len(source.blocks))
+	for _, a := range source.blocks {
 		key := a.key()
 		if key == "" {
 			report.Incomplete = append(report.Incomplete, a.Pos)
@@ -233,12 +222,8 @@ func CollectFromSource(fsys afero.Fs, dirs []string) (*Report, error) {
 	sort.Strings(report.Matched)
 	sort.Strings(report.Incomplete)
 
-	types, err := ParseTypeAnnotations(fsys, dirs)
-	if err != nil {
-		return nil, err
-	}
-	report.AnnotatedTypes = types.TypeNames()
-	report.EnumCount = len(types.Enums)
+	report.AnnotatedTypes = source.Types.TypeNames()
+	report.EnumCount = len(source.Types.Enums)
 	return report, nil
 }
 
@@ -673,24 +658,6 @@ func annotationFiles(fsys afero.Fs, dirs []string) ([]string, error) {
 	}
 	sort.Strings(files)
 	return files, nil
-}
-
-// parseAnnotationFiles parses the handler annotation blocks of every candidate Go file
-// below dirs. | parseAnnotationFiles 解析 dirs 下全部候选 Go 文件的处理器注解块。
-func parseAnnotationFiles(fsys afero.Fs, dirs []string) ([]Annotation, error) {
-	files, err := annotationFiles(fsys, dirs)
-	if err != nil {
-		return nil, err
-	}
-	var out []Annotation
-	for _, path := range files {
-		src, err := afero.ReadFile(fsys, path)
-		if err != nil {
-			return nil, errx.WrapDetail(err, ErrRead, "%q", path)
-		}
-		out = append(out, parseFileAnnotations(path, string(src))...)
-	}
-	return out, nil
 }
 
 // skipAnnotationDir reports whether a directory is excluded from annotation scanning. | skipAnnotationDir
