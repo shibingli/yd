@@ -551,3 +551,24 @@ yd versions sync               # 仅重新生成 version_generated.go
   既有项目用 `yd versions upgrade` 跟进。
 - **Dockerfile 的构建镜像标签同样派生**：`golang:{{ .GoMajorMinor }}-alpine` 由 `GoVersion` 计算，
   禁止在模板里手写 `golang:1.27` 这类固定标签。
+
+## 21. 限流与客户端地址（强制）
+
+- **按 IP 限流必须使用 `middleware.KeyRemoteIP(trusted)`**（底层 `router.Ctx.ClientIP(trusted)`），
+  **禁止**用 `Ctx.RealIP()` 做限流、审计等安全判定：后者无条件信任 `X-Forwarded-For` 的最左值，
+  而最左值由客户端控制，改一个头就能换一个新桶。
+- **信任模型**：对端不在 `TrustedProxies` 内时**完全忽略**代理头，直接用 `RemoteAddr`；
+  对端可信时从 XFF **最右**往左走、跳过可信代理，取第一个不可信地址；畸形、超长（>8 KiB）
+  或超过 64 跳的链一律回退到对端地址。`TrustedProxies` 为空即安全默认值（只看对端）。
+- **多机限流必须用 `middleware.RedisStore`**：令牌桶在 Lua 脚本内原子完成「读→补充→判定→写回」，
+  时间取 Redis 服务器的 `TIME` 而非各实例本地时钟；键带统一前缀与 TTL。
+  令牌数一律以**定点小数**字符串落库（`string.format('%.9f', …)`）：部分内嵌 Lua 引擎
+  （含测试替身 miniredis）不接受科学计数法，`tonumber("1e-09")` 返回 nil 会让桶被误判为新桶而重置。
+- **故障策略必须显式选择**：`RateLimitOptions.FailClosed` 默认 `false`（失败开放并记 Warn），
+  设为 `true` 时存储故障返回 **503**。限流是保护措施，不得因存储故障静默放大流量；
+  保护稀缺资源的场景应选择失败关闭。
+- **指纹不是身份**：`KeyFingerprint` 只提高门槛，不能替代认证；UA 与请求头都可伪造。
+  指纹经 FNV-1a 哈希后才作为键，原始 UA/IP 不得进入日志或 Redis 键。
+- **新增维度走 `KeyFunc`**：缺失值一律返回固定标记（`-`），**不得返回空串**——
+  空串会把所有无法识别的请求挤进同一个桶，把按维度限流悄悄变成全局限流。
+- 共享 `LimitStore` 的多条规则必须使用不同的 `KeyPrefix`，否则不同规则会互相消耗令牌。

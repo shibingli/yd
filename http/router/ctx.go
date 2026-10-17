@@ -122,6 +122,12 @@ func (c *Ctx) Scheme() string {
 func (c *Ctx) IsTLS() bool { return c.Request.TLS != nil }
 
 // RealIP resolves the client IP from X-Forwarded-For, X-Real-Ip and RemoteAddr, in that order. | RealIP 依次从 X-Forwarded-For、X-Real-Ip、RemoteAddr 解析客户端 IP。
+//
+// It trusts proxy headers unconditionally: the leftmost X-Forwarded-For value is controlled by the
+// client, so a security decision derived from RealIP can be spoofed. Rate limiting, access logs and
+// audit records must use ClientIP with an explicit trusted-proxy list instead. | 它无条件信任代理头：
+// X-Forwarded-For 最左值由客户端控制，因此据 RealIP 做出的安全判定可被伪造。限流、访问日志与审计
+// 应改用带显式可信代理列表的 ClientIP。
 func (c *Ctx) RealIP() string {
 	if xff := c.Request.Header.Get("X-Forwarded-For"); xff != "" {
 		if i := strings.IndexByte(xff, ','); i > 0 {

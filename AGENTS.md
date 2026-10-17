@@ -59,6 +59,7 @@
 - [ ] **传输加密**：前端敏感字段提交必须声明式触发 SM2 前置加密（`data-yd-encrypt="sm2"`）。
 - [ ] **依赖白名单**：新增依赖须为活跃维护的纯 Go 库，且无已知高危 CVE；不得引入运行时 CDN。
 - [ ] **注入面**：SQL 只允许通过 GORM 参数化查询；模板输出默认走 `html/template` 转义，使用 `template.HTML` 必须写明可信来源。
+- [ ] **客户端地址**：按 IP 限流、审计或风控必须用 `KeyRemoteIP(trusted)` / `Ctx.ClientIP(trusted)`，不得用无条件信任代理头的 `RealIP()`；`TrustedProxies` 为空时只看对端地址。
 - [ ] **正则安全**：所有正则必须经 `core/regexpx`，禁止直接 `import "regexp"` 或 `"github.com/dlclark/regexp2"`；包装层对 RE2 兼容模式走标准库线性引擎，只有 .NET 构造走 regexp2 + 强制超时，不得关闭超时；批量扫描不得掉到 regexp2 路径（大文件上是二次复杂度）。
 - [ ] **版本同步**：改动 `go.mod` 或 `web/assets.lock.json` 后必须运行 `yd versions sync`；提交里必须同时包含 `tooling/scaffold/version_generated.go` 的更新，且 `yd versions check` 通过。
 - [ ] **请求边界**：外部输入必须限长（WebSocket `MaxMessageSize`、请求体 `MaxBytesReader`），并设置读写超时。
