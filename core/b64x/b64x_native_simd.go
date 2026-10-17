@@ -69,6 +69,9 @@ func init() {
 // | encodeSIMD 把完整的 12 字节组编码为 16 个字符并返回消耗的字节数；优先使用 256 位向量，
 // 尾部回退到 128 位向量。
 func encodeSIMD(dst, src []byte, url bool) int {
+	if len(src) < 28 || len(dst) < 32 {
+		return 0
+	}
 	var shufArr = [16]int8{1, 0, 2, 1, 4, 3, 5, 4, 7, 6, 8, 7, 10, 9, 11, 10}
 	var maskLoArr = [16]uint16{0xfc00, 0x0fc0, 0xfc00, 0x0fc0, 0xfc00, 0x0fc0, 0xfc00, 0x0fc0, 0xfc00, 0x0fc0, 0xfc00, 0x0fc0, 0xfc00, 0x0fc0, 0xfc00, 0x0fc0}
 	var maskHiArr = [16]uint16{0x03f0, 0x003f, 0x03f0, 0x003f, 0x03f0, 0x003f, 0x03f0, 0x003f, 0x03f0, 0x003f, 0x03f0, 0x003f, 0x03f0, 0x003f, 0x03f0, 0x003f}
@@ -91,6 +94,10 @@ func encodeSIMD(dst, src []byte, url bool) int {
 	maskHi16 := archsimd.LoadUint16x16(maskHiArr[:])
 	mulHi16 := archsimd.LoadUint16x16(mulHiArr[:])
 	mulLo16 := archsimd.LoadUint16x16(mulLoArr[:])
+	b51x32, b26x32, b13x32 := archsimd.BroadcastUint8x32(51), archsimd.BroadcastUint8x32(26), archsimd.BroadcastUint8x32(13)
+	b62x32, b63x32, dashx32, underx32 := archsimd.BroadcastUint8x32(62), archsimd.BroadcastUint8x32(63), archsimd.BroadcastUint8x32('-'), archsimd.BroadcastUint8x32('_')
+	b51x16, b26x16, b13x16 := archsimd.BroadcastUint8x16(51), archsimd.BroadcastUint8x16(26), archsimd.BroadcastUint8x16(13)
+	b62x16, b63x16, dashx16, underx16 := archsimd.BroadcastUint8x16(62), archsimd.BroadcastUint8x16(63), archsimd.BroadcastUint8x16('-'), archsimd.BroadcastUint8x16('_')
 	zero32 := archsimd.BroadcastUint8x32(0)
 
 	i, o := 0, 0
@@ -99,13 +106,13 @@ func encodeSIMD(dst, src []byte, url bool) int {
 		g1 := archsimd.LoadUint8x16(src[i+12:]).PermuteOrZero(shuffle)
 		in := zero32.SetLo(g0).SetHi(g1).AsUint16x16()
 		idx := in.And(maskLo16).MulHigh(mulHi16).Or(in.And(maskHi16).Mul(mulLo16)).AsUint8x32()
-		res := idx.SubSaturated(archsimd.BroadcastUint8x32(51))
-		less := archsimd.BroadcastUint8x32(26).Greater(idx)
-		res = archsimd.BroadcastUint8x32(13).IfElse(less, res)
+		res := idx.SubSaturated(b51x32)
+		less := b26x32.Greater(idx)
+		res = b13x32.IfElse(less, res)
 		res = idx.Add(lut32.PermuteOrZeroGrouped(res.AsInt8x32()).AsUint8x32())
 		if url {
-			res = archsimd.BroadcastUint8x32('-').IfElse(idx.Equal(archsimd.BroadcastUint8x32(62)), res)
-			res = archsimd.BroadcastUint8x32('_').IfElse(idx.Equal(archsimd.BroadcastUint8x32(63)), res)
+			res = dashx32.IfElse(idx.Equal(b62x32), res)
+			res = underx32.IfElse(idx.Equal(b63x32), res)
 		}
 		res.Store(dst[o:])
 		i += 24
@@ -114,13 +121,13 @@ func encodeSIMD(dst, src []byte, url bool) int {
 	for i+16 <= len(src) && o+16 <= len(dst) {
 		in := archsimd.LoadUint8x16(src[i:]).PermuteOrZero(shuffle).AsUint16x8()
 		idx := in.And(maskLo8).MulHigh(mulHi8).Or(in.And(maskHi8).Mul(mulLo8)).AsUint8x16()
-		res := idx.SubSaturated(archsimd.BroadcastUint8x16(51))
-		less := archsimd.BroadcastUint8x16(26).Greater(idx)
-		res = archsimd.BroadcastUint8x16(13).IfElse(less, res)
+		res := idx.SubSaturated(b51x16)
+		less := b26x16.Greater(idx)
+		res = b13x16.IfElse(less, res)
 		res = idx.Add(lut.PermuteOrZero(res.AsInt8x16()).AsUint8x16())
 		if url {
-			res = archsimd.BroadcastUint8x16('-').IfElse(idx.Equal(archsimd.BroadcastUint8x16(62)), res)
-			res = archsimd.BroadcastUint8x16('_').IfElse(idx.Equal(archsimd.BroadcastUint8x16(63)), res)
+			res = dashx16.IfElse(idx.Equal(b62x16), res)
+			res = underx16.IfElse(idx.Equal(b63x16), res)
 		}
 		res.Store(dst[o:])
 		i += 12
@@ -134,6 +141,9 @@ func encodeSIMD(dst, src []byte, url bool) int {
 // scalar path finish. | decodeSIMD 把完整的 16 字符组解码为 12 字节并返回已处理的前缀；优先使用
 // 256 位向量，遇到填充、空白或非法输入时停止，交给标量路径收尾。
 func decodeSIMD(dst, src []byte, url bool) (int, int) {
+	if len(src) < 32 || len(dst) < 32 {
+		return 0, 0
+	}
 	plus, slash := byte('+'), byte('/')
 	if url {
 		plus, slash = '-', '_'
