@@ -75,7 +75,7 @@ ok  github.com/shibingli/yd/e2e  26.829s
 | 配置 | 「未显式传入的命令行参数不得覆盖环境变量」用变异测试反证（改成恒真后类型断言用例失败） |
 | 编解码 | `jsonx` 三种后端（sonic / go-json / stdlib）符号集一致且输出与 `encoding/json` 逐字节对齐；`b64x` 与标准库 0..256 长度逐一对拍 |
 | 日志 | 稳态 `0 allocs/op`；禁用级别 17ns/op |
-| WebSocket | RFC 6455 官方向量与掩码示例；1002/1007/1009 关闭码；与 `coder/websocket` **双向对拍**（文本/二进制/100KB 大消息/分片/关闭握手/并发） |
+| WebSocket | RFC 6455 官方向量与掩码示例、1002/1007/1009 关闭码；RFC 7692 permessage-deflate 与 `coder/websocket` 双向对拍；RFC 7936 子协议大小写敏感；RFC 9220 HTTP/3 extended CONNECT 往返；RFC 8441 HTTP/2/H2C 往返（`-tags http2legacy`）；H2 处理器生命周期与 `WriteTimeout` 清除 |
 | 国密 | SM3 的 GB/T 向量与 OpenSSL 独立复核；SM2 与 Go 端**固定 k 下密文逐字节相同**（前端 JS ↔ 后端互操作） |
 | 服务端 | HTTP/1.1 + H2C 共用监听；**HTTP/3 真实 QUIC 往返**；优雅退出排空进行中请求；ACME 主机策略拒绝白名单外域名 |
 | gRPC | 同端口真实 gRPC 调用与普通 HTTP 请求互不干扰 |

@@ -83,7 +83,7 @@ yd tools install          # 把缺失且可 go install 的项装进项目内 .yd
 ┌──────────────────────────────────▼──────────────────────────────────────┐
 │ 路由：自研基数树（支持 /:id.jpg、/:id-xx.png 混合分段与后缀捕获）        │
 │ 中间件：Recover · RequestID · AccessLog · Compress(br/zstd/gzip) · CORS │
-│         · RateLimit · i18n · JWT · SSE · WebSocket(RFC6455 自研) · gRPC │
+│         · RateLimit · i18n · JWT · SSE · WebSocket(RFC 6455/7692/7936/8441/9220) · gRPC │
 │ 服务器：HTTP/1.1 + H2C + HTTP/3(QUIC) + ACME 自动证书                   │
 ├─────────────────────────────────────────────────────────────────────────┤
 │ 原语：viper 分层配置 · afero 抽象 FS · 零拷贝日志 · 自适应 JSON/Base64   │
@@ -119,7 +119,7 @@ http/          HTTP 与前端交付
   router/      自研基数树路由（混合参数后缀捕获 · HEAD/OPTIONS 语义 · 流式上传 · Range/ETag 下载）
   render/      模板引擎（afero 模板集 · Dev 免缓存 · asset/dict/json/hx）
   htmx/        Htmx 4 服务端辅助（HX-* 响应头 · hx-partial · OOB）
-  sse/ ws/     W3C 事件流广播 · RFC6455 WebSocket（自研握手与帧编解码）
+  sse/ ws/     W3C 事件流广播 · WebSocket RFC 6455/7692/7936/8441/9220（自研握手与帧编解码）
   i18n/        YAML/TOML/JSON 目录 + Accept-Language q 值协商
   openapi/     OpenAPI 3.0 文档（源码注解解析 + 路由树合并 + 零 CDN 查看器）
 middleware/    Recover · RequestID · AccessLog · CORS · RateLimit · gzip/br/zstd 协商
@@ -137,6 +137,26 @@ runtime/       进程与运行时
 data/          gormx（PrepareStmt + 慢查询打点）· redisx（泛型缓存装饰器）· asynqx（加权队列）
 web/           内嵌前端资产（templates/ · static/ · assets.lock.json）
 ```
+
+### WebSocket 标准与传输
+
+| RFC | 能力 | 前提 |
+|---|---|---|
+| 6455 | 核心协议：握手、帧、掩码、分片、控制帧、关闭码 | 无 |
+| 7692 | permessage-deflate（两端显式开启） | `ws.Options.EnableCompression` / `DialOptions.EnableWriteCompression` |
+| 7936 | 子协议名大小写敏感 | 无 |
+| 8441 | WebSocket over HTTP/2（含 h2c） | 服务端进程需 `GODEBUG=http2xconnect=1`；H2 客户端需 `-tags http2legacy`（Go 1.27 的 x/net/http2 包装了 http.Transport） |
+| 9220 | WebSocket over HTTP/3 | 无需额外环境变量 |
+
+```bash
+# 强制 RFC 8441：yd dev / yd service install / yd docker 会自动写入 GODEBUG=http2xconnect=1
+YD_SERVER_HTTP2_EXTENDED_CONNECT=true
+```
+
+服务端配置 `server.http2.extended_connect: true` 时，裸二进制在 POSIX 上通过 `syscall.Exec`、
+Windows 控制台通过子进程重启完成配置；Windows 服务必须经 `yd service` 安装。
+HTTP/2 与 HTTP/3 的处理器必须阻塞到连接结束——返回即结束流；HTTP/1.1 的 hijack 连接不受此限制。
+路由无需额外注册 CONNECT：Extended CONNECT 会自动回退到同一 GET 路由。
 
 ### 脚手架能力
 

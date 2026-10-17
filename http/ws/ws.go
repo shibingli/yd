@@ -1,4 +1,31 @@
-// Package ws is a WebSocket implementation that strictly follows RFC 6455. | Package ws 是严格遵循 RFC 6455 的 WebSocket 实现。
+// Package ws is a WebSocket implementation covering RFC 6455, RFC 7692,
+// RFC 7936, RFC 8441 and RFC 9220. | Package ws 是覆盖 RFC 6455、7692、7936、8441 与 9220 的 WebSocket 实现。
+//
+// Standards: | 标准：
+//
+//   - RFC 6455 is the core protocol: handshake, framing, masking, fragmentation,
+//     control frames and close codes. | RFC 6455 是核心协议：握手、帧、掩码、分片、控制帧与关闭码。
+//   - RFC 7692 adds opt-in permessage-deflate on both endpoints. | RFC 7692 在两端提供可选的 permessage-deflate。
+//   - RFC 7936 requires subprotocol names to be compared case-sensitively. | RFC 7936 要求子协议名按大小写敏感比较。
+//   - RFC 8441 carries WebSocket over HTTP/2 extended CONNECT; RFC 9220 does the
+//     same over HTTP/3. | RFC 8441 通过 HTTP/2 extended CONNECT 承载 WebSocket；RFC 9220 在 HTTP/3 上同理。
+//
+// Transports: HTTP/1.1 upgrades through http.Hijacker, HTTP/2 (including h2c)
+// and HTTP/3 use extended CONNECT and adapt the request stream to net.Conn.
+// On HTTP/1.1 a handler may hand the Conn to another goroutine and return; on
+// HTTP/2 and HTTP/3 the handler **must stay alive until the connection ends**,
+// because returning closes the stream. | 传输：HTTP/1.1 通过 http.Hijacker 升级；HTTP/2（含 h2c）
+// 与 HTTP/3 使用 extended CONNECT，并把请求流适配成 net.Conn。HTTP/1.1 下处理器可以把 Conn 交给
+// 其它协程后返回；HTTP/2 与 HTTP/3 下处理器**必须阻塞到连接结束**，因为返回即关闭流。
+//
+// HTTP/2 server support is enabled by GODEBUG=http2xconnect=1 at process start;
+// the server.http2.extended_connect configuration key forces it and the framework
+// launchers (yd dev, yd service, yd docker) configure it automatically. The H2
+// client needs -tags http2legacy on Go 1.27 because x/net/http2 wraps
+// http.Transport, whose header validation rejects :protocol. | HTTP/2 服务端支持由进程启动前的
+// GODEBUG=http2xconnect=1 开启；配置键 server.http2.extended_connect 控制是否强制开启，框架启动入口
+// （yd dev、yd service、yd docker）会自动配置。Go 1.27 下 H2 客户端需要 -tags http2legacy，
+// 因为 x/net/http2 包装了 http.Transport，其头部校验会拒绝 :protocol。
 //
 // Design highlights: | 设计要点：
 //
