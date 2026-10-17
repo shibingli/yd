@@ -38,11 +38,18 @@ func init() {
 			simdMaskLo8[j], simdMaskHi8[j], simdMulHi8[j], simdMulLo8[j] = lo, hi, mh, ml
 		}
 		if j&1 == 0 {
-			simdMul16[j&15], simdMul32[j], simdMul64[j] = 64, 64, 64
+			simdMul16[j&15], simdMul32[j] = 64, 64
 		} else {
-			simdMul16[j&15], simdMul32[j], simdMul64[j] = 1, 1, 1
+			simdMul16[j&15], simdMul32[j] = 1, 1
 		}
 		simdLut32[j] = simdLut16[j&15]
+	}
+	for j := 0; j < 64; j++ {
+		if j&1 == 0 {
+			simdMul64[j] = 64
+		} else {
+			simdMul64[j] = 1
+		}
 		simdLut64[j] = simdLut16[j&15]
 		simdPack64[j] = simdPack16[j&15]
 	}
