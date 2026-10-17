@@ -184,6 +184,8 @@ func TestBuiltinDockerfileUsesScratchAndMultiStage(t *testing.T) {
 		"/usr/share/zoneinfo",
 		`ENTRYPOINT ["/app"]`,
 		"COPY --from=builder /out/app /app",
+		`ARG YD_GODEBUG=""`,
+		"ENV GODEBUG=${YD_GODEBUG}",
 	} {
 		if !strings.Contains(body, want) {
 			t.Errorf("内置 Dockerfile 缺少 %q:\n%s", want, body)

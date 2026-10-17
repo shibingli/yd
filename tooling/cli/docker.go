@@ -115,7 +115,7 @@ func runDocker(ctx context.Context, env *Env) error {
 
 // dockerOptions assembles the docker package options from the parsed flags. | dockerOptions 依据已解析的标志组装 docker 包选项。
 func dockerOptions(env *Env, fs *pflag.FlagSet) docker.Options {
-	return docker.Options{
+	o := docker.Options{
 		Dir:           env.WorkDir,
 		Dockerfile:    flagString(fs, flagDockerFile),
 		Tag:           dockerTag(env, fs),
@@ -128,6 +128,16 @@ func dockerOptions(env *Env, fs *pflag.FlagSet) docker.Options {
 		PrepareAssets: dockerPrepareAssets,
 		ExecCommand:   dockerExecCommand,
 	}
+	// The Dockerfile turns YD_GODEBUG into the runtime ENV; only pass it when the
+	// operator asked to force RFC 8441. | Dockerfile 把 YD_GODEBUG 写成运行时 ENV；
+	// 仅在使用方要求强制 RFC 8441 时传入。
+	if env.Cfg != nil && env.Cfg.GetBool("server.http2.extended_connect") {
+		if o.BuildArgs == nil {
+			o.BuildArgs = make(map[string]string, 1)
+		}
+		o.BuildArgs["YD_GODEBUG"] = "http2xconnect=1"
+	}
+	return o
 }
 
 // dockerTag resolves the image reference: --tag verbatim when it was given, otherwise

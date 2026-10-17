@@ -15,6 +15,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/shibingli/yd/core/config"
 	"github.com/shibingli/yd/core/logx"
 	"github.com/shibingli/yd/core/version"
 	"github.com/shibingli/yd/tooling/docker"
@@ -352,6 +353,9 @@ func TestDockerForwardsBuildFlags(t *testing.T) {
 	if argv[len(argv)-1] != dir {
 		t.Errorf("argv 末尾（构建上下文）= %q，期望 %q", argv[len(argv)-1], dir)
 	}
+	if strings.Contains(joined, "YD_GODEBUG") {
+		t.Errorf("default config must not inject YD_GODEBUG: %s | 默认配置不得注入 YD_GODEBUG", joined)
+	}
 }
 
 // A project without a Dockerfile falls back to the built-in template instead of failing. | TestDockerUsesBuiltinDockerfileWithoutProjectFile 项目没有 Dockerfile 时使用内置模板而不是失败。
@@ -440,5 +444,32 @@ func TestDockerDaemonUnavailablePropagates(t *testing.T) {
 	}
 	if got := len(fake.invocations("build")); got != 0 {
 		t.Errorf("守护进程不可用时不应构建，实际构建 %d 次", got)
+	}
+}
+
+// TestDockerHTTP2ExtendedConnectBuildArg proves the force switch reaches the image. | TestDockerHTTP2ExtendedConnectBuildArg
+// 证明强制开关会写入镜像构建参数。
+func TestDockerHTTP2ExtendedConnectBuildArg(t *testing.T) {
+	fake := cliFakeDocker()
+	useDockerExec(t, fake)
+
+	dir := t.TempDir()
+	dockerWriteFile(t, filepath.Join(dir, "Dockerfile"), "FROM scratch\n")
+
+	te := newTestEnv(t, afero.NewOsFs(), "", false)
+	te.env.WorkDir = dir
+	cfg, err := config.Load(config.Options{FS: afero.NewMemMapFs(), ConfigDir: ".", ConfigName: "config"})
+	if err != nil {
+		t.Fatalf("加载配置失败: %v", err)
+	}
+	cfg.Set("server.http2.extended_connect", true)
+	te.env.Cfg = cfg
+
+	if err := Execute(context.Background(), []string{"docker", "--no-assets"}, te.env); err != nil {
+		t.Fatalf("yd docker 失败: %v", err)
+	}
+	argv := dockerBuildArgv(t, fake)
+	if !strings.Contains(strings.Join(argv, " "), "--build-arg YD_GODEBUG=http2xconnect=1") {
+		t.Fatalf("docker build 参数缺少 YD_GODEBUG: %v | 缺少 YD_GODEBUG 构建参数", argv)
 	}
 }

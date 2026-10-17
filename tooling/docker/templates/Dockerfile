@@ -22,6 +22,11 @@ RUN CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags "-s -w" -o /out/app ./c
 # 因此必须显式复制根证书与时区库。
 FROM scratch
 
+# RFC 8441: yd docker passes this build arg when server.http2.extended_connect is true.
+# RFC 8441：server.http2.extended_connect 为 true 时由 yd docker 传入该构建参数。
+ARG YD_GODEBUG=""
+ENV GODEBUG=${YD_GODEBUG}
+
 COPY --from=builder /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/
 COPY --from=builder /usr/share/zoneinfo /usr/share/zoneinfo
 
