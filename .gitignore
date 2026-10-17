@@ -20,3 +20,6 @@ logs/
 node_modules/
 .yd/
 .scratch/
+
+# Superpowers working notes stay local and are never committed. | superpowers 工作笔记仅保留在本地，永不入库。
+superpowers/

@@ -11,7 +11,7 @@
 | 源码仓库 | https://github.com/shibingli/yd |
 | 开源协议 | Apache-2.0（见 `LICENSE`，二次开发与商业衍生完全合规） |
 | 需求基线 | `docs/需求设计说明书.md`（**只读**，任何代理不得修改） |
-| 实施计划 | `docs/superpowers/plans/` |
+| 实施计划 | `docs/superpowers/plans/`（本地工作笔记，**不入库**） |
 
 ## 2. 技术栈核心版本
 
