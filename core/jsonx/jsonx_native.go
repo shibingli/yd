@@ -52,16 +52,18 @@ func putEncoder(e *encoder) {
 // Marshal returns the JSON encoding of v. | Marshal 返回 v 的 JSON 编码。
 func Marshal(v any) ([]byte, error) {
 	rv := reflect.ValueOf(v)
-	if est := estimateValueSize(rv); est >= 64 {
-		const maxHint = 4 << 20
-		if est > maxHint {
-			est = maxHint
+	if rv.Kind() == reflect.Slice && rv.Len() >= 8 {
+		if est := estimateValueSize(rv); est >= 1024 {
+			const maxHint = 4 << 20
+			if est > maxHint {
+				est = maxHint
+			}
+			e := &encoder{buf: make([]byte, 0, est), escapeHTML: true}
+			if err := e.value(rv); err != nil {
+				return nil, err
+			}
+			return e.buf, nil
 		}
-		e := &encoder{buf: make([]byte, 0, est), escapeHTML: true}
-		if err := e.value(rv); err != nil {
-			return nil, err
-		}
-		return e.buf, nil
 	}
 	e := getEncoder(true)
 	if err := e.value(rv); err != nil {
