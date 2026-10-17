@@ -37,6 +37,8 @@ const (
 	defaultBufferSize = 512
 	// heartbeatComment is the comment text carried by heartbeat frames. | heartbeatComment 是心跳帧携带的注释文本。
 	heartbeatComment = "ping"
+	// maxRetainedBuffer caps the assembly buffer kept for reuse; a larger frame is not retained. | maxRetainedBuffer 限制为复用而保留的组装缓冲；更大的帧不会被保留。
+	maxRetainedBuffer = 64 << 10
 )
 
 // Event describes one SSE event. | Event 描述一条 SSE 事件。
@@ -160,16 +162,28 @@ func (w *Writer) detach() {
 func (w *Writer) WriteEvent(e Event) error {
 	w.mu.Lock()
 	defer w.mu.Unlock()
-	return w.writeEventLocked(e, false)
+	return w.writeEventLocked(e)
 }
 
 // WriteData writes an event carrying only the data field, with the default event type (message). | WriteData 以默认事件类型（message）写出一条仅含 data 字段的事件。
 //
 // It is equivalent to WriteEvent(Event{Data: []byte(s)}), except that it emits one `data: ` line even when s is empty. | 等价于 WriteEvent(Event{Data: []byte(s)})，但即使 s 为空也会输出一行 `data: `。
+// The string is appended straight into the assembly buffer, so no []byte(s) conversion is made. | 字符串直接追加进组装缓冲，因此不会产生 []byte(s) 转换。
 func (w *Writer) WriteData(s string) error {
 	w.mu.Lock()
 	defer w.mu.Unlock()
-	return w.writeEventLocked(Event{Data: []byte(s)}, true)
+	if w.closed {
+		return nil
+	}
+	buf := w.buf[:0]
+	if ms := retryMillis(0, w.options.Retry); ms > 0 {
+		buf = append(buf, "retry: "...)
+		buf = strconv.AppendUint(buf, ms, 10)
+		buf = append(buf, '\n')
+	}
+	buf = appendDataLinesString(buf, s)
+	buf = append(buf, '\n')
+	return w.flushLocked(buf)
 }
 
 // Comment writes a comment frame (`: <text>`), whose content clients ignore. | Comment 写出一条注释帧（`: <text>`），客户端会忽略其内容。
@@ -266,8 +280,8 @@ func (w *Writer) stopHeartbeatLocked() {
 	}
 }
 
-// writeEventLocked assembles and writes one complete event frame; when forceData is true it emits a data line even for an empty Data. | writeEventLocked 组装并写出一个完整事件帧；forceData 为 true 时即使 Data 为空也输出 data 行。
-func (w *Writer) writeEventLocked(e Event, forceData bool) error {
+// writeEventLocked assembles and writes one complete event frame. | writeEventLocked 组装并写出一个完整事件帧。
+func (w *Writer) writeEventLocked(e Event) error {
 	if w.closed {
 		return nil
 	}
@@ -290,7 +304,7 @@ func (w *Writer) writeEventLocked(e Event, forceData bool) error {
 		buf = strconv.AppendUint(buf, ms, 10)
 		buf = append(buf, '\n')
 	}
-	if forceData || len(e.Data) > 0 {
+	if len(e.Data) > 0 {
 		buf = appendDataLines(buf, e.Data)
 	}
 	buf = append(buf, '\n')
@@ -298,8 +312,17 @@ func (w *Writer) writeEventLocked(e Event, forceData bool) error {
 }
 
 // flushLocked writes the assembled frame and flushes immediately; it must be called while holding w.mu. | flushLocked 写出组好的帧并立即刷新；必须在持有 w.mu 时调用。
+//
+// A one-off huge frame (a large backlog dump, say) must not pin its buffer for the lifetime of the
+// stream, so the retained capacity is capped and a fresh buffer of the configured size is allocated. | 一次性的
+// 超大帧（例如一次大 backlog 输出）不得让缓冲在整条流的生命周期内驻留，因此保留容量设有上限，
+// 超出时换成配置大小的新缓冲。
 func (w *Writer) flushLocked(buf []byte) error {
-	w.buf = buf
+	if cap(buf) > maxRetainedBuffer {
+		w.buf = make([]byte, 0, w.options.BufferSize)
+	} else {
+		w.buf = buf
+	}
 	if _, err := w.w.Write(buf); err != nil {
 		return errx.Wrap(err, ErrWriteStream)
 	}
@@ -324,24 +347,36 @@ func retryMillis(event, fallback time.Duration) uint64 {
 }
 
 // appendCommentLines splits the comment text on CRLF / CR / LF and appends `: <line>` for every line. | appendCommentLines 把注释文本按 CRLF / CR / LF 拆行，逐行追加 `: <line>`。
+//
+// The split is done while scanning, without strings.ReplaceAll, so a multi-line comment allocates
+// nothing beyond the assembly buffer. | 拆分在扫描过程中完成，不经过 strings.ReplaceAll，因此多行注释
+// 除组装缓冲外不产生任何分配。
 func appendCommentLines(buf []byte, text string) []byte {
-	if strings.ContainsAny(text, "\r\n") {
-		text = strings.ReplaceAll(text, "\r\n", "\n")
-		text = strings.ReplaceAll(text, "\r", "\n")
-	}
-	for {
-		line, rest, more := strings.Cut(text, "\n")
-		buf = append(buf, ':')
-		if line != "" {
-			buf = append(buf, ' ')
-			buf = append(buf, line...)
+	start := 0
+	for i := 0; i < len(text); i++ {
+		switch text[i] {
+		case '\n':
+			buf = appendCommentLine(buf, text[start:i])
+			start = i + 1
+		case '\r':
+			buf = appendCommentLine(buf, text[start:i])
+			if i+1 < len(text) && text[i+1] == '\n' {
+				i++
+			}
+			start = i + 1
 		}
-		buf = append(buf, '\n')
-		if !more {
-			return buf
-		}
-		text = rest
 	}
+	return appendCommentLine(buf, text[start:])
+}
+
+// appendCommentLine appends one `: <line>` line. | appendCommentLine 追加一行 `: <line>`。
+func appendCommentLine(buf []byte, line string) []byte {
+	buf = append(buf, ':')
+	if line != "" {
+		buf = append(buf, ' ')
+		buf = append(buf, line...)
+	}
+	return append(buf, '\n')
 }
 
 // appendDataLines splits data on CRLF / CR / LF and appends `data: <line>` for every line. | appendDataLines 把 data 按 CRLF / CR / LF 拆行，逐行追加 `data: <line>`。
@@ -365,6 +400,33 @@ func appendDataLines(buf, data []byte) []byte {
 
 // appendDataLine appends a single `data:` line. | appendDataLine 追加单行 `data:`。
 func appendDataLine(buf, line []byte) []byte {
+	buf = append(buf, "data: "...)
+	buf = append(buf, line...)
+	return append(buf, '\n')
+}
+
+// appendDataLinesString is appendDataLines for a string, avoiding a []byte conversion. | appendDataLinesString 是
+// appendDataLines 的字符串版本，避免 []byte 转换。
+func appendDataLinesString(buf []byte, data string) []byte {
+	start := 0
+	for i := 0; i < len(data); i++ {
+		switch data[i] {
+		case '\n':
+			buf = appendDataLineString(buf, data[start:i])
+			start = i + 1
+		case '\r':
+			buf = appendDataLineString(buf, data[start:i])
+			if i+1 < len(data) && data[i+1] == '\n' {
+				i++
+			}
+			start = i + 1
+		}
+	}
+	return appendDataLineString(buf, data[start:])
+}
+
+// appendDataLineString appends a single `data:` line from a string. | appendDataLineString 从字符串追加单行 `data:`。
+func appendDataLineString(buf []byte, line string) []byte {
 	buf = append(buf, "data: "...)
 	buf = append(buf, line...)
 	return append(buf, '\n')

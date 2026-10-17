@@ -21,13 +21,18 @@ type frameHeader struct {
 
 // readFrameHeader reads and parses a frame header from r. | readFrameHeader 从 r 读取并解析帧头。
 //
-// The supplied buf is used to hold the extended length and the mask key; it must be at least 8 bytes long so that no allocation is needed. | 传入的 buf 用于暂存扩展长度与掩码键，长度至少为 8，避免分配。
+// The supplied buf is used to hold the fixed header bytes, the extended length and the mask key;
+// it must be at least 8 bytes long so that no allocation is needed. Reading through the caller's
+// buffer (instead of local arrays or a pointer into the returned struct) keeps this function at
+// zero allocations: an array passed through the io.Reader interface would otherwise escape. | 传入的
+// buf 用于暂存固定头字节、扩展长度与掩码键；长度至少为 8，避免分配。经调用方缓冲读取（而不是
+// 局部数组或指向返回结构体的指针）使本函数保持零分配：否则经 io.Reader 接口传出的数组会逃逸到堆上。
 func readFrameHeader(r io.Reader, buf []byte) (frameHeader, error) {
 	var h frameHeader
-	var head [2]byte
-	if _, err := io.ReadFull(r, head[:]); err != nil {
+	if _, err := io.ReadFull(r, buf[:2]); err != nil {
 		return h, err
 	}
+	head := buf[:2]
 	h.fin = head[0]&0x80 != 0
 	h.rsv1 = head[0]&0x40 != 0
 	h.rsv2 = head[0]&0x20 != 0
@@ -56,9 +61,10 @@ func readFrameHeader(r io.Reader, buf []byte) (frameHeader, error) {
 	h.length = length
 
 	if h.masked {
-		if _, err := io.ReadFull(r, h.maskKey[:]); err != nil {
+		if _, err := io.ReadFull(r, buf[:4]); err != nil {
 			return h, err
 		}
+		copy(h.maskKey[:], buf[:4])
 	}
 	return h, nil
 }

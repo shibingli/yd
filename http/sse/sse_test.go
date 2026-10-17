@@ -792,3 +792,73 @@ func TestHeartbeatRestartDoesNotLeakGoroutines(t *testing.T) {
 		t.Fatalf("Close 之后心跳仍在输出：字节数 %d → %d", before, got)
 	}
 }
+
+// TestWriteDataNormalizesLineBreaks 覆盖字符串快速路径对 CRLF / CR / LF 与尾随换行的处理。
+//
+// The string path must produce exactly the same wire bytes as the []byte path it replaced. | 字符串路径
+// 必须与被它取代的 []byte 路径产生完全相同的线上字节。
+func TestWriteDataNormalizesLineBreaks(t *testing.T) {
+	cases := []struct {
+		in   string
+		want string
+	}{
+		{"", "data: \n\n"},
+		{"a", "data: a\n\n"},
+		{"a\nb", "data: a\ndata: b\n\n"},
+		{"a\r\nb", "data: a\ndata: b\n\n"},
+		{"a\rb", "data: a\ndata: b\n\n"},
+		{"a\n", "data: a\ndata: \n\n"},
+	}
+	for _, c := range cases {
+		rec := newFlushRecorder()
+		w, err := NewWriter(rec, Options{})
+		if err != nil {
+			t.Fatalf("NewWriter 返回错误: %v", err)
+		}
+		if err := w.WriteData(c.in); err != nil {
+			t.Fatalf("WriteData(%q) 返回错误: %v", c.in, err)
+		}
+		if got := rec.String(); got != c.want {
+			t.Errorf("WriteData(%q):\n got = %q\nwant = %q", c.in, got, c.want)
+		}
+	}
+}
+
+// TestCommentNormalizesLineBreaks 覆盖多行注释逐行加前缀与 CRLF / CR 归一化。 | TestCommentNormalizesLineBreaks covers per-line comment prefixes and CRLF/CR normalization.
+func TestCommentNormalizesLineBreaks(t *testing.T) {
+	rec := newFlushRecorder()
+	w, err := NewWriter(rec, Options{})
+	if err != nil {
+		t.Fatalf("NewWriter 返回错误: %v", err)
+	}
+	if err := w.Comment("a\r\nb\rc\nd"); err != nil {
+		t.Fatalf("Comment 返回错误: %v", err)
+	}
+	const want = ": a\n: b\n: c\n: d\n\n"
+	if got := rec.String(); got != want {
+		t.Fatalf("注释帧不匹配:\n got = %q\nwant = %q", got, want)
+	}
+}
+
+// TestHugeFrameDoesNotRetainBuffer 要求一次性超大帧不会把大缓冲长期留在写入器上。 | TestHugeFrameDoesNotRetainBuffer requires a one-off huge frame not to pin its large buffer on the writer.
+func TestHugeFrameDoesNotRetainBuffer(t *testing.T) {
+	rec := newFlushRecorder()
+	w, err := NewWriter(rec, Options{})
+	if err != nil {
+		t.Fatalf("NewWriter 返回错误: %v", err)
+	}
+	if err := w.WriteData(strings.Repeat("x", 128<<10)); err != nil {
+		t.Fatalf("WriteData 返回错误: %v", err)
+	}
+	if cap(w.buf) > maxRetainedBuffer {
+		t.Fatalf("retained buffer = %d, want <= %d | 保留缓冲 = %d，期望 <= %d",
+			cap(w.buf), maxRetainedBuffer, cap(w.buf), maxRetainedBuffer)
+	}
+	// The next small frame must still be assembled correctly. | 下一条小帧仍必须正确组装。
+	if err := w.WriteData("ok"); err != nil {
+		t.Fatalf("WriteData 返回错误: %v", err)
+	}
+	if got := rec.String(); !strings.HasSuffix(got, "data: ok\n\n") {
+		t.Fatalf("尾帧 = %q", got[len(got)-16:])
+	}
+}

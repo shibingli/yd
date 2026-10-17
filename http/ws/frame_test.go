@@ -204,3 +204,31 @@ func TestValidCloseCode(t *testing.T) {
 		}
 	}
 }
+
+// TestReadFrameHeaderDoesNotAllocate 要求帧头解析在命中路径上零堆分配。
+//
+// This is a regression guard for the escape that occurred when the fixed header and the mask key
+// were read into local arrays / through pointers into the returned struct. | 这是对「固定头与掩码键
+// 读入局部数组、或经指向返回结构体的指针读取」所导致逃逸的回归守卫。
+func TestReadFrameHeaderDoesNotAllocate(t *testing.T) {
+	var frame [maxHeaderSize]byte
+	n := writeFrameHeader(frame[:], true, BinaryMessage, true, 65536)
+	copy(frame[n:], []byte{1, 2, 3, 4})
+	var scratch [8]byte
+	var reader bytes.Reader
+	var failed bool
+
+	allocs := testing.AllocsPerRun(1000, func() {
+		reader.Reset(frame[:n+4])
+		h, err := readFrameHeader(&reader, scratch[:])
+		if err != nil || h.length != 65536 || h.maskKey != [4]byte{1, 2, 3, 4} {
+			failed = true
+		}
+	})
+	if failed {
+		t.Fatal("frame header decode failed | 帧头解析失败")
+	}
+	if allocs != 0 {
+		t.Fatalf("allocs = %v, want 0 | 分配 = %v，期望 0", allocs, allocs)
+	}
+}

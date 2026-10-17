@@ -46,30 +46,49 @@ type Event struct {
 // triggerHeaderValue computes the value of HX-Trigger; the second return value reports whether the header needs to be written. | triggerHeaderValue 计算 HX-Trigger 的取值；第二个返回值表示是否需要写出该头。
 //
 // With a single event that carries no payload it takes the event name itself, otherwise it takes a JSON object. The JSON is assembled | 仅有一个不含负载的事件时取事件名本身，其余情况取 JSON 对象。JSON 按键的出现顺序
-// in the order the keys appear (events with the same name do not overwrite each other); both keys and values are encoded with jsonx.Marshal, and a payload that cannot be encoded degrades to null. | 拼装（同名事件不会互相覆盖），键名与值均经 jsonx.Marshal 编码；无法编码的负载退化为 null。
+// in the order the keys appear (events with the same name do not overwrite each other); plain ASCII
+// keys are written without allocating, every other key and every value goes through jsonx.Marshal,
+// and a payload that cannot be encoded degrades to null. | 拼装（同名事件不会互相覆盖）；纯 ASCII 键名
+// 零分配写出，其余键名与全部值经 jsonx.Marshal 编码；无法编码的负载退化为 null。
 func triggerHeaderValue(events []Event) (string, bool) {
-	var kept []Event
+	// The common case - one event without a payload - needs no slice and no JSON at all. | 最常见的情形
+	// ——单个不含负载的事件——不需要切片，也不需要 JSON。
+	if len(events) == 1 && events[0].Name != "" && events[0].Detail == nil {
+		return events[0].Name, true
+	}
+
+	// Count first; a clean input is used in place, so no filtered copy is allocated. | 先计数；输入全部合法时
+	// 直接使用原切片，不分配过滤副本。
+	n := 0
 	for _, ev := range events {
 		if ev.Name != "" {
-			kept = append(kept, ev)
+			n++
 		}
 	}
-	if len(kept) == 0 {
+	if n == 0 {
 		return "", false
 	}
-	if len(kept) == 1 && kept[0].Detail == nil {
+	kept := events
+	if n != len(events) {
+		kept = make([]Event, 0, n)
+		for _, ev := range events {
+			if ev.Name != "" {
+				kept = append(kept, ev)
+			}
+		}
+	}
+	if n == 1 && kept[0].Detail == nil {
 		return kept[0].Name, true
 	}
 
 	var buf bytes.Buffer
+	buf.Grow(2 + n*24)
 	buf.WriteByte('{')
 	for i, ev := range kept {
 		if i > 0 {
 			buf.WriteByte(',')
 		}
-		// jsonx.Marshal never fails for a string (invalid UTF-8 is replaced rather than reported as an error). | string 的 jsonx.Marshal 不会失败（非法 UTF-8 也会被替换而不是报错）。
-		name, _ := jsonx.Marshal(ev.Name)
-		buf.Write(name)
+		appendJSONString(&buf, ev.Name)
 		buf.WriteByte(':')
 		detail, err := jsonx.Marshal(ev.Detail)
 		if err != nil {
@@ -79,6 +98,28 @@ func triggerHeaderValue(events []Event) (string, bool) {
 	}
 	buf.WriteByte('}')
 	return buf.String(), true
+}
+
+// appendJSONString writes a JSON string literal, taking a no-allocation path for printable ASCII
+// names that need no escaping; anything else goes through jsonx.Marshal, so the bytes stay
+// identical to the slow path for every input. | appendJSONString 写出 JSON 字符串字面量：无需转义的
+// 可打印 ASCII 名称走零分配路径；其余输入交给 jsonx.Marshal，因此任何输入的字节都与慢路径完全一致。
+func appendJSONString(buf *bytes.Buffer, s string) {
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		if c < 0x20 || c >= 0x7f || c == '"' || c == '\\' || c == '<' || c == '>' || c == '&' {
+			enc, err := jsonx.Marshal(s)
+			if err != nil {
+				buf.WriteString(`""`) // unreachable for a string | 字符串不可达
+				return
+			}
+			buf.Write(enc)
+			return
+		}
+	}
+	buf.WriteByte('"')
+	buf.WriteString(s)
+	buf.WriteByte('"')
 }
 
 // Trigger writes the HX-Trigger response header, firing custom events on the browser side. | Trigger 写入 HX-Trigger 响应头，触发浏览器端的自定义事件。

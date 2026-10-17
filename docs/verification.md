@@ -424,6 +424,54 @@ go test ./...                                 44 个包 ok，退出码 0
 CGO_ENABLED=1 CC=clang go test -race ./...    44 个包 ok，退出码 0
 ```
 
+## 3.10 SSE / WebSocket / Htmx 写出路径优化（第八轮）
+
+本轮把上一轮的「HTTP 热路径零分配」推进到长连接与片段写出路径，基准同样取自
+Windows / i9-10980HK、`-benchtime=300ms`。
+
+### 3.10.1 WebSocket：帧头解析零分配
+
+- 旧实现把固定 2 字节头读入局部数组、把掩码键直接读进返回结构体的字段；两者都经
+  `io.Reader` 接口传出，逃逸分析只能判定上堆：每个帧头 **2 allocs/26 B**。
+- 现在所有读取都经过调用方的 14 字节 `headerBuf`，掩码键再复制进结构体：
+  小帧解析 **71.65 ns → 55.1 ns，2 allocs → 0 allocs**；64 KiB 帧约 **7.0 µs/0 allocs**
+  （已到内存带宽上限）。
+- 新增 `TestReadFrameHeaderDoesNotAllocate` 作为回归守卫；掩码、UTF-8 校验、帧编码的既有基准不变。
+
+### 3.10.2 SSE：字符串直写与单遍拆行
+
+- `WriteData` 改为把字符串直接追加进组装缓冲，去掉 `[]byte(s)` 转换：
+  4 KiB 数据 **3440 → 2521 ns**（4096 B/1 alloc → **0 B/0 alloc**），
+  1 KiB 多行数据 **1267 → 960 ns**（1152 B/1 alloc → **0 B/0 alloc**），
+  32 B 数据约 **45 ns/0 alloc**。
+- 注释与数据拆行改为单遍扫描 CR / LF / CRLF，不再经 `strings.ReplaceAll`；
+  多行注释除组装缓冲外不产生分配。
+- 组装缓冲的**保留容量上限为 64 KiB**：一次性超大帧不会让大缓冲在整条流的生命周期内驻留
+  （`TestHugeFrameDoesNotRetainBuffer`）；`WriteEvent` 维持约 **303 ns/0 alloc**。
+- 广播基准：单订阅者约 **105 ns**，64 订阅者约 **3.8 µs**（约 60 ns/订阅者），均 0 分配；
+  发布保持非阻塞，慢消费者只丢帧计数。
+
+### 3.10.3 Htmx：响应头组装
+
+- 单事件且无负载时直接返回事件名，不再为「过滤空事件名」分配副本；
+  多事件 JSON 的事件名走「纯 ASCII 零分配」快路径，其余输入仍交给 `jsonx.Marshal`，
+  因此任何输入的线上字节与旧实现完全一致。
+- 多事件：**1377 → 918 ns，16 → 9 allocs**；单事件约 **110 ns**，剩余分配来自可变参数切片
+  与 `Header.Set` 的 `[]string`。
+- `RenderPartials`（8 个片段）约 **1.3 µs/5 allocs**，`ErrorFragment` 约 **174 ns/3 allocs**，
+  均作为后续回归基线。
+
+### 3.10.4 门禁
+
+```
+gofmt -l .                                    零输出
+go build ./...                                通过
+go vet ./...                                  零输出
+go mod tidy -diff                             零输出
+go test ./...                                 44 个包 ok，退出码 0
+CGO_ENABLED=1 CC=clang go test -race ./...    44 个包 ok，退出码 0
+```
+
 ## 4. 已知限制与未覆盖项
 
 1. **HTTP/3 需要 TLS**（QUIC 强制 TLS 1.3）。开发态在未配置证书时会生成一次性自签证书
