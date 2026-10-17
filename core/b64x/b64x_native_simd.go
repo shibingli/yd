@@ -4,11 +4,15 @@ package b64x
 
 import "simd/archsimd"
 
-// init installs the widest available kernel: AVX-512 first, then AVX2. | init 安装当前 CPU 支持的最宽
-// 内核：优先 AVX-512，其次 AVX2。
+// init installs the widest available kernel: AVX-512 with VBMI/VBMI2 first, then AVX-512, then
+// AVX2. | init 安装当前 CPU 支持的最宽内核：优先 AVX-512 + VBMI/VBMI2，其次 AVX-512，最后 AVX2。
 func init() {
+	avx512 := archsimd.X86.AVX512()
 	switch {
-	case archsimd.X86.AVX512():
+	case avx512 && archsimd.X86.AVX512VBMI() && archsimd.X86.AVX512VBMI2():
+		simdEncode = encodeSIMD512VBMI
+		simdDecode = decodeSIMD512VBMI2
+	case avx512:
 		simdEncode = encodeSIMD512
 		simdDecode = decodeSIMD512
 	case archsimd.X86.AVX2():
@@ -283,6 +287,127 @@ func decodeSIMD512(dst, src []byte, url bool) (int, int) {
 		groups.GetLo().GetHi().PermuteOrZero(pack).Store(dst[o+12:])
 		groups.GetHi().GetLo().PermuteOrZero(pack).Store(dst[o+24:])
 		groups.GetHi().GetHi().PermuteOrZero(pack).Store(dst[o+36:])
+		i += 64
+		o += 48
+	}
+	if i == 0 {
+		return 0, 0
+	}
+	ni, no := decodeSIMD(dst[o:], src[i:], url)
+	return i + ni, o + no
+}
+
+// encodeSIMD512VBMI gathers four 12-byte groups with one VPERMB, then encodes them in 512-bit
+// lanes. | encodeSIMD512VBMI 用一条 VPERMB 汇集四个 12 字节组，再在 512 位通道中编码。
+func encodeSIMD512VBMI(dst, src []byte, url bool) int {
+	if len(src) < 64 || len(dst) < 64 {
+		return 0
+	}
+	pattern := [16]uint8{1, 0, 2, 1, 4, 3, 5, 4, 7, 6, 8, 7, 10, 9, 11, 10}
+	var inArr [64]uint8
+	for g := 0; g < 4; g++ {
+		for j := 0; j < 16; j++ {
+			inArr[g*16+j] = uint8(g*12) + pattern[j]
+		}
+	}
+	var maskLoArr [32]uint16
+	var maskHiArr [32]uint16
+	var mulHiArr [32]uint16
+	var mulLoArr [32]uint16
+	for j := range maskLoArr {
+		if j&1 == 0 {
+			maskLoArr[j], maskHiArr[j] = 0xfc00, 0x03f0
+			mulHiArr[j], mulLoArr[j] = 0x0040, 0x0010
+		} else {
+			maskLoArr[j], maskHiArr[j] = 0x0fc0, 0x003f
+			mulHiArr[j], mulLoArr[j] = 0x0400, 0x0100
+		}
+	}
+	lutBase := [16]int8{71, -4, -4, -4, -4, -4, -4, -4, -4, -4, -4, -19, -16, 65, 0, 0}
+	var lutArr [64]int8
+	for j := range lutArr {
+		lutArr[j] = lutBase[j&15]
+	}
+
+	inShuf := archsimd.LoadUint8x64(inArr[:])
+	maskLo := archsimd.LoadUint16x32(maskLoArr[:])
+	maskHi := archsimd.LoadUint16x32(maskHiArr[:])
+	mulHi := archsimd.LoadUint16x32(mulHiArr[:])
+	mulLo := archsimd.LoadUint16x32(mulLoArr[:])
+	lut := archsimd.LoadInt8x64(lutArr[:])
+	i, o := 0, 0
+	for i+64 <= len(src) && o+64 <= len(dst) {
+		in := archsimd.LoadUint8x64(src[i:]).Permute(inShuf).AsUint16x32()
+		idx := in.And(maskLo).MulHigh(mulHi).Or(in.And(maskHi).Mul(mulLo)).AsUint8x64()
+		res := idx.SubSaturated(archsimd.BroadcastUint8x64(51))
+		less := archsimd.BroadcastUint8x64(26).Greater(idx)
+		res = archsimd.BroadcastUint8x64(13).IfElse(less, res)
+		res = idx.Add(lut.PermuteOrZeroGrouped(res.AsInt8x64()).AsUint8x64())
+		if url {
+			res = archsimd.BroadcastUint8x64('-').IfElse(idx.Equal(archsimd.BroadcastUint8x64(62)), res)
+			res = archsimd.BroadcastUint8x64('_').IfElse(idx.Equal(archsimd.BroadcastUint8x64(63)), res)
+		}
+		res.Store(dst[o:])
+		i += 48
+		o += 64
+	}
+	if i == 0 {
+		return 0
+	}
+	return i + encodeSIMD(dst[o:], src[i:], url)
+}
+
+// decodeSIMD512VBMI2 validates and maps 64 characters at a time, then compacts the 48 valid
+// bytes with VPCOMPRESSB. | decodeSIMD512VBMI2 每次校验并映射 64 个字符，再用 VPCOMPRESSB
+// 压缩出 48 个有效字节。
+func decodeSIMD512VBMI2(dst, src []byte, url bool) (int, int) {
+	if len(src) < 64 || len(dst) < 64 {
+		return 0, 0
+	}
+	plus, slash := byte('+'), byte('/')
+	if url {
+		plus, slash = '-', '_'
+	}
+	var mulArr [64]int8
+	for j := range mulArr {
+		if j&1 == 0 {
+			mulArr[j] = 64
+		} else {
+			mulArr[j] = 1
+		}
+	}
+	mul := archsimd.LoadInt8x64(mulArr[:])
+	packMask := archsimd.Mask8x64FromBits(0x7777777777777777)
+
+	upperA := archsimd.BroadcastUint8x64('A')
+	upperZ := archsimd.BroadcastUint8x64('Z')
+	lowerA := archsimd.BroadcastUint8x64('a')
+	lowerZ := archsimd.BroadcastUint8x64('z')
+	digit0 := archsimd.BroadcastUint8x64('0')
+	digit9 := archsimd.BroadcastUint8x64('9')
+	plusB := archsimd.BroadcastUint8x64(plus)
+	slashB := archsimd.BroadcastUint8x64(slash)
+	zero := archsimd.BroadcastUint8x64(0)
+	i, o := 0, 0
+	for i+64 <= len(src) && o+64 <= len(dst) {
+		c := archsimd.LoadUint8x64(src[i:])
+		upper := c.GreaterEqual(upperA).And(c.LessEqual(upperZ))
+		lower := c.GreaterEqual(lowerA).And(c.LessEqual(lowerZ))
+		digit := c.GreaterEqual(digit0).And(c.LessEqual(digit9))
+		plusMask := c.Equal(plusB)
+		slashMask := c.Equal(slashB)
+		if upper.Or(lower).Or(digit).Or(plusMask).Or(slashMask).ToBits() != ^uint64(0) {
+			break
+		}
+		v := zero
+		v = c.Sub(upperA).IfElse(upper, v)
+		v = c.Sub(lowerA).Add(archsimd.BroadcastUint8x64(26)).IfElse(lower, v)
+		v = c.Sub(digit0).Add(archsimd.BroadcastUint8x64(52)).IfElse(digit, v)
+		v = archsimd.BroadcastUint8x64(62).IfElse(plusMask, v)
+		v = archsimd.BroadcastUint8x64(63).IfElse(slashMask, v)
+		pairs := v.DotProductPairsSaturated(mul).AsUint32x16()
+		groups := pairs.And(archsimd.BroadcastUint32x16(0xFFFF)).ShiftAllLeft(12).Or(pairs.ShiftAllRight(16)).AsUint8x64()
+		groups.Compress(packMask).Store(dst[o:])
 		i += 64
 		o += 48
 	}
