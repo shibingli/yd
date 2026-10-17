@@ -43,14 +43,40 @@ go test -run '^$' -bench . -benchmem -benchtime=1s -count=5
 
 ## 自研原生后端（实验性）
 
-通过 `-tags jsonx_native` 启用 `core/jsonx` 的自研反射式编解码器；默认构建仍使用 sonic/go-json。
+通过 `-tags jsonx_native` 启用 `core/jsonx` 的自研编解码器；默认构建仍使用 sonic/go-json。
+该实现不依赖 sonic/go-json，按 `reflect.Type` 预编译编解码闭包，并保持与 `encoding/json`
+一致的复制语义（解码出的字符串不别名调用方输入）。
 
 ```bash
 cd benchmarks/json
-go test -run '^$' -bench . -benchmem -count=3 -tags jsonx_native
+go test -run '^$' -bench . -benchmem -count=5 -tags jsonx_native
 ```
 
-当前结果（n=1000，500ms × 3 中位数）：Marshal **1,703,570 ns** / 757 KB / 2,025 allocs；Unmarshal **2,476,723 ns** / 588 KB / 21,991 allocs。  
-与 go-json（333 µs / 495 µs）相比仍有约 5 倍差距，主要来自逐值反射、结构体字段查找与字符串/集合构造；后续优化方向是类型缓存闭包编码器、专用解码路径与 SIMD 扫描。
+### n=1000（交替独立进程 5 轮中位数）
 
-默认后端（sonic 包装）与 `sonic-std` 在预热后处于同一水平（n=100 Marshal 54.5 vs 54.6 µs，n=1000 Unmarshal 877 vs 878 µs），此前的差异来自 sonic JIT 首次编译与子基准顺序，现已通过预热消除。
+| 实现 | Marshal | Unmarshal | Marshal B/op / allocs | Unmarshal B/op / allocs |
+|---|---:|---:|---:|---:|
+| go-json | **259,787 ns** | **546,314 ns** | 166 KB / 2 | **224 KB / 1,005** |
+| **yd-jsonx（native）** | 276,185 ns | 592,673 ns | **165 KB / 2** | 367 KB / 1,007 |
+| sonic-std | 475,995 ns | 912,402 ns | 228 KB / 1,004 | 686 KB / 7,013 |
+| jsoniter-compat | 596,248 ns | 1,019,462 ns | 214 KB / 1,002 | 459 KB / 11,344 |
+| stdlib | 707,678 ns | 1,572,033 ns | 165 KB / 3 | 381 KB / 5,009 |
+
+同进程 `count=3` 的小载荷结果：n=1 时 Marshal 约 322 ns（go-json 约 322 ns）、Unmarshal
+约 1,148 ns（go-json 约 1,189 ns）；n=100 时 Marshal 约 31.8 µs（go-json 约 25.4 µs）、
+Unmarshal 约 71.7 µs（go-json 约 59.2 µs）。基准对 CPU 频率与子基准顺序敏感，跨进程独立
+运行的波动可达约 15%。
+
+本后端相对早期反射实现的优化：
+
+- 按类型缓存编解码闭包，消除逐值的类型特征查询与 kind 分派；
+- 结构体字段使用固定偏移直接读写内存（基础类型、`time.Time`、`[]string`），字段名与
+  `"key":` 前缀预编码；
+- 字符串与数字扫描使用 8/4 字节 SWAR，字段键按首字节分桶并用 8 字节掩码比较；
+- 解码字符串进入单块 arena，保持复制语义的同时把每字符串一次分配降为整体一次分配；
+- 顶层切片按输入规模预分配，使用 `Grow`+`SetLen` 代替逐元素 `reflect.Append`；
+- 对完全相同的 `time.Time` 复用已格式化的 RFC 3339 结果；紧凑 JSON 的对象/数组循环减少
+  `skipSpace` 调用。
+
+解码 B/op 高于 go-json，主要因为后者采用更激进的字符串零拷贝；本后端选择与标准库一致的
+复制语义。该后端仍在实验阶段，默认构建不会启用。

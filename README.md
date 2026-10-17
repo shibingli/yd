@@ -111,7 +111,7 @@ yd dev --port 7070          # 命令行最高优先级
 core/          与领域无关的基础原语
   config/      分层配置引擎（viper + pflag + .env，前缀 YD_）
   afs/         afero 抽象文件系统门面（OS / MemFS / go:embed）
-  jsonx/ b64x/ 硬件自适应 JSON / Base64（sonic ↔ go-json；cloudwego ↔ cristalhq ↔ stdlib，按尺寸分流）
+  jsonx/ b64x/ 硬件自适应 JSON / Base64（sonic ↔ go-json；cloudwego ↔ cristalhq ↔ stdlib，按尺寸分流；另有 `jsonx_native` / `b64x_native` 自研实验后端）
   logx/        零拷贝结构化日志（sync.Pool 字节缓冲直写 io.Writer）
   errx/        声明式哨兵错误原语（禁止 fmt.Errorf 的统一替代）
   version/     版本信息（-ldflags 注入）
@@ -186,7 +186,7 @@ repotest/      仓库治理守卫（治理文件与规范的可执行断言）
 |---|---|---|
 | WebSocket | [`benchmarks/ws`](benchmarks/ws/README.md) | 与 coder/gorilla/gobwas/gws 兼容性 18/18；32 B/256 B 延迟最低，64 KiB 吞吐 572.9 MB/s；唯一全程 `0 B/op、0 allocs/op` |
 | Router | [`benchmarks/router`](benchmarks/router/README.md) | 参数/深层/通配/未命中路径最快（4.8–5.1 ns，未命中 8.8 ns），五类路径零分配；WebSocket 握手经 router 仅增加 62 ns（5.6%） |
-| JSON | [`benchmarks/json`](benchmarks/json/README.md) | go-json 在该结构体切片上最优；`jsonx` 与其 sonic 后端一致，并提供跨架构后端切换与统一错误分类 |
+| JSON | [`benchmarks/json`](benchmarks/json/README.md) | 默认与 sonic 一致；`jsonx_native` 自研后端（`-tags jsonx_native`）接近 go-json（276 vs 260 µs Marshal、593 vs 546 µs Unmarshal），领先 sonic/jsoniter/标准库 |
 | Base64 | [`benchmarks/base64`](benchmarks/base64/README.md) | ≥1 KiB 时 cloudwego 与 `b64x` 编码约 10–12 GB/s、解码约 7–9 GB/s；标准库约 1.1 GB/s |
 | 压缩 | [`benchmarks/compress`](benchmarks/compress/README.md) | zstd 综合最优（text 压缩 3.7 GB/s / 解压 7.5 GB/s）；klauspost gzip 约为标准库 gzip 的 4 倍吞吐，压缩率相同 |
 | 日志 | [`benchmarks/logx`](benchmarks/logx/README.md) | `logx` 启用 Info 182 ns/op、零分配，快于 zerolog；禁用路径 20 ns/op、零分配 |

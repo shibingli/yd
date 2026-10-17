@@ -25,7 +25,7 @@ go test -run '^$' -bench . -benchmem  # 性能
 
 - **ws**：五档载荷中 32 B/256 B 延迟最低，64 KiB 吞吐最高（572.9 MB/s）；唯一全程零分配。
 - **router**：参数、深层、通配与未命中路径最快；五类路径全部零分配。静态路径仅比 httprouter 慢约 0.5 ns。
-- **json**：go-json 在该结构体切片上最优；jsonx 与其 sonic 后端一致，并提供跨架构后端切换与统一错误分类。
+- **json**：默认后端与 sonic 一致；`jsonx_native` 自研后端（`-tags jsonx_native`）在 n=1000 上接近 go-json（Marshal 约 276 vs 260 µs，Unmarshal 约 593 vs 546 µs），并领先 sonic、jsoniter 与标准库。
 - **base64**：≥1 KiB 时 cloudwego 与 b64x 约 10–12 GB/s 编码、7–9 GB/s 解码，远高于标准库的约 1.1 GB/s。
 - **compress**：zstd 综合最优；klauspost gzip 约为标准库 gzip 的 4 倍吞吐；snappy/lz4 更快但压缩率更差。
 - **logx**：启用 Info 182 ns/op、零分配，快于 zerolog；禁用路径 20 ns/op、零分配。
