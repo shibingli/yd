@@ -45,24 +45,25 @@ func addrOrFallback(addr net.Addr, network, fallback string) net.Addr {
 type streamConn struct {
 	body   io.ReadCloser
 	writer io.Writer
+	local  net.Addr
+	remote net.Addr
 	flush  func() error
 	rc     *http.ResponseController
 	cancel context.CancelFunc
-	local  net.Addr
-	remote net.Addr
 	// closeWrite half-closes the client write side; nil on the server. | closeWrite
 	// 半关闭客户端写侧；服务端为 nil。
 	closeWrite func(error) error
+
+	readTimer  *time.Timer
+	writeTimer *time.Timer
+
+	deadlineMu sync.Mutex
 
 	closed atomic.Bool
 	// readExpired and writeExpired turn a deadline hit into a sticky transport error. | readExpired
 	// 与 writeExpired 把截止时间命中变成粘性的传输错误。
 	readExpired  atomic.Bool
 	writeExpired atomic.Bool
-
-	deadlineMu sync.Mutex
-	readTimer  *time.Timer
-	writeTimer *time.Timer
 }
 
 // newStreamConnServer builds the server-side adapter. | newStreamConnServer 构造服务端适配器。

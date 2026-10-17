@@ -33,6 +33,10 @@ const (
 
 // DialOptions holds the client handshake parameters. | DialOptions 是客户端握手参数。
 type DialOptions struct {
+	// Transport, when non-nil, carries the handshake over HTTP/2 or HTTP/3 using extended CONNECT | Transport 非 nil 时通过 HTTP/2 或 HTTP/3 的 extended CONNECT
+	// (RFC 8441 / RFC 9220). It must be paired with ExtendedConnect; the caller supplies the | （RFC 8441 / RFC 9220）完成握手。它必须与 ExtendedConnect 成对出现；调用方按部署形态
+	// appropriate transport (x/net/http2.Transport or quic-go's http3.Transport). | 注入合适的传输（x/net/http2.Transport 或 quic-go 的 http3.Transport）。
+	Transport http.RoundTripper
 	// Headers are extra request headers. | Headers 为附加请求头。
 	Headers http.Header
 	// TLSConfig is the TLS configuration used for wss. | TLSConfig 为 wss 场景的 TLS 配置。
@@ -50,10 +54,6 @@ type DialOptions struct {
 	// stays uncompressed, identical to leaving the option off. It can be toggled later with | 之后可用 Conn.EnableWriteCompression 切换；入站压缩消息在协商成功后始终会被解压。
 	// Conn.EnableWriteCompression; inbound compressed messages are always inflated after negotiation.
 	EnableWriteCompression bool
-	// Transport, when non-nil, carries the handshake over HTTP/2 or HTTP/3 using extended CONNECT | Transport 非 nil 时通过 HTTP/2 或 HTTP/3 的 extended CONNECT
-	// (RFC 8441 / RFC 9220). It must be paired with ExtendedConnect; the caller supplies the | （RFC 8441 / RFC 9220）完成握手。它必须与 ExtendedConnect 成对出现；调用方按部署形态
-	// appropriate transport (x/net/http2.Transport or quic-go's http3.Transport). | 注入合适的传输（x/net/http2.Transport 或 quic-go 的 http3.Transport）。
-	Transport http.RoundTripper
 	// ExtendedConnect selects the pseudo-header convention of Transport. | ExtendedConnect 选择 Transport 的伪头约定。
 	ExtendedConnect ExtendedConnectMode
 }
