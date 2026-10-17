@@ -30,6 +30,11 @@ type DialOptions struct {
 	ReadBufferSize int
 	// MaxMessageSize is the per-message limit, 32MB by default. | MaxMessageSize 为单条消息上限，默认 32MB。
 	MaxMessageSize int64
+	// EnableWriteCompression offers permessage-deflate (RFC 7692) during the handshake and enables | EnableWriteCompression 在握手时提议 permessage-deflate（RFC 7692），并在服务端接受后
+	// outbound compression once the server accepts. When the server declines, the connection simply | 启用出站压缩。服务端拒绝时连接保持不压缩，行为与未开启该选项完全一致。
+	// stays uncompressed, identical to leaving the option off. It can be toggled later with | 之后可用 Conn.EnableWriteCompression 切换；入站压缩消息在协商成功后始终会被解压。
+	// Conn.EnableWriteCompression; inbound compressed messages are always inflated after negotiation.
+	EnableWriteCompression bool
 }
 
 // Dial initiates a WebSocket handshake as a client and returns the connection. | Dial 作为客户端发起 WebSocket 握手并返回连接。
@@ -101,6 +106,11 @@ func Dial(ctx context.Context, rawURL string, o DialOptions) (*Conn, error) {
 		sb.WriteString(strings.Join(o.Subprotocols, ", "))
 		sb.WriteString("\r\n")
 	}
+	if o.EnableWriteCompression {
+		// The bare client_max_window_bits parameter announces that we can honour a server-chosen window size; | 无值的 client_max_window_bits 参数表示我们能够履行服务端选定的窗口大小；
+		// the server's reply is validated by negotiateClientCompression. | 服务端的回复由 negotiateClientCompression 校验。
+		sb.WriteString("Sec-WebSocket-Extensions: permessage-deflate; client_max_window_bits\r\n")
+	}
 	for k, vs := range o.Headers {
 		for _, v := range vs {
 			sb.WriteString(k)
@@ -164,14 +174,12 @@ func Dial(ctx context.Context, rawURL string, o DialOptions) (*Conn, error) {
 			ErrHandshake)
 	}
 	// RFC 6455 §4.1: an extension may only be activated when the client offered it. | RFC 6455 §4.1：只有客户端提议过的扩展才能被启用。
-	// This client never offers any, so an extension in the response would silently corrupt every compressed frame; | 本客户端从不提议扩展，因此响应中的扩展会让所有压缩帧被当成普通帧解析而**静默损坏**；
-	// reject instead of continuing. | 必须拒绝而不是继续。
-	if exts := resp.Header.Values("Sec-WebSocket-Extensions"); len(exts) > 0 {
+	// negotiateClientCompression rejects an unrequested or malformed activation instead of continuing; | negotiateClientCompression 会拒绝未提议或非法的扩展启用，而不是继续；
+	// silently ignoring it would make the two sides disagree about every following frame. | 静默忽略会让两侧对后续每一帧的理解都不一致。
+	compCfg, err := negotiateClientCompression(resp.Header, o.EnableWriteCompression)
+	if err != nil {
 		_ = netConn.Close()
-		return nil, errx.Wrap(
-			errx.Detail(ErrUnrequestedExtension,
-				"server sent %[1]q, which the client did not offer | 服务端发送了客户端未提议的 %[1]q", strings.Join(exts, ", ")),
-			ErrHandshake)
+		return nil, err
 	}
 	_ = netConn.SetDeadline(time.Time{})
 
@@ -181,6 +189,7 @@ func Dial(ctx context.Context, rawURL string, o DialOptions) (*Conn, error) {
 	}
 	c := newConn(netConn, Options{ReadBufferSize: o.ReadBufferSize, MaxMessageSize: maxSize}, true)
 	c.subprotocol = selected
+	c.setCompression(compCfg)
 	// the bufio.Reader used by ReadResponse may already have buffered the peer's first frame | ReadResponse 的 bufio.Reader 可能已缓冲了对端的第一帧
 	if br.Buffered() > 0 || o.ReadBufferSize > 0 {
 		c.br = br

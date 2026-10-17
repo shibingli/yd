@@ -8,7 +8,10 @@ import (
 	"io"
 	"net"
 	"sync"
+	"sync/atomic"
 	"time"
+
+	"github.com/shibingli/yd/core/errx"
 )
 
 // Conn is an established WebSocket connection. | Conn 是一条已建立的 WebSocket 连接。
@@ -34,6 +37,11 @@ type Conn struct {
 	untrack      func()
 
 	subprotocol string
+
+	// compression is the negotiated RFC 7692 configuration; nil means no extension was negotiated. | compression 是协商出的 RFC 7692 配置；nil 表示未协商扩展。
+	compression  *compressionConfig
+	compressor   *messageCompressor
+	decompressor *messageDecompressor
 
 	readBuf []byte
 	maskBuf []byte
@@ -62,6 +70,10 @@ type Conn struct {
 	frameMasked   bool
 	closeSent     bool
 	closeReceived bool
+	msgCompressed bool
+
+	// writeCompression toggles outbound compression after negotiation; the inbound direction always honours the negotiation. | writeCompression 在协商后切换出站压缩；入站方向始终遵循协商结果。
+	writeCompression atomic.Bool
 }
 
 // newConn constructs the connection object. | newConn 构造连接对象。
@@ -148,9 +160,36 @@ func (c *Conn) SetPongHandler(h func(string) error) { c.pongHandler = h }
 // SetCloseHandler sets the callback invoked when a close frame is received (called after the close frame has been echoed back). | SetCloseHandler 设置收到关闭帧时的回调（在回送关闭帧之后调用）。
 func (c *Conn) SetCloseHandler(h func(CloseCode, string) error) { c.closeHandler = h }
 
-// EnableWriteCompression is a reserved interface: this implementation does not enable permessage-deflate, | EnableWriteCompression 保留接口：本实现未启用 permessage-deflate，
-// so the call is a no-op (RFC 7692 forbids setting RSV1 without negotiation). | 调用为无操作（RFC 7692 未协商即不得设置 RSV1）。
-func (c *Conn) EnableWriteCompression(bool) {}
+// EnableWriteCompression turns outbound permessage-deflate compression on or off. | EnableWriteCompression 开启或关闭出站 permessage-deflate 压缩。
+//
+// The setting only has an effect when the handshake negotiated the extension; without negotiation | 该设置仅在握手协商出扩展时生效；未协商时
+// it is a no-op, because RFC 7692 §6.1 forbids setting RSV1 on a frame the peer would not expect it on. | 调用无任何效果，因为 RFC 7692 §6.1 禁止在对端意料之外的帧上设置 RSV1。
+// Disabling it does not disable decompression: inbound compressed messages are always inflated. | 关闭它不影响解压：入站压缩消息始终会被解压。
+func (c *Conn) EnableWriteCompression(enable bool) {
+	if c.compression == nil {
+		return
+	}
+	c.writeCompression.Store(enable)
+}
+
+// setCompression installs the negotiated configuration and arms both directions. | setCompression 装配协商结果并启用两个方向。
+//
+// It must be called once, before the connection is handed to concurrent readers and writers. | 它必须在连接交给并发读写者之前调用一次。
+func (c *Conn) setCompression(cfg *compressionConfig) {
+	if cfg == nil {
+		return
+	}
+	c.compression = cfg
+	compressBits, compressNoTakeover := cfg.serverWindowBits, cfg.serverNoContextTakeover
+	decompressNoTakeover := cfg.clientNoContextTakeover
+	if c.isClient {
+		compressBits, compressNoTakeover = cfg.clientWindowBits, cfg.clientNoContextTakeover
+		decompressNoTakeover = cfg.serverNoContextTakeover
+	}
+	c.compressor = newMessageCompressor(compressBits, compressNoTakeover)
+	c.decompressor = newMessageDecompressor(decompressNoTakeover)
+	c.writeCompression.Store(true)
+}
 
 // ---------------------------------------------------------------- Reading | 读取
 
@@ -196,10 +235,13 @@ func (c *Conn) ReadMessage() (OpCode, []byte, error) {
 
 // MessageReader streams one message; control frames (ping/pong/close) are handled automatically underneath. | MessageReader 流式读取一条消息；控件帧（ping/pong/close）在底层自动处理。
 type MessageReader struct {
-	c         *Conn
-	remaining int64
-	op        OpCode
-	done      bool
+	c          *Conn
+	inflate    io.Reader // non-nil when the message is permessage-deflate compressed | 消息经 permessage-deflate 压缩时非空
+	remaining  int64
+	produced   int64 // decompressed bytes emitted for the current message | 当前消息已输出的解压字节数
+	op         OpCode
+	done       bool
+	compressed bool
 }
 
 // OpCode returns the type of this message. | OpCode 返回该消息的类型。
@@ -208,9 +250,14 @@ func (r *MessageReader) OpCode() OpCode { return r.op }
 // Read implements io.Reader; it returns io.EOF when the message ends. | Read 实现 io.Reader；消息结束时返回 io.EOF。
 //
 // Reading switches the masking key and resets the masking offset automatically at frame boundaries (RFC 6455 §5.3). | 读取会在帧边界处自动切换掩码键并重置掩码偏移（RFC 6455 §5.3）。
+// Compressed messages are inflated on the fly and capped at MaxMessageSize, so a decompression bomb | 压缩消息会被即时解压并受 MaxMessageSize 限制，解压炸弹因此
+// is closed with 1009 instead of being buffered in memory. | 会以 1009 关闭，而不会在内存中被缓冲放大。
 func (r *MessageReader) Read(p []byte) (int, error) {
 	if r.done {
 		return 0, io.EOF
+	}
+	if r.compressed {
+		return r.readCompressed(p)
 	}
 	for r.remaining == 0 {
 		if r.c.frameFin {
@@ -222,6 +269,7 @@ func (r *MessageReader) Read(p []byte) (int, error) {
 			r.done = true
 			r.c.msgOp = 0
 			r.c.msgLen = 0
+			r.c.msgCompressed = false
 			return 0, io.EOF
 		}
 		if err := r.c.nextDataFrame(&r.remaining); err != nil {
@@ -255,6 +303,54 @@ func (r *MessageReader) Read(p []byte) (int, error) {
 	return n, nil
 }
 
+// readCompressed inflates one message and enforces the decompressed size limit. | readCompressed 解压一条消息并执行解压后大小限制。
+//
+// A flate stream terminated by the RFC 7692 tail reports io.ErrUnexpectedEOF instead of io.EOF; both | 以 RFC 7692 尾部结束的 flate 流会返回 io.ErrUnexpectedEOF 而非 io.EOF；
+// are normal end-of-message signals here. Any error already recorded by the frame layer (protocol | 二者在此都表示消息正常结束。帧层已记录的错误（协议错误、对端关闭等）
+// violation, peer close, truncated connection) takes precedence over flate's own decoding error. | 优先于 flate 自身的解码错误，直接原样返回。
+func (r *MessageReader) readCompressed(p []byte) (int, error) {
+	n, err := r.inflate.Read(p)
+	if n > 0 {
+		r.produced += int64(n)
+		if r.produced > r.limit() {
+			return n, r.c.fail(CloseMessageTooBig, ErrMessageTooBig)
+		}
+		if r.op == TextMessage && !r.c.utf8.write(p[:n]) {
+			return n, r.c.fail(CloseInvalidFramePayloadData, ErrInvalidUTF8)
+		}
+		r.c.decompressor.record(p[:n])
+	}
+	if err == nil {
+		return n, nil
+	}
+	if r.c.readErr != nil {
+		r.done = true
+		return n, r.c.readErr
+	}
+	if err == io.EOF || err == io.ErrUnexpectedEOF {
+		if r.op == TextMessage && !r.c.utf8.complete() {
+			r.done = true
+			return n, r.c.fail(CloseInvalidFramePayloadData, ErrInvalidUTF8)
+		}
+		r.done = true
+		r.c.msgOp = 0
+		r.c.msgLen = 0
+		r.c.msgCompressed = false
+		return n, io.EOF
+	}
+	r.done = true
+	return n, r.c.fail(CloseInvalidFramePayloadData, errx.WrapDetail(err, ErrInvalidCompressedData,
+		"failed to inflate the message | 解压消息失败"))
+}
+
+// limit returns the per-message size cap, falling back to the default when the connection was built without normalization. | limit 返回单条消息上限，连接未规范化时回退到默认值。
+func (r *MessageReader) limit() int64 {
+	if r.c.opts.MaxMessageSize > 0 {
+		return r.c.opts.MaxMessageSize
+	}
+	return defaultMaxMessageSize
+}
+
 // reader returns the read source for the current frame payload (bufio or the raw connection). | reader 返回当前帧载荷的读取源（bufio 或裸连接）。
 func (r *MessageReader) reader() io.Reader {
 	if r.c.br != nil {
@@ -269,7 +365,15 @@ func (c *Conn) NextReader() (OpCode, *MessageReader, error) {
 	if err := c.nextDataFrame(&remaining); err != nil {
 		return 0, nil, err
 	}
-	r := &MessageReader{c: c, op: c.msgOp, remaining: remaining}
+	r := &MessageReader{c: c, op: c.msgOp, remaining: remaining, compressed: c.msgCompressed}
+	if r.compressed {
+		inflate, err := c.decompressor.begin(&framePayloadReader{c: c})
+		if err != nil {
+			return 0, nil, err
+		}
+		r.inflate = inflate
+		r.remaining = 0
+	}
 	return c.msgOp, r, nil
 }
 
@@ -316,6 +420,8 @@ func (c *Conn) nextDataFrame(remaining *int64) error {
 				return c.fail(CloseProtocolError, ErrNewDataDuringFragment)
 			}
 			c.msgOp = h.opcode
+			// RSV1 marks a compressed message and is only legal on the first frame of one (RFC 7692 §6.1). | RSV1 标记压缩消息，且只允许出现在消息首帧（RFC 7692 §6.1）。
+			c.msgCompressed = h.rsv1
 			c.utf8.reset()
 		case ContinuationMessage:
 			if c.msgOp == 0 {
@@ -348,8 +454,16 @@ func (c *Conn) reader() io.Reader {
 
 // validateHeader checks whether the frame header complies with RFC 6455. | validateHeader 校验帧头是否符合 RFC 6455。
 func (c *Conn) validateHeader(h frameHeader) error {
-	if h.rsv1 || h.rsv2 || h.rsv3 {
+	if h.rsv2 || h.rsv3 {
 		return c.fail(CloseProtocolError, ErrReservedBits)
+	}
+	if h.rsv1 {
+		// RSV1 without negotiation is a protocol error (RFC 6455 §5.2). Even with permessage-deflate | 未协商即置 RSV1 属于协议错误（RFC 6455 §5.2）。即便协商了 permessage-deflate，
+		// negotiated it is only legal on the first frame of a data message: control frames are | RSV1 也只允许出现在数据消息的首帧：控制帧永不压缩，
+		// never compressed and continuations never carry it (RFC 7692 §6.1). | 续帧也从不携带它（RFC 7692 §6.1）。
+		if c.compression == nil || h.opcode.IsControl() || h.opcode == ContinuationMessage {
+			return c.fail(CloseProtocolError, ErrReservedBits)
+		}
 	}
 	switch h.opcode {
 	case ContinuationMessage, TextMessage, BinaryMessage, CloseMessage, PingMessage, PongMessage:
@@ -486,6 +600,9 @@ func (c *Conn) fail(code CloseCode, err error) error {
 //
 // A server writes without masking (RFC 6455 §5.1); a client generates a random mask per frame, | 服务端写入不加掩码（RFC 6455 §5.1）；客户端写入会按帧生成随机掩码，
 // in which case the payload is copied into an internal masking buffer before it is sent. | 此时载荷需要复制到内部掩码缓冲后再发出。
+//
+// When permessage-deflate was negotiated and write compression is enabled, the payload is compressed and | 协商了 permessage-deflate 且写压缩开启时，载荷会被压缩并在帧上
+// RSV1 is set on the frame (RFC 7692 §6.1); the peer always accepts uncompressed messages too. | 置 RSV1（RFC 7692 §6.1）；对端同样始终接受未压缩消息。
 func (c *Conn) WriteMessage(op OpCode, p []byte) error {
 	switch op {
 	case TextMessage, BinaryMessage:
@@ -500,7 +617,28 @@ func (c *Conn) WriteMessage(op OpCode, p []byte) error {
 	if sent {
 		return ErrCloseSent
 	}
-	return c.writeFrame(true, op, p)
+	return c.writeMessageFrame(op, p)
+}
+
+// writeMessageFrame compresses the payload when permessage-deflate is active and writes it as one FIN frame. | writeMessageFrame 在 permessage-deflate 生效时压缩载荷，并作为单个 FIN 帧写出。
+//
+// Compression happens under the write lock because the flate writer is shared state; the RFC 7692 | 压缩在写锁内进行，因为 flate 写出器是共享状态；RFC 7692 的
+// RSV1 bit is set exactly on this first-and-only frame. | RSV1 位恰好设置在这个唯一（也是首个）帧上。
+func (c *Conn) writeMessageFrame(op OpCode, payload []byte) error {
+	c.writeMu.Lock()
+	defer c.writeMu.Unlock()
+
+	rsv1 := false
+	body := payload
+	if c.compressor != nil && c.writeCompression.Load() {
+		compressed, err := c.compressor.compress(payload)
+		if err != nil {
+			return err
+		}
+		body = compressed
+		rsv1 = true
+	}
+	return c.writeFrameLocked(rsv1, true, op, body)
 }
 
 // WriteControl writes a control frame (close/ping/pong) with an optional write deadline. | WriteControl 写入控制帧（close/ping/pong），可指定写超时。
@@ -546,8 +684,17 @@ func (c *Conn) writeControlFrame(op OpCode, p []byte, deadline time.Time) error 
 	return c.writeFrame(true, op, p)
 }
 
-// writeFrame assembles and sends a single frame. | writeFrame 组装并发送单个帧。
+// writeFrame assembles and sends a single uncompressed frame. | writeFrame 组装并发送单个未压缩帧。
 func (c *Conn) writeFrame(fin bool, op OpCode, payload []byte) error {
+	c.writeMu.Lock()
+	defer c.writeMu.Unlock()
+	return c.writeFrameLocked(false, fin, op, payload)
+}
+
+// writeFrameLocked assembles and sends a single frame while the caller already holds c.writeMu. | writeFrameLocked 在调用方已持有 c.writeMu 时组装并发送单个帧。
+//
+// rsv1 is only ever true for the first frame of a compressed data message; control frames must pass false. | rsv1 仅在压缩数据消息的首帧为 true；控制帧必须传 false。
+func (c *Conn) writeFrameLocked(rsv1, fin bool, op OpCode, payload []byte) error {
 	// The whole frame — header, mask key and (for clients) the shared mask
 	// buffer — must be built **inside** the write lock. Building the masked
 	// copy before locking would let two concurrent writers race on c.maskBuf,
@@ -557,10 +704,12 @@ func (c *Conn) writeFrame(fin bool, op OpCode, payload []byte) error {
 	// 「并发写被串行化」的契约。
 	var hdr [maxHeaderSize]byte
 
-	c.writeMu.Lock()
-	defer c.writeMu.Unlock()
-
 	n := writeFrameHeader(hdr[:], fin, op, c.isClient, int64(len(payload)))
+	if rsv1 {
+		// writeFrameHeader has no extension knowledge by design (its signature is part of the | writeFrameHeader 按设计不感知扩展（其签名属于
+		// tested frame layer), so the RSV1 bit is ORed in here. | 受测帧层接口），因此 RSV1 位在此处按位或入。
+		hdr[0] |= 0x40
+	}
 	body := payload
 	if c.isClient {
 		// a client must mask; masking requires an in-place XOR, so the payload is copied into an internal buffer | 客户端必须掩码；掩码需要就地异或，因此复制到内部缓冲

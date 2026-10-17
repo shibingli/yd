@@ -2,8 +2,11 @@
 //
 // Design highlights: | 设计要点：
 //
-//   - Zero external dependencies: the handshake, frame encoding/decoding, masking, and incremental UTF-8 validation are all implemented here, |   - 零外部依赖：握手、帧编解码、掩码、UTF-8 增量校验全部自行实现，
-//     reusing only the framework's own b64x (for the Sec-WebSocket-Accept computation). |     仅复用框架自带的 b64x（Sec-WebSocket-Accept 计算）。
+//   - Minimal dependencies: the handshake, frame encoding/decoding, masking and incremental UTF-8 validation are implemented here; |   - 依赖克制：握手、帧编解码、掩码与 UTF-8 增量校验均自行实现；
+//     only the framework's b64x and the klauspost/compress DEFLATE codec are reused. |     仅复用框架自带的 b64x 与 klauspost/compress 的 DEFLATE 编解码。
+//   - RFC 7692 permessage-deflate is opt-in on both endpoints: the first data frame of a message carries RSV1, |   - RFC 7692 permessage-deflate 在两端都需显式开启：消息首个数据帧置 RSV1，
+//     control frames are never compressed, context takeover is honoured, and decompression output is capped |     控制帧永不压缩，支持上下文接管，且解压输出受 MaxMessageSize 限制
+//     by MaxMessageSize so a compression bomb is closed with 1009 instead of exhausting memory. |     因此解压炸弹会以 1009 关闭而不是耗尽内存。
 //   - Memory reuse: frame headers are written into a stack array and sent together with the payload in a single writev via net.Buffers, |   - 内存复用：帧头写入栈上数组并配合 net.Buffers 一次 writev 发出，
 //     so the payload is never copied a second time; the read side reuses internal buffers and reads large messages straight into the destination slice. |     载荷不做二次拷贝；读取侧复用内部缓冲，大消息直接读入目标切片。
 //   - Protocol strictness: client masking is enforced, control frames are constrained, RSV bits are validated, text is UTF-8 validated, |   - 协议严格性：强制客户端掩码、控制帧约束、RSV 校验、文本 UTF-8 校验、
@@ -179,6 +182,10 @@ var (
 	ErrFragmentedControl = errx.New("ws: control frames must not be fragmented | ws：控制帧不得分片")
 	// ErrReservedBits indicates that RSV bits were set while no extension had been negotiated. | ErrReservedBits 表示在未协商扩展时设置了 RSV 位。
 	ErrReservedBits = errx.New("ws: RSV bits set without a negotiated extension | ws：未协商扩展却设置了 RSV 位")
+	// ErrCompression indicates that the permessage-deflate codec itself failed (not a peer protocol violation). | ErrCompression 表示 permessage-deflate 编解码器自身失败（不是对端协议违规）。
+	ErrCompression = errx.New("ws: permessage-deflate codec failed | ws：permessage-deflate 编解码失败")
+	// ErrInvalidCompressedData indicates that a compressed message could not be inflated; the connection is closed with 1007. | ErrInvalidCompressedData 表示压缩消息无法解压；连接会以 1007 关闭。
+	ErrInvalidCompressedData = errx.New("ws: compressed message is corrupt | ws：压缩消息已损坏")
 	// ErrMaskMismatch indicates that the masking direction violates RFC 6455 (clients must mask, servers must not mask). | ErrMaskMismatch 表示掩码方向不符合 RFC 6455（客户端必须掩码、服务端必须不掩码）。
 	ErrMaskMismatch = errx.New("ws: masking direction violates RFC 6455 | ws：掩码方向不符合 RFC 6455")
 	// ErrBadOpCode indicates a reserved opcode. | ErrBadOpCode 表示保留操作码。
@@ -239,8 +246,13 @@ type Options struct {
 	HandshakeTimeout time.Duration
 	// MaxMessageSize is the per-message limit; <=0 means 32MB. | MaxMessageSize 为单条消息上限，<=0 时取 32MB。
 	MaxMessageSize int64
-	// DisableCompression is a reserved field: this implementation does not enable permessage-deflate. | DisableCompression 保留字段：本实现未启用 permessage-deflate。
-	DisableCompression bool
+	// EnableCompression enables RFC 7692 permessage-deflate negotiation on the server side. | EnableCompression 在服务端启用 RFC 7692 permessage-deflate 协商。
+	//
+	// It defaults to false: compression costs CPU and only helps peers that understand the extension, | 默认值为 false：压缩消耗 CPU，且只对理解该扩展的对端有益，
+	// so it must be switched on explicitly. When enabled, Upgrade parses the client's | 因此必须显式开启。启用后，Upgrade 会解析客户端
+	// Sec-WebSocket-Extensions offer and echoes the parameters it can honour; an offer it cannot | 的 Sec-WebSocket-Extensions 提议并回写它能履行的参数；无法履行的提议
+	// accept is declined (no extension is negotiated) rather than failing the handshake. | 会被拒绝（不协商扩展），而不是让握手失败。
+	EnableCompression bool
 }
 
 // normalize fills in the default values. | normalize 填充默认值。

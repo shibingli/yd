@@ -75,6 +75,16 @@ func Upgrade(w http.ResponseWriter, r *http.Request, o Options) (*Conn, error) {
 
 	sub := selectSubprotocol(r, o.Subprotocols)
 
+	// RFC 7692 §5: the server may only activate the extension when the client offered it; an offer it cannot honour | RFC 7692 §5：只有客户端提议过扩展，服务端才能启用；无法接受的提议
+	// is declined, which leaves the connection uncompressed instead of failing the handshake. | 会被拒绝，连接保持不压缩，而不是让握手失败。
+	var (
+		compCfg  *compressionConfig
+		extReply string
+	)
+	if o.EnableCompression {
+		compCfg, extReply = negotiateServerCompression(r.Header)
+	}
+
 	hj, ok := w.(http.Hijacker)
 	if !ok {
 		http.Error(w, "the current connection does not support protocol upgrade | 当前连接不支持协议升级", http.StatusInternalServerError)
@@ -98,6 +108,11 @@ func Upgrade(w http.ResponseWriter, r *http.Request, o Options) (*Conn, error) {
 		sb.WriteString(sub)
 		sb.WriteString("\r\n")
 	}
+	if extReply != "" {
+		sb.WriteString("Sec-WebSocket-Extensions: ")
+		sb.WriteString(extReply)
+		sb.WriteString("\r\n")
+	}
 	sb.WriteString("\r\n")
 
 	if _, err := netConn.Write([]byte(sb.String())); err != nil {
@@ -107,6 +122,7 @@ func Upgrade(w http.ResponseWriter, r *http.Request, o Options) (*Conn, error) {
 
 	c := newConn(netConn, o, false)
 	c.subprotocol = sub
+	c.setCompression(compCfg)
 	// Registration must happen after the handshake response is written: only then is the connection a usable WebSocket that a close frame can address. | 登记必须在握手响应写出之后：此刻连接已是可用的 WebSocket，关闭帧才有意义。
 	c.setTracker(o.Tracker)
 	// a client may pipeline data right after the handshake, so the read buffer returned by Hijack may already hold content; | 客户端可能在握手后立刻流水线发送数据，Hijack 返回的读缓冲里可能已有内容，
