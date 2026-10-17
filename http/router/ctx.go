@@ -40,16 +40,24 @@ type Ctx struct {
 	// Params holds the path parameters captured for this request. | Params 保存本次请求捕获到的路径参数。
 	Params *Params
 
+	router *Router
+	// routeCache is the private routing cache of the pooled context; it survives reset and is
+	// only ever touched by the request currently owning this context. | routeCache 是池化上下文的
+	// 私有路由缓存；它跨 reset 保留，且只由当前持有该上下文的请求访问。
+	routeCache *localRouteCache
+	// pattern is the context-local matcher for the last parameterized route shape. | pattern 是
+	// 最近一次参数化路由形状的每上下文匹配器。
+	pattern *routePattern
+
+	query    url.Values
+	keys     map[string]any
+	path     string
+	handlers []HandlerFunc
+
 	// paramStore backs Params so that no second object pool is needed per request. | paramStore
 	// 为 Params 提供存储，从而不必为每个请求再走一次对象池。
 	paramStore Params
 
-	router *Router
-
-	query       url.Values
-	keys        map[string]any
-	path        string
-	handlers    []HandlerFunc
 	index       int
 	status      int
 	written     bool
@@ -62,18 +70,23 @@ type Ctx struct {
 }
 
 // reset prepares the value for reuse. | reset 为复用做准备。
-func (c *Ctx) reset(w http.ResponseWriter, r *http.Request, rt *Router) {
+func (c *Ctx) reset(w http.ResponseWriter, r *http.Request) {
 	c.Writer = w
 	c.Request = r
-	c.router = rt
-	// Drop an abnormally large parameter slice instead of retaining it for the life of the
-	// pooled context; ordinary requests keep the backing array. | 异常大的参数切片不随池化上下文长期
-	// 保留；普通请求保留底层数组。
-	if cap(c.paramStore.ps) > 64 {
+	// A shared view points at the parameter array of a route-cache entry; reslicing it for the
+	// next request would let that request overwrite the cached captures. Drop the reference
+	// instead. Ordinary request-local arrays are kept for reuse, except abnormally large ones. | 共享
+	// 视图指向路由缓存项的参数数组；把它重新切片给下一个请求会让该请求覆写缓存捕获，因此这里直接
+	// 丢弃引用。普通请求本地数组保留复用，异常大的数组除外。
+	switch {
+	case c.paramStore.shared:
 		c.paramStore.ps = nil
-	} else {
+	case cap(c.paramStore.ps) > 64:
+		c.paramStore.ps = nil
+	default:
 		c.paramStore.ps = c.paramStore.ps[:0]
 	}
+	c.paramStore.shared = false
 	c.Params = &c.paramStore
 	// Keep the backing array of handlers for reuse, except when it was borrowed from the tree:
 	// appending through that slice would overwrite the immutable route chain. | 保留 handlers 的
@@ -125,7 +138,9 @@ func (c *Ctx) Router() *Router { return c.router }
 // Method returns the HTTP method. | Method 返回 HTTP 方法。
 func (c *Ctx) Method() string { return c.Request.Method }
 
-// Path returns the request path (in its original encoded form). | Path 返回请求路径（原始编码形式）。
+// Path returns the routing path: the original escaped form when the request carries a RawPath
+// (encoded slashes stay inside one segment), otherwise the decoded URL.Path. | Path 返回路由路径：
+// 请求带有 RawPath 时使用原始转义形式（编码斜杠保留在同一分段内），否则使用解码后的 URL.Path。
 //
 // The value is computed once by ServeHTTP and cached on the context, so middleware and handlers
 // can call Path repeatedly without rescanning the URL. | 该值由 ServeHTTP 计算一次并缓存在上下文上，
@@ -134,7 +149,7 @@ func (c *Ctx) Path() string {
 	if c.path != "" {
 		return c.path
 	}
-	return fastEscapedPath(c.Request.URL)
+	return requestPath(c.Request.URL)
 }
 
 // URI returns the path and the query string. | URI 返回路径与查询串。
@@ -181,7 +196,10 @@ func (c *Ctx) RealIP() string {
 	return host
 }
 
-// Param returns the path parameter with the given name (the original encoding is kept, no percent-decoding). | Param 返回指定名称的路径参数（保持原始编码，不做百分号解码）。
+// Param returns the path parameter with the given name, captured from the routing path. When the
+// request carried a RawPath the original percent-encoding is kept; otherwise the value is the
+// decoded path segment. | Param 返回指定名称的路径参数，取自路由路径。请求带有 RawPath 时保留
+// 原始百分号编码；否则取解码后的路径分段。
 func (c *Ctx) Param(name string) string {
 	if c.Params == nil {
 		return ""
@@ -230,22 +248,22 @@ func (c *Ctx) QueryValuesAll(key string) []string { return c.QueryValues()[key] 
 // argument is only an in-memory budget. | 这层包装才是流式读取时真正执行 MaxBodySize 的地方；
 // ParseMultipartForm 的参数只是内存预算。
 func (c *Ctx) limitBody() {
-	if c.bodyLimited || c.Request == nil || c.Request.Body == nil {
+	req := c.Request
+	if req == nil {
 		return
 	}
-	// net/http gives a body-less GET or HEAD http.NoBody and ContentLength 0; skipping them here
-	// avoids an interface comparison on the most common requests. Chunked bodies have
-	// ContentLength -1 and still take the wrapper. | net/http 对无正文的 GET/HEAD 给出
-	// http.NoBody 且 ContentLength 为 0；在这里跳过它们可以避免最常见请求上的接口比较。分块正文的
-	// ContentLength 为 -1，仍会走包装。
-	if c.Request.ContentLength == 0 &&
-		(c.Request.Method == http.MethodGet || c.Request.Method == http.MethodHead) {
+	// net/http gives a body-less GET or HEAD http.NoBody and ContentLength 0; answering that
+	// before touching the interface fields keeps the most common requests free of interface
+	// comparisons. Chunked bodies have ContentLength -1 and still take the wrapper. | net/http 对
+	// 无正文的 GET/HEAD 给出 http.NoBody 且 ContentLength 为 0；先判断这一情况，使最常见请求无需
+	// 触碰接口字段。分块正文的 ContentLength 为 -1，仍会走包装。
+	if req.ContentLength == 0 && (req.Method == http.MethodGet || req.Method == http.MethodHead) {
 		return
 	}
-	if c.Request.Body == http.NoBody {
+	if c.bodyLimited || req.Body == nil || req.Body == http.NoBody {
 		return
 	}
-	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, c.router.maxBodySize())
+	req.Body = http.MaxBytesReader(c.Writer, req.Body, c.router.maxBodySize())
 	c.bodyLimited = true
 }
 

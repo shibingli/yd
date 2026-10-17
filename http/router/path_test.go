@@ -5,64 +5,60 @@ import (
 	"testing"
 )
 
-// TestFastEscapedPathMatchesStdlib proves the byte table and the fast path agree with
-// net/url on every shape that matters for routing. | TestFastEscapedPathMatchesStdlib 证明字节表与
-// 快路径在所有影响路由的形态上都与 net/url 一致。
-func TestFastEscapedPathMatchesStdlib(t *testing.T) {
-	targets := []string{
-		"",
-		"/",
-		"/users/me",
-		"/users/42/posts",
-		"/a b",
-		"/a%20b",
-		"/a%2Fb",
-		"/a%3Fb",
-		"/a%25b",
-		"/中文/路径",
-		"/control%00byte",
-		"*",
+// TestRequestPathSemantics pins the routing path rule: a non-empty RawPath wins so encoded
+// slashes stay inside one segment, otherwise the decoded Path is used. | TestRequestPathSemantics
+// 固化路由路径规则：非空 RawPath 优先，使编码斜杠保留在同一分段内；否则使用解码后的 Path。
+func TestRequestPathSemantics(t *testing.T) {
+	tests := []struct {
+		target string
+		want   string
+	}{
+		{target: "/users/me", want: "/users/me"},
+		{target: "/users/42/posts", want: "/users/42/posts"},
+		{target: "/a b", want: "/a b"},
+		{target: "/a%20b", want: "/a b"},
+		{target: "/a%2Fb", want: "/a%2Fb"},
+		{target: "/a%3Fb", want: "/a?b"},
+		{target: "/中文/路径", want: "/中文/路径"},
+		{target: "*", want: "*"},
 	}
-	for _, target := range targets {
-		u, err := url.Parse(target)
+	for _, tc := range tests {
+		u, err := url.Parse(tc.target)
 		if err != nil {
-			t.Fatalf("url.Parse(%q): %v", target, err)
+			t.Fatalf("url.Parse(%q): %v", tc.target, err)
 		}
-		if got, want := fastEscapedPath(u), u.EscapedPath(); got != want {
-			t.Errorf("fastEscapedPath(%q) = %q, want %q | 快路径与标准库不一致", target, got, want)
+		if got := requestPath(u); got != tc.want {
+			t.Errorf("requestPath(%q) = %q, want %q | 路由路径规则不正确", tc.target, got, tc.want)
 		}
 	}
 
 	manual := []*url.URL{
 		{Path: "/a b", RawPath: "/a%20b"},
-		{Path: "/a b", RawPath: "/bad%ZZ"},
 		{Path: "/a/b", RawPath: "/a%2Fb"},
-		{Path: "*"},
 	}
 	for _, u := range manual {
-		if got, want := fastEscapedPath(u), u.EscapedPath(); got != want {
-			t.Errorf("fastEscapedPath(%+v) = %q, want %q | 手工 URL 与标准库不一致", u, got, want)
+		if got, want := requestPath(u), u.RawPath; got != want {
+			t.Errorf("requestPath(%+v) = %q, want RawPath %q | RawPath 应优先", u, got, want)
 		}
 	}
-
-	if got := fastEscapedPath(nil); got != "" {
-		t.Errorf("fastEscapedPath(nil) = %q, want empty | nil URL 应返回空串", got)
+	if got := requestPath(nil); got != "" {
+		t.Errorf("requestPath(nil) = %q, want empty | nil URL 应返回空串", got)
 	}
 }
 
-// BenchmarkFastEscapedPath compares the fast path with url.URL.EscapedPath for a safe path. | BenchmarkFastEscapedPath
-// 对比安全路径下快路径与 url.URL.EscapedPath。
-func BenchmarkFastEscapedPath(b *testing.B) {
+// BenchmarkRequestPath compares the routing path rule with url.URL.EscapedPath for a safe path. | BenchmarkRequestPath
+// 对比安全路径下路由路径规则与 url.URL.EscapedPath。
+func BenchmarkRequestPath(b *testing.B) {
 	u := &url.URL{Path: "/users/42/posts"}
-	b.Run("fast", func(b *testing.B) {
+	b.Run("requestPath", func(b *testing.B) {
 		b.ReportAllocs()
 		for i := 0; i < b.N; i++ {
-			if fastEscapedPath(u) == "" {
+			if requestPath(u) == "" {
 				b.Fatal("empty")
 			}
 		}
 	})
-	b.Run("stdlib", func(b *testing.B) {
+	b.Run("escapedPath", func(b *testing.B) {
 		b.ReportAllocs()
 		for i := 0; i < b.N; i++ {
 			if u.EscapedPath() == "" {

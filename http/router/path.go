@@ -2,40 +2,20 @@ package router
 
 import "net/url"
 
-// pathNeedsEscape marks the bytes that net/url escapes under encodePath. It is derived from
-// net/url itself at start-up, so the fast path can never diverge from the standard library. | pathNeedsEscape
-// 标记 net/url 在 encodePath 模式下需要转义的字节。该表在启动时由 net/url 自身推导，因此快路径
-// 不可能与标准库产生分歧。
-var pathNeedsEscape [256]bool
-
-func init() {
-	for i := 0; i < 256; i++ {
-		s := string([]byte{byte(i)})
-		pathNeedsEscape[i] = (&url.URL{Path: s}).EscapedPath() != s
-	}
-}
-
-// fastEscapedPath returns exactly u.EscapedPath() while skipping the generic escape scan for
-// the common all-safe path. | fastEscapedPath 返回与 u.EscapedPath() 完全相同的结果，同时对常见的
-// 全安全路径跳过通用转义扫描。
+// requestPath returns the path used for routing. | requestPath 返回用于路由的路径。
 //
-// A non-empty RawPath always delegates to the standard library, which validates it and falls back
-// to Path when it is malformed; paths containing a byte that needs escaping delegate as well, so
-// the returned string is byte-for-byte identical to url.URL.EscapedPath. | RawPath 非空时一律交给
-// 标准库校验并在畸形时回退到 Path；包含需转义字节的路径也交给标准库，因此返回值与
-// url.URL.EscapedPath 逐字节一致。
-func fastEscapedPath(u *url.URL) string {
+// When the request carries a non-empty RawPath, the original escaped form is used, which keeps
+// encoded slashes (for example %2F) inside one segment; otherwise the decoded URL.Path is used.
+// This matches the behaviour of the mainstream routers and avoids the generic escape scan that
+// url.URL.EscapedPath performs on every request. | 请求带有非空 RawPath 时使用原始转义形式，
+// 使编码斜杠（例如 %2F）保留在同一个分段内；否则使用解码后的 URL.Path。这与主流路由的行为一致，
+// 并避免 url.URL.EscapedPath 在每个请求上执行通用转义扫描。
+func requestPath(u *url.URL) string {
 	if u == nil {
 		return ""
 	}
 	if u.RawPath != "" {
-		return u.EscapedPath()
+		return u.RawPath
 	}
-	p := u.Path
-	for i := 0; i < len(p); i++ {
-		if pathNeedsEscape[p[i]] {
-			return u.EscapedPath()
-		}
-	}
-	return p
+	return u.Path
 }

@@ -1,9 +1,12 @@
 package router
 
 import (
+	"encoding/binary"
+	"math/bits"
 	"net/http"
 	"sort"
 	"strings"
+	"unsafe"
 
 	"github.com/shibingli/yd/core/errx"
 )
@@ -79,8 +82,18 @@ type node struct {
 	// fan-out stays a linear scan, which avoids the hashing cost on every request. | 静态子节点
 	// 超过 staticSliceLimit 后改用 staticMap；小扇出保持线性扫描，避免每个请求都付出哈希开销。
 	staticMap map[string]*node
-	pattern   string
-	static    []staticChild
+	// staticIndex maps the first byte of a segment to its static child (index+1, zero means
+	// none). It removes the linear scan for small branches; duplicate first bytes fall back to
+	// the scan, because the index is a hint and never changes match semantics. | staticIndex 把
+	// 分段首字节映射到静态子节点（下标 + 1，零表示没有）。它消除小分支上的线性扫描；首字节重复时
+	// 回退到扫描，因为该索引只是提示，绝不改变匹配语义。
+	staticIndex *[256]uint8
+	pattern     string
+	// patternShape is the precompiled static/param shape of a safe parameterized route, shared
+	// by every request context; nil means the route is not eligible for pattern caching. | patternShape
+	// 是安全参数化路由预编译的静态/参数形状，由所有请求上下文共享；nil 表示该路由不参与模式缓存。
+	patternShape *patternShape
+	static       []staticChild
 
 	handlers []methodHandler
 	mixed    []*node
@@ -99,6 +112,19 @@ type methodHandler struct {
 // Standard methods compare one integer; only uncommon methods fall back to comparing the
 // caller-provided name. | 标准方法只比较一个整数；只有非标准方法才回退到比较调用方给出的名称。
 func (n *node) handlerFor(key methodKey) (any, bool) {
+	if len(n.handlers) == 1 {
+		h := &n.handlers[0]
+		if key.known {
+			if h.id == key.id {
+				return h.handler, true
+			}
+			return nil, false
+		}
+		if h.method == key.name {
+			return h.handler, true
+		}
+		return nil, false
+	}
 	if key.known {
 		for i := range n.handlers {
 			if n.handlers[i].id == key.id {
@@ -139,6 +165,95 @@ type staticChild struct {
 	name string
 }
 
+// patternSegment is one segment of a compiled route pattern. | patternSegment 是已编译路由模式的一个分段。
+type patternSegment struct {
+	literal string
+	name    string
+	param   bool
+}
+
+// patternShape is a precompiled route shape. When fast is set, the route has exactly one
+// parameter and the whole path is prefix + parameter + suffix, so matching is two string
+// comparisons and one slash scan instead of a segment loop. | patternShape 是预编译的路由形状。
+// fast 置位时路由恰好只有一个参数，整个路径就是「前缀 + 参数 + 后缀」，匹配因此是两次字符串比较
+// 加一次斜杠扫描，而不是分段循环。
+type patternShape struct {
+	prefix   string
+	suffix   string
+	param    string
+	segments []patternSegment
+	fast     bool
+}
+
+// compilePatternShape turns a parsed route pattern into its match shape when the route is
+// eligible for pattern caching: only static and parameter segments, at least one parameter and
+// no trailing slash. Mixed and wildcard segments are rejected because their priority rules
+// cannot be verified for a different path value by a linear walk. | compilePatternShape 在路由
+// 符合模式缓存条件时把已解析的路由模式转成匹配形状：只允许静态段与参数段，至少一个参数且没有
+// 尾斜杠。混合段与通配段被拒绝，因为线性遍历无法为不同的路径值验证它们的优先级规则。
+func compilePatternShape(segs []Segment, paramNames []string) *patternShape {
+	params := 0
+	for i := range segs {
+		switch segs[i].Kind {
+		case SegStatic:
+			if segs[i].TrailingSlash {
+				return nil
+			}
+		case SegParam:
+			params++
+		default:
+			return nil
+		}
+	}
+	if params == 0 || len(paramNames) != params {
+		return nil
+	}
+	shape := &patternShape{segments: make([]patternSegment, len(segs))}
+	pi := 0
+	for i := range segs {
+		if segs[i].Kind == SegParam {
+			shape.segments[i] = patternSegment{name: paramNames[pi], param: true}
+			pi++
+		} else {
+			shape.segments[i] = patternSegment{literal: segs[i].Literal}
+		}
+	}
+	if params != 1 {
+		return shape
+	}
+	// Exactly one parameter: the path is prefix + value + suffix, with the surrounding slashes
+	// guaranteeing the value is a single segment. | 恰好一个参数：路径就是「前缀 + 值 + 后缀」，
+	// 两侧的斜杠保证该值本身是一个分段。
+	paramIdx := -1
+	for i := range segs {
+		if segs[i].Kind == SegParam {
+			paramIdx = i
+			shape.param = paramNames[0]
+			break
+		}
+	}
+	var pre strings.Builder
+	pre.WriteByte('/')
+	for i := 0; i < paramIdx; i++ {
+		if i > 0 {
+			pre.WriteByte('/')
+		}
+		pre.WriteString(segs[i].Literal)
+	}
+	if paramIdx > 0 {
+		pre.WriteByte('/')
+	}
+	var suf strings.Builder
+	for i := paramIdx + 1; i < len(segs); i++ {
+		suf.WriteByte('/')
+		suf.WriteString(segs[i].Literal)
+	}
+	shape.prefix = pre.String()
+	shape.suffix = suf.String()
+	shape.fast = true
+	return shape
+}
+
 // staticSliceLimit is the fan-out up to which a linear scan beats a map lookup. | staticSliceLimit
 // 是线性扫描优于映射查找的扇出上限。
 const staticSliceLimit = 8
@@ -147,6 +262,29 @@ func newNode(seg *Segment) *node { return &node{seg: seg} }
 
 // staticChild returns the static child named name. | staticChild 返回名为 name 的静态子节点。
 func (n *node) staticChild(name string) (*node, bool) {
+	if idx := n.staticIndex; idx != nil && name != "" {
+		if i := idx[name[0]]; i != 0 {
+			c := &n.static[i-1]
+			if segEqual(c.name, name) {
+				return c.node, true
+			}
+		}
+		return nil, false
+	}
+	if len(n.static) == 1 {
+		c := &n.static[0]
+		if segEqual(c.name, name) {
+			return c.node, true
+		}
+		return nil, false
+	}
+	return n.staticChildSlow(name)
+}
+
+// staticChildSlow handles the map fallback, the single child and the unindexed scan. Keeping it
+// out of staticChild lets the compiler inline the indexed fast path into the matcher. | staticChildSlow
+// 处理映射回退、单子节点与无索引扫描。把它移出 staticChild，编译器才能把带索引的快路径内联进匹配器。
+func (n *node) staticChildSlow(name string) (*node, bool) {
 	if n.staticMap != nil {
 		c, ok := n.staticMap[name]
 		return c, ok
@@ -155,17 +293,42 @@ func (n *node) staticChild(name string) (*node, bool) {
 	case 0:
 		return nil, false
 	case 1:
-		if n.static[0].name == name {
+		if segEqual(n.static[0].name, name) {
 			return n.static[0].node, true
 		}
 		return nil, false
 	}
 	for i := range n.static {
-		if n.static[i].name == name {
+		if segEqual(n.static[i].name, name) {
 			return n.static[i].node, true
 		}
 	}
 	return nil, false
+}
+
+// rebuildStaticIndex refreshes the first-byte index after a static child is added. | rebuildStaticIndex
+// 在新增静态子节点后刷新首字节索引。
+func (n *node) rebuildStaticIndex() {
+	n.staticIndex = nil
+	if len(n.static) < 2 {
+		return
+	}
+	idx := new([256]uint8)
+	for i := range n.static {
+		name := n.static[i].name
+		if name == "" {
+			return
+		}
+		b := name[0]
+		// Two children sharing a first byte cannot be indexed; keep the linear scan so
+		// correctness never depends on the index. | 首字节相同的两个子节点无法建索引；保留线性
+		// 扫描，使正确性绝不依赖该索引。
+		if idx[b] != 0 {
+			return
+		}
+		idx[b] = uint8(i + 1)
+	}
+	n.staticIndex = idx
 }
 
 // ensureStaticChild returns the static child for name, creating it when necessary. | ensureStaticChild
@@ -181,6 +344,7 @@ func (n *node) ensureStaticChild(name string, seg Segment) *node {
 	}
 	if len(n.static) < staticSliceLimit {
 		n.static = append(n.static, staticChild{name: name, node: c})
+		n.rebuildStaticIndex()
 		return c
 	}
 	n.staticMap = make(map[string]*node, len(n.static)*2)
@@ -189,6 +353,7 @@ func (n *node) ensureStaticChild(name string, seg Segment) *node {
 	}
 	n.staticMap[name] = c
 	n.static = nil
+	n.staticIndex = nil
 	return c
 }
 
@@ -233,6 +398,144 @@ func (n *node) child(seg Segment) (*node, error) {
 // Matching does not modify the tree structure and can be called concurrently by any number of goroutines. | 匹配过程不修改树结构，可被任意多个 goroutine 并发调用。
 type Tree struct {
 	root *node
+	// rootMask holds the first byte of every root static edge; rootOpen disables the rejection
+	// shortcut when a param, wildcard or mixed edge could match any first byte. Both are rebuilt
+	// during wiring and only read on the request path. | rootMask 保存根节点每条静态边的首字节；
+	// 当参数、通配或混合边可能匹配任意首字节时，rootOpen 关闭拒绝短路。两者都在装配期重建，请求路径上
+	// 只读。
+	rootMask [4]uint64
+	rootOpen bool
+}
+
+// nextSlash returns the index of the next '/' at or after start, or len(path). Short suffixes
+// use an inlinable byte loop; long ones scan eight bytes at a time. | nextSlash 返回 start 处或
+// 之后的下一个 '/' 下标，没有则返回 len(path)。短后缀使用可内联的字节循环，长后缀每次扫描八个字节。
+func nextSlash(path string, start int) int {
+	n := len(path)
+	if n-start < 8 {
+		for start < n && path[start] != '/' {
+			start++
+		}
+		return start
+	}
+	return nextSlashLong(path, start)
+}
+
+// nextSlashLong scans eight bytes at a time. The classic zero-byte test's lowest set bit is the
+// first '/' in the little-endian window. | nextSlashLong 每次扫描八个字节。经典零字节检测的最低
+// 置位即小端窗口中的第一个 '/'。
+func nextSlashLong(path string, start int) int {
+	n := len(path)
+	b := unsafe.Slice(unsafe.StringData(path), n)
+	for start+8 <= n {
+		w := binary.LittleEndian.Uint64(b[start:])
+		x := w ^ 0x2f2f2f2f2f2f2f2f
+		if m := (x - 0x0101010101010101) &^ x & 0x8080808080808080; m != 0 {
+			return start + bits.TrailingZeros64(m)>>3
+		}
+		start += 8
+	}
+	for start < n && path[start] != '/' {
+		start++
+	}
+	return start
+}
+
+// segEqual compares two path segments. Registered static segments are short; comparing the
+// first and last four bytes covers every string up to eight bytes without the memeq call that a
+// plain string comparison makes for non-constant operands. Longer strings use the runtime
+// compare, which is already vectorized. | segEqual 比较两个路径分段。注册的静态分段通常较短；
+// 比较首尾各四个字节即可覆盖八字节以内的所有字符串，避免普通字符串比较对非常量操作数发起的
+// memeq 调用。更长的字符串交给运行时已经向量化的比较。
+func segEqual(a, b string) bool {
+	n := len(a)
+	if n != len(b) {
+		return false
+	}
+	if n >= 4 && n <= 8 {
+		if load4(a, 0) != load4(b, 0) {
+			return false
+		}
+		if n > 4 {
+			return load4(a, n-4) == load4(b, n-4)
+		}
+		return true
+	}
+	if n > 8 {
+		return a == b
+	}
+	for i := 0; i < n; i++ {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
+}
+
+// load4 reads four bytes of s without copying. | load4 在不复制的情况下读取 s 的四个字节。
+func load4(s string, off int) uint32 {
+	return *(*uint32)(unsafe.Add(unsafe.Pointer(unsafe.StringData(s)), off))
+}
+
+// rebuildRootMask refreshes the first-byte rejection mask after a route is added. | rebuildRootMask
+// 在新增路由后刷新首字节拒绝掩码。
+func (t *Tree) rebuildRootMask() {
+	t.rootMask = [4]uint64{}
+	t.rootOpen = t.root.param != nil || t.root.wildcard != nil || len(t.root.mixed) > 0
+	if t.root.staticMap != nil {
+		for name := range t.root.staticMap {
+			if name != "" {
+				b := name[0]
+				t.rootMask[b>>6] |= uint64(1) << (b & 63)
+			}
+		}
+		return
+	}
+	for i := range t.root.static {
+		if name := t.root.static[i].name; name != "" {
+			b := name[0]
+			t.rootMask[b>>6] |= uint64(1) << (b & 63)
+		}
+	}
+}
+
+// patternUsable reports whether shape still routes identically for every matching path: each
+// parameter segment must have no static or mixed sibling, because another value could take that
+// sibling. The check runs once per pattern installation (per context and generation), not per
+// request. | patternUsable 报告 shape 对每个匹配路径是否仍路由到同一位置：每个参数段都不得有
+// 静态或混合兄弟，否则其它值可能走该兄弟。该检查在每次模式安装时执行（每上下文、每代际一次），
+// 而不是每请求。
+func (t *Tree) patternUsable(shape *patternShape) bool {
+	n := t.root
+	for i := range shape.segments {
+		seg := &shape.segments[i]
+		if seg.param {
+			if n.param == nil || len(n.static) > 0 || n.staticMap != nil || len(n.mixed) > 0 {
+				return false
+			}
+			n = n.param
+			continue
+		}
+		c, ok := n.staticChild(seg.literal)
+		if !ok {
+			return false
+		}
+		n = c
+	}
+	return true
+}
+
+// rootReject reports that no route of any method can match path, because its first segment's
+// first byte is absent from every root static edge and no root param, wildcard or mixed edge
+// exists. ServeHTTP uses it to answer a structural 404 without taking a context from the pool. | rootReject
+// 报告任何方法的路由都无法匹配 path：其第一个分段的首字节不在任何根静态边上，且根节点没有参数、
+// 通配或混合边。ServeHTTP 据此在不从池中取上下文的情况下应答结构性 404。
+func (t *Tree) rootReject(path string) bool {
+	if t.rootOpen || len(path) < 2 || path[0] != '/' || path[1] == '/' {
+		return false
+	}
+	b := path[1]
+	return t.rootMask[b>>6]&(uint64(1)<<(b&63)) == 0
 }
 
 // NewTree creates an empty route tree. | NewTree 创建一个空的路由树。
@@ -249,10 +552,17 @@ func (t *Tree) Add(method, pattern string, handler any) error {
 		return err
 	}
 	n := t.root
+	paramNames := make([]string, 0, len(segs))
 	for _, seg := range segs {
 		next, err := n.child(seg)
 		if err != nil {
 			return err
+		}
+		// Capture the name stored on the actual node: two methods may register the same path
+		// position with different parameter names, and the tree keeps the first one. | 捕获实际
+		// 节点上保存的名称：两个方法可能用不同参数名注册同一路径位置，而路由树保留第一个名称。
+		if seg.Kind == SegParam {
+			paramNames = append(paramNames, next.seg.Name)
 		}
 		n = next
 	}
@@ -260,6 +570,8 @@ func (t *Tree) Add(method, pattern string, handler any) error {
 		return errx.Detail(ErrConflict, "%s %s", method, pattern)
 	}
 	n.pattern = pattern
+	n.patternShape = compilePatternShape(segs, paramNames)
+	t.rebuildRootMask()
 	return nil
 }
 
@@ -282,34 +594,43 @@ func (t *Tree) Find(method, path string, ps *Params) (any, bool) {
 // 第一个分段在根节点上没有任何边可匹配，因此既不可能有 405（同路径的其它方法），也不可能有
 // 尾斜杠重定向。ServeHTTP 据此在一次查找后直接应答未知的顶层路径，而不是再遍历两次树。
 func (t *Tree) find(method, path string, ps *Params) (any, bool, bool) {
-	key := newMethodKey(method)
+	return t.findKey(newMethodKey(method), path, ps)
+}
+
+// findKey is find with a precomputed method key, so callers on the request path resolve the
+// method only once. | findKey 是使用预计算方法键的 find，使请求路径上的调用方只解析一次方法。
+func (t *Tree) findKey(key methodKey, path string, ps *Params) (any, bool, bool) {
+	h, _, tsr, noPath := t.findKeyNode(key, path, ps)
+	return h, tsr, noPath
+}
+
+// findKeyNode is findKey plus the terminal node, so the caller can install the route's
+// precompiled pattern shape after a successful match. | findKeyNode 是 findKey 加上终止节点，
+// 使调用方能在匹配成功后安装该路由预编译的模式形状。
+func (t *Tree) findKeyNode(key methodKey, path string, ps *Params) (any, *node, bool, bool) {
 	if path == "" || path[0] != '/' {
-		return nil, false, true
+		return nil, nil, false, true
 	}
 	if path == "/" {
 		handler, _ := t.root.handlerFor(key)
 		// A root registered for another method still needs the 405 path; only a completely
 		// empty root can be answered as a structural miss. | 根节点注册了其它方法时仍需走 405 判定；
 		// 只有完全空的根节点才算结构性未命中。
-		return handler, false, len(t.root.handlers) == 0
+		return handler, t.root, false, len(t.root.handlers) == 0
 	}
-	if h, ok := matchNode(t.root, path, 1, key, ps); ok {
-		return h, false, false
+	if h, tn, ok := matchNodeFast(t.root, path, 1, key, ps); ok {
+		return h, tn, false, false
 	}
 	if !t.rootCanMatch(firstSegment(path), ps) {
-		return nil, false, true
+		return nil, nil, false, true
 	}
-	return nil, t.tsr(key, path), false
+	return nil, nil, t.tsr(key, path), false
 }
 
 // firstSegment returns the first path segment without its leading slash. | firstSegment 返回去掉
 // 前导斜杠的第一个路径分段。
 func firstSegment(path string) string {
-	end := 1
-	for end < len(path) && path[end] != '/' {
-		end++
-	}
-	return path[1:end]
+	return path[1:nextSlash(path, 1)]
 }
 
 // rootCanMatch reports whether any root edge can consume the first segment. | rootCanMatch 报告根
@@ -337,18 +658,129 @@ func (t *Tree) lookup(key methodKey, path string, ps *Params) (any, bool) {
 	if path == "/" {
 		return t.root.handlerFor(key)
 	}
-	return matchNode(t.root, path, 1, key, ps)
+	h, _, ok := matchNodeFast(t.root, path, 1, key, ps)
+	return h, ok
+}
+
+// matchNodeFast is the non-backtracking fast path for the overwhelmingly common route shape: a
+// chain of static segments with at most one forced param branch per node. It walks iteratively
+// and delegates to matchNode as soon as a node has competing edges whose failure would require
+// backtracking. | matchNodeFast 是绝大多数路由形态的非回溯快路径：静态分段链，每个节点最多
+// 一个被迫走的参数分支。它迭代下探，一旦节点存在失败后需要回溯的竞争边就委托给 matchNode。
+func matchNodeFast(n *node, path string, start int, key methodKey, ps *Params) (any, *node, bool) {
+	mark := ps.Len()
+	for {
+		// The segment scan is inlined: a function call per segment costs more than the scan
+		// itself on short paths. Long suffixes use the inlinable word scanner. | 分段扫描内联化：
+		// 短路径上每分段一次函数调用比扫描本身还贵。长后缀使用可内联的字扫描器。
+		end := start
+		if len(path)-start >= 8 {
+			end = nextSlashLong(path, start)
+		} else {
+			for end < len(path) && path[end] != '/' {
+				end++
+			}
+		}
+		val := path[start:end]
+		last := end == len(path)
+
+		// Static child lookup is inlined: the indexed branch and the single-child branch cover
+		// every ordinary node; maps and duplicate-first-byte scans stay in the slow helper. | 静态
+		// 子节点查找内联化：带索引的分支与单子节点分支覆盖所有普通节点；映射与首字节重复的扫描
+		// 留在慢速辅助函数里。
+		var c *node
+		ok := false
+		if idx := n.staticIndex; idx != nil && val != "" {
+			if i := idx[val[0]]; i != 0 {
+				sc := &n.static[i-1]
+				c, ok = sc.node, segEqual(sc.name, val)
+			}
+		} else if len(n.static) == 1 {
+			sc := &n.static[0]
+			c, ok = sc.node, segEqual(sc.name, val)
+		} else if len(n.static) > 1 || n.staticMap != nil {
+			c, ok = n.staticChildSlow(val)
+		}
+		if ok {
+			// A param/mixed/wildcard sibling could still win if this branch fails deeper, so
+			// only a node without such siblings can be descended without a backtrack frame. | 若
+			// 更深层失败后参数/混合/通配兄弟仍可能命中，则只有无此类兄弟的节点才能无回溯下探。
+			if len(n.mixed) > 0 || n.param != nil || n.wildcard != nil {
+				h, tn, ok := matchNode(n, path, start, key, ps)
+				if !ok {
+					ps.Truncate(mark)
+				}
+				return h, tn, ok
+			}
+			if last {
+				var h any
+				var ok bool
+				if len(c.handlers) == 1 {
+					h, ok = handlerForOne(c, key)
+				} else {
+					h, ok = c.handlerFor(key)
+				}
+				if !ok {
+					ps.Truncate(mark)
+				}
+				return h, c, ok
+			}
+			n = c
+			start = end + 1
+			continue
+		}
+
+		// No static child matched. With a single param edge and no mixed/wildcard edge, the
+		// param branch is forced and cannot be backtracked. | 没有静态子节点命中。仅有一个参数
+		// 边且没有混合/通配边时，参数分支是被迫的，无需回溯。
+		if n.param != nil && len(n.mixed) == 0 && n.wildcard == nil && val != "" {
+			ps.Append(n.param.seg.Name, val)
+			if last {
+				var h any
+				var ok bool
+				if len(n.param.handlers) == 1 {
+					h, ok = handlerForOne(n.param, key)
+				} else {
+					h, ok = n.param.handlerFor(key)
+				}
+				if !ok {
+					ps.Truncate(mark)
+				}
+				return h, n.param, ok
+			}
+			n = n.param
+			start = end + 1
+			continue
+		}
+		h, tn, ok := matchNode(n, path, start, key, ps)
+		if !ok {
+			ps.Truncate(mark)
+		}
+		return h, tn, ok
+	}
+}
+
+// handlerForOne compares the only handler of n with key. | handlerForOne 用 key 比较 n 唯一的处理器。
+func handlerForOne(n *node, key methodKey) (any, bool) {
+	h := &n.handlers[0]
+	if key.known {
+		if h.id == key.id {
+			return h.handler, true
+		}
+		return nil, false
+	}
+	if h.method == key.name {
+		return h.handler, true
+	}
+	return nil, false
 }
 
 // matchNode matches the segment of path that starts at start, beginning from node n. | matchNode 从节点 n 开始匹配 path 中起始于 start 的那个分段。
 //
 // start is the index of the current segment's first character in path; segments are separated by '/', and the trailing empty segment | start 为当前分段首字符在 path 中的下标；分段以 '/' 分隔，末尾空段
 // (a path ending with "/") is represented as a segment with an empty value. | （路径以 "/" 结尾）会被表示为一个空值分段。
-func matchNode(n *node, path string, start int, key methodKey, ps *Params) (any, bool) {
-	end := start
-	for end < len(path) && path[end] != '/' {
-		end++
-	}
+func matchNode(n *node, path string, start int, key methodKey, ps *Params) (any, *node, bool) {
+	end := nextSlash(path, start)
 	val := path[start:end] // the substring shares the backing array, so no allocation | 子串共享底层数组，不产生分配
 	last := end == len(path)
 
@@ -359,10 +791,10 @@ func matchNode(n *node, path string, start int, key methodKey, ps *Params) (any,
 	if c, ok := n.staticChild(val); ok {
 		if last {
 			if h, ok := c.handlerFor(key); ok {
-				return h, true
+				return h, c, true
 			}
-		} else if h, ok := matchNode(c, path, end+1, key, ps); ok {
-			return h, true
+		} else if h, tn, ok := matchNode(c, path, end+1, key, ps); ok {
+			return h, tn, true
 		}
 	}
 
@@ -372,10 +804,10 @@ func matchNode(n *node, path string, start int, key methodKey, ps *Params) (any,
 		if matchSegmentInto(c.seg, val, ps) {
 			if last {
 				if h, ok := c.handlerFor(key); ok {
-					return h, true
+					return h, c, true
 				}
-			} else if h, ok := matchNode(c, path, end+1, key, ps); ok {
-				return h, true
+			} else if h, tn, ok := matchNode(c, path, end+1, key, ps); ok {
+				return h, tn, true
 			}
 		}
 		ps.Truncate(mark)
@@ -387,10 +819,10 @@ func matchNode(n *node, path string, start int, key methodKey, ps *Params) (any,
 		ps.Append(n.param.seg.Name, val)
 		if last {
 			if h, ok := n.param.handlerFor(key); ok {
-				return h, true
+				return h, n.param, true
 			}
-		} else if h, ok := matchNode(n.param, path, end+1, key, ps); ok {
-			return h, true
+		} else if h, tn, ok := matchNode(n.param, path, end+1, key, ps); ok {
+			return h, tn, true
 		}
 		ps.Truncate(mark)
 	}
@@ -401,12 +833,12 @@ func matchNode(n *node, path string, start int, key methodKey, ps *Params) (any,
 		mark := ps.Len()
 		ps.Append(n.wildcard.seg.Name, path[start:])
 		if h, ok := n.wildcard.handlerFor(key); ok {
-			return h, true
+			return h, n.wildcard, true
 		}
 		ps.Truncate(mark)
 	}
 
-	return nil, false
+	return nil, nil, false
 }
 
 // tsr reports whether the path would match if only the trailing slash differed. | tsr 判断路径是否只差一个尾斜杠就能命中。
@@ -463,10 +895,7 @@ func (t *Tree) hasAnyMethod(path string, ps *Params) bool {
 // hasMethodsNode mirrors collectNode but stops at the first terminal node. | hasMethodsNode 与
 // collectNode 结构相同，但在第一个终止节点处立即返回。
 func hasMethodsNode(n *node, path string, start int, ps *Params) bool {
-	end := start
-	for end < len(path) && path[end] != '/' {
-		end++
-	}
+	end := nextSlash(path, start)
 	val := path[start:end]
 	last := end == len(path)
 
@@ -514,10 +943,7 @@ func (t *Tree) collectMethods(path string, ps *Params, out map[string]struct{}) 
 }
 
 func collectNode(n *node, path string, start int, ps *Params, out map[string]struct{}) {
-	end := start
-	for end < len(path) && path[end] != '/' {
-		end++
-	}
+	end := nextSlash(path, start)
 	val := path[start:end]
 	last := end == len(path)
 
@@ -601,4 +1027,17 @@ func walkNode(n *node, fn func(method, pattern string, handler any)) {
 	if n.wildcard != nil {
 		walkNode(n.wildcard, fn)
 	}
+}
+
+// sameMethod compares two method keys without invoking a string comparison for standard
+// methods, whose identifiers are unique. | sameMethod 比较两个方法键；标准方法的标识唯一，
+// 因此不会触发字符串比较。
+func sameMethod(a, b methodKey) bool {
+	if a.known != b.known || a.id != b.id {
+		return false
+	}
+	if a.known {
+		return true
+	}
+	return a.name == b.name
 }

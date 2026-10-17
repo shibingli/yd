@@ -86,6 +86,11 @@ type Router struct {
 	globalMW []Middleware
 	errs     []error
 
+	// cacheGen invalidates every per-context route cache whenever a route is added, so a cached
+	// decision can never outlive the route table it was built from. | cacheGen 在每次新增路由时
+	// 使所有每上下文路由缓存失效，使缓存决策绝不会比其来源路由表活得更久。
+	cacheGen atomic.Uint64
+
 	mu sync.RWMutex
 	// brokenFlag is the registration-side source of truth behind state.broken. | brokenFlag 是
 	// state.broken 在注册侧的权威来源。
@@ -117,7 +122,7 @@ func New(opts ...func(*Options)) *Router {
 		o.MaxBodySize = defaultMaxBodySize
 	}
 	r := &Router{tree: NewTree(), options: o}
-	r.pool.New = func() any { return &Ctx{} }
+	r.pool.New = func() any { return &Ctx{router: r, routeCache: &localRouteCache{}, pattern: &routePattern{}} }
 	r.state.Store(&serveState{})
 	return r
 }
@@ -221,6 +226,7 @@ func (r *Router) handle(method, pattern string, h HandlerFunc, mw ...Middleware)
 	}
 	r.mu.Lock()
 	r.routes = append(r.routes, RouteInfo{Method: method, Pattern: pattern, Handler: h})
+	r.cacheGen.Add(1)
 	r.mu.Unlock()
 }
 
@@ -332,48 +338,140 @@ func (r *Router) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 
+	path := requestPath(req.URL)
+	if path == "" {
+		path = "/"
+	}
+	// A path whose first byte appears on no root static edge, with no param, wildcard or mixed
+	// root edge to catch it, cannot match any route of any method. Answer the default 404
+	// straight to the writer: no context, no pool and no tree walk. A custom NotFound handler
+	// (and every matching path) goes through the normal context path. | 首字节不在任何根静态边上，
+	// 且根节点没有参数、通配或混合边可兜底的路径，对任何方法都不可能命中。直接向写入器应答默认
+	// 404：不取上下文、不走池、不遍历树。自定义 NotFound 处理器（以及所有可能命中的路径）仍走
+	// 正常的上下文路径。
+	if r.options.NotFound == nil && r.tree.rootReject(path) {
+		w.Header()["Content-Type"] = plainTextContentType
+		w.WriteHeader(http.StatusNotFound)
+		_, _ = w.Write(notFoundBody)
+		return
+	}
+	key := newMethodKey(req.Method)
+	gen := r.cacheGen.Load()
+	hash := cacheHash(key, path)
+
 	c := r.pool.Get().(*Ctx)
-	c.reset(w, req, r)
+	c.reset(w, req)
 	// Bound every body read once per request. ParseMultipartForm's argument is a memory hint, not a
 	// body limit, so without this a multipart upload could exceed MaxBodySize and spill arbitrary
 	// bytes to temp files. | 每个请求只包装一次请求体读取。ParseMultipartForm 的参数是内存提示而不是
 	// 请求体上限，缺少这层包装时 multipart 上传可以超出 MaxBodySize 并把任意字节落到临时文件。
-	c.limitBody()
-
-	defer func() {
-		if rec := recover(); rec != nil {
-			if r.options.PanicHandler != nil {
-				r.options.PanicHandler(c, rec)
-			} else {
-				c.Request = nil
-				c.Writer = nil
-				c.keys = nil
-				r.pool.Put(c)
-				// Re-raise instead of swallowing: the request must not continue after a panic, and
-				// the outer Recover middleware owns the final response. | 重新抛出而不是吞掉 panic：
-				// 请求不得在 panic 之后继续执行，最终响应由更外层的 Recover 中间件负责。
-				panic(rec)
-			}
-		}
-		c.Request = nil
-		c.Writer = nil
-		c.keys = nil
-		r.pool.Put(c)
-	}()
-
-	path := fastEscapedPath(req.URL)
-	if path == "" {
-		path = "/"
+	// Only requests that can carry a body need the eager wrapper; GET/HEAD with no body are the
+	// common case and skip the call entirely. Ctx.Body still calls limitBody lazily. | 只有可能
+	// 携带正文的请求需要立即包装；无正文的 GET/HEAD 是最常见情况，直接跳过调用。Ctx.Body 仍会
+	// 惰性调用 limitBody。
+	if req.ContentLength != 0 || (req.Method != http.MethodGet && req.Method != http.MethodHead) {
+		c.limitBody()
 	}
 	c.path = path
+	lc := c.routeCache
+	if lc.gen != gen {
+		lc.reset(gen)
+	}
+	entry := lc.lookup(gen, key, path, hash)
 
-	handler, tsr, noPath := r.tree.find(req.Method, path, c.Params)
+	// The normal path installs no defer: the context is released explicitly after routing, which
+	// is what the fastest mainstream routers do. Only an opt-in PanicHandler needs a deferred
+	// path; without it a panic propagates to net/http or the outer Recover middleware and the
+	// context is dropped to the garbage collector instead of being pooled. | 正常路径不安装 defer：
+	// 路由结束后显式归还上下文，与最快的主流路由一致。只有显式配置 PanicHandler 时才需要延迟路径；
+	// 未配置时 panic 直接向上传播（交给 net/http 或外层 Recover 中间件），上下文交由 GC 而不是放回池。
+	if r.options.PanicHandler != nil {
+		defer func() {
+			if rec := recover(); rec != nil {
+				r.options.PanicHandler(c, rec)
+				r.releaseContext(c)
+			}
+		}()
+	}
+
+	// An exact-cache hit takes the small serveCached path; misses go through serveSlow. Keeping
+	// the two out of one shared frame makes the hot path smaller and the slow path free to grow. | 精确
+	// 缓存命中走精简的 serveCached，未命中走 serveSlow。两者不再共用一个函数帧，热路径因此更小，
+	// 慢路径则可以自由扩展。
+	if entry != nil {
+		r.serveCached(c, state, entry)
+		r.releaseContext(c)
+		return
+	}
+	r.serveSlow(c, state, key, path, gen, hash)
+	r.releaseContext(c)
+}
+
+// serveCached runs a cached routing decision. | serveCached 执行一条缓存的路由决策。
+func (r *Router) serveCached(c *Ctx, state *serveState, entry *routeCacheEntry) {
+	if entry.notFound {
+		r.serveNotFound(c, state)
+		return
+	}
+	// Borrow the immutable captured parameters instead of copying them; Params.Append clones
+	// lazily if a handler mutates the view. | 借用不可变的捕获参数而不是复制；若处理器修改该
+	// 视图，Params.Append 会按需克隆。
+	c.Params.ps = entry.params
+	c.Params.shared = len(entry.params) > 0
+	// The hot configuration is one route handler and no global middleware; borrowing the
+	// immutable chain and calling it directly skips two helper frames. | 最热的配置是单个路由
+	// 处理器且无全局中间件；借用不可变调用链并直接调用可以跳过两个辅助函数帧。
+	if len(state.globalMW) == 0 && len(entry.chain) == 1 {
+		c.handlers = entry.chain
+		c.borrowed = true
+		c.index = 0
+		entry.chain[0](c)
+		return
+	}
+	r.runChain(c, state, entry.chain)
+}
+
+// releaseContext clears the request-scoped references and returns the context to the pool. | releaseContext
+// 清除请求级引用并把上下文归还对象池。
+func (r *Router) releaseContext(c *Ctx) {
+	c.Request = nil
+	c.Writer = nil
+	c.keys = nil
+	r.pool.Put(c)
+}
+
+// serveSlow routes a request that missed the exact cache: it first tries the installed route
+// shape, then falls back to the tree and the 404/405/redirect paths. | serveSlow 路由一次未命中
+// 精确缓存的请求：先尝试已安装的路由形状，再回退到路由树与 404/405/重定向路径。
+func (r *Router) serveSlow(c *Ctx, state *serveState, key methodKey, path string, gen uint64, hash uint64) {
+	req := c.Request
+	// A repeated route shape (for example /users/42/posts after /users/7/posts) matches without
+	// walking the tree; exact repeated paths are already handled by the local cache. | 重复出现的
+	// 路由形状（例如 /users/7/posts 之后的 /users/42/posts）无需遍历路由树即可匹配；完全重复的
+	// 路径已由本地缓存处理。
+	if p := c.pattern; p != nil && p.gen == gen && sameMethod(p.method, key) && p.match(path, c.Params) {
+		// Promote repeated concrete paths to the exact cache: a pattern match proves the path
+		// is hot, and the exact entry is cheaper than re-matching the shape. | 把重复的具体路径
+		// 提升到精确缓存：模式命中证明该路径是热的，而精确缓存项比重配形状更便宜。
+		c.routeCache.store(gen, key, path, hash, p.chain, c.Params, false)
+		if len(state.globalMW) == 0 && len(p.chain) == 1 {
+			c.handlers = p.chain
+			c.borrowed = true
+			c.index = 0
+			p.chain[0](c)
+			return
+		}
+		r.runChain(c, state, p.chain)
+		return
+	}
+
+	handler, terminal, tsr, noPath := r.tree.findKeyNode(key, path, c.Params)
 	// HEAD falls back to GET: the server discards the body of a HEAD response, so the handler can be
 	// shared. | HEAD 回退到 GET：服务器会丢弃 HEAD 响应的正文，因此处理器可以复用。
 	if handler == nil && req.Method == http.MethodHead {
 		c.Params.Truncate(0)
-		if h, t, np := r.tree.find(http.MethodGet, path, c.Params); h != nil {
-			handler, tsr, noPath = h, t, np
+		if h, tn, t, np := r.tree.findKeyNode(getMethodKey, path, c.Params); h != nil {
+			handler, terminal, tsr, noPath = h, tn, t, np
 		}
 	}
 
@@ -405,12 +503,8 @@ func (r *Router) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 				return
 			}
 		}
-		if r.options.NotFound != nil {
-			r.setChain(c, state.globalMW, nil, r.options.NotFound)
-			c.Next()
-			return
-		}
-		writeFallback(c, http.StatusNotFound, notFoundBody)
+		c.routeCache.store(gen, key, path, hash, nil, nil, true)
+		r.serveNotFound(c, state)
 		return
 	}
 
@@ -421,13 +515,60 @@ func (r *Router) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 		// 而不是让整个进程崩溃。
 		logx.Default().Error("router: handler in the tree is not a call chain | router：树中的处理器不是调用链类型",
 			logx.Str("method", req.Method), logx.Str("path", path))
-		http.Error(w, routeTableBrokenBody, http.StatusInternalServerError)
+		http.Error(c.Writer, routeTableBrokenBody, http.StatusInternalServerError)
 		return
 	}
-	r.setChain(c, state.globalMW, routeChain, nil)
+	// Install the route shape for the next concrete path. Validation runs once per terminal node
+	// and generation: a route added later bumps gen, so a shape can never outlive the tree it was
+	// validated against. | 为下一个具体路径安装路由形状。验证每个终止节点、每个代际只执行一次：
+	// 之后新增路由会推进 gen，形状因此绝不会比其验证时依赖的路由树活得更久。
+	if terminal != nil && terminal.patternShape != nil {
+		p := c.pattern
+		if p.node != terminal || p.gen != gen {
+			p.node = terminal
+			p.gen = gen
+			p.safe = r.tree.patternUsable(terminal.patternShape)
+		}
+		if p.safe {
+			p.shape = terminal.patternShape
+			p.chain = routeChain
+			p.method = key
+		} else {
+			p.shape = nil
+			p.chain = nil
+		}
+	}
+	c.routeCache.store(gen, key, path, hash, routeChain, c.Params, false)
+	// Mirror the cached-hit fast path for the first request of a hot route: one handler and no
+	// global middleware is the dominant configuration, and calling it directly avoids the
+	// runChain frame and its assembly branch. | 为热路由的首次请求复刻缓存命中快路径：单处理器且
+	// 无全局中间件是最常见配置，直接调用可省掉 runChain 帧及其组装分支。
+	if len(state.globalMW) == 0 && len(routeChain) == 1 {
+		c.handlers = routeChain
+		c.borrowed = true
+		c.index = 0
+		routeChain[0](c)
+		return
+	}
+	r.runChain(c, state, routeChain)
+}
+
+// runChain installs global middleware plus the route chain and runs it. | runChain 安装全局中间件
+// 与路由链并执行。
+func (r *Router) runChain(c *Ctx, state *serveState, chain []HandlerFunc) {
 	// The overwhelmingly common case is a single business handler with no global middleware;
-	// calling it directly skips the Next loop without changing middleware semantics. | 最常见的
-	// 情况是没有全局中间件的单个业务处理器；直接调用可以跳过 Next 循环，且不改变中间件语义。
+	// borrowing the immutable tree chain and calling it directly skips both the assembly copy
+	// and the Next loop without changing middleware semantics. | 最常见的情况是没有全局中间件的
+	// 单个业务处理器；借用不可变的路由树调用链并直接调用，可以同时跳过组装复制与 Next 循环，
+	// 且不改变中间件语义。
+	if len(state.globalMW) == 0 && len(chain) == 1 {
+		c.handlers = chain
+		c.borrowed = true
+		c.index = 0
+		chain[0](c)
+		return
+	}
+	r.setChain(c, state.globalMW, chain, nil)
 	if len(c.handlers) == 1 {
 		// Keep the same index semantics as Next: a handler that calls Next() must see the chain
 		// exhausted, not re-enter itself. | 与 Next 保持相同的索引语义：处理器内部调用 Next 时必须
@@ -438,6 +579,21 @@ func (r *Router) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	}
 	c.Next()
 }
+
+// serveNotFound answers 404, through the custom handler when one is configured. | serveNotFound 应答
+// 404；配置了自定义处理器时经它应答。
+func (r *Router) serveNotFound(c *Ctx, state *serveState) {
+	if r.options.NotFound != nil {
+		r.setChain(c, state.globalMW, nil, r.options.NotFound)
+		c.Next()
+		return
+	}
+	writeFallback(c, http.StatusNotFound, notFoundBody)
+}
+
+// getMethodKey is the precomputed key used by HEAD's GET fallback. | getMethodKey 是 HEAD 回退到
+// GET 时使用的预计算方法键。
+var getMethodKey = methodKey{name: http.MethodGet, id: methodGet, known: true}
 
 // setChain assembles "global middleware → route chain (or a single fallback handler)" and writes it into the reusable buffer of c. | setChain 组装「全局中间件 → 路由链（或单个兜底处理器）」并写入 c 的复用缓冲区。
 //
@@ -498,10 +654,20 @@ func withOptions(methods []string, auto bool) []string {
 	return out
 }
 
+// plainTextContentType is the immutable Content-Type value shared by fallback responses. | plainTextContentType
+// 是兜底响应共享的不可变 Content-Type 值。
+var plainTextContentType = []string{"text/plain; charset=utf-8"}
+
 // writeFallback writes a plain text fallback response with a precomputed body. | writeFallback
 // 使用预置正文写出纯文本兜底响应。
+//
+// The header is assigned directly instead of through Header().Set: the key is already canonical
+// and the value slice is shared and immutable, so the 404/405 hot path avoids both the
+// canonicalization scan and a per-request slice allocation. | 这里直接给响应头映射赋值而不是调用
+// Header().Set：键已是规范形式，值切片共享且不可变，因此 404/405 热路径同时省去规范化扫描与
+// 每请求的切片分配。
 func writeFallback(c *Ctx, code int, body []byte) {
-	c.SetHeader("Content-Type", "text/plain; charset=utf-8")
+	c.Writer.Header()["Content-Type"] = plainTextContentType
 	c.WriteHeader(code)
 	_, _ = c.Writer.Write(body)
 }

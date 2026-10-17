@@ -15,16 +15,32 @@ type Param struct {
 // Ctx 持有，仅在当前请求的生命周期内有效；若需在请求结束后继续持有，请自行复制字符串。
 type Params struct {
 	ps []Param
+	// shared marks a read-only view borrowed from the route cache. Append clones before the
+	// first mutation so a handler can never corrupt another request's cached captures. | shared
+	// 标记从路由缓存借用的只读视图。Append 在首次修改前克隆，处理器因此无法破坏其它请求的缓存捕获。
+	shared bool
 }
 
 // Len returns the number of captured parameters. | Len 返回已捕获参数的个数。
 func (p *Params) Len() int { return len(p.ps) }
 
-// Reset clears the captured parameters but keeps the underlying capacity, for object pool reuse. | Reset 清空已捕获参数但保留底层容量，供对象池复用。
-func (p *Params) Reset() { p.ps = p.ps[:0] }
+// Reset clears the captured parameters but keeps the underlying capacity, for object pool reuse.
+// A borrowed cache view stays marked as shared: its backing array still belongs to the cache,
+// so the next Append must copy before writing. | Reset 清空已捕获参数但保留底层容量，供对象池复用。
+// 借用的缓存视图仍保持共享标记：其底层数组属于缓存，下一次 Append 必须先复制再写入。
+func (p *Params) Reset() {
+	p.ps = p.ps[:0]
+}
 
 // Append appends one parameter capture. | Append 追加一个参数捕获。
 func (p *Params) Append(key, value string) {
+	if p.shared {
+		// Copy the cached view before the first mutation. | 首次修改前复制缓存视图。
+		owned := make([]Param, len(p.ps), len(p.ps)+1)
+		copy(owned, p.ps)
+		p.ps = owned
+		p.shared = false
+	}
 	p.ps = append(p.ps, Param{Key: key, Value: value})
 }
 
