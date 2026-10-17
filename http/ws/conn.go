@@ -46,6 +46,20 @@ type Conn struct {
 	readBuf []byte
 	maskBuf []byte
 
+	// writeBase is the stable two-element scatter list; writeList is the copy handed to WriteTo,
+	// which consumes it, so the base view survives for the next frame. Both live on the connection,
+	// which keeps the per-frame buffer list allocation-free. | writeBase 是稳定的两元素分散列表；
+	// writeList 是交给 WriteTo 的副本（WriteTo 会消费它），基视图因此能留给下一帧。两者都存放在
+	// 连接上，使每帧的缓冲列表保持零分配。
+	writeBase net.Buffers
+	writeList net.Buffers
+
+	// msgReader and payloadReader are the connection-owned reader state reused by NextReader, so a
+	// steady-state read performs no per-message allocation. | msgReader 与 payloadReader 是
+	// NextReader 复用的连接自有读取状态，因此稳态读取不产生按消息的分配。
+	msgReader     MessageReader
+	payloadReader framePayloadReader
+
 	opts Options
 
 	utf8 utf8State
@@ -61,6 +75,11 @@ type Conn struct {
 	trackMu sync.Mutex
 
 	headerBuf [maxHeaderSize]byte
+
+	// writeHeaderBuf is the outbound counterpart of headerBuf; keeping it on the connection means a
+	// frame header never escapes to the heap, and read/write can still run concurrently. | writeHeaderBuf
+	// 是 headerBuf 的出方向对应物；把它放在连接上，帧头因此不会上堆，同时读写仍可并发。
+	writeHeaderBuf [maxHeaderSize]byte
 
 	maskKey  [4]byte
 	isClient bool
@@ -78,7 +97,8 @@ type Conn struct {
 
 // newConn constructs the connection object. | newConn 构造连接对象。
 func newConn(nc net.Conn, o Options, isClient bool) *Conn {
-	c := &Conn{conn: nc, opts: o, isClient: isClient}
+	writeBufs := make(net.Buffers, 2)
+	c := &Conn{conn: nc, opts: o, isClient: isClient, writeBase: writeBufs, writeList: writeBufs}
 	if o.ReadBufferSize > 0 {
 		c.br = bufio.NewReaderSize(nc, o.ReadBufferSize)
 	}
@@ -234,6 +254,11 @@ func (c *Conn) ReadMessage() (OpCode, []byte, error) {
 }
 
 // MessageReader streams one message; control frames (ping/pong/close) are handled automatically underneath. | MessageReader 流式读取一条消息；控件帧（ping/pong/close）在底层自动处理。
+//
+// The reader points at connection-owned state and is valid only until the next call to NextReader or
+// ReadMessage; retaining it across messages is not supported (and was never safe, since the
+// connection has a single read stream). | 读取器指向连接自有状态，只在下次调用 NextReader 或
+// ReadMessage 之前有效；跨消息保留它不受支持（由于连接只有一条读流，这本来也从不安全）。
 type MessageReader struct {
 	c          *Conn
 	inflate    io.Reader // non-nil when the message is permessage-deflate compressed | 消息经 permessage-deflate 压缩时非空
@@ -360,14 +385,22 @@ func (r *MessageReader) reader() io.Reader {
 }
 
 // NextReader starts reading the next message and returns its type along with a streaming reader. | NextReader 开始读取下一条消息，返回消息类型与流式读取器。
+//
+// The returned reader points at connection-owned state: it is valid only until the next call to
+// NextReader or ReadMessage. That keeps a steady-state read path free of per-message allocations
+// (the reader and the compressed-payload adapter are reused). | 返回的读取器指向连接自有的状态：
+// 它只在下次调用 NextReader 或 ReadMessage 之前有效。这使得稳态读取路径没有按消息产生的分配
+// （读取器与压缩载荷适配器均被复用）。
 func (c *Conn) NextReader() (OpCode, *MessageReader, error) {
 	var remaining int64
 	if err := c.nextDataFrame(&remaining); err != nil {
 		return 0, nil, err
 	}
-	r := &MessageReader{c: c, op: c.msgOp, remaining: remaining, compressed: c.msgCompressed}
+	r := &c.msgReader
+	*r = MessageReader{c: c, op: c.msgOp, remaining: remaining, compressed: c.msgCompressed}
 	if r.compressed {
-		inflate, err := c.decompressor.begin(&framePayloadReader{c: c})
+		c.payloadReader.c = c
+		inflate, err := c.decompressor.begin(&c.payloadReader)
 		if err != nil {
 			return 0, nil, err
 		}
@@ -702,9 +735,9 @@ func (c *Conn) writeFrameLocked(rsv1, fin bool, op OpCode, payload []byte) error
 	// forbids. | 整个帧（帧头、掩码键，以及客户端共用的掩码缓冲）都必须在写锁**内**
 	// 构造：若在加锁前构造掩码副本，两个并发写协程会竞争 c.maskBuf，违背
 	// 「并发写被串行化」的契约。
-	var hdr [maxHeaderSize]byte
+	hdr := c.writeHeaderBuf[:]
 
-	n := writeFrameHeader(hdr[:], fin, op, c.isClient, int64(len(payload)))
+	n := writeFrameHeader(hdr, fin, op, c.isClient, int64(len(payload)))
 	if rsv1 {
 		// writeFrameHeader has no extension knowledge by design (its signature is part of the | writeFrameHeader 按设计不感知扩展（其签名属于
 		// tested frame layer), so the RSV1 bit is ORed in here. | 受测帧层接口），因此 RSV1 位在此处按位或入。
@@ -727,8 +760,20 @@ func (c *Conn) writeFrameLocked(rsv1, fin bool, op OpCode, payload []byte) error
 		maskBytes(key, 0, body)
 	}
 
-	bufs := net.Buffers{hdr[:n], body}
-	if _, err := bufs.WriteTo(c.conn); err != nil {
+	// The connection-owned scatter list keeps the per-frame buffer list off the heap. WriteTo
+	// consumes the slice it is given, so it receives the writeList copy while writeBase keeps the
+	// stable two-element view for the next frame. | 连接自有的分散列表使每帧的缓冲列表不再上堆。
+	// WriteTo 会消费传入的切片，因此交给它的是 writeList 副本，而 writeBase 保留稳定的两元素视图
+	// 供下一帧复用。
+	if cap(c.writeBase) < 2 {
+		bufs := make(net.Buffers, 2)
+		c.writeBase, c.writeList = bufs, bufs
+	}
+	c.writeBase = c.writeBase[:2]
+	c.writeBase[0] = hdr[:n]
+	c.writeBase[1] = body
+	c.writeList = c.writeBase
+	if _, err := c.writeList.WriteTo(c.conn); err != nil {
 		return err
 	}
 	return nil

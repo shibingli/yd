@@ -567,6 +567,69 @@ go test ./...                                 44 个包 ok，退出码 0
 CGO_ENABLED=1 CC=clang go test -race ./...    44 个包 ok，退出码 0
 ```
 
+## 3.13 JWT 验签与 WebSocket 压缩基准（第十二轮）
+
+### 3.13.1 JWT：补齐每请求验签基准
+
+`security/jwt` 之前没有任何基准，本轮新增 `bench_test.go`，覆盖登录期签发、
+每请求对称/非对称验签与并发验签。每轮都启用推荐的校验项（算法白名单、签发者、
+受众、必须含 `exp`）。基准取 Windows / i9-10980HK、`-benchtime=1s -count=5` 中位：
+
+| 场景 | ns/op | B/op | allocs/op |
+|---|---:|---:|---:|
+| `Sign/HS256`（含 6 项声明） | ≈3450 | 1585 | 16 |
+| `Parse/HS256` | ≈2750 | 754 | 9 |
+| `Parse/ES256`（P-256） | ≈75000 | 1617 | 25 |
+| `Parse/HS256`（16 核并发） | ≈770 | 754 | 9 |
+
+**路径审视结论**：HS256 的 CPU profile 中 SHA-256 压缩函数占 36% 平坦开销、HMAC
+密钥初始化占 19% 累计，扫描器与 base64 合计约 20%；9 次分配分别是调用方保留的
+payload、signature、`Token`、头部字符串，以及 crypto 内部的 HMAC/摘要状态。
+scratch 池已让所有中间缓冲零分配，**没有可再安全削减的框架级拷贝**；ES256 的
+≈75 µs 就是 ECDSA 验签本身的成本（一次 P-256 验证）。
+
+诊断过程中发现一个**基准侧**的陷阱：`KeyFunc` 闭包直接返回 `[]byte` 会在每次调用时
+重新装箱，凭空多出一次分配。已在 `KeyFunc` 文档中注明「把密钥存进 `any` 字段或返回
+指针」，避免使用方在每请求路径上无意增加分配；生产代码本身无需改动。
+
+### 3.13.2 WebSocket：permessage-deflate 吞吐基准与零分配读取
+
+新增两组基准：`CompressMessage`（1/16/64 KiB，上下文接管/每消息重置）与
+`CompressedRoundTrip`（4 KiB，客户端→服务端与反向，覆盖压缩、成帧、掩码、
+解压全链路）。
+
+压缩吞吐（1s × 3 中位，`SetBytes` 统计的是原始载荷）：
+
+| 载荷 | 上下文接管 | 每消息重置 |
+|---|---:|---:|
+| 1 KiB | ≈2.1 µs / 497 MB/s | ≈4.0 µs / 256 MB/s |
+| 16 KiB | ≈6.3 µs / 2.62 GB/s | ≈9.9 µs / 1.66 GB/s |
+| 64 KiB | ≈21.9 µs / 3.00 GB/s | ≈22.1 µs / 2.96 GB/s |
+
+`CompressedRoundTrip` 每 4 KiB 消息约 **18–20 µs**（≈210–228 MB/s），受压缩本身限制；
+每轮堆分配从 **47 次降到 0**：
+
+- `deflateInput.ReadByte` 过去每次调用都让一个 `[1]byte` 逃逸到堆（flate 解压会
+  逐字节读取）——把暂存字节放进解码器状态后，单这一项每轮减少约 42 次分配。
+- `NextReader` 改为复用连接自有的 `MessageReader` 与 `framePayloadReader`；
+  文档明确「读取器只在下次 `NextReader`/`ReadMessage` 前有效」（连接本只有一条读流）。
+- `writeFrameLocked` 使用连接自有的 `writeHeaderBuf`，并用 `writeBase` + `writeList`
+  两个视图复用同一份 `net.Buffers`：`WriteTo` 消费副本，基视图留给下一帧。
+- 未压缩的 32 B 往返由 6 次分配降到 **0**（`BenchmarkMessageRoundTrip`，≈3.7 µs）。
+
+吞吐随分配消失而进一步提升（4 KiB 往返 23→18.6 µs），高并发长连接的 GC 压力归零。
+
+### 3.13.3 门禁
+
+```
+gofmt -l .                                    零输出
+go build ./...                                通过
+go vet ./...                                  零输出
+go mod tidy -diff                             零输出
+go test ./...                                 44 个包 ok，退出码 0
+CGO_ENABLED=1 CC=clang go test -race ./...    44 个包 ok，退出码 0
+```
+
 ## 4. 已知限制与未覆盖项
 
 1. **HTTP/3 需要 TLS**（QUIC 强制 TLS 1.3）。开发态在未配置证书时会生成一次性自签证书

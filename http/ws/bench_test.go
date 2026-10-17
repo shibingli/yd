@@ -178,3 +178,98 @@ func BenchmarkMessageRoundTrip(b *testing.B) {
 		b.Fatalf("read message failed: %v", err)
 	}
 }
+
+// ---------------------------------------------------------------- permessage-deflate | permessage-deflate
+
+// benchDeflateSizes are the payload sizes used by the compression benchmarks. | benchDeflateSizes 是压缩基准使用的载荷大小。
+var benchDeflateSizes = []int{1 << 10, 16 << 10, 64 << 10}
+
+// benchCompressible returns a size-byte, JSON-like payload that deflate compresses well. | benchCompressible
+// 返回 size 字节、类 JSON、可被 deflate 有效压缩的载荷。
+func benchCompressible(size int) []byte {
+	const unit = `{"id":12345,"name":"bench-user","active":true,"score":98.5},`
+	out := bytes.Repeat([]byte(unit), size/len(unit)+1)
+	return out[:size]
+}
+
+// BenchmarkCompressMessage measures the encoder half alone: one message compressed with and without
+// context takeover. | BenchmarkCompressMessage 单独测量编码端：一条消息在启用/禁用上下文接管下的压缩。
+func BenchmarkCompressMessage(b *testing.B) {
+	for _, size := range benchDeflateSizes {
+		payload := benchCompressible(size)
+		for _, noTakeover := range []bool{false, true} {
+			name := fmt.Sprintf("size=%d/context=takeover", size)
+			if noTakeover {
+				name = fmt.Sprintf("size=%d/context=reset", size)
+			}
+			b.Run(name, func(b *testing.B) {
+				mc := newMessageCompressor(defaultWindowBits, noTakeover)
+				b.SetBytes(int64(size))
+				b.ReportAllocs()
+				b.ResetTimer()
+				for i := 0; i < b.N; i++ {
+					if _, err := mc.compress(payload); err != nil {
+						b.Fatalf("compress failed | 压缩失败: %v", err)
+					}
+				}
+			})
+		}
+	}
+}
+
+// BenchmarkCompressedRoundTrip measures the full compressed path over net.Pipe: compress, frame,
+// (client: mask), read, unmask and inflate. | BenchmarkCompressedRoundTrip 测量 net.Pipe 上的完整压缩
+// 路径：压缩、成帧、（客户端）掩码、读取、去掩码与解压。
+func BenchmarkCompressedRoundTrip(b *testing.B) {
+	const size = 4 << 10
+	payload := benchCompressible(size)
+	for _, serverSends := range []bool{false, true} {
+		name := "client_to_server"
+		if serverSends {
+			name = "server_to_client"
+		}
+		b.Run(name, func(b *testing.B) {
+			cliNC, srvNC := net.Pipe()
+			opts := Options{}.normalize()
+			srv := newConn(srvNC, opts, false)
+			cli := newConn(cliNC, opts, true)
+			cfg := newCompressionConfig()
+			srv.setCompression(cfg)
+			cli.setCompression(cfg)
+			defer func() { _ = srv.CloseNow() }()
+			defer func() { _ = cli.CloseNow() }()
+
+			sender, receiver := cli, srv
+			if serverSends {
+				sender, receiver = srv, cli
+			}
+			done := make(chan error, 1)
+			go func() {
+				for i := 0; i < b.N; i++ {
+					op, data, err := receiver.ReadMessage()
+					if err != nil {
+						done <- err
+						return
+					}
+					if op != TextMessage || len(data) != size || data[0] != payload[0] || data[size-1] != payload[size-1] {
+						done <- fmt.Errorf("unexpected message: op=%v len=%d", op, len(data))
+						return
+					}
+				}
+				done <- nil
+			}()
+
+			b.SetBytes(int64(size))
+			b.ReportAllocs()
+			b.ResetTimer()
+			for i := 0; i < b.N; i++ {
+				if err := sender.WriteMessage(TextMessage, payload); err != nil {
+					b.Fatalf("write message failed: %v", err)
+				}
+			}
+			if err := <-done; err != nil {
+				b.Fatalf("read message failed: %v", err)
+			}
+		})
+	}
+}

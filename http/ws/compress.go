@@ -127,6 +127,10 @@ func (f *framePayloadReader) Read(p []byte) (int, error) {
 // wrapping it in a fresh bufio.Reader for every message. | 而不是为每条消息再包一层新的 bufio.Reader。
 type deflateInput struct {
 	raw *framePayloadReader
+	// one is the scratch byte of ReadByte: keeping it in the (heap-allocated) decoder state avoids
+	// a fresh escaping [1]byte for every byte the flate decoder pulls. | one 是 ReadByte 的暂存字节：
+	// 把它放进（已在堆上的）解码器状态，避免 flate 每取一个字节就逃逸一个 [1]byte。
+	one [1]byte
 	// tailPos is the number of tail octets already delivered. | tailPos 是已交付的尾部字节数。
 	tailPos int
 }
@@ -156,11 +160,10 @@ func (d *deflateInput) Read(p []byte) (int, error) {
 
 // ReadByte implements flate.Reader. | ReadByte 实现 flate.Reader。
 func (d *deflateInput) ReadByte() (byte, error) {
-	var b [1]byte
 	for {
-		n, err := d.Read(b[:])
+		n, err := d.Read(d.one[:])
 		if n == 1 {
-			return b[0], nil
+			return d.one[0], nil
 		}
 		if err != nil {
 			return 0, err
