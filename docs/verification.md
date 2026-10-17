@@ -716,22 +716,25 @@ WSL Ubuntu-24.04（同为 Go 1.27.2）上分别测量；所有实现保持纯 Go
 
 ### 3.15.3 Base64
 
-实测发现后端分工应当不对称：
+原先 base64x 后端的 `Decode` 走「SIMD 解码 → 池化缓冲 → 拷贝」，中转本身让它在所有尺寸上都
+慢于标准库。直接对拍（同尺寸、同一目标缓冲）显示 **SIMD 解码本身更快**：
 
-| 尺寸 | SIMD 解码 | 标准库解码 | SIMD 编码 | 标准库编码 |
+| 尺寸 | SIMD 解码（直写） | 标准库解码 | SIMD 编码 | 标准库编码 |
 |---|---:|---:|---:|---:|
-| 16 B | 64.3 ns | **27.4 ns** | 14.8 ns | 15.4 ns |
-| 1 KiB | 1051 ns | **913 ns** | **422 ns** | 809 ns |
-| 64 KiB | 73.5 µs（3 allocs） | **60.1 µs（0）** | **25.1 µs** | 52.8 µs |
+| 16 B | **15.2 ns** | 24.5 ns | **13.3 ns** | 17.0 ns |
+| 1 KiB | **498 ns** | 835 ns | **367 ns** | 781 ns |
+| 64 KiB | **31 µs** | 53 µs | **23.7 µs** | 49 µs |
 
-因此 amd64 的 b64x 后端改为：**编码走 SIMD（1 KiB 起约 2×，16 B 基本持平），
-解码走 `encoding/base64`**（每个尺寸都更快，且无需中转缓冲）：
+因此 amd64 的 b64x 后端改为：**Encode / Decode / AppendDecode 直接使用 SIMD 编解码器**
+（无中转、无额外拷贝）；`DecodeString` 仍走 `encoding/base64`（实测其分配式字符串入口更快）。
+含 CR/LF 的输入先尝试 SIMD，失败且确实含换行时回退标准库（标准库忽略换行），
+因此合法且无换行的输入不会为扫描付出代价。
 
-- `Decode` 16 B：64.3 → **29.3 ns**；64 KiB：73.5 µs / 3 allocs / 74 KB →
-  **60.6 µs / 0 allocs**。
-- `DecodeString`（JWT 路径）16 B：60.4 → **44.4 ns**，24 → **16 B/alloc**。
-- `Decode` 现在直接写入 dst；失败时可能留下部分输出（与 `encoding/base64` 一致）。
-  `DecodeString` 与 `AppendDecode` 仍保证不把部分结果交给调用方。包文档已同步。
+- `Decode` 16 B：64.3 → **17.1 ns**；1 KiB：1051 → **497 ns**；
+  64 KiB：73.5 µs / 3 allocs / 74 KB → **30.2 µs / 0 allocs**。
+- `DecodeString`（JWT 路径）16 B：60.4 → **39.5 ns**，24 → **16 B/alloc**。
+- `Decode` 失败时可能留下部分输出（与 `encoding/base64` 一致）；`DecodeString` 与
+  `AppendDecode` 仍保证不把部分结果交给调用方。包文档已同步。
 - 降级后端（非 amd64 或 `b64x_std`）本来就是标准库，语义一致。
 
 ### 3.15.4 JSON 编解码对照
@@ -758,6 +761,67 @@ go mod tidy -diff                             零输出
 go test ./...                                 44 个包 ok，退出码 0
 CGO_ENABLED=1 CC=clang go test -race ./...    44 个包 ok，退出码 0
 ```
+
+## 3.16 编解码生态横评（jsonx / b64x 与其它实现）
+
+横评工程位于 `.scratch/codecbench`（临时模块，不入主仓），对照库版本：sonic v1.15.4、
+goccy/go-json v0.11.2、json-iterator v1.1.12、cristalhq/base64 v0.1.2、segmentio/asm v1.2.1。
+输入、缓冲与统计方式完全一致；Windows 与 WSL Ubuntu-24.04 各跑一轮。
+
+### 3.16.1 JSON 序列化（ns/op，Windows，5 次中位）
+
+| 载荷 | jsonx | sonic-std | sonic-fastest | go-json | stdlib | jsoniter |
+|---|---:|---:|---:|---:|---:|---:|
+| 1 对象 | 321 | 327 | **215** | 216 | 637 | 314 |
+| 64 对象 | 7.3 µs | 7.4 µs | **7.0 µs** | 9.1 µs | 28.5 µs | 14.5 µs |
+| 4096 对象 | 478 µs | 477 µs | **442 µs** | 639 µs | 1852 µs | 981 µs |
+
+- `jsonx` 与 `sonic.ConfigStd` 完全同档（派发开销 ≈ 0）：两者都保证与 `encoding/json`
+  一致的 HTML 转义与 map 键排序。
+- `sonic.ConfigFastest` 快 15–35%，但输出不保证标准库语义（HTML 转义/键序），不能作为
+  默认后端；`go-json` 与之同档且分配更少（1 vs 2）。
+- `encoding/json` 在中等/大载荷上慢 3.9–4×；jsoniter 介于两者之间。
+
+### 3.16.2 JSON 反序列化（ns/op）
+
+| 载荷 | jsonx | sonic-std | sonic-fastest | go-json | stdlib | jsoniter |
+|---|---:|---:|---:|---:|---:|---:|
+| 1 对象 | 791 | 835 | 765 | **658** | 1400 | 674 |
+| 256 对象 | 131 µs | 156 µs | 132 µs | **80.5 µs** | 270 µs | 142 µs |
+
+**发现**：对大数组反序列化，`go-json` 比 sonic ConfigStd 快约 **1.6×**，且分配数约为其 1/6
+（259 vs 1547）。这提示 `jsonx` 未来可评估「sonic 序列化 + go-json 反序列化」的分工；
+但两者错误类型与 `any` 解码细节不同，会影响 `ErrSyntax`/`ErrTypeMismatch` 的映射，
+属于语义变更，本轮未采纳。
+
+### 3.16.3 Base64（ns/op，Windows；64 KiB 以 µs 计）
+
+| 操作 | 尺寸 | b64x | stdlib | cristalhq | segmentio/asm |
+|---|---|---:|---:|---:|---:|
+| 编码 | 16 B | 16.8 | 17.3 | **13.5** | 18.0 |
+| 编码 | 1 KiB | 425 | 781 | 368 | **84** |
+| 编码 | 64 KiB | 23.9 µs | 49.0 µs | 23.7 µs | **4.6 µs** |
+| 解码 | 16 B | 17.1 | 23.7 | **15.2** | 25.9 |
+| 解码 | 1 KiB | 497 | 835 | 498 | **112** |
+| 解码 | 64 KiB | 30.2 µs | 53.1 µs | 31.0 µs | **5.7 µs** |
+
+- 小尺寸（≤ 256 B）：cristalhq（也就是 b64x 的切片后端）最快；
+  segmentio/asm 的 SIMD 在极小输入上有固定开销。
+- 1 KiB 以上：`segmentio/asm` 快 4–9×（64 KiB 编码/解码约 12.6/10.3 GB/s），
+  是当前生态里最快的实现；但它是一个额外的汇编依赖（仅 amd64/arm64），
+  引入需按「依赖克制」单独评估，本轮未替换。
+- `b64x` 现在的组合已拿到两端的较优解：切片接口走 cristalhq，字符串入口走标准库。
+
+### 3.16.4 Linux 对照（WSL Ubuntu-24.04）
+
+| 场景 | 结果 |
+|---|---|
+| JSON 序列化 64 对象 | jsonx 7.45 µs ≈ sonic-std 7.51 µs，stdlib 27.9 µs |
+| JSON 反序列化 256 对象 | jsonx 138 µs，go-json 80.2 µs，stdlib 287 µs |
+| Base64 编码 64 KiB | b64x 26.1 µs（2.51 GB/s），stdlib 54.1 µs，segmentio 5.2 µs |
+| Base64 解码 64 KiB | b64x 36.3 µs（1.80 GB/s），stdlib 60.3 µs，segmentio 6.4 µs |
+
+相对排序与 Windows 完全一致；差异来自 WSL 调度与 CPU 频率。
 
 ## 4. 已知限制与未覆盖项
 

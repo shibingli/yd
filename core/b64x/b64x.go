@@ -2,8 +2,12 @@
 //
 // Backend routing (determined by build tags, fully transparent to callers): | 后端分流（由构建标签决定，对调用方完全透明）：
 //
-//   - amd64 without the b64x_std tag: the SIMD-accelerated github.com/cristalhq/base64 for encoding and the standard | amd64 且未指定 b64x_std 标签：编码使用 SIMD 加速的 github.com/cristalhq/base64，
-//     library for decoding (which measured faster at every size), Backend() returns "base64x"; | 解码使用标准库（实测在每个尺寸上都更快），Backend() 返回 "base64x"；
+//   - amd64 without the b64x_std tag: the SIMD-accelerated github.com/cristalhq/base64 for the
+//     slice APIs (Encode/Decode/AppendEncode/AppendDecode), with encoding/base64 for inputs containing
+//     CR/LF and for DecodeString, whose allocating string form measured faster in the standard library;
+//     Backend() returns "base64x"; | amd64 且未指定 b64x_std 标签：切片接口（Encode/Decode/AppendEncode/
+//     AppendDecode）使用 SIMD 加速的 github.com/cristalhq/base64；含 CR/LF 的输入与 DecodeString
+//     使用 encoding/base64（实测标准库的分配式字符串入口更快）；Backend() 返回 "base64x"；
 //   - other architectures (arm64/riscv64/...) or with the b64x_std tag set explicitly: the standard library | 其他架构（arm64/riscv64/...）或显式指定 b64x_std 标签：使用标准库
 //     encoding/base64, Backend() returns "encoding/base64". | encoding/base64，Backend() 返回 "encoding/base64"。
 //
@@ -13,9 +17,9 @@
 // with length calculations and encoding results byte-for-byte identical to encoding/base64. | 长度计算与编码结果均与 encoding/base64 逐字节一致。
 //
 // Zero copy: AppendEncode and AppendDecode reuse the underlying array of the destination buffer when its capacity is sufficient, | 零拷贝：AppendEncode、AppendDecode 在目标缓冲区容量充足时复用其底层数组，
-// producing no new allocation; DecodeString allocates only the result. On amd64 the base64x backend encodes with the SIMD | 不产生新的分配；DecodeString 只分配结果本身。amd64 上 base64x 后端用 SIMD 编码器编码，
-// encoder (about 2x faster from 1 KiB up and at parity on tiny inputs) and decodes with encoding/base64 (measured faster at every size); Decode writes | 用 encoding/base64 解码（实测在每个尺寸上都快于 SIMD 解码器）；Decode 直接写入 dst。
-// directly into dst, and the fallback backend behaves the same. | 降级后端的行为完全相同。
+// producing no new allocation; DecodeString allocates only the result. On amd64 the base64x backend encodes and decodes with | 不产生新的分配；DecodeString 只分配结果本身。amd64 上 base64x 后端用 SIMD 编解码器处理切片接口，
+// the SIMD codec (about 2x faster than encoding/base64) and falls back to encoding/base64 for inputs containing CR/LF and for | 比 encoding/base64 约快 2 倍；含 CR/LF 的输入与分配式的 DecodeString 回退到标准库。
+// the allocating DecodeString form. Decode writes directly into dst, and the fallback backend behaves the same. | Decode 直接写入 dst，降级后端的行为完全相同。
 //
 // Differences from encoding/base64 (both backends behave identically): | 与 encoding/base64 的差异（两个后端行为一致）：
 //

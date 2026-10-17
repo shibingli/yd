@@ -3,6 +3,7 @@
 package b64x
 
 import (
+	"bytes"
 	stdb64 "encoding/base64"
 	"slices"
 
@@ -11,18 +12,16 @@ import (
 	"github.com/shibingli/yd/core/errx"
 )
 
-// Encoding is a Base64 codec that uses the SIMD-accelerated github.com/cristalhq/base64 for
-// encoding and the standard library for decoding. | Encoding 是 Base64 编解码器：编码使用 SIMD
-// 加速的 github.com/cristalhq/base64，解码使用标准库。
+// Encoding is a Base64 codec built on the SIMD-accelerated github.com/cristalhq/base64. | Encoding
+// 是 Base64 编解码器，建立在 SIMD 加速的 github.com/cristalhq/base64 之上。
 //
-// The split is measurement-driven: the SIMD encoder is about 2x faster from 1 KiB up and at
-// parity on tiny inputs, while encoding/base64's decoder beats the SIMD decoder at every
-// measured size (16 B to 64 KiB) and needs no scratch buffer, so decode delegates to it. | 这一分工
-// 由实测决定：SIMD 编码器从 1 KiB 起约快 2 倍、极小输入基本持平；而 encoding/base64 的解码器在
-// 16 B–64 KiB 的每个实测尺寸上都更快且无需中转缓冲，因此解码交给标准库。
+// Encode, Decode and AppendDecode use the SIMD codec directly; inputs containing CR/LF and the
+// allocating DecodeString form fall back to encoding/base64, which ignores newlines and measured
+// faster for the string form. | Encode、Decode 与 AppendDecode 直接使用 SIMD 编解码器；含 CR/LF 的
+// 输入与分配式的 DecodeString 回退到 encoding/base64——后者忽略换行，且字符串入口实测更快。
 type Encoding struct {
-	enc *b64.Encoding    // SIMD encoder | SIMD 编码器
-	dec *stdb64.Encoding // standard-library decoder | 标准库解码器
+	enc *b64.Encoding    // SIMD codec for slices | 切片入口使用的 SIMD 编解码器
+	dec *stdb64.Encoding // standard-library string decoder | 标准库字符串解码器
 }
 
 var (
@@ -84,7 +83,13 @@ func (e *Encoding) Decode(dst, src []byte) (int, error) {
 	if len(dst) < e.DecodedLen(len(src)) {
 		return 0, ErrShortBuffer
 	}
-	n, err := e.dec.Decode(dst, src)
+	n, err := e.enc.Decode(dst, src)
+	if err != nil && bytes.ContainsAny(src, "\r\n") {
+		// The SIMD decoder rejects newlines; encoding/base64 ignores them. The scan only runs on
+		// failure, so valid newline-free input never pays for it. | SIMD 解码器拒绝换行；标准库忽略
+		// 换行。扫描只在失败时执行，因此无换行的合法输入无需付出代价。
+		n, err = e.dec.Decode(dst, src)
+	}
 	if err != nil {
 		return 0, errx.Wrap(err, ErrInvalidData)
 	}
@@ -114,7 +119,10 @@ func (e *Encoding) AppendDecode(dst, src []byte) ([]byte, error) {
 	base := len(dst)
 	room := e.DecodedLen(len(src))
 	dst = slices.Grow(dst, room)[:base+room]
-	n, err := e.dec.Decode(dst[base:], src)
+	n, err := e.enc.Decode(dst[base:], src)
+	if err != nil && bytes.ContainsAny(src, "\r\n") {
+		n, err = e.dec.Decode(dst[base:], src)
+	}
 	if err != nil {
 		return dst[:base], errx.Wrap(err, ErrInvalidData)
 	}
