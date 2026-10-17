@@ -167,3 +167,22 @@ func TestStreamConnDeadlineAfterClose(t *testing.T) {
 		t.Fatalf("SetWriteDeadline after Close = %v, want net.ErrClosed | Close 后 SetWriteDeadline = %v，期望 net.ErrClosed", err, err)
 	}
 }
+
+// TestStreamConnDeadlineReusesTimer pins that re-arming a client stream
+// deadline resets the existing timer instead of allocating a new one.
+// | TestStreamConnDeadlineReusesTimer 固定「重新设置客户端流截止时间时复用
+// 现有定时器，而不是重新分配」。
+func TestStreamConnDeadlineReusesTimer(t *testing.T) {
+	c, _, _, _, _ := newTestClientStream(t)
+	if err := c.SetReadDeadline(time.Now().Add(time.Hour)); err != nil {
+		t.Fatalf("SetReadDeadline: %v | SetReadDeadline：%v", err, err)
+	}
+	allocs := testing.AllocsPerRun(100, func() {
+		if err := c.SetReadDeadline(time.Now().Add(time.Hour)); err != nil {
+			t.Fatalf("SetReadDeadline: %v | SetReadDeadline：%v", err, err)
+		}
+	})
+	if allocs != 0 {
+		t.Fatalf("SetReadDeadline allocations = %v, want 0 | SetReadDeadline 分配次数 = %v，期望 0", allocs, allocs)
+	}
+}

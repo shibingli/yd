@@ -190,16 +190,21 @@ func (c *streamConn) SetReadDeadline(t time.Time) error {
 	}
 	if c.readTimer != nil {
 		c.readTimer.Stop()
-		c.readTimer = nil
 	}
 	if t.IsZero() {
 		return nil
 	}
-	if d := time.Until(t); d <= 0 {
+	d := time.Until(t)
+	if d <= 0 {
 		c.expireRead()
 		return nil
-	} else {
+	}
+	// Reset reuses the runtime timer; only the first deadline allocates. | Reset 复用
+	// 运行时定时器；只有第一次设置截止时间会分配。
+	if c.readTimer == nil {
 		c.readTimer = time.AfterFunc(d, c.expireRead)
+	} else {
+		c.readTimer.Reset(d)
 	}
 	return nil
 }
@@ -220,16 +225,21 @@ func (c *streamConn) SetWriteDeadline(t time.Time) error {
 	}
 	if c.writeTimer != nil {
 		c.writeTimer.Stop()
-		c.writeTimer = nil
 	}
 	if t.IsZero() {
 		return nil
 	}
-	if d := time.Until(t); d <= 0 {
+	d := time.Until(t)
+	if d <= 0 {
 		c.expireWrite()
 		return nil
-	} else {
+	}
+	// Reset reuses the runtime timer; only the first deadline allocates. | Reset 复用
+	// 运行时定时器；只有第一次设置截止时间会分配。
+	if c.writeTimer == nil {
 		c.writeTimer = time.AfterFunc(d, c.expireWrite)
+	} else {
+		c.writeTimer.Reset(d)
 	}
 	return nil
 }
