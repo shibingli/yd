@@ -106,6 +106,9 @@ func registerKoFlags(fs *pflag.FlagSet) {
 func runKo(ctx context.Context, env *Env) error {
 	o := koOptions(env, koFlags)
 	printKoSession(env, o)
+	if msg := koHTTP2Warning(env); msg != "" {
+		commandLogger(env).Warn(msg)
+	}
 	result, err := ko.BuildImage(ctx, o, commandLogger(env))
 	if result != nil {
 		printKoResult(env, result)
@@ -117,9 +120,21 @@ func runKo(ctx context.Context, env *Env) error {
 	return nil
 }
 
-// koOptions assembles the ko package options from the parsed flags and the layered configuration. | koOptions
-// 依据已解析的标志与分层配置组装 ko 包选项。
+// koHTTP2Warning returns the deployment hint for the force switch, or "" when
+// the switch is off. | koHTTP2Warning 在强制开关开启时返回部署提示，否则返回空串。
 //
+// ko has no flag for injecting environment variables; the Linux binary fixes that
+// by re-executing itself, but other platforms must be configured by the manifest. | ko
+// 没有注入环境变量的标志；Linux 二进制会通过重启自行修复，其他平台必须由部署清单配置。
+func koHTTP2Warning(env *Env) string {
+	if env == nil || env.Cfg == nil || !env.Cfg.GetBool("server.http2.extended_connect") {
+		return ""
+	}
+	return "ko cannot inject environment variables; the Linux container binary re-executes itself with GODEBUG=http2xconnect=1, but non-Linux deployment manifests must set GODEBUG=http2xconnect=1 explicitly | ko 无法注入环境变量；Linux 容器内的二进制会自动以 GODEBUG=http2xconnect=1 重启，非 Linux 部署清单必须显式设置该变量"
+}
+
+// koOptions assembles the ko package options from the parsed flags and the layered configuration. | koOptions
+// 依据已解析的标志与分层配置组装 ko 包选项。//
 // Precedence follows the repository rule 命令行参数 > 环境变量（含 .env）> 配置文件 > 框架默认值: the
 // environment layer is already applied inside OptionsFromConfig (YD_KO_REPOSITORY and friends map onto
 // the ko.* keys), and a flag overwrites a value only when it was actually passed, so `--local=false`

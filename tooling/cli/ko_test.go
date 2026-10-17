@@ -431,3 +431,27 @@ func TestKoDirFlagResolvesAgainstWorkDir(t *testing.T) {
 		t.Errorf("ko 工作目录 = %q，期望 %q", fake.calls[0].dir, want)
 	}
 }
+
+// TestKoHTTP2Warning pins the non-Linux deployment hint. | TestKoHTTP2Warning 固定非 Linux 部署提示。
+func TestKoHTTP2Warning(t *testing.T) {
+	cfg, err := config.Load(config.Options{Name: "yd", ConfigDir: t.TempDir(), FS: afero.NewMemMapFs()})
+	if err != nil {
+		t.Fatalf("加载配置失败: %v", err)
+	}
+	cfg.Set("server.http2.extended_connect", true)
+	msg := koHTTP2Warning(&Env{Cfg: cfg})
+	if msg == "" || !strings.Contains(msg, "GODEBUG=http2xconnect=1") {
+		t.Fatalf("warning = %q, want GODEBUG hint | warning = %q，期望包含 GODEBUG 提示", msg, msg)
+	}
+
+	cfg2, err := config.Load(config.Options{Name: "yd", ConfigDir: t.TempDir(), FS: afero.NewMemMapFs()})
+	if err != nil {
+		t.Fatalf("加载配置失败: %v", err)
+	}
+	if got := koHTTP2Warning(&Env{Cfg: cfg2}); got != "" {
+		t.Fatalf("warning = %q, want empty | warning = %q，期望为空", got, got)
+	}
+	if got := koHTTP2Warning(&Env{}); got != "" {
+		t.Fatalf("warning without config = %q, want empty | 无配置时 warning = %q，期望为空", got, got)
+	}
+}
