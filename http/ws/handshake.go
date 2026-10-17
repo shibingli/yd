@@ -2,12 +2,16 @@ package ws
 
 import (
 	"crypto/sha1"
+	"errors"
+	"net"
 	"net/http"
 	"net/url"
 	"strings"
+	"time"
 
 	"github.com/shibingli/yd/core/b64x"
 	"github.com/shibingli/yd/core/errx"
+	"github.com/shibingli/yd/http/protocol"
 )
 
 // acceptKey computes the Sec-WebSocket-Accept value as specified by RFC 6455 §4.2.2. | acceptKey 按 RFC 6455 §4.2.2 计算 Sec-WebSocket-Accept。
@@ -37,10 +41,21 @@ func headerContainsToken(h http.Header, name, token string) bool {
 // Upgrade turns an HTTP request into a WebSocket connection. | Upgrade 把 HTTP 请求升级为 WebSocket 连接。
 //
 // On failure the corresponding HTTP error response has already been written, and the returned error can be used for logging. | 失败时已写出相应的 HTTP 错误响应，返回的错误可用于日志。
-// Note: the upgrade relies on http.Hijacker, so it only applies to HTTP/1.1 connections; | 注意：升级依赖 http.Hijacker，因此仅适用于 HTTP/1.1 连接；
-// HTTP/2 and HTTP/3 return ErrHijackUnsupported (use SSE instead). | HTTP/2 与 HTTP/3 会返回 ErrHijackUnsupported（请改用 SSE）。
+//
+// HTTP/1.1 uses the RFC 6455 Upgrade handshake and hijacks the connection; the
+// handler may hand the Conn to another goroutine and return. HTTP/2 and HTTP/3
+// use RFC 8441 / RFC 9220 extended CONNECT: the Conn is bound to the request
+// stream, so the handler **must stay alive until the connection ends** —
+// returning closes the stream and makes the Conn unusable. | HTTP/1.1 使用 RFC 6455
+// Upgrade 握手并劫持连接，处理器可以把 Conn 交给其它协程后返回；HTTP/2 与 HTTP/3 使用
+// RFC 8441 / RFC 9220 extended CONNECT，Conn 绑定在请求流上，因此处理器**必须阻塞到连接结束**——
+// 返回即关闭流，Conn 随即不可用。
 func Upgrade(w http.ResponseWriter, r *http.Request, o Options) (*Conn, error) {
 	o = o.normalize()
+
+	if protocol.IsExtendedConnect(r) {
+		return upgradeExtendedConnect(w, r, o)
+	}
 
 	if r.Method != http.MethodGet {
 		w.Header().Set("Allow", http.MethodGet)
@@ -131,6 +146,93 @@ func Upgrade(w http.ResponseWriter, r *http.Request, o Options) (*Conn, error) {
 		c.br = brw.Reader
 	}
 	return c, nil
+}
+
+// upgradeExtendedConnect performs the RFC 8441 / RFC 9220 server handshake. | upgradeExtendedConnect 执行 RFC 8441 / RFC 9220 服务端握手。
+//
+// It never uses Sec-WebSocket-Key/Accept (those are superseded by :protocol),
+// never writes Connection or Upgrade, and responds with 200 instead of 101. | 它不使用
+// Sec-WebSocket-Key/Accept（已由 :protocol 取代），不写 Connection 或 Upgrade，并以 200 而非 101 响应。
+func upgradeExtendedConnect(w http.ResponseWriter, r *http.Request, o Options) (*Conn, error) {
+	if v := r.Header.Get("Sec-WebSocket-Version"); v != "13" {
+		w.Header().Set("Sec-WebSocket-Version", "13")
+		http.Error(w, "only WebSocket version 13 is supported | 仅支持 WebSocket 版本 13", http.StatusUpgradeRequired)
+		return nil, errx.Detail(ErrHandshake, "unsupported version %[1]q | 版本 %[1]q 不受支持", v)
+	}
+	if !checkOrigin(r, o.CheckOrigin) {
+		http.Error(w, "Origin check failed | Origin 校验未通过", http.StatusForbidden)
+		return nil, ErrOriginNotAllowed
+	}
+
+	sub := selectSubprotocol(r, o.Subprotocols)
+	var (
+		compCfg  *compressionConfig
+		extReply string
+	)
+	if o.EnableCompression {
+		compCfg, extReply = negotiateServerCompression(r.Header)
+	}
+
+	rc := http.NewResponseController(w)
+	// HTTP/2 requires full duplex before the response starts; quic-go's HTTP/3
+	// writer is inherently duplex and reports ErrNotSupported. | HTTP/2 必须在响应
+	// 开始前启用全双工；quic-go 的 HTTP/3 写入器天然全双工，会返回 ErrNotSupported。
+	if err := rc.EnableFullDuplex(); err != nil && !errors.Is(err, http.ErrNotSupported) {
+		http.Error(w, "full duplex is unavailable | 当前连接不支持全双工", http.StatusInternalServerError)
+		return nil, errx.WrapDetail(err, ErrHandshake, "failed to enable full duplex | 启用全双工失败")
+	}
+	// The server arms a WriteTimeout timer for every HTTP/2 stream. A WebSocket
+	// is long-lived, so the handshake takes ownership of both deadlines. | 服务端会为
+	// 每个 HTTP/2 流设置 WriteTimeout 定时器；WebSocket 是长连接，因此握手接管两个截止时间。
+	_ = rc.SetReadDeadline(time.Time{})
+	_ = rc.SetWriteDeadline(time.Time{})
+
+	if sub != "" {
+		w.Header().Set("Sec-WebSocket-Protocol", sub)
+	}
+	if extReply != "" {
+		w.Header().Set("Sec-WebSocket-Extensions", extReply)
+	}
+	w.WriteHeader(http.StatusOK)
+	if err := rc.Flush(); err != nil {
+		return nil, errx.WrapDetail(err, ErrHandshake, "failed to flush the handshake response | 刷新握手响应失败")
+	}
+
+	body := r.Body
+	if body == nil {
+		body = http.NoBody
+	}
+	sc := newStreamConnServer(body, w, rc, extendedLocalAddr(r), extendedRemoteAddr(r))
+	c := newConn(sc, o, false)
+	if r.ProtoMajor == 3 {
+		c.kind = TransportHTTP3
+	} else {
+		c.kind = TransportHTTP2
+	}
+	c.subprotocol = sub
+	c.setCompression(compCfg)
+	c.setTracker(o.Tracker)
+	return c, nil
+}
+
+// extendedLocalAddr returns the local address recorded on the request context. | extendedLocalAddr 返回记录在请求上下文中的本地地址。
+func extendedLocalAddr(r *http.Request) net.Addr {
+	if a, ok := r.Context().Value(http.LocalAddrContextKey).(net.Addr); ok {
+		return a
+	}
+	return nil
+}
+
+// extendedRemoteAddr returns the peer address with the transport-specific network name. | extendedRemoteAddr 返回带传输网络名的对端地址。
+func extendedRemoteAddr(r *http.Request) net.Addr {
+	if r.RemoteAddr == "" {
+		return nil
+	}
+	network := "tcp"
+	if r.ProtoMajor == 3 {
+		network = "udp"
+	}
+	return streamAddr{network: network, addr: r.RemoteAddr}
 }
 
 // checkOrigin performs the Origin check; when custom is nil, the same-origin policy is used. | checkOrigin 执行 Origin 校验；custom 为 nil 时使用同源策略。

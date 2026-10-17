@@ -174,9 +174,14 @@ var (
 	// ErrHandshake indicates that the WebSocket handshake failed. | ErrHandshake 表示 WebSocket 握手失败。
 	ErrHandshake = errx.New("ws: handshake failed | ws：握手失败")
 	// ErrHijackUnsupported indicates that the underlying connection does not support Hijack. | ErrHijackUnsupported 表示底层连接不支持 Hijack。
-	// WebSocket cannot be obtained through an upgrade over HTTP/2 and HTTP/3; on those protocols use the RFC 8441 | HTTP/2 与 HTTP/3 无法通过升级获得 WebSocket；这些协议下应使用 RFC 8441 的
-	// Extended CONNECT (not provided by this implementation), or switch to SSE. | Extended CONNECT（本实现未提供），或改用 SSE。
-	ErrHijackUnsupported = errx.New("ws: underlying connection does not support Hijack (HTTP/2 and HTTP/3 cannot upgrade to WebSocket; use SSE instead) | ws：底层连接不支持 Hijack（HTTP/2 与 HTTP/3 无法升级为 WebSocket，请改用 SSE）")
+	//
+	// HTTP/2 and HTTP/3 WebSockets use RFC 8441 / RFC 9220 extended CONNECT
+	// instead of Upgrade; HTTP/2 requires the process to start with
+	// GODEBUG=http2xconnect=1. This error only means the request was not an
+	// extended CONNECT but the writer still cannot hijack. | HTTP/2 与 HTTP/3 的
+	// WebSocket 使用 RFC 8441 / RFC 9220 extended CONNECT，而不是 Upgrade；HTTP/2 需要进程以
+	// GODEBUG=http2xconnect=1 启动。该错误只表示请求不是 extended CONNECT，且写入器仍无法 Hijack。
+	ErrHijackUnsupported = errx.New("ws: underlying connection does not support Hijack; HTTP/2 and HTTP/3 WebSockets use extended CONNECT (HTTP/2 requires GODEBUG=http2xconnect=1) | ws：底层连接不支持 Hijack；HTTP/2 与 HTTP/3 的 WebSocket 使用 extended CONNECT（HTTP/2 需要 GODEBUG=http2xconnect=1）")
 	// ErrOriginNotAllowed indicates that the Origin check did not pass. | ErrOriginNotAllowed 表示 Origin 校验未通过。
 	ErrOriginNotAllowed = errx.New("ws: Origin check failed | ws：Origin 校验未通过")
 	// ErrProtocol indicates that the peer violated an RFC 6455 protocol constraint. | ErrProtocol 表示对端违反 RFC 6455 协议约束。
