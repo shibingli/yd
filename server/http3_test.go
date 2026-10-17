@@ -46,7 +46,7 @@ func TestHTTP3SocketIsBoundBeforeStartReturns(t *testing.T) {
 	srv := newTestServer(t, func(o *Options) { o.HTTP3 = HTTP3Config{Enabled: true} })
 	addr := srv.HTTP3Addr()
 	if addr == "" {
-		t.Fatal("HTTP3Addr 为空")
+		t.Fatal("HTTP3Addr is empty | HTTP3Addr 为空")
 	}
 
 	// 端口已被占用即证明套接字在 Start 返回前就绑好了；若绑定还在 goroutine 里排队，这里会绑定成功。
@@ -155,14 +155,14 @@ func TestHTTP3ExplicitPortFailureSurfacesFromStart(t *testing.T) {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 		_ = srv.Shutdown(ctx)
-		t.Fatal("显式端口绑定失败时 Start 仍返回 nil，失败被吞掉了")
+		t.Fatal("Start still returned nil when the explicit port bind failed; the failure was swallowed | 显式端口绑定失败时 Start 仍返回 nil，失败被吞掉了")
 	}
 	if !errors.Is(err, ErrHTTP3Listen) {
 		t.Fatalf("Start 返回 %v, 期望可 errors.Is 到 ErrHTTP3Listen", err)
 	}
-	// TCP 监听必须一并释放，不能因为 HTTP/3 失败而泄漏。| The TCP listener must be released too, not leaked on the HTTP/3 failure.
+	// The TCP listener must be released too, not leaked on the HTTP/3 failure. | TCP 监听必须一并释放，不能因为 HTTP/3 失败而泄漏。
 	if srv.Addr() == "" {
-		t.Error("Addr 为空")
+		t.Error("Addr is empty | Addr 为空")
 	}
 }
 

@@ -90,7 +90,7 @@ func TestWriterSetShutdownTerminatesStream(t *testing.T) {
 	if !strings.Contains(first, "hello") {
 		t.Fatalf("首帧 = %q, 期望包含 hello", first)
 	}
-	// 首帧到达即证明 NewWriter 已执行，也就是写入器已登记。| The first frame proves NewWriter ran, hence the writer is tracked.
+	// The first frame proves NewWriter ran, hence the writer is tracked. | 首帧到达即证明 NewWriter 已执行，也就是写入器已登记。
 	if got := set.Len(); got != 1 {
 		t.Fatalf("追踪写入器数 = %d, 期望 1", got)
 	}
@@ -105,7 +105,7 @@ func TestWriterSetShutdownTerminatesStream(t *testing.T) {
 	select {
 	case <-handlerReturned:
 	case <-time.After(3 * time.Second):
-		t.Fatal("事件流关闭后处理器未在 3 秒内返回")
+		t.Fatal("the handler did not return within 3 seconds after the event stream closed | 事件流关闭后处理器未在 3 秒内返回")
 	}
 
 	rest, err := io.ReadAll(br)
@@ -139,10 +139,10 @@ func TestWriterSetShutdownReleasesSubscribers(t *testing.T) {
 	select {
 	case _, ok := <-ch:
 		if ok {
-			t.Fatal("关闭广播器后订阅通道应立即关闭，不得再投递事件")
+			t.Fatal("the subscription channel must close as soon as the broker closes; no further event may be delivered | 关闭广播器后订阅通道应立即关闭，不得再投递事件")
 		}
 	case <-time.After(2 * time.Second):
-		t.Fatal("关闭广播器后订阅通道未关闭（订阅协程会悬挂）")
+		t.Fatal("the subscription channel was not closed after the broker closed (the subscriber goroutine would hang) | 关闭广播器后订阅通道未关闭（订阅协程会悬挂）")
 	}
 	if got := set.Len(); got != 0 {
 		t.Fatalf("Len = %d, 期望 0", got)
@@ -155,7 +155,7 @@ func TestWriterSetNilBrokerAndUntrackOnClose(t *testing.T) {
 	set := NewWriterSet(nil)
 	set.Shutdown() // 无广播器：不得 panic | no broker: must not panic
 	if untrack := set.Track(nil); untrack == nil {
-		t.Fatal("Track(nil) 必须返回可调用的取消登记函数")
+		t.Fatal("Track(nil) must return a callable untrack function | Track(nil) 必须返回可调用的取消登记函数")
 	} else {
 		untrack()
 		untrack() // 幂等 | idempotent
@@ -178,6 +178,6 @@ func TestWriterSetNilBrokerAndUntrackOnClose(t *testing.T) {
 	select {
 	case <-w.Done():
 	default:
-		t.Fatal("Close 后 Done 必须已关闭")
+		t.Fatal("Done must already be closed after Close | Close 后 Done 必须已关闭")
 	}
 }

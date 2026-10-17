@@ -16,7 +16,17 @@
   novalidate: native validation would stop the submission before it is sent, so the server-side rules would never
   actually be exercised.
 
-  数据契约 | Data contract: .RoleList（[]model.Role，角色勾选项）、.KeyEndpoint、.PublicKey。
+  数据契约 | Data contract: .RoleList（[]model.Role，角色勾选项）、.KeyEndpoint、.PublicKey、.Perm
+  （authz.Data 注入的能力表，提交按钮上的 data-yd-perm 读的就是它）。
+  .RoleList ([]model.Role, the role checkboxes), .KeyEndpoint, .PublicKey and .Perm (the capability map injected by
+  authz.Data, which is what the data-yd-perm attribute of the submit button reads).
+
+  提交按钮带着 data-yd-perm：它是「声明式守卫」的范例——栏位的显示与否由页面自己判断（见 pages/users.html），
+  而按钮由 yd-authz.js 在每次 htmx 交换后按注入的载荷重新绑定，两者读的是同一份授权，
+  真正的边界依旧只在服务端（POST /users 挂着 authz.Require(authz.PermUserCreate)）。
+  The submit button carries data-yd-perm: it is the declarative-guard example — whether the section is rendered is decided
+  by the page itself (see pages/users.html) while the button is re-bound by yd-authz.js after every htmx swap, both reading
+  one and the same authority. The real boundary stays server-side: POST /users carries authz.Require(authz.PermUserCreate).
 */}}
 {{- define "partials/users/form" -}}
 <form class="yd-form" method="post" action="/users"
@@ -70,7 +80,7 @@
   </fieldset>
 
   <div class="yd-form__actions">
-    <button type="submit" class="yd-btn yd-btn--primary">{{ tr "ui.create" }}</button>
+    <button type="submit" class="yd-btn yd-btn--primary" data-yd-perm="{{ .Perm.UserCreate }}">{{ tr "ui.create" }}</button>
   </div>
 </form>
 {{- end -}}

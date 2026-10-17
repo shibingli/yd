@@ -107,7 +107,7 @@ func TestDualHandlerRoutesGRPCAndHTTPOnSamePort(t *testing.T) {
 		_, _ = io.WriteString(w, "http-ok:"+r.URL.Path)
 	})
 
-	// 同端口双通道需要 h2c（或 TLS+ALPN），这里用框架自带的 server 提供
+	// Dual channels on one port need h2c (or TLS+ALPN); the framework server provides it here. | 同端口双通道需要 h2c（或 TLS+ALPN），这里用框架自带的 server 提供
 	srv := server.New(server.Options{
 		Host:    "127.0.0.1",
 		Port:    0,
@@ -126,7 +126,7 @@ func TestDualHandlerRoutesGRPCAndHTTPOnSamePort(t *testing.T) {
 
 	addr := srv.Addr()
 
-	// 1) 普通 HTTP 请求仍然走 HTTP 处理器
+	// 1) a plain HTTP request still goes through the HTTP handler | 1) 普通 HTTP 请求仍然走 HTTP 处理器
 	resp, err := http.Get("http://" + addr + "/health")
 	if err != nil {
 		t.Fatalf("HTTP 请求失败: %v", err)
@@ -137,7 +137,7 @@ func TestDualHandlerRoutesGRPCAndHTTPOnSamePort(t *testing.T) {
 		t.Fatalf("HTTP 通道异常: code=%d body=%q", resp.StatusCode, body)
 	}
 
-	// 2) 同一端口上的真实 gRPC 调用
+	// 2) a real gRPC call on the very same port | 2) 同一端口上的真实 gRPC 调用
 	conn, err := grpc.NewClient(addr,
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
 		grpc.WithDefaultCallOptions(grpc.ForceCodec(rawCodec{})),
@@ -159,7 +159,7 @@ func TestDualHandlerRoutesGRPCAndHTTPOnSamePort(t *testing.T) {
 		t.Fatalf("gRPC 回显不一致: len(in)=%d len(out)=%d", len(payload), len(out))
 	}
 
-	// 3) 调用 gRPC 之后 HTTP 通道依然可用（互不干扰）
+	// 3) the HTTP channel still works after the gRPC call (the two do not interfere) | 3) 调用 gRPC 之后 HTTP 通道依然可用（互不干扰）
 	resp2, err := http.Get("http://" + addr + "/health")
 	if err != nil {
 		t.Fatalf("第二次 HTTP 请求失败: %v", err)
@@ -175,11 +175,11 @@ func TestDualHandlerNilFallbacks(t *testing.T) {
 	h := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { _, _ = io.WriteString(w, "plain") })
 
 	if got := DualHandler(nil, h); got == nil {
-		t.Fatal("gRPC 服务端为 nil 时应返回 HTTP 处理器")
+		t.Fatal("a nil gRPC server must yield the HTTP handler | gRPC 服务端为 nil 时应返回 HTTP 处理器")
 	}
 	srv := grpc.NewServer()
 	if got := DualHandler(srv, nil); got == nil {
-		t.Fatal("HTTP 处理器为 nil 时应返回 gRPC 服务端")
+		t.Fatal("a nil HTTP handler must yield the gRPC server | HTTP 处理器为 nil 时应返回 gRPC 服务端")
 	}
 	srv.Stop()
 }
@@ -187,7 +187,7 @@ func TestDualHandlerNilFallbacks(t *testing.T) {
 func TestOptionsFromConfigDefaultsToSamePort(t *testing.T) {
 	o := OptionsFromConfig(nil)
 	if o.Enabled {
-		t.Fatal("nil 配置下 gRPC 应默认关闭")
+		t.Fatal("gRPC must be off by default under a nil config | nil 配置下 gRPC 应默认关闭")
 	}
 	if o.Mode != ModeSamePort {
 		t.Fatalf("默认模式 = %q, 期望 %q", o.Mode, ModeSamePort)

@@ -23,13 +23,19 @@
     * any other failure: the controller returns the same error fragment with the matching status code, so the semantics
       never diverge (403 for escalation, 404 for a foreign tenant, 409 for disabling yourself).
 
-  数据契约 | Data contract: .Cards .Total .Keyword .Empty .RoleList .Actor .CanUserWrite .CanUserRead。
+  数据契约 | Data contract: .Cards .Total .Keyword .Empty .RoleList .Actor，加上 authz.Data 注入的
+  .Authz/.Perm/.Role/.AuthzJSON：行内表单按 can .Perm.UserUpdate 出现（与 POST /users/{id} 的守卫同源），
+  新建表单按 can .Perm.UserCreate 出现（与 POST /users 的守卫同源）。
+  .Cards .Total .Keyword .Empty .RoleList .Actor, plus the .Authz/.Perm/.Role/.AuthzJSON envelope injected by
+  authz.Data: the in-row forms appear under can .Perm.UserUpdate (the token POST /users/{id} is guarded by) and the create
+  form under can .Perm.UserCreate (the token POST /users is guarded by).
 
-  写权限决定表单是否存在：没有 user:write 的审计员看到的是同一张表，只是行内不再有表单，
-  而且即便有人手改 DOM 把表单补回来，服务端那条路由也挂着 auth.RequirePermission("user:write")。
-  The write permission decides whether the forms exist at all: an auditor without user:write sees the same table with no
-  in-row forms, and even someone who patches the DOM to bring them back meets auth.RequirePermission("user:write") on
-  that very route.
+  写权限决定表单是否存在：没有 user:update 的审计员看到的是同一张表，只是行内不再有表单，新建表单也不出现；
+  而且即便有人手改 DOM 把表单补回来，服务端那两条路由也各自挂着
+  authz.Require(authz.PermUserUpdate) 与 authz.Require(authz.PermUserCreate)。
+  The write capability decides whether the forms exist at all: an auditor without user:update sees the same table with no
+  in-row forms and no create form either, and even someone who patches the DOM to bring them back meets
+  authz.Require(authz.PermUserUpdate) and authz.Require(authz.PermUserCreate) on those very routes.
 */}}
 <section class="yd-page" data-yd-page="users" aria-labelledby="yd-users-title">
   <header class="yd-page__header">
@@ -63,7 +69,7 @@
     {{ template "partials/users/list" . }}
   </section>
 
-  {{- if .CanUserWrite }}
+  {{- if can .Perm.UserCreate }}
   <section class="yd-card yd-section">
     <details class="yd-details" {{ if .Empty }}open{{ end }}>
       <summary class="yd-details__summary">{{ tr "page.users.create" }}</summary>

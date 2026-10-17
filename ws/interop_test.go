@@ -165,7 +165,7 @@ func TestInteropServerOurImplClientCoder(t *testing.T) {
 			}
 		}
 		if !done {
-			t.Fatal("ping 未收到 pong（我方服务端必须在读路径自动应答）")
+			t.Fatal("no pong arrived for the ping (our server must answer on the read path) | ping 未收到 pong（我方服务端必须在读路径自动应答）")
 		}
 		if pr.err != nil {
 			t.Fatalf("ping 未收到 pong: %v", pr.err)

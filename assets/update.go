@@ -226,7 +226,7 @@ func (o UpdateOptions) apply(ctx context.Context, a Asset, sources []string, wri
 		case !exists:
 			res.state, res.err = stateFailed, errx.Detail(ErrOfflineMissing, "%s", local)
 		case a.SHA256 == "":
-			res.state, res.err = stateFailed, errx.Detail(ErrChecksumMismatch, "%s: 未锁定，离线模式无法核对", a.Name)
+			res.state, res.err = stateFailed, errx.Detail(ErrChecksumMismatch, "%[1]s: not locked, offline mode cannot check it | %[1]s: 未锁定，离线模式无法核对", a.Name)
 		case sha256Hex(existing) != a.SHA256:
 			res.state, res.err = stateFailed, errx.Detail(ErrChecksumMismatch, "%s", local)
 		default:
@@ -237,7 +237,7 @@ func (o UpdateOptions) apply(ctx context.Context, a Asset, sources []string, wri
 
 	candidates := candidatesFor(a, sources)
 	if len(candidates) == 0 {
-		res.state, res.err = stateFailed, errx.Detail(ErrDownloadFailed, "%s: 没有可用的下载源", a.Name)
+		res.state, res.err = stateFailed, errx.Detail(ErrDownloadFailed, "%[1]s: no download source available | %[1]s: 没有可用的下载源", a.Name)
 		return res
 	}
 
@@ -256,7 +256,7 @@ func (o UpdateOptions) apply(ctx context.Context, a Asset, sources []string, wri
 	// caller explicitly asked for a re-lock. | 锁定是权威：不匹配说明上游已变动，除非调用方明确要求
 	// 重新锁定，否则一律视为失败。
 	if a.SHA256 != "" && sum != a.SHA256 && !o.Force {
-		res.state, res.err = stateFailed, errx.Detail(ErrChecksumMismatch, "%s: 锁定 %s，下载 %s", a.Name, a.SHA256, sum)
+		res.state, res.err = stateFailed, errx.Detail(ErrChecksumMismatch, "%[1]s: locked %[2]s, downloaded %[3]s | %[1]s: 锁定 %[2]s，下载 %[3]s", a.Name, a.SHA256, sum)
 		return res
 	}
 
@@ -292,7 +292,7 @@ func (o UpdateOptions) apply(ctx context.Context, a Asset, sources []string, wri
 func Add(ctx context.Context, o UpdateOptions, a Asset) (Asset, error) {
 	o = o.normalized()
 	if strings.TrimSpace(a.Name) == "" {
-		return Asset{}, errx.Detail(ErrInvalidAsset, "缺少 name")
+		return Asset{}, errx.Detail(ErrInvalidAsset, "name is missing | 缺少 name")
 	}
 	path, err := NormalizePath(a.Path)
 	if err != nil {
@@ -324,7 +324,7 @@ func Add(ctx context.Context, o UpdateOptions, a Asset) (Asset, error) {
 
 	candidates := candidatesFor(a, sources)
 	if len(candidates) == 0 {
-		return Asset{}, errx.Detail(ErrDownloadFailed, "%s: 没有可用的下载源", a.Name)
+		return Asset{}, errx.Detail(ErrDownloadFailed, "%[1]s: no download source available | %[1]s: 没有可用的下载源", a.Name)
 	}
 	data, err := fetch(ctx, o.HTTPClient, candidates)
 	if err != nil {

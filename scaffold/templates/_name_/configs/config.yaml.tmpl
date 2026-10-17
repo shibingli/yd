@@ -18,18 +18,35 @@ log:
   format: json        # json | console
   caller: true        # 记录调用位置 | record the call site
 
+# 默认数据（种子）：只在租户表为空时写入一次，写什么由框架注册表决定（两个演示租户、四个内置角色及其能力绑定、每租户一个所有者账号）。
+# Default data (the seed): written exactly once, only while the tenant table is empty, and what it writes comes from the framework
+# registry (two demo tenants, the four built-in roles with their capability bindings, one owner account per tenant).
+#
+# admin_password 未配置时的行为按 app.env 分流：development 回退到 internal/meta 里那个文档化口令并每次启动告警；
+# 其它任何环境（production / staging / 未声明）**拒绝写入种子数据**并告警——绝不会用默认口令在生产开出管理员账号。
+# An unset admin_password is answered differently per app.env: development falls back to the documented password in internal/meta
+# and warns on every start, while any other environment (production, staging, unset) refuses the seed with a warning — a default
+# password never opens an administrator account in production. The clear text is never written to a log.
+seed:
+  admin_password: ""   # override with YD_SEED_ADMIN_PASSWORD; production must inject it rather than rely on the development fallback | 由 YD_SEED_ADMIN_PASSWORD 覆盖；生产环境必须注入，不要依赖开发回退
+
 # 鉴权与会话：主密钥封装每个用户的 sec_key，改动它等于让此前签发的全部令牌失效。
 # Authentication and sessions: the master key seals every user's sec_key, and changing it invalidates every token issued so far.
 auth:
-  master_key: ""      # 生产环境必须通过 YD_AUTH_MASTER_KEY 注入；留空时使用内置开发密钥并告警 | production must inject it through YD_AUTH_MASTER_KEY; empty selects the built-in development key with a warning
-  token_ttl: 2h       # 令牌有效期，登录 cookie 的 MaxAge 与它同源 | token lifetime, shared with the MaxAge of the sign-in cookie
+  master_key: ""      # production must inject it through YD_AUTH_MASTER_KEY; empty selects the built-in development key with a warning | 生产环境必须通过 YD_AUTH_MASTER_KEY 注入；留空时使用内置开发密钥并告警
+  token_ttl: 2h       # token lifetime, shared with the MaxAge of the sign-in cookie | 令牌有效期，登录 cookie 的 MaxAge 与它同源
 {{- if ne .DB "none" }}
+  # Ceiling of one auth statement; 0 keeps the framework default (no extra bound). | 单条鉴权语句的上限；0 表示沿用框架默认值（不额外设限）。
+  gorm:
+    query_timeout: 0
 
+# Database: tenants, users, roles and permissions live here, so the data survives a restart. | 数据库：租户、用户、角色与权限都存在这里，重启后数据仍在。
 db:
   driver: {{ .DB }}   # mysql | postgres | sqlite
   dsn: "{{ .DBDSN }}"
-  max_conn: 100       # 连接池上限 | connection pool ceiling
-  slow_threshold: 200ms   # 慢查询阈值 | slow query threshold
+  maxconn: 100        # ceiling of the connection pool | 连接池上限
+  maxidle: 10         # idle connections kept in the pool | 池中保留的空闲连接数
+  slow_threshold: 200ms   # slow query threshold | 慢查询阈值
 {{- end }}
 {{- if .Redis }}
 

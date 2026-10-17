@@ -50,7 +50,7 @@ func (s *Server) bindHTTP3() (net.PacketConn, int, error) {
 		if explicit != 0 {
 			return nil, 0, errx.WrapDetail(err, ErrHTTP3Listen, "port %d | 端口 %d", port, port)
 		}
-		// 自动模式：退回让操作系统分配 UDP 端口。| Auto mode: fall back to an OS-assigned UDP port.
+		// Auto mode: fall back to an OS-assigned UDP port. | 自动模式：退回让操作系统分配 UDP 端口。
 		fallback, ferr := listenUDPFunc("udp", s.opts.h3Addr(0))
 		if ferr != nil {
 			return nil, 0, errx.WrapDetail(ferr, ErrHTTP3Listen, "tcp port %d | TCP 端口 %d", port, port)

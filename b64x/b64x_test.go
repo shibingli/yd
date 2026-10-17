@@ -196,7 +196,7 @@ func TestAppendEncodePreallocates(t *testing.T) {
 
 	out := StdEncoding.AppendEncode(dst, src)
 	if &out[0] != first {
-		t.Fatal("容量充足时 AppendEncode 不应重新分配底层数组")
+		t.Fatal("AppendEncode must not reallocate the underlying array when capacity suffices | 容量充足时 AppendEncode 不应重新分配底层数组")
 	}
 	if len(out) != 8+StdEncoding.EncodedLen(len(src)) {
 		t.Fatalf("结果长度 = %d，期望 %d", len(out), 8+StdEncoding.EncodedLen(len(src)))
@@ -213,7 +213,7 @@ func TestAppendEncodePreallocates(t *testing.T) {
 	copy(small, "prefix!!")
 	out = StdEncoding.AppendEncode(small, src)
 	if string(out[:8]) != "prefix!!" || string(out[8:]) != want {
-		t.Fatal("容量不足时 AppendEncode 结果不正确")
+		t.Fatal("AppendEncode produced a wrong result when capacity was insufficient | 容量不足时 AppendEncode 结果不正确")
 	}
 }
 
@@ -231,7 +231,7 @@ func TestAppendDecodeReusesBuffer(t *testing.T) {
 		t.Fatalf("AppendDecode 失败: %v", err)
 	}
 	if &out[0] != first {
-		t.Fatal("容量充足时 AppendDecode 不应重新分配底层数组")
+		t.Fatal("AppendDecode must not reallocate the underlying array when capacity suffices | 容量充足时 AppendDecode 不应重新分配底层数组")
 	}
 	if string(out[:4]) != "pre:" {
 		t.Fatalf("原有前缀被破坏: %q", out[:4])
@@ -246,10 +246,10 @@ func TestAppendDecodeReusesBuffer(t *testing.T) {
 		t.Fatalf("第二次 AppendDecode 失败: %v", err)
 	}
 	if &out[0] != first {
-		t.Fatal("容量充足时连续 AppendDecode 不应重新分配底层数组")
+		t.Fatal("consecutive AppendDecode calls must not reallocate the underlying array when capacity suffices | 容量充足时连续 AppendDecode 不应重新分配底层数组")
 	}
 	if !bytes.Equal(out[4+len(src):], src) {
-		t.Fatal("连续追加结果不一致")
+		t.Fatal("the consecutive appends produced inconsistent results | 连续追加结果不一致")
 	}
 }
 
@@ -269,7 +269,7 @@ func TestAppendDecodeKeepsCapacity(t *testing.T) {
 		t.Fatalf("AppendDecode 失败: %v", err)
 	}
 	if !bytes.Equal(out, src) {
-		t.Fatal("解码结果不一致")
+		t.Fatal("the decoded result is inconsistent | 解码结果不一致")
 	}
 	for i := len(out) + 1; i < len(raw); i++ {
 		if raw[i] != sentinel {
@@ -300,7 +300,7 @@ func TestDecodeErrorOnInvalid(t *testing.T) {
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
 			if _, err := c.std.Decode(make([]byte, c.std.DecodedLen(len(c.in))), []byte(c.in)); err == nil {
-				t.Fatal("标准库同样应拒绝该输入（对拍前提不成立）")
+				t.Fatal("the standard library must reject this input as well (the cross-check premise does not hold) | 标准库同样应拒绝该输入（对拍前提不成立）")
 			}
 
 			dst := make([]byte, c.enc.DecodedLen(len(c.in)))
@@ -322,7 +322,7 @@ func TestDecodeErrorOnInvalid(t *testing.T) {
 			const prefix = "keep"
 			out, err := c.enc.AppendDecode([]byte(prefix), []byte(c.in))
 			if err == nil {
-				t.Fatal("AppendDecode 应返回错误")
+				t.Fatal("AppendDecode must return an error | AppendDecode 应返回错误")
 			}
 			if string(out) != prefix {
 				t.Fatalf("解码失败时 AppendDecode 不应改动 dst，实际 %q", out)

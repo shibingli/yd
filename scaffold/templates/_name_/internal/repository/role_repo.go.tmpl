@@ -14,6 +14,7 @@ import (
 
 	"{{ .Module }}/internal/model"
 	"{{ .YdModule }}/auth"
+	"{{ .YdModule }}/authz"
 )
 
 // RoleRepo reads, upserts and deletes roles. | RoleRepo 提供角色的读取、覆盖写入与删除。
@@ -75,20 +76,49 @@ func (r *RoleRepo) Delete(ctx context.Context, tenantID, roleID string) error {
 	return r.store.Auth().DeleteRole(ctx, tenantID, roleID)
 }
 
-// Ensure 幂等写入四个内置角色（owner / admin / auditor / member）。
-// Ensure writes the four built-in roles idempotently (owner, admin, auditor and member).
+// Ensure 幂等写入内置角色及其能力绑定（owner / admin / auditor / member）。
+// Ensure writes the built-in roles and their capability bindings idempotently (owner, admin, auditor and member).
+//
+// 角色名、说明与「角色→能力」的绑定全部来自框架注册表（authz.BuiltinRoles 与 authz.BuiltinGrants），
+// 本项目一个角色名、一个能力标识都不写：于是「守卫要求的能力」与「种子授予的能力」必然是同一套词汇。
+// The names, the descriptions and the role-to-capability bindings all come from the framework registry
+// (authz.BuiltinRoles and authz.BuiltinGrants) and this project spells out neither a role name nor a capability token, so
+// what the guards require and what the seed grants is necessarily one vocabulary.
 //
 // 已有的同名角色不被覆盖：使用者改过的权限不该在下次启动时被悄悄改回去。
-// An existing role of the same name is left alone: a permission set the user edited must not be silently reverted on
-// the next start.
+// An existing role of the same name is left alone: a permission set the user edited must not be silently reverted on the
+// next start.
+//
+// 一次 List 换掉「每个角色查一次」：内置角色有四个，而权限矩阵页与建号流程都在同一秒内看过这一份列表。
+// One List replaces a lookup per role: there are four built-in roles, and the permission matrix and the sign-up flow read
+// the same list within the same second.
 func (r *RoleRepo) Ensure(ctx context.Context, tenantID string) error {
-	for _, tpl := range model.BuiltinRoles() {
-		if _, ok, err := r.ByName(ctx, tenantID, tpl.Name); err != nil {
-			return err
-		} else if ok {
+	existing, err := r.List(ctx, tenantID)
+	if err != nil {
+		return err
+	}
+	have := make(map[string]bool, len(existing))
+	for _, role := range existing {
+		have[strings.ToLower(role.Name)] = true
+	}
+
+	// 授权表按角色名索引：注册表不认识的权限标识根本进不来，因为它们来自同一张表。
+	// The grants are indexed by role name: an unknown capability token cannot get in here, because both sides come from
+	// the same table.
+	grants := make(map[string][]model.Permission, len(authz.BuiltinRoles()))
+	for _, grant := range authz.BuiltinGrants() {
+		perms := make([]model.Permission, 0, len(grant.Permissions))
+		for _, token := range grant.Permissions {
+			perms = append(perms, model.Permission(token))
+		}
+		grants[grant.Role] = perms
+	}
+
+	for _, tpl := range authz.BuiltinRoles() {
+		if have[strings.ToLower(tpl.Name)] {
 			continue
 		}
-		if _, err := r.Upsert(ctx, tenantID, tpl.Name, tpl.Description, tpl.Permissions); err != nil {
+		if _, err := r.Upsert(ctx, tenantID, tpl.Name, tpl.Description, grants[tpl.Name]); err != nil {
 			return err
 		}
 	}

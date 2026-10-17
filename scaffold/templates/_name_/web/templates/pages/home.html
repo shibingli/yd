@@ -9,7 +9,11 @@
   layouts/base.html, while a request carrying HX-Request: true receives this file's HTML alone.
 
   数据契约 | Data contract: .Name .Module .Version .Features .Users .UserCount .RoleCount .Permission
-  .SignedIn .User .Tenant .SeedPassword .SeedNotice。
+  .SignedIn .User .Tenant .SeedPassword .SeedNotice，以及 authz.Data 注入的 .Authz/.Perm/.Role/.AuthzJSON
+  （能力判定一律写 can .Perm.XxxYyy 或 can "PermXxxYyy"，页面里不再有单独的布尔值）。
+  .Name .Module .Version .Features .Users .UserCount .RoleCount .Permission .SignedIn .User .Tenant .SeedPassword
+  .SeedNotice, plus the .Authz/.Perm/.Role/.AuthzJSON envelope injected by authz.Data (every capability check is
+  written as can .Perm.XxxYyy or can "PermXxxYyy"; the page holds no separate booleans of its own).
 
   时钟区块演示 SSE 的最小闭环：hx-sse:connect 打开 /events，服务端用 PublishHTML 推送的 <hx-partial>
   自带 hx-target="#yd-clock" 与 hx-swap="innerMorph"，因此页面不需要写任何脚本即可持续刷新。
@@ -24,7 +28,7 @@
       <p class="yd-page__subtitle">{{ tr "page.home.subtitle" }}</p>
     </div>
     <div class="yd-page__actions">
-      {{- if .CanUserRead }}
+      {{- if can .Perm.UserRead }}
       <a class="yd-btn yd-btn--primary" href="/users" hx-get="/users" hx-target="#yd-workspace" hx-swap="innerMorph" hx-push-url="true">
         {{ tr "nav.users" }}
       </a>
@@ -109,7 +113,7 @@
   <section class="yd-card yd-section" aria-labelledby="yd-home-users">
     <header class="yd-section__header">
       <h2 class="yd-section__title" id="yd-home-users">{{ tr "page.home.recent_users" }}</h2>
-      {{- if .CanUserRead }}
+      {{- if can .Perm.UserRead }}
       <a class="yd-btn yd-btn--ghost yd-btn--sm" href="/users" hx-get="/users" hx-target="#yd-workspace" hx-swap="innerMorph" hx-push-url="true">
         {{ tr "ui.all" }}
       </a>

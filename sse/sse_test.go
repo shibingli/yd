@@ -119,7 +119,7 @@ func recvEvent(t *testing.T, ch <-chan Event, timeout time.Duration) Event {
 	case e := <-ch:
 		return e
 	case <-time.After(timeout):
-		t.Fatal("等待事件超时")
+		t.Fatal("timed out waiting for an event | 等待事件超时")
 		return Event{}
 	}
 }
@@ -207,7 +207,7 @@ func TestWriterExactWireFormat(t *testing.T) {
 		}
 	}
 	if rec.Flushes() == 0 {
-		t.Error("WriteEvent 之后必须调用 Flush")
+		t.Error("Flush must be called after WriteEvent | WriteEvent 之后必须调用 Flush")
 	}
 }
 
@@ -405,7 +405,7 @@ func TestBrokerSlowConsumerDoesNotBlock(t *testing.T) {
 	select {
 	case <-done:
 	case <-time.After(2 * time.Second):
-		t.Fatal("慢消费者阻塞了 Publish")
+		t.Fatal("a slow consumer blocked Publish | 慢消费者阻塞了 Publish")
 	}
 
 	// The slow consumer reads not a single byte, so every frame after the first one is dropped: once done is closed | 慢消费者一个字节都不读，因此第一帧之后的每一帧都被丢弃：done 关闭后
@@ -426,7 +426,7 @@ func TestBrokerSlowConsumerDoesNotBlock(t *testing.T) {
 			t.Errorf("快消费者首个事件 = %q，期望 0", first)
 		}
 	case <-time.After(5 * time.Second):
-		t.Fatal("快消费者没有及时收到任何事件")
+		t.Fatal("the fast consumer received no event in time | 快消费者没有及时收到任何事件")
 	}
 
 	// Close must end the consumer loop. | Close 必须结束消费循环。
@@ -434,7 +434,7 @@ func TestBrokerSlowConsumerDoesNotBlock(t *testing.T) {
 	select {
 	case <-fastDone:
 	case <-time.After(5 * time.Second):
-		t.Fatal("Broker.Close 之后消费循环未退出")
+		t.Fatal("the consume loop did not exit after Broker.Close | Broker.Close 之后消费循环未退出")
 	}
 }
 
@@ -457,10 +457,10 @@ func TestBrokerUnsubscribeIdempotentAndStopsDelivery(t *testing.T) {
 	select {
 	case _, ok := <-ch:
 		if ok {
-			t.Fatal("取消后不应再收到事件")
+			t.Fatal("no event may arrive after cancel | 取消后不应再收到事件")
 		}
 	case <-time.After(time.Second):
-		t.Fatal("取消后订阅通道应被关闭")
+		t.Fatal("the subscription channel must be closed after cancel | 取消后订阅通道应被关闭")
 	}
 	b.Publish("t", Event{ID: "2"}) // must not panic | 不得 panic
 }
@@ -477,17 +477,17 @@ func TestBrokerCloseClosesAllSubscriptions(t *testing.T) {
 	select {
 	case _, ok := <-ch:
 		if ok {
-			t.Fatal("Close 后不应再收到事件")
+			t.Fatal("no event may arrive after Close | Close 后不应再收到事件")
 		}
 	default:
-		t.Fatal("Close 应立即关闭订阅通道")
+		t.Fatal("Close must close the subscription channel at once | Close 应立即关闭订阅通道")
 	}
 	cancel() // must not panic | 不得 panic
 
 	// Publishing after closing is a no-op. | 关闭后的发布为无操作。
 	b.Publish("t", Event{ID: "1"})
 	if _, cancel2 := b.Subscribe("t"); cancel2 == nil {
-		t.Fatal("已关闭的 Broker 仍需返回可调用的取消函数")
+		t.Fatal("a closed Broker must still hand out a callable cancel function | 已关闭的 Broker 仍需返回可调用的取消函数")
 	}
 }
 
@@ -579,10 +579,10 @@ func TestHandlerSendsHtmxPartialEvent(t *testing.T) {
 	select {
 	case resp = <-respCh:
 	case <-time.After(2 * time.Second):
-		t.Fatal("响应头未送达")
+		t.Fatal("the response headers never arrived | 响应头未送达")
 	}
 	if resp == nil {
-		t.Fatal("请求失败")
+		t.Fatal("the request failed | 请求失败")
 	}
 	defer resp.Body.Close()
 
@@ -635,10 +635,10 @@ func TestHandlerCleansUpOnClientDisconnect(t *testing.T) {
 	select {
 	case resp = <-respCh:
 	case <-time.After(2 * time.Second):
-		t.Fatal("响应头未送达")
+		t.Fatal("the response headers never arrived | 响应头未送达")
 	}
 	if resp == nil {
-		t.Fatal("请求失败")
+		t.Fatal("the request failed | 请求失败")
 	}
 	if body := readUntil(t, resp.Body, "data: first", 2*time.Second); !strings.Contains(body, "data: first") {
 		t.Fatalf("未收到首个事件，实际 %q", body)
@@ -690,7 +690,7 @@ func TestHandlerParsesLastEventID(t *testing.T) {
 			_ = resp.Body.Close()
 		}
 	case <-time.After(2 * time.Second):
-		t.Fatal("响应头未送达")
+		t.Fatal("the response headers never arrived | 响应头未送达")
 	}
 
 	select {
@@ -699,7 +699,7 @@ func TestHandlerParsesLastEventID(t *testing.T) {
 			t.Fatalf("LastEventID = %q，期望 42", got)
 		}
 	case <-time.After(3 * time.Second):
-		t.Fatal("中间件未在请求结束后读到 Last-Event-ID")
+		t.Fatal("the middleware did not see Last-Event-ID after the request had finished | 中间件未在请求结束后读到 Last-Event-ID")
 	}
 }
 

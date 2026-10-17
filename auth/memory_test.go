@@ -125,7 +125,7 @@ func TestCrossTenantAccessIsDenied(t *testing.T) {
 	}
 }
 
-// TestCrossTenantRoleNamesDoNotCollide 校验同名角色在两个租户内互不影响。
+// TestCrossTenantRoleNamesDoNotCollide checks that a same-named role in two tenants stays independent. | TestCrossTenantRoleNamesDoNotCollide 校验同名角色在两个租户内互不影响。
 func TestCrossTenantRoleNamesDoNotCollide(t *testing.T) {
 	f := newFixture(t)
 	if !f.svc.HasPermission(f.member, "user:read") {
@@ -271,7 +271,7 @@ func TestMemoryStoreIsConcurrencySafe(t *testing.T) {
 	}
 }
 
-// TestMemoryStoreDuplicateRefusals 校验重复实体与越权写入的拒绝行为。
+// TestMemoryStoreDuplicateRefusals checks how duplicate entities and cross-tenant writes are refused. | TestMemoryStoreDuplicateRefusals 校验重复实体与越权写入的拒绝行为。
 func TestMemoryStoreDuplicateRefusals(t *testing.T) {
 	f := newFixture(t)
 	err := f.store.CreateTenant(testCtx, &Tenant{ID: f.tenantA.ID, Slug: "again"})

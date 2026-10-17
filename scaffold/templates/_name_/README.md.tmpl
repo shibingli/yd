@@ -41,6 +41,7 @@ Go {{ .GoVersion }} + Htmx {{ .HtmxVersion }} + Tailwind CSS {{ .TailwindVersion
 │   ├── middleware/     # 会话提升、租户解析、安全头
 │   └── router/         # 路由与鉴权链路装配、OpenAPI 文档装配
 ├── configs/            # 分层配置（config.yaml + config.local.yaml.template）
+├── data/               # 本地数据目录（SQLite 库文件默认落点，含 .gitkeep 占位）
 ├── {{ .AssetRoot }}/            # 前端资产（templates / static / i18n / assets.lock.json）
 ├── build/              # 构建产物与打包说明
 └── docs/               # 协同约束与文档
@@ -66,23 +67,84 @@ yd docker --tag {{ .Name }}:latest
 
 ## 第一次运行：默认凭据
 
-演示数据由 `internal/repository` 在每次启动时幂等写入（租户按标识、角色按名称、用户按登录名判定，重复启动不会重复建号，
-也不会覆盖你改过的角色与口令）。两个租户各带一个 `owner` 管理员：
+演示数据只在**租户表为空**时写入一次（判断本身只有这一条），第二次、第三次启动都不会再写任何一行；
+两个并发的副本同时启动时，先写入的那个赢，另一个把「唯一索引冲突」当作「已经初始化过」而不是错误。
+一次写入的内容是：两个租户、每个租户的内置角色（`owner` / `admin` / `auditor` / `member`，各自的能力绑定取自框架注册表的
+`authz.BuiltinGrants()`）、以及每个租户的一个 `owner` 管理员。
+
+口令**不硬编码在源码里**，来源按优先级只有两处：
+
+| 来源 | 说明 |
+|---|---|
+| `seed.admin_password`（`configs/config.yaml`） | 常规做法：本机开发写进配置文件，生产用环境变量注入 |
+| `YD_SEED_ADMIN_PASSWORD`（环境变量） | 覆盖配置文件；**生产环境请只走这一条** |
+
+未配置时的行为取决于 `app.env`：
+
+- **`development`**：用文档化的开发口令 `Admin@123456`（`internal/meta.DevSeedAdminPassword`），并**每次启动都告警**；
+- **其它任何环境**（`production` / `staging` / 未声明）：**拒绝写入任何种子数据**，打印一条明确的告警，应用照常启动——
+  但此时一个租户、一个管理员都不会被创建，直到你把 `YD_SEED_ADMIN_PASSWORD` 设好并重启。
+  一个口令公开可查的管理员账号绝不在真实环境中被创建。
 
 | 租户（登录页"租户"字段） | 租户名称 | 登录名 | 初始口令 |
 |---|---|---|---|
-| `demo` | 演示租户 | `admin` | `Admin@123456` |
-| `acme` | 示例租户 ACME | `acme-admin` | `Acme@123456` |
+| `demo` | 演示租户 | `admin` | `seed.admin_password`（开发环境缺省为 `Admin@123456`） |
+| `acme` | 示例租户 ACME | `acme-admin` | 同上，两个租户的管理员共用同一个种子口令 |
 
 > **首次登录后请立即修改默认口令** —— 登录页与首页横幅都会提醒，账号页的「修改口令」表单完成改密与 `sec_key` 轮换
 > （改密或轮换 `sec_key` 都会让此前签发的全部令牌立即失效，因此保存后需要重新登录）。
 > README、登录页与横幅引用的是 `internal/meta` 里的同一句 `SeedPasswordNotice`，改文案只需改那一处。
+> 口令明文永不进入日志：启动日志与告警只说「用了哪一个来源」，从不说口令是什么。
 
 第二个租户不是装饰：它是「跨租户不可见」这条硬边界的可验证样本——用 `demo` 的令牌去读 `acme` 的数据，
 得到的只会是「没有这条数据」，而不是任何能推断出对方是否存在的差异。
 
-口令明文只出现在 `internal/meta` 的种子常量里，且只在首次写入时使用；库里保存的永远是 SM3 + 盐 + 迭代的散列与逐用户 `sec_key`。
-默认口令是演示凭据，**不要**把它们带进任何真实环境。
+库里保存的永远是 SM3 + 盐 + 迭代的散列与逐用户 `sec_key`；明文只在你自己的配置或环境变量里存在。
+
+The seed is written once, only while the tenant table is empty: a second or third start writes no further row, and when two
+replicas start together the first one wins while the other reads the unique-index conflict as "already initialised" rather
+than as an error. One run creates two tenants, their built-in roles (`owner` / `admin` / `auditor` / `member`, with the
+capability bindings taken from the framework registry's `authz.BuiltinGrants()`) and one `owner` administrator per tenant.
+The password is never hard-coded: it comes from `seed.admin_password` or `YD_SEED_ADMIN_PASSWORD`, and an unset value is
+answered differently per environment — development falls back to the documented `Admin@123456` and warns on every start,
+while every other environment refuses the seed with an explicit warning and creates no tenant and no administrator at all
+until the variable is set. The clear text never reaches a log.
+
+## 数据落在哪里
+{{- if ne .DB "none" }}
+
+`internal/repository` 在启动时打开配置里的数据库、执行一次幂等的自动迁移，再把框架的 GORM 实现注入 `auth.Service`：
+
+- **表由框架拥有**：`yd_auth_tenants`、`yd_auth_users`、`yd_auth_roles`、`yd_auth_role_permissions` 四张表由 `auth/gormstore.Migrate` 建出，
+  索引随表一起建好（库内唯一租户标识、租户内唯一登录名、租户内唯一角色名、角色权限唯一等）。`internal/model` 只描述渲染用的视图类型，不拥有 DDL。
+- **SQLite 默认落点**：`configs/config.yaml` 的 `db.dsn` 指向 `data/{{ .Name }}.db`（相对进程工作目录），WAL 边车文件 `-wal` / `-shm` 与库文件一起被 `.gitignore` 忽略。
+  驱动不会自建目录，因此 `data/` 随项目一起生成（`data/.gitkeep`）；**生产环境请把 `db.dsn` 写成绝对路径**，并确保目录已存在。
+- **连接池与时长**：`db.maxconn`、`db.maxidle`、`db.slow_threshold` 与框架的 `data/gormx` 同源；单条鉴权语句的上限是 `auth.gorm.query_timeout`（`0` 表示不额外设限）。
+- **退出时收尾**：进程退出由 `app.OnShutdown` 钩子（路由里注册的 `store.Close()`）关闭连接池。
+
+**连不上库不会挡住启动**：打开连接池或迁移失败时，`repository.Open` 退回内存实现并打印一条明确的告警（提示数据不持久），
+应用照常运行、登录照常可用；没有配置 `db.dsn` 时同理。
+
+The data lives in the database: `internal/repository` opens the configured pool at startup, runs an idempotent migration and
+injects the framework's GORM implementation into `auth.Service`. The four tables (`yd_auth_tenants`, `yd_auth_users`, `yd_auth_roles`,
+`yd_auth_role_permissions`) and their indexes belong to the framework and are created by `auth/gormstore.Migrate`, while
+`internal/model` only describes view types. The SQLite sample DSN lands the file in `data/` (relative to the process working
+directory) and the driver never creates that directory, which is why `data/.gitkeep` ships with the project — use an absolute
+path in production. A database that cannot be opened or migrated never blocks startup: `repository.Open` falls back to the
+in-memory implementation with an explicit "data is not persistent" warning, and the application keeps running.
+{{- else }}
+
+本项目生成时未选择数据库（`yd new --db none`）：租户、用户、角色与权限都存在框架的内存实现里，功能一样齐全，
+但进程一重启数据就没了 —— `repository.Open` 会在启动时如实告警这一点。
+想持久化，就在 `configs/config.yaml` 里补一段 `db`（`driver` / `dsn`），并用 `yd new --db sqlite`（或 mysql / postgres）重新生成项目：
+上层代码一行都不用改，因为 `Open` 是唯一的装配点。
+
+This project was generated without a database (`yd new --db none`): tenants, users, roles and permissions live in the
+framework's in-memory implementation and everything is gone at the next restart, which startup states explicitly. To make it
+persistent, add a `db` section (`driver` / `dsn`) to `configs/config.yaml` and regenerate the project with a database
+selected (`yd new --db sqlite`, or mysql / postgres): nothing above the storage layer changes, because `Open` is the single
+assembly point.
+{{- end }}
 
 ## 登录与多租户
 
@@ -92,8 +154,11 @@ yd docker --tag {{ .Name }}:latest
   提升成 `Authorization: Bearer <token>`，与 API 客户端走同一条校验路径。
 - **租户来源**：登录表单的「租户」字段填标识（`demo`）或 `tn_` ID；也接受 `X-Tenant` 请求头与子域名。
   带令牌的请求以令牌里的 `tid` 声明为准，请求头或子域名与它不一致即 403。
-- **能力（权限）**：`internal/model` 声明能力常量（如 `user:read`、`user:write`、`role:read`、`tenant:write`），
-  路由上用 `auth.RequirePermission(...)` 挂守卫；角色管理页与权限矩阵页可以把能力授予或回收到任意角色。
+- **能力（权限）**：能力标识由框架注册表 `authz` 声明（`authz.PermUserRead`、`authz.PermUserUpdate`、`authz.PermRoleManage`、
+  `authz.PermTenantCreate` 等十六个），`internal/model` 只是它的一份渲染视图；
+  路由上用 `authz.Require(authz.PermXxx)` 挂守卫，模板与前端用 `can .Perm.XxxYyy` / `data-yd-perm` 读同一份授权，
+  角色管理页与权限矩阵页可以把能力授予或回收到任意角色。角色与能力的绑定**只**写在注册表的 `authz.BuiltinGrants()` 里，
+  本项目一个角色名、一个能力标识都不写，因此 `yd authz check` 永远通过。
 - **拒绝的形态**：普通浏览请求得到 `303 → /login`，htmx 请求与 API 客户端得到 `401` 片段；越权一律按「没有这条数据」处理。
 
 ## 环境变量
@@ -236,6 +301,40 @@ ko 只把 Go 源码编译成镜像层，唯一需要联网的部分是**拉取�
 4. **配合 `yd build --offline`**：镜像之前的那一步（Tailwind 剪裁 + `go:embed` + 静态编译）可用
    `yd build --offline` 强制 `-mod=vendor`，整条链路都不触网。容器内不需要任何运行时依赖，
    前端资产已经嵌进同一个二进制里。
+
+## 可选外部工具
+
+有四个能力依赖**外部工具**，它们都不是本项目的 Go 依赖（不进 `go.mod`），由 `yd tools` 统一探测与安装：
+
+| 工具 | 用途 | 缺失时的影响 |
+|---|---|---|
+| `betteralign` | 结构体内存对齐检查与重排（`yd align --apply`） | 只有 `yd align` 会报错并给出安装提示 |
+| `ko` | 无 Dockerfile 的镜像打包（`yd ko`） | 只有 `yd ko` 会报错并给出安装提示 |
+| `tailwindcss` | 样式表编译（Tailwind CSS v4 standalone） | `yd dev` / `yd build` 的样式表阶段以告警跳过，构建照常完成 |
+| `docker` | Dockerfile 多阶段镜像构建（`yd docker`） | 只有 `yd docker` 会报错，并提示安装 Docker Engine / Docker Desktop |
+
+**工具缺失不会让 `yd build` / `yd dev` / `go test` 失败**：只有在真正用到对应能力时才会报错，
+并在错误里带上安装提示。
+
+```bash
+# Probe all four tools: status, path or version, and the install hint when one is missing | 探测四个工具：状态、路径或版本，以及缺失时的安装提示
+yd tools check
+
+# Install the missing tools (defaults to every go-installable one); name a subset to narrow it down | 安装缺失的工具（缺省为全部可 go install 的项），也可只装指定的一两个
+yd tools install
+yd tools install betteralign ko
+```
+
+安装落在**项目内**的 `.yd/tools/`（`GOBIN` 被指向它的绝对路径），那里正是解析链的第三段，
+因此装完立刻可用、无需任何额外配置；`yd tools` 是这几个工具唯一的探测与安装入口，
+**不会改动你的 `PATH`，也不会往 `~/go/bin` 写东西**。
+
+`tailwindcss` 与 `docker` 不支持 `go install`：前者由 `yd assets update` 获取（也可自行放进 `.yd/tools/`），
+后者需要安装 Docker Engine / Docker Desktop；`yd tools install` 对这两者只给出获取途径。
+
+`yd new` 创建项目时，收尾会探测一次并打印缺失清单：交互模式会询问「现在就安装缺失的工具吗？」（默认是），
+答是即安装；非交互场景用 `--install-tools` 显式安装；`--yes` 只建项目、**不触网**。
+安装失败只打印告警，不影响建项目成功。
 
 ## 界面约定
 

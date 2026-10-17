@@ -117,9 +117,9 @@ func TestShutdownHonorsContextDeadline(t *testing.T) {
 	release := make(chan struct{})
 	t.Cleanup(func() { close(release) })
 
-	// 逆序执行：后注册的 wedged 先跑并吃满宽限期，先注册的 never-runs 因而被跳过。| Reverse order: the later wedged runs first and eats the grace period, so never-runs is skipped.
+	// Reverse order: the later wedged runs first and eats the grace period, so never-runs is skipped. | 逆序执行：后注册的 wedged 先跑并吃满宽限期，先注册的 never-runs 因而被跳过。
 	r.Add("never-runs", func(context.Context) error {
-		t.Error("宽限期已过，后续钩子不应被执行")
+		t.Error("the grace period is over, no later hook may run | 宽限期已过，后续钩子不应被执行")
 		return nil
 	})
 	r.Add("wedged", func(context.Context) error {
@@ -159,7 +159,7 @@ func TestShutdownRecoversHookPanic(t *testing.T) {
 		t.Fatalf("错误 = %v, 期望 ErrHookPanic（panic 必须被恢复并记为错误）", err)
 	}
 	if !ran {
-		t.Fatal("panic 的钩子不得阻止其余钩子执行")
+		t.Fatal("a panicking hook must not stop the remaining hooks | panic 的钩子不得阻止其余钩子执行")
 	}
 }
 
@@ -182,11 +182,11 @@ func TestShutdownJoinsEveryHookError(t *testing.T) {
 func TestDoneClosesBeforeFirstHook(t *testing.T) {
 	r := NewRegistry()
 	if r.ShuttingDown() {
-		t.Fatal("尚未关闭时 ShuttingDown 应为 false")
+		t.Fatal("ShuttingDown must be false before shutdown starts | 尚未关闭时 ShuttingDown 应为 false")
 	}
 	select {
 	case <-r.Done():
-		t.Fatal("尚未关闭时 Done 不应关闭")
+		t.Fatal("Done must not be closed before shutdown starts | 尚未关闭时 Done 不应关闭")
 	default:
 	}
 
@@ -203,12 +203,12 @@ func TestDoneClosesBeforeFirstHook(t *testing.T) {
 
 	<-running
 	if !r.ShuttingDown() {
-		t.Fatal("关闭进行中 ShuttingDown 应为 true")
+		t.Fatal("ShuttingDown must be true while shutdown is in progress | 关闭进行中 ShuttingDown 应为 true")
 	}
 	select {
 	case <-r.Done():
 	case <-time.After(time.Second):
-		t.Fatal("关闭开始后 Done 必须立即关闭")
+		t.Fatal("Done must close as soon as shutdown begins | 关闭开始后 Done 必须立即关闭")
 	}
 	close(release)
 	if err := <-done; err != nil {
@@ -222,7 +222,7 @@ func TestRemoveIsIdempotentAndNameCollisionReplaces(t *testing.T) {
 	second := 0
 	removeFirst := r.Add("ws", func(context.Context) error { first++; return nil })
 
-	// 同名覆盖：只有后注册者生效。| Same name replaces: only the later registration runs.
+	// Same name replaces: only the later registration runs. | 同名覆盖：只有后注册者生效。
 	removeSecond := r.Add("ws", func(context.Context) error { second++; return nil })
 	if got := r.Len(); got != 1 {
 		t.Fatalf("同名覆盖后 Len = %d, 期望 1", got)
@@ -257,7 +257,7 @@ func TestAddAfterShutdownIsNoop(t *testing.T) {
 	remove := r.Add("late", func(context.Context) error { ran = true; return nil })
 	remove()
 	if ran {
-		t.Fatal("关闭完成后登记的钩子不应被执行")
+		t.Fatal("a hook registered after shutdown finished must not run | 关闭完成后登记的钩子不应被执行")
 	}
 	if got := r.Len(); got != 0 {
 		t.Fatalf("关闭完成后 Len = %d, 期望 0", got)
@@ -325,7 +325,7 @@ func TestWaitForRunningShutdownHonorsContext(t *testing.T) {
 	wedged := make(chan struct{})
 	release := make(chan struct{})
 
-	// 该钩子故意忽略 ctx：只有先发起的那次关闭会等到宽限期结束。| This hook ignores ctx on purpose: only the first shutdown waits out its grace period.
+	// This hook ignores ctx on purpose: only the first shutdown waits out its grace period. | 该钩子故意忽略 ctx：只有先发起的那次关闭会等到宽限期结束。
 	r.Add("wedged", func(context.Context) error {
 		close(wedged)
 		<-release
@@ -339,7 +339,7 @@ func TestWaitForRunningShutdownHonorsContext(t *testing.T) {
 	select {
 	case <-wedged:
 	case <-time.After(3 * time.Second):
-		t.Fatal("首次关闭未在 3 秒内启动钩子")
+		t.Fatal("the first shutdown did not start its hook within 3 seconds | 首次关闭未在 3 秒内启动钩子")
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)

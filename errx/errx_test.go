@@ -17,13 +17,13 @@ var (
 
 func TestNewIsMatchableByErrorsIs(t *testing.T) {
 	if !errors.Is(errSentinel, errSentinel) {
-		t.Fatal("errors.Is 应能匹配哨兵自身")
+		t.Fatal("errors.Is must match the sentinel itself | errors.Is 应能匹配哨兵自身")
 	}
 	if errors.Is(errSentinel, errOther) {
-		t.Fatal("不同哨兵之间不应互相匹配")
+		t.Fatal("distinct sentinels must not match each other | 不同哨兵之间不应互相匹配")
 	}
 	if !strings.Contains(errSentinel.Error(), " | ") {
-		t.Fatalf("错误文案必须中英同步，实际 %q", errSentinel.Error())
+		t.Fatalf("error text must pair English with Chinese, got %[1]q | 错误文案必须中英同步，实际 %[1]q", errSentinel.Error())
 	}
 }
 
@@ -33,7 +33,7 @@ func TestDetailKeepsSentinelAndRendersDetail(t *testing.T) {
 		t.Fatalf("Detail 结果必须能匹配哨兵: %v", err)
 	}
 	if errors.Is(err, errOther) {
-		t.Fatal("Detail 结果不应匹配其它哨兵")
+		t.Fatal("a Detail result must not match another sentinel | Detail 结果不应匹配其它哨兵")
 	}
 	msg := err.Error()
 	if !strings.Contains(msg, errSentinel.Error()) || !strings.Contains(msg, `"/x"`) {
@@ -50,7 +50,7 @@ func TestWrapPreservesBothBranches(t *testing.T) {
 		t.Fatalf("Wrap 结果应保留底层错误: %v", err)
 	}
 	if !strings.Contains(err.Error(), "inner cause") {
-		t.Fatalf("文案应包含底层错误: %q", err.Error())
+		t.Fatalf("text must include the underlying error: %[1]q | 文案应包含底层错误: %[1]q", err.Error())
 	}
 }
 
@@ -99,6 +99,6 @@ func TestWorksWithStdlibErrorsHelpers(t *testing.T) {
 		t.Fatalf("errors.Join 结果应匹配全部分支: %v", joined)
 	}
 	if !strings.Contains(err.Error(), " | ") {
-		t.Fatal("错误文案必须中英同步")
+		t.Fatal("error text must pair English with Chinese | 错误文案必须中英同步")
 	}
 }

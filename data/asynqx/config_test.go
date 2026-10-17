@@ -69,7 +69,7 @@ asynq:
 		t.Fatalf("Options = %+v，期望 strict_priority=true / shutdown_timeout=20s", o)
 	}
 	if o.RetryDelayFunc == nil {
-		t.Fatal("配置了 retry_base/retry_max 后 RetryDelayFunc 仍为 nil")
+		t.Fatal("RetryDelayFunc is still nil after retry_base/retry_max were configured | 配置了 retry_base/retry_max 后 RetryDelayFunc 仍为 nil")
 	}
 	task := asynq.NewTask("probe", nil)
 	if got := o.RetryDelayFunc(1, nil, task); got < 250*time.Millisecond || got > 275*time.Millisecond {
@@ -88,7 +88,7 @@ asynq:
 		t.Fatalf("默认 Concurrency = %d，期望 10", def.Concurrency)
 	}
 	if def.RetryDelayFunc != nil {
-		t.Fatal("未配置 retry_base/retry_max 时不应擅自覆盖 asynq 的重试策略")
+		t.Fatal("with no retry_base/retry_max configured the asynq retry policy must not be overridden | 未配置 retry_base/retry_max 时不应擅自覆盖 asynq 的重试策略")
 	}
 	if err := def.Err(); err != nil {
 		t.Fatalf("默认配置 Err = %v，期望 nil", err)

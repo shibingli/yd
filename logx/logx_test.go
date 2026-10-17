@@ -168,29 +168,29 @@ func TestLevelFiltering(t *testing.T) {
 	l := New(Options{Writer: &buf, Level: InfoLevel})
 
 	if !l.Enabled(InfoLevel) || !l.Enabled(ErrorLevel) {
-		t.Fatal("InfoLevel 阈值下 Info/Error 应启用")
+		t.Fatal("Info/Error must stay enabled at the InfoLevel threshold | InfoLevel 阈值下 Info/Error 应启用")
 	}
 	if l.Enabled(DebugLevel) {
-		t.Fatal("InfoLevel 阈值下 Debug 应禁用")
+		t.Fatal("Debug must be disabled at the InfoLevel threshold | InfoLevel 阈值下 Debug 应禁用")
 	}
 
-	l.Debug("不应出现")
-	l.Info("出现 1")
+	l.Debug("must not appear | 不应出现")
+	l.Info("shown 1 | 出现 1")
 	l.SetLevel(ErrorLevel)
 	if l.Enabled(WarnLevel) {
-		t.Fatal("ErrorLevel 阈值下 Warn 应禁用")
+		t.Fatal("Warn must be disabled at the ErrorLevel threshold | ErrorLevel 阈值下 Warn 应禁用")
 	}
-	l.Warn("不应出现")
-	l.Error("出现 2")
+	l.Warn("must not appear | 不应出现")
+	l.Error("shown 2 | 出现 2")
 
 	recs := jsonLines(t, &buf)
 	if len(recs) != 2 {
 		t.Fatalf("记录条数 = %d，期望 2", len(recs))
 	}
-	if recs[0]["level"] != "info" || recs[0]["msg"] != "出现 1" {
+	if recs[0]["level"] != "info" || recs[0]["msg"] != "shown 1 | 出现 1" {
 		t.Errorf("第 1 条 = %v", recs[0])
 	}
-	if recs[1]["level"] != "error" || recs[1]["msg"] != "出现 2" {
+	if recs[1]["level"] != "error" || recs[1]["msg"] != "shown 2 | 出现 2" {
 		t.Errorf("第 2 条 = %v", recs[1])
 	}
 }
@@ -240,10 +240,10 @@ func TestParseLevelRoundTrip(t *testing.T) {
 	}
 
 	if !(DebugLevel < InfoLevel && InfoLevel < WarnLevel && WarnLevel < ErrorLevel && ErrorLevel < FatalLevel) {
-		t.Fatal("级别常量必须严格递增")
+		t.Fatal("level constants must increase strictly | 级别常量必须严格递增")
 	}
 	if InfoLevel != 0 {
-		t.Fatal("InfoLevel 必须为 0，Options.Level 的零值才是 InfoLevel")
+		t.Fatal("InfoLevel must be 0 so that the zero value of Options.Level is InfoLevel | InfoLevel 必须为 0，Options.Level 的零值才是 InfoLevel")
 	}
 }
 
@@ -278,7 +278,7 @@ func TestWithAddsPersistentFields(t *testing.T) {
 		t.Fatalf("父 logger 的持久字段被修改: %v", root.fields)
 	}
 	if child.core != root.core {
-		t.Fatal("With 派生的子 logger 必须共享 core（writer/mutex/level）")
+		t.Fatal("a child logger derived by With must share the core (writer/mutex/level) | With 派生的子 logger 必须共享 core（writer/mutex/level）")
 	}
 
 	// Persistent fields must come before the fields of the current call. | 持久字段必须排在本次调用字段之前。
@@ -320,10 +320,10 @@ func TestSetLevelAffectsDerivedLoggers(t *testing.T) {
 
 	child.SetLevel(ErrorLevel)
 	if root.Enabled(WarnLevel) {
-		t.Fatal("同一 Logger 家族共享级别阈值，父级也应被提升到 ErrorLevel")
+		t.Fatal("one Logger family shares the level threshold, so the parent is raised to ErrorLevel too | 同一 Logger 家族共享级别阈值，父级也应被提升到 ErrorLevel")
 	}
-	child.Warn("不应出现")
-	child.Error("出现")
+	child.Warn("must not appear | 不应出现")
+	child.Error("shown | 出现")
 	if recs := jsonLines(t, &buf); len(recs) != 1 {
 		t.Fatalf("记录条数 = %d，期望 1", len(recs))
 	}
@@ -511,7 +511,7 @@ func TestOneWritePerRecord(t *testing.T) {
 		t.Fatalf("Write 调用次数 = %d，期望 3（每行一次 Write）", w.writes)
 	}
 	if w.bytes == 0 {
-		t.Fatal("写入字节数为 0")
+		t.Fatal("the byte count written is 0 | 写入字节数为 0")
 	}
 }
 
@@ -715,7 +715,7 @@ func TestSyncAndWriter(t *testing.T) {
 	var buf bytes.Buffer
 	l := New(Options{Writer: &buf})
 	if l.Writer() != &buf {
-		t.Fatal("Writer() 未返回配置的写入器")
+		t.Fatal("Writer() did not return the configured writer | Writer() 未返回配置的写入器")
 	}
 	if err := l.Sync(); err != nil {
 		t.Fatalf("Sync() = %v，期望 nil（bytes.Buffer 无 Sync）", err)
@@ -737,7 +737,7 @@ func TestDefaultLogger(t *testing.T) {
 		t.Fatal("Default() = nil")
 	}
 	if !def.Enabled(InfoLevel) || def.Enabled(DebugLevel) {
-		t.Fatal("默认 Logger 应为 InfoLevel")
+		t.Fatal("the default Logger must be InfoLevel | 默认 Logger 应为 InfoLevel")
 	}
 
 	var buf bytes.Buffer
@@ -745,15 +745,15 @@ func TestDefaultLogger(t *testing.T) {
 	SetDefault(other)
 	defer SetDefault(def)
 	if Default() != other {
-		t.Fatal("SetDefault 未生效")
+		t.Fatal("SetDefault did not take effect | SetDefault 未生效")
 	}
 	Default().Debug("hi")
 	if buf.Len() == 0 {
-		t.Fatal("替换后的默认 Logger 未被使用")
+		t.Fatal("the replaced default Logger is not the one in use | 替换后的默认 Logger 未被使用")
 	}
 
 	SetDefault(nil)
 	if Default() != other {
-		t.Fatal("SetDefault(nil) 不应改变默认 Logger")
+		t.Fatal("SetDefault(nil) must not change the default Logger | SetDefault(nil) 不应改变默认 Logger")
 	}
 }

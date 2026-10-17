@@ -1,19 +1,19 @@
-// Package version 承载由构建期 ldflags 注入的版本元信息。
+// Package version carries the version metadata injected at build time via ldflags. | Package version 承载由构建期 ldflags 注入的版本元信息。
 package version
 
 import "runtime/debug"
 
-// 以下变量通过 -ldflags "-X github.com/shibingli/yd/version.Version=..." 注入。
+// The variables below are injected via -ldflags "-X github.com/shibingli/yd/version.Version=...". | 以下变量通过 -ldflags "-X github.com/shibingli/yd/version.Version=..." 注入。
 var (
-	// Version 语义化版本号，例如 v1.0.0。
+	// Version is the semantic version number, e.g. v1.0.0. | Version 语义化版本号，例如 v1.0.0。
 	Version = "dev"
-	// Commit 构建时所在的 git 提交。
+	// Commit is the git commit the build was made from. | Commit 构建时所在的 git 提交。
 	Commit = "none"
-	// Date 构建时间（RFC3339）。
+	// Date is the build time (RFC3339). | Date 构建时间（RFC3339）。
 	Date = "unknown"
 )
 
-// String 返回 "版本 (提交, 构建时间)" 形式的可读字符串。
+// String returns a readable "version (commit, build time)" string. | String 返回 "版本 (提交, 构建时间)" 形式的可读字符串。
 func String() string {
 	v, c, d := Version, Commit, Date
 	if v == "dev" {

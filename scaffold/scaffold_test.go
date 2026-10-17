@@ -24,6 +24,7 @@ import (
 
 	"github.com/shibingli/yd/afs"
 	"github.com/shibingli/yd/assets"
+	"github.com/shibingli/yd/authz"
 	"github.com/shibingli/yd/b64x"
 	"github.com/shibingli/yd/guomi"
 	"github.com/shibingli/yd/jsonx"
@@ -58,6 +59,7 @@ var requiredFiles = []string{
 	"cmd/app/main.go",
 	"configs/config.local.yaml.template",
 	"configs/config.yaml",
+	"data/.gitkeep",
 	"docs/developer_guidelines.md",
 	"go.mod",
 	"internal/controller/auth_controller.go",
@@ -113,9 +115,22 @@ var requiredFiles = []string{
 	"web/templates/partials/users/row.html",
 }
 
-// specGitignore 是需求基线 §二.3 的 .gitignore 模板逐字内容（已去掉提示行）。
-// specGitignore is the verbatim .gitignore template of the baseline §二.3
-// (the advisory line has been dropped).
+// specGitignore 是需求基线 §二.3 的 .gitignore 模板逐字内容（已去掉提示行），
+// 外加两处**有意偏离**：
+//   - 基线未忽略 `.yd/`，而 `yd tools install` 会把 betteralign、ko 等外部工具二进制装进
+//     项目内的 `.yd/tools/`，不忽略就会出现在 `git status` 里，甚至被误提交；
+//     该偏离已记入 docs/superpowers/plans/2026-10-17-yd-tool-installation.md 的差异说明。
+//   - 基线未忽略本地库文件，而 `yd new --db sqlite` 的示例 DSN 默认把库落在 `data/`，
+//     WAL 模式还会生成 `-wal` / `-shm` 边车文件；它们属于本机运行数据，绝不入库。
+//
+// specGitignore is the verbatim .gitignore template of the baseline §二.3 (the advisory line has
+// been dropped), plus two deliberate deviations:
+//   - the baseline does not ignore `.yd/`, yet `yd tools install` puts betteralign, ko and friends
+//     into the project-local `.yd/tools/`, where they would show up in `git status` and could be
+//     committed by accident (recorded in the tool-installation plan's difference note);
+//   - the baseline does not ignore local database files, yet the SQLite sample DSN of
+//     `yd new --db sqlite` lands the database in `data/`, and WAL mode adds the -wal / -shm
+//     sidecars; they are machine-local runtime data and never belong in version control.
 const specGitignore = "bin/\n" +
 	"dist/\n" +
 	"*.exe\n" +
@@ -135,7 +150,13 @@ const specGitignore = "bin/\n" +
 	"*.suo\n" +
 	"*.sw?\n" +
 	".tailwindcss/\n" +
-	"node_modules/\n"
+	"node_modules/\n" +
+	"# Project-local optional tool binaries installed by `yd tools install` | 由 `yd tools install` 安装到项目内的可选工具二进制\n" +
+	".yd/\n" +
+	"# Local database files (the default landing spot of yd new --db sqlite, WAL sidecars included) | 本地数据库文件（yd new --db sqlite 的默认落点，含 WAL 边车文件）\n" +
+	"data/*.db\n" +
+	"data/*.db-wal\n" +
+	"data/*.db-shm\n"
 
 // specGitattributes 是需求基线 §二.3 的 .gitattributes 模板逐字内容。
 // specGitattributes is the verbatim .gitattributes template of the baseline §二.3.
@@ -207,7 +228,7 @@ func repoRoot(t *testing.T) string {
 	t.Helper()
 	_, file, _, ok := runtime.Caller(0)
 	if !ok {
-		t.Fatal("无法定位测试文件路径")
+		t.Fatal("cannot locate the test file path | 无法定位测试文件路径")
 	}
 	return filepath.Dir(filepath.Dir(file))
 }
@@ -263,7 +284,7 @@ func TestGenerateProducesAllRequiredFiles(t *testing.T) {
 		t.Errorf(".gitignore 与需求基线不一致:\n实际=%q\n期望=%q", got, specGitignore)
 	}
 	if strings.Contains(pr.read(".gitignore"), "请谨慎使用此类代码") {
-		t.Error(".gitignore 仍含提示行「请谨慎使用此类代码。」")
+		t.Error("the .gitignore still carries the boilerplate hint line | .gitignore 仍含提示行「请谨慎使用此类代码。」")
 	}
 	if got := pr.read(".gitattributes"); got != specGitattributes {
 		t.Errorf(".gitattributes 与需求基线不一致:\n实际=%q\n期望=%q", got, specGitattributes)
@@ -288,7 +309,7 @@ func TestGenerateHiddenFilesNotLostOnMemFS(t *testing.T) {
 		}
 	}
 	if strings.Contains(env, "YUNGO_") {
-		t.Error(".env.template 仍含旧前缀 YUNGO_")
+		t.Error("the .env.template still carries the retired YUNGO_ prefix | .env.template 仍含旧前缀 YUNGO_")
 	}
 
 	var meta struct {
@@ -340,7 +361,7 @@ func TestGenerateTailwindAddsCssEntry(t *testing.T) {
 		t.Errorf("关闭 Tailwind 时 app.css 不应含 Tailwind 入口:\n%s", cssOff)
 	}
 	if cssOff == "" {
-		t.Error("关闭 Tailwind 时 app.css 不应为空（需提供最小基础样式）")
+		t.Error("app.css must not be empty while Tailwind is off (a minimal base stylesheet is required) | 关闭 Tailwind 时 app.css 不应为空（需提供最小基础样式）")
 	}
 }
 
@@ -376,8 +397,173 @@ func TestGenerateFeaturesReflectedInConfigAndRoutes(t *testing.T) {
 		}
 	}
 	if strings.Contains(prPlain.read("internal/router/router.go"), "asynq") {
-		t.Error("未开启 Asynq 时 router.go 不应出现 asynq")
+		t.Error("router.go must not mention asynq while Asynq is off | 未开启 Asynq 时 router.go 不应出现 asynq")
 	}
+}
+
+// TestGeneratedPersistenceFollowsDatabaseChoice 断言生成时的数据库选择决定持久化形态：
+// 选了数据库的项目把连接池、迁移与 GORM 实现装进 repository，未选数据库的项目一行 ORM 依赖都不引入，
+// 只在启动时如实告警「数据仅存于内存，重启即丢失」。
+// TestGeneratedPersistenceFollowsDatabaseChoice asserts that the database choice made at generation time decides the
+// persistence shape: a project with a database wires the pool, the migration and the GORM implementation into repository,
+// while a project without one imports no ORM at all and only warns faithfully that the data lives in memory.
+func TestGeneratedPersistenceFollowsDatabaseChoice(t *testing.T) {
+	// ORM 依赖只允许出现在选了数据库的项目里：授权表由框架的 auth/gormstore 拥有，本项目只装配它。
+	// ORM dependencies may only appear in a project that picked a database: the auth tables belong to the framework's
+	// auth/gormstore and this project merely assembles it.
+	ormImports := []string{
+		`"github.com/shibingli/yd/auth/gormstore"`,
+		`"github.com/shibingli/yd/data/gormx"`,
+		`"gorm.io/gorm"`,
+	}
+
+	withDB := scaffold.DefaultOptions("persist-app")
+	withDB.DB = scaffold.DBSQLite
+	prDB, _ := generateMem(t, withDB)
+
+	store := prDB.read("internal/repository/store.go")
+	for _, want := range []string{
+		`"github.com/shibingli/yd/auth/gormstore"`,
+		`"github.com/shibingli/yd/data/gormx"`,
+		"gormstore.Migrate(ctx, db)",
+		"gormstore.New(db, gormstore.OptionsFromConfig(o.Config))",
+		"auth data is stored in the database",
+		"no database is configured, auth data lives in memory",
+		"database unavailable, auth data falls back to memory",
+		"func (s *Store) Close() error",
+	} {
+		if !strings.Contains(store, want) {
+			t.Errorf("选了数据库的 store.go 缺少 %q", want)
+		}
+	}
+	if !strings.Contains(prDB.read("internal/router/router.go"), "Config:") {
+		t.Error("router.go does not hand the configuration to repository.Open, so Open cannot read the db section | router.go 未把配置交给 repository.Open，Open 就读不到 db 段")
+	}
+
+	cfgDB := prDB.read("configs/config.yaml")
+	for _, want := range []string{"gorm:", "query_timeout", "maxconn: 100", "maxidle: 10"} {
+		if !strings.Contains(cfgDB, want) {
+			t.Errorf("选了数据库的 config.yaml 缺少 %q", want)
+		}
+	}
+	// gormx 读的是 db.maxconn：写成基线文档里的 db.max_conn 就是一个永远不会生效的死键。
+	// gormx reads db.maxconn: the db.max_conn spelling from the baseline document is a dead key that never takes effect.
+	if strings.Contains(cfgDB, "max_conn") {
+		t.Error("config.yaml still spells the key gormx never reads as db.max_conn (it must be db.maxconn) | config.yaml 仍写着 gormx 不读的 db.max_conn（应为 db.maxconn）")
+	}
+
+	plain := scaffold.DefaultOptions("memory-app")
+	plain.DB = scaffold.DBNone
+	prNone, _ := generateMem(t, plain)
+
+	// 全量扫描：未选数据库的项目里任何一个生成物都不得引入 ORM。
+	// A wholesale scan: no artefact of a project without a database may import an ORM.
+	for _, rel := range requiredFiles {
+		content := prNone.read(rel)
+		for _, imp := range ormImports {
+			if strings.Contains(content, imp) {
+				t.Errorf("未选数据库的项目里 %s 引入了 %s", rel, imp)
+			}
+		}
+	}
+
+	storeNone := prNone.read("internal/repository/store.go")
+	for _, unwanted := range []string{"gormstore", "gormx"} {
+		if strings.Contains(storeNone, unwanted) {
+			t.Errorf("未选数据库的 store.go 不应出现 %q", unwanted)
+		}
+	}
+	for _, want := range []string{"generated without a database", "auth.NewMemoryStore()"} {
+		if !strings.Contains(storeNone, want) {
+			t.Errorf("未选数据库的 store.go 缺少 %q", want)
+		}
+	}
+	if cfgNone := prNone.read("configs/config.yaml"); strings.Contains(cfgNone, "gorm:") ||
+		strings.Contains(cfgNone, "maxconn") {
+		t.Errorf("未选数据库的 config.yaml 不应出现数据库连接池配置:\n%s", cfgNone)
+	}
+	if envNone := prNone.read(".env.template"); strings.Contains(envNone, "YD_DB_DSN") {
+		t.Errorf("未选数据库的 .env.template 不应出现 YD_DB_DSN:\n%s", envNone)
+	}
+	if keep := prNone.read("data/.gitkeep"); !strings.Contains(keep, "data") {
+		t.Errorf("未选数据库的 data/.gitkeep 未说明目录用途:\n%s", keep)
+	}
+}
+
+// TestGeneratedProjectWiresAuthzRegistry 断言生成的项目真的接上了框架的授权注册表：路由挂 authz.Middleware 并用
+// authz.Require(authz.PermXxx) 守卫每一段写路径、控制器把 authz.Data 注入视图数据、模板按数据键与常量名两种写法判定，
+// 而种子数据的角色与能力一律取自注册表——因此 `yd authz check` 在生成物上零错误。
+// TestGeneratedProjectWiresAuthzRegistry asserts a generated project really hooks up the framework authorization
+// registry: the router mounts authz.Middleware and guards every write path with authz.Require(authz.PermXxx), the
+// controllers inject authz.Data into the view data, the templates decide on both spellings (data key and constant name),
+// and the seed takes every role and capability from the registry — so `yd authz check` reports zero errors on it.
+func TestGeneratedProjectWiresAuthzRegistry(t *testing.T) {
+	o := scaffold.DefaultOptions("authz-app")
+	o.DB = scaffold.DBSQLite
+	pr, _ := generateMem(t, o)
+
+	// 路由：中间件在链上，守卫引用寄存器里的常量。 | Router: the middleware is on the chain and every guard cites a registry constant.
+	router := pr.read("internal/router/router.go")
+	for _, want := range []string{
+		"authz.Middleware(ctrl.Auth())",
+		"authz.Require(authz.PermTenantRead)",
+		"authz.Require(authz.PermTenantCreate)",
+		"authz.Require(authz.PermUserRead)",
+		"authz.Require(authz.PermUserCreate)",
+		"authz.Require(authz.PermUserUpdate)",
+		"authz.Require(authz.PermRoleRead)",
+		"authz.Require(authz.PermRoleManage)",
+		"authz.Require(authz.PermRoleUpdate)",
+		"authz.Require(authz.PermRoleDelete)",
+		"authz.Require(authz.PermPermissionRead)",
+	} {
+		if !strings.Contains(router, want) {
+			t.Errorf("internal/router/router.go 缺少守卫 %q", want)
+		}
+	}
+
+	// 控制器：视图数据里必须有注入的能力表，否则模板里的 .Perm 与 base.html 的 .AuthzJSON 都取不到值（失败关闭）。
+	// Controllers: the view data carries the injected capability map, without which .Perm in the templates and .AuthzJSON
+	// in base.html resolve to nothing (fail closed).
+	ctrl := pr.read("internal/controller/controller.go")
+	for _, want := range []string{"authz.Data(", "authz.SubjectOf(", "authz.NewSubject("} {
+		if !strings.Contains(ctrl, want) {
+			t.Errorf("internal/controller/controller.go 缺少 %q", want)
+		}
+	}
+
+	// 模板：两个可照抄的范例——声明式属性与条件判定各一，两者都读注册表派生的键。
+	// Templates: the two copyable examples — one declarative attribute and one condition — both reading keys derived from
+	// the registry.
+	form := pr.read("web/templates/partials/users/form.html")
+	if want := `data-yd-perm="{{ ` + authz.PermSelector + authz.DataKey(authz.PermUserCreate) + ` }}"`; !strings.Contains(form, want) {
+		t.Errorf("users/form.html 的提交按钮缺少 %q", want)
+	}
+	sidebar := pr.read("web/templates/partials/sidebar.html")
+	if want := `can "` + authz.ConstantName(authz.PermUserRead) + `"`; !strings.Contains(sidebar, want) {
+		t.Errorf("sidebar.html 缺少常量名写法 %q", want)
+	}
+	if want := `can ` + authz.PermSelector + authz.DataKey(authz.PermTenantRead); !strings.Contains(sidebar, want) {
+		t.Errorf("sidebar.html 缺少数据键写法 %q", want)
+	}
+
+	// 种子数据：角色与能力取自注册表，管理员拿的是注册表里的所有者角色。
+	// The seed: roles and capabilities come from the registry, and the administrator holds the registry's owner role.
+	store := pr.read("internal/repository/store.go")
+	for _, want := range []string{
+		"authz.BuiltinRoles()",
+		"authz.BuiltinPermissions()",
+		"authz.RoleOwner",
+		"meta.DevSeedAdminPassword",
+	} {
+		if !strings.Contains(store, want) {
+			t.Errorf("internal/repository/store.go 缺少 %q", want)
+		}
+	}
+
+	// 零字面量：把 `yd authz check` 的判定直接跑在生成物上。
+	// Zero literals: the verdict of `yd authz check` runs straight over the generated output.
+	assertAuthzCheckPasses(t, pr.fs, o.Name, "MemFS 生成项目")
 }
 
 // TestGenerateDockerfileUsesScratchMultiStage 断言 Dockerfile 采用多阶段 + scratch。
@@ -482,7 +668,7 @@ func TestGenerateConflictsWithoutForce(t *testing.T) {
 
 	_, err := scaffold.Generate(context.Background(), o, fs, nil)
 	if err == nil {
-		t.Fatal("存在冲突且未 Force 时必须报错")
+		t.Fatal("a conflicting file must be an error while Force is off | 存在冲突且未 Force 时必须报错")
 	}
 	if !errors.Is(err, scaffold.ErrConflict) {
 		t.Errorf("错误应可 errors.Is(ErrConflict) 判定，实际: %v", err)
@@ -496,7 +682,7 @@ func TestGenerateConflictsWithoutForce(t *testing.T) {
 		t.Errorf("冲突时不应改写文件，实际: %q", got)
 	}
 	if pr.exists("go.mod") {
-		t.Error("冲突时其余文件不应被写出（先校验后写入）")
+		t.Error("on a conflict no other file may be written (validate first, then write) | 冲突时其余文件不应被写出（先校验后写入）")
 	}
 
 	o.Force = true
@@ -602,7 +788,7 @@ func TestGenerateRejectsInvalidOptions(t *testing.T) {
 			tc.mutate(&o)
 			_, err := scaffold.Generate(context.Background(), o, afs.NewMem(), nil)
 			if err == nil {
-				t.Fatal("非法参数必须报错")
+				t.Fatal("an invalid argument must be an error | 非法参数必须报错")
 			}
 			if !errors.Is(err, tc.want) {
 				t.Errorf("错误类型不符: %v（期望 errors.Is %v）", err, tc.want)
@@ -723,7 +909,7 @@ func TestGeneratedGovernanceDocsStateConstraints(t *testing.T) {
 	}
 	lower := strings.ToLower(claude)
 	if !strings.Contains(lower, "claude") || !strings.Contains(lower, "anthropic") {
-		t.Error("CLAUDE.md 必须写明禁止提交信息出现 Claude/Anthropic 相关内容")
+		t.Error("CLAUDE.md must spell out that commit messages never mention Claude or Anthropic | CLAUDE.md 必须写明禁止提交信息出现 Claude/Anthropic 相关内容")
 	}
 
 	agents := pr.read("AGENTS.md")
@@ -1127,7 +1313,7 @@ func TestGeneratedAppServesFrameworkFeatures(t *testing.T) {
 			}
 		}
 		if !echoed {
-			t.Error("WebSocket 未把 htmx 信封的 BODY 回显回来")
+			t.Error("WebSocket did not echo the htmx envelope's BODY back | WebSocket 未把 htmx 信封的 BODY 回显回来")
 		}
 	})
 
@@ -1224,15 +1410,25 @@ const (
 	probeTenant = "demo"
 	// probeAdmin is the demo tenant's administrator sign-in name. | probeAdmin 是演示租户的管理员登录名。
 	probeAdmin = "admin"
-	// probeAdminPassword is the demo administrator's initial password. | probeAdminPassword 是演示租户管理员的初始口令。
+	// probeAdminPassword 是演示租户管理员的初始口令：探针应用没有配置 seed.admin_password 也没有声明非 development 环境，
+	// 因此种子写入走的是开发回退，用的正是那一枚文档化的开发口令（internal/meta.DevSeedAdminPassword）。
+	// probeAdminPassword is the demo administrator's initial password: the probe application configures no
+	// seed.admin_password and declares no non-development environment, so the seed takes the development fallback and uses
+	// exactly the documented development password (internal/meta.DevSeedAdminPassword).
 	probeAdminPassword = "Admin@123456"
 	// probeOpsTenant 是第二个租户的标识，也是跨租户用例里「另一个租户」的名字。
 	// probeOpsTenant is the second tenant's key and the name of "the other tenant" in the cross-tenant cases.
 	probeOpsTenant = "acme"
 	// probeOpsAdmin is the second tenant's administrator sign-in name. | probeOpsAdmin 是第二个租户的管理员登录名。
 	probeOpsAdmin = "acme-admin"
-	// probeOpsPassword is the second tenant administrator's initial password. | probeOpsPassword 是第二个租户管理员的初始口令。
-	probeOpsPassword = "Acme@123456"
+	// probeOpsPassword 是第二个租户管理员的口令：两个种子管理员共用同一枚由配置下发的口令，因此它与演示租户的那个相同。
+	// probeOpsPassword is the second tenant administrator's password: both seeded administrators share the one password the
+	// configuration hands down, so it is the same one as the demo tenant's.
+	probeOpsPassword = probeAdminPassword
+	// staleSeedPassword 是曾经硬编码在 internal/meta 里的第二枚口令：它必须彻底消失，任何文件里再出现即为回归。
+	// staleSeedPassword is the second password that used to be hard-coded in internal/meta: it must be gone for good, and
+	// its reappearance anywhere is a regression.
+	staleSeedPassword = "Acme@123456"
 	// probeUserPassword 是探针自己建的账号所用的口令，长度满足口令强度下限。
 	// probeUserPassword is the password of the accounts the probe creates itself, long enough to clear the strength floor.
 	probeUserPassword = "Probe@123456"
@@ -1245,43 +1441,152 @@ const (
 	forbiddenCopy = "没有权限执行该操作"
 )
 
-// assertSeedCredentialsDocumented 逐字回验种子凭据与首登改密提示确实落在生成项目的源码与 README 里。
-// assertSeedCredentialsDocumented verifies verbatim that the seed credentials and the first-sign-in notice really land in
-// the generated project's source and README.
+// assertSeedCredentialsDocumented 逐字回验种子凭据与首登改密提示确实落在生成项目的源码、配置与 README 里，
+// 并回验**没有任何口令被硬编码**：口令只有「配置 / 环境变量」与「那一枚文档化的开发回退」两条来源。
+// assertSeedCredentialsDocumented verifies verbatim that the seed credentials and the first-sign-in notice land in the
+// generated project's sources, configuration and README, and that **no password is hard-coded**: a password has exactly
+// two sources — the configuration or the environment, and the one documented development fallback.
 func assertSeedCredentialsDocumented(t *testing.T, projDir string) {
 	t.Helper()
 
-	raw, err := os.ReadFile(filepath.Join(projDir, "internal", "meta", "meta.go"))
-	if err != nil {
-		t.Fatalf("读取 internal/meta/meta.go 失败: %v", err)
+	read := func(rel string) string {
+		t.Helper()
+		b, err := os.ReadFile(filepath.Join(projDir, filepath.FromSlash(rel)))
+		if err != nil {
+			t.Fatalf("读取 %s 失败: %v", rel, err)
+		}
+		return string(b)
 	}
+
+	metaSrc := read("internal/meta/meta.go")
 	for _, want := range []string{
 		`SeedTenantSlug = "` + probeTenant + `"`,
 		`SeedAdminUsername = "` + probeAdmin + `"`,
-		`SeedAdminPassword = "` + probeAdminPassword + `"`,
 		`SeedOpsSlug = "` + probeOpsTenant + `"`,
 		`SeedOpsAdminUsername = "` + probeOpsAdmin + `"`,
-		`SeedOpsAdminPassword = "` + probeOpsPassword + `"`,
+		`SeedPasswordConfigKey = "seed.admin_password"`,
+		`SeedPasswordEnvKey = EnvPrefix + "SEED_ADMIN_PASSWORD"`,
+		`DevSeedAdminPassword = "` + probeAdminPassword + `"`,
 		`SeedPasswordNotice = "`,
 		`TokenCookie = "` + tokenCookieName + `"`,
 	} {
-		if !strings.Contains(string(raw), want) {
+		if !strings.Contains(metaSrc, want) {
 			t.Errorf("internal/meta/meta.go 缺少 %q", want)
 		}
 	}
-
-	readme, err := os.ReadFile(filepath.Join(projDir, "README.md"))
-	if err != nil {
-		t.Fatalf("读取 README.md 失败: %v", err)
+	// 那两枚硬编码口令常量必须彻底消失：口令只经配置下发，开发回退也只有一个名字（DevSeedAdminPassword）。
+	// 判定按标识符边界匹配一次赋值，因此 DevSeedAdminPassword 不会被误判，而 SeedAdminPassword = "..." 一定被抓到。
+	// The two hard-coded password constants must be gone for good: a password arrives through the configuration only, and
+	// the development fallback has exactly one name (DevSeedAdminPassword). The check matches an assignment at an
+	// identifier boundary, so DevSeedAdminPassword is never mistaken for one while SeedAdminPassword = "..." always is.
+	for _, banned := range []string{"SeedAdminPassword", "SeedOpsAdminPassword"} {
+		decl := regexp.MustCompile(`(?m)(^|[^A-Za-z0-9_])` + banned + `\s*=`)
+		if decl.MatchString(metaSrc) {
+			t.Errorf("internal/meta/meta.go 仍含硬编码口令常量 %s", banned)
+		}
 	}
-	// README 是默认凭据与改密提醒唯一的对外落点：两个口令与那句提示都必须在这里出现。
-	// The README is the one outward landing place of the default credentials and the password notice: both passwords and
-	// that very sentence have to show up in it.
-	for _, want := range []string{probeAdminPassword, probeOpsPassword, "SeedPasswordNotice", probeTenant, probeOpsTenant} {
-		if !strings.Contains(string(readme), want) {
+
+	// 配置与 .env 模板是两个来源的落点：配置文件里的口令键必须是空串，env 模板必须是空的赋值。
+	// The configuration file and the .env template are where the two sources land: the key in the file must be an empty
+	// string and the template line must be an empty assignment.
+	cfg := read("configs/config.yaml")
+	for _, want := range []string{"seed:", "admin_password:"} {
+		if !strings.Contains(cfg, want) {
+			t.Errorf("configs/config.yaml 缺少 %q", want)
+		}
+	}
+	envTpl := read(".env.template")
+	if !strings.Contains(envTpl, "YD_SEED_ADMIN_PASSWORD=") {
+		t.Error("the .env.template lacks YD_SEED_ADMIN_PASSWORD= | .env.template 缺少 YD_SEED_ADMIN_PASSWORD=")
+	}
+
+	// README 是默认凭据与改密提醒唯一的对外落点：两处来源、开发回退与那句提示都必须在这里出现。
+	// The README is the one outward landing place of the default credentials and the password notice: both sources, the
+	// development fallback and that very sentence have to show up in it.
+	readme := read("README.md")
+	for _, want := range []string{
+		"seed.admin_password",
+		"YD_SEED_ADMIN_PASSWORD",
+		probeAdminPassword,
+		"SeedPasswordNotice",
+		probeTenant,
+		probeOpsTenant,
+	} {
+		if !strings.Contains(readme, want) {
 			t.Errorf("README.md 缺少 %q", want)
 		}
 	}
+
+	// 全项目扫描：那枚已经作废的第二枚口令不得在任何文件里残留。
+	// A project-wide scan: the retired second password must not survive in any file.
+	assertNoStalePassword(t, projDir)
+}
+
+// assertNoStalePassword 断言全项目（含文档与模板）都不含那枚作废的硬编码口令。
+// assertNoStalePassword asserts the whole project — docs and templates included — carries none of the retired hard-coded
+// passwords.
+func assertNoStalePassword(t *testing.T, projDir string) {
+	t.Helper()
+
+	err := filepath.WalkDir(projDir, func(path string, d os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if d.IsDir() {
+			if d.Name() == ".git" || d.Name() == "bin" {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		b, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		if strings.Contains(string(b), staleSeedPassword) {
+			rel, relErr := filepath.Rel(projDir, path)
+			if relErr != nil {
+				rel = path
+			}
+			t.Errorf("%s 残留了已作废的硬编码口令 %s", filepath.ToSlash(rel), staleSeedPassword)
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("遍历 %s 失败: %v", projDir, err)
+	}
+}
+
+// assertAuthzCheckPasses 在生成项目上跑一遍 `yd authz check` 的判定：零错误、确有引用、注册表规模相符。
+// assertAuthzCheckPasses runs the verdict of `yd authz check` over a generated project: no errors, references actually
+// found, and the registry of the expected size.
+//
+// 这是「角色名与权限名零字面量」这条硬约束的自动化证据：生成项目里的种子数据、路由守卫与模板都只能经常量名、
+// 数据键或脚本键引用注册表，写错一个标识就会被它抓住。
+// This is the automated evidence for the "no role or capability literals" constraint: the seed data, the route guards and
+// the templates of a generated project may only reach the registry through constant names, data keys or script keys, and a
+// single mistyped token is caught right here.
+func assertAuthzCheckPasses(t *testing.T, fsys afero.Fs, dir, where string) authz.Report {
+	t.Helper()
+
+	rep, err := authz.Check(authz.CheckOptions{FS: fsys, Dir: dir})
+	if err != nil {
+		t.Fatalf("%s: authz.Check 失败: %v", where, err)
+	}
+	var out strings.Builder
+	rep.Fprint(&out)
+	if !rep.OK() {
+		t.Fatalf("%s: yd authz check 有 %d 个错误:\n%s", where, rep.Errors(), out.String())
+	}
+	if rep.Refs == 0 {
+		t.Errorf("%s: 扫描到 0 处能力/角色引用，说明守卫与模板根本没有接上注册表:\n%s", where, out.String())
+	}
+	if rep.Perms != len(authz.Permissions()) || rep.Roles != len(authz.Roles()) {
+		t.Errorf("%s: 注册表规模 = %d 项能力 / %d 个角色, 期望 %d / %d",
+			where, rep.Perms, rep.Roles, len(authz.Permissions()), len(authz.Roles()))
+	}
+	t.Logf("%s: yd authz check 通过（%d 个文件、%d 处引用、%d 项能力、%d 个角色）",
+		where, rep.Files, rep.Refs, rep.Perms, rep.Roles)
+	return rep
 }
 
 // assertNoUserData 断言响应里一行用户数据都没有：任何一条用户记录都会带上邮箱，因此域名出现即为泄漏。
@@ -1295,6 +1600,33 @@ func assertNoUserData(t *testing.T, where, body string) {
 			t.Errorf("%s 泄漏了用户数据 %q:\n%s", where, leak, body)
 		}
 	}
+}
+
+// authzEnvelopeOf 提取渲染页面下发给浏览器的内联权限信封。
+// authzEnvelopeOf extracts the inline authority payload a rendered page hands to the browser.
+//
+// 它是「前端守卫真的接上了」的最终证据：模板与脚本都只是消费方，真正决定按钮显隐的是服务端写进这个元素的那份载荷。
+// It is the final proof that the front-end guard is really wired: templates and scripts are merely consumers, and what
+// decides whether a button appears is the payload the server writes into this very element.
+func authzEnvelopeOf(t *testing.T, where, page string) authz.Envelope {
+	t.Helper()
+
+	open := `<script id="` + authz.AuthzScriptID + `" type="application/json">`
+	start := strings.Index(page, open)
+	if start < 0 {
+		t.Fatalf("%s: the page carries no authority payload (%s), so the front end would deny every capability | %s：页面没有下发权限信封（%s），前端会因此拒绝一切能力",
+			where, open, where, open)
+	}
+	rest := page[start+len(open):]
+	end := strings.Index(rest, "</script>")
+	if end < 0 {
+		t.Fatalf("%s: the authority payload element is never closed | %s：权限信封元素没有闭合", where, where)
+	}
+	var env authz.Envelope
+	if err := jsonx.Unmarshal([]byte(rest[:end]), &env); err != nil {
+		t.Fatalf("%s: the authority payload is not valid JSON (%v) | %s：权限信封不是合法 JSON（%v）", where, err, where, err)
+	}
+	return env
 }
 
 // TestGeneratedAppSupportsAuth 端到端验证登录鉴权链路：未登录被拒、默认凭据 + SM2 密文登录、令牌访问受保护片段，
@@ -1315,6 +1647,10 @@ func TestGeneratedAppSupportsAuth(t *testing.T) {
 
 	projDir, base := startProbeApp(t, "yd-auth-probe")
 	assertSeedCredentialsDocumented(t, projDir)
+	// 真实落盘的产物同样要过 `yd authz check`：它在磁盘上、模板已渲染，与 `yd new` 交付给使用者的那份完全一致。
+	// The artefact as it lands on disk passes `yd authz check` too: it is rendered, on disk, and identical to what `yd new`
+	// hands to its user.
+	assertAuthzCheckPasses(t, afero.NewOsFs(), projDir, "磁盘生成项目")
 
 	t.Run("未登录被挡在受保护端点之外", func(t *testing.T) {
 		anon := newProbeClient(t, httpTimeout)
@@ -1373,7 +1709,7 @@ func TestGeneratedAppSupportsAuth(t *testing.T) {
 			t.Fatalf("明文口令 POST /login 状态码 = %d, 期望 400\n%s", respPlain.StatusCode, bodyPlain)
 		}
 		if token := sessionToken(t, anon, base); token != "" {
-			t.Error("被拒绝的登录不应写下会话 cookie")
+			t.Error("a refused sign-in must not write a session cookie | 被拒绝的登录不应写下会话 cookie")
 		}
 
 		// 口令错误与租户不存在回同一句、同一个状态码：登录接口匿名可达，任何差异都是租户枚举的旁路。
@@ -1418,10 +1754,10 @@ func TestGeneratedAppSupportsAuth(t *testing.T) {
 			t.Fatalf("登录响应没有写入 %s cookie", tokenCookieName)
 		}
 		if !session.HttpOnly {
-			t.Error("会话 cookie 必须是 HttpOnly（脚本拿不走会话）")
+			t.Error("the session cookie must be HttpOnly (a script must not be able to take the session) | 会话 cookie 必须是 HttpOnly（脚本拿不走会话）")
 		}
 		if session.Value == "" {
-			t.Error("会话 cookie 的令牌为空")
+			t.Error("the session cookie carries an empty token | 会话 cookie 的令牌为空")
 		}
 		if token := sessionToken(t, browser, base); token != session.Value {
 			t.Errorf("cookie jar 里的令牌 = %q, 响应里的令牌 = %q", token, session.Value)
@@ -1527,6 +1863,82 @@ func TestGeneratedAppSupportsAuth(t *testing.T) {
 		assertNoUserData(t, "acme 令牌读 demo 用户列表", crossBody)
 	})
 
+	t.Run("权限信封按主体下发且守卫值取自注册表", func(t *testing.T) {
+		// 匿名访客：名字表完整、两个列表都为空——yd-authz.js 因此一个能力都不授予（失败关闭），
+		// 这正是「没有会话就不显示任何按钮」在浏览器侧的实现方式。
+		// The anonymous visitor: the name maps travel in full while both lists stay empty, so yd-authz.js grants nothing
+		// (fail closed) — which is exactly how "no session, no button" is implemented in the browser.
+		anon := newProbeClient(t, httpTimeout)
+		respLogin, loginPage := getText(t, anon, base+"/login", nil)
+		if respLogin.StatusCode != http.StatusOK {
+			t.Fatalf("the anonymous GET /login answered %d, want 200 | 匿名 GET /login 状态码 = %d, 期望 200\n%s",
+				respLogin.StatusCode, respLogin.StatusCode, loginPage)
+		}
+		anonEnv := authzEnvelopeOf(t, "the anonymous sign-in page | 匿名登录页", loginPage)
+		if len(anonEnv.Granted) != 0 || len(anonEnv.Mine) != 0 {
+			t.Errorf("the anonymous subject must hold nothing, got %d capabilities and %d roles | 匿名主体的授予列表应为空, 实得 %d 项能力 / %d 个角色",
+				len(anonEnv.Granted), len(anonEnv.Mine), len(anonEnv.Granted), len(anonEnv.Mine))
+		}
+		// 名字表仍要完整下发：模板与脚本可能需要「称呼」一个自己并不持有的能力（例如渲染一条提示）。
+		// The name maps still travel in full: a template or a script may need to *name* a capability it does not hold.
+		if len(anonEnv.Perms) != len(authz.Permissions()) || len(anonEnv.Roles) != len(authz.Roles()) {
+			t.Errorf("the anonymous name maps = %d capabilities and %d roles, want %d and %d | 匿名信封的名字表 = %d 项能力 / %d 个角色, 期望 %d / %d",
+				len(anonEnv.Perms), len(anonEnv.Roles), len(authz.Permissions()), len(authz.Roles()),
+				len(anonEnv.Perms), len(anonEnv.Roles), len(authz.Permissions()), len(authz.Roles()))
+		}
+
+		// owner 主体：信封带着 owner 的全部能力与角色，浏览器侧的 yd.can 与 data-yd-perm 才有内容可读。
+		// The owner subject: the envelope carries every capability of an owner plus the role, so yd.can and
+		// data-yd-perm have something to read in the browser.
+		browser := newProbeClient(t, httpTimeout)
+		signIn(t, browser, base, probeTenant, probeAdmin, probeAdminPassword)
+		respHome, homePage := getText(t, browser, base+"/", nil)
+		if respHome.StatusCode != http.StatusOK || !strings.Contains(homePage, "<html") {
+			t.Fatalf("the signed-in GET / answered %d, want a full 200 page | 已登录 GET / 状态码 = %d, 期望 200 的整页\n%s",
+				respHome.StatusCode, respHome.StatusCode, homePage)
+		}
+		env := authzEnvelopeOf(t, "the signed-in home page | 已登录首页", homePage)
+
+		wantPerms := make([]string, 0, len(authz.Permissions()))
+		for _, p := range authz.Permissions() {
+			wantPerms = append(wantPerms, p.Name)
+		}
+		gotPerms := slices.Clone(env.Granted)
+		slices.Sort(wantPerms)
+		slices.Sort(gotPerms)
+		if !slices.Equal(gotPerms, wantPerms) {
+			t.Errorf("the owner grant list = %v, want every registry capability %v | owner 信封的授予列表 = %v, 期望注册表里的全部能力 %v",
+				gotPerms, wantPerms, gotPerms, wantPerms)
+		}
+		if !slices.Equal(env.Mine, []string{authz.RoleOwner}) {
+			t.Errorf("the owner role list = %v, want [%s] | owner 信封的角色列表 = %v, 期望 [%s]",
+				env.Mine, authz.RoleOwner, env.Mine, authz.RoleOwner)
+		}
+		jsKey := authz.JSKey(authz.PermUserCreate)
+		if token, ok := env.Perms[jsKey]; !ok || token != authz.PermUserCreate {
+			t.Errorf("the JavaScript name map holds %s = %q (present = %v), want %q | 信封的 JavaScript 名字表里 %s = %q（存在 = %v）, 期望 %q",
+				jsKey, token, ok, authz.PermUserCreate, jsKey, token, ok, authz.PermUserCreate)
+		}
+
+		// 用户列表片段：提交按钮的属性值是服务端解析出来的标识，而模板里写的是常量名或数据键，
+		// 因此页面上不可能出现「属性写成常量名、守卫永远匹配不上」这种静默失效。
+		// The user-list fragment: the submit button's attribute carries the token the server resolved while the template
+		// spells a constant name or a data key, so the attribute can never silently hold the wrong spelling and match no
+		// capability at all.
+		respUsers, usersPage := getText(t, browser, base+"/users", map[string]string{"HX-Request": "true"})
+		if respUsers.StatusCode != http.StatusOK {
+			t.Fatalf("the signed-in HX-Request GET /users answered %d, want 200 | 已登录 HX-Request GET /users 状态码 = %d, 期望 200\n%s",
+				respUsers.StatusCode, respUsers.StatusCode, usersPage)
+		}
+		if want := `data-yd-perm="` + authz.PermUserCreate + `"`; !strings.Contains(usersPage, want) {
+			t.Errorf("the user-list fragment lacks the declarative guard %s on its create button | 用户列表片段缺少新建按钮的声明式守卫 %s",
+				want, want)
+		}
+		if strings.Contains(usersPage, `data-yd-perm=""`) {
+			t.Errorf("the user-list fragment carries an empty data-yd-perm, so a template referenced an unregistered capability | 用户列表片段出现空的 data-yd-perm, 说明模板引用了注册表里没有的能力")
+		}
+	})
+
 	t.Run("缺少能力的令牌访问高权限端点被拒绝", func(t *testing.T) {
 		// 用 demo 管理员建两个账号：member 没有任何能力，auditor 只有读能力。
 		// Two accounts created by the demo administrator: member holds nothing and auditor holds read capabilities only.
@@ -1607,7 +2019,7 @@ func TestGeneratedI18nCatalogueCoversEveryTrKey(t *testing.T) {
 		}
 	}
 	if len(used) == 0 {
-		t.Fatal("模板里没有找到任何 tr 键")
+		t.Fatal("no tr key was found in the templates | 模板里没有找到任何 tr 键")
 	}
 
 	zh := readCatalogue(t, pr, "web/i18n/zh-CN.yaml")
@@ -1802,7 +2214,7 @@ func sessionToken(t *testing.T, client *http.Client, base string) string {
 	t.Helper()
 
 	if client.Jar == nil {
-		t.Fatal("探针客户端必须带 cookie jar")
+		t.Fatal("the probe client must carry a cookie jar | 探针客户端必须带 cookie jar")
 	}
 	u, err := url.Parse(base)
 	if err != nil {

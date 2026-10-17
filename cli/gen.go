@@ -28,30 +28,30 @@ const genUsageLine = "yd gen <module|crud> <name> [flags]"
 
 // The gen command's subcommand names and flag names. | gen 命令的子命令名与标志名。
 const (
-	// genKindModule 依据字段描述串生成模块。| genKindModule generates a module from a field specification.
+	// genKindModule generates a module from a field specification. | genKindModule 依据字段描述串生成模块。
 	genKindModule = "module"
-	// genKindCrud 依据表结构或既有结构体生成模块。| genKindCrud generates a module from a table schema or an existing struct.
+	// genKindCrud generates a module from a table schema or an existing struct. | genKindCrud 依据表结构或既有结构体生成模块。
 	genKindCrud = "crud"
 
-	// flagGenFields 是字段描述串。| flagGenFields is the field specification.
+	// flagGenFields is the field specification. | flagGenFields 是字段描述串。
 	flagGenFields = "fields"
-	// flagGenModule 是业务模块名，用作 OpenAPI 的 @Tags。| flagGenModule is the business module name used as the OpenAPI @Tags value.
+	// flagGenModule is the business module name used as the OpenAPI @Tags value. | flagGenModule 是业务模块名，用作 OpenAPI 的 @Tags。
 	flagGenModule = "module"
-	// flagGenPackage 是目标工程的 Go 模块路径。| flagGenPackage is the Go module path of the target project.
+	// flagGenPackage is the Go module path of the target project. | flagGenPackage 是目标工程的 Go 模块路径。
 	flagGenPackage = "package"
-	// flagGenDir 是生成物的输出目录。| flagGenDir is the output directory of the artifacts.
+	// flagGenDir is the output directory of the artifacts. | flagGenDir 是生成物的输出目录。
 	flagGenDir = "dir"
-	// flagGenTable 是 crud 模式的表名。| flagGenTable is the table name in crud mode.
+	// flagGenTable is the table name in crud mode. | flagGenTable 是 crud 模式的表名。
 	flagGenTable = "table"
-	// flagGenDSN 是 crud 模式的数据库连接串。| flagGenDSN is the database DSN in crud mode.
+	// flagGenDSN is the database DSN in crud mode. | flagGenDSN 是 crud 模式的数据库连接串。
 	flagGenDSN = "dsn"
-	// flagGenDriver 是 crud 模式的驱动名。| flagGenDriver is the driver name in crud mode.
+	// flagGenDriver is the driver name in crud mode. | flagGenDriver 是 crud 模式的驱动名。
 	flagGenDriver = "driver"
-	// flagGenStruct 是 crud 模式的结构体引用，形如 pkg.Type。| flagGenStruct is the struct reference in crud mode, shaped like pkg.Type.
+	// flagGenStruct is the struct reference in crud mode, shaped like pkg.Type. | flagGenStruct 是 crud 模式的结构体引用，形如 pkg.Type。
 	flagGenStruct = "struct"
-	// flagGenForce 允许覆盖没有生成标记的手写文件。| flagGenForce allows overwriting hand-written files without the generator marker.
+	// flagGenForce allows overwriting hand-written files without the generator marker. | flagGenForce 允许覆盖没有生成标记的手写文件。
 	flagGenForce = "force"
-	// flagGenDryRun 只报告将要写入的文件。| flagGenDryRun only reports the files that would be written.
+	// flagGenDryRun only reports the files that would be written. | flagGenDryRun 只报告将要写入的文件。
 	flagGenDryRun = "dry-run"
 )
 
@@ -172,7 +172,7 @@ func runGenCrud(ctx context.Context, env *Env, fs *pflag.FlagSet, args []string)
 	return generateAndReport(ctx, env, fs, model)
 }
 
-// crudModel 依据 --fields、--table 或 --struct 构造模型。| crudModel builds the model from --fields, --table or --struct.
+// crudModel builds the model from --fields, --table or --struct. | crudModel 依据 --fields、--table 或 --struct 构造模型。
 func crudModel(ctx context.Context, env *Env, fs *pflag.FlagSet, name, spec, table, source string) (*gen.Model, error) {
 	module := flagString(fs, flagGenModule)
 
@@ -221,7 +221,7 @@ func crudModel(ctx context.Context, env *Env, fs *pflag.FlagSet, name, spec, tab
 	return gen.ModelFromTable(ctx, db, table, gen.TableOptions{Name: name, Module: module})
 }
 
-// generateAndReport 执行生成并把结果报告给用户。| generateAndReport runs the generator and reports the result to the user.
+// generateAndReport runs the generator and reports the result to the user. | generateAndReport 执行生成并把结果报告给用户。
 func generateAndReport(ctx context.Context, env *Env, fs *pflag.FlagSet, model *gen.Model) error {
 	relDir := flagString(fs, flagGenDir)
 	res, err := gen.Generate(ctx, model, gen.Options{
@@ -250,14 +250,14 @@ func generateAndReport(ctx context.Context, env *Env, fs *pflag.FlagSet, model *
 	return err
 }
 
-// printArtifacts 逐个写出生成物的路径。| printArtifacts writes the path of every artifact.
+// printArtifacts writes the path of every artifact. | printArtifacts 逐个写出生成物的路径。
 func printArtifacts(w io.Writer, dir string, rels []string) {
 	for _, rel := range rels {
 		fmt.Fprintf(w, "  %s\n", displayPath(dir, rel))
 	}
 }
 
-// displayPath 把生成物的相对路径拼成用户可辨认的路径。| displayPath joins an artifact's relative path into a path the user can recognise.
+// displayPath joins an artifact's relative path into a path the user can recognise. | displayPath 把生成物的相对路径拼成用户可辨认的路径。
 func displayPath(dir, rel string) string {
 	if dir == "" || dir == "." {
 		return rel
@@ -288,7 +288,7 @@ func packagePath(env *Env, fs *pflag.FlagSet) string {
 	return pkg
 }
 
-// modulePathOf 从 go.mod 内容里取模块路径。| modulePathOf extracts the module path from the content of a go.mod.
+// modulePathOf extracts the module path from the content of a go.mod. | modulePathOf 从 go.mod 内容里取模块路径。
 func modulePathOf(gomod string) string {
 	for _, line := range strings.Split(gomod, "\n") {
 		line = strings.TrimSpace(line)
@@ -300,7 +300,7 @@ func modulePathOf(gomod string) string {
 	return ""
 }
 
-// splitSourceRef 把 "pkg.Type" 拆成目录（或 .go 文件）与类型名。| splitSourceRef splits "pkg.Type" into a directory (or a .go file) and a type name.
+// splitSourceRef splits "pkg.Type" into a directory (or a .go file) and a type name. | splitSourceRef 把 "pkg.Type" 拆成目录（或 .go 文件）与类型名。
 func splitSourceRef(ref string) (dir, typeName string, ok bool) {
 	ref = strings.TrimSpace(ref)
 	i := strings.LastIndex(ref, ".")

@@ -245,7 +245,7 @@ func TestNeedsElevation(t *testing.T) {
 		}
 	}
 	if needsElevation(ActionStatus) {
-		t.Error("status 不改动服务状态，不应提示提权")
+		t.Error("status does not change the service state, so elevation must not be suggested | status 不改动服务状态，不应提示提权")
 	}
 }
 

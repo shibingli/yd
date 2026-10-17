@@ -47,7 +47,7 @@ func newACMEManager(cfg ACMEConfig) (*acmeManager, error) {
 	}
 	policy := autocert.HostWhitelist(cfg.Domains...)
 	if !cfg.HostPolicyStrict {
-		// 非严格模式：允许白名单之外的主机，但仍拒绝空主机名
+		// Non-strict mode: hosts outside the whitelist are allowed, but an empty host name is still rejected | 非严格模式：允许白名单之外的主机，但仍拒绝空主机名
 		allowed := make(map[string]struct{}, len(cfg.Domains))
 		for _, d := range cfg.Domains {
 			allowed[strings.ToLower(d)] = struct{}{}

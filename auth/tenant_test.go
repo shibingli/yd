@@ -6,7 +6,7 @@ import (
 	"testing"
 )
 
-// TestTenantLifecycle 覆盖租户的创建、读取与列表排序。
+// TestTenantLifecycle covers creating, reading and the list ordering of tenants. | TestTenantLifecycle 覆盖租户的创建、读取与列表排序。
 func TestTenantLifecycle(t *testing.T) {
 	f := newFixture(t)
 	tn, err := f.svc.CreateTenant(testCtx, "acme", "Acme")
@@ -44,7 +44,7 @@ func TestTenantLifecycle(t *testing.T) {
 	}
 }
 
-// TestTenantInputValidation 校验空 slug、空名称、重复 slug 与未知租户。
+// TestTenantInputValidation checks an empty slug, an empty name, a duplicate slug and an unknown tenant. | TestTenantInputValidation 校验空 slug、空名称、重复 slug 与未知租户。
 func TestTenantInputValidation(t *testing.T) {
 	f := newFixture(t)
 	if _, err := f.svc.CreateTenant(testCtx, "  ", "Name"); !errors.Is(err, ErrTenantRequired) {
@@ -74,7 +74,7 @@ func TestTenantInputValidation(t *testing.T) {
 	}
 }
 
-// TestCallersCannotMutateStoredEntities 校验读出的副本无法改动库中状态。
+// TestCallersCannotMutateStoredEntities checks that a copy read back cannot mutate the stored state. | TestCallersCannotMutateStoredEntities 校验读出的副本无法改动库中状态。
 func TestCallersCannotMutateStoredEntities(t *testing.T) {
 	f := newFixture(t)
 	stored, err := f.store.GetUser(testCtx, f.tenantA.ID, f.member.ID)

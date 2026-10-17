@@ -26,17 +26,17 @@ type HTTPFileSystem struct {
 	fs afero.Fs
 }
 
-// NewHTTPFileSystem 创建一个 http.FileSystem 适配器。
+// NewHTTPFileSystem creates an http.FileSystem adapter. | NewHTTPFileSystem 创建一个 http.FileSystem 适配器。
 func NewHTTPFileSystem(fs afero.Fs) http.FileSystem {
 	return &HTTPFileSystem{fs: fs}
 }
 
-// Open 实现 http.FileSystem。
+// Open implements http.FileSystem. | Open 实现 http.FileSystem。
 func (h *HTTPFileSystem) Open(name string) (http.File, error) {
 	if strings.ContainsRune(name, '\x00') {
 		return nil, os.ErrInvalid
 	}
-	// path.Clean 会消除 ".." 等上跳片段，避免目录穿越
+	// path.Clean removes upward segments such as ".." and prevents directory traversal. | path.Clean 会消除 ".." 等上跳片段，避免目录穿越
 	cleaned := strings.TrimPrefix(path.Clean("/"+name), "/")
 	if cleaned == "" {
 		cleaned = "."

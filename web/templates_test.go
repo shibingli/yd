@@ -24,12 +24,56 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"sort"
 	"strings"
 	"testing"
 
+	"github.com/shibingli/yd/authz"
 	"github.com/shibingli/yd/jsonx"
 )
+
+// templateGrants is what the fixture subject holds, keyed by tokens of the real registry so a
+// typo cannot hide here: the helpers below resolve a reference through authz.ResolvePermission,
+// exactly like the render binding does. | templateGrants 是固定数据主体持有的能力，
+// 以真实注册表的标识为键，因此这里藏不住拼写错误：下面的辅助函数经 authz.ResolvePermission
+// 解析引用，与 render 的按次绑定完全一致。
+//
+// It is a variable because one test renders the same page as a subject that holds less, and every
+// such test restores it. | 它是变量，因为有一个测试要以「持有更少」的主体渲染同一个页面，
+// 而每个这样的测试都会恢复它。
+var templateGrants = []string{authz.PermUserCreate, authz.PermUserRead, authz.PermUserUpdate, authz.PermUserDelete, authz.PermRoleManage}
+
+// templateRoles is what the fixture subject holds as roles. | templateRoles 是固定数据主体持有的角色。
+var templateRoles = []string{authz.RoleAdmin}
+
+// templateRef renders a template reference as a string; a missing key arrives as nil. | templateRef 把模板引用渲染为字符串；缺键时抵达的是 nil。
+func templateRef(ref any) string {
+	if s, ok := ref.(string); ok {
+		return s
+	}
+	return ""
+}
+
+// templateCan decides a capability reference through the registry, so `can .Perm.UserCreate`,
+// `can "PermUserCreate"` and `can "user:create"` are one decision. | templateCan 经注册表判定能力引用，
+// 因此 `can .Perm.UserCreate`、`can "PermUserCreate"` 与 `can "user:create"` 是同一次判定。
+func templateCan(ref any) bool {
+	token, err := authz.ResolvePermission(templateRef(ref))
+	if err != nil {
+		return false
+	}
+	return slices.Contains(templateGrants, token)
+}
+
+// templateHasRole decides a role reference through the registry. | templateHasRole 经注册表判定角色引用。
+func templateHasRole(ref any) bool {
+	name, err := authz.ResolveRole(templateRef(ref))
+	if err != nil {
+		return false
+	}
+	return slices.Contains(templateRoles, name)
+}
 
 // Chrome pages render the dashboard shell; standalone pages must not. | 带外壳的页面渲染管理后台骨架；独立页面不得渲染它。
 var chromePages = []string{
@@ -64,6 +108,7 @@ var scriptsInOrder = []string{
 	"/static/js/yd-guomi.js",
 	"/static/js/yd-guomi-htmx.js",
 	"/static/js/yd-i18n.js",
+	"/static/js/yd-authz.js",
 	"/static/js/yd-app.js",
 }
 
@@ -72,10 +117,12 @@ var (
 	scriptTagRe   = regexp.MustCompile(`(?s)<script\b[^>]*>`)
 	formTagRe     = regexp.MustCompile(`(?s)<form\b[^>]*>`)
 	catalogRe     = regexp.MustCompile(`(?s)<script id="yd-i18n-catalog" type="application/json">(.*?)</script>`)
+	authzRe       = regexp.MustCompile(`(?s)<script id="` + authz.AuthzScriptID + `" type="application/json">(.*?)</script>`)
 	i18nKeyRe     = regexp.MustCompile(`data-yd-i18n="([^"]*)"`)
 	i18nAttrRe    = regexp.MustCompile(`data-yd-i18n-attr="([^"]*)"`)
 	i18nKeySyntax = regexp.MustCompile(`^[A-Za-z0-9]+(\.[A-Za-z0-9_-]+)+$`)
 	idRe          = regexp.MustCompile(`\sid="([^"]+)"`)
+	authzGuardRe  = regexp.MustCompile(`data-yd-(perm|role)="([^"]*)"`)
 	colorRe       = regexp.MustCompile(`style="[^"]*(#[0-9a-fA-F]{3,8}|rgba?\(|hsla?\()`)
 	forbiddenRefs = []string{
 		"http://",
@@ -133,6 +180,26 @@ func templateFuncs() template.FuncMap {
 		},
 		// list builds the slices handed to partials. | list 构建传给局部模板的切片。
 		"list": func(items ...any) []any { return items },
+		// The four authority helpers mirror what the render binding publishes for one execution: a
+		// template asks about a capability or a role, and the answer is decided through the registry.
+		// 四个权限辅助函数对应 render 为单次执行发布的绑定：模板询问某项能力或某个角色，
+		// 答案经注册表作出判定。
+		"can":     templateCan,
+		"hasRole": templateHasRole,
+		"perm": func(ref any) string {
+			token, err := authz.ResolvePermission(templateRef(ref))
+			if err != nil {
+				return templateRef(ref)
+			}
+			return token
+		},
+		"role": func(ref any) string {
+			name, err := authz.ResolveRole(templateRef(ref))
+			if err != nil {
+				return templateRef(ref)
+			}
+			return name
+		},
 	}
 }
 
@@ -148,6 +215,16 @@ func templateData() map[string]any {
 		// I18nJSON 用 template.JS：该脚本标签是 JavaScript 容器，其它类型会被 json.Marshal
 		// 成带引号的字符串而不是原始对象。
 		"I18nJSON": template.JS(`{"lang":"en","fallback":"zh-CN","catalogs":{"en":{"app":{"name":"yd"}},"zh-CN":{"app":{"name":"yd"}}}}`),
+		// Perm and Role are the registry's own derived maps, never a hand written pair: a template
+		// reads .Perm.UserCreate and the token it writes came from the one table that defines it.
+		// Perm 与 Role 是注册表自己派生的映射，绝不是手写的一对：模板读 .Perm.UserCreate，
+		// 它写出的标识来自定义该标识的唯一那张表。
+		"Perm": authz.PermMap(),
+		"Role": authz.RoleMap(),
+		// AuthzJSON carries the same registry in the spelling the browser reads; the anonymous
+		// envelope is what a page rendered without a subject reports.
+		// AuthzJSON 以浏览器读取的写法携带同一张注册表；匿名信封正是无主体页面所报告的内容。
+		"AuthzJSON": authz.NewEnvelope(nil).JS(),
 		"Flashes": []map[string]any{
 			{"Level": "success", "Key": "users.saved", "Message": "Saved"},
 			{"Level": "error", "Key": "", "Message": "Boom"},
@@ -815,5 +892,137 @@ func TestI18nCatalogInjectedIntoLayout(t *testing.T) {
 	}
 	if unwrapped != string(raw) {
 		t.Errorf("unwrapping the quoted catalog changed it:\n got %s\nwant %s | 解开带引号的目录后内容发生变化", unwrapped, string(raw))
+	}
+}
+
+// authzPayload mirrors the envelope yd-authz.js reads. | authzPayload 对应 yd-authz.js 读取的信封。
+type authzPayload struct {
+	// Perms maps every JavaScript capability key to its token. | Perms 把每个 JavaScript 能力键映射到它的标识。
+	Perms map[string]string `json:"perms"`
+
+	// Roles maps every JavaScript role key to its name. | Roles 把每个 JavaScript 角色键映射到它的名字。
+	Roles map[string]string `json:"roles"`
+
+	// Granted lists the capabilities the subject holds. | Granted 列出该主体持有的能力。
+	Granted []string `json:"granted"`
+
+	// Mine lists the roles the subject holds. | Mine 列出该主体持有的角色。
+	Mine []string `json:"mine"`
+}
+
+// TestAuthzPayloadInjectedIntoLayout proves the browser receives the registry itself: the element id
+// is the one yd-authz.js reads, the body is raw JSON, and every key is the script spelling.
+// TestAuthzPayloadInjectedIntoLayout 证明浏览器收到的是注册表本身：元素 id 就是 yd-authz.js 读取的那个，
+// 正文是原始 JSON，且每个键都是脚本写法。
+//
+// The template data keys deliberately do NOT appear: a page injecting .Perm.UserCreate would hand the
+// browser a map whose keys no documented script reference can address, and that mismatch is exactly
+// what this assertion exists to catch. | 模板数据键刻意不得出现：注入 .Perm.UserCreate 的页面交给浏览器的
+// 是一张任何既定脚本引用都寻址不到的键表，而这正是本条断言要抓住的错配。
+func TestAuthzPayloadInjectedIntoLayout(t *testing.T) {
+	tmpl := loadTemplates(t)
+
+	pages := append(append([]string{}, chromePages...), standalonePages...)
+	for _, page := range pages {
+		match := authzRe.FindStringSubmatch(execute(t, tmpl, page))
+		if match == nil {
+			t.Fatalf("%s: the layout injects no <script id=%q> | %s：布局没有注入 <script id=%q>", page, authz.AuthzScriptID, page, authz.AuthzScriptID)
+		}
+		body := strings.TrimSpace(match[1])
+		if strings.Contains(body, "&#34;") || strings.Contains(body, "&amp;") {
+			t.Errorf("%s: the payload is entity escaped: %s | %s：载荷被实体转义：%s", page, body, page, body)
+		}
+		// The payload must not be able to close its own element: a token carrying "</script" would
+		// otherwise turn the rest of the map into markup. | 载荷不得能提前闭合自己的元素：
+		// 否则一个携带 "</script" 的标识会把名字表的其余部分变成标记。
+		if strings.Contains(body, "</script") {
+			t.Errorf("%s: the payload can close its own script element | %s：载荷能提前闭合自己的脚本元素", page, page)
+		}
+		if !strings.HasPrefix(body, "{") {
+			t.Errorf("%s: the payload is not a raw JSON object: %s | %s：载荷不是原始 JSON 对象：%s", page, body, page, body)
+		}
+
+		var payload authzPayload
+		if err := jsonx.Unmarshal([]byte(body), &payload); err != nil {
+			t.Fatalf("%s: the injected payload is not valid JSON (%v): %s | %s：注入的载荷不是合法 JSON（%v）：%s", page, err, body, page, err, body)
+		}
+		key := authz.JSKey(authz.PermUserCreate)
+		if got := payload.Perms[key]; got != authz.PermUserCreate {
+			t.Errorf("%s: perms[%s] = %q, want %q | %s：perms[%s] 为 %q，期望 %q", page, key, got, authz.PermUserCreate, page, key, got, authz.PermUserCreate)
+		}
+		roleKey := authz.RoleJSKey(authz.RoleAdmin)
+		if got := payload.Roles[roleKey]; got != authz.RoleAdmin {
+			t.Errorf("%s: roles[%s] = %q, want %q | %s：roles[%s] 为 %q，期望 %q", page, roleKey, got, authz.RoleAdmin, page, roleKey, got, authz.RoleAdmin)
+		}
+		// One spelling rule covers both maps: every key is upper case, so a script reference written
+		// in the documented form always resolves. | 一条写法规则覆盖两张表：每个键都是大写，
+		// 因此按文档写法书写的脚本引用总能解析。
+		for _, names := range []map[string]string{payload.Perms, payload.Roles} {
+			for name := range names {
+				if name != strings.ToUpper(name) {
+					t.Errorf("%s: %q is not the script spelling of a name | %s：%q 不是名字的脚本写法", page, name, page, name)
+				}
+			}
+		}
+		// The fixture renders an anonymous page, so both held lists must be present and empty.
+		// 固定数据渲染的是匿名页面，因此两个持有列表必须存在且为空。
+		if len(payload.Granted) != 0 {
+			t.Errorf("%s: granted = %v, want an empty list | %s：granted 为 %v，期望空列表", page, payload.Granted, page, payload.Granted)
+		}
+		if len(payload.Mine) != 0 {
+			t.Errorf("%s: mine = %v, want an empty list | %s：mine 为 %v，期望空列表", page, payload.Mine, page, payload.Mine)
+		}
+	}
+}
+
+// TestAuthzGuardsUseTheRegistryTokens proves the declarative guards and the `can` helper address the
+// registry instead of spelling a capability: the token reaches the page because the registry put it
+// there, and a subject that holds less receives less.
+// TestAuthzGuardsUseTheRegistryTokens 证明声明式守卫与 `can` 辅助函数寻址的是注册表而不是直接书写能力：
+// 标识出现在渲染结果里，是因为注册表把它放了进去；而持有更少的主体收到的东西也更少。
+//
+// The row partial is deliberately driven through `perm`/`role`/`can` with a constant *name*: its dot
+// is one row, so the page level .Perm map is not in scope there, and a constant name in a template is
+// the form yd authz check sanctions. | 行内局部模板刻意经 `perm`/`role`/`can` 搭配常量*名*驱动：
+// 它的点号是一行数据，因此页面级的 .Perm 映射在那里不在作用域内，
+// 而模板中的常量名正是 yd authz check 认可的形式。
+func TestAuthzGuardsUseTheRegistryTokens(t *testing.T) {
+	tmpl := loadTemplates(t)
+
+	page := execute(t, tmpl, "pages/users.html")
+	create := `data-yd-perm="` + authz.PermUserCreate + `"`
+	if !strings.Contains(page, create) {
+		t.Errorf("pages/users.html: the create button carries no %s | pages/users.html：新建按钮没有携带 %s", create, create)
+	}
+
+	rows, ok := templateData()["Users"].([]map[string]any)
+	if !ok || len(rows) == 0 {
+		t.Fatal("the fixture carries no user row | 固定数据没有用户行")
+	}
+	row := executeWith(t, tmpl, "partials/users/row", rows[0])
+
+	edit := `data-yd-perm="` + authz.PermUserUpdate + `" data-yd-perm-mode="disable"`
+	if !strings.Contains(row, edit) {
+		t.Errorf("partials/users/row: the edit button is not greyed out but kept, want %s | partials/users/row：编辑按钮未按「变灰保留」处理，期望 %s", edit, edit)
+	}
+	rotate := `data-yd-role="` + authz.RoleAdmin + `" data-yd-role-mode="disable"`
+	if !strings.Contains(row, rotate) {
+		t.Errorf("partials/users/row: the key rotation is not guarded by the %s role, want %s | partials/users/row：轮换密钥未由 %s 角色守卫，期望 %s", authz.RoleAdmin, rotate, authz.RoleAdmin, rotate)
+	}
+	if !strings.Contains(row, `hx-delete="/users/1"`) {
+		t.Fatalf("partials/users/row: the delete button is missing while its capability is held | partials/users/row：持有该能力时删除按钮却缺失")
+	}
+
+	// The very same row rendered for a subject that does not hold the delete capability: the server
+	// renders one button less, which is what `can` decides and what the guard attribute then keeps
+	// out of sight for the subjects the payload cannot be rebuilt for.
+	// 同一个行由「未持有删除能力」的主体渲染：服务端少渲染一个按钮，
+	// 这既是 `can` 作出的判定，也是之后守卫属性为「载荷无法重建」的主体所遮蔽的那一个。
+	held := templateGrants
+	templateGrants = slices.DeleteFunc(slices.Clone(templateGrants), func(token string) bool { return token == authz.PermUserDelete })
+	defer func() { templateGrants = held }()
+
+	if got := executeWith(t, tmpl, "partials/users/row", rows[0]); strings.Contains(got, "hx-delete=") {
+		t.Error("partials/users/row: a subject without the delete capability still receives the delete button | partials/users/row：未持有删除能力的主体仍收到了删除按钮")
 	}
 }

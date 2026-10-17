@@ -28,6 +28,15 @@ func mustAdd(t *testing.T, tr *Tree, method, pattern, handler string) {
 	}
 }
 
+// TestTreeUnknownSegmentReturnsError 要求未知段类型返回哨兵错误而不是 panic。
+// TestTreeUnknownSegmentReturnsError requires an unknown segment kind to return a sentinel error instead of panicking.
+func TestTreeUnknownSegmentReturnsError(t *testing.T) {
+	tr := NewTree()
+	if _, err := tr.root.child(Segment{Kind: SegmentKind(255)}); !errors.Is(err, ErrUnknownSegment) {
+		t.Fatalf("child(unknown kind) = %v，期望携带 ErrUnknownSegment", err)
+	}
+}
+
 func TestTreeMixedSuffix(t *testing.T) {
 	tr := NewTree()
 	mustAdd(t, tr, http.MethodGet, "/avatar/:id.jpg", "avatar")
@@ -69,7 +78,7 @@ func TestTreeMixedWithDashSuffix(t *testing.T) {
 	}
 
 	if _, _, _, hit := find(t, tr, http.MethodGet, "/report/42-yy.png"); hit {
-		t.Fatal("/report/42-yy.png 不应命中")
+		t.Fatal("/report/42-yy.png must not match | /report/42-yy.png 不应命中")
 	}
 
 	// longest viable prefix under shortest-first: the static suffix must be stripped | 最短优先下的最长可行前缀：静态后缀必须被剥离
@@ -124,7 +133,7 @@ func TestTreeMultiParamSegment(t *testing.T) {
 		}
 	}
 	if _, _, _, hit := find(t, tr, http.MethodGet, "/archive/2026-10.html"); hit {
-		t.Fatal("段数不足不应命中")
+		t.Fatal("too few segments must not match | 段数不足不应命中")
 	}
 }
 
@@ -155,7 +164,7 @@ func TestTreePercentEncodedSegmentNotDecoded(t *testing.T) {
 
 	_, params, _, hit := find(t, tr, http.MethodGet, "/avatar/a%2Fb.jpg")
 	if !hit {
-		t.Fatal("百分号编码路径应命中")
+		t.Fatal("a percent-encoded path must match | 百分号编码路径应命中")
 	}
 	if params["id"] != "a%2Fb" {
 		t.Fatalf("参数应保持原始编码 a%%2Fb, 实际 %q", params["id"])
@@ -207,7 +216,7 @@ func TestTreeRootRoute(t *testing.T) {
 		t.Fatalf("根路由未命中: hit=%v handler=%q", hit, got)
 	}
 	if _, _, _, hit := find(t, tr, http.MethodGet, "/x"); hit {
-		t.Fatal("/x 不应命中根路由")
+		t.Fatal("/x must not match the root route | /x 不应命中根路由")
 	}
 }
 

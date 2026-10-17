@@ -62,7 +62,7 @@ func TestModelFromSQLiteTable(t *testing.T) {
 		t.Errorf("Module = %q，期望 %q", m.Module, "cms")
 	}
 	if !m.Timestamps {
-		t.Error("存在 created_at/updated_at，Timestamps 应为 true")
+		t.Error("created_at/updated_at are present, so Timestamps must be true | 存在 created_at/updated_at，Timestamps 应为 true")
 	}
 
 	id := m.Field("id")
@@ -143,7 +143,7 @@ func TestModelFromFields(t *testing.T) {
 		t.Errorf("Module = %q，期望 %q", m.Module, "cms")
 	}
 	if !m.Timestamps {
-		t.Error("未显式关闭时 Timestamps 应为 true")
+		t.Error("Timestamps must be true unless explicitly disabled | 未显式关闭时 Timestamps 应为 true")
 	}
 	if len(m.Fields) != 4 {
 		t.Fatalf("字段数 = %d，期望自动补主键后的 4 个: %+v", len(m.Fields), m.Fields)
@@ -170,7 +170,7 @@ func TestModelFromFields(t *testing.T) {
 			t.Errorf("选项未被应用: Name=%q GoName=%q Table=%q", got.Name, got.GoName, got.Table)
 		}
 		if got.Timestamps {
-			t.Error("Timestamps 被显式关闭后应为 false")
+			t.Error("Timestamps must be false once explicitly disabled | Timestamps 被显式关闭后应为 false")
 		}
 	})
 

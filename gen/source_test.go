@@ -23,7 +23,7 @@ import (
 	"gorm.io/gorm"
 )
 
-// Post 是文章模型。| Post is the article model.
+// Post is the article model. | Post 是文章模型。
 type Post struct {
 	gorm.Model
 	Title string    ` + "`" + `gorm:"column:title;size:120;not null" json:"title" yd:"label=标题;validate=required,max=120"` + "`" + `
@@ -40,16 +40,16 @@ type Post struct {
 	hidden string ` + "`" + `gorm:"column:hidden"` + "`" + `
 }
 
-// Author 是内嵌示例里被引用的关联模型。| Author is the related model referenced by the relation field.
+// Author is the related model referenced by the relation field. | Author 是内嵌示例里被引用的关联模型。
 type Author struct {
 	ID int64
 }
 
-// TableName 返回文章表名。| TableName returns the table name of the article.
+// TableName returns the table name of the article. | TableName 返回文章表名。
 func (Post) TableName() string { return "cms_posts" }
 `
 
-// writeSource 把源码写进内存文件系统。| writeSource writes source into the in-memory file system.
+// writeSource writes source into the in-memory file system. | writeSource 把源码写进内存文件系统。
 func writeSource(t *testing.T, path, content string) afero.Fs {
 	t.Helper()
 	fs := afero.NewMemMapFs()
@@ -78,7 +78,7 @@ func TestModelFromSourceReadsStructTags(t *testing.T) {
 		t.Errorf("Module = %q，期望 %q", m.Module, "cms")
 	}
 	if !m.Timestamps {
-		t.Error("内嵌 gorm.Model 后 Timestamps 应为 true")
+		t.Error("Timestamps must be true after embedding gorm.Model | 内嵌 gorm.Model 后 Timestamps 应为 true")
 	}
 
 	id := m.Field("id")
@@ -147,7 +147,7 @@ func TestModelFromSourceReadsStructTags(t *testing.T) {
 			t.Errorf("选项未被应用: Name=%q GoName=%q Table=%q", got.Name, got.GoName, got.Table)
 		}
 		if got.Timestamps {
-			t.Error("Timestamps 被显式关闭后应为 false")
+			t.Error("Timestamps must be false once explicitly disabled | Timestamps 被显式关闭后应为 false")
 		}
 	})
 }

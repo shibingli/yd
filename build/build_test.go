@@ -482,7 +482,7 @@ func TestBuildSetsCrossCompileEnv(t *testing.T) {
 		t.Fatalf("Build 失败: %v", err)
 	}
 	if fake.lastCmd == nil {
-		t.Fatal("未记录到 *exec.Cmd")
+		t.Fatal("no *exec.Cmd was recorded | 未记录到 *exec.Cmd")
 	}
 	env := envMap(fake.lastCmd.Env)
 	for key, want := range map[string]string{
@@ -496,7 +496,7 @@ func TestBuildSetsCrossCompileEnv(t *testing.T) {
 		}
 	}
 	if fake.lastCmd.Dir == "" {
-		t.Error("构建命令缺少工作目录")
+		t.Error("the build command has no working directory | 构建命令缺少工作目录")
 	}
 }
 
@@ -619,7 +619,7 @@ func TestBuildRunsInjectedTailwindHook(t *testing.T) {
 				t.Fatalf("Tailwind 钩子调用次数 = %d, 期望 1", calls)
 			}
 			if !execSeen {
-				t.Error("Tailwind 阶段必须在 go build 之前执行")
+				t.Error("the Tailwind stage must run before go build | Tailwind 阶段必须在 go build 之前执行")
 			}
 			if gotDir != dir {
 				t.Errorf("Tailwind 目录 = %q, 期望 %q", gotDir, dir)

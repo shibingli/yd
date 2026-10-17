@@ -52,7 +52,7 @@ func (c *Controller) Tenants(ctx *router.Ctx) {
 // @Param name formData string true "display name | 展示名称"
 // @Success 200 {object} string "refreshed tenant list fragment | 刷新后的租户列表片段"
 // @Failure 401 {object} string "no session | 无有效会话"
-// @Failure 403 {object} string "missing tenant:write | 缺少 tenant:write"
+// @Failure 403 {object} string "missing tenant:create | 缺少 tenant:create"
 // @Failure 409 {object} string "slug already taken | 标识已被占用"
 // @Failure 422 {object} string "validation failure | 校验失败"
 // @Security BearerAuth

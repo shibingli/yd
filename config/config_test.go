@@ -165,7 +165,7 @@ func TestUnchangedFlagDefaultInjectedAsTypedDefault(t *testing.T) {
 		t.Fatalf("Duration(cache.ttl) = %v，期望 30s", got)
 	}
 	if !c.IsSet("cache.ttl") {
-		t.Fatal("IsSet(cache.ttl) = false，期望 flag 默认值进入默认值层从而可见")
+		t.Fatal("IsSet(cache.ttl) = false; a flag default must reach the defaults layer and stay visible | IsSet(cache.ttl) = false，期望 flag 默认值进入默认值层从而可见")
 	}
 	if got := c.Get("cache.size"); got != 7 {
 		t.Fatalf("cache.size = %#v，期望 int(7)", got)
@@ -407,7 +407,7 @@ func TestUnknownFlagReturnsError(t *testing.T) {
 
 	err = c.BindFlags(fs, map[string]string{"nope": "server.host"})
 	if err == nil {
-		t.Fatal("BindFlags 未返回错误，期望 ErrUnknownFlag")
+		t.Fatal("BindFlags returned no error, want ErrUnknownFlag | BindFlags 未返回错误，期望 ErrUnknownFlag")
 	}
 	if !errors.Is(err, config.ErrUnknownFlag) {
 		t.Fatalf("错误 %v 未包装 ErrUnknownFlag", err)

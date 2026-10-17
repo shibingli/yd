@@ -236,7 +236,7 @@ func requireNoRole(t *testing.T, r *Role, what string) {
 
 // ------------------------------------------------ Package invariants | 包级不变量
 
-// TestEverySentinelIsBilingualAndDistinct 要求每个哨兵都中英同步且彼此可区分。
+// TestEverySentinelIsBilingualAndDistinct requires every sentinel to be bilingual and pairwise distinct. | TestEverySentinelIsBilingualAndDistinct 要求每个哨兵都中英同步且彼此可区分。
 func TestEverySentinelIsBilingualAndDistinct(t *testing.T) {
 	sentinels := map[string]error{
 		"ErrNotFound":           ErrNotFound,
@@ -271,7 +271,7 @@ func TestEverySentinelIsBilingualAndDistinct(t *testing.T) {
 	}
 }
 
-// TestNewServiceValidatesOptions 校验构造函数对 Store 与主密钥的拒绝行为。
+// TestNewServiceValidatesOptions checks how the constructor refuses a Store and a master key. | TestNewServiceValidatesOptions 校验构造函数对 Store 与主密钥的拒绝行为。
 func TestNewServiceValidatesOptions(t *testing.T) {
 	if _, err := NewService(nil, Options{}); !errors.Is(err, ErrNilStore) {
 		t.Fatalf("NewService(nil) want ErrNilStore, got %v | NewService(nil) 期望 ErrNilStore，实际 %v", err, err)
@@ -295,7 +295,7 @@ func TestNewServiceValidatesOptions(t *testing.T) {
 	}
 }
 
-// TestSecKeyLenIsClampedToTheFloor 校验 sec_key 长度既取默认值也不低于下限。
+// TestSecKeyLenIsClampedToTheFloor checks that the sec_key length takes the default yet never drops below the floor. | TestSecKeyLenIsClampedToTheFloor 校验 sec_key 长度既取默认值也不低于下限。
 func TestSecKeyLenIsClampedToTheFloor(t *testing.T) {
 	svc, _ := newTestService(t, Options{})
 	if svc.secKeyLen != DefaultSecKeyLen {

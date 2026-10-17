@@ -1,6 +1,7 @@
 package router
 
 import (
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -164,7 +165,7 @@ func TestStaticFileServedFromAferoFS(t *testing.T) {
 		t.Fatalf("code=%d body=%q", rec.Code, rec.Body.String())
 	}
 	if rec.Header().Get("Last-Modified") == "" {
-		t.Error("静态文件响应缺少 Last-Modified")
+		t.Error("the static file response is missing Last-Modified | 静态文件响应缺少 Last-Modified")
 	}
 
 	rec = do(r, http.MethodGet, "/static/css/missing.css", nil, "")
@@ -240,14 +241,75 @@ func TestCustomNotFoundAndPanicHandler(t *testing.T) {
 	}
 }
 
-func TestRegisterBadPatternPanics(t *testing.T) {
-	defer func() {
-		if rec := recover(); rec == nil {
-			t.Fatal("非法模式应 panic")
-		}
-	}()
+// TestRegisterBadPatternIsRecorded 要求非法模式只被登记，不在注册时 panic。
+// TestRegisterBadPatternIsRecorded requires an invalid pattern to be recorded rather than panicking at registration.
+func TestRegisterBadPatternIsRecorded(t *testing.T) {
 	r := New()
-	r.GET("bad-pattern", func(c *Ctx) {})
+	r.GET("bad-pattern", func(c *Ctx) {}) // must not panic | 不得 panic
+
+	if err := r.Validate(); !errors.Is(err, ErrBadPattern) {
+		t.Fatalf("Validate() = %v，期望携带 ErrBadPattern", err)
+	}
+	if rec := do(r, http.MethodGet, "/any", nil, ""); rec.Code != http.StatusInternalServerError {
+		t.Fatalf("接线错误下 ServeHTTP = %d，期望 500", rec.Code)
+	}
+}
+
+// TestRegisterNilHandlerIsRecorded 要求 nil 处理器只被登记，不在注册时 panic。
+// TestRegisterNilHandlerIsRecorded requires a nil handler to be recorded rather than panicking at registration.
+func TestRegisterNilHandlerIsRecorded(t *testing.T) {
+	r := New()
+	r.GET("/nil", nil) // must not panic | 不得 panic
+
+	if err := r.Validate(); !errors.Is(err, ErrNilHandler) {
+		t.Fatalf("Validate() = %v，期望携带 ErrNilHandler", err)
+	}
+	if rec := do(r, http.MethodGet, "/nil", nil, ""); rec.Code != http.StatusInternalServerError {
+		t.Fatalf("接线错误下 ServeHTTP = %d，期望 500", rec.Code)
+	}
+}
+
+// TestDuplicateRouteIsRecorded 要求重复注册被登记并由 Validate 报告。
+// TestDuplicateRouteIsRecorded requires a duplicate registration to be recorded and reported by Validate.
+func TestDuplicateRouteIsRecorded(t *testing.T) {
+	r := New()
+	h := func(c *Ctx) {}
+	r.GET("/dup", h)
+	r.GET("/dup", h) // must not panic | 不得 panic
+
+	if err := r.Validate(); !errors.Is(err, ErrConflict) {
+		t.Fatalf("Validate() = %v，期望携带 ErrConflict", err)
+	}
+	if rec := do(r, http.MethodGet, "/dup", nil, ""); rec.Code != http.StatusInternalServerError {
+		t.Fatalf("接线错误下 ServeHTTP = %d，期望 500", rec.Code)
+	}
+}
+
+// TestInvalidChainIsReportedNotPanicked 要求树中的非调用链处理器被 Validate 报告，且 ServeHTTP 返回 500。
+// TestInvalidChainIsReportedNotPanicked requires a non-chain handler in the tree to be reported by Validate and answered with 500.
+func TestInvalidChainIsReportedNotPanicked(t *testing.T) {
+	r := New()
+	if err := r.tree.Add(http.MethodGet, "/broken", "not-a-chain"); err != nil {
+		t.Fatalf("tree.Add 失败: %v", err)
+	}
+
+	if err := r.Validate(); !errors.Is(err, ErrInvalidHandler) {
+		t.Fatalf("Validate() = %v，期望携带 ErrInvalidHandler", err)
+	}
+	if rec := do(r, http.MethodGet, "/broken", nil, ""); rec.Code != http.StatusInternalServerError {
+		t.Fatalf("内部不变量被违反时 ServeHTTP = %d，期望 500", rec.Code)
+	}
+}
+
+// TestValidateCleanRouter 要求接线正确的路由器 Validate 返回 nil。
+// TestValidateCleanRouter requires Validate to return nil for a correctly wired router.
+func TestValidateCleanRouter(t *testing.T) {
+	r := New()
+	r.GET("/ok", func(c *Ctx) { _ = c.NoContent() })
+	r.Use(func(c *Ctx) { c.Next() })
+	if err := r.Validate(); err != nil {
+		t.Fatalf("Validate() = %v，期望 nil", err)
+	}
 }
 
 func TestRoutesSnapshotSorted(t *testing.T) {

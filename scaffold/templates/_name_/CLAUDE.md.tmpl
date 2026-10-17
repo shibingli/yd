@@ -86,18 +86,24 @@
    ```
 2. **未知与越权同形**：跨租户或已删除的实体一律返回 `auth.ErrNotFound`（404 语义），**绝不**返回 `auth.ErrForbidden`。
    响应上的任何差异都会变成「另一个租户是否存在」的探针，这是 `auth.Store` 的接口契约，换存储实现时同样受它约束。
-3. **能力守卫挂在路由上**：受保护端点必须显式声明 `auth.RequirePermission(model.PermXxx)`，处理器内部不得再抄一份权限判断；
-   页面上按钮与导航项的显隐由控制器算好的 `Can*` 布尔值决定（模板函数表里没有「切片包含」助手，也不该有）。
+3. **能力守卫挂在路由上**：受保护端点必须显式声明 `authz.Require(authz.PermXxx)`，处理器内部不得再抄一份权限判断；
+   `authz.Require` 就是 `auth.RequirePermission` 的注册表包装（它把标识、常量名、数据键、脚本键四种写法解析成注册过的标识），
+   因此路由上绝不允许出现 `auth.RequirePermission("user:create")` 这样的字面量调用；
+   页面上按钮与导航项的显隐由模板辅助函数 `can` 读注册表判定（`can .Perm.XxxYyy` 或 `can "PermXxxYyy"`），
+   控制器不再算 `Can*` 布尔值，前端 `data-yd-perm` 读的是同一份授权。
 4. **会话链路顺序不可调换**：`middleware.Promote`（cookie → `Authorization`）→ `auth.Middleware`（验签、有效期、每用户 `sec_key`）
-   → `middleware.Tenant`（以令牌为准定租户）。租户中间件必须排在鉴权之后，否则任何请求头都会变成可信输入。
+   → `authz.Middleware`（用该用户构造本请求的判定主体）→ `middleware.Tenant`（以令牌为准定租户）。
+   租户中间件必须排在鉴权之后，否则任何请求头都会变成可信输入；权限中间件必须排在鉴权之后，否则模板只会看到一个匿名主体。
 5. **改密与 `sec_key` 轮换即全域登出**：两者都会轮换 `sec_key`，此前签发的每一枚令牌立刻失效，
    因此实现里必须同时清掉会话 cookie，否则浏览器会带着一枚死令牌反复撞 401。
 6. **口令只以密文上网**：含敏感字段的表单标注 `data-yd-encrypt="sm2"`，服务端按 `auth.LoginEncryptedHeader` 解密；
    新增敏感字段沿用同一套声明式加密，禁止自行发明第二套编码。
 
-种子数据（`internal/repository` 的 `Seed`）在每次启动时幂等写入：两个演示租户、四个内置角色与各自的 `owner` 管理员，
-默认口令写在 `internal/meta` 常量里并在 README 中列明。**首次登录后必须立即改密**——登录页、首页横幅与账号页共用
-`meta.SeedPasswordNotice` 这一句文案，改提醒只需改那一处；`store.SeedPasswordUnchanged` 用一次口令校验判断账号是否仍在用默认口令。
+种子数据（`internal/repository` 的 `Seed`）只在**租户表为空**时写入一次（并发副本的「唯一索引冲突」按「已初始化」处理）：
+两个演示租户、四个内置角色与各自的 `owner` 管理员。口令来自 `seed.admin_password` / `YD_SEED_ADMIN_PASSWORD`，
+**不硬编码**：开发环境未配置时用文档化的 `meta.DevSeedAdminPassword` 并每次启动告警，其它环境未配置时**拒绝初始化**并告警；
+口令明文永不写入日志。**首次登录后必须立即改密**——登录页、首页横幅与账号页共用 `meta.SeedPasswordNotice` 这一句文案，
+改提醒只需改那一处；`store.SeedPasswordUnchanged` 用一次口令校验判断账号是否仍在用默认口令。
 
 ## 7. 提交纪律（强制）
 
@@ -140,6 +146,12 @@ yd gen module|crud   # 低代码生成（DB Schema 或 Go Struct）
   两份目录的键集合必须严格一致（脚手架测试会逐键核对），少一个键页面就会把键名原样显示出来。
 - 主题（浅色 / 深色 / 跟随系统）与语言切换都是纯客户端行为，落在 `{{ .AssetRoot }}/static/js/yd-app.js`；
   内容安全策略只允许 `script-src 'self'`，因此**禁止内联脚本**与内联样式。
+- **可选外部工具一律经 `yd tools`**：`betteralign` / `ko` / `tailwindcss` / `docker` 用 `yd tools check` 探测、
+  `yd tools install [名称...]` 安装（落在项目内 `.yd/tools/`，`GOBIN` 指向它的绝对路径）；
+  **禁止**手写 `go install` 装到全局，**禁止**改动 `PATH` 或往 `~/go/bin` 写东西。
+  四个工具都是可选的，缺失只影响对应能力，**不得**让 `yd build` / `yd dev` / `yd gen` / `go test` 或 CI 失败；
+  安装失败只告警（`yd new --yes` 不触网），判定哨兵一律用 `errors.Is`（`tools.ErrUnknownTool` /
+  `tools.ErrNoGoToolchain` / `tools.ErrNotInstallable` / `tools.ErrInstallFailed`）。
 
 ## 10. 服务化部署（强制）
 

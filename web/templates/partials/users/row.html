@@ -39,6 +39,22 @@
     (a fragment plus an HX-Trigger flash), because a rotated secret is never shown again.
     该按钮 POST 到 /users/{id}/rotate_key；处理函数只回显一次新密钥
     （片段加 HX-Trigger 闪现），因为轮换后的密钥不会再展示第二次。
+
+  Declarative guards | 声明式守卫:
+    This partial is rendered for one row, so the page level .Perm/.Role maps are not in its dot and
+    the guards are written with the registry's *constant names* instead - `perm "PermUserUpdate"`
+    resolves through authz and yd authz check resolves the very same name statically. The edit and
+    rotate buttons take the "disable" mode because a row whose shape changes between subjects is
+    harder to scan than one whose buttons are merely greyed out; the destructive delete is not
+    rendered at all for a subject that does not hold it.
+    A guard is UX only: whoever receives the hidden button can still post to the route, which is why
+    every one of these endpoints carries authz.Require / authz.Allow on the server.
+    本局部模板按单行渲染，因此页面级的 .Perm/.Role 映射不在它的点号里，守卫改用注册表的*常量名*书写——
+    `perm "PermUserUpdate"` 在运行时经 authz 解析，yd authz check 则静态解析同一个名字。
+    编辑与轮换按钮采用「变灰」模式：行在不同主体之间保持同样的形状，比少几个按钮更易扫读；
+    而破坏性的删除对未持有该能力的主体干脆不渲染。
+    守卫只是体验：拿到隐藏按钮的人依旧可以直接 POST 该路由，
+    因此这些端点每一个都在服务端挂了 authz.Require / authz.Allow。
 */}}
 {{- define "partials/users/row" -}}
 <tr class="yd-table__row" id="yd-user-{{.ID}}">
@@ -67,6 +83,7 @@
     <button type="button" class="yd-btn yd-btn--ghost yd-btn--sm"
             hx-get="/users/{{.ID}}/edit" hx-target="#yd-user-form-body" hx-swap="innerHTML"
             data-yd-modal-open="yd-user-dialog"
+            data-yd-perm="{{ perm "PermUserUpdate" }}" data-yd-perm-mode="disable"
             data-yd-i18n="action.edit">{{tr "action.edit"}}</button>
     {{if .Disabled}}
     <button type="button" class="yd-btn yd-btn--ghost yd-btn--sm"
@@ -85,18 +102,29 @@
          data-yd-i18n-attr writes the attributes of the very same node, comma separated.
          同一个元素可以同时挂两个钩子：data-yd-i18n 先写文本，随后 data-yd-i18n-attr 写同一节点的属性，
          多个属性以逗号分隔。 */}}
+    {{/* A rotated sec_key changes who can be impersonated, so the button is reserved for the
+         administrator role: data-yd-role-mode="disable" keeps the row's shape and the tooltip
+         explains why it is greyed out. | 轮换 sec_key 会改变谁能被冒用，因此该按钮保留给管理员角色：
+         data-yd-role-mode="disable" 保持行的形状，提示文案则说明它为何变灰。 */}}
     <button type="button" class="yd-btn yd-btn--ghost yd-btn--sm"
             hx-post="/users/{{.ID}}/rotate_key" hx-target="#yd-users-table" hx-swap="outerMorph"
             hx-confirm="{{tr "users.rotate_key_confirm"}}"
+            data-yd-role="{{ role "RoleAdmin" }}" data-yd-role-mode="disable"
             data-yd-i18n="users.action.rotate_key"
             data-yd-i18n-attr="title:users.action.rotate_key_hint, hx-confirm:users.rotate_key_confirm"
             title="{{tr "users.action.rotate_key_hint"}}">{{tr "users.action.rotate_key"}}</button>
+    {{/* Deletion is not offered at all to a subject that does not hold the capability: it is the one
+         action here that cannot be undone, and `can` decides it from the registry at render time.
+         对未持有该能力的主体，删除干脆不提供：它是这里唯一不可撤销的操作，
+         而 `can` 在渲染时从注册表得出该判定。 */}}
+    {{if can "PermUserDelete"}}
     {{/* hx-swap="delete" removes the row once the server has confirmed the deletion. | hx-swap="delete" 在服务端确认删除后移除该行。 */}}
     <button type="button" class="yd-btn yd-btn--ghost yd-btn--sm"
             hx-delete="/users/{{.ID}}" hx-target="closest tr" hx-swap="delete"
             hx-confirm="{{tr "users.delete_confirm"}}"
             data-yd-i18n="action.delete"
             data-yd-i18n-attr="hx-confirm:users.delete_confirm">{{tr "action.delete"}}</button>
+    {{end}}
   </td>
 </tr>
 {{- end -}}

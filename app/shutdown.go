@@ -88,13 +88,13 @@ func (a *App) Shutdown(ctx context.Context) error {
 		errs = append(errs, err)
 	}
 
-	// ③ gRPC 与 HTTP 各自独立，顺序固定以便诊断。| ③ gRPC is independent of HTTP; the order is fixed so failures stay diagnosable.
+	// ③ gRPC and HTTP are independent; the order is fixed to keep failures diagnosable. | ③ gRPC 与 HTTP 各自独立，顺序固定以便诊断。
 	if err := a.shutdownGRPC(ctx); err != nil {
 		a.log.Error("gRPC server failed to stop gracefully | gRPC 服务器未能优雅停止", logx.Err(err))
 		errs = append(errs, err)
 	}
 
-	// ④ 最后释放服务资源。| ④ Release service resources last.
+	// ④ Release service resources last. | ④ 最后释放服务资源。
 	if err := a.Close(ctx); err != nil {
 		errs = append(errs, err)
 	}

@@ -115,7 +115,7 @@ func TestKoCommandRegistered(t *testing.T) {
 		}
 		count++
 		if c.Run == nil || c.Flags == nil {
-			t.Error("ko 命令缺少 Run 或 Flags")
+			t.Error("the ko command is missing Run or Flags | ko 命令缺少 Run 或 Flags")
 		}
 		if c.Short == "" || !strings.Contains(c.Short, " | ") {
 			t.Errorf("Short 必须中英同步: %q", c.Short)

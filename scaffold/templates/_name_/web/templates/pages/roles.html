@@ -16,7 +16,12 @@
     * 冲突：409（内置角色不可删除）走同一条路径。
     * conflict: 409 (a built-in role cannot be deleted) takes the same path.
 
-  数据契约 | Data contract: .Roles .Catalogue .Total .Empty .CanRoleWrite。
+  数据契约 | Data contract: .Roles .Catalogue .Total .Empty，加上 authz.Data 注入的 .Perm——新建表单按
+  can .Perm.RoleManage 出现（POST /roles），去权限矩阵的入口按 can .Perm.RoleRead 出现（GET /roles 自身
+  与 /permissions 各由 role:read 与 permission:read 守卫）。
+  .Roles .Catalogue .Total .Empty, plus the .Perm map injected by authz.Data: the create form appears under
+  can .Perm.RoleManage (POST /roles) and the way into the matrix under can .Perm.RoleRead (/permissions itself is
+  guarded by permission:read).
 */}}
 <section class="yd-page" data-yd-page="roles" aria-labelledby="yd-roles-title">
   <header class="yd-page__header">
@@ -25,7 +30,7 @@
       <p class="yd-page__subtitle">{{ tr "page.roles.subtitle" .Total }}</p>
     </div>
     <div class="yd-page__actions">
-      {{- if .CanPermissionRead }}
+      {{- if can .Perm.PermissionRead }}
       <a class="yd-btn yd-btn--ghost" href="/permissions" hx-get="/permissions" hx-target="#yd-workspace" hx-swap="innerMorph" hx-push-url="true">
         {{ tr "nav.permissions" }}
       </a>
@@ -38,7 +43,7 @@
     {{ template "partials/roles/list" . }}
   </section>
 
-  {{- if .CanRoleWrite }}
+  {{- if can .Perm.RoleManage }}
   <section class="yd-card yd-section">
     <details class="yd-details" {{ if .Empty }}open{{ end }}>
       <summary class="yd-details__summary">{{ tr "page.roles.create" }}</summary>

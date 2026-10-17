@@ -116,12 +116,12 @@ func (r *Registry) Add(name string, fn ShutdownFunc) (remove func()) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if r.spent {
-		// 注册表已耗尽：登记也无处执行，明确返回空 remove 而不是静默堆积。| The registry is spent: registering would never run, so return an explicit no-op.
+		// The registry is spent: registering would never run, so return an explicit no-op. | 注册表已耗尽：登记也无处执行，明确返回空 remove 而不是静默堆积。
 		return func() {}
 	}
 	for i, existing := range r.hooks {
 		if existing.name == name {
-			// 同名原位覆盖：后注册者生效，先前的 remove 因身份消失而成为无操作。| Same name replaces in place; the earlier remove becomes a no-op.
+			// Same name replaces in place; the earlier remove becomes a no-op. | 同名原位覆盖：后注册者生效，先前的 remove 因身份消失而成为无操作。
 			r.hooks[i] = h
 			return func() { r.remove(h) }
 		}
@@ -242,7 +242,7 @@ func (r *Registry) Shutdown(ctx context.Context) error {
 		r.mu.Unlock()
 
 		if err := ctx.Err(); err != nil {
-			// 宽限期已到：不再启动新钩子，只记录跳过，保证 Shutdown 及时返回。| Grace period over: start no new hook, only record the skip, so Shutdown returns on time.
+			// Grace period over: start no new hook, only record the skip, so Shutdown returns on time. | 宽限期已到：不再启动新钩子，只记录跳过，保证 Shutdown 及时返回。
 			errs = append(errs, errx.WrapDetail(err, ErrShutdownTimeout,
 				"hook %[1]q skipped | 钩子 %[1]q 被跳过", h.name))
 			continue
@@ -264,7 +264,7 @@ func (r *Registry) runHook(ctx context.Context, h *hook) error {
 	go func() {
 		defer func() {
 			if p := recover(); p != nil {
-				// 单条钩子的 panic 必须在协程内恢复，否则会终结整个进程。| A hook panic must be recovered inside the goroutine or it takes the process down.
+				// A hook panic must be recovered inside the goroutine or it takes the process down. | 单条钩子的 panic 必须在协程内恢复，否则会终结整个进程。
 				result <- errx.Detail(ErrHookPanic, "hook %[1]q: %[2]v | 钩子 %[1]q：%[2]v", h.name, p)
 			}
 		}()

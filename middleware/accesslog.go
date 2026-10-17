@@ -49,7 +49,9 @@ func AccessLog(l *logx.Logger) router.Middleware {
 				logx.Dur("duration", time.Since(start)),
 			)
 			if rec != nil {
-				// Re-raise so Recover can finish the job. | 重新抛出，交给 Recover 收尾。
+				// Re-raise instead of swallowing: the request must not continue after a panic, and
+				// the outer Recover middleware owns the final response. | 重新抛出而不是吞掉 panic：
+				// 请求不得在 panic 之后继续执行，最终响应由更外层的 Recover 中间件负责。
 				panic(rec)
 			}
 		}()

@@ -1,0 +1,16 @@
+{{- if ne .DB "none" }}
+# 本地数据目录：SQLite 数据库文件默认落在这里（configs/config.yaml 的 db.dsn 指向 data/{{ .Name }}.db）。
+# Local data directory: the SQLite database file lands here by default (db.dsn in configs/config.yaml points at data/{{ .Name }}.db).
+# 这个占位文件只是让目录进入版本库——SQLite 驱动不会自建父目录，目录不存在时连接会以 SQLITE_CANTOPEN 失败。
+# This placeholder only keeps the directory in version control: the SQLite driver never creates a parent directory, and a
+# missing one fails the connection with SQLITE_CANTOPEN.
+# 库文件（含 -wal / -shm 边车文件）不入库，见 .gitignore；生产环境请把 db.dsn 写成绝对路径。
+# Database files (including the -wal / -shm sidecars) stay out of version control, see .gitignore; in production, make
+# db.dsn an absolute path.
+{{- else }}
+# 数据目录占位：本项目生成时未选择数据库（yd new --db none），鉴权数据只存于内存，进程重启即丢失。
+# Data directory placeholder: this project was generated without a database (yd new --db none), so auth data lives in
+# memory only and dies with the process.
+# 想接上数据库，就在 configs/config.yaml 里补一段 db（driver / dsn），重启后数据即落入数据库。
+# To attach one, add a db section (driver / dsn) to configs/config.yaml: the next start stores the data in it.
+{{- end }}

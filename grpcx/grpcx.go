@@ -105,8 +105,8 @@ func IsGRPCRequest(r *http.Request) bool {
 // OptionsFromConfig reads gRPC settings from the layered config. | OptionsFromConfig 从分层配置读取 gRPC 设置。
 func OptionsFromConfig(c *config.Config) Options {
 	if c == nil {
-		// 即使没有配置对象，也必须给出可用的默认模式，
-		// 否则调用方拿到空模式后无法判断该用哪种传输方式。
+		// Even without a config object we must still return a usable default mode, | 即使没有配置对象，也必须给出可用的默认模式，
+		// otherwise a caller holding an empty mode cannot tell which transport to use. | 否则调用方拿到空模式后无法判断该用哪种传输方式。
 		return Options{}.withDefaults()
 	}
 	return Options{

@@ -126,7 +126,7 @@ func TestServiceCommandRegistered(t *testing.T) {
 		}
 		count++
 		if c.Run == nil || c.Flags == nil {
-			t.Error("service 命令缺少 Run 或 Flags")
+			t.Error("the service command is missing Run or Flags | service 命令缺少 Run 或 Flags")
 		}
 		if c.Usage != serviceUsageLine {
 			t.Errorf("Usage = %q，期望 %q", c.Usage, serviceUsageLine)
@@ -308,7 +308,7 @@ service:
 		t.Errorf("参数 = %v，期望 [-service run]", rec.seen.Arguments)
 	}
 	if !rec.seen.RestartOnExit {
-		t.Error("restart_on_exit 未映射到 Options.RestartOnExit")
+		t.Error("restart_on_exit was not mapped onto Options.RestartOnExit | restart_on_exit 未映射到 Options.RestartOnExit")
 	}
 }
 

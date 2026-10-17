@@ -49,12 +49,12 @@ func Verify(fsys afero.Fs, m *Manifest, root string) (*VerifyReport, error) {
 
 		if !afs.Exists(fsys, local) {
 			rep.Missing = append(rep.Missing, a.Name)
-			errs = append(errs, errx.Detail(ErrVerifyFailed, "%s: %s 缺失", a.Name, local))
+			errs = append(errs, errx.Detail(ErrVerifyFailed, "%[1]s: %[2]s is missing | %[1]s: %[2]s 缺失", a.Name, local))
 			continue
 		}
 		if a.SHA256 == "" {
 			rep.Mismatch = append(rep.Mismatch, a.Name)
-			errs = append(errs, errx.Detail(ErrVerifyFailed, "%s: 未锁定校验和", a.Name))
+			errs = append(errs, errx.Detail(ErrVerifyFailed, "%[1]s: no locked checksum | %[1]s: 未锁定校验和", a.Name))
 			continue
 		}
 
@@ -66,7 +66,7 @@ func Verify(fsys afero.Fs, m *Manifest, root string) (*VerifyReport, error) {
 		}
 		if sum != a.SHA256 {
 			rep.Mismatch = append(rep.Mismatch, a.Name)
-			errs = append(errs, errx.Detail(ErrVerifyFailed, "%s: 锁定 %s，实际 %s", a.Name, a.SHA256, sum))
+			errs = append(errs, errx.Detail(ErrVerifyFailed, "%[1]s: locked %[2]s, actual %[3]s | %[1]s: 锁定 %[2]s，实际 %[3]s", a.Name, a.SHA256, sum))
 			continue
 		}
 		rep.OK = append(rep.OK, a.Name)

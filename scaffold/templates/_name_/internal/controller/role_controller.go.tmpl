@@ -52,7 +52,7 @@ func (c *Controller) Roles(ctx *router.Ctx) {
 // @Param permissions formData []string false "capability tokens | 能力标识"
 // @Success 200 {object} string "refreshed role list fragment | 刷新后的角色列表片段"
 // @Failure 401 {object} string "no session | 无有效会话"
-// @Failure 403 {object} string "missing role:write | 缺少 role:write"
+// @Failure 403 {object} string "missing role:manage | 缺少 role:manage"
 // @Failure 422 {object} string "unknown capability or empty name | 未知能力或名称为空"
 // @Security BearerAuth
 // @Router /roles [post]
@@ -95,7 +95,7 @@ func (c *Controller) SaveRole(ctx *router.Ctx) {
 // @Param granted formData string true "true to grant, anything else revokes | true 为授予，其余为回收"
 // @Success 200 {object} string "refreshed role list fragment | 刷新后的角色列表片段"
 // @Failure 401 {object} string "no session | 无有效会话"
-// @Failure 403 {object} string "missing role:write | 缺少 role:write"
+// @Failure 403 {object} string "missing role:update | 缺少 role:update"
 // @Failure 404 {object} string "no such role in this tenant | 本租户内没有该角色"
 // @Failure 422 {object} string "unknown capability | 未知能力"
 // @Security BearerAuth
@@ -136,7 +136,7 @@ func (c *Controller) ToggleRolePermission(ctx *router.Ctx) {
 // @Param id path string true "role id | 角色 ID"
 // @Success 200 {object} string "refreshed role list fragment | 刷新后的角色列表片段"
 // @Failure 401 {object} string "no session | 无有效会话"
-// @Failure 403 {object} string "missing role:write | 缺少 role:write"
+// @Failure 403 {object} string "missing role:delete | 缺少 role:delete"
 // @Failure 404 {object} string "no such role in this tenant | 本租户内没有该角色"
 // @Failure 409 {object} string "built-in roles are protected | 内置角色受保护"
 // @Security BearerAuth

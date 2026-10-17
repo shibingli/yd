@@ -73,13 +73,21 @@ const (
 	DevMasterKey = "yd-scaffold-development-master-key-please-replace"
 )
 
-// 种子数据：一条命令即得到可登录的演示环境，README 与登录页展示的默认凭据都取自这里。
-// Seed data: one command yields a sign-in-ready demo environment, and the default credentials shown by the README and by
+// 种子数据：一条命令即得到可登录的演示环境，README 与登录页展示的凭据线索都取自这里。
+// Seed data: one command yields a sign-in-ready demo environment, and the credential pointers shown by the README and by
 // the sign-in page are read from here.
 //
-// 口令明文只出现在这一处，且仅在首次种子写入时使用；数据库里保存的永远是 SM2/SM3 散列过的口令与逐用户 sec_key。
-// The clear-text passwords appear here and nowhere else, are used only by the very first seed write, and what the store
-// keeps is always a hashed password plus a per-user sec_key.
+// 口令**不在**这里，这是刻意的：种子口令来自配置键 seed.admin_password（环境变量 YD_SEED_ADMIN_PASSWORD 覆盖它）。
+// 开发环境未配置时使用下面那个文档化的开发口令并每次启动告警；**非 development 环境**未配置时整个种子写入被拒绝——
+// 一个口令公开可查的管理员账号不该在任何真实环境里被创建，而在此之前，它会在任何环境里被创建。
+// The passwords are deliberately **not** here: the seed password comes from the configuration key seed.admin_password
+// (which YD_SEED_ADMIN_PASSWORD overrides). Development falls back to the documented development password below and warns
+// on every start, while an environment that does not call itself development refuses the seed entirely — an administrator
+// account whose password is publicly documented must never be created in a real environment.
+//
+// 库里保存的永远是 SM3 + 盐 + 迭代的散列与逐用户 sec_key，明文只在内置开发口令这一处存在。
+// What the store keeps is always an SM3 + salt + iterations hash plus a per-user sec_key; the only clear text that exists
+// at all is the built-in development password below.
 const (
 	// SeedTenantSlug is the demo tenant's key (the X-Tenant header and the subdomain both use it). | SeedTenantSlug 是演示租户的标识（X-Tenant 请求头与子域名都用它）。
 	SeedTenantSlug = "demo"
@@ -89,8 +97,6 @@ const (
 	SeedAdminUsername = "admin"
 	// SeedAdminEmail is the demo administrator's e-mail address. | SeedAdminEmail 是演示租户管理员的邮箱。
 	SeedAdminEmail = "admin@example.com"
-	// SeedAdminPassword is the demo administrator's initial password. | SeedAdminPassword 是演示租户管理员的初始口令。
-	SeedAdminPassword = "Admin@123456"
 
 	// SeedOpsSlug 是第二个租户的标识：它让「跨租户不可见」成为一条可被自动化验证的硬边界，而不是一句承诺。
 	// SeedOpsSlug is the second tenant's key: it turns "tenants cannot see each other" into an automation-verifiable hard
@@ -102,8 +108,23 @@ const (
 	SeedOpsAdminUsername = "acme-admin"
 	// SeedOpsAdminEmail is the second tenant administrator's e-mail address. | SeedOpsAdminEmail 是第二个租户管理员的邮箱。
 	SeedOpsAdminEmail = "acme-admin@example.com"
-	// SeedOpsAdminPassword is the second tenant administrator's initial password. | SeedOpsAdminPassword 是第二个租户管理员的初始口令。
-	SeedOpsAdminPassword = "Acme@123456"
+
+	// SeedPasswordConfigKey 是种子管理员口令的配置键；configs/config.yaml、README 与告警引用同一处。
+	// SeedPasswordConfigKey is the configuration key of the seeded administrators' password, quoted by configs/config.yaml,
+	// by the README and by the warnings.
+	SeedPasswordConfigKey = "seed.admin_password"
+	// SeedPasswordEnvKey 是覆盖它的环境变量名（环境变量始终胜过配置文件），告警与 README 引用同一处。
+	// SeedPasswordEnvKey is the environment variable that overrides it (the environment always beats the file), quoted by
+	// the warnings and by the README.
+	SeedPasswordEnvKey = EnvPrefix + "SEED_ADMIN_PASSWORD"
+	// DevSeedAdminPassword 是文档化的开发口令：仅在 seed.admin_password 未配置**且** app.env 为 development 时使用，
+	// 且每次启动都会告警。它存在的意义是让刚生成的项目开箱即可登录；它被印在 README 与登录页上，
+	// 而这正是它绝不允许出现在其它任何环境的原因。
+	// DevSeedAdminPassword is the documented development password: it applies only while seed.admin_password is unset
+	// **and** app.env is development, and every start warns about it. It exists so a freshly generated project is
+	// sign-in-ready; it is printed in the README and on the sign-in page, which is exactly why it must never be used in any
+	// other environment.
+	DevSeedAdminPassword = "Admin@123456"
 
 	// SeedPasswordNotice 是首登必改口令的提示文案，登录页、首页横幅与 README 引用同一句。
 	// SeedPasswordNotice is the mandatory password-change notice shown at first sign-in; the sign-in page, the home

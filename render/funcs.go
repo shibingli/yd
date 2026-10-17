@@ -30,10 +30,18 @@ type assetCache struct {
 // "tr" is included: it returns the message key itself until a translator is
 // injected through the render data, see TranslatorKey and tr. | 其中包含 "tr"：
 // 在通过渲染数据注入译者之前它返回消息键本身，见 TranslatorKey 与 tr。
+//
+// "can", "hasRole", "perm" and "role" are included too: they grant nothing and
+// return their argument until an authority is injected through AuthzKey. | 其中还包含
+// "can"、"hasRole"、"perm" 与 "role"：在通过 AuthzKey 注入判定主体之前，它们不授予任何能力并原样返回参数。
 func Funcs(fsys afero.Fs) template.FuncMap {
 	cache := &assetCache{seen: map[string]string{}}
 	return template.FuncMap{
 		"tr":        tr,
+		"can":       can,
+		"hasRole":   hasRole,
+		"perm":      perm,
+		"role":      role,
 		"dict":      dict,
 		"list":      list,
 		"default":   dfault,

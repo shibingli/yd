@@ -18,6 +18,7 @@ import (
 	"github.com/shibingli/yd/errx"
 	"github.com/shibingli/yd/logx"
 	"github.com/shibingli/yd/scaffold"
+	"github.com/shibingli/yd/tools"
 	"github.com/spf13/afero"
 	"github.com/spf13/pflag"
 )
@@ -49,6 +50,9 @@ const (
 	flagNewForce = "force"
 	// flagNewYes answers every question with its default. | flagNewYes 对所有问题取默认值。
 	flagNewYes = "yes"
+	// flagNewInstallTools installs the missing optional external tools without asking. | flagNewInstallTools
+	// 不提问直接安装缺失的可选外部工具。
+	flagNewInstallTools = "install-tools"
 	// flagNewLocalReplace points the generated go.mod at a local framework checkout. | flagNewLocalReplace 让生成的 go.mod 指向本地框架仓库。
 	flagNewLocalReplace = "local-replace"
 )
@@ -93,6 +97,7 @@ func registerNewFlags(fs *pflag.FlagSet) {
 	fs.String(flagNewLicense, "", "licence identifier, defaults to Apache-2.0 | 开源协议标识，默认为 Apache-2.0")
 	fs.Bool(flagNewForce, false, "overwrite files that differ from the templates | 覆盖与模板不一致的文件")
 	fs.BoolP(flagNewYes, "y", false, "keep every default without prompting | 取默认值，不提问")
+	fs.Bool(flagNewInstallTools, false, "install the missing optional external tools (betteralign, ko) into the new project | 把缺失的可选外部工具（betteralign、ko）安装到新项目")
 	fs.String(flagNewLocalReplace, "", "local framework checkout, become a go.mod replace (relative paths resolve against the working directory) | 本地框架仓库，写入 go.mod 的 replace（相对路径以工作目录为基准）")
 	newFlags = fs
 }
@@ -120,7 +125,61 @@ func runNew(ctx context.Context, env *Env) error {
 	}
 
 	printNewReport(env, opts, res)
+	newToolStep(ctx, env, fs, opts.Name)
 	return nil
+}
+
+// newToolStep reports the optional external tools that are missing and, when the user asks for it,
+// installs them into the new project. | newToolStep 报告缺失的可选外部工具，并在用户要求时把它们安装到新项目中。
+//
+// The project is already generated at this point, so nothing here may fail `yd new`: an installation
+// failure only logs a warning and the command still succeeds, exactly like a missing optional tool
+// never fails a build (CLAUDE.md §8). | 此时项目已经生成完毕，因此这里绝不能让 `yd new` 失败：安装失败只记一条告警，
+// 命令仍然成功——正如可选工具缺失绝不让构建失败（CLAUDE.md §8）。
+//
+// Installing is a network side effect, so it is always explicit: the interview asks on a terminal with
+// "yes" as the default answer, and `--install-tools` forces it in scripts and CI. `--yes` alone only
+// prints the hints, because `yd new --yes` is the e2e entry point and must stay offline. | 安装是网络副作用，
+// 因此永远显式：终端下由问答征求同意且默认答「是」，脚本与 CI 用 `--install-tools` 强制。仅传 `--yes` 时只打印提示，
+// 因为 `yd new --yes` 是 e2e 的入口，必须保持离线。
+func newToolStep(ctx context.Context, env *Env, fs *pflag.FlagSet, name string) {
+	dir := filepath.Join(env.WorkDir, name)
+	if len(tools.Missing(dir)) == 0 {
+		return
+	}
+	fmt.Fprintf(env.Out, "missing tools | 缺失工具:\n")
+	for _, line := range tools.Hints(dir) {
+		fmt.Fprintf(env.Out, "%s\n", line)
+	}
+	if !newInstallToolsEnabled(env, fs) {
+		return
+	}
+
+	report, err := tools.InstallAll(ctx, dir, commandLogger(env))
+	if report != nil {
+		printToolsReport(env, report)
+	}
+	if err != nil {
+		commandLogger(env).Warn("tool installation failed; the project is unaffected | 工具安装失败，项目不受影响",
+			logx.Str("error", err.Error()))
+	}
+}
+
+// newInstallToolsEnabled reports whether the missing tools should be installed right away. | newInstallToolsEnabled 报告是否应立即安装缺失的工具。
+func newInstallToolsEnabled(env *Env, fs *pflag.FlagSet) bool {
+	if flagBool(fs, flagNewInstallTools) {
+		return true
+	}
+	if !newPromptsEnabled(env, fs) {
+		return false
+	}
+	answer, err := Confirm(env, "现在就安装缺失的工具吗？| Install the missing tools now?", true)
+	if err != nil {
+		commandLogger(env).Warn("cannot read the install answer; keeping the hints only | 无法读取安装选择，只保留提示",
+			logx.Str("error", err.Error()))
+		return false
+	}
+	return answer
 }
 
 // newProjectName reads the project name from the positional argument, asking for it interactively when it

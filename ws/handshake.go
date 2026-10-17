@@ -44,32 +44,32 @@ func Upgrade(w http.ResponseWriter, r *http.Request, o Options) (*Conn, error) {
 
 	if r.Method != http.MethodGet {
 		w.Header().Set("Allow", http.MethodGet)
-		http.Error(w, "WebSocket 握手必须使用 GET", http.StatusMethodNotAllowed)
+		http.Error(w, "WebSocket handshake requires GET | WebSocket 握手必须使用 GET", http.StatusMethodNotAllowed)
 		return nil, errx.Detail(ErrHandshake, "method %[1]s | 方法 %[1]s", r.Method)
 	}
 	if !headerContainsToken(r.Header, "Connection", "upgrade") {
-		http.Error(w, "Connection 头缺少 upgrade", http.StatusBadRequest)
+		http.Error(w, "Connection header lacks upgrade | Connection 头缺少 upgrade", http.StatusBadRequest)
 		return nil, errx.Detail(ErrHandshake, "Connection header lacks upgrade | Connection 头缺少 upgrade")
 	}
 	if !strings.EqualFold(strings.TrimSpace(r.Header.Get("Upgrade")), "websocket") {
-		http.Error(w, "Upgrade 头必须为 websocket", http.StatusBadRequest)
+		http.Error(w, "Upgrade header must be websocket | Upgrade 头必须为 websocket", http.StatusBadRequest)
 		return nil, errx.Detail(ErrHandshake, "Upgrade header is invalid | Upgrade 头非法")
 	}
 	if v := r.Header.Get("Sec-WebSocket-Version"); v != "13" {
 		w.Header().Set("Sec-WebSocket-Version", "13")
-		http.Error(w, "仅支持 WebSocket 版本 13", http.StatusUpgradeRequired)
+		http.Error(w, "only WebSocket version 13 is supported | 仅支持 WebSocket 版本 13", http.StatusUpgradeRequired)
 		return nil, errx.Detail(ErrHandshake, "unsupported version %[1]q | 版本 %[1]q 不受支持", v)
 	}
 
 	key := r.Header.Get("Sec-WebSocket-Key")
 	decoded, err := b64x.StdEncoding.DecodeString(key)
 	if err != nil || len(decoded) != 16 {
-		http.Error(w, "Sec-WebSocket-Key 必须是 16 字节的 base64", http.StatusBadRequest)
+		http.Error(w, "Sec-WebSocket-Key must be 16 bytes of base64 | Sec-WebSocket-Key 必须是 16 字节的 base64", http.StatusBadRequest)
 		return nil, errx.Detail(ErrHandshake, "invalid Sec-WebSocket-Key | Sec-WebSocket-Key 非法")
 	}
 
 	if !checkOrigin(r, o.CheckOrigin) {
-		http.Error(w, "Origin 校验未通过", http.StatusForbidden)
+		http.Error(w, "Origin check failed | Origin 校验未通过", http.StatusForbidden)
 		return nil, ErrOriginNotAllowed
 	}
 
@@ -77,7 +77,7 @@ func Upgrade(w http.ResponseWriter, r *http.Request, o Options) (*Conn, error) {
 
 	hj, ok := w.(http.Hijacker)
 	if !ok {
-		http.Error(w, "当前连接不支持协议升级", http.StatusInternalServerError)
+		http.Error(w, "the current connection does not support protocol upgrade | 当前连接不支持协议升级", http.StatusInternalServerError)
 		return nil, ErrHijackUnsupported
 	}
 	netConn, brw, err := hj.Hijack()
@@ -107,7 +107,7 @@ func Upgrade(w http.ResponseWriter, r *http.Request, o Options) (*Conn, error) {
 
 	c := newConn(netConn, o, false)
 	c.subprotocol = sub
-	// 登记必须在握手响应写出之后：此刻连接已是可用的 WebSocket，关闭帧才有意义。| Registration happens after the handshake response: only then is the connection a usable WebSocket that a close frame can address.
+	// Registration must happen after the handshake response is written: only then is the connection a usable WebSocket that a close frame can address. | 登记必须在握手响应写出之后：此刻连接已是可用的 WebSocket，关闭帧才有意义。
 	c.setTracker(o.Tracker)
 	// a client may pipeline data right after the handshake, so the read buffer returned by Hijack may already hold content; | 客户端可能在握手后立刻流水线发送数据，Hijack 返回的读缓冲里可能已有内容，
 	// in that case the buffer must keep being used, or frames would be lost. | 此时必须继续使用该缓冲，否则会丢帧。

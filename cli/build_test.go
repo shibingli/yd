@@ -246,7 +246,7 @@ func TestBuildCommandRegistered(t *testing.T) {
 		}
 		count++
 		if c.Run == nil || c.Flags == nil {
-			t.Error("build 命令缺少 Run 或 Flags")
+			t.Error("the build command is missing Run or Flags | build 命令缺少 Run 或 Flags")
 		}
 		if c.Usage != buildUsageLine {
 			t.Errorf("Usage = %q，期望 %q", c.Usage, buildUsageLine)

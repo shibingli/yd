@@ -279,7 +279,7 @@ func TestHtmxHandlerEchoAndCallbacks(t *testing.T) {
 			t.Fatalf("关闭码 = %d, 期望 %d（不支持的数据类型）", ce.Code, CloseUnsupportedData)
 		}
 		if ce.Text == "" {
-			t.Fatal("关闭原因不应为空")
+			t.Fatal("the close reason must not be empty | 关闭原因不应为空")
 		}
 
 		closeErr := recvOrTimeout(t, h.strict.closed, 3*time.Second, "OnClose 回调")
@@ -321,7 +321,7 @@ func TestHtmxHandlerEchoAndCallbacks(t *testing.T) {
 		}
 		select {
 		case <-h.chat.opened:
-			t.Fatal("升级失败时不得触发 OnOpen")
+			t.Fatal("OnOpen must not fire when the upgrade fails | 升级失败时不得触发 OnOpen")
 		default:
 		}
 	})

@@ -293,7 +293,7 @@ func TestCompressSkipsAlreadyEncoded(t *testing.T) {
 		t.Fatalf("Content-Encoding = %q, 期望保持 br", got)
 	}
 	if rec.Body.String() != strings.Repeat(payload, 200) {
-		t.Fatal("已压缩响应不得被二次压缩")
+		t.Fatal("an already compressed response must not be compressed twice | 已压缩响应不得被二次压缩")
 	}
 }
 
@@ -313,7 +313,7 @@ func TestCompressSkipsSSE(t *testing.T) {
 			visibleAfterFlush = append(visibleAfterFlush, rec.Body.Len())
 		}
 		if wrappedByCompress(c.Writer) {
-			t.Error("SSE 响应在判定后仍被包装")
+			t.Error("the SSE response is still wrapped after the decision | SSE 响应在判定后仍被包装")
 		}
 	})
 
@@ -364,7 +364,7 @@ func TestCompressSkipsHeadRequest(t *testing.T) {
 	r.Use(Compress(CompressOptions{}))
 	r.HEAD("/page", func(c *router.Ctx) {
 		if wrappedByCompress(c.Writer) {
-			t.Error("HEAD 请求不得被包装")
+			t.Error("a HEAD request must not be wrapped | HEAD 请求不得被包装")
 		}
 		c.SetHeader("Content-Length", fmt.Sprint(len(bigBody)))
 		c.SetHeader("Content-Type", "text/html; charset=utf-8")
@@ -385,10 +385,10 @@ func TestCompressSkipsUpgradeRequest(t *testing.T) {
 	r.Use(Compress(CompressOptions{}))
 	r.GET("/ws", func(c *router.Ctx) {
 		if wrappedByCompress(c.Writer) {
-			t.Error("升级请求不得被包装")
+			t.Error("an upgrade request must not be wrapped | 升级请求不得被包装")
 		}
 		if _, ok := c.Writer.(http.Hijacker); !ok {
-			t.Error("升级请求的写入器必须保留 http.Hijacker")
+			t.Error("the upgrade request's writer must keep http.Hijacker | 升级请求的写入器必须保留 http.Hijacker")
 		}
 		_ = c.String(http.StatusOK, "upgraded")
 	})
@@ -492,11 +492,11 @@ func TestEncoderPoolReuse(t *testing.T) {
 			defer wg.Done()
 			rec := doReq(r, http.MethodGet, "/page", map[string]string{"Accept-Encoding": enc}, "")
 			if got := rec.Header().Get("Content-Encoding"); got != enc {
-				errs <- errx.Detail(errRoundTripMismatch, "第 %d 轮 Content-Encoding = %q, 期望 %q", i, got, enc)
+				errs <- errx.Detail(errRoundTripMismatch, "round %[1]d: Content-Encoding = %[2]q, want %[3]q | 第 %[1]d 轮 Content-Encoding = %[2]q, 期望 %[3]q", i, got, enc)
 				return
 			}
 			if got := decompressBody(t, enc, rec.Body.Bytes()); got != bigBody {
-				errs <- errx.Detail(errRoundTripMismatch, "第 %d 轮往返结果不一致", i)
+				errs <- errx.Detail(errRoundTripMismatch, "round %[1]d: round-trip result mismatch | 第 %[1]d 轮往返结果不一致", i)
 			}
 		}(i, enc)
 	}

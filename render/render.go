@@ -29,6 +29,13 @@
 // The value under TranslatorKey must satisfy Translator, as i18n.Translator
 // does; the app facade fills the key in for every request. | TranslatorKey 下的值
 // 必须满足 Translator，i18n.Translator 即如此；app 门面会为每个请求填入该键。
+//
+// Permissions work the same way: a value satisfying Authz under AuthzKey makes
+// `can`, `hasRole`, `perm` and `role` decide for that one execution, and the
+// authz package builds that value - together with the maps a template reads as
+// .Perm and .Role and the JSON payload of the front end - in one call. | 权限同理：
+// AuthzKey 下满足 Authz 的值会让 `can`、`hasRole`、`perm` 与 `role` 在该次执行中作出判定，
+// 而 authz 包用一次调用就构造出该值——连同模板以 .Perm 与 .Role 读取的映射、以及前端所需的 JSON 载荷。
 package render
 
 import (
@@ -260,8 +267,11 @@ func (e *Engine) matchExt(p string) bool {
 // Render executes the named template into w. | Render 把指定名称的模板渲染到 w。
 //
 // A translator injected into a map[string]any data value under TranslatorKey
-// (see Translator) is bound to `tr` for this execution only. | 通过
-// TranslatorKey 键注入 map[string]any 型数据的译者（见 Translator）仅对本次执行绑定到 `tr`。
+// (see Translator) is bound to `tr` for this execution only, and an authority
+// injected under AuthzKey (see Authz) is bound to `can`, `hasRole`, `perm` and
+// `role` the same way. | 通过 TranslatorKey 键注入 map[string]any 型数据的译者（见 Translator）
+// 仅对本次执行绑定到 `tr`；通过 AuthzKey 注入的判定主体（见 Authz）以同样的方式绑定到
+// `can`、`hasRole`、`perm` 与 `role`。
 func (e *Engine) Render(w io.Writer, name string, data any) error {
 	if e.opts.Dev {
 		if err := e.load(); err != nil {
@@ -283,30 +293,27 @@ func (e *Engine) Render(w io.Writer, name string, data any) error {
 
 // executionSet returns the template set data must be executed with. | executionSet 返回执行 data 应使用的模板集。
 //
-// Without an injected translator it hands back the cached set as is, which is
-// the path every render without i18n takes. | 未注入译者时原样返回缓存集合，
-// 这是所有未启用 i18n 的渲染所走的路径。
+// Without any injected authority it hands back the cached set as is, which is the path every
+// render without i18n and without permissions takes. | 未注入任何判定主体时原样返回缓存集合，
+// 这是所有既未启用 i18n 也无权限判定的渲染所走的路径。
 //
-// With one it clones the pristine set and rebinds "tr" to that translator for
-// this execution only: a template set is shared between goroutines and its
-// function map cannot be swapped after escaping, so a per-execution copy is the
-// only safe way to give two concurrent requests two different translators. | 注入译者时
-// 则克隆原始集合并仅对本次执行把 "tr" 重新绑定到该译者：模板集在多个 goroutine 间共享，
-// 且其函数表在转义后无法替换，因此「每次执行一份副本」是让两个并发请求使用两个不同译者的
-// 唯一安全做法。
+// With one it clones the pristine set and rebinds the helpers that authority owns - "tr" for a
+// translator, "can"/"hasRole"/"perm"/"role" for an Authz - for this execution only: a template set
+// is shared between goroutines and its function map cannot be swapped after escaping, so a
+// per-execution copy is the only safe way to give two concurrent requests two different subjects. |
+// 注入判定主体时则克隆原始集合，并仅对本次执行重新绑定该主体拥有的辅助函数——译者绑定 "tr"，
+// Authz 绑定 "can"/"hasRole"/"perm"/"role"：模板集在多个 goroutine 间共享，且其函数表在转义后无法替换，
+// 因此「每次执行一份副本」是让两个并发请求使用两个不同主体的唯一安全做法。
 //
-// A "tr" registered through Options.Funcs wins and disables the binding. | 经
-// Options.Funcs 注册的 "tr" 优先，并会关闭该绑定。
+// A helper registered through Options.Funcs wins over the binding of the same name. | 经
+// Options.Funcs 注册的同名辅助函数优先于该绑定。
 func (e *Engine) executionSet(data any) (*template.Template, error) {
 	e.mu.RLock()
 	executed, source := e.tmpl, e.source
 	e.mu.RUnlock()
 
-	translator := translatorFrom(data)
-	if _, own := e.opts.Funcs["tr"]; own || translator == nil {
-		return executed, nil
-	}
-	if source == nil {
+	bindings := e.bindings(data)
+	if len(bindings) == 0 || source == nil {
 		return executed, nil
 	}
 
@@ -314,7 +321,37 @@ func (e *Engine) executionSet(data any) (*template.Template, error) {
 	if err != nil {
 		return nil, errx.Wrap(err, ErrCloneTemplate)
 	}
-	return bound.Funcs(template.FuncMap{"tr": translatorFunc(translator)}), nil
+	return bound.Funcs(bindings), nil
+}
+
+// bindings returns the per-execution functions data asks for. | bindings 返回 data 请求的按次执行函数。
+//
+// It is the single place that decides what a data value can rebind, and it returns nil - not an
+// empty map - when there is nothing to bind, so the common path allocates nothing. | 这里是决定
+// 「一份数据能重绑什么」的唯一位置；没有可绑定项时返回 nil（而不是空映射），因此常见路径不产生任何分配。
+func (e *Engine) bindings(data any) template.FuncMap {
+	var bindings template.FuncMap
+	if t := translatorFrom(data); t != nil && !e.owns("tr") {
+		bindings = template.FuncMap{"tr": translatorFunc(t)}
+	}
+	if a := authzFrom(data); a != nil {
+		for name, fn := range authzFuncs(a) {
+			if e.owns(name) {
+				continue
+			}
+			if bindings == nil {
+				bindings = template.FuncMap{}
+			}
+			bindings[name] = fn
+		}
+	}
+	return bindings
+}
+
+// owns reports whether the engine registered its own function under name. | owns 报告引擎是否以该名字注册了自己的函数。
+func (e *Engine) owns(name string) bool {
+	_, ok := e.opts.Funcs[name]
+	return ok
 }
 
 // Exists reports whether a template name is known. | Exists 报告模板名是否为已知模板。

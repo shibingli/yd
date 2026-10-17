@@ -22,7 +22,7 @@ func mustKey(t *testing.T) (*PrivateKey, *PublicKey) {
 		t.Fatalf("GenerateKey() 返回错误: %v", err)
 	}
 	if priv == nil || priv.Raw() == nil || priv.Public() == nil {
-		t.Fatal("GenerateKey() 返回了空密钥")
+		t.Fatal("GenerateKey() returned an empty key | GenerateKey() 返回了空密钥")
 	}
 	return priv, priv.Public()
 }
@@ -56,10 +56,10 @@ func TestGenerateKeyIsValidAndRandom(t *testing.T) {
 		t.Fatalf("私钥 D 越界: %v", raw.D)
 	}
 	if !raw.Curve.IsOnCurve(raw.X, raw.Y) {
-		t.Fatal("由私钥导出的公钥不在 SM2 曲线上")
+		t.Fatal("the public key exported from the private key is not on the SM2 curve | 由私钥导出的公钥不在 SM2 曲线上")
 	}
 	if !pub.Raw().Curve.IsOnCurve(pub.Raw().X, pub.Raw().Y) {
-		t.Fatal("PublicKey 不在 SM2 曲线上")
+		t.Fatal("PublicKey is not on the SM2 curve | PublicKey 不在 SM2 曲线上")
 	}
 	if got := len(priv.Hex()); got != 64 {
 		t.Fatalf("私钥十六进制长度 = %d, want 64", got)
@@ -71,7 +71,7 @@ func TestGenerateKeyIsValidAndRandom(t *testing.T) {
 
 	priv2, _ := mustKey(t)
 	if priv2.Hex() == priv.Hex() {
-		t.Fatal("两次生成的私钥不应相同")
+		t.Fatal("two generated private keys must not be identical | 两次生成的私钥不应相同")
 	}
 	if got := PublicKeyToHex(pub); got != pubHex {
 		t.Fatalf("PublicKeyToHex = %s, want %s", got, pubHex)
@@ -132,7 +132,7 @@ func TestSM2EncryptDecryptRoundTrip(t *testing.T) {
 				t.Fatalf("第二次 EncryptRaw 返回错误: %v", err)
 			}
 			if bytes.Equal(rawCT, rawCT2) {
-				t.Fatal("两次加密的密文相同，随机数复用")
+				t.Fatal("both encryptions produced the same ciphertext, the random nonce is reused | 两次加密的密文相同，随机数复用")
 			}
 		})
 	}
@@ -167,7 +167,7 @@ func TestSM2EncryptRawLayout(t *testing.T) {
 	x1 := new(big.Int).SetBytes(rawCT[:32])
 	y1 := new(big.Int).SetBytes(rawCT[32:64])
 	if !pub.Raw().Curve.IsOnCurve(x1, y1) {
-		t.Fatal("原始密文的 C1 不是 SM2 曲线上的点")
+		t.Fatal("C1 of the raw ciphertext is not a point on the SM2 curve | 原始密文的 C1 不是 SM2 曲线上的点")
 	}
 
 	// C3 must equal SM3(x2 || M || y2), where (x2, y2) = d * C1. | C3 必须等于 SM3(x2 || M || y2)，其中 (x2, y2) = d * C1。
@@ -232,7 +232,7 @@ func TestSM2EncryptDecryptCrossCheckWithGmsm(t *testing.T) {
 		t.Fatalf("Sign 返回错误: %v", err)
 	}
 	if !pub.Raw().Verify(data, sig) {
-		t.Fatal("gmsm 未能验证本包签名")
+		t.Fatal("gmsm could not verify this package's signature | gmsm 未能验证本包签名")
 	}
 	gSig, err := priv.Raw().Sign(rand.Reader, data, nil)
 	if err != nil {
@@ -289,7 +289,7 @@ func TestSM2SignVerifyAndTamperFails(t *testing.T) {
 
 	// Another public key must fail to verify, and so must empty or garbage signatures. | 另一把公钥验签必须失败；空签名/垃圾签名也必须失败。
 	if ok, _ := Verify(otherPub, data, sig); ok {
-		t.Fatal("换用其他公钥验签仍通过")
+		t.Fatal("verification still passed with another public key | 换用其他公钥验签仍通过")
 	}
 	for _, bad := range [][]byte{nil, {}, {0x30, 0x03, 0x02, 0x01, 0x01}, []byte("not-a-der-signature")} {
 		if ok, err := Verify(pub, data, bad); err != nil || ok {
@@ -309,12 +309,12 @@ func TestSM2SignVerifyAndTamperFails(t *testing.T) {
 		t.Fatalf("VerifyHex(正确签名) = (%v, %v), want (true, nil)", ok, err)
 	}
 	if ok, _ := VerifyHex(pub, []byte("other"), sigHex); ok {
-		t.Fatal("VerifyHex(篡改消息) = true, want false")
+		t.Fatal("VerifyHex(tampered message) = true, want false | VerifyHex(篡改消息) = true, want false")
 	}
 	last := sigHex[len(sigHex)-1]
 	tamperedHex := sigHex[:len(sigHex)-1] + map[bool]string{true: "0", false: "1"}[last == '0']
 	if ok, _ := VerifyHex(pub, data, tamperedHex); ok {
-		t.Fatal("VerifyHex(篡改签名) = true, want false")
+		t.Fatal("VerifyHex(tampered signature) = true, want false | VerifyHex(篡改签名) = true, want false")
 	}
 	if ok, err := VerifyHex(pub, data, "zz"); err == nil || ok {
 		t.Fatalf("VerifyHex(非法十六进制) = (%v, %v), want (false, err)", ok, err)
@@ -322,13 +322,13 @@ func TestSM2SignVerifyAndTamperFails(t *testing.T) {
 
 	// Nil receivers must return an error rather than panic. | 空指针必须返回错误而不是 panic。
 	if _, err := Sign(nil, data); err == nil {
-		t.Fatal("Sign(nil) 未返回错误")
+		t.Fatal("Sign(nil) did not return an error | Sign(nil) 未返回错误")
 	}
 	if _, err := Encrypt(nil, data); err == nil {
-		t.Fatal("Encrypt(nil) 未返回错误")
+		t.Fatal("Encrypt(nil) did not return an error | Encrypt(nil) 未返回错误")
 	}
 	if _, err := Decrypt(nil, []byte{0x30}); err == nil {
-		t.Fatal("Decrypt(nil) 未返回错误")
+		t.Fatal("Decrypt(nil) did not return an error | Decrypt(nil) 未返回错误")
 	}
 	if ok, err := Verify(nil, data, sig); err == nil || ok {
 		t.Fatalf("Verify(nil) = (%v, %v), want (false, err)", ok, err)
@@ -345,7 +345,7 @@ func TestSM2PEMAndHexRoundTrip(t *testing.T) {
 	}
 	block, rest := pem.Decode(privPEM)
 	if block == nil {
-		t.Fatal("私钥 PEM 无法解析")
+		t.Fatal("the private key PEM could not be parsed | 私钥 PEM 无法解析")
 	}
 	if block.Type != "PRIVATE KEY" {
 		t.Fatalf("私钥 PEM 类型 = %q, want %q", block.Type, "PRIVATE KEY")
@@ -355,7 +355,7 @@ func TestSM2PEMAndHexRoundTrip(t *testing.T) {
 	}
 	// The DER encoding of the SM2 curve OID 1.2.156.10197.1.301 must appear in the PKCS#8 body. | SM2 曲线 OID 1.2.156.10197.1.301 的 DER 编码必须出现在 PKCS#8 中。
 	if !bytes.Contains(block.Bytes, []byte{0x06, 0x08, 0x2a, 0x81, 0x1c, 0xcf, 0x55, 0x01, 0x82, 0x2d}) {
-		t.Fatal("私钥 PKCS#8 中缺少 SM2 曲线 OID")
+		t.Fatal("the private key PKCS#8 lacks the SM2 curve OID | 私钥 PKCS#8 中缺少 SM2 曲线 OID")
 	}
 
 	priv2, err := ParsePrivateKeyPEM(privPEM)
@@ -363,7 +363,7 @@ func TestSM2PEMAndHexRoundTrip(t *testing.T) {
 		t.Fatalf("ParsePrivateKeyPEM 返回错误: %v", err)
 	}
 	if priv2.Raw().D.Cmp(priv.Raw().D) != 0 {
-		t.Fatal("私钥 PEM 往返后 D 不一致")
+		t.Fatal("D differs after the private key PEM round-trip | 私钥 PEM 往返后 D 不一致")
 	}
 
 	pubPEM, err := MarshalPublicKeyPEM(pub)
@@ -379,7 +379,7 @@ func TestSM2PEMAndHexRoundTrip(t *testing.T) {
 		t.Fatalf("ParsePublicKeyPEM 返回错误: %v", err)
 	}
 	if pub2.Raw().X.Cmp(pub.Raw().X) != 0 || pub2.Raw().Y.Cmp(pub.Raw().Y) != 0 {
-		t.Fatal("公钥 PEM 往返后坐标不一致")
+		t.Fatal("the coordinates differ after the public key PEM round-trip | 公钥 PEM 往返后坐标不一致")
 	}
 
 	// Hex: the private key is 64 lowercase characters, the public key is 04||X||Y in 130 lowercase characters. | 十六进制：私钥 64 字符小写；公钥 04||X||Y 共 130 字符小写。
@@ -392,7 +392,7 @@ func TestSM2PEMAndHexRoundTrip(t *testing.T) {
 		t.Fatalf("PrivateKeyFromHex 返回错误: %v", err)
 	}
 	if priv3.Raw().D.Cmp(priv.Raw().D) != 0 {
-		t.Fatal("私钥十六进制往返后 D 不一致")
+		t.Fatal("D differs after the private key hex round-trip | 私钥十六进制往返后 D 不一致")
 	}
 	if priv4, err := PrivateKeyFromHex("0x" + privHex); err != nil || priv4.Raw().D.Cmp(priv.Raw().D) != 0 {
 		t.Fatalf("PrivateKeyFromHex(带 0x 前缀) = (nil, %v), want 相同私钥", err)
@@ -427,35 +427,35 @@ func TestSM2PEMAndHexRoundTrip(t *testing.T) {
 
 	// Invalid input. | 非法输入。
 	if _, err := PrivateKeyFromHex("zz" + "00"); err == nil {
-		t.Fatal("PrivateKeyFromHex(非法十六进制) 未返回错误")
+		t.Fatal("PrivateKeyFromHex(invalid hex) did not return an error | PrivateKeyFromHex(非法十六进制) 未返回错误")
 	}
 	if _, err := PrivateKeyFromHex(strings.Repeat("0", 64)); err == nil {
-		t.Fatal("PrivateKeyFromHex(D=0) 未返回错误")
+		t.Fatal("PrivateKeyFromHex(D=0) did not return an error | PrivateKeyFromHex(D=0) 未返回错误")
 	}
 	if _, err := PrivateKeyFromHex(privHex[:62]); err == nil {
-		t.Fatal("PrivateKeyFromHex(长度不足) 未返回错误")
+		t.Fatal("PrivateKeyFromHex(too short) did not return an error | PrivateKeyFromHex(长度不足) 未返回错误")
 	}
 	if _, err := PublicKeyFromHex("04" + strings.Repeat("00", 64)); err == nil {
-		t.Fatal("PublicKeyFromHex(不在曲线上的点) 未返回错误")
+		t.Fatal("PublicKeyFromHex(point off the curve) did not return an error | PublicKeyFromHex(不在曲线上的点) 未返回错误")
 	}
 	if _, err := PublicKeyFromHex("abcd" + strings.Repeat("00", 64)); err == nil {
-		t.Fatal("PublicKeyFromHex(非法前缀长度) 未返回错误")
+		t.Fatal("PublicKeyFromHex(invalid prefix length) did not return an error | PublicKeyFromHex(非法前缀长度) 未返回错误")
 	}
 	if _, err := ParsePrivateKeyPEM([]byte("not a pem")); err == nil {
-		t.Fatal("ParsePrivateKeyPEM(垃圾数据) 未返回错误")
+		t.Fatal("ParsePrivateKeyPEM(garbage) did not return an error | ParsePrivateKeyPEM(垃圾数据) 未返回错误")
 	}
 	if _, err := ParsePublicKeyPEM([]byte("not a pem")); err == nil {
-		t.Fatal("ParsePublicKeyPEM(垃圾数据) 未返回错误")
+		t.Fatal("ParsePublicKeyPEM(garbage) did not return an error | ParsePublicKeyPEM(垃圾数据) 未返回错误")
 	}
 	// Type mismatch: parse a public key PEM as a private key. | 类型错配：把公钥 PEM 当私钥解析。
 	if _, err := ParsePrivateKeyPEM(pubPEM); err == nil {
-		t.Fatal("ParsePrivateKeyPEM(公钥 PEM) 未返回错误")
+		t.Fatal("ParsePrivateKeyPEM(public key PEM) did not return an error | ParsePrivateKeyPEM(公钥 PEM) 未返回错误")
 	}
 	if _, err := MarshalPrivateKeyPEM(nil); err == nil {
-		t.Fatal("MarshalPrivateKeyPEM(nil) 未返回错误")
+		t.Fatal("MarshalPrivateKeyPEM(nil) did not return an error | MarshalPrivateKeyPEM(nil) 未返回错误")
 	}
 	if _, err := MarshalPublicKeyPEM(nil); err == nil {
-		t.Fatal("MarshalPublicKeyPEM(nil) 未返回错误")
+		t.Fatal("MarshalPublicKeyPEM(nil) did not return an error | MarshalPublicKeyPEM(nil) 未返回错误")
 	}
 }
 

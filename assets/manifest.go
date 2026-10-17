@@ -247,13 +247,13 @@ func Validate(assets []Asset) error {
 	for i := range assets {
 		a := assets[i]
 		if strings.TrimSpace(a.Name) == "" {
-			return errx.Detail(ErrInvalidAsset, "asset #%d 缺少 name", i)
+			return errx.Detail(ErrInvalidAsset, "asset #%[1]d is missing name | asset #%[1]d 缺少 name", i)
 		}
 		if _, err := NormalizePath(a.Path); err != nil {
 			return errx.WrapDetail(err, ErrInvalidAsset, "%s", a.Name)
 		}
 		if a.SHA256 != "" && !isHexDigest(a.SHA256) {
-			return errx.Detail(ErrInvalidAsset, "%s 的 sha256 不是 64 位十六进制", a.Name)
+			return errx.Detail(ErrInvalidAsset, "the sha256 of %[1]s is not 64 hexadecimal digits | %[1]s 的 sha256 不是 64 位十六进制", a.Name)
 		}
 	}
 	return nil
@@ -266,15 +266,15 @@ func Validate(assets []Asset) error {
 // 段都会被拒绝：资产路径来自可能被手工编辑的锁文件，绝不能逃逸出写入根。
 func NormalizePath(p string) (string, error) {
 	if strings.TrimSpace(p) == "" {
-		return "", errx.Detail(ErrInvalidAsset, "path 为空")
+		return "", errx.Detail(ErrInvalidAsset, "path is empty | path 为空")
 	}
 	slashed := filepath.ToSlash(p)
 	if strings.HasPrefix(slashed, "/") || filepath.IsAbs(p) || filepath.VolumeName(p) != "" {
-		return "", errx.Detail(ErrInvalidAsset, "path %q 不是相对路径", p)
+		return "", errx.Detail(ErrInvalidAsset, "path %[1]q is not a relative path | path %[1]q 不是相对路径", p)
 	}
 	cleaned := path.Clean(slashed)
 	if cleaned == "." || cleaned == ".." || strings.HasPrefix(cleaned, "../") {
-		return "", errx.Detail(ErrInvalidAsset, "path %q 逃逸出写入根", p)
+		return "", errx.Detail(ErrInvalidAsset, "path %[1]q escapes the write root | path %[1]q 逃逸出写入根", p)
 	}
 	return cleaned, nil
 }

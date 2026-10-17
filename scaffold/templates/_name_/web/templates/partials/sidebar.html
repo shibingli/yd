@@ -7,13 +7,17 @@
   This file defines templates and renders no body: the render engine parses the whole tree into one template set, so a
   page pulls it in with {{template "partials/sidebar" .}} and the chrome exists in exactly one place.
 
-  数据契约 | Data contract：.Path（当前路径，用于高亮）、.Name、.Version、.Features、
-  .SignedIn 与六个能力布尔值 .CanTenantRead/.CanUserRead/.CanRoleRead/.CanPermissionRead（写权限只影响页面内的按钮）。
+  数据契约 | Data contract：.Path（当前路径，用于高亮）、.Name、.Version、.Features、.SignedIn，
+  以及 authz.Data 注入的四个键 .Authz/.Perm/.Role/.AuthzJSON——.Perm 把能力名映射为它的标识，
+  `can .Perm.TenantRead` 读的就是它（写能力只影响页面内的按钮，不影响这一项出不出现）。
+  .Path (the current path, for highlighting), .Name, .Version, .Features, .SignedIn, plus the four keys
+  authz.Data injects: .Authz, .Perm, .Role and .AuthzJSON. .Perm maps a capability name to its token, which is
+  what `can .Perm.TenantRead` reads; a write capability only decides which buttons a page shows.
 
   权限决定可见性：导航项是「能不能进这个页面」的第一道提示，真正的边界在服务端——每条路由都挂着
-  auth.RequirePermission，即使有人手敲 URL，越权请求也会在中间件层被拒。
+  authz.Require(authz.PermXxx)，即使有人手敲 URL，越权请求也会在中间件层被拒。
   Permissions decide visibility: a nav item is the first hint of whether a page is reachable, and the real boundary is
-  server-side — every route carries auth.RequirePermission, so typing the URL by hand still meets the middleware.
+  server-side — every route carries authz.Require(authz.PermXxx), so typing the URL by hand still meets the middleware.
 
   导航链接三件事一起写：hx-get 取片段、hx-target 指向工作区、hx-push-url 写入历史，
   因此浏览器前进/后退与直接访问 URL 都能得到同一个页面。
@@ -40,28 +44,33 @@
     {{/* 访问控制一组：每一项各自对应一条能力，读权限决定「看不看得见」，写权限只决定页面内的按钮。 */}}
     {{/* The access-control group: one nav item per capability, where a read permission decides whether it appears and a
          write permission only decides which buttons a page shows. */}}
-    {{- if or .CanTenantRead .CanUserRead .CanRoleRead .CanPermissionRead }}
+    {{/* 两种写法等价，任选其一即可：`can .Perm.UserRead`（注入映射里的数据键）与 `can "PermUserRead"`
+         （authz 的常量名，此处故意留作范例）。名字写错时两者都答「无权限」，页面少一项而不是渲染失败。 */}}
+    {{/* Two spellings, both fine: `can .Perm.UserRead` (a data key of the injected map) and `can "PermUserRead"` (authz's
+         constant name, kept here on purpose as a copyable example). A misspelled name answers "not granted" in both, so
+         the page drops one item instead of failing the render. */}}
+    {{- if or (can .Perm.TenantRead) (can .Perm.UserRead) (can .Perm.RoleRead) (can .Perm.PermissionRead) }}
     <p class="yd-nav__section">{{ tr "nav.group.access" }}</p>
     {{- end }}
-    {{- if .CanTenantRead }}
+    {{- if can .Perm.TenantRead }}
     <a class="yd-nav__link" href="/tenants" hx-get="/tenants" hx-target="#yd-workspace" hx-swap="innerMorph" hx-push-url="true"
        data-yd-nav="tenants"{{ if hasPrefix .Path "/tenants" }} aria-current="page"{{ end }}>
       <span class="yd-nav__label">{{ tr "nav.tenants" }}</span>
     </a>
     {{- end }}
-    {{- if .CanUserRead }}
+    {{- if can "PermUserRead" }}
     <a class="yd-nav__link" href="/users" hx-get="/users" hx-target="#yd-workspace" hx-swap="innerMorph" hx-push-url="true"
        data-yd-nav="users"{{ if hasPrefix .Path "/users" }} aria-current="page"{{ end }}>
       <span class="yd-nav__label">{{ tr "nav.users" }}</span>
     </a>
     {{- end }}
-    {{- if .CanRoleRead }}
+    {{- if can .Perm.RoleRead }}
     <a class="yd-nav__link" href="/roles" hx-get="/roles" hx-target="#yd-workspace" hx-swap="innerMorph" hx-push-url="true"
        data-yd-nav="roles"{{ if hasPrefix .Path "/roles" }} aria-current="page"{{ end }}>
       <span class="yd-nav__label">{{ tr "nav.roles" }}</span>
     </a>
     {{- end }}
-    {{- if .CanPermissionRead }}
+    {{- if can .Perm.PermissionRead }}
     <a class="yd-nav__link" href="/permissions" hx-get="/permissions" hx-target="#yd-workspace" hx-swap="innerMorph" hx-push-url="true"
        data-yd-nav="permissions"{{ if hasPrefix .Path "/permissions" }} aria-current="page"{{ end }}>
       <span class="yd-nav__label">{{ tr "nav.permissions" }}</span>

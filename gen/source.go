@@ -90,9 +90,9 @@ func ModelFromSource(fs afero.Fs, path, typeName string, o StructOptions) (*Mode
 // sourcePackage 是一次源码解析的结果：已解析的文件与同包内具名类型的声明。
 // sourcePackage is the result of one source parse: the parsed files and the named type declarations of the package.
 type sourcePackage struct {
-	// types 把具名类型映射到它的类型表达式。| types maps every named type onto its type expression.
+	// types maps every named type onto its type expression. | types 把具名类型映射到它的类型表达式。
 	types map[string]ast.Expr
-	// files 是按文件名排序的已解析文件。| files are the parsed files, sorted by file name.
+	// files are the parsed files, sorted by file name. | files 是按文件名排序的已解析文件。
 	files []*ast.File
 }
 

@@ -1,19 +1,34 @@
 package router
 
 import (
+	"errors"
 	"net/http"
 	"sort"
 	"strings"
 	"sync"
+	"sync/atomic"
 
 	"github.com/shibingli/yd/afs"
 	"github.com/shibingli/yd/errx"
+	"github.com/shibingli/yd/logx"
 	"github.com/spf13/afero"
 )
 
 // Default configuration values. | 默认配置值。
 const (
 	defaultMaxBodySize = 32 << 20 // default max body size: 32MB | 32MB
+)
+
+// routeTableBrokenBody is the response body ServeHTTP writes when the route table
+// carries wiring errors. | routeTableBrokenBody 是路由表存在接线错误时 ServeHTTP 写出的响应正文。
+const routeTableBrokenBody = "router: route table is invalid | router：路由表存在接线错误"
+
+// Route wiring errors, declared once at package level. | 路由接线错误，在包级声明一次。
+var (
+	// ErrNilHandler indicates a nil handler or a nil middleware inside a call chain. | ErrNilHandler 表示调用链中存在空的处理器或中间件。
+	ErrNilHandler = errx.New("router: nil handler | router：处理器为 nil")
+	// ErrInvalidHandler indicates a handler stored in the tree that is not a call chain. | ErrInvalidHandler 表示树中存放的处理器不是调用链类型。
+	ErrInvalidHandler = errx.New("router: handler is not a call chain | router：处理器不是调用链类型")
 )
 
 // RouteInfo describes a registered route, used for OpenAPI documents and diagnostic output. | RouteInfo 描述一条已注册的路由，供 OpenAPI 文档与诊断输出使用。
@@ -51,6 +66,12 @@ type Router struct {
 	routes   []RouteInfo
 	groups   []*Group
 	globalMW []Middleware
+	errs     []error
+
+	// broken is set once a wiring error is recorded, so ServeHTTP can refuse to serve
+	// without taking the registration lock on every request. | 一旦登记接线错误就置位，
+	// 使 ServeHTTP 无需在每个请求上获取注册锁即可拒绝服务。
+	broken atomic.Bool
 
 	mu sync.RWMutex
 }
@@ -151,7 +172,8 @@ func (r *Router) Handle(method, pattern string, h HandlerFunc, mw ...Middleware)
 
 func (r *Router) handle(method, pattern string, h HandlerFunc, mw ...Middleware) {
 	if h == nil {
-		panic("router: 处理器不能为 nil: " + method + " " + pattern)
+		r.recordWiringError(errx.Detail(ErrNilHandler, "%s %s", method, pattern))
+		return
 	}
 	// The tree stores the full call chain of "route-level middleware + business handler", | 树中存放「路由级中间件 + 业务处理器」的完整调用链，
 	// while global middleware is prepended at ServeHTTP time (because it can still be appended after registration). | 全局中间件在 ServeHTTP 时前置拼接（因为它可以在注册之后再追加）。
@@ -159,11 +181,68 @@ func (r *Router) handle(method, pattern string, h HandlerFunc, mw ...Middleware)
 	chain = append(chain, mw...)
 	chain = append(chain, h)
 	if err := r.tree.Add(method, pattern, chain); err != nil {
-		panic(err)
+		// Registration must never take the process down: the error is recorded here and | 注册绝不能拖垮进程：错误在此登记，
+		// reported once by Validate (or refused with a 500 by ServeHTTP). | 由 Validate 一次性报告（或由 ServeHTTP 直接以 500 拒绝）。
+		r.recordWiringError(err)
+		return
 	}
 	r.mu.Lock()
 	r.routes = append(r.routes, RouteInfo{Method: method, Pattern: pattern, Handler: h})
 	r.mu.Unlock()
+}
+
+// recordWiringError registers one wiring failure and marks the router as broken. | recordWiringError 登记一个接线失败并把路由器标记为损坏。
+func (r *Router) recordWiringError(err error) {
+	if err == nil {
+		return
+	}
+	r.mu.Lock()
+	r.errs = append(r.errs, err)
+	r.mu.Unlock()
+	r.broken.Store(true)
+}
+
+// Validate reports every wiring error collected while routes were registered, plus any
+// structural defect found in the route tree. | Validate 一次性报告路由注册期间收集的全部接线错误，
+// 以及路由树中发现的任何结构性缺陷。
+//
+// It is meant to run once at startup, after the last route is registered and before serving.
+// A non-nil result means the route table must not serve; ServeHTTP enforces the same rule as
+// soon as a registration error is recorded. | 该方法用于启动期在最后一条路由注册之后、开始服务之前
+// 调用一次。返回非 nil 表示路由表不可用于服务；只要有注册错误被登记，ServeHTTP 就会执行同一规则。
+func (r *Router) Validate() error {
+	r.mu.RLock()
+	errs := append([]error(nil), r.errs...)
+	r.mu.RUnlock()
+	if err := r.validateTree(); err != nil {
+		errs = append(errs, err)
+		r.broken.Store(true)
+	}
+	return errors.Join(errs...)
+}
+
+// validateTree checks that every handler stored in the tree is a non-empty call chain
+// whose elements are all non-nil. | validateTree 校验树中每个处理器都是非空调用链，且链上元素均非 nil。
+func (r *Router) validateTree() error {
+	var errs []error
+	r.tree.Walk(func(method, pattern string, handler any) {
+		chain, ok := handler.([]HandlerFunc)
+		if !ok {
+			errs = append(errs, errx.Detail(ErrInvalidHandler, "%s %s", method, pattern))
+			return
+		}
+		if len(chain) == 0 {
+			errs = append(errs, errx.Detail(ErrNilHandler, "%s %s", method, pattern))
+			return
+		}
+		for _, h := range chain {
+			if h == nil {
+				errs = append(errs, errx.Detail(ErrNilHandler, "%s %s", method, pattern))
+				return
+			}
+		}
+	})
+	return errors.Join(errs...)
 }
 
 // Static mounts a local directory at urlPrefix (its contents are served as static files). | Static 把本地目录挂载到 urlPrefix（目录内容以静态文件方式提供）。
@@ -207,6 +286,14 @@ func (r *Router) Routes() []RouteInfo {
 
 // ServeHTTP implements http.Handler. | ServeHTTP 实现 http.Handler。
 func (r *Router) ServeHTTP(w http.ResponseWriter, req *http.Request) {
+	// A route table with recorded wiring errors must never serve traffic, not even the
+	// routes that did register successfully. | 存在接线错误记录的路由表绝不能对外服务，
+	// 即使其中某些路由注册成功了也不行。
+	if r.broken.Load() {
+		http.Error(w, routeTableBrokenBody, http.StatusInternalServerError)
+		return
+	}
+
 	c := r.pool.Get().(*Ctx)
 	c.reset(w, req, r)
 	params := acquireParams()
@@ -223,6 +310,9 @@ func (r *Router) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 				c.Writer = nil
 				c.keys = nil
 				r.pool.Put(c)
+				// Re-raise instead of swallowing: the request must not continue after a panic, and
+				// the outer Recover middleware owns the final response. | 重新抛出而不是吞掉 panic：
+				// 请求不得在 panic 之后继续执行，最终响应由更外层的 Recover 中间件负责。
 				panic(rec)
 			}
 		}
@@ -278,7 +368,13 @@ func (r *Router) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 
 	routeChain, ok := handler.([]HandlerFunc)
 	if !ok {
-		panic("router: 树中出现了非调用链类型的处理器")
+		// An internal invariant, not a caller mistake: log it and answer 500 instead of
+		// taking the whole process down. | 这是内部不变量而非调用方错误：记录日志并返回 500，
+		// 而不是让整个进程崩溃。
+		logx.Default().Error("router: handler in the tree is not a call chain | router：树中的处理器不是调用链类型",
+			logx.Str("method", req.Method), logx.Str("path", path))
+		http.Error(w, routeTableBrokenBody, http.StatusInternalServerError)
+		return
 	}
 	r.setChain(c, routeChain, nil)
 	c.Next()

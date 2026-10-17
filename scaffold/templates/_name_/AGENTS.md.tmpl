@@ -44,12 +44,15 @@
 
 提交前逐条自检：
 
-- [ ] **密钥零硬编码**：源码、模板、测试夹具中不得出现真实密钥/口令/Token（种子口令是文档化的演示凭据，且仅存在于 `internal/meta`）。
+- [ ] **密钥零硬编码**：源码、模板、测试夹具中不得出现真实密钥/口令/Token（种子口令只从 `seed.admin_password` /
+      `YD_SEED_ADMIN_PASSWORD` 读取，开发环境才回退到 `internal/meta` 里那个文档化口令，且口令永不写进日志）。
 - [ ] **租户隔离**：查询一律带 `tenantID`，且只取自 `middleware.TenantID(ctx)`（令牌 `tid` 声明）；
       跨租户或未知实体返回 `auth.ErrNotFound`，绝不返回 `ErrForbidden`，避免响应差异变成租户枚举的探针。
-- [ ] **能力守卫**：受保护端点必须在路由上声明 `auth.RequirePermission(model.PermXxx)`，处理器内不再重复判权；
+- [ ] **能力守卫**：受保护端点必须在路由上声明 `authz.Require(authz.PermXxx)`（它是 `auth.RequirePermission` 的注册表包装，
+      守卫里因此不出现任何标识字面量），处理器内不再重复判权；
       `registerPublic` 只允许登录、登出、健康检查与 SM2 公钥四个端点。
-- [ ] **会话顺序**：`middleware.Promote` → `auth.Middleware` → `middleware.Tenant` 的顺序不可调换，租户中间件必须拿到已校验的身份。
+- [ ] **会话顺序**：`middleware.Promote` → `auth.Middleware` → `authz.Middleware` → `middleware.Tenant` 的顺序不可调换，
+      租户中间件必须拿到已校验的身份，权限中间件必须拿到已校验的用户。
 - [ ] **国密合规**：敏感数据加解密必须走 `guomi`（SM2/SM3/SM4），口令存储用 SM3 + 盐 + 迭代，禁止 MD5/SHA1。
 - [ ] **传输加密**：前端敏感字段提交必须声明式触发 SM2 前置加密（`data-yd-encrypt="sm2"`）。
 - [ ] **注入面**：SQL 只允许参数化查询；模板输出默认走 `html/template` 转义。
@@ -69,6 +72,12 @@
 - [ ] **服务模式优雅退出**：被服务管理器托管时（无终端或 `-service run`）由 `service.Run` 驱动 `application.Run`，
       停止只取消 context 并等待它返回；入口与业务代码**禁止** `os.Exit`、`panic` 或自建后台进程来「停服务」，
       `-service install|uninstall|start|stop|restart|status` 这类控制动作只执行一次服务管理器调用、不得启动服务器。
+- [ ] **可选外部工具**：`betteralign` / `ko` / `tailwindcss` / `docker` 一律经 `yd tools` 探测与安装
+      （`yd tools check` 只报告；`yd tools install` 把可 `go install` 的项装进项目内 `.yd/tools/`，`GOBIN` 指向它的绝对路径），
+      **禁止**手写 `go install` 装到全局，**禁止**改动 `PATH` 或往 `~/go/bin` 写东西；四个工具一律可选，
+      缺失只影响对应能力，**不得**让 `go build` / `go vet` / `go test` 或 CI 失败（`yd new --yes` 不得触网）；
+      哨兵 `tools.ErrUnknownTool` / `tools.ErrNoGoToolchain` / `tools.ErrNotInstallable` / `tools.ErrInstallFailed`
+      一律用 `errors.Is` 判定。
 
 ## 4. 提交纪律（强制，Agent 必须遵守）
 

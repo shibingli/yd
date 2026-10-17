@@ -58,6 +58,12 @@ var (
 	ErrEmptyOptions = errx.New("cli: no options to choose from | cli：无可选项")
 	// ErrOutputFailed reports a failure while writing command output. | ErrOutputFailed 表示写出命令输出失败。
 	ErrOutputFailed = errx.New("cli: failed to write output | cli：写出输出失败")
+	// ErrEmptyCommandName reports a command registered without a name. | ErrEmptyCommandName 表示注册的命令名为空。
+	ErrEmptyCommandName = errx.New("cli: empty command name | cli：命令名为空")
+	// ErrDuplicateCommand reports a command name registered twice. | ErrDuplicateCommand 表示命令名重复注册。
+	ErrDuplicateCommand = errx.New("cli: duplicated command | cli：命令重复注册")
+	// ErrNilRun reports a command registered without a Run function. | ErrNilRun 表示注册的命令缺少 Run 函数。
+	ErrNilRun = errx.New("cli: nil Run for command | cli：命令的 Run 为空")
 )
 
 // Execute parses args, loads the layered configuration and runs the matching command. | Execute 解析 args、
@@ -76,6 +82,12 @@ var (
 func Execute(ctx context.Context, args []string, env *Env) error {
 	if env == nil {
 		return ErrNilEnv
+	}
+	// A broken registry is a defect of the binary itself, so every invocation fails with the
+	// recorded sentinel instead of surfacing as a confusing "unknown command". | 注册表损坏是二进制
+	// 自身的缺陷，因此每次调用都以登记过的哨兵失败，而不是表现为令人困惑的「未知命令」。
+	if err := registryError(); err != nil {
+		return err
 	}
 	if ctx == nil {
 		ctx = context.Background()
@@ -357,25 +369,62 @@ var registryMu sync.RWMutex
 // registry holds the registered commands, keyed by name. | registry 按名字保存已注册的命令。
 var registry = map[string]Command{}
 
+// registryErrs collects the wiring errors recorded by Register; registryMu guards it too. | registryErrs
+// 收集 Register 登记的接线错误；同样由 registryMu 保护。
+var registryErrs []error
+
 // Register adds c to the global command registry. | Register 把 c 加入全局命令注册表。
 //
-// It is meant to be called from package init; a duplicate or empty name panics immediately, because
-// such a registry is a programming error that would otherwise surface as a confusing runtime failure. | 该方法
-// 供包初始化阶段调用；名字重复或为空会立即 panic，因为这种注册表属于编码错误，否则只会在运行期
-// 以难以理解的方式暴露。
+// It is meant to be called from package init. An empty name, a duplicate name or a nil Run is
+// recorded as a wiring error instead of panicking, and Execute returns those errors on the next
+// invocation, so a miswired binary fails once with a clear sentinel instead of crashing at init.
+// | 该方法供包初始化阶段调用。名字为空、重复或 Run 为空时登记为接线错误而不是 panic；
+// 下一次调用 Execute 会返回这些错误，使接错线的二进制在启动时以明确的哨兵失败，而不是在 init 中崩溃。
 func Register(c Command) {
 	if c.Name == "" {
-		panic("cli: Register: empty command name | cli: Register：命令名为空")
+		recordRegistryError(ErrEmptyCommandName)
+		return
 	}
 	registryMu.Lock()
 	defer registryMu.Unlock()
 	if _, dup := registry[c.Name]; dup {
-		panic("cli: Register: duplicated command " + c.Name + " | cli: Register：命令重复注册 " + c.Name)
+		recordRegistryErrorLocked(errx.Detail(ErrDuplicateCommand, "%q", c.Name))
+		return
 	}
 	if c.Run == nil {
-		panic("cli: Register: nil Run for command " + c.Name + " | cli: Register：命令 " + c.Name + " 的 Run 为空")
+		recordRegistryErrorLocked(errx.Detail(ErrNilRun, "%q", c.Name))
+		return
 	}
 	registry[c.Name] = c
+}
+
+// recordRegistryError appends one wiring error under the registry lock. | recordRegistryError 在注册表锁内追加一个接线错误。
+func recordRegistryError(err error) {
+	if err == nil {
+		return
+	}
+	registryMu.Lock()
+	registryErrs = append(registryErrs, err)
+	registryMu.Unlock()
+}
+
+// recordRegistryErrorLocked appends one wiring error; the caller must hold registryMu. | recordRegistryErrorLocked
+// 追加一个接线错误；调用方必须持有 registryMu。
+func recordRegistryErrorLocked(err error) {
+	if err == nil {
+		return
+	}
+	registryErrs = append(registryErrs, err)
+}
+
+// registryError joins every wiring error recorded by Register. | registryError 聚合 Register 登记的全部接线错误。
+func registryError() error {
+	registryMu.RLock()
+	defer registryMu.RUnlock()
+	if len(registryErrs) == 0 {
+		return nil
+	}
+	return errors.Join(registryErrs...)
 }
 
 // Commands returns every registered command, sorted by name for stable help output. | Commands 返回全部已注册命令，按名字排序以保证帮助输出稳定。

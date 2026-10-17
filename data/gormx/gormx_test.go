@@ -22,22 +22,22 @@ import (
 // gorm.ParamsFilter，把口令等敏感实参从日志中抹除（运行时断言见下方测试）。
 var _ gormlogger.Interface = gormx.NewLogger(nil, 0, "")
 
-// probeRow 是 AutoMigrate 测试用的最小模型。
+// probeRow is the minimal model used by the AutoMigrate tests. | probeRow 是 AutoMigrate 测试用的最小模型。
 type probeRow struct {
 	ID   uint   `gorm:"primaryKey"`
 	Name string `gorm:"size:64"`
 }
 
-// TableName 固定表名，避免测试依赖 GORM 的复数化规则。
+// TableName pins the table name so the test never depends on GORM's pluralisation rules. | TableName 固定表名，避免测试依赖 GORM 的复数化规则。
 func (probeRow) TableName() string { return "gormx_probe_rows" }
 
-// slowSeedRow 是慢查询用例的种子模型。
+// slowSeedRow is the seed model of the slow-query case. | slowSeedRow 是慢查询用例的种子模型。
 type slowSeedRow struct {
 	ID   uint
 	Name string
 }
 
-// TableName 固定表名，供日志断言匹配。
+// TableName pins the table name so the log assertions can match it. | TableName 固定表名，供日志断言匹配。
 func (slowSeedRow) TableName() string { return "gormx_slow_seeds" }
 
 // memoryDSN 返回进程内内存库的 DSN。
@@ -50,12 +50,12 @@ func memoryDSN(t *testing.T) string {
 	return "file:" + name + "?mode=memory&cache=shared"
 }
 
-// newBufLogger 返回写入 buf 的 logx 日志器（默认 JSON、Info 及以上级别）。
+// newBufLogger returns a logx logger writing into buf (JSON by default, level Info and above). | newBufLogger 返回写入 buf 的 logx 日志器（默认 JSON、Info 及以上级别）。
 func newBufLogger(buf *bytes.Buffer) *logx.Logger {
 	return logx.New(logx.Options{Writer: buf})
 }
 
-// openProbe 用给定选项打开一个 SQLite 内存库，并在测试结束时关闭。
+// openProbe opens an in-memory SQLite database with the given options and closes it when the test ends. | openProbe 用给定选项打开一个 SQLite 内存库，并在测试结束时关闭。
 func openProbe(t *testing.T, o gormx.Options, l *logx.Logger) *gorm.DB {
 	t.Helper()
 	if o.Driver == "" {
@@ -129,7 +129,7 @@ func TestSlowQueryLoggedThroughLogx(t *testing.T) {
 
 	out := buf.String()
 	if out == "" {
-		t.Fatal("慢查询未产生任何日志")
+		t.Fatal("the slow query produced no log at all | 慢查询未产生任何日志")
 	}
 	for _, want := range []string{`"slow_query":true`, `"duration"`, `"sql"`, `"rows"`, "gormx_slow_seeds", `"level":"warn"`} {
 		if !strings.Contains(out, want) {
@@ -190,7 +190,7 @@ func TestConnPoolSettingsApplied(t *testing.T) {
 	}
 }
 
-// TestAutoMigrateAndHealth 断言迁移、写入、探活与关闭的完整生命周期。
+// TestAutoMigrateAndHealth asserts the full lifecycle of migrate, write, health probe and close. | TestAutoMigrateAndHealth 断言迁移、写入、探活与关闭的完整生命周期。
 func TestAutoMigrateAndHealth(t *testing.T) {
 	ctx := context.Background()
 	db := openProbe(t, gormx.Options{}, newBufLogger(&bytes.Buffer{}))
@@ -313,7 +313,7 @@ func TestLifecycleSentinels(t *testing.T) {
 		}
 	}
 
-	// 未知模型（此处用不存在的表名）触发迁移失败路径。
+	// An unknown model (an absent table name here) triggers the migration-failure path. | 未知模型（此处用不存在的表名）触发迁移失败路径。
 	db := openProbe(t, gormx.Options{}, newBufLogger(&bytes.Buffer{}))
 	if err := gormx.AutoMigrate(db, "gormx_missing_model"); !errors.Is(err, gormx.ErrMigrateFailed) {
 		t.Fatalf("迁移未知模型的错误 = %v，期望包装 ErrMigrateFailed", err)
@@ -337,7 +337,7 @@ db:
 		t.Fatalf("写入内存配置文件失败: %v", err)
 	}
 
-	// EnvPrefix 刻意使用测试专用前缀，隔离开发机上真实的 YD_DB_* 环境变量。
+	// EnvPrefix deliberately uses a test-only prefix, isolating the real YD_DB_* variables of the developer machine. | EnvPrefix 刻意使用测试专用前缀，隔离开发机上真实的 YD_DB_* 环境变量。
 	load := func(t *testing.T, fs afero.Fs) *config.Config {
 		t.Helper()
 		c, err := config.Load(config.Options{
@@ -362,6 +362,8 @@ db:
 		MaxIdleConns:  7,
 		SlowThreshold: 350 * time.Millisecond,
 		PrepareStmt:   true,
+		// The config file omits db.create_database, so the framework default enables automatic database creation. | 配置文件里没写 db.create_database，框架默认开启自动建库。
+		CreateDatabase: true,
 	}
 	if got != want {
 		t.Fatalf("OptionsFromConfig = %+v，期望 %+v", got, want)
@@ -373,5 +375,63 @@ db:
 	}
 	if def.SlowThreshold != 200*time.Millisecond || !def.PrepareStmt {
 		t.Fatalf("默认 Options = %+v，期望 200ms 且预编译开启", def)
+	}
+	if !def.CreateDatabase {
+		t.Fatalf("默认 Options = %+v，期望自动建库默认开启", def)
+	}
+}
+
+// TestCreateDatabaseSwitchFromConfig 断言 db.create_database 开关的读取口径：
+// 缺席或空值按框架默认开启，显式 false 关闭，且环境变量层优先于配置文件层。
+func TestCreateDatabaseSwitchFromConfig(t *testing.T) {
+	load := func(t *testing.T, yaml string) *config.Config {
+		t.Helper()
+		mem := afs.NewMem()
+		if yaml != "" {
+			if err := afero.WriteFile(mem, "config.yaml", []byte(yaml), 0o644); err != nil {
+				t.Fatalf("写入内存配置文件失败: %v", err)
+			}
+		}
+		c, err := config.Load(config.Options{
+			Name:       "gormx",
+			ConfigDir:  ".",
+			ConfigName: "config",
+			EnvPrefix:  "YDGORMXTEST",
+			EnvFile:    "absent.env",
+			FS:         mem,
+		})
+		if err != nil {
+			t.Fatalf("config.Load 失败: %v", err)
+		}
+		return c
+	}
+
+	cases := []struct {
+		name string
+		yaml string
+		env  string
+		want bool
+	}{
+		{name: "键缺席按框架默认开启", yaml: "db:\n  driver: mysql\n", want: true},
+		{name: "无配置文件", want: true},
+		{name: "显式 true", yaml: "db:\n  create_database: true\n", want: true},
+		{name: "显式 false", yaml: "db:\n  create_database: false\n", want: false},
+		{name: "取值为空按未设置处理", yaml: "db:\n  create_database: \"\"\n", want: true},
+		{name: "环境变量 false 覆盖配置文件的 true", yaml: "db:\n  create_database: true\n", env: "false", want: false},
+		{name: "环境变量 true 覆盖配置文件的 false", yaml: "db:\n  create_database: false\n", env: "true", want: true},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if tc.env == "" {
+				// The key is wholly absent: clear any developer-machine variable that might exist. | 键完全缺席：清掉可能存在的开发机环境变量。
+				t.Setenv("YDGORMXTEST_DB_CREATE_DATABASE", "")
+			} else {
+				t.Setenv("YDGORMXTEST_DB_CREATE_DATABASE", tc.env)
+			}
+			if got := gormx.OptionsFromConfig(load(t, tc.yaml)).CreateDatabase; got != tc.want {
+				t.Fatalf("CreateDatabase = %v，期望 %v", got, tc.want)
+			}
+		})
 	}
 }

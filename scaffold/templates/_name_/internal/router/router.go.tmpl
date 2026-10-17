@@ -15,12 +15,12 @@ import (
 	"{{ .Module }}/internal/controller"
 	"{{ .Module }}/internal/meta"
 	"{{ .Module }}/internal/middleware"
-	"{{ .Module }}/internal/model"
 	"{{ .Module }}/internal/repository"
 	"{{ .Module }}/internal/service"
 	"{{ .YdModule }}/afs"
 	"{{ .YdModule }}/app"
 	"{{ .YdModule }}/auth"
+	"{{ .YdModule }}/authz"
 	"{{ .YdModule }}/errx"
 	"{{ .YdModule }}/logx"
 	"{{ .YdModule }}/openapi"
@@ -82,6 +82,7 @@ func Register(a *app.App) error {
 	// One store and one auth service per process: the token signed at sign-in and the token verified by the middleware can
 	// only ever come from the same issuer and the same sec_key.
 	store, err := repository.Open(repository.Options{
+		Config:    a.Config(),
 		Log:       a.Logger(),
 		MasterKey: masterKey(a),
 		Issuer:    meta.TokenIssuerName,
@@ -92,8 +93,11 @@ func Register(a *app.App) error {
 	}
 	a.OnShutdown(func(context.Context) error { return store.Close() })
 
-	// 种子数据是幂等的（按标识、按名称、按登录名判定），因此每次启动都可以放心调用。
-	// The seed is idempotent (decided by slug, by name and by username), so calling it on every start is safe.
+	// 默认数据只在租户表为空时写入一次，而且没有配置种子口令时一律不写（非开发环境尤其如此），
+	// 因此调用它既幂等、又不可能在任何环境里开出一个口令公开可查的管理员账号。
+	// The default data is written exactly once, only while the tenant table is empty, and never at all without a configured
+	// seed password — least of all outside development — so calling this is both idempotent and incapable of opening an
+	// administrator account with a publicly documented password in any environment.
 	if err := store.Seed(context.Background()); err != nil {
 		return errx.Wrap(err, ErrSeed)
 	}
@@ -150,21 +154,31 @@ func registerPublic(a *app.App, ctrl *controller.Controller) {
 // The order of the chain is itself the argument and must not be reshuffled: | 链路顺序本身就是一条论证，不能调换：
 //  1. Promote lifts the cookie token into Authorization, after which browsers and API clients share one path; | middleware.Promote —— 把 cookie 里的令牌提升为 Authorization，浏览器与 API 客户端从此走同一条路径；
 //  2. auth.Middleware verifies the signature, the validity and the per-user sec_key and stores the user in the context; | auth.Middleware —— 校验签名、有效期与每用户 sec_key，并把用户放进上下文；
-//  3. middleware.Tenant settles the tenant from the token's tid claim and refuses a header or subdomain naming another tenant with 403. | middleware.Tenant —— 以令牌的 tid 声明为准定租户，请求头或子域名指向别的租户即 403。
+//  3. authz.Middleware builds the subject of this request from that user, which is what the templates and the front end read; | authz.Middleware —— 用该用户构造本请求的主体，模板与前端读到的就是它；
+//  4. middleware.Tenant settles the tenant from the token's tid claim and refuses a header or subdomain naming another tenant with 403. | middleware.Tenant —— 以令牌的 tid 声明为准定租户，请求头或子域名指向别的租户即 403。
 //
-// 第三层必须排在第二层之后：它优先信任令牌，而令牌正是第二层校验的产物；顺序颠倒会让任何请求头都变成可信输入。
-// The third layer must follow the second: it trusts the token first, and the token is the product of the second layer — the
-// other order would turn any request header into trusted input.
+// 第三层必须排在第二层之后：它读的正是第二层放进上下文的用户，排到前面只会得到一个匿名主体。
+// 第四层必须排在第二层之后：它优先信任令牌，而令牌正是第二层校验的产物；顺序颠倒会让任何请求头都变成可信输入。
+// The third layer must follow the second: it reads the very user the second layer put into the context, and ahead of it
+// would build an anonymous subject. The fourth must follow the second as well: it trusts the token first, and the token is
+// the product of the second layer — the other order would turn any request header into trusted input.
 //
 // 权限守卫只挂在业务端点上：首页、实时演示、账号页与两个占位图只要求「有一个有效会话」，
 // 因为它们展示的是「我是谁」，而不是「我能不能动别人的数据」。
 // The guards hang on the business endpoints only: the home page, the realtime demo, the account page and the two
 // placeholders require nothing beyond a valid session, because what they show is who I am and not whether I may touch
 // somebody else's data.
+//
+// 守卫一律写成 authz.Require(authz.PermXxx)：引用取自注册表而非字面量，写错的名字在装配期就会被点名，
+// 而且 authz.Middleware 已在链上，主体因此必然存在（缺装配时 Require 走的是同一条 403 路径）。
+// Every guard is written as authz.Require(authz.PermXxx): the reference comes from the registry rather than from a
+// literal, a misspelled name is named at wiring time, and the subject is guaranteed to exist because authz.Middleware is
+// on the chain (without it the guard takes the very same 403 path).
 func registerProtected(a *app.App, ctrl *controller.Controller, broker *sse.Broker, ticker *service.Ticker) {
 	g := a.Group("",
 		middleware.Promote(middleware.SessionOptions{}),
 		auth.Middleware(auth.MiddlewareOptions{Issuer: ctrl.Issuer(), ErrorHandler: ctrl.Deny}),
+		authz.Middleware(ctrl.Auth()),
 		middleware.Tenant(middleware.TenantOptions{
 			Required:     true,
 			Subdomain:    true,
@@ -191,28 +205,33 @@ func registerProtected(a *app.App, ctrl *controller.Controller, broker *sse.Brok
 	g.GET("/events", ctrl.Stream(broker))
 	g.GET("/ws", ctrl.Socket(ticker))
 
-	// 租户：读写的门槛是全目录里最高的一对能力，因为租户是其它一切数据的边界。
-	// Tenants: the rarest pair of capabilities guards them, because tenants are the boundary of everything else.
-	g.GET("/tenants", ctrl.Tenants, auth.RequirePermission(model.PermTenantRead))
-	g.POST("/tenants", ctrl.CreateTenant, auth.RequirePermission(model.PermTenantWrite))
+	// 租户：读与建分别对应注册表的 tenant:read 与 tenant:create，因为租户是其它一切数据的边界。
+	// Tenants: reading and creating map onto the registry's tenant:read and tenant:create, because tenants are the
+	// boundary of everything else.
+	g.GET("/tenants", ctrl.Tenants, authz.Require(authz.PermTenantRead))
+	g.POST("/tenants", ctrl.CreateTenant, authz.Require(authz.PermTenantCreate))
 
-	// 用户：列表与全部变更动作分属读、写两个能力，且每一次调用都带着上下文里的租户 ID。
-	// Users: the list and every mutation sit behind the read and write capabilities, and every call carries the tenant id from the context.
-	g.GET("/users", ctrl.Users, auth.RequirePermission(model.PermUserRead))
-	g.POST("/users", ctrl.CreateUser, auth.RequirePermission(model.PermUserWrite))
-	g.POST("/users/:id", ctrl.UpdateUser, auth.RequirePermission(model.PermUserWrite))
-	g.POST("/users/:id/roles", ctrl.SetUserRoles, auth.RequirePermission(model.PermUserWrite))
-	g.POST("/users/:id/status", ctrl.SetUserStatus, auth.RequirePermission(model.PermUserWrite))
-	g.POST("/users/:id/password", ctrl.SetUserPassword, auth.RequirePermission(model.PermUserWrite))
-	g.POST("/users/:id/sec-key", ctrl.RotateUserSecKey, auth.RequirePermission(model.PermUserWrite))
+	// 用户：读数与改数分属不同能力，因此「能看」与「能动」在种子数据里就是两件事，且每一次调用都带着上下文里的租户 ID。
+	// Users: reading and changing are separate capabilities, so "may look" and "may touch" are two different things in the
+	// seeded data as well, and every call carries the tenant id from the context.
+	g.GET("/users", ctrl.Users, authz.Require(authz.PermUserRead))
+	g.POST("/users", ctrl.CreateUser, authz.Require(authz.PermUserCreate))
+	g.POST("/users/:id", ctrl.UpdateUser, authz.Require(authz.PermUserUpdate))
+	g.POST("/users/:id/roles", ctrl.SetUserRoles, authz.Require(authz.PermUserUpdate))
+	g.POST("/users/:id/status", ctrl.SetUserStatus, authz.Require(authz.PermUserUpdate))
+	g.POST("/users/:id/password", ctrl.SetUserPassword, authz.Require(authz.PermUserUpdate))
+	g.POST("/users/:id/sec-key", ctrl.RotateUserSecKey, authz.Require(authz.PermUserUpdate))
 
-	// 角色与权限矩阵：矩阵的每一格都是一次授权变更，因此与角色写权限同门槛。
-	// Roles and the permission matrix: every cell of the matrix is an authorisation change, so it sits behind the role write capability too.
-	g.GET("/roles", ctrl.Roles, auth.RequirePermission(model.PermRoleRead))
-	g.POST("/roles", ctrl.SaveRole, auth.RequirePermission(model.PermRoleWrite))
-	g.POST("/roles/:id/permissions", ctrl.ToggleRolePermission, auth.RequirePermission(model.PermRoleWrite))
-	g.POST("/roles/:id/delete", ctrl.DeleteRole, auth.RequirePermission(model.PermRoleWrite))
-	g.GET("/permissions", ctrl.Permissions, auth.RequirePermission(model.PermPermissionRead))
+	// 角色与权限矩阵：矩阵的每一格改的是角色的能力绑定（role:update），因此与「改角色」同门槛，
+	// 而建角色（role:manage）与删角色（role:delete）各按寿命周期的能力分开。
+	// Roles and the permission matrix: every cell changes a role's capability bindings (role:update) and therefore shares
+	// the threshold with "change a role", while creating one (role:manage) and deleting one (role:delete) follow the
+	// lifecycle capabilities separately.
+	g.GET("/roles", ctrl.Roles, authz.Require(authz.PermRoleRead))
+	g.POST("/roles", ctrl.SaveRole, authz.Require(authz.PermRoleManage))
+	g.POST("/roles/:id/permissions", ctrl.ToggleRolePermission, authz.Require(authz.PermRoleUpdate))
+	g.POST("/roles/:id/delete", ctrl.DeleteRole, authz.Require(authz.PermRoleDelete))
+	g.GET("/permissions", ctrl.Permissions, authz.Require(authz.PermPermissionRead))
 }
 
 // masterKey 取封装 sec_key 的主密钥：优先配置（生产环境用 YD_AUTH_MASTER_KEY 注入），未配置时退回内置开发密钥并告警。

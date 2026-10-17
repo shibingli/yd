@@ -104,7 +104,7 @@ func TestSM4CBCRoundTripWithPKCS7(t *testing.T) {
 				t.Fatalf("第二次 EncryptCBC 返回错误: %v", err)
 			}
 			if !bytes.Equal(ct, again) {
-				t.Fatal("CBC 加密结果不确定")
+				t.Fatal("CBC encryption is not deterministic | CBC 加密结果不确定")
 			}
 			back, err := DecryptCBC(key, iv, ct)
 			if err != nil {
@@ -172,23 +172,23 @@ func TestSM4GCMRoundTripAndTamperFails(t *testing.T) {
 		broken := append([]byte{}, ct...)
 		mutate(broken)
 		if _, err := OpenGCM(key, nonce, broken, aad); err == nil {
-			t.Fatal("篡改后的密文未通过完整性校验")
+			t.Fatal("the tampered ciphertext passed the integrity check | 篡改后的密文未通过完整性校验")
 		}
 	}
 	tamper(func(b []byte) { b[0] ^= 0x01 })
 	tamper(func(b []byte) { b[len(b)-1] ^= 0x01 })
 	tamper(func(b []byte) { b[len(b)/2] ^= 0x80 })
 	if _, err := OpenGCM(key, nonce, ct, []byte("other-aad")); err == nil {
-		t.Fatal("AAD 不一致时 OpenGCM 未返回错误")
+		t.Fatal("OpenGCM did not return an error when the AAD differs | AAD 不一致时 OpenGCM 未返回错误")
 	}
 	if _, err := OpenGCM(key, []byte("other-nonce"), ct, aad); err == nil {
-		t.Fatal("nonce 不一致时 OpenGCM 未返回错误")
+		t.Fatal("OpenGCM did not return an error when the nonce differs | nonce 不一致时 OpenGCM 未返回错误")
 	}
 	if _, err := OpenGCM(bytes.Repeat([]byte{0x34}, SM4KeySize), nonce, ct, aad); err == nil {
-		t.Fatal("密钥不一致时 OpenGCM 未返回错误")
+		t.Fatal("OpenGCM did not return an error when the key differs | 密钥不一致时 OpenGCM 未返回错误")
 	}
 	if _, err := OpenGCM(key, nonce, ct[:len(ct)-1], aad); err == nil {
-		t.Fatal("密文被截断时 OpenGCM 未返回错误")
+		t.Fatal("OpenGCM did not return an error when the ciphertext is truncated | 密文被截断时 OpenGCM 未返回错误")
 	}
 
 	// Empty plaintext and empty AAD must round-trip as well. | 空明文/空 AAD 也应可往返。
@@ -256,7 +256,7 @@ func TestSM4ECBRoundTrip(t *testing.T) {
 		t.Fatalf("EncryptECB 返回错误: %v", err)
 	}
 	if !bytes.Equal(ct[:SM4BlockSize], ct[SM4BlockSize:2*SM4BlockSize]) {
-		t.Fatal("ECB 下相同明文块应产生相同密文块")
+		t.Fatal("under ECB the same plaintext block must yield the same ciphertext block | ECB 下相同明文块应产生相同密文块")
 	}
 	if _, err := DecryptECB(key, make([]byte, SM4BlockSize+1)); !errors.Is(err, ErrInvalidCiphertext) {
 		t.Fatalf("DecryptECB(17 字节) 的错误 = %v, want ErrInvalidCiphertext", err)
@@ -277,7 +277,7 @@ func TestSM4RandomKeyAndIV(t *testing.T) {
 		t.Fatalf("RandomKey 长度 = %d/%d, want %d", len(k1), len(k2), SM4KeySize)
 	}
 	if bytes.Equal(k1, k2) {
-		t.Fatal("两次 RandomKey 结果相同")
+		t.Fatal("two RandomKey calls returned the same key | 两次 RandomKey 结果相同")
 	}
 
 	iv1, err := RandomIV()
@@ -292,6 +292,6 @@ func TestSM4RandomKeyAndIV(t *testing.T) {
 		t.Fatalf("RandomIV 长度 = %d/%d, want %d", len(iv1), len(iv2), SM4IVSize)
 	}
 	if bytes.Equal(iv1, iv2) {
-		t.Fatal("两次 RandomIV 结果相同")
+		t.Fatal("two RandomIV calls returned the same IV | 两次 RandomIV 结果相同")
 	}
 }

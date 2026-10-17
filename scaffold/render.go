@@ -11,6 +11,7 @@ import (
 	"text/template"
 
 	"github.com/shibingli/yd/afs"
+	"github.com/shibingli/yd/data/gormx"
 	"github.com/shibingli/yd/errx"
 	"github.com/spf13/afero"
 )
@@ -171,15 +172,31 @@ var extScript = map[string]string{
 // extNames is the canonical order of valid extensions, used for validation and error hints. | extNames 是合法扩展名的固定顺序，用于校验与错误提示。
 var extNames = []string{ExtWS, ExtSSE, ExtPreload, ExtAlpine}
 
-// dsnFor builds a sample DSN per driver (the defaults only fit local development). | dsnFor 依据数据库驱动生成示例 DSN（默认值仅供本地开发）。
+// dsnFor builds a sample DSN per driver (the address and credentials only fit local development). | dsnFor 依据数据库驱动生成示例 DSN（仅地址与凭据是本地开发用的默认值）。
+//
+// 时区、时间配置、空值严格性与默认字符集**不在这里写死**，而是交给 gormx.PresetDSN 补齐——
+// 预置表只有一份（框架那份），生成的配置里看到的就是连接时真正生效的形态。
+// 显式写出的参数优先于预置值，因此这里只保留**必须由本层决定**的那一个：
+// The time zone, time format, null strictness and default character set are not spelled out here: they come from
+// gormx.PresetDSN, so the preset table exists exactly once (the framework's) and the generated configuration shows the
+// very parameters that will take effect. Explicit parameters win over preset values, so the only one kept here is the
+// one this layer has to decide:
+//
+//   - SQLite 的 `_txlock=immediate` 让写事务在**开始**时就取得写锁。先读后写的延迟事务会被并发提交顶掉快照，
+//     随后以 SQLITE_BUSY_SNAPSHOT 失败，而这是任何 busy timeout 都无法化解的——存储层的预检正是「先读后写」。
+//     预置表刻意不含它，也正是为了让驱动不去跳过它的解析（见 gormx 的说明）。
+//     SQLite's `_txlock=immediate` takes the write lock when a write transaction *begins*. A deferred transaction that
+//     reads first and writes later loses its snapshot to a concurrent commit and then fails with SQLITE_BUSY_SNAPSHOT,
+//     which no busy timeout can resolve — and the storage layer's pre-checks read before they write. The preset table
+//     deliberately omits it, and deliberately omits the key that would make the driver skip parsing it (see gormx).
 func dsnFor(db, name string) string {
 	switch db {
 	case DBSQLite:
-		return "data/" + name + ".db"
+		return gormx.PresetDSN(DBSQLite, "file:data/"+name+".db?_txlock=immediate")
 	case DBMySQL:
-		return "root:root@tcp(127.0.0.1:3306)/" + name + "?charset=utf8mb4&parseTime=True&loc=Local"
+		return gormx.PresetDSN(DBMySQL, "root:root@tcp(127.0.0.1:3306)/"+name)
 	case DBPostgres:
-		return "host=127.0.0.1 user=postgres password=postgres dbname=" + name + " port=5432 sslmode=disable"
+		return gormx.PresetDSN(DBPostgres, "host=127.0.0.1 user=postgres password=postgres dbname="+name+" port=5432 sslmode=disable")
 	default:
 		return ""
 	}

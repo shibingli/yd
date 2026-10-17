@@ -292,7 +292,7 @@ func TestNoHardcodedColorsInAppCSS(t *testing.T) {
 			appCSSPath, strings.Count(css[:loc[0]], "\n")+1, css[loc[0]:loc[1]], appCSSPath, strings.Count(css[:loc[0]], "\n")+1, css[loc[0]:loc[1]])
 	}
 	if inside == 0 {
-		t.Error("no colour literal lives in @theme, :root or [data-theme=\"dark\"], so this guard proves nothing | @theme、:root 与 [data-theme=\"dark\"] 中没有任何颜色字面量，该守卫什么也证明不了")
+		t.Error(`no colour literal lives in @theme, :root or [data-theme="dark"], so this guard proves nothing | @theme、:root 与 [data-theme="dark"] 中没有任何颜色字面量，该守卫什么也证明不了`)
 	}
 	t.Logf("colour literals in %s: %d inside the token blocks, %d outside | %s 中的颜色字面量：令牌块内 %d 处，令牌块外 %d 处",
 		appCSSPath, inside, outside, appCSSPath, inside, outside)

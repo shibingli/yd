@@ -68,15 +68,15 @@ func (a *App) Get(name string) (any, bool) {
 	return v, ok
 }
 
-// MustGet returns the service registered under name and panics when it is
-// missing; it is meant for startup wiring only. | MustGet 返回以 name 注册的服务，
-// 服务缺失时 panic；仅供启动期装配使用。
-func (a *App) MustGet(name string) any {
+// MustGet returns the service registered under name, or ErrServiceMissing when it is absent;
+// it is meant for startup wiring only. | MustGet 返回以 name 注册的服务，服务缺失时返回
+// ErrServiceMissing；仅供启动期装配使用。
+func (a *App) MustGet(name string) (any, error) {
 	v, ok := a.Get(name)
 	if !ok {
-		panic(errx.Detail(ErrServiceMissing, "%q", name))
+		return nil, errx.Detail(ErrServiceMissing, "%q", name)
 	}
-	return v
+	return v, nil
 }
 
 // OnShutdown appends a hook that Close (and Run) runs in reverse registration

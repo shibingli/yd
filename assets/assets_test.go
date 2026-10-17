@@ -101,7 +101,7 @@ func TestUpdateDownloadsAndLocksChecksum(t *testing.T) {
 	}
 	locked, ok := m.Find("htmx")
 	if !ok {
-		t.Fatal("清单中缺少 htmx")
+		t.Fatal("htmx is missing from the manifest | 清单中缺少 htmx")
 	}
 	if locked.SHA256 != sha256Hex([]byte(body)) {
 		t.Errorf("SHA256 = %q，期望 %q", locked.SHA256, sha256Hex([]byte(body)))
@@ -110,7 +110,7 @@ func TestUpdateDownloadsAndLocksChecksum(t *testing.T) {
 		t.Errorf("Size = %d，期望 %d", locked.Size, len(body))
 	}
 	if hits.Load() == 0 {
-		t.Error("测试源未收到请求")
+		t.Error("the test source received no request | 测试源未收到请求")
 	}
 }
 
@@ -179,7 +179,7 @@ func TestOfflineModeNeverPerformsNetwork(t *testing.T) {
 		Offline: true, HTTPClient: client,
 	})
 	if err == nil {
-		t.Fatal("离线模式下缺失文件必须报错")
+		t.Fatal("offline mode must report a missing file | 离线模式下缺失文件必须报错")
 	}
 	if !errors.Is(err, ErrOfflineMissing) {
 		t.Errorf("期望 ErrOfflineMissing，实际 %v", err)
@@ -191,7 +191,7 @@ func TestOfflineModeNeverPerformsNetwork(t *testing.T) {
 		t.Errorf("离线模式触网 %d 次", hits.Load())
 	}
 	if !rep.Offline {
-		t.Error("报告应标记 Offline")
+		t.Error("the report must be flagged Offline | 报告应标记 Offline")
 	}
 	if len(rep.Unchanged) != 1 || rep.Unchanged[0] != "static/ok.js" {
 		t.Errorf("Unchanged = %v，期望 [static/ok.js]", rep.Unchanged)
@@ -200,7 +200,7 @@ func TestOfflineModeNeverPerformsNetwork(t *testing.T) {
 		t.Errorf("Failed = %v，期望 [gone]", rep.Failed)
 	}
 	if afs.Exists(fsys, filepath.Join(testRoot, "static", "gone.js")) {
-		t.Error("离线模式不得创建文件")
+		t.Error("offline mode must not create files | 离线模式不得创建文件")
 	}
 }
 
@@ -231,7 +231,7 @@ func TestOfflineModeInjectsTripwireThatIsNeverCalled(t *testing.T) {
 		t.Fatalf("期望 ErrOfflineMissing，实际 %v（报告 %+v）", err, rep)
 	}
 	if tripwire == nil {
-		t.Fatal("离线模式未注入任何拦截器")
+		t.Fatal("offline mode injected no tripwire | 离线模式未注入任何拦截器")
 	}
 	if got := tripwire.Calls(); got != 0 {
 		t.Errorf("注入的拦截器被调用 %d 次，期望 0 次", got)
@@ -291,7 +291,7 @@ func TestCheckOnlyDoesNotWrite(t *testing.T) {
 		t.Fatalf("报告应指出待更新项: %+v", rep)
 	}
 	if afs.Exists(fsys, filepath.Join(testRoot, "static", "c.js")) {
-		t.Error("--check 不得写入文件")
+		t.Error("--check must not write files | --check 不得写入文件")
 	}
 	m, err := LoadManifest(fsys, testManifestPath)
 	if err != nil {
@@ -360,7 +360,7 @@ func TestUpdateAggregatesFailures(t *testing.T) {
 		t.Errorf("Failed = %v，期望 [bad]", rep.Failed)
 	}
 	if !afs.Exists(fsys, filepath.Join(testRoot, "static", "ok.js")) {
-		t.Error("成功的资产应当已落盘")
+		t.Error("a successful asset must already be on disk | 成功的资产应当已落盘")
 	}
 	m, err := LoadManifest(fsys, testManifestPath)
 	if err != nil {
@@ -425,7 +425,7 @@ func TestAddLocksChecksumAndAppendsToManifest(t *testing.T) {
 		t.Fatalf("锁定结果不符合预期: %+v", locked)
 	}
 	if hits.Load() == 0 {
-		t.Error("测试源未收到请求")
+		t.Error("the test source received no request | 测试源未收到请求")
 	}
 
 	m, err := LoadManifest(fsys, testManifestPath)
@@ -455,17 +455,17 @@ func TestManifestLoadSaveFindAdd(t *testing.T) {
 		t.Fatalf("Add 失败: %v", err)
 	}
 	if _, ok := m.Find("b"); !ok {
-		t.Error("Find 未命中已存在的资产")
+		t.Error("Find missed an existing asset | Find 未命中已存在的资产")
 	}
 	if _, ok := m.Find("zzz"); ok {
-		t.Error("Find 不应命中不存在的资产")
+		t.Error("Find must not hit a non-existent asset | Find 不应命中不存在的资产")
 	}
 
 	if err := m.Save(fsys, testManifestPath); err != nil {
 		t.Fatalf("Save 失败: %v", err)
 	}
 	if m.GeneratedAt.IsZero() {
-		t.Error("Save 应写入 GeneratedAt")
+		t.Error("Save must write GeneratedAt | Save 应写入 GeneratedAt")
 	}
 
 	reloaded, err := LoadManifest(fsys, testManifestPath)

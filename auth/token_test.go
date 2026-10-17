@@ -153,7 +153,7 @@ func TestNoGlobalSigningKeyFallback(t *testing.T) {
 	}
 }
 
-// TestTokenHeaderCarriesKidAndTenant 断言 kid 与租户头部参数都随令牌签发。
+// TestTokenHeaderCarriesKidAndTenant asserts that the kid and the tenant header both ship with the token. | TestTokenHeaderCarriesKidAndTenant 断言 kid 与租户头部参数都随令牌签发。
 func TestTokenHeaderCarriesKidAndTenant(t *testing.T) {
 	f := newFixture(t)
 	token := mustIssue(t, f, f.admin)
@@ -200,7 +200,7 @@ func TestTokenHeaderCarriesKidAndTenant(t *testing.T) {
 	}
 }
 
-// TestDisabledUserTokenIsRejected 断言被禁用的用户立刻失去令牌。
+// TestDisabledUserTokenIsRejected asserts that a disabled user loses its token at once. | TestDisabledUserTokenIsRejected 断言被禁用的用户立刻失去令牌。
 func TestDisabledUserTokenIsRejected(t *testing.T) {
 	f := newFixture(t)
 	token := mustIssue(t, f, f.member)
@@ -227,7 +227,7 @@ func TestDisabledUserTokenIsRejected(t *testing.T) {
 	}
 }
 
-// TestSecKeyRotationInvalidatesOldToken 断言轮换 sec_key 会让旧令牌自然失效。
+// TestSecKeyRotationInvalidatesOldToken asserts that rotating the sec_key makes the old token lapse on its own. | TestSecKeyRotationInvalidatesOldToken 断言轮换 sec_key 会让旧令牌自然失效。
 func TestSecKeyRotationInvalidatesOldToken(t *testing.T) {
 	f := newFixture(t)
 	oldToken := mustIssue(t, f, f.member)
@@ -264,7 +264,7 @@ func TestSecKeyRotationInvalidatesOldToken(t *testing.T) {
 	}
 }
 
-// TestTokenExpiryFollowsTheClock 断言 exp 由签发时钟决定。
+// TestTokenExpiryFollowsTheClock asserts that exp follows the clock of the issuer. | TestTokenExpiryFollowsTheClock 断言 exp 由签发时钟决定。
 func TestTokenExpiryFollowsTheClock(t *testing.T) {
 	f := newFixture(t)
 	token := mustIssue(t, f, f.member)
@@ -291,7 +291,7 @@ func TestTokenExpiryFollowsTheClock(t *testing.T) {
 	}
 }
 
-// TestIssueAndIssuerValidation 覆盖签发与签发器构造的边界行为。
+// TestIssueAndIssuerValidation covers the boundary behaviour of issuing and of building an issuer. | TestIssueAndIssuerValidation 覆盖签发与签发器构造的边界行为。
 func TestIssueAndIssuerValidation(t *testing.T) {
 	f := newFixture(t)
 	if _, err := NewTokenIssuer(nil, TokenOptions{}); !errors.Is(err, ErrNilStore) {

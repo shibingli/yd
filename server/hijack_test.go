@@ -120,7 +120,7 @@ func TestReadFromKeepsUnderlyingFastPath(t *testing.T) {
 	}).ServeHTTP(underlying, &http.Request{})
 
 	if !sawReaderFrom {
-		t.Fatal("包装后的写入器不再实现 io.ReaderFrom，快速路径已丢失")
+		t.Fatal("the wrapped writer no longer implements io.ReaderFrom; the fast path is lost | 包装后的写入器不再实现 io.ReaderFrom，快速路径已丢失")
 	}
 	if underlying.readFroms != 1 {
 		t.Errorf("底层 ReadFrom 调用次数 = %d, 期望 1（必须委托给底层）", underlying.readFroms)
@@ -155,13 +155,13 @@ func TestWrapperOverRealConnectionKeepsFastPath(t *testing.T) {
 	defer func() { _ = resp.Body.Close() }()
 
 	if !sawHijacker {
-		t.Fatal("真实 HTTP/1.1 处理器未拿到可 hijack 的写入器，包装器根本没装上")
+		t.Fatal("a real HTTP/1.1 handler did not get a hijackable writer; the wrapper was never installed | 真实 HTTP/1.1 处理器未拿到可 hijack 的写入器，包装器根本没装上")
 	}
 	if !sawReaderFrom {
-		t.Error("真实 HTTP/1.1 连接上丢失了 io.ReaderFrom，静态资源将退回逐块拷贝")
+		t.Error("io.ReaderFrom is lost on a real HTTP/1.1 connection; static assets fall back to a chunked copy | 真实 HTTP/1.1 连接上丢失了 io.ReaderFrom，静态资源将退回逐块拷贝")
 	}
 	if !sawFlusher {
-		t.Error("真实 HTTP/1.1 连接上丢失了 http.Flusher，SSE 将无法推送")
+		t.Error("http.Flusher is lost on a real HTTP/1.1 connection; SSE can no longer push | 真实 HTTP/1.1 连接上丢失了 http.Flusher，SSE 将无法推送")
 	}
 }
 
@@ -188,7 +188,7 @@ func TestReadFromWithoutFastPathDoesNotRecurse(t *testing.T) {
 	select {
 	case <-done:
 	case <-time.After(5 * time.Second):
-		t.Fatal("io.Copy 未在 5 秒内返回，包装器的 ReadFrom 可能递归回了自身")
+		t.Fatal("io.Copy did not return within 5 seconds; the wrapper's ReadFrom may have recursed into itself | io.Copy 未在 5 秒内返回，包装器的 ReadFrom 可能递归回了自身")
 	}
 	if got, want := underlying.body.String(), "no fast path | 无快速路径"; got != want {
 		t.Errorf("底层收到的内容 = %q, 期望 %q", got, want)
@@ -244,16 +244,16 @@ func TestWrapperKeepsFlushAndUnwrap(t *testing.T) {
 	wrapForTest(func(w http.ResponseWriter, _ *http.Request) {
 		f, ok := w.(http.Flusher)
 		if !ok {
-			t.Fatal("包装后的写入器不再实现 http.Flusher，SSE 将无法推送")
+			t.Fatal("the wrapped writer no longer implements http.Flusher; SSE can no longer push | 包装后的写入器不再实现 http.Flusher，SSE 将无法推送")
 		}
 		f.Flush()
 
 		u, ok := w.(interface{ Unwrap() http.ResponseWriter })
 		if !ok {
-			t.Fatal("包装后的写入器不再暴露 Unwrap，http.ResponseController 将拿不到底层写入器")
+			t.Fatal("the wrapped writer no longer exposes Unwrap; http.ResponseController cannot reach the underlying writer | 包装后的写入器不再暴露 Unwrap，http.ResponseController 将拿不到底层写入器")
 		}
 		if u.Unwrap() != http.ResponseWriter(underlying) {
-			t.Error("Unwrap 返回的不是底层写入器")
+			t.Error("Unwrap did not return the underlying writer | Unwrap 返回的不是底层写入器")
 		}
 	}).ServeHTTP(underlying, &http.Request{})
 }

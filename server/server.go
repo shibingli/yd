@@ -193,19 +193,19 @@ func (s *Server) Start() error {
 		}
 		s.h3Conn = h3Conn
 		s.h3Port = port
-		// QUIC 需要独立的 ALPN 集合，必须克隆后修改，避免影响 TCP 侧的协商
+		// QUIC needs its own ALPN set, which must be modified on a clone so TCP-side negotiation is unaffected | QUIC 需要独立的 ALPN 集合，必须克隆后修改，避免影响 TCP 侧的协商
 		h3TLS := tlsConf.Clone()
 		h3TLS.NextProtos = []string{"h3"}
 		s.h3Srv = &http3.Server{
 			Addr:      h3Conn.LocalAddr().String(),
 			Port:      port,
 			TLSConfig: h3TLS,
-			Handler:   nil, // 在处理器构建完成后回填
+			Handler:   nil, // backfilled once the handler has been built | 在处理器构建完成后回填
 		}
 		s.altSvc = fmt.Sprintf(`h3=":%d"; ma=86400`, port)
 	}
 
-	// 最外层登记 hijack 连接：http.Server.Shutdown 不会关闭它们，只有服务器自己知道它们的存在。| Outermost layer registers hijacked connections: http.Server.Shutdown never closes them, and only the server knows about them.
+	// Outermost layer registers hijacked connections: http.Server.Shutdown never closes them, and only the server knows about them. | 最外层登记 hijack 连接：http.Server.Shutdown 不会关闭它们，只有服务器自己知道它们的存在。
 	handler := s.trackHijack(s.buildHandler())
 	if s.h3Srv != nil {
 		s.h3Srv.Handler = handler
@@ -223,7 +223,7 @@ func (s *Server) Start() error {
 		s.httpSrv.ErrorLog = c
 	}
 	if s.opts.H2C && !s.tlsActive() {
-		// 明文 HTTP/2：Go 1.24+ 内建支持，无需 golang.org/x/net/http2/h2c
+		// Cleartext HTTP/2: built into Go 1.24+, no golang.org/x/net/http2/h2c needed | 明文 HTTP/2：Go 1.24+ 内建支持，无需 golang.org/x/net/http2/h2c
 		p := new(http.Protocols)
 		p.SetHTTP1(true)
 		p.SetUnencryptedHTTP2(true)
@@ -235,7 +235,7 @@ func (s *Server) Start() error {
 
 	s.started = true
 
-	// TCP 侧
+	// TCP side | TCP 侧
 	go func() {
 		var err error
 		if tlsConf != nil {
@@ -259,7 +259,7 @@ func (s *Server) Start() error {
 		}()
 	}
 
-	// 注意：此处仍持有 s.mu，不能调用会再次加锁的 Addr()/HTTP3Addr()
+	// NOTE: s.mu is still held here, so Addr()/HTTP3Addr() must not be called — they lock again | 注意：此处仍持有 s.mu，不能调用会再次加锁的 Addr()/HTTP3Addr()
 	h3Addr := ""
 	if s.h3Port != 0 {
 		h3Addr = s.h3PublicAddr()
@@ -337,7 +337,7 @@ func (s *Server) Shutdown(ctx context.Context) error {
 	// this call guarantees the registry is closed and its hooks have finished.
 	ownsLifecycle := !s.lifecycle.ShuttingDown()
 
-	// ① 关闭 lifecycle 的 Done() 信号并执行钩子，与 ③ 的请求排空并行。| ① Close the lifecycle Done() signal and run its hooks, in parallel with the drain of ③.
+	// ① Close the lifecycle Done() signal and run its hooks, in parallel with the drain of ③. | ① 关闭 lifecycle 的 Done() 信号并执行钩子，与 ③ 的请求排空并行。
 	hooks := make(chan error, 1)
 	go func() {
 		hookErr := s.lifecycle.Shutdown(ctx)
@@ -365,17 +365,17 @@ func (s *Server) Shutdown(ctx context.Context) error {
 		}
 	}
 
-	// ③ 排空进行中的普通请求；hijack 出去的连接不在 http.Server 的追踪范围内。| ③ Drain in-flight ordinary requests; hijacked connections are outside http.Server's tracking.
+	// ③ Drain in-flight ordinary requests; hijacked connections are outside http.Server's tracking. | ③ 排空进行中的普通请求；hijack 出去的连接不在 http.Server 的追踪范围内。
 	if hs != nil {
 		if err := hs.Shutdown(ctx); err != nil {
 			errs = append(errs, errx.Wrap(err, ErrGracefulShutdown))
 		}
 	}
 
-	// ④ 强制关闭仍然存活的 hijack 连接（WebSocket 等），否则对端会一直挂着。| ④ Force-close surviving hijacked connections (WebSocket and friends), otherwise the peer stays hanging.
+	// ④ Force-close surviving hijacked connections (WebSocket and friends), otherwise the peer stays hanging. | ④ 强制关闭仍然存活的 hijack 连接（WebSocket 等），否则对端会一直挂着。
 	errs = append(errs, s.closeHijacked()...)
 
-	// ⑤ 汇总钩子与以上各步的错误。| ⑤ Aggregate the hook errors with those of the steps above.
+	// ⑤ Aggregate the hook errors with those of the steps above. | ⑤ 汇总钩子与以上各步的错误。
 	if err := <-hooks; err != nil {
 		errs = append(errs, errx.Wrap(err, ErrShutdownHook))
 	}
@@ -439,7 +439,7 @@ func (s *Server) buildHandler() http.Handler {
 		next := h
 		alt := s.altSvc
 		h = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			// 已经跑在 HTTP/3 上的请求无需再通告
+			// A request already running over HTTP/3 needs no advertisement | 已经跑在 HTTP/3 上的请求无需再通告
 			if r.ProtoMajor < 3 {
 				w.Header().Set("Alt-Svc", alt)
 			}
@@ -489,7 +489,7 @@ func (s *Server) buildTLSConfig() (*tls.Config, error) {
 		}, nil
 
 	case s.opts.HTTP3.Enabled:
-		// QUIC 强制 TLS，开发环境下自动生成一次性自签证书
+		// QUIC mandates TLS; in development a one-off self-signed certificate is generated automatically | QUIC 强制 TLS，开发环境下自动生成一次性自签证书
 		cert, err := selfSignedCertForDev()
 		if err != nil {
 			return nil, err

@@ -200,7 +200,7 @@ func TestBuildImageLocalDaemonHint(t *testing.T) {
 	if !errors.Is(err, ErrBuildFailed) {
 		t.Fatalf("err = %v | err 得到 %v，期望 ErrBuildFailed", err, err)
 	}
-	if !strings.Contains(err.Error(), "本地 docker 守护进程不可达") {
+	if !strings.Contains(err.Error(), "local docker daemon unreachable; start docker or drop --local | 本地 docker 守护进程不可达") {
 		t.Errorf("应给出守护进程不可达的双语提示：%v | the bilingual daemon hint is missing: %v", err, err)
 	}
 }

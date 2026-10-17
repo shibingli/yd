@@ -10,8 +10,10 @@ require (
 	github.com/cristalhq/base64 v0.1.2
 	github.com/fsnotify/fsnotify v1.10.1
 	github.com/glebarez/sqlite v1.11.0
+	github.com/go-sql-driver/mysql v1.8.1
 	github.com/goccy/go-json v0.11.2
 	github.com/hibiken/asynq v0.26.0
+	github.com/jackc/pgx/v5 v5.10.0
 	github.com/kardianos/service v1.3.0
 	github.com/klauspost/compress v1.20.3
 	github.com/quic-go/quic-go v0.64.0
@@ -37,12 +39,10 @@ require (
 	github.com/cloudwego/base64x v0.1.6 // indirect
 	github.com/dustin/go-humanize v1.0.1 // indirect
 	github.com/glebarez/go-sqlite v1.21.2 // indirect
-	github.com/go-sql-driver/mysql v1.8.1 // indirect
 	github.com/go-viper/mapstructure/v2 v2.4.0 // indirect
 	github.com/google/uuid v1.6.0 // indirect
 	github.com/jackc/pgpassfile v1.0.0 // indirect
 	github.com/jackc/pgservicefile v0.0.0-20240606120523-5a60cdf6a761 // indirect
-	github.com/jackc/pgx/v5 v5.10.0 // indirect
 	github.com/jackc/puddle/v2 v2.2.2 // indirect
 	github.com/jinzhu/inflection v1.0.0 // indirect
 	github.com/jinzhu/now v1.1.5 // indirect

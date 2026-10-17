@@ -48,7 +48,7 @@ func NewLogger(l *logx.Logger, slow time.Duration, level string) gormlogger.Inte
 	return &gormLogger{log: l, slow: slow, level: parseLogLevel(level)}
 }
 
-// parseLogLevel 把配置中的级别名解析为 GORM 日志级别，大小写不敏感。
+// parseLogLevel resolves a configured level name into a GORM log level, case-insensitively. | parseLogLevel 把配置中的级别名解析为 GORM 日志级别，大小写不敏感。
 func parseLogLevel(level string) gormlogger.LogLevel {
 	switch strings.ToLower(strings.TrimSpace(level)) {
 	case "silent":
@@ -58,19 +58,19 @@ func parseLogLevel(level string) gormlogger.LogLevel {
 	case "info", "debug":
 		return gormlogger.Info
 	default:
-		// "" 与 "warn"/"warning" 及一切无法识别的取值都回落到 warn。
+		// "" and "warn"/"warning" as well as every unrecognized value fall back to warn. | "" 与 "warn"/"warning" 及一切无法识别的取值都回落到 warn。
 		return gormlogger.Warn
 	}
 }
 
-// LogMode 实现 gorm.io/gorm/logger.Interface：返回指定级别的新日志器，原对象保持不变。
+// LogMode implements gorm.io/gorm/logger.Interface: it returns a new logger at the given level and leaves the receiver untouched. | LogMode 实现 gorm.io/gorm/logger.Interface：返回指定级别的新日志器，原对象保持不变。
 func (l *gormLogger) LogMode(level gormlogger.LogLevel) gormlogger.Interface {
 	clone := *l
 	clone.level = level
 	return &clone
 }
 
-// Info 实现 gorm.io/gorm/logger.Interface：GORM 的提示性消息以 InfoLevel 转交 logx。
+// Info implements gorm.io/gorm/logger.Interface: GORM's informational messages are handed to logx at InfoLevel. | Info 实现 gorm.io/gorm/logger.Interface：GORM 的提示性消息以 InfoLevel 转交 logx。
 func (l *gormLogger) Info(ctx context.Context, msg string, data ...any) {
 	if l.level < gormlogger.Info {
 		return
@@ -78,7 +78,7 @@ func (l *gormLogger) Info(ctx context.Context, msg string, data ...any) {
 	l.log.Info(msgGormInfo, logx.Str(fieldGormText, fmt.Sprintf(msg, data...)))
 }
 
-// Warn 实现 gorm.io/gorm/logger.Interface：GORM 的告警消息以 WarnLevel 转交 logx。
+// Warn implements gorm.io/gorm/logger.Interface: GORM's warning messages are handed to logx at WarnLevel. | Warn 实现 gorm.io/gorm/logger.Interface：GORM 的告警消息以 WarnLevel 转交 logx。
 func (l *gormLogger) Warn(ctx context.Context, msg string, data ...any) {
 	if l.level < gormlogger.Warn {
 		return
@@ -86,7 +86,7 @@ func (l *gormLogger) Warn(ctx context.Context, msg string, data ...any) {
 	l.log.Warn(msgGormWarn, logx.Str(fieldGormText, fmt.Sprintf(msg, data...)))
 }
 
-// Error 实现 gorm.io/gorm/logger.Interface：GORM 的错误消息以 ErrorLevel 转交 logx。
+// Error implements gorm.io/gorm/logger.Interface: GORM's error messages are handed to logx at ErrorLevel. | Error 实现 gorm.io/gorm/logger.Interface：GORM 的错误消息以 ErrorLevel 转交 logx。
 func (l *gormLogger) Error(ctx context.Context, msg string, data ...any) {
 	if l.level < gormlogger.Error {
 		return

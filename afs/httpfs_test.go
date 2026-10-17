@@ -12,7 +12,7 @@ import (
 	"github.com/spf13/afero"
 )
 
-// serve 用 http.FileServer 走一遍真实请求路径。
+// serve drives one real request path through http.FileServer. | serve 用 http.FileServer 走一遍真实请求路径。
 func serve(fs interface {
 	Open(string) (http.File, error)
 }, target string) (int, string) {
@@ -51,15 +51,15 @@ func TestHTTPFileSystemRejectsTraversalAndMissing(t *testing.T) {
 	embedFS := afs.NewEmbed(fstest.MapFS{"a.txt": &fstest.MapFile{Data: []byte("a")}})
 	hfs := afs.NewHTTPFileSystem(embedFS)
 	if _, err := hfs.Open("/../secret.txt"); err == nil {
-		t.Error("目录穿越路径必须被拒绝或不存在")
+		t.Error("a traversal path must be rejected or absent | 目录穿越路径必须被拒绝或不存在")
 	}
 	if _, err := hfs.Open("/missing.txt"); err == nil {
-		t.Error("缺失文件必须返回错误")
+		t.Error("a missing file must return an error | 缺失文件必须返回错误")
 	} else if !os.IsNotExist(err) {
 		t.Errorf("缺失文件错误类型 = %v, 期望 not-exist", err)
 	}
 	if _, err := hfs.Open("/a\x00b"); err == nil {
-		t.Error("含 NUL 的路径必须被拒绝")
+		t.Error("a path containing NUL must be rejected | 含 NUL 的路径必须被拒绝")
 	}
 }
 

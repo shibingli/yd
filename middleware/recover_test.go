@@ -82,7 +82,7 @@ func TestRecoverAbortsRemainingHandlers(t *testing.T) {
 
 	_ = doReq(r, http.MethodGet, "/boom", nil, "")
 	if ran {
-		t.Fatal("panic 之后的处理器被执行了")
+		t.Fatal("a handler after the panic ran | panic 之后的处理器被执行了")
 	}
 }
 

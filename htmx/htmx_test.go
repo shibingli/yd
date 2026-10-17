@@ -90,7 +90,7 @@ func TestIsRequestBoostedAndRequestType(t *testing.T) {
 
 	t.Run("nil 请求不 panic", func(t *testing.T) {
 		if IsRequest(nil) || IsBoosted(nil) || IsHistoryRestore(nil) || IsPartial(nil) {
-			t.Error("nil 请求应一律返回 false")
+			t.Error("a nil request must always report false | nil 请求应一律返回 false")
 		}
 		if got := RequestType(nil); got != "" {
 			t.Errorf("RequestType(nil) = %q, 期望空串", got)
@@ -117,10 +117,10 @@ func TestTargetSourceAndCurrentURL(t *testing.T) {
 
 	empty := reqWithHeaders(nil)
 	if Target(empty) != "" || Source(empty) != "" || CurrentURL(empty) != "" {
-		t.Error("缺失头时应返回空串")
+		t.Error("a missing header must yield the empty string | 缺失头时应返回空串")
 	}
 	if Target(nil) != "" || Source(nil) != "" || CurrentURL(nil) != "" {
-		t.Error("nil 请求应返回空串")
+		t.Error("a nil request must yield the empty string | nil 请求应返回空串")
 	}
 }
 
@@ -372,7 +372,7 @@ func TestErrorWritesStatusAndFragment(t *testing.T) {
 
 	bad := httptest.NewRecorder()
 	if err := Error(bad, 42, "非法状态码"); err == nil {
-		t.Fatal("非法状态码应返回错误")
+		t.Fatal("an invalid status code must return an error | 非法状态码应返回错误")
 	}
 	if bad.Body.Len() != 0 || bad.Code != http.StatusOK {
 		t.Errorf("非法状态码不应写出任何内容, code=%d body=%q", bad.Code, bad.Body.String())
@@ -587,6 +587,6 @@ func TestNoHtmx2OnlyNamesAppear(t *testing.T) {
 		}
 	}
 	if scanned == 0 {
-		t.Fatal("未扫描到任何 Go 源文件，命名守卫失效")
+		t.Fatal("no Go source file was scanned, the naming guard is not effective | 未扫描到任何 Go 源文件，命名守卫失效")
 	}
 }

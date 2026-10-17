@@ -102,7 +102,7 @@ func TestDefaultRendererWithoutTemplates(t *testing.T) {
 		t.Fatalf("缺少模板目录时不应报错: %v", err)
 	}
 	if err := r.Render(io.Discard, "pages/home.html", nil); err == nil {
-		t.Error("没有模板时 Render 必须报错")
+		t.Error("Render must fail when no template exists | 没有模板时 Render 必须报错")
 	}
 
 	// An existing but empty templates directory behaves the same. | 存在但为空的模板目录行为一致。
@@ -165,7 +165,7 @@ func TestAssetDirResolvesEmbeddedSubtrees(t *testing.T) {
 		t.Fatalf("assetDir(%q) 失败: %v", assetsStaticDir, err)
 	}
 	if !afs.Exists(static, "app.css") {
-		t.Error("静态子树必须包含 app.css")
+		t.Error("the static subtree must contain app.css | 静态子树必须包含 app.css")
 	}
 
 	// A missing subtree degrades to an empty filesystem instead of an error. | 缺失的子树降级为空文件系统而非报错。
@@ -174,7 +174,7 @@ func TestAssetDirResolvesEmbeddedSubtrees(t *testing.T) {
 		t.Fatalf("缺失子树不应报错: %v", err)
 	}
 	if afs.Exists(missing, "app.css") {
-		t.Error("缺失子树必须是空的")
+		t.Error("the missing subtree must be empty | 缺失子树必须是空的")
 	}
 }
 

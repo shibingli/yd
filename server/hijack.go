@@ -154,7 +154,7 @@ func (s *Server) closeHijacked() []error {
 
 	var errs []error
 	for _, tc := range conns {
-		// 地址先取出：关闭之后不保证还能读出对端信息。| Read the address first: peer information is not guaranteed to be readable after the close.
+		// Read the address first: peer information is not guaranteed to be readable after the close. | 地址先取出：关闭之后不保证还能读出对端信息。
 		remote := ""
 		if addr := tc.Conn.RemoteAddr(); addr != nil {
 			remote = addr.String()

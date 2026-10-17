@@ -20,14 +20,31 @@ var probeSeq atomic.Int64
 
 // registerProbe registers a probe command under a name unique within the process and returns that name. | registerProbe 以进程内唯一的名字注册探针命令并返回该名字。
 //
-// Register panics on a duplicate name by design, so `go test -count=N` would otherwise fail on its second
-// pass; numbering the probes keeps the whole suite repeatable, which is what makes stress runs and the
-// race detector useful. | Register 对重名有意 panic，否则 `go test -count=N` 在第二轮就会失败；给探针
-// 编号使整套测试可重复，这正是压力运行与竞态检测有价值的前提。
+// Register records a duplicate name as a wiring error that Execute would then return, so
+// `go test -count=N` would otherwise fail on its second pass; numbering the probes keeps the
+// whole suite repeatable, which is what makes stress runs and the race detector useful. | Register 会把重名
+// 登记为接线错误并让 Execute 返回它，否则 `go test -count=N` 在第二轮就会失败；给探针编号
+// 使整套测试可重复，这正是压力运行与竞态检测有价值的前提。
 func registerProbe(c Command) string {
 	c.Name = fmt.Sprintf("%s-%d", c.Name, probeSeq.Add(1))
 	Register(c)
 	return c.Name
+}
+
+// resetRegistryErrors clears the wiring errors recorded by Register for the duration of one test. | resetRegistryErrors
+// 在单个测试期间清空 Register 登记的接线错误。
+//
+// A test that deliberately registers a broken command would otherwise poison every later test in
+// the same process. | 有意注册损坏命令的测试否则会污染同进程内后续的每个测试。
+func resetRegistryErrors(t *testing.T) {
+	t.Helper()
+	clear := func() {
+		registryMu.Lock()
+		registryErrs = nil
+		registryMu.Unlock()
+	}
+	clear()
+	t.Cleanup(clear)
 }
 
 // testEnv bundles an Env with the in-memory buffers it writes to. | testEnv 把 Env 与它写入的内存缓冲区打包在一起。
@@ -103,6 +120,53 @@ func TestExecuteNilEnvErrors(t *testing.T) {
 	}
 }
 
+// TestRegisterWiringErrorsSurfaceFromExecute 要求注册错误被登记并由 Execute 以哨兵返回，而不是 panic。
+// TestRegisterWiringErrorsSurfaceFromExecute records registration errors and returns them from Execute instead of panicking.
+func TestRegisterWiringErrorsSurfaceFromExecute(t *testing.T) {
+	noop := func(context.Context, *Env) error { return nil }
+	cases := []struct {
+		name     string
+		register func()
+		want     error
+	}{
+		{
+			name:     "empty name | 空名",
+			register: func() { Register(Command{Name: "", Run: noop}) },
+			want:     ErrEmptyCommandName,
+		},
+		{
+			name: "duplicate name | 重名",
+			register: func() {
+				c := Command{
+					Name:  "t-dup",
+					Short: "duplicate probe | 重复探针",
+					Usage: "yd t-dup",
+					Run:   noop,
+				}
+				name := registerProbe(c)
+				c.Name = name
+				Register(c)
+			},
+			want: ErrDuplicateCommand,
+		},
+		{
+			name:     "nil Run | 空 Run",
+			register: func() { Register(Command{Name: fmt.Sprintf("t-nil-run-%d", probeSeq.Add(1))}) },
+			want:     ErrNilRun,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			resetRegistryErrors(t)
+			tc.register()
+			err := Execute(context.Background(), []string{"new"}, newTestEnv(t, nil, "", false).env)
+			if !errors.Is(err, tc.want) {
+				t.Fatalf("Execute 返回 %v，期望携带 %v", err, tc.want)
+			}
+		})
+	}
+}
+
 // TestGlobalFlagsBindToConfig 校验 --verbose/--quiet/--no-color 对配置层的写入。
 // TestGlobalFlagsBindToConfig checks what --verbose/--quiet/--no-color write into the config layer.
 func TestGlobalFlagsBindToConfig(t *testing.T) {
@@ -155,7 +219,7 @@ func TestGlobalFlagsBindToConfig(t *testing.T) {
 		t.Fatalf("Execute 失败: %v", err)
 	}
 	if !logx.Default().Enabled(logx.DebugLevel) {
-		t.Error("--verbose 之后 DebugLevel 应当被启用")
+		t.Error("DebugLevel should be enabled after --verbose | --verbose 之后 DebugLevel 应当被启用")
 	}
 
 	// --no-color is explicit and must be recorded in the config layer. | --no-color 是显式传参，必须写入配置层。
@@ -164,13 +228,13 @@ func TestGlobalFlagsBindToConfig(t *testing.T) {
 		t.Fatalf("Execute 失败: %v", err)
 	}
 	if colored && color {
-		t.Error("--no-color 之后 log.color 应为 false")
+		t.Error("log.color should be false after --no-color | --no-color 之后 log.color 应为 false")
 	}
 	if !colored {
-		t.Error("--no-color 之后 log.color 应被显式设置")
+		t.Error("log.color should be set explicitly after --no-color | --no-color 之后 log.color 应被显式设置")
 	}
 	if ColorEnabled(te.env) {
-		t.Error("--no-color 之后 ColorEnabled 应为 false")
+		t.Error("ColorEnabled should be false after --no-color | --no-color 之后 ColorEnabled 应为 false")
 	}
 }
 
@@ -203,7 +267,7 @@ func TestCommandHelpPrinted(t *testing.T) {
 		}
 	}
 	if ran {
-		t.Error("--help 不应执行命令")
+		t.Error("--help must not run the command | --help 不应执行命令")
 	}
 
 	te = newTestEnv(t, nil, "", false)
@@ -412,7 +476,7 @@ func TestExecuteParsesCommandFlagsAndArgs(t *testing.T) {
 		t.Fatalf("Execute 失败: %v", err)
 	}
 	if !local {
-		t.Error("--local 未被解析")
+		t.Error("--local was not parsed | --local 未被解析")
 	}
 	if strings.Join(args, ",") != "pos1,pos2" {
 		t.Errorf("位置参数 = %v，期望 [pos1 pos2]", args)

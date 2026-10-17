@@ -14,6 +14,7 @@ import (
 	"{{ .Module }}/internal/model"
 	"{{ .Module }}/internal/service"
 	"{{ .YdModule }}/auth"
+	"{{ .YdModule }}/authz"
 	"{{ .YdModule }}/logx"
 	"{{ .YdModule }}/router"
 )
@@ -63,7 +64,7 @@ func (c *Controller) Users(ctx *router.Ctx) {
 // @Param roles formData []string false "role names, member by default | 角色名，默认 member"
 // @Success 200 {object} string "refreshed user list fragment | 刷新后的用户列表片段"
 // @Failure 401 {object} string "no session | 无有效会话"
-// @Failure 403 {object} string "missing user:write | 缺少 user:write"
+// @Failure 403 {object} string "missing user:create | 缺少 user:create"
 // @Failure 409 {object} string "the sign-in name is taken | 登录名已被占用"
 // @Failure 422 {object} string "validation failure | 校验失败"
 // @Security BearerAuth
@@ -110,7 +111,7 @@ func (c *Controller) CreateUser(ctx *router.Ctx) {
 // @Param display_name formData string false "human-readable name | 展示名称"
 // @Success 200 {object} string "refreshed user list fragment | 刷新后的用户列表片段"
 // @Failure 401 {object} string "no session | 无有效会话"
-// @Failure 403 {object} string "missing user:write | 缺少 user:write"
+// @Failure 403 {object} string "missing user:update | 缺少 user:update"
 // @Failure 404 {object} string "no such user in this tenant | 本租户内没有该用户"
 // @Failure 422 {object} string "validation failure | 校验失败"
 // @Security BearerAuth
@@ -153,7 +154,7 @@ func (c *Controller) UpdateUser(ctx *router.Ctx) {
 // @Param roles formData []string false "role names; empty means member | 角色名；为空表示 member"
 // @Success 200 {object} string "refreshed user list fragment | 刷新后的用户列表片段"
 // @Failure 401 {object} string "no session | 无有效会话"
-// @Failure 403 {object} string "missing user:write | 缺少 user:write"
+// @Failure 403 {object} string "missing user:update | 缺少 user:update"
 // @Failure 404 {object} string "no such user in this tenant | 本租户内没有该用户"
 // @Failure 422 {object} string "unknown role | 未知角色"
 // @Security BearerAuth
@@ -194,7 +195,7 @@ func (c *Controller) SetUserRoles(ctx *router.Ctx) {
 // @Param status formData string true "active or disabled | active 或 disabled"
 // @Success 200 {object} string "refreshed user list fragment | 刷新后的用户列表片段"
 // @Failure 401 {object} string "no session | 无有效会话"
-// @Failure 403 {object} string "missing user:write | 缺少 user:write"
+// @Failure 403 {object} string "missing user:update | 缺少 user:update"
 // @Failure 404 {object} string "no such user in this tenant | 本租户内没有该用户"
 // @Failure 409 {object} string "refusing to disable your own account | 拒绝停用自己的账号"
 // @Security BearerAuth
@@ -245,7 +246,7 @@ func (c *Controller) SetUserStatus(ctx *router.Ctx) {
 // @Success 200 {object} string "refreshed user list fragment | 刷新后的用户列表片段"
 // @Failure 400 {object} string "payload is not decryptable | 载荷无法解密"
 // @Failure 401 {object} string "no session | 无有效会话"
-// @Failure 403 {object} string "missing user:write | 缺少 user:write"
+// @Failure 403 {object} string "missing user:update | 缺少 user:update"
 // @Failure 404 {object} string "no such user in this tenant | 本租户内没有该用户"
 // @Security BearerAuth
 // @Router /users/{id}/password [post]
@@ -283,7 +284,7 @@ func (c *Controller) SetUserPassword(ctx *router.Ctx) {
 // @Param id path string true "user id | 用户 ID"
 // @Success 200 {object} string "refreshed user list fragment | 刷新后的用户列表片段"
 // @Failure 401 {object} string "no session | 无有效会话"
-// @Failure 403 {object} string "missing user:write | 缺少 user:write"
+// @Failure 403 {object} string "missing user:update | 缺少 user:update"
 // @Failure 404 {object} string "no such user in this tenant | 本租户内没有该用户"
 // @Security BearerAuth
 // @Router /users/{id}/sec-key [post]
@@ -350,11 +351,11 @@ func (c *Controller) usersPage(ctx *router.Ctx, status int, keyword, message str
 		return
 	}
 
-	// 页面数据先算出来再装卡片：写权限是 view() 依据当前用户的真实能力得出的判断，卡片只是把它转交给行模板，
-	// 因此授权规则仍然只有一处（`CanUserWrite` 在控制器里算一次，模板只读结果）。
-	// The page data is built before the cards: the write capability is the judgement view() derives from the current user's
-	// real permissions, and the card merely hands it down to the row template, so the authorization rule still lives in
-	// exactly one place (the controller computes CanUserWrite once and the templates only read the result).
+	// 写权限来自请求主体本身（authz.Middleware 放进上下文的那一个），卡片只是把它转交给行模板，
+	// 因此授权规则仍然只有一处：注册表的判定，模板与行片段都只读结果。
+	// The write capability comes from the request's own subject (the one authz.Middleware put into the context) and the card
+	// merely hands it down to the row template, so the authorization rule still lives in exactly one place — the registry's
+	// decision — and both the page and the row fragment only read the result.
 	data := c.view(ctx, "用户管理 | Users", map[string]any{
 		"Total":    len(list),
 		"Keyword":  keyword,
@@ -362,7 +363,7 @@ func (c *Controller) usersPage(ctx *router.Ctx, status int, keyword, message str
 		"RoleList": roles,
 		"Actor":    currentUserID(ctx),
 	})
-	canWrite, _ := data["CanUserWrite"].(bool)
+	canWrite := authz.Can(ctx.Request.Context(), authz.PermUserUpdate)
 	cards := make([]userCard, 0, len(list))
 	for _, user := range list {
 		cards = append(cards, userCard{

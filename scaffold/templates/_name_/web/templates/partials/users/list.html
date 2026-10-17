@@ -8,8 +8,12 @@
   is empty" are the same thing to a user, and two rendering paths would only drift apart over time.
 
   数据契约 | Data contract: .Cards（[]userCard，可为空）、.Empty（筛选无结果的标记）、.Actor（当前登录用户 ID）、
-  .CanUserWrite（是否渲染行内表单）。行由 partials/users/row.html 渲染，因此单行结构只存在一份。
-  Rows are rendered by partials/users/row.html, so the shape of one row exists exactly once.
+  .Perm（authz.Data 注入的能力表：操作列与行内表单按 can $.Perm.UserUpdate 出现，与 POST /users/{id}… 的服务端守卫同源）。
+  行由 partials/users/row.html 渲染，因此单行结构只存在一份。
+  .Cards ([]userCard, possibly empty), .Empty (the filter matched nothing), .Actor (the signed-in user id) and .Perm (the
+  capability map injected by authz.Data: the actions column and the in-row forms appear under can $.Perm.UserUpdate, the
+  same token that guards POST /users/{id}…). Rows are rendered by partials/users/row.html, so the shape of one row exists
+  exactly once.
 */}}
 {{- define "partials/users/list" -}}
 <div class="yd-table__wrap" data-yd-table>
@@ -22,7 +26,7 @@
         <th class="yd-table__th" scope="col">{{ tr "field.roles" }}</th>
         <th class="yd-table__th" scope="col">{{ tr "field.status" }}</th>
         <th class="yd-table__th" scope="col">{{ tr "field.created" }}</th>
-        {{- if .CanUserWrite }}
+        {{- if can $.Perm.UserUpdate }}
         <th class="yd-table__th" scope="col">{{ tr "field.actions" }}</th>
         {{- end }}
       </tr>
@@ -36,7 +40,7 @@
       {{ end }}
       {{ else }}
       <tr class="yd-table__row yd-table__row--empty">
-        <td class="yd-table__td" colspan="{{ if $.CanUserWrite }}6{{ else }}5{{ end }}">
+        <td class="yd-table__td" colspan="{{ if can $.Perm.UserUpdate }}6{{ else }}5{{ end }}">
           {{ if $.Empty }}{{ tr "user.no_match" }}{{ else }}{{ tr "user.empty" }}{{ end }}
         </td>
       </tr>

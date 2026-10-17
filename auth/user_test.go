@@ -87,7 +87,7 @@ func requireAbsent(t *testing.T, fields []string, needle []byte, what string) {
 	}
 }
 
-// TestPasswordsAndSecKeysAreNeverStoredInPlaintext 断言数据库里既没有明文口令，也没有明文 sec_key 与主密钥。
+// TestPasswordsAndSecKeysAreNeverStoredInPlaintext asserts that the database holds neither a plaintext password nor a plaintext sec_key or master key. | TestPasswordsAndSecKeysAreNeverStoredInPlaintext 断言数据库里既没有明文口令，也没有明文 sec_key 与主密钥。
 func TestPasswordsAndSecKeysAreNeverStoredInPlaintext(t *testing.T) {
 	f := newFixture(t)
 	raw, err := f.store.GetUser(testCtx, f.tenantA.ID, f.member.ID)
@@ -148,7 +148,7 @@ func TestPasswordsAndSecKeysAreNeverStoredInPlaintext(t *testing.T) {
 	}
 }
 
-// TestSecKeyIsBoundToItsOwningRecord 校验 sec_key 密文与租户、用户绑定，搬走后无法解开。
+// TestSecKeyIsBoundToItsOwningRecord checks that the sealed sec_key is bound to its tenant and user, so moving it elsewhere cannot open it. | TestSecKeyIsBoundToItsOwningRecord 校验 sec_key 密文与租户、用户绑定，搬走后无法解开。
 func TestSecKeyIsBoundToItsOwningRecord(t *testing.T) {
 	f := newFixture(t)
 	member, err := f.store.GetUser(testCtx, f.tenantA.ID, f.member.ID)
@@ -191,7 +191,7 @@ func TestSecKeyIsBoundToItsOwningRecord(t *testing.T) {
 	}
 }
 
-// TestCreateUserValidation 覆盖创建用户时的每一类拒绝。
+// TestCreateUserValidation covers every kind of refusal when a user is created. | TestCreateUserValidation 覆盖创建用户时的每一类拒绝。
 func TestCreateUserValidation(t *testing.T) {
 	f := newFixture(t)
 	before, err := f.svc.ListUsers(testCtx, f.tenantA.ID)
@@ -268,7 +268,7 @@ func TestCreateUserValidation(t *testing.T) {
 	}
 }
 
-// TestAuthenticateDoesNotLeakUserExistence 要求用户不存在与口令错误完全不可区分。
+// TestAuthenticateDoesNotLeakUserExistence requires an unknown user and a wrong password to be wholly indistinguishable. | TestAuthenticateDoesNotLeakUserExistence 要求用户不存在与口令错误完全不可区分。
 func TestAuthenticateDoesNotLeakUserExistence(t *testing.T) {
 	f := newFixture(t)
 
@@ -327,7 +327,7 @@ func TestAuthenticateDoesNotLeakUserExistence(t *testing.T) {
 	}
 }
 
-// TestDisableUserIsImmediate 校验禁用立即生效，且幂等。
+// TestDisableUserIsImmediate checks that disabling takes effect at once and is idempotent. | TestDisableUserIsImmediate 校验禁用立即生效，且幂等。
 func TestDisableUserIsImmediate(t *testing.T) {
 	f := newFixture(t)
 	token := mustIssue(t, f, f.member)
@@ -367,7 +367,7 @@ func TestDisableUserIsImmediate(t *testing.T) {
 	}
 }
 
-// TestSetPasswordRotatesTheSecKey 校验改密同时换掉 sec_key，旧令牌随之失效。
+// TestSetPasswordRotatesTheSecKey checks that changing a password also rotates the sec_key, so the old token lapses with it. | TestSetPasswordRotatesTheSecKey 校验改密同时换掉 sec_key，旧令牌随之失效。
 func TestSetPasswordRotatesTheSecKey(t *testing.T) {
 	f := newFixture(t)
 	token := mustIssue(t, f, f.member)
@@ -397,7 +397,7 @@ func TestSetPasswordRotatesTheSecKey(t *testing.T) {
 	}
 }
 
-// TestUpdateUserCannotOverwriteSecrets 校验 UpdateUser 无法覆盖散列与 sec_key。
+// TestUpdateUserCannotOverwriteSecrets checks that UpdateUser can overwrite neither the hash nor the sec_key. | TestUpdateUserCannotOverwriteSecrets 校验 UpdateUser 无法覆盖散列与 sec_key。
 func TestUpdateUserCannotOverwriteSecrets(t *testing.T) {
 	f := newFixture(t)
 	token := mustIssue(t, f, f.member)
@@ -472,7 +472,7 @@ func TestUpdateUserCannotOverwriteSecrets(t *testing.T) {
 	}
 }
 
-// TestGetAndListUserErrors 校验读取用户时的边界行为。
+// TestGetAndListUserErrors checks the boundary behaviour of reading users. | TestGetAndListUserErrors 校验读取用户时的边界行为。
 func TestGetAndListUserErrors(t *testing.T) {
 	f := newFixture(t)
 	if _, err := f.svc.GetUser(testCtx, f.tenantA.ID, "us_missing"); !errors.Is(err, ErrNotFound) {

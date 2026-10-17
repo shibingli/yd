@@ -571,7 +571,7 @@ func TestReadMessageReusesBuffer(t *testing.T) {
 		t.Fatalf("读取失败: %v", err)
 	}
 	if &b1[0] != &b2[0] {
-		t.Fatal("ReadMessage 未复用内部缓冲（每次读取都重新分配）")
+		t.Fatal("ReadMessage did not reuse the internal buffer (every read re-allocates) | ReadMessage 未复用内部缓冲（每次读取都重新分配）")
 	}
 }
 

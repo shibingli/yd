@@ -126,7 +126,7 @@ func TestGenModuleDryRunWritesNothing(t *testing.T) {
 	}
 
 	if existsMem(t, te.env.FS, "internal/model/post.go") {
-		t.Error("--dry-run 不得写入任何文件")
+		t.Error("--dry-run must not write any file | --dry-run 不得写入任何文件")
 	}
 	out := te.out.String()
 	for _, want := range []string{"dry run | 试运行", "internal/model/post.go", "internal/router/routes_gen.go"} {
@@ -214,7 +214,7 @@ func TestGenCrudFromStruct(t *testing.T) {
 
 import "time"
 
-// Post 是文章模型。| Post is the article model.
+// Post is the article model. | Post 是文章模型。
 type Post struct {
 	ID        int64     `+"`"+`gorm:"column:id;primaryKey" json:"id"`+"`"+`
 	Title     string    `+"`"+`gorm:"column:title;size:120;not null" json:"title"`+"`"+`
@@ -222,7 +222,7 @@ type Post struct {
 	CreatedAt time.Time `+"`"+`gorm:"column:created_at" json:"created_at"`+"`"+`
 }
 
-// TableName 返回文章表名。| TableName returns the table name of the article.
+// TableName returns the table name of the article. | TableName 返回文章表名。
 func (Post) TableName() string { return "cms_posts" }
 `)
 	te := newTestEnv(t, fs, "", false)
@@ -246,7 +246,7 @@ func (Post) TableName() string { return "cms_posts" }
 		}
 	}
 
-	// 导入前缀取 go.mod 里的模块路径。| The import prefix comes from the module path in go.mod.
+	// The import prefix comes from the module path in go.mod. | 导入前缀取 go.mod 里的模块路径。
 	svc := readMemFile(t, te.env.FS, "internal/service/post_service.go")
 	if !strings.Contains(svc, `"example.com/blog/internal/repository"`) {
 		t.Errorf("服务层未使用 go.mod 的模块路径:\n%s", svc)
@@ -269,20 +269,20 @@ func TestGenModuleIdempotentAndForce(t *testing.T) {
 		t.Fatalf("重复生成失败: %v\n%s", err, te.errs.String())
 	}
 	if got := readMemFile(t, te.env.FS, "internal/controller/post_controller.go"); got != first {
-		t.Error("重复生成的内容与首次不一致")
+		t.Error("regeneration differs from the first run | 重复生成的内容与首次不一致")
 	}
 	if out := te.out.String(); !strings.Contains(out, "skipped | 已跳过") {
 		t.Errorf("重复生成应报告跳过:\n%s", out)
 	}
 
-	// 手写文件（无生成标记）默认被保护，--force 才会覆盖。
+	// A hand-written file (no generator marker) is protected by default; only --force overwrites it. | 手写文件（无生成标记）默认被保护，--force 才会覆盖。
 	writeMemFile(t, te.env.FS, "internal/model/post.go", "package model\n\n// 手写模型。| hand-written model.\ntype Post struct{}\n")
 	te.out.Reset()
 	if err := Execute(context.Background(), args, te.env); err != nil {
 		t.Fatalf("第三次生成失败: %v\n%s", err, te.errs.String())
 	}
 	if !strings.Contains(readMemFile(t, te.env.FS, "internal/model/post.go"), "手写模型") {
-		t.Error("没有生成标记的手写文件被覆盖了")
+		t.Error("a hand-written file without the marker was overwritten | 没有生成标记的手写文件被覆盖了")
 	}
 
 	te.out.Reset()
@@ -291,7 +291,7 @@ func TestGenModuleIdempotentAndForce(t *testing.T) {
 		t.Fatalf("yd gen module --force 失败: %v\n%s", err, te.errs.String())
 	}
 	if !strings.Contains(readMemFile(t, te.env.FS, "internal/model/post.go"), gen.GeneratedMarker) {
-		t.Error("--force 未覆盖手写文件")
+		t.Error("--force did not overwrite the hand-written file | --force 未覆盖手写文件")
 	}
 }
 
@@ -414,7 +414,7 @@ func TestGenArgumentErrors(t *testing.T) {
 			genCommandName, "crud", "Post", "--table", "posts", "--dsn", "x", "--driver", "oracle",
 		}, te.env)
 		if err == nil {
-			t.Error("未知驱动应返回错误")
+			t.Error("an unknown driver must return an error | 未知驱动应返回错误")
 		}
 	})
 }

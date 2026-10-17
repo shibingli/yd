@@ -17,7 +17,10 @@
     * 冲突：409（标识已被占用）走同一条路径。
     * conflict: 409 (the slug is taken) takes the same path.
 
-  数据契约 | Data contract: .Rows .Total .Keyword .Empty .CanTenantWrite。
+  数据契约 | Data contract: .Rows .Total .Keyword .Empty，加上 authz.Data 注入的 .Perm——新建表单按
+  can .Perm.TenantCreate 出现，与 POST /tenants 的服务端守卫是同一个标识。
+  .Rows .Total .Keyword .Empty, plus the .Perm map injected by authz.Data: the create form appears under
+  can .Perm.TenantCreate, the same token POST /tenants is guarded by.
 */}}
 <section class="yd-page" data-yd-page="tenants" aria-labelledby="yd-tenants-title">
   <header class="yd-page__header">
@@ -46,7 +49,7 @@
     {{ template "partials/tenants/list" . }}
   </section>
 
-  {{- if .CanTenantWrite }}
+  {{- if can .Perm.TenantCreate }}
   <section class="yd-card yd-section">
     <details class="yd-details" {{ if .Empty }}open{{ end }}>
       <summary class="yd-details__summary">{{ tr "page.tenants.create" }}</summary>

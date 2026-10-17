@@ -7,6 +7,9 @@ import (
 	"github.com/shibingli/yd/errx"
 )
 
+// ErrUnknownSegment indicates a segment kind the tree cannot place. | ErrUnknownSegment 表示树无法安放的段类型。
+var ErrUnknownSegment = errx.New("router: unknown segment type | router：未知的段类型")
+
 // node is a single node of the radix tree; each node corresponds to one segment in the path. | node 是基数树的单个节点，每个节点对应路径中的一个分段。
 //
 // Child nodes are ordered by match priority: static > mixed (more literals first) > pure param > wildcard. | 子节点按匹配优先级排列：静态 > 混合（字面量越多越优先）> 纯参数 > 通配。
@@ -23,34 +26,36 @@ type node struct {
 
 func newNode(seg *Segment) *node { return &node{seg: seg} }
 
-// child returns the child node corresponding to seg (creating it when necessary). | child 返回（必要时创建）与 seg 对应的子节点。
-func (n *node) child(seg Segment) *node {
+// child returns the child node corresponding to seg (creating it when necessary), or an
+// error when the segment kind is unknown. | child 返回（必要时创建）与 seg 对应的子节点；
+// 段类型未知时返回错误。
+func (n *node) child(seg Segment) (*node, error) {
 	switch seg.Kind {
 	case SegStatic:
 		if n.static == nil {
 			n.static = make(map[string]*node, 4)
 		}
 		if c, ok := n.static[seg.Literal]; ok {
-			return c
+			return c, nil
 		}
 		c := newNode(&seg)
 		n.static[seg.Literal] = c
-		return c
+		return c, nil
 	case SegParam:
 		if n.param == nil {
 			n.param = newNode(&seg)
 		}
-		return n.param
+		return n.param, nil
 	case SegWildcard:
 		if n.wildcard == nil {
 			n.wildcard = newNode(&seg)
 		}
-		return n.wildcard
+		return n.wildcard, nil
 	case SegMixed:
 		key := segKey(seg)
 		for _, c := range n.mixed {
 			if segKey(*c.seg) == key {
-				return c
+				return c, nil
 			}
 		}
 		c := newNode(&seg)
@@ -59,9 +64,9 @@ func (n *node) child(seg Segment) *node {
 		sort.SliceStable(n.mixed, func(i, j int) bool {
 			return n.mixed[i].seg.LiteralLen > n.mixed[j].seg.LiteralLen
 		})
-		return c
+		return c, nil
 	default:
-		panic("router: 未知的段类型")
+		return nil, errx.Detail(ErrUnknownSegment, "kind=%d", seg.Kind)
 	}
 }
 
@@ -87,7 +92,11 @@ func (t *Tree) Add(method, pattern string, handler any) error {
 	}
 	n := t.root
 	for _, seg := range segs {
-		n = n.child(seg)
+		next, err := n.child(seg)
+		if err != nil {
+			return err
+		}
+		n = next
 	}
 	if n.handlers == nil {
 		n.handlers = make(map[string]any, 4)

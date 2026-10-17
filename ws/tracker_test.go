@@ -39,7 +39,7 @@ func TestConnSetClosesLiveConnectionWith1001(t *testing.T) {
 		if err != nil {
 			return
 		}
-		// 读循环阻塞在这里，直到关闭帧把它唤醒。| The read loop blocks here until the close frame wakes it up.
+		// The read loop blocks here until the close frame wakes it up. | 读循环阻塞在这里，直到关闭帧把它唤醒。
 		defer func() {
 			_ = conn.CloseNow()
 			close(finished)
@@ -54,9 +54,9 @@ func TestConnSetClosesLiveConnectionWith1001(t *testing.T) {
 	select {
 	case <-opened:
 	case <-time.After(3 * time.Second):
-		t.Fatal("服务端未在 3 秒内完成升级")
+		t.Fatal("the server did not complete the upgrade within 3 seconds | 服务端未在 3 秒内完成升级")
 	}
-	// `opened <- conn` 发生在 setTracker 之后，收到它即保证连接已登记。| The send happens after setTracker, so receiving it proves registration.
+	// The send on `opened <- conn` happens after setTracker, so receiving it proves registration. | `opened <- conn` 发生在 setTracker 之后，收到它即保证连接已登记。
 	if got := set.Len(); got != 1 {
 		t.Fatalf("追踪连接数 = %d, 期望 1", got)
 	}
@@ -71,7 +71,7 @@ func TestConnSetClosesLiveConnectionWith1001(t *testing.T) {
 	select {
 	case <-finished:
 	case <-time.After(3 * time.Second):
-		t.Fatal("关闭后服务端处理协程未在 3 秒内退出")
+		t.Fatal("the server handler goroutine did not exit within 3 seconds after the close | 关闭后服务端处理协程未在 3 秒内退出")
 	}
 	if elapsed := time.Since(start); elapsed > 3*time.Second {
 		t.Fatalf("关闭耗时 %v, 超出预期", elapsed)
@@ -107,7 +107,7 @@ func TestConnSetUntracksOnPeerDisconnect(t *testing.T) {
 	select {
 	case <-finished:
 	case <-time.After(3 * time.Second):
-		t.Fatal("客户端断开后服务端未在 3 秒内退出")
+		t.Fatal("the server did not exit within 3 seconds after the client disconnected | 客户端断开后服务端未在 3 秒内退出")
 	}
 	if got := set.Len(); got != 0 {
 		t.Fatalf("断开后追踪连接数 = %d, 期望 0", got)
@@ -124,13 +124,13 @@ func TestConnSetCloseAllOnEmptyAndNilTracker(t *testing.T) {
 	}
 
 	if untrack := set.Track(nil); untrack == nil {
-		t.Fatal("Track(nil) 必须返回可调用的取消登记函数")
+		t.Fatal("Track(nil) must return a callable untrack function | Track(nil) 必须返回可调用的取消登记函数")
 	} else {
 		untrack()
 		untrack() // 幂等 | idempotent
 	}
 
-	// Tracker 为 nil 时 Upgrade 不得登记，也不得 panic。| With a nil tracker, Upgrade must neither register nor panic.
+	// With a nil tracker, Upgrade must neither register nor panic. | Tracker 为 nil 时 Upgrade 不得登记，也不得 panic。
 	var none Tracker
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		conn, err := Upgrade(w, r, Options{Tracker: none})

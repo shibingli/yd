@@ -5,6 +5,11 @@
 //   - multi-tenancy is a hard boundary: every user and every role carries a TenantID and every lookup by id takes the tenant as well; | 多租户是硬边界：每个用户、每个角色都必须带 TenantID，任何按 ID 的查询都必须同时带上租户；
 //   - the models and the framework's auth package meet only in the FromAuth / ToAuth converters below, so business code never touches auth.User; | 模型与框架 auth 包之间只通过本文件的 FromAuth / ToAuth 转换，业务代码不直接摸 auth.User；
 //   - a model never carries a plaintext password or a plaintext sec_key: the hash and the ciphertext of auth.User stay out of the model. | 模型绝不携带明文口令与明文 sec_key：auth.User 里的散列与密文一律不进入模型。
+//
+// The auth tables themselves are owned by the framework: auth/gormstore.Migrate creates yd_auth_tenants / yd_auth_users /
+// yd_auth_roles / yd_auth_role_permissions, so the GORM tags below describe view types for rendering rather than that DDL.
+// | 鉴权表本身由框架拥有：auth/gormstore.Migrate 建出 yd_auth_tenants / yd_auth_users / yd_auth_roles / yd_auth_role_permissions，
+// 因此下面的 GORM 标签描述的是渲染用的视图类型，而不是这些表的 DDL。
 package model
 
 import (

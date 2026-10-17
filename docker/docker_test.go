@@ -210,7 +210,7 @@ func TestBuiltinDockerfileNilFSFallsBackToEmbed(t *testing.T) {
 		t.Fatalf("读取内置 Dockerfile 失败: %v", err)
 	}
 	if !strings.Contains(string(data), "FROM scratch") {
-		t.Fatal("nil 文件系统未回退到内置模板")
+		t.Fatal("nil filesystem did not fall back to the builtin template | nil 文件系统未回退到内置模板")
 	}
 }
 
@@ -235,7 +235,7 @@ func TestProjectDockerfilePreferredOverBuiltin(t *testing.T) {
 	defer resolved.Cleanup()
 
 	if !resolved.FromProject {
-		t.Error("ResolveDockerfile 未标记来自项目文件")
+		t.Error("ResolveDockerfile did not mark the result as coming from the project file | ResolveDockerfile 未标记来自项目文件")
 	}
 	if string(resolved.Content) != projectDockerfile {
 		t.Errorf("解析内容 = %q, 期望项目文件内容", resolved.Content)
@@ -269,13 +269,13 @@ func TestMissingProjectDockerfileFallsBackToBuiltin(t *testing.T) {
 	defer resolved.Cleanup()
 
 	if resolved.FromProject {
-		t.Error("空文件系统不应报告来自项目文件")
+		t.Error("an empty filesystem must not report a project file | 空文件系统不应报告来自项目文件")
 	}
 	if !strings.Contains(string(resolved.Content), "FROM scratch") {
-		t.Error("回退内容不是内置 scratch 模板")
+		t.Error("fallback content is not the builtin scratch template | 回退内容不是内置 scratch 模板")
 	}
 	if !resolved.Temporary {
-		t.Error("内置模板必须落盘到临时文件供 docker -f 读取")
+		t.Error("the builtin template must be written to a temp file for docker -f | 内置模板必须落盘到临时文件供 docker -f 读取")
 	}
 }
 
@@ -357,7 +357,7 @@ func TestBuildImageArgsConstructed(t *testing.T) {
 		t.Errorf("Tag = %q, 期望 app:v1", result.Tag)
 	}
 	if len(result.Logs) == 0 {
-		t.Error("Logs 为空, 期望保留 docker 输出行")
+		t.Error("Logs is empty, expected the docker output lines to be kept | Logs 为空, 期望保留 docker 输出行")
 	}
 }
 
@@ -449,7 +449,7 @@ func TestBuildFailureReturnsErrBuildFailed(t *testing.T) {
 		t.Fatalf("错误 = %v, 期望 errors.Is(err, ErrBuildFailed)", err)
 	}
 	if result == nil || len(result.Logs) == 0 {
-		t.Fatal("失败时仍应返回带日志的 Result")
+		t.Fatal("a failing build must still return a Result carrying logs | 失败时仍应返回带日志的 Result")
 	}
 	if !strings.Contains(strings.Join(result.Logs, "\n"), "failed to solve") {
 		t.Errorf("Logs = %v, 期望包含 docker 输出", result.Logs)
@@ -505,7 +505,7 @@ func TestBuildImagePrepareAssetsHook(t *testing.T) {
 		t.Fatalf("资产钩子调用次数 = %d, 期望 1", hookCalls)
 	}
 	if hookDir == "" {
-		t.Error("资产钩子未收到构建目录")
+		t.Error("the asset hook did not receive the build directory | 资产钩子未收到构建目录")
 	}
 	if !slices.Equal(order, []string{"assets", "build"}) {
 		t.Errorf("执行顺序 = %v, 期望先资产后构建", order)
@@ -538,7 +538,7 @@ func TestBuildImageWithoutAssetsSkipsPreparation(t *testing.T) {
 		t.Fatalf("BuildImage 失败: %v", err)
 	}
 	if called {
-		t.Error("WithAssets 关闭时不应调用资产钩子")
+		t.Error("the asset hook must not run when WithAssets is off | WithAssets 关闭时不应调用资产钩子")
 	}
 }
 

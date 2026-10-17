@@ -75,22 +75,22 @@ func TestParseFieldsSpec(t *testing.T) {
 			t.Fatalf("ParseFields 返回错误: %v", err)
 		}
 		if !mods[0].Primary {
-			t.Error("id 字段应为 primary")
+			t.Error("the id field must be primary | id 字段应为 primary")
 		}
 		if !mods[1].Required() {
-			t.Error("title 字段应为 required")
+			t.Error("the title field must be required | title 字段应为 required")
 		}
 		if mods[1].Validate != "required,max=64" || mods[1].Size != 64 {
 			t.Errorf("title 字段 Validate/Size = %q/%d，期望 %q/64", mods[1].Validate, mods[1].Size, "required,max=64")
 		}
 		if !mods[2].Unique {
-			t.Error("email 字段应为 unique")
+			t.Error("the email field must be unique | email 字段应为 unique")
 		}
 		if !mods[3].Indexed {
-			t.Error("slug 字段应为 index")
+			t.Error("the slug field must be indexed | slug 字段应为 index")
 		}
 		if !mods[4].Nullable {
-			t.Error("note 字段应为 nullable")
+			t.Error("the note field must be nullable | note 字段应为 nullable")
 		}
 	})
 
@@ -161,7 +161,7 @@ func TestModelFromStructReadsTags(t *testing.T) {
 		t.Errorf("Module = %q，期望 %q", m.Module, "cms")
 	}
 	if !m.Timestamps {
-		t.Error("Timestamps 应为 true（存在 CreatedAt/UpdatedAt）")
+		t.Error("Timestamps must be true (CreatedAt/UpdatedAt present) | Timestamps 应为 true（存在 CreatedAt/UpdatedAt）")
 	}
 	if len(m.Fields) != 7 {
 		t.Fatalf("字段数 = %d，期望 7", len(m.Fields))
@@ -174,7 +174,7 @@ func TestModelFromStructReadsTags(t *testing.T) {
 
 	name := m.Field("name")
 	if name == nil {
-		t.Fatal("name 字段缺失")
+		t.Fatal("the name field is missing | name 字段缺失")
 	}
 	if name.Column != "name" || name.JSONName != "name" || name.GoName != "Name" || name.GoType != "string" {
 		t.Errorf("name 字段基础属性错误: %+v", name)
@@ -183,10 +183,10 @@ func TestModelFromStructReadsTags(t *testing.T) {
 		t.Errorf("name.Size = %d，期望 64", name.Size)
 	}
 	if name.Nullable {
-		t.Error("name 字段带 not null，Nullable 应为 false")
+		t.Error("the name column is not null, so Nullable must be false | name 字段带 not null，Nullable 应为 false")
 	}
 	if !name.Unique {
-		t.Error("name 字段带 uniqueIndex，Unique 应为 true")
+		t.Error("the name column carries uniqueIndex, so Unique must be true | name 字段带 uniqueIndex，Unique 应为 true")
 	}
 	if name.Label != "姓名" || name.Widget != "text" || name.Validate != "required,max=64" {
 		t.Errorf("name 字段 yd 标签解析错误: label=%q widget=%q validate=%q", name.Label, name.Widget, name.Validate)
@@ -217,7 +217,7 @@ func TestModelFromStructReadsTags(t *testing.T) {
 			t.Errorf("选项未被应用: GoName=%q Table=%q Module=%q", got.GoName, got.Table, got.Module)
 		}
 		if got.Timestamps {
-			t.Error("Timestamps 被显式关闭后应为 false")
+			t.Error("Timestamps must be false once explicitly disabled | Timestamps 被显式关闭后应为 false")
 		}
 	})
 
@@ -233,7 +233,7 @@ func TestModelFromStructReadsTags(t *testing.T) {
 			t.Errorf("普通字段缺失: %+v", got.Fields)
 		}
 		if !got.Timestamps {
-			t.Error("内嵌 CreatedAt 后 Timestamps 应为 true")
+			t.Error("Timestamps must be true after embedding CreatedAt | 内嵌 CreatedAt 后 Timestamps 应为 true")
 		}
 		if got.Table != "gen_embeddeds" {
 			t.Errorf("Table = %q，期望 %q", got.Table, "gen_embeddeds")

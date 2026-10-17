@@ -414,7 +414,7 @@ func TestBackendNameIsKnown(t *testing.T) {
 		t.Fatalf("Backend() 返回未知后端 %q", name)
 	}
 	if name == "" {
-		t.Fatal("Backend() 不应为空")
+		t.Fatal("Backend() must not be empty | Backend() 不应为空")
 	}
 	if again := jsonx.Backend(); again != name {
 		t.Fatalf("Backend() 多次调用结果不一致: %q != %q", name, again)
@@ -438,13 +438,13 @@ func TestUnmarshalErrorPropagates(t *testing.T) {
 		var out map[string]any
 		err := jsonx.Unmarshal([]byte(`{"n":`), &out)
 		if err == nil {
-			t.Fatal("语法错误必须返回 error")
+			t.Fatal("a syntax error must return an error | 语法错误必须返回 error")
 		}
 		if !errors.Is(err, jsonx.ErrSyntax) {
 			t.Fatalf("应可判定为 ErrSyntax，实际 %v", err)
 		}
 		if err.Error() == "" || !strings.Contains(err.Error(), "jsonx:") {
-			t.Fatalf("错误信息应保留 jsonx 前缀与后端详情，实际 %q", err.Error())
+			t.Fatalf("the error text must keep the jsonx prefix and the backend detail, got %[1]q | 错误信息应保留 jsonx 前缀与后端详情，实际 %[1]q", err.Error())
 		}
 	})
 
@@ -454,7 +454,7 @@ func TestUnmarshalErrorPropagates(t *testing.T) {
 		}
 		err := jsonx.Unmarshal([]byte(`{"n":"not-a-number"}`), &out)
 		if err == nil {
-			t.Fatal("类型不匹配必须返回 error")
+			t.Fatal("a type mismatch must return an error | 类型不匹配必须返回 error")
 		}
 		if !errors.Is(err, jsonx.ErrTypeMismatch) {
 			t.Fatalf("应可判定为 ErrTypeMismatch，实际 %v", err)
@@ -464,7 +464,7 @@ func TestUnmarshalErrorPropagates(t *testing.T) {
 	t.Run("invalid_argument", func(t *testing.T) {
 		var out int
 		if err := jsonx.Unmarshal([]byte(`123`), out); err == nil {
-			t.Fatal("非指针目标必须返回 error")
+			t.Fatal("a non-pointer target must return an error | 非指针目标必须返回 error")
 		}
 	})
 
@@ -475,7 +475,7 @@ func TestUnmarshalErrorPropagates(t *testing.T) {
 			}
 		}()
 		if err := jsonx.Unmarshal([]byte(`1`), nil); err == nil {
-			t.Fatal("nil 目标必须返回 error")
+			t.Fatal("a nil target must return an error | nil 目标必须返回 error")
 		}
 	})
 
@@ -483,13 +483,13 @@ func TestUnmarshalErrorPropagates(t *testing.T) {
 		dec := jsonx.NewDecoder(strings.NewReader(`{"a":`))
 		var out map[string]any
 		if err := dec.Decode(&out); err == nil {
-			t.Fatal("流中非法 JSON 必须返回 error")
+			t.Fatal("invalid JSON in the stream must return an error | 流中非法 JSON 必须返回 error")
 		}
 	})
 
 	t.Run("marshal_unsupported", func(t *testing.T) {
 		if _, err := jsonx.Marshal(func() {}); err == nil {
-			t.Fatal("不可编码类型必须返回 error")
+			t.Fatal("an unencodable type must return an error | 不可编码类型必须返回 error")
 		}
 	})
 }

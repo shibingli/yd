@@ -78,7 +78,7 @@ func (s *ConnSet) CloseAll(code CloseCode, reason string) {
 	s.mu.Unlock()
 
 	for _, c := range conns {
-		// Close 会把连接从集合中移除（此时已是无操作），再发送关闭帧。| Close removes the connection from the set (now a no-op) and then sends the close frame.
+		// Close removes the connection from the set (now a no-op) and then sends the close frame. | Close 会把连接从集合中移除（此时已是无操作），再发送关闭帧。
 		_ = c.Close(code, reason)
 	}
 }

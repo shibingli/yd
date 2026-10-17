@@ -21,6 +21,7 @@ import (
 	"{{ .Module }}/internal/service"
 	"{{ .YdModule }}/app"
 	"{{ .YdModule }}/auth"
+	"{{ .YdModule }}/authz"
 	"{{ .YdModule }}/errx"
 	"{{ .YdModule }}/htmx"
 	"{{ .YdModule }}/i18n"
@@ -184,6 +185,11 @@ func New(a *app.App, store *repository.Store, log *logx.Logger) (*Controller, er
 // Issuer returns the token issuer, which the router uses to assemble the auth middleware. | Issuer 返回令牌签发器，路由层用它装配鉴权中间件。
 func (c *Controller) Issuer() *auth.TokenIssuer { return c.auth.Issuer() }
 
+// Auth returns the framework auth service, which the router hands to authz.Middleware so that the subject of a request is
+// exactly the user auth.Middleware verified. | Auth 返回框架鉴权服务，路由把它交给 authz.Middleware，
+// 使请求的主体恰好就是 auth.Middleware 校验过的那个用户。
+func (c *Controller) Auth() *auth.Service { return c.store.Auth() }
+
 // PublicKey returns the hexadecimal SM2 public key. | PublicKey 返回 SM2 公钥的十六进制形式。
 func (c *Controller) PublicKey() string { return c.auth.PublicKeyHex() }
 
@@ -226,46 +232,65 @@ func (c *Controller) Deny(ctx *router.Ctx, err error) {
 // view 构造页面数据：所有模板共享的字段在这里注入一次，页面只需追加自己的键。
 // view builds the page data: every field shared by all templates is injected once here, and pages only add their own keys.
 //
+// 权限在这里接入（路由侧的另一半是 authz.Middleware），并一次注入四样东西：模板助手 can/hasRole 读的 .Authz、
+// 数据键 .Perm/.Role（模板写 {{ "{{ .Perm.UserRead }}" }} 或 data-yd-perm="{{ "{{ .Perm.UserRead }}" }}"），
+// 以及 base.html 注入到 <script id="yd-authz"> 的 .AuthzJSON——前端 yd-authz.js 与服务器的判定因此同源，
+// 页面显示的按钮就是服务端真的会放行的按钮。
+// The authority is wired here (its other half is authz.Middleware in the router) and injects four things at once: the
+// .Authz read by the can/hasRole helpers, the .Perm/.Role data keys (templates write {{ "{{ .Perm.UserRead }}" }} or
+// data-yd-perm="{{ "{{ .Perm.UserRead }}" }}"), and the .AuthzJSON base.html puts into <script id="yd-authz">. The
+// front-end guard and the server therefore decide from one source, so a button a page offers is one the server will let
+// through.
+//
 // .User 在未登录时是真正的 nil（而不是装了 nil 指针的接口）：模板里的 {{ "{{ if .User }}" }} 才能按预期判假。
 // .User is a genuine nil when nobody is signed in rather than an interface holding a nil pointer, which is what makes
 // {{ "{{ if .User }}" }} behave as written in the templates.
 func (c *Controller) view(ctx *router.Ctx, title string, extra map[string]any) map[string]any {
 	data := map[string]any{
-		"Title":             title,
-		"Name":              meta.Name,
-		"Module":            meta.Module,
-		"Description":       meta.Description,
-		"Version":           meta.Version,
-		"GoVersion":         meta.GoVersion,
-		"HtmxVersion":       meta.HtmxVersion,
-		"TailwindVersion":   meta.TailwindVersion,
-		"Features":          meta.Features,
-		"Scripts":           meta.HtmxExtScripts,
-		"Path":              ctx.Path(),
-		"PublicKey":         c.PublicKey(),
-		"KeyEndpoint":       PubkeyPath,
-		"Lang":              c.lang(ctx),
-		"TenantHeader":      meta.TenantHeader,
-		"SeedNotice":        meta.SeedPasswordNotice,
-		"User":              nil,
-		"Tenant":            nil,
-		"SignedIn":          false,
-		"SeedPassword":      false,
-		"CanTenantRead":     false,
-		"CanTenantWrite":    false,
-		"CanUserRead":       false,
-		"CanUserWrite":      false,
-		"CanRoleRead":       false,
-		"CanRoleWrite":      false,
-		"CanPermissionRead": false,
-		"Permissions":       []model.Permission{},
+		"Title":           title,
+		"Name":            meta.Name,
+		"Module":          meta.Module,
+		"Description":     meta.Description,
+		"Version":         meta.Version,
+		"GoVersion":       meta.GoVersion,
+		"HtmxVersion":     meta.HtmxVersion,
+		"TailwindVersion": meta.TailwindVersion,
+		"Features":        meta.Features,
+		"Scripts":         meta.HtmxExtScripts,
+		"Path":            ctx.Path(),
+		"PublicKey":       c.PublicKey(),
+		"KeyEndpoint":     PubkeyPath,
+		"Lang":            c.lang(ctx),
+		"TenantHeader":    meta.TenantHeader,
+		"SeedNotice":      meta.SeedPasswordNotice,
+		"User":            nil,
+		"Tenant":          nil,
+		"SignedIn":        false,
+		"SeedPassword":    false,
+		"Permissions":     []model.Permission{},
 	}
 	for k, v := range extra {
 		data[k] = v
 	}
 
-	user, ok := auth.CurrentUser(ctx)
-	if !ok || user == nil {
+	user, _ := auth.CurrentUser(ctx)
+
+	// 权限信封在「未登录」的提前返回**之前**合并：匿名请求因此也会得到一个「什么都不授予」的信封，
+	// 页面在两种情况下走的是同一条路径，而不是各自判空。链上没有 authz.Middleware 时在这里自建主体，
+	// 于是一次漏装配的后果是「受守卫的控件不显示」，而不是渲染失败——失败方向与缺权限完全一致（失败关闭）。
+	// The envelope is merged **ahead of** the anonymous early return, so an anonymous request also receives an envelope
+	// that grants nothing and both cases take one path instead of a nil check each. Without authz.Middleware on the chain
+	// the subject is built here, so a missing wiring hides guarded controls rather than failing the render: the failure
+	// direction is the same as a missing permission (fail closed).
+	subject, ok := authz.SubjectOf(ctx.Request.Context())
+	if !ok {
+		subject = authz.NewSubject(c.Auth(), user)
+	}
+	for k, v := range authz.Data(subject) {
+		data[k] = v
+	}
+
+	if user == nil {
 		return data
 	}
 
@@ -278,18 +303,12 @@ func (c *Controller) view(ctx *router.Ctx, title string, extra map[string]any) m
 	data["SignedIn"] = true
 	data["Permissions"] = c.auth.Permissions(user)
 	data["SeedPassword"] = c.auth.SeedPasswordUnchanged(user)
-	// 六个布尔值一次算好：模板函数表里没有「切片是否包含」这类助手，而导航项与按钮的显隐只该由服务端的判断决定，
-	// 页面里出现一行权限推断就等于把授权规则抄到了视图层。
-	// Six booleans are computed once here: the template function map has no "does the slice contain" helper, and whether a
-	// navigation item or a button shows must be the server's call — one permission inference in a page would be a copy of
-	// the authorization rule living in the view layer.
-	data["CanTenantRead"] = c.auth.HasPermission(user, model.PermTenantRead)
-	data["CanTenantWrite"] = c.auth.HasPermission(user, model.PermTenantWrite)
-	data["CanUserRead"] = c.auth.HasPermission(user, model.PermUserRead)
-	data["CanUserWrite"] = c.auth.HasPermission(user, model.PermUserWrite)
-	data["CanRoleRead"] = c.auth.HasPermission(user, model.PermRoleRead)
-	data["CanRoleWrite"] = c.auth.HasPermission(user, model.PermRoleWrite)
-	data["CanPermissionRead"] = c.auth.HasPermission(user, model.PermPermissionRead)
+
+	// 模板不再需要「能不能写用户」这类布尔值：判断改由 can/hasRole 与 .Perm 数据键完成，
+	// 助手把引用交给注册表解析，因此授权规则只有注册表那一处，模板里既没有权限清单，也没有第二份判定。
+	// No "may write users" booleans are injected any more: the judgement moved to can/hasRole and the .Perm data keys,
+	// and the helpers resolve their references through the registry, so the authorization rule lives in exactly one
+	// place — a template holds neither a permission list nor a second copy of the decision.
 
 	if tenantID, ok := middleware.TenantID(ctx); ok {
 		data["TenantID"] = tenantID

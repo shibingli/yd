@@ -60,9 +60,14 @@
            half depends on the other.
            data-yd-modal-open 打开对话框、hx-get 填充它：一次点击同时完成，
            两半互不依赖。 */}}
+      {{/* data-yd-perm takes the token from the registry through the page data key, never a literal:
+           the button is hidden while the subject does not hold it, and the route behind it checks
+           the same capability again on the server. | data-yd-perm 经页面数据键从注册表取标识，
+           绝不写死：主体未持有时按钮被隐藏，而它背后的路由会在服务端再校验同一条能力。 */}}
       <button type="button" class="yd-btn yd-btn--primary"
               hx-get="/users/new" hx-target="#yd-user-form-body" hx-swap="innerHTML"
               data-yd-modal-open="yd-user-dialog"
+              data-yd-perm="{{ .Perm.UserCreate }}"
               data-yd-i18n="users.create">{{tr "users.create"}}</button>
     </div>
   </header>

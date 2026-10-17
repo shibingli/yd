@@ -56,7 +56,7 @@ func ParseFields(spec string) ([]Field, error) {
 		}
 
 		if !strings.Contains(seg, ":") {
-			// 续写上一字段的修饰符。| A modifier continuing the previous field.
+			// A modifier continuing the previous field. | 续写上一字段的修饰符。
 			if len(fields) == 0 {
 				return nil, errx.Detail(ErrBadFieldSpec, "modifier %q has no field to attach to | 修饰符 %q 没有可归属的字段", seg, seg)
 			}
@@ -302,7 +302,7 @@ func ModelFromTable(ctx context.Context, db *gorm.DB, table string, o TableOptio
 			// Nullable columns default to optional, and primary keys are assigned by the database.
 			f.Validate = ""
 		} else {
-			// 非空列自动带上 required 规则。| Not-null columns automatically carry the required rule.
+			// Not-null columns automatically carry the required rule. | 非空列自动带上 required 规则。
 			f.Validate = joinRule("", "required")
 		}
 		fields = append(fields, f)

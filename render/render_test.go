@@ -44,7 +44,7 @@ func TestRenderLayoutWithPartial(t *testing.T) {
 		t.Fatalf("New 失败: %v", err)
 	}
 
-	// 片段可独立渲染（htmx 局部响应）
+	// The fragment renders standalone (htmx partial response). | 片段可独立渲染（htmx 局部响应）
 	var partial bytes.Buffer
 	if err := e.Render(&partial, "pages/users.html", map[string]any{"Users": []string{"a", "b"}}); err != nil {
 		t.Fatalf("片段渲染失败: %v", err)
@@ -53,7 +53,7 @@ func TestRenderLayoutWithPartial(t *testing.T) {
 		t.Fatalf("片段内容异常: %q", partial.String())
 	}
 
-	// 整页渲染：片段作为 Content 传入布局
+	// Full-page render: the fragment is passed into the layout as Content. | 整页渲染：片段作为 Content 传入布局
 	var page bytes.Buffer
 	if err := e.Render(&page, "layouts/base.html", map[string]any{
 		"Title":   "用户",
@@ -64,7 +64,7 @@ func TestRenderLayoutWithPartial(t *testing.T) {
 	if !strings.Contains(page.String(), "<!doctype html>") || !strings.Contains(page.String(), "<li>a</li>") {
 		t.Fatalf("整页内容异常: %q", page.String())
 	}
-	// 片段内容以 template.HTML 传入时不应被二次转义
+	// Fragment content passed in as template.HTML must not be escaped twice. | 片段内容以 template.HTML 传入时不应被二次转义
 	if strings.Contains(page.String(), "&lt;li&gt;") {
 		t.Fatalf("片段被二次转义: %q", page.String())
 	}
@@ -162,7 +162,7 @@ func TestDevModePicksUpTemplateChange(t *testing.T) {
 		t.Fatalf("Dev 模式未拾取模板改动: %q", second.String())
 	}
 
-	// 非 Dev 引擎必须继续使用缓存
+	// A non-Dev engine must keep using the cache. | 非 Dev 引擎必须继续使用缓存
 	cached, err := render.New(mem, render.Options{})
 	if err != nil {
 		t.Fatalf("New 失败: %v", err)
@@ -187,17 +187,17 @@ func TestUnknownTemplateReturnsSentinel(t *testing.T) {
 	}
 	var buf bytes.Buffer
 	err = e.Render(&buf, "pages/missing.html", nil)
-	if err == nil || !strings.Contains(err.Error(), "模板不存在") {
+	if err == nil || !strings.Contains(err.Error(), "template not found | 模板不存在") {
 		t.Fatalf("未知模板应返回哨兵错误，实际 %v", err)
 	}
 }
 
 func TestNoTemplatesReturnsSentinel(t *testing.T) {
 	if _, err := render.New(afs.NewMem(), render.Options{}); err == nil {
-		t.Fatal("空文件系统应返回 ErrNoTemplates")
+		t.Fatal("an empty filesystem must return ErrNoTemplates | 空文件系统应返回 ErrNoTemplates")
 	}
 	if _, err := render.New(nil, render.Options{}); err == nil {
-		t.Fatal("nil 文件系统应返回 ErrNilFS")
+		t.Fatal("a nil filesystem must return ErrNilFS | nil 文件系统应返回 ErrNilFS")
 	}
 }
 
@@ -226,7 +226,7 @@ func TestFuncsDictDefaultAndJSON(t *testing.T) {
 		t.Fatalf("json 辅助函数在 script 上下文应原样输出: %q", out)
 	}
 
-	// 恶意数据即使取自 map 也必须被转义为 <，从而无法闭合 </script>
+	// Hostile data taken from a map must still be escaped to &lt; so it cannot close </script>. | 恶意数据即使取自 map 也必须被转义为 <，从而无法闭合 </script>
 	mem2 := writeTemplates(t, map[string]string{
 		"templates/b.html": `<script>const x = {{ json .Evil }};</script>`,
 	})
@@ -264,7 +264,7 @@ func TestAssetFuncAppendsContentHash(t *testing.T) {
 		t.Fatalf("asset 输出异常: %q", out)
 	}
 
-	// 同一路径两次渲染必须得到相同哈希（缓存生效）
+	// Two renders of the same path must produce the same hash (the cache is in effect). | 同一路径两次渲染必须得到相同哈希（缓存生效）
 	var second bytes.Buffer
 	if err := e.Render(&second, "a.html", nil); err != nil {
 		t.Fatalf("二次渲染失败: %v", err)
@@ -273,7 +273,7 @@ func TestAssetFuncAppendsContentHash(t *testing.T) {
 		t.Fatalf("asset 哈希不稳定: %q vs %q", out, second.String())
 	}
 
-	// 内容变化后哈希必须变化
+	// The hash must change once the content changes. | 内容变化后哈希必须变化
 	if err := afero.WriteFile(mem, "static/css/yd.css", []byte("body{color:red}"), 0o644); err != nil {
 		t.Fatalf("改写资源失败: %v", err)
 	}
@@ -330,9 +330,9 @@ func TestAddFuncReturnsIndependentEngine(t *testing.T) {
 		t.Fatalf("派生引擎输出 = %q", buf.String())
 	}
 
-	// 原引擎不应受影响：缺少 shout 函数，渲染必然失败
+	// The original engine must stay unaffected: the shout function is missing, so the render must fail. | 原引擎不应受影响：缺少 shout 函数，渲染必然失败
 	err = base.Render(&bytes.Buffer{}, "a.html", nil)
-	if err == nil || !strings.Contains(err.Error(), "模板解析失败") {
+	if err == nil || !strings.Contains(err.Error(), "cannot parse template | 模板解析失败") {
 		t.Fatalf("原引擎应因缺少函数而报错，实际 %v", err)
 	}
 }

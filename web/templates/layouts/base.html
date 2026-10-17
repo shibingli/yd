@@ -25,6 +25,17 @@
                 JavaScript 容器，对其它类型一律调用 json.Marshal，因此 template.HTML 或普通字符串
                 会变成被引号包裹的 JSON *字符串*。yd-i18n.js 也能解开这种情况，
                 但受支持的契约是 template.JS。
+    .AuthzJSON  authority envelope already serialized by the authz package | authz 包序列化好的权限信封
+                It carries the two name maps (capability script key -> token, role script key ->
+                name) and the two sets the subject holds, and it is injected for the same reason as
+                the catalog: zero extra requests, fully offline. Like .I18nJSON it MUST be
+                template.JS, because <script type="application/json"> is a JavaScript container.
+                yd-authz.js fails closed on a missing or malformed payload: a broken injection hides
+                the guarded controls instead of offering them.
+                | 它携带两张名字表（能力脚本键 -> 标识、角色脚本键 -> 名字）以及主体实际持有的两个集合，
+                注入理由与语言目录相同：零额外请求、完全离线。与 .I18nJSON 一样必须是 template.JS，
+                因为 <script type="application/json"> 是 JavaScript 容器。
+                yd-authz.js 在载荷缺失或畸形时失败关闭：注入坏掉只会隐藏受守卫的控件，而不是放开它们。
     .Flashes    flash messages, see partials/flash.html | 闪现消息，见 partials/flash.html
 
   Hard rules | 硬规则:
@@ -37,6 +48,12 @@
     4. 全站只有一段同步脚本，即 yd-theme-boot.js：它位于 <head> 中、样式表之前，
        因为若等 defer 脚本执行后再解析 "system"，就会先画出一帧错误的主题。
        其余脚本一律 defer，并固定为 base.scripts 的唯一顺序。
+    5. A front-end permission check is NOT a security boundary: data-yd-perm and yd.can() only keep
+       the page from offering an action the server would refuse. Every protected route still carries
+       its own server-side guard (authz.Require / authz.Allow), because a hidden button can still be
+       called by hand. | 前端权限判定不是安全边界：data-yd-perm 与 yd.can() 只让页面不提供
+       「服务端本来就会拒绝」的操作。每个受保护路由仍然必须自带服务端守卫
+       （authz.Require / authz.Allow），因为隐藏的按钮依旧可以被人手工调用。
 */}}
 
 {{- define "base.head" -}}
@@ -55,10 +72,18 @@
 {{/* The server injects the current catalog as JSON: no extra request, fully offline. | 服务端把当前语言目录以 JSON 注入：不额外发请求，完全离线可用。 */}}
 {{/* Envelope shape | 信封结构: {"lang":"…","fallback":"…","catalogs":{"<lang>":{…}}} */}}
 <script id="yd-i18n-catalog" type="application/json">{{.I18nJSON}}</script>
+{{/* The same for the authority: the payload names every capability and role four ways and lists the
+     ones this subject holds, so yd-authz.js can answer yd.can(yd.PERM.USER_CREATE) without a request.
+     权限同理：载荷以四种写法列出每条能力与角色，并列出该主体持有的那些，
+     因此 yd-authz.js 无需请求即可回答 yd.can(yd.PERM.USER_CREATE)。 */}}
+{{/* The id must stay equal to authz.AuthzScriptID, which is what yd-authz.js reads. | 该 id 必须与
+     authz.AuthzScriptID 一致，yd-authz.js 正是按它读取载荷。 */}}
+{{/* Envelope shape | 信封结构: {"perms":{"USER_CREATE":"user:create"},"roles":{"ADMIN":"admin"},"granted":[…],"mine":[…]} */}}
+<script id="yd-authz" type="application/json">{{.AuthzJSON}}</script>
 {{- end -}}
 
 {{- define "base.scripts" -}}
-{{/* Single allowed order: htmx core, hx-* extensions, Alpine, compat, guomi, i18n, app. | 唯一允许的顺序：htmx 核心、hx-* 扩展、Alpine、兼容层、国密、i18n、应用。 */}}
+{{/* Single allowed order: htmx core, hx-* extensions, Alpine, compat, guomi, i18n, authz, app. | 唯一允许的顺序：htmx 核心、hx-* 扩展、Alpine、兼容层、国密、i18n、权限、应用。 */}}
 {{/* defer keeps the order while never blocking rendering. | defer 保证顺序且不阻塞渲染。 */}}
 <script src="/static/js/vendor/htmx.min.js" defer></script>
 <script src="/static/js/vendor/hx-head.min.js" defer></script>
@@ -75,5 +100,10 @@
 <script src="/static/js/yd-guomi.js" defer></script>
 <script src="/static/js/yd-guomi-htmx.js" defer></script>
 <script src="/static/js/yd-i18n.js" defer></script>
+{{/* Loaded after yd-i18n.js and before yd-app.js: it reads the injected payload at start and re-binds
+     the guards after every htmx swap, so an application script that runs later sees yd.can ready.
+     位于 yd-i18n.js 之后、yd-app.js 之前加载：它在启动时读取注入的载荷，并在每次 htmx 交换后重新绑定
+     守卫，因此之后运行的业务脚本可以直接使用 yd.can。 */}}
+<script src="/static/js/yd-authz.js" defer></script>
 <script src="/static/js/yd-app.js" defer></script>
 {{- end -}}

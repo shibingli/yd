@@ -87,7 +87,7 @@ func TestAccessLogCountsChunksAndKeepsFlush(t *testing.T) {
 
 	rec := doReq(r, http.MethodGet, "/stream", nil, "")
 	if !rec.Flushed {
-		t.Fatal("底层写入器未收到 Flush")
+		t.Fatal("the underlying writer never saw a Flush | 底层写入器未收到 Flush")
 	}
 	if rec.Body.String() != "onetwothree" {
 		t.Fatalf("body = %q, 期望 onetwothree", rec.Body.String())
@@ -113,6 +113,6 @@ func TestAccessLogKeepsHijackerOnUpgrade(t *testing.T) {
 	req := newUpgradeRequest("/ws")
 	r.ServeHTTP(hj, req)
 	if !hijackable {
-		t.Fatal("升级请求的 c.Writer 丢失了 http.Hijacker")
+		t.Fatal("the upgraded request lost http.Hijacker on c.Writer | 升级请求的 c.Writer 丢失了 http.Hijacker")
 	}
 }

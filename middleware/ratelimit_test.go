@@ -60,7 +60,7 @@ func TestRateLimitBurstThen429WithHeaders(t *testing.T) {
 		t.Errorf("X-RateLimit-Remaining = %q, 期望 0", got)
 	}
 	if got := rec.Header().Get("X-RateLimit-Reset"); got == "" {
-		t.Error("缺少 X-RateLimit-Reset")
+		t.Error("missing X-RateLimit-Reset | 缺少 X-RateLimit-Reset")
 	}
 }
 
@@ -112,7 +112,7 @@ func TestRateLimitRefillsOverTime(t *testing.T) {
 	if rec := doReq(r, http.MethodGet, "/api", nil, ""); rec.Code != http.StatusTooManyRequests {
 		t.Fatalf("立即重试 code = %d, 期望 429", rec.Code)
 	}
-	time.Sleep(60 * time.Millisecond) // 200 tokens/s → 60ms 补充 >1 个令牌
+	time.Sleep(60 * time.Millisecond) // 200 tokens/s → 60 ms refills more than one token | 200 tokens/s → 60ms 补充 >1 个令牌
 	if rec := doReq(r, http.MethodGet, "/api", nil, ""); rec.Code != http.StatusOK {
 		t.Fatalf("等待补充后 code = %d, 期望 200", rec.Code)
 	}

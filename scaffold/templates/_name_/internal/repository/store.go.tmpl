@@ -1,27 +1,75 @@
-// Package repository 是持久化边界：向上只暴露本项目模型，向下只依赖框架 auth 包的 Store 接口。
+{{ if ne .DB "none" -}}
 // Package repository is the persistence boundary: it exposes this project's models upwards and depends on nothing but
-// the framework auth package's Store interface downwards.
+// the framework auth package's Store interface downwards. | Package repository 是持久化边界：向上只暴露本项目模型，
+// 向下只依赖框架 auth 包的 Store 接口。
 //
-// 当前实现是内存版（auth.NewMemoryStore）：进程重启数据即丢失，适合开发与演示。
-// The current implementation is the in-memory one (auth.NewMemoryStore): data dies with the process, which is fine for
-// development and demos.
+// Auth data lives in a real database: Open reads the db section of the configuration, opens the pool, migrates it and
+// injects the GORM implementation into auth.Service, so tenants, users, roles and permissions survive a restart and are
+// shared by every replica of this project. | 鉴权数据存放在真实数据库里：Open 读取配置的 db 段打开连接池、执行迁移，
+// 再把 GORM 实现注入 auth.Service，因此租户、用户、角色与权限在进程重启后依然存在，多副本也共享同一份数据。
 //
-// Swapping in GORM takes three steps and changes no business code: | 换成 GORM 的步骤（三步，业务代码一行都不用改）：
-//  1. write a struct implementing auth.Store; every method takes a tenantID and the SQL must carry it in the WHERE clause; | 建一个实现 auth.Store 的结构体，接口里的每个方法都带 tenantID，SQL 里必须把它写进 WHERE；
-//     auth.Store 的契约是「外部或未知实体一律返回 auth.ErrNotFound，绝不返回 auth.ErrForbidden」，
-//     the contract of auth.Store is "a foreign or unknown entity always reports auth.ErrNotFound and never auth.ErrForbidden", so no caller can probe for another tenant's data; | 这样调用方无法探测别的租户是否存在数据。
-//  2. replace auth.NewMemoryStore() in Open with your constructor (say gormstore.New(db)) and let Close release the pool; | 把 Open 里的 auth.NewMemoryStore() 换成你的构造函数（例如 gormstore.New(db)），并让 Close 关闭连接池；
-//  3. migrate with the DDL of internal/model (GORM AutoMigrate or your own SQL); the column names already match the tags. | 用 internal/model 的建表语句迁移（GORM AutoMigrate 或自备 SQL），字段名与标签已经对齐。
+// The tables belong to the framework (yd_auth_tenants / yd_auth_users / yd_auth_roles / yd_auth_role_permissions) and are created by
+// auth/gormstore.Migrate, while internal/model only describes view types for rendering. To own the DDL, create the tables
+// from the internal/model tags and replace gormstore.New with an auth.Store implementation of your own: the upper layers
+// do not change at all. | 表由框架拥有（yd_auth_tenants / yd_auth_users / yd_auth_roles / yd_auth_role_permissions），
+// 由 auth/gormstore.Migrate 创建，而 internal/model 只描述渲染用的视图类型。想接管 DDL，就照 internal/model 的标签自建表，
+// 并把 gormstore.New 换成你自己的 auth.Store 实现：上层代码一行都不用改。
+//
+// Degradation never blocks startup: with no configured database (an empty db.dsn, which is what `yd new --db none`
+// produces) or when connecting or migrating fails, Open falls back to the in-memory implementation with an explicit
+// "data is not persistent" warning while the application and the authentication keep working. | 降级不阻塞启动：未配置
+// 数据库（db.dsn 为空，即 `yd new --db none` 的产物）或连库、迁移失败时，Open 退回内存实现并明确告警「数据不持久」，
+// 应用与鉴权照常可用。
+//
+// Default data is written once and only once, and never with a password nobody configured: Seed fills an empty database
+// with the two demo tenants, the built-in roles of the authz registry together with their capability bindings, and one
+// owner account per tenant, where the password comes from seed.admin_password (YD_SEED_ADMIN_PASSWORD) — development falls
+// back to a documented password and warns on every start, while any other environment refuses to seed at all. |
+// 默认数据只写入一次，且绝不会用一枚无人配置过的口令写入：Seed 在空库里写入两个演示租户、authz 注册表的内置角色及其
+// 能力绑定，以及每个租户一个所有者账号；口令来自 seed.admin_password（YD_SEED_ADMIN_PASSWORD）——开发环境回退到
+// 文档化的开发口令并每次启动告警，其它环境则直接拒绝写入。
+{{ else -}}
+// Package repository is the persistence boundary: it exposes this project's models upwards and depends on nothing but
+// the framework auth package's Store interface downwards. | Package repository 是持久化边界：向上只暴露本项目模型，
+// 向下只依赖框架 auth 包的 Store 接口。
+//
+// This project was generated without a database (`yd new --db none`), so tenants, users, roles and permissions live in
+// the framework's in-memory implementation: everything works, and everything is gone at the next restart. Open warns
+// exactly that at startup. | 本项目生成时未选择数据库（`yd new --db none`），因此租户、用户、角色与权限都存在框架的
+// 内存实现里：功能齐全，但进程重启后全部消失，Open 会在启动时如实告警这一点。
+//
+// To make it persistent, add a db section (driver / dsn) to configs/config.yaml and regenerate this project with a
+// database selected (`yd new --db sqlite`, or mysql / postgres): the upper layers stay exactly as they are, because Open
+// is the single assembly point. | 想持久化，就在 configs/config.yaml 里补一段 db（driver / dsn），并用
+// `yd new --db sqlite`（或 mysql / postgres）重新生成项目：上层代码一行都不用改，因为 Open 是唯一的装配点。
+//
+// Default data is written once and only once, and never with a password nobody configured: Seed fills the in-memory store
+// with the two demo tenants, the built-in roles of the authz registry together with their capability bindings, and one
+// owner account per tenant, where the password comes from seed.admin_password (YD_SEED_ADMIN_PASSWORD) — development falls
+// back to a documented password and warns on every start, while any other environment refuses to seed at all. |
+// 默认数据只写入一次，且绝不会用一枚无人配置过的口令写入：Seed 在内存实现里写入两个演示租户、authz 注册表的内置角色
+// 及其能力绑定，以及每个租户一个所有者账号；口令来自 seed.admin_password（YD_SEED_ADMIN_PASSWORD）——开发环境回退到
+// 文档化的开发口令并每次启动告警，其它环境则直接拒绝写入。
+{{ end -}}
 package repository
 
 import (
 	"context"
 	"errors"
+	"strings"
+	"sync"
 	"time"
 
 	"{{ .Module }}/internal/meta"
-	"{{ .Module }}/internal/model"
 	"{{ .YdModule }}/auth"
+{{- if ne .DB "none" }}
+	"{{ .YdModule }}/auth/gormstore"
+{{- end }}
+	"{{ .YdModule }}/authz"
+	"{{ .YdModule }}/config"
+{{- if ne .DB "none" }}
+	"{{ .YdModule }}/data/gormx"
+{{- end }}
 	"{{ .YdModule }}/errx"
 	"{{ .YdModule }}/guomi"
 	"{{ .YdModule }}/logx"
@@ -35,40 +83,75 @@ var (
 	ErrSeed = errx.New("repository: demo seed failed | repository：演示数据写入失败")
 )
 
-// errTenantMissing 表示按标识找不到租户；它以 auth.ErrNotFound 为根因，因此上层既能看到「没找到」，
-// 也拿不到「另一个租户是否存在」的额外信息。
-// errTenantMissing reports a slug that matches no tenant; it roots in auth.ErrNotFound, so callers learn "not found"
-// and nothing about whether some other tenant exists.
+{{ if ne .DB "none" -}}
+// Configuration keys and startup constants: they match the db section of configs/config.yaml, and YD_DB_DSN overrides the
+// data source the same way. | 配置键与启动期常量：与 configs/config.yaml 的 db 段一一对应（YD_DB_DSN 同样生效）。
+const (
+	// configDSN is the data source key; an empty value means "no database". | configDSN 是数据源配置键；为空表示「没有数据库」。
+	configDSN = "db.dsn"
+	// migrateTimeout bounds the startup migration, so an unreachable database degrades quickly instead of hanging the boot. | migrateTimeout 限制启动期迁移的耗时，使不可达的数据库快速降级而不是把启动挂住。
+	migrateTimeout = 30 * time.Second
+)
+{{- end }}
+
+// errTenantMissing reports a slug that matches no tenant; it roots in auth.ErrNotFound, so callers learn "not found" and
+// nothing about whether some other tenant exists. | errTenantMissing 表示按标识找不到租户；它以 auth.ErrNotFound 为根因，
+// 因此上层既能看到「没找到」，也拿不到「另一个租户是否存在」的额外信息。
 var errTenantMissing = errx.Detail(auth.ErrNotFound, "no tenant matches that slug | 没有与该标识匹配的租户")
 
 // Options configures a Store. | Options 配置 Store。
 type Options struct {
-	// Log receives seed and degradation warnings; empty selects logx.Default(). | Log 接收种子数据与降级告警；为空时使用 logx.Default()。
+	// Config supplies the db section (driver, DSN, pool sizes and the GORM log level) and the seed section
+	// (seed.admin_password); an empty value or an empty db.dsn keeps the in-memory implementation, and an unset seed
+	// password is resolved by the rules documented on Store.Seed. | Config 提供 db 段（驱动、DSN、连接池上限与 GORM 日志级别）
+	// 与 seed 段（seed.admin_password）；为空或 db.dsn 为空时保持内存实现，而种子口令未配置时按 Store.Seed 上的规则处理。
+	Config *config.Config
+	// Log receives seed, migration and degradation warnings; empty selects logx.Default(). | Log 接收种子数据、迁移与降级告警；为空时使用 logx.Default()。
 	Log *logx.Logger
-	// MasterKey seals every per-user sec_key and is refused below auth.MinMasterKeyLen. | MasterKey 是封装每用户 sec_key 的主密钥，短于 auth.MinMasterKeyLen 会被拒绝。
-	MasterKey []byte
 	// Issuer is the token iss claim; empty selects the framework default. | Issuer 是令牌的 iss 声明；为空时取框架默认值。
 	Issuer string
+	// MasterKey seals every per-user sec_key and is refused below auth.MinMasterKeyLen. | MasterKey 是封装每用户 sec_key 的主密钥，短于 auth.MinMasterKeyLen 会被拒绝。
+	MasterKey []byte
 	// TTL is the token lifetime; <= 0 selects the framework default. | TTL 是令牌有效期；<= 0 时取框架默认值。
 	TTL time.Duration
 }
 
-// Store 持有框架的鉴权服务与令牌签发器（本类型只做装配，不做业务判断）。
-// Store owns the framework auth service and token issuer (this type only assembles them; it makes no business decision).
+// Store 持有框架的鉴权服务、令牌签发器与持久化实现本身（本类型只做装配，不做业务判断）。
+// Store owns the framework auth service, the token issuer and the persistence implementation itself (this type only
+// assembles them; it makes no business decision).
 type Store struct {
-	// svc is the single entry point to tenants, users, roles and the password lifecycle. | svc 是租户、用户、角色与口令生命周期的唯一入口。
-	svc *auth.Service
 	// raw 是持久化实现本身，只用于 auth.Service 没有暴露的按登录名查找（登录与种子数据的幂等判定都要它）。
 	// raw is the persistence implementation itself, used only for the username lookup auth.Service does not expose (both
 	// the sign-in path and the idempotence check of the seed need it).
 	raw auth.Store
+	// svc is the single entry point to tenants, users, roles and the password lifecycle. | svc 是租户、用户、角色与口令生命周期的唯一入口。
+	svc *auth.Service
 	// issuer signs and verifies tokens with each user's own sec_key. | issuer 用每用户 sec_key 签发与校验令牌。
 	issuer *auth.TokenIssuer
-	// log records seeding and development-time degradation. | log 记录种子数据与开发期降级。
+	// log records seeding, migration and development-time degradation. | log 记录种子数据、迁移与开发期降级。
 	log *logx.Logger
+	// cfg 是装配时的配置，种子口令从它的 seed 段读取（环境变量经前缀映射已在配置层生效）。
+	// cfg is the configuration this store was assembled with, read for the seed password (the environment variable has
+	// already taken effect inside the configuration layer).
+	cfg *config.Config
+	// release closes what the persistence implementation holds (the connection pool); the memory implementation has
+	// nothing to release and leaves it empty. | release 关闭持久化实现持有的资源（连接池）；内存实现无需释放，留空即可。
+	release func() error
+	// seedPw 是解析好的种子口令；为空表示种子写入被拒绝（见 seedPassword）。
+	// seedPw is the resolved seed password; empty means the seed was refused (see seedPassword).
+	seedPw string
+	// seedPwOnce 保证种子口令在一个进程里只解析一次：它的告警因此每次启动出现一次，
+	// 而不是每次渲染那条「首登必改口令」横幅时都出现一次。
+	// seedPwOnce resolves the seed password once per process, so its warning appears once per start rather than once per
+	// render of the first-sign-in banner.
+	seedPwOnce sync.Once
+	// persistent records whether a database backs this store, for logs and diagnostics. | persistent 记录当前是否由数据库支撑，供日志与诊断使用。
+	persistent bool
 }
 
-// Open assembles a Store: the memory implementation plus the framework auth service and token issuer. | Open 装配 Store：内存实现 + 框架鉴权服务 + 令牌签发器。
+// Open 装配 Store：由配置选出的持久化实现 + 框架鉴权服务 + 令牌签发器。
+// Open assembles a Store: the persistence implementation selected from the configuration, the framework auth service and
+// the token issuer.
 //
 // 主密钥为空时 auth.NewService 会生成临时主密钥并输出告警，仅限开发：进程重启后已入库的 sec_key 无法解密。
 // With an empty master key, auth.NewService generates a temporary one and warns, which is development-only: stored
@@ -79,17 +162,123 @@ func Open(o Options) (*Store, error) {
 		log = logx.Default()
 	}
 
-	raw := auth.NewMemoryStore()
+	// 持久化实现缺失或不可用时 openRaw 自行降级并告警，因此这里的错误只可能来自后续两步。
+	// When the persistence implementation is missing or unusable, openRaw degrades by itself and warns, so the errors
+	// below can only come from the two assembly steps that follow.
+	raw, release := openRaw(o, log)
 	svc, err := auth.NewService(raw, auth.Options{MasterKey: o.MasterKey})
 	if err != nil {
+		closeRelease(release)
 		return nil, errx.Wrap(err, ErrOpen)
 	}
 
 	issuer, err := auth.NewTokenIssuer(svc, auth.TokenOptions{Issuer: o.Issuer, TTL: o.TTL})
 	if err != nil {
+		closeRelease(release)
 		return nil, errx.Wrap(err, ErrOpen)
 	}
-	return &Store{svc: svc, raw: raw, issuer: issuer, log: log}, nil
+	return &Store{svc: svc, raw: raw, issuer: issuer, log: log, cfg: o.Config, release: release, persistent: release != nil}, nil
+}
+
+// openRaw 选出持久化实现，并返回它的释放函数（内存实现返回 nil）。
+// openRaw selects the persistence implementation and returns its release function (nil for the in-memory one).
+//
+// 降级绝不阻塞启动：没有数据库、连库失败或迁移失败时都退回内存实现，并明确告警「数据不持久」。
+// Degradation never blocks startup: without a database, or when connecting or migrating fails, it falls back to the
+// in-memory implementation and warns explicitly that the data is not persistent.
+{{ if ne .DB "none" -}}
+func openRaw(o Options, log *logx.Logger) (auth.Store, func() error) {
+	if dsn := configuredDSN(o.Config); dsn == "" {
+		// 没有数据库的项目（yd new --db none）走的就是这一条：不打开任何连接，只把后果说清楚。
+		// A project generated with `yd new --db none` takes exactly this path: nothing is opened and the consequence is
+		// spelled out instead.
+		log.Warn("no database is configured, auth data lives in memory and dies with the process | 未配置数据库，鉴权数据仅存于内存，进程重启即丢失",
+			logx.Str("key", configDSN),
+		)
+		return auth.NewMemoryStore(), nil
+	}
+
+	// DSN 绝不写进日志：它可能带着数据库口令（mysql / postgres 的 DSN 就是如此）。
+	// The DSN never reaches the log: it may carry a database password, as it does for mysql and postgres.
+	opts := gormx.OptionsFromConfig(o.Config)
+	db, err := gormx.Open(opts, log)
+	if err != nil {
+		return degradeToMemory(log, err), nil
+	}
+
+	// 迁移用带超时的上下文：数据库不可达时启动要能落回内存实现，而不是一直等着连上。
+	// The migration runs under a bounded context, so an unreachable database degrades instead of hanging the boot.
+	ctx, cancel := context.WithTimeout(context.Background(), migrateTimeout)
+	defer cancel()
+	if err := gormstore.Migrate(ctx, db); err != nil {
+		_ = gormx.Close(db)
+		return degradeToMemory(log, err), nil
+	}
+
+	store, err := gormstore.New(db, gormstore.OptionsFromConfig(o.Config))
+	if err != nil {
+		_ = gormx.Close(db)
+		return degradeToMemory(log, err), nil
+	}
+
+	log.Info("auth data is stored in the database | 鉴权数据已存入数据库",
+		logx.Str("driver", driverName(opts.Driver)),
+		logx.Strs("tables", authTables),
+	)
+	return store, func() error { return gormx.Close(db) }
+}
+
+// configuredDSN returns the trimmed data source name, or "" when no database is configured.
+// | configuredDSN 返回去掉首尾空白的 DSN；未配置数据库时返回空串。
+func configuredDSN(c *config.Config) string {
+	if c == nil {
+		return ""
+	}
+	return strings.TrimSpace(c.GetString(configDSN))
+}
+
+// driverName reports the driver actually in use: an empty name means the framework default, sqlite (the same rule
+// data/gormx applies when it picks a dialect). | driverName 报告实际使用的驱动名：空值表示框架默认的 sqlite
+// （与 data/gormx 挑选方言时的规则一致）。
+func driverName(driver string) string {
+	if trimmed := strings.TrimSpace(driver); trimmed != "" {
+		return trimmed
+	}
+	return gormx.DriverSQLite
+}
+
+// degradeToMemory 把「数据库不可用」变成「内存实现 + 告警」：应用照常起来，鉴权照常可用，代价只是数据不持久。
+// degradeToMemory turns an unusable database into the in-memory implementation plus a warning: the application starts,
+// authentication works, and the only price is that the data does not persist.
+func degradeToMemory(log *logx.Logger, err error) auth.Store {
+	log.Warn("database unavailable, auth data falls back to memory and is NOT persistent | 数据库不可用，鉴权数据回退到内存且不持久",
+		logx.Str("key", configDSN),
+		logx.Err(err),
+	)
+	return auth.NewMemoryStore()
+}
+
+// authTables 列出迁移建出的表，供启动日志一眼看出鉴权数据落在哪里（只读，不要修改）。
+// authTables lists the tables created by the migration, so one look at the startup log shows where auth data lives
+// (read-only; never mutated).
+var authTables = []string{"yd_auth_tenants", "yd_auth_users", "yd_auth_roles", "yd_auth_role_permissions"}
+
+{{ else -}}
+func openRaw(_ Options, log *logx.Logger) (auth.Store, func() error) {
+	// 本项目生成时就没有选择数据库，因此这里没有任何连接可开，也没有可释放的资源。
+	// This project was generated without a database, so there is no connection to open and nothing to release.
+	log.Warn("this project was generated without a database, auth data lives in memory and dies with the process | 本项目生成时未选择数据库，鉴权数据仅存于内存，进程重启即丢失")
+	return auth.NewMemoryStore(), nil
+}
+
+{{ end -}}
+// closeRelease 在后续装配步骤失败时关掉已经打开的连接池：装配失败的 store 不得留着连接。
+// closeRelease closes an already opened pool after a later assembly step failed: a store that failed to assemble must not
+// keep a connection.
+func closeRelease(release func() error) {
+	if release != nil {
+		_ = release()
+	}
 }
 
 // Auth returns the framework auth service used by the middleware and by permission checks. | Auth 返回框架鉴权服务，供中间件与权限判定使用。
@@ -105,8 +294,19 @@ func (s *Store) Raw() auth.Store { return s.raw }
 // Issuer returns the token issuer used by auth.Middleware and by the sign-in flow. | Issuer 返回令牌签发器，供 auth.Middleware 与登录流程使用。
 func (s *Store) Issuer() *auth.TokenIssuer { return s.issuer }
 
-// Close releases storage resources; the memory implementation needs nothing and a GORM store closes its pool here. | Close 释放存储资源；内存实现无需释放，换成 GORM 后在这里关闭连接池。
-func (s *Store) Close() error { return nil }
+// Persistent reports whether a database backs this store; false means every write dies with the process.
+// | Persistent 报告当前是否由数据库支撑；为 false 时每次写入都随进程消失。
+func (s *Store) Persistent() bool { return s.persistent }
+
+// Close releases what the store holds: with a database this closes the connection pool, and the in-memory
+// implementation has nothing to release. It runs in the shutdown chain registered by the router. | Close 释放 Store 持有的
+// 资源：接数据库时在这里关闭连接池，内存实现无需释放。它由路由注册的退出链调用。
+func (s *Store) Close() error {
+	if s.release == nil {
+		return nil
+	}
+	return s.release()
+}
 
 // seedSpec describes one demo tenant together with its administrator account. | seedSpec 描述一个演示租户及其管理员账号。
 type seedSpec struct {
@@ -116,57 +316,121 @@ type seedSpec struct {
 	Name string
 	// Username is the administrator sign-in name. | Username 是管理员登录名。
 	Username string
-	// Password is the administrator's initial password (it must be changed after the first sign-in). | Password 是管理员初始口令（首次登录后必须修改）。
-	Password string
 	// Email is the administrator contact address. | Email 是管理员联络邮箱。
 	Email string
 }
 
 // seedSpecs returns every demo tenant; the second one exists to verify cross-tenant isolation by hand. | seedSpecs 返回全部演示租户；第二个租户专门用来在开发期验证跨租户隔离。
+//
+// 口令不在这份清单里，这是刻意的：两个租户的管理员共用同一枚由配置下发的口令（见 seedPassword），
+// 因此清单只描述「数据长什么样」，不描述「怎么进去」。
+// The password is deliberately absent from this list: both administrators share the one password handed down by the
+// configuration (see seedPassword), so the list describes what the data looks like and never how to get in.
 func seedSpecs() []seedSpec {
 	return []seedSpec{
 		{
 			Slug:     meta.SeedTenantSlug,
 			Name:     meta.SeedTenantName,
 			Username: meta.SeedAdminUsername,
-			Password: meta.SeedAdminPassword,
 			Email:    meta.SeedAdminEmail,
 		},
 		{
 			Slug:     meta.SeedOpsSlug,
 			Name:     meta.SeedOpsName,
 			Username: meta.SeedOpsAdminUsername,
-			Password: meta.SeedOpsAdminPassword,
 			Email:    meta.SeedOpsAdminEmail,
 		},
 	}
 }
 
-// Seed 幂等写入演示数据：租户、四个内置角色、一个管理员账号。
-// Seed writes the demo data idempotently: the tenants, the four built-in roles and one administrator account each.
+// Seed 幂等写入默认数据：两个租户、四个内置角色及其能力绑定，以及每个租户的一个管理员。
+// Seed writes the default data idempotently: two tenants, the four built-in roles with their capability bindings, and one
+// administrator per tenant.
 //
-// 幂等的判定完全落在数据上（租户按标识、角色按名称、用户按登录名），因此重复启动不会重复建号，
-// 也不会覆盖使用者已经改过的角色与口令。
-// Idempotence is decided purely by the data (tenants by slug, roles by name, users by username), so a restart neither
-// duplicates an account nor overwrites a role or a password the user has already changed.
+// 幂等由数据本身判定，而且整个种子数据只有一道总闸：**租户表为空**才写入。
+// 首次启动因此写入一次，之后每次启动什么都不做；多副本同时启动时，唯一索引冲突被读作「另一个副本已先完成初始化」
+// 而不是错误（auth.ErrConflict），于是两个副本也只会留下唯一一份数据。
+// Idempotence is decided by the data itself, behind a single gate: nothing is written unless the **tenant table is
+// empty**. The first start therefore writes everything, every later start does nothing, and when several replicas start at
+// the same moment a unique-index conflict is read as "another replica finished the very same initialisation first"
+// rather than as an error (auth.ErrConflict) — so even then exactly one copy of the data lands.
+//
+// 使用者改过的角色与口令因此永远不会被改回去，被停用或删除的种子账号也不会被悄悄复活。
+// A role or a password the user has since changed is therefore never reverted, and a seeded account that was disabled or
+// deleted is not silently resurrected either.
+//
+// 口令来自配置：未配置时开发环境回退到内置开发口令并每次启动告警，非 development 环境**拒绝写入**并告警
+// （见 seedPassword），因此这里没有、也不允许有任何一个写在源码里的口令。
+// The password comes from the configuration: when none is configured development falls back to the built-in development
+// password with a warning on every start, while an environment that does not call itself development **refuses to write
+// anything** and says so (see seedPassword) — which is why no password is written in the sources here, or anywhere else.
 func (s *Store) Seed(ctx context.Context) error {
+	password, ok := s.seedPassword()
+	if !ok {
+		// 拒绝写入种子数据。原因与后果已在 seedPassword 里说过一次，这里不再重复刷屏。
+		// The seed is refused. Why and with what consequence was said once in seedPassword and is not repeated here.
+		return nil
+	}
+
+	tenants, err := s.svc.ListTenants(ctx)
+	if err != nil {
+		return errx.Wrap(err, ErrSeed)
+	}
+	if len(tenants) > 0 {
+		s.log.Debug("default data is already present, nothing is seeded | 默认数据已存在，不写入种子数据",
+			logx.Int("tenants", len(tenants)),
+		)
+		return nil
+	}
+
 	roles := NewRoleRepo(s)
 	for _, spec := range seedSpecs() {
-		tenant, err := s.ensureTenant(ctx, spec)
-		if err != nil {
-			return errx.Wrap(err, ErrSeed)
-		}
-		if err := roles.Ensure(ctx, tenant.ID); err != nil {
-			return errx.Wrap(err, ErrSeed)
-		}
-		if err := s.ensureAdmin(ctx, tenant, spec); err != nil {
+		if err := s.seedTenant(ctx, roles, spec, password); err != nil {
+			if errors.Is(err, auth.ErrConflict) {
+				// 另一个副本在同一瞬间完成了同一次初始化：这正是幂等被兑现的样子，不是故障。
+				// Another replica finished the very same initialisation at the same instant: this is idempotence being
+				// delivered rather than a fault.
+				s.log.Info("another replica initialised the default data first, nothing more is written | 另一个副本已先完成默认数据初始化，不再写入",
+					logx.Str("tenant", spec.Slug),
+				)
+				return nil
+			}
 			return errx.Wrap(err, ErrSeed)
 		}
 	}
+
+	s.log.Info("default data seeded: tenants, built-in roles, their capability bindings and one owner per tenant | 默认数据已写入：租户、内置角色、其能力绑定与每个租户的所有者账号",
+		logx.Int("tenants", len(seedSpecs())),
+		logx.Int("roles", len(authz.BuiltinRoles())),
+		logx.Int("permissions", len(authz.BuiltinPermissions())),
+	)
 	return nil
 }
 
+// seedTenant 写入一个租户及其角色与管理员：先租户，再角色（含能力绑定），最后管理员（授予 owner）。
+// seedTenant writes one tenant together with its roles and its administrator: the tenant first, then the roles (with
+// their capability bindings), and last the administrator (granted the owner role).
+//
+// 顺序不是随意的：角色必须先于管理员存在，否则 auth.Service.CreateUser 会因为角色未知而返回 ErrNotFound。
+// The order is not arbitrary: the roles have to exist before the administrator, otherwise auth.Service.CreateUser reports
+// ErrNotFound for an unknown role.
+func (s *Store) seedTenant(ctx context.Context, roles *RoleRepo, spec seedSpec, password string) error {
+	tenant, err := s.ensureTenant(ctx, spec)
+	if err != nil {
+		return err
+	}
+	if err := roles.Ensure(ctx, tenant.ID); err != nil {
+		return err
+	}
+	return s.ensureAdmin(ctx, tenant, spec, password)
+}
+
 // ensureTenant returns the tenant of that slug, creating it when absent. | ensureTenant 按标识取租户，不存在时创建；返回的是租户记录本身。
+//
+// 创建是唯一可能撞上唯一索引的一步（本地唯一）。并发创建的输者在这里得到 auth.ErrConflict，
+// 而 Seed 把它读作「已初始化」：因此这个函数不需要额外的锁，锁在数据上。
+// Creating the tenant is the one step that can hit a unique index (unique locally). The loser of a concurrent creation gets
+// auth.ErrConflict here and Seed reads it as "already initialised": no extra lock is needed, because the lock is the data.
 func (s *Store) ensureTenant(ctx context.Context, spec seedSpec) (*auth.Tenant, error) {
 	tenants, err := s.svc.ListTenants(ctx)
 	if err != nil {
@@ -180,8 +444,15 @@ func (s *Store) ensureTenant(ctx context.Context, spec seedSpec) (*auth.Tenant, 
 	return s.svc.CreateTenant(ctx, spec.Slug, spec.Name)
 }
 
-// ensureAdmin returns the administrator of that username, creating it with the owner role when absent. | ensureAdmin 按登录名取管理员，不存在时创建并授予 owner 角色。
-func (s *Store) ensureAdmin(ctx context.Context, tenant *auth.Tenant, spec seedSpec) error {
+// ensureAdmin 按登录名取管理员，不存在时创建并授予 owner 角色。
+// ensureAdmin returns the administrator of that username, creating it with the owner role when absent.
+//
+// 口令只以 guomi.HashPassword 的结果落库（auth.Service.CreateUser 内部调用的就是它），明文既不进日志也不进错误链：
+// 这条路径上的每一行日志都只说「谁被创建了」，从不说「用什么进去」（口令尤其不进 logx 的字段）。
+// The password reaches the store only as the result of guomi.HashPassword (which is what auth.Service.CreateUser calls),
+// and the clear text enters neither a log nor an error chain: every line written along this path says who was created and
+// never what lets them in — the password, in particular, never becomes a logx field.
+func (s *Store) ensureAdmin(ctx context.Context, tenant *auth.Tenant, spec seedSpec, password string) error {
 	if _, err := s.Raw().GetUserByUsername(ctx, tenant.ID, spec.Username); err == nil {
 		return nil
 	} else if !errors.Is(err, auth.ErrNotFound) {
@@ -192,40 +463,141 @@ func (s *Store) ensureAdmin(ctx context.Context, tenant *auth.Tenant, spec seedS
 		Username:    spec.Username,
 		Email:       spec.Email,
 		DisplayName: spec.Username,
-		Password:    spec.Password,
-		Roles:       []string{model.RoleOwner},
+		Password:    password,
+		// 管理员拿的是注册表里的所有者角色：它是 GrantOf(owner) 授予全部能力的那个角色，
+		// 因此种子账号刚生成就能登录、能管理，而它到底能做什么由 authz 的授权表说了算，不在这里再抄一份。
+		// The administrator holds the registry's owner role: the one GrantOf(owner) grants every capability to, so the
+		// seeded account can sign in and administer from the first second, and what it may actually do is decided by the
+		// grant table in authz rather than by a second copy of that decision here.
+		Roles: []string{authz.RoleOwner},
 	}); err != nil {
 		return err
 	}
 
-	// 默认口令是脚手架给出的演示凭据，必须在首次登录后修改；日志与页面都会提醒。
-	// The default password is a demo credential handed out by the scaffold and must be changed after the first
-	// sign-in; both the log and the pages say so.
-	s.log.Warn("demo administrator seeded, change its password in the account page | 已写入演示管理员，请在账号页修改口令",
+	s.log.Info("seeded administrator created with the owner role, change its password in the account page | 已创建种子管理员并授予所有者角色，请在账号页修改口令",
 		logx.Str("tenant", tenant.Slug),
 		logx.Str("username", spec.Username),
+		logx.Str("role", authz.RoleOwner),
 	)
 	return nil
 }
 
-// SeedPasswordUnchanged 报告该用户是否仍在使用脚手架下发的默认口令。
-// SeedPasswordUnchanged reports whether the user still signs in with the default password handed out by the scaffold.
+// seedPassword 返回解析好的种子管理员口令；第二个返回值表示种子写入是否被允许。
+// seedPassword returns the resolved password of the seeded administrators; the second value reports whether the seed is
+// allowed to run at all.
+//
+// 解析在进程内只发生一次（sync.Once）：它的告警因此每次启动出现一次，而不是每次渲染首登横幅时出现一次。
+// Resolution happens once per process (sync.Once), so its warning appears once per start rather than once per render of
+// the first-sign-in banner.
+//
+// 返回值只用于建号：它绝不会被写进日志、页面或错误信息。
+// The returned value is used to create the account and for nothing else: it never reaches a log, a page or an error.
+func (s *Store) seedPassword() (string, bool) {
+	s.seedPwOnce.Do(func() { s.seedPw = s.readSeedPassword() })
+	return s.seedPw, s.seedPw != ""
+}
+
+// readSeedPassword 读取配置里的种子口令；未配置时按环境决定回退还是拒绝，并把后果说清楚。
+// readSeedPassword reads the seed password from the configuration and, when none is configured, decides between the
+// development fallback and a refusal while spelling the consequence out.
+//
+// 环境变量经框架的前缀映射自动生效（YD_SEED_ADMIN_PASSWORD → seed.admin_password），因此这里不读 os.Getenv，
+// 优先级也与其他配置项完全一致（命令行 > 环境变量 > 配置文件 > 框架默认值）。
+// The environment variable works through the framework's prefix mapping (YD_SEED_ADMIN_PASSWORD → seed.admin_password),
+// so nothing is read from os.Getenv and the precedence is the one every other key follows (flags, environment, file,
+// framework defaults).
+func (s *Store) readSeedPassword() string {
+	if pw := configuredSeedPassword(s.cfg); pw != "" {
+		return pw
+	}
+
+	env := seedEnv(s.cfg)
+	if env == meta.EnvDevelopment {
+		// 开发环境的回退：刚生成的项目立刻就能登录。代价是这枚口令写在 README 与登录页上，
+		// 因此告警必须每次启动都出现，而不是让人以为它默认就是安全的。
+		// The development fallback: a freshly generated project can be signed into immediately. The price is that this
+		// password is printed in the README and on the sign-in page, which is why the warning appears on every start
+		// instead of letting anyone assume it is safe by default.
+		s.log.Warn("seed.admin_password is unset, the documented development password is in use: set YD_SEED_ADMIN_PASSWORD before any real deployment | 未配置 seed.admin_password，正在使用文档化的开发口令：任何真实部署之前请先设置 YD_SEED_ADMIN_PASSWORD",
+			logx.Str("key", meta.SeedPasswordConfigKey),
+			logx.Str("env", meta.SeedPasswordEnvKey),
+			logx.Str("app_env", env),
+		)
+		return meta.DevSeedAdminPassword
+	}
+
+	// 非 development：拒绝写入，而且这是刻意的不作为。「更安全一点」的默认口令不存在——
+	// 一个创建在真实环境、口令印在文档上的管理员账号，比一个需要手工初始化的空库危险得多。
+	// Outside development the seed is refused, and that refusal is deliberate inaction. There is no "a bit safer"
+	// default password: an administrator account created in a real environment with a documented password is far more
+	// dangerous than a database that has to be initialised by hand.
+	s.log.Warn("seed.admin_password is unset outside development, so no default tenant and no administrator are created: set YD_SEED_ADMIN_PASSWORD and restart | 非开发环境未配置 seed.admin_password，因此不会创建默认租户与管理员：请设置 YD_SEED_ADMIN_PASSWORD 后重启",
+		logx.Str("key", meta.SeedPasswordConfigKey),
+		logx.Str("env", meta.SeedPasswordEnvKey),
+		logx.Str("app_env", env),
+	)
+	return ""
+}
+
+// seedEnv 返回运行环境：取自配置键 app.env（YD_APP_ENV 覆盖，框架默认值为 development）。
+// seedEnv returns the runtime environment: the configuration key app.env (overridden by YD_APP_ENV, defaulting to
+// development in the framework).
+//
+// 判定走配置而不是 meta.Env：环境名写在配置文件里（app.env: production）时也必须拦住种子写入，
+// 而 meta.Env 只看环境变量，漏掉这一种写法就等于在生产里开出一个文档口令的管理员账号。
+// The decision reads the configuration rather than meta.Env: an environment name written into the configuration file
+// (app.env: production) must stop the seed as well, and meta.Env looks at the environment variable only — missing that
+// spelling is exactly how a documented-password administrator account would be created in production.
+func seedEnv(c *config.Config) string {
+	if c == nil {
+		return meta.EnvDevelopment
+	}
+	env := strings.TrimSpace(c.GetString(meta.ConfigEnvKey))
+	if env == "" {
+		return meta.EnvDevelopment
+	}
+	return env
+}
+
+// configuredSeedPassword returns the seed password of the configuration layer, or "" when none is configured.
+// | configuredSeedPassword 返回配置层给出的种子口令；未配置时返回空串。
+func configuredSeedPassword(c *config.Config) string {
+	if c == nil {
+		return ""
+	}
+	return strings.TrimSpace(c.GetString(meta.SeedPasswordConfigKey))
+}
+
+// SeedPasswordUnchanged 报告该用户是否仍在使用种子下发的口令。
+// SeedPasswordUnchanged reports whether the user still signs in with the password the seed handed out.
 //
 // 只在登录成功时调用一次：它多做一次 SM3-PBKDF2 校验（约一次口令校验的耗时），换来的是「首次登录必须改密」
 // 这一提示既不需要额外的数据库字段，也不会在每次页面渲染时重复计算。
 // It is called once per successful sign-in: it costs one extra SM3-PBKDF2 verification (about the price of a password
 // check) and buys a "change the password after the first sign-in" hint that needs no extra column and no recomputation
 // on every page render.
+//
+// 种子口令在开发环境可能就是内置的开发口令，此时提示同样成立：那枚口令写在 README 与登录页上，谁都能登进来。
+// In development the seeded password may be the built-in one, and the hint is just as true: that password is printed in
+// the README and on the sign-in page, so anyone can sign in with it.
+//
+// 种子写入被拒绝时（非 development 且未配置口令）恒为 false：没有种子口令，也就谈不上「还没改过的种子口令」。
+// When the seed was refused (no configured password outside development) this is always false: without a seeded password
+// there is no unchanged seeded password either.
 func (s *Store) SeedPasswordUnchanged(u *auth.User) bool {
 	if u == nil {
+		return false
+	}
+	password, ok := s.seedPassword()
+	if !ok {
 		return false
 	}
 	for _, spec := range seedSpecs() {
 		if spec.Username != u.Username {
 			continue
 		}
-		ok, err := guomi.VerifyPassword(u.PasswordHash, spec.Password)
-		return err == nil && ok
+		verified, err := guomi.VerifyPassword(u.PasswordHash, password)
+		return err == nil && verified
 	}
 	return false
 }

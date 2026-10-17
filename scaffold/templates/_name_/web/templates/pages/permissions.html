@@ -14,7 +14,10 @@
   tenant's role table and the capabilities from the compile-time catalogue), so the table can neither miss a
   freshly created role nor offer a token that does not exist.
 
-  数据契约 | Data contract: .Roles .Catalogue .CanRoleWrite（决定是否给出前往角色页的入口）。
+  数据契约 | Data contract: .Roles .Catalogue .Perm（authz.Data 注入的能力表；去角色页的入口由
+  can .Perm.RoleRead 判定，与 GET /roles 的服务端守卫是同一个标识）。
+  .Roles .Catalogue .Perm (the capability map injected by authz.Data; the way into the roles page is decided by
+  can .Perm.RoleRead, the same token GET /roles is guarded by on the server).
 */}}
 <section class="yd-page" data-yd-page="permissions" aria-labelledby="yd-permissions-title">
   <header class="yd-page__header">
@@ -23,7 +26,7 @@
       <p class="yd-page__subtitle">{{ tr "page.permissions.subtitle" }}</p>
     </div>
     <div class="yd-page__actions">
-      {{- if .CanRoleWrite }}
+      {{- if can .Perm.RoleRead }}
       <a class="yd-btn yd-btn--primary" href="/roles" hx-get="/roles" hx-target="#yd-workspace" hx-swap="innerMorph" hx-push-url="true">
         {{ tr "page.permissions.edit_roles" }}
       </a>

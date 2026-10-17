@@ -69,7 +69,7 @@ func TestShutdownClosesLongConnectionsBeforeHooks(t *testing.T) {
 		WithGRPC(grpc),
 	)
 
-	// 长连接（SSE / WebSocket 语义）由 lifecycle 钩子关闭。| The long-lived connection (SSE / WebSocket semantics) is closed by the lifecycle hook.
+	// The long-lived connection (SSE / WebSocket semantics) is closed by the lifecycle hook. | 长连接（SSE / WebSocket 语义）由 lifecycle 钩子关闭。
 	streamClosed := make(chan struct{})
 	a.Lifecycle().Add("stream", func(context.Context) error {
 		record("lifecycle:stream")
@@ -110,11 +110,11 @@ func TestShutdownClosesLongConnectionsBeforeHooks(t *testing.T) {
 		body <- string(b)
 	}()
 
-	// 请求已进入处理器后才开始退出：这里用同步信号而非睡眠竞猜。| Start the shutdown only once the request is inside the handler: a sync signal, never a sleep.
+	// Start the shutdown only once the request is inside the handler: a sync signal here, never a sleep-based guess. | 请求已进入处理器后才开始退出：这里用同步信号而非睡眠竞猜。
 	select {
 	case <-entered:
 	case <-time.After(5 * time.Second):
-		t.Fatal("请求未在 5 秒内进入处理器")
+		t.Fatal("the request did not enter the handler within 5 seconds | 请求未在 5 秒内进入处理器")
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
@@ -138,7 +138,7 @@ func TestShutdownClosesLongConnectionsBeforeHooks(t *testing.T) {
 		t.Fatalf("长连接响应 = %q, 期望 bye", got)
 	}
 
-	// 幂等：重复关闭不得再执行任何一步。| Idempotent: a repeated shutdown must not run any step again.
+	// Idempotent: a repeated shutdown must not run any step again. | 幂等：重复关闭不得再执行任何一步。
 	if err := a.Shutdown(ctx); err != nil {
 		t.Fatalf("第二次 Shutdown 返回错误: %v", err)
 	}
@@ -156,7 +156,7 @@ func TestShutdownCollectsEveryStageError(t *testing.T) {
 	hookErr := errors.New("lifecycle hook failed")
 	appErr := errors.New("app hook failed")
 
-	// 宽限期短到不足以让 gRPC 优雅停止完成。| The grace period is too short for the gRPC graceful stop to finish.
+	// The grace period is too short for the gRPC graceful stop to finish. | 宽限期短到不足以让 gRPC 优雅停止完成。
 	grpc := &fakeGRPCServer{gate: make(chan struct{}), block: true}
 	a := newTestApp(t, nil, WithGRPC(grpc))
 
@@ -168,7 +168,7 @@ func TestShutdownCollectsEveryStageError(t *testing.T) {
 		return appErr
 	})
 
-	// 服务器未启动：排空阶段立即返回，不产生错误。| The server never started: the drain stage returns immediately without an error.
+	// The server never started: the drain stage returns immediately and yields no error. | 服务器未启动：排空阶段立即返回，不产生错误。
 	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
 	defer cancel()
 
@@ -182,10 +182,10 @@ func TestShutdownCollectsEveryStageError(t *testing.T) {
 		}
 	}
 	if !hooksRan {
-		t.Error("gRPC 阶段耗尽宽限期后，应用关闭钩子仍必须执行")
+		t.Error("the app shutdown hook must still run after the gRPC stage exhausts the grace period | gRPC 阶段耗尽宽限期后，应用关闭钩子仍必须执行")
 	}
 	if !grpc.stopped.Load() {
-		t.Error("宽限期过后必须强制停止 gRPC")
+		t.Error("gRPC must be force-stopped once the grace period is over | 宽限期过后必须强制停止 gRPC")
 	}
 	if elapsed > 3*time.Second {
 		t.Fatalf("Shutdown 耗时 %v, 必须在宽限期附近返回", elapsed)
@@ -255,7 +255,7 @@ func TestRunRunsLifecycleHooksOnExit(t *testing.T) {
 			t.Fatalf("Run 返回错误: %v", err)
 		}
 	case <-time.After(10 * time.Second):
-		t.Fatal("ctx 取消后 Run 未返回")
+		t.Fatal("Run did not return after ctx was cancelled | ctx 取消后 Run 未返回")
 	}
 
 	for _, ch := range []struct {

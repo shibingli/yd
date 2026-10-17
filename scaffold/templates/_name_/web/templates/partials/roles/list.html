@@ -2,7 +2,12 @@
   partials/roles/list.html —— 角色清单与空状态（由 pages/roles.html 引用）。
   partials/roles/list.html — the role list and its empty state (referenced by pages/roles.html).
 
-  数据契约 | Data contract: .Roles（[]model.Role）、.Empty、.CanRoleWrite（决定删除按钮是否存在）。
+  数据契约 | Data contract: .Roles（[]model.Role）、.Empty，以及 authz.Data 注入的 .Perm——能力开关按
+  can $.Perm.RoleUpdate 出现（对应 POST /roles/{id}/permissions），删除按钮按 can $.Perm.RoleDelete 出现
+  （对应 POST /roles/{id}/delete），两者各自与服务端守卫是同一个标识。
+  .Roles ([]model.Role) and .Empty, plus the .Perm map injected by authz.Data: the capability switches appear under
+  can $.Perm.RoleUpdate (POST /roles/{id}/permissions) and the delete button under can $.Perm.RoleDelete
+  (POST /roles/{id}/delete), each matching the very token its route is guarded by.
   非内置角色才出现删除按钮，服务端对内置角色一律以 409 拒绝（internal/service.ErrBuiltinRoleProtected）：
   页面少一个按钮只是少一次误点，边界仍然在服务端。
   Only a non-built-in role gets a delete button, and the server refuses every built-in one with a 409
@@ -32,7 +37,7 @@
       {{ range $role.Permissions }}<span class="yd-badge yd-badge--info">{{ . }}</span>{{ else }}<span class="yd-hint">{{ tr "role.no_permission" }}</span>{{ end }}
     </p>
 
-    {{- if $.CanRoleWrite }}
+    {{- if can $.Perm.RoleUpdate }}
     {{/* 能力的授予与回收就地完成：每个能力一个表单、一个按钮，提交后返回的正是这一页（见 internal/controller 的
          rolesPage），因此表格、徽标与提示三者一起更新，不会出现「点了按钮却停在半路」的中间态。
          Granting and revoking happen in place: one form and one button per capability, and what comes back is this very
@@ -63,6 +68,9 @@
       </ul>
     </details>
 
+    {{- end }}
+
+    {{- if can $.Perm.RoleDelete }}
     <div class="yd-form__actions">
       {{/* 删除是一条独立的路由（POST /roles/{id}/delete），因此它不可能被一次误提交的资料变更顺手触发。 */}}
       <form method="post" action="/roles/{{ $role.ID }}/delete"

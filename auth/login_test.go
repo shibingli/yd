@@ -9,7 +9,7 @@ import (
 	"github.com/shibingli/yd/guomi"
 )
 
-// TestLoginIssuesATokenOnlyForTheRightPassword 覆盖完整登录链路的成功与失败两端。
+// TestLoginIssuesATokenOnlyForTheRightPassword covers both the success and the failure end of the whole login path. | TestLoginIssuesATokenOnlyForTheRightPassword 覆盖完整登录链路的成功与失败两端。
 func TestLoginIssuesATokenOnlyForTheRightPassword(t *testing.T) {
 	f := newFixture(t)
 	before := f.clock.Now()
@@ -65,7 +65,7 @@ func TestLoginIssuesATokenOnlyForTheRightPassword(t *testing.T) {
 	}
 }
 
-// TestDecryptLoginPayloadRoundTrip 覆盖前端 SM2 传输协议的两条入口。
+// TestDecryptLoginPayloadRoundTrip covers both entry points of the front-end SM2 transport protocol. | TestDecryptLoginPayloadRoundTrip 覆盖前端 SM2 传输协议的两条入口。
 func TestDecryptLoginPayloadRoundTrip(t *testing.T) {
 	priv, err := guomi.GenerateKey()
 	requireNoError(t, err, "GenerateKey")
@@ -122,7 +122,7 @@ func TestDecryptLoginPayloadRoundTrip(t *testing.T) {
 	}
 }
 
-// TestLoginEncryptedScheme 校验 X-YD-Encrypted 标记的判定。
+// TestLoginEncryptedScheme checks how the X-YD-Encrypted marker is recognised. | TestLoginEncryptedScheme 校验 X-YD-Encrypted 标记的判定。
 func TestLoginEncryptedScheme(t *testing.T) {
 	if LoginEncryptedHeader != "X-YD-Encrypted" {
 		t.Fatalf("the header name is part of the front-end contract, got %q | 头部名属于前端契约，实际 %q", LoginEncryptedHeader, LoginEncryptedHeader)

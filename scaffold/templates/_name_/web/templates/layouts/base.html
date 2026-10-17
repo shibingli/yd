@@ -18,9 +18,33 @@
     .PublicKey       SM2 公钥（十六进制），供登录表单预取 | SM2 public key in hex, prefetched by the sign-in form
     .SeedNotice      首登必改口令的提示文案 | the mandatory first-sign-in password notice
     .User .Tenant .SignedIn .SeedPassword               当前身份 | the current identity
-    .CanTenantRead .CanTenantWrite .CanUserRead .CanUserWrite .CanRoleRead .CanRoleWrite .CanPermissionRead
-                     六个能力布尔值，导航项与按钮的显隐只读它们 | six capability booleans that alone decide which nav items and buttons appear
+    .Authz .Perm .Role                                 authz.Data(subject) 注入的三个取值：判定主体本身、
+                                                       「能力名 → 标识」与「角色名 → 名字」两张表。
+                                                       导航项与按钮的显隐一律写成 can .Perm.XxxYyy（读的正是 .Perm），
+                                                       页面里不再存在 .CanXxx 这样的布尔值。
+    .Authz .Perm .Role                                 the three values authz.Data(subject) injects: the authority itself
+                                                       plus the two name maps "capability name -> token" and "role name ->
+                                                       name". Every nav item and button is gated by can .Perm.XxxYyy (which
+                                                       reads .Perm); no .CanXxx boolean exists anywhere any more.
     .Content         控制器渲染好的片段 HTML（template.HTML） | the fragment HTML rendered by the controller (template.HTML)
+    .AuthzJSON       权限信封（可选）：控制器经 authz.Data(subject) 提供的、服务端已序列化好的 JSON 字符串。
+                     缺省时本文件不注入该元素，yd-authz.js 因而一个能力都不授予（失败关闭）。
+    .AuthzJSON       the authority envelope (optional): the JSON string already serialized server-side and handed over by
+                     the controller through authz.Data(subject). Without it this file injects no payload element at all
+                     and yd-authz.js therefore grants nothing (fail closed).
+
+  接入权限（两处，各一行，本项目两处都已接好） | Wiring the authority (two places, one line each; both are already wired in this project):
+    1. router：authz.Middleware(ctrl.Auth())  —— 把当前请求的主体放进 context（internal/router）；
+    2. view()：主体取自 context，缺失时由当前用户现构造一个，再并入 authz.Data(subject)（internal/controller）。
+    之后模板可写 {{ if can "PermUserRead" }}…{{ end }} 与 data-yd-perm="{{ .Perm.UserRead }}"，
+    浏览器侧可写 yd.can(yd.PERM.USER_READ)；未接入时这些判断一律为假，
+    页面因此不会出现「看起来有权限、服务端却拒绝」的假象。
+    1. router: authz.Middleware(ctrl.Auth()) puts the subject of the current request into the context (internal/router);
+    2. view(): the subject comes from that context and is built from the current user when absent, then authz.Data(subject)
+       is merged into the render data (internal/controller).
+    Templates may then write {{ if can "PermUserRead" }}…{{ end }} and data-yd-perm="{{ .Perm.UserRead }}", and scripts may
+    write yd.can(yd.PERM.USER_READ). Before the wiring, every one of those answers is false, so a page can never look as
+    though it had a capability the server would refuse.
 
   硬规则 | Hard rules:
     1. 脚本与样式一律使用本地 /static/... 路径，禁止 http:// 与 CDN；
@@ -45,6 +69,13 @@
     5. Neither the theme nor the language switch reloads the whole page: the language links are htmx partial
        navigations (they swap #yd-workspace only) and the theme button only rewrites <html data-theme>; yd-app.js
        remembers the two choices in a cookie and in localStorage respectively.
+    6. 前端权限判定不是安全边界：data-yd-perm 与 yd.can() 只让页面不提供「服务端本来就会拒绝」的操作。
+       拿到页面的人依旧可以直接调用隐藏按钮背后的端点，因此每条受保护路由都必须自带服务端守卫
+       （authz.Require / authz.Allow）；只隐藏按钮而不守卫路由，是本文件拦不住的缺陷。
+    6. A front-end permission check is not a security boundary: data-yd-perm and yd.can() only keep the page from
+       offering an action the server would refuse. Whoever receives the page can still call the endpoint behind a hidden
+       button directly, so every protected route carries its own server-side guard (authz.Require / authz.Allow); hiding a
+       button without guarding its route is the defect this file cannot prevent.
 */}}<!doctype html>
 <html lang="{{ .Lang }}" data-theme="light">
 <head>
@@ -55,6 +86,17 @@
   <title>{{ with .Title }}{{ . }} · {{ end }}{{ .Name }}</title>
   <link rel="stylesheet" href="/static/css/yd.css">
   <link rel="icon" href="data:,">
+  {{/* 权限信封：只有控制器经 authz.Data(subject) 提供时才注入，缺省时整段不出现，
+       yd-authz.js 因而一个能力都不授予（失败关闭）——宁可不显示按钮，也不显示一个服务端会拒绝的按钮。
+       注入的 JSON 必须是 template.JS：html/template 把 <script type="application/json"> 当作 JavaScript 容器，
+       其它类型会被编码成带引号的 JSON 字符串。id 必须与 authz.AuthzScriptID 一致，yd-authz.js 正是按它取载荷。
+       The authority envelope is injected only when the controller supplies it through authz.Data(subject); without it the
+       element is absent entirely and yd-authz.js therefore grants nothing (fail closed) — better to offer no button than
+       one the server would refuse. The JSON must be template.JS: html/template treats
+       <script type="application/json"> as a JavaScript container and would encode any other type into a quoted JSON
+       string. The id must equal authz.AuthzScriptID, which is what yd-authz.js reads the payload by. */}}
+  {{ with .AuthzJSON }}<script id="yd-authz" type="application/json">{{ . }}</script>
+  {{ end }}
 </head>
 <body class="yd-shell bg-surface text-content antialiased"
       hx-target:inherited="#yd-workspace"
@@ -156,20 +198,25 @@
   </footer>
 </div>
 
-{{/* 脚本顺序（唯一允许的顺序）：htmx 核心 → 所选扩展 → 国密加解密 → 本项目脚本。
+{{/* 脚本顺序（唯一允许的顺序）：htmx 核心 → 所选扩展 → 国密加解密 → 权限守卫 → 本项目脚本。
      全部带 defer：既保持执行顺序，又不阻塞首屏渲染。
+     yd-authz.js 排在 yd-app.js 之前：它在启动时读取上面注入的载荷，并在每次 htmx 交换后重新绑定
+     data-yd-perm/data-yd-role 守卫，因此之后运行的业务脚本可以直接使用 yd.can。
      主题与语言的选择都在 yd-app.js 里落地，因此这里不需要任何内联脚本——CSP 只允许 'self'，
      内联脚本本来也会被浏览器直接拒绝。
-     Script order (the only allowed order): htmx core → selected extensions → guomi crypto → this project's script.
-     All carry defer: the order is preserved and first paint is never blocked. Theme and language choices are applied in
-     yd-app.js, so no inline script is needed here — the CSP allows 'self' only, and an inline script would be rejected by
-     the browser anyway. */}}
+     Script order (the only allowed order): htmx core → selected extensions → guomi crypto → the authority guard →
+     this project's script. All carry defer: the order is preserved and first paint is never blocked. yd-authz.js is
+     placed ahead of yd-app.js because it reads the injected payload at start and re-binds the data-yd-perm /
+     data-yd-role guards after every htmx swap, so application scripts that run later can use yd.can straight away.
+     Theme and language choices are applied in yd-app.js, so no inline script is needed here — the CSP allows 'self'
+     only, and an inline script would be rejected by the browser anyway. */}}
 <script src="/static/js/vendor/htmx.min.js" defer></script>
 {{- range .Scripts }}
 <script src="{{ . }}" defer></script>
 {{- end }}
 <script src="/static/js/yd-guomi.js" defer></script>
 <script src="/static/js/yd-guomi-htmx.js" defer></script>
+<script src="/static/js/yd-authz.js" defer></script>
 <script src="/static/js/yd-app.js" defer></script>
 </body>
 </html>

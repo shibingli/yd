@@ -180,7 +180,7 @@ func walkIOFS(fsys fs.FS, root string, fn func(path string, info os.FileInfo, er
 			return fn(path, nil, err)
 		}
 		err = fn(path, info, nil)
-		// filepath.SkipDir 与 fs.SkipDir 是两个不同的哨兵值，需按语义归一化。
+		// filepath.SkipDir and fs.SkipDir are two distinct sentinels and must be normalized by meaning. | filepath.SkipDir 与 fs.SkipDir 是两个不同的哨兵值，需按语义归一化。
 		if info.IsDir() && errors.Is(err, filepath.SkipDir) {
 			return fs.SkipDir
 		}

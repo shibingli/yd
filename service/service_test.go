@@ -224,7 +224,7 @@ func TestPlatformErrorMapping(t *testing.T) {
 		t.Errorf("nil 错误应返回 nil, 实际 %v", err)
 	}
 	if err := platformError(service.ErrNoServiceSystemDetected); err == nil {
-		t.Error("缺少服务管理器的错误应被包装")
+		t.Error("the missing service manager error must be wrapped | 缺少服务管理器的错误应被包装")
 	}
 }
 

@@ -84,7 +84,7 @@ func (s *WriterSet) Shutdown() {
 
 	for _, w := range writers {
 		w.stopHeartbeat()
-		// 注释帧会被立即 flush，保证客户端在连接关闭前看到收尾信号。| The comment frame is flushed at once, so the client sees the wind-down signal before the socket closes.
+		// The comment frame is flushed at once, so the client sees the wind-down signal before the socket closes. | 注释帧会被立即 flush，保证客户端在连接关闭前看到收尾信号。
 		_ = w.Comment(shutdownComment)
 		_ = w.Close()
 	}

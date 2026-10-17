@@ -60,14 +60,14 @@ func TestParsePatternTrailingSlashMarker(t *testing.T) {
 	}
 	last := segs[len(segs)-1]
 	if !last.TrailingSlash {
-		t.Error("末尾空段必须标记 TrailingSlash")
+		t.Error("a trailing empty segment must be marked TrailingSlash | 末尾空段必须标记 TrailingSlash")
 	}
 	segs2, err := ParsePattern("/users")
 	if err != nil {
 		t.Fatalf("意外错误: %v", err)
 	}
 	if segs2[len(segs2)-1].TrailingSlash {
-		t.Error("/users 不应带 TrailingSlash 标记")
+		t.Error("/users must not carry the TrailingSlash marker | /users 不应带 TrailingSlash 标记")
 	}
 }
 

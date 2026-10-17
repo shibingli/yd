@@ -43,14 +43,14 @@ func TestShutdownForceClosesHungHijackConnection(t *testing.T) {
 	h := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		hj, ok := w.(http.Hijacker)
 		if !ok {
-			t.Error("HTTP/1.1 处理器必须拿到可用的 http.Hijacker")
+			t.Error("an HTTP/1.1 handler must get a usable http.Hijacker | HTTP/1.1 处理器必须拿到可用的 http.Hijacker")
 			return
 		}
 		conn, _, err := hj.Hijack()
 		if err != nil {
 			return
 		}
-		// 收到本信号时连接已完成登记（登记发生在 Hijack 返回之前）。| Registration happened before Hijack returned, so this signal proves the connection is tracked.
+		// Registration happened before Hijack returned, so this signal proves the connection is tracked. | 收到本信号时连接已完成登记（登记发生在 Hijack 返回之前）。
 		hijacked <- struct{}{}
 		buf := make([]byte, 1)
 		_, _ = conn.Read(buf) // 一直挂着，直到服务器强制关闭 | hangs until the server force-closes it
@@ -102,9 +102,9 @@ func TestShutdownForceClosesHungHijackConnection(t *testing.T) {
 		}
 	}
 	if !srv.Lifecycle().ShuttingDown() {
-		t.Fatal("Shutdown 之后 ShuttingDown 必须为 true")
+		t.Fatal("ShuttingDown must be true after Shutdown | Shutdown 之后 ShuttingDown 必须为 true")
 	}
-	// 已关闭的连接必须从登记表中移除（读取须持锁，处理器协程仍可能在取消登记）。| A closed connection must leave the registry (read under the lock: the handler goroutine may still be untracking).
+	// A closed connection must leave the registry (read under the lock: the handler goroutine may still be untracking). | 已关闭的连接必须从登记表中移除（读取须持锁，处理器协程仍可能在取消登记）。
 	srv.mu.Lock()
 	left := len(srv.hijacked)
 	srv.mu.Unlock()
@@ -146,7 +146,7 @@ func TestShutdownClosesLongStreamingRequestWithinGrace(t *testing.T) {
 		t.Fatalf("启动失败: %v", err)
 	}
 
-	// 客户端保持事件流打开。| The client keeps the event stream open.
+	// The client keeps the event stream open. | 客户端保持事件流打开。
 	resp, err := http.Get("http://" + srv.Addr() + "/events")
 	if err != nil {
 		t.Fatalf("建立事件流失败: %v", err)
@@ -173,7 +173,7 @@ func TestShutdownClosesLongStreamingRequestWithinGrace(t *testing.T) {
 	select {
 	case <-handlerReturned:
 	case <-time.After(3 * time.Second):
-		t.Fatal("长连接处理器未在 Shutdown 期间返回")
+		t.Fatal("the long-lived connection handler did not return during Shutdown | 长连接处理器未在 Shutdown 期间返回")
 	}
 }
 
@@ -202,7 +202,7 @@ func TestLifecycleDoneClosesBeforeDrainFinishes(t *testing.T) {
 		t.Fatalf("启动失败: %v", err)
 	}
 
-	// 客户端阻塞在请求中，直到 Shutdown 关闭 Done。| The client blocks inside the request until Shutdown closes Done.
+	// The client blocks inside the request until Shutdown closes Done. | 客户端阻塞在请求中，直到 Shutdown 关闭 Done。
 	respBody := make(chan string, 1)
 	go func() {
 		resp, err := http.Get("http://" + srv.Addr() + "/inflight")
@@ -218,7 +218,7 @@ func TestLifecycleDoneClosesBeforeDrainFinishes(t *testing.T) {
 	select {
 	case <-inFlight:
 	case <-time.After(3 * time.Second):
-		t.Fatal("请求未在 3 秒内进入处理器")
+		t.Fatal("the request did not enter the handler within 3 seconds | 请求未在 3 秒内进入处理器")
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -234,7 +234,7 @@ func TestLifecycleDoneClosesBeforeDrainFinishes(t *testing.T) {
 	select {
 	case <-observed:
 	case <-time.After(3 * time.Second):
-		t.Fatal("进行中的请求未观察到 Done 已关闭")
+		t.Fatal("the in-flight request did not observe Done being closed | 进行中的请求未观察到 Done 已关闭")
 	}
 	if body := <-respBody; body != "done" {
 		t.Fatalf("进行中的请求响应 = %q, 期望 done", body)
@@ -261,7 +261,7 @@ func TestShutdownAggregatesLifecycleHookErrors(t *testing.T) {
 	if !errors.Is(err, hookErr) {
 		t.Fatalf("错误 = %v, 期望保留钩子错误", err)
 	}
-	// 重复调用不得重复执行钩子，也不得再次报错。| A repeated call must not re-run hooks nor report again.
+	// A repeated call must not re-run hooks nor report again. | 重复调用不得重复执行钩子，也不得再次报错。
 	if err := srv.Shutdown(ctx); err != nil {
 		t.Fatalf("重复 Shutdown 返回错误: %v", err)
 	}
@@ -278,6 +278,6 @@ func TestShutdownWithoutStartIsSafe(t *testing.T) {
 		t.Fatalf("Shutdown(nil) 返回错误: %v", err)
 	}
 	if srv.Lifecycle().Done() == nil {
-		t.Fatal("Lifecycle 注册表不得为 nil")
+		t.Fatal("the lifecycle registry must not be nil | Lifecycle 注册表不得为 nil")
 	}
 }

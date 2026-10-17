@@ -129,7 +129,7 @@ func TestRegisterAndHandleTaskEndToEnd(t *testing.T) {
 			t.Fatalf("处理器收到 payload[count] = %#v，期望 JSON 数字 3", p["count"])
 		}
 	case <-time.After(timeout):
-		t.Fatal("等待处理器超时")
+		t.Fatal("waiting for the handler timed out | 等待处理器超时")
 	}
 
 	insp := newInspector(t, cli)
@@ -194,7 +194,7 @@ func TestTaskContextInjectedWithTraceID(t *testing.T) {
 	select {
 	case s := <-got:
 		if s.tc == nil {
-			t.Fatal("处理器上下文中没有 TaskContext")
+			t.Fatal("no TaskContext in the handler context | 处理器上下文中没有 TaskContext")
 		}
 		if s.tc.TraceID != "trace-xyz" {
 			t.Fatalf("TaskContext.TraceID = %q，期望 trace-xyz", s.tc.TraceID)
@@ -209,7 +209,7 @@ func TestTaskContextInjectedWithTraceID(t *testing.T) {
 			t.Fatalf("TaskContext 重试信息 = (%d, %d)，期望首次执行且 MaxRetry > 0", s.tc.RetryCount, s.tc.MaxRetry)
 		}
 	case <-time.After(timeout):
-		t.Fatal("等待处理器超时")
+		t.Fatal("waiting for the handler timed out | 等待处理器超时")
 	}
 
 	// The trace id is also written into the asynq task headers so it survives process hops. | trace id 也写入 asynq 任务头，跨进程/跨服务可继续传递。
@@ -283,7 +283,7 @@ func TestHandlerPanicRecoveredAndRetried(t *testing.T) {
 		select {
 		case <-done:
 		case <-time.After(timeout):
-			t.Fatal("等待重试后成功超时")
+			t.Fatal("timed out waiting for the retry to succeed | 等待重试后成功超时")
 		}
 		if n := calls.Load(); n < 2 {
 			t.Fatalf("处理器调用 %d 次，期望 panic 后至少重试一次", n)
@@ -321,7 +321,7 @@ func TestShutdownStopsServer(t *testing.T) {
 	case <-handled:
 	case <-time.After(timeout):
 		cancel()
-		t.Fatal("等待服务启动并处理任务超时")
+		t.Fatal("timed out waiting for the server to start and process a task | 等待服务启动并处理任务超时")
 	}
 	waitForState(t, insp, "default", first.ID, asynq.TaskStateCompleted)
 
@@ -332,7 +332,7 @@ func TestShutdownStopsServer(t *testing.T) {
 			t.Fatalf("Run 返回错误: %v", err)
 		}
 	case <-time.After(timeout):
-		t.Fatal("取消上下文后 Run 未返回")
+		t.Fatal("Run did not return after the context was cancelled | 取消上下文后 Run 未返回")
 	}
 
 	// Tasks enqueued after shutdown stay pending instead of being consumed. | 关闭后入队的任务不再被消费，停留在 pending。
@@ -359,7 +359,7 @@ func TestShutdownStopsServer(t *testing.T) {
 	select {
 	case <-shutdownDone:
 	case <-time.After(timeout):
-		t.Fatal("重复 Shutdown 阻塞")
+		t.Fatal("a repeated Shutdown blocked | 重复 Shutdown 阻塞")
 	}
 }
 

@@ -126,40 +126,40 @@ func TestUtf8IncrementalValidation(t *testing.T) {
 	// "中" = E4 B8 AD; it must also be judged valid when split across frames | "中" = E4 B8 AD，跨帧拆分也必须判定为合法
 	var s utf8State
 	if !s.write([]byte{0xE4}) {
-		t.Fatal("首字节不应立即判非法")
+		t.Fatal("the first byte must not be judged invalid right away | 首字节不应立即判非法")
 	}
 	if s.complete() {
-		t.Fatal("半个字符时不应视为完整")
+		t.Fatal("half a character must not count as complete | 半个字符时不应视为完整")
 	}
 	if !s.write([]byte{0xB8}) {
-		t.Fatal("中间字节不应判非法")
+		t.Fatal("a middle byte must not be judged invalid | 中间字节不应判非法")
 	}
 	if !s.write([]byte{0xAD}) {
-		t.Fatal("末字节不应判非法")
+		t.Fatal("the last byte must not be judged invalid | 末字节不应判非法")
 	}
 	if !s.complete() {
-		t.Fatal("序列完成后应视为完整")
+		t.Fatal("the sequence must count as complete once finished | 序列完成后应视为完整")
 	}
 
 	// invalid continuation byte | 非法续字节
 	var bad utf8State
 	if bad.write([]byte{0xE4, 0x28}) {
-		t.Fatal("非法续字节必须判失败")
+		t.Fatal("an invalid continuation byte must fail | 非法续字节必须判失败")
 	}
 	// overlong encoding C0 80 | 过长编码 C0 80
 	var overlong utf8State
 	if overlong.write([]byte{0xC0, 0x80}) {
-		t.Fatal("过长编码必须判失败")
+		t.Fatal("an overlong encoding must fail | 过长编码必须判失败")
 	}
 	// surrogate code point ED A0 80 (U+D800) | 代理区码点 ED A0 80（U+D800）
 	var surrogate utf8State
 	if surrogate.write([]byte{0xED, 0xA0, 0x80}) {
-		t.Fatal("代理区码点必须判失败")
+		t.Fatal("a surrogate code point must fail | 代理区码点必须判失败")
 	}
 	// out of range F5 | 超范围 F5
 	var tooBig utf8State
 	if tooBig.write([]byte{0xF5, 0x80, 0x80, 0x80}) {
-		t.Fatal("超出 U+10FFFF 必须判失败")
+		t.Fatal("anything beyond U+10FFFF must fail | 超出 U+10FFFF 必须判失败")
 	}
 }
 
@@ -174,13 +174,13 @@ func TestClosePayloadRoundTrip(t *testing.T) {
 		t.Fatalf("空载荷应解析为 1005: code=%d err=%v", code, err)
 	}
 	if _, _, err := parseClosePayload([]byte{0x03}); err == nil {
-		t.Fatal("单字节载荷必须判协议错误")
+		t.Fatal("a one-byte payload must be a protocol error | 单字节载荷必须判协议错误")
 	}
 	// the reserved code 1005 must not appear on the wire | 保留码 1005 不得出现在线上
 	reserved := make([]byte, 2)
 	binary.BigEndian.PutUint16(reserved, uint16(CloseNoStatusReceived))
 	if _, _, err := parseClosePayload(reserved); err == nil {
-		t.Fatal("收到保留码 1005 必须判协议错误")
+		t.Fatal("the reserved code 1005 must be a protocol error | 收到保留码 1005 必须判协议错误")
 	}
 }
 

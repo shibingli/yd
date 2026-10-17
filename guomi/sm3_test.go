@@ -169,10 +169,10 @@ func TestSM3HMAC(t *testing.T) {
 		}
 	}
 	if HMAC(key, msg) == HMAC(key, []byte("other")) {
-		t.Fatal("不同消息的 HMAC 不应相同")
+		t.Fatal("HMACs of different messages must not be equal | 不同消息的 HMAC 不应相同")
 	}
 	if HMAC(key, msg) == HMAC([]byte("other-key"), msg) {
-		t.Fatal("不同密钥的 HMAC 不应相同")
+		t.Fatal("HMACs under different keys must not be equal | 不同密钥的 HMAC 不应相同")
 	}
 }
 
@@ -188,10 +188,10 @@ func TestPBKDF2RFC8018(t *testing.T) {
 		t.Fatalf("PBKDF2(iter=1) = %x, want %x", one, want)
 	}
 	if got := PBKDF2(password, salt, 2, SM3Size); bytes.Equal(got, one) {
-		t.Fatal("不同迭代次数的 PBKDF2 输出不应相同")
+		t.Fatal("PBKDF2 outputs for different iteration counts must not be equal | 不同迭代次数的 PBKDF2 输出不应相同")
 	}
 	if got := PBKDF2(password, []byte("other-salt"), 1, SM3Size); bytes.Equal(got, one) {
-		t.Fatal("不同盐的 PBKDF2 输出不应相同")
+		t.Fatal("PBKDF2 outputs under different salts must not be equal | 不同盐的 PBKDF2 输出不应相同")
 	}
 	if got := PBKDF2(password, salt, 3, 1); len(got) != 1 {
 		t.Fatalf("keyLen=1 时输出长度 = %d, want 1", len(got))
@@ -253,7 +253,7 @@ func TestPasswordHashAndVerify(t *testing.T) {
 		t.Fatalf("第二次 HashPassword 返回错误: %v", err)
 	}
 	if encoded2 == encoded {
-		t.Fatal("同一口令两次散列应因随机盐而不同")
+		t.Fatal("two hashes of the same password must differ thanks to the random salt | 同一口令两次散列应因随机盐而不同")
 	}
 	for _, e := range []string{encoded, encoded2} {
 		if ok, err := VerifyPassword(e, password); err != nil || !ok {

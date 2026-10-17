@@ -80,8 +80,20 @@ cookie 里的令牌          验签 / 有效期 /         以令牌的 tid 声�
   htmx 与 API 客户端直接带请求头。两者此后走同一条校验路径，令牌怎么存不影响鉴权逻辑。
 - **租户只信令牌**：`middleware.Tenant` 在鉴权之后运行，因此它读到的是已校验的身份。子域名与 `X-Tenant` 请求头
   只在**匿名**请求里用于解析租户（登录页预填租户字段）；带令牌的请求一旦与令牌声明不一致，立即 403。
-- **能力守卫挂在路由上**：`g.GET("/users", ctrl.Users, auth.RequirePermission(model.PermUserRead))`。
-  处理器内部不再重复判权；页面上「显示还是隐藏」由控制器算好的 `Can*` 布尔值决定。
+- **能力守卫挂在路由上**：`g.GET("/users", ctrl.Users, authz.Require(authz.PermUserRead))`。
+  `authz.Require` 是 `auth.RequirePermission` 的注册表包装（把四种写法解析成注册过的标识），因此守卫一律引常量，
+  写 `auth.RequirePermission("user:read")` 那样的字面量既不必要，也会被 `yd authz check` 点名。
+  处理器内部不再重复判权；页面上「显示还是隐藏」由模板辅助函数 `can` 读注册表判定（`can .Perm.XxxYyy`）。
+- **前端守卫只是体验，不是安全边界**：模板可写 `{{ "{{ if can \"PermUserRead\" }} … {{ end }}" }}`、
+  元素可声明 `data-yd-perm="{{ "{{ .Perm.UserRead }}" }}"`（配 `data-yd-perm-mode="hide|disable"`，
+  角色用 `data-yd-role` / `data-yd-role-mode`）、脚本可写 `yd.can(yd.PERM.USER_READ)`；
+  三者都只让页面不提供「服务端本来就会拒绝」的操作。拿到页面的人依旧可以直接调用隐藏按钮背后的端点，
+  因此**每条受保护路由仍然必须自带能力守卫**——只隐藏按钮而不守卫路由，是本项目最不能接受的缺陷。
+  页面加载时与每次 htmx 交换后，`{{ .AssetRoot }}/static/js/yd-authz.js` 都会重新应用这些声明式守卫。
+- **权限与角色的字符串只在注册表里写一次**：Go 代码引常量（`authz.PermUserCreate` / `authz.RoleAdmin`），
+  模板引注册表下发的数据键（`.Perm.UserCreate` / `.Role.Admin`），脚本引 `yd.PERM.USER_CREATE` / `yd.ROLE.ADMIN`；
+  页面里内联注入的载荷由 `authz.Data(subject)` 产出（零额外请求，组件缺载荷时一律失败关闭，不授予任何能力）。
+  任何地方都不得再写裸字符串：`yd authz list` 列出注册表，`yd authz check` 在 CI 里把拼错的能力与裸字面量挡在合并之前。
 - **能力全集与文案同源**：能力常量与展示名在 `internal/model`（`PermTenantRead`、`PermissionLabel`），
   角色名与内置角色也在那里（`RoleOwner`、`RoleAdmin`、`RoleMember`、`RoleViewer`）。
 - **改密与 `sec_key` 轮换即全域登出**：令牌绑定在每用户 `sec_key` 上，两者都会轮换它，此前签发的令牌立刻失效；

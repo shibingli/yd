@@ -61,7 +61,7 @@ func TestHTTP1AndH2CServeSameHandler(t *testing.T) {
 		t.Fatalf("处理器看到的协议 = %q", body)
 	}
 
-	// h2c：仅启用明文 HTTP/2，强制走 h2c
+	// h2c: enable cleartext HTTP/2 only, forcing h2c | h2c：仅启用明文 HTTP/2，强制走 h2c
 	protos := new(http.Protocols)
 	protos.SetUnencryptedHTTP2(true)
 	client := &http.Client{Transport: &http.Transport{Protocols: protos}, Timeout: 5 * time.Second}
@@ -96,13 +96,13 @@ func TestAltSvcHeaderAndHTTP3RoundTrip(t *testing.T) {
 	srv := newTestServer(t, func(o *Options) { o.HTTP3 = HTTP3Config{Enabled: true} })
 
 	if srv.HTTP3Addr() == "" {
-		t.Fatal("启用 HTTP/3 后 HTTP3Addr 不应为空")
+		t.Fatal("HTTP3Addr must not be empty once HTTP/3 is enabled | 启用 HTTP/3 后 HTTP3Addr 不应为空")
 	}
 	if !strings.Contains(srv.AltSvc(), "h3=") {
 		t.Fatalf("Alt-Svc = %q, 期望包含 h3=", srv.AltSvc())
 	}
 
-	// HTTP/1.1 over TLS：验证 Alt-Svc 通告（HTTP/3 启用时自动使用临时自签证书）
+	// HTTP/1.1 over TLS: verify the Alt-Svc advertisement (an ephemeral self-signed certificate is used when HTTP/3 is enabled) | HTTP/1.1 over TLS：验证 Alt-Svc 通告（HTTP/3 启用时自动使用临时自签证书）
 	client := &http.Client{
 		Transport: &http.Transport{TLSClientConfig: &tls.Config{InsecureSkipVerify: true}},
 		Timeout:   5 * time.Second,
@@ -117,7 +117,7 @@ func TestAltSvcHeaderAndHTTP3RoundTrip(t *testing.T) {
 		t.Fatalf("Alt-Svc 响应头 = %q, 期望包含 h3=", got)
 	}
 
-	// 真实 HTTP/3 往返
+	// Real HTTP/3 round trip | 真实 HTTP/3 往返
 	tr := &http3.Transport{TLSClientConfig: &tls.Config{InsecureSkipVerify: true}}
 	defer func() { _ = tr.Close() }()
 	h3client := &http.Client{Transport: tr, Timeout: 8 * time.Second}
@@ -140,7 +140,7 @@ func TestHTTP3RequiresTLSConfiguration(t *testing.T) {
 	// 因此这里断言的是「不会因为缺少证书而失败」以及确实生成了证书。
 	srv := newTestServer(t, func(o *Options) { o.HTTP3 = HTTP3Config{Enabled: true} })
 	if srv.Options().TLS.Enabled {
-		t.Fatal("测试用例不应启用显式 TLS")
+		t.Fatal("the test case must not enable explicit TLS | 测试用例不应启用显式 TLS")
 	}
 	if _, err := selfSignedCertForDev(); err != nil {
 		t.Fatalf("开发自签证书生成失败: %v", err)
@@ -194,7 +194,7 @@ func TestGracefulShutdownDrainsInflight(t *testing.T) {
 	select {
 	case <-done:
 	case <-time.After(3 * time.Second):
-		t.Fatal("进行中的请求未被完成（未排空）")
+		t.Fatal("the in-flight request was not completed (not drained) | 进行中的请求未被完成（未排空）")
 	}
 
 	res := <-resCh
@@ -237,10 +237,10 @@ func TestOptionsFromConfigOverriddenByEnv(t *testing.T) {
 		t.Fatalf("端口 = %d, 期望环境变量覆盖为 9091", o.Port)
 	}
 	if o.H2C {
-		t.Fatal("h2c 应被环境变量覆盖为 false")
+		t.Fatal("h2c must be overridden to false by the environment variable | h2c 应被环境变量覆盖为 false")
 	}
 	if o.ShutdownTimeout <= 0 {
-		t.Fatal("默认超时值必须来自 config.Defaults")
+		t.Fatal("the default timeout must come from config.Defaults | 默认超时值必须来自 config.Defaults")
 	}
 }
 
@@ -260,19 +260,19 @@ func TestACMEHostPolicyRejectsUnknownDomain(t *testing.T) {
 		t.Fatalf("白名单内域名应通过: %v", err)
 	}
 	if err := mgr.HostPolicy(ctx, "evil.example.com"); err == nil {
-		t.Fatal("严格模式下白名单外域名必须被拒绝")
+		t.Fatal("a domain outside the whitelist must be rejected in strict mode | 严格模式下白名单外域名必须被拒绝")
 	}
 	if err := mgr.HostPolicy(ctx, ""); err == nil {
-		t.Fatal("空主机名必须被拒绝")
+		t.Fatal("an empty host name must be rejected | 空主机名必须被拒绝")
 	}
 	if mgr.CertCacheDir() == "" {
-		t.Fatal("证书缓存目录不应为空")
+		t.Fatal("the certificate cache directory must not be empty | 证书缓存目录不应为空")
 	}
 }
 
 func TestACMERequiresDomains(t *testing.T) {
 	if _, err := newACMEManager(ACMEConfig{Enabled: true}); err == nil {
-		t.Fatal("未配置域名时必须返回错误")
+		t.Fatal("a missing domain configuration must return an error | 未配置域名时必须返回错误")
 	}
 }
 
@@ -283,7 +283,7 @@ func TestRunStopsOnContextCancel(t *testing.T) {
 	runErr := make(chan error, 1)
 	go func() { runErr <- srv.Run(ctx) }()
 
-	// 等待监听就绪
+	// Wait for the listener to become ready | 等待监听就绪
 	deadline := time.Now().Add(3 * time.Second)
 	for time.Now().Before(deadline) {
 		if srv.Addr() != "" {
@@ -302,6 +302,6 @@ func TestRunStopsOnContextCancel(t *testing.T) {
 			t.Fatalf("Run 返回错误: %v", err)
 		}
 	case <-time.After(5 * time.Second):
-		t.Fatal("Run 未随 ctx 取消而退出")
+		t.Fatal("Run did not exit when ctx was canceled | Run 未随 ctx 取消而退出")
 	}
 }

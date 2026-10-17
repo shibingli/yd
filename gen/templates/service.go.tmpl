@@ -57,8 +57,8 @@ func (in <%.Name%>Input) Validate() error {
 // Apply 把入参写入模型，主键与时间戳字段保持不变。
 // Apply writes the payload into the model, leaving the primary key and the timestamp fields untouched.
 func (in <%.Name%>Input) Apply(item *model.<%.Name%>) {
-<% range .FormFields %><% if .IsFile %>	// 文件字段未重新上传时保留原值，避免更新把已有文件清空。
-	// A file field keeps its previous value when no new upload arrives, so an update never blanks the stored file.
+<% range .FormFields %><% if .IsFile %>	// A file field keeps its previous value when no new upload arrives, | 文件字段未重新上传时保留原值，
+	// so an update never blanks the stored file. | 避免更新把已有文件清空。
 	if in.<%.GoName%> != "" {
 		item.<%.GoName%> = in.<%.GoName%>
 	}

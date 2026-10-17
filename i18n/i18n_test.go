@@ -153,7 +153,7 @@ func TestNewValidatesCatalogs(t *testing.T) {
 		t.Fatalf("创建语言目录失败: %v", err)
 	}
 	if _, err := New(empty, fixtureDir, "en"); err == nil {
-		t.Fatal("空目录应当返回错误")
+		t.Fatal("an empty directory must return an error | 空目录应当返回错误")
 	}
 
 	fsys := afs.NewMem()
@@ -162,7 +162,7 @@ func TestNewValidatesCatalogs(t *testing.T) {
 	}
 	writeCatalog(t, fsys, "en.yaml", "title: \"Yun Dev\"\n")
 	if _, err := New(fsys, fixtureDir, "zh-CN"); err == nil {
-		t.Fatal("默认语言缺少目录文件时应当返回错误")
+		t.Fatal("a default language missing its catalog file must return an error | 默认语言缺少目录文件时应当返回错误")
 	}
 }
 
@@ -519,7 +519,7 @@ func TestCatalogForFrontend(t *testing.T) {
 
 	cat := b.Catalog("zh-CN")
 	if cat == nil {
-		t.Fatal("Catalog(zh-CN) 不应为 nil")
+		t.Fatal("Catalog(zh-CN) must not be nil | Catalog(zh-CN) 不应为 nil")
 	}
 	if got, want := cat["title"], "云开发"; got != want {
 		t.Fatalf("Catalog[title] = %v, 期望 %v", got, want)
@@ -591,7 +591,7 @@ func TestCatalogForFrontend(t *testing.T) {
 		t.Fatalf("写入失败: %v", err)
 	}
 	if err := reloadBundle.Reload(); err == nil {
-		t.Fatal("损坏的目录文件应当让 Reload 返回错误")
+		t.Fatal("a broken catalog file must make Reload return an error | 损坏的目录文件应当让 Reload 返回错误")
 	}
 	if got := reloadBundle.Translator("en").T("title"); got != "Yun Dev 2" {
 		t.Fatalf("Reload 失败后 T(title) = %q, 期望保留 Yun Dev 2", got)

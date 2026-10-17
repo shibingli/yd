@@ -113,7 +113,7 @@ func TestDefaultWiresEmbeddedAssets(t *testing.T) {
 
 	if a.Router() == nil || a.Server() == nil || a.Config() == nil ||
 		a.Logger() == nil || a.FS() == nil || a.Renderer() == nil {
-		t.Fatal("Default 必须装配 router / server / config / logger / fs / renderer")
+		t.Fatal("Default must wire router / server / config / logger / fs / renderer | Default 必须装配 router / server / config / logger / fs / renderer")
 	}
 
 	// Embedded assets: templates, static files and language catalogs. | 内嵌资产：模板、静态资源与语言目录。
@@ -131,7 +131,7 @@ func TestDefaultWiresEmbeddedAssets(t *testing.T) {
 		}
 	}
 	if !mounted {
-		t.Fatal("Default 必须注册 GET /static/*filepath")
+		t.Fatal("Default must register GET /static/*filepath | Default 必须注册 GET /static/*filepath")
 	}
 
 	rec := doRequest(t, a, http.MethodGet, "/static/app.css", map[string]string{"X-Request-Id": "trace-1"})
@@ -158,7 +158,7 @@ func TestDefaultWiresEmbeddedAssets(t *testing.T) {
 
 	// The embedded language catalogs are loaded into the built-in service container. | 内嵌语言目录已装入内建服务容器。
 	if _, ok := a.Get(ServiceI18n); !ok {
-		t.Error("Default 必须把 i18n Bundle 注册为内建服务")
+		t.Error("Default must register the i18n Bundle as a built-in service | Default 必须把 i18n Bundle 注册为内建服务")
 	}
 }
 
@@ -179,10 +179,10 @@ func TestNewWiresDefaultsFromEmbed(t *testing.T) {
 	}()
 
 	if a.Config() == nil || a.Logger() == nil || a.FS() == nil || a.Router() == nil || a.Renderer() == nil {
-		t.Fatal("New 必须装配 config/logger/fs/router/renderer")
+		t.Fatal("New must wire config/logger/fs/router/renderer | New 必须装配 config/logger/fs/router/renderer")
 	}
 	if a.Server() == nil || a.Server().Addr() == "" {
-		t.Fatal("New 必须构建带监听地址的服务器")
+		t.Fatal("New must build a server carrying a listen address | New 必须构建带监听地址的服务器")
 	}
 
 	// The built-in tree is embedded, so the default template root resolves
@@ -197,7 +197,7 @@ func TestNewWiresDefaultsFromEmbed(t *testing.T) {
 
 	// Default's conventions are not applied by New. | New 不施加 Default 的约定。
 	if _, ok := a.Get(ServiceI18n); ok {
-		t.Error("New 不应注册 i18n 服务")
+		t.Error("New must not register the i18n service | New 不应注册 i18n 服务")
 	}
 }
 
@@ -227,23 +227,23 @@ func TestNewAppliesOptions(t *testing.T) {
 	}
 
 	if a.FS() != fsys {
-		t.Error("WithFS 未被应用")
+		t.Error("WithFS was not applied | WithFS 未被应用")
 	}
 	if a.Config() != cfg {
-		t.Error("WithConfig 未被应用")
+		t.Error("WithConfig was not applied | WithConfig 未被应用")
 	}
 	if a.Logger() != logger {
-		t.Error("WithLogger 未被应用")
+		t.Error("WithLogger was not applied | WithLogger 未被应用")
 	}
 	opts := a.Server().Options()
 	if opts.Host != "127.0.0.1" || opts.Port != 0 || !opts.H2C {
 		t.Errorf("WithServerOptions 未被应用: %+v", opts)
 	}
 	if opts.Handler != http.Handler(a.Router()) {
-		t.Error("server 的 Handler 必须是本应用的 router")
+		t.Error("the server Handler must be this app's router | server 的 Handler 必须是本应用的 router")
 	}
 	if a.Server().Options().Logger != logger {
-		t.Error("server 的 Logger 必须是本应用的 logger")
+		t.Error("the server Logger must be this app's logger | server 的 Logger 必须是本应用的 logger")
 	}
 }
 
@@ -284,7 +284,7 @@ func TestRouterProxiesAndGroups(t *testing.T) {
 		c.Next()
 	})
 	if api == nil {
-		t.Fatal("Group 必须返回非 nil 的分组")
+		t.Fatal("Group must return a non-nil group | Group 必须返回非 nil 的分组")
 	}
 	api.GET("/ping", func(c *router.Ctx) { _ = c.String(http.StatusOK, "pong") })
 
@@ -406,7 +406,7 @@ func TestRenderFailureWritesNothing(t *testing.T) {
 	for _, headers := range []map[string]string{nil, {"HX-Request": "true"}} {
 		rec := doRequest(t, a, http.MethodGet, "/boom", headers)
 		if renderErr == nil {
-			t.Fatal("渲染必须失败")
+			t.Fatal("the render must fail | 渲染必须失败")
 		}
 		if rec.Body.Len() != 0 {
 			t.Errorf("渲染失败后(headers=%v)正文 = %q, 期望为空", headers, rec.Body.String())
@@ -428,35 +428,25 @@ func TestServiceContainer(t *testing.T) {
 	a := newTestApp(t, nil)
 
 	if _, ok := a.Get(ServiceDB); ok {
-		t.Fatal("未注册的服务不应存在")
+		t.Fatal("an unregistered service must not exist | 未注册的服务不应存在")
 	}
 
 	a.Set(ServiceDB, "sqlite")
 	if v, ok := a.Get(ServiceDB); !ok || v != "sqlite" {
 		t.Fatalf("Get(ServiceDB) = (%v, %v)", v, ok)
 	}
-	if v := a.MustGet(ServiceDB); v != "sqlite" {
-		t.Fatalf("MustGet(ServiceDB) = %v", v)
+	if v, err := a.MustGet(ServiceDB); err != nil || v != "sqlite" {
+		t.Fatalf("MustGet(ServiceDB) = (%v, %v)", v, err)
 	}
 
 	a.Set(ServiceRedis, 42)
-	if v := a.MustGet(ServiceRedis); v != 42 {
-		t.Fatalf("MustGet(ServiceRedis) = %v", v)
+	if v, err := a.MustGet(ServiceRedis); err != nil || v != 42 {
+		t.Fatalf("MustGet(ServiceRedis) = (%v, %v)", v, err)
 	}
 
-	func() {
-		defer func() {
-			rec := recover()
-			if rec == nil {
-				t.Fatal("MustGet 在服务缺失时必须 panic")
-			}
-			err, ok := rec.(error)
-			if !ok || !errors.Is(err, ErrServiceMissing) {
-				t.Fatalf("panic 值 = %v, 期望携带 ErrServiceMissing 的错误", rec)
-			}
-		}()
-		_ = a.MustGet("nope")
-	}()
+	if v, err := a.MustGet("nope"); v != nil || !errors.Is(err, ErrServiceMissing) {
+		t.Fatalf("MustGet(nope) = (%v, %v)，期望 (nil, ErrServiceMissing)", v, err)
+	}
 
 	for got, want := range map[string]string{
 		ServiceDB:    "db",
@@ -498,7 +488,7 @@ func TestOnShutdownCalledInReverseOrder(t *testing.T) {
 		t.Errorf("钩子执行顺序 = %v, 期望 %v", order, want)
 	}
 	if !closer.closed {
-		t.Error("Set 注册的 io.Closer 必须在 Close 时关闭")
+		t.Error("an io.Closer registered through Set must be closed by Close | Set 注册的 io.Closer 必须在 Close 时关闭")
 	}
 
 	// Close is idempotent: a second call must not rerun anything. | Close 幂等：再次调用不得重复执行。
@@ -526,7 +516,7 @@ func TestCloseCollectsHookErrors(t *testing.T) {
 		t.Errorf("Close 错误 = %v, 期望包含 ErrShutdown", err)
 	}
 	if !ran {
-		t.Error("单个钩子失败不得阻止其余钩子执行")
+		t.Error("one failing hook must not stop the remaining hooks from running | 单个钩子失败不得阻止其余钩子执行")
 	}
 }
 
@@ -549,7 +539,7 @@ func waitReady(t *testing.T, a *App) {
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
-	t.Fatal("服务器未在超时内就绪")
+	t.Fatal("the server was not ready within the timeout | 服务器未在超时内就绪")
 }
 
 func TestRunStopsOnContextCancel(t *testing.T) {
@@ -586,19 +576,19 @@ func TestRunStopsOnContextCancel(t *testing.T) {
 			t.Fatalf("Run 返回错误: %v", err)
 		}
 	case <-time.After(10 * time.Second):
-		t.Fatal("ctx 取消后 Run 未返回")
+		t.Fatal("Run did not return after ctx was cancelled | ctx 取消后 Run 未返回")
 	}
 
 	select {
 	case <-closed:
 	default:
-		t.Error("Run 返回前必须执行关闭钩子")
+		t.Error("the shutdown hook must run before Run returns | Run 返回前必须执行关闭钩子")
 	}
 	// The port is released after Run returns. | Run 返回后端口已释放。
 	dialer := net.Dialer{Timeout: 200 * time.Millisecond}
 	conn, err := dialer.DialContext(context.Background(), "tcp", a.Server().Addr())
 	if err == nil {
 		_ = conn.Close()
-		t.Error("Run 返回后监听应当已关闭")
+		t.Error("the listener should be closed once Run returns | Run 返回后监听应当已关闭")
 	}
 }

@@ -37,7 +37,7 @@ func TestShutdownNilAndGracefulPaths(t *testing.T) {
 	}
 
 	srv := grpc.NewServer()
-	// ctx 为 nil 表示不设期限；服务端无进行中的 RPC，优雅停止立即返回。
+	// A nil ctx means no deadline; with no RPC in flight the graceful stop returns at once. | ctx 为 nil 表示不设期限；服务端无进行中的 RPC，优雅停止立即返回。
 	if err := Shutdown(nil, srv); err != nil {
 		t.Fatalf("无进行中 RPC 时优雅停止应成功, err = %v", err)
 	}
@@ -61,17 +61,17 @@ func TestShutdownForceStopsAfterDeadline(t *testing.T) {
 		t.Fatalf("错误 = %v, 期望保留 context.DeadlineExceeded", err)
 	}
 	if !f.grace.Load() {
-		t.Fatal("必须首先尝试优雅停止")
+		t.Fatal("must attempt the graceful stop first | 必须首先尝试优雅停止")
 	}
 	if !f.stopped.Load() {
-		t.Fatal("宽限期过后必须强制停止")
+		t.Fatal("must force a stop once the grace period is over | 宽限期过后必须强制停止")
 	}
 	if elapsed > 2*time.Second {
 		t.Fatalf("强制停止耗时 %v, 期望接近宽限期", elapsed)
 	}
 }
 
-// streamService 是测试用的双向流服务。| streamService is the bidi streaming service used by the tests.
+// streamService is the bidi streaming service used by the tests. | streamService 是测试用的双向流服务。
 type streamService interface {
 	Pipe(grpc.ServerStream) error
 }
@@ -138,7 +138,7 @@ func TestShutdownTerminatesOpenStreamWithinGrace(t *testing.T) {
 	select {
 	case <-impl.started:
 	case <-time.After(5 * time.Second):
-		t.Fatal("服务端流处理器未在 5 秒内启动")
+		t.Fatal("the server stream handler did not start within 5 seconds | 服务端流处理器未在 5 秒内启动")
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Millisecond)
@@ -158,7 +158,7 @@ func TestShutdownTerminatesOpenStreamWithinGrace(t *testing.T) {
 	select {
 	case <-impl.canceled:
 	case <-time.After(3 * time.Second):
-		t.Fatal("强制停止未取消进行中的流")
+		t.Fatal("the forced stop did not cancel the open stream | 强制停止未取消进行中的流")
 	}
 	select {
 	case serveErr := <-serveReturned:
@@ -166,7 +166,7 @@ func TestShutdownTerminatesOpenStreamWithinGrace(t *testing.T) {
 			t.Fatalf("Serve 返回错误: %v", serveErr)
 		}
 	case <-time.After(3 * time.Second):
-		t.Fatal("gRPC Serve 未在停止后返回")
+		t.Fatal("gRPC Serve did not return after the stop | gRPC Serve 未在停止后返回")
 	}
 }
 
@@ -213,6 +213,6 @@ func TestShutdownStopsIdleServer(t *testing.T) {
 	select {
 	case <-serveReturned:
 	case <-time.After(3 * time.Second):
-		t.Fatal("gRPC Serve 未在停止后返回")
+		t.Fatal("gRPC Serve did not return after the stop | gRPC Serve 未在停止后返回")
 	}
 }

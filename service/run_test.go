@@ -84,7 +84,7 @@ func TestRunProgramCancelsThenWaits(t *testing.T) {
 	select {
 	case <-stopped:
 	default:
-		t.Error("Stop 返回时 run 的 context 尚未被取消")
+		t.Error("run's context had not been canceled yet when Stop returned | Stop 返回时 run 的 context 尚未被取消")
 	}
 }
 

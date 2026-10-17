@@ -213,7 +213,7 @@ func (w *Writer) Heartbeat(d time.Duration) {
 //
 // Writes after closing (WriteEvent / WriteData / Comment / Heartbeat) are all no-ops. | 关闭后的写入（WriteEvent / WriteData / Comment / Heartbeat）均为无操作。
 func (w *Writer) Close() error {
-	// 先离开追踪集合：退出流程不会再向一条正在关闭的事件流写帧。| Leave the tracked set first: a shutdown will no longer write into a stream that is closing.
+	// Leave the tracked set first: a shutdown will no longer write into a stream that is closing. | 先离开追踪集合：退出流程不会再向一条正在关闭的事件流写帧。
 	w.detach()
 	w.stopHeartbeat()
 	w.mu.Lock()

@@ -152,10 +152,10 @@ func TestGenerateProducesFormattedGoCode(t *testing.T) {
 			t.Errorf("生成代码未使用 Options.Package 作为内部导入前缀:\n%s", svc)
 		}
 		if !strings.Contains(svc, `"github.com/shibingli/yd/errx"`) || !strings.Contains(svc, `"github.com/shibingli/yd/logx"`) {
-			t.Error("生成代码未引用框架 errx/logx 包")
+			t.Error("generated code does not import the framework errx/logx packages | 生成代码未引用框架 errx/logx 包")
 		}
 		if strings.Contains(svc, "fmt.Errorf") {
-			t.Error("生成代码不得使用 fmt.Errorf")
+			t.Error("generated code must not use fmt.Errorf | 生成代码不得使用 fmt.Errorf")
 		}
 	})
 
@@ -196,7 +196,7 @@ func TestGeneratedControllerReturnsHTMLFragments(t *testing.T) {
 		}
 	}
 	if strings.Contains(ctrl, "c.JSON") {
-		t.Error("控制器不得以 c.JSON 作为主响应")
+		t.Error("the controller must not use c.JSON as its primary response | 控制器不得以 c.JSON 作为主响应")
 	}
 
 	// The OpenAPI block of every handler must be complete. | 每个处理器的 OpenAPI 注解块必须完整。
@@ -215,7 +215,7 @@ func TestGeneratedControllerReturnsHTMLFragments(t *testing.T) {
 		}
 	}
 	if !strings.Contains(ctrl, "@Tags cms") {
-		t.Error("注解块应使用模块名作为 @Tags")
+		t.Error("the annotation block must use the module name as @Tags | 注解块应使用模块名作为 @Tags")
 	}
 }
 
@@ -281,7 +281,7 @@ func TestGenerateRespectsExistingCustomFiles(t *testing.T) {
 	}
 	got := readFile(t, fsys, "internal/controller/post_controller.go")
 	if got == custom {
-		t.Error("Force 未覆盖手写文件")
+		t.Error("Force did not overwrite the hand-written file | Force 未覆盖手写文件")
 	}
 	if !strings.HasPrefix(got, gen.GeneratedMarker) {
 		t.Errorf("Force 覆盖后缺少生成标记:\n%s", got)

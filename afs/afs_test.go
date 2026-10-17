@@ -1,4 +1,4 @@
-// afs 包的外部测试：仅通过导出 API 验证门面行为，不依赖内部实现细节。
+// External tests for package afs: the facade is exercised only through its exported API, never through implementation details. | afs 包的外部测试：仅通过导出 API 验证门面行为，不依赖内部实现细节。
 package afs_test
 
 import (
@@ -28,14 +28,14 @@ var testTree = map[string][]byte{
 	"sub/deep/c.bin": {0x00, 0x01, 0xfe, 0xff},
 }
 
-// backend 描述一个可被所有表驱动用例复用的 FS 后端。
+// backend describes one FS backend reusable by every table-driven case. | backend 描述一个可被所有表驱动用例复用的 FS 后端。
 type backend struct {
 	name string
-	root string // 该后端合法的根路径写法：MemMapFs 用 "/srv"，io/fs 语义用 "srv"
+	root string // The legal root spelling of this backend: MemMapFs uses "/srv", io/fs semantics use "srv". | 该后端合法的根路径写法：MemMapFs 用 "/srv"，io/fs 语义用 "srv"
 	new  func(t *testing.T) afs.FS
 }
 
-// path 按后端的分隔符风格拼接 root 下的相对路径。
+// path joins a relative path under root in the backend's separator style. | path 按后端的分隔符风格拼接 root 下的相对路径。
 func (b backend) path(rel string) string {
 	return strings.TrimSuffix(b.root, "/") + "/" + rel
 }
@@ -77,7 +77,7 @@ func backends(t *testing.T) []backend {
 	}
 }
 
-// writeFile 在 fsys 上创建 path（缺失的父目录自动补齐）并写入 data。
+// writeFile creates path on fsys (missing parent directories are filled in) and writes data to it. | writeFile 在 fsys 上创建 path（缺失的父目录自动补齐）并写入 data。
 func writeFile(t *testing.T, fsys afs.FS, path string, data []byte) {
 	t.Helper()
 	if dir := filepath.Dir(path); dir != "." {
@@ -90,7 +90,7 @@ func writeFile(t *testing.T, fsys afs.FS, path string, data []byte) {
 	}
 }
 
-// readFile 读取 fsys 上 path 的全部内容，失败即终止当前测试。
+// readFile reads the whole content at path on fsys; a failure ends the current test. | readFile 读取 fsys 上 path 的全部内容，失败即终止当前测试。
 func readFile(t *testing.T, fsys afs.FS, path string) []byte {
 	t.Helper()
 	data, err := afero.ReadFile(fsys, path)
@@ -129,12 +129,12 @@ func TestMemFSRoundTrip(t *testing.T) {
 		t.Fatalf("MemFS 往返内容 = %q, want %q", got, content)
 	}
 	if !afs.Exists(fsys, "/conf") {
-		t.Fatal("MemFS 中 /conf 目录应存在")
+		t.Fatal("the /conf directory should exist in MemFS | MemFS 中 /conf 目录应存在")
 	}
 
 	other := afs.NewMem()
 	if afs.Exists(other, "/conf/app.yaml") {
-		t.Fatal("NewMem 的不同实例不应共享数据")
+		t.Fatal("distinct NewMem instances must not share data | NewMem 的不同实例不应共享数据")
 	}
 }
 
@@ -146,8 +146,8 @@ func TestNewOS(t *testing.T) {
 	cases := []struct {
 		name     string
 		root     string
-		fsPath   string // 传给 FS 的路径
-		diskPath string // 用操作系统直接读取的真实路径
+		fsPath   string // Path handed to the FS. | 传给 FS 的路径
+		diskPath string // Real path read directly through the operating system. | 用操作系统直接读取的真实路径
 		content  string
 		wantOS   bool
 	}{
@@ -228,7 +228,7 @@ func TestNewEmbed(t *testing.T) {
 				}
 				return
 			}
-			if tc.want == nil { // 仅验证可读（目录用例）
+			if tc.want == nil { // Readability only (directory case). | 仅验证可读（目录用例）
 				if _, statErr := fsys.Stat(tc.path); statErr != nil {
 					t.Fatalf("Stat(%s) 失败: %v", tc.path, statErr)
 				}
@@ -253,7 +253,7 @@ func TestNewEmbed(t *testing.T) {
 	})
 }
 
-// TestExists 表驱动验证 Exists 在各后端上的判定：目录同样视为存在。
+// TestExists table-drives the Exists verdict on every backend: a directory counts as existing too. | TestExists 表驱动验证 Exists 在各后端上的判定：目录同样视为存在。
 func TestExists(t *testing.T) {
 	cases := []struct {
 		name string
@@ -403,7 +403,7 @@ func TestCopyDirPreservesNestedFiles(t *testing.T) {
 			}
 
 			if !afs.Exists(dst, dstRoot+"/empty") {
-				t.Fatal("空目录未被复制")
+				t.Fatal("the empty directory was not copied | 空目录未被复制")
 			}
 			if afs.Exists(dst, dstRoot+"/srv") {
 				t.Fatalf("srcDir 自身不应产生额外层级，%s/srv 不应存在", dstRoot)
@@ -433,7 +433,7 @@ func TestCopyDirPreservesNestedFiles(t *testing.T) {
 				}
 			}
 
-			// 源端不应被改动
+			// The source side must stay untouched. | 源端不应被改动
 			for rel, want := range testTree {
 				if got := readFile(t, src, b.path(rel)); !bytes.Equal(got, want) {
 					t.Fatalf("源文件 %s 被改动: %v", rel, got)
@@ -465,7 +465,7 @@ func TestWriteFileIfChangedSkipsIdentical(t *testing.T) {
 				{data: []byte("v2"), wantChanged: true},
 				{data: []byte("v2"), wantChanged: false},
 				{data: []byte("a much longer content"), wantChanged: true},
-				{data: []byte("x"), wantChanged: true}, // 覆盖变短必须截断
+				{data: []byte("x"), wantChanged: true}, // Overwriting with less content must truncate. | 覆盖变短必须截断
 			},
 		},
 		{
@@ -492,7 +492,7 @@ func TestWriteFileIfChangedSkipsIdentical(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			fsys := afs.NewMem()
 
-			// 前置断言：父目录（不含文件系统根，如 "/" 或 Windows 的 "\"）尚未存在
+			// Precondition: the parent directory (excluding the filesystem root, such as "/" or Windows "\") does not exist yet. | 前置断言：父目录（不含文件系统根，如 "/" 或 Windows 的 "\"）尚未存在
 			parent := filepath.Dir(tc.path)
 			if filepath.Dir(parent) != parent && afs.Exists(fsys, parent) {
 				t.Fatalf("前置条件失败：父目录 %s 不应预先存在", parent)
@@ -546,7 +546,7 @@ func TestWriteFileIfChangedSkipsIdentical(t *testing.T) {
 	})
 }
 
-// TestSha256FileMatchesCrypto 表驱动对拍 crypto/sha256，并校验大小写与错误路径。
+// TestSha256FileMatchesCrypto table-drives a cross-check against crypto/sha256 and verifies the case and the error path. | TestSha256FileMatchesCrypto 表驱动对拍 crypto/sha256，并校验大小写与错误路径。
 func TestSha256FileMatchesCrypto(t *testing.T) {
 	cases := []struct {
 		name string
@@ -585,12 +585,12 @@ func TestSha256FileMatchesCrypto(t *testing.T) {
 	t.Run("文件不存在返回错误", func(t *testing.T) {
 		fsys := afs.NewMem()
 		if _, err := afs.Sha256File(fsys, "/missing.bin"); err == nil {
-			t.Fatal("Sha256File 对不存在的文件应返回错误")
+			t.Fatal("Sha256File must return an error for a missing file | Sha256File 对不存在的文件应返回错误")
 		}
 	})
 }
 
-// assertSha256 断言 Sha256File 输出等于 want，且为 64 位小写十六进制。
+// assertSha256 asserts that the Sha256File output equals want and is 64 lowercase hexadecimal digits. | assertSha256 断言 Sha256File 输出等于 want，且为 64 位小写十六进制。
 func assertSha256(t *testing.T, fsys afs.FS, path, want string) {
 	t.Helper()
 	got, err := afs.Sha256File(fsys, path)

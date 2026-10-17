@@ -124,7 +124,7 @@ func TestRegistryDeclarativeLookup(t *testing.T) {
 
 	h := func(context.Context, asynqx.Payload) error { return nil }
 	if got := reg.Register("a", h); got != reg {
-		t.Fatal("Register 未返回自身，链式调用失效")
+		t.Fatal("Register did not return the receiver, so chaining breaks | Register 未返回自身，链式调用失效")
 	}
 	reg.Register("b", h)
 	if got := len(reg.Handlers()); got != 2 {

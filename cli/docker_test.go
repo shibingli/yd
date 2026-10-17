@@ -140,7 +140,7 @@ func TestDockerCommandRegistered(t *testing.T) {
 		}
 		count++
 		if c.Run == nil || c.Flags == nil {
-			t.Error("docker 命令缺少 Run 或 Flags")
+			t.Error("the docker command is missing Run or Flags | docker 命令缺少 Run 或 Flags")
 		}
 		if c.Usage != dockerUsageLine {
 			t.Errorf("Usage = %q，期望 %q", c.Usage, dockerUsageLine)
@@ -382,7 +382,7 @@ func TestDockerUsesBuiltinDockerfileWithoutProjectFile(t *testing.T) {
 	}
 
 	if seenPath == "" {
-		t.Fatal("docker build 缺少 -f：内置模板未被物化")
+		t.Fatal("docker build carries no -f: the embedded template was never materialised | docker build 缺少 -f：内置模板未被物化")
 	}
 	if !seenExists {
 		t.Errorf("docker build 执行时内置模板 %s 不存在", seenPath)

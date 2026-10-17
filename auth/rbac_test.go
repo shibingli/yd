@@ -26,7 +26,7 @@ func (s *failingStore) ListRoles(ctx context.Context, tenantID string) ([]*Role,
 	return s.Store.ListRoles(ctx, tenantID)
 }
 
-// TestRBACPermissionChecks 覆盖角色到权限的映射、并集、判定与失败关闭。
+// TestRBACPermissionChecks covers the role-to-permission mapping, the union, the decision and the fail-closed path. | TestRBACPermissionChecks 覆盖角色到权限的映射、并集、判定与失败关闭。
 func TestRBACPermissionChecks(t *testing.T) {
 	f := newFixture(t)
 
@@ -108,7 +108,7 @@ func TestRBACPermissionChecks(t *testing.T) {
 	}
 }
 
-// TestRoleLifecycle 覆盖角色的创建、更新、列表与删除。
+// TestRoleLifecycle covers creating, updating, listing and deleting a role. | TestRoleLifecycle 覆盖角色的创建、更新、列表与删除。
 func TestRoleLifecycle(t *testing.T) {
 	f := newFixture(t)
 	created, err := f.svc.UpsertRole(testCtx, f.tenantA.ID, &Role{Name: "editor", Description: "Editor", Permissions: []string{"doc:write"}})
@@ -175,7 +175,7 @@ func TestRoleLifecycle(t *testing.T) {
 	}
 }
 
-// TestRoleUpsertAndAssignmentValidation 覆盖角色与角色分配的非法输入。
+// TestRoleUpsertAndAssignmentValidation covers the illegal inputs of a role and of a role assignment. | TestRoleUpsertAndAssignmentValidation 覆盖角色与角色分配的非法输入。
 func TestRoleUpsertAndAssignmentValidation(t *testing.T) {
 	f := newFixture(t)
 	if _, err := f.svc.UpsertRole(testCtx, f.tenantA.ID, &Role{Name: "  "}); !errors.Is(err, ErrInvalidInput) {
@@ -224,7 +224,7 @@ func TestRoleUpsertAndAssignmentValidation(t *testing.T) {
 	}
 }
 
-// TestRolePermissionsAreNormalised 校验权限列表的去空白、去重与排序。
+// TestRolePermissionsAreNormalised checks that the permission list is trimmed, deduplicated and sorted. | TestRolePermissionsAreNormalised 校验权限列表的去空白、去重与排序。
 func TestRolePermissionsAreNormalised(t *testing.T) {
 	f := newFixture(t)
 	role, err := f.svc.UpsertRole(testCtx, f.tenantA.ID, &Role{
@@ -262,7 +262,7 @@ func TestRolePermissionsAreNormalised(t *testing.T) {
 	}
 }
 
-// TestRoleCacheFailsClosed 校验角色表不可读时一个权限都不授予，且恢复后立即重试。
+// TestRoleCacheFailsClosed checks that an unreadable role table grants nothing and that the next call retries at once. | TestRoleCacheFailsClosed 校验角色表不可读时一个权限都不授予，且恢复后立即重试。
 func TestRoleCacheFailsClosed(t *testing.T) {
 	f := newFixture(t)
 	flaky := &failingStore{Store: f.store, unreadable: true}
@@ -286,7 +286,7 @@ func TestRoleCacheFailsClosed(t *testing.T) {
 	}
 }
 
-// TestSameServiceSeesStoreSideRoleChanges 校验 ListRoles 会整体刷新缓存。
+// TestSameServiceSeesStoreSideRoleChanges checks that ListRoles refreshes the cache as a whole. | TestSameServiceSeesStoreSideRoleChanges 校验 ListRoles 会整体刷新缓存。
 func TestSameServiceSeesStoreSideRoleChanges(t *testing.T) {
 	f := newFixture(t)
 	if !f.svc.HasPermission(f.member, "user:read") {

@@ -52,7 +52,7 @@ func usernameHandler(t *testing.T) router.HandlerFunc {
 	}
 }
 
-// TestRequirePermissionReturns403 覆盖缺失权限时的 401/403/200 三态与响应正文。
+// TestRequirePermissionReturns403 covers the 401/403/200 trio of a missing permission plus the response body. | TestRequirePermissionReturns403 覆盖缺失权限时的 401/403/200 三态与响应正文。
 func TestRequirePermissionReturns403(t *testing.T) {
 	f := newFixture(t)
 	r := router.New()
@@ -135,7 +135,7 @@ func mustIssuer(t *testing.T, svc *Service, iss string, f *fixture) *TokenIssuer
 	return issuer
 }
 
-// TestRequirePermissionUsesTheCustomErrorHandler 校验自定义错误渲染器被权限判定复用。
+// TestRequirePermissionUsesTheCustomErrorHandler checks that the permission check reuses a custom error renderer. | TestRequirePermissionUsesTheCustomErrorHandler 校验自定义错误渲染器被权限判定复用。
 func TestRequirePermissionUsesTheCustomErrorHandler(t *testing.T) {
 	f := newFixture(t)
 	var seen []error
@@ -173,7 +173,7 @@ func TestRequirePermissionUsesTheCustomErrorHandler(t *testing.T) {
 	}
 }
 
-// TestMiddlewareStoresTheCurrentUser 校验认证结果落入路由上下文。
+// TestMiddlewareStoresTheCurrentUser checks that the authenticated user lands in the router context. | TestMiddlewareStoresTheCurrentUser 校验认证结果落入路由上下文。
 func TestMiddlewareStoresTheCurrentUser(t *testing.T) {
 	f := newFixture(t)
 	const customKey = "auth.custom"
@@ -236,7 +236,7 @@ func TestMiddlewareStoresTheCurrentUser(t *testing.T) {
 	}
 }
 
-// TestMiddlewareTokenLookupForms 覆盖 TokenLookup 的各种取值来源。
+// TestMiddlewareTokenLookupForms covers every source a TokenLookup can read a token from. | TestMiddlewareTokenLookupForms 覆盖 TokenLookup 的各种取值来源。
 func TestMiddlewareTokenLookupForms(t *testing.T) {
 	f := newFixture(t)
 	token := mustIssue(t, f, f.member)
@@ -297,7 +297,7 @@ func TestMiddlewareTokenLookupForms(t *testing.T) {
 	}
 }
 
-// TestDefaultErrorHandlerStatusMapping 校验错误到状态码的映射。
+// TestDefaultErrorHandlerStatusMapping checks the mapping from an error onto a status code. | TestDefaultErrorHandlerStatusMapping 校验错误到状态码的映射。
 func TestDefaultErrorHandlerStatusMapping(t *testing.T) {
 	cases := []struct {
 		err  error
@@ -327,7 +327,7 @@ func TestDefaultErrorHandlerStatusMapping(t *testing.T) {
 	}
 }
 
-// TestCurrentUserCarriesTheStoredRecord 校验上下文中的用户带有完整的库中字段。
+// TestCurrentUserCarriesTheStoredRecord checks that the user in the context carries the full stored record. | TestCurrentUserCarriesTheStoredRecord 校验上下文中的用户带有完整的库中字段。
 func TestCurrentUserCarriesTheStoredRecord(t *testing.T) {
 	f := newFixture(t)
 	r := router.New()

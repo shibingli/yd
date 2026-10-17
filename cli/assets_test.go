@@ -165,7 +165,7 @@ func TestAssetsNoColorDisablesANSI(t *testing.T) {
 
 	te := newTestEnv(t, fsys, "", false)
 	if err := Execute(context.Background(), []string{"assets", "verify"}, te.env); err == nil {
-		t.Fatal("不匹配应当报错")
+		t.Fatal("a mismatch must be an error | 不匹配应当报错")
 	}
 	if !strings.Contains(te.out.String(), "\x1b[") {
 		t.Errorf("默认输出应带 ANSI 颜色：\n%s", te.out.String())
@@ -173,7 +173,7 @@ func TestAssetsNoColorDisablesANSI(t *testing.T) {
 
 	te = newTestEnv(t, fsys, "", false)
 	if err := Execute(context.Background(), []string{"assets", "verify", "--no-color"}, te.env); err == nil {
-		t.Fatal("不匹配应当报错")
+		t.Fatal("a mismatch must be an error | 不匹配应当报错")
 	}
 	if strings.Contains(te.out.String(), "\x1b[") {
 		t.Errorf("--no-color 后不应出现 ANSI 转义：\n%s", te.out.String())
@@ -197,7 +197,7 @@ func TestAssetsUpdateWithSourceWritesFileAndLocks(t *testing.T) {
 		t.Fatalf("assets update 失败: %v", err)
 	}
 	if hits.Load() == 0 {
-		t.Error("测试源未收到请求")
+		t.Error("the test source got no request | 测试源未收到请求")
 	}
 
 	got, err := afero.ReadFile(fsys, filepath.Join("web", "static", "js", "vendor", "app.min.js"))
@@ -227,7 +227,7 @@ func TestAssetsUpdateCheckOnlyDoesNotWrite(t *testing.T) {
 		t.Fatalf("assets update --check 失败: %v", err)
 	}
 	if afs.Exists(fsys, filepath.Join("web", "static", "c.js")) {
-		t.Error("--check 不得写入文件")
+		t.Error("--check must not write a file | --check 不得写入文件")
 	}
 	if out := te.out.String(); !strings.Contains(out, "c") {
 		t.Errorf("--check 输出缺少资产名：\n%s", out)

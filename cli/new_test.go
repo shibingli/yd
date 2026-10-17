@@ -223,7 +223,7 @@ func TestNewCommandYesSkipsInterviewInTTY(t *testing.T) {
 		t.Errorf("--yes 不应提问：\n%s", te.out.String())
 	}
 	if !existsMem(t, te.env.FS, "ay/.yd.json") {
-		t.Error("--yes 应生成默认项目")
+		t.Error("--yes should have generated the default project | --yes 应生成默认项目")
 	}
 }
 
@@ -241,7 +241,7 @@ func TestNewCommandResolvesWorkDirAndRelativeReplace(t *testing.T) {
 	}
 
 	if !existsMem(t, fs, filepath.Join("sandbox", "dev", "app", ".yd.json")) {
-		t.Fatal("项目未落在 WorkDir 之下")
+		t.Fatal("the project did not land under WorkDir | 项目未落在 WorkDir 之下")
 	}
 	gomod := readMemFile(t, fs, filepath.Join("sandbox", "dev", "app", "go.mod"))
 	want := "replace github.com/shibingli/yd => " + filepath.Join("sandbox", "dev", "..", "yd")

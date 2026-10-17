@@ -24,17 +24,43 @@ import (
 	"text/template/parse"
 
 	"github.com/shibingli/yd/afs"
+	"github.com/shibingli/yd/authz"
 	"github.com/shibingli/yd/web"
 )
 
 // parseFuncs is the minimal function map the templates need to parse; the values are never
-// executed, because this file inspects the parse tree instead of rendering.
+// executed, because this file inspects the parse tree instead of rendering. The four authority
+// helpers are wired to the registry all the same: a guard naming a capability that stopped being
+// registered has to be visible here too, not only in the render binding.
 // parseFuncs 是模板解析所需的最小函数表；这些取值从不被执行，
-// 因为本文件只检视解析树而不渲染。
+// 因为本文件只检视解析树而不渲染。四个权限辅助函数仍然接到注册表上：
+// 一个守卫若写了一条不再被注册的能力，在这里也必须显现，而不是只在渲染绑定里显现。
 var parseFuncs = template.FuncMap{
-	"tr":   func(key string, args ...any) string { return key },
-	"dict": func(pairs ...any) (map[string]any, error) { return nil, nil },
-	"list": func(items ...any) []any { return items },
+	"tr":      func(key string, args ...any) string { return key },
+	"dict":    func(pairs ...any) (map[string]any, error) { return nil, nil },
+	"list":    func(items ...any) []any { return items },
+	"can":     func(ref any) bool { _, err := authz.ResolvePermission(parseRef(ref)); return err == nil },
+	"hasRole": func(ref any) bool { _, err := authz.ResolveRole(parseRef(ref)); return err == nil },
+	"perm": func(ref any) string {
+		token, err := authz.ResolvePermission(parseRef(ref))
+		if err != nil {
+			return parseRef(ref)
+		}
+		return token
+	},
+	"role": func(ref any) string {
+		name, err := authz.ResolveRole(parseRef(ref))
+		if err != nil {
+			return parseRef(ref)
+		}
+		return name
+	},
+}
+
+// parseRef normalises a template helper argument into a reference. | parseRef 把模板辅助函数参数归一化为引用。
+func parseRef(ref any) string {
+	s, _ := ref.(string)
+	return s
 }
 
 // templateDir is the subtree holding the page templates. | templateDir 是页面模板所在的子树。

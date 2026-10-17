@@ -16,9 +16,15 @@ YD_LOG_FORMAT=json
 
 # 数据库：mysql | postgres | sqlite
 # Database: mysql | postgres | sqlite
+# The DSN is quoted: the SQLite sample carries an &, which `source .env` would read as a background operator.
+# DSN 带引号：SQLite 的示例串里有 &，不加引号时 `source .env` 会把它当后台执行符。
+# In production use an absolute path (a relative one resolves against the process working directory) and make sure the
+# directory holding the database file exists.
+# 生产环境请改成绝对路径（相对路径按进程工作目录解析），并确保库文件所在目录已存在。
 YD_DB_DRIVER={{ .DB }}
-YD_DB_DSN={{ .DBDSN }}
+YD_DB_DSN="{{ .DBDSN }}"
 YD_DB_MAXCONN=100
+YD_DB_MAXIDLE=10
 YD_DB_SLOW_THRESHOLD=200ms
 {{- end }}
 {{- if .Redis }}
@@ -60,3 +66,10 @@ YD_GUOMI_SM2_PRIVATE_KEY=
 # Empty selects the scaffold's built-in development key — development only; production must inject one from a key service.
 YD_AUTH_MASTER_KEY=
 YD_AUTH_TOKEN_TTL=2h
+
+# 默认数据（种子）管理员的口令：只在租户表为空时用一次，之后改口令请在账号页操作。
+# The seed administrator's password: used once, while the tenant table is empty; change it later from the account page.
+# 留空时：development 回退到 internal/meta 的文档化开发口令并每次启动告警；其它环境**不写入任何种子数据**并告警。
+# When left empty: development falls back to the documented password in internal/meta and warns on every start, while any other
+# environment writes no seed data at all and warns. The clear text never reaches a log.
+YD_SEED_ADMIN_PASSWORD=
