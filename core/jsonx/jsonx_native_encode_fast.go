@@ -91,57 +91,57 @@ func buildFastFieldEncoder(t reflect.Type) func(*encoder, unsafe.Pointer) error 
 		}
 	case reflect.Int:
 		return func(e *encoder, p unsafe.Pointer) error {
-			e.buf = strconv.AppendInt(e.buf, int64(*(*int)(p)), 10)
+			e.buf = appendIntFast(e.buf, int64(*(*int)(p)))
 			return nil
 		}
 	case reflect.Int8:
 		return func(e *encoder, p unsafe.Pointer) error {
-			e.buf = strconv.AppendInt(e.buf, int64(*(*int8)(p)), 10)
+			e.buf = appendIntFast(e.buf, int64(*(*int8)(p)))
 			return nil
 		}
 	case reflect.Int16:
 		return func(e *encoder, p unsafe.Pointer) error {
-			e.buf = strconv.AppendInt(e.buf, int64(*(*int16)(p)), 10)
+			e.buf = appendIntFast(e.buf, int64(*(*int16)(p)))
 			return nil
 		}
 	case reflect.Int32:
 		return func(e *encoder, p unsafe.Pointer) error {
-			e.buf = strconv.AppendInt(e.buf, int64(*(*int32)(p)), 10)
+			e.buf = appendIntFast(e.buf, int64(*(*int32)(p)))
 			return nil
 		}
 	case reflect.Int64:
 		return func(e *encoder, p unsafe.Pointer) error {
-			e.buf = strconv.AppendInt(e.buf, *(*int64)(p), 10)
+			e.buf = appendIntFast(e.buf, *(*int64)(p))
 			return nil
 		}
 	case reflect.Uint:
 		return func(e *encoder, p unsafe.Pointer) error {
-			e.buf = strconv.AppendUint(e.buf, uint64(*(*uint)(p)), 10)
+			e.buf = appendUintFast(e.buf, uint64(*(*uint)(p)))
 			return nil
 		}
 	case reflect.Uint8:
 		return func(e *encoder, p unsafe.Pointer) error {
-			e.buf = strconv.AppendUint(e.buf, uint64(*(*uint8)(p)), 10)
+			e.buf = appendUintFast(e.buf, uint64(*(*uint8)(p)))
 			return nil
 		}
 	case reflect.Uint16:
 		return func(e *encoder, p unsafe.Pointer) error {
-			e.buf = strconv.AppendUint(e.buf, uint64(*(*uint16)(p)), 10)
+			e.buf = appendUintFast(e.buf, uint64(*(*uint16)(p)))
 			return nil
 		}
 	case reflect.Uint32:
 		return func(e *encoder, p unsafe.Pointer) error {
-			e.buf = strconv.AppendUint(e.buf, uint64(*(*uint32)(p)), 10)
+			e.buf = appendUintFast(e.buf, uint64(*(*uint32)(p)))
 			return nil
 		}
 	case reflect.Uint64:
 		return func(e *encoder, p unsafe.Pointer) error {
-			e.buf = strconv.AppendUint(e.buf, *(*uint64)(p), 10)
+			e.buf = appendUintFast(e.buf, *(*uint64)(p))
 			return nil
 		}
 	case reflect.Uintptr:
 		return func(e *encoder, p unsafe.Pointer) error {
-			e.buf = strconv.AppendUint(e.buf, uint64(*(*uintptr)(p)), 10)
+			e.buf = appendUintFast(e.buf, uint64(*(*uintptr)(p)))
 			return nil
 		}
 	case reflect.Float32:
@@ -341,3 +341,42 @@ func (e *encoder) quotedValue(v reflect.Value) error {
 }
 
 // decoder parses one JSON value at a time. | decoder 每次解析一个 JSON 值。
+
+// dec2 packs two ASCII decimal digits per entry. | dec2 每项打包两个 ASCII 十进制数字。
+var dec2 [100]uint16
+
+func init() {
+	for i := 0; i < 100; i++ {
+		dec2[i] = uint16('0'+i/10) | uint16('0'+i%10)<<8
+	}
+}
+
+// appendIntFast appends a decimal integer, using a table for small non-negative values.
+// | appendIntFast 追加十进制整数；小的非负值走查表路径。
+func appendIntFast(buf []byte, n int64) []byte {
+	if n >= 0 && n < 10000 {
+		switch {
+		case n < 10:
+			return append(buf, byte('0'+n))
+		case n < 100:
+			v := dec2[n]
+			return append(buf, byte(v), byte(v>>8))
+		case n < 1000:
+			v := dec2[n%100]
+			return append(buf, byte('0'+n/100), byte(v), byte(v>>8))
+		default:
+			v, w := dec2[n/100], dec2[n%100]
+			return append(buf, byte(v), byte(v>>8), byte(w), byte(w>>8))
+		}
+	}
+	return strconv.AppendInt(buf, n, 10)
+}
+
+// appendUintFast appends a decimal unsigned integer with the same small-value fast path.
+// | appendUintFast 追加无符号十进制整数，小值走同一快速路径。
+func appendUintFast(buf []byte, n uint64) []byte {
+	if n < 10000 {
+		return appendIntFast(buf, int64(n))
+	}
+	return strconv.AppendUint(buf, n, 10)
+}
