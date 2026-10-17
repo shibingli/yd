@@ -25,7 +25,7 @@ go test -run '^$' -bench . -benchmem  # 性能
 
 - **ws**：五档载荷中 32 B/256 B 延迟最低，64 KiB 吞吐最高（572.9 MB/s）；唯一全程零分配。
 - **router**：参数、深层、通配与未命中路径最快；五类路径全部零分配。静态路径仅比 httprouter 慢约 0.5 ns。
-- **json**：默认后端与 sonic 一致；`jsonx_native` 自研后端（`-tags jsonx_native`）在 n=1000 上 Marshal 约 251 vs 249 µs（基本持平），Unmarshal 约 483 vs 513 µs（快约 6%），并领先 sonic、jsoniter 与标准库。
+- **json**：默认后端与 sonic 一致；`jsonx_native` 自研后端（`-tags jsonx_native`）在 n=1000 上 Marshal 约 258 vs 265 µs、Unmarshal 约 499 vs 513 µs，两个方向均快约 3%，并领先 sonic、jsoniter 与标准库。
 - **base64**：默认混合后端 ≥1 KiB 约 10–12 GB/s 编码、7–9 GB/s 解码；自研 AVX-512 内核在 32 B–1 MiB 全面超过同机 cloudwego（32 B 编码 7.5 vs 7.4 ns、解码 9.3 vs 12.5 ns；64 KiB 约 39/34 GB/s vs 26/21；AVX2 约 7.3/6.5 GB/s）。
 - **compress**：zstd 综合最优；klauspost gzip 约为标准库 gzip 的 4 倍吞吐；snappy/lz4 更快但压缩率更差。
 - **logx**：启用 Info 182 ns/op、零分配，快于 zerolog；禁用路径 20 ns/op、零分配。
