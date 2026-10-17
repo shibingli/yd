@@ -111,9 +111,16 @@ func Redirect(w http.ResponseWriter, url string) { w.Header().Set(headerRedirect
 
 // Location describes the contents of HX-Location, i.e. an AJAX navigation that does not reload the whole page. | Location 描述 HX-Location 的内容，即一次不刷新整页的 AJAX 跳转。
 //
-// betteralign: skip —— the field order is deliberately kept, because it is the JSON key order of the HX-Location value and TestLocationHeaderBarePathAndJSON pins that exact order. | betteralign: skip —— 字段顺序有意保持不变：它就是 HX-Location 取值的 JSON 键序，TestLocationHeaderBarePathAndJSON 正是对该顺序做了断言。
-// Applying the suggestion would move Path/Target/Swap/Select behind Headers and break that contract, so this struct stays out of the reordering pass. | 采纳建议会把 Path/Target/Swap/Select 移到 Headers 之后并破坏该约定，因此这个结构体不参与本次重排。
-type Location struct {
+// The field order is deliberately kept: it is the JSON key order of the HX-Location value, and
+// TestLocationHeaderBarePathAndJSON pins that exact order. Applying betteralign's suggestion would
+// move Path/Target/Swap/Select behind Headers and break the contract, so the struct carries the
+// analyzer's inline directive. | 字段顺序有意保持不变：它就是 HX-Location 取值的 JSON 键序，
+// TestLocationHeaderBarePathAndJSON 正是对该顺序做了断言。采纳建议会把
+// Path/Target/Swap/Select 移到 Headers 之后并破坏该约定，因此本结构体使用分析器的行内指令豁免。
+//
+// The directive must sit on the opening-brace line; the analyzer ignores it anywhere else. | 该指令
+// 必须写在开括号所在行，写在其他位置分析器不会识别。
+type Location struct { //betteralign:ignore
 	// Path is the target URL. | Path 是目标 URL。
 	Path string `json:"path,omitempty"`
 	// Target overrides the swap target of this navigation (a CSS selector). | Target 覆盖本次跳转的交换目标（CSS 选择器）。

@@ -63,11 +63,11 @@ func probeCommand(pid int) (string, []string) {
 
 // childProc tracks one running child process. | childProc 追踪一个运行中的子进程。
 type childProc struct {
+	err   error // Start error, valid once ready is closed. | 启动错误，ready 关闭后有效。
 	cmd   *exec.Cmd
 	done  chan struct{} // Closed by the reaper once Wait returned, so receiving from it proves the child was reaped. | 回收 goroutine 从 Wait 返回后关闭，因此读到它即证明子进程已被收尸。
 	ready chan struct{} // Closed when startChild ends, success or failure, publishing pid and err. | startChild 结束时关闭（无论成败），同时发布 pid 与 err。
 	pid   int           // Valid once ready is closed; 0 when the child never started. | ready 关闭后有效；子进程从未启动时为 0。
-	err   error         // Start error, valid once ready is closed. | 启动错误，ready 关闭后有效。
 }
 
 // startChild launches the compiled binary and forwards its output. | startChild 启动编译产物并转发其输出。
