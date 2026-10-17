@@ -399,6 +399,8 @@ func decodeSIMD512VBMI2(dst, src []byte, url bool) (int, int) {
 	zero := archsimd.BroadcastUint8x64(0)
 	plus := archsimd.BroadcastUint8x64('+')
 	slash := archsimd.BroadcastUint8x64('/')
+	eqChar := archsimd.BroadcastUint8x64('=')
+	aChar := archsimd.BroadcastUint8x64('A')
 	b62 := archsimd.BroadcastUint8x64(62)
 	b63 := archsimd.BroadcastUint8x64(63)
 	hiMask := archsimd.BroadcastUint16x32(0x0F0F)
@@ -422,32 +424,56 @@ func decodeSIMD512VBMI2(dst, src []byte, url bool) (int, int) {
 		i += 64
 		o += 48
 	}
-	if i+16 <= len(src) && o+16 <= len(dst) {
-		c, loaded := archsimd.LoadUint8x64Part(src[i:])
-		k := loaded / 16
-		if k > 4 {
-			k = 4
+	for rem := len(src) - i; rem >= 16; {
+		take := rem
+		if take > 64 {
+			take = 64
 		}
-		if k > 0 {
-			hi := c.AsUint16x32().ShiftAllRight(4).And(hiMask).AsUint8x64()
-			lo := c.And(loMask)
-			loV := loLUT.PermuteOrZeroGrouped(lo.AsInt8x64()).AsUint8x64()
-			hiV := hiLUT.PermuteOrZeroGrouped(hi.AsInt8x64()).AsUint8x64()
-			laneMask := ^uint64(0)
-			if k < 4 {
-				laneMask = uint64(1)<<uint(16*k) - 1
-			}
-			if loV.And(hiV).Equal(zero).ToBits()&laneMask == laneMask {
-				v := c.Add(rollLUT.PermuteOrZeroGrouped(hi.AsInt8x64()).AsUint8x64())
-				v = b62.IfElse(c.Equal(plus), v)
-				v = b63.IfElse(c.Equal(slash), v)
-				pairs := v.DotProductPairsSaturated(mul).AsUint32x16()
-				groups := pairs.And(archsimd.BroadcastUint32x16(0xFFFF)).ShiftAllLeft(12).Or(pairs.ShiftAllRight(16)).AsUint8x64()
-				groups.PermuteOrZeroGrouped(pack).Compress(packMask).StorePart(dst[o : o+12*k])
-				i += 16 * k
-				o += 12 * k
-			}
+		take &^= 3
+		if take < 16 {
+			break
 		}
+		c, _ := archsimd.LoadUint8x64Part(src[i:])
+		eq := c.Equal(eqChar)
+		c = aChar.IfElse(eq, c)
+		hi := c.AsUint16x32().ShiftAllRight(4).And(hiMask).AsUint8x64()
+		lo := c.And(loMask)
+		loV := loLUT.PermuteOrZeroGrouped(lo.AsInt8x64()).AsUint8x64()
+		hiV := hiLUT.PermuteOrZeroGrouped(hi.AsInt8x64()).AsUint8x64()
+		need := ^uint64(0)
+		if take < 64 {
+			need = uint64(1)<<uint(take) - 1
+		}
+		if loV.And(hiV).Equal(zero).ToBits()&need != need {
+			break
+		}
+		eqBits := eq.ToBits() & need
+		padCount := 0
+		switch eqBits {
+		case 0:
+		case uint64(1) << uint(take-1):
+			padCount = 1
+		case uint64(3) << uint(take-2):
+			padCount = 2
+		default:
+			break
+		}
+		if eqBits != 0 && padCount == 0 {
+			break
+		}
+		outLen := take/4*3 - padCount
+		if o+outLen > len(dst) {
+			break
+		}
+		v := c.Add(rollLUT.PermuteOrZeroGrouped(hi.AsInt8x64()).AsUint8x64())
+		v = b62.IfElse(c.Equal(plus), v)
+		v = b63.IfElse(c.Equal(slash), v)
+		pairs := v.DotProductPairsSaturated(mul).AsUint32x16()
+		groups := pairs.And(archsimd.BroadcastUint32x16(0xFFFF)).ShiftAllLeft(12).Or(pairs.ShiftAllRight(16)).AsUint8x64()
+		groups.PermuteOrZeroGrouped(pack).Compress(packMask).StorePart(dst[o : o+outLen])
+		i += take
+		o += outLen
+		rem -= take
 	}
 	if i == 0 {
 		return 0, 0
