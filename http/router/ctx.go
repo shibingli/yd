@@ -2,6 +2,7 @@ package router
 
 import (
 	"encoding/xml"
+	"errors"
 	"io"
 	"mime/multipart"
 	"net"
@@ -41,13 +42,14 @@ type Ctx struct {
 
 	router *Router
 
-	query    url.Values
-	keys     map[string]any
-	handlers []HandlerFunc
-	index    int
-	status   int
-	written  bool
-	aborted  bool
+	query       url.Values
+	keys        map[string]any
+	handlers    []HandlerFunc
+	index       int
+	status      int
+	written     bool
+	aborted     bool
+	bodyLimited bool // request body already wrapped by http.MaxBytesReader | 请求体已由 http.MaxBytesReader 包装
 }
 
 // reset prepares the value for reuse. | reset 为复用做准备。
@@ -62,6 +64,7 @@ func (c *Ctx) reset(w http.ResponseWriter, r *http.Request, rt *Router) {
 	c.status = 0
 	c.written = false
 	c.aborted = false
+	c.bodyLimited = false
 	c.query = nil
 	if c.keys != nil {
 		clear(c.keys)
@@ -188,9 +191,38 @@ func (c *Ctx) DefaultQuery(key, def string) string {
 // QueryValuesAll returns all values of a query parameter with the same name. | QueryValuesAll 返回同名查询参数的全部取值。
 func (c *Ctx) QueryValuesAll(key string) []string { return c.QueryValues()[key] }
 
+// limitBody bounds the request body with http.MaxBytesReader exactly once. | limitBody 用 http.MaxBytesReader 只包装一次请求体。
+//
+// The wrapper is what actually enforces MaxBodySize for streaming reads; ParseMultipartForm's
+// argument is only an in-memory budget. | 这层包装才是流式读取时真正执行 MaxBodySize 的地方；
+// ParseMultipartForm 的参数只是内存预算。
+func (c *Ctx) limitBody() {
+	if c.bodyLimited || c.Request == nil || c.Request.Body == nil || c.Request.Body == http.NoBody {
+		return
+	}
+	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, c.router.maxBodySize())
+	c.bodyLimited = true
+}
+
+// Body returns the request body, bounded by the router's MaxBodySize, for streaming uploads. | Body 返回受路由器 MaxBodySize 限制的请求体，供流式上传使用。
+func (c *Ctx) Body() io.ReadCloser {
+	c.limitBody()
+	return c.Request.Body
+}
+
+// bodyError maps an over-limit body read to ErrBodyTooLarge. | bodyError 把超限的请求体读取映射为 ErrBodyTooLarge。
+func bodyError(err error) error {
+	var tooLarge *http.MaxBytesError
+	if errors.As(err, &tooLarge) {
+		return errx.Wrap(err, ErrBodyTooLarge)
+	}
+	return err
+}
+
 // FormValue returns a form value (parsing the request body when necessary, bounded by MaxBodySize). | FormValue 返回表单值（必要时解析请求体，受 MaxBodySize 限制）。
 func (c *Ctx) FormValue(key string) string {
-	if err := c.Request.ParseMultipartForm(c.router.maxBodySize()); err != nil {
+	c.limitBody()
+	if err := c.Request.ParseMultipartForm(defaultMultipartMemory); err != nil {
 		_ = c.Request.ParseForm()
 	}
 	if v := c.Request.Form.Get(key); v != "" {
@@ -201,8 +233,9 @@ func (c *Ctx) FormValue(key string) string {
 
 // FormFile returns an uploaded file. | FormFile 返回上传文件。
 func (c *Ctx) FormFile(key string) (multipart.File, *multipart.FileHeader, error) {
-	if err := c.Request.ParseMultipartForm(c.router.maxBodySize()); err != nil {
-		return nil, nil, err
+	c.limitBody()
+	if err := c.Request.ParseMultipartForm(defaultMultipartMemory); err != nil {
+		return nil, nil, bodyError(err)
 	}
 	return c.Request.FormFile(key)
 }
@@ -302,6 +335,21 @@ func (c *Ctx) JSON(code int, v any) error {
 	c.WriteHeader(code)
 	_, err = c.Writer.Write(buf)
 	return err
+}
+
+// JSONStream writes v as JSON incrementally through the adaptive encoder. | JSONStream 通过自适应编码器增量输出 JSON。
+//
+// Unlike JSON, the value is encoded straight into the response instead of into a full-size buffer,
+// so a very large slice or document does not need a second copy in memory. The trade-off is error
+// atomicity: an encoding error can surface after the header and part of the body are already
+// written, so values that can fail to encode should still use JSON. The encoder appends a trailing
+// newline. | 与 JSON 不同，它把值直接编码进响应而不是先写入一份完整大小的缓冲，因此巨大的切片或
+// 文档不需要在内存中再复制一份。代价是错误原子性：编码错误可能在响应头与部分正文写出之后才出现，
+// 因此可能编码失败的值仍应使用 JSON。编码器会在末尾追加一个换行。
+func (c *Ctx) JSONStream(code int, v any) error {
+	c.SetHeader("Content-Type", "application/json; charset=utf-8")
+	c.WriteHeader(code)
+	return jsonx.NewEncoder(c.Writer).Encode(v)
 }
 
 // XML writes XML (standard library encoding/xml). | XML 输出 XML（标准库 encoding/xml）。

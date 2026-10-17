@@ -352,6 +352,78 @@ CGO_ENABLED=1 CC=clang go test -race ./...    42 个包 ok，退出码 0
 go run ./cmd/yd versions check                generated | 生成文件: up to date | 已同步
 ```
 
+## 3.9 HTTP 组件深度优化（第七轮）
+
+本轮针对 i18n、render、authz、router、上传与下载做兼容性与热路径优化，全部改动都有
+行为级测试与基准数据支撑（Windows / i9-10980HK，`go test -bench`，数值取 `-benchtime=300ms`）。
+
+### 3.9.1 i18n：无锁读取与预编译消息
+
+- 目录在 `New`/`Reload` 时扁平化为 `键 → 预编译消息`，读取经 `atomic.Pointer` 取不可变快照，
+  翻译不再加锁、不再按点逐层下钻；`Reload` 失败保留旧快照，不会出现半更新目录。
+- 无参数、无占位符的消息原样返回，零分配；`{{.Name}}` 在加载期编译为片段，
+  printf 动词仅在消息确实含动词时才交给 `Sprintf`，普通百分号不再产生 `%!d(MISSING)` 噪声。
+- printf 参数不匹配被识别后返回**原始消息**并计入 `FormatErrors`，不再把 Go 的
+  `%!d(string=…)` 调试语法呈现给终端用户；未知键计入 `Misses`；两者均可经
+  `SetProblemHandler` 采样上报。
+- 基准（旧 → 新）：无参命中 89.5 ns/1 alloc → **60 ns/0 alloc**；单命名占位 183 ns/2 → **120 ns/0**；
+  动词路径 324 ns/2 → **216 ns/1**；回退语言 263 ns/2 → **93 ns/0**；缺失 96 ns/1 → **63 ns/0**。
+
+### 3.9.2 render：按绑定集缓存模板
+
+- 之前每次页面渲染都要 `Clone()` 整棵解析树：约 **21 µs / 121 allocs**。现在按
+  「译者身份（Bundle + 语言）+ 判定集合键 + 解析代」缓存**已绑定**的模板集：
+  `with_translator` 约 **7.2 µs / 76 allocs**，缓存命中后不再克隆。
+- 缓存上限 16 条，FIFO 淘汰；`load()` 递增代数并清空缓存，旧解析代的条目不会被复用；
+  语言或判定集合无法给出稳定键时**退回逐次克隆**（宁可慢，不串用他人判定）。
+
+### 3.9.3 authz：判定集合一次捕获
+
+- `authz.Data` 一次性构建权限/角色集合与稳定 `DecisionKey`，模板里的 `can`/`hasRole`
+  由「每次重新计算」改为 O(1) 映射查找；`DecisionKey` 逐项带长度前缀编码，
+  角色名即使含分隔字节也不会与其它集合碰撞（角色名只要求非空），匿名主体的键为空串
+  （即「全部拒绝」的身份）。
+
+### 3.9.4 router：HTTP 语义补齐与匹配器零分配
+
+- **HEAD 自动回退 GET**：未显式注册 HEAD 时复用 GET 处理器并重新捕获参数；
+  `Allow` 头补充隐式 HEAD（存在 GET 时）与 OPTIONS（自动响应开启时）。
+- **请求体统一限界**：每个请求只经 `http.MaxBytesReader(MaxBodySize)` 包装一次；
+  `ParseMultipartForm` 的参数只是内存预算（8 MiB），不再被误当作请求体上限。
+  超限统一映射为 `ErrBodyTooLarge` / `ErrUploadTooLarge`，不再向业务层泄漏 `*http.MaxBytesError`。
+- 404/405 正文改为中英双语；`JSONStream` 为超大载荷提供增量序列化（见 §4 第 18 条）。
+- 混合分段匹配器由堆上的 `*mixMatcher` 改为栈上值，仅记忆表走对象池：
+  命中路径 **2 allocs/80 B → 0 allocs**，`/report/:id-xx.png` 单次匹配 357 → 约 **240 ns**。
+- 路由基准：静态约 **145–157 ns/0 allocs**、参数约 **177–203 ns/0 allocs**、混合约
+  **238–255 ns/0 allocs**（均含一次完整 `ServeHTTP`，多次运行取区间）。
+
+### 3.9.5 上传与下载：流式落盘、零中间拷贝
+
+- **上传**：`StreamUploads` 用 `multipart.Reader` 逐段读取，`CopyUpload`/`CopyUploads`
+  以 **32 KiB 池化缓冲**直接写入目标文件，全程不在内存中缓冲整个文件；支持单文件上限
+  （`maxFileSize`）与请求体总上限（`MaxBodySize`），超限删除半成品文件。
+- **文件名安全**：`SafeUploadName` 收敛两种斜杠、移除控制字符与 Unicode 方向覆盖字符
+  （防扩展名伪装）、裁剪 Windows 非法尾随点/空格、限制 200 字节并保留扩展名、
+  给 Windows 设备名（CON/NUL/COM1…）加前缀；`O_EXCL` + 数字后缀保证同名不覆盖。
+- **下载**：`Download`/`DownloadBytes`/`DownloadReader`/`DownloadFile`。带 `Range`/`If-*`
+  的请求交给 `http.ServeContent`（RFC 7233 + RFC 7232）；其余走一次 seek 取长度、
+  一次正文拷贝的快路径——`bytes.Reader` 一次写出，`*os.File` 配合支持 sendfile 的
+  写入器零中间缓冲。4 KiB 下载约 **0.7 µs**（≈5.6–6 GB/s 写入 `ResponseRecorder`，5 次分配）。
+- **头部正确性**：`Content-Disposition` 按 RFC 6266/5987 输出（ASCII 兜底 + `filename*`），
+  构造前清除 CR/LF 防响应拆分；未知扩展名嗅探首 512 字节后倒回；自动派生 ETag
+  （`hex(mtime)-hex(size)`，与 nginx 同形）；统一 `X-Content-Type-Options: nosniff`。
+
+### 3.9.6 门禁
+
+```
+gofmt -l .                                    零输出
+go build ./...                                通过
+go vet ./...                                  零输出
+go mod tidy -diff                             零输出
+go test ./...                                 44 个包 ok，退出码 0
+CGO_ENABLED=1 CC=clang go test -race ./...    44 个包 ok，退出码 0
+```
+
 ## 4. 已知限制与未覆盖项
 
 1. **HTTP/3 需要 TLS**（QUIC 强制 TLS 1.3）。开发态在未配置证书时会生成一次性自签证书
@@ -393,3 +465,9 @@ go run ./cmd/yd versions check                generated | 生成文件: up to da
 15. **测试断言消息不在双语守卫范围内**：`t.Errorf` / `t.Fatalf` / `t.Logf` 的中文单语消息
     仍存在（各包合计约千行）。守卫的 `outputCallRe` 文档注释写明了这条边界与收紧方式；
     收紧属于规范口径变更，需另行决定。
+16. **上传落盘直接经 `os`**：`CopyUpload`/`CopyUploads` 的目标是本地目录，不经 afero
+    抽象；对象存储等后端请使用 `StreamUploads` 自行适配（回调只保证分段在返回前有效）。
+17. **`DownloadReader` 不支持 Range 与条件请求**：不可回退的数据源无法实现 206/304；
+    内容可定位时应使用 `Download` 或 `DownloadFile`，二者完整支持 Range/ETag/Last-Modified。
+18. **`JSONStream` 以错误原子性换取内存**：增量编码在响应头与部分正文写出后仍可能失败，
+    因此可能编码失败的值应使用 `JSON`（先完整序列化，失败时干净地返回 500）。

@@ -116,7 +116,7 @@ core/          与领域无关的基础原语
   errx/        声明式哨兵错误原语（禁止 fmt.Errorf 的统一替代）
   version/     版本信息（-ldflags 注入）
 http/          HTTP 与前端交付
-  router/      自研基数树路由（单段内混合参数与静态后缀捕获）
+  router/      自研基数树路由（混合参数后缀捕获 · HEAD/OPTIONS 语义 · 流式上传 · Range/ETag 下载）
   render/      模板引擎（afero 模板集 · Dev 免缓存 · asset/dict/json/hx）
   htmx/        Htmx 4 服务端辅助（HX-* 响应头 · hx-partial · OOB）
   sse/ ws/     W3C 事件流广播 · RFC6455 WebSocket（自研握手与帧编解码）

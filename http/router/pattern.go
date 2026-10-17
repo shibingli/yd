@@ -247,9 +247,7 @@ func matchSegmentInto(seg *Segment, value string, ps *Params) bool {
 		return true
 	case SegMixed:
 		mark := ps.Len()
-		mm := acquireMixMatcher(seg, value)
-		ok := mm.match(0, 0, ps)
-		releaseMixMatcher(mm)
+		ok := matchMixed(seg, value, ps)
 		if !ok {
 			ps.Truncate(mark)
 		}
@@ -272,13 +270,17 @@ const mixMemoMaxRetain = 4096
 // mixMatcher performs memoized backtracking matching inside a single mixed segment. | mixMatcher 在单个混合段内执行带记忆化的回溯匹配。
 type mixMatcher struct {
 	seg   *Segment
-	owner *mixMemo
 	value string
 	memo  []int32
 	gen   int32
 }
 
-func acquireMixMatcher(seg *Segment, value string) *mixMatcher {
+// matchMixed matches one mixed segment against value using a pooled memo table. | matchMixed 用池化记忆表把一个混合段与 value 匹配。
+//
+// The matcher itself is a stack value: only the memo table is pooled, so a mixed segment costs no
+// heap allocation at all on the hit path. | 匹配器本身是栈上值：只有记忆表来自对象池，因此混合段在命中路径上
+// 完全不产生堆分配。
+func matchMixed(seg *Segment, value string, ps *Params) bool {
 	memo := mixMemoPool.Get().(*mixMemo)
 	need := len(seg.Tokens) * (len(value) + 1)
 	if cap(memo.buf) < need {
@@ -291,19 +293,13 @@ func acquireMixMatcher(seg *Segment, value string) *mixMatcher {
 		clear(memo.buf)
 		memo.gen = 1
 	}
-	return &mixMatcher{seg: seg, value: value, memo: memo.buf, gen: memo.gen, owner: memo}
-}
-
-func releaseMixMatcher(m *mixMatcher) {
-	if m == nil || m.owner == nil {
-		return
+	mm := mixMatcher{seg: seg, value: value, memo: memo.buf, gen: memo.gen}
+	ok := mm.match(0, 0, ps)
+	if cap(memo.buf) <= mixMemoMaxRetain {
+		memo.buf = memo.buf[:0]
+		mixMemoPool.Put(memo)
 	}
-	if cap(m.owner.buf) > mixMemoMaxRetain {
-		return
-	}
-	m.owner.buf = m.owner.buf[:0]
-	mixMemoPool.Put(m.owner)
-	m.owner = nil
+	return ok
 }
 
 // match recursively matches the ti-th lexical token against value[pos:]. | match 递归匹配第 ti 个词法单元与 value[pos:]。

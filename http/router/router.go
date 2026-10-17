@@ -17,6 +17,10 @@ import (
 // Default configuration values. | 默认配置值。
 const (
 	defaultMaxBodySize = 32 << 20 // default max body size: 32MB | 32MB
+	// defaultMultipartMemory is the in-memory budget of ParseMultipartForm; the total body is
+	// bounded separately by http.MaxBytesReader. | defaultMultipartMemory 是 ParseMultipartForm 的
+	// 内存预算；请求体总量由 http.MaxBytesReader 单独限制。
+	defaultMultipartMemory = 8 << 20
 )
 
 // routeTableBrokenBody is the response body ServeHTTP writes when the route table
@@ -296,6 +300,11 @@ func (r *Router) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 
 	c := r.pool.Get().(*Ctx)
 	c.reset(w, req, r)
+	// Bound every body read once per request. ParseMultipartForm's argument is a memory hint, not a
+	// body limit, so without this a multipart upload could exceed MaxBodySize and spill arbitrary
+	// bytes to temp files. | 每个请求只包装一次请求体读取。ParseMultipartForm 的参数是内存提示而不是
+	// 请求体上限，缺少这层包装时 multipart 上传可以超出 MaxBodySize 并把任意字节落到临时文件。
+	c.limitBody()
 	params := acquireParams()
 	c.Params = params
 
@@ -331,13 +340,21 @@ func (r *Router) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	}
 
 	handler, tsr := r.tree.Find(req.Method, path, c.Params)
+	// HEAD falls back to GET: the server discards the body of a HEAD response, so the handler can be
+	// shared. | HEAD 回退到 GET：服务器会丢弃 HEAD 响应的正文，因此处理器可以复用。
+	if handler == nil && req.Method == http.MethodHead {
+		c.Params.Truncate(0)
+		if h, t := r.tree.Find(http.MethodGet, path, c.Params); h != nil {
+			handler, tsr = h, t
+		}
+	}
 
 	// No match: check the trailing slash redirect first, then 405, and finally 404. | 未命中：优先判定尾斜杠重定向，再判定 405，最后 404。
 	if handler == nil {
 		methods := r.tree.Allowed(path)
 		if len(methods) > 0 {
 			if req.Method == http.MethodOptions && r.options.AutoOptions {
-				c.SetHeader("Allow", strings.Join(methods, ", "))
+				c.SetHeader("Allow", strings.Join(withOptions(methods, r.options.AutoOptions), ", "))
 				_ = c.NoContent()
 				return
 			}
@@ -349,7 +366,7 @@ func (r *Router) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 			}
 			c.SetHeader("Allow", strings.Join(withOptions(methods, r.options.AutoOptions), ", "))
 			c.SetStatus(http.StatusMethodNotAllowed)
-			_ = c.String(http.StatusMethodNotAllowed, http.StatusText(http.StatusMethodNotAllowed))
+			_ = c.String(http.StatusMethodNotAllowed, "method not allowed | 方法不允许")
 			return
 		}
 		if tsr {
@@ -361,8 +378,8 @@ func (r *Router) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 			c.Next()
 			return
 		}
-		http.NotFound(w, req)
 		c.SetStatus(http.StatusNotFound)
+		_ = c.String(http.StatusNotFound, "not found | 未找到")
 		return
 	}
 
@@ -394,18 +411,33 @@ func (r *Router) setChain(c *Ctx, route []HandlerFunc, tail HandlerFunc) {
 	c.handlers = append(c.handlers, route...)
 }
 
-// withOptions adds OPTIONS to the Allow list (when automatic responses are enabled). | withOptions 在 Allow 列表中补充 OPTIONS（自动响应已开启时）。
+// withOptions adds the implicit HEAD (when GET exists) and OPTIONS (when automatic responses are
+// enabled) to the Allow list. | withOptions 在 Allow 列表中补充隐式 HEAD（存在 GET 时）与 OPTIONS
+// （自动响应已开启时）。
 func withOptions(methods []string, auto bool) []string {
-	if !auto {
-		return methods
-	}
+	var hasGet, hasHead, hasOptions bool
 	for _, m := range methods {
-		if m == http.MethodOptions {
-			return methods
+		switch m {
+		case http.MethodGet:
+			hasGet = true
+		case http.MethodHead:
+			hasHead = true
+		case http.MethodOptions:
+			hasOptions = true
 		}
 	}
-	out := append(make([]string, 0, len(methods)+1), methods...)
-	out = append(out, http.MethodOptions)
+	needHead := hasGet && !hasHead
+	needOptions := auto && !hasOptions
+	if !needHead && !needOptions {
+		return methods
+	}
+	out := append(make([]string, 0, len(methods)+2), methods...)
+	if needHead {
+		out = append(out, http.MethodHead)
+	}
+	if needOptions {
+		out = append(out, http.MethodOptions)
+	}
 	sort.Strings(out)
 	return out
 }

@@ -3,6 +3,7 @@ package router
 import (
 	"errors"
 	"io"
+	"net/http"
 	"net/url"
 	"reflect"
 	"strconv"
@@ -53,8 +54,13 @@ func (c *Ctx) Bind(v any) error {
 	}
 	switch {
 	case ct == "application/json" || strings.HasSuffix(ct, "+json"):
+		c.limitBody()
 		body, err := io.ReadAll(io.LimitReader(c.Request.Body, c.router.maxBodySize()+1))
 		if err != nil {
+			var tooLarge *http.MaxBytesError
+			if errors.As(err, &tooLarge) {
+				return ErrBodyTooLarge
+			}
 			return errx.Wrap(err, ErrReadBody)
 		}
 		if int64(len(body)) > c.router.maxBodySize() {
@@ -68,7 +74,12 @@ func (c *Ctx) Bind(v any) error {
 		}
 		return nil
 	case ct == "application/x-www-form-urlencoded" || ct == "multipart/form-data" || strings.HasPrefix(ct, "multipart/form-data"):
-		if err := c.Request.ParseMultipartForm(c.router.maxBodySize()); err != nil {
+		c.limitBody()
+		if err := c.Request.ParseMultipartForm(defaultMultipartMemory); err != nil {
+			var tooLarge *http.MaxBytesError
+			if errors.As(err, &tooLarge) {
+				return ErrBodyTooLarge
+			}
 			if err := c.Request.ParseForm(); err != nil {
 				return errx.Wrap(err, ErrParseForm)
 			}

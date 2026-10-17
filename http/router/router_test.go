@@ -174,6 +174,30 @@ func TestStaticFileServedFromAferoFS(t *testing.T) {
 	}
 }
 
+func TestJSONStreamWritesIncrementally(t *testing.T) {
+	type row struct {
+		ID int `json:"id"`
+	}
+	r := New()
+	r.GET("/rows", func(c *Ctx) {
+		if err := c.JSONStream(http.StatusOK, []row{{ID: 1}, {ID: 2}}); err != nil {
+			t.Errorf("JSONStream 失败: %v", err)
+		}
+	})
+
+	rec := do(r, http.MethodGet, "/rows", nil, "")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("code = %d, 期望 200", rec.Code)
+	}
+	if ct := rec.Header().Get("Content-Type"); ct != "application/json; charset=utf-8" {
+		t.Fatalf("Content-Type = %q", ct)
+	}
+	body := strings.TrimSpace(rec.Body.String())
+	if body != `[{"id":1},{"id":2}]` {
+		t.Fatalf("body = %q", body)
+	}
+}
+
 func TestBindJSONFormAndQuery(t *testing.T) {
 	type payload struct {
 		Name string `json:"name" form:"name"`
@@ -351,5 +375,86 @@ func TestStreamAndFlush(t *testing.T) {
 	}
 	if ct := rec.Header().Get("Content-Type"); ct != "text/event-stream" {
 		t.Fatalf("Content-Type = %q", ct)
+	}
+}
+
+func TestHEADRequestFallsBackToGET(t *testing.T) {
+	r := New()
+	r.GET("/items/:id", func(c *Ctx) {
+		c.SetHeader("X-Param", c.Param("id"))
+		_ = c.String(http.StatusOK, "ignored by the server | 服务器会丢弃")
+	})
+
+	rec := do(r, http.MethodHead, "/items/7", nil, "")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("code = %d, 期望 200", rec.Code)
+	}
+	if got := rec.Header().Get("X-Param"); got != "7" {
+		t.Fatalf("X-Param = %q, 期望 7", got)
+	}
+}
+
+func TestAllowHeaderIncludesImplicitHEAD(t *testing.T) {
+	r := New()
+	r.GET("/users", func(c *Ctx) { _ = c.NoContent() })
+
+	rec := do(r, http.MethodPost, "/users", nil, "")
+	allow := rec.Header().Get("Allow")
+	for _, method := range []string{"GET", "HEAD", "OPTIONS"} {
+		if !strings.Contains(allow, method) {
+			t.Fatalf("Allow = %q, 缺 %s", allow, method)
+		}
+	}
+	if rec.Body.String() != "method not allowed | 方法不允许" {
+		t.Fatalf("405 正文 = %q", rec.Body.String())
+	}
+
+	rec = do(r, http.MethodOptions, "/users", nil, "")
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("OPTIONS code = %d, 期望 204", rec.Code)
+	}
+	if allow = rec.Header().Get("Allow"); !strings.Contains(allow, "HEAD") {
+		t.Fatalf("OPTIONS Allow = %q, 缺 HEAD", allow)
+	}
+}
+
+func TestNotFoundBodyIsBilingual(t *testing.T) {
+	r := New()
+	rec := do(r, http.MethodGet, "/missing", nil, "")
+	if rec.Code != http.StatusNotFound || rec.Body.String() != "not found | 未找到" {
+		t.Fatalf("code=%d body=%q", rec.Code, rec.Body.String())
+	}
+}
+
+func TestBindJSONHonorsBodyLimit(t *testing.T) {
+	r := New(WithMaxBodySize(16))
+	var err error
+	r.POST("/json", func(c *Ctx) {
+		var v struct {
+			Name string `json:"name"`
+		}
+		err = c.Bind(&v)
+		_ = c.NoContent()
+	})
+
+	do(r, http.MethodPost, "/json", map[string]string{"Content-Type": "application/json"},
+		`{"name":"012345678901234567890123456789"}`)
+	if !errors.Is(err, ErrBodyTooLarge) {
+		t.Fatalf("err = %v, 期望 ErrBodyTooLarge", err)
+	}
+}
+
+func TestCtxBodyHonorsRouterLimit(t *testing.T) {
+	r := New(WithMaxBodySize(8))
+	var err error
+	r.POST("/body", func(c *Ctx) {
+		_, readErr := io.ReadAll(c.Body())
+		err = bodyError(readErr)
+		_ = c.NoContent()
+	})
+
+	do(r, http.MethodPost, "/body", nil, "0123456789abcdef")
+	if !errors.Is(err, ErrBodyTooLarge) {
+		t.Fatalf("err = %v, 期望 ErrBodyTooLarge", err)
 	}
 }
