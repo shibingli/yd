@@ -38,10 +38,19 @@ func Chain(mw ...router.Middleware) router.Middleware {
 	}
 }
 
-// isUpgradeRequest reports whether r asks for a protocol upgrade (WebSocket, h2c, ...). | isUpgradeRequest 报告 r 是否请求协议升级（WebSocket、h2c 等）。
+// isUpgradeRequest reports whether r is a long-lived request that must not be
+// wrapped or compressed: an HTTP/1.1 Upgrade, a CONNECT tunnel, or an RFC
+// 8441/9220 WebSocket extended CONNECT. | isUpgradeRequest 报告 r 是否为不得被包装或压缩的
+// 长连接请求：HTTP/1.1 Upgrade、CONNECT 隧道，或 RFC 8441/9220 的 WebSocket extended CONNECT。
 func isUpgradeRequest(r *http.Request) bool {
 	if r == nil {
 		return false
+	}
+	// CONNECT has no Upgrade header; its body is a tunnel or a WebSocket byte
+	// stream, so wrapping the writer would corrupt it. | CONNECT 没有 Upgrade 头；
+	// 它的正文是隧道或 WebSocket 字节流，包装写入器会破坏它。
+	if r.Method == http.MethodConnect {
+		return true
 	}
 	if headerValue(r.Header, "Upgrade") != "" {
 		return true

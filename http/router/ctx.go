@@ -268,6 +268,13 @@ func (c *Ctx) limitBody() {
 	if req == nil {
 		return
 	}
+	// CONNECT bodies are tunnels (RFC 9110 §9.3.6) or WebSocket byte streams
+	// (RFC 8441/9220); applying MaxBodySize would cut a long-lived connection at
+	// an arbitrary byte count. | CONNECT 的正文是隧道（RFC 9110 §9.3.6）或
+	// WebSocket 字节流（RFC 8441/9220）；套上 MaxBodySize 会在任意字节数处截断长连接。
+	if req.Method == http.MethodConnect {
+		return
+	}
 	// net/http gives a body-less GET or HEAD http.NoBody and ContentLength 0; answering that
 	// before touching the interface fields keeps the most common requests free of interface
 	// comparisons. Chunked bodies have ContentLength -1 and still take the wrapper. | net/http 对

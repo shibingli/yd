@@ -11,6 +11,7 @@ import (
 	"github.com/shibingli/yd/core/afs"
 	"github.com/shibingli/yd/core/errx"
 	"github.com/shibingli/yd/core/logx"
+	"github.com/shibingli/yd/http/protocol"
 	"github.com/spf13/afero"
 )
 
@@ -409,7 +410,12 @@ func (r *Router) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	// GET is by far the most common method; use the precomputed key and skip the method switch. | GET
 	// 是最常见的方法；直接使用预计算键，跳过方法分支。
 	key := getMethodKey
-	if req.Method != http.MethodGet {
+	// RFC 8441/9220 extended CONNECT reuses the GET route: projects register one
+	// WebSocket handler and the transport layer decides how the connection starts.
+	// The fallback is deliberately narrow — plain CONNECT keeps its own method. | RFC 8441/9220
+	// extended CONNECT 复用 GET 路由：项目只注册一个 WebSocket 处理器，由传输层决定连接如何开始。
+	// 回退刻意保持狭窄——普通 CONNECT 仍使用自己的方法。
+	if req.Method != http.MethodGet && !protocol.IsExtendedConnect(req) {
 		key = newMethodKey(req.Method)
 	}
 	// A raw static route needs no Ctx, pool, reset or middleware assembly. Global middleware and
@@ -419,10 +425,11 @@ func (r *Router) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	if state.raw != nil && !state.hasPanicHandler && len(state.globalMW) == 0 {
 		if h := state.raw.lookup(key, path); h != nil {
 			// Raw handlers bypass Ctx.limitBody, so apply the same body bound here for the rare
-			// body-carrying raw route. GET/HEAD with no body keep the zero-overhead path. | 无上下文
+			// body-carrying raw route. GET/HEAD with no body keep the zero-overhead path. A
+			// CONNECT body is a tunnel or a WebSocket byte stream, never a bounded request. | 无上下文
 			// 处理器跳过 Ctx.limitBody，因此在这里为少见的带正文路由施加同样的正文上限。无正文的
-			// GET/HEAD 仍保持零开销路径。
-			if req.ContentLength != 0 || !key.known || key.id > methodHead {
+			// GET/HEAD 仍保持零开销路径。CONNECT 的正文是隧道或 WebSocket 字节流，绝不能加边界。
+			if req.Method != http.MethodConnect && (req.ContentLength != 0 || !key.known || key.id > methodHead) {
 				if req.Body != nil && req.Body != http.NoBody {
 					req.Body = http.MaxBytesReader(w, req.Body, r.maxBodySize())
 				}
@@ -440,10 +447,11 @@ func (r *Router) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	// bytes to temp files. | 每个请求只包装一次请求体读取。ParseMultipartForm 的参数是内存提示而不是
 	// 请求体上限，缺少这层包装时 multipart 上传可以超出 MaxBodySize 并把任意字节落到临时文件。
 	// Only requests that can carry a body need the eager wrapper; GET/HEAD with no body are the
-	// common case and skip the call entirely. Ctx.Body still calls limitBody lazily. | 只有可能
+	// common case and skip the call entirely. Ctx.Body still calls limitBody lazily. CONNECT is
+	// excluded because its body is a tunnel or a WebSocket byte stream. | 只有可能
 	// 携带正文的请求需要立即包装；无正文的 GET/HEAD 是最常见情况，直接跳过调用。Ctx.Body 仍会
-	// 惰性调用 limitBody。
-	if req.ContentLength != 0 || !key.known || key.id > methodHead {
+	// 惰性调用 limitBody。CONNECT 被排除，因为它的正文是隧道或 WebSocket 字节流。
+	if req.Method != http.MethodConnect && (req.ContentLength != 0 || !key.known || key.id > methodHead) {
 		c.limitBody()
 	}
 	c.path = path
