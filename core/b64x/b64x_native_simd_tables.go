@@ -10,6 +10,7 @@ var (
 	simdShuf16 = [16]int8{1, 0, 2, 1, 4, 3, 5, 4, 7, 6, 8, 7, 10, 9, 11, 10}
 	simdLut16  = [16]int8{71, -4, -4, -4, -4, -4, -4, -4, -4, -4, -4, -19, -16, 65, 0, 0}
 	simdPack16 = [16]int8{2, 1, 0, 6, 5, 4, 10, 9, 8, 14, 13, 12, 15, 15, 15, 15}
+	simdPack32 [32]int8
 
 	simdMaskLo8, simdMaskHi8, simdMulHi8, simdMulLo8     [8]uint16
 	simdMaskLo16, simdMaskHi16, simdMulHi16, simdMulLo16 [16]uint16
@@ -27,11 +28,11 @@ var (
 
 	simdOutPadded, simdOutRaw, simdPads [49]uint8
 
-	simdB51x64, simdB26x64, simdB13x64, simdB62x64, simdB63x64 archsimd.Uint8x64
-	simdDashx64, simdUnderx64, simdZeroX64                     archsimd.Uint8x64
-	simdPlusX64, simdSlashX64, simdEqX64, simdAX64             archsimd.Uint8x64
-	simdHiMaskX32                                              archsimd.Uint16x32
-	simdLoMaskX64                                              archsimd.Uint8x64
+	simdB51x64, simdB26x64, simdB13x64, simdB62x64, simdB63x64   archsimd.Uint8x64
+	simdDashx64, simdUnderx64, simdZeroX64                       archsimd.Uint8x64
+	simdPlusX64, simdSlashX64, simdEqX64, simdAX64, simdThreeX64 archsimd.Uint8x64
+	simdHiMaskX32                                                archsimd.Uint16x32
+	simdLoMaskX64                                                archsimd.Uint8x64
 )
 
 func init() {
@@ -62,6 +63,9 @@ func init() {
 		}
 		simdLut64[j] = simdLut16[j&15]
 		simdPack64[j] = simdPack16[j&15]
+		if j < 32 {
+			simdPack32[j] = simdPack16[j&15]
+		}
 	}
 	if archsimd.X86.AVX512() {
 		simdB51x64, simdB26x64, simdB13x64 = archsimd.BroadcastUint8x64(51), archsimd.BroadcastUint8x64(26), archsimd.BroadcastUint8x64(13)
@@ -70,6 +74,7 @@ func init() {
 		simdZeroX64 = archsimd.BroadcastUint8x64(0)
 		simdPlusX64, simdSlashX64 = archsimd.BroadcastUint8x64('+'), archsimd.BroadcastUint8x64('/')
 		simdEqX64, simdAX64 = archsimd.BroadcastUint8x64('='), archsimd.BroadcastUint8x64('A')
+		simdThreeX64 = archsimd.BroadcastUint8x64(3)
 		simdHiMaskX32 = archsimd.BroadcastUint16x32(0x0F0F)
 		simdLoMaskX64 = archsimd.BroadcastUint8x64(0x0F)
 	}

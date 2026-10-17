@@ -2,7 +2,10 @@
 
 package b64x
 
-import "simd/archsimd"
+import (
+	"simd/archsimd"
+	"unsafe"
+)
 
 // SIMD nibble lookup tables for the standard alphabet. | 标准字母表的 SIMD 半字节查找表。
 var (
@@ -43,7 +46,7 @@ func init() {
 	for hi := 2; hi <= 7; hi++ {
 		hiBase[hi] = int8(1 << uint(hi-2))
 	}
-	rollBase[3], rollBase[4], rollBase[5] = 4, -65, -65
+	rollBase[2], rollBase[3], rollBase[4], rollBase[5] = 16, 4, -65, -65
 	rollBase[6], rollBase[7] = -71, -71
 	for j := 0; j < 64; j++ {
 		simdLoLUT[j] = loBase[j&15]
@@ -73,52 +76,52 @@ func encodeSIMD(dst, src []byte, url, padded bool, pad byte) (int, int) {
 		return 0, 0
 	}
 	shuffle := archsimd.LoadInt8x16(simdShuf16[:])
-	lut := archsimd.LoadInt8x16(simdLut16[:])
 	lut32 := archsimd.LoadInt8x32(simdLut32[:])
-	maskLo8 := archsimd.LoadUint16x8(simdMaskLo8[:])
-	maskHi8 := archsimd.LoadUint16x8(simdMaskHi8[:])
-	mulHi8 := archsimd.LoadUint16x8(simdMulHi8[:])
-	mulLo8 := archsimd.LoadUint16x8(simdMulLo8[:])
 	maskLo16 := archsimd.LoadUint16x16(simdMaskLo16[:])
 	maskHi16 := archsimd.LoadUint16x16(simdMaskHi16[:])
 	mulHi16 := archsimd.LoadUint16x16(simdMulHi16[:])
 	mulLo16 := archsimd.LoadUint16x16(simdMulLo16[:])
-	b51x32, b26x32, b13x32 := archsimd.BroadcastUint8x32(51), archsimd.BroadcastUint8x32(26), archsimd.BroadcastUint8x32(13)
-	b62x32, b63x32, dashx32, underx32 := archsimd.BroadcastUint8x32(62), archsimd.BroadcastUint8x32(63), archsimd.BroadcastUint8x32('-'), archsimd.BroadcastUint8x32('_')
-	b51x16, b26x16, b13x16 := archsimd.BroadcastUint8x16(51), archsimd.BroadcastUint8x16(26), archsimd.BroadcastUint8x16(13)
-	b62x16, b63x16, dashx16, underx16 := archsimd.BroadcastUint8x16(62), archsimd.BroadcastUint8x16(63), archsimd.BroadcastUint8x16('-'), archsimd.BroadcastUint8x16('_')
+	b51x32, b13x32 := archsimd.BroadcastUint8x32(51), archsimd.BroadcastUint8x32(13)
+	b26i32 := archsimd.BroadcastInt8x32(26)
 	zero32 := archsimd.BroadcastUint8x32(0)
 
 	i, o := 0, 0
 	for i+28 <= len(src) && o+32 <= len(dst) {
-		g0 := archsimd.LoadUint8x16(src[i:]).PermuteOrZero(shuffle)
-		g1 := archsimd.LoadUint8x16(src[i+12:]).PermuteOrZero(shuffle)
+		g0 := archsimd.LoadUint8x16(unsafe.Slice((*byte)(unsafe.Pointer(&src[i])), 16)).PermuteOrZero(shuffle)
+		g1 := archsimd.LoadUint8x16(unsafe.Slice((*byte)(unsafe.Pointer(&src[i+12])), 16)).PermuteOrZero(shuffle)
 		in := zero32.SetLo(g0).SetHi(g1).AsUint16x16()
 		idx := in.And(maskLo16).MulHigh(mulHi16).Or(in.And(maskHi16).Mul(mulLo16)).AsUint8x32()
 		res := idx.SubSaturated(b51x32)
-		less := b26x32.Greater(idx)
+		less := b26i32.Greater(idx.AsInt8x32())
 		res = b13x32.IfElse(less, res)
 		res = idx.Add(lut32.PermuteOrZeroGrouped(res.AsInt8x32()).AsUint8x32())
 		if url {
-			res = dashx32.IfElse(idx.Equal(b62x32), res)
-			res = underx32.IfElse(idx.Equal(b63x32), res)
+			res = archsimd.BroadcastUint8x32('-').IfElse(idx.Equal(archsimd.BroadcastUint8x32(62)), res)
+			res = archsimd.BroadcastUint8x32('_').IfElse(idx.Equal(archsimd.BroadcastUint8x32(63)), res)
 		}
-		res.Store(dst[o:])
+		res.Store(unsafe.Slice((*byte)(unsafe.Pointer(&dst[o])), 32))
 		i += 24
 		o += 32
 	}
+	lut := archsimd.LoadInt8x16(simdLut16[:])
+	maskLo8 := archsimd.LoadUint16x8(simdMaskLo8[:])
+	maskHi8 := archsimd.LoadUint16x8(simdMaskHi8[:])
+	mulHi8 := archsimd.LoadUint16x8(simdMulHi8[:])
+	mulLo8 := archsimd.LoadUint16x8(simdMulLo8[:])
+	b51x16, b13x16 := archsimd.BroadcastUint8x16(51), archsimd.BroadcastUint8x16(13)
+	b26i16 := archsimd.BroadcastInt8x16(26)
 	for i+16 <= len(src) && o+16 <= len(dst) {
-		in := archsimd.LoadUint8x16(src[i:]).PermuteOrZero(shuffle).AsUint16x8()
+		in := archsimd.LoadUint8x16(unsafe.Slice((*byte)(unsafe.Pointer(&src[i])), 16)).PermuteOrZero(shuffle).AsUint16x8()
 		idx := in.And(maskLo8).MulHigh(mulHi8).Or(in.And(maskHi8).Mul(mulLo8)).AsUint8x16()
 		res := idx.SubSaturated(b51x16)
-		less := b26x16.Greater(idx)
+		less := b26i16.Greater(idx.AsInt8x16())
 		res = b13x16.IfElse(less, res)
 		res = idx.Add(lut.PermuteOrZero(res.AsInt8x16()).AsUint8x16())
 		if url {
-			res = dashx16.IfElse(idx.Equal(b62x16), res)
-			res = underx16.IfElse(idx.Equal(b63x16), res)
+			res = archsimd.BroadcastUint8x16('-').IfElse(idx.Equal(archsimd.BroadcastUint8x16(62)), res)
+			res = archsimd.BroadcastUint8x16('_').IfElse(idx.Equal(archsimd.BroadcastUint8x16(63)), res)
 		}
-		res.Store(dst[o:])
+		res.Store(unsafe.Slice((*byte)(unsafe.Pointer(&dst[o])), 16))
 		i += 12
 		o += 16
 	}
@@ -130,6 +133,58 @@ func encodeSIMD(dst, src []byte, url, padded bool, pad byte) (int, int) {
 // scalar path finish. | decodeSIMD 把完整的 16 字符组解码为 12 字节并返回已处理的前缀；优先使用
 // 256 位向量，遇到填充、空白或非法输入时停止，交给标量路径收尾。
 func decodeSIMD(dst, src []byte, url bool) (int, int) {
+	if url {
+		return decodeSIMDCompare(dst, src, true)
+	}
+	return decodeSIMDStd(dst, src)
+}
+
+// decodeSIMDStd decodes 32-character blocks with the nibble lookup tables. | decodeSIMDStd 使用
+// 半字节查找表解码 32 字符块。
+func decodeSIMDStd(dst, src []byte) (int, int) {
+	if len(src) < 32 || len(dst) < 32 {
+		return 0, 0
+	}
+	loLUT := archsimd.LoadInt8x32(simdLoLUT[:32])
+	hiLUT := archsimd.LoadInt8x32(simdHiLUT[:32])
+	rollLUT := archsimd.LoadInt8x32(simdRollLUT[:32])
+	mul32 := archsimd.LoadInt8x32(simdMul32[:])
+	pack32 := archsimd.LoadInt8x32(simdPack32[:])
+	zero := archsimd.BroadcastUint8x32(0)
+	ffff := archsimd.BroadcastUint32x8(0xFFFF)
+	plus := archsimd.BroadcastUint8x32('+')
+	three := archsimd.BroadcastUint8x32(3)
+	hiMask := archsimd.BroadcastUint16x16(0x0F0F)
+	loMask := archsimd.BroadcastUint8x32(0x0F)
+	i, o := 0, 0
+	for i+32 <= len(src) && o+32 <= len(dst) {
+		c := archsimd.LoadUint8x32(unsafe.Slice((*byte)(unsafe.Pointer(&src[i])), 32))
+		hi := c.AsUint16x16().ShiftAllRight(4).And(hiMask).AsUint8x32()
+		lo := c.And(loMask)
+		loV := loLUT.PermuteOrZeroGrouped(lo.AsInt8x32()).AsUint8x32()
+		hiV := hiLUT.PermuteOrZeroGrouped(hi.AsInt8x32()).AsUint8x32()
+		if loV.And(hiV).Equal(zero).ToBits() != 0xFFFFFFFF {
+			break
+		}
+		v := c.Add(rollLUT.PermuteOrZeroGrouped(hi.AsInt8x32()).AsUint8x32())
+		v = v.Add(three.IfElse(c.Equal(plus), zero))
+		pairs := v.DotProductPairsSaturated(mul32).AsUint32x8()
+		groups := pairs.And(ffff).ShiftAllLeft(12).Or(pairs.ShiftAllRight(16)).AsUint8x32()
+		packed := groups.PermuteOrZeroGrouped(pack32)
+		out := unsafe.Pointer(&dst[o])
+		packed.GetLo().Store(unsafe.Slice((*byte)(out), 16))
+		packed.GetHi().Store(unsafe.Slice((*byte)(unsafe.Add(out, 12)), 16))
+		i += 32
+		o += 24
+	}
+	if i == 0 {
+		return 0, 0
+	}
+	ni, no := decodeSIMDCompare(dst[o:], src[i:], false)
+	return i + ni, o + no
+}
+
+func decodeSIMDCompare(dst, src []byte, url bool) (int, int) {
 	if len(src) < 32 || len(dst) < 32 {
 		return 0, 0
 	}
@@ -389,9 +444,9 @@ func decodeSIMD512VBMI2(dst, src []byte, url bool) (int, int) {
 	hiLUT := archsimd.LoadInt8x64(simdHiLUT[:])
 	rollLUT := archsimd.LoadInt8x64(simdRollLUT[:])
 	packMask := archsimd.Mask8x64FromBits(0x0FFF0FFF0FFF0FFF)
-	zero, plus, slash := simdZeroX64, simdPlusX64, simdSlashX64
+	zero, plus := simdZeroX64, simdPlusX64
+	three := simdThreeX64
 	eqChar, aChar := simdEqX64, simdAX64
-	b62, b63 := simdB62x64, simdB63x64
 	hiMask, loMask := simdHiMaskX32, simdLoMaskX64
 	i, o := 0, 0
 	for i+64 <= len(src) && o+64 <= len(dst) {
@@ -404,8 +459,7 @@ func decodeSIMD512VBMI2(dst, src []byte, url bool) (int, int) {
 			break
 		}
 		v := c.Add(rollLUT.PermuteOrZeroGrouped(hi.AsInt8x64()).AsUint8x64())
-		v = b62.IfElse(c.Equal(plus), v)
-		v = b63.IfElse(c.Equal(slash), v)
+		v = v.Add(three.IfElse(c.Equal(plus), zero))
 		pairs := v.DotProductPairsSaturated(mul).AsUint32x16()
 		groups := pairs.And(archsimd.BroadcastUint32x16(0xFFFF)).ShiftAllLeft(12).Or(pairs.ShiftAllRight(16)).AsUint8x64()
 		groups.PermuteOrZeroGrouped(pack).Compress(packMask).Store(dst[o:])
@@ -454,8 +508,7 @@ func decodeSIMD512VBMI2(dst, src []byte, url bool) (int, int) {
 			break
 		}
 		v := c.Add(rollLUT.PermuteOrZeroGrouped(hi.AsInt8x64()).AsUint8x64())
-		v = b62.IfElse(c.Equal(plus), v)
-		v = b63.IfElse(c.Equal(slash), v)
+		v = v.Add(three.IfElse(c.Equal(plus), zero))
 		pairs := v.DotProductPairsSaturated(mul).AsUint32x16()
 		groups := pairs.And(archsimd.BroadcastUint32x16(0xFFFF)).ShiftAllLeft(12).Or(pairs.ShiftAllRight(16)).AsUint8x64()
 		groups.PermuteOrZeroGrouped(pack).Compress(packMask).StorePart(dst[o : o+outLen])
