@@ -122,37 +122,40 @@ func Dial(ctx context.Context, rawURL string, o DialOptions) (*Conn, error) {
 		reqPath = "/"
 	}
 
-	var sb strings.Builder
-	sb.WriteString("GET ")
-	sb.WriteString(reqPath)
-	sb.WriteString(" HTTP/1.1\r\nHost: ")
-	sb.WriteString(u.Host)
-	sb.WriteString("\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Key: ")
-	sb.WriteString(key)
-	sb.WriteString("\r\nSec-WebSocket-Version: 13\r\n")
+	// Build the request directly in a byte slice so the handshake does not pay
+	// for a builder-to-string-to-bytes copy. | 直接在字节切片中构造请求，避免
+	// 握手为 builder→string→bytes 的复制付出额外开销。
+	req := make([]byte, 0, 256)
+	req = append(req, "GET "...)
+	req = append(req, reqPath...)
+	req = append(req, " HTTP/1.1\r\nHost: "...)
+	req = append(req, u.Host...)
+	req = append(req, "\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Key: "...)
+	req = append(req, key...)
+	req = append(req, "\r\nSec-WebSocket-Version: 13\r\n"...)
 	if len(o.Subprotocols) > 0 {
-		sb.WriteString("Sec-WebSocket-Protocol: ")
-		sb.WriteString(strings.Join(o.Subprotocols, ", "))
-		sb.WriteString("\r\n")
+		req = append(req, "Sec-WebSocket-Protocol: "...)
+		req = append(req, strings.Join(o.Subprotocols, ", ")...)
+		req = append(req, "\r\n"...)
 	}
 	if o.EnableWriteCompression {
 		// The bare client_max_window_bits parameter announces that we can honour a server-chosen window size; | 无值的 client_max_window_bits 参数表示我们能够履行服务端选定的窗口大小；
 		// the server's reply is validated by negotiateClientCompression. | 服务端的回复由 negotiateClientCompression 校验。
-		sb.WriteString("Sec-WebSocket-Extensions: permessage-deflate; client_max_window_bits\r\n")
+		req = append(req, "Sec-WebSocket-Extensions: permessage-deflate; client_max_window_bits\r\n"...)
 	}
 	for k, vs := range o.Headers {
 		for _, v := range vs {
-			sb.WriteString(k)
-			sb.WriteString(": ")
-			sb.WriteString(v)
-			sb.WriteString("\r\n")
+			req = append(req, k...)
+			req = append(req, ": "...)
+			req = append(req, v...)
+			req = append(req, "\r\n"...)
 		}
 	}
-	sb.WriteString("\r\n")
+	req = append(req, "\r\n"...)
 
 	deadline := time.Now().Add(timeout)
 	_ = netConn.SetDeadline(deadline)
-	if _, err := netConn.Write([]byte(sb.String())); err != nil {
+	if _, err := netConn.Write(req); err != nil {
 		_ = netConn.Close()
 		return nil, errx.WrapDetail(err, ErrHandshake, "failed to send handshake request | 发送握手请求失败")
 	}
@@ -177,7 +180,7 @@ func Dial(ctx context.Context, rawURL string, o DialOptions) (*Conn, error) {
 		_ = netConn.Close()
 		return nil, errx.Detail(ErrHandshake, "response Upgrade header is invalid | 响应 Upgrade 头非法")
 	}
-	if got, want := resp.Header.Get("Sec-WebSocket-Accept"), acceptKey(key); got != want {
+	if got, want := resp.Header.Get(headerSecWebSocketAccept), acceptKey(key); got != want {
 		_ = netConn.Close()
 		return nil, errx.Detail(ErrHandshake, "Sec-WebSocket-Accept mismatch, got %[1]q | Sec-WebSocket-Accept 不匹配（收到 %[1]q）", got)
 	}
@@ -205,8 +208,13 @@ func Dial(ctx context.Context, rawURL string, o DialOptions) (*Conn, error) {
 	c := newConn(netConn, Options{ReadBufferSize: o.ReadBufferSize, WriteBufferSize: o.WriteBufferSize, MaxMessageSize: maxSize}, true)
 	c.subprotocol = selected
 	c.setCompression(compCfg)
-	// the bufio.Reader used by ReadResponse may already have buffered the peer's first frame | ReadResponse 的 bufio.Reader 可能已缓冲了对端的第一帧
-	if br.Buffered() > 0 || o.ReadBufferSize > 0 {
+	// The bufio.Reader used by ReadResponse may already hold the peer's first
+	// frame; only then must it be kept. Otherwise the reader created with the
+	// requested ReadBufferSize wins, so the option is not silently replaced by
+	// the handshake reader's default size. | ReadResponse 使用的 bufio.Reader 可能
+	// 已缓存对端的第一帧，只有此时才必须保留它；否则保留按 ReadBufferSize 创建的
+	// 读取器，避免该选项被握手读取器的默认大小静默覆盖。
+	if br.Buffered() > 0 {
 		c.br = br
 	}
 	return c, nil
@@ -245,7 +253,7 @@ func validateExtendedConnect(u *url.URL, o DialOptions) error {
 // one the client offered; RFC 7936 makes the comparison case-sensitive. | RFC 6455 §4.1
 // 最多允许一个被选中的子协议，且必须是客户端提议过的；RFC 7936 要求比较大小写敏感。
 func parseSelectedSubprotocol(h http.Header, offered []string) (string, error) {
-	values := h.Values("Sec-WebSocket-Protocol")
+	values := h.Values(headerSecWebSocketProtocol)
 	if len(values) > 1 {
 		return "", errx.Detail(ErrUnrequestedSubprotocol,
 			"server sent %[1]d Sec-WebSocket-Protocol headers, at most one is allowed | 服务端发送了 %[1]d 个 Sec-WebSocket-Protocol 头，最多允许一个", len(values))
@@ -286,12 +294,12 @@ func dialExtended(ctx context.Context, u *url.URL, o DialOptions, timeout time.D
 		return nil, errx.WrapDetail(err, ErrHandshake, "failed to build the handshake request | 构造握手请求失败")
 	}
 	req.Host = u.Host
-	req.Header.Set("Sec-WebSocket-Version", "13")
+	req.Header.Set(headerSecWebSocketVersion, "13")
 	if len(o.Subprotocols) > 0 {
-		req.Header.Set("Sec-WebSocket-Protocol", strings.Join(o.Subprotocols, ", "))
+		req.Header.Set(headerSecWebSocketProtocol, strings.Join(o.Subprotocols, ", "))
 	}
 	if o.EnableWriteCompression {
-		req.Header.Set("Sec-WebSocket-Extensions", "permessage-deflate; client_max_window_bits")
+		req.Header.Set(headerSecWebSocketExtensions, "permessage-deflate; client_max_window_bits")
 	}
 	for k, vs := range o.Headers {
 		for _, v := range vs {

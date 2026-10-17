@@ -55,6 +55,16 @@ import (
 const (
 	// websocketGUID is the handshake magic value specified by RFC 6455 §1.3. | websocketGUID 是 RFC 6455 §1.3 规定的握手魔数。
 	websocketGUID = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
+	// Canonical spellings of the handshake headers. Go canonicalizes Header keys,
+	// and passing the RFC spelling ("Sec-WebSocket-Key") to Get/Set/Values
+	// allocates a canonical copy on every call. | 握手头的规范拼写。Go 会规范化
+	// Header 键名，向 Get/Set/Values 传入 RFC 拼写（"Sec-WebSocket-Key"）会在
+	// 每次调用时分配一份规范副本。
+	headerSecWebSocketKey        = "Sec-Websocket-Key"
+	headerSecWebSocketVersion    = "Sec-Websocket-Version"
+	headerSecWebSocketProtocol   = "Sec-Websocket-Protocol"
+	headerSecWebSocketExtensions = "Sec-Websocket-Extensions"
+	headerSecWebSocketAccept     = "Sec-Websocket-Accept"
 	// maxControlPayload is the control frame payload limit (RFC 6455 §5.5). | maxControlPayload 是控制帧载荷上限（RFC 6455 §5.5）。
 	maxControlPayload = 125
 	// maxHeaderSize is the maximum byte count of a masked client frame header (2 + 8 + 4). | maxHeaderSize 是客户端掩码帧头最大字节数（2 + 8 + 4）。

@@ -19,23 +19,40 @@ import (
 // Accept = base64( SHA1( Sec-WebSocket-Key + "258EAFA5-E914-47DA-95CA-C5AB0DC85B11" ) )
 // The computation reuses the framework's b64x adaptive Base64 layer (the amd64 path uses a SIMD-accelerated implementation). | 计算复用框架的 b64x 自适应 Base64 层（amd64 走 SIMD 加速实现）。
 func acceptKey(key string) string {
-	h := sha1.New()
-	_, _ = h.Write([]byte(key))
-	_, _ = h.Write([]byte(websocketGUID))
-	sum := h.Sum(nil)
-	return b64x.StdEncoding.EncodeToString(sum)
+	// A normal Sec-WebSocket-Key is 24 bytes, so the concatenation fits on the
+	// stack and sha1.Sum needs no hash object or output slice. | 正常的
+	// Sec-WebSocket-Key 为 24 字节，拼接后可放在栈上，sha1.Sum 不需要哈希对象或输出切片。
+	var buf [128]byte
+	if len(key)+len(websocketGUID) <= len(buf) {
+		n := copy(buf[:], key)
+		n += copy(buf[n:], websocketGUID)
+		sum := sha1.Sum(buf[:n])
+		return b64x.StdEncoding.EncodeToString(sum[:])
+	}
+	sum := sha1.Sum([]byte(key + websocketGUID))
+	return b64x.StdEncoding.EncodeToString(sum[:])
 }
 
 // headerContainsToken reports whether a comma-separated header contains the given token (case-insensitive). | headerContainsToken 报告以逗号分隔的头部中是否包含指定 token（大小写不敏感）。
 func headerContainsToken(h http.Header, name, token string) bool {
 	for _, v := range h.Values(name) {
-		for _, part := range strings.Split(v, ",") {
+		for v != "" {
+			var part string
+			part, v = nextToken(v)
 			if strings.EqualFold(strings.TrimSpace(part), token) {
 				return true
 			}
 		}
 	}
 	return false
+}
+
+// nextToken cuts the first comma-separated element off s and returns it with the remainder. | nextToken 从 s 中切出第一个逗号分隔元素及剩余部分。
+func nextToken(s string) (token, rest string) {
+	if i := strings.IndexByte(s, ','); i >= 0 {
+		return s[:i], s[i+1:]
+	}
+	return s, ""
 }
 
 // Upgrade turns an HTTP request into a WebSocket connection. | Upgrade 把 HTTP 请求升级为 WebSocket 连接。
@@ -70,13 +87,13 @@ func Upgrade(w http.ResponseWriter, r *http.Request, o Options) (*Conn, error) {
 		http.Error(w, "Upgrade header must be websocket | Upgrade 头必须为 websocket", http.StatusBadRequest)
 		return nil, errx.Detail(ErrHandshake, "Upgrade header is invalid | Upgrade 头非法")
 	}
-	if v := r.Header.Get("Sec-WebSocket-Version"); v != "13" {
-		w.Header().Set("Sec-WebSocket-Version", "13")
+	if v := r.Header.Get(headerSecWebSocketVersion); v != "13" {
+		w.Header().Set(headerSecWebSocketVersion, "13")
 		http.Error(w, "only WebSocket version 13 is supported | 仅支持 WebSocket 版本 13", http.StatusUpgradeRequired)
 		return nil, errx.Detail(ErrHandshake, "unsupported version %[1]q | 版本 %[1]q 不受支持", v)
 	}
 
-	key := r.Header.Get("Sec-WebSocket-Key")
+	key := r.Header.Get(headerSecWebSocketKey)
 	decoded, err := b64x.StdEncoding.DecodeString(key)
 	if err != nil || len(decoded) != 16 {
 		http.Error(w, "Sec-WebSocket-Key must be 16 bytes of base64 | Sec-WebSocket-Key 必须是 16 字节的 base64", http.StatusBadRequest)
@@ -110,27 +127,30 @@ func Upgrade(w http.ResponseWriter, r *http.Request, o Options) (*Conn, error) {
 		return nil, errx.WrapDetail(err, ErrHandshake, "Hijack failed | Hijack 失败")
 	}
 
-	var sb strings.Builder
-	sb.Grow(160)
-	sb.WriteString("HTTP/1.1 101 Switching Protocols\r\n")
-	sb.WriteString("Upgrade: websocket\r\n")
-	sb.WriteString("Connection: Upgrade\r\n")
-	sb.WriteString("Sec-WebSocket-Accept: ")
-	sb.WriteString(acceptKey(key))
-	sb.WriteString("\r\n")
+	// Build the 101 response directly in a byte slice: the previous
+	// strings.Builder path copied the whole response one more time when it was
+	// converted for Write. | 直接在字节切片中构造 101 响应：原先的
+	// strings.Builder 路径在写给 Write 时还要把整个响应再复制一次。
+	resp := make([]byte, 0, 160)
+	resp = append(resp, "HTTP/1.1 101 Switching Protocols\r\n"...)
+	resp = append(resp, "Upgrade: websocket\r\n"...)
+	resp = append(resp, "Connection: Upgrade\r\n"...)
+	resp = append(resp, "Sec-WebSocket-Accept: "...)
+	resp = append(resp, acceptKey(key)...)
+	resp = append(resp, "\r\n"...)
 	if sub != "" {
-		sb.WriteString("Sec-WebSocket-Protocol: ")
-		sb.WriteString(sub)
-		sb.WriteString("\r\n")
+		resp = append(resp, "Sec-WebSocket-Protocol: "...)
+		resp = append(resp, sub...)
+		resp = append(resp, "\r\n"...)
 	}
 	if extReply != "" {
-		sb.WriteString("Sec-WebSocket-Extensions: ")
-		sb.WriteString(extReply)
-		sb.WriteString("\r\n")
+		resp = append(resp, "Sec-WebSocket-Extensions: "...)
+		resp = append(resp, extReply...)
+		resp = append(resp, "\r\n"...)
 	}
-	sb.WriteString("\r\n")
+	resp = append(resp, "\r\n"...)
 
-	if _, err := netConn.Write([]byte(sb.String())); err != nil {
+	if _, err := netConn.Write(resp); err != nil {
 		_ = netConn.Close()
 		return nil, errx.WrapDetail(err, ErrHandshake, "failed to write handshake response | 写入握手响应失败")
 	}
@@ -154,8 +174,8 @@ func Upgrade(w http.ResponseWriter, r *http.Request, o Options) (*Conn, error) {
 // never writes Connection or Upgrade, and responds with 200 instead of 101. | 它不使用
 // Sec-WebSocket-Key/Accept（已由 :protocol 取代），不写 Connection 或 Upgrade，并以 200 而非 101 响应。
 func upgradeExtendedConnect(w http.ResponseWriter, r *http.Request, o Options) (*Conn, error) {
-	if v := r.Header.Get("Sec-WebSocket-Version"); v != "13" {
-		w.Header().Set("Sec-WebSocket-Version", "13")
+	if v := r.Header.Get(headerSecWebSocketVersion); v != "13" {
+		w.Header().Set(headerSecWebSocketVersion, "13")
 		http.Error(w, "only WebSocket version 13 is supported | 仅支持 WebSocket 版本 13", http.StatusUpgradeRequired)
 		return nil, errx.Detail(ErrHandshake, "unsupported version %[1]q | 版本 %[1]q 不受支持", v)
 	}
@@ -188,10 +208,10 @@ func upgradeExtendedConnect(w http.ResponseWriter, r *http.Request, o Options) (
 	_ = rc.SetWriteDeadline(time.Time{})
 
 	if sub != "" {
-		w.Header().Set("Sec-WebSocket-Protocol", sub)
+		w.Header().Set(headerSecWebSocketProtocol, sub)
 	}
 	if extReply != "" {
-		w.Header().Set("Sec-WebSocket-Extensions", extReply)
+		w.Header().Set(headerSecWebSocketExtensions, extReply)
 	}
 	w.WriteHeader(http.StatusOK)
 	if err := rc.Flush(); err != nil {
@@ -260,18 +280,14 @@ func selectSubprotocol(r *http.Request, supported []string) string {
 	if len(supported) == 0 {
 		return ""
 	}
-	offered := make([]string, 0, 4)
-	for _, v := range r.Header.Values("Sec-WebSocket-Protocol") {
-		for _, p := range strings.Split(v, ",") {
-			if p = strings.TrimSpace(p); p != "" {
-				offered = append(offered, p)
-			}
-		}
-	}
 	for _, want := range supported {
-		for _, got := range offered {
-			if got == want {
-				return got
+		for _, v := range r.Header.Values(headerSecWebSocketProtocol) {
+			for v != "" {
+				var p string
+				p, v = nextToken(v)
+				if strings.TrimSpace(p) == want {
+					return want
+				}
 			}
 		}
 	}

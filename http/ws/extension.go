@@ -207,7 +207,7 @@ func parseWindowBits(v string) (int, bool) {
 // offer is acceptable. An unknown parameter, a duplicate parameter or an out-of-range window size | 此时不启用扩展而不是让握手失败：未知参数、重复参数或越界窗口
 // declines only that offer instead of failing the handshake (RFC 7692 §7.1). | 只会拒绝该项提议（RFC 7692 §7.1）。
 func negotiateServerCompression(h http.Header) (*compressionConfig, string) {
-	for _, e := range parseExtensionHeader(h.Values("Sec-WebSocket-Extensions")) {
+	for _, e := range parseExtensionHeader(h.Values(headerSecWebSocketExtensions)) {
 		if e.name != "permessage-deflate" || e.invalid {
 			continue
 		}
@@ -298,14 +298,14 @@ func acceptDeflateOffer(e extensionEntry) (*compressionConfig, string, bool) {
 // value also fails the handshake: the server has already activated compression, so silently ignoring | 服务端已经启用压缩，静默忽略会让两侧对后续帧的理解不一致。
 // the parameter would leave the two sides disagreeing about every following frame.
 func negotiateClientCompression(h http.Header, offered bool) (*compressionConfig, error) {
-	entries := parseExtensionHeader(h.Values("Sec-WebSocket-Extensions"))
+	entries := parseExtensionHeader(h.Values(headerSecWebSocketExtensions))
 
 	if !offered {
 		if len(entries) > 0 {
 			return nil, errx.Wrap(
 				errx.Detail(ErrUnrequestedExtension,
 					"server sent %[1]q, which the client did not offer | 服务端发送了客户端未提议的 %[1]q",
-					strings.Join(h.Values("Sec-WebSocket-Extensions"), ", ")),
+					strings.Join(h.Values(headerSecWebSocketExtensions), ", ")),
 				ErrHandshake)
 		}
 		return nil, nil
