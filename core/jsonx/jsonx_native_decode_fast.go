@@ -178,9 +178,19 @@ func buildFastFieldDecoder(t reflect.Type) fastFieldDec {
 	}
 	if t == timeType {
 		return func(d *decoder, p unsafe.Pointer) error {
-			raw, err := d.captureValueView()
-			if err != nil {
-				return err
+			var raw []byte
+			if d.data[d.pos] == '"' {
+				if end, slow := scanStringBody(d.data, d.pos+1); !slow {
+					raw = d.data[d.pos : end+1]
+					d.pos = end + 1
+				}
+			}
+			if raw == nil {
+				var err error
+				raw, err = d.captureValueView()
+				if err != nil {
+					return err
+				}
 			}
 			if len(raw) == 4 && raw[0] == 'n' {
 				return (*time.Time)(p).UnmarshalJSON(raw)
