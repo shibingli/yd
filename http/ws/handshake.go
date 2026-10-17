@@ -95,8 +95,12 @@ func Upgrade(w http.ResponseWriter, r *http.Request, o Options) (*Conn, error) {
 	}
 
 	key := r.Header.Get(headerSecWebSocketKey)
-	decoded, err := b64x.StdEncoding.DecodeString(key)
-	if err != nil || len(decoded) != 16 {
+	// Decode into a stack array: the key is exactly 16 bytes, so no result
+	// allocation is needed for the validation. | 解码到栈上数组：key 恰好 16 字节，
+	// 校验不需要为结果分配内存。
+	var keyRaw [24]byte
+	n, err := b64x.StdEncoding.Decode(keyRaw[:], []byte(key))
+	if err != nil || n != 16 {
 		http.Error(w, "Sec-WebSocket-Key must be 16 bytes of base64 | Sec-WebSocket-Key 必须是 16 字节的 base64", http.StatusBadRequest)
 		return nil, errx.Detail(ErrHandshake, "invalid Sec-WebSocket-Key | Sec-WebSocket-Key 非法")
 	}

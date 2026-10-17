@@ -56,6 +56,10 @@ type Conn struct {
 	readBuf []byte
 	maskBuf []byte
 
+	// bufs is the backing array of the scatter list; keeping it inline removes the
+	// per-connection net.Buffers allocation. | bufs 是分散列表的后备数组；内联它可去掉
+	// 每条连接一次的 net.Buffers 分配。
+	bufs [2][]byte
 	// writeBase is the stable two-element scatter list; writeList is the copy handed to WriteTo,
 	// which consumes it, so the base view survives for the next frame. Both live on the connection,
 	// which keeps the per-frame buffer list allocation-free. | writeBase 是稳定的两元素分散列表；
@@ -130,8 +134,9 @@ func newConn(nc net.Conn, o Options, isClient bool) *Conn {
 // and are not in use elsewhere. | newConnWithBuffers 构造连接对象；br 与 bw 非 nil
 // 时直接复用。调用方拥有这些缓冲，并须确保它们包装的是 nc 且未被其它方使用。
 func newConnWithBuffers(nc net.Conn, o Options, isClient bool, br *bufio.Reader, bw *bufio.Writer) *Conn {
-	writeBufs := make(net.Buffers, 2)
-	c := &Conn{conn: nc, opts: o, isClient: isClient, kind: TransportTCP, writeBase: writeBufs, writeList: writeBufs}
+	c := &Conn{conn: nc, opts: o, isClient: isClient, kind: TransportTCP}
+	c.writeBase = c.bufs[:]
+	c.writeList = c.writeBase
 	if br != nil {
 		c.br = br
 	} else if o.ReadBufferSize > 0 {
@@ -884,10 +889,6 @@ func (c *Conn) writeFrameLocked(rsv1, fin bool, op OpCode, payload []byte) error
 		// stable two-element view for the next frame. | 连接自有的分散列表使每帧的缓冲列表不再上堆。
 		// WriteTo 会消费传入的切片，因此交给它的是 writeList 副本，而 writeBase 保留稳定的两元素视图
 		// 供下一帧复用。
-		if cap(c.writeBase) < 2 {
-			bufs := make(net.Buffers, 2)
-			c.writeBase, c.writeList = bufs, bufs
-		}
 		c.writeBase = c.writeBase[:2]
 		c.writeBase[0] = hdr[:n]
 		c.writeBase[1] = body

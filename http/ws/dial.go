@@ -160,7 +160,14 @@ func Dial(ctx context.Context, rawURL string, o DialOptions) (*Conn, error) {
 		return nil, errx.WrapDetail(err, ErrHandshake, "failed to send handshake request | 发送握手请求失败")
 	}
 
-	br := bufio.NewReader(netConn)
+	// Size the handshake reader for the frames that follow it, so it can be
+	// reused by the connection instead of allocating a second reader. | 按后续帧的
+	// 需求设置握手读取器大小，使连接可以直接复用它，而不必再分配一个读取器。
+	handshakeReadSize := o.ReadBufferSize
+	if handshakeReadSize <= 0 {
+		handshakeReadSize = defaultReadBufferSize
+	}
+	br := bufio.NewReaderSize(netConn, handshakeReadSize)
 	resp, err := http.ReadResponse(br, &http.Request{Method: http.MethodGet})
 	if err != nil {
 		_ = netConn.Close()
@@ -205,18 +212,20 @@ func Dial(ctx context.Context, rawURL string, o DialOptions) (*Conn, error) {
 	if maxSize <= 0 {
 		maxSize = defaultMaxMessageSize
 	}
-	c := newConn(netConn, Options{ReadBufferSize: o.ReadBufferSize, WriteBufferSize: o.WriteBufferSize, MaxMessageSize: maxSize}, true)
+	// Reuse the handshake reader when an explicit read buffer was requested (it
+	// already has that size) or when it buffered the peer's first frame. With
+	// ReadBufferSize <= 0 and no buffered bytes the connection reads directly. | 当
+	// 显式请求了读缓冲（尺寸已匹配）或握手读取器缓存了对端首帧时复用它；ReadBufferSize
+	// <= 0 且无缓存字节时连接直接读。
+	var reader *bufio.Reader
+	if o.ReadBufferSize > 0 || br.Buffered() > 0 {
+		reader = br
+	}
+	c := newConnWithBuffers(netConn,
+		Options{ReadBufferSize: o.ReadBufferSize, WriteBufferSize: o.WriteBufferSize, MaxMessageSize: maxSize},
+		true, reader, nil)
 	c.subprotocol = selected
 	c.setCompression(compCfg)
-	// The bufio.Reader used by ReadResponse may already hold the peer's first
-	// frame; only then must it be kept. Otherwise the reader created with the
-	// requested ReadBufferSize wins, so the option is not silently replaced by
-	// the handshake reader's default size. | ReadResponse 使用的 bufio.Reader 可能
-	// 已缓存对端的第一帧，只有此时才必须保留它；否则保留按 ReadBufferSize 创建的
-	// 读取器，避免该选项被握手读取器的默认大小静默覆盖。
-	if br.Buffered() > 0 {
-		c.br = br
-	}
 	return c, nil
 }
 
