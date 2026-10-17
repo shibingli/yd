@@ -150,22 +150,27 @@ func checkOrigin(r *http.Request, custom func(*http.Request) bool) bool {
 }
 
 // selectSubprotocol picks one of the client-offered subprotocols according to server priority. | selectSubprotocol 从客户端提供的子协议中按服务端优先级挑选一个。
+//
+// RFC 7936 requires a case-sensitive string match: "Chat" and "chat" are different
+// subprotocols even though IANA refuses to register both. | RFC 7936 要求大小写敏感的字符串
+// 比较："Chat" 与 "chat" 是两个不同的子协议，即便 IANA 会拒绝同时注册它们。
 func selectSubprotocol(r *http.Request, supported []string) string {
 	if len(supported) == 0 {
 		return ""
 	}
-	offered := map[string]string{}
+	offered := make([]string, 0, 4)
 	for _, v := range r.Header.Values("Sec-WebSocket-Protocol") {
 		for _, p := range strings.Split(v, ",") {
-			p = strings.TrimSpace(p)
-			if p != "" {
-				offered[strings.ToLower(p)] = p
+			if p = strings.TrimSpace(p); p != "" {
+				offered = append(offered, p)
 			}
 		}
 	}
 	for _, want := range supported {
-		if got, ok := offered[strings.ToLower(want)]; ok {
-			return got
+		for _, got := range offered {
+			if got == want {
+				return got
+			}
 		}
 	}
 	return ""
