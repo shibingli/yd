@@ -75,7 +75,6 @@ func encodeSIMD(dst, src []byte, url, padded bool, pad byte) (int, int) {
 	if len(src) < 28 || len(dst) < 32 {
 		return 0, 0
 	}
-	shuffle := archsimd.LoadInt8x16(simdShuf16[:])
 	lut32 := archsimd.LoadInt8x32(simdLut32[:])
 	maskLo16 := archsimd.LoadUint16x16(simdMaskLo16[:])
 	maskHi16 := archsimd.LoadUint16x16(simdMaskHi16[:])
@@ -83,10 +82,13 @@ func encodeSIMD(dst, src []byte, url, padded bool, pad byte) (int, int) {
 	mulLo16 := archsimd.LoadUint16x16(simdMulLo16[:])
 	b51x32, b13x32 := archsimd.BroadcastUint8x32(51), archsimd.BroadcastUint8x32(13)
 	b26i32 := archsimd.BroadcastInt8x32(26)
-	zero32 := archsimd.BroadcastUint8x32(0)
-
 	i, o := 0, 0
-	for i+28 <= len(src) && o+32 <= len(dst) {
+	// The first block uses two 16-byte loads; subsequent blocks load 32 bytes at i-4 and gather
+	// both 12-byte groups with one lane-local shuffle. | 首块用两次 16 字节加载；后续块在 i-4
+	// 处加载 32 字节，用一次通道内重排汇集两个 12 字节组。
+	if i+28 <= len(src) && o+32 <= len(dst) {
+		shuffle := archsimd.LoadInt8x16(simdShuf16[:])
+		zero32 := archsimd.BroadcastUint8x32(0)
 		g0 := archsimd.LoadUint8x16(unsafe.Slice((*byte)(unsafe.Pointer(&src[i])), 16)).PermuteOrZero(shuffle)
 		g1 := archsimd.LoadUint8x16(unsafe.Slice((*byte)(unsafe.Pointer(&src[i+12])), 16)).PermuteOrZero(shuffle)
 		in := zero32.SetLo(g0).SetHi(g1).AsUint16x16()
@@ -103,6 +105,46 @@ func encodeSIMD(dst, src []byte, url, padded bool, pad byte) (int, int) {
 		i += 24
 		o += 32
 	}
+	shuf32 := archsimd.LoadInt8x32(simdShuf32Gather[:])
+	for i+52 <= len(src) && o+64 <= len(dst) {
+		in0 := archsimd.LoadUint8x32(unsafe.Slice((*byte)(unsafe.Pointer(&src[i-4])), 32)).PermuteOrZeroGrouped(shuf32).AsUint16x16()
+		in1 := archsimd.LoadUint8x32(unsafe.Slice((*byte)(unsafe.Pointer(&src[i+20])), 32)).PermuteOrZeroGrouped(shuf32).AsUint16x16()
+		idx0 := in0.And(maskLo16).MulHigh(mulHi16).Or(in0.And(maskHi16).Mul(mulLo16)).AsUint8x32()
+		idx1 := in1.And(maskLo16).MulHigh(mulHi16).Or(in1.And(maskHi16).Mul(mulLo16)).AsUint8x32()
+		res0 := idx0.SubSaturated(b51x32)
+		res1 := idx1.SubSaturated(b51x32)
+		res0 = b13x32.IfElse(b26i32.Greater(idx0.AsInt8x32()), res0)
+		res1 = b13x32.IfElse(b26i32.Greater(idx1.AsInt8x32()), res1)
+		res0 = idx0.Add(lut32.PermuteOrZeroGrouped(res0.AsInt8x32()).AsUint8x32())
+		res1 = idx1.Add(lut32.PermuteOrZeroGrouped(res1.AsInt8x32()).AsUint8x32())
+		if url {
+			res0 = archsimd.BroadcastUint8x32('-').IfElse(idx0.Equal(archsimd.BroadcastUint8x32(62)), res0)
+			res0 = archsimd.BroadcastUint8x32('_').IfElse(idx0.Equal(archsimd.BroadcastUint8x32(63)), res0)
+			res1 = archsimd.BroadcastUint8x32('-').IfElse(idx1.Equal(archsimd.BroadcastUint8x32(62)), res1)
+			res1 = archsimd.BroadcastUint8x32('_').IfElse(idx1.Equal(archsimd.BroadcastUint8x32(63)), res1)
+		}
+		res0.Store(unsafe.Slice((*byte)(unsafe.Pointer(&dst[o])), 32))
+		res1.Store(unsafe.Slice((*byte)(unsafe.Pointer(&dst[o+32])), 32))
+		i += 48
+		o += 64
+	}
+	for i+28 <= len(src) && o+32 <= len(dst) {
+		in := archsimd.LoadUint8x32(unsafe.Slice((*byte)(unsafe.Pointer(&src[i-4])), 32)).PermuteOrZeroGrouped(shuf32).AsUint16x16()
+		idx := in.And(maskLo16).MulHigh(mulHi16).Or(in.And(maskHi16).Mul(mulLo16)).AsUint8x32()
+		res := idx.SubSaturated(b51x32)
+		less := b26i32.Greater(idx.AsInt8x32())
+		res = b13x32.IfElse(less, res)
+		res = idx.Add(lut32.PermuteOrZeroGrouped(res.AsInt8x32()).AsUint8x32())
+		if url {
+			res = archsimd.BroadcastUint8x32('-').IfElse(idx.Equal(archsimd.BroadcastUint8x32(62)), res)
+			res = archsimd.BroadcastUint8x32('_').IfElse(idx.Equal(archsimd.BroadcastUint8x32(63)), res)
+		}
+		res.Store(unsafe.Slice((*byte)(unsafe.Pointer(&dst[o])), 32))
+		i += 24
+		o += 32
+	}
+	shuffle := archsimd.LoadInt8x16(simdShuf16[:])
+	zero32 := archsimd.BroadcastUint8x32(0)
 	for rem := len(src) - i; rem > 0; {
 		take := rem
 		if take > 24 {
@@ -146,10 +188,6 @@ func encodeSIMD(dst, src []byte, url, padded bool, pad byte) (int, int) {
 	return i, o
 }
 
-// decodeSIMD decodes complete 16-character groups into 12 bytes and returns the consumed prefix.
-// It prefers 256-bit vectors, stops before padding, whitespace, or invalid input, and lets the
-// scalar path finish. | decodeSIMD 把完整的 16 字符组解码为 12 字节并返回已处理的前缀；优先使用
-// 256 位向量，遇到填充、空白或非法输入时停止，交给标量路径收尾。
 func decodeSIMD(dst, src []byte, url bool) (int, int) {
 	if url {
 		return decodeSIMDCompare(dst, src, true)
@@ -247,6 +285,7 @@ func decodeSIMDStd(dst, src []byte) (int, int) {
 	rollLUT := archsimd.LoadInt8x32(simdRollLUT[:32])
 	mul32 := archsimd.LoadInt8x32(simdMul32[:])
 	pack32 := archsimd.LoadInt8x32(simdPack32[:])
+	dwordIdx := archsimd.LoadUint32x8(simdPackDword[:])
 	zero := archsimd.BroadcastUint8x32(0)
 	plus := archsimd.BroadcastUint8x32('+')
 	slash := archsimd.BroadcastUint8x32('/')
@@ -255,6 +294,39 @@ func decodeSIMDStd(dst, src []byte) (int, int) {
 	hiMask := archsimd.BroadcastUint16x16(0x0F0F)
 	loMask := archsimd.BroadcastUint8x32(0x0F)
 	i, o := 0, 0
+	for i+64 <= len(src) && o+64 <= len(dst) {
+		c0 := archsimd.LoadUint8x32(unsafe.Slice((*byte)(unsafe.Pointer(&src[i])), 32))
+		c1 := archsimd.LoadUint8x32(unsafe.Slice((*byte)(unsafe.Pointer(&src[i+32])), 32))
+		hi0 := c0.AsUint16x16().ShiftAllRight(4).And(hiMask).AsUint8x32()
+		hi1 := c1.AsUint16x16().ShiftAllRight(4).And(hiMask).AsUint8x32()
+		lo0 := c0.And(loMask)
+		lo1 := c1.And(loMask)
+		loV0 := loLUT.PermuteOrZeroGrouped(lo0.AsInt8x32()).AsUint8x32()
+		loV1 := loLUT.PermuteOrZeroGrouped(lo1.AsInt8x32()).AsUint8x32()
+		hiV0 := hiLUT.PermuteOrZeroGrouped(hi0.AsInt8x32()).AsUint8x32()
+		hiV1 := hiLUT.PermuteOrZeroGrouped(hi1.AsInt8x32()).AsUint8x32()
+		valid0 := loV0.And(hiV0).Equal(zero).ToBits()
+		valid1 := loV1.And(hiV1).Equal(zero).ToBits()
+		if valid0&valid1 != 0xFFFFFFFF {
+			break
+		}
+		v0 := c0.Add(rollLUT.PermuteOrZeroGrouped(hi0.AsInt8x32()).AsUint8x32())
+		v1 := c1.Add(rollLUT.PermuteOrZeroGrouped(hi1.AsInt8x32()).AsUint8x32())
+		v0 = b62.IfElse(c0.Equal(plus), v0)
+		v0 = b63.IfElse(c0.Equal(slash), v0)
+		v1 = b62.IfElse(c1.Equal(plus), v1)
+		v1 = b63.IfElse(c1.Equal(slash), v1)
+		p0 := v0.DotProductPairsSaturated(mul32).AsUint32x8()
+		p1 := v1.DotProductPairsSaturated(mul32).AsUint32x8()
+		g0 := p0.ShiftAllLeft(12).Or(p0.ShiftAllRight(16)).AsUint8x32()
+		g1 := p1.ShiftAllLeft(12).Or(p1.ShiftAllRight(16)).AsUint8x32()
+		pk0 := g0.PermuteOrZeroGrouped(pack32).AsUint32x8().Permute(dwordIdx).AsUint8x32()
+		pk1 := g1.PermuteOrZeroGrouped(pack32).AsUint32x8().Permute(dwordIdx).AsUint8x32()
+		pk0.Store(unsafe.Slice((*byte)(unsafe.Pointer(&dst[o])), 32))
+		pk1.Store(unsafe.Slice((*byte)(unsafe.Pointer(&dst[o+24])), 32))
+		i += 64
+		o += 48
+	}
 	for i+32 <= len(src) && o+32 <= len(dst) {
 		c := archsimd.LoadUint8x32(unsafe.Slice((*byte)(unsafe.Pointer(&src[i])), 32))
 		hi := c.AsUint16x16().ShiftAllRight(4).And(hiMask).AsUint8x32()
@@ -269,10 +341,8 @@ func decodeSIMDStd(dst, src []byte) (int, int) {
 		v = b63.IfElse(c.Equal(slash), v)
 		pairs := v.DotProductPairsSaturated(mul32).AsUint32x8()
 		groups := pairs.ShiftAllLeft(12).Or(pairs.ShiftAllRight(16)).AsUint8x32()
-		packed := groups.PermuteOrZeroGrouped(pack32)
-		out := unsafe.Pointer(&dst[o])
-		packed.GetLo().Store(unsafe.Slice((*byte)(out), 16))
-		packed.GetHi().Store(unsafe.Slice((*byte)(unsafe.Add(out, 12)), 16))
+		packed := groups.PermuteOrZeroGrouped(pack32).AsUint32x8().Permute(dwordIdx).AsUint8x32()
+		packed.Store(unsafe.Slice((*byte)(unsafe.Pointer(&dst[o])), 32))
 		i += 32
 		o += 24
 	}

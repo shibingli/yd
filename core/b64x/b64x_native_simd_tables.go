@@ -7,10 +7,12 @@ import "simd/archsimd"
 // SIMD constant tables are built once at startup instead of on every call.
 // SIMD 常量表在启动时构建一次，避免每次调用重复初始化。
 var (
-	simdShuf16 = [16]int8{1, 0, 2, 1, 4, 3, 5, 4, 7, 6, 8, 7, 10, 9, 11, 10}
-	simdLut16  = [16]int8{71, -4, -4, -4, -4, -4, -4, -4, -4, -4, -4, -19, -16, 65, 0, 0}
-	simdPack16 = [16]int8{2, 1, 0, 6, 5, 4, 10, 9, 8, 14, 13, 12, 15, 15, 15, 15}
-	simdPack32 [32]int8
+	simdShuf16       = [16]int8{1, 0, 2, 1, 4, 3, 5, 4, 7, 6, 8, 7, 10, 9, 11, 10}
+	simdShuf32Gather [32]int8
+	simdLut16        = [16]int8{71, -4, -4, -4, -4, -4, -4, -4, -4, -4, -4, -19, -16, 65, 0, 0}
+	simdPack16       = [16]int8{2, 1, 0, 6, 5, 4, 10, 9, 8, 14, 13, 12, 15, 15, 15, 15}
+	simdPack32       [32]int8
+	simdPackDword    = [8]uint32{0, 1, 2, 4, 5, 6, 7, 7}
 
 	simdMaskLo8, simdMaskHi8, simdMulHi8, simdMulLo8     [8]uint16
 	simdMaskLo16, simdMaskHi16, simdMulHi16, simdMulLo16 [16]uint16
@@ -81,6 +83,10 @@ func init() {
 		simdOutPadded[t] = uint8((t + 2) / 3 * 4)
 		simdOutRaw[t] = uint8((t*8 + 5) / 6)
 		simdPads[t] = uint8((3 - t%3) % 3)
+	}
+	for j := 0; j < 16; j++ {
+		simdShuf32Gather[j] = simdShuf16[j] + 4
+		simdShuf32Gather[16+j] = simdShuf16[j]
 	}
 	pattern := simdShuf16
 	for g := 0; g < 4; g++ {
