@@ -327,6 +327,11 @@ betteralign -apply ./...     # 等价于 yd align --apply
   退出流程调用 `CloseAll(ws.CloseGoingAway, "...")`：连接先发 **1001（going away）** 关闭帧、再关套接字；
   连接在 `Close` / `CloseNow` 以及任何终止性读错误处自行取消登记，追踪表不会泄漏条目。
   `ws.Tracker` 故意声明在 `ws` 包内，`ws` 不反向依赖 `lifecycle`。
+  在 HTTP/2 与 HTTP/3 上，WebSocket 绑定在请求流上：处理器**必须阻塞到连接结束**，返回即结束流；
+  Tracker 的关闭帧也必须在处理器仍存活时写出。HTTP/1.1 的 hijack 连接不受此限制。
+  On HTTP/2 and HTTP/3 the WebSocket is bound to the request stream: the handler must stay alive
+  until the connection ends, and the Tracker's close frame must be written while it is still
+  running. HTTP/1.1 hijacked connections are not subject to this rule.
 - **SSE**：给 `sse.Options.Tracker` 传 `sse.NewWriterSet(broker)`。`WriterSet.Shutdown()` 会逐个
   停止心跳 → 写最终注释帧 `server shutting down | 服务器正在退出`（**必须 flush**）→ 关闭写入器，
   最后关闭 `Broker`（释放订阅协程）。用 `sse.Handler` 时它会监听 `Writer.Done()` 自动返回；

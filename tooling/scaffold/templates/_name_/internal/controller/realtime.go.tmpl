@@ -106,6 +106,7 @@ func (c *Controller) Stream(broker *sse.Broker) router.HandlerFunc {
 // @Produce json
 // @Param Upgrade header string true "must be websocket | 必须为 websocket"
 // @Success 101 {string} string "switching protocols | 协议切换"
+// @Success 200 {string} string "extended CONNECT established | 扩展连接已建立"
 // @Failure 400 {object} string "upgrade failure written by the framework | 框架写出的升级失败响应"
 // @Failure 401 {object} string "no session | 无有效会话"
 // @Security BearerAuth

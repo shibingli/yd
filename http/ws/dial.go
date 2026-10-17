@@ -215,6 +215,9 @@ func validateExtendedConnect(u *url.URL, o DialOptions) error {
 	if (o.Transport == nil) != (o.ExtendedConnect == ExtendedConnectDisabled) {
 		return ErrExtendedConnectOptions
 	}
+	if o.Transport != nil && o.ExtendedConnect != ExtendedConnectHTTP2 && o.ExtendedConnect != ExtendedConnectHTTP3 {
+		return errx.Detail(ErrExtendedConnectOptions, "unknown extended CONNECT mode %[1]d | 未知的 extended CONNECT 模式 %[1]d", o.ExtendedConnect)
+	}
 	if o.Transport == nil {
 		return nil
 	}
@@ -227,7 +230,7 @@ func validateExtendedConnect(u *url.URL, o DialOptions) error {
 			strings.EqualFold(name, "Upgrade"),
 			strings.EqualFold(name, "Host"),
 			strings.EqualFold(name, "Sec-WebSocket-Key"),
-			name == ":protocol":
+			strings.HasPrefix(name, ":"):
 			return errx.Detail(ErrExtendedConnectHeader, "header %[1]q | 头部 %[1]q", name)
 		}
 	}
@@ -308,14 +311,14 @@ func dialExtended(ctx context.Context, u *url.URL, o DialOptions, timeout time.D
 		_ = pw.CloseWithError(err)
 		return nil, errx.WrapDetail(err, ErrHandshake, "extended CONNECT failed | extended CONNECT 失败")
 	}
+	if resp.Body == nil {
+		resp.Body = http.NoBody
+	}
 	if !timer.Stop() {
 		_ = resp.Body.Close()
 		cancel()
 		_ = pw.CloseWithError(context.DeadlineExceeded)
 		return nil, errx.WrapDetail(context.DeadlineExceeded, ErrHandshake, "handshake timed out | 握手超时")
-	}
-	if resp.Body == nil {
-		resp.Body = http.NoBody
 	}
 	fail := func(err error) (*Conn, error) {
 		_ = resp.Body.Close()

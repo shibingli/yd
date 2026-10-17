@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"strings"
 	"testing"
+	"time"
 )
 
 // roundTripperFunc adapts a function to http.RoundTripper. | roundTripperFunc 把函数适配为 http.RoundTripper。
@@ -151,6 +152,18 @@ func TestDialExtendedConnectOptionErrors(t *testing.T) {
 			opts: DialOptions{Transport: rt, ExtendedConnect: ExtendedConnectHTTP2, Headers: http.Header{":protocol": {"websocket"}}},
 			want: ErrExtendedConnectHeader,
 		},
+		{
+			name: "unknown mode",
+			url:  "wss://example.com/ws",
+			opts: DialOptions{Transport: rt, ExtendedConnect: ExtendedConnectMode(99)},
+			want: ErrExtendedConnectOptions,
+		},
+		{
+			name: "mixed-case pseudo header",
+			url:  "wss://example.com/ws",
+			opts: DialOptions{Transport: rt, ExtendedConnect: ExtendedConnectHTTP2, Headers: http.Header{":Protocol": {"websocket"}}},
+			want: ErrExtendedConnectHeader,
+		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -208,5 +221,23 @@ func TestDialExtendedConnectCompression(t *testing.T) {
 	defer func() { _ = c.CloseNow() }()
 	if c.compression == nil {
 		t.Fatal("compression was not negotiated | 压缩未被协商")
+	}
+}
+
+// TestDialExtendedConnectNilBodyDoesNotPanic guards the timeout branch against a
+// misbehaving RoundTripper that returns a nil Body. | TestDialExtendedConnectNilBodyDoesNotPanic
+// 防止超时分支在返回 nil Body 的异常 RoundTripper 上 panic。
+func TestDialExtendedConnectNilBodyDoesNotPanic(t *testing.T) {
+	tr := roundTripperFunc(func(*http.Request) (*http.Response, error) {
+		time.Sleep(20 * time.Millisecond)
+		return &http.Response{StatusCode: http.StatusOK}, nil
+	})
+	_, err := Dial(context.Background(), "wss://example.com/ws", DialOptions{
+		Transport:        tr,
+		ExtendedConnect:  ExtendedConnectHTTP2,
+		HandshakeTimeout: 2 * time.Millisecond,
+	})
+	if !errors.Is(err, ErrHandshake) {
+		t.Fatalf("err = %v, want ErrHandshake timeout | err = %v，期望握手超时", err, err)
 	}
 }

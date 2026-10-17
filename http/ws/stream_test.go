@@ -153,3 +153,17 @@ func TestStreamConnServerForwardsDeadlines(t *testing.T) {
 		t.Fatal("FlushError was not forwarded | FlushError 未被转发")
 	}
 }
+
+// TestStreamConnDeadlineAfterClose proves deadline setters fail closed on a closed stream. | TestStreamConnDeadlineAfterClose 证明关闭后的截止时间设置会失败关闭。
+func TestStreamConnDeadlineAfterClose(t *testing.T) {
+	c, _, _, _, _ := newTestClientStream(t)
+	if err := c.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+	if err := c.SetReadDeadline(time.Now().Add(time.Hour)); !errors.Is(err, net.ErrClosed) {
+		t.Fatalf("SetReadDeadline after Close = %v, want net.ErrClosed | Close 后 SetReadDeadline = %v，期望 net.ErrClosed", err, err)
+	}
+	if err := c.SetWriteDeadline(time.Now().Add(time.Hour)); !errors.Is(err, net.ErrClosed) {
+		t.Fatalf("SetWriteDeadline after Close = %v, want net.ErrClosed | Close 后 SetWriteDeadline = %v，期望 net.ErrClosed", err, err)
+	}
+}

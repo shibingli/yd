@@ -134,6 +134,9 @@ func TestHTTP2ExtendedConnect(t *testing.T) {
 	if c.TransportKind() != TransportHTTP2 {
 		t.Fatalf("TransportKind = %v, want TransportHTTP2", c.TransportKind())
 	}
+	if c.compression == nil {
+		t.Fatal("permessage-deflate was not negotiated over HTTP/2 | HTTP/2 上未协商 permessage-deflate")
+	}
 
 	if err := c.WriteMessage(TextMessage, []byte("hello")); err != nil {
 		t.Fatalf("write text: %v", err)
@@ -221,13 +224,11 @@ func TestHTTP2HandlerReturnEndsStream(t *testing.T) {
 	}
 	returned := make(chan struct{})
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		c, err := Upgrade(w, r, Options{})
-		if err != nil {
+		if _, err := Upgrade(w, r, Options{}); err != nil {
 			t.Errorf("Upgrade: %v", err)
-			close(returned)
-			return
 		}
-		_ = c.CloseNow()
+		// Return immediately: on HTTP/2 this must end the response stream. | 立即返回：
+		// 在 HTTP/2 上这必须结束响应流。
 		close(returned)
 	})
 	_, wsURL := startH2TestServer(t, handler, 0)
@@ -246,9 +247,13 @@ func TestHTTP2HandlerReturnEndsStream(t *testing.T) {
 	case <-time.After(2 * time.Second):
 		t.Fatal("handler did not return | 处理器未返回")
 	}
-	_ = c.SetReadDeadline(time.Now().Add(time.Second))
-	if _, _, err := c.ReadMessage(); err == nil {
-		t.Fatal("ReadMessage succeeded after the handler returned | 处理器返回后 ReadMessage 仍成功")
+	_ = c.SetReadDeadline(time.Now().Add(2 * time.Second))
+	_, _, err = c.ReadMessage()
+	if errors.Is(err, os.ErrDeadlineExceeded) {
+		t.Fatal("read hit the deadline; the stream did not end with the handler | 读取命中截止时间；流未随处理器返回而结束")
+	}
+	if !errors.Is(err, ErrUnexpectedEOF) {
+		t.Fatalf("ReadMessage = %v, want ErrUnexpectedEOF (stream ended without a close frame) | ReadMessage = %v，期望 ErrUnexpectedEOF（流在关闭帧前结束）", err, err)
 	}
 }
 

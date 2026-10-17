@@ -93,6 +93,9 @@ func TestHTTP3ExtendedConnect(t *testing.T) {
 	if c.TransportKind() != TransportHTTP3 {
 		t.Fatalf("TransportKind = %v, want TransportHTTP3", c.TransportKind())
 	}
+	if c.compression == nil {
+		t.Fatal("permessage-deflate was not negotiated over HTTP/3 | HTTP/3 上未协商 permessage-deflate")
+	}
 
 	if err := c.WriteMessage(TextMessage, []byte("hello-h3")); err != nil {
 		t.Fatalf("write text: %v", err)

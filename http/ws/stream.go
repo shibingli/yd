@@ -172,12 +172,22 @@ func (c *streamConn) SetDeadline(t time.Time) error {
 // 流转发给 ResponseController（net/http 与 quic-go 都支持）。客户端流用定时器关闭响应体
 // 并取消请求，因为阻塞中的 body 读取没有别的中断方式。
 func (c *streamConn) SetReadDeadline(t time.Time) error {
+	if c.closed.Load() {
+		return net.ErrClosed
+	}
 	if c.rc != nil {
 		return c.rc.SetReadDeadline(t)
 	}
 
 	c.deadlineMu.Lock()
 	defer c.deadlineMu.Unlock()
+	// Close sets closed before taking deadlineMu, so this second check closes the
+	// race: either Close sees and stops the timer we arm, or we see closed. | Close
+	// 在获取 deadlineMu 之前设置 closed，因此第二次检查消除了竞态：要么 Close 看到并停止
+	// 我们设置的定时器，要么我们看到 closed。
+	if c.closed.Load() {
+		return net.ErrClosed
+	}
 	if c.readTimer != nil {
 		c.readTimer.Stop()
 		c.readTimer = nil
@@ -196,12 +206,18 @@ func (c *streamConn) SetReadDeadline(t time.Time) error {
 
 // SetWriteDeadline implements net.Conn. | SetWriteDeadline 实现 net.Conn。
 func (c *streamConn) SetWriteDeadline(t time.Time) error {
+	if c.closed.Load() {
+		return net.ErrClosed
+	}
 	if c.rc != nil {
 		return c.rc.SetWriteDeadline(t)
 	}
 
 	c.deadlineMu.Lock()
 	defer c.deadlineMu.Unlock()
+	if c.closed.Load() {
+		return net.ErrClosed
+	}
 	if c.writeTimer != nil {
 		c.writeTimer.Stop()
 		c.writeTimer = nil

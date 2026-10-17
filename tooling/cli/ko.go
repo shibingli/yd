@@ -134,7 +134,8 @@ func koHTTP2Warning(env *Env) string {
 }
 
 // koOptions assembles the ko package options from the parsed flags and the layered configuration. | koOptions
-// 依据已解析的标志与分层配置组装 ko 包选项。//
+// 依据已解析的标志与分层配置组装 ko 包选项。
+//
 // Precedence follows the repository rule 命令行参数 > 环境变量（含 .env）> 配置文件 > 框架默认值: the
 // environment layer is already applied inside OptionsFromConfig (YD_KO_REPOSITORY and friends map onto
 // the ko.* keys), and a flag overwrites a value only when it was actually passed, so `--local=false`
