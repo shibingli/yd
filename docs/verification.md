@@ -472,6 +472,49 @@ go test ./...                                 44 个包 ok，退出码 0
 CGO_ENABLED=1 CC=clang go test -race ./...    44 个包 ok，退出码 0
 ```
 
+## 3.11 中间件热路径与代理信任（第九轮）
+
+### 3.11.1 访问日志的客户端地址
+
+- `AccessLog` 与 `AccessLogAsync` 的 `remote_ip` 由 `Ctx.RealIP()`（无条件信任 `X-Forwarded-For`
+  最左值）改为 `Ctx.ClientIP(trusted)`，与 CLAUDE.md §21 的信任模型一致。
+- 新增 `AccessLogOptions.TrustedProxies`：默认**不含任何可信代理**，代理头被完全忽略，
+  日志记录对端地址；只有对端落在可信前缀内时才从右向左解析 XFF。伪造的 `X-Forwarded-For`
+  无法再决定日志中的地址。测试覆盖「默认忽略 / 可信对端 / 不可信对端」三种情形。
+- 该改动同时消除了无代理部署下每个请求的两次代理头查找。
+
+### 3.11.2 包装器不再破坏零拷贝下载
+
+- `countingWriter` 新增 `ReadFrom`：底层写入器实现 `io.ReaderFrom` 时直接委托
+  （生产环境的 `*http.response` 因此仍走 sendfile），否则从 `bufpool` 取 32 KiB 缓冲回退拷贝；
+  两条路径都正确累加字节数。
+- 这意味着 `Ctx.Download` 的 `bytes.Reader` 单次写出与 `*os.File` 的 sendfile 快路径在
+  访问日志中间件之后**仍然有效**，不会因为多了一层包装退化为 32 KiB 循环拷贝。
+- 新增测试同时验证委托路径（底层 `ReaderFrom` 被调用）与回退路径的字节计数。
+
+### 3.11.3 头部查找去掉重复规范化
+
+- 新增内部助手 `headerValue`：对**已规范化**的字面量键直接查 `http.Header` 映射，
+  跳过 `Header.Get` 每次调用都要执行的 `textproto.CanonicalMIMEHeaderKey` 逐字节扫描。
+  `Set`/`Add` 总是存规范化形式，因此语义与 `Get` 完全一致。
+- 应用于压缩中间件（Accept-Encoding / Content-Encoding / Content-Type / Cache-Control /
+  Content-Length）、协议升级判定（Upgrade / Connection）、CORS（Origin 与两个
+  Access-Control-Request-*）以及 RequestID（自定义头名在构造期规范化一次）。
+- 基准（5 次取中位，Windows / i9-10980HK）：小响应跳过压缩的包装开销由约 **+0.5 µs**
+  降至约 **+0.33 µs**（基线约 0.70 µs）；已编码 16 KiB 直通约 **7.9 µs**（无中间件基线约 7.2 µs）；
+  同步访问日志约 **1.34–1.40 µs**，其中主要是 8 字段 JSON 编码本身的成本。
+
+### 3.11.4 门禁
+
+```
+gofmt -l .                                    零输出
+go build ./...                                通过
+go vet ./...                                  零输出
+go mod tidy -diff                             零输出
+go test ./...                                 44 个包 ok，退出码 0
+CGO_ENABLED=1 CC=clang go test -race ./...    44 个包 ok，退出码 0
+```
+
 ## 4. 已知限制与未覆盖项
 
 1. **HTTP/3 需要 TLS**（QUIC 强制 TLS 1.3）。开发态在未配置证书时会生成一次性自签证书

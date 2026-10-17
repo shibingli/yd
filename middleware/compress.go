@@ -335,7 +335,7 @@ func Compress(o CompressOptions) router.Middleware {
 			return
 		}
 		// A missing header can never negotiate, so skip the wrapper altogether. | 请求头缺失时必然协商失败，直接跳过包装。
-		accept := c.Request.Header.Get("Accept-Encoding")
+		accept := headerValue(c.Request.Header, "Accept-Encoding")
 		if accept == "" {
 			c.Next()
 			return
@@ -488,7 +488,7 @@ func statusAllowsCompression(code int) bool {
 
 // contentLength returns the declared Content-Length, if any. | contentLength 返回已声明的 Content-Length（若有）。
 func contentLength(h http.Header) (int, bool) {
-	v := strings.TrimSpace(h.Get("Content-Length"))
+	v := strings.TrimSpace(headerValue(h, "Content-Length"))
 	if v == "" {
 		return 0, false
 	}
@@ -558,13 +558,13 @@ func (w *compressWriter) Flush() {
 // | headersAllowCompression 报告当前响应头是否禁止压缩。
 func (w *compressWriter) headersAllowCompression() bool {
 	h := w.rw.Header()
-	if h.Get("Content-Encoding") != "" {
+	if headerValue(h, "Content-Encoding") != "" {
 		return false
 	}
-	if ct := strings.ToLower(strings.TrimSpace(h.Get("Content-Type"))); strings.HasPrefix(ct, "text/event-stream") {
+	if ct := strings.ToLower(strings.TrimSpace(headerValue(h, "Content-Type"))); strings.HasPrefix(ct, "text/event-stream") {
 		return false
 	}
-	if cc := strings.ToLower(h.Get("Cache-Control")); strings.Contains(cc, "no-transform") {
+	if cc := strings.ToLower(headerValue(h, "Cache-Control")); strings.Contains(cc, "no-transform") {
 		return false
 	}
 	if n, ok := contentLength(h); ok && n < w.minSize {

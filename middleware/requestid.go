@@ -2,6 +2,7 @@ package middleware
 
 import (
 	"crypto/rand"
+	"net/textproto"
 	"sync/atomic"
 	"time"
 
@@ -28,8 +29,12 @@ func RequestID(header string) router.Middleware {
 	if name == "" {
 		name = defaultRequestIDHeader
 	}
+	// Canonicalize once at construction: the request path then uses a direct map lookup
+	// instead of repeating the canonical-key scan on every request. | 在构造期规范化一次：
+	// 请求路径随后直接查表，不再每个请求重复规范化扫描。
+	name = textproto.CanonicalMIMEHeaderKey(name)
 	return func(c *router.Ctx) {
-		id := c.Request.Header.Get(name)
+		id := headerValue(c.Request.Header, name)
 		if id == "" {
 			id = newUUIDv4()
 		}

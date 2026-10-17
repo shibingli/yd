@@ -2,7 +2,10 @@ package middleware
 
 import (
 	"bytes"
+	"io"
 	"net/http"
+	"net/http/httptest"
+	"net/netip"
 	"strings"
 	"sync"
 	"testing"
@@ -222,5 +225,82 @@ func TestAccessLogKeepsHijackerOnUpgrade(t *testing.T) {
 	r.ServeHTTP(hj, req)
 	if !hijackable {
 		t.Fatal("the upgraded request lost http.Hijacker on c.Writer | 升级请求的 c.Writer 丢失了 http.Hijacker")
+	}
+}
+
+// TestAccessLogRemoteIPFollowsClientIPTrust 要求 remote_ip 采用可信代理模型：
+// 默认忽略代理头，只有对端落在 TrustedProxies 内时才采信 X-Forwarded-For。 | TestAccessLogRemoteIPFollowsClientIPTrust
+// requires remote_ip to follow the trusted-proxy model: proxy headers are ignored by default and
+// honored only when the peer is inside TrustedProxies.
+func TestAccessLogRemoteIPFollowsClientIPTrust(t *testing.T) {
+	const peer = "203.0.113.9:443"
+	const forwarded = "198.51.100.7, 203.0.113.10"
+	tests := []struct {
+		name    string
+		trusted []netip.Prefix
+		want    string
+	}{
+		{name: "default ignores the header", want: "203.0.113.9"},
+		{
+			name:    "trusted peer walks the chain from the right",
+			trusted: []netip.Prefix{netip.MustParsePrefix("203.0.113.0/24")},
+			want:    "198.51.100.7",
+		},
+		{
+			name:    "untrusted peer ignores the header",
+			trusted: []netip.Prefix{netip.MustParsePrefix("10.0.0.0/8")},
+			want:    "203.0.113.9",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			log, buf := newTestLogger()
+			r := router.New()
+			r.Use(AccessLog(log, AccessLogOptions{TrustedProxies: tt.trusted}))
+			r.GET("/ip", func(c *router.Ctx) { _ = c.NoContent() })
+
+			doReqFrom(r, http.MethodGet, "/ip", peer, map[string]string{"X-Forwarded-For": forwarded})
+			if got := onlyRecord(t, buf)["remote_ip"]; got != tt.want {
+				t.Fatalf("remote_ip = %v, want %q | remote_ip = %v，期望 %q", got, tt.want, got, tt.want)
+			}
+		})
+	}
+}
+
+// readFromRecorder exposes io.ReaderFrom and records that the fast path was taken. | readFromRecorder
+// 暴露 io.ReaderFrom 并记录快路径确实被使用。
+type readFromRecorder struct {
+	*httptest.ResponseRecorder
+	used bool
+}
+
+// ReadFrom implements io.ReaderFrom. | ReadFrom 实现 io.ReaderFrom。
+func (w *readFromRecorder) ReadFrom(r io.Reader) (int64, error) {
+	w.used = true
+	return io.Copy(w.ResponseRecorder, r)
+}
+
+// TestCountingWriterReadFromCountsBytes 要求包装器实现 io.ReaderFrom：
+// 有底层快路径时委托给它，没有时回退缓冲拷贝，两者都正确计数。 | TestCountingWriterReadFromCountsBytes
+// requires the wrapper to implement io.ReaderFrom: delegate when the underlying writer has the fast
+// path and fall back to a buffered copy otherwise, counting bytes in both cases.
+func TestCountingWriterReadFromCountsBytes(t *testing.T) {
+	const body = "reader-from-body"
+
+	plain := httptest.NewRecorder()
+	cw := &countingWriter{ResponseWriter: plain}
+	n, err := cw.ReadFrom(strings.NewReader(body))
+	if err != nil || n != int64(len(body)) {
+		t.Fatalf("ReadFrom = (%d, %v), want (%d, nil) | ReadFrom = (%d, %v)，期望 (%d, nil)", n, err, len(body), n, err, len(body))
+	}
+	if cw.bytes != n || cw.status != http.StatusOK || plain.Body.String() != body {
+		t.Fatalf("bytes=%d status=%d body=%q | bytes=%d status=%d body=%q", cw.bytes, cw.status, plain.Body.String(), cw.bytes, cw.status, plain.Body.String())
+	}
+
+	fast := &readFromRecorder{ResponseRecorder: httptest.NewRecorder()}
+	cw = &countingWriter{ResponseWriter: fast}
+	n, err = cw.ReadFrom(strings.NewReader(body))
+	if err != nil || n != int64(len(body)) || !fast.used || cw.bytes != n {
+		t.Fatalf("fast path: n=%d err=%v used=%v bytes=%d | 快路径：n=%d err=%v used=%v bytes=%d", n, err, fast.used, cw.bytes, n, err, fast.used, cw.bytes)
 	}
 }

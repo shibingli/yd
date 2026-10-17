@@ -43,15 +43,29 @@ func isUpgradeRequest(r *http.Request) bool {
 	if r == nil {
 		return false
 	}
-	if r.Header.Get("Upgrade") != "" {
+	if headerValue(r.Header, "Upgrade") != "" {
 		return true
 	}
-	return strings.Contains(strings.ToLower(r.Header.Get("Connection")), "upgrade")
+	return strings.Contains(strings.ToLower(headerValue(r.Header, "Connection")), "upgrade")
+}
+
+// headerValue returns the first value of an already-canonical header key. | headerValue 返回已规范化头部键的首个值。
+//
+// http.Header.Get runs textproto.CanonicalMIMEHeaderKey on every call, which is a per-byte scan of
+// the key; the middleware hot path performs several of these per request. A direct lookup with the
+// canonical spelling is equivalent (Set/Add always store the canonical form) and skips the scan. | http.Header.Get
+// 每次都会调用 textproto.CanonicalMIMEHeaderKey，对键逐字节扫描；中间件热路径每个请求要做多次。
+// 用规范化拼写直接查表与之等价（Set/Add 总是存规范化形式），并省掉这次扫描。
+func headerValue(h http.Header, canonicalKey string) string {
+	if v := h[canonicalKey]; len(v) > 0 {
+		return v[0]
+	}
+	return ""
 }
 
 // appendVary adds value to the Vary response header unless it is already listed. | appendVary 把 value 追加到 Vary 响应头，若已列出则不做任何事。
 func appendVary(h http.Header, value string) {
-	for _, existing := range h.Values("Vary") {
+	for _, existing := range h["Vary"] {
 		for _, item := range strings.Split(existing, ",") {
 			if strings.EqualFold(strings.TrimSpace(item), value) {
 				return

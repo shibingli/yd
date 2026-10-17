@@ -3,6 +3,7 @@ package middleware
 import (
 	"context"
 	"net/http"
+	"net/netip"
 	"runtime"
 	"runtime/debug"
 	"strings"
@@ -44,7 +45,9 @@ type Record struct {
 	Method string
 	// Path is the request path without the query string. | Path 是不含查询串的请求路径。
 	Path string
-	// RemoteIP is the client address as resolved by router.Ctx.RealIP. | RemoteIP 是 router.Ctx.RealIP 解析出的客户端地址。
+	// RemoteIP is the client address as resolved by router.Ctx.ClientIP with the trusted proxies
+	// given to AccessLogAsync. | RemoteIP 是 router.Ctx.ClientIP 结合传给 AccessLogAsync 的可信代理
+	// 解析出的客户端地址。
 	RemoteIP string
 	// UA is the User-Agent header. | UA 是 User-Agent 请求头。
 	UA string
@@ -400,9 +403,10 @@ func AccessLogHandler(l *logx.Logger) func(Record) {
 // 已完成请求以 Record 值交给管线的访问日志中间件，而不是在请求路径上写日志。
 //
 // The capture half is identical to AccessLog: a pooled countingWriter records status and bytes,
-// upgrade requests are not wrapped, and a panic is still recorded as 500 and re-raised. | 采集部分
-// 与 AccessLog 完全一致：池化的 countingWriter 记录状态码与字节数，升级请求不做包装，panic
-// 仍按 500 记录后重新抛出。
+// upgrade requests are not wrapped, a panic is still recorded as 500 and re-raised, and opts
+// controls the trusted proxies used to resolve remote_ip. | 采集部分与 AccessLog 完全一致：池化的
+// countingWriter 记录状态码与字节数，升级请求不做包装，panic 仍按 500 记录后重新抛出，opts 控制
+// 解析 remote_ip 时使用的可信代理。
 // a owns the processing side; configure it with AccessLogHandler(l) to write the actual log line,
 // for example:
 //
@@ -416,9 +420,13 @@ func AccessLogHandler(l *logx.Logger) func(Record) {
 // the real work. | a 拥有处理侧；用 AccessLogHandler(l) 配置它即可写出真正的日志行，例如上面的
 // 示例。a 为 nil 时中间件退化为同步 AccessLog(l)，因此参数不会静默失效；a 非 nil 时 l 仅作为
 // 该回退日志器，实际工作由管线处理器完成。
-func AccessLogAsync(l *logx.Logger, a *AsyncAfter) router.Middleware {
+func AccessLogAsync(l *logx.Logger, a *AsyncAfter, opts ...AccessLogOptions) router.Middleware {
 	if a == nil {
-		return AccessLog(l)
+		return AccessLog(l, opts...)
+	}
+	var trusted []netip.Prefix
+	if len(opts) > 0 {
+		trusted = opts[0].TrustedProxies
 	}
 	return func(c *router.Ctx) {
 		if isUpgradeRequest(c.Request) {
@@ -451,7 +459,7 @@ func AccessLogAsync(l *logx.Logger, a *AsyncAfter) router.Middleware {
 				ID:       requestID(c),
 				Method:   c.Request.Method,
 				Path:     c.Request.URL.Path,
-				RemoteIP: c.RealIP(),
+				RemoteIP: c.ClientIP(trusted),
 				UA:       c.Request.UserAgent(),
 				Status:   status,
 				Bytes:    cw.bytes,

@@ -121,9 +121,9 @@ func CORS(o CORSOptions) router.Middleware {
 	credentials := o.AllowCredentials
 
 	return func(c *router.Ctx) {
-		origin := c.Request.Header.Get("Origin")
+		origin := headerValue(c.Request.Header, "Origin")
 		preflight := c.Request.Method == http.MethodOptions &&
-			c.Request.Header.Get("Access-Control-Request-Method") != ""
+			headerValue(c.Request.Header, "Access-Control-Request-Method") != ""
 
 		allowed := false
 		value := ""
@@ -148,14 +148,14 @@ func CORS(o CORSOptions) router.Middleware {
 				methods := allowMethods
 				if methods == "" {
 					// Fall back to the requested method when no list is configured. | 未配置方法列表时回退到请求中的方法。
-					methods = c.Request.Header.Get("Access-Control-Request-Method")
+					methods = headerValue(c.Request.Header, "Access-Control-Request-Method")
 				}
 				if methods != "" {
 					h.Set("Access-Control-Allow-Methods", methods)
 				}
 				headers := allowHeaders
 				if headers == "" {
-					headers = c.Request.Header.Get("Access-Control-Request-Headers")
+					headers = headerValue(c.Request.Header, "Access-Control-Request-Headers")
 				}
 				if headers != "" {
 					h.Set("Access-Control-Allow-Headers", headers)

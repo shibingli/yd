@@ -1,13 +1,26 @@
 package middleware
 
 import (
+	"io"
 	"net/http"
+	"net/netip"
 	"sync"
 	"time"
 
+	"github.com/shibingli/yd/core/bufpool"
 	"github.com/shibingli/yd/core/logx"
 	"github.com/shibingli/yd/http/router"
 )
+
+// AccessLogOptions configures the access log middleware. | AccessLogOptions 配置访问日志中间件。
+type AccessLogOptions struct {
+	// TrustedProxies lists the reverse proxies whose X-Forwarded-For / X-Real-Ip may be trusted,
+	// using the same model as router.Ctx.ClientIP. Empty means the peer address is logged and proxy
+	// headers are ignored, which is the safe default. | TrustedProxies 列出其 X-Forwarded-For /
+	// X-Real-Ip 可被信任的反向代理，信任模型与 router.Ctx.ClientIP 相同。为空表示记录对端地址并忽略
+	// 代理头，这是安全默认值。
+	TrustedProxies []netip.Prefix
+}
 
 // countingWriterPool recycles the access-log wrapper, removing one allocation per request.
 // | countingWriterPool 复用访问日志包装器，消除每请求一次分配。
@@ -21,9 +34,16 @@ var countingWriterPool = sync.Pool{New: func() any { return new(countingWriter) 
 // AccessLog returns a middleware that logs one record per request. | AccessLog 返回每个请求记录一条日志的中间件。
 // Recorded fields are method, path, query, status, bytes, remote_ip, duration — milliseconds in JSON
 // output — and request_id, which is filled when RequestID runs earlier in the chain. | 记录字段包括 method、path、query、status、bytes、remote_ip、duration（JSON 中为毫秒）以及 request_id（RequestID 位于链上更早位置时才有值）。
+// remote_ip comes from ClientIP: it is the peer address unless TrustedProxies says the peer is a
+// proxy, so a forged X-Forwarded-For can never choose the logged address. | remote_ip 取自 ClientIP：
+// 除非 TrustedProxies 声明对端是代理，否则它就是对端地址，因此伪造的 X-Forwarded-For 无法决定日志中的地址。
 // Upgrade requests are not wrapped so the WebSocket handshake keeps a usable http.Hijacker. | 升级请求不做包装，以保证 WebSocket 握手仍有可用的 http.Hijacker。
 // A nil logger turns the middleware into a pass-through. | 日志器为 nil 时该中间件退化为直通。
-func AccessLog(l *logx.Logger) router.Middleware {
+func AccessLog(l *logx.Logger, opts ...AccessLogOptions) router.Middleware {
+	var trusted []netip.Prefix
+	if len(opts) > 0 {
+		trusted = opts[0].TrustedProxies
+	}
 	return func(c *router.Ctx) {
 		if l == nil || isUpgradeRequest(c.Request) {
 			c.Next()
@@ -58,7 +78,7 @@ func AccessLog(l *logx.Logger) router.Middleware {
 				logx.Str("query", c.Request.URL.RawQuery),
 				logx.Int("status", status),
 				logx.Int64("bytes", cw.bytes),
-				logx.Str("remote_ip", c.RealIP()),
+				logx.Str("remote_ip", c.ClientIP(trusted)),
 				logx.Dur("duration", time.Since(start)),
 			)
 			// Every field has been consumed and the context no longer points at the wrapper,
@@ -103,6 +123,28 @@ func (w *countingWriter) Write(p []byte) (int, error) {
 	}
 	n, err := w.ResponseWriter.Write(p)
 	w.bytes += int64(n)
+	return n, err
+}
+
+// ReadFrom counts bytes copied through io.ReaderFrom, so sendfile-backed paths keep working
+// through the wrapper: io.Copy of an *os.File, http.ServeContent ranges and Ctx.Download all
+// check for ReaderFrom before falling back to a buffer. | ReadFrom 统计经 io.ReaderFrom 拷贝的字节数，
+// 使 sendfile 路径穿过包装器后仍然有效：io.Copy 文件、http.ServeContent 的区间响应与 Ctx.Download
+// 都会先检查 ReaderFrom，再退回缓冲拷贝。
+func (w *countingWriter) ReadFrom(r io.Reader) (int64, error) {
+	if w.status == 0 {
+		w.status = http.StatusOK
+	}
+	if rf, ok := w.ResponseWriter.(io.ReaderFrom); ok {
+		n, err := rf.ReadFrom(r)
+		w.bytes += n
+		return n, err
+	}
+	buf := bufpool.Get(32 << 10)
+	buf = buf[:cap(buf)] // bufpool returns length 0; CopyBuffer panics on an empty buffer | bufpool 返回长度为 0；空缓冲会让 CopyBuffer panic
+	defer bufpool.Put(buf)
+	n, err := io.CopyBuffer(w.ResponseWriter, r, buf)
+	w.bytes += n
 	return n, err
 }
 
