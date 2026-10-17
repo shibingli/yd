@@ -25,6 +25,8 @@ var (
 
 	simdInShuf64 [64]uint8
 
+	simdOutPadded, simdOutRaw, simdPads [49]uint8
+
 	simdB51x64, simdB26x64, simdB13x64, simdB62x64, simdB63x64 archsimd.Uint8x64
 	simdDashx64, simdUnderx64, simdZeroX64                     archsimd.Uint8x64
 	simdPlusX64, simdSlashX64, simdEqX64, simdAX64             archsimd.Uint8x64
@@ -70,6 +72,11 @@ func init() {
 		simdEqX64, simdAX64 = archsimd.BroadcastUint8x64('='), archsimd.BroadcastUint8x64('A')
 		simdHiMaskX32 = archsimd.BroadcastUint16x32(0x0F0F)
 		simdLoMaskX64 = archsimd.BroadcastUint8x64(0x0F)
+	}
+	for t := 1; t <= 48; t++ {
+		simdOutPadded[t] = uint8((t + 2) / 3 * 4)
+		simdOutRaw[t] = uint8((t*8 + 5) / 6)
+		simdPads[t] = uint8((3 - t%3) % 3)
 	}
 	pattern := simdShuf16
 	for g := 0; g < 4; g++ {

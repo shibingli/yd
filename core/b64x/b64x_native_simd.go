@@ -344,9 +344,9 @@ func encodeSIMD512VBMI(dst, src []byte, url, padded bool, pad byte) (int, int) {
 		if take > 48 {
 			take = 48
 		}
-		outLen := (take + 2) / 3 * 4
+		outLen := int(simdOutPadded[take])
 		if !padded {
-			outLen = (take*8 + 5) / 6
+			outLen = int(simdOutRaw[take])
 		}
 		if o+outLen > len(dst) {
 			break
@@ -363,12 +363,10 @@ func encodeSIMD512VBMI(dst, src []byte, url, padded bool, pad byte) (int, int) {
 			res = under.IfElse(idx.Equal(b63), res)
 		}
 		res.StorePart(dst[o : o+outLen])
-		if padded {
-			switch take % 3 {
-			case 1:
-				dst[o+outLen-1], dst[o+outLen-2] = pad, pad
-			case 2:
-				dst[o+outLen-1] = pad
+		if pads := int(simdPads[take]); padded && pads > 0 {
+			dst[o+outLen-1] = pad
+			if pads == 2 {
+				dst[o+outLen-2] = pad
 			}
 		}
 		i += take
