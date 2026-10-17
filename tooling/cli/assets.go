@@ -121,7 +121,7 @@ func runAssetsList(env *Env, fs *pflag.FlagSet) error {
 	}
 
 	w := tabwriter.NewWriter(env.Out, 0, 0, 2, ' ', 0)
-	fmt.Fprintf(w, "NAME\tVERSION\tSIZE\tKIND\tSHA256\tPATH\n")
+	fmt.Fprintf(w, "NAME | 名称\tVERSION | 版本\tSIZE | 大小\tKIND | 类型\tSHA256\tPATH | 路径\n")
 	for i := range m.Assets {
 		a := m.Assets[i]
 		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\n",

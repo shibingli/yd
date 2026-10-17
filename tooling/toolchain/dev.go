@@ -517,8 +517,8 @@ func defaultBuild(ctx context.Context, o DevOptions) (string, error) {
 	cmd.Stdout = &buf
 	cmd.Stderr = &buf
 	if err := cmd.Run(); err != nil {
-		return "", errx.WrapDetail(err, ErrBuildFailed, "go build %s | go build %s：%s",
-			pkg, pkg, truncateOutput(buf.String(), 2048))
+		return "", errx.WrapDetail(err, ErrBuildFailed, "go build %[1]s failed | 编译 %[1]s 失败: %[2]s",
+			pkg, truncateOutput(buf.String(), 2048))
 	}
 	return out, nil
 }

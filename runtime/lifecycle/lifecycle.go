@@ -274,10 +274,10 @@ func (r *Registry) runHook(ctx context.Context, h *hook) error {
 	select {
 	case err := <-result:
 		if err != nil {
-			return errx.WrapDetail(err, ErrHookFailed, "hook=%q", h.name)
+			return errx.WrapDetail(err, ErrHookFailed, "hook=%[1]q | 钩子=%[1]q", h.name)
 		}
 		return nil
 	case <-ctx.Done():
-		return errx.WrapDetail(ctx.Err(), ErrShutdownTimeout, "hook=%q", h.name)
+		return errx.WrapDetail(ctx.Err(), ErrShutdownTimeout, "hook=%[1]q | 钩子=%[1]q", h.name)
 	}
 }

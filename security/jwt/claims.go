@@ -222,7 +222,7 @@ func checkRegistered(f *claimFields, o ParseOptions) error {
 			return errx.Detail(ErrMalformed, "nbf is not a valid NumericDate | nbf 不是合法的 NumericDate")
 		}
 		if at.Add(o.Leeway).Before(nbf) {
-			return errx.Detail(ErrTokenNotValidYet, "nbf=%[1]s | nbf=%[1]s", nbf.Format(time.RFC3339))
+			return errx.Detail(ErrTokenNotValidYet, "nbf=%[1]s | 生效时间=%[1]s", nbf.Format(time.RFC3339))
 		}
 	}
 	if f.hasExp {
@@ -231,7 +231,7 @@ func checkRegistered(f *claimFields, o ParseOptions) error {
 			return errx.Detail(ErrMalformed, "exp is not a valid NumericDate | exp 不是合法的 NumericDate")
 		}
 		if exp.Add(o.Leeway).Before(at) {
-			return errx.Detail(ErrTokenExpired, "exp=%[1]s | exp=%[1]s", exp.Format(time.RFC3339))
+			return errx.Detail(ErrTokenExpired, "exp=%[1]s | 过期时间=%[1]s", exp.Format(time.RFC3339))
 		}
 	} else if o.RequireExp {
 		return ErrMissingExp

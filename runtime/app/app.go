@@ -210,7 +210,7 @@ func New(opts ...Option) (*App, error) {
 	if a.cfg == nil {
 		cfg, err := config.Load(config.Options{Name: configName, ConfigDir: a.configDir})
 		if err != nil {
-			return nil, errx.WrapDetail(err, ErrConfigLoad, "dir=%q", a.configDir)
+			return nil, errx.WrapDetail(err, ErrConfigLoad, "dir=%[1]q | 目录=%[1]q", a.configDir)
 		}
 		a.cfg = cfg
 	}

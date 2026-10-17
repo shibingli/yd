@@ -127,7 +127,7 @@ func configString(env *Env, key string) string {
 func printDevSession(env *Env, o toolchain.DevOptions, r *toolchain.DevRunner) {
 	fmt.Fprintf(env.Out, "yd dev - %s\n", o.Dir)
 	fmt.Fprintf(env.Out, "  watch | 文件监听: %s\n", devSwitch(!o.NoWatch))
-	fmt.Fprintf(env.Out, "  tailwind | Tailwind: %s\n", devSwitch(!o.NoTailwind))
+	fmt.Fprintf(env.Out, "  tailwind | Tailwind 监听: %s\n", devSwitch(!o.NoTailwind))
 	fmt.Fprintf(env.Out, "  reload | 热重载: %s\n", devReloadState(r))
 	if o.Port > 0 {
 		fmt.Fprintf(env.Out, "  port | 端口: %d\n", o.Port)

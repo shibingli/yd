@@ -159,7 +159,7 @@ func (p *runProgram) Stop(service.Service) error {
 	case <-p.done:
 		return p.runError()
 	case <-timer.C:
-		return errx.Detail(ErrStopTimeout, "grace=%s", grace)
+		return errx.Detail(ErrStopTimeout, "grace=%[1]s | 宽限期=%[1]s", grace)
 	}
 }
 

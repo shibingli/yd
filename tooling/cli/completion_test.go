@@ -271,19 +271,19 @@ func TestCompletionDetect(t *testing.T) {
 			name: "posix login shell | POSIX 登录 shell", goos: "linux",
 			vars:    completionShellVars("/usr/bin/zsh"),
 			args:    []string{completionActionDetect},
-			wantOut: []string{"shell | shell: zsh", "$SHELL=/usr/bin/zsh", posixHome, filepath.Join(completionTestHome, ".zshrc")},
+			wantOut: []string{"shell | Shell 环境: zsh", "$SHELL=/usr/bin/zsh", posixHome, filepath.Join(completionTestHome, ".zshrc")},
 		},
 		{
 			name: "override wins over the probe | 命令行指定优先于探测", goos: "linux",
 			vars:    completionShellVars("/bin/bash"),
 			args:    []string{completionActionDetect, "--shell", "tcsh"},
-			wantOut: []string{"shell | shell: csh", "given on the command line | 由命令行指定", filepath.Join(completionTestHome, ".cshrc")},
+			wantOut: []string{"shell | Shell 环境: csh", "given on the command line | 由命令行指定", filepath.Join(completionTestHome, ".cshrc")},
 		},
 		{
 			name: "windows without a probe | Windows 没有探测值", goos: "windows",
 			vars:    map[string]string{"HOME": completionTestHome},
 			args:    []string{completionActionDetect},
-			wantOut: []string{"shell | shell: powershell", "platform default | 平台默认值", filepath.Join(completionTestHome, "Documents", "PowerShell", "Microsoft.PowerShell_profile.ps1")},
+			wantOut: []string{"shell | Shell 环境: powershell", "platform default | 平台默认值", filepath.Join(completionTestHome, "Documents", "PowerShell", "Microsoft.PowerShell_profile.ps1")},
 		},
 		{
 			name: "no probe on posix | POSIX 上没有探测值", goos: "linux",

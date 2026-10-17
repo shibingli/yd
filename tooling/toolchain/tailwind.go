@@ -75,7 +75,7 @@ func ResolveTailwind(o ToolOptions) (string, error) {
 	if p, err := lookup("tailwindcss"); err == nil && p != "" {
 		return p, nil
 	}
-	return "", errx.Detail(ErrToolNotFound, "checked %s, %s, %s, %s and PATH", "Bin", "ConfigBin", "EnvBin", "local install")
+	return "", errx.Detail(ErrToolNotFound, "checked %[1]s, %[2]s, %[3]s, %[4]s and PATH | 已检查 %[1]s、%[2]s、%[3]s、%[4]s 及 PATH", "Bin", "ConfigBin", "EnvBin", "local install")
 }
 
 // resolveCandidate turns one configured value into an existing executable. | resolveCandidate 把一个配置取值变成真实存在的可执行文件。

@@ -24,7 +24,6 @@ import (
 	"go/format"
 	"path"
 	"path/filepath"
-	"regexp"
 	"sort"
 	"strings"
 
@@ -33,6 +32,7 @@ import (
 	"github.com/shibingli/yd/core/afs"
 	"github.com/shibingli/yd/core/errx"
 	"github.com/shibingli/yd/core/logx"
+	"github.com/shibingli/yd/core/regexpx"
 )
 
 // FrameworkModule 是 yd 框架自身的模块路径，用作生成代码引用框架包时的默认导入前缀。
@@ -198,7 +198,7 @@ func applyArtifact(fs afero.Fs, o Options, art artifact, res *Result) error {
 	full := o.fullPath(art.rel)
 	old, exists, err := readIfExists(fs, full)
 	if err != nil {
-		return errx.WrapDetail(err, ErrReadFile, "path=%s", art.rel)
+		return errx.WrapDetail(err, ErrReadFile, "path=%[1]s | 路径=%[1]s", art.rel)
 	}
 
 	if exists {
@@ -222,7 +222,7 @@ func applyArtifact(fs afero.Fs, o Options, art artifact, res *Result) error {
 	}
 
 	if _, err := afs.WriteFileIfChanged(fs, full, art.content); err != nil {
-		return errx.WrapDetail(err, ErrWriteFile, "path=%s", art.rel)
+		return errx.WrapDetail(err, ErrWriteFile, "path=%[1]s | 路径=%[1]s", art.rel)
 	}
 	logx.Default().Info("generated file written | 已写入生成文件", logx.Str("path", art.rel))
 	res.Written = append(res.Written, art.rel)
@@ -300,14 +300,14 @@ const routesGenPath = "internal/router/routes_gen.go"
 
 // registeredModuleRe 匹配标记区块内的注册行，用于在重新生成时保留其它模块。
 // registeredModuleRe matches the registration lines inside the marker block so other modules survive a regeneration.
-var registeredModuleRe = regexp.MustCompile(`Register([A-Za-z0-9_]+)Routes\(g, deps\.([A-Za-z0-9_]+)\)`)
+var registeredModuleRe = regexpx.MustCompile(`Register([A-Za-z0-9_]+)Routes\(g, deps\.([A-Za-z0-9_]+)\)`)
 
 // mergeRoutesGen 计算 routes_gen.go 的最终内容：缺文件则创建，存在则只替换标记区块。
 // mergeRoutesGen computes the final content of routes_gen.go: it creates the file when absent and replaces only the marker block when present.
 func mergeRoutesGen(fs afero.Fs, o Options, v *tmplView) ([]byte, error) {
 	old, exists, err := readIfExists(fs, o.fullPath(routesGenPath))
 	if err != nil {
-		return nil, errx.WrapDetail(err, ErrReadFile, "path=%s", routesGenPath)
+		return nil, errx.WrapDetail(err, ErrReadFile, "path=%[1]s | 路径=%[1]s", routesGenPath)
 	}
 
 	rv := &routesGenView{tmplView: v, Modules: []moduleRef{{Name: v.Name, Snake: v.Snake}}}
@@ -395,7 +395,7 @@ func upsertMarkerBlock(src, block string) string {
 func formatSource(rel string, src []byte) ([]byte, error) {
 	out, err := format.Source(src)
 	if err != nil {
-		return nil, errx.WrapDetail(err, ErrFormat, "path=%s", rel)
+		return nil, errx.WrapDetail(err, ErrFormat, "path=%[1]s | 路径=%[1]s", rel)
 	}
 	return out, nil
 }

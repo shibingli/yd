@@ -277,7 +277,7 @@ func (c *Ctx) HTMLString(code int, s string) error {
 // HTML renders with the injected template engine and writes it as text/html. | HTML 使用已注入的模板引擎渲染并以 text/html 输出。
 func (c *Ctx) HTML(code int, name string, data any) error {
 	if c.router.renderer == nil {
-		return errx.Detail(ErrNoRenderer, "use SetRenderer or c.HTMLString")
+		return errx.Detail(ErrNoRenderer, "use SetRenderer or c.HTMLString | 请使用 SetRenderer 或 c.HTMLString")
 	}
 	c.SetHeader("Content-Type", "text/html; charset=utf-8")
 	c.WriteHeader(code)

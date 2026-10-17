@@ -45,7 +45,7 @@ var (
 // Binding uses reflection, so it is only for request entry points; hot paths such as serialization and logging do not rely on it. | 绑定使用反射，因此仅用于请求入口；序列化与日志等热路径不依赖本函数。
 func (c *Ctx) Bind(v any) error {
 	if v == nil {
-		return errx.Detail(ErrBadBindTarget, "target must not be nil")
+		return errx.Detail(ErrBadBindTarget, "target must not be nil | 目标不得为空")
 	}
 	ct := c.Request.Header.Get("Content-Type")
 	if i := strings.IndexByte(ct, ';'); i >= 0 {
@@ -91,7 +91,7 @@ func (c *Ctx) Bind(v any) error {
 func bindValues(v any, values url.Values) error {
 	rv := reflect.ValueOf(v)
 	if rv.Kind() != reflect.Pointer || rv.IsNil() {
-		return errx.Detail(ErrBadBindTarget, "target must be a non-nil pointer")
+		return errx.Detail(ErrBadBindTarget, "target must be a non-nil pointer | 目标必须是非空指针")
 	}
 	rv = rv.Elem()
 	switch rv.Kind() {
@@ -99,7 +99,7 @@ func bindValues(v any, values url.Values) error {
 		return bindStruct(rv, values)
 	case reflect.Map:
 		if rv.Type().Key().Kind() != reflect.String {
-			return errx.Detail(ErrBadBindTarget, "map key must be a string")
+			return errx.Detail(ErrBadBindTarget, "map key must be a string | 映射键必须是字符串")
 		}
 		if rv.IsNil() {
 			rv.Set(reflect.MakeMap(rv.Type()))
@@ -112,7 +112,7 @@ func bindValues(v any, values url.Values) error {
 		}
 		return nil
 	default:
-		return errx.Detail(ErrBadBindTarget, "target must be a struct or map")
+		return errx.Detail(ErrBadBindTarget, "target must be a struct or map | 目标必须是结构体或映射")
 	}
 }
 
@@ -184,7 +184,7 @@ func setFieldValue(fv reflect.Value, raw, fieldName string) error {
 	if fv.Type() == timeType {
 		t, err := parseTime(raw)
 		if err != nil {
-			return errx.WrapDetail(err, ErrBindField, "field %s", fieldName)
+			return errx.WrapDetail(err, ErrBindField, "field %[1]s | 字段 %[1]s", fieldName)
 		}
 		fv.Set(reflect.ValueOf(t))
 		return nil
@@ -195,25 +195,25 @@ func setFieldValue(fv reflect.Value, raw, fieldName string) error {
 	case reflect.Bool:
 		b, err := strconv.ParseBool(raw)
 		if err != nil {
-			return errx.WrapDetail(err, ErrBindField, "field %s", fieldName)
+			return errx.WrapDetail(err, ErrBindField, "field %[1]s | 字段 %[1]s", fieldName)
 		}
 		fv.SetBool(b)
 	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
 		n, err := strconv.ParseInt(raw, 10, 64)
 		if err != nil {
-			return errx.WrapDetail(err, ErrBindField, "field %s", fieldName)
+			return errx.WrapDetail(err, ErrBindField, "field %[1]s | 字段 %[1]s", fieldName)
 		}
 		fv.SetInt(n)
 	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
 		n, err := strconv.ParseUint(raw, 10, 64)
 		if err != nil {
-			return errx.WrapDetail(err, ErrBindField, "field %s", fieldName)
+			return errx.WrapDetail(err, ErrBindField, "field %[1]s | 字段 %[1]s", fieldName)
 		}
 		fv.SetUint(n)
 	case reflect.Float32, reflect.Float64:
 		f, err := strconv.ParseFloat(raw, 64)
 		if err != nil {
-			return errx.WrapDetail(err, ErrBindField, "field %s", fieldName)
+			return errx.WrapDetail(err, ErrBindField, "field %[1]s | 字段 %[1]s", fieldName)
 		}
 		fv.SetFloat(f)
 	case reflect.Slice:
@@ -221,9 +221,9 @@ func setFieldValue(fv reflect.Value, raw, fieldName string) error {
 			fv.Set(reflect.ValueOf([]string{raw}))
 			return nil
 		}
-		return errx.Detail(ErrUnsupportedFieldType, "field %s: unsupported slice element type %s", fieldName, fv.Type().Elem())
+		return errx.Detail(ErrUnsupportedFieldType, "field %[1]s: unsupported slice element type %[2]s | 字段 %[1]s：不支持的切片元素类型 %[2]s", fieldName, fv.Type().Elem())
 	default:
-		return errx.Detail(ErrUnsupportedFieldType, "field %s: unsupported type %s", fieldName, fv.Type())
+		return errx.Detail(ErrUnsupportedFieldType, "field %[1]s: unsupported type %[2]s | 字段 %[1]s：不支持的类型 %[2]s", fieldName, fv.Type())
 	}
 	return nil
 }

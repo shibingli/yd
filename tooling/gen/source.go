@@ -50,7 +50,7 @@ func ModelFromSource(fs afero.Fs, path, typeName string, o StructOptions) (*Mode
 		return nil, err
 	}
 	if pkg.types[typeName] == nil {
-		return nil, errx.Detail(ErrTypeNotFound, "type=%s path=%s", typeName, path)
+		return nil, errx.Detail(ErrTypeNotFound, "type=%[1]s path=%[2]s | 类型=%[1]s 路径=%[2]s", typeName, path)
 	}
 	if _, ok := pkg.types[typeName].(*ast.StructType); !ok {
 		return nil, errx.Detail(ErrTypeNotFound, "type=%s is not a struct | %s 不是结构体类型", typeName, typeName)
@@ -114,13 +114,13 @@ func loadSourcePackage(fs afero.Fs, path string) (*sourcePackage, error) {
 	for _, name := range names {
 		src, err := afero.ReadFile(fs, name)
 		if err != nil {
-			return nil, errx.WrapDetail(err, ErrReadFile, "path=%s", name)
+			return nil, errx.WrapDetail(err, ErrReadFile, "path=%[1]s | 路径=%[1]s", name)
 		}
 		// 解析失败说明源码本身不合法，属于调用方的输入问题而非生成器故障。
 		// A parse failure means the source itself is invalid, which is the caller's input problem rather than a generator fault.
 		f, err := parser.ParseFile(fset, name, src, parser.ParseComments)
 		if err != nil {
-			return nil, errx.WrapDetail(err, ErrBadModel, "path=%s", name)
+			return nil, errx.WrapDetail(err, ErrBadModel, "path=%[1]s | 路径=%[1]s", name)
 		}
 		pkg.files = append(pkg.files, f)
 		pkg.declare(f)
@@ -136,7 +136,7 @@ func loadSourcePackage(fs afero.Fs, path string) (*sourcePackage, error) {
 func sourceFiles(fs afero.Fs, path string) ([]string, error) {
 	info, err := fs.Stat(path)
 	if err != nil {
-		return nil, errx.WrapDetail(err, ErrReadFile, "path=%s", path)
+		return nil, errx.WrapDetail(err, ErrReadFile, "path=%[1]s | 路径=%[1]s", path)
 	}
 	if !info.IsDir() {
 		return []string{path}, nil
@@ -144,7 +144,7 @@ func sourceFiles(fs afero.Fs, path string) ([]string, error) {
 
 	entries, err := afero.ReadDir(fs, path)
 	if err != nil {
-		return nil, errx.WrapDetail(err, ErrReadFile, "path=%s", path)
+		return nil, errx.WrapDetail(err, ErrReadFile, "path=%[1]s | 路径=%[1]s", path)
 	}
 	names := make([]string, 0, len(entries))
 	for _, e := range entries {

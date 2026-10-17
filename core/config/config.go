@@ -188,7 +188,7 @@ func (c *Config) BindFlags(fs *pflag.FlagSet, mapping map[string]string) error {
 		if len(mapping) == 0 {
 			return nil
 		}
-		return errx.Detail(ErrFlagMapping, "no FlagSet provided to bind %d flags", len(mapping))
+		return errx.Detail(ErrFlagMapping, "no FlagSet provided to bind %[1]d flags | 未提供 FlagSet，无法绑定 %[1]d 个标志", len(mapping))
 	}
 
 	// Iterate in sorted order so that error messages and injection order stay stable and reproducible. | 排序后遍历，保证错误信息与注入顺序稳定可复现。
@@ -201,21 +201,21 @@ func (c *Config) BindFlags(fs *pflag.FlagSet, mapping map[string]string) error {
 	for _, flagName := range flagNames {
 		key := strings.ToLower(strings.TrimSpace(mapping[flagName]))
 		if key == "" {
-			return errx.Detail(ErrFlagMapping, "flag %q has no config key", flagName)
+			return errx.Detail(ErrFlagMapping, "flag %[1]q has no config key | 标志 %[1]q 没有对应的配置键", flagName)
 		}
 		fl := fs.Lookup(flagName)
 		if fl == nil {
-			return errx.Detail(ErrUnknownFlag, "flag %q is not in the FlagSet", flagName)
+			return errx.Detail(ErrUnknownFlag, "flag %[1]q is not in the FlagSet | 标志 %[1]q 不在 FlagSet 中", flagName)
 		}
 		if fl.Changed {
 			if err := c.Viper.BindPFlag(key, fl); err != nil {
-				return errx.WrapDetail(err, ErrFlagBind, "flag %q to config key %q", flagName, key)
+				return errx.WrapDetail(err, ErrFlagBind, "flag %[1]q to config key %[2]q | 把标志 %[1]q 绑定到配置键 %[2]q", flagName, key)
 			}
 			continue
 		}
 		defValue, err := parseFlagDefault(fl)
 		if err != nil {
-			return errx.WrapDetail(err, ErrBadFlagDefault, "flag %q default %q", flagName, fl.DefValue)
+			return errx.WrapDetail(err, ErrBadFlagDefault, "flag %[1]q default %[2]q | 标志 %[1]q 的默认值 %[2]q", flagName, fl.DefValue)
 		}
 		c.Viper.SetDefault(key, defValue)
 	}
@@ -272,12 +272,12 @@ func (c *Config) Watch(fn func(*Config)) {
 		if label == "" {
 			label = c.configName
 		}
-		c.setWatchErr(errx.Detail(ErrWatchUnavailable, "no config file found for %s", label))
+		c.setWatchErr(errx.Detail(ErrWatchUnavailable, "no config file found for %[1]s | 未找到 %[1]s 的配置文件", label))
 		return
 	}
 	if _, err := os.Stat(c.configFile); err != nil {
 		c.setWatchErr(errx.WrapDetail(err, ErrWatchUnavailable,
-			"config file %s is not visible to the operating system (in-memory filesystems do not support watching)", c.configFile))
+			"config file %[1]s is not visible to the operating system (in-memory filesystems do not support watching) | 配置文件 %[1]s 对操作系统不可见（内存文件系统不支持监听）", c.configFile))
 		return
 	}
 

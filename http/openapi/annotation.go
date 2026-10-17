@@ -483,7 +483,7 @@ func annotationFiles(fsys afero.Fs, dirs []string) ([]string, error) {
 			return nil
 		})
 		if err != nil {
-			return nil, errx.WrapDetail(err, ErrScan, "walk %q", dir)
+			return nil, errx.WrapDetail(err, ErrScan, "walk %[1]q | 遍历 %[1]q", dir)
 		}
 	}
 	sort.Strings(files)

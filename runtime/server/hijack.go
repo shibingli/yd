@@ -160,7 +160,7 @@ func (s *Server) closeHijacked() []error {
 			remote = addr.String()
 		}
 		if err := tc.Close(); err != nil {
-			errs = append(errs, errx.WrapDetail(err, ErrForceCloseHijacked, "remote=%q", remote))
+			errs = append(errs, errx.WrapDetail(err, ErrForceCloseHijacked, "remote=%[1]q | 远端=%[1]q", remote))
 		}
 	}
 	return errs

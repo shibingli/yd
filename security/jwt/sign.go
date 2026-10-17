@@ -159,7 +159,7 @@ type SignOptions struct {
 // 签名覆盖此处产出的原始 "header.payload" 字节。
 func Sign(claims map[string]any, key any, alg Alg, o SignOptions) (string, error) {
 	if !supported(alg) {
-		return "", errx.Detail(ErrAlgNotAllowed, "alg=%[1]q | alg=%[1]q", string(alg))
+		return "", errx.Detail(ErrAlgNotAllowed, "alg=%[1]q | 算法=%[1]q", string(alg))
 	}
 	hdr, err := marshalHeader(alg, o)
 	if err != nil {
@@ -263,7 +263,7 @@ func signRaw(alg Alg, key any, input []byte, s *scratch) ([]byte, error) {
 
 	h, hashFn, ok := algHash(alg)
 	if !ok {
-		return nil, errx.Detail(ErrAlgNotAllowed, "alg=%[1]q | alg=%[1]q", string(alg))
+		return nil, errx.Detail(ErrAlgNotAllowed, "alg=%[1]q | 算法=%[1]q", string(alg))
 	}
 
 	switch alg {
@@ -319,7 +319,7 @@ func signRaw(alg Alg, key any, input []byte, s *scratch) ([]byte, error) {
 		}
 		return appendFixedWidth(nil, r, sv, curveWidth(alg)), nil
 	}
-	return nil, errx.Detail(ErrAlgNotAllowed, "alg=%[1]q | alg=%[1]q", string(alg))
+	return nil, errx.Detail(ErrAlgNotAllowed, "alg=%[1]q | 算法=%[1]q", string(alg))
 }
 
 // verify checks the signature of a compact token. | verify 校验紧凑 token 的签名。

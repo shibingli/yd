@@ -5,7 +5,6 @@ import (
 	"io"
 	"io/fs"
 	"path"
-	"regexp"
 	"sort"
 	"strings"
 
@@ -13,6 +12,7 @@ import (
 
 	"github.com/shibingli/yd/core/afs"
 	"github.com/shibingli/yd/core/errx"
+	"github.com/shibingli/yd/core/regexpx"
 )
 
 // This file is the executable half of "one single source of truth": the registry above says what
@@ -437,13 +437,13 @@ func collectSources(fsys afero.Fs, root string, skip, exts []string) ([]sourceFi
 		}
 		b, err := afero.ReadFile(fsys, p)
 		if err != nil {
-			return errx.WrapDetail(err, ErrReadSource, "path=%s", rel)
+			return errx.WrapDetail(err, ErrReadSource, "path=%[1]s | 路径=%[1]s", rel)
 		}
 		files = append(files, newSourceFile(rel, string(b), kind))
 		return nil
 	})
 	if err != nil {
-		return nil, errx.WrapDetail(err, ErrScanDir, "dir=%s", root)
+		return nil, errx.WrapDetail(err, ErrScanDir, "dir=%[1]s | 目录=%[1]s", root)
 	}
 	sort.Slice(files, func(i, j int) bool { return files[i].rel < files[j].rel })
 	return files, nil
@@ -529,7 +529,7 @@ func isTestFile(name string) bool {
 // The scanners. | 扫描器。
 
 // permissionConstRe matches the Go constant name of a capability or a role. | permissionConstRe 匹配能力或角色的 Go 常量名。
-var permissionConstRe = regexp.MustCompile(`\b(Perm[A-Z][A-Za-z0-9_]*|Role[A-Z][A-Za-z0-9_]*)\b`)
+var permissionConstRe = regexpx.MustCompile(`\b(Perm[A-Z][A-Za-z0-9_]*|Role[A-Z][A-Za-z0-9_]*)\b`)
 
 // permSelectorRe matches a template read of the injected name maps. | permSelectorRe 匹配对注入名字表的模板读取。
 //
@@ -539,17 +539,17 @@ var permissionConstRe = regexp.MustCompile(`\b(Perm[A-Z][A-Za-z0-9_]*|Role[A-Z][
 // 绝不能有分歧。
 var (
 	// permSelectorRe matches .Perm.UserCreate. | permSelectorRe 匹配 .Perm.UserCreate。
-	permSelectorRe = regexp.MustCompile(regexp.QuoteMeta(PermSelector) + `([A-Za-z][A-Za-z0-9_]*)`)
+	permSelectorRe = regexpx.MustCompile(regexpx.QuoteMeta(PermSelector) + `([A-Za-z][A-Za-z0-9_]*)`)
 	// roleSelectorRe matches .Role.Admin. | roleSelectorRe 匹配 .Role.Admin。
-	roleSelectorRe = regexp.MustCompile(regexp.QuoteMeta(RoleSelector) + `([A-Za-z][A-Za-z0-9_]*)`)
+	roleSelectorRe = regexpx.MustCompile(regexpx.QuoteMeta(RoleSelector) + `([A-Za-z][A-Za-z0-9_]*)`)
 	// permScriptRe matches yd.PERM.USER_CREATE. | permScriptRe 匹配 yd.PERM.USER_CREATE。
-	permScriptRe = regexp.MustCompile(regexp.QuoteMeta(PermScriptSelector) + `([A-Z][A-Z0-9_]*)`)
+	permScriptRe = regexpx.MustCompile(regexpx.QuoteMeta(PermScriptSelector) + `([A-Z][A-Z0-9_]*)`)
 	// roleScriptRe matches yd.ROLE.ADMIN. | roleScriptRe 匹配 yd.ROLE.ADMIN。
-	roleScriptRe = regexp.MustCompile(regexp.QuoteMeta(RoleScriptSelector) + `([A-Z][A-Z0-9_]*)`)
+	roleScriptRe = regexpx.MustCompile(regexpx.QuoteMeta(RoleScriptSelector) + `([A-Z][A-Z0-9_]*)`)
 )
 
 // attrRe matches the declarative attributes of the front end. | attrRe 匹配前端的声明式属性。
-var attrRe = regexp.MustCompile(`data-yd-(perm|role)="([^"]*)"`)
+var attrRe = regexpx.MustCompile(`data-yd-(perm|role)="([^"]*)"`)
 
 // helperCallRe matches a template helper that takes a capability or a role. | helperCallRe 匹配接收能力或角色的模板辅助函数。
 //
@@ -557,17 +557,17 @@ var attrRe = regexp.MustCompile(`data-yd-(perm|role)="([^"]*)"`)
 // prose does say "you can "download" it", and a checker that reads English as a permission
 // reference would be switched off within a week. | 名字前面必须出现上下文——动作、if/with 或左括号——
 // 因为散文里确实会写「you can "download" it」，而一个把英文当成权限引用的检查器活不过一周。
-var helperCallRe = regexp.MustCompile(`(?m)(?:\{\{-?\s*|(?:^|[\s;{])(?:if|with|else\s+if)\s+|\()\s*(can|hasRole|perm|role)\s+("(?:[^"\\]|\\.)*"|[^\s"|(){}]+)`)
+var helperCallRe = regexpx.MustCompile(`(?m)(?:\{\{-?\s*|(?:^|[\s;{])(?:if|with|else\s+if)\s+|\()\s*(can|hasRole|perm|role)\s+("(?:[^"\\]|\\.)*"|[^\s"|(){}]+)`)
 
 // literalRe matches a Go or JavaScript string literal. | literalRe 匹配 Go 或 JavaScript 的字符串字面量。
-var literalRe = regexp.MustCompile("\"(?:[^\"\\\\]|\\\\.)*\"|`[^`]*`|'(?:[^'\\\\]|\\\\.)*'")
+var literalRe = regexpx.MustCompile("\"(?:[^\"\\\\]|\\\\.)*\"|`[^`]*`|'(?:[^'\\\\]|\\\\.)*'")
 
 // assignLineRe reports a line whose right-hand side is a single literal or name. | assignLineRe 报告右侧只有一个字面量或名字的行。
-var assignLineRe = regexp.MustCompile(`^\s*(?:(?:export\s+)?(?:const|var|let|type)\s+)?[\w.]+\s+(?:[\w.\[\]*]+|\[\][\w.]+)\s*=\s*(?:"(?:[^"\\]|\\.)*"|[A-Za-z_][\w.]*)\s*;?\s*$`)
+var assignLineRe = regexpx.MustCompile(`^\s*(?:(?:export\s+)?(?:const|var|let|type)\s+)?[\w.]+\s+(?:[\w.\[\]*]+|\[\][\w.]+)\s*=\s*(?:"(?:[^"\\]|\\.)*"|[A-Za-z_][\w.]*)\s*;?\s*$`)
 
 // shortAssignLineRe reports a short assignment whose right-hand side is a single literal or name.
 // shortAssignLineRe 报告右侧只有一个字面量或名字的短声明行。
-var shortAssignLineRe = regexp.MustCompile(`^\s*[\w.]+\s*(?::=|=)\s*(?:"(?:[^"\\]|\\.)*"|` + "`[^`]*`" + `|[A-Za-z_][\w.]*)\s*;?\s*$`)
+var shortAssignLineRe = regexpx.MustCompile(`^\s*[\w.]+\s*(?::=|=)\s*(?:"(?:[^"\\]|\\.)*"|` + "`[^`]*`" + `|[A-Za-z_][\w.]*)\s*;?\s*$`)
 
 // scanFile runs every scanner that applies to f. | scanFile 对 f 运行所有适用的扫描器。
 func scanFile(f sourceFile, v *vocab) []reference {
@@ -600,7 +600,7 @@ func scanScripts(f sourceFile, v *vocab) []reference {
 // capability written as a literal" an exact finding rather than a guess, and every extra name here
 // is a new way to be wrong. | 这个集合刻意短小而经过挑选：位置判定的意义在于让「被写成字面量的能力」
 // 成为精确的发现而不是猜测，而这里每多一个名字，就多一种出错的方式。
-var refCallRe = regexp.MustCompile(`(?:^|\.)(?:RequirePermission|RequireRole|Require|Allow|Can|HasPermission|HasRole|Grant|can|hasRole)$`)
+var refCallRe = regexpx.MustCompile(`(?:^|\.)(?:RequirePermission|RequireRole|Require|Allow|Can|HasPermission|HasRole|Grant|can|hasRole)$`)
 
 // isIdentByte reports whether b may appear in an identifier. | isIdentByte 报告 b 是否可作为标识符的一部分。
 func isIdentByte(b byte) bool {
@@ -816,7 +816,7 @@ func scanTemplates(f sourceFile, v *vocab) []reference {
 // wantRole is what makes the check worth having: `.Perm.Admin` is not a permission however
 // registered "admin" is, and only this comparison knows that. | wantRole 正是这项检查值得存在的原因：
 // 无论 "admin" 注册得多好，`.Perm.Admin` 都不是权限，而只有这项比对知道这一点。
-func scanSelector(f sourceFile, v *vocab, re *regexp.Regexp, wantRole bool) []reference {
+func scanSelector(f sourceFile, v *vocab, re *regexpx.Regexp, wantRole bool) []reference {
 	var refs []reference
 	for _, m := range re.FindAllStringSubmatchIndex(f.text, -1) {
 		key := f.text[m[2]:m[3]]

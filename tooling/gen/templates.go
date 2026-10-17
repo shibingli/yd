@@ -59,7 +59,7 @@ func renderTemplate(name string, data any) ([]byte, error) {
 	}
 	var buf bytes.Buffer
 	if err := t.ExecuteTemplate(&buf, name, data); err != nil {
-		return nil, errx.WrapDetail(err, ErrRender, "template=%s", name)
+		return nil, errx.WrapDetail(err, ErrRender, "template=%[1]s | 模板=%[1]s", name)
 	}
 	return buf.Bytes(), nil
 }

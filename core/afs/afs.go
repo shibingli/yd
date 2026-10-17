@@ -75,7 +75,7 @@ func CopyDir(src, dst FS, srcDir, dstDir string) error {
 
 		rel, err := filepath.Rel(srcDir, path)
 		if err != nil {
-			return errx.WrapDetail(err, ErrRelPath, "%s relative to %s", path, srcDir)
+			return errx.WrapDetail(err, ErrRelPath, "%[1]s relative to %[2]s | 相对于 %[2]s 的 %[1]s", path, srcDir)
 		}
 		target := filepath.Join(dstDir, rel)
 

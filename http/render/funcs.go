@@ -63,13 +63,13 @@ func Funcs(fsys afero.Fs) template.FuncMap {
 // dict builds a map from alternating key/value arguments. | dict 由交替的键值参数构造 map。
 func dict(kv ...any) (map[string]any, error) {
 	if len(kv)%2 != 0 {
-		return nil, errx.Detail(ErrDictOddArgs, "got %d args", len(kv))
+		return nil, errx.Detail(ErrDictOddArgs, "got %[1]d args | 需要 %[1]d 个参数", len(kv))
 	}
 	m := make(map[string]any, len(kv)/2)
 	for i := 0; i < len(kv); i += 2 {
 		k, ok := kv[i].(string)
 		if !ok {
-			return nil, errx.Detail(ErrDictKeyNotString, "index=%d", i)
+			return nil, errx.Detail(ErrDictKeyNotString, "index=%[1]d | 索引=%[1]d", i)
 		}
 		m[k] = kv[i+1]
 	}
@@ -151,13 +151,13 @@ func humanTime(t time.Time) string {
 // 结果作为属性值时由 html/template 负责转义。
 func htmxAttrs(kv ...any) (template.HTMLAttr, error) {
 	if len(kv)%2 != 0 {
-		return "", errx.Detail(ErrHtmxOddArgs, "got %d args", len(kv))
+		return "", errx.Detail(ErrHtmxOddArgs, "got %[1]d args | 需要 %[1]d 个参数", len(kv))
 	}
 	pairs := make([]string, 0, len(kv)/2)
 	for i := 0; i < len(kv); i += 2 {
 		k, ok := kv[i].(string)
 		if !ok {
-			return "", errx.Detail(ErrHtmxKeyNotString, "index=%d", i)
+			return "", errx.Detail(ErrHtmxKeyNotString, "index=%[1]d | 索引=%[1]d", i)
 		}
 		if !strings.HasPrefix(k, "hx-") {
 			k = "hx-" + k
@@ -175,7 +175,7 @@ func htmxAttrs(kv ...any) (template.HTMLAttr, error) {
 func (c *assetCache) assetFunc(fsys afero.Fs) func(string) (string, error) {
 	return func(p string) (string, error) {
 		if p == "" {
-			return "", errx.Detail(ErrAssetNotFound, "empty path")
+			return "", errx.Detail(ErrAssetNotFound, "empty path | 路径为空")
 		}
 		c.mu.RLock()
 		h, ok := c.seen[p]
@@ -184,7 +184,7 @@ func (c *assetCache) assetFunc(fsys afero.Fs) func(string) (string, error) {
 			file := strings.TrimPrefix(strings.ReplaceAll(p, "\\", "/"), "/")
 			b, err := afero.ReadFile(fsys, file)
 			if err != nil {
-				return "", errx.WrapDetail(err, ErrAssetNotFound, "path=%s", p)
+				return "", errx.WrapDetail(err, ErrAssetNotFound, "path=%[1]s | 路径=%[1]s", p)
 			}
 			sum := sha256.Sum256(b)
 			h = hex.EncodeToString(sum[:4])

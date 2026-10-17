@@ -157,7 +157,7 @@ type Manifest struct {
 // 初始化一份空清单。
 func LoadManifest(fsys afero.Fs, path string) (*Manifest, error) {
 	if fsys == nil {
-		return nil, errx.Detail(ErrManifestInvalid, "nil file system")
+		return nil, errx.Detail(ErrManifestInvalid, "nil file system | 文件系统为 nil")
 	}
 	data, err := afero.ReadFile(fsys, path)
 	if err != nil {

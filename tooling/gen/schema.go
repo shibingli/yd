@@ -242,10 +242,10 @@ func ModelFromTable(ctx context.Context, db *gorm.DB, table string, o TableOptio
 
 	columns, err := db.WithContext(ctx).Migrator().ColumnTypes(table)
 	if err != nil {
-		return nil, errx.WrapDetail(err, ErrTableNotFound, "table=%s", table)
+		return nil, errx.WrapDetail(err, ErrTableNotFound, "table=%[1]s | 表=%[1]s", table)
 	}
 	if len(columns) == 0 {
-		return nil, errx.Detail(ErrTableNotFound, "table=%s", table)
+		return nil, errx.Detail(ErrTableNotFound, "table=%[1]s | 表=%[1]s", table)
 	}
 
 	ignored := make(map[string]bool, len(o.Ignore))

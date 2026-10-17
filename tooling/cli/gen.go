@@ -321,7 +321,7 @@ func printGenUsage(w io.Writer) {
 	fmt.Fprintf(w, "Fields | 字段描述串:\n")
 	fmt.Fprintf(w, "  name:string:required,age:int,avatar:file | 逗号分隔字段，修饰符跟在类型之后\n")
 	fmt.Fprintf(w, "  types       string int int64 bool float float64 time date datetime file text | 可用类型\n")
-	fmt.Fprintf(w, "  modifiers   primary required unique index nullable max= min= size= label= widget=\n")
+	fmt.Fprintf(w, "  modifiers | 修饰符: primary required unique index nullable max= min= size= label= widget=\n")
 	fmt.Fprintf(w, "              comment= column= json= validate= | 可用修饰符\n\n")
 	fmt.Fprintf(w, "Examples | 示例:\n")
 	fmt.Fprintf(w, "  yd gen module Post --fields \"title:string:required,max=120,body:text\" --module cms\n")

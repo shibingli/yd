@@ -69,7 +69,7 @@ func ResolvePermission(ref string) (string, error) {
 			return p.Name, nil
 		}
 	}
-	return "", errx.Detail(ErrUnknownPermission, "ref=%q", ref)
+	return "", errx.Detail(ErrUnknownPermission, "ref=%[1]q | 引用=%[1]q", ref)
 }
 
 // ResolveRole resolves a reference to a role name. | ResolveRole 把一处引用解析为角色名。
@@ -87,7 +87,7 @@ func ResolveRole(ref string) (string, error) {
 			return r.Name, nil
 		}
 	}
-	return "", errx.Detail(ErrUnknownRole, "ref=%q", ref)
+	return "", errx.Detail(ErrUnknownRole, "ref=%[1]q | 引用=%[1]q", ref)
 }
 
 // camel turns a token or a role into a Go-style identifier. | camel 把标识或角色名转为 Go 风格标识符。

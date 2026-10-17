@@ -188,7 +188,7 @@ func (e *Engine) load() error {
 		return err
 	}
 	if len(files) == 0 {
-		return errx.Detail(ErrNoTemplates, "root=%s", e.opts.Root)
+		return errx.Detail(ErrNoTemplates, "root=%[1]s | 根目录=%[1]s", e.opts.Root)
 	}
 
 	tmpl := template.New("").Funcs(e.FuncMap())
@@ -199,10 +199,10 @@ func (e *Engine) load() error {
 	for _, f := range files {
 		b, err := afero.ReadFile(e.fsys, f.path)
 		if err != nil {
-			return errx.WrapDetail(err, ErrReadTemplate, "path=%s", f.path)
+			return errx.WrapDetail(err, ErrReadTemplate, "path=%[1]s | 路径=%[1]s", f.path)
 		}
 		if _, err := tmpl.New(f.name).Parse(string(b)); err != nil {
-			return errx.WrapDetail(err, ErrParseTemplate, "name=%s", f.name)
+			return errx.WrapDetail(err, ErrParseTemplate, "name=%[1]s | 名称=%[1]s", f.name)
 		}
 		names = append(names, f.name)
 	}
@@ -216,7 +216,7 @@ func (e *Engine) load() error {
 	source := tmpl
 	executed, err := source.Clone()
 	if err != nil {
-		return errx.WrapDetail(err, ErrCloneTemplate, "root=%s", e.opts.Root)
+		return errx.WrapDetail(err, ErrCloneTemplate, "root=%[1]s | 根目录=%[1]s", e.opts.Root)
 	}
 
 	e.mu.Lock()
@@ -283,10 +283,10 @@ func (e *Engine) Render(w io.Writer, name string, data any) error {
 		return err
 	}
 	if tmpl == nil || tmpl.Lookup(name) == nil {
-		return errx.Detail(ErrTemplateNotFound, "name=%s", name)
+		return errx.Detail(ErrTemplateNotFound, "name=%[1]s | 名称=%[1]s", name)
 	}
 	if err := tmpl.ExecuteTemplate(w, name, data); err != nil {
-		return errx.WrapDetail(err, ErrExecuteTemplate, "name=%s", name)
+		return errx.WrapDetail(err, ErrExecuteTemplate, "name=%[1]s | 名称=%[1]s", name)
 	}
 	return nil
 }

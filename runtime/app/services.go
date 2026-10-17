@@ -133,7 +133,7 @@ func (a *App) Close(ctx context.Context) error {
 		if err := hook.fn(ctx); err != nil {
 			a.log.Error("shutdown hook failed | 关闭钩子执行失败",
 				logx.Str("hook", hook.name), logx.Err(err))
-			errs = append(errs, errx.WrapDetail(err, ErrShutdown, "hook=%q", hook.name))
+			errs = append(errs, errx.WrapDetail(err, ErrShutdown, "hook=%[1]q | 钩子=%[1]q", hook.name))
 		}
 	}
 	return errors.Join(errs...)

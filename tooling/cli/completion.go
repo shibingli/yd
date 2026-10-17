@@ -358,7 +358,7 @@ func completionFlagsOf(fs *pflag.FlagSet) []completion.Flag {
 // 写出解析出的 shell 与一次安装所用的路径。
 func printCompletionPlan(w io.Writer, plan completion.Plan) {
 	fmt.Fprintf(w, "yd completion | yd 补全\n")
-	fmt.Fprintf(w, "shell | shell: %s (%s)\n", plan.Detection.Shell, plan.Detection.Describe())
+	fmt.Fprintf(w, "shell | Shell 环境: %s (%s)\n", plan.Detection.Shell, plan.Detection.Describe())
 	fmt.Fprintf(w, "script | 脚本: %s\n", plan.ScriptPath)
 	fmt.Fprintf(w, "load now | 立即加载: %s\n", plan.LoadLine)
 	fmt.Fprintf(w, "startup file | 启动文件: %s (only written with --append-rc | 仅在 --append-rc 时写入)\n", plan.RCFile)

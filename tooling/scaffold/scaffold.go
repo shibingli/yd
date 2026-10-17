@@ -81,7 +81,7 @@ func Generate(ctx context.Context, o Options, fs afero.Fs, log *logx.Logger) (*R
 
 		written, err := afs.WriteFileIfChanged(fs, f.path, f.content)
 		if err != nil {
-			return nil, errx.WrapDetail(err, ErrWriteFile, "path=%s", f.path)
+			return nil, errx.WrapDetail(err, ErrWriteFile, "path=%[1]s | 路径=%[1]s", f.path)
 		}
 		if written {
 			result.Files = append(result.Files, f.path)
@@ -107,7 +107,7 @@ func normalize(o Options) (Options, error) {
 		return Options{}, ErrNameRequired
 	}
 	if !namePattern.MatchString(o.Name) {
-		return Options{}, errx.Detail(ErrNameInvalid, "%q (want: letter first, then letters/digits/._-)", o.Name)
+		return Options{}, errx.Detail(ErrNameInvalid, "%[1]q (want: a letter first, then letters, digits, `._-`) | %[1]q（要求：首字符为字母，其后仅限字母、数字、`._-`）", o.Name)
 	}
 
 	o.Module = strings.TrimSpace(o.Module)
@@ -115,7 +115,7 @@ func normalize(o Options) (Options, error) {
 		o.Module = defaultModule(o.Name)
 	}
 	if !modulePattern.MatchString(o.Module) {
-		return Options{}, errx.Detail(ErrModuleInvalid, "%q (want: host/org/project)", o.Module)
+		return Options{}, errx.Detail(ErrModuleInvalid, "%[1]q (want: host/org/project) | %[1]q（期望: host/org/project）", o.Module)
 	}
 
 	o.DB = strings.TrimSpace(o.DB)
@@ -123,7 +123,7 @@ func normalize(o Options) (Options, error) {
 		o.DB = DBDefault
 	}
 	if !containsString(dbValues(), o.DB) {
-		return Options{}, errx.Detail(ErrDBUnsupported, "%q (want: %s)", o.DB, strings.Join(dbValues(), ", "))
+		return Options{}, errx.Detail(ErrDBUnsupported, "%[1]q (want: %[2]s) | %[1]q（期望: %[2]s）", o.DB, strings.Join(dbValues(), ", "))
 	}
 
 	o.License = strings.TrimSpace(o.License)
@@ -131,7 +131,7 @@ func normalize(o Options) (Options, error) {
 		o.License = LicenseApache2
 	}
 	if o.License != LicenseApache2 {
-		return Options{}, errx.Detail(ErrLicenseUnsupported, "%q (want: %s)", o.License, LicenseApache2)
+		return Options{}, errx.Detail(ErrLicenseUnsupported, "%[1]q (want: %[2]s) | %[1]q（期望: %[2]s）", o.License, LicenseApache2)
 	}
 
 	exts, err := ParseExtensions(strings.Join(o.HtmxExts, ","))
@@ -154,7 +154,7 @@ func detectConflicts(fs afero.Fs, planned []plannedFile) ([]string, error) {
 		}
 		old, err := afero.ReadFile(fs, f.path)
 		if err != nil {
-			return nil, errx.WrapDetail(err, ErrTemplateRead, "path=%s", f.path)
+			return nil, errx.WrapDetail(err, ErrTemplateRead, "path=%[1]s | 路径=%[1]s", f.path)
 		}
 		if !bytes.Equal(old, f.content) {
 			conflicts = append(conflicts, f.path)

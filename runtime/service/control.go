@@ -194,7 +194,7 @@ func actionError(err error, a Action) error {
 		return errx.WrapDetail(err, ErrActionFailed,
 			"action=%s (administrator or root rights may be required) | 动作=%s（可能需要管理员或 root 权限）", a, a)
 	default:
-		return errx.WrapDetail(err, ErrActionFailed, "action=%s", a)
+		return errx.WrapDetail(err, ErrActionFailed, "action=%[1]s | 动作=%[1]s", a)
 	}
 }
 

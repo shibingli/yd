@@ -47,7 +47,7 @@ func ParseQueues(s string) (map[string]int, error) {
 			return nil, errx.Detail(ErrInvalidQueueSpec, "%q", strings.TrimSpace(seg))
 		}
 		if _, dup := out[name]; dup {
-			return nil, errx.Detail(ErrInvalidQueueSpec, "repeated queue %q", name)
+			return nil, errx.Detail(ErrInvalidQueueSpec, "repeated queue %[1]q | 重复的队列 %[1]q", name)
 		}
 		weight, err := strconv.Atoi(strings.TrimSpace(weightText))
 		if err != nil || weight <= 0 {

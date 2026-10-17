@@ -98,7 +98,7 @@ type Segment struct {
 // A pattern ending with "/" is terminated by a TrailingSlash segment, used to distinguish /users from /users/. | 以 "/" 结尾的模式会以一个 TrailingSlash 段收尾，用于区分 /users 与 /users/。
 func ParsePattern(p string) ([]Segment, error) {
 	if p == "" || p[0] != '/' {
-		return nil, errx.Detail(ErrBadPattern, "%q must start with /", p)
+		return nil, errx.Detail(ErrBadPattern, "%[1]q must start with / | %[1]q 必须以 / 开头", p)
 	}
 	raws := splitPath(p)
 	segs := make([]Segment, 0, len(raws))
@@ -106,7 +106,7 @@ func ParsePattern(p string) ([]Segment, error) {
 	for i, raw := range raws {
 		if raw == "" {
 			if i != len(raws)-1 {
-				return nil, errx.Detail(ErrBadPattern, "%q contains an empty segment", p)
+				return nil, errx.Detail(ErrBadPattern, "%[1]q contains an empty segment | %[1]q 含空段", p)
 			}
 			segs = append(segs, Segment{Raw: "", Kind: SegStatic, TrailingSlash: true})
 			continue
@@ -177,7 +177,7 @@ func parseSegment(raw string) (Segment, error) {
 				j++
 			}
 			if !validParamName(raw[i+1 : j]) {
-				return Segment{}, errx.Detail(ErrParamName, "%q must match [A-Za-z_][A-Za-z0-9_]*", raw[i+1:j])
+				return Segment{}, errx.Detail(ErrParamName, "%[1]q must match [A-Za-z_][A-Za-z0-9_]* | %[1]q 必须匹配 [A-Za-z_][A-Za-z0-9_]*", raw[i+1:j])
 			}
 			flushLit()
 			toks = append(toks, Token{Kind: TokenParam, Text: raw[i+1 : j]})

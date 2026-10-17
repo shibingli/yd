@@ -43,12 +43,12 @@
 package authz
 
 import (
-	"regexp"
 	"sort"
 	"strings"
 	"sync"
 
 	"github.com/shibingli/yd/core/errx"
+	"github.com/shibingli/yd/core/regexpx"
 )
 
 // Permission is one capability token of the registry. | Permission 是注册表中的一条能力标识。
@@ -81,10 +81,10 @@ type Role struct {
 // It is deliberately strict and shared with the static checker: the shape is what
 // tells a capability apart from an arbitrary string in a project's sources. | 它刻意从严，
 // 并与静态检查器共用：正是这个形态把能力标识与项目源码里的普通字符串区分开来。
-var permissionNameRe = regexp.MustCompile(`^[a-z][a-z0-9_-]*:[a-z][a-z0-9_-]*$`)
+var permissionNameRe = regexpx.MustCompile(`^[a-z][a-z0-9_-]*:[a-z][a-z0-9_-]*$`)
 
 // roleNameRe matches the shape a role name must have. | roleNameRe 匹配角色名必须满足的形态。
-var roleNameRe = regexp.MustCompile(`^[a-z][a-z0-9_-]*$`)
+var roleNameRe = regexpx.MustCompile(`^[a-z][a-z0-9_-]*$`)
 
 // registry is the process-wide table of capabilities and roles. | registry 是进程级的权限与角色表。
 //
@@ -120,7 +120,7 @@ func Register(p Permission) error {
 	global.mu.Lock()
 	defer global.mu.Unlock()
 	if _, dup := global.perms[p.Name]; dup {
-		return errx.Detail(ErrDuplicatePermission, "name=%q", p.Name)
+		return errx.Detail(ErrDuplicatePermission, "name=%[1]q | 名称=%[1]q", p.Name)
 	}
 	global.perms[p.Name] = p
 	return nil
@@ -138,7 +138,7 @@ func RegisterRole(r Role) error {
 	global.mu.Lock()
 	defer global.mu.Unlock()
 	if _, dup := global.roles[r.Name]; dup {
-		return errx.Detail(ErrDuplicateRole, "name=%q", r.Name)
+		return errx.Detail(ErrDuplicateRole, "name=%[1]q | 名称=%[1]q", r.Name)
 	}
 	global.roles[r.Name] = r
 	return nil
@@ -199,7 +199,7 @@ func Lookup(name string) (Permission, error) {
 	defer global.mu.RUnlock()
 	p, ok := global.perms[name]
 	if !ok {
-		return Permission{}, errx.Detail(ErrUnknownPermission, "name=%q", name)
+		return Permission{}, errx.Detail(ErrUnknownPermission, "name=%[1]q | 名称=%[1]q", name)
 	}
 	return p, nil
 }
@@ -210,7 +210,7 @@ func LookupRole(name string) (Role, error) {
 	defer global.mu.RUnlock()
 	r, ok := global.roles[name]
 	if !ok {
-		return Role{}, errx.Detail(ErrUnknownRole, "name=%q", name)
+		return Role{}, errx.Detail(ErrUnknownRole, "name=%[1]q | 名称=%[1]q", name)
 	}
 	return r, nil
 }
@@ -289,10 +289,10 @@ func sortPermissions(perms []Permission) {
 // normalizePermission validates one capability and fills in its group. | normalizePermission 校验一条能力并补全其分组。
 func normalizePermission(p Permission) (Permission, error) {
 	if !IsPermissionName(p.Name) {
-		return Permission{}, errx.Detail(ErrInvalidPermission, "name=%q", p.Name)
+		return Permission{}, errx.Detail(ErrInvalidPermission, "name=%[1]q | 名称=%[1]q", p.Name)
 	}
 	if strings.TrimSpace(p.Description) == "" {
-		return Permission{}, errx.Detail(ErrInvalidPermission, "name=%q has no description", p.Name)
+		return Permission{}, errx.Detail(ErrInvalidPermission, "name=%[1]q has no description | 名称 %[1]q 没有描述", p.Name)
 	}
 	return withDerivedGroup(p), nil
 }
@@ -311,10 +311,10 @@ func withDerivedGroup(p Permission) Permission {
 // validateRole rejects a role name outside the declared shape. | validateRole 拒绝不符合声明形态的角色名。
 func validateRole(r Role) error {
 	if !IsRoleName(r.Name) {
-		return errx.Detail(ErrInvalidRole, "name=%q", r.Name)
+		return errx.Detail(ErrInvalidRole, "name=%[1]q | 名称=%[1]q", r.Name)
 	}
 	if strings.TrimSpace(r.Description) == "" {
-		return errx.Detail(ErrInvalidRole, "name=%q has no description", r.Name)
+		return errx.Detail(ErrInvalidRole, "name=%[1]q has no description | 名称 %[1]q 没有描述", r.Name)
 	}
 	return nil
 }

@@ -310,7 +310,7 @@ func Build(ctx context.Context, o Options, log *logx.Logger) (*Report, error) {
 		var buf bytes.Buffer
 		cmd.Stdout, cmd.Stderr = &buf, &buf
 		if err := cmd.Run(); err != nil {
-			return nil, errx.WrapDetail(err, ErrCompile, "go build %s | go build %s: %s", target, target, strings.TrimSpace(buf.String()))
+			return nil, errx.WrapDetail(err, ErrCompile, "go build %[1]s failed | 编译 %[1]s 失败: %[2]s", target, strings.TrimSpace(buf.String()))
 		}
 
 		artifact, err := verifyArtifact(out, target, time.Since(start))

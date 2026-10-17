@@ -210,7 +210,7 @@ func Parse(token string, keyFn KeyFunc, o ParseOptions) (*Token, error) {
 	// A hostile token must not be able to pick its own algorithm, so the allow list is enforced before any
 	// key material is requested. | 恶意 token 不得自行选择算法，因此白名单在任何密钥材料被索取之前强制执行。
 	if !algAllowed(o.ValidAlgs, hdr.Alg) {
-		return nil, errx.Detail(ErrAlgNotAllowed, "alg=%[1]q | alg=%[1]q", string(hdr.Alg))
+		return nil, errx.Detail(ErrAlgNotAllowed, "alg=%[1]q | 算法=%[1]q", string(hdr.Alg))
 	}
 	if payloadSeg == "" {
 		return nil, errx.Detail(ErrMalformed, "empty payload segment | 载荷段为空")
@@ -420,5 +420,5 @@ func nonEmptyToken(v string) (string, bool) {
 // The body never echoes the failure reason, so an attacker learns nothing about which check rejected the
 // token. | 正文绝不回显失败原因，攻击者无法从中得知是哪一项校验拒绝了 token。
 func defaultErrorHandler(c *router.Ctx, _ error) {
-	_ = c.String(401, "unauthorized")
+	_ = c.String(401, "unauthorized | 未授权")
 }

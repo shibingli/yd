@@ -170,7 +170,7 @@ func (c *Client) Enqueue(ctx context.Context, taskType string, payload any, opts
 // an immediate run and hide a caller bug. | 从而掩盖调用方的错误。
 func (c *Client) EnqueueIn(ctx context.Context, taskType string, payload any, delay time.Duration, opts ...asynq.Option) (*asynq.TaskInfo, error) {
 	if delay <= 0 {
-		return nil, errx.Detail(ErrInvalidSchedule, "delay %v", delay)
+		return nil, errx.Detail(ErrInvalidSchedule, "delay %[1]v | 延迟 %[1]v", delay)
 	}
 	return c.Enqueue(ctx, taskType, payload, withOption(opts, asynq.ProcessIn(delay))...)
 }

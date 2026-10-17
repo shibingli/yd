@@ -66,7 +66,7 @@ func (n *node) child(seg Segment) (*node, error) {
 		})
 		return c, nil
 	default:
-		return nil, errx.Detail(ErrUnknownSegment, "kind=%d", seg.Kind)
+		return nil, errx.Detail(ErrUnknownSegment, "kind=%[1]d | 类型=%[1]d", seg.Kind)
 	}
 }
 
