@@ -376,8 +376,14 @@ func decodeSIMD512VBMI2(dst, src []byte, url bool) (int, int) {
 			mulArr[j] = 1
 		}
 	}
+	var packArr [64]int8
+	packBase := [16]int8{2, 1, 0, 6, 5, 4, 10, 9, 8, 14, 13, 12, 15, 15, 15, 15}
+	for j := range packArr {
+		packArr[j] = packBase[j&15]
+	}
 	mul := archsimd.LoadInt8x64(mulArr[:])
-	packMask := archsimd.Mask8x64FromBits(0x7777777777777777)
+	pack := archsimd.LoadInt8x64(packArr[:])
+	packMask := archsimd.Mask8x64FromBits(0x0FFF0FFF0FFF0FFF)
 
 	upperA := archsimd.BroadcastUint8x64('A')
 	upperZ := archsimd.BroadcastUint8x64('Z')
@@ -407,7 +413,7 @@ func decodeSIMD512VBMI2(dst, src []byte, url bool) (int, int) {
 		v = archsimd.BroadcastUint8x64(63).IfElse(slashMask, v)
 		pairs := v.DotProductPairsSaturated(mul).AsUint32x16()
 		groups := pairs.And(archsimd.BroadcastUint32x16(0xFFFF)).ShiftAllLeft(12).Or(pairs.ShiftAllRight(16)).AsUint8x64()
-		groups.Compress(packMask).Store(dst[o:])
+		groups.PermuteOrZeroGrouped(pack).Compress(packMask).Store(dst[o:])
 		i += 64
 		o += 48
 	}
