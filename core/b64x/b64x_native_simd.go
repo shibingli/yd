@@ -351,18 +351,33 @@ func encodeSIMD512VBMI(dst, src []byte, url, padded bool, pad byte) (int, int) {
 		if o+outLen > len(dst) {
 			break
 		}
-		in, _ := archsimd.LoadUint8x64Part(src[i:])
-		v := in.Permute(inShuf).AsUint16x32()
-		idx := v.And(maskLo).MulHigh(mulHi).Or(v.And(maskHi).Mul(mulLo)).AsUint8x64()
-		res := idx.SubSaturated(b51)
-		less := b26.Greater(idx)
-		res = b13.IfElse(less, res)
-		res = idx.Add(lut.PermuteOrZeroGrouped(res.AsInt8x64()).AsUint8x64())
-		if url {
-			res = dash.IfElse(idx.Equal(b62), res)
-			res = under.IfElse(idx.Equal(b63), res)
+		if take == 32 {
+			v := simdZeroX64.SetLo(archsimd.LoadUint8x32(src[i:])).Permute(inShuf).AsUint16x32()
+			idx := v.And(maskLo).MulHigh(mulHi).Or(v.And(maskHi).Mul(mulLo)).AsUint8x64()
+			res := idx.SubSaturated(b51)
+			less := b26.Greater(idx)
+			res = b13.IfElse(less, res)
+			res = idx.Add(lut.PermuteOrZeroGrouped(res.AsInt8x64()).AsUint8x64())
+			if url {
+				res = dash.IfElse(idx.Equal(b62), res)
+				res = under.IfElse(idx.Equal(b63), res)
+			}
+			res.GetLo().Store(dst[o : o+32])
+			res.GetHi().StorePart(dst[o+32 : o+outLen])
+		} else {
+			in, _ := archsimd.LoadUint8x64Part(src[i:])
+			v := in.Permute(inShuf).AsUint16x32()
+			idx := v.And(maskLo).MulHigh(mulHi).Or(v.And(maskHi).Mul(mulLo)).AsUint8x64()
+			res := idx.SubSaturated(b51)
+			less := b26.Greater(idx)
+			res = b13.IfElse(less, res)
+			res = idx.Add(lut.PermuteOrZeroGrouped(res.AsInt8x64()).AsUint8x64())
+			if url {
+				res = dash.IfElse(idx.Equal(b62), res)
+				res = under.IfElse(idx.Equal(b63), res)
+			}
+			res.StorePart(dst[o : o+outLen])
 		}
-		res.StorePart(dst[o : o+outLen])
 		if padded {
 			switch take % 3 {
 			case 1:
