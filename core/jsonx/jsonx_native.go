@@ -99,7 +99,7 @@ func (e *encoder) value(v reflect.Value) error {
 			e.buf = append(e.buf, "null"...)
 			return nil
 		}
-		if v.Type().Implements(marshalerType) {
+		if cachedTraits(v.Type()).marshaler {
 			return e.marshaler(v.Interface().(stdjson.Marshaler))
 		}
 		return e.value(v.Elem())
@@ -112,13 +112,14 @@ func (e *encoder) value(v reflect.Value) error {
 		e.buf = append(e.buf, s...)
 		return nil
 	}
-	if v.Type().Implements(marshalerType) {
+	tr := cachedTraits(v.Type())
+	if tr.marshaler {
 		return e.marshaler(v.Interface().(stdjson.Marshaler))
 	}
-	if v.CanAddr() && v.Addr().Type().Implements(marshalerType) {
+	if v.CanAddr() && cachedTraits(v.Addr().Type()).marshaler {
 		return e.marshaler(v.Addr().Interface().(stdjson.Marshaler))
 	}
-	if v.Type().Implements(textMarshalerType) {
+	if tr.textMarshaler {
 		text, err := v.Interface().(encoding.TextMarshaler).MarshalText()
 		if err != nil {
 			return err
@@ -189,6 +190,17 @@ func (e *encoder) float(f float64, bits int) error {
 }
 
 func (e *encoder) str(s string) {
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		if c < 0x20 || c == '"' || c == '\\' || c >= 0x80 || (e.escapeHTML && (c == '<' || c == '>' || c == '&')) {
+			goto slow
+		}
+	}
+	e.buf = append(e.buf, '"')
+	e.buf = append(e.buf, s...)
+	e.buf = append(e.buf, '"')
+	return
+slow:
 	e.buf = append(e.buf, '"')
 	for _, r := range s {
 		switch r {
@@ -208,7 +220,7 @@ func (e *encoder) str(s string) {
 			} else {
 				e.buf = utf8.AppendRune(e.buf, r)
 			}
-		case ' ', ' ':
+		case '\u2028', '\u2029':
 			e.buf = append(e.buf, '\\', 'u', '2', '0', '2', hexDigit(byte(r)))
 		default:
 			if r < 0x20 {
@@ -289,6 +301,29 @@ type fieldInfo struct {
 	index     []int
 	omitEmpty bool
 	quoted    bool
+}
+
+type typeTraits struct {
+	marshaler       bool
+	textMarshaler   bool
+	unmarshaler     bool
+	textUnmarshaler bool
+}
+
+var traitCache sync.Map
+
+func cachedTraits(t reflect.Type) typeTraits {
+	if v, ok := traitCache.Load(t); ok {
+		return v.(typeTraits)
+	}
+	tr := typeTraits{
+		marshaler:       t.Implements(marshalerType),
+		textMarshaler:   t.Implements(textMarshalerType),
+		unmarshaler:     t.Implements(unmarshalerType),
+		textUnmarshaler: t.Implements(textUnmarshalerType),
+	}
+	traitCache.Store(t, tr)
+	return tr
 }
 
 type structInfo struct {
@@ -492,7 +527,7 @@ func (d *decoder) value(v reflect.Value) error {
 		v.SetBytes(raw)
 		return nil
 	}
-	if v.CanAddr() && v.Addr().Type().Implements(unmarshalerType) {
+	if v.CanAddr() && cachedTraits(v.Addr().Type()).unmarshaler {
 		raw, err := d.captureValue()
 		if err != nil {
 			return err
@@ -527,7 +562,7 @@ func (d *decoder) value(v reflect.Value) error {
 		v.SetString(s)
 		return nil
 	}
-	if v.CanAddr() && v.Addr().Type().Implements(textUnmarshalerType) && d.data[d.pos] == '"' {
+	if v.CanAddr() && cachedTraits(v.Addr().Type()).textUnmarshaler && d.data[d.pos] == '"' {
 		s, err := d.parseString()
 		if err != nil {
 			return err
@@ -732,6 +767,9 @@ func (d *decoder) array(v reflect.Value) error {
 	if d.pos < len(d.data) && d.data[d.pos] == ']' {
 		d.pos++
 		return nil
+	}
+	if v.Kind() == reflect.Slice && v.IsNil() {
+		v.Set(reflect.MakeSlice(v.Type(), 0, 4))
 	}
 	i := 0
 	for {

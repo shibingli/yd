@@ -50,7 +50,7 @@ cd benchmarks/json
 go test -run '^$' -bench . -benchmem -count=3 -tags jsonx_native
 ```
 
-当前结果（n=1000，500ms × 3 中位数）：Marshal **2,110,502 ns** / 757 KB / 2,025 allocs；Unmarshal **3,147,717 ns** / 612 KB / 22,992 allocs。  
-与 go-json（361 µs / 579 µs）相比仍有约 4–5 倍差距，主要来自逐值反射、结构体字段查找与字符串/集合构造；后续优化方向是类型缓存闭包编码器、专用解码路径与 SIMD 扫描。
+当前结果（n=1000，500ms × 3 中位数）：Marshal **1,703,570 ns** / 757 KB / 2,025 allocs；Unmarshal **2,476,723 ns** / 588 KB / 21,991 allocs。  
+与 go-json（333 µs / 495 µs）相比仍有约 5 倍差距，主要来自逐值反射、结构体字段查找与字符串/集合构造；后续优化方向是类型缓存闭包编码器、专用解码路径与 SIMD 扫描。
 
 默认后端（sonic 包装）与 `sonic-std` 在预热后处于同一水平（n=100 Marshal 54.5 vs 54.6 µs，n=1000 Unmarshal 877 vs 878 µs），此前的差异来自 sonic JIT 首次编译与子基准顺序，现已通过预热消除。
