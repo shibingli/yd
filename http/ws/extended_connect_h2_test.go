@@ -9,11 +9,11 @@ import (
 	"net/http/httptest"
 	"os"
 	"os/exec"
-	"regexp"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/shibingli/yd/core/regexpx"
 	"github.com/shibingli/yd/http/protocol"
 	"golang.org/x/net/http2"
 )
@@ -56,7 +56,7 @@ func runHTTP2Child(t *testing.T, name string) bool {
 		"GODEBUG="+protocol.MergeGODEBUG(os.Getenv("GODEBUG"), "http2xconnect=1"),
 		h2ChildEnv+"=1",
 	)
-	cmd := exec.Command(os.Args[0], "-test.run=^"+regexp.QuoteMeta(name)+"$", "-test.v", "-test.count=1")
+	cmd := exec.Command(os.Args[0], "-test.run=^"+regexpx.QuoteMeta(name)+"$", "-test.v", "-test.count=1")
 	cmd.Env = env
 	out, err := cmd.CombinedOutput()
 	if err != nil {
