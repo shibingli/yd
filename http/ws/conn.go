@@ -40,6 +40,9 @@ type Conn struct {
 	readErr error
 	br      *bufio.Reader // non-nil only when ReadBufferSize > 0 | 仅在 ReadBufferSize > 0 时非空
 	bw      *bufio.Writer // coalesces small frames into one transport write | 把小帧合并为一次传输层写入
+	// flush is the cached FlushError method of stream transports; nil for TCP. | flush 缓存流传输的
+	// FlushError 方法；TCP 上为 nil。
+	flush func() error
 
 	pingHandler  func(string) error
 	pongHandler  func(string) error
@@ -137,6 +140,9 @@ func newConnWithBuffers(nc net.Conn, o Options, isClient bool, br *bufio.Reader,
 	c := &Conn{conn: nc, opts: o, isClient: isClient, kind: TransportTCP}
 	c.writeBase = c.bufs[:]
 	c.writeList = c.writeBase
+	if f, ok := nc.(interface{ FlushError() error }); ok {
+		c.flush = f.FlushError
+	}
 	if br != nil {
 		c.br = br
 	} else if o.ReadBufferSize > 0 {
@@ -307,10 +313,9 @@ func (c *Conn) ReadMessage() (OpCode, []byte, error) {
 				return 0, nil, c.setReadErr(derr)
 			}
 			c.frameRemain = 0
-			r.done = true
-			c.msgOp = 0
-			c.msgLen = 0
-			c.msgCompressed = false
+			if ferr := r.finish(); ferr != nil {
+				return 0, nil, ferr
+			}
 			return op, payload, nil
 		}
 	}
@@ -341,6 +346,17 @@ func (c *Conn) ReadMessage() (OpCode, []byte, error) {
 		}
 		n, err := r.Read(buf[len(buf):cap(buf)])
 		buf = buf[:len(buf)+n]
+		if err == nil && !r.compressed && r.remaining == 0 && c.frameFin {
+			// The read consumed the final frame: finish here instead of calling
+			// Read again just to receive EOF. | 本次读取已耗尽最后一帧：直接在此
+			// 收尾，不再为了拿到 EOF 多调用一次 Read。
+			ferr := r.finish()
+			c.readBuf = buf
+			if ferr != nil {
+				return 0, nil, ferr
+			}
+			return op, buf, nil
+		}
 		if err == io.EOF {
 			c.readBuf = buf
 			return op, buf, nil
@@ -350,6 +366,18 @@ func (c *Conn) ReadMessage() (OpCode, []byte, error) {
 			return 0, nil, err
 		}
 	}
+}
+
+// finish validates the end of the message and resets the connection's message state. | finish 校验消息结尾并重置连接的消息状态。
+func (r *MessageReader) finish() error {
+	if r.op == TextMessage && !r.c.utf8.complete() {
+		return r.c.fail(CloseInvalidFramePayloadData, ErrInvalidUTF8)
+	}
+	r.done = true
+	r.c.msgOp = 0
+	r.c.msgLen = 0
+	r.c.msgCompressed = false
+	return nil
 }
 
 // MessageReader streams one message; control frames (ping/pong/close) are handled automatically underneath. | MessageReader 流式读取一条消息；控件帧（ping/pong/close）在底层自动处理。
@@ -385,15 +413,9 @@ func (r *MessageReader) Read(p []byte) (int, error) {
 	}
 	for r.remaining == 0 {
 		if r.c.frameFin {
-			if r.op == TextMessage {
-				if !r.c.utf8.complete() {
-					return 0, r.c.fail(CloseInvalidFramePayloadData, ErrInvalidUTF8)
-				}
+			if err := r.finish(); err != nil {
+				return 0, err
 			}
-			r.done = true
-			r.c.msgOp = 0
-			r.c.msgLen = 0
-			r.c.msgCompressed = false
 			return 0, io.EOF
 		}
 		if err := r.c.nextDataFrame(&r.remaining); err != nil {
@@ -849,18 +871,50 @@ func (c *Conn) writeFrameLocked(rsv1, fin bool, op OpCode, payload []byte) error
 	}
 	body := payload
 	if c.isClient {
-		// a client must mask; masking requires an in-place XOR, so the payload is copied into an internal buffer | 客户端必须掩码；掩码需要就地异或，因此复制到内部缓冲
-		if cap(c.maskBuf) < len(payload) {
-			c.maskBuf = make([]byte, len(payload))
-		}
-		body = c.maskBuf[:len(payload)]
-		copy(body, payload)
+		// A client must mask. The key is generated inside the write lock so
+		// concurrent writers cannot interleave on the shared mask buffer. | 客户端必须
+		// 掩码。密钥在写锁内生成，并发写者不会在共享掩码缓冲上交错。
 		var key [4]byte
 		if _, err := rand.Read(key[:]); err != nil {
 			return err
 		}
 		copy(hdr[n:], key[:])
 		n += 4
+
+		// A frame that fits in the write buffer is assembled once in maskBuf and
+		// written directly, instead of being copied into maskBuf and then again
+		// into bw. The direct path stays inline so the large-frame scatter path
+		// below keeps its previous cost. | 能放进写缓冲的帧在 maskBuf 中一次组装并
+		// 直接写出，而不是先复制进 maskBuf 再复制进 bw。直接路径保持内联，使下面的
+		// 大帧分散路径维持原有开销。
+		if frameLen := n + len(payload); frameLen <= c.bw.Size() {
+			if cap(c.maskBuf) < frameLen {
+				c.maskBuf = make([]byte, frameLen)
+			}
+			frame := c.maskBuf[:frameLen]
+			copy(frame, hdr[:n])
+			copy(frame[n:], payload)
+			maskBytes(key, 0, frame[n:])
+			if err := c.bw.Flush(); err != nil {
+				return err
+			}
+			if _, err := c.conn.Write(frame); err != nil {
+				return err
+			}
+			if c.flush != nil {
+				return c.flush()
+			}
+			return nil
+		}
+
+		// Large frames keep the scatter path: one copy into maskBuf, no second
+		// copy and no intermediate write buffer. | 大帧保留分散写：只复制一次到
+		// maskBuf，不再二次复制，也不经过中间写缓冲。
+		if cap(c.maskBuf) < len(payload) {
+			c.maskBuf = make([]byte, len(payload))
+		}
+		body = c.maskBuf[:len(payload)]
+		copy(body, payload)
 		maskBytes(key, 0, body)
 	}
 
@@ -897,11 +951,11 @@ func (c *Conn) writeFrameLocked(rsv1, fin bool, op OpCode, payload []byte) error
 			return err
 		}
 	}
-	// Stream transports buffer DATA until flushed; TCP never implements
-	// FlushError, so its hot path is unchanged. | 流传输会把 DATA 缓冲到刷新为止；
-	// TCP 从不实现 FlushError，因此其热路径保持不变。
-	if f, ok := c.conn.(interface{ FlushError() error }); ok {
-		return f.FlushError()
+	// Stream transports buffer DATA until flushed; TCP has no cached flush, so
+	// its hot path is unchanged. | 流传输会把 DATA 缓冲到刷新为止；TCP 没有缓存
+	// 刷新函数，因此其热路径保持不变。
+	if c.flush != nil {
+		return c.flush()
 	}
 	return nil
 }

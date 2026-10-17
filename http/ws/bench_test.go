@@ -1,6 +1,7 @@
 package ws
 
 import (
+	"bufio"
 	"bytes"
 	"fmt"
 	"io"
@@ -320,4 +321,40 @@ func BenchmarkCompressedRoundTrip(b *testing.B) {
 			}
 		})
 	}
+}
+
+// BenchmarkFrameDecodeBufioSmall measures parsing a masked 32-byte frame from a
+// bufio.Reader, the reader type used by established connections. | BenchmarkFrameDecodeBufioSmall
+// 测量从已建立连接所用的 bufio.Reader 解析 32 字节掩码帧。
+func BenchmarkFrameDecodeBufioSmall(b *testing.B) {
+	const size = 32
+	key := [4]byte{1, 2, 3, 4}
+	var hdr [maxHeaderSize]byte
+	n := writeFrameHeader(hdr[:], true, BinaryMessage, true, size)
+	frame := make([]byte, 0, n+4+size)
+	frame = append(frame, hdr[:n]...)
+	frame = append(frame, key[:]...)
+	frame = append(frame, make([]byte, size)...)
+
+	var src bytes.Reader
+	br := bufio.NewReaderSize(&src, 64)
+	out := make([]byte, size)
+	hdrBuf := make([]byte, maxHeaderSize)
+
+	b.SetBytes(size)
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		src.Reset(frame)
+		br.Reset(&src)
+		h, err := readFrameHeader(br, hdrBuf)
+		if err != nil {
+			b.Fatalf("decode header failed | 解码帧头失败: %v", err)
+		}
+		if _, err := io.ReadFull(br, out); err != nil {
+			b.Fatalf("decode payload failed | 解码载荷失败: %v", err)
+		}
+		maskBytes(h.maskKey, 0, out)
+	}
+	benchSinkBytes = out
 }

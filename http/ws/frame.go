@@ -1,6 +1,7 @@
 package ws
 
 import (
+	"bufio"
 	"encoding/binary"
 	"io"
 
@@ -28,6 +29,14 @@ type frameHeader struct {
 // buf 用于暂存固定头字节、扩展长度与掩码键；长度至少为 8，避免分配。经调用方缓冲读取（而不是
 // 局部数组或指向返回结构体的指针）使本函数保持零分配：否则经 io.Reader 接口传出的数组会逃逸到堆上。
 func readFrameHeader(r io.Reader, buf []byte) (frameHeader, error) {
+	// A bufio-based connection can parse the header straight out of the read
+	// buffer, avoiding copies into buf. Buffers smaller than the largest header
+	// fall back to the generic path because Peek cannot span them. | 基于 bufio 的
+	// 连接可以直接从读缓冲解析帧头，避免复制进 buf；小于最大帧头的缓冲因 Peek 无法
+	// 跨越而回退到通用路径。
+	if br, ok := r.(*bufio.Reader); ok && br.Size() >= maxHeaderSize {
+		return readFrameHeaderBufio(br)
+	}
 	var h frameHeader
 	if _, err := io.ReadFull(r, buf[:2]); err != nil {
 		return h, err
@@ -65,6 +74,59 @@ func readFrameHeader(r io.Reader, buf []byte) (frameHeader, error) {
 			return h, err
 		}
 		copy(h.maskKey[:], buf[:4])
+	}
+	return h, nil
+}
+
+// readFrameHeaderBufio parses a frame header directly from br's buffer. | readFrameHeaderBufio 直接从 br 的缓冲解析帧头。
+func readFrameHeaderBufio(br *bufio.Reader) (frameHeader, error) {
+	var h frameHeader
+	head, err := br.Peek(2)
+	if err != nil {
+		return h, err
+	}
+	h.fin = head[0]&0x80 != 0
+	h.rsv1 = head[0]&0x40 != 0
+	h.rsv2 = head[0]&0x20 != 0
+	h.rsv3 = head[0]&0x10 != 0
+	h.opcode = OpCode(head[0] & 0x0f)
+	h.masked = head[1]&0x80 != 0
+
+	length := int64(head[1] & 0x7f)
+	consumed := 2
+	switch length {
+	case 126:
+		b, perr := br.Peek(4)
+		if perr != nil {
+			return h, perr
+		}
+		length = int64(binary.BigEndian.Uint16(b[2:4]))
+		consumed = 4
+	case 127:
+		b, perr := br.Peek(10)
+		if perr != nil {
+			return h, perr
+		}
+		v := binary.BigEndian.Uint64(b[2:10])
+		if v&(1<<63) != 0 {
+			// RFC 6455 §5.2: the most significant bit of a 64-bit length MUST be 0; an invalid length field is a protocol error (1002), not a size error | RFC 6455 §5.2：64 位长度的最高位必须为 0；长度字段非法属于协议错误（1002），而不是大小超限
+			return h, ErrFrameLengthMSB
+		}
+		length = int64(v)
+		consumed = 10
+	}
+	h.length = length
+
+	if h.masked {
+		b, perr := br.Peek(consumed + 4)
+		if perr != nil {
+			return h, perr
+		}
+		copy(h.maskKey[:], b[consumed:consumed+4])
+		consumed += 4
+	}
+	if _, err := br.Discard(consumed); err != nil {
+		return h, err
 	}
 	return h, nil
 }

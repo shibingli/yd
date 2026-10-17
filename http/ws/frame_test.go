@@ -1,6 +1,7 @@
 package ws
 
 import (
+	"bufio"
 	"bytes"
 	"encoding/binary"
 	"errors"
@@ -274,5 +275,39 @@ func TestUtf8IncrementalMatchesStdlib(t *testing.T) {
 				t.Fatalf("byte-by-byte: got %v, want %v | 逐字节：得到 %v，期望 %v", got, want, got, want)
 			}
 		})
+	}
+}
+
+// TestReadFrameHeaderBufio covers every header form through both the bufio fast
+// path and the generic fallback used for very small buffers. | TestReadFrameHeaderBufio
+// 通过 bufio 快路径与极小缓冲所用的通用回退路径覆盖所有帧头形式。
+func TestReadFrameHeaderBufio(t *testing.T) {
+	for _, masked := range []bool{false, true} {
+		for _, size := range []int64{0, 1, 125, 126, 65535, 65536} {
+			var hdr [maxHeaderSize]byte
+			n := writeFrameHeader(hdr[:], true, BinaryMessage, masked, size)
+			frame := make([]byte, 0, n+4)
+			frame = append(frame, hdr[:n]...)
+			if masked {
+				frame = append(frame, 1, 2, 3, 4)
+			}
+			for _, bufSize := range []int{64, 8} {
+				br := bufio.NewReaderSize(bytes.NewReader(frame), bufSize)
+				h, err := readFrameHeader(br, make([]byte, maxHeaderSize))
+				if err != nil {
+					t.Fatalf("masked=%v size=%d buf=%d: %v | 错误：%v", masked, size, bufSize, err, err)
+				}
+				if !h.fin || h.opcode != BinaryMessage || h.masked != masked || h.length != size {
+					t.Fatalf("masked=%v size=%d buf=%d: got fin=%v op=%v masked=%v len=%d | 得到 fin=%v op=%v masked=%v len=%d",
+						masked, size, bufSize, h.fin, h.opcode, h.masked, h.length, h.fin, h.opcode, h.masked, h.length)
+				}
+				if masked && h.maskKey != [4]byte{1, 2, 3, 4} {
+					t.Fatalf("masked=%v size=%d buf=%d: mask=%v | 掩码=%v", masked, size, bufSize, h.maskKey, h.maskKey)
+				}
+				if br.Buffered() != 0 {
+					t.Fatalf("masked=%v size=%d buf=%d: buffered=%d | 剩余缓冲=%d", masked, size, bufSize, br.Buffered(), br.Buffered())
+				}
+			}
+		}
 	}
 }
