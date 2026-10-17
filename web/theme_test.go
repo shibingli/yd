@@ -3,12 +3,12 @@ package web_test
 import (
 	"os"
 	"path/filepath"
-	"regexp"
 	"strconv"
 	"strings"
 	"testing"
 
 	"github.com/shibingli/yd/core/afs"
+	"github.com/shibingli/yd/core/regexpx"
 	"github.com/shibingli/yd/web"
 )
 
@@ -44,7 +44,7 @@ var semanticColorTokens = []string{
 // 取那一次出现会返回错误的块。
 func cssBlock(t *testing.T, css, prelude string) string {
 	t.Helper()
-	re := regexp.MustCompile(regexp.QuoteMeta(prelude) + `\s*\{`)
+	re := regexpx.MustCompile(regexpx.QuoteMeta(prelude) + `\s*\{`)
 	loc := re.FindStringIndex(css)
 	if loc == nil {
 		t.Fatalf("selector %q has no block in the stylesheet | 样式表中选择器 %q 没有块", prelude, prelude)
@@ -71,7 +71,7 @@ func cssBlock(t *testing.T, css, prelude string) string {
 // The trailing ":" anchor keeps "--color-surface" from matching the longer "--color-surface-muted". | 末尾的 ":" 锚点
 // 可避免 "--color-surface" 误匹配更长的 "--color-surface-muted"。
 func cssValue(body, name string) (string, bool) {
-	re := regexp.MustCompile(regexp.QuoteMeta(name) + `\s*:\s*([^;]+);`)
+	re := regexpx.MustCompile(regexpx.QuoteMeta(name) + `\s*:\s*([^;]+);`)
 	m := re.FindStringSubmatch(body)
 	if m == nil {
 		return "", false
@@ -99,7 +99,7 @@ func hexBlueDominant(value string) (dominant, isHex bool) {
 }
 
 // sourceGlobPattern extracts every @source glob from a stylesheet. | sourceGlobPattern 提取样式表中的全部 @source 通配。
-var sourceGlobPattern = regexp.MustCompile(`@source\s+"([^"]+)"`)
+var sourceGlobPattern = regexpx.MustCompile(`@source\s+"([^"]+)"`)
 
 // TestThemeDefinesBlueBrandScaleAndSemanticTokens pins the design-token contract of app.css. | TestThemeDefinesBlueBrandScaleAndSemanticTokens 锁定 app.css 的设计令牌契约。
 //
@@ -262,7 +262,7 @@ func TestDarkThemeOverridesSemanticTokens(t *testing.T) {
 }
 
 // tailwindBanner matches the licence banner every --minify build emits and preserves. | tailwindBanner 匹配每次 --minify 构建都会产出并保留的许可横幅。
-var tailwindBanner = regexp.MustCompile(`^/\*!.*?\*/\s*`)
+var tailwindBanner = regexpx.MustCompile(`^/\*!.*?\*/\s*`)
 
 // TestBuiltCssIsMinifiedAndNonEmpty guarantees the committed stylesheet is a real, usable build artifact. | TestBuiltCssIsMinifiedAndNonEmpty 保证签入的样式表是真实可用的构建产物。
 //
@@ -295,13 +295,13 @@ func TestBuiltCssIsMinifiedAndNonEmpty(t *testing.T) {
 			t.Errorf("%s does not contain %s | %s 中不含 %s", builtCSSPath, want, builtCSSPath, want)
 		}
 	}
-	if !regexp.MustCompile(`\[data-theme=["']?dark["']?\]`).MatchString(css) {
+	if !regexpx.MustCompile(`\[data-theme=["']?dark["']?\]`).MatchString(css) {
 		t.Errorf("%s does not contain the dark theme block | %s 中不含暗色主题块", builtCSSPath, builtCSSPath)
 	}
 }
 
 // hexLiteral matches the six and eight digit hex colour literals banned from templates. | hexLiteral 匹配模板中禁止出现的 6 位与 8 位十六进制色值。
-var hexLiteral = regexp.MustCompile(`#[0-9a-fA-F]{8}\b|#[0-9a-fA-F]{6}\b`)
+var hexLiteral = regexpx.MustCompile(`#[0-9a-fA-F]{8}\b|#[0-9a-fA-F]{6}\b`)
 
 // TestNoHardcodedHexInTemplates keeps colour decisions inside the theme. | TestNoHardcodedHexInTemplates 把颜色决策限制在主题内部。
 //

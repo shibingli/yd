@@ -17,13 +17,13 @@ package web_test
 import (
 	"html/template"
 	"os"
-	"regexp"
 	"sort"
 	"strings"
 	"testing"
 	"text/template/parse"
 
 	"github.com/shibingli/yd/core/afs"
+	"github.com/shibingli/yd/core/regexpx"
 	"github.com/shibingli/yd/security/authz"
 	"github.com/shibingli/yd/web"
 )
@@ -68,7 +68,7 @@ const templateDir = "templates"
 
 // commentRe matches a Go template comment, including the whitespace-trimming dashes.
 // commentRe 匹配 Go 模板注释，包含两侧去空白的短横线。
-var commentRe = regexp.MustCompile(`(?s)\{\{-?\s*/\*.*?\*/\s*-?\}\}`)
+var commentRe = regexpx.MustCompile(`(?s)\{\{-?\s*/\*.*?\*/\s*-?\}\}`)
 
 // templateSources returns every .html template of the embedded tree, keyed by its path.
 // templateSources 返回内嵌树中的每个 .html 模板，以路径为键。
@@ -212,9 +212,9 @@ func literalTrKeys(t *testing.T, sources map[string]string) map[string][]string 
 // captured; a static key is plain dotted text.
 // 两个客户端钩子。由动作构造的键含有 "{{"，因此不会被捕获；静态键就是普通的点分文本。
 var (
-	i18nLiteralRe = regexp.MustCompile(`data-yd-i18n="([^"]*)"`)
-	i18nAttrRe    = regexp.MustCompile(`data-yd-i18n-attr="([^"]*)"`)
-	staticKeyRe   = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_.-]*$`)
+	i18nLiteralRe = regexpx.MustCompile(`data-yd-i18n="([^"]*)"`)
+	i18nAttrRe    = regexpx.MustCompile(`data-yd-i18n-attr="([^"]*)"`)
+	staticKeyRe   = regexpx.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_.-]*$`)
 )
 
 // literalHookKeys returns the static data-yd-i18n and data-yd-i18n-attr keys of every template,
@@ -297,7 +297,7 @@ var intentionallyAbsent = map[string]bool{
 
 // catalogShadowRe splits a catalogue line into its indentation, key and value.
 // catalogShadowRe 把目录中的一行拆成缩进、键与取值三部分。
-var catalogShadowRe = regexp.MustCompile(`^(\s*)([^:]+):(.*)$`)
+var catalogShadowRe = regexpx.MustCompile(`^(\s*)([^:]+):(.*)$`)
 
 // checkCatalogShadowing rejects a catalogue entry that is both a message and the prefix of another
 // message, e.g. a message `dashboard.range` beside `dashboard.range.24h`.
@@ -501,21 +501,21 @@ var task4Files = []string{
 // tagRe matches one tag, keeping quoted attribute values in one piece so that a ">" inside a value
 // cannot end the tag early. | tagRe 匹配一个标签，把带引号的属性值保持完整，
 // 使属性值里的 ">" 不会提前结束标签。
-var tagRe = regexp.MustCompile(`(?s)<[^<>"']*(?:"[^"]*"[^<>"']*|'[^']*'[^<>"']*)*>`)
+var tagRe = regexpx.MustCompile(`(?s)<[^<>"']*(?:"[^"]*"[^<>"']*|'[^']*'[^<>"']*)*>`)
 
 // actionRe matches one template action, including the whitespace-trimming dashes.
 // actionRe 匹配一个模板动作，包含两侧去空白的短横线。
-var actionRe = regexp.MustCompile(`(?s)\{\{-?.*?-?\}\}`)
+var actionRe = regexpx.MustCompile(`(?s)\{\{-?.*?-?\}\}`)
 
 // hookRe reports whether a tag carries one of the two client-side hooks. | hookRe 报告标签是否带有两个客户端钩子之一。
-var hookRe = regexp.MustCompile(`data-yd-i18n(-attr)?=`)
+var hookRe = regexpx.MustCompile(`data-yd-i18n(-attr)?=`)
 
 // attrOpenRe matches the opening of an attribute value and is used to attribute a tr call to the
 // attribute it fills. | attrOpenRe 匹配属性取值的起始位置，用于把 tr 调用归到它所填充的属性上。
-var attrOpenRe = regexp.MustCompile(`([A-Za-z0-9:_.-]+)\s*=\s*["']`)
+var attrOpenRe = regexpx.MustCompile(`([A-Za-z0-9:_.-]+)\s*=\s*["']`)
 
 // trCallRe matches a literal tr call. | trCallRe 匹配字面 tr 调用。
-var trCallRe = regexp.MustCompile(`tr\s+"([^"]+)"`)
+var trCallRe = regexpx.MustCompile(`tr\s+"([^"]+)"`)
 
 // TestEveryUserFacingTextHasI18nAttribute proves the Task 4 pages never render copy a language
 // switch cannot reach.

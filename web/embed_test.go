@@ -13,7 +13,6 @@ import (
 	"net/url"
 	"os"
 	"path"
-	"regexp"
 	"sort"
 	"strings"
 	"testing"
@@ -21,6 +20,7 @@ import (
 
 	"github.com/shibingli/yd/core/afs"
 	"github.com/shibingli/yd/core/jsonx"
+	"github.com/shibingli/yd/core/regexpx"
 	"github.com/shibingli/yd/web"
 	"github.com/spf13/afero"
 )
@@ -208,7 +208,7 @@ func TestAllManifestAssetsExistAndMatchChecksum(t *testing.T) {
 }
 
 // externalRefPattern matches a src/href attribute pointing at an absolute or scheme-relative http(s) URL. | externalRefPattern 匹配指向绝对或协议相对 http(s) 地址的 src/href 属性。
-var externalRefPattern = regexp.MustCompile(`(?i)\b(?:src|href)\s*=\s*["']?(?:https?:)?//`)
+var externalRefPattern = regexpx.MustCompile(`(?i)\b(?:src|href)\s*=\s*["']?(?:https?:)?//`)
 
 // TestNoExternalCdnReferenceInTemplates forbids any template from pulling JavaScript or CSS off the public network. | TestNoExternalCdnReferenceInTemplates 禁止任何模板从公网拉取 JavaScript 或 CSS。
 //

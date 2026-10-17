@@ -6,10 +6,11 @@ import (
 	"go/token"
 	"os"
 	"path/filepath"
-	"regexp"
 	"slices"
 	"strings"
 	"testing"
+
+	"github.com/shibingli/yd/core/regexpx"
 )
 
 // skippedDirs 是不参与源码守卫扫描的目录。
@@ -166,7 +167,7 @@ func TestNoDirectEncodingImports(t *testing.T) {
 // hasImport 判断某行是否为 import 语句（含别名与括号形式）。
 // hasImport reports whether any line imports the given quoted path.
 func hasImport(lines []string, quoted string) bool {
-	re := regexp.MustCompile(`^\s*(?:[A-Za-z_][A-Za-z0-9_]*\s+)?"` + regexp.QuoteMeta(strings.Trim(quoted, `"`)) + `"\s*$`)
+	re := regexpx.MustCompile(`^\s*(?:[A-Za-z_][A-Za-z0-9_]*\s+)?"` + regexpx.QuoteMeta(strings.Trim(quoted, `"`)) + `"\s*$`)
 	for _, l := range lines {
 		if re.MatchString(strings.TrimRight(l, " \t")) {
 			return true
@@ -205,13 +206,13 @@ func TestNoStdlibLogOrPrintfLogging(t *testing.T) {
 
 // logCallRe 匹配 logx 的级别方法调用及其首个字符串字面量。
 // logCallRe matches logx level calls together with their first literal.
-var logCallRe = regexp.MustCompile(`\.(?:Debug|Info|Warn|Error|Fatal)\(\s*"([^"\\]*)"`)
+var logCallRe = regexpx.MustCompile(`\.(?:Debug|Info|Warn|Error|Fatal)\(\s*"([^"\\]*)"`)
 
 // testingCallRe 匹配 testing 包的断言方法；它们的名字与 logx 级别方法重合，
 // 必须排除，否则会把测试断言文案误判为日志文案。
 // testingCallRe matches testing assertion helpers; their names collide with logx
 // level methods and must be excluded, otherwise assertions are misread as logs.
-var testingCallRe = regexp.MustCompile(`\b(?:t|b|tb|ft|st|env)\.(?:Fatal|Fatalf|Error|Errorf)\(`)
+var testingCallRe = regexpx.MustCompile(`\b(?:t|b|tb|ft|st|env)\.(?:Fatal|Fatalf|Error|Errorf)\(`)
 
 // TestLogMessagesAreBilingual 强制日志文案与注释一样中英同步。
 // TestLogMessagesAreBilingual enforces the same bilingual rule on log messages.
@@ -376,14 +377,14 @@ func TestLongLivedPackagesDoNotImportLifecycle(t *testing.T) {
 }
 
 // cjkRe 匹配中日韩统一表意文字。| cjkRe matches CJK unified ideographs.
-var cjkRe = regexp.MustCompile(`[\p{Han}]`)
+var cjkRe = regexpx.MustCompile(`[\p{Han}]`)
 
 // commentLineRe 拆出一条注释行的「前缀」与「正文」。前缀包含注释符、列表符号与 OpenAPI 注解名，
 // 它们必须留在行首，不参与中英交换。
 // commentLineRe splits a comment line into its prefix and body. The prefix holds the comment
 // marker, a list bullet and an OpenAPI annotation name: all of them stay at the front and take no
 // part in the language swap.
-var commentLineRe = regexp.MustCompile(`^(\s*(?://|#)+\s*(?:[-*]\s+|\d+\.\s+)?(?:@[A-Za-z]+\s+)?)(.*)$`)
+var commentLineRe = regexpx.MustCompile(`^(\s*(?://|#)+\s*(?:[-*]\s+|\d+\.\s+)?(?:@[A-Za-z]+\s+)?)(.*)$`)
 
 // TestBilingualCommentsAreEnglishFirst 强制注释与日志文案「英文在前、中文在后」。
 // TestBilingualCommentsAreEnglishFirst enforces the English-first order of bilingual comments.
@@ -442,7 +443,7 @@ func checkCommentOrder(t *testing.T, rel string, lines []string, allowHash bool)
 }
 
 // cgoImportRe 匹配 cgo 的伪包导入。| cgoImportRe matches the cgo pseudo-package import.
-var cgoImportRe = regexp.MustCompile(`^\s*(?:[A-Za-z_][A-Za-z0-9_]*\s+)?"C"\s*$`)
+var cgoImportRe = regexpx.MustCompile(`^\s*(?:[A-Za-z_][A-Za-z0-9_]*\s+)?"C"\s*$`)
 
 // cgoSQLiteDrivers 是需要 cgo 的 SQLite 驱动，本仓一律不得引入。
 // cgoSQLiteDrivers are the cgo-based SQLite drivers this repository must never pull in.
@@ -487,7 +488,7 @@ func TestNoCgoInDefaultBuild(t *testing.T) {
 		// in is acceptable. Both require forms must be covered — one line inside a require block and a
 		// single-line require statement; matching only the former misses
 		// `require github.com/mattn/go-sqlite3 v1.14.22`.
-		re := regexp.MustCompile(`(?m)^\s*(?:require\s+)?` + regexp.QuoteMeta(drv) + `\s`)
+		re := regexpx.MustCompile(`(?m)^\s*(?:require\s+)?` + regexpx.QuoteMeta(drv) + `\s`)
 		if re.MatchString(gomod) {
 			t.Errorf("go.mod 直接依赖了需要 cgo 的 %s；请改用纯 Go 的 github.com/glebarez/sqlite", drv)
 		}
@@ -649,6 +650,19 @@ const stringLiteralBody = `(?:[^"\\]|\\.)*`
 // TestStringLiteralReStaysUsable pins it down.
 var stringLiteralRe = `"(` + stringLiteralBody + `)"`
 
+// stringLiteralMatchRe 是 stringLiteralRe 的编译结果，包级只编译一次。
+// stringLiteralMatchRe is stringLiteralRe compiled once at package level.
+//
+// 逐行编译会把这个守卫从「读文本」变成「反复解析正则」——换到 regexp2 之后解析成本更高，
+// 因此把编译移到初始化期。
+// Compiling per line turns this guard from reading text into repeatedly parsing a pattern; parsing
+// costs more under regexp2, so compilation moves to initialization.
+var stringLiteralMatchRe = regexpx.MustCompile(stringLiteralRe)
+
+// asciiWordRe 判定一段文本里是否存在至少两个连续 ASCII 字母。
+// asciiWordRe reports whether text contains at least two consecutive ASCII letters.
+var asciiWordRe = regexpx.MustCompile(`[A-Za-z]{2,}`)
+
 // TestStringLiteralReStaysUsable 钉住文案守卫所依赖的正则形态。
 // TestStringLiteralReStaysUsable pins the pattern the copy guard depends on.
 //
@@ -658,7 +672,7 @@ var stringLiteralRe = `"(` + stringLiteralBody + `)"`
 // than a failing one, because the reporting line never runs. Asserting on the guard itself is
 // therefore as necessary as asserting on the code it checks.
 func TestStringLiteralReStaysUsable(t *testing.T) {
-	re := regexp.MustCompile(stringLiteralRe)
+	re := stringLiteralMatchRe
 	cases := []struct{ in, want string }{
 		{`x := "plain"`, "plain"},
 		{`x := "中文"`, "中文"},
@@ -697,7 +711,7 @@ func TestStringLiteralReStaysUsable(t *testing.T) {
 // program's error output, prompts or result responses, and the pre-existing
 // TestLogMessagesAreBilingual exempts test files the same way. Tightening it is a change of policy,
 // not of implementation, so it needs a decision first.
-var outputCallRe = regexp.MustCompile(`(?:errx\.(?:New|Detail|Wrap|WrapDetail)\(|\.(?:Debug|Info|Warn|Error|Fatal)\(\s*"|Fprint(?:f|ln)?\()`)
+var outputCallRe = regexpx.MustCompile(`(?:errx\.(?:New|Detail|Wrap|WrapDetail)\(|\.(?:Debug|Info|Warn|Error|Fatal)\(\s*"|Fprint(?:f|ln)?\()`)
 
 // TestBilingualCoverage 强制「每一处注释与运行时文案都不得只有一种语言」。
 // TestBilingualCoverage enforces that no comment or runtime string carries only one language.
@@ -761,7 +775,7 @@ func checkBilingualCoverage(t *testing.T, f goFile, allowHash bool) {
 	t.Helper()
 
 	// 语序守卫已认得的豁免：编译指令与生成标记。| The exemptions the ordering guard already knows.
-	directiveRe := regexp.MustCompile(`^\s*(?://|#)\s*(?:go:build|go:generate|\+build|Code generated)`)
+	directiveRe := regexpx.MustCompile(`^\s*(?://|#)\s*(?:go:build|go:generate|\+build|Code generated)`)
 
 	for i := 0; i < len(f.lines); i++ {
 		line := strings.TrimRight(f.lines[i], " \t")
@@ -796,7 +810,7 @@ func checkBilingualCoverage(t *testing.T, f goFile, allowHash bool) {
 			}
 		default:
 			// 多行块允许换行分隔，但整块必须两种语言都有。| A multi-line block may break lines, but must hold both languages.
-			if !regexp.MustCompile(`[A-Za-z]{2,}`).MatchString(block) {
+			if !asciiWordRe.MatchString(block) {
 				t.Errorf("%s:%d 多行注释整块只有中文，英文段落缺失（可换行分隔）：%s",
 					f.rel, i+1, strings.TrimSpace(line))
 			}
@@ -816,7 +830,7 @@ func checkBilingualCoverage(t *testing.T, f goFile, allowHash bool) {
 		// such as `[data-theme=\"dark\"]`) splits at that quote under a naive `[^"]*` and leaves a
 		// Chinese tail with no separator, which reports **forever** — a false positive no change to
 		// the code under test can clear.
-		for _, m := range regexp.MustCompile(stringLiteralRe).FindAllStringSubmatch(line, -1) {
+		for _, m := range stringLiteralMatchRe.FindAllStringSubmatch(line, -1) {
 			lit := m[1]
 			if cjkRe.MatchString(lit) && !strings.Contains(lit, " | ") {
 				t.Errorf("%s:%d 运行时文案只有中文，必须同行写成 `English | 中文`：%q", f.rel, i+1, lit)
@@ -826,7 +840,7 @@ func checkBilingualCoverage(t *testing.T, f goFile, allowHash bool) {
 }
 
 // koImportRe 匹配对 ko 库的 import 行（含其子包）。| koImportRe matches an import line of the ko library, subpackages included.
-var koImportRe = regexp.MustCompile(`^\s*(?:[A-Za-z_][A-Za-z0-9_]*\s+)?"github\.com/google/ko(?:/[^"]*)?"\s*$`)
+var koImportRe = regexpx.MustCompile(`^\s*(?:[A-Za-z_][A-Za-z0-9_]*\s+)?"github\.com/google/ko(?:/[^"]*)?"\s*$`)
 
 // TestKoStaysAnExternalTool 强制 ko 只作为外部 CLI 使用，不得成为 Go 依赖。
 // TestKoStaysAnExternalTool enforces that ko stays an external CLI rather than a Go dependency.

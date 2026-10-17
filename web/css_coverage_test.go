@@ -2,13 +2,13 @@ package web_test
 
 import (
 	"os"
-	"regexp"
 	"sort"
 	"strconv"
 	"strings"
 	"testing"
 
 	"github.com/shibingli/yd/core/afs"
+	"github.com/shibingli/yd/core/regexpx"
 	"github.com/shibingli/yd/web"
 )
 
@@ -30,29 +30,29 @@ const minEnumeratedYdClasses = 100
 // Regexes that mirror the way templates and scripts actually spell a class. | 与模板、脚本真实书写类名方式一致的正则。
 var (
 	// classAttrPattern captures the value of a class="..." or class='...' attribute. | classAttrPattern 捕获 class="..." 或 class='...' 属性的取值。
-	classAttrPattern = regexp.MustCompile(`(?s)\bclass\s*=\s*(?:"([^"]*)"|'([^']*)')`)
+	classAttrPattern = regexpx.MustCompile(`(?s)\bclass\s*=\s*(?:"([^"]*)"|'([^']*)')`)
 
 	// templateActionPattern matches one Go template action, e.g. {{.Status}}. | templateActionPattern 匹配单个 Go 模板动作，如 {{.Status}}。
-	templateActionPattern = regexp.MustCompile(`(?s)\{\{.*?\}\}`)
+	templateActionPattern = regexpx.MustCompile(`(?s)\{\{.*?\}\}`)
 
 	// jsClassCallPattern captures the arguments of classList.add/remove/toggle/contains and the body of a className assignment. | jsClassCallPattern 捕获 classList.add/remove/toggle/contains 的参数与 className 赋值的内容。
 	//
 	// The quote characters are matched as a class rather than paired with a backreference, which RE2 does not
 	// support; accepting a mismatched pair costs nothing here, because a scanner only reads string bodies. | 引号以字符类匹配，
 	// 而不是用 RE2 不支持的逆向引用配对；在这里容忍引号不配对没有代价，因为扫描器只读取字符串内容。
-	jsClassCallPattern = regexp.MustCompile(`(?s)classList\.(?:add|remove|toggle|contains)\(([^)]*)\)|className\s*=\s*['"]([^'"]*)['"]`)
+	jsClassCallPattern = regexpx.MustCompile(`(?s)classList\.(?:add|remove|toggle|contains)\(([^)]*)\)|className\s*=\s*['"]([^'"]*)['"]`)
 
 	// jsStringPattern extracts one quoted literal. | jsStringPattern 提取单个带引号的字符串字面量。
-	jsStringPattern = regexp.MustCompile(`'([^']*)'|"([^"]*)"`)
+	jsStringPattern = regexpx.MustCompile(`'([^']*)'|"([^"]*)"`)
 
 	// selectorPattern captures the prelude of every rule, i.e. the text in front of an opening brace. | selectorPattern 捕获每条规则的前导文本，即左花括号之前的文本。
-	selectorPattern = regexp.MustCompile(`(?s)([^{}]*)\{`)
+	selectorPattern = regexpx.MustCompile(`(?s)([^{}]*)\{`)
 
 	// ydDefinitionPattern captures a yd- class name used in a selector. | ydDefinitionPattern 捕获选择器中使用的 yd- 类名。
-	ydDefinitionPattern = regexp.MustCompile(`\.(yd-[A-Za-z0-9_-]+)`)
+	ydDefinitionPattern = regexpx.MustCompile(`\.(yd-[A-Za-z0-9_-]+)`)
 
 	// colorLiteralPattern matches every colour notation the component layer must never spell out. | colorLiteralPattern 匹配组件层绝不允许直接写出的各种颜色写法。
-	colorLiteralPattern = regexp.MustCompile(`(?i)#[0-9a-f]{3,8}\b|\brgba?\(|\bhsla?\(|\bokl(?:ch|ab)\(`)
+	colorLiteralPattern = regexpx.MustCompile(`(?i)#[0-9a-f]{3,8}\b|\brgba?\(|\bhsla?\(|\bokl(?:ch|ab)\(`)
 )
 
 // ydClassOrigins maps each enumerated class token to the "file:line" sites that reference it. | ydClassOrigins 把每个枚举到的类名 token 映射到引用它的 "文件:行" 位置。
@@ -229,7 +229,7 @@ func TestEveryYdClassUsedInTemplatesIsDefined(t *testing.T) {
 // 原因与 cssBlock 相同：暗色选择器同样出现在 @custom-variant 行中，而那一次出现并没有自己的块。
 func blockSpan(t *testing.T, css, prelude string) (int, int) {
 	t.Helper()
-	re := regexp.MustCompile(regexp.QuoteMeta(prelude) + `\s*\{`)
+	re := regexpx.MustCompile(regexpx.QuoteMeta(prelude) + `\s*\{`)
 	loc := re.FindStringIndex(css)
 	if loc == nil {
 		t.Fatalf("selector %q has no block in the stylesheet | 样式表中选择器 %q 没有块", prelude, prelude)

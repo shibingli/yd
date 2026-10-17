@@ -2,14 +2,14 @@ package middleware
 
 import (
 	"net/http"
-	"regexp"
 	"testing"
 
+	"github.com/shibingli/yd/core/regexpx"
 	"github.com/shibingli/yd/http/router"
 )
 
 // uuidV4Pattern matches the canonical lowercase RFC 4122 version 4 textual form. | uuidV4Pattern 匹配 RFC 4122 版本 4 的标准小写文本形式。
-var uuidV4Pattern = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$`)
+var uuidV4Pattern = regexpx.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$`)
 
 func TestRequestIDFromHeaderAndGenerated(t *testing.T) {
 	t.Run("回显请求头中的 ID", func(t *testing.T) {

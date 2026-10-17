@@ -23,7 +23,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"regexp"
 	"runtime"
 	"slices"
 	"strings"
@@ -37,6 +36,7 @@ import (
 	_ "github.com/glebarez/sqlite"
 	"github.com/shibingli/yd/core/b64x"
 	"github.com/shibingli/yd/core/jsonx"
+	"github.com/shibingli/yd/core/regexpx"
 	"github.com/shibingli/yd/security/authz"
 	"github.com/shibingli/yd/security/guomi"
 )
@@ -180,7 +180,7 @@ func TestScaffoldBuildRun(t *testing.T) {
 			t.Errorf("登录页缺少口令输入框: 前 200 字节=%q", head(login.body, 200))
 		}
 		if strings.Contains(strings.ToLower(login.body), "cdn.") ||
-			regexp.MustCompile(`(src|href)="http`).MatchString(login.body) {
+			regexpx.MustCompile(`(src|href)="http`).MatchString(login.body) {
 			t.Error("the sign-in page references an external CDN (a zero-CDN violation) | 登录页引用了外部 CDN（违反零 CDN 约束）")
 		}
 
@@ -207,7 +207,7 @@ func TestScaffoldBuildRun(t *testing.T) {
 		if viewer.status != http.StatusOK {
 			t.Fatalf("/docs 状态 = %d", viewer.status)
 		}
-		if regexp.MustCompile(`(src|href)="http`).MatchString(viewer.body) {
+		if regexpx.MustCompile(`(src|href)="http`).MatchString(viewer.body) {
 			t.Error("the /docs viewer references an external CDN (a zero-CDN violation) | /docs 查看器引用了外部 CDN（违反零 CDN 约束）")
 		}
 	})

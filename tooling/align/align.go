@@ -14,7 +14,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"regexp"
 	"runtime"
 	"strconv"
 	"strings"
@@ -23,6 +22,7 @@ import (
 
 	"github.com/shibingli/yd/core/errx"
 	"github.com/shibingli/yd/core/logx"
+	"github.com/shibingli/yd/core/regexpx"
 )
 
 // EnvToolBin is the environment variable holding the betteralign path. | EnvToolBin 是保存 betteralign 路径的环境变量。
@@ -384,10 +384,10 @@ func ResolveAndRun(ctx context.Context, tool ToolOptions, o Options, log *logx.L
 // diagnosticRe matches one betteralign diagnostic, e.g. "http/router/pattern.go:77:14: 8 bytes saved: struct of size 96 could be 88". | diagnosticRe 匹配一条 betteralign 诊断，例如 "http/router/pattern.go:77:14: 8 bytes saved: struct of size 96 could be 88"。
 //
 // Both diagnostic families are covered - the struct-size one and the pointer-bytes one - and the pattern is anchored on the analyzer's own wording, so that a compiler error mentioning a struct literal is never miscounted. | 两类诊断都被覆盖——体积类与指针字节类——且模式锚定在分析器自身的措辞上，因此提及 struct literal 的编译错误绝不会被误计。
-var diagnosticRe = regexp.MustCompile(`\.go:\d+:\d+: (?:\d+ bytes saved: )?struct (?:of size \d+ could be \d+|with \d+ pointer bytes could be \d+)`)
+var diagnosticRe = regexpx.MustCompile(`\.go:\d+:\d+: (?:\d+ bytes saved: )?struct (?:of size \d+ could be \d+|with \d+ pointer bytes could be \d+)`)
 
 // tooOldRe matches the signatures of an analyzer built with a Go older than the analyzed module, e.g. "package requires newer Go version go1.27 (application built with go1.26)". | tooOldRe 匹配「分析器比被分析模块的 Go 版本旧」的特征，例如 "package requires newer Go version go1.27 (application built with go1.26)"。
-var tooOldRe = regexp.MustCompile(`requires newer Go version|export data version \d+ is greater than maximum supported version`)
+var tooOldRe = regexpx.MustCompile(`requires newer Go version|export data version \d+ is greater than maximum supported version`)
 
 // isDiagnostic reports whether a line is one of the analyzer's diagnostics. | isDiagnostic 报告一行是否为分析器的诊断。
 func isDiagnostic(line []byte) bool { return diagnosticRe.Match(line) }
