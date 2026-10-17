@@ -228,6 +228,12 @@ var (
 	ErrUnrequestedSubprotocol = errx.New("ws: server selected a subprotocol the client did not offer | ws：服务端选择了客户端未提议的子协议")
 	// ErrUnrequestedExtension indicates that the server enabled an extension the client never offered (RFC 6455 §4.1). | ErrUnrequestedExtension 表示服务端启用了客户端未提议的扩展（RFC 6455 §4.1）。
 	ErrUnrequestedExtension = errx.New("ws: server enabled an extension the client did not offer | ws：服务端启用了客户端未提议的扩展")
+	// ErrExtendedConnectOptions indicates that Transport and ExtendedConnect were not set together. | ErrExtendedConnectOptions 表示 Transport 与 ExtendedConnect 未成对设置。
+	ErrExtendedConnectOptions = errx.New("ws: Transport and ExtendedConnect must be set together | ws：Transport 与 ExtendedConnect 必须同时设置")
+	// ErrExtendedConnectScheme indicates that HTTP/3 extended CONNECT was used with ws:// (QUIC requires TLS). | ErrExtendedConnectScheme 表示 HTTP/3 extended CONNECT 使用了 ws://（QUIC 必须 TLS）。
+	ErrExtendedConnectScheme = errx.New("ws: HTTP/3 extended CONNECT requires wss:// | ws：HTTP/3 extended CONNECT 只支持 wss://")
+	// ErrExtendedConnectHeader indicates a connection-specific or handshake-only header was supplied for extended CONNECT. | ErrExtendedConnectHeader 表示扩展连接下提供了连接相关或仅用于握手的头部。
+	ErrExtendedConnectHeader = errx.New("ws: extended CONNECT forbids Connection, Upgrade, Host, Sec-WebSocket-Key and :protocol headers | ws：extended CONNECT 禁止 Connection、Upgrade、Host、Sec-WebSocket-Key 与 :protocol 头")
 )
 
 // CloseError indicates that one side ended the connection with a close frame. | CloseError 表示对端或本端以关闭帧结束连接。

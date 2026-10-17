@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/rand"
 	"crypto/tls"
+	"io"
 	"net"
 	"net/http"
 	"net/url"
@@ -14,6 +15,20 @@ import (
 
 	"github.com/shibingli/yd/core/b64x"
 	"github.com/shibingli/yd/core/errx"
+)
+
+// ExtendedConnectMode selects the pseudo-header convention used by
+// DialOptions.Transport. | ExtendedConnectMode 选择 DialOptions.Transport 使用的伪头约定。
+type ExtendedConnectMode uint8
+
+// Extended CONNECT modes. | Extended CONNECT 模式。
+const (
+	// ExtendedConnectDisabled uses the HTTP/1.1 Upgrade handshake. | ExtendedConnectDisabled 使用 HTTP/1.1 Upgrade 握手。
+	ExtendedConnectDisabled ExtendedConnectMode = iota
+	// ExtendedConnectHTTP2 uses RFC 8441: CONNECT plus the :protocol header. | ExtendedConnectHTTP2 使用 RFC 8441：CONNECT 加 :protocol 头。
+	ExtendedConnectHTTP2
+	// ExtendedConnectHTTP3 uses RFC 9220: CONNECT plus req.Proto, as quic-go expects. | ExtendedConnectHTTP3 使用 RFC 9220：CONNECT 加 req.Proto（quic-go 的约定）。
+	ExtendedConnectHTTP3
 )
 
 // DialOptions holds the client handshake parameters. | DialOptions 是客户端握手参数。
@@ -35,6 +50,12 @@ type DialOptions struct {
 	// stays uncompressed, identical to leaving the option off. It can be toggled later with | 之后可用 Conn.EnableWriteCompression 切换；入站压缩消息在协商成功后始终会被解压。
 	// Conn.EnableWriteCompression; inbound compressed messages are always inflated after negotiation.
 	EnableWriteCompression bool
+	// Transport, when non-nil, carries the handshake over HTTP/2 or HTTP/3 using extended CONNECT | Transport 非 nil 时通过 HTTP/2 或 HTTP/3 的 extended CONNECT
+	// (RFC 8441 / RFC 9220). It must be paired with ExtendedConnect; the caller supplies the | （RFC 8441 / RFC 9220）完成握手。它必须与 ExtendedConnect 成对出现；调用方按部署形态
+	// appropriate transport (x/net/http2.Transport or quic-go's http3.Transport). | 注入合适的传输（x/net/http2.Transport 或 quic-go 的 http3.Transport）。
+	Transport http.RoundTripper
+	// ExtendedConnect selects the pseudo-header convention of Transport. | ExtendedConnect 选择 Transport 的伪头约定。
+	ExtendedConnect ExtendedConnectMode
 }
 
 // Dial initiates a WebSocket handshake as a client and returns the connection. | Dial 作为客户端发起 WebSocket 握手并返回连接。
@@ -55,6 +76,12 @@ func Dial(ctx context.Context, rawURL string, o DialOptions) (*Conn, error) {
 	timeout := o.HandshakeTimeout
 	if timeout <= 0 {
 		timeout = 10 * time.Second
+	}
+	if err := validateExtendedConnect(u, o); err != nil {
+		return nil, err
+	}
+	if o.Transport != nil {
+		return dialExtended(ctx, u, o, timeout)
 	}
 	dialer := &net.Dialer{Timeout: timeout}
 	host := u.Host
@@ -154,24 +181,10 @@ func Dial(ctx context.Context, rawURL string, o DialOptions) (*Conn, error) {
 	}
 	// RFC 6455 §4.1: the server may only select one of the subprotocols the client offered; | RFC 6455 §4.1：服务端只能从客户端提议的子协议中选择一个；
 	// an empty selection is legal (the connection then has no subprotocol). | 服务端不选择也是合法的（此时连接没有子协议）。
-	offered := resp.Header.Values("Sec-WebSocket-Protocol")
-	if len(offered) > 1 {
+	selected, err := parseSelectedSubprotocol(resp.Header, o.Subprotocols)
+	if err != nil {
 		_ = netConn.Close()
-		return nil, errx.Wrap(
-			errx.Detail(ErrUnrequestedSubprotocol,
-				"server sent %[1]d Sec-WebSocket-Protocol headers, at most one is allowed | 服务端发送了 %[1]d 个 Sec-WebSocket-Protocol 头，最多允许一个", len(offered)),
-			ErrHandshake)
-	}
-	selected := ""
-	if len(offered) == 1 {
-		selected = strings.TrimSpace(offered[0])
-	}
-	if selected != "" && !slices.Contains(o.Subprotocols, selected) {
-		_ = netConn.Close()
-		return nil, errx.Wrap(
-			errx.Detail(ErrUnrequestedSubprotocol,
-				"server selected %[1]q, which the client did not offer | 服务端选择了客户端未提议的 %[1]q", selected),
-			ErrHandshake)
+		return nil, errx.Wrap(err, ErrHandshake)
 	}
 	// RFC 6455 §4.1: an extension may only be activated when the client offered it. | RFC 6455 §4.1：只有客户端提议过的扩展才能被启用。
 	// negotiateClientCompression rejects an unrequested or malformed activation instead of continuing; | negotiateClientCompression 会拒绝未提议或非法的扩展启用，而不是继续；
@@ -194,5 +207,149 @@ func Dial(ctx context.Context, rawURL string, o DialOptions) (*Conn, error) {
 	if br.Buffered() > 0 || o.ReadBufferSize > 0 {
 		c.br = br
 	}
+	return c, nil
+}
+
+// validateExtendedConnect checks the option pairing and the forbidden headers. | validateExtendedConnect 校验选项配对与禁用头部。
+func validateExtendedConnect(u *url.URL, o DialOptions) error {
+	if (o.Transport == nil) != (o.ExtendedConnect == ExtendedConnectDisabled) {
+		return ErrExtendedConnectOptions
+	}
+	if o.Transport == nil {
+		return nil
+	}
+	if o.ExtendedConnect == ExtendedConnectHTTP3 && u.Scheme != "wss" {
+		return errx.Detail(ErrExtendedConnectScheme, "scheme %[1]q | 协议 %[1]q", u.Scheme)
+	}
+	for name := range o.Headers {
+		switch {
+		case strings.EqualFold(name, "Connection"),
+			strings.EqualFold(name, "Upgrade"),
+			strings.EqualFold(name, "Host"),
+			strings.EqualFold(name, "Sec-WebSocket-Key"),
+			name == ":protocol":
+			return errx.Detail(ErrExtendedConnectHeader, "header %[1]q | 头部 %[1]q", name)
+		}
+	}
+	return nil
+}
+
+// parseSelectedSubprotocol validates the server's subprotocol selection. | parseSelectedSubprotocol 校验服务端的子协议选择。
+//
+// RFC 6455 §4.1 allows at most one selected subprotocol and requires it to be
+// one the client offered; RFC 7936 makes the comparison case-sensitive. | RFC 6455 §4.1
+// 最多允许一个被选中的子协议，且必须是客户端提议过的；RFC 7936 要求比较大小写敏感。
+func parseSelectedSubprotocol(h http.Header, offered []string) (string, error) {
+	values := h.Values("Sec-WebSocket-Protocol")
+	if len(values) > 1 {
+		return "", errx.Detail(ErrUnrequestedSubprotocol,
+			"server sent %[1]d Sec-WebSocket-Protocol headers, at most one is allowed | 服务端发送了 %[1]d 个 Sec-WebSocket-Protocol 头，最多允许一个", len(values))
+	}
+	if len(values) == 0 {
+		return "", nil
+	}
+	selected := strings.TrimSpace(values[0])
+	if selected != "" && !slices.Contains(offered, selected) {
+		return "", errx.Detail(ErrUnrequestedSubprotocol,
+			"server selected %[1]q, which the client did not offer | 服务端选择了客户端未提议的 %[1]q", selected)
+	}
+	return selected, nil
+}
+
+// dialExtended performs the RFC 8441 / RFC 9220 client handshake through a
+// caller-supplied RoundTripper. | dialExtended 通过调用方注入的 RoundTripper 执行
+// RFC 8441 / RFC 9220 客户端握手。
+func dialExtended(ctx context.Context, u *url.URL, o DialOptions, timeout time.Duration) (*Conn, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, errx.WrapDetail(err, ErrHandshake, "context is already done | 上下文已结束")
+	}
+
+	scheme := "https"
+	if u.Scheme == "ws" {
+		scheme = "http"
+	}
+	target := &url.URL{Scheme: scheme, Host: u.Host, Path: u.Path, RawPath: u.RawPath, RawQuery: u.RawQuery}
+
+	pr, pw := io.Pipe()
+	// The request context must outlive Dial; the timer only bounds the handshake. | 请求上下文必须比 Dial 活得更久；
+	// 定时器只约束握手阶段。
+	streamCtx, cancel := context.WithCancel(context.WithoutCancel(ctx))
+	req, err := http.NewRequestWithContext(streamCtx, http.MethodConnect, target.String(), pr)
+	if err != nil {
+		cancel()
+		_ = pw.CloseWithError(err)
+		return nil, errx.WrapDetail(err, ErrHandshake, "failed to build the handshake request | 构造握手请求失败")
+	}
+	req.Host = u.Host
+	req.Header.Set("Sec-WebSocket-Version", "13")
+	if len(o.Subprotocols) > 0 {
+		req.Header.Set("Sec-WebSocket-Protocol", strings.Join(o.Subprotocols, ", "))
+	}
+	if o.EnableWriteCompression {
+		req.Header.Set("Sec-WebSocket-Extensions", "permessage-deflate; client_max_window_bits")
+	}
+	for k, vs := range o.Headers {
+		for _, v := range vs {
+			req.Header.Add(k, v)
+		}
+	}
+	switch o.ExtendedConnect {
+	case ExtendedConnectHTTP2:
+		req.Header.Set(":protocol", "websocket")
+	case ExtendedConnectHTTP3:
+		req.Proto = "websocket"
+	}
+
+	timer := time.AfterFunc(timeout, cancel)
+	resp, err := o.Transport.RoundTrip(req)
+	if err != nil {
+		timer.Stop()
+		cancel()
+		_ = pw.CloseWithError(err)
+		return nil, errx.WrapDetail(err, ErrHandshake, "extended CONNECT failed | extended CONNECT 失败")
+	}
+	if !timer.Stop() {
+		_ = resp.Body.Close()
+		cancel()
+		_ = pw.CloseWithError(context.DeadlineExceeded)
+		return nil, errx.WrapDetail(context.DeadlineExceeded, ErrHandshake, "handshake timed out | 握手超时")
+	}
+	if resp.Body == nil {
+		resp.Body = http.NoBody
+	}
+	fail := func(err error) (*Conn, error) {
+		_ = resp.Body.Close()
+		cancel()
+		_ = pw.CloseWithError(err)
+		return nil, err
+	}
+	if resp.StatusCode != http.StatusOK {
+		return fail(errx.WrapDetail(errNotSwitchingProtocols, ErrHandshake, "status %[1]d | 状态 %[1]d", resp.StatusCode))
+	}
+	selected, err := parseSelectedSubprotocol(resp.Header, o.Subprotocols)
+	if err != nil {
+		return fail(errx.Wrap(err, ErrHandshake))
+	}
+	compCfg, err := negotiateClientCompression(resp.Header, o.EnableWriteCompression)
+	if err != nil {
+		return fail(err)
+	}
+
+	network := "ws-h2"
+	kind := TransportHTTP2
+	if o.ExtendedConnect == ExtendedConnectHTTP3 {
+		network, kind = "ws-h3", TransportHTTP3
+	}
+	maxSize := o.MaxMessageSize
+	if maxSize <= 0 {
+		maxSize = defaultMaxMessageSize
+	}
+	sc := newStreamConnClient(resp.Body, pw, cancel,
+		streamAddr{network: network, addr: ""},
+		streamAddr{network: network, addr: u.Host})
+	c := newConn(sc, Options{ReadBufferSize: o.ReadBufferSize, MaxMessageSize: maxSize}, true)
+	c.kind = kind
+	c.subprotocol = selected
+	c.setCompression(compCfg)
 	return c, nil
 }
