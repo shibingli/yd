@@ -14,6 +14,9 @@ import (
 	"github.com/shibingli/yd/core/errx"
 )
 
+// maxInt is the largest value an int can hold on this platform. | maxInt 是当前平台 int 能表示的最大值。
+const maxInt = int(^uint(0) >> 1)
+
 // Conn is an established WebSocket connection. | Conn 是一条已建立的 WebSocket 连接。
 //
 // Concurrency contract (consistent with RFC 6455 and mainstream implementations): | 并发约定（与 RFC 6455 及主流实现一致）：
@@ -259,8 +262,26 @@ func (c *Conn) ReadMessage() (OpCode, []byte, error) {
 	c.readBuf = c.readBuf[:0]
 	buf := c.readBuf
 	for {
-		if int64(cap(buf))-int64(len(buf)) < 512 {
-			grown := make([]byte, len(buf), (len(buf)+512)*2)
+		// A finished uncompressed frame needs no room: the next read only
+		// reports EOF. Compressed messages and unfinished frames still do. | 已结束的
+		// 未压缩帧不需要再扩容：下一次读取只返回 EOF；压缩消息与未结束的帧仍需要。
+		needRoom := r.compressed || r.remaining > 0 || !c.frameFin
+		if needRoom && int64(cap(buf))-int64(len(buf)) < 512 {
+			grow := int64(512)
+			switch {
+			case r.compressed:
+				// The decompressed size is unknown, so keep doubling. | 解压后大小未知，继续按倍数增长。
+				grow = int64(len(buf) + 512)
+			case r.remaining > grow:
+				// Size the buffer to the bytes still in this frame instead of
+				// doubling past them. | 按当前帧剩余字节精确扩容，而不是翻倍越过它。
+				grow = r.remaining
+			}
+			want := int64(len(buf)) + grow
+			if want > int64(maxInt) {
+				want = int64(maxInt)
+			}
+			grown := make([]byte, len(buf), int(want))
 			copy(grown, buf)
 			buf = grown
 		}

@@ -50,3 +50,35 @@ func TestWriteMessageCoalescesSmallFrame(t *testing.T) {
 		t.Fatalf("transport bytes = %d, want %d | 传输层字节数 = %d，期望 %d", wc.bytes, 2+len(payload), wc.bytes, 2+len(payload))
 	}
 }
+
+// TestReadMessageGrowsToMessageSize pins that one large frame does not roughly
+// double the reusable read buffer; the buffer should track the message size.
+// | TestReadMessageGrowsToMessageSize 固定单个大帧不会把复用读缓冲放大到约两倍，
+// 缓冲应贴合消息大小。
+func TestReadMessageGrowsToMessageSize(t *testing.T) {
+	const size = 64 << 10
+	server, client := net.Pipe()
+	defer func() { _ = client.Close() }()
+	c := newConn(server, Options{MaxMessageSize: size}, true)
+	defer func() { _ = c.CloseNow() }()
+
+	go func() {
+		hdr := make([]byte, maxHeaderSize)
+		n := writeFrameHeader(hdr, true, BinaryMessage, false, size)
+		if _, err := client.Write(hdr[:n]); err != nil {
+			return
+		}
+		_, _ = client.Write(make([]byte, size))
+	}()
+
+	op, payload, err := c.ReadMessage()
+	if err != nil {
+		t.Fatalf("ReadMessage: %v | ReadMessage：%v", err, err)
+	}
+	if op != BinaryMessage || len(payload) != size {
+		t.Fatalf("message = (%v, %d), want (%v, %d) | 消息 = (%v, %d)，期望 (%v, %d)", op, len(payload), BinaryMessage, size, op, len(payload), BinaryMessage, size)
+	}
+	if cap(c.readBuf) > size+1024 {
+		t.Fatalf("read buffer capacity = %d, want <= %d | 读缓冲容量 = %d，期望 <= %d", cap(c.readBuf), size+1024, cap(c.readBuf), size+1024)
+	}
+}
