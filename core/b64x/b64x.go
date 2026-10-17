@@ -2,8 +2,8 @@
 //
 // Backend routing (determined by build tags, fully transparent to callers): | 后端分流（由构建标签决定，对调用方完全透明）：
 //
-//   - amd64 without the b64x_std tag: the SIMD-accelerated github.com/cristalhq/base64, | amd64 且未指定 b64x_std 标签：使用 SIMD 加速的 github.com/cristalhq/base64，
-//     Backend() returns "base64x"; | Backend() 返回 "base64x"；
+//   - amd64 without the b64x_std tag: the SIMD-accelerated github.com/cristalhq/base64 for encoding and the standard | amd64 且未指定 b64x_std 标签：编码使用 SIMD 加速的 github.com/cristalhq/base64，
+//     library for decoding (which measured faster at every size), Backend() returns "base64x"; | 解码使用标准库（实测在每个尺寸上都更快），Backend() 返回 "base64x"；
 //   - other architectures (arm64/riscv64/...) or with the b64x_std tag set explicitly: the standard library | 其他架构（arm64/riscv64/...）或显式指定 b64x_std 标签：使用标准库
 //     encoding/base64, Backend() returns "encoding/base64". | encoding/base64，Backend() 返回 "encoding/base64"。
 //
@@ -13,15 +13,14 @@
 // with length calculations and encoding results byte-for-byte identical to encoding/base64. | 长度计算与编码结果均与 encoding/base64 逐字节一致。
 //
 // Zero copy: AppendEncode and AppendDecode reuse the underlying array of the destination buffer when its capacity is sufficient, | 零拷贝：AppendEncode、AppendDecode 在目标缓冲区容量充足时复用其底层数组，
-// producing no new allocation; DecodeString produces results directly in an internal buffer. The base64x backend's | 不产生新的分配；DecodeString 只在内部缓冲区中直接产出结果。base64x 后端的
-// Decode, needing to accommodate the SIMD decoder writing out whole blocks, goes through a pooled buffer (capacity limit | Decode 因为需要兼容 SIMD 解码器按整块写出的特性，会借助池化缓冲区（容量上限
-// 64 KiB, not recycled beyond that) and copies once; the fallback backend writes directly into dst. Hot paths pursuing | 64 KiB，超出不回收）中转并拷贝一次；降级后端直接写入 dst。追求极致零拷贝的
-// ultimate zero copy should prefer AppendDecode. | 热路径应优先使用 AppendDecode。
+// producing no new allocation; DecodeString allocates only the result. On amd64 the base64x backend encodes with the SIMD | 不产生新的分配；DecodeString 只分配结果本身。amd64 上 base64x 后端用 SIMD 编码器编码，
+// encoder (about 2x faster from 1 KiB up and at parity on tiny inputs) and decodes with encoding/base64 (measured faster at every size); Decode writes | 用 encoding/base64 解码（实测在每个尺寸上都快于 SIMD 解码器）；Decode 直接写入 dst。
+// directly into dst, and the fallback backend behaves the same. | 降级后端的行为完全相同。
 //
 // Differences from encoding/base64 (both backends behave identically): | 与 encoding/base64 的差异（两个后端行为一致）：
 //
-//   - on decode failure Decode returns (0, err), DecodeString returns (nil, err) and | 解码失败时 Decode 返回 (0, err)、DecodeString 返回 (nil, err)、
-//     AppendDecode returns dst unchanged; none of them hands a partial decode result to the caller; | AppendDecode 原样返回 dst，都不会把部分解码结果交给调用方；
+//   - on decode failure Decode returns (0, err); like encoding/base64 it may leave partial output in dst. | 解码失败时 Decode 返回 (0, err)；
+//     DecodeString returns (nil, err) and AppendDecode returns dst unchanged, so those two never hand a partial result to the caller. | 与 encoding/base64 一样，dst 可能留有部分输出。DecodeString 返回 (nil, err)，AppendDecode 原样返回 dst，这两者绝不会把部分结果交给调用方；
 //   - when the destination buffer is shorter than DecodedLen(len(src)) it returns ErrShortBuffer instead of panicking out of bounds; | 目标缓冲区长度小于 DecodedLen(len(src)) 时返回 ErrShortBuffer，而不是越界 panic；
 //   - every illegal-data error can be matched with errors.Is(err, ErrInvalidData), | 一切非法数据的错误都可用 errors.Is(err, ErrInvalidData) 判定，
 //     while the underlying error (cristalhq's ErrWrongData or the standard library's CorruptInputError) is kept for | 同时保留底层错误（cristalhq 的 ErrWrongData 或标准库的 CorruptInputError）供

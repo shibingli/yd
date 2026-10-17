@@ -683,6 +683,82 @@ go test ./...                                 44 个包 ok，退出码 0
 CGO_ENABLED=1 CC=clang go test -race ./...    44 个包 ok，退出码 0
 ```
 
+## 3.15 国密与编解码热路径（第十四轮）
+
+本轮针对 Go 1.27.2 优化 `security/guomi` 与 `core/b64x`，并在 Windows 与
+WSL Ubuntu-24.04（同为 Go 1.27.2）上分别测量；所有实现保持纯 Go、无 cgo。
+
+### 3.15.1 SM3 / HMAC / PBKDF2
+
+`gmsm` 的 `SM3.Sum(in)` 会把 `in` 的内容当作额外消息数据，因此无法按 `hash.Hash`
+约定复用调用方的输出缓冲；传 `nil` 时它每次调用都要分配 32 字节。包装层现在把一个
+**零长度、32 字节容量**的 scratch 交给它——gmsm 会把摘要追加进这段容量而不分配——
+再把结果追加到调用方缓冲：
+
+- HMAC-SM3：**20 → 17 allocs**，1112 → 1080 B/op。
+- PBKDF2-HMAC-SM3（1000 次迭代）：**8012 → 6012 allocs**（−25%），
+  384.5 → 320.6 KB/op；即每轮少 2 次分配，按默认 100000 次迭代计算，
+  每个口令散列少约 **20 万次分配**。
+- 一次性 `Sum` 的其余分配来自 gmsm 内部的 `Write`/`pad` 缓冲，属上游实现，
+  框架层没有可安全削减的拷贝。
+
+### 3.15.2 SM4
+
+- CBC / ECB 加密现在**直接填充进输出缓冲并就地加密**（`cipher.Block` 与
+  `cipher.BlockMode` 都允许 dst 与 src 完全重叠）：少一次分配、少一次整块拷贝。
+  4 KiB CBC：10080 → **5216 B/op**，9 → **8 allocs**，耗时约 39.3 → 38.1 µs。
+- 新增 **`NewGCM(key)`** 可复用 AEAD：一次性的 `SealGCM`/`OpenGCM` 按设计每条消息
+  重建 SM4 密钥编排与 GHASH 表；复用后 256 B Seal 从 **11 allocs/640 B** 降到
+  **6 allocs/368 B**，约 7.2 → 6.5 µs（≈10%）；4 KiB 同样从 11 → 6 allocs。
+- `NewGCM` 返回的 `cipher.AEAD` 无状态，可由任意多个协程共享；一次性入口语义不变。
+- **SM2** 的验签约 1.35 ms、1965 allocs，瓶颈在 gmsm 的 big.Int 运算，
+  属上游实现成本，本轮不做替换。
+
+### 3.15.3 Base64
+
+实测发现后端分工应当不对称：
+
+| 尺寸 | SIMD 解码 | 标准库解码 | SIMD 编码 | 标准库编码 |
+|---|---:|---:|---:|---:|
+| 16 B | 64.3 ns | **27.4 ns** | 14.8 ns | 15.4 ns |
+| 1 KiB | 1051 ns | **913 ns** | **422 ns** | 809 ns |
+| 64 KiB | 73.5 µs（3 allocs） | **60.1 µs（0）** | **25.1 µs** | 52.8 µs |
+
+因此 amd64 的 b64x 后端改为：**编码走 SIMD（1 KiB 起约 2×，16 B 基本持平），
+解码走 `encoding/base64`**（每个尺寸都更快，且无需中转缓冲）：
+
+- `Decode` 16 B：64.3 → **29.3 ns**；64 KiB：73.5 µs / 3 allocs / 74 KB →
+  **60.6 µs / 0 allocs**。
+- `DecodeString`（JWT 路径）16 B：60.4 → **44.4 ns**，24 → **16 B/alloc**。
+- `Decode` 现在直接写入 dst；失败时可能留下部分输出（与 `encoding/base64` 一致）。
+  `DecodeString` 与 `AppendDecode` 仍保证不把部分结果交给调用方。包文档已同步。
+- 降级后端（非 amd64 或 `b64x_std`）本来就是标准库，语义一致。
+
+### 3.15.4 JSON 编解码对照
+
+新增 `core/jsonx` 基准（与 `encoding/json` 对拍，测试文件允许把标准库当预言机）：
+单个对象 Marshal 313 → **640 ns**（jsonx 快约 2×），64 个对象 7.2 → 30.8 µs；
+反序列化 64 个对象 39.5 → 71.3 µs。自适应层已明显快于标准库，本轮无需改动。
+
+### 3.15.5 Linux 对照
+
+同一组基准在 WSL Ubuntu-24.04 / Go 1.27.2 上运行，相对排序与 Windows 一致：
+SM3(64 B) 1027 ns / 6 allocs；PBKDF2(1000 次) 2.03 ms / 6012 allocs；
+SM4-CBC(256 B) 3.0 µs / 8 allocs；复用 GCM(256 B) 6.04 µs / 6 allocs；
+b64x 编码 1 KiB 2.49 GB/s；解码 16 B 27.9 ns、64 KiB 57.7 µs，均 0 allocs。
+国密实现仍为纯 Go（gmsm），`crypto/rand` 在 Linux 上走 `getrandom`。
+
+### 3.15.6 门禁
+
+```
+gofmt -l .                                    零输出
+go build ./...                                通过
+go vet ./...                                  零输出
+go mod tidy -diff                             零输出
+go test ./...                                 44 个包 ok，退出码 0
+CGO_ENABLED=1 CC=clang go test -race ./...    44 个包 ok，退出码 0
+```
+
 ## 4. 已知限制与未覆盖项
 
 1. **HTTP/3 需要 TLS**（QUIC 强制 TLS 1.3）。开发态在未配置证书时会生成一次性自签证书
@@ -730,3 +806,5 @@ CGO_ENABLED=1 CC=clang go test -race ./...    44 个包 ok，退出码 0
     内容可定位时应使用 `Download` 或 `DownloadFile`，二者完整支持 Range/ETag/Last-Modified。
 18. **`JSONStream` 以错误原子性换取内存**：增量编码在响应头与部分正文写出后仍可能失败，
     因此可能编码失败的值应使用 `JSON`（先完整序列化，失败时干净地返回 500）。
+19. **SM2 验签成本来自 gmsm**：约 1.35 ms、1965 allocs/op（big.Int 运算与临时对象），
+    框架层未替换算法实现；需要更快验签应在上游优化或改用其他曲线/协议。

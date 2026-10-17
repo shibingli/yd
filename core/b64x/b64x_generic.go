@@ -47,7 +47,7 @@ func (e *Encoding) EncodeToString(src []byte) string { return e.enc.EncodeToStri
 
 // Decode decodes the Base64 text src into dst and returns the number of bytes written. | Decode 把 Base64 文本 src 解码写入 dst，返回写入的字节数。
 // It requires len(dst) >= DecodedLen(len(src)), otherwise it returns ErrShortBuffer without writing any data. | 要求 len(dst) >= DecodedLen(len(src))，否则返回 ErrShortBuffer 且不写入任何数据。
-// On decode failure it returns (0, err), and dst keeps the content it had before the call. | 解码失败时返回 (0, err)，dst 内容保持为调用前的状态。
+// On decode failure it returns (0, err); as with encoding/base64, dst may then hold partial output. | 解码失败时返回 (0, err)；与 encoding/base64 一致，dst 可能留有部分输出。
 // As with encoding/base64, newline characters '\r' and '\n' in the input are ignored. | 与 encoding/base64 一致，输入中的换行符 '\r'、'\n' 会被忽略。
 func (e *Encoding) Decode(dst, src []byte) (int, error) {
 	if len(src) == 0 {

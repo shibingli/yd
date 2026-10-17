@@ -59,9 +59,12 @@ func EncryptCBC(key, iv, plaintext []byte) ([]byte, error) {
 		return nil, errx.Detail(ErrInvalidIVLength, "got %[1]d bytes | 实际 %[1]d 字节", len(iv))
 	}
 
-	padded := pkcs7Pad(plaintext, SM4BlockSize)
-	out := make([]byte, len(padded))
-	cipher.NewCBCEncrypter(block, iv).CryptBlocks(out, padded)
+	// Pad straight into the output buffer and encrypt in place: cipher.BlockMode and
+	// cipher.Block both allow dst and src to overlap exactly, so no intermediate copy is needed.
+	// | 直接填充进输出缓冲并就地加密：cipher.BlockMode 与 cipher.Block 都允许 dst 与 src 完全重叠，
+	// 因此无需中间副本。
+	out := pkcs7PadInto(make([]byte, 0, len(plaintext)+SM4BlockSize), plaintext, SM4BlockSize)
+	cipher.NewCBCEncrypter(block, iv).CryptBlocks(out, out)
 	return out, nil
 }
 
@@ -116,22 +119,38 @@ func OpenGCM(key, nonce, ciphertext, aad []byte) ([]byte, error) {
 	return plaintext, nil
 }
 
+// NewGCM creates a reusable SM4-GCM AEAD for the recommended 12-byte nonce. | NewGCM 创建可复用的 SM4-GCM AEAD（推荐 12 字节 nonce）。
+//
+// The returned AEAD is stateless and may be shared by any number of goroutines for Seal and Open.
+// Reusing it avoids rebuilding the SM4 key schedule and the GHASH table on every message, which
+// dominates the cost of encrypting many small messages; the one-shot SealGCM / OpenGCM build a
+// fresh AEAD per call by design. | 返回的 AEAD 无状态，可被任意多个协程共享用于 Seal 与 Open。
+// 复用它避免每条消息重建 SM4 密钥编排与 GHASH 表——这正是高频加密小消息时的主要开销；
+// 一次性的 SealGCM / OpenGCM 按设计每次调用都会新建 AEAD。
+func NewGCM(key []byte) (cipher.AEAD, error) {
+	block, err := NewCipher(key)
+	if err != nil {
+		return nil, err
+	}
+	aead, err := cipher.NewGCM(block)
+	if err != nil {
+		return nil, errx.Wrap(err, ErrCipherCreate)
+	}
+	return aead, nil
+}
+
 // newGCM builds the SM4-GCM AEAD and validates the key and nonce lengths. | newGCM 构造 SM4-GCM AEAD，并做密钥与 nonce 长度校验。
 func newGCM(key, nonce []byte) (cipher.AEAD, error) {
 	if len(nonce) == 0 || len(nonce) > maxGCMNonceSize {
 		return nil, errx.Detail(ErrInvalidNonceLength, "got %[1]d bytes (recommended %[2]d, allowed 1..%[3]d) | 实际 %[1]d 字节（推荐 %[2]d 字节，允许 1~%[3]d）",
 			len(nonce), SM4GCMNonceSize, maxGCMNonceSize)
 	}
+	if len(nonce) == SM4GCMNonceSize {
+		return NewGCM(key)
+	}
 	block, err := NewCipher(key)
 	if err != nil {
 		return nil, err
-	}
-	if len(nonce) == SM4GCMNonceSize {
-		aead, err := cipher.NewGCM(block)
-		if err != nil {
-			return nil, errx.Wrap(err, ErrCipherCreate)
-		}
-		return aead, nil
 	}
 	// A non-12-byte nonce uses the standard library constructor with a custom nonce size, deprecated but stable in semantics. | 非 12 字节 nonce：使用标准库提供的可定制 nonce 长度构造器（deprecated 但语义稳定）。
 	aead, err := cipher.NewGCMWithNonceSize(block, len(nonce))
@@ -150,12 +169,11 @@ func EncryptECB(key, plaintext []byte) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	padded := pkcs7Pad(plaintext, SM4BlockSize)
-	out := make([]byte, len(padded))
+	padded := pkcs7PadInto(make([]byte, 0, len(plaintext)+SM4BlockSize), plaintext, SM4BlockSize)
 	for i := 0; i < len(padded); i += SM4BlockSize {
-		block.Encrypt(out[i:i+SM4BlockSize], padded[i:i+SM4BlockSize])
+		block.Encrypt(padded[i:i+SM4BlockSize], padded[i:i+SM4BlockSize])
 	}
-	return out, nil
+	return padded, nil
 }
 
 // DecryptECB decrypts the output of EncryptECB and strips the PKCS#7 padding. | DecryptECB 解密 EncryptECB 的输出并去除 PKCS#7 填充。
@@ -195,15 +213,15 @@ func RandomIV() ([]byte, error) {
 	return iv, nil
 }
 
-// pkcs7Pad pads src with PKCS#7 up to a positive multiple of blockSize. | pkcs7Pad 按 PKCS#7 将 src 填充到 blockSize 的正整数倍长度。
-func pkcs7Pad(src []byte, blockSize int) []byte {
+// pkcs7PadInto appends src to dst and pads the result with PKCS#7 to a positive multiple of blockSize.
+// | pkcs7PadInto 把 src 追加到 dst 并按 PKCS#7 填充到 blockSize 的正整数倍。
+func pkcs7PadInto(dst, src []byte, blockSize int) []byte {
 	pad := blockSize - len(src)%blockSize
-	out := make([]byte, len(src)+pad)
-	copy(out, src)
-	for i := len(src); i < len(out); i++ {
-		out[i] = byte(pad)
+	dst = append(dst, src...)
+	for i := 0; i < pad; i++ {
+		dst = append(dst, byte(pad))
 	}
-	return out
+	return dst
 }
 
 // pkcs7Unpad validates and strips PKCS#7 padding. | pkcs7Unpad 校验并去除 PKCS#7 填充。

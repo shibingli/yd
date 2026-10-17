@@ -64,6 +64,14 @@ func New() hash.Hash { return &sm3Hash{inner: sm3.New()} }
 // sm3Hash wraps gmsm's SM3 so that Sum follows the hash.Hash contract. | sm3Hash 包装 gmsm 的 SM3，使其 Sum 行为符合 hash.Hash 契约。
 type sm3Hash struct {
 	inner hash.Hash
+	// scratch is the zero-length, 32-byte-capacity buffer handed to gmsm's Sum. gmsm appends the
+	// digest into the supplied slice when it has spare capacity; a nil slice makes it allocate
+	// 32 bytes on every call, and HMAC calls Sum twice per iteration. The length must stay zero:
+	// gmsm's Sum treats the *contents* of the argument as additional message data. | scratch 是交给
+	// gmsm Sum 的零长度、32 字节容量缓冲。gmsm 在入参有剩余容量时把摘要追加进去；传 nil 会让它每次
+	// 调用分配 32 字节，而 HMAC 每轮要调用两次。长度必须保持为 0：gmsm 的 Sum 会把入参的**内容**
+	// 当作额外消息数据。
+	scratch [SM3Size]byte
 }
 
 // Write appends data to the hash state and never returns an error. | Write 追加数据到散列状态，永不返回错误。
@@ -71,9 +79,7 @@ func (h *sm3Hash) Write(p []byte) (int, error) { return h.inner.Write(p) }
 
 // Sum appends the current digest to in as hash.Hash requires and leaves the hash state untouched. | Sum 按 hash.Hash 约定把当前摘要追加到 in 之后并返回结果，不改变散列状态。
 func (h *sm3Hash) Sum(in []byte) []byte {
-	var digest [SM3Size]byte
-	copy(digest[:], h.inner.Sum(nil))
-	return append(in, digest[:]...)
+	return append(in, h.inner.Sum(h.scratch[:0])...)
 }
 
 // Reset clears the hash state so the same value can be reused. | Reset 复位散列状态，便于复用同一对象。
