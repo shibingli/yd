@@ -398,13 +398,14 @@ func (n *node) child(seg Segment) (*node, error) {
 // Matching does not modify the tree structure and can be called concurrently by any number of goroutines. | 匹配过程不修改树结构，可被任意多个 goroutine 并发调用。
 type Tree struct {
 	root *node
-	// rootMask holds the first byte of every root static edge; rootOpen disables the rejection
+	// rootAllowed marks the first byte of every root static edge; rootOpen disables the rejection
 	// shortcut when a param, wildcard or mixed edge could match any first byte. Both are rebuilt
-	// during wiring and only read on the request path. | rootMask 保存根节点每条静态边的首字节；
-	// 当参数、通配或混合边可能匹配任意首字节时，rootOpen 关闭拒绝短路。两者都在装配期重建，请求路径上
-	// 只读。
-	rootMask [4]uint64
-	rootOpen bool
+	// during wiring and only read on the request path. A byte table beats a bitmap here because
+	// the hot check is a single indexed load. | rootAllowed 标记根节点每条静态边的首字节；当参数、
+	// 通配或混合边可能匹配任意首字节时，rootOpen 关闭拒绝短路。两者都在装配期重建，请求路径上只读。
+	// 这里用字节表而不是位图，因为热路径检查因此只是一次带下标的加载。
+	rootAllowed [256]bool
+	rootOpen    bool
 }
 
 // nextSlash returns the index of the next '/' at or after start, or len(path). Short suffixes
@@ -480,21 +481,19 @@ func load4(s string, off int) uint32 {
 // rebuildRootMask refreshes the first-byte rejection mask after a route is added. | rebuildRootMask
 // 在新增路由后刷新首字节拒绝掩码。
 func (t *Tree) rebuildRootMask() {
-	t.rootMask = [4]uint64{}
+	t.rootAllowed = [256]bool{}
 	t.rootOpen = t.root.param != nil || t.root.wildcard != nil || len(t.root.mixed) > 0
 	if t.root.staticMap != nil {
 		for name := range t.root.staticMap {
 			if name != "" {
-				b := name[0]
-				t.rootMask[b>>6] |= uint64(1) << (b & 63)
+				t.rootAllowed[name[0]] = true
 			}
 		}
 		return
 	}
 	for i := range t.root.static {
 		if name := t.root.static[i].name; name != "" {
-			b := name[0]
-			t.rootMask[b>>6] |= uint64(1) << (b & 63)
+			t.rootAllowed[name[0]] = true
 		}
 	}
 }
@@ -534,8 +533,7 @@ func (t *Tree) rootReject(path string) bool {
 	if t.rootOpen || len(path) < 2 || path[0] != '/' || path[1] == '/' {
 		return false
 	}
-	b := path[1]
-	return t.rootMask[b>>6]&(uint64(1)<<(b&63)) == 0
+	return !t.rootAllowed[path[1]]
 }
 
 // NewTree creates an empty route tree. | NewTree 创建一个空的路由树。

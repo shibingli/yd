@@ -272,3 +272,41 @@ func TestPatternRawEncodedSlash(t *testing.T) {
 		}
 	}
 }
+
+// TestPatternFirstAlternatesIDs exercises the shape-first branch with two concrete paths that
+// alternate, proving the recent ring promotes both without mixing captures. | TestPatternFirstAlternatesIDs
+// 用两条交替的具体路径覆盖形状优先分支，证明双条目近期环会提升两者且不会串用捕获。
+func TestPatternFirstAlternatesIDs(t *testing.T) {
+	r := New()
+	r.GET("/alt/:id", func(c *Ctx) { _ = c.String(http.StatusOK, c.Param("id")) })
+	for i := 0; i < 16; i++ {
+		id := fmt.Sprintf("%d", i%2)
+		rec := httptest.NewRecorder()
+		r.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/alt/"+id, nil))
+		if rec.Body.String() != id {
+			t.Fatalf("request %d = %q, want %q | 交替形状路径捕获不正确", i, rec.Body.String(), id)
+		}
+	}
+}
+
+// TestPatternFirstFallsBackToStatic proves a static path interleaved with an active shape is
+// still routed by the tree/exact path instead of being captured by the shape. | TestPatternFirstFallsBackToStatic
+// 证明与活动形状交错的静态路径仍由路由树/精确路径处理，而不会被形状捕获。
+func TestPatternFirstFallsBackToStatic(t *testing.T) {
+	r := New()
+	r.GET("/mix/:id", func(c *Ctx) { _ = c.String(http.StatusOK, "id:"+c.Param("id")) })
+	r.GET("/static", func(c *Ctx) { _ = c.String(http.StatusOK, "static") })
+	serve := func(path string) string {
+		rec := httptest.NewRecorder()
+		r.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, path, nil))
+		return rec.Body.String()
+	}
+	for i := 0; i < 8; i++ {
+		if got := serve("/mix/1"); got != "id:1" {
+			t.Fatalf("mix %d = %q | 形状路径结果不正确", i, got)
+		}
+		if got := serve("/static"); got != "static" {
+			t.Fatalf("static %d = %q | 静态路径被形状误捕获", i, got)
+		}
+	}
+}

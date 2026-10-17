@@ -83,7 +83,7 @@ func (c *Ctx) Download(r io.ReadSeeker, o DownloadOptions) error {
 
 	if downloadNeedsCondense(c.Request) {
 		http.ServeContent(c.Writer, c.Request, o.Filename, o.ModTime, r)
-		c.written = true
+		c.flags |= ctxWritten
 		return nil
 	}
 

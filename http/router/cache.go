@@ -38,6 +38,18 @@ type routeCacheEntry struct {
 // localRouteCache is the per-context direct-mapped cache and its admission filter. | localRouteCache
 // 是每上下文的直接映射缓存及其准入过滤器。
 type localRouteCache struct {
+	// last is the entry used by the immediately preceding request. It lets a repeated exact
+	// path skip the hash and slot indexing entirely; stale pointers are harmless because the
+	// entry fields (gen, path, method) are revalidated on every use. | last 是上一个请求使用的
+	// 缓存项。重复的精确路径因此可以完全跳过哈希与槽位索引；过期指针无害，因为每次使用都会重新
+	// 校验条目字段（gen、path、method）。
+	last *routeCacheEntry
+	// recent holds the last two concrete paths that used the shape. A repeat is evidence that
+	// the concrete path is hot, so it is promoted into the exact cache; a rotating working set
+	// never promotes and therefore never pays the hash or allocation. | recent 保存最近两个使用
+	// 形状的具体路径。重复出现说明该具体路径是热的，因此提升到精确缓存；轮转工作集因此从不提升，也就
+	// 从不支付哈希或分配成本。
+	recent  [2]string
 	entries [localRouteCacheSize]routeCacheEntry
 	// seen packs the 56-bit path hash in the high bits and the consecutive sighting count in the
 	// low 8 bits. One-shot paths (scanners, unique resource IDs) therefore never allocate a cache
@@ -47,6 +59,16 @@ type localRouteCache struct {
 	seen [localRouteCacheSize]uint64
 	// gen is the route table generation the admission words belong to. | gen 是准入字所属的路由表代际。
 	gen uint64
+	// lastLen and lastMid are cheap rejection hints for lookupLast. They are derived from the
+	// hit path and refreshed with last; stale values only cause a fallback to the hash lookup. | lastLen
+	// 与 lastMid 是 lookupLast 的廉价拒绝提示，取自命中的路径并随 last 一起刷新；过期值只会导致
+	// 回退到哈希查找。
+	lastLen uint32
+	lastMid byte
+	// patternActive records that the previous request was routed by the compiled shape. Only then
+	// does the next request try the shape before hashing and looking up the exact cache. | patternActive
+	// 记录上一个请求由编译形状完成路由。只有此时下一个请求才会在哈希与精确缓存查找之前尝试形状。
+	patternActive bool
 }
 
 // loadWord reads eight bytes of s without copying. | loadWord 在不复制的情况下读取 s 的八个字节。
@@ -54,13 +76,13 @@ func loadWord(s string, off int) uint64 {
 	return *(*uint64)(unsafe.Add(unsafe.Pointer(unsafe.StringData(s)), off))
 }
 
-// mixWord folds one 64-bit word into the running hash. | mixWord 把一个 64 位字混入滚动哈希。
+// mixWord folds one 64-bit word into the running hash with a single multiply. The final fold in
+// cacheHash spreads the product's high bits into the slot bits; two rounds per word are not
+// needed because the full path is still compared before a hit. | mixWord 用一次乘法把一个 64 位
+// 字混入滚动哈希。cacheHash 末尾的折叠把乘积高位扩散到槽位比特；命中前仍会完整比较路径，因此不需要
+// 每个字两轮混合。
 func mixWord(h, w uint64) uint64 {
-	w *= 0x9e3779b97f4a7c15
-	w ^= w >> 31
-	h ^= w
-	h *= 0xbf58476d1ce4e5b9
-	return h ^ (h >> 29)
+	return (h ^ w) * 0x9e3779b97f4a7c15
 }
 
 // cacheHash hashes the method and the path with overlapping eight-byte windows. Windows fully
@@ -95,6 +117,7 @@ func cacheHash(key methodKey, path string) uint64 {
 			h = mixWord(h, uint64(path[i])+1)
 		}
 	}
+	h ^= h >> 32
 	return (h & cacheHashCapacity) << 8
 }
 
@@ -108,6 +131,9 @@ func cacheSlot(h uint64) uint32 {
 // 代际变化时清空准入字。旧代际的条目由各自的 gen 字段拒绝，并在后续使用中惰性覆盖。
 func (lc *localRouteCache) reset(gen uint64) {
 	clear(lc.seen[:])
+	lc.last = nil
+	lc.patternActive = false
+	lc.recent = [2]string{}
 	lc.gen = gen
 }
 
@@ -132,6 +158,27 @@ func (lc *localRouteCache) admit(h uint64) bool {
 	return false
 }
 
+// lookupLast returns the previous request's entry when it still matches gen, path and method.
+// A repeated path therefore costs one string comparison instead of a hash and a slot load. | lookupLast
+// 在上一个请求的缓存项仍匹配代际、路径与方法时返回它。重复路径因此只需一次字符串比较，而不是
+// 哈希计算加槽位加载。
+func (lc *localRouteCache) lookupLast(gen uint64, key methodKey, path string) *routeCacheEntry {
+	e := lc.last
+	if e == nil || uint32(len(path)) != lc.lastLen || len(path) == 0 || lc.lastMid != path[len(path)>>1] {
+		return nil
+	}
+	if e.gen != gen || e.path != path {
+		return nil
+	}
+	if e.method.known != key.known || e.method.id != key.id {
+		return nil
+	}
+	if !key.known && e.method.name != key.name {
+		return nil
+	}
+	return e
+}
+
 // lookup returns the entry for key and path when it was built from the current generation. | lookup
 // 在缓存项来自当前代际时返回 key 与 path 对应的条目。
 func (lc *localRouteCache) lookup(gen uint64, key methodKey, path string, h uint64) *routeCacheEntry {
@@ -147,14 +194,17 @@ func (lc *localRouteCache) lookup(gen uint64, key methodKey, path string, h uint
 	if !key.known && e.method.name != key.name {
 		return nil
 	}
+	lc.last = e
+	lc.lastLen = uint32(len(e.path))
+	lc.lastMid = e.path[len(e.path)>>1]
 	return e
 }
 
 // store publishes an immutable entry for key and path. | store 为 key 与 path 发布一个不可变缓存项。
-func (lc *localRouteCache) store(gen uint64, key methodKey, path string, h uint64, chain []HandlerFunc, params *Params, notFound bool) {
+func (lc *localRouteCache) store(gen uint64, key methodKey, path string, h uint64, chain []HandlerFunc, params *Params, notFound bool) *routeCacheEntry {
 	slot := cacheSlot(h)
 	if !lc.admit(h) {
-		return
+		return nil
 	}
 	e := &lc.entries[slot]
 	var captured []Param
@@ -170,6 +220,28 @@ func (lc *localRouteCache) store(gen uint64, key methodKey, path string, h uint6
 	e.chain = chain
 	e.gen = gen
 	e.notFound = notFound
+	return e
+}
+
+// setLast records e as the previous successful exact match and refreshes its rejection hints. | setLast
+// 把 e 记录为上一次成功的精确匹配，并刷新其快速拒绝提示。
+func (lc *localRouteCache) setLast(e *routeCacheEntry) {
+	lc.last = e
+	lc.lastLen = uint32(len(e.path))
+	lc.lastMid = e.path[len(e.path)>>1]
+}
+
+// patternRecent reports whether path is one of the last two shape paths. | patternRecent 报告
+// path 是否属于最近两个形状路径。
+func (lc *localRouteCache) patternRecent(path string) bool {
+	return lc.recent[0] == path || lc.recent[1] == path
+}
+
+// noteRecent records path in the two-entry recent ring. | noteRecent 把 path 记入双条目近期环。
+func (lc *localRouteCache) noteRecent(path string) {
+	if lc.recent[0] != path {
+		lc.recent[1], lc.recent[0] = lc.recent[0], path
+	}
 }
 
 // routePattern is a context-local matcher for one parameterized route shape. It turns every
@@ -247,6 +319,14 @@ func containsSlash(s string) bool {
 			return true
 		}
 		s = s[8:]
+	}
+	if len(s) >= 4 {
+		w := uint64(load4(s, 0))
+		x := w ^ 0x2f2f2f2f
+		if (x-0x01010101)&^x&0x80808080 != 0 {
+			return true
+		}
+		s = s[4:]
 	}
 	for i := 0; i < len(s); i++ {
 		if s[i] == '/' {

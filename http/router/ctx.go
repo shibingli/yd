@@ -58,16 +58,27 @@ type Ctx struct {
 	// 为 Params 提供存储，从而不必为每个请求再走一次对象池。
 	paramStore Params
 
-	index       int
-	status      int
-	written     bool
-	aborted     bool
-	bodyLimited bool // request body already wrapped by http.MaxBytesReader | 请求体已由 http.MaxBytesReader 包装
-	// borrowed marks handlers as the immutable route chain owned by the tree; it must never be
-	// appended to or written through. | borrowed 标记 handlers 为路由树持有的不可变调用链，
-	// 不得向其追加或经它写入。
-	borrowed bool
+	index  int
+	status int
+	// flags packs the request-scoped booleans; reset clears them with one store. | flags 打包了
+	// 请求级布尔状态；reset 用一次写入即可清零。
+	flags uint8
 }
+
+// Ctx flag bits. | Ctx 标志位。
+const (
+	// ctxWritten marks the response header or body as written. | ctxWritten 标记响应头或正文已写出。
+	ctxWritten uint8 = 1 << iota
+	// ctxAborted stops the remaining handlers. | ctxAborted 终止后续处理器。
+	ctxAborted
+	// ctxBodyLimited marks the request body as already wrapped by http.MaxBytesReader. | ctxBodyLimited
+	// 标记请求体已由 http.MaxBytesReader 包装。
+	ctxBodyLimited
+	// ctxBorrowed marks handlers as the immutable route chain owned by the tree; it must never be
+	// appended to or written through. | ctxBorrowed 标记 handlers 为路由树持有的不可变调用链，
+	// 不得向其追加或经它写入。
+	ctxBorrowed
+)
 
 // reset prepares the value for reuse. | reset 为复用做准备。
 func (c *Ctx) reset(w http.ResponseWriter, r *http.Request) {
@@ -91,17 +102,14 @@ func (c *Ctx) reset(w http.ResponseWriter, r *http.Request) {
 	// Keep the backing array of handlers for reuse, except when it was borrowed from the tree:
 	// appending through that slice would overwrite the immutable route chain. | 保留 handlers 的
 	// 底层数组以便复用，但从路由树借用时必须丢弃：经该切片追加会覆写不可变的调用链。
-	if c.borrowed {
+	if c.flags&ctxBorrowed != 0 {
 		c.handlers = nil
-		c.borrowed = false
 	} else {
 		c.handlers = c.handlers[:0]
 	}
 	c.index = -1
 	c.status = 0
-	c.written = false
-	c.aborted = false
-	c.bodyLimited = false
+	c.flags = 0
 	c.query = nil
 	if c.keys != nil {
 		clear(c.keys)
@@ -114,7 +122,7 @@ func (c *Ctx) reset(w http.ResponseWriter, r *http.Request) {
 func (c *Ctx) Next() {
 	c.index++
 	for c.index < len(c.handlers) {
-		if c.aborted {
+		if c.flags&ctxAborted != 0 {
 			return
 		}
 		// The index is incremented **after** the call: this way calling Next() again inside a handler resumes from | 索引在调用**之后**自增：这样处理器内部再次调用 Next() 会从
@@ -125,10 +133,10 @@ func (c *Ctx) Next() {
 }
 
 // Abort stops the remaining handlers, but an already written response stays valid. | Abort 终止后续处理器，但已写出的响应保持有效。
-func (c *Ctx) Abort() { c.aborted = true }
+func (c *Ctx) Abort() { c.flags |= ctxAborted }
 
 // Aborted reports whether the current chain has been aborted. | Aborted 报告当前链是否已被终止。
-func (c *Ctx) Aborted() bool { return c.aborted }
+func (c *Ctx) Aborted() bool { return c.flags&ctxAborted != 0 }
 
 // Router returns the owning router. | Router 返回所属路由器。
 func (c *Ctx) Router() *Router { return c.router }
@@ -260,11 +268,11 @@ func (c *Ctx) limitBody() {
 	if req.ContentLength == 0 && (req.Method == http.MethodGet || req.Method == http.MethodHead) {
 		return
 	}
-	if c.bodyLimited || req.Body == nil || req.Body == http.NoBody {
+	if c.flags&ctxBodyLimited != 0 || req.Body == nil || req.Body == http.NoBody {
 		return
 	}
 	req.Body = http.MaxBytesReader(c.Writer, req.Body, c.router.maxBodySize())
-	c.bodyLimited = true
+	c.flags |= ctxBodyLimited
 }
 
 // Body returns the request body, bounded by the router's MaxBodySize, for streaming uploads. | Body 返回受路由器 MaxBodySize 限制的请求体，供流式上传使用。
@@ -324,7 +332,7 @@ func (c *Ctx) SetStatus(code int) { c.status = code }
 func (c *Ctx) StatusCode() int { return c.status }
 
 // Written reports whether the response header or body has been written. | Written 报告响应头或正文是否已写出。
-func (c *Ctx) Written() bool { return c.written }
+func (c *Ctx) Written() bool { return c.flags&ctxWritten != 0 }
 
 // SetHeader sets a response header (effective before the response header is written). | SetHeader 设置响应头（在写出响应头之前有效）。
 func (c *Ctx) SetHeader(key, value string) { c.Writer.Header().Set(key, value) }
@@ -337,17 +345,17 @@ func (c *Ctx) SetCookie(cookie *http.Cookie) { http.SetCookie(c.Writer, cookie) 
 
 // WriteHeader explicitly writes the response header. | WriteHeader 显式写出响应头。
 func (c *Ctx) WriteHeader(code int) {
-	if c.written {
+	if c.flags&ctxWritten != 0 {
 		return
 	}
 	c.status = code
-	c.written = true
+	c.flags |= ctxWritten
 	c.Writer.WriteHeader(code)
 }
 
 // Write implements io.Writer; the status code defaults to 200 when it is not set explicitly. | Write 实现 io.Writer；未显式设置状态码时默认 200。
 func (c *Ctx) Write(b []byte) (int, error) {
-	if !c.written {
+	if c.flags&ctxWritten == 0 {
 		c.WriteHeader(http.StatusOK)
 	}
 	return c.Writer.Write(b)
@@ -465,7 +473,7 @@ func (c *Ctx) Redirect(code int, location string) error {
 		return ErrRedirectStatus
 	}
 	http.Redirect(c.Writer, c.Request, location, code)
-	c.written = true
+	c.flags |= ctxWritten
 	c.status = code
 	return nil
 }

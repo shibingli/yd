@@ -15,11 +15,11 @@ func TestBorrowedChainIsDroppedOnReset(t *testing.T) {
 	chain := []HandlerFunc{func(*Ctx) {}}
 	c := &Ctx{}
 	r.setChain(c, nil, chain, nil)
-	if !c.borrowed || len(c.handlers) != 1 || &c.handlers[0] != &chain[0] {
+	if c.flags&ctxBorrowed == 0 || len(c.handlers) != 1 || &c.handlers[0] != &chain[0] {
 		t.Fatalf("chain was not borrowed | 未按借用方式设置调用链: %+v", c.handlers)
 	}
 	c.reset(nil, nil)
-	if c.borrowed || c.handlers != nil {
+	if c.flags&ctxBorrowed != 0 || c.handlers != nil {
 		t.Fatalf("borrowed chain survived reset | 借用的调用链在 reset 后仍然存在")
 	}
 

@@ -100,15 +100,22 @@ type Router struct {
 // serveState is the immutable snapshot read by ServeHTTP. | serveState 是 ServeHTTP 读取的不可变快照。
 type serveState struct {
 	globalMW []Middleware
-	broken   bool
+	// hasPanicHandler is the hot-path copy of the opt-in panic handler check; the function value
+	// itself is only loaded when a panic actually happens. | hasPanicHandler 是可选 panic 处理器
+	// 判断的热路径副本；只有真正发生 panic 时才加载函数值本身。
+	hasPanicHandler   bool
+	hasCustomNotFound bool
+	broken            bool
 }
 
 // publishStateLocked replaces the serving snapshot; the caller must hold mu. | publishStateLocked
 // 替换服务快照；调用方必须持有 mu。
 func (r *Router) publishStateLocked() {
 	r.state.Store(&serveState{
-		globalMW: append([]Middleware(nil), r.globalMW...),
-		broken:   r.brokenFlag,
+		globalMW:          append([]Middleware(nil), r.globalMW...),
+		hasPanicHandler:   r.options.PanicHandler != nil,
+		hasCustomNotFound: r.options.NotFound != nil,
+		broken:            r.brokenFlag,
 	})
 }
 
@@ -123,7 +130,7 @@ func New(opts ...func(*Options)) *Router {
 	}
 	r := &Router{tree: NewTree(), options: o}
 	r.pool.New = func() any { return &Ctx{router: r, routeCache: &localRouteCache{}, pattern: &routePattern{}} }
-	r.state.Store(&serveState{})
+	r.state.Store(&serveState{hasPanicHandler: o.PanicHandler != nil, hasCustomNotFound: o.NotFound != nil})
 	return r
 }
 
@@ -349,7 +356,7 @@ func (r *Router) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	// 且根节点没有参数、通配或混合边可兜底的路径，对任何方法都不可能命中。直接向写入器应答默认
 	// 404：不取上下文、不走池、不遍历树。自定义 NotFound 处理器（以及所有可能命中的路径）仍走
 	// 正常的上下文路径。
-	if r.options.NotFound == nil && r.tree.rootReject(path) {
+	if !state.hasCustomNotFound && r.tree.rootReject(path) {
 		w.Header()["Content-Type"] = plainTextContentType
 		w.WriteHeader(http.StatusNotFound)
 		_, _ = w.Write(notFoundBody)
@@ -357,7 +364,6 @@ func (r *Router) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	}
 	key := newMethodKey(req.Method)
 	gen := r.cacheGen.Load()
-	hash := cacheHash(key, path)
 
 	c := r.pool.Get().(*Ctx)
 	c.reset(w, req)
@@ -369,7 +375,7 @@ func (r *Router) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	// common case and skip the call entirely. Ctx.Body still calls limitBody lazily. | 只有可能
 	// 携带正文的请求需要立即包装；无正文的 GET/HEAD 是最常见情况，直接跳过调用。Ctx.Body 仍会
 	// 惰性调用 limitBody。
-	if req.ContentLength != 0 || (req.Method != http.MethodGet && req.Method != http.MethodHead) {
+	if req.ContentLength != 0 || !key.known || key.id > methodHead {
 		c.limitBody()
 	}
 	c.path = path
@@ -377,21 +383,57 @@ func (r *Router) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	if lc.gen != gen {
 		lc.reset(gen)
 	}
-	entry := lc.lookup(gen, key, path, hash)
-
 	// The normal path installs no defer: the context is released explicitly after routing, which
 	// is what the fastest mainstream routers do. Only an opt-in PanicHandler needs a deferred
 	// path; without it a panic propagates to net/http or the outer Recover middleware and the
 	// context is dropped to the garbage collector instead of being pooled. | 正常路径不安装 defer：
 	// 路由结束后显式归还上下文，与最快的主流路由一致。只有显式配置 PanicHandler 时才需要延迟路径；
 	// 未配置时 panic 直接向上传播（交给 net/http 或外层 Recover 中间件），上下文交由 GC 而不是放回池。
-	if r.options.PanicHandler != nil {
+	if state.hasPanicHandler {
 		defer func() {
 			if rec := recover(); rec != nil {
 				r.options.PanicHandler(c, rec)
 				r.releaseContext(c)
 			}
 		}()
+	}
+
+	entry := lc.lookupLast(gen, key, path)
+	// A repeated route shape can be matched before hashing and looking up the exact cache. The
+	// branch is enabled only when the previous request already used the shape, so hot exact paths
+	// keep their cheaper last-entry path. | 重复出现的路由形状可以在哈希与精确缓存查找之前匹配。
+	// 只有上一个请求已经使用形状时才启用该分支，因此热精确路径仍走更便宜的上次命中项路径。
+	if entry == nil && lc.patternActive {
+		if p := c.pattern; p != nil && p.gen == gen && sameMethod(p.method, key) && p.match(path, c.Params) {
+			if lc.patternRecent(path) {
+				h := cacheHash(key, path)
+				if e := lc.store(gen, key, path, h, p.chain, c.Params, false); e != nil {
+					lc.setLast(e)
+					lc.patternActive = false
+				}
+			} else {
+				lc.noteRecent(path)
+			}
+			if len(state.globalMW) == 0 && len(p.chain) == 1 {
+				c.handlers = p.chain
+				c.flags |= ctxBorrowed
+				c.index = 0
+				p.chain[0](c)
+			} else {
+				r.runChain(c, state, p.chain)
+			}
+			r.releaseContext(c)
+			return
+		}
+		lc.patternActive = false
+	}
+	var hash uint64
+	if entry == nil {
+		hash = cacheHash(key, path)
+		entry = lc.lookup(gen, key, path, hash)
+		if entry != nil {
+			lc.patternActive = false
+		}
 	}
 
 	// An exact-cache hit takes the small serveCached path; misses go through serveSlow. Keeping
@@ -423,7 +465,7 @@ func (r *Router) serveCached(c *Ctx, state *serveState, entry *routeCacheEntry) 
 	// 处理器且无全局中间件；借用不可变调用链并直接调用可以跳过两个辅助函数帧。
 	if len(state.globalMW) == 0 && len(entry.chain) == 1 {
 		c.handlers = entry.chain
-		c.borrowed = true
+		c.flags |= ctxBorrowed
 		c.index = 0
 		entry.chain[0](c)
 		return
@@ -450,13 +492,18 @@ func (r *Router) serveSlow(c *Ctx, state *serveState, key methodKey, path string
 	// 路由形状（例如 /users/7/posts 之后的 /users/42/posts）无需遍历路由树即可匹配；完全重复的
 	// 路径已由本地缓存处理。
 	if p := c.pattern; p != nil && p.gen == gen && sameMethod(p.method, key) && p.match(path, c.Params) {
-		// Promote repeated concrete paths to the exact cache: a pattern match proves the path
-		// is hot, and the exact entry is cheaper than re-matching the shape. | 把重复的具体路径
-		// 提升到精确缓存：模式命中证明该路径是热的，而精确缓存项比重配形状更便宜。
-		c.routeCache.store(gen, key, path, hash, p.chain, c.Params, false)
+		// Remember the concrete path and, when the shape was already used by this context, let
+		// the next request take the shape-first branch. A store that admits the path also makes
+		// it the immediate last-entry hit. | 记住具体路径；该上下文已使用过形状时，让下一个请求
+		// 走形状优先分支。若本次存储成功准入，同时把它设为最近命中项。
+		if e := c.routeCache.store(gen, key, path, hash, p.chain, c.Params, false); e != nil {
+			c.routeCache.setLast(e)
+		}
+		c.routeCache.noteRecent(path)
+		c.routeCache.patternActive = true
 		if len(state.globalMW) == 0 && len(p.chain) == 1 {
 			c.handlers = p.chain
-			c.borrowed = true
+			c.flags |= ctxBorrowed
 			c.index = 0
 			p.chain[0](c)
 			return
@@ -545,7 +592,7 @@ func (r *Router) serveSlow(c *Ctx, state *serveState, key methodKey, path string
 	// 无全局中间件是最常见配置，直接调用可省掉 runChain 帧及其组装分支。
 	if len(state.globalMW) == 0 && len(routeChain) == 1 {
 		c.handlers = routeChain
-		c.borrowed = true
+		c.flags |= ctxBorrowed
 		c.index = 0
 		routeChain[0](c)
 		return
@@ -563,7 +610,7 @@ func (r *Router) runChain(c *Ctx, state *serveState, chain []HandlerFunc) {
 	// 且不改变中间件语义。
 	if len(state.globalMW) == 0 && len(chain) == 1 {
 		c.handlers = chain
-		c.borrowed = true
+		c.flags |= ctxBorrowed
 		c.index = 0
 		chain[0](c)
 		return
@@ -608,12 +655,12 @@ func (r *Router) setChain(c *Ctx, globalMW []Middleware, route []HandlerFunc, ta
 	// 丢弃借用的切片。
 	if tail == nil && len(globalMW) == 0 {
 		c.handlers = route
-		c.borrowed = true
+		c.flags |= ctxBorrowed
 		return
 	}
-	if c.borrowed {
+	if c.flags&ctxBorrowed != 0 {
 		c.handlers = nil
-		c.borrowed = false
+		c.flags &^= ctxBorrowed
 	}
 	c.handlers = append(c.handlers[:0], globalMW...)
 	if tail != nil {
