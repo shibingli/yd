@@ -216,3 +216,28 @@ func benchLog5(l *Logger) {
 		Dur("took", 1500*time.Microsecond),
 	)
 }
+
+// BenchmarkInfoFieldsParallelConcurrent measures the opt-in lock-free write mode with a writer
+// that serializes concurrent Write itself (io.Discard here; *os.File in production). | BenchmarkInfoFieldsParallelConcurrent
+// 测量可选的免锁写入模式，写入器为自身串行化并发写的那种（此处 io.Discard；生产环境为 *os.File）。
+func BenchmarkInfoFieldsParallelConcurrent(b *testing.B) {
+	l := New(Options{Writer: io.Discard, Level: InfoLevel, ConcurrentWrites: true})
+	b.ReportAllocs()
+	b.ResetTimer()
+	b.RunParallel(func(pb *testing.PB) {
+		for pb.Next() {
+			benchLog5(l)
+		}
+	})
+}
+
+// BenchmarkInfoFieldsConcurrent is the single-goroutine counterpart of the lock-free mode. | BenchmarkInfoFieldsConcurrent
+// 是免锁模式的单协程对照。
+func BenchmarkInfoFieldsConcurrent(b *testing.B) {
+	l := New(Options{Writer: io.Discard, Level: InfoLevel, ConcurrentWrites: true})
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		benchLog5(l)
+	}
+}

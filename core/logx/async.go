@@ -5,7 +5,6 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
-	"unsafe"
 )
 
 // The async engine is an opt-in (Options.Async) batched writer built on a set of independent
@@ -18,11 +17,15 @@ import (
 // 每批只调用一次 Write。默认的同步路径（互斥锁内每条记录一次 Write）保持不变。
 
 const (
-	// asyncShards is the number of independent rings. Producers pick a ring by buffer address,
-	// so different goroutines normally land on different rings and do not contend on one head
-	// counter. | asyncShards 是独立环的数量。生产者按缓冲地址选择环，不同 goroutine 通常落在
-	// 不同的环上，因此不会争抢同一个 head 计数器。
-	asyncShards = 32
+	// asyncShardMin and asyncShardMax bound the number of independent rings. The actual count
+	// follows runtime.GOMAXPROCS, which modern Go makes container-aware on Linux: a many-core host
+	// gets one ring per core (up to the cap), while a two-core container does not pay for unused
+	// rings. Producers choose a ring with one atomic increment, so no shared counter becomes a
+	// bottleneck. | asyncShardMin 与 asyncShardMax 限定独立环的数量。实际数量跟随
+	// runtime.GOMAXPROCS——现代 Go 在 Linux 上已使其感知容器配额：多核主机每核一个环（至上限），
+	// 双核容器则不会为闲置的环付出代价。生产者用一次原子自增选择环，因此不会出现共享计数器瓶颈。
+	asyncShardMin = 4
+	asyncShardMax = 64
 	// asyncShardMinCap / asyncShardMaxCap bound the per-ring capacity after rounding. | asyncShardMinCap / asyncShardMaxCap 是取整后每个环容量的上下界。
 	asyncShardMinCap = 32
 	asyncShardMaxCap = 8 << 10
@@ -35,6 +38,20 @@ const (
 	// 是生产者发现其环槽位仍被占用时的退避间隔。只有写协程慢于生产者（背压）时才会发生。
 	asyncWaitSleep = 50 * time.Microsecond
 )
+
+// asyncShardCount returns the ring count for this process: one per P, clamped so that tiny and
+// very large machines both stay reasonable. | asyncShardCount 返回本进程的环数量：每个 P 一个，
+// 并做上下限夹紧，使极小与超大机器都保持合理。
+func asyncShardCount() int {
+	n := runtime.GOMAXPROCS(0)
+	if n < asyncShardMin {
+		return asyncShardMin
+	}
+	if n > asyncShardMax {
+		return asyncShardMax
+	}
+	return n
+}
 
 // cacheLinePad separates hot atomics that would otherwise share a cache line. | cacheLinePad 用于隔开原本会共享缓存行的热点原子量。
 type cacheLinePad [64]byte
@@ -58,16 +75,25 @@ type asyncSlot struct {
 
 // asyncRing is one bounded MPSC ring. head is written only by producers (one fetch-add per
 // record) and read by the consumer; tail is touched only by the consumer; padding keeps the
-// two atomics off each other's cache line. | asyncRing 是一个有界 MPSC 环。head 只由生产者写入
-// （每条记录一次 fetch-add）并由消费者读取；tail 只由消费者访问；填充让两个原子量不共享缓存行。
-type asyncRing struct {
+// two atomics off each other's cache line. The ring also owns a buffer pool, so producers and
+// the writer exchange buffers through the ring itself instead of contending on one global
+// sync.Pool root. | asyncRing 是一个有界 MPSC 环。head 只由生产者写入（每条记录一次 fetch-add）
+// 并由消费者读取；tail 只由消费者访问；填充让两个原子量不共享缓存行。环还持有一个缓冲池，
+// 生产者与写协程因此经环本身交换缓冲，而不是争抢同一个全局 sync.Pool 根。
+type asyncRing struct { //betteralign:ignore
 	slots []asyncSlot
 	mask  uint64
+	pool  sync.Pool
 	_     cacheLinePad
 	head  atomic.Uint64
 	_     cacheLinePad
 	tail  atomic.Uint64
 	_     cacheLinePad
+	// inflight counts producers that passed the closed check but have not published yet; it is
+	// sharded per ring for the same reason as the pools. | inflight 统计已通过关闭检查但尚未发布
+	// 的生产者；与缓冲池同理，它按环分片。
+	inflight atomic.Int64
+	_        cacheLinePad
 }
 
 // syncRequest is a barrier submitted by Logger.Sync: one marker per ring, and the writer
@@ -88,16 +114,25 @@ type closeRequest struct {
 
 // asyncState is the per-Logger-family async writer state shared through core. | asyncState 是同一
 // Logger 家族经 core 共享的异步写入状态。
-type asyncState struct {
+type asyncState struct { //betteralign:ignore
 	closeErr error // Written by the writer goroutine before done is closed, read after. | 写协程在关闭 done 之前写入，读取发生在其后
 	notify   chan struct{}
 	done     chan struct{}
 	rings    []asyncRing
 	batch    []byte
-	inflight atomic.Int64
 	batchCap int
 	lifeMu   sync.RWMutex
-	closed   atomic.Bool
+	_        cacheLinePad
+	// nextRing spreads producers across rings; it is written on every record, so it owns its line.
+	// | nextRing 把生产者分散到各环；它每条记录都会写入，因此独占一行。
+	nextRing atomic.Uint64
+	_        cacheLinePad
+	// notifyPending coalesces wakeups: the channel is signalled once per idle-to-busy transition,
+	// not once per record. | notifyPending 合并唤醒：通道只在「空闲转忙碌」时通知一次，而不是每条记录一次。
+	notifyPending atomic.Bool
+	_             cacheLinePad
+	closed        atomic.Bool
+	_             cacheLinePad
 }
 
 // newAsyncState builds the rings and the batch buffer. Invalid or zero sizes fall back to the
@@ -113,7 +148,8 @@ func newAsyncState(queueSize, batchBytes int) *asyncState {
 	if batchBytes < 256 {
 		batchBytes = 256
 	}
-	perRing := (queueSize + asyncShards - 1) / asyncShards
+	shards := asyncShardCount()
+	perRing := (queueSize + shards - 1) / shards
 	perRing = nextPowerOfTwo(perRing)
 	if perRing < asyncShardMinCap {
 		perRing = asyncShardMinCap
@@ -122,7 +158,7 @@ func newAsyncState(queueSize, batchBytes int) *asyncState {
 		perRing = asyncShardMaxCap
 	}
 	a := &asyncState{
-		rings:    make([]asyncRing, asyncShards),
+		rings:    make([]asyncRing, shards),
 		notify:   make(chan struct{}, 1),
 		done:     make(chan struct{}),
 		batchCap: batchBytes,
@@ -134,6 +170,7 @@ func newAsyncState(queueSize, batchBytes int) *asyncState {
 	a.batch = make([]byte, 0, initial)
 	for i := range a.rings {
 		q := &a.rings[i]
+		q.pool.New = newPooledBuffer
 		q.mask = uint64(perRing - 1)
 		q.slots = make([]asyncSlot, perRing)
 		for j := range q.slots {
@@ -155,12 +192,27 @@ func nextPowerOfTwo(n int) int {
 	return p
 }
 
-// shardFor maps a buffer address to a ring. The multiplicative hash spreads pool buffers,
-// which tend to be reused by the same goroutine, across all rings without any shared counter. | shardFor
-// 把缓冲地址映射到环。乘性哈希把通常由同一 goroutine 复用的池化缓冲分散到所有环，无需共享计数器。
-func shardFor(b *buffer) int {
-	x := uint32(uintptr(unsafe.Pointer(b)))
-	return int((x * 0x9E3779B1) >> (32 - 5))
+// getBuffer takes a buffer from the ring selected for this record. Both the ring choice and the
+// buffer pool are spread across GOMAXPROCS rings, so neither the selection counter nor the pool
+// root becomes a single contended cache line. The ring index is returned so the writer can put
+// the buffer back into the same pool. | getBuffer 从本条记录选中的环取缓冲。环选择与缓冲池都按
+// GOMAXPROCS 个环分散，因此选择计数器与池根都不会成为单条争用缓存行。返回环下标，写协程据此
+// 把缓冲还回同一个池。
+func (a *asyncState) getBuffer() (int, *buffer) {
+	i := int(a.nextRing.Add(1)) % len(a.rings)
+	b := a.rings[i].pool.Get().(*buffer)
+	b.buf = b.buf[:0]
+	return i, b
+}
+
+// putBuffer returns b to the pool of ring i, dropping buffers beyond the retention cap. | putBuffer
+// 把 b 还回环 i 的池；超过保留上限的缓冲直接丢弃。
+func (a *asyncState) putBuffer(i int, b *buffer) {
+	if cap(b.buf) > maxPooledBufSize {
+		return
+	}
+	b.buf = b.buf[:0]
+	a.rings[i].pool.Put(b)
 }
 
 // push publishes e at the next position of ring q. If the slot is still occupied by the
@@ -204,27 +256,41 @@ func (q *asyncRing) pop() (asyncEntry, bool) {
 	return e, true
 }
 
-// pushBuffer enqueues one encoded record. It counts the producer as in-flight so Close can
-// wait for every in-progress push before placing its exit markers; a push that observes the
-// closed flag is discarded (logging after Close is documented as a no-op). | pushBuffer 入队一条
-// 已编码记录。它把生产者计入在途计数，使 Close 能在放置退出标记前等待所有进行中的 push；
-// 观察到已关闭标志的 push 被丢弃（Close 之后的日志按文档属于无操作）。
-func (a *asyncState) pushBuffer(b *buffer) {
-	a.inflight.Add(1)
+// pushBuffer enqueues one encoded record into ring i. It counts the producer as in-flight so
+// Close can wait for every in-progress push before placing its exit markers; the counter is
+// per ring, so the accounting never contends on a single cache line. A push that observes the
+// closed flag is discarded (logging after Close is documented as a no-op). | pushBuffer 把一条
+// 已编码记录入队到环 i。它把生产者计入在途计数，使 Close 能在放置退出标记前等待所有进行中的
+// push；计数按环分片，因此记账不会争用同一条缓存行。观察到已关闭标志的 push 被丢弃
+// （Close 之后的日志按文档属于无操作）。
+func (a *asyncState) pushBuffer(ring int, b *buffer) {
+	q := &a.rings[ring]
+	q.inflight.Add(1)
 	if a.closed.Load() {
-		a.inflight.Add(-1)
-		putBuffer(b)
+		q.inflight.Add(-1)
+		a.putBuffer(ring, b)
 		return
 	}
-	a.rings[shardFor(b)].push(asyncEntry{buf: b})
-	a.inflight.Add(-1)
-	a.signal()
+	q.push(asyncEntry{buf: b})
+	q.inflight.Add(-1)
+	a.wake()
 }
 
 // pushControl enqueues a Sync or Close marker into ring i and wakes the writer. | pushControl 把 Sync 或 Close 标记入队到环 i 并唤醒写协程。
 func (a *asyncState) pushControl(i int, e asyncEntry) {
 	a.rings[i].push(e)
-	a.signal()
+	a.wake()
+}
+
+// wake notifies the writer at most once while a wakeup is still pending. The flag is cleared by
+// the writer before it drains, so a producer that publishes before the clear is guaranteed to be
+// seen by that drain, and one that publishes after it wins the CAS and signals. | wake 在已有待处理
+// 唤醒时至多通知一次。写协程在排空前清除该标志，因此在其之前发布的生产者必定被这次排空看到，
+// 而在其后发布的生产者会赢得 CAS 并发出通知。
+func (a *asyncState) wake() {
+	if a.notifyPending.CompareAndSwap(false, true) {
+		a.signal()
+	}
 }
 
 // signal wakes the writer without ever blocking a producer. When the single-slot channel is
@@ -272,6 +338,10 @@ func (c *core) asyncWriteLoop(a *asyncState) {
 	closing := false
 	var closeErr error
 	for {
+		// Clear the wakeup latch before draining: a producer that publishes before this store is
+		// seen by the drain below; one that publishes after it wins the CAS and signals. | 在排空前
+		// 清除唤醒闩锁：此前发布的生产者会被下面的排空看到，此后发布的生产者会赢得 CAS 并通知。
+		a.notifyPending.Store(false)
 		progress := false
 		for i := range a.rings {
 			q := &a.rings[i]
@@ -305,7 +375,7 @@ func (c *core) asyncWriteLoop(a *asyncState) {
 					} else {
 						batch = append(batch, b.buf...)
 					}
-					putBuffer(b)
+					a.putBuffer(i, b)
 				}
 			}
 		}
@@ -339,11 +409,18 @@ func (l *Logger) closeAsync(a *asyncState) error {
 		return nil
 	}
 	a.closed.Store(true)
-	for a.inflight.Load() != 0 {
+	for {
+		var inflight int64
+		for i := range a.rings {
+			inflight += a.rings[i].inflight.Load()
+		}
+		if inflight == 0 {
+			break
+		}
 		runtime.Gosched()
 	}
 	req := &closeRequest{}
-	req.remaining.Store(asyncShards)
+	req.remaining.Store(int32(len(a.rings)))
 	for i := range a.rings {
 		a.pushControl(i, asyncEntry{close: req})
 	}
@@ -363,7 +440,7 @@ func (l *Logger) syncAsync(a *asyncState) error {
 		return nil
 	}
 	req := &syncRequest{done: make(chan error, 1)}
-	req.remaining.Store(asyncShards)
+	req.remaining.Store(int32(len(a.rings)))
 	for i := range a.rings {
 		a.pushControl(i, asyncEntry{sync: req})
 	}

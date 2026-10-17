@@ -17,10 +17,13 @@ type buffer struct {
 
 // bufPool reuses encoding buffers. All Loggers (including child Loggers derived by With/Named) share this pool, | bufPool 复用编码缓冲。所有 Logger（含 With/Named 派生出的子 Logger）共享该池，
 // so buffer capacities converge on demand across the whole process. | 因此缓冲容量会在整进程范围内按需收敛。
-var bufPool = sync.Pool{
-	New: func() any {
-		return &buffer{buf: make([]byte, 0, initialBufSize)}
-	},
+var bufPool = sync.Pool{New: newPooledBuffer}
+
+// newPooledBuffer allocates one initial encoding buffer; both the global pool and the per-ring
+// pools of the async writer use it. | newPooledBuffer 分配一个初始编码缓冲；全局池与异步写协程的
+// 按环缓冲池共用它。
+func newPooledBuffer() any {
+	return &buffer{buf: make([]byte, 0, initialBufSize)}
 }
 
 // getBuffer takes a buffer from the pool; the returned buffer always has length 0 and a capacity of at least 1KB. | getBuffer 从池中取出一个缓冲；返回的缓冲长度必然为 0，容量不小于 1KB。

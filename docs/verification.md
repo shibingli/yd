@@ -630,6 +630,59 @@ go test ./...                                 44 个包 ok，退出码 0
 CGO_ENABLED=1 CC=clang go test -race ./...    44 个包 ok，退出码 0
 ```
 
+## 3.14 日志并发吞吐（第十三轮）
+
+本轮针对 Go 1.27.2 与 Linux 特性优化 `core/logx` 的多协程吞吐。基准为 Windows /
+i9-10980HK、`-benchtime=1s -count=5` 中位、5 个混合字段；同一方法可用于 Linux。
+在 Linux 上，Go 1.27 的 `GOMAXPROCS` 已感知 cgroup CPU 配额，异步环数量直接跟随它。
+
+### 3.14.1 默认同步路径：缓存行隔离
+
+- `core` 中的级别阈值（每次调用都读）与写互斥锁（每条记录都写）原本共享缓存行；
+  持锁核心写入该行会让其它核心的每次级别读取都缓存未命中。用缓存行填充隔开后，
+  16 核并发从约 **210 ns/op 降到约 168 ns/op**（约 −20%），仍为 **0 allocs/op**。
+- 单协程成本不变（约 265 ns），说明改进来自消除跨核伪共享而非改变算法。
+- 这些结构体带 `//betteralign:ignore`：内存对齐工具的默认优化会移除手工填充，
+  反而撤销本节的收益。
+
+### 3.14.2 可选的免锁并发写入
+
+- 新增 `Options.ConcurrentWrites`：调用方声明 Writer 自身串行化并发 `Write` 时，
+  记录编码后直接调用 `Writer.Write`，不再经过 Logger 的写锁。
+- 16 核 5 字段：**47.3–47.5 ns/op、0 allocs/op**，约为默认同步路径的 1/3.5。
+- **契约**（写入文档）：只有 `*os.File` 等自身串行化的 Writer 可启用；`bytes.Buffer`、
+  `bufio.Writer` 与多数包装器不可。行完整性的保证转移给 Writer：Linux 上带 `O_APPEND`
+  的 `*os.File` 保证每次写的字节连续追加，按偏移写入的普通文件不保证；Writer 还必须
+  承受写入进行中的 `Sync` 调用。
+- 新增 `TestConcurrentWritesKeepRecordsWhole`：8 协程 × 250 条，经互斥保护的 Writer
+  写出后逐行解析，验证没有交错或截断。
+- Git 风格的对照（同机、6 字段、`io.Discard`）：logx 免锁模式约 47 ns/op，zerolog
+  约 89 ns/op，zap 约 384 ns/op（并带 1 次 385 B 分配）。
+
+### 3.14.3 异步引擎：按 P 分片
+
+- 环数量从固定 32 改为跟随 `GOMAXPROCS` 并夹紧到 **4–64**：多核主机每核一环，
+  小容器不为一堆闲置环付出内存；Linux 上该值来自 cgroup 感知的 `GOMAXPROCS`。
+- 缓冲池按环拆分：生产者按轮转选环并从该环的池取缓冲，写协程把缓冲还回同一个池，
+  不再让全部生产者争抢一个 `sync.Pool` 根；在途计数同样按环分片，关闭流程汇总各环。
+- 唤醒改为「原子闩锁 + 单槽通道」：写协程在排空前清除闩锁，生产者只在闩锁由空转忙时
+  才做一次通道通知，通道锁不再是逐记录成本。
+- 串行异步路径约 **730 → 680 ns/op**；`-cpu=1,2,4,8,16` 扩展实测
+  **400 / 350 / 250 / 199 / 199 ns/op**。8 核之后停在同一水平，说明**单写协程**
+  是异步路径的吞吐上限；需要更高吞吐且 Writer 并发安全时应选 `ConcurrentWrites`，
+  需要解耦慢 Writer 时应选 `Async`。
+
+### 3.14.4 门禁
+
+```
+gofmt -l .                                    零输出
+go build ./...                                通过
+go vet ./...                                  零输出
+go mod tidy -diff                             零输出
+go test ./...                                 44 个包 ok，退出码 0
+CGO_ENABLED=1 CC=clang go test -race ./...    44 个包 ok，退出码 0
+```
+
 ## 4. 已知限制与未覆盖项
 
 1. **HTTP/3 需要 TLS**（QUIC 强制 TLS 1.3）。开发态在未配置证书时会生成一次性自签证书

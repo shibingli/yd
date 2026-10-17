@@ -777,6 +777,43 @@ func TestDefaultLogger(t *testing.T) {
 	}
 }
 
+// TestConcurrentWritesKeepRecordsWhole 验证 ConcurrentWrites 模式下并发写入仍然逐行完整。
+//
+// The test writer serializes Write itself (like *os.File), which is exactly the contract of the
+// option; every line must still be one complete JSON record. | 测试写入器自身串行化 Write（与
+// *os.File 一致），这正是该选项的契约；每一行仍必须是完整的一条 JSON 记录。
+func TestConcurrentWritesKeepRecordsWhole(t *testing.T) {
+	out := &lockedBuffer{}
+	l := New(Options{Writer: out, Level: InfoLevel, ConcurrentWrites: true})
+
+	const goroutines, per = 8, 250
+	var wg sync.WaitGroup
+	wg.Add(goroutines)
+	for g := 0; g < goroutines; g++ {
+		go func(g int) {
+			defer wg.Done()
+			for i := 0; i < per; i++ {
+				l.Info("record", Int("g", g), Int("i", i))
+			}
+		}(g)
+	}
+	wg.Wait()
+
+	lines := strings.Split(strings.TrimSuffix(out.String(), "\n"), "\n")
+	if len(lines) != goroutines*per {
+		t.Fatalf("records = %d, want %d | 记录数 = %d，期望 %d", len(lines), goroutines*per, len(lines), goroutines*per)
+	}
+	for _, line := range lines {
+		var rec map[string]any
+		if err := json.Unmarshal([]byte(line), &rec); err != nil {
+			t.Fatalf("record is not one complete JSON line | 记录不是完整的一行 JSON: %q: %v", line, err)
+		}
+		if rec["msg"] != "record" {
+			t.Fatalf("msg = %#v, want record | msg = %#v，期望 record", rec["msg"], rec["msg"])
+		}
+	}
+}
+
 // TestAppendJSONMillisExact 要求毫秒格式化与「纳秒 / 1e6」数值一致，且不出现指数形式。 | TestAppendJSONMillisExact
 // requires the millisecond encoding to equal ns/1e6 numerically without exponent notation.
 func TestAppendJSONMillisExact(t *testing.T) {

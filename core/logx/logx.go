@@ -79,6 +79,22 @@ type Options struct {
 	Level Level
 	// When Caller is true every log record carries the call site (of the form file.go:123, with the file name only). | Caller 为 true 时每条日志附带调用位置（形如 file.go:123，只含文件名）。
 	Caller bool
+	// ConcurrentWrites drops the per-record write lock and calls Writer.Write directly. | ConcurrentWrites
+	// 去掉逐记录的写锁，直接调用 Writer.Write。
+	//
+	// Only enable this when the Writer itself serializes concurrent Write calls: *os.File does
+	// (Go's poll.FD takes a write lock, and with O_APPEND the kernel appends each write
+	// contiguously), while bytes.Buffer, bufio.Writer and most wrappers do not. The Logger's
+	// guarantee that a record never interleaves with another then depends on the Writer's own
+	// atomicity: on Linux, an O_APPEND *os.File keeps every write contiguous; a plain offset-based
+	// file does not. The Writer must also tolerate Sync being called while such writes are in
+	// flight. This mode is ignored in async mode, whose writer goroutine is already the only caller. | 仅当
+	// Writer 自身串行化并发 Write 时才应启用：*os.File 满足（Go 的 poll.FD 内部有写锁，且带 O_APPEND
+	// 时内核会把每次写的字节连续追加），而 bytes.Buffer、bufio.Writer 与大多数包装器不满足。此后
+	// 「记录不会相互交错」的保证取决于 Writer 自身的原子性：在 Linux 上带 O_APPEND 的 *os.File 保证
+	// 每次写的字节连续，普通按偏移写入的文件则不保证。Writer 还必须能承受在写入进行时被调用 Sync。
+	// 异步模式下该选项被忽略，因为写协程本来就是唯一调用者。
+	ConcurrentWrites bool
 	// Async enables the optional asynchronous, batched writer. | Async 启用可选的异步批量写入器。
 	//
 	// When Async is false (the default) every log call encodes into a pooled buffer and performs one | Async 为 false（默认）时，每次日志调用在池化缓冲中编码后，在锁内执行一次
@@ -107,12 +123,24 @@ type Options struct {
 }
 
 // core is the write state shared by one Logger family (the derivation chain of With/Named). | core 是同一 Logger 家族（With/Named 派生链）共享的写入状态。
-type core struct {
-	w io.Writer // Output destination, never changed after creation. | 输出目标，创建后不再变更
-	// async is nil in the default synchronous mode; when non-nil it owns the writer goroutine and rings. | async 在默认同步模式下为 nil；非 nil 时承载写协程与各个环。
+//
+// The level threshold and the write mutex are separated by cache-line padding on purpose: the
+// level is read on every call from every core, while the mutex line is written per record by
+// whichever goroutine holds it. Sharing a line would make every level load miss in the caches
+// of the other cores — the dominant scalability limit of the synchronous path. | 级别阈值与写互斥锁
+// 刻意用缓存行填充隔开：级别在每个核心的每次调用中都会被读取，而互斥锁所在行会由持锁协程逐记录写入。
+// 二者共享一行会让其它核心的每次级别读取都缓存未命中——这正是同步路径最主要的扩展性瓶颈。
+type core struct { //betteralign:ignore
+	w     io.Writer // Output destination, never changed after creation. | 输出目标，创建后不再变更
 	async *asyncState
-	mu    sync.Mutex   // Serializes writes so that a single line is never torn apart under concurrency. | 串行化写入，保证并发时单行不被拆散
-	level atomic.Int32 // Current level threshold (lock-free read, hot path). | 当前级别阈值（无锁读取，热路径）
+	// concurrentWrites is read-only after creation; it lives beside w so the hot path reads one line. | concurrentWrites 创建后只读；与 w 相邻，使热路径只读一行。
+	concurrentWrites bool
+	_                cacheLinePad
+	mu               sync.Mutex // Serializes writes so that a single line is never torn apart under concurrency. | 串行化写入，保证并发时单行不被拆散
+	_                cacheLinePad
+	// level is the lock-free threshold read on the hot path. | level 是热路径无锁读取的级别阈值。
+	level atomic.Int32
+	_     cacheLinePad
 }
 
 // Logger is a zero-copy structured logger that is safe to share across goroutines as a value (pass it by pointer). | Logger 是零拷贝结构化日志器，可作为值安全地跨 goroutine 共享（应以指针传递）。
@@ -152,7 +180,7 @@ func New(o Options) *Logger {
 	if exit == nil {
 		exit = os.Exit
 	}
-	c := &core{w: w}
+	c := &core{w: w, concurrentWrites: o.ConcurrentWrites}
 	c.level.Store(int32(o.Level))
 
 	host, _ := os.Hostname()
@@ -304,18 +332,34 @@ func (l *Logger) log(lvl Level, msg string, fields []Field) {
 	if l.caller {
 		caller = callerFileLine()
 	}
-	b := getBuffer()
+	// In async mode the buffer comes from the ring that will carry it, so the writer can return
+	// it to the same pool; the synchronous path keeps using the global pool. | 异步模式下缓冲取自
+	// 将要承载它的那个环的池，写协程因此能把缓冲还回同一个池；同步路径仍使用全局池。
+	a := l.core.async
+	var ring int
+	var b *buffer
+	if a != nil {
+		ring, b = a.getBuffer()
+	} else {
+		b = getBuffer()
+	}
 	now := time.Now()
 	if l.console {
 		b.buf = appendConsoleRecord(b.buf, l, lvl, now, msg, caller, fields)
 	} else {
 		b.buf = appendJSONRecord(b.buf, l, lvl, now, msg, caller, fields)
 	}
-	if a := l.core.async; a != nil {
-		a.pushBuffer(b)
+	if a != nil {
+		a.pushBuffer(ring, b)
 		return
 	}
-	l.core.write(b.buf)
+	if l.core.concurrentWrites {
+		// The Writer serializes concurrent writes itself; skip the second lock. | Writer 自身串行化
+		// 并发写入，因此跳过第二层锁。
+		_, _ = l.core.w.Write(b.buf)
+	} else {
+		l.core.write(b.buf)
+	}
 	putBuffer(b)
 }
 
