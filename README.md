@@ -186,8 +186,8 @@ repotest/      仓库治理守卫（治理文件与规范的可执行断言）
 |---|---|---|
 | WebSocket | [`benchmarks/ws`](benchmarks/ws/README.md) | 与 coder/gorilla/gobwas/gws 兼容性 18/18；32 B/256 B 延迟最低，64 KiB 吞吐 572.9 MB/s；唯一全程 `0 B/op、0 allocs/op` |
 | Router | [`benchmarks/router`](benchmarks/router/README.md) | 参数/深层/通配/未命中路径最快（4.8–5.1 ns，未命中 8.8 ns），五类路径零分配；WebSocket 握手经 router 仅增加 62 ns（5.6%） |
-| JSON | [`benchmarks/json`](benchmarks/json/README.md) | 默认与 sonic 一致；`jsonx_native` 自研后端（`-tags jsonx_native`）接近 go-json（276 vs 260 µs Marshal、593 vs 546 µs Unmarshal），领先 sonic/jsoniter/标准库 |
-| Base64 | [`benchmarks/base64`](benchmarks/base64/README.md) | 默认混合后端 ≥1 KiB 约 10–12 GB/s；自研 AVX-512 内核 64 KiB+ 编码约 33 GB/s、解码约 28 GB/s，超过同机 cloudwego（26/21）；小载荷仍由默认混合后端领先 |
+| JSON | [`benchmarks/json`](benchmarks/json/README.md) | 默认与 sonic 一致；`jsonx_native` 自研后端（`-tags jsonx_native`）Marshal 271 vs 261 µs，Unmarshal 487 vs 528 µs（快约 8%），领先 sonic/jsoniter/标准库 |
+| Base64 | [`benchmarks/base64`](benchmarks/base64/README.md) | 默认混合后端 ≥1 KiB 约 10–12 GB/s；自研 AVX-512 内核 32 B–1 MiB 全面超过同机 cloudwego（32 B 7.2/8.3 ns vs 7.4/12.5 ns；64 KiB 约 37/31 GB/s vs 26/21） |
 | 压缩 | [`benchmarks/compress`](benchmarks/compress/README.md) | zstd 综合最优（text 压缩 3.7 GB/s / 解压 7.5 GB/s）；klauspost gzip 约为标准库 gzip 的 4 倍吞吐，压缩率相同 |
 | 日志 | [`benchmarks/logx`](benchmarks/logx/README.md) | `logx` 启用 Info 182 ns/op、零分配，快于 zerolog；禁用路径 20 ns/op、零分配 |
 
