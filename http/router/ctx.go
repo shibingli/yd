@@ -23,6 +23,15 @@ type HandlerFunc func(*Ctx)
 // Middleware is an alias for a handler, semantically emphasizing a "pluggable chain handler". | Middleware 是中间件的别名，语义上强调"可插拔的链式处理器"。
 type Middleware = HandlerFunc
 
+// HandlerFuncRaw is a context-free handler for static routes. Raw routes bypass the Ctx pool,
+// reset and per-route middleware; when global middleware or a PanicHandler is configured the
+// router transparently falls back to the normal context path, so those features still apply.
+// Use it for static assets, health checks and other endpoints that need no Ctx helpers. | HandlerFuncRaw
+// 是无上下文的静态路由处理器。无上下文路由跳过 Ctx 对象池、reset 与路由级中间件；配置了全局中间件
+// 或 PanicHandler 时，路由器会透明回退到正常上下文路径，因此这些能力仍然生效。适用于静态资源、
+// 健康检查等不需要 Ctx 辅助方法的端点。
+type HandlerFuncRaw func(w http.ResponseWriter, r *http.Request)
+
 // Renderer abstracts template rendering and is implemented by the render package, so that router does not depend on a template engine in reverse. | Renderer 是模板渲染能力的抽象，由 render 包实现，避免 router 反向依赖模板引擎。
 type Renderer interface {
 	// Render renders the template named name to w. | Render 把名为 name 的模板渲染到 w。
@@ -107,7 +116,6 @@ func (c *Ctx) reset(w http.ResponseWriter, r *http.Request) {
 	} else {
 		c.handlers = c.handlers[:0]
 	}
-	c.index = -1
 	c.status = 0
 	c.flags = 0
 	c.query = nil

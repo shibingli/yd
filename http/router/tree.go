@@ -573,6 +573,37 @@ func (t *Tree) Add(method, pattern string, handler any) error {
 	return nil
 }
 
+// AddRaw validates a raw static route and stores its ordinary call chain, so the route still
+// works when the fast path is disabled by global middleware or a PanicHandler. The pattern must
+// consist solely of static segments. | AddRaw 校验无上下文静态路由并存入其普通调用链，使该路由在
+// 全局中间件或 PanicHandler 禁用快路径时仍然可用。模式必须只含静态段。
+func (t *Tree) AddRaw(method, pattern string, handler any) error {
+	segs, err := ParsePattern(pattern)
+	if err != nil {
+		return err
+	}
+	for i := range segs {
+		if segs[i].Kind != SegStatic {
+			return errx.Detail(ErrRawPatternNotStatic, "%s %s", method, pattern)
+		}
+	}
+	n := t.root
+	for _, seg := range segs {
+		next, err := n.child(seg)
+		if err != nil {
+			return err
+		}
+		n = next
+	}
+	if !n.addHandler(method, handler) {
+		return errx.Detail(ErrConflict, "%s %s", method, pattern)
+	}
+	n.pattern = pattern
+	n.patternShape = nil
+	t.rebuildRootMask()
+	return nil
+}
+
 // Find looks up the handler matching method and path. | Find 查找匹配 method 与 path 的处理器。
 //
 // Captured path parameters are appended to ps. A second return value of true means a "trailing slash redirect": | 捕获到的路径参数追加写入 ps。返回的第二个值为 true 表示「尾斜杠重定向」：

@@ -19,6 +19,10 @@ const cacheHashCapacity = 1<<56 - 1
 // operation or lock is needed. | routeCacheEntry 是一条缓存的路由决策。每个条目恰好属于一个 Ctx：
 // 在该上下文处理请求期间只读，且仅在请求之间改写，因此不需要原子操作或锁。
 type routeCacheEntry struct {
+	// single is chain[0] when the route has exactly one handler, so the hot path can call it
+	// without loading and bounds-checking the slice. | single 是路由只有一个处理器时的 chain[0]，
+	// 热路径因此无需加载并做切片边界检查。
+	single HandlerFunc
 	// path is the exact request path this entry was built for. | path 是构建该缓存项的精确请求路径。
 	path string
 	// method identifies the request method. | method 标识请求方法。
@@ -30,6 +34,9 @@ type routeCacheEntry struct {
 	chain []HandlerFunc
 	// gen is the route table generation the entry was built from. | gen 是构建该缓存项时的路由表代际。
 	gen uint64
+	// paramsLen is len(params); the hot path only needs this small field, not the slice header. | paramsLen
+	// 是 len(params)；热路径只需要这个小字段，不必加载切片头。
+	paramsLen uint16
 	// notFound marks a structural miss: no route handler exists for the path. | notFound 标记
 	// 结构性未命中：该路径不存在路由处理器。
 	notFound bool
@@ -57,17 +64,13 @@ type localRouteCache struct {
 	// 低 8 位存连续出现次数。一次性路径（扫描器、唯一资源 ID）因此不会分配缓存项，重复路径则在第二次
 	// 出现时进入缓存。
 	seen [localRouteCacheSize]uint64
-	// gen is the route table generation the admission words belong to. | gen 是准入字所属的路由表代际。
-	gen uint64
-	// lastLen and lastMid are cheap rejection hints for lookupLast. They are derived from the
-	// hit path and refreshed with last; stale values only cause a fallback to the hash lookup. | lastLen
-	// 与 lastMid 是 lookupLast 的廉价拒绝提示，取自命中的路径并随 last 一起刷新；过期值只会导致
-	// 回退到哈希查找。
-	lastLen uint32
-	lastMid byte
-	// patternActive records that the previous request was routed by the compiled shape. Only then
-	// does the next request try the shape before hashing and looking up the exact cache. | patternActive
-	// 记录上一个请求由编译形状完成路由。只有此时下一个请求才会在哈希与精确缓存查找之前尝试形状。
+	// gen, lastLen, lastMid and patternActive live on the same cache line as last: every hit
+	// touches all of them. Keeping the scalars before the first pointer also keeps them outside
+	// the GC pointer span. | gen、lastLen、lastMid 与 patternActive 与 last 位于同一缓存行：每次
+	// 命中都会访问它们。把它们放在首个指针之前，也使其落在 GC 指针区间之外。
+	gen           uint64
+	lastLen       uint32
+	lastMid       byte
 	patternActive bool
 }
 
@@ -164,10 +167,19 @@ func (lc *localRouteCache) admit(h uint64) bool {
 // 哈希计算加槽位加载。
 func (lc *localRouteCache) lookupLast(gen uint64, key methodKey, path string) *routeCacheEntry {
 	e := lc.last
-	if e == nil || uint32(len(path)) != lc.lastLen || len(path) == 0 || lc.lastMid != path[len(path)>>1] {
+	if e == nil || uint32(len(path)) != lc.lastLen {
 		return nil
 	}
-	if e.gen != gen || e.path != path {
+	// A repeated request often hands back the same path string; pointer equality then proves the
+	// whole comparison. Otherwise the length/midpoint hint rejects most rotating paths before the
+	// full compare. | 重复请求经常复用同一个路径字符串；此时指针相等即可证明整个比较。否则先用
+	// 长度/中点提示拒绝大多数轮转路径，再做完整比较。
+	if unsafe.StringData(e.path) != unsafe.StringData(path) {
+		if lc.lastMid != path[len(path)>>1] || e.path != path {
+			return nil
+		}
+	}
+	if e.gen != gen {
 		return nil
 	}
 	if e.method.known != key.known || e.method.id != key.id {
@@ -217,7 +229,12 @@ func (lc *localRouteCache) store(gen uint64, key methodKey, path string, h uint6
 	e.path = path
 	e.method = key
 	e.params = captured
+	e.paramsLen = uint16(len(captured))
 	e.chain = chain
+	e.single = nil
+	if !notFound && len(chain) == 1 {
+		e.single = chain[0]
+	}
 	e.gen = gen
 	e.notFound = notFound
 	return e

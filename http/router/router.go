@@ -40,6 +40,9 @@ var (
 	ErrNilHandler = errx.New("router: nil handler | router：处理器为 nil")
 	// ErrInvalidHandler indicates a handler stored in the tree that is not a call chain. | ErrInvalidHandler 表示树中存放的处理器不是调用链类型。
 	ErrInvalidHandler = errx.New("router: handler is not a call chain | router：处理器不是调用链类型")
+	// ErrRawPatternNotStatic indicates a raw handler was registered on a non-static pattern. | ErrRawPatternNotStatic
+	// 表示无上下文处理器注册到了非静态模式上。
+	ErrRawPatternNotStatic = errx.New("router: raw handler requires a static pattern | router：无上下文处理器要求静态模式")
 )
 
 // RouteInfo describes a registered route, used for OpenAPI documents and diagnostic output. | RouteInfo 描述一条已注册的路由，供 OpenAPI 文档与诊断输出使用。
@@ -78,20 +81,26 @@ type Router struct {
 	// of taking the registration lock (and touching its cache line) on every request. | state
 	// 是不可变的服务快照：全局中间件与损坏标记。它只在装配期替换，因此请求路径只需一次指针加载，
 	// 不必每个请求都去抢注册锁（并触碰其缓存行）。
-	state   atomic.Pointer[serveState]
-	options Options
+	state    atomic.Pointer[serveState]
+	rawTable *rawTable
+	options  Options
 
 	routes   []RouteInfo
 	groups   []*Group
 	globalMW []Middleware
 	errs     []error
 
+	// rawRoutes backs rawTable; rawDirty forces a rebuild on the next publish. Both are guarded
+	// by mu. | rawRoutes 为 rawTable 提供数据；rawDirty 在下次发布时强制重建。两者都由 mu 保护。
+	rawRoutes []rawRoute
+
 	// cacheGen invalidates every per-context route cache whenever a route is added, so a cached
 	// decision can never outlive the route table it was built from. | cacheGen 在每次新增路由时
 	// 使所有每上下文路由缓存失效，使缓存决策绝不会比其来源路由表活得更久。
 	cacheGen atomic.Uint64
 
-	mu sync.RWMutex
+	mu       sync.RWMutex
+	rawDirty bool
 	// brokenFlag is the registration-side source of truth behind state.broken. | brokenFlag 是
 	// state.broken 在注册侧的权威来源。
 	brokenFlag bool
@@ -99,6 +108,9 @@ type Router struct {
 
 // serveState is the immutable snapshot read by ServeHTTP. | serveState 是 ServeHTTP 读取的不可变快照。
 type serveState struct {
+	// raw is the immutable lookup table for context-free static routes; nil means none. | raw 是
+	// 无上下文静态路由的不可变查找表；nil 表示没有此类路由。
+	raw      *rawTable
 	globalMW []Middleware
 	// hasPanicHandler is the hot-path copy of the opt-in panic handler check; the function value
 	// itself is only loaded when a panic actually happens. | hasPanicHandler 是可选 panic 处理器
@@ -111,10 +123,15 @@ type serveState struct {
 // publishStateLocked replaces the serving snapshot; the caller must hold mu. | publishStateLocked
 // 替换服务快照；调用方必须持有 mu。
 func (r *Router) publishStateLocked() {
+	if r.rawDirty {
+		r.rawTable = newRawTable(r.rawRoutes)
+		r.rawDirty = false
+	}
 	r.state.Store(&serveState{
 		globalMW:          append([]Middleware(nil), r.globalMW...),
 		hasPanicHandler:   r.options.PanicHandler != nil,
 		hasCustomNotFound: r.options.NotFound != nil,
+		raw:               r.rawTable,
 		broken:            r.brokenFlag,
 	})
 }
@@ -198,6 +215,46 @@ func (r *Router) PATCH(pattern string, h HandlerFunc, mw ...Middleware) {
 // DELETE registers a DELETE route. | DELETE 注册 DELETE 路由。
 func (r *Router) DELETE(pattern string, h HandlerFunc, mw ...Middleware) {
 	r.handle(http.MethodDelete, pattern, h, mw...)
+}
+
+// GETRaw registers a context-free GET route for a static pattern. Raw routes skip the Ctx pool,
+// reset and route middleware; a router with global middleware or a PanicHandler transparently
+// falls back to the normal context path. The pattern must be fully static. Raw routes are stored
+// as thin wrappers, so annotation-based OpenAPI generation does not see them; use GET for
+// documented endpoints. | GETRaw 为静态模式注册无上下文 GET 路由。无上下文路由跳过 Ctx 对象池、
+// reset 与路由级中间件；配置了全局中间件或 PanicHandler 的路由器会透明回退到正常上下文路径。模式
+// 必须完全静态。无上下文路由以薄包装形式存储，因此基于注解的 OpenAPI 生成不会识别它们；需要文档的
+// 端点请使用 GET。
+func (r *Router) GETRaw(pattern string, h HandlerFuncRaw) {
+	r.handleRaw(http.MethodGet, pattern, h)
+}
+
+// HandleRaw registers a context-free route for method and a static pattern. | HandleRaw 为 method
+// 与静态模式注册无上下文路由。
+func (r *Router) HandleRaw(method, pattern string, h HandlerFuncRaw) {
+	r.handleRaw(method, pattern, h)
+}
+
+// handleRaw registers the raw handler plus its ordinary-chain wrapper. | handleRaw 注册无上下文
+// 处理器及其普通调用链包装。
+func (r *Router) handleRaw(method, pattern string, h HandlerFuncRaw) {
+	if h == nil {
+		r.recordWiringError(errx.Detail(ErrNilHandler, "%s %s", method, pattern))
+		return
+	}
+	wrapper := func(c *Ctx) { h(c.Writer, c.Request) }
+	chain := []HandlerFunc{wrapper}
+	if err := r.tree.AddRaw(method, pattern, chain); err != nil {
+		r.recordWiringError(err)
+		return
+	}
+	r.mu.Lock()
+	r.routes = append(r.routes, RouteInfo{Method: method, Pattern: pattern, Handler: wrapper})
+	r.rawRoutes = append(r.rawRoutes, rawRoute{path: pattern, method: newMethodKey(method), handler: h})
+	r.rawDirty = true
+	r.cacheGen.Add(1)
+	r.publishStateLocked()
+	r.mu.Unlock()
 }
 
 // HEAD registers a HEAD route. | HEAD 注册 HEAD 路由。
@@ -349,20 +406,31 @@ func (r *Router) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	if path == "" {
 		path = "/"
 	}
-	// A path whose first byte appears on no root static edge, with no param, wildcard or mixed
-	// root edge to catch it, cannot match any route of any method. Answer the default 404
-	// straight to the writer: no context, no pool and no tree walk. A custom NotFound handler
-	// (and every matching path) goes through the normal context path. | 首字节不在任何根静态边上，
-	// 且根节点没有参数、通配或混合边可兜底的路径，对任何方法都不可能命中。直接向写入器应答默认
-	// 404：不取上下文、不走池、不遍历树。自定义 NotFound 处理器（以及所有可能命中的路径）仍走
-	// 正常的上下文路径。
-	if !state.hasCustomNotFound && r.tree.rootReject(path) {
-		w.Header()["Content-Type"] = plainTextContentType
-		w.WriteHeader(http.StatusNotFound)
-		_, _ = w.Write(notFoundBody)
-		return
+	// GET is by far the most common method; use the precomputed key and skip the method switch. | GET
+	// 是最常见的方法；直接使用预计算键，跳过方法分支。
+	key := getMethodKey
+	if req.Method != http.MethodGet {
+		key = newMethodKey(req.Method)
 	}
-	key := newMethodKey(req.Method)
+	// A raw static route needs no Ctx, pool, reset or middleware assembly. Global middleware and
+	// a PanicHandler disable the shortcut so their semantics still apply through the normal
+	// context path. | 无上下文静态路由不需要 Ctx、对象池、reset 或中间件组装。全局中间件与
+	// PanicHandler 会禁用该捷径，使其语义仍通过正常上下文路径生效。
+	if state.raw != nil && !state.hasPanicHandler && len(state.globalMW) == 0 {
+		if h := state.raw.lookup(key, path); h != nil {
+			// Raw handlers bypass Ctx.limitBody, so apply the same body bound here for the rare
+			// body-carrying raw route. GET/HEAD with no body keep the zero-overhead path. | 无上下文
+			// 处理器跳过 Ctx.limitBody，因此在这里为少见的带正文路由施加同样的正文上限。无正文的
+			// GET/HEAD 仍保持零开销路径。
+			if req.ContentLength != 0 || !key.known || key.id > methodHead {
+				if req.Body != nil && req.Body != http.NoBody {
+					req.Body = http.MaxBytesReader(w, req.Body, r.maxBodySize())
+				}
+			}
+			h(w, req)
+			return
+		}
+	}
 	gen := r.cacheGen.Load()
 
 	c := r.pool.Get().(*Ctx)
@@ -427,6 +495,19 @@ func (r *Router) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 		}
 		lc.patternActive = false
 	}
+	// A path whose first byte appears on no root static edge, with no param, wildcard or mixed
+	// root edge to catch it, cannot match any route of any method. Answer the default 404
+	// straight to the writer. This runs only after the cached/pattern paths missed, so hot hits
+	// never pay the check. | 首字节不在任何根静态边上，且根节点没有参数、通配或混合边可兜底的
+	// 路径，对任何方法都不可能命中。直接向写入器应答默认 404。该检查只在缓存与形状都未命中后执行，
+	// 热命中因此无需支付其成本。
+	if entry == nil && !state.hasCustomNotFound && r.tree.rootReject(path) {
+		r.releaseContext(c)
+		w.Header()["Content-Type"] = plainTextContentType
+		w.WriteHeader(http.StatusNotFound)
+		_, _ = w.Write(notFoundBody)
+		return
+	}
 	var hash uint64
 	if entry == nil {
 		hash = cacheHash(key, path)
@@ -441,7 +522,21 @@ func (r *Router) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	// 缓存命中走精简的 serveCached，未命中走 serveSlow。两者不再共用一个函数帧，热路径因此更小，
 	// 慢路径则可以自由扩展。
 	if entry != nil {
-		r.serveCached(c, state, entry)
+		if entry.notFound || len(state.globalMW) != 0 || entry.single == nil {
+			r.serveCached(c, state, entry)
+			r.releaseContext(c)
+			return
+		}
+		// Inline the dominant single-handler hit: call the handler directly and skip two
+		// Params stores when the route has no captures. reset already left the handler slice at
+		// length zero, so a handler calling Next simply exhausts it; no chain state is needed. | 内联
+		// 最常见的单处理器命中：直接调用处理器，并在路由没有捕获时省掉两次 Params 写入。reset 已把
+		// 处理器切片置空，处理器调用 Next 只会耗尽它，因此无需再设置调用链状态。
+		if entry.paramsLen > 0 {
+			c.Params.ps = entry.params
+			c.Params.shared = true
+		}
+		entry.single(c)
 		r.releaseContext(c)
 		return
 	}
@@ -458,16 +553,18 @@ func (r *Router) serveCached(c *Ctx, state *serveState, entry *routeCacheEntry) 
 	// Borrow the immutable captured parameters instead of copying them; Params.Append clones
 	// lazily if a handler mutates the view. | 借用不可变的捕获参数而不是复制；若处理器修改该
 	// 视图，Params.Append 会按需克隆。
-	c.Params.ps = entry.params
-	c.Params.shared = len(entry.params) > 0
+	if entry.paramsLen > 0 {
+		c.Params.ps = entry.params
+		c.Params.shared = true
+	}
 	// The hot configuration is one route handler and no global middleware; borrowing the
 	// immutable chain and calling it directly skips two helper frames. | 最热的配置是单个路由
 	// 处理器且无全局中间件；借用不可变调用链并直接调用可以跳过两个辅助函数帧。
-	if len(state.globalMW) == 0 && len(entry.chain) == 1 {
-		c.handlers = entry.chain
-		c.flags |= ctxBorrowed
-		c.index = 0
-		entry.chain[0](c)
+	if len(state.globalMW) == 0 && entry.single != nil {
+		// reset left the handler slice empty; a single handler with no middleware needs no chain
+		// state, and Next from inside it is a no-op. | reset 已留下空的处理器切片；无中间件的单
+		// 处理器无需调用链状态，其内部调用 Next 也是空操作。
+		entry.single(c)
 		return
 	}
 	r.runChain(c, state, entry.chain)
@@ -649,6 +746,9 @@ var getMethodKey = methodKey{name: http.MethodGet, id: methodGet, known: true}
 // route performs no heap allocation. | 全局中间件切片来自不可变的 serveState 快照，因此无需加锁；
 // 函数复用 Ctx.handlers 的底层数组，命中已有路由的热路径不产生堆分配。
 func (r *Router) setChain(c *Ctx, globalMW []Middleware, route []HandlerFunc, tail HandlerFunc) {
+	// Next starts from index -1 regardless of which branch assembles the chain. | 无论哪个分支组装
+	// 调用链，Next 都从索引 -1 开始。
+	c.index = -1
 	// With no global middleware the route chain is already exactly what Next must run, so borrow
 	// it instead of copying; reset drops the borrowed slice before the context is reused. | 没有
 	// 全局中间件时，路由链本身就是 Next 要执行的序列，直接借用而不是复制；上下文复用前由 reset
@@ -656,6 +756,7 @@ func (r *Router) setChain(c *Ctx, globalMW []Middleware, route []HandlerFunc, ta
 	if tail == nil && len(globalMW) == 0 {
 		c.handlers = route
 		c.flags |= ctxBorrowed
+		c.index = -1
 		return
 	}
 	if c.flags&ctxBorrowed != 0 {
@@ -665,6 +766,7 @@ func (r *Router) setChain(c *Ctx, globalMW []Middleware, route []HandlerFunc, ta
 	c.handlers = append(c.handlers[:0], globalMW...)
 	if tail != nil {
 		c.handlers = append(c.handlers, tail)
+		c.index = -1
 		return
 	}
 	c.handlers = append(c.handlers, route...)
