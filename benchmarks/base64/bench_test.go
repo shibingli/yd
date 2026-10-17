@@ -1,0 +1,118 @@
+package b64bench
+
+import (
+	"bytes"
+	"encoding/base64"
+	"fmt"
+	"testing"
+
+	cwb64 "github.com/cloudwego/base64x"
+	crb64 "github.com/cristalhq/base64"
+
+	"github.com/shibingli/yd/core/b64x"
+)
+
+// benchSink keeps results observable. | benchSink 让结果保持可观测。
+var benchSink int
+
+// codec is one Base64 implementation under comparison. | codec 是参与对比的一个 Base64 实现。
+type codec struct {
+	encode func(dst, src []byte)
+	decode func(dst, src []byte) (int, error)
+	encLen func(int) int
+	decLen func(int) int
+	name   string
+}
+
+// codecs is the comparison set. | codecs 是参与对比的集合。
+var codecs = []codec{
+	{
+		name:   "stdlib",
+		encode: base64.StdEncoding.Encode,
+		decode: base64.StdEncoding.Decode,
+		encLen: base64.StdEncoding.EncodedLen,
+		decLen: base64.StdEncoding.DecodedLen,
+	},
+	{
+		name:   "cloudwego/base64x",
+		encode: cwb64.StdEncoding.Encode,
+		decode: cwb64.StdEncoding.Decode,
+		encLen: cwb64.StdEncoding.EncodedLen,
+		decLen: cwb64.StdEncoding.DecodedLen,
+	},
+	{
+		name:   "cristalhq/base64",
+		encode: crb64.StdEncoding.Encode,
+		decode: crb64.StdEncoding.Decode,
+		encLen: crb64.StdEncoding.EncodedLen,
+		decLen: crb64.StdEncoding.DecodedLen,
+	},
+	{
+		name:   "yd-b64x",
+		encode: b64x.StdEncoding.Encode,
+		decode: b64x.StdEncoding.Decode,
+		encLen: b64x.StdEncoding.EncodedLen,
+		decLen: b64x.StdEncoding.DecodedLen,
+	},
+}
+
+// payload builds deterministic bytes of the given size. | payload 构造指定大小的确定性字节。
+func payload(size int) []byte {
+	out := make([]byte, size)
+	for i := range out {
+		out[i] = byte(i*31 + 7)
+	}
+	return out
+}
+
+// BenchmarkEncode compares Base64 encoding into a preallocated destination. | BenchmarkEncode 对比写入预分配目标缓冲的 Base64 编码。
+func BenchmarkEncode(b *testing.B) {
+	for _, size := range []int{32, 1 << 10, 64 << 10, 1 << 20} {
+		src := payload(size)
+		for _, c := range codecs {
+			c := c
+			b.Run(fmt.Sprintf("%d/%s", size, c.name), func(b *testing.B) {
+				dst := make([]byte, c.encLen(len(src))+8)
+				b.SetBytes(int64(len(src)))
+				b.ReportAllocs()
+				b.ResetTimer()
+				for i := 0; i < b.N; i++ {
+					c.encode(dst, src)
+				}
+				benchSink += len(dst)
+			})
+		}
+	}
+}
+
+// BenchmarkDecode compares Base64 decoding into a preallocated destination. | BenchmarkDecode 对比写入预分配目标缓冲的 Base64 解码。
+func BenchmarkDecode(b *testing.B) {
+	for _, size := range []int{32, 1 << 10, 64 << 10, 1 << 20} {
+		src := payload(size)
+		for _, c := range codecs {
+			c := c
+			b.Run(fmt.Sprintf("%d/%s", size, c.name), func(b *testing.B) {
+				encoded := make([]byte, c.encLen(len(src))+8)
+				c.encode(encoded, src)
+				encoded = encoded[:c.encLen(len(src))]
+				dst := make([]byte, c.decLen(len(encoded))+8)
+				if n, err := c.decode(dst, encoded); err != nil || n != len(src) {
+					b.Fatalf("%s decode fixture: n=%d err=%v", c.name, n, err)
+				}
+				if !bytes.Equal(dst[:len(src)], src) {
+					b.Fatalf("%s decode mismatch", c.name)
+				}
+				b.SetBytes(int64(len(src)))
+				b.ReportAllocs()
+				b.ResetTimer()
+				for i := 0; i < b.N; i++ {
+					n, err := c.decode(dst, encoded)
+					if err != nil {
+						b.Fatalf("%s decode: %v", c.name, err)
+					}
+					benchSink += n
+				}
+			})
+		}
+	}
+}
