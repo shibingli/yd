@@ -68,9 +68,9 @@ func init() {
 // It prefers 256-bit vectors and falls back to 128-bit vectors for the tail.
 // | encodeSIMD 把完整的 12 字节组编码为 16 个字符并返回消耗的字节数；优先使用 256 位向量，
 // 尾部回退到 128 位向量。
-func encodeSIMD(dst, src []byte, url bool) int {
+func encodeSIMD(dst, src []byte, url, padded bool, pad byte) (int, int) {
 	if len(src) < 28 || len(dst) < 32 {
-		return 0
+		return 0, 0
 	}
 	shuffle := archsimd.LoadInt8x16(simdShuf16[:])
 	lut := archsimd.LoadInt8x16(simdLut16[:])
@@ -122,7 +122,7 @@ func encodeSIMD(dst, src []byte, url bool) int {
 		i += 12
 		o += 16
 	}
-	return i
+	return i, i / 3 * 4
 }
 
 // decodeSIMD decodes complete 16-character groups into 12 bytes and returns the consumed prefix.
@@ -212,9 +212,9 @@ func decodeSIMD(dst, src []byte, url bool) (int, int) {
 
 // encodeSIMD512 encodes four 12-byte groups per 512-bit iteration, then hands the tail to the
 // AVX2/128-bit kernel. | encodeSIMD512 每次 512 位迭代编码四个 12 字节组，尾部交给 AVX2/128 位内核。
-func encodeSIMD512(dst, src []byte, url bool) int {
+func encodeSIMD512(dst, src []byte, url, padded bool, pad byte) (int, int) {
 	if len(src) < 52 || len(dst) < 64 {
-		return 0
+		return 0, 0
 	}
 	shuffle := archsimd.LoadInt8x16(simdShuf16[:])
 	maskLo := archsimd.LoadUint16x32(simdMaskLo32[:])
@@ -247,9 +247,10 @@ func encodeSIMD512(dst, src []byte, url bool) int {
 		o += 64
 	}
 	if i == 0 {
-		return 0
+		return 0, 0
 	}
-	return i + encodeSIMD(dst[o:], src[i:], url)
+	n, out := encodeSIMD(dst[o:], src[i:], url, padded, pad)
+	return i + n, i/3*4 + out
 }
 
 // decodeSIMD512 decodes four 16-character groups per 512-bit iteration, then hands the tail to
@@ -310,9 +311,9 @@ func decodeSIMD512(dst, src []byte, url bool) (int, int) {
 
 // encodeSIMD512VBMI gathers four 12-byte groups with one VPERMB, then encodes them in 512-bit
 // lanes. | encodeSIMD512VBMI 用一条 VPERMB 汇集四个 12 字节组，再在 512 位通道中编码。
-func encodeSIMD512VBMI(dst, src []byte, url bool) int {
-	if len(src) < 12 || len(dst) < 16 {
-		return 0
+func encodeSIMD512VBMI(dst, src []byte, url, padded bool, pad byte) (int, int) {
+	if len(src) < 1 || len(dst) < 2 {
+		return 0, 0
 	}
 	inShuf := archsimd.LoadUint8x64(simdInShuf64[:])
 	maskLo := archsimd.LoadUint16x32(simdMaskLo32[:])
@@ -343,32 +344,43 @@ func encodeSIMD512VBMI(dst, src []byte, url bool) int {
 		i += 48
 		o += 64
 	}
-	if i+12 <= len(src) && o+16 <= len(dst) {
-		in, loaded := archsimd.LoadUint8x64Part(src[i:])
-		k := loaded / 12
-		if k > 4 {
-			k = 4
+	for rem := len(src) - i; rem > 0; {
+		take := rem
+		if take > 48 {
+			take = 48
 		}
-		if k > 0 {
-			v := in.Permute(inShuf).AsUint16x32()
-			idx := v.And(maskLo).MulHigh(mulHi).Or(v.And(maskHi).Mul(mulLo)).AsUint8x64()
-			res := idx.SubSaturated(b51)
-			less := b26.Greater(idx)
-			res = b13.IfElse(less, res)
-			res = idx.Add(lut.PermuteOrZeroGrouped(res.AsInt8x64()).AsUint8x64())
-			if url {
-				res = dash.IfElse(idx.Equal(b62), res)
-				res = under.IfElse(idx.Equal(b63), res)
+		outLen := (take + 2) / 3 * 4
+		if !padded {
+			outLen = (take*8 + 5) / 6
+		}
+		if o+outLen > len(dst) {
+			break
+		}
+		in, _ := archsimd.LoadUint8x64Part(src[i:])
+		v := in.Permute(inShuf).AsUint16x32()
+		idx := v.And(maskLo).MulHigh(mulHi).Or(v.And(maskHi).Mul(mulLo)).AsUint8x64()
+		res := idx.SubSaturated(b51)
+		less := b26.Greater(idx)
+		res = b13.IfElse(less, res)
+		res = idx.Add(lut.PermuteOrZeroGrouped(res.AsInt8x64()).AsUint8x64())
+		if url {
+			res = dash.IfElse(idx.Equal(b62), res)
+			res = under.IfElse(idx.Equal(b63), res)
+		}
+		res.StorePart(dst[o : o+outLen])
+		if padded {
+			switch take % 3 {
+			case 1:
+				dst[o+outLen-1], dst[o+outLen-2] = pad, pad
+			case 2:
+				dst[o+outLen-1] = pad
 			}
-			res.StorePart(dst[o : o+16*k])
-			i += 12 * k
-			o += 16 * k
 		}
+		i += take
+		o += outLen
+		rem -= take
 	}
-	if i == 0 {
-		return 0
-	}
-	return i + encodeSIMD(dst[o:], src[i:], url)
+	return i, o
 }
 
 func decodeSIMD512VBMI2(dst, src []byte, url bool) (int, int) {

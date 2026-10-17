@@ -22,7 +22,7 @@ type Encoding struct {
 // simdEncode and simdDecode are installed by the optional SIMD build. | simdEncode 与 simdDecode
 // 由可选的 SIMD 构建安装；未启用时保持 nil 并走标量路径。
 var (
-	simdEncode func(dst, src []byte, url bool) int
+	simdEncode func(dst, src []byte, url, padded bool, pad byte) (int, int)
 	simdDecode func(dst, src []byte, url bool) (int, int)
 )
 
@@ -90,8 +90,8 @@ func (e *Encoding) Encode(dst, src []byte) {
 	}
 	di := 0
 	if simdEncode != nil && e.simd != 0 {
-		n := simdEncode(dst, src, e.simd == 2)
-		di = n / 3 * 4
+		n, out := simdEncode(dst, src, e.simd == 2, !e.raw, e.pad)
+		di = out
 		src = src[n:]
 	}
 	for len(src) >= 12 {
