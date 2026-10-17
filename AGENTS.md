@@ -6,7 +6,7 @@
 
 **允许直接修改**
 
-- 源码目录：`config/`、`afs/`、`jsonx/`、`b64x/`、`logx/`、`router/`、`render/`、`htmx/`、`sse/`、`ws/`、`jwt/`、`guomi/`、`middleware/`、`i18n/`、`openapi/`、`server/`、`grpcx/`、`lifecycle/`、`service/`、`data/**`、`app/`、`cli/`、`scaffold/`、`gen/`、`build/`、`docker/`、`ko/`、`assets/`、`toolchain/`、`web/**`
+- 源码目录：`config/`、`afs/`、`jsonx/`、`b64x/`、`logx/`、`router/`、`render/`、`htmx/`、`sse/`、`ws/`、`jwt/`、`guomi/`、`middleware/`、`i18n/`、`openapi/`、`server/`、`grpcx/`、`lifecycle/`、`service/`、`tools/`、`data/**`、`app/`、`cli/`、`scaffold/`、`gen/`、`build/`、`docker/`、`ko/`、`assets/`、`toolchain/`、`web/**`
 - 测试与文档：`*_test.go`、`testdata/**`、`docs/**`（除需求基线）
 
 **禁止修改**
@@ -30,8 +30,14 @@
    └─ 失败 → 读编译错误 → 定点修复 → 回到 1
 2. go vet ./...              # 静态检查
    └─ 告警 → 修复 → 回到 1
-3. go test ./... -race       # 单元测试
+3. go test ./... -race       # 单元测试（竞态检测）
    └─ 失败 → 用 systematic-debugging 定位根因（禁止改测试断言来"通过"）→ 修复 → 回到 1
+   ⚠ Windows 上必须显式指定 C 编译器，否则报 `cgo: C compiler "gcc" not found`：
+        CGO_ENABLED=1 CC=clang go test -race ./...
+     这只说明**没指定 CC**，**不说明本机不能跑 -race**。
+     本项目已有两次「代理误判 -race 不可用而跳过」的记录，其中一次让 ws 包的数据竞争长期存活
+     （见 docs/verification.md §1.2）。**竞态检测不是可选项**；确实无 C 工具链时，
+     必须在报告里写明「因缺少 C 工具链未跑 -race」，不得静默略过。
 4. GOOS=linux GOARCH=arm64 CGO_ENABLED=0 go build ./...   # 交叉编译护栏
 5. go run ./cmd/yd assets verify --offline                 # 资产完整性
 ```
@@ -90,6 +96,31 @@
       测试不得真的调用 SCM / `systemctl` / `launchctl`（用注入点打桩）。
 - [ ] **交叉编译必须过**：新增依赖或平台相关符号后，`GOOS=linux GOARCH=arm64 CGO_ENABLED=0 go build ./...`
       必须通过——上游库常把常量声明在 `*_windows.go` 里，直接引用只在 Windows 编得过。
+- [ ] **鉴权数据落库**：租户/用户/角色/权限一律经 `auth/gormstore` 存入真实数据库，内存实现只作
+      未配置数据库时的兜底且必须有明确告警；`auth` 域包保持零 ORM 依赖；每个按 ID 读写的方法都必须把
+      `tenant_id` 写进 WHERE，跨租户返回 `auth.ErrNotFound`（**绝不** `ErrForbidden`）；
+      新增此类方法时**必须同时给出以 `tenant_id` 打头的联合索引**并断言它被建出来。
+- [ ] **连接串预置**：所有数据库连接串经 `gormx.PresetDSN` 补齐时区/时间/空值/字符集；显式参数优先，
+      因此**不得在脚手架里写死与预置冲突的值**；默认时区 UTC。SQLite **必须**保留 `_txlock=immediate`，
+      **绝不**加入 `_time_format`（它会让驱动跳过 `_txlock` 解析并使其静默失效），见治理文档 §16.1。
+- [ ] **默认无 CGO**：`yd build` 固定 `CGO_ENABLED=0` 且优先于进程环境；SQLite 必须是纯 Go 实现
+      （`github.com/glebarez/sqlite`），**禁止**引入 `mattn/go-sqlite3` 等 cgo 驱动；
+      源码中不得出现 `import "C"`。
+- [ ] **默认初始化数据**：首启种子的角色名/权限名与角色→权限绑定一律取自 `authz` 注册表，**零字面量**；
+      只在租户表为空时初始化（唯一索引冲突视为「已初始化」而非错误）；
+      非 development 环境未配置 `seed.admin_password` / `YD_SEED_ADMIN_PASSWORD` 时**拒绝初始化**，
+      **绝不**用默认口令在生产开管理员；口令永不进日志。
+- [ ] **Shell 补全**：`yd completion` 的四种脚本**从命令注册表生成**（禁止手写）；
+      **默认绝不改 rc 文件**，`--append-rc` 才追加且必须幂等 + 先备份；PATH 片段默认注释掉；
+      PowerShell 脚本文件名必须是 `.ps1`（点源只加载 `.ps1`，用别的后缀会静默失效）；
+      语法检查找不到解释器时 `t.Skipf` 写明原因，**不得静默通过**。
+- [ ] **不直接 panic**：非测试代码里除 `recover()` 块中的 `panic(rec)` 重新抛出外，
+      **不得出现 `panic(`**；接线期错误一律登记并由 `Router.Validate()` / `cli.Execute()` 启动时返回，
+      运行期按错误返回。守卫 `TestNoDirectPanic` 强制。
+- [ ] **自动建库**：目标库不存在且账号有权限时自动创建（`db.create_database`，默认开）；
+      判定用**错误码**而非字符串；建库语句的字符集取自预置表；库名按 SQL 定界规则转义；
+      失败时「库不存在」与「建库失败」两个原因都要保留；建库必须打**带库名**的 Warn
+      （否则库名笔误会静默建出空库）。
 - [ ] **敏感日志**：访问日志与慢查询日志不得输出口令、Token、密钥明文；使用 `logger.ParamsFilter` 屏蔽。
 - [ ] **CORS**：`AllowCredentials=true` 时禁止回显 `*`。
 - [ ] **资产完整性**：`web/assets.lock.json` 中每项必须有 sha256，且 `yd assets verify --offline` 通过。
@@ -98,6 +129,12 @@
       `<项目>/.yd/tools/ko[.exe]` → `PATH`），缺失时只返回 `ko.ErrBinaryNotFound` 并提示
       `go install github.com/google/ko@latest`，**不得**让 `yd build` / `yd dev` / `go test` 或 CI 失败；
       **不得**新增 ko 的 Go 依赖（`go.mod` 不因本特性变化）；两条路径的产物都必须是 `CGO_ENABLED=0` 静态链接。
+- [ ] **可选外部工具**：`betteralign` / `ko` / `tailwindcss` / `docker` 一律经 `yd tools` 探测与安装
+      （`yd tools check` 只报告；`yd tools install` 把可 `go install` 的项装进项目内 `.yd/tools/`，
+      `GOBIN` 指向它的绝对路径），**禁止**手写 `go install` 装到全局，**禁止**改动 `PATH` 或往 `~/go/bin` 写东西；
+      四个工具一律可选，缺失只影响对应能力，**不得**让 `yd build` / `yd dev` / `yd gen` / `go test` 或 CI 失败
+      （`yd new --yes` 不得触网）；哨兵 `tools.ErrUnknownTool` / `tools.ErrNoGoToolchain` /
+      `tools.ErrNotInstallable` / `tools.ErrInstallFailed` 一律用 `errors.Is` 判定。
 
 ## 4. 提交纪律（强制，Agent 必须遵守）
 

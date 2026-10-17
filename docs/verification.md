@@ -222,6 +222,54 @@ CLAUDE.md §3.1 要求注释与日志文案「英文在前、中文在后」，�
 `gen/templates/controller.go.tmpl`（14 行，按「注解名 + 英文 + 中文」重新生成）。
 守卫的切分正则因此把注解名并入「前缀」，不再参与交换。
 
+## 3.7 第二轮需求集（持久化 / 权限常量 / 种子 / 补全 / 建库 / 前缀 / panic）
+
+### 3.7.1 门禁
+
+```
+gofmt -l .                                    零输出
+go build ./... && go vet ./...                零输出
+go mod tidy -diff                             零输出
+GOOS=linux GOARCH=arm64 CGO_ENABLED=0 build   通过
+GOOS=windows GOARCH=amd64 CGO_ENABLED=0 build 通过
+CGO_ENABLED=1 CC=clang go test -race ./...    41 个包 ok，退出码 0（共 43 个包，2 个无测试文件）
+go test -tags e2e ./e2e/                      ok 84.859s
+go test ./internal/repotest/                  ok
+```
+
+### 3.7.2 各能力与其证据
+
+| 能力 | 关键证据 |
+|---|---|
+| 鉴权数据落库 | `auth/gormstore` 19 项测试；关连接池重开仍读得到（`TestRoundTripSurvivesReopen`）；仅 2 个 SQL 形态断言在每个用户/角色语句的 WHERE 里都带 `tenant_id`；跨租户 → `auth.ErrNotFound`（不是 `ErrForbidden`） |
+| 表与索引 `yd_` 前缀 | 迁移后 `sqlite_master`：表 `yd_auth_tenants/users/roles/role_permissions`；索引 `yd_idx_auth_users_tenant_id` 等 9 条；守卫 `TestMigratePrefixesEveryObjectWithYD`；探针模型实测落到 `yd_app_probe_rows` + `yd_idx_app_probe_rows_*` |
+| 索引超长保护 | 63 字节上限，超长取前 54 字节 + `_` + SHA-256(**完整名**) 前 8 位；「同头不同尾」两个长名断言不相等 |
+| 权限常量 | 16 权限 × 4 种拼写（标识 / Go 常量 / 模板键 / JS 键）+ 4 角色；`yd authz check` 对含 `user:creat` 与裸 `"user:create"` 的目录**退出码 1**，对空目录与框架自身**退出码 0** |
+| 默认初始化数据 | 首启行数 `租户=2 账号=2 角色=8 角色权限=68`（期望值由注册表推导）；**三次启动行数一致**；生产环境未配口令**拒绝初始化且四张表为空**；日志无口令明文 |
+| 前端判定 | 从真实 HTTP 响应解析 `<script id="yd-authz">`：匿名时 `granted` 为空（失败关闭），owner 登录后与注册表 16 项完全一致 |
+| Shell 补全 | 四种脚本从命令注册表生成；bash `bash -n` 通过并真 source 注册成功、PowerShell 解析器通过；zsh/csh 无解释器 → **打印原因跳过并汇总「执行 2、跳过 2」**；rc 文件未给 `--append-rc` 时 sha256 不变、给了则先备份且幂等（标记行计数 1） |
+| 自动建库 | 18 个子用例按错误码判定（1049 / 3D000 触发，1045 / 42501 / 42P04 / 连接拒绝不触发）；标识符转义含注入用例；开关关闭时零建库语句；本机无 MySQL/PG 服务，建库链路为**注入验证**，已如实标注 |
+| DSN 预置 | 三种驱动逐参数断言；12 条「显式优先」用例；真实 SQLite 往返（原始文本含 `+00:00`）；`gormx.Open` 确实走预置 |
+| 工具安装 | 注册表四条，`betteralign`/`ko` 的提示**复用解析器常量**（同一常量非副本）；安装落 `<项目>/.yd/tools`（绝对 GOBIN）；`--yes` 期间注入执行器调用 0 次 |
+
+### 3.7.3 本轮的三个真实缺陷
+
+1. **`_time_format` 让 `_txlock` 静默失效**（详见 §2.6.4）。8 并发写：带该键 5/8 失败、去掉后 0/8；
+   我把参数加回去即复现 `SQLITE_BUSY_SNAPSHOT(517)`，移除即恢复。而它自身是**空操作**——
+   驱动唯一的取值就是默认格式。
+2. **PowerShell 补全脚本装成 `.powershell` 永远不生效**。点源运算符只加载 `.ps1`：
+   实测 `. tiny.txt` → 变量仍为空，`. tiny.ps1` → 变量被赋值。脚本生成、内容、语法全对，
+   唯独永远不执行——这是单测抓不到的那类缺陷。
+3. **`go mod tidy` 暴露两处直接依赖被标成 indirect**（自动建库要按驱动错误码判定），已归一。
+
+### 3.7.4 双语规范与 panic 的收口
+
+| 项 | 结果 |
+|---|---|
+| 双语覆盖守卫 | 规范细化后（行末/单行/运行时文案必须同行成对；多行注释允许换行但整块须双语），**647 处违规 → 0**，`TestBilingualCoverage` 常绿 |
+| 守卫自身可靠性 | 改守卫时曾丢失捕获括号致其 panic，**panic 的表现是「看起来通过」**；由变异验证（还原后仍红）发现，现由 `TestStringLiteralReStaysUsable` 钉住，且字面量正则认转义 |
+| panic | 自研非测试代码 **11 处 → 2 处**，剩下的两处是 `recover()` 块中的 `panic(rec)` 重新抛出（去掉等于吞掉 panic）；接线期错误改为 `Router.Validate()` / `cli.Execute()` 启动时返回；AST 守卫 `TestNoDirectPanic`，变异验证过 |
+
 ## 4. 已知限制与未覆盖项
 
 1. **HTTP/3 需要 TLS**（QUIC 强制 TLS 1.3）。开发态在未配置证书时会生成一次性自签证书
@@ -252,3 +300,14 @@ CLAUDE.md §3.1 要求注释与日志文案「英文在前、中文在后」，�
     基础镜像与（推送时的）仓库凭据。这与 `yd docker` 未做真实镜像构建的口径一致。
 11. **`ko.*` 未在 `config/defaults.go` 注册默认值**：与既有的 `service.*` 一致，
     缺省值由 `OptionsFromConfig` 的回退给出。
+12. **自动建库未对真实 MySQL / PostgreSQL 验证**：本机没有这两个服务端，建库与重试全链路是
+    经注入口验证的（错误码分类、SQL 生成与转义、维护连接串、重试次数、失败聚合）。
+    「`CREATE DATABASE` 在真实服务上跑通」需要集成环境补一次 e2e。
+13. **zsh / csh 补全的运行期行为未验证**：本机与 WSL 内均无这两个解释器，只有生成文本 +
+    语法检查的**诚实跳过**（`t.Skipf` 打印原因并汇总「执行 N、跳过 M」）。
+14. **多行注释的「整块有英文」判定是启发式**（`[A-Za-z]{2,}`）：一个「中文散文 + 内含代码标识符」
+    的多行块会被判为合格。收紧到「必须有一句真正的英文」会误伤大量合法引用标识符的注释，
+    因此保留宽松度并在此记录。
+15. **测试断言消息不在双语守卫范围内**：`t.Errorf` / `t.Fatalf` / `t.Logf` 的中文单语消息
+    仍存在（各包合计约千行）。守卫的 `outputCallRe` 文档注释写明了这条边界与收紧方式；
+    收紧属于规范口径变更，需另行决定。

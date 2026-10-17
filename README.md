@@ -51,7 +51,23 @@ yd service install --name myapp
 # 前端依赖治理：在线更新 + 离线独立使用
 yd assets update          # 拉取并锁定 sha256（不匹配即拒绝写入）
 yd assets verify --offline  # 离线校验，绝不触网
+
+# 权限：注册表是角色与权限的唯一来源，check 抓拼写错误与裸字符串
+yd authz list             # 打印注册表（16 权限 / 4 角色，四种引用形态）
+yd authz check            # 静态校验，有错非零退出（可进 CI）
+
+# Shell 补全：四种 shell 的脚本从命令注册表生成
+yd completion bash        # 打印脚本（source <(yd completion bash)）
+yd completion install     # 探测 shell、写脚本并打印加载行（默认不动 rc 文件）
+
+# 可选外部工具：betteralign / ko / tailwindcss / docker 的统一探测与安装
+yd tools check            # 列出四个工具的状态与安装提示，只读、不触网
+yd tools install          # 把缺失且可 go install 的项装进项目内 .yd/tools/（不改 PATH）
 ```
+
+> `yd new` 收尾会探测一次缺失的工具：交互模式询问是否就地安装（默认是），
+> 非交互场景用 `--install-tools`；`--yes` 只建项目、不触网。
+> 工具**一律可选**，缺失只影响对应能力，不会让 `yd build` / `yd dev` / `go test` 失败。
 
 ## 架构一览
 

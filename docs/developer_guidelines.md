@@ -400,3 +400,88 @@ Windows 走 SCM、Linux 走 systemd、macOS 走 launchd。禁止为单个平台�
   请把内网 CA 装进系统信任库，不要指望关掉校验。
 - **测试口径**：打包命令不得在测试里真的执行外部二进制——`docker` 与 `service` 都经注入点打桩，
   `ko` 沿用同一口径（覆盖二进制解析顺序、缺仓库、构建失败与非法参数路径）。
+
+## 18. 可选外部工具契约
+
+四个**可选外部工具**——`betteralign`（内存对齐）、`ko`（无 Dockerfile 镜像打包）、`tailwindcss`（样式表编译）、
+`docker`（Dockerfile 镜像构建）——由 `github.com/shibingli/yd/tools` 统一探测与安装。
+`align` / `ko` / `toolchain` 各自的 `Resolve` 仍是「工具在哪」的唯一事实来源，`tools` 只做**单向聚合**：
+注册表、探测与安装都建在它们之上，提示文案也复用它们的 `InstallHint`。
+
+| 项 | 值 |
+|---|---|
+| 包 | `github.com/shibingli/yd/tools` |
+| 注册表 | `betteralign` / `ko` / `tailwindcss` / `docker`（顺序固定） |
+| API | `Registry()` / `Lookup(name)` / `Check(dir)` / `Missing(dir)` / `Hints(dir)` / `Install(ctx, dir, names, log)` / `InstallAll(ctx, dir, log)` |
+| 安装结果 | `*Report{Installed, Skipped, Failed}` |
+| CLI | `yd tools [check]`；`yd tools install [名称...]`（缺省为全部可安装项） |
+| 解析链 | 显式参数/配置 → 环境变量 → `<项目>/.yd/tools` → `PATH` |
+| 安装落点 | `GOBIN=<项目>/.yd/tools` 的绝对路径（解析链第三段），装完无需额外配置 |
+| 哨兵 | `tools.ErrUnknownTool` / `ErrNoGoToolchain` / `ErrNotInstallable` / `ErrInstallFailed` |
+
+- **探测只读**：`Check` / `Missing` / `Hints` 不触网、不执行工具、不改动文件；提示逐条给出工具名、
+  路径或版本与缺失时的安装途径。机器上没有 `go` 工具链时安装返回 `ErrNoGoToolchain`，**绝不 panic**。
+- **可安装性分两类**：`betteralign`（`go install github.com/dkorunic/betteralign/cmd/betteralign@latest`）
+  与 `ko`（`go install github.com/google/ko@latest`）可 `go install`；`tailwindcss` 由 `yd assets update`
+  获取（也可放进 `.yd/tools/`），`docker` 需安装 Docker Engine / Docker Desktop。
+  对后两者 `Install` 返回 `ErrNotInstallable` 并给出各自的获取途径——这是明确的「不代装」，不是失败。
+- **不改 PATH**：安装只落在项目内 `.yd/tools/`，**不得**改动用户 `PATH`，也**不得**往 `~/go/bin` 写东西；
+  往全局写属于越界，且在 CI 上不可预期（见 §17 对 ko 的同款约束）。
+- **缺失不阻塞**：四个工具一律可选，缺失只影响对应能力——`yd align` / `yd ko` / `yd docker` 返回各自哨兵
+  并给出安装提示，`tailwindcss` 缺失时 `yd dev` / `yd build` 的样式表阶段以告警跳过——
+  **不得**让 `yd build` / `yd dev` / `yd gen` / `go test` 或 CI 失败。
+- **`yd new` 收尾**：项目生成后探测一次并打印缺失清单；交互模式询问「现在就安装缺失的工具吗？」（默认是），
+  答是则 `InstallAll`；非交互场景用 `--install-tools` 显式安装；**`--yes` 不触网**
+  （e2e 与 CI 的入口不得带网络副作用）。安装失败只 Warn，`yd new` 仍返回成功。
+- **依赖方向**：`tools` → `align` / `ko` / `toolchain` 单向；反向 import 会成环，并迫使提示文案出现第二份副本，
+  由 `internal/repotest` 的守卫强制（与 `ws`/`sse` 不反向依赖 `lifecycle` 同一口径）。
+- **测试口径**：命令执行点必须可注入，测试进程内**不得**真的执行 `go install` 或触网
+  （覆盖注册表顺序、不可安装项、缺 go 工具链与安装失败四条路径）。
+
+## 19. 数据持久化契约（鉴权表）
+
+| 项 | 约定 |
+|---|---|
+| 实现 | `auth/gormstore`（`auth.Store` 的 GORM 实现）；内存实现只在无库/连不上时兜底，且必须告警 |
+| 表 | `auth_tenants` / `auth_users` / `auth_roles` / `auth_role_permissions`，由框架拥有，使用方不写 DDL |
+| 迁移 | `gormstore.Migrate(ctx, db)`，幂等 |
+| 隔离 | 每个方法都把 `tenant_id` 写进 WHERE；跨租户与不存在一律 `auth.ErrNotFound`，**绝不** `ErrForbidden` |
+| 索引 | 一律以 `tenant_id` 打头的联合索引；唯一性由大小写折叠列（`slug_key`/`username_key`）承载 |
+| 边界 | `auth` 域包零 ORM 依赖（守卫强制）；持久化只能出现在子包 |
+
+**新增按 ID 读写的方法时**：同时给出联合索引，并在测试里断言它真的被 `Migrate` 建出来——
+索引缺失不会报错，只会在数据量上来后变成慢查询，属于最难回溯的一类退化。
+
+## 20. 连接串与构建形态契约
+
+- **连接串预置**：`gormx.PresetDSN(driver, dsn)` 是唯一入口，由 `dialectorFor` 统一施加；
+  补齐时区（默认 UTC）、时间配置、空值严格性、默认字符集。**显式参数优先**，预置只补缺且幂等。
+- **预置表只有一份**：脚手架经 `gormx.PresetDSN` 生成示例 DSN，不得抄写参数表。
+  在脚手架里写死与预置冲突的值（如 `loc=Local`）会让默认被架空——这是踩过的坑。
+- **SQLite 的两个参数一存一亡**：必须保留 `_txlock=immediate`，**绝不**加入 `_time_format`
+  （后者会让驱动跳过前者的解析并使其静默失效，而它自身是空操作）。见治理文档 §16.1。
+- **默认无 CGO**：`yd build` 固定 `CGO_ENABLED=0` 且优先于进程环境；SQLite 必须纯 Go；
+  不得出现 `import "C"`。使用方自行引入 cgo 是其自由，框架只保证自己不是引入点。
+
+## 21. 默认初始化数据契约
+
+| 项 | 约定 |
+|---|---|
+| 时机 | 首次启动、且**租户表为空**时 |
+| 内容 | 默认租户 → 注册表全部角色（按 `authz.BuiltinGrants()` 绑定权限）→ 管理员账号（绑定 `owner`） |
+| 单一来源 | 角色名、权限名、角色→权限绑定全部取自 `authz`，**零字面量** |
+| 幂等 | 唯一索引冲突 = 「另一副本已初始化」，**不是错误** |
+| 口令来源 | `seed.admin_password` / `YD_SEED_ADMIN_PASSWORD`；development 可回退到文档化口令并每次告警；**非 development 未配置则拒绝初始化** |
+| 日志 | 永不出现口令明文；告警只带键名、环境变量名与 `app.env` |
+| 测试期望值 | **由注册表推导**（`2 × len(Roles())` 等），不得手抄行数 |
+
+## 22. Shell 补全与环境增强契约
+
+- 四种 shell（bash / zsh / csh / powershell）的脚本**从命令注册表生成**；
+  手写脚本必然与命令、标志漂移，且漂移是静默的（补全少一项没人会发现）。
+- **rc 文件是用户的文件**：默认只写脚本并打印加载行；`--append-rc` 才追加，且必须幂等（标记行）
+  并先备份（备份与改动前逐字节一致）。这与「不得改动用户 PATH」是同一条原则。
+- **PowerShell 用 `.ps1`**：点源运算符只加载 `.ps1`，别的后缀会静默不执行——
+  「装好了却不生效」比「装失败」难查得多。
+- **语法检查**：有解释器就真跑（`bash -n`、PowerShell 解析器）；没有就 `t.Skipf` 写明原因并汇总
+  「执行 N、跳过 M」，**跳过不等于通过**。

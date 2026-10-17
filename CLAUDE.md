@@ -56,7 +56,13 @@
    - 双语格式串若两侧都要动词，**必须使用显式参数索引**（`%[1]d`），否则 `go vet`
      会因参数个数不匹配报警；语义不同则拆哨兵，不要硬凑一行；
    - 调用方一律用 `errors.Is` / `errors.As` 判定，禁止字符串匹配判断错误类型；
-   - 禁止 `panic` 跨包传播（仅允许在 `MustXxx` 初始化辅助中出现）；
+   - **禁止直接发起 `panic`**（强制）。唯一例外是 `recover()` 块里的 **`panic(rec)` 重新抛出**：
+     它转发的是**已经发生**的 panic，交给外层 `Recover` 收尾；去掉它等于**吞掉 panic**，
+     请求会在 panic 之后继续往下跑，比 panic 本身更危险。
+     其余一律改为**受控失败**：接线期错误（nil 处理器、非法路由模式、重复注册命令等）
+     **登记**到所属对象，由 `Router.Validate()` / `cli.Execute()` 在启动时一次性返回错误；
+     运行期取不到资源（如 `app.MustGet`）改为返回 `(值, error)`。
+     守卫 `TestNoDirectPanic` 强制这一点（变异验证过）。
    - 唯一例外：`errx` 包自身内部实现需要 `fmt.Sprintf` 拼接文案。
    - 自检：`grep -rn 'fmt\.Errorf' --include=*.go . | grep -v '^./errx/'` 必须无命中。
 3. **文档注释（强制）**：所有导出符号必须有以符号名开头的 Go doc 注释。
@@ -69,8 +75,15 @@
    func Marshal(v any) ([]byte, error)
    ```
 
-   - 多行注释**逐行**遵循同一格式，便于左右对照阅读。
-   - 日志文案示例：`l.Info("server started | 服务器已启动", logx.Str("addr", addr))`。
+   - **两种形态，按位置选**：
+     1. **行末注释**（跟在代码后面）与**所有运行时输出**——异常输出、提示、结果响应、
+        日志文案、CLI 打印——**必须写在同一行**，用 ` | ` 分隔：
+        `l.Info("server started | 服务器已启动", logx.Str("addr", addr))`；
+     2. **方法与多行注释**（函数/类型的 doc 注释、独立成块的注释）**允许换行分隔**：
+        英文段落在前、中文段落在后，不强制逐行成对。这种形态便于写长段落，
+        但**整块必须两种语言都有**——只有中文的整块注释同样违规。
+   - 单行注释、行末注释没有换行的余地，因此只能走第 1 种形态。
+   - 分隔符一律是 ` | `（两侧各一个半角空格）；`。| English` 这种缺空格的写法不合规。
    - 豁免：`//go:build` 等编译指令、`// Code generated ... DO NOT EDIT.` 生成标记、
      注释内的代码示例/树状图/接口签名块、URL 与纯符号行。
 3.1.1 **日志一律使用自研 `logx`（强制）**：
@@ -295,3 +308,178 @@ yd assets verify --offline   # 离线完整性校验
   镜像内无任何运行时依赖。
 - **错误一律哨兵**：`ko.ErrBinaryNotFound` / `ko.ErrNoRepository` / `ko.ErrBuildFailed` / `ko.ErrInvalidOptions`，
   调用方用 `errors.Is` 判定（见第 4.2 条「错误处理」）。
+
+## 14. 可选外部工具（强制）
+
+`tools` 包（`github.com/shibingli/yd/tools`）是**唯一的探测与安装入口**：`betteralign`（内存对齐）、
+`ko`（无 Dockerfile 镜像打包）、`tailwindcss`（样式表编译）、`docker`（镜像构建）四个工具一律经它处理，
+注册表顺序固定为这四条。**禁止**在脚本、CI 或文档里另立一套「自己 `go install` 到全局」的指引。
+
+- **API 与 CLI 同源**：`Registry()` / `Lookup(name)` / `Check(dir)` / `Missing(dir)` / `Hints(dir)` /
+  `Install(ctx, dir, names, log)` / `InstallAll(ctx, dir, log)`，结果以 `*Report{Installed, Skipped, Failed}` 返回；
+  CLI 侧是 `yd tools [check]`（列出每个工具的状态、路径或版本与安装提示）与
+  `yd tools install [名称...]`（缺省为全部可安装项）。探测**只读**：不触网、不执行工具、不改动任何文件；
+  提示文案复用各解析包的 `InstallHint`，不另写一份。
+- **安装落点与解析链**：解析链固定为「显式参数/配置 → 环境变量 → `<项目>/.yd/tools` → `PATH`」
+  （`LocalToolDir = ".yd/tools"`）；安装把 `GOBIN` 指向 **`<项目>/.yd/tools` 的绝对路径**——即解析链的第三段，
+  装完无需任何额外配置。**不得改动用户 `PATH`，也不得往 `~/go/bin` 写东西**：往全局写属于越界，
+  且在 CI 上不可预期。
+- **工具一律可选**：缺失只影响对应能力——`yd align` / `yd ko` / `yd docker` 各自返回哨兵并给出安装提示，
+  `tailwindcss` 缺失时样式表阶段以告警跳过——**不得**让 `yd build` / `yd dev` / `yd gen` / `go test` 或 CI 失败。
+  只有 `betteralign`（`go install github.com/dkorunic/betteralign/cmd/betteralign@latest`）与
+  `ko`（`go install github.com/google/ko@latest`）可 `go install`；`tailwindcss` 经 `yd assets update` 获取
+  （或放入 `.yd/tools/`），`docker` 需安装 Docker Engine / Docker Desktop，`Install` 对这两个不可安装项
+  返回 `ErrNotInstallable` 并给出获取途径，而不是失败退出。
+- **`yd new` 收尾统一处理**：项目生成后探测缺失工具并打印提示；交互模式询问「现在就安装缺失的工具吗？」
+  （默认是），答是则 `InstallAll`；非交互场景用 `--install-tools` 显式安装；**`--yes` 不触网**
+  （e2e / CI 入口不得带网络副作用）。安装失败只 Warn 并给出提示，绝不影响建项目成功。
+- **错误一律哨兵**：`ErrUnknownTool` / `ErrNoGoToolchain` / `ErrNotInstallable` / `ErrInstallFailed`，
+  调用方用 `errors.Is` 判定（见第 4.2 条「错误处理」）。
+- **依赖方向单向**：`tools` 聚合 `align` / `ko` / `toolchain` 的解析器，这三者**不得**反向 import `tools`
+  （成环会让提示文案被迫出现第二份副本，由 `internal/repotest` 的守卫强制）。
+
+## 15. 数据持久化与索引（强制）
+
+租户、用户、角色与权限**存在真实数据库里**，由 `auth/gormstore` 承接（`auth.Store` 的 GORM 实现）。
+内存实现 `auth.NewMemoryStore` 只在「未配置数据库」或「数据库不可达」时兜底，且**必须打出明确的双语告警**
+说明「数据不持久」——绝不允许静默降级。
+
+- **框架拥有鉴权表**：`auth_tenants` / `auth_users` / `auth_roles` / `auth_role_permissions`，
+  建表与索引一律经 `gormstore.Migrate(ctx, db)`（`AutoMigrate`），使用方不需要自己写 DDL。
+- **`auth` 域包保持零 ORM 依赖**：GORM 只允许出现在 `auth/gormstore` 子包里。
+  否则内存实现与任何第三方存储都无法独立复用，领域规则也被绑死在一种数据库上（守卫 `TestAuthDomainStaysFreeOfGORM` 强制）。
+- **每个方法都必须把 `tenant_id` 写进 WHERE**：`auth.Store` 里**没有任何**方法只按全局 ID 查询。
+  跨租户或不存在一律返回 `auth.ErrNotFound`，**绝不**返回 `ErrForbidden`——后者会让调用方探测到别的租户是否存在数据。
+- **索引一律是联合索引，且以 `tenant_id` 打头**（单列索引在这种查询下只能命中一半条件）：
+
+  | 表 | 索引 |
+  |---|---|
+  | `auth_tenants` | `slug_key` 唯一；`created_at` |
+  | `auth_users` | `(tenant_id, id)` 唯一；`(tenant_id, username_key)` 唯一；`(tenant_id, created_at)` |
+  | `auth_roles` | `(tenant_id, id)` 唯一；`(tenant_id, name)` 唯一 |
+  | `auth_role_permissions` | `(tenant_id, role_id, permission)` 唯一；`(tenant_id, role_id)` |
+
+  唯一性由大小写折叠列（`slug_key`/`username_key`）承载，因此「租户外唯一」与「租户内唯一」各自成立。
+- **迁移必须幂等**：连跑两次不得报错、不得重复建索引。
+- **新增按 ID 读写的鉴权方法时，必须同时给出对应的联合索引**，并在 `internal/repotest` 或该包的测试里断言它真的被建出来。
+
+## 16. 连接串预置与无 CGO（强制）
+
+**所有数据库连接串都要预置时区、时间配置、空值严格性与默认字符集**，不得依赖使用方逐个写对。
+入口只有一个：`gormx.PresetDSN(driver, dsn)`，由 `dialectorFor` 在建立连接时统一施加。
+
+- **显式参数优先**：使用方在自己的 DSN 里写了的键一律保留，预置只补缺。因此**脚手架生成的 DSN 不得写死
+  与预置冲突的值**——旧模板里的 `loc=Local` 正是这样把 UTC 默认架空的，已改为由预置补齐。
+- **预置是幂等的**：对同一连接串重复施加不产生重复参数。
+- **默认时区是 UTC**（`loc=UTC` / `time_zone='+00:00'` / `TimeZone=UTC`），与框架日志一律输出 UTC 一致；
+  需要本地时间的使用方在自己的 DSN 里显式写 `loc=Local` 覆盖。
+- **预置表只有一份**：脚手架经 `gormx.PresetDSN` 生成示例 DSN，**不得**抄一份参数表到 `scaffold`。
+
+### 16.1 SQLite：两个参数一存一亡
+
+- **必须保留 `_txlock=immediate`**：先读后写的延迟事务会被并发提交顶掉快照，随后以
+  `SQLITE_BUSY_SNAPSHOT` 失败，而**这是任何 busy timeout 都无法化解的**——存储层的预检正是「先读后写」。
+- **绝不允许加入 `_time_format`**：`glebarez/go-sqlite` 的 `applyQueryParams` 一旦看到该键就**提前返回**，
+  其后的 `_txlock` 分支永远走不到，`_txlock=immediate` 因此**静默失效**。而 `_time_format` 在该驱动上
+  是**彻底的空操作**（其唯一取值 `"sqlite"` 就是未设置时的默认格式），等于用一个空操作换掉了并发写。
+  实测：8 并发写，带该键 5/8 以 `SQLITE_BUSY_SNAPSHOT` 失败，去掉后 0/8。
+  `data/gormx` 有注释与行为级断言固化这条约束。
+
+### 16.2 目标库不存在时自动建库
+
+连接账号**权限足够**、但目标库**尚未创建**时，`gormx.Open` 会自动建库并重试一次原连接
+（配置键 `db.create_database`，**默认开启**）。
+
+- **判定用错误码，不用字符串匹配**：MySQL `ER_BAD_DB_ERROR`(1049)、PostgreSQL `SQLSTATE 3D000`，
+  经 `errors.As` 判定；其余错误一律不触发。SQLite 不参与（文件由驱动创建）。
+- **建库语句必须带预置的字符集与排序规则**，否则会建出一个与 §16 预置不符的库，
+  把字符集默认值架空。字符集取值**读预置表**，不得另抄字面量。
+- **库名是外部输入**，必须按 SQL 自身的定界规则转义（MySQL 反引号成对、PostgreSQL 双引号成对）。
+- **失败如实上报**：错误里**同时保留**「库不存在」与「建库失败」两个原因，绝不吞掉任何一个。
+- **固有代价（必须知晓）**：自动建库让「配置写错」与「库确实还没建」难以区分——
+  库名写成 `prod_usr`（少个 e）时会**建出一个空库并正常启动**，问题推迟到数据缺失才暴露。
+  唯一缓解是建库时那行**带库名的 Warn 日志**；关闭方式是 `db.create_database: false`。
+
+### 16.3 默认无 CGO
+
+- **默认构建形态是纯 Go、零 cgo**：二进制静态链接、可直接放进 `scratch` 级空镜像、
+  交叉编译不需要目标平台的 C 工具链。`yd build` 的 `buildEnv` 固定注入 `CGO_ENABLED=0`，
+  且**内置值优先于进程环境**——shell 里是 `CGO_ENABLED=1` 也会被覆盖，只有显式传 `Options.Env` 才开得起来。
+- **SQLite 必须是纯 Go 实现**：`github.com/glebarez/sqlite`（→ `modernc.org/sqlite`）。
+  **禁止**引入 `github.com/mattn/go-sqlite3` 等需要 cgo 的驱动——它会一次性破坏上面三条性质，
+  且症状要到交叉编译或容器运行时才暴露（守卫 `TestNoCgoInDefaultBuild` 强制，覆盖两种 `require` 写法）。
+- 使用方日后自行引入 cgo 是他们的选择，本约束只保证**框架自身**不是那个引入点。
+
+## 17. 角色与权限常量（强制）
+
+`authz` 包（`github.com/shibingli/yd/authz`）是角色与权限的**唯一事实来源**。
+这些字符串**只允许在该包的注册表里出现一次**，其余任何地方——Go 代码、模板、JS、脚手架产物——
+都必须引用常量或注册表派生的映射。
+
+- **四种引用形态**（同一枚权限，四个消费方各取所需）：
+
+  | 消费方 | 形态 | 例 |
+  |---|---|---|
+  | 领域标识 | 字符串 | `user:create` |
+  | Go 后端 | 常量 | `authz.PermUserCreate` / `authz.RoleAdmin` |
+  | Go 模板 | 数据键 | `{{ if can .Perm.UserCreate }}` |
+  | 前端 JS | 全局映射 | `yd.can(yd.PERM.USER_CREATE)` |
+
+- **后端一行判定**：`authz.Can(ctx, perm)` 只判断、`authz.Allow(c, perm)` 无权限写 403、
+  `authz.Require(perm)` 作中间件、`authz.HasRole(ctx, role)` 判角色。
+  403 一律**不得泄露资源是否存在**（见第 7 节）。
+- **前端三件套**：模板函数 `can` / `hasRole` / `perm` / `role`；
+  声明式属性 `data-yd-perm="…"`（配 `data-yd-perm-mode="hide|disable"`）；
+  JS API `yd.can()` / `yd.hasRole()` / `yd.perms()` / `yd.roles()` / `yd.bind(root)`。
+  声明式属性在页面加载与**每次 htmx 交换后**都必须重新生效。
+- **红线（必须写进任何涉及权限的前端代码注释）**：**前端判定只是体验优化，不是安全边界**。
+  隐藏按钮不等于禁止操作，每个受保护端点仍必须在服务端校验。载荷缺失或损坏时**一律失败关闭**（拒绝全部能力）。
+- **权限下发**：由 `authz.Data(subject)` 生成载荷，经 `<script id="yd-authz" type="application/json">`
+  内联注入，**零额外请求、零 CDN**；不得把权限集合放到可被前端随意改写的存储里当作判据。
+- **静态验证 `yd authz check`**：把每一处权限引用与注册表比对，报三类问题——
+  ①引用了**未注册**的能力（拼错成 `user:creat` 会静默失效，这是最有价值的一类）；
+  ②**裸字符串**（在 `authz` 包外直接写 `"user:create"`）；③注册了但从未被引用（提示，不计失败）。
+  有错误即**非零退出**，可直接进 CI。`yd authz list` 打印注册表。
+- **新增能力时**：先在注册表声明（含分组与双语描述），再在至少一处引用；
+  默认角色绑定同样取自注册表，**不得**在种子数据或业务代码里另写一份角色-权限清单。
+
+## 18. 默认初始化数据（强制）
+
+`yd new` 产出的项目**首次启动即自带一套可登录、可授权的数据**：默认租户、管理员账号、
+注册表里的全部角色与权限，以及**角色→权限**与**用户→角色**的绑定。
+
+- **单一事实来源**：角色名与权限名一律取自 `authz` 注册表；角色→权限的绑定取自
+  `authz.BuiltinGrants()`。种子代码里**不得出现角色/权限字符串字面量**
+  （否则 `yd authz check` 判为裸字符串，见第 17 节）。
+- **幂等**：只在租户表为空时初始化；唯一索引冲突视为「另一副本已初始化」而非错误。
+  多次启动、多副本并发启动都不得产生重复数据。
+- **生产安全（红线）**：
+  - 口令从 `seed.admin_password` / `YD_SEED_ADMIN_PASSWORD` 读取；
+  - **development** 未配置时回退到**文档化的开发口令**并**每次启动告警**；
+  - **非 development** 未配置时**拒绝初始化**并告警——**绝不用默认口令在生产开一个管理员账号**；
+  - 口令**永不写入日志**，告警只带键名、环境变量名与 `app.env`。
+- **期望值不得手抄**：测试里种子行数的期望值应当**由注册表推导**
+  （`2 × len(authz.Roles())` 个角色、`2 × Σ len(grant.Permissions)` 条绑定），
+  否则种子一改，测试就会以「期望值过期」的形式误报。
+
+## 19. Shell 补全与环境增强（强制）
+
+`yd completion` 提供 bash / zsh / csh / powershell 四种补全：
+
+```
+yd completion bash|zsh|csh|powershell   # 打印脚本（可 source <(yd completion bash)）
+yd completion detect                     # 报告检测到的 shell 与将写入的位置
+yd completion install [--shell S] [--dir D] [--print] [--append-rc] [--yes]
+```
+
+- **从命令注册表生成，禁止手写脚本**：手写四份必然与命令、标志漂移。新增命令或标志时补全必须自动跟上，
+  由测试断言「每个已注册命令都出现在四种脚本里」。
+- **默认绝不碰 rc 文件**（`~/.bashrc`、`~/.zshrc`、`~/.cshrc`、`$PROFILE`）：
+  与「不得改动用户 PATH」同一原则。只有显式 `--append-rc` 才追加，且必须**幂等**（带标记行）、
+  **先备份**（备份与改动前逐字节一致）、并在输出里说明改了什么、备份在哪。
+- **环境增强片段默认注释掉**：脚本末尾的 `.yd/tools` 加 PATH 片段保持注释状态，由用户自行启用。
+- **PowerShell 的脚本文件名必须是 `.ps1`**：点源运算符只加载 `.ps1`，
+  用 `.powershell` 会**静默不生效**——脚本装好了、rc 也写了，补全却永远不工作。
+  这是实测过的坑（`. tiny.txt` 不执行、`. tiny.ps1` 执行），属于对「`completion.<shell>`」字面约定的唯一例外。
+- **语法检查不得静默跳过**：本机有对应解释器时做真实检查（`bash -n`、PowerShell 解析器）；
+  没有时 `t.Skipf` 写明原因并汇总「执行 N 项、跳过 M 项」，**不得**因为跳过而显示通过。
