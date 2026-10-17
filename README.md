@@ -178,6 +178,27 @@ e2e/           端到端验收（-tags e2e）
 repotest/      仓库治理守卫（治理文件与规范的可执行断言）
 ```
 
+## 性能与兼容性指标
+
+完整基准位于 [`benchmarks/`](benchmarks/README.md)，每个类别是一个独立 Go 模块，自带 `go.mod`/`go.sum` 与 README，不会把对比库带进主模块依赖。
+
+| 类别 | 基准模块 | 核心结论 |
+|---|---|---|
+| WebSocket | [`benchmarks/ws`](benchmarks/ws/README.md) | 与 coder/gorilla/gobwas/gws 兼容性 18/18；32 B/256 B 延迟最低，64 KiB 吞吐 572.9 MB/s；唯一全程 `0 B/op、0 allocs/op` |
+| Router | [`benchmarks/router`](benchmarks/router/README.md) | 参数/深层/通配/未命中路径最快（4.8–5.1 ns，未命中 8.8 ns），五类路径零分配；WebSocket 握手经 router 仅增加 62 ns（5.6%） |
+| JSON | [`benchmarks/json`](benchmarks/json/README.md) | go-json 在该结构体切片上最优；`jsonx` 与其 sonic 后端一致，并提供跨架构后端切换与统一错误分类 |
+| Base64 | [`benchmarks/base64`](benchmarks/base64/README.md) | ≥1 KiB 时 cloudwego 与 `b64x` 编码约 10–12 GB/s、解码约 7–9 GB/s；标准库约 1.1 GB/s |
+| 压缩 | [`benchmarks/compress`](benchmarks/compress/README.md) | zstd 综合最优（text 压缩 3.7 GB/s / 解压 7.5 GB/s）；klauspost gzip 约为标准库 gzip 的 4 倍吞吐，压缩率相同 |
+| 日志 | [`benchmarks/logx`](benchmarks/logx/README.md) | `logx` 启用 Info 182 ns/op、零分配，快于 zerolog；禁用路径 20 ns/op、零分配 |
+
+汇总口径、测试环境与完整表格见 [`benchmarks/README.md`](benchmarks/README.md)。基准数值对机器负载、温度与电源策略敏感，跨进程独立运行的波动可达约 15%。
+
+```bash
+cd benchmarks/<模块>
+go test ./...                         # 正确性/兼容性
+go test -run '^$' -bench . -benchmem  # 性能
+```
+
 ## 许可
 
 Apache License 2.0 —— 见 [LICENSE](LICENSE)。归属团队 YunDev（[yun-dev.cn](https://yun-dev.cn) · [yun-dev.net](https://yun-dev.net)）。
