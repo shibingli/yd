@@ -292,6 +292,10 @@ type Options struct {
 	// ReadBufferSize is the read buffer size; <=0 means 4096. | ReadBufferSize 为读缓冲大小，<=0 时取 4096。
 	ReadBufferSize int
 	// WriteBufferSize is the write buffer size; <=0 means 4096. | WriteBufferSize 为写缓冲大小，<=0 时取 4096。
+	//
+	// Frames that fit in the buffer are coalesced into a single transport write and flushed at the
+	// frame boundary; larger frames bypass the buffer and use a scatter write. | 能放进缓冲的帧会合并为
+	// 一次传输层写入并在帧边界刷新；更大的帧绕过缓冲，改用分散写。
 	WriteBufferSize int
 	// HandshakeTimeout is the handshake timeout; <=0 means no limit. | HandshakeTimeout 为握手超时，<=0 表示不限制。
 	HandshakeTimeout time.Duration

@@ -47,6 +47,8 @@ type DialOptions struct {
 	HandshakeTimeout time.Duration
 	// ReadBufferSize is the read buffer size; <=0 means no intermediate buffer is introduced (read the connection directly). | ReadBufferSize 为读缓冲大小；<=0 表示不引入中间缓冲（直读连接）。
 	ReadBufferSize int
+	// WriteBufferSize is the write buffer size; <=0 means 4096. Small frames are coalesced into one transport write. | WriteBufferSize 为写缓冲大小；<=0 时取 4096。小帧会合并为一次传输层写入。
+	WriteBufferSize int
 	// MaxMessageSize is the per-message limit, 32MB by default. | MaxMessageSize 为单条消息上限，默认 32MB。
 	MaxMessageSize int64
 	// EnableWriteCompression offers permessage-deflate (RFC 7692) during the handshake and enables | EnableWriteCompression 在握手时提议 permessage-deflate（RFC 7692），并在服务端接受后
@@ -200,7 +202,7 @@ func Dial(ctx context.Context, rawURL string, o DialOptions) (*Conn, error) {
 	if maxSize <= 0 {
 		maxSize = defaultMaxMessageSize
 	}
-	c := newConn(netConn, Options{ReadBufferSize: o.ReadBufferSize, MaxMessageSize: maxSize}, true)
+	c := newConn(netConn, Options{ReadBufferSize: o.ReadBufferSize, WriteBufferSize: o.WriteBufferSize, MaxMessageSize: maxSize}, true)
 	c.subprotocol = selected
 	c.setCompression(compCfg)
 	// the bufio.Reader used by ReadResponse may already have buffered the peer's first frame | ReadResponse 的 bufio.Reader 可能已缓冲了对端的第一帧
@@ -350,7 +352,7 @@ func dialExtended(ctx context.Context, u *url.URL, o DialOptions, timeout time.D
 	sc := newStreamConnClient(resp.Body, pw, cancel,
 		streamAddr{network: network, addr: ""},
 		streamAddr{network: network, addr: u.Host})
-	c := newConn(sc, Options{ReadBufferSize: o.ReadBufferSize, MaxMessageSize: maxSize}, true)
+	c := newConn(sc, Options{ReadBufferSize: o.ReadBufferSize, WriteBufferSize: o.WriteBufferSize, MaxMessageSize: maxSize}, true)
 	c.kind = kind
 	c.subprotocol = selected
 	c.setCompression(compCfg)

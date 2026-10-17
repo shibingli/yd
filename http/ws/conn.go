@@ -21,15 +21,22 @@ import (
 //   - concurrent calls to the write methods from several writer goroutines are serialized by an internal mutex; |   - 多个写协程并发调用写方法由内部互斥锁串行化；
 //   - control frames (ping/pong/close) are answered automatically by the read path, with no caller involvement needed. |   - 控制帧（ping/pong/close）由读路径自动应答，无需调用方干预。
 //
-// Zero-copy contract: when writing a data frame the header goes into a stack array and is sent together with the payload | 零拷贝约定：写数据帧时帧头写在栈上数组，与载荷一起通过 net.Buffers
-// in a single writev through net.Buffers, **without copying the payload or passing through an intermediate buffer**. The read side reads | 以一次 writev 发出，**不复制载荷、不经中间缓冲**。读侧默认直接读
-// net.Conn directly by default (no bufio layer), and the slice returned by ReadMessage points into the connection's internal reuse buffer; | net.Conn（无 bufio 中间层），ReadMessage 返回的切片指向连接内部复用缓冲；
-// that slice is valid **until the next read operation**; copy it yourself if you need to hold it longer. | 该切片在**下一次读操作前**有效，需要长期持有请自行复制。
+// Write contract: frames larger than the write buffer are sent through net.Buffers in one writev,
+// **without copying the payload**; smaller frames are coalesced into the write buffer and flushed as
+// one transport write, so a small message never costs a separate write per buffer. The read side
+// reads net.Conn directly by default (no bufio layer) unless ReadBufferSize asks for one, and the
+// slice returned by ReadMessage points into the connection's internal reuse buffer; that slice is
+// valid **until the next read operation**; copy it yourself if you need to hold it longer. | 写约定：
+// 大于写缓冲的帧经 net.Buffers 以一次 writev 发出，**不复制载荷**；较小的帧合并进写缓冲并作为一次
+// 传输层写入刷新，因此小消息不会为每个缓冲各付一次写系统调用。读侧默认直接读 net.Conn（无 bufio
+// 中间层，除非 ReadBufferSize 要求），ReadMessage 返回的切片指向连接内部复用缓冲；该切片在
+// **下一次读操作前**有效，需要长期持有请自行复制。
 type Conn struct {
 	conn net.Conn
 
 	readErr error
 	br      *bufio.Reader // non-nil only when ReadBufferSize > 0 | 仅在 ReadBufferSize > 0 时非空
+	bw      *bufio.Writer // coalesces small frames into one transport write | 把小帧合并为一次传输层写入
 
 	pingHandler  func(string) error
 	pongHandler  func(string) error
@@ -107,6 +114,11 @@ func newConn(nc net.Conn, o Options, isClient bool) *Conn {
 	if o.ReadBufferSize > 0 {
 		c.br = bufio.NewReaderSize(nc, o.ReadBufferSize)
 	}
+	writeSize := o.WriteBufferSize
+	if writeSize <= 0 {
+		writeSize = defaultWriteBufferSize
+	}
+	c.bw = bufio.NewWriterSize(nc, writeSize)
 	return c
 }
 
@@ -777,21 +789,42 @@ func (c *Conn) writeFrameLocked(rsv1, fin bool, op OpCode, payload []byte) error
 		maskBytes(key, 0, body)
 	}
 
-	// The connection-owned scatter list keeps the per-frame buffer list off the heap. WriteTo
-	// consumes the slice it is given, so it receives the writeList copy while writeBase keeps the
-	// stable two-element view for the next frame. | 连接自有的分散列表使每帧的缓冲列表不再上堆。
-	// WriteTo 会消费传入的切片，因此交给它的是 writeList 副本，而 writeBase 保留稳定的两元素视图
-	// 供下一帧复用。
-	if cap(c.writeBase) < 2 {
-		bufs := make(net.Buffers, 2)
-		c.writeBase, c.writeList = bufs, bufs
-	}
-	c.writeBase = c.writeBase[:2]
-	c.writeBase[0] = hdr[:n]
-	c.writeBase[1] = body
-	c.writeList = c.writeBase
-	if _, err := c.writeList.WriteTo(c.conn); err != nil {
-		return err
+	// Small frames take the buffered path: header, mask key and payload are
+	// coalesced into one transport write. Large frames keep the scatter list,
+	// which sends both buffers without copying the payload. | 小帧走缓冲路径：
+	// 帧头、掩码键与载荷合并为一次传输层写入；大帧仍用分散列表，不复制载荷。
+	total := n + len(body)
+	if total <= c.bw.Available() {
+		if _, err := c.bw.Write(hdr[:n]); err != nil {
+			return err
+		}
+		if _, err := c.bw.Write(body); err != nil {
+			return err
+		}
+		if err := c.bw.Flush(); err != nil {
+			return err
+		}
+	} else {
+		// The scatter list must not follow buffered bytes on the wire. | 分散列表不能排到缓冲字节之前上线。
+		if err := c.bw.Flush(); err != nil {
+			return err
+		}
+		// The connection-owned scatter list keeps the per-frame buffer list off the heap. WriteTo
+		// consumes the slice it is given, so it receives the writeList copy while writeBase keeps the
+		// stable two-element view for the next frame. | 连接自有的分散列表使每帧的缓冲列表不再上堆。
+		// WriteTo 会消费传入的切片，因此交给它的是 writeList 副本，而 writeBase 保留稳定的两元素视图
+		// 供下一帧复用。
+		if cap(c.writeBase) < 2 {
+			bufs := make(net.Buffers, 2)
+			c.writeBase, c.writeList = bufs, bufs
+		}
+		c.writeBase = c.writeBase[:2]
+		c.writeBase[0] = hdr[:n]
+		c.writeBase[1] = body
+		c.writeList = c.writeBase
+		if _, err := c.writeList.WriteTo(c.conn); err != nil {
+			return err
+		}
 	}
 	// Stream transports buffer DATA until flushed; TCP never implements
 	// FlushError, so its hot path is unchanged. | 流传输会把 DATA 缓冲到刷新为止；
