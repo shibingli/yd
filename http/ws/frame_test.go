@@ -6,6 +6,7 @@ import (
 	"errors"
 	"io"
 	"testing"
+	"unicode/utf8"
 )
 
 func TestFrameHeaderLengths(t *testing.T) {
@@ -230,5 +231,48 @@ func TestReadFrameHeaderDoesNotAllocate(t *testing.T) {
 	}
 	if allocs != 0 {
 		t.Fatalf("allocs = %v, want 0 | 分配 = %v，期望 0", allocs, allocs)
+	}
+}
+
+// TestUtf8IncrementalMatchesStdlib checks the incremental validator against
+// unicode/utf8 at every two-way split and byte by byte; the ASCII fast path
+// must not change the verdict. | TestUtf8IncrementalMatchesStdlib 在所有二段切分点
+// 与逐字节输入上把增量校验器与 unicode/utf8 对照；ASCII 快路径不得改变判定。
+func TestUtf8IncrementalMatchesStdlib(t *testing.T) {
+	cases := map[string][]byte{
+		"ascii":            []byte("hello ascii"),
+		"chinese":          []byte("中文校验"),
+		"emoji":            []byte("😀🚀"),
+		"mixed":            []byte("abc中文def😀"),
+		"overlong":         {0xC0, 0xAF},
+		"surrogate":        {0xED, 0xA0, 0x80},
+		"beyond-max":       {0xF4, 0x90, 0x80, 0x80},
+		"lone-cont":        {'a', 0x80},
+		"truncated":        {'a', 0xE4, 0xB8},
+		"bad-lead":         {0xFF},
+		"ascii-then-3byte": append([]byte("abcdefgh"), 0xE4, 0xB8, 0xAD),
+	}
+	for name, data := range cases {
+		t.Run(name, func(t *testing.T) {
+			want := utf8.Valid(data)
+			for split := 0; split <= len(data); split++ {
+				var s utf8State
+				got := s.write(data[:split]) && s.write(data[split:]) && s.complete()
+				if got != want {
+					t.Fatalf("split %d: got %v, want %v | 切分 %d：得到 %v，期望 %v", split, got, want, split, got, want)
+				}
+			}
+			var s utf8State
+			got := true
+			for i := range data {
+				if !s.write(data[i : i+1]) {
+					got = false
+					break
+				}
+			}
+			if got = got && s.complete(); got != want {
+				t.Fatalf("byte-by-byte: got %v, want %v | 逐字节：得到 %v，期望 %v", got, want, got, want)
+			}
+		})
 	}
 }

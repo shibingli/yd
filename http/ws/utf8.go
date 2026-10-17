@@ -1,6 +1,9 @@
 package ws
 
-import "unicode/utf8"
+import (
+	"encoding/binary"
+	"unicode/utf8"
+)
 
 // utf8State is the cross-frame state of incremental UTF-8 validation. | utf8State 是增量 UTF-8 校验的跨帧状态。
 //
@@ -23,6 +26,28 @@ func (s *utf8State) reset() { s.n, s.need = 0, 0 }
 // The validation strictly follows RFC 3629: overlong encodings are rejected, surrogate code points (U+D800–U+DFFF) are rejected, | 该校验严格遵循 RFC 3629：拒绝过长编码、拒绝代理区码点（U+D800–U+DFFF）、
 // and code points beyond U+10FFFF are rejected. | 拒绝超过 U+10FFFF 的码点。
 func (s *utf8State) write(p []byte) bool {
+	if s.n == 0 {
+		// Skip a leading pure-ASCII run in bulk: text messages are mostly ASCII,
+		// and eight bytes per check avoid a branch per byte. The remainder keeps
+		// the original per-byte state machine, so non-ASCII text pays no extra
+		// check at every sequence boundary. | 批量跳过开头的纯 ASCII 段：文本消息以
+		// ASCII 为主，一次检查八个字节可省去逐字节分支。剩余部分仍走原来的逐字节状态机，
+		// 非 ASCII 文本因此不必在每个序列边界多做一次检查。
+		i := 0
+		for i+8 <= len(p) {
+			if binary.LittleEndian.Uint64(p[i:])&0x8080808080808080 != 0 {
+				break
+			}
+			i += 8
+		}
+		for i < len(p) && p[i] < 0x80 {
+			i++
+		}
+		if i == len(p) {
+			return true
+		}
+		p = p[i:]
+	}
 	for _, b := range p {
 		if s.n == 0 {
 			switch {
