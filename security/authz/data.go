@@ -2,6 +2,8 @@ package authz
 
 import (
 	"html/template"
+	"strconv"
+	"strings"
 
 	"github.com/shibingli/yd/core/jsonx"
 	"github.com/shibingli/yd/core/logx"
@@ -168,12 +170,58 @@ func RoleJSMap() map[string]string {
 // the render package, and that binding reads the data as a map[string]any. | 请把它合并进 map 而不是结构体：
 // 判定辅助函数由 render 包按次执行绑定，而该绑定是把数据当作 map[string]any 读取的。
 func Data(s *Subject) map[string]any {
+	env := NewEnvelope(s)
 	return map[string]any{
-		render.AuthzKey: authority{subject: s},
-		"Perm":          PermMap(),
-		"Role":          RoleMap(),
-		"AuthzJSON":     NewEnvelope(s).JS(),
+		render.AuthzKey: authority{
+			subject: s,
+			granted: stringSet(env.Granted),
+			roles:   stringSet(env.Mine),
+			key:     decisionKey(env),
+		},
+		"Perm":      PermMap(),
+		"Role":      RoleMap(),
+		"AuthzJSON": env.JS(),
 	}
+}
+
+// stringSet turns a sorted string slice into a lookup set. | stringSet 把已排序的字符串切片转为查找集合。
+func stringSet(values []string) map[string]struct{} {
+	if len(values) == 0 {
+		return nil
+	}
+	out := make(map[string]struct{}, len(values))
+	for _, v := range values {
+		out[v] = struct{}{}
+	}
+	return out
+}
+
+// decisionKey renders the decision set as one stable, unambiguous string. | decisionKey 把判定集合渲染为一个稳定且无歧义的字符串。
+//
+// Every item carries a length prefix ("len:item"), so a role name that itself contains a separator
+// byte cannot merge two different sets into the same cache key. (Role names are only required to be
+// non-empty, so this must not rely on their charset.) An anonymous subject has an empty key, which
+// is itself the correct identity for "deny everything". | 每一项都带长度前缀（"len:item"），因此角色名
+// 自身含有分隔字节时也无法把两个不同的集合合并成同一个缓存键。（角色名只要求非空，因此不能依赖其
+// 字符集。）匿名主体的键为空串，而空串正是「全部拒绝」这个判定集合的正确身份。
+func decisionKey(env Envelope) string {
+	if len(env.Granted) == 0 && len(env.Mine) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	b.Grow(len(env.Granted)*18 + len(env.Mine)*10)
+	for _, p := range env.Granted {
+		b.WriteString(strconv.Itoa(len(p)))
+		b.WriteByte(':')
+		b.WriteString(p)
+	}
+	b.WriteByte('|')
+	for _, r := range env.Mine {
+		b.WriteString(strconv.Itoa(len(r)))
+		b.WriteByte(':')
+		b.WriteString(r)
+	}
+	return b.String()
 }
 
 // authority adapts a possibly anonymous subject to the render helpers. | authority 把可能为匿名的主体适配给模板辅助函数。
@@ -187,6 +235,12 @@ func Data(s *Subject) map[string]any {
 type authority struct {
 	// subject is the subject of the page being rendered, or nil when the request is anonymous. | subject 是被渲染页面的主体，匿名请求时为 nil。
 	subject *Subject
+	// granted is the capability set captured once by Data, so every can call is a map lookup. | granted 是 Data 一次性捕获的能力集合，使每次 can 调用只是一次映射查找。
+	granted map[string]struct{}
+	// roles is the role set captured once by Data. | roles 是 Data 一次性捕获的角色集合。
+	roles map[string]struct{}
+	// key identifies the decision set for the render cache. | key 为渲染缓存标识该判定集合。
+	key string
 }
 
 // Can reports whether the subject holds the referenced capability and never fails the render. | Can 报告主体是否持有引用的能力，且绝不让渲染失败。
@@ -197,10 +251,32 @@ type authority struct {
 // `yd authz check` before the code is ever deployed. | 引用未知时渲染为「未授予」而不是中断页面：
 // 该辅助函数只决定要不要画出来，为了一个隐藏按钮干掉整页会把排版级的拼写错误升级成故障。
 // 拼写错误改由两处上报——这里每渲染一次告警一次，以及代码部署之前的 `yd authz check`。
-func (a authority) Can(perm string) bool { return a.subject.Can(perm) }
+func (a authority) Can(perm string) bool {
+	token, err := ResolvePermission(perm)
+	if err != nil {
+		return false
+	}
+	_, ok := a.granted[token]
+	return ok
+}
 
 // HasRole reports whether the subject holds the referenced role. | HasRole 报告主体是否持有引用的角色。
-func (a authority) HasRole(role string) bool { return a.subject.HasRole(role) }
+func (a authority) HasRole(role string) bool {
+	name, err := ResolveRole(role)
+	if err != nil {
+		return false
+	}
+	_, ok := a.roles[name]
+	return ok
+}
+
+// DecisionKey returns the stable key of this render's decision set. | DecisionKey 返回本次渲染判定集合的稳定键。
+//
+// The template engine uses it to cache a bound template set: two renders with the same key answer
+// every Can and HasRole identically, so they can share one set instead of cloning the whole parsed
+// tree per request. | 模板引擎用它缓存已绑定的模板集：相同键的两次渲染对每个 Can 与 HasRole 的答案
+// 都相同，因此可以共享同一个集合，而不必为每个请求克隆整棵解析树。
+func (a authority) DecisionKey() string { return a.key }
 
 // Perm resolves a capability reference to its token, or to "" when it is unknown. | Perm 把能力引用解析为标识，未知时解析为空串。
 //

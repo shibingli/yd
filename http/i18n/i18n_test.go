@@ -19,7 +19,7 @@ import (
 const fixtureDir = "langs"
 
 // writeCatalog writes one catalog fixture into fsys. | writeCatalog 把一个语言目录夹具写入 fsys。
-func writeCatalog(t *testing.T, fsys afero.Fs, name, body string) {
+func writeCatalog(t testing.TB, fsys afero.Fs, name, body string) {
 	t.Helper()
 	if err := afero.WriteFile(fsys, filepath.Join(fixtureDir, name), []byte(body), 0o644); err != nil {
 		t.Fatalf("写入 %s 失败: %v", name, err)
@@ -27,7 +27,7 @@ func writeCatalog(t *testing.T, fsys afero.Fs, name, body string) {
 }
 
 // newFixtureFS builds an in-memory catalog directory holding yaml / toml / json files. | newFixtureFS 构造内存语言目录，内含 yaml / toml / json 三种格式的文件。
-func newFixtureFS(t *testing.T) afero.Fs {
+func newFixtureFS(t testing.TB) afero.Fs {
 	t.Helper()
 	fsys := afs.NewMem()
 	if err := fsys.MkdirAll(fixtureDir, 0o755); err != nil {
@@ -76,7 +76,7 @@ welcome = "Welcome %s, you have %d new messages"
 }
 
 // newFixtureBundle loads the fixture catalogs with "en" as the default language. | newFixtureBundle 加载夹具目录，默认语言为 "en"。
-func newFixtureBundle(t *testing.T) *Bundle {
+func newFixtureBundle(t testing.TB) *Bundle {
 	t.Helper()
 	b, err := New(newFixtureFS(t), fixtureDir, "en")
 	if err != nil {

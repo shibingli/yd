@@ -22,76 +22,138 @@ func (t *Translator) Lang() string {
 	return t.lang
 }
 
+// CacheKey returns a stable identity for this translator: one bundle plus one language. | CacheKey 返回译者的稳定身份：一个 Bundle 加一种语言。
+//
+// Two translators with the same key answer every T identically until the bundle reloads; Reload keeps
+// the identity and swaps the snapshot behind it, so a consumer may cache work against this key. | 相同键的
+// 两个译者对每次 T 的答案都相同，直到 Bundle 重载；Reload 保持身份、只替换其后的快照，因此消费方可以
+// 据此键缓存结果。
+func (t *Translator) CacheKey() string {
+	if t == nil || t.bundle == nil {
+		return ""
+	}
+	return t.bundle.cacheKey(t.lang)
+}
+
 // T translates key and fills the placeholders with args in order. | T 翻译 key，并按顺序用 args 填充占位符。
 // Both placeholder styles are supported: `{{.Name}}` (the field name is cosmetic, arguments are positional) and printf verbs such as `%s` / `%d`. | 两种占位风格都支持：`{{.Name}}`（字段名仅作提示，参数按位置填充）与 `%s` / `%d` 等 printf 动词。
 // Named placeholders are consumed first, then the remaining args feed fmt.Sprintf only when the message still contains a verb, so a message without placeholders is returned verbatim and a plain percent sign never produces Sprintf noise. | 先消费 `{{.Name}}` 占位符，剩余参数仅在消息仍含动词时交给 fmt.Sprintf，因此不含占位符的消息原样返回，普通百分号也不会产生 Sprintf 噪声。
 // When args run out the leftover placeholders are kept as-is. | 参数不足时保留未填充的占位符。
-// Unknown keys return the key itself, and a nil translator returns the key as well, so a missing middleware or a typo never panics a handler. | 未知 key 返回 key 本身，nil 译者同样返回 key，因此中间件缺失或键名笔误都不会让处理器 panic。
+// A printf argument mismatch is detected, counted by FormatErrors and answered with the raw message instead of Go's `%!d(string=…)` diagnostic syntax; the optional problem handler is notified. | printf 参数不匹配会被检测、计入 FormatErrors，并返回原始消息而不是 Go 的 `%!d(string=…)` 调试语法；可选问题处理器会收到通知。
+// Unknown keys return the key itself (and increment Misses), and a nil translator returns the key as well, so a missing middleware or a typo never panics a handler. | 未知键返回键本身（并递增 Misses），nil 译者同样返回 key，因此中间件缺失或键名笔误都不会让处理器 panic。
 func (t *Translator) T(key string, args ...any) string {
-	message, ok := t.lookup(key)
-	if !ok {
+	if t == nil || t.bundle == nil {
 		return key
 	}
-	return interpolate(message, args)
+	msg, lang, ok := t.bundle.lookupMessage(t.lang, key)
+	if !ok {
+		t.bundle.misses.Add(1)
+		t.bundle.report(Problem{Kind: ProblemMiss, Lang: t.lang, Key: key})
+		return key
+	}
+	out, ok := msg.render(args)
+	if !ok {
+		t.bundle.formatErrs.Add(1)
+		t.bundle.report(Problem{Kind: ProblemFormat, Lang: lang, Key: key})
+		return msg.raw
+	}
+	return out
 }
 
-// lookup resolves key through the bundle with default-language fallback. | lookup 通过 Bundle 解析 key，并在缺失时回退默认语言。
-func (t *Translator) lookup(key string) (string, bool) {
-	if t == nil || t.bundle == nil {
-		return "", false
-	}
-	return t.bundle.lookup(t.lang, key)
+// segment is one precompiled piece of a message. | segment 是消息中一段预编译片段。
+type segment struct {
+	text string // Literal, or the raw `{{.X}}` block for an unfilled placeholder. | 字面量，或未填充占位符的原始 `{{.X}}` 片段。
+	arg  int    // Placeholder ordinal; -1 means a literal. | 占位符序号；-1 表示字面量。
 }
 
-// interpolate fills placeholders of both supported styles. | interpolate 填充两种受支持风格的占位符。
-func interpolate(message string, args []any) string {
-	if message == "" || len(args) == 0 {
-		return message
-	}
-
-	used := 0
-	if strings.Contains(message, "{{") {
-		message = fillNamed(message, args, &used)
-	}
-	if used < len(args) && hasVerbs(message) {
-		return fmt.Sprintf(message, args[used:]...)
-	}
-	return message
+// message is a precompiled catalog entry. | message 是预编译后的目录条目。
+//
+// Compilation happens once per Reload; translation then walks the segments without splitting keys or
+// parsing the message again. A message with neither arguments nor placeholders is returned as-is. | 编译在每次
+// Reload 时做一次；翻译随后只遍历片段，不再拆键或重新解析消息。既无参数也无占位符的消息原样返回。
+type message struct {
+	raw      string    // Original message, used verbatim and as the format-error fallback. | 原始消息，用于原样返回与格式化失败回退。
+	segments []segment // nil when there is no named placeholder. | 没有命名占位符时为 nil。
+	named    int       // Number of named placeholders. | 命名占位符数量。
+	verbs    bool      // Whether the raw message contains a printf verb. | 原始消息是否含 printf 动词。
 }
 
-// fillNamed replaces `{{.Field}}` placeholders left to right with the next arg. | fillNamed 从左到右用下一个参数替换 `{{.Field}}` 占位符。
-// Placeholders left without a matching arg, and `{{...}}` blocks that are not field placeholders, are copied through unchanged. | 没有对应参数的占位符，以及不是字段占位符的 `{{...}}` 片段，都原样保留。
-func fillNamed(message string, args []any, used *int) string {
-	var sb strings.Builder
-	sb.Grow(len(message))
+// compileMessage parses the named placeholders once. | compileMessage 一次性解析命名占位符。
+func compileMessage(raw string) *message {
+	m := &message{raw: raw, verbs: hasVerbs(raw)}
+	if !strings.Contains(raw, "{{") {
+		return m
+	}
 
-	for i := 0; i < len(message); {
-		start := strings.Index(message[i:], "{{")
-		if start < 0 {
-			sb.WriteString(message[i:])
+	var segments []segment
+	last := 0
+	for i := 0; i < len(raw); {
+		rel := strings.Index(raw[i:], "{{")
+		if rel < 0 {
 			break
 		}
-		start += i
-
-		end := strings.Index(message[start:], "}}")
-		if end < 0 {
-			sb.WriteString(message[i:])
+		start := i + rel
+		relEnd := strings.Index(raw[start:], "}}")
+		if relEnd < 0 {
 			break
 		}
-		end += start + len("}}")
-
-		if !isNamedPlaceholder(message[start:end]) || *used >= len(args) {
-			sb.WriteString(message[i:end])
-			i = end
-			continue
+		end := start + relEnd + len("}}")
+		if isNamedPlaceholder(raw[start:end]) {
+			if start > last {
+				segments = append(segments, segment{text: raw[last:start], arg: -1})
+			}
+			segments = append(segments, segment{text: raw[start:end], arg: m.named})
+			m.named++
+			last = end
 		}
-
-		sb.WriteString(message[i:start])
-		sb.WriteString(formatArg(args[*used]))
-		*used++
 		i = end
 	}
-	return sb.String()
+	if m.named == 0 {
+		return m
+	}
+	if last < len(raw) {
+		segments = append(segments, segment{text: raw[last:], arg: -1})
+	}
+	m.segments = segments
+	return m
+}
+
+// render fills the message with args. The second result is false when printf reported a type
+// mismatch, in which case the caller answers with the raw message. | render 用 args 填充消息。
+// 第二个结果为 false 表示 printf 报告了类型不匹配，此时调用方返回原始消息。
+func (m *message) render(args []any) (string, bool) {
+	if len(args) == 0 {
+		return m.raw, true
+	}
+	if m.named == 0 {
+		if !m.verbs {
+			return m.raw, true
+		}
+		out := fmt.Sprintf(m.raw, args...)
+		return out, !strings.Contains(out, "%!")
+	}
+	// A message that is exactly one placeholder needs no builder at all. | 恰好只有一个占位符的消息无需 Builder。
+	if m.named == 1 && len(m.segments) == 1 && !m.verbs {
+		return formatArg(args[0]), true
+	}
+
+	var b strings.Builder
+	b.Grow(len(m.raw) + 16*min(m.named, len(args)))
+	used := 0
+	for _, seg := range m.segments {
+		if seg.arg < 0 || seg.arg >= len(args) {
+			b.WriteString(seg.text)
+			continue
+		}
+		b.WriteString(formatArg(args[seg.arg]))
+		used++
+	}
+	out := b.String()
+	if !m.verbs || used >= len(args) {
+		return out, true
+	}
+	out = fmt.Sprintf(out, args[used:]...)
+	return out, !strings.Contains(out, "%!")
 }
 
 // isNamedPlaceholder reports whether s has the exact `{{.Field}}` shape. | isNamedPlaceholder 判断 s 是否严格符合 `{{.Field}}` 形状。
