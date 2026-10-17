@@ -14,6 +14,7 @@ import (
 
 	"github.com/shibingli/yd/core/errx"
 	"github.com/shibingli/yd/core/logx"
+	"github.com/shibingli/yd/http/protocol"
 )
 
 // childGracePeriod is how long a child may take to exit before it is killed, and how long a forced kill may take to be reaped. | childGracePeriod 是子进程被强杀前允许的退出时间，也是强杀后被收尸的等待上限。
@@ -79,7 +80,7 @@ func (r *DevRunner) startChild(ctx context.Context, bin string) error {
 	cmd.Dir = r.opts.Dir
 	cmd.Stdout = r.out
 	cmd.Stderr = r.out
-	cmd.Env = childEnv(cmd, r.opts.Port)
+	cmd.Env = childEnv(cmd, r.opts.Port, r.opts.HTTP2ExtendedConnect)
 
 	proc := &childProc{cmd: cmd, done: make(chan struct{}), ready: make(chan struct{})}
 	defer close(proc.ready)
@@ -106,13 +107,39 @@ func (r *DevRunner) startChild(ctx context.Context, bin string) error {
 }
 
 // childEnv adds the dev markers to the environment the child inherits. | childEnv 在子进程继承的环境上追加开发标记。
-func childEnv(cmd *exec.Cmd, port int) []string {
+//
+// When http2Ext is true the inherited GODEBUG (if any) is merged with
+// http2xconnect=1; other settings keep their order and value. | http2Ext 为 true 时，
+// 继承的 GODEBUG（如有）会合并 http2xconnect=1；其余设置保持原有顺序与取值。
+func childEnv(cmd *exec.Cmd, port int, http2Ext bool) []string {
 	env := cmd.Environ()
 	env = append(env, EnvDev+"=1")
 	if port > 0 {
 		env = append(env, EnvDevPort+"="+strconv.Itoa(port))
 	}
+	if http2Ext {
+		env = mergeEnvGODEBUG(env)
+	}
 	return env
+}
+
+// mergeEnvGODEBUG replaces every GODEBUG entry with one merged value. | mergeEnvGODEBUG 用一条合并值替换所有 GODEBUG 条目。
+func mergeEnvGODEBUG(env []string) []string {
+	value := ""
+	seen := false
+	out := make([]string, 0, len(env)+1)
+	for _, kv := range env {
+		k, v, ok := strings.Cut(kv, "=")
+		if ok && strings.EqualFold(k, "GODEBUG") {
+			if !seen {
+				value = v
+				seen = true
+			}
+			continue
+		}
+		out = append(out, kv)
+	}
+	return append(out, "GODEBUG="+protocol.MergeGODEBUG(value, "http2xconnect=1"))
 }
 
 // forgetChild drops the registration of one specific child, leaving a newer registration untouched. | forgetChild 撤销指定子进程的登记，不影响更新的登记。

@@ -265,3 +265,16 @@ func TestDevRunsChildAndStopsOnCancel(t *testing.T) {
 		t.Fatal("取消上下文后 yd dev 未退出 | yd dev did not stop after cancellation")
 	}
 }
+
+// TestDevOptionsReadsHTTP2ExtendedConnect pins the config key wiring. | TestDevOptionsReadsHTTP2ExtendedConnect 固定配置键接线。
+func TestDevOptionsReadsHTTP2ExtendedConnect(t *testing.T) {
+	cfg, err := config.Load(config.Options{Name: "yd", ConfigDir: t.TempDir(), FS: afero.NewMemMapFs()})
+	if err != nil {
+		t.Fatalf("加载配置失败：%v | loading config: %v", err, err)
+	}
+	cfg.Set("server.http2.extended_connect", true)
+	env := &Env{Cfg: cfg, WorkDir: ".", Out: io.Discard}
+	if o := devOptions(env, devParseFlags(t)); !o.HTTP2ExtendedConnect {
+		t.Fatal("HTTP2ExtendedConnect = false, want true | HTTP2ExtendedConnect = false，期望 true")
+	}
+}

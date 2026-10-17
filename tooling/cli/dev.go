@@ -36,6 +36,8 @@ const (
 	keyDevServerPort = "server.port"
 	// keyDevTailwindBin is the configured tailwindcss path, ranked below --tailwind-bin. | keyDevTailwindBin 是配置的 tailwindcss 路径，优先级低于 --tailwind-bin。
 	keyDevTailwindBin = "tailwind.bin"
+	// keyDevHTTP2ExtendedConnect forces RFC 8441 in the development child. | keyDevHTTP2ExtendedConnect 在开发子进程中强制 RFC 8441。
+	keyDevHTTP2ExtendedConnect = "server.http2.extended_connect"
 )
 
 // devUsageLine is the usage line of the dev command. | devUsageLine 是 dev 命令的用法行。
@@ -88,17 +90,18 @@ func devOptions(env *Env, fs *pflag.FlagSet) toolchain.DevOptions {
 		debounce = toolchain.DefaultDebounce
 	}
 	return toolchain.DevOptions{
-		Dir:               env.WorkDir,
-		Port:              devPort(env, fs),
-		TailwindBin:       flagString(fs, flagDevTailwindBin),
-		TailwindConfigBin: configString(env, keyDevTailwindBin),
-		NoTailwind:        flagBool(fs, flagDevNoTailwind),
-		NoWatch:           flagBool(fs, flagDevNoWatch),
-		NoReload:          flagBool(fs, flagDevNoReload),
-		Debounce:          debounce,
-		AppArgs:           fs.Args(),
-		Log:               logx.Default(),
-		Out:               env.Out,
+		Dir:                  env.WorkDir,
+		Port:                 devPort(env, fs),
+		TailwindBin:          flagString(fs, flagDevTailwindBin),
+		TailwindConfigBin:    configString(env, keyDevTailwindBin),
+		NoTailwind:           flagBool(fs, flagDevNoTailwind),
+		NoWatch:              flagBool(fs, flagDevNoWatch),
+		NoReload:             flagBool(fs, flagDevNoReload),
+		Debounce:             debounce,
+		AppArgs:              fs.Args(),
+		Log:                  logx.Default(),
+		Out:                  env.Out,
+		HTTP2ExtendedConnect: env.Cfg != nil && env.Cfg.GetBool(keyDevHTTP2ExtendedConnect),
 	}
 }
 

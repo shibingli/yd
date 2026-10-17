@@ -96,6 +96,10 @@ type DevOptions struct {
 	NoWatch bool
 	// NoReload disables the dev-only reload endpoint (the --no-reload flag). | NoReload 关闭仅开发模式的热重载端点（--no-reload 标志）。
 	NoReload bool
+	// HTTP2ExtendedConnect merges GODEBUG=http2xconnect=1 into the child
+	// environment so the development server can serve RFC 8441. | HTTP2ExtendedConnect
+	// 把 GODEBUG=http2xconnect=1 合并进子进程环境，使开发服务器可以服务 RFC 8441。
+	HTTP2ExtendedConnect bool
 }
 
 // changeKind classifies a file change for the dev loop. | changeKind 为开发主循环分类文件变更。
