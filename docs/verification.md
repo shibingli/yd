@@ -272,23 +272,24 @@ go test ./repotest/                  ok
 
 ## 3.8 正则统一与依赖版本同步（第六轮需求）
 
-### 3.8.1 正则统一到 core/regexpx
+### 3.8.1 正则统一到 core/regexpx（双引擎）
 
-全仓（含测试）的正则改经 `core/regexpx`，底层 `github.com/dlclark/regexp2 v1.12.0`，
-以 `regexp2.RE2` 兼容模式编译，并强制 `regexpx.MatchTimeout = 100ms`。
+全仓（含测试）的正则改经 `core/regexpx`。包装层内部持有两个引擎，按模式自动选择：
 
-包装层解决的两个非语法问题：
+| 模式 | 引擎 | 性质 |
+|---|---|---|
+| 标准库可编译（绝大多数） | `regexp`（RE2） | 线性时间、不回溯、热路径零分配、无需超时 |
+| 需要环视/反向引用/命名分组 | `regexp2` v1.12（RE2 兼容模式） | 支持 .NET 构造；强制 `MatchTimeout = 100ms`，超时按未匹配（失败关闭） |
 
-| 问题 | 处理 |
-|---|---|
-| regexp2 以**符文**为单位返回下标 | `...Index` 系列统一换算为**字节**下标；`TestByteIndicesWithCJK` 用「前缀用户后缀」验证 `用户` = `[6,12)` |
-| 回溯引擎可被恶意输入触发灾难性回溯 | 超时强制开启，超时按「未匹配」处理（校验路径失败关闭）；`TestMatchTimeoutFailsClosed` 用 `^(a+)+$` 验证 |
+**发现并修复的真实缺陷**：最初的无条件 regexp2 实现让 `FindAll` 在 `-race` 下扫描 60 KB CSS 时耗时
+**3.2 秒**（非 race 约 250 ms），100 ms 超时因此把结果**静默截断**为 27/153 个类名，
+`TestEveryYdClassUsedInTemplatesIsDefined` 失败。根因是 regexp2 的 `FindNextMatch` 每次都把
+剩余输入重新转成 `[]rune`，批量迭代是 O(n²)。同一风险会影响 `yd authz check` 对大源码文件的扫描。
+修复方式是双引擎：RE2 兼容模式走标准库快路径（恢复线性时间与零分配），只有 .NET 构造走
+regexp2 + 超时；调用方仍然只经包装层。修复后 race 下该测试约 0.25 秒通过。
 
-守卫：`TestRegexStaysBehindWrapper` 禁止 `core/regexpx` 之外的任何 `import "regexp"` 与
-`import "github.com/dlclark/regexp2"`。变异验证：往 `core/tmpprobe` 放入 `import "regexp"` 后
-守卫立即失败，删除后恢复通过。
-
-**性能对照**（Windows 11 / i9-10980HK / Go 1.27.2 / 16 逻辑核；`-benchtime=200x -count=5` 中位数）：
+**性能对照**（Windows 11 / i9-10980HK / Go 1.27.2 / 16 逻辑核；`-benchtime=200x -count=5` 中位数，
+比较的是两引擎本身，不是最终包装层的快路径）：
 
 | 用例 | 标准库 ns/op | regexp2 ns/op | allocs（标准库 / regexp2） |
 |---|---:|---:|---:|
@@ -301,10 +302,12 @@ go test ./repotest/                  ok
 | `assign_adv` | 24.4 µs | 15.4 µs | 2 / 10 |
 
 结论：**regexp2 并非普遍更快**——小输入的成功匹配接近，快速拒绝与 4 KiB 对抗输入更慢，
-每次调用多 1 次分配；它的价值在 .NET 构造（环视、反向引用）与统一入口，而不是热点性能。
-本仓生产代码的正则全部位于冷路径（注册期名称校验、CLI 源码/输出扫描），HTTP 热路径不使用正则，
-因此该取舍不影响请求路径。超时按 100ms 设置时，灾难性回溯的实际中止时间受检查周期影响
-（50ms 设置下实测约 200ms 中止），仍远小于无界回溯。
+每次调用多 1 次分配，批量迭代还是二次复杂度。它的价值在 .NET 构造与统一入口；最终实现只在
+确实需要这些构造时才付出该代价，普通模式仍走标准库的线性引擎（上述标准库列即为实际路径）。
+
+守卫：`TestRegexStaysBehindWrapper` 禁止包装层之外的任何 `import "regexp"` 与
+`import "github.com/dlclark/regexp2"`；包装层内部允许同时导入两者。变异验证：往 `core/tmpprobe`
+放入 `import "regexp"` 后守卫立即失败，删除后恢复通过。
 
 ### 3.8.2 依赖升级（go get -u all）
 

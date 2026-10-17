@@ -134,13 +134,17 @@
 9. **格式**：`gofmt`/`go vet ./...` 必须零告警；导入分组为标准库 / 第三方 / 本项目。
 10. **提交信息**：见下方「提交纪律」，中文 Conventional Commits，署名口径唯一。
 11. **正则表达式（强制）**：
-   - 全仓正则统一经 `github.com/shibingli/yd/core/regexpx`（底层 `github.com/dlclark/regexp2`）；
-     **禁止**直接 `import "regexp"`，也**禁止**在包装层之外 `import "github.com/dlclark/regexp2"`；
+   - 全仓正则统一经 `github.com/shibingli/yd/core/regexpx`；**禁止**在包装层之外直接
+     `import "regexp"` 或 `import "github.com/dlclark/regexp2"`；
    - 编译只用 `regexpx.MustCompile` / `regexpx.Compile`，匹配只用其 `Match*` / `Find*` / `Replace*` 方法；
-   - 包装层以 **RE2 兼容模式**编译，保证 `$`、`\d \s \w`、未知转义与标准库语义一致；需要环视、
-     反向引用等 .NET 构造时仍走同一入口，但必须把回溯风险写进注释评估；
-   - **匹配超时是强制的**（`regexpx.MatchTimeout`，默认 100ms）：超时按「未匹配」处理，校验类
-     路径因此失败关闭；不得为提高吞吐而关闭超时；
+   - **包装层按模式选引擎**：标准库能编译的模式走 **RE2 线性引擎**（不回溯、热路径零分配、无需超时）；
+     只有需要环视、反向引用、命名分组等 .NET 构造的模式才走 `regexp2` 的 RE2 兼容模式。
+     两个引擎的导入都只允许出现在包装层内部；
+   - **正则匹配的超时只作用于 regexp2 路径**（`regexpx.MatchTimeout`，默认 100ms）：超时按「未匹配」
+     处理，校验类路径因此失败关闭，不得关闭。RE2 路径不需要超时，因为它不可能灾难性回溯；
+   - **批量扫描必须落在 RE2 路径**：regexp2 的迭代器每次 `FindNextMatch` 都会重新转换剩余输入，
+     `FindAll` 在大文件上是二次复杂度，并可能在超时后**静默截断**。因此源码 / 模板 / CSS 扫描的
+     模式必须保持 RE2 兼容，不得为了 .NET 构造让扫描器掉到兼容路径；
    - `...Index` 系列返回**字节**下标（包装层已完成符文→字节换算）；禁止把 regexp2 的符文下标直接当字节用；
    - 测试代码同样适用本规则（守卫测试也需要稳定的正则语义）；
    - 自检（只匹配独立成行的导入语句，避免命中守卫里的字符串字面量）：

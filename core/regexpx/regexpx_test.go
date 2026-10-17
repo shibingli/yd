@@ -127,9 +127,17 @@ func TestQuoteMeta(t *testing.T) {
 	}
 }
 
-// TestMatchTimeoutFailsClosed proves that catastrophic backtracking is cut off. | TestMatchTimeoutFailsClosed 证明灾难性回溯会被截断。
+// TestMatchTimeoutFailsClosed proves that catastrophic backtracking is cut off on the regexp2
+// path. | TestMatchTimeoutFailsClosed 证明 regexp2 路径上的灾难性回溯会被截断。
+//
+// The lookahead keeps the pattern out of the RE2 fast path; without it the standard library would
+// answer in linear time and no timeout would ever fire. | 环视让该模式无法进入 RE2 快路径；
+// 否则标准库会在线性时间内返回，超时永远不会触发。
 func TestMatchTimeoutFailsClosed(t *testing.T) {
-	re := MustCompile(`^(a+)+$`)
+	re := MustCompile(`^(a+)+(?=b)`)
+	if re.re2 != nil {
+		t.Fatal("lookahead pattern unexpectedly compiled on the RE2 fast path")
+	}
 	in := strings.Repeat("a", 64) + "!"
 	start := time.Now()
 	if re.MatchString(in) {
@@ -137,6 +145,40 @@ func TestMatchTimeoutFailsClosed(t *testing.T) {
 	}
 	if elapsed := time.Since(start); elapsed > 5*time.Second {
 		t.Fatalf("match took %v, timeout did not fire", elapsed)
+	}
+}
+
+// TestEngineSelection pins which engine each pattern takes. | TestEngineSelection 钉住每种模式走哪个引擎。
+func TestEngineSelection(t *testing.T) {
+	if re := MustCompile(`^[a-z]+$`); re.re2 == nil {
+		t.Error("ordinary pattern did not take the RE2 fast path")
+	}
+	if re := MustCompile(`^(?=a)a+$`); re.re2 != nil || re.re2x == nil {
+		t.Error("lookahead pattern did not take the regexp2 path")
+	}
+}
+
+// TestDotNetConstructsSupported proves that the compatibility path really supports .NET syntax. | TestDotNetConstructsSupported 证明兼容路径确实支持 .NET 语法。
+func TestDotNetConstructsSupported(t *testing.T) {
+	backref := MustCompile(`^(a+)\1$`)
+	if backref.re2 != nil {
+		t.Fatal("backreference pattern unexpectedly compiled on the RE2 fast path")
+	}
+	if !backref.MatchString("aaaa") || backref.MatchString("aaa") {
+		t.Errorf("backreference match = %v/%v, want true/false", backref.MatchString("aaaa"), backref.MatchString("aaa"))
+	}
+}
+
+// TestByteIndicesOnCompatibilityPath proves the rune-to-byte conversion on the regexp2 path. | TestByteIndicesOnCompatibilityPath 证明 regexp2 路径上的符文到字节换算。
+func TestByteIndicesOnCompatibilityPath(t *testing.T) {
+	re := MustCompile(`用户(?=后)`)
+	if re.re2 != nil {
+		t.Fatal("lookahead pattern unexpectedly compiled on the RE2 fast path")
+	}
+	text := "前缀用户后缀"
+	got := re.FindStringSubmatchIndex(text)
+	if len(got) != 2 || got[0] != 6 || got[1] != 12 {
+		t.Fatalf("FindStringSubmatchIndex = %v, want [6 12]", got)
 	}
 }
 
