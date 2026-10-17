@@ -130,6 +130,12 @@ type Header struct {
 // EdDSA 必须返回 ed25519.PublicKey；其它类型一律以 ErrSignatureInvalid 拒绝。
 //
 // An error returned here is propagated unchanged by Parse, so a caller keeps errors.Is on its own sentinels. | 此处返回的错误会被 Parse 原样透出，调用方仍可用 errors.Is 判定自己的哨兵。
+//
+// Performance note: returning a []byte or string literal from a closure boxes it into a fresh interface
+// value on every call, which adds one allocation to every verification. Store the key in an `any` field
+// (or return a pointer) and hand that value back unchanged. | 性能提示：在闭包里返回 []byte 或字符串字面量
+// 会在每次调用时把它装箱成新的接口值，从而给每次验签增加一次分配。应把密钥存放在 `any` 字段中
+// （或返回指针），并原样交回该值。
 type KeyFunc func(header Header) (any, error)
 
 // ParseOptions controls verification. | ParseOptions 控制校验行为。
