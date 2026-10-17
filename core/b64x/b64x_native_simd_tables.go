@@ -2,6 +2,8 @@
 
 package b64x
 
+import "simd/archsimd"
+
 // SIMD constant tables are built once at startup instead of on every call.
 // SIMD 常量表在启动时构建一次，避免每次调用重复初始化。
 var (
@@ -22,6 +24,12 @@ var (
 	simdPack64 [64]int8
 
 	simdInShuf64 [64]uint8
+
+	simdB51x64, simdB26x64, simdB13x64, simdB62x64, simdB63x64 archsimd.Uint8x64
+	simdDashx64, simdUnderx64, simdZeroX64                     archsimd.Uint8x64
+	simdPlusX64, simdSlashX64, simdEqX64, simdAX64             archsimd.Uint8x64
+	simdHiMaskX32                                              archsimd.Uint16x32
+	simdLoMaskX64                                              archsimd.Uint8x64
 )
 
 func init() {
@@ -52,6 +60,16 @@ func init() {
 		}
 		simdLut64[j] = simdLut16[j&15]
 		simdPack64[j] = simdPack16[j&15]
+	}
+	if archsimd.X86.AVX512() {
+		simdB51x64, simdB26x64, simdB13x64 = archsimd.BroadcastUint8x64(51), archsimd.BroadcastUint8x64(26), archsimd.BroadcastUint8x64(13)
+		simdB62x64, simdB63x64 = archsimd.BroadcastUint8x64(62), archsimd.BroadcastUint8x64(63)
+		simdDashx64, simdUnderx64 = archsimd.BroadcastUint8x64('-'), archsimd.BroadcastUint8x64('_')
+		simdZeroX64 = archsimd.BroadcastUint8x64(0)
+		simdPlusX64, simdSlashX64 = archsimd.BroadcastUint8x64('+'), archsimd.BroadcastUint8x64('/')
+		simdEqX64, simdAX64 = archsimd.BroadcastUint8x64('='), archsimd.BroadcastUint8x64('A')
+		simdHiMaskX32 = archsimd.BroadcastUint16x32(0x0F0F)
+		simdLoMaskX64 = archsimd.BroadcastUint8x64(0x0F)
 	}
 	pattern := simdShuf16
 	for g := 0; g < 4; g++ {

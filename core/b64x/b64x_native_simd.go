@@ -321,13 +321,8 @@ func encodeSIMD512VBMI(dst, src []byte, url, padded bool, pad byte) (int, int) {
 	mulHi := archsimd.LoadUint16x32(simdMulHi32[:])
 	mulLo := archsimd.LoadUint16x32(simdMulLo32[:])
 	lut := archsimd.LoadInt8x64(simdLut64[:])
-	b51 := archsimd.BroadcastUint8x64(51)
-	b26 := archsimd.BroadcastUint8x64(26)
-	b13 := archsimd.BroadcastUint8x64(13)
-	b62 := archsimd.BroadcastUint8x64(62)
-	b63 := archsimd.BroadcastUint8x64(63)
-	dash := archsimd.BroadcastUint8x64('-')
-	under := archsimd.BroadcastUint8x64('_')
+	b51, b26, b13 := simdB51x64, simdB26x64, simdB13x64
+	b62, b63, dash, under := simdB62x64, simdB63x64, simdDashx64, simdUnderx64
 	i, o := 0, 0
 	for i+64 <= len(src) && o+64 <= len(dst) {
 		in := archsimd.LoadUint8x64(src[i:]).Permute(inShuf).AsUint16x32()
@@ -396,15 +391,10 @@ func decodeSIMD512VBMI2(dst, src []byte, url bool) (int, int) {
 	hiLUT := archsimd.LoadInt8x64(simdHiLUT[:])
 	rollLUT := archsimd.LoadInt8x64(simdRollLUT[:])
 	packMask := archsimd.Mask8x64FromBits(0x0FFF0FFF0FFF0FFF)
-	zero := archsimd.BroadcastUint8x64(0)
-	plus := archsimd.BroadcastUint8x64('+')
-	slash := archsimd.BroadcastUint8x64('/')
-	eqChar := archsimd.BroadcastUint8x64('=')
-	aChar := archsimd.BroadcastUint8x64('A')
-	b62 := archsimd.BroadcastUint8x64(62)
-	b63 := archsimd.BroadcastUint8x64(63)
-	hiMask := archsimd.BroadcastUint16x32(0x0F0F)
-	loMask := archsimd.BroadcastUint8x64(0x0F)
+	zero, plus, slash := simdZeroX64, simdPlusX64, simdSlashX64
+	eqChar, aChar := simdEqX64, simdAX64
+	b62, b63 := simdB62x64, simdB63x64
+	hiMask, loMask := simdHiMaskX32, simdLoMaskX64
 	i, o := 0, 0
 	for i+64 <= len(src) && o+64 <= len(dst) {
 		c := archsimd.LoadUint8x64(src[i:])
