@@ -66,6 +66,19 @@ func (c OpCode) IsControl() bool { return c&0x8 != 0 }
 // IsData reports whether this opcode denotes a data frame. | IsData 报告该操作码是否为数据帧。
 func (c OpCode) IsData() bool { return c == TextMessage || c == BinaryMessage }
 
+// TransportKind identifies the transport a Conn runs on. | TransportKind 标识 Conn 所在的传输。
+type TransportKind uint8
+
+// Transport values. | 传输取值。
+const (
+	// TransportTCP is an HTTP/1.1 connection obtained through http.Hijacker. | TransportTCP 是通过 http.Hijacker 得到的 HTTP/1.1 连接。
+	TransportTCP TransportKind = iota
+	// TransportHTTP2 is an RFC 8441 extended CONNECT stream. | TransportHTTP2 是 RFC 8441 的 extended CONNECT 流。
+	TransportHTTP2
+	// TransportHTTP3 is an RFC 9220 extended CONNECT stream. | TransportHTTP3 是 RFC 9220 的 extended CONNECT 流。
+	TransportHTTP3
+)
+
 func (c OpCode) String() string {
 	switch c {
 	case ContinuationMessage:

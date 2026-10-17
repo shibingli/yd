@@ -84,6 +84,11 @@ type Conn struct {
 	maskKey  [4]byte
 	isClient bool
 
+	// kind identifies the transport; it decides whether Close may leave the
+	// transport to the peer (HTTP/1.1 client) or must close it (streams). | kind
+	// 标识传输类型；它决定 Close 是否把传输留给对端（HTTP/1.1 客户端）还是必须自行关闭（流）。
+	kind TransportKind
+
 	msgOp         OpCode // type of the current fragmented message; 0 means no message in progress | 当前分片消息的类型，0 表示无进行中消息
 	frameFin      bool
 	frameMasked   bool
@@ -98,7 +103,7 @@ type Conn struct {
 // newConn constructs the connection object. | newConn 构造连接对象。
 func newConn(nc net.Conn, o Options, isClient bool) *Conn {
 	writeBufs := make(net.Buffers, 2)
-	c := &Conn{conn: nc, opts: o, isClient: isClient, writeBase: writeBufs, writeList: writeBufs}
+	c := &Conn{conn: nc, opts: o, isClient: isClient, kind: TransportTCP, writeBase: writeBufs, writeList: writeBufs}
 	if o.ReadBufferSize > 0 {
 		c.br = bufio.NewReaderSize(nc, o.ReadBufferSize)
 	}
@@ -158,10 +163,17 @@ func (c *Conn) RemoteAddr() net.Addr { return c.conn.RemoteAddr() }
 // Subprotocol returns the subprotocol negotiated during the handshake, or an empty string when none was negotiated. | Subprotocol 返回握手协商出的子协议，未协商时为空串。
 func (c *Conn) Subprotocol() string { return c.subprotocol }
 
-// UnderlyingConn returns the underlying TCP connection. | UnderlyingConn 返回底层 TCP 连接。
+// TransportKind reports the transport this connection runs on. | TransportKind 报告该连接所在的传输。
+func (c *Conn) TransportKind() TransportKind { return c.kind }
+
+// UnderlyingConn returns the transport as a net.Conn. | UnderlyingConn 把传输作为 net.Conn 返回。
 //
-// Use it only when TCP-level options (such as TCP_NODELAY, KeepAlive) really must be set; | 仅在确需设置 TCP 层选项（如 TCP_NODELAY、KeepAlive）时使用；
-// reading or writing it directly would break frame boundaries. | 直接读写会破坏帧边界。
+// On HTTP/1.1 it is the real TCP connection. On HTTP/2 and HTTP/3 it is a
+// stream adapter, **not** a *net.TCPConn: type-asserting *net.TCPConn will fail.
+// Use TransportKind to branch before applying socket options. Reading or
+// writing the returned value directly would break frame boundaries. | HTTP/1.1 下它是真实
+// TCP 连接；HTTP/2 与 HTTP/3 下它是流适配器，**不是** *net.TCPConn——对它做 *net.TCPConn 断言会失败。
+// 设置套接字选项前请先用 TransportKind 分支。直接读写该值会破坏帧边界。
 func (c *Conn) UnderlyingConn() net.Conn { return c.conn }
 
 // SetReadDeadline sets the read deadline. | SetReadDeadline 设置读超时。
@@ -602,7 +614,12 @@ func (c *Conn) handleCloseFrame(payload []byte) error {
 // The close frame is written synchronously before this call, so the peer reads the status code before the FIN; | 关闭帧在此调用前已同步写出，对端会先读到状态码再收到 FIN；
 // closing before the write would surface as a reset and hide the code. | 若在写出之前关闭，对端只会看到 RST 而读不到关闭码。
 func (c *Conn) closeTransport() {
-	if c.isClient {
+	// An HTTP/1.1 client leaves the TCP close to the server, which already sent
+	// FIN after the close handshake. A stream has no shared TCP: both sides must
+	// close their half, or the request context leaks. | HTTP/1.1 客户端把 TCP 关闭
+	// 留给服务端（服务端在关闭握手后已发 FIN）。流没有共享的 TCP：两端都必须关闭自己的
+	// 半边，否则请求上下文会泄漏。
+	if c.isClient && c.kind == TransportTCP {
 		return
 	}
 	_ = c.conn.Close()
@@ -775,6 +792,12 @@ func (c *Conn) writeFrameLocked(rsv1, fin bool, op OpCode, payload []byte) error
 	c.writeList = c.writeBase
 	if _, err := c.writeList.WriteTo(c.conn); err != nil {
 		return err
+	}
+	// Stream transports buffer DATA until flushed; TCP never implements
+	// FlushError, so its hot path is unchanged. | 流传输会把 DATA 缓冲到刷新为止；
+	// TCP 从不实现 FlushError，因此其热路径保持不变。
+	if f, ok := c.conn.(interface{ FlushError() error }); ok {
+		return f.FlushError()
 	}
 	return nil
 }
