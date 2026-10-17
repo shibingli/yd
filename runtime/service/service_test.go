@@ -236,3 +236,46 @@ func TestRunRejectsNilFunction(t *testing.T) {
 		t.Fatalf("期望 ErrNilRun, 实际 %v", err)
 	}
 }
+
+// TestOptionsFromConfigMergesHTTP2ExtendedConnect proves the service env carries
+// the merged GODEBUG value when the force switch is on. | TestOptionsFromConfigMergesHTTP2ExtendedConnect
+// 证明强制开关开启时服务环境携带合并后的 GODEBUG。
+func TestOptionsFromConfigMergesHTTP2ExtendedConnect(t *testing.T) {
+	cfg := serviceTestConfig(t, "service:\n  env:\n    - GODEBUG=gctrace=1\nserver:\n  http2:\n    extended_connect: true\n")
+	got := OptionsFromConfig(cfg)
+	if got.EnvVars["GODEBUG"] != "gctrace=1,http2xconnect=1" {
+		t.Fatalf("GODEBUG = %q, want gctrace=1,http2xconnect=1 | GODEBUG = %q，期望合并值", got.EnvVars["GODEBUG"], got.EnvVars["GODEBUG"])
+	}
+}
+
+// TestOptionsFromConfigAddsHTTP2ExtendedConnect proves a missing GODEBUG is created. | TestOptionsFromConfigAddsHTTP2ExtendedConnect 证明缺失的 GODEBUG 会被创建。
+func TestOptionsFromConfigAddsHTTP2ExtendedConnect(t *testing.T) {
+	cfg := serviceTestConfig(t, "server:\n  http2:\n    extended_connect: true\n")
+	got := OptionsFromConfig(cfg)
+	if got.EnvVars["GODEBUG"] != "http2xconnect=1" {
+		t.Fatalf("GODEBUG = %q, want http2xconnect=1 | GODEBUG = %q，期望 http2xconnect=1", got.EnvVars["GODEBUG"], got.EnvVars["GODEBUG"])
+	}
+}
+
+// TestOptionsFromConfigLeavesEnvAloneWhenDisabled proves the off path is untouched. | TestOptionsFromConfigLeavesEnvAloneWhenDisabled 证明关闭时环境不被改动。
+func TestOptionsFromConfigLeavesEnvAloneWhenDisabled(t *testing.T) {
+	cfg := serviceTestConfig(t, "service:\n  env:\n    - GODEBUG=gctrace=1\n")
+	got := OptionsFromConfig(cfg)
+	if got.EnvVars["GODEBUG"] != "gctrace=1" {
+		t.Fatalf("GODEBUG = %q, want gctrace=1 (untouched) | GODEBUG = %q，期望保持不变", got.EnvVars["GODEBUG"], got.EnvVars["GODEBUG"])
+	}
+}
+
+// TestOptionsFromConfigNormalizesLowercaseGODEBUG proves the key is normalized so
+// the Go runtime reads it on POSIX. | TestOptionsFromConfigNormalizesLowercaseGODEBUG
+// 证明键名被规范化为大写，便于 Go 运行时在 POSIX 上读取。
+func TestOptionsFromConfigNormalizesLowercaseGODEBUG(t *testing.T) {
+	cfg := serviceTestConfig(t, "service:\n  env:\n    - godebug=gctrace=1\nserver:\n  http2:\n    extended_connect: true\n")
+	got := OptionsFromConfig(cfg)
+	if got.EnvVars["GODEBUG"] != "gctrace=1,http2xconnect=1" {
+		t.Fatalf("GODEBUG = %q, want the normalized merged entry | GODEBUG = %q，期望规范化后的合并值", got.EnvVars["GODEBUG"], got.EnvVars["GODEBUG"])
+	}
+	if _, ok := got.EnvVars["godebug"]; ok {
+		t.Fatalf("lowercase godebug key leaked: %v | 小写 godebug 键泄漏: %v", got.EnvVars, got.EnvVars)
+	}
+}

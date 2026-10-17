@@ -33,6 +33,7 @@ import (
 	"github.com/kardianos/service"
 	"github.com/shibingli/yd/core/config"
 	"github.com/shibingli/yd/core/errx"
+	"github.com/shibingli/yd/http/protocol"
 )
 
 // Sentinel errors of the service package, always matched with errors.Is. | service 包的哨兵错误，一律用 errors.Is 判定。
@@ -78,6 +79,10 @@ const (
 	KeyEnv = "service.env"
 	// KeyRestartOnExit keeps the service restarted after an unexpected exit. | KeyRestartOnExit 让服务在异常退出后自动重启。
 	KeyRestartOnExit = "service.restart_on_exit"
+	// KeyHTTP2ExtendedConnect forces RFC 8441 by merging GODEBUG=http2xconnect=1
+	// into the service environment. | KeyHTTP2ExtendedConnect 通过把
+	// GODEBUG=http2xconnect=1 合并进服务环境来强制 RFC 8441。
+	KeyHTTP2ExtendedConnect = "server.http2.extended_connect"
 )
 
 // keyAppName is the fallback configuration key of the service name. | keyAppName 是服务名的回退配置键。
@@ -164,6 +169,10 @@ func OptionsFromConfig(c *config.Config) Options {
 	if description == "" {
 		description = display
 	}
+	env := envFromConfig(c)
+	if c.GetBool(KeyHTTP2ExtendedConnect) {
+		env = withHTTP2ExtendedConnect(env)
+	}
 
 	return Options{
 		Name:             name,
@@ -174,9 +183,28 @@ func OptionsFromConfig(c *config.Config) Options {
 		UserName:         strings.TrimSpace(c.GetString(KeyUserName)),
 		Arguments:        c.GetStringSlice(KeyArguments),
 		DependsOn:        c.GetStringSlice(KeyDependsOn),
-		EnvVars:          envFromConfig(c),
+		EnvVars:          env,
 		RestartOnExit:    c.GetBool(KeyRestartOnExit),
 	}
+}
+
+// withHTTP2ExtendedConnect merges http2xconnect=1 into the service environment.
+//
+// The key is normalized to uppercase so the Go runtime reads it on POSIX. | withHTTP2ExtendedConnect
+// 把 http2xconnect=1 合并进服务环境。键名统一为大写，确保 Go 运行时在 POSIX 上读取它。
+func withHTTP2ExtendedConnect(env map[string]string) map[string]string {
+	value := ""
+	for k, v := range env {
+		if strings.EqualFold(k, "GODEBUG") {
+			value = v
+			delete(env, k)
+		}
+	}
+	if env == nil {
+		env = make(map[string]string, 1)
+	}
+	env["GODEBUG"] = protocol.MergeGODEBUG(value, "http2xconnect=1")
+	return env
 }
 
 // envFromConfig reads the environment variables of the service. | envFromConfig 读取服务的环境变量。
