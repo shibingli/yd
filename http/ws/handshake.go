@@ -15,22 +15,27 @@ import (
 	"github.com/shibingli/yd/http/protocol"
 )
 
+// acceptSum computes SHA1( Sec-WebSocket-Key + GUID ) without allocating. | acceptSum 无分配地计算 SHA1( Sec-WebSocket-Key + GUID )。
+//
+// A normal Sec-WebSocket-Key is 24 bytes, so the concatenation fits on the
+// stack and sha1.Sum needs no hash object or output slice. | 正常的
+// Sec-WebSocket-Key 为 24 字节，拼接后可放在栈上，sha1.Sum 不需要哈希对象或输出切片。
+func acceptSum(key string) [sha1.Size]byte {
+	var buf [128]byte
+	if len(key)+len(websocketGUID) <= len(buf) {
+		n := copy(buf[:], key)
+		n += copy(buf[n:], websocketGUID)
+		return sha1.Sum(buf[:n])
+	}
+	return sha1.Sum([]byte(key + websocketGUID))
+}
+
 // acceptKey computes the Sec-WebSocket-Accept value as specified by RFC 6455 §4.2.2. | acceptKey 按 RFC 6455 §4.2.2 计算 Sec-WebSocket-Accept。
 //
 // Accept = base64( SHA1( Sec-WebSocket-Key + "258EAFA5-E914-47DA-95CA-C5AB0DC85B11" ) )
 // The computation reuses the framework's b64x adaptive Base64 layer (the amd64 path uses a SIMD-accelerated implementation). | 计算复用框架的 b64x 自适应 Base64 层（amd64 走 SIMD 加速实现）。
 func acceptKey(key string) string {
-	// A normal Sec-WebSocket-Key is 24 bytes, so the concatenation fits on the
-	// stack and sha1.Sum needs no hash object or output slice. | 正常的
-	// Sec-WebSocket-Key 为 24 字节，拼接后可放在栈上，sha1.Sum 不需要哈希对象或输出切片。
-	var buf [128]byte
-	if len(key)+len(websocketGUID) <= len(buf) {
-		n := copy(buf[:], key)
-		n += copy(buf[n:], websocketGUID)
-		sum := sha1.Sum(buf[:n])
-		return b64x.StdEncoding.EncodeToString(sum[:])
-	}
-	sum := sha1.Sum([]byte(key + websocketGUID))
+	sum := acceptSum(key)
 	return b64x.StdEncoding.EncodeToString(sum[:])
 }
 
@@ -174,7 +179,8 @@ func Upgrade(w http.ResponseWriter, r *http.Request, o Options) (*Conn, error) {
 	resp = append(resp, "Upgrade: websocket\r\n"...)
 	resp = append(resp, "Connection: Upgrade\r\n"...)
 	resp = append(resp, "Sec-WebSocket-Accept: "...)
-	resp = append(resp, acceptKey(key)...)
+	sum := acceptSum(key)
+	resp = b64x.StdEncoding.AppendEncode(resp, sum[:])
 	resp = append(resp, "\r\n"...)
 	if sub != "" {
 		resp = append(resp, "Sec-WebSocket-Protocol: "...)
