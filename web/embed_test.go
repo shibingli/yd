@@ -19,8 +19,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/shibingli/yd/afs"
-	"github.com/shibingli/yd/jsonx"
+	"github.com/shibingli/yd/core/afs"
+	"github.com/shibingli/yd/core/jsonx"
 	"github.com/shibingli/yd/web"
 	"github.com/spf13/afero"
 )

@@ -7,8 +7,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/shibingli/yd/logx"
-	"github.com/shibingli/yd/router"
+	"github.com/shibingli/yd/core/logx"
+	"github.com/shibingli/yd/http/router"
 )
 
 // rateLimitShards is the number of independently locked buckets maps.

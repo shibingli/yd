@@ -9,7 +9,7 @@ import (
 
 	gormlogger "gorm.io/gorm/logger"
 
-	"github.com/shibingli/yd/logx"
+	"github.com/shibingli/yd/core/logx"
 )
 
 // GORM 适配器的日志文案，一律中英同步（English | 中文）。

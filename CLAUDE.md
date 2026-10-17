@@ -49,7 +49,7 @@
 1. **包结构**：一个文件一个职责；文件超过约 600 行或承担两类职责即拆分。
 2. **错误处理（强制）**：
    - **所有错误必须在包级用 `errors` 声明为哨兵**：`var ErrBadPattern = errx.New("invalid pattern | 非法的路由模式")`
-     （`errx` 即 `github.com/shibingli/yd/errx`，是对 `errors` 的声明式薄封装）；
+     （`errx` 即 `github.com/shibingli/yd/core/errx`，是对 `errors` 的声明式薄封装）；
    - **默认禁止 `fmt.Errorf`**。需要附加格式化细节时用 `errx.Detail(ErrX, "%q ...", v)`；
      需要保留底层错误时用 `errx.Wrap(err, ErrX)` 或 `errx.WrapDetail(err, ErrX, fmt, args...)`；
    - 错误文案必须**中英同步**：`English | 中文`（与注释、日志文案同一规则）；
@@ -64,7 +64,7 @@
      运行期取不到资源（如 `app.MustGet`）改为返回 `(值, error)`。
      守卫 `TestNoDirectPanic` 强制这一点（变异验证过）。
    - 唯一例外：`errx` 包自身内部实现需要 `fmt.Sprintf` 拼接文案。
-   - 自检：`grep -rn 'fmt\.Errorf' --include=*.go . | grep -v '^./errx/'` 必须无命中。
+   - 自检：`grep -rn 'fmt\.Errorf' --include=*.go . | grep -v '^./core/errx/'` 必须无命中。
 3. **文档注释（强制）**：所有导出符号必须有以符号名开头的 Go doc 注释。
 3.1 **中英文同步（注释与日志文案）**：所有注释（包文档、导出符号 doc、行内注释）
    **以及所有日志文案**，必须**中英文同步**，以半角竖线 `|` 分割，
@@ -89,10 +89,10 @@
 3.1.1 **日志一律使用自研 `logx`（强制）**：
    - 全仓禁止 `import "log"`（标准库）、禁止 `fmt.Print*` 作为日志输出、
      禁止引入 zap/zerolog/logrus 等第三方日志库；
-   - 统一使用 `github.com/shibingli/yd/logx`（`logx.New` / `Default()` 及其 `Debug/Info/Warn/Error/Fatal`）；
+   - 统一使用 `github.com/shibingli/yd/core/logx`（`logx.New` / `Default()` 及其 `Debug/Info/Warn/Error/Fatal`）；
    - **唯一例外**：`server` 包为满足 `http.Server.ErrorLog`（要求 `*log.Logger`）而写的
      适配器，其输出必须转发进 `logx`；
-   - 自检：`grep -rn '"log"' --include=*.go . | grep -v '^./server/'` 必须无命中。
+   - 自检：`grep -rn '"log"' --include=*.go . | grep -v '^./runtime/server/'` 必须无命中。
 3.2 **OpenAPI 注释必须完整**：所有对外 HTTP 处理器必须在其 doc 注释中给出**完整**的
    OpenAPI 3.0 注解块（缺项视为未完成），字段齐全：
 
@@ -119,14 +119,14 @@
    `@Name`/`@Schema`/`@Example`，由 `openapi.ParseTypeAnnotations` 解析、`Builder.AddTypeAnnotations` 合并。
 4. **热路径禁止反射**：HTTP 请求处理、序列化、日志、JWT 校验路径不得使用 `reflect`；反射仅允许出现在启动期装配、代码生成与 OpenAPI Schema 构建中。
 4.1 **JSON 与 Base64 必须走框架封装层**（强制）：
-   - 任何 JSON 编解码一律使用 `github.com/shibingli/yd/jsonx`（`Marshal`/`Unmarshal`/`NewEncoder`/`NewDecoder`/`Valid`），
+   - 任何 JSON 编解码一律使用 `github.com/shibingli/yd/core/jsonx`（`Marshal`/`Unmarshal`/`NewEncoder`/`NewDecoder`/`Valid`），
      **禁止**直接 `import "encoding/json"`；
-   - 任何 Base64 编解码一律使用 `github.com/shibingli/yd/b64x`（`StdEncoding`/`URLEncoding`/`RawStdEncoding`/`RawURLEncoding`
+   - 任何 Base64 编解码一律使用 `github.com/shibingli/yd/core/b64x`（`StdEncoding`/`URLEncoding`/`RawStdEncoding`/`RawURLEncoding`
      及其 `Encode`/`Decode`/`AppendEncode`/`AppendDecode`），**禁止**直接 `import "encoding/base64"`；
    - 唯一例外：第三方库（如 gmsm）自身实现内部的编解码，以及 `logx` 为满足零拷贝而手写的
      JSON 字节拼装（它不得引入 `encoding/json`）。
    - 自检命令：`grep -rn '"encoding/json"\|"encoding/base64"' --include=*.go .` 必须无命中
-     （`internal/repotest` 的守卫测试会自动检查）。
+     （`repotest` 的守卫测试会自动检查）。
 5. **零拷贝优先**：优先 `AppendXxx` 风格 API 与调用方提供的缓冲区；避免不必要的 `string([]byte)` 往返转换。
 6. **并发**：共享状态必须显式加锁或使用 `sync.Pool`/原子操作；每个 `go` 关键路径必须能回答"它何时退出"。
 7. **测试**：TDD；表驱动；文件名与被测文件同名加 `_test.go`；涉及并发必须 `-race` 通过。
@@ -257,7 +257,7 @@ yd assets verify --offline   # 离线完整性校验
 
 ## 12. 服务化部署（强制）
 
-`service` 包（`github.com/shibingli/yd/service`，底层 `github.com/kardianos/service` v1.3.0）
+`service` 包（`github.com/shibingli/yd/runtime/service`，底层 `github.com/kardianos/service` v1.3.0）
 是**唯一的系统服务入口**：Windows 走 SCM、Linux 走 systemd、macOS 走 launchd。
 **禁止**为某个平台手写注册表项、unit 文件或 init 脚本，也**禁止**在业务代码里 fork / daemonize 自建后台进程。
 
@@ -285,7 +285,7 @@ yd assets verify --offline   # 离线完整性校验
 ## 13. 镜像打包（ko 与 Dockerfile）（强制）
 
 镜像有两个、且只有两个入口：**`yd docker`**（多阶段 Dockerfile → `scratch`）与 **`yd ko`**
-（`github.com/shibingli/yd/ko`，从 Go 源码直出镜像，**没有 Dockerfile 这一环**）。
+（`github.com/shibingli/yd/tooling/ko`，从 Go 源码直出镜像，**没有 Dockerfile 这一环**）。
 **禁止**在脚本、CI 或文档里另行手写 `docker build` 参数或自拼 ko 命令行；两条路径的标志、标签、平台与基础镜像
 都必须在各自命令里统一解析，绕过它等于让打包行为散成彼此不一致的副本。
 
@@ -311,7 +311,7 @@ yd assets verify --offline   # 离线完整性校验
 
 ## 14. 可选外部工具（强制）
 
-`tools` 包（`github.com/shibingli/yd/tools`）是**唯一的探测与安装入口**：`betteralign`（内存对齐）、
+`tools` 包（`github.com/shibingli/yd/tooling/tools`）是**唯一的探测与安装入口**：`betteralign`（内存对齐）、
 `ko`（无 Dockerfile 镜像打包）、`tailwindcss`（样式表编译）、`docker`（镜像构建）四个工具一律经它处理，
 注册表顺序固定为这四条。**禁止**在脚本、CI 或文档里另立一套「自己 `go install` 到全局」的指引。
 
@@ -336,17 +336,17 @@ yd assets verify --offline   # 离线完整性校验
 - **错误一律哨兵**：`ErrUnknownTool` / `ErrNoGoToolchain` / `ErrNotInstallable` / `ErrInstallFailed`，
   调用方用 `errors.Is` 判定（见第 4.2 条「错误处理」）。
 - **依赖方向单向**：`tools` 聚合 `align` / `ko` / `toolchain` 的解析器，这三者**不得**反向 import `tools`
-  （成环会让提示文案被迫出现第二份副本，由 `internal/repotest` 的守卫强制）。
+  （成环会让提示文案被迫出现第二份副本，由 `repotest` 的守卫强制）。
 
 ## 15. 数据持久化与索引（强制）
 
-租户、用户、角色与权限**存在真实数据库里**，由 `auth/gormstore` 承接（`auth.Store` 的 GORM 实现）。
+租户、用户、角色与权限**存在真实数据库里**，由 `security/auth/gormstore` 承接（`auth.Store` 的 GORM 实现）。
 内存实现 `auth.NewMemoryStore` 只在「未配置数据库」或「数据库不可达」时兜底，且**必须打出明确的双语告警**
 说明「数据不持久」——绝不允许静默降级。
 
 - **框架拥有鉴权表**：`auth_tenants` / `auth_users` / `auth_roles` / `auth_role_permissions`，
   建表与索引一律经 `gormstore.Migrate(ctx, db)`（`AutoMigrate`），使用方不需要自己写 DDL。
-- **`auth` 域包保持零 ORM 依赖**：GORM 只允许出现在 `auth/gormstore` 子包里。
+- **`auth` 域包保持零 ORM 依赖**：GORM 只允许出现在 `security/auth/gormstore` 子包里。
   否则内存实现与任何第三方存储都无法独立复用，领域规则也被绑死在一种数据库上（守卫 `TestAuthDomainStaysFreeOfGORM` 强制）。
 - **每个方法都必须把 `tenant_id` 写进 WHERE**：`auth.Store` 里**没有任何**方法只按全局 ID 查询。
   跨租户或不存在一律返回 `auth.ErrNotFound`，**绝不**返回 `ErrForbidden`——后者会让调用方探测到别的租户是否存在数据。
@@ -361,7 +361,7 @@ yd assets verify --offline   # 离线完整性校验
 
   唯一性由大小写折叠列（`slug_key`/`username_key`）承载，因此「租户外唯一」与「租户内唯一」各自成立。
 - **迁移必须幂等**：连跑两次不得报错、不得重复建索引。
-- **新增按 ID 读写的鉴权方法时，必须同时给出对应的联合索引**，并在 `internal/repotest` 或该包的测试里断言它真的被建出来。
+- **新增按 ID 读写的鉴权方法时，必须同时给出对应的联合索引**，并在 `repotest` 或该包的测试里断言它真的被建出来。
 
 ## 16. 连接串预置与无 CGO（强制）
 
@@ -412,7 +412,7 @@ yd assets verify --offline   # 离线完整性校验
 
 ## 17. 角色与权限常量（强制）
 
-`authz` 包（`github.com/shibingli/yd/authz`）是角色与权限的**唯一事实来源**。
+`authz` 包（`github.com/shibingli/yd/security/authz`）是角色与权限的**唯一事实来源**。
 这些字符串**只允许在该包的注册表里出现一次**，其余任何地方——Go 代码、模板、JS、脚手架产物——
 都必须引用常量或注册表派生的映射。
 

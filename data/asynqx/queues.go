@@ -9,7 +9,7 @@ import (
 
 	"github.com/hibiken/asynq"
 
-	"github.com/shibingli/yd/errx"
+	"github.com/shibingli/yd/core/errx"
 )
 
 // Declared sentinel errors of the queue grammar, testable with errors.Is. | 队列语法的已声明哨兵错误，可用 errors.Is 判定。

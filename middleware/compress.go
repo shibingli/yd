@@ -10,7 +10,7 @@ import (
 	"github.com/andybalholm/brotli"
 	"github.com/klauspost/compress/gzip"
 	"github.com/klauspost/compress/zstd"
-	"github.com/shibingli/yd/router"
+	"github.com/shibingli/yd/http/router"
 )
 
 // Algorithm identifies a supported content-encoding. | Algorithm 标识一种受支持的内容编码。

@@ -8,7 +8,7 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/shibingli/yd/router"
+	"github.com/shibingli/yd/http/router"
 )
 
 // Chain combines middlewares into a single middleware executed in the given order. | Chain 把多个中间件按传入顺序组合为一个中间件。

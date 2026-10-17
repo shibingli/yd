@@ -1,0 +1,476 @@
+<% .Marker %>
+
+package controller
+
+import (
+	"errors"
+	"net/http"
+	"strconv"
+<% if .CtrlStrings %>	"strings"
+<% end %><% if .FormTime %>	"time"
+<% end %>
+	"github.com/shibingli/yd/core/errx"
+	"github.com/shibingli/yd/http/htmx"
+	"github.com/shibingli/yd/core/logx"
+	"github.com/shibingli/yd/http/router"
+
+	"<%.PkgModel%>"
+	"<%.PkgService%>"
+)
+
+// 控制器层哨兵错误，均在包级声明一次，调用方用 errors.Is 判定。
+// Controller sentinel errors, declared once at package level and matched with errors.Is.
+var (
+	// Err<%.Name%>BadRequest 表示路径或查询参数不合法。
+	// Err<%.Name%>BadRequest reports an illegal path or query parameter.
+	Err<%.Name%>BadRequest = errx.New("invalid <%.Snake%> request parameters | <%.Snake%> 请求参数不合法")
+	// Err<%.Name%>BadForm 表示提交的表单无法解析为入参。
+	// Err<%.Name%>BadForm reports a submitted form that cannot be parsed into a payload.
+	Err<%.Name%>BadForm = errx.New("invalid <%.Snake%> form values | <%.Snake%> 表单取值不合法")
+)
+
+// 分页缺省值：与 service 层的归一化区间保持一致，避免两处口径打架。
+// Pagination defaults: they match the normalisation range of the service layer so the two never disagree.
+const (
+	// <%.Var%>DefaultPageSize 是未指定每页条数时的取值。
+	// <%.Var%>DefaultPageSize is used when the page size is not given.
+	<%.Var%>DefaultPageSize = 20
+	// <%.Var%>MaxPageSize 是每页条数的上限。
+	// <%.Var%>MaxPageSize is the upper bound of the page size.
+	<%.Var%>MaxPageSize = 100
+)
+
+// <%.Name%>Page 是<%.Module%>列表片段的数据。
+// <%.Name%>Page is the data of the <%.Snake%> list fragment.
+type <%.Name%>Page struct {
+	// Items 是当前页的记录。
+	// Items holds the records of the current page.
+	Items []model.<%.Name%>
+	// Total 是符合条件的总条数。
+	// Total is the number of matching records.
+	Total int64
+	// Page 是当前页码，从 1 开始。
+	// Page is the current page number, starting at 1.
+	Page int
+	// Size 是每页条数。
+	// Size is the page length.
+	Size int
+	// PrevPage 是上一页页码。
+	// PrevPage is the previous page number.
+	PrevPage int
+	// NextPage 是下一页页码。
+	// NextPage is the next page number.
+	NextPage int
+	// HasPrev 报告是否存在上一页。
+	// HasPrev reports whether a previous page exists.
+	HasPrev bool
+	// HasNext 报告是否存在下一页。
+	// HasNext reports whether a further page exists.
+	HasNext bool
+	// Query 是当前搜索关键词。
+	// Query is the active search keyword.
+	Query string
+}
+
+// <%.Name%>FormData 是<%.Module%>表单片段的数据。
+// <%.Name%>FormData is the data of the <%.Snake%> form fragment.
+//
+// 它同时是 _fields.html 局部片段的数据上下文：字段标记一律从 Item 读取。
+// It is also the data context of the _fields.html partial: every field markup reads from Item.
+type <%.Name%>FormData struct {
+	// Item 是表单回填的模型，新建时为零值。
+	// Item is the model prefilled into the form; it is the zero value when creating.
+	Item *model.<%.Name%>
+	// Heading 是表单标题，区分新建与编辑。
+	// Heading is the form heading, distinguishing creation from editing.
+	Heading string
+	// Action 是表单提交地址。
+	// Action is the form target URL.
+	Action string
+	// Method 是提交方法，新建为 post、编辑为 put。
+	// Method is the submit verb: post when creating and put when editing.
+	Method string
+	// Target 是 htmx 替换目标：新建追加到列表末尾，编辑替换该行。
+	// Target is the htmx swap target: a create appends to the list while an edit replaces the row.
+	Target string
+	// Swap 是 htmx 替换方式。
+	// Swap is the htmx swap strategy.
+	Swap string
+}
+
+// <%.Name%>Controller 用 HTML 片段响应<%.Module%>模块的页面请求。
+// <%.Name%>Controller answers <%.Snake%> page requests with HTML fragments.
+//
+// 这里没有以 JSON 为主响应的接口：列表、表单、行、错误一律是 HTML 片段，
+// 由 htmx 就地替换；整页请求则由框架渲染器用布局包裹同一份片段。
+// No JSON-first endpoint lives here: the list, the form, a row and every error are
+// HTML fragments swapped in place by htmx, while a whole-page request is wrapped in
+// the layout by the framework renderer around the very same fragment.
+type <%.Name%>Controller struct {
+	svc *service.<%.Name%>Service
+}
+
+// New<%.Name%>Controller 创建 <%.Name%>Controller。
+// New<%.Name%>Controller creates a <%.Name%>Controller.
+func New<%.Name%>Controller(svc *service.<%.Name%>Service) *<%.Name%>Controller {
+	logx.Default().Info("<%.Snake%> controller ready | <%.Snake%> 控制器已就绪", logx.Str("route", "<%.Route%>"))
+	return &<%.Name%>Controller{svc: svc}
+}
+
+// fail 写出 HTML 错误片段，并把故障记入日志。
+// fail writes an HTML error fragment and records the fault in the log.
+//
+// status 为 5xx 时对外只给一句通用文案，具体错误留在日志里。
+// For a 5xx status the response carries a generic sentence only, while the detail stays in the log.
+func (ctl *<%.Name%>Controller) fail(c *router.Ctx, status int, target, msg string, err error) {
+	logx.Default().Error(msg, logx.Err(err), logx.Int("status", status))
+	// 错误片段只替换提示槽，不覆盖被编辑的那一行。
+	// The error fragment replaces the hint slot only and never the row being edited.
+	htmx.Retarget(c.Writer, target)
+	htmx.Reswap(c.Writer, "innerHTML")
+
+	text := err.Error()
+	if status >= http.StatusInternalServerError {
+		text = "<%.Snake%> request failed | <%.Snake%> 请求处理失败"
+	}
+	if writeErr := c.HTMLString(status, string(htmx.ErrorFragment(text))); writeErr != nil {
+		logx.Default().Error("<%.Snake%> error fragment failed | <%.Snake%> 错误片段写出失败", logx.Err(writeErr))
+	}
+}
+
+// failLoad 按「记录不存在」与「其它故障」两类写出失败片段。
+// failLoad writes the failure fragment for a missing record or for any other storage fault.
+func (ctl *<%.Name%>Controller) failLoad(c *router.Ctx, err error) {
+	status, msg := http.StatusInternalServerError, "<%.Snake%> load failed | <%.Snake%> 加载失败"
+	if errors.Is(err, service.Err<%.Name%>NotFound) {
+		status, msg = http.StatusNotFound, "<%.Snake%> record not found | <%.Snake%> 记录不存在"
+	}
+	ctl.fail(c, status, "#<%.Snake%>-form-error", msg, err)
+}
+
+// parse<%.Name%>Page 读取页码与每页条数，越界时回落到缺省值。
+// parse<%.Name%>Page reads the page number and page size, falling back to the defaults when out of range.
+func parse<%.Name%>Page(c *router.Ctx) (int, int) {
+	page, err := strconv.Atoi(c.Query("page"))
+	if err != nil || page < 1 {
+		page = 1
+	}
+	size, err := strconv.Atoi(c.Query("size"))
+	if err != nil || size < 1 {
+		size = <%.Var%>DefaultPageSize
+	}
+	if size > <%.Var%>MaxPageSize {
+		size = <%.Var%>MaxPageSize
+	}
+	return page, size
+}
+
+// parse<%.Name%>ID 解析路径里的主键。
+// parse<%.Name%>ID parses the primary key carried by the path.
+<% if .Primary.IsString %>func parse<%.Name%>ID(c *router.Ctx) (string, error) {
+	raw := c.Param("id")
+	if raw == "" {
+		return "", errx.Detail(Err<%.Name%>BadRequest, "missing <%.Primary.Column%> | 缺少 <%.Primary.Column%>")
+	}
+	return raw, nil
+}
+<% else %>func parse<%.Name%>ID(c *router.Ctx) (<%.Primary.GoType%>, error) {
+	raw := c.Param("id")
+	n, err := strconv.<%.Primary.Scalar.Func%>(raw<%.Primary.Scalar.Args%>)
+	if err != nil || <%.Primary.Scalar.Guard%> {
+		return <%.Primary.Scalar.Zero%>, errx.Detail(Err<%.Name%>BadRequest, "invalid <%.Primary.Column%>: %q | <%.Primary.Column%> 不合法：%q", raw, raw)
+	}
+	return <%.Primary.Scalar.CastExpr "n"%>, nil
+}
+<% end %>
+// bind<%.Name%>Input 从提交的表单读取<%.Module%>入参，类型不匹配时返回 Err<%.Name%>BadForm。
+// bind<%.Name%>Input reads the <%.Snake%> payload from the submitted form and returns Err<%.Name%>BadForm on a type mismatch.
+func bind<%.Name%>Input(c *router.Ctx) (service.<%.Name%>Input, error) {
+	var in service.<%.Name%>Input
+<% range .FormFields %><% if .IsCheckbox %>	in.<%.GoName%> = c.FormValue("<%.Column%>") == "1" || c.FormValue("<%.Column%>") == "on" || c.FormValue("<%.Column%>") == "true"
+<% else if .IsTextarea %>	in.<%.GoName%> = c.FormValue("<%.Column%>")
+<% else if .IsFile %>	if _, header, err := c.FormFile("<%.Column%>"); err == nil {
+		// 文件字段只记录上传文件名，落盘由业务自行接管。
+		// A file field records the uploaded file name only; persisting the bytes stays with the business.
+		in.<%.GoName%> = header.Filename
+	} else if !errors.Is(err, http.ErrMissingFile) && !errors.Is(err, http.ErrNotMultipart) {
+		return in, errx.Detail(Err<% $.Name %>BadForm, "<%.Column%> upload failed | <%.Column%> 上传失败")
+	}
+<% else if .IsTime %>	if raw := strings.TrimSpace(c.FormValue("<%.Column%>")); raw != "" {
+		v, err := time.Parse("<%.TimeLayout%>", raw)
+		if err != nil {
+			return in, errx.Detail(Err<% $.Name %>BadForm, "<%.Column%> must be a time value | <%.Column%> 必须为时间")
+		}
+		in.<%.GoName%> = v
+	}
+<% else if .IsNumber %>	if raw := strings.TrimSpace(c.FormValue("<%.Column%>")); raw != "" {
+		n, err := strconv.<%.Scalar.Func%>(raw<%.Scalar.Args%>)
+		if err != nil {
+			return in, errx.Detail(Err<% $.Name %>BadForm, "<%.Column%> must be a number | <%.Column%> 必须为数字")
+		}
+		in.<%.GoName%> = <%.Scalar.CastExpr "n"%>
+	}
+<% else %>	in.<%.GoName%> = strings.TrimSpace(c.FormValue("<%.Column%>"))
+<% end %><% end %>	return in, nil
+}
+
+// List 返回<%.Module%>列表片段。
+// List returns the <%.Snake%> list fragment.
+//
+// @Summary List <%.Name%>s | 列出 <%.Name%>
+// @Description Returns the paged <%.Name%> list as an HTML fragment: an htmx request replaces the module region while a plain request is wrapped into a full page by the layout. | 返回分页后的 <%.Name%> 列表 HTML 片段；htmx 请求替换模块区域，普通请求由布局包裹成整页。
+// @Tags <%.Module%>
+// @Accept html
+// @Produce html
+// @Param page query int false "page number, starting at 1 | 页码，从 1 开始"
+// @Param size query int false "page size, at most 100 | 每页条数，最多 100"
+<% if .HasSearch %>// @Param q query string false "search keyword | 搜索关键词"
+<% end %>// @Param HX-Request header string false "htmx request flag | htmx 请求标记"
+// @Success 200 {string} string "list fragment | 列表片段"
+// @Failure 500 {string} string "storage failure | 存储失败"
+// @Router <%.Route%> [get]
+func (ctl *<%.Name%>Controller) List(c *router.Ctx) {
+	page, size := parse<%.Name%>Page(c)
+<% if .HasSearch %>	keyword := strings.TrimSpace(c.Query("q"))
+<% end %>	items, total, err := ctl.svc.List(c, page, size<% if .HasSearch %>, keyword<% end %>)
+	if err != nil {
+		ctl.fail(c, http.StatusInternalServerError, "#<%.Snake%>-module", "<%.Snake%> list failed | <%.Snake%> 列表加载失败", err)
+		return
+	}
+
+	data := <%.Name%>Page{
+		Items:    items,
+		Total:    total,
+		Page:     page,
+		Size:     size,
+		PrevPage: page - 1,
+		NextPage: page + 1,
+		HasPrev:  page > 1,
+		HasNext:  int64(page)*int64(size) < total,
+<% if .HasSearch %>		Query:    keyword,
+<% end %>	}
+	if err := c.HTML(http.StatusOK, "<%.Snake%>/list.html", data); err != nil {
+		logx.Default().Error("<%.Snake%> list render failed | <%.Snake%> 列表渲染失败", logx.Err(err))
+	}
+}
+
+// New 返回新建<%.Module%>的空表单片段。
+// New returns the empty <%.Snake%> form fragment used for creation.
+//
+// @Summary New <%.Name%> form | 新建 <%.Name%> 表单
+// @Description Returns the empty <%.Name%> form as an HTML fragment. | 返回用于新建的 <%.Name%> 空表单 HTML 片段。
+// @Tags <%.Module%>
+// @Accept html
+// @Produce html
+// @Param HX-Request header string false "htmx request flag | htmx 请求标记"
+// @Success 200 {string} string "form fragment | 表单片段"
+// @Failure 500 {string} string "render failure | 渲染失败"
+// @Router <%.Route%>/new [get]
+func (ctl *<%.Name%>Controller) New(c *router.Ctx) {
+	data := <%.Name%>FormData{
+		Item:    &model.<%.Name%>{},
+		Heading: "新建 | New",
+		Action:  "<%.Route%>",
+		Method:  "post",
+		Target:  "#<%.Snake%>-rows",
+		Swap:    "afterbegin",
+	}
+	if err := c.HTML(http.StatusOK, "<%.Snake%>/form.html", data); err != nil {
+		logx.Default().Error("<%.Snake%> form render failed | <%.Snake%> 表单渲染失败", logx.Err(err))
+	}
+}
+
+// Create 接收表单并写入新的<%.Module%>记录。
+// Create accepts the form and writes a new <%.Snake%> record.
+//
+// @Summary Create <%.Name%> | 创建 <%.Name%>
+// @Description Validates the form and writes the record, answering with the new row fragment plus an htmx event on success and with a 422 error fragment on a validation failure. | 校验表单后写入记录，成功返回新行片段并派发 htmx 事件，校验失败返回 422 错误片段。
+// @Tags <%.Module%>
+// @Accept form
+// @Produce html
+// @Param body body service.<%.Name%>Input true "create payload | 创建入参"
+// @Param HX-Request header string false "htmx request flag | htmx 请求标记"
+// @Success 201 {object} model.<%.Name%> "created row | 已创建的行"
+// @Failure 422 {object} htmx.ErrorFragment "validation failed | 校验失败"
+// @Failure 500 {string} string "storage failure | 存储失败"
+// @Router <%.Route%> [post]
+func (ctl *<%.Name%>Controller) Create(c *router.Ctx) {
+	in, err := bind<%.Name%>Input(c)
+	if err != nil {
+		ctl.fail(c, http.StatusUnprocessableEntity, "#<%.Snake%>-form-error", "<%.Snake%> form rejected | <%.Snake%> 表单校验未通过", err)
+		return
+	}
+
+	item, err := ctl.svc.Create(c, in)
+	if err != nil {
+		if errors.Is(err, service.Err<%.Name%>Invalid) {
+			ctl.fail(c, http.StatusUnprocessableEntity, "#<%.Snake%>-form-error", "<%.Snake%> form rejected | <%.Snake%> 表单校验未通过", err)
+			return
+		}
+		ctl.fail(c, http.StatusInternalServerError, "#<%.Snake%>-form-error", "<%.Snake%> create failed | <%.Snake%> 创建失败", err)
+		return
+	}
+
+	htmx.TriggerFromCtx(c, htmx.Event{Name: "<%.Event%>", Detail: map[string]any{"id": item.<%.Primary.GoName%>}})
+	if err := c.HTML(http.StatusCreated, "<%.Snake%>/row.html", item); err != nil {
+		logx.Default().Error("<%.Snake%> row render failed | <%.Snake%> 行片段渲染失败", logx.Err(err))
+	}
+}
+
+// Show 返回单条<%.Module%>的行片段。
+// Show returns the row fragment of one <%.Snake%> record.
+//
+// @Summary <%.Name%> detail | <%.Name%> 详情
+// @Description Returns one record as a row HTML fragment and answers with a 404 error fragment when the record is absent. | 按主键返回单条记录的行 HTML 片段，记录不存在时返回 404 错误片段。
+// @Tags <%.Module%>
+// @Accept html
+// @Produce html
+// @Param id path <%.Primary.GoType%> true "primary key | 主键"
+// @Param HX-Request header string false "htmx request flag | htmx 请求标记"
+// @Success 200 {object} model.<%.Name%> "row fragment | 行片段"
+// @Failure 404 {object} htmx.ErrorFragment "record not found | 记录不存在"
+// @Failure 500 {string} string "storage failure | 存储失败"
+// @Router <%.Route%>/{id} [get]
+func (ctl *<%.Name%>Controller) Show(c *router.Ctx) {
+	id, err := parse<%.Name%>ID(c)
+	if err != nil {
+		ctl.fail(c, http.StatusBadRequest, "#<%.Snake%>-form-error", "<%.Snake%> id rejected | <%.Snake%> 主键不合法", err)
+		return
+	}
+
+	item, err := ctl.svc.Get(c, id)
+	if err != nil {
+		ctl.failLoad(c, err)
+		return
+	}
+	if err := c.HTML(http.StatusOK, "<%.Snake%>/row.html", item); err != nil {
+		logx.Default().Error("<%.Snake%> row render failed | <%.Snake%> 行片段渲染失败", logx.Err(err))
+	}
+}
+
+// Edit 返回回填了记录的表单片段。
+// Edit returns the form fragment prefilled with the record.
+//
+// @Summary Edit <%.Name%> form | 编辑 <%.Name%> 表单
+// @Description Returns the prefilled <%.Name%> form as an HTML fragment and answers with a 404 error fragment when the record is absent. | 按主键返回回填后的 <%.Name%> 表单 HTML 片段，记录不存在时返回 404 错误片段。
+// @Tags <%.Module%>
+// @Accept html
+// @Produce html
+// @Param id path <%.Primary.GoType%> true "primary key | 主键"
+// @Param HX-Request header string false "htmx request flag | htmx 请求标记"
+// @Success 200 {string} string "form fragment | 表单片段"
+// @Failure 404 {object} htmx.ErrorFragment "record not found | 记录不存在"
+// @Failure 500 {string} string "storage failure | 存储失败"
+// @Router <%.Route%>/{id}/edit [get]
+func (ctl *<%.Name%>Controller) Edit(c *router.Ctx) {
+	id, err := parse<%.Name%>ID(c)
+	if err != nil {
+		ctl.fail(c, http.StatusBadRequest, "#<%.Snake%>-form-error", "<%.Snake%> id rejected | <%.Snake%> 主键不合法", err)
+		return
+	}
+
+	item, err := ctl.svc.Get(c, id)
+	if err != nil {
+		ctl.failLoad(c, err)
+		return
+	}
+
+	key := <%.Primary.FormatExpr (printf "item.%s" .Primary.GoName)%>
+	data := <%.Name%>FormData{
+		Item:    item,
+		Heading: "编辑 | Edit",
+		Action:  "<%.Route%>/" + key,
+		Method:  "put",
+		Target:  "#<%.Snake%>-" + key,
+		Swap:    "outerHTML",
+	}
+	if err := c.HTML(http.StatusOK, "<%.Snake%>/form.html", data); err != nil {
+		logx.Default().Error("<%.Snake%> form render failed | <%.Snake%> 表单渲染失败", logx.Err(err))
+	}
+}
+
+// Update 接收表单并覆盖写入<%.Module%>记录。
+// Update accepts the form and overwrites the <%.Snake%> record.
+//
+// @Summary Update <%.Name%> | 更新 <%.Name%>
+// @Description Validates the form and overwrites the record by primary key, answering with the updated row fragment on success, 422 on a validation failure and 404 when the record is absent. | 校验表单后按主键覆盖写入，成功返回更新后的行片段，校验失败返回 422、记录缺失返回 404。
+// @Tags <%.Module%>
+// @Accept form
+// @Produce html
+// @Param id path <%.Primary.GoType%> true "primary key | 主键"
+// @Param body body service.<%.Name%>Input true "update payload | 更新入参"
+// @Param HX-Request header string false "htmx request flag | htmx 请求标记"
+// @Success 200 {object} model.<%.Name%> "updated row | 已更新的行"
+// @Failure 422 {object} htmx.ErrorFragment "validation failed | 校验失败"
+// @Failure 404 {object} htmx.ErrorFragment "record not found | 记录不存在"
+// @Failure 500 {string} string "storage failure | 存储失败"
+// @Router <%.Route%>/{id} [put]
+func (ctl *<%.Name%>Controller) Update(c *router.Ctx) {
+	id, err := parse<%.Name%>ID(c)
+	if err != nil {
+		ctl.fail(c, http.StatusBadRequest, "#<%.Snake%>-form-error", "<%.Snake%> id rejected | <%.Snake%> 主键不合法", err)
+		return
+	}
+
+	in, err := bind<%.Name%>Input(c)
+	if err != nil {
+		ctl.fail(c, http.StatusUnprocessableEntity, "#<%.Snake%>-form-error", "<%.Snake%> form rejected | <%.Snake%> 表单校验未通过", err)
+		return
+	}
+
+	item, err := ctl.svc.Update(c, id, in)
+	if err != nil {
+		switch {
+		case errors.Is(err, service.Err<%.Name%>Invalid):
+			ctl.fail(c, http.StatusUnprocessableEntity, "#<%.Snake%>-form-error", "<%.Snake%> form rejected | <%.Snake%> 表单校验未通过", err)
+		case errors.Is(err, service.Err<%.Name%>NotFound):
+			ctl.failLoad(c, err)
+		default:
+			ctl.fail(c, http.StatusInternalServerError, "#<%.Snake%>-form-error", "<%.Snake%> update failed | <%.Snake%> 更新失败", err)
+		}
+		return
+	}
+
+	htmx.TriggerFromCtx(c, htmx.Event{Name: "<%.Event%>", Detail: map[string]any{"id": item.<%.Primary.GoName%>}})
+	if err := c.HTML(http.StatusOK, "<%.Snake%>/row.html", item); err != nil {
+		logx.Default().Error("<%.Snake%> row render failed | <%.Snake%> 行片段渲染失败", logx.Err(err))
+	}
+}
+
+// Delete 删除<%.Module%>记录，成功时返回空正文。
+// Delete removes the <%.Snake%> record and answers with an empty body on success.
+//
+// @Summary Delete <%.Name%> | 删除 <%.Name%>
+// @Description Deletes the record by primary key; on success the body is empty so htmx removes the row through hx-swap="delete", while a missing record answers with a 404 error fragment. | 按主键删除记录；成功返回空正文，htmx 依 hx-swap="delete" 移除该行，记录缺失返回 404 错误片段。
+// @Tags <%.Module%>
+// @Accept html
+// @Produce html
+// @Param id path <%.Primary.GoType%> true "primary key | 主键"
+// @Param HX-Request header string false "htmx request flag | htmx 请求标记"
+// @Success 200 {object} model.<%.Name%> "row removed | 行已移除"
+// @Failure 404 {object} htmx.ErrorFragment "record not found | 记录不存在"
+// @Failure 500 {string} string "storage failure | 存储失败"
+// @Router <%.Route%>/{id} [delete]
+func (ctl *<%.Name%>Controller) Delete(c *router.Ctx) {
+	id, err := parse<%.Name%>ID(c)
+	if err != nil {
+		ctl.fail(c, http.StatusBadRequest, "#<%.Snake%>-form-error", "<%.Snake%> id rejected | <%.Snake%> 主键不合法", err)
+		return
+	}
+
+	if err := ctl.svc.Delete(c, id); err != nil {
+		if errors.Is(err, service.Err<%.Name%>NotFound) {
+			ctl.failLoad(c, err)
+			return
+		}
+		ctl.fail(c, http.StatusInternalServerError, "#<%.Snake%>-form-error", "<%.Snake%> delete failed | <%.Snake%> 删除失败", err)
+		return
+	}
+
+	htmx.TriggerFromCtx(c, htmx.Event{Name: "<%.Event%>", Detail: map[string]any{"id": id}})
+	// 204 会被 htmx 跳过交换，因此返回 200 与空正文，由 hx-swap="delete" 移除该行。
+	// A 204 makes htmx skip the swap, so an empty 200 body is returned and hx-swap="delete" removes the row.
+	if err := c.HTMLString(http.StatusOK, ""); err != nil {
+		logx.Default().Error("<%.Snake%> delete response failed | <%.Snake%> 删除响应写出失败", logx.Err(err))
+	}
+}

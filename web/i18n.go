@@ -18,9 +18,9 @@ import (
 	"embed"
 	"io/fs"
 
-	"github.com/shibingli/yd/afs"
-	"github.com/shibingli/yd/errx"
-	"github.com/shibingli/yd/i18n"
+	"github.com/shibingli/yd/core/afs"
+	"github.com/shibingli/yd/core/errx"
+	"github.com/shibingli/yd/http/i18n"
 )
 
 // Catalogue layout and language tags. | 语言目录布局与语言标签。

@@ -27,7 +27,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/shibingli/yd/render"
+	"github.com/shibingli/yd/http/render"
 )
 
 // engineWorkspaceID is the shell marker every chrome page must carry, and the one the

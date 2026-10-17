@@ -1,0 +1,151 @@
+// 本文件是 controller 包的实时推送端点：SSE 与 WebSocket 共用 service.Ticker 渲染出的同一份时钟片段。
+// This file is the realtime part of package controller: the SSE and WebSocket endpoints share the very same clock
+// fragment rendered by service.Ticker.
+
+package controller
+
+import (
+	"net/http"
+	"time"
+
+	"{{ .Module }}/internal/service"
+	"{{ .YdModule }}/core/logx"
+	"{{ .YdModule }}/http/router"
+	"{{ .YdModule }}/http/sse"
+	"{{ .YdModule }}/http/ws"
+)
+
+// 推送端点的时间参数：心跳与重连间隔是前端体验参数，与推送间隔分开配置。
+// Timing of the push endpoints: the heartbeat and the reconnect interval shape the front-end experience and are kept
+// separate from the push interval.
+const (
+	// heartbeatInterval is the SSE comment-frame heartbeat, which keeps idle timeouts in middleboxes from dropping the stream. | heartbeatInterval 是 SSE 的注释帧心跳间隔，用于穿透中间设备的空闲超时。
+	heartbeatInterval = 15 * time.Second
+	// retryInterval is the suggested reconnect interval after an SSE disconnect. | retryInterval 是 SSE 断线后的重连间隔建议值。
+	retryInterval = 3 * time.Second
+)
+
+// Page 渲染实时演示页：整页请求得到布局包裹的页面，htmx 请求得到片段。
+// Page renders the realtime demo page: a full-page request gets the layout-wrapped page and an htmx request the fragment.
+//
+// @Summary Realtime demo page | 实时推送演示页
+// @Description Renders pages/realtime.html, which subscribes to the SSE endpoint through sse-swap and to the
+// @Description WebSocket endpoint through the htmx WebSocket extension. Both channels push the same server-rendered clock
+// @Description fragment, so one target element is fed twice and a broken channel is visible at a glance.
+// @Description 渲染 pages/realtime.html：页面通过 sse-swap 订阅 SSE 端点，并通过 htmx 的 WebSocket 扩展订阅 WebSocket 端点。
+// @Description 两条通道推送的是同一份服务端渲染的时钟片段，因此同一个目标元素被两路刷新，坏掉的通道一眼可见。
+// @Tags pages
+// @Accept html
+// @Produce html
+// @Param HX-Request header string false "htmx partial request | htmx 局部请求标记"
+// @Success 200 {object} string "realtime page or fragment | 实时演示整页或片段"
+// @Failure 401 {object} string "no session | 无有效会话"
+// @Security BearerAuth
+// @Router /realtime [get]
+func (c *Controller) Page(ctx *router.Ctx) {
+	c.render(ctx, http.StatusOK, TplRealtime, c.view(ctx, "实时推送 | Realtime", map[string]any{
+		"Topic":    service.EventsTopic,
+		"Target":   service.ClockTarget,
+		"Swap":     service.ClockSwap,
+		"Interval": service.DefaultTickInterval.String(),
+	}))
+}
+
+// Stream 构造 SSE 端点处理器：按 EventsTopic 订阅并持续把服务端渲染的片段写给客户端。
+// Stream builds the SSE endpoint handler: it subscribes to EventsTopic and keeps writing server-rendered fragments.
+//
+// 工厂函数本身即处理器的注册处，因此 OpenAPI 注解块写在这里（与 ws.HtmxHandler 的约定一致）。
+// The factory is the registration site of the handler, so the OpenAPI annotation block lives here (the same convention
+// as ws.HtmxHandler).
+//
+// @Summary Event stream (SSE) | 事件流（SSE）
+// @Description Opens a text/event-stream subscribed to the yd.events topic. Clock frames arrive as htmx partial updates
+// @Description (sse-swap="yd.events"), and a yd:tick event accompanies each frame. A `: ping` comment frame is written every
+// @Description 15 seconds, and the Last-Event-ID request header is preserved for resumption by upper layers.
+// @Description 打开 text/event-stream 并订阅 yd.events 主题：时钟帧以 htmx 局部更新形式到达（sse-swap="yd.events"），
+// @Description 每帧附带一个 yd:tick 事件；每 15 秒写一条 `: ping` 注释帧，Last-Event-ID 请求头保留给上层做断点续传。
+// @Tags realtime
+// @Accept text
+// @Produce text
+// @Param Last-Event-ID header string false "last received event id for resumption | 断点续传所用的最后事件 ID"
+// @Success 200 {string} string "text/event-stream | 事件流"
+// @Failure 401 {object} string "no session | 无有效会话"
+// @Security BearerAuth
+// @Router /events [get]
+func (c *Controller) Stream(broker *sse.Broker) router.HandlerFunc {
+	return sse.Handler(broker, service.EventsTopic, sse.Options{
+		Heartbeat: heartbeatInterval,
+		Retry:     retryInterval,
+	})
+}
+
+// Socket 构造 WebSocket 端点处理器：内建回显，并周期性主动推送时钟片段。
+// Socket builds the WebSocket endpoint handler: the echo behaviour is built in and the clock fragment is pushed
+// periodically on top of it.
+//
+// 回显来自 ws.HtmxHandler 的默认实现（OnMessage 为 nil 时把消息体的 BODY 原样回声），主动推送则由 OnOpen 启动的
+// 协程完成：写失败即代表对端已断开，协程立即返回，不需要额外的生命周期管理。
+// The echo comes from ws.HtmxHandler's default behaviour (a nil OnMessage echoes the message BODY back), and the push is
+// performed by the goroutine started in OnOpen: a write error means the peer is gone, so the goroutine returns at once and
+// needs no further lifecycle management.
+//
+// @Summary WebSocket echo and push | WebSocket 回显与推送
+// @Description Upgrades the connection with the htmx subprotocol, echoes every htmx message envelope back and pushes a
+// @Description clock fragment to the #yd-clock target every push interval, so the same page element is fed by both the
+// @Description SSE and the WebSocket channel.
+// @Description 以 htmx 子协议升级连接：回显每条 htmx 消息信封，并按推送间隔向 #yd-clock 目标推送时钟片段，
+// @Description 因此同一个页面元素既可以由 SSE 也可以由 WebSocket 通道刷新。
+// @Tags realtime
+// @Accept json
+// @Produce json
+// @Param Upgrade header string true "must be websocket | 必须为 websocket"
+// @Success 101 {string} string "switching protocols | 协议切换"
+// @Failure 400 {object} string "upgrade failure written by the framework | 框架写出的升级失败响应"
+// @Failure 401 {object} string "no session | 无有效会话"
+// @Security BearerAuth
+// @Router /ws [get]
+func (c *Controller) Socket(ticker *service.Ticker) router.HandlerFunc {
+	return ws.HtmxHandler(ws.HtmxOptions{
+		// 子协议与 htmx 的 WebSocket 扩展一致；不声明它，浏览器可能拒绝握手。
+		// The subprotocol matches the htmx WebSocket extension; without it the browser may refuse the handshake.
+		Subprotocols: []string{"htmx"},
+		OnOpen: func(conn *ws.Conn) {
+			go c.pushClock(conn, ticker)
+		},
+		OnClose: func(conn *ws.Conn, err error) {
+			c.app.Logger().Debug("websocket closed | WebSocket 已关闭",
+				logx.Str("remote", remoteAddr(conn)),
+				logx.Err(err),
+			)
+		},
+	})
+}
+
+// pushClock 按推送节拍向单条连接写时钟片段，直到写出失败（对端已断开）为止。
+// pushClock writes clock frames to one connection on the push cadence until a write fails (the peer is gone).
+func (c *Controller) pushClock(conn *ws.Conn, ticker *service.Ticker) {
+	interval := ticker.Interval()
+	clock := time.NewTicker(interval)
+	defer clock.Stop()
+
+	// 立即推一帧：连接建立后页面立刻有内容，不必等第一个节拍。
+	// One immediate frame so the page has content right after the handshake instead of waiting for the first tick.
+	if err := conn.WriteHtmxFragment(service.ClockTarget, service.ClockSwap, ticker.Fragment()); err != nil {
+		return
+	}
+
+	for range clock.C {
+		if err := conn.WriteHtmxFragment(service.ClockTarget, service.ClockSwap, ticker.Fragment()); err != nil {
+			return
+		}
+	}
+}
+
+// remoteAddr 安全地取出对端地址，连接已被回收时返回空串。
+// remoteAddr safely reads the peer address and returns an empty string once the connection has been recycled.
+func remoteAddr(conn *ws.Conn) string {
+	if conn == nil || conn.RemoteAddr() == nil {
+		return ""
+	}
+	return conn.RemoteAddr().String()
+}

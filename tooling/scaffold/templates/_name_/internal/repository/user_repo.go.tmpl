@@ -1,0 +1,133 @@
+// 本文件是用户仓储：租户 ID 是每个方法的第一个参数，跨租户访问一律以 auth.ErrNotFound 结束。
+// This file is the user repository: the tenant id is the first argument of every method and a cross-tenant access always
+// ends in auth.ErrNotFound.
+//
+// 换成 GORM 时本文件不需要修改：auth.Store 的实现换掉之后，这里的读写自动落到 SQL 上；
+// 唯一需要新增的是你自己的 Store 实现里的 `WHERE tenant_id = ?` 条件。
+// Nothing here changes when GORM arrives: swapping the auth.Store implementation moves these reads and writes onto SQL,
+// and the only new thing is the `WHERE tenant_id = ?` condition inside your own Store.
+
+package repository
+
+import (
+	"context"
+
+	"{{ .Module }}/internal/model"
+	"{{ .YdModule }}/security/auth"
+)
+
+// UserRepo 提供用户的读写、角色分配、口令与 sec_key 生命周期。
+// UserRepo provides user reads and writes plus role assignment and the password and sec_key lifecycle.
+type UserRepo struct {
+	// store owns the auth service. | store 是鉴权服务的持有者。
+	store *Store
+}
+
+// NewUserRepo builds a user repository over a Store. | NewUserRepo 基于 Store 构造用户仓储。
+func NewUserRepo(store *Store) *UserRepo { return &UserRepo{store: store} }
+
+// List 返回该租户的全部用户；租户未知时返回包装了 auth.ErrNotFound 的错误。
+// List returns every user of the tenant and reports an error wrapping auth.ErrNotFound for an unknown tenant.
+func (r *UserRepo) List(ctx context.Context, tenantID string) ([]model.User, error) {
+	list, err := r.store.Auth().ListUsers(ctx, tenantID)
+	if err != nil {
+		return nil, err
+	}
+	return model.UsersFromAuth(list), nil
+}
+
+// Get 返回该租户下的用户；用户在别的租户或不存在，都返回 auth.ErrNotFound。
+// Get returns the user of that tenant; a user of another tenant and a missing user both report auth.ErrNotFound.
+func (r *UserRepo) Get(ctx context.Context, tenantID, userID string) (model.User, error) {
+	u, err := r.store.Auth().GetUser(ctx, tenantID, userID)
+	if err != nil {
+		return model.User{}, err
+	}
+	return model.UserFromAuth(u), nil
+}
+
+// ByUsername returns the user of that tenant by sign-in name. | ByUsername 按登录名返回该租户下的用户。
+func (r *UserRepo) ByUsername(ctx context.Context, tenantID, username string) (model.User, error) {
+	u, err := r.store.Raw().GetUserByUsername(ctx, tenantID, username)
+	if err != nil {
+		return model.User{}, err
+	}
+	return model.UserFromAuth(u), nil
+}
+
+// Create 新建用户：口令在这里被散列，sec_key 在这里被生成并封装，两者都不会以明文离开本层。
+// Create adds a user: the password is hashed here and the sec_key is generated and sealed here, so neither ever leaves
+// this layer in plaintext.
+func (r *UserRepo) Create(ctx context.Context, tenantID string, in auth.CreateUserInput) (model.User, error) {
+	u, err := r.store.Auth().CreateUser(ctx, tenantID, in)
+	if err != nil {
+		return model.User{}, err
+	}
+	return model.UserFromAuth(u), nil
+}
+
+// Update 覆盖用户的资料字段（登录名、邮箱、展示名与角色），口令与 sec_key 不受影响。
+// Update replaces the user's profile fields (sign-in name, e-mail, display name and roles) and touches neither the password nor the sec_key.
+func (r *UserRepo) Update(ctx context.Context, tenantID string, u model.User) error {
+	record, err := r.store.Auth().GetUser(ctx, tenantID, u.ID)
+	if err != nil {
+		return err
+	}
+	record.Username = u.Username
+	record.Email = u.Email
+	record.DisplayName = u.DisplayName
+	if u.Status != "" {
+		record.Status = u.Status
+	}
+	return r.store.Auth().UpdateUser(ctx, tenantID, record)
+}
+
+// SetRoles 覆盖用户的角色名集合；集合里出现不存在的角色名时返回包装了 auth.ErrNotFound 的错误。
+// SetRoles replaces the user's role names; a name that does not exist reports an error wrapping auth.ErrNotFound.
+func (r *UserRepo) SetRoles(ctx context.Context, tenantID, userID string, roles []string) error {
+	return r.store.Auth().SetUserRoles(ctx, tenantID, userID, roles)
+}
+
+// SetPassword 设置口令并轮换 sec_key，因此该用户此前签发的全部令牌立即失效。
+// SetPassword sets the password and rotates the sec_key, so every token previously issued to that user dies at once.
+func (r *UserRepo) SetPassword(ctx context.Context, tenantID, userID, password string) error {
+	return r.store.Auth().SetPassword(ctx, tenantID, userID, password)
+}
+
+// SetStatus 切换用户的启用状态；停用会让该用户的令牌在下一次请求立即失效。
+// SetStatus flips the user's lifecycle state; disabling kills that user's token on the very next request.
+func (r *UserRepo) SetStatus(ctx context.Context, tenantID, userID string, status model.Status) error {
+	record, err := r.store.Auth().GetUser(ctx, tenantID, userID)
+	if err != nil {
+		return err
+	}
+	record.Status = status
+	return r.store.Auth().UpdateUser(ctx, tenantID, record)
+}
+
+// RotateSecKey rotates the sec_key: every old token dies and the password stays. | RotateSecKey 轮换 sec_key：旧令牌全部失效，口令不变。
+func (r *UserRepo) RotateSecKey(ctx context.Context, tenantID, userID string) error {
+	return r.store.Auth().RotateSecKey(ctx, tenantID, userID)
+}
+
+// Authenticate 校验口令并返回用户记录；「用户不存在」与「口令错误」在这里不可区分。
+// Authenticate verifies a password and returns the record; a missing user and a wrong password are indistinguishable here.
+func (r *UserRepo) Authenticate(ctx context.Context, tenantID, username, password string) (*auth.User, error) {
+	return r.store.Auth().Authenticate(ctx, tenantID, username, password)
+}
+
+// Permissions returns the user's full capability set, expanded from the role names. | Permissions 返回用户的权限全集（由角色名展开而来）。
+func (r *UserRepo) Permissions(u *auth.User) []model.Permission {
+	perms := r.store.Auth().PermissionsOf(u)
+	out := make([]model.Permission, 0, len(perms))
+	for _, p := range perms {
+		out = append(out, model.Permission(p))
+	}
+	return out
+}
+
+// HasPermission 判定用户是否持有某项能力；未知角色名不授予任何权限（失败即关闭）。
+// HasPermission reports whether the user holds a capability; an unknown role name grants nothing (fail closed).
+func (r *UserRepo) HasPermission(u *auth.User, p model.Permission) bool {
+	return r.store.Auth().HasPermission(u, auth.Permission(p))
+}

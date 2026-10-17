@@ -9,10 +9,10 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/shibingli/yd/errx"
-	"github.com/shibingli/yd/jsonx"
-	"github.com/shibingli/yd/logx"
-	"github.com/shibingli/yd/router"
+	"github.com/shibingli/yd/core/errx"
+	"github.com/shibingli/yd/core/jsonx"
+	"github.com/shibingli/yd/core/logx"
+	"github.com/shibingli/yd/http/router"
 )
 
 // ---------------------------------------------------------------- test helpers | 测试辅助

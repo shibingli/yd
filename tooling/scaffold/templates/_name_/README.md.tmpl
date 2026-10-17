@@ -1,0 +1,352 @@
+# {{ .Name }}
+
+[![Go](https://img.shields.io/badge/Go-{{ .GoVersion }}-00ADD8.svg?logo=go&logoColor=white)](https://go.dev/dl/)
+[![Htmx](https://img.shields.io/badge/Htmx-{{ .HtmxVersion }}-3366CC.svg)](https://htmx.org)
+[![Tailwind CSS](https://img.shields.io/badge/Tailwind_CSS-v{{ .TailwindVersion }}-38BDF8.svg?logo=tailwindcss&logoColor=white)](https://tailwindcss.com)
+[![yd](https://img.shields.io/badge/built%20with-yd-181717.svg?logo=github&logoColor=white)](https://github.com/shibingli/yd)
+
+基于 [yd](https://github.com/shibingli/yd) 全栈单体（Modern Monolith）框架生成的项目：
+Go {{ .GoVersion }} + Htmx {{ .HtmxVersion }} + Tailwind CSS {{ .TailwindVersion }}，后端直接返回 HTML 片段，前端由 Htmx 作为事件总线驱动。
+
+- 模块路径：`{{ .Module }}`
+- 开源协议：{{ .License }}（见 `LICENSE`）
+- 资产根目录：`{{ .AssetRoot }}`
+
+开箱即用的是一套**多租户后台骨架**：登录授权（租户 / 用户 / 角色 / 权限）、首登改密、OpenAPI 文档、国际化与三态主题都已接好，
+数据库、Redis、消息队列与 gRPC 由脚手架参数决定是否接入。
+
+## 已选特性
+
+| 特性 | 状态 |
+|---|---|
+| 数据库 | {{ .DB }} |
+| redis 缓存 | {{ .Redis }} |
+| asynq 队列 | {{ .Asynq }} |
+| grpc 双通道 | {{ .GRPC }} |
+| 登录鉴权（多租户 / 用户 / 角色 / 权限） | {{ .Auth }} |
+| i18n | {{ .I18n }} |
+| tailwind | {{ .Tailwind }} |
+| htmx 扩展 | {{ range $i, $e := .HtmxExts }}{{ if $i }}, {{ end }}{{ $e }}{{ end }} |
+
+## 目录结构
+
+```
+{{ .Name }}/
+├── cmd/app/            # 程序入口（只做装配、信号与退出）
+├── internal/
+│   ├── controller/     # 编排：整页与片段返回，处理器上带完整 OpenAPI 注解
+│   ├── service/        # 业务规则（鉴权、租户、用户、角色、实时推送）
+│   ├── repository/     # 持久化边界：装配框架 auth.Store 与演示种子数据
+│   ├── model/          # 模型、能力常量与双语展示文案
+│   ├── middleware/     # 会话提升、租户解析、安全头
+│   └── router/         # 路由与鉴权链路装配、OpenAPI 文档装配
+├── configs/            # 分层配置（config.yaml + config.local.yaml.template）
+├── data/               # 本地数据目录（SQLite 库文件默认落点，含 .gitkeep 占位）
+├── {{ .AssetRoot }}/            # 前端资产（templates / static / i18n / assets.lock.json）
+├── build/              # 构建产物与打包说明
+└── docs/               # 协同约束与文档
+```
+
+## 快速开始
+
+```bash
+# 1. 拉取依赖（模块发布后）
+go mod tidy
+
+# 2. 本地开发（热重载：Go 编译重启 + Tailwind 监听 + 模板局部刷新）
+yd dev
+
+# 3. 跨平台静态打包（Tailwind 剪裁压缩 + go:embed + 单二进制）
+yd build
+
+# 4. 构建 scratch 生产镜像
+yd docker --tag {{ .Name }}:latest
+```
+
+启动后打开 <http://127.0.0.1:8080/>，未登录的访问会被送到登录页。
+
+## 第一次运行：默认凭据
+
+演示数据只在**租户表为空**时写入一次（判断本身只有这一条），第二次、第三次启动都不会再写任何一行；
+两个并发的副本同时启动时，先写入的那个赢，另一个把「唯一索引冲突」当作「已经初始化过」而不是错误。
+一次写入的内容是：两个租户、每个租户的内置角色（`owner` / `admin` / `auditor` / `member`，各自的能力绑定取自框架注册表的
+`authz.BuiltinGrants()`）、以及每个租户的一个 `owner` 管理员。
+
+口令**不硬编码在源码里**，来源按优先级只有两处：
+
+| 来源 | 说明 |
+|---|---|
+| `seed.admin_password`（`configs/config.yaml`） | 常规做法：本机开发写进配置文件，生产用环境变量注入 |
+| `YD_SEED_ADMIN_PASSWORD`（环境变量） | 覆盖配置文件；**生产环境请只走这一条** |
+
+未配置时的行为取决于 `app.env`：
+
+- **`development`**：用文档化的开发口令 `Admin@123456`（`internal/meta.DevSeedAdminPassword`），并**每次启动都告警**；
+- **其它任何环境**（`production` / `staging` / 未声明）：**拒绝写入任何种子数据**，打印一条明确的告警，应用照常启动——
+  但此时一个租户、一个管理员都不会被创建，直到你把 `YD_SEED_ADMIN_PASSWORD` 设好并重启。
+  一个口令公开可查的管理员账号绝不在真实环境中被创建。
+
+| 租户（登录页"租户"字段） | 租户名称 | 登录名 | 初始口令 |
+|---|---|---|---|
+| `demo` | 演示租户 | `admin` | `seed.admin_password`（开发环境缺省为 `Admin@123456`） |
+| `acme` | 示例租户 ACME | `acme-admin` | 同上，两个租户的管理员共用同一个种子口令 |
+
+> **首次登录后请立即修改默认口令** —— 登录页与首页横幅都会提醒，账号页的「修改口令」表单完成改密与 `sec_key` 轮换
+> （改密或轮换 `sec_key` 都会让此前签发的全部令牌立即失效，因此保存后需要重新登录）。
+> README、登录页与横幅引用的是 `internal/meta` 里的同一句 `SeedPasswordNotice`，改文案只需改那一处。
+> 口令明文永不进入日志：启动日志与告警只说「用了哪一个来源」，从不说口令是什么。
+
+第二个租户不是装饰：它是「跨租户不可见」这条硬边界的可验证样本——用 `demo` 的令牌去读 `acme` 的数据，
+得到的只会是「没有这条数据」，而不是任何能推断出对方是否存在的差异。
+
+库里保存的永远是 SM3 + 盐 + 迭代的散列与逐用户 `sec_key`；明文只在你自己的配置或环境变量里存在。
+
+The seed is written once, only while the tenant table is empty: a second or third start writes no further row, and when two
+replicas start together the first one wins while the other reads the unique-index conflict as "already initialised" rather
+than as an error. One run creates two tenants, their built-in roles (`owner` / `admin` / `auditor` / `member`, with the
+capability bindings taken from the framework registry's `authz.BuiltinGrants()`) and one `owner` administrator per tenant.
+The password is never hard-coded: it comes from `seed.admin_password` or `YD_SEED_ADMIN_PASSWORD`, and an unset value is
+answered differently per environment — development falls back to the documented `Admin@123456` and warns on every start,
+while every other environment refuses the seed with an explicit warning and creates no tenant and no administrator at all
+until the variable is set. The clear text never reaches a log.
+
+## 数据落在哪里
+{{- if ne .DB "none" }}
+
+`internal/repository` 在启动时打开配置里的数据库、执行一次幂等的自动迁移，再把框架的 GORM 实现注入 `auth.Service`：
+
+- **表由框架拥有**：`yd_auth_tenants`、`yd_auth_users`、`yd_auth_roles`、`yd_auth_role_permissions` 四张表由 `security/auth/gormstore.Migrate` 建出，
+  索引随表一起建好（库内唯一租户标识、租户内唯一登录名、租户内唯一角色名、角色权限唯一等）。`internal/model` 只描述渲染用的视图类型，不拥有 DDL。
+- **SQLite 默认落点**：`configs/config.yaml` 的 `db.dsn` 指向 `data/{{ .Name }}.db`（相对进程工作目录），WAL 边车文件 `-wal` / `-shm` 与库文件一起被 `.gitignore` 忽略。
+  驱动不会自建目录，因此 `data/` 随项目一起生成（`data/.gitkeep`）；**生产环境请把 `db.dsn` 写成绝对路径**，并确保目录已存在。
+- **连接池与时长**：`db.maxconn`、`db.maxidle`、`db.slow_threshold` 与框架的 `data/gormx` 同源；单条鉴权语句的上限是 `auth.gorm.query_timeout`（`0` 表示不额外设限）。
+- **退出时收尾**：进程退出由 `app.OnShutdown` 钩子（路由里注册的 `store.Close()`）关闭连接池。
+
+**连不上库不会挡住启动**：打开连接池或迁移失败时，`repository.Open` 退回内存实现并打印一条明确的告警（提示数据不持久），
+应用照常运行、登录照常可用；没有配置 `db.dsn` 时同理。
+
+The data lives in the database: `internal/repository` opens the configured pool at startup, runs an idempotent migration and
+injects the framework's GORM implementation into `auth.Service`. The four tables (`yd_auth_tenants`, `yd_auth_users`, `yd_auth_roles`,
+`yd_auth_role_permissions`) and their indexes belong to the framework and are created by `security/auth/gormstore.Migrate`, while
+`internal/model` only describes view types. The SQLite sample DSN lands the file in `data/` (relative to the process working
+directory) and the driver never creates that directory, which is why `data/.gitkeep` ships with the project — use an absolute
+path in production. A database that cannot be opened or migrated never blocks startup: `repository.Open` falls back to the
+in-memory implementation with an explicit "data is not persistent" warning, and the application keeps running.
+{{- else }}
+
+本项目生成时未选择数据库（`yd new --db none`）：租户、用户、角色与权限都存在框架的内存实现里，功能一样齐全，
+但进程一重启数据就没了 —— `repository.Open` 会在启动时如实告警这一点。
+想持久化，就在 `configs/config.yaml` 里补一段 `db`（`driver` / `dsn`），并用 `yd new --db sqlite`（或 mysql / postgres）重新生成项目：
+上层代码一行都不用改，因为 `Open` 是唯一的装配点。
+
+This project was generated without a database (`yd new --db none`): tenants, users, roles and permissions live in the
+framework's in-memory implementation and everything is gone at the next restart, which startup states explicitly. To make it
+persistent, add a `db` section (`driver` / `dsn`) to `configs/config.yaml` and regenerate the project with a database
+selected (`yd new --db sqlite`, or mysql / postgres): nothing above the storage layer changes, because `Open` is the single
+assembly point.
+{{- end }}
+
+## 登录与多租户
+
+- **口令以密文上网**：登录表单标注 `data-yd-encrypt="sm2"`，浏览器用 `/guomi/pubkey` 取到的公钥加密口令字段，
+  再附上 `X-YD-Encrypted: sm2` 请求头；服务端用 SM2 私钥解密，请求体里不留任何明文。
+- **会话**：登录成功后令牌写入 `HttpOnly` + `SameSite=Lax` 的 `yd_token` cookie；浏览器请求由 `middleware.Promote`
+  提升成 `Authorization: Bearer <token>`，与 API 客户端走同一条校验路径。
+- **租户来源**：登录表单的「租户」字段填标识（`demo`）或 `tn_` ID；也接受 `X-Tenant` 请求头与子域名。
+  带令牌的请求以令牌里的 `tid` 声明为准，请求头或子域名与它不一致即 403。
+- **能力（权限）**：能力标识由框架注册表 `authz` 声明（`authz.PermUserRead`、`authz.PermUserUpdate`、`authz.PermRoleManage`、
+  `authz.PermTenantCreate` 等十六个），`internal/model` 只是它的一份渲染视图；
+  路由上用 `authz.Require(authz.PermXxx)` 挂守卫，模板与前端用 `can .Perm.XxxYyy` / `data-yd-perm` 读同一份授权，
+  角色管理页与权限矩阵页可以把能力授予或回收到任意角色。角色与能力的绑定**只**写在注册表的 `authz.BuiltinGrants()` 里，
+  本项目一个角色名、一个能力标识都不写，因此 `yd authz check` 永远通过。
+- **拒绝的形态**：普通浏览请求得到 `303 → /login`，htmx 请求与 API 客户端得到 `401` 片段；越权一律按「没有这条数据」处理。
+
+## 环境变量
+
+环境变量前缀固定 `YD_`，下划线自动映射为多级嵌套（`YD_SERVER_PORT` → `server.port`）。
+优先级由高到低：**命令行参数 > 环境变量（含 `.env`）> 配置文件 > 框架默认值**。
+复制 `.env.template` 为 `.env` 后按需修改，`.env` 不入库。
+
+鉴权相关的两个键（`configs/config.yaml` 的 `auth` 段）：
+
+| 键 | 环境变量 | 说明 |
+|---|---|---|
+| `auth.master_key` | `YD_AUTH_MASTER_KEY` | 封装每个用户的 `sec_key`。留空时使用内置开发密钥并告警，**生产环境必须注入** |
+| `auth.token_ttl` | `YD_AUTH_TOKEN_TTL` | 令牌有效期（如 `2h`），登录 cookie 的 `MaxAge` 与它同源 |
+
+## 安装为系统服务
+
+`yd service` 把构建产物注册为系统服务：Windows 走服务控制管理器（SCM），Linux 走 systemd，macOS 走 launchd。
+先 `yd build` 产出 `bin/{{ .Name }}[.exe]`，再安装；安装与变更服务需要管理员（Windows）或 root（Linux/macOS）权限。
+
+```bash
+# 1. 构建产物（约定落点 bin/{{ .Name }}[.exe]）
+yd build
+
+# 2. 安装并启动（服务名缺省取 .yd.json 的 name，其次目录名；可用 --name 覆盖）
+yd service install
+yd service start
+
+# 3. 状态 / 重启 / 停止 / 卸载
+yd service status
+yd service restart
+yd service stop
+yd service uninstall
+```
+
+常用标志：`--name`、`--display-name`、`--description`、`--binary`、`--dir`、`--user`、`--args "-service run"`。
+服务名、显示名、描述、运行账号、启动参数、依赖与自动重启也可写进 `configs/config.yaml` 的 `service` 段
+（`YD_SERVICE_*` 环境变量同样生效）。省略 `--binary` 时按 `bin/<项目名>[.exe]` 查找，找不到就用 `build` 包编译一次。
+
+程序入口有三种运行模式：前台（开发调试）、服务模式（被服务管理器拉起，或显式 `-service run`）、控制动作
+（`-service install|uninstall|start|stop|restart|status`）。服务模式的停止只取消 context 并等待 `app.Run` 返回——
+在途请求被等待收尾，进程绝不 `os.Exit`；因此 `ExecStart` 不要包一层 shell（如 `sh -c`），否则停止信号传不到进程。
+
+Windows（管理员 PowerShell / cmd）：
+
+```bat
+:: 等价于 yd service install：直接调用 SCM；卸载用 sc delete {{ .Name }}
+sc create {{ .Name }} binPath= "D:\apps\{{ .Name }}\bin\{{ .Name }}.exe -service run" start= auto
+sc start {{ .Name }}
+sc query {{ .Name }}
+```
+
+Linux（systemd，root）：
+
+```ini
+# /etc/systemd/system/{{ .Name }}.service
+[Unit]
+Description={{ .Name }}
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/{{ .Name }}
+ExecStart=/opt/{{ .Name }}/bin/{{ .Name }} -service run
+Restart=always
+RestartSec=5
+# 口令与主密钥只经环境变量注入，绝不写进单元文件
+Environment=YD_AUTH_MASTER_KEY=
+
+[Install]
+WantedBy=multi-user.target
+```
+
+```bash
+sudo systemctl daemon-reload
+sudo systemctl enable --now {{ .Name }}
+systemctl status {{ .Name }}
+```
+
+## 无 Dockerfile 打包（ko）
+
+镜像有两条并列的打包路径，产物要求一致（`CGO_ENABLED=0` 静态链接、可直接跑在 `scratch` 级空镜像里），
+区别只在镜像从哪里来：
+
+| 路径 | 输入 | 说明 |
+|---|---|---|
+| `yd docker` | `Dockerfile` | 多阶段构建：`golang` 阶段编译 → `scratch` 阶段运行；构建逻辑写在 Dockerfile 里，需要本机有 docker |
+| `yd ko` | Go 源码 | 直接编译并组装镜像层，**不需要 Dockerfile**；只用到一个 ko 可执行文件 |
+
+`yd ko` 驱动的是 ko 的外部 CLI（与 `yd docker` 调用 docker CLI 同构），**ko 不是本项目的 Go 依赖**，
+不进 `go.mod`：它是**可选外部工具**，没安装只会让 `yd ko` 失败并给出安装提示
+（`go install github.com/google/ko@latest`），`yd build` / `yd dev` / `go test` 一概不受影响。
+二进制解析顺序：`--binary` → `YD_KO_BIN` → `<项目>/.yd/tools/ko[.exe]` → `PATH`。
+
+```bash
+# 1. Build and load into the local docker daemon, no push | 构建并装进本地 docker 守护进程，不推送
+yd ko --local --repo {{ .Name }}
+
+# 2. Build and push to an image registry | 构建并推送到镜像仓库
+yd ko --repo registry.example.com/{{ .Name }} --tags latest,v1.0.0 --push
+
+# 3. Multi-platform build: one manifest list for linux/amd64 and linux/arm64 | 多平台构建：一次产出 linux/amd64 与 linux/arm64 的 manifest list
+yd ko --repo registry.example.com/{{ .Name }} --tags v1.0.0 \
+      --platforms linux/amd64,linux/arm64 --push
+
+# 4. Override the base image (the default is cgr.dev/chainguard/static) | 覆盖基础镜像（缺省 cgr.dev/chainguard/static）
+yd ko --repo registry.example.com/{{ .Name }} --base-image registry.example.com/base/static:latest --push
+
+# 5. Pick the entry package and the working directory | 指定入口包与工作目录
+yd ko --package ./cmd/app --dir . --repo registry.example.com/{{ .Name }} --push
+```
+
+- **`--local` 与 `--push` 的区别**：`--local` 把结果装进本机 docker 守护进程（等价于 ko 的 `-L/--local`），
+  **不出网、不需要仓库**，镜像名形如 `ko.local/<导入路径>`，适合本机跑一遍；`--push` 把结果推到 `--repo`
+  指定的仓库（等价于 ko 的 `--push`），交付与部署走这条。两者含义不同，不能互相替代：自测用 `--local`，
+  交付用 `--push`。推送前请先在目标仓库登录（`docker login`，ko 复用 Docker 的凭据配置 `~/.docker/config.json`；
+  也可以直接用 ko 自己的 `ko login`）。
+- **多平台**：`--platforms linux/amd64,linux/arm64` 落到 ko 的 `--platform`（**注意 ko 侧的标志是单数 `--platform`**），
+  一次构建产出 manifest list；传 `all` 则取基础镜像支持的全部平台。多平台结果面向仓库分发，本机验证用单平台 + `--local` 即可。
+- **基础镜像**：`--base-image` 覆盖 ko 的缺省基础镜像 `cgr.dev/chainguard/static`（ko 读的是 `KO_DEFAULTBASEIMAGE`）。
+  基础镜像决定镜像里的证书、时区与运行账号，替换前先确认替代品同样**不含 shell 与包管理器**，
+  否则镜像体积与攻击面都会退回到普通发行版镜像的水平。
+- **配置固化**：`configs/config.yaml` 的 `ko` 段（`YD_KO_*` 环境变量同样生效）可以写仓库、标签、平台与基础镜像，
+  一次配好之后日常只需 `yd ko`；命令行标志优先于配置，配置优先于缺省值。
+
+### 离线 / 内网怎么打
+
+ko 只把 Go 源码编译成镜像层，唯一需要联网的部分是**拉取基础镜像**和**推送结果**，因此离线环境只要把这两处搬到内网即可：
+
+1. **基础镜像先搬进内网**：在外网把 `cgr.dev/chainguard/static` 同步到内网 registry（例如
+   `registry.internal/base/static:latest`），然后用 `--base-image registry.internal/base/static:latest`
+   指定它，或把地址写进 `configs/config.yaml` 的 `ko.base_image`（等价的 `YD_KO_BASE_IMAGE`）固化下来。
+   从那以后构建不再访问公网，源码编译完全在本机完成。
+2. **结果推内网 registry**：把 `--repo` 指向内网仓库（如 `--repo registry.internal/{{ .Name }}`），
+   推送前先登录一次，凭据留在 Docker 的凭据配置里即可被 ko 复用。内网 registry 走标准 TLS 校验，
+   请让它的证书由内网 CA 签发并把该 CA 装进系统信任库——不要指望关掉校验。
+3. **完全不出网的本机验证**：`yd ko --local --repo {{ .Name }}` 只需要一个能被本机读取的基础镜像，
+   结果直接装进本地 docker 守护进程，全程不碰任何仓库。
+4. **配合 `yd build --offline`**：镜像之前的那一步（Tailwind 剪裁 + `go:embed` + 静态编译）可用
+   `yd build --offline` 强制 `-mod=vendor`，整条链路都不触网。容器内不需要任何运行时依赖，
+   前端资产已经嵌进同一个二进制里。
+
+## 可选外部工具
+
+有四个能力依赖**外部工具**，它们都不是本项目的 Go 依赖（不进 `go.mod`），由 `yd tools` 统一探测与安装：
+
+| 工具 | 用途 | 缺失时的影响 |
+|---|---|---|
+| `betteralign` | 结构体内存对齐检查与重排（`yd align --apply`） | 只有 `yd align` 会报错并给出安装提示 |
+| `ko` | 无 Dockerfile 的镜像打包（`yd ko`） | 只有 `yd ko` 会报错并给出安装提示 |
+| `tailwindcss` | 样式表编译（Tailwind CSS v4 standalone） | `yd dev` / `yd build` 的样式表阶段以告警跳过，构建照常完成 |
+| `docker` | Dockerfile 多阶段镜像构建（`yd docker`） | 只有 `yd docker` 会报错，并提示安装 Docker Engine / Docker Desktop |
+
+**工具缺失不会让 `yd build` / `yd dev` / `go test` 失败**：只有在真正用到对应能力时才会报错，
+并在错误里带上安装提示。
+
+```bash
+# Probe all four tools: status, path or version, and the install hint when one is missing | 探测四个工具：状态、路径或版本，以及缺失时的安装提示
+yd tools check
+
+# Install the missing tools (defaults to every go-installable one); name a subset to narrow it down | 安装缺失的工具（缺省为全部可 go install 的项），也可只装指定的一两个
+yd tools install
+yd tools install betteralign ko
+```
+
+安装落在**项目内**的 `.yd/tools/`（`GOBIN` 被指向它的绝对路径），那里正是解析链的第三段，
+因此装完立刻可用、无需任何额外配置；`yd tools` 是这几个工具唯一的探测与安装入口，
+**不会改动你的 `PATH`，也不会往 `~/go/bin` 写东西**。
+
+`tailwindcss` 与 `docker` 不支持 `go install`：前者由 `yd assets update` 获取（也可自行放进 `.yd/tools/`），
+后者需要安装 Docker Engine / Docker Desktop；`yd tools install` 对这两者只给出获取途径。
+
+`yd new` 创建项目时，收尾会探测一次并打印缺失清单：交互模式会询问「现在就安装缺失的工具吗？」（默认是），
+答是即安装；非交互场景用 `--install-tools` 显式安装；`--yes` 只建项目、**不触网**。
+安装失败只打印告警，不影响建项目成功。
+
+## 界面约定
+
+- **国际化**：文案在 `{{ .AssetRoot }}/i18n/{zh-CN,en}.yaml`，模板只写 `{{ "tr \"nav.users\"" }}` 这样的键；
+  两份目录的键集合必须严格一致，少一个键页面上就会显示出键名。
+- **主题**：右上角按钮在浅色 / 深色 / 跟随系统之间循环，结果记在 `localStorage` 并由 `<html data-theme>` 承载，
+  样式只引用语义变量，因此深色模式不需要第二套样式表。
+- **语言切换**：切换语言只换入 `#yd-workspace`，不刷新整页；选择同时写入 `yd_lang` cookie，后续表单提交沿用同一语言。
+- **接口文档**：`/openapi.json` 与自包含的 `/docs`；新增端点后按 `docs/developer_guidelines.md` §9.2 补注解即可被收录。
+
+## 团队约定
+
+- 注释与日志文案逐行中英同步（`English | 中文`）；错误用 `errx` 声明哨兵；日志走 `logx`；JSON/Base64 走 `jsonx`/`b64x`。
+- 提交信息使用中文 Conventional Commits，署名固定 `Co-Authored-By: Eric Shi <shibingli@sina.com>`。
+- 详见 `CLAUDE.md`、`AGENTS.md` 与 `docs/developer_guidelines.md`。

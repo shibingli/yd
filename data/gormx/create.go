@@ -9,8 +9,8 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 	"gorm.io/gorm"
 
-	"github.com/shibingli/yd/errx"
-	"github.com/shibingli/yd/logx"
+	"github.com/shibingli/yd/core/errx"
+	"github.com/shibingli/yd/core/logx"
 )
 
 // The error codes that mean "the target database does not exist", plus the constants the CREATE

@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/shibingli/yd/afs"
+	"github.com/shibingli/yd/core/afs"
 	"github.com/shibingli/yd/web"
 )
 

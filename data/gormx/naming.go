@@ -13,10 +13,10 @@ const (
 	// TablePrefix is the prefix of every table the framework names: the structural type User lands in yd_users,
 	// never in users, so a framework table can never collide with a table the application writes itself. GORM
 	// applies the prefix only to tables it names by itself, which is why a table whose name is pinned by a
-	// TableName() method carries the very same prefix by hand (see auth/gormstore and its yd_auth_* tables). |
+	// TableName() method carries the very same prefix by hand (see security/auth/gormstore and its yd_auth_* tables). |
 	// TablePrefix 是框架命名的每一张表的前缀：结构体 User 落在 yd_users，而不是 users，因此框架的表永远不会
 	// 与使用方自己写的表撞名。GORM 只把它施加于自己命名的表，因此由 TableName() 固定表名的表必须手写同一个
-	// 前缀（见 auth/gormstore 及其 yd_auth_* 系列表）。
+	// 前缀（见 security/auth/gormstore 及其 yd_auth_* 系列表）。
 	TablePrefix = "yd_"
 	// IndexPrefix is the prefix of every index name this strategy derives. | IndexPrefix 是本策略派生的每一个索引名的前缀。
 	IndexPrefix = "yd_idx_"

@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/shibingli/yd/router"
+	"github.com/shibingli/yd/http/router"
 )
 
 // corsRouter builds a router guarded by CORS with one echo handler. | corsRouter 构造一个由 CORS 保护的、带回显处理器的路由器。

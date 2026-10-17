@@ -1,0 +1,74 @@
+// 本文件是会话令牌的搬运层：把浏览器 cookie 里的令牌提升为 Authorization 请求头，再交给框架的鉴权中间件校验。
+// This file moves session tokens around: it promotes the token held in a browser cookie into the Authorization header
+// and hands it to the framework's authentication middleware.
+
+package middleware
+
+import (
+	"strings"
+
+	"{{ .Module }}/internal/meta"
+	"{{ .YdModule }}/http/router"
+)
+
+// SessionOptions configures Promote. | SessionOptions 配置 Promote。
+type SessionOptions struct {
+	// Cookie is the cookie carrying the token, internal/meta's TokenCookie by default. | Cookie 是承载令牌的 cookie 名，默认 internal/meta 的 TokenCookie。
+	Cookie string
+	// Header is the destination header, Authorization by default. | Header 是目标请求头，默认 Authorization。
+	Header string
+	// Prefix is the authentication scheme prefix, "Bearer " by default. | Prefix 是请求头的认证方案前缀，默认 "Bearer "。
+	Prefix string
+}
+
+// withDefaults fills the empty fields with the documented defaults. | withDefaults 用约定取值填充空字段。
+func (o SessionOptions) withDefaults() SessionOptions {
+	if o.Cookie == "" {
+		o.Cookie = meta.TokenCookie
+	}
+	if o.Header == "" {
+		o.Header = meta.AuthHeader
+	}
+	if o.Prefix == "" {
+		o.Prefix = meta.BearerPrefix
+	}
+	return o
+}
+
+// Promote 把 cookie 中的令牌写进 Authorization 请求头，请求头已有取值时原样不动。
+// Promote copies the cookie token into the Authorization header and leaves an existing header untouched.
+//
+// 为什么要这一层：框架的 auth.Middleware 只认一个来源（DefaultTokenLookup 读 Authorization），
+// 浏览器却拿不到 HttpOnly cookie 里的令牌去自己拼请求头。于是链路变成「cookie → 请求头 → 校验」，
+// 浏览器与 API 客户端（直接带 Authorization）走的是同一条校验路径，令牌存储方式不影响鉴权逻辑。
+// Why this layer exists: the framework's auth.Middleware reads exactly one source (DefaultTokenLookup reads
+// Authorization) while a browser cannot read an HttpOnly cookie to build that header itself. The chain therefore
+// becomes "cookie → header → verification": browsers and API clients (which send Authorization directly) share one
+// verification path and the storage of the token never leaks into the auth logic.
+//
+// 请求头优先于 cookie：显式带了 Authorization 的调用方（例如自动化测试里拿着一枚只读令牌）不会被浏览器里的会话覆盖。
+// The header wins over the cookie: a caller that sends Authorization explicitly (an automated test holding a read-only
+// token, say) is never overridden by the browser session.
+//
+// CSRF 说明：令牌放在 SameSite=Lax 的 cookie 里，跨站表单 POST 不会携带它；需要更强的保证时给写操作加同源校验，
+// 或让前端改用请求头（本中间件对两种方式一视同仁）。
+// CSRF note: the token lives in a SameSite=Lax cookie, so a cross-site form POST never carries it; for a stronger
+// guarantee add an origin check to the write endpoints or have the front end send the header instead (this middleware
+// treats both identically).
+func Promote(o SessionOptions) router.Middleware {
+	o = o.withDefaults()
+	return func(c *router.Ctx) {
+		if strings.TrimSpace(c.Header(o.Header)) != "" {
+			c.Next()
+			return
+		}
+		token := strings.TrimSpace(c.Cookie(o.Cookie))
+		if token == "" {
+			c.Next()
+			return
+		}
+
+		c.Request.Header.Set(o.Header, o.Prefix+token)
+		c.Next()
+	}
+}

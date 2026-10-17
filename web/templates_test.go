@@ -29,8 +29,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/shibingli/yd/authz"
-	"github.com/shibingli/yd/jsonx"
+	"github.com/shibingli/yd/core/jsonx"
+	"github.com/shibingli/yd/security/authz"
 )
 
 // templateGrants is what the fixture subject holds, keyed by tokens of the real registry so a

@@ -18,7 +18,7 @@ package web
 import (
 	"embed"
 
-	"github.com/shibingli/yd/afs"
+	"github.com/shibingli/yd/core/afs"
 )
 
 // embedded holds the front-end tree; the "all:" prefix also matches dot-prefixed placeholder files such as templates/.gitkeep. | embedded 保存前端目录树；"all:" 前缀连 templates/.gitkeep 这类点号开头的占位文件一并匹配。

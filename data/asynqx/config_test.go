@@ -10,8 +10,8 @@ import (
 	"github.com/hibiken/asynq"
 	"github.com/spf13/afero"
 
-	"github.com/shibingli/yd/afs"
-	"github.com/shibingli/yd/config"
+	"github.com/shibingli/yd/core/afs"
+	"github.com/shibingli/yd/core/config"
 	"github.com/shibingli/yd/data/asynqx"
 )
 

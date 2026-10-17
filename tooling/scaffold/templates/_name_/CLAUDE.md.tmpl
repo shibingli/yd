@@ -1,0 +1,193 @@
+# CLAUDE.md — {{ .Name }} 项目 AI 助手全局上下文
+
+本文件定义 AI 助手（Claude / 其他编码代理）在 **{{ .Name }}** 项目内的全局上下文与硬性约束。
+项目由 [yd](https://github.com/shibingli/yd) 脚手架生成，遵循 Apache-2.0 协议，归属团队 YunDev。
+
+## 1. 项目身份
+
+| 项 | 值 |
+|---|---|
+| 项目名 | {{ .Name }} |
+| 模块路径 | {{ .Module }} |
+| 生成脚手架 | yd（https://github.com/shibingli/yd） |
+| 开源协议 | {{ .License }}（见 `LICENSE`） |
+| 资产根目录 | `{{ .AssetRoot }}`（登记于 `.yd.json` 与 `{{ .AssetRoot }}/assets.lock.json`） |
+
+## 2. 已选特性
+
+| 特性 | 状态 |
+|---|---|
+| 数据库 | {{ .DB }} |
+| redis 缓存 | {{ .Redis }} |
+| asynq 队列 | {{ .Asynq }} |
+| grpc 双通道 | {{ .GRPC }} |
+| 登录鉴权（多租户 / 用户 / 角色 / 权限） | {{ .Auth }} |
+| i18n | {{ .I18n }} |
+| tailwind | {{ .Tailwind }} |
+| htmx 扩展 | {{ range $i, $e := .HtmxExts }}{{ if $i }}, {{ end }}{{ $e }}{{ end }} |
+
+代码中同一份清单由 `internal/router` 的 `Features` 变量承载，新增特性必须同步更新该变量与本表。
+
+## 3. 技术栈核心版本
+
+- Go **{{ .GoVersion }}**（`go.mod` 中 `go {{ .GoVersion }}`）
+- Htmx **{{ .HtmxVersion }}** 作为前端事件总线；Tailwind CSS **{{ .TailwindVersion }}** 作为样式标准（`@theme` 语义化变量，默认蓝色系）
+- 不依赖 Node.js 编译管道：Tailwind 编译由 `yd` 脚手架静默驱动
+- 前端资产一律 `go:embed` 打包进二进制，**严禁**运行时从公网 CDN 动态引入
+- 框架能力（`{{ .YdModule }}`）：`logx` 零拷贝日志、`errx` 声明式哨兵错误、`jsonx`/`b64x` 硬件自适应编解码、`router`/`htmx`/`sse`/`ws`/`jwt`/`guomi` 等中间件与插件
+- 鉴权能力（`{{ .YdModule }}/security/auth`）：租户、用户、角色、能力与令牌签发器；本项目在 `internal/repository` 里装配它，在 `internal/model` 里声明能力常量与展示文案
+
+## 4. 配置与环境变量
+
+配置优先级由高到低：**命令行参数 > 环境变量（含 `.env`）> 配置文件 > 框架默认值**。
+环境变量前缀固定 **`YD_`**，下划线自动映射为多级嵌套：`YD_SERVER_PORT` → `server.port`、`YD_DB_MAXCONN` → `db.maxconn`。
+`.env` 不入库（已被 `.gitignore` 忽略），仓库内只保留 `.env.template`。
+
+鉴权相关的两个键（见 `configs/config.yaml` 的 `auth` 段）：`auth.master_key`（`YD_AUTH_MASTER_KEY`）封装每个用户的
+`sec_key`，**生产环境必须注入**，留空时 `internal/router` 会退回内置开发密钥并打印告警；`auth.token_ttl`（`YD_AUTH_TOKEN_TTL`）
+决定登录会话的时长，登录 cookie 的 `MaxAge` 与它同源。
+
+## 5. 代码风格（强制）
+
+1. **注释与日志文案中英文同步**：所有注释（包文档、导出符号 doc、行内注释）**以及所有日志文案**
+   逐行采用 `English | 中文`，以半角竖线加两侧空格分割，**英文在前、中文在后**：
+
+   ```go
+   // List returns the newest users first. | List 按最新优先返回用户列表。
+   log.Info("server started | 服务器已启动", logx.Str("addr", addr))
+   ```
+
+   豁免：`//go:build` 编译指令、`// Code generated ... DO NOT EDIT.` 生成标记、注释内的代码示例/目录树/URL。
+2. **错误一律声明为哨兵（errx）**：包级 `var ErrX = errx.New("english | 中文")`；
+   **禁止 `fmt.Errorf`**，附加细节用 `errx.Detail`，保留底层错误用 `errx.Wrap` / `errx.WrapDetail`；
+   判定只用 `errors.Is` / `errors.As`。
+   自检：`grep -rn 'fmt\.Errorf' --include=*.go . | grep -v '^./core/errx/'` 必须无命中。
+3. **日志一律走 logx**：禁止标准库 `log`、禁止 `fmt.Print*` 当日志、禁止 zap/zerolog/logrus。
+   ```go
+   log := logx.New(logx.Options{Service: "{{ .Name }}"})
+   log.Warn("slow query | 慢查询", logx.Dur("elapsed", d), logx.Str("sql", sql))
+   ```
+4. **JSON / Base64 一律走封装层**：`{{ .YdModule }}/core/jsonx`（`Marshal`/`Unmarshal`/`NewEncoder`/`NewDecoder`/`Valid`）
+   与 `{{ .YdModule }}/core/b64x`（`StdEncoding`/`URLEncoding`/…）；**禁止**直接 `import "encoding/json"` 或 `"encoding/base64"`。
+   自检：`grep -rn '"encoding/json"\|"encoding/base64"' --include=*.go .` 必须无命中。
+5. **安全**：口令哈希走 `guomi`（SM3 + 盐 + 迭代），比较必须常量时间；敏感字段传输前置 SM2 加密（`data-yd-encrypt="sm2"`）；
+   严禁在源码、模板、测试夹具中硬编码密钥、口令、Token。
+6. **格式与测试**：`gofmt`、`go vet ./...` 零告警；测试表驱动、涉及并发必须 `-race` 通过；新增包须在包文档注释说明职责边界。
+
+## 6. 鉴权与多租户（强制）
+
+这一节约束的是「谁能看到什么」：违反其中任何一条，后果都不是页面难看，而是另一个租户的数据被读到或被改动。
+
+1. **租户只来自令牌，不来自请求**：查询一律带上 `tenantID`，且该值只能取自 `internal/middleware` 从令牌 `tid` 声明解析出的上下文。
+   子域名与 `X-Tenant` 请求头只用于**解析**租户（登录页预填、匿名请求定位），一旦与令牌声明不一致即 403；
+   禁止从表单字段或查询参数取租户 ID 去查数据。
+   ```go
+   tenantID, ok := middleware.TenantID(ctx) // 唯一可信来源 | the only trusted source
+   ```
+2. **未知与越权同形**：跨租户或已删除的实体一律返回 `auth.ErrNotFound`（404 语义），**绝不**返回 `auth.ErrForbidden`。
+   响应上的任何差异都会变成「另一个租户是否存在」的探针，这是 `auth.Store` 的接口契约，换存储实现时同样受它约束。
+3. **能力守卫挂在路由上**：受保护端点必须显式声明 `authz.Require(authz.PermXxx)`，处理器内部不得再抄一份权限判断；
+   `authz.Require` 就是 `auth.RequirePermission` 的注册表包装（它把标识、常量名、数据键、脚本键四种写法解析成注册过的标识），
+   因此路由上绝不允许出现 `auth.RequirePermission("user:create")` 这样的字面量调用；
+   页面上按钮与导航项的显隐由模板辅助函数 `can` 读注册表判定（`can .Perm.XxxYyy` 或 `can "PermXxxYyy"`），
+   控制器不再算 `Can*` 布尔值，前端 `data-yd-perm` 读的是同一份授权。
+4. **会话链路顺序不可调换**：`middleware.Promote`（cookie → `Authorization`）→ `auth.Middleware`（验签、有效期、每用户 `sec_key`）
+   → `authz.Middleware`（用该用户构造本请求的判定主体）→ `middleware.Tenant`（以令牌为准定租户）。
+   租户中间件必须排在鉴权之后，否则任何请求头都会变成可信输入；权限中间件必须排在鉴权之后，否则模板只会看到一个匿名主体。
+5. **改密与 `sec_key` 轮换即全域登出**：两者都会轮换 `sec_key`，此前签发的每一枚令牌立刻失效，
+   因此实现里必须同时清掉会话 cookie，否则浏览器会带着一枚死令牌反复撞 401。
+6. **口令只以密文上网**：含敏感字段的表单标注 `data-yd-encrypt="sm2"`，服务端按 `auth.LoginEncryptedHeader` 解密；
+   新增敏感字段沿用同一套声明式加密，禁止自行发明第二套编码。
+
+种子数据（`internal/repository` 的 `Seed`）只在**租户表为空**时写入一次（并发副本的「唯一索引冲突」按「已初始化」处理）：
+两个演示租户、四个内置角色与各自的 `owner` 管理员。口令来自 `seed.admin_password` / `YD_SEED_ADMIN_PASSWORD`，
+**不硬编码**：开发环境未配置时用文档化的 `meta.DevSeedAdminPassword` 并每次启动告警，其它环境未配置时**拒绝初始化**并告警；
+口令明文永不写入日志。**首次登录后必须立即改密**——登录页、首页横幅与账号页共用 `meta.SeedPasswordNotice` 这一句文案，
+改提醒只需改那一处；`store.SeedPasswordUnchanged` 用一次口令校验判断账号是否仍在用默认口令。
+
+## 7. 提交纪律（强制）
+
+**一律禁止在提交信息、作者、署名、脚注、PR 描述、分支名、代码注释与文档中出现任何 Claude / Anthropic / AI 助手相关内容**
+（包括但不限于 `Claude`、`claude`、`Anthropic`、`noreply@anthropic.com`、`Generated with Claude Code`、`🤖` 等标记）。
+
+提交信息格式：**中文 Conventional Commits + 固定署名尾行**。
+
+```
+<类型>(<范围>): <中文简述>
+
+<可选正文：为什么这么改、影响面、验证方式>
+
+Co-Authored-By: Eric Shi <shibingli@sina.com>
+```
+
+- **类型**：`feat` `fix` `refactor` `perf` `test` `docs` `chore` `build` `ci` `style`
+- **范围**：受影响的包名，如 `controller`、`service`、`repository`、`router`、`web`
+- **简述**：中文，动词开头，不超过 50 字，句末不加句号
+- **署名口径唯一**：所有提交结尾固定为 `Co-Authored-By: Eric Shi <shibingli@sina.com>`，不得替换、不得省略、不得追加其他署名
+- 提交前自检：`git log -1 --format=%B | grep -iE 'claude|anthropic'` 必须无输出
+
+## 8. 常用命令
+
+```bash
+yd dev       # 热重载开发（Go 编译重启 + Tailwind 监听 + 模板局部刷新）
+yd build     # 跨平台静态打包（Tailwind 剪裁压缩 + go:embed + 单二进制）
+yd docker    # 基于 scratch 的多阶段镜像构建
+yd gen module|crud   # 低代码生成（DB Schema 或 Go Struct）
+```
+
+## 9. 行为约束
+
+- 修改代码后必须运行 `go build ./... && go vet ./... && go test ./... -race`。
+- 不得引入运行时 CDN 引用；新增前端依赖须登记 `{{ .AssetRoot }}/assets.lock.json`。
+- 生成的代码必须带 `// Code generated by yd gen; DO NOT EDIT.` 标记，且 `yd gen` 可幂等重放。
+- 新增业务端点默认落在 `registerProtected` 里并挂上能力守卫；`registerPublic` 只放登录、登出、健康检查与 SM2 公钥，
+  往公开组里加端点等同于把数据交给互联网，必须先说清理由。
+- 面向用户的文案一律写进 `{{ .AssetRoot }}/i18n/{zh-CN,en}.yaml`，模板只写 `tr "键名"`；
+  两份目录的键集合必须严格一致（脚手架测试会逐键核对），少一个键页面就会把键名原样显示出来。
+- 主题（浅色 / 深色 / 跟随系统）与语言切换都是纯客户端行为，落在 `{{ .AssetRoot }}/static/js/yd-app.js`；
+  内容安全策略只允许 `script-src 'self'`，因此**禁止内联脚本**与内联样式。
+- **可选外部工具一律经 `yd tools`**：`betteralign` / `ko` / `tailwindcss` / `docker` 用 `yd tools check` 探测、
+  `yd tools install [名称...]` 安装（落在项目内 `.yd/tools/`，`GOBIN` 指向它的绝对路径）；
+  **禁止**手写 `go install` 装到全局，**禁止**改动 `PATH` 或往 `~/go/bin` 写东西。
+  四个工具都是可选的，缺失只影响对应能力，**不得**让 `yd build` / `yd dev` / `yd gen` / `go test` 或 CI 失败；
+  安装失败只告警（`yd new --yes` 不触网），判定哨兵一律用 `errors.Is`（`tools.ErrUnknownTool` /
+  `tools.ErrNoGoToolchain` / `tools.ErrNotInstallable` / `tools.ErrInstallFailed`）。
+
+## 10. 服务化部署（强制）
+
+`cmd/app` 既能前台运行，也能被 Windows SCM / systemd / launchd 托管；两种模式共用同一条优雅退出路径。
+
+1. **服务模式不许另起一套进程**：入口检测到服务模式（无终端，或显式 `-service run`）时，把 `application.Run`
+   交给 `service.Run` 托管。**禁止**为了「后台运行」而 fork、daemonize 或动手写双进程；也**禁止**在入口里
+   手写监听与关闭（`ListenAndServe`、`srv.Shutdown` 之类），那等于绕过 `app.Run` 的收尾。
+2. **停止只取消 context，绝不 `os.Exit`**：服务管理器发来 Stop 时，`service.Run` 取消 runCtx 并等待
+   `application.Run` 返回，在途请求与长连接由框架自己收尾。任何绕过这条路径的 `os.Exit`、`panic` 或
+   `log.Fatal` 都会硬切断请求，并让「停止」在服务管理器里表现为异常退出。
+3. **控制动作不启服务**：`-service install|uninstall|start|stop|restart|status` 只执行一次服务管理器调用就返回，
+   这条路径**不得**装配端口、不得进入前台循环。
+4. **密钥与口令不进服务文件**：`service` 段只描述服务本身（名称、显示名、描述、账号、参数、自动重启），
+   主密钥与数据库口令一律经环境变量（`YD_*`）注入；服务管理器生成的文件是运维可读的，写进去等于公开。
+5. **改配置要重装**：`service.*` 的改动只在下次 `yd service install` 时写入服务管理器；`arguments` 与
+   `WorkingDirectory` 里的路径必须是绝对路径（Windows 忽略工作目录，始终在系统目录启动进程）。
+
+服务名缺省取 `configs/config.yaml` 的 `service.name`，其次 `app.name`；安装与卸载的完整步骤见 README 的「安装为系统服务」。
+
+## 11. 镜像打包（ko 与 Dockerfile）（强制）
+
+镜像只有两个入口：`yd docker`（Dockerfile 多阶段构建）与 `yd ko`（Go 源码直出，底层驱动 ko 外部 CLI）。
+**禁止**在脚本、CI 配置或文档里另起炉灶手写 `docker build` 参数，或自己拼一串 ko 命令——标签、平台、基础镜像与仓库
+都由这两条命令统一解析，绕开它们等于让打包行为散落成彼此不一致的副本。
+
+1. **分工**：需要定制构建步骤（装系统包、拷额外文件）就走 `yd docker` 与仓库根目录的 `Dockerfile`；
+   标准的「单二进制 + 空镜像」交付走 `yd ko`，它不需要 Dockerfile，也不要求本机装 docker。
+2. **命令行唯一**：`yd ko [--repo R] [--tags a,b] [--platforms linux/amd64,linux/arm64] [--base-image X]
+   [--package ./cmd/app] [--local] [--push] [--binary PATH] [--dir DIR]`；配置键 `ko.binary` / `ko.repository` /
+   `ko.tags` / `ko.platforms` / `ko.base_image` / `ko.packages` / `ko.local` / `ko.push`（`YD_KO_*` 环境变量生效），
+   优先级仍是「命令行 > 环境变量 > 配置文件 > 缺省值」。注意 ko 自己的标志是单数 `--platform`，`--platforms` 是本命令的标志名。
+3. **ko 是可选外部工具**：二进制按 `--binary` → `YD_KO_BIN` → `<项目>/.yd/tools/ko[.exe]` → `PATH` 解析；
+   找不到时只让 `yd ko` 返回哨兵并打印安装提示（`go install github.com/google/ko@latest`），
+   **不得**因此让 `yd build` / `yd dev` / `go test` / CI 失败，也不得在代码里 panic。
+4. **禁止把 ko 当 Go 依赖**：不许 `require github.com/google/ko`，也不许 import 它的包来「省一次外部进程」——
+   依赖克制是硬约束，打包工具一律走外部 CLI。
+5. **产物形态不变**：无论走哪条路径，镜像里都必须是一个 `CGO_ENABLED=0` 静态链接的二进制
+   （交叉编译护栏见 AGENTS.md），前端资产已由 `go:embed` 嵌入，镜像内不需要任何运行时依赖。

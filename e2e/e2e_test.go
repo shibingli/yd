@@ -35,10 +35,10 @@ import (
 	// The test process reads the generated project's SQLite database directly: the driver is the pure-Go SQLite the GORM
 	// dialect depends on, and importing it performs the registration.
 	_ "github.com/glebarez/sqlite"
-	"github.com/shibingli/yd/authz"
-	"github.com/shibingli/yd/b64x"
-	"github.com/shibingli/yd/guomi"
-	"github.com/shibingli/yd/jsonx"
+	"github.com/shibingli/yd/core/b64x"
+	"github.com/shibingli/yd/core/jsonx"
+	"github.com/shibingli/yd/security/authz"
+	"github.com/shibingli/yd/security/guomi"
 )
 
 // repoRoot returns the repository root directory. | repoRoot 返回仓库根目录。

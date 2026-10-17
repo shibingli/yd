@@ -1,0 +1,173 @@
+// 本文件是 service 包的实时推送部分：周期性地把服务端生成的 HTML 片段广播给全部 SSE 订阅者。
+// This file is the realtime part of package service: it periodically broadcasts server-rendered HTML fragments to every SSE subscriber.
+
+package service
+
+import (
+	"context"
+	"fmt"
+	"strconv"
+	"time"
+
+	"{{ .YdModule }}/core/errx"
+	"{{ .YdModule }}/core/logx"
+	"{{ .YdModule }}/http/sse"
+)
+
+// 实时推送的公开契约：主题名、目标选择器与替换策略由端点与前端模板共用，写在一处避免漂移。
+// The public realtime contract: topic, target selector and swap strategy are shared by the endpoint and the front-end
+// templates and live in one place so they cannot drift apart.
+const (
+	// EventsTopic is the SSE topic shared by the /events endpoint and the publisher. | EventsTopic 是 SSE 主题名，/events 端点与发布方共用。
+	EventsTopic = "yd.events"
+	// ClockTarget is the clock fragment's selector, matching the container in pages/realtime.html. | ClockTarget 是时钟片段的选择器，与 pages/realtime.html 的容器一致。
+	ClockTarget = "#yd-clock"
+	// ClockSwap is the clock swap strategy: an in-place morph swap that avoids a full rebuild and its flicker. | ClockSwap 是时钟片段的替换策略：就地形态替换，避免整块重建导致闪烁。
+	ClockSwap = "innerMorph"
+	// TickEvent is the client-side event shipped along with the fragment; pages subscribe to it on demand. | TickEvent 是随片段一并下发的客户端事件名，页面按需订阅。
+	TickEvent = "yd:tick"
+	// DefaultTickInterval is the default push interval. | DefaultTickInterval 是默认推送间隔。
+	DefaultTickInterval = 5 * time.Second
+)
+
+// ErrTickerRunning reports a second start on the same instance. | ErrTickerRunning 表示同一实例被重复启动。
+var ErrTickerRunning = errx.New("ticker already running | 时钟已在运行")
+
+// Ticker 周期性把时钟片段推送给 EventsTopic 的订阅者。
+// Ticker periodically pushes a clock fragment to the subscribers of EventsTopic.
+//
+// 片段内容由服务端渲染（HTML 而非 JSON）：与 htmx 的交换语义保持一致，前端不做任何拼装。
+// The fragment is rendered server-side (HTML rather than JSON) to stay consistent with htmx's swap semantics; the
+// front end assembles nothing.
+type Ticker struct {
+	// broker is the event broadcaster. | broker 是事件广播器。
+	broker *sse.Broker
+	// interval is the push interval. | interval 是推送间隔。
+	interval time.Duration
+	// started is the start instant, used to compute the uptime. | started 是启动时刻，用于计算运行时长。
+	started time.Time
+	// done is closed once the background goroutine has returned. | done 在后台协程退出后关闭。
+	done chan struct{}
+	// cancel stops the background goroutine. | cancel 中止后台协程。
+	cancel context.CancelFunc
+}
+
+// NewTicker 构造时钟；interval 非正时取 DefaultTickInterval。
+// NewTicker builds the ticker; a non-positive interval falls back to DefaultTickInterval.
+func NewTicker(broker *sse.Broker, interval time.Duration) *Ticker {
+	if interval <= 0 {
+		interval = DefaultTickInterval
+	}
+	return &Ticker{
+		broker:   broker,
+		interval: interval,
+		started:  time.Now(),
+		done:     make(chan struct{}),
+	}
+}
+
+// Start 启动后台推送协程；ctx 结束或 Stop 被调用时退出。
+// Start launches the background push goroutine; it returns when ctx ends or Stop is called.
+func (t *Ticker) Start(ctx context.Context) error {
+	if t.cancel != nil {
+		return ErrTickerRunning
+	}
+	runCtx, cancel := context.WithCancel(ctx)
+	t.cancel = cancel
+
+	go func() {
+		defer close(t.done)
+
+		ticker := time.NewTicker(t.interval)
+		defer ticker.Stop()
+
+		// 立即推一帧：订阅者不必等到第一个周期就有内容可显示。
+		// One immediate frame: subscribers have something to show before the first period elapses.
+		t.Publish()
+
+		for {
+			select {
+			case <-runCtx.Done():
+				return
+			case <-ticker.C:
+				t.Publish()
+			}
+		}
+	}()
+	return nil
+}
+
+// Stop 停止后台推送并等待协程退出；未启动时是空操作。
+// Stop halts the background push and waits for the goroutine; calling it before Start is a no-op.
+func (t *Ticker) Stop() {
+	if t.cancel == nil {
+		return
+	}
+	t.cancel()
+	<-t.done
+	t.cancel = nil
+}
+
+// Publish 渲染一帧时钟片段并广播；无订阅者时广播器直接丢弃，不产生额外开销。
+// Publish renders one clock frame and broadcasts it; with no subscriber the broker drops it at no extra cost.
+func (t *Ticker) Publish() {
+	if t.broker == nil {
+		return
+	}
+	now := time.Now()
+	t.broker.PublishHTML(EventsTopic, ClockTarget, ClockSwap, t.render(now))
+
+	// 事件与片段分开下发：片段负责内容，事件负责让页面的其它区域自行决定是否刷新。
+	// The event and the fragment travel separately: the fragment carries the content while the event lets other regions decide for themselves.
+	t.broker.Publish(EventsTopic, sse.Event{
+		Name: TickEvent,
+		Data: []byte(strconv.FormatInt(now.Unix(), 10)),
+	})
+}
+
+// Interval 返回推送间隔，供 WebSocket 等其它推送通道对齐节拍。
+// Interval returns the push interval so other push channels such as WebSocket can align their cadence.
+func (t *Ticker) Interval() time.Duration {
+	if t == nil || t.interval <= 0 {
+		return DefaultTickInterval
+	}
+	return t.interval
+}
+
+// Fragment 渲染当前时刻的时钟片段，供 WebSocket 等服务端主动推送的通道直接复用。
+// Fragment renders the clock fragment for the current instant, reused directly by server-push channels such as WebSocket.
+//
+// 与 Publish 共用同一个 render：两条推送通道的内容因此不可能出现差异。
+// It shares render with Publish, so the two push channels cannot drift apart in content.
+func (t *Ticker) Fragment() string {
+	if t == nil {
+		return ""
+	}
+	return t.render(time.Now())
+}
+
+// render 生成时钟片段：时间是唯一可变内容，运行时长用于证明推送在持续。
+// render produces the clock fragment: the time is the only mutable content and the uptime proves the pushes keep coming.
+func (t *Ticker) render(now time.Time) string {
+	uptime := now.Sub(t.started).Round(time.Second)
+	return fmt.Sprintf(
+		`<time class="font-mono text-lg" datetime="%s">%s</time>`+
+			`<span class="text-content-muted ms-2 text-sm">uptime %s</span>`,
+		now.Format(time.RFC3339),
+		now.Format("15:04:05"),
+		uptime,
+	)
+}
+
+// LogStart 记录一次启动日志，供装配期调用，避免调用方自行拼装字段。
+// LogStart records one startup log line for the assembly path, so callers do not assemble fields themselves.
+func (t *Ticker) LogStart(log *logx.Logger, subscribers int) {
+	if log == nil {
+		return
+	}
+	log.Info("realtime publisher started | 实时推送已启动",
+		logx.Str("topic", EventsTopic),
+		logx.Dur("interval", t.interval),
+		logx.Int("subscribers", subscribers),
+	)
+}

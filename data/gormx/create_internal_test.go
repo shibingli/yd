@@ -13,7 +13,7 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 	"gorm.io/gorm"
 
-	"github.com/shibingli/yd/logx"
+	"github.com/shibingli/yd/core/logx"
 )
 
 // createDenied 是本文件注入建库注入口的失败原因。

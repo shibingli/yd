@@ -1,0 +1,108 @@
+// 本文件是 model 包的权限目录：它是框架注册表（github.com/shibingli/yd/security/authz）在本项目里的视图。
+// This file is the permission catalogue of package model: it is this project's view of the framework registry
+// (github.com/shibingli/yd/security/authz).
+//
+// 能力标识与角色名只在注册表里声明一次，本项目**不再自建第二套词汇表**：路由守卫、模板、前端载荷、权限矩阵与
+// 种子数据全部读这一份目录，因此它们不可能互相漂移——此前本项目自己写了一遍 "user:write" 这类标识，
+// 而种子数据按注册表的 "user:update" 授予权限，两者一错位，管理员就会在自己租户里被自己的守卫拒绝。
+// Capability tokens and role names are declared exactly once, in the registry, and this project keeps **no second
+// vocabulary**: the route guards, the templates, the front-end payload, the permission matrix and the seed data all read
+// this one catalogue, so they cannot drift apart. Previously this project spelled its own tokens such as "user:write"
+// while the seed granted the registry's "user:update", and one misalignment like that locks an administrator out of
+// their own tenant.
+//
+// 权限标识形如 "resource:action"，与框架 auth 包的 Permission 是同一个类型（类型别名），
+// 因此这里的取值可以直接喂给 auth.RequirePermission，不需要任何转换。
+// A capability token looks like "resource:action" and is the very type of auth.Permission (a type alias), so the values
+// below feed auth.RequirePermission directly and need no conversion.
+
+package model
+
+import (
+	"{{ .YdModule }}/security/auth"
+	"{{ .YdModule }}/security/authz"
+)
+
+// Permission is a capability token, identical to auth.Permission. | Permission 是能力标识，与框架 auth.Permission 同型。
+type Permission = auth.Permission
+
+// PermissionInfo 是一条权限的展示元数据，供权限矩阵页与角色表单分组渲染。
+// PermissionInfo is the display metadata of one capability, used by the permission matrix and the role form to group rows.
+type PermissionInfo struct {
+	// Key is the capability token itself. | Key 是能力标识本身。
+	Key Permission
+	// Module is the owning resource group, taken from the registry. | Module 是所属资源分组，取自注册表。
+	Module string
+	// Label is the bilingual description, taken from the registry. | Label 是中英对照的说明，取自注册表。
+	Label string
+}
+
+// Permissions 返回全部能力的展示目录：直接读注册表，因此本项目自己声明的能力（authz.Register）也会出现在矩阵里。
+// Permissions returns the display catalogue of every capability, read straight from the registry so that a capability this
+// project declares for itself (authz.Register) shows up in the matrix as well.
+//
+// 目录不再是编译期常量表：那张表是「第二套词汇表」，它一旦落后于注册表，矩阵页就会少列或多列能力。
+// The catalogue is deliberately not a compile-time table any more: such a table is the second vocabulary, and the moment
+// it lags behind the registry the matrix page lists a capability too few or too many.
+func Permissions() []PermissionInfo {
+	registered := authz.Permissions()
+	out := make([]PermissionInfo, 0, len(registered))
+	for _, p := range registered {
+		out = append(out, PermissionInfo{Key: Permission(p.Name), Module: p.Group, Label: p.Description})
+	}
+	return out
+}
+
+// PermissionKeys returns every capability token in the same order as Permissions. | PermissionKeys 返回全部能力标识，顺序与 Permissions 一致。
+func PermissionKeys() []Permission {
+	registered := authz.Permissions()
+	out := make([]Permission, 0, len(registered))
+	for _, p := range registered {
+		out = append(out, Permission(p.Name))
+	}
+	return out
+}
+
+// ValidPermission 报告标识是否已注册（authz.Registered 同时接受标识、常量名、数据键与脚本键四种写法，
+// 这里问的是「这个标识本身是否已声明」）。
+// ValidPermission reports whether a token is registered (authz.Registered accepts the four spellings of the registry,
+// while what is asked here is whether the token itself is declared).
+func ValidPermission(p Permission) bool {
+	return authz.Registered(string(p))
+}
+
+// PermissionLabel 返回标识的说明文案，未登记的标识原样回显标识本身。
+// PermissionLabel returns the description of a token and echoes the token itself when it is unregistered.
+func PermissionLabel(p Permission) string {
+	if entry, err := authz.Lookup(string(p)); err == nil {
+		return entry.Description
+	}
+	return string(p)
+}
+
+// 内置角色名：种子数据为每个租户建这四个角色，因此它们同时是「不可删除」的保护名单。
+// 取值一律取自框架注册表——写在这里的字符串会漂移，而注册表不会。
+// Built-in role names: the seed creates these four roles for every tenant, which is also the list protected from deletion.
+// Every value comes from the framework registry: a literal written here could drift, the registry cannot.
+const (
+	// RoleOwner is the tenant owner and holds every capability. | RoleOwner 是租户所有者，拥有全部权限。
+	RoleOwner = authz.RoleOwner
+	// RoleAdmin manages users and roles without the tenant lifecycle capabilities. | RoleAdmin 是管理员，能管理用户与角色，但不含租户生命周期能力。
+	RoleAdmin = authz.RoleAdmin
+	// RoleAuditor is the auditor and only holds read capabilities. | RoleAuditor 是审计员，只有读权限。
+	RoleAuditor = authz.RoleAuditor
+	// RoleMember is an ordinary member and holds no administrative capability. | RoleMember 是普通成员，没有任何管理权限。
+	RoleMember = authz.RoleMember
+)
+
+// IsBuiltinRole reports whether the name is built-in (built-in roles cannot be deleted). | IsBuiltinRole 报告角色名是否为内置角色（内置角色不允许删除）。
+//
+// 答案来自默认授权表，而不是第二份「四个名字」的清单：authz.GrantOf 接受角色的四种写法（"owner"、"RoleOwner"、
+// "Owner"、"OWNER"），对框架不认识的角色返回 false，而「框架不认识」正是「非内置」。
+// The answer comes from the default grant table rather than from a second list of four names: authz.GrantOf accepts the
+// four spellings of a role ("owner", "RoleOwner", "Owner", "OWNER") and reports false for a role the framework does not
+// know, which is exactly what "not built-in" means.
+func IsBuiltinRole(name string) bool {
+	_, ok := authz.GrantOf(name)
+	return ok
+}

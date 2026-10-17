@@ -111,10 +111,10 @@ var maxControlPayload = 125 // RFC 6455 §5.5 | RFC 6455 §5.5 规定
 ### 9.1.1 日志统一使用 logx
 
 - 全仓**禁止** `import "log"`、禁止 `fmt.Print*` 当日志、禁止 zap/zerolog/logrus 等第三方日志库。
-- 统一使用 `github.com/shibingli/yd/logx`，字段用 `logx.Str/Int/Dur/Err` 等强类型构造函数。
+- 统一使用 `github.com/shibingli/yd/core/logx`，字段用 `logx.Str/Int/Dur/Err` 等强类型构造函数。
 - **唯一例外**：`server` 包为 `http.Server.ErrorLog` 必须提供 `*log.Logger` 而写的适配器，
   其输出必须转发给 `logx`。
-- 自检：`grep -rn '"log"' --include=*.go . | grep -v '^./server/'` 无命中；
+- 自检：`grep -rn '"log"' --include=*.go . | grep -v '^./runtime/server/'` 无命中；
   `grep -rn 'fmt.Print' --include=*.go .` 无命中。
 
 ### 9.2 OpenAPI 注释必须完整
@@ -239,8 +239,8 @@ errx.Detail(ErrLen, "C3 length %[1]d, want %[2]d | C3 长度 %[1]d，期望 %[2]
 ### 10.4 自检
 
 ```bash
-grep -rn 'fmt\.Errorf' --include=*.go . | grep -v '^./errx/'   # 必须无命中
-grep -rn 'errors\.New' --include=*.go . | grep -v '^./errx/'   # 允许，但优先用 errx.New 统一风格
+grep -rn 'fmt\.Errorf' --include=*.go . | grep -v '^./core/errx/'   # 必须无命中
+grep -rn 'errors\.New' --include=*.go . | grep -v '^./core/errx/'   # 允许，但优先用 errx.New 统一风格
 ```
 
 ## 11. 多租户与鉴权契约
@@ -369,7 +369,7 @@ Windows 走 SCM、Linux 走 systemd、macOS 走 launchd。禁止为单个平台�
 ## 17. 镜像打包契约（ko）
 
 镜像有**两个且只有两个**入口：`yd docker`（多阶段 Dockerfile → `scratch`）与 `yd ko`
-（`github.com/shibingli/yd/ko`，从 Go 源码直出镜像，**没有 Dockerfile 这一环**）。
+（`github.com/shibingli/yd/tooling/ko`，从 Go 源码直出镜像，**没有 Dockerfile 这一环**）。
 两者都调用**外部 CLI**（docker / ko）完成构建，因此不引入任何 Go 构建期依赖。
 **禁止**在脚本、CI 或文档里另行手写 `docker build` 参数或自拼 ko 命令行：标签、平台、基础镜像与仓库
 都必须经这两条命令解析，否则打包行为会散成彼此不一致的副本。
@@ -404,13 +404,13 @@ Windows 走 SCM、Linux 走 systemd、macOS 走 launchd。禁止为单个平台�
 ## 18. 可选外部工具契约
 
 四个**可选外部工具**——`betteralign`（内存对齐）、`ko`（无 Dockerfile 镜像打包）、`tailwindcss`（样式表编译）、
-`docker`（Dockerfile 镜像构建）——由 `github.com/shibingli/yd/tools` 统一探测与安装。
+`docker`（Dockerfile 镜像构建）——由 `github.com/shibingli/yd/tooling/tools` 统一探测与安装。
 `align` / `ko` / `toolchain` 各自的 `Resolve` 仍是「工具在哪」的唯一事实来源，`tools` 只做**单向聚合**：
 注册表、探测与安装都建在它们之上，提示文案也复用它们的 `InstallHint`。
 
 | 项 | 值 |
 |---|---|
-| 包 | `github.com/shibingli/yd/tools` |
+| 包 | `github.com/shibingli/yd/tooling/tools` |
 | 注册表 | `betteralign` / `ko` / `tailwindcss` / `docker`（顺序固定） |
 | API | `Registry()` / `Lookup(name)` / `Check(dir)` / `Missing(dir)` / `Hints(dir)` / `Install(ctx, dir, names, log)` / `InstallAll(ctx, dir, log)` |
 | 安装结果 | `*Report{Installed, Skipped, Failed}` |
@@ -434,7 +434,7 @@ Windows 走 SCM、Linux 走 systemd、macOS 走 launchd。禁止为单个平台�
   答是则 `InstallAll`；非交互场景用 `--install-tools` 显式安装；**`--yes` 不触网**
   （e2e 与 CI 的入口不得带网络副作用）。安装失败只 Warn，`yd new` 仍返回成功。
 - **依赖方向**：`tools` → `align` / `ko` / `toolchain` 单向；反向 import 会成环，并迫使提示文案出现第二份副本，
-  由 `internal/repotest` 的守卫强制（与 `ws`/`sse` 不反向依赖 `lifecycle` 同一口径）。
+  由 `repotest` 的守卫强制（与 `ws`/`sse` 不反向依赖 `lifecycle` 同一口径）。
 - **测试口径**：命令执行点必须可注入，测试进程内**不得**真的执行 `go install` 或触网
   （覆盖注册表顺序、不可安装项、缺 go 工具链与安装失败四条路径）。
 
@@ -442,7 +442,7 @@ Windows 走 SCM、Linux 走 systemd、macOS 走 launchd。禁止为单个平台�
 
 | 项 | 约定 |
 |---|---|
-| 实现 | `auth/gormstore`（`auth.Store` 的 GORM 实现）；内存实现只在无库/连不上时兜底，且必须告警 |
+| 实现 | `security/auth/gormstore`（`auth.Store` 的 GORM 实现）；内存实现只在无库/连不上时兜底，且必须告警 |
 | 表 | `auth_tenants` / `auth_users` / `auth_roles` / `auth_role_permissions`，由框架拥有，使用方不写 DDL |
 | 迁移 | `gormstore.Migrate(ctx, db)`，幂等 |
 | 隔离 | 每个方法都把 `tenant_id` 写进 WHERE；跨租户与不存在一律 `auth.ErrNotFound`，**绝不** `ErrForbidden` |

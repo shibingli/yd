@@ -25,8 +25,8 @@ import (
 
 	"github.com/spf13/afero"
 
-	"github.com/shibingli/yd/authz"
-	"github.com/shibingli/yd/errx"
+	"github.com/shibingli/yd/core/errx"
+	"github.com/shibingli/yd/security/authz"
 )
 
 var (

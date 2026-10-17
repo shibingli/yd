@@ -1,0 +1,234 @@
+// Command app is the executable entry point of {{ .Name }}: it assembles the framework facade, registers the routes and exits gracefully. | Command app 是 {{ .Name }} 的可执行入口：装配框架门面、注册路由并优雅退出。
+//
+// 装配顺序：日志 → 退出信号 → 资产/配置门面 → 中间件 → 静态挂载 → 路由。
+// Assembly order: logger → shutdown signal → assets/configuration facade → middleware → static mount → routes.
+//
+// 这里使用 app.New 而不是 app.Default：Default 固定使用框架内嵌资产，既不接受 app.WithFS，
+// 也无法把本项目的 web/templates 与 web/static 交给渲染器与 /static 处理器。
+// This entry point uses app.New rather than app.Default: Default pins the framework's embedded assets, accepts no
+// app.WithFS and therefore cannot feed this project's web/templates and web/static to the renderer or the /static
+// handler. assemble 复刻了 Default 的全部约定（同一组中间件、同一个 /static 前缀、同一份 i18n 装配），
+// 只把资产源换成本项目的 web 包。
+// assemble replicates every Default convention (the same middleware chain, the same /static prefix, the same i18n
+// wiring) and swaps only the asset source for this project's web package.
+// 若某个项目不需要自带资产，入口可以退回一行 a, err := app.Default()。
+// A project that needs no assets of its own can fall back to the single line a, err := app.Default().
+//
+// 运行模式有三种，由参数与终端探测决定：前台（开发与调试的默认路径）、服务模式（被 Windows SCM /
+// systemd / launchd 拉起，或显式 -service run）、控制动作（-service install|uninstall|start|stop|restart|status
+// 只执行一次服务管理器调用）。三种模式都只有一个出口——app.Run 的优雅退出；服务模式的停止只取消
+// context 并等待 Run 返回，进程绝不 os.Exit。
+// There are three run modes, selected by the arguments and the terminal probe: foreground (the default for
+// development and debugging), service mode (started by the Windows SCM, systemd or launchd, or asked for with
+// -service run) and a control action (-service install|uninstall|start|stop|restart|status performs exactly one
+// service manager call). All three have a single exit: the graceful shutdown of app.Run; a service stop only
+// cancels the context and waits for Run to return, and the process never calls os.Exit.
+package main
+
+import (
+	"context"
+	"os"
+	"os/signal"
+	"strings"
+	"syscall"
+
+	"{{ .Module }}/internal/meta"
+	"{{ .Module }}/internal/middleware"
+	"{{ .Module }}/internal/router"
+	"{{ .Module }}/web"
+	"{{ .YdModule }}/runtime/app"
+	"{{ .YdModule }}/core/errx"
+	"{{ .YdModule }}/http/i18n"
+	"{{ .YdModule }}/core/logx"
+	ydmw "{{ .YdModule }}/middleware"
+	"{{ .YdModule }}/runtime/service"
+)
+
+// 启动期哨兵错误：装配链上任一步失败都以它们为根因，日志与退出码据此统一处理。
+// Startup sentinels: any failing step of the assembly chain roots in one of them, so logs and the exit code stay uniform.
+var (
+	// ErrAssemble reports a facade assembly failure (assets, configuration or renderer). | ErrAssemble 表示应用门面装配失败（资产、配置或渲染器任一步出错）。
+	ErrAssemble = errx.New("application assembly failed | 应用装配失败")
+	// ErrStatic reports an unusable static asset filesystem. | ErrStatic 表示静态资产文件系统不可用。
+	ErrStatic = errx.New("static assets unavailable | 静态资产不可用")
+	// ErrI18n reports a failed message catalogue load. | ErrI18n 表示语言目录加载失败。
+	ErrI18n = errx.New("message catalogues unavailable | 语言目录不可用")
+	// ErrService 表示服务管理器动作失败（安装、卸载、启动、停止、重启或状态查询）。
+	// ErrService reports a failed service manager action (install, uninstall, start, stop, restart or a status query).
+	ErrService = errx.New("service action failed | 服务动作失败")
+)
+
+// main 是进程入口：构造日志与退出上下文，装配成功后按前台或服务模式运行。
+// main is the process entry point: it builds the logger and the shutdown context, then runs in foreground or
+// service mode once the assembly succeeded.
+func main() {
+	// 日志先于一切装配：任何一步失败都必须留下可检索的记录，且日志器本身不会失败。
+	// The logger comes first: a failure anywhere downstream must leave a searchable record, and the logger itself cannot fail.
+	log := logx.New(logx.Options{Service: meta.Name, Caller: true})
+	logx.SetDefault(log)
+
+	// 退出信号经 context 传递：SIGINT/SIGTERM 触发优雅退出，在途请求被等待收尾。
+	// Shutdown signals travel through the context: SIGINT/SIGTERM triggers a graceful exit that drains in-flight requests.
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
+	application, err := assemble(log)
+	if err != nil {
+		log.Error("application assembly failed | 应用装配失败", logx.Err(err))
+		os.Exit(1)
+	}
+
+	log.Info("application assembled | 应用已装配",
+		logx.Str("name", meta.Name),
+		logx.Str("module", meta.Module),
+		logx.Str("version", meta.Version),
+		logx.Str("env", meta.Env()),
+		logx.Strs("features", meta.Features),
+	)
+
+	if err := runApplication(ctx, application, log); err != nil {
+		log.Error("application stopped with an error | 应用异常退出", logx.Err(err))
+		os.Exit(1)
+	}
+	log.Info("application stopped | 应用已停止")
+}
+
+// runApplication 按参数与终端探测选择运行模式，并等待本次运行收尾。
+// runApplication selects the run mode from the arguments and the terminal probe, then waits for that run to finish.
+func runApplication(ctx context.Context, application *app.App, log *logx.Logger) error {
+	action, given := service.IsServiceArg(os.Args[1:])
+	opts := serviceOptions(application)
+
+	// 控制动作：只执行一次服务管理器调用，不进前台循环，也不等待任何请求。
+	// -service install|uninstall|start|stop|restart|status 属于这一类；未知动作由 service.Control 判为错误。
+	// A control action performs exactly one service manager call and neither enters the foreground loop nor waits
+	// for a request: -service install|uninstall|start|stop|restart|status belong here, and service.Control rejects
+	// any other action word as an error.
+	if given && action != service.ActionRun {
+		result, err := service.Control(opts, action)
+		if err != nil {
+			return errx.WrapDetail(err, ErrService, "action=%s", action)
+		}
+		log.Info("service action finished | 服务动作已完成",
+			logx.Str("action", string(action)),
+			logx.Str("result", result),
+		)
+		return nil
+	}
+
+	// 服务模式：被服务管理器拉起时没有终端（Interactive 为 false），或调用方显式给出 -service run。
+	// 托管期间的停止只取消 runCtx——app.Run 收到取消后自行收尾，进程绝不 os.Exit。
+	// Service mode: a managed start has no terminal (Interactive is false), or the caller asked for it with
+	// -service run. A stop during hosting only cancels runCtx: app.Run finishes its own shutdown after the
+	// cancellation, and the process never calls os.Exit.
+	if given || !service.Interactive() {
+		log.Info("running under the service manager | 正在服务管理器下运行", logx.Str("service", opts.Name))
+		return service.Run(opts, func(runCtx context.Context) error {
+			return application.Run(runCtx)
+		})
+	}
+
+	// 前台模式：开发与调试的默认路径，退出信号经 ctx 传入。
+	// Foreground mode: the default for development and debugging, where the shutdown signal arrives through ctx.
+	return application.Run(ctx)
+}
+
+// serviceOptions 从已装配的配置推导服务选项：service.* 段优先，缺失时回退到项目元信息。
+// serviceOptions derives the service options from the assembled configuration: the service.* section wins and the
+// project metadata is the fallback.
+func serviceOptions(application *app.App) service.Options {
+	opts := service.OptionsFromConfig(application.Config())
+	if opts.Name == "" {
+		opts.Name = meta.Name
+	}
+	if opts.DisplayName == "" {
+		opts.DisplayName = meta.Name
+	}
+	if opts.Description == "" {
+		opts.Description = meta.Name
+	}
+	if len(opts.Arguments) == 0 {
+		// 缺省参数显式进入服务模式，被服务管理器拉起时不再依赖终端探测。
+		// The default arguments enter service mode explicitly, so a managed start no longer relies on the terminal probe.
+		opts.Arguments = []string{"-service", "run"}
+	}
+	return opts
+}
+
+// assemble 装配应用门面：资产 → 配置 → 中间件 → 静态挂载 → i18n → 路由。
+// assemble wires the facade: assets → configuration → middleware → static mount → i18n → routes.
+//
+// 返回的错误一律可 errors.Is 判定到包级哨兵，调用方无须解析文案。
+// Every returned error satisfies errors.Is against a package-level sentinel, so callers never parse messages.
+func assemble(log *logx.Logger) (*app.App, error) {
+	static, err := web.Static()
+	if err != nil {
+		return nil, errx.WrapDetail(err, ErrStatic, "root=%s", meta.AssetRoot)
+	}
+
+	application, err := app.New(
+		app.WithFS(web.Assets()),
+		app.WithLogger(log),
+		app.WithConfigDir(meta.ConfigDir),
+	)
+	if err != nil {
+		return nil, errx.Wrap(err, ErrAssemble)
+	}
+
+	// 中间件顺序与 app.Default 保持一致（恢复 → 请求 ID → 访问日志 → 压缩 → CORS），
+	// 其后追加本项目的补充中间件：顺序即执行顺序，安全头必须在最外层之外尽早生效。
+	// The middleware order matches app.Default (recover → request id → access log → compress → CORS) with this
+	// project's extras appended: the order is the execution order, and security headers should land as early as possible.
+	application.Use(
+		ydmw.Recover(log),
+		ydmw.RequestID(""),
+		ydmw.AccessLog(log),
+		ydmw.Compress(ydmw.CompressOptions{}),
+		ydmw.CORS(ydmw.CORSOptions{}),
+		middleware.Security(),
+	)
+
+	// 静态资源前缀与框架默认值一致；web.Static 已合并框架 vendor 脚本与本项目样式。
+	// The static prefix matches the framework default; web.Static has already merged the framework's vendored scripts with this project's styles.
+	application.Router().StaticFS("/static", static)
+
+	// 语言目录无条件装配：所有页面与片段都用 tr 取词，缺少目录时模板会把键名原样显示出来。
+	// The catalogues are wired unconditionally: every page and fragment is written with the tr helper, and without a
+	// catalogue the templates would render the key names themselves.
+	if err := registerI18n(application, log); err != nil {
+		return nil, err
+	}
+
+	if err := router.Register(application); err != nil {
+		return nil, err
+	}
+	return application, nil
+}
+
+// registerI18n loads the catalogues from the asset tree and mounts the locale middleware. | registerI18n 从资产树加载语言目录并挂上语言解析中间件。
+//
+// 与 app.Default 的差别仅有目录来源：这里读取本项目的 web/i18n，而不是框架内嵌文案。
+// The only difference from app.Default is the catalogue source: this reads the project's web/i18n instead of the framework's embedded messages.
+// 默认语言优先取配置项 i18n.default_lang（该配置段由脚手架的语言开关决定是否写入 configs/config.yaml），
+// 缺失时回退到 internal/meta 的常量，保证两条路径给出同一个值。
+// The default language prefers the i18n.default_lang configuration key (whether that section reaches configs/config.yaml
+// is decided by the scaffold's language switch) and falls back to the internal/meta constant so both paths agree.
+func registerI18n(application *app.App, log *logx.Logger) error {
+	defaultLang := strings.TrimSpace(application.Config().GetString("i18n.default_lang"))
+	if defaultLang == "" {
+		defaultLang = meta.DefaultLang
+	}
+
+	bundle, err := i18n.New(web.I18n(), ".", defaultLang)
+	if err != nil {
+		return errx.WrapDetail(err, ErrI18n, "default_lang=%s", defaultLang)
+	}
+
+	application.Set(app.ServiceI18n, bundle)
+	application.Use(i18n.Middleware(bundle, i18n.Options{}))
+	log.Info("i18n catalogues loaded | 语言目录已加载",
+		logx.Str("default", bundle.DefaultLang()),
+		logx.Strs("langs", bundle.Langs()),
+	)
+	return nil
+}

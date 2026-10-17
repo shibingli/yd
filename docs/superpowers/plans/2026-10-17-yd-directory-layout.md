@@ -9,7 +9,7 @@
 ## 1. 为何单独成篇、且排在最后
 
 这是**纯结构调整**，但影响面极大：约 40 个包的 import 路径、脚手架模板里的模块引用、
-`internal/repotest` 的路径守卫、ldflags 的注入目标、全部文档里的路径引用。
+`repotest` 的路径守卫、ldflags 的注入目标、全部文档里的路径引用。
 
 因此：
 
@@ -38,7 +38,7 @@ yd/
 │   └── scaffold/ gen/ build/ docker/ assets/
 │       toolchain/ align/ tools/ ko/ completion/ cli/
 ├── web/                   内嵌前端资产（不变）
-├── internal/repotest/     仓库守卫（不变）
+├── repotest/              仓库守卫（顶层，与 e2e/ 对称）
 └── e2e/                   端到端（不变）
 ```
 
@@ -54,7 +54,8 @@ yd/
 | `app` `server` `grpcx` `lifecycle` `service` | `runtime/<同名>` |
 | `data/gormx` `data/redisx` `data/asynqx` | **不变** |
 | `scaffold` `gen` `build` `docker` `assets` `toolchain` `align` `tools` `ko` `completion` `cli` | `tooling/<同名>` |
-| `cmd/yd` `web` `internal/repotest` `e2e` | **不变** |
+| `internal/repotest` | `repotest`（顶层，与 `e2e/` 对称） |
+| `cmd/yd` `web` `e2e` | **不变** |
 
 ## 4. 必须一并改到的六处（漏一处就会留下不一致）
 
@@ -63,8 +64,8 @@ yd/
 2. **脚手架模板里的模块引用**：形如 `{{ .YdModule }}/auth`、`{{ .YdModule }}/logx` 的字符串
    散落在 `tooling/scaffold/templates/**`；生成的 `go.mod` 仍 `replace` 到模块根，因此只需改包路径。
 3. **ldflags 注入目标**：`build` 包向 `version` 包注入版本信息的 `-X <pkg>.<var>` 路径。
-4. **`internal/repotest` 的路径守卫**：守卫里以**字符串**写死了 `auth/`、`ws/`、`sse/`、`align/`、
-   `ko/`、`toolchain/`、`server/`、`jsonx/`、`b64x/`、`errx/`、`internal/repotest/` 等前缀，
+4. **`repotest` 的路径守卫**：守卫里以**字符串**写死了 `auth/`、`ws/`、`sse/`、`align/`、
+   `ko/`、`toolchain/`、`server/`、`jsonx/`、`b64x/`、`errx/`、`repotest/` 等前缀，
    以及 `jsonx/`、`b64x/` 作为「允许直接 import 标准库」的豁免目录。
    这些**不会因为文件移动而自动更新**——把守卫改对是本任务最容易被忽略的一步。
 5. **文档与配置里的路径**：`CLAUDE.md`（§1 源码目录、§14 工具目录）、`AGENTS.md` §1「允许直接修改」

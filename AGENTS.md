@@ -6,7 +6,7 @@
 
 **允许直接修改**
 
-- 源码目录：`config/`、`afs/`、`jsonx/`、`b64x/`、`logx/`、`router/`、`render/`、`htmx/`、`sse/`、`ws/`、`jwt/`、`guomi/`、`middleware/`、`i18n/`、`openapi/`、`server/`、`grpcx/`、`lifecycle/`、`service/`、`tools/`、`data/**`、`app/`、`cli/`、`scaffold/`、`gen/`、`build/`、`docker/`、`ko/`、`assets/`、`toolchain/`、`web/**`
+- 源码目录：`core/**`（`afs/`、`b64x/`、`config/`、`errx/`、`jsonx/`、`logx/`、`version/`）、`http/**`（`router/`、`render/`、`htmx/`、`sse/`、`ws/`、`openapi/`、`i18n/`）、`middleware/`、`security/**`（`guomi/`、`jwt/`、`auth/`、`authz/`）、`runtime/**`（`app/`、`server/`、`grpcx/`、`lifecycle/`、`service/`）、`data/**`、`tooling/**`（`scaffold/`、`gen/`、`build/`、`docker/`、`assets/`、`toolchain/`、`align/`、`tools/`、`ko/`、`completion/`、`cli/`）、`web/**`
 - 测试与文档：`*_test.go`、`testdata/**`、`docs/**`（除需求基线）
 
 **禁止修改**
@@ -60,7 +60,7 @@
 - [ ] **注入面**：SQL 只允许通过 GORM 参数化查询；模板输出默认走 `html/template` 转义，使用 `template.HTML` 必须写明可信来源。
 - [ ] **请求边界**：外部输入必须限长（WebSocket `MaxMessageSize`、请求体 `MaxBytesReader`），并设置读写超时。
 - [ ] **JSON/Base64 统一走封装层**：全仓禁止 `import "encoding/json"` 与 `import "encoding/base64"`，
-      一律使用 `github.com/shibingli/yd/jsonx` 与 `github.com/shibingli/yd/b64x`。
+      一律使用 `github.com/shibingli/yd/core/jsonx` 与 `github.com/shibingli/yd/core/b64x`。
       自检：`grep -rn '"encoding/json"\|"encoding/base64"' --include=*.go .` 无命中。
 - [ ] **中英文同步（注释 + 日志文案）**：所有注释与所有日志文案逐行采用
       `English | 中文`（竖线分割，英文在前、中文在后）。豁免：编译指令、生成标记、注释内代码示例/树状图/URL。
@@ -69,7 +69,7 @@
 - [ ] **错误统一声明为哨兵**：包级 `var ErrX = errx.New("english | 中文")`；**禁止 `fmt.Errorf`**
       （改用 `errx.Detail` / `errx.Wrap` / `errx.WrapDetail`）；错误文案中英同步；
       判定只用 `errors.Is` / `errors.As`。
-      自检：`grep -rn 'fmt\.Errorf' --include=*.go . | grep -v '^./errx/'` 无命中。
+      自检：`grep -rn 'fmt\.Errorf' --include=*.go . | grep -v '^./core/errx/'` 无命中。
 - [ ] **多租户隔离**：任何按 ID 读写实体的路径都必须校验 `TenantID`；跨租户访问返回 403/404
       且不泄露资源存在性。
 - [ ] **每用户 JWT 密钥**：令牌只允许用该用户的 `sec_key` 签发与验签，**禁止全局兜底密钥**；
@@ -96,7 +96,7 @@
       测试不得真的调用 SCM / `systemctl` / `launchctl`（用注入点打桩）。
 - [ ] **交叉编译必须过**：新增依赖或平台相关符号后，`GOOS=linux GOARCH=arm64 CGO_ENABLED=0 go build ./...`
       必须通过——上游库常把常量声明在 `*_windows.go` 里，直接引用只在 Windows 编得过。
-- [ ] **鉴权数据落库**：租户/用户/角色/权限一律经 `auth/gormstore` 存入真实数据库，内存实现只作
+- [ ] **鉴权数据落库**：租户/用户/角色/权限一律经 `security/auth/gormstore` 存入真实数据库，内存实现只作
       未配置数据库时的兜底且必须有明确告警；`auth` 域包保持零 ORM 依赖；每个按 ID 读写的方法都必须把
       `tenant_id` 写进 WHERE，跨租户返回 `auth.ErrNotFound`（**绝不** `ErrForbidden`）；
       新增此类方法时**必须同时给出以 `tenant_id` 打头的联合索引**并断言它被建出来。

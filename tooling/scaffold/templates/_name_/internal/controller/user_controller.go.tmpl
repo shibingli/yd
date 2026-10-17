@@ -1,0 +1,390 @@
+// 本文件是用户管理端点：列表、新建、改资料、分配角色、改口令、启停与 sec_key 轮换。
+// This file holds the user management endpoints: list, create, profile update, role assignment, password reset, enable/disable and sec_key rotation.
+//
+// 全部端点都带着租户：租户 ID 来自令牌的 tid 声明（见 internal/middleware/tenant.go），
+// 因此任何一条 SQL（或内存查找）都不可能越过租户边界，越权的请求在仓储层就变成 ErrNotFound。
+// Every endpoint carries a tenant: the tenant id comes from the token's tid claim (see internal/middleware/tenant.go), so
+// no query — SQL or in-memory — can cross the tenant boundary and a foreign id degrades to ErrNotFound in the repository.
+
+package controller
+
+import (
+	"net/http"
+
+	"{{ .Module }}/internal/model"
+	"{{ .Module }}/internal/service"
+	"{{ .YdModule }}/security/auth"
+	"{{ .YdModule }}/security/authz"
+	"{{ .YdModule }}/core/logx"
+	"{{ .YdModule }}/http/router"
+)
+
+// Users 渲染本租户的用户列表（含新建表单与每行的编辑表单）。
+// Users renders this tenant's user list, including the creation form and one edit form per row.
+//
+// @Summary User list | 用户列表
+// @Description Renders pages/users.html for the tenant of the token. The keyword filters sign-in name, e-mail and display
+// @Description name. Rows carry the inline edit form, the role checkboxes, the password reset, the enable/disable switch
+// @Description and the sec_key rotation, so one page covers the whole lifecycle without a second navigation level.
+// @Description 为令牌所属租户渲染 pages/users.html；关键字过滤登录名、邮箱与展示名。每行内含编辑表单、角色勾选、口令重置、
+// @Description 启用/停用开关与 sec_key 轮换，因此一个页面就覆盖了整个生命周期，无需第二层导航。
+// @Tags users
+// @Accept html
+// @Produce html
+// @Param q query string false "keyword matched against name, e-mail and display name | 匹配名称、邮箱与展示名的关键字"
+// @Param X-Tenant header string false "tenant slug or id, must match the token | 租户标识或 ID，必须与令牌一致"
+// @Param HX-Request header string false "htmx partial request | htmx 局部请求标记"
+// @Success 200 {object} string "user page or fragment | 用户整页或片段"
+// @Failure 400 {object} string "no tenant in context | 上下文没有租户"
+// @Failure 401 {object} string "no session | 无有效会话"
+// @Failure 403 {object} string "missing user:read, or another tenant | 缺少 user:read，或另一个租户"
+// @Security BearerAuth
+// @Router /users [get]
+func (c *Controller) Users(ctx *router.Ctx) {
+	c.usersPage(ctx, http.StatusOK, field(ctx, FieldKeyword), "")
+}
+
+// CreateUser 在本租户内新建用户。
+// CreateUser adds a user inside this tenant.
+//
+// @Summary Create user | 新建用户
+// @Description Decrypts the SM2 ciphertext password, hashes it and issues a per-user sec_key, then assigns the selected
+// @Description roles (member by default). The sign-in name is unique inside the tenant, which is why the same name may
+// @Description exist in two tenants without conflict.
+// @Description 解密 SM2 密文口令、散列入库并生成该用户专属的 sec_key，然后写入所选角色（默认为 member）。登录名在租户内唯一，
+// @Description 因此同一个登录名可以同时存在于两个租户而不冲突。
+// @Tags users
+// @Accept html
+// @Produce html
+// @Param X-YD-Encrypted header string true "must be sm2 | 必须为 sm2"
+// @Param username formData string true "sign-in name, unique inside the tenant | 登录名，租户内唯一"
+// @Param password formData string true "initial password as SM2 ciphertext | 初始口令的 SM2 密文"
+// @Param email formData string false "contact address | 联络邮箱"
+// @Param display_name formData string false "human-readable name | 展示名称"
+// @Param roles formData []string false "role names, member by default | 角色名，默认 member"
+// @Success 200 {object} string "refreshed user list fragment | 刷新后的用户列表片段"
+// @Failure 401 {object} string "no session | 无有效会话"
+// @Failure 403 {object} string "missing user:create | 缺少 user:create"
+// @Failure 409 {object} string "the sign-in name is taken | 登录名已被占用"
+// @Failure 422 {object} string "validation failure | 校验失败"
+// @Security BearerAuth
+// @Router /users [post]
+func (c *Controller) CreateUser(ctx *router.Ctx) {
+	tenantID, ok := c.tenantID(ctx)
+	if !ok {
+		return
+	}
+
+	created, err := c.users.Create(ctx.Request.Context(), tenantID, service.CreateUserInput{
+		Username:    field(ctx, FieldUsername),
+		Email:       field(ctx, FieldEmail),
+		DisplayName: field(ctx, FieldDisplayName),
+		Password:    payload(ctx, FieldPassword),
+		Scheme:      scheme(ctx),
+		Roles:       formValues(ctx, FieldRoles),
+	})
+	if err != nil {
+		c.failService(ctx, err)
+		return
+	}
+	c.log.Info("user created | 用户已创建",
+		logx.Str("tenant", tenantID),
+		logx.Str("user", created.ID),
+	)
+	c.usersPage(ctx, http.StatusOK, "", "用户已创建 | user created")
+}
+
+// UpdateUser 覆盖用户的资料字段。
+// UpdateUser replaces the profile fields of a user.
+//
+// @Summary Update user | 修改用户资料
+// @Description Replaces sign-in name, e-mail and display name. It never touches the password or the sec_key, and the
+// @Description authorization code may only earn authorisation, so an administrator editing a profile can hand out no
+// @Description credential at the same time.
+// @Description 覆盖登录名、邮箱与展示名；不触碰口令与 sec_key。鉴权码在服务器端一律无权限，因此管理员改资料时不可能顺手发出一个凭据。
+// @Tags users
+// @Accept html
+// @Produce html
+// @Param id path string true "user id | 用户 ID"
+// @Param username formData string true "sign-in name | 登录名"
+// @Param email formData string false "contact address | 联络邮箱"
+// @Param display_name formData string false "human-readable name | 展示名称"
+// @Success 200 {object} string "refreshed user list fragment | 刷新后的用户列表片段"
+// @Failure 401 {object} string "no session | 无有效会话"
+// @Failure 403 {object} string "missing user:update | 缺少 user:update"
+// @Failure 404 {object} string "no such user in this tenant | 本租户内没有该用户"
+// @Failure 422 {object} string "validation failure | 校验失败"
+// @Security BearerAuth
+// @Router /users/{id} [post]
+func (c *Controller) UpdateUser(ctx *router.Ctx) {
+	tenantID, ok := c.tenantID(ctx)
+	if !ok {
+		return
+	}
+
+	updated, err := c.users.Update(ctx.Request.Context(), tenantID, service.UpdateUserInput{
+		UserID:      ctx.Param("id"),
+		Username:    field(ctx, FieldUsername),
+		Email:       field(ctx, FieldEmail),
+		DisplayName: field(ctx, FieldDisplayName),
+	})
+	if err != nil {
+		c.failService(ctx, err)
+		return
+	}
+	c.log.Info("user updated | 用户已更新",
+		logx.Str("tenant", tenantID),
+		logx.Str("user", updated.ID),
+	)
+	c.usersPage(ctx, http.StatusOK, "", "用户已更新 | user updated")
+}
+
+// SetUserRoles 覆盖用户的角色集合。
+// SetUserRoles replaces the role set of a user.
+//
+// @Summary Assign roles | 分配角色
+// @Description Replaces the user's roles with the submitted set; an empty submission falls back to member so nobody can
+// @Description end up role-less by accident. Unknown role names are refused with 422 rather than silently ignored.
+// @Description 用提交的集合覆盖用户角色；提交为空时回退到 member，避免有人被误操作成没有任何角色。未知角色名以 422 拒绝，
+// @Description 而不是被静默忽略。
+// @Tags users
+// @Accept html
+// @Produce html
+// @Param id path string true "user id | 用户 ID"
+// @Param roles formData []string false "role names; empty means member | 角色名；为空表示 member"
+// @Success 200 {object} string "refreshed user list fragment | 刷新后的用户列表片段"
+// @Failure 401 {object} string "no session | 无有效会话"
+// @Failure 403 {object} string "missing user:update | 缺少 user:update"
+// @Failure 404 {object} string "no such user in this tenant | 本租户内没有该用户"
+// @Failure 422 {object} string "unknown role | 未知角色"
+// @Security BearerAuth
+// @Router /users/{id}/roles [post]
+func (c *Controller) SetUserRoles(ctx *router.Ctx) {
+	tenantID, ok := c.tenantID(ctx)
+	if !ok {
+		return
+	}
+
+	userID := ctx.Param("id")
+	roles := formValues(ctx, FieldRoles)
+	if err := c.users.SetRoles(ctx.Request.Context(), tenantID, userID, roles); err != nil {
+		c.failService(ctx, err)
+		return
+	}
+	c.log.Info("roles assigned | 角色已分配",
+		logx.Str("tenant", tenantID),
+		logx.Str("user", userID),
+		logx.Strs("roles", roles),
+	)
+	c.usersPage(ctx, http.StatusOK, "", "角色已分配 | roles assigned")
+}
+
+// SetUserStatus 启用或停用用户。
+// SetUserStatus enables or disables a user.
+//
+// @Summary Enable or disable a user | 启用或停用用户
+// @Description Switches the account between active and disabled. Disabling invalidates nothing by itself — tokens are
+// @Description bound to the sec_key — but the authentication path refuses a disabled user, so the next request of an
+// @Description already signed-in account is rejected as well. Disabling one's own account is refused with 409.
+// @Description 在 active 与 disabled 之间切换账号。停用本身不会让令牌失效——令牌绑定在 sec_key 上——但鉴权路径会拒绝被停用的用户，
+// @Description 因此已登录账号的下一个请求同样会被拒绝。停用自己的账号以 409 拒绝。
+// @Tags users
+// @Accept html
+// @Produce html
+// @Param id path string true "user id | 用户 ID"
+// @Param status formData string true "active or disabled | active 或 disabled"
+// @Success 200 {object} string "refreshed user list fragment | 刷新后的用户列表片段"
+// @Failure 401 {object} string "no session | 无有效会话"
+// @Failure 403 {object} string "missing user:update | 缺少 user:update"
+// @Failure 404 {object} string "no such user in this tenant | 本租户内没有该用户"
+// @Failure 409 {object} string "refusing to disable your own account | 拒绝停用自己的账号"
+// @Security BearerAuth
+// @Router /users/{id}/status [post]
+func (c *Controller) SetUserStatus(ctx *router.Ctx) {
+	tenantID, ok := c.tenantID(ctx)
+	if !ok {
+		return
+	}
+	userID := ctx.Param("id")
+
+	var err error
+	var message string
+	if field(ctx, FieldStatus) == string(model.StatusDisabled) {
+		err = c.users.Disable(ctx.Request.Context(), tenantID, userID, currentUserID(ctx))
+		message = "用户已停用 | user disabled"
+	} else {
+		err = c.users.Enable(ctx.Request.Context(), tenantID, userID)
+		message = "用户已启用 | user enabled"
+	}
+	if err != nil {
+		c.failService(ctx, err)
+		return
+	}
+	c.log.Info("user status changed | 用户状态已变更",
+		logx.Str("tenant", tenantID),
+		logx.Str("user", userID),
+		logx.Str("status", field(ctx, FieldStatus)),
+	)
+	c.usersPage(ctx, http.StatusOK, "", message)
+}
+
+// SetUserPassword 由管理员重置他人口令。
+// SetUserPassword lets an administrator reset somebody else's password.
+//
+// @Summary Reset a password | 重置口令
+// @Description Decrypts the SM2 payload and writes the new password, which rotates that account's sec_key: every token
+// @Description issued to the target before this call stops verifying. The administrator performing the reset is not
+// @Description signed out, because only the target's sec_key rotates.
+// @Description 解密 SM2 载荷并写入新口令，同时轮换该账号的 sec_key：本次调用之前发给目标账号的所有令牌立即失效。执行重置的管理员
+// @Description 不会被登出，因为只有目标账号的 sec_key 被轮换。
+// @Tags users
+// @Accept html
+// @Produce html
+// @Param X-YD-Encrypted header string true "must be sm2 | 必须为 sm2"
+// @Param id path string true "user id | 用户 ID"
+// @Param password formData string true "new password as SM2 ciphertext | 新口令的 SM2 密文"
+// @Success 200 {object} string "refreshed user list fragment | 刷新后的用户列表片段"
+// @Failure 400 {object} string "payload is not decryptable | 载荷无法解密"
+// @Failure 401 {object} string "no session | 无有效会话"
+// @Failure 403 {object} string "missing user:update | 缺少 user:update"
+// @Failure 404 {object} string "no such user in this tenant | 本租户内没有该用户"
+// @Security BearerAuth
+// @Router /users/{id}/password [post]
+func (c *Controller) SetUserPassword(ctx *router.Ctx) {
+	tenantID, ok := c.tenantID(ctx)
+	if !ok {
+		return
+	}
+	userID := ctx.Param("id")
+
+	if err := c.users.SetPassword(ctx.Request.Context(), tenantID, userID, payload(ctx, FieldPassword), scheme(ctx)); err != nil {
+		c.failService(ctx, err)
+		return
+	}
+	c.log.Info("password reset by an administrator | 管理员重置了口令",
+		logx.Str("tenant", tenantID),
+		logx.Str("user", userID),
+		logx.Str("actor", currentUserID(ctx)),
+	)
+	c.usersPage(ctx, http.StatusOK, "", "口令已重置，该用户的旧令牌已失效 | password reset, the user's old tokens are gone")
+}
+
+// RotateUserSecKey 轮换某个用户的 sec_key。
+// RotateUserSecKey rotates one user's sec_key.
+//
+// @Summary Rotate a sec_key | 轮换 sec_key
+// @Description Issues a fresh sec_key for the target account, which invalidates every token it holds while leaving the
+// @Description password untouched. Together with the password reset this is the tool an administrator reaches for when a
+// @Description device is lost: the user keeps the password and loses every session.
+// @Description 为目标账号重发 sec_key：它持有的所有令牌立刻失效，口令保持不变。与重置口令配合，这就是设备丢失时管理员要用的两件工具：
+// @Description 用户保住口令，丢掉全部会话。
+// @Tags users
+// @Accept html
+// @Produce html
+// @Param id path string true "user id | 用户 ID"
+// @Success 200 {object} string "refreshed user list fragment | 刷新后的用户列表片段"
+// @Failure 401 {object} string "no session | 无有效会话"
+// @Failure 403 {object} string "missing user:update | 缺少 user:update"
+// @Failure 404 {object} string "no such user in this tenant | 本租户内没有该用户"
+// @Security BearerAuth
+// @Router /users/{id}/sec-key [post]
+func (c *Controller) RotateUserSecKey(ctx *router.Ctx) {
+	tenantID, ok := c.tenantID(ctx)
+	if !ok {
+		return
+	}
+	userID := ctx.Param("id")
+
+	if err := c.users.RotateSecKey(ctx.Request.Context(), tenantID, userID); err != nil {
+		c.failService(ctx, err)
+		return
+	}
+	c.log.Info("sec_key rotated by an administrator | 管理员轮换了 sec_key",
+		logx.Str("tenant", tenantID),
+		logx.Str("user", userID),
+		logx.Str("actor", currentUserID(ctx)),
+	)
+	c.usersPage(ctx, http.StatusOK, "", "sec_key 已轮换，该用户的旧令牌已失效 | sec_key rotated, the user's old tokens are gone")
+}
+
+// userCard 把一行用户与它的角色勾选状态绑在一起。
+// userCard binds one user row to its role checkboxes.
+//
+// 模板只做展示：勾选状态、展示名与头像首字母全部在这里算好，页面里不出现任何业务判断。
+// The template only renders: the ticked state, the display name and the avatar initial are all computed here so no
+// business decision ever appears in a page.
+//
+// CanWrite 与 KeyEndpoint 是行模板需要的两个页面级取值：行片段拿到的数据是「这一行」而不是整页，
+// 嵌套模板里的 $ 指向它自己的实参，所以这两个值必须随卡片一起传下去，而不是在行里用 $.Xxx 去够。
+// CanWrite and KeyEndpoint are the two page-level values the row template needs: a row fragment receives the row itself
+// rather than the whole page, and $ inside a nested template points at that template's own argument, so both values have
+// to travel with the card instead of being reached for as $.Xxx inside the row.
+type userCard struct {
+	// KeyEndpoint is the SM2 public-key URL used by the password-reset form's declarative encryption. | KeyEndpoint 是 SM2 公钥地址，供重置口令表单声明式加密使用。
+	KeyEndpoint string
+	// Roles holds the role options including their ticked state. | Roles 是角色的候选项（含勾选状态）。
+	Roles []model.RoleOption
+	// User is the user of this row. | User 是这一行用户。
+	User model.User
+	// CanWrite 表示当前访问者可以写用户，决定行内表单是否渲染。字段按内存对齐排序，布尔值收在末尾（与 model.RoleOption 同一约定）。
+	// CanWrite reports whether the visitor may write users, which decides whether the inline forms are rendered. Fields
+	// follow memory alignment, with the boolean collected at the end (the same rule as model.RoleOption).
+	CanWrite bool
+}
+
+// usersPage 渲染用户列表片段，message 非空时附带一条提示。
+// usersPage renders the user list fragment and attaches a notice when message is non-empty.
+func (c *Controller) usersPage(ctx *router.Ctx, status int, keyword, message string) {
+	tenantID, ok := c.tenantID(ctx)
+	if !ok {
+		return
+	}
+
+	list, err := c.users.List(ctx.Request.Context(), tenantID, keyword)
+	if err != nil {
+		c.failService(ctx, err)
+		return
+	}
+	roles, err := c.users.Roles(ctx.Request.Context(), tenantID)
+	if err != nil {
+		c.failService(ctx, err)
+		return
+	}
+
+	// 写权限来自请求主体本身（authz.Middleware 放进上下文的那一个），卡片只是把它转交给行模板，
+	// 因此授权规则仍然只有一处：注册表的判定，模板与行片段都只读结果。
+	// The write capability comes from the request's own subject (the one authz.Middleware put into the context) and the card
+	// merely hands it down to the row template, so the authorization rule still lives in exactly one place — the registry's
+	// decision — and both the page and the row fragment only read the result.
+	data := c.view(ctx, "用户管理 | Users", map[string]any{
+		"Total":    len(list),
+		"Keyword":  keyword,
+		"Empty":    len(list) == 0,
+		"RoleList": roles,
+		"Actor":    currentUserID(ctx),
+	})
+	canWrite := authz.Can(ctx.Request.Context(), authz.PermUserUpdate)
+	cards := make([]userCard, 0, len(list))
+	for _, user := range list {
+		cards = append(cards, userCard{
+			User:        user,
+			Roles:       model.RoleOptions(roles, user.Roles),
+			CanWrite:    canWrite,
+			KeyEndpoint: PubkeyPath,
+		})
+	}
+	if message != "" {
+		c.toast(ctx, message)
+	}
+	data["Cards"] = cards
+	c.render(ctx, status, TplUsers, data)
+}
+
+// currentUserID 返回当前登录用户的 ID，未登录时返回空串。
+// currentUserID returns the id of the signed-in user and an empty string when there is none.
+func currentUserID(ctx *router.Ctx) string {
+	if user, ok := auth.CurrentUser(ctx); ok && user != nil {
+		return user.ID
+	}
+	return ""
+}

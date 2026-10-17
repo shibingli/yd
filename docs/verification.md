@@ -18,11 +18,11 @@
 | 交叉编译 | `GOOS=linux GOARCH=arm64 CGO_ENABLED=0 go build ./...` | 通过 |
 | 交叉编译 | `GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build ./...` | 通过 |
 | 模块一致性 | `go mod tidy -diff` | 零输出 |
-| 规范守卫 | `go test ./internal/repotest/` | 通过 |
+| 规范守卫 | `go test ./repotest/` | 通过 |
 
 ### 1.1 规范守卫覆盖的强制约束
 
-`internal/repotest` 把这些约束固化为可执行测试，违反即构建失败：
+`repotest` 把这些约束固化为可执行测试，违反即构建失败：
 
 - 禁止 `encoding/json` / `encoding/base64`（一律走 `jsonx` / `b64x`）
 - 禁止标准库 `log` 与 `fmt.Print*` 作为日志（一律走 `logx`）
@@ -32,7 +32,7 @@
 
 ### 1.2 竞态检测发现的真实缺陷（已修复）
 
-`go test -race ./ws/` 曾在 `TestConcurrentWritersAreSerialized` 中真实报告数据竞争：
+`go test -race ./http/ws/` 曾在 `TestConcurrentWritersAreSerialized` 中真实报告数据竞争：
 客户端掩码缓冲 `maskBuffer` 在获取写锁**之前**被并发写协程共用，违反
 「并发写被串行化」的契约。修复方式是把帧头、掩码键与掩码缓冲的构造整体移入
 写锁临界区，复测 `-race` 与 `-count=2` 均通过。
@@ -234,7 +234,7 @@ GOOS=linux GOARCH=arm64 CGO_ENABLED=0 build   通过
 GOOS=windows GOARCH=amd64 CGO_ENABLED=0 build 通过
 CGO_ENABLED=1 CC=clang go test -race ./...    41 个包 ok，退出码 0（共 43 个包，2 个无测试文件）
 go test -tags e2e ./e2e/                      ok 84.859s
-go test ./internal/repotest/                  ok
+go test ./repotest/                  ok
 ```
 
 ### 3.7.2 各能力与其证据

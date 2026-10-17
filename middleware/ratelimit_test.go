@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/shibingli/yd/router"
+	"github.com/shibingli/yd/http/router"
 )
 
 // rateLimitRouter builds a router limited by o with a counter handler. | rateLimitRouter 构造一个由 o 限流的路由器，处理器返回计数。

@@ -1,6 +1,6 @@
 package gormx
 
-import "github.com/shibingli/yd/config"
+import "github.com/shibingli/yd/core/config"
 
 // OptionsFromConfig 从配置的 db 段映射出 Options。
 //

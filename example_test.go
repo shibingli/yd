@@ -6,9 +6,9 @@ import (
 	"net/http"
 	"net/http/httptest"
 
-	"github.com/shibingli/yd/errx"
-	"github.com/shibingli/yd/guomi"
-	"github.com/shibingli/yd/router"
+	"github.com/shibingli/yd/core/errx"
+	"github.com/shibingli/yd/http/router"
+	"github.com/shibingli/yd/security/guomi"
 )
 
 // ErrUnknownField is a declared sentinel error. | ErrUnknownField 是一个已声明的哨兵错误。

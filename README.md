@@ -104,24 +104,33 @@ yd dev --port 7070          # 命令行最高优先级
 ### 框架库
 
 ```
-config/        分层配置引擎（viper + pflag + .env，前缀 YD_）
-afs/           afero 抽象文件系统门面（OS / MemFS / go:embed）
-jsonx/ b64x/   硬件自适应 JSON / Base64（sonic+base64x ↔ go-json+stdlib，构建标签分流）
-logx/          零拷贝结构化日志（sync.Pool 字节缓冲直写 io.Writer）
-errx/          声明式哨兵错误原语（禁止 fmt.Errorf 的统一替代）
-router/        自研基数树路由（单段内混合参数与静态后缀捕获）
-render/        模板引擎（afero 模板集 · Dev 免缓存 · asset/dict/json/hx）
-htmx/          Htmx 4 服务端辅助（HX-* 响应头 · hx-partial · OOB）
-sse/ ws/       W3C 事件流广播 · RFC6455 WebSocket（自研握手与帧编解码）
-jwt/           免反射 JWT（claims 扫描零分配，拒绝 alg:none 与算法混淆）
-guomi/         国密 SM2/SM3/SM4（纯 Go；SM2 KDF 与 C1C3C2 按 GB/T 32918.4 实现）
+core/          与领域无关的基础原语
+  config/      分层配置引擎（viper + pflag + .env，前缀 YD_）
+  afs/         afero 抽象文件系统门面（OS / MemFS / go:embed）
+  jsonx/ b64x/ 硬件自适应 JSON / Base64（sonic+base64x ↔ go-json+stdlib，构建标签分流）
+  logx/        零拷贝结构化日志（sync.Pool 字节缓冲直写 io.Writer）
+  errx/        声明式哨兵错误原语（禁止 fmt.Errorf 的统一替代）
+  version/     版本信息（-ldflags 注入）
+http/          HTTP 与前端交付
+  router/      自研基数树路由（单段内混合参数与静态后缀捕获）
+  render/      模板引擎（afero 模板集 · Dev 免缓存 · asset/dict/json/hx）
+  htmx/        Htmx 4 服务端辅助（HX-* 响应头 · hx-partial · OOB）
+  sse/ ws/     W3C 事件流广播 · RFC6455 WebSocket（自研握手与帧编解码）
+  i18n/        YAML/TOML/JSON 目录 + Accept-Language q 值协商
+  openapi/     OpenAPI 3.0 文档（源码注解解析 + 路由树合并 + 零 CDN 查看器）
 middleware/    Recover · RequestID · AccessLog · CORS · RateLimit · gzip/br/zstd 协商
-i18n/          YAML/TOML/JSON 目录 + Accept-Language q 值协商
-openapi/       OpenAPI 3.0 文档（源码注解解析 + 路由树合并 + 零 CDN 查看器）
-server/        HTTP/1.1 + H2C + HTTP/3(QUIC) + ACME + 优雅退出
-grpcx/         gRPC 双通道（同端口按内容类型分流）
+security/      安全与鉴权
+  jwt/         免反射 JWT（claims 扫描零分配，拒绝 alg:none 与算法混淆）
+  guomi/       国密 SM2/SM3/SM4（纯 Go；SM2 KDF 与 C1C3C2 按 GB/T 32918.4 实现）
+  auth/        租户/用户/角色/能力领域模型（gormstore 子包负责落库）
+  authz/       角色与权限注册表、静态校验
+runtime/       进程与运行时
+  server/      HTTP/1.1 + H2C + HTTP/3(QUIC) + ACME + 优雅退出
+  grpcx/       gRPC 双通道（同端口按内容类型分流）
+  lifecycle/   关闭信号与长连接钩子
+  app/         应用门面（路由/渲染/服务容器/优雅退出）
+  service/     系统服务安装与运行（SCM/systemd/launchd）
 data/          gormx（PrepareStmt + 慢查询打点）· redisx（泛型缓存装饰器）· asynqx（加权队列）
-app/           应用门面（路由/渲染/服务容器/优雅退出）
 web/           内嵌前端资产（templates/ · static/ · assets.lock.json）
 ```
 
@@ -129,14 +138,20 @@ web/           内嵌前端资产（templates/ · static/ · assets.lock.json）
 
 ```
 cmd/yd/        CLI 入口
-cli/           命令实现：new · dev · gen · build · docker · assets
-scaffold/      yd new 的项目模板（golang-standards 布局 + 治理文件）
-gen/           低代码生成器（DB Schema / Go Struct → 路由 · 控制器 · htmx 模板）
-toolchain/     Tailwind 二进制解析与 CSS 构建 · 文件监听（抖动合并）
-build/         跨平台静态打包（版本注入 · go:embed · 离线 vendor 模式）
-docker/        scratch 多阶段镜像构建
-assets/        前端依赖在线更新 + sha256 锁定 + 离线校验
+tooling/       开发期工具与脚手架
+  cli/         命令实现：new · dev · gen · build · docker · assets
+  scaffold/    yd new 的项目模板（golang-standards 布局 + 治理文件）
+  gen/         低代码生成器（DB Schema / Go Struct → 路由 · 控制器 · htmx 模板）
+  toolchain/   Tailwind 二进制解析与 CSS 构建 · 文件监听（抖动合并）
+  build/       跨平台静态打包（版本注入 · go:embed · 离线 vendor 模式）
+  docker/      scratch 多阶段镜像构建
+  assets/      前端依赖在线更新 + sha256 锁定 + 离线校验
+  align/       betteralign 解析与迭代对齐
+  ko/          无 Dockerfile 镜像打包（外部 CLI）
+  tools/       可选外部工具的统一探测与安装入口
+  completion/  Shell 补全脚本生成与安装
 e2e/           端到端验收（-tags e2e）
+repotest/      仓库治理守卫（治理文件与规范的可执行断言）
 ```
 
 ## 许可

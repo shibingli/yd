@@ -1,0 +1,220 @@
+// 本文件是角色与权限矩阵端点：角色增删、权限授予/回收与矩阵页。
+// This file holds the role and permission-matrix endpoints: role create/delete, capability grant/revoke and the matrix page.
+//
+// 权限矩阵是本项目的权限模型的可视化：行是权限目录（固定顺序），列是角色，单元格是一次授予/回收。
+// The matrix visualises this project's permission model: rows are the capability catalogue in a fixed order, columns are
+// roles and a cell is one grant or revoke.
+
+package controller
+
+import (
+	"net/http"
+
+	"{{ .Module }}/internal/model"
+	"{{ .YdModule }}/core/logx"
+	"{{ .YdModule }}/http/router"
+)
+
+// Roles 渲染角色列表与新建表单。
+// Roles renders the role list together with the creation form.
+//
+// @Summary Role list | 角色列表
+// @Description Renders pages/roles.html: every role of the tenant with its capabilities and its built-in marker. Built-in
+// @Description roles can be edited — a tenant may extend auditor, say — but never deleted.
+// @Description 渲染 pages/roles.html：列出本租户的每个角色及其权限与内置标记。内置角色可以编辑（例如给 auditor 增权），但不可删除。
+// @Tags roles
+// @Accept html
+// @Produce html
+// @Param HX-Request header string false "htmx partial request | htmx 局部请求标记"
+// @Success 200 {object} string "role page or fragment | 角色整页或片段"
+// @Failure 401 {object} string "no session | 无有效会话"
+// @Failure 403 {object} string "missing role:read | 缺少 role:read"
+// @Security BearerAuth
+// @Router /roles [get]
+func (c *Controller) Roles(ctx *router.Ctx) {
+	c.rolesPage(ctx, http.StatusOK, "")
+}
+
+// SaveRole 新建或覆盖一个角色（同名即覆盖，因此表单既新建也编辑）。
+// SaveRole creates or replaces a role; the same name replaces, so one form both creates and edits.
+//
+// @Summary Save role | 保存角色
+// @Description Upserts by name inside the tenant and normalises the submitted capabilities against the catalogue:
+// @Description unknown tokens are refused with 422 and duplicates collapse, so the stored set is always a subset of the
+// @Description catalogue in catalogue order.
+// @Description 在租户内按名称 upsert，并把提交的能力对照目录规范化：未知标识以 422 拒绝、重复项合并，因此存储的集合永远是目录的子集
+// @Description 且按目录顺序排列。
+// @Tags roles
+// @Accept html
+// @Produce html
+// @Param name formData string true "role name, unique inside the tenant | 角色名，租户内唯一"
+// @Param description formData string false "human-readable description | 说明文案"
+// @Param permissions formData []string false "capability tokens | 能力标识"
+// @Success 200 {object} string "refreshed role list fragment | 刷新后的角色列表片段"
+// @Failure 401 {object} string "no session | 无有效会话"
+// @Failure 403 {object} string "missing role:manage | 缺少 role:manage"
+// @Failure 422 {object} string "unknown capability or empty name | 未知能力或名称为空"
+// @Security BearerAuth
+// @Router /roles [post]
+func (c *Controller) SaveRole(ctx *router.Ctx) {
+	tenantID, ok := c.tenantID(ctx)
+	if !ok {
+		return
+	}
+
+	perms := make([]model.Permission, 0, len(model.Permissions()))
+	for _, key := range formValues(ctx, FieldPermission) {
+		perms = append(perms, model.Permission(key))
+	}
+
+	saved, err := c.roles.Save(ctx.Request.Context(), tenantID, field(ctx, FieldName), field(ctx, FieldDescription), perms)
+	if err != nil {
+		c.failService(ctx, err)
+		return
+	}
+	c.log.Info("role saved | 角色已保存",
+		logx.Str("tenant", tenantID),
+		logx.Str("role", saved.Name),
+		logx.Int("permissions", len(saved.Permissions)),
+	)
+	c.rolesPage(ctx, http.StatusOK, "角色已保存 | role saved")
+}
+
+// ToggleRolePermission 在权限矩阵里授予或回收一项能力。
+// ToggleRolePermission grants or revokes one capability in the permission matrix.
+//
+// @Summary Grant or revoke a capability | 授予或回收权限
+// @Description Adds or removes one capability from one role of the tenant. Both the role and the capability are validated
+// @Description against this tenant's state and the global catalogue, so a matrix cell can only ever hold a real capability.
+// @Description 为本租户的某个角色增删一项能力。角色与能力都对照本租户状态和全局目录校验，因此矩阵单元格里只可能出现真实的能力标识。
+// @Tags roles
+// @Accept html
+// @Produce html
+// @Param id path string true "role id | 角色 ID"
+// @Param permission formData string true "capability token | 能力标识"
+// @Param granted formData string true "true to grant, anything else revokes | true 为授予，其余为回收"
+// @Success 200 {object} string "refreshed role list fragment | 刷新后的角色列表片段"
+// @Failure 401 {object} string "no session | 无有效会话"
+// @Failure 403 {object} string "missing role:update | 缺少 role:update"
+// @Failure 404 {object} string "no such role in this tenant | 本租户内没有该角色"
+// @Failure 422 {object} string "unknown capability | 未知能力"
+// @Security BearerAuth
+// @Router /roles/{id}/permissions [post]
+func (c *Controller) ToggleRolePermission(ctx *router.Ctx) {
+	tenantID, ok := c.tenantID(ctx)
+	if !ok {
+		return
+	}
+	roleID := ctx.Param("id")
+	permission := model.Permission(field(ctx, FieldPermission))
+	granted := field(ctx, FieldGranted) == "true"
+
+	role, err := c.roles.Toggle(ctx.Request.Context(), tenantID, roleID, permission, granted)
+	if err != nil {
+		c.failService(ctx, err)
+		return
+	}
+	c.log.Info("capability toggled | 权限已切换",
+		logx.Str("tenant", tenantID),
+		logx.Str("role", role.Name),
+		logx.Str("permission", string(permission)),
+		logx.Bool("granted", granted),
+	)
+	c.rolesPage(ctx, http.StatusOK, "权限已更新 | permission updated")
+}
+
+// DeleteRole 删除本租户的一个角色；内置角色以 409 拒绝。
+// DeleteRole removes one role of the tenant and refuses a built-in one with 409.
+//
+// @Summary Delete role | 删除角色
+// @Description Removes a custom role. The four built-in roles are protected with 409: they are what every new tenant is
+// @Description seeded with and what the user-create fallback assigns, so deleting one would break tenant provisioning.
+// @Description 删除自定义角色。四个内置角色以 409 保护：每个新租户都靠它们初始化，建号回退也依赖它们，删掉会破坏租户的开通流程。
+// @Tags roles
+// @Accept html
+// @Produce html
+// @Param id path string true "role id | 角色 ID"
+// @Success 200 {object} string "refreshed role list fragment | 刷新后的角色列表片段"
+// @Failure 401 {object} string "no session | 无有效会话"
+// @Failure 403 {object} string "missing role:delete | 缺少 role:delete"
+// @Failure 404 {object} string "no such role in this tenant | 本租户内没有该角色"
+// @Failure 409 {object} string "built-in roles are protected | 内置角色受保护"
+// @Security BearerAuth
+// @Router /roles/{id}/delete [post]
+func (c *Controller) DeleteRole(ctx *router.Ctx) {
+	tenantID, ok := c.tenantID(ctx)
+	if !ok {
+		return
+	}
+	roleID := ctx.Param("id")
+
+	if err := c.roles.Delete(ctx.Request.Context(), tenantID, roleID); err != nil {
+		c.failService(ctx, err)
+		return
+	}
+	c.log.Info("role deleted | 角色已删除",
+		logx.Str("tenant", tenantID),
+		logx.Str("role", roleID),
+	)
+	c.rolesPage(ctx, http.StatusOK, "角色已删除 | role deleted")
+}
+
+// Permissions 渲染权限矩阵：行是能力目录，列是角色，单元格可勾选。
+// Permissions renders the permission matrix: rows are capabilities, columns are roles and a cell is a tick box.
+//
+// @Summary Permission matrix | 权限矩阵
+// @Description Renders pages/permissions.html from two axes the service guarantees: the capability catalogue in its fixed
+// @Description order and this tenant's roles. The matrix is the same data the navbar gates on, so what an operator sees
+// @Description here is exactly what RequirePermission enforces at the router.
+// @Description 用服务层保证的两条轴渲染 pages/permissions.html：固定顺序的能力目录，以及本租户的角色。矩阵与导航栏的显隐判定同源，
+// @Description 因此这里看到的，就是路由上 RequirePermission 真正执行的那一套。
+// @Tags permissions
+// @Accept html
+// @Produce html
+// @Param HX-Request header string false "htmx partial request | htmx 局部请求标记"
+// @Success 200 {object} string "permission matrix page or fragment | 权限矩阵整页或片段"
+// @Failure 401 {object} string "no session | 无有效会话"
+// @Failure 403 {object} string "missing permission:read | 缺少 permission:read"
+// @Security BearerAuth
+// @Router /permissions [get]
+func (c *Controller) Permissions(ctx *router.Ctx) {
+	tenantID, ok := c.tenantID(ctx)
+	if !ok {
+		return
+	}
+
+	roles, catalogue, err := c.roles.Matrix(ctx.Request.Context(), tenantID)
+	if err != nil {
+		c.failService(ctx, err)
+		return
+	}
+
+	c.render(ctx, http.StatusOK, TplPermissions, c.view(ctx, "权限矩阵 | Permission matrix", map[string]any{
+		"Roles":     roles,
+		"Catalogue": catalogue,
+	}))
+}
+
+// rolesPage 渲染角色列表片段，message 非空时附带一条提示。
+// rolesPage renders the role list fragment and attaches a notice when message is non-empty.
+func (c *Controller) rolesPage(ctx *router.Ctx, status int, message string) {
+	tenantID, ok := c.tenantID(ctx)
+	if !ok {
+		return
+	}
+
+	roles, catalogue, err := c.roles.Matrix(ctx.Request.Context(), tenantID)
+	if err != nil {
+		c.failService(ctx, err)
+		return
+	}
+	if message != "" {
+		c.toast(ctx, message)
+	}
+	c.render(ctx, status, TplRoles, c.view(ctx, "角色管理 | Roles", map[string]any{
+		"Roles":     roles,
+		"Catalogue": catalogue,
+		"Total":     len(roles),
+		"Empty":     len(roles) == 0,
+	}))
+}

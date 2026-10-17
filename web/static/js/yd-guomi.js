@@ -1,6 +1,6 @@
 /*!
  * yd-guomi.js — dependency-free SM2 / SM3 / SM4 sandbox that is byte-compatible with the Go package
- * github.com/shibingli/yd/guomi. | 无依赖的 SM2/SM3/SM4 沙箱，与 Go 包 github.com/shibingli/yd/guomi 字节级互操作。
+ * github.com/shibingli/yd/security/guomi. | 无依赖的 SM2/SM3/SM4 沙箱，与 Go 包 github.com/shibingli/yd/security/guomi 字节级互操作。
  *
  * Design rules | 设计约束：
  *   - Pure ES2017+ JavaScript: no npm package, no CDN, no WebAssembly, no build step. | 纯 ES2017+ JavaScript：不依赖 npm 包、不引用 CDN、不使用 WebAssembly、无构建步骤。

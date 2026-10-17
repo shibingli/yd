@@ -24,7 +24,7 @@ import (
 
 	"github.com/redis/go-redis/v9"
 
-	"github.com/shibingli/yd/errx"
+	"github.com/shibingli/yd/core/errx"
 )
 
 // Mode names accepted by Options.Mode. | Options.Mode 接受的模式名。

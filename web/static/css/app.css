@@ -4,7 +4,7 @@
 /* @source paths are resolved relative to THIS stylesheet, so "../../templates" is web/templates. | @source 路径相对本样式文件解析，故 "../../templates" 即 web/templates。 */
 /* The Go pattern scans template strings embedded in handlers and controllers. | Go 通配用于扫描处理器与控制器中内嵌的模板字符串。        */
 @source "../../templates/**/*.html";
-@source "../../../internal/**/*.go";
+@source "../../../http/**/*.go";
 
 /* Theme switch is driven by the [data-theme] attribute on <html>, not by prefers-color-scheme, | 主题切换由 <html> 上的 [data-theme] 属性驱动，而非 prefers-color-scheme，
    so the dark: variant is rebound to that attribute to keep both mechanisms consistent. | 因此把 dark: 变体重新绑定到该属性，使两套机制保持一致。 */

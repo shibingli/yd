@@ -10,8 +10,8 @@ import (
 	"github.com/redis/go-redis/v9"
 	"golang.org/x/sync/singleflight"
 
-	"github.com/shibingli/yd/errx"
-	"github.com/shibingli/yd/jsonx"
+	"github.com/shibingli/yd/core/errx"
+	"github.com/shibingli/yd/core/jsonx"
 )
 
 // Cache-related sentinel errors, testable with errors.Is. | 缓存相关哨兵错误，可用 errors.Is 判定。

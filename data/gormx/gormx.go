@@ -23,8 +23,8 @@ import (
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 
-	"github.com/shibingli/yd/errx"
-	"github.com/shibingli/yd/logx"
+	"github.com/shibingli/yd/core/errx"
+	"github.com/shibingli/yd/core/logx"
 )
 
 // Supported driver names: the strings Options.Driver accepts. | 支持的驱动名，取值为 Options.Driver 接受的字符串。

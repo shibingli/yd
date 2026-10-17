@@ -883,7 +883,7 @@ yd/
 - Produces:
   - `type Options struct{ Dir string; Output string /* 默认 bin/<name> */; Targets []Target; LDFlags []string; Tags []string; Tailwind TailwindOptions; Embed bool; Offline bool /* 强制 -mod=vendor */; TrimPath bool /* 默认 true */; Version, Commit, Date string }`
   - `type Target struct{ GOOS, GOARCH string }`；`func ParseTargets(s string) ([]Target, error)`（`"linux/amd64,linux/arm64,windows/amd64"`）
-  - `func Build(ctx context.Context, o Options, log *logx.Logger) (*Report, error)`：步骤 ①（可选）Tailwind 剪裁压缩：`toolchain.BuildCSS(minify)` 输出 `web/static/css/yd.css`；② 版本注入 `-ldflags "-s -w -X github.com/shibingli/yd/version.Version=…"`；③ `go build`（`CGO_ENABLED=0`、`-trimpath`）；④ 多目标时输出 `dist/<name>_<os>_<arch>[.exe]`，单目标输出 `--output`；⑤ 校验产物大小与 `file` 头（PE/ELF magic）。
+  - `func Build(ctx context.Context, o Options, log *logx.Logger) (*Report, error)`：步骤 ①（可选）Tailwind 剪裁压缩：`toolchain.BuildCSS(minify)` 输出 `web/static/css/yd.css`；② 版本注入 `-ldflags "-s -w -X github.com/shibingli/yd/core/version.Version=…"`；③ `go build`（`CGO_ENABLED=0`、`-trimpath`）；④ 多目标时输出 `dist/<name>_<os>_<arch>[.exe]`，单目标输出 `--output`；⑤ 校验产物大小与 `file` 头（PE/ELF magic）。
   - `version` 包：`version.Version/Commit/Date` + `version.String()`。
   - CLI `yd build`：`--os --arch --targets --output --tailwind/--no-tailwind --minify --offline --tags --ldflags`；默认当前平台；`--all` 展开为 linux/amd64,linux/arm64,darwin/arm64,windows/amd64。
 - 硬规则：产物必须**单文件无依赖**（静态链接，`CGO_ENABLED=0`），`scratch` 镜像可直接运行。

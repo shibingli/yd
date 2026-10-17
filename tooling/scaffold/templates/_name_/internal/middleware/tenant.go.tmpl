@@ -1,0 +1,198 @@
+// 本文件是租户解析中间件：把「请求属于哪个租户」这件事在链路最外层定下来。
+// This file is the tenant resolution middleware: it settles "which tenant does this request belong to" at the very
+// front of the chain.
+
+package middleware
+
+import (
+	"context"
+	"errors"
+	"net"
+	"strings"
+
+	"{{ .Module }}/internal/meta"
+	"{{ .YdModule }}/security/auth"
+	"{{ .YdModule }}/core/errx"
+	"{{ .YdModule }}/http/router"
+)
+
+// Tenant resolution sentinels: the controllers map them onto 400 and 403. | 租户解析哨兵：控制器把它们映射为 400 与 403。
+var (
+	// ErrTenantRequired reports a request that names no tenant (no token, no header and no subdomain). | ErrTenantRequired 表示请求没有指明租户（既无令牌，也无请求头，也无子域名）。
+	ErrTenantRequired = errx.New("the request does not name a tenant | 请求未指明租户")
+	// ErrTenantMismatch reports a header naming a tenant other than the token's: that is privilege escalation and is refused outright. | ErrTenantMismatch 表示请求头指明的租户与令牌所属租户不一致：这是越权，一律拒绝。
+	ErrTenantMismatch = errx.New("the named tenant does not match the tenant of the token | 请求指明的租户与令牌所属租户不一致")
+)
+
+// Context keys: the tenant id and the tenant slug. | 上下文键：租户 ID 与租户标识。
+const (
+	// TenantIDKey holds the resolved tenant id. | TenantIDKey 保存已解析的租户 ID。
+	TenantIDKey = "yd.tenant_id"
+	// TenantSlugKey holds the resolved tenant slug. | TenantSlugKey 保存已解析的租户标识。
+	TenantSlugKey = "yd.tenant_slug"
+)
+
+// subdomainPrefixes lists the leading host labels that are never read as a tenant slug. | subdomainPrefixes 是不被当作租户标识的首段主机名。
+var subdomainPrefixes = map[string]bool{"www": true, "api": true, "static": true, "assets": true, "admin": true}
+
+// TenantResolver 把「租户标识或租户 ID」解析为租户 ID，实现由 internal/service 提供。
+// TenantResolver maps "tenant slug or tenant id" onto a tenant id; internal/service supplies the implementation.
+type TenantResolver func(ctx context.Context, key string) (string, error)
+
+// TenantOptions configures Tenant. | TenantOptions 配置 Tenant。
+type TenantOptions struct {
+	// ErrorHandler renders a resolution failure; empty writes a plain-text status instead. | ErrorHandler 渲染解析失败；为空时输出纯文本状态码。
+	ErrorHandler func(*router.Ctx, error)
+	// Resolver is the resolution function and must be injected by the caller (business rules never live in middleware). | Resolver 是解析函数，必须由调用方注入（业务规则不属于中间件）。
+	Resolver TenantResolver
+	// Header is the request header carrying the tenant key, X-Tenant by default. | Header 是承载租户标识的请求头，默认 X-Tenant。
+	Header string
+	// Required refuses a request without a resolvable tenant with 400. | Required 为 true 时，解析不出租户一律以 400 拒绝。
+	Required bool
+	// Subdomain allows the subdomain form (acme.example.com) to name the tenant. | Subdomain 为 true 时允许用子域名（acme.example.com）指明租户。
+	Subdomain bool
+}
+
+// withDefaults fills the empty fields with the documented defaults. | withDefaults 用约定取值填充空字段。
+func (o TenantOptions) withDefaults() TenantOptions {
+	if o.Header == "" {
+		o.Header = meta.TenantHeader
+	}
+	return o
+}
+
+// Tenant resolves the tenant of the request and stores it in the context. | Tenant 解析请求的租户并写入上下文。
+//
+// The resolution order is the trust boundary of multi-tenancy, first hit wins: | 解析顺序（首个命中即胜出），这条顺序就是多租户的信任边界：
+//  1. the tenant of the authenticated user: the tid claim of the token is signed and is the only trusted source; | 已认证用户所属的租户 —— 令牌里的 tid 声明经签名校验，是唯一可信的来源；
+//  2. the X-Tenant request header (a slug or a tn_ id); | X-Tenant 请求头（标识或 tn_ ID）；
+//  3. the subdomain (acme.example.com). | 子域名（acme.example.com）。
+//
+// 当 1 命中且 2 或 3 也指明了另一个租户时，请求以 ErrTenantMismatch（403）被拒绝：
+// 否则任何持有 A 租户令牌的人都能靠一个请求头读到 B 租户的数据。
+// When (1) hits and (2) or (3) names a different tenant, the request is refused with ErrTenantMismatch (403): without
+// that check anybody holding a tenant-A token could read tenant-B data with one header.
+//
+// 一个都解析不出来时：Required 为 true 则 400，否则放行（登录页需要在没有租户的情况下也能渲染）。
+// When nothing resolves: Required makes it a 400 and leaves the request alone otherwise (the sign-in page has to render
+// without a tenant).
+func Tenant(o TenantOptions) router.Middleware {
+	o = o.withDefaults()
+	handle := o.ErrorHandler
+	if handle == nil {
+		handle = defaultTenantErrorHandler
+	}
+
+	return func(c *router.Ctx) {
+		named := strings.TrimSpace(c.Header(o.Header))
+		if named == "" && o.Subdomain {
+			named = subdomain(c.Host())
+		}
+
+		// The token wins: once it hits, any other tenant is an escalation attempt. | 令牌优先：命中它之后，任何「另一个租户」的说法都是越权。
+		if user, ok := auth.CurrentUser(c); ok && user != nil {
+			if named != "" {
+				namedID, err := o.resolve(c, named)
+				if err != nil {
+					handle(c, err)
+					return
+				}
+				if namedID != user.TenantID {
+					handle(c, errx.Detail(ErrTenantMismatch, "token tenant=%s requested=%s", user.TenantID, named))
+					return
+				}
+			}
+			c.Set(TenantIDKey, user.TenantID)
+			c.Set(TenantSlugKey, named)
+			c.Next()
+			return
+		}
+
+		if named == "" {
+			if o.Required {
+				handle(c, ErrTenantRequired)
+				return
+			}
+			c.Next()
+			return
+		}
+
+		tenantID, err := o.resolve(c, named)
+		if err != nil {
+			handle(c, err)
+			return
+		}
+		c.Set(TenantIDKey, tenantID)
+		c.Set(TenantSlugKey, named)
+		c.Next()
+	}
+}
+
+// resolve 调用注入的解析函数；未注入解析函数时以 ErrTenantRequired 拒绝（失败即关闭）。
+// resolve calls the injected resolver; without one it refuses with ErrTenantRequired (fail closed).
+func (o TenantOptions) resolve(c *router.Ctx, key string) (string, error) {
+	if o.Resolver == nil {
+		return "", ErrTenantRequired
+	}
+	return o.Resolver(c.Request.Context(), key)
+}
+
+// TenantID returns the tenant id stored by Tenant. | TenantID 返回 Tenant 写入的租户 ID。
+func TenantID(c *router.Ctx) (string, bool) {
+	value, ok := c.Get(TenantIDKey)
+	if !ok {
+		return "", false
+	}
+	id, ok := value.(string)
+	return id, ok && id != ""
+}
+
+// TenantSlug returns the tenant key the request named (it may be empty because a token only carries the id). | TenantSlug 返回请求中指明的租户标识（可能是空的：令牌里只带 ID）。
+func TenantSlug(c *router.Ctx) (string, bool) {
+	value, ok := c.Get(TenantSlugKey)
+	if !ok {
+		return "", false
+	}
+	slug, ok := value.(string)
+	return slug, ok && slug != ""
+}
+
+// defaultTenantErrorHandler 在调用方没有注入渲染器时输出一条纯文本，状态码与控制器保持一致。
+// defaultTenantErrorHandler writes plain text when the caller injected no renderer, with the same status codes the controllers use.
+func defaultTenantErrorHandler(c *router.Ctx, err error) {
+	status := 400
+	if errors.Is(err, ErrTenantMismatch) {
+		status = 403
+	}
+	c.Abort()
+	_ = c.String(status, err.Error())
+}
+
+// subdomain 取主机名最左一段作为候选租户标识；IP、单段主机与 www 之类的通用前缀一律返回空串。
+// subdomain takes the leading host label as a tenant candidate; an IP, a single-label host and generic prefixes such as www all yield an empty string.
+//
+// 约定是「三段及以上才可能是租户子域」：acme.example.com 取 acme，example.com 与 localhost 都不取，
+// 这样本地开发与裸域名部署不会被误判成租户。
+// The rule is "three labels or more": acme.example.com yields acme while example.com and localhost yield nothing, so
+// local development and a bare-domain deployment are never mistaken for a tenant.
+func subdomain(host string) string {
+	trimmed := strings.TrimSpace(strings.ToLower(host))
+	if trimmed == "" {
+		return ""
+	}
+	if withoutPort, _, err := net.SplitHostPort(trimmed); err == nil {
+		trimmed = withoutPort
+	}
+	if net.ParseIP(trimmed) != nil {
+		return ""
+	}
+
+	parts := strings.Split(strings.TrimSuffix(trimmed, "."), ".")
+	if len(parts) < 3 {
+		return ""
+	}
+	if subdomainPrefixes[parts[0]] {
+		return ""
+	}
+	return parts[0]
+}

@@ -10,7 +10,7 @@ import (
 	"github.com/shibingli/yd/data/gormx"
 )
 
-// appProbeRow 是「不属于 auth/gormstore 的使用方模型」：它刻意不实现 TableName()，
+// appProbeRow 是「不属于 security/auth/gormstore 的使用方模型」：它刻意不实现 TableName()，
 // 因此表名与索引名完全由框架命名策略决定 —— 这正是本组测试要证明的那条路径。
 //
 // appProbeRow is the probing model of an application: it deliberately implements no TableName(), so its table and
@@ -28,7 +28,7 @@ type appProbeRow struct {
 const appProbeTable = "yd_app_probe_rows"
 
 // TestOpenMigratesApplicationModelsUnderYDPrefix 是「使用方模型也带前缀」的实测证据：
-// 用 gormx.Open 打开真实 SQLite，迁移一个不属于 auth/gormstore 的模型，然后直接从 sqlite_master
+// 用 gormx.Open 打开真实 SQLite，迁移一个不属于 security/auth/gormstore 的模型，然后直接从 sqlite_master
 // 读回它落到的表与索引名 —— 断言的是库里的 DDL，而不是策略的自述。
 //
 // TestOpenMigratesApplicationModelsUnderYDPrefix is the measured evidence that application models carry the prefix

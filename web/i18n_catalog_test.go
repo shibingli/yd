@@ -23,8 +23,8 @@ import (
 	"testing"
 	"text/template/parse"
 
-	"github.com/shibingli/yd/afs"
-	"github.com/shibingli/yd/authz"
+	"github.com/shibingli/yd/core/afs"
+	"github.com/shibingli/yd/security/authz"
 	"github.com/shibingli/yd/web"
 )
 

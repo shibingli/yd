@@ -4,8 +4,8 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/shibingli/yd/logx"
-	"github.com/shibingli/yd/router"
+	"github.com/shibingli/yd/core/logx"
+	"github.com/shibingli/yd/http/router"
 )
 
 // AccessLog returns a middleware that logs one record per request. | AccessLog 返回每个请求记录一条日志的中间件。

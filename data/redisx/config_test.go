@@ -5,8 +5,8 @@ import (
 
 	"github.com/spf13/afero"
 
-	"github.com/shibingli/yd/afs"
-	"github.com/shibingli/yd/config"
+	"github.com/shibingli/yd/core/afs"
+	"github.com/shibingli/yd/core/config"
 )
 
 // loadConfig builds a config instance from an in-memory YAML fixture. | loadConfig 从内存 YAML 夹具构建配置实例。

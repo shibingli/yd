@@ -1,0 +1,29 @@
+<% .Marker %>
+
+package router
+
+import (
+	"github.com/shibingli/yd/http/router"
+
+	"<%.PkgController%>"
+)
+
+// Register<%.Name%>Routes 把<%.Module%>模块的页面路由挂到 g 上。
+// Register<%.Name%>Routes mounts the <%.Snake%> page routes onto g.
+//
+// 路径参数写作 ":id"，与 OpenAPI 注解里的 "{id}" 一一对应；全部处理器都返回 HTML 片段，
+// 由 htmx 就地替换，因此这里不注册任何以 JSON 为主响应的接口。
+// Path parameters are written as ":id", matching "{id}" in the OpenAPI annotations;
+// every handler answers with an HTML fragment swapped in place by htmx, so no JSON-first
+// endpoint is registered here.
+func Register<%.Name%>Routes(g *router.Group, c *controller.<%.Name%>Controller) {
+	// 静态路径必须先于 ":id" 注册，避免 /new 被参数路由抢走。
+	// Static paths are registered before ":id" so that /new is never captured by the parameter route.
+	g.GET("<%.Route%>", c.List)
+	g.GET("<%.Route%>/new", c.New)
+	g.POST("<%.Route%>", c.Create)
+	g.GET("<%.Route%>/:id", c.Show)
+	g.GET("<%.Route%>/:id/edit", c.Edit)
+	g.PUT("<%.Route%>/:id", c.Update)
+	g.DELETE("<%.Route%>/:id", c.Delete)
+}

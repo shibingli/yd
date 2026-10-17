@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/shibingli/yd/afs"
+	"github.com/shibingli/yd/core/afs"
 	"github.com/shibingli/yd/web"
 )
 
@@ -113,7 +113,7 @@ func TestThemeDefinesBlueBrandScaleAndSemanticTokens(t *testing.T) {
 	if first := strings.TrimSpace(strings.SplitN(css, "\n", 2)[0]); first != `@import "tailwindcss";` {
 		t.Errorf("app.css must start with `@import \"tailwindcss\";`, got %q | app.css 首行必须是 `@import \"tailwindcss\";`，实际为 %q", first, first)
 	}
-	for _, want := range []string{`@source "../../templates/**/*.html";`, `@source "../../../internal/**/*.go";`} {
+	for _, want := range []string{`@source "../../templates/**/*.html";`, `@source "../../../http/**/*.go";`} {
 		if !strings.Contains(css, want) {
 			t.Errorf("app.css is missing the source directive %s | app.css 缺少源指令 %s", want, want)
 		}

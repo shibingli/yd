@@ -413,7 +413,10 @@ test('SM2 tampering is rejected | SM2 篡改被拒绝', () => {
   const ciphertext = ydGuomi.sm2.encrypt(publicKeyHex, bytes('integrity | 完整性'));
   const tampered = Uint8Array.from(ciphertext);
   tampered[97] ^= 0x01;
-  assert.throws(() => ydGuomi.sm2.decrypt(privateKeyHex, tampered), (err) => err.code === 'decrypt-failed');
+  // Pin the raw layout: auto-detection retries a 0x04-prefixed parse when C1 starts with 0x04 and
+  // reports a different error code, which is unrelated to the tampering under test. | 固定原始布局：
+  // 当 C1 以 0x04 开头时自动识别会重试带前缀的解析并报出另一种错误码，这与被测的篡改无关。
+  assert.throws(() => ydGuomi.sm2.decrypt(privateKeyHex, tampered, { c1Prefix: false }), (err) => err.code === 'decrypt-failed');
   const offCurve = Uint8Array.from(ciphertext);
   offCurve[0] = 0x00;
   offCurve[1] = 0x01;

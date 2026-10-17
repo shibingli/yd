@@ -1,0 +1,143 @@
+// 本文件是角色与权限业务：角色是权限的集合，权限矩阵的每一次勾选都落到这里。
+// This file is the role and permission business layer: a role is a set of permissions and every tick of the permission matrix lands here.
+
+package service
+
+import (
+	"context"
+	"strings"
+
+	"{{ .Module }}/internal/model"
+	"{{ .Module }}/internal/repository"
+	"{{ .YdModule }}/core/errx"
+)
+
+// Role business sentinels. | 角色业务哨兵。
+var (
+	// ErrRoleNameRequired reports an empty role name. | ErrRoleNameRequired 表示角色名为空。
+	ErrRoleNameRequired = errx.New("role name is required | 角色名称不能为空")
+	// ErrPermissionUnknown reports a capability token outside the catalogue. | ErrPermissionUnknown 表示提交了权限目录之外的能力标识。
+	ErrPermissionUnknown = errx.New("unknown permission | 未知的权限标识")
+	// ErrBuiltinRoleProtected reports an attempt to delete a built-in role. | ErrBuiltinRoleProtected 表示试图删除内置角色。
+	ErrBuiltinRoleProtected = errx.New("built-in roles cannot be deleted | 内置角色不允许删除")
+	// ErrRoleNotFound reports a role this tenant does not hold. | ErrRoleNotFound 表示本租户内没有该角色。
+	ErrRoleNotFound = errx.New("role not found | 角色不存在")
+)
+
+// Length bounds of a role name. | 角色名的长度边界。
+const maxRoleNameLen = 64
+
+// RoleService orchestrates roles and the permission matrix. | RoleService 编排角色与权限矩阵。
+type RoleService struct {
+	// repo is the role repository. | repo 是角色仓储。
+	repo *repository.RoleRepo
+}
+
+// NewRoleService builds the role business layer over a Store. | NewRoleService 基于 Store 构造角色业务。
+func NewRoleService(store *repository.Store) *RoleService {
+	return &RoleService{repo: repository.NewRoleRepo(store)}
+}
+
+// List returns this tenant's roles. | List 返回本租户的角色清单。
+func (s *RoleService) List(ctx context.Context, tenantID string) ([]model.Role, error) {
+	return s.repo.List(ctx, tenantID)
+}
+
+// Get returns one role of this tenant by id. | Get 按 ID 返回本租户内的角色。
+func (s *RoleService) Get(ctx context.Context, tenantID, roleID string) (model.Role, error) {
+	list, err := s.repo.List(ctx, tenantID)
+	if err != nil {
+		return model.Role{}, err
+	}
+	for _, role := range list {
+		if role.ID == roleID {
+			return role, nil
+		}
+	}
+	return model.Role{}, ErrRoleNotFound
+}
+
+// Save 新建或覆盖一个角色：同名即覆盖，因此表单既可以新建也可以编辑。
+// Save creates or replaces a role: the same name is replaced, so one form both creates and edits.
+func (s *RoleService) Save(ctx context.Context, tenantID, name, description string, perms []model.Permission) (model.Role, error) {
+	cleanName := strings.TrimSpace(name)
+	if cleanName == "" {
+		return model.Role{}, ErrRoleNameRequired
+	}
+	if len(cleanName) > maxRoleNameLen {
+		return model.Role{}, ErrRoleNameRequired
+	}
+
+	accepted, err := s.normalisePermissions(perms)
+	if err != nil {
+		return model.Role{}, err
+	}
+	return s.repo.Upsert(ctx, tenantID, cleanName, description, accepted)
+}
+
+// Delete 删除角色；内置角色以 ErrBuiltinRoleProtected 拒绝。
+// Delete removes a role and refuses a built-in one with ErrBuiltinRoleProtected.
+func (s *RoleService) Delete(ctx context.Context, tenantID, roleID string) error {
+	role, err := s.Get(ctx, tenantID, roleID)
+	if err != nil {
+		return err
+	}
+	if role.Builtin() {
+		return ErrBuiltinRoleProtected
+	}
+	return s.repo.Delete(ctx, tenantID, roleID)
+}
+
+// Toggle 在权限矩阵里授予或回收一项权限，返回更新后的角色。
+// Toggle grants or revokes one capability in the permission matrix and returns the updated role.
+func (s *RoleService) Toggle(ctx context.Context, tenantID, roleID string, perm model.Permission, granted bool) (model.Role, error) {
+	if !model.ValidPermission(perm) {
+		return model.Role{}, ErrPermissionUnknown
+	}
+
+	role, err := s.Get(ctx, tenantID, roleID)
+	if err != nil {
+		return model.Role{}, err
+	}
+
+	next := make([]model.Permission, 0, len(role.Permissions)+1)
+	for _, existing := range role.Permissions {
+		if existing != perm {
+			next = append(next, existing)
+		}
+	}
+	if granted {
+		next = append(next, perm)
+	}
+	return s.repo.Upsert(ctx, tenantID, role.Name, role.Description, next)
+}
+
+// Matrix 返回权限矩阵的两轴：权限目录（固定顺序）与角色清单（按名称排序）。
+// Matrix returns the two axes of the permission matrix: the capability catalogue (fixed order) and the role list (ordered by name).
+func (s *RoleService) Matrix(ctx context.Context, tenantID string) ([]model.Role, []model.PermissionInfo, error) {
+	roles, err := s.repo.List(ctx, tenantID)
+	if err != nil {
+		return nil, nil, err
+	}
+	return roles, model.Permissions(), nil
+}
+
+// normalisePermissions 校验并去重权限标识，顺序沿用权限目录，使矩阵与表单的勾选状态稳定。
+// normalisePermissions validates and de-duplicates capability tokens, keeping the catalogue order so that the matrix and the form tick the same boxes.
+func (s *RoleService) normalisePermissions(perms []model.Permission) ([]model.Permission, error) {
+	selected := make(map[model.Permission]struct{}, len(perms))
+	for _, p := range perms {
+		if !model.ValidPermission(p) {
+			return nil, errx.Detail(ErrPermissionUnknown, "permission=%s", p)
+		}
+		selected[p] = struct{}{}
+	}
+
+	out := make([]model.Permission, 0, len(selected))
+	for _, known := range model.PermissionKeys() {
+		if _, ok := selected[known]; ok {
+			out = append(out, known)
+		}
+	}
+	return out, nil
+}
