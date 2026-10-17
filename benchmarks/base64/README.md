@@ -37,12 +37,33 @@ go test -run '^$' -bench . -benchmem -benchtime=1s -count=5
 
 ## 自研原生后端（实验性）
 
-通过 `-tags b64x_native` 启用 `core/b64x` 的自研标量实现；默认构建仍使用 cloudwego/cristalhq 混合后端。
+通过 `-tags b64x_native` 启用 `core/b64x` 的自研实现；默认构建仍使用 cloudwego/cristalhq
+混合后端。纯标量版本在 1 KiB/64 KiB 上约 **1.0 GB/s** 编码、**0.9–0.96 GB/s** 解码。
+
+### SIMD（GOEXPERIMENT=simd）
 
 ```bash
-cd benchmarks/base64
-go test -run '^$' -bench . -benchmem -count=3 -tags b64x_native
+GOEXPERIMENT=simd go test -run '^$' -bench . -benchmem -count=3 -tags b64x_native
 ```
 
-当前结果（1 KiB / 64 KiB，MB/s）：Encode 约 **1,009 / 946**，Decode 约 **900–960**；全部 `0 B/op、0 allocs/op`。  
-与 cloudwego 的 10–13 GB/s 仍有约 10 倍差距，后续优化方向是 Go 1.27 `GOEXPERIMENT=simd` 下的 `simd/archsimd` 向量化（构建标签可选、标量回退）与 12→16 字节分组编码。
+运行时按 **AVX-512 + VBMI/VBMI2 → AVX-512 → AVX2 → 标量** 选择内核：
+
+- AVX-512 + VBMI/VBMI2：编码用 `VPERMB` 汇集四个 12 字节组（48 B → 64 字符），解码用
+  `VPCOMPRESSB` 压缩 48 个有效字节（64 字符 → 48 B）；
+- AVX-512：每轮 48 B ↔ 64 字符，四通道分别收尾；
+- AVX2：每轮 24 B ↔ 32 字符，尾部回退 128 位与标量；
+- 标准字母表用半字节 lo/hi 查找表一次完成校验与值映射，URL 字母表走比较路径。
+
+在 AVX-512 主机（32 核 Ubuntu，Go 1.27.2）上与 cloudwego/base64x 同机对比：
+
+| 载荷 | cloudwego 编码/解码 | **yd-b64x 编码/解码** |
+|---|---:|---:|
+| 32 B | **4.3 / 2.6 GB/s** | 1.6 / 1.3 GB/s |
+| 1 KiB | **23.2 / 16.1 GB/s** | 11.7 / 11.2 GB/s |
+| 64 KiB | 25.9 / 20.6 GB/s | **32.8 / 28.2 GB/s** |
+| 1 MiB | 25.6 / 20.4 GB/s | **33.1 / 27.7 GB/s** |
+
+结论：≥64 KiB 时自研 AVX-512 内核的编码与解码均超过 cloudwego；1 KiB 及以下因每次调用的
+固定准备开销仍以 cloudwego 更快。默认构建的混合后端会按尺寸选择 cloudwego/cristalhq，
+因此生产路径不受影响。AVX2 主机上自研内核约 4.1–4.3 GB/s 编码、2.0–2.3 GB/s 解码，
+仍低于 cloudwego 的 AVX2 内核；该后端保持实验性质，需显式构建标签启用。
