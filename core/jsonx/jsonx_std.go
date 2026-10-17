@@ -1,4 +1,4 @@
-//go:build jsonx_std
+//go:build jsonx_std && !jsonx_native
 
 // This file is the jsonx standard-library implementation: setting the jsonx_std build tag switches entirely to encoding/json, | 本文件是 jsonx 的标准库实现：设置 jsonx_std 构建标签后整体切换到 encoding/json，
 // for troubleshooting, compatibility comparison, and minimal-dependency builds in extreme environments. | 用于排障、兼容性对照与极端环境下的最小依赖构建。

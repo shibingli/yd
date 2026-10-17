@@ -409,7 +409,7 @@ func TestBackendNameIsKnown(t *testing.T) {
 	name := jsonx.Backend()
 	t.Logf("GOARCH=%s 生效的 JSON 后端为 %q", runtime.GOARCH, name)
 
-	known := map[string]bool{"sonic": true, "go-json": true, "encoding/json": true}
+	known := map[string]bool{"sonic": true, "go-json": true, "encoding/json": true, "yd-native": true}
 	if !known[name] {
 		t.Fatalf("Backend() 返回未知后端 %q", name)
 	}

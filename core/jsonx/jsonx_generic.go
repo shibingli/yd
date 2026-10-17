@@ -1,4 +1,4 @@
-//go:build !amd64 && !jsonx_std
+//go:build !amd64 && !jsonx_std && !jsonx_native
 
 // This file is the jsonx implementation on non-amd64 architectures: it binds github.com/goccy/go-json. | 本文件是 jsonx 在非 amd64 架构上的实现：绑定 github.com/goccy/go-json。
 //

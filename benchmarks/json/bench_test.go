@@ -87,6 +87,17 @@ func BenchmarkMarshal(b *testing.B) {
 			c := c
 			b.Run(ds.name+"/"+c.name, func(b *testing.B) {
 				b.SetBytes(int64(len(ds.raw)))
+				// Warm up lazily compiled codecs (sonic JIT, go-json caches) so no
+				// implementation pays its one-time setup inside the timed loop. | 预热
+				// 惰性编译的编解码器（sonic JIT、go-json 缓存），避免任何实现把一次性
+				// 初始化成本计入计时循环。
+				for i := 0; i < 3; i++ {
+					if out, err := c.marshal(ds.records); err != nil {
+						b.Fatalf("%s warmup: %v", c.name, err)
+					} else {
+						benchSink += len(out)
+					}
+				}
 				b.ReportAllocs()
 				b.ResetTimer()
 				for i := 0; i < b.N; i++ {
@@ -109,6 +120,13 @@ func BenchmarkUnmarshal(b *testing.B) {
 			c := c
 			b.Run(ds.name+"/"+c.name, func(b *testing.B) {
 				b.SetBytes(int64(len(ds.raw)))
+				for i := 0; i < 3; i++ {
+					var warm []record
+					if err := c.unmarshal(ds.raw, &warm); err != nil {
+						b.Fatalf("%s warmup: %v", c.name, err)
+					}
+					benchSink += len(warm)
+				}
 				b.ReportAllocs()
 				b.ResetTimer()
 				for i := 0; i < b.N; i++ {

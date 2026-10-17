@@ -1,4 +1,4 @@
-//go:build amd64 && !b64x_std
+//go:build amd64 && !b64x_std && !b64x_native
 
 package b64x
 

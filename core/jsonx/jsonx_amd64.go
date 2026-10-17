@@ -1,4 +1,4 @@
-//go:build amd64 && !jsonx_std
+//go:build amd64 && !jsonx_std && !jsonx_native
 
 // This file is the jsonx implementation on amd64: it binds github.com/bytedance/sonic. | 本文件是 jsonx 在 amd64 上的实现：绑定 github.com/bytedance/sonic。
 //

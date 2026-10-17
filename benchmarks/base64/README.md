@@ -34,3 +34,15 @@ go test -run '^$' -bench . -benchmem -benchtime=1s -count=5
 全部实现均为 `0 B/op、0 allocs/op`（预分配目标缓冲）。
 
 结论：≥1 KiB 时 cloudwego 与 yd-b64x 明显领先，编码约 10–12 GB/s、解码约 7–9 GB/s；标准库约 1.1 GB/s，cristalhq 约 1.9–2.4 GB/s。32 B 小载荷上 yd-b64x 走小尺寸路径，性能接近 cloudwego 并高于 cristalhq 与标准库。`b64x` 的混合分流使小尺寸不必承担 SIMD 路径的固定开销，同时在大尺寸保留 cloudwego 的吞吐。
+
+## 自研原生后端（实验性）
+
+通过 `-tags b64x_native` 启用 `core/b64x` 的自研标量实现；默认构建仍使用 cloudwego/cristalhq 混合后端。
+
+```bash
+cd benchmarks/base64
+go test -run '^$' -bench . -benchmem -count=3 -tags b64x_native
+```
+
+当前结果（1 KiB / 64 KiB，MB/s）：Encode 约 **1,009 / 946**，Decode 约 **900–960**；全部 `0 B/op、0 allocs/op`。  
+与 cloudwego 的 10–13 GB/s 仍有约 10 倍差距，后续优化方向是 Go 1.27 `GOEXPERIMENT=simd` 下的 `simd/archsimd` 向量化（构建标签可选、标量回退）与 12→16 字节分组编码。
