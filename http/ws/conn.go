@@ -114,6 +114,10 @@ type Conn struct {
 
 	// writeCompression toggles outbound compression after negotiation; the inbound direction always honours the negotiation. | writeCompression 在协商后切换出站压缩；入站方向始终遵循协商结果。
 	writeCompression atomic.Bool
+	// closeSentFlag mirrors closeSent for the lock-free rejection in WriteMessage;
+	// it is set under closeMu and never cleared. | closeSentFlag 是 closeSent 的镜像，
+	// 供 WriteMessage 无锁拒绝；它在 closeMu 下置位且从不清除。
+	closeSentFlag atomic.Bool
 }
 
 // newConn constructs the connection object. | newConn 构造连接对象。
@@ -727,10 +731,7 @@ func (c *Conn) WriteMessage(op OpCode, p []byte) error {
 	default:
 		return ErrWriteMessageOpcode
 	}
-	c.closeMu.Lock()
-	sent := c.closeSent
-	c.closeMu.Unlock()
-	if sent {
+	if c.closeSentFlag.Load() {
 		return ErrCloseSent
 	}
 	return c.writeMessageFrame(op, p)
@@ -784,6 +785,7 @@ func (c *Conn) WriteControl(op OpCode, p []byte, deadline time.Time) error {
 			return ErrCloseSent
 		}
 		c.closeSent = true
+		c.closeSentFlag.Store(true)
 		c.closeMu.Unlock()
 	}
 	return c.writeControlFrame(op, p, deadline)
@@ -901,6 +903,7 @@ func (c *Conn) writeCloseRaw(payload []byte) error {
 		return ErrCloseSent
 	}
 	c.closeSent = true
+	c.closeSentFlag.Store(true)
 	c.closeMu.Unlock()
 	return c.writeControlFrame(CloseMessage, payload, time.Now().Add(closeTimeout))
 }
@@ -937,6 +940,7 @@ func (c *Conn) CloseNow() error {
 	c.detach()
 	c.closeMu.Lock()
 	c.closeSent = true
+	c.closeSentFlag.Store(true)
 	c.closeMu.Unlock()
 	return c.conn.Close()
 }

@@ -7,6 +7,7 @@ import (
 	"net"
 	"strings"
 	"testing"
+	"time"
 )
 
 // benchSinkBytes and benchSinkBool keep results observable so the compiler cannot elide the measured work. | benchSinkBytes 与 benchSinkBool 让结果可观测，避免编译器消除被测量的工作。
@@ -176,6 +177,53 @@ func BenchmarkMessageRoundTrip(b *testing.B) {
 	}
 	if err := <-done; err != nil {
 		b.Fatalf("read message failed: %v", err)
+	}
+}
+
+// sinkConn discards writes, isolating encode and mask cost from kernel I/O. | sinkConn 丢弃写入，把编码与掩码开销同内核 I/O 隔离开。
+type sinkConn struct{ written int }
+
+// Read reports EOF. | Read 返回 EOF。
+func (c *sinkConn) Read([]byte) (int, error) { return 0, io.EOF }
+
+// Write counts and discards the bytes. | Write 计数并丢弃字节。
+func (c *sinkConn) Write(p []byte) (int, error) { c.written += len(p); return len(p), nil }
+
+// Close is a no-op. | Close 为空操作。
+func (c *sinkConn) Close() error { return nil }
+
+// LocalAddr returns nil. | LocalAddr 返回 nil。
+func (c *sinkConn) LocalAddr() net.Addr { return nil }
+
+// RemoteAddr returns nil. | RemoteAddr 返回 nil。
+func (c *sinkConn) RemoteAddr() net.Addr { return nil }
+
+// SetDeadline is a no-op. | SetDeadline 为空操作。
+func (c *sinkConn) SetDeadline(time.Time) error { return nil }
+
+// SetReadDeadline is a no-op. | SetReadDeadline 为空操作。
+func (c *sinkConn) SetReadDeadline(time.Time) error { return nil }
+
+// SetWriteDeadline is a no-op. | SetWriteDeadline 为空操作。
+func (c *sinkConn) SetWriteDeadline(time.Time) error { return nil }
+
+// BenchmarkWriteMessageClient measures client-side encoding: header, fresh mask, masking and the
+// configured write strategy, without kernel I/O. | BenchmarkWriteMessageClient 测量客户端侧编码：
+// 帧头、随机掩码、掩码变换与写策略，不含内核 I/O。
+func BenchmarkWriteMessageClient(b *testing.B) {
+	for _, size := range []int{32, 1 << 10, 4 << 10, 64 << 10} {
+		b.Run(fmt.Sprintf("size=%d", size), func(b *testing.B) {
+			c := newConn(&sinkConn{}, Options{WriteBufferSize: defaultWriteBufferSize}, true)
+			payload := make([]byte, size)
+			b.SetBytes(int64(size))
+			b.ReportAllocs()
+			b.ResetTimer()
+			for i := 0; i < b.N; i++ {
+				if err := c.WriteMessage(BinaryMessage, payload); err != nil {
+					b.Fatalf("write failed | 写入失败: %v", err)
+				}
+			}
+		})
 	}
 }
 
