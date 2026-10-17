@@ -384,11 +384,15 @@ func TestPlanCreationReadsDSNLikeTheDriver(t *testing.T) {
 		},
 		{
 			// The maintenance DSN keeps the caller's parameters and drops only the default database (loc=UTC matches the driver default, so it is never formatted back). | 维护连接串保留调用方的参数，只把默认库去掉（loc=UTC 与驱动默认一致，本身不会被格式化回来）。
-			name:     "mysql-keeps-params",
-			driver:   DriverMySQL,
-			dsn:      "root:root@tcp(127.0.0.1:3306)/prod_users?charset=utf8mb4&parseTime=true",
-			wantDB:   "prod_users",
-			wantDSN:  "root:root@tcp(127.0.0.1:3306)/?parseTime=true&charset=utf8mb4",
+			name:   "mysql-keeps-params",
+			driver: DriverMySQL,
+			dsn:    "root:root@tcp(127.0.0.1:3306)/prod_users?charset=utf8mb4&parseTime=true",
+			wantDB: "prod_users",
+			// v1.10 起驱动的 FormatDSN 先写 Params（按键排序）再写专有字段，因此 charset 排在 parseTime 之前；
+			// 顺序由驱动决定，这里钉住当前版本的规范输出。
+			// Since v1.10 the driver's FormatDSN writes Params (sorted by key) before its dedicated
+			// fields, so charset precedes parseTime; the order is the driver's, pinned here as-is.
+			wantDSN:  "root:root@tcp(127.0.0.1:3306)/?charset=utf8mb4&parseTime=true",
 			wantStmt: "CREATE DATABASE IF NOT EXISTS `prod_users`" + mysqlTail,
 			wantOK:   true,
 		},
