@@ -1,0 +1,16 @@
+goos: windows
+goarch: amd64
+pkg: github.com/shibingli/yd/benchmarks/wsrouter
+cpu: Intel(R) Core(TM) i9-10980HK CPU @ 2.40GHz
+BenchmarkEchoConcurrent/our-16         	  114246	     10282 ns/op	  99.59 MB/s	       4 B/op	       0 allocs/op
+BenchmarkEchoConcurrent/our-16         	  108133	     10065 ns/op	 101.74 MB/s	       5 B/op	       0 allocs/op
+BenchmarkEchoConcurrent/our-16         	  112725	     10296 ns/op	  99.46 MB/s	       4 B/op	       0 allocs/op
+BenchmarkEchoConcurrent/our-16         	  114714	     10263 ns/op	  99.77 MB/s	       4 B/op	       0 allocs/op
+BenchmarkEchoConcurrent/our-16         	  112574	     10588 ns/op	  96.72 MB/s	       4 B/op	       0 allocs/op
+BenchmarkEchoConcurrent/gorilla-16     	  109633	     10363 ns/op	  98.81 MB/s	     119 B/op	       4 allocs/op
+BenchmarkEchoConcurrent/gorilla-16     	  112876	     10414 ns/op	  98.33 MB/s	     119 B/op	       4 allocs/op
+BenchmarkEchoConcurrent/gorilla-16     	  108739	     10315 ns/op	  99.28 MB/s	     119 B/op	       4 allocs/op
+BenchmarkEchoConcurrent/gorilla-16     	  112075	     10215 ns/op	 100.24 MB/s	     119 B/op	       4 allocs/op
+BenchmarkEchoConcurrent/gorilla-16     	  113313	     10344 ns/op	  98.99 MB/s	     119 B/op	       4 allocs/op
+PASS
+ok  	github.com/shibingli/yd/benchmarks/wsrouter	12.856s
