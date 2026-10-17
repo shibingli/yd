@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"os"
 	"sort"
 	"strconv"
@@ -773,5 +774,78 @@ func TestDefaultLogger(t *testing.T) {
 	SetDefault(nil)
 	if Default() != other {
 		t.Fatal("SetDefault(nil) must not change the default Logger | SetDefault(nil) 不应改变默认 Logger")
+	}
+}
+
+// TestAppendJSONMillisExact 要求毫秒格式化与「纳秒 / 1e6」数值一致，且不出现指数形式。 | TestAppendJSONMillisExact
+// requires the millisecond encoding to equal ns/1e6 numerically without exponent notation.
+func TestAppendJSONMillisExact(t *testing.T) {
+	tests := []struct {
+		ns   int64
+		want string
+	}{
+		{ns: 0, want: "0"},
+		{ns: 1, want: "0.000001"},
+		{ns: 999, want: "0.000999"},
+		{ns: 1000, want: "0.001"},
+		{ns: 1_500_000, want: "1.5"},
+		{ns: 12_000_000, want: "12"},
+		{ns: 1_000_000_000, want: "1000"},
+		{ns: -2_000_000, want: "-2"},
+		{ns: -1_500_000, want: "-1.5"},
+		{ns: math.MinInt64, want: "-9223372036854.775808"},
+	}
+	for _, tt := range tests {
+		got := string(appendJSONMillis(nil, tt.ns))
+		if got != tt.want {
+			t.Errorf("appendJSONMillis(%d) = %q, want %q", tt.ns, got, tt.want)
+		}
+		// The value must also parse as the same float the old path produced. | 数值还必须能解析为旧路径产生的同一个浮点数。
+		value, err := strconv.ParseFloat(got, 64)
+		if err != nil {
+			t.Errorf("appendJSONMillis(%d) = %q is not a number: %v", tt.ns, got, err)
+			continue
+		}
+		want := float64(tt.ns) / 1e6
+		if value != want {
+			t.Errorf("appendJSONMillis(%d) = %q parses to %v, want %v", tt.ns, got, value, want)
+		}
+	}
+}
+
+// TestAppendPadWidths 覆盖定宽快路径与通用回退。 | TestAppendPadWidths covers the fixed-width fast path and the generic fallback.
+func TestAppendPadWidths(t *testing.T) {
+	tests := []struct {
+		v     int
+		width int
+		want  string
+	}{
+		{v: 0, width: 1, want: "0"},
+		{v: 0, width: 2, want: "00"},
+		{v: 7, width: 2, want: "07"},
+		{v: 42, width: 2, want: "42"},
+		{v: 2026, width: 4, want: "2026"},
+		{v: 9999, width: 4, want: "9999"},
+		{v: 10_000, width: 4, want: "10000"}, // overflows the width: generic path | 超出宽度：通用路径
+		{v: -5, width: 2, want: "-5"},        // negative: generic path | 负数：通用路径
+		{v: 3, width: 5, want: "00003"},      // width > 4: generic path | 宽度 > 4：通用路径
+	}
+	for _, tt := range tests {
+		if got := string(appendPad(nil, tt.v, tt.width)); got != tt.want {
+			t.Errorf("appendPad(%d, %d) = %q, want %q", tt.v, tt.width, got, tt.want)
+		}
+	}
+}
+
+// TestNamedLoggerPrecomputesJSON 要求 Named 派生的 logger 字段在构造期完成转义并保持正确。 | TestNamedLoggerPrecomputesJSON
+// requires the logger member of a Named child to be pre-escaped at construction and stay correct.
+func TestNamedLoggerPrecomputesJSON(t *testing.T) {
+	var buf bytes.Buffer
+	l := New(Options{Writer: &buf, Level: InfoLevel}).Named(`http"server`).Named("inner")
+	l.Info("hi")
+
+	recs := jsonLines(t, &buf)
+	if got := recs[0]["logger"]; got != `http"server.inner` {
+		t.Fatalf("logger = %#v, want %q", got, `http"server.inner`)
 	}
 }

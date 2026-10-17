@@ -126,10 +126,14 @@ type Logger struct {
 	service    string
 	host       string
 	timeFormat string
-	fields     []Field // Persistent fields accumulated by With. | With 累积的持久字段
-	pid        int     // Process id captured once in New and never re-read on the hot path. | New 时取一次、热路径不再读取的进程号
-	caller     bool
-	console    bool // true means console format. | true 表示 console 格式
+	// The members below are pre-encoded at construction, so a record never re-escapes them. | 以下成员在构造期预编码，记录写出时不再重复转义。
+	serviceJSON string
+	nameJSON    string
+	hostJSON    string
+	pidStr      string
+	fields      []Field // Persistent fields accumulated by With. | With 累积的持久字段
+	caller      bool
+	console     bool // true means console format. | true 表示 console 格式
 }
 
 // New creates a Logger from o. | New 依据 o 创建 Logger。
@@ -152,7 +156,10 @@ func New(o Options) *Logger {
 	c.level.Store(int32(o.Level))
 
 	host, _ := os.Hostname()
-	l := &Logger{core: c, exit: exit, service: o.Service, caller: o.Caller, timeFormat: o.TimeFormat, pid: os.Getpid(), host: host}
+	l := &Logger{core: c, exit: exit, service: o.Service, caller: o.Caller, timeFormat: o.TimeFormat, pidStr: strconv.Itoa(os.Getpid()), host: host}
+	l.serviceJSON = jsonStringMember("service", l.service)
+	l.nameJSON = jsonStringMember("logger", l.name)
+	l.hostJSON = jsonStringMember("host", l.host)
 	if o.Format == formatConsole {
 		l.console = true
 		if l.timeFormat == "" {
@@ -249,6 +256,7 @@ func (l *Logger) Named(name string) *Logger {
 	default:
 		child.name = child.name + "." + name
 	}
+	child.nameJSON = jsonStringMember("logger", child.name)
 	return &child
 }
 
@@ -390,19 +398,20 @@ func appendUTCMillis(dst []byte, t time.Time) []byte {
 	t = t.UTC()
 	y, mo, d := t.Date()
 	h, mi, s := t.Clock()
-	dst = appendPad(dst, y, 4)
+	dst = appendYear(dst, y)
 	dst = append(dst, '-')
-	dst = appendPad(dst, int(mo), 2)
+	dst = appendTwoDigits(dst, int(mo))
 	dst = append(dst, '-')
-	dst = appendPad(dst, d, 2)
+	dst = appendTwoDigits(dst, d)
 	dst = append(dst, 'T')
-	dst = appendPad(dst, h, 2)
+	dst = appendTwoDigits(dst, h)
 	dst = append(dst, ':')
-	dst = appendPad(dst, mi, 2)
+	dst = appendTwoDigits(dst, mi)
 	dst = append(dst, ':')
-	dst = appendPad(dst, s, 2)
+	dst = appendTwoDigits(dst, s)
 	dst = append(dst, '.')
-	dst = appendPad(dst, t.Nanosecond()/int(time.Millisecond), 3)
+	ms := t.Nanosecond() / int(time.Millisecond)
+	dst = append(dst, byte('0'+ms/100), byte('0'+ms/10%10), byte('0'+ms%10))
 	return append(dst, 'Z')
 }
 
@@ -410,18 +419,62 @@ func appendUTCMillis(dst []byte, t time.Time) []byte {
 func appendUTCTimeClock(dst []byte, t time.Time) []byte {
 	t = t.UTC()
 	h, mi, s := t.Clock()
-	dst = appendPad(dst, h, 2)
+	dst = appendTwoDigits(dst, h)
 	dst = append(dst, ':')
-	dst = appendPad(dst, mi, 2)
+	dst = appendTwoDigits(dst, mi)
 	dst = append(dst, ':')
-	dst = appendPad(dst, s, 2)
+	dst = appendTwoDigits(dst, s)
 	dst = append(dst, '.')
-	dst = appendPad(dst, t.Nanosecond()/int(time.Millisecond), 3)
+	ms := t.Nanosecond() / int(time.Millisecond)
+	dst = append(dst, byte('0'+ms/100), byte('0'+ms/10%10), byte('0'+ms%10))
 	return dst
+}
+
+// twoDigits is the lookup table "00".."99". | twoDigits 是 "00".."99" 的查表字符串。
+const twoDigits = "00010203040506070809" +
+	"10111213141516171819" +
+	"20212223242526272829" +
+	"30313233343536373839" +
+	"40414243444546474849" +
+	"50515253545556575859" +
+	"60616263646566676869" +
+	"70717273747576777879" +
+	"80818283848586878889" +
+	"90919293949596979899"
+
+// appendTwoDigits appends v as exactly two digits (00..99). | appendTwoDigits 把 v 追加为恰好两位数字（00..99）。
+func appendTwoDigits(dst []byte, v int) []byte {
+	if v >= 0 && v < 100 {
+		return append(dst, twoDigits[v*2], twoDigits[v*2+1])
+	}
+	return appendPad(dst, v, 2)
+}
+
+// appendYear appends year as exactly four digits when it fits, with a generic fallback otherwise.
+// | appendYear 在年份可容纳时追加恰好四位数字，否则退回通用实现。
+func appendYear(dst []byte, y int) []byte {
+	if y >= 0 && y < 10000 {
+		return append(dst, byte('0'+y/1000), byte('0'+y/100%10), byte('0'+y/10%10), byte('0'+y%10))
+	}
+	return appendPad(dst, y, 4)
 }
 
 // appendPad appends the non-negative integer v padded with '0' to the given width. | appendPad 以 width 宽度（不足补 '0'）追加非负整数 v。
 func appendPad(dst []byte, v, width int) []byte {
+	// Date and time components use widths 1-4; writing the digits straight into dst avoids
+	// strconv.AppendInt's generic path on every log record. | 日期与时间分量使用 1-4 的宽度；
+	// 把数字直接写进 dst，避免每条日志都走 strconv.AppendInt 的通用路径。
+	if width >= 1 && width <= 4 && v >= 0 && v < smallPow10[width] {
+		start := len(dst)
+		for i := 0; i < width; i++ {
+			dst = append(dst, '0')
+		}
+		for i := start + width - 1; v > 0; i-- {
+			dst[i] = byte('0' + v%10)
+			v /= 10
+		}
+		return dst
+	}
 	var b [20]byte
 	nb := strconv.AppendInt(b[:0], int64(v), 10)
 	for i := width - len(nb); i > 0; i-- {
@@ -429,3 +482,6 @@ func appendPad(dst []byte, v, width int) []byte {
 	}
 	return append(dst, nb...)
 }
+
+// smallPow10 holds 10^0..10^4 for the fixed-width fast path. | smallPow10 保存 10^0..10^4，供定宽快路径使用。
+var smallPow10 = [5]int{1, 10, 100, 1000, 10000}

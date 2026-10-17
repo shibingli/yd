@@ -23,34 +23,58 @@ const hexDigits = "0123456789abcdef"
 // Persistent fields (accumulated by With) are written before the fields of the current call. | 持久字段（With 累积）先于本次调用的字段输出。
 func appendJSONRecord(dst []byte, l *Logger, lvl Level, t time.Time, msg, caller string, extra []Field) []byte {
 	dst = append(dst, `{"level":`...)
-	dst = appendJSONString(dst, lvl.String())
+	dst = appendJSONLevel(dst, lvl)
 	dst = append(dst, `,"ts":"`...)
 	// The time layout is controlled by the caller and inlined directly (the Options.TimeFormat documentation already restricts layout contents). | 时间布局由使用方控制，直接内联（Options.TimeFormat 文档已限制布局内容）。
 	dst = appendTime(dst, t, l.timeFormat)
 	dst = append(dst, '"')
-	if l.service != "" {
-		dst = append(dst, `,"service":`...)
-		dst = appendJSONString(dst, l.service)
+	if l.serviceJSON != "" {
+		dst = append(dst, l.serviceJSON...)
 	}
-	if l.name != "" {
-		dst = append(dst, `,"logger":`...)
-		dst = appendJSONString(dst, l.name)
+	if l.nameJSON != "" {
+		dst = append(dst, l.nameJSON...)
 	}
 	if caller != "" {
 		dst = append(dst, `,"caller":`...)
 		dst = appendJSONString(dst, caller)
 	}
 	dst = append(dst, `,"pid":`...)
-	dst = strconv.AppendInt(dst, int64(l.pid), 10)
-	if l.host != "" {
-		dst = append(dst, `,"host":`...)
-		dst = appendJSONString(dst, l.host)
+	dst = append(dst, l.pidStr...)
+	if l.hostJSON != "" {
+		dst = append(dst, l.hostJSON...)
 	}
 	dst = append(dst, `,"msg":`...)
 	dst = appendJSONString(dst, msg)
 	dst = appendJSONFields(dst, l.fields, l.timeFormat)
 	dst = appendJSONFields(dst, extra, l.timeFormat)
 	return append(dst, '}', '\n')
+}
+
+// levelJSON holds the pre-escaped JSON form of every valid level, indexed by Level+1. | levelJSON 保存每个合法级别的预转义 JSON 形式，下标为 Level+1。
+var levelJSON = [...]string{`"debug"`, `"info"`, `"warn"`, `"error"`, `"fatal"`}
+
+// appendJSONLevel appends the level literal without re-escaping it. | appendJSONLevel 追加级别字面量，不再重复转义。
+func appendJSONLevel(dst []byte, lvl Level) []byte {
+	if i := int(lvl) + 1; i >= 0 && i < len(levelJSON) {
+		return append(dst, levelJSON[i]...)
+	}
+	return appendJSONString(dst, lvl.String())
+}
+
+// jsonStringMember builds `,<key>:<escaped value>` once at construction, so persistent members
+// (service, logger, host) are escaped once per Logger instead of once per record. | jsonStringMember
+// 在构造期构建 `,<key>:<转义值>`，使持久成员（service、logger、host）每个 Logger 只转义一次，
+// 而不是每条记录一次。
+func jsonStringMember(key, value string) string {
+	if value == "" {
+		return ""
+	}
+	buf := make([]byte, 0, len(key)+len(value)+8)
+	buf = append(buf, ',')
+	buf = appendJSONString(buf, key)
+	buf = append(buf, ':')
+	buf = appendJSONString(buf, value)
+	return string(buf)
 }
 
 // appendJSONFields encodes a group of fields in order. | appendJSONFields 依次编码一组字段。
@@ -104,8 +128,8 @@ func appendJSONValue(dst []byte, f *Field, timeFormat string) []byte {
 		dst = appendTime(dst, time.Unix(0, int64(f.num)), timeFormat)
 		return append(dst, '"')
 	case DurationType:
-		// Milliseconds (float64), which makes machine aggregation easy. | 毫秒数（float64），便于机器聚合。
-		return appendJSONFloat(dst, float64(int64(f.num))/float64(time.Millisecond))
+		// Milliseconds as a JSON number, which makes machine aggregation easy. | 毫秒数（JSON 数字），便于机器聚合。
+		return appendJSONMillis(dst, int64(f.num))
 	case BytesType:
 		dst = append(dst, '"')
 		dst = b64x.StdEncoding.AppendEncode(dst, f.bs)
@@ -137,6 +161,41 @@ func appendJSONFloat(dst []byte, v float64) []byte {
 		return append(dst, "null"...)
 	}
 	return strconv.AppendFloat(dst, v, 'g', -1, 64)
+}
+
+// appendJSONMillis appends nanoseconds as a millisecond JSON number with exact decimal notation.
+// | appendJSONMillis 把纳秒追加为毫秒 JSON 数字，使用精确的十进制写法。
+//
+// Durations are integral nanoseconds, so the float path (ftoa64) is unnecessary: integer
+// milliseconds plus a trimmed six-digit fraction produce the identical value without the rounding
+// and exponent forms of strconv.AppendFloat (1ns becomes 0.000001 instead of 1e-06). | 时长是整数纳秒，
+// 无需走浮点路径（ftoa64）：整数毫秒加截断的六位小数得到相同的数值，且不会出现
+// strconv.AppendFloat 的舍入与指数形式（1ns 输出 0.000001 而不是 1e-06）。
+func appendJSONMillis(dst []byte, ns int64) []byte {
+	var u uint64
+	if ns < 0 {
+		dst = append(dst, '-')
+		u = uint64(-(ns + 1)) + 1 // handles math.MinInt64 without overflow | 无溢出地处理 math.MinInt64
+	} else {
+		u = uint64(ns)
+	}
+	ms := u / uint64(time.Millisecond)
+	frac := u % uint64(time.Millisecond)
+	dst = strconv.AppendUint(dst, ms, 10)
+	if frac == 0 {
+		return dst
+	}
+	var digits [6]byte
+	for i := len(digits) - 1; i >= 0; i-- {
+		digits[i] = byte('0' + frac%10)
+		frac /= 10
+	}
+	end := len(digits)
+	for end > 0 && digits[end-1] == '0' {
+		end--
+	}
+	dst = append(dst, '.')
+	return append(dst, digits[:end]...)
 }
 
 // appendJSONAny encodes the boxed value of the Any slow path: it uses encoding/json (reflection inside, plus extra allocations). | appendJSONAny 编码 Any 慢路径的装箱值：使用 encoding/json（内部反射 + 额外分配）。

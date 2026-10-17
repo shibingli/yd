@@ -515,6 +515,58 @@ go test ./...                                 44 个包 ok，退出码 0
 CGO_ENABLED=1 CC=clang go test -race ./...    44 个包 ok，退出码 0
 ```
 
+## 3.12 日志编码热路径（第十轮）
+
+本节优化 `core/logx` 的 JSON/console 编码。基准在 Windows / i9-10980HK 上以
+`-benchtime=1s -count=3` 取中位；优化前后的代码分别来自工作区与 HEAD，测量方式完全一致。
+
+### 3.12.1 时间戳与定宽数字
+
+- `appendPad` 过去对每个日期/时间分量都调用 `strconv.AppendInt` 并复制一次局部数组。
+  现在宽度 1–4 的定宽数字直接写入目标缓冲；时间戳使用 `"00".."99"` 查表
+  （`appendTwoDigits`）与四位年份写入（`appendYear`），越界值仍回退通用实现。
+- 每条记录的 7 个分量因此不再进入 strconv 的通用路径。
+
+### 3.12.2 构造期预编码
+
+- 进程号在 `New` 时格式化为字符串；`service` / `logger` / `host` 三个持久成员的
+  完整 JSON 片段（含键与转义）在构造期生成，`Named` 派生时重新生成 `logger` 片段。
+  记录写出时只做一次 `append`，不再逐条转义。
+- 级别的 JSON 字面量改为预转义表，非法级别回退到原实现。
+
+### 3.12.3 时长使用精确十进制
+
+- `Dur` 字段不再经过 `float64` 与 `strconv.AppendFloat`（ftoa64），改为由整数纳秒直接
+  生成「整数毫秒 + 截断的六位小数」；数值与旧路径完全一致，但极小值输出
+  `0.000001` 而不是指数形式 `1e-06`。
+- 新增 `TestAppendJSONMillisExact` 覆盖 0、亚微秒、1.5ms、负值、整数毫秒与
+  `math.MinInt64`，既断言精确文本也断言解析后的数值；`TestAppendPadWidths` 覆盖
+  快路径与三种回退；`TestNamedLoggerPrecomputesJSON` 覆盖带引号的 logger 名。
+
+### 3.12.4 基准（优化前 → 优化后，均 0 allocs/op）
+
+| 场景 | 优化前 ns/op | 优化后 ns/op | 变化 |
+|---|---:|---:|---:|
+| `InfoNoFields`（无字段） | 199.7 | **106.9** | −46% |
+| `Info8Fields`（8 字段混合类型） | 623.4 | **456.3** | −27% |
+| `InfoFields`（5 字段） | 387.6 | **275.5** | −29% |
+| `ConsoleFields`（4 字段） | 273.7 | **233.1** | −15% |
+| `SlowQuery` | 362.6 | **240.2** | −34% |
+| `WriterDiscard` | 384.0 | **278.0** | −28% |
+
+零分配性质保持不变；异步模式的收益被入队/写协程成本部分稀释。
+
+### 3.12.5 门禁
+
+```
+gofmt -l .                                    零输出
+go build ./...                                通过
+go vet ./...                                  零输出
+go mod tidy -diff                             零输出
+go test ./...                                 44 个包 ok，退出码 0
+CGO_ENABLED=1 CC=clang go test -race ./...    44 个包 ok，退出码 0
+```
+
 ## 4. 已知限制与未覆盖项
 
 1. **HTTP/3 需要 TLS**（QUIC 强制 TLS 1.3）。开发态在未配置证书时会生成一次性自签证书

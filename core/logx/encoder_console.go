@@ -18,7 +18,7 @@ func appendConsoleRecord(dst []byte, l *Logger, lvl Level, t time.Time, msg, cal
 	dst = append(dst, levelLabel(lvl)...)
 	dst = append(dst, ' ')
 	dst = append(dst, "pid="...)
-	dst = strconv.AppendInt(dst, int64(l.pid), 10)
+	dst = append(dst, l.pidStr...)
 	dst = append(dst, ' ')
 	if l.host != "" {
 		dst = append(dst, "host="...)
