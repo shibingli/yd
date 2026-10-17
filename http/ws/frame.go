@@ -131,6 +131,15 @@ func maskBytes(key [4]byte, pos int, b []byte) int {
 	kb[4], kb[5], kb[6], kb[7] = key[0], key[1], key[2], key[3]
 	k := binary.LittleEndian.Uint64(kb[:])
 	i := 0
+	// Unroll four 8-byte words per iteration: every 8-byte word starts on a
+	// multiple of four, so the same key applies to all of them. | 每次迭代展开四个
+	// 8 字节字：每个 8 字节字的起点都是 4 的倍数，因此它们共用同一个密钥。
+	for ; i+32 <= len(b); i += 32 {
+		binary.LittleEndian.PutUint64(b[i:i+8], binary.LittleEndian.Uint64(b[i:i+8])^k)
+		binary.LittleEndian.PutUint64(b[i+8:i+16], binary.LittleEndian.Uint64(b[i+8:i+16])^k)
+		binary.LittleEndian.PutUint64(b[i+16:i+24], binary.LittleEndian.Uint64(b[i+16:i+24])^k)
+		binary.LittleEndian.PutUint64(b[i+24:i+32], binary.LittleEndian.Uint64(b[i+24:i+32])^k)
+	}
 	for ; i+8 <= len(b); i += 8 {
 		v := binary.LittleEndian.Uint64(b[i : i+8])
 		binary.LittleEndian.PutUint64(b[i:i+8], v^k)
