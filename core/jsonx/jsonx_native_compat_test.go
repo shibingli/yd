@@ -458,10 +458,10 @@ func TestNativeDepthLimit(t *testing.T) {
 		doc := []byte(strings.Repeat("[", 20000))
 		var got any
 		if err := jsonx.Unmarshal(doc, &got); err == nil {
-			t.Fatal("截断的超深输入必须返回错误")
+			t.Fatal("truncated deep input must return an error | 截断的超深输入必须返回错误")
 		}
 		if jsonx.Valid(doc) {
-			t.Fatal("截断的超深输入 Valid 必须为 false")
+			t.Fatal("truncated deep input must be invalid | 截断的超深输入 Valid 必须为 false")
 		}
 	})
 
@@ -469,7 +469,7 @@ func TestNativeDepthLimit(t *testing.T) {
 		doc := []byte(strings.Repeat(`{"a":`, 10001) + "0" + strings.Repeat("}", 10001))
 		var got any
 		if err := jsonx.Unmarshal(doc, &got); err == nil {
-			t.Fatal("超深对象必须返回错误")
+			t.Fatal("deep object must return an error | 超深对象必须返回错误")
 		}
 	})
 
@@ -477,7 +477,7 @@ func TestNativeDepthLimit(t *testing.T) {
 		node := &nativeNode{}
 		node.Next = node
 		if _, err := jsonx.Marshal(node); err == nil {
-			t.Fatal("循环指针必须返回错误而不是无限递归")
+			t.Fatal("cyclic pointer must return an error | 循环指针必须返回错误而不是无限递归")
 		}
 	})
 
@@ -487,7 +487,7 @@ func TestNativeDepthLimit(t *testing.T) {
 			v = []any{v}
 		}
 		if _, err := jsonx.Marshal(v); err == nil {
-			t.Fatal("超过编码深度上限的值必须返回错误")
+			t.Fatal("value beyond the encode depth limit must return an error | 超过编码深度上限的值必须返回错误")
 		}
 	})
 }
@@ -516,7 +516,7 @@ func TestNativeDecoderStreamSecurity(t *testing.T) {
 	}
 	var v any
 	if err := jsonx.NewDecoder(strings.NewReader("{}")).Decode(v); err == nil {
-		t.Fatal("非指针目标必须返回错误")
+		t.Fatal("non-pointer target must return an error | 非指针目标必须返回错误")
 	}
 }
 
