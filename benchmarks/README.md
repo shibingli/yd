@@ -25,8 +25,8 @@ go test -run '^$' -bench . -benchmem  # 性能
 
 - **ws**：五档载荷中 32 B/256 B 延迟最低，64 KiB 吞吐最高（572.9 MB/s）；唯一全程零分配。
 - **router**：参数、深层、通配与未命中路径最快；五类路径全部零分配。静态路径仅比 httprouter 慢约 0.5 ns。
-- **json**：默认后端与 sonic 一致；`jsonx_native` 自研后端（`-tags jsonx_native`）在 n=1000 公平交替进程上 Marshal 约 246 vs 270 µs（快 8.9%）、Unmarshal 约 509 vs 553 µs（快 8.0%），n=100 快约 8%/3%，n=1 Unmarshal 持平、Marshal 慢约 5%；已补深度上限 10000、Unicode/嵌入字段/自定义接口等安全兼容修复，差分与 fuzz 通过。
-- **base64**：默认混合后端 ≥1 KiB 约 10–12 GB/s 编码、7–9 GB/s 解码；自研内核经同进程汇编检查确认零向量寄存器溢出。32 核 AVX-512 VBMI2 主机上 32 B–1 MiB 全面领先 cloudwego（32 B 编码 5.6 vs 7.4 ns、解码 8.6 vs 12.6 ns；64 KiB 45.9/33.4 vs 25.8/20.6 GB/s）；AVX2 32 B 编解码 7.0/11.9 vs 7.4/12.6 ns，64 KiB 编码 27.0 vs 25.8 GB/s；无 VBMI 的企业级 Xeon 32 B 解码持平、64 KiB/1 MiB 编码持平或略快，解码仍落后；全长度差分、越界哨兵与远程 race 通过。
+- **json**：默认后端与 sonic 一致；`jsonx_native` 自研后端在 n=1000 公平交替进程上 Marshal 约 218 vs 256 µs（快 15.0%）、Unmarshal 约 504 vs 498 µs（慢 1.4%，持平），n=1 Marshal/Unmarshal 快 6.8%/5.8%；已补嵌入字段冲突支配规则、omitzero、解码 ,string、深度上限 10000 与 Unicode/自定义接口兼容，差分与 fuzz 通过。
+- **base64**：默认混合后端 ≥1 KiB 约 10–12 GB/s 编码、7–9 GB/s 解码；自研内核经同进程汇编检查确认零向量寄存器溢出。32 核 AVX-512 VBMI2 主机上 32 B 5.65/8.67 ns、64 KiB 45.7/33.4 vs cloudwego 25.9/20.6 GB/s；AVX2 32 B 7.04/9.97 ns、64 KiB 27.0/23.2 GB/s；无 VBMI 的企业级 Xeon 默认尺寸自适应解码，32 B 32.8 vs 37.4 ns、64 KiB 7.6 vs 7.0 GB/s，编码大载荷持平或略快；全长度+大长度差分、越界哨兵与三环境 race 通过。
 - **compress**：zstd 综合最优；klauspost gzip 约为标准库 gzip 的 4 倍吞吐；snappy/lz4 更快但压缩率更差。
 - **logx**：启用 Info 182 ns/op、零分配，快于 zerolog；禁用路径 20 ns/op、零分配。
 

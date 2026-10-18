@@ -186,8 +186,8 @@ repotest/      仓库治理守卫（治理文件与规范的可执行断言）
 |---|---|---|
 | WebSocket | [`benchmarks/ws`](benchmarks/ws/README.md) | 与 coder/gorilla/gobwas/gws 兼容性 18/18；32 B/256 B 延迟最低，64 KiB 吞吐 572.9 MB/s；唯一全程 `0 B/op、0 allocs/op` |
 | Router | [`benchmarks/router`](benchmarks/router/README.md) | 参数/深层/通配/未命中路径最快（4.8–5.1 ns，未命中 8.8 ns），五类路径零分配；WebSocket 握手经 router 仅增加 62 ns（5.6%） |
-| JSON | [`benchmarks/json`](benchmarks/json/README.md) | 默认与 sonic 一致；`jsonx_native` 自研后端 n=1000 Marshal 246 vs 270 µs（快 8.9%）、Unmarshal 509 vs 553 µs（快 8.0%）；n=1 Unmarshal 持平、Marshal 慢约 5%；补齐深度上限 10000 与 Unicode/嵌入字段/自定义接口兼容，差分+fuzz 通过 |
-| Base64 | [`benchmarks/base64`](benchmarks/base64/README.md) | 默认混合后端 ≥1 KiB 约 10–12 GB/s；自研内核零向量寄存器溢出。32 核 AVX-512 VBMI2 主机 32 B–1 MiB 全面领先 cloudwego（32 B 编码 5.6 vs 7.4 ns、解码 8.6 vs 12.6 ns；64 KiB 45.9/33.4 vs 25.8/20.6 GB/s）；AVX2 32 B 编解码 7.0/11.9 vs 7.4/12.6 ns，64 KiB 编码 27.0 vs 25.8 GB/s；无 VBMI 主机 32 B 解码持平、64 KiB/1 MiB 编码持平或略快，解码仍落后；全长度差分/越界哨兵/远程 race 通过 |
+| JSON | [`benchmarks/json`](benchmarks/json/README.md) | 默认与 sonic 一致；`jsonx_native` 自研后端 n=1000 Marshal 218 vs 256 µs（快 15.0%）、Unmarshal 504 vs 498 µs（慢 1.4%，持平）；n=1 Marshal/Unmarshal 快 6.8%/5.8%；补齐嵌入字段冲突支配规则、omitzero、解码 ,string、深度上限 10000 与 Unicode/自定义接口兼容，差分+fuzz 通过 |
+| Base64 | [`benchmarks/base64`](benchmarks/base64/README.md) | 默认混合后端 ≥1 KiB 约 10–12 GB/s；自研内核零向量溢出。32 核 VBMI2：32 B 5.65/8.67 ns、64 KiB 45.7/33.4 vs 25.9/20.6 GB/s；AVX2 32 B 7.04/9.97 ns、64 KiB 27.0/23.2；无 VBMI 主机默认尺寸自适应解码 32 B 32.8 vs 37.4 ns、64 KiB 7.6 vs 7.0 GB/s，编码大载荷持平或略快；全长度+大长度差分/越界哨兵/三环境 race 通过 |
 | 压缩 | [`benchmarks/compress`](benchmarks/compress/README.md) | zstd 综合最优（text 压缩 3.7 GB/s / 解压 7.5 GB/s）；klauspost gzip 约为标准库 gzip 的 4 倍吞吐，压缩率相同 |
 | 日志 | [`benchmarks/logx`](benchmarks/logx/README.md) | `logx` 启用 Info 182 ns/op、零分配，快于 zerolog；禁用路径 20 ns/op、零分配 |
 
