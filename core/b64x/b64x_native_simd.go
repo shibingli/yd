@@ -151,11 +151,12 @@ func encodeBlocksAVX2(dst, src []byte, url bool) (int, int) {
 }
 
 // encodeSIMD encodes Base64 into dst with the AVX2 kernels and returns the input bytes consumed
-// and the output bytes written. It dispatches 32-byte sources to the exact-size kernel, encodes
-// the first 24 bytes with 256-bit vectors, then loops over 24-byte blocks and hands the tail to
-// the 128-bit kernels. | encodeSIMD 用 AVX2 内核把 Base64 编码写入 dst，返回消耗的输入字节数
-// 与写入的输出字节数。32 字节源交给精确尺寸内核；先用 256 位向量编码前 24 字节，再以
-// 24 字节块循环，尾部交给 128 位内核。
+// and the output bytes written. Exact 32-byte sources use the dedicated kernel; 28-51 byte
+// sources use one 24-byte head plus the 128-bit tail; larger sources keep the 12-byte head so
+// the block loop starts at the alignment that leaves the smallest tail. | encodeSIMD 用 AVX2
+// 内核把 Base64 编码写入 dst，返回消耗的输入字节数与写入的输出字节数。精确 32 字节走专用
+// 内核；28-51 字节用一个 24 字节首块加 128 位尾部；更大的输入保留 12 字节首块，使块循环
+// 从尾部最小的对齐位置开始。
 func encodeSIMD(dst, src []byte, url, padded bool, pad byte) (int, int) {
 	if len(src) == 32 && len(dst) >= encoded32Len(padded) {
 		return encode32AVX2(dst, src, url, padded, pad)
@@ -163,7 +164,12 @@ func encodeSIMD(dst, src []byte, url, padded bool, pad byte) (int, int) {
 	if len(src) < 28 || len(dst) < 32 {
 		return 0, 0
 	}
-	i, o := encodeFirst24AVX2(dst, src, url)
+	if len(src) < 52 {
+		i, o := encodeFirst24AVX2(dst, src, url)
+		n, out := encodeTailAVX2(dst[o:], src[i:], url, padded, pad)
+		return i + n, o + out
+	}
+	i, o := encodeFirstAVX2(dst, src, url)
 	if len(src)-i >= 28 {
 		n, out := encodeBlocksAVX2(dst[o:], src[i-4:], url)
 		i += n
