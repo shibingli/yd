@@ -4,8 +4,9 @@ import (
 	"crypto/cipher"
 	"crypto/rand"
 
+	esm4 "github.com/emmansun/gmsm/sm4"
+
 	"github.com/shibingli/yd/core/errx"
-	"github.com/tjfoc/gmsm/sm4"
 )
 
 // maxGCMNonceSize is the longest nonce SealGCM and OpenGCM accept. | maxGCMNonceSize 是 SealGCM/OpenGCM 允许的最大 nonce 长度。
@@ -39,7 +40,7 @@ func NewCipher(key []byte) (cipher.Block, error) {
 	if len(key) != SM4KeySize {
 		return nil, errx.Detail(ErrInvalidKeyLength, "got %[1]d bytes | 实际 %[1]d 字节", len(key))
 	}
-	block, err := sm4.NewCipher(key)
+	block, err := esm4.NewCipher(key)
 	if err != nil {
 		return nil, errx.Wrap(err, ErrCipherCreate)
 	}
@@ -64,7 +65,7 @@ func EncryptCBC(key, iv, plaintext []byte) ([]byte, error) {
 	// | 直接填充进输出缓冲并就地加密：cipher.BlockMode 与 cipher.Block 都允许 dst 与 src 完全重叠，
 	// 因此无需中间副本。
 	out := pkcs7PadInto(make([]byte, 0, len(plaintext)+SM4BlockSize), plaintext, SM4BlockSize)
-	cipher.NewCBCEncrypter(block, iv).CryptBlocks(out, out)
+	newCBCEncrypter(block, iv).CryptBlocks(out, out)
 	return out, nil
 }
 
@@ -85,7 +86,7 @@ func DecryptCBC(key, iv, ciphertext []byte) ([]byte, error) {
 	}
 
 	out := make([]byte, len(ciphertext))
-	cipher.NewCBCDecrypter(block, iv).CryptBlocks(out, ciphertext)
+	newCBCDecrypter(block, iv).CryptBlocks(out, ciphertext)
 	return pkcs7Unpad(out, SM4BlockSize)
 }
 
@@ -170,9 +171,7 @@ func EncryptECB(key, plaintext []byte) ([]byte, error) {
 		return nil, err
 	}
 	padded := pkcs7PadInto(make([]byte, 0, len(plaintext)+SM4BlockSize), plaintext, SM4BlockSize)
-	for i := 0; i < len(padded); i += SM4BlockSize {
-		block.Encrypt(padded[i:i+SM4BlockSize], padded[i:i+SM4BlockSize])
-	}
+	cryptECB(block, padded, padded, true)
 	return padded, nil
 }
 
@@ -188,10 +187,55 @@ func DecryptECB(key, ciphertext []byte) ([]byte, error) {
 		return nil, errx.Detail(ErrInvalidCiphertext, "ECB ciphertext length %[1]d is not a positive multiple of %[2]d | ECB 密文长度 %[1]d 不是 %[2]d 的正整数倍", len(ciphertext), SM4BlockSize)
 	}
 	out := make([]byte, len(ciphertext))
-	for i := 0; i < len(ciphertext); i += SM4BlockSize {
-		block.Decrypt(out[i:i+SM4BlockSize], ciphertext[i:i+SM4BlockSize])
-	}
+	cryptECB(block, out, ciphertext, false)
 	return pkcs7Unpad(out, SM4BlockSize)
+}
+
+// cryptECB applies ECB to every full block, preferring the cipher's own
+// multi-block implementation when it provides one. | cryptECB 对每个完整分组施加 ECB；
+// 底层密码提供多分组实现时优先使用。
+//
+// The accelerated path is optional by design: a cipher.Block that only
+// implements the three standard methods still works through the per-block
+// fallback. Both buffers may overlap exactly, which the callers rely on. | 加速
+// 路径按设计是可选项：只实现三个标准方法的 cipher.Block 仍走逐分组回退。两个缓冲允许
+// 完全重叠，调用方依赖这一点。
+func cryptECB(block cipher.Block, dst, src []byte, encrypt bool) {
+	if encrypt {
+		if b, ok := block.(interface{ NewECBEncrypter() cipher.BlockMode }); ok {
+			b.NewECBEncrypter().CryptBlocks(dst, src)
+			return
+		}
+	} else if b, ok := block.(interface{ NewECBDecrypter() cipher.BlockMode }); ok {
+		b.NewECBDecrypter().CryptBlocks(dst, src)
+		return
+	}
+	for i := 0; i < len(src); i += SM4BlockSize {
+		if encrypt {
+			block.Encrypt(dst[i:i+SM4BlockSize], src[i:i+SM4BlockSize])
+		} else {
+			block.Decrypt(dst[i:i+SM4BlockSize], src[i:i+SM4BlockSize])
+		}
+	}
+}
+
+// newCBCEncrypter returns the cipher's own CBC mode when it provides one, and
+// the standard library mode otherwise. | newCBCEncrypter 在底层密码提供自有 CBC
+// 模式时返回该模式，否则返回标准库模式。
+func newCBCEncrypter(block cipher.Block, iv []byte) cipher.BlockMode {
+	if b, ok := block.(interface{ NewCBCEncrypter([]byte) cipher.BlockMode }); ok {
+		return b.NewCBCEncrypter(iv)
+	}
+	return cipher.NewCBCEncrypter(block, iv)
+}
+
+// newCBCDecrypter is the decryption counterpart of newCBCEncrypter. | newCBCDecrypter
+// 是 newCBCEncrypter 的解密对应物。
+func newCBCDecrypter(block cipher.Block, iv []byte) cipher.BlockMode {
+	if b, ok := block.(interface{ NewCBCDecrypter([]byte) cipher.BlockMode }); ok {
+		return b.NewCBCDecrypter(iv)
+	}
+	return cipher.NewCBCDecrypter(block, iv)
 }
 
 // RandomKey generates a 16-byte SM4 key from crypto/rand. | RandomKey 使用 crypto/rand 生成 16 字节 SM4 密钥。

@@ -5,10 +5,12 @@ import (
 	"encoding/hex"
 	"errors"
 	"strings"
+	"sync"
 	"testing"
 
+	esm3 "github.com/emmansun/gmsm/sm3"
+
 	"github.com/shibingli/yd/core/b64x"
-	"github.com/tjfoc/gmsm/sm3"
 )
 
 // sm3EmptyHex is the standard vector for the empty message from GB/T 32905-2016. | sm3EmptyHex 是 GB/T 32905-2016 附录给出的空串示例向量。
@@ -139,8 +141,8 @@ func TestSM3HMAC(t *testing.T) {
 		const block = 64
 		k := make([]byte, block)
 		if len(key) > block {
-			s := sm3.Sm3Sum(key)
-			copy(k, s)
+			s := esm3.Sum(key)
+			copy(k, s[:])
 		} else {
 			copy(k, key)
 		}
@@ -150,10 +152,10 @@ func TestSM3HMAC(t *testing.T) {
 			ipad[i] = k[i] ^ 0x36
 			opad[i] = k[i] ^ 0x5c
 		}
-		inner := sm3.New()
+		inner := esm3.New()
 		inner.Write(ipad)
 		inner.Write(msg)
-		outer := sm3.New()
+		outer := esm3.New()
 		outer.Write(opad)
 		outer.Write(inner.Sum(nil))
 		var out [32]byte
@@ -174,6 +176,32 @@ func TestSM3HMAC(t *testing.T) {
 	if HMAC(key, msg) == HMAC([]byte("other-key"), msg) {
 		t.Fatal("HMACs under different keys must not be equal | 不同密钥的 HMAC 不应相同")
 	}
+}
+
+// TestHMACConcurrent checks that working buffers recycled through the pool are
+// never shared between goroutines. | TestHMACConcurrent 校验经池回收的工作缓冲不会在
+// 协程之间共享。
+func TestHMACConcurrent(t *testing.T) {
+	key := []byte("concurrent-hmac-key|并发密钥")
+	data := []byte("payload for the concurrent HMAC test | 并发 HMAC 载荷")
+	want := HMAC(key, data)
+
+	const goroutines = 8
+	const iterations = 2000
+	var wg sync.WaitGroup
+	wg.Add(goroutines)
+	for g := 0; g < goroutines; g++ {
+		go func() {
+			defer wg.Done()
+			for i := 0; i < iterations; i++ {
+				if got := HMAC(key, data); got != want {
+					t.Errorf("HMAC under concurrency = %x, want %x | 并发下的 HMAC 为 %x，期望 %x", got, want, got, want)
+					return
+				}
+			}
+		}()
+	}
+	wg.Wait()
 }
 
 // TestPBKDF2RFC8018 checks the block index concatenation and output length of PBKDF2-SM3 per RFC 8018 §5.2. | TestPBKDF2RFC8018 校验 PBKDF2-SM3 的分组序号拼接与输出长度（RFC 8018 §5.2）。

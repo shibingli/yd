@@ -176,30 +176,39 @@ func (c Claims) numericDateClaim(key string) (time.Time, bool) {
 	return numericDate(raw)
 }
 
-// claimFields holds the raw bytes of the registered claims that Parse validates, located in one pass. | claimFields 保存在一趟扫描中定位到的、Parse 需要校验的登记声明原始值。
+// claimFields holds the registered claims that Parse validates, located and
+// (for exp/nbf) parsed in one pass. | claimFields 保存 Parse 需要校验的登记声明，
+// 这些声明在同一个遍历中定位并（对 exp/nbf）完成解析。
 type claimFields struct {
-	exp, nbf, iss, aud []byte
-	hasExp, hasNbf     bool
-	hasIss, hasAud     bool
+	exp, nbf       time.Time
+	iss, aud       []byte
+	hasExp, hasNbf bool
+	hasIss, hasAud bool
+	expOK, nbfOK   bool
 }
 
 // scanRegistered validates the payload structure and locates exp, nbf, iss and aud in a single pass. | scanRegistered 一趟完成载荷结构校验，并定位 exp、nbf、iss 与 aud。
 //
-// Duplicate claim names resolve to their last occurrence. | 重复的声明名取最后一次出现的值。
+// Duplicate claim names resolve to their last occurrence. NumericDate parsing happens here so that
+// checkRegistered does not repeat it; a parse failure is recorded and reported only after the
+// signature has been verified. | 重复的声明名取最后一次出现的值。NumericDate 在此解析，使
+// checkRegistered 无需重复解析；解析失败会被记录，并且只在签名校验通过后才报告。
 func scanRegistered(payload []byte, f *claimFields) bool {
 	var s scanner
 	if !s.init(payload) {
 		return false
 	}
 	for s.next() {
-		switch {
-		case keyMatches(s.key, "exp"):
-			f.exp, f.hasExp = s.val, true
-		case keyMatches(s.key, "nbf"):
-			f.nbf, f.hasNbf = s.val, true
-		case keyMatches(s.key, "iss"):
+		switch registeredClaim(s.key) {
+		case claimExp:
+			f.exp, f.expOK = numericDate(s.val)
+			f.hasExp = true
+		case claimNbf:
+			f.nbf, f.nbfOK = numericDate(s.val)
+			f.hasNbf = true
+		case claimIss:
 			f.iss, f.hasIss = s.val, true
-		case keyMatches(s.key, "aud"):
+		case claimAud:
 			f.aud, f.hasAud = s.val, true
 		}
 	}
@@ -217,21 +226,19 @@ func checkRegistered(f *claimFields, o ParseOptions) error {
 	at := now()
 
 	if f.hasNbf {
-		nbf, ok := numericDate(f.nbf)
-		if !ok {
+		if !f.nbfOK {
 			return errx.Detail(ErrMalformed, "nbf is not a valid NumericDate | nbf 不是合法的 NumericDate")
 		}
-		if at.Add(o.Leeway).Before(nbf) {
-			return errx.Detail(ErrTokenNotValidYet, "nbf=%[1]s | 生效时间=%[1]s", nbf.Format(time.RFC3339))
+		if at.Add(o.Leeway).Before(f.nbf) {
+			return errx.Detail(ErrTokenNotValidYet, "nbf=%[1]s | 生效时间=%[1]s", f.nbf.Format(time.RFC3339))
 		}
 	}
 	if f.hasExp {
-		exp, ok := numericDate(f.exp)
-		if !ok {
+		if !f.expOK {
 			return errx.Detail(ErrMalformed, "exp is not a valid NumericDate | exp 不是合法的 NumericDate")
 		}
-		if exp.Add(o.Leeway).Before(at) {
-			return errx.Detail(ErrTokenExpired, "exp=%[1]s | 过期时间=%[1]s", exp.Format(time.RFC3339))
+		if f.exp.Add(o.Leeway).Before(at) {
+			return errx.Detail(ErrTokenExpired, "exp=%[1]s | 过期时间=%[1]s", f.exp.Format(time.RFC3339))
 		}
 	} else if o.RequireExp {
 		return ErrMissingExp

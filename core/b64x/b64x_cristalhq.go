@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"encoding/base64"
 	"slices"
+	"unsafe"
 
 	b64 "github.com/cristalhq/base64"
 
@@ -109,6 +110,16 @@ func (e *Encoding) DecodeString(s string) ([]byte, error) {
 		return nil, errx.Wrap(err, ErrInvalidData)
 	}
 	return out, nil
+}
+
+// AppendDecodeString appends the decoded bytes of the Base64 text s to dst without converting s to a
+// []byte; the string is only read, so the zero-copy view never escapes. | AppendDecodeString 把
+// Base64 文本 s 的解码结果追加到 dst，且不把 s 转换成 []byte；字符串只被读取，零拷贝视图不会逃逸。
+func (e *Encoding) AppendDecodeString(dst []byte, s string) ([]byte, error) {
+	if len(s) == 0 {
+		return dst, nil
+	}
+	return e.AppendDecode(dst, unsafe.Slice(unsafe.StringData(s), len(s)))
 }
 
 // AppendDecode appends the decode result of the Base64 text src to dst and returns the extended slice. | AppendDecode 把 Base64 文本 src 的解码结果追加到 dst 并返回扩展后的切片。

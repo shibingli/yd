@@ -125,7 +125,7 @@ http/          HTTP 与前端交付
 middleware/    Recover · RequestID · AccessLog · CORS · RateLimit · gzip/br/zstd 协商
 security/      安全与鉴权
   jwt/         免反射 JWT（claims 扫描零分配，拒绝 alg:none 与算法混淆）
-  guomi/       国密 SM2/SM3/SM4（纯 Go；SM2 KDF 与 C1C3C2 按 GB/T 32918.4 实现）
+  guomi/       国密 SM2/SM3/SM4（纯 Go，emmansun/gmsm 维护版后端；SM2 KDF 与 C1C3C2 按 GB/T 32918.4 实现）
   auth/        租户/用户/角色/能力领域模型（gormstore 子包负责落库）
   authz/       角色与权限注册表、静态校验
 runtime/       进程与运行时
@@ -188,6 +188,8 @@ repotest/      仓库治理守卫（治理文件与规范的可执行断言）
 | Router | [`benchmarks/router`](benchmarks/router/README.md) | param/deep/wildcard/miss 最快（1.1–1.6 ns），五类路径零分配；静态路径 httprouter 0.9 ns、yd 1.1 ns；WebSocket 握手经 router 增加约 15 ns（4.2%） |
 | JSON | [`benchmarks/json`](benchmarks/json/README.md) | amd64 默认自研后端。单核 Marshal n=1/100/1000 全部第一（快 go-json 14.9%/28.0%/28.8%）；Unmarshal n=100/n=1000 快 6.8%/1.9%，n=1 慢 4.8%。多核 Marshal 2–16 核领先（16 核 10,416 MB/s），32 核 10,704 vs 10,806 MB/s 基本持平；Unmarshal 8–32 核领先（32 核 6,045 vs 3,109 MB/s），RSS 91.9 vs 132.4 MiB。嵌入字段支配规则、omitzero、解码 `,string`、深度上限 10000、Unicode/自定义接口兼容与差分/fuzz 通过 |
 | Base64 | [`benchmarks/base64`](benchmarks/base64/README.md) | amd64 默认自研内核。单核 32 B–1 MiB 编码/解码全部第一（32 B 5.76/8.43 ns，64 KiB 45.6/33.5 GB/s）；并发调用 1–32 核全部第一（16 核 535.4/409.1 GB/s），16 核后接近内存带宽上限；`EncodeParallel`/`DecodeParallel` 零核心参数、按 GOMAXPROCS 与输入大小自动并行（8 MiB 编码 16 核 160.1 GB/s）。三套内核零向量寄存器溢出，全长度+大长度差分、越界哨兵与 race 通过 |
+| JWT | [`benchmarks/jwt`](benchmarks/jwt/README.md) | HS256 验签 743.3 ns / 2 allocs，领先 cristal 2.87×、kataras 3.07×、golang-jwt 4.50×；并发复用 38.26 ns / 0 allocs（26.1 M ops/s），领先 cristal 13.8×；ES256 39.7 µs / 21 allocs 全部第一；`SignJSON` 531.5 ns / 结构体 617.4 ns，快于 cristal 结构体路径 1,030 ns；算法白名单、常量时间比较、验签后再校验声明 |
+| 国密/常密 | [`benchmarks/crypto`](benchmarks/crypto/README.md) | 后端切换到 emmansun/gmsm v0.45.0：SM3 4 KiB 12.51→7.36 µs（1.70×）；HMAC-SM3 1.77→0.73 µs（2.42×，0 allocs）；PBKDF2 939.6→283.3 µs（3.32×）；SM4-GCM 4 KiB 45.29→5.41 µs（8.37×，757.3 MB/s）；SM2 签名 131.6→14.36 µs（9.16×）、验签 687.9→34.39 µs（20.0×）、加密 715.8→35.97 µs（19.9×）、解密 554.5→29.02 µs（19.1×）；SM2 签名/验签快于 ECDSA P-256 |
 | 压缩 | [`benchmarks/compress`](benchmarks/compress/README.md) | zstd/fastest text 压缩 8.04 GB/s、压缩率 0.002，zstd 解压 13.67 GB/s；snappy text 压缩 13.57 GB/s 但压缩率 0.049；klauspost gzip 约为标准库 gzip 的 3.7 倍吞吐，压缩率相同；brotli/q9 json 压缩率 0.021 但吞吐/内存成本最高 |
 | 日志 | [`benchmarks/logx`](benchmarks/logx/README.md) | dynamic Info 111.7 ns/op、零分配，略快于 zerolog（112.9 ns）；prebound Info 103.1 ns，慢于 zerolog 94.9 ns 约 8.6%；禁用路径 prebound 1.8 ns、零分配，与 logrus 并列最快，dynamic 7.9 ns（slog 5.1 ns 更快） |
 

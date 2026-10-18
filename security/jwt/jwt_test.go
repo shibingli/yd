@@ -1232,3 +1232,121 @@ func TestMalformedTokensTable(t *testing.T) {
 		t.Errorf("两段空载荷的 err = %v，期望 ErrMalformed", err)
 	}
 }
+
+// TestSignHeaderEscapingAndDeterminism pins that header strings are escaped
+// correctly, reserved names cannot be overridden, extra keys are deterministic,
+// and invalid UTF-8 follows the encoding/json replacement rule.
+// | TestSignHeaderEscapingAndDeterminism 固定「头部字符串正确转义、保留名不可覆盖、
+// 额外键输出确定，且非法 UTF-8 遵循 encoding/json 的替换规则」。
+func TestSignHeaderEscapingAndDeterminism(t *testing.T) {
+	keyFn := hmacKeyFunc(testSecret)
+	kid := "k\"\\n\t\x01é"
+	extra := map[string]string{
+		"k\"":  "v\n",
+		"z":    "ok",
+		"alg":  "none",
+		"typ":  "evil",
+		"kid":  "evil",
+		"ctrl": "\x02",
+	}
+	raw, err := Sign(map[string]any{"sub": "u-1"}, testSecret, HS256, SignOptions{Kid: kid, Header: extra})
+	if err != nil {
+		t.Fatalf("Sign: %v | Sign：%v", err, err)
+	}
+	tok := mustParse(t, raw, keyFn, ParseOptions{ValidAlgs: []Alg{HS256}})
+	if tok.Header.Kid != kid {
+		t.Fatalf("Kid = %q, want %q | Kid = %q，期望 %q", tok.Header.Kid, kid, tok.Header.Kid, kid)
+	}
+	if tok.Header.Typ != "JWT" {
+		t.Fatalf("Typ = %q, want JWT | Typ = %q，期望 JWT", tok.Header.Typ, tok.Header.Typ)
+	}
+	if tok.Header.Alg != HS256 {
+		t.Fatalf("Alg = %q, want HS256 | Alg = %q，期望 HS256", tok.Header.Alg, tok.Header.Alg)
+	}
+	if _, ok := tok.Header.Extra["alg"]; ok {
+		t.Fatal("reserved alg leaked into Extra | 保留名 alg 进入了 Extra")
+	}
+	if _, ok := tok.Header.Extra["typ"]; ok {
+		t.Fatal("reserved typ leaked into Extra | 保留名 typ 进入了 Extra")
+	}
+	if _, ok := tok.Header.Extra["kid"]; ok {
+		t.Fatal("reserved kid leaked into Extra | 保留名 kid 进入了 Extra")
+	}
+	if got := tok.Header.Extra["k\""]; got != "v\n" {
+		t.Fatalf("escaped key Extra = %q, want %q | 转义键 Extra = %q，期望 %q", got, "v\n", got, "v\n")
+	}
+	if got := tok.Header.Extra["ctrl"]; got != "\x02" {
+		t.Fatalf("control Extra = %q, want %q | 控制字符 Extra = %q，期望 %q", got, "\x02", got, "\x02")
+	}
+
+	again, err := Sign(map[string]any{"sub": "u-1"}, testSecret, HS256, SignOptions{Kid: kid, Header: extra})
+	if err != nil {
+		t.Fatalf("Sign again: %v | 再次 Sign：%v", err, err)
+	}
+	if again != raw {
+		t.Fatal("identical options produced different header bytes | 相同选项产生了不同的头部字节")
+	}
+
+	bad := string([]byte{0xff, 0xfe})
+	raw, err = Sign(map[string]any{"sub": "u-1"}, testSecret, HS256, SignOptions{Kid: bad})
+	if err != nil {
+		t.Fatalf("Sign invalid UTF-8: %v | Sign 非法 UTF-8：%v", err, err)
+	}
+	tok = mustParse(t, raw, keyFn, ParseOptions{ValidAlgs: []Alg{HS256}})
+	if tok.Header.Kid != "��" {
+		t.Fatalf("invalid UTF-8 Kid = %q, want replacement runes | 非法 UTF-8 Kid = %q，期望替换码点", tok.Header.Kid, tok.Header.Kid)
+	}
+}
+
+// TestTokenReleaseSemantics pins the pooled-token contract: Release clears the
+// views, is idempotent and nil-safe. | TestTokenReleaseSemantics 固定池化 token
+// 契约：Release 清空视图，且幂等、对 nil 安全。
+func TestTokenReleaseSemantics(t *testing.T) {
+	raw := mustSign(t, map[string]any{"sub": "u-1"}, testSecret, HS256, SignOptions{Kid: "k1"})
+	tok := mustParse(t, raw, hmacKeyFunc(testSecret), ParseOptions{ValidAlgs: []Alg{HS256}})
+	if tok.Header.Kid != "k1" || len(tok.Claims.Raw()) == 0 || len(tok.Signature) == 0 {
+		t.Fatalf("unexpected token state | token 状态异常: %+v", tok)
+	}
+	tok.Release()
+	if tok.Header.Alg != "" || tok.Header.Kid != "" || tok.Header.Typ != "" || tok.Claims.Raw() != nil || tok.Signature != nil {
+		t.Fatalf("Release left fields populated | Release 后字段仍有内容: %+v", tok)
+	}
+	tok.Release()
+	var nilTok *Token
+	nilTok.Release()
+}
+
+// TestTokenReuseConcurrent parses and releases tokens concurrently, exercising
+// the pool together with the zero-allocation data buffer. | TestTokenReuseConcurrent
+// 并发解析并释放 token，同时检验池与零分配数据缓冲。
+func TestTokenReuseConcurrent(t *testing.T) {
+	raw := mustSign(t, map[string]any{"sub": "u-1", "iss": "yd"}, testSecret, HS256, SignOptions{Kid: "k1"})
+	keyFn := hmacKeyFunc(testSecret)
+	opts := ParseOptions{ValidAlgs: []Alg{HS256}, Issuer: "yd"}
+
+	var wg sync.WaitGroup
+	errs := make(chan error, 8)
+	for w := 0; w < 8; w++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for i := 0; i < 2000; i++ {
+				tok, err := Parse(raw, keyFn, opts)
+				if err != nil {
+					errs <- err
+					return
+				}
+				if tok.Header.Kid != "k1" || string(tok.Claims.Raw()) == "" || string(tok.Signature) == "" {
+					errs <- ErrMalformed
+					return
+				}
+				tok.Release()
+			}
+		}()
+	}
+	wg.Wait()
+	close(errs)
+	for err := range errs {
+		t.Fatalf("concurrent parse: %v | 并发解析：%v", err, err)
+	}
+}

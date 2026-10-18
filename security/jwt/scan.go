@@ -89,8 +89,60 @@ func validPrimitive(raw []byte) bool {
 	if rawEqualString(raw, "true") || rawEqualString(raw, "false") || rawEqualString(raw, "null") {
 		return true
 	}
-	_, ok := scanFloat64(raw)
-	return ok
+	return validJSONNumber(raw)
+}
+
+// validJSONNumber reports whether raw matches the JSON number grammar without computing its value. | validJSONNumber
+// 报告 raw 是否符合 JSON 数字语法，且不计算其数值。
+//
+// Structural validation only needs the grammar; computing the float here would repeat the work that
+// numericDate later does for exp and nbf. | 结构校验只需要语法；在此计算浮点值会重复 numericDate
+// 稍后对 exp 与 nbf 所做的解析。
+func validJSONNumber(raw []byte) bool {
+	i := 0
+	if i < len(raw) && raw[i] == '-' {
+		i++
+	}
+	if i >= len(raw) {
+		return false
+	}
+	switch {
+	case raw[i] == '0':
+		i++
+		if i < len(raw) && raw[i] >= '0' && raw[i] <= '9' {
+			return false
+		}
+	case raw[i] >= '1' && raw[i] <= '9':
+		for i < len(raw) && raw[i] >= '0' && raw[i] <= '9' {
+			i++
+		}
+	default:
+		return false
+	}
+	if i < len(raw) && raw[i] == '.' {
+		i++
+		start := i
+		for i < len(raw) && raw[i] >= '0' && raw[i] <= '9' {
+			i++
+		}
+		if i == start {
+			return false
+		}
+	}
+	if i < len(raw) && (raw[i] == 'e' || raw[i] == 'E') {
+		i++
+		if i < len(raw) && (raw[i] == '+' || raw[i] == '-') {
+			i++
+		}
+		start := i
+		for i < len(raw) && raw[i] >= '0' && raw[i] <= '9' {
+			i++
+		}
+		if i == start {
+			return false
+		}
+	}
+	return i == len(raw)
 }
 
 // skipPrimitive skips the JSON literal or number starting at b[i]. | skipPrimitive 跳过从 b[i] 开始的 JSON 字面量或数字。
@@ -292,6 +344,99 @@ func keyMatches(raw []byte, key string) bool {
 		return rawEqualString(raw, key)
 	}
 	return rawEqualString(unescapeKey(make([]byte, 0, len(raw)), raw), key)
+}
+
+// Registered claim identifiers returned by registeredClaim. | registeredClaim 返回的登记声明标识。
+const (
+	claimNone = iota
+	claimExp
+	claimNbf
+	claimIss
+	claimAud
+)
+
+// registeredClaim classifies a raw claim name without allocating. The common
+// unescaped path compares the first byte and the two remaining bytes, avoiding
+// four independent scans per member. | registeredClaim 零分配地分类原始声明名。
+// 常规的无转义路径只比较首字节与其余两个字节，避免每个成员四次独立扫描。
+func registeredClaim(raw []byte) int {
+	if hasEscape(raw) {
+		switch {
+		case keyMatches(raw, "exp"):
+			return claimExp
+		case keyMatches(raw, "nbf"):
+			return claimNbf
+		case keyMatches(raw, "iss"):
+			return claimIss
+		case keyMatches(raw, "aud"):
+			return claimAud
+		}
+		return claimNone
+	}
+	if len(raw) != 3 {
+		return claimNone
+	}
+	switch raw[0] {
+	case 'e':
+		if raw[1] == 'x' && raw[2] == 'p' {
+			return claimExp
+		}
+	case 'n':
+		if raw[1] == 'b' && raw[2] == 'f' {
+			return claimNbf
+		}
+	case 'i':
+		if raw[1] == 's' && raw[2] == 's' {
+			return claimIss
+		}
+	case 'a':
+		if raw[1] == 'u' && raw[2] == 'd' {
+			return claimAud
+		}
+	}
+	return claimNone
+}
+
+// Header parameter identifiers returned by headerParam. | headerParam 返回的头部参数标识。
+const (
+	headerParamOther = iota
+	headerParamAlg
+	headerParamTyp
+	headerParamKid
+)
+
+// headerParam classifies a raw JOSE header name without allocating. | headerParam
+// 零分配地分类原始 JOSE 头部参数名。
+func headerParam(raw []byte) int {
+	if hasEscape(raw) {
+		switch {
+		case keyMatches(raw, "alg"):
+			return headerParamAlg
+		case keyMatches(raw, "typ"):
+			return headerParamTyp
+		case keyMatches(raw, "kid"):
+			return headerParamKid
+		}
+		return headerParamOther
+	}
+	if len(raw) != 3 {
+		return headerParamOther
+	}
+	switch raw[0] {
+	case 'a':
+		if raw[1] == 'l' && raw[2] == 'g' {
+			return headerParamAlg
+		}
+	case 't':
+		if raw[1] == 'y' && raw[2] == 'p' {
+			return headerParamTyp
+		}
+	case 'k':
+		if raw[1] == 'i' && raw[2] == 'd' {
+			return headerParamKid
+		}
+	}
+	return headerParamOther
 }
 
 // jsonStringBody returns the body of the raw JSON string value with its quotes removed. | jsonStringBody 返回原始 JSON 字符串值去掉首尾引号后的主体。

@@ -1,7 +1,6 @@
 package guomi
 
 import (
-	"crypto/elliptic"
 	"crypto/rand"
 	"encoding/asn1"
 	"encoding/hex"
@@ -9,8 +8,9 @@ import (
 	"math/big"
 	"strings"
 
+	esm2 "github.com/emmansun/gmsm/sm2"
+
 	"github.com/shibingli/yd/core/errx"
-	"github.com/tjfoc/gmsm/sm2"
 )
 
 // Object identifiers related to national cryptography. | 国密相关对象标识符（OID）。
@@ -54,7 +54,7 @@ type subjectPublicKeyInfo struct {
 
 // GenerateKey generates a fresh SM2 key pair from crypto/rand. | GenerateKey 使用 crypto/rand 生成一对新的 SM2 密钥。
 func GenerateKey() (*PrivateKey, error) {
-	raw, err := sm2.GenerateKey(rand.Reader)
+	raw, err := esm2.GenerateKey(rand.Reader)
 	if err != nil {
 		return nil, errx.Wrap(err, ErrRandomSource)
 	}
@@ -245,27 +245,28 @@ func privateKeyFromScalar(scalar []byte) (*PrivateKey, error) {
 	if len(scalar) == 0 || len(scalar) > SM2CoordinateSize {
 		return nil, errx.Detail(ErrInvalidPrivateKey, "invalid scalar length %[1]d | 标量长度 %[1]d 非法", len(scalar))
 	}
-	curve := sm2.P256Sm2()
+	curve := esm2.P256()
 	d := new(big.Int).SetBytes(scalar)
 	if d.Sign() <= 0 || d.Cmp(curve.Params().N) >= 0 {
 		return nil, errx.Detail(ErrInvalidPrivateKey, "scalar D is out of range | 标量 D 越界")
 	}
-	raw := &sm2.PrivateKey{PublicKey: sm2.PublicKey{Curve: curve}, D: d}
-	raw.X, raw.Y = curve.ScalarBaseMult(d.Bytes())
+	raw, err := esm2.NewPrivateKeyFromInt(d)
+	if err != nil {
+		return nil, errx.WrapDetail(err, ErrInvalidPrivateKey, "private scalar rejected by gmsm | 私钥标量被 gmsm 拒绝")
+	}
 	return &PrivateKey{raw: raw}, nil
 }
 
 // publicKeyFromBytes builds a public key from a 64-byte X||Y and checks that the point lies on the SM2 curve. | publicKeyFromBytes 由 64 字节的 X||Y 构造公钥，并校验点落在 SM2 曲线上。
 func publicKeyFromBytes(xy []byte) (*PublicKey, error) {
-	curve := sm2.P256Sm2()
 	point := make([]byte, 0, 1+len(xy))
 	point = append(point, 0x04)
 	point = append(point, xy...)
-	x, y := elliptic.Unmarshal(curve, point)
-	if x == nil || y == nil {
-		return nil, errx.Detail(ErrInvalidPublicKey, "point is not on the SM2 curve | 点不在 SM2 曲线上")
+	raw, err := esm2.ParseUncompressedPublicKey(point)
+	if err != nil {
+		return nil, errx.WrapDetail(err, ErrInvalidPublicKey, "point is not on the SM2 curve | 点不在 SM2 曲线上")
 	}
-	return &PublicKey{raw: &sm2.PublicKey{Curve: curve, X: x, Y: y}}, nil
+	return &PublicKey{raw: raw}, nil
 }
 
 // pointBytes encodes public key coordinates as the uncompressed point 04||X||Y of 65 bytes. | pointBytes 把公钥坐标编码为未压缩点 04||X||Y（65 字节）。

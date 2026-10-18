@@ -36,9 +36,11 @@ package jwt
 
 import (
 	"strings"
+	"sync"
+	"sync/atomic"
 	"time"
+	"unsafe"
 
-	"github.com/shibingli/yd/core/b64x"
 	"github.com/shibingli/yd/core/errx"
 	"github.com/shibingli/yd/http/router"
 )
@@ -158,6 +160,12 @@ type ParseOptions struct {
 }
 
 // Token is a verified token. | Token 是一个已通过校验的 token。
+//
+// Callers that do not call Release may retain a Token indefinitely. Release is an opt-in fast path:
+// it returns the Token to an internal pool so the next Parse on the same P can reuse its storage,
+// which keeps the per-request path allocation-free under high concurrency. | 不调用 Release 的调用方
+// 可以无限期持有 Token。Release 是可选的快速路径：它把 Token 归还内部池，使同一 P 上的下一次
+// Parse 复用其存储，从而让高并发下的每请求路径保持零分配。
 type Token struct {
 	// Header is the decoded JOSE header. | Header 是解码后的 JOSE 头部。
 	Header Header
@@ -165,6 +173,53 @@ type Token struct {
 	Claims Claims
 	// Signature is the raw signature bytes. | Signature 是原始签名字节。
 	Signature []byte
+
+	// data owns the payload, signature, kid and typ bytes referenced above; it survives pool reuse. | data
+	// 持有上面引用的载荷、签名、kid 与 typ 字节，并在池复用间保留。
+	data []byte
+	// released is 1 once the token has been returned to the pool. | released 在 token 归还池后置 1。
+	released uint32
+}
+
+// tokenPool recycles Tokens for callers that use Release. | tokenPool 为使用 Release 的调用方回收 Token。
+var tokenPool = sync.Pool{New: func() any { return new(Token) }}
+
+// tokenDataRetainLimit bounds the storage a released Token may keep for reuse; a one-off huge
+// token does not pin its buffer in the pool. | tokenDataRetainLimit 限制已释放 Token 为复用而保留的
+// 存储；一次性的超大 token 不会把缓冲长期钉在池中。
+const tokenDataRetainLimit = 64 << 10
+
+// Release returns the Token to the internal pool, if the caller opted into reuse. | Release 把 Token
+// 归还内部池（前提是调用方选择复用）。
+//
+// After Release the Token and every string or slice obtained from it must not be used again: a later
+// Parse may overwrite its storage. A caller that retains the Token (or its Header.Kid, Header.Typ,
+// Claims.Raw or Signature) beyond the current request must not call Release. Release is idempotent
+// and nil-safe. | 调用 Release 后，不得再使用该 Token 及其派生的任何字符串或切片：后续 Parse 可能
+// 覆盖其存储。若调用方需要在当前请求结束后继续持有 Token（或其 Header.Kid、Header.Typ、
+// Claims.Raw、Signature），则不得调用 Release。Release 幂等且对 nil 安全。
+func (t *Token) Release() {
+	if t == nil || !atomic.CompareAndSwapUint32(&t.released, 0, 1) {
+		return
+	}
+	t.Header = Header{}
+	t.Claims = Claims{}
+	t.Signature = nil
+	if cap(t.data) > tokenDataRetainLimit {
+		t.data = nil
+	}
+	tokenPool.Put(t)
+}
+
+// unsafeString returns s as a string backed by b without copying. b must never be mutated while the
+// string is reachable; Token.data is only rewritten after Release, which invalidates all such strings. | unsafeString
+// 返回由 b 支撑、不复制内容的字符串。字符串可达期间绝不能修改 b；Token.data 只在 Release 之后
+// 重写，而 Release 会使所有这类字符串失效。
+func unsafeString(b []byte) string {
+	if len(b) == 0 {
+		return ""
+	}
+	return unsafe.String(&b[0], len(b))
 }
 
 // Parse verifies token and validates its registered claims. | Parse 校验 token 并验证其登记声明。
@@ -206,17 +261,17 @@ func Parse(token string, keyFn KeyFunc, o ParseOptions) (*Token, error) {
 	defer putScratch(s)
 
 	// Step 1: header structure and algorithm. | 第一步：头部结构与算法。
-	if !decodeSegment(s, token[:first]) {
+	if !decodeSegment(s, &s.header, token[:first]) {
 		return nil, errx.Detail(ErrMalformed, "header is not base64url | 头部不是 base64url")
 	}
-	var hdr Header
-	if err := scanHeader(s.header, &hdr); err != nil {
+	var hf headerFields
+	if err := scanHeader(s.header, &hf); err != nil {
 		return nil, err
 	}
 	// A hostile token must not be able to pick its own algorithm, so the allow list is enforced before any
 	// key material is requested. | 恶意 token 不得自行选择算法，因此白名单在任何密钥材料被索取之前强制执行。
-	if !algAllowed(o.ValidAlgs, hdr.Alg) {
-		return nil, errx.Detail(ErrAlgNotAllowed, "alg=%[1]q | 算法=%[1]q", string(hdr.Alg))
+	if !algAllowed(o.ValidAlgs, hf.alg) {
+		return nil, errx.Detail(ErrAlgNotAllowed, "alg=%[1]q | 算法=%[1]q", string(hf.alg))
 	}
 	if payloadSeg == "" {
 		return nil, errx.Detail(ErrMalformed, "empty payload segment | 载荷段为空")
@@ -226,13 +281,42 @@ func Parse(token string, keyFn KeyFunc, o ParseOptions) (*Token, error) {
 	}
 
 	// Step 2: payload structure. | 第二步：载荷结构。
-	payload, err := b64x.RawURLEncoding.DecodeString(payloadSeg)
-	if err != nil {
+	if !decodeSegment(s, &s.payload, payloadSeg) {
 		return nil, errx.Detail(ErrMalformed, "payload is not base64url | 载荷不是 base64url")
 	}
 	var fields claimFields
-	if !scanRegistered(payload, &fields) {
+	if !scanRegistered(s.payload, &fields) {
 		return nil, errx.Detail(ErrMalformed, "payload is not a JSON object | 载荷不是 JSON 对象")
+	}
+	if !decodeSegment(s, &s.sig, sigSeg) {
+		return nil, errx.Detail(ErrMalformed, "signature is not base64url | 签名不是 base64url")
+	}
+
+	// Acquire the Token before KeyFunc so Header.Kid and Header.Typ can point at token-owned storage
+	// instead of allocating. One capacity calculation keeps a fresh token at a single data allocation;
+	// a released token reuses its buffer and allocates nothing. A failed Parse drops the Token rather
+	// than pooling it, so a KeyFunc that retains the header strings can never observe another request's
+	// bytes. | 在 KeyFunc 之前取得 Token，使 Header.Kid 与 Header.Typ 指向 token 自有存储而不是另行
+	// 分配。一次容量计算使新 token 只产生一次数据分配；已释放的 token 复用缓冲，零分配。失败的
+	// Parse 会丢弃 Token 而不归还池，因此即使 KeyFunc 保留了头部字符串，也绝不会看到其他请求的字节。
+	t := tokenPool.Get().(*Token)
+	t.Header, t.Claims, t.Signature = Header{}, Claims{}, nil
+	need := len(s.payload) + len(s.sig) + len(hf.kidRaw) + len(hf.typRaw)
+	if cap(t.data) < need {
+		t.data = make([]byte, 0, need)
+	}
+	data := t.data[:0]
+	kidStart := len(data)
+	data, _ = appendJSONString(data, hf.kidRaw)
+	kidEnd := len(data)
+	typStart := len(data)
+	data, _ = appendJSONString(data, hf.typRaw)
+	typEnd := len(data)
+	hdr := Header{
+		Alg:   hf.alg,
+		Typ:   unsafeString(data[typStart:typEnd]),
+		Kid:   unsafeString(data[kidStart:kidEnd]),
+		Extra: hf.extra,
 	}
 
 	// Step 3: key resolution and signature. | 第三步：密钥解析与签名校验。
@@ -240,15 +324,11 @@ func Parse(token string, keyFn KeyFunc, o ParseOptions) (*Token, error) {
 	if err != nil {
 		return nil, err
 	}
-	sig, err := b64x.RawURLEncoding.DecodeString(sigSeg)
-	if err != nil {
-		return nil, errx.Detail(ErrMalformed, "signature is not base64url | 签名不是 base64url")
-	}
 	// The signing input is copied into a pooled buffer with append(dst, string...) so that no intermediate
 	// []byte conversion happens; the bytes are the ones from the token, unchanged. | 签名输入通过
 	// append(dst, string...) 拷入池化缓冲，不产生中间的 []byte 转换；其字节与 token 中的完全一致。
 	s.input = append(s.input[:0], token[:first+1+second]...)
-	if !verify(hdr.Alg, key, s.input, sig, s) {
+	if !verify(hdr.Alg, key, s.input, s.sig, s) {
 		return nil, ErrSignatureInvalid
 	}
 
@@ -257,7 +337,19 @@ func Parse(token string, keyFn KeyFunc, o ParseOptions) (*Token, error) {
 		return nil, err
 	}
 
-	return &Token{Header: hdr, Claims: Claims{raw: payload}, Signature: sig}, nil
+	// Everything verified: append the payload and signature after the header strings. Both views are
+	// capped so that append by a caller can never reach into another region. | 全部校验通过：把载荷与
+	// 签名追加到头部字符串之后。两个视图都做了容量限制，调用方 append 时绝不会写进其它区域。
+	payloadStart := len(data)
+	data = append(data, s.payload...)
+	sigStart := len(data)
+	data = append(data, s.sig...)
+	t.data = data
+	t.Header = hdr
+	t.Claims = Claims{raw: data[payloadStart:sigStart:sigStart]}
+	t.Signature = data[sigStart:]
+	atomic.StoreUint32(&t.released, 0)
+	return t, nil
 }
 
 // algAllowed reports whether alg passes the allow list; an empty list allows every supported algorithm. | algAllowed 报告 alg 是否通过白名单；空列表表示允许全部受支持的算法。

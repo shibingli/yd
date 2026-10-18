@@ -8,10 +8,12 @@ import (
 	"hash"
 	"strconv"
 	"strings"
+	"sync"
+
+	esm3 "github.com/emmansun/gmsm/sm3"
 
 	"github.com/shibingli/yd/core/b64x"
 	"github.com/shibingli/yd/core/errx"
-	"github.com/tjfoc/gmsm/sm3"
 )
 
 const (
@@ -42,9 +44,7 @@ var (
 
 // Sum computes the SM3 digest of data per GB/T 32905-2016 and returns the fixed 32-byte array. | Sum 计算 data 的 SM3 摘要（GB/T 32905-2016），返回定长 32 字节数组。
 func Sum(data []byte) [32]byte {
-	var out [32]byte
-	copy(out[:], sm3.Sm3Sum(data))
-	return out
+	return esm3.Sum(data)
 }
 
 // SumHex computes the SM3 digest of data and returns it as a lowercase hex string. | SumHex 计算 data 的 SM3 摘要并返回小写十六进制字符串。
@@ -55,50 +55,72 @@ func SumHex(data []byte) string {
 
 // New returns an incrementally writable SM3 hash implementing hash.Hash, with Size 32 and BlockSize 64. | New 返回一个可增量写入的 SM3 散列对象，实现 hash.Hash 接口（Size 为 32，BlockSize 为 64）。
 // It can be passed directly to standard library facilities such as crypto/hmac. | 可直接用于 crypto/hmac 等标准库设施。
-//
-// The returned value repairs a defect in gmsm. | 返回值修正了 gmsm 的实现缺陷。
-// gmsm's (*SM3).Sum writes its argument in as message data and does not append the digest to in as hash.Hash requires, returning a fixed 32-byte slice instead. | gmsm 的 (*SM3).Sum 会把入参 in 当作消息写入散列状态，并且不按 hash.Hash 约定把摘要追加到 in 之后（返回定长 32 字节切片）。
-// Using it inside this package stalls the key derivation loop, so the wrapper below follows the hash.Hash contract strictly. | 在本包内使用会导致密钥派生循环无法推进，因此下面的包装严格遵守 hash.Hash 契约。
-func New() hash.Hash { return &sm3Hash{inner: sm3.New()} }
-
-// sm3Hash wraps gmsm's SM3 so that Sum follows the hash.Hash contract. | sm3Hash 包装 gmsm 的 SM3，使其 Sum 行为符合 hash.Hash 契约。
-type sm3Hash struct {
-	inner hash.Hash
-	// scratch is the zero-length, 32-byte-capacity buffer handed to gmsm's Sum. gmsm appends the
-	// digest into the supplied slice when it has spare capacity; a nil slice makes it allocate
-	// 32 bytes on every call, and HMAC calls Sum twice per iteration. The length must stay zero:
-	// gmsm's Sum treats the *contents* of the argument as additional message data. | scratch 是交给
-	// gmsm Sum 的零长度、32 字节容量缓冲。gmsm 在入参有剩余容量时把摘要追加进去；传 nil 会让它每次
-	// 调用分配 32 字节，而 HMAC 每轮要调用两次。长度必须保持为 0：gmsm 的 Sum 会把入参的**内容**
-	// 当作额外消息数据。
-	scratch [SM3Size]byte
-}
-
-// Write appends data to the hash state and never returns an error. | Write 追加数据到散列状态，永不返回错误。
-func (h *sm3Hash) Write(p []byte) (int, error) { return h.inner.Write(p) }
-
-// Sum appends the current digest to in as hash.Hash requires and leaves the hash state untouched. | Sum 按 hash.Hash 约定把当前摘要追加到 in 之后并返回结果，不改变散列状态。
-func (h *sm3Hash) Sum(in []byte) []byte {
-	return append(in, h.inner.Sum(h.scratch[:0])...)
-}
-
-// Reset clears the hash state so the same value can be reused. | Reset 复位散列状态，便于复用同一对象。
-func (h *sm3Hash) Reset() { h.inner.Reset() }
-
-// Size returns the digest length of 32 bytes. | Size 返回摘要长度（32 字节）。
-func (h *sm3Hash) Size() int { return SM3Size }
-
-// BlockSize returns the block length of 64 bytes. | BlockSize 返回分组长度（64 字节）。
-func (h *sm3Hash) BlockSize() int { return SM3BlockSize }
+func New() hash.Hash { return esm3.New() }
 
 // HMAC computes HMAC-SM3 per RFC 2104, using SM3 as the pseudo-random function, and returns the fixed 32-byte digest. | HMAC 计算 HMAC-SM3（RFC 2104 构造，伪随机函数为 SM3），返回定长 32 字节摘要。
+//
+// Both hash states come from a sync.Pool and are reset on reuse, so the steady-state
+// hot path allocates nothing. The per-call HMAC construction in crypto/hmac would
+// allocate a new key schedule on every invocation. | 两个散列状态取自 sync.Pool 并在复用时
+// 复位，因此稳态热路径零分配；crypto/hmac 的逐调用构造每次都会新建密钥编排。
 func HMAC(key, data []byte) [32]byte {
-	mac := hmac.New(New, key)
-	mac.Write(data)
-	var out [32]byte
-	copy(out[:], mac.Sum(nil))
+	st := hmacSM3Pool.Get().(*hmacSM3State)
+
+	// K' is the key padded to one block, or SM3(key) when it is longer. | K' 是补零到一个分组的
+	// 密钥；密钥超过一个分组时先做一次 SM3。
+	clear(st.key[:])
+	if len(key) > SM3BlockSize {
+		sum := esm3.Sum(key)
+		copy(st.key[:], sum[:])
+	} else {
+		copy(st.key[:], key)
+	}
+
+	for i := range st.pad {
+		st.pad[i] = st.key[i] ^ 0x36
+	}
+	st.inner.Reset()
+	_, _ = st.inner.Write(st.pad[:])
+	_, _ = st.inner.Write(data)
+	innerSum := st.inner.Sum(st.innerSum[:0])
+
+	for i := range st.pad {
+		st.pad[i] = st.key[i] ^ 0x5c
+	}
+	st.outer.Reset()
+	_, _ = st.outer.Write(st.pad[:])
+	_, _ = st.outer.Write(innerSum)
+	_ = st.outer.Sum(st.out[:0])
+
+	out := st.out
+	// Drop key-derived material before the state returns to the pool. | 归还池前清除密钥派生材料。
+	clear(st.key[:])
+	clear(st.pad[:])
+	clear(st.innerSum[:])
+	clear(st.out[:])
+	st.inner.Reset()
+	st.outer.Reset()
+	hmacSM3Pool.Put(st)
 	return out
 }
+
+// hmacSM3State bundles two SM3 states with their scratch buffers. Keeping the
+// buffers in the pooled object avoids the heap escape a local array would incur
+// when passed through the hash.Hash interface. | hmacSM3State 把两个 SM3 状态与
+// 暂存缓冲放在一起。缓冲位于池化对象上，避免局部数组经 hash.Hash 接口传参时逃逸到堆。
+type hmacSM3State struct {
+	inner    hash.Hash
+	outer    hash.Hash
+	key      [SM3BlockSize]byte
+	pad      [SM3BlockSize]byte
+	innerSum [SM3Size]byte
+	out      [SM3Size]byte
+}
+
+// hmacSM3Pool recycles the paired SM3 states used by HMAC. | hmacSM3Pool 回收 HMAC 使用的成对 SM3 状态。
+var hmacSM3Pool = sync.Pool{New: func() any {
+	return &hmacSM3State{inner: esm3.New(), outer: esm3.New()}
+}}
 
 // PBKDF2 derives a keyLen byte key with HMAC-SM3 as pseudo-random function, per RFC 8018 §5.2. | PBKDF2 按 RFC 8018 §5.2 使用 HMAC-SM3 作伪随机函数推导 keyLen 字节密钥。
 //

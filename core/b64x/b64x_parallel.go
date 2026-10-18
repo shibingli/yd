@@ -117,8 +117,8 @@ func (e *Encoding) decodeParallel(dst, src []byte, workers int) (int, error) {
 	}
 	per := (groups + workers - 1) / workers
 	type result struct {
-		n        int
 		err      error
+		n        int
 		fallback bool
 	}
 	results := make(chan result, workers+1)

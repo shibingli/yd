@@ -130,3 +130,53 @@ func BenchmarkParseHS256Parallel(b *testing.B) {
 		}
 	})
 }
+
+// BenchmarkParseHS256Reuse measures the opt-in allocation-free path: the
+// caller returns each Token with Release so the next Parse reuses its storage.
+// | BenchmarkParseHS256Reuse 测量可选的零分配路径：调用方用 Release 归还 Token，
+// 使下一次 Parse 复用其存储。
+func BenchmarkParseHS256Reuse(b *testing.B) {
+	now := time.Now()
+	token, err := Sign(benchClaims(now), benchKey, HS256, SignOptions{Kid: "k1"})
+	if err != nil {
+		b.Fatalf("Sign failed | Sign 失败: %v", err)
+	}
+	var keyAny any = benchKey
+	keyFn := func(Header) (any, error) { return keyAny, nil }
+	opts := benchParseOptions(HS256, now)
+
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		tok, parseErr := Parse(token, keyFn, opts)
+		if parseErr != nil {
+			b.Fatalf("Parse failed | Parse 失败: %v", parseErr)
+		}
+		tok.Release()
+	}
+}
+
+// BenchmarkParseHS256ParallelReuse measures the allocation-free path under
+// concurrent load. | BenchmarkParseHS256ParallelReuse 测量并发负载下的零分配路径。
+func BenchmarkParseHS256ParallelReuse(b *testing.B) {
+	now := time.Now()
+	token, err := Sign(benchClaims(now), benchKey, HS256, SignOptions{Kid: "k1"})
+	if err != nil {
+		b.Fatalf("Sign failed | Sign 失败: %v", err)
+	}
+	var keyAny any = benchKey
+	keyFn := func(Header) (any, error) { return keyAny, nil }
+	opts := benchParseOptions(HS256, now)
+
+	b.ReportAllocs()
+	b.ResetTimer()
+	b.RunParallel(func(pb *testing.PB) {
+		for pb.Next() {
+			tok, parseErr := Parse(token, keyFn, opts)
+			if parseErr != nil {
+				b.Fatalf("Parse failed | Parse 失败: %v", parseErr)
+			}
+			tok.Release()
+		}
+	})
+}

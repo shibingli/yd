@@ -1,14 +1,16 @@
 package guomi
 
 import (
+	"crypto/ecdsa"
 	"crypto/rand"
 	"crypto/subtle"
 	"encoding/asn1"
 	"encoding/hex"
 	"math/big"
 
+	esm2 "github.com/emmansun/gmsm/sm2"
+
 	"github.com/shibingli/yd/core/errx"
-	"github.com/tjfoc/gmsm/sm2"
 )
 
 var (
@@ -28,6 +30,9 @@ var (
 	// ErrSign reports a failed SM2 signature generation. | ErrSign 表示 SM2 签名生成失败。
 	ErrSign = errx.New("guomi: SM2 signing failed | guomi：SM2 签名失败")
 
+	// ErrEncrypt reports a failed SM2 encryption. | ErrEncrypt 表示 SM2 加密失败。
+	ErrEncrypt = errx.New("guomi: SM2 encryption failed | guomi：SM2 加密失败")
+
 	// ErrSM2ASN1 reports a failed ASN.1 (DER) encoding of SM2 material. | ErrSM2ASN1 表示 SM2 数据的 ASN.1（DER）编码失败。
 	ErrSM2ASN1 = errx.New("guomi: SM2 ASN.1 encoding failed | guomi：SM2 ASN.1 编码失败")
 )
@@ -35,16 +40,16 @@ var (
 // PrivateKey is an SM2 private key, a thin wrapper around gmsm's *sm2.PrivateKey. | PrivateKey 是 SM2 私钥，薄封装 gmsm 的 *sm2.PrivateKey。
 // Raw returns the underlying key for interoperability with existing gmsm code. | 通过 Raw() 可取回底层密钥，与既有 gmsm 代码/接口互操作。
 type PrivateKey struct {
-	raw *sm2.PrivateKey
+	raw *esm2.PrivateKey
 }
 
-// PublicKey is an SM2 public key, a thin wrapper around gmsm's *sm2.PublicKey. | PublicKey 是 SM2 公钥，薄封装 gmsm 的 *sm2.PublicKey。
+// PublicKey is an SM2 public key, a thin wrapper around the gmsm public key (an *ecdsa.PublicKey on the SM2 curve). | PublicKey 是 SM2 公钥，薄封装 gmsm 公钥（SM2 曲线上的 *ecdsa.PublicKey）。
 type PublicKey struct {
-	raw *sm2.PublicKey
+	raw *ecdsa.PublicKey
 }
 
 // NewPrivateKey wraps an underlying gmsm private key, returning nil when raw is nil. | NewPrivateKey 用底层 gmsm 私钥构造 PrivateKey；raw 为 nil 时返回 nil。
-func NewPrivateKey(raw *sm2.PrivateKey) *PrivateKey {
+func NewPrivateKey(raw *esm2.PrivateKey) *PrivateKey {
 	if raw == nil {
 		return nil
 	}
@@ -52,7 +57,7 @@ func NewPrivateKey(raw *sm2.PrivateKey) *PrivateKey {
 }
 
 // NewPublicKey wraps an underlying gmsm public key, returning nil when raw is nil. | NewPublicKey 用底层 gmsm 公钥构造 PublicKey；raw 为 nil 时返回 nil。
-func NewPublicKey(raw *sm2.PublicKey) *PublicKey {
+func NewPublicKey(raw *ecdsa.PublicKey) *PublicKey {
 	if raw == nil {
 		return nil
 	}
@@ -60,7 +65,7 @@ func NewPublicKey(raw *sm2.PublicKey) *PublicKey {
 }
 
 // Raw returns the underlying gmsm private key, or nil when the receiver is nil. | Raw 返回底层 gmsm 私钥；接收者为 nil 时返回 nil。
-func (k *PrivateKey) Raw() *sm2.PrivateKey {
+func (k *PrivateKey) Raw() *esm2.PrivateKey {
 	if k == nil {
 		return nil
 	}
@@ -68,7 +73,7 @@ func (k *PrivateKey) Raw() *sm2.PrivateKey {
 }
 
 // Raw returns the underlying gmsm public key, or nil when the receiver is nil. | Raw 返回底层 gmsm 公钥；接收者为 nil 时返回 nil。
-func (k *PublicKey) Raw() *sm2.PublicKey {
+func (k *PublicKey) Raw() *ecdsa.PublicKey {
 	if k == nil {
 		return nil
 	}
@@ -140,38 +145,52 @@ func EncryptRaw(pub *PublicKey, data []byte) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	curve := p.Curve
-	n := curve.Params().N
-	klen := len(data)
-
-	for {
-		k, err := randScalar(n)
-		if err != nil {
-			return nil, err
-		}
-		x1, y1 := curve.ScalarBaseMult(k.Bytes())
-		x2, y2 := curve.ScalarMult(p.X, p.Y, k.Bytes())
-		xs, ys := pad32(x2), pad32(y2)
-
-		stream, ok := sm2KDF(xs, ys, klen)
-		if !ok {
-			// All-zero key derivation output: pick a new k as GB/T 32918.4 requires. | 密钥派生结果全为零：按 GB/T 32918.4 重新选取 k。
-			continue
-		}
-
-		c2 := make([]byte, klen)
-		for i := 0; i < klen; i++ {
-			c2[i] = data[i] ^ stream[i]
-		}
-		c3 := sm3C3(xs, data, ys)
-
-		out := make([]byte, 0, 2*SM2CoordinateSize+SM3Size+klen)
-		out = append(out, pad32(x1)...)
-		out = append(out, pad32(y1)...)
-		out = append(out, c3...)
-		out = append(out, c2...)
-		return out, nil
+	if len(data) == 0 {
+		// The upstream primitive rejects an empty message, while the raw layout is
+		// well defined for it: C1 || SM3(x2 || y2) with no C2. | 上游原语拒绝空消息，
+		// 但原始布局对空串仍有明确定义：C1 || SM3(x2 || y2)，不含 C2。
+		return encryptRawEmpty(p)
 	}
+
+	// The upstream plain encoder emits the uncompressed point marker 0x04 in front
+	// of C1; the raw layout shared with JavaScript starts at X1, so drop that byte.
+	// | 上游明文编码器会在 C1 前输出未压缩点标识 0x04；与 JS 共享的原始布局从 X1 开始，
+	// 因此去掉该字节。
+	ct, err := esm2.Encrypt(rand.Reader, p, data, plainC1C3C2Encrypter)
+	if err != nil {
+		return nil, errx.Wrap(err, ErrEncrypt)
+	}
+	if len(ct) != 1+2*SM2CoordinateSize+SM3Size+len(data) || ct[0] != 0x04 {
+		return nil, errx.Detail(ErrEncrypt, "unexpected ciphertext layout (%[1]d bytes, marker 0x%[2]02x) | 密文布局异常（%[1]d 字节，标识 0x%[2]02x）", len(ct), firstByte(ct))
+	}
+	return ct[1:], nil
+}
+
+// plainC1C3C2Encrypter is the immutable option set for the raw C1C3C2 layout. | plainC1C3C2Encrypter 是原始 C1C3C2 布局的不可变选项。
+var plainC1C3C2Encrypter = esm2.NewPlainEncrypterOpts(esm2.MarshalUncompressed, esm2.C1C3C2)
+
+// encryptRawEmpty builds the empty-plaintext raw ciphertext: X1 || Y1 || C3, where C3 = SM3(x2 || y2). | encryptRawEmpty 构造空明文的原始密文：X1 || Y1 || C3，其中 C3 = SM3(x2 || y2)。
+func encryptRawEmpty(p *ecdsa.PublicKey) ([]byte, error) {
+	curve := p.Curve
+	k, err := randScalar(curve.Params().N)
+	if err != nil {
+		return nil, err
+	}
+	x1, y1 := curve.ScalarBaseMult(k.Bytes())
+	x2, y2 := curve.ScalarMult(p.X, p.Y, k.Bytes())
+	out := make([]byte, 0, 2*SM2CoordinateSize+SM3Size)
+	out = append(out, pad32(x1)...)
+	out = append(out, pad32(y1)...)
+	out = append(out, sm3C3(pad32(x2), nil, pad32(y2))...)
+	return out, nil
+}
+
+// firstByte returns b[0], or 0 for an empty slice. | firstByte 返回 b[0]，空切片返回 0。
+func firstByte(b []byte) byte {
+	if len(b) == 0 {
+		return 0
+	}
+	return b[0]
 }
 
 // Decrypt decrypts an ASN.1 (DER) ciphertext produced by Encrypt. | Decrypt 解密 Encrypt 产生的 ASN.1（DER）密文。
@@ -223,30 +242,43 @@ func DecryptRaw(priv *PrivateKey, ciphertext []byte) ([]byte, error) {
 		return nil, errx.Detail(ErrInvalidCiphertext, "length %[1]d is below the minimum %[2]d | 长度 %[1]d 小于最小长度 %[2]d", len(ciphertext), minLen)
 	}
 
-	curve := k.Curve
-	x1 := new(big.Int).SetBytes(ciphertext[:SM2CoordinateSize])
-	y1 := new(big.Int).SetBytes(ciphertext[SM2CoordinateSize : 2*SM2CoordinateSize])
-	if !curve.IsOnCurve(x1, y1) {
-		return nil, errx.Detail(ErrInvalidCiphertext, "C1 is not on the SM2 curve | C1 不在 SM2 曲线上")
-	}
-	c3 := ciphertext[2*SM2CoordinateSize : 2*SM2CoordinateSize+SM3Size]
-	c2 := ciphertext[2*SM2CoordinateSize+SM3Size:]
-
-	x2, y2 := curve.ScalarMult(x1, y1, k.D.Bytes())
-	xs, ys := pad32(x2), pad32(y2)
-	stream, ok := sm2KDF(xs, ys, len(c2))
-	if !ok {
-		return nil, errx.Detail(ErrDecrypt, "key derivation output is all zero | 密钥派生结果全为零")
+	// C1 must be a point on the curve. Checking it here keeps off-curve ciphertext
+	// in ErrInvalidCiphertext, while the upstream primitive reports every content
+	// failure with one deliberately vague error. | C1 必须是曲线上的点。在此先行校验，
+	// 使「点不在曲线上」归入 ErrInvalidCiphertext，而上游原语对内容失败一律只报同一个模糊错误。
+	prefixed := make([]byte, 1+len(ciphertext))
+	prefixed[0] = 0x04
+	copy(prefixed[1:], ciphertext)
+	if _, err := esm2.ParseUncompressedPublicKey(prefixed[:1+2*SM2CoordinateSize]); err != nil {
+		return nil, errx.WrapDetail(err, ErrInvalidCiphertext, "C1 is not on the SM2 curve | C1 不在 SM2 曲线上")
 	}
 
-	plaintext := make([]byte, len(c2))
-	for i := range c2 {
-		plaintext[i] = c2[i] ^ stream[i]
+	c3 := ciphertext[2*SM2CoordinateSize : minLen]
+	c2 := ciphertext[minLen:]
+	if len(c2) == 0 {
+		return decryptRawEmpty(k, ciphertext[:2*SM2CoordinateSize], c3)
 	}
-	if subtle.ConstantTimeCompare(sm3C3(xs, plaintext, ys), c3) != 1 {
-		return nil, errx.Detail(ErrDecrypt, "C3 verification failed | C3 校验失败")
+
+	plaintext, err := k.Decrypt(rand.Reader, prefixed, plainC1C3C2Decrypter)
+	if err != nil {
+		return nil, errx.WrapDetail(err, ErrDecrypt, "C3 verification failed | C3 校验失败")
 	}
 	return plaintext, nil
+}
+
+// plainC1C3C2Decrypter is the immutable option set for the raw C1C3C2 layout. | plainC1C3C2Decrypter 是原始 C1C3C2 布局的不可变选项。
+var plainC1C3C2Decrypter = esm2.NewPlainDecrypterOpts(esm2.C1C3C2)
+
+// decryptRawEmpty verifies and returns the empty plaintext carried by a raw ciphertext whose C2 is absent. | decryptRawEmpty 校验并返回 C2 缺失的原始密文所承载的空明文。
+func decryptRawEmpty(k *esm2.PrivateKey, c1, c3 []byte) ([]byte, error) {
+	curve := k.Curve
+	x1 := new(big.Int).SetBytes(c1[:SM2CoordinateSize])
+	y1 := new(big.Int).SetBytes(c1[SM2CoordinateSize:])
+	x2, y2 := curve.ScalarMult(x1, y1, k.D.Bytes())
+	if subtle.ConstantTimeCompare(sm3C3(pad32(x2), nil, pad32(y2)), c3) != 1 {
+		return nil, errx.Detail(ErrDecrypt, "C3 verification failed | C3 校验失败")
+	}
+	return []byte{}, nil
 }
 
 // Sign signs data with the private key and returns an ASN.1 (DER) encoded (r, s) pair: | Sign 使用私钥对 data 做 SM2 签名，输出 ASN.1（DER）编码的 (r, s)：
@@ -260,7 +292,22 @@ func Sign(priv *PrivateKey, data []byte) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	sig, err := k.Sign(rand.Reader, data, nil)
+	if len(data) == 0 {
+		// The upstream raw-message entry point rejects an empty message, although
+		// GB/T 32918.2 still defines its digest as SM3(ZA). Compute that digest and
+		// sign it as a pre-hashed value. | 上游的整消息入口拒绝空消息，但 GB/T 32918.2
+		// 仍将其摘要定义为 SM3(ZA)。这里先算出该摘要，再按「已散列」值签名。
+		digest, err := esm2.CalculateSM2Hash(&k.PublicKey, nil, nil)
+		if err != nil {
+			return nil, errx.WrapDetail(err, ErrSign, "SM2 hash of the empty message failed | 空消息的 SM2 摘要计算失败")
+		}
+		sig, err := esm2.SignASN1(rand.Reader, k, digest, nil)
+		if err != nil {
+			return nil, errx.Wrap(err, ErrSign)
+		}
+		return sig, nil
+	}
+	sig, err := k.SignWithSM2(rand.Reader, nil, data)
 	if err != nil {
 		return nil, errx.Wrap(err, ErrSign)
 	}
@@ -276,7 +323,7 @@ func Verify(pub *PublicKey, data, sig []byte) (bool, error) {
 	if err != nil {
 		return false, err
 	}
-	return p.Verify(data, sig), nil
+	return esm2.VerifyASN1WithSM2(p, nil, data, sig), nil
 }
 
 // SignHex signs data with the private key and returns the ASN.1 signature in lowercase hex. | SignHex 使用私钥对 data 签名，返回小写十六进制编码的 ASN.1 签名。
@@ -308,7 +355,7 @@ type sm2CipherASN1 struct {
 }
 
 // validPublic checks that the key is non-nil and its point lies on the SM2 curve, returning the underlying gmsm key. | validPublic 校验公钥非空且点位于 SM2 曲线上，返回底层 gmsm 公钥。
-func validPublic(pub *PublicKey) (*sm2.PublicKey, error) {
+func validPublic(pub *PublicKey) (*ecdsa.PublicKey, error) {
 	p := pub.Raw()
 	if p == nil || p.Curve == nil || p.X == nil || p.Y == nil {
 		return nil, errx.Detail(ErrInvalidPublicKey, "public key is nil | 公钥为空")
@@ -320,7 +367,7 @@ func validPublic(pub *PublicKey) (*sm2.PublicKey, error) {
 }
 
 // validPrivate checks that the key is non-nil and its scalar lies in [1, n-1], returning the underlying gmsm key. | validPrivate 校验私钥非空且标量在 [1, n-1] 内，返回底层 gmsm 私钥。
-func validPrivate(priv *PrivateKey) (*sm2.PrivateKey, error) {
+func validPrivate(priv *PrivateKey) (*esm2.PrivateKey, error) {
 	k := priv.Raw()
 	if k == nil || k.Curve == nil || k.D == nil {
 		return nil, errx.Detail(ErrInvalidPrivateKey, "private key is nil | 私钥为空")
@@ -344,44 +391,6 @@ func randScalar(n *big.Int) (*big.Int, error) {
 			return k, nil
 		}
 	}
-}
-
-// sm2KDF implements the GB/T 32918.4 §5.4.3 key derivation function. | sm2KDF 实现 GB/T 32918.4 §5.4.3 的密钥派生函数。
-// It hashes x2||y2||ct with SM3 for an incrementing counter ct until the output reaches klen bytes. | 以 ct 从 1 递增拼接 x2||y2||ct 后做 SM3，直到输出长度达到 klen。
-//
-// ok=false means the derived output is all zeros. | 返回 ok=false 表示派生结果全为零。
-// An empty stream for klen == 0 counts as a success. | klen == 0 时空密钥流视为成功。
-func sm2KDF(x2, y2 []byte, klen int) ([]byte, bool) {
-	if klen == 0 {
-		return []byte{}, true
-	}
-	h := New()
-	out := make([]byte, 0, klen)
-	var counter [4]byte
-	for ct := 1; len(out) < klen; ct++ {
-		h.Reset()
-		h.Write(x2)
-		h.Write(y2)
-		counter[0] = byte(ct >> 24)
-		counter[1] = byte(ct >> 16)
-		counter[2] = byte(ct >> 8)
-		counter[3] = byte(ct)
-		h.Write(counter[:])
-		out = h.Sum(out)
-	}
-	out = out[:klen]
-
-	allZero := true
-	for _, b := range out {
-		if b != 0 {
-			allZero = false
-			break
-		}
-	}
-	if allZero {
-		return out, false
-	}
-	return out, true
 }
 
 // sm3C3 computes C3 = SM3(x2 || data || y2). | sm3C3 计算 C3 = SM3(x2 || data || y2)。

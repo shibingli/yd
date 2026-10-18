@@ -11,7 +11,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/tjfoc/gmsm/sm2"
+	esm2 "github.com/emmansun/gmsm/sm2"
 )
 
 // mustKey generates a pair of SM2 test keys and fails the test on error. | mustKey 生成一对测试用 SM2 密钥，失败即终止测试。
@@ -154,7 +154,7 @@ func TestSM2EncryptRawLayout(t *testing.T) {
 	}
 
 	// Compare against gmsm's C1C3C2 ciphertext: gmsm adds one leading 0x04, the rest is identical. | 与 gmsm 的 C1C3C2 密文逐字节比对：gmsm 多出一个前导 0x04，其余完全一致。
-	g, err := sm2.Encrypt(pub.Raw(), data, rand.Reader, sm2.C1C3C2)
+	g, err := esm2.Encrypt(rand.Reader, pub.Raw(), data, esm2.NewPlainEncrypterOpts(esm2.MarshalUncompressed, esm2.C1C3C2))
 	if err != nil {
 		t.Fatalf("gmsm sm2.Encrypt 返回错误: %v", err)
 	}
@@ -188,7 +188,7 @@ func TestSM2EncryptRawLayout(t *testing.T) {
 		t.Fatalf("DecryptRaw(gmsm 密文去掉 0x04) = (%d 字节, %v), want (%d 字节, nil)", len(back), err, len(data))
 	}
 	withPrefix := append([]byte{0x04}, rawCT...)
-	gBack, err := sm2.Decrypt(priv.Raw(), withPrefix, sm2.C1C3C2)
+	gBack, err := esm2.Decrypt(priv.Raw(), withPrefix)
 	if err != nil || !bytes.Equal(gBack, data) {
 		t.Fatalf("gmsm sm2.Decrypt(0x04 || 本包密文) = (%d 字节, %v), want (%d 字节, nil)", len(gBack), err, len(data))
 	}
@@ -204,12 +204,12 @@ func TestSM2EncryptDecryptCrossCheckWithGmsm(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Encrypt 返回错误: %v", err)
 	}
-	if got, err := sm2.DecryptAsn1(priv.Raw(), ct); err != nil || !bytes.Equal(got, data) {
+	if got, err := esm2.Decrypt(priv.Raw(), ct); err != nil || !bytes.Equal(got, data) {
 		t.Fatalf("gmsm DecryptAsn1(本包密文) = (%d 字节, %v), want (%d 字节, nil)", len(got), err, len(data))
 	}
 
 	// gmsm's ASN.1 ciphertext into us. | gmsm ASN.1 密文 → 本包解密。
-	gCT, err := sm2.EncryptAsn1(pub.Raw(), data, rand.Reader)
+	gCT, err := esm2.EncryptASN1(rand.Reader, pub.Raw(), data)
 	if err != nil {
 		t.Fatalf("gmsm EncryptAsn1 返回错误: %v", err)
 	}
@@ -218,7 +218,7 @@ func TestSM2EncryptDecryptCrossCheckWithGmsm(t *testing.T) {
 	}
 
 	// gmsm's raw ciphertext with 0x04 into DecryptRaw without it. | gmsm 原始密文（含 0x04）→ 本包 DecryptRaw（去 0x04）。
-	gRaw, err := sm2.Encrypt(pub.Raw(), data, rand.Reader, sm2.C1C3C2)
+	gRaw, err := esm2.Encrypt(rand.Reader, pub.Raw(), data, esm2.NewPlainEncrypterOpts(esm2.MarshalUncompressed, esm2.C1C3C2))
 	if err != nil {
 		t.Fatalf("gmsm Encrypt 返回错误: %v", err)
 	}
@@ -231,10 +231,10 @@ func TestSM2EncryptDecryptCrossCheckWithGmsm(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Sign 返回错误: %v", err)
 	}
-	if !pub.Raw().Verify(data, sig) {
+	if !esm2.VerifyASN1WithSM2(pub.Raw(), nil, data, sig) {
 		t.Fatal("gmsm could not verify this package's signature | gmsm 未能验证本包签名")
 	}
-	gSig, err := priv.Raw().Sign(rand.Reader, data, nil)
+	gSig, err := priv.Raw().SignWithSM2(rand.Reader, nil, data)
 	if err != nil {
 		t.Fatalf("gmsm Sign 返回错误: %v", err)
 	}
@@ -493,6 +493,17 @@ func TestSM2DecryptRejectsInvalidInput(t *testing.T) {
 	tamperC2[len(tamperC2)-1] ^= 0x01
 	if _, err := DecryptRaw(priv, tamperC2); !errors.Is(err, ErrDecrypt) {
 		t.Fatalf("DecryptRaw(篡改 C2) 的错误 = %v, want ErrDecrypt", err)
+	}
+	// The empty plaintext has no C2, so its C3 must still be authenticated. | 空明文没有 C2，
+	// 但其 C3 仍必须通过认证。
+	emptyCT, err := EncryptRaw(pub, nil)
+	if err != nil {
+		t.Fatalf("EncryptRaw(空明文) 返回错误: %v", err)
+	}
+	emptyBad := append([]byte{}, emptyCT...)
+	emptyBad[70] ^= 0x01
+	if _, err := DecryptRaw(priv, emptyBad); !errors.Is(err, ErrDecrypt) {
+		t.Fatalf("DecryptRaw(篡改空明文 C3) 的错误 = %v, want ErrDecrypt", err)
 	}
 	// Garbage ASN.1. | ASN.1 垃圾数据。
 	for _, bad := range [][]byte{nil, {}, {0x30, 0x03, 0x02, 0x01, 0x01}, []byte("garbage")} {

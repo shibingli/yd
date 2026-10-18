@@ -168,6 +168,10 @@ func (i *TokenIssuer) Verify(ctx context.Context, token string) (*User, error) {
 	if err != nil {
 		return nil, errx.Wrap(err, ErrTokenInvalid)
 	}
+	// The token does not escape Verify, so its pool storage can be reused as soon as
+	// this call returns; this keeps the per-request JWT path allocation-free. | 该 token
+	// 不会离开 Verify，因此调用返回后即可复用其池化存储；这使得每请求 JWT 路径保持零分配。
+	defer tok.Release()
 	userID := tok.Claims.Subject()
 	tenantID, _ := tok.Claims.Get(tenantKey)
 	if userID == "" || tenantID == "" {

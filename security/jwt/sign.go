@@ -8,11 +8,10 @@ import (
 	"crypto/hmac"
 	"crypto/rand"
 	"crypto/rsa"
-	"crypto/sha256"
-	"crypto/sha512"
-	"hash"
 	"math/big"
+	"sort"
 	"sync"
+	"unicode/utf8"
 
 	"github.com/shibingli/yd/core/b64x"
 	"github.com/shibingli/yd/core/errx"
@@ -34,10 +33,12 @@ import (
 // pool cannot hand out bytes that a caller still references. | scratch 的生命周期不超过借用它的那次调用，
 // 也绝不会泄漏进 Token，因此归还池中不会把调用方仍在引用的字节再次分发出去。
 type scratch struct {
-	b64    []byte // base64 text of one segment | 单个段的 base64 文本
-	header []byte // decoded JOSE header | 解码后的 JOSE 头部
-	input  []byte // signing input: the bytes the signature covers | 签名输入：签名所覆盖的字节
-	mac    []byte // hash and MAC output space | 哈希与 MAC 的输出空间
+	header  []byte  // decoded JOSE header | 解码后的 JOSE 头部
+	payload []byte  // decoded payload | 解码后的载荷
+	sig     []byte  // decoded signature | 解码后的签名
+	input   []byte  // signing input: the bytes the signature covers | 签名输入：签名所覆盖的字节
+	mac     []byte  // hash and MAC output space | 哈希与 MAC 的输出空间
+	r, sv   big.Int // ECDSA verification operands reused across calls | ECDSA 校验操作数，跨调用复用
 }
 
 // scratchPool recycles *scratch values; pooling the pointer instead of the slices keeps the pool free of
@@ -47,74 +48,76 @@ var scratchPool = sync.Pool{New: func() any { return new(scratch) }}
 // getScratch borrows a scratch and resets its slice lengths. | getScratch 借出一个 scratch 并把切片长度归零。
 func getScratch() *scratch {
 	s := scratchPool.Get().(*scratch)
-	s.b64, s.header, s.input, s.mac = s.b64[:0], s.header[:0], s.input[:0], s.mac[:0]
+	s.header, s.payload, s.sig, s.input, s.mac =
+		s.header[:0], s.payload[:0], s.sig[:0], s.input[:0], s.mac[:0]
 	return s
 }
 
 // putScratch returns a scratch to the pool. | putScratch 把 scratch 归还池中。
 func putScratch(s *scratch) { scratchPool.Put(s) }
 
-// decodeSegment base64url-decodes seg into s.header, using s.b64 as the text buffer. | decodeSegment 把 seg 以 base64url 解码到 s.header，并使用 s.b64 作为文本缓冲。
-//
-// The text is copied with append(dst, string...) so that a string segment never has to be converted into a
-// fresh []byte, and AppendDecode then reuses the destination array. | 文本通过 append(dst, string...) 拷贝，
-// 因此字符串段无需转换成新的 []byte，随后 AppendDecode 复用目标数组。
-func decodeSegment(s *scratch, seg string) bool {
-	s.b64 = append(s.b64[:0], seg...)
-	out, err := b64x.RawURLEncoding.AppendDecode(s.header[:0], s.b64)
+// decodeSegment base64url-decodes seg into dst without allocating an intermediate
+// text buffer: AppendDecodeString reads the string directly. | decodeSegment 把 seg
+// 以 base64url 解码到 dst，且不分配中间文本缓冲：AppendDecodeString 直接读取字符串。
+func decodeSegment(s *scratch, dst *[]byte, seg string) bool {
+	out, err := b64x.RawURLEncoding.AppendDecodeString((*dst)[:0], seg)
 	if err != nil {
 		return false
 	}
-	s.header = out
+	*dst = out
 	return true
+}
+
+// headerFields holds the raw values located in the JOSE header. | headerFields 保存从 JOSE 头部中定位到的原始取值。
+type headerFields struct {
+	extra                  map[string]string
+	alg                    Alg
+	algRaw, kidRaw, typRaw []byte
+	haveAlg                bool
 }
 
 // scanHeader scans the decoded JOSE header for alg, typ and kid. | scanHeader 从解码后的 JOSE 头部中扫描 alg、typ 与 kid。
 //
-// Every other string-valued parameter lands in Header.Extra; Header.Extra stays nil when there is none. | 其余取值为字符串的参数都会进入 Header.Extra；没有这类参数时 Header.Extra 保持为 nil。
-//
-// The reserved parameters alg, typ and kid can never be smuggled into Extra, so a caller that reads Extra
-// cannot be fooled by a duplicate of a reserved name. | 保留参数 alg、typ 与 kid 绝不会被塞进 Extra，
-// 因此读取 Extra 的调用方不会被保留名的重复项误导。
-func scanHeader(raw []byte, h *Header) error {
+// The typ and kid values are returned as raw slices so the caller can copy them into token-owned
+// storage instead of allocating a string here. Every other string-valued parameter lands in extra;
+// extra stays nil when there is none. The reserved parameters can never be smuggled into extra, so a
+// caller that reads it cannot be fooled by a duplicate of a reserved name. | typ 与 kid 以原始切片
+// 返回，调用方可以把它们复制进 token 自有存储，而不必在此分配字符串。其余取值为字符串的参数进入
+// extra；没有时 extra 保持 nil。保留参数绝不会被塞进 extra，因此读取 extra 的调用方不会被保留名
+// 的重复项误导。
+func scanHeader(raw []byte, f *headerFields) error {
 	var s scanner
 	if !s.init(raw) {
 		return errx.Detail(ErrMalformed, "header is not a JSON object | 头部不是 JSON 对象")
 	}
-	var (
-		algRaw  []byte
-		haveAlg bool
-		extra   map[string]string
-	)
 	for s.next() {
-		switch {
-		case keyMatches(s.key, "alg"):
-			algRaw, haveAlg = s.val, true
-		case keyMatches(s.key, "typ"):
-			h.Typ = jsonStringValueOrEmpty(s.val)
-		case keyMatches(s.key, "kid"):
-			h.Kid, _ = jsonStringValue(s.val)
+		switch headerParam(s.key) {
+		case headerParamAlg:
+			f.algRaw, f.haveAlg = s.val, true
+		case headerParamTyp:
+			f.typRaw = s.val
+		case headerParamKid:
+			f.kidRaw = s.val
 		default:
 			if v, ok := jsonStringValue(s.val); ok {
-				if extra == nil {
-					extra = make(map[string]string, 4)
+				if f.extra == nil {
+					f.extra = make(map[string]string, 4)
 				}
-				extra[jsonKeyString(s.key)] = v
+				f.extra[jsonKeyString(s.key)] = v
 			}
 		}
 	}
 	if s.err {
 		return errx.Detail(ErrMalformed, "header is not well-formed JSON | 头部不是结构良好的 JSON")
 	}
-	if !haveAlg {
+	if !f.haveAlg {
 		return errx.Detail(ErrAlgNotAllowed, "header has no alg | 头部缺少 alg")
 	}
-	alg, ok := algFromRaw(algRaw)
+	alg, ok := algFromRaw(f.algRaw)
 	if !ok {
-		return errx.Detail(ErrAlgNotAllowed, "alg=%[1]q is unsupported | alg=%[1]q 不受支持", string(algRaw))
+		return errx.Detail(ErrAlgNotAllowed, "alg=%[1]q is unsupported | alg=%[1]q 不受支持", string(f.algRaw))
 	}
-	h.Alg = alg
-	h.Extra = extra
+	f.alg = alg
 	return nil
 }
 
@@ -149,6 +152,12 @@ type SignOptions struct {
 
 // Sign builds a compact JWS from claims and key. | Sign 用 claims 与 key 生成紧凑 JWS。
 //
+// Claims may be any value jsonx.Marshal accepts; a struct is faster than a
+// map[string]any because it avoids map reflection. For an already encoded JSON
+// object use SignJSON, which skips serialization entirely. | claims 可以是
+// jsonx.Marshal 接受的任意值；结构体比 map[string]any 更快，因为它避免 map 反射。
+// 已经编码好的 JSON 对象请用 SignJSON，它完全跳过序列化。
+//
 // The key must match the algorithm: []byte or string for HSxxx, *rsa.PrivateKey for RSxxx and PSxxx,
 // *ecdsa.PrivateKey for ESxxx, and ed25519.PrivateKey for EdDSA; a key from another family is refused with
 // ErrSignatureInvalid. | 密钥必须与算法匹配：HSxxx 用 []byte 或 string，RSxxx 与 PSxxx 用 *rsa.PrivateKey，
@@ -157,24 +166,43 @@ type SignOptions struct {
 // The header always carries alg and typ; the payload is jsonx.Marshal of claims, and the signature covers the
 // raw "header.payload" bytes produced here. | 头部始终包含 alg 与 typ；载荷由 jsonx.Marshal 序列化 claims，
 // 签名覆盖此处产出的原始 "header.payload" 字节。
-func Sign(claims map[string]any, key any, alg Alg, o SignOptions) (string, error) {
+func Sign(claims any, key any, alg Alg, o SignOptions) (string, error) {
 	if !supported(alg) {
 		return "", errx.Detail(ErrAlgNotAllowed, "alg=%[1]q | 算法=%[1]q", string(alg))
-	}
-	hdr, err := marshalHeader(alg, o)
-	if err != nil {
-		return "", err
 	}
 	payload, err := jsonx.Marshal(claims)
 	if err != nil {
 		return "", errx.WrapDetail(err, ErrInvalidClaims, "claims | 声明")
 	}
+	return signPayload(payload, key, alg, o)
+}
 
+// SignJSON signs an already encoded JSON object. | SignJSON 对已经编码好的 JSON 对象签名。
+//
+// The payload must be a single well-formed JSON object; it is validated
+// structurally before signing, so a caller cannot accidentally mint a token
+// whose bytes are not a JWT payload. The signature covers exactly payload, the
+// bytes passed here, with no re-encoding. | 载荷必须是单个结构良好的 JSON 对象；签名前
+// 会做结构校验，因此调用方不可能误签出不是 JWT 载荷的字节。签名精确覆盖传入的 payload，
+// 不做任何重新编码。
+func SignJSON(payload []byte, key any, alg Alg, o SignOptions) (string, error) {
+	if !supported(alg) {
+		return "", errx.Detail(ErrAlgNotAllowed, "alg=%[1]q | 算法=%[1]q", string(alg))
+	}
+	if !validJSONObject(payload) {
+		return "", errx.Detail(ErrInvalidClaims, "payload is not a JSON object | 载荷不是 JSON 对象")
+	}
+	return signPayload(payload, key, alg, o)
+}
+
+// signPayload encodes the header and signs header.payload. | signPayload 编码头部并签名 header.payload。
+func signPayload(payload []byte, key any, alg Alg, o SignOptions) (string, error) {
 	s := getScratch()
 	defer putScratch(s)
 
 	// Encode both segments into pooled buffers and keep the signing input in one contiguous slice. | 把两段编码进池化缓冲，并让签名输入保持为一段连续内存。
-	s.input = b64x.RawURLEncoding.AppendEncode(s.input[:0], hdr)
+	s.header = appendHeader(s.header[:0], alg, o)
+	s.input = b64x.RawURLEncoding.AppendEncode(s.input[:0], s.header)
 	s.input = append(s.input, '.')
 	s.input = b64x.RawURLEncoding.AppendEncode(s.input, payload)
 	sig, err := signRaw(alg, key, s.input, s)
@@ -188,26 +216,84 @@ func Sign(claims map[string]any, key any, alg Alg, o SignOptions) (string, error
 	return string(s.input), nil
 }
 
-// marshalHeader serializes the protected header. | marshalHeader 序列化受保护头部。
-func marshalHeader(alg Alg, o SignOptions) ([]byte, error) {
-	m := make(map[string]string, 3+len(o.Header))
-	for k, v := range o.Header {
-		switch k {
-		case "alg", "typ", "kid":
+// appendHeader serializes the protected header into dst without a map or reflection. | appendHeader
+// 把受保护头部序列化进 dst，不构造 map，也不使用反射。
+//
+// The reserved names alg, typ and kid are controlled by SignOptions and can never be smuggled in
+// through Header. Keys are sorted so that identical options produce identical header bytes. | 保留名
+// alg、typ 与 kid 由 SignOptions 控制，绝不可能经由 Header 混入。键会排序，因此相同选项产生
+// 相同的头部字节。
+func appendHeader(dst []byte, alg Alg, o SignOptions) []byte {
+	dst = append(dst, `{"alg":"`...)
+	dst = append(dst, alg...)
+	dst = append(dst, `","typ":"JWT"`...)
+	if o.Kid != "" {
+		dst = append(dst, `,"kid":`...)
+		dst = appendJSONStringLiteral(dst, o.Kid)
+	}
+	if len(o.Header) > 0 {
+		keys := make([]string, 0, len(o.Header))
+		for k := range o.Header {
+			switch k {
+			case "alg", "typ", "kid":
+				continue
+			}
+			keys = append(keys, k)
+		}
+		sort.Strings(keys)
+		for _, k := range keys {
+			dst = append(dst, ',')
+			dst = appendJSONStringLiteral(dst, k)
+			dst = append(dst, ':')
+			dst = appendJSONStringLiteral(dst, o.Header[k])
+		}
+	}
+	return append(dst, '}')
+}
+
+// appendJSONStringLiteral appends s as a JSON string literal, escaping control characters and quotes and
+// replacing invalid UTF-8 bytes with U+FFFD, matching encoding/json's replacement rule. | appendJSONString
+// 把 s 作为 JSON 字符串字面量追加，转义控制字符与引号，并把非法 UTF-8 字节替换为 U+FFFD，
+// 与 encoding/json 的替换规则一致。
+func appendJSONStringLiteral(dst []byte, s string) []byte {
+	const hex = "0123456789abcdef"
+	dst = append(dst, '"')
+	for i := 0; i < len(s); {
+		c := s[i]
+		if c < utf8.RuneSelf {
+			switch c {
+			case '"', '\\':
+				dst = append(dst, '\\', c)
+			case '\b':
+				dst = append(dst, '\\', 'b')
+			case '\f':
+				dst = append(dst, '\\', 'f')
+			case '\n':
+				dst = append(dst, '\\', 'n')
+			case '\r':
+				dst = append(dst, '\\', 'r')
+			case '\t':
+				dst = append(dst, '\\', 't')
+			default:
+				if c < 0x20 {
+					dst = append(dst, '\\', 'u', '0', '0', hex[c>>4], hex[c&0x0f])
+				} else {
+					dst = append(dst, c)
+				}
+			}
+			i++
 			continue
 		}
-		m[k] = v
+		r, size := utf8.DecodeRuneInString(s[i:])
+		if r == utf8.RuneError && size == 1 {
+			dst = append(dst, `�`...)
+			i++
+			continue
+		}
+		dst = append(dst, s[i:i+size]...)
+		i += size
 	}
-	m["alg"] = string(alg)
-	m["typ"] = "JWT"
-	if o.Kid != "" {
-		m["kid"] = o.Kid
-	}
-	raw, err := jsonx.Marshal(m)
-	if err != nil {
-		return nil, errx.WrapDetail(err, ErrMalformed, "header | 头部")
-	}
-	return raw, nil
+	return append(dst, '"')
 }
 
 // hmacSecret accepts the symmetric key forms and rejects every other type. | hmacSecret 接受对称密钥的形式，并拒绝其它所有类型。
@@ -224,17 +310,17 @@ func hmacSecret(key any) ([]byte, bool) {
 	return nil, false
 }
 
-// algHash returns the standard-library hash of an algorithm. | algHash 返回算法对应的标准库哈希。
-func algHash(alg Alg) (crypto.Hash, func() hash.Hash, bool) {
+// algHash returns the standard-library hash identity of an algorithm. | algHash 返回算法对应的标准库哈希标识。
+func algHash(alg Alg) (crypto.Hash, bool) {
 	switch alg {
 	case HS256, RS256, PS256, ES256:
-		return crypto.SHA256, sha256.New, true
+		return crypto.SHA256, true
 	case HS384, RS384, PS384, ES384:
-		return crypto.SHA384, sha512.New384, true
+		return crypto.SHA384, true
 	case HS512, RS512, PS512, ES512:
-		return crypto.SHA512, sha512.New, true
+		return crypto.SHA512, true
 	}
-	return 0, nil, false
+	return 0, false
 }
 
 // algCurve returns the NIST curve an ECDSA algorithm requires. | algCurve 返回 ECDSA 算法要求的 NIST 曲线。
@@ -261,7 +347,7 @@ func signRaw(alg Alg, key any, input []byte, s *scratch) ([]byte, error) {
 		return ed25519.Sign(k, input), nil
 	}
 
-	h, hashFn, ok := algHash(alg)
+	h, ok := algHash(alg)
 	if !ok {
 		return nil, errx.Detail(ErrAlgNotAllowed, "alg=%[1]q | 算法=%[1]q", string(alg))
 	}
@@ -272,18 +358,14 @@ func signRaw(alg Alg, key any, input []byte, s *scratch) ([]byte, error) {
 		if !ok {
 			return nil, keyTypeError(alg)
 		}
-		mac := hmac.New(hashFn, secret)
-		mac.Write(input)
-		return mac.Sum(nil), nil
+		s.mac = algMACPool(alg).sum(secret, input, s.mac[:0])
+		return s.mac, nil
 	case RS256, RS384, RS512:
 		k, ok := key.(*rsa.PrivateKey)
 		if !ok {
 			return nil, keyTypeError(alg)
 		}
-		digest, err := digestOf(hashFn, input, s)
-		if err != nil {
-			return nil, err
-		}
+		digest := algHashPool(alg).sum(input, s.mac[:0])
 		sig, err := rsa.SignPKCS1v15(rand.Reader, k, h, digest)
 		if err != nil {
 			return nil, errx.WrapDetail(err, ErrSignatureInvalid, "RSA signing | RSA 签名")
@@ -294,10 +376,7 @@ func signRaw(alg Alg, key any, input []byte, s *scratch) ([]byte, error) {
 		if !ok {
 			return nil, keyTypeError(alg)
 		}
-		digest, err := digestOf(hashFn, input, s)
-		if err != nil {
-			return nil, err
-		}
+		digest := algHashPool(alg).sum(input, s.mac[:0])
 		opts := &rsa.PSSOptions{SaltLength: rsa.PSSSaltLengthEqualsHash, Hash: h}
 		sig, err := rsa.SignPSS(rand.Reader, k, h, digest, opts)
 		if err != nil {
@@ -309,10 +388,7 @@ func signRaw(alg Alg, key any, input []byte, s *scratch) ([]byte, error) {
 		if !ok || !curveMatches(k.Curve, algCurve(alg)) {
 			return nil, keyTypeError(alg)
 		}
-		digest, err := digestOf(hashFn, input, s)
-		if err != nil {
-			return nil, err
-		}
+		digest := algHashPool(alg).sum(input, s.mac[:0])
 		r, sv, err := ecdsa.Sign(rand.Reader, k, digest)
 		if err != nil {
 			return nil, errx.WrapDetail(err, ErrSignatureInvalid, "ECDSA signing | ECDSA 签名")
@@ -340,7 +416,7 @@ func verify(alg Alg, key any, input, sig []byte, s *scratch) bool {
 		return ed25519.Verify(k, input, sig)
 	}
 
-	_, hashFn, ok := algHash(alg)
+	h, ok := algHash(alg)
 	if !ok {
 		return false
 	}
@@ -351,25 +427,21 @@ func verify(alg Alg, key any, input, sig []byte, s *scratch) bool {
 		if !ok {
 			return false
 		}
-		mac := hmac.New(hashFn, secret)
-		mac.Write(input)
-		s.mac = mac.Sum(s.mac[:0])
+		s.mac = algMACPool(alg).sum(secret, input, s.mac[:0])
 		return hmac.Equal(s.mac, sig)
 	case RS256, RS384, RS512:
 		k, ok := key.(*rsa.PublicKey)
 		if !ok {
 			return false
 		}
-		h, _, _ := algHash(alg)
-		digest := digestInto(hashFn, input, s.mac[:0])
+		digest := algHashPool(alg).sum(input, s.mac[:0])
 		return rsa.VerifyPKCS1v15(k, h, digest, sig) == nil
 	case PS256, PS384, PS512:
 		k, ok := key.(*rsa.PublicKey)
 		if !ok {
 			return false
 		}
-		h, _, _ := algHash(alg)
-		digest := digestInto(hashFn, input, s.mac[:0])
+		digest := algHashPool(alg).sum(input, s.mac[:0])
 		opts := &rsa.PSSOptions{SaltLength: rsa.PSSSaltLengthEqualsHash, Hash: h}
 		return rsa.VerifyPSS(k, h, digest, sig, opts) == nil
 	case ES256, ES384, ES512:
@@ -381,29 +453,14 @@ func verify(alg Alg, key any, input, sig []byte, s *scratch) bool {
 		if len(sig) != 2*width {
 			return false
 		}
-		digest := digestInto(hashFn, input, s.mac[:0])
-		r := new(big.Int).SetBytes(sig[:width])
-		sv := new(big.Int).SetBytes(sig[width:])
-		return ecdsa.Verify(k, digest, r, sv)
+		digest := algHashPool(alg).sum(input, s.mac[:0])
+		// Reuse the scratch big.Ints; ecdsa.Verify only reads them. | 复用 scratch 中的 big.Int；
+		// ecdsa.Verify 只读取它们。
+		s.r.SetBytes(sig[:width])
+		s.sv.SetBytes(sig[width:])
+		return ecdsa.Verify(k, digest, &s.r, &s.sv)
 	}
 	return false
-}
-
-// digestOf returns the digest of input, writing into the pooled buffer. | digestOf 返回 input 的摘要，并写入池化缓冲。
-func digestOf(hashFn func() hash.Hash, input []byte, s *scratch) ([]byte, error) {
-	h := hashFn()
-	if _, err := h.Write(input); err != nil {
-		return nil, errx.WrapDetail(err, ErrMalformed, "hash | 哈希")
-	}
-	s.mac = h.Sum(s.mac[:0])
-	return s.mac, nil
-}
-
-// digestInto returns the digest of input appended to dst. | digestInto 把 input 的摘要追加到 dst 并返回。
-func digestInto(hashFn func() hash.Hash, input, dst []byte) []byte {
-	h := hashFn()
-	h.Write(input)
-	return h.Sum(dst)
 }
 
 // curveMatches reports whether c is the required curve, comparing by bit size. | curveMatches 报告 c 是否为要求的曲线，按位宽比较。

@@ -39,11 +39,12 @@ import (
 	"strings"
 	"testing"
 
+	esm2 "github.com/emmansun/gmsm/sm2"
+
 	"github.com/shibingli/yd/core/b64x"
 	"github.com/shibingli/yd/core/errx"
 	"github.com/shibingli/yd/core/jsonx"
 	"github.com/shibingli/yd/security/guomi"
-	"github.com/tjfoc/gmsm/sm2"
 )
 
 var (
@@ -118,10 +119,10 @@ const (
 	// jsTestScriptName is the Node test entry point relative to the repository root. | jsTestScriptName 是相对仓库根目录的 Node 测试入口。
 	jsTestScriptName = "web/static/js/yd-guomi.test.mjs"
 
-	// fixedRandomSize is how many bytes gmsm reads for one SM2 randomiser:
-	// params.BitSize/8+8 = 256/8+8 = 40 for sm2p256v1. | fixedRandomSize 是 gmsm 派生一个 SM2 随机数所读取的字节数：
-	// 对 sm2p256v1 而言为 params.BitSize/8+8 = 256/8+8 = 40。
-	fixedRandomSize = 40
+	// fixedRandomSize is how many bytes gmsm reads for one SM2 nonce:
+	// c.N.Size() = 256/8 = 32 for sm2p256v1. | fixedRandomSize 是 gmsm 派生一个
+	// SM2 随机数所读取的字节数：对 sm2p256v1 而言为 c.N.Size() = 256/8 = 32。
+	fixedRandomSize = 32
 )
 
 // Environment variables carrying the vector file layout, all with the YD_ prefix. | 承载向量文件布局的环境变量，
@@ -853,8 +854,9 @@ func deterministicEncryption(t *testing.T, publicKey *guomi.PublicKey, privateKe
 		t.Fatalf("deterministic empty plaintext is unsupported by gmsm | gmsm 不支持确定性的空明文")
 	}
 	effective, stream := fixedRandomiser(t)
-	// gmsm emits one leading 0x04 marker byte that guomi.EncryptRaw does not use. | gmsm 会多输出一个前导 0x04 标识字节，而 guomi.EncryptRaw 不使用它。
-	ciphertext, err := sm2.Encrypt(publicKey.Raw(), plaintext, &fixedReader{buf: stream}, sm2.C1C3C2)
+	// emmansun/gmsm emits one leading 0x04 marker byte that guomi.EncryptRaw does not use. | emmansun/gmsm 会多输出一个前导 0x04 标识字节，而 guomi.EncryptRaw 不使用它。
+	ciphertext, err := esm2.Encrypt(&fixedReader{buf: stream}, publicKey.Raw(), plaintext,
+		esm2.NewPlainEncrypterOpts(esm2.MarshalUncompressed, esm2.C1C3C2))
 	if err != nil {
 		t.Fatalf("gmsm Encrypt(%s) | gmsm Encrypt(%s): %v", name, name, err)
 	}
@@ -881,15 +883,17 @@ func deterministicEncryption(t *testing.T, publicKey *guomi.PublicKey, privateKe
 	}
 }
 
-// fixedRandomiser returns the byte stream gmsm consumes for one signature or ciphertext, plus the
-// effective scalar it derives from that stream. | fixedRandomiser 返回 gmsm 为一次签名或加密消费的字节流，
-// 以及它由该字节流派生出的有效标量。
+// fixedRandomiser returns the fixed scalar used by the deterministic encryption and the 32-byte
+// stream handed to gmsm. For encryption the stream is the scalar itself; for signing it is the
+// hedged-DRBG entropy, and the actual nonce is recovered from the signature. | fixedRandomiser
+// 返回确定性加密使用的固定标量，以及交给 gmsm 的 32 字节流。加密时该流就是标量本身；签名时它是
+// 对冲 DRBG 的熵，实际随机数由签名反推。
 //
-// gmsm's randFieldElement reads params.BitSize/8+8 bytes and maps them through k = B mod (n-1) + 1,
-// so the seed is not the scalar itself. Recording the effective scalar keeps the vectors
-// reproducible from JavaScript with the single value it can consume. | gmsm 的 randFieldElement 读取
-// params.BitSize/8+8 字节并按 k = B mod (n-1) + 1 映射，因此种子并不等于标量本身。记录有效标量
-// 使 JS 侧仅凭这一个可直接消费的数值即可复现向量。
+// emmansun/gmsm reads c.N.Size() = 32 bytes for one nonce and uses the value directly when it is
+// in [1, n-1], so the stream is the scalar itself. Recording it keeps the vectors reproducible
+// from JavaScript with the single value it can consume. | emmansun/gmsm 每次随机数读取
+// c.N.Size() = 32 字节，取值落在 [1, n-1] 内时直接作为标量使用，因此字节流就是标量本身。
+// 记录该值使 JS 侧仅凭这一个可直接消费的数值即可复现向量。
 func fixedRandomiser(t *testing.T) (*big.Int, []byte) {
 	t.Helper()
 
@@ -897,15 +901,14 @@ func fixedRandomiser(t *testing.T) (*big.Int, []byte) {
 	if !ok {
 		t.Fatalf("fixed randomiser %q is not hex | 固定随机数 %q 不是合法十六进制", vectorFixedKHex, vectorFixedKHex)
 	}
-	stream := paddedBytes(seed, fixedRandomSize)
 
-	order := sm2.P256Sm2().Params().N
-	effective := new(big.Int).Mod(new(big.Int).SetBytes(stream), new(big.Int).Sub(order, big.NewInt(1)))
+	order := esm2.P256().Params().N
+	effective := new(big.Int).Mod(seed, new(big.Int).Sub(order, big.NewInt(1)))
 	effective.Add(effective, big.NewInt(1))
 	if effective.Sign() <= 0 || effective.Cmp(order) >= 0 {
 		t.Fatalf("effective randomiser %s is outside [1, n-1] | 有效随机数 %s 超出 [1, n-1]", effective, effective)
 	}
-	return effective, stream
+	return effective, paddedBytes(effective, fixedRandomSize)
 }
 
 // goSM2Signatures returns one deterministic DER signature plus, when withRandom is set, the
@@ -916,17 +919,28 @@ func goSM2Signatures(t *testing.T, privateKey *guomi.PrivateKey, publicKey *guom
 	t.Helper()
 
 	message := []byte("yd sandbox signature | 沙箱签名")
-	effective, stream := fixedRandomiser(t)
-	r, s, err := sm2.Sm2Sign(privateKey.Raw(), message, nil, &fixedReader{buf: stream})
+	_, stream := fixedRandomiser(t)
+	der, err := privateKey.Raw().SignWithSM2(&fixedReader{buf: stream}, nil, message)
 	if err != nil {
-		t.Fatalf("gmsm Sm2Sign | gmsm Sm2Sign: %v", err)
+		t.Fatalf("gmsm SignWithSM2 | gmsm SignWithSM2: %v", err)
 	}
-	der, err := asn1.Marshal(derSignature{R: r, S: s})
-	if err != nil {
+	var sig derSignature
+	if _, err := asn1.Unmarshal(der, &sig); err != nil {
 		t.Fatalf("der signature | DER 签名: %v", err)
 	}
 	if ok, err := guomi.Verify(publicKey, message, der); err != nil || !ok {
 		t.Fatalf("deterministic signature rejected by guomi.Verify | 确定性签名未被 guomi.Verify 接受: ok=%v err=%v", ok, err)
+	}
+
+	// Recover the nonce from the signature so JavaScript can reproduce it: SM2 defines
+	// k = s*(1+d) + r*d (mod n). | 从签名反推随机数 k，供 JS 复现：SM2 定义 k = s*(1+d) + r*d (mod n)。
+	order := esm2.P256().Params().N
+	d := privateKey.Raw().D
+	k := new(big.Int).Mul(sig.S, new(big.Int).Add(d, big.NewInt(1)))
+	k.Add(k, new(big.Int).Mul(sig.R, d))
+	k.Mod(k, order)
+	if k.Sign() <= 0 || k.Cmp(order) >= 0 {
+		t.Fatalf("recovered nonce %s is outside [1, n-1] | 反推的随机数 %s 超出 [1, n-1]", k, k)
 	}
 
 	vectors := []sm2SignatureVector{
@@ -935,7 +949,7 @@ func goSM2Signatures(t *testing.T, privateKey *guomi.PrivateKey, publicKey *guom
 			DataHex:      hex.EncodeToString(message),
 			SignatureHex: hex.EncodeToString(der),
 			Algorithm:    signatureAlgorithm,
-			FixedKHex:    hex.EncodeToString(paddedBytes(effective, guomi.SM2CoordinateSize)),
+			FixedKHex:    hex.EncodeToString(paddedBytes(k, guomi.SM2CoordinateSize)),
 		},
 	}
 	if !withRandom {

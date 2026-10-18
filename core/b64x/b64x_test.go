@@ -416,3 +416,37 @@ func TestEncodingsAreUsable(t *testing.T) {
 		}
 	}
 }
+
+// TestAppendDecodeStringMatchesDecodeString pins that the zero-copy string
+// decoder produces exactly the same bytes and success classification as the
+// allocating DecodeString, including the append prefix and CR/LF handling.
+// | TestAppendDecodeStringMatchesDecodeString 固定「零拷贝字符串解码与分配式
+// DecodeString 产出完全相同的字节与成功判定」，包括追加前缀与 CR/LF 行为。
+func TestAppendDecodeStringMatchesDecodeString(t *testing.T) {
+	prefix := []byte("xy")
+	cases := []string{
+		"",
+		"aGVsbG8",
+		"aGVsbG8=",
+		"aGVsbG8\n",
+		"aGVs\r\nbG8",
+		"!!!",
+		"AA",
+		"AAA",
+		"AAAA",
+		strings.Repeat("A", 100) + "\r\n",
+	}
+	for _, tc := range cases {
+		want, wantErr := RawURLEncoding.DecodeString(tc)
+		got, gotErr := RawURLEncoding.AppendDecodeString(append([]byte(nil), prefix...), tc)
+		if (gotErr != nil) != (wantErr != nil) {
+			t.Fatalf("%q: error = %v, want %v | 错误 = %v，期望 %v", tc, gotErr, wantErr, gotErr, wantErr)
+		}
+		if !bytes.Equal(got[:len(prefix)], prefix) {
+			t.Fatalf("%q: prefix was overwritten | 前缀被覆盖", tc)
+		}
+		if wantErr == nil && !bytes.Equal(got[len(prefix):], want) {
+			t.Fatalf("%q: got %x, want %x | 结果不一致", tc, got[len(prefix):], want)
+		}
+	}
+}

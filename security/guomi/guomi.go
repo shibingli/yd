@@ -3,14 +3,13 @@
 //
 // Implementation notes | 实现约定：
 //
-//   - Primitives come from github.com/tjfoc/gmsm, which is pure Go and cgo-free. | 原语来源：github.com/tjfoc/gmsm（纯 Go，无 cgo）。
-//   - gmsm supplies the SM2 curve arithmetic and signing, the SM3 compression function and the SM4 block cipher. | gmsm 提供 SM2 曲线运算与签名验签、SM3 压缩函数、SM4 分组密码。
+//   - Primitives come from github.com/emmansun/gmsm, which is pure Go and cgo-free. | 原语来源：github.com/emmansun/gmsm（纯 Go，无 cgo）。
+//   - gmsm supplies the SM2 curve arithmetic, signing and verification, encryption and decryption (including the GB/T 32918.4 KDF), the SM3 compression function and the SM4 block cipher. | gmsm 提供 SM2 曲线运算、签名验签、加解密（含 GB/T 32918.4 KDF）、SM3 压缩函数与 SM4 分组密码。
 //   - No other third-party crypto library is imported, and there is no OpenSSL binding or cgo code. | 不引入任何其他第三方密码库，也不依赖 OpenSSL 绑定或任何 cgo 代码。
 //   - All randomness comes from crypto/rand. | 随机数一律来自 crypto/rand。
-//   - SM2 encryption and decryption, including the GB/T 32918.4 key derivation function, are composed in this package. | SM2 加密/解密（含 GB/T 32918.4 密钥派生函数 KDF）在本包内组合实现。
-//   - Composing them here pins the ciphertext byte layout and handles empty plaintext correctly. | 如此可严格定义密文字节布局并正确处理空明文。
+//   - This package pins the raw C1C3C2 byte layout and handles the empty plaintext that the upstream primitive rejects. | 本包严格定义原始 C1C3C2 字节布局，并处理上游原语拒绝的空明文。
 //   - SM2 signing and verification follow GB/T 32918.2 through gmsm, using the default user ID "1234567812345678". | SM2 签名/验签按 GB/T 32918.2 使用 gmsm 实现，用户标识为默认值 "1234567812345678"。
-//   - SM4 modes (CBC, GCM and ECB) build on crypto/cipher over the SM4 block cipher. | SM4 的工作模式（CBC/GCM/ECB）基于标准库 crypto/cipher 组合。
+//   - SM4 modes (CBC, GCM and ECB) build on crypto/cipher over the SM4 block cipher, using the cipher's own accelerated CBC/ECB paths when it provides them. | SM4 的工作模式（CBC/GCM/ECB）基于标准库 crypto/cipher 组合；底层密码提供加速 CBC/ECB 路径时优先使用。
 //   - Base64 encoding goes through the framework wrapper github.com/shibingli/yd/core/b64x. | Base64 编解码统一走框架自封装层 github.com/shibingli/yd/core/b64x。
 //
 // Standards | 标准依据：
@@ -77,7 +76,7 @@ func CipherSuiteInfo() map[string]string {
 		"sm4":     "gmsm/sm4 CBC/GCM",
 		"pbkdf2":  "PBKDF2-HMAC-SM3 (RFC 8018)",
 		"rand":    "crypto/rand",
-		"backend": "github.com/tjfoc/gmsm v1.4.1",
+		"backend": "github.com/emmansun/gmsm v0.45.0",
 		"cgo":     "disabled",
 	}
 }
