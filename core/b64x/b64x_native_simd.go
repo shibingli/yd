@@ -103,10 +103,6 @@ func buildDecodeLUTs(loLUT, hiLUT, rollLUT *[64]int8, alphabet string, rollBase 
 	}
 }
 
-// encodeSIMD encodes complete 12-byte groups into 16 characters and returns the bytes consumed.
-// It prefers 256-bit vectors and falls back to 128-bit vectors for the tail.
-// | encodeSIMD 把完整的 12 字节组编码为 16 个字符并返回消耗的字节数；优先使用 256 位向量，
-// 尾部回退到 128 位向量。
 // encodeBlocksAVX2 encodes complete 24-byte blocks. src must include the four-byte prefix
 // before the first block. It returns the logical input bytes consumed and output bytes written.
 // | encodeBlocksAVX2 编码完整的 24 字节块；src 必须包含首块之前的 4 字节前缀。返回消耗的逻辑
@@ -121,8 +117,8 @@ func encodeBlocksAVX2(dst, src []byte, url bool) (int, int) {
 	maskHi16 := archsimd.LoadUint16x16(simdMaskHi16[:])
 	mulHi16 := archsimd.LoadUint16x16(simdMulHi16[:])
 	mulLo16 := archsimd.LoadUint16x16(simdMulLo16[:])
-	b51x32, b13x32 := archsimd.BroadcastUint8x32(51), archsimd.BroadcastUint8x32(13)
-	b26i32 := archsimd.BroadcastInt8x32(26)
+	b51x32, b13x32 := archsimd.LoadUint8x32(simdB51x32[:]), archsimd.LoadUint8x32(simdB13x32[:])
+	b26i32 := archsimd.LoadInt8x32(simdB26i32[:])
 	shuf32 := archsimd.LoadInt8x32(simdShuf32Gather[:])
 	i, o := 0, 0
 	for i+56 <= len(src) && o+64 <= len(dst) {
@@ -154,11 +150,20 @@ func encodeBlocksAVX2(dst, src []byte, url bool) (int, int) {
 	return i, o
 }
 
+// encodeSIMD encodes Base64 into dst with the AVX2 kernels and returns the input bytes consumed
+// and the output bytes written. It dispatches 32-byte sources to the exact-size kernel, encodes
+// the first 24 bytes with 256-bit vectors, then loops over 24-byte blocks and hands the tail to
+// the 128-bit kernels. | encodeSIMD 用 AVX2 内核把 Base64 编码写入 dst，返回消耗的输入字节数
+// 与写入的输出字节数。32 字节源交给精确尺寸内核；先用 256 位向量编码前 24 字节，再以
+// 24 字节块循环，尾部交给 128 位内核。
 func encodeSIMD(dst, src []byte, url, padded bool, pad byte) (int, int) {
+	if len(src) == 32 && len(dst) >= encoded32Len(padded) {
+		return encode32AVX2(dst, src, url, padded, pad)
+	}
 	if len(src) < 28 || len(dst) < 32 {
 		return 0, 0
 	}
-	i, o := encodeFirstAVX2(dst, src, url)
+	i, o := encodeFirst24AVX2(dst, src, url)
 	if len(src)-i >= 28 {
 		n, out := encodeBlocksAVX2(dst[o:], src[i-4:], url)
 		i += n
@@ -166,6 +171,118 @@ func encodeSIMD(dst, src []byte, url, padded bool, pad byte) (int, int) {
 	}
 	n, out := encodeTailAVX2(dst[o:], src[i:], url, padded, pad)
 	return i + n, o + out
+}
+
+// encodeFirst24AVX2 encodes the first 24 bytes with one 256-bit block fed by two 16-byte
+// loads, one for each 128-bit lane, and returns 24 input bytes and 32 characters. The first
+// block is deliberately twice the width of the 12-byte 128-bit variant so that small inputs
+// need fewer tail iterations. | encodeFirst24AVX2 用两次 16 字节加载（每个 128 位通道一次）
+// 组成一个 256 位块编码前 24 字节，返回 24 字节输入与 32 个字符。首块刻意取 12 字节
+// 128 位变体的两倍宽，使小输入需要更少的尾部迭代。
+func encodeFirst24AVX2(dst, src []byte, url bool) (int, int) {
+	lut := &simdLut32
+	if url {
+		lut = &simdLutURL32
+	}
+	lut32 := archsimd.LoadInt8x32(lut[:])
+	maskLo := archsimd.LoadUint16x16(simdMaskLo16[:])
+	maskHi := archsimd.LoadUint16x16(simdMaskHi16[:])
+	mulHi := archsimd.LoadUint16x16(simdMulHi16[:])
+	mulLo := archsimd.LoadUint16x16(simdMulLo16[:])
+	b51 := archsimd.LoadUint8x32(simdB51x32[:])
+	b13 := archsimd.LoadUint8x32(simdB13x32[:])
+	b26 := archsimd.LoadInt8x32(simdB26i32[:])
+	shuf := archsimd.LoadInt8x16(simdShuf16[:])
+	g0 := archsimd.LoadUint8x16(unsafe.Slice((*byte)(unsafe.Pointer(&src[0])), 16))
+	g1 := archsimd.LoadUint8x16(unsafe.Slice((*byte)(unsafe.Pointer(&src[12])), 16))
+	in := archsimd.Uint8x32{}.SetLo(g0.PermuteOrZero(shuf)).SetHi(g1.PermuteOrZero(shuf)).AsUint16x16()
+	idx := in.And(maskLo).MulHigh(mulHi).Or(in.And(maskHi).Mul(mulLo)).AsUint8x32()
+	res := idx.SubSaturated(b51)
+	res = b13.IfElse(b26.Greater(idx.AsInt8x32()), res)
+	res = idx.Add(lut32.PermuteOrZeroGrouped(res.AsInt8x32()).AsUint8x32())
+	res.Store(unsafe.Slice((*byte)(unsafe.Pointer(&dst[0])), 32))
+	return 24, 32
+}
+
+// encoded32Len returns the number of characters produced by encoding 32 bytes: 44 with
+// padding and 43 without. | encoded32Len 返回编码 32 字节产生的字符数：带填充为 44，无填充为 43。
+func encoded32Len(padded bool) int {
+	if padded {
+		return 44
+	}
+	return 43
+}
+
+// encode32AVX2 encodes exactly 32 bytes. The first 24 bytes go through one 256-bit block fed by
+// two 16-byte loads; the last 8 bytes use a separate 128-bit constant set so the 256-bit set
+// dies with the first block and no vector register spills. It writes 44 padded or 43 raw
+// characters. | encode32AVX2 精确编码 32 字节：前 24 字节由两次 16 字节加载喂给一个 256 位块；
+// 末尾 8 字节使用独立的 128 位常量集，使 256 位常量随首块结束而失效，任何向量寄存器都不会
+// 溢出。它写入 44 个填充字符或 43 个原始字符。
+func encode32AVX2(dst, src []byte, url, padded bool, pad byte) (int, int) {
+	lut := &simdLut32
+	if url {
+		lut = &simdLutURL32
+	}
+	lut32 := archsimd.LoadInt8x32(lut[:])
+	maskLo := archsimd.LoadUint16x16(simdMaskLo16[:])
+	maskHi := archsimd.LoadUint16x16(simdMaskHi16[:])
+	mulHi := archsimd.LoadUint16x16(simdMulHi16[:])
+	mulLo := archsimd.LoadUint16x16(simdMulLo16[:])
+	b51 := archsimd.LoadUint8x32(simdB51x32[:])
+	b13 := archsimd.LoadUint8x32(simdB13x32[:])
+	b26 := archsimd.LoadInt8x32(simdB26i32[:])
+	shuf := archsimd.LoadInt8x16(simdShuf16[:])
+
+	// First 24 bytes: lane 0 holds bytes 0-11 and lane 1 holds bytes 12-23. | 前 24 字节：
+	// 低半 128 位放 0-11 字节，高半 128 位放 12-23 字节。
+	g0 := archsimd.LoadUint8x16(unsafe.Slice((*byte)(unsafe.Pointer(&src[0])), 16))
+	g1 := archsimd.LoadUint8x16(unsafe.Slice((*byte)(unsafe.Pointer(&src[12])), 16))
+	in := archsimd.Uint8x32{}.SetLo(g0.PermuteOrZero(shuf)).SetHi(g1.PermuteOrZero(shuf)).AsUint16x16()
+	idx := in.And(maskLo).MulHigh(mulHi).Or(in.And(maskHi).Mul(mulLo)).AsUint8x32()
+	res := idx.SubSaturated(b51)
+	res = b13.IfElse(b26.Greater(idx.AsInt8x32()), res)
+	res = idx.Add(lut32.PermuteOrZeroGrouped(res.AsInt8x32()).AsUint8x32())
+	res.Store(unsafe.Slice((*byte)(unsafe.Pointer(&dst[0])), 32))
+
+	// Last 8 bytes: a 12-byte group with zero-filled upper bytes; the fourth character is
+	// overwritten by the padding character when needed. The 128-bit constants are loaded
+	// separately so the 256-bit set above dies with the first block and nothing spills.
+	// | 末尾 8 字节：按 12 字节组处理，高位补零；需要时把第四个字符覆盖为填充符。
+	// 128 位常量单独加载，使上面的 256 位常量随首块结束而失效，避免任何栈溢出。
+	tailLut := &simdLut16
+	if url {
+		tailLut = &simdLutURL16
+	}
+	lut16 := archsimd.LoadInt8x16(tailLut[:])
+	tmaskLo := archsimd.LoadUint16x8(simdMaskLo8[:])
+	tmaskHi := archsimd.LoadUint16x8(simdMaskHi8[:])
+	tmulHi := archsimd.LoadUint16x8(simdMulHi8[:])
+	tmulLo := archsimd.LoadUint16x8(simdMulLo8[:])
+	t51, t13 := archsimd.LoadUint8x16(simdB51x16[:]), archsimd.LoadUint8x16(simdB13x16[:])
+	t26 := archsimd.LoadInt8x16(simdB26i16[:])
+	tshuf := archsimd.LoadInt8x16(simdShuf16[:])
+	// Load the last 16 source bytes (always in bounds for 32-byte input) and byte-align the
+	// final 8 to the low lane. LoadUint8x16Part would compile to a call and force every live
+	// constant to spill around it. | 加载最后 16 个源字节（32 字节输入下必定在界内），
+	// 并把末尾 8 字节按字节对齐到低半；LoadUint8x16Part 会编译成一次调用，迫使所有
+	// 存活常量围绕它溢出到栈。
+	tg := archsimd.LoadUint8x16(unsafe.Slice((*byte)(unsafe.Pointer(&src[16])), 16))
+	tail := archsimd.BroadcastUint8x16(0).ConcatShiftBytesRight(tg, 8)
+	tin := tail.PermuteOrZero(tshuf).AsUint16x8()
+	tidx := tin.And(tmaskLo).MulHigh(tmulHi).Or(tin.And(tmaskHi).Mul(tmulLo)).AsUint8x16()
+	tres := tidx.SubSaturated(t51)
+	tres = t13.IfElse(t26.Greater(tidx.AsInt8x16()), tres)
+	tres = tidx.Add(lut16.PermuteOrZero(tres.AsInt8x16()).AsUint8x16())
+	outLen := 11
+	if padded {
+		outLen = 12
+	}
+	tres.StorePart(dst[32 : 32+outLen])
+	if padded {
+		dst[32+outLen-1] = pad
+	}
+	return 32, 32 + outLen
 }
 
 // encodeFirstAVX2 encodes the first 12-byte group with 128-bit vectors and returns 12 input
@@ -181,8 +298,8 @@ func encodeFirstAVX2(dst, src []byte, url bool) (int, int) {
 	maskHi := archsimd.LoadUint16x8(simdMaskHi8[:])
 	mulHi := archsimd.LoadUint16x8(simdMulHi8[:])
 	mulLo := archsimd.LoadUint16x8(simdMulLo8[:])
-	b51x16, b13x16 := archsimd.BroadcastUint8x16(51), archsimd.BroadcastUint8x16(13)
-	b26i16 := archsimd.BroadcastInt8x16(26)
+	b51x16, b13x16 := archsimd.LoadUint8x16(simdB51x16[:]), archsimd.LoadUint8x16(simdB13x16[:])
+	b26i16 := archsimd.LoadInt8x16(simdB26i16[:])
 	shuffle := archsimd.LoadInt8x16(simdShuf16[:])
 	in := archsimd.LoadUint8x16(unsafe.Slice((*byte)(unsafe.Pointer(&src[0])), 16)).PermuteOrZero(shuffle).AsUint16x8()
 	idx := in.And(maskLo).MulHigh(mulHi).Or(in.And(maskHi).Mul(mulLo)).AsUint8x16()
@@ -206,8 +323,8 @@ func encodeTailAVX2(dst, src []byte, url, padded bool, pad byte) (int, int) {
 	maskHi := archsimd.LoadUint16x8(simdMaskHi8[:])
 	mulHi := archsimd.LoadUint16x8(simdMulHi8[:])
 	mulLo := archsimd.LoadUint16x8(simdMulLo8[:])
-	b51x16, b13x16 := archsimd.BroadcastUint8x16(51), archsimd.BroadcastUint8x16(13)
-	b26i16 := archsimd.BroadcastInt8x16(26)
+	b51x16, b13x16 := archsimd.LoadUint8x16(simdB51x16[:]), archsimd.LoadUint8x16(simdB13x16[:])
+	b26i16 := archsimd.LoadInt8x16(simdB26i16[:])
 	shuffle := archsimd.LoadInt8x16(simdShuf16[:])
 	i, o := 0, 0
 	for rem := len(src); rem > 0; {
@@ -243,12 +360,104 @@ func encodeTailAVX2(dst, src []byte, url, padded bool, pad byte) (int, int) {
 	return i, o
 }
 
-func decodeSIMD(dst, src []byte, url bool) (int, int) {
+func decodeSIMD(dst, src []byte, url, raw bool) (int, int) {
 	if len(src) < 32 || len(dst) < 32 {
 		return 0, 0
 	}
 	valid := validateSIMD(src, url)
-	return convertSIMD(dst, src[:valid], url)
+	i, o := convertSIMD(dst, src[:valid], url)
+	for len(src)-i >= 4 && o < len(dst) {
+		n, out := decodeTailAVX2(dst, src, i, o, url, raw)
+		if n == 0 {
+			break
+		}
+		i += n
+		o += out
+		if n < 16 {
+			break
+		}
+	}
+	return i, o
+}
+
+// decodeTailAVX2 decodes up to 16 characters that follow the complete 32-character blocks.
+// It returns (0, 0) when the chunk must go to the scalar path: invalid characters, padding in
+// a non-final chunk, malformed padding, or fewer than four characters. Padding is only accepted
+// in the final chunk and only when the decoding alphabet is padded.
+//
+// The conversion window is the 16 characters ending at this chunk's last complete quartet, so
+// the chunk always starts on a 128-bit group boundary and the load never leaves src. Characters
+// of the window that precede the chunk were decoded already and are rewritten with the same
+// bytes; only the chunk's own bytes are returned.
+// | decodeTailAVX2 解码完整的 32 字符块之后最多 16 个字符。当该块必须交给标量路径时返回
+// (0, 0)：非法字符、非末尾块出现填充、填充格式错误或不足四个字符。只有当该块位于末尾且
+// 解码字母表带填充时才接受填充符。
+//
+// 转换窗口是本块最后一个完整四元组之前的 16 个字符，因此块总是从 128 位组边界开始，
+// 加载永远不会越出 src。窗口中位于块之前的字符已经解码过，重写得到相同字节；只有块
+// 自身的字节计入返回值。
+func decodeTailAVX2(dst, src []byte, off, out int, url, raw bool) (int, int) {
+	rem := len(src) - off
+	take := rem
+	final := true
+	if take > 16 {
+		take = 16
+		final = false
+	}
+	quads := take &^ 3
+	if quads == 0 {
+		return 0, 0
+	}
+	pads := 0
+	if final && !raw && take&3 == 0 && src[off+take-1] == '=' {
+		pads = 1
+		if take >= 2 && src[off+take-2] == '=' {
+			pads = 2
+		}
+	}
+
+	end := off + quads
+	start := end - 16
+	if start < 0 {
+		start = 0
+	}
+	ws := end - start - quads
+	c := archsimd.LoadUint8x16(src[start : start+16])
+
+	loTable, hiTable, rollTable := &simdLoLUT, &simdHiLUT, &simdRollLUT
+	eqChar, eqVal := byte('+'), byte(62)
+	if url {
+		loTable, hiTable, rollTable = &simdLoLUTURL, &simdHiLUTURL, &simdRollLUTURL
+		eqChar, eqVal = '_', 63
+	}
+	hiMask := archsimd.LoadUint16x8(simdHiMaskX8[:])
+	loMask := archsimd.LoadUint8x16(simdLoMaskX16[:])
+	hi := c.AsUint16x8().ShiftAllRight(4).And(hiMask).AsUint8x16()
+	lo := c.And(loMask)
+	loV := archsimd.LoadInt8x16(loTable[:16]).PermuteOrZero(lo.AsInt8x16()).AsUint8x16()
+	hiV := archsimd.LoadInt8x16(hiTable[:16]).PermuteOrZero(hi.AsInt8x16()).AsUint8x16()
+	consumeBits := uint16(1)<<uint(quads) - 1
+	dataBits := consumeBits << uint(ws)
+	if pads > 0 {
+		dataBits &^= (uint16(1)<<uint(pads) - 1) << uint(ws+quads-pads)
+	}
+	if loV.And(hiV).Equal(archsimd.BroadcastUint8x16(0)).ToBits()&dataBits != dataBits {
+		return 0, 0
+	}
+
+	roll := archsimd.LoadInt8x16(rollTable[:16])
+	v := c.Add(roll.PermuteOrZero(hi.AsInt8x16()).AsUint8x16())
+	v = archsimd.BroadcastUint8x16(eqVal).IfElse(c.Equal(archsimd.BroadcastUint8x16(eqChar)), v)
+	pairs := v.DotProductPairsSaturated(archsimd.LoadInt8x16(simdMul16[:])).AsUint32x4()
+	groups := pairs.ShiftAllLeft(12).Or(pairs.ShiftAllRight(16)).AsUint8x16()
+	packed := groups.PermuteOrZero(archsimd.LoadInt8x16(simdPack16[:]))
+	outLen := (quads>>2)*3 - pads
+	po := (ws >> 2) * 3
+	if outLen <= 0 || po > out || out-po+12 > len(dst) {
+		return 0, 0
+	}
+	packed.StorePart(dst[out-po : out-po+12])
+	return quads, outLen
 }
 
 // validateSIMD returns the length of the leading run of full 32-character blocks that are valid
@@ -260,8 +469,8 @@ func validateSIMD(src []byte, url bool) int {
 	}
 	loLUT := archsimd.LoadInt8x32(loTable[:32])
 	hiLUT := archsimd.LoadInt8x32(hiTable[:32])
-	hiMask := archsimd.BroadcastUint16x16(0x0F0F)
-	loMask := archsimd.BroadcastUint8x32(0x0F)
+	hiMask := archsimd.LoadUint16x16(simdHiMaskX16[:])
+	loMask := archsimd.LoadUint8x32(simdLoMaskX32[:])
 	zero := archsimd.BroadcastUint8x32(0)
 	i := 0
 	for i+64 <= len(src) {
@@ -306,7 +515,7 @@ func convertSIMD(dst, src []byte, url bool) (int, int) {
 	dwordIdx := archsimd.LoadUint32x8(simdPackDword[:])
 	eqCharV := archsimd.BroadcastUint8x32(eqChar)
 	eqValV := archsimd.BroadcastUint8x32(eqVal)
-	hiMask := archsimd.BroadcastUint16x16(0x0F0F)
+	hiMask := archsimd.LoadUint16x16(simdHiMaskX16[:])
 	i, o := 0, 0
 	for i+64 <= len(src) && o+64 <= len(dst) {
 		c0 := archsimd.LoadUint8x32(unsafe.Slice((*byte)(unsafe.Pointer(&src[i])), 32))
@@ -393,9 +602,9 @@ func encodeSIMD512Blocks(dst, src []byte, url bool) (int, int) {
 // decodeSIMD512 decodes four 16-character groups per 512-bit iteration, then hands the tail to
 // the AVX2/128-bit kernel. | decodeSIMD512 每次 512 位迭代解码四个 16 字符组，尾部交给
 // AVX2/128 位内核。
-func decodeSIMD512(dst, src []byte, url bool) (int, int) {
+func decodeSIMD512(dst, src []byte, url, raw bool) (int, int) {
 	if len(src) < 64 || len(dst) < 64 {
-		return decodeSIMD(dst, src, url)
+		return decodeSIMD(dst, src, url, raw)
 	}
 	plus, slash := byte('+'), byte('/')
 	if url {
@@ -442,7 +651,7 @@ func decodeSIMD512(dst, src []byte, url bool) (int, int) {
 	if i == 0 {
 		return 0, 0
 	}
-	ni, no := decodeSIMD(dst[o:], src[i:], url)
+	ni, no := decodeSIMD(dst[o:], src[i:], url, raw)
 	return i + ni, o + no
 }
 
@@ -529,9 +738,9 @@ func encodeSIMD512VBMI(dst, src []byte, url, padded bool, pad byte) (int, int) {
 	return i, o
 }
 
-func decodeSIMD512VBMI2(dst, src []byte, url bool) (int, int) {
+func decodeSIMD512VBMI2(dst, src []byte, url, raw bool) (int, int) {
 	if url {
-		return decodeSIMD512(dst, src, true)
+		return decodeSIMD512(dst, src, true, raw)
 	}
 	if len(src) < 16 || len(dst) < 16 {
 		return 0, 0
@@ -575,31 +784,38 @@ func decodeSIMD512VBMI2(dst, src []byte, url bool) (int, int) {
 			break
 		}
 		c, _ := archsimd.LoadUint8x64Part(src[i:])
+		need := ^uint64(0)
+		if take < 64 {
+			need = uint64(1)<<uint(take) - 1
+		}
 		eq := c.Equal(eqChar)
+		eqBits := eq.ToBits() & need
+		padCount := 0
+		if eqBits != 0 {
+			// Padding is only legal at the very end of a padded alphabet. Raw input, and
+			// any chunk with data after the padding, belongs to the scalar path so it can
+			// reject the input instead of decoding the '=' as a data character.
+			// | 填充符只允许出现在带填充字母表的输入末尾。raw 输入以及填充之后仍有数据的
+			// 块必须交给标量路径报错，而不是把 '=' 当成数据字符解码。
+			if raw || i+take != len(src) {
+				break
+			}
+			switch eqBits {
+			case uint64(1) << uint(take-1):
+				padCount = 1
+			case uint64(3) << uint(take-2):
+				padCount = 2
+			}
+			if padCount == 0 {
+				break
+			}
+		}
 		c = aChar.IfElse(eq, c)
 		hi := c.AsUint16x32().ShiftAllRight(4).And(hiMask).AsUint8x64()
 		lo := c.And(loMask)
 		loV := loLUT.PermuteOrZeroGrouped(lo.AsInt8x64()).AsUint8x64()
 		hiV := hiLUT.PermuteOrZeroGrouped(hi.AsInt8x64()).AsUint8x64()
-		need := ^uint64(0)
-		if take < 64 {
-			need = uint64(1)<<uint(take) - 1
-		}
 		if loV.And(hiV).Equal(zero).ToBits()&need != need {
-			break
-		}
-		eqBits := eq.ToBits() & need
-		padCount := 0
-		switch eqBits {
-		case 0:
-		case uint64(1) << uint(take-1):
-			padCount = 1
-		case uint64(3) << uint(take-2):
-			padCount = 2
-		default:
-			break
-		}
-		if eqBits != 0 && padCount == 0 {
 			break
 		}
 		outLen := take/4*3 - padCount
@@ -619,6 +835,6 @@ func decodeSIMD512VBMI2(dst, src []byte, url bool) (int, int) {
 	if i == 0 {
 		return 0, 0
 	}
-	ni, no := decodeSIMD(dst[o:], src[i:], false)
+	ni, no := decodeSIMD(dst[o:], src[i:], false, raw)
 	return i + ni, o + no
 }

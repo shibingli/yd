@@ -27,6 +27,19 @@ var (
 	simdMul64  [64]int8
 	simdPack64 [64]int8
 
+	// Broadcast constants are stored as tables so the hot kernels load them with one
+	// instruction instead of materialising an immediate in a general-purpose register and
+	// broadcasting it. | 广播常量以表的形式存放，热内核用一条指令加载，而不是先在通用
+	// 寄存器里构造立即数再广播。
+	simdB13x16, simdB51x16 [16]uint8
+	simdB26i16             [16]int8
+	simdB13x32, simdB51x32 [32]uint8
+	simdB26i32             [32]int8
+	simdHiMaskX8           [8]uint16
+	simdLoMaskX16          [16]uint8
+	simdHiMaskX16          [16]uint16
+	simdLoMaskX32          [32]uint8
+
 	simdInShuf64 [64]uint8
 
 	simdOutPadded, simdOutRaw, simdPads [49]uint8
@@ -95,6 +108,22 @@ func init() {
 	for g := 0; g < 4; g++ {
 		for j := 0; j < 16; j++ {
 			simdInShuf64[g*16+j] = uint8(g*12) + uint8(pattern[j])
+		}
+	}
+	for j := range simdB13x32 {
+		simdB13x32[j], simdB51x32[j] = 13, 51
+		simdB26i32[j] = 26
+		if j < 16 {
+			simdB13x16[j], simdB51x16[j] = 13, 51
+			simdB26i16[j] = 26
+			simdLoMaskX16[j] = 0x0F
+			simdHiMaskX16[j] = 0x0F0F
+		}
+		if j < 32 {
+			simdLoMaskX32[j] = 0x0F
+		}
+		if j < 8 {
+			simdHiMaskX8[j] = 0x0F0F
 		}
 	}
 }

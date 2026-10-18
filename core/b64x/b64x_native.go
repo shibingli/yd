@@ -23,7 +23,7 @@ type Encoding struct {
 // 由可选的 SIMD 构建安装；未启用时保持 nil 并走标量路径。
 var (
 	simdEncode func(dst, src []byte, url, padded bool, pad byte) (int, int)
-	simdDecode func(dst, src []byte, url bool) (int, int)
+	simdDecode func(dst, src []byte, url, raw bool) (int, int)
 )
 
 const (
@@ -162,7 +162,7 @@ func (e *Encoding) Decode(dst, src []byte) (int, error) {
 	}
 	out, i := 0, 0
 	if simdDecode != nil && e.simd != 0 {
-		i, out = simdDecode(dst, src, e.simd == 2)
+		i, out = simdDecode(dst, src, e.simd == 2, e.raw)
 	}
 	for i+4 <= len(src) {
 		a := e.decode[src[i]]

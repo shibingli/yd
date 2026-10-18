@@ -55,7 +55,12 @@ GOEXPERIMENT=simd go test -run '^$' -bench . -benchmem -count=3 -tags b64x_nativ
 - 基础 AVX-512（无 VBMI）：编码用两次 32 字节 gather 加载（各带 4 字节前缀）凑出 512 位
   输入，再走 512 位乘加与 LUT；解码默认交给 AVX2 内核——实测无 VBMI2 的 Xeon 上基础
   512 位比较解码只有 AVX2 的约 2/3 吞吐。
-- AVX2：每轮 24 B ↔ 32 字符，尾部回退 128 位与标量。
+- AVX2：首块用两次 16 字节加载拼成一个 256 位块（24 B → 32 字符），主循环每轮 24 B ↔
+  32 字符并在 `i-4` 处一次加载 32 字节；32 B 另有精确直达内核——前 24 B 走 256 位块，
+  末尾 8 B 走复用同一套常量的半宽块，44/43 个字符一次写完，不进入尾部循环。解码先整段
+  校验再转换，32 字符块之后最多 16 字符由 128 位尾部内核融合校验与转换（含 `=` 填充与
+  raw 语义），32 B 载荷（44 字符）不再回退标量。常量以表的形式存放，热内核每条加载指令
+  取一个，而不是先构造立即数再广播。
 - 标准字母表用半字节 lo/hi 查找表一次完成校验与值映射；URL 字母表使用独立的 lo/hi/roll
   LUT，热循环内没有标点分支。
 
@@ -63,9 +68,10 @@ GOEXPERIMENT=simd go test -run '^$' -bench . -benchmem -count=3 -tags b64x_nativ
 
 ```bash
 GOEXPERIMENT=simd go test -c -tags b64x_native -o /tmp/b64x.test ./core/b64x
-for fn in encodeSIMD encodeFirstAVX2 encodeBlocksAVX2 encodeTailAVX2 \
+for fn in encodeSIMD encodeFirst24AVX2 encodeFirstAVX2 encode32AVX2 \
+          encodeBlocksAVX2 encodeTailAVX2 \
           encodeSIMD512 encodeSIMD512Blocks encodeSIMD512VBMI \
-          decodeSIMD decodeSIMD512 decodeSIMD512VBMI2; do
+          decodeSIMD decodeTailAVX2 decodeSIMD512 decodeSIMD512VBMI2; do
   go tool objdump -s "github.com/shibingli/yd/core/b64x.$fn" /tmp/b64x.test \
     | grep -cE 'VMOV[^ ]* +[XYZ][0-9]+, .*\(SP\)|VMOV[^ ]* +.*\(SP\), [XYZ][0-9]+'
 done
@@ -118,17 +124,26 @@ done
 
 | 载荷 | yd AVX2 | cloudwego |
 |---|---:|---:|
-| 32 B | 38.4 / 45.0 ns | 17.4 / 28.5 ns |
-| 1 KiB | 8.4 / 5.2 | 10.7 / 7.1 |
-| 64 KiB | 11.1 / 6.7 | 12.6 / 8.9 |
+| 32 B | 18.0 / 26.9 ns | 16.4 / 27.9 ns |
+| 1 KiB | 8.8 / 6.0 | 12.3 / 6.9 |
+| 64 KiB | 11.1 / 7.0 | 12.7 / 8.6 |
 | 1 MiB | 10.8 / 6.2 | 12.2 / 8.7 |
 
-较老的 AVX2 桌面平台上自研内核编码落后 cloudwego 约 12–21%、解码约 25–29%（32 B
-小载荷差距更大）；默认混合后端会按尺寸选择 cloudwego/cristalhq，因此生产路径不受该
-实验后端影响。
+上表为本机多次运行的中位数；测量期间同一台机器还跑着其它基准，绝对值有约 ±10% 的波动，
+以同一轮内两种实现的相对关系为准。较老的 AVX2 桌面平台上，自研内核在 32 B 上已与
+cloudwego 基本持平（编码约慢 10%，解码在噪声范围内互有胜负）；1 KiB 编码落后约 20–30%，
+解码约 10–15%；64 KiB/1 MiB 编码落后约 10–15%，解码约 15–20%。默认混合后端会按尺寸选择
+cloudwego/cristalhq，因此生产路径不受该实验后端影响。
 
 关键优化：编码在 `i-4` 处一次加载 32 字节并用通道内重排汇集两个 12 字节组，主循环
-2× 展开；解码先整段校验再转换，校验与转换各自的常量集都落在 16 个寄存器内，2× 顺序链
-由乱序引擎重叠；尾部走掩码加载/存储，编码按预计算表写 `=` 填充；所有掩码、乘法因子、
-字母表与重排表在启动时构建一次。AVX-512 编码复用同一 gather 技巧构造 512 位输入，
-避免四次 128 位加载；精确 32 B 的 VBMI 路径跳过循环与掩码加载。
+2× 展开；精确 32 B 走「24 B 256 位块 + 8 B 128 位块」的直达内核，两段各自加载常量，
+避免所有向量寄存器溢出。解码先整段校验再转换，校验与转换各自的常量集都落在 16 个寄存器
+内，2× 顺序链由乱序引擎重叠；32 字符块之后的最多 16 字符由 128 位尾部内核处理——它的
+转换窗口截止到该块最后一个完整四元组，所以加载始终在 `src` 之内且天然按 128 位组对齐，
+`=` 填充与 raw 语义直接在 SIMD 内完成。所有掩码、乘法因子、字母表、重排与广播常量在
+启动时构建一次。AVX-512 编码复用同一 gather 技巧构造 512 位输入，避免四次 128 位加载；
+精确 32 B 的 VBMI 路径跳过循环与掩码加载。
+
+> 远程 1/远程 2 的表格测于精确 32 B 内核与 128 位解码尾部引入之前，因此两张表的 32 B
+> 行偏保守；1 KiB 以上的编码路径只多了首块 24 B 的改动，差异在噪声范围内。新内核需要
+> 串行复测后再更新远程数据。
