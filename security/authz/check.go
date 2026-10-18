@@ -163,9 +163,20 @@ func Check(o CheckOptions) (Report, error) {
 	if fsys == nil {
 		fsys = afero.NewOsFs()
 	}
-	dir := strings.Trim(strings.ReplaceAll(o.Dir, "\\", "/"), "/")
-	if dir == "" {
+	// Only trailing separators are trimmed: a leading "/" marks an absolute Unix
+	// path and must survive, otherwise afero resolves the directory relative to
+	// the process working directory and the scan fails. | 只裁掉末尾分隔符：开头的
+	// "/" 表示 Unix 绝对路径，必须保留，否则 afero 会按进程工作目录解析目录，扫描失败。
+	raw := strings.ReplaceAll(o.Dir, "\\", "/")
+	dir := strings.TrimRight(raw, "/")
+	switch {
+	case dir == "" && strings.HasPrefix(raw, "/"):
+		dir = "/"
+	case dir == "":
 		dir = "."
+	case strings.HasSuffix(dir, ":"):
+		// Windows drive root, e.g. C:\ -> C:/ | Windows 盘符根目录，例如 C:\ -> C:/
+		dir += "/"
 	}
 	skip := o.SkipDirs
 	if skip == nil {

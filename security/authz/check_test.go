@@ -322,6 +322,27 @@ var _ = "user:creat"
 // documentation are everywhere, and a report that mentions them is a report nobody reads.
 // 检查器必须能待在一个真实项目里：媒体类型、SSE 事件名、CSS 类名与 markdown 文档无处不在，
 // 一份会提到它们的报告就是没人会读的报告。
+// TestCheckAcceptsAbsoluteUnixDir proves an absolute Unix directory is scanned
+// as written instead of being turned into a relative path. | TestCheckAcceptsAbsoluteUnixDir
+// 证明 Unix 绝对目录会按原样扫描，而不会被改成相对路径。
+func TestCheckAcceptsAbsoluteUnixDir(t *testing.T) {
+	fsys := afero.NewMemMapFs()
+	if err := fsys.MkdirAll("/work/app", 0o755); err != nil {
+		t.Fatalf("MkdirAll failed: %v | 建目录失败", err)
+	}
+	body := "package main\n\n// authz.PermUserCreate | 用户创建\nvar _ = authz.PermUserCreate\n"
+	if err := afero.WriteFile(fsys, "/work/app/main.go", []byte(body), 0o644); err != nil {
+		t.Fatalf("WriteFile failed: %v | 写文件失败", err)
+	}
+	rep, err := authz.Check(authz.CheckOptions{FS: fsys, Dir: "/work/app"})
+	if err != nil {
+		t.Fatalf("Check failed: %v | 检查失败", err)
+	}
+	if rep.Files != 1 {
+		t.Fatalf("Files = %d, want 1 | 扫描文件数不符", rep.Files)
+	}
+}
+
 func TestCheckIgnoresNonTokenLiterals(t *testing.T) {
 	rep := checkFS(t, map[string]string{
 		"app/internal/sse/broker.go": `package sse
