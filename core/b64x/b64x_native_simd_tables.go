@@ -14,6 +14,7 @@ var (
 	simdPack16       = [16]int8{2, 1, 0, 6, 5, 4, 10, 9, 8, 14, 13, 12, 15, 15, 15, 15}
 	simdPack32       [32]int8
 	simdPackDword    = [8]uint32{0, 1, 2, 4, 5, 6, 7, 7}
+	simdPackDword64  = [16]uint32{0, 1, 2, 4, 5, 6, 8, 9, 10, 12, 13, 14, 14, 14, 14, 14}
 
 	simdMaskLo8, simdMaskHi8, simdMulHi8, simdMulLo8     [8]uint16
 	simdMaskLo16, simdMaskHi16, simdMulHi16, simdMulLo16 [16]uint16
