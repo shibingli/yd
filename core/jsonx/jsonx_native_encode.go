@@ -67,14 +67,55 @@ type encodeFunc func(*encoder, reflect.Value) error
 // encodeCache maps each reflected type to its compiled encoder. | encodeCache 把反射类型映射到已编译的编码器。
 var encodeCache sync.Map
 
+// encodeFast is a small direct-mapped front cache over encodeCache. The hot path resolves the same
+// handful of types on every call, and a sync.Map lookup hashes a reflect.Type interface (about
+// 20 ns), so an atomic slot with an interface comparison removes that cost from every value while
+// still falling back to the shared map for the rest. | encodeFast 是 encodeCache 之上的小型直接映射
+// 前置缓存。热路径每次调用只解析固定几种类型，而 sync.Map 查找需要对 reflect.Type 接口做哈希
+// （约 20 ns），因此用原子槽加接口比较即可把这个成本从每个值上移除，其余类型仍回退共享映射。
+const encodeFastSlots = 4
+
+type encodeFastEntry struct {
+	typ reflect.Type
+	fn  encodeFunc
+}
+
+var (
+	encodeFast  [encodeFastSlots]atomic.Pointer[encodeFastEntry]
+	encodeFastN atomic.Uint32
+	encodeFastL atomic.Uint32 // index of the most recent slot, a lookup hint | 最近使用槽位的索引，仅作查找提示
+)
+
 // encoderFor returns the cached encoder for t, building it on first use. | encoderFor 返回 t 的缓存编码器，
 // 首次调用时构建。
 func encoderFor(t reflect.Type) encodeFunc {
-	if f, ok := encodeCache.Load(t); ok {
-		return f.(encodeFunc)
+	// The hint makes the steady-state single-type case one atomic load and one comparison.
+	// A stale hint is harmless because the slot is still compared by type. | 提示位让常见的单一类型
+	// 稳态只需一次原子加载与一次比较；提示过期也无害，因为槽位仍按类型比较。
+	last := encodeFastL.Load()
+	if last < encodeFastSlots {
+		if e := encodeFast[last].Load(); e != nil && e.typ == t {
+			return e.fn
+		}
 	}
-	f := buildEncoder(t)
-	encodeCache.Store(t, f)
+	for i := range encodeFast {
+		if uint32(i) == last {
+			continue
+		}
+		if e := encodeFast[i].Load(); e != nil && e.typ == t {
+			return e.fn
+		}
+	}
+	var f encodeFunc
+	if v, ok := encodeCache.Load(t); ok {
+		f = v.(encodeFunc)
+	} else {
+		f = buildEncoder(t)
+		encodeCache.Store(t, f)
+	}
+	slot := encodeFastN.Add(1) % encodeFastSlots
+	encodeFast[slot].Store(&encodeFastEntry{typ: t, fn: f})
+	encodeFastL.Store(slot)
 	return f
 }
 
@@ -428,9 +469,12 @@ func buildStructEncoder(t reflect.Type) encodeFunc {
 		fast      func(*encoder, unsafe.Pointer) error
 		fastEmpty func(unsafe.Pointer) bool
 		enc       encodeFunc
+		keyPad    [16]byte
 		omitEmpty bool
 		quoted    bool
 		fastOK    bool
+		keyFixed  bool
+		kind      uint8
 		full      func(*encoder, unsafe.Pointer) error
 	}
 	list := make([]encField, len(fields))
@@ -449,6 +493,17 @@ func buildStructEncoder(t reflect.Type) encodeFunc {
 		if i > 0 {
 			fastKey = append([]byte{','}, ke.buf...)
 		}
+		// Keys of at most 16 bytes are pre-padded so the fast path can write them with one
+		// fixed-size store instead of a variable-length memmove. | 不超过 16 字节的键预先填充，
+		// 使快速路径用一次定长存储代替变长 memmove。
+		var keyPad [16]byte
+		if len(fastKey) <= len(keyPad) {
+			copy(keyPad[:], fastKey)
+		}
+		kind := uint8(fieldKindNone)
+		if fastOK && fast != nil {
+			kind = fastFieldKind(f.typ)
+		}
 		list[i] = encField{
 			key:       ke.buf,
 			fastKey:   fastKey,
@@ -459,9 +514,12 @@ func buildStructEncoder(t reflect.Type) encodeFunc {
 			fast:      fast,
 			fastEmpty: buildFastEmpty(f.typ),
 			enc:       encoderFor(f.typ),
+			keyPad:    keyPad,
 			omitEmpty: f.omitEmpty,
 			quoted:    f.quoted,
 			fastOK:    fastOK && !f.quoted,
+			keyFixed:  len(fastKey) <= len(keyPad),
+			kind:      kind,
 		}
 		if !fastOK || fast == nil || f.omitEmpty || f.quoted {
 			allFast = false
@@ -515,9 +573,58 @@ func buildStructEncoder(t reflect.Type) encodeFunc {
 				}
 				continue
 			}
-			e.buf = append(e.buf, f.fastKey...)
-			if err := f.fast(e, p); err != nil {
-				return err
+			if f.keyFixed && cap(e.buf)-len(e.buf) >= len(f.keyPad) {
+				// One 16-byte store replaces the memmove append; the padding lies beyond the
+				// new length and is overwritten by the value that follows. | 一次 16 字节存储
+				// 取代 memmove 追加；填充部分位于新长度之外，会被随后的值覆盖。
+				dst := unsafe.Add(unsafe.Pointer(unsafe.SliceData(e.buf)), len(e.buf))
+				*(*[16]byte)(dst) = f.keyPad
+				e.buf = e.buf[:len(e.buf)+len(f.fastKey)]
+			} else {
+				e.buf = append(e.buf, f.fastKey...)
+			}
+			// Primitive kinds are encoded inline; the indirect call remains for composites and
+			// special types such as []string and time.Time. | 基础类型就地编码；复合类型与
+			// []string、time.Time 等特殊类型仍走间接调用。
+			switch f.kind {
+			case fieldKindString:
+				e.str(*(*string)(p))
+			case fieldKindBool:
+				e.buf = strconv.AppendBool(e.buf, *(*bool)(p))
+			case fieldKindInt:
+				e.buf = appendIntFast(e.buf, int64(*(*int)(p)))
+			case fieldKindInt8:
+				e.buf = appendIntFast(e.buf, int64(*(*int8)(p)))
+			case fieldKindInt16:
+				e.buf = appendIntFast(e.buf, int64(*(*int16)(p)))
+			case fieldKindInt32:
+				e.buf = appendIntFast(e.buf, int64(*(*int32)(p)))
+			case fieldKindInt64:
+				e.buf = appendIntFast(e.buf, *(*int64)(p))
+			case fieldKindUint:
+				e.buf = appendUintFast(e.buf, uint64(*(*uint)(p)))
+			case fieldKindUint8:
+				e.buf = appendUintFast(e.buf, uint64(*(*uint8)(p)))
+			case fieldKindUint16:
+				e.buf = appendUintFast(e.buf, uint64(*(*uint16)(p)))
+			case fieldKindUint32:
+				e.buf = appendUintFast(e.buf, uint64(*(*uint32)(p)))
+			case fieldKindUint64:
+				e.buf = appendUintFast(e.buf, *(*uint64)(p))
+			case fieldKindUintptr:
+				e.buf = appendUintFast(e.buf, uint64(*(*uintptr)(p)))
+			case fieldKindFloat32:
+				if err := e.float(float64(*(*float32)(p)), 32); err != nil {
+					return err
+				}
+			case fieldKindFloat64:
+				if err := e.float(*(*float64)(p), 64); err != nil {
+					return err
+				}
+			default:
+				if err := f.fast(e, p); err != nil {
+					return err
+				}
 			}
 		}
 		e.buf = append(e.buf, '}')

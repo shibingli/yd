@@ -31,6 +31,66 @@ func fieldOffset(t reflect.Type, index []int) (uintptr, bool) {
 	return off, true
 }
 
+// Fast field kinds let the struct encoder inline primitive bodies instead of calling through a
+// function value. | 快速字段类别让结构体编码器内联基础类型编码体，而不是经函数值调用。
+const (
+	fieldKindNone uint8 = iota
+	fieldKindString
+	fieldKindBool
+	fieldKindInt
+	fieldKindInt8
+	fieldKindInt16
+	fieldKindInt32
+	fieldKindInt64
+	fieldKindUint
+	fieldKindUint8
+	fieldKindUint16
+	fieldKindUint32
+	fieldKindUint64
+	fieldKindUintptr
+	fieldKindFloat32
+	fieldKindFloat64
+)
+
+// fastFieldKind maps a primitive kind to its inline dispatch id; composite and special types keep
+// fieldKindNone and use the regular fast closure. | fastFieldKind 把基础类型映射为内联分派标识；
+// 复合类型与特殊类型保持 fieldKindNone，走常规快速闭包。
+func fastFieldKind(t reflect.Type) uint8 {
+	switch t.Kind() {
+	case reflect.String:
+		return fieldKindString
+	case reflect.Bool:
+		return fieldKindBool
+	case reflect.Int:
+		return fieldKindInt
+	case reflect.Int8:
+		return fieldKindInt8
+	case reflect.Int16:
+		return fieldKindInt16
+	case reflect.Int32:
+		return fieldKindInt32
+	case reflect.Int64:
+		return fieldKindInt64
+	case reflect.Uint:
+		return fieldKindUint
+	case reflect.Uint8:
+		return fieldKindUint8
+	case reflect.Uint16:
+		return fieldKindUint16
+	case reflect.Uint32:
+		return fieldKindUint32
+	case reflect.Uint64:
+		return fieldKindUint64
+	case reflect.Uintptr:
+		return fieldKindUintptr
+	case reflect.Float32:
+		return fieldKindFloat32
+	case reflect.Float64:
+		return fieldKindFloat64
+	}
+	return fieldKindNone
+}
+
 // buildFastFieldEncoder returns a direct-memory encoder for primitive fields. | buildFastFieldEncoder
 // 为原生基础类型字段返回直接读写内存的编码器。
 func buildFastFieldEncoder(t reflect.Type) func(*encoder, unsafe.Pointer) error {
@@ -329,6 +389,23 @@ func wordHasControl32(x uint32) bool {
 	return (x-0x20202020)&^x&0x80808080 != 0
 }
 
+// escapeTableHTML / escapeTablePlain classify bytes that need escaping in the two modes. The tail
+// scan is at most three bytes, where a table load beats a chain of comparisons. | escapeTableHTML /
+// escapeTablePlain 按两种模式标记需要转义的字节。尾部扫描最多三个字节，查表比一串比较更快。
+var (
+	escapeTableHTML  [256]bool
+	escapeTablePlain [256]bool
+)
+
+func init() {
+	for i := 0; i < 256; i++ {
+		c := byte(i)
+		plain := c < 0x20 || c == '"' || c == '\\' || c >= 0x80
+		escapeTablePlain[i] = plain
+		escapeTableHTML[i] = plain || c == '<' || c == '>' || c == '&'
+	}
+}
+
 func (e *encoder) str(s string) {
 	i := 0
 	for len(s)-i >= 8 {
@@ -349,10 +426,17 @@ func (e *encoder) str(s string) {
 		}
 		i += 4
 	}
-	for ; i < len(s); i++ {
-		c := s[i]
-		if c < 0x20 || c == '"' || c == '\\' || c >= 0x80 || (e.escapeHTML && (c == '<' || c == '>' || c == '&')) {
-			goto slow
+	if e.escapeHTML {
+		for ; i < len(s); i++ {
+			if escapeTableHTML[s[i]] {
+				goto slow
+			}
+		}
+	} else {
+		for ; i < len(s); i++ {
+			if escapeTablePlain[s[i]] {
+				goto slow
+			}
 		}
 	}
 	e.buf = append(e.buf, '"')

@@ -68,9 +68,33 @@ func (d *decoder) copyString(b []byte) string {
 		}
 		d.arena = make([]byte, 0, hint)
 	}
+	n := len(b)
+	// Short strings are copied with fixed-size stores. b keeps the input's capacity, so an
+	// eight-byte load may read bytes past its length but never past its capacity; the extra bytes
+	// land beyond the new arena length and are overwritten or ignored. | 短字符串用定长存储复制。
+	// b 保留输入的容量，因此 8 字节加载可能越过长度但绝不会越过容量；多余字节落在新 arena 长度
+	// 之外，会被后续覆盖或忽略。
+	if n <= 16 && cap(b) >= 8 {
+		start := len(d.arena)
+		need := n
+		if n < 8 {
+			need = 8
+		}
+		if cap(d.arena)-start >= need {
+			dst := d.arena[start : start+need]
+			if n >= 8 {
+				binary.LittleEndian.PutUint64(dst, binary.LittleEndian.Uint64(b[:8]))
+				binary.LittleEndian.PutUint64(dst[n-8:], binary.LittleEndian.Uint64(b[n-8:n]))
+			} else {
+				binary.LittleEndian.PutUint64(dst, binary.LittleEndian.Uint64(b[:8]))
+			}
+			d.arena = d.arena[:start+n]
+			return unsafe.String(unsafe.SliceData(d.arena[start:]), n)
+		}
+	}
 	start := len(d.arena)
 	d.arena = append(d.arena, b...)
-	return unsafe.String(unsafe.SliceData(d.arena[start:]), len(b))
+	return unsafe.String(unsafe.SliceData(d.arena[start:]), n)
 }
 
 // decoderPool reuses decoder state across Unmarshal calls. The string arena is deliberately
@@ -137,14 +161,53 @@ type decodeFunc func(*decoder, reflect.Value) error
 // decodeCache maps each reflected type to its compiled decoder. | decodeCache 把反射类型映射到已编译的解码器。
 var decodeCache sync.Map
 
+// decodeFast mirrors encodeFast for decoders: the hot path resolves the same few types on every
+// call, so a handful of atomic slots avoids hashing a reflect.Type via sync.Map each time.
+// | decodeFast 是解码器侧与 encodeFast 对应的前置缓存：热路径每次只解析固定几种类型，几个原子槽
+// 即可避免每次都经 sync.Map 哈希 reflect.Type。
+const decodeFastSlots = 4
+
+type decodeFastEntry struct {
+	typ reflect.Type
+	fn  decodeFunc
+}
+
+var (
+	decodeFast  [decodeFastSlots]atomic.Pointer[decodeFastEntry]
+	decodeFastN atomic.Uint32
+	decodeFastL atomic.Uint32 // index of the most recent slot, a lookup hint | 最近使用槽位的索引，仅作查找提示
+)
+
 // decoderFor returns the cached decoder for t, building it on first use. | decoderFor 返回 t 的缓存解码器，
 // 首次调用时构建。
 func decoderFor(t reflect.Type) decodeFunc {
-	if f, ok := decodeCache.Load(t); ok {
-		return f.(decodeFunc)
+	// See encoderFor: the hint turns the steady single-type case into one atomic load and one
+	// comparison, and a stale hint stays correct because the slot is compared by type. | 参见
+	// encoderFor：提示位把单一类型稳态降为一次原子加载与一次比较，提示过期也仍正确，因为槽位按类型比较。
+	last := decodeFastL.Load()
+	if last < decodeFastSlots {
+		if e := decodeFast[last].Load(); e != nil && e.typ == t {
+			return e.fn
+		}
 	}
-	f := buildDecoder(t)
-	decodeCache.Store(t, f)
+	for i := range decodeFast {
+		if uint32(i) == last {
+			continue
+		}
+		if e := decodeFast[i].Load(); e != nil && e.typ == t {
+			return e.fn
+		}
+	}
+	var f decodeFunc
+	if v, ok := decodeCache.Load(t); ok {
+		f = v.(decodeFunc)
+	} else {
+		f = buildDecoder(t)
+		decodeCache.Store(t, f)
+	}
+	slot := decodeFastN.Add(1) % decodeFastSlots
+	decodeFast[slot].Store(&decodeFastEntry{typ: t, fn: f})
+	decodeFastL.Store(slot)
 	return f
 }
 
@@ -344,6 +407,7 @@ func buildStructDecoder(t reflect.Type) decodeFunc {
 	if len(names) <= 8 {
 		var byLen [33][]int
 		var byFirst [256][]int
+		var single [256]int16 // index+1 for first-byte buckets with one candidate | 单候选首字节桶的索引+1
 		keyBytes := make([][]byte, len(names))
 		keyWords := make([]uint64, len(names))
 		keyTails := make([]uint64, len(names))
@@ -379,11 +443,45 @@ func buildStructDecoder(t reflect.Type) decodeFunc {
 				byFirst[name[0]] = append(byFirst[name[0]], i)
 			}
 		}
+		for b := range byFirst {
+			if len(byFirst[b]) == 1 {
+				single[b] = int16(byFirst[b][0]) + 1
+			}
+		}
 		matchKey = func(d *decoder) (*decField, bool) {
 			if d.pos+1 >= len(d.data) {
 				return nil, false
 			}
 			rem := d.data[d.pos+1:]
+			if si := single[d.data[d.pos+1]]; si != 0 {
+				// Most first-byte buckets hold exactly one field. Match it directly and fail
+				// without scanning when it does not match, since no other candidate exists. |
+				// 多数首字节桶只含一个字段：直接匹配；不匹配时无需扫描即可失败，因为没有其他候选。
+				i := int(si - 1)
+				l := keyLens[i]
+				if l <= 8 {
+					if len(rem) >= 8 {
+						x := binary.LittleEndian.Uint64(unsafe.Slice(unsafe.SliceData(rem), 8)) ^ keyWords[i]
+						if x&keyMasks[i] == 0 {
+							d.pos += 1 + l
+							return fields[i], true
+						}
+						return nil, false
+					}
+				} else if len(rem) >= l {
+					if binary.LittleEndian.Uint64(unsafe.Slice(unsafe.SliceData(rem), 8)) == keyWords[i] &&
+						binary.LittleEndian.Uint64(unsafe.Slice(unsafe.SliceData(rem[l-8:]), 8)) == keyTails[i] {
+						d.pos += 1 + l
+						return fields[i], true
+					}
+					return nil, false
+				}
+				if len(rem) >= l && bytes.HasPrefix(rem, keyBytes[i]) {
+					d.pos += 1 + l
+					return fields[i], true
+				}
+				return nil, false
+			}
 			for _, i := range byFirst[d.data[d.pos+1]] {
 				l := keyLens[i]
 				if l <= 8 {
