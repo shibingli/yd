@@ -505,7 +505,10 @@ func buildStructDecoder(t reflect.Type) decodeFunc {
 					return err
 				}
 			} else {
-				fv, ok := fieldByIndexAlloc(v, f.index)
+				fv, ok, err := fieldByIndexAlloc(v, f.index)
+				if err != nil {
+					return err
+				}
 				if !ok {
 					if err := d.skipValue(); err != nil {
 						return err
@@ -545,18 +548,27 @@ func buildStructDecoder(t reflect.Type) decodeFunc {
 	}
 }
 
-func fieldByIndexAlloc(v reflect.Value, index []int) (reflect.Value, bool) {
+// fieldByIndexAlloc walks an index path and allocates nil embedded pointers on the way. It reports
+// an error for an embedded pointer to an unexported struct type, which cannot be allocated through
+// reflection; this matches encoding/json's behavior. | fieldByIndexAlloc 遍历索引路径，并在途中
+// 分配为 nil 的嵌入指针；若嵌入指针指向未导出结构体类型（反射无法分配），则返回错误，与
+// encoding/json 的行为一致。
+func fieldByIndexAlloc(v reflect.Value, index []int) (reflect.Value, bool, error) {
 	for _, i := range index {
 		if v.Kind() == reflect.Pointer {
 			if v.IsNil() {
+				if !v.CanSet() {
+					elem := v.Type().Elem()
+					return reflect.Value{}, false, typeErr("cannot set embedded pointer to unexported struct %s | 无法设置指向未导出结构体的嵌入指针 %s", elem, elem)
+				}
 				v.Set(reflect.New(v.Type().Elem()))
 			}
 			v = v.Elem()
 		}
 		if v.Kind() != reflect.Struct || i >= v.NumField() {
-			return reflect.Value{}, false
+			return reflect.Value{}, false, nil
 		}
 		v = v.Field(i)
 	}
-	return v, v.CanSet()
+	return v, v.CanSet(), nil
 }

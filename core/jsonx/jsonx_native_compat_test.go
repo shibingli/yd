@@ -51,6 +51,44 @@ type nativeWide struct {
 	H int
 }
 
+// nativeEmbedBase is the value-embedded struct. | nativeEmbedBase 是按值嵌入的结构体。
+type nativeEmbedBase struct {
+	Base   string `json:"base"`
+	Shared int    `json:"shared"`
+}
+
+// nativeEmbedPtr is the pointer-embedded struct. | nativeEmbedPtr 是按指针嵌入的结构体。
+type nativeEmbedPtr struct {
+	Ptr string `json:"ptr"`
+}
+
+// nativeEmbedded mixes value and pointer embedding. | nativeEmbedded 混合了值嵌入与指针嵌入。
+type nativeEmbedded struct {
+	nativeEmbedBase
+	*nativeEmbedPtr
+	ID int `json:"id"`
+}
+
+// NativeEmbedValue is an exported value-embedded struct. | NativeEmbedValue 是按值嵌入的导出结构体。
+type NativeEmbedValue struct {
+	Base   string `json:"base"`
+	Shared int    `json:"shared"`
+}
+
+// NativeEmbedPointer is an exported pointer-embedded struct. | NativeEmbedPointer 是按指针嵌入的导出结构体。
+type NativeEmbedPointer struct {
+	Ptr string `json:"ptr"`
+}
+
+// NativeEmbeddedExported is the normal embedding case: both value and pointer embedding of
+// exported struct types must decode and encode. | NativeEmbeddedExported 是常规嵌入场景：导出
+// 结构体的值嵌入与指针嵌入都必须可编解码。
+type NativeEmbeddedExported struct {
+	NativeEmbedValue
+	*NativeEmbedPointer
+	ID int `json:"id"`
+}
+
 // nativeUpper is a custom (Un)Marshaler that upper-cases on encode and lower-cases on decode. | nativeUpper
 // 是自定义 (Un)Marshaler：编码转大写、解码转小写。
 type nativeUpper struct {
@@ -126,6 +164,11 @@ func nativeDecodeCases() []nativeDecodeCase {
 		{name: "wide_struct_fold_ascii", doc: `{"s":6}`, newTarget: func() any { return &nativeWide{} }},
 		{name: "wide_struct_fold_unicode", doc: "{\"ſ\":5}", newTarget: func() any { return &nativeWide{} }},
 		{name: "wide_struct_exact_wins", doc: `{"S":1,"s":2}`, newTarget: func() any { return &nativeWide{} }},
+		{name: "embedded_fields", doc: `{"base":"b","shared":1,"ptr":"p","id":7}`, newTarget: func() any { return &nativeEmbedded{} }},
+		{name: "embedded_pointer_created", doc: `{"ptr":"p"}`, newTarget: func() any { return &nativeEmbedded{} }},
+		{name: "embedded_duplicate_keys", doc: `{"base":"a","base":"b"}`, newTarget: func() any { return &nativeEmbedded{} }},
+		{name: "embedded_exported_types", doc: `{"base":"b","shared":1,"ptr":"p","id":7}`, newTarget: func() any { return &NativeEmbeddedExported{} }},
+		{name: "embedded_exported_pointer_alloc", doc: `{"ptr":"p"}`, newTarget: func() any { return &NativeEmbeddedExported{} }},
 		{name: "duplicate_keys_last_wins", doc: `{"id":1,"id":2,"id":-3}`, newTarget: ptrTarget},
 		{name: "escaped_keys", doc: `{"id":9,"name":"esc"}`, newTarget: ptrTarget},
 		{name: "nulls", doc: `{"any":null,"raw":null,"ptr":null,"list":null,"blob":null,"inner":null,"name":null}`, newTarget: ptrTarget},
@@ -299,6 +342,10 @@ func TestNativeMarshalDifferential(t *testing.T) {
 		{name: "custom_marshaler", value: nativeUpper{S: "hello"}},
 		{name: "text_marshaler", value: nativeText{V: "v"}},
 		{name: "pointer_values", value: []any{&inner, (*nativeInner)(nil)}},
+		{name: "embedded_value", value: nativeEmbedded{nativeEmbedBase{"b", 1}, &nativeEmbedPtr{"p"}, 7}},
+		{name: "embedded_nil_pointer", value: nativeEmbedded{nativeEmbedBase{"b", 1}, nil, 7}},
+		{name: "embedded_exported_types", value: NativeEmbeddedExported{NativeEmbedValue{"b", 1}, &NativeEmbedPointer{"p"}, 7}},
+		{name: "embedded_exported_nil_pointer", value: NativeEmbeddedExported{NativeEmbedValue{"b", 1}, nil, 7}},
 		{name: "time_zones", value: []time.Time{
 			time.Date(2026, 10, 18, 12, 0, 0, 0, time.UTC),
 			time.Date(2026, 10, 18, 12, 0, 0, 123456789, time.FixedZone("", 8*3600)),
@@ -470,6 +517,62 @@ func TestNativeDecoderStreamSecurity(t *testing.T) {
 	var v any
 	if err := jsonx.NewDecoder(strings.NewReader("{}")).Decode(v); err == nil {
 		t.Fatal("非指针目标必须返回错误")
+	}
+}
+
+// TestNativeMalformedInputsDoNotPanic drives every public decode entry point with hostile inputs and
+// asserts that none of them panic. | TestNativeMalformedInputsDoNotPanic 用恶意输入驱动全部公开
+// 解码入口，断言任何一个都不会 panic。
+func TestNativeMalformedInputsDoNotPanic(t *testing.T) {
+	inputs := [][]byte{
+		nil,
+		{},
+		[]byte(`{`),
+		[]byte(`[`),
+		[]byte(`{"a":`),
+		[]byte(`[1,2`),
+		[]byte(`"`),
+		[]byte(`"\`),
+		[]byte(`"\x"`),
+		[]byte(`"\u"`),
+		[]byte(`"\u12"`),
+		[]byte(`"\ud800"`),
+		[]byte(`"\ud800\ud800"`),
+		[]byte("{\"a\":\"\xff\xfe\"}"),
+		[]byte("\xef\xbb\xbf{}"),
+		[]byte(`{}x`),
+		[]byte(`{} {}`),
+		[]byte(`01`),
+		[]byte(`1.`),
+		[]byte(`1e`),
+		[]byte(`-`),
+		[]byte(`1e999999`),
+		[]byte(`[1,]`),
+		[]byte(`{"a":1,}`),
+		[]byte(strings.Repeat("[", 10001)),
+		[]byte(strings.Repeat("[", 10001) + strings.Repeat("]", 10001)),
+		[]byte(strings.Repeat(`{"a":`, 10001)),
+		[]byte(strings.Repeat("[", 10001) + "0" + strings.Repeat("]", 10001)),
+	}
+	for _, in := range inputs {
+		func() {
+			defer func() {
+				if r := recover(); r != nil {
+					t.Fatalf("输入 %q 触发 panic: %v", in, r)
+				}
+			}()
+			var v any
+			_ = jsonx.Unmarshal(in, &v)
+			var st nativeOuter
+			_ = jsonx.Unmarshal(in, &st)
+			var wide nativeWide
+			_ = jsonx.Unmarshal(in, &wide)
+			_ = jsonx.Valid(in)
+			dec := jsonx.NewDecoder(bytes.NewReader(in))
+			var dv any
+			_ = dec.Decode(&dv)
+			_ = dec.Decode(&dv)
+		}()
 	}
 }
 

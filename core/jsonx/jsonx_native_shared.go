@@ -63,15 +63,24 @@ func collectFields(t reflect.Type, index []int) []fieldInfo {
 	var out []fieldInfo
 	for i := 0; i < t.NumField(); i++ {
 		f := t.Field(i)
-		if f.PkgPath != "" {
-			continue
-		}
 		tag := f.Tag.Get("json")
 		if tag == "-" {
 			continue
 		}
 		name, opts := parseTag(tag)
 		idx := append(append([]int(nil), index...), i)
+		if f.PkgPath != "" {
+			// Unexported fields are ignored except for anonymous struct fields, whose exported
+			// subfields are still promoted, matching encoding/json. | 未导出字段一律忽略，但匿名
+			// 结构体字段例外：其导出子字段仍会被提升，与 encoding/json 一致。
+			ft := f.Type
+			if ft.Kind() == reflect.Pointer {
+				ft = ft.Elem()
+			}
+			if !f.Anonymous || ft.Kind() != reflect.Struct {
+				continue
+			}
+		}
 		if f.Anonymous && name == "" {
 			ft := f.Type
 			if ft.Kind() == reflect.Pointer {
