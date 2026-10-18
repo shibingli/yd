@@ -52,21 +52,31 @@ cd benchmarks/json
 go test -run '^$' -bench . -benchmem -count=5 -tags jsonx_native
 ```
 
-### 交替独立进程基准（本机 16 线程，负载波动下取每用例最小值）
+### 交替独立进程基准（本机 16 线程，中位数）
+
+n=1/n=100 取 5 轮交替独立进程，n=1000 取 7 轮；每轮只跑一种实现，避免同进程
+codec 顺序与 GC 状态影响。表中数值为 `ns/op`。
 
 | 记录数 | 实现 | Marshal | Unmarshal | Marshal B/op / allocs | Unmarshal B/op / allocs |
 |---|---|---:|---:|---:|---:|
-| n=1 | go-json | 284 ns | 713 ns | 168 B / 2 | 542 B / 3 |
-| n=1 | **yd-jsonx（native）** | 302 ns | **651 ns** | 168 B / 2 | **288 B / 5** |
-| n=100 | go-json | 26,153 ns | 55,420 ns | 16.4 KB / 2 | 28.2 KB / 103 |
-| n=100 | **yd-jsonx（native）** | **23,414 ns** | **52,156 ns** | 18.5 KB / **2** | 25.4 KB / 104 |
-| n=1000 | go-json | 260,976 ns | 553,722 ns | 165 KB / 2 | 225 KB / 1,005 |
-| n=1000 | **yd-jsonx（native）** | **244,234 ns** | **548,042 ns** | 180 KB / **2** | 253 KB / 1,004 |
+| n=1 | go-json | 304 ns | 726 ns | 168 B / 2 | 542 B / 3 |
+| n=1 | **yd-jsonx（native）** | 320 ns | **723 ns** | 168 B / 2 | **288 B / 5** |
+| n=100 | go-json | 26,269 ns | 53,155 ns | 16.4 KB / 2 | 28.2 KB / 103 |
+| n=100 | **yd-jsonx（native）** | **24,203 ns** | **51,478 ns** | 18.5 KB / **2** | 25.4 KB / 104 |
+| n=1000 | go-json | 269,989 ns | 553,156 ns | 165 KB / 2 | 225 KB / 1,005 |
+| n=1000 | **yd-jsonx（native）** | **246,021 ns** | **508,613 ns** | 180 KB / **2** | 253 KB / 1,004 |
 
-结论：n=100 与 n=1000 的 Marshal / Unmarshal 均快于 go-json（约 4%–11%）；n=1 的
-Unmarshal 也已反超（651 vs 713 ns），Marshal 仅慢约 6%。相对 sonic、jsoniter 与标准库，
-两个方向都明显领先。基准对 CPU 频率与后台负载极敏感，上述数字是本机多轮交替独立进程运行
-的最小值；串行复测的绝对值会更高，但相对关系一致。
+结论：n=100/1000 的 Marshal 快约 8%–10%，Unmarshal 快约 3%–8%；n=1 的 Unmarshal
+持平（723 vs 726 ns），Marshal 慢约 5%。相对 sonic、jsoniter 与标准库，两个方向都
+明显领先。绝对 ns 对 CPU 频率与后台负载敏感，跨机器比较请以同一轮的相对关系为准。
+
+三环境 n=1000（远程为同进程 3 轮中位数，本地为交替独立进程）：
+
+| 环境 | Marshal（yd vs go-json） | Unmarshal（yd vs go-json） |
+|---|---:|---:|
+| 本地 16 线程 AVX2 | **246 vs 270 µs（快 8.9%）** | **509 vs 553 µs（快 8.0%）** |
+| 远程 1 32 核 | **102 vs 118 µs（快 14.1%）** | 189 vs 185 µs（慢 2.4%） |
+| 远程 2 4 vCPU 企业级 Xeon | **286 vs 309 µs（快 7.4%）** | 608 vs 607 µs（持平） |
 
 分配方面：Marshal 在 n≥100 时改用按估算体积一次性分配的输出缓冲，alloc 从 3 降到 2，
 B/op 上升约 9%–10%；Unmarshal 通过按输入三分之一初始化字符串 arena、复用解码器状态，
@@ -102,5 +112,9 @@ n=1000 的 B/op 从 293 KB 降到 253 KB（go-json 为 225 KB），n=1 从 608 B
 - `core/jsonx/jsonx_native_compat_test.go` 提供与 `encoding/json` 的差分表驱动测试、
   每个截断前缀的对比测试、深层嵌套/循环指针安全测试，以及
   `FuzzNativeUnmarshal` / `FuzzNativeMarshalRoundTrip` 两个模糊测试。
+- 字段名大小写匹配使用精确映射 + `strings.EqualFold`，覆盖 `ſ`/`s` 等 Unicode 简单折叠；
+  嵌入字段按标准库提升，指向未导出结构体的嵌入指针返回与标准库同款错误。已知残留：
+  同名嵌入字段的冲突优先级尚未完全对齐标准库，会按声明顺序输出重复键；常规嵌入与
+  重复 JSON 键已对齐。
 
 该后端仍在实验阶段，默认构建不会启用。
