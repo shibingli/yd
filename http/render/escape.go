@@ -147,7 +147,58 @@ const (
 	escURLFilter
 	escURLNormalizer
 	escEvalArgs
+	// Composite URL chains collapse three scans and two scratch copies into
+	// one normalized pass plus one attribute pass. | 组合 URL 链把三次扫描与两次
+	// 暂存拷贝合并为一次规范化加一次属性转义。
+	escURLAttr
+	escURLPartAttr
+	escURLQueryAttr
 )
+
+// isCompositeKind reports a collapsed URL chain. | isCompositeKind 报告是否为折叠后的 URL 链。
+func isCompositeKind(kind escKind) bool {
+	return kind == escURLAttr || kind == escURLPartAttr || kind == escURLQueryAttr
+}
+
+// collapseEscapers folds the common URL → attribute chains into one kind. | collapseEscapers
+// 把常见的 URL → 属性链折叠为单个种类。
+func collapseEscapers(in []escKind) []escKind {
+	switch {
+	case len(in) == 3 && in[0] == escURLFilter && in[1] == escURLNormalizer && in[2] == escAttr:
+		return []escKind{escURLAttr}
+	case len(in) == 2 && in[0] == escURLNormalizer && in[1] == escAttr:
+		return []escKind{escURLPartAttr}
+	case len(in) == 2 && in[0] == escURL && in[1] == escAttr:
+		return []escKind{escURLQueryAttr}
+	}
+	return in
+}
+
+// appendComposite applies a collapsed URL chain using scratch for the
+// intermediate segment. | appendComposite 使用暂存缓冲应用折叠后的 URL 链。
+func appendComposite(dst, scratch []byte, v any, kind escKind) ([]byte, []byte) {
+	s, ct := stringify(v)
+	return appendCompositeString(dst, scratch, s, ct, kind)
+}
+
+// appendCompositeString applies a collapsed URL chain to a typed string. | appendCompositeString 对带类型的字符串应用折叠 URL 链。
+func appendCompositeString(dst, scratch []byte, s string, ct contentType, kind escKind) ([]byte, []byte) {
+	switch kind {
+	case escURLAttr:
+		if ct != contentTypeURL && !isSafeURL(s) {
+			s = "#" + filterFailsafe
+		}
+		scratch = appendURLString(scratch[:0], s, true)
+	case escURLPartAttr:
+		scratch = appendURLString(scratch[:0], s, true)
+	case escURLQueryAttr:
+		scratch = appendURLString(scratch[:0], s, ct == contentTypeURL)
+	}
+	if !hasHTMLSpecialBytes(scratch) {
+		return append(dst, scratch...), scratch
+	}
+	return appendHTMLReplacerBytes(dst, scratch, htmlReplacementTable, true), scratch
+}
 
 // escapers maps the internal names found in escaped parse trees to kinds. | escapers 把已转义解析树中的内部名字映射为种类。
 var escapers = map[string]escKind{
@@ -279,8 +330,14 @@ func escapeStringSlow(s string, kind escKind) string {
 func appendEscapedBytes(dst, b []byte, kind escKind) []byte {
 	switch kind {
 	case escHTML, escAttr, escRCDATA:
+		if !hasHTMLSpecialBytes(b) {
+			return append(dst, b...)
+		}
 		return appendHTMLReplacerBytes(dst, b, htmlReplacementTable, true)
 	case escNoSpace:
+		if !hasHTMLSpecialBytes(b) {
+			return append(dst, b...)
+		}
 		return appendHTMLReplacerBytes(dst, b, htmlNoSpaceReplacementTable, false)
 	case escURL:
 		return appendURLEscapedBytes(dst, b, false)

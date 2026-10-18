@@ -353,6 +353,10 @@ func (n *actionNode) exec(s *execState) error {
 	if len(n.escs) == 0 {
 		return printValue(s, v)
 	}
+	if len(n.escs) == 1 && isCompositeKind(n.escs[0]) {
+		s.out.b, s.scratchBytes = appendComposite(s.out.b, s.scratchBytes, v, n.escs[0])
+		return nil
+	}
 	start := len(s.out.b)
 	s.out.b = appendEscaped(s.out.b, v, n.escs[0])
 	for _, esc := range n.escs[1:] {
@@ -424,6 +428,23 @@ func (n *actionNode) execFieldQuick(s *execState) (bool, error) {
 	if !ok {
 		return false, nil
 	}
+	if len(n.field.escs) == 1 && isCompositeKind(n.field.escs[0]) {
+		if rv.Kind() == reflect.String {
+			ct := contentTypePlain
+			if rv.Type() != plainStringType {
+				if safe, ok := safeContentType(rv.Type()); ok {
+					ct = safe
+				} else {
+					s.out.b, s.scratchBytes = appendComposite(s.out.b, s.scratchBytes, rv.Interface(), n.field.escs[0])
+					return true, nil
+				}
+			}
+			s.out.b, s.scratchBytes = appendCompositeString(s.out.b, s.scratchBytes, rv.String(), ct, n.field.escs[0])
+			return true, nil
+		}
+		s.out.b, s.scratchBytes = appendComposite(s.out.b, s.scratchBytes, rv.Interface(), n.field.escs[0])
+		return true, nil
+	}
 	start := len(s.out.b)
 	s.out.b = appendEscapedReflect(s.out.b, rv, n.field.escs[0])
 	n.applyEscaperChain(s, start, n.field.escs[1:])
@@ -434,6 +455,10 @@ func (n *actionNode) execFieldQuick(s *execState) (bool, error) {
 // is, without converting it through reflect. | appendEscapedAny 转义已经是接口的值
 // （映射数据即如此），不经过反射转换。
 func (n *actionNode) appendEscapedAny(s *execState, v any) {
+	if len(n.field.escs) == 1 && isCompositeKind(n.field.escs[0]) {
+		s.out.b, s.scratchBytes = appendComposite(s.out.b, s.scratchBytes, v, n.field.escs[0])
+		return
+	}
 	start := len(s.out.b)
 	s.out.b = appendEscaped(s.out.b, v, n.field.escs[0])
 	n.applyEscaperChain(s, start, n.field.escs[1:])
@@ -510,6 +535,16 @@ func (f *fieldAction) value(s *execState) (reflect.Value, bool) {
 			f.path.Store(path)
 		}
 		if path.ok {
+			if path.single >= 0 {
+				v := root
+				for v.Kind() == reflect.Pointer || v.Kind() == reflect.Interface {
+					if v.IsNil() {
+						return reflect.Value{}, false
+					}
+					v = v.Elem()
+				}
+				return v.Field(path.single), true
+			}
 			v := root
 			for _, idx := range path.indexes {
 				for v.Kind() == reflect.Pointer || v.Kind() == reflect.Interface {
@@ -548,7 +583,7 @@ func (f *fieldAction) value(s *execState) (reflect.Value, bool) {
 
 // resolveStructPath resolves a chain assuming every step is a struct field. | resolveStructPath 假定每一步都是结构体字段来解析链。
 func resolveStructPath(t reflect.Type, chain []string) *structPath {
-	path := &structPath{typ: t, ok: true}
+	path := &structPath{typ: t, single: -1, ok: true}
 	cur := t
 	for _, name := range chain {
 		for cur.Kind() == reflect.Pointer {
@@ -565,6 +600,9 @@ func resolveStructPath(t reflect.Type, chain []string) *structPath {
 		}
 		path.indexes = append(path.indexes, idx)
 		cur = cur.FieldByIndex(idx).Type
+	}
+	if len(path.indexes) == 1 && len(path.indexes[0]) == 1 {
+		path.single = path.indexes[0][0]
 	}
 	return path
 }

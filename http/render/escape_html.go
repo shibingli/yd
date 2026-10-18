@@ -74,6 +74,25 @@ var htmlNoSpaceNormReplacementTable = []string{
 	'`':  "&#96;",
 }
 
+// htmlSpecialTable marks every ASCII byte that any HTML/attribute replacement
+// table may escape, so the hot scan needs one table lookup per byte instead of
+// three checks. | htmlSpecialTable 标记任一 HTML/属性替换表可能转义的 ASCII 字节，
+// 使热扫描每字节只需一次表查找而不是三次判断。
+var htmlSpecialTable [256]bool
+
+func init() {
+	for _, table := range [][]string{
+		htmlReplacementTable, htmlNormReplacementTable,
+		htmlNoSpaceReplacementTable, htmlNoSpaceNormReplacementTable,
+	} {
+		for i, repl := range table {
+			if repl != "" && i < len(htmlSpecialTable) {
+				htmlSpecialTable[i] = true
+			}
+		}
+	}
+}
+
 // htmlEscaper returns the HTML-text escaped form of its argument. | htmlEscaper 返回参数的 HTML 文本转义结果。
 func htmlEscaper(args ...any) string {
 	s, t := stringify(args...)
@@ -123,7 +142,7 @@ func htmlNameFilter(args ...any) string {
 
 // appendHTMLEscaped appends the HTML-text escaped form of (s, t) to dst. | appendHTMLEscaped 把 (s, t) 的 HTML 文本转义结果追加到 dst。
 func appendHTMLEscaped(dst []byte, s string, t contentType) []byte {
-	if t == contentTypeHTML {
+	if t == contentTypeHTML || !hasHTMLSpecial(s) {
 		return append(dst, s...)
 	}
 	return appendHTMLReplacer(dst, s, htmlReplacementTable, true)
@@ -134,6 +153,9 @@ func appendAttrEscaped(dst []byte, s string, t contentType) []byte {
 	if t == contentTypeHTML {
 		return appendHTMLReplacer(dst, stripTags(s), htmlNormReplacementTable, true)
 	}
+	if !hasHTMLSpecial(s) {
+		return append(dst, s...)
+	}
 	return appendHTMLReplacer(dst, s, htmlReplacementTable, true)
 }
 
@@ -141,6 +163,9 @@ func appendAttrEscaped(dst []byte, s string, t contentType) []byte {
 func appendRCDATAEscaped(dst []byte, s string, t contentType) []byte {
 	if t == contentTypeHTML {
 		return appendHTMLReplacer(dst, s, htmlNormReplacementTable, true)
+	}
+	if !hasHTMLSpecial(s) {
+		return append(dst, s...)
 	}
 	return appendHTMLReplacer(dst, s, htmlReplacementTable, true)
 }
@@ -154,7 +179,30 @@ func appendNoSpaceEscaped(dst []byte, s string, t contentType) []byte {
 	if t == contentTypeHTML {
 		return appendHTMLReplacer(dst, stripTags(s), htmlNoSpaceNormReplacementTable, false)
 	}
+	if !hasHTMLSpecial(s) {
+		return append(dst, s...)
+	}
 	return appendHTMLReplacer(dst, s, htmlNoSpaceReplacementTable, false)
+}
+
+// hasHTMLSpecial reports whether s contains a byte any HTML table escapes. | hasHTMLSpecial 报告 s 是否含任一 HTML 表会转义的字节。
+func hasHTMLSpecial(s string) bool {
+	for i := 0; i < len(s); i++ {
+		if htmlSpecialTable[s[i]] {
+			return true
+		}
+	}
+	return false
+}
+
+// hasHTMLSpecialBytes is hasHTMLSpecial for a byte slice. | hasHTMLSpecialBytes 是字节切片版本的 hasHTMLSpecial。
+func hasHTMLSpecialBytes(s []byte) bool {
+	for _, c := range s {
+		if htmlSpecialTable[c] {
+			return true
+		}
+	}
+	return false
 }
 
 // appendHTMLReplacer appends s with runes replaced according to table. | appendHTMLReplacer 按 table 替换 s 中的字符后追加。
@@ -167,11 +215,13 @@ func appendHTMLReplacer(dst []byte, s string, table []string, badRunes bool) []b
 	for i < len(s) {
 		c := s[i]
 		if c < utf8.RuneSelf {
-			if int(c) < len(table) {
-				if repl := table[c]; repl != "" {
-					dst = append(dst, s[written:i]...)
-					dst = append(dst, repl...)
-					written = i + 1
+			if htmlSpecialTable[c] {
+				if int(c) < len(table) {
+					if repl := table[c]; repl != "" {
+						dst = append(dst, s[written:i]...)
+						dst = append(dst, repl...)
+						written = i + 1
+					}
 				}
 			}
 			i++
@@ -196,11 +246,13 @@ func appendHTMLReplacerBytes(dst, s []byte, table []string, badRunes bool) []byt
 	for i < len(s) {
 		c := s[i]
 		if c < utf8.RuneSelf {
-			if int(c) < len(table) {
-				if repl := table[c]; repl != "" {
-					dst = append(dst, s[written:i]...)
-					dst = append(dst, repl...)
-					written = i + 1
+			if htmlSpecialTable[c] {
+				if int(c) < len(table) {
+					if repl := table[c]; repl != "" {
+						dst = append(dst, s[written:i]...)
+						dst = append(dst, repl...)
+						written = i + 1
+					}
 				}
 			}
 			i++

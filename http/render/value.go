@@ -321,36 +321,89 @@ func appendEscapedReflect(dst []byte, rv reflect.Value, kind escKind) []byte {
 	if !rv.IsValid() {
 		return appendEscapedString(dst, "", kind)
 	}
-	if ct, ok := safeContentType(rv.Type()); ok {
-		return appendEscapedTyped(dst, rv.String(), ct, kind)
-	}
-	// Named types may implement fmt.Stringer or error, so only predeclared
-	// kinds take the primitive fast path; the rest go through stringify. | 具名类型
-	// 可能实现 fmt.Stringer 或 error，因此只有预声明类型走基础快路径，其余交给 stringify。
-	if rv.Type().PkgPath() != "" {
-		return appendEscaped(dst, rv.Interface(), kind)
-	}
+	// Named types may implement fmt.Stringer or error, so only exact predeclared
+	// types take the primitive fast path; the rest go through stringify. | 具名类型
+	// 可能实现 fmt.Stringer 或 error，因此只有精确的预声明类型走基础快路径，其余交给 stringify。
 	switch rv.Kind() {
 	case reflect.String:
-		return appendEscapedString(dst, rv.String(), kind)
+		t := rv.Type()
+		if t == plainStringType {
+			return appendEscapedString(dst, rv.String(), kind)
+		}
+		if ct, ok := safeContentType(t); ok {
+			return appendEscapedTyped(dst, rv.String(), ct, kind)
+		}
+		return appendEscaped(dst, rv.Interface(), kind)
 	case reflect.Bool:
+		if rv.Type() != plainBoolType {
+			return appendEscaped(dst, rv.Interface(), kind)
+		}
 		var buf [8]byte
 		return appendEscapedBytes(dst, strconv.AppendBool(buf[:0], rv.Bool()), kind)
 	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
+		if !plainIntType(rv.Type()) {
+			return appendEscaped(dst, rv.Interface(), kind)
+		}
 		var buf [24]byte
 		return appendEscapedBytes(dst, strconv.AppendInt(buf[:0], rv.Int(), 10), kind)
 	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64, reflect.Uintptr:
+		if !plainUintType(rv.Type()) {
+			return appendEscaped(dst, rv.Interface(), kind)
+		}
 		var buf [24]byte
 		return appendEscapedBytes(dst, strconv.AppendUint(buf[:0], rv.Uint(), 10), kind)
 	case reflect.Float32:
+		if rv.Type() != plainFloat32Type {
+			return appendEscaped(dst, rv.Interface(), kind)
+		}
 		var buf [32]byte
 		return appendEscapedBytes(dst, strconv.AppendFloat(buf[:0], rv.Float(), 'g', -1, 32), kind)
 	case reflect.Float64:
+		if rv.Type() != plainFloat64Type {
+			return appendEscaped(dst, rv.Interface(), kind)
+		}
 		var buf [32]byte
 		return appendEscapedBytes(dst, strconv.AppendFloat(buf[:0], rv.Float(), 'g', -1, 64), kind)
 	default:
 		return appendEscaped(dst, rv.Interface(), kind)
 	}
+}
+
+// Exact predeclared types used by the primitive fast paths. | 基础快路径使用的精确预声明类型。
+var (
+	plainStringType  = reflect.TypeFor[string]()
+	plainBoolType    = reflect.TypeFor[bool]()
+	plainIntTypeV    = reflect.TypeFor[int]()
+	plainInt8Type    = reflect.TypeFor[int8]()
+	plainInt16Type   = reflect.TypeFor[int16]()
+	plainInt32Type   = reflect.TypeFor[int32]()
+	plainInt64Type   = reflect.TypeFor[int64]()
+	plainUintTypeV   = reflect.TypeFor[uint]()
+	plainUint8Type   = reflect.TypeFor[uint8]()
+	plainUint16Type  = reflect.TypeFor[uint16]()
+	plainUint32Type  = reflect.TypeFor[uint32]()
+	plainUint64Type  = reflect.TypeFor[uint64]()
+	plainUintptrType = reflect.TypeFor[uintptr]()
+	plainFloat32Type = reflect.TypeFor[float32]()
+	plainFloat64Type = reflect.TypeFor[float64]()
+)
+
+// plainIntType reports an exact predeclared signed integer type. | plainIntType 报告精确的预声明有符号整数类型。
+func plainIntType(t reflect.Type) bool {
+	switch t {
+	case plainIntTypeV, plainInt8Type, plainInt16Type, plainInt32Type, plainInt64Type:
+		return true
+	}
+	return false
+}
+
+// plainUintType reports an exact predeclared unsigned integer type. | plainUintType 报告精确的预声明无符号整数类型。
+func plainUintType(t reflect.Type) bool {
+	switch t {
+	case plainUintTypeV, plainUint8Type, plainUint16Type, plainUint32Type, plainUint64Type, plainUintptrType:
+		return true
+	}
+	return false
 }
 
 // safeContentType maps html/template's trusted string types to content kinds.

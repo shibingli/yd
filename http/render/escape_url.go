@@ -85,21 +85,35 @@ func processURLOnto(s string, norm bool, b *strings.Builder) bool {
 	return written != 0
 }
 
+// urlKeepRaw and urlKeepNorm mark bytes that pass through unencoded. | urlKeepRaw 与 urlKeepNorm 标记无需编码、原样通过的字节。
+var (
+	urlKeepRaw  [256]bool
+	urlKeepNorm [256]bool
+)
+
+func init() {
+	const reserved = "!#$&*+,/:;=?@[]"
+	for i := 0; i < 256; i++ {
+		c := byte(i)
+		unreserved := 'a' <= c && c <= 'z' || 'A' <= c && c <= 'Z' || '0' <= c && c <= '9' ||
+			c == '-' || c == '.' || c == '_' || c == '~'
+		urlKeepRaw[c] = unreserved
+		urlKeepNorm[c] = unreserved || strings.IndexByte(reserved, c) >= 0
+	}
+}
+
 // appendURLString appends the percent-encoded form of s without a builder. | appendURLString 不经构建器追加 s 的百分号编码结果。
 func appendURLString(dst []byte, s string, norm bool) []byte {
+	table := &urlKeepRaw
+	if norm {
+		table = &urlKeepNorm
+	}
 	written := 0
 	for i := 0; i < len(s); i++ {
 		c := s[i]
-		keep := false
-		switch c {
-		case '!', '#', '$', '&', '*', '+', ',', '/', ':', ';', '=', '?', '@', '[', ']':
-			keep = norm
-		case '-', '.', '_', '~':
+		keep := table[c]
+		if c == '%' && norm && i+2 < len(s) && isHex(s[i+1]) && isHex(s[i+2]) {
 			keep = true
-		case '%':
-			keep = norm && i+2 < len(s) && isHex(s[i+1]) && isHex(s[i+2])
-		default:
-			keep = 'a' <= c && c <= 'z' || 'A' <= c && c <= 'Z' || '0' <= c && c <= '9'
 		}
 		if keep {
 			continue
@@ -113,18 +127,15 @@ func appendURLString(dst []byte, s string, norm bool) []byte {
 
 // appendURLEscapedBytes appends the percent-encoded form of s. | appendURLEscapedBytes 追加 s 的百分号编码结果。
 func appendURLEscapedBytes(dst, s []byte, norm bool) []byte {
+	table := &urlKeepRaw
+	if norm {
+		table = &urlKeepNorm
+	}
 	written := 0
 	for i, c := range s {
-		keep := false
-		switch c {
-		case '!', '#', '$', '&', '*', '+', ',', '/', ':', ';', '=', '?', '@', '[', ']':
-			keep = norm
-		case '-', '.', '_', '~':
+		keep := table[c]
+		if c == '%' && norm && i+2 < len(s) && isHex(s[i+1]) && isHex(s[i+2]) {
 			keep = true
-		case '%':
-			keep = norm && i+2 < len(s) && isHex(s[i+1]) && isHex(s[i+2])
-		default:
-			keep = 'a' <= c && c <= 'z' || 'A' <= c && c <= 'Z' || '0' <= c && c <= '9'
 		}
 		if keep {
 			continue

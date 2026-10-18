@@ -109,6 +109,7 @@ func newFieldAction(chain []string, varName string, escs []escKind) *fieldAction
 type structPath struct {
 	typ     reflect.Type
 	indexes [][]int
+	single  int
 	ok      bool
 }
 
@@ -317,9 +318,12 @@ func (c *compiler) node(in parse.Node) (node, error) {
 		act := &actionNode{pipe: pipe, escs: escs, print: len(pipe.decl) == 0}
 		if act.print && len(pipe.cmds) == 1 && len(escs) > 0 {
 			cmd := pipe.cmds[0]
+			q := quickActionFor(cmd)
+			if len(escs) == 1 && isCompositeKind(escs[0]) {
+				q = nil // composite chains need the scratch buffer | 组合链需要暂存缓冲
+			}
 			switch {
-			case quickActionFor(cmd) != nil:
-				q := quickActionFor(cmd)
+			case q != nil:
 				q.escs = escs
 				act.quick = q
 			case cmd.kind == cmdField && len(cmd.chain) > 0 && len(cmd.args) == 0:
@@ -497,7 +501,7 @@ func (c *compiler) pipeline(in *parse.PipeNode) (*pipeNode, []escKind, error) {
 		}
 		out.cmds = append(out.cmds, cn)
 	}
-	return out, escs, nil
+	return out, collapseEscapers(escs), nil
 }
 
 // command compiles one command. | command 编译单条命令。
