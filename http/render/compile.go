@@ -68,11 +68,14 @@ type textNode struct{ text string }
 
 // actionNode evaluates a pipeline and optionally escapes and prints it. | actionNode 求值流水线，必要时转义并输出。
 type actionNode struct {
-	pipe  *pipeNode
-	quick *quickAction
-	field *fieldAction
-	escs  []escKind
-	print bool
+	pipe       *pipeNode
+	quick      *quickAction
+	field      *fieldAction
+	declField  *fieldAction
+	declName   string
+	escs       []escKind
+	print      bool
+	declAssign bool
 }
 
 // fieldAction prints a single field chain through a reflect.Value path, which
@@ -80,9 +83,26 @@ type actionNode struct {
 // | fieldAction 通过 reflect.Value 路径输出单条字段链，避免把结构体行的每个字符串与
 // 整数装箱进接口。
 type fieldAction struct {
-	path  atomic.Pointer[structPath]
-	chain []string
-	escs  []escKind
+	path    atomic.Pointer[structPath]
+	chain   []string
+	keys    []reflect.Value
+	varName string
+	escs    []escKind
+}
+
+// newFieldAction builds a field action and precomputes the reflect map keys so
+// map lookups on the hot path do not allocate a string header per render.
+// | newFieldAction 构建字段动作并预计算反射映射键，使热路径上的映射查找不再
+// 每次渲染分配字符串头。
+func newFieldAction(chain []string, varName string, escs []escKind) *fieldAction {
+	f := &fieldAction{chain: chain, varName: varName, escs: escs}
+	if len(chain) > 0 {
+		f.keys = make([]reflect.Value, len(chain))
+		for i, name := range chain {
+			f.keys[i] = reflect.ValueOf(name)
+		}
+	}
+	return f
 }
 
 // structPath is a type-level resolved chain of struct field indexes. | structPath 是类型层解析出的结构体字段索引链。
@@ -113,6 +133,7 @@ type quickCond struct {
 type ifNode struct {
 	pipe     *pipeNode
 	quick    *quickCond
+	cond     *fieldAction
 	body     *listNode
 	elseBody *listNode
 	with     bool
@@ -121,6 +142,7 @@ type ifNode struct {
 // rangeNode implements range. | rangeNode 实现 range。
 type rangeNode struct {
 	pipe     *pipeNode
+	field    *fieldAction
 	body     *listNode
 	elseBody *listNode
 }
@@ -294,11 +316,28 @@ func (c *compiler) node(in parse.Node) (node, error) {
 		}
 		act := &actionNode{pipe: pipe, escs: escs, print: len(pipe.decl) == 0}
 		if act.print && len(pipe.cmds) == 1 && len(escs) > 0 {
-			if q := quickActionFor(pipe.cmds[0]); q != nil {
+			cmd := pipe.cmds[0]
+			switch {
+			case quickActionFor(cmd) != nil:
+				q := quickActionFor(cmd)
 				q.escs = escs
 				act.quick = q
-			} else if cmd := pipe.cmds[0]; cmd.kind == cmdField && len(cmd.chain) > 0 && len(cmd.args) == 0 {
-				act.field = &fieldAction{chain: cmd.chain, escs: escs}
+			case cmd.kind == cmdField && len(cmd.chain) > 0 && len(cmd.args) == 0:
+				act.field = newFieldAction(cmd.chain, "", escs)
+			case cmd.kind == cmdVar && len(cmd.chain) == 0 && len(cmd.args) == 0:
+				act.field = newFieldAction(nil, cmd.varName, escs)
+			case cmd.kind == cmdValue && len(cmd.args) == 0:
+				if _, isDot := cmd.value.(dotExpr); isDot {
+					act.field = newFieldAction(nil, "", escs)
+				}
+			}
+		}
+		if !act.print && len(pipe.decl) == 1 && len(pipe.cmds) == 1 {
+			cmd := pipe.cmds[0]
+			if cmd.kind == cmdField && len(cmd.chain) > 0 && len(cmd.args) == 0 {
+				act.declField = newFieldAction(cmd.chain, "", nil)
+				act.declName = pipe.decl[0]
+				act.declAssign = pipe.assign
 			}
 		}
 		return act, nil
@@ -322,7 +361,16 @@ func (c *compiler) node(in parse.Node) (node, error) {
 				return nil, err
 			}
 		}
-		return &rangeNode{pipe: pipe, body: body, elseBody: elseBody}, nil
+		out := &rangeNode{pipe: pipe, body: body, elseBody: elseBody}
+		if len(pipe.decl) == 0 && len(pipe.cmds) == 1 {
+			cmd := pipe.cmds[0]
+			if cmd.kind == cmdField && len(cmd.chain) > 0 && len(cmd.args) == 0 {
+				out.field = newFieldAction(cmd.chain, "", nil)
+			} else if cmd.kind == cmdVar && len(cmd.chain) == 0 && len(cmd.args) == 0 {
+				out.field = newFieldAction(nil, cmd.varName, nil)
+			}
+		}
+		return out, nil
 	case *parse.TemplateNode:
 		pipe, _, err := c.pipeline(n.Pipe)
 		if err != nil {
@@ -362,9 +410,14 @@ func (c *compiler) branch(p *parse.PipeNode, body, elseBody *parse.ListNode, wit
 		}
 	}
 	out := &ifNode{pipe: pipe, body: b, elseBody: e, with: with}
-	if !with && len(pipe.cmds) == 1 {
-		if q := quickCondFor(pipe.cmds[0]); q != nil {
+	if !with && len(pipe.cmds) == 1 && len(pipe.decl) == 0 {
+		cmd := pipe.cmds[0]
+		if q := quickCondFor(cmd); q != nil {
 			out.quick = q
+		} else if cmd.kind == cmdField && len(cmd.chain) > 0 && len(cmd.args) == 0 {
+			out.cond = newFieldAction(cmd.chain, "", nil)
+		} else if cmd.kind == cmdVar && len(cmd.chain) == 0 && len(cmd.args) == 0 {
+			out.cond = newFieldAction(nil, cmd.varName, nil)
 		}
 	}
 	return out, nil

@@ -92,11 +92,17 @@
   `appendHTMLReplacer` / `strconv.Append*`。
 - **字段路径缓存**：每个 `fieldAction` 以 `atomic.Pointer` 缓存
   「根类型 → 字段索引链」，100 行循环只解析一次类型，不再每行哈希 `reflect.Type`。
+- **映射直读**：`map[string]any` 数据（门面默认形态）在 `fieldAction` 内直接按键
+  读取，完全绕开 `reflect.MapIndex`，因此映射行不再产生任何装箱。
+- **变量引用**：`$x := .Field` 与 `range $v := ...` 以 `reflect.Value` 保存，
+  仅在通用函数确实需要接口时才物化；字符串变量在转义输出时零分配。
 - **单绑定动作**：`{{ tr "key" }}`、`{{ perm ... }}`、`{{ can ... }}` 有专门的
   无接口输出路径。
-- **条件**：`{{ if can "perm" }}` 直接取布尔结果，不装箱。
+- **条件**：`{{ if can "perm" }}`、`{{ if .Active }}` 直接取布尔结果，不装箱。
 - **链式转义**：URL → 属性等多级转义在字节缓冲上完成，中间结果不转字符串。
-- **输出缓冲**：引擎按增长后的容量保留缓冲；门面片段与布局追加进同一缓冲。
+- **安全类型**：`template.JS`/`URL`/`Srcset` 等直接走类型化转义，不再构造中间接口。
+- **输出缓冲**：引擎以 `*Buffer` 句柄池化输出缓冲，避免把切片头放入 `sync.Pool`
+  时产生的装箱；门面片段与布局追加进同一缓冲。
 
 ### 3.4 并发与缓存
 
@@ -111,17 +117,17 @@
 
 | 场景 | 旧 | 新 | 提升 |
 |---|---:|---:|---:|
-| 无绑定 | 7.57 µs / 71 allocs | **0.70 µs / 7** | **10.8×** |
-| 译者绑定 | 7.73 µs / 76 allocs | **0.96 µs / 12** | **8.1×** |
-| 译者 + 权限 | 8.34 µs / 76 allocs | **0.95 µs / 12** | **8.7×** |
+| 无绑定 | 7.57 µs / 71 allocs | **0.70 µs / 4** | **10.8×** |
+| 译者绑定 | 7.73 µs / 76 allocs | **0.71 µs / 4** | **10.9×** |
+| 译者 + 权限 | 8.34 µs / 76 allocs | **0.71 µs / 4** | **11.7×** |
 
 ### 4.2 框架真实页面
 
 | 页面 | html/template | 新引擎 | 提升 |
 |---|---:|---:|---:|
-| dashboard | 97.4 µs / 769 allocs | **14.1 µs / 96** | **6.9×** |
-| users | 96.4 µs / 763 allocs | **14.8 µs / 95** | **6.5×** |
-| permissions（39 KB，缓冲复用） | 76.5 µs / 612 allocs | **10.6 µs / 69** | **7.2×** |
+| dashboard | 92.0 µs / 769 allocs | **6.0 µs / 2** | **15.3×** |
+| users | 91.4 µs / 763 allocs | **7.3 µs / 7** | **12.5×** |
+| permissions（39 KB，缓冲复用） | 78.2 µs / 612 allocs | **4.7 µs / 0** | **16.5×** |
 
 ### 4.3 横向对比
 
@@ -130,20 +136,20 @@
 
 | 引擎 | ns/op | allocs/op | 上下文感知转义 |
 |---|---:|---:|---:|
-| quicktemplate | 28,838 | 0 | ❌ |
-| **yd-render** | **114,699** | **106** | ✅ |
-| templ | 149,414 | 1,823 | ✅ |
-| Jet | 162,731 | 6 | ❌ |
-| text/template | 233,477 | 811 | ❌ |
-| Pongo2 | 373,448 | 3,759 | ❌ |
-| Mustache | 394,966 | 5,633 | ❌ |
-| Liquid | 447,450 | 6,753 | ❌ |
-| html/template | 993,471 | 7,142 | ✅ |
-| Raymond | 1,692,299 | 10,551 | ❌ |
+| quicktemplate | 26,812 | 0 | ❌ |
+| **yd-render** | **95,106** | **0** | ✅ |
+| templ | 143,538 | 1,823 | ✅ |
+| Jet | 166,344 | 6 | ❌ |
+| text/template | 245,960 | 811 | ❌ |
+| Mustache | 371,913 | 5,633 | ❌ |
+| Pongo2 | 395,615 | 3,759 | ❌ |
+| Liquid | 458,637 | 6,753 | ❌ |
+| html/template | 1,024,543 | 7,142 | ✅ |
+| Raymond | 1,646,954 | 10,551 | ❌ |
 
-- 比 html/template 快 **8.7×**，比 text/template 快 **2.0×**；
-- 比 Jet 快 **1.4×**，与 templ 基本相当（快 **1.3×**）；
-- quicktemplate 仍快 **4.0×**，原因是它把模板编译成直接写 `io.Writer` 的 Go 代码，
+- 比 html/template 快 **10.8×**，比 text/template 快 **2.6×**；
+- 比 Jet 快 **1.7×**，比 templ 快 **1.5×**；
+- quicktemplate 仍快 **3.5×**，原因是它把模板编译成直接写 `io.Writer` 的 Go 代码，
   且不做上下文感知转义；
 - 只有 html/template、yd-render、templ 同时具备文本/属性转义与 `javascript:` URL 拦截。
 
@@ -169,6 +175,6 @@ go test ./http/render -run '^$' -bench BenchmarkFrameworkPage -benchmem -count 3
 
 # 横向对比
 cd benchmarks/template && go test ./...
-go test -run '^$' -bench BenchmarkEngines -benchmem -benchtime=500ms -count=3
-GOMAXPROCS=1 go test -run '^$' -bench BenchmarkEngines -benchmem -benchtime=500ms -count=3
+go test -run '^$' -bench BenchmarkEngines -benchmem -benchtime=1s -count=5
+GOMAXPROCS=1 go test -run '^$' -bench BenchmarkEngines -benchmem -benchtime=1s -count=5
 ```

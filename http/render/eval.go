@@ -139,7 +139,7 @@ func (c *commandNode) eval(s *execState, final any, hasFinal bool) (any, error) 
 		s.scratch = s.scratch[:mark]
 		return v, err
 	case cmdField:
-		return evalChain(s, s.dot, c.chain, c.args, final, hasFinal)
+		return evalChain(s, s.dotAny(), c.chain, c.args, final, hasFinal)
 	case cmdVar:
 		v, err := s.varValue(c.varName)
 		if err != nil {
@@ -283,14 +283,14 @@ func (p *pipeNode) eval(s *execState) (any, error) {
 func (e literalExpr) eval(*execState) (any, error) { return e.v, nil }
 
 // dotExpr.eval returns the current dot. | dotExpr.eval 返回当前 dot。
-func (dotExpr) eval(s *execState) (any, error) { return s.dot, nil }
+func (dotExpr) eval(s *execState) (any, error) { return s.dotAny(), nil }
 
 // nilExpr.eval returns nil. | nilExpr.eval 返回 nil。
 func (nilExpr) eval(*execState) (any, error) { return nil, nil }
 
 // fieldExpr.eval walks fields from dot. | fieldExpr.eval 从 dot 遍历字段。
 func (e fieldExpr) eval(s *execState) (any, error) {
-	return evalChain(s, s.dot, e.chain, nil, nil, false)
+	return evalChain(s, s.dotAny(), e.chain, nil, nil, false)
 }
 
 // varExpr.eval reads a variable and walks fields. | varExpr.eval 读取变量并遍历字段。

@@ -27,10 +27,10 @@ cd benchmarks/template
 go test ./...
 
 # 多核
-go test -run '^$' -bench BenchmarkEngines -benchmem -benchtime=500ms -count=3
+go test -run '^$' -bench BenchmarkEngines -benchmem -benchtime=1s -count=5
 
 # 单核
-GOMAXPROCS=1 go test -run '^$' -bench BenchmarkEngines -benchmem -benchtime=500ms -count=3
+GOMAXPROCS=1 go test -run '^$' -bench BenchmarkEngines -benchmem -benchtime=1s -count=5
 
 # 每实现独立进程，消除同进程顺序与 GC 偏差
 for e in yd-render html/template text/template jet pongo2 liquid raymond mustache quicktemplate templ; do
@@ -82,7 +82,7 @@ URL `javascript:alert(...)`。
 ## 性能（Windows 本机，2026-10-19）
 
 测试平台：Intel Core i9-10980HK，16 个逻辑 CPU，Windows 11 Pro for Workstations，
-Go 1.27.2 windows/amd64，`-benchtime=500ms -count=3`，取中位数。
+Go 1.27.2 windows/amd64，`-benchtime=1s -count=5`，取中位数。
 
 > 这是开发机口径。仓库主表使用 Linux x86_64 基准平台；跨机比较请以相对关系为准，
 > 绝对数值会受电源策略、温度与后台负载影响（通常 ±15%）。
@@ -91,62 +91,63 @@ Go 1.27.2 windows/amd64，`-benchtime=500ms -count=3`，取中位数。
 
 | 引擎 | page100 | small5 | page100 B/op | page100 allocs/op |
 |---|---:|---:|---:|---:|
-| quicktemplate | **28,838** | **1,707** | **0** | **0** |
-| **yd-render** | **114,699** | **6,995** | **9,706** | **106** |
-| templ | 149,414 | 9,057 | 68,735 | 1,823 |
-| Jet | 162,731 | 10,901 | 496 | 6 |
-| text/template | 233,477 | 14,442 | 11,544 | 811 |
-| Pongo2 | 373,448 | 23,961 | 158,824 | 3,759 |
-| Mustache | 394,966 | 22,509 | 113,246 | 5,633 |
-| Liquid | 447,450 | 26,618 | 114,952 | 6,753 |
-| html/template | 993,471 | 57,326 | 155,664 | 7,142 |
-| Raymond | 1,692,299 | 74,376 | 1,793,001 | 10,551 |
+| quicktemplate | **26,812** | **1,682** | **0** | **0** |
+| **yd-render** | **95,106** | **5,597** | **0** | **0** |
+| templ | 143,538 | 8,566 | 68,735 | 1,823 |
+| Jet | 166,344 | 11,353 | 496 | 6 |
+| text/template | 245,960 | 15,836 | 11,544 | 811 |
+| Mustache | 371,913 | 20,921 | 113,246 | 5,633 |
+| Pongo2 | 395,615 | 25,077 | 158,824 | 3,759 |
+| Liquid | 458,637 | 27,850 | 114,952 | 6,753 |
+| html/template | 1,024,543 | 59,831 | 155,664 | 7,142 |
+| Raymond | 1,646,954 | 72,158 | 1,793,000 | 10,551 |
 
 ### 多核顺序（16 逻辑 CPU，ns/op）
 
 | 引擎 | page100 | small5 | page100 B/op | page100 allocs/op |
 |---|---:|---:|---:|---:|
-| quicktemplate | **27,111** | **1,622** | **0** | **0** |
-| **yd-render** | **111,403** | **6,772** | **9,748** | **106** |
-| templ | 127,229 | 7,628 | 68,868 | 1,823 |
-| Jet | 166,932 | 10,887 | 503 | 6 |
-| text/template | 226,752 | 13,842 | 11,557 | 811 |
-| Mustache | 315,590 | 17,864 | 113,369 | 5,633 |
-| Pongo2 | 384,816 | 24,130 | 158,961 | 3,759 |
-| Liquid | 399,064 | 23,722 | 114,952 | 6,753 |
-| html/template | 977,827 | 56,187 | 155,819 | 7,142 |
-| Raymond | 1,878,359 | 63,072 | 1,820,134 | 10,560 |
+| quicktemplate | **26,984** | **1,621** | **0** | **0** |
+| **yd-render** | **100,045** | **5,688** | **11** | **0** |
+| templ | 128,952 | 8,000 | 68,872 | 1,823 |
+| Jet | 173,586 | 11,162 | 502 | 6 |
+| text/template | 222,359 | 13,796 | 11,556 | 811 |
+| Mustache | 322,539 | 18,397 | 113,371 | 5,633 |
+| Pongo2 | 367,261 | 23,654 | 158,970 | 3,759 |
+| Liquid | 401,680 | 24,021 | 114,952 | 6,753 |
+| html/template | 912,087 | 53,712 | 155,815 | 7,142 |
+| Raymond | 1,993,586 | 63,661 | 1,820,005 | 10,560 |
 
 ### 并行（`b.RunParallel`，page100，ns/op）
 
-| 引擎 | ns/op | 相对单核加速 | 等效页面吞吐 |
+| 引擎 | ns/op | 相对顺序执行加速 | 等效页面吞吐 |
 |---|---:|---:|---:|
-| quicktemplate | **4,912** | 5.5× | ~203,600 页/s |
-| **yd-render** | **30,599** | 3.6× | **~32,700 页/s** |
-| Jet | 43,694 | 3.8× | ~22,900 页/s |
-| text/template | 53,525 | 4.2× | ~18,700 页/s |
-| templ | 55,201 | 2.3× | ~18,100 页/s |
-| Mustache | 132,409 | 2.4× | ~7,600 页/s |
-| Pongo2 | 141,836 | 2.7× | ~7,050 页/s |
-| Liquid | 160,807 | 2.5× | ~6,200 页/s |
-| html/template | 312,001 | 3.1× | ~3,200 页/s |
-| Raymond | 1,424,072 | 1.3× | ~700 页/s |
+| quicktemplate | **5,004** | 5.4× | ~199,800 页/s |
+| **yd-render** | **19,000** | 5.3× | **~52,600 页/s** |
+| Jet | 44,543 | 3.9× | ~22,450 页/s |
+| text/template | 56,086 | 4.0× | ~17,830 页/s |
+| templ | 57,527 | 2.2× | ~17,380 页/s |
+| Mustache | 134,047 | 2.4× | ~7,460 页/s |
+| Pongo2 | 139,358 | 2.6× | ~7,180 页/s |
+| Liquid | 157,489 | 2.6× | ~6,350 页/s |
+| html/template | 312,591 | 2.9× | ~3,200 页/s |
+| Raymond | 1,394,116 | 1.4× | ~717 页/s |
 
 ### 结论
 
-- **对标标准库**：`yd-render` 在 100 行页面上比 `html/template` 快 **8.7×**
-  （114.7 µs vs 993.5 µs），分配从 **7,142 次降到 106 次**；比同样不做上下文转义的
-  `text/template` 仍快 **2.0×**；小页面快 **8.2×**。
-- **对标主流运行时引擎**：单核比 Jet 快 **1.4×**、比 Pongo2 快 **3.3×**、
-  比 Mustache 快 **3.4×**、比 Liquid 快 **3.9×**、比 Raymond 快 **14.8×**；
-  与代码生成式的 templ 基本相当（快 **1.3×**），且保留完整的 html/template 语法兼容。
-- **与代码生成引擎的差距**：quicktemplate 仍快 **4.0×**，因为它把模板编译成直接读写
+- **对标标准库**：`yd-render` 在 100 行页面上比 `html/template` 快 **10.8×**
+  （95.1 µs vs 1,024.5 µs），分配从 **7,142 次降到 0 次**；比同样不做上下文转义的
+  `text/template` 仍快 **2.6×**；小页面快 **10.7×**。
+- **对标主流运行时引擎**：单核比 Jet 快 **1.7×**、比 Pongo2 快 **4.2×**、
+  比 Mustache 快 **3.9×**、比 Liquid 快 **4.8×**、比 Raymond 快 **17.3×**；
+  比代码生成式的 templ 快 **1.5×**，且保留完整的 html/template 语法兼容。
+- **与代码生成引擎的差距**：quicktemplate 仍快 **3.5×**，因为它把模板编译成直接读写
   `io.Writer` 的 Go 代码、且不做上下文感知转义（`{%s %}` 仅 HTML 转义）。这是
   「运行时模板 + 完整上下文转义」与「编译期代码生成 + 手动转义」的本质差异。
-- **并行扩展**：`yd-render` 的并行吞吐约为 html/template 的 **10.2×**；
-  Raymond、Mustache、Liquid 的并行伸缩较差（输出字符串分配与全局锁竞争）。
-- **分配**：`yd-render` 每页 106 次分配（主要来自每个结构体行装箱一次，加上少量固定开销），
-  比 html/template 少 **98.5%**；Jet 的 6 次分配来自其内部对象池与预先分配的输出缓冲。
+- **并行扩展**：`yd-render` 的并行吞吐约为 html/template 的 **16.5×**，顺序执行到并行
+  加速 **5.3×**；Raymond、Mustache、Liquid 的并行伸缩较差（输出字符串分配与全局锁竞争）。
+- **分配**：`yd-render` 在 100 行页面与 5 行页面上均为 **0 allocs/op**：映射数据直接按键
+  读取、结构体行以 `reflect.Value` 直通、字符串变量保持引用、输出缓冲以句柄池化。
+  Jet 的 6 次分配来自其内部对象池；html/template 为 7,142 次。
 
 ## yd 引擎为什么快
 

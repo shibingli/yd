@@ -129,27 +129,30 @@ type appendRenderer interface {
 // bufferRenderer lets the facade reuse the engine's grown output buffers.
 // | bufferRenderer 让门面复用引擎已增长的输出缓冲。
 type bufferRenderer interface {
-	AcquireBuffer(hint int) []byte
-	ReleaseBuffer(b []byte)
+	AcquireBuffer(hint int) *render.Buffer
+	ReleaseBuffer(b *render.Buffer)
 }
 
 // renderWholeAppend renders the fragment and its layout into one buffer. | renderWholeAppend 把片段与布局渲染进同一个缓冲。
 func (a *App) renderWholeAppend(c *router.Ctx, status int, name string, data any, ar appendRenderer) error {
 	var br bufferRenderer
+	var holder *render.Buffer
 	buf := bufpool.Get(0)
 	if b, ok := a.renderer.(bufferRenderer); ok {
 		br = b
-		buf = br.AcquireBuffer(0)
+		holder = br.AcquireBuffer(0)
+		buf = holder.B
 	} else {
 		defer bufpool.Put(buf)
 	}
-	out := buf
 	if br != nil {
-		defer func() { br.ReleaseBuffer(out) }()
+		defer func() { br.ReleaseBuffer(holder) }()
 	}
 	start := len(buf)
 	page, err := ar.RenderAppend(buf, name, data)
-	out = page
+	if br != nil {
+		holder.B = page
+	}
 	if err != nil {
 		return err
 	}
@@ -163,7 +166,9 @@ func (a *App) renderWholeAppend(c *router.Ctx, status int, name string, data any
 	// 需要一次字符串转换，这是布局契约本身决定的。
 	layoutStart := len(page)
 	full, err := ar.RenderAppend(page, a.layout, layoutData(data, string(page[start:])))
-	out = full
+	if br != nil {
+		holder.B = full
+	}
 	if err != nil {
 		if errors.Is(err, render.ErrTemplateNotFound) || errors.Is(err, ErrTemplateNotFound) {
 			return a.writeHTML(c, status, page[start:])
@@ -177,20 +182,23 @@ func (a *App) renderWholeAppend(c *router.Ctx, status int, name string, data any
 func (a *App) renderFragment(c *router.Ctx, status int, name string, data any) error {
 	if ar, ok := a.renderer.(appendRenderer); ok {
 		var br bufferRenderer
+		var holder *render.Buffer
 		buf := bufpool.Get(0)
 		if b, ok := a.renderer.(bufferRenderer); ok {
 			br = b
-			buf = br.AcquireBuffer(0)
+			holder = br.AcquireBuffer(0)
+			buf = holder.B
 		} else {
 			defer bufpool.Put(buf)
 		}
-		out := buf
 		if br != nil {
-			defer func() { br.ReleaseBuffer(out) }()
+			defer func() { br.ReleaseBuffer(holder) }()
 		}
 		start := len(buf)
 		page, err := ar.RenderAppend(buf, name, data)
-		out = page
+		if br != nil {
+			holder.B = page
+		}
 		if err != nil {
 			return err
 		}

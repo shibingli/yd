@@ -153,7 +153,7 @@ func fieldValue(receiver any, name string) (any, error) {
 		}
 		return f.Interface(), nil
 	case reflect.Map:
-		key := reflect.ValueOf(name)
+		key := mapKeyValue(name)
 		if !key.Type().AssignableTo(rv.Type().Key()) {
 			return nil, execErr("can't use string as key of %[1]s | 不能把字符串用作 %[1]s 的键", rv.Type())
 		}
@@ -177,9 +177,9 @@ func fieldValue(receiver any, name string) (any, error) {
 // unsupported receiver, or an unexported field). | resolveFieldRef 以 reflect.Value
 // 遍历字段链，使字符串与数字在输出路径上不被装箱进接口。遇到方法、不支持的接收者或
 // 未导出字段时返回 false，交由通用求值器处理。
-func resolveFieldRef(root any, chain []string) (reflect.Value, bool) {
+func resolveFieldRef(root any, chain []string, keys []reflect.Value) (reflect.Value, bool) {
 	v := reflect.ValueOf(root)
-	for _, name := range chain {
+	for i, name := range chain {
 		for v.IsValid() && (v.Kind() == reflect.Interface || v.Kind() == reflect.Pointer) {
 			if v.IsNil() {
 				// A nil receiver with a field still to evaluate is an explicit nil:
@@ -205,7 +205,7 @@ func resolveFieldRef(root any, chain []string) (reflect.Value, bool) {
 			}
 			v = f
 		case reflect.Map:
-			key := reflect.ValueOf(name)
+			key := mapKeyAt(keys, i, name)
 			if !key.Type().AssignableTo(v.Type().Key()) {
 				return reflect.Value{}, false
 			}
@@ -215,6 +215,74 @@ func resolveFieldRef(root any, chain []string) (reflect.Value, bool) {
 		}
 	}
 	return v, true
+}
+
+// resolveFieldRefValue walks a chain starting from an existing reflect value.
+// It handles maps and structs without materializing the receiver as an
+// interface, which is what map rows in slices need. | resolveFieldRefValue 从已有
+// 反射值开始遍历字段链。它处理映射与结构体时不把接收者实体化为接口，这正是切片中
+// 映射行所需要的。
+func resolveFieldRefValue(v reflect.Value, chain []string, keys []reflect.Value) (reflect.Value, bool) {
+	for i, name := range chain {
+		for v.IsValid() && (v.Kind() == reflect.Interface || v.Kind() == reflect.Pointer) {
+			if v.IsNil() {
+				return reflect.Value{}, false
+			}
+			v = v.Elem()
+		}
+		if !v.IsValid() {
+			return reflect.Value{}, true
+		}
+		switch v.Kind() {
+		case reflect.Struct:
+			idx, ok := structField(v.Type(), name)
+			if !ok {
+				return reflect.Value{}, false
+			}
+			next, err := v.FieldByIndexErr(idx)
+			if err != nil {
+				return reflect.Value{}, false
+			}
+			v = next
+		case reflect.Map:
+			key := mapKeyAt(keys, i, name)
+			if !key.Type().AssignableTo(v.Type().Key()) {
+				return reflect.Value{}, false
+			}
+			v = v.MapIndex(key)
+			if !v.IsValid() {
+				return reflect.Value{}, true
+			}
+		default:
+			return reflect.Value{}, false
+		}
+	}
+	return v, true
+}
+
+// mapKeyAt returns a precomputed reflect map key, falling back to the global
+// key cache for generic callers. | mapKeyAt 返回预计算的反射映射键；通用调用方
+// 回退到全局键缓存。
+func mapKeyAt(keys []reflect.Value, i int, name string) reflect.Value {
+	if i < len(keys) {
+		return keys[i]
+	}
+	return mapKeyValue(name)
+}
+
+// mapKeyValues caches reflect map keys by name so a string header is boxed once
+// per field name rather than once per render. | mapKeyValues 按名字缓存反射映射键，
+// 使字符串头按字段名装箱一次，而不是每次渲染一次。
+var mapKeyValues sync.Map
+
+// mapKeyValue returns the cached reflect value of a map key name. | mapKeyValue 返回映射键名的缓存反射值。
+func mapKeyValue(name string) reflect.Value {
+	if v, ok := mapKeyValues.Load(name); ok {
+		return v.(reflect.Value)
+	}
+	v := reflect.ValueOf(name)
+	mapKeyValues.Store(name, v)
+	return v
 }
 
 // appendEscapedReflect escapes a reflect value without boxing primitive kinds.
@@ -318,9 +386,33 @@ func appendEscapedTyped(dst []byte, s string, ct contentType, kind escKind) []by
 		return appendRCDATAEscaped(dst, s, ct)
 	case escNoSpace:
 		return appendNoSpaceEscaped(dst, s, ct)
-	default:
-		return appendEscaped(dst, typedString(ct, s), kind)
+	case escJSVal:
+		switch ct {
+		case contentTypeJS:
+			return append(dst, s...)
+		case contentTypeJSStr:
+			dst = append(dst, '"')
+			dst = append(dst, s...)
+			return append(dst, '"')
+		}
+	case escJSStr:
+		if ct == contentTypeJSStr {
+			return appendString(dst, replaceJS(s, jsStrNormReplacementTable))
+		}
+	case escURL, escURLNormalizer:
+		if ct == contentTypeURL {
+			return appendURLString(dst, s, true)
+		}
+	case escURLFilter:
+		if ct == contentTypeURL {
+			return append(dst, s...)
+		}
+	case escSrcset:
+		if ct == contentTypeSrcset {
+			return append(dst, s...)
+		}
 	}
+	return appendEscaped(dst, typedString(ct, s), kind)
 }
 
 // typedString reconstructs a trusted string type for the rare escaper that
@@ -398,6 +490,39 @@ func truthy(v any) bool {
 	case reflect.Complex64, reflect.Complex128:
 		return rv.Complex() != 0
 	case reflect.Chan, reflect.Func, reflect.Pointer, reflect.UnsafePointer, reflect.Interface:
+		return !rv.IsNil()
+	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
+		return rv.Int() != 0
+	case reflect.Float32, reflect.Float64:
+		return rv.Float() != 0
+	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64, reflect.Uintptr:
+		return rv.Uint() != 0
+	case reflect.Struct:
+		return true
+	}
+	return false
+}
+
+// truthyReflect reports the text/template truth of a reflect value without
+// boxing it. | truthyReflect 不做装箱地返回反射值的 text/template 真值。
+func truthyReflect(rv reflect.Value) bool {
+	for rv.IsValid() && (rv.Kind() == reflect.Interface || rv.Kind() == reflect.Pointer) {
+		if rv.IsNil() {
+			return false
+		}
+		rv = rv.Elem()
+	}
+	if !rv.IsValid() {
+		return false
+	}
+	switch rv.Kind() {
+	case reflect.Array, reflect.Map, reflect.Slice, reflect.String:
+		return rv.Len() > 0
+	case reflect.Bool:
+		return rv.Bool()
+	case reflect.Complex64, reflect.Complex128:
+		return rv.Complex() != 0
+	case reflect.Chan, reflect.Func, reflect.UnsafePointer:
 		return !rv.IsNil()
 	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
 		return rv.Int() != 0

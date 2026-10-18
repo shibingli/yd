@@ -11,6 +11,14 @@ import (
 	"github.com/shibingli/yd/web"
 )
 
+// zeroTranslator returns a precomputed message without allocating, matching a
+// compiled catalog rather than string concatenation. | zeroTranslator 返回预编译消息且
+// 不分配，模拟编译后的语言目录而不是字符串拼接。
+type zeroTranslator struct{}
+
+// T returns a fixed message without allocating. | T 无分配地返回固定消息。
+func (zeroTranslator) T(string, ...any) string { return "message" }
+
 // benchTranslator is a translator with a stable cache key. | benchTranslator 是带稳定缓存键的译者。
 type benchTranslator struct{ lang string }
 
@@ -65,9 +73,9 @@ func newBenchEngine(tb testing.TB) *Engine {
 func BenchmarkRender(b *testing.B) {
 	e := newBenchEngine(b)
 	items := []string{"a", "b", "c", "d"}
-	withTr := map[string]any{TranslatorKey: benchTranslator{lang: "en"}, "Items": items}
+	withTr := map[string]any{TranslatorKey: zeroTranslator{}, "Items": items}
 	withBoth := map[string]any{
-		TranslatorKey: benchTranslator{lang: "en"},
+		TranslatorKey: zeroTranslator{},
 		AuthzKey:      benchAuthz{key: "admin", allow: true},
 		"Items":       items,
 	}
@@ -105,7 +113,7 @@ func BenchmarkRender(b *testing.B) {
 // | frameworkData 是覆盖框架模板各分支的最小数据。
 func frameworkData() map[string]any {
 	return map[string]any{
-		TranslatorKey: benchTranslator{lang: "en"},
+		TranslatorKey: zeroTranslator{},
 		AuthzKey:      benchAuthz{key: "admin", allow: true},
 		"Perm":        map[string]string{"UserCreate": "user:create", "UserDelete": "user:delete"},
 		"Role":        map[string]string{"Admin": "admin"},

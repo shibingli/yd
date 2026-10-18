@@ -135,6 +135,16 @@ type Engine struct {
 // | maxRetainedBuffer 限制引擎缓冲池保留的单个缓冲容量。
 const maxRetainedBuffer = 1 << 20
 
+// Buffer is an engine-owned output buffer. | Buffer 是引擎持有的输出缓冲。
+//
+// B is the current slice. A caller that lets RenderAppend grow it must assign
+// the returned slice back to B so ReleaseBuffer retains the grown capacity.
+// | B 是当前切片。调用方若让 RenderAppend 增长缓冲，必须把返回的切片写回 B，
+// ReleaseBuffer 才能保留增长后的容量。
+type Buffer struct {
+	B []byte
+}
+
 // AcquireBuffer returns a zero-length buffer with at least hint capacity. | AcquireBuffer 返回长度为零、容量至少为 hint 的缓冲。
 //
 // The buffer comes from the engine's own pool, so a page that grows to tens of
@@ -142,25 +152,27 @@ const maxRetainedBuffer = 1 << 20
 // return it with ReleaseBuffer once the response has been written. | 缓冲来自引擎自身的池，
 // 因此增长到几十 KB 的页面会被复用而不是每请求重新分配。调用方在响应写完后必须用
 // ReleaseBuffer 归还。
-func (e *Engine) AcquireBuffer(hint int) []byte {
+func (e *Engine) AcquireBuffer(hint int) *Buffer {
 	if v := e.bufPool.Get(); v != nil {
-		b := v.([]byte)[:0]
-		if cap(b) >= hint {
+		b := v.(*Buffer)
+		if cap(b.B) >= hint {
+			b.B = b.B[:0]
 			return b
 		}
 	}
 	if hint < 4096 {
 		hint = 4096
 	}
-	return make([]byte, 0, hint)
+	return &Buffer{B: make([]byte, 0, hint)}
 }
 
 // ReleaseBuffer returns a buffer acquired from this engine. | ReleaseBuffer 归还从本引擎获取的缓冲。
-func (e *Engine) ReleaseBuffer(b []byte) {
-	if b == nil || cap(b) > maxRetainedBuffer {
+func (e *Engine) ReleaseBuffer(b *Buffer) {
+	if b == nil || cap(b.B) > maxRetainedBuffer {
 		return
 	}
-	e.bufPool.Put(b[:0])
+	b.B = b.B[:0]
+	e.bufPool.Put(b)
 }
 
 // New loads every template under the configured root. | New 加载配置根目录下的全部模板。
@@ -412,13 +424,14 @@ func (e *Engine) Render(w io.Writer, name string, data any) error {
 		return p.fallback.fallback(w, unwrapData(data))
 	}
 	buf := e.AcquireBuffer(p.sizeHint)
-	out, err := p.exec(buf, unwrapData(data), translatorFrom(data), authzFrom(data))
+	out, err := p.exec(buf.B, unwrapData(data), translatorFrom(data), authzFrom(data))
+	buf.B = out
 	if err != nil {
 		e.ReleaseBuffer(buf)
 		return err
 	}
 	_, werr := w.Write(out)
-	e.ReleaseBuffer(out)
+	e.ReleaseBuffer(buf)
 	if werr != nil {
 		return werr
 	}

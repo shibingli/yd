@@ -37,10 +37,31 @@ type output struct {
 // outputPool reuses the shared output holder. | outputPool 复用共享输出持有者。
 var outputPool = sync.Pool{New: func() any { return &output{} }}
 
-// variable is one dynamic template variable. | variable 是一个动态模板变量。
+// variable is one dynamic template variable. A value taken from a reflect path
+// is kept as a reflect.Value until some generic operation needs an interface,
+// which avoids boxing loop elements and field assignments. | variable 是一个
+// 动态模板变量。来自反射路径的值在通用操作需要接口之前保持为 reflect.Value，
+// 从而避免循环元素与字段赋值装箱。
 type variable struct {
 	value any
+	ref   reflect.Value
 	name  string
+	isRef bool
+}
+
+// any materializes the variable as an interface, boxing only on first use. | any
+// 把变量实体化为接口，只在首次使用时装箱。
+func (v *variable) any() any {
+	if v.isRef {
+		if v.ref.IsValid() {
+			v.value = v.ref.Interface()
+		} else {
+			v.value = nil
+		}
+		v.ref = reflect.Value{}
+		v.isRef = false
+	}
+	return v.value
 }
 
 // execState is the mutable state of one execution. | execState 是一次执行的可变状态。
@@ -50,11 +71,78 @@ type execState struct {
 	az           Authz
 	out          *output
 	tmpl         *compiledTemplate
+	dotMap       map[string]any
+	dotRef       reflect.Value
 	vars         []variable
 	scratch      []any
 	scratchBytes []byte
 	depth        int
 	flow         flowKind
+	dotMapOK     bool
+	dotRefOK     bool
+}
+
+// dotSnapshot saves the three parts of the dot so a nested scope can restore
+// them. | dotSnapshot 保存 dot 的三部分，供嵌套作用域恢复。
+type dotSnapshot struct {
+	value any
+	m     map[string]any
+	ref   reflect.Value
+	ok    bool
+	mapOK bool
+}
+
+// saveDot snapshots the current dot. | saveDot 保存当前 dot。
+func (s *execState) saveDot() dotSnapshot {
+	return dotSnapshot{value: s.dot, m: s.dotMap, ref: s.dotRef, ok: s.dotRefOK, mapOK: s.dotMapOK}
+}
+
+// restoreDot restores a dot snapshot. | restoreDot 恢复 dot 快照。
+func (s *execState) restoreDot(d dotSnapshot) {
+	s.dot, s.dotMap, s.dotRef, s.dotRefOK, s.dotMapOK = d.value, d.m, d.ref, d.ok, d.mapOK
+}
+
+// setDot sets an interface dot. | setDot 设置接口形式的 dot。
+func (s *execState) setDot(v any) {
+	s.dot = v
+	s.dotMap = nil
+	s.dotRef = reflect.Value{}
+	s.dotMapOK = false
+	s.dotRefOK = false
+}
+
+// setDotRef sets a reflect dot without boxing it. | setDotRef 设置反射形式的 dot，不做装箱。
+func (s *execState) setDotRef(v reflect.Value) {
+	s.dot = nil
+	s.dotMap = nil
+	s.dotRef = v
+	s.dotMapOK = false
+	s.dotRefOK = true
+}
+
+// setDotMap sets a map[string]any dot without boxing the map header. | setDotMap 设置 map[string]any 形式的 dot，不装箱映射头。
+func (s *execState) setDotMap(m map[string]any) {
+	s.dot = nil
+	s.dotMap = m
+	s.dotRef = reflect.Value{}
+	s.dotMapOK = true
+	s.dotRefOK = false
+}
+
+// dotAny materializes the dot as an interface, boxing a reflect dot only when
+// a generic path actually needs it. | dotAny 把 dot 实体化为接口；只有通用路径确实
+// 需要时才装箱反射 dot。
+func (s *execState) dotAny() any {
+	if s.dotMapOK {
+		return s.dotMap
+	}
+	if s.dotRefOK {
+		if !s.dotRef.IsValid() {
+			return nil
+		}
+		return s.dotRef.Interface()
+	}
+	return s.dot
 }
 
 // statePool reuses execution states so a render does not allocate its variable
@@ -71,6 +159,10 @@ var statePool = sync.Pool{New: func() any {
 func acquireState() *execState {
 	s := statePool.Get().(*execState)
 	s.dot = nil
+	s.dotMap = nil
+	s.dotRef = reflect.Value{}
+	s.dotMapOK = false
+	s.dotRefOK = false
 	s.tr = nil
 	s.az = nil
 	s.depth = 0
@@ -95,6 +187,10 @@ func releaseState(s *execState) {
 	}
 	s.out = nil
 	s.dot = nil
+	s.dotMap = nil
+	s.dotRef = reflect.Value{}
+	s.dotMapOK = false
+	s.dotRefOK = false
 	s.tr = nil
 	s.az = nil
 	s.tmpl = nil
@@ -117,11 +213,39 @@ func (s *execState) mark() int { return len(s.vars) }
 // pop truncates the variable stack to mark. | pop 把变量栈截断到 mark。
 func (s *execState) pop(mark int) { s.vars = s.vars[:mark] }
 
+// pushRef appends a variable backed by a reflect value. | pushRef 追加一个由反射值支持的变量。
+func (s *execState) pushRef(name string, ref reflect.Value) {
+	s.vars = append(s.vars, variable{name: name, ref: ref, isRef: true})
+}
+
+// setVarRef assigns an existing variable from a reflect value. | setVarRef 用反射值给已有变量赋值。
+func (s *execState) setVarRef(name string, ref reflect.Value) error {
+	for i := len(s.vars) - 1; i >= 0; i-- {
+		if s.vars[i].name == name {
+			s.vars[i].value = nil
+			s.vars[i].ref = ref
+			s.vars[i].isRef = true
+			return nil
+		}
+	}
+	return execErr("undefined variable %[1]s | 未定义变量 %[1]s", name)
+}
+
+// setTopVarRef assigns the n-th variable from the top from a reflect value. | setTopVarRef 用反射值给从顶部数第 n 个变量赋值。
+func (s *execState) setTopVarRef(n int, ref reflect.Value) {
+	v := &s.vars[len(s.vars)-n]
+	v.value = nil
+	v.ref = ref
+	v.isRef = true
+}
+
 // setVar assigns an existing variable. | setVar 给已有变量赋值。
 func (s *execState) setVar(name string, v any) error {
 	for i := len(s.vars) - 1; i >= 0; i-- {
 		if s.vars[i].name == name {
 			s.vars[i].value = v
+			s.vars[i].ref = reflect.Value{}
+			s.vars[i].isRef = false
 			return nil
 		}
 	}
@@ -130,17 +254,29 @@ func (s *execState) setVar(name string, v any) error {
 
 // setTopVar assigns the n-th variable from the top. | setTopVar 给从顶部数第 n 个变量赋值。
 func (s *execState) setTopVar(n int, v any) {
-	s.vars[len(s.vars)-n].value = v
+	cell := &s.vars[len(s.vars)-n]
+	cell.value = v
+	cell.ref = reflect.Value{}
+	cell.isRef = false
+}
+
+// varCell returns the variable cell from the top of the stack. | varCell 从栈顶向下返回变量单元。
+func (s *execState) varCell(name string) (*variable, bool) {
+	for i := len(s.vars) - 1; i >= 0; i-- {
+		if s.vars[i].name == name {
+			return &s.vars[i], true
+		}
+	}
+	return nil, false
 }
 
 // varValue looks a variable up from the top of the stack. | varValue 从栈顶向下查找变量。
 func (s *execState) varValue(name string) (any, error) {
-	for i := len(s.vars) - 1; i >= 0; i-- {
-		if s.vars[i].name == name {
-			return s.vars[i].value, nil
-		}
+	cell, ok := s.varCell(name)
+	if !ok {
+		return nil, execErr("undefined variable %[1]s | 未定义变量 %[1]s", name)
 	}
-	return nil, execErr("undefined variable %[1]s | 未定义变量 %[1]s", name)
+	return cell.any(), nil
 }
 
 // exec renders program p into dst. | exec 把程序 p 渲染到 dst。
@@ -152,7 +288,7 @@ func (p *program) exec(dst []byte, data any, tr Translator, az Authz) ([]byte, e
 	out.b = dst
 	s := acquireState()
 	s.out = out
-	s.dot = data
+	s.setDot(data)
 	s.tr = tr
 	s.az = az
 	s.tmpl = p.root
@@ -189,6 +325,15 @@ func (n *textNode) exec(s *execState) error {
 
 // exec evaluates and prints one action. | exec 求值并输出一个动作。
 func (n *actionNode) exec(s *execState) error {
+	if n.declField != nil {
+		if rv, ok := n.declField.value(s); ok {
+			if n.declAssign {
+				return s.setVarRef(n.declName, rv)
+			}
+			s.pushRef(n.declName, rv)
+			return nil
+		}
+	}
 	if n.quick != nil {
 		return n.execQuick(s)
 	}
@@ -271,25 +416,93 @@ func (n *actionNode) execQuick(s *execState) error {
 
 // execFieldQuick prints a single field chain without interface boxing. | execFieldQuick 无接口装箱地输出单条字段链。
 func (n *actionNode) execFieldQuick(s *execState) (bool, error) {
-	rv, ok := n.field.value(s.dot)
+	if v, handled := n.field.anyValue(s); handled {
+		n.appendEscapedAny(s, v)
+		return true, nil
+	}
+	rv, ok := n.field.value(s)
 	if !ok {
 		return false, nil
 	}
 	start := len(s.out.b)
 	s.out.b = appendEscapedReflect(s.out.b, rv, n.field.escs[0])
-	for _, esc := range n.field.escs[1:] {
+	n.applyEscaperChain(s, start, n.field.escs[1:])
+	return true, nil
+}
+
+// appendEscapedAny escapes a value that is already an interface, as map data
+// is, without converting it through reflect. | appendEscapedAny 转义已经是接口的值
+// （映射数据即如此），不经过反射转换。
+func (n *actionNode) appendEscapedAny(s *execState, v any) {
+	start := len(s.out.b)
+	s.out.b = appendEscaped(s.out.b, v, n.field.escs[0])
+	n.applyEscaperChain(s, start, n.field.escs[1:])
+}
+
+// applyEscaperChain applies the remaining escapers to the segment at start. | applyEscaperChain 对 start 处的片段应用剩余转义器。
+func (n *actionNode) applyEscaperChain(s *execState, start int, escs []escKind) {
+	for _, esc := range escs {
 		s.scratchBytes = append(s.scratchBytes[:0], s.out.b[start:]...)
 		s.out.b = s.out.b[:start]
 		s.out.b = appendEscapedBytes(s.out.b, s.scratchBytes, esc)
 	}
-	return true, nil
+}
+
+// anyValue resolves a chain over map[string]any data without reflection. | anyValue 在 map[string]any 数据上不经反射解析字段链。
+func (f *fieldAction) anyValue(s *execState) (any, bool) {
+	var cur any
+	switch {
+	case f.varName != "":
+		cell, ok := s.varCell(f.varName)
+		if !ok || cell.isRef {
+			return nil, false
+		}
+		cur = cell.value
+	case s.dotMapOK:
+		cur = s.dotMap
+	case s.dotRefOK:
+		return nil, false
+	default:
+		cur = s.dot
+	}
+	for _, name := range f.chain {
+		m, ok := cur.(map[string]any)
+		if !ok {
+			return nil, false
+		}
+		v, exists := m[name]
+		if !exists {
+			return nil, true
+		}
+		cur = v
+	}
+	return cur, true
 }
 
 // value resolves the field chain, reusing a per-type struct index path so the
 // hot loop does not hash reflect types on every row. | value 解析字段链，并复用按类型
 // 缓存的字段索引路径，使热循环不必每行哈希反射类型。
-func (f *fieldAction) value(dot any) (reflect.Value, bool) {
-	typ := reflect.TypeOf(dot)
+func (f *fieldAction) value(s *execState) (reflect.Value, bool) {
+	var typ reflect.Type
+	var root reflect.Value
+	if f.varName != "" {
+		cell, ok := s.varCell(f.varName)
+		if !ok {
+			return reflect.Value{}, false
+		}
+		if cell.isRef {
+			root = cell.ref
+		} else {
+			root = reflect.ValueOf(cell.value)
+		}
+	} else if s.dotRefOK {
+		root = s.dotRef
+	} else {
+		root = reflect.ValueOf(s.dot)
+	}
+	if root.IsValid() {
+		typ = root.Type()
+	}
 	if typ != nil {
 		path := f.path.Load()
 		if path == nil || path.typ != typ {
@@ -297,7 +510,7 @@ func (f *fieldAction) value(dot any) (reflect.Value, bool) {
 			f.path.Store(path)
 		}
 		if path.ok {
-			v := reflect.ValueOf(dot)
+			v := root
 			for _, idx := range path.indexes {
 				for v.Kind() == reflect.Pointer || v.Kind() == reflect.Interface {
 					if v.IsNil() {
@@ -317,7 +530,20 @@ func (f *fieldAction) value(dot any) (reflect.Value, bool) {
 			return v, true
 		}
 	}
-	return resolveFieldRef(dot, f.chain)
+	if f.varName != "" {
+		cell, ok := s.varCell(f.varName)
+		if !ok {
+			return reflect.Value{}, false
+		}
+		if cell.isRef {
+			return resolveFieldRefValue(cell.ref, f.chain, f.keys)
+		}
+		return resolveFieldRef(cell.any(), f.chain, f.keys)
+	}
+	if s.dotRefOK {
+		return resolveFieldRefValue(s.dotRef, f.chain, f.keys)
+	}
+	return resolveFieldRef(s.dotAny(), f.chain, f.keys)
 }
 
 // resolveStructPath resolves a chain assuming every step is a struct field. | resolveStructPath 假定每一步都是结构体字段来解析链。
@@ -346,10 +572,20 @@ func resolveStructPath(t reflect.Type, chain []string) *structPath {
 // exec implements if and with. | exec 实现 if 与 with。
 func (n *ifNode) exec(s *execState) error {
 	mark := s.mark()
-	defer s.pop(mark)
+	err := n.run(s)
+	s.pop(mark)
+	return err
+}
+
+// run is the body of exec; the pop lives outside so the defer cannot spill to
+// the heap on the many-return path. | run 是 exec 的主体；pop 放在外层，使多返回
+// 路径上的 defer 不会溢出到堆。
+func (n *ifNode) run(s *execState) error {
 	var truth bool
-	dotValue := s.dot
-	if n.quick != nil {
+	var withDot any
+	useWithDot := false
+	switch {
+	case n.quick != nil:
 		scratchMark := len(s.scratch)
 		args, err := s.evalArgs(n.quick.args)
 		if err != nil {
@@ -364,20 +600,35 @@ func (n *ifNode) exec(s *execState) error {
 			}
 		}
 		s.scratch = s.scratch[:scratchMark]
-	} else {
+	case n.cond != nil:
+		if v, handled := n.cond.anyValue(s); handled {
+			truth = truthy(v)
+			break
+		}
+		if rv, ok := n.cond.value(s); ok {
+			truth = truthyReflect(rv)
+			break
+		}
 		v, err := n.pipe.eval(s)
 		if err != nil {
 			return err
 		}
 		truth = truthy(v)
-		dotValue = v
+		withDot, useWithDot = v, true
+	default:
+		v, err := n.pipe.eval(s)
+		if err != nil {
+			return err
+		}
+		truth = truthy(v)
+		withDot, useWithDot = v, true
 	}
 	if truth {
-		if n.with {
-			old := s.dot
-			s.dot = dotValue
+		if n.with && useWithDot {
+			old := s.saveDot()
+			s.setDot(withDot)
 			err := n.body.exec(s)
-			s.dot = old
+			s.restoreDot(old)
 			return err
 		}
 		return n.body.exec(s)
@@ -402,7 +653,7 @@ func (n *templateNode) exec(s *execState) error {
 	}
 	child := acquireState()
 	child.out = s.out
-	child.dot = arg
+	child.setDot(arg)
 	child.tr = s.tr
 	child.az = s.az
 	child.depth = s.depth + 1
