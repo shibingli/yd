@@ -45,7 +45,7 @@ done
 
 ## 关键结论（详见各模块 README，全部实现均在同一张表中）
 
-- **ws**：顺序回显在 32 B/256 B/1 KiB/4 KiB/64 KiB 五档均为最低延迟（64 KiB 17,061 ns、3,841 MB/s），唯一全程 `0 B/op、0 allocs/op`；并发 1 KiB 下 gws 最快（2,022 ns、506.5 MB/s），yd 为 2,290 ns、447.2 MB/s 且 CPU/RSS 最低。兼容性 18/18。
+- **ws**：顺序回显在 32 B/256 B/1 KiB/4 KiB/64 KiB 五档均为最低延迟（4,043 / 4,177 / 4,255 / 5,205 / 16,776 ns；64 KiB 3,906 MB/s），唯一全程 `0 B/op、0 allocs/op`；并发 1 KiB 下 yd 预读模式最快（**1,455 ns、703.76 MB/s、0 allocs/op**），比 gws（2,069 ns、494.81 MB/s、2 allocs）快约 29.7%，同步模式为 2,309 ns / 443.55 MB/s；新增 `WriteBatch`/`WriteMessageBuffered`/`Flush` 批量写 API，流水线回显（1 KiB × 8）由 277.70 提升到 **1,366.11 MB/s（4.92×，零分配）**；读写缓冲与单条消息上限由 `core/sysinfo` 按 GOMAXPROCS 与内存自动调优。兼容性 18/18。
 - **router**：param/deep/wildcard/miss 四类最快（1.1–1.6 ns），五类路径零分配；静态路径 httprouter 最快（0.9 vs yd 1.1 ns）；WebSocket 握手经 router 增加约 15 ns（4.2%）。
 - **json**：amd64 默认已是自研后端。单核 Marshal 在 n=1/100/1000 全部第一（比 go-json 快约 14.9%/28.0%/28.8%）；Unmarshal 在 n=100/n=1000 快约 6.8%/1.9%，n=1 慢约 4.8%。多核 Marshal 在 2–16 核领先（16 核 10,416 MB/s），32 核 10,704 vs 10,806 MB/s 基本持平；Unmarshal 8–32 核领先（32 核 6,045 vs 3,109 MB/s），CPU 1,948% vs 2,459%、RSS 91.9 vs 132.4 MiB。嵌入字段支配规则、omitzero、解码 `,string`、深度上限 10000、Unicode/自定义接口兼容与差分/fuzz 全部通过。
 - **base64**：amd64 默认已是自研内核。单核 32 B–1 MiB 编码/解码全部第一（32 B 5.76/8.43 ns，64 KiB 45.6/33.5 GB/s）；并发调用 1–32 核全部第一（16 核 535.4/409.1 GB/s），16 核后接近内存带宽上限。`EncodeParallel`/`DecodeParallel` 不接收核心数，按 GOMAXPROCS 与输入大小自动选择；8 MiB 编码在 16 核达 160.1 GB/s。三套内核零向量寄存器溢出；全长度+大长度差分、越界哨兵、race 通过。
