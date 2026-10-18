@@ -68,8 +68,8 @@ func (w *hijackWriter) Hijack() (net.Conn, *bufio.ReadWriter, error) { return w.
 func TestUpgradeReusesHijackBuffers(t *testing.T) {
 	nc := &sinkConn{}
 	brw := bufio.NewReadWriter(
-		bufio.NewReaderSize(nc, defaultReadBufferSize),
-		bufio.NewWriterSize(nc, defaultWriteBufferSize),
+		bufio.NewReaderSize(nc, tunedReadBufferSize()),
+		bufio.NewWriterSize(nc, tunedWriteBufferSize()),
 	)
 	w := &hijackWriter{header: make(http.Header), conn: nc, brw: brw}
 	r := httptest.NewRequest(http.MethodGet, "/ws", nil)
@@ -97,8 +97,8 @@ func TestUpgradeReusesHijackBuffers(t *testing.T) {
 func BenchmarkUpgrade(b *testing.B) {
 	nc := &sinkConn{}
 	brw := bufio.NewReadWriter(
-		bufio.NewReaderSize(nc, defaultReadBufferSize),
-		bufio.NewWriterSize(nc, defaultWriteBufferSize),
+		bufio.NewReaderSize(nc, tunedReadBufferSize()),
+		bufio.NewWriterSize(nc, tunedWriteBufferSize()),
 	)
 	w := &hijackWriter{header: make(http.Header), conn: nc, brw: brw}
 	r := httptest.NewRequest(http.MethodGet, "/ws", nil)

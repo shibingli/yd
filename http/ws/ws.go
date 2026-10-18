@@ -36,6 +36,11 @@
 //     by MaxMessageSize so a compression bomb is closed with 1009 instead of exhausting memory. |     因此解压炸弹会以 1009 关闭而不是耗尽内存。
 //   - Memory reuse: frame headers are written into a stack array and sent together with the payload in a single writev via net.Buffers, |   - 内存复用：帧头写入栈上数组并配合 net.Buffers 一次 writev 发出，
 //     so the payload is never copied a second time; the read side reuses internal buffers and reads large messages straight into the destination slice. |     载荷不做二次拷贝；读取侧复用内部缓冲，大消息直接读入目标切片。
+//   - Write batching: WriteMessageBuffered and WriteBatch append complete frames and defer the transport write to Flush, |   - 写批处理：WriteMessageBuffered 与 WriteBatch 追加完整帧并把传输层写入推迟到 Flush，
+//     and BufferedRead lets an echo loop keep batching while more input is already buffered; pipelined workloads therefore pay |     而 BufferedRead 让回显循环在已有更多输入时继续合并，流水线负载因此只为一批消息
+//     one transport write per batch instead of one per message. |     支付一次传输层写入，而不是每条消息一次。
+//   - Opt-in read-ahead: DialOptions.ReadAhead pre-arms the next read on a background reader, removing the syscall-entry |   - 可选预读：DialOptions.ReadAhead 在后台读协程上预挂起下一次读取，消除「写完才发起读」的
+//     gap between a write and the following read; slots are capped at 1 MiB per message and the steady state stays allocation-free. |     系统调用入口空档；每个复制槽上限 1 MiB，稳态保持零分配。
 //   - Protocol strictness: client masking is enforced, control frames are constrained, RSV bits are validated, text is UTF-8 validated, |   - 协议严格性：强制客户端掩码、控制帧约束、RSV 校验、文本 UTF-8 校验、
 //     oversized messages are closed, and the error codes fully follow RFC 6455 §7.4.1. |     超限消息关闭，错误码完全遵循 RFC 6455 §7.4.1。
 //
@@ -116,22 +121,23 @@ const (
 	TransportHTTP3
 )
 
+// String returns the bilingual name of the opcode. | String 返回操作码的双语名称。
 func (c OpCode) String() string {
 	switch c {
 	case ContinuationMessage:
-		return "continuation"
+		return "continuation | 续帧"
 	case TextMessage:
-		return "text"
+		return "text | 文本"
 	case BinaryMessage:
-		return "binary"
+		return "binary | 二进制"
 	case CloseMessage:
-		return "close"
+		return "close | 关闭"
 	case PingMessage:
-		return "ping"
+		return "ping | 心跳"
 	case PongMessage:
-		return "pong"
+		return "pong | 心跳应答"
 	default:
-		return fmt.Sprintf("opcode(%d)", byte(c))
+		return fmt.Sprintf("opcode(%[1]d) | 操作码(%[1]d)", byte(c))
 	}
 }
 
@@ -156,39 +162,51 @@ const (
 	CloseTLSHandshake            CloseCode = 1015
 )
 
-func (c CloseCode) String() string {
+// closeCodeName returns the English and Chinese names of a close status code and
+// whether the code is one of the standard RFC 6455 values. | closeCodeName 返回关闭
+// 状态码的英文名、中文名，以及它是否为 RFC 6455 的标准取值。
+func closeCodeName(c CloseCode) (en, zh string, known bool) {
 	switch c {
 	case CloseNormalClosure:
-		return "正常关闭"
+		return "normal closure", "正常关闭", true
 	case CloseGoingAway:
-		return "端点离开"
+		return "going away", "端点离开", true
 	case CloseProtocolError:
-		return "协议错误"
+		return "protocol error", "协议错误", true
 	case CloseUnsupportedData:
-		return "不支持的数据类型"
+		return "unsupported data", "不支持的数据类型", true
 	case CloseNoStatusReceived:
-		return "未收到状态码"
+		return "no status received", "未收到状态码", true
 	case CloseAbnormalClosure:
-		return "异常关闭"
+		return "abnormal closure", "异常关闭", true
 	case CloseInvalidFramePayloadData:
-		return "载荷数据非法"
+		return "invalid frame payload data", "载荷数据非法", true
 	case ClosePolicyViolation:
-		return "策略违规"
+		return "policy violation", "策略违规", true
 	case CloseMessageTooBig:
-		return "消息过大"
+		return "message too big", "消息过大", true
 	case CloseMandatoryExtension:
-		return "缺少强制扩展"
+		return "mandatory extension missing", "缺少强制扩展", true
 	case CloseInternalServerErr:
-		return "服务端内部错误"
+		return "internal server error", "服务端内部错误", true
 	case CloseServiceRestart:
-		return "服务重启"
+		return "service restart", "服务重启", true
 	case CloseTryAgainLater:
-		return "稍后重试"
+		return "try again later", "稍后重试", true
 	case CloseTLSHandshake:
-		return "TLS 握手失败"
+		return "TLS handshake failure", "TLS 握手失败", true
 	default:
-		return fmt.Sprintf("关闭码(%d)", uint16(c))
+		return "unknown close code", "未知关闭码", false
 	}
+}
+
+// String returns the bilingual name of the close status code. | String 返回关闭状态码的双语名称。
+func (c CloseCode) String() string {
+	en, zh, known := closeCodeName(c)
+	if !known {
+		return fmt.Sprintf("close code(%[1]d) | 关闭码(%[1]d)", uint16(c))
+	}
+	return en + " | " + zh
 }
 
 // validCloseCode reports whether a status code is allowed on the wire (1005/1006/1015 are reserved and must not be sent). | validCloseCode 报告状态码是否允许出现在线上（1005/1006/1015 保留，不得发送）。
@@ -257,6 +275,8 @@ var (
 	ErrWriteMessageOpcode = errx.New("ws: WriteMessage accepts only text or binary opcodes | ws：WriteMessage 只接受文本或二进制操作码")
 	// ErrWriteControlOpcode indicates that WriteControl was given an opcode other than close, ping or pong. | ErrWriteControlOpcode 表示 WriteControl 收到的不是 close、ping 或 pong 操作码。
 	ErrWriteControlOpcode = errx.New("ws: WriteControl accepts only close, ping or pong opcodes | ws：WriteControl 只接受 close、ping 或 pong 操作码")
+	// ErrReadAheadActive indicates that NextReader was called on a connection with read-ahead enabled. | ErrReadAheadActive 表示在启用预读的连接上调用了 NextReader。
+	ErrReadAheadActive = errx.New("ws: NextReader is unavailable while read-ahead is enabled | ws：启用预读时不能使用 NextReader")
 	// ErrInvalidCloseCode indicates that an outbound close frame carries a reserved or unassigned status code. | ErrInvalidCloseCode 表示出站关闭帧携带了保留或未分配的状态码。
 	ErrInvalidCloseCode = errx.New("ws: close status code is reserved or unassigned and must not appear on the wire | ws：关闭状态码为保留或未分配，不得出现在线上")
 	// ErrInvalidCloseReason indicates that an outbound close reason is not valid UTF-8. | ErrInvalidCloseReason 表示出站关闭原因不是合法 UTF-8。
@@ -281,11 +301,14 @@ type CloseError struct {
 	Code CloseCode
 }
 
+// Error returns the bilingual description of the peer-initiated close. | Error
+// 返回对端发起关闭的双语描述。
 func (e *CloseError) Error() string {
+	en, zh, _ := closeCodeName(e.Code)
 	if e.Text == "" {
-		return fmt.Sprintf("ws: 连接关闭 (%d %s)", uint16(e.Code), e.Code)
+		return fmt.Sprintf("ws: connection closed (%[1]d %[2]s) | ws：连接关闭（%[1]d %[3]s）", uint16(e.Code), en, zh)
 	}
-	return fmt.Sprintf("ws: 连接关闭 (%d %s): %s", uint16(e.Code), e.Code, e.Text)
+	return fmt.Sprintf("ws: connection closed (%[1]d %[2]s): %[3]s | ws：连接关闭（%[1]d %[4]s）：%[3]s", uint16(e.Code), en, e.Text, zh)
 }
 
 // Options holds the server-side upgrade parameters. | Options 是服务端升级参数。
@@ -299,9 +322,13 @@ type Options struct {
 	Tracker Tracker
 	// Subprotocols are the subprotocols the server supports, chosen by order of priority. | Subprotocols 为服务端支持的子协议，按顺序优先级选择。
 	Subprotocols []string
-	// ReadBufferSize is the read buffer size; <=0 means 4096. | ReadBufferSize 为读缓冲大小，<=0 时取 4096。
+	// ReadBufferSize is the read buffer size; <=0 means the sysinfo-tuned default
+	// (4–64 KiB, derived from GOMAXPROCS and the memory ceiling). | ReadBufferSize
+	// 为读缓冲大小，<=0 时取 sysinfo 自动调优值（4–64 KiB，由 GOMAXPROCS 与内存上限推导）。
 	ReadBufferSize int
-	// WriteBufferSize is the write buffer size; <=0 means 4096. | WriteBufferSize 为写缓冲大小，<=0 时取 4096。
+	// WriteBufferSize is the write buffer size; <=0 means the sysinfo-tuned default
+	// (4–64 KiB, derived from GOMAXPROCS and the memory ceiling). | WriteBufferSize
+	// 为写缓冲大小，<=0 时取 sysinfo 自动调优值（4–64 KiB，由 GOMAXPROCS 与内存上限推导）。
 	//
 	// Frames that fit in the buffer are coalesced into a single transport write and flushed at the
 	// frame boundary; larger frames bypass the buffer and use a scatter write. | 能放进缓冲的帧会合并为
@@ -309,7 +336,9 @@ type Options struct {
 	WriteBufferSize int
 	// HandshakeTimeout is the handshake timeout; <=0 means no limit. | HandshakeTimeout 为握手超时，<=0 表示不限制。
 	HandshakeTimeout time.Duration
-	// MaxMessageSize is the per-message limit; <=0 means 32MB. | MaxMessageSize 为单条消息上限，<=0 时取 32MB。
+	// MaxMessageSize is the per-message limit; <=0 means the sysinfo-tuned default
+	// (memory ceiling / 64, clamped to 1–32 MiB). | MaxMessageSize 为单条消息上限，
+	// <=0 时取 sysinfo 自动调优值（内存上限 / 64，夹在 1–32 MiB）。
 	MaxMessageSize int64
 	// EnableCompression enables RFC 7692 permessage-deflate negotiation on the server side. | EnableCompression 在服务端启用 RFC 7692 permessage-deflate 协商。
 	//
@@ -320,16 +349,16 @@ type Options struct {
 	EnableCompression bool
 }
 
-// normalize fills in the default values. | normalize 填充默认值。
+// normalize fills in the default values from sysinfo. | normalize 从 sysinfo 填充默认值。
 func (o Options) normalize() Options {
 	if o.ReadBufferSize <= 0 {
-		o.ReadBufferSize = defaultReadBufferSize
+		o.ReadBufferSize = tunedReadBufferSize()
 	}
 	if o.WriteBufferSize <= 0 {
-		o.WriteBufferSize = defaultWriteBufferSize
+		o.WriteBufferSize = tunedWriteBufferSize()
 	}
 	if o.MaxMessageSize <= 0 {
-		o.MaxMessageSize = defaultMaxMessageSize
+		o.MaxMessageSize = tunedMaxMessageSize()
 	}
 	return o
 }

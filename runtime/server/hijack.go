@@ -106,6 +106,12 @@ func (c *trackedConn) Close() error {
 	return c.Conn.Close()
 }
 
+// Unwrap returns the wrapped connection so that callers can inspect transport
+// capabilities (for example ws detects vectored writes) without losing the
+// shutdown registration. | Unwrap 返回被包装的连接，使调用方能够在不失去退出登记的前提下
+// 检查传输能力（例如 ws 判断是否支持分散写）。
+func (c *trackedConn) Unwrap() net.Conn { return c.Conn }
+
 // trackHijack wraps a handler so that connections it hijacks are registered. | trackHijack 包装处理器，登记它 hijack 出去的连接。
 func (s *Server) trackHijack(h http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

@@ -170,3 +170,30 @@ func TestReadMessageUsesBufferedFastPath(t *testing.T) {
 		t.Fatalf("read buffer capacity = %d, want 0 (fast path unused) | 读缓冲容量 = %d，期望 0（快路径未生效）", cap(c.readBuf), cap(c.readBuf))
 	}
 }
+
+// unwrapConn exposes an underlying connection to capability detection. | unwrapConn 为能力探测暴露底层连接。
+type unwrapConn struct{ net.Conn }
+
+// Unwrap returns the wrapped connection. | Unwrap 返回被包装的连接。
+func (c unwrapConn) Unwrap() net.Conn { return c.Conn }
+
+// TestIsVectoredWriterFollowsUnwrap pins that transport capability detection
+// follows Unwrap wrappers (the framework server wraps hijacked connections) and
+// rejects transports without a vectored-write path. | TestIsVectoredWriterFollowsUnwrap
+// 固定「传输能力探测会跟进 Unwrap 包装（框架服务器会包装 hijack 连接），并拒绝没有
+// 分散写路径的传输」。
+func TestIsVectoredWriterFollowsUnwrap(t *testing.T) {
+	tcp := &net.TCPConn{}
+	if !isVectoredWriter(tcp) {
+		t.Fatal("TCP connection not detected as vectored | TCP 连接未被识别为支持分散写")
+	}
+	if !isVectoredWriter(unwrapConn{Conn: tcp}) {
+		t.Fatal("unwrap wrapper not followed | 未跟进 Unwrap 包装")
+	}
+	left, right := net.Pipe()
+	defer func() { _ = left.Close() }()
+	defer func() { _ = right.Close() }()
+	if isVectoredWriter(left) {
+		t.Fatal("net.Pipe wrongly detected as vectored | net.Pipe 被误判为支持分散写")
+	}
+}

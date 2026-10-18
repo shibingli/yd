@@ -21,7 +21,7 @@ import (
 func readRawFrame(t *testing.T, nc net.Conn) (frameHeader, []byte) {
 	t.Helper()
 	_ = nc.SetReadDeadline(time.Now().Add(3 * time.Second))
-	var buf [8]byte
+	var buf [maxHeaderSize]byte
 	h, err := readFrameHeader(nc, buf[:])
 	if err != nil {
 		t.Fatalf("读取原始帧头失败: %v", err)
@@ -455,7 +455,7 @@ func TestExtensionOfferNotNegotiated(t *testing.T) {
 	if _, err := nc.Write(rawFrameWithBits(true, 0x40, TextMessage, []byte("x"))); err != nil {
 		t.Fatalf("写入 RSV1 帧失败: %v", err)
 	}
-	var hbuf [8]byte
+	var hbuf [maxHeaderSize]byte
 	h, err := readFrameHeader(br, hbuf[:])
 	if err != nil {
 		t.Fatalf("读取关闭帧头失败: %v", err)

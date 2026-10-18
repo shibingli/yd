@@ -551,45 +551,56 @@ func BenchmarkEcho(b *testing.B) {
 	}
 }
 
-// BenchmarkEchoConcurrent measures aggregate throughput with one connection per
-// parallel goroutine. | BenchmarkEchoConcurrent 测量每个并行协程一条连接时的聚合吞吐。
-func BenchmarkEchoConcurrent(b *testing.B) {
+// benchmarkOurConcurrent measures our echo with the synchronous client or the
+// read-ahead client. | benchmarkOurConcurrent 用同步客户端或预读客户端测量本项目回显。
+func benchmarkOurConcurrent(b *testing.B, readAhead bool) {
+	b.Helper()
 	const size = 1 << 10
 	payload := bytes.Repeat([]byte("x"), size)
 	bufSize := bufSizeFor(size)
+	addr, stop := startOurServer(b, size)
+	defer stop()
+	b.SetBytes(int64(size))
+	b.ReportAllocs()
+	b.ResetTimer()
+	b.RunParallel(func(pb *testing.PB) {
+		c, err := ourws.Dial(context.Background(), "ws://"+addr, ourws.DialOptions{ReadBufferSize: bufSize, ReadAhead: readAhead})
+		if err != nil {
+			b.Error(err)
+			return
+		}
+		defer func() { _ = c.CloseNow() }()
+		for pb.Next() {
+			if err := c.WriteMessage(ourws.BinaryMessage, payload); err != nil {
+				b.Error(err)
+				return
+			}
+			_, got, err := c.ReadMessage()
+			if err != nil {
+				b.Error(err)
+				return
+			}
+			if len(got) != size {
+				b.Errorf("read %d bytes, want %d | 读取字节数不符", len(got), size)
+				return
+			}
+		}
+	})
+}
 
+// BenchmarkEchoConcurrent measures aggregate throughput with one connection per
+// parallel goroutine. | BenchmarkEchoConcurrent 测量每个并行协程一条连接时的聚合吞吐。
+func BenchmarkEchoConcurrent(b *testing.B) {
 	if benchSelected("our") {
-		b.Run("our", func(b *testing.B) {
-			addr, stop := startOurServer(b, size)
-			defer stop()
-			b.SetBytes(int64(size))
-			b.ReportAllocs()
-			b.ResetTimer()
-			b.RunParallel(func(pb *testing.PB) {
-				c, err := ourws.Dial(context.Background(), "ws://"+addr, ourws.DialOptions{ReadBufferSize: bufSize})
-				if err != nil {
-					b.Error(err)
-					return
-				}
-				defer func() { _ = c.CloseNow() }()
-				for pb.Next() {
-					if err := c.WriteMessage(ourws.BinaryMessage, payload); err != nil {
-						b.Error(err)
-						return
-					}
-					_, got, err := c.ReadMessage()
-					if err != nil {
-						b.Error(err)
-						return
-					}
-					if len(got) != size {
-						b.Errorf("read %d bytes, want %d | 读取字节数不符", len(got), size)
-						return
-					}
-				}
-			})
-		})
+		b.Run("our", func(b *testing.B) { benchmarkOurConcurrent(b, false) })
 	}
+	if benchSelected("our-readahead") {
+		b.Run("our-readahead", func(b *testing.B) { benchmarkOurConcurrent(b, true) })
+	}
+
+	const size = 1 << 10
+	payload := bytes.Repeat([]byte("x"), size)
+	bufSize := bufSizeFor(size)
 
 	if benchSelected("gorilla") {
 		b.Run("gorilla", func(b *testing.B) {
@@ -865,4 +876,92 @@ func BenchmarkEchoConcurrent(b *testing.B) {
 			})
 		})
 	}
+}
+
+// BenchmarkEchoPipelined measures a client that sends a batch of messages
+// before reading the echoes. It compares one flush per message with the
+// buffered/batched write API on both ends. Only this project is measured: the
+// comparison libraries expose no multi-message batch API. | BenchmarkEchoPipelined
+// 测量客户端先发送一批消息再读取回显。它对比逐条刷新与两端使用缓冲/批量写 API
+// 的差异。这里只测本项目：对比库均未提供多条消息的批量 API。
+func BenchmarkEchoPipelined(b *testing.B) {
+	if !benchSelected("our") {
+		return
+	}
+	const size = 1 << 10
+	const batch = 8
+	payload := bytes.Repeat([]byte("x"), size)
+	bufSize := 64 << 10
+	msgs := make([]ourws.Message, batch)
+	for i := range msgs {
+		msgs[i] = ourws.Message{Op: ourws.BinaryMessage, Payload: payload}
+	}
+
+	run := func(name string, batchedClient, batchedServer bool) {
+		b.Run(name, func(b *testing.B) {
+			addr, stop := startHTTP(b, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				c, err := ourws.Upgrade(w, r, ourws.Options{ReadBufferSize: bufSize, WriteBufferSize: bufSize})
+				if err != nil {
+					return
+				}
+				defer func() { _ = c.CloseNow() }()
+				for {
+					op, p, err := c.ReadMessage()
+					if err != nil {
+						return
+					}
+					if batchedServer {
+						if err := c.WriteMessageBuffered(op, p); err != nil {
+							return
+						}
+						if c.BufferedRead() == 0 {
+							if err := c.Flush(); err != nil {
+								return
+							}
+						}
+						continue
+					}
+					if err := c.WriteMessage(op, p); err != nil {
+						return
+					}
+				}
+			}))
+			defer stop()
+
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			c, err := ourws.Dial(ctx, "ws://"+addr, ourws.DialOptions{ReadBufferSize: bufSize, WriteBufferSize: bufSize})
+			if err != nil {
+				b.Fatalf("dial: %v", err)
+			}
+			defer func() { _ = c.CloseNow() }()
+
+			b.SetBytes(int64(size * batch))
+			b.ReportAllocs()
+			b.ResetTimer()
+			for i := 0; i < b.N; i++ {
+				if batchedClient {
+					if err := c.WriteBatch(msgs); err != nil {
+						b.Fatalf("WriteBatch: %v", err)
+					}
+				} else {
+					for j := 0; j < batch; j++ {
+						if err := c.WriteMessage(ourws.BinaryMessage, payload); err != nil {
+							b.Fatalf("WriteMessage: %v", err)
+						}
+					}
+				}
+				for j := 0; j < batch; j++ {
+					if _, _, err := c.ReadMessage(); err != nil {
+						b.Fatalf("ReadMessage: %v", err)
+					}
+				}
+			}
+		})
+	}
+
+	run("baseline", false, false)
+	run("client-batched", true, false)
+	run("server-batched", false, true)
+	run("batched", true, true)
 }

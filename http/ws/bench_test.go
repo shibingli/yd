@@ -72,7 +72,7 @@ func benchmarkFrameDecode(b *testing.B, size int) {
 	frame = append(frame, body...)
 
 	var reader bytes.Reader
-	var keyBuf [8]byte
+	var keyBuf [maxHeaderSize]byte
 	out := make([]byte, size)
 
 	b.SetBytes(int64(size))
@@ -357,4 +357,28 @@ func BenchmarkFrameDecodeBufioSmall(b *testing.B) {
 		maskBytes(h.maskKey, 0, out)
 	}
 	benchSinkBytes = out
+}
+
+// BenchmarkWriteBatch measures client-side encode cost for batched messages on
+// a sink transport, isolating framing and masking from kernel I/O. | BenchmarkWriteBatch
+// 测量客户端批量消息的编码开销（不含内核 I/O），隔离成帧与掩码成本。
+func BenchmarkWriteBatch(b *testing.B) {
+	payload := bytes.Repeat([]byte("b"), 1<<10)
+	for _, batch := range []int{1, 4, 16, 64} {
+		b.Run(fmt.Sprintf("batch=%d", batch), func(b *testing.B) {
+			c := newConn(&sinkConn{}, Options{WriteBufferSize: 64 << 10}, true)
+			msgs := make([]Message, batch)
+			for i := range msgs {
+				msgs[i] = Message{Op: BinaryMessage, Payload: payload}
+			}
+			b.SetBytes(int64(batch * len(payload)))
+			b.ReportAllocs()
+			b.ResetTimer()
+			for i := 0; i < b.N; i++ {
+				if err := c.WriteBatch(msgs); err != nil {
+					b.Fatalf("WriteBatch failed | WriteBatch 失败: %v", err)
+				}
+			}
+		})
+	}
 }

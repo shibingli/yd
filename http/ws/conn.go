@@ -17,23 +17,32 @@ import (
 // maxInt is the largest value an int can hold on this platform. | maxInt 是当前平台 int 能表示的最大值。
 const maxInt = int(^uint(0) >> 1)
 
+// maskKeyBatch is the number of client masking keys drawn per CSPRNG read. | maskKeyBatch 是每次 CSPRNG 读取生成的客户端掩码键数量。
+const maskKeyBatch = 16
+
 // Conn is an established WebSocket connection. | Conn 是一条已建立的 WebSocket 连接。
 //
 // Concurrency contract (consistent with RFC 6455 and mainstream implementations): | 并发约定（与 RFC 6455 及主流实现一致）：
 //   - **one** reader goroutine and **one** writer goroutine may run concurrently; |   - 允许**一个**读协程与**一个**写协程并发；
 //   - concurrent calls to the write methods from several writer goroutines are serialized by an internal mutex; |   - 多个写协程并发调用写方法由内部互斥锁串行化；
 //   - control frames (ping/pong/close) are answered automatically by the read path, with no caller involvement needed. |   - 控制帧（ping/pong/close）由读路径自动应答，无需调用方干预。
+//   - with DialOptions.ReadAhead, the connection owns an internal reader goroutine; ReadMessage must still be called from |   - 启用 DialOptions.ReadAhead 时，连接拥有一个内部读协程；ReadMessage 仍必须由单一协程调用，
+//     a single goroutine, and control-frame handlers run on the internal reader. |     控制帧处理器在内部读协程上执行。
 //
 // Write contract: frames larger than the write buffer are sent through net.Buffers in one writev,
 // **without copying the payload**; smaller frames are coalesced into the write buffer and flushed as
-// one transport write, so a small message never costs a separate write per buffer. The read side
-// reads net.Conn directly by default (no bufio layer) unless ReadBufferSize asks for one, and the
-// slice returned by ReadMessage points into the connection's internal reuse buffer; that slice is
-// valid **until the next read operation**; copy it yourself if you need to hold it longer. | 写约定：
+// one transport write, so a small message never costs a separate write per buffer. WriteMessage
+// flushes at the frame boundary; WriteMessageBuffered and WriteBatch append several frames and defer
+// the transport write to Flush, which removes one syscall per message for pipelined and broadcast
+// workloads. The read side reads net.Conn directly by default (no bufio layer) unless
+// ReadBufferSize asks for one, and the slice returned by ReadMessage points into the connection's
+// internal reuse buffer; that slice is valid **until the next read operation**; copy it yourself if
+// you need to hold it longer. | 写约定：
 // 大于写缓冲的帧经 net.Buffers 以一次 writev 发出，**不复制载荷**；较小的帧合并进写缓冲并作为一次
-// 传输层写入刷新，因此小消息不会为每个缓冲各付一次写系统调用。读侧默认直接读 net.Conn（无 bufio
-// 中间层，除非 ReadBufferSize 要求），ReadMessage 返回的切片指向连接内部复用缓冲；该切片在
-// **下一次读操作前**有效，需要长期持有请自行复制。
+// 传输层写入刷新，因此小消息不会为每个缓冲各付一次写系统调用。WriteMessage 在帧边界刷新；
+// WriteMessageBuffered 与 WriteBatch 追加多帧并把传输层写入推迟到 Flush，为流水线与广播负载
+// 省掉每条消息一次系统调用。读侧默认直接读 net.Conn（无 bufio 中间层，除非 ReadBufferSize 要求），
+// ReadMessage 返回的切片指向连接内部复用缓冲；该切片在**下一次读操作前**有效，需要长期持有请自行复制。
 type Conn struct {
 	conn net.Conn
 
@@ -49,20 +58,32 @@ type Conn struct {
 	closeHandler func(CloseCode, string) error
 	untrack      func()
 
-	subprotocol string
-
 	// compression is the negotiated RFC 7692 configuration; nil means no extension was negotiated. | compression 是协商出的 RFC 7692 配置；nil 表示未协商扩展。
 	compression  *compressionConfig
 	compressor   *messageCompressor
 	decompressor *messageDecompressor
 
-	readBuf []byte
-	maskBuf []byte
+	// payloadReader is the compressed-message adapter reused with msgReader; it
+	// lives here because the GC scan order prefers interface-bearing fields early. | payloadReader
+	// 是与 msgReader 配套复用的压缩消息适配器；放在这里是因为 GC 扫描顺序偏好把含接口的
+	// 字段前置。
+	payloadReader framePayloadReader
+
+	// ra is non-nil only when read-ahead is enabled; it owns the background
+	// reader and its two copy slots. | ra 仅在启用预读时非空，持有后台读协程及其
+	// 两个复制槽。
+	ra *readAhead
+
+	subprotocol string
 
 	// bufs is the backing array of the scatter list; keeping it inline removes the
 	// per-connection net.Buffers allocation. | bufs 是分散列表的后备数组；内联它可去掉
 	// 每条连接一次的 net.Buffers 分配。
 	bufs [2][]byte
+
+	readBuf []byte
+	maskBuf []byte
+
 	// writeBase is the stable two-element scatter list; writeList is the copy handed to WriteTo,
 	// which consumes it, so the base view survives for the next frame. Both live on the connection,
 	// which keeps the per-frame buffer list allocation-free. | writeBase 是稳定的两元素分散列表；
@@ -71,15 +92,15 @@ type Conn struct {
 	writeBase net.Buffers
 	writeList net.Buffers
 
-	// msgReader and payloadReader are the connection-owned reader state reused by NextReader, so a
-	// steady-state read performs no per-message allocation. | msgReader 与 payloadReader 是
-	// NextReader 复用的连接自有读取状态，因此稳态读取不产生按消息的分配。
-	msgReader     MessageReader
-	payloadReader framePayloadReader
+	// msgReader is the connection-owned reader state reused by NextReader (the
+	// matching payloadReader sits above), so a steady-state read performs no
+	// per-message allocation. | msgReader 是 NextReader 复用的连接自有读取状态（配套的
+	// payloadReader 位于上方），因此稳态读取不产生按消息的分配。
+	msgReader MessageReader
 
 	opts Options
 
-	utf8 utf8State
+	maskKeyPos int
 
 	msgLen      int64 // bytes accumulated for the current message | 当前消息已累积字节数
 	frameLen    int64 // total payload length of the current frame | 当前帧载荷总长度
@@ -91,20 +112,49 @@ type Conn struct {
 	// trackMu guards untrack, which Close / CloseNow consume exactly once. | trackMu 保护 untrack，Close / CloseNow 恰好消费一次。
 	trackMu sync.Mutex
 
-	headerBuf [maxHeaderSize]byte
+	// writeCompression toggles outbound compression after negotiation; the inbound direction always honours the negotiation. | writeCompression 在协商后切换出站压缩；入站方向始终遵循协商结果。
+	writeCompression atomic.Bool
+	// closeSentFlag mirrors closeSent for the lock-free rejection in WriteMessage;
+	// it is set under closeMu and never cleared. | closeSentFlag 是 closeSent 的镜像，
+	// 供 WriteMessage 无锁拒绝；它在 closeMu 下置位且从不清除。
+	closeSentFlag atomic.Bool
 
 	// controlBuf stages control-frame payloads on the read goroutine; control
 	// frames are at most 125 bytes, so reusing it removes a per-frame allocation. | controlBuf
 	// 在读协程暂存控制帧载荷；控制帧至多 125 字节，复用它可去掉每帧一次分配。
 	controlBuf [maxControlPayload]byte
 
+	// maskKeys is a reservoir of client masking keys. One CSPRNG read fills
+	// maskKeyBatch fresh keys, so a steady write stream does not pay a
+	// crypto/rand round trip per frame; maskKeyPos is the next unused offset.
+	// Both fields are guarded by writeMu. | maskKeys 是客户端掩码键的蓄水池。
+	// 一次 CSPRNG 读取填入 maskKeyBatch 个新键，因此稳态写入流不必为每帧支付一次
+	// crypto/rand 调用；maskKeyPos 是下一个未使用的偏移。两个字段均由 writeMu 保护。
+	maskKeys [maskKeyBatch * 4]byte
+
+	headerBuf [maxHeaderSize]byte
+
 	// writeHeaderBuf is the outbound counterpart of headerBuf; keeping it on the connection means a
 	// frame header never escapes to the heap, and read/write can still run concurrently. | writeHeaderBuf
 	// 是 headerBuf 的出方向对应物；把它放在连接上，帧头因此不会上堆，同时读写仍可并发。
 	writeHeaderBuf [maxHeaderSize]byte
 
-	maskKey  [4]byte
+	maskKey [4]byte
+
+	utf8 utf8State
+
 	isClient bool
+	// canScatter reports whether the transport implements vectored socket writes
+	// (plain TCP/Unix). TLS and HTTP/2/HTTP/3 streams fall back to one Write per
+	// buffer, so they keep the buffered path. | canScatter 报告传输是否支持分散
+	// 套接字写（裸 TCP/Unix）。TLS 与 HTTP/2/HTTP/3 流会退化为每个缓冲一次 Write，
+	// 因此保持缓冲路径。
+	canScatter bool
+
+	// raBorrowed is consumer-owned: it records whether the last read-ahead
+	// result aliases the connection read buffer instead of a copy slot. | raBorrowed
+	// 由消费者协程独占：记录上一条预读结果是否借用连接读缓冲而不是复制槽。
+	raBorrowed bool
 
 	// kind identifies the transport; it decides whether Close may leave the
 	// transport to the peer (HTTP/1.1 client) or must close it (streams). | kind
@@ -119,12 +169,6 @@ type Conn struct {
 	msgCompressed bool
 	msgFirstFrame bool // current frame starts a message rather than continuing one | 当前帧是消息首帧而不是续帧
 
-	// writeCompression toggles outbound compression after negotiation; the inbound direction always honours the negotiation. | writeCompression 在协商后切换出站压缩；入站方向始终遵循协商结果。
-	writeCompression atomic.Bool
-	// closeSentFlag mirrors closeSent for the lock-free rejection in WriteMessage;
-	// it is set under closeMu and never cleared. | closeSentFlag 是 closeSent 的镜像，
-	// 供 WriteMessage 无锁拒绝；它在 closeMu 下置位且从不清除。
-	closeSentFlag atomic.Bool
 }
 
 // newConn constructs the connection object. | newConn 构造连接对象。
@@ -138,6 +182,7 @@ func newConn(nc net.Conn, o Options, isClient bool) *Conn {
 // 时直接复用。调用方拥有这些缓冲，并须确保它们包装的是 nc 且未被其它方使用。
 func newConnWithBuffers(nc net.Conn, o Options, isClient bool, br *bufio.Reader, bw *bufio.Writer) *Conn {
 	c := &Conn{conn: nc, opts: o, isClient: isClient, kind: TransportTCP}
+	c.canScatter = isVectoredWriter(nc)
 	c.writeBase = c.bufs[:]
 	c.writeList = c.writeBase
 	if f, ok := nc.(interface{ FlushError() error }); ok {
@@ -154,10 +199,32 @@ func newConnWithBuffers(nc net.Conn, o Options, isClient bool, br *bufio.Reader,
 	}
 	writeSize := o.WriteBufferSize
 	if writeSize <= 0 {
-		writeSize = defaultWriteBufferSize
+		writeSize = tunedWriteBufferSize()
 	}
 	c.bw = bufio.NewWriterSize(nc, writeSize)
 	return c
+}
+
+// isVectoredWriter reports whether nc is a transport whose WriteTo path uses a
+// real vectored write rather than one Write per buffer. Wrappers that expose the
+// underlying connection through Unwrap (such as the framework server's tracked
+// hijack connection) are followed. TLS is deliberately not unwrapped: its
+// buffering would turn a vectored write into one record per buffer. | isVectoredWriter
+// 报告 nc 的 WriteTo 路径是否使用真正的分散写，而不是每个缓冲一次 Write。通过 Unwrap
+// 暴露底层连接的包装（例如框架服务器的 hijack 追踪连接）会被跟进。TLS 刻意不展开：
+// 它的缓冲会把分散写变成每个缓冲一条记录。
+func isVectoredWriter(nc net.Conn) bool {
+	for depth := 0; nc != nil && depth < 8; depth++ {
+		switch c := nc.(type) {
+		case *net.TCPConn, *net.UnixConn:
+			return true
+		case interface{ Unwrap() net.Conn }:
+			nc = c.Unwrap()
+		default:
+			return false
+		}
+	}
+	return false
 }
 
 // ---------------------------------------------------------------- Tracking | 追踪
@@ -289,8 +356,22 @@ func (c *Conn) readFull(b []byte) error {
 //
 // The returned payload slice points into the connection's internal reuse buffer and is valid only until the next read operation. | 返回的载荷切片指向连接内部复用缓冲，仅在下一次读操作前有效。
 // An error of type *CloseError means the peer ended the connection with a close frame. | 返回错误为 *CloseError 时表示对端以关闭帧结束连接。
+//
+// With DialOptions.ReadAhead enabled, an internal reader keeps the next message
+// ready and pre-arms the following read while the caller processes this one; the
+// payload contract is unchanged. | 启用 DialOptions.ReadAhead 时，内部读协程会预先
+// 备好下一条消息，并在调用方处理当前消息时挂起再下一次读取；载荷契约不变。
 func (c *Conn) ReadMessage() (OpCode, []byte, error) {
-	op, r, err := c.NextReader()
+	if c.ra != nil {
+		return c.readMessageAhead()
+	}
+	return c.readMessageSync()
+}
+
+// readMessageSync reads one message on the calling goroutine. | readMessageSync
+// 在调用方协程上读取一条消息。
+func (c *Conn) readMessageSync() (OpCode, []byte, error) {
+	op, r, err := c.nextReader()
 	if err != nil {
 		return 0, nil, err
 	}
@@ -509,10 +590,21 @@ func (r *MessageReader) reader() io.Reader {
 //
 // The returned reader points at connection-owned state: it is valid only until the next call to
 // NextReader or ReadMessage. That keeps a steady-state read path free of per-message allocations
-// (the reader and the compressed-payload adapter are reused). | 返回的读取器指向连接自有的状态：
+// (the reader and the compressed-payload adapter are reused). On a connection with read-ahead
+// enabled it returns ErrReadAheadActive instead. | 返回的读取器指向连接自有的状态：
 // 它只在下次调用 NextReader 或 ReadMessage 之前有效。这使得稳态读取路径没有按消息产生的分配
-// （读取器与压缩载荷适配器均被复用）。
+// （读取器与压缩载荷适配器均被复用）。启用预读的连接会改为返回 ErrReadAheadActive。
 func (c *Conn) NextReader() (OpCode, *MessageReader, error) {
+	if c.ra != nil {
+		return 0, nil, ErrReadAheadActive
+	}
+	return c.nextReader()
+}
+
+// nextReader is the synchronous NextReader body; read-ahead calls it directly
+// from its background goroutine. | nextReader 是同步 NextReader 主体；预读协程直接
+// 调用它。
+func (c *Conn) nextReader() (OpCode, *MessageReader, error) {
 	var remaining int64
 	if err := c.nextDataFrame(&remaining); err != nil {
 		return 0, nil, err
@@ -764,13 +856,14 @@ func (c *Conn) fail(code CloseCode, err error) error {
 //
 // When permessage-deflate was negotiated and write compression is enabled, the payload is compressed and | 协商了 permessage-deflate 且写压缩开启时，载荷会被压缩并在帧上
 // RSV1 is set on the frame (RFC 7692 §6.1); the peer always accepts uncompressed messages too. | 置 RSV1（RFC 7692 §6.1）；对端同样始终接受未压缩消息。
+//
+// WriteMessage flushes when the frame is complete. For pipelined or bursty output,
+// WriteBatch and WriteMessageBuffered + Flush amortise the transport write across
+// several messages. | WriteMessage 在帧写完时刷新。流水线或突发输出请用 WriteBatch
+// 与 WriteMessageBuffered + Flush，把一次传输层写入摊到多条消息上。
 func (c *Conn) WriteMessage(op OpCode, p []byte) error {
-	switch op {
-	case TextMessage, BinaryMessage:
-	case ContinuationMessage:
-		return ErrWriteContinuation
-	default:
-		return ErrWriteMessageOpcode
+	if err := validateOutboundDataOpcode(op); err != nil {
+		return err
 	}
 	if c.closeSentFlag.Load() {
 		return ErrCloseSent
@@ -786,17 +879,47 @@ func (c *Conn) writeMessageFrame(op OpCode, payload []byte) error {
 	c.writeMu.Lock()
 	defer c.writeMu.Unlock()
 
-	rsv1 := false
-	body := payload
-	if c.compressor != nil && c.writeCompression.Load() {
-		compressed, err := c.compressor.compress(payload)
-		if err != nil {
-			return err
-		}
-		body = compressed
-		rsv1 = true
+	body, rsv1, err := c.compressOutboundLocked(payload)
+	if err != nil {
+		return err
 	}
 	return c.writeFrameLocked(rsv1, true, op, body)
+}
+
+// compressOutboundLocked compresses one payload when outbound permessage-deflate
+// is active and reports whether the frame must carry RSV1. The returned slice may
+// point at the compressor's reuse buffer, so it is only valid until the next
+// compression; the caller must send it while still holding writeMu. | compressOutboundLocked
+// 在出站 permessage-deflate 生效时压缩一条载荷，并报告帧是否需要携带 RSV1。返回的切片
+// 可能指向压缩器的复用缓冲，只在下次压缩前有效；调用方必须在仍持有 writeMu 时发送它。
+func (c *Conn) compressOutboundLocked(payload []byte) ([]byte, bool, error) {
+	if c.compressor == nil || !c.writeCompression.Load() {
+		return payload, false, nil
+	}
+	compressed, err := c.compressor.compress(payload)
+	if err != nil {
+		return nil, false, err
+	}
+	return compressed, true, nil
+}
+
+// nextMaskKey returns the next client masking key from the connection-owned
+// reservoir, refilling it with one CSPRNG read when exhausted. Each key is a
+// fresh unpredictable 32-bit value (RFC 6455 §5.3), batched for efficiency.
+// The caller must hold writeMu. | nextMaskKey 从连接自有的蓄水池返回下一个客户端掩码键，
+// 用尽时以一次 CSPRNG 读取重新填满。每个键都是新鲜且不可预测的 32 位值（RFC 6455 §5.3），
+// 批量获取只为摊薄开销。调用方必须持有 writeMu。
+func (c *Conn) nextMaskKey() ([4]byte, error) {
+	if c.maskKeyPos >= len(c.maskKeys) {
+		if _, err := rand.Read(c.maskKeys[:]); err != nil {
+			return [4]byte{}, err
+		}
+		c.maskKeyPos = 0
+	}
+	var key [4]byte
+	copy(key[:], c.maskKeys[c.maskKeyPos:c.maskKeyPos+4])
+	c.maskKeyPos += 4
+	return key, nil
 }
 
 // WriteControl writes a control frame (close/ping/pong) with an optional write deadline. | WriteControl 写入控制帧（close/ping/pong），可指定写超时。
@@ -874,8 +997,8 @@ func (c *Conn) writeFrameLocked(rsv1, fin bool, op OpCode, payload []byte) error
 		// A client must mask. The key is generated inside the write lock so
 		// concurrent writers cannot interleave on the shared mask buffer. | 客户端必须
 		// 掩码。密钥在写锁内生成，并发写者不会在共享掩码缓冲上交错。
-		var key [4]byte
-		if _, err := rand.Read(key[:]); err != nil {
+		key, err := c.nextMaskKey()
+		if err != nil {
 			return err
 		}
 		copy(hdr[n:], key[:])
@@ -920,10 +1043,19 @@ func (c *Conn) writeFrameLocked(rsv1, fin bool, op OpCode, payload []byte) error
 
 	// Small frames take the buffered path: header, mask key and payload are
 	// coalesced into one transport write. Large frames keep the scatter list,
-	// which sends both buffers without copying the payload. | 小帧走缓冲路径：
-	// 帧头、掩码键与载荷合并为一次传输层写入；大帧仍用分散列表，不复制载荷。
+	// which sends both buffers without copying the payload. Servers on a
+	// vectored-write transport use the scatter path from scatterWriteThreshold
+	// on: the payload usually comes straight out of the read buffer, so the copy
+	// is pure overhead. Clients keep the single-buffer write because the masked
+	// copy already exists in maskBuf; TLS and stream transports keep it because
+	// their WriteTo falls back to one Write per buffer. | 小帧走缓冲路径：帧头、
+	// 掩码键与载荷合并为一次传输层写入；大帧仍用分散列表，不复制载荷。使用分散写的
+	// 传输上，服务端从 scatterWriteThreshold 起走分散路径：载荷通常直接来自读缓冲，
+	// 复制纯属开销。客户端保持单缓冲写，因为掩码副本已在 maskBuf 中；TLS 与流传输也
+	// 保持单缓冲写，因为它们的 WriteTo 会退化为每个缓冲一次 Write。
 	total := n + len(body)
-	if total <= c.bw.Available() {
+	scatter := c.canScatter && !c.isClient && len(body) >= scatterWriteThreshold
+	if !scatter && total <= c.bw.Available() {
 		if _, err := c.bw.Write(hdr[:n]); err != nil {
 			return err
 		}
@@ -960,6 +1092,70 @@ func (c *Conn) writeFrameLocked(rsv1, fin bool, op OpCode, payload []byte) error
 	return nil
 }
 
+// appendFrameLocked assembles one frame and appends it to the write buffer
+// **without** flushing. A frame that does not fit in the remaining space is
+// preceded by a flush; a frame larger than the whole buffer uses the synchronous
+// scatter write, which also flushes any pending bytes first. The caller must
+// hold writeMu. | appendFrameLocked 组装一个帧并追加到写缓冲，但**不**刷新。
+// 剩余空间不足的帧会先刷新；大于整个缓冲的帧使用同步分散写，并在之前刷出待发字节。
+// 调用方必须持有 writeMu。
+func (c *Conn) appendFrameLocked(rsv1, fin bool, op OpCode, payload []byte) error {
+	hdr := c.writeHeaderBuf[:]
+	n := writeFrameHeader(hdr, fin, op, c.isClient, int64(len(payload)))
+	if rsv1 {
+		hdr[0] |= 0x40
+	}
+	body := payload
+	if c.isClient {
+		// The masked copy lives in maskBuf and is copied into the write buffer
+		// (or sent by the scatter write) before this call returns. | 掩码副本位于
+		// maskBuf，并在本次调用返回前复制进写缓冲（或由分散写发出）。
+		key, err := c.nextMaskKey()
+		if err != nil {
+			return err
+		}
+		copy(hdr[n:], key[:])
+		n += 4
+		if cap(c.maskBuf) < len(payload) {
+			c.maskBuf = make([]byte, len(payload))
+		}
+		body = c.maskBuf[:len(payload)]
+		copy(body, payload)
+		maskBytes(key, 0, body)
+	}
+
+	total := n + len(body)
+	if total > c.bw.Available() {
+		// Pending bytes must stay in front of this frame; retry once with a
+		// full buffer. | 待发字节必须排在此帧之前；用整块缓冲重试一次。
+		if err := c.bw.Flush(); err != nil {
+			return err
+		}
+	}
+	if total <= c.bw.Available() {
+		if _, err := c.bw.Write(hdr[:n]); err != nil {
+			return err
+		}
+		_, err := c.bw.Write(body)
+		return err
+	}
+
+	// Larger than the whole buffer: the scatter write is synchronous and the
+	// preceding flush already pushed pending bytes in order. | 大于整个缓冲：
+	// 分散写是同步的，前面的刷新已按序送出待发字节。
+	c.writeBase = c.writeBase[:2]
+	c.writeBase[0] = hdr[:n]
+	c.writeBase[1] = body
+	c.writeList = c.writeBase
+	if _, err := c.writeList.WriteTo(c.conn); err != nil {
+		return err
+	}
+	if c.flush != nil {
+		return c.flush()
+	}
+	return nil
+}
+
 // writeClose sends a close frame and marks it as sent. | writeClose 发送关闭帧并标记已发送。
 func (c *Conn) writeClose(code CloseCode, reason string) error {
 	return c.writeCloseRaw(closePayload(code, reason))
@@ -987,6 +1183,7 @@ func (c *Conn) writeCloseRaw(payload []byte) error {
 // 使并发的 CloseAll 不会看到（也不会写入）已经在关闭途中的连接。
 func (c *Conn) Close(code CloseCode, reason string) error {
 	c.detach()
+	c.stopReadAhead()
 	verr := validateOutboundClose(code, reason)
 	var err error
 	if verr != nil {
@@ -1007,6 +1204,7 @@ func (c *Conn) Close(code CloseCode, reason string) error {
 // CloseNow leaves the tracker and closes the underlying TCP connection immediately, without sending a close frame. | CloseNow 离开追踪表并立即关闭底层 TCP 连接，不发送关闭帧。
 func (c *Conn) CloseNow() error {
 	c.detach()
+	c.stopReadAhead()
 	c.closeMu.Lock()
 	c.closeSent = true
 	c.closeSentFlag.Store(true)

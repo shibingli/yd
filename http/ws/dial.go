@@ -47,10 +47,26 @@ type DialOptions struct {
 	HandshakeTimeout time.Duration
 	// ReadBufferSize is the read buffer size; <=0 means no intermediate buffer is introduced (read the connection directly). | ReadBufferSize 为读缓冲大小；<=0 表示不引入中间缓冲（直读连接）。
 	ReadBufferSize int
-	// WriteBufferSize is the write buffer size; <=0 means 4096. Small frames are coalesced into one transport write. | WriteBufferSize 为写缓冲大小；<=0 时取 4096。小帧会合并为一次传输层写入。
+	// WriteBufferSize is the write buffer size; <=0 means the sysinfo-tuned default
+	// (4–64 KiB, derived from GOMAXPROCS and the memory ceiling). Small frames are
+	// coalesced into one transport write. | WriteBufferSize 为写缓冲大小，<=0 时取
+	// sysinfo 自动调优值（4–64 KiB，由 GOMAXPROCS 与内存上限推导）。小帧会合并为一次传输层写入。
 	WriteBufferSize int
-	// MaxMessageSize is the per-message limit, 32MB by default. | MaxMessageSize 为单条消息上限，默认 32MB。
+	// MaxMessageSize is the per-message limit; <=0 means the sysinfo-tuned default
+	// (memory ceiling / 64, clamped to 1–32 MiB). | MaxMessageSize 为单条消息上限，
+	// <=0 时取 sysinfo 自动调优值（内存上限 / 64，夹在 1–32 MiB）。
 	MaxMessageSize int64
+	// ReadAhead arms a background reader that keeps one message ready and
+	// pre-arms the next read while the caller processes the current one. It is
+	// intended for high-concurrency request-response clients, where it removes
+	// the syscall-entry gap between a write and the following read. The reader
+	// starts on the first ReadMessage call; with it active, NextReader returns
+	// ErrReadAheadActive and control-frame handlers run on the internal reader
+	// goroutine. | ReadAhead 装配后台读协程：预先备好一条消息，并在调用方处理当前
+	// 消息时挂起下一次读取。它面向高并发请求-响应客户端，用来消除写与随后读取之间的
+	// 系统调用入口空档。读协程在首次 ReadMessage 时启动；启用后 NextReader 返回
+	// ErrReadAheadActive，控制帧处理器在内部读协程上执行。
+	ReadAhead bool
 	// EnableWriteCompression offers permessage-deflate (RFC 7692) during the handshake and enables | EnableWriteCompression 在握手时提议 permessage-deflate（RFC 7692），并在服务端接受后
 	// outbound compression once the server accepts. When the server declines, the connection simply | 启用出站压缩。服务端拒绝时连接保持不压缩，行为与未开启该选项完全一致。
 	// stays uncompressed, identical to leaving the option off. It can be toggled later with | 之后可用 Conn.EnableWriteCompression 切换；入站压缩消息在协商成功后始终会被解压。
@@ -210,7 +226,7 @@ func Dial(ctx context.Context, rawURL string, o DialOptions) (*Conn, error) {
 
 	maxSize := o.MaxMessageSize
 	if maxSize <= 0 {
-		maxSize = defaultMaxMessageSize
+		maxSize = tunedMaxMessageSize()
 	}
 	// Reuse the handshake reader when an explicit read buffer was requested (it
 	// already has that size) or when it buffered the peer's first frame. With
@@ -226,6 +242,9 @@ func Dial(ctx context.Context, rawURL string, o DialOptions) (*Conn, error) {
 		true, reader, nil)
 	c.subprotocol = selected
 	c.setCompression(compCfg)
+	if o.ReadAhead {
+		c.enableReadAhead()
+	}
 	return c, nil
 }
 
@@ -364,7 +383,7 @@ func dialExtended(ctx context.Context, u *url.URL, o DialOptions, timeout time.D
 	}
 	maxSize := o.MaxMessageSize
 	if maxSize <= 0 {
-		maxSize = defaultMaxMessageSize
+		maxSize = tunedMaxMessageSize()
 	}
 	sc := newStreamConnClient(resp.Body, pw, cancel,
 		streamAddr{network: network, addr: ""},
@@ -373,5 +392,8 @@ func dialExtended(ctx context.Context, u *url.URL, o DialOptions, timeout time.D
 	c.kind = kind
 	c.subprotocol = selected
 	c.setCompression(compCfg)
+	if o.ReadAhead {
+		c.enableReadAhead()
+	}
 	return c, nil
 }

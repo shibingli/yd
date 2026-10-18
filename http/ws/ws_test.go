@@ -682,3 +682,41 @@ func TestUpgradeRequiresGETAndOriginPolicy(t *testing.T) {
 		t.Fatalf("自定义 Origin 策略应拒绝，实际 %d", resp.StatusCode)
 	}
 }
+
+// TestProtocolNamesAreBilingual pins that user-visible protocol names and close
+// errors keep the English | Chinese format, including unknown values. | TestProtocolNamesAreBilingual
+// 固定「面向用户的协议名称与关闭错误保持 English | 中文 格式」，未知取值也不例外。
+func TestProtocolNamesAreBilingual(t *testing.T) {
+	check := func(name, got string) {
+		t.Helper()
+		sep := strings.Index(got, " | ")
+		if sep <= 0 || sep == len(got)-3 {
+			t.Fatalf("%s = %q, want English | Chinese | %s = %q，期望 English | 中文", name, got, name, got)
+		}
+		if !strings.Contains(got[sep+3:], " ") && !containsNonASCII(got[sep+3:]) {
+			t.Fatalf("%s = %q, Chinese half is missing | %s = %q，缺少中文", name, got, name, got)
+		}
+	}
+
+	for _, op := range []OpCode{ContinuationMessage, TextMessage, BinaryMessage, CloseMessage, PingMessage, PongMessage, OpCode(0x3)} {
+		check("OpCode.String", op.String())
+	}
+	for _, code := range []CloseCode{CloseNormalClosure, CloseGoingAway, CloseProtocolError, CloseUnsupportedData,
+		CloseNoStatusReceived, CloseAbnormalClosure, CloseInvalidFramePayloadData, ClosePolicyViolation,
+		CloseMessageTooBig, CloseMandatoryExtension, CloseInternalServerErr, CloseServiceRestart,
+		CloseTryAgainLater, CloseTLSHandshake, CloseCode(9999)} {
+		check("CloseCode.String", code.String())
+	}
+	check("CloseError.Error", (&CloseError{Code: CloseNormalClosure}).Error())
+	check("CloseError.Error", (&CloseError{Code: ClosePolicyViolation, Text: "policy"}).Error())
+}
+
+// containsNonASCII reports whether s contains a non-ASCII byte. | containsNonASCII 报告 s 是否包含非 ASCII 字节。
+func containsNonASCII(s string) bool {
+	for i := 0; i < len(s); i++ {
+		if s[i] >= 0x80 {
+			return true
+		}
+	}
+	return false
+}

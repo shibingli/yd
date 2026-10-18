@@ -55,7 +55,7 @@ func TestReadFrameHeaderRoundTrip(t *testing.T) {
 		copy(hdr[n:], key[:])
 		n += 4
 
-		var buf [8]byte
+		var buf [maxHeaderSize]byte
 		h, err := readFrameHeader(bytes.NewReader(hdr[:n]), buf[:])
 		if err != nil {
 			t.Fatalf("payload=%d 解析失败: %v", payload, err)
@@ -69,7 +69,7 @@ func TestReadFrameHeaderRoundTrip(t *testing.T) {
 func TestReadFrameHeaderRejectsHugeLength(t *testing.T) {
 	// RFC 6455 §5.2: the most significant bit of a 64-bit length must be 0, which is a protocol error rather than a size error | RFC 6455 §5.2：64 位长度的最高位必须为 0，这属于协议错误而非大小超限
 	hdr := []byte{0x82, 0x7f, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff}
-	var buf [8]byte
+	var buf [maxHeaderSize]byte
 	if _, err := readFrameHeader(bytes.NewReader(hdr), buf[:]); !errors.Is(err, ErrFrameLengthMSB) {
 		t.Fatalf("err = %v, 期望 ErrFrameLengthMSB", err)
 	}
@@ -216,7 +216,7 @@ func TestReadFrameHeaderDoesNotAllocate(t *testing.T) {
 	var frame [maxHeaderSize]byte
 	n := writeFrameHeader(frame[:], true, BinaryMessage, true, 65536)
 	copy(frame[n:], []byte{1, 2, 3, 4})
-	var scratch [8]byte
+	var scratch [maxHeaderSize]byte
 	var reader bytes.Reader
 	var failed bool
 
@@ -308,6 +308,59 @@ func TestReadFrameHeaderBufio(t *testing.T) {
 					t.Fatalf("masked=%v size=%d buf=%d: buffered=%d | 剩余缓冲=%d", masked, size, bufSize, br.Buffered(), br.Buffered())
 				}
 			}
+		}
+	}
+}
+
+// countingReader counts Read calls so header parsing can be pinned to one
+// read per contiguous field group. | countingReader 统计 Read 调用次数，用于固定
+// 「每组连续字段只读一次」的帧头解析行为。
+type countingReader struct {
+	r     *bytes.Reader
+	reads int
+}
+
+// Read delegates and counts. | Read 转交并计数。
+func (c *countingReader) Read(p []byte) (int, error) {
+	c.reads++
+	return c.r.Read(p)
+}
+
+// TestReadFrameHeaderBatchesHeaderFields pins that an unbuffered connection
+// fetches the extended length and the mask key with one read instead of one
+// read per field. | TestReadFrameHeaderBatchesHeaderFields 固定「无缓冲连接把扩展长度
+// 与掩码键合并为一次读取」，而不是每个字段各读一次。
+func TestReadFrameHeaderBatchesHeaderFields(t *testing.T) {
+	cases := []struct {
+		length int64
+		masked bool
+		reads  int
+	}{
+		{length: 5, masked: false, reads: 1},
+		{length: 5, masked: true, reads: 2},
+		{length: 256, masked: false, reads: 2},
+		{length: 256, masked: true, reads: 2},
+		{length: 65536, masked: false, reads: 2},
+		{length: 65536, masked: true, reads: 2},
+	}
+	for _, tc := range cases {
+		var hdr [maxHeaderSize]byte
+		n := writeFrameHeader(hdr[:], true, BinaryMessage, tc.masked, tc.length)
+		if tc.masked {
+			copy(hdr[n:], []byte{1, 2, 3, 4})
+			n += 4
+		}
+		cr := &countingReader{r: bytes.NewReader(hdr[:n])}
+		var buf [maxHeaderSize]byte
+		h, err := readFrameHeader(cr, buf[:])
+		if err != nil {
+			t.Fatalf("length=%d masked=%v: %v", tc.length, tc.masked, err)
+		}
+		if h.length != tc.length || h.masked != tc.masked {
+			t.Fatalf("length=%d masked=%v: header = %+v", tc.length, tc.masked, h)
+		}
+		if cr.reads != tc.reads {
+			t.Fatalf("length=%d masked=%v: reads = %d, want %d | 读取次数 = %d，期望 %d", tc.length, tc.masked, cr.reads, tc.reads, cr.reads, tc.reads)
 		}
 	}
 }

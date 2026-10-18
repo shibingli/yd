@@ -461,7 +461,7 @@ func TestDecompressionBombFails1009(t *testing.T) {
 	}
 
 	sent := rec.recorded()
-	var hdr [8]byte
+	var hdr [maxHeaderSize]byte
 	rd := bytes.NewReader(sent)
 	fr, err := readFrameHeader(rd, hdr[:])
 	if err != nil {

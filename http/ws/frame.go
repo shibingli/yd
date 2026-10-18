@@ -23,11 +23,15 @@ type frameHeader struct {
 // readFrameHeader reads and parses a frame header from r. | readFrameHeader 从 r 读取并解析帧头。
 //
 // The supplied buf is used to hold the fixed header bytes, the extended length and the mask key;
-// it must be at least 8 bytes long so that no allocation is needed. Reading through the caller's
-// buffer (instead of local arrays or a pointer into the returned struct) keeps this function at
-// zero allocations: an array passed through the io.Reader interface would otherwise escape. | 传入的
-// buf 用于暂存固定头字节、扩展长度与掩码键；长度至少为 8，避免分配。经调用方缓冲读取（而不是
-// 局部数组或指向返回结构体的指针）使本函数保持零分配：否则经 io.Reader 接口传出的数组会逃逸到堆上。
+// it must be at least maxHeaderSize (14) bytes long so that no allocation is needed. Reading
+// through the caller's buffer (instead of local arrays or a pointer into the returned struct)
+// keeps this function at zero allocations: an array passed through the io.Reader interface would
+// otherwise escape. The extended length and the mask key are fetched with a single ReadFull, so
+// an unbuffered connection pays one syscall for both instead of one per field. | 传入的 buf
+// 用于暂存固定头字节、扩展长度与掩码键；长度至少为 maxHeaderSize（14），避免分配。经调用方
+// 缓冲读取（而不是局部数组或指向返回结构体的指针）使本函数保持零分配：否则经 io.Reader 接口
+// 传出的数组会逃逸到堆上。扩展长度与掩码键由一次 ReadFull 取回，无缓冲连接因此只需为二者
+// 支付一次系统调用，而不是每个字段各一次。
 func readFrameHeader(r io.Reader, buf []byte) (frameHeader, error) {
 	// A bufio-based connection can parse the header straight out of the read
 	// buffer, avoiding copies into buf. Buffers smaller than the largest header
@@ -50,30 +54,39 @@ func readFrameHeader(r io.Reader, buf []byte) (frameHeader, error) {
 	h.masked = head[1]&0x80 != 0
 
 	length := int64(head[1] & 0x7f)
+	need := 0
 	switch length {
 	case 126:
-		if _, err := io.ReadFull(r, buf[:2]); err != nil {
-			return h, err
-		}
-		length = int64(binary.BigEndian.Uint16(buf[:2]))
+		need = 2
 	case 127:
-		if _, err := io.ReadFull(r, buf[:8]); err != nil {
+		need = 8
+	}
+	if h.masked {
+		need += 4
+	}
+	if need > 0 {
+		if _, err := io.ReadFull(r, buf[:need]); err != nil {
 			return h, err
 		}
-		v := binary.BigEndian.Uint64(buf[:8])
+	}
+	rest := buf[:need]
+	switch length {
+	case 126:
+		length = int64(binary.BigEndian.Uint16(rest[:2]))
+		rest = rest[2:]
+	case 127:
+		v := binary.BigEndian.Uint64(rest[:8])
 		if v&(1<<63) != 0 {
 			// RFC 6455 §5.2: the most significant bit of a 64-bit length MUST be 0; an invalid length field is a protocol error (1002), not a size error | RFC 6455 §5.2：64 位长度的最高位必须为 0；长度字段非法属于协议错误（1002），而不是大小超限
 			return h, ErrFrameLengthMSB
 		}
 		length = int64(v)
+		rest = rest[8:]
 	}
 	h.length = length
 
 	if h.masked {
-		if _, err := io.ReadFull(r, buf[:4]); err != nil {
-			return h, err
-		}
-		copy(h.maskKey[:], buf[:4])
+		copy(h.maskKey[:], rest[:4])
 	}
 	return h, nil
 }
@@ -93,39 +106,43 @@ func readFrameHeaderBufio(br *bufio.Reader) (frameHeader, error) {
 	h.masked = head[1]&0x80 != 0
 
 	length := int64(head[1] & 0x7f)
-	consumed := 2
+	need := 2
 	switch length {
 	case 126:
-		b, perr := br.Peek(4)
-		if perr != nil {
-			return h, perr
-		}
-		length = int64(binary.BigEndian.Uint16(b[2:4]))
-		consumed = 4
+		need = 4
 	case 127:
-		b, perr := br.Peek(10)
+		need = 10
+	}
+	if h.masked {
+		need += 4
+	}
+	if need > 2 {
+		b, perr := br.Peek(need)
 		if perr != nil {
 			return h, perr
 		}
-		v := binary.BigEndian.Uint64(b[2:10])
+		head = b
+	}
+	rest := head[2:need]
+	switch length {
+	case 126:
+		length = int64(binary.BigEndian.Uint16(rest[:2]))
+		rest = rest[2:]
+	case 127:
+		v := binary.BigEndian.Uint64(rest[:8])
 		if v&(1<<63) != 0 {
 			// RFC 6455 §5.2: the most significant bit of a 64-bit length MUST be 0; an invalid length field is a protocol error (1002), not a size error | RFC 6455 §5.2：64 位长度的最高位必须为 0；长度字段非法属于协议错误（1002），而不是大小超限
 			return h, ErrFrameLengthMSB
 		}
 		length = int64(v)
-		consumed = 10
+		rest = rest[8:]
 	}
 	h.length = length
 
 	if h.masked {
-		b, perr := br.Peek(consumed + 4)
-		if perr != nil {
-			return h, perr
-		}
-		copy(h.maskKey[:], b[consumed:consumed+4])
-		consumed += 4
+		copy(h.maskKey[:], rest[:4])
 	}
-	if _, err := br.Discard(consumed); err != nil {
+	if _, err := br.Discard(need); err != nil {
 		return h, err
 	}
 	return h, nil
@@ -193,14 +210,18 @@ func maskBytes(key [4]byte, pos int, b []byte) int {
 	kb[4], kb[5], kb[6], kb[7] = key[0], key[1], key[2], key[3]
 	k := binary.LittleEndian.Uint64(kb[:])
 	i := 0
-	// Unroll four 8-byte words per iteration: every 8-byte word starts on a
-	// multiple of four, so the same key applies to all of them. | 每次迭代展开四个
+	// Unroll eight 8-byte words per iteration: every 8-byte word starts on a
+	// multiple of four, so the same key applies to all of them. | 每次迭代展开八个
 	// 8 字节字：每个 8 字节字的起点都是 4 的倍数，因此它们共用同一个密钥。
-	for ; i+32 <= len(b); i += 32 {
+	for ; i+64 <= len(b); i += 64 {
 		binary.LittleEndian.PutUint64(b[i:i+8], binary.LittleEndian.Uint64(b[i:i+8])^k)
 		binary.LittleEndian.PutUint64(b[i+8:i+16], binary.LittleEndian.Uint64(b[i+8:i+16])^k)
 		binary.LittleEndian.PutUint64(b[i+16:i+24], binary.LittleEndian.Uint64(b[i+16:i+24])^k)
 		binary.LittleEndian.PutUint64(b[i+24:i+32], binary.LittleEndian.Uint64(b[i+24:i+32])^k)
+		binary.LittleEndian.PutUint64(b[i+32:i+40], binary.LittleEndian.Uint64(b[i+32:i+40])^k)
+		binary.LittleEndian.PutUint64(b[i+40:i+48], binary.LittleEndian.Uint64(b[i+40:i+48])^k)
+		binary.LittleEndian.PutUint64(b[i+48:i+56], binary.LittleEndian.Uint64(b[i+48:i+56])^k)
+		binary.LittleEndian.PutUint64(b[i+56:i+64], binary.LittleEndian.Uint64(b[i+56:i+64])^k)
 	}
 	for ; i+8 <= len(b); i += 8 {
 		v := binary.LittleEndian.Uint64(b[i : i+8])
