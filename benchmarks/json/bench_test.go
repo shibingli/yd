@@ -7,6 +7,7 @@ import (
 	"reflect"
 	"slices"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -19,6 +20,10 @@ import (
 
 // benchSink keeps results observable. | benchSink 让结果保持可观测。
 var benchSink int
+
+// benchSinkAtomic is the concurrency-safe sink used by parallel benchmarks. | benchSinkAtomic
+// 是并行基准使用的并发安全 sink。
+var benchSinkAtomic atomic.Int64
 
 // benchSelected reports whether name passes the YD_BENCH_ONLY filter. Set it to
 // one comma-separated list of codec names to run each implementation in its own
@@ -164,6 +169,70 @@ func BenchmarkUnmarshal(b *testing.B) {
 					}
 					benchSink += len(out)
 				}
+			})
+		}
+	}
+}
+
+// BenchmarkMarshalParallel compares aggregate encoding throughput when every
+// parallel goroutine encodes the same dataset independently. | BenchmarkMarshalParallel
+// 对比每个并行协程独立编码同一数据集时的聚合吞吐。
+func BenchmarkMarshalParallel(b *testing.B) {
+	for _, ds := range buildDatasets(b) {
+		ds := ds
+		for _, c := range codecs {
+			c := c
+			if !benchSelected(c.name) {
+				continue
+			}
+			b.Run(ds.name+"/"+c.name, func(b *testing.B) {
+				b.SetBytes(int64(len(ds.raw)))
+				b.ReportAllocs()
+				b.ResetTimer()
+				b.RunParallel(func(pb *testing.PB) {
+					local := 0
+					for pb.Next() {
+						out, err := c.marshal(ds.records)
+						if err != nil {
+							b.Errorf("%s marshal: %v | 编码失败", c.name, err)
+							return
+						}
+						local += len(out)
+					}
+					benchSinkAtomic.Add(int64(local))
+				})
+			})
+		}
+	}
+}
+
+// BenchmarkUnmarshalParallel compares aggregate decoding throughput when every
+// parallel goroutine decodes into its own destination. | BenchmarkUnmarshalParallel
+// 对比每个并行协程解码到各自目标时的聚合吞吐。
+func BenchmarkUnmarshalParallel(b *testing.B) {
+	for _, ds := range buildDatasets(b) {
+		ds := ds
+		for _, c := range codecs {
+			c := c
+			if !benchSelected(c.name) {
+				continue
+			}
+			b.Run(ds.name+"/"+c.name, func(b *testing.B) {
+				b.SetBytes(int64(len(ds.raw)))
+				b.ReportAllocs()
+				b.ResetTimer()
+				b.RunParallel(func(pb *testing.PB) {
+					local := 0
+					for pb.Next() {
+						var out []record
+						if err := c.unmarshal(ds.raw, &out); err != nil {
+							b.Errorf("%s unmarshal: %v | 解码失败", c.name, err)
+							return
+						}
+						local += len(out)
+					}
+					benchSinkAtomic.Add(int64(local))
+				})
 			})
 		}
 	}

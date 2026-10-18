@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"sync/atomic"
 	"testing"
 
 	cwb64 "github.com/cloudwego/base64x"
@@ -16,6 +17,10 @@ import (
 
 // benchSink keeps results observable. | benchSink 让结果保持可观测。
 var benchSink int
+
+// benchSinkAtomic is the concurrency-safe sink used by parallel benchmarks. | benchSinkAtomic
+// 是并行基准使用的并发安全 sink。
+var benchSinkAtomic atomic.Int64
 
 // benchSelected reports whether name passes the YD_BENCH_ONLY filter. Set it to
 // one comma-separated list of codec names to run each implementation in its own
@@ -106,6 +111,119 @@ func BenchmarkEncode(b *testing.B) {
 				benchSink += len(dst)
 			})
 		}
+	}
+}
+
+// BenchmarkEncodeParallel compares aggregate encoding throughput when every
+// parallel goroutine uses its own destination buffer. | BenchmarkEncodeParallel
+// 对比每个并行协程使用各自目标缓冲时的聚合编码吞吐。
+func BenchmarkEncodeParallel(b *testing.B) {
+	for _, size := range []int{32, 1 << 10, 64 << 10, 1 << 20} {
+		src := payload(size)
+		for _, c := range codecs {
+			c := c
+			if !benchSelected(c.name) {
+				continue
+			}
+			b.Run(fmt.Sprintf("%d/%s", size, c.name), func(b *testing.B) {
+				b.SetBytes(int64(len(src)))
+				b.ReportAllocs()
+				b.ResetTimer()
+				b.RunParallel(func(pb *testing.PB) {
+					dst := make([]byte, c.encLen(len(src)))
+					local := 0
+					for pb.Next() {
+						c.encode(dst, src)
+						local += len(dst)
+					}
+					benchSinkAtomic.Add(int64(local))
+				})
+			})
+		}
+	}
+}
+
+// BenchmarkDecodeParallel compares aggregate decoding throughput when every
+// parallel goroutine decodes into its own destination buffer. | BenchmarkDecodeParallel
+// 对比每个并行协程解码到各自目标缓冲时的聚合吞吐。
+func BenchmarkDecodeParallel(b *testing.B) {
+	for _, size := range []int{32, 1 << 10, 64 << 10, 1 << 20} {
+		src := payload(size)
+		for _, c := range codecs {
+			c := c
+			if !benchSelected(c.name) {
+				continue
+			}
+			b.Run(fmt.Sprintf("%d/%s", size, c.name), func(b *testing.B) {
+				encoded := make([]byte, c.encLen(len(src)))
+				c.encode(encoded, src)
+				b.SetBytes(int64(len(src)))
+				b.ReportAllocs()
+				b.ResetTimer()
+				b.RunParallel(func(pb *testing.PB) {
+					dst := make([]byte, c.decLen(len(encoded)))
+					local := 0
+					for pb.Next() {
+						n, err := c.decode(dst, encoded)
+						if err != nil {
+							b.Errorf("%s decode: %v | 解码失败", c.name, err)
+							return
+						}
+						local += n
+					}
+					benchSinkAtomic.Add(int64(local))
+				})
+			})
+		}
+	}
+}
+
+// BenchmarkEncodeAutoParallel measures one self-developed EncodeParallel call
+// whose worker count is chosen automatically from the current GOMAXPROCS. | BenchmarkEncodeAutoParallel
+// 测量一次自研 EncodeParallel 调用，其工作协程数由当前 GOMAXPROCS 自动决定。
+func BenchmarkEncodeAutoParallel(b *testing.B) {
+	if !benchSelected("yd-b64x") {
+		return
+	}
+	for _, size := range []int{1 << 20, 8 << 20} {
+		src := payload(size)
+		b.Run(fmt.Sprintf("%d/yd-b64x-auto", size), func(b *testing.B) {
+			dst := make([]byte, b64x.StdEncoding.EncodedLen(len(src)))
+			b.SetBytes(int64(len(src)))
+			b.ReportAllocs()
+			b.ResetTimer()
+			for i := 0; i < b.N; i++ {
+				b64x.StdEncoding.EncodeParallel(dst, src)
+			}
+			benchSink += len(dst)
+		})
+	}
+}
+
+// BenchmarkDecodeAutoParallel measures one self-developed DecodeParallel call
+// whose worker count is chosen automatically from the current GOMAXPROCS. | BenchmarkDecodeAutoParallel
+// 测量一次自研 DecodeParallel 调用，其工作协程数由当前 GOMAXPROCS 自动决定。
+func BenchmarkDecodeAutoParallel(b *testing.B) {
+	if !benchSelected("yd-b64x") {
+		return
+	}
+	for _, size := range []int{1 << 20, 8 << 20} {
+		src := payload(size)
+		encoded := make([]byte, b64x.StdEncoding.EncodedLen(len(src)))
+		b64x.StdEncoding.Encode(encoded, src)
+		b.Run(fmt.Sprintf("%d/yd-b64x-auto", size), func(b *testing.B) {
+			dst := make([]byte, b64x.StdEncoding.DecodedLen(len(encoded)))
+			b.SetBytes(int64(len(src)))
+			b.ReportAllocs()
+			b.ResetTimer()
+			for i := 0; i < b.N; i++ {
+				n, err := b64x.StdEncoding.DecodeParallel(dst, encoded)
+				if err != nil {
+					b.Fatalf("decode: %v | 解码失败", err)
+				}
+				benchSink += n
+			}
+		})
 	}
 }
 

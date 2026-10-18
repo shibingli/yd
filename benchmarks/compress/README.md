@@ -20,7 +20,7 @@ done
 
 ## 测试平台
 
-主表在 **mbox.yun-dev.cn**（hostname `eric-minibox-01`）上采集：
+主表在 **x86_64 基准平台**上采集：
 
 - AMD Ryzen AI MAX+ 395，16 核 32 线程，1 NUMA 节点，L3 64 MiB，30 GiB 内存；
 - Ubuntu 26.04.1 LTS，Linux 7.0.0-38-generic，Go 1.27.2 linux/amd64；

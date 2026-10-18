@@ -24,7 +24,7 @@ done
 
 ## 测试平台
 
-主表在 **mbox.yun-dev.cn**（hostname `eric-minibox-01`）上采集：
+主表在 **x86_64 基准平台**上采集：
 
 - AMD Ryzen AI MAX+ 395，16 核 32 线程，1 NUMA 节点，L3 64 MiB，30 GiB 内存；
 - Ubuntu 26.04.1 LTS，Linux 7.0.0-38-generic，Go 1.27.2 linux/amd64；
@@ -35,7 +35,7 @@ CPU 利用率与峰值 RSS 使用 Linux `/usr/bin/time -v`，对每个实现单�
 
 ## 兼容性指标
 
-18 个用例全部通过（本机与 mbox 均通过）：
+18 个用例全部通过（本地开发机与 x86_64 基准平台均通过）：
 
 | 方向 | coder/websocket v1.8.15 | gorilla/websocket v1.5.3 | gobwas/ws v1.4.0 | lxzan/gws v1.10.2 |
 |---|---|---|---|---|
