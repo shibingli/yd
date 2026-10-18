@@ -612,6 +612,12 @@ var errUnknownKid = errors.New("unknown kid")
 // ---------------------------------------------------------------- Allocation-free scanning | 零分配扫描
 
 func TestClaimsScanDoesNotAllocate(t *testing.T) {
+	if raceEnabled {
+		// The race detector adds its own allocations and bookkeeping, so an
+		// allocation bound measures the instrumentation rather than Parse. | 竞态
+		// 检测器会加入自己的分配与记录，分配上界测到的是插桩开销而非 Parse。
+		t.Skip("allocation bounds are not meaningful under -race | -race 下分配上界不具参考性")
+	}
 	raw := mustSign(t, map[string]any{
 		"iss": "yd",
 		"sub": "u-1",
