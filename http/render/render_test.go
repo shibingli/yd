@@ -335,4 +335,7 @@ func TestAddFuncReturnsIndependentEngine(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "cannot parse template | 模板解析失败") {
 		t.Fatalf("原引擎应因缺少函数而报错，实际 %v", err)
 	}
+	if _, ok := base.FuncMap()["shout"]; ok {
+		t.Fatal("AddFunc 不得修改原引擎的函数表 | AddFunc must not mutate the source engine's function map")
+	}
 }

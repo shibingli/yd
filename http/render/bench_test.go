@@ -1,11 +1,14 @@
 package render
 
 import (
+	"html/template"
 	"io"
 	"path/filepath"
 	"testing"
 
 	"github.com/spf13/afero"
+
+	"github.com/shibingli/yd/web"
 )
 
 // benchTranslator is a translator with a stable cache key. | benchTranslator 是带稳定缓存键的译者。
@@ -96,4 +99,75 @@ func BenchmarkRender(b *testing.B) {
 			}
 		}
 	})
+}
+
+// frameworkData is the minimal data that exercises every framework branch.
+// | frameworkData 是覆盖框架模板各分支的最小数据。
+func frameworkData() map[string]any {
+	return map[string]any{
+		TranslatorKey: benchTranslator{lang: "en"},
+		AuthzKey:      benchAuthz{key: "admin", allow: true},
+		"Perm":        map[string]string{"UserCreate": "user:create", "UserDelete": "user:delete"},
+		"Role":        map[string]string{"Admin": "admin"},
+		"Lang":        "en",
+		"Theme":       "light",
+		"I18nJSON":    template.JS(`{"lang":"en","fallback":"zh-CN","catalogs":{"en":{}}}`),
+		"AuthzJSON":   template.JS(`{"perms":{},"roles":{},"granted":[],"mine":[]}`),
+		"Title":       "Bench",
+		"User":        map[string]any{"Name": "Ada", "Initials": "A", "Email": "a@example.com", "Role": "admin"},
+		"Nav":         []any{map[string]any{"Label": "Dashboard", "Href": "/", "Key": "dashboard"}},
+		"Stats": []map[string]any{
+			{"Key": "dashboard.kpi.users", "Label": "Users", "Value": "42", "TrendKey": "trend", "Trend": "+3%"},
+		},
+	}
+}
+
+func BenchmarkFrameworkPage(b *testing.B) {
+	e, err := New(web.FS(), Options{})
+	if err != nil {
+		b.Fatal(err)
+	}
+	data := frameworkData()
+	for _, name := range []string{"pages/dashboard.html", "pages/users.html", "pages/permissions.html"} {
+		b.Run(name, func(b *testing.B) {
+			b.ReportAllocs()
+			for i := 0; i < b.N; i++ {
+				if err := e.Render(io.Discard, name, data); err != nil {
+					b.Fatal(err)
+				}
+			}
+		})
+	}
+}
+
+// BenchmarkFrameworkPageStdlib is the html/template baseline over the same
+// files and data. | BenchmarkFrameworkPageStdlib 是同一批文件与数据上的 html/template 基线。
+func BenchmarkFrameworkPageStdlib(b *testing.B) {
+	fsys := web.FS()
+	e := &Engine{fsys: fsys, opts: Options{Root: "templates"}.normalize()}
+	files, err := e.collect()
+	if err != nil {
+		b.Fatal(err)
+	}
+	tmpl := template.New("yd").Funcs(Funcs(fsys))
+	for _, f := range files {
+		body, rerr := afero.ReadFile(fsys, f.path)
+		if rerr != nil {
+			b.Fatal(rerr)
+		}
+		if _, perr := tmpl.New(f.name).Parse(string(body)); perr != nil {
+			b.Fatal(perr)
+		}
+	}
+	data := frameworkData()
+	for _, name := range []string{"pages/dashboard.html", "pages/users.html", "pages/permissions.html"} {
+		b.Run(name, func(b *testing.B) {
+			b.ReportAllocs()
+			for i := 0; i < b.N; i++ {
+				if err := tmpl.ExecuteTemplate(io.Discard, name, data); err != nil {
+					b.Fatal(err)
+				}
+			}
+		})
+	}
 }

@@ -1,27 +1,31 @@
-// Package render loads html/template sets from an afero filesystem. | Package render 从 afero 文件系统加载 html/template 模板集。
+// Package render compiles html/template sets into an immutable, high-throughput
+// execution program. | Package render 把 html/template 模板集编译为不可变的高吞吐执行程序。
 //
-// This engine is built on html/template, not text/template: every value
-// interpolated into a template is contextually escaped, which is what makes it
-// safe to render user-supplied data. Values that must reach the page verbatim
-// have to be typed template.HTML explicitly, so escaping is always an opt-out
-// rather than the default. | 本引擎基于 html/template 而非 text/template：所有插入
-// 模板的值都会按上下文转义，这正是渲染用户数据时的安全前提。需要原样输出的值必须
-// 显式声明为 template.HTML，即转义永远是「显式关闭」而非默认行为。
+// html/template stays the parser and the contextual escaper: it understands the
+// full text/template syntax and rewrites every dynamic action with the escapers
+// its HTML/JS/CSS/URL state machine demands. The compiled executor then walks
+// that already-safe tree without text/template's per-render reflection setup,
+// so syntax and security semantics are exactly the standard library's while the
+// hot path is considerably faster. | html/template 仍是解析器与上下文转义器：
+// 它理解完整的 text/template 语法，并按 HTML/JS/CSS/URL 状态机为每个动态动作重写转义器。
+// 编译执行器随后遍历这棵已安全的树，不再承担 text/template 每次渲染的反射装配开销，
+// 因此语法与安全语义与标准库完全一致，而热路径显著更快。
 //
 // Templates are addressed by their slash-separated path relative to the scan
-// root, for example "layouts/base.html" or "pages/users.html". Every file
-// under the root is parsed into one template set, so partials can be invoked
-// by name from any page. Dev mode skips the cache so template edits take
-// effect without a restart, which is what `yd dev` relies on. | 模板以相对扫描根的
-// 斜杠路径寻址，例如 "layouts/base.html" 或 "pages/users.html"。根目录下的每个文件
-// 都会被解析进同一个模板集，因此任意页面都可按名称调用局部模板。Dev 模式跳过缓存，
-// 模板改动无需重启即可生效，`yd dev` 依赖该行为。
+// root, for example "layouts/base.html" or "pages/users.html". Every file under
+// the root is parsed into one template set, so partials can be invoked by name
+// from any page, and every {{define}} block is addressable as well. Dev mode
+// recompiles on every render so template edits take effect without a restart,
+// which is what `yd dev` relies on. | 模板以相对扫描根的斜杠路径寻址，例如
+// "layouts/base.html" 或 "pages/users.html"。根目录下的每个文件都会被解析进同一个模板集，
+// 因此任意页面都可按名称调用局部模板，每个 {{define}} 块同样可按名寻址。Dev 模式在每次渲染时
+// 重新编译，模板改动无需重启即可生效，`yd dev` 依赖该行为。
 //
 // User-facing text is written as `{{ tr "some.key" }}`. The engine ships no
 // catalog of its own: a translator is injected through the render data under
 // TranslatorKey, and tr returns the key when none is injected. | 面向用户的文案写作
-// `{{ tr "some.key" }}`。引擎本身不附带任何语言目录：译者通过渲染数据中的
-// TranslatorKey 键注入，未注入时 tr 返回键本身。
+// `{{ tr "some.key" }}`。引擎本身不附带任何语言目录：译者通过渲染数据中的 TranslatorKey
+// 键注入，未注入时 tr 返回键本身。
 //
 //	data := map[string]any{render.TranslatorKey: translator, "Users": users}
 //	if err := engine.Render(w, "pages/users.html", data); err != nil { ... }
@@ -39,13 +43,18 @@
 package render
 
 import (
+	"errors"
 	"html/template"
 	"io"
 	"io/fs"
 	"path"
+	"reflect"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
+	"sync/atomic"
+	"unicode"
 
 	"github.com/spf13/afero"
 
@@ -78,6 +87,7 @@ type Options struct {
 	Dev bool
 }
 
+// normalize fills the defaults of Options. | normalize 填充 Options 的默认值。
 func (o Options) normalize() Options {
 	if o.Root == "" {
 		o.Root = "templates"
@@ -89,38 +99,68 @@ func (o Options) normalize() Options {
 	return o
 }
 
+// maxBufferHint caps the initial output buffer guess. | maxBufferHint 限制初始输出缓冲的预估上限。
+const maxBufferHint = 64 << 10
+
+// engineState is one immutable snapshot of compiled entry programs. | engineState 是一次不可变的入口程序快照。
+type engineState struct {
+	programs map[string]*program
+	known    map[string]bool
+	funcs    template.FuncMap
+	names    []string
+}
+
 // Engine renders templates from a filesystem. | Engine 从文件系统渲染模板。
 //
-// It is safe for concurrent use. | 可安全并发使用。
+// It is safe for concurrent use: renders read one immutable snapshot through an
+// atomic pointer and allocate their state per call. Like any type holding a
+// sync.Pool it must not be copied after first use; pass the pointer around.
+// | 可安全并发使用：渲染经原子指针读取一份不可变快照，并按调用分配各自状态。
+// 与任何持有 sync.Pool 的类型一样，首次使用后不得复制；请传递指针。
 type Engine struct {
-	fsys afero.Fs
-	tmpl *template.Template
 
-	// source is the pristine parse result: it is never executed, so it can be
-	// cloned for every execution that needs its own template functions.
-	// | source 是未经执行的解析结果：它从不被执行，因此可为每次需要独立模板函数的
-	// 执行克隆一次。
-	source *template.Template
+	// bufPool reuses output buffers of any grown capacity. | bufPool 复用任意增长后容量的输出缓冲。
+	bufPool sync.Pool
 
-	// bound caches cloned template sets keyed by language + decision set. | bound 以「语言 + 判定集合」为键缓存已克隆的模板集。
-	bound map[boundKey]*template.Template
-
-	names []string
-
-	// boundOrder is the FIFO eviction order of bound. | boundOrder 是 bound 的先进先出淘汰顺序。
-	boundOrder []boundKey
+	fsys  afero.Fs
+	state atomic.Pointer[engineState]
 
 	opts Options
 
-	// gen increments on every load, so entries from an older parse are never reused. | gen 在每次 load 时递增，旧解析代的条目不会被复用。
-	gen uint64
+	// loadMu serializes reloads in Dev mode. | loadMu 在 Dev 模式下串行化重载。
+	loadMu sync.Mutex
+}
 
-	mu sync.RWMutex
+// maxRetainedBuffer bounds the capacity an engine keeps in its buffer pool.
+// | maxRetainedBuffer 限制引擎缓冲池保留的单个缓冲容量。
+const maxRetainedBuffer = 1 << 20
 
-	// boundMu guards the per-binding-set cache below. Renders only read after the first hit, so an
-	// RWMutex keeps concurrent page renders from serializing on every execution. | boundMu 保护下方的
-	// 按绑定集缓存。首次命中之后渲染只读，因此用 RWMutex 避免并发的页面渲染在每次执行时串行化。
-	boundMu sync.RWMutex
+// AcquireBuffer returns a zero-length buffer with at least hint capacity. | AcquireBuffer 返回长度为零、容量至少为 hint 的缓冲。
+//
+// The buffer comes from the engine's own pool, so a page that grows to tens of
+// kilobytes is reused instead of reallocated on every request. Callers must
+// return it with ReleaseBuffer once the response has been written. | 缓冲来自引擎自身的池，
+// 因此增长到几十 KB 的页面会被复用而不是每请求重新分配。调用方在响应写完后必须用
+// ReleaseBuffer 归还。
+func (e *Engine) AcquireBuffer(hint int) []byte {
+	if v := e.bufPool.Get(); v != nil {
+		b := v.([]byte)[:0]
+		if cap(b) >= hint {
+			return b
+		}
+	}
+	if hint < 4096 {
+		hint = 4096
+	}
+	return make([]byte, 0, hint)
+}
+
+// ReleaseBuffer returns a buffer acquired from this engine. | ReleaseBuffer 归还从本引擎获取的缓冲。
+func (e *Engine) ReleaseBuffer(b []byte) {
+	if b == nil || cap(b) > maxRetainedBuffer {
+		return
+	}
+	e.bufPool.Put(b[:0])
 }
 
 // New loads every template under the configured root. | New 加载配置根目录下的全部模板。
@@ -145,16 +185,24 @@ func (e *Engine) Options() Options { return e.opts }
 
 // FuncMap returns the effective template functions. | FuncMap 返回生效的模板函数表。
 func (e *Engine) FuncMap() template.FuncMap {
-	m := Funcs(e.fsys)
-	for k, v := range e.opts.Funcs {
-		m[k] = v
+	out := template.FuncMap{}
+	for k, v := range e.funcMap() {
+		out[k] = v
 	}
-	return m
+	return out
 }
 
 // Clone returns an independent engine sharing the same filesystem and options. | Clone 返回共享文件系统与配置的独立引擎。
 func (e *Engine) Clone() *Engine {
-	c := &Engine{fsys: e.fsys, opts: e.opts}
+	opts := e.opts
+	if opts.Funcs != nil {
+		funcs := make(template.FuncMap, len(opts.Funcs))
+		for k, v := range opts.Funcs {
+			funcs[k] = v
+		}
+		opts.Funcs = funcs
+	}
+	c := &Engine{fsys: e.fsys, opts: opts}
 	if !c.opts.Dev {
 		_ = c.load()
 	}
@@ -176,26 +224,33 @@ func (e *Engine) AddFunc(name string, fn any) *Engine {
 	return c
 }
 
-// Names returns the sorted template names. | Names 返回排序后的模板名列表。
+// Names returns the sorted template file names. | Names 返回排序后的模板文件名字列表。
 func (e *Engine) Names() []string {
-	e.mu.RLock()
-	defer e.mu.RUnlock()
-	out := make([]string, len(e.names))
-	copy(out, e.names)
+	st := e.state.Load()
+	if st == nil {
+		return nil
+	}
+	out := make([]string, len(st.names))
+	copy(out, st.names)
 	return out
 }
 
 // templateFile pairs a template name with the path it is read from. | templateFile 把模板名与读取路径配对。
-//
-// The name is relative to the scan root ("layouts/base.html") while the path
-// is the real location in the filesystem ("templates/layouts/base.html"). | 名字相对
-// 扫描根（"layouts/base.html"），路径是文件系统中的真实位置（"templates/layouts/base.html"）。
 type templateFile struct {
 	name string
 	path string
 }
 
-// load parses every matching file into one template set. | load 把全部匹配文件解析进同一个模板集。
+// funcMap returns the merged default and caller functions. | funcMap 返回默认函数与调用方函数的合并结果。
+func (e *Engine) funcMap() template.FuncMap {
+	m := Funcs(e.fsys)
+	for k, v := range e.opts.Funcs {
+		m[k] = v
+	}
+	return m
+}
+
+// load parses, escapes and compiles every entry of the template tree. | load 解析、转义并编译模板树的每个入口。
 func (e *Engine) load() error {
 	files, err := e.collect()
 	if err != nil {
@@ -205,45 +260,79 @@ func (e *Engine) load() error {
 		return errx.Detail(ErrNoTemplates, "root=%[1]s | 根目录=%[1]s", e.opts.Root)
 	}
 
-	tmpl := template.New("").Funcs(e.FuncMap())
+	funcs := e.funcMap()
+	owned := make(map[string]bool, len(e.opts.Funcs))
+	for name, fn := range funcs {
+		if _, derr := funcValue(name, fn); derr != nil {
+			return derr
+		}
+		if !validFuncName(name) {
+			return errx.Detail(ErrInvalidFunc, "function=%[1]s | 函数=%[1]s", name)
+		}
+	}
+	for name := range e.opts.Funcs {
+		owned[name] = true
+	}
+
+	tmpl := template.New("yd").Funcs(funcs)
 	if e.opts.LeftDelim != "" || e.opts.RightDelim != "" {
 		tmpl = tmpl.Delims(e.opts.LeftDelim, e.opts.RightDelim)
 	}
 	names := make([]string, 0, len(files))
 	for _, f := range files {
-		b, err := afero.ReadFile(e.fsys, f.path)
-		if err != nil {
-			return errx.WrapDetail(err, ErrReadTemplate, "path=%[1]s | 路径=%[1]s", f.path)
+		b, rerr := afero.ReadFile(e.fsys, f.path)
+		if rerr != nil {
+			return errx.WrapDetail(rerr, ErrReadTemplate, "path=%[1]s | 路径=%[1]s", f.path)
 		}
-		if _, err := tmpl.New(f.name).Parse(string(b)); err != nil {
-			return errx.WrapDetail(err, ErrParseTemplate, "name=%[1]s | 名称=%[1]s", f.name)
+		if _, perr := tmpl.New(f.name).Parse(string(b)); perr != nil {
+			return errx.WrapDetail(perr, ErrParseTemplate, "name=%[1]s | 名称=%[1]s", f.name)
 		}
 		names = append(names, f.name)
 	}
+	sort.Strings(names)
 
-	// tmpl stays pristine: it is the clone source of every execution that needs
-	// its own template functions. html/template rewrites the parse trees while
-	// escaping and refuses to clone a set that has been executed, so the set
-	// executed as is has to be a twin of the source. | tmpl 保持原始：它是每次需要
-	// 独立模板函数的执行的克隆源。html/template 在转义时会改写解析树，并拒绝克隆已执行过的
-	// 集合，因此直接执行的那个集合必须是原始集合的孪生副本。
-	source := tmpl
-	executed, err := source.Clone()
-	if err != nil {
-		return errx.WrapDetail(err, ErrCloneTemplate, "root=%[1]s | 根目录=%[1]s", e.opts.Root)
+	entries := knownNames(tmpl.Templates())
+	st := &engineState{
+		programs: make(map[string]*program, len(entries)),
+		known:    make(map[string]bool, len(entries)),
+		names:    names,
+		funcs:    funcs,
 	}
-
-	e.mu.Lock()
-	e.tmpl = executed
-	e.source = source
-	e.names = names
-	e.gen++
-	e.mu.Unlock()
-
-	e.boundMu.Lock()
-	e.bound = nil
-	e.boundOrder = nil
-	e.boundMu.Unlock()
+	for _, name := range entries {
+		st.known[name] = true
+	}
+	for _, name := range entries {
+		// Each entry escapes in a private clone: a context error in one entry must
+		// not poison the parse tree another entry still needs. | 每个入口在独立克隆中转义：
+		// 某个入口的上下文错误不得污染其它入口仍需使用的解析树。
+		clone, cerr := tmpl.Clone()
+		if cerr != nil {
+			st.programs[name] = &program{err: errx.Wrap(cerr, ErrCloneTemplate)}
+			continue
+		}
+		_ = clone.ExecuteTemplate(io.Discard, name, nil)
+		ht := clone.Lookup(name)
+		if ht == nil || ht.Tree == nil {
+			st.programs[name] = &program{err: errx.Detail(ErrParseTemplate, "name=%[1]s | 名称=%[1]s", name)}
+			continue
+		}
+		prog, cerr := compileProgram(clone, name, funcs, owned)
+		if errors.Is(cerr, errDerivedContext) {
+			st.programs[name] = &program{fallback: &fallbackProgram{
+				master:  tmpl,
+				escaped: clone,
+				funcs:   funcs,
+				owned:   owned,
+				name:    name,
+			}}
+			continue
+		}
+		if cerr != nil {
+			return cerr
+		}
+		st.programs[name] = prog
+	}
+	e.state.Store(st)
 	return nil
 }
 
@@ -260,7 +349,7 @@ func (e *Engine) collect() ([]templateFile, error) {
 		rel := toSlash(p)
 		base := path.Base(rel)
 		if strings.HasPrefix(base, ".") || strings.HasPrefix(base, "_") {
-			return nil // 点文件与下划线前缀文件视为局部片段，不作为入口 | dot/underscore files are partials
+			return nil
 		}
 		if !e.matchExt(rel) {
 			return nil
@@ -275,6 +364,7 @@ func (e *Engine) collect() ([]templateFile, error) {
 	return files, nil
 }
 
+// matchExt reports whether p has a configured template extension. | matchExt 报告 p 是否具有配置的模板扩展名。
 func (e *Engine) matchExt(p string) bool {
 	for _, ext := range e.opts.Exts {
 		if strings.HasSuffix(p, ext) {
@@ -282,6 +372,22 @@ func (e *Engine) matchExt(p string) bool {
 		}
 	}
 	return false
+}
+
+// programFor returns the compiled entry program for name. | programFor 返回 name 对应的已编译入口程序。
+func (e *Engine) programFor(name string) (*program, error) {
+	st := e.state.Load()
+	if st == nil {
+		return nil, ErrTemplateNotFound
+	}
+	p, ok := st.programs[name]
+	if !ok {
+		return nil, errx.Detail(ErrTemplateNotFound, "name=%[1]s | 名称=%[1]s", name)
+	}
+	if p.err != nil {
+		return nil, p.err
+	}
+	return p, nil
 }
 
 // Render executes the named template into w. | Render 把指定名称的模板渲染到 w。
@@ -294,187 +400,111 @@ func (e *Engine) matchExt(p string) bool {
 // `can`、`hasRole`、`perm` 与 `role`。
 func (e *Engine) Render(w io.Writer, name string, data any) error {
 	if e.opts.Dev {
-		if err := e.load(); err != nil {
+		if err := e.reload(); err != nil {
 			return err
 		}
 	}
-	tmpl, err := e.executionSet(data)
+	p, err := e.programFor(name)
 	if err != nil {
 		return err
 	}
-	if tmpl == nil || tmpl.Lookup(name) == nil {
-		return errx.Detail(ErrTemplateNotFound, "name=%[1]s | 名称=%[1]s", name)
+	if p.fallback != nil {
+		return p.fallback.fallback(w, unwrapData(data))
 	}
-	if err := tmpl.ExecuteTemplate(w, name, data); err != nil {
-		return errx.WrapDetail(err, ErrExecuteTemplate, "name=%[1]s | 名称=%[1]s", name)
+	buf := e.AcquireBuffer(p.sizeHint)
+	out, err := p.exec(buf, unwrapData(data), translatorFrom(data), authzFrom(data))
+	if err != nil {
+		e.ReleaseBuffer(buf)
+		return err
+	}
+	_, werr := w.Write(out)
+	e.ReleaseBuffer(out)
+	if werr != nil {
+		return werr
 	}
 	return nil
 }
 
-// executionSet returns the template set data must be executed with. | executionSet 返回执行 data 应使用的模板集。
+// RenderAppend renders name and appends the result to dst. | RenderAppend 渲染 name 并把结果追加到 dst。
 //
-// Without any injected authority it hands back the cached set as is, which is the path every
-// render without i18n and without permissions takes. | 未注入任何判定主体时原样返回缓存集合，
-// 这是所有既未启用 i18n 也无权限判定的渲染所走的路径。
-//
-// With one it clones the pristine set and rebinds the helpers that authority owns - "tr" for a
-// translator, "can"/"hasRole"/"perm"/"role" for an Authz - for this execution only: a template set
-// is shared between goroutines and its function map cannot be swapped after escaping, so a
-// per-execution copy is the only safe way to give two concurrent requests two different subjects. |
-// 注入判定主体时则克隆原始集合，并仅对本次执行重新绑定该主体拥有的辅助函数——译者绑定 "tr"，
-// Authz 绑定 "can"/"hasRole"/"perm"/"role"：模板集在多个 goroutine 间共享，且其函数表在转义后无法替换，
-// 因此「每次执行一份副本」是让两个并发请求使用两个不同主体的唯一安全做法。
-//
-// A helper registered through Options.Funcs wins over the binding of the same name. | 经
-// Options.Funcs 注册的同名辅助函数优先于该绑定。
-func (e *Engine) executionSet(data any) (*template.Template, error) {
-	e.mu.RLock()
-	executed, source, gen := e.tmpl, e.source, e.gen
-	e.mu.RUnlock()
-
-	tr := translatorFrom(data)
-	az := authzFrom(data)
-	if (tr == nil && az == nil) || source == nil {
-		return executed, nil
-	}
-
-	// Both bindings are immutable descriptions of one execution: a language tag and a decision set.
-	// When each exposes its stable key, the cloned set is cached, so a page render no longer pays
-	// for cloning the whole parse tree (measured at ~21µs/121 allocs before this cache). | 两个绑定都是
-	// 一次执行的不可变描述：语言标签与判定集合。当二者都能给出稳定键时，克隆结果会被缓存，
-	// 页面渲染因此不再为克隆整棵解析树买单（加缓存前实测约 21µs/121 allocs）。
-	key, cacheable := boundKeyFor(tr, az)
-	key.gen = gen
-	if cacheable {
-		if cached := e.cachedSet(key); cached != nil {
-			return cached, nil
+// It is the zero-copy counterpart of Render for callers that already own a
+// buffer, such as the app facade composing a fragment and its layout. On error
+// dst is returned unchanged beyond its original length. | 它是 Render 的零拷贝版本，
+// 供已经持有缓冲的调用方（例如把片段与布局组合起来的 app 门面）使用。出错时 dst 只保留
+// 原有内容。RenderAppend 会返回追加后的新切片。
+func (e *Engine) RenderAppend(dst []byte, name string, data any) ([]byte, error) {
+	if e.opts.Dev {
+		if err := e.reload(); err != nil {
+			return dst, err
 		}
 	}
-
-	bound, err := source.Clone()
+	p, err := e.programFor(name)
 	if err != nil {
-		return nil, errx.Wrap(err, ErrCloneTemplate)
+		return dst, err
 	}
-	bound = bound.Funcs(e.bindingsFor(tr, az))
-	if cacheable {
-		e.storeSet(key, bound)
+	if p.fallback != nil {
+		return p.fallback.fallbackAppend(dst, unwrapData(data))
 	}
-	return bound, nil
+	start := len(dst)
+	hint := p.sizeHint
+	if hint > maxBufferHint {
+		hint = maxBufferHint
+	}
+	if hint > 0 {
+		dst = slices.Grow(dst, hint)
+	}
+	out, err := p.exec(dst, unwrapData(data), translatorFrom(data), authzFrom(data))
+	if err != nil {
+		return dst[:start], err
+	}
+	return out, nil
 }
 
-// boundKey identifies one cached template set. | boundKey 标识一个已缓存的模板集。
-//
-// gen keeps entries from an older parse unreachable; tr/az record which half participated, so a
-// language-only render never shares a set with an authority-bound one. | gen 使旧解析代的条目不可达；
-// tr/az 记录参与的是哪一半，因此只绑语言的渲染绝不会与绑定了判定主体的渲染共享集合。
-type boundKey struct {
-	lang  string
-	authz string
-	gen   uint64
-	tr    bool
-	az    bool
+// reload serializes and performs a Dev-mode reload. | reload 串行执行 Dev 模式的重载。
+func (e *Engine) reload() error {
+	e.loadMu.Lock()
+	defer e.loadMu.Unlock()
+	return e.load()
 }
 
-// maxBoundSets bounds the cache. Languages are few and decision sets are role combinations, so this
-// is generous; eviction is FIFO because a miss only costs one clone. | maxBoundSets 限制缓存规模。
-// 语言很少、判定集合是角色组合，因此该上限很宽松；采用先进先出淘汰，因为未命中的代价只是一次克隆。
-const maxBoundSets = 16
-
-// boundKeyFor derives the cache key of a pair of bindings. | boundKeyFor 推导一对绑定的缓存键。
-//
-// A binding that cannot describe itself with a stable key makes the whole pair uncacheable: caching
-// it under a guessed key would hand one subject another subject's decisions. | 无法用稳定键描述自身的
-// 绑定会使整对不可缓存：用猜测的键缓存会把一个主体的判定结果交给另一个主体。
-func boundKeyFor(tr Translator, az Authz) (boundKey, bool) {
-	var key boundKey
-	if tr != nil {
-		switch t := tr.(type) {
-		case interface{ CacheKey() string }:
-			key.lang = t.CacheKey()
-		case interface{ Lang() string }:
-			key.lang = t.Lang()
-		default:
-			return key, false
-		}
-		key.tr = true
+// unwrapData follows text/template and applies the template to the concrete
+// value inside a reflect.Value. | unwrapData 遵循 text/template：若数据是 reflect.Value，
+// 则作用于其内部的具体值。
+func unwrapData(data any) any {
+	if rv, ok := data.(reflect.Value); ok && rv.IsValid() {
+		return rv.Interface()
 	}
-	if az != nil {
-		keyer, ok := az.(interface{ DecisionKey() string })
-		if !ok {
-			return key, false
-		}
-		key.authz = keyer.DecisionKey()
-		key.az = true
-	}
-	return key, true
-}
-
-// cachedSet returns a cached bound set, or nil on a miss. | cachedSet 返回已缓存的绑定集合，未命中时返回 nil。
-func (e *Engine) cachedSet(key boundKey) *template.Template {
-	e.boundMu.RLock()
-	defer e.boundMu.RUnlock()
-	return e.bound[key]
-}
-
-// storeSet records a freshly cloned bound set, evicting the oldest entry when full. | storeSet 记录新克隆的绑定集合，满时淘汰最旧条目。
-func (e *Engine) storeSet(key boundKey, tmpl *template.Template) {
-	e.boundMu.Lock()
-	defer e.boundMu.Unlock()
-	if e.bound == nil {
-		e.bound = make(map[boundKey]*template.Template, 8)
-	}
-	if _, ok := e.bound[key]; ok {
-		return
-	}
-	for len(e.boundOrder) >= maxBoundSets {
-		oldest := e.boundOrder[0]
-		e.boundOrder = e.boundOrder[1:]
-		delete(e.bound, oldest)
-	}
-	e.bound[key] = tmpl
-	e.boundOrder = append(e.boundOrder, key)
-}
-
-// bindings returns the per-execution functions data asks for. | bindings 返回 data 请求的按次执行函数。
-//
-// It is the single place that decides what a data value can rebind, and it returns nil - not an
-// empty map - when there is nothing to bind, so the common path allocates nothing. | 这里是决定
-// 「一份数据能重绑什么」的唯一位置；没有可绑定项时返回 nil（而不是空映射），因此常见路径不产生任何分配。
-func (e *Engine) bindingsFor(tr Translator, az Authz) template.FuncMap {
-	var bindings template.FuncMap
-	if tr != nil && !e.owns("tr") {
-		bindings = template.FuncMap{"tr": translatorFunc(tr)}
-	}
-	if az != nil {
-		for name, fn := range authzFuncs(az) {
-			if e.owns(name) {
-				continue
-			}
-			if bindings == nil {
-				bindings = template.FuncMap{}
-			}
-			bindings[name] = fn
-		}
-	}
-	return bindings
-}
-
-// owns reports whether the engine registered its own function under name. | owns 报告引擎是否以该名字注册了自己的函数。
-func (e *Engine) owns(name string) bool {
-	_, ok := e.opts.Funcs[name]
-	return ok
+	return data
 }
 
 // Exists reports whether a template name is known. | Exists 报告模板名是否为已知模板。
 func (e *Engine) Exists(name string) bool {
 	if e.opts.Dev {
-		_ = e.load()
+		_ = e.reload()
 	}
-	e.mu.RLock()
-	defer e.mu.RUnlock()
-	return e.tmpl != nil && e.tmpl.Lookup(name) != nil
+	st := e.state.Load()
+	return st != nil && st.known[name]
 }
 
+// validFuncName reports whether name is a valid template function identifier.
+// | validFuncName 报告 name 是否为合法的模板函数标识符。
+func validFuncName(name string) bool {
+	if name == "" {
+		return false
+	}
+	for i, r := range name {
+		switch {
+		case r == '_':
+		case i == 0 && unicode.IsLetter(r):
+		case i > 0 && (unicode.IsLetter(r) || unicode.IsDigit(r)):
+		default:
+			return false
+		}
+	}
+	return true
+}
+
+// toSlash converts a filesystem path to slash form. | toSlash 把文件系统路径转换为斜杠形式。
 func toSlash(p string) string { return strings.ReplaceAll(p, "\\", "/") }
 
 // trimRoot strips the scan root prefix so template names stay portable. | trimRoot 去掉扫描根前缀，使模板名保持可移植。

@@ -2,6 +2,7 @@ package app
 
 import (
 	"bytes"
+	"compress/gzip"
 	"errors"
 	"html/template"
 	"io"
@@ -15,6 +16,7 @@ import (
 	"github.com/shibingli/yd/http/i18n"
 	"github.com/shibingli/yd/http/render"
 	"github.com/shibingli/yd/http/router"
+	"github.com/shibingli/yd/middleware"
 )
 
 // newTemplateFS writes the given files into a fresh in-memory asset filesystem
@@ -262,5 +264,44 @@ func TestRenderWrapsNonMapDataForTranslator(t *testing.T) {
 	}
 	if !strings.Contains(body, "<p>Home</p>") {
 		t.Errorf("结构体数据下 {{ tr }} 仍须按请求语言渲染: %q | with struct data {{ tr }} must still follow the request language: %q", body, body)
+	}
+}
+
+// TestRenderFlowsThroughCompressionMiddleware proves the compiled engine writes
+// through the normal Ctx writer, so the compression middleware sees the final
+// HTML for both whole pages and HX fragments. | TestRenderFlowsThroughCompressionMiddleware
+// 证明编译引擎经普通 Ctx 写入器输出，因此压缩中间件对整页与 HX 片段都能看到最终 HTML。
+func TestRenderFlowsThroughCompressionMiddleware(t *testing.T) {
+	a := newTestApp(t, map[string]string{
+		"templates/layouts/base.html": testLayout,
+		"templates/pages/home.html":   testPage,
+	})
+	a.Use(middleware.Compress(middleware.CompressOptions{
+		Algorithms: []middleware.Algorithm{middleware.Gzip},
+		MinSize:    1,
+	}))
+	a.GET("/home", renderHandler(t, a, http.StatusOK, "pages/home.html", testData()))
+
+	cases := []map[string]string{
+		{"Accept-Encoding": "gzip"},
+		{"Accept-Encoding": "gzip", "HX-Request": "true"},
+	}
+	for _, headers := range cases {
+		rec := doRequest(t, a, http.MethodGet, "/home", headers)
+		if got := rec.Header().Get("Content-Encoding"); got != "gzip" {
+			t.Fatalf("Content-Encoding = %q, 期望 gzip (headers=%v)", got, headers)
+		}
+		zr, err := gzip.NewReader(rec.Body)
+		if err != nil {
+			t.Fatalf("gzip reader: %v", err)
+		}
+		body, err := io.ReadAll(zr)
+		if err != nil {
+			t.Fatalf("解压失败: %v", err)
+		}
+		_ = zr.Close()
+		if !strings.Contains(string(body), wantFragment) {
+			t.Errorf("解压后的正文缺少片段 %q: %q", wantFragment, body)
+		}
 	}
 }

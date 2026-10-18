@@ -10,6 +10,7 @@ import (
 
 	"github.com/spf13/afero"
 
+	"github.com/shibingli/yd/core/bufpool"
 	"github.com/shibingli/yd/core/errx"
 	"github.com/shibingli/yd/http/htmx"
 	"github.com/shibingli/yd/http/i18n"
@@ -87,6 +88,14 @@ func (a *App) Render(c *router.Ctx, status int, name string, data any) error {
 		return a.renderFragment(c, status, name, data)
 	}
 
+	// The compiled engine can append both passes into one pooled buffer; a
+	// renderer injected through WithRenderer keeps the generic two-buffer path.
+	// | 编译引擎可以把两趟渲染追加进同一个池化缓冲；经 WithRenderer 注入的渲染器
+	// 仍走通用的双缓冲路径。
+	if ar, ok := a.renderer.(appendRenderer); ok {
+		return a.renderWholeAppend(c, status, name, data, ar)
+	}
+
 	// Whole page: render the fragment first, then wrap it in the layout. | 整页：先渲染片段，再用布局包裹。
 	var page bytes.Buffer
 	if err := a.renderer.Render(&page, name, data); err != nil {
@@ -111,8 +120,82 @@ func (a *App) Render(c *router.Ctx, status int, name string, data any) error {
 	return a.writeHTML(c, status, full.Bytes())
 }
 
+// appendRenderer is the zero-copy rendering capability of the compiled engine.
+// | appendRenderer 是编译引擎的零拷贝渲染能力。
+type appendRenderer interface {
+	RenderAppend(dst []byte, name string, data any) ([]byte, error)
+}
+
+// bufferRenderer lets the facade reuse the engine's grown output buffers.
+// | bufferRenderer 让门面复用引擎已增长的输出缓冲。
+type bufferRenderer interface {
+	AcquireBuffer(hint int) []byte
+	ReleaseBuffer(b []byte)
+}
+
+// renderWholeAppend renders the fragment and its layout into one buffer. | renderWholeAppend 把片段与布局渲染进同一个缓冲。
+func (a *App) renderWholeAppend(c *router.Ctx, status int, name string, data any, ar appendRenderer) error {
+	var br bufferRenderer
+	buf := bufpool.Get(0)
+	if b, ok := a.renderer.(bufferRenderer); ok {
+		br = b
+		buf = br.AcquireBuffer(0)
+	} else {
+		defer bufpool.Put(buf)
+	}
+	out := buf
+	if br != nil {
+		defer func() { br.ReleaseBuffer(out) }()
+	}
+	start := len(buf)
+	page, err := ar.RenderAppend(buf, name, data)
+	out = page
+	if err != nil {
+		return err
+	}
+	if a.layout == "" {
+		return a.writeHTML(c, status, page[start:])
+	}
+	// The layout appends after the fragment in the same buffer; only the newly
+	// appended region is written. The fragment is converted once for the
+	// template.HTML data key, which is inherent to the layout contract.
+	// | 布局在同一缓冲中追加到片段之后，只写出新增区域。片段转为 template.HTML 数据键
+	// 需要一次字符串转换，这是布局契约本身决定的。
+	layoutStart := len(page)
+	full, err := ar.RenderAppend(page, a.layout, layoutData(data, string(page[start:])))
+	out = full
+	if err != nil {
+		if errors.Is(err, render.ErrTemplateNotFound) || errors.Is(err, ErrTemplateNotFound) {
+			return a.writeHTML(c, status, page[start:])
+		}
+		return err
+	}
+	return a.writeHTML(c, status, full[layoutStart:])
+}
+
 // renderFragment renders name into a buffer and writes it as text/html. | renderFragment 把 name 渲染到缓冲后以 text/html 输出。
 func (a *App) renderFragment(c *router.Ctx, status int, name string, data any) error {
+	if ar, ok := a.renderer.(appendRenderer); ok {
+		var br bufferRenderer
+		buf := bufpool.Get(0)
+		if b, ok := a.renderer.(bufferRenderer); ok {
+			br = b
+			buf = br.AcquireBuffer(0)
+		} else {
+			defer bufpool.Put(buf)
+		}
+		out := buf
+		if br != nil {
+			defer func() { br.ReleaseBuffer(out) }()
+		}
+		start := len(buf)
+		page, err := ar.RenderAppend(buf, name, data)
+		out = page
+		if err != nil {
+			return err
+		}
+		return a.writeHTML(c, status, page[start:])
+	}
 	var buf bytes.Buffer
 	if err := a.renderer.Render(&buf, name, data); err != nil {
 		return err
