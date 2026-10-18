@@ -192,8 +192,13 @@ func TestConfigForMapsOptions(t *testing.T) {
 	if cfg.EnvVars["YD_APP_ENV"] != "production" {
 		t.Errorf("Config.EnvVars = %v", cfg.EnvVars)
 	}
-	if got := cfg.Option[service.OnFailure]; got != service.OnFailureRestart {
-		t.Errorf("RestartOnExit 应写入 %s=restart, 实际 %v", service.OnFailure, got)
+	// kardianos exposes OnFailure only on Windows; the helper keeps this test
+	// buildable on POSIX, where the equivalent is the generic Restart key below. | kardianos
+	// 只在 Windows 暴露 OnFailure；辅助函数让本测试在 POSIX 也能编译，对应语义由下方的通用 Restart 键覆盖。
+	if key, want := failureOption(); key != "" {
+		if got := cfg.Option[key]; got != want {
+			t.Errorf("RestartOnExit 应写入 %s=%s, 实际 %v", key, want, got)
+		}
 	}
 	if got := cfg.Option[restartOnExitKey]; got != restartAlwaysValue {
 		t.Errorf("RestartOnExit 应写入 %s=always, 实际 %v", restartOnExitKey, got)
@@ -203,7 +208,10 @@ func TestConfigForMapsOptions(t *testing.T) {
 // TestConfigForDefaultsNameFromExecutable 断言名字为空时用程序基础名补齐，程序也为空时回退为框架名。
 // TestConfigForDefaultsNameFromExecutable asserts an empty name is filled from the executable base name, falling back to the framework name.
 func TestConfigForDefaultsNameFromExecutable(t *testing.T) {
-	windows := configFor(Options{Executable: `C:\Program Files\shop\shop-admin.exe`})
+	// Forward slashes keep the Windows-style path parseable by filepath on POSIX
+	// as well, so the name-derivation rule is tested on every platform. | 正斜杠让
+	// Windows 风格路径在 POSIX 上也能被 filepath 正确解析，从而在各平台都测试命名规则。
+	windows := configFor(Options{Executable: `C:/Program Files/shop/shop-admin.exe`})
 	if windows.Name != "shop-admin" {
 		t.Errorf("未从程序路径推导服务名: %q", windows.Name)
 	}

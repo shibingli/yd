@@ -383,6 +383,14 @@ func TestDevReloadEndpointOnlyInDevMode(t *testing.T) {
 	})
 
 	t.Run("开启热重载时推送 reload 事件 | reload events are pushed when enabled", func(t *testing.T) {
+		// Create the stylesheet directory before the watcher starts: fsnotify only
+		// starts watching a new directory after it observes its creation, so a
+		// directory plus file created in one burst can lose the file event. The
+		// contract under test is reload delivery, not the new-directory race. | 在监听器
+		// 启动前创建样式目录：fsnotify 只有在观察到目录创建后才开始监听，目录与文件
+		// 在同一瞬间创建时可能丢失文件事件。本测试验证的是刷新事件投递，而不是新建目录竞态。
+		cssPath := filepath.Join(dir, "web", "static", "css", "app.css")
+		writeFile(t, cssPath, "/* initial | 初始 */\n")
 		r := h.newRunner(t, io.Discard, nil)
 		if !r.ReloadEnabled() {
 			t.Fatal("开发模式下 ReloadEnabled 为 false | ReloadEnabled is false in dev mode")
@@ -431,7 +439,7 @@ func TestDevReloadEndpointOnlyInDevMode(t *testing.T) {
 		}()
 
 		// A template/style change → Tailwind rebuild plus a browser reload event. | 模板/样式变更 → Tailwind 重建 + 浏览器刷新事件。
-		writeFile(t, filepath.Join(dir, "web", "static", "css", "app.css"), "@import \"tailwindcss\";\n")
+		writeFile(t, cssPath, "@import \"tailwindcss\";\n")
 
 		deadline := time.After(20 * time.Second)
 		sawReload := false
