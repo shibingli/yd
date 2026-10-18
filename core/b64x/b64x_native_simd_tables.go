@@ -10,6 +10,7 @@ var (
 	simdShuf16       = [16]int8{1, 0, 2, 1, 4, 3, 5, 4, 7, 6, 8, 7, 10, 9, 11, 10}
 	simdShuf32Gather [32]int8
 	simdLut16        = [16]int8{71, -4, -4, -4, -4, -4, -4, -4, -4, -4, -4, -19, -16, 65, 0, 0}
+	simdLutURL16     = [16]int8{71, -4, -4, -4, -4, -4, -4, -4, -4, -4, -4, -17, 32, 65, 0, 0}
 	simdPack16       = [16]int8{2, 1, 0, 6, 5, 4, 10, 9, 8, 14, 13, 12, 15, 15, 15, 15}
 	simdPack32       [32]int8
 	simdPackDword    = [8]uint32{0, 1, 2, 4, 5, 6, 7, 7}
@@ -18,8 +19,8 @@ var (
 	simdMaskLo16, simdMaskHi16, simdMulHi16, simdMulLo16 [16]uint16
 	simdMaskLo32, simdMaskHi32, simdMulHi32, simdMulLo32 [32]uint16
 
-	simdLut32 [32]int8
-	simdLut64 [64]int8
+	simdLut32, simdLutURL32 [32]int8
+	simdLut64, simdLutURL64 [64]int8
 
 	simdMul16  [16]int8
 	simdMul32  [32]int8
@@ -56,6 +57,7 @@ func init() {
 			simdMul16[j&15], simdMul32[j] = 1, 1
 		}
 		simdLut32[j] = simdLut16[j&15]
+		simdLutURL32[j] = simdLutURL16[j&15]
 	}
 	for j := 0; j < 64; j++ {
 		if j&1 == 0 {
@@ -64,6 +66,7 @@ func init() {
 			simdMul64[j] = 1
 		}
 		simdLut64[j] = simdLut16[j&15]
+		simdLutURL64[j] = simdLutURL16[j&15]
 		simdPack64[j] = simdPack16[j&15]
 		if j < 32 {
 			simdPack32[j] = simdPack16[j&15]
