@@ -762,7 +762,7 @@ func decodeSIMD512VBMI2(dst, src []byte, url, raw bool) (int, int) {
 	b62, b63 := simdB62x64, simdB63x64
 	hiMask, loMask := simdHiMaskX32, simdLoMaskX64
 	i, o := 0, 0
-	for i+64 <= len(src) && o+64 <= len(dst) {
+	for i+64 <= len(src) && o+48 <= len(dst) {
 		c := archsimd.LoadUint8x64(src[i:])
 		hi := c.AsUint16x32().ShiftAllRight(4).And(hiMask).AsUint8x64()
 		lo := c.And(loMask)
@@ -776,7 +776,11 @@ func decodeSIMD512VBMI2(dst, src []byte, url, raw bool) (int, int) {
 		v = b63.IfElse(c.Equal(slash), v)
 		pairs := v.DotProductPairsSaturated(mul).AsUint32x16()
 		groups := pairs.ShiftAllLeft(12).Or(pairs.ShiftAllRight(16)).AsUint8x64()
-		groups.PermuteOrZeroGrouped(pack).Compress(packMask).Store(dst[o:])
+		// Store exactly the 48 decoded bytes; a full 64-byte store would overhang
+		// DecodedLen by 16 bytes when the caller provides spare capacity.
+		// | 精确写入 48 个解码字节；调用方提供富余容量时，64 字节全宽存储会越过
+		// DecodedLen 16 字节。
+		groups.PermuteOrZeroGrouped(pack).Compress(packMask).StorePart(dst[o : o+48])
 		i += 64
 		o += 48
 	}
