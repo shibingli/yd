@@ -355,8 +355,8 @@ func TestEncoderDecoderStream(t *testing.T) {
 	})
 }
 
-// TestValid verifies that Valid's judgement matches encoding/json.Valid, | TestValid 验证 Valid 的判定与 encoding/json.Valid 一致，
-// and explicitly marks the known lenient region of the sonic backend on illegal escape sequences. | 并显式标注 sonic 后端在非法转义序列上的已知宽松区。
+// TestValid verifies that Valid's judgement matches encoding/json.Valid across backends. | TestValid
+// 验证各后端的 Valid 判定与 encoding/json.Valid 一致。
 func TestValid(t *testing.T) {
 	// Inputs that all three backends must judge as valid. | 三个后端都必须判为合法的输入。
 	valid := []string{
@@ -382,24 +382,21 @@ func TestValid(t *testing.T) {
 		}
 	}
 
-	// Known lenient region: sonic's Valid only performs structural validation and does not validate illegal escape sequences | 已知宽松区：sonic 的 Valid 只做结构校验，不校验字符串内的非法转义序列
-	// inside strings (\x, \u12, \q) or unescaped control characters, so it is more lenient than the standard library. Here we only require | （\x、\u12、\q）与未转义控制字符，因此比标准库宽松。这里只要求
-	// that jsonx is never stricter than the standard library, avoiding treating a backend difference as a framework regression. | jsonx 永不比标准库更严格，避免把后端差异当成框架回归。
+	// Illegal escapes and unescaped control characters must be rejected by every
+	// backend exactly as the standard library rejects them. | 非法转义与未转义控制字符
+	// 必须与标准库一样被每个后端拒绝。
 	backslash := string([]byte{92}) // a single backslash, avoiding escape ambiguity in the test source | 单个反斜杠，避免测试源码中的转义歧义
-	lenient := []string{
+	invalidEscapes := []string{
 		`"` + backslash + `x"`,
 		`"` + backslash + `u12"`,
 		`"` + backslash + `q"`,
 		`"` + backslash + `a"`,
 		`"` + string([]byte{1}) + `"`,
 	}
-	for _, in := range lenient {
+	for _, in := range invalidEscapes {
 		got, want := jsonx.Valid([]byte(in)), stdjson.Valid([]byte(in))
-		if want && !got {
-			t.Errorf("Valid(%q) = false，但标准库为 true：jsonx 不应比标准库更严格", in)
-		}
-		if !want && got {
-			t.Logf("后端 %s 的宽松区：Valid(%q) = true，标准库 = false", jsonx.Backend(), in)
+		if got != want {
+			t.Errorf("Valid(%q) = %v，标准库 = %v（后端 %s）", in, got, want, jsonx.Backend())
 		}
 	}
 }
@@ -409,7 +406,7 @@ func TestBackendNameIsKnown(t *testing.T) {
 	name := jsonx.Backend()
 	t.Logf("GOARCH=%s 生效的 JSON 后端为 %q", runtime.GOARCH, name)
 
-	known := map[string]bool{"sonic": true, "go-json": true, "encoding/json": true, "yd-native": true}
+	known := map[string]bool{"go-json": true, "encoding/json": true, "yd-native": true}
 	if !known[name] {
 		t.Fatalf("Backend() 返回未知后端 %q", name)
 	}
@@ -422,11 +419,11 @@ func TestBackendNameIsKnown(t *testing.T) {
 	switch runtime.GOARCH {
 	case "amd64":
 		if name == "go-json" {
-			t.Fatalf("amd64 应使用 sonic 或 encoding/json，实际 %q", name)
+			t.Fatalf("amd64 应使用自研后端或 encoding/json，实际 %q", name)
 		}
 	default:
-		if name == "sonic" {
-			t.Fatalf("非 amd64 不得使用 sonic，实际 %q", name)
+		if name == "yd-native" {
+			t.Fatalf("非 amd64 不得使用自研后端，实际 %q", name)
 		}
 	}
 }

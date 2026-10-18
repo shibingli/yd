@@ -1,4 +1,4 @@
-//go:build jsonx_native
+//go:build amd64 && !jsonx_std
 
 package jsonx
 
@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/shibingli/yd/core/errx"
+	"github.com/shibingli/yd/core/sysinfo"
 )
 
 // Backend returns the active backend name for this build. | Backend 返回当前构建使用的后端名称。
@@ -33,7 +34,50 @@ var encoderPool = sync.Pool{
 	New: func() any { return &encoder{buf: make([]byte, 0, 16<<10)} },
 }
 
-const encoderPoolMax = 1 << 20
+// encoderPoolMax bounds the buffer retained by one pooled encoder. It scales
+// with the process memory ceiling and GOMAXPROCS instead of assuming a desktop
+// host: a small container does not keep one oversized encoder per P. | encoderPoolMax
+// 限制单个池化编码器保留的缓冲；它按进程内存上限与 GOMAXPROCS 缩放，而不是假定
+// 桌面主机，避免小容器在每个 P 上各保留一份超大缓冲。
+var encoderPoolMax = computeEncoderPoolMax()
+
+func computeEncoderPoolMax() int {
+	const def = 1 << 20
+	limit := sysinfo.MemoryLimit()
+	if limit == 0 {
+		return def
+	}
+	per := limit / uint64(sysinfo.Parallelism()) / 1024
+	if per < 64<<10 {
+		per = 64 << 10
+	}
+	if per > def {
+		per = def
+	}
+	return int(per)
+}
+
+// maxDirectHint caps one large Marshal output buffer. The ceiling follows the
+// process memory limit so a small cgroup does not allow a 4 MiB hint per call. | maxDirectHint
+// 限制单次大载荷 Marshal 的输出缓冲上限；上限随进程内存限额缩放，避免小 cgroup
+// 下每次调用仍预留 4 MiB。
+var maxDirectHint = computeMaxDirectHint()
+
+func computeMaxDirectHint() int {
+	const def = 4 << 20
+	limit := sysinfo.MemoryLimit()
+	if limit == 0 {
+		return def
+	}
+	n := limit / 1024
+	if n < 64<<10 {
+		n = 64 << 10
+	}
+	if n > def {
+		n = def
+	}
+	return int(n)
+}
 
 // directAllocThreshold is the estimated size above which Marshal allocates the output directly
 // instead of encoding into the pooled buffer and copying out. Below it the copy is cheaper than a
@@ -67,11 +111,10 @@ func Marshal(v any) ([]byte, error) {
 		// 多元素切片按类型/形状估算直接分配输出缓冲，省去尾部整块复制与多次扩容；小载荷仍走
 		// 池化缓冲（复制比新分配便宜），map 的编码体积取决于估算看不到的内容，因此也走池化路径。
 		if est := estimateValueSize(rv); est >= directAllocThreshold {
-			const maxHint = 4 << 20
-			if est > maxHint {
-				est = maxHint
+			if est > maxDirectHint {
+				est = maxDirectHint
 			}
-			est += est/16 + 512
+			est += est/32 + 512
 			e := getEncoder(true)
 			pooled := e.buf
 			e.buf = make([]byte, 0, est)

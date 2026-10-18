@@ -1,17 +1,16 @@
-//go:build !amd64 && !jsonx_std && !jsonx_native
+//go:build !amd64 && !jsonx_std
 
 // This file is the jsonx implementation on non-amd64 architectures: it binds github.com/goccy/go-json. | 本文件是 jsonx 在非 amd64 架构上的实现：绑定 github.com/goccy/go-json。
 //
 // go-json is a pure-Go high-performance replacement for encoding/json (no JIT required, safe to use on | go-json 是纯 Go 实现的 encoding/json 高性能替代品（无需 JIT，可安全用于
 // arm64 / 386 / riscv64 and other platforms), API- and semantics-compatible as a drop-in for the standard library. | arm64 / 386 / riscv64 等平台），API 与语义和标准库 drop-in 兼容。
 //
-// Build constraint note: this is not written as `!amd64 || jsonx_std`, because that expression has | 构建约束说明：这里没有写成 `!amd64 || jsonx_std`，因为该表达式与
-// an intersection with `jsonx_std` of jsonx_std.go, which would compile both files at the same time and produce duplicate symbols; | jsonx_std.go 的 `jsonx_std` 存在交集，会同时编译两个文件而产生重复符号；
-// therefore the constraints of the three implementation files are designed to be pairwise mutually exclusive, with a union covering every combination: | 因此三个实现文件的约束被设计为两两互斥、并集覆盖全部组合：
+// Build constraint note: the implementation files are pairwise mutually exclusive and their union | 构建约束说明：各实现文件两两互斥，并集覆盖全部组合：
+// covers every combination:
 //
-//	jsonx_amd64.go   : amd64 && !jsonx_std   → sonic
-//	jsonx_generic.go : !amd64 && !jsonx_std  → go-json
-//	jsonx_std.go     : jsonx_std             → encoding/json
+//	jsonx_native*.go : amd64 && !jsonx_std  → self-developed native
+//	jsonx_generic.go : !amd64 && !jsonx_std → go-json
+//	jsonx_std.go     : jsonx_std            → encoding/json
 //
 // Under any (GOARCH, jsonx_std) combination, exactly one implementation file takes part in compilation. | 任一 (GOARCH, jsonx_std) 组合下都恰好只有一个实现文件参与编译。
 

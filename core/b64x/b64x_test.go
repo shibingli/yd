@@ -5,6 +5,7 @@ import (
 	stdb64 "encoding/base64"
 	"errors"
 	"math/rand"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -380,11 +381,19 @@ func TestEncodedLenDecodedLenMatchStdlib(t *testing.T) {
 
 // TestBackendNameIsKnown verifies that Backend returns only one of the agreed names. | TestBackendNameIsKnown 校验 Backend 只返回约定名称之一。
 func TestBackendNameIsKnown(t *testing.T) {
-	switch got := Backend(); got {
-	case "cloudwego/base64x+cristalhq", "cloudwego/base64x", "cristalhq/base64", "encoding/base64", "yd-native":
+	got := Backend()
+	switch got {
+	case "cristalhq/base64", "encoding/base64", "yd-native":
 		t.Logf("当前 Base64 后端：%s", got)
 	default:
-		t.Fatalf("Backend() = %q，期望 cloudwego/base64x、cristalhq/base64、encoding/base64 或 yd-native", got)
+		t.Fatalf("Backend() = %q，期望 cristalhq/base64、encoding/base64 或 yd-native", got)
+	}
+	if runtime.GOARCH == "amd64" {
+		if got == "cristalhq/base64" {
+			t.Fatalf("amd64 不得使用 cristalhq 后端，实际 %q", got)
+		}
+	} else if got == "yd-native" {
+		t.Fatalf("非 amd64 不得使用自研后端，实际 %q", got)
 	}
 }
 

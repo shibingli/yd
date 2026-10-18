@@ -5,6 +5,8 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"github.com/shibingli/yd/core/sysinfo"
 )
 
 // The async engine is an opt-in (Options.Async) batched writer built on a set of independent
@@ -43,7 +45,7 @@ const (
 // very large machines both stay reasonable. | asyncShardCount 返回本进程的环数量：每个 P 一个，
 // 并做上下限夹紧，使极小与超大机器都保持合理。
 func asyncShardCount() int {
-	n := runtime.GOMAXPROCS(0)
+	n := sysinfo.GOMAXPROCS()
 	if n < asyncShardMin {
 		return asyncShardMin
 	}

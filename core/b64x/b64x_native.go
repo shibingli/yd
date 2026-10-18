@@ -1,4 +1,4 @@
-//go:build b64x_native
+//go:build amd64 && !b64x_std
 
 package b64x
 
@@ -9,8 +9,8 @@ import (
 // errCorrupt is the underlying error for malformed Base64 input. | errCorrupt 是非法 Base64 输入的底层错误。
 var errCorrupt = errx.New("b64x: corrupt Base64 input | b64x：损坏的 Base64 输入")
 
-// Encoding is the self-developed Base64 codec used when the b64x_native build tag is set. | Encoding 是
-// 指定 b64x_native 构建标签时使用的自研 Base64 编解码器。
+// Encoding is the self-developed Base64 codec used on amd64 unless b64x_std is set. | Encoding 是
+// amd64 上默认使用的自研 Base64 编解码器（设置 b64x_std 时改用标准库）。
 type Encoding struct {
 	alphabet [64]byte
 	decode   [256]uint8
@@ -83,17 +83,13 @@ func (e *Encoding) DecodedLen(n int) int {
 	return n / 4 * 3
 }
 
-// Encode writes the encoding of src into dst. It writes nothing when dst is too short. | Encode 把 src 编码写入 dst；dst 过短时不写入任何内容。
-func (e *Encoding) Encode(dst, src []byte) {
-	if len(dst) < e.EncodedLen(len(src)) {
-		return
-	}
+// encodeScalar writes src into dst without invoking SIMD or retaining either
+// slice. Keeping it separate lets the escape analyser prove that a short
+// stack buffer passed to it does not escape. | encodeScalar 在不调用 SIMD、也不
+// 保留任一切片的前提下把 src 写入 dst；独立出来后，逃逸分析可证明传给它的栈上
+// 短缓冲不会逃逸。
+func (e *Encoding) encodeScalar(dst, src []byte) {
 	di := 0
-	if simdEncode != nil && e.simd != 0 {
-		n, out := simdEncode(dst, src, e.simd == 2, !e.raw, e.pad)
-		di = out
-		src = src[n:]
-	}
 	for len(src) >= 12 {
 		for j := 0; j < 12; j += 3 {
 			v := uint(src[j])<<16 | uint(src[j+1])<<8 | uint(src[j+2])
@@ -132,6 +128,19 @@ func (e *Encoding) Encode(dst, src []byte) {
 	}
 }
 
+// Encode writes the encoding of src into dst. It writes nothing when dst is too short. | Encode 把 src 编码写入 dst；dst 过短时不写入任何内容。
+func (e *Encoding) Encode(dst, src []byte) {
+	if len(dst) < e.EncodedLen(len(src)) {
+		return
+	}
+	if simdEncode != nil && e.simd != 0 {
+		n, out := simdEncode(dst, src, e.simd == 2, !e.raw, e.pad)
+		src = src[n:]
+		dst = dst[out:]
+	}
+	e.encodeScalar(dst, src)
+}
+
 // AppendEncode appends the encoding of src to dst. | AppendEncode 把 src 的编码结果追加到 dst。
 func (e *Encoding) AppendEncode(dst, src []byte) []byte {
 	n := e.EncodedLen(len(src))
@@ -145,9 +154,22 @@ func (e *Encoding) AppendEncode(dst, src []byte) []byte {
 	return dst
 }
 
+// encodeToStringStackMax is the largest encoded result staged on the stack.
+// 128 bytes cover SHA-1/SHA-256 digests and other short handshake material, so
+// the string conversion is the only allocation. | encodeToStringStackMax 是栈上
+// 暂存的最大编码结果；128 字节覆盖 SHA-1/SHA-256 摘要等短握手数据，使字符串
+// 转换成为唯一一次分配。
+const encodeToStringStackMax = 128
+
 // EncodeToString returns the Base64-encoded string of src. | EncodeToString 返回 src 的 Base64 编码字符串。
 func (e *Encoding) EncodeToString(src []byte) string {
-	b := make([]byte, e.EncodedLen(len(src)))
+	n := e.EncodedLen(len(src))
+	if n <= encodeToStringStackMax {
+		var buf [encodeToStringStackMax]byte
+		e.encodeScalar(buf[:n], src)
+		return string(buf[:n])
+	}
+	b := make([]byte, n)
 	e.Encode(b, src)
 	return string(b)
 }

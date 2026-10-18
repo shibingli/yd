@@ -4,12 +4,12 @@ import (
 	"bytes"
 	"go/parser"
 	"go/token"
-	"runtime"
 	"sync"
 
 	"github.com/spf13/afero"
 
 	"github.com/shibingli/yd/core/errx"
+	"github.com/shibingli/yd/core/sysinfo"
 )
 
 // Source is the combined result of one source scan. | Source 是一次源码扫描的合并结果。
@@ -58,7 +58,7 @@ func scanSource(fsys afero.Fs, dirs []string, wantHandlers, wantTypes bool) (*So
 	}
 
 	results := make([]fileScan, len(files))
-	workers := runtime.GOMAXPROCS(0)
+	workers := sysinfo.GOMAXPROCS()
 	if workers < 1 {
 		workers = 1
 	}

@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/shibingli/yd/core/b64x"
@@ -34,9 +35,27 @@ func acceptSum(key string) [sha1.Size]byte {
 //
 // Accept = base64( SHA1( Sec-WebSocket-Key + "258EAFA5-E914-47DA-95CA-C5AB0DC85B11" ) )
 // The computation reuses the framework's b64x adaptive Base64 layer (the amd64 path uses a SIMD-accelerated implementation). | 计算复用框架的 b64x 自适应 Base64 层（amd64 走 SIMD 加速实现）。
+// acceptScratch holds the digest and encoded accept value of one handshake.
+// Reusing it through a pool keeps the only per-call allocation the returned
+// string, even though b64x.Encode may let the scratch escape. | acceptScratch
+// 保存一次握手的摘要与编码结果；经池复用后，每次调用只剩返回字符串这一次分配，
+// 即使 b64x.Encode 会让暂存对象逃逸。
+type acceptScratch struct {
+	sum [sha1.Size]byte
+	b64 [28]byte
+}
+
+// acceptScratchPool reuses handshake scratch buffers across connections. | acceptScratchPool
+// 在连接之间复用握手暂存缓冲。
+var acceptScratchPool = sync.Pool{New: func() any { return new(acceptScratch) }}
+
 func acceptKey(key string) string {
-	sum := acceptSum(key)
-	return b64x.StdEncoding.EncodeToString(sum[:])
+	p := acceptScratchPool.Get().(*acceptScratch)
+	p.sum = acceptSum(key)
+	b64x.StdEncoding.Encode(p.b64[:], p.sum[:])
+	out := string(p.b64[:])
+	acceptScratchPool.Put(p)
+	return out
 }
 
 // headerContainsToken reports whether a comma-separated header contains the given token (case-insensitive). | headerContainsToken 报告以逗号分隔的头部中是否包含指定 token（大小写不敏感）。

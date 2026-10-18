@@ -1,4 +1,4 @@
-//go:build b64x_native && goexperiment.simd && amd64 && b64x_force_avx2
+//go:build amd64 && goexperiment.simd && !b64x_std && b64x_force_avx2
 
 package b64x
 

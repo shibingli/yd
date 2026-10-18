@@ -2,15 +2,12 @@
 //
 // Backend routing (determined by build tags, fully transparent to callers): | 后端分流（由构建标签决定，对调用方完全透明）：
 //
-//   - amd64 without the b64x_std tag: a size-aware hybrid. Inputs below the
-//     measured crossover (32 bytes) use github.com/cristalhq/base64, which has
-//     lower SIMD setup cost; larger inputs use the AVX2/SSE-accelerated
-//     github.com/cloudwego/base64x. Encode and decode tune independently, and
-//     the append forms extend the destination slice directly. Backend() returns
-//     "cloudwego/base64x+cristalhq"; | amd64 且未指定 b64x_std 标签：按尺寸分流的混合后端。
-//     小于实测交叉点（32 字节）的输入使用 SIMD 启动开销更低的 github.com/cristalhq/base64；
-//     更大的输入使用 AVX2/SSE 加速的 github.com/cloudwego/base64x。编码与解码独立调优，
-//     追加式接口直接扩展目标切片。Backend() 返回 "cloudwego/base64x+cristalhq"；
+//   - amd64 without the b64x_std tag: the self-developed codec. With
+//     GOEXPERIMENT=simd it selects AVX-512 VBMI2/VBMI, baseline AVX-512, or AVX2
+//     at runtime; without the experiment it uses the pure-Go scalar kernel.
+//     Backend() returns "yd-native"; | amd64 且未指定 b64x_std 标签：自研编解码器。
+//     启用 GOEXPERIMENT=simd 时在运行时选择 AVX-512 VBMI2/VBMI、基础 AVX-512 或 AVX2；
+//     未启用时使用纯 Go 标量内核。Backend() 返回 "yd-native"；
 //   - other architectures that cristalhq supports (386/arm/arm64/riscv64/ppc64le/s390x/...)
 //     without the b64x_std tag: github.com/cristalhq/base64, with encoding/base64 for
 //     CR/LF-bearing input and for the allocating string form; Backend() returns "cristalhq/base64"; | 其他
@@ -28,9 +25,8 @@
 // with length calculations and encoding results byte-for-byte identical to encoding/base64. | 长度计算与编码结果均与 encoding/base64 逐字节一致。
 //
 // Zero copy: AppendEncode and AppendDecode reuse the underlying array of the destination buffer when its capacity is sufficient, | 零拷贝：AppendEncode、AppendDecode 在目标缓冲区容量充足时复用其底层数组，
-// producing no new allocation; DecodeString allocates only the result. On amd64 the hybrid delivers roughly | 不产生新的分配；DecodeString 只分配结果本身。amd64 混合后端在 1 KiB-64 KiB 载荷上约为
-// 8-12x encoding/base64 for 1 KiB-64 KiB payloads while keeping cristalhq's advantage for tiny inputs; | encoding/base64 的 8-12 倍，同时保留 cristalhq 在小输入上的优势；
-// cristalhq/base64 is used on the other supported architectures. | 其他受支持架构使用 cristalhq/base64。
+// producing no new allocation; DecodeString allocates only the result. On amd64 the self-developed | 不产生新的分配；DecodeString 只分配结果本身。amd64 自研内核在 1 KiB-64 KiB 载荷上约为
+// kernels deliver roughly 10-19x encoding/base64 for 1 KiB-64 KiB payloads; cristalhq/base64 is used on the other supported architectures. | encoding/base64 的 10-19 倍；其他受支持架构使用 cristalhq/base64。
 // Decode writes directly into dst, and every backend behaves the same. | Decode 直接写入 dst，所有后端行为一致。
 //
 // Differences from encoding/base64 (all backends behave identically): | 与 encoding/base64 的差异（所有后端行为一致）：

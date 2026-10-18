@@ -4,7 +4,6 @@ import (
 	"context"
 	"net/http"
 	"net/netip"
-	"runtime"
 	"runtime/debug"
 	"strings"
 	"sync"
@@ -13,6 +12,7 @@ import (
 
 	"github.com/shibingli/yd/core/errx"
 	"github.com/shibingli/yd/core/logx"
+	"github.com/shibingli/yd/core/sysinfo"
 	"github.com/shibingli/yd/http/router"
 )
 
@@ -145,7 +145,7 @@ type AsyncAfter struct {
 func NewAsyncAfter(o AsyncOptions) *AsyncAfter {
 	workers := o.Workers
 	if workers <= 0 {
-		workers = runtime.GOMAXPROCS(0)
+		workers = sysinfo.GOMAXPROCS()
 	}
 	queueSize := o.QueueSize
 	if queueSize <= 0 {

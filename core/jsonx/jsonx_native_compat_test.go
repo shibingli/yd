@@ -1,4 +1,4 @@
-//go:build jsonx_native
+//go:build amd64 && !jsonx_std
 
 package jsonx_test
 
