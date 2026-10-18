@@ -1,0 +1,27 @@
+{% package templatebench %}
+{% import "strconv" %}
+
+{% func RenderPageQT(p *Page) %}
+<!doctype html>
+<html lang="{%s p.Lang %}">
+<head><title>{%s p.Title %}</title></head>
+<body>
+<h1>{%s p.Title %}</h1>
+<p class="{%s p.User.Class %}">{%s p.User.Name %} &lt;{%s p.User.Email %}&gt;</p>
+{% if len(p.Items) > 0 %}
+<ul>
+{% for _, it := range p.Items %}
+<li id="item-{%d it.ID %}" class="{%s it.Class %}" data-active="{%s strconv.FormatBool(it.Active) %}">
+<a href="{%s it.URL %}?q={%s p.Query %}" title="{%s it.Note %}">{%s it.Name %}</a>
+<span class="email">{%s it.Email %}</span>
+{% if it.Active %}<b>active</b>{% else %}<i>inactive</i>{% endif %}
+</li>
+{% endfor %}
+</ul>
+{% else %}
+<p>no items</p>
+{% endif %}
+<p>{%d p.Total %} items</p>
+</body>
+</html>
+{% endfunc %}

@@ -1,0 +1,20 @@
+<!doctype html>
+<html lang="{{lang}}">
+<head><title>{{title}}</title></head>
+<body>
+<h1>{{title}}</h1>
+<p class="{{user.class}}">{{user.name}} &lt;{{user.email}}&gt;</p>
+{{#items}}
+<ul>
+<li id="item-{{id}}" class="{{class}}" data-active="{{active}}">
+<a href="{{url}}?q={{query}}" title="{{note}}">{{name}}</a>
+<span class="email">{{email}}</span>
+{{#active}}<b>active</b>{{/active}}{{^active}}<i>inactive</i>{{/active}}
+</li>
+{{/items}}
+{{^items}}
+<p>no items</p>
+{{/items}}
+<p>{{total}} items</p>
+</body>
+</html>

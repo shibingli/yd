@@ -15,6 +15,7 @@ x86_64 单核/多核的完整指标（含全部对比库、CPU 与峰值 RSS）�
 | [`crypto/`](crypto/README.md) | 国密 SM2/SM3/SM4 与常密基线 | emmansun/gmsm、tjfoc/gmsm、标准库（SHA-256/AES-GCM/ChaCha20-Poly1305/ECDSA/Ed25519） |
 | [`compress/`](compress/README.md) | 压缩吞吐与压缩率 | gzip、zstd、brotli、snappy、lz4 |
 | [`logx/`](logx/README.md) | 结构化日志 | zap、zerolog、slog、logrus |
+| [`template/`](template/README.md) | 模板引擎兼容性与渲染性能 | html/template、text/template、Jet、Pongo2、Liquid、Raymond、Mustache、quicktemplate、templ |
 
 ## 测试平台（主表统一口径）
 
@@ -55,5 +56,6 @@ done
 - **crypto**：后端由 tjfoc/gmsm v1.4.1 切换到 emmansun/gmsm v0.45.0。SM3 4 KiB 12,506→7,360 ns（1.70×）；HMAC-SM3 1,765→729 ns（2.42×，0 allocs）；PBKDF2 939,609→283,344 ns（3.32×）；SM4-GCM 4 KiB seal 45,290→5,409 ns（8.37×，757.3 MB/s）；SM2 签名 131,572→14,364 ns（9.16×）、验签 687,942→34,392 ns（20.0×）、加密 715,805→35,969 ns（19.9×）、解密 554,528→29,024 ns（19.1×）。SM2 签名/验签快于 ECDSA P-256；SM3/SM4 无 SHA-NI/AES-NI 对应指令，仍慢于 SHA-256/AES-GCM。
 - **compress**：zstd/fastest text 压缩 8.04 GB/s、压缩率 0.002，zstd 解压 13.67 GB/s；snappy text 压缩 13.57 GB/s 但压缩率 0.049；klauspost gzip 约标准库 gzip 的 3.7 倍吞吐，压缩率相同；brotli/q9 json 压缩率最好（0.021）但吞吐与内存成本最高。
 - **logx**：dynamic Info 111.7 ns/op、零分配，略快于 zerolog（112.9 ns）；prebound Info 为 103.1 ns，**慢于 zerolog 的 94.9 ns 约 8.6%**；禁用路径 prebound 为 1.8 ns、零分配，与 logrus 并列最快，dynamic 为 7.9 ns（slog 5.1 ns 更快）。
+- **template**：编译式 yd-render 在 100 行页面上为 114.7 µs/106 allocs（单核中位数），比 html/template（993.5 µs/7,142）快 **8.7×**，比 text/template 快 2.0×，比 Jet 快 1.4×，与 templ 基本相当；代码生成式 quicktemplate（28.8 µs/0 allocs）仍快 4.0×。上下文转义矩阵中只有 html/template、yd-render 与 templ 同时拦截 `javascript:` URL，其余引擎仅做 HTML 转义。
 
 基准数值对机器负载、温度与电源策略敏感，跨进程独立运行的波动可达约 15%。跨机比较请以同一平台的相对关系为准。

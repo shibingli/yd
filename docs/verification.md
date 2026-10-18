@@ -1163,6 +1163,78 @@ lz4 10.3 / 18.6。
   均有测试覆盖。
 - 协商扫描保持零分配；默认顺序变更后所有协商用例与参考实现仍逐项一致。
 
+## 3.20 编译式 HTML 引擎与模板横评（第十八轮）
+
+### 3.20.1 设计
+
+`http/render` 从「每次渲染调用 html/template」改为「加载期编译、渲染期执行不可变程序」：
+
+- **前端复用标准库**：html/template 继续负责解析与上下文转义；它把每个动态动作重写为
+  `_html_template_*` 转义器后的解析树，由本仓编译器读取。语法与安全语义因此与标准库
+  完全一致，不另写一套上下文分析器。
+- **执行器自研**：解析树编译为 `textNode`/`actionNode`/`ifNode`/`rangeNode`/`templateNode`
+  节点图；渲染只做切片追加与函数调用，不再承担 text/template 的逐次反射装配。
+- **按次绑定**：译者与权限主体放入执行状态，`tr`/`can`/`hasRole`/`perm`/`role` 直接读取；
+  不再按「语言 + 判定集合」克隆整棵模板树。
+- **类型化热路径**：单字段动作走 `reflect.Value` 链，字符串/整数/布尔不装箱；单绑定动作
+  （`tr`/`perm`/`role`/`can`）有无接口输出路径；URL → 属性的多级转义在字节缓冲上完成。
+- **缓存与并发**：`New` 时编译一次，状态以 `atomic.Pointer` 发布；渲染状态与输出缓冲
+  均来自池，程序本身只读。Dev 模式仍每次重载。
+- **派生上下文回退**：html/template 为属性/脚本上下文克隆的模板只存在于其内部命名空间，
+  导出 API 无法访问；这类入口回退到标准库执行（预转义克隆 + 按需绑定克隆），保证正确性。
+  自带模板全部走编译执行器，由 `TestFrameworkTemplatesCompileToPrograms` 守卫。
+
+### 3.20.2 微基准（Windows / i9-10980HK，`-benchtime` 默认）
+
+| 场景 | 旧引擎 | 新引擎 | 提升 |
+|---|---:|---:|---:|
+| 无绑定（71 allocs → 7） | 7.57 µs | **0.70 µs** | **10.8×** |
+| 译者绑定（76 allocs → 12） | 7.73 µs | **0.96 µs** | **8.1×** |
+| 译者 + 权限（76 allocs → 12） | 8.34 µs | **0.95 µs** | **8.7×** |
+
+### 3.20.3 框架真实页面（同数据、同模板）
+
+| 页面 | html/template | 新引擎 | 提升 |
+|---|---:|---:|---:|
+| dashboard | 97.4 µs / 769 allocs | **14.1 µs / 96** | **6.9×** |
+| users | 96.4 µs / 763 allocs | **14.8 µs / 95** | **6.5×** |
+| permissions（39 KB 输出，缓冲复用） | 76.5 µs / 612 allocs | **10.6 µs / 69** | **7.2×** |
+
+### 3.20.4 横向基准
+
+独立模块 `benchmarks/template`（10 个引擎、同数据同语义）结果见
+[`benchmarks/template/README.md`](../benchmarks/template/README.md)。100 行页面单核中位数：
+
+| 引擎 | ns/op | allocs/op |
+|---|---:|---:|
+| quicktemplate | 28,838 | 0 |
+| **yd-render** | **114,699** | **106** |
+| templ | 149,414 | 1,823 |
+| Jet | 162,731 | 6 |
+| text/template | 233,477 | 811 |
+| Pongo2 | 373,448 | 3,759 |
+| Mustache | 394,966 | 5,633 |
+| Liquid | 447,450 | 6,753 |
+| html/template | 993,471 | 7,142 |
+| Raymond | 1,692,299 | 10,551 |
+
+- 对 html/template **8.7×**、对 text/template **2.0×**、对 Jet **1.4×**、对 templ **1.3×**；
+  代码生成式的 quicktemplate 仍快 4.0×，因为它把模板直接编译成 Go 且不做上下文感知转义。
+- 上下文转义矩阵实测：只有 html/template、yd-render、templ 同时具备文本/属性转义与
+  `javascript:` URL 拦截；其余引擎仅做 HTML 转义（Liquid 还需显式开启自动转义）。
+- 门面整页渲染改为「片段 + 布局追加进同一池化缓冲」，不再产生第二个 `bytes.Buffer`
+  与整页字符串拷贝；压缩中间件仍在门面写出后按原路径工作。
+
+### 3.20.5 门禁
+
+```
+gofmt -l .                                    零输出
+go build ./...                                通过
+go vet ./...                                  零输出
+go test ./...                                 全部包 ok
+CGO_ENABLED=1 CC=clang go test ./... -race    http/render、runtime/app、web 通过
+```
+
 ## 4. 已知限制与未覆盖项
 
 1. **HTTP/3 需要 TLS**（QUIC 强制 TLS 1.3）。开发态在未配置证书时会生成一次性自签证书

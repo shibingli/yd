@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="{{ Lang }}">
+<head><title>{{ Title }}</title></head>
+<body>
+<h1>{{ Title }}</h1>
+<p class="{{ User.Class }}">{{ User.Name }} &lt;{{ User.Email }}&gt;</p>
+{% if Items %}
+<ul>
+{% for item in Items %}
+<li id="item-{{ item.ID }}" class="{{ item.Class }}" data-active="{{ item.Active }}">
+<a href="{{ item.URL }}?q={{ Query }}" title="{{ item.Note }}">{{ item.Name }}</a>
+<span class="email">{{ item.Email }}</span>
+{% if item.Active %}<b>active</b>{% else %}<i>inactive</i>{% endif %}
+</li>
+{% endfor %}
+</ul>
+{% else %}
+<p>no items</p>
+{% endif %}
+<p>{{ Total }} items</p>
+</body>
+</html>
