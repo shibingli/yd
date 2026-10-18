@@ -12,11 +12,75 @@ import (
 
 // fieldInfo is one exported struct field. | fieldInfo 是一个可导出的结构体字段。
 type fieldInfo struct {
+	isZero    func(reflect.Value) bool
 	name      string
 	typ       reflect.Type
 	index     []int
 	omitEmpty bool
 	quoted    bool
+	omitZero  bool
+}
+
+// hasUnmarshalMethod reports whether t resolves to a custom unmarshal method, either on the type
+// itself or through an addressable pointer. encoding/json gives such methods precedence over the
+// ,string option, so the field must not be destringed. | hasUnmarshalMethod 报告 t 是否解析到
+// 自定义解码方法（类型自身或经可寻址指针）。encoding/json 让这类方法优先于 ,string 选项，
+// 因此该字段不能走 destring 路径。
+func hasUnmarshalMethod(t reflect.Type) bool {
+	tr := cachedTraits(t)
+	if tr.unmarshaler || tr.textUnmarshaler {
+		return true
+	}
+	if t.Kind() != reflect.Pointer {
+		p := reflect.PointerTo(t)
+		return p.Implements(unmarshalerType) || p.Implements(textUnmarshalerType)
+	}
+	return false
+}
+
+// isZeroer mirrors the interface used by encoding/json's omitzero option. | isZeroer 对应
+// encoding/json 的 omitzero 选项所使用的接口。
+type isZeroer interface{ IsZero() bool }
+
+var isZeroerType = reflect.TypeOf((*isZeroer)(nil)).Elem()
+
+// makeIsZero returns the same zero predicate encoding/json builds for an omitzero field: a custom
+// IsZero method wins over reflect.Value.IsZero, with the exact receiver/pointer/interface handling
+// of the standard library. A nil result means reflective IsZero should be used. | makeIsZero 返回
+// 与 encoding/json 为 omitzero 字段构建相同的零值判定：自定义 IsZero 方法优先于
+// reflect.Value.IsZero，并严格沿用标准库对接收者、指针与接口的处理。返回 nil 表示应使用反射
+// 的 IsZero。
+func makeIsZero(t reflect.Type) func(reflect.Value) bool {
+	switch {
+	case t.Kind() == reflect.Interface && t.Implements(isZeroerType):
+		return func(v reflect.Value) bool {
+			// Avoid panics calling IsZero on a nil interface or a non-nil interface holding a
+			// nil pointer. | 避免对 nil 接口或持有 nil 指针的非 nil 接口调用 IsZero 时 panic。
+			return v.IsNil() ||
+				(v.Elem().Kind() == reflect.Pointer && v.Elem().IsNil()) ||
+				v.Interface().(isZeroer).IsZero()
+		}
+	case t.Kind() == reflect.Pointer && t.Implements(isZeroerType):
+		return func(v reflect.Value) bool {
+			return v.IsNil() || v.Interface().(isZeroer).IsZero()
+		}
+	case t.Implements(isZeroerType):
+		return func(v reflect.Value) bool {
+			return v.Interface().(isZeroer).IsZero()
+		}
+	case reflect.PointerTo(t).Implements(isZeroerType):
+		return func(v reflect.Value) bool {
+			if !v.CanAddr() {
+				// Temporarily box v so the pointer receiver can be taken. | 临时装箱 v，以便取得
+				// 指针接收者。
+				v2 := reflect.New(v.Type()).Elem()
+				v2.Set(v)
+				v = v2
+			}
+			return v.Addr().Interface().(isZeroer).IsZero()
+		}
+	}
+	return nil
 }
 
 type typeTraits struct {
@@ -68,6 +132,7 @@ type candidateField struct {
 	name      string
 	index     []int
 	omitEmpty bool
+	omitZero  bool
 	quoted    bool
 	tagged    bool
 }
@@ -147,6 +212,7 @@ func collectFields(t reflect.Type) []fieldInfo {
 						name:      name,
 						index:     index,
 						omitEmpty: hasTagOption(opts, "omitempty"),
+						omitZero:  hasTagOption(opts, "omitzero"),
 						quoted:    quoted,
 						tagged:    tagged,
 					}
@@ -207,7 +273,10 @@ func collectFields(t reflect.Type) []fieldInfo {
 	sort.Slice(out, func(i, j int) bool { return lessIndex(out[i].index, out[j].index) })
 	resolved := make([]fieldInfo, len(out))
 	for i, f := range out {
-		resolved[i] = fieldInfo{name: f.name, typ: f.typ, index: f.index, omitEmpty: f.omitEmpty, quoted: f.quoted}
+		resolved[i] = fieldInfo{name: f.name, typ: f.typ, index: f.index, omitEmpty: f.omitEmpty, quoted: f.quoted, omitZero: f.omitZero}
+		if f.omitZero {
+			resolved[i].isZero = makeIsZero(f.typ)
+		}
 	}
 	return resolved
 }

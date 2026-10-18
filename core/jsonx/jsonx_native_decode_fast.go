@@ -16,6 +16,16 @@ type fastFieldDec func(*decoder, unsafe.Pointer) error
 // buildFastFieldDecoder returns a direct-memory decoder for common field types. | buildFastFieldDecoder
 // 为常见字段类型返回直接写内存的解码器。
 func buildFastFieldDecoder(t reflect.Type) fastFieldDec {
+	// json.Number needs its own validation, and every other type with a custom unmarshal method
+	// must go through the generic decoder so the method is called. time.Time and []string keep
+	// their dedicated fast decoders. | json.Number 需要自身的校验；其余带自定义解码方法的类型必须
+	// 走通用解码器以调用该方法；time.Time 与 []string 保留专用快速解码器。
+	if t == numberType {
+		return nil
+	}
+	if t != timeType && t != stringSliceType && hasUnmarshalMethod(t) {
+		return nil
+	}
 	switch t.Kind() {
 	case reflect.String:
 		return func(d *decoder, p unsafe.Pointer) error {

@@ -94,6 +94,23 @@ func fastFieldKind(t reflect.Type) uint8 {
 // buildFastFieldEncoder returns a direct-memory encoder for primitive fields. | buildFastFieldEncoder
 // 为原生基础类型字段返回直接读写内存的编码器。
 func buildFastFieldEncoder(t reflect.Type) func(*encoder, unsafe.Pointer) error {
+	// json.Number needs its own validation/zero handling, and any other type with a custom
+	// marshal method must go through the generic encoder so the method is called. time.Time and
+	// []string keep their dedicated fast encoders. | json.Number 需要自身的校验与零值处理；其余带
+	// 自定义编码方法的类型必须走通用编码器以调用该方法；time.Time 与 []string 保留专用快速编码器。
+	if t == numberType {
+		return nil
+	}
+	if t != timeType && t != stringSliceType {
+		tr := cachedTraits(t)
+		if tr.marshaler || tr.textMarshaler {
+			return nil
+		}
+		if t.Kind() != reflect.Pointer &&
+			(reflect.PointerTo(t).Implements(marshalerType) || reflect.PointerTo(t).Implements(textMarshalerType)) {
+			return nil
+		}
+	}
 	if t == stringSliceType {
 		return func(e *encoder, p unsafe.Pointer) error {
 			ss := *(*[]string)(p)

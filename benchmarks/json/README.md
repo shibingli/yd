@@ -60,17 +60,17 @@ go test -run '^$' -bench . -benchmem -count=5 -tags jsonx_native
 
 | 记录数 | 实现 | Marshal | Unmarshal | Marshal B/op / allocs | Unmarshal B/op / allocs |
 |---|---|---:|---:|---:|---:|
-| n=1 | go-json | 290 ns | 793 ns | 168 B / 2 | 542 B / 3 |
-| n=1 | **yd-jsonx（native）** | **264 ns** | **794 ns** | 168 B / 2 | **288 B / 5** |
-| n=100 | go-json | 26,319 ns | **55,339 ns** | 16.4 KB / 2 | 28.2 KB / 103 |
-| n=100 | **yd-jsonx（native）** | **24,591 ns** | 58,544 ns | 18.5 KB / 2 | **25.4 KB / 104** |
-| n=1000 | go-json | 245,524 ns | 575,297 ns | 165 KB / 2 | **223 KB / 1,005** |
-| n=1000 | **yd-jsonx（native）** | **230,487 ns** | **571,648 ns** | 180 KB / 2 | 253 KB / 1,004 |
+| n=1 | go-json | 254 ns | 585 ns | 168 B / 2 | 542 B / 3 |
+| n=1 | **yd-jsonx（native）** | **238 ns** | **571 ns** | 168 B / 2 | **288 B / 5** |
+| n=100 | go-json | 26,660 ns | **48,394 ns** | 16.4 KB / 2 | 28.2 KB / 103 |
+| n=100 | **yd-jsonx（native）** | **19,576 ns** | 48,743 ns | 18.5 KB / 2 | **25.4 KB / 104** |
+| n=1000 | go-json | 240,442 ns | **431,642 ns** | 165 KB / 2 | **223 KB / 1,005** |
+| n=1000 | **yd-jsonx（native）** | **192,934 ns** | 441,482 ns | 180 KB / 2 | 253 KB / 1,004 |
 
-结论：Marshal 在三种规模下均领先 go-json 约 6%–9%；Unmarshal 在 n=1 与 n=1000 持平，
-n=100 的差异落在本轮噪声范围内（此前较平静窗口测得 yd 略快）。相对 sonic、jsoniter
-与标准库，两个方向都明显领先。绝对 ns 对 CPU 频率与后台负载敏感，跨机器比较请以同一轮
-的相对关系为准。
+结论：Marshal 在三种规模下均明显领先 go-json；Unmarshal 在 n=1 略快，n=100/1000 与
+go-json 持平（本轮分别慢约 0.7% 与 2.3%，此前窗口为互有胜负，均落在噪声范围内）。
+相对 sonic、jsoniter 与标准库，两个方向都明显领先。绝对 ns 对 CPU 频率与后台负载敏感，
+跨机器比较请以同一轮的相对关系为准。
 
 三环境 n=1000（上一轮实现的历史对照；远程为同进程 3 轮中位数）：
 
@@ -124,7 +124,19 @@ n=1000 的 B/op 从 293 KB 降到 253 KB（go-json 为 225 KB），n=1 从 608 B
   嵌入字段（值/指针、导出/未导出匿名结构体）完全按标准库规则提升，同名冲突按「深度 →
   tag → 歧义抵消」解析，指向未导出结构体的嵌入指针返回与标准库同款错误。解码端
   `core/jsonx/jsonx_native_fields_test.go` 提供上述冲突规则的逐字节差分测试。
-- 已知语义差异（均为既有实现范围外）：Go 1.24+ 的 `omitzero` 选项尚未实现；解码端不解释
-  `,string` 选项（编码端按标准库口径支持）。
+- `omitzero` 与 `omitempty` 可同时使用：自定义 `IsZero`（值/指针接收者、接口、指针与
+  基础类型）优先于 `reflect.Value.IsZero`，语义与标准库一致；差分测试见
+  `core/jsonx/jsonx_native_omitzero_test.go`。
+- 编解码两端均支持 `,string`：bool/整数/无符号/浮点/字符串/json.Number 与单层指针按
+  标准库口径从 JSON 字符串中解出；`null`、空串、非法转义、类型不匹配、与
+  `omitempty`/`omitzero` 的组合均有差分覆盖（`core/jsonx/jsonx_native_destring_test.go`）。
+  注意当前工具链的 `encoding/json` 由 v2 兼容层实现（Go 1.27 默认启用 `jsonv2`）：
+  自定义 `Unmarshaler`/`TextUnmarshaler` 方法优先于 `,string`，引号内的 `null` 按旧版语义
+  空操作，浮点按 Go 语法解析（接受 `NaN`/`Inf`/十六进制浮点），`json.Number` 只接受合法
+  JSON 数字文本——本后端逐项对齐了这些行为。
+- 已知边角差异：带自定义方法的指针字段在 `,string` 下的「原始 token 恰为 `"null"` 时置空
+  指针」收尾已实现；但转义形式（如 `"null"`）依赖原始 token 比较，与标准库同样
+  不做特殊处理。未导出匿名结构体类型若实现方法，标准库会在构建期报错，本后端不做该检查
+  （该类字段无法被外部 tag 选中，影响仅限嵌入类型自身的方法）。
 
 该后端仍在实验阶段，默认构建不会启用。

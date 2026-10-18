@@ -140,6 +140,11 @@ func buildEncoder(t reflect.Type) encodeFunc {
 	if t == numberType {
 		return func(e *encoder, v reflect.Value) error {
 			s := v.String()
+			if s == "" {
+				// The zero json.Number encodes as 0, matching encoding/json. | 零值 json.Number
+				// 编码为 0，与 encoding/json 一致。
+				s = "0"
+			}
 			if !isValidNumber(s) {
 				return errx.Detail(errUnsupported, "invalid number %q | 非法数字 %q", s, s)
 			}
@@ -259,6 +264,43 @@ func buildKindEncoder(t reflect.Type) encodeFunc {
 			return errx.Detail(errUnsupported, "unsupported type %s | 不支持的类型 %s", t, t)
 		}
 	}
+}
+
+// buildQuotedEncoder replicates encoding/json's ,string encoding for one field type. Only the
+// builtin bool/int/uint/float/string encoders honor the quoted option; Marshaler and
+// TextMarshaler output is never quoted, nil pointers stay null, and a pointer-receiver marshaler
+// is only selected when the field value is addressable, exactly like condAddrEncoder. | buildQuotedEncoder
+// 复现 encoding/json 对单个字段类型的 ,string 编码。只有内置的 bool/int/uint/float/string 编码器
+// 会应用引号；Marshaler 与 TextMarshaler 的输出从不加引号；nil 指针保持 null；指针接收者
+// Marshaler 仅在字段值可寻址时选用，与 condAddrEncoder 完全一致。
+func buildQuotedEncoder(t reflect.Type) func(*encoder, reflect.Value) error {
+	tr := cachedTraits(t)
+	normal := encoderFor(t)
+	if tr.marshaler || tr.textMarshaler {
+		return normal
+	}
+	if t.Kind() == reflect.Pointer {
+		elem := cachedTraits(t.Elem())
+		if elem.marshaler || elem.textMarshaler {
+			return normal
+		}
+		return func(e *encoder, v reflect.Value) error {
+			if v.IsNil() {
+				encodeNull(e)
+				return nil
+			}
+			return e.quotedValue(v.Elem())
+		}
+	}
+	if reflect.PointerTo(t).Implements(marshalerType) || reflect.PointerTo(t).Implements(textMarshalerType) {
+		return func(e *encoder, v reflect.Value) error {
+			if v.CanAddr() {
+				return normal(e, v)
+			}
+			return e.quotedValue(v)
+		}
+	}
+	return func(e *encoder, v reflect.Value) error { return e.quotedValue(v) }
 }
 
 // lazyEncoder defers resolving an element encoder until the first value is encoded.
@@ -469,8 +511,11 @@ func buildStructEncoder(t reflect.Type) encodeFunc {
 		fast      func(*encoder, unsafe.Pointer) error
 		fastEmpty func(unsafe.Pointer) bool
 		enc       encodeFunc
+		quotedEnc func(*encoder, reflect.Value) error
+		isZero    func(reflect.Value) bool
 		keyPad    [16]byte
 		omitEmpty bool
+		omitZero  bool
 		quoted    bool
 		fastOK    bool
 		keyFixed  bool
@@ -504,6 +549,10 @@ func buildStructEncoder(t reflect.Type) encodeFunc {
 		if fastOK && fast != nil {
 			kind = fastFieldKind(f.typ)
 		}
+		var quotedEnc func(*encoder, reflect.Value) error
+		if f.quoted {
+			quotedEnc = buildQuotedEncoder(f.typ)
+		}
 		list[i] = encField{
 			key:       ke.buf,
 			fastKey:   fastKey,
@@ -514,20 +563,23 @@ func buildStructEncoder(t reflect.Type) encodeFunc {
 			fast:      fast,
 			fastEmpty: buildFastEmpty(f.typ),
 			enc:       encoderFor(f.typ),
+			isZero:    f.isZero,
+			quotedEnc: quotedEnc,
 			keyPad:    keyPad,
 			omitEmpty: f.omitEmpty,
+			omitZero:  f.omitZero,
 			quoted:    f.quoted,
 			fastOK:    fastOK && !f.quoted,
 			keyFixed:  len(fastKey) <= len(keyPad),
 			kind:      kind,
 		}
-		if !fastOK || fast == nil || f.omitEmpty || f.quoted {
+		if !fastOK || fast == nil || f.omitEmpty || f.omitZero || f.quoted {
 			allFast = false
 		}
 	}
 	for i := range list {
 		f := &list[i]
-		if f.typ != timeType || !f.fastOK || f.omitEmpty || f.quoted || len(f.fastKey) > 16 {
+		if f.typ != timeType || !f.fastOK || f.omitEmpty || f.omitZero || f.quoted || len(f.fastKey) > 16 {
 			continue
 		}
 		key := append([]byte(nil), f.fastKey...)
@@ -672,16 +724,28 @@ func buildStructEncoder(t reflect.Type) encodeFunc {
 					}
 				}
 			}
+			if f.omitZero {
+				if !fv.IsValid() {
+					fv = reflect.NewAt(f.typ, fieldPtr).Elem()
+				}
+				if f.isZero == nil {
+					if fv.IsZero() {
+						continue
+					}
+				} else if f.isZero(fv) {
+					continue
+				}
+			}
 			if !first {
 				e.buf = append(e.buf, ',')
 			}
 			first = false
 			e.buf = append(e.buf, f.key...)
-			if f.quoted {
+			if f.quotedEnc != nil {
 				if !fv.IsValid() {
 					fv = reflect.NewAt(f.typ, fieldPtr).Elem()
 				}
-				if err := e.quotedValue(fv); err != nil {
+				if err := f.quotedEnc(e, fv); err != nil {
 					return err
 				}
 			} else if fieldPtr != nil && f.fast != nil {

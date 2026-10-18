@@ -355,10 +355,27 @@ func buildDecoder(t reflect.Type) decodeFunc {
 	}
 	if tr.textUnmarshaler {
 		return func(d *decoder, v reflect.Value) error {
+			if d.data[d.pos] == 'n' {
+				return d.literal("null")
+			}
 			if d.data[d.pos] == '"' {
 				return decodeTextUnmarshaler(d, v)
 			}
-			return norm(d, v)
+			return typeErr("cannot unmarshal non-string into %s | 无法把非字符串解析进 %s", t, t)
+		}
+	}
+	if reflect.PointerTo(t).Implements(textUnmarshalerType) {
+		return func(d *decoder, v reflect.Value) error {
+			if d.data[d.pos] == 'n' {
+				return d.literal("null")
+			}
+			if d.data[d.pos] == '"' {
+				if v.CanAddr() {
+					return decodeTextUnmarshaler(d, v.Addr())
+				}
+				return norm(d, v)
+			}
+			return typeErr("cannot unmarshal non-string into %s | 无法把非字符串解析进 %s", t, t)
 		}
 	}
 	return norm
@@ -383,11 +400,13 @@ func decodeTextUnmarshaler(d *decoder, v reflect.Value) error {
 func buildStructDecoder(t reflect.Type) decodeFunc {
 	info := cachedStruct(t)
 	type decField struct {
-		index  []int
-		offset uintptr
-		fast   fastFieldDec
-		dec    func() decodeFunc
-		fastOK bool
+		index     []int
+		offset    uintptr
+		fast      fastFieldDec
+		dec       func() decodeFunc
+		fastOK    bool
+		quoted    bool
+		rawQuoted bool
 	}
 	fields := make([]*decField, len(info.fields))
 	names := make([]string, len(info.fields))
@@ -395,9 +414,18 @@ func buildStructDecoder(t reflect.Type) decodeFunc {
 	for i, f := range info.fields {
 		offset, fastOK := fieldOffset(t, f.index)
 		fast := buildFastFieldDecoder(f.typ)
-		fields[i] = &decField{index: f.index, offset: offset, fast: fast, dec: lazyDecoder(f.typ), fastOK: fastOK && fast != nil}
+		// A field with the ,string option must go through the destring wrapper, never the direct
+		// fast-field decoder. Custom unmarshal methods take precedence over the option, exactly
+		// like encoding/json. | 带 ,string 选项的字段必须走 destring 包装，绝不能走直接快速字段
+		// 解码器；自定义解码方法优先于该选项，与 encoding/json 一致。
+		destring := f.quoted && !hasUnmarshalMethod(f.typ)
+		isFast := fastOK && fast != nil && !destring
+		fields[i] = &decField{
+			index: f.index, offset: offset, fast: fast, dec: lazyDecoder(f.typ),
+			fastOK: isFast, quoted: destring, rawQuoted: f.quoted && !destring,
+		}
 		names[i] = f.name
-		if fast != nil && fastOK {
+		if isFast {
 			anyFast = true
 		}
 	}
@@ -611,9 +639,22 @@ func buildStructDecoder(t reflect.Type) decodeFunc {
 					if err := d.skipValue(); err != nil {
 						return err
 					}
+				} else if f.quoted {
+					if err := d.decodeQuotedField(fv); err != nil {
+						return err
+					}
 				} else {
+					start := -1
+					if f.rawQuoted && fv.Kind() == reflect.Pointer {
+						start = d.pos
+					}
 					if err := f.dec()(d, fv); err != nil {
 						return err
+					}
+					// The pointer wrapper keeps the legacy quoted-null post-step even when a custom
+					// method consumed the value. | 即使由自定义方法消费值，指针包装的旧版带引号 null 收尾仍然生效。
+					if start >= 0 && string(d.data[start:d.pos]) == `"null"` {
+						fv.SetZero()
 					}
 				}
 			}
