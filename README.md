@@ -180,23 +180,23 @@ repotest/      仓库治理守卫（治理文件与规范的可执行断言）
 
 ## 性能与兼容性指标
 
-完整基准位于 [`benchmarks/`](benchmarks/README.md)，每个类别是一个独立 Go 模块，自带 `go.mod`/`go.sum` 与 README，不会把对比库带进主模块依赖。
+完整基准位于 [`benchmarks/`](benchmarks/README.md)，每个类别是一个独立 Go 模块，自带 `go.mod`/`go.sum` 与 README，不会把对比库带进主模块依赖。主表统一在 **mbox.yun-dev.cn**（AMD Ryzen AI MAX+ 395，16 核 32 线程，30 GiB，Ubuntu 26.04，Go 1.27.2，AVX-512 VBMI2）上采集；每个实现独立进程、轮转顺序、多轮中位数，并给出 CPU 利用率与峰值 RSS。所有参测开源实现都保留在同一张表中，包括 yd 落后的项目。
 
-| 类别 | 基准模块 | 核心结论 |
+| 类别 | 基准模块 | 核心结论（mbox 主表） |
 |---|---|---|
-| WebSocket | [`benchmarks/ws`](benchmarks/ws/README.md) | 与 coder/gorilla/gobwas/gws 兼容性 18/18；32 B/256 B 延迟最低，64 KiB 吞吐 572.9 MB/s；唯一全程 `0 B/op、0 allocs/op` |
-| Router | [`benchmarks/router`](benchmarks/router/README.md) | 参数/深层/通配/未命中路径最快（4.8–5.1 ns，未命中 8.8 ns），五类路径零分配；WebSocket 握手经 router 仅增加 62 ns（5.6%） |
-| JSON | [`benchmarks/json`](benchmarks/json/README.md) | 默认与 sonic 一致；`jsonx_native` 自研后端 n=1000 Marshal 218 vs 256 µs（快 15.0%）、Unmarshal 504 vs 498 µs（慢 1.4%，持平）；n=1 Marshal/Unmarshal 快 6.8%/5.8%；补齐嵌入字段冲突支配规则、omitzero、解码 ,string、深度上限 10000 与 Unicode/自定义接口兼容，差分+fuzz 通过 |
-| Base64 | [`benchmarks/base64`](benchmarks/base64/README.md) | 默认混合后端 ≥1 KiB 约 10–12 GB/s；自研内核零向量溢出。32 核 VBMI2：32 B 5.65/8.67 ns、64 KiB 45.7/33.4 vs 25.9/20.6 GB/s；AVX2 32 B 7.04/9.97 ns、64 KiB 27.0/23.2；无 VBMI 主机默认尺寸自适应解码 32 B 32.8 vs 37.4 ns、64 KiB 7.6 vs 7.0 GB/s，编码大载荷持平或略快；全长度+大长度差分/越界哨兵/三环境 race 通过 |
-| 压缩 | [`benchmarks/compress`](benchmarks/compress/README.md) | zstd 综合最优（text 压缩 3.7 GB/s / 解压 7.5 GB/s）；klauspost gzip 约为标准库 gzip 的 4 倍吞吐，压缩率相同 |
-| 日志 | [`benchmarks/logx`](benchmarks/logx/README.md) | `logx` 启用 Info 182 ns/op、零分配，快于 zerolog；禁用路径 20 ns/op、零分配 |
+| WebSocket | [`benchmarks/ws`](benchmarks/ws/README.md) | 与 coder/gorilla/gobwas/gws 兼容性 18/18；顺序回显 32 B–64 KiB 五档延迟最低（64 KiB 17,061 ns / 3,841 MB/s），唯一全程 `0 B/op、0 allocs/op`；并发 1 KiB 下 gws 最快（2,022 ns / 506.5 MB/s），yd 2,290 ns / 447.2 MB/s，CPU 1,220%、RSS 21.1 MiB 均为最低 |
+| Router | [`benchmarks/router`](benchmarks/router/README.md) | param/deep/wildcard/miss 最快（1.1–1.6 ns），五类路径零分配；静态路径 httprouter 0.9 ns、yd 1.1 ns；WebSocket 握手经 router 增加约 15 ns（4.2%） |
+| JSON | [`benchmarks/json`](benchmarks/json/README.md) | 默认后端与 sonic 基本一致（n=1000 Marshal 156.3 vs 155.7 µs，Unmarshal 297.6 vs 295.1 µs）；`jsonx_native` 的 Marshal 在 n=1/100/1000 均最快（107 ns / 9.3 µs / 88.7 µs，相对 go-json 快 11.7%/19.7%/19.9%），Unmarshal 在 n=1 慢于 go-json 11.0%，n=100/1000 快 6.4%/4.3%；嵌入字段冲突支配规则、omitzero、解码 `,string`、深度上限 10000、Unicode/自定义接口兼容与差分/fuzz 通过 |
+| Base64 | [`benchmarks/base64`](benchmarks/base64/README.md) | 自研 VBMI2 后端 32 B–1 MiB 全面领先（32 B 5.35/8.43 ns，64 KiB 45.7/33.4 GB/s，1 MiB 43.7/32.2 GB/s）；强制 AVX2 64 KiB 27.0/23.2 GB/s（1 KiB 编码慢 8.6%）；强制基础 AVX-512 64 KiB 35.5/31.6 GB/s（32 B 编码慢 2.5%）；三套内核零向量寄存器溢出，全长度+大长度差分、越界哨兵与 race 通过 |
+| 压缩 | [`benchmarks/compress`](benchmarks/compress/README.md) | zstd/fastest text 压缩 8.04 GB/s、压缩率 0.002，zstd 解压 13.67 GB/s；snappy text 压缩 13.57 GB/s 但压缩率 0.049；klauspost gzip 约为标准库 gzip 的 3.7 倍吞吐，压缩率相同；brotli/q9 json 压缩率 0.021 但吞吐/内存成本最高 |
+| 日志 | [`benchmarks/logx`](benchmarks/logx/README.md) | dynamic Info 111.7 ns/op、零分配，略快于 zerolog（112.9 ns）；prebound Info 103.1 ns，慢于 zerolog 94.9 ns 约 8.6%；禁用路径 prebound 1.8 ns、零分配，与 logrus 并列最快，dynamic 7.9 ns（slog 5.1 ns 更快） |
 
-汇总口径、测试环境与完整表格见 [`benchmarks/README.md`](benchmarks/README.md)。基准数值对机器负载、温度与电源策略敏感，跨进程独立运行的波动可达约 15%。
+汇总口径、测试环境与完整表格见 [`benchmarks/README.md`](benchmarks/README.md)。CPU/内存利用率由 Linux `/usr/bin/time -v` 对每个实现单独进程测量；基准数值对机器负载、温度与电源策略敏感，跨进程独立运行的波动可达约 15%。
 
 ```bash
 cd benchmarks/<模块>
-go test ./...                         # 正确性/兼容性
-go test -run '^$' -bench . -benchmem  # 性能
+go test ./...                         # 正确性/兼容性/夹具校验
+go test -run '^$' -bench . -benchmem  # 同进程快速检查
 ```
 
 ## 许可
