@@ -3,6 +3,10 @@ package jsonbench
 import (
 	"encoding/json"
 	"fmt"
+	"os"
+	"reflect"
+	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -15,6 +19,24 @@ import (
 
 // benchSink keeps results observable. | benchSink 让结果保持可观测。
 var benchSink int
+
+// benchSelected reports whether name passes the YD_BENCH_ONLY filter. Set it to
+// one comma-separated list of codec names to run each implementation in its own
+// process and remove same-process ordering and GC bias. | benchSelected 判断
+// name 是否通过 YD_BENCH_ONLY 过滤。设为逗号分隔的编解码器名可让每个实现独立
+// 进程运行，消除同进程顺序与 GC 偏差。
+func benchSelected(name string) bool {
+	want := os.Getenv("YD_BENCH_ONLY")
+	if want == "" {
+		return true
+	}
+	for _, part := range strings.Split(want, ",") {
+		if strings.TrimSpace(part) == name {
+			return true
+		}
+	}
+	return false
+}
 
 // record is the shared payload shape. | record 是共用的载荷结构。
 type record struct {
@@ -85,6 +107,9 @@ func BenchmarkMarshal(b *testing.B) {
 		ds := ds
 		for _, c := range codecs {
 			c := c
+			if !benchSelected(c.name) {
+				continue
+			}
 			b.Run(ds.name+"/"+c.name, func(b *testing.B) {
 				b.SetBytes(int64(len(ds.raw)))
 				// Warm up lazily compiled codecs (sonic JIT, go-json caches) so no
@@ -118,6 +143,9 @@ func BenchmarkUnmarshal(b *testing.B) {
 		ds := ds
 		for _, c := range codecs {
 			c := c
+			if !benchSelected(c.name) {
+				continue
+			}
 			b.Run(ds.name+"/"+c.name, func(b *testing.B) {
 				b.SetBytes(int64(len(ds.raw)))
 				for i := 0; i < 3; i++ {
@@ -137,6 +165,54 @@ func BenchmarkUnmarshal(b *testing.B) {
 					benchSink += len(out)
 				}
 			})
+		}
+	}
+}
+
+// sameRecords compares records semantically, ignoring time.Location identity. | sameRecords
+// 按语义比较记录，忽略 time.Location 的指针差异。
+func sameRecords(a, b []record) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i].ID != b[i].ID || a[i].Name != b[i].Name || a[i].Email != b[i].Email ||
+			a[i].Active != b[i].Active || a[i].Score != b[i].Score ||
+			!slices.Equal(a[i].Tags, b[i].Tags) || !a[i].Created.Equal(b[i].Created) {
+			return false
+		}
+	}
+	return true
+}
+
+// TestCodecFixtures proves every compared codec produces the same JSON document
+// and decodes the shared fixture back to the same records. | TestCodecFixtures
+// 证明每个参与对比的编解码器产生相同的 JSON 文档，并能把共用夹具解回相同记录。
+func TestCodecFixtures(t *testing.T) {
+	for _, ds := range buildDatasets(t) {
+		var wantAny any
+		if err := json.Unmarshal(ds.raw, &wantAny); err != nil {
+			t.Fatalf("%s fixture: %v | 夹具解析失败", ds.name, err)
+		}
+		for _, c := range codecs {
+			out, err := c.marshal(ds.records)
+			if err != nil {
+				t.Fatalf("%s/%s marshal: %v | 编码失败", ds.name, c.name, err)
+			}
+			var gotAny any
+			if err := json.Unmarshal(out, &gotAny); err != nil {
+				t.Fatalf("%s/%s output is not valid JSON: %v | 输出不是合法 JSON", ds.name, c.name, err)
+			}
+			if !reflect.DeepEqual(gotAny, wantAny) {
+				t.Fatalf("%s/%s output differs semantically from stdlib | 输出与标准库语义不一致", ds.name, c.name)
+			}
+			var got []record
+			if err := c.unmarshal(ds.raw, &got); err != nil {
+				t.Fatalf("%s/%s unmarshal: %v | 解码失败", ds.name, c.name, err)
+			}
+			if !sameRecords(got, ds.records) {
+				t.Fatalf("%s/%s decoded records differ from fixture | 解码记录与夹具不一致", ds.name, c.name)
+			}
 		}
 	}
 }

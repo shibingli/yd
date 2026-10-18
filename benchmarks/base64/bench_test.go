@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"encoding/base64"
 	"fmt"
+	"os"
+	"strings"
 	"testing"
 
 	cwb64 "github.com/cloudwego/base64x"
@@ -14,6 +16,25 @@ import (
 
 // benchSink keeps results observable. | benchSink 让结果保持可观测。
 var benchSink int
+
+// benchSelected reports whether name passes the YD_BENCH_ONLY filter. Set it to
+// one comma-separated list of codec names to run each implementation in its own
+// process and remove same-process ordering and GC bias. An empty value selects
+// every codec. | benchSelected 判断 name 是否通过 YD_BENCH_ONLY 过滤。把它设为
+// 逗号分隔的编解码器名，可让每个实现独立进程运行，消除同进程顺序与 GC 偏差；
+// 空值表示全部选中。
+func benchSelected(name string) bool {
+	want := os.Getenv("YD_BENCH_ONLY")
+	if want == "" {
+		return true
+	}
+	for _, part := range strings.Split(want, ",") {
+		if strings.TrimSpace(part) == name {
+			return true
+		}
+	}
+	return false
+}
 
 // codec is one Base64 implementation under comparison. | codec 是参与对比的一个 Base64 实现。
 type codec struct {
@@ -71,8 +92,11 @@ func BenchmarkEncode(b *testing.B) {
 		src := payload(size)
 		for _, c := range codecs {
 			c := c
+			if !benchSelected(c.name) {
+				continue
+			}
 			b.Run(fmt.Sprintf("%d/%s", size, c.name), func(b *testing.B) {
-				dst := make([]byte, c.encLen(len(src))+8)
+				dst := make([]byte, c.encLen(len(src)))
 				b.SetBytes(int64(len(src)))
 				b.ReportAllocs()
 				b.ResetTimer()
@@ -85,17 +109,49 @@ func BenchmarkEncode(b *testing.B) {
 	}
 }
 
+// TestCodecFixtures proves every compared implementation encodes the benchmark
+// payload identically and decodes every peer's output back to the source. | TestCodecFixtures
+// 证明每个参与对比的实现对基准载荷产生完全相同的编码，并能把任意对端的输出解回原文。
+func TestCodecFixtures(t *testing.T) {
+	sizes := []int{0, 1, 2, 3, 4, 5, 31, 32, 33, 1023, 1024, 1025, 65536}
+	for _, size := range sizes {
+		src := payload(size)
+		want := make([]byte, base64.StdEncoding.EncodedLen(len(src)))
+		base64.StdEncoding.Encode(want, src)
+		for _, c := range codecs {
+			if got := c.encLen(len(src)); got != len(want) {
+				t.Fatalf("%s/%d EncodedLen = %d, want %d | EncodedLen 不一致", c.name, size, got, len(want))
+			}
+			encoded := make([]byte, c.encLen(len(src)))
+			c.encode(encoded, src)
+			if !bytes.Equal(encoded, want) {
+				t.Fatalf("%s/%d encoding differs from stdlib | 编码与标准库不一致", c.name, size)
+			}
+			for _, peer := range codecs {
+				dst := make([]byte, peer.decLen(len(want)))
+				n, err := peer.decode(dst, want)
+				if err != nil || n != len(src) || !bytes.Equal(dst[:n], src) {
+					t.Fatalf("%s/%d cannot decode %s output: n=%d err=%v | 无法解码对端输出",
+						peer.name, size, c.name, n, err)
+				}
+			}
+		}
+	}
+}
+
 // BenchmarkDecode compares Base64 decoding into a preallocated destination. | BenchmarkDecode 对比写入预分配目标缓冲的 Base64 解码。
 func BenchmarkDecode(b *testing.B) {
 	for _, size := range []int{32, 1 << 10, 64 << 10, 1 << 20} {
 		src := payload(size)
 		for _, c := range codecs {
 			c := c
+			if !benchSelected(c.name) {
+				continue
+			}
 			b.Run(fmt.Sprintf("%d/%s", size, c.name), func(b *testing.B) {
-				encoded := make([]byte, c.encLen(len(src))+8)
+				encoded := make([]byte, c.encLen(len(src)))
 				c.encode(encoded, src)
-				encoded = encoded[:c.encLen(len(src))]
-				dst := make([]byte, c.decLen(len(encoded))+8)
+				dst := make([]byte, c.decLen(len(encoded)))
 				if n, err := c.decode(dst, encoded); err != nil || n != len(src) {
 					b.Fatalf("%s decode fixture: n=%d err=%v", c.name, n, err)
 				}

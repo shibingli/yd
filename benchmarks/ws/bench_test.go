@@ -4,10 +4,13 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net"
 	"net/http"
+	"os"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -21,6 +24,28 @@ import (
 
 // benchSink keeps read results observable. | benchSink 让读取结果保持可观测。
 var benchSink int
+
+// benchSelected reports whether name passes the YD_BENCH_ONLY filter. Set it to
+// one comma-separated list of implementation names to run each library in its
+// own process and remove same-process ordering and GC bias. | benchSelected
+// 判断 name 是否通过 YD_BENCH_ONLY 过滤。设为逗号分隔的实现名可让每个库独立
+// 进程运行，消除同进程顺序与 GC 偏差。
+func benchSelected(name string) bool {
+	want := os.Getenv("YD_BENCH_ONLY")
+	if want == "" {
+		return true
+	}
+	for _, part := range strings.Split(want, ",") {
+		if strings.TrimSpace(part) == name {
+			return true
+		}
+	}
+	return false
+}
+
+// errMessageTooLarge reports a message that does not fit the benchmark buffer. | errMessageTooLarge
+// 表示消息超出基准缓冲区。
+var errMessageTooLarge = errors.New("wsbench: message exceeds buffer | wsbench: 消息超出缓冲区")
 
 // bufSizeFor returns a buffer large enough for the payload without over-allocating
 // tiny messages. | bufSizeFor 返回足以容纳载荷且不会为小消息过度分配的缓冲大小。
@@ -52,7 +77,10 @@ func benchEcho(b *testing.B, size int, write func([]byte) error, read func() (in
 		}
 		n, err := read()
 		if err != nil {
-			b.Fatalf("read: %v", err)
+			b.Fatalf("read: %v | 读取失败", err)
+		}
+		if n != size {
+			b.Fatalf("read %d bytes, want %d | 读取字节数不符", n, size)
 		}
 		benchSink += n
 	}
@@ -78,12 +106,12 @@ func readToEOF(r io.Reader, buf []byte) (int, error) {
 	for {
 		if n == len(buf) {
 			var extra [1]byte
-			if _, err := r.Read(extra[:]); err == io.EOF {
+			if _, err := io.ReadFull(r, extra[:]); err == io.EOF {
 				return n, nil
 			} else if err != nil {
 				return n, err
 			}
-			return 0, fmt.Errorf("message exceeds buffer")
+			return 0, errMessageTooLarge
 		}
 		nn, err := r.Read(buf[n:])
 		n += nn
@@ -103,7 +131,9 @@ func startOurServer(b *testing.B, size int) (string, func()) {
 	return startHTTP(b, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		c, err := ourws.Upgrade(w, r, ourws.Options{ReadBufferSize: bufSize})
 		if err != nil {
-			b.Errorf("our upgrade: %v", err)
+			// The client observes the failed handshake; reporting from this
+			// goroutine could outlive the benchmark. | 客户端会观察到握手失败；
+			// 从这个协程上报可能晚于基准结束。
 			return
 		}
 		defer func() { _ = c.CloseNow() }()
@@ -151,7 +181,7 @@ func benchmarkCoder(b *testing.B, size int) {
 	addr, stop := startHTTP(b, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		c, err := coderws.Accept(w, r, nil)
 		if err != nil {
-			b.Errorf("coder accept: %v", err)
+			// The client observes the failed handshake. | 客户端会观察到握手失败。
 			return
 		}
 		defer c.CloseNow()
@@ -182,14 +212,17 @@ func benchmarkCoder(b *testing.B, size int) {
 	}))
 	defer stop()
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	dialCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	c, _, err := coderws.Dial(ctx, "ws://"+addr, nil)
+	c, _, err := coderws.Dial(dialCtx, "ws://"+addr, nil)
 	if err != nil {
-		b.Fatalf("coder dial: %v", err)
+		b.Fatalf("coder dial: %v | 连接失败", err)
 	}
 	defer c.CloseNow()
 	c.SetReadLimit(1 << 20)
+	// Message operations must not inherit the short dial deadline. | 消息操作不得
+	// 继承短暂的拨号截止时间。
+	ctx := context.Background()
 	buf := make([]byte, bufSizeFor(size))
 
 	benchEcho(b, size,
@@ -223,7 +256,7 @@ func benchmarkGorilla(b *testing.B, size int) {
 	addr, stop := startHTTP(b, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		c, err := up.Upgrade(w, r, nil)
 		if err != nil {
-			b.Errorf("gorilla upgrade: %v", err)
+			// The client observes the failed handshake. | 客户端会观察到握手失败。
 			return
 		}
 		defer func() { _ = c.Close() }()
@@ -369,7 +402,7 @@ func benchmarkGobwas(b *testing.B, size int) {
 				return 0, err
 			}
 			if int(hdr.Length) > len(buf) {
-				return 0, fmt.Errorf("payload %d exceeds buffer", hdr.Length)
+				return 0, errMessageTooLarge
 			}
 			payload := buf[:hdr.Length]
 			if _, err := io.ReadFull(rd, payload); err != nil {
@@ -430,6 +463,7 @@ type gwsEcho struct{ gws.BuiltinEventHandler }
 
 func (e *gwsEcho) OnMessage(s *gws.Conn, m *gws.Message) {
 	_ = s.WriteMessage(m.Opcode, m.Bytes())
+	_ = m.Close()
 }
 
 // gwsClient delivers each echoed message length through a channel. | gwsClient 通过通道交付每条回显消息的长度。
@@ -503,11 +537,17 @@ func benchmarkGWS(b *testing.B, size int) {
 func BenchmarkEcho(b *testing.B) {
 	sizes := []int{32, 256, 1 << 10, 4 << 10, 64 << 10}
 	for _, size := range sizes {
-		b.Run(fmt.Sprintf("our/%d", size), func(b *testing.B) { benchmarkOur(b, size) })
-		b.Run(fmt.Sprintf("coder/%d", size), func(b *testing.B) { benchmarkCoder(b, size) })
-		b.Run(fmt.Sprintf("gorilla/%d", size), func(b *testing.B) { benchmarkGorilla(b, size) })
-		b.Run(fmt.Sprintf("gobwas/%d", size), func(b *testing.B) { benchmarkGobwas(b, size) })
-		b.Run(fmt.Sprintf("gws/%d", size), func(b *testing.B) { benchmarkGWS(b, size) })
+		size := size
+		run := func(name string, fn func(*testing.B)) {
+			if benchSelected(name) {
+				b.Run(fmt.Sprintf("%s/%d", name, size), fn)
+			}
+		}
+		run("our", func(b *testing.B) { benchmarkOur(b, size) })
+		run("coder", func(b *testing.B) { benchmarkCoder(b, size) })
+		run("gorilla", func(b *testing.B) { benchmarkGorilla(b, size) })
+		run("gobwas", func(b *testing.B) { benchmarkGobwas(b, size) })
+		run("gws", func(b *testing.B) { benchmarkGWS(b, size) })
 	}
 }
 
@@ -518,102 +558,311 @@ func BenchmarkEchoConcurrent(b *testing.B) {
 	payload := bytes.Repeat([]byte("x"), size)
 	bufSize := bufSizeFor(size)
 
-	b.Run("our", func(b *testing.B) {
-		addr, stop := startOurServer(b, size)
-		defer stop()
-		b.SetBytes(int64(size))
-		b.ReportAllocs()
-		b.ResetTimer()
-		b.RunParallel(func(pb *testing.PB) {
-			c, err := ourws.Dial(context.Background(), "ws://"+addr, ourws.DialOptions{ReadBufferSize: bufSize})
-			if err != nil {
-				b.Error(err)
-				return
-			}
-			defer func() { _ = c.CloseNow() }()
-			for pb.Next() {
-				if err := c.WriteMessage(ourws.BinaryMessage, payload); err != nil {
+	if benchSelected("our") {
+		b.Run("our", func(b *testing.B) {
+			addr, stop := startOurServer(b, size)
+			defer stop()
+			b.SetBytes(int64(size))
+			b.ReportAllocs()
+			b.ResetTimer()
+			b.RunParallel(func(pb *testing.PB) {
+				c, err := ourws.Dial(context.Background(), "ws://"+addr, ourws.DialOptions{ReadBufferSize: bufSize})
+				if err != nil {
 					b.Error(err)
 					return
 				}
-				if _, _, err := c.ReadMessage(); err != nil {
-					b.Error(err)
-					return
+				defer func() { _ = c.CloseNow() }()
+				for pb.Next() {
+					if err := c.WriteMessage(ourws.BinaryMessage, payload); err != nil {
+						b.Error(err)
+						return
+					}
+					_, got, err := c.ReadMessage()
+					if err != nil {
+						b.Error(err)
+						return
+					}
+					if len(got) != size {
+						b.Errorf("read %d bytes, want %d | 读取字节数不符", len(got), size)
+						return
+					}
 				}
-			}
+			})
 		})
-	})
+	}
 
-	b.Run("gorilla", func(b *testing.B) {
-		up := &websocket.Upgrader{ReadBufferSize: bufSize, WriteBufferSize: bufSize}
-		addr, stop := startHTTP(b, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			c, err := up.Upgrade(w, r, nil)
-			if err != nil {
-				b.Error(err)
-				return
-			}
-			defer func() { _ = c.Close() }()
-			buf := make([]byte, bufSize)
-			for {
-				mt, rd, err := c.NextReader()
+	if benchSelected("gorilla") {
+		b.Run("gorilla", func(b *testing.B) {
+			up := &websocket.Upgrader{ReadBufferSize: bufSize, WriteBufferSize: bufSize}
+			addr, stop := startHTTP(b, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				c, err := up.Upgrade(w, r, nil)
 				if err != nil {
+					// The client observes the failed handshake. | 客户端会观察到握手失败。
 					return
 				}
-				n, err := readToEOF(rd, buf)
-				if err != nil {
-					return
+				defer func() { _ = c.Close() }()
+				buf := make([]byte, bufSize)
+				for {
+					mt, rd, err := c.NextReader()
+					if err != nil {
+						return
+					}
+					n, err := readToEOF(rd, buf)
+					if err != nil {
+						return
+					}
+					wr, err := c.NextWriter(mt)
+					if err != nil {
+						return
+					}
+					if _, err := wr.Write(buf[:n]); err != nil {
+						_ = wr.Close()
+						return
+					}
+					if err := wr.Close(); err != nil {
+						return
+					}
 				}
-				wr, err := c.NextWriter(mt)
-				if err != nil {
-					return
-				}
-				if _, err := wr.Write(buf[:n]); err != nil {
-					_ = wr.Close()
-					return
-				}
-				if err := wr.Close(); err != nil {
-					return
-				}
-			}
-		}))
-		defer stop()
-		dialer := &websocket.Dialer{ReadBufferSize: bufSize, WriteBufferSize: bufSize}
-		b.SetBytes(int64(size))
-		b.ReportAllocs()
-		b.ResetTimer()
-		b.RunParallel(func(pb *testing.PB) {
-			c, _, err := dialer.Dial("ws://"+addr, nil)
-			if err != nil {
-				b.Error(err)
-				return
-			}
-			defer func() { _ = c.Close() }()
-			buf := make([]byte, bufSize)
-			for pb.Next() {
-				wr, err := c.NextWriter(websocket.BinaryMessage)
+			}))
+			defer stop()
+			dialer := &websocket.Dialer{ReadBufferSize: bufSize, WriteBufferSize: bufSize}
+			b.SetBytes(int64(size))
+			b.ReportAllocs()
+			b.ResetTimer()
+			b.RunParallel(func(pb *testing.PB) {
+				c, _, err := dialer.Dial("ws://"+addr, nil)
 				if err != nil {
 					b.Error(err)
 					return
 				}
-				if _, err := wr.Write(payload); err != nil {
-					_ = wr.Close()
-					b.Error(err)
-					return
+				defer func() { _ = c.Close() }()
+				buf := make([]byte, bufSize)
+				for pb.Next() {
+					wr, err := c.NextWriter(websocket.BinaryMessage)
+					if err != nil {
+						b.Error(err)
+						return
+					}
+					if _, err := wr.Write(payload); err != nil {
+						_ = wr.Close()
+						b.Error(err)
+						return
+					}
+					if err := wr.Close(); err != nil {
+						b.Error(err)
+						return
+					}
+					_, rd, err := c.NextReader()
+					if err != nil {
+						b.Error(err)
+						return
+					}
+					if n, err := readToEOF(rd, buf); err != nil {
+						b.Error(err)
+						return
+					} else if n != size {
+						b.Errorf("read %d bytes, want %d | 读取字节数不符", n, size)
+						return
+					}
 				}
-				if err := wr.Close(); err != nil {
-					b.Error(err)
-					return
-				}
-				_, rd, err := c.NextReader()
-				if err != nil {
-					b.Error(err)
-					return
-				}
-				if _, err := readToEOF(rd, buf); err != nil {
-					b.Error(err)
-					return
-				}
-			}
+			})
 		})
-	})
+	}
+
+	if benchSelected("coder") {
+		b.Run("coder", func(b *testing.B) {
+			addr, stop := startHTTP(b, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				c, err := coderws.Accept(w, r, nil)
+				if err != nil {
+					return
+				}
+				defer c.CloseNow()
+				c.SetReadLimit(1 << 20)
+				buf := make([]byte, bufSize)
+				for {
+					typ, rd, err := c.Reader(context.Background())
+					if err != nil {
+						return
+					}
+					n, err := readToEOF(rd, buf)
+					if err != nil {
+						return
+					}
+					wr, err := c.Writer(context.Background(), typ)
+					if err != nil {
+						return
+					}
+					if _, err := wr.Write(buf[:n]); err != nil {
+						_ = wr.Close()
+						return
+					}
+					if err := wr.Close(); err != nil {
+						return
+					}
+				}
+			}))
+			defer stop()
+			b.SetBytes(int64(size))
+			b.ReportAllocs()
+			b.ResetTimer()
+			b.RunParallel(func(pb *testing.PB) {
+				dialCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+				c, _, err := coderws.Dial(dialCtx, "ws://"+addr, nil)
+				cancel()
+				if err != nil {
+					b.Error(err)
+					return
+				}
+				defer c.CloseNow()
+				c.SetReadLimit(1 << 20)
+				ctx := context.Background()
+				buf := make([]byte, bufSize)
+				for pb.Next() {
+					wr, err := c.Writer(ctx, coderws.MessageBinary)
+					if err != nil {
+						b.Error(err)
+						return
+					}
+					if _, err := wr.Write(payload); err != nil {
+						_ = wr.Close()
+						b.Error(err)
+						return
+					}
+					if err := wr.Close(); err != nil {
+						b.Error(err)
+						return
+					}
+					_, rd, err := c.Reader(ctx)
+					if err != nil {
+						b.Error(err)
+						return
+					}
+					if n, err := readToEOF(rd, buf); err != nil {
+						b.Error(err)
+						return
+					} else if n != size {
+						b.Errorf("read %d bytes, want %d | 读取字节数不符", n, size)
+						return
+					}
+				}
+			})
+		})
+	}
+
+	if benchSelected("gobwas") {
+		b.Run("gobwas", func(b *testing.B) {
+			addr, stop := startGobwasServer(b, bufSize)
+			defer stop()
+			b.SetBytes(int64(size))
+			b.ReportAllocs()
+			b.ResetTimer()
+			b.RunParallel(func(pb *testing.PB) {
+				conn, br, _, err := ws.Dial(context.Background(), "ws://"+addr)
+				if err != nil {
+					b.Error(err)
+					return
+				}
+				defer func() { _ = conn.Close() }()
+				bw := bufio.NewWriterSize(conn, bufSize)
+				var rd io.Reader = conn
+				if br != nil {
+					rd = br
+				}
+				buf := make([]byte, bufSize)
+				send := make([]byte, bufSize)
+				mask := [4]byte{1, 2, 3, 4}
+				for pb.Next() {
+					copy(send, payload)
+					frame := ws.NewFrame(ws.OpBinary, true, send[:len(payload)])
+					frame = ws.MaskFrameInPlaceWith(frame, mask)
+					if err := ws.WriteFrame(bw, frame); err != nil {
+						b.Error(err)
+						return
+					}
+					if err := bw.Flush(); err != nil {
+						b.Error(err)
+						return
+					}
+					hdr, err := ws.ReadHeader(rd)
+					if err != nil {
+						b.Error(err)
+						return
+					}
+					if int(hdr.Length) > len(buf) {
+						b.Error(errMessageTooLarge)
+						return
+					}
+					p := buf[:hdr.Length]
+					if _, err := io.ReadFull(rd, p); err != nil {
+						b.Error(err)
+						return
+					}
+					if hdr.Masked {
+						ws.Cipher(p, hdr.Mask, 0)
+					}
+					if int(hdr.Length) != size {
+						b.Errorf("read %d bytes, want %d | 读取字节数不符", hdr.Length, size)
+						return
+					}
+				}
+			})
+		})
+	}
+
+	if benchSelected("gws") {
+		b.Run("gws", func(b *testing.B) {
+			ln, err := net.Listen("tcp", "127.0.0.1:0")
+			if err != nil {
+				b.Fatalf("listen: %v | 监听失败", err)
+			}
+			srv := gws.NewServer(&gwsEcho{}, &gws.ServerOption{
+				ReadBufferSize:     bufSize,
+				WriteBufferSize:    bufSize,
+				ReadMaxPayloadSize: 16 << 20,
+				CheckUtf8Enabled:   false,
+				Logger:             nopLogger{},
+			})
+			ln = newGateListener(ln)
+			go func() { _ = srv.RunListener(ln) }()
+			defer func() { _ = ln.Close() }()
+			addr := "ws://" + ln.Addr().String()
+			b.SetBytes(int64(size))
+			b.ReportAllocs()
+			b.ResetTimer()
+			b.RunParallel(func(pb *testing.PB) {
+				handler := &gwsClient{received: make(chan int, 1)}
+				c, _, err := gws.NewClient(handler, &gws.ClientOption{
+					Addr:               addr,
+					ReadBufferSize:     bufSize,
+					WriteBufferSize:    bufSize,
+					ReadMaxPayloadSize: 16 << 20,
+					CheckUtf8Enabled:   false,
+					Logger:             nopLogger{},
+				})
+				if err != nil {
+					b.Error(err)
+					return
+				}
+				readDone := make(chan struct{})
+				go func() { c.ReadLoop(); close(readDone) }()
+				defer func() {
+					_ = c.NetConn().Close()
+					select {
+					case <-readDone:
+					case <-time.After(2 * time.Second):
+					}
+				}()
+				for pb.Next() {
+					if err := c.WriteMessage(gws.OpcodeBinary, payload); err != nil {
+						b.Error(err)
+						return
+					}
+					if n := <-handler.received; n != size {
+						b.Errorf("read %d bytes, want %d | 读取字节数不符", n, size)
+						return
+					}
+				}
+			})
+		})
+	}
 }

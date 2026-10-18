@@ -6,17 +6,35 @@ import (
 	"fmt"
 	"io"
 	"math/rand"
+	"os"
 	"strings"
 	"testing"
+	"unicode/utf8"
 
 	"github.com/andybalholm/brotli"
 	"github.com/golang/snappy"
 	kgzip "github.com/klauspost/compress/gzip"
 	"github.com/klauspost/compress/zstd"
 	"github.com/pierrec/lz4/v4"
-
-	"github.com/shibingli/yd/core/jsonx"
 )
+
+// benchSelected reports whether name passes the YD_BENCH_ONLY filter. Set it to
+// one comma-separated list of codec names to run each implementation in its own
+// process and remove same-process ordering and GC bias. | benchSelected 判断
+// name 是否通过 YD_BENCH_ONLY 过滤。设为逗号分隔的编解码器名可让每个实现独立
+// 进程运行，消除同进程顺序与 GC 偏差。
+func benchSelected(name string) bool {
+	want := os.Getenv("YD_BENCH_ONLY")
+	if want == "" {
+		return true
+	}
+	for _, part := range strings.Split(want, ",") {
+		if strings.TrimSpace(part) == name {
+			return true
+		}
+	}
+	return false
+}
 
 // writeCloser is a resetable streaming compressor. | writeCloser 是可重置的流式压缩器。
 type writeCloser interface {
@@ -158,37 +176,37 @@ var codecs = []codec{
 	},
 }
 
-// textPayload builds a compressible text payload. | textPayload 构造可压缩的文本载荷。
+// textPayload builds a compressible text payload. The result is valid UTF-8;
+// it may be up to three bytes shorter than n when the cut lands inside a rune. | textPayload
+// 构造可压缩的文本载荷。结果保证是合法 UTF-8；若截断落在符文内部，最多比 n 少三字节。
 func textPayload(n int) []byte {
 	var b strings.Builder
 	for b.Len() < n {
 		b.WriteString("The quick brown fox jumps over the lazy dog. | 敏捷的棕色狐狸跃过懒狗。")
 		b.WriteString(" 0123456789 abcdefghijklmnopqrstuvwxyz\n")
 	}
-	return []byte(b.String()[:n])
+	s := b.String()[:n]
+	for !utf8.ValidString(s) {
+		s = s[:len(s)-1]
+	}
+	return []byte(s)
 }
 
-// jsonPayload builds a JSON payload. | jsonPayload 构造 JSON 载荷。
+// jsonPayload builds a valid JSON array at least n bytes long. | jsonPayload
+// 构造至少 n 字节的合法 JSON 数组。
 func jsonPayload(n int) []byte {
-	type record struct {
-		ID    int      `json:"id"`
-		Name  string   `json:"name"`
-		Email string   `json:"email"`
-		Tags  []string `json:"tags"`
-		Note  string   `json:"note"`
+	var b bytes.Buffer
+	b.WriteByte('[')
+	for i := 0; b.Len() < n; i++ {
+		if i > 0 {
+			b.WriteByte(',')
+		}
+		_, _ = fmt.Fprintf(&b,
+			`{"id":%d,"name":"user-%d","email":"user%d@example.com","tags":["alpha","beta","gamma"],"note":"repetitive payload for compression benchmarks | 用于压缩基准的重复载荷"}`,
+			i, i, i)
 	}
-	var records []record
-	for i := 0; len(records) < n/128; i++ {
-		records = append(records, record{
-			ID:    i,
-			Name:  fmt.Sprintf("user-%d", i),
-			Email: fmt.Sprintf("user%d@example.com", i),
-			Tags:  []string{"alpha", "beta", "gamma"},
-			Note:  "repetitive payload for compression benchmarks | 用于压缩基准的重复载荷",
-		})
-	}
-	raw, _ := jsonx.Marshal(records)
-	return raw
+	b.WriteByte(']')
+	return b.Bytes()
 }
 
 // randomPayload builds deterministic incompressible bytes. | randomPayload 构造确定性的不可压缩字节。
@@ -277,6 +295,9 @@ func BenchmarkCompress(b *testing.B) {
 	for _, ds := range datasets {
 		for _, c := range codecs {
 			ds, c := ds, c
+			if !benchSelected(c.name) {
+				continue
+			}
 			b.Run(ds.name+"/"+c.name, func(b *testing.B) { benchCompress(b, c, ds.data) })
 		}
 	}
@@ -288,6 +309,9 @@ func BenchmarkDecompress(b *testing.B) {
 	for _, ds := range datasets {
 		for _, c := range codecs {
 			ds, c := ds, c
+			if !benchSelected(c.name) {
+				continue
+			}
 			b.Run(ds.name+"/"+c.name, func(b *testing.B) { benchDecompress(b, c, ds.data) })
 		}
 	}

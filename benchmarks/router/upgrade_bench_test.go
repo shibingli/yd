@@ -79,16 +79,26 @@ func BenchmarkUpgradeRouter(b *testing.B) {
 	}
 	r := ydrouter.New()
 	r.GET("/ws", func(c *ydrouter.Ctx) { upgrade(c.Writer, c.Request) })
-	handlers := map[string]http.Handler{
-		"raw-http": http.HandlerFunc(upgrade),
-		"router":   r,
+	if err := r.Validate(); err != nil {
+		b.Fatalf("yd router validation: %v | yd 路由校验失败", err)
 	}
-	for name, h := range handlers {
-		b.Run(name, func(b *testing.B) {
+	handlers := []struct {
+		handler http.Handler
+		name    string
+	}{
+		{name: "raw-http", handler: http.HandlerFunc(upgrade)},
+		{name: "router", handler: r},
+	}
+	for _, hc := range handlers {
+		hc := hc
+		if !benchSelected(hc.name) {
+			continue
+		}
+		b.Run(hc.name, func(b *testing.B) {
 			b.ReportAllocs()
 			b.ResetTimer()
 			for i := 0; i < b.N; i++ {
-				h.ServeHTTP(hw, req)
+				hc.handler.ServeHTTP(hw, req)
 			}
 		})
 	}

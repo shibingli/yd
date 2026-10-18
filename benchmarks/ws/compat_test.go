@@ -179,6 +179,7 @@ type gwsEchoHandler struct{ gws.BuiltinEventHandler }
 
 func (h *gwsEchoHandler) OnMessage(s *gws.Conn, m *gws.Message) {
 	_ = s.WriteMessage(m.Opcode, m.Bytes())
+	_ = m.Close()
 }
 func (h *gwsEchoHandler) OnPing(s *gws.Conn, p []byte) { _ = s.WritePong(p) }
 
@@ -404,7 +405,13 @@ func testGWS(t *testing.T, url string, comp bool) {
 	}
 	readDone := make(chan struct{})
 	go func() { c.ReadLoop(); close(readDone) }()
-	defer func() { _ = c.NetConn().Close(); <-readDone }()
+	defer func() {
+		_ = c.NetConn().Close()
+		select {
+		case <-readDone:
+		case <-time.After(2 * time.Second):
+		}
+	}()
 	for _, tc := range compatCases() {
 		op := gws.OpcodeText
 		if tc.op == ourws.BinaryMessage {
