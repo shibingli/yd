@@ -438,8 +438,15 @@ func TestDevReloadEndpointOnlyInDevMode(t *testing.T) {
 			close(lines)
 		}()
 
-		// A template/style change → Tailwind rebuild plus a browser reload event. | 模板/样式变更 → Tailwind 重建 + 浏览器刷新事件。
+		// A template/style change → Tailwind rebuild plus a browser reload event. Retry the
+		// write periodically: an OS watcher may drop a notification that races with the
+		// watcher's startup, and the contract here is reload delivery, not one specific
+		// inotify event. | 模板/样式变更 → Tailwind 重建 + 浏览器刷新事件。周期性重写文件：
+		// 操作系统监听器可能丢弃与启动竞争的第一次通知；本测试的契约是刷新事件最终送达，
+		// 而不是某一个具体的 inotify 事件。
 		writeFile(t, cssPath, "@import \"tailwindcss\";\n")
+		retry := time.NewTicker(300 * time.Millisecond)
+		defer retry.Stop()
 
 		deadline := time.After(20 * time.Second)
 		sawReload := false
@@ -452,6 +459,8 @@ func TestDevReloadEndpointOnlyInDevMode(t *testing.T) {
 				if strings.Contains(line, "event: "+ReloadEventName) {
 					sawReload = true
 				}
+			case <-retry.C:
+				writeFile(t, cssPath, "@import \"tailwindcss\";\n")
 			case <-deadline:
 				t.Fatal("未收到 reload 事件 | no reload event was received")
 			}
