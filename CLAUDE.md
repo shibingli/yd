@@ -21,8 +21,8 @@
 - 配置：viper v1.21（多格式 TOML/YAML/YAML v3/JSON + 动态监听）
 - 文件系统：afero v1.15（OsFs / MemFs 无缝切换的 Mockable FS）
 - 命令行：pflag v1.0.10（POSIX 风格，替代标准库 `flag`）
-- JSON：**自适应分流** —— amd64 默认自研原生后端，非 x86_64 走 go-json；构建标签 `jsonx_std` 可强制标准库
-- Base64：**自适应分流** —— amd64 默认自研 SIMD/标量内核（`GOEXPERIMENT=simd` 时按 VBMI2/VBMI → AVX-512 → AVX2 分发）；非 amd64 走 `cristalhq/base64`；loong64 或 `b64x_std` 标签回退 `encoding/base64`
+- JSON：**自研默认** —— amd64 默认自研原生后端，非 x86_64 回退 go-json；构建标签 `jsonx_std` 可强制标准库；主模块不依赖 sonic/jsoniter
+- Base64：**自研默认** —— amd64 默认自研 SIMD/标量内核（`GOEXPERIMENT=simd` 时按 VBMI2/VBMI → AVX-512 → AVX2 分发）；非 amd64 回退 `cristalhq/base64`；loong64 或 `b64x_std` 标签回退 `encoding/base64`；主模块不依赖 cloudwego/base64x
 - 并行与分配：工作协程数、分块大小与缓冲上限一律由 `core/sysinfo` 在运行时读取 GOMAXPROCS 与 cgroup/主机内存后自动决定，**不得**要求调用方传核心数或内存容量
 - 数据：GORM v1.31（默认 `PrepareStmt: true`）、go-redis v9（单机/哨兵/集群）、asynq v0.26（Redis 驱动分布式队列）
 - 网络：HTTP/1.1 + H2C + HTTP/3(QUIC, quic-go) + 内置 ACME 自动签发续期

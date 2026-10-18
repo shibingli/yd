@@ -2,6 +2,14 @@
 
 面向在 **yd** 仓库内自主执行「代码修复 / 功能迭代」的 AI Agent。本文件定义修改权限边界、测试自愈流程与安全合规检查。
 
+## 0. 核心自研库与运行环境
+
+- **JSON**：amd64 默认使用自研 `core/jsonx` 原生后端；非 amd64 默认回退 `github.com/goccy/go-json`；`jsonx_std` 构建标签可切换标准库。主模块不再依赖 sonic/jsoniter。
+- **Base64**：amd64 默认使用自研 `core/b64x` 内核（`GOEXPERIMENT=simd` 时按 VBMI2/VBMI → 基础 AVX-512 → AVX2 运行时选择，否则纯 Go 标量）；非 amd64 默认回退 `github.com/cristalhq/base64`；`loong64` 或 `b64x_std` 切换标准库。主模块不再依赖 cloudwego/base64x。
+- **环境自适应**：并行度、分块大小、缓冲与池上限一律由 `core/sysinfo` 在运行时读取 GOMAXPROCS、逻辑 CPU 数与 cgroup/主机内存后决定；库 API 不接收核心数或内存容量参数。
+- **基准报告**：`benchmarks/x86_64-single-multi-core.md` 给出单核/多核、全部对比库、CPU 与峰值 RSS；模块级说明见 `benchmarks/{json,base64}/README.md`。
+- SIMD 相关构建与测试使用 `GOEXPERIMENT=simd`；Go 1.27.2+ 若已默认启用可省略。
+
 ## 1. 修改权限边界
 
 **允许直接修改**
