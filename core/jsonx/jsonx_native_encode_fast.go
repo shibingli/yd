@@ -113,46 +113,15 @@ func buildFastFieldEncoder(t reflect.Type) func(*encoder, unsafe.Pointer) error 
 	}
 	if t == stringSliceType {
 		return func(e *encoder, p unsafe.Pointer) error {
-			ss := *(*[]string)(p)
-			if ss == nil {
-				encodeNull(e)
-				return nil
-			}
-			e.buf = append(e.buf, '[')
-			for i, s := range ss {
-				if i > 0 {
-					e.buf = append(e.buf, ',')
-				}
-				e.str(s)
-			}
-			e.buf = append(e.buf, ']')
+			e.buf = appendStringSlice(e.buf, *(*[]string)(p), e.escapeHTML)
 			return nil
 		}
 	}
 	if t == timeType {
 		return func(e *encoder, p unsafe.Pointer) error {
-			tt := (*time.Time)(p)
-			if y := tt.Year(); y < 0 || y >= 10000 {
-				return errx.Detail(errUnsupported, "time year %d out of range | 时间年份 %d 超出范围", y, y)
-			}
-			entry := &e.timeCache[uint64(tt.UnixNano())&3]
-			if entry.n != 0 && entry.k == *tt {
-				e.buf = append(e.buf, '"')
-				e.buf = append(e.buf, entry.b[:entry.n]...)
-				e.buf = append(e.buf, '"')
-				return nil
-			}
-			start := len(e.buf)
-			e.buf = append(e.buf, '"')
-			e.buf = tt.AppendFormat(e.buf, time.RFC3339Nano)
-			e.buf = append(e.buf, '"')
-			formatted := e.buf[start+1 : len(e.buf)-1]
-			if len(formatted) <= len(entry.b) {
-				copy(entry.b[:], formatted)
-				entry.n = uint8(len(formatted))
-				entry.k = *tt
-			}
-			return nil
+			var err error
+			e.buf, err = appendTimeValue(e.buf, e, (*time.Time)(p))
+			return err
 		}
 	}
 	switch t.Kind() {
@@ -325,15 +294,18 @@ func appendCompactJSON(dst, src []byte, escapeHTML bool) ([]byte, error) {
 }
 
 func (e *encoder) float(f float64, bits int) error {
+	var err error
+	e.buf, err = appendFloat(e.buf, f, bits)
+	return err
+}
+
+// appendFloat appends one JSON float to buf. It is the buffer-returning form
+// used by the slice fast path so the encoder's buf field stays untouched. | appendFloat
+// 把单个 JSON 浮点追加到 buf；它是切片快速路径使用的返回式版本，不触碰 encoder 的 buf 字段。
+func appendFloat(buf []byte, f float64, bits int) ([]byte, error) {
 	if math.IsNaN(f) || math.IsInf(f, 0) {
-		return errx.Detail(errUnsupported, "unsupported float value %v | 不支持的浮点值 %v", f, f)
+		return buf, errx.Detail(errUnsupported, "unsupported float value %v | 不支持的浮点值 %v", f, f)
 	}
-	// Integral values within the exact-integer range of the type print as plain decimal digits.
-	// The bound is 2^24 for float32 because above it the shortest round-trip decimal no longer
-	// equals the exact integer value (e.g. float32 1e15 prints as 1000000000000000, while its
-	// exact value is 999999986991104). | 类型精确整数范围内的整值输出为十进制数字；float32 的
-	// 边界取 2^24，因为超过后最短往返十进制不再等于精确整数值（例如 float32 1e15 输出
-	// 1000000000000000，而精确值为 999999986991104）。
 	limit := float64(1 << 53)
 	if bits == 32 {
 		limit = 1 << 24
@@ -341,27 +313,24 @@ func (e *encoder) float(f float64, bits int) error {
 	if f == math.Trunc(f) && f >= -limit && f <= limit {
 		if f == 0 {
 			if math.Signbit(f) {
-				e.buf = append(e.buf, '-', '0')
-			} else {
-				e.buf = append(e.buf, '0')
+				return append(buf, '-', '0'), nil
 			}
-			return nil
+			return append(buf, '0'), nil
 		}
-		e.buf = appendIntFast(e.buf, int64(f))
-		return nil
+		return appendIntFast(buf, int64(f)), nil
 	}
 	fmt := byte('f')
 	if abs := math.Abs(f); abs != 0 && (abs < 1e-6 || abs >= 1e21) {
 		fmt = 'e'
 	}
-	e.buf = strconv.AppendFloat(e.buf, f, fmt, -1, bits)
+	buf = strconv.AppendFloat(buf, f, fmt, -1, bits)
 	if fmt == 'e' {
-		if n := len(e.buf); n >= 4 && e.buf[n-4] == 'e' && e.buf[n-3] == '-' && e.buf[n-2] == '0' {
-			e.buf[n-2] = e.buf[n-1]
-			e.buf = e.buf[:n-1]
+		if n := len(buf); n >= 4 && buf[n-4] == 'e' && buf[n-3] == '-' && buf[n-2] == '0' {
+			buf[n-2] = buf[n-1]
+			buf = buf[:n-1]
 		}
 	}
-	return nil
+	return buf, nil
 }
 
 const (
@@ -424,12 +393,16 @@ func init() {
 }
 
 func (e *encoder) str(s string) {
+	e.buf = appendJSONString(e.buf, s, e.escapeHTML)
+}
+
+func appendJSONString(buf []byte, s string, escapeHTML bool) []byte {
 	i := 0
 	for len(s)-i >= 8 {
 		x := binary.LittleEndian.Uint64(unsafe.Slice(unsafe.StringData(s[i:]), 8))
 		if x&wordHi != 0 || wordHasControl(x) ||
 			wordHasZero(x^wordQuote) || wordHasZero(x^wordBackslash) ||
-			(e.escapeHTML && (wordHasZero(x^wordLessThan) || wordHasZero(x^wordGreater) || wordHasZero(x^wordAmpersand))) {
+			(escapeHTML && (wordHasZero(x^wordLessThan) || wordHasZero(x^wordGreater) || wordHasZero(x^wordAmpersand))) {
 			goto slow
 		}
 		i += 8
@@ -438,12 +411,12 @@ func (e *encoder) str(s string) {
 		x := binary.LittleEndian.Uint32(unsafe.Slice(unsafe.StringData(s[i:]), 4))
 		if x&0x80808080 != 0 || wordHasControl32(x) ||
 			wordHasZero32(x^wordQuote32) || wordHasZero32(x^wordBackslash32) ||
-			(e.escapeHTML && (wordHasZero32(x^wordLessThan32) || wordHasZero32(x^wordGreater32) || wordHasZero32(x^wordAmpersand32))) {
+			(escapeHTML && (wordHasZero32(x^wordLessThan32) || wordHasZero32(x^wordGreater32) || wordHasZero32(x^wordAmpersand32))) {
 			goto slow
 		}
 		i += 4
 	}
-	if e.escapeHTML {
+	if escapeHTML {
 		for ; i < len(s); i++ {
 			if escapeTableHTML[s[i]] {
 				goto slow
@@ -456,45 +429,88 @@ func (e *encoder) str(s string) {
 			}
 		}
 	}
-	e.buf = append(e.buf, '"')
-	e.buf = append(e.buf, s...)
-	e.buf = append(e.buf, '"')
-	return
+	buf = append(buf, '"')
+	buf = append(buf, s...)
+	buf = append(buf, '"')
+	return buf
 slow:
-	e.buf = append(e.buf, '"')
+	buf = append(buf, '"')
 	for _, r := range s {
 		switch r {
 		case '"':
-			e.buf = append(e.buf, '\\', '"')
+			buf = append(buf, '\\', '"')
 		case '\\':
-			e.buf = append(e.buf, '\\', '\\')
+			buf = append(buf, '\\', '\\')
 		case '\b':
-			e.buf = append(e.buf, '\\', 'b')
+			buf = append(buf, '\\', 'b')
 		case '\f':
-			e.buf = append(e.buf, '\\', 'f')
+			buf = append(buf, '\\', 'f')
 		case '\n':
-			e.buf = append(e.buf, '\\', 'n')
+			buf = append(buf, '\\', 'n')
 		case '\r':
-			e.buf = append(e.buf, '\\', 'r')
+			buf = append(buf, '\\', 'r')
 		case '\t':
-			e.buf = append(e.buf, '\\', 't')
+			buf = append(buf, '\\', 't')
 		case '<', '>', '&':
-			if e.escapeHTML {
-				e.buf = append(e.buf, '\\', 'u', '0', '0', hexDigit(byte(r)>>4), hexDigit(byte(r)))
+			if escapeHTML {
+				buf = append(buf, '\\', 'u', '0', '0', hexDigit(byte(r)>>4), hexDigit(byte(r)))
 			} else {
-				e.buf = utf8.AppendRune(e.buf, r)
+				buf = utf8.AppendRune(buf, r)
 			}
 		case '\u2028', '\u2029':
-			e.buf = append(e.buf, '\\', 'u', '2', '0', '2', hexDigit(byte(r)))
+			buf = append(buf, '\\', 'u', '2', '0', '2', hexDigit(byte(r)))
 		default:
 			if r < 0x20 {
-				e.buf = append(e.buf, '\\', 'u', '0', '0', hexDigit(byte(r)>>4), hexDigit(byte(r)))
+				buf = append(buf, '\\', 'u', '0', '0', hexDigit(byte(r)>>4), hexDigit(byte(r)))
 			} else {
-				e.buf = utf8.AppendRune(e.buf, r)
+				buf = utf8.AppendRune(buf, r)
 			}
 		}
 	}
-	e.buf = append(e.buf, '"')
+	buf = append(buf, '"')
+	return buf
+}
+
+// appendStringSlice appends one JSON string array to buf. | appendStringSlice
+// 把单个 JSON 字符串数组追加到 buf。
+func appendStringSlice(buf []byte, ss []string, escapeHTML bool) []byte {
+	if ss == nil {
+		return append(buf, "null"...)
+	}
+	buf = append(buf, '[')
+	for i, s := range ss {
+		if i > 0 {
+			buf = append(buf, ',')
+		}
+		buf = appendJSONString(buf, s, escapeHTML)
+	}
+	return append(buf, ']')
+}
+
+// appendTimeValue appends one RFC3339Nano-quoted time to buf, reusing the
+// encoder's small time cache. | appendTimeValue 把单个 RFC3339Nano 带引号时间
+// 追加到 buf，并复用 encoder 的小型时间缓存。
+func appendTimeValue(buf []byte, e *encoder, tt *time.Time) ([]byte, error) {
+	if y := tt.Year(); y < 0 || y >= 10000 {
+		return buf, errx.Detail(errUnsupported, "time year %d out of range | 时间年份 %d 超出范围", y, y)
+	}
+	entry := &e.timeCache[uint64(tt.UnixNano())&3]
+	if entry.n != 0 && entry.k == *tt {
+		buf = append(buf, '"')
+		buf = append(buf, entry.b[:entry.n]...)
+		return append(buf, '"'), nil
+	}
+	start := len(buf)
+	buf = append(buf, '"')
+	buf = tt.AppendFormat(buf, time.RFC3339Nano)
+	buf = append(buf, '"')
+	formatted := buf[start+1 : len(buf)-1]
+	if len(formatted) <= len(entry.b) {
+		copy(entry.b[:], formatted)
+		entry.n = uint8(len(formatted))
+		entry.k = *tt
+	}
+	return buf, nil
 }
 
 func hexDigit(b byte) byte {

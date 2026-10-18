@@ -115,6 +115,20 @@ func Marshal(v any) ([]byte, error) {
 				est = maxDirectHint
 			}
 			est += est/32 + 512
+			// Single-core environments benefit from reusing the encoder and its time
+			// cache through the pool. With real parallelism the pool's cross-P traffic
+			// costs more than the one extra allocation, so each call gets its own
+			// encoder. Both paths choose themselves from the current GOMAXPROCS. | 单核
+			// 环境经池复用 encoder 与其时间缓存更划算；存在真实并行时，池的跨 P 往返
+			// 比多一次分配更贵，因此每次调用使用独立 encoder。两条路径都由当前
+			// GOMAXPROCS 自动选择。
+			if sysinfo.IsMultiCore() {
+				e := &encoder{escapeHTML: true, buf: make([]byte, 0, est)}
+				if err := e.value(rv); err != nil {
+					return nil, err
+				}
+				return e.buf, nil
+			}
 			e := getEncoder(true)
 			pooled := e.buf
 			e.buf = make([]byte, 0, est)

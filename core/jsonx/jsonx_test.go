@@ -401,6 +401,41 @@ func TestValid(t *testing.T) {
 	}
 }
 
+// TestFastStructSliceMatchesStdlib covers the slice fast path: every field kind,
+// nil slices, zero and offset times, HTML characters and Unicode. | TestFastStructSliceMatchesStdlib
+// 覆盖切片快速路径：所有字段类别、nil 切片、零值与带偏移时间、HTML 字符与 Unicode。
+func TestFastStructSliceMatchesStdlib(t *testing.T) {
+	type fastRec struct {
+		When   time.Time `json:"when"`
+		Tags   []string  `json:"tags"`
+		ID     int       `json:"id"`
+		Score  float64   `json:"score"`
+		Name   string    `json:"name"`
+		Active bool      `json:"active"`
+	}
+	loc := time.FixedZone("UTC+8", 8*3600)
+	vals := make([]fastRec, 0, 12)
+	for i := 0; i < 12; i++ {
+		vals = append(vals, fastRec{
+			ID: i, Name: "<user&>" + string(rune('A'+i)), Active: i%2 == 0,
+			Score: float64(i) / 7, Tags: []string{"a<b", "中文", "😀"},
+			When: time.Date(2026, 10, 18, 12, 0, i, 123, loc),
+		})
+	}
+	vals = append(vals, fastRec{})
+	want, err := stdjson.Marshal(vals)
+	if err != nil {
+		t.Fatalf("stdlib marshal: %v | 标准库编码失败", err)
+	}
+	got, err := jsonx.Marshal(vals)
+	if err != nil {
+		t.Fatalf("jsonx marshal: %v | jsonx 编码失败", err)
+	}
+	if !bytes.Equal(got, want) {
+		t.Fatalf("fast slice mismatch\njsonx:  %s\nstdlib: %s", got, want)
+	}
+}
+
 // TestBackendNameIsKnown verifies that Backend() returns a known name matching the running architecture. | TestBackendNameIsKnown 验证 Backend() 返回已知名称且与运行架构相符。
 func TestBackendNameIsKnown(t *testing.T) {
 	name := jsonx.Backend()

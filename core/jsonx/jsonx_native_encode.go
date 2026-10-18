@@ -354,14 +354,23 @@ func buildSliceEncoder(t reflect.Type) encodeFunc {
 			n := v.Len()
 			if n > 0 {
 				base := unsafe.Pointer(v.Pointer())
-				size := sf.size
-				for i := 0; i < n; i++ {
-					if i > 0 {
-						e.buf = append(e.buf, ',')
-					}
-					if err := sf.enc(e, unsafe.Add(base, uintptr(i)*size)); err != nil {
+				if sf.encSlice != nil {
+					buf, err := sf.encSlice(e, e.buf, base, n)
+					if err != nil {
 						e.leave()
 						return err
+					}
+					e.buf = buf
+				} else {
+					size := sf.size
+					for i := 0; i < n; i++ {
+						if i > 0 {
+							e.buf = append(e.buf, ',')
+						}
+						if err := sf.enc(e, unsafe.Add(base, uintptr(i)*size)); err != nil {
+							e.leave()
+							return err
+						}
 					}
 				}
 			}
@@ -477,8 +486,9 @@ func buildMapEncoder(t reflect.Type) encodeFunc {
 // fastStructInfo describes a struct whose every field has a direct-memory encoder.
 // fastStructInfo 描述所有字段都可直接按内存编码的结构体。
 type fastStructInfo struct {
-	enc  func(*encoder, unsafe.Pointer) error
-	size uintptr
+	enc      func(*encoder, unsafe.Pointer) error
+	encSlice func(*encoder, []byte, unsafe.Pointer, int) ([]byte, error)
+	size     uintptr
 }
 
 var fastStructCache sync.Map
@@ -682,8 +692,100 @@ func buildStructEncoder(t reflect.Type) encodeFunc {
 		e.buf = append(e.buf, '}')
 		return nil
 	}
+	// encSlice encodes a whole []T in one pass with a local buffer. Writing back
+	// e.buf once per slice instead of once per append removes the write barriers
+	// that dominate multi-core Marshal profiles. | encSlice 用局部缓冲一次编码整个
+	// []T：每个切片只回写一次 e.buf，而不是每次 append 都回写，从而消除多核 Marshal
+	// 剖析中的主要写屏障。
+	var encSlice func(*encoder, []byte, unsafe.Pointer, int) ([]byte, error)
 	if allFast {
-		fastStructCache.Store(t, &fastStructInfo{enc: fastEnc, size: t.Size()})
+		size := t.Size()
+		encSlice = func(e *encoder, buf []byte, base unsafe.Pointer, n int) ([]byte, error) {
+			for i := 0; i < n; i++ {
+				if i > 0 {
+					buf = append(buf, ',')
+				}
+				buf = append(buf, '{')
+				elem := unsafe.Add(base, uintptr(i)*size)
+				for j := range list {
+					f := &list[j]
+					p := unsafe.Add(elem, f.offset)
+					if f.keyFixed && cap(buf)-len(buf) >= len(f.keyPad) {
+						dst := unsafe.Add(unsafe.Pointer(unsafe.SliceData(buf)), len(buf))
+						*(*[16]byte)(dst) = f.keyPad
+						buf = buf[:len(buf)+len(f.fastKey)]
+					} else {
+						buf = append(buf, f.fastKey...)
+					}
+					switch f.kind {
+					case fieldKindString:
+						buf = appendJSONString(buf, *(*string)(p), e.escapeHTML)
+					case fieldKindBool:
+						buf = strconv.AppendBool(buf, *(*bool)(p))
+					case fieldKindInt:
+						buf = appendIntFast(buf, int64(*(*int)(p)))
+					case fieldKindInt8:
+						buf = appendIntFast(buf, int64(*(*int8)(p)))
+					case fieldKindInt16:
+						buf = appendIntFast(buf, int64(*(*int16)(p)))
+					case fieldKindInt32:
+						buf = appendIntFast(buf, int64(*(*int32)(p)))
+					case fieldKindInt64:
+						buf = appendIntFast(buf, *(*int64)(p))
+					case fieldKindUint:
+						buf = appendUintFast(buf, uint64(*(*uint)(p)))
+					case fieldKindUint8:
+						buf = appendUintFast(buf, uint64(*(*uint8)(p)))
+					case fieldKindUint16:
+						buf = appendUintFast(buf, uint64(*(*uint16)(p)))
+					case fieldKindUint32:
+						buf = appendUintFast(buf, uint64(*(*uint32)(p)))
+					case fieldKindUint64:
+						buf = appendUintFast(buf, *(*uint64)(p))
+					case fieldKindUintptr:
+						buf = appendUintFast(buf, uint64(*(*uintptr)(p)))
+					case fieldKindFloat32:
+						var err error
+						buf, err = appendFloat(buf, float64(*(*float32)(p)), 32)
+						if err != nil {
+							return nil, err
+						}
+					case fieldKindFloat64:
+						var err error
+						buf, err = appendFloat(buf, *(*float64)(p), 64)
+						if err != nil {
+							return nil, err
+						}
+					default:
+						switch f.typ {
+						case timeType:
+							var err error
+							buf, err = appendTimeValue(buf, e, (*time.Time)(p))
+							if err != nil {
+								return nil, err
+							}
+						case stringSliceType:
+							buf = appendStringSlice(buf, *(*[]string)(p), e.escapeHTML)
+						default:
+							if f.fast == nil {
+								return nil, errUnsupported
+							}
+							e.buf = buf
+							err := f.fast(e, p)
+							buf = e.buf
+							if err != nil {
+								return nil, err
+							}
+						}
+					}
+				}
+				buf = append(buf, '}')
+			}
+			return buf, nil
+		}
+	}
+	if allFast {
+		fastStructCache.Store(t, &fastStructInfo{enc: fastEnc, encSlice: encSlice, size: t.Size()})
 	}
 	return func(e *encoder, v reflect.Value) error {
 		if allFast && v.CanAddr() {

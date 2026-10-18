@@ -455,7 +455,7 @@ func fastDecodeStringSlice(d *decoder, p unsafe.Pointer) error {
 		*sp = []string{}
 		return nil
 	}
-	*sp = make([]string, 0, 4)
+	*sp = make([]string, 0, 3)
 	i := 0
 	for {
 		if i >= len(*sp) {
