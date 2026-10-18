@@ -34,7 +34,22 @@ type encoder struct {
 	buf        []byte
 	timeCache  [4]timeCacheEntry
 	escapeHTML bool
+	depth      int
 }
+
+// enter marks entry into one value level and enforces the encoder nesting limit. | enter 标记进入一层值并
+// 执行编码嵌套上限校验。
+func (e *encoder) enter() error {
+	e.depth++
+	if e.depth > maxNestingDepth {
+		e.depth--
+		return errx.Detail(errUnsupported, "exceeded max depth of %d | 嵌套深度超过上限 %d", maxNestingDepth, maxNestingDepth)
+	}
+	return nil
+}
+
+// leave marks exit from one value level. | leave 标记退出一层值。
+func (e *encoder) leave() { e.depth-- }
 
 func syntaxErr(format string, args ...any) error {
 	return errx.Detail(ErrSyntax, format, args...)
@@ -68,7 +83,12 @@ func (e *encoder) value(v reflect.Value) error {
 		e.buf = append(e.buf, "null"...)
 		return nil
 	}
-	return encoderFor(v.Type())(e, v)
+	if err := e.enter(); err != nil {
+		return err
+	}
+	err := encoderFor(v.Type())(e, v)
+	e.leave()
+	return err
 }
 
 func encodeNull(e *encoder) {
@@ -243,6 +263,9 @@ func buildSliceEncoder(t reflect.Type) encodeFunc {
 			encodeNull(e)
 			return nil
 		}
+		if err := e.enter(); err != nil {
+			return err
+		}
 		e.buf = append(e.buf, '[')
 		if sf := fast(); sf.enc != nil {
 			n := v.Len()
@@ -254,11 +277,13 @@ func buildSliceEncoder(t reflect.Type) encodeFunc {
 						e.buf = append(e.buf, ',')
 					}
 					if err := sf.enc(e, unsafe.Add(base, uintptr(i)*size)); err != nil {
+						e.leave()
 						return err
 					}
 				}
 			}
 			e.buf = append(e.buf, ']')
+			e.leave()
 			return nil
 		}
 		enc := elem()
@@ -267,10 +292,12 @@ func buildSliceEncoder(t reflect.Type) encodeFunc {
 				e.buf = append(e.buf, ',')
 			}
 			if err := enc(e, v.Index(i)); err != nil {
+				e.leave()
 				return err
 			}
 		}
 		e.buf = append(e.buf, ']')
+		e.leave()
 		return nil
 	}
 }
@@ -278,6 +305,9 @@ func buildSliceEncoder(t reflect.Type) encodeFunc {
 func buildArrayEncoder(t reflect.Type) encodeFunc {
 	elem := lazyEncoder(t.Elem())
 	return func(e *encoder, v reflect.Value) error {
+		if err := e.enter(); err != nil {
+			return err
+		}
 		enc := elem()
 		e.buf = append(e.buf, '[')
 		for i := 0; i < v.Len(); i++ {
@@ -285,10 +315,12 @@ func buildArrayEncoder(t reflect.Type) encodeFunc {
 				e.buf = append(e.buf, ',')
 			}
 			if err := enc(e, v.Index(i)); err != nil {
+				e.leave()
 				return err
 			}
 		}
 		e.buf = append(e.buf, ']')
+		e.leave()
 		return nil
 	}
 }
@@ -328,6 +360,10 @@ func buildMapEncoder(t reflect.Type) encodeFunc {
 			encodeNull(e)
 			return nil
 		}
+		if err := e.enter(); err != nil {
+			return err
+		}
+		defer e.leave()
 		enc := elem()
 		entries := make([]kv, 0, v.Len())
 		iter := v.MapRange()
@@ -472,14 +508,15 @@ func buildStructEncoder(t reflect.Type) encodeFunc {
 		e.buf = append(e.buf, '{')
 		for i := range list {
 			f := &list[i]
+			p := unsafe.Add(base, f.offset)
 			if f.full != nil {
-				if err := f.full(e, unsafe.Add(base, f.offset)); err != nil {
+				if err := f.full(e, p); err != nil {
 					return err
 				}
 				continue
 			}
 			e.buf = append(e.buf, f.fastKey...)
-			if err := f.fast(e, unsafe.Add(base, f.offset)); err != nil {
+			if err := f.fast(e, p); err != nil {
 				return err
 			}
 		}

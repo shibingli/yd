@@ -199,13 +199,79 @@ func (e *encoder) marshaler(m stdjson.Marshaler) error {
 	if err != nil {
 		return err
 	}
-	e.buf = append(e.buf, b...)
-	return nil
+	var cerr error
+	e.buf, cerr = appendCompactJSON(e.buf, b, e.escapeHTML)
+	return cerr
+}
+
+// appendCompactJSON appends src after removing insignificant whitespace, validating the value and
+// applying the same HTML / line-separator escaping as encoding/json does for Marshaler output.
+// | appendCompactJSON 去除无意义空白后追加 src，同时校验值的合法性，并按 encoding/json 对
+// Marshaler 输出的口径做 HTML 与行分隔符转义。
+func appendCompactJSON(dst, src []byte, escapeHTML bool) ([]byte, error) {
+	if !Valid(src) {
+		return dst, syntaxErr("invalid JSON returned by Marshaler | Marshaler 返回了非法 JSON")
+	}
+	inString := false
+	for i := 0; i < len(src); i++ {
+		c := src[i]
+		if inString {
+			switch {
+			case c == '"':
+				inString = false
+				dst = append(dst, c)
+			case c == '\\':
+				dst = append(dst, c)
+				i++
+				if i < len(src) {
+					dst = append(dst, src[i])
+				}
+			case escapeHTML && (c == '<' || c == '>' || c == '&'):
+				dst = append(dst, '\\', 'u', '0', '0', hexDigit(c>>4), hexDigit(c))
+			case escapeHTML && c == 0xE2 && i+2 < len(src) && src[i+1] == 0x80 && src[i+2]&^1 == 0xA8:
+				dst = append(dst, '\\', 'u', '2', '0', '2', hexDigit(src[i+2]&0xF))
+				i += 2
+			default:
+				dst = append(dst, c)
+			}
+			continue
+		}
+		switch c {
+		case ' ', '\t', '\n', '\r':
+			continue
+		case '"':
+			inString = true
+		}
+		dst = append(dst, c)
+	}
+	return dst, nil
 }
 
 func (e *encoder) float(f float64, bits int) error {
 	if math.IsNaN(f) || math.IsInf(f, 0) {
 		return errx.Detail(errUnsupported, "unsupported float value %v | 不支持的浮点值 %v", f, f)
+	}
+	// Integral values within the exact-integer range of the type print as plain decimal digits.
+	// The bound is 2^24 for float32 because above it the shortest round-trip decimal no longer
+	// equals the exact integer value (e.g. float32 1e15 prints as 1000000000000000, while its
+	// exact value is 999999986991104). | 类型精确整数范围内的整值输出为十进制数字；float32 的
+	// 边界取 2^24，因为超过后最短往返十进制不再等于精确整数值（例如 float32 1e15 输出
+	// 1000000000000000，而精确值为 999999986991104）。
+	limit := float64(1 << 53)
+	if bits == 32 {
+		limit = 1 << 24
+	}
+	if f == math.Trunc(f) && f >= -limit && f <= limit {
+		if f == 0 {
+			if math.Signbit(f) {
+				e.buf = append(e.buf, '-', '0')
+			} else {
+				e.buf = append(e.buf, '0')
+			}
+			return nil
+		}
+		e.buf = appendIntFast(e.buf, int64(f))
+		return nil
 	}
 	fmt := byte('f')
 	if abs := math.Abs(f); abs != 0 && (abs < 1e-6 || abs >= 1e21) {
@@ -301,6 +367,10 @@ slow:
 			e.buf = append(e.buf, '\\', '"')
 		case '\\':
 			e.buf = append(e.buf, '\\', '\\')
+		case '\b':
+			e.buf = append(e.buf, '\\', 'b')
+		case '\f':
+			e.buf = append(e.buf, '\\', 'f')
 		case '\n':
 			e.buf = append(e.buf, '\\', 'n')
 		case '\r':

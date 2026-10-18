@@ -44,6 +44,10 @@ func (d *decoder) valueAny() (any, error) {
 }
 
 func (d *decoder) anyObject() (any, error) {
+	if err := d.enter(); err != nil {
+		return nil, err
+	}
+	defer d.leave()
 	d.pos++
 	out := make(map[string]any)
 	d.skipSpace()
@@ -87,6 +91,10 @@ func (d *decoder) anyObject() (any, error) {
 }
 
 func (d *decoder) anyArray() (any, error) {
+	if err := d.enter(); err != nil {
+		return nil, err
+	}
+	defer d.leave()
 	d.pos++
 	out := make([]any, 0)
 	d.skipSpace()
@@ -138,20 +146,24 @@ func (d *decoder) parseBool() (bool, error) {
 }
 
 // scanStringBody finds the closing quote of a string body. It returns slow=true when an escape,
-// control byte, or missing terminator requires the general parser. | scanStringBody 查找字符串体的
-// 结束引号；遇到转义、控制字节或缺少终止符时返回 slow=true，交给通用解析器。
-func scanStringBody(data []byte, start int) (end int, slow bool) {
+// control byte, or missing terminator requires the general parser, and nonASCII=true when the body
+// contains a byte >= 0x80 that still needs UTF-8 validation. | scanStringBody 查找字符串体的结束引号；
+// 遇到转义、控制字节或缺少终止符时返回 slow=true；字符串体含有 >= 0x80 的字节、仍需校验 UTF-8 时
+// 返回 nonASCII=true。
+func scanStringBody(data []byte, start int) (end int, slow bool, nonASCII bool) {
 	i := start
+	var high uint64
 	for len(data)-i >= 8 {
 		x := binary.LittleEndian.Uint64(unsafe.Slice(unsafe.SliceData(data[i:]), 8))
+		high |= x
 		if wordHasZero(x^wordQuote) || wordHasZero(x^wordBackslash) || wordHasControl(x) {
 			for j := 0; j < 8; j++ {
 				c := data[i+j]
 				if c == '"' {
-					return i + j, false
+					return i + j, false, high&wordHi != 0
 				}
 				if c == '\\' || c < 0x20 {
-					return 0, true
+					return 0, true, false
 				}
 			}
 		}
@@ -159,14 +171,15 @@ func scanStringBody(data []byte, start int) (end int, slow bool) {
 	}
 	for len(data)-i >= 4 {
 		x := binary.LittleEndian.Uint32(unsafe.Slice(unsafe.SliceData(data[i:]), 4))
+		high |= uint64(x)
 		if wordHasZero32(x^wordQuote32) || wordHasZero32(x^wordBackslash32) || wordHasControl32(x) {
 			for j := 0; j < 4; j++ {
 				c := data[i+j]
 				if c == '"' {
-					return i + j, false
+					return i + j, false, high&wordHi != 0
 				}
 				if c == '\\' || c < 0x20 {
-					return 0, true
+					return 0, true, false
 				}
 			}
 		}
@@ -175,13 +188,14 @@ func scanStringBody(data []byte, start int) (end int, slow bool) {
 	for ; i < len(data); i++ {
 		c := data[i]
 		if c == '"' {
-			return i, false
+			return i, false, high&wordHi != 0
 		}
 		if c == '\\' || c < 0x20 {
-			return 0, true
+			return 0, true, false
 		}
+		high |= uint64(c)
 	}
-	return 0, true
+	return 0, true, false
 }
 
 func (d *decoder) parseString() (string, error) {
@@ -189,7 +203,7 @@ func (d *decoder) parseString() (string, error) {
 		return "", syntaxErr("expected string | 期望字符串")
 	}
 	start := d.pos + 1
-	if end, slow := scanStringBody(d.data, start); !slow {
+	if end, slow, nonASCII := scanStringBody(d.data, start); !slow && (!nonASCII || utf8.Valid(d.data[start:end])) {
 		d.pos = end + 1
 		return d.copyString(d.data[start:end]), nil
 	}
@@ -254,38 +268,103 @@ func (d *decoder) parseKey() (string, error) {
 		return "", syntaxErr("expected string | 期望字符串")
 	}
 	start := d.pos + 1
-	if end, slow := scanStringBody(d.data, start); !slow {
+	if end, slow, _ := scanStringBody(d.data, start); !slow {
 		d.pos = end + 1
 		return unsafe.String(unsafe.SliceData(d.data[start:end]), end-start), nil
 	}
 	return d.parseString()
 }
 
+// skipString validates one string token without allocating or decoding it. | skipString 在不分配、
+// 不解码的前提下校验一个字符串 token。
+func (d *decoder) skipString() error {
+	if d.pos >= len(d.data) || d.data[d.pos] != '"' {
+		return syntaxErr("expected string | 期望字符串")
+	}
+	i := d.pos + 1
+	for i < len(d.data) {
+		c := d.data[i]
+		switch {
+		case c == '"':
+			d.pos = i + 1
+			return nil
+		case c == '\\':
+			i++
+			if i >= len(d.data) {
+				return syntaxErr("unfinished escape sequence | 未完成的转义序列")
+			}
+			switch d.data[i] {
+			case '"', '\\', '/', 'b', 'f', 'n', 'r', 't':
+			case 'u':
+				if i+4 >= len(d.data) {
+					return syntaxErr("unfinished unicode escape | 未完成的 Unicode 转义")
+				}
+				if _, ok := parseHex4(d.data[i+1 : i+5]); !ok {
+					return syntaxErr("invalid unicode escape | 非法 Unicode 转义")
+				}
+				i += 4
+			default:
+				return syntaxErr("invalid escape character %q | 非法转义字符 %q", d.data[i], d.data[i])
+			}
+			i++
+		case c < 0x20:
+			return syntaxErr("invalid control character in string | 字符串中包含非法控制字符")
+		default:
+			i++
+		}
+	}
+	return syntaxErr("unexpected end of string | 字符串意外结束")
+}
+
+// parseHex4 decodes exactly four hexadecimal digits. | parseHex4 解码恰好四位十六进制数字。
+func parseHex4(b []byte) (rune, bool) {
+	if len(b) < 4 {
+		return 0, false
+	}
+	var v rune
+	for i := 0; i < 4; i++ {
+		c := b[i]
+		var digit rune
+		switch {
+		case c >= '0' && c <= '9':
+			digit = rune(c - '0')
+		case c >= 'a' && c <= 'f':
+			digit = rune(c-'a') + 10
+		case c >= 'A' && c <= 'F':
+			digit = rune(c-'A') + 10
+		default:
+			return 0, false
+		}
+		v = v<<4 | digit
+	}
+	return v, true
+}
+
 func (d *decoder) parseUnicodeEscape() (rune, error) {
 	if d.pos+4 > len(d.data) {
 		return 0, syntaxErr("unfinished unicode escape | 未完成的 Unicode 转义")
 	}
-	v, err := strconv.ParseUint(string(d.data[d.pos:d.pos+4]), 16, 32)
-	if err != nil {
+	v, ok := parseHex4(d.data[d.pos : d.pos+4])
+	if !ok {
 		return 0, syntaxErr("invalid unicode escape | 非法 Unicode 转义")
 	}
 	d.pos += 4
-	r := rune(v)
-	if r >= 0xD800 && r < 0xDC00 {
-		if d.pos+6 > len(d.data) || d.data[d.pos] != '\\' || d.data[d.pos+1] != 'u' {
-			return '�', nil
+	r := v
+	if r >= 0xD800 && r <= 0xDBFF {
+		// A following low surrogate is consumed only when it forms a valid pair; otherwise it is
+		// left for the next iteration so each invalid surrogate yields its own replacement rune,
+		// exactly like encoding/json. | 仅当后续低代理项构成合法对时才消费；否则留给下一轮，
+		// 使每个非法代理项各自产生一个替换符，与 encoding/json 完全一致。
+		if d.pos+6 <= len(d.data) && d.data[d.pos] == '\\' && d.data[d.pos+1] == 'u' {
+			if v2, ok2 := parseHex4(d.data[d.pos+2 : d.pos+6]); ok2 {
+				r2 := v2
+				if r2 >= 0xDC00 && r2 <= 0xDFFF {
+					d.pos += 6
+					return (r-0xD800)<<10 + (r2 - 0xDC00) + 0x10000, nil
+				}
+			}
 		}
-		d.pos += 2
-		v2, err := strconv.ParseUint(string(d.data[d.pos:d.pos+4]), 16, 32)
-		if err != nil {
-			return 0, syntaxErr("invalid unicode escape | 非法 Unicode 转义")
-		}
-		d.pos += 4
-		r2 := rune(v2)
-		if r2 < 0xDC00 || r2 > 0xDFFF {
-			return '�', nil
-		}
-		return (r-0xD800)<<10 + (r2 - 0xDC00) + 0x10000, nil
+		return '�', nil
 	}
 	if r >= 0xDC00 && r <= 0xDFFF {
 		return '�', nil
@@ -386,9 +465,12 @@ func (d *decoder) skipValue() error {
 	case 'f':
 		return d.literal("false")
 	case '"':
-		_, err := d.parseString()
-		return err
+		return d.skipString()
 	case '{':
+		if err := d.enter(); err != nil {
+			return err
+		}
+		defer d.leave()
 		d.pos++
 		d.skipSpace()
 		if d.pos < len(d.data) && d.data[d.pos] == '}' {
@@ -397,7 +479,7 @@ func (d *decoder) skipValue() error {
 		}
 		for {
 			d.skipSpace()
-			if _, err := d.parseString(); err != nil {
+			if err := d.skipString(); err != nil {
 				return err
 			}
 			d.skipSpace()
@@ -423,6 +505,10 @@ func (d *decoder) skipValue() error {
 			return syntaxErr("expected ',' or '}' | 期望 ',' 或 '}'")
 		}
 	case '[':
+		if err := d.enter(); err != nil {
+			return err
+		}
+		defer d.leave()
 		d.pos++
 		d.skipSpace()
 		if d.pos < len(d.data) && d.data[d.pos] == ']' {

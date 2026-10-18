@@ -17,16 +17,33 @@ import (
 	"github.com/shibingli/yd/core/errx"
 )
 
+// maxNestingDepth aligns with encoding/json's scanner limit. | maxNestingDepth 与 encoding/json 的扫描器上限一致。
+const maxNestingDepth = 10000
+
 type decoder struct {
 	data      []byte
 	arena     []byte
 	timeVal   time.Time
 	timeRaw   [40]byte
 	pos       int
+	depth     int
 	timeLen   uint8
 	useNumber bool
 	skipLen   bool
 }
+
+// enter marks entry into one container and enforces the nesting limit. | enter 标记进入一层容器并执行嵌套上限校验。
+func (d *decoder) enter() error {
+	d.depth++
+	if d.depth > maxNestingDepth {
+		d.depth--
+		return errx.Detail(ErrSyntax, "exceeded max depth of %d | 嵌套深度超过上限 %d", maxNestingDepth, maxNestingDepth)
+	}
+	return nil
+}
+
+// leave marks exit from one container. | leave 标记退出一层容器。
+func (d *decoder) leave() { d.depth-- }
 
 // copyString copies b into the decoder's string arena and returns a string over it. Strings keep
 // the arena alive through interior pointers, so the result stays valid after Unmarshal returns and
@@ -37,9 +54,14 @@ func (d *decoder) copyString(b []byte) string {
 		return ""
 	}
 	if d.arena == nil {
-		hint := len(d.data) / 4
-		if hint < 256 {
-			hint = 256
+		// Decoded strings are a fraction of the input (keys are not copied and structural bytes
+		// take space), so a third of the input is a good first guess; too small a hint forces one
+		// growth that keeps the old array alive through the returned strings. | 解码出的字符串
+		// 只占输入的一部分（键不复制、结构字节也占空间），取输入的三分之一作为初始估算；估算过小
+		// 会触发一次扩容，而旧数组会被返回的字符串继续引用。
+		hint := len(d.data) / 3
+		if hint < 64 {
+			hint = 64
 		}
 		if hint > 1<<20 {
 			hint = 1 << 20
@@ -51,13 +73,28 @@ func (d *decoder) copyString(b []byte) string {
 	return unsafe.String(unsafe.SliceData(d.arena[start:]), len(b))
 }
 
+// decoderPool reuses decoder state across Unmarshal calls. The string arena is deliberately
+// dropped on release: returned strings point into it, so it must never be reused. | decoderPool
+// 在多次 Unmarshal 调用间复用解码器状态；字符串 arena 在归还时刻意丢弃，因为返回的字符串
+// 指向它，绝不能复用。
+var decoderPool = sync.Pool{New: func() any { return new(decoder) }}
+
 // Unmarshal parses data and stores the result in the value pointed to by v. | Unmarshal 解析 data 并写入 v 指向的值。
 func Unmarshal(data []byte, v any) error {
 	rv := reflect.ValueOf(v)
 	if rv.Kind() != reflect.Pointer || rv.IsNil() {
 		return errx.Detail(ErrTypeMismatch, "jsonx: Unmarshal target must be a non-nil pointer | jsonx：Unmarshal 目标必须是非 nil 指针")
 	}
-	d := &decoder{data: data}
+	d := decoderPool.Get().(*decoder)
+	*d = decoder{data: data}
+	err := d.unmarshal(rv)
+	*d = decoder{}
+	decoderPool.Put(d)
+	return err
+}
+
+// unmarshal decodes one top-level value into rv. | unmarshal 把一个顶层值解码进 rv。
+func (d *decoder) unmarshal(rv reflect.Value) error {
 	d.skipSpace()
 	if d.pos >= len(d.data) {
 		return syntaxErr("unexpected end of JSON input | JSON 输入意外结束")
@@ -309,6 +346,7 @@ func buildStructDecoder(t reflect.Type) decodeFunc {
 		var byFirst [256][]int
 		keyBytes := make([][]byte, len(names))
 		keyWords := make([]uint64, len(names))
+		keyTails := make([]uint64, len(names))
 		keyMasks := make([]uint64, len(names))
 		keyLens := make([]int, len(names))
 		for i, name := range names {
@@ -316,18 +354,23 @@ func buildStructDecoder(t reflect.Type) decodeFunc {
 			kb = append(kb, name...)
 			kb = append(kb, '"', ':')
 			keyBytes[i] = kb
-			keyLens[i] = len(kb)
-			if len(kb) <= 8 {
+			l := len(kb)
+			keyLens[i] = l
+			// Keys up to eight bytes are compared with one masked word. Longer keys use the first
+			// and last eight bytes, which avoids a memequal call for the common 9-16 byte names. |
+			// 不超过八字节的键用一次掩码比较；更长的键比较首尾两个八字，避免为常见的 9-16 字节
+			// 字段名走 memequal。
+			if l >= 8 {
+				keyWords[i] = binary.LittleEndian.Uint64(kb)
+				keyTails[i] = binary.LittleEndian.Uint64(kb[l-8:])
+				keyMasks[i] = ^uint64(0)
+			} else {
 				var w uint64
-				for j := 0; j < len(kb); j++ {
+				for j := 0; j < l; j++ {
 					w |= uint64(kb[j]) << (8 * j)
 				}
 				keyWords[i] = w
-				if len(kb) == 8 {
-					keyMasks[i] = ^uint64(0)
-				} else {
-					keyMasks[i] = uint64(1)<<(8*len(kb)) - 1
-				}
+				keyMasks[i] = uint64(1)<<(8*l) - 1
 			}
 			if l := len(name); l < len(byLen) {
 				byLen[l] = append(byLen[l], i)
@@ -343,9 +386,18 @@ func buildStructDecoder(t reflect.Type) decodeFunc {
 			rem := d.data[d.pos+1:]
 			for _, i := range byFirst[d.data[d.pos+1]] {
 				l := keyLens[i]
-				if l <= 8 && len(rem) >= 8 {
-					x := binary.LittleEndian.Uint64(unsafe.Slice(unsafe.SliceData(rem), 8)) ^ keyWords[i]
-					if x&keyMasks[i] == 0 {
+				if l <= 8 {
+					if len(rem) >= 8 {
+						x := binary.LittleEndian.Uint64(unsafe.Slice(unsafe.SliceData(rem), 8)) ^ keyWords[i]
+						if x&keyMasks[i] == 0 {
+							d.pos += 1 + l
+							return fields[i], true
+						}
+						continue
+					}
+				} else if len(rem) >= l {
+					if binary.LittleEndian.Uint64(unsafe.Slice(unsafe.SliceData(rem), 8)) == keyWords[i] &&
+						binary.LittleEndian.Uint64(unsafe.Slice(unsafe.SliceData(rem[l-8:]), 8)) == keyTails[i] {
 						d.pos += 1 + l
 						return fields[i], true
 					}
@@ -402,6 +454,10 @@ func buildStructDecoder(t reflect.Type) decodeFunc {
 		if d.data[d.pos] == 'n' {
 			return d.literal("null")
 		}
+		if err := d.enter(); err != nil {
+			return err
+		}
+		defer d.leave()
 		if d.data[d.pos] != '{' {
 			return typeErr("cannot unmarshal non-object into %s | 无法把非对象解析进 %s", t, t)
 		}

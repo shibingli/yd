@@ -155,6 +155,10 @@ func buildSliceDecoder(t reflect.Type) decodeFunc {
 			v.SetZero()
 			return nil
 		}
+		if err := d.enter(); err != nil {
+			return err
+		}
+		defer d.leave()
 		if d.data[d.pos] != '[' {
 			return typeErr("cannot unmarshal non-array into %s | 无法把非数组解析进 %s", t, t)
 		}
@@ -240,6 +244,10 @@ func buildArrayDecoder(t reflect.Type) decodeFunc {
 		if d.data[d.pos] == 'n' {
 			return d.literal("null")
 		}
+		if err := d.enter(); err != nil {
+			return err
+		}
+		defer d.leave()
 		if d.data[d.pos] != '[' {
 			return typeErr("cannot unmarshal non-array into %s | 无法把非数组解析进 %s", t, t)
 		}
@@ -297,6 +305,10 @@ func buildMapDecoder(t reflect.Type) decodeFunc {
 			v.SetZero()
 			return nil
 		}
+		if err := d.enter(); err != nil {
+			return err
+		}
+		defer d.leave()
 		if d.data[d.pos] != '{' {
 			return typeErr("cannot unmarshal non-object into %s | 无法把非对象解析进 %s", t, t)
 		}

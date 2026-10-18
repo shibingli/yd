@@ -35,10 +35,17 @@ var encoderPool = sync.Pool{
 
 const encoderPoolMax = 1 << 20
 
+// directAllocThreshold is the estimated size above which Marshal allocates the output directly
+// instead of encoding into the pooled buffer and copying out. Below it the copy is cheaper than a
+// fresh allocation, so the pooled path wins. | directAllocThreshold 是 Marshal 直接在估算体积上
+// 分配输出缓冲、而非先写入池化缓冲再复制的最小估算体积；更小的载荷复制比新分配更便宜。
+const directAllocThreshold = 512
+
 func getEncoder(escapeHTML bool) *encoder {
 	e := encoderPool.Get().(*encoder)
 	e.buf = e.buf[:0]
 	e.escapeHTML = escapeHTML
+	e.depth = 0
 	return e
 }
 
@@ -52,17 +59,31 @@ func putEncoder(e *encoder) {
 // Marshal returns the JSON encoding of v. | Marshal 返回 v 的 JSON 编码。
 func Marshal(v any) ([]byte, error) {
 	rv := reflect.ValueOf(v)
-	if rv.Kind() == reflect.Slice && rv.Len() >= 8 {
-		if est := estimateValueSize(rv); est >= 1024 {
+	if rv.IsValid() && rv.Kind() == reflect.Slice && rv.Len() >= 8 {
+		// For multi-element slices the type/shape estimate is reliable enough to allocate the
+		// output directly, so no final copy and no repeated growth are needed. Small payloads use
+		// the pooled buffer because the copy is cheaper than a fresh allocation, and maps are
+		// excluded because their encoded size depends on content the estimate cannot see. |
+		// 多元素切片按类型/形状估算直接分配输出缓冲，省去尾部整块复制与多次扩容；小载荷仍走
+		// 池化缓冲（复制比新分配便宜），map 的编码体积取决于估算看不到的内容，因此也走池化路径。
+		if est := estimateValueSize(rv); est >= directAllocThreshold {
 			const maxHint = 4 << 20
 			if est > maxHint {
 				est = maxHint
 			}
-			e := &encoder{buf: make([]byte, 0, est), escapeHTML: true}
+			est += est/16 + 512
+			e := getEncoder(true)
+			pooled := e.buf
+			e.buf = make([]byte, 0, est)
 			if err := e.value(rv); err != nil {
+				e.buf = pooled[:0]
+				putEncoder(e)
 				return nil, err
 			}
-			return e.buf, nil
+			out := e.buf
+			e.buf = pooled[:0]
+			putEncoder(e)
+			return out, nil
 		}
 	}
 	e := getEncoder(true)
