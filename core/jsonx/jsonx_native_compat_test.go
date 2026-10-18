@@ -37,6 +37,20 @@ type nativeOuter struct {
 	Empty string             `json:"empty"`
 }
 
+// nativeWide has more than eight fields, selecting the map-based field lookup path. | nativeWide
+// 的字段数超过八个，用于覆盖基于映射的字段查找路径。
+type nativeWide struct {
+	S int
+	A int
+	B int
+	C int
+	D int
+	E int
+	F int
+	G int
+	H int
+}
+
 // nativeUpper is a custom (Un)Marshaler that upper-cases on encode and lower-cases on decode. | nativeUpper
 // 是自定义 (Un)Marshaler：编码转大写、解码转小写。
 type nativeUpper struct {
@@ -109,6 +123,9 @@ func nativeDecodeCases() []nativeDecodeCase {
 	return []nativeDecodeCase{
 		{name: "rich_object", doc: outer, newTarget: ptrTarget},
 		{name: "case_insensitive_keys", doc: `{"ID":7,"INNER":{"NAME":"n","TAGS":["t"]},"Name":"a","NAME":"b"}`, newTarget: ptrTarget},
+		{name: "wide_struct_fold_ascii", doc: `{"s":6}`, newTarget: func() any { return &nativeWide{} }},
+		{name: "wide_struct_fold_unicode", doc: "{\"ſ\":5}", newTarget: func() any { return &nativeWide{} }},
+		{name: "wide_struct_exact_wins", doc: `{"S":1,"s":2}`, newTarget: func() any { return &nativeWide{} }},
 		{name: "duplicate_keys_last_wins", doc: `{"id":1,"id":2,"id":-3}`, newTarget: ptrTarget},
 		{name: "escaped_keys", doc: `{"id":9,"name":"esc"}`, newTarget: ptrTarget},
 		{name: "nulls", doc: `{"any":null,"raw":null,"ptr":null,"list":null,"blob":null,"inner":null,"name":null}`, newTarget: ptrTarget},

@@ -434,20 +434,24 @@ func buildStructDecoder(t reflect.Type) decodeFunc {
 		}
 	} else {
 		byName := make(map[string]int, len(names))
-		byFold := make(map[string]int, len(names))
 		for i, name := range names {
 			byName[name] = i
-			byFold[strings.ToLower(name)] = i
 		}
+		// Exact matches use the map; case-insensitive matches must use strings.EqualFold rather
+		// than a lower-cased map, because Unicode simple folding (e.g. 'ſ' and 's') is not the
+		// same relation as ToLower equality. | 精确匹配走映射；大小写不敏感匹配必须使用
+		// strings.EqualFold，而不能用转小写映射——Unicode 简单折叠（如 'ſ' 与 's'）与
+		// ToLower 相等的语义并不相同。
 		lookup = func(key string) (*decField, bool) {
-			i, ok := byName[key]
-			if !ok {
-				i, ok = byFold[strings.ToLower(key)]
+			if i, ok := byName[key]; ok {
+				return fields[i], true
 			}
-			if !ok {
-				return nil, false
+			for i := range names {
+				if strings.EqualFold(key, names[i]) {
+					return fields[i], true
+				}
 			}
-			return fields[i], true
+			return nil, false
 		}
 	}
 	return func(d *decoder, v reflect.Value) error {

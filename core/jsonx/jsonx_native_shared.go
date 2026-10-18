@@ -40,10 +40,12 @@ func cachedTraits(t reflect.Type) typeTraits {
 	return tr
 }
 
+// structInfo holds the flattened field list of one struct type. Name lookup is compiled per
+// decoder (exact map plus EqualFold scan), so no additional maps are kept here. | structInfo 保存
+// 一个结构体类型展平后的字段列表；字段名匹配由各解码器自行编译（精确映射加 EqualFold 扫描），
+// 因此这里不额外保存映射。
 type structInfo struct {
 	fields []fieldInfo
-	byName map[string]fieldInfo
-	byFold map[string]fieldInfo
 }
 
 var fieldCache sync.Map
@@ -52,12 +54,7 @@ func cachedStruct(t reflect.Type) *structInfo {
 	if v, ok := fieldCache.Load(t); ok {
 		return v.(*structInfo)
 	}
-	fields := collectFields(t, nil)
-	info := &structInfo{fields: fields, byName: make(map[string]fieldInfo, len(fields)), byFold: make(map[string]fieldInfo, len(fields))}
-	for _, f := range fields {
-		info.byName[f.name] = f
-		info.byFold[strings.ToLower(f.name)] = f
-	}
+	info := &structInfo{fields: collectFields(t, nil)}
 	fieldCache.Store(t, info)
 	return info
 }
