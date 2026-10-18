@@ -56,13 +56,12 @@ func selectKernels() {
 		simdEncode = encodeSIMD512VBMI
 		simdDecode = decodeSIMD512VBMI2
 	case avx512:
-		// The 512-bit LUT decoder is exposed through b64x_force_avx512 for cross-environment
-		// validation; until it is proven faster on Xeons without VBMI2, the default keeps the
-		// 512-bit encoder and the AVX2 decoder.
-		// | 512 位 LUT 解码器经 b64x_force_avx512 暴露用于跨环境验证；在无 VBMI2 的 Xeon 上
-		// 证明更快之前，默认仍保留 512 位编码与 AVX2 解码。
+		// Large inputs use the 512-bit LUT decoder on Xeons without VBMI2; small inputs stay
+		// on the AVX2 fused kernel, which wins at 32 B and 1 KiB.
+		// | 无 VBMI2 的 Xeon 上，大输入用 512 位 LUT 解码；小输入仍走 AVX2 融合内核，
+		// 它在 32 B 与 1 KiB 更快。
 		simdEncode = encodeSIMD512
-		simdDecode = decodeSIMD
+		simdDecode = decodeSIMD512
 	case archsimd.X86.AVX2():
 		simdEncode = encodeSIMD
 		simdDecode = decodeSIMD
@@ -565,6 +564,11 @@ func encodeSIMD512Blocks(dst, src []byte, url bool) (int, int) {
 	return i, o
 }
 
+// decodeLUTThreshold is the character count above which the 512-bit LUT decoder wins over
+// the AVX2 fused kernel on AVX-512 hosts without VBMI2. | decodeLUTThreshold 是无 VBMI2 的
+// AVX-512 主机上 512 位 LUT 解码开始快于 AVX2 融合内核的字符数阈值。
+const decodeLUTThreshold = 1 << 12
+
 // decodeSIMD512 decodes 64 characters per iteration with 512-bit nibble lookups. The
 // alphabet check reuses the same high-nibble vector as the value mapping, so input is read
 // once; a cross-lane VPERMD gathers the twelve valid dwords of the sixteen 24-bit groups,
@@ -574,7 +578,7 @@ func encodeSIMD512Blocks(dst, src []byte, url bool) (int, int) {
 // 跨通道 VPERMD 汇集十六个 24 位组中的十二个有效双字，两次精确存储即可写入 48 字节，
 // 不会写到解码长度之外。尾部交给 AVX2/128 位内核。
 func decodeSIMD512(dst, src []byte, url, raw bool) (int, int) {
-	if len(src) < 64 || len(dst) < 48 {
+	if len(src) < 64 || len(dst) < 48 || len(src) < decodeLUTThreshold {
 		return decodeSIMD(dst, src, url, raw)
 	}
 	loTable, hiTable, rollTable := &simdLoLUT, &simdHiLUT, &simdRollLUT
@@ -707,12 +711,10 @@ func encodeSIMD512VBMI(dst, src []byte, url, padded bool, pad byte) (int, int) {
 
 func decodeSIMD512VBMI2(dst, src []byte, url, raw bool) (int, int) {
 	if url {
-		// The AVX2 fused kernel is validated on every host and beats the old range-compare
-		// 512-bit decoder; URL input moves to the 512-bit LUT kernel once that kernel is
-		// validated on the remote Xeons.
-		// | AVX2 融合内核已在所有主机上验证，且快于旧的范围比较 512 位解码器；待 512 位
-		// LUT 内核在远程 Xeon 上验证后，URL 输入再切换到它。
-		return decodeSIMD(dst, src, true, raw)
+		// The size-adaptive decoder keeps small URL payloads on the AVX2 fused kernel and
+		// uses the validated 512-bit LUT kernel for large ones. | 尺寸自适应解码器让小 URL
+		// 载荷走 AVX2 融合内核，大载荷走已验证的 512 位 LUT 内核。
+		return decodeSIMD512(dst, src, true, raw)
 	}
 	if len(src) < 16 || len(dst) < 16 {
 		return 0, 0

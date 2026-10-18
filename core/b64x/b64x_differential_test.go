@@ -476,3 +476,33 @@ func TestRoundTripMixedContent(t *testing.T) {
 		})
 	}
 }
+
+// TestDifferentialLargeLengths cross-checks sizes around the 512-bit LUT threshold and
+// multi-block payloads against encoding/base64. The destination is exactly DecodedLen long,
+// so any write past it panics through the Go bounds checks.
+// | TestDifferentialLargeLengths 对 512 位 LUT 阈值附近及多块大载荷与 encoding/base64
+// 对拍。目标缓冲区长度恰为 DecodedLen，任何越界写都会被 Go 的边界检查捕获。
+func TestDifferentialLargeLengths(t *testing.T) {
+	for _, v := range codecVariants() {
+		v := v
+		t.Run(v.name, func(t *testing.T) {
+			for _, n := range []int{2047, 2048, 4095, 4096, 4097, 8191, 8192, 65536} {
+				src := edgeBytes(n)
+				encoded := v.enc.EncodeToString(src)
+				stdEncoded := v.std.EncodeToString(src)
+				if encoded != stdEncoded {
+					t.Fatalf("large-length encoding mismatch at n=%d | 大长度编码不一致: n=%d", n, n)
+				}
+				checkDecodeDifferential(t, v, []byte(encoded))
+				out := make([]byte, v.enc.DecodedLen(len(encoded)))
+				got, err := v.enc.Decode(out, []byte(encoded))
+				if err != nil {
+					t.Fatalf("large-length decode failed at n=%d | 大长度解码失败: n=%d: %v", n, n, err)
+				}
+				if got != n || !bytes.Equal(out[:got], src) {
+					t.Fatalf("large-length round-trip mismatch at n=%d | 大长度往返不一致: n=%d", n, n)
+				}
+			}
+		})
+	}
+}
