@@ -181,23 +181,71 @@ func appendComposite(dst, scratch []byte, v any, kind escKind) ([]byte, []byte) 
 	return appendCompositeString(dst, scratch, s, ct, kind)
 }
 
-// appendCompositeString applies a collapsed URL chain to a typed string. | appendCompositeString 对带类型的字符串应用折叠 URL 链。
+// appendCompositeString applies a collapsed URL chain to a typed string. | appendCompositeString
+// 对带类型的字符串应用折叠 URL 链。
+//
+// Normalization, percent-encoding and the attribute escape happen in one pass,
+// so the intermediate segment and the second scan disappear. | 规范化、百分号编码与
+// 属性转义在一次扫描中完成，因此不再产生中间片段与第二次扫描。
 func appendCompositeString(dst, scratch []byte, s string, ct contentType, kind escKind) ([]byte, []byte) {
+	return appendCompositeField(dst, s, ct, kind), scratch
+}
+
+// appendCompositeField applies a collapsed URL chain in one pass, without a
+// scratch buffer or a second function call. | appendCompositeField 用一遍扫描应用
+// 折叠 URL 链，不产生暂存缓冲，也不再经第二次函数调用。
+//
+// After normalization the only bytes that can still need an HTML replacement
+// are '&' and '+': every other special byte is outside the keep table and is
+// percent-encoded. The raw URL-part table keeps no HTML-special byte at all, so
+// that branch only percent-encodes. | 规范化之后仍可能需要 HTML 替换的字节只有
+// '&' 与 '+'：其余特殊字节都不在 keep 表内，会被百分号编码。原始 URL 部件表
+// 不保留任何 HTML 特殊字节，因此该分支只做百分号编码。
+func appendCompositeField(dst []byte, s string, ct contentType, kind escKind) []byte {
+	norm := true
 	switch kind {
 	case escURLAttr:
 		if ct != contentTypeURL && !isSafeURL(s) {
 			s = "#" + filterFailsafe
 		}
-		scratch = appendURLString(scratch[:0], s, true)
 	case escURLPartAttr:
-		scratch = appendURLString(scratch[:0], s, true)
 	case escURLQueryAttr:
-		scratch = appendURLString(scratch[:0], s, ct == contentTypeURL)
+		norm = ct == contentTypeURL
 	}
-	if !hasHTMLSpecialBytes(scratch) {
-		return append(dst, scratch...), scratch
+	written := 0
+	if norm {
+		for i := 0; i < len(s); i++ {
+			c := s[i]
+			code := urlNormCodes[c]
+			if code == urlCodeKeep {
+				continue
+			}
+			if code == urlCodePercent && i+2 < len(s) && isHex(s[i+1]) && isHex(s[i+2]) {
+				continue
+			}
+			dst = append(dst, s[written:i]...)
+			switch code {
+			case urlCodeAmp:
+				dst = append(dst, "&amp;"...)
+			case urlCodePlus:
+				dst = append(dst, "&#43;"...)
+			default:
+				dst = append(dst, '%', hexDigit(c>>4), hexDigit(c&0xf))
+			}
+			written = i + 1
+		}
+		return append(dst, s[written:]...)
 	}
-	return appendHTMLReplacerBytes(dst, scratch, htmlReplacementTable, true), scratch
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		if urlKeepRaw[c] {
+			continue
+		}
+		dst = append(dst, s[written:i]...)
+		dst = append(dst, '%', hexDigit(c>>4), hexDigit(c&0xf))
+		written = i + 1
+	}
+	return append(dst, s[written:]...)
 }
 
 // escapers maps the internal names found in escaped parse trees to kinds. | escapers 把已转义解析树中的内部名字映射为种类。
@@ -282,7 +330,7 @@ func appendEscapedString(dst []byte, s string, kind escKind) []byte {
 	case escComment:
 		return dst
 	case escHTML, escAttr, escRCDATA:
-		return appendHTMLReplacer(dst, s, htmlReplacementTable, true)
+		return appendHTMLText(dst, s, htmlModeText)
 	case escNoSpace:
 		return appendNoSpaceEscaped(dst, s, contentTypePlain)
 	case escURL:
@@ -330,15 +378,12 @@ func escapeStringSlow(s string, kind escKind) string {
 func appendEscapedBytes(dst, b []byte, kind escKind) []byte {
 	switch kind {
 	case escHTML, escAttr, escRCDATA:
-		if !hasHTMLSpecialBytes(b) {
-			return append(dst, b...)
-		}
-		return appendHTMLReplacerBytes(dst, b, htmlReplacementTable, true)
+		return appendHTMLTextBytes(dst, b, htmlModeText)
 	case escNoSpace:
-		if !hasHTMLSpecialBytes(b) {
-			return append(dst, b...)
+		if len(b) == 0 {
+			return append(dst, filterFailsafe...)
 		}
-		return appendHTMLReplacerBytes(dst, b, htmlNoSpaceReplacementTable, false)
+		return appendHTMLNoSpaceBytes(dst, b, htmlModeNoSpace)
 	case escURL:
 		return appendURLEscapedBytes(dst, b, false)
 	case escURLNormalizer:

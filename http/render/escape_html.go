@@ -13,84 +13,104 @@ import (
 	"unicode/utf8"
 )
 
-// htmlReplacementTable holds the runes escaped in text and quoted attribute
-// values. | htmlReplacementTable 保存文本与带引号属性值中需要转义的字符。
-var htmlReplacementTable = []string{
-	0:    "�",
-	'"':  "&#34;",
-	'&':  "&amp;",
-	'\'': "&#39;",
-	'+':  "&#43;",
-	'<':  "&lt;",
-	'>':  "&gt;",
+// htmlEscapeMode selects one of html/template's replacement tables. | htmlEscapeMode
+// 选择 html/template 的一张替换表。
+type htmlEscapeMode uint8
+
+const (
+	// htmlModeText escapes text and quoted attribute values. | htmlModeText 转义文本与带引号属性值。
+	htmlModeText htmlEscapeMode = iota
+	// htmlModeTextNorm is htmlModeText without '&'. | htmlModeTextNorm 是不转义 '&' 的 htmlModeText。
+	htmlModeTextNorm
+	// htmlModeNoSpace escapes unquoted attribute values. | htmlModeNoSpace 转义无引号属性值。
+	htmlModeNoSpace
+	// htmlModeNoSpaceNorm is htmlModeNoSpace without '&'. | htmlModeNoSpaceNorm 是不转义 '&' 的 htmlModeNoSpace。
+	htmlModeNoSpaceNorm
+	htmlModeCount
+)
+
+// Replacement codes shared by the mode tables. | 各模式表共用的替换码。
+const (
+	htmlCodeNUL = iota + 1
+	htmlCodeNULNoSpace
+	htmlCodeQuote
+	htmlCodeAmp
+	htmlCodeApos
+	htmlCodePlus
+	htmlCodeLT
+	htmlCodeGT
+	htmlCodeTab
+	htmlCodeLF
+	htmlCodeVT
+	htmlCodeFF
+	htmlCodeCR
+	htmlCodeSpace
+	htmlCodeEq
+	htmlCodeBacktick
+)
+
+// htmlEscapeReplacements maps a replacement code to its literal. | htmlEscapeReplacements
+// 把替换码映射为字面量。
+var htmlEscapeReplacements = [...]string{
+	htmlCodeNUL:        "�",
+	htmlCodeNULNoSpace: "&#xfffd;",
+	htmlCodeQuote:      "&#34;",
+	htmlCodeAmp:        "&amp;",
+	htmlCodeApos:       "&#39;",
+	htmlCodePlus:       "&#43;",
+	htmlCodeLT:         "&lt;",
+	htmlCodeGT:         "&gt;",
+	htmlCodeTab:        "&#9;",
+	htmlCodeLF:         "&#10;",
+	htmlCodeVT:         "&#11;",
+	htmlCodeFF:         "&#12;",
+	htmlCodeCR:         "&#13;",
+	htmlCodeSpace:      "&#32;",
+	htmlCodeEq:         "&#61;",
+	htmlCodeBacktick:   "&#96;",
 }
 
-// htmlNormReplacementTable is htmlReplacementTable without '&', so existing
-// entities are not double encoded. | htmlNormReplacementTable 是去掉 '&' 的
-// htmlReplacementTable，避免已有实体被二次编码。
-var htmlNormReplacementTable = []string{
-	0:    "�",
-	'"':  "&#34;",
-	'\'': "&#39;",
-	'+':  "&#43;",
-	'<':  "&lt;",
-	'>':  "&gt;",
-}
-
-// htmlNoSpaceReplacementTable escapes unquoted attribute values. | htmlNoSpaceReplacementTable 转义无引号属性值。
-var htmlNoSpaceReplacementTable = []string{
-	0:    "&#xfffd;",
-	'\t': "&#9;",
-	'\n': "&#10;",
-	'\v': "&#11;",
-	'\f': "&#12;",
-	'\r': "&#13;",
-	' ':  "&#32;",
-	'"':  "&#34;",
-	'&':  "&amp;",
-	'\'': "&#39;",
-	'+':  "&#43;",
-	'<':  "&lt;",
-	'=':  "&#61;",
-	'>':  "&gt;",
-	'`':  "&#96;",
-}
-
-// htmlNoSpaceNormReplacementTable is the unquoted table without '&'. | htmlNoSpaceNormReplacementTable 是无 '&' 的无引号属性表。
-var htmlNoSpaceNormReplacementTable = []string{
-	0:    "&#xfffd;",
-	'\t': "&#9;",
-	'\n': "&#10;",
-	'\v': "&#11;",
-	'\f': "&#12;",
-	'\r': "&#13;",
-	' ':  "&#32;",
-	'"':  "&#34;",
-	'\'': "&#39;",
-	'+':  "&#43;",
-	'<':  "&lt;",
-	'=':  "&#61;",
-	'>':  "&gt;",
-	'`':  "&#96;",
-}
-
-// htmlSpecialTable marks every ASCII byte that any HTML/attribute replacement
-// table may escape, so the hot scan needs one table lookup per byte instead of
-// three checks. | htmlSpecialTable 标记任一 HTML/属性替换表可能转义的 ASCII 字节，
-// 使热扫描每字节只需一次表查找而不是三次判断。
-var htmlSpecialTable [256]bool
+// htmlEscapeCodes maps each ASCII byte to its replacement code, 0 meaning
+// "append unchanged". A byte-wide table keeps the hot scan to one load and one
+// branch per byte instead of three lookups into a string table. | htmlEscapeCodes
+// 把每个 ASCII 字节映射为替换码，0 表示原样追加。按字节查表让热扫描每字节只需
+// 一次加载与一次分支，而不是在字符串表中做三次查找。
+var htmlEscapeCodes [htmlModeCount][256]uint8
 
 func init() {
-	for _, table := range [][]string{
-		htmlReplacementTable, htmlNormReplacementTable,
-		htmlNoSpaceReplacementTable, htmlNoSpaceNormReplacementTable,
-	} {
-		for i, repl := range table {
-			if repl != "" && i < len(htmlSpecialTable) {
-				htmlSpecialTable[i] = true
-			}
-		}
-	}
+	text := &htmlEscapeCodes[htmlModeText]
+	text[0] = htmlCodeNUL
+	text['"'] = htmlCodeQuote
+	text['&'] = htmlCodeAmp
+	text['\''] = htmlCodeApos
+	text['+'] = htmlCodePlus
+	text['<'] = htmlCodeLT
+	text['>'] = htmlCodeGT
+
+	textNorm := &htmlEscapeCodes[htmlModeTextNorm]
+	*textNorm = *text
+	textNorm['&'] = 0
+
+	noSpace := &htmlEscapeCodes[htmlModeNoSpace]
+	noSpace[0] = htmlCodeNULNoSpace
+	noSpace['\t'] = htmlCodeTab
+	noSpace['\n'] = htmlCodeLF
+	noSpace['\v'] = htmlCodeVT
+	noSpace['\f'] = htmlCodeFF
+	noSpace['\r'] = htmlCodeCR
+	noSpace[' '] = htmlCodeSpace
+	noSpace['"'] = htmlCodeQuote
+	noSpace['&'] = htmlCodeAmp
+	noSpace['\''] = htmlCodeApos
+	noSpace['+'] = htmlCodePlus
+	noSpace['<'] = htmlCodeLT
+	noSpace['='] = htmlCodeEq
+	noSpace['>'] = htmlCodeGT
+	noSpace['`'] = htmlCodeBacktick
+
+	noSpaceNorm := &htmlEscapeCodes[htmlModeNoSpaceNorm]
+	*noSpaceNorm = *noSpace
+	noSpaceNorm['&'] = 0
 }
 
 // htmlEscaper returns the HTML-text escaped form of its argument. | htmlEscaper 返回参数的 HTML 文本转义结果。
@@ -142,32 +162,26 @@ func htmlNameFilter(args ...any) string {
 
 // appendHTMLEscaped appends the HTML-text escaped form of (s, t) to dst. | appendHTMLEscaped 把 (s, t) 的 HTML 文本转义结果追加到 dst。
 func appendHTMLEscaped(dst []byte, s string, t contentType) []byte {
-	if t == contentTypeHTML || !hasHTMLSpecial(s) {
+	if t == contentTypeHTML {
 		return append(dst, s...)
 	}
-	return appendHTMLReplacer(dst, s, htmlReplacementTable, true)
+	return appendHTMLText(dst, s, htmlModeText)
 }
 
 // appendAttrEscaped appends the quoted-attribute escaped form of (s, t). | appendAttrEscaped 追加带引号属性的转义结果。
 func appendAttrEscaped(dst []byte, s string, t contentType) []byte {
 	if t == contentTypeHTML {
-		return appendHTMLReplacer(dst, stripTags(s), htmlNormReplacementTable, true)
+		return appendHTMLText(dst, stripTags(s), htmlModeTextNorm)
 	}
-	if !hasHTMLSpecial(s) {
-		return append(dst, s...)
-	}
-	return appendHTMLReplacer(dst, s, htmlReplacementTable, true)
+	return appendHTMLText(dst, s, htmlModeText)
 }
 
 // appendRCDATAEscaped appends the RCDATA escaped form of (s, t). | appendRCDATAEscaped 追加 RCDATA 的转义结果。
 func appendRCDATAEscaped(dst []byte, s string, t contentType) []byte {
 	if t == contentTypeHTML {
-		return appendHTMLReplacer(dst, s, htmlNormReplacementTable, true)
+		return appendHTMLText(dst, s, htmlModeTextNorm)
 	}
-	if !hasHTMLSpecial(s) {
-		return append(dst, s...)
-	}
-	return appendHTMLReplacer(dst, s, htmlReplacementTable, true)
+	return appendHTMLText(dst, s, htmlModeText)
 }
 
 // appendNoSpaceEscaped appends the unquoted-attribute escaped form of (s, t).
@@ -177,58 +191,53 @@ func appendNoSpaceEscaped(dst []byte, s string, t contentType) []byte {
 		return append(dst, filterFailsafe...)
 	}
 	if t == contentTypeHTML {
-		return appendHTMLReplacer(dst, stripTags(s), htmlNoSpaceNormReplacementTable, false)
+		return appendHTMLNoSpace(dst, stripTags(s), htmlModeNoSpaceNorm)
 	}
-	if !hasHTMLSpecial(s) {
-		return append(dst, s...)
-	}
-	return appendHTMLReplacer(dst, s, htmlNoSpaceReplacementTable, false)
+	return appendHTMLNoSpace(dst, s, htmlModeNoSpace)
 }
 
-// hasHTMLSpecial reports whether s contains a byte any HTML table escapes. | hasHTMLSpecial 报告 s 是否含任一 HTML 表会转义的字节。
-func hasHTMLSpecial(s string) bool {
-	for i := 0; i < len(s); i++ {
-		if htmlSpecialTable[s[i]] {
-			return true
-		}
-	}
-	return false
-}
-
-// hasHTMLSpecialBytes is hasHTMLSpecial for a byte slice. | hasHTMLSpecialBytes 是字节切片版本的 hasHTMLSpecial。
-func hasHTMLSpecialBytes(s []byte) bool {
-	for _, c := range s {
-		if htmlSpecialTable[c] {
-			return true
-		}
-	}
-	return false
-}
-
-// appendHTMLReplacer appends s with runes replaced according to table. | appendHTMLReplacer 按 table 替换 s 中的字符后追加。
+// appendHTMLText appends s with the text/attribute replacements of mode. | appendHTMLText
+// 按 mode 的文本/属性替换表追加 s。
 //
-// badRunes mirrors html/template's flag: when false, characters in the
-// surrogate/private ranges are always emitted as numeric references. | badRunes
-// 对应 html/template 的同名开关：为 false 时，代理区与私用区的字符一律输出为数字引用。
-func appendHTMLReplacer(dst []byte, s string, table []string, badRunes bool) []byte {
-	written, i := 0, 0
-	for i < len(s) {
+// Non-ASCII bytes never need a replacement in these modes: html/template passes
+// them through when badRunes is true, so the scan does not decode them. | 这些模式下
+// 非 ASCII 字节无需替换：badRunes 为真时 html/template 原样通过，因此扫描不必解码。
+func appendHTMLText(dst []byte, s string, mode htmlEscapeMode) []byte {
+	codes := &htmlEscapeCodes[mode]
+	written := 0
+	for i := 0; i < len(s); i++ {
+		if code := codes[s[i]]; code != 0 {
+			dst = append(dst, s[written:i]...)
+			dst = append(dst, htmlEscapeReplacements[code]...)
+			written = i + 1
+		}
+	}
+	return append(dst, s[written:]...)
+}
+
+// appendHTMLNoSpace appends s with the unquoted-attribute replacements of mode.
+// | appendHTMLNoSpace 按 mode 的无引号属性替换表追加 s。
+//
+// Unlike the textual modes this one replaces noncharacters and invalid UTF-8,
+// matching html/template's badRunes=false behaviour (IE compatibility). | 与文本模式
+// 不同，本函数会替换非字符与非法 UTF-8，对齐 html/template 的 badRunes=false 行为
+// （IE 兼容）。
+func appendHTMLNoSpace(dst []byte, s string, mode htmlEscapeMode) []byte {
+	codes := &htmlEscapeCodes[mode]
+	written := 0
+	for i := 0; i < len(s); {
 		c := s[i]
 		if c < utf8.RuneSelf {
-			if htmlSpecialTable[c] {
-				if int(c) < len(table) {
-					if repl := table[c]; repl != "" {
-						dst = append(dst, s[written:i]...)
-						dst = append(dst, repl...)
-						written = i + 1
-					}
-				}
+			if code := codes[c]; code != 0 {
+				dst = append(dst, s[written:i]...)
+				dst = append(dst, htmlEscapeReplacements[code]...)
+				written = i + 1
 			}
 			i++
 			continue
 		}
 		r, w := utf8.DecodeRuneInString(s[i:])
-		if !badRunes && (0xfdd0 <= r && r <= 0xfdef || 0xfff0 <= r && r <= 0xffff) {
+		if 0xfdd0 <= r && r <= 0xfdef || 0xfff0 <= r && r <= 0xffff {
 			dst = append(dst, s[written:i]...)
 			dst = append(dst, "&#x"...)
 			dst = appendHexRune(dst, r)
@@ -240,26 +249,37 @@ func appendHTMLReplacer(dst []byte, s string, table []string, badRunes bool) []b
 	return append(dst, s[written:]...)
 }
 
-// appendHTMLReplacerBytes is appendHTMLReplacer for a byte segment. | appendHTMLReplacerBytes 是字节片段版本的 appendHTMLReplacer。
-func appendHTMLReplacerBytes(dst, s []byte, table []string, badRunes bool) []byte {
-	written, i := 0, 0
-	for i < len(s) {
+// appendHTMLTextBytes is appendHTMLText for a byte segment. | appendHTMLTextBytes 是字节片段版本的 appendHTMLText。
+func appendHTMLTextBytes(dst, s []byte, mode htmlEscapeMode) []byte {
+	codes := &htmlEscapeCodes[mode]
+	written := 0
+	for i := 0; i < len(s); i++ {
+		if code := codes[s[i]]; code != 0 {
+			dst = append(dst, s[written:i]...)
+			dst = append(dst, htmlEscapeReplacements[code]...)
+			written = i + 1
+		}
+	}
+	return append(dst, s[written:]...)
+}
+
+// appendHTMLNoSpaceBytes is appendHTMLNoSpace for a byte segment. | appendHTMLNoSpaceBytes 是字节片段版本的 appendHTMLNoSpace。
+func appendHTMLNoSpaceBytes(dst, s []byte, mode htmlEscapeMode) []byte {
+	codes := &htmlEscapeCodes[mode]
+	written := 0
+	for i := 0; i < len(s); {
 		c := s[i]
 		if c < utf8.RuneSelf {
-			if htmlSpecialTable[c] {
-				if int(c) < len(table) {
-					if repl := table[c]; repl != "" {
-						dst = append(dst, s[written:i]...)
-						dst = append(dst, repl...)
-						written = i + 1
-					}
-				}
+			if code := codes[c]; code != 0 {
+				dst = append(dst, s[written:i]...)
+				dst = append(dst, htmlEscapeReplacements[code]...)
+				written = i + 1
 			}
 			i++
 			continue
 		}
 		r, w := utf8.DecodeRune(s[i:])
-		if !badRunes && (0xfdd0 <= r && r <= 0xfdef || 0xfff0 <= r && r <= 0xffff) {
+		if 0xfdd0 <= r && r <= 0xfdef || 0xfff0 <= r && r <= 0xffff {
 			dst = append(dst, s[written:i]...)
 			dst = append(dst, "&#x"...)
 			dst = appendHexRune(dst, r)
@@ -324,8 +344,8 @@ func stripTags(html string) string {
 }
 
 // attrType mirrors html/template's attr.go: it returns a conservative guess at
-// the content type of a lower-case attribute name. | attrType 对齐
-// html/template 的 attr.go：对全小写属性名给出保守的内容类型判断。
+// the content type of a lower-case attribute name. | attrType 对齐 html/template
+// 的 attr.go：对全小写属性名给出保守的内容类型判断。
 func attrType(name string) contentType {
 	if strings.HasPrefix(name, "data-") {
 		name = name[5:]

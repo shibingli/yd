@@ -26,7 +26,7 @@ func (n *rangeNode) run(s *execState) error {
 	if n.field != nil {
 		if v, ok := n.field.anyValue(s); ok {
 			val, fromAny, handled = v, true, true
-		} else if v, ok := n.field.value(s); ok {
+		} else if v, _, ok := n.field.value(s); ok {
 			rv, handled = v, true
 		}
 	}

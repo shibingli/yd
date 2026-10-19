@@ -34,9 +34,6 @@ type output struct {
 	b []byte
 }
 
-// outputPool reuses the shared output holder. | outputPool 复用共享输出持有者。
-var outputPool = sync.Pool{New: func() any { return &output{} }}
-
 // variable is one dynamic template variable. A value taken from a reflect path
 // is kept as a reflect.Value until some generic operation needs an interface,
 // which avoids boxing loop elements and field assignments. | variable 是一个
@@ -70,6 +67,7 @@ type execState struct {
 	tr           Translator
 	az           Authz
 	out          *output
+	ownOut       *output
 	tmpl         *compiledTemplate
 	dotMap       map[string]any
 	dotRef       reflect.Value
@@ -149,6 +147,7 @@ func (s *execState) dotAny() any {
 // and argument stacks. | statePool 复用执行状态，使一次渲染不再分配变量栈与参数栈。
 var statePool = sync.Pool{New: func() any {
 	return &execState{
+		ownOut:       &output{},
 		vars:         make([]variable, 0, 16),
 		scratch:      make([]any, 0, 32),
 		scratchBytes: make([]byte, 0, 256),
@@ -284,9 +283,9 @@ func (p *program) exec(dst []byte, data any, tr Translator, az Authz) ([]byte, e
 	if p.root == nil || p.root.root == nil {
 		return dst, execErr("incomplete template | 模板不完整")
 	}
-	out := outputPool.Get().(*output)
-	out.b = dst
 	s := acquireState()
+	out := s.ownOut
+	out.b = dst
 	s.out = out
 	s.setDot(data)
 	s.tr = tr
@@ -296,7 +295,6 @@ func (p *program) exec(dst []byte, data any, tr Translator, az Authz) ([]byte, e
 	err := p.root.root.exec(s)
 	result := out.b
 	out.b = nil
-	outputPool.Put(out)
 	releaseState(s)
 	if err != nil {
 		return dst, err
@@ -306,8 +304,13 @@ func (p *program) exec(dst []byte, data any, tr Translator, az Authz) ([]byte, e
 
 // exec executes a list. | exec 执行节点列表。
 func (l *listNode) exec(s *execState) error {
-	for _, n := range l.nodes {
-		if err := n.exec(s); err != nil {
+	for i := range l.steps {
+		st := &l.steps[i]
+		if st.node == nil {
+			s.out.b = append(s.out.b, st.text...)
+			continue
+		}
+		if err := st.node.exec(s); err != nil {
 			return err
 		}
 		if s.flow != flowNone {
@@ -317,16 +320,10 @@ func (l *listNode) exec(s *execState) error {
 	return nil
 }
 
-// exec writes a static chunk. | exec 输出静态文本。
-func (n *textNode) exec(s *execState) error {
-	s.out.b = append(s.out.b, n.text...)
-	return nil
-}
-
 // exec evaluates and prints one action. | exec 求值并输出一个动作。
 func (n *actionNode) exec(s *execState) error {
 	if n.declField != nil {
-		if rv, ok := n.declField.value(s); ok {
+		if rv, _, ok := n.declField.value(s); ok {
 			if n.declAssign {
 				return s.setVarRef(n.declName, rv)
 			}
@@ -420,34 +417,82 @@ func (n *actionNode) execQuick(s *execState) error {
 
 // execFieldQuick prints a single field chain without interface boxing. | execFieldQuick 无接口装箱地输出单条字段链。
 func (n *actionNode) execFieldQuick(s *execState) (bool, error) {
-	if v, handled := n.field.anyValue(s); handled {
-		n.appendEscapedAny(s, v)
-		return true, nil
+	// Struct rows carry a reflect.Value directly; anyValue only helps interface
+	// and map data, so skip it for the dominant range-over-struct shape. | 结构体行
+	// 直接携带 reflect.Value；anyValue 只对接口与映射数据有用，因此在最常见的
+	// 结构体循环形状中跳过它。
+	rootIsRef := s.dotRefOK
+	if n.field.varName != "" {
+		if cell, ok := s.varCell(n.field.varName); ok {
+			rootIsRef = cell.isRef
+		}
 	}
-	rv, ok := n.field.value(s)
+	if !rootIsRef {
+		if v, handled := n.field.anyValue(s); handled {
+			n.appendEscapedAny(s, v)
+			return true, nil
+		}
+	}
+	rv, path, ok := n.field.value(s)
 	if !ok {
 		return false, nil
 	}
-	if len(n.field.escs) == 1 && isCompositeKind(n.field.escs[0]) {
+	escs := n.field.escs
+	if n.field.composite {
 		if rv.Kind() == reflect.String {
 			ct := contentTypePlain
-			if rv.Type() != plainStringType {
-				if safe, ok := safeContentType(rv.Type()); ok {
-					ct = safe
-				} else {
-					s.out.b, s.scratchBytes = appendComposite(s.out.b, s.scratchBytes, rv.Interface(), n.field.escs[0])
-					return true, nil
+			if path != nil && path.out == outStringSafe {
+				ct = path.safeCT
+			} else if path == nil || path.out != outString {
+				if rv.Type() != plainStringType {
+					if safe, ok := safeContentType(rv.Type()); ok {
+						ct = safe
+					} else {
+						s.out.b, s.scratchBytes = appendComposite(s.out.b, s.scratchBytes, rv.Interface(), escs[0])
+						return true, nil
+					}
 				}
 			}
-			s.out.b, s.scratchBytes = appendCompositeString(s.out.b, s.scratchBytes, rv.String(), ct, n.field.escs[0])
+			s.out.b = appendCompositeField(s.out.b, rv.String(), ct, escs[0])
 			return true, nil
 		}
-		s.out.b, s.scratchBytes = appendComposite(s.out.b, s.scratchBytes, rv.Interface(), n.field.escs[0])
+		s.out.b, s.scratchBytes = appendComposite(s.out.b, s.scratchBytes, rv.Interface(), escs[0])
 		return true, nil
 	}
+	if path != nil && len(escs) == 1 {
+		switch path.out {
+		case outString:
+			switch escs[0] {
+			case escHTML, escAttr, escRCDATA:
+				s.out.b = appendHTMLText(s.out.b, rv.String(), htmlModeText)
+			case escNoSpace:
+				s.out.b = appendNoSpaceEscaped(s.out.b, rv.String(), contentTypePlain)
+			default:
+				s.out.b = appendEscapedString(s.out.b, rv.String(), escs[0])
+			}
+			return true, nil
+		case outStringSafe:
+			s.out.b = appendEscapedTyped(s.out.b, rv.String(), path.safeCT, escs[0])
+			return true, nil
+		case outInt:
+			if plainEscaper(escs[0]) {
+				s.out.b = strconv.AppendInt(s.out.b, rv.Int(), 10)
+				return true, nil
+			}
+		case outBool:
+			if plainEscaper(escs[0]) {
+				if rv.Bool() {
+					s.out.b = append(s.out.b, "true"...)
+				} else {
+					s.out.b = append(s.out.b, "false"...)
+				}
+				return true, nil
+			}
+		}
+	}
 	start := len(s.out.b)
-	s.out.b = appendEscapedReflect(s.out.b, rv, n.field.escs[0])
-	n.applyEscaperChain(s, start, n.field.escs[1:])
+	s.out.b = appendEscapedReflect(s.out.b, rv, escs[0])
+	n.applyEscaperChain(s, start, escs[1:])
 	return true, nil
 }
 
@@ -455,7 +500,7 @@ func (n *actionNode) execFieldQuick(s *execState) (bool, error) {
 // is, without converting it through reflect. | appendEscapedAny 转义已经是接口的值
 // （映射数据即如此），不经过反射转换。
 func (n *actionNode) appendEscapedAny(s *execState, v any) {
-	if len(n.field.escs) == 1 && isCompositeKind(n.field.escs[0]) {
+	if n.field.composite {
 		s.out.b, s.scratchBytes = appendComposite(s.out.b, s.scratchBytes, v, n.field.escs[0])
 		return
 	}
@@ -507,13 +552,13 @@ func (f *fieldAction) anyValue(s *execState) (any, bool) {
 // value resolves the field chain, reusing a per-type struct index path so the
 // hot loop does not hash reflect types on every row. | value 解析字段链，并复用按类型
 // 缓存的字段索引路径，使热循环不必每行哈希反射类型。
-func (f *fieldAction) value(s *execState) (reflect.Value, bool) {
+func (f *fieldAction) value(s *execState) (reflect.Value, *structPath, bool) {
 	var typ reflect.Type
 	var root reflect.Value
 	if f.varName != "" {
 		cell, ok := s.varCell(f.varName)
 		if !ok {
-			return reflect.Value{}, false
+			return reflect.Value{}, nil, false
 		}
 		if cell.isRef {
 			root = cell.ref
@@ -539,11 +584,11 @@ func (f *fieldAction) value(s *execState) (reflect.Value, bool) {
 				v := root
 				for v.Kind() == reflect.Pointer || v.Kind() == reflect.Interface {
 					if v.IsNil() {
-						return reflect.Value{}, false
+						return reflect.Value{}, nil, false
 					}
 					v = v.Elem()
 				}
-				return v.Field(path.single), true
+				return v.Field(path.single), path, true
 			}
 			v := root
 			for _, idx := range path.indexes {
@@ -552,33 +597,37 @@ func (f *fieldAction) value(s *execState) (reflect.Value, bool) {
 						// A nil receiver in the middle of a field chain is an explicit
 						// nil; let the generic evaluator report it. | 字段链中途的 nil
 						// 接收者是显式 nil，交给通用求值器报告。
-						return reflect.Value{}, false
+						return reflect.Value{}, nil, false
 					}
 					v = v.Elem()
 				}
 				next, err := v.FieldByIndexErr(idx)
 				if err != nil {
-					return reflect.Value{}, false
+					return reflect.Value{}, nil, false
 				}
 				v = next
 			}
-			return v, true
+			return v, path, true
 		}
 	}
 	if f.varName != "" {
 		cell, ok := s.varCell(f.varName)
 		if !ok {
-			return reflect.Value{}, false
+			return reflect.Value{}, nil, false
 		}
 		if cell.isRef {
-			return resolveFieldRefValue(cell.ref, f.chain, f.keys)
+			v, ok := resolveFieldRefValue(cell.ref, f.chain, f.keys)
+			return v, nil, ok
 		}
-		return resolveFieldRef(cell.any(), f.chain, f.keys)
+		v, ok := resolveFieldRef(cell.any(), f.chain, f.keys)
+		return v, nil, ok
 	}
 	if s.dotRefOK {
-		return resolveFieldRefValue(s.dotRef, f.chain, f.keys)
+		v, ok := resolveFieldRefValue(s.dotRef, f.chain, f.keys)
+		return v, nil, ok
 	}
-	return resolveFieldRef(s.dotAny(), f.chain, f.keys)
+	v, ok := resolveFieldRef(s.dotAny(), f.chain, f.keys)
+	return v, nil, ok
 }
 
 // resolveStructPath resolves a chain assuming every step is a struct field. | resolveStructPath 假定每一步都是结构体字段来解析链。
@@ -604,7 +653,33 @@ func resolveStructPath(t reflect.Type, chain []string) *structPath {
 	if len(path.indexes) == 1 && len(path.indexes[0]) == 1 {
 		path.single = path.indexes[0][0]
 	}
+	switch {
+	case cur == plainStringType:
+		path.out = outString
+	case cur == plainBoolType:
+		path.out = outBool
+	case plainIntType(cur):
+		path.out = outInt
+	default:
+		if ct, ok := safeContentType(cur); ok {
+			path.out = outStringSafe
+			path.safeCT = ct
+		}
+	}
 	return path
+}
+
+// plainEscaper reports whether a primitive's textual form passes an escaper
+// unchanged: digits, sign and true/false contain no HTML, URL-part or
+// unquoted-attribute special byte. | plainEscaper 报告基础类型的文本形式能否原样通过
+// 转义器：数字、符号与 true/false 不含任何 HTML、URL 部件或无引号属性特殊字节。
+func plainEscaper(kind escKind) bool {
+	switch kind {
+	case escHTML, escAttr, escRCDATA, escNoSpace,
+		escURL, escURLFilter, escURLNormalizer:
+		return true
+	}
+	return false
 }
 
 // exec implements if and with. | exec 实现 if 与 with。
@@ -643,7 +718,7 @@ func (n *ifNode) run(s *execState) error {
 			truth = truthy(v)
 			break
 		}
-		if rv, ok := n.cond.value(s); ok {
+		if rv, _, ok := n.cond.value(s); ok {
 			truth = truthyReflect(rv)
 			break
 		}

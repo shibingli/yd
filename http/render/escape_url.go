@@ -27,12 +27,33 @@ func urlFilter(args ...any) string {
 
 // isSafeURL reports whether s is relative or uses http, https or mailto. | isSafeURL 报告 s 是否为相对地址或使用 http、https、mailto。
 func isSafeURL(s string) bool {
-	if protocol, _, ok := strings.Cut(s, ":"); ok && !strings.Contains(protocol, "/") {
-		if !strings.EqualFold(protocol, "http") && !strings.EqualFold(protocol, "https") && !strings.EqualFold(protocol, "mailto") {
-			return false
+	colon := -1
+	for i := 0; i < len(s); i++ {
+		switch s[i] {
+		case ':':
+			colon = i
+		case '/':
+			// A slash before the colon means the "scheme" is a path, so the
+			// URL is relative; this is html/template's rule too. | 冒号前出现斜杠
+			// 说明所谓协议其实是路径，即相对 URL；html/template 的规则相同。
+			return true
+		}
+		if colon >= 0 {
+			break
 		}
 	}
-	return true
+	if colon < 0 {
+		return true
+	}
+	switch colon {
+	case 4:
+		return strings.EqualFold(s[:4], "http")
+	case 5:
+		return strings.EqualFold(s[:5], "https")
+	case 6:
+		return strings.EqualFold(s[:6], "mailto")
+	}
+	return false
 }
 
 // urlEscaper percent-encodes a URL part. | urlEscaper 对 URL 部件做百分号编码。
@@ -89,6 +110,19 @@ func processURLOnto(s string, norm bool, b *strings.Builder) bool {
 var (
 	urlKeepRaw  [256]bool
 	urlKeepNorm [256]bool
+	// urlNormCodes classifies a byte for the fused normalize-and-escape pass:
+	// keep, percent-encode, or one of the two HTML revisions. | urlNormCodes 为
+	// 规范化与转义融合的一遍扫描分类字节：原样保留、百分号编码，或两种 HTML 替换。
+	urlNormCodes [256]uint8
+)
+
+// urlNormCodes values. | urlNormCodes 的取值。
+const (
+	urlCodeKeep uint8 = iota
+	urlCodeEscape
+	urlCodeAmp
+	urlCodePlus
+	urlCodePercent
 )
 
 func init() {
@@ -99,7 +133,19 @@ func init() {
 			c == '-' || c == '.' || c == '_' || c == '~'
 		urlKeepRaw[c] = unreserved
 		urlKeepNorm[c] = unreserved || strings.IndexByte(reserved, c) >= 0
+
+		switch {
+		case !urlKeepNorm[c]:
+			urlNormCodes[c] = urlCodeEscape
+		case c == '&':
+			urlNormCodes[c] = urlCodeAmp
+		case c == '+':
+			urlNormCodes[c] = urlCodePlus
+		}
 	}
+	// '%' is not in the keep table but a complete escape passes through. | '%' 不在
+	// keep 表中，但完整的转义序列原样通过。
+	urlNormCodes['%'] = urlCodePercent
 }
 
 // appendURLString appends the percent-encoded form of s without a builder. | appendURLString 不经构建器追加 s 的百分号编码结果。

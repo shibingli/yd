@@ -59,12 +59,19 @@ type expr interface {
 
 // listNode is a sequence of instructions. | listNode 是一组顺序指令。
 type listNode struct {
-	nodes  []node
+	steps  []step
 	static int
 }
 
-// textNode writes a static chunk. | textNode 输出一段静态文本。
-type textNode struct{ text string }
+// step is one entry of a compiled list: either a static text run (node == nil)
+// or a child node. Keeping text in the list itself removes one interface call
+// per interpolation and one allocation per text run. | step 是编译后列表的一项：
+// 静态文本（node 为 nil）或子节点。把文本直接放进列表可省去每次插值的一次接口调用，
+// 以及每段文本的一次分配。
+type step struct {
+	node node
+	text string
+}
 
 // actionNode evaluates a pipeline and optionally escapes and prints it. | actionNode 求值流水线，必要时转义并输出。
 type actionNode struct {
@@ -83,11 +90,12 @@ type actionNode struct {
 // | fieldAction 通过 reflect.Value 路径输出单条字段链，避免把结构体行的每个字符串与
 // 整数装箱进接口。
 type fieldAction struct {
-	path    atomic.Pointer[structPath]
-	chain   []string
-	keys    []reflect.Value
-	varName string
-	escs    []escKind
+	path      atomic.Pointer[structPath]
+	chain     []string
+	keys      []reflect.Value
+	varName   string
+	escs      []escKind
+	composite bool
 }
 
 // newFieldAction builds a field action and precomputes the reflect map keys so
@@ -95,7 +103,12 @@ type fieldAction struct {
 // | newFieldAction 构建字段动作并预计算反射映射键，使热路径上的映射查找不再
 // 每次渲染分配字符串头。
 func newFieldAction(chain []string, varName string, escs []escKind) *fieldAction {
-	f := &fieldAction{chain: chain, varName: varName, escs: escs}
+	f := &fieldAction{
+		chain:     chain,
+		varName:   varName,
+		escs:      escs,
+		composite: len(escs) == 1 && isCompositeKind(escs[0]),
+	}
 	if len(chain) > 0 {
 		f.keys = make([]reflect.Value, len(chain))
 		for i, name := range chain {
@@ -105,12 +118,33 @@ func newFieldAction(chain []string, varName string, escs []escKind) *fieldAction
 	return f
 }
 
+// outKind records how the final field of a struct path prints, so the hot path
+// can skip the generic reflect classification. | outKind 记录结构体路径末端字段的
+// 输出形态，使热路径跳过通用反射分类。
+type outKind uint8
+
+const (
+	// outGeneric needs the general reflect path. | outGeneric 需要通用反射路径。
+	outGeneric outKind = iota
+	// outString is an exact plain string. | outString 是精确的普通字符串。
+	outString
+	// outStringSafe is a trusted string type such as template.HTML. | outStringSafe 是
+	// template.HTML 之类的受信字符串类型。
+	outStringSafe
+	// outInt is an exact predeclared signed integer. | outInt 是精确的预声明有符号整数。
+	outInt
+	// outBool is an exact bool. | outBool 是精确的 bool。
+	outBool
+)
+
 // structPath is a type-level resolved chain of struct field indexes. | structPath 是类型层解析出的结构体字段索引链。
 type structPath struct {
 	typ     reflect.Type
 	indexes [][]int
 	single  int
 	ok      bool
+	out     outKind
+	safeCT  contentType
 }
 
 // quickAction is a single-binding action printed without boxing its result into
@@ -276,21 +310,19 @@ func (c *compiler) template(root *template.Template, name string) (*compiledTemp
 
 // list compiles a node list, merging adjacent text nodes. | list 编译节点列表并合并相邻文本节点。
 func (c *compiler) list(in *parse.ListNode) (*listNode, error) {
-	out := &listNode{nodes: make([]node, 0, len(in.Nodes))}
+	out := &listNode{steps: make([]step, 0, len(in.Nodes))}
 	for _, n := range in.Nodes {
 		switch x := n.(type) {
 		case *parse.TextNode:
 			if string(x.Text) == "" {
 				continue
 			}
-			if len(out.nodes) > 0 {
-				if prev, ok := out.nodes[len(out.nodes)-1].(*textNode); ok {
-					prev.text += string(x.Text)
-					out.static += len(x.Text)
-					continue
-				}
+			if last := len(out.steps) - 1; last >= 0 && out.steps[last].node == nil {
+				out.steps[last].text += string(x.Text)
+				out.static += len(x.Text)
+				continue
 			}
-			out.nodes = append(out.nodes, &textNode{text: string(x.Text)})
+			out.steps = append(out.steps, step{text: string(x.Text)})
 			out.static += len(x.Text)
 		case *parse.CommentNode:
 			continue
@@ -300,7 +332,7 @@ func (c *compiler) list(in *parse.ListNode) (*listNode, error) {
 				return nil, err
 			}
 			if n != nil {
-				out.nodes = append(out.nodes, n)
+				out.steps = append(out.steps, step{node: n})
 			}
 		}
 	}

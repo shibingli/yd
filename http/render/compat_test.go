@@ -44,6 +44,12 @@ type compatError struct{}
 
 func (*compatError) Error() string { return "compat failure | 兼容性失败" }
 
+// compatStruct drives the typed field path, which map data does not exercise.
+// | compatStruct 驱动类型化字段路径；映射数据不会经过该路径。
+type compatStruct struct {
+	X string
+}
+
 // renderBoth renders one case with both engines. | renderBoth 用两个引擎渲染同一个用例。
 func renderBoth(t *testing.T, c compatCase) (std string, mine string, stdErr, myErr error) {
 	t.Helper()
@@ -97,6 +103,12 @@ func TestDifferentialEscaping(t *testing.T) {
 		{name: "html text", text: `<p>{{ .X }}</p>`, data: map[string]any{"X": `<script>"a" & 'b' + = \x60`}},
 		{name: "quoted attr", text: `<p title="{{ .X }}">x</p>`, data: map[string]any{"X": `" onmouseover="alert(1)`}},
 		{name: "unquoted attr", text: `<p class={{ .X }}>x</p>`, data: map[string]any{"X": `a b"c'd>e`}},
+		{name: "unquoted attr noncharacter", text: `<p class={{ .X }}>x</p>`, data: map[string]any{"X": "a﷐b"}},
+		{name: "unquoted attr private range", text: `<p class={{ .X }}>x</p>`, data: map[string]any{"X": "a￿b"}},
+		{name: "unquoted attr invalid utf8", text: `<p class={{ .X }}>x</p>`, data: map[string]any{"X": "a\xffb"}},
+		{name: "unquoted attr empty", text: `<p class={{ .X }}>x</p>`, data: map[string]any{"X": ""}},
+		{name: "unquoted attr struct empty", text: `<p class={{ .X }}>x</p>`, data: compatStruct{}},
+		{name: "unquoted attr struct noncharacter", text: `<p class={{ .X }}>x</p>`, data: compatStruct{X: "a﷐b"}},
 		{name: "rcdata", text: `<textarea>{{ .X }}</textarea>`, data: map[string]any{"X": `</textarea><script>x</script>`}},
 		{name: "href", text: `<a href="{{ .X }}">x</a>`, data: map[string]any{"X": `javascript:alert(1)`}},
 		{name: "href safe", text: `<a href="{{ .X }}">x</a>`, data: map[string]any{"X": `https://example.com/?a=1&b=2`}},
