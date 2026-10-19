@@ -235,7 +235,7 @@ func TestThemeSwitchHasThreeStatesAndNoFlash(t *testing.T) {
 
 	// 6. Both concrete themes exist in the stylesheet, and the dark one is the override block the
 	//    attribute switches to. | 两种具体主题都在样式表中存在，暗色就是该属性切换到的覆盖块。
-	css := string(readEmbedded(t, web.FS(), appCSSPath))
+	css := appSource(t)
 	if !strings.Contains(cssBlock(t, css, `[data-theme="dark"]`), "color-scheme: dark") {
 		t.Error("the dark theme block does not declare color-scheme: dark | 暗色主题块没有声明 color-scheme: dark")
 	}

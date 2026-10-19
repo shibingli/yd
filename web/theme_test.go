@@ -14,11 +14,20 @@ import (
 
 // Stylesheet paths inside the embedded tree. | 内嵌目录树中的样式文件路径。
 const (
-	// appCSSPath is the Tailwind v4 source of truth. | appCSSPath 是 Tailwind v4 的唯一真源。
+	// appCSSPath is the Tailwind v4 entry stylesheet. | appCSSPath 是 Tailwind v4 入口样式表。
 	appCSSPath = "static/css/app.css"
+	// componentsCSSPath is the admin component layer and design tokens imported by app.css. | componentsCSSPath 是 app.css 引入的管理端组件层与设计令牌。
+	componentsCSSPath = "static/css/components.css"
 	// builtCSSPath is the committed build artifact, present so the project builds without the Tailwind binary. | builtCSSPath 是签入仓库的构建产物，用于在没有 Tailwind 二进制时也能构建。
 	builtCSSPath = "static/css/yd.css"
 )
+
+// appSource returns the entry stylesheet together with the component layer it imports; together they are the
+// stylesheet the theme and component guards talk about. | appSource 返回入口样式表与它引入的组件层；两者合在一起才是主题与组件守卫所谈论的样式表。
+func appSource(t *testing.T) string {
+	t.Helper()
+	return string(readEmbedded(t, web.FS(), appCSSPath)) + "\n" + string(readEmbedded(t, web.FS(), componentsCSSPath))
+}
 
 // minBuiltCSSBytes is the lower bound for a plausible compiled stylesheet; a smaller file means the build
 // silently produced an empty or truncated result. | minBuiltCSSBytes 是编译后样式表的合理体积下限；更小即意味着构建静默产出了空文件或截断结果。
@@ -119,7 +128,7 @@ func TestThemeDefinesBlueBrandScaleAndSemanticTokens(t *testing.T) {
 		}
 	}
 
-	theme := cssBlock(t, css, "@theme")
+	theme := cssBlock(t, appSource(t), "@theme")
 
 	values := make(map[string]string, len(brandSteps))
 	for _, step := range brandSteps {
@@ -223,7 +232,7 @@ func TestThemeSourcePathsResolveToExistingTrees(t *testing.T) {
 // :root 中定义的令牌在暗色模式下仍保留亮色取值，通常表现为近黑背景上的近黑文字——既不可读，
 // 又因为页面其余部分看起来正常而极易被忽略。
 func TestDarkThemeOverridesSemanticTokens(t *testing.T) {
-	css := string(readEmbedded(t, web.FS(), appCSSPath))
+	css := appSource(t)
 
 	light := cssBlock(t, css, ":root")
 	dark := cssBlock(t, css, `[data-theme="dark"]`)
@@ -337,11 +346,11 @@ func TestNoHardcodedHexInTemplates(t *testing.T) {
 	}
 
 	// The same rule binds the component layer: it must be driven by variables only. | 同一条规则约束组件层：它必须完全由变量驱动。
-	componentLayer := cssBlock(t, string(readEmbedded(t, fsys, appCSSPath)), "@layer components")
+	componentLayer := cssBlock(t, appSource(t), "@layer components")
 	for i, line := range strings.Split(componentLayer, "\n") {
 		for _, hit := range hexLiteral.FindAllString(line, -1) {
 			t.Errorf("%s @layer components line %d hard-codes the colour %s; use a theme variable | %s @layer components 第 %d 行硬编码了颜色 %s，请改用主题变量",
-				appCSSPath, i+1, hit, appCSSPath, i+1, hit)
+				componentsCSSPath, i+1, hit, componentsCSSPath, i+1, hit)
 		}
 	}
 }

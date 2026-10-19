@@ -3,6 +3,12 @@
 /* Tailwind v4 由 Go 脚手架静默编译（无 Node.js 管道），产物写入 {{ .AssetRoot }}/static/css/yd.css。 | Tailwind v4 is compiled silently by the Go toolchain (no Node.js pipeline) into {{ .AssetRoot }}/static/css/yd.css. */
 @import "tailwindcss";
 
+/* 框架管理端组件层：yd new 从框架资产逐字节复制而来，提供 .yd-shell、.yd-table 等全部组件；
+   项目可以按需修改它，但修改后请同步更新项目的视觉基线。 | Framework admin component layer: copied verbatim from
+   the framework assets by yd new; it provides every component (.yd-shell, .yd-table and friends) and may be adapted
+   per project once the visual baseline is updated with it. */
+@import "./components.css";
+
 /* 扫描范围：模板与 Go 源码中的类名都会被裁剪保留。 | Scan scope: class names found in templates and Go sources are kept by the purger. */
 @source "../../templates/**/*.html";
 @source "../../../internal/**/*.go";
@@ -285,5 +291,201 @@ body {
   border-radius: 0.5rem;
   padding: 0.5rem 0.75rem;
   margin: 0.5rem 0;
+}
+
+/* ============================================================================================
+   本项目的页面组件：只写语义名与变量，不写色值字面量。
+   Page components of this project: semantic names and variables only, never colour literals.
+   ============================================================================================ */
+
+/* 角色卡片：权限列表展开时仍保持较宽的下限。 | Role cards: a wider floor keeps a card readable while its permissions expand. */
+.yd-cards--roles {
+  grid-template-columns: repeat(auto-fill, minmax(22rem, 1fr));
+}
+
+/* 勾选项：复选框与文字基线对齐，且不参与拉伸。 | Check row: the checkbox aligns with the text baseline and never stretches. */
+.yd-check__input {
+  flex: 0 0 auto;
+  width: 1rem;
+  height: 1rem;
+  margin-top: 0.125rem;
+  accent-color: var(--color-brand-600);
+}
+
+/* 服务器时钟：数字等宽，刷新时不会左右跳动。 | Server clock: tabular digits keep the value from shifting as it refreshes. */
+.yd-clock {
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+  font-variant-numeric: tabular-nums;
+}
+
+/* 可折叠表单分组。 | Collapsible form group. */
+.yd-details {
+  margin-top: 0.75rem;
+  border: 1px solid var(--color-border-subtle);
+  border-radius: 0.5rem;
+  background: var(--color-surface-muted);
+}
+
+.yd-details__summary {
+  padding: 0.5rem 0.75rem;
+  cursor: pointer;
+  color: var(--color-content);
+  font-size: 0.8125rem;
+  font-weight: 600;
+}
+
+/* 全局错误槽位：空槽不占空间，有内容时才画出一块错误区域。 | Global error slot: it takes no space while empty and only draws an error area once it has content. */
+.yd-errors {
+  margin: 0 1rem;
+}
+
+.yd-errors:empty {
+  display: none;
+}
+
+.yd-errors__body {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  padding: 0.75rem 0.875rem;
+  border: 1px solid color-mix(in oklab, var(--color-danger) 35%, transparent);
+  border-radius: 0.5rem;
+  background: color-mix(in oklab, var(--color-danger) 10%, transparent);
+  color: var(--color-content);
+}
+
+.yd-errors__title {
+  margin: 0;
+  color: var(--color-danger);
+  font-weight: 600;
+}
+
+.yd-errors__list {
+  margin: 0;
+  padding-left: 1.25rem;
+  font-size: 0.875rem;
+}
+
+.yd-errors__item {
+  line-height: 1.5;
+}
+
+/* 页脚：与工作区同宽，只作为版本与模块信息的落款。 | Footer: aligned with the workspace and used only for the version and module sign-off. */
+.yd-footer {
+  padding: 0 1.5rem 1.5rem;
+  color: var(--color-content-muted);
+  font-size: 0.75rem;
+}
+
+/* 登录表单：在登录卡片内部占满宽度，字段之间保持统一间距。 | Sign-in form: fill the card and keep one rhythm between fields. */
+.yd-form--login {
+  width: 100%;
+}
+
+/* 三列栅格：窄屏沿用基础栅格，宽屏才真正并排三列。 | Three-column grid: narrow screens keep the base grid and only wide ones go to three columns. */
+@media (min-width: 64rem) {
+  .yd-grid--3 {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+/* 列表：去掉浏览器默认项目符号，并给每项一条分隔线。 | List: drop the browser bullets and separate items with a rule. */
+.yd-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.375rem;
+  margin: 0.75rem 0;
+  padding: 0;
+  list-style: none;
+}
+
+.yd-list--ordered {
+  counter-reset: yd-list;
+}
+
+.yd-list--ordered .yd-list__item {
+  counter-increment: yd-list;
+}
+
+.yd-list--ordered .yd-list__item::before {
+  content: counter(yd-list) ".";
+  color: var(--color-content-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.yd-list__item {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.25rem 0;
+  border-bottom: 1px solid var(--color-border-subtle);
+  font-size: 0.875rem;
+}
+
+.yd-list__item:last-child {
+  border-bottom: 0;
+}
+
+.yd-list__primary {
+  font-weight: 600;
+}
+
+/* 角色卡片：权限徽标在卡片内部换行，不改变卡片自身的布局。 | Role card: the permission badges wrap inside the card without changing its layout. */
+.yd-role {
+  display: flex;
+  flex-direction: column;
+  gap: 0.375rem;
+}
+
+/* 计数数值：等宽数字，并靠向列表右侧。 | Counter value: tabular digits pushed to the right of the row. */
+.yd-stat {
+  margin-left: auto;
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
+}
+
+/* WebSocket 日志：在通用消息流上再加一层等宽与换行约束。 | WebSocket log: the shared message stream with monospace and wrapping constraints. */
+.yd-stream--log {
+  max-height: 22rem;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
+/* 次要单元格：时间戳等元信息使用弱化色。 | Secondary cell: metadata such as timestamps uses the muted colour. */
+.yd-table__td--muted {
+  color: var(--color-content-muted);
+  font-size: 0.8125rem;
+}
+
+/* 顶栏：左侧标题块可收缩，右侧操作区靠右。 | Topbar: the title block shrinks and the actions sit on the right. */
+.yd-topbar__left {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.yd-topbar__right {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-left: auto;
+}
+
+.yd-topbar__title {
+  margin: 0;
+  font-weight: 600;
+  line-height: 1.25rem;
+}
+
+.yd-topbar__subtitle {
+  margin: 0;
+  overflow: hidden;
+  color: var(--color-content-muted);
+  font-size: 0.75rem;
+  line-height: 1rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 

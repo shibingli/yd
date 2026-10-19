@@ -59,7 +59,7 @@
               {{/* Whether it is granted comes from model.Role.Granted(capability) and the page infers nothing: the matrix
                    and the authorization path read one and the same method. */}}
               {{ if $role.Granted $item.Key }}
-              <span class="yd-badge yd-badge--ok" aria-hidden="true">✓</span>
+              <span class="yd-badge yd-badge--success" aria-hidden="true">✓</span>
               <span class="sr-only">{{ tr "permission.granted" }}</span>
               {{ else }}
               <span class="yd-hint" aria-hidden="true">—</span>

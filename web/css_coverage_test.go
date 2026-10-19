@@ -150,7 +150,7 @@ func hasPrefixDefinition(defined map[string]bool, prefix string) bool {
 // 元素照常渲染、构建照常通过，页面只是在那个人人都不看的地方显示不对。
 func TestEveryYdClassUsedInTemplatesIsDefined(t *testing.T) {
 	fsys := web.FS()
-	css := string(readEmbedded(t, fsys, appCSSPath))
+	css := appSource(t)
 
 	// Definitions are read from selector preludes only, so that a class name quoted inside a declaration
 	// value can never be mistaken for a styled class. | 只从选择器前导文本中读取定义，
@@ -211,8 +211,8 @@ func TestEveryYdClassUsedInTemplatesIsDefined(t *testing.T) {
 		}
 		if !defined[token] {
 			missing++
-			t.Errorf("%s is used at %s but has no rule in @layer components of %s | %s 在 %s 处被使用，但 %s 的 @layer components 中没有它的规则",
-				token, strings.Join(used[token], ", "), appCSSPath, token, strings.Join(used[token], ", "), appCSSPath)
+			t.Errorf("%s is used at %s but has no rule in @layer components of %s + %s | %s 在 %s 处被使用，但 %s + %s 的 @layer components 中没有它的规则",
+				token, strings.Join(used[token], ", "), appCSSPath, componentsCSSPath, token, strings.Join(used[token], ", "), appCSSPath, componentsCSSPath)
 		}
 	}
 	if missing > 0 {
@@ -272,7 +272,7 @@ func inAnySpan(spans [][2]int, offset int) bool {
 // or into any other rule is reported with its line number. | 豁免的只有这些块本身而非整个文件，因此任何漏进组件层
 // 或其它规则的色值都会被连同行号一起报告。
 func TestNoHardcodedColorsInAppCSS(t *testing.T) {
-	css := string(readEmbedded(t, web.FS(), appCSSPath))
+	css := string(readEmbedded(t, web.FS(), componentsCSSPath))
 
 	// Every block that defines variables may carry a literal colour; these three are all of them. | 所有定义变量的块都可以携带字面色值；这三个块就是全部。
 	var exempt [][2]int
@@ -289,11 +289,11 @@ func TestNoHardcodedColorsInAppCSS(t *testing.T) {
 		}
 		outside++
 		t.Errorf("%s:%d hard-codes the colour %s outside the token blocks; use a theme variable | %s:%d 在令牌块之外硬编码了颜色 %s，请改用主题变量",
-			appCSSPath, strings.Count(css[:loc[0]], "\n")+1, css[loc[0]:loc[1]], appCSSPath, strings.Count(css[:loc[0]], "\n")+1, css[loc[0]:loc[1]])
+			componentsCSSPath, strings.Count(css[:loc[0]], "\n")+1, css[loc[0]:loc[1]], componentsCSSPath, strings.Count(css[:loc[0]], "\n")+1, css[loc[0]:loc[1]])
 	}
 	if inside == 0 {
 		t.Error(`no colour literal lives in @theme, :root or [data-theme="dark"], so this guard proves nothing | @theme、:root 与 [data-theme="dark"] 中没有任何颜色字面量，该守卫什么也证明不了`)
 	}
 	t.Logf("colour literals in %s: %d inside the token blocks, %d outside | %s 中的颜色字面量：令牌块内 %d 处，令牌块外 %d 处",
-		appCSSPath, inside, outside, appCSSPath, inside, outside)
+		componentsCSSPath, inside, outside, componentsCSSPath, inside, outside)
 }

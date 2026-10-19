@@ -3,6 +3,8 @@ package scaffold
 import (
 	"strings"
 
+	"github.com/spf13/afero"
+
 	"github.com/shibingli/yd/core/errx"
 	"github.com/shibingli/yd/core/jsonx"
 	"github.com/shibingli/yd/tooling/assets"
@@ -123,10 +125,40 @@ func generatedDocs(o Options, v view, m *assets.Manifest) ([]plannedFile, error)
 		return nil, err
 	}
 
-	return []plannedFile{
+	files := []plannedFile{
 		{path: projectPrefix(o.Name) + ".yd.json", content: meta},
 		{path: projectPrefix(o.Name) + v.AssetRoot + "/" + assetCatalogName, content: lock},
-	}, nil
+	}
+
+	// 开启 Tailwind 时把框架组件层原样复制进项目：生成项目的模板使用了 .yd-shell、.yd-table 等
+	// 框架组件类，而项目自己的 yd.css 一旦生成就会遮蔽框架的兜底 yd.css，因此这份组件层必须
+	// 进入项目的 Tailwind 输入，否则页面会在第一次构建后失去全部布局样式。
+	// When Tailwind is on, copy the framework component layer verbatim into the project: the generated
+	// templates use framework component classes such as .yd-shell and .yd-table, and once the project's own
+	// yd.css exists it shadows the framework fallback, so this layer has to be part of the project's Tailwind
+	// input; otherwise the first build strips every layout rule from the page.
+	if o.Tailwind {
+		components, err := frameworkComponentsCSS()
+		if err != nil {
+			return nil, err
+		}
+		files = append(files, plannedFile{
+			path:    projectPrefix(o.Name) + v.AssetRoot + "/static/css/components.css",
+			content: components,
+		})
+	}
+	return files, nil
+}
+
+// frameworkComponentsCSS 读取框架内嵌的管理端组件层，它是生成项目 components.css 的唯一真源。
+// frameworkComponentsCSS reads the framework's embedded admin component layer, the single source of truth for the
+// generated project's components.css.
+func frameworkComponentsCSS() ([]byte, error) {
+	data, err := afero.ReadFile(web.FS(), "static/css/components.css")
+	if err != nil {
+		return nil, errx.WrapDetail(err, ErrTemplateRead, "path=web/static/css/components.css | 路径=web/static/css/components.css")
+	}
+	return data, nil
 }
 
 // trimManifest 复制框架清单并裁剪扩展资产：核心资产全量保留，扩展资产只保留所选扩展对应的那一项。

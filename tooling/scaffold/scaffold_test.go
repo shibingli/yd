@@ -91,6 +91,7 @@ var requiredFiles = []string{
 	"web/i18n/en.yaml",
 	"web/i18n/zh-CN.yaml",
 	"web/static/css/app.css",
+	"web/static/css/components.css",
 	"web/static/js/yd-app.js",
 	"web/templates/layouts/base.html",
 	"web/templates/pages/account.html",

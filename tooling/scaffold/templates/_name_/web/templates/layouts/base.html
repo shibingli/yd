@@ -58,8 +58,8 @@
        项目的 web/static/css/app.css 是 Tailwind 源文件（含 @import "tailwindcss"），不能直接引入浏览器。
        This project's web/static/css/app.css is a Tailwind source file (it carries @import "tailwindcss") and must not
        be linked into the browser as-is.
-    3. 只使用 app.css 的语义化类（yd-*）与 Tailwind 工具类，不写字面色值。
-    3. Only the semantic yd-* classes of app.css and Tailwind utilities are used; no literal colour values.
+    3. 只使用 app.css / components.css 的语义化类（yd-*）与 Tailwind 工具类，不写字面色值。
+    3. Only the semantic yd-* classes of app.css and components.css and Tailwind utilities are used; no literal colour values.
     4. 文案一律经 tr 取词（web/i18n/*.yaml），页面里不写字面文案；缺少目录时 tr 原样回显键名，
        页面结构因此仍然完整。
     4. Every string is looked up through tr (web/i18n/*.yaml) and no literal copy is written into a page; without a
