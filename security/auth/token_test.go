@@ -209,13 +209,15 @@ func TestDisabledUserTokenIsRejected(t *testing.T) {
 	}
 	requireNoError(t, f.svc.DisableUser(testCtx, f.tenantA.ID, f.member.ID), "DisableUser")
 
-	if _, err := f.issuer.Verify(testCtx, token); !errors.Is(err, ErrUserDisabled) {
-		t.Fatalf("Verify of a disabled user want ErrUserDisabled, got %v | 被禁用用户的 Verify 期望 ErrUserDisabled，实际 %v", err, err)
+	// The pre-signature lookup deliberately reports the same ErrTokenInvalid for unknown,
+	// disabled and corrupt accounts, so an unauthenticated caller cannot use the status as an
+	// account oracle. | 验签前的查询对未知、禁用与损坏账号一律报告 ErrTokenInvalid，使未认证调用方
+	// 无法把状态当作账号探针。
+	if _, err := f.issuer.Verify(testCtx, token); !errors.Is(err, ErrTokenInvalid) {
+		t.Fatalf("Verify of a disabled user want ErrTokenInvalid, got %v | 被禁用用户的 Verify 期望 ErrTokenInvalid，实际 %v", err, err)
 	}
-	// The bare jwt.Parse is refused as well, because KeyFunc checks the status before
-	// it hands out the key. | 裸的 jwt.Parse 也会被拒绝，因为 KeyFunc 在交出密钥前已检查状态。
-	if _, err := jwt.Parse(token, f.issuer.KeyFunc, parseOptions(f)); !errors.Is(err, ErrUserDisabled) {
-		t.Fatalf("Parse of a disabled user want ErrUserDisabled, got %v | 被禁用用户的 Parse 期望 ErrUserDisabled，实际 %v", err, err)
+	if _, err := jwt.Parse(token, f.issuer.KeyFunc, parseOptions(f)); !errors.Is(err, ErrTokenInvalid) {
+		t.Fatalf("Parse of a disabled user want ErrTokenInvalid, got %v | 被禁用用户的 Parse 期望 ErrTokenInvalid，实际 %v", err, err)
 	}
 	// Re-enabling the user revives the very same token, proving the key was intact. | 重新启用后同一个令牌恢复可用，说明密钥本身完好。
 	u, err := f.svc.GetUser(testCtx, f.tenantA.ID, f.member.ID)

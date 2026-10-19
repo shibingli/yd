@@ -90,7 +90,17 @@ func builtinFor(name string) (builtinID, bool) {
 }
 
 // callBuiltin invokes a builtin. | callBuiltin 调用内建函数。
-func callBuiltin(_ *execState, id builtinID, args []any) (any, error) {
+func callBuiltin(_ *execState, id builtinID, args []any) (result any, err error) {
+	// Builtins operate on reflect.Values (index/slice/call), which panic on out-of-range or
+	// unaddressable inputs exactly like text/template. Convert the panic into an execution error
+	// so one bad template cannot take the request goroutine down or skip buffer release.
+	// | builtin 直接操作 reflect.Value（index/slice/call），越界或不可寻址输入会像
+	// text/template 一样 panic。把 panic 转成执行错误，使一个坏模板不能拖垮请求协程或跳过缓冲释放。
+	defer func() {
+		if r := recover(); r != nil {
+			result, err = nil, execErr("error calling builtin: %[1]v | 调用内建函数出错：%[1]v", r)
+		}
+	}()
 	switch id {
 	case builtinAnd:
 		return evalAndOrValues(args, false), nil
@@ -209,7 +219,7 @@ func builtinIndexValues(args []any) (any, error) {
 		}
 		switch item.Kind() {
 		case reflect.Array, reflect.Slice, reflect.String:
-			n, err := indexNumber(idx, item.Len())
+			n, err := indexNumber(idx, item.Len(), false)
 			if err != nil {
 				return nil, err
 			}
@@ -233,7 +243,7 @@ func builtinIndexValues(args []any) (any, error) {
 }
 
 // indexNumber converts an index value to an int within [0, cap]. | indexNumber 把下标值转为 [0, cap] 内的 int。
-func indexNumber(v reflect.Value, capacity int) (int, error) {
+func indexNumber(v reflect.Value, capacity int, allowEnd bool) (int, error) {
 	var x int64
 	switch v.Kind() {
 	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
@@ -245,7 +255,7 @@ func indexNumber(v reflect.Value, capacity int) (int, error) {
 	default:
 		return 0, execErr("cannot index with type %[1]s | 不能用类型 %[1]s 取下标", v.Type())
 	}
-	if x < 0 || int(x) < 0 || int(x) > capacity {
+	if x < 0 || int(x) < 0 || (allowEnd && int(x) > capacity) || (!allowEnd && int(x) >= capacity) {
 		return 0, execErr("index out of range: %[1]d | 下标越界：%[1]d", x)
 	}
 	return int(x), nil
@@ -279,7 +289,7 @@ func builtinSliceValues(args []any) (any, error) {
 	idx := [3]int{0, item.Len()}
 	for i, raw := range indexes {
 		v, _ := derefValue(raw)
-		n, err := indexNumber(v, capacity)
+		n, err := indexNumber(v, capacity, true)
 		if err != nil {
 			return nil, err
 		}
@@ -369,7 +379,13 @@ func equalPair(a, b any) (bool, error) {
 	if ka == compareInvalid || kb == compareInvalid {
 		an := a == nil || isNilMarker(a)
 		bn := b == nil || isNilMarker(b)
-		return an && bn, nil
+		if an || bn {
+			return an && bn, nil
+		}
+		// Structs, pointers, arrays and channels are not in the basic kind table but are still
+		// comparable; fall through to the generic reflect comparison (and to the proper
+		// non-comparable error for slices, maps and funcs). | 结构体、指针、数组与通道不在基础种类
+		// 表中，但仍可比较；继续走通用 reflect 比较（切片、映射与函数则得到正确的不可比较错误）。
 	}
 	if ka != kb {
 		switch {

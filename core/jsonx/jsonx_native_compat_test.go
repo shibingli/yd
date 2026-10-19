@@ -6,6 +6,7 @@ import (
 	"bytes"
 	stdjson "encoding/json"
 	"errors"
+	"io"
 	"math"
 	"reflect"
 	"strings"
@@ -517,6 +518,9 @@ func TestNativeDecoderStreamSecurity(t *testing.T) {
 	var v any
 	if err := jsonx.NewDecoder(strings.NewReader("{}")).Decode(v); err == nil {
 		t.Fatal("non-pointer target must return an error | 非指针目标必须返回错误")
+	}
+	if err := jsonx.NewDecoder(nil).Decode(&v); !errors.Is(err, io.EOF) {
+		t.Fatalf("nil reader Decode = %v, want io.EOF (no panic) | nil 读取器应返回 io.EOF 而不是 panic", err)
 	}
 }
 

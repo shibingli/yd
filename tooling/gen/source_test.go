@@ -5,9 +5,11 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"testing/fstest"
 
 	"github.com/spf13/afero"
 
+	"github.com/shibingli/yd/core/afs"
 	"github.com/shibingli/yd/tooling/gen"
 )
 
@@ -290,5 +292,22 @@ func TestModelFromSourceGeneratesCompilableModel(t *testing.T) {
 	}
 	if len(res.Written) != len(wantArtifacts) || len(res.Skipped) != 0 {
 		t.Errorf("生成清单 = %d 写入 / %d 跳过，期望 %d / 0", len(res.Written), len(res.Skipped), len(wantArtifacts))
+	}
+}
+
+// TestModelFromSourceReadsEmbeddedTree proves source parsing works on an io/fs backend: its names
+// must stay slash-separated, which filepath.Join does not guarantee on Windows. |
+// TestModelFromSourceReadsEmbeddedTree 证明源码解析在 io/fs 后端上可用：路径必须保持斜杠分隔，
+// 而 filepath.Join 在 Windows 上并不保证这一点。
+func TestModelFromSourceReadsEmbeddedTree(t *testing.T) {
+	fsys := afs.NewEmbed(fstest.MapFS{
+		"internal/model/post.go": &fstest.MapFile{Data: []byte(sourcePost)},
+	})
+	m, err := gen.ModelFromSource(fsys, "internal/model", "Post", gen.StructOptions{Module: "cms"})
+	if err != nil {
+		t.Fatalf("ModelFromSource 返回错误 | returned an error: %v", err)
+	}
+	if m.Table != "cms_posts" {
+		t.Fatalf("Table = %q，期望 cms_posts | want cms_posts", m.Table)
 	}
 }

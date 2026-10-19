@@ -3,6 +3,8 @@ package server
 import (
 	"context"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 
 	"golang.org/x/crypto/acme/autocert"
@@ -31,6 +33,31 @@ type acmeManager struct {
 	hostPolicy autocert.HostPolicy
 }
 
+// defaultACMECacheDir returns where issued certificates are cached when the configuration does not
+// say. | defaultACMECacheDir 返回配置未指定时已签发证书的缓存位置。
+//
+// The directory is absolute on purpose. A service manager starts the process in a fixed system
+// directory (Windows SCM uses System32, systemd typically "/"), so a relative default would write
+// certificates into a system directory or fail there for an unprivileged account. The user cache
+// directory is per-account and writable; when the platform cannot report one, the executable's
+// directory is the next best absolute location. | 该目录刻意取绝对路径。服务管理器在固定的系统目录
+// 启动进程（Windows SCM 使用 System32，systemd 通常是 "/"），相对默认值会把证书写进系统目录，或让
+// 非特权账号在那里失败。用户缓存目录按账号隔离且可写；平台无法给出时，可执行文件所在目录是下一个
+// 绝对位置。
+func defaultACMECacheDir() string {
+	if dir, err := os.UserCacheDir(); err == nil && strings.TrimSpace(dir) != "" {
+		return filepath.Join(dir, "yd", "acme")
+	}
+	if exe, err := os.Executable(); err == nil && strings.TrimSpace(exe) != "" {
+		return filepath.Join(filepath.Dir(exe), ".yd", "acme-cache")
+	}
+	// No absolute location is available; keep the documented relative name rather than inventing
+	// one. An operator who needs ACME behind a service manager should set server.acme.cache_dir. |
+	// 没有任何绝对位置可用；保留文档中的相对名称，而不是凭空编造。在服务管理器后面使用 ACME 的运维
+	// 应当显式配置 server.acme.cache_dir。
+	return ".yd/acme-cache"
+}
+
 // newACMEManager builds the certificate manager. | newACMEManager 构造证书管理器。
 //
 // Certificates are cached on disk so renewals survive restarts; the host
@@ -43,7 +70,7 @@ func newACMEManager(cfg ACMEConfig) (*acmeManager, error) {
 	}
 	cacheDir := cfg.CacheDir
 	if cacheDir == "" {
-		cacheDir = ".yd/acme-cache"
+		cacheDir = defaultACMECacheDir()
 	}
 	policy := autocert.HostWhitelist(cfg.Domains...)
 	if !cfg.HostPolicyStrict {

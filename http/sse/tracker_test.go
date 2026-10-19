@@ -152,8 +152,14 @@ func TestWriterSetShutdownReleasesSubscribers(t *testing.T) {
 // TestWriterSetNilBrokerAndUntrackOnClose 验证无广播器以及处理器主动关闭写入器的情况。
 // TestWriterSetNilBrokerAndUntrackOnClose verifies the no-broker case and a handler closing its own writer.
 func TestWriterSetNilBrokerAndUntrackOnClose(t *testing.T) {
+	// A set without a broker must shut down without panicking; it is a separate set because a
+	// shutdown closes the registration barrier and would make the tracking below a no-op. | 无广播器的集合
+	// 关闭时不得 panic；这里用独立集合，因为关闭会合上登记屏障，让下面的登记变成空操作。
+	empty := NewWriterSet(nil)
+	empty.Shutdown()
+	empty.Shutdown()
+
 	set := NewWriterSet(nil)
-	set.Shutdown() // 无广播器：不得 panic | no broker: must not panic
 	if untrack := set.Track(nil); untrack == nil {
 		t.Fatal("Track(nil) must return a callable untrack function | Track(nil) 必须返回可调用的取消登记函数")
 	} else {
@@ -180,4 +186,28 @@ func TestWriterSetNilBrokerAndUntrackOnClose(t *testing.T) {
 	default:
 		t.Fatal("Done must already be closed after Close | Close 后 Done 必须已关闭")
 	}
+}
+
+// TestWriterSetRejectsWritersAfterShutdown proves the shutdown barrier is closed: a stream that
+// registers after Shutdown is terminated immediately instead of waiting for a sweep that will
+// never come. | TestWriterSetRejectsWritersAfterShutdown 证明退出屏障是关闭的：Shutdown 之后才登记的
+// 事件流会被立即终止，而不是等待一轮永远不会到来的清扫。
+func TestWriterSetRejectsWritersAfterShutdown(t *testing.T) {
+	set := NewWriterSet(NewBroker(BrokerOptions{}))
+	set.Shutdown()
+
+	w, err := NewWriter(httptest.NewRecorder(), Options{Tracker: set})
+	if err != nil {
+		t.Fatalf("NewWriter: %v", err)
+	}
+	select {
+	case <-w.Done():
+	default:
+		t.Fatal("Shutdown 之后登记的写入器必须立即关闭 | a writer tracked after Shutdown must close immediately")
+	}
+	if got := set.Len(); got != 0 {
+		t.Errorf("追踪写入器数 = %d，期望 0 | tracked writers = %d, want 0", got, got)
+	}
+	// A second shutdown must be a no-op rather than a panic or a second broker close. | 第二次关闭必须是无操作，而不是 panic 或重复关闭广播器。
+	set.Shutdown()
 }

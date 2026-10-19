@@ -4,7 +4,6 @@ import (
 	"bufio"
 	"bytes"
 	"context"
-	"encoding/json"
 	"errors"
 	"io"
 	"net"
@@ -723,6 +722,21 @@ func TestLocalReplaceAddsGoModReplace(t *testing.T) {
 	}
 	if !strings.Contains(gomod, "replace github.com/shibingli/yd => /srv/yd") {
 		t.Errorf("go.mod 缺少 replace 指向本地仓库:\n%s", gomod)
+	}
+}
+
+// TestLocalReplaceUNCIsQuoted proves a UNC-style replacement path is quoted: unquoted, the modfile
+// lexer reads the leading "//" as a comment and drops the replacement target. | TestLocalReplaceUNCIsQuoted
+// 证明 UNC 形态的替换路径会加引号：不加引号时 modfile 词法器把开头的 "//" 当作注释，替换目标会被丢掉。
+func TestLocalReplaceUNCIsQuoted(t *testing.T) {
+	o := scaffold.DefaultOptions("unc-app")
+	o.LocalReplace = "//server/share/yd"
+	pr, _ := generateMem(t, o)
+
+	gomod := pr.read("go.mod")
+	want := `replace github.com/shibingli/yd => "//server/share/yd"`
+	if !strings.Contains(gomod, want) {
+		t.Errorf("go.mod 未引用 UNC 路径:\n got:\n%s\nwant substring: %s", gomod, want)
 	}
 }
 
@@ -2417,9 +2431,12 @@ func assertAnnotatedOperations(t *testing.T, doc string) {
 	t.Helper()
 
 	var parsed struct {
-		Paths map[string]map[string]json.RawMessage `json:"paths"`
+		Paths map[string]map[string]struct {
+			Summary string   `json:"summary"`
+			Tags    []string `json:"tags"`
+		} `json:"paths"`
 	}
-	if err := json.Unmarshal([]byte(doc), &parsed); err != nil {
+	if err := jsonx.Unmarshal([]byte(doc), &parsed); err != nil {
 		t.Fatalf("解析 /openapi.json 失败: %v\n%s", err, doc)
 	}
 
@@ -2434,14 +2451,7 @@ func assertAnnotatedOperations(t *testing.T, doc string) {
 				continue
 			}
 
-			var op struct {
-				Summary string   `json:"summary"`
-				Tags    []string `json:"tags"`
-			}
-			if err := json.Unmarshal(raw, &op); err != nil {
-				t.Errorf("解析 %s %s 的操作对象失败: %v", method, path, err)
-				continue
-			}
+			op := raw
 			if op.Summary == "" || len(op.Tags) == 0 {
 				t.Errorf("%s %s 缺少注解摘要或标签（注解未生效？summary=%q tags=%v）", method, path, op.Summary, op.Tags)
 				continue

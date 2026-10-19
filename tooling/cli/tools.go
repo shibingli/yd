@@ -14,6 +14,7 @@ import (
 	"strings"
 
 	"github.com/shibingli/yd/core/errx"
+	"github.com/shibingli/yd/tooling/ko"
 	"github.com/shibingli/yd/tooling/tools"
 	"github.com/spf13/pflag"
 )
@@ -46,6 +47,18 @@ const (
 const toolsUsageLine = "yd tools [check]\n" +
 	"      yd tools install [name...]"
 
+// Configuration keys read by the installer and the probe. | 安装器与探测读取的配置键。
+const (
+	// keyNetProxy is the HTTP proxy used by every yd-initiated download (assets and tailwindcss);
+	// empty means the standard HTTP_PROXY / HTTPS_PROXY / NO_PROXY environment. | keyNetProxy 是
+	// yd 发起的所有下载（资产与 tailwindcss）使用的 HTTP 代理；为空表示标准 HTTP_PROXY /
+	// HTTPS_PROXY / NO_PROXY 环境变量。
+	keyNetProxy = "http.proxy"
+	// keyTailwindURL overrides the tailwindcss release asset URL, so a mirror can be used where
+	// GitHub is unreachable. | keyTailwindURL 覆盖 tailwindcss 发布资产 URL，使 GitHub 不可达时可用镜像。
+	keyTailwindURL = "tailwind.url"
+)
+
 // toolsFlags keeps the tools command's flag set, installed by registerToolsFlags. | toolsFlags 保存 tools
 // 命令的标志集，由 registerToolsFlags 安装。
 var toolsFlags *pflag.FlagSet
@@ -59,10 +72,12 @@ func init() {
 			"resolver looks, so nothing has to be added to PATH.\n" +
 			"报告本机可用的可选外部工具，并把缺失的那些安装到项目内的 " + tools.LocalToolDir + " 目录——那是每个解析器\n" +
 			"最先查看的位置，因此无需改动 PATH。\n" +
-			"The four tools are betteralign, ko, tailwindcss and docker; only the first two can be installed\n" +
-			"automatically, and only `yd tools install` ever touches the network.\n" +
-			"四个工具是 betteralign、ko、tailwindcss 与 docker；只有前两个可以自动安装，且只有 `yd tools install`\n" +
-			"会接触网络。\n" +
+			"The four tools are betteralign, ko, tailwindcss and docker; betteralign, ko and tailwindcss can be\n" +
+			"installed automatically (tailwindcss downloads a release binary and honours http.proxy and\n" +
+			"tailwind.url), while docker is only reported. Only `yd tools install` ever touches the network.\n" +
+			"四个工具是 betteralign、ko、tailwindcss 与 docker；betteralign、ko 与 tailwindcss 可以自动安装\n" +
+			"（tailwindcss 下载发布二进制，并遵循 http.proxy 与 tailwind.url），docker 只做报告。只有\n" +
+			"`yd tools install` 会接触网络。\n" +
 			"check never fails a build: a missing optional tool is a hint, not an error.\n" +
 			"check 绝不让构建失败：可选工具缺失是提示，不是错误。",
 		Usage: toolsUsageLine,
@@ -125,15 +140,40 @@ func toolsRequest(fs *pflag.FlagSet) (string, []string, error) {
 // never fail a build - that is what `yd tools install` is for. | 即使有工具缺失它也返回 nil：这些工具按设计是
 // 可选的，报告命令绝不该让构建失败——安装是 `yd tools install` 的职责。
 func runToolsCheck(env *Env) error {
-	dir := env.WorkDir
-	printToolsStatus(env, tools.Check(dir))
-	if hints := tools.Hints(dir); len(hints) > 0 {
+	opts := toolsProbeOptions(env)
+	printToolsStatus(env, tools.CheckWith(opts))
+	if hints := tools.HintsWith(opts); len(hints) > 0 {
 		fmt.Fprintf(env.Out, "hints | 提示:\n")
 		for _, line := range hints {
 			fmt.Fprintf(env.Out, "%s\n", line)
 		}
 	}
 	return nil
+}
+
+// toolsProbeOptions maps the layered configuration onto the probe's executables. | toolsProbeOptions
+// 把分层配置映射为探测所用的可执行文件。
+//
+// The three keys are the same ones the commands themselves read (align.bin, ko.binary,
+// tailwind.bin), so `yd tools check` and `yd align`/`yd ko`/`yd dev` agree on what is available;
+// leaving them empty keeps the env -> .yd/tools -> PATH tail of each chain unchanged. | 三个键与各命令
+// 自身读取的键完全一致（align.bin、ko.binary、tailwind.bin），因此 `yd tools check` 与
+// `yd align`/`yd ko`/`yd dev` 对「什么可用」的判断一致；留空则各链条尾部「环境变量 → .yd/tools → PATH」不变。
+func toolsProbeOptions(env *Env) tools.Options {
+	opts := tools.Options{
+		Dir:         env.WorkDir,
+		Proxy:       configString(env, keyNetProxy),
+		TailwindURL: configString(env, keyTailwindURL),
+	}
+	if env.Cfg == nil {
+		return opts
+	}
+	opts.Binaries = map[string]string{
+		tools.NameBetteralign: configString(env, keyAlignBin),
+		tools.NameKo:          configString(env, ko.KeyBinary),
+		tools.NameTailwindcss: configString(env, keyDevTailwindBin),
+	}
+	return opts
 }
 
 // printToolsStatus writes one row per registered tool. | printToolsStatus 为每个已登记工具写出一行。
@@ -194,10 +234,7 @@ func runToolsInstall(ctx context.Context, env *Env, names []string) error {
 // No tool name means every installable entry, which is what keeps `yd tools install` a one-word
 // command on a fresh machine. | 没有工具名表示全部可安装项，正是它让 `yd tools install` 在崭新的机器上只需一个词。
 func installTools(ctx context.Context, env *Env, names []string) (*tools.Report, error) {
-	if len(names) == 0 {
-		return tools.InstallAll(ctx, env.WorkDir, commandLogger(env))
-	}
-	return tools.Install(ctx, env.WorkDir, names, commandLogger(env))
+	return tools.InstallWith(ctx, toolsProbeOptions(env), names, commandLogger(env))
 }
 
 // printToolsReport writes the closing summary of an installation run. | printToolsReport 写出安装运行的收尾摘要。

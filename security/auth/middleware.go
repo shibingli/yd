@@ -174,8 +174,35 @@ func deny(c *router.Ctx, handle func(*router.Ctx, error), err error) {
 // The message is the sentinel text, which is bilingual and therefore carries no
 // internal detail beyond the classification. | 正文即哨兵文案，本身中英同步，除分类外不携带任何内部细节。
 func defaultErrorHandler(c *router.Ctx, err error) {
-	if writeErr := c.JSON(statusFor(err), map[string]string{"error": err.Error()}); writeErr != nil {
+	status := statusFor(err)
+	// Log the wrapped error server-side, but never echo it: errx keeps the underlying driver text
+	// on the chain, so err.Error() can disclose a DB host, path or account state to an
+	// unauthenticated caller. | 在服务端记录完整错误，但绝不回显：errx 会把底层驱动文案保留在
+	// 错误链上，err.Error() 可能向未认证调用方泄露数据库主机、路径或账号状态。
+	logx.Default().Warn("auth: request rejected | auth：请求被拒绝",
+		logx.Int("status", status), logx.Err(err))
+	if writeErr := c.JSON(status, map[string]string{"error": authErrorMessage(status)}); writeErr != nil {
 		logx.Default().Warn("auth: failed to write the error response | auth：写出错误响应失败", logx.Err(writeErr))
+	}
+}
+
+// authErrorMessage returns the fixed, bilingual body of one status class. | authErrorMessage
+// 返回某个状态类别固定的中英文正文。
+func authErrorMessage(status int) string {
+	// Use the declared sentinels: their text is static and bilingual, so it classifies the failure
+	// without echoing any wrapped store/driver detail. | 使用已声明的哨兵：其文案静态且中英同步，
+	// 既能说明失败类别，又不会回显任何被包装的存储/驱动细节。
+	switch status {
+	case http.StatusForbidden:
+		return ErrForbidden.Error()
+	case http.StatusNotFound:
+		return ErrNotFound.Error()
+	case http.StatusConflict:
+		return ErrConflict.Error()
+	case http.StatusBadRequest:
+		return ErrInvalidInput.Error()
+	default:
+		return ErrTokenInvalid.Error()
 	}
 }
 

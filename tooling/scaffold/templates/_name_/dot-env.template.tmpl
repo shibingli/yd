@@ -70,8 +70,8 @@ YD_GUOMI_SM2_PRIVATE_KEY=
 
 # 鉴权与会话：主密钥封装每个用户的 sec_key，令牌有效期决定登录会话的时长。
 # Authentication and sessions: the master key seals every user's sec_key and the token lifetime bounds the session.
-# 留空即使用脚手架内置的开发密钥——仅供开发，生产环境必须换成密钥管理服务下发的取值。
-# Empty selects the scaffold's built-in development key — development only; production must inject one from a key service.
+# 留空时仅 development 使用脚手架内置的开发密钥并告警；其它环境留空会拒绝启动，生产环境必须注入密钥管理服务下发的取值。
+# Empty selects the scaffold's built-in development key in development only; outside development an empty key refuses to start.
 YD_AUTH_MASTER_KEY=
 YD_AUTH_TOKEN_TTL=2h
 

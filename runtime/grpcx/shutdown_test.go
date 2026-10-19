@@ -63,9 +63,10 @@ func TestShutdownForceStopsAfterDeadline(t *testing.T) {
 	if !f.grace.Load() {
 		t.Fatal("must attempt the graceful stop first | 必须首先尝试优雅停止")
 	}
-	if !f.stopped.Load() {
-		t.Fatal("must force a stop once the grace period is over | 宽限期过后必须强制停止")
-	}
+	// Stop is detached on purpose (it may block behind grpc-go's server mutex), so wait for it
+	// instead of assuming it already ran when Shutdown returned. | Stop 刻意放在后台（它可能阻塞在
+	// grpc-go 的服务器互斥锁之后），因此要等待它实际开始，而不能假设 Shutdown 返回时它已经执行。
+	waitForStopped(t, &f.stopped, "must force a stop once the grace period is over | 宽限期过后必须强制停止")
 	if elapsed > 2*time.Second {
 		t.Fatalf("强制停止耗时 %v, 期望接近宽限期", elapsed)
 	}
@@ -214,5 +215,18 @@ func TestShutdownStopsIdleServer(t *testing.T) {
 	case <-serveReturned:
 	case <-time.After(3 * time.Second):
 		t.Fatal("gRPC Serve did not return after the stop | gRPC Serve 未在停止后返回")
+	}
+}
+
+// waitForStopped waits until flag is set, so a detached forced stop is never asserted before it
+// starts. | waitForStopped 等待标志置位，避免在分离的强制停止尚未开始时就断言。
+func waitForStopped(t *testing.T, flag *atomic.Bool, message string) {
+	t.Helper()
+	deadline := time.Now().Add(2 * time.Second)
+	for !flag.Load() {
+		if time.Now().After(deadline) {
+			t.Fatal(message)
+		}
+		time.Sleep(time.Millisecond)
 	}
 }

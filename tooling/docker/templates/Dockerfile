@@ -2,7 +2,7 @@
 # Invoked by `yd docker`; a project Dockerfile at the repository root always wins over this template. | 由 `yd docker` 调用；仓库根目录若存在项目 Dockerfile，则优先于本模板。
 
 # Stage 1: build a fully static, dependency-free single binary. | 阶段一：编译出完全静态、无依赖的单文件可执行程序。
-FROM golang:1.27-alpine AS builder
+FROM golang:{{GO_MAJOR_MINOR}}-alpine AS builder
 
 WORKDIR /src
 

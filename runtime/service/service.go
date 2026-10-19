@@ -85,9 +85,6 @@ const (
 	KeyHTTP2ExtendedConnect = "server.http2.extended_connect"
 )
 
-// keyAppName is the fallback configuration key of the service name. | keyAppName 是服务名的回退配置键。
-const keyAppName = "app.name"
-
 // fallbackServiceName is the service name used when neither the options nor the executable yield
 // one, i.e. when a caller passes an entirely empty Options value. | fallbackServiceName 是选项与程序都无法给出名字时
 // （即调用方传入完全空的 Options）使用的服务名。
@@ -147,20 +144,24 @@ type Options struct {
 
 // OptionsFromConfig reads the service options from the layered configuration. | OptionsFromConfig 从分层配置读取服务选项。
 //
-// The service name falls back to app.name, the display name to the service name and the description
-// to the display name, so a project that only sets app.name still yields a complete service entry.
-// A nil configuration yields the zero Options, which New fills with the executable base name.
-// | 服务名回退到 app.name，显示名回退到服务名，描述回退到显示名，因此只设置了 app.name 的项目也能得到完整的服务条目。
-// 配置为 nil 时返回零值 Options，由 New 用程序的基础名补齐。
+// The display name falls back to the service name and the description to the display name.
+// Service.name itself has no configuration fallback: the installer and the runtime must resolve
+// the same name, and an empty value is filled by the caller (the generated entry uses the project
+// name; New uses the executable base name). A nil configuration yields the zero Options.
+// | 显示名回退到服务名，描述回退到显示名。service.name 本身没有配置回退：安装器与运行时必须解析出
+// 同一个名称，空值由调用方补齐（生成项目的入口用项目名；New 用可执行文件基础名）。配置为 nil 时
+// 返回零值 Options。
 func OptionsFromConfig(c *config.Config) Options {
 	if c == nil {
 		return Options{}
 	}
 
+	// Only service.name is authoritative here. Falling back to app.name makes the runtime
+	// disagree with the installer, which resolves the project name; an empty name is left for
+	// the caller (generated entries use the project name, New uses the executable base name).
+	// | 这里只认 service.name。回退到 app.name 会让运行时与安装器解析出的项目名不一致；
+	// 空名称留给调用方处理（生成项目的入口用项目名，New 用可执行文件基础名）。
 	name := strings.TrimSpace(c.GetString(KeyName))
-	if name == "" {
-		name = strings.TrimSpace(c.GetString(keyAppName))
-	}
 	display := strings.TrimSpace(c.GetString(KeyDisplayName))
 	if display == "" {
 		display = name

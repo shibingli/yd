@@ -107,7 +107,12 @@ func ResolveTailwindBin(dir, bin string) (string, error) {
 	if info, err := os.Stat(local); err == nil && !info.IsDir() {
 		return local, nil
 	}
-	if found, err := exec.LookPath(tailwindBinName()); err == nil {
+	// Look the command up without the platform file name: on Windows the standalone compiler is a
+	// real .exe, but package managers often expose it as a .cmd shim, and LookPath("tailwindcss.exe")
+	// would miss that shim while PATHEXT-aware LookPath("tailwindcss") finds both. | 查找时不要带上
+	// 平台文件名：Windows 上 standalone 编译器确实是 .exe，但包管理器常以 .cmd 垫片暴露它；
+	// LookPath("tailwindcss.exe") 会漏掉垫片，而感知 PATHEXT 的 LookPath("tailwindcss") 两者都能找到。
+	if found, err := exec.LookPath("tailwindcss"); err == nil {
 		return found, nil
 	}
 	return "", errx.Detail(ErrTailwindNotFound,

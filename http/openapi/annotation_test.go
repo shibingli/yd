@@ -274,3 +274,27 @@ func TestBuilderAddAnnotations(t *testing.T) {
 		t.Errorf("orphan annotation must not create a path | 游离注解不应创建路径")
 	}
 }
+
+// TestParseResponsesDescriptionOnlyAndSpacedCodes covers two silently-wrong translations:
+// a quoted description must not become a component reference, and a code list with spaces must
+// not consume the second code as the type token. | TestParseResponsesDescriptionOnlyAndSpacedCodes
+// 覆盖两种静默出错的翻译：引号说明不得变成组件引用；带空格的码表不得把第二个码当成类型标记。
+func TestParseResponsesDescriptionOnlyAndSpacedCodes(t *testing.T) {
+	desc := parseResponses(`204 "No Content"`)
+	if len(desc) != 1 {
+		t.Fatalf("description-only response count = %d", len(desc))
+	}
+	if desc[0].Code != 204 || desc[0].Ref != "" || desc[0].schema != nil || desc[0].Description != "No Content" {
+		t.Fatalf("description-only response = %+v", desc[0])
+	}
+
+	codes := parseResponses(`200, 201 {object} model.User "ok"`)
+	if len(codes) != 2 || codes[0].Code != 200 || codes[1].Code != 201 {
+		t.Fatalf("spaced code list = %+v", codes)
+	}
+	for _, r := range codes {
+		if r.Ref != refForType("model.User") || r.Description != "ok" {
+			t.Fatalf("spaced code list entry = %+v", r)
+		}
+	}
+}

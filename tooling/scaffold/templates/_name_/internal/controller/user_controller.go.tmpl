@@ -10,6 +10,7 @@ package controller
 
 import (
 	"net/http"
+	"strings"
 
 	"{{ .Module }}/internal/model"
 	"{{ .Module }}/internal/service"
@@ -121,6 +122,10 @@ func (c *Controller) UpdateUser(ctx *router.Ctx) {
 	if !ok {
 		return
 	}
+	if !c.canManageUser(ctx, tenantID, ctx.Param("id")) {
+		c.failService(ctx, auth.ErrForbidden)
+		return
+	}
 
 	updated, err := c.users.Update(ctx.Request.Context(), tenantID, service.UpdateUserInput{
 		UserID:      ctx.Param("id"),
@@ -167,6 +172,32 @@ func (c *Controller) SetUserRoles(ctx *router.Ctx) {
 
 	userID := ctx.Param("id")
 	roles := formValues(ctx, FieldRoles)
+	if !c.canManageUser(ctx, tenantID, userID) {
+		c.failService(ctx, auth.ErrForbidden)
+		return
+	}
+	// The requested role set must also stay inside the actor's own capabilities, so admin cannot
+	// promote itself or anyone else to owner. | 申请的角色集合同样不得超出管理员自身能力，
+	// 因此 admin 不能把自己或他人提升为 owner。
+	catalogue, err := c.roles.List(ctx.Request.Context(), tenantID)
+	if err != nil {
+		c.failService(ctx, err)
+		return
+	}
+	byName := make(map[string]model.Role, len(catalogue))
+	for _, role := range catalogue {
+		byName[strings.ToLower(role.Name)] = role
+	}
+	wanted := make([]model.Permission, 0, len(roles))
+	for _, name := range roles {
+		if role, ok := byName[strings.ToLower(strings.TrimSpace(name))]; ok {
+			wanted = append(wanted, role.Permissions...)
+		}
+	}
+	if !c.actorHoldsAll(ctx, wanted) {
+		c.failService(ctx, auth.ErrForbidden)
+		return
+	}
 	if err := c.users.SetRoles(ctx.Request.Context(), tenantID, userID, roles); err != nil {
 		c.failService(ctx, err)
 		return
@@ -206,6 +237,10 @@ func (c *Controller) SetUserStatus(ctx *router.Ctx) {
 		return
 	}
 	userID := ctx.Param("id")
+	if !c.canManageUser(ctx, tenantID, userID) {
+		c.failService(ctx, auth.ErrForbidden)
+		return
+	}
 
 	var err error
 	var message string
@@ -256,6 +291,10 @@ func (c *Controller) SetUserPassword(ctx *router.Ctx) {
 		return
 	}
 	userID := ctx.Param("id")
+	if !c.canManageUser(ctx, tenantID, userID) {
+		c.failService(ctx, auth.ErrForbidden)
+		return
+	}
 
 	if err := c.users.SetPassword(ctx.Request.Context(), tenantID, userID, payload(ctx, FieldPassword), scheme(ctx)); err != nil {
 		c.failService(ctx, err)
@@ -294,6 +333,10 @@ func (c *Controller) RotateUserSecKey(ctx *router.Ctx) {
 		return
 	}
 	userID := ctx.Param("id")
+	if !c.canManageUser(ctx, tenantID, userID) {
+		c.failService(ctx, auth.ErrForbidden)
+		return
+	}
 
 	if err := c.users.RotateSecKey(ctx.Request.Context(), tenantID, userID); err != nil {
 		c.failService(ctx, err)

@@ -43,7 +43,16 @@ func (c *Ctx) ClientIP(trusted []netip.Prefix) string {
 	if !ipTrusted(peer, trusted) {
 		return peer
 	}
-	if raw := c.Request.Header.Get("X-Forwarded-For"); raw != "" {
+	// X-Forwarded-For may arrive as several header lines (a proxy appends its own line). Header.Get
+	// returns only the first line, so walking it would both miss hops and let a client-controlled
+	// first line win. Join every line in wire order before parsing. | X-Forwarded-For 可能以多行
+	// 头部到达（代理会追加自己的一行）。Header.Get 只返回第一行，按它遍历既会漏掉跳数，又会
+	// 让客户端控制的第一行胜出。解析前按线上顺序拼接所有行。
+	if lines := c.Request.Header.Values("X-Forwarded-For"); len(lines) > 0 {
+		raw := strings.Join(lines, ",")
+		if raw == "" {
+			return peer
+		}
 		hops, ok := parseForwarded(raw)
 		if !ok {
 			return peer

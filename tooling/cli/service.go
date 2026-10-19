@@ -326,10 +326,10 @@ func serviceBinary(ctx context.Context, env *Env, fs *pflag.FlagSet, action serv
 // directory. | serviceDir 返回解析产物所用的项目目录：--dir，否则工作目录。
 func serviceDir(env *Env, fs *pflag.FlagSet) string {
 	if dir := strings.TrimSpace(flagString(fs, flagServiceDir)); dir != "" {
-		if env != nil && env.WorkDir != "" && !filepath.IsAbs(dir) {
-			return filepath.Join(env.WorkDir, dir)
+		if env != nil {
+			return resolveUserPath(env.WorkDir, dir)
 		}
-		return dir
+		return resolveUserPath("", dir)
 	}
 	if env != nil && env.WorkDir != "" {
 		return env.WorkDir
@@ -347,13 +347,13 @@ func serviceArtifacts(dir, project string) []string {
 
 // serviceResolvePath resolves a relative path against the working directory. | serviceResolvePath 把相对路径按工作目录展开。
 func serviceResolvePath(env *Env, path string) string {
-	if path == "" || filepath.IsAbs(path) {
+	if path == "" {
 		return path
 	}
-	if env != nil && env.WorkDir != "" {
-		return filepath.Join(env.WorkDir, path)
+	if env != nil {
+		return resolveUserPath(env.WorkDir, path)
 	}
-	return path
+	return resolveUserPath("", path)
 }
 
 // serviceIsFile reports whether path exists and is a regular file. | serviceIsFile 报告 path 是否存在且为普通文件。
@@ -394,7 +394,7 @@ func serviceBuildOptions(env *Env, dir, project string, log *logx.Logger) build.
 	return build.Options{
 		Dir:          dir,
 		Name:         project,
-		Package:      serviceEntry(env, dir),
+		Package:      projectEntry(env, dir),
 		Tailwind:     build.TailwindOptions{Enabled: true},
 		TrimPath:     true,
 		Version:      version.Version,
@@ -405,10 +405,13 @@ func serviceBuildOptions(env *Env, dir, project string, log *logx.Logger) build.
 	}
 }
 
-// serviceEntry returns the build entry of the project: ./cmd/app when that main package exists,
-// else the module root, which is what a framework library or a hand written project uses. | serviceEntry
-// 返回项目的构建入口：存在 cmd/app 主包时为 ./cmd/app，否则为模块根，即框架库或手写项目的形态。
-func serviceEntry(env *Env, dir string) string {
+// projectEntry returns the Go build entry of the project rooted at dir: ./cmd/app when that
+// scaffolded main package exists, else the module root, which is what a framework library or a
+// hand-written project uses. yd dev, yd build and the service command all compile through it, so
+// every command agrees on where the program starts. | projectEntry 返回 dir 下项目的 Go 构建入口：
+// 存在脚手架主包时为 ./cmd/app，否则为模块根，即框架库或手写项目的形态。yd dev、yd build 与 service
+// 命令都经它选择入口，因此各命令对「程序从哪里开始」的判断保持一致。
+func projectEntry(env *Env, dir string) string {
 	if serviceIsFile(env, filepath.Join(dir, serviceEntryDir, serviceEntryFile)) {
 		return "./" + serviceEntryDir
 	}

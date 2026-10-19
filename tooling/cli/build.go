@@ -136,6 +136,7 @@ func buildOptions(env *Env, fs *pflag.FlagSet, log *logx.Logger) (build.Options,
 	}
 	return build.Options{
 		Dir:     env.WorkDir,
+		Package: projectEntry(env, env.WorkDir),
 		Output:  flagString(fs, flagBuildOutput),
 		Name:    flagString(fs, flagBuildName),
 		Targets: targets,

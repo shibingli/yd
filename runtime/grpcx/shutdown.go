@@ -53,12 +53,11 @@ func Shutdown(ctx context.Context, srv GracefulServer) error {
 	case <-ctx.Done():
 	}
 
-	// 宽限期已过：强制停止。Stop 会取消进行中的 RPC 并关闭连接，
-	// 因此上面那个 GracefulStop 必定返回，这里等它收尾可保证本函数返回后不留协程。
-	// The grace period is over: force-stop. Stop cancels in-flight RPCs and closes
-	// connections, so the GracefulStop above is bound to return; waiting for it keeps
-	// this call free of lingering goroutines.
-	srv.Stop()
-	<-done
+	// grpc-go 的 GracefulStop 等待处理器时持有服务器互斥锁，Stop 需要同一把锁；处理器无视取消时
+	// 同步调用 Stop 会越过期限阻塞。放到后台并返回超时，保证退出流程按时完成。
+	// grpc-go's GracefulStop holds the server mutex while waiting for handlers, and Stop needs the
+	// same mutex; calling Stop synchronously blocks past the deadline when a handler ignores
+	// cancellation. Detach it and return the timeout so the shutdown sequence finishes on time.
+	go srv.Stop()
 	return errx.WrapDetail(ctx.Err(), ErrShutdownTimeout, "force stop after %[1]v | 超过 %[1]v 后强制停止", ctx.Err())
 }

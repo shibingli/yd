@@ -614,3 +614,35 @@ func TestEncoderPoolSequentialReuse(t *testing.T) {
 		}
 	}
 }
+
+// TestCompressNeverCompressesPartialContent is the regression for compressed 206 responses:
+// Content-Range describes offsets into the original bytes, so a gzip body corrupts resumed
+// downloads and media playback. | TestCompressNeverCompressesPartialContent 是压缩 206 响应的回归：
+// Content-Range 描述的是原始字节的区间，gzip 正文会破坏断点续传与媒体播放。
+func TestCompressNeverCompressesPartialContent(t *testing.T) {
+	r := router.New()
+	r.Use(Compress(CompressOptions{}))
+	r.GET("/range", func(c *router.Ctx) {
+		c.SetHeader("Content-Range", "bytes 0-2047/8192")
+		c.WriteHeader(http.StatusPartialContent)
+		_, _ = c.Writer.Write([]byte(bigBody))
+	})
+
+	req := httptest.NewRequest(http.MethodGet, "/range", nil)
+	req.Header.Set("Accept-Encoding", "gzip")
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusPartialContent {
+		t.Fatalf("code = %d, want 206", rec.Code)
+	}
+	if enc := rec.Header().Get("Content-Encoding"); enc != "" {
+		t.Fatalf("206 response was compressed with %q", enc)
+	}
+	if cr := rec.Header().Get("Content-Range"); cr == "" {
+		t.Fatal("Content-Range was lost")
+	}
+	if rec.Body.String() != bigBody {
+		t.Fatal("206 body was altered")
+	}
+}

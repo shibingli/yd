@@ -44,7 +44,7 @@
 `.env` 不入库（已被 `.gitignore` 忽略），仓库内只保留 `.env.template`。
 
 鉴权相关的两个键（见 `configs/config.yaml` 的 `auth` 段）：`auth.master_key`（`YD_AUTH_MASTER_KEY`）封装每个用户的
-`sec_key`，**生产环境必须注入**，留空时 `internal/router` 会退回内置开发密钥并打印告警；`auth.token_ttl`（`YD_AUTH_TOKEN_TTL`）
+`sec_key`，**生产环境必须注入**；`development` 之外留空会让进程**拒绝启动**，开发环境才回退到内置密钥并告警；`auth.token_ttl`（`YD_AUTH_TOKEN_TTL`）
 决定登录会话的时长，登录 cookie 的 `MaxAge` 与它同源。
 
 ## 5. 代码风格（强制）

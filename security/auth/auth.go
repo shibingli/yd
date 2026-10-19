@@ -187,7 +187,7 @@ func NewService(store Store, o Options) (*Service, error) {
 		store:      store,
 		log:        logx.Default(),
 		now:        now,
-		roles:      newRoleCache(store),
+		roles:      newRoleCache(store, now),
 		dummyHash:  dummyPasswordHash(o.Iterations),
 		secKeyLen:  secKeyLen,
 		iterations: o.Iterations,

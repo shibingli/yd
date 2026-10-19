@@ -66,10 +66,10 @@ func TestExponentialBackoffMonotonicAndCapped(t *testing.T) {
 	task := asynq.NewTask("probe", nil)
 
 	var prev time.Duration
-	for n := 1; n <= 8; n++ {
+	for n := 0; n <= 8; n++ {
 		got := backoff(n, nil, task)
 		want := base
-		for i := 1; i < n && want < max; i++ {
+		for i := 0; i < n && want < max; i++ {
 			want *= 2
 		}
 		if want > max {

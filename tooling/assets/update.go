@@ -32,6 +32,11 @@ type UpdateOptions struct {
 	// tripwire when the caller supplies none. | HTTPClient 执行下载；在线模式需要客户端，离线模式下调用方
 	// 未提供客户端时会装入一个拦截器。
 	HTTPClient *http.Client
+	// Proxy is an explicit HTTP proxy URL for downloads; empty means the standard
+	// HTTP_PROXY / HTTPS_PROXY / NO_PROXY environment. It is never logged because it may carry
+	// credentials. | Proxy 是下载所用的显式 HTTP 代理 URL；为空表示标准 HTTP_PROXY / HTTPS_PROXY /
+	// NO_PROXY 环境变量。由于可能带凭据，它绝不写入日志。
+	Proxy string
 	// ManifestPath is the lock file location; empty means DefaultManifestPath. | ManifestPath 是锁文件位置；为空表示 DefaultManifestPath。
 	ManifestPath string
 	// Root is the directory asset paths resolve against; empty means DefaultRoot. | Root 是资产路径解析所依据的目录；为空表示 DefaultRoot。
@@ -98,7 +103,7 @@ type assetResult struct {
 // the only thing that decides whether a request is built, and the tripwire is the only thing that could
 // ever answer one. | 离线模式绝不保留调用方传入的客户端：拦截器会取而代之，因此是否构造请求只由离线
 // 分支决定，而唯一可能应答请求的只有拦截器。
-func (o UpdateOptions) normalized() UpdateOptions {
+func (o UpdateOptions) normalized() (UpdateOptions, error) {
 	if o.FS == nil {
 		o.FS = afero.NewOsFs()
 	}
@@ -117,9 +122,36 @@ func (o UpdateOptions) normalized() UpdateOptions {
 		// 始终装入拦截器，即使调用方传入了客户端：这样离线分支的缺陷最多浪费一次计数，绝不可能触网。
 		o.HTTPClient = newOfflineClient()
 	} else if o.HTTPClient == nil {
-		o.HTTPClient = &http.Client{Timeout: defaultHTTPTimeout}
+		client, err := newHTTPClient(o.Proxy)
+		if err != nil {
+			return o, err
+		}
+		o.HTTPClient = client
 	}
-	return o
+	return o, nil
+}
+
+// newHTTPClient builds the download client. | newHTTPClient 构建下载客户端。
+//
+// An explicit proxy wins; otherwise the default transport honours HTTP_PROXY, HTTPS_PROXY and
+// NO_PROXY, which is what CI and corporate networks already configure. | 显式代理优先；否则默认传输层
+// 遵循 HTTP_PROXY、HTTPS_PROXY 与 NO_PROXY，这正是 CI 与企业网络已经配置的变量。
+func newHTTPClient(proxy string) (*http.Client, error) {
+	proxy = strings.TrimSpace(proxy)
+	if proxy == "" {
+		return &http.Client{Timeout: defaultHTTPTimeout}, nil
+	}
+	u, err := url.Parse(proxy)
+	if err != nil || u.Scheme == "" || u.Host == "" {
+		return nil, errx.Detail(ErrDownloadFailed, "invalid proxy URL | 非法的代理 URL")
+	}
+	base, ok := http.DefaultTransport.(*http.Transport)
+	if !ok {
+		return nil, errx.Detail(ErrDownloadFailed, "default HTTP transport is not *http.Transport | 默认 HTTP 传输层不是 *http.Transport")
+	}
+	transport := base.Clone()
+	transport.Proxy = http.ProxyURL(u)
+	return &http.Client{Transport: transport, Timeout: defaultHTTPTimeout}, nil
 }
 
 // templates returns the mirror chain to use: the per-call sources, else the manifest's, else the
@@ -151,7 +183,10 @@ func (o UpdateOptions) templates(m *Manifest) []string {
 // 失败不会中断其它资产：成功的保持更新，全部失败项用一个聚合错误（errors.Join）返回，便于调用方
 // 一次性报告。
 func Update(ctx context.Context, o UpdateOptions) (*UpdateReport, error) {
-	o = o.normalized()
+	var err error
+	if o, err = o.normalized(); err != nil {
+		return nil, err
+	}
 	if err := ctx.Err(); err != nil {
 		return nil, errx.Wrap(err, ErrDownloadFailed)
 	}
@@ -217,6 +252,16 @@ func Update(ctx context.Context, o UpdateOptions) (*UpdateReport, error) {
 // 串行化文件系统写入：下载并发执行，写盘不并发，从而使 afero 后端（含内存后端）不会并发建目录。
 func (o UpdateOptions) apply(ctx context.Context, a Asset, sources []string, writeMu *sync.Mutex) assetResult {
 	res := assetResult{name: a.Name}
+	// Normalize again defensively: a Manifest supplied programmatically need not have gone through
+	// LoadManifest, and this is the last line between a crafted path and the filesystem.
+	// | 再做一次防御性规范化：程序构造的 Manifest 未必经过 LoadManifest，而这里是恶意路径与
+	// 文件系统之间的最后一道防线。
+	rel, err := NormalizePath(a.Path)
+	if err != nil {
+		res.state, res.err = stateFailed, err
+		return res
+	}
+	a.Path = rel
 	local := a.LocalPath(o.Root)
 	existing, exists := readLocal(o.FS, local)
 
@@ -290,7 +335,10 @@ func (o UpdateOptions) apply(ctx context.Context, a Asset, sources []string, wri
 // Add always needs the network, so offline mode rejects it instead of silently writing an unlocked
 // entry. | Add 始终需要网络，因此离线模式会直接拒绝，而不是静默写入一条未锁定的条目。
 func Add(ctx context.Context, o UpdateOptions, a Asset) (Asset, error) {
-	o = o.normalized()
+	var err error
+	if o, err = o.normalized(); err != nil {
+		return Asset{}, err
+	}
 	if strings.TrimSpace(a.Name) == "" {
 		return Asset{}, errx.Detail(ErrInvalidAsset, "name is missing | 缺少 name")
 	}

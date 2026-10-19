@@ -14,6 +14,7 @@ import (
 	"github.com/shibingli/yd/core/afs"
 	"github.com/shibingli/yd/tooling/assets"
 	"github.com/spf13/afero"
+	"github.com/spf13/pflag"
 )
 
 // countingRT counts every RoundTrip; CLI tests use it to prove that no request was issued. | countingRT 统计每次 RoundTrip，CLI 测试用它证明没有发起请求。
@@ -322,5 +323,19 @@ func TestAssetsSubcommandDispatchErrors(t *testing.T) {
 	te = newTestEnv(t, nil, "", false)
 	if err := Execute(context.Background(), []string{"assets", "bogus"}, te.env); !errors.Is(err, ErrUnknownCommand) {
 		t.Errorf("未知子命令应返回 ErrUnknownCommand，实际 %v", err)
+	}
+}
+
+// TestAssetsUpdateOptionsReadsProxy proves the layered http.proxy reaches asset downloads. |
+// TestAssetsUpdateOptionsReadsProxy 证明分层配置中的 http.proxy 会传给资产下载。
+func TestAssetsUpdateOptionsReadsProxy(t *testing.T) {
+	te := newTestEnv(t, nil, "", false)
+	te.env.Cfg = loadKoCLIConfig(t, "http:\n  proxy: http://proxy.local:8080\n")
+	fs := pflag.NewFlagSet("assets", pflag.ContinueOnError)
+	registerAssetsFlags(fs)
+
+	opts := updateOptions(te.env, fs, "web/assets.lock.json", "web")
+	if opts.Proxy != "http://proxy.local:8080" {
+		t.Fatalf("Proxy = %q，期望配置值 | want the configured value", opts.Proxy)
 	}
 }

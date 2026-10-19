@@ -30,25 +30,42 @@ const versionLimit = 120
 
 // Install installs the named tools so that they land in <dir>/.yd/tools. | Install 安装指定名称的工具，使它们落在 <dir>/.yd/tools。
 //
-// An empty names slice means every installable registry entry, which is also what InstallAll asks
-// for. A name outside the registry stops the run before anything is touched and returns
-// ErrUnknownTool; a named tool whose GoInstall is empty is recorded in Report.Failed with
-// ErrNotInstallable instead, so the remaining names still get their chance. | names 为空表示注册表中所有可安装的条目，
-// InstallAll 请求的也正是它。注册表之外的名字会在动任何东西之前中止并返回 ErrUnknownTool；
-// GoInstall 为空的具名工具改记入 Report.Failed 并带上 ErrNotInstallable，使其余名字仍有机会。
+// An empty names slice means every Go-installable registry entry, which is also what InstallAll
+// asks for. A name outside the registry stops the run before anything is touched and returns
+// ErrUnknownTool; a named tool that is neither Go-installable nor downloadable (docker) is recorded
+// in Report.Failed with ErrNotInstallable instead, so the remaining names still get their chance.
+// tailwindcss is downloaded on demand when named explicitly. | names 为空表示注册表中所有 Go 可安装条目，
+// InstallAll 请求的也正是它。注册表之外的名字会在动任何东西之前中止并返回 ErrUnknownTool；既不能 go install
+// 也不能下载的具名工具（docker）改记入 Report.Failed 并带上 ErrNotInstallable，使其余名字仍有机会。
+// tailwindcss 在显式点名时按需下载。
 //
 // One tool failing never interrupts the others: every outcome is recorded in the returned Report,
 // and the error returned alongside it joins the individual failures so errors.Is finds
 // ErrInstallFailed and ErrNotInstallable on it. The Report is nil only when the run refused to
-// start - an unknown name, no go toolchain, or a tool directory that cannot be created. | 单个工具失败绝不打断其它工具：
+// start - an unknown name, a needed go toolchain that is missing, or a tool directory that cannot
+// be created. A run that only downloads tailwindcss does not need Go. | 单个工具失败绝不打断其它工具：
 // 每个结果都记入返回的 Report，与它一同返回的错误聚合了各个失败，因此 errors.Is 能在其上找到 ErrInstallFailed
-// 与 ErrNotInstallable。只有当运行拒绝开始时 Report 才为 nil——未知名称、没有 Go 工具链，或工具目录无法创建。
+// 与 ErrNotInstallable。只有当运行拒绝开始时 Report 才为 nil——未知名称、需要 Go 而 Go 工具链缺失，
+// 或工具目录无法创建。只下载 tailwindcss 的运行不需要 Go。
 //
 // Installing is the only step here that touches the network; Check, Missing and Hints stay offline. | 安装是本包唯一触网的步骤；
 // Check、Missing 与 Hints 始终保持离线。
 func Install(ctx context.Context, dir string, names []string, log *logx.Logger) (*Report, error) {
+	return InstallWith(ctx, Options{Dir: dir}, names, log)
+}
+
+// InstallWith installs the named tools using the executables configured in o. | InstallWith 使用 o 中
+// 配置的可执行文件安装指定名称的工具。
+//
+// The probe that decides "already available" is the same one CheckWith runs, so a tool configured
+// through align.bin, ko.binary or tailwind.bin is not installed a second time, and a machine whose
+// tools are all configured needs no Go toolchain at all. | 决定「已就绪」的探测与 CheckWith 完全相同，
+// 因此经 align.bin、ko.binary 或 tailwind.bin 配置的工具不会被重复安装，工具都已配置好的机器也完全不需要
+// Go 工具链。
+func InstallWith(ctx context.Context, o Options, names []string, log *logx.Logger) (*Report, error) {
+	o = o.normalized()
 	if len(names) == 0 {
-		return installPlan(ctx, dir, installableTools(), log)
+		return installPlan(ctx, o, installableTools(), log)
 	}
 	plan := make([]Tool, 0, len(names))
 	seen := make(map[string]struct{}, len(names))
@@ -63,17 +80,19 @@ func Install(ctx context.Context, dir string, names []string, log *logx.Logger) 
 		seen[t.Name] = struct{}{}
 		plan = append(plan, t)
 	}
-	return installPlan(ctx, dir, plan, log)
+	return installPlan(ctx, o, plan, log)
 }
 
 // InstallAll installs every installable tool into <dir>/.yd/tools. | InstallAll 把每个可安装的工具安装到 <dir>/.yd/tools。
 //
-// It is the entry point of `yd new` and of `yd tools install` without arguments; docker and
-// tailwindcss are absent from the plan because neither can be installed with `go install`, and both
-// are reported through Hints instead. | 它是 `yd new` 与不带参数的 `yd tools install` 的入口；
-// docker 与 tailwindcss 不在计划中，因为两者都无法用 `go install` 安装，它们改由 Hints 报告。
+// It is the entry point of `yd new` and of `yd tools install` without arguments. The plan holds the
+// Go-installable tools only: docker has no automatic route, and tailwindcss downloads a large
+// release binary, so it is fetched only when named explicitly (`yd tools install tailwindcss`). Both
+// appear in Hints with their retrieval route. | 它是 `yd new` 与不带参数的 `yd tools install` 的入口。
+// 计划只包含 Go 可安装工具：docker 没有自动安装路径，tailwindcss 要下载较大的发布二进制，因此仅在显式
+// 点名时获取（`yd tools install tailwindcss`）。两者都会在 Hints 中给出获取途径。
 func InstallAll(ctx context.Context, dir string, log *logx.Logger) (*Report, error) {
-	return Install(ctx, dir, nil, log)
+	return InstallWith(ctx, Options{Dir: dir}, nil, log)
 }
 
 // installableTools returns the registry entries that `go install` can provide. | installableTools 返回 `go install` 能提供的注册表条目。
@@ -88,15 +107,15 @@ func installableTools() []Tool {
 }
 
 // installPlan probes the plan, installs what is missing, and verifies the result. | installPlan 探测计划、安装缺失项，并验证结果。
-func installPlan(ctx context.Context, dir string, plan []Tool, log *logx.Logger) (*Report, error) {
+func installPlan(ctx context.Context, o Options, plan []Tool, log *logx.Logger) (*Report, error) {
 	ctx = contextOr(ctx)
 	log = loggerOr(log)
-	root := toolDir(dir)
+	root := o.Dir
 
 	report := &Report{}
 	pending := make([]Tool, 0, len(plan))
 	for _, t := range plan {
-		st := probe(t, root)
+		st := probe(t, o)
 		switch {
 		case st.Found:
 			log.Debug("tool already available | 工具已就绪", logx.Str("tool", t.Name), logx.Str("path", st.Path))
@@ -107,7 +126,7 @@ func installPlan(ctx context.Context, dir string, plan []Tool, log *logx.Logger)
 				Err: errx.WrapDetail(st.Err, ErrInstallFailed,
 					"cannot resolve %[1]s before installing it | 安装前无法解析 %[1]s", t.Name),
 			})
-		case t.GoInstall == "":
+		case t.GoInstall == "" && t.Name != toolTailwindcss:
 			report.Failed = append(report.Failed, Failure{
 				Name: t.Name,
 				Err: errx.Detail(ErrNotInstallable,
@@ -121,17 +140,29 @@ func installPlan(ctx context.Context, dir string, plan []Tool, log *logx.Logger)
 		return report, failedError(report)
 	}
 
-	// The toolchain is looked up only once something is actually going to be installed, so a machine
-	// that already has every tool needs no Go at all. | 只有在确实要安装某些东西时才查找工具链，
-	// 因此已经装齐全部工具的机器完全不需要 Go。
-	goBin, goErr := PathLookup("go")
-	if goErr == nil && strings.TrimSpace(goBin) == "" {
-		goErr = errEmptyPath
+	// The Go toolchain is looked up only when at least one pending tool is installed through
+	// `go install`. A tailwindcss-only run downloads a release binary and must work on a machine
+	// without Go. | 只有当至少一个待装工具经 `go install` 安装时才查找 Go 工具链。只安装 tailwindcss
+	// 的运行下载发布二进制，必须在没有 Go 的机器上也能工作。
+	needsGo := false
+	for _, t := range pending {
+		if t.GoInstall != "" {
+			needsGo = true
+			break
+		}
 	}
-	if goErr != nil {
-		// The hint already says both what is missing and where to get it, so the detail does not
-		// restate it. | 提示本身已经说明了缺什么与去哪里获取，因此细节不再重复。
-		return nil, errx.WrapDetail(goErr, ErrNoGoToolchain, "%[1]s", goToolchainHint)
+	goBin := ""
+	if needsGo {
+		var goErr error
+		goBin, goErr = PathLookup("go")
+		if goErr == nil && strings.TrimSpace(goBin) == "" {
+			goErr = errEmptyPath
+		}
+		if goErr != nil {
+			// The hint already says both what is missing and where to get it, so the detail does not
+			// restate it. | 提示本身已经说明了缺什么与去哪里获取，因此细节不再重复。
+			return nil, errx.WrapDetail(goErr, ErrNoGoToolchain, "%[1]s", goToolchainHint)
+		}
 	}
 
 	toolDirAbs, err := filepath.Abs(filepath.Join(root, filepath.FromSlash(LocalToolDir)))
@@ -145,6 +176,21 @@ func installPlan(ctx context.Context, dir string, plan []Tool, log *logx.Logger)
 
 	env := installEnv(toolDirAbs)
 	for _, t := range pending {
+		if t.GoInstall == "" {
+			// tailwindcss is the one downloadable tool; everything else without a GoInstall target
+			// was already recorded as ErrNotInstallable above. | tailwindcss 是唯一可下载的工具；其余没有
+			// GoInstall 目标的条目已在上方记为 ErrNotInstallable。
+			st, err := installTailwind(ctx, o, t, log)
+			if err != nil {
+				log.Error("tailwindcss download failed | tailwindcss 下载失败", logx.Str("error", err.Error()))
+				report.Failed = append(report.Failed, Failure{Name: t.Name, Err: errx.Wrap(err, ErrInstallFailed)})
+				continue
+			}
+			report.Installed = append(report.Installed, st)
+			log.Info("tool installed | 工具已安装",
+				logx.Str("tool", t.Name), logx.Str("path", st.Path), logx.Str("version", st.Version))
+			continue
+		}
 		log.Info("installing tool | 正在安装工具", logx.Str("tool", t.Name), logx.Str("target", t.GoInstall))
 		out, err := execCommand()(ctx, goBin, []string{"install", t.GoInstall}, root, env)
 		if err != nil {
@@ -152,7 +198,7 @@ func installPlan(ctx context.Context, dir string, plan []Tool, log *logx.Logger)
 			report.Failed = append(report.Failed, Failure{Name: t.Name, Err: installFailure(t, err, out)})
 			continue
 		}
-		st := probe(t, root)
+		st := probe(t, o)
 		if !st.Found {
 			log.Error("installed tool is still not resolvable | 已安装的工具仍无法解析", logx.Str("tool", t.Name))
 			report.Failed = append(report.Failed, Failure{
@@ -188,6 +234,18 @@ func failedError(report *Report) error {
 	return errors.Join(errs...)
 }
 
+// DefaultGOPROXY is the module proxy chain used when the caller has not configured one. It tries
+// two China-friendly mirrors before falling back to direct module downloads. | DefaultGOPROXY 是调用方
+// 未配置时使用的模块代理链，先走两个国内可用的镜像，最后回退到直接下载。
+const DefaultGOPROXY = "https://goproxy.io,https://goproxy.cn,https://mirrors.aliyun.com/goproxy/,direct"
+
+// DefaultGOSUMDB is the checksum database used when the caller has not configured one. It is off
+// because the proxy chain above may serve modules the public sumdb cannot verify (private mirrors
+// and forks), and a failed verification would abort an otherwise usable installation. | DefaultGOSUMDB
+// 是调用方未配置时使用的校验数据库。默认关闭，因为上面的代理链可能提供公共 sumdb 无法验证的模块
+// （私有镜像与分支），校验失败会中止一次本来可用的安装。
+const DefaultGOSUMDB = "off"
+
 // installEnv builds the child environment of `go install`. | installEnv 构建 `go install` 的子进程环境。
 //
 // GOBIN is pinned to the absolute project-local directory and every inherited GOBIN is dropped, so
@@ -196,20 +254,57 @@ func failedError(report *Report) error {
 // above the project is none of our business. | GOBIN 被固定在项目内的绝对目录，继承来的 GOBIN 一律丢弃，
 // 使新二进制落在解析链的第三段而不是 ~/go/bin。GOWORK 被关闭，因为工作区模式拒绝 go install 的
 // `package@version` 形式，而项目上方的 go.work 不归我们管。
+//
+// GOPATH, GOMODCACHE and GOCACHE are moved under <project>/.yd/tools as well: the module cache, the
+// build cache and the installed binaries then belong to this project, so two projects cannot poison
+// each other's cache and deleting .yd/tools is a complete reset. A GOPROXY or GOSUMDB the caller
+// explicitly exported wins; empty values fall back to the defaults above. | GOPATH、GOMODCACHE 与
+// GOCACHE 也移到 <项目>/.yd/tools 之下：模块缓存、构建缓存与安装的二进制都归属本项目，两个项目不会互相
+// 污染缓存，删除 .yd/tools 就是一次彻底重置。调用方显式导出的 GOPROXY 或 GOSUMDB 优先；空值回退到上面的默认值。
 func installEnv(toolDirAbs string) []string {
 	base := os.Environ()
-	out := make([]string, 0, len(base)+2)
+	out := make([]string, 0, len(base)+7)
+	proxy, sumdb := "", ""
 	for _, kv := range base {
 		key := kv
 		if i := strings.IndexByte(kv, '='); i >= 0 {
 			key = kv[:i]
 		}
-		if strings.EqualFold(key, "GOBIN") || strings.EqualFold(key, "GOWORK") {
+		switch {
+		case strings.EqualFold(key, "GOBIN"),
+			strings.EqualFold(key, "GOWORK"),
+			strings.EqualFold(key, "GOCACHE"),
+			strings.EqualFold(key, "GOPATH"),
+			strings.EqualFold(key, "GOMODCACHE"):
+			continue
+		case strings.EqualFold(key, "GOPROXY"):
+			if i := strings.IndexByte(kv, '='); i >= 0 {
+				proxy = strings.TrimSpace(kv[i+1:])
+			}
+			continue
+		case strings.EqualFold(key, "GOSUMDB"):
+			if i := strings.IndexByte(kv, '='); i >= 0 {
+				sumdb = strings.TrimSpace(kv[i+1:])
+			}
 			continue
 		}
 		out = append(out, kv)
 	}
-	return append(out, "GOBIN="+toolDirAbs, "GOWORK=off")
+	if proxy == "" {
+		proxy = DefaultGOPROXY
+	}
+	if sumdb == "" {
+		sumdb = DefaultGOSUMDB
+	}
+	return append(out,
+		"GOBIN="+toolDirAbs,
+		"GOWORK=off",
+		"GOPATH="+toolDirAbs,
+		"GOMODCACHE="+filepath.Join(toolDirAbs, "pkg", "mod"),
+		"GOCACHE="+filepath.Join(toolDirAbs, "go_cache"),
+		"GOPROXY="+proxy,
+		"GOSUMDB="+sumdb,
+	)
 }
 
 // installFailure turns a failed `go install` into a report entry. | installFailure 把失败的 `go install` 变成一条报告条目。

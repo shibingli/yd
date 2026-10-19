@@ -14,6 +14,10 @@ package model
 type <%.Name%> struct {
 <% range .ModelFields %>	// <%.CommentText%>
 	<%.GoName%> <%.GoType%> `gorm:"<%.GormTag%>" json:"<%.JSONTag%>"`
+<% end %><% if not .HasTenant %>	// TenantID is the owning tenant. Every generated query filters on it, so one tenant can never
+	// read or write another tenant's rows. | TenantID 是所属租户。每条生成的查询都按它过滤，
+	// 因此一个租户永远无法读写另一个租户的记录。
+	TenantID string `gorm:"column:tenant_id;not null;index" json:"tenant_id"`
 <% end %>}
 
 // TableName 返回模型对应的表名。

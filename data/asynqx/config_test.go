@@ -72,7 +72,8 @@ asynq:
 		t.Fatal("RetryDelayFunc is still nil after retry_base/retry_max were configured | 配置了 retry_base/retry_max 后 RetryDelayFunc 仍为 nil")
 	}
 	task := asynq.NewTask("probe", nil)
-	if got := o.RetryDelayFunc(1, nil, task); got < 250*time.Millisecond || got > 275*time.Millisecond {
+	// asynq passes a zero-based retried count, so n=0 is the first retry. | asynq 传入从 0 开始的重试计数，n=0 才是第一次重试。
+	if got := o.RetryDelayFunc(0, nil, task); got < 250*time.Millisecond || got > 275*time.Millisecond {
 		t.Fatalf("首次重试延迟 = %v，期望 250ms 档（含抖动）", got)
 	}
 	if got := o.RetryDelayFunc(10, nil, task); got < 5*time.Second || got > 5500*time.Millisecond {

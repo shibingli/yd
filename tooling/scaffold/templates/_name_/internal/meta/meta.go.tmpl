@@ -65,10 +65,10 @@ const (
 	// TokenIssuerName is written into the iss claim of every token. | TokenIssuerName 写入令牌的 iss 声明。
 	TokenIssuerName = "yd"
 
-	// DevMasterKey 是内置的开发主密钥：仅在 auth.master_key 未配置时启用，目的是让种子账号开箱即可登录。
+	// DevMasterKey 是内置的开发主密钥：仅在 auth.master_key 未配置且 app.env 为 development 时启用，非开发环境会拒绝启动。
 	// 生产环境必须通过 YD_AUTH_MASTER_KEY 覆盖它，否则进程重启后内存中的 sec_key 仍可解开——路由层会为此告警。
-	// DevMasterKey is the built-in development master key: it applies only while auth.master_key is unset and exists so the
-	// seeded account works out of the box. Production must override it through YD_AUTH_MASTER_KEY, otherwise the in-memory
+	// DevMasterKey is the built-in development master key: it applies only while auth.master_key is unset in development;
+	// other environments refuse to start. Production must inject YD_AUTH_MASTER_KEY, otherwise the in-memory
 	// sec_keys stay readable across restarts — the router warns about exactly that.
 	DevMasterKey = "yd-scaffold-development-master-key-please-replace"
 )

@@ -100,6 +100,28 @@ func Generate(ctx context.Context, o Options, fs afero.Fs, log *logx.Logger) (*R
 	return result, nil
 }
 
+// windowsDeviceName reports whether name is a reserved DOS device name on Windows. | windowsDeviceName 报告
+// name 是否为 Windows 保留的 DOS 设备名。
+//
+// The check ignores case and the part after the first dot, because Win32 resolves CON.txt and
+// com1.log to the device as well. | 检查忽略大小写与第一个点之后的部分，因为 Win32 同样会把 CON.txt 与
+// com1.log 解析到设备。
+func windowsDeviceName(name string) bool {
+	base := strings.TrimRight(name, ". ")
+	if i := strings.IndexByte(base, '.'); i >= 0 {
+		base = base[:i]
+	}
+	base = strings.ToUpper(base)
+	switch base {
+	case "CON", "PRN", "AUX", "NUL":
+		return true
+	}
+	if len(base) == 4 && (strings.HasPrefix(base, "COM") || strings.HasPrefix(base, "LPT")) {
+		return base[3] >= '1' && base[3] <= '9'
+	}
+	return false
+}
+
 // normalize validates and completes the options and returns a copy ready for rendering. | normalize 校验并补齐选项，返回可直接用于渲染的副本。
 func normalize(o Options) (Options, error) {
 	o.Name = strings.TrimSpace(o.Name)
@@ -108,6 +130,18 @@ func normalize(o Options) (Options, error) {
 	}
 	if !namePattern.MatchString(o.Name) {
 		return Options{}, errx.Detail(ErrNameInvalid, "%[1]q (want: a letter first, then letters, digits, `._-`) | %[1]q（要求：首字符为字母，其后仅限字母、数字、`._-`）", o.Name)
+	}
+	// The name becomes a directory, so it must also be a legal path segment on Windows: a trailing
+	// dot is stripped by Win32 and a device name (CON, NUL, COM1, ...) addresses a device instead
+	// of a directory. Rejecting them on every platform keeps a project created on Linux checkout-
+	// able on Windows. | 项目名会成为目录名，因此也必须是 Windows 上合法的路径段：Win32 会去掉结尾的点，
+	// 设备名（CON、NUL、COM1 等）指向设备而不是目录。在所有平台拒绝这些名称，使 Linux 上创建的项目
+	// 能在 Windows 上检出。
+	if strings.HasSuffix(o.Name, ".") {
+		return Options{}, errx.Detail(ErrNameInvalid, "%[1]q must not end with a dot (Windows strips it) | %[1]q 不得以点结尾（Windows 会去掉它）", o.Name)
+	}
+	if windowsDeviceName(o.Name) {
+		return Options{}, errx.Detail(ErrNameInvalid, "%[1]q is a reserved device name on Windows | %[1]q 是 Windows 的保留设备名", o.Name)
 	}
 
 	o.Module = strings.TrimSpace(o.Module)
@@ -141,6 +175,11 @@ func normalize(o Options) (Options, error) {
 	o.HtmxExts = exts
 
 	o.LocalReplace = filepath.ToSlash(strings.TrimSpace(o.LocalReplace))
+	for _, r := range o.LocalReplace {
+		if r < 0x20 || r == 0x7f {
+			return Options{}, errx.Detail(ErrNameInvalid, "local replace path contains a control character | 本地替换路径包含控制字符")
+		}
+	}
 	return o, nil
 }
 

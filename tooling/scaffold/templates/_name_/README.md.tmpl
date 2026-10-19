@@ -2,7 +2,7 @@
 
 [![Go](https://img.shields.io/badge/Go-{{ .GoVersion }}-00ADD8.svg?logo=go&logoColor=white)](https://go.dev/dl/)
 [![Htmx](https://img.shields.io/badge/Htmx-{{ .HtmxVersion }}-3366CC.svg)](https://htmx.org)
-[![Tailwind CSS](https://img.shields.io/badge/Tailwind_CSS-v{{ .TailwindVersion }}-38BDF8.svg?logo=tailwindcss&logoColor=white)](https://tailwindcss.com)
+[![Tailwind CSS](https://img.shields.io/badge/Tailwind_CSS-{{ .TailwindVersion }}-38BDF8.svg?logo=tailwindcss&logoColor=white)](https://tailwindcss.com)
 [![yd](https://img.shields.io/badge/built%20with-yd-181717.svg?logo=github&logoColor=white)](https://github.com/shibingli/yd)
 
 基于 [yd](https://github.com/shibingli/yd) 全栈单体（Modern Monolith）框架生成的项目：
@@ -171,7 +171,7 @@ assembly point.
 
 | 键 | 环境变量 | 说明 |
 |---|---|---|
-| `auth.master_key` | `YD_AUTH_MASTER_KEY` | 封装每个用户的 `sec_key`。留空时使用内置开发密钥并告警，**生产环境必须注入** |
+| `auth.master_key` | `YD_AUTH_MASTER_KEY` | 封装每个用户的 `sec_key`。仅 `development` 留空时回退到内置开发密钥并告警，**其它环境留空则拒绝启动** |
 | `auth.token_ttl` | `YD_AUTH_TOKEN_TTL` | 令牌有效期（如 `2h`），登录 cookie 的 `MaxAge` 与它同源 |
 
 ## 安装为系统服务
@@ -320,17 +320,26 @@ ko 只把 Go 源码编译成镜像层，唯一需要联网的部分是**拉取�
 # Probe all four tools: status, path or version, and the install hint when one is missing | 探测四个工具：状态、路径或版本，以及缺失时的安装提示
 yd tools check
 
-# Install the missing tools (defaults to every go-installable one); name a subset to narrow it down | 安装缺失的工具（缺省为全部可 go install 的项），也可只装指定的一两个
+# Install the Go-installable tools (defaults to betteralign + ko) | 安装可 go install 的工具（缺省为 betteralign + ko）
 yd tools install
 yd tools install betteralign ko
+
+# Download the Tailwind standalone binary into .yd/tools | 把 Tailwind standalone 二进制下载到 .yd/tools
+yd tools install tailwindcss
 ```
 
-安装落在**项目内**的 `.yd/tools/`（`GOBIN` 被指向它的绝对路径），那里正是解析链的第三段，
-因此装完立刻可用、无需任何额外配置；`yd tools` 是这几个工具唯一的探测与安装入口，
-**不会改动你的 `PATH`，也不会往 `~/go/bin` 写东西**。
+安装落在**项目内**的 `.yd/tools/`，那里正是解析链的第三段，因此装完立刻可用、无需任何额外配置；
+`yd tools` 是这几个工具唯一的探测与安装入口，**不会改动你的 `PATH`，也不会往 `~/go/bin` 写东西**。
+执行 `go install` 时，`GOBIN` / `GOPATH` / `GOMODCACHE` / `GOCACHE` 都被隔离到 `.yd/tools` 之下，
+并默认使用国内可用的 `GOPROXY` 链（`GOSUMDB=off`）；显式导出的 `GOPROXY` / `GOSUMDB` 优先。
+删除 `.yd/tools` 即完成一次彻底重置。
 
-`tailwindcss` 与 `docker` 不支持 `go install`：前者由 `yd assets update` 获取（也可自行放进 `.yd/tools/`），
-后者需要安装 Docker Engine / Docker Desktop；`yd tools install` 对这两者只给出获取途径。
+`tailwindcss` 由 `yd tools install tailwindcss` 从 GitHub Release 下载（不经过 `go install`）；
+网络受限时可在 `config.yaml` 配置 `http.proxy`（HTTP 代理，也可用 `YD_HTTP_PROXY`）；
+`yd assets update` / `yd assets add`、`yd versions upgrade` 与 Tailwind 下载都会使用它。Tailwind 还可用 `tailwind.url`
+（指向镜像的完整资产 URL，也可用 `YD_TAILWIND_URL`）。未配置代理时遵循标准的
+`HTTP_PROXY` / `HTTPS_PROXY` / `NO_PROXY`。`docker` 需要安装 Docker Engine / Docker Desktop，
+`yd tools install` 对它只给出获取途径。
 
 `yd new` 创建项目时，收尾会探测一次并打印缺失清单：交互模式会询问「现在就安装缺失的工具吗？」（默认是），
 答是即安装；非交互场景用 `--install-tools` 显式安装；`--yes` 只建项目、**不触网**。

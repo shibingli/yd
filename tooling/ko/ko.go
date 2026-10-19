@@ -30,6 +30,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strings"
 
@@ -159,6 +160,16 @@ func runCommand(ctx context.Context, name string, args []string, dir string, env
 // withDefaults fills every zero-valued option and normalizes the working directory. | withDefaults
 // 填充全部零值选项并归一化工作目录。
 func (o Options) withDefaults() Options {
+	// ko's documented environment variables are accepted as inputs too, not only passed through
+	// to the child: validate() used to reject a run that set only KO_DOCKER_REPO even though the
+	// error message named it as valid. | ko 文档化的环境变量也可作为输入，而不只是透传给子进程：
+	// validate() 过去会拒绝只设置 KO_DOCKER_REPO 的运行，尽管错误文案把它列为有效来源。
+	if strings.TrimSpace(o.Repository) == "" {
+		o.Repository = strings.TrimSpace(os.Getenv(envRepository))
+	}
+	if strings.TrimSpace(o.BaseImage) == "" {
+		o.BaseImage = strings.TrimSpace(os.Getenv(envBaseImage))
+	}
 	if strings.TrimSpace(o.WorkingDir) == "" {
 		o.WorkingDir = "."
 	}
@@ -258,20 +269,32 @@ func newResult(logs []string) *Result {
 // 官方文档给出的接口：ko 刻意不提供 --repository 与 --base 标志。继承的进程环境被保留，两个推导值叠加其上，
 // Options.Env 最后应用，因此显式条目始终优先。键经过排序，使子进程环境保持确定性。
 func (o Options) environ() []string {
+	// Windows environment names are case-insensitive; os/exec deduplicates them case-insensitively
+	// and keeps the last occurrence. Without normalizing here, an inherited Ko_Docker_Repo would
+	// survive as a separate map entry, sort after the derived KO_DOCKER_REPO and silently win.
+	// | Windows 的环境变量名不区分大小写；os/exec 按不区分大小写去重并保留最后一项。若这里不统一
+	// 大小写，继承来的 Ko_Docker_Repo 会作为独立条目保留，排序后落在推导出的 KO_DOCKER_REPO 之后并
+	// 悄悄获胜。
+	keyOf := func(key string) string {
+		if runtime.GOOS == "windows" {
+			return strings.ToUpper(key)
+		}
+		return key
+	}
 	merged := make(map[string]string, len(o.Env)+2)
 	for _, kv := range os.Environ() {
 		if key, value, ok := strings.Cut(kv, "="); ok {
-			merged[key] = value
+			merged[keyOf(key)] = value
 		}
 	}
 	if o.Repository != "" {
-		merged[envRepository] = o.Repository
+		merged[keyOf(envRepository)] = o.Repository
 	}
 	if o.BaseImage != "" {
-		merged[envBaseImage] = o.BaseImage
+		merged[keyOf(envBaseImage)] = o.BaseImage
 	}
 	for key, value := range o.Env {
-		merged[key] = value
+		merged[keyOf(key)] = value
 	}
 	keys := make([]string, 0, len(merged))
 	for key := range merged {

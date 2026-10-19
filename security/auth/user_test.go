@@ -350,8 +350,8 @@ func TestDisableUserIsImmediate(t *testing.T) {
 	if perms := f.svc.PermissionsOf(u); len(perms) != 0 {
 		t.Fatalf("a disabled user kept permissions: %v | 被禁用的用户仍保留权限：%v", perms, perms)
 	}
-	if _, err := f.issuer.Verify(testCtx, token); !errors.Is(err, ErrUserDisabled) {
-		t.Fatalf("a disabled user's token must be refused, got %v | 被禁用用户的令牌必须被拒绝，实际 %v", err, err)
+	if _, err := f.issuer.Verify(testCtx, token); !errors.Is(err, ErrTokenInvalid) {
+		t.Fatalf("a disabled user's token must be refused with ErrTokenInvalid, got %v | 被禁用用户的令牌必须以 ErrTokenInvalid 拒绝，实际 %v", err, err)
 	}
 	if _, _, err := f.issuer.Issue(testCtx, u); !errors.Is(err, ErrUserDisabled) {
 		t.Fatalf("issuing for a disabled user want ErrUserDisabled, got %v | 为被禁用用户签发期望 ErrUserDisabled，实际 %v", err, err)

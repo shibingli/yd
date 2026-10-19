@@ -383,33 +383,46 @@ func (n *actionNode) execQuick(s *execState) error {
 		if s.tr != nil {
 			out = s.tr.T(key, args[1:]...)
 		}
+		start := len(s.out.b)
 		s.out.b = appendEscapedString(s.out.b, out, q.escs[0])
+		n.applyEscaperChain(s, start, q.escs[1:])
 	case bindingPerm:
 		ref := refString(args[0])
 		out := ref
 		if s.az != nil {
 			out = s.az.Perm(ref)
 		}
+		start := len(s.out.b)
 		s.out.b = appendEscapedString(s.out.b, out, q.escs[0])
+		n.applyEscaperChain(s, start, q.escs[1:])
 	case bindingRole:
 		ref := refString(args[0])
 		out := ref
 		if s.az != nil {
 			out = s.az.Role(ref)
 		}
+		start := len(s.out.b)
 		s.out.b = appendEscapedString(s.out.b, out, q.escs[0])
+		n.applyEscaperChain(s, start, q.escs[1:])
 	case bindingCan:
 		allow := false
 		if s.az != nil {
 			allow = s.az.Can(refString(args[0]))
 		}
-		s.out.b = appendEscapedString(s.out.b, strconv.FormatBool(allow), q.escs[0])
+		// Keep the boolean's type: converting to "true"/"false" first would make the JS value
+		// escaper emit a quoted, always-truthy string. | 保留布尔类型：先转成 "true"/"false" 会让
+		// JS 值转义器输出带引号、恒为真的字符串。
+		start := len(s.out.b)
+		s.out.b = appendEscaped(s.out.b, allow, q.escs[0])
+		n.applyEscaperChain(s, start, q.escs[1:])
 	case bindingHasRole:
 		allow := false
 		if s.az != nil {
 			allow = s.az.HasRole(refString(args[0]))
 		}
-		s.out.b = appendEscapedString(s.out.b, strconv.FormatBool(allow), q.escs[0])
+		start := len(s.out.b)
+		s.out.b = appendEscaped(s.out.b, allow, q.escs[0])
+		n.applyEscaperChain(s, start, q.escs[1:])
 	}
 	s.scratch = s.scratch[:mark]
 	return nil

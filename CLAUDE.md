@@ -334,22 +334,32 @@ yd assets verify --offline   # 离线完整性校验
 注册表顺序固定为这四条。**禁止**在脚本、CI 或文档里另立一套「自己 `go install` 到全局」的指引。
 
 - **API 与 CLI 同源**：`Registry()` / `Lookup(name)` / `Check(dir)` / `Missing(dir)` / `Hints(dir)` /
+  `CheckWith(Options)` / `MissingWith(Options)` / `HintsWith(Options)` / `InstallWith(ctx, Options, names, log)`
+  （`Options.Binaries` 接收 `align.bin` / `ko.binary` / `tailwind.bin`，使探测、安装与真实命令看到同一份配置）/
   `Install(ctx, dir, names, log)` / `InstallAll(ctx, dir, log)`，结果以 `*Report{Installed, Skipped, Failed}` 返回；
   CLI 侧是 `yd tools [check]`（列出每个工具的状态、路径或版本与安装提示）与
-  `yd tools install [名称...]`（缺省为全部可安装项）。探测**只读**：不触网、不执行工具、不改动任何文件；
-  提示文案复用各解析包的 `InstallHint`，不另写一份。
+  `yd tools install [名称...]`（缺省为全部 **Go 可安装**项；`tailwindcss` 需显式点名，见下）。探测**只读**：
+  不触网、不执行工具、不改动任何文件；提示文案复用各解析包的 `InstallHint`，不另写一份。
 - **安装落点与解析链**：解析链固定为「显式参数/配置 → 环境变量 → `<项目>/.yd/tools` → `PATH`」
   （`LocalToolDir = ".yd/tools"`）；安装把 `GOBIN` 指向 **`<项目>/.yd/tools` 的绝对路径**——即解析链的第三段，
   装完无需任何额外配置。**不得改动用户 `PATH`，也不得往 `~/go/bin` 写东西**：往全局写属于越界，
   且在 CI 上不可预期。
+- **Go 安装环境隔离（强制）**：执行 `go install` 前必须由 `installEnv` 注入
+  `GOBIN` / `GOPATH` / `GOMODCACHE` / `GOCACHE` 到 `<项目>/.yd/tools` 之下（模块缓存、构建缓存与二进制都归本项目），
+  `GOWORK=off`，并在调用方未显式导出时补上
+  `GOPROXY=https://goproxy.io,https://goproxy.cn,https://mirrors.aliyun.com/goproxy/,direct` 与 `GOSUMDB=off`；
+  显式导出的 `GOPROXY` / `GOSUMDB` 优先，空值回退默认值。删除 `.yd/tools` 即完成一次彻底重置。
 - **工具一律可选**：缺失只影响对应能力——`yd align` / `yd ko` / `yd docker` 各自返回哨兵并给出安装提示，
   `tailwindcss` 缺失时样式表阶段以告警跳过——**不得**让 `yd build` / `yd dev` / `yd gen` / `go test` 或 CI 失败。
-  只有 `betteralign`（`go install github.com/dkorunic/betteralign/cmd/betteralign@latest`）与
-  `ko`（`go install github.com/google/ko@latest`）可 `go install`；`tailwindcss` 经 `yd assets update` 获取
-  （或放入 `.yd/tools/`），`docker` 需安装 Docker Engine / Docker Desktop，`Install` 对这两个不可安装项
-  返回 `ErrNotInstallable` 并给出获取途径，而不是失败退出。
+  `betteralign`（`go install github.com/dkorunic/betteralign/cmd/betteralign@latest`）与
+  `ko`（`go install github.com/google/ko@latest`）走 `go install`；`tailwindcss` 由
+  `yd tools install tailwindcss` 下载 GitHub Release 的 standalone 二进制到 `.yd/tools/`（只安装它时不需要 Go 工具链），
+  下载遵循 `http.proxy`（`YD_HTTP_PROXY`；为空时使用标准 `HTTP_PROXY` / `HTTPS_PROXY` / `NO_PROXY`）与
+  `tailwind.url`（`YD_TAILWIND_URL`，GitHub 不可达时指向镜像）；`docker` 需安装 Docker Engine / Docker Desktop，
+  `Install` 对它返回 `ErrNotInstallable` 并给出获取途径，而不是失败退出。`yd assets update`、`yd assets add` 与
+  `yd versions upgrade` 的下载同样使用 `http.proxy`（标准代理环境变量为兜底）。代理 URL 可能含凭据，**不得**写入日志。
 - **`yd new` 收尾统一处理**：项目生成后探测缺失工具并打印提示；交互模式询问「现在就安装缺失的工具吗？」
-  （默认是），答是则 `InstallAll`；非交互场景用 `--install-tools` 显式安装；**`--yes` 不触网**
+  （默认是），答是则 `InstallAll`（Go 可安装项；`tailwindcss` 按提示显式安装）；非交互场景用 `--install-tools` 显式安装；**`--yes` 不触网**
   （e2e / CI 入口不得带网络副作用）。安装失败只 Warn 并给出提示，绝不影响建项目成功。
 - **错误一律哨兵**：`ErrUnknownTool` / `ErrNoGoToolchain` / `ErrNotInstallable` / `ErrInstallFailed`，
   调用方用 `errors.Is` 判定（见第 4.2 条「错误处理」）。
@@ -362,7 +372,7 @@ yd assets verify --offline   # 离线完整性校验
 内存实现 `auth.NewMemoryStore` 只在「未配置数据库」或「数据库不可达」时兜底，且**必须打出明确的双语告警**
 说明「数据不持久」——绝不允许静默降级。
 
-- **框架拥有鉴权表**：`auth_tenants` / `auth_users` / `auth_roles` / `auth_role_permissions`，
+- **框架拥有鉴权表**：`yd_auth_tenants` / `yd_auth_users` / `yd_auth_roles` / `yd_auth_role_permissions`，
   建表与索引一律经 `gormstore.Migrate(ctx, db)`（`AutoMigrate`），使用方不需要自己写 DDL。
 - **`auth` 域包保持零 ORM 依赖**：GORM 只允许出现在 `security/auth/gormstore` 子包里。
   否则内存实现与任何第三方存储都无法独立复用，领域规则也被绑死在一种数据库上（守卫 `TestAuthDomainStaysFreeOfGORM` 强制）。
@@ -372,10 +382,10 @@ yd assets verify --offline   # 离线完整性校验
 
   | 表 | 索引 |
   |---|---|
-  | `auth_tenants` | `slug_key` 唯一；`created_at` |
-  | `auth_users` | `(tenant_id, id)` 唯一；`(tenant_id, username_key)` 唯一；`(tenant_id, created_at)` |
-  | `auth_roles` | `(tenant_id, id)` 唯一；`(tenant_id, name)` 唯一 |
-  | `auth_role_permissions` | `(tenant_id, role_id, permission)` 唯一；`(tenant_id, role_id)` |
+  | `yd_auth_tenants` | `slug_key` 唯一；`created_at` |
+  | `yd_auth_users` | `(tenant_id, id)` 唯一；`(tenant_id, username_key)` 唯一；`(tenant_id, created_at)` |
+  | `yd_auth_roles` | `(tenant_id, id)` 唯一；`(tenant_id, name)` 唯一 |
+  | `yd_auth_role_permissions` | `(tenant_id, role_id, permission)` 唯一；`(tenant_id, role_id)` |
 
   唯一性由大小写折叠列（`slug_key`/`username_key`）承载，因此「租户外唯一」与「租户内唯一」各自成立。
 - **迁移必须幂等**：连跑两次不得报错、不得重复建索引。

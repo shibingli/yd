@@ -17,6 +17,7 @@ import (
 	"io/fs"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/spf13/afero"
@@ -67,6 +68,60 @@ type Inventory struct {
 	Assets []assets.Asset
 }
 
+// validGoDirective reports whether s is a two- or three-part numeric Go version. | validGoDirective
+// 报告 s 是否为两段或三段数字组成的 Go 版本。
+func validGoDirective(s string) bool {
+	parts := strings.Split(s, ".")
+	if len(parts) < 2 || len(parts) > 3 {
+		return false
+	}
+	for _, p := range parts {
+		if p == "" {
+			return false
+		}
+		for _, r := range p {
+			if r < '0' || r > '9' {
+				return false
+			}
+		}
+	}
+	return true
+}
+
+// validVersionToken reports whether s looks like a semantic version (an optional v prefix, a
+// numeric core and optional prerelease/build suffixes). | validVersionToken 报告 s 是否形如语义化
+// 版本（可选 v 前缀、数字主体与可选的预发布/构建后缀）。
+func validVersionToken(s string) bool {
+	s = strings.TrimPrefix(strings.TrimSpace(s), "v")
+	if s == "" {
+		return false
+	}
+	core, _, _ := strings.Cut(s, "-")
+	core, _, _ = strings.Cut(core, "+")
+	parts := strings.Split(core, ".")
+	if len(parts) < 2 || len(parts) > 3 {
+		return false
+	}
+	for _, p := range parts {
+		if p == "" {
+			return false
+		}
+		for _, r := range p {
+			if r < '0' || r > '9' {
+				return false
+			}
+		}
+	}
+	for _, r := range s {
+		switch {
+		case r >= '0' && r <= '9', r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r == '.', r == '-', r == '+':
+		default:
+			return false
+		}
+	}
+	return true
+}
+
 // HasScaffold reports whether dir contains the scaffold sources. | HasScaffold 报告 dir 是否包含脚手架源码。
 //
 // The framework repository owns tooling/scaffold and therefore owns the generated version file; a
@@ -97,6 +152,9 @@ func Load(fsys afero.Fs, dir string) (*Inventory, error) {
 	if err != nil {
 		return nil, errx.WrapDetail(err, ErrGoMod, "path %[1]q | 路径 %[1]q", modPath)
 	}
+	if !validGoDirective(goDirective) {
+		return nil, errx.Detail(ErrGoModInvalid, "go directive %[1]q is not a version | go 指令 %[1]q 不是合法版本", goDirective)
+	}
 	manifestPath := filepath.Join(dir, filepath.FromSlash(assets.DefaultManifestPath))
 	m, err := assets.LoadManifest(fsys, manifestPath)
 	if err != nil {
@@ -105,6 +163,9 @@ func Load(fsys afero.Fs, dir string) (*Inventory, error) {
 	htmx, ok := m.Find("htmx")
 	if !ok || htmx.Version == "" {
 		return nil, errx.Detail(ErrNoHtmxAsset, "path %[1]q | 路径 %[1]q", manifestPath)
+	}
+	if !validVersionToken(htmx.Version) {
+		return nil, errx.Detail(ErrNoHtmxAsset, "htmx version %[1]q is not a version token | htmx 版本 %[1]q 不是合法版本记号", htmx.Version)
 	}
 	return &Inventory{
 		ModulePath:  modulePath,
@@ -181,10 +242,13 @@ func Generate(inv *Inventory) []byte {
 	b.WriteString("\npackage scaffold\n\n")
 	b.WriteString("// GoVersion is the Go directive of the framework module. | GoVersion 是框架模块的 go 指令。\n")
 	b.WriteString("//\n// Source: go.mod. | 来源：go.mod。\n")
-	b.WriteString("const GoVersion = \"" + inv.GoDirective + "\"\n\n")
+	// Quote instead of interpolating raw text: a hostile lockfile/go.mod value could otherwise
+	// close the string and inject Go code into the generated file. | 使用引号而不是原样拼接：
+	// 恶意的锁文件/go.mod 取值否则可以闭合字符串并向生成文件注入 Go 代码。
+	b.WriteString("const GoVersion = " + strconv.Quote(inv.GoDirective) + "\n\n")
 	b.WriteString("// HtmxVersion is the version of the htmx asset in web/assets.lock.json. | HtmxVersion 是 web/assets.lock.json 中 htmx 资产的版本。\n")
 	b.WriteString("//\n// Source: the asset manifest entry named \"htmx\". | 来源：资产清单中名为 \"htmx\" 的条目。\n")
-	b.WriteString("const HtmxVersion = \"" + inv.HtmxVersion + "\"\n")
+	b.WriteString("const HtmxVersion = " + strconv.Quote(inv.HtmxVersion) + "\n")
 	return []byte(b.String())
 }
 

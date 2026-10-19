@@ -49,7 +49,18 @@ func cgroupMemoryFiles() (limits, usages []string) {
 			usages = append([]string{filepath.Join(base, "memory.current")}, usages...)
 			continue
 		}
-		if parts[1] == "memory" {
+		// The controller list is comma-separated and often co-mounted, for example
+		// "memory,cpu,cpuacct"; equality with "memory" misses those hosts and reports the host
+		// total instead of the container limit. | 控制器列表以逗号分隔且常被共同挂载，例如
+		// "memory,cpu,cpuacct"；与 "memory" 全等比较会漏掉这类主机，返回主机总量而不是容器上限。
+		hasMemory := false
+		for _, controller := range strings.Split(parts[1], ",") {
+			if strings.TrimSpace(controller) == "memory" {
+				hasMemory = true
+				break
+			}
+		}
+		if hasMemory {
 			rel := strings.TrimPrefix(parts[2], "/")
 			base := filepath.Join("/sys/fs/cgroup/memory", rel)
 			limits = append([]string{filepath.Join(base, "memory.limit_in_bytes")}, limits...)

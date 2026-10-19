@@ -7,6 +7,7 @@ import (
 	"go/ast"
 	"go/parser"
 	"go/token"
+	pathpkg "path"
 	"path/filepath"
 	"reflect"
 	"sort"
@@ -99,7 +100,7 @@ type sourcePackage struct {
 // loadSourcePackage 解析 path 下的 Go 源码；path 是文件时只解析该文件。
 // loadSourcePackage parses the Go source under path; when path is a file only that file is parsed.
 func loadSourcePackage(fs afero.Fs, path string) (*sourcePackage, error) {
-	path = strings.TrimSpace(path)
+	path = filepath.ToSlash(strings.TrimSpace(path))
 	if path == "" {
 		return nil, errx.Detail(ErrBadModel, "empty source path | 源码路径为空")
 	}
@@ -152,7 +153,7 @@ func sourceFiles(fs afero.Fs, path string) ([]string, error) {
 		if e.IsDir() || filepath.Ext(name) != ".go" || strings.HasSuffix(name, "_test.go") {
 			continue
 		}
-		names = append(names, filepath.Join(path, name))
+		names = append(names, pathpkg.Join(path, name))
 	}
 	if len(names) == 0 {
 		return nil, errx.Detail(ErrTypeNotFound, "no Go source file in %s | %s 下没有 Go 源码文件", path, path)

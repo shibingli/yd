@@ -78,3 +78,18 @@ func TestViewerCoversAllObjectKinds(t *testing.T) {
 		}
 	}
 }
+
+// TestEscapeJSONForScriptActuallyEscapes is the regression for a no-op sanitizer that relied on
+// jsonx's HTML escaping; a raw "</script>" would otherwise terminate the JSON island. | TestEscapeJSONForScriptActuallyEscapes
+// 是空操作清洗器的回归——它曾依赖 jsonx 的 HTML 转义；否则原始 "</script>" 会终止 JSON 岛。
+func TestEscapeJSONForScriptActuallyEscapes(t *testing.T) {
+	out := escapeJSONForScript([]byte("{\"x\":\"</script><script>alert(1)</script>&\"}"))
+	if strings.Contains(out, "</script>") {
+		t.Fatalf("raw script terminator survived: %s", out)
+	}
+	for _, want := range []string{`\u003c`, `\u003e`, `\u0026`} {
+		if !strings.Contains(out, want) {
+			t.Errorf("escape %s missing: %s", want, out)
+		}
+	}
+}

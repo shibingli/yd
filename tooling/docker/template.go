@@ -6,6 +6,9 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
+	"strconv"
+	"strings"
 
 	"github.com/spf13/afero"
 
@@ -26,6 +29,10 @@ const (
 	DefaultDockerfile = "Dockerfile"
 	// BuiltinDockerfilePath is the path of the embedded template inside its file system. | BuiltinDockerfilePath 是内置模板在其文件系统中的路径。
 	BuiltinDockerfilePath = "templates/Dockerfile"
+	// goMajorMinorPlaceholder is replaced with the project's Go major.minor so the builder
+	// image tag is derived rather than hand-copied. | goMajorMinorPlaceholder 会被替换为项目的
+	// Go 主次版本，使构建镜像标签是派生出来的而非手抄的。
+	goMajorMinorPlaceholder = "{{GO_MAJOR_MINOR}}"
 )
 
 // templates holds the embedded Dockerfile template shipped with the framework. | templates 保存框架内置的 Dockerfile 模板。
@@ -42,6 +49,12 @@ func BuiltinDockerfileFS() afero.Fs { return afs.NewEmbed(templates) }
 // pass any afero file system. | BuiltinDockerfile 读取内置的多阶段 scratch 模板。文件系统为 nil
 // 时表示使用 BuiltinDockerfileFS（生产代码即如此）；测试可以传入任意 afero 文件系统。
 func BuiltinDockerfile(fs afero.Fs) ([]byte, error) {
+	return builtinDockerfileFor(fs, runtimeGoMajorMinor())
+}
+
+// builtinDockerfileFor reads the embedded template and substitutes the builder image's Go
+// major.minor. | builtinDockerfileFor 读取内嵌模板并替换构建镜像的 Go 主次版本。
+func builtinDockerfileFor(fs afero.Fs, version string) ([]byte, error) {
 	if fs == nil {
 		fs = BuiltinDockerfileFS()
 	}
@@ -49,7 +62,55 @@ func BuiltinDockerfile(fs afero.Fs) ([]byte, error) {
 	if err != nil {
 		return nil, errx.WrapDetail(err, ErrReadDockerfile, "%s | %s", BuiltinDockerfilePath, BuiltinDockerfilePath)
 	}
-	return data, nil
+	return bytes.ReplaceAll(data, []byte(goMajorMinorPlaceholder), []byte(version)), nil
+}
+
+// runtimeGoMajorMinor returns the major.minor of the toolchain that built yd. | runtimeGoMajorMinor
+// 返回构建 yd 所用工具链的主次版本。
+func runtimeGoMajorMinor() string {
+	return majorMinor(strings.TrimPrefix(runtime.Version(), "go"))
+}
+
+// majorMinor reduces a Go version to its major.minor pair. | majorMinor 把 Go 版本归约为主次版本。
+func majorMinor(v string) string {
+	parts := strings.Split(strings.TrimSpace(v), ".")
+	if len(parts) < 2 {
+		return strings.TrimSpace(v)
+	}
+	major, err := strconv.Atoi(parts[0])
+	if err != nil {
+		return strings.TrimSpace(v)
+	}
+	minor := parts[1]
+	for i, r := range minor {
+		if r < '0' || r > '9' {
+			minor = minor[:i]
+			break
+		}
+	}
+	return strconv.Itoa(major) + "." + minor
+}
+
+// projectGoMajorMinor reads the go directive of dir/go.mod through fs; an absent or malformed
+// file falls back to the toolchain version. | projectGoMajorMinor 经 fs 读取 dir/go.mod 的 go 指令；
+// 文件缺失或畸形时回退到工具链版本。
+func projectGoMajorMinor(fs afero.Fs, dir string) string {
+	if dir == "" {
+		dir = "."
+	}
+	data, err := afero.ReadFile(fs, filepath.Join(dir, "go.mod"))
+	if err != nil {
+		return runtimeGoMajorMinor()
+	}
+	for _, line := range strings.Split(string(data), "\n") {
+		line = strings.TrimSpace(line)
+		if rest, ok := strings.CutPrefix(line, "go "); ok {
+			if v := strings.TrimSpace(rest); v != "" {
+				return majorMinor(v)
+			}
+		}
+	}
+	return runtimeGoMajorMinor()
 }
 
 // Dockerfile is the resolved build recipe handed to the docker CLI. | Dockerfile 是交给 docker CLI 的已解析构建配方。
@@ -89,10 +150,22 @@ func ResolveDockerfile(fs afero.Fs, dir, file string) (*Dockerfile, error) {
 	}
 	project := file
 	if !filepath.IsAbs(project) {
-		if dir == "" {
-			dir = "."
+		// A drive-relative ("C:Dockerfile") or rooted ("/Dockerfile") Windows value is not
+		// filepath.IsAbs but must not be joined as a child of dir: the first would contain a colon
+		// in a path component, the second is relative to the current drive. | Windows 的盘符相对
+		// （"C:Dockerfile"）或根相对（"/Dockerfile"）取值不是 filepath.IsAbs，但绝不能拼成 dir 的子路径：
+		// 前者会让路径分量含冒号，后者相对于当前驱动器。
+		rooted := runtime.GOOS == "windows" && (strings.HasPrefix(project, "/") || strings.HasPrefix(project, `\`))
+		if filepath.VolumeName(project) != "" || rooted {
+			if abs, err := filepath.Abs(project); err == nil {
+				project = abs
+			}
+		} else {
+			if dir == "" {
+				dir = "."
+			}
+			project = filepath.Join(dir, project)
 		}
-		project = filepath.Join(dir, project)
 	}
 
 	data, err := afero.ReadFile(fs, project)
@@ -105,7 +178,10 @@ func ResolveDockerfile(fs afero.Fs, dir, file string) (*Dockerfile, error) {
 		return nil, errx.WrapDetail(err, ErrReadDockerfile, "%s | %s", project, project)
 	}
 
-	builtin, err := BuiltinDockerfile(nil)
+	// Use the project's own go directive when it exists; the embedded template alone cannot know
+	// which toolchain the project requires. | 项目存在 go 指令时使用项目自己的版本；仅凭内嵌模板
+	// 无法知道项目要求哪个工具链。
+	builtin, err := builtinDockerfileFor(nil, projectGoMajorMinor(fs, dir))
 	if err != nil {
 		return nil, err
 	}

@@ -171,6 +171,12 @@ func htmxAttrs(kv ...any) (template.HTMLAttr, error) {
 		if !validAttrName(k) {
 			return "", errx.Detail(ErrHtmxInvalidKey, "key=%[1]q | 键=%[1]q", k)
 		}
+		// hx-on:* attributes are JavaScript, not HTML: HTML escaping does not escape quotes inside
+		// a JS string, so a computed value could break out and execute. | hx-on:* 属性是 JavaScript
+		// 而不是 HTML：HTML 转义不会转义 JS 字符串里的引号，计算值可以逃逸并执行。
+		if strings.HasPrefix(k, "hx-on") || strings.HasPrefix(k, "on") {
+			return "", errx.Detail(ErrHtmxInvalidKey, "key=%[1]q is executable JavaScript and is not allowed | 键 %[1]q 是可执行 JavaScript，不允许使用", k)
+		}
 		pairs = append(pairs, fmt.Sprintf(`%s="%s"`, k, html.EscapeString(fmt.Sprint(kv[i+1]))))
 	}
 	sort.Strings(pairs)

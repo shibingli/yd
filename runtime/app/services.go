@@ -4,10 +4,17 @@ import (
 	"context"
 	"errors"
 	"io"
+	"time"
 
 	"github.com/shibingli/yd/core/errx"
 	"github.com/shibingli/yd/core/logx"
 )
+
+// hookDrainWindow is how long an already-expired shutdown budget waits for a hook that is about
+// to return, so its real error wins over a timeout. It is deliberately short and per hook.
+// | hookDrainWindow 是预算已耗尽时等待「即将返回」的钩子的时长，使真实错误优先于超时。
+// 该窗口刻意很短，且按钩子计算。
+const hookDrainWindow = 50 * time.Millisecond
 
 // Service keys reserved by the framework. | 框架预留的服务键。
 //
@@ -120,6 +127,29 @@ func (a *App) Close(ctx context.Context) error {
 	}
 
 	a.mu.Lock()
+	if a.closeDone == nil {
+		a.closeDone = make(chan struct{})
+	}
+	done := a.closeDone
+	a.mu.Unlock()
+
+	a.closeOnce.Do(func() {
+		a.closeErr = a.runShutdownHooks(ctx)
+		close(done)
+	})
+	// Every concurrent caller waits for the same run and shares its result. | 每个并发调用方都等待
+	// 同一次执行并共享结果。
+	<-done
+	return a.closeErr
+}
+
+// runShutdownHooks executes the hooks in reverse registration order. | runShutdownHooks 按注册逆序执行钩子。
+//
+// Each hook runs on its own goroutine so that a hook which ignores ctx cannot consume the remaining
+// budget: when ctx expires the hook is recorded as a timeout and the next one still runs. | 每个钩子
+// 在自己的协程里执行，因此无视 ctx 的钩子无法耗尽剩余预算：ctx 到期时记录超时并继续执行下一个。
+func (a *App) runShutdownHooks(ctx context.Context) error {
+	a.mu.Lock()
 	hooks := a.hooks
 	a.hooks = nil
 	a.mu.Unlock()
@@ -130,10 +160,34 @@ func (a *App) Close(ctx context.Context) error {
 		if hook.fn == nil {
 			continue
 		}
-		if err := hook.fn(ctx); err != nil {
-			a.log.Error("shutdown hook failed | 关闭钩子执行失败",
-				logx.Str("hook", hook.name), logx.Err(err))
-			errs = append(errs, errx.WrapDetail(err, ErrShutdown, "hook=%[1]q | 钩子=%[1]q", hook.name))
+
+		done := make(chan error, 1)
+		go func(fn func(context.Context) error) { done <- fn(ctx) }(hook.fn)
+		select {
+		case err := <-done:
+			if err != nil {
+				a.log.Error("shutdown hook failed | 关闭钩子执行失败",
+					logx.Str("hook", hook.name), logx.Err(err))
+				errs = append(errs, errx.WrapDetail(err, ErrShutdown, "hook=%[1]q | 钩子=%[1]q", hook.name))
+			}
+		case <-ctx.Done():
+			// The budget may already be exhausted when this hook starts (an earlier stage used
+			// it all). Give an immediately-returning hook a short drain window so its real error
+			// is reported instead of a spurious timeout, then move on. | 本钩子启动时预算可能已被
+			// 前序阶段耗尽。给立即返回的钩子一个很短的排空窗口，让真实错误而不是虚假超时被上报，
+			// 然后继续下一个。
+			select {
+			case err := <-done:
+				if err != nil {
+					a.log.Error("shutdown hook failed | 关闭钩子执行失败",
+						logx.Str("hook", hook.name), logx.Err(err))
+					errs = append(errs, errx.WrapDetail(err, ErrShutdown, "hook=%[1]q | 钩子=%[1]q", hook.name))
+				}
+			case <-time.After(hookDrainWindow):
+				a.log.Error("shutdown hook did not finish before the deadline | 关闭钩子未在期限内完成",
+					logx.Str("hook", hook.name), logx.Err(ctx.Err()))
+				errs = append(errs, errx.WrapDetail(ctx.Err(), ErrShutdown, "hook=%[1]q timed out | 钩子=%[1]q 超时", hook.name))
+			}
 		}
 	}
 	return errors.Join(errs...)

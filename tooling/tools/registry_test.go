@@ -79,9 +79,10 @@ func TestRegistryHintsReuseResolverConstants(t *testing.T) {
 		t.Errorf("ko 的 InstallHint 未包含 GoInstall %q | hint does not carry the target: %q",
 			koTool.GoInstall, koTool.InstallHint)
 	}
-	// The two hints that cannot be installed point at their delivery route instead of a command. | 两个无法自动安装的提示改为指向各自的获取途径。
-	if hint := lookupFor(t, toolTailwindcss).InstallHint; !strings.Contains(hint, "yd assets update") {
-		t.Errorf("tailwindcss 的 InstallHint 未指向 yd assets update | hint does not point at yd assets update: %q", hint)
+	// The hints that cannot use go install point at their delivery route instead of a command. |
+	// 无法用 go install 的提示改为指向各自的获取途径。
+	if hint := lookupFor(t, toolTailwindcss).InstallHint; !strings.Contains(hint, "yd tools install tailwindcss") {
+		t.Errorf("tailwindcss 的 InstallHint 未指向 yd tools install tailwindcss | hint does not point at yd tools install tailwindcss: %q", hint)
 	}
 	if hint := lookupFor(t, toolDocker).InstallHint; !strings.Contains(hint, "Docker") {
 		t.Errorf("docker 的 InstallHint 未提到 Docker | hint does not mention Docker: %q", hint)

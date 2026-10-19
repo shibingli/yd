@@ -427,6 +427,39 @@ func TestBuildOfflineUsesVendorMode(t *testing.T) {
 	}
 }
 
+// TestBuildResolvesFreshProjectWithoutGoSum proves a scaffolded project can be built before
+// `go mod tidy` ever ran, and that an existing go.sum keeps the command in its normal readonly
+// mode. | TestBuildResolvesFreshProjectWithoutGoSum 证明脚手架项目在从未运行 `go mod tidy` 前也能构建，
+// 而已有 go.sum 时命令保持通常的只读模块模式。
+func TestBuildResolvesFreshProjectWithoutGoSum(t *testing.T) {
+	dir := t.TempDir()
+	newFake := func() *fakeExec {
+		fake := fakeGoBuild(elfMagic)
+		if _, err := Build(context.Background(), Options{
+			Dir:         dir,
+			Name:        "app",
+			Output:      filepath.Join(t.TempDir(), "app"),
+			Targets:     []Target{{GOOS: "linux", GOARCH: "amd64"}},
+			TrimPath:    true,
+			ExecCommand: fake.exec,
+		}, testLogger()); err != nil {
+			t.Fatalf("Build 失败 | Build failed: %v", err)
+		}
+		return fake
+	}
+
+	fake := newFake()
+	if args := fake.argsOf(t, "build"); !slices.Contains(args, "-mod=mod") {
+		t.Fatalf("缺 go.sum 时 argv = %v，期望包含 -mod=mod | argv = %v, want -mod=mod", args, args)
+	}
+
+	writeFile(t, filepath.Join(dir, "go.sum"), "")
+	fake = newFake()
+	if args := fake.argsOf(t, "build"); slices.Contains(args, "-mod=mod") {
+		t.Fatalf("已有 go.sum 时 argv = %v，不应包含 -mod=mod | argv = %v, must not contain -mod=mod", args, args)
+	}
+}
+
 // TestBuildPassesTagsAndTrimPath asserts the optional go build flags reach the argv. | TestBuildPassesTagsAndTrimPath 断言可选的 go build 标志出现在 argv 中。
 func TestBuildPassesTagsAndTrimPath(t *testing.T) {
 	fake := fakeGoBuild(elfMagic)

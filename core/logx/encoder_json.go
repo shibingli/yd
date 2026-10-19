@@ -3,7 +3,9 @@ package logx
 import (
 	"math"
 	"strconv"
+	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/shibingli/yd/core/b64x"
 	"github.com/shibingli/yd/core/jsonx"
@@ -213,6 +215,28 @@ func appendJSONAny(dst []byte, v any) []byte {
 // Escapes '"', '\\' and all C0 control characters (\b \f \n \r \t use the short escapes, the rest use \u00XX); | 转义 '"'、'\\' 与全部 C0 控制字符（\b \f \n \r \t 用短转义，其余用 \u00XX）；
 // The input is assumed to be valid UTF-8 and multi-byte sequences pass through verbatim, so Chinese text is never converted to \uXXXX. | 输入假定为合法 UTF-8，多字节序列原样透传，因此中文不会被转成 \uXXXX。
 func appendJSONString(dst []byte, s string) []byte {
+	// A single invalid byte would make the whole record invalid JSON and get it dropped by the
+	// collector — exactly the incident record an operator needs. Replace invalid sequences with
+	// U+FFFD, matching encoding/json. | 一个非法字节就会让整条记录成为非法 JSON 并被采集器丢弃——
+	// 而那正是运维需要的故障记录。按 encoding/json 的做法把非法序列替换为 U+FFFD。
+	if !utf8.ValidString(s) {
+		// Replace each invalid byte on its own, exactly as encoding/json does; coalescing a
+		// whole invalid run into one U+FFFD would change the byte-to-rune mapping of the log. | 按
+		// encoding/json 的做法逐个非法字节替换；把整段非法序列合并成一个 U+FFFD 会改变日志的字节到符文映射。
+		var b strings.Builder
+		b.Grow(len(s))
+		for i := 0; i < len(s); {
+			r, size := utf8.DecodeRuneInString(s[i:])
+			if r == utf8.RuneError && size == 1 {
+				b.WriteString("�")
+				i++
+				continue
+			}
+			b.WriteString(s[i : i+size])
+			i += size
+		}
+		s = b.String()
+	}
 	dst = append(dst, '"')
 	start := 0
 	for i := 0; i < len(s); i++ {

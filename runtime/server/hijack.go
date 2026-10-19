@@ -128,6 +128,14 @@ func (s *Server) trackHijacked(conn net.Conn) net.Conn {
 	tc := &trackedConn{Conn: conn, srv: s}
 
 	s.mu.Lock()
+	if s.closing {
+		// The force-close stage has already taken its snapshot; registering here would leak the
+		// connection until the process exits, so close it immediately instead. | 强制关闭阶段已经取过
+		// 快照，此时登记会让连接一直存活到进程退出，因此立即关闭。
+		s.mu.Unlock()
+		_ = tc.Conn.Close()
+		return tc
+	}
 	if s.hijacked == nil {
 		s.hijacked = make(map[*trackedConn]struct{}, 4)
 	}

@@ -141,9 +141,13 @@ func StartupFile(sh Shell, home, goos string, getenv func(string) string) string
 	case PowerShell:
 		if isWindows(goos) {
 			dir := "PowerShell"
-			// Windows PowerShell 5.1 keeps its profile under WindowsPowerShell. | Windows PowerShell 5.1
-			// 把 profile 放在 WindowsPowerShell 之下。
-			if strings.Contains(strings.ToLower(getenv(ModuleEnvName)), "windowspowershell") {
+			// pwsh 7's PSModulePath also contains the 5.1 module directory, so that substring
+			// cannot identify the host. PowerShell 7 sets POWERSHELL_DISTRIBUTION_CHANNEL; when
+			// it is absent, fall back to the 5.1 directory. | pwsh 7 的 PSModulePath 同样包含
+			// 5.1 的模块目录，因此该子串无法识别宿主。PowerShell 7 会设置
+			// POWERSHELL_DISTRIBUTION_CHANNEL；没有它时回退到 5.1 目录。
+			if strings.TrimSpace(getenv("POWERSHELL_DISTRIBUTION_CHANNEL")) == "" &&
+				strings.Contains(strings.ToLower(getenv(ModuleEnvName)), "windowspowershell") {
 				dir = "WindowsPowerShell"
 			}
 			return filepath.Join(home, "Documents", dir, "Microsoft.PowerShell_profile.ps1")

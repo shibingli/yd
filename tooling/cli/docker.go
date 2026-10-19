@@ -186,7 +186,16 @@ func projectMetaName(env *Env, dir string) string {
 	if err := jsonx.Unmarshal(data, &meta); err != nil {
 		return ""
 	}
-	return strings.TrimSpace(meta.Name)
+	name := strings.TrimSpace(meta.Name)
+	// A hand-edited metadata file must not turn the project name into a path: it is used as one
+	// element of bin/<name> and as an image/service name. Reject separators, a drive colon and the
+	// dot names so the value always stays a single, local segment. | 手工编辑的元信息不得把项目名变成
+	// 路径：它被用作 bin/<name> 的一个元素以及镜像/服务名。拒绝分隔符、盘符冒号与点号名，使取值始终是
+	// 单个本地路径段。
+	if name == "" || name == "." || name == ".." || strings.ContainsAny(name, "/\\:\x00") {
+		return ""
+	}
+	return name
 }
 
 // dirBaseName returns the directory name of dir, resolving a relative dir against the process

@@ -571,6 +571,13 @@ func (w *compressWriter) Flush() {
 // | headersAllowCompression 报告当前响应头是否禁止压缩。
 func (w *compressWriter) headersAllowCompression() bool {
 	h := w.rw.Header()
+	// Range responses must never be compressed: compressing a 206 leaves Content-Range describing
+	// offsets into the original bytes while the body is a gzip stream, so clients and caches splice
+	// garbage into resumed downloads. | Range 响应绝不能压缩：压缩 206 后 Content-Range 仍描述
+	// 原始字节的区间，而正文已是 gzip 流，客户端与缓存会把垃圾拼进断点续传结果。
+	if w.code == http.StatusPartialContent || headerValue(h, "Content-Range") != "" {
+		return false
+	}
 	if headerValue(h, "Content-Encoding") != "" {
 		return false
 	}

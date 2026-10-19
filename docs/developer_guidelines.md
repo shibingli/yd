@@ -433,17 +433,21 @@ Windows 走 SCM、Linux 走 systemd、macOS 走 launchd。禁止为单个平台�
 | 注册表 | `betteralign` / `ko` / `tailwindcss` / `docker`（顺序固定） |
 | API | `Registry()` / `Lookup(name)` / `Check(dir)` / `Missing(dir)` / `Hints(dir)` / `Install(ctx, dir, names, log)` / `InstallAll(ctx, dir, log)` |
 | 安装结果 | `*Report{Installed, Skipped, Failed}` |
-| CLI | `yd tools [check]`；`yd tools install [名称...]`（缺省为全部可安装项） |
+| CLI | `yd tools [check]`；`yd tools install [名称...]`（缺省为全部 Go 可安装项；`tailwindcss` 需显式点名） |
 | 解析链 | 显式参数/配置 → 环境变量 → `<项目>/.yd/tools` → `PATH` |
-| 安装落点 | `GOBIN=<项目>/.yd/tools` 的绝对路径（解析链第三段），装完无需额外配置 |
+| 安装落点 | `GOBIN` / `GOPATH` / `GOMODCACHE` / `GOCACHE` 全部在 `<项目>/.yd/tools` 之下，装完无需额外配置 |
 | 哨兵 | `tools.ErrUnknownTool` / `ErrNoGoToolchain` / `ErrNotInstallable` / `ErrInstallFailed` |
 
 - **探测只读**：`Check` / `Missing` / `Hints` 不触网、不执行工具、不改动文件；提示逐条给出工具名、
   路径或版本与缺失时的安装途径。机器上没有 `go` 工具链时安装返回 `ErrNoGoToolchain`，**绝不 panic**。
-- **可安装性分两类**：`betteralign`（`go install github.com/dkorunic/betteralign/cmd/betteralign@latest`）
-  与 `ko`（`go install github.com/google/ko@latest`）可 `go install`；`tailwindcss` 由 `yd assets update`
-  获取（也可放进 `.yd/tools/`），`docker` 需安装 Docker Engine / Docker Desktop。
-  对后两者 `Install` 返回 `ErrNotInstallable` 并给出各自的获取途径——这是明确的「不代装」，不是失败。
+- **安装方式分三类**：`betteralign`（`go install github.com/dkorunic/betteralign/cmd/betteralign@latest`）
+  与 `ko`（`go install github.com/google/ko@latest`）走 `go install`；`tailwindcss` 由
+  `yd tools install tailwindcss` 下载 GitHub Release 的 standalone 二进制（遵循 `http.proxy` 与 `tailwind.url`，
+  只装它时不需要 Go 工具链）；`docker` 需安装 Docker Engine / Docker Desktop，
+  `Install` 对它返回 `ErrNotInstallable` 并给出获取途径——这是明确的「不代装」，不是失败。
+- **Go 安装环境隔离**：`go install` 之前由 `installEnv` 注入隔离后的 `GOBIN` / `GOPATH` / `GOMODCACHE` /
+  `GOCACHE`、`GOWORK=off`，并在未显式配置时补上国内可用的 `GOPROXY` 链与 `GOSUMDB=off`；
+  显式导出的代理与校验设置优先。
 - **不改 PATH**：安装只落在项目内 `.yd/tools/`，**不得**改动用户 `PATH`，也**不得**往 `~/go/bin` 写东西；
   往全局写属于越界，且在 CI 上不可预期（见 §17 对 ko 的同款约束）。
 - **缺失不阻塞**：四个工具一律可选，缺失只影响对应能力——`yd align` / `yd ko` / `yd docker` 返回各自哨兵
@@ -462,7 +466,7 @@ Windows 走 SCM、Linux 走 systemd、macOS 走 launchd。禁止为单个平台�
 | 项 | 约定 |
 |---|---|
 | 实现 | `security/auth/gormstore`（`auth.Store` 的 GORM 实现）；内存实现只在无库/连不上时兜底，且必须告警 |
-| 表 | `auth_tenants` / `auth_users` / `auth_roles` / `auth_role_permissions`，由框架拥有，使用方不写 DDL |
+| 表 | `yd_auth_tenants` / `yd_auth_users` / `yd_auth_roles` / `yd_auth_role_permissions`，由框架拥有，使用方不写 DDL |
 | 迁移 | `gormstore.Migrate(ctx, db)`，幂等 |
 | 隔离 | 每个方法都把 `tenant_id` 写进 WHERE；跨租户与不存在一律 `auth.ErrNotFound`，**绝不** `ErrForbidden` |
 | 索引 | 一律以 `tenant_id` 打头的联合索引；唯一性由大小写折叠列（`slug_key`/`username_key`）承载 |

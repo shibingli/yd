@@ -359,17 +359,17 @@ func TestMigratePrefixesEveryObjectWithYD(t *testing.T) {
 			indexes = append(indexes, object.Name)
 		}
 	}
-	// 清单原样写进日志：迁移契约一变，失败信息里就带着完整的前后对照，不必再去猜库是什么样的。
 	// The listing is logged verbatim: the moment the migration contract changes, the failure carries the full
 	// before-and-after, with no need to guess what the database looked like.
+	// 清单原样写进日志：迁移契约一变，失败信息里就带着完整的前后对照，不必再去猜库是什么样的。
 	t.Logf("tables = %v | 表 = %v", tables, tables)
 	t.Logf("indexes = %v | 索引 = %v", indexes, indexes)
 
 	for _, name := range tables {
-		// sqlite_ 开头的是 SQLite 自己命名、自己维护的对象（sqlite_sequence 是 AUTOINCREMENT 的记账表）：
-		// 本包既没有建它们，也没有权力给它们改名，因此按前缀豁免。
 		// Names starting with sqlite_ belong to SQLite itself (sqlite_sequence is the AUTOINCREMENT bookkeeping
 		// table): this package neither creates them nor may rename them, so the prefix is exempt.
+		// sqlite_ 开头的是 SQLite 自己命名、自己维护的对象（sqlite_sequence 是 AUTOINCREMENT 的记账表）：
+		// 本包既没有建它们，也没有权力给它们改名，因此按前缀豁免。
 		if strings.HasPrefix(name, "sqlite_") {
 			continue
 		}
@@ -378,12 +378,12 @@ func TestMigratePrefixesEveryObjectWithYD(t *testing.T) {
 		}
 	}
 	for _, name := range indexes {
-		// sqlite_autoindex_* 是 SQLite 为 PRIMARY KEY / UNIQUE 约束自动生成的内部索引（本例是 tenants / users / roles
-		// 三张表的字符串主键），名字由它自己取，我们从未给它们命名过，因此同样按前缀豁免——
-		// 豁免的只是「不是我们起的名字」，不是「没有前缀」。
 		// sqlite_autoindex_* is the internal index SQLite generates for a PRIMARY KEY / UNIQUE constraint (the
 		// string primary keys of the tenants, users and roles tables here), named by SQLite itself and never named
 		// by us, so the same prefix exemption applies — what is exempt is "not a name of ours", not "no prefix".
+		// sqlite_autoindex_* 是 SQLite 为 PRIMARY KEY / UNIQUE 约束自动生成的内部索引（本例是 tenants / users / roles
+		// 三张表的字符串主键），名字由它自己取，我们从未给它们命名过，因此同样按前缀豁免——
+		// 豁免的只是「不是我们起的名字」，不是「没有前缀」。
 		if strings.HasPrefix(name, "sqlite_") {
 			continue
 		}

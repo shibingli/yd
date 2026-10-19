@@ -24,6 +24,13 @@ log:
   format: json        # json | console
   caller: true        # 记录调用位置 | record the call site
 
+# yd 自身发起的下载（yd assets、yd versions upgrade、tailwindcss 二进制）使用的 HTTP 代理；
+# 留空时遵循标准 HTTP_PROXY / HTTPS_PROXY / NO_PROXY，YD_HTTP_PROXY 同样映射到这里。
+# HTTP proxy for downloads performed by yd itself (yd assets, yd versions upgrade, the tailwindcss binary);
+# when empty the standard HTTP_PROXY / HTTPS_PROXY / NO_PROXY apply. YD_HTTP_PROXY maps onto this key too.
+# http:
+#   proxy: http://127.0.0.1:10809
+
 # 默认数据（种子）：只在租户表为空时写入一次，写什么由框架注册表决定（两个演示租户、四个内置角色及其能力绑定、每租户一个所有者账号）。
 # Default data (the seed): written exactly once, only while the tenant table is empty, and what it writes comes from the framework
 # registry (two demo tenants, the four built-in roles with their capability bindings, one owner account per tenant).
@@ -39,7 +46,7 @@ seed:
 # 鉴权与会话：主密钥封装每个用户的 sec_key，改动它等于让此前签发的全部令牌失效。
 # Authentication and sessions: the master key seals every user's sec_key, and changing it invalidates every token issued so far.
 auth:
-  master_key: ""      # production must inject it through YD_AUTH_MASTER_KEY; empty selects the built-in development key with a warning | 生产环境必须通过 YD_AUTH_MASTER_KEY 注入；留空时使用内置开发密钥并告警
+  master_key: ""      # production must inject it through YD_AUTH_MASTER_KEY; empty refuses to start outside development and falls back to the development key with a warning only in development | 生产环境必须通过 YD_AUTH_MASTER_KEY 注入；非 development 留空会拒绝启动，仅开发环境回退到开发密钥并告警
   token_ttl: 2h       # token lifetime, shared with the MaxAge of the sign-in cookie | 令牌有效期，登录 cookie 的 MaxAge 与它同源
 {{- if ne .DB "none" }}
   # Ceiling of one auth statement; 0 keeps the framework default (no extra bound). | 单条鉴权语句的上限；0 表示沿用框架默认值（不额外设限）。

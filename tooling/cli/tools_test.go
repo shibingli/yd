@@ -9,6 +9,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path"
 	"path/filepath"
@@ -158,6 +160,20 @@ type cliFakeInstall struct {
 	skipCreate bool
 }
 
+// installCount returns how many recorded calls were `go install` invocations. | installCount 返回记录的
+// `go install` 调用次数。
+func (f *cliFakeInstall) installCount() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	n := 0
+	for _, call := range f.calls {
+		if len(call.args) > 0 && call.args[0] == "install" {
+			n++
+		}
+	}
+	return n
+}
+
 // run is the injected tools.ExecCommandFunc. | run 是注入的 tools.ExecCommandFunc。
 func (f *cliFakeInstall) run(_ context.Context, name string, args []string, dir string, env []string) ([]byte, error) {
 	f.mu.Lock()
@@ -305,6 +321,46 @@ func TestToolsCheckPrintsTableAndHints(t *testing.T) {
 		t.Errorf("就绪的工具不该出现在提示里 | a ready tool must not be hinted:\n%s", out)
 	}
 	// Probing is read-only: no tool is executed and nothing reaches the network. | 探测是只读的：不执行工具，不触网。
+	if got := exec.count(); got != 0 {
+		t.Errorf("check 运行了 %d 条命令，期望 0 条 | check ran %d commands, want 0", got, got)
+	}
+}
+
+// TestToolsCheckHonoursConfiguredBinaries proves the probe sees align.bin and tailwind.bin, so a
+// project that keeps the executables outside PATH is not told they are missing. | TestToolsCheckHonoursConfiguredBinaries
+// 证明探测会读取 align.bin 与 tailwind.bin，把可执行文件放在 PATH 之外的项目不会被误报缺失。
+func TestToolsCheckHonoursConfiguredBinaries(t *testing.T) {
+	te := openToolsEnv(t, "", false)
+	useToolPath(t, newCliFakePath(t))
+	exec := &cliFakeInstall{}
+	useToolExec(t, exec)
+
+	binDir := t.TempDir()
+	alignBin := filepath.Join(binDir, "betteralign-custom")
+	tailwindBin := filepath.Join(binDir, "tailwindcss-custom")
+	stubToolFile(t, alignBin)
+	stubToolFile(t, tailwindBin)
+	te.env.Cfg = loadKoCLIConfig(t, fmt.Sprintf("align:\n  bin: %q\ntailwind:\n  bin: %q\n", alignBin, tailwindBin))
+
+	if err := Execute(context.Background(), []string{toolsCommandName}, te.env); err != nil {
+		t.Fatalf("yd tools 失败 | yd tools failed: %v\n%s", err, te.errs.String())
+	}
+	out := te.out.String()
+	for _, want := range []struct {
+		name string
+		path string
+	}{
+		{cliToolBetteralign, alignBin},
+		{cliToolTailwind, tailwindBin},
+	} {
+		row := fmt.Sprintf("  %-13s %s %s", want.name, toolsStateReady, want.path)
+		if !strings.Contains(out, row) {
+			t.Errorf("状态表缺少配置路径行 %q | the table misses the configured row:\n%s", row, out)
+		}
+	}
+	if !strings.Contains(out, fmt.Sprintf("  %-13s %s", cliToolKo, toolsStateMissing)) {
+		t.Errorf("ko 未配置且不在 PATH 上，应显示缺失 | ko must stay missing:\n%s", out)
+	}
 	if got := exec.count(); got != 0 {
 		t.Errorf("check 运行了 %d 条命令，期望 0 条 | check ran %d commands, want 0", got, got)
 	}
@@ -541,7 +597,7 @@ func TestToolsInstallNotInstallableNamePointsAtTheManualRoute(t *testing.T) {
 	exec := &cliFakeInstall{}
 	useToolExec(t, exec)
 
-	err := Execute(context.Background(), []string{toolsCommandName, toolsActionInstall, cliToolTailwind}, te.env)
+	err := Execute(context.Background(), []string{toolsCommandName, toolsActionInstall, cliToolDocker}, te.env)
 	if !errors.Is(err, tools.ErrNotInstallable) {
 		t.Fatalf("err = %v，期望匹配 ErrNotInstallable | want ErrNotInstallable", err)
 	}
@@ -552,7 +608,7 @@ func TestToolsInstallNotInstallableNamePointsAtTheManualRoute(t *testing.T) {
 		t.Error("没有可安装项时不该查找 go 工具链 | the toolchain must not be looked up")
 	}
 	out := te.out.String()
-	if !strings.Contains(out, "failed | 失败: 1") || !strings.Contains(out, "yd assets update") {
+	if !strings.Contains(out, "failed | 失败: 1") || !strings.Contains(out, "Docker Engine or Docker Desktop") {
 		t.Errorf("报告未给出手动安装途径 | the report misses the manual route:\n%s", out)
 	}
 	if errs := te.errs.String(); !strings.Contains(errs, "部分工具需手动安装") {
@@ -775,5 +831,51 @@ func TestNewTTYToolPromptSkipsOnNo(t *testing.T) {
 	}
 	if pathStub.askedFor("go") {
 		t.Error("答否时不得查找 go 工具链 | the toolchain must not be looked up")
+	}
+}
+
+// TestToolsProbeOptionsReadsProxyAndTailwindURL proves the installer receives the download proxy
+// and mirror overrides from the layered configuration. | TestToolsProbeOptionsReadsProxyAndTailwindURL
+// 证明安装器从分层配置取得下载代理与镜像覆盖。
+func TestToolsProbeOptionsReadsProxyAndTailwindURL(t *testing.T) {
+	te := openToolsEnv(t, "", false)
+	te.env.Cfg = loadKoCLIConfig(t, `
+http:
+  proxy: http://proxy.local:8080
+tailwind:
+  url: https://mirror.example/tailwindcss.exe
+`)
+	opts := toolsProbeOptions(te.env)
+	if opts.Proxy != "http://proxy.local:8080" {
+		t.Errorf("Proxy = %q，期望配置值 | want the configured value", opts.Proxy)
+	}
+	if opts.TailwindURL != "https://mirror.example/tailwindcss.exe" {
+		t.Errorf("TailwindURL = %q，期望配置值 | want the configured value", opts.TailwindURL)
+	}
+}
+
+// TestToolsInstallTailwindDownloadsFromConfiguredURL proves `yd tools install tailwindcss` fetches
+// the binary from tailwind.url without a Go toolchain. | TestToolsInstallTailwindDownloadsFromConfiguredURL
+// 证明 `yd tools install tailwindcss` 从 tailwind.url 获取二进制，且不需要 Go 工具链。
+func TestToolsInstallTailwindDownloadsFromConfiguredURL(t *testing.T) {
+	te := openToolsEnv(t, "", false)
+	useToolPath(t, newCliFakePath(t))
+	exec := &cliFakeInstall{}
+	useToolExec(t, exec)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte("fake tailwind"))
+	}))
+	defer server.Close()
+	te.env.Cfg = loadKoCLIConfig(t, fmt.Sprintf("tailwind:\n  url: %q\n", server.URL+"/tailwindcss"))
+
+	if err := Execute(context.Background(), []string{toolsCommandName, toolsActionInstall, cliToolTailwind}, te.env); err != nil {
+		t.Fatalf("yd tools install tailwindcss 失败 | failed: %v\n%s", err, te.errs.String())
+	}
+	bin := filepath.Join(te.env.WorkDir, ".yd", "tools", cliToolTailwind+cliExeSuffix())
+	if data, err := os.ReadFile(bin); err != nil || string(data) != "fake tailwind" {
+		t.Fatalf("下载结果 = %q, err = %v | download result", data, err)
+	}
+	if got := exec.installCount(); got != 0 {
+		t.Errorf("tailwindcss 不应执行 go install | tailwindcss must not run go install: %d calls", got)
 	}
 }

@@ -184,9 +184,10 @@ func TestShutdownCollectsEveryStageError(t *testing.T) {
 	if !hooksRan {
 		t.Error("the app shutdown hook must still run after the gRPC stage exhausts the grace period | gRPC 阶段耗尽宽限期后，应用关闭钩子仍必须执行")
 	}
-	if !grpc.stopped.Load() {
-		t.Error("gRPC must be force-stopped once the grace period is over | 宽限期过后必须强制停止 gRPC")
-	}
+	// The forced stop is detached on purpose; wait for it to run rather than assuming it already
+	// did when Shutdown returned. | 强制停止刻意放在后台；要等待它执行，而不能假设 Shutdown
+	// 返回时它已经完成。
+	waitForStopped(t, &grpc.stopped, "gRPC must be force-stopped once the grace period is over | 宽限期过后必须强制停止 gRPC")
 	if elapsed > 3*time.Second {
 		t.Fatalf("Shutdown 耗时 %v, 必须在宽限期附近返回", elapsed)
 	}
@@ -267,5 +268,18 @@ func TestRunRunsLifecycleHooksOnExit(t *testing.T) {
 		default:
 			t.Errorf("Run 返回前必须执行 %s", ch.name)
 		}
+	}
+}
+
+// waitForStopped waits until flag is set, so a detached forced stop is never asserted before it
+// starts. | waitForStopped 等待标志置位，避免在分离的强制停止尚未开始时就断言。
+func waitForStopped(t *testing.T, flag *atomic.Bool, message string) {
+	t.Helper()
+	deadline := time.Now().Add(2 * time.Second)
+	for !flag.Load() {
+		if time.Now().After(deadline) {
+			t.Fatal(message)
+		}
+		time.Sleep(time.Millisecond)
 	}
 }

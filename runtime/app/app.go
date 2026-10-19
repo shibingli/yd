@@ -124,8 +124,18 @@ type App struct {
 
 	hooks []shutdownHook
 
-	// grpcOnce guards the gRPC shutdown stage so it runs at most once. | grpcOnce 保证 gRPC 退出阶段最多执行一次。
+	// grpcOnce guards the gRPC shutdown stage so it runs at most once; grpcErr keeps its result so
+	// every caller sees the same outcome. | grpcOnce 保证 gRPC 退出阶段最多执行一次；grpcErr 保存
+	// 结果，使每个调用方看到同一个结局。
 	grpcOnce sync.Once
+	grpcErr  error
+
+	// closeOnce/closeDone make concurrent Close calls wait for the same hook run and share its
+	// error instead of the second caller returning before resources are released. | closeOnce/closeDone
+	// 让并发的 Close 调用等待同一次钩子执行并共享错误，而不是让第二个调用方在资源释放前返回。
+	closeOnce sync.Once
+	closeDone chan struct{}
+	closeErr  error
 
 	// mu guards services and hooks. | mu 保护 services 与 hooks。
 	mu sync.Mutex
@@ -193,6 +203,7 @@ func New(opts ...Option) (*App, error) {
 		layout:    DefaultLayout,
 		configDir: defaultConfigDir,
 		services:  make(map[string]any),
+		closeDone: make(chan struct{}),
 	}
 	for _, fn := range opts {
 		if fn != nil {

@@ -93,6 +93,14 @@ func Execute(ctx context.Context, args []string, env *Env) error {
 		ctx = context.Background()
 	}
 	applyEnvDefaults(env)
+	// A leading "--" terminates flag parsing and asks that the next word be taken literally as the
+	// command. Drop it here: phase 2 re-parses the whole line, where a surviving "--" would stop
+	// pflag and turn every command flag into a positional argument. | 前导 "--" 结束标志解析并要求
+	// 下一个词原样作为命令。这里把它去掉：第二阶段会重新解析整行，残留的 "--" 会让 pflag 停止
+	// 解析，把所有命令标志都变成位置参数。
+	if len(args) > 0 && args[0] == "--" {
+		args = args[1:]
+	}
 
 	// Phase 1: global flags standing before the command name locate the subcommand. | 第一阶段：
 	// 位于命令名之前的全局标志用于定位子命令。
@@ -132,6 +140,17 @@ func Execute(ctx context.Context, args []string, env *Env) error {
 			return nil
 		}
 		return errx.Wrap(err, ErrFlagParse)
+	}
+	// Global flags are registered on the command's flag set too, so "--version" placed after the
+	// command name parses successfully; without this check the command would run instead. | 全局标志
+	// 也注册在命令标志集上，因此写在命令名之后的 "--version" 能解析成功；缺少这道检查时命令会照常执行。
+	// Some commands deliberately shadow the global "--version" with their own string flag (for
+	// example "assets add --version 0.8.0"); only the global boolean form means "print version".
+	// | 部分命令刻意用同名的字符串标志遮蔽全局 "--version"（例如 "assets add --version 0.8.0"）；
+	// 只有全局的布尔形态才表示「打印版本」。
+	if fl := fs.Lookup(flagVersion); fl != nil && fl.Changed && fl.Value.Type() == "bool" {
+		printVersion(env)
+		return nil
 	}
 
 	cfg, err := loadConfig(env, fs)
@@ -229,13 +248,10 @@ func splitConfigPath(value, workDir string) (dir, name string) {
 
 // joinWorkDir joins dir onto workDir unless dir is the current directory. | joinWorkDir 把 dir 接到 workDir 上，除非 dir 就是当前目录。
 func joinWorkDir(workDir, dir string) string {
-	if dir == "." || dir == string(filepath.Separator) && workDir == "" {
+	if dir == "." {
 		return workDir
 	}
-	if filepath.IsAbs(dir) {
-		return dir
-	}
-	return filepath.Join(workDir, dir)
+	return resolveUserPath(workDir, dir)
 }
 
 // applyGlobalFlags writes the explicitly passed global flags into the configuration layer. | applyGlobalFlags 把命令行显式传入的全局标志写入配置层。

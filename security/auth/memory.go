@@ -232,7 +232,12 @@ func (m *memoryStore) UpdateUser(_ context.Context, tenantID string, u *User) er
 		delete(byName, oldKey)
 		byName[key] = u.ID
 	}
-	byID[u.ID] = cloneUser(u)
+	// The tenant is the key this record is filed under, never whatever the payload carried;
+	// storing an empty value would make the row unusable for token issuance and role lookup.
+	// | 租户就是本条记录所在的键，而不是载荷携带的值；存入空值会让该行无法签令牌、也无法查角色。
+	updated := cloneUser(u)
+	updated.TenantID = tenantID
+	byID[u.ID] = updated
 	return nil
 }
 
@@ -263,6 +268,14 @@ func (m *memoryStore) UpsertRole(_ context.Context, r *Role) error {
 	if !ok {
 		byName = make(map[string]string)
 		m.roleNames[r.TenantID] = byName
+	}
+	// A rename must release the old name; otherwise the old name keeps resolving to this id and
+	// users carrying it keep the role's permissions (fail-open) after the rename. | 改名必须释放旧名字；
+	// 否则旧名字仍解析到该 ID，携带旧名字的用户在改名后继续拥有该角色的权限（失败开放）。
+	if existing := byID[r.ID]; existing != nil && existing.Name != name {
+		if holder, ok := byName[existing.Name]; ok && holder == r.ID {
+			delete(byName, existing.Name)
+		}
 	}
 	if holder, dup := byName[name]; dup && holder != r.ID {
 		// Same name, different id: the stored id wins, so a rename cannot fork a role. | 同名不同 ID：以库中 ID 为准，避免重命名把角色分裂成两个。

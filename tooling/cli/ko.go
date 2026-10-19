@@ -8,7 +8,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"path/filepath"
 	"strings"
 
 	"github.com/shibingli/yd/tooling/ko"
@@ -191,10 +190,7 @@ func koWorkDir(env *Env, fs *pflag.FlagSet) string {
 	if dir == "" {
 		return env.WorkDir
 	}
-	if filepath.IsAbs(dir) {
-		return dir
-	}
-	return filepath.Join(env.WorkDir, dir)
+	return resolveUserPath(env.WorkDir, dir)
 }
 
 // printKoSession writes the bilingual session summary before ko starts. | printKoSession 在 ko 启动前写出双语会话摘要。

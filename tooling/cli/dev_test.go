@@ -128,6 +128,19 @@ func TestDevOptionsFromFlags(t *testing.T) {
 	}
 }
 
+// TestDevUsesScaffoldEntryPoint proves the development build compiles the scaffolded main package
+// instead of the module root. | TestDevUsesScaffoldEntryPoint 证明开发构建编译的是脚手架主包，
+// 而不是模块根。
+func TestDevUsesScaffoldEntryPoint(t *testing.T) {
+	dir := t.TempDir()
+	devWriteFile(t, filepath.Join(dir, serviceEntryDir, serviceEntryFile), "package main\n\nfunc main() {}\n")
+	env := &Env{WorkDir: dir, FS: afero.NewOsFs(), Out: io.Discard}
+
+	if got := devOptions(env, devParseFlags(t)).Package; got != "./"+serviceEntryDir {
+		t.Fatalf("构建入口 = %[1]q，期望 %[2]q | build entry = %[1]q, want %[2]q", got, "./"+serviceEntryDir)
+	}
+}
+
 // Without flags the toolchain defaults must apply. | TestDevDefaults 未传标志时必须落到 toolchain 默认值。
 func TestDevDefaults(t *testing.T) {
 	env := &Env{WorkDir: t.TempDir(), Out: io.Discard}

@@ -5,10 +5,17 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/shibingli/yd/core/errx"
 	"github.com/shibingli/yd/core/logx"
 )
+
+// defaultRoleCacheTTL bounds how long a replica may serve a stale role table. Mutations in this
+// process invalidate immediately; the TTL is what covers writes made by another replica, which
+// this process cannot observe. | defaultRoleCacheTTL 限定单副本可以继续使用旧角色表的最长时间。
+// 本进程内的变更会立即失效；TTL 覆盖的是本进程无法观察到的其它副本的写入。
+const defaultRoleCacheTTL = 30 * time.Second
 
 // Permission is a capability token of the form "resource:action". | Permission 是形如 "resource:action" 的能力标识。
 type Permission string
@@ -40,21 +47,46 @@ type Role struct {
 type roleCache struct {
 	// store is the read-through source of the cache. | store 是缓存的读透来源。
 	store Store
+	// now is the clock used for TTL comparisons. | now 是 TTL 比较使用的时钟。
+	now func() time.Time
 	// loaded marks the tenants whose roles have been read from the store. | loaded 标记已经从 Store 读取过角色的租户。
 	loaded map[string]struct{}
+	// loadedAt records when each tenant was last refreshed, so a replica eventually observes
+	// changes made by another process. | loadedAt 记录每个租户上次刷新的时间，使本副本最终能观察到
+	// 其它进程所做的变更。
+	loadedAt map[string]time.Time
 	// perms maps tenant id to role name to permissions. | perms 把租户 ID 映射到角色名再到权限列表。
 	perms map[string]map[string][]Permission
-	// mu guards the three fields below and is kept last to shrink the pointer
-	// bytes the collector has to scan. | mu 保护下面三个字段，并置于最后以减少回收器需要扫描的指针字节数。
+	// ttl bounds the staleness of one tenant. | ttl 限定单个租户缓存的最大陈旧时长。
+	ttl time.Duration
+	// version counts invalidations per tenant. A load publishes only if its tenant's version did
+	// not move while it was reading the store, and a reader retries when the version moved under
+	// it; without that, an invalidation between "the cache is fresh" and "look up the name" makes
+	// a role that exists in the store look unknown (fail-closed, but a spurious error for
+	// SetUserRoles). Per tenant, not global: a role write in one tenant must not make a stale read
+	// in another tenant look acceptable. | version 按租户记录失效次数。加载只有在读取 Store 期间该租户
+	// 的版本未变时才发布；读者发现版本变化就重试。否则在「缓存是新的」与「查这个名字」之间发生失效时，
+	// 库里存在的角色会被看成不存在（虽然失败关闭，但会让 SetUserRoles 报出假错误）。按租户而非全局计数：
+	// 一个租户写角色，不能让另一个租户的陈旧读取看起来仍然可接受。
+	version map[string]uint64
+	// mu guards the fields above and is kept last to shrink the pointer
+	// bytes the collector has to scan. | mu 保护上述字段，并置于最后以减少回收器需要扫描的指针字节数。
 	mu sync.RWMutex
 }
 
 // newRoleCache returns an empty cache reading through store. | newRoleCache 返回一个以 store 为读透来源的空缓存。
-func newRoleCache(store Store) *roleCache {
+func newRoleCache(store Store, now func() time.Time) *roleCache {
+	if now == nil {
+		now = time.Now
+	}
 	return &roleCache{
-		store:  store,
-		loaded: make(map[string]struct{}),
-		perms:  make(map[string]map[string][]Permission),
+		store:    store,
+		now:      now,
+		loaded:   make(map[string]struct{}),
+		loadedAt: make(map[string]time.Time),
+		perms:    make(map[string]map[string][]Permission),
+		version:  make(map[string]uint64),
+		ttl:      defaultRoleCacheTTL,
 	}
 }
 
@@ -64,21 +96,26 @@ func (c *roleCache) ensure(ctx context.Context, tenantID string) error {
 		return nil
 	}
 	c.mu.RLock()
+	gen := c.version[tenantID]
 	_, ok := c.loaded[tenantID]
+	loadedAt := c.loadedAt[tenantID]
 	c.mu.RUnlock()
-	if ok {
+	if ok && c.ttl > 0 && c.now().Sub(loadedAt) < c.ttl {
 		return nil
 	}
 	roles, err := c.store.ListRoles(ctx, tenantID)
 	if err != nil {
 		return err
 	}
-	c.refresh(tenantID, roles)
+	c.refresh(tenantID, roles, gen)
 	return nil
 }
 
-// refresh replaces the cached roles of one tenant. | refresh 覆盖某个租户的缓存角色。
-func (c *roleCache) refresh(tenantID string, roles []*Role) {
+// refresh replaces the cached roles of one tenant, unless an invalidation happened after the
+// caller started reading the store. Publishing a snapshot taken before that write would resurrect
+// the stale role table the invalidation was meant to drop. | refresh 覆盖某个租户的缓存角色；若调用方
+// 开始读取 Store 之后发生过失效，则放弃发布。否则会把失效本应丢弃的旧角色表重新放回缓存。
+func (c *roleCache) refresh(tenantID string, roles []*Role, gen uint64) {
 	if tenantID == "" {
 		return
 	}
@@ -91,23 +128,12 @@ func (c *roleCache) refresh(tenantID string, roles []*Role) {
 	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	c.loaded[tenantID] = struct{}{}
-	c.perms[tenantID] = perms
-}
-
-// set records one role without a store round trip. | set 记录单个角色，无需访问 Store。
-func (c *roleCache) set(tenantID, name string, perms []Permission) {
-	if tenantID == "" || name == "" {
+	if c.version[tenantID] != gen {
 		return
 	}
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	byName := c.perms[tenantID]
-	if byName == nil {
-		byName = make(map[string][]Permission)
-		c.perms[tenantID] = byName
-	}
-	byName[name] = perms
+	c.loaded[tenantID] = struct{}{}
+	c.loadedAt[tenantID] = c.now()
+	c.perms[tenantID] = perms
 }
 
 // invalidate drops the cached roles of one tenant. | invalidate 丢弃某个租户的缓存角色。
@@ -117,8 +143,17 @@ func (c *roleCache) invalidate(tenantID string) {
 	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	c.version[tenantID]++
 	delete(c.loaded, tenantID)
+	delete(c.loadedAt, tenantID)
 	delete(c.perms, tenantID)
+}
+
+// versionOf returns the invalidation version of one tenant. | versionOf 返回单个租户的失效版本。
+func (c *roleCache) versionOf(tenantID string) uint64 {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.version[tenantID]
 }
 
 // lookup returns the cached permissions of one role and reports whether it is known. | lookup 返回某个角色的缓存权限，并报告该角色是否已知。
@@ -133,11 +168,32 @@ func (c *roleCache) lookup(tenantID, name string) ([]Permission, bool) {
 //
 // A Store failure is propagated, and the caller fails closed. | Store 失败会向上传播，调用方据此失败关闭。
 func (c *roleCache) exists(ctx context.Context, tenantID, name string) (bool, error) {
-	if err := c.ensure(ctx, tenantID); err != nil {
+	// Retry when an invalidation lands between the freshness check and the lookup: the role may
+	// be present in the store even though the just-dropped cache no longer maps its name. | 若失效
+	// 发生在「确认缓存新鲜」与「查名字」之间则重试：角色可能仍在库里，只是刚被丢弃的缓存不再映射该名字。
+	for attempt := 0; attempt < 4; attempt++ {
+		gen := c.versionOf(tenantID)
+		if err := c.ensure(ctx, tenantID); err != nil {
+			return false, err
+		}
+		_, ok := c.lookup(tenantID, name)
+		if c.versionOf(tenantID) == gen {
+			return ok, nil
+		}
+	}
+	// A writer that invalidates faster than the retries is answered from the store directly;
+	// that keeps a known role from looking unknown while never granting an unknown one. | 写入者失效得
+	// 比重试还快时直接以 Store 为准；这样已知角色不会看起来不存在，未知角色也绝不会被放行。
+	roles, err := c.store.ListRoles(ctx, tenantID)
+	if err != nil {
 		return false, err
 	}
-	_, ok := c.lookup(tenantID, name)
-	return ok, nil
+	for _, r := range roles {
+		if r != nil && r.Name == name {
+			return true, nil
+		}
+	}
+	return false, nil
 }
 
 // UpsertRole creates or updates a role of the tenant. | UpsertRole 创建或更新租户内的角色。
@@ -183,8 +239,10 @@ func (s *Service) UpsertRole(ctx context.Context, tenantID string, r *Role) (*Ro
 	if err := s.store.UpsertRole(ctx, stored); err != nil {
 		return nil, err
 	}
-	// The cache is updated with the resolved permissions, never with a stale list. | 缓存写入的是归一化后的权限，绝不是过期列表。
-	s.roles.set(tenantID, stored.Name, permissionsFrom(stored.Permissions))
+	// Invalidate rather than patch: the role may have been renamed, and leaving the old name in
+	// the cache would keep granting its old permissions (fail-open) until a refresh. | 选择失效而不是
+	// 局部更新：角色可能被改名，把旧名字留在缓存里会让旧权限继续生效（失败开放）直到下一次刷新。
+	s.roles.invalidate(tenantID)
 	return cloneRole(stored), nil
 }
 
@@ -212,11 +270,12 @@ func (s *Service) ListRoles(ctx context.Context, tenantID string) ([]*Role, erro
 	if strings.TrimSpace(tenantID) == "" {
 		return nil, ErrTenantRequired
 	}
+	gen := s.roles.versionOf(tenantID)
 	roles, err := s.store.ListRoles(ctx, tenantID)
 	if err != nil {
 		return nil, err
 	}
-	s.roles.refresh(tenantID, roles)
+	s.roles.refresh(tenantID, roles, gen)
 	return roles, nil
 }
 

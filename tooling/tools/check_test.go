@@ -100,6 +100,45 @@ func TestCheckPrefersProjectLocalCopy(t *testing.T) {
 	}
 }
 
+// TestCheckWithHonoursConfiguredBinaries proves the probe sees the same configured executables the
+// real commands do, instead of reporting a tool as missing because it is not on PATH. | TestCheckWithHonoursConfiguredBinaries
+// 证明探测看到与真实命令相同的已配置可执行文件，而不会因为工具不在 PATH 上就误报缺失。
+func TestCheckWithHonoursConfiguredBinaries(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	// PATH offers nothing; only the configured paths can resolve the three tools. | PATH 上什么都没有，只有配置路径能解析这三个工具。
+	usePATH(newFakePATH(t))
+	bins := make(map[string]string, 3)
+	for _, name := range []string{NameBetteralign, NameKo, NameTailwindcss} {
+		p := filepath.Join(root, "configured-"+name)
+		stubFile(t, p)
+		bins[name] = p
+	}
+
+	byName := statusesByName(CheckWith(Options{Dir: root, Binaries: bins}))
+	for _, name := range []string{NameBetteralign, NameKo, NameTailwindcss} {
+		st := byName[name]
+		if !st.Found {
+			t.Errorf("%s 未就绪 | %s is not ready: %v", name, name, st.Err)
+			continue
+		}
+		want, err := filepath.Abs(bins[name])
+		if err != nil {
+			t.Fatalf("Abs(%q) 失败 | Abs failed: %v", bins[name], err)
+		}
+		if !samePath(t, st.Path, want) {
+			t.Errorf("%s.Path = %q，期望配置路径 %q", name, st.Path, want)
+		}
+	}
+	// docker has no configured executable, so it stays missing. | docker 没有配置可执行文件，因此仍然缺失。
+	if byName[NameDocker].Found {
+		t.Errorf("docker 不应被解析 | docker must not resolve")
+	}
+	if missing := MissingWith(Options{Dir: root, Binaries: bins}); len(missing) != 1 || missing[0].Tool.Name != NameDocker {
+		t.Errorf("Missing = %v，期望只有 docker | want only docker", statusNames(missing))
+	}
+}
+
 // TestCheckReportsUnexpectedResolverFailures keeps a broken chain apart from a missing tool. | TestCheckReportsUnexpectedResolverFailures 把损坏的解析链与缺失的工具分开。
 func TestCheckReportsUnexpectedResolverFailures(t *testing.T) {
 	isolate(t)
@@ -108,14 +147,14 @@ func TestCheckReportsUnexpectedResolverFailures(t *testing.T) {
 	usePATH(path)
 	errBoom := errors.New("resolution exploded")
 	fallback := resolveTool
-	resolveTool = func(tool Tool, dir string) (string, error) {
+	resolveTool = func(tool Tool, o Options) (string, error) {
 		switch tool.Name {
 		case toolBetteralign:
 			return "", errBoom
 		case toolKo:
 			return "", nil // A resolver that claims success without a path. | 解析器声称成功却没有路径。
 		}
-		return fallback(tool, dir)
+		return fallback(tool, o)
 	}
 
 	byName := statusesByName(Check(root))

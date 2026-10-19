@@ -9,7 +9,6 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"path/filepath"
 	"strings"
 
 	"github.com/spf13/pflag"
@@ -146,10 +145,10 @@ func runAuthzCheck(env *Env) error {
 // --dir，否则工作目录。
 func authzDir(env *Env, fs *pflag.FlagSet) string {
 	if dir := strings.TrimSpace(flagString(fs, flagAuthzDir)); dir != "" {
-		if env != nil && env.WorkDir != "" && !filepath.IsAbs(dir) {
-			return filepath.Join(env.WorkDir, dir)
+		if env != nil {
+			return resolveUserPath(env.WorkDir, dir)
 		}
-		return dir
+		return resolveUserPath("", dir)
 	}
 	if env != nil && env.WorkDir != "" {
 		return env.WorkDir

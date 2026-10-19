@@ -215,7 +215,10 @@ func BenchmarkEngines(b *testing.B) {
 				b.RunParallel(func(pb *testing.PB) {
 					for pb.Next() {
 						if err := e.page(io.Discard, page); err != nil {
-							b.Fatal(err)
+							// b.Fatal is forbidden in a non-test goroutine; report and stop this worker.
+							// | 非测试协程中禁止 b.Fatal；报告错误并停止本工作协程。
+							b.Errorf("render: %v", err)
+							return
 						}
 					}
 				})
@@ -243,7 +246,8 @@ func BenchmarkEngines(b *testing.B) {
 			b.RunParallel(func(pb *testing.PB) {
 				for pb.Next() {
 					if err := e.mapPage(io.Discard, pageMap); err != nil {
-						b.Fatal(err)
+						b.Errorf("render: %v", err)
+						return
 					}
 				}
 			})

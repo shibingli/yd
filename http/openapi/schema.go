@@ -694,17 +694,22 @@ func mergePathParams(o Operation, params []Parameter) Operation {
 	if len(params) == 0 {
 		return o
 	}
-	declared := make(map[string]bool, len(o.Parameters)+len(params))
+	// Key by (in, name): a query parameter named "id" must not suppress the required path
+	// parameter "id" that the route template declares. | 以 (in, name) 为键：名为 "id" 的查询参数
+	// 不得压掉路由模板声明的必填路径参数 "id"。
+	type paramKey struct{ in, name string }
+	declared := make(map[paramKey]bool, len(o.Parameters)+len(params))
 	out := make([]Parameter, 0, len(o.Parameters)+len(params))
 	for _, p := range o.Parameters {
-		declared[p.Name] = true
+		declared[paramKey{p.In, p.Name}] = true
 		out = append(out, p)
 	}
 	for _, p := range params {
-		if declared[p.Name] {
+		key := paramKey{p.In, p.Name}
+		if declared[key] {
 			continue
 		}
-		declared[p.Name] = true
+		declared[key] = true
 		out = append(out, p)
 	}
 	o.Parameters = out

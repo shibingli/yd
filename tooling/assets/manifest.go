@@ -177,6 +177,13 @@ func LoadManifest(fsys afero.Fs, path string) (*Manifest, error) {
 	if m.Version > CurrentManifestVersion {
 		return nil, errx.Detail(ErrManifestVersion, "%s: %d > %d", path, m.Version, CurrentManifestVersion)
 	}
+	// Validate on load, not only on save: the lock file may be hand-edited, and Update/Verify would
+	// otherwise trust a "../" path and write or read outside the asset root before Save ever runs.
+	// | 在加载时校验而不只在保存时校验：锁文件可能被手工编辑，否则 Update/Verify 会信任 "../"
+	// 路径，在 Save 运行之前就写出或读取到资产根之外。
+	if err := Validate(m.Assets); err != nil {
+		return nil, errx.WrapDetail(err, ErrManifestInvalid, "%s", path)
+	}
 	return &m, nil
 }
 
@@ -268,8 +275,14 @@ func NormalizePath(p string) (string, error) {
 	if strings.TrimSpace(p) == "" {
 		return "", errx.Detail(ErrInvalidAsset, "path is empty | path 为空")
 	}
-	slashed := filepath.ToSlash(p)
-	if strings.HasPrefix(slashed, "/") || filepath.IsAbs(p) || filepath.VolumeName(p) != "" {
+	// Treat a backslash as a separator on every platform, not just Windows: the manifest is
+	// checked into the repository and must resolve to the same relative path on Linux and
+	// Windows. Accepting `a\..\b` as a literal file name on Linux while cleaning it to `b` on
+	// Windows would make one lock file describe two different trees. | 反斜杠在所有平台上都视为分隔符，
+	// 而不只是 Windows：清单要签入仓库，必须在 Linux 与 Windows 上解析出同一个相对路径。若在 Linux 上把
+	// `a\..\b` 当成普通文件名、在 Windows 上却清理成 `b`，同一份锁文件就会描述两棵不同的目录树。
+	slashed := strings.ReplaceAll(p, "\\", "/")
+	if strings.HasPrefix(slashed, "/") || hasDrivePrefix(slashed) || filepath.IsAbs(p) || filepath.VolumeName(p) != "" {
 		return "", errx.Detail(ErrInvalidAsset, "path %[1]q is not a relative path | path %[1]q 不是相对路径", p)
 	}
 	cleaned := path.Clean(slashed)
@@ -277,6 +290,20 @@ func NormalizePath(p string) (string, error) {
 		return "", errx.Detail(ErrInvalidAsset, "path %[1]q escapes the write root | path %[1]q 逃逸出写入根", p)
 	}
 	return cleaned, nil
+}
+
+// hasDrivePrefix reports whether p starts with a Windows drive prefix ("C:"). | hasDrivePrefix 报告 p 是否以
+// Windows 盘符前缀（"C:"）开头。
+//
+// It is checked on every platform, because the manifest is portable: a lock file accepted on Linux must not
+// turn into an absolute Windows path when the same repository is checked out there. | 该检查在所有平台上进行，
+// 因为清单是可移植的：在 Linux 上被接受的锁文件，不能在同一仓库检出到 Windows 时变成绝对路径。
+func hasDrivePrefix(p string) bool {
+	if len(p) < 2 || p[1] != ':' {
+		return false
+	}
+	c := p[0]
+	return c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z'
 }
 
 // KindFromPath infers the asset kind from its file extension. | KindFromPath 依据文件扩展名推断资产类型。

@@ -47,11 +47,13 @@ func (c *Conn) WriteMessageBuffered(op OpCode, p []byte) error {
 	if err := validateOutboundDataOpcode(op); err != nil {
 		return err
 	}
+	c.writeMu.Lock()
+	defer c.writeMu.Unlock()
+	// Re-check under the lock; the earlier check can race with a concurrent close. | 在锁内重新检查；
+	// 先前的检查可能与并发的关闭操作竞争。
 	if c.closeSentFlag.Load() {
 		return ErrCloseSent
 	}
-	c.writeMu.Lock()
-	defer c.writeMu.Unlock()
 	return c.writeMessageLocked(op, p)
 }
 
@@ -80,11 +82,13 @@ func (c *Conn) WriteBatch(msgs []Message) error {
 			return err
 		}
 	}
+	c.writeMu.Lock()
+	defer c.writeMu.Unlock()
+	// Re-check under the lock; the earlier check can race with a concurrent close. | 在锁内重新检查；
+	// 先前的检查可能与并发的关闭操作竞争。
 	if c.closeSentFlag.Load() {
 		return ErrCloseSent
 	}
-	c.writeMu.Lock()
-	defer c.writeMu.Unlock()
 	for i := range msgs {
 		if err := c.writeMessageLocked(msgs[i].Op, msgs[i].Payload); err != nil {
 			return err

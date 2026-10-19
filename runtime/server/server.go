@@ -14,6 +14,7 @@ import (
 	"syscall"
 
 	"github.com/quic-go/quic-go/http3"
+	"golang.org/x/crypto/acme"
 
 	"github.com/shibingli/yd/core/errx"
 	"github.com/shibingli/yd/core/logx"
@@ -84,6 +85,13 @@ type Server struct {
 	serveErr chan error
 	done     chan struct{}
 
+	// errMu guards firstErr, the first fatal serve error. It is reported from
+	// Run even when the done channel wins the select. | errMu 保护 firstErr，
+	// 即首个致命服务错误；即使 select 选中了 done，Run 也会把它返回。
+	errMu    sync.Mutex
+	firstErr error
+	doneOnce sync.Once
+
 	// hijacked holds every connection a handler took over with http.Hijacker;
 	// http.Server.Shutdown does not know about them, so the server must close
 	// them itself. | hijacked 保存处理器通过 http.Hijacker 接管的全部连接；
@@ -97,9 +105,13 @@ type Server struct {
 	tcpPort int
 	h3Port  int
 
-	// mu guards the mutable state above: started, the listeners and hijacked. | mu 保护上述可变状态：started、监听器与 hijacked。
-	mu      sync.Mutex
+	// mu guards the mutable state above: started, closing, the listeners and hijacked. | mu 保护上述可变状态：started、closing、监听器与 hijacked。
+	mu sync.Mutex
+	// started reports whether Start ran; closing rejects new hijack registrations once the
+	// force-close stage has begun. | started 表示 Start 已执行；closing 在强制关闭阶段开始后拒绝新的
+	// hijack 登记。
 	started bool
+	closing bool
 }
 
 // New creates a Server from options. | New 依据参数创建服务器。
@@ -154,7 +166,11 @@ func (s *Server) HTTP3Addr() string {
 }
 
 // AltSvc returns the Alt-Svc header value; empty when HTTP/3 is off. | AltSvc 返回 Alt-Svc 头取值，未启用 HTTP/3 时为空。
-func (s *Server) AltSvc() string { return s.altSvc }
+func (s *Server) AltSvc() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.altSvc
+}
 
 // Start binds the listeners and serves in background goroutines. | Start 绑定监听并在后台协程中提供服务。
 //
@@ -167,6 +183,9 @@ func (s *Server) Start() error {
 	if s.started {
 		return ErrAlreadyStarted
 	}
+	// A server may be started again after a clean Shutdown; reopen the hijack gate. | 服务器在干净退出后
+	// 可以再次启动；此时重新打开 hijack 闸门。
+	s.closing = false
 	if s.opts.Handler == nil {
 		return ErrNoHandler
 	}
@@ -286,18 +305,32 @@ func (s *Server) Start() error {
 	return nil
 }
 
-// reportErr pushes a fatal serve error to the error channel. | reportErr 把致命的服务错误推入错误通道。
+// reportErr pushes a fatal serve error to the error channel and closes done exactly once. | reportErr
+// 把致命的服务错误推入错误通道，并保证 done 只关闭一次。
+//
+// The first error is kept separately: closing done and sending on serveErr are two independent
+// signals, and Run must never lose the cause just because it selected the done arm. | 首个错误单独保存：
+// 关闭 done 与向 serveErr 发送是两个独立信号，Run 不能因为选中 done 分支就丢掉原因。
 func (s *Server) reportErr(err error) {
+	s.errMu.Lock()
+	if s.firstErr == nil {
+		s.firstErr = err
+	}
+	s.errMu.Unlock()
+
 	select {
 	case s.serveErr <- err:
 	default:
 		s.logger.Error("server error channel is full | 服务器错误通道已满", logx.Err(err))
 	}
-	select {
-	case <-s.done:
-	default:
-		close(s.done)
-	}
+	s.doneOnce.Do(func() { close(s.done) })
+}
+
+// fatalError returns the first fatal serve error, if any. | fatalError 返回首个致命服务错误（若有）。
+func (s *Server) fatalError() error {
+	s.errMu.Lock()
+	defer s.errMu.Unlock()
+	return s.firstErr
 }
 
 // Errors exposes fatal serve errors. | Errors 暴露致命的服务错误。
@@ -367,14 +400,31 @@ func (s *Server) Shutdown(ctx context.Context) error {
 	// | ② HTTP/3 cannot drain, so it is closed outright. http3.Server.Close only closes listeners it
 	// created itself, and this socket was bound by Start and handed to Serve, so it has to be closed
 	// here or the UDP port stays occupied.
-	if h3 != nil {
-		if err := h3.Close(); err != nil {
-			errs = append(errs, err)
+	// h3.Close waits for every HTTP/3 stream handler to return, so call it in the background and
+	// bound the wait by the same grace period. Closing the packet connection first unblocks
+	// handlers that are blocked on I/O. | h3.Close 会等待每个 HTTP/3 流处理器返回，因此放到后台调用，
+	// 并用同一个宽限期限定等待；先关闭数据包连接可解除阻塞在 I/O 上的处理器。
+	if h3 != nil || h3Conn != nil {
+		closeDone := make(chan error, 1)
+		if h3 != nil {
+			go func() { closeDone <- h3.Close() }()
+		} else {
+			close(closeDone)
 		}
-	}
-	if h3Conn != nil {
-		if err := h3Conn.Close(); err != nil {
-			errs = append(errs, errx.Wrap(err, ErrHTTP3Close))
+		if h3Conn != nil {
+			if err := h3Conn.Close(); err != nil {
+				errs = append(errs, errx.Wrap(err, ErrHTTP3Close))
+			}
+		}
+		if h3 != nil {
+			select {
+			case err := <-closeDone:
+				if err != nil {
+					errs = append(errs, errx.Wrap(err, ErrHTTP3Close))
+				}
+			case <-ctx.Done():
+				errs = append(errs, errx.WrapDetail(ctx.Err(), ErrHTTP3Close, "HTTP/3 close did not finish before the deadline | HTTP/3 关闭未在期限内完成"))
+			}
 		}
 	}
 
@@ -386,6 +436,12 @@ func (s *Server) Shutdown(ctx context.Context) error {
 	}
 
 	// ④ Force-close surviving hijacked connections (WebSocket and friends), otherwise the peer stays hanging. | ④ 强制关闭仍然存活的 hijack 连接（WebSocket 等），否则对端会一直挂着。
+	// Set the closing gate first: a handler still winding down after the drain deadline must not
+	// register a fresh hijack that this stage has already passed. | 先打开关闭闸门：排空超时后仍在收尾的
+	// 处理器不得再登记本阶段已经错过的新 hijack 连接。
+	s.mu.Lock()
+	s.closing = true
+	s.mu.Unlock()
 	errs = append(errs, s.closeHijacked()...)
 
 	// ⑤ Aggregate the hook errors with those of the steps above. | ⑤ 汇总钩子与以上各步的错误。
@@ -404,6 +460,9 @@ func (s *Server) Shutdown(ctx context.Context) error {
 // or a fatal serve error occurs; it then shuts down gracefully. | Run 启动服务器并阻塞，
 // 直到 ctx 被取消、收到信号或出现致命服务错误，随后优雅退出。
 func (s *Server) Run(ctx context.Context) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	if err := s.Start(); err != nil {
 		return err
 	}
@@ -417,35 +476,40 @@ func (s *Server) Run(ctx context.Context) error {
 	case err := <-s.serveErr:
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), s.opts.ShutdownTimeout)
 		defer cancel()
-		_ = s.Shutdown(shutdownCtx)
-		return err
+		return errors.Join(err, s.Shutdown(shutdownCtx))
 	}
+
+	// Restore the default signal disposition before draining: a second SIGINT/SIGTERM must be able
+	// to kill a shutdown that is stuck in a handler or a hook. | 在排空前恢复信号的默认处置：若退出
+	// 卡在处理器或钩子里，第二次 SIGINT/SIGTERM 必须能够终止进程。
+	stop()
 
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), s.opts.ShutdownTimeout)
 	defer cancel()
-	return s.Shutdown(shutdownCtx)
+	// The select above may have taken the done arm; read the stored fatal error so a listener
+	// failure is never mistaken for a clean stop. | 上面的 select 可能选中 done 分支；读取保存的
+	// 致命错误，避免把监听失败当成干净退出。
+	return errors.Join(s.fatalError(), s.Shutdown(shutdownCtx))
 }
 
 // buildHandler wires ACME challenge handling and Alt-Svc advertisement. | buildHandler 装配 ACME 质询处理与 Alt-Svc 通告。
 func (s *Server) buildHandler() http.Handler {
 	h := s.opts.Handler
 
-	if s.opts.ACME.Enabled {
-		mgr, err := newACMEManager(s.opts.ACME)
-		if err != nil {
-			s.logger.Error("ACME initialization failed | ACME 初始化失败", logx.Err(err))
-		} else {
-			s.acme = mgr
-			challenge := mgr.manager.HTTPHandler(nil)
-			next := h
-			h = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				if len(r.URL.Path) >= len(acmeChallengePrefix) && r.URL.Path[:len(acmeChallengePrefix)] == acmeChallengePrefix {
-					challenge.ServeHTTP(w, r)
-					return
-				}
-				next.ServeHTTP(w, r)
-			})
-		}
+	if s.opts.ACME.Enabled && s.acme != nil {
+		// Use the manager buildTLSConfig created. A second manager would own a different challenge
+		// token map, so TLS-ALPN-01 would issue from one manager while HTTP-01 looked in another.
+		// | 复用 buildTLSConfig 创建的管理器。再建一个会得到不同的质询令牌表，导致 TLS-ALPN-01
+		// 由其中一个签发、HTTP-01 却去另一个里查找。
+		challenge := s.acme.manager.HTTPHandler(nil)
+		next := h
+		h = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if len(r.URL.Path) >= len(acmeChallengePrefix) && r.URL.Path[:len(acmeChallengePrefix)] == acmeChallengePrefix {
+				challenge.ServeHTTP(w, r)
+				return
+			}
+			next.ServeHTTP(w, r)
+		})
 	}
 
 	if s.altSvc != "" {
@@ -476,15 +540,21 @@ func (s *Server) buildTLSConfig() (*tls.Config, error) {
 	}
 	switch {
 	case s.opts.ACME.Enabled:
-		mgr, err := newACMEManager(s.opts.ACME)
-		if err != nil {
-			return nil, err
+		if s.acme == nil {
+			mgr, err := newACMEManager(s.opts.ACME)
+			if err != nil {
+				return nil, err
+			}
+			s.acme = mgr
 		}
-		s.acme = mgr
+		// acme-tls/1 must be offered or the CA's TLS-ALPN-01 validation handshake is aborted
+		// before GetCertificate runs, which makes issuance and renewal impossible. | 必须提供
+		// acme-tls/1，否则 CA 的 TLS-ALPN-01 校验握手会在 GetCertificate 之前被中止，签发与续期
+		// 都不可能成功。
 		return &tls.Config{
-			GetCertificate: mgr.manager.GetCertificate,
+			GetCertificate: s.acme.manager.GetCertificate,
 			MinVersion:     minVersion,
-			NextProtos:     []string{"h2", "http/1.1"},
+			NextProtos:     []string{acme.ALPNProto, "h2", "http/1.1"},
 		}, nil
 
 	case s.opts.TLS.Enabled:

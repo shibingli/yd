@@ -6,11 +6,13 @@ import (
 	"path/filepath"
 	"sync"
 	"testing"
+	"testing/fstest"
 	"time"
 
 	"github.com/spf13/afero"
 	"github.com/spf13/pflag"
 
+	"github.com/shibingli/yd/core/afs"
 	"github.com/shibingli/yd/core/config"
 )
 
@@ -492,5 +494,28 @@ func TestEnvDoesNotOverrideRealEnvVar(t *testing.T) {
 	}
 	if got := os.Getenv("YD_APP_NAME"); got != "from-real-env" {
 		t.Fatalf("真实环境变量被改写为 %q，期望保持 from-real-env", got)
+	}
+}
+
+// TestLoadReadsEmbeddedConfigInSubdirectory proves a nested config directory works on an io/fs
+// backend: filepath.Join produces a backslash on Windows, which fs.ValidPath rejects. |
+// TestLoadReadsEmbeddedConfigInSubdirectory 证明嵌套配置目录在 io/fs 后端上可用：Windows 上
+// filepath.Join 会产生反斜杠，而 fs.ValidPath 会拒绝它。
+func TestLoadReadsEmbeddedConfigInSubdirectory(t *testing.T) {
+	fsys := afs.NewEmbed(fstest.MapFS{
+		"configs/app.yaml": &fstest.MapFile{Data: []byte("server:\n  port: 9091\n")},
+	})
+	c, err := config.Load(config.Options{
+		Name:       "embedded",
+		ConfigDir:  "configs",
+		ConfigName: "app",
+		EnvFile:    "absent.env",
+		FS:         fsys,
+	})
+	if err != nil {
+		t.Fatalf("Load 失败 | failed: %v", err)
+	}
+	if got := c.GetInt("server.port"); got != 9091 {
+		t.Fatalf("server.port = %d，期望 9091 | want 9091", got)
 	}
 }

@@ -194,42 +194,68 @@ func (r *Regexp) FindStringSubmatchIndex(s string) []int {
 //
 // n limits the number of matches; a negative n means all matches. | n 限制匹配数量，负数表示全部。
 func (r *Regexp) FindAllString(s string, n int) []string {
+	out, _ := r.FindAllStringE(s, n)
+	return out
+}
+
+// FindAllStringE is FindAllString with the engine error exposed. | FindAllStringE 是暴露引擎错误的
+// FindAllString。
+//
+// On the regexp2 path a scan aborted by ErrMatchTimeout returns the matches collected before the
+// timeout together with that error, so a validator can fail closed instead of treating a truncated
+// scan as "no match". | 在 regexp2 路径上，被 ErrMatchTimeout 中止的扫描返回超时前已收集的匹配以及
+// 该错误，使校验逻辑能够失败关闭，而不是把截断的扫描当成「无匹配」。
+func (r *Regexp) FindAllStringE(s string, n int) ([]string, error) {
 	if r.re2 != nil {
-		return r.re2.FindAllString(s, n)
+		return r.re2.FindAllString(s, n), nil
 	}
 	starts := runeStarts(s)
 	var out []string
-	r.eachMatch(s, n, func(m *regexp2.Match) bool {
+	err := r.eachMatch(s, n, func(m *regexp2.Match) bool {
 		out = append(out, s[starts[m.Index]:starts[m.Index+m.Length]])
 		return true
 	})
-	return out
+	return out, err
 }
 
 // FindAllStringIndex returns the byte offset pairs of every non-overlapping match. | FindAllStringIndex 返回每个不重叠匹配的字节偏移对。
 //
 // n limits the number of matches; a negative n means all matches. | n 限制匹配数量，负数表示全部。
 func (r *Regexp) FindAllStringIndex(s string, n int) [][]int {
+	out, _ := r.FindAllStringIndexE(s, n)
+	return out
+}
+
+// FindAllStringIndexE is FindAllStringIndex with the engine error exposed. | FindAllStringIndexE 是
+// 暴露引擎错误的 FindAllStringIndex。
+func (r *Regexp) FindAllStringIndexE(s string, n int) ([][]int, error) {
 	if r.re2 != nil {
-		return r.re2.FindAllStringIndex(s, n)
+		return r.re2.FindAllStringIndex(s, n), nil
 	}
 	starts := runeStarts(s)
 	var out [][]int
-	r.eachMatch(s, n, func(m *regexp2.Match) bool {
+	err := r.eachMatch(s, n, func(m *regexp2.Match) bool {
 		out = append(out, []int{starts[m.Index], starts[m.Index+m.Length]})
 		return true
 	})
-	return out
+	return out, err
 }
 
 // FindAllStringSubmatch returns every non-overlapping match together with its submatches. | FindAllStringSubmatch 返回每个不重叠匹配及其子匹配。
 func (r *Regexp) FindAllStringSubmatch(s string, n int) [][]string {
+	out, _ := r.FindAllStringSubmatchE(s, n)
+	return out
+}
+
+// FindAllStringSubmatchE is FindAllStringSubmatch with the engine error exposed. | FindAllStringSubmatchE
+// 是暴露引擎错误的 FindAllStringSubmatch。
+func (r *Regexp) FindAllStringSubmatchE(s string, n int) ([][]string, error) {
 	if r.re2 != nil {
-		return r.re2.FindAllStringSubmatch(s, n)
+		return r.re2.FindAllStringSubmatch(s, n), nil
 	}
 	starts := runeStarts(s)
 	var out [][]string
-	r.eachMatch(s, n, func(m *regexp2.Match) bool {
+	err := r.eachMatch(s, n, func(m *regexp2.Match) bool {
 		groups := m.Groups()
 		row := make([]string, len(groups))
 		for i := range groups {
@@ -238,21 +264,28 @@ func (r *Regexp) FindAllStringSubmatch(s string, n int) [][]string {
 		out = append(out, row)
 		return true
 	})
-	return out
+	return out, err
 }
 
 // FindAllStringSubmatchIndex returns the byte offset pairs of every match and its submatches. | FindAllStringSubmatchIndex 返回每个匹配及其子匹配的字节偏移对。
 func (r *Regexp) FindAllStringSubmatchIndex(s string, n int) [][]int {
+	out, _ := r.FindAllStringSubmatchIndexE(s, n)
+	return out
+}
+
+// FindAllStringSubmatchIndexE is FindAllStringSubmatchIndex with the engine error exposed. | FindAllStringSubmatchIndexE
+// 是暴露引擎错误的 FindAllStringSubmatchIndex。
+func (r *Regexp) FindAllStringSubmatchIndexE(s string, n int) ([][]int, error) {
 	if r.re2 != nil {
-		return r.re2.FindAllStringSubmatchIndex(s, n)
+		return r.re2.FindAllStringSubmatchIndex(s, n), nil
 	}
 	starts := runeStarts(s)
 	var out [][]int
-	r.eachMatch(s, n, func(m *regexp2.Match) bool {
+	err := r.eachMatch(s, n, func(m *regexp2.Match) bool {
 		out = append(out, appendGroupIndices(nil, m.Groups(), starts))
 		return true
 	})
-	return out
+	return out, err
 }
 
 // ReplaceAllString replaces every match with repl and returns the result. | ReplaceAllString 用 repl 替换每个匹配并返回结果。
@@ -270,23 +303,50 @@ func (r *Regexp) ReplaceAllString(src, repl string) string {
 	if err != nil {
 		return src
 	}
+	// regexp2's Replace swallows the iteration error and returns ("", nil) when the match
+	// timeout fires, which an empty result cannot be distinguished from. Re-scan only for that
+	// suspicious shape and leave the source untouched if the scan reports the timeout. | regexp2
+	// 的 Replace 在匹配超时时吞掉迭代错误并返回 ("", nil)，无法与合法的空结果区分。仅对这种可疑
+	// 结果重新扫描一次；扫描报告超时时原样返回源串。
+	if out == "" && src != "" && r.matchScanFailed(src) {
+		return src
+	}
 	return out
 }
 
-// eachMatch walks the non-overlapping matches, stopping after n when n is positive. | eachMatch 遍历不重叠的匹配，n 为正数时在 n 个之后停止。
-func (r *Regexp) eachMatch(s string, n int, fn func(*regexp2.Match) bool) {
+// matchScanFailed reports whether a full scan of s stops on an engine error. | matchScanFailed
+// 报告对 s 的完整扫描是否因引擎错误而中止。
+func (r *Regexp) matchScanFailed(s string) bool {
+	m, err := r.re2x.FindStringMatch(s)
+	for err == nil && m != nil {
+		m, err = r.re2x.FindNextMatch(m)
+	}
+	return err != nil
+}
+
+// eachMatch walks the non-overlapping matches, stopping after n when n is positive. | eachMatch
+// 遍历不重叠的匹配，n 为正数时在 n 个之后停止。
+//
+// The returned error is the engine error that aborted the scan (notably ErrMatchTimeout); callers
+// that expose a non-error signature report the matches collected so far. | 返回的错误是中止扫描的
+// 引擎错误（尤其是 ErrMatchTimeout）；非错误签名的调用方报告已收集到的匹配。
+func (r *Regexp) eachMatch(s string, n int, fn func(*regexp2.Match) bool) error {
+	if n == 0 {
+		return nil // stdlib semantics: n == 0 means no matches | 标准库语义：n == 0 表示不返回匹配
+	}
 	m, err := r.re2x.FindStringMatch(s)
 	count := 0
 	for err == nil && m != nil {
 		if !fn(m) {
-			return
+			return nil
 		}
 		count++
 		if n > 0 && count >= n {
-			return
+			return nil
 		}
 		m, err = r.re2x.FindNextMatch(m)
 	}
+	return err
 }
 
 // runeStarts returns a rune-index-to-byte-offset table whose final entry is len(s). | runeStarts 返回符文下标到字节偏移的映射表，最后一项是 len(s)。

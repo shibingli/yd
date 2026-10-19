@@ -81,3 +81,18 @@ func TestClientIPRejectsTooManyHops(t *testing.T) {
 		t.Fatalf("too many hops: ClientIP = %q, want peer 10.0.0.5", got)
 	}
 }
+
+// TestClientIPJoinsEveryForwardedLine is the regression for Header.Get returning only the first
+// X-Forwarded-For line: the walk must see the proxy-appended lines at the right. | TestClientIPJoinsEveryForwardedLine
+// 是 Header.Get 只返回第一行 X-Forwarded-For 的回归：从右向左的遍历必须看到代理追加的行。
+func TestClientIPJoinsEveryForwardedLine(t *testing.T) {
+	trusted := []netip.Prefix{netip.MustParsePrefix("10.0.0.0/8")}
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req.RemoteAddr = "10.0.0.5:1234"
+	req.Header.Add("X-Forwarded-For", "1.2.3.4")
+	req.Header.Add("X-Forwarded-For", "9.9.9.9")
+	c := &Ctx{Request: req}
+	if got := c.ClientIP(trusted); got != "9.9.9.9" {
+		t.Fatalf("multi-line XFF: ClientIP = %q, want the rightmost untrusted hop 9.9.9.9", got)
+	}
+}

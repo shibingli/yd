@@ -458,3 +458,66 @@ func TestCtxBodyHonorsRouterLimit(t *testing.T) {
 		t.Fatalf("err = %v, 期望 ErrBodyTooLarge", err)
 	}
 }
+
+// TestBindMapAndNarrowIntegers covers two remote-input regressions: a map with a non-string
+// element type must not panic, and an integer value wider than its field must be rejected instead
+// of wrapping. | TestBindMapAndNarrowIntegers 覆盖两个远程输入回归：非字符串元素类型的映射不得
+// panic，超出字段位宽的整数必须被拒绝而不是回绕。
+func TestBindMapAndNarrowIntegers(t *testing.T) {
+	r := New()
+	r.GET("/map", func(c *Ctx) {
+		var m map[string]int
+		if err := c.Bind(&m); err != nil {
+			_ = c.String(http.StatusBadRequest, err.Error())
+			return
+		}
+		_ = c.JSON(http.StatusOK, m)
+	})
+	r.GET("/narrow", func(c *Ctx) {
+		var p struct {
+			Age int8 `form:"age"`
+		}
+		if err := c.Bind(&p); err != nil {
+			_ = c.String(http.StatusBadRequest, err.Error())
+			return
+		}
+		_ = c.JSON(http.StatusOK, p)
+	})
+
+	rec := do(r, http.MethodGet, "/map?a=1", nil, "")
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"a":1`) {
+		t.Fatalf("map[string]int binding: code=%d body=%q", rec.Code, rec.Body.String())
+	}
+	rec = do(r, http.MethodGet, "/narrow?age=200", nil, "")
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("int8 overflow accepted: code=%d body=%q", rec.Code, rec.Body.String())
+	}
+}
+
+// TestFallbacksRunGlobalMiddleware is the regression for built-in 404/405/auto-OPTIONS bypassing
+// the global chain: access logs, rate limits, security headers and CORS silently stopped applying
+// to exactly the traffic an attacker generates most. | TestFallbacksRunGlobalMiddleware 是内建
+// 404/405/自动 OPTIONS 绕过全局链的回归：访问日志、限流、安全头与 CORS 会对攻击者最容易制造的
+// 流量静默失效。
+func TestFallbacksRunGlobalMiddleware(t *testing.T) {
+	r := New()
+	hits := 0
+	r.Use(func(c *Ctx) {
+		hits++
+		c.Next()
+	})
+	r.GET("/x", func(c *Ctx) { _ = c.String(http.StatusOK, "ok") })
+
+	do(r, http.MethodGet, "/missing", nil, "")
+	if hits != 1 {
+		t.Fatalf("404 bypassed global middleware: hits=%d", hits)
+	}
+	do(r, http.MethodPost, "/x", nil, "")
+	if hits != 2 {
+		t.Fatalf("405 bypassed global middleware: hits=%d", hits)
+	}
+	do(r, http.MethodOptions, "/x", nil, "")
+	if hits != 3 {
+		t.Fatalf("auto OPTIONS bypassed global middleware: hits=%d", hits)
+	}
+}

@@ -5,7 +5,7 @@ go {{ .GoVersion }}
 
 require {{ .YdModule }} v0.0.0-00010101000000-000000000000
 
-replace {{ .YdModule }} => {{ .LocalReplace }}
+replace {{ .YdModule }} => {{ .LocalReplaceQuoted }}
 {{- else }}
 
 // The framework dependency github.com/shibingli/yd is pulled in by go mod tidy once the module is published. | 框架依赖 github.com/shibingli/yd 在模块发布后由 go mod tidy 引入。

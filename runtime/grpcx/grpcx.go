@@ -17,8 +17,15 @@ import (
 	"google.golang.org/grpc/reflection"
 
 	"github.com/shibingli/yd/core/config"
+	"github.com/shibingli/yd/core/errx"
 	"github.com/shibingli/yd/core/logx"
 )
+
+// ErrSeparateModeUnsupported reports ModeSeparate, which has no listener implementation: accepting
+// it silently would leave a healthy-looking process whose gRPC port refuses every connection.
+// | ErrSeparateModeUnsupported 表示 ModeSeparate 尚无监听实现：静默接受它会让进程看起来健康，
+// 而 gRPC 端口拒绝所有连接。
+var ErrSeparateModeUnsupported = errx.New("grpcx: separate listener mode is not implemented; use same-port | grpcx：独立监听模式尚未实现；请使用同端口模式")
 
 // Transport modes. | 传输模式常量。
 const (
@@ -119,11 +126,34 @@ func OptionsFromConfig(c *config.Config) Options {
 	}.withDefaults()
 }
 
+// Validate checks that the transport mode has an implementation. | Validate 校验传输模式是否有实现。
+func Validate(o Options) error {
+	if o.withDefaults().Mode == ModeSeparate {
+		return ErrSeparateModeUnsupported
+	}
+	return nil
+}
+
+// RegisterE is Register with the option error exposed. | RegisterE 是暴露选项错误的 Register。
+func RegisterE(o Options, l *logx.Logger, opts ...grpc.ServerOption) (*grpc.Server, error) {
+	if err := Validate(o); err != nil {
+		return nil, err
+	}
+	return Register(o, l, opts...), nil
+}
+
 // Register wires a gRPC server into an application. | Register 把 gRPC 服务端接入应用。
 //
-// It returns the server so callers can register services on it. | 返回服务端以便调用方注册服务。
+// It returns the server so callers can register services on it. ModeSeparate is reported through
+// the logger because this signature cannot return an error; use RegisterE to receive
+// ErrSeparateModeUnsupported instead. | 返回服务端以便调用方注册服务。由于本签名无法返回错误，
+// ModeSeparate 会经日志报告；需要拿到 ErrSeparateModeUnsupported 时请用 RegisterE。
 func Register(o Options, l *logx.Logger, opts ...grpc.ServerOption) *grpc.Server {
 	o = o.withDefaults()
+	if err := Validate(o); err != nil && l != nil {
+		l.Error("gRPC transport mode is not supported | gRPC 传输模式不受支持",
+			logx.Str("mode", o.Mode), logx.Err(err))
+	}
 	srv := NewServer(o, opts...)
 	if l != nil {
 		l.Info("gRPC channel enabled | gRPC 通道已启用",

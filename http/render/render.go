@@ -48,6 +48,7 @@ import (
 	"io"
 	"io/fs"
 	"path"
+	"path/filepath"
 	"reflect"
 	"slices"
 	"sort"
@@ -60,7 +61,22 @@ import (
 
 	"github.com/shibingli/yd/core/afs"
 	"github.com/shibingli/yd/core/errx"
+	"github.com/shibingli/yd/core/logx"
 )
+
+// isEscapeError reports whether err came from html/template's context computation. | isEscapeError
+// 报告 err 是否来自 html/template 的上下文计算。
+//
+// Execution with nil data can also fail for ordinary reasons (a method on a nil value); only the
+// context/escape diagnostics may poison the program. | 用 nil 数据执行也可能因普通原因失败（例如
+// nil 值上的方法）；只有上下文/转义诊断才能使程序失效。
+func isEscapeError(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "context") || strings.Contains(msg, "escape")
+}
 
 // Sentinel errors. | 哨兵错误。
 var (
@@ -92,7 +108,7 @@ func (o Options) normalize() Options {
 	if o.Root == "" {
 		o.Root = "templates"
 	}
-	o.Root = strings.Trim(strings.ReplaceAll(o.Root, "\\", "/"), "/")
+	o.Root = normalizeRoot(o.Root)
 	if len(o.Exts) == 0 {
 		o.Exts = []string{".html", ".gotmpl"}
 	}
@@ -192,8 +208,22 @@ func New(fsys afero.Fs, o Options) (*Engine, error) {
 // Filesystem returns the underlying filesystem. | Filesystem 返回底层文件系统。
 func (e *Engine) Filesystem() afero.Fs { return e.fsys }
 
-// Options returns the normalized options. | Options 返回规范化后的配置。
-func (e *Engine) Options() Options { return e.opts }
+// Options returns a copy of the normalized options. | Options 返回规范化配置的副本。
+//
+// Funcs is copied too: returning the map itself would let a caller mutate the engine (and race
+// with Dev-mode reloads) through a value it only meant to inspect. | Funcs 也会复制：返回映射本身
+// 会让调用方通过一个本意只用于查看的值修改引擎（并与 Dev 模式重载竞争）。
+func (e *Engine) Options() Options {
+	opts := e.opts
+	if opts.Funcs != nil {
+		funcs := make(template.FuncMap, len(opts.Funcs))
+		for k, v := range opts.Funcs {
+			funcs[k] = v
+		}
+		opts.Funcs = funcs
+	}
+	return opts
+}
 
 // FuncMap returns the effective template functions. | FuncMap 返回生效的模板函数表。
 func (e *Engine) FuncMap() template.FuncMap {
@@ -231,7 +261,12 @@ func (e *Engine) AddFunc(name string, fn any) *Engine {
 	}
 	c.opts.Funcs[name] = fn
 	if !c.opts.Dev {
-		_ = c.load()
+		if err := c.load(); err != nil {
+			// The signature cannot return an error; log loudly instead of handing back an engine
+			// that silently lacks the function. | 签名无法返回错误；大声记录，而不是交回一个静默
+			// 缺少该函数的引擎。
+			logx.Default().Error("render: reload after AddFunc failed | render：AddFunc 之后重新加载失败", logx.Err(err))
+		}
 	}
 	return c
 }
@@ -322,7 +357,15 @@ func (e *Engine) load() error {
 			st.programs[name] = &program{err: errx.Wrap(cerr, ErrCloneTemplate)}
 			continue
 		}
-		_ = clone.ExecuteTemplate(io.Discard, name, nil)
+		if execErr := clone.ExecuteTemplate(io.Discard, name, nil); execErr != nil && isEscapeError(execErr) {
+			// The forced pass is where html/template computes contexts. Swallowing its error made
+			// New report success for a template whose branches end in different contexts, and the
+			// first render failed later with an unactionable message. | 强制转义遍正是
+			// html/template 计算上下文的时机。吞掉它的错误会让 New 对「分支结束于不同上下文」的
+			// 模板报告成功，首次渲染才以无法定位问题的文案失败。
+			st.programs[name] = &program{err: errx.Wrap(execErr, ErrExecuteTemplate)}
+			continue
+		}
 		ht := clone.Lookup(name)
 		if ht == nil || ht.Tree == nil {
 			st.programs[name] = &program{err: errx.Detail(ErrParseTemplate, "name=%[1]s | 名称=%[1]s", name)}
@@ -518,7 +561,35 @@ func validFuncName(name string) bool {
 }
 
 // toSlash converts a filesystem path to slash form. | toSlash 把文件系统路径转换为斜杠形式。
-func toSlash(p string) string { return strings.ReplaceAll(p, "\\", "/") }
+func toSlash(p string) string { return filepath.ToSlash(p) }
+
+// normalizeRoot makes a template root slash-separated without destroying an absolute prefix. | normalizeRoot
+// 把模板根规范为斜杠分隔，同时不破坏绝对路径前缀。
+//
+// The older implementation trimmed every leading separator, which turned "/srv/app/templates" into
+// the relative "srv/app/templates" (and a UNC root into a different tree). Only "./" segments and
+// trailing separators are removed here; a leading "/" or a drive root survives. | 旧实现裁掉所有前导
+// 分隔符，把 "/srv/app/templates" 变成相对的 "srv/app/templates"（UNC 根也会变成另一棵树）。这里只去掉
+// "./" 段与末尾分隔符，开头的 "/" 或盘符根都会保留。
+func normalizeRoot(root string) string {
+	root = filepath.ToSlash(root)
+	for strings.HasPrefix(root, "./") {
+		root = root[2:]
+	}
+	trimmed := strings.TrimRight(root, "/")
+	if trimmed == "" {
+		if strings.HasPrefix(root, "/") {
+			return "/"
+		}
+		return "."
+	}
+	// A drive root such as "C:/" loses its slash in TrimRight but must stay absolute. | "C:/" 这类
+	// 盘符根会在 TrimRight 中丢掉斜杠，但必须保持绝对。
+	if len(trimmed) == 2 && trimmed[1] == ':' {
+		return trimmed + "/"
+	}
+	return trimmed
+}
 
 // trimRoot strips the scan root prefix so template names stay portable. | trimRoot 去掉扫描根前缀，使模板名保持可移植。
 func trimRoot(p, root string) string {

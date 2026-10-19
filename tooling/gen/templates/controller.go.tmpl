@@ -232,7 +232,11 @@ func bind<%.Name%>Input(c *router.Ctx) (service.<%.Name%>Input, error) {
 func (ctl *<%.Name%>Controller) List(c *router.Ctx) {
 	page, size := parse<%.Name%>Page(c)
 <% if .HasSearch %>	keyword := strings.TrimSpace(c.Query("q"))
-<% end %>	items, total, err := ctl.svc.List(c, page, size<% if .HasSearch %>, keyword<% end %>)
+<% end %>	tenantID, ok := generatedTenantID(c)
+	if !ok {
+		return
+	}
+	items, total, err := ctl.svc.List(c, tenantID, page, size<% if .HasSearch %>, keyword<% end %>)
 	if err != nil {
 		ctl.fail(c, http.StatusInternalServerError, "#<%.Snake%>-module", "<%.Snake%> list failed | <%.Snake%> 列表加载失败", err)
 		return
@@ -301,7 +305,11 @@ func (ctl *<%.Name%>Controller) Create(c *router.Ctx) {
 		return
 	}
 
-	item, err := ctl.svc.Create(c, in)
+	tenantID, ok := generatedTenantID(c)
+	if !ok {
+		return
+	}
+	item, err := ctl.svc.Create(c, tenantID, in)
 	if err != nil {
 		if errors.Is(err, service.Err<%.Name%>Invalid) {
 			ctl.fail(c, http.StatusUnprocessableEntity, "#<%.Snake%>-form-error", "<%.Snake%> form rejected | <%.Snake%> 表单校验未通过", err)
@@ -338,7 +346,11 @@ func (ctl *<%.Name%>Controller) Show(c *router.Ctx) {
 		return
 	}
 
-	item, err := ctl.svc.Get(c, id)
+	tenantID, ok := generatedTenantID(c)
+	if !ok {
+		return
+	}
+	item, err := ctl.svc.Get(c, tenantID, id)
 	if err != nil {
 		ctl.failLoad(c, err)
 		return
@@ -369,7 +381,11 @@ func (ctl *<%.Name%>Controller) Edit(c *router.Ctx) {
 		return
 	}
 
-	item, err := ctl.svc.Get(c, id)
+	tenantID, ok := generatedTenantID(c)
+	if !ok {
+		return
+	}
+	item, err := ctl.svc.Get(c, tenantID, id)
 	if err != nil {
 		ctl.failLoad(c, err)
 		return
@@ -418,7 +434,11 @@ func (ctl *<%.Name%>Controller) Update(c *router.Ctx) {
 		return
 	}
 
-	item, err := ctl.svc.Update(c, id, in)
+	tenantID, ok := generatedTenantID(c)
+	if !ok {
+		return
+	}
+	item, err := ctl.svc.Update(c, tenantID, id, in)
 	if err != nil {
 		switch {
 		case errors.Is(err, service.Err<%.Name%>Invalid):
@@ -458,7 +478,11 @@ func (ctl *<%.Name%>Controller) Delete(c *router.Ctx) {
 		return
 	}
 
-	if err := ctl.svc.Delete(c, id); err != nil {
+	tenantID, ok := generatedTenantID(c)
+	if !ok {
+		return
+	}
+	if err := ctl.svc.Delete(c, tenantID, id); err != nil {
 		if errors.Is(err, service.Err<%.Name%>NotFound) {
 			ctl.failLoad(c, err)
 			return

@@ -16,6 +16,42 @@ import (
 	"github.com/spf13/afero"
 )
 
+// TestNormalizePathIsPlatformIndependent proves one lock file resolves to the same relative path on
+// Linux and Windows, and that portable absolute forms are rejected everywhere. | TestNormalizePathIsPlatformIndependent
+// 证明同一份锁文件在 Linux 与 Windows 上解析出相同的相对路径，且可移植的绝对路径形态在所有平台都被拒绝。
+func TestNormalizePathIsPlatformIndependent(t *testing.T) {
+	for _, tc := range []struct{ in, want string }{
+		{`static/js/vendor/app.js`, "static/js/vendor/app.js"},
+		{`static\js\vendor\app.js`, "static/js/vendor/app.js"},
+		{`a\..\b.css`, "b.css"},
+		{`./static/./app.css`, "static/app.css"},
+	} {
+		got, err := NormalizePath(tc.in)
+		if err != nil {
+			t.Errorf("NormalizePath(%q) 返回错误 | returned an error: %v", tc.in, err)
+			continue
+		}
+		if got != tc.want {
+			t.Errorf("NormalizePath(%[1]q) = %[2]q，期望 %[3]q | got %[2]q, want %[3]q", tc.in, got, tc.want)
+		}
+	}
+	for _, bad := range []string{
+		``,
+		`/etc/passwd`,
+		`\windows\system32`,
+		`C:\Windows\win.ini`,
+		`C:/Windows/win.ini`,
+		`c:relative`,
+		`../outside.js`,
+		`a/../../outside.js`,
+		`..\outside.js`,
+	} {
+		if got, err := NormalizePath(bad); err == nil {
+			t.Errorf("NormalizePath(%q) = %q，期望拒绝 | want a rejection", bad, got)
+		}
+	}
+}
+
 const (
 	testManifestPath = "web/assets.lock.json"
 	testRoot         = "web"
@@ -677,5 +713,74 @@ func TestAssetLocalPath(t *testing.T) {
 	}
 	if got, want := a.LocalPath(""), filepath.Join("static", "js", "vendor", "htmx.min.js"); got != want {
 		t.Errorf("空 root 的 LocalPath = %q，期望 %q", got, want)
+	}
+}
+
+// TestLoadManifestRejectsTraversalEntries locks the load-time path validation: a hand-edited lock
+// file must never make Update/Verify touch a path outside the asset root. | TestLoadManifestRejectsTraversalEntries
+// 固定加载期路径校验：手工编辑的锁文件绝不能驱使 Update/Verify 触碰资产根之外的路径。
+func TestLoadManifestRejectsTraversalEntries(t *testing.T) {
+	fsys := afero.NewMemMapFs()
+	body := `{"version":1,"assets":[{"name":"evil","path":"../escape.txt","url":"https://example.com/x"}]}`
+	if err := afero.WriteFile(fsys, testManifestPath, []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	_, err := LoadManifest(fsys, testManifestPath)
+	if !errors.Is(err, ErrManifestInvalid) || !errors.Is(err, ErrInvalidAsset) {
+		t.Fatalf("LoadManifest err = %v, want ErrManifestInvalid + ErrInvalidAsset", err)
+	}
+}
+
+// TestUpdateRejectsTraversalEntryWithoutWriting proves the defensive normalization in apply as
+// well: Update must fail and leave the outside path absent. | TestUpdateRejectsTraversalEntryWithoutWriting
+// 同时验证 apply 中的防御性规范化：Update 必须失败，且根外路径不存在。
+func TestUpdateRejectsTraversalEntryWithoutWriting(t *testing.T) {
+	srv, _ := newFileServer(t, map[string]string{"/x.js": "payload"})
+	fsys := afero.NewMemMapFs()
+	body := `{"version":1,"assets":[{"name":"evil","path":"../escape.txt","url":"` + srv.URL + `/x.js"}]}`
+	if err := afero.WriteFile(fsys, testManifestPath, []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Update(context.Background(), UpdateOptions{FS: fsys, ManifestPath: testManifestPath, Root: testRoot}); err == nil {
+		t.Fatal("Update accepted a traversal path")
+	}
+	if afs.Exists(fsys, "escape.txt") {
+		t.Fatal("Update wrote outside the asset root")
+	}
+}
+
+// TestNewHTTPClientUsesConfiguredProxy proves an explicit proxy is used for asset downloads: the
+// target host does not resolve, so only the proxy can answer. | TestNewHTTPClientUsesConfiguredProxy
+// 证明资产下载会使用显式代理：目标主机无法解析，只有代理能应答。
+func TestNewHTTPClientUsesConfiguredProxy(t *testing.T) {
+	proxy := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte("proxied"))
+	}))
+	defer proxy.Close()
+
+	client, err := newHTTPClient(proxy.URL)
+	if err != nil {
+		t.Fatalf("newHTTPClient 失败 | failed: %v", err)
+	}
+	resp, err := client.Get("http://example.invalid/asset.js")
+	if err != nil {
+		t.Fatalf("经代理请求失败 | request through proxy failed: %v", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatalf("读取响应失败 | reading the response: %v", err)
+	}
+	if string(body) != "proxied" {
+		t.Fatalf("响应 = %q，期望 proxied | want proxied", body)
+	}
+}
+
+// TestNewHTTPClientRejectsInvalidProxy refuses a malformed proxy URL instead of silently falling
+// back to a direct connection. | TestNewHTTPClientRejectsInvalidProxy 拒绝非法代理 URL，而不是静默
+// 回退为直连。
+func TestNewHTTPClientRejectsInvalidProxy(t *testing.T) {
+	if _, err := newHTTPClient("://missing-scheme"); !errors.Is(err, ErrDownloadFailed) {
+		t.Fatalf("err = %v，期望 ErrDownloadFailed | want ErrDownloadFailed", err)
 	}
 }

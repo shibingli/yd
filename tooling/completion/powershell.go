@@ -87,7 +87,7 @@ const powerShellBody = `Register-ArgumentCompleter -Native -CommandName %PROGRAM
 // 是脚本末尾那段被注释掉的环境增强。
 const powerShellFooter = `# Optional environment enhancement: the project-local tool directory. | 可选的环境增强：项目内的工具目录。
 # Uncomment the assignment below to put %TOOLSDIR% of the current project on PATH. | 取消下面这行赋值的注释即可把当前项目的 %TOOLSDIR% 加入 PATH。
-# $env:PATH = "$PWD\%TOOLSDIR%\$env:PATH"`
+# $env:PATH = [IO.Path]::Combine($PWD.Path, '%TOOLSDIR%') + [IO.Path]::PathSeparator + $env:PATH`
 
 // generatePowerShell renders the PowerShell script of one view. | generatePowerShell 渲染某个视图的 PowerShell 脚本。
 func generatePowerShell(v view) string {

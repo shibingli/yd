@@ -243,6 +243,9 @@ const (
 	seedOpsAdmin  = "acme-admin"
 	// probeUserPassword 是探针自建账号的口令，长度满足口令强度下限。 | probeUserPassword is the created account's password, above the strength floor.
 	probeUserPassword = "Probe@123456"
+	// e2eMasterKey 是生产场景注入的 32 字节测试主密钥（公开测试值，不是真实密钥）。
+	// e2eMasterKey is the 32-byte test master key injected in production scenarios (a public test value, not a secret).
+	e2eMasterKey = "yd-e2e-test-master-key-0123456789"
 	// sessionCookie 是会话 cookie 名。 | sessionCookie is the session cookie name.
 	sessionCookie = "yd_token"
 )
@@ -582,7 +585,11 @@ func TestSeedRefusesWithoutPasswordOutsideDevelopment(t *testing.T) {
 	// 第一段：声明自己不是 development 且不配置种子口令。应用必须照常启动，但库里不能有一个租户、一个账号。
 	// First run: it declares itself something other than development and configures no seed password. The application must
 	// start all the same, while the database keeps not a single tenant and not a single account.
-	addr, logs, stop := startAppEnv(t, project, []string{"YD_APP_ENV=production"})
+	// Outside development the scaffold refuses to start without auth.master_key (the documented
+	// development key must never seal production sec_keys), so the production runs inject one.
+	// | 非开发环境下缺少 auth.master_key 时脚手架拒绝启动（文档化的开发密钥绝不能用于封装生产
+	// sec_key），因此生产场景注入一枚测试主密钥。
+	addr, logs, stop := startAppEnv(t, project, []string{"YD_APP_ENV=production", "YD_AUTH_MASTER_KEY=" + e2eMasterKey})
 	base := "http://" + addr
 
 	// 未初始化的库没有任何账号可以登录：文档化的默认凭据必须被拒。
@@ -626,7 +633,7 @@ func TestSeedRefusesWithoutPasswordOutsideDevelopment(t *testing.T) {
 	// Second run: the same artefact in the same environment with one more thing — an injected password. Seeding uses
 	// exactly that password, and the development fallback still gets nobody in.
 	injected := "Probe@Prod#2026"
-	addr2, logs2, stop2 := startAppEnv(t, project, []string{"YD_APP_ENV=production", "YD_SEED_ADMIN_PASSWORD=" + injected})
+	addr2, logs2, stop2 := startAppEnv(t, project, []string{"YD_APP_ENV=production", "YD_AUTH_MASTER_KEY=" + e2eMasterKey, "YD_SEED_ADMIN_PASSWORD=" + injected})
 	base2 := "http://" + addr2
 
 	client2 := newSessionClient(t)
@@ -1014,11 +1021,12 @@ func startAppEnv(t *testing.T, dir string, extraEnv []string) (string, *appLogs,
 	ctx, cancel := context.WithCancel(context.Background())
 	cmd := exec.CommandContext(ctx, bin)
 	cmd.Dir = dir
-	cmd.Env = append(append(os.Environ(),
+	cmd.Env = append(withoutServerEnv(os.Environ()),
 		fmt.Sprintf("YD_SERVER_HOST=127.0.0.1"),
 		fmt.Sprintf("YD_SERVER_PORT=%d", port),
 		"YD_LOG_LEVEL=info",
-	), extraEnv...)
+	)
+	cmd.Env = append(cmd.Env, extraEnv...)
 	cmd.Stdout = logs
 	cmd.Stderr = logs
 	if err := cmd.Start(); err != nil {
@@ -1049,6 +1057,22 @@ func startAppEnv(t *testing.T, dir string, extraEnv []string) (string, *appLogs,
 	stop()
 	t.Fatalf("应用未在 20 秒内监听 %s", addr)
 	return "", logs, func() {}
+}
+
+// withoutServerEnv drops inherited YD_SERVER_* entries: on Unix the first duplicate wins, so an
+// exported YD_SERVER_PORT would override the test's own value and the child would listen elsewhere.
+// | withoutServerEnv 去掉继承的 YD_SERVER_* 条目：在 Unix 上第一个重复项胜出，导出的
+// YD_SERVER_PORT 会覆盖测试自己的取值，子进程会监听别的端口。
+func withoutServerEnv(env []string) []string {
+	out := make([]string, 0, len(env))
+	for _, kv := range env {
+		key, _, _ := strings.Cut(kv, "=")
+		if strings.HasPrefix(key, "YD_SERVER_") {
+			continue
+		}
+		out = append(out, kv)
+	}
+	return out
 }
 
 // freePort asks the OS for a free TCP port. | freePort 向操作系统申请一个空闲 TCP 端口。

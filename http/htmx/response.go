@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"io"
 	"net/http"
+	"net/url"
+	"strings"
 
 	"github.com/shibingli/yd/core/errx"
 	"github.com/shibingli/yd/core/jsonx"
@@ -15,6 +17,9 @@ var (
 	ErrBadStatus = errx.New("htmx: invalid HTTP status code | htmx：非法的 HTTP 状态码")
 	// ErrWriteFragment indicates the error fragment could not be written to the response. | ErrWriteFragment 表示无法把错误片段写入响应。
 	ErrWriteFragment = errx.New("htmx: failed to write error fragment | htmx：写出错误片段失败")
+	// ErrUnsafeRedirect indicates a target that could execute script or inject a header. | ErrUnsafeRedirect
+	// 表示目标地址可能执行脚本或注入响应头。
+	ErrUnsafeRedirect = errx.New("htmx: unsafe redirect target | htmx：不安全的跳转地址")
 )
 
 // Htmx 4 response header names. | Htmx 4 响应头名称。
@@ -45,11 +50,15 @@ type Event struct {
 
 // triggerHeaderValue computes the value of HX-Trigger; the second return value reports whether the header needs to be written. | triggerHeaderValue 计算 HX-Trigger 的取值；第二个返回值表示是否需要写出该头。
 //
-// With a single event that carries no payload it takes the event name itself, otherwise it takes a JSON object. The JSON is assembled | 仅有一个不含负载的事件时取事件名本身，其余情况取 JSON 对象。JSON 按键的出现顺序
-// in the order the keys appear (events with the same name do not overwrite each other); plain ASCII
-// keys are written without allocating, every other key and every value goes through jsonx.Marshal,
-// and a payload that cannot be encoded degrades to null. | 拼装（同名事件不会互相覆盖）；纯 ASCII 键名
-// 零分配写出，其余键名与全部值经 jsonx.Marshal 编码；无法编码的负载退化为 null。
+// With a single event that carries no payload it takes the event name itself, otherwise it takes a JSON object. | 仅有一个不含负载的事件时取事件名本身，其余情况取 JSON 对象。
+//
+// JSON objects cannot carry duplicate keys: duplicate event names are merged into one key in first
+// appearance order and the last payload wins, so every event fires exactly once instead of the
+// earlier ones being silently dropped by JSON.parse. Plain ASCII keys are written without
+// allocating; every other key and every value goes through jsonx.Marshal, and a payload that cannot
+// be encoded degrades to null. | JSON 对象不能有重复键：同名事件按首次出现顺序合并为一个键，
+// 后出现的负载胜出，因此每个事件恰好触发一次，而不是较早的事件被 JSON.parse 静默丢弃。纯 ASCII
+// 键名零分配写出；其余键名与全部值经 jsonx.Marshal 编码；无法编码的负载退化为 null。
 func triggerHeaderValue(events []Event) (string, bool) {
 	// The common case - one event without a payload - needs no slice and no JSON at all. | 最常见的情形
 	// ——单个不含负载的事件——不需要切片，也不需要 JSON。
@@ -57,40 +66,34 @@ func triggerHeaderValue(events []Event) (string, bool) {
 		return events[0].Name, true
 	}
 
-	// Count first; a clean input is used in place, so no filtered copy is allocated. | 先计数；输入全部合法时
-	// 直接使用原切片，不分配过滤副本。
-	n := 0
+	order := make([]string, 0, len(events))
+	details := make(map[string]any, len(events))
 	for _, ev := range events {
-		if ev.Name != "" {
-			n++
+		if ev.Name == "" {
+			continue
 		}
+		if _, seen := details[ev.Name]; !seen {
+			order = append(order, ev.Name)
+		}
+		details[ev.Name] = ev.Detail
 	}
-	if n == 0 {
+	if len(order) == 0 {
 		return "", false
 	}
-	kept := events
-	if n != len(events) {
-		kept = make([]Event, 0, n)
-		for _, ev := range events {
-			if ev.Name != "" {
-				kept = append(kept, ev)
-			}
-		}
-	}
-	if n == 1 && kept[0].Detail == nil {
-		return kept[0].Name, true
+	if len(order) == 1 && details[order[0]] == nil {
+		return order[0], true
 	}
 
 	var buf bytes.Buffer
-	buf.Grow(2 + n*24)
+	buf.Grow(2 + len(order)*24)
 	buf.WriteByte('{')
-	for i, ev := range kept {
+	for i, name := range order {
 		if i > 0 {
 			buf.WriteByte(',')
 		}
-		appendJSONString(&buf, ev.Name)
+		appendJSONString(&buf, name)
 		buf.WriteByte(':')
-		detail, err := jsonx.Marshal(ev.Detail)
+		detail, err := jsonx.Marshal(details[name])
 		if err != nil {
 			detail = []byte("null")
 		}
@@ -148,7 +151,45 @@ func ReplaceURL(w http.ResponseWriter, url string) { w.Header().Set(headerReplac
 // Redirect writes HX-Redirect to make the browser navigate to url with a full page load. | Redirect 写入 HX-Redirect，让浏览器整页跳转到 url。
 //
 // For an AJAX navigation that does not reload the whole page, use LocationHeader (HX-Location) instead. | 需要「不刷新整页」的 AJAX 跳转时请改用 LocationHeader（HX-Location）。
-func Redirect(w http.ResponseWriter, url string) { w.Header().Set(headerRedirect, url) }
+//
+// Only a relative path or an http(s) URL is written. htmx assigns the header to location.href, so
+// an unchecked "javascript:" value supplied by a caller would execute in the page origin; an
+// unsafe value is dropped (use RedirectTo to receive the error). | 只写入相对路径或 http(s) URL。
+// htmx 会把该头赋给 location.href，因此调用方传入未检查的 "javascript:" 值会在页面源内执行；
+// 不安全的值会被丢弃（需要错误时请用 RedirectTo）。
+func Redirect(w http.ResponseWriter, target string) { _ = RedirectTo(w, target) }
+
+// RedirectTo validates target and writes HX-Redirect, returning ErrUnsafeRedirect when the value
+// could execute script or terminate the header. | RedirectTo 校验 target 并写入 HX-Redirect；取值
+// 可能执行脚本或终止头部时返回 ErrUnsafeRedirect。
+func RedirectTo(w http.ResponseWriter, target string) error {
+	if !safeNavigationURL(target) {
+		return ErrUnsafeRedirect
+	}
+	w.Header().Set(headerRedirect, target)
+	return nil
+}
+
+// safeNavigationURL reports whether target is safe to hand to location.href. | safeNavigationURL
+// 报告 target 是否可以安全地交给 location.href。
+func safeNavigationURL(target string) bool {
+	if target == "" || strings.ContainsAny(target, "\r\n") {
+		return false
+	}
+	// A single leading slash is a same-origin path; "//host" is protocol-relative and escapes it.
+	// | 单个前导斜杠是同源路径；"//host" 是协议相对地址，会离开本站。
+	if strings.HasPrefix(target, "/") {
+		return !strings.HasPrefix(target, "//")
+	}
+	if strings.HasPrefix(target, "#") || strings.HasPrefix(target, "?") {
+		return true
+	}
+	u, err := url.Parse(target)
+	if err != nil || u.Host == "" {
+		return false
+	}
+	return u.Scheme == "http" || u.Scheme == "https"
+}
 
 // Location describes the contents of HX-Location, i.e. an AJAX navigation that does not reload the whole page. | Location 描述 HX-Location 的内容，即一次不刷新整页的 AJAX 跳转。
 //

@@ -20,6 +20,7 @@ import (
 
 	"github.com/shibingli/yd/core/version"
 	"github.com/shibingli/yd/tooling/build"
+	"github.com/spf13/afero"
 	"github.com/spf13/pflag"
 )
 
@@ -284,6 +285,35 @@ func TestBuildCommandHelp(t *testing.T) {
 		if !strings.Contains(out, want) {
 			t.Errorf("build 帮助缺少 %q：\n%s", want, out)
 		}
+	}
+}
+
+// TestBuildUsesScaffoldEntryPoint proves the build compiles the scaffolded main package instead
+// of the module root, which holds no Go files. | TestBuildUsesScaffoldEntryPoint 证明构建编译的是
+// 脚手架主包，而不是没有任何 Go 文件的模块根。
+func TestBuildUsesScaffoldEntryPoint(t *testing.T) {
+	dir := newBuildDir(t)
+	if err := os.MkdirAll(filepath.Join(dir, serviceEntryDir), 0o755); err != nil {
+		t.Fatalf("创建 %s 失败 | creating %s: %v", serviceEntryDir, serviceEntryDir, err)
+	}
+	mainFile := filepath.Join(dir, serviceEntryDir, serviceEntryFile)
+	if err := os.WriteFile(mainFile, []byte("package main\n\nfunc main() {}\n"), 0o644); err != nil {
+		t.Fatalf("写入 %s 失败 | writing %s: %v", mainFile, mainFile, err)
+	}
+	fake := cliFakeGoBuild()
+	useBuildExec(t, fake)
+
+	te := newTestEnv(t, afero.NewOsFs(), "", false)
+	te.env.WorkDir = dir
+	if err := Execute(context.Background(), []string{"build", "--no-tailwind"}, te.env); err != nil {
+		t.Fatalf("build 失败 | build failed: %v\n%s", err, te.errs.String())
+	}
+	builds := fake.invocations("build")
+	if len(builds) != 1 {
+		t.Fatalf("go build 调用次数 = %d，期望 1 | go build ran %d times, want 1", len(builds), len(builds))
+	}
+	if got := builds[0][len(builds[0])-1]; got != "./"+serviceEntryDir {
+		t.Fatalf("构建入口 = %[1]q，期望 %[2]q | build entry = %[1]q, want %[2]q", got, "./"+serviceEntryDir)
 	}
 }
 

@@ -18,6 +18,13 @@ func String() string {
 	v, c, d := Version, Commit, Date
 	if v == "dev" {
 		if bi, ok := debug.ReadBuildInfo(); ok {
+			// `go install module/cmd@vX.Y.Z` records the module version in Main.Version even
+			// without ldflags; ignoring it made installed binaries report "dev". | 即使没有
+			// ldflags，`go install module/cmd@vX.Y.Z` 也会把模块版本写进 Main.Version；忽略它
+			// 会让安装出来的二进制报告 "dev"。
+			if mv := bi.Main.Version; mv != "" && mv != "(devel)" {
+				v = mv
+			}
 			for _, s := range bi.Settings {
 				if s.Key == "vcs.revision" && c == "none" {
 					c = s.Value

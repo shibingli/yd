@@ -11,10 +11,13 @@
 //
 // What this package adds is the one place that can answer "what is still missing on this machine",
 // and the one command that installs it: Registry lists the four entries, Check probes them through
-// their own chains, Hints renders the bilingual recovery hints, and Install runs `go install` with
-// GOBIN pinned to <dir>/.yd/tools - the project-local segment every chain already looks at. | 本包补充的是那个能回答
-// 「这台机器还缺什么」的唯一入口，以及那条统一的安装命令：Registry 列出四个条目，Check 按各自链条探测，Hints 渲染
-// 双语恢复提示，Install 以固定在 <dir>/.yd/tools 的 GOBIN 运行 `go install`——那是每条链条本来就查看的项目内一段。
+// their own chains, Hints renders the bilingual recovery hints, and Install either runs `go install`
+// with GOBIN, GOPATH, GOMODCACHE and GOCACHE pinned inside <dir>/.yd/tools, or downloads the
+// tailwindcss standalone binary into the same directory. Both routes land on the project-local
+// segment every chain already looks at. | 本包补充的是那个能回答「这台机器还缺什么」的唯一入口，以及那条统一的
+// 安装命令：Registry 列出四个条目，Check 按各自链条探测，Hints 渲染双语恢复提示，Install 或以固定在
+// <dir>/.yd/tools 内的 GOBIN、GOPATH、GOMODCACHE 与 GOCACHE 运行 `go install`，或把 tailwindcss
+// standalone 二进制下载到同一目录。两条路径都落在每条解析链本来就查看的项目内一段。
 //
 // The probe is read-only: Check, Missing and Hints never install anything, never reach the network
 // and never execute a tool, so a missing tool can only ever produce a hint. Versions are therefore

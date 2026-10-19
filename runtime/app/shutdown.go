@@ -113,9 +113,8 @@ func (a *App) shutdownGRPC(ctx context.Context) error {
 		return nil
 	}
 
-	var err error
-	a.grpcOnce.Do(func() { err = a.stopGRPC(ctx) })
-	return err
+	a.grpcOnce.Do(func() { a.grpcErr = a.stopGRPC(ctx) })
+	return a.grpcErr
 }
 
 // stopGRPC performs the graceful stop and its forced fallback. | stopGRPC 执行优雅停止及其强制兜底。
@@ -132,9 +131,13 @@ func (a *App) stopGRPC(ctx context.Context) error {
 	case <-ctx.Done():
 	}
 
-	// Stop 会取消进行中的 RPC，因此上面的 GracefulStop 必定返回；等它收尾可保证本函数返回后不留协程。
-	// Stop cancels in-flight RPCs, so the GracefulStop above is bound to return; waiting for it keeps this call free of lingering goroutines.
-	a.grpc.Stop()
-	<-done
+	// grpc-go's GracefulStop holds the server mutex while it waits for handlers, and Stop takes
+	// that same mutex; calling Stop synchronously here would block past the deadline whenever a
+	// handler ignores cancellation. Detach it and return the timeout: the goal is to finish the
+	// shutdown sequence on time, not to guarantee that a non-cooperative handler ever returns.
+	// | grpc-go 的 GracefulStop 在等待处理器时持有服务器互斥锁，而 Stop 也要获取同一把锁；
+	// 处理器无视取消时，同步调用 Stop 会越过期限一直阻塞。因此把它放到后台并返回超时：
+	// 目标是让退出流程按时完成，而不是保证不配合的处理器一定返回。
+	go a.grpc.Stop()
 	return errx.WrapDetail(ctx.Err(), ErrGRPCShutdown, "force stop after %[1]v | 超过 %[1]v 后强制停止", ctx.Err())
 }

@@ -15,6 +15,11 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"sort"
+	"strconv"
+	"strings"
+	"sync/atomic"
+	"time"
 
 	"github.com/shibingli/yd/core/errx"
 	"github.com/spf13/afero"
@@ -40,14 +45,19 @@ var (
 // BasePathFs、CopyOnWriteFs 等）都可直接传入本包 API，无需适配层。
 type FS = afero.Fs
 
-// NewOS 返回以 root 为根的操作系统文件系统。
-// root 为空时等价 afero.NewOsFs（相对当前工作目录）；root 非空时返回
-// afero.NewBasePathFs，后续所有路径都被约束在该目录之下。
+// NewOS returns an operating-system filesystem rooted at root. | NewOS 返回以 root 为根的操作系统文件系统。
+//
+// An empty root is the plain operating-system filesystem, interpreted relative to the current
+// directory. A non-empty root — including "." — is resolved to an absolute directory and every path
+// is confined beneath it, with lexical ".." escapes rejected before the OS sees them. Symbolic links
+// inside the root are still followed, exactly as the operating system follows them. | root 为空表示普通
+// 操作系统文件系统，路径相对当前目录解释。非空 root（包括 "."）会解析为绝对目录，所有路径都被约束在其下，
+// 词法 ".." 逃逸在到达操作系统之前即被拒绝。根内的符号链接仍会被跟随，与操作系统自身行为一致。
 func NewOS(root string) FS {
 	if root == "" {
 		return afero.NewOsFs()
 	}
-	return afero.NewBasePathFs(afero.NewOsFs(), root)
+	return newConfinedOS(root)
 }
 
 // NewMem 返回内存文件系统（afero.NewMemMapFs），用于测试与虚拟化场景；
@@ -100,11 +110,19 @@ func CopyDir(src, dst FS, srcDir, dstDir string) error {
 	})
 }
 
-// WriteFileIfChanged 仅在内容变化时写入 path，返回是否真正发生了写入。
-// 目标已存在且内容与 data 逐字节相同时返回 (false, nil) 且不触碰文件
-// （ModTime 保持不变）；否则以 0o644 权限写入（父目录缺失时自动创建）并
-// 返回 (true, nil)。供 dev 热重载与前端资产更新复用，避免无谓写入触发
-// 下游的文件监听与全量重载。
+// WriteFileIfChanged writes path only when its content changed and reports whether it wrote.
+// | WriteFileIfChanged 仅在内容变化时写入 path，并返回是否真正发生了写入。
+//
+// When the target exists and equals data byte for byte it returns (false, nil) without touching the
+// file (ModTime is preserved). Otherwise the bytes go through a temporary file in the same directory
+// and are renamed into place, so an interrupted write never leaves a truncated target and a symbolic
+// link at the destination is replaced rather than followed; a new file gets 0o644 while an existing
+// file keeps its permission bits. Missing parent directories are created. It backs dev hot reload and
+// front-end asset updates, where a needless write would trigger file watchers and a full reload.
+// | 目标已存在且与 data 逐字节相同时返回 (false, nil)，且不触碰文件（ModTime 保持不变）。否则先写
+// 同目录临时文件再改名覆盖，因此中断的写入不会留下截断的目标，目标位置的符号链接会被替换而不是被跟随；
+// 新文件权限为 0o644，既有文件保留原有权限位。父目录缺失时自动创建。它服务于 dev 热重载与前端资产更新，
+// 避免无谓写入触发文件监听与全量重载。
 func WriteFileIfChanged(fs FS, path string, data []byte) (bool, error) {
 	if Exists(fs, path) {
 		old, err := afero.ReadFile(fs, path)
@@ -116,15 +134,74 @@ func WriteFileIfChanged(fs FS, path string, data []byte) (bool, error) {
 		}
 	}
 
-	if dir := filepath.Dir(path); dir != "." {
+	dir := filepath.Dir(path)
+	if dir != "." {
 		if err := fs.MkdirAll(dir, 0o755); err != nil {
 			return false, errx.WrapDetail(err, ErrMkdir, "%s", dir)
 		}
 	}
-	if err := afero.WriteFile(fs, path, data, 0o644); err != nil {
+
+	// Write through a temporary file in the same directory and rename it over the target:
+	// a crash mid-write can then never leave a truncated asset or manifest, and a symbolic
+	// link at the destination is replaced rather than followed. | 先写同目录临时文件再改名覆盖：
+	// 写到一半崩溃也不会留下截断的资产或清单，目标位置的符号链接会被替换而不是被跟随。
+	mode := os.FileMode(0o644)
+	if info, statErr := fs.Stat(path); statErr == nil {
+		mode = info.Mode().Perm()
+	}
+	tmp, tmpName, err := createTempFile(fs, dir)
+	if err != nil {
 		return false, errx.WrapDetail(err, ErrWriteFile, "%s", path)
 	}
+	cleanup := true
+	defer func() {
+		if cleanup {
+			_ = fs.Remove(tmpName)
+		}
+	}()
+	if _, err := tmp.Write(data); err != nil {
+		_ = tmp.Close()
+		return false, errx.WrapDetail(err, ErrWriteFile, "%s", path)
+	}
+	if err := tmp.Close(); err != nil {
+		return false, errx.WrapDetail(err, ErrWriteFile, "%s", path)
+	}
+	if err := fs.Chmod(tmpName, mode); err != nil {
+		return false, errx.WrapDetail(err, ErrWriteFile, "%s", path)
+	}
+	if err := fs.Rename(tmpName, path); err != nil {
+		return false, errx.WrapDetail(err, ErrWriteFile, "%s", path)
+	}
+	cleanup = false
 	return true, nil
+}
+
+// tempSeq disambiguates temporary names created within the same nanosecond. | tempSeq 区分同一纳秒内
+// 创建的临时文件名。
+var tempSeq atomic.Uint64
+
+// createTempFile creates an exclusive temporary file inside dir. | createTempFile 在 dir 内创建一个
+// 独占的临时文件。
+//
+// It builds the name itself instead of using afero.TempFile and then reading File.Name(): on Linux a
+// wrapper such as BasePathFs returns a stripped name with a leading separator, which this package's
+// confinement then rightly rejects as absolute. Keeping the name that was passed in avoids that
+// mismatch and works on every backend. | 它自行构造文件名，而不是使用 afero.TempFile 再读取
+// File.Name()：在 Linux 上，BasePathFs 这类包装器返回去掉根前缀却仍带前导分隔符的名字，本包的
+// 根目录约束会正确地把该名字当作绝对路径拒绝。保留传入时使用的名字即可避开这一不一致，并在所有后端成立。
+func createTempFile(fsys FS, dir string) (afero.File, string, error) {
+	for i := 0; i < 100; i++ {
+		name := filepath.Join(dir, ".yd-write-"+strconv.FormatInt(time.Now().UnixNano(), 36)+"-"+
+			strconv.FormatUint(tempSeq.Add(1), 36))
+		f, err := fsys.OpenFile(name, os.O_RDWR|os.O_CREATE|os.O_EXCL, 0o600)
+		if err == nil {
+			return f, name, nil
+		}
+		if !errors.Is(err, os.ErrExist) {
+			return nil, "", err
+		}
+	}
+	return nil, "", os.ErrExist
 }
 
 // Exists 报告 path 在 fs 上是否存在，目录同样返回 true；
@@ -150,19 +227,113 @@ func Sha256File(fs FS, path string) (string, error) {
 	return hex.EncodeToString(h.Sum(nil)), nil
 }
 
-// Walk 以 afero.Walk 的语义遍历 fs 上以 root 为根的目录树：
-// fn 会先收到 root 自身，随后按目录名字典序深度优先访问每个条目；
-// 遍历过程中产生的错误（如 root 不存在时 info 为 nil 的错误）经 err 参数
-// 传给 fn，fn 返回非 nil 即终止遍历并把该错误返回给调用方；对目录返回
-// filepath.SkipDir 可跳过整棵子树。
+// Walk traverses the tree rooted at root with the semantics of afero.Walk. | Walk 以 afero.Walk 的语义
+// 遍历 fs 上以 root 为根的目录树。
 //
-// 内嵌（io/fs 语义）后端由 fs.WalkDir 驱动，因此 path 始终以 "/" 分隔，
-// 与 fs.ValidPath 一致；其余后端完全复用 afero.Walk。
+// fn receives root first, then every entry depth-first in lexical order. An error (a missing root,
+// for example) reaches fn with a nil info, and a non-nil return aborts the walk; returning
+// filepath.SkipDir for a directory skips its subtree. | fn 先收到 root，随后按目录名字典序深度优先访问
+// 每个条目。遍历错误（例如 root 不存在）会带着 nil info 传给 fn，返回非 nil 即终止并把该错误返回给调用方；
+// 对目录返回 filepath.SkipDir 可跳过整棵子树。
+//
+// Callback paths are always slash-separated, for io/fs backends and for OS/Mem/BasePath backends
+// alike, so callers can compare them with fs.ValidPath-style names on every platform. The io/fs
+// backend is driven by fs.WalkDir; the others use the same traversal with "/" joins instead of
+// filepath.Join, which would inject a backslash on Windows. | 回调路径一律以 "/" 分隔——无论 io/fs
+// 后端还是 OS/Mem/BasePath 后端——因此调用方在所有平台上都能用 fs.ValidPath 风格的名称比较。io/fs 后端
+// 由 fs.WalkDir 驱动；其余后端使用同样的遍历，但以 "/" 拼接而不是 filepath.Join，后者在 Windows 上会注入反斜杠。
 func Walk(fs FS, root string, fn func(path string, info os.FileInfo, err error) error) error {
 	if embedFS, ok := fs.(afero.FromIOFS); ok {
 		return walkIOFS(embedFS.FS, root, fn)
 	}
-	return afero.Walk(fs, root, fn)
+	return walkSlash(fs, filepath.ToSlash(root), fn)
+}
+
+// walkSlash is afero.Walk with slash-separated child names. | walkSlash 是使用斜杠分隔子名的 afero.Walk。
+//
+// afero.Walk joins children with filepath.Join, so on Windows it hands backslash names to wrappers
+// whose base is an io/fs backend (CopyOnWriteFs over an embedded tree, for instance); fs.ValidPath
+// rejects those and entries that exist only in the embedded layer become invisible. A slash name is
+// accepted by OsFs, MemMapFs, BasePathFs and io/fs alike, so one traversal covers every combination.
+// | afero.Walk 用 filepath.Join 拼接子名，因此在 Windows 上会把反斜杠名交给「底层是 io/fs 后端」的包装
+// （例如叠在内嵌树上的 CopyOnWriteFs）；fs.ValidPath 拒绝这种名字，只存在于内嵌层的条目会看不见。
+// 斜杠名可被 OsFs、MemMapFs、BasePathFs 与 io/fs 共同接受，因此一次遍历覆盖所有组合。
+func walkSlash(fsys FS, root string, fn func(path string, info os.FileInfo, err error) error) error {
+	info, err := lstatSlash(fsys, root)
+	if err != nil {
+		return fn(root, nil, err)
+	}
+	return walkSlashDir(fsys, root, info, fn)
+}
+
+// walkSlashDir is the recursive half of walkSlash. | walkSlashDir 是 walkSlash 的递归部分。
+func walkSlashDir(fsys FS, p string, info os.FileInfo, fn func(string, os.FileInfo, error) error) error {
+	if err := fn(p, info, nil); err != nil {
+		if info.IsDir() && errors.Is(err, filepath.SkipDir) {
+			return nil
+		}
+		return err
+	}
+	if !info.IsDir() {
+		return nil
+	}
+	names, err := readDirNamesSlash(fsys, p)
+	if err != nil {
+		return fn(p, info, err)
+	}
+	for _, name := range names {
+		child := joinSlash(p, name)
+		childInfo, err := lstatSlash(fsys, child)
+		if err != nil {
+			if fnErr := fn(child, childInfo, err); fnErr != nil && !errors.Is(fnErr, filepath.SkipDir) {
+				return fnErr
+			}
+			continue
+		}
+		if err := walkSlashDir(fsys, child, childInfo, fn); err != nil {
+			if !childInfo.IsDir() || !errors.Is(err, filepath.SkipDir) {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+// joinSlash joins a directory and a child name without collapsing a leading "//" (UNC) or "C:/". |
+// joinSlash 拼接目录与子名，且不会折叠开头的 "//"（UNC）或 "C:/"。
+func joinSlash(dir, name string) string {
+	if dir == "" || dir == "." {
+		return name
+	}
+	if strings.HasSuffix(dir, "/") {
+		return dir + name
+	}
+	return dir + "/" + name
+}
+
+// lstatSlash prefers Lstat so symbolic links are not followed, exactly like afero.Walk. | lstatSlash
+// 优先使用 Lstat 以免跟随符号链接，与 afero.Walk 一致。
+func lstatSlash(fsys FS, p string) (os.FileInfo, error) {
+	if lfs, ok := fsys.(afero.Lstater); ok {
+		info, _, err := lfs.LstatIfPossible(p)
+		return info, err
+	}
+	return fsys.Stat(p)
+}
+
+// readDirNamesSlash returns the sorted entries of dir. | readDirNamesSlash 返回 dir 排好序的条目名。
+func readDirNamesSlash(fsys FS, dir string) ([]string, error) {
+	f, err := fsys.Open(dir)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = f.Close() }()
+	names, err := f.Readdirnames(-1)
+	if err != nil {
+		return nil, err
+	}
+	sort.Strings(names)
+	return names, nil
 }
 
 // walkIOFS 遍历 io/fs 语义的只读后端。

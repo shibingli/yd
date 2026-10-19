@@ -395,7 +395,7 @@ func TestCompletionInstallHonoursDirWithoutMovingTheStartupFile(t *testing.T) {
 	te := newTestEnv(t, fs, "", false)
 	stubCompletion(t, "linux", completionShellVars("/bin/bash"))
 
-	dir := filepath.Join(completionTestHome, "work")
+	dir := completionTestHome + "/work"
 	if err := execCompletion(t, te, completionActionInstall, "--dir", dir, "--shell", "zsh"); err != nil {
 		t.Fatalf("install failed | 安装失败: %v", err)
 	}

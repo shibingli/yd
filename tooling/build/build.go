@@ -201,6 +201,13 @@ func projectName(dir string) string {
 	return filepath.Base(dir)
 }
 
+// goSumPresent reports whether the build directory already carries a go.sum. | goSumPresent 报告构建目录
+// 是否已有 go.sum。
+func goSumPresent(dir string) bool {
+	info, err := os.Stat(filepath.Join(dir, "go.sum"))
+	return err == nil && !info.IsDir()
+}
+
 // buildArgs assembles the argv of one `go build` invocation. | buildArgs 组装一次 `go build` 调用的 argv。
 func (o Options) buildArgs(target Target, out string) []string {
 	args := []string{"build"}
@@ -212,6 +219,13 @@ func (o Options) buildArgs(target Target, out string) []string {
 	}
 	if o.Offline {
 		args = append(args, "-mod=vendor")
+	} else if !goSumPresent(o.Dir) {
+		// A freshly scaffolded project has no go.sum yet. Without -mod=mod every third-party
+		// import fails with "missing go.sum entry" instead of resolving once; the command then
+		// writes go.sum as any first `go build` does. Offline mode stays vendor-only. | 新生成的
+		// 脚手架项目还没有 go.sum。不加 -mod=mod 时，每个第三方导入都会以 missing go.sum entry 失败，
+		// 而不是解析一次；随后 go.sum 会像任何首次 `go build` 一样被写出。离线模式仍只用 vendor。
+		args = append(args, "-mod=mod")
 	}
 	args = append(args, GenerateLDFlags(o)...)
 	args = append(args, "-o", out, o.Package)

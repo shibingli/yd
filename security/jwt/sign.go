@@ -53,8 +53,18 @@ func getScratch() *scratch {
 	return s
 }
 
-// putScratch returns a scratch to the pool. | putScratch 把 scratch 归还池中。
-func putScratch(s *scratch) { scratchPool.Put(s) }
+// putScratch returns a scratch to the pool, dropping oversized buffers under the same
+// retention limit Token.Release uses so one huge token cannot pin memory in the pool.
+// | putScratch 把 scratch 归还池中；与 Token.Release 使用同一保留上限丢弃超大缓冲，
+// 使单个巨型 token 无法把内存长期钉在池里。
+func putScratch(s *scratch) {
+	if cap(s.header) > tokenDataRetainLimit || cap(s.payload) > tokenDataRetainLimit ||
+		cap(s.sig) > tokenDataRetainLimit || cap(s.input) > tokenDataRetainLimit ||
+		cap(s.mac) > tokenDataRetainLimit {
+		return
+	}
+	scratchPool.Put(s)
+}
 
 // decodeSegment base64url-decodes seg into dst without allocating an intermediate
 // text buffer: AppendDecodeString reads the string directly. | decodeSegment 把 seg
@@ -99,6 +109,13 @@ func scanHeader(raw []byte, f *headerFields) error {
 		case headerParamKid:
 			f.kidRaw = s.val
 		default:
+			// RFC 7515 §4.1.11 requires a recipient that does not understand a "crit" extension to
+			// reject the token. This implementation supports none, so any crit header fails closed.
+			// | RFC 7515 §4.1.11 要求接收方不理解 "crit" 扩展时必须拒绝令牌。本实现不支持任何扩展，
+			// 因此任何 crit 头部都失败关闭。
+			if rawEqualString(s.key, "crit") {
+				return errx.Detail(ErrMalformed, "unsupported crit header | 不支持 crit 头部")
+			}
 			if v, ok := jsonStringValue(s.val); ok {
 				if f.extra == nil {
 					f.extra = make(map[string]string, 4)
@@ -300,14 +317,26 @@ func appendJSONStringLiteral(dst []byte, s string) []byte {
 //
 // Rejecting non-symmetric types here is what defeats algorithm confusion: an RSA or ECDSA public key can
 // never be reinterpreted as an HMAC secret. | 在此拒绝非对称类型正是击破算法混淆的关键：RSA 或 ECDSA 公钥永远不会被当作 HMAC 密钥使用。
-func hmacSecret(key any) ([]byte, bool) {
+//
+// The key must be at least as long as the algorithm's hash output, as RFC 7518 §3.2 requires: an empty
+// or short secret (for example an unset environment variable) is universally guessable and turns a
+// signing key into a forgery oracle. | 密钥至少要与算法的哈希输出等长，这是 RFC 7518 §3.2 的要求：
+// 空密钥或短密钥（例如未设置的环境变量）可被普遍猜出，会把签名密钥变成伪造预言机。
+func hmacSecret(alg Alg, key any) ([]byte, bool) {
+	var secret []byte
 	switch k := key.(type) {
 	case []byte:
-		return k, true
+		secret = k
 	case string:
-		return []byte(k), true
+		secret = []byte(k)
+	default:
+		return nil, false
 	}
-	return nil, false
+	h, ok := algHash(alg)
+	if !ok || len(secret) < h.Size() {
+		return nil, false
+	}
+	return secret, true
 }
 
 // algHash returns the standard-library hash identity of an algorithm. | algHash 返回算法对应的标准库哈希标识。
@@ -344,6 +373,11 @@ func signRaw(alg Alg, key any, input []byte, s *scratch) ([]byte, error) {
 		if !ok {
 			return nil, keyTypeError(alg)
 		}
+		// ed25519.Sign panics on a wrong-length key, and a library must never panic on caller-supplied
+		// key material. | 密钥长度不符时 ed25519.Sign 会 panic，而库绝不能因调用方提供的密钥材料 panic。
+		if len(k) != ed25519.PrivateKeySize {
+			return nil, errx.Detail(ErrSignatureInvalid, "ed25519 private key is %[1]d bytes, want %[2]d | ed25519 私钥为 %[1]d 字节，期望 %[2]d 字节", len(k), ed25519.PrivateKeySize)
+		}
 		return ed25519.Sign(k, input), nil
 	}
 
@@ -354,8 +388,12 @@ func signRaw(alg Alg, key any, input []byte, s *scratch) ([]byte, error) {
 
 	switch alg {
 	case HS256, HS384, HS512:
-		secret, ok := hmacSecret(key)
+		secret, ok := hmacSecret(alg, key)
 		if !ok {
+			switch key.(type) {
+			case []byte, string:
+				return nil, errx.Detail(ErrWeakKey, "alg=%[1]s needs at least %[2]d key bytes | 算法 %[1]s 至少需要 %[2]d 字节密钥", string(alg), h.Size())
+			}
 			return nil, keyTypeError(alg)
 		}
 		s.mac = algMACPool(alg).sum(secret, input, s.mac[:0])
@@ -413,6 +451,10 @@ func verify(alg Alg, key any, input, sig []byte, s *scratch) bool {
 		if !ok {
 			return false
 		}
+		// ed25519.Verify panics on a wrong-length public key. | 公钥长度不符时 ed25519.Verify 会 panic。
+		if len(k) != ed25519.PublicKeySize {
+			return false
+		}
 		return ed25519.Verify(k, input, sig)
 	}
 
@@ -423,7 +465,7 @@ func verify(alg Alg, key any, input, sig []byte, s *scratch) bool {
 
 	switch alg {
 	case HS256, HS384, HS512:
-		secret, ok := hmacSecret(key)
+		secret, ok := hmacSecret(alg, key)
 		if !ok {
 			return false
 		}
@@ -463,12 +505,17 @@ func verify(alg Alg, key any, input, sig []byte, s *scratch) bool {
 	return false
 }
 
-// curveMatches reports whether c is the required curve, comparing by bit size. | curveMatches 报告 c 是否为要求的曲线，按位宽比较。
+// curveMatches reports whether c is the required curve. | curveMatches 报告 c 是否为要求的曲线。
+//
+// The comparison uses the curve name rather than the bit size: secp256k1 and brainpoolP256r1 are both
+// 256-bit curves, but RFC 7518 mandates NIST P-256 for ES256, and a same-width foreign curve must not
+// silently take its place. | 比较使用曲线名而不是位宽：secp256k1 与 brainpoolP256r1 都是 256 位曲线，
+// 但 RFC 7518 规定 ES256 使用 NIST P-256，同宽的外来曲线不得悄悄顶替。
 func curveMatches(c, want elliptic.Curve) bool {
 	if c == nil || want == nil {
 		return false
 	}
-	return c.Params().BitSize == want.Params().BitSize
+	return c.Params().Name == want.Params().Name && c.Params().BitSize == want.Params().BitSize
 }
 
 // curveWidth returns the byte width of one ECDSA signature half for alg. | curveWidth 返回 alg 对应的 ECDSA 签名半值字节宽度。

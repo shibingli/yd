@@ -6,6 +6,7 @@ import (
 	"os"
 	"path"
 	"sort"
+	"strconv"
 	"strings"
 	"text/template"
 
@@ -70,7 +71,11 @@ type view struct {
 	DB           string
 	License      string
 	LocalReplace string
-	AssetRoot    string
+	// LocalReplaceQuoted is LocalReplace as a Go string literal, so a path with spaces cannot
+	// break (or inject into) the go.mod replace directive. | LocalReplaceQuoted 是 LocalReplace
+	// 的 Go 字符串字面量，使含空格的路径无法破坏（或注入）go.mod 的 replace 指令。
+	LocalReplaceQuoted string
+	AssetRoot          string
 
 	// versions and framework constants | 版本与框架常量
 	GoVersion       string
@@ -98,11 +103,30 @@ type view struct {
 // newView builds the template context from normalised options. | newView 由规范化后的选项构造模板上下文。
 func newView(o Options) view {
 	return view{
-		Name:            o.Name,
-		Module:          o.Module,
-		DB:              o.DB,
-		License:         o.License,
-		LocalReplace:    o.LocalReplace,
+		Name:         o.Name,
+		Module:       o.Module,
+		DB:           o.DB,
+		License:      o.License,
+		LocalReplace: o.LocalReplace,
+		LocalReplaceQuoted: func() string {
+			if o.LocalReplace == "" {
+				return ""
+			}
+			// Quote only when the path cannot be represented as a bare modfile token, so the
+			// common output stays byte-identical to earlier releases while spaces and quotes are
+			// handled safely. A doubled slash matters as much as a space: the modfile lexer
+			// treats "//" as the start of a comment, so a UNC path (\\server\share, normalized to
+			// //server/share) or a path merely containing "//" would otherwise swallow the
+			// replacement target. | 仅在路径无法作为裸 modfile 记号时加引号，使常见输出与旧版本
+			// 逐字节一致，同时安全处理空格与引号。双斜杠与空格同样重要：modfile 词法器把 "//" 当作
+			// 注释起点，否则 UNC 路径（\\server\share，规范化为 //server/share）或仅包含 "//" 的路径
+			// 会把替换目标整段吞掉。
+			if strings.ContainsAny(o.LocalReplace, " \t\"'`") ||
+				strings.Contains(o.LocalReplace, "//") || strings.Contains(o.LocalReplace, "/*") {
+				return strconv.Quote(o.LocalReplace)
+			}
+			return o.LocalReplace
+		}(),
 		AssetRoot:       AssetRoot,
 		Redis:           o.Redis,
 		Asynq:           o.Asynq,

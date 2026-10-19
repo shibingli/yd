@@ -114,7 +114,10 @@ func Unmarshal(data []byte, v any) error {
 	err := d.unmarshal(rv)
 	*d = decoder{}
 	decoderPool.Put(d)
-	return err
+	// Classify the backend error so errors.Is(ErrSyntax/ErrTypeMismatch) behaves identically on
+	// every backend; the native path used to return it raw. | 对后端错误归类，使
+	// errors.Is(ErrSyntax/ErrTypeMismatch) 在各后端行为一致；原生路径过去直接返回原始错误。
+	return wrapDecodeError(data, err)
 }
 
 // unmarshal decodes one top-level value into rv. | unmarshal 把一个顶层值解码进 rv。
@@ -125,9 +128,18 @@ func (d *decoder) unmarshal(rv reflect.Value) error {
 	}
 	target := rv.Elem()
 	if target.Kind() == reflect.Slice && target.IsNil() && d.data[d.pos] == '[' {
+		// Bound the guess by bytes, not by element count: guessing 1<<20 elements of a 32 KiB
+		// struct would allocate ~32 GiB before parsing a single byte. | 以字节数而不是元素个数限定预分配：
+		// 对 32 KiB 的结构体猜 1<<20 个元素，会在解析第一个字节前分配约 32 GiB。
+		const maxPreallocBytes = 4 << 20
+		elemSize := int(target.Type().Elem().Size())
+		if elemSize <= 0 {
+			elemSize = 1
+		}
+		maxElems := maxPreallocBytes / elemSize
 		guess := len(d.data) / 128
-		if guess > 1<<20 {
-			guess = 1 << 20
+		if guess > maxElems {
+			guess = maxElems
 		}
 		if guess > 0 {
 			target.Set(reflect.MakeSlice(target.Type(), guess, guess))
@@ -246,10 +258,25 @@ func buildDecoder(t reflect.Type) decodeFunc {
 	}
 	if t == numberType {
 		return func(d *decoder, v reflect.Value) error {
+			d.skipSpace()
+			if d.pos >= len(d.data) {
+				return syntaxErr("unexpected end of JSON input | JSON 输入意外结束")
+			}
+			if d.data[d.pos] == 'n' {
+				// null leaves json.Number untouched and is not an error, matching encoding/json.
+				// | null 不修改 json.Number 且不算错误，与 encoding/json 一致。
+				return d.literal("null")
+			}
 			if d.data[d.pos] == '"' {
 				s, err := d.parseString()
 				if err != nil {
 					return err
+				}
+				// A quoted value must still be a number; accepting "abc" would defer the
+				// failure to Int64/Float64 and lose the original context. | 引号内的取值仍必须是
+				// 数字；接受 "abc" 只会把失败推迟到 Int64/Float64，并丢掉原始上下文。
+				if !isValidNumber(s) {
+					return typeErr("invalid number literal %q | 非法数字字面量 %q", s, s)
 				}
 				v.SetString(s)
 				return nil

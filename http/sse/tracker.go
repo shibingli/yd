@@ -21,6 +21,7 @@ type WriterSet struct {
 	broker  *Broker
 	writers map[*Writer]struct{}
 	mu      sync.Mutex
+	closed  bool
 }
 
 // NewWriterSet creates an empty writer set. | NewWriterSet 创建一个空写入器集合。
@@ -35,14 +36,27 @@ func NewWriterSet(b *Broker) *WriterSet {
 // Track registers w and returns an idempotent untrack function. | Track 登记 w 并返回幂等的取消登记函数。
 //
 // NewWriter calls it automatically when Options.Tracker is set, and the writer
-// calls the returned function from Close, so the set never leaks entries. | Options.Tracker 已设置时
-// NewWriter 会自动调用它，写入器会在 Close 中调用返回的函数，因此集合不会泄漏条目。
+// calls the returned function from Close, so the set never leaks entries. Once
+// Shutdown ran, Track closes the writer immediately: a stream that wins the race
+// against shutdown still observes Done and returns instead of lingering forever. | Options.Tracker
+// 已设置时 NewWriter 会自动调用它，写入器会在 Close 中调用返回的函数，因此集合不会泄漏条目。Shutdown
+// 执行后，Track 会立即关闭写入器：在退出竞态中后到的流仍会观察到 Done 并返回，而不是永久滞留。
 func (s *WriterSet) Track(w *Writer) (untrack func()) {
 	if w == nil {
 		return func() {}
 	}
 
 	s.mu.Lock()
+	if s.closed {
+		// A stream that arrives after Shutdown must not be left running: no later
+		// sweep will ever close it, and a nil broker cannot release its handler.
+		// Closing it here makes Done fire, so the handler returns immediately. | 退出流程之后
+		// 才到达的事件流不能被漏掉：不会再有下一轮清扫来关闭它，而没有广播器时它的处理器也无从释放。
+		// 在这里关闭它会让 Done 立即触发，处理器随即返回。
+		s.mu.Unlock()
+		_ = w.Close()
+		return func() {}
+	}
 	s.writers[w] = struct{}{}
 	s.mu.Unlock()
 
@@ -75,6 +89,12 @@ func (s *WriterSet) Len() int {
 // 它遍历快照且不持锁，因此单个对端卡住不会拖慢其余事件流。
 func (s *WriterSet) Shutdown() {
 	s.mu.Lock()
+	if s.closed {
+		// Another caller already performed the shutdown; the broker is closed there. | 另一个调用方已完成退出，广播器也在那里关闭。
+		s.mu.Unlock()
+		return
+	}
+	s.closed = true
 	writers := make([]*Writer, 0, len(s.writers))
 	for w := range s.writers {
 		writers = append(writers, w)

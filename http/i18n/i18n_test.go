@@ -7,6 +7,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"testing/fstest"
 
 	"github.com/spf13/afero"
 
@@ -163,6 +164,22 @@ func TestNewValidatesCatalogs(t *testing.T) {
 	writeCatalog(t, fsys, "en.yaml", "title: \"Yun Dev\"\n")
 	if _, err := New(fsys, fixtureDir, "zh-CN"); err == nil {
 		t.Fatal("a default language missing its catalog file must return an error | 默认语言缺少目录文件时应当返回错误")
+	}
+}
+
+// TestNewReadsEmbeddedSubdirectory proves a nested catalog directory works on an io/fs backend:
+// filepath.Join produces backslashes on Windows, which fs.ValidPath rejects. | TestNewReadsEmbeddedSubdirectory
+// 证明嵌套语言目录在 io/fs 后端上可用：Windows 上 filepath.Join 会产生反斜杠，而 fs.ValidPath 会拒绝它。
+func TestNewReadsEmbeddedSubdirectory(t *testing.T) {
+	fsys := afs.NewEmbed(fstest.MapFS{
+		"langs/en.yaml": &fstest.MapFile{Data: []byte("hello: \"Hello\"\n")},
+	})
+	b, err := New(fsys, "langs", "en")
+	if err != nil {
+		t.Fatalf("New(embed, langs) 失败 | failed: %v", err)
+	}
+	if got := b.Translator("en").T("hello"); got != "Hello" {
+		t.Fatalf("hello = %q，期望 Hello | want Hello", got)
 	}
 }
 

@@ -2,8 +2,11 @@ package openapi
 
 import (
 	"testing"
+	"testing/fstest"
 
 	"github.com/spf13/afero"
+
+	"github.com/shibingli/yd/core/afs"
 )
 
 // writeSource writes one fixture file into the memory filesystem. | writeSource 把单个测试文件写入
@@ -126,5 +129,30 @@ type Payload struct {
 				t.Fatalf("run %d lost type %q | 第 %d 次丢失类型 %q", run, key, run, key)
 			}
 		}
+	}
+}
+
+// TestParseSourceReadsEmbeddedTree proves annotation scanning works on an io/fs backend: walking
+// it with afero.Walk joins nested entries with a backslash on Windows, which fs.ValidPath rejects. |
+// TestParseSourceReadsEmbeddedTree 证明注解扫描在 io/fs 后端上可用：用 afero.Walk 遍历时，Windows
+// 会用反斜杠拼接嵌套条目，而 fs.ValidPath 会拒绝它。
+func TestParseSourceReadsEmbeddedTree(t *testing.T) {
+	fsys := afs.NewEmbed(fstest.MapFS{
+		"src/api/handlers.go": &fstest.MapFile{Data: []byte(`package api
+
+// Get returns one item. | Get 返回单个条目。
+//
+// @Summary Get item | 获取条目
+// @Tags items
+// @Router /items/{id} [get]
+func Get() {}
+`)},
+	})
+	source, err := ParseSource(fsys, []string{"src"})
+	if err != nil {
+		t.Fatalf("ParseSource: %v", err)
+	}
+	if _, ok := source.Annotations["GET /items/{id}"]; !ok {
+		t.Fatalf("缺少处理器注解 | missing handler annotation: %v", source.Annotations)
 	}
 }

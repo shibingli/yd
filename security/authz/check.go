@@ -5,6 +5,7 @@ import (
 	"io"
 	"io/fs"
 	"path"
+	"path/filepath"
 	"sort"
 	"strings"
 
@@ -167,7 +168,7 @@ func Check(o CheckOptions) (Report, error) {
 	// path and must survive, otherwise afero resolves the directory relative to
 	// the process working directory and the scan fails. | 只裁掉末尾分隔符：开头的
 	// "/" 表示 Unix 绝对路径，必须保留，否则 afero 会按进程工作目录解析目录，扫描失败。
-	raw := strings.ReplaceAll(o.Dir, "\\", "/")
+	raw := filepath.ToSlash(o.Dir)
 	dir := strings.TrimRight(raw, "/")
 	switch {
 	case dir == "" && strings.HasPrefix(raw, "/"):
@@ -380,7 +381,8 @@ func (v *vocab) resolveKey(ref string) (vEntry, bool) {
 
 // sourceFile is one scanned file with its comment-free text. | sourceFile 是一个已扫描文件及其去注释文本。
 type sourceFile struct {
-	// rel is the slash-separated path relative to the scanned root. | rel 是相对扫描根的斜杠路径。
+	// rel is the slash-separated path as walked, i.e. it starts with the scanned root. | rel 是遍历得到的
+	// 斜杠路径，即以扫描根开头。
 	rel string
 	// text is the source with comments blanked out, line structure preserved. | text 是注释被抹空后的源码，行结构保持不变。
 	text string
@@ -432,7 +434,12 @@ func collectSources(fsys afero.Fs, root string, skip, exts []string) ([]sourceFi
 		if err != nil {
 			return err
 		}
-		rel := strings.Trim(strings.ReplaceAll(p, "\\", "/"), "/")
+		// Keep the walked path verbatim (only converting Windows separators): the documented
+		// contract is that File starts with the root that was passed in, and trimming a leading
+		// "/" would turn an absolute Unix root into a different, non-openable path. | 原样保留遍历
+		// 得到的路径（只转换 Windows 分隔符）：契约是 File 以传入的根开头，裁掉开头的 "/" 会把
+		// 绝对 Unix 根变成另一个无法打开的路径。
+		rel := filepath.ToSlash(p)
 		if info.IsDir() {
 			if rel == "" || rel == "." || p == root {
 				return nil

@@ -355,10 +355,15 @@ func (r *Router) validateTree() error {
 
 // Static mounts a local directory at urlPrefix (its contents are served as static files). | Static 把本地目录挂载到 urlPrefix（目录内容以静态文件方式提供）。
 //
-// Internally based on afero.BasePathFs + http.FileServer, it automatically supports Range requests, | 内部基于 afero.BasePathFs + http.FileServer，自动支持 Range 请求、
-// ETag / Last-Modified / If-Modified-Since and other standard semantics. | ETag / Last-Modified / If-Modified-Since 等标准语义。
+// Internally based on afs.NewOS + http.FileServer, it automatically supports Range requests,
+// ETag / Last-Modified / If-Modified-Since and other standard semantics. | 内部基于 afs.NewOS +
+// http.FileServer，自动支持 Range 请求、ETag / Last-Modified / If-Modified-Since 等标准语义。
+//
+// dir is confined by afs.NewOS: ".." cannot climb out, and "." (or "") serves the current working
+// directory as expected. | dir 由 afs.NewOS 约束：".." 无法爬出根目录，"."（或空串）则按预期提供
+// 当前工作目录。
 func (r *Router) Static(urlPrefix, dir string) {
-	r.StaticFS(urlPrefix, afero.NewBasePathFs(afero.NewOsFs(), dir))
+	r.StaticFS(urlPrefix, afs.NewOS(dir))
 }
 
 // StaticFS mounts any afero file system at urlPrefix (a MemFS or go:embed assets can be mounted). | StaticFS 把任意 afero 文件系统挂载到 urlPrefix（可挂载 MemFS 或 go:embed 资源）。
@@ -509,7 +514,10 @@ func (r *Router) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	// never pay the check. | 首字节不在任何根静态边上，且根节点没有参数、通配或混合边可兜底的
 	// 路径，对任何方法都不可能命中。直接向写入器应答默认 404。该检查只在缓存与形状都未命中后执行，
 	// 热命中因此无需支付其成本。
-	if entry == nil && !state.hasCustomNotFound && r.tree.rootReject(path) {
+	// Global middleware disables the shortcut too, exactly like the custom-404 case: access logs,
+	// rate limits and security headers must see the 404. | 全局中间件同样禁用该捷径，与自定义 404
+	// 情形一致：访问日志、限流与安全头必须看到这次 404。
+	if entry == nil && !state.hasCustomNotFound && len(state.globalMW) == 0 && r.tree.rootReject(path) {
 		r.releaseContext(c)
 		w.Header()["Content-Type"] = plainTextContentType
 		w.WriteHeader(http.StatusNotFound)
@@ -635,23 +643,34 @@ func (r *Router) serveSlow(c *Ctx, state *serveState, key methodKey, path string
 		if !noPath {
 			methods := r.tree.Allowed(path)
 			if len(methods) > 0 {
+				allow := strings.Join(withOptions(methods, r.options.AutoOptions), ", ")
 				if req.Method == http.MethodOptions && r.options.AutoOptions {
-					c.SetHeader("Allow", strings.Join(withOptions(methods, r.options.AutoOptions), ", "))
-					_ = c.NoContent()
+					// Answering OPTIONS directly must still traverse the global chain; otherwise
+					// CORS never sees a browser preflight and adds no Access-Control-* headers.
+					// | 直接应答 OPTIONS 仍必须经过全局链；否则 CORS 看不到浏览器预检，也不会写出
+					// Access-Control-* 头。
+					r.runFallback(c, state, func(cc *Ctx) {
+						cc.SetHeader("Allow", allow)
+						_ = cc.NoContent()
+					})
 					return
 				}
 				if r.options.MethodNotAllowed != nil {
-					c.SetHeader("Allow", strings.Join(withOptions(methods, r.options.AutoOptions), ", "))
+					c.SetHeader("Allow", allow)
 					r.setChain(c, state.globalMW, nil, r.options.MethodNotAllowed)
 					c.Next()
 					return
 				}
-				c.SetHeader("Allow", strings.Join(withOptions(methods, r.options.AutoOptions), ", "))
-				writeFallback(c, http.StatusMethodNotAllowed, methodNotAllowedBody)
+				r.runFallback(c, state, func(cc *Ctx) {
+					cc.SetHeader("Allow", allow)
+					writeFallback(cc, http.StatusMethodNotAllowed, methodNotAllowedBody)
+				})
 				return
 			}
 			if tsr {
-				redirectTrailingSlash(c, path, req.URL.RawQuery)
+				r.runFallback(c, state, func(cc *Ctx) {
+					redirectTrailingSlash(cc, path, req.URL.RawQuery)
+				})
 				return
 			}
 		}
@@ -740,7 +759,24 @@ func (r *Router) serveNotFound(c *Ctx, state *serveState) {
 		c.Next()
 		return
 	}
-	writeFallback(c, http.StatusNotFound, notFoundBody)
+	// The default 404 must run the global chain too: otherwise access logs, rate limits and
+	// security headers silently stop applying to exactly the traffic an attacker generates most.
+	// | 默认 404 也必须经过全局链：否则访问日志、限流与安全头会对攻击者最容易制造的那类流量
+	// 悄悄失效。
+	r.runFallback(c, state, func(cc *Ctx) {
+		writeFallback(cc, http.StatusNotFound, notFoundBody)
+	})
+}
+
+// runFallback runs a built-in fallback handler through the global middleware chain. | runFallback
+// 让内建兜底处理器经过全局中间件链执行。
+func (r *Router) runFallback(c *Ctx, state *serveState, tail HandlerFunc) {
+	if len(state.globalMW) == 0 {
+		tail(c)
+		return
+	}
+	r.setChain(c, state.globalMW, nil, tail)
+	c.Next()
 }
 
 // getMethodKey is the precomputed key used by HEAD's GET fallback. | getMethodKey 是 HEAD 回退到

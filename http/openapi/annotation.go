@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/shibingli/yd/core/afs"
 	"github.com/shibingli/yd/core/errx"
 	"github.com/spf13/afero"
 )
@@ -136,8 +137,13 @@ type AnnotationResponse struct {
 	// 其后的 @Example 行绑定的示例，原样保留。
 	Example string
 
-	// Code is the status code, 0 for the default response. | Code 为状态码，0 表示默认响应。
+	// Code is the status code, 0 for the default response or a range such as "2XX". | Code 为状态码，
+	// 0 表示默认响应或 "2XX" 这类区间。
 	Code int
+	// CodeText preserves the literal response key, including range keys ("2XX") that cannot be
+	// represented as an int. Empty means Code is authoritative. | CodeText 保留字面响应键，包括
+	// 无法用整数表示的区间键（"2XX"）；为空时以 Code 为准。
+	CodeText string
 }
 
 // Report summarizes annotation coverage. | Report 汇总注解覆盖情况。
@@ -354,13 +360,23 @@ func (a Annotation) responses() map[string]Response {
 	all = append(all, a.Success...)
 	all = append(all, a.Failure...)
 	for _, r := range all {
-		code := strconv.Itoa(r.Code)
-		if r.Code == 0 {
-			code = "default"
+		code := r.CodeText
+		if code == "" {
+			code = strconv.Itoa(r.Code)
+			if r.Code == 0 {
+				code = "default"
+			}
+		}
+		// A typed response without @Produce would otherwise lose its schema entirely; default it
+		// to JSON the same way request bodies already do. | 带类型的响应缺少 @Produce 时会完全丢掉
+		// schema；与请求体一样默认成 JSON。
+		media := a.Produce
+		if len(media) == 0 && r.schema != nil {
+			media = defaultMedia(media)
 		}
 		out[code] = Response{
 			Description: responseDescription(r),
-			Content:     contentFor(a.Produce, r.schema, exampleValue(r.Example)),
+			Content:     contentFor(media, r.schema, exampleValue(r.Example)),
 			Headers:     a.headersFor(code),
 		}
 	}
@@ -635,7 +651,10 @@ func mergeUniqueSorted(dst, items []string) []string {
 func annotationFiles(fsys afero.Fs, dirs []string) ([]string, error) {
 	var files []string
 	for _, dir := range dirs {
-		err := afero.Walk(fsys, dir, func(path string, info os.FileInfo, err error) error {
+		// afs.Walk keeps an io/fs backend slash-separated on Windows; afero.Walk joins with the
+		// OS separator, which fs.ValidPath rejects. | afs.Walk 在 Windows 上让 io/fs 后端保持斜杠
+		// 分隔；afero.Walk 用操作系统分隔符拼接，会被 fs.ValidPath 拒绝。
+		err := afs.Walk(fsys, dir, func(path string, info os.FileInfo, err error) error {
 			if err != nil {
 				return err
 			}
@@ -894,17 +913,30 @@ func splitTokens(s string) []string {
 // splitFields splits on whitespace while keeping a double quoted segment as one field
 // with the quotes removed. | splitFields 按空白切分，同时把双引号包裹的部分保留为单个字段并去掉引号。
 func splitFields(s string) []string {
+	fields, _ := splitFieldsQuoted(s)
+	return fields
+}
+
+// splitFieldsQuoted is splitFields with a per-field flag recording whether the field came from a
+// quoted string. Response parsing needs that distinction: a quoted word is a description, never a
+// type token. | splitFieldsQuoted 是带「字段是否来自引号」标记的 splitFields。响应解析需要这个
+// 区分：引号里的词是说明，绝不是类型标记。
+func splitFieldsQuoted(s string) ([]string, []bool) {
 	var (
-		out    []string
-		cur    strings.Builder
-		quoted bool
-		open   bool
+		out     []string
+		quotedF []bool
+		cur     strings.Builder
+		quoted  bool
+		open    bool
+		fromQ   bool
 	)
 	flush := func() {
 		if open || cur.Len() > 0 {
 			out = append(out, cur.String())
+			quotedF = append(quotedF, fromQ)
 			cur.Reset()
 			open = false
+			fromQ = false
 		}
 	}
 	for i := 0; i < len(s); i++ {
@@ -921,6 +953,7 @@ func splitFields(s string) []string {
 		case '"':
 			quoted = true
 			open = true
+			fromQ = true
 		case ' ', '\t':
 			flush()
 		default:
@@ -928,7 +961,7 @@ func splitFields(s string) []string {
 		}
 	}
 	flush()
-	return out
+	return out, quotedF
 }
 
 // parseParam parses "@Param name in type required "description"". | parseParam 解析
@@ -1051,21 +1084,51 @@ func applyParamAttributes(s *Schema, attrs map[string]string) {
 // directives; comma separated codes expand into one entry each. | parseResponses 解析
 // "@Success 200 {object} model.User "description"" 风格指令；逗号分隔的多个状态码会展开为多条。
 func parseResponses(args string) []AnnotationResponse {
-	fields := splitFields(args)
+	fields, quoted := splitFieldsQuoted(args)
 	if len(fields) == 0 {
 		return nil
 	}
-	index := 1
+
+	// Consume the leading code list first. Commas may carry spaces ("200, 201"), so a code list
+	// spans several fields; treating "201" as the type token would lose the real schema.
+	// | 先消费前导状态码列表。逗号后可以带空格（"200, 201"），因此码表会跨多个字段；
+	// 把 "201" 当成类型标记会丢掉真正的 schema。
+	index := 0
+	var codes []string
+	for index < len(fields) && !quoted[index] {
+		field := strings.TrimSpace(fields[index])
+		trimmed := strings.TrimSuffix(field, ",")
+		if trimmed == "" || !validResponseCodeList(trimmed) {
+			break
+		}
+		for _, code := range strings.Split(trimmed, ",") {
+			if code = strings.TrimSpace(code); code != "" {
+				codes = append(codes, code)
+			}
+		}
+		index++
+		if !strings.HasSuffix(field, ",") {
+			break
+		}
+	}
+	if len(codes) == 0 {
+		// Preserve the historical fallback for a malformed first field. | 保留首个字段畸形时的历史回退。
+		codes = []string{fields[0]}
+	}
+
 	kind := ""
-	if index < len(fields) && strings.HasPrefix(fields[index], "{") && strings.HasSuffix(fields[index], "}") {
+	if index < len(fields) && !quoted[index] &&
+		strings.HasPrefix(fields[index], "{") && strings.HasSuffix(fields[index], "}") {
 		kind = strings.ToLower(strings.Trim(fields[index], "{}"))
 		index++
 	}
 	token := ""
-	if index < len(fields) && !strings.HasPrefix(fields[index], "{") {
+	if index < len(fields) && !quoted[index] && !strings.HasPrefix(fields[index], "{") {
 		token = fields[index]
 		index++
 	}
+	// A quoted remainder is the description, even when it is a single word. | 引号包裹的剩余部分
+	// 是说明，即使只有一个词。
 	description := strings.Join(fields[index:], " ")
 	var schema *Schema
 	if kind != "" || token != "" {
@@ -1073,12 +1136,8 @@ func parseResponses(args string) []AnnotationResponse {
 	}
 
 	var out []AnnotationResponse
-	for _, code := range strings.Split(fields[0], ",") {
-		code = strings.TrimSpace(code)
-		if code == "" {
-			continue
-		}
-		res := AnnotationResponse{Type: token, Description: description, schema: schema}
+	for _, code := range codes {
+		res := AnnotationResponse{Type: token, Description: description, CodeText: code, schema: schema}
 		if n, err := strconv.Atoi(code); err == nil {
 			res.Code = n
 		}
@@ -1088,6 +1147,21 @@ func parseResponses(args string) []AnnotationResponse {
 		out = append(out, res)
 	}
 	return out
+}
+
+// validResponseCodeList reports whether s is a comma-separated list of valid response codes.
+// | validResponseCodeList 报告 s 是否为逗号分隔的合法状态码列表。
+func validResponseCodeList(s string) bool {
+	parts := strings.Split(s, ",")
+	if len(parts) == 0 {
+		return false
+	}
+	for _, part := range parts {
+		if !validResponseCode(strings.TrimSpace(part)) {
+			return false
+		}
+	}
+	return true
 }
 
 // parseSecurity parses one @Security directive into OpenAPI security requirements. | parseSecurity

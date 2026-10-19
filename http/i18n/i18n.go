@@ -12,6 +12,7 @@
 package i18n
 
 import (
+	"path"
 	"path/filepath"
 	"sort"
 	"strconv"
@@ -133,6 +134,12 @@ func New(fsys afero.Fs, dir string, defaultLang string) (*Bundle, error) {
 		dir = "."
 	}
 
+	// The catalog directory is a virtual path on the injected filesystem. Slash-separated paths
+	// work on every backend (OsFs accepts them on Windows too, MemMapFs normalizes, io/fs requires
+	// them), while a backslash produced by filepath.Join is rejected by an embedded backend. |
+	// 目录路径是注入文件系统上的虚拟路径。斜杠形式在所有后端都成立（Windows 上的 OsFs 同样接受，
+	// MemMapFs 会规范化，io/fs 则要求斜杠），而 filepath.Join 产生的反斜杠会被内嵌后端拒绝。
+	dir = filepath.ToSlash(dir)
 	b := &Bundle{fsys: fsys, id: bundleSeq.Add(1), dir: dir, defaultLang: def}
 	if err := b.Reload(); err != nil {
 		return nil, err
@@ -175,7 +182,7 @@ func (b *Bundle) load() (map[string]map[string]any, []string, error) {
 			continue
 		}
 
-		file := filepath.Join(b.dir, entry.Name())
+		file := path.Join(b.dir, entry.Name())
 		catalog, err := parseCatalog(b.fsys, file)
 		if err != nil {
 			return nil, nil, errx.WrapDetail(err, ErrParseCatalog, "file %s | 文件 %s", file, file)

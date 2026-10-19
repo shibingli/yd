@@ -98,8 +98,12 @@ func TestRunProgramReportsTheRunError(t *testing.T) {
 		grace: time.Second,
 	}
 
-	if err := program.Start(nil); err != nil {
-		t.Fatalf("Start 失败: %v", err)
+	// An immediate failure is a startup failure and must not be reported as a successful start;
+	// the original error stays on the chain. | 立即失败属于启动失败，不得报告为成功启动；原始错误
+	// 保留在错误链上。
+	startErr := program.Start(nil)
+	if !errors.Is(startErr, ErrStartupFailed) || !errors.Is(startErr, failure) {
+		t.Fatalf("Start 应返回包装了 run 错误的 ErrStartupFailed, 实际 %v", startErr)
 	}
 	err := program.Stop(nil)
 	if !errors.Is(err, failure) {

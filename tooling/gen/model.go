@@ -64,6 +64,60 @@ type Field struct {
 	// Unique 报告该列是否有唯一约束。
 	// Unique reports whether the column carries a unique constraint.
 	Unique bool
+	// JSONExcluded 报告源字段显式声明了 json:"-"，生成物必须保留该排除而不是回退成列名。
+	// JSONExcluded reports that the source field declared json:"-" explicitly; the generated
+	// artifact must preserve the exclusion instead of falling back to the column name.
+	JSONExcluded bool
+}
+
+// reservedModuleNames lists the type names the generated scaffold already defines in the
+// packages yd gen writes to. A generated module with one of these names would redeclare them.
+// | reservedModuleNames 列出生成脚手架在 yd gen 写入的包中已经定义的类型名。用这些名字生成模块
+// 会重复声明它们。
+// validDBIdent reports whether s is a plain SQL identifier (letters, digits and underscores,
+// not starting with a digit). | validDBIdent 报告 s 是否为普通 SQL 标识符（字母、数字与下划线，
+// 且不以数字开头）。
+func validDBIdent(s string) bool {
+	if s == "" {
+		return false
+	}
+	for i, r := range s {
+		if r == '_' || 'a' <= r && r <= 'z' || 'A' <= r && r <= 'Z' || i > 0 && '0' <= r && r <= '9' {
+			continue
+		}
+		return false
+	}
+	return true
+}
+
+// validDBTable accepts an optionally schema-qualified table name whose every segment is a plain
+// identifier. | validDBTable 接受可带模式限定的表名，其中每一段都必须是普通标识符。
+func validDBTable(s string) bool {
+	for _, part := range strings.Split(s, ".") {
+		if !validDBIdent(part) {
+			return false
+		}
+	}
+	return s != ""
+}
+
+// validJSONKey reports whether s can be embedded verbatim in a struct tag. | validJSONKey 报告 s
+// 能否原样嵌入结构体标签。
+func validJSONKey(s string) bool {
+	if s == "" {
+		return false
+	}
+	return !strings.ContainsAny(s, "\"`\\\r\n\t")
+}
+
+var reservedModuleNames = map[string]bool{
+	"user":       true,
+	"role":       true,
+	"tenant":     true,
+	"permission": true,
+	"auth":       true,
+	"session":    true,
+	"controller": true,
 }
 
 // Rules 返回逗号分隔的校验规则列表，空白项被忽略。
@@ -364,6 +418,9 @@ func (f Field) GormTag() string {
 // JSONTag 返回写入结构体标签的 json 取值（不含反引号）。
 // JSONTag returns the json tag value written into the struct tag (without backticks).
 func (f Field) JSONTag() string {
+	if f.JSONExcluded {
+		return "-"
+	}
 	name := f.JSONName
 	if name == "" {
 		name = f.Column
@@ -480,6 +537,9 @@ func (m *Model) prepare() error {
 	if m.Table == "" {
 		m.Table = pluralize(snakeCase(m.Name))
 	}
+	if !validDBTable(m.Table) {
+		return errx.Detail(ErrBadModel, "table name %[1]q contains characters that cannot be embedded in generated SQL/Go | 表名 %[1]q 含无法嵌入生成 SQL/Go 的字符", m.Table)
+	}
 
 	for i := range m.Fields {
 		f := &m.Fields[i]
@@ -502,8 +562,21 @@ func (m *Model) prepare() error {
 		if f.GoType == "" {
 			f.GoType = "string"
 		}
-		if f.JSONName == "" {
+		if f.JSONName == "" && !f.JSONExcluded {
 			f.JSONName = f.Column
+		}
+		if f.JSONExcluded {
+			f.JSONName = "-"
+		}
+		// Column and JSONName are interpolated raw into generated Go strings, SQL and struct tags.
+		// A quote, backtick or control character would break the file (or inject code), so only
+		// identifier-shaped values are accepted. | Column 与 JSONName 会原样写入生成的 Go 字符串、
+		// SQL 与结构体标签。引号、反引号或控制字符会破坏文件（或注入代码），因此只接受标识符形态。
+		if !validDBIdent(f.Column) {
+			return errx.Detail(ErrBadModel, "column %q of %s is not a legal SQL identifier | %s 的列名 %q 不是合法的 SQL 标识符", f.Column, m.GoName, m.GoName, f.Column)
+		}
+		if !f.JSONExcluded && !validJSONKey(f.JSONName) {
+			return errx.Detail(ErrBadModel, "json name %q of %s is not embeddable in a struct tag | %s 的 JSON 名 %q 无法嵌入结构体标签", f.JSONName, m.GoName, m.GoName, f.JSONName)
 		}
 		if f.Label == "" {
 			f.Label = f.GoName
@@ -735,7 +808,11 @@ func fieldFromTags(goName, goType string, tag reflect.StructTag) Field {
 		f.Column = snakeCase(f.GoName)
 	}
 	f.Name = snakeCase(f.Column)
-	if f.JSONName == "" {
+	if strings.TrimSpace(tag.Get("json")) == "-" {
+		f.JSONExcluded = true
+		f.JSONName = "-"
+	}
+	if f.JSONName == "" && !f.JSONExcluded {
 		f.JSONName = f.Column
 	}
 	applyYDTag(&f, tag.Get("yd"))

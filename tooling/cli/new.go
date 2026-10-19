@@ -282,10 +282,10 @@ func applyNewFlags(o *scaffold.Options, env *Env, fs *pflag.FlagSet) {
 // 绝对路径，否则该 replace 只是碰巧指向项目之外。
 func newLocalReplace(env *Env, value string) string {
 	v := strings.TrimSpace(value)
-	if v == "" || filepath.IsAbs(v) {
+	if v == "" {
 		return v
 	}
-	return filepath.Join(env.WorkDir, v)
+	return resolveUserPath(env.WorkDir, v)
 }
 
 // interviewNew asks for the options that were not pinned by a flag. | interviewNew 询问未被标志钉住的选项。

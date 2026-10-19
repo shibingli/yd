@@ -9,6 +9,12 @@ import (
 	"github.com/shibingli/yd/security/jwt"
 )
 
+// keyLookupTimeout bounds the pre-signature store lookup. KeyFunc carries no request context, so
+// without a deadline an unauthenticated flood could pin database connections indefinitely.
+// | keyLookupTimeout 限定验签前的存储查询。KeyFunc 不带请求上下文，没有期限时未认证的流量洪峰
+// 可以无限期占用数据库连接。
+const keyLookupTimeout = 2 * time.Second
+
 // TokenOptions configures a TokenIssuer. | TokenOptions 配置 TokenIssuer。
 type TokenOptions struct {
 	// Now overrides the clock; nil means the clock of the Service. | Now 用于替换时钟；为空表示沿用 Service 的时钟。
@@ -132,16 +138,25 @@ func (i *TokenIssuer) KeyFunc(header jwt.Header) (any, error) {
 	if tenantID == "" {
 		return nil, errx.Detail(ErrTokenInvalid, "token has no %[1]s header | 令牌缺少 %[1]s 头部", tenantKey)
 	}
-	u, err := i.svc.store.GetUser(context.Background(), tenantID, header.Kid)
+	lookupCtx, cancel := context.WithTimeout(context.Background(), keyLookupTimeout)
+	defer cancel()
+	u, err := i.svc.store.GetUser(lookupCtx, tenantID, header.Kid)
 	if err != nil {
-		return nil, errx.Wrap(err, ErrTokenInvalid)
+		// Never wrap the store error: errx preserves ErrNotFound on the chain, and the middleware
+		// would then answer 404 for a nonexistent user and 401 for an existing one, turning an
+		// unauthenticated token into an account-existence oracle. | 绝不包装存储错误：errx 会把
+		// ErrNotFound 保留在错误链上，中间件随后对不存在的用户回 404、对存在的用户回 401，
+		// 使一枚未认证的令牌变成账号存在性探针。
+		return nil, errx.Detail(ErrTokenInvalid, "token key lookup failed | 令牌密钥查询失败")
 	}
 	if u.Status != StatusActive {
-		return nil, ErrUserDisabled
+		// Disabled and unknown users must look the same to an unauthenticated caller. | 对未认证
+		// 调用方而言，被禁用与不存在必须表现一致。
+		return nil, errx.Detail(ErrTokenInvalid, "token key lookup failed | 令牌密钥查询失败")
 	}
-	secKey, err := i.svc.SecKey(context.Background(), u)
+	secKey, err := i.svc.SecKey(lookupCtx, u)
 	if err != nil {
-		return nil, err
+		return nil, errx.Detail(ErrTokenInvalid, "token key lookup failed | 令牌密钥查询失败")
 	}
 	// The buffer becomes the HMAC key, so it is not wiped here. | 该缓冲区会成为 HMAC 密钥，因此此处不清零。
 	return secKey, nil
@@ -186,10 +201,12 @@ func (i *TokenIssuer) Verify(ctx context.Context, token string) (*User, error) {
 	}
 	u, err := i.svc.store.GetUser(ctx, tenantID, userID)
 	if err != nil {
-		return nil, errx.Wrap(err, ErrTokenInvalid)
+		// As in KeyFunc, do not preserve ErrNotFound: the caller only learns "invalid token".
+		// | 与 KeyFunc 一样，不保留 ErrNotFound：调用方只能得到「令牌无效」。
+		return nil, errx.Detail(ErrTokenInvalid, "user lookup failed | 用户查询失败")
 	}
 	if u.Status != StatusActive {
-		return nil, ErrUserDisabled
+		return nil, errx.Detail(ErrTokenInvalid, "user is not active | 用户未激活")
 	}
 	return u, nil
 }

@@ -45,14 +45,46 @@ func skipString(b []byte, i int) (int, bool) {
 		return i, false
 	}
 	for i++; i < len(b); i++ {
-		switch b[i] {
-		case '\\':
+		switch c := b[i]; {
+		case c == '\\':
 			i++
-		case '"':
+			if i >= len(b) {
+				return len(b), false
+			}
+			switch b[i] {
+			case '"', '\\', '/', 'b', 'f', 'n', 'r', 't':
+			case 'u':
+				// A \u escape must carry exactly four hexadecimal digits; silently dropping a
+				// malformed escape would make this parser disagree with every compliant one. | \u 转义
+				// 必须恰好带四位十六进制；静默丢弃非法转义会让本解析器与所有合规实现产生分歧。
+				if i+4 >= len(b) || !isHex4(b[i+1:i+5]) {
+					return len(b), false
+				}
+				i += 4
+			default:
+				return len(b), false
+			}
+		case c == '"':
 			return i + 1, true
+		case c < 0x20:
+			// Unescaped control characters are forbidden by RFC 8259. | RFC 8259 禁止未转义的控制字符。
+			return len(b), false
 		}
 	}
 	return len(b), false
+}
+
+// isHex4 reports whether b is exactly four ASCII hexadecimal digits. | isHex4 报告 b 是否恰好是四位 ASCII 十六进制数字。
+func isHex4(b []byte) bool {
+	if len(b) != 4 {
+		return false
+	}
+	for _, c := range b {
+		if !('0' <= c && c <= '9' || 'a' <= c && c <= 'f' || 'A' <= c && c <= 'F') {
+			return false
+		}
+	}
+	return true
 }
 
 // skipContainer skips the JSON object or array starting at b[i]. | skipContainer 跳过从 b[i] 开始的 JSON 对象或数组。
@@ -205,6 +237,11 @@ func (s *scanner) next() bool {
 	if s.needComma {
 		if i < len(s.b) && s.b[i] == ',' {
 			i = skipSpace(s.b, i+1)
+			// A comma before the closing brace is a trailing comma. | 闭合花括号前的逗号就是尾随逗号。
+			if i < len(s.b) && s.b[i] == '}' {
+				s.err = true
+				return false
+			}
 		} else if i >= len(s.b) || s.b[i] != '}' {
 			s.err = true
 			return false
@@ -707,6 +744,12 @@ func scanFloat64(b []byte) (float64, bool) {
 // It mirrors RFC 7519 NumericDate: seconds since the Unix epoch, optionally fractional. | 与 RFC 7519 的 NumericDate 一致：以 Unix 纪元为起点的秒数，允许小数。
 func numericDate(raw []byte) (time.Time, bool) {
 	if n, ok := scanInt64(raw); ok {
+		// The integer and float paths must enforce the same window; otherwise an integer exp of
+		// 2^62 would be accepted as valid essentially forever. | 整数与浮点路径必须施加同一个窗口；
+		// 否则 2^62 的整数 exp 会被当成「几乎永不过期」而接受。
+		if float64(n) < minNumericDate || float64(n) > maxNumericDate {
+			return time.Time{}, false
+		}
 		return time.Unix(n, 0).UTC(), true
 	}
 	f, ok := scanFloat64(raw)

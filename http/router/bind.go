@@ -119,7 +119,16 @@ func bindValues(v any, values url.Values) error {
 			if len(vs) == 0 {
 				continue
 			}
-			rv.SetMapIndex(reflect.ValueOf(k), reflect.ValueOf(vs[0]).Convert(rv.Type().Elem()))
+			// Convert panics when the element type is not string-compatible (map[string]int is a
+			// natural target). Build an element and let the scalar binder parse it, which also
+			// reports overflow and unsupported types as errors instead of panicking. | 元素类型不可由
+			// string 转换时 Convert 会 panic（map[string]int 是自然写法）。改为构造元素并交给标量
+			// 绑定器解析，这样溢出与不支持的类型都会返回错误而不是 panic。
+			elem := reflect.New(rv.Type().Elem()).Elem()
+			if err := setFieldValue(elem, vs[0], "map key "+k); err != nil {
+				return err
+			}
+			rv.SetMapIndex(reflect.ValueOf(k), elem)
 		}
 		return nil
 	default:
@@ -210,19 +219,21 @@ func setFieldValue(fv reflect.Value, raw, fieldName string) error {
 		}
 		fv.SetBool(b)
 	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
-		n, err := strconv.ParseInt(raw, 10, 64)
+		// Parse at the destination width so 200 into an int8 is an error, not -56. | 按目标位宽解析，
+		// 使 200 写入 int8 时报错而不是变成 -56。
+		n, err := strconv.ParseInt(raw, 10, fv.Type().Bits())
 		if err != nil {
 			return errx.WrapDetail(err, ErrBindField, "field %[1]s | 字段 %[1]s", fieldName)
 		}
 		fv.SetInt(n)
 	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
-		n, err := strconv.ParseUint(raw, 10, 64)
+		n, err := strconv.ParseUint(raw, 10, fv.Type().Bits())
 		if err != nil {
 			return errx.WrapDetail(err, ErrBindField, "field %[1]s | 字段 %[1]s", fieldName)
 		}
 		fv.SetUint(n)
 	case reflect.Float32, reflect.Float64:
-		f, err := strconv.ParseFloat(raw, 64)
+		f, err := strconv.ParseFloat(raw, fv.Type().Bits())
 		if err != nil {
 			return errx.WrapDetail(err, ErrBindField, "field %[1]s | 字段 %[1]s", fieldName)
 		}

@@ -330,7 +330,7 @@ func TestCheckAcceptsAbsoluteUnixDir(t *testing.T) {
 	if err := fsys.MkdirAll("/work/app", 0o755); err != nil {
 		t.Fatalf("MkdirAll failed: %v | 建目录失败", err)
 	}
-	body := "package main\n\n// authz.PermUserCreate | 用户创建\nvar _ = authz.PermUserCreate\n"
+	body := "package main\n\nvar _ = auth.RequirePermission(\"user:creat\")\n"
 	if err := afero.WriteFile(fsys, "/work/app/main.go", []byte(body), 0o644); err != nil {
 		t.Fatalf("WriteFile failed: %v | 写文件失败", err)
 	}
@@ -340,6 +340,16 @@ func TestCheckAcceptsAbsoluteUnixDir(t *testing.T) {
 	}
 	if rep.Files != 1 {
 		t.Fatalf("Files = %d, want 1 | 扫描文件数不符", rep.Files)
+	}
+	// The reported path must start with the root as written, so a reader can paste it into an
+	// editor; trimming the leading "/" produced a different, non-openable path. | 报告路径必须以原样传入的
+	// 根开头，读者才能直接粘进编辑器；裁掉开头的 "/" 会得到另一个无法打开的路径。
+	is, ok := finding(rep, "user:creat")
+	if !ok {
+		t.Fatal("the typo was not reported | 拼写错误未被报告")
+	}
+	if !strings.HasPrefix(is.File, "/work/app/") {
+		t.Errorf("issue path = %q，期望以 /work/app/ 开头 | want a path below /work/app/", is.File)
 	}
 }
 

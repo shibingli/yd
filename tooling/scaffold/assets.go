@@ -147,6 +147,14 @@ func trimManifest(m *assets.Manifest, exts []string) *assets.Manifest {
 	trimmed := *m
 	trimmed.Assets = make([]assets.Asset, 0, len(m.Assets))
 	for _, a := range m.Assets {
+		// htmx-2-compat is an extension even though it lacks the "hx-" prefix. | htmx-2-compat
+		// 是扩展，尽管它没有 "hx-" 前缀。
+		if a.Name == "htmx-2-compat" {
+			if containsString(selected, a.Name) {
+				trimmed.Assets = append(trimmed.Assets, a)
+			}
+			continue
+		}
 		if !strings.HasPrefix(a.Name, extAssetPrefix) || containsString(selected, a.Name) {
 			trimmed.Assets = append(trimmed.Assets, a)
 		}

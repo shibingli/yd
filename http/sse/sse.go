@@ -109,6 +109,14 @@ func NewWriter(w http.ResponseWriter, o Options) (*Writer, error) {
 	if o.BufferSize <= 0 {
 		o.BufferSize = defaultBufferSize
 	}
+	// An event stream outlives the server's write timeout. net/http applies one absolute write
+	// deadline to the whole response, so without clearing it here every stream dies when
+	// server.write_timeout elapses (15s by default). ResponseController is the supported way to
+	// reach the underlying writer through middleware wrappers; unsupported writers keep their
+	// previous behaviour. | 事件流的寿命长于服务器的写超时。net/http 对整个响应只设置一个绝对写超时，
+	// 不在此清除的话，server.write_timeout（默认 15s）一到所有事件流都会失败。ResponseController
+	// 是穿透中间件包装器访问底层写入器的受支持方式；不支持时维持原有行为。
+	_ = http.NewResponseController(w).SetWriteDeadline(time.Time{})
 	h := w.Header()
 	h.Set("Content-Type", "text/event-stream; charset=utf-8")
 	h.Set("Cache-Control", "no-cache, no-transform")

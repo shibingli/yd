@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -498,6 +499,27 @@ func TestDevRunnerValidation(t *testing.T) {
 			t.Fatalf("Run 返回错误 | Run: %v", err)
 		}
 	})
+}
+
+// TestDevBuildArgsResolvesFreshProject proves the development build can run before go.sum exists,
+// while an existing go.sum keeps the default readonly module mode. | TestDevBuildArgsResolvesFreshProject
+// 证明开发构建能在 go.sum 尚不存在时运行，而已有 go.sum 时保持默认的只读模块模式。
+func TestDevBuildArgsResolvesFreshProject(t *testing.T) {
+	dir := t.TempDir()
+	args := devBuildArgs(dir, "out", "./cmd/app")
+	if !slices.Contains(args, "-mod=mod") {
+		t.Fatalf("缺 go.sum 时 argv = %v，期望包含 -mod=mod | argv = %v, want -mod=mod", args, args)
+	}
+	if got := args[len(args)-1]; got != "./cmd/app" {
+		t.Fatalf("最后一个参数 = %q，期望构建入口 | last arg = %q, want the package", got, got)
+	}
+
+	if err := os.WriteFile(filepath.Join(dir, "go.sum"), nil, 0o644); err != nil {
+		t.Fatalf("写入 go.sum 失败 | writing go.sum: %v", err)
+	}
+	if args := devBuildArgs(dir, "out", "./cmd/app"); slices.Contains(args, "-mod=mod") {
+		t.Fatalf("已有 go.sum 时 argv = %v，不应包含 -mod=mod | argv = %v, must not contain -mod=mod", args, args)
+	}
 }
 
 func TestDevOptionsDefaults(t *testing.T) {

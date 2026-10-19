@@ -414,6 +414,24 @@ func TestGenerateRejectsEmptyModel(t *testing.T) {
 	}
 }
 
+// TestGenerateRejectsWindowsDeviceModelName proves a model whose snake name is a Windows device
+// cannot create a file or directory that resolves to a device. | TestGenerateRejectsWindowsDeviceModelName
+// 证明蛇形名是 Windows 设备名的模型不会创建解析为设备的文件或目录。
+func TestGenerateRejectsWindowsDeviceModelName(t *testing.T) {
+	for _, name := range []string{"Con", "Aux", "Com1", "Lpt9", "Nul"} {
+		m := sampleModel()
+		m.Name, m.GoName = name, name
+		if _, err := gen.Generate(context.Background(), m, sampleOptions(), afs.NewMem()); !errors.Is(err, gen.ErrBadModel) {
+			t.Errorf("Generate(%q) 错误 = %v，期望 ErrBadModel | want ErrBadModel", name, err)
+		}
+	}
+	m := sampleModel()
+	m.Name, m.GoName = "Console", "Console"
+	if _, err := gen.Generate(context.Background(), m, sampleOptions(), afs.NewMem()); err != nil {
+		t.Fatalf("非设备名模型应成功 | a non-device name must succeed: %v", err)
+	}
+}
+
 // TestGenerateUnderDir 验证 Options.Dir 之下相对落盘。
 // TestGenerateUnderDir verifies artifacts land relative to Options.Dir.
 func TestGenerateUnderDir(t *testing.T) {

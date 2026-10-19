@@ -232,6 +232,7 @@ func updateOptions(env *Env, fs *pflag.FlagSet, manifestPath, root string) asset
 		Force:        flagBool(fs, flagAssetsForce),
 		Sources:      flagStrings(fs, flagAssetsSource),
 		HTTPClient:   assetsHTTPClient,
+		Proxy:        configString(env, keyNetProxy),
 	}
 }
 

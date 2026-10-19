@@ -171,6 +171,15 @@ func Generate(ctx context.Context, m *Model, o Options, fs afero.Fs) (*Result, e
 		return res, errx.Wrap(err, ErrCancelled)
 	}
 
+	// Only a scaffold target already defines User/Role/Tenant/Permission services, repositories
+	// and model types; generating the same module name there would redeclare them and leave a
+	// project that no longer builds. A bare directory has no such names and is left alone.
+	// | 只有脚手架产物已经定义了 User/Role/Tenant/Permission 的服务、仓储与模型类型；在那里生成
+	// 同名模块会重复声明并留下无法编译的项目。普通目录没有这些名字，因此不施加该限制。
+	if reservedModuleNames[strings.ToLower(m.GoName)] &&
+		afs.Exists(fs, o.fullPath(path.Join("internal", "meta", "meta.go"))) {
+		return res, errx.Detail(ErrBadModel, "model name %[1]q collides with a scaffold-defined type; choose another name | 模型名 %[1]q 与脚手架已定义的类型冲突，请换一个名称", m.GoName)
+	}
 	v, err := newView(m, o)
 	if err != nil {
 		return res, err

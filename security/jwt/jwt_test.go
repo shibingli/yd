@@ -1350,3 +1350,95 @@ func TestTokenReuseConcurrent(t *testing.T) {
 		t.Fatalf("concurrent parse: %v | 并发解析：%v", err, err)
 	}
 }
+
+// ---------------------------------------------------------------- hardening regressions | 加固回归
+
+// TestSignRejectsWeakHMACSecret enforces RFC 7518 §3.2: an HMAC key shorter than the hash output is
+// refused instead of silently producing a token signed with a guessable secret. | TestSignRejectsWeakHMACSecret
+// 强制 RFC 7518 §3.2：短于哈希输出的 HMAC 密钥被拒绝，而不是用可猜出的密钥静默签出令牌。
+func TestSignRejectsWeakHMACSecret(t *testing.T) {
+	for _, tc := range []struct {
+		alg  Alg
+		size int
+	}{
+		{HS256, 32},
+		{HS384, 48},
+		{HS512, 64},
+	} {
+		weak := bytes.Repeat([]byte{'k'}, tc.size-1)
+		if _, err := Sign(map[string]any{"sub": "u"}, weak, tc.alg, SignOptions{}); !errors.Is(err, ErrWeakKey) {
+			t.Errorf("Sign(%s, %d-byte key) err = %v, want ErrWeakKey", tc.alg, len(weak), err)
+		}
+		for _, empty := range []any{[]byte{}, ""} {
+			if _, err := Sign(map[string]any{"sub": "u"}, empty, tc.alg, SignOptions{}); !errors.Is(err, ErrWeakKey) {
+				t.Errorf("Sign(%s, empty %T key) err = %v, want ErrWeakKey", tc.alg, empty, err)
+			}
+		}
+		strong := bytes.Repeat([]byte{'k'}, tc.size)
+		if _, err := Sign(map[string]any{"sub": "u"}, strong, tc.alg, SignOptions{}); err != nil {
+			t.Errorf("Sign(%s, %d-byte key) failed: %v", tc.alg, len(strong), err)
+		}
+	}
+}
+
+// TestParseRejectsWeakHMACSecret proves verification fails closed when the key resolver returns a
+// short secret. | TestParseRejectsWeakHMACSecret 证明密钥解析器给出短密钥时验签失败关闭。
+func TestParseRejectsWeakHMACSecret(t *testing.T) {
+	raw := mustSign(t, map[string]any{"sub": "u", "exp": fixedNow.Add(time.Hour).Unix()}, testSecret, HS256, SignOptions{})
+	_, err := Parse(raw, hmacKeyFunc([]byte("short")), ParseOptions{ValidAlgs: []Alg{HS256}, RequireExp: true})
+	if !errors.Is(err, ErrSignatureInvalid) {
+		t.Fatalf("Parse with a 5-byte secret err = %v, want ErrSignatureInvalid", err)
+	}
+}
+
+// TestEd25519KeyLengthNeverPanics keeps malformed Ed25519 material from turning into a panic; the
+// standard library's Sign/Verify abort the process path on a wrong length. | TestEd25519KeyLengthNeverPanics
+// 让畸形 Ed25519 密钥不再变成 panic：标准库的 Sign/Verify 在长度不符时会中断当前路径。
+func TestEd25519KeyLengthNeverPanics(t *testing.T) {
+	pub, priv, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatalf("GenerateKey: %v", err)
+	}
+	raw, err := Sign(map[string]any{"sub": "u", "exp": fixedNow.Add(time.Hour).Unix()}, priv, EdDSA, SignOptions{})
+	if err != nil {
+		t.Fatalf("Sign(EdDSA): %v", err)
+	}
+	shortPriv := ed25519.PrivateKey(make([]byte, 5))
+	if _, err := Sign(map[string]any{"sub": "u"}, shortPriv, EdDSA, SignOptions{}); !errors.Is(err, ErrSignatureInvalid) {
+		t.Errorf("Sign(EdDSA, short private key) err = %v, want ErrSignatureInvalid", err)
+	}
+	shortPub := ed25519.PublicKey(make([]byte, 5))
+	_, err = Parse(raw, func(Header) (any, error) { return shortPub, nil }, ParseOptions{ValidAlgs: []Alg{EdDSA}, RequireExp: true})
+	if !errors.Is(err, ErrSignatureInvalid) {
+		t.Errorf("Parse(EdDSA, short public key) err = %v, want ErrSignatureInvalid", err)
+	}
+	if _, err := Parse(raw, func(Header) (any, error) { return pub, nil }, ParseOptions{ValidAlgs: []Alg{EdDSA}, RequireExp: true, Now: func() time.Time { return fixedNow }}); err != nil {
+		t.Errorf("Parse(EdDSA, valid public key) failed: %v", err)
+	}
+}
+
+// TestNumericDateIntegerWindow applies the same bound to the integer and float NumericDate paths. | TestNumericDateIntegerWindow
+// 让整数与浮点两条 NumericDate 路径施加同一个窗口。
+func TestNumericDateIntegerWindow(t *testing.T) {
+	raw := resign(t, b64(`{"alg":"HS256"}`), b64(`{"exp":4611686018427387904}`))
+	if _, err := Parse(raw, hmacKeyFunc(testSecret), ParseOptions{ValidAlgs: []Alg{HS256}, RequireExp: true}); !errors.Is(err, ErrMalformed) {
+		t.Fatalf("Parse(exp=2^62) err = %v, want ErrMalformed", err)
+	}
+}
+
+// TestScannerRejectsMalformedJSON closes the parser differentials: trailing commas, invalid \u
+// escapes and raw control characters are rejected instead of being silently normalised. | TestScannerRejectsMalformedJSON
+// 关闭解析器分歧：尾随逗号、非法 \u 转义与裸控制字符一律拒绝，而不是被静默归一化。
+func TestScannerRejectsMalformedJSON(t *testing.T) {
+	for _, header := range []string{
+		`{"alg":"HS256",}`,
+		`{"alg":"HS256","kid":"bad\uZZZZ"}`,
+		"{\"alg\":\"HS256\",\"kid\":\"a\nb\"}",
+		`{"alg":"HS256","crit":["exp"]}`,
+	} {
+		raw := resign(t, b64(header), b64(`{"exp":4102444800}`))
+		if _, err := Parse(raw, hmacKeyFunc(testSecret), ParseOptions{ValidAlgs: []Alg{HS256}}); !errors.Is(err, ErrMalformed) {
+			t.Errorf("Parse(header=%s) err = %v, want ErrMalformed", header, err)
+		}
+	}
+}

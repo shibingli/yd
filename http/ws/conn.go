@@ -109,6 +109,14 @@ type Conn struct {
 
 	writeMu sync.Mutex
 
+	// deadlineMu guards writeDeadline, the last deadline set through SetWriteDeadline.
+	// Control frames temporarily override the transport deadline and must restore the
+	// application's value instead of clearing it. | deadlineMu 保护 writeDeadline，即经
+	// SetWriteDeadline 设置的最后一个超时。控制帧会临时覆盖传输层超时，之后必须恢复应用设置的值，
+	// 而不是把它清零。
+	deadlineMu    sync.Mutex
+	writeDeadline time.Time
+
 	// trackMu guards untrack, which Close / CloseNow consume exactly once. | trackMu 保护 untrack，Close / CloseNow 恰好消费一次。
 	trackMu sync.Mutex
 
@@ -297,7 +305,20 @@ func (c *Conn) UnderlyingConn() net.Conn { return c.conn }
 func (c *Conn) SetReadDeadline(t time.Time) error { return c.conn.SetReadDeadline(t) }
 
 // SetWriteDeadline sets the write deadline. | SetWriteDeadline 设置写超时。
-func (c *Conn) SetWriteDeadline(t time.Time) error { return c.conn.SetWriteDeadline(t) }
+func (c *Conn) SetWriteDeadline(t time.Time) error {
+	c.deadlineMu.Lock()
+	c.writeDeadline = t
+	c.deadlineMu.Unlock()
+	return c.conn.SetWriteDeadline(t)
+}
+
+// currentWriteDeadline returns the deadline most recently set through SetWriteDeadline. | currentWriteDeadline
+// 返回最近一次经 SetWriteDeadline 设置的超时。
+func (c *Conn) currentWriteDeadline() time.Time {
+	c.deadlineMu.Lock()
+	defer c.deadlineMu.Unlock()
+	return c.writeDeadline
+}
 
 // SetPingHandler sets the callback invoked when a ping is received; returning an error terminates the read loop. | SetPingHandler 设置收到 ping 时的回调；返回错误会终止读循环。
 // When it is not set, a pong is sent back automatically. | 未设置时内部自动回复 pong。
@@ -516,6 +537,11 @@ func (r *MessageReader) Read(p []byte) (int, error) {
 			// the n bytes already read are still returned to the caller, but the error marks an invalid payload | 已读出的 n 字节仍返回给调用方，但错误标记为非法载荷
 			return n, r.c.fail(CloseInvalidFramePayloadData, ErrInvalidUTF8)
 		}
+		// frameOffset is derived from frameRemain, so it must advance with every read or the
+		// masking sequence restarts at offset 0 on the next partial read and corrupts the payload.
+		// | frameOffset 由 frameRemain 推导，因此必须随每次读取前进；否则下一次部分读取会从偏移 0
+		// 重新开始掩码序列，导致载荷损坏。
+		r.c.frameRemain -= int64(n)
 		r.remaining -= int64(n)
 		r.c.msgLen += int64(n)
 	}
@@ -879,6 +905,13 @@ func (c *Conn) writeMessageFrame(op OpCode, payload []byte) error {
 	c.writeMu.Lock()
 	defer c.writeMu.Unlock()
 
+	// Re-check under the write lock: the lock-free check in WriteMessage can race with a close
+	// frame that another goroutine registers while this writer is waiting for the lock. | 在写锁内
+	// 重新检查：WriteMessage 的无锁检查可能与另一个协程在本协程等待锁期间登记的关闭帧竞争。
+	if c.closeSentFlag.Load() {
+		return ErrCloseSent
+	}
+
 	body, rsv1, err := c.compressOutboundLocked(payload)
 	if err != nil {
 		return err
@@ -910,7 +943,12 @@ func (c *Conn) compressOutboundLocked(payload []byte) ([]byte, bool, error) {
 // 用尽时以一次 CSPRNG 读取重新填满。每个键都是新鲜且不可预测的 32 位值（RFC 6455 §5.3），
 // 批量获取只为摊薄开销。调用方必须持有 writeMu。
 func (c *Conn) nextMaskKey() ([4]byte, error) {
-	if c.maskKeyPos >= len(c.maskKeys) {
+	// The reservoir starts zeroed, so requiring a full four bytes (not merely "position beyond
+	// the end") forces the first call to seed it from crypto/rand; otherwise the first
+	// maskKeyBatch frames would all use the all-zero key. | 蓄水池初始为全零，因此必须以「剩余不足
+	// 四字节」而不是「位置越过末尾」为条件，强制第一次调用就用 crypto/rand 填满；否则前
+	// maskKeyBatch 帧都会使用全零掩码键。
+	if c.maskKeyPos+4 > len(c.maskKeys) {
 		if _, err := rand.Read(c.maskKeys[:]); err != nil {
 			return [4]byte{}, err
 		}
@@ -957,20 +995,21 @@ func (c *Conn) WriteControl(op OpCode, p []byte, deadline time.Time) error {
 
 // writeControlFrame writes a control frame directly (without touching the close state bookkeeping). | writeControlFrame 直接写出控制帧（不涉及关闭状态登记）。
 func (c *Conn) writeControlFrame(op OpCode, p []byte, deadline time.Time) error {
+	// The deadline must be applied while holding the write lock: setting it first lets a control
+	// frame shorten an in-flight data write, and restoring it to zero silently discards the
+	// application's own deadline. | 超时必须在持有写锁时设置：提前设置会让控制帧截断正在进行的
+	// 数据写，而恢复成零又会悄悄丢掉应用自己设置的超时。
+	c.writeMu.Lock()
+	defer c.writeMu.Unlock()
+
+	previous := c.currentWriteDeadline()
 	if !deadline.IsZero() {
 		if err := c.conn.SetWriteDeadline(deadline); err != nil {
 			return err
 		}
-		defer func() { _ = c.conn.SetWriteDeadline(time.Time{}) }()
+		defer func() { _ = c.conn.SetWriteDeadline(previous) }()
 	}
-	return c.writeFrame(true, op, p)
-}
-
-// writeFrame assembles and sends a single uncompressed frame. | writeFrame 组装并发送单个未压缩帧。
-func (c *Conn) writeFrame(fin bool, op OpCode, payload []byte) error {
-	c.writeMu.Lock()
-	defer c.writeMu.Unlock()
-	return c.writeFrameLocked(false, fin, op, payload)
+	return c.writeFrameLocked(false, true, op, p)
 }
 
 // writeFrameLocked assembles and sends a single frame while the caller already holds c.writeMu. | writeFrameLocked 在调用方已持有 c.writeMu 时组装并发送单个帧。
@@ -1079,7 +1118,11 @@ func (c *Conn) writeFrameLocked(rsv1, fin bool, op OpCode, payload []byte) error
 		c.writeBase[0] = hdr[:n]
 		c.writeBase[1] = body
 		c.writeList = c.writeBase
-		if _, err := c.writeList.WriteTo(c.conn); err != nil {
+		_, err := c.writeList.WriteTo(c.conn)
+		// Do not retain caller payloads after the synchronous write; the docs promise they may be
+		// reused immediately. | 同步写完成后不再保留调用方载荷；文档承诺调用方可以立即复用它们。
+		c.writeBase[0], c.writeBase[1] = nil, nil
+		if err != nil {
 			return err
 		}
 	}
@@ -1147,7 +1190,11 @@ func (c *Conn) appendFrameLocked(rsv1, fin bool, op OpCode, payload []byte) erro
 	c.writeBase[0] = hdr[:n]
 	c.writeBase[1] = body
 	c.writeList = c.writeBase
-	if _, err := c.writeList.WriteTo(c.conn); err != nil {
+	_, err := c.writeList.WriteTo(c.conn)
+	// See the synchronous flush path above: caller payloads are not retained. | 见上面的同步刷新路径：
+	// 不再保留调用方载荷。
+	c.writeBase[0], c.writeBase[1] = nil, nil
+	if err != nil {
 		return err
 	}
 	if c.flush != nil {

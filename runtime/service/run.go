@@ -27,6 +27,17 @@ const serviceFlag = "service"
 // 等待 run 函数返回的时长。它必须大于框架的 server.shutdown_timeout（默认 10 秒），使行为正常的应用不会被打断。
 const defaultStopGrace = 30 * time.Second
 
+// startupProbe is how long Start waits to observe an immediate run failure. A hosted application
+// that exits during startup (port in use, invalid configuration) must be reported to the service
+// manager; returning nil would leave the manager believing the process is healthy while every
+// request fails. | startupProbe 是 Start 观察「立即失败」的时长。启动期就退出的被托管应用
+// （端口被占、配置非法）必须报告给服务管理器；返回 nil 会让管理器以为进程健康，而每个请求都失败。
+const startupProbe = 100 * time.Millisecond
+
+// ErrStartupFailed reports a hosted application that exited before the service finished starting.
+// | ErrStartupFailed 表示被托管应用在服务完成启动之前就退出了。
+var ErrStartupFailed = errx.New("service: the hosted application exited during startup | service：被托管应用在启动期间退出")
+
 // stopGrace is the effective bound used by Run. It is a variable so tests can shorten the wait.
 // | stopGrace 是 Run 实际使用的等待上限；声明为变量以便测试缩短等待。
 var stopGrace = defaultStopGrace
@@ -132,7 +143,18 @@ func (p *runProgram) Start(service.Service) error {
 	p.mu.Unlock()
 
 	go p.serve(ctx)
-	return nil
+
+	timer := time.NewTimer(startupProbe)
+	defer timer.Stop()
+	select {
+	case <-p.done:
+		if err := p.runError(); err != nil {
+			return errx.Wrap(err, ErrStartupFailed)
+		}
+		return errx.Detail(ErrStartupFailed, "run returned without serving | run 未提供服务即返回")
+	case <-timer.C:
+		return nil
+	}
 }
 
 // Stop cancels the context of the hosted function and waits for it to return. | Stop 取消被托管函数的 context 并等待其返回。

@@ -45,6 +45,10 @@ const negativePayload = "null"
 // blow up a single round trip.
 const loadManyBatch = 128
 
+// defaultLoadTimeout bounds one shared GetOrLoad body so a detached load cannot run forever.
+// | defaultLoadTimeout 限制单次共享 GetOrLoad 加载的时长，避免分离后的加载永远运行。
+const defaultLoadTimeout = 30 * time.Second
+
 // CacheOptions configures a Cache decorator. | CacheOptions 配置缓存装饰器。
 type CacheOptions struct {
 	// Prefix is prepended verbatim to every key, forming the key namespace; it should be | Prefix 原样加在每个键之前形成键命名空间；通常取自 Options.KeyPrefix，
@@ -120,9 +124,19 @@ func (c *Cache[T]) GetOrLoad(ctx context.Context, key string, load func(context.
 		return zero, ErrNotFound
 	}
 
-	shared, err, _ := c.group.Do(c.key(key), func() (any, error) {
+	// The shared load must not inherit the first caller's cancellation: every waiter would fail
+	// with that caller's context error even though its own context is alive. The detached context
+	// is created inside the singleflight function, so only the goroutine that actually performs the
+	// load owns its cancel; a caller that returns early cannot abort the load for the others. Each
+	// waiter still selects on its own ctx below.
+	// | 共享加载不能继承首个调用方的取消：否则其它等待者会拿到首个调用方的 context 错误，
+	// 即使自己的 context 仍然有效。分离出来的 context 在单飞函数内部创建，因此只有真正执行加载的
+	// 协程持有它的 cancel；提前返回的调用方不会中断其它等待者的加载。每个等待者仍会在下方监听自己的 ctx。
+	ch := c.group.DoChan(c.key(key), func() (any, error) {
+		loadCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), defaultLoadTimeout)
+		defer cancel()
 		// Re-check: another caller may have filled the key while this one waited. | 二次确认：等待单飞期间其它调用者可能已经完成回填。
-		switch v, state, err := c.find(ctx, key); {
+		switch v, state, err := c.find(loadCtx, key); {
 		case err != nil:
 			return nil, err
 		case state == entryHit:
@@ -131,21 +145,32 @@ func (c *Cache[T]) GetOrLoad(ctx context.Context, key string, load func(context.
 			return nil, ErrNotFound
 		}
 
-		v, loadErr := load(ctx)
+		v, loadErr := load(loadCtx)
 		if loadErr != nil {
 			if errors.Is(loadErr, ErrNotFound) && c.opt.NegativeTTL > 0 {
-				if writeErr := c.write(ctx, key, []byte(negativePayload), c.ttl(c.opt.NegativeTTL)); writeErr != nil {
+				if writeErr := c.write(loadCtx, key, []byte(negativePayload), c.ttl(c.opt.NegativeTTL)); writeErr != nil {
 					// The negative entry is not what the caller asked for: keep ErrNotFound and still surface the write failure. | 负缓存不是调用方要的结果：保留 ErrNotFound，同时不隐藏写入失败。
 					return nil, errors.Join(loadErr, writeErr)
 				}
 			}
 			return nil, loadErr
 		}
-		if writeErr := c.setValue(ctx, key, v); writeErr != nil {
+		if writeErr := c.setValue(loadCtx, key, v); writeErr != nil {
 			return nil, writeErr
 		}
 		return v, nil
 	})
+
+	var shared any
+	var err error
+	select {
+	case res := <-ch:
+		shared, err = res.Val, res.Err
+	case <-ctx.Done():
+		// The shared load keeps running for the other waiters under its own bounded context.
+		// | 共享加载在自身的受限 context 下继续为其它等待者运行。
+		return zero, ctx.Err()
+	}
 	if err != nil {
 		return zero, err
 	}
@@ -271,11 +296,19 @@ func (c *Cache[T]) LoadMany(ctx context.Context, keys []string, loader func(cont
 	if err != nil {
 		return nil, err
 	}
+	// Only the keys that actually missed may be written back and returned; a loader that returns a
+	// superset (a preloaded map, say) must not overwrite a fresh cache hit or reset its TTL.
+	// | 只有真正未命中的键可以回填与返回；loader 返回超集（例如预加载映射）时不得覆盖新鲜的
+	// 缓存命中或重置其 TTL。
+	missingSet := make(map[string]struct{}, len(missing))
+	for _, k := range missing {
+		missingSet[k] = struct{}{}
+	}
 
 	pipe := c.cli.Pipeline()
 	writeBack := 0
 	for k, v := range loaded {
-		if _, ok := requested[k]; !ok {
+		if _, ok := missingSet[k]; !ok {
 			continue
 		}
 		raw, err := jsonx.Marshal(v)
@@ -291,7 +324,7 @@ func (c *Cache[T]) LoadMany(ctx context.Context, keys []string, loader func(cont
 		}
 	}
 	for k, v := range loaded {
-		if _, ok := requested[k]; ok {
+		if _, ok := missingSet[k]; ok {
 			out[k] = v
 		}
 	}
@@ -315,6 +348,12 @@ func (c *Cache[T]) find(ctx context.Context, key string) (T, entryState, error) 
 	}
 	var v T
 	if err := jsonx.Unmarshal(raw, &v); err != nil {
+		// An undecodable payload (old shape after a deploy, external writer) would otherwise keep
+		// failing forever, and a TTL of zero would make the key permanently poisonous. Drop it on a
+		// best-effort basis and report the miss so the loader can repair it. | 无法解码的载荷（部署后
+		// 的旧结构、外部写入）否则会永远失败，而 TTL 为零会让该键永久中毒。尽力删除并报告未命中，
+		// 让 loader 修复它。
+		_ = c.cli.Del(ctx, c.key(key)).Err()
 		return zero, entryMiss, errx.Wrap(err, ErrCacheDecodeFailed)
 	}
 	return v, entryHit, nil

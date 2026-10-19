@@ -78,6 +78,11 @@ func Middleware(b *Bundle, o Options) router.Middleware {
 		translator := b.Translator(b.MatchLanguage(o.source(c)))
 		c.Set(CtxKey, translator)
 		c.SetHeader(LanguageHeader, translator.Lang())
+		// The response body depends on request headers, so shared caches must key on them. A
+		// query-selected language is already part of the cache key, but Accept-Language, the
+		// custom header and the cookie are not. | 响应正文依赖请求头，共享缓存必须按它们区分。
+		// 通过查询参数选择的语言已在缓存键里，但 Accept-Language、自定义头与 cookie 不在。
+		c.SetHeader("Vary", strings.Join([]string{AcceptLanguageHeader, o.HeaderName, "Cookie"}, ", "))
 		c.Next()
 	}
 }

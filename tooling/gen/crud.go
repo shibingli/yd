@@ -2,6 +2,8 @@ package gen
 
 import (
 	"strings"
+
+	"github.com/shibingli/yd/core/errx"
 )
 
 // tmplView 是渲染一个模块全部生成物时共享的视图数据。
@@ -85,6 +87,10 @@ type tmplView struct {
 	// HasSearch 报告是否存在可搜索的字符串列。
 	// HasSearch reports whether the model has searchable string columns.
 	HasSearch bool
+	// HasTenant reports whether the source model already declares a tenant_id column; when false
+	// the generated model appends the standard TenantID field. | HasTenant 报告源模型是否已经声明
+	// tenant_id 列；为 false 时生成模型会追加标准的 TenantID 字段。
+	HasTenant bool
 	// UsesTime 报告模型层是否需要导入 time 包。
 	// UsesTime reports whether the model layer needs to import the time package.
 	UsesTime bool
@@ -168,6 +174,12 @@ func newView(m *Model, o Options) (*tmplView, error) {
 	}
 	name := m.GoName
 	snake := snakeCase(name)
+	// The snake name is used as a file name and as a template directory; a Windows device name
+	// there resolves to a device instead of a path, so it is refused on every platform. | 蛇形名会
+	// 用作文件名与模板目录；Windows 上的设备名会解析为设备而不是路径，因此在所有平台都拒绝。
+	if windowsDeviceName(snake) {
+		return nil, errx.Detail(ErrBadModel, "model %[1]q generates the Windows device name %[2]q; choose another name | 模型 %[1]q 会生成 Windows 设备名 %[2]q，请换一个名称", name, snake)
+	}
 	module := strings.TrimSpace(o.Module)
 	if module == "" {
 		module = strings.TrimSpace(m.Module)
@@ -215,11 +227,36 @@ func newView(m *Model, o Options) (*tmplView, error) {
 		v.ModelFields = append(v.ModelFields, v.TimeFields...)
 	}
 
+	// Tenant scoping is part of every generated module: the model owns a tenant_id column, the
+	// repository filters on it and the controller takes it from the authenticated request. An
+	// existing tenant_id field is reused, but it must be a string because auth tenant ids are
+	// strings (tn_...). | 租户隔离是每个生成模块的一部分：模型带 tenant_id 列，仓储按它过滤，
+	// 控制器从已认证请求中取得它。已有的 tenant_id 字段会被复用，但必须是字符串，因为 auth 的
+	// 租户 ID 是字符串（tn_...）。
+	for i := range v.ModelFields {
+		f := &v.ModelFields[i]
+		if !strings.EqualFold(f.Column, "tenant_id") {
+			continue
+		}
+		if f.GoType != "string" {
+			return nil, errx.Detail(ErrBadModel, "column tenant_id of %s must be a string | %s 的 tenant_id 列必须是字符串", m.GoName, m.GoName)
+		}
+		f.GoName = "TenantID"
+		f.JSONName = "tenant_id"
+		f.Label = "Tenant"
+		v.HasTenant = true
+	}
+
 	for _, f := range v.ModelFields {
 		if f.GoType == typeTime {
 			v.UsesTime = true
 		}
 		if isTimestampField(f) || f.GoType == "[]byte" {
+			continue
+		}
+		// The tenant column is an internal boundary, never a user-editable form or list column.
+		// | 租户列是内部边界，绝不是用户可编辑的表单列或列表列。
+		if strings.EqualFold(f.Column, "tenant_id") {
 			continue
 		}
 		// 列表不展示长文本，其余列按模型顺序排列。

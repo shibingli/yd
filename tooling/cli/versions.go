@@ -2,12 +2,15 @@ package cli
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/spf13/pflag"
 
@@ -62,7 +65,37 @@ var versionsRunGo = func(ctx context.Context, dir string, out io.Writer, args ..
 
 // versionsHTTPClient performs registry and asset downloads; tests replace it so no request leaves
 // the process. | versionsHTTPClient 执行仓库查询与资产下载；测试替换它，使请求不会离开进程。
-var versionsHTTPClient = http.DefaultClient
+var (
+	// defaultVersionsHTTPClient is the built-in client; tests replace versionsHTTPClient with a
+	// different pointer, which versionsClient then uses verbatim. | defaultVersionsHTTPClient 是内置
+	// 客户端；测试把 versionsHTTPClient 换成不同指针，versionsClient 便会原样使用它。
+	defaultVersionsHTTPClient = &http.Client{Timeout: 2 * time.Minute}
+	versionsHTTPClient        = defaultVersionsHTTPClient
+)
+
+// versionsClient returns the HTTP client of the upgrade run, applying http.proxy when the caller
+// has not injected a client. | versionsClient 返回升级运行所用的 HTTP 客户端；调用方未注入客户端时
+// 应用 http.proxy。
+func versionsClient(env *Env) (*http.Client, error) {
+	if versionsHTTPClient != defaultVersionsHTTPClient {
+		return versionsHTTPClient, nil
+	}
+	proxy := configString(env, keyNetProxy)
+	if proxy == "" {
+		return versionsHTTPClient, nil
+	}
+	u, err := url.Parse(proxy)
+	if err != nil || u.Scheme == "" || u.Host == "" {
+		return nil, errx.Detail(ErrConfigLoad, "invalid http.proxy | 非法的 http.proxy")
+	}
+	base, ok := http.DefaultTransport.(*http.Transport)
+	if !ok {
+		return nil, errx.Detail(ErrConfigLoad, "default HTTP transport is not *http.Transport | 默认 HTTP 传输层不是 *http.Transport")
+	}
+	transport := base.Clone()
+	transport.Proxy = http.ProxyURL(u)
+	return &http.Client{Transport: transport, Timeout: 2 * time.Minute}, nil
+}
 
 func init() {
 	Register(Command{
@@ -120,10 +153,7 @@ func versionsDir(env *Env, fs *pflag.FlagSet) string {
 	if dir == "" {
 		dir = "."
 	}
-	if !filepath.IsAbs(dir) && env.WorkDir != "" {
-		dir = filepath.Join(env.WorkDir, dir)
-	}
-	return dir
+	return resolveUserPath(env.WorkDir, dir)
 }
 
 // runVersionsCheck prints the inventory and fails when the generated file drifted. | runVersionsCheck 打印版本清单，并在生成文件漂移时失败。
@@ -168,6 +198,10 @@ func runVersionsSync(env *Env) error {
 func runVersionsUpgrade(ctx context.Context, env *Env) error {
 	fs := versionsFlags
 	dir := versionsDir(env, fs)
+	client, clientErr := versionsClient(env)
+	if clientErr != nil {
+		return clientErr
+	}
 	dry, _ := fs.GetBool(flagVersionsDryRun)
 	upgradeGo, _ := fs.GetBool(flagVersionsGo)
 	upgradeAssets, _ := fs.GetBool(flagVersionsAssets)
@@ -195,7 +229,7 @@ func runVersionsUpgrade(ctx context.Context, env *Env) error {
 		if err != nil {
 			return err
 		}
-		plan, err := versions.PlanAssetUpgrades(ctx, versionsHTTPClient, inv)
+		plan, err := versions.PlanAssetUpgrades(ctx, client, inv)
 		printAssetPlan(env, plan)
 		if err != nil {
 			return err
@@ -215,14 +249,23 @@ func runVersionsUpgrade(ctx context.Context, env *Env) error {
 				if err != nil {
 					return err
 				}
+				// Keep the pre-upgrade entries so a failed download can be rolled back. Persisting
+				// only the version/URL bump before the bytes arrive leaves an unlocked entry that a
+				// retry considers current and never repairs. | 保存升级前的条目，以便下载失败时回滚。
+				// 在字节到达之前只落盘版本/URL 会让条目处于未锁定状态，重试又会认为它已是最新，
+				// 从此再也不会修复。
+				snapshot := make(map[string]assets.Asset, len(m.Assets))
+				for _, a := range m.Assets {
+					snapshot[a.Name] = a
+				}
 				if n := versions.ApplyAssetUpgrades(m, plan); n > 0 {
 					if err := m.Save(env.FS, manifestPath); err != nil {
 						return err
 					}
 				}
-				rep, err := assets.Update(ctx, assets.UpdateOptions{
+				rep, updateErr := assets.Update(ctx, assets.UpdateOptions{
 					FS:           env.FS,
-					HTTPClient:   versionsHTTPClient,
+					HTTPClient:   client,
 					ManifestPath: manifestPath,
 					Root:         filepath.Join(dir, filepath.FromSlash(assets.DefaultRoot)),
 				})
@@ -230,7 +273,50 @@ func runVersionsUpgrade(ctx context.Context, env *Env) error {
 					fmt.Fprintf(env.Out, "assets | 资产: updated | 已更新 %d, unchanged | 未变化 %d, failed | 失败 %d\n",
 						len(rep.Updated), len(rep.Unchanged), len(rep.Failed))
 				}
-				if err != nil {
+				var updateErrs []error
+				if updateErr != nil {
+					updateErrs = append(updateErrs, updateErr)
+				}
+				if rep == nil {
+					// Update failed before it could report per-asset results: restore every entry so
+					// the lockfile stays exactly as it was. | Update 在给出逐资产结果之前就失败了：
+					// 恢复全部条目，使锁文件保持原样。
+					for name, old := range snapshot {
+						if cur, ok := m.Find(name); ok {
+							*cur = old
+						}
+					}
+					if saveErr := m.Save(env.FS, manifestPath); saveErr != nil {
+						updateErrs = append(updateErrs, saveErr)
+					}
+				} else if len(rep.Failed) > 0 {
+					// Reload so the checksums of successfully updated assets are kept, then put the
+					// failed entries back to their previous pinned version/checksum. | 重新加载以保留
+					// 成功资产的校验和，再把失败条目恢复到原先锁定的版本与校验和。
+					current, loadErr := assets.LoadManifest(env.FS, manifestPath)
+					if loadErr != nil {
+						updateErrs = append(updateErrs, loadErr)
+					} else {
+						m = current
+					}
+					restored := false
+					for _, name := range rep.Failed {
+						old, ok := snapshot[name]
+						if !ok {
+							continue
+						}
+						if cur, ok := m.Find(name); ok {
+							*cur = old
+							restored = true
+						}
+					}
+					if restored {
+						if saveErr := m.Save(env.FS, manifestPath); saveErr != nil {
+							updateErrs = append(updateErrs, saveErr)
+						}
+					}
+				}
+				if err := errors.Join(updateErrs...); err != nil {
 					return err
 				}
 			} else {

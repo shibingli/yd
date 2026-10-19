@@ -473,3 +473,29 @@ func TestDockerHTTP2ExtendedConnectBuildArg(t *testing.T) {
 		t.Fatalf("docker build 参数缺少 YD_GODEBUG: %v | 缺少 YD_GODEBUG 构建参数", argv)
 	}
 }
+
+// TestProjectMetaNameRejectsPathLikeNames proves a hand-edited .yd.json cannot inject a path into
+// the service artifact lookup or an image name. | TestProjectMetaNameRejectsPathLikeNames 证明手工
+// 编辑的 .yd.json 无法把路径注入服务产物查找或镜像名。
+func TestProjectMetaNameRejectsPathLikeNames(t *testing.T) {
+	for _, name := range []string{"../evil", `..\evil`, "/abs", `C:\x`, "C:rel", ".", "..", ""} {
+		te := newTestEnv(t, nil, "", false)
+		dir := t.TempDir()
+		body := `{"name":` + strconv.Quote(name) + `}`
+		if err := afero.WriteFile(te.env.FS, filepath.Join(dir, ".yd.json"), []byte(body), 0o644); err != nil {
+			t.Fatalf("写入 .yd.json 失败 | writing .yd.json: %v", err)
+		}
+		if got := projectMetaName(te.env, dir); got != "" {
+			t.Errorf("projectMetaName(%q) = %q，期望空串 | want empty", name, got)
+		}
+	}
+
+	te := newTestEnv(t, nil, "", false)
+	dir := t.TempDir()
+	if err := afero.WriteFile(te.env.FS, filepath.Join(dir, ".yd.json"), []byte(`{"name":"shop"}`), 0o644); err != nil {
+		t.Fatalf("写入 .yd.json 失败 | writing .yd.json: %v", err)
+	}
+	if got := projectMetaName(te.env, dir); got != "shop" {
+		t.Errorf("projectMetaName = %q，期望 shop | want shop", got)
+	}
+}

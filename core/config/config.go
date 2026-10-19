@@ -21,6 +21,7 @@ import (
 	"bytes"
 	"errors"
 	"os"
+	"path"
 	"path/filepath"
 	"sort"
 	"strconv"
@@ -109,7 +110,16 @@ type Config struct {
 	configFile  string
 	configLocal string
 
+	// watcher is the fsnotify watcher started by Watch; watchMu guards it and watchErr. | watcher
+	// 是 Watch 启动的 fsnotify 监视器；watchMu 保护它和 watchErr。
+	watcher *fsnotify.Watcher
 	watchMu sync.RWMutex
+
+	// mu serialises reads against reloads. viper documents that Get and Set/ReadConfig are not
+	// safe to run concurrently, and a live config watch would otherwise crash the process with
+	// "concurrent map read and map write". | mu 串行化读取与重新加载。viper 明确说明 Get 与
+	// Set/ReadConfig 不可并发，运行中的配置监视否则会以「并发读写 map」直接终止进程。
+	mu sync.RWMutex
 }
 
 // Load builds a config instance in the order "defaults → .env → config files". | Load 按「默认值 → .env → 配置文件」的顺序构建配置实例。
@@ -159,7 +169,7 @@ func Load(opts Options) (*Config, error) {
 	Defaults(c)
 
 	// 2) .env layer: equivalent to environment variables; real environment variables are never overridden. | 2) .env 层：等价于环境变量，绝不覆盖真实环境变量。
-	if err := c.loadEnvFile(envFile); err != nil {
+	if err := c.loadEnvFile(envFile, prefix); err != nil {
 		return nil, err
 	}
 
@@ -207,19 +217,130 @@ func (c *Config) BindFlags(fs *pflag.FlagSet, mapping map[string]string) error {
 		if fl == nil {
 			return errx.Detail(ErrUnknownFlag, "flag %[1]q is not in the FlagSet | 标志 %[1]q 不在 FlagSet 中", flagName)
 		}
-		if fl.Changed {
-			if err := c.Viper.BindPFlag(key, fl); err != nil {
-				return errx.WrapDetail(err, ErrFlagBind, "flag %[1]q to config key %[2]q | 把标志 %[1]q 绑定到配置键 %[2]q", flagName, key)
+		c.mu.Lock()
+		// Bind every flag, not only the ones already Changed: viper consults HasChanged() at lookup
+		// time, so binding all of them makes a flag parsed *after* BindFlags effective while an
+		// unchanged flag still falls through to env/file/default. | 绑定所有标志而不只是已 Changed 的：
+		// viper 在取值时才检查 HasChanged()，因此全部绑定能让 BindFlags 之后解析的标志生效，而未变更的
+		// 标志仍会落到环境变量/文件/默认值。
+		if err := c.Viper.BindPFlag(key, fl); err != nil {
+			c.mu.Unlock()
+			return errx.WrapDetail(err, ErrFlagBind, "flag %[1]q to config key %[2]q | 把标志 %[1]q 绑定到配置键 %[2]q", flagName, key)
+		}
+		if !fl.Changed {
+			defValue, err := parseFlagDefault(fl)
+			if err != nil {
+				c.mu.Unlock()
+				return errx.WrapDetail(err, ErrBadFlagDefault, "flag %[1]q default %[2]q | 标志 %[1]q 的默认值 %[2]q", flagName, fl.DefValue)
 			}
-			continue
+			c.Viper.SetDefault(key, defValue)
 		}
-		defValue, err := parseFlagDefault(fl)
-		if err != nil {
-			return errx.WrapDetail(err, ErrBadFlagDefault, "flag %[1]q default %[2]q | 标志 %[1]q 的默认值 %[2]q", flagName, fl.DefValue)
-		}
-		c.Viper.SetDefault(key, defValue)
+		c.mu.Unlock()
 	}
 	return nil
+}
+
+// The read wrappers below take the configuration lock so a watch reload cannot mutate viper's
+// maps while a request reads them. | 下面的读取包装器获取配置锁，使监视触发的重新加载不会在请求读取
+// 时修改 viper 的映射。
+func (c *Config) Get(key string) any {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.Viper.Get(key)
+}
+
+// GetString returns the string value of key. | GetString 返回 key 的字符串取值。
+func (c *Config) GetString(key string) string {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.Viper.GetString(key)
+}
+
+// GetBool returns the boolean value of key. | GetBool 返回 key 的布尔取值。
+func (c *Config) GetBool(key string) bool {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.Viper.GetBool(key)
+}
+
+// GetInt returns the integer value of key. | GetInt 返回 key 的整数取值。
+func (c *Config) GetInt(key string) int {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.Viper.GetInt(key)
+}
+
+// GetInt64 returns the int64 value of key. | GetInt64 返回 key 的 int64 取值。
+func (c *Config) GetInt64(key string) int64 {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.Viper.GetInt64(key)
+}
+
+// GetFloat64 returns the float64 value of key. | GetFloat64 返回 key 的 float64 取值。
+func (c *Config) GetFloat64(key string) float64 {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.Viper.GetFloat64(key)
+}
+
+// GetDuration returns the duration value of key. | GetDuration 返回 key 的时长取值。
+func (c *Config) GetDuration(key string) time.Duration {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.Viper.GetDuration(key)
+}
+
+// GetStringSlice returns the string slice value of key. | GetStringSlice 返回 key 的字符串切片取值。
+func (c *Config) GetStringSlice(key string) []string {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.Viper.GetStringSlice(key)
+}
+
+// GetStringMapString returns the string map value of key. | GetStringMapString 返回 key 的字符串映射取值。
+func (c *Config) GetStringMapString(key string) map[string]string {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.Viper.GetStringMapString(key)
+}
+
+// IsSet reports whether key has a value in any layer. | IsSet 报告 key 在任一层中是否有取值。
+func (c *Config) IsSet(key string) bool {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.Viper.IsSet(key)
+}
+
+// AllKeys returns every known configuration key. | AllKeys 返回全部已知配置键。
+func (c *Config) AllKeys() []string {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.Viper.AllKeys()
+}
+
+// AllSettings returns the merged configuration as a map. | AllSettings 以映射返回合并后的配置。
+func (c *Config) AllSettings() map[string]any {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.Viper.AllSettings()
+}
+
+// Unmarshal decodes the layered configuration into raw. | Unmarshal 把分层配置解码到 raw。
+func (c *Config) Unmarshal(raw any) error {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	if err := c.Viper.Unmarshal(raw); err != nil {
+		return errx.Wrap(err, ErrUnmarshal)
+	}
+	return nil
+}
+
+// Sub returns a sub-tree of the configuration. | Sub 返回配置的一棵子树。
+func (c *Config) Sub(key string) *viper.Viper {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.Viper.Sub(key)
 }
 
 // parseFlagDefault parses pflag's default value text into a strongly typed value according to the flag type, | parseFlagDefault 把 pflag 的默认值文本按标志类型解析为强类型值，
@@ -242,14 +363,6 @@ func parseFlagDefault(fl *pflag.Flag) (any, error) {
 	}
 }
 
-// Unmarshal strongly-typed decodes the layered configuration into the struct pointed to by raw. | Unmarshal 把分层合并后的配置强类型解码到 raw 指向的结构体。
-func (c *Config) Unmarshal(raw any) error {
-	if err := c.Viper.Unmarshal(raw); err != nil {
-		return errx.Wrap(err, ErrUnmarshal)
-	}
-	return nil
-}
-
 // Duration returns the duration value for a config key, or 0 when it is unset or cannot be parsed. | Duration 返回配置键对应的时长值，未设置或无法解析时返回 0。
 //
 // Read all duration-type configuration through this method so the underlying implementation can be replaced later. | 统一经由本方法读取时长类配置，便于后续替换底层实现。
@@ -257,41 +370,125 @@ func (c *Config) Duration(key string) time.Duration {
 	return c.GetDuration(key)
 }
 
-// Watch starts watching the config file: when the file is written, it reloads the layered configuration and calls fn. | Watch 启动配置文件监视：文件被写入时重新加载分层配置并调用 fn。
+// Watch starts watching the config directory: when the base or local file is written, it reloads
+// the layered configuration and calls fn. | Watch 启动配置目录监视：基础文件或 local 文件被写入时，
+// 重新加载分层配置并调用 fn。
 //
-// The reload semantics match Load (config.<ext> first, then config.local.<ext>), | 重新加载语义与 Load 一致（先 config.<ext> 再 config.local.<ext>），
-// so the values seen in the callback are the latest file content. When fn is nil only the watch is registered, with no callback. | 因此回调中看到的取值为最新文件内容。fn 为 nil 时只注册监视不回调。
+// The reload semantics match Load (config.<ext> first, then config.local.<ext>), so the values
+// seen in the callback are the latest file content, including a local override. When fn is nil the
+// reload still happens and only the callback is skipped. | 重新加载语义与 Load 一致（先
+// config.<ext> 再 config.local.<ext>），因此回调中看到的取值是最新文件内容，local 覆盖也包括在内。
+// fn 为 nil 时仍会重新加载，只是不调用回调。
 //
-// Note: viper's WatchConfig returns no error (internally it only logs, and when creating a watcher fails it even | 说明：viper 的 WatchConfig 不返回错误（内部仅记录日志，创建 watcher 失败时甚至
-// calls os.Exit directly), so this method validates the preconditions itself before calling -- there must be a | 直接 os.Exit），因此本方法在调用前自行校验前置条件——必须存在对操作系统可见的
-// config file visible to the operating system. When validation fails the watch is not started, and the reason is exposed via WatchErr; | 配置文件。校验失败时不会启动监视，原因通过 WatchErr 暴露；
-// a reload failure inside the callback is likewise recorded to WatchErr, and that fn invocation is skipped. | 回调中的重新加载失败同样记录到 WatchErr，并跳过该次 fn 调用。
+// Watching is implemented with fsnotify directly rather than viper.WatchConfig: viper re-reads the
+// base file itself (discarding local overrides), mutates its maps outside this package's lock, and
+// calls os.Exit when the watcher cannot be created. Directory-watch failures are reported through
+// WatchErr and never terminate the process; a reload failure is recorded there too and skips that
+// fn invocation. | 监视直接使用 fsnotify 而不是 viper.WatchConfig：后者会自行重读基础文件（丢掉
+// local 覆盖）、在本包的锁之外修改映射，并在无法创建监视器时直接 os.Exit。目录监视失败通过
+// WatchErr 报告，绝不终止进程；重新加载失败同样记录在那里，并跳过该次 fn 调用。
 func (c *Config) Watch(fn func(*Config)) {
-	if c.configFile == "" {
-		label := c.name
-		if label == "" {
-			label = c.configName
-		}
-		c.setWatchErr(errx.Detail(ErrWatchUnavailable, "no config file found for %[1]s | 未找到 %[1]s 的配置文件", label))
+	dir := c.configDir
+	if dir == "" {
+		dir = "."
+	}
+	// The directory is watched directly. viper's WatchConfig would re-read the base file itself on
+	// every event (dropping config.local overrides), mutate its maps outside our lock, and call
+	// os.Exit when the watcher cannot be created; owning the watcher avoids all three.
+	// | 直接监视目录。viper 的 WatchConfig 会在每次事件时自行重读基础文件（丢掉 config.local 覆盖）、
+	// 在锁外修改内部映射，并在无法创建监视器时直接 os.Exit；自己持有监视器可同时避免这三点。
+	w, err := fsnotify.NewWatcher()
+	if err != nil {
+		c.setWatchErr(errx.WrapDetail(err, ErrWatchUnavailable, "dir=%[1]s | 目录=%[1]s", dir))
 		return
 	}
-	if _, err := os.Stat(c.configFile); err != nil {
-		c.setWatchErr(errx.WrapDetail(err, ErrWatchUnavailable,
-			"config file %[1]s is not visible to the operating system (in-memory filesystems do not support watching) | 配置文件 %[1]s 对操作系统不可见（内存文件系统不支持监听）", c.configFile))
+	if err := w.Add(dir); err != nil {
+		_ = w.Close()
+		c.setWatchErr(errx.WrapDetail(err, ErrWatchUnavailable, "dir=%[1]s | 目录=%[1]s", dir))
 		return
 	}
 
-	if fn != nil {
-		c.Viper.OnConfigChange(func(fsnotify.Event) {
-			if err := c.reload(); err != nil {
-				c.setWatchErr(err)
+	c.watchMu.Lock()
+	old := c.watcher
+	c.watcher = w
+	c.watchMu.Unlock()
+	if old != nil {
+		_ = old.Close()
+	}
+	c.setWatchErr(nil)
+	go c.watchLoop(w, fn)
+}
+
+// watchLoop reloads the layered configuration after a debounced config-file change. | watchLoop
+// 在配置变更去抖后重新加载分层配置。
+func (c *Config) watchLoop(w *fsnotify.Watcher, fn func(*Config)) {
+	const debounce = 100 * time.Millisecond
+	var timer *time.Timer
+	var pending <-chan time.Time
+	defer func() {
+		if timer != nil {
+			timer.Stop()
+		}
+	}()
+
+	for {
+		select {
+		case ev, ok := <-w.Events:
+			if !ok {
 				return
 			}
+			if !c.isConfigEvent(ev.Name) {
+				continue
+			}
+			if timer == nil {
+				timer = time.NewTimer(debounce)
+			} else {
+				if !timer.Stop() {
+					select {
+					case <-timer.C:
+					default:
+					}
+				}
+				timer.Reset(debounce)
+			}
+			pending = timer.C
+		case <-pending:
+			pending = nil
+			c.mu.Lock()
+			err := c.reload()
+			c.mu.Unlock()
+			if err != nil {
+				c.setWatchErr(err)
+				continue
+			}
 			c.setWatchErr(nil)
-			fn(c)
-		})
+			if fn != nil {
+				fn(c)
+			}
+		case err, ok := <-w.Errors:
+			if !ok {
+				return
+			}
+			c.setWatchErr(errx.Wrap(err, ErrWatchUnavailable))
+		}
 	}
-	c.Viper.WatchConfig()
+}
+
+// isConfigEvent reports whether path is the base or local config file of this instance. | isConfigEvent
+// 报告 path 是否为本实例的基础配置文件或 local 覆盖文件。
+func (c *Config) isConfigEvent(path string) bool {
+	base, lockedExt := splitConfigName(filepath.Base(c.configName))
+	exts := configExts
+	if lockedExt != "" {
+		exts = []string{lockedExt}
+	}
+	name := strings.ToLower(filepath.Base(path))
+	for _, ext := range exts {
+		if name == strings.ToLower(base+"."+ext) || name == strings.ToLower(base+".local."+ext) {
+			return true
+		}
+	}
+	return false
 }
 
 // WatchErr returns the error from the most recent watch operation; nil means watching is healthy or has not started. | WatchErr 返回最近一次监视过程中的错误；nil 表示监视正常或尚未启动监视。
@@ -339,6 +536,20 @@ func (c *Config) loadConfigFiles() error {
 	return nil
 }
 
+// joinVirtual joins a configuration file name under dir using slash separators. | joinVirtual 使用斜杠
+// 分隔符把配置文件名拼到 dir 之下。
+//
+// Configuration can be read from an io/fs backend (a read-only embedded catalogue, for instance);
+// such backends reject the backslash filepath.Join produces on Windows, while OsFs and MemMapFs
+// accept forward slashes on every platform. | 配置可能从 io/fs 后端读取（例如只读的内嵌目录）；
+// 这类后端会在 Windows 上拒绝 filepath.Join 产生的反斜杠，而 OsFs 与 MemMapFs 在所有平台上都接受斜杠。
+func joinVirtual(dir, name string) string {
+	if dir == "" || dir == "." {
+		return name
+	}
+	return path.Join(filepath.ToSlash(dir), name)
+}
+
 // findConfigFiles locates the base config file and the local override file on the current filesystem, by extension precedence. | findConfigFiles 在当前文件系统上按扩展名优先级定位基础配置文件与 local 覆盖文件。
 // A lone local file is loaded as well; when neither exists it returns empty paths without error. | 仅存在 local 文件时同样会被加载；两者都不存在时返回空路径且不报错。
 func (c *Config) findConfigFiles() (basePath, localPath, ext string, err error) {
@@ -360,7 +571,7 @@ func (c *Config) findConfigFiles() (basePath, localPath, ext string, err error) 
 	}
 
 	for _, e := range exts {
-		p := filepath.Join(c.configDir, base+"."+e)
+		p := joinVirtual(c.configDir, base+"."+e)
 		ok, probeErr := probe(p)
 		if probeErr != nil {
 			return "", "", "", probeErr
@@ -372,7 +583,7 @@ func (c *Config) findConfigFiles() (basePath, localPath, ext string, err error) 
 	}
 	if basePath == "" {
 		for _, e := range exts {
-			p := filepath.Join(c.configDir, base+".local."+e)
+			p := joinVirtual(c.configDir, base+".local."+e)
 			ok, probeErr := probe(p)
 			if probeErr != nil {
 				return "", "", "", probeErr
@@ -384,7 +595,7 @@ func (c *Config) findConfigFiles() (basePath, localPath, ext string, err error) 
 		return "", "", "", nil
 	}
 
-	lp := filepath.Join(c.configDir, base+".local."+ext)
+	lp := joinVirtual(c.configDir, base+".local."+ext)
 	ok, probeErr := probe(lp)
 	if probeErr != nil {
 		return "", "", "", probeErr

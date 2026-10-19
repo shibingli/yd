@@ -600,6 +600,53 @@ func TestJSONEscaping(t *testing.T) {
 	}
 }
 
+// TestJSONInvalidUTF8StaysValid proves an invalid byte sequence cannot make the record invalid
+// JSON (a collector would drop exactly the incident record that matters). | TestJSONInvalidUTF8StaysValid
+// 证明非法字节序列不会让记录成为非法 JSON（采集器丢弃的恰恰是最重要的故障记录）。
+func TestJSONInvalidUTF8StaysValid(t *testing.T) {
+	var buf bytes.Buffer
+	l := New(Options{Writer: &buf})
+	l.Info("bad\xff\xffmsg", Str("k", "a\xffb"))
+
+	if !json.Valid(buf.Bytes()) {
+		t.Fatalf("record is not valid JSON | 记录不是合法 JSON: %q", buf.String())
+	}
+	// Each invalid byte is replaced on its own, matching encoding/json. | 每个非法字节各自替换，与 encoding/json 一致。
+	if got := strings.Count(buf.String(), "�"); got != 3 {
+		t.Errorf("U+FFFD appears %[1]d times, want 3 (per-byte replacement) | U+FFFD 出现 %[1]d 次，期望 3（逐字节替换）: %[2]q", got, buf.String())
+	}
+}
+
+// TestConsoleEscapingPreventsForgedLines proves a newline in the message or a field cannot start a
+// second, forged console line, and ambiguous values stay unambiguous. | TestConsoleEscapingPreventsForgedLines
+// 证明消息或字段中的换行无法伪造出第二条 console 行，有歧义的取值也保持无歧义。
+func TestConsoleEscapingPreventsForgedLines(t *testing.T) {
+	var buf bytes.Buffer
+	l := New(Options{Writer: &buf, Format: "console"})
+	l.Info("first\n99:99:99.000 ERROR forged",
+		Str("space", "a b"),
+		Str("eq", "x=y"),
+		Str("ctl", "a\nb"),
+		Str("bad", "\xff"),
+	)
+
+	raw := buf.String()
+	if got := strings.Count(raw, "\n"); got != 1 {
+		t.Fatalf("console record has %[1]d newlines, want 1 (no forged line) | console 记录出现 %[1]d 个换行，期望 1（不得伪造第二行）: %[2]q", got, raw)
+	}
+	for _, want := range []string{
+		`"first\n99:99:99.000 ERROR forged"`,
+		`space="a b"`,
+		`eq="x=y"`,
+		`ctl="a\nb"`,
+		`bad="\xff"`,
+	} {
+		if !strings.Contains(raw, want) {
+			t.Errorf("console output misses %[1]q | console 输出缺少 %[1]q: %[2]s", want, raw)
+		}
+	}
+}
+
 // ---------- Other field types ---------- | ---------- 其他字段类型 ----------
 
 func TestBytesFieldIsBase64(t *testing.T) {

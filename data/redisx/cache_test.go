@@ -67,7 +67,7 @@ func TestCacheGetOrLoadCachesAndReuses(t *testing.T) {
 		t.Fatalf("二次 GetOrLoad = %+v，期望 %+v", again, want)
 	}
 	if n := calls.Load(); n != 1 {
-		t.Fatalf("loader 调用 %d 次，期望 1 次", n)
+		t.Fatalf("loader ran %[1]d times, want 1 | loader 调用 %[1]d 次，期望 1 次", n)
 	}
 
 	// The entry carries a TTL, so no permanent key is written. | 缓存条目带 TTL，避免写入永久键。
@@ -124,6 +124,64 @@ func TestCacheSingleflightUnderConcurrency(t *testing.T) {
 		if got != want {
 			t.Fatalf("第 %d 个结果 = %+v，期望 %+v", i, got, want)
 		}
+	}
+}
+
+// TestCacheCanceledWaiterKeepsSharedLoadAlive proves one waiter's cancellation does not abort the
+// load every other waiter is waiting on. | TestCacheCanceledWaiterKeepsSharedLoadAlive 证明一个等待者
+// 的取消不会中断其它等待者共同等待的那次加载。
+func TestCacheCanceledWaiterKeepsSharedLoadAlive(t *testing.T) {
+	mr := newMiniRedis(t)
+	_, cache := newCache(t, mr, redisx.CacheOptions{})
+
+	started := make(chan struct{})
+	release := make(chan struct{})
+	var startOnce sync.Once
+	var calls atomic.Int32
+	want := cachedUser{ID: 5, Name: "shared"}
+	loader := func(context.Context) (cachedUser, error) {
+		calls.Add(1)
+		startOnce.Do(func() { close(started) })
+		<-release
+		return want, nil
+	}
+
+	canceledCtx, cancel := context.WithCancel(context.Background())
+	firstErr := make(chan error, 1)
+	go func() {
+		_, err := cache.GetOrLoad(canceledCtx, "user:5", loader)
+		firstErr <- err
+	}()
+	<-started
+
+	secondValue := make(chan cachedUser, 1)
+	secondErr := make(chan error, 1)
+	go func() {
+		v, err := cache.GetOrLoad(context.Background(), "user:5", loader)
+		secondValue <- v
+		secondErr <- err
+	}()
+	// Let the second caller join the in-flight singleflight call before canceling the first. | 先让第二个调用方加入进行中的单飞，再取消第一个。
+	time.Sleep(20 * time.Millisecond)
+	cancel()
+	if err := <-firstErr; !errors.Is(err, context.Canceled) {
+		t.Fatalf("first waiter error = %[1]v, want context.Canceled | 首个等待者错误 = %[1]v，期望 context.Canceled", err)
+	}
+
+	close(release)
+	select {
+	case err := <-secondErr:
+		if err != nil {
+			t.Fatalf("second waiter error = %[1]v, want the shared load to succeed | 第二个等待者错误 = %[1]v，期望共享加载成功", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("the second waiter did not return within 2 seconds (shared load was canceled) | 第二个等待者未在 2 秒内返回（共享加载被取消）")
+	}
+	if got := <-secondValue; got != want {
+		t.Fatalf("second waiter value = %+[1]v, want %+[2]v | 第二个等待者结果 = %+[1]v，期望 %+[2]v", got, want)
+	}
+	if n := calls.Load(); n != 1 {
+		t.Fatalf("loader ran %[1]d times, want 1 | loader 调用 %[1]d 次，期望 1 次", n)
 	}
 }
 

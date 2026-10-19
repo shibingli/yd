@@ -102,7 +102,7 @@ func TestResolvePathsAndLoadLine(t *testing.T) {
 	// --dir moves the script but never the startup file: the startup file belongs to the shell, not to the
 	// project. | --dir 只移动脚本，绝不移动启动文件：启动文件属于 shell 而不是项目。
 	other := installRequest(fs, Zsh, nil)
-	other.Dir = filepath.Join(fakeHome, "work")
+	other.Dir = fakeHome + "/work"
 	moved, err := Resolve(other)
 	if err != nil {
 		t.Fatalf("resolve failed | 解析失败: %v", err)
@@ -342,5 +342,34 @@ func TestInstallReportsWriteFailure(t *testing.T) {
 	fs := afero.NewReadOnlyFs(afero.NewMemMapFs())
 	if _, err := Install(installRequest(fs, Bash, nil)); !errors.Is(err, ErrWriteScript) {
 		t.Fatalf("want ErrWriteScript, got %v | 期望哨兵错误", err)
+	}
+}
+
+// TestResolveConvertsMSYSHOMEOnWindows proves a Git Bash home (/c/Users/...) is converted to a
+// native Windows path instead of being turned into a root-relative "\c\Users" tree. |
+// TestResolveConvertsMSYSHOMEOnWindows 证明 Git Bash 的主目录（/c/Users/...）会被转换为原生 Windows
+// 路径，而不是变成根相对的 "\c\Users" 目录树。
+func TestResolveConvertsMSYSHOMEOnWindows(t *testing.T) {
+	req := Request{
+		Registry: fixtureRegistry(),
+		Getenv:   envFunc(map[string]string{"HOME": "/c/Users/alice"}),
+		FS:       afero.NewMemMapFs(),
+		GOOS:     "windows",
+		Shell:    Bash,
+	}
+	plan, err := Resolve(req)
+	if err != nil {
+		t.Fatalf("resolve failed | 解析失败: %v", err)
+	}
+	if plan.Dir != "C:/Users/alice" {
+		t.Errorf("Dir = %q，期望 C:/Users/alice | want C:/Users/alice", plan.Dir)
+	}
+	wantScript := filepath.Join("C:/Users/alice", ".yd", "completion.bash")
+	if plan.ScriptPath != wantScript {
+		t.Errorf("script = %q，期望 %q | want %q", plan.ScriptPath, wantScript, wantScript)
+	}
+	wantRC := filepath.Join("C:/Users/alice", ".bashrc")
+	if plan.RCFile != wantRC {
+		t.Errorf("startup = %q，期望 %q | want %q", plan.RCFile, wantRC, wantRC)
 	}
 }

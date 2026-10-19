@@ -4,11 +4,14 @@ import (
 	"context"
 	"errors"
 	"io"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path"
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 
 	"github.com/shibingli/yd/core/logx"
@@ -21,6 +24,41 @@ const (
 	betteralignTarget = "github.com/dkorunic/betteralign/cmd/betteralign@latest"
 	koTarget          = "github.com/google/ko@latest"
 )
+
+// TestInstallWithSkipsConfiguredBinariesWithoutGoToolchain proves the installer shares the probe's
+// configuration: both installable tools are configured, so nothing needs installing and therefore
+// no Go toolchain is required. | TestInstallWithSkipsConfiguredBinariesWithoutGoToolchain 证明安装器
+// 与探测共享配置：两个可安装工具都已配置，因此无需安装，也就不需要 Go 工具链。
+func TestInstallWithSkipsConfiguredBinariesWithoutGoToolchain(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	// PATH has neither go nor any tool; only the configured paths can resolve them. | PATH 上既没有 go
+	// 也没有任何工具，只有配置路径能解析它们。
+	usePATH(newFakePATH(t))
+	bins := make(map[string]string, 2)
+	for _, name := range []string{NameBetteralign, NameKo} {
+		p := filepath.Join(root, "configured-"+name)
+		stubFile(t, p)
+		bins[name] = p
+	}
+	exec := &fakeExec{}
+	injectExec(t, exec.run)
+
+	report, err := InstallWith(t.Context(), Options{Dir: root, Binaries: bins}, nil, quietLogger())
+	if err != nil {
+		t.Fatalf("InstallWith 返回错误 | InstallWith failed: %v", err)
+	}
+	if got := statusNames(report.Skipped); strings.Join(got, ",") != NameBetteralign+","+NameKo {
+		t.Fatalf("Skipped = %v，期望 %v | want %v", got, []string{NameBetteralign, NameKo}, []string{NameBetteralign, NameKo})
+	}
+	if len(report.Installed) != 0 || len(report.Failed) != 0 {
+		t.Errorf("Installed = %v，Failed = %v，期望都为空 | both must be empty",
+			statusNames(report.Installed), failureNames(report.Failed))
+	}
+	if calls := exec.allCalls(); len(calls) != 0 {
+		t.Errorf("执行了 %d 条命令，期望 0 条 | ran %d commands, want 0", len(calls), len(calls))
+	}
+}
 
 // TestInstallAllLandsInTheProjectLocalDir is the acceptance test of the plan: the binaries end up in
 // <dir>/.yd/tools, GOBIN is absolute and Check turns ready afterwards. | TestInstallAllLandsInTheProjectLocalDir
@@ -171,7 +209,8 @@ func TestInstallSkipsReadyToolsAndDuplicates(t *testing.T) {
 	}
 }
 
-// TestInstallNamesNotInstallableTools keeps the two hand-installed tools out of go install. | TestInstallNamesNotInstallableTools 把两个手动安装的工具挡在 go install 之外。
+// TestInstallNamesNotInstallableTools keeps the hand-installed docker tool out of go install. |
+// TestInstallNamesNotInstallableTools 把手动安装的 docker 工具挡在 go install 之外。
 func TestInstallNamesNotInstallableTools(t *testing.T) {
 	isolate(t)
 	root := t.TempDir()
@@ -180,18 +219,18 @@ func TestInstallNamesNotInstallableTools(t *testing.T) {
 	exec := &fakeExec{}
 	injectExec(t, exec.run)
 
-	report, err := Install(t.Context(), root, []string{toolTailwindcss}, quietLogger())
+	report, err := Install(t.Context(), root, []string{toolDocker}, quietLogger())
 	if report == nil {
 		t.Fatal("report = nil，期望带上失败条目 | want a report with the failure")
 	}
-	if got := failureNames(report.Failed); strings.Join(got, ",") != toolTailwindcss {
-		t.Fatalf("Failed = %v，期望 tailwindcss | want tailwindcss", got)
+	if got := failureNames(report.Failed); strings.Join(got, ",") != toolDocker {
+		t.Fatalf("Failed = %v，期望 docker | want docker", got)
 	}
 	failure := report.Failed[0].Err
 	if !errors.Is(failure, ErrNotInstallable) {
 		t.Errorf("err = %v，期望 ErrNotInstallable | want ErrNotInstallable", failure)
 	}
-	if !strings.Contains(failure.Error(), lookupFor(t, toolTailwindcss).InstallHint) {
+	if !strings.Contains(failure.Error(), lookupFor(t, toolDocker).InstallHint) {
 		t.Errorf("错误未带上获取途径 | the error does not carry the retrieval route: %v", failure)
 	}
 	if !errors.Is(err, ErrNotInstallable) {
@@ -323,11 +362,11 @@ func TestInstallReportsUnexpectedResolutionFailure(t *testing.T) {
 	usePATH(path)
 	errBoom := errors.New("resolution exploded")
 	fallback := resolveTool
-	resolveTool = func(tool Tool, dir string) (string, error) {
+	resolveTool = func(tool Tool, o Options) (string, error) {
 		if tool.Name == toolBetteralign {
 			return "", errBoom
 		}
-		return fallback(tool, dir)
+		return fallback(tool, o)
 	}
 	exec := &fakeExec{}
 	injectExec(t, exec.run)
@@ -519,4 +558,148 @@ func envCount(env []string, key string) int {
 // quietLogger discards every record so the assertions stay readable. | quietLogger 丢弃所有记录，使断言保持可读。
 func quietLogger() *logx.Logger {
 	return logx.New(logx.Options{Writer: io.Discard})
+}
+
+// TestInstallEnvIsolatesGoCaches proves go install cannot write into the user's global Go caches,
+// and that the default proxy chain and checksum policy are applied. | TestInstallEnvIsolatesGoCaches
+// 证明 go install 无法写入用户的全局 Go 缓存，且默认代理链与校验策略生效。
+func TestInstallEnvIsolatesGoCaches(t *testing.T) {
+	t.Setenv("GOPROXY", "")
+	t.Setenv("GOSUMDB", "")
+	t.Setenv("GOCACHE", "/inherited/go-build")
+	t.Setenv("GOPATH", "/inherited/gopath")
+	t.Setenv("GOMODCACHE", "/inherited/mod")
+	t.Setenv("GOBIN", "/inherited/bin")
+	t.Setenv("GOWORK", "on")
+
+	dir := t.TempDir()
+	env := installEnv(dir)
+	for _, tc := range []struct{ key, want string }{
+		{"GOBIN", dir},
+		{"GOWORK", "off"},
+		{"GOPATH", dir},
+		{"GOMODCACHE", filepath.Join(dir, "pkg", "mod")},
+		{"GOCACHE", filepath.Join(dir, "go_cache")},
+		{"GOPROXY", DefaultGOPROXY},
+		{"GOSUMDB", DefaultGOSUMDB},
+	} {
+		if got := envValue(env, tc.key); got != tc.want {
+			t.Errorf("%s = %q，期望 %q | want %q", tc.key, got, tc.want, tc.want)
+		}
+		if n := envCount(env, tc.key); n != 1 {
+			t.Errorf("%s 出现 %d 次，期望 1 次 | appears %d times, want 1", tc.key, n, n)
+		}
+	}
+}
+
+// TestInstallEnvHonoursExplicitProxy keeps an explicitly exported GOPROXY/GOSUMDB instead of
+// replacing it with the defaults. | TestInstallEnvHonoursExplicitProxy 保留显式导出的
+// GOPROXY/GOSUMDB，而不是用默认值覆盖。
+func TestInstallEnvHonoursExplicitProxy(t *testing.T) {
+	t.Setenv("GOPROXY", "https://proxy.example.com,direct")
+	t.Setenv("GOSUMDB", "sum.golang.org")
+	env := installEnv(t.TempDir())
+	if got := envValue(env, "GOPROXY"); got != "https://proxy.example.com,direct" {
+		t.Errorf("GOPROXY = %q，期望显式取值 | want the explicit value", got)
+	}
+	if got := envValue(env, "GOSUMDB"); got != "sum.golang.org" {
+		t.Errorf("GOSUMDB = %q，期望显式取值 | want the explicit value", got)
+	}
+}
+
+// TestInstallTailwindDownloadsBinary proves tailwindcss is installed by downloading a release
+// asset, with no Go toolchain and no `go install` invocation. | TestInstallTailwindDownloadsBinary
+// 证明 tailwindcss 通过下载发布资产安装，不需要 Go 工具链，也不执行 `go install`。
+func TestInstallTailwindDownloadsBinary(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	usePATH(newFakePATH(t)) // neither go nor tailwindcss on PATH | PATH 上既没有 go 也没有 tailwindcss
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte("fake tailwind binary"))
+	}))
+	defer server.Close()
+	exec := &fakeExec{versionOut: "4.1.0\n"}
+	injectExec(t, exec.run)
+
+	report, err := InstallWith(t.Context(), Options{
+		Dir:         root,
+		TailwindURL: server.URL + "/tailwindcss",
+	}, []string{NameTailwindcss}, quietLogger())
+	if err != nil {
+		t.Fatalf("InstallWith 返回错误 | InstallWith failed: %v", err)
+	}
+	if got := statusNames(report.Installed); strings.Join(got, ",") != NameTailwindcss {
+		t.Fatalf("Installed = %v，期望 tailwindcss | want tailwindcss", got)
+	}
+	bin := filepath.Join(root, ".yd", "tools", "tailwindcss"+exeSuffix())
+	data, readErr := os.ReadFile(bin)
+	if readErr != nil {
+		t.Fatalf("下载的二进制不存在 | downloaded binary is missing: %v", readErr)
+	}
+	if string(data) != "fake tailwind binary" {
+		t.Fatalf("二进制内容 = %q | unexpected content", string(data))
+	}
+	if calls := exec.installCalls(); len(calls) != 0 {
+		t.Errorf("tailwindcss 不应执行 go install | tailwindcss must not run go install: %d calls", len(calls))
+	}
+}
+
+// TestInstallTailwindUsesConfiguredProxy proves an explicit proxy is used for the download: the
+// target host does not resolve, so only the proxy can serve the bytes. | TestInstallTailwindUsesConfiguredProxy
+// 证明下载会使用显式代理：目标主机无法解析，只有代理能提供字节。
+func TestInstallTailwindUsesConfiguredProxy(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	usePATH(newFakePATH(t))
+	var seen atomic.Bool
+	proxy := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/tailwindcss" {
+			seen.Store(true)
+		}
+		_, _ = w.Write([]byte("via proxy"))
+	}))
+	defer proxy.Close()
+	exec := &fakeExec{}
+	injectExec(t, exec.run)
+
+	if _, err := InstallWith(t.Context(), Options{
+		Dir:         root,
+		TailwindURL: "http://example.invalid/tailwindcss",
+		Proxy:       proxy.URL,
+	}, []string{NameTailwindcss}, quietLogger()); err != nil {
+		t.Fatalf("InstallWith 返回错误 | InstallWith failed: %v", err)
+	}
+	if !seen.Load() {
+		t.Fatal("代理未被使用 | the proxy was not used")
+	}
+	data, err := os.ReadFile(filepath.Join(root, ".yd", "tools", "tailwindcss"+exeSuffix()))
+	if err != nil || string(data) != "via proxy" {
+		t.Fatalf("下载结果 = %q, err = %v | download result", data, err)
+	}
+}
+
+// TestInstallTailwindRejectsEmptyDownload keeps a zero-byte mirror response from leaving an
+// executable-looking placeholder. | TestInstallTailwindRejectsEmptyDownload 阻止零字节的镜像响应留下
+// 一个看似可执行的占位文件。
+func TestInstallTailwindRejectsEmptyDownload(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	usePATH(newFakePATH(t))
+	server := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
+	defer server.Close()
+	injectExec(t, (&fakeExec{}).run)
+
+	report, err := InstallWith(t.Context(), Options{
+		Dir:         root,
+		TailwindURL: server.URL + "/tailwindcss",
+	}, []string{NameTailwindcss}, quietLogger())
+	if !errors.Is(err, ErrInstallFailed) {
+		t.Fatalf("err = %v，期望 ErrInstallFailed | want ErrInstallFailed", err)
+	}
+	if report == nil || len(report.Failed) != 1 {
+		t.Fatalf("report = %+v，期望一条失败 | want one failure", report)
+	}
+	if _, statErr := os.Stat(filepath.Join(root, ".yd", "tools", "tailwindcss"+exeSuffix())); !errors.Is(statErr, os.ErrNotExist) {
+		t.Fatalf("空下载不应留下文件 | an empty download must leave no file: %v", statErr)
+	}
 }

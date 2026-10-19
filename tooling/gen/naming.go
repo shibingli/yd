@@ -173,3 +173,27 @@ func sanitizeText(s string) string {
 func sanitizeTagValue(s string) string {
 	return strings.NewReplacer("`", "", `"`, "").Replace(sanitizeText(s))
 }
+
+// windowsDeviceName reports whether name is a reserved DOS device name on Windows. | windowsDeviceName
+// 报告 name 是否为 Windows 保留的 DOS 设备名。
+//
+// Generated files and template directories are named after the snake-cased model, so a model called
+// Con or Com1 would create a path segment Windows resolves to a device instead of a file. | 生成文件与
+// 模板目录以蛇形模型名命名，因此名为 Con 或 Com1 的模型会创建 Windows 解析为设备的路径段。
+func windowsDeviceName(name string) bool {
+	base := strings.TrimRight(name, ". ")
+	if i := strings.IndexByte(base, '.'); i >= 0 {
+		base = base[:i]
+	}
+	base = strings.ToUpper(base)
+	switch base {
+	case "CON", "PRN", "AUX", "NUL":
+		return true
+	}
+	for _, prefix := range []string{"COM", "LPT"} {
+		if strings.HasPrefix(base, prefix) && len(base) == len(prefix)+1 {
+			return base[len(prefix)] >= '1' && base[len(prefix)] <= '9'
+		}
+	}
+	return false
+}

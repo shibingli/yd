@@ -216,19 +216,40 @@ type Decoder struct {
 }
 
 // NewDecoder returns a Decoder reading from r. | NewDecoder 返回从 r 读取的 Decoder。
+//
+// The native backend buffers the whole reader on the first Decode, then decodes values from that
+// buffer one after another. It is therefore a compatibility decoder for complete inputs (an HTTP
+// response, a file), not an incremental one: Decode blocks until the reader reaches EOF and memory
+// grows with the input. Callers that consume a long-lived stream frame by frame must bound the
+// input themselves (for example with io.LimitReader) instead of relying on Decode to return
+// between frames. The generic and standard-library backends stream natively. | 原生后端在第一次
+// Decode 时把整个读取器读入内存，随后从缓冲区逐值解码。因此它是面向完整输入（HTTP 响应、文件）的兼容解码器，
+// 而不是增量解码器：Decode 会阻塞到读取器到达 EOF，内存随输入增长。逐帧消费长连接的调用方必须自行给输入设界
+// （例如 io.LimitReader），不能指望 Decode 在帧之间返回。通用后端与标准库后端原生支持流式读取。
 func NewDecoder(r io.Reader) *Decoder { return &Decoder{r: r} }
 
 // UseNumber makes Decode store numbers as json.Number. | UseNumber 使 Decode 把数字存为 json.Number。
 func (d *Decoder) UseNumber() { d.useNumber = true }
 
 // Decode reads the next JSON value into v. | Decode 读取下一个 JSON 值并写入 v。
+//
+// The first call reads r to EOF (see NewDecoder); later calls continue from the buffered input and
+// return io.EOF once the buffer is exhausted. | 第一次调用会把 r 读至 EOF（见 NewDecoder）；后续调用从
+// 缓冲区继续，缓冲区耗尽后返回 io.EOF。
 func (d *Decoder) Decode(v any) error {
 	if !d.loaded {
-		data, err := io.ReadAll(d.r)
-		if err != nil {
-			return err
+		if d.r == nil {
+			// A nil reader cannot deliver a value; report the empty stream instead of
+			// panicking on a nil interface call. | nil 读取器不可能给出任何值；按空流上报，
+			// 而不是在 nil 接口调用上 panic。
+			d.loaded = true
+		} else {
+			data, err := io.ReadAll(d.r)
+			if err != nil {
+				return err
+			}
+			d.data, d.loaded = data, true
 		}
-		d.data, d.loaded = data, true
 	}
 	dec := &decoder{data: d.data, pos: d.pos, useNumber: d.useNumber}
 	dec.skipSpace()
@@ -294,6 +315,18 @@ func indentJSON(out *bytes.Buffer, src []byte, prefix, indent string) error {
 			}
 		case '}', ']':
 			depth--
+			// An empty container opened on the previous non-space byte stays "{}"/"[]"; the
+			// opening branch skipped its newline, so the closing branch must skip it too. | 前一
+			// 个非空白字节是开括号时容器为空，保持 "{}"/"[]"；开括号分支跳过了换行，闭括号分支
+			// 也必须跳过。
+			j := i - 1
+			for j >= 0 && (src[j] == ' ' || src[j] == '\t' || src[j] == '\n' || src[j] == '\r') {
+				j--
+			}
+			if j >= 0 && (src[j] == '{' || src[j] == '[') {
+				out.WriteByte(c)
+				continue
+			}
 			out.WriteByte('\n')
 			out.WriteString(prefix)
 			for j := 0; j < depth; j++ {

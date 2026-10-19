@@ -3,6 +3,7 @@
 package jsonx
 
 import (
+	"encoding"
 	"reflect"
 	"strconv"
 	"strings"
@@ -289,8 +290,60 @@ func buildArrayDecoder(t reflect.Type) decodeFunc {
 	}
 }
 
+// mapKeySetter returns a function that converts one JSON object key to a map key, mirroring
+// encoding/json: string keys (honouring encoding.TextUnmarshaler) and every integer kind.
+// | mapKeySetter 返回把 JSON 对象键转换为 map 键的函数，语义对齐 encoding/json：字符串键
+// （支持 encoding.TextUnmarshaler）与全部整数种类。
+func mapKeySetter(keyType reflect.Type) (func(string, reflect.Value) error, bool) {
+	textUnmarshaler := reflect.TypeOf((*encoding.TextUnmarshaler)(nil)).Elem()
+	switch {
+	case keyType.Implements(textUnmarshaler):
+		return func(key string, v reflect.Value) error {
+			if err := v.Interface().(encoding.TextUnmarshaler).UnmarshalText([]byte(key)); err != nil {
+				return typeErr("cannot unmarshal object key %[1]q into %[2]s: %[3]v | 无法把对象键 %[1]q 解析进 %[2]s：%[3]v", key, keyType, err)
+			}
+			return nil
+		}, true
+	case reflect.PointerTo(keyType).Implements(textUnmarshaler):
+		return func(key string, v reflect.Value) error {
+			ptr := reflect.New(keyType)
+			if err := ptr.Interface().(encoding.TextUnmarshaler).UnmarshalText([]byte(key)); err != nil {
+				return typeErr("cannot unmarshal object key %[1]q into %[2]s: %[3]v | 无法把对象键 %[1]q 解析进 %[2]s：%[3]v", key, keyType, err)
+			}
+			v.Set(ptr.Elem())
+			return nil
+		}, true
+	}
+	switch keyType.Kind() {
+	case reflect.String:
+		return func(key string, v reflect.Value) error { v.SetString(key); return nil }, true
+	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
+		bits := keyType.Bits()
+		return func(key string, v reflect.Value) error {
+			n, err := strconv.ParseInt(key, 10, bits)
+			if err != nil {
+				return typeErr("cannot unmarshal object key %q into %s | 无法把对象键 %q 解析进 %s", key, keyType, key, keyType)
+			}
+			v.SetInt(n)
+			return nil
+		}, true
+	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64, reflect.Uintptr:
+		bits := keyType.Bits()
+		return func(key string, v reflect.Value) error {
+			n, err := strconv.ParseUint(key, 10, bits)
+			if err != nil {
+				return typeErr("cannot unmarshal object key %q into %s | 无法把对象键 %q 解析进 %s", key, keyType, key, keyType)
+			}
+			v.SetUint(n)
+			return nil
+		}, true
+	}
+	return nil, false
+}
+
 func buildMapDecoder(t reflect.Type) decodeFunc {
-	if t.Key().Kind() != reflect.String {
+	setKey, ok := mapKeySetter(t.Key())
+	if !ok {
 		return func(d *decoder, v reflect.Value) error {
 			return typeErr("unsupported map key type %s | 不支持的 map 键类型 %s", t.Key(), t.Key())
 		}
@@ -345,7 +398,9 @@ func buildMapDecoder(t reflect.Type) decodeFunc {
 				return err
 			}
 			mapKey := reflect.New(keyType).Elem()
-			mapKey.SetString(key)
+			if err := setKey(key, mapKey); err != nil {
+				return err
+			}
 			v.SetMapIndex(mapKey, elemValue)
 			d.skipSpace()
 			if d.pos >= len(d.data) {

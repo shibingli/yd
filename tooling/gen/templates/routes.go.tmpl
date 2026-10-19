@@ -3,10 +3,47 @@
 package router
 
 import (
+	"github.com/shibingli/yd/core/logx"
 	"github.com/shibingli/yd/http/router"
+	"gorm.io/gorm"
 
 	"<%.PkgController%>"
+	"<%.PkgModel%>"
+	"<%.PkgRepo%>"
+	"<%.PkgService%>"
 )
+
+// init registers this module with the scaffold's protected route group. The scaffold's
+// registerGeneratedMount collects it, so a regenerated module becomes reachable without a manual
+// edit of internal/router/router.go. | init 把本模块登记到脚手架受保护路由组。脚手架的
+// registerGeneratedMount 会收集它，因此重新生成模块后无需手工编辑 internal/router/router.go
+// 就能访问。
+func init() {
+	registerGeneratedMount(func(g *router.Group, store *repository.Store) {
+		db, _ := store.DB().(*gorm.DB)
+		if db == nil {
+			logx.Default().Warn("generated module has no database handle, routes are not mounted | 生成模块没有数据库句柄，路由未挂载",
+				logx.Str("module", "<%.Snake%>"))
+			return
+		}
+		// The scaffold migrates the auth tables at startup; a generated module owns its own table
+		// and must do the same, otherwise the first query fails with "no such table".
+		// | 脚手架在启动时迁移鉴权表；生成模块拥有自己的表，也必须这样做，否则第一次查询就会
+		// 以 "no such table" 失败。
+		if err := db.AutoMigrate(&model.<%.Name%>{}); err != nil {
+			logx.Default().Error("generated module migration failed | 生成模块迁移失败",
+				logx.Str("module", "<%.Snake%>"), logx.Err(err))
+			return
+		}
+		repo, err := repository.New<%.Name%>Repo(db)
+		if err != nil {
+			logx.Default().Error("generated module repository assembly failed | 生成模块仓储装配失败",
+				logx.Str("module", "<%.Snake%>"), logx.Err(err))
+			return
+		}
+		Register<%.Name%>Routes(g, controller.New<%.Name%>Controller(service.New<%.Name%>Service(repo)))
+	})
+}
 
 // Register<%.Name%>Routes 把<%.Module%>模块的页面路由挂到 g 上。
 // Register<%.Name%>Routes mounts the <%.Snake%> page routes onto g.

@@ -277,12 +277,13 @@ func createUniqueFile(dir, name string) (*os.File, string, error) {
 // SafeUploadName reduces a client-supplied filename to a safe base name. | SafeUploadName 把客户端提供的文件名收敛为安全的基础名。
 //
 // Both slash styles are stripped to a base name, NUL/control characters and bidi overrides are
-// removed, trailing dots and spaces (illegal on Windows) are trimmed, the length is bounded while
-// keeping the extension, and Windows device names are prefixed. The result is a single path segment
+// removed, characters Windows forbids in a path segment (< > : " | ? *) become underscores, trailing
+// dots and spaces (illegal on Windows) are trimmed, the length is bounded while keeping the
+// extension, and Windows device names are prefixed. The result is a single path segment
 // that cannot escape the destination directory. The caller still owns the storage location: do not
 // save uploads into a directory whose contents are executed as scripts. | 两种斜杠都会被收敛为基础名，
-// NUL/控制字符与方向覆盖字符被移除，Windows 上非法的尾随点与空格被裁剪，长度在保留扩展名的前提下
-// 受限，Windows 设备名会被加前缀。结果是无法逃出目标目录的单个路径段。存储位置仍由调用方负责：
+// NUL/控制字符与方向覆盖字符被移除，Windows 路径段禁止的字符（< > : " | ? *）替换为下划线，
+// Windows 上非法的尾随点与空格被裁剪，长度在保留扩展名的前提下受限，Windows 设备名会被加前缀。结果是无法逃出目标目录的单个路径段。存储位置仍由调用方负责：
 // 不要把上传保存到会把其中内容当作脚本执行的目录。
 func SafeUploadName(name string) (string, error) {
 	name = strings.ReplaceAll(name, "\\", "/")
@@ -292,6 +293,15 @@ func SafeUploadName(name string) (string, error) {
 	name = strings.Map(func(r rune) rune {
 		if r < 0x20 || r == 0x7f || isBidiControl(r) {
 			return -1
+		}
+		// Characters Windows forbids in a path segment. Replacing them (instead of only removing
+		// controls) keeps the name usable and extension-preserving on both platforms: a colon would
+		// otherwise open an NTFS alternate data stream, and the rest fail with ERROR_INVALID_NAME. |
+		// Windows 路径段禁止的字符。替换它们（而不是只移除控制字符）能让名称在两个平台上都可用且保留扩展名：
+		// 冒号否则会打开 NTFS 备用数据流，其余字符会以 ERROR_INVALID_NAME 失败。
+		switch r {
+		case '<', '>', ':', '"', '|', '?', '*':
+			return '_'
 		}
 		return r
 	}, name)
@@ -325,13 +335,17 @@ func reservedName(name string) bool {
 	}
 	base = strings.ToUpper(base)
 	switch base {
-	case "CON", "PRN", "AUX", "NUL", "CLOCK$":
+	case "CON", "PRN", "AUX", "NUL", "CLOCK$", "CONIN$", "CONOUT$":
 		return true
 	}
-	if len(base) == 4 {
-		switch base[:3] {
-		case "COM", "LPT":
-			return base[3] >= '1' && base[3] <= '9'
+	for _, prefix := range []string{"COM", "LPT"} {
+		if strings.HasPrefix(base, prefix) && len(base) > len(prefix) {
+			// Microsoft reserves both the ASCII digits and the superscript digits ¹ ² ³. | 微软同时保留
+			// ASCII 数字与上标数字 ¹ ² ³。
+			switch base[len(prefix):] {
+			case "1", "2", "3", "4", "5", "6", "7", "8", "9", "¹", "²", "³":
+				return true
+			}
 		}
 	}
 	return false

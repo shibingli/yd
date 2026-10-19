@@ -1,8 +1,10 @@
 package logx
 
 import (
+	"math"
 	"strconv"
 	"time"
+	"unicode/utf8"
 )
 
 // appendConsoleRecord appends one complete record (including the trailing newline) to dst in the human-readable console format. | appendConsoleRecord 将一条完整记录（含结尾换行）按人类可读的 console 格式追加到 dst。
@@ -38,7 +40,7 @@ func appendConsoleRecord(dst []byte, l *Logger, lvl Level, t time.Time, msg, cal
 		dst = append(dst, caller...)
 		dst = append(dst, ')', ' ')
 	}
-	dst = append(dst, msg...)
+	dst = appendConsoleMessage(dst, msg)
 	dst = appendConsoleFields(dst, l.fields, l.timeFormat)
 	dst = appendConsoleFields(dst, extra, l.timeFormat)
 	return append(dst, '\n')
@@ -66,7 +68,7 @@ func appendConsoleField(dst []byte, f *Field, timeFormat string) []byte {
 		return append(dst, f.bs...)
 	}
 	dst = append(dst, ' ')
-	dst = append(dst, f.Key...)
+	dst = appendConsoleString(dst, f.Key)
 	dst = append(dst, '=')
 	switch f.Type {
 	case StringType, ErrorType:
@@ -75,6 +77,25 @@ func appendConsoleField(dst []byte, f *Field, timeFormat string) []byte {
 		return appendHumanDuration(dst, int64(f.num))
 	}
 	return appendJSONValue(dst, f, timeFormat)
+}
+
+// appendConsoleMessage writes the log message, quoting it only when it contains a control
+// character. Spaces stay verbatim (messages are prose), but a newline must not be able to start a
+// second, forged log line. | appendConsoleMessage 写出日志消息，仅在包含控制字符时加引号。空格原样
+// 保留（消息是散文），但换行绝不能伪造出第二条日志行。
+func appendConsoleMessage(dst []byte, s string) []byte {
+	// An invalid byte sequence cannot break a line, but it makes the output non-UTF-8;
+	// quoting turns it into an unambiguous \xNN escape. | 非法字节序列不会破坏行结构，但会让输出
+	// 不再是 UTF-8；加引号可把它变成无歧义的 \xNN 转义。
+	if !utf8.ValidString(s) {
+		return strconv.AppendQuote(dst, s)
+	}
+	for i := 0; i < len(s); i++ {
+		if s[i] < 0x20 || s[i] == 0x7f {
+			return strconv.AppendQuote(dst, s)
+		}
+	}
+	return append(dst, s...)
 }
 
 // appendConsoleString outputs a string in console format: verbatim when unambiguous, otherwise with Go escaping | appendConsoleString 在 console 格式下输出字符串：无歧义时原样输出，否则用 Go 转义
@@ -88,7 +109,7 @@ func appendConsoleString(dst []byte, s string) []byte {
 
 // consoleSafe reports whether s can appear unquoted in a console line. | consoleSafe 报告 s 能否不加引号地出现在 console 行中。
 func consoleSafe(s string) bool {
-	if s == "" {
+	if s == "" || !utf8.ValidString(s) {
 		return false
 	}
 	for i := 0; i < len(s); i++ {
@@ -103,6 +124,11 @@ func consoleSafe(s string) bool {
 func appendHumanDuration(dst []byte, ns int64) []byte {
 	if ns == 0 {
 		return append(dst, "0s"...)
+	}
+	if ns == math.MinInt64 {
+		// Negating MinInt64 overflows and would print a double sign. | 对 MinInt64 取负会溢出并
+		// 打印出两个负号。
+		return append(dst, "-9223372036854775808ns"...)
 	}
 	if ns < 0 {
 		ns = -ns

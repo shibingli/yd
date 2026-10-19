@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"slices"
+	"strings"
 	"testing"
 )
 
@@ -57,6 +58,30 @@ func TestResolveTailwindBinOrder(t *testing.T) {
 			t.Fatalf("解析结果 = %q, 期望 %q", got, local)
 		}
 	})
+}
+
+// TestResolveTailwindBinFindsWindowsCommandShim proves a .cmd shim installed by a package manager
+// is found on PATH: looking up "tailwindcss.exe" explicitly would miss it, even though the same
+// shim works for yd dev and yd tools. | TestResolveTailwindBinFindsWindowsCommandShim 证明包管理器
+// 安装的 .cmd 垫片能从 PATH 找到：显式查找 "tailwindcss.exe" 会漏掉它，而同一个垫片在 yd dev 与
+// yd tools 中都能工作。
+func TestResolveTailwindBinFindsWindowsCommandShim(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("Windows-only: .cmd shims are a Windows package-manager convention | 仅 Windows：.cmd 垫片是 Windows 包管理器约定")
+	}
+	shimDir := t.TempDir()
+	shim := filepath.Join(shimDir, "tailwindcss.cmd")
+	writeFile(t, shim, "@echo off\r\n")
+	t.Setenv(tailwindEnvBin, "")
+	t.Setenv("PATH", shimDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	got, err := ResolveTailwindBin(t.TempDir(), "")
+	if err != nil {
+		t.Fatalf("ResolveTailwindBin 失败 | ResolveTailwindBin failed: %v", err)
+	}
+	if !strings.EqualFold(filepath.Clean(got), filepath.Clean(shim)) {
+		t.Fatalf("解析结果 = %[1]q，期望 %[2]q | resolved %[1]q, want %[2]q", got, shim)
+	}
 }
 
 // TestResolveTailwindBinMissing asserts the sentinel returned when nothing is found. | TestResolveTailwindBinMissing 断言找不到可执行文件时返回的哨兵错误。

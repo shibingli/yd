@@ -15,14 +15,20 @@ import (
 
 // The registry names, which are also the file names of the project-local copies under .yd/tools. | 注册表名称，同时也是 .yd/tools 下项目内副本的文件名。
 const (
-	// toolBetteralign is the optional struct-alignment analyzer of the align package. | toolBetteralign 是 align 包可选的结构体对齐分析器。
-	toolBetteralign = "betteralign"
-	// toolKo is the optional Dockerfile-less image builder of the ko package. | toolKo 是 ko 包可选的无 Dockerfile 镜像构建器。
-	toolKo = "ko"
-	// toolTailwindcss is the optional Tailwind CSS standalone compiler of the toolchain package. | toolTailwindcss 是 toolchain 包可选的 Tailwind CSS standalone 编译器。
-	toolTailwindcss = "tailwindcss"
-	// toolDocker is the container engine behind `yd docker` and `yd ko --local`. | toolDocker 是 `yd docker` 与 `yd ko --local` 背后的容器引擎。
-	toolDocker = "docker"
+	// NameBetteralign is the optional struct-alignment analyzer of the align package. | NameBetteralign 是 align 包可选的结构体对齐分析器。
+	NameBetteralign = "betteralign"
+	// NameKo is the optional Dockerfile-less image builder of the ko package. | NameKo 是 ko 包可选的无 Dockerfile 镜像构建器。
+	NameKo = "ko"
+	// NameTailwindcss is the optional Tailwind CSS standalone compiler of the toolchain package. | NameTailwindcss 是 toolchain 包可选的 Tailwind CSS standalone 编译器。
+	NameTailwindcss = "tailwindcss"
+	// NameDocker is the container engine behind `yd docker` and `yd ko --local`. | NameDocker 是 `yd docker` 与 `yd ko --local` 背后的容器引擎。
+	NameDocker = "docker"
+
+	// The unexported aliases keep the internal call sites short. | 未导出别名让包内调用点保持简短。
+	toolBetteralign = NameBetteralign
+	toolKo          = NameKo
+	toolTailwindcss = NameTailwindcss
+	toolDocker      = NameDocker
 )
 
 // registry holds the four entries in the order Registry returns them. | registry 按 Registry 返回的顺序保存四个条目。
@@ -32,9 +38,11 @@ const (
 // resolver that raises it. | betteralign 与 ko 逐字引用 align.InstallHint 与 ko.InstallHint 而不重写命令，
 // 因此每份提示只有一处定义，注册表绝不会与抛出它的解析器发生漂移。
 //
-// tailwindcss and docker carry a sentence instead of a command: neither can be installed with
-// go install, and pretending otherwise would send the user down a path the tool does not have. | tailwindcss
-// 与 docker 携带的是一句话而不是命令：两者都无法用 go install 安装，装作可以会把用户引到工具本身没有的路上。
+// tailwindcss and docker carry a sentence instead of a go install command. tailwindcss is fetched
+// as a release binary by `yd tools install tailwindcss` (honouring http.proxy and tailwind.url),
+// while docker has no automatic route at all. | tailwindcss 与 docker 携带的是一句话而不是 go install
+// 命令。tailwindcss 由 `yd tools install tailwindcss` 以发布二进制方式获取（遵循 http.proxy 与
+// tailwind.url），docker 则完全没有自动安装路径。
 var registry = []Tool{
 	{
 		Name:        toolBetteralign,
@@ -55,7 +63,7 @@ var registry = []Tool{
 	{
 		Name:        toolTailwindcss,
 		Summary:     "compile Tailwind CSS v4 stylesheets | 编译 Tailwind CSS v4 样式表",
-		InstallHint: "run `yd assets update` or drop the binary into " + LocalToolDir + " | 运行 `yd assets update`，或把二进制放入 " + LocalToolDir,
+		InstallHint: "run `yd tools install tailwindcss` (proxy: http.proxy, mirror: tailwind.url) or drop the binary into " + LocalToolDir + " | 运行 `yd tools install tailwindcss`（代理：http.proxy，镜像：tailwind.url），或把二进制放入 " + LocalToolDir,
 		DocURL:      "https://tailwindcss.com/docs/installation/tailwind-cli",
 		VersionArgs: []string{"--version"},
 	},

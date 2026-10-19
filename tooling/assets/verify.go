@@ -40,6 +40,12 @@ func Verify(fsys afero.Fs, m *Manifest, root string) (*VerifyReport, error) {
 	if fsys == nil {
 		fsys = afero.NewOsFs()
 	}
+	// A hand-built Manifest must not be able to point Verify outside the asset root; a caller that
+	// loads through LoadManifest already passed this check. | 手工构造的 Manifest 不得让 Verify
+	// 指向资产根之外；经 LoadManifest 加载的调用方已经通过这项检查。
+	if err := Validate(m.Assets); err != nil {
+		return nil, errx.Wrap(err, ErrManifestInvalid)
+	}
 
 	rep := &VerifyReport{}
 	errs := make([]error, 0, len(m.Assets))

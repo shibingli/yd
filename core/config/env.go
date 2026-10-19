@@ -21,12 +21,16 @@ var (
 // loadEnvFile reads the .env file via afero and injects its key-value pairs into the process environment variables. | loadEnvFile 通过 afero 读取 .env 文件，并把其中的键值注入进程环境变量。
 //
 // Injection rules: | 注入规则：
+//   - only keys carrying the configured environment prefix (YD_ by default) are injected; every
+//     other name is ignored, so a checked-out .env cannot inject GOFLAGS, LD_PRELOAD, PATH or a
+//     proxy setting into the processes the CLI spawns; |   - 只注入带有所配置环境前缀的键（默认 YD_）；
+//     其它名称一律忽略，因此签出的 .env 无法把 GOFLAGS、LD_PRELOAD、PATH 或代理设置注入 CLI 派生的进程；
 //   - os.Setenv is called only when a variable of the same name does **not** exist in the real environment, |   - 仅当同名变量在真实环境中**不存在**时才调用 os.Setenv，
 //     so real environment variables always outrank .env and are never overwritten; |     因此真实环境变量永远高于 .env，绝不被覆盖；
 //   - injected keys are equivalent to ordinary environment variables (e.g. YD_DB_MAXCONN corresponds to db.maxconn), |   - 注入后的键与普通环境变量等价（例如 YD_DB_MAXCONN 对应 db.maxconn），
 //     and rank above config files in viper's precedence; |     在 viper 的优先级中位于配置文件之上；
 //   - a missing file is normal (a project not using .env) and returns nil. |   - 文件不存在是正常情况（未使用 .env 的项目），返回 nil。
-func (c *Config) loadEnvFile(path string) error {
+func (c *Config) loadEnvFile(path, prefix string) error {
 	data, err := afero.ReadFile(c.fs, path)
 	if err != nil {
 		if errors.Is(err, fs.ErrNotExist) {
@@ -35,7 +39,18 @@ func (c *Config) loadEnvFile(path string) error {
 		return errx.WrapDetail(err, ErrReadEnvFile, "%s", path)
 	}
 
+	prefix = strings.ToUpper(strings.TrimSpace(prefix))
+	if prefix == "" {
+		prefix = DefaultEnvPrefix
+	}
 	for key, val := range parseDotEnv(data) {
+		// Restrict injection to the framework's own namespace. Without this check an untrusted
+		// .env can set GOFLAGS=-toolexec=... and have the next `yd build` execute attacker code.
+		// | 只注入框架自己的命名空间。缺少这道检查时，不可信的 .env 可以设置
+		// GOFLAGS=-toolexec=...，让下一次 `yd build` 执行攻击者代码。
+		if !strings.HasPrefix(strings.ToUpper(key), prefix+"_") {
+			continue
+		}
 		if _, exists := os.LookupEnv(key); exists {
 			continue // Real environment variables take precedence; overwriting is forbidden. | 真实环境变量优先，禁止覆盖
 		}

@@ -130,7 +130,7 @@ func (m *message) render(args []any) (string, bool) {
 			return m.raw, true
 		}
 		out := fmt.Sprintf(m.raw, args...)
-		return out, !strings.Contains(out, "%!")
+		return out, !formatFailed(out)
 	}
 	// A message that is exactly one placeholder needs no builder at all. | 恰好只有一个占位符的消息无需 Builder。
 	if m.named == 1 && len(m.segments) == 1 && !m.verbs {
@@ -141,19 +141,31 @@ func (m *message) render(args []any) (string, bool) {
 	b.Grow(len(m.raw) + 16*min(m.named, len(args)))
 	used := 0
 	for _, seg := range m.segments {
+		if seg.arg >= 0 && seg.arg < len(args) {
+			used++
+		}
+	}
+	// Percent-escape substituted values only when the assembled string really goes through
+	// Sprintf; otherwise a literal "%%" would leak into the output. | 仅当拼接结果确实会交给
+	// Sprintf 时才转义替换值；否则字面 "%%" 会漏进输出。
+	escapeValues := m.verbs && used < len(args)
+	for _, seg := range m.segments {
 		if seg.arg < 0 || seg.arg >= len(args) {
 			b.WriteString(seg.text)
 			continue
 		}
-		b.WriteString(formatArg(args[seg.arg]))
-		used++
+		if escapeValues {
+			b.WriteString(formatArgEscaped(args[seg.arg]))
+		} else {
+			b.WriteString(formatArg(args[seg.arg]))
+		}
 	}
 	out := b.String()
 	if !m.verbs || used >= len(args) {
 		return out, true
 	}
 	out = fmt.Sprintf(out, args[used:]...)
-	return out, !strings.Contains(out, "%!")
+	return out, !formatFailed(out)
 }
 
 // isNamedPlaceholder reports whether s has the exact `{{.Field}}` shape. | isNamedPlaceholder 判断 s 是否严格符合 `{{.Field}}` 形状。
@@ -180,11 +192,27 @@ func isNamedPlaceholder(s string) bool {
 }
 
 // formatArg renders one positional argument. | formatArg 渲染一个位置参数。
+//
+// Every percent sign is doubled: the rendered value is later embedded in a format string handed
+// to Sprintf, and an unescaped "%s"/"%2000000000d" in user data would otherwise become a format
+// directive (argument theft, huge allocations or diagnostic noise). | 每个百分号都翻倍：渲染结果随后
+// 会被嵌入交给 Sprintf 的格式串，用户数据里未转义的 "%s"/"%2000000000d" 否则会变成格式指令
+// （偷取后续参数、巨额分配或诊断噪声）。
 func formatArg(arg any) string {
 	if s, ok := arg.(string); ok {
 		return s
 	}
 	return fmt.Sprint(arg)
+}
+
+// formatArgEscaped is formatArg with percent signs doubled for a later Sprintf. | formatArgEscaped
+// 是百分号翻倍后的 formatArg，供随后的 Sprintf 使用。
+func formatArgEscaped(arg any) string {
+	s := formatArg(arg)
+	if strings.ContainsRune(s, '%') {
+		s = strings.ReplaceAll(s, "%", "%%")
+	}
+	return s
 }
 
 // hasVerbs reports whether format contains a printf verb. | hasVerbs 判断 format 是否含有 printf 动词。
@@ -199,10 +227,68 @@ func hasVerbs(format string) bool {
 			i = j
 			continue
 		}
-		for j < len(format) && strings.IndexByte("#0+- .123456789", format[j]) >= 0 {
+		// Explicit argument index: %[2]s. | 显式参数下标：%[2]s。
+		j = skipArgIndex(format, j)
+		// Flags. | 标志位。
+		for j < len(format) && strings.IndexByte("#0+- .", format[j]) >= 0 {
 			j++
 		}
+		// Width: digits or * (with an optional [n] index after it). | 宽度：数字或 *（其后可带 [n] 下标）。
+		if j < len(format) && format[j] == '*' {
+			j = skipArgIndex(format, j+1)
+		} else {
+			for j < len(format) && format[j] >= '0' && format[j] <= '9' {
+				j++
+			}
+		}
+		// Precision. | 精度。
+		if j < len(format) && format[j] == '.' {
+			j++
+			if j < len(format) && format[j] == '*' {
+				j = skipArgIndex(format, j+1)
+			} else {
+				for j < len(format) && format[j] >= '0' && format[j] <= '9' {
+					j++
+				}
+			}
+		}
 		if j < len(format) && strings.IndexByte("vTtbcdoOqxXUeEfFgGsp", format[j]) >= 0 {
+			return true
+		}
+	}
+	return false
+}
+
+// skipArgIndex consumes an optional "[n]" explicit argument index. | skipArgIndex 消费可选的 "[n]" 显式参数下标。
+func skipArgIndex(format string, j int) int {
+	if j >= len(format) || format[j] != '[' {
+		return j
+	}
+	k := j + 1
+	for k < len(format) && format[k] >= '0' && format[k] <= '9' {
+		k++
+	}
+	if k < len(format) && format[k] == ']' && k > j+1 {
+		return k + 1
+	}
+	return j
+}
+
+// formatFailed reports a Sprintf diagnostic in out. | formatFailed 报告 out 中是否出现 Sprintf 诊断。
+//
+// Sprintf diagnostics take the shape "%!verb(...)"; a legitimate value such as "100%!" does not
+// contain "%!(". | Sprintf 诊断形如 "%!verb(...)"；"100%!" 这类合法取值不含 "%!("。
+func formatFailed(out string) bool {
+	for i := 0; i+2 < len(out); i++ {
+		if out[i] != '%' || out[i+1] != '!' {
+			continue
+		}
+		if out[i+2] == '(' {
+			return true // %!(EXTRA ...) | 多余参数
+		}
+		// Sprintf diagnostics are "%!<verb>(" such as "%!d(string=...)" or "%!s(MISSING)".
+		// | Sprintf 诊断形如 "%!<动词>("，例如 "%!d(string=...)" 或 "%!s(MISSING)"。
+		if i+3 < len(out) && out[i+3] == '(' {
 			return true
 		}
 	}

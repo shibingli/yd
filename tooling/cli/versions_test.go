@@ -5,6 +5,7 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 
@@ -218,5 +219,35 @@ func TestVersionsPlainProjectSkipsScaffold(t *testing.T) {
 	}
 	if _, statErr := fsys.Stat("tooling/scaffold"); statErr == nil {
 		t.Error("sync created tooling/scaffold in a plain project")
+	}
+}
+
+// TestVersionsClientUsesConfiguredProxy proves the upgrade run honours http.proxy: the target host
+// does not resolve, so only the proxy can answer. | TestVersionsClientUsesConfiguredProxy 证明升级运行
+// 遵循 http.proxy：目标主机无法解析，只有代理能应答。
+func TestVersionsClientUsesConfiguredProxy(t *testing.T) {
+	old := versionsHTTPClient
+	versionsHTTPClient = defaultVersionsHTTPClient
+	t.Cleanup(func() { versionsHTTPClient = old })
+
+	proxy := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte("proxied"))
+	}))
+	defer proxy.Close()
+	te := newTestEnv(t, nil, "", false)
+	te.env.Cfg = loadKoCLIConfig(t, "http:\n  proxy: "+proxy.URL+"\n")
+
+	client, err := versionsClient(te.env)
+	if err != nil {
+		t.Fatalf("versionsClient 失败 | failed: %v", err)
+	}
+	resp, err := client.Get("http://example.invalid/registry")
+	if err != nil {
+		t.Fatalf("经代理请求失败 | request through proxy failed: %v", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	body, readErr := io.ReadAll(resp.Body)
+	if readErr != nil || string(body) != "proxied" {
+		t.Fatalf("响应 = %q, err = %v | response", body, readErr)
 	}
 }

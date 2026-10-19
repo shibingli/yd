@@ -125,8 +125,8 @@ func OptionsFromConfig(c *config.Config) Options {
 	}
 	return Options{
 		QueryTimeout: c.Duration(configQueryTimeout),
-		// 日志器不来自配置：它由入口装配一次并注入（与 data/gormx 同一口径）。
 		// The logger does not come from configuration: the entry point assembles it once and injects it, exactly as in data/gormx.
+		// 日志器不来自配置：它由入口装配一次并注入（与 data/gormx 同一口径）。
 	}
 }
 

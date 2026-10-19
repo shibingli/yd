@@ -67,7 +67,14 @@ yd completion install     # 探测 shell、写脚本并打印加载行（默认�
 # 可选外部工具：betteralign / ko / tailwindcss / docker 的统一探测与安装
 yd tools check            # 列出四个工具的状态与安装提示，只读、不触网
 yd tools install          # 把缺失且可 go install 的项装进项目内 .yd/tools/（不改 PATH）
+yd tools install tailwindcss  # 下载 Tailwind standalone 二进制到 .yd/tools/
 ```
+
+> `go install` 的 `GOBIN` / `GOPATH` / `GOMODCACHE` / `GOCACHE` 全部隔离在 `.yd/tools` 之下，
+> 默认使用国内可用的 `GOPROXY` 链（`GOSUMDB=off`）；显式导出的 `GOPROXY` / `GOSUMDB` 优先。
+> `yd assets update` / `yd assets add`、`yd versions upgrade` 的下载与 Tailwind 二进制下载都支持
+> `http.proxy`（HTTP 代理，或 `YD_HTTP_PROXY`）；Tailwind 还可用 `tailwind.url`（镜像地址，或 `YD_TAILWIND_URL`）。
+> 未配置代理时遵循标准 `HTTP_PROXY` / `HTTPS_PROXY` / `NO_PROXY`。
 
 > `yd new` 收尾会探测一次缺失的工具：交互模式询问是否就地安装（默认是），
 > 非交互场景用 `--install-tools`；`--yes` 只建项目、不触网。

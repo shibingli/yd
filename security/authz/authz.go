@@ -122,8 +122,32 @@ func Register(p Permission) error {
 	if _, dup := global.perms[p.Name]; dup {
 		return errx.Detail(ErrDuplicatePermission, "name=%[1]q | 名称=%[1]q", p.Name)
 	}
+	for _, existing := range global.perms {
+		if collision := permissionKeyCollision(existing, p); collision != "" {
+			return errx.Detail(ErrDuplicatePermission, "name=%[1]q collides with %[2]q on %[3]s | 名称 %[1]q 与 %[2]q 在 %[3]s 上冲突",
+				p.Name, existing.Name, collision)
+		}
+	}
 	global.perms[p.Name] = p
 	return nil
+}
+
+// permissionKeyCollision reports which derived key (constant, data or JS) two different
+// capabilities share, or "" when they are distinct in all three. | permissionKeyCollision 报告两条
+// 不同能力共用了哪个派生键（常量、数据或 JS），三者都不同时返回 ""。
+func permissionKeyCollision(a, b Permission) string {
+	if a.Name == b.Name {
+		return ""
+	}
+	switch {
+	case ConstantName(a.Name) == ConstantName(b.Name):
+		return "ConstantName"
+	case DataKey(a.Name) == DataKey(b.Name):
+		return "DataKey"
+	case JSKey(a.Name) == JSKey(b.Name):
+		return "JSKey"
+	}
+	return ""
 }
 
 // RegisterRole declares one role name. | RegisterRole 声明一个角色名。
@@ -174,6 +198,29 @@ func RegisterAll(perms []Permission, roles []Role) error {
 	}
 	global.mu.Lock()
 	defer global.mu.Unlock()
+	// Reject key collisions before writing anything, so a rejected vocabulary leaves the registry
+	// untouched. Two tokens that differ only by a separator produce the same template/JS key and
+	// would silently overwrite each other in the generated maps. | 写入前拒绝键冲突，使被拒的词汇表
+	// 不留下任何改动。仅分隔符不同的两个标识会生成相同的模板/JS 键，并在生成映射中互相覆盖。
+	seenKeys := make(map[string]string, len(normalized))
+	for _, p := range normalized {
+		if _, known := global.perms[p.Name]; known {
+			continue
+		}
+		for _, key := range []string{ConstantName(p.Name), DataKey(p.Name), JSKey(p.Name)} {
+			if other, dup := seenKeys[key]; dup && other != p.Name {
+				return errx.Detail(ErrDuplicatePermission, "name=%[1]q collides with %[2]q on key %[3]q | 名称 %[1]q 与 %[2]q 在键 %[3]q 上冲突",
+					p.Name, other, key)
+			}
+			seenKeys[key] = p.Name
+		}
+		for _, existing := range global.perms {
+			if collision := permissionKeyCollision(existing, p); collision != "" {
+				return errx.Detail(ErrDuplicatePermission, "name=%[1]q collides with %[2]q on %[3]s | 名称 %[1]q 与 %[2]q 在 %[3]s 上冲突",
+					p.Name, existing.Name, collision)
+			}
+		}
+	}
 	for _, p := range normalized {
 		if _, known := global.perms[p.Name]; known {
 			continue

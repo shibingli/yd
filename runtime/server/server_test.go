@@ -7,6 +7,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -274,6 +275,15 @@ func TestACMEHostPolicyRejectsUnknownDomain(t *testing.T) {
 func TestACMERequiresDomains(t *testing.T) {
 	if _, err := newACMEManager(ACMEConfig{Enabled: true}); err == nil {
 		t.Fatal("a missing domain configuration must return an error | 未配置域名时必须返回错误")
+	}
+}
+
+// TestDefaultACMECacheDirIsAbsolute proves the default cache does not depend on the process working
+// directory, which is System32 under the Windows SCM and "/" under systemd. | TestDefaultACMECacheDirIsAbsolute
+// 证明默认缓存不依赖进程工作目录——Windows SCM 下它是 System32，systemd 下它是 "/"。
+func TestDefaultACMECacheDirIsAbsolute(t *testing.T) {
+	if dir := defaultACMECacheDir(); !filepath.IsAbs(dir) {
+		t.Fatalf("default ACME cache dir = %q，期望绝对路径 | want an absolute path", dir)
 	}
 }
 

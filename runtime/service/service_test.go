@@ -122,20 +122,23 @@ func TestOptionsFromConfigEnvMappingForm(t *testing.T) {
 	}
 }
 
-// TestOptionsFromConfigFallsBackToAppName 断言缺省时服务名回落到 app.name，显示名与描述逐级回落。
-// TestOptionsFromConfigFallsBackToAppName asserts the service name falls back to app.name and that display name and description fall back one step each.
-func TestOptionsFromConfigFallsBackToAppName(t *testing.T) {
+// TestOptionsFromConfigDoesNotUseAppName 断言服务名不再回退到 app.name：安装器与运行时必须从
+// 同一个来源解析名称，否则会在服务管理器里登记一个名字、运行时又去找另一个。
+// TestOptionsFromConfigDoesNotUseAppName asserts the service name no longer falls back to
+// app.name: the installer and the runtime must resolve the same source, or a service is
+// registered under one name while the process looks for another.
+func TestOptionsFromConfigDoesNotUseAppName(t *testing.T) {
 	cfg := serviceTestConfig(t, "app:\n  name: shop-admin\n")
 
 	got := OptionsFromConfig(cfg)
-	if got.Name != "shop-admin" {
-		t.Errorf("服务名未回退到 app.name: %q", got.Name)
+	if got.Name != "" {
+		t.Errorf("服务名不应回退到 app.name: %q", got.Name)
 	}
-	if got.DisplayName != "shop-admin" {
-		t.Errorf("显示名未回退到服务名: %q", got.DisplayName)
+	if got.DisplayName != "" {
+		t.Errorf("服务名缺省时显示名也应缺省: %q", got.DisplayName)
 	}
-	if got.Description != "shop-admin" {
-		t.Errorf("描述未回退到显示名: %q", got.Description)
+	if got.Description != "" {
+		t.Errorf("服务名缺省时描述也应缺省: %q", got.Description)
 	}
 	if got.Executable != "" || got.RestartOnExit || len(got.Arguments) != 0 {
 		t.Errorf("未配置的字段应为零值: %+v", got)

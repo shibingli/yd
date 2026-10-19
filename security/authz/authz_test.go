@@ -20,9 +20,13 @@ func TestBuiltinVocabularyIsRegistered(t *testing.T) {
 	if len(perms) == 0 || len(roles) == 0 {
 		t.Fatalf("built-in tables are empty: perms=%[1]d roles=%[2]d | 内建表为空：权限 %[1]d 角色 %[2]d", len(perms), len(roles))
 	}
+	// The registry is process-wide, so other tests in this package may legitimately register
+	// additional capabilities. What matters here is that every built-in entry is present, not
+	// that the registry holds nothing else. | 注册表是进程级的，本包其它测试可以合法地注册额外能力；
+	// 这里要证明的是每条内建记录都在，而不是注册表中没有别的东西。
 	got := authz.Permissions()
-	if len(got) != len(perms) {
-		t.Fatalf("registry holds %[1]d permissions, the built-in table has %[2]d | 注册表有 %[1]d 条权限，内建表有 %[2]d 条", len(got), len(perms))
+	if len(got) < len(perms) {
+		t.Fatalf("registry holds %[1]d permissions, fewer than the %[2]d built-ins | 注册表有 %[1]d 条权限，少于 %[2]d 条内建记录", len(got), len(perms))
 	}
 	for _, p := range perms {
 		if !authz.Registered(p.Name) {
@@ -100,8 +104,16 @@ func TestBuiltinVocabularyIsValid(t *testing.T) {
 func TestPermissionsAreSortedAndCopied(t *testing.T) {
 	first := authz.Permissions()
 	second := authz.Permissions()
+	// Permissions() is documented as sorted by group and then by name; a registry that also
+	// contains project-declared capabilities can legitimately break a name-only ordering when a
+	// declaration places a token in an explicit group. | Permissions() 的契约是「先按分组、再按名字」；
+	// 当注册表里还有项目声明的能力时，显式分组会让「仅按名字」的假设失效。
 	if !slices.IsSortedFunc(first, func(a, b authz.Permission) int {
 		switch {
+		case a.Group < b.Group:
+			return -1
+		case a.Group > b.Group:
+			return 1
 		case a.Name < b.Name:
 			return -1
 		case a.Name > b.Name:
@@ -110,7 +122,7 @@ func TestPermissionsAreSortedAndCopied(t *testing.T) {
 			return 0
 		}
 	}) {
-		t.Errorf("Permissions() is not sorted by name: %v", names(first))
+		t.Errorf("Permissions() is not sorted by group then name: %v", names(first))
 	}
 	if !slices.EqualFunc(first, second, func(a, b authz.Permission) bool { return a == b }) {
 		t.Errorf("two calls returned different tables")

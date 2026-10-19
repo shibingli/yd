@@ -235,7 +235,18 @@ func Require(perm string) router.Middleware {
 	if err != nil {
 		logx.Default().Warn("authz: a route is guarded by an unregistered permission, every request is refused | authz：某路由守着未注册的权限，所有请求都会被拒绝",
 			logx.Str("permission", perm))
-		token = perm
+		// Deny unconditionally. Falling back to the raw token would make a typo an allow-list
+		// entry: the auth store accepts arbitrary permission strings, so any role that happens to
+		// contain the misspelled name would open the route. | 无条件拒绝。退回原始标识会让拼写
+		// 错误变成白名单条目：auth 存储接受任意权限字符串，任何恰好含有该错误名称的角色都会
+		// 打开这条路由。
+		unregistered := perm
+		return func(c *router.Ctx) {
+			logx.Default().Warn("authz: refused a request guarded by an unregistered permission | authz：拒绝了守着未注册权限的请求",
+				logx.Str("permission", unregistered))
+			c.Abort()
+			_ = c.JSON(http.StatusForbidden, map[string]string{"error": "forbidden | 禁止访问"})
+		}
 	}
 	return auth.RequirePermission(auth.Permission(token))
 }

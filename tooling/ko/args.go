@@ -73,7 +73,19 @@ func (o Options) Args() []string {
 	for _, platform := range o.platforms() {
 		args = append(args, flagPlatform, platform)
 	}
-	return append(args, o.packages()...)
+	// Terminate flag parsing only when a package path begins with "-": such a value (from config
+	// or a positional argument) must be treated as a package, not as a ko flag. Keeping the
+	// terminator out of the common case preserves the documented argv shape. | 仅当包路径以 "-"
+	// 开头时才终止标志解析：该取值（来自配置或位置参数）必须当作包路径，而不是 ko 的标志。
+	// 常见情形不插入终止符，以保持文档化的 argv 形状。
+	packages := o.packages()
+	for _, p := range packages {
+		if strings.HasPrefix(p, "-") {
+			args = append(args, "--")
+			break
+		}
+	}
+	return append(args, packages...)
 }
 
 // tags returns the normalized tags of the run. | tags 返回本次运行归一化后的标签。

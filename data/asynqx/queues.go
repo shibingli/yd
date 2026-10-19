@@ -60,9 +60,12 @@ func ParseQueues(s string) (map[string]int, error) {
 
 // ExponentialBackoff returns an asynq retry-delay policy that doubles the delay per retry. | ExponentialBackoff 返回按重试次数逐次翻倍的 asynq 重试延迟策略。
 //
-// The delay of the n-th retry is base * 2^(n-1), plus a jitter of up to 10% so a batch of | 第 n 次重试的延迟为 base * 2^(n-1)，再叠加不超过其 10% 的抖动，
-// tasks that failed together does not wake up together; retry counts <= 0 are treated as the | 避免同时失败的一批任务在同一瞬间齐刷刷重试；n <= 0 按首次重试处理。
-// first retry.
+// asynq passes the zero-based retried count, so the first retry (n=0) waits base and the second
+// (n=1) waits 2*base. The delay is base * 2^n, plus a jitter of up to 10% so a batch of tasks that
+// failed together does not wake up together; a negative count is treated as the first retry.
+// | asynq 传入的是从 0 开始的重试计数，因此第一次重试（n=0）等待 base，第二次（n=1）等待 2*base。
+// 延迟为 base * 2^n，再叠加不超过其 10% 的抖动，避免同时失败的一批任务在同一瞬间齐刷刷重试；
+// 负数按首次重试处理。
 //
 // The jitter never pushes a delay past max and every capped step is exactly max, so the delay | 抖动不会把延迟推过 max，且封顶档恒为 max 本身，因此延迟随重试次数单调不减，
 // grows monotonically with the retry count and an operator can predict the retry schedule. | 运维可以据此推断重试节奏。
@@ -79,7 +82,10 @@ func ExponentialBackoff(base, max time.Duration) func(int, error, *asynq.Task) t
 			ceil = time.Duration(math.MaxInt64)
 		}
 		delay := min(base, ceil)
-		for i := 1; i < n && delay < ceil; i++ {
+		if n < 0 {
+			n = 0
+		}
+		for i := 0; i < n && delay < ceil; i++ {
 			if delay > ceil-delay {
 				// Doubling again would pass the cap: clamp instead of overflowing. | 再翻一倍就会越过上限：直接封顶，避免乘法溢出。
 				delay = ceil

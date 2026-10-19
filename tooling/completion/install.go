@@ -127,6 +127,11 @@ func Resolve(req Request) (Plan, error) {
 	if base == "" {
 		base = home
 	}
+	// A relative --dir would make the rc load line relative, and an rc file is later read from the
+	// home directory, not from the project, so completion would silently never load. | 相对的
+	// --dir 会让 rc 加载行也变成相对路径，而 rc 文件之后是在主目录而不是项目目录读取的，导致补全
+	// 静默失效。
+	base = absoluteForGOOS(base, req.GOOS)
 	script := filepath.Join(base, ".yd", det.Shell.FileName())
 	return Plan{
 		Detection:  det,
@@ -161,17 +166,82 @@ func resolveShell(req Request, getenv func(string) string) (Detection, error) {
 // --append-rc 不会被悄悄忽略的原因。
 func resolveHome(req Request, getenv func(string) string) (string, error) {
 	if home := strings.TrimSpace(req.Home); home != "" {
-		return home, nil
+		return absoluteForGOOS(home, req.GOOS), nil
 	}
-	for _, name := range []string{"HOME", "USERPROFILE"} {
+	// On Windows USERPROFILE is the native variable; HOME is usually set by Git Bash or Cygwin to
+	// an MSYS path (/c/Users/...) that native Windows APIs do not understand. Prefer the native
+	// variable there, and convert the POSIX form when it is the only one available. On POSIX the
+	// order stays HOME first. | Windows 上 USERPROFILE 是原生变量；HOME 通常由 Git Bash 或 Cygwin
+	// 设为 MSYS 路径（/c/Users/...），原生 Windows API 不认识。因此在 Windows 上优先原生变量，
+	// 只有它缺失时才转换 POSIX 形式；POSIX 平台仍以 HOME 优先。
+	names := []string{"HOME", "USERPROFILE"}
+	if req.GOOS == "windows" {
+		names = []string{"USERPROFILE", "HOME"}
+	}
+	for _, name := range names {
 		if home := strings.TrimSpace(getenv(name)); home != "" {
-			return home, nil
+			return absoluteForGOOS(home, req.GOOS), nil
 		}
 	}
 	if home, err := os.UserHomeDir(); err == nil && strings.TrimSpace(home) != "" {
-		return home, nil
+		return absoluteForGOOS(home, req.GOOS), nil
 	}
 	return "", errx.Detail(ErrNoHomeDir, "set HOME (or USERPROFILE on Windows) | 请设置 HOME（Windows 上为 USERPROFILE）")
+}
+
+// absoluteForGOOS turns a home or --dir value into an absolute path for the target platform. |
+// absoluteForGOOS 把主目录或 --dir 取值转换为目标平台上的绝对路径。
+//
+// The conversion is platform-directed rather than host-directed: completion may be inspected for a
+// platform other than the one running the test, and a POSIX absolute path must stay absolute on
+// Windows so the reported load line matches the shell that will read it. MSYS and Cygwin drive
+// forms are converted on Windows because native APIs reject them. | 转换按目标平台而不是宿主平台进行：
+// 补全可能针对与测试宿主机不同的平台进行检查，而 POSIX 绝对路径在 Windows 上也必须保持绝对，报告出的加载行
+// 才能被真正读取它的 shell 使用。MSYS 与 Cygwin 的盘符形式在 Windows 上会被转换，因为原生 API 拒绝它们。
+func absoluteForGOOS(p, goos string) string {
+	p = nativePathForGOOS(strings.TrimSpace(p), goos)
+	if p == "" || isAbsoluteForGOOS(p, goos) {
+		return p
+	}
+	if abs, err := filepath.Abs(p); err == nil {
+		return abs
+	}
+	return p
+}
+
+// nativePathForGOOS converts an MSYS/Cygwin drive path to Windows syntax when goos is windows. |
+// nativePathForGOOS 在 goos 为 windows 时把 MSYS/Cygwin 盘符路径转换为 Windows 语法。
+//
+//	/c/Users/alice          -> C:/Users/alice
+//	/cygdrive/d/work        -> D:/work
+func nativePathForGOOS(p, goos string) string {
+	if goos != "windows" || p == "" {
+		return p
+	}
+	if len(p) >= 3 && p[0] == '/' && isASCIILetter(p[1]) && p[2] == '/' {
+		return strings.ToUpper(p[1:2]) + ":/" + p[3:]
+	}
+	const cygdrive = "/cygdrive/"
+	if len(p) > len(cygdrive)+1 && strings.EqualFold(p[:len(cygdrive)], cygdrive) &&
+		isASCIILetter(p[len(cygdrive)]) && p[len(cygdrive)+1] == '/' {
+		return strings.ToUpper(p[len(cygdrive):len(cygdrive)+1]) + ":/" + p[len(cygdrive)+2:]
+	}
+	return p
+}
+
+// isAbsoluteForGOOS reports whether p is absolute on the target platform. | isAbsoluteForGOOS 报告 p
+// 在目标平台上是否为绝对路径。
+func isAbsoluteForGOOS(p, goos string) bool {
+	if goos == "windows" {
+		return filepath.IsAbs(p) || strings.HasPrefix(p, "/") || strings.HasPrefix(p, `\`) ||
+			(len(p) >= 2 && p[1] == ':')
+	}
+	return strings.HasPrefix(p, "/")
+}
+
+// isASCIILetter reports whether b is an ASCII letter. | isASCIILetter 报告 b 是否为 ASCII 字母。
+func isASCIILetter(b byte) bool {
+	return b >= 'a' && b <= 'z' || b >= 'A' && b <= 'Z'
 }
 
 // Install writes the script and, only when asked, appends the loading line to the startup file. | Install

@@ -158,7 +158,35 @@ func presetMySQLDSN(dsn string) string {
 		query, hasQuery = dsn[q+1:], true
 	}
 	keys := queryKeys(query, true)
-	return appendQueryDSN(dsn, hasQuery, missingParams(mysqlPresetParams, keys, true))
+	_, hasCharset := keys["charset"]
+	_, hasCollation := keys["collation"]
+	missing := missingParams(mysqlPresetParams, keys, true)
+	if hasCharset != hasCollation {
+		// charset and collation form one SET NAMES statement. Pairing an explicit latin1 charset
+		// with the preset utf8mb4_unicode_ci collation (or the reverse) makes MySQL reject every
+		// connection with error 1253. A utf8mb4 half is compatible with the preset, so only an
+		// explicit non-utf8mb4 value suppresses the other preset. | charset 与 collation 组成同一条
+		// SET NAMES 语句。把显式的 latin1 与预置的 utf8mb4_unicode_ci 配在一起（或反过来）会让
+		// MySQL 以 1253 拒绝每条连接。utf8mb4 的一半与预置兼容，因此只有显式的非 utf8mb4 取值才
+		// 会压掉另一半预置。
+		compatible := false
+		if hasCharset {
+			compatible = strings.EqualFold(queryValue(query, "charset"), "utf8mb4")
+		} else {
+			compatible = strings.HasPrefix(strings.ToLower(queryValue(query, "collation")), "utf8mb4")
+		}
+		if !compatible {
+			filtered := missing[:0]
+			for _, p := range missing {
+				if p.key == "charset" || p.key == "collation" {
+					continue
+				}
+				filtered = append(filtered, p)
+			}
+			missing = filtered
+		}
+	}
+	return appendQueryDSN(dsn, hasQuery, missing)
 }
 
 // presetPostgresDSN appends the PostgreSQL defaults to either DSN form the driver accepts. | presetPostgresDSN
@@ -254,6 +282,22 @@ func isPostgresURL(dsn string) bool {
 // collected names so a caller can compare them case-insensitively. | 参数名不做百分号解码：
 // 比对只关心本层预置的纯 ASCII 参数名，解码只会让参数之间的边界变得含糊。fold 为 true 时把收集到的
 // 参数名统一小写，便于按不区分大小写比对。
+// queryValue returns the first value of name in a query string, percent-decoded and lowercased.
+// | queryValue 返回查询串中 name 的第一个取值，已百分号解码并转为小写。
+func queryValue(query, name string) string {
+	for _, pair := range strings.Split(query, "&") {
+		key, value, ok := strings.Cut(pair, "=")
+		if !ok || !strings.EqualFold(strings.TrimSpace(key), name) {
+			continue
+		}
+		if decoded, err := url.QueryUnescape(value); err == nil {
+			value = decoded
+		}
+		return strings.ToLower(strings.TrimSpace(value))
+	}
+	return ""
+}
+
 func queryKeys(query string, fold bool) map[string]struct{} {
 	keys := make(map[string]struct{})
 	for _, pair := range strings.Split(query, "&") {

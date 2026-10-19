@@ -39,8 +39,8 @@ func TestHtmxAttrsEscapesValues(t *testing.T) {
 		},
 		{
 			name: "colon modifier",
-			kv:   []any{"on:click", "doIt()"},
-			want: `hx-on:click="doIt()"`,
+			kv:   []any{"target:foo", "body"},
+			want: `hx-target:foo="body"`,
 		},
 	}
 	for _, tc := range tests {
@@ -64,7 +64,9 @@ func TestHtmxAttrsRejectsBadInput(t *testing.T) {
 	if _, err := htmxAttrs(1, "x"); !errors.Is(err, ErrHtmxKeyNotString) {
 		t.Errorf("非字符串键错误 = %v, 期望 ErrHtmxKeyNotString", err)
 	}
-	for _, key := range []string{`a"b`, "a b", "a=b", "a/b", "a<b", ""} {
+	// Executable JavaScript attributes are rejected: HTML escaping is not JS escaping. | 可执行
+	// JavaScript 的属性一律拒绝：HTML 转义不是 JS 转义。
+	for _, key := range []string{`a"b`, "a b", "a=b", "a/b", "a<b", "", "on:click", "hx-on:click", "onclick"} {
 		_, err := htmxAttrs(key, "x")
 		if !errors.Is(err, ErrHtmxInvalidKey) {
 			t.Errorf("键 %q 错误 = %v, 期望 ErrHtmxInvalidKey", key, err)

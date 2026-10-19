@@ -505,6 +505,21 @@ func (r *DevRunner) serveReload(w http.ResponseWriter, req *http.Request) {
 	}
 }
 
+// devBuildArgs returns the go build argv of the development build. | devBuildArgs 返回开发构建的 go build argv。
+//
+// A freshly scaffolded project has no go.sum yet; without -mod=mod the first build fails on every
+// third-party import with "missing go.sum entry" instead of resolving once and writing go.sum, which
+// is exactly what the quickstart does after `yd new`. | 新生成的脚手架项目还没有 go.sum；不加 -mod=mod 时，
+// 首次构建会在每个第三方导入上以 missing go.sum entry 失败，而不是解析一次并写出 go.sum——而这正是
+// `yd new` 之后快速开始的路径。
+func devBuildArgs(dir, out, pkg string) []string {
+	args := []string{"build"}
+	if info, err := os.Stat(filepath.Join(dir, "go.sum")); err != nil || info.IsDir() {
+		args = append(args, "-mod=mod")
+	}
+	return append(args, "-o", out, pkg)
+}
+
 // defaultBuild compiles the application into bin/.dev-app[.exe]. | defaultBuild 把应用编译到 bin/.dev-app[.exe]。
 func defaultBuild(ctx context.Context, o DevOptions) (string, error) {
 	pkg := o.Package
@@ -516,7 +531,7 @@ func defaultBuild(ctx context.Context, o DevOptions) (string, error) {
 		return "", errx.WrapDetail(err, ErrBuildFailed, "create %s | 创建 %s", filepath.Dir(out), filepath.Dir(out))
 	}
 	var buf tailBuffer
-	cmd := newCommand(ctx, "go", "build", "-o", out, pkg)
+	cmd := newCommand(ctx, "go", devBuildArgs(o.Dir, out, pkg)...)
 	cmd.Dir = o.Dir
 	cmd.Stdout = &buf
 	cmd.Stderr = &buf

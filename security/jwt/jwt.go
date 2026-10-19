@@ -79,6 +79,8 @@ var (
 	ErrMalformed = errx.New("jwt: malformed token | jwt：令牌格式非法")
 	// ErrSignatureInvalid reports that the signature did not verify, or that the key family does not match the algorithm. | ErrSignatureInvalid 表示签名校验未通过，或密钥族与算法不匹配。
 	ErrSignatureInvalid = errx.New("jwt: invalid signature | jwt：签名校验失败")
+	// ErrWeakKey reports an HMAC secret shorter than the algorithm's hash output (RFC 7518 §3.2). | ErrWeakKey 表示 HMAC 密钥短于算法哈希输出（RFC 7518 §3.2）。
+	ErrWeakKey = errx.New("jwt: HMAC key is too short | jwt：HMAC 密钥过短")
 	// ErrTokenExpired reports an exp claim in the past, beyond the leeway. | ErrTokenExpired 表示 exp 声明位于过去，且超出容差。
 	ErrTokenExpired = errx.New("jwt: token expired | jwt：令牌已过期")
 	// ErrTokenNotValidYet reports an nbf claim in the future, beyond the leeway. | ErrTokenNotValidYet 表示 nbf 声明位于未来，且超出容差。

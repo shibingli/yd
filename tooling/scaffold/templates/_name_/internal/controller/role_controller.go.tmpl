@@ -11,6 +11,7 @@ import (
 	"net/http"
 
 	"{{ .Module }}/internal/model"
+	"{{ .YdModule }}/security/auth"
 	"{{ .YdModule }}/core/logx"
 	"{{ .YdModule }}/http/router"
 )
@@ -66,6 +67,14 @@ func (c *Controller) SaveRole(ctx *router.Ctx) {
 	for _, key := range formValues(ctx, FieldPermission) {
 		perms = append(perms, model.Permission(key))
 	}
+	// Anti-escalation: an administrator may write only capabilities it already holds. Without this
+	// an admin could grant itself tenant:delete or permission:manage, which the registry
+	// deliberately withholds. | 防越权：管理员只能写入自己已持有的能力。缺少这道检查时，管理员
+	// 可以给自己授予注册表刻意保留的 tenant:delete 或 permission:manage。
+	if !c.actorHoldsAll(ctx, perms) {
+		c.failService(ctx, auth.ErrForbidden)
+		return
+	}
 
 	saved, err := c.roles.Save(ctx.Request.Context(), tenantID, field(ctx, FieldName), field(ctx, FieldDescription), perms)
 	if err != nil {
@@ -109,6 +118,19 @@ func (c *Controller) ToggleRolePermission(ctx *router.Ctx) {
 	permission := model.Permission(field(ctx, FieldPermission))
 	granted := field(ctx, FieldGranted) == "true"
 
+	current, err := c.roles.Get(ctx.Request.Context(), tenantID, roleID)
+	if err != nil {
+		c.failService(ctx, err)
+		return
+	}
+	// The actor must already hold every capability the role carries (so it cannot edit an
+	// owner-level role) and, when granting, the capability itself. | 管理员必须已经持有该角色的
+	// 全部能力（因此改不了所有者级角色），授予时还必须持有被授予的那一项。
+	if !c.actorHoldsAll(ctx, current.Permissions) || (granted && !c.actorHoldsAll(ctx, []model.Permission{permission})) {
+		c.failService(ctx, auth.ErrForbidden)
+		return
+	}
+
 	role, err := c.roles.Toggle(ctx.Request.Context(), tenantID, roleID, permission, granted)
 	if err != nil {
 		c.failService(ctx, err)
@@ -147,6 +169,17 @@ func (c *Controller) DeleteRole(ctx *router.Ctx) {
 		return
 	}
 	roleID := ctx.Param("id")
+	current, err := c.roles.Get(ctx.Request.Context(), tenantID, roleID)
+	if err != nil {
+		c.failService(ctx, err)
+		return
+	}
+	// A role carrying capabilities the actor does not hold is above its authority. | 携带管理员未持有
+	// 能力的角色在管理员的权限之上。
+	if !c.actorHoldsAll(ctx, current.Permissions) {
+		c.failService(ctx, auth.ErrForbidden)
+		return
+	}
 
 	if err := c.roles.Delete(ctx.Request.Context(), tenantID, roleID); err != nil {
 		c.failService(ctx, err)

@@ -29,8 +29,11 @@ func renderViewer(d *Document, o Options) ([]byte, error) {
 // can share one encoding between the JSON endpoint and the page. | renderViewerWithJSON 使用已
 // 序列化的文档渲染查看器，使处理器能在 JSON 端点与页面之间共用一次编码。
 func renderViewerWithJSON(doc Document, o Options, raw []byte) ([]byte, error) {
-	page := strings.Replace(viewerTemplate, viewerTitlePlaceholder, html.EscapeString(o.title(doc.Info)), 1)
-	page = strings.Replace(page, viewerDataPlaceholder, escapeJSONForScript(raw), 1)
+	// Insert the data first: a title containing the data placeholder would otherwise capture the
+	// replacement and leave the script island holding the literal placeholder. | 先插入数据：
+	// 否则包含数据占位符的标题会截获替换，让脚本岛里只剩字面占位符。
+	page := strings.Replace(viewerTemplate, viewerDataPlaceholder, escapeJSONForScript(raw), 1)
+	page = strings.Replace(page, viewerTitlePlaceholder, html.EscapeString(o.title(doc.Info)), 1)
 	return []byte(page), nil
 }
 
@@ -41,10 +44,16 @@ func renderViewerWithJSON(doc Document, o Options, raw []byte) ([]byte, error) {
 // so entities would be parsed literally and corrupt string values. | 替换使用 JSON 的 Unicode
 // 转义而不是 HTML 实体：script 元素是原始文本，实体会被原样解析并破坏字符串内容。
 func escapeJSONForScript(raw []byte) string {
+	// The operands must be the JSON escape sequences, not the characters themselves; replacing a
+	// character with itself is a no-op and leaves "</script>" able to terminate the element.
+	// | 替换目标必须是 JSON 转义序列，而不是字符本身；把字符替换成它自己是空操作，会让
+	// "</script>" 继续终止脚本元素。
 	s := string(raw)
-	s = strings.ReplaceAll(s, "<", `<`)
-	s = strings.ReplaceAll(s, ">", `>`)
-	s = strings.ReplaceAll(s, "&", `&`)
+	s = strings.ReplaceAll(s, "<", `\u003c`)
+	s = strings.ReplaceAll(s, ">", `\u003e`)
+	s = strings.ReplaceAll(s, "&", `\u0026`)
+	s = strings.ReplaceAll(s, "\u2028", `\u2028`)
+	s = strings.ReplaceAll(s, "\u2029", `\u2029`)
 	return s
 }
 

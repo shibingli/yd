@@ -3,6 +3,7 @@ package versions
 import (
 	"context"
 	"errors"
+	"io"
 	"net/http"
 	"strconv"
 	"strings"
@@ -100,7 +101,10 @@ func ResolveLatest(ctx context.Context, client Doer, pkg, current string) (strin
 		DistTags map[string]string   `json:"dist-tags"`
 		Versions map[string]struct{} `json:"versions"`
 	}
-	if err := jsonx.NewDecoder(resp.Body).Decode(&body); err != nil {
+	// Cap the registry response: a broken or hostile registry must not be able to make the tool
+	// buffer an arbitrarily large metadata document. | 限制 registry 响应体积：损坏或恶意的 registry
+	// 不得让工具缓冲任意大的元数据文档。
+	if err := jsonx.NewDecoder(io.LimitReader(resp.Body, 8<<20)).Decode(&body); err != nil {
 		return "", errx.WrapDetail(err, ErrRegistry, "package %[1]q | 包 %[1]q", pkg)
 	}
 	best := current
@@ -110,7 +114,10 @@ func ResolveLatest(ctx context.Context, client Doer, pkg, current string) (strin
 		if !ok || sv.major != cur.major || sv.pre != "" {
 			continue // only stable releases on the current major track | 只看当前大版本上的稳定发布
 		}
-		if compareSemver(sv, bestSV) > 0 {
+		if cmp := compareSemver(sv, bestSV); cmp > 0 || (cmp == 0 && raw < best) {
+			// The lexical tie-break makes an equal-semver pair ("4.1.0" vs "v4.1.0") resolve the
+			// same way on every run instead of depending on map iteration order. | 同版本的不同
+			// 拼写（"4.1.0" 与 "v4.1.0"）用字典序决胜，使每次运行结果一致，而不是取决于 map 遍历顺序。
 			best, bestSV = raw, sv
 		}
 	}

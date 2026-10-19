@@ -91,6 +91,7 @@ func devOptions(env *Env, fs *pflag.FlagSet) toolchain.DevOptions {
 	}
 	return toolchain.DevOptions{
 		Dir:                  env.WorkDir,
+		Package:              projectEntry(env, env.WorkDir),
 		Port:                 devPort(env, fs),
 		TailwindBin:          flagString(fs, flagDevTailwindBin),
 		TailwindConfigBin:    configString(env, keyDevTailwindBin),

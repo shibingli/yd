@@ -177,8 +177,6 @@ func TestNewOS(t *testing.T) {
 				if _, ok := fsys.(*afero.OsFs); !ok {
 					t.Fatalf("NewOS(%q) 应返回 *afero.OsFs，实际为 %T", tc.root, fsys)
 				}
-			} else if _, ok := fsys.(*afero.BasePathFs); !ok {
-				t.Fatalf("NewOS(%q) 应返回 *afero.BasePathFs，实际为 %T", tc.root, fsys)
 			}
 
 			writeFile(t, fsys, tc.fsPath, []byte(tc.content))
@@ -194,6 +192,57 @@ func TestNewOS(t *testing.T) {
 				t.Fatalf("经 afs 读回 %s = %q, want %q", tc.fsPath, got, tc.content)
 			}
 		})
+	}
+}
+
+// TestNewOSConfinesSiblingPrefixEscape proves the confinement is separator-aware: a sibling whose
+// name shares the root's prefix ("app" versus "app2") is not reachable through "..", while an
+// absolute path inside the root still works. | TestNewOSConfinesSiblingPrefixEscape 证明约束是
+// 分隔符感知的：与根共享前缀的兄弟目录（"app" 与 "app2"）无法经 ".." 到达，而根内的绝对路径仍可用。
+func TestNewOSConfinesSiblingPrefixEscape(t *testing.T) {
+	parent := t.TempDir()
+	root := filepath.Join(parent, "app")
+	sibling := filepath.Join(parent, "app2")
+	for _, dir := range []string{root, sibling} {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatalf("MkdirAll(%q) 失败 | failed: %v", dir, err)
+		}
+	}
+	secret := filepath.Join(sibling, "secret.txt")
+	if err := os.WriteFile(secret, []byte("secret"), 0o644); err != nil {
+		t.Fatalf("WriteFile(%q) 失败 | failed: %v", secret, err)
+	}
+	fsys := afs.NewOS(root)
+
+	for _, name := range []string{
+		filepath.Join("..", "app2", "secret.txt"),
+		"a/../../app2/secret.txt",
+	} {
+		if _, err := afero.ReadFile(fsys, name); err == nil {
+			t.Errorf("NewOS(%q) 经 %q 读到了根外文件 | escaped the root through %q", root, name, name)
+		}
+	}
+	if _, err := afero.ReadFile(fsys, secret); err == nil {
+		t.Errorf("NewOS(%q) 通过绝对路径读到了根外文件 | read outside the root by absolute path", root)
+	}
+
+	inside := filepath.Join(root, "inside.txt")
+	if err := os.WriteFile(inside, []byte("inside"), 0o644); err != nil {
+		t.Fatalf("WriteFile(%q) 失败 | failed: %v", inside, err)
+	}
+	if _, err := afero.ReadFile(fsys, inside); err != nil {
+		t.Errorf("根内绝对路径应可读 | an absolute path inside the root must work: %v", err)
+	}
+}
+
+// TestNewOSDotRootServesCurrentDirectory is the regression for afero.BasePathFs treating "." as a
+// prefix: every relative lookup failed, so NewOS(".") could not serve the working directory. |
+// TestNewOSDotRootServesCurrentDirectory 是 afero.BasePathFs 把 "." 当字符串前缀的回归：所有相对
+// 查找都失败，导致 NewOS(".") 无法服务当前工作目录。
+func TestNewOSDotRootServesCurrentDirectory(t *testing.T) {
+	fsys := afs.NewOS(".")
+	if _, err := fsys.Stat("."); err != nil {
+		t.Fatalf("NewOS(\".\") 无法 Stat 当前目录 | cannot stat the current directory: %v", err)
 	}
 }
 
@@ -544,6 +593,24 @@ func TestWriteFileIfChangedSkipsIdentical(t *testing.T) {
 			}
 		}
 	})
+
+	t.Run("写入后不残留临时文件", func(t *testing.T) {
+		fsys := afs.NewMem()
+		for _, p := range []string{"/x/y.txt", "/x/z.txt"} {
+			if _, err := afs.WriteFileIfChanged(fsys, p, []byte("v")); err != nil {
+				t.Fatalf("WriteFileIfChanged(%q) 失败: %v", p, err)
+			}
+		}
+		entries, err := afero.ReadDir(fsys, "/x")
+		if err != nil {
+			t.Fatalf("ReadDir 失败: %v", err)
+		}
+		for _, e := range entries {
+			if strings.HasPrefix(e.Name(), ".yd-write-") {
+				t.Fatalf("临时文件 %q 未被清理 | temporary file %q was left behind", e.Name(), e.Name())
+			}
+		}
+	})
 }
 
 // TestSha256FileMatchesCrypto table-drives a cross-check against crypto/sha256 and verifies the case and the error path. | TestSha256FileMatchesCrypto 表驱动对拍 crypto/sha256，并校验大小写与错误路径。
@@ -605,5 +672,57 @@ func assertSha256(t *testing.T, fsys afs.FS, path, want string) {
 	}
 	if strings.ToLower(got) != got {
 		t.Fatalf("摘要应为小写十六进制，实际 %s", got)
+	}
+}
+
+// TestWalkOverCopyOnWriteEmbed is the regression for afero.Walk over a wrapper whose base is an
+// io/fs backend: nested names must stay slash-separated or the embedded layer becomes invisible on
+// Windows. | TestWalkOverCopyOnWriteEmbed 是「afero.Walk 遍历底层为 io/fs 的包装器」的回归：嵌套名
+// 必须保持斜杠分隔，否则内嵌层在 Windows 上会不可见。
+func TestWalkOverCopyOnWriteEmbed(t *testing.T) {
+	base := afs.NewEmbed(fstest.MapFS{
+		"templates/base.html": &fstest.MapFile{Data: []byte("base")},
+	})
+	fsys := afero.NewCopyOnWriteFs(base, afs.NewMem())
+
+	var files []string
+	err := afs.Walk(fsys, "templates", func(p string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+		if !info.IsDir() {
+			files = append(files, p)
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("Walk 失败 | failed: %v", err)
+	}
+	if !slices.Equal(files, []string{"templates/base.html"}) {
+		t.Fatalf("文件 = %v，期望 [templates/base.html] | files = %v", files, files)
+	}
+}
+
+// TestWriteFileIfChangedOverBasePath is the regression for deriving the temporary name from
+// File.Name(): BasePathFs strips the root but leaves a leading separator, which an absolute-name
+// check then mistakes for a path outside the root on Linux. | TestWriteFileIfChangedOverBasePath 是
+// 「从 File.Name() 取临时文件名」的回归：BasePathFs 去掉根前缀却留下前导分隔符，绝对路径检查会把它
+// 误判为根外路径（Linux 上尤为明显）。
+func TestWriteFileIfChangedOverBasePath(t *testing.T) {
+	base := afero.NewMemMapFs()
+	fsys := afero.NewBasePathFs(base, "/root")
+	if err := fsys.MkdirAll("pkg", 0o755); err != nil {
+		t.Fatalf("MkdirAll 失败 | failed: %v", err)
+	}
+	changed, err := afs.WriteFileIfChanged(fsys, "pkg/x.txt", []byte("content"))
+	if err != nil {
+		t.Fatalf("WriteFileIfChanged 失败 | failed: %v", err)
+	}
+	if !changed {
+		t.Fatal("首次写入应返回 changed=true | the first write must report a change")
+	}
+	got, err := afero.ReadFile(base, "/root/pkg/x.txt")
+	if err != nil || string(got) != "content" {
+		t.Fatalf("内容 = %q, err = %v | content/error", got, err)
 	}
 }

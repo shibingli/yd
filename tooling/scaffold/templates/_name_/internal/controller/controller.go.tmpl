@@ -190,6 +190,96 @@ func (c *Controller) Issuer() *auth.TokenIssuer { return c.auth.Issuer() }
 // 使请求的主体恰好就是 auth.Middleware 校验过的那个用户。
 func (c *Controller) Auth() *auth.Service { return c.store.Auth() }
 
+// actorPermissions returns the permissions of the signed-in user. | actorPermissions 返回当前登录用户的权限集合。
+func (c *Controller) actorPermissions(ctx *router.Ctx) map[model.Permission]struct{} {
+	user, ok := auth.CurrentUser(ctx)
+	if !ok || user == nil {
+		return nil
+	}
+	held := make(map[model.Permission]struct{})
+	for _, p := range c.auth.Permissions(user) {
+		held[p] = struct{}{}
+	}
+	return held
+}
+
+// actorHoldsAll reports whether the signed-in user holds every wanted capability. | actorHoldsAll
+// 报告当前登录用户是否持有全部所需能力。
+//
+// This is the anti-escalation gate: an administrator may hand out only what it already holds, so
+// the deliberately withheld owner-only capabilities cannot be granted by their holder. | 这是防越权
+// 闸门：管理员只能分发自己已经持有的能力，因此刻意保留给所有者、管理员并不持有的能力无法由
+// 管理员授出。
+func (c *Controller) actorHoldsAll(ctx *router.Ctx, wanted []model.Permission) bool {
+	held := c.actorPermissions(ctx)
+	if held == nil {
+		return false
+	}
+	for _, p := range wanted {
+		if _, ok := held[p]; !ok {
+			return false
+		}
+	}
+	return true
+}
+
+// userPermissions returns the union of the permissions granted by a user's roles. | userPermissions
+// 返回某个用户全部角色所授予的权限并集。
+func (c *Controller) userPermissions(ctx *router.Ctx, tenantID, userID string) ([]model.Permission, error) {
+	user, err := c.users.Get(ctx.Request.Context(), tenantID, userID)
+	if err != nil {
+		return nil, err
+	}
+	roles, err := c.roles.List(ctx.Request.Context(), tenantID)
+	if err != nil {
+		return nil, err
+	}
+	byName := make(map[string]model.Role, len(roles))
+	for _, role := range roles {
+		byName[strings.ToLower(role.Name)] = role
+	}
+	seen := make(map[model.Permission]struct{})
+	out := make([]model.Permission, 0, len(user.Roles))
+	for _, name := range user.Roles {
+		role, ok := byName[strings.ToLower(name)]
+		if !ok {
+			continue
+		}
+		for _, p := range role.Permissions {
+			if _, dup := seen[p]; dup {
+				continue
+			}
+			seen[p] = struct{}{}
+			out = append(out, p)
+		}
+	}
+	return out, nil
+}
+
+// canManageUser reports whether the actor may change a user: it must hold every capability the
+// target currently has. Otherwise an admin could reset the owner's password and sign in as them.
+// | canManageUser 报告管理员能否修改某个用户：它必须持有目标当前的全部能力，否则管理员可以
+// 重置所有者口令并以其身份登录。
+func (c *Controller) canManageUser(ctx *router.Ctx, tenantID, userID string) bool {
+	current, err := c.userPermissions(ctx, tenantID, userID)
+	if err != nil {
+		return false
+	}
+	return c.actorHoldsAll(ctx, current)
+}
+
+// generatedTenantID returns the tenant resolved by middleware.Tenant for this request. Generated
+// CRUD controllers call it before every repository operation, so a generated module inherits the
+// same tenant boundary as the hand-written ones. | generatedTenantID 返回 middleware.Tenant 为本请求
+// 解析出的租户。生成的 CRUD 控制器在每次仓储操作前调用它，使生成模块继承与手写模块相同的租户边界。
+func generatedTenantID(c *router.Ctx) (string, bool) {
+	if id, ok := middleware.TenantID(c); ok {
+		return id, true
+	}
+	_ = c.HTMLString(http.StatusForbidden, string(htmx.ErrorFragment("forbidden | 禁止访问")))
+	return "", false
+}
+
 // PublicKey returns the hexadecimal SM2 public key. | PublicKey 返回 SM2 公钥的十六进制形式。
 func (c *Controller) PublicKey() string { return c.auth.PublicKeyHex() }
 

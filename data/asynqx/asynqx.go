@@ -211,6 +211,13 @@ type Server struct {
 
 	srv *asynq.Server
 
+	// baseCtx is the parent of every task handler context; cancelling it before Shutdown lets
+	// in-flight handlers observe the shutdown immediately instead of after the grace period.
+	// | baseCtx 是每个任务处理器上下文的父级；在 Shutdown 前取消它，使在途处理器立即感知退出，
+	// 而不是等宽限期结束。
+	baseCtx    context.Context
+	baseCancel context.CancelFunc
+
 	opt Options
 
 	mu      sync.Mutex
@@ -250,6 +257,7 @@ func (s *Server) Start() error {
 		return err
 	}
 
+	baseCtx, baseCancel := context.WithCancel(context.Background())
 	cfg := asynq.Config{
 		Concurrency:     s.opt.Concurrency,
 		Queues:          queueWeights(s.opt.Queues),
@@ -257,18 +265,23 @@ func (s *Server) Start() error {
 		ShutdownTimeout: s.opt.ShutdownTimeout,
 		RetryDelayFunc:  s.opt.RetryDelayFunc,
 		Logger:          asynqLogger{l: s.log.Named("asynq")},
+		BaseContext:     func() context.Context { return baseCtx },
 	}
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.started {
+		baseCancel()
 		return errx.Detail(ErrServerStartFailed, "%s", "already started | 服务端已启动")
 	}
 	srv := asynq.NewServer(rc, cfg)
 	if err := srv.Start(s); err != nil {
+		baseCancel()
 		return errx.Wrap(err, ErrServerStartFailed)
 	}
 	s.srv = srv
+	s.baseCtx = baseCtx
+	s.baseCancel = baseCancel
 	s.started = true
 	return nil
 }
@@ -281,9 +294,16 @@ func (s *Server) Start() error {
 func (s *Server) Shutdown() {
 	s.mu.Lock()
 	srv := s.srv
+	cancel := s.baseCancel
 	s.mu.Unlock()
 	if srv == nil {
 		return
+	}
+	// Cancel handler contexts first: asynq's Shutdown waits for in-flight handlers, and a handler
+	// that checks ctx should stop now rather than at the grace-period deadline. | 先取消处理器上下文：
+	// asynq 的 Shutdown 会等待在途处理器，检查 ctx 的处理器应当现在停止，而不是等到宽限期结束。
+	if cancel != nil {
+		cancel()
 	}
 	srv.Shutdown()
 }

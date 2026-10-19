@@ -207,9 +207,9 @@ func TestTriggerSingleAndJSON(t *testing.T) {
 			want:   `{"b":2,"a":"x"}`,
 		},
 		{
-			name:   "同名事件互不覆盖",
+			name:   "同名事件合并为唯一键",
 			events: []Event{{Name: "evt", Detail: 1}, {Name: "evt", Detail: 2}},
-			want:   `{"evt":1,"evt":2}`,
+			want:   `{"evt":2}`,
 		},
 		{
 			name:   "不可编码的负载退化为 null",

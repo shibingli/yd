@@ -225,8 +225,19 @@ func TestPresetDSNKeepsExplicitParameters(t *testing.T) {
 			driver:    gormx.DriverMySQL,
 			dsn:       "root:root@tcp(127.0.0.1:3306)/yd?charset=latin1",
 			want:      "root:root@tcp(127.0.0.1:3306)/yd?charset=latin1",
-			absent:    []string{"charset=utf8mb4"},
+			absent:    []string{"charset=utf8mb4", "collation=utf8mb4_unicode_ci"},
 			keyCounts: map[string]int{"charset=": 1},
+		},
+		{
+			// An explicit collation must not be paired with the preset charset either: MySQL
+			// rejects the resulting SET NAMES with error 1253. | 显式 collation 同样不得与预置
+			// charset 配对：MySQL 会以 1253 拒绝由此生成的 SET NAMES。
+			name:      "mysql-collation-explicit",
+			driver:    gormx.DriverMySQL,
+			dsn:       "root:root@tcp(127.0.0.1:3306)/yd?collation=latin1_swedish_ci",
+			want:      "root:root@tcp(127.0.0.1:3306)/yd?collation=latin1_swedish_ci",
+			absent:    []string{"collation=utf8mb4_unicode_ci", "charset=utf8mb4"},
+			keyCounts: map[string]int{"collation=": 1},
 		},
 		{
 			name:      "mysql-parse-time-false",
@@ -355,6 +366,7 @@ func TestPresetDSNKeepsExplicitParameters(t *testing.T) {
 	explicit := map[string][]string{
 		"mysql-loc-local":                     {"loc"},
 		"mysql-charset-latin1":                {"charset"},
+		"mysql-collation-explicit":            {"collation"},
 		"mysql-parse-time-false":              {"parseTime"},
 		"mysql-explicit-system-variables":     {"time_zone", "sql_mode"},
 		"mysql-system-variable-other-case":    {"time_zone"},
@@ -364,6 +376,12 @@ func TestPresetDSNKeepsExplicitParameters(t *testing.T) {
 		"sqlite-explicit-pragma":              {"journal_mode"},
 		"sqlite-explicit-pragma-equals-form":  {"journal_mode"},
 		"sqlite-explicit-loc":                 {"_loc"},
+	}
+	// 明确不预置的参数：显式 charset 时不再补 collation，反之亦然。
+	// Presets expected to be absent: an explicit charset suppresses the collation preset and vice versa.
+	omitted := map[string][]string{
+		"mysql-charset-latin1":     {"collation"},
+		"mysql-collation-explicit": {"charset"},
 	}
 
 	for _, tc := range cases {
@@ -391,8 +409,12 @@ func TestPresetDSNKeepsExplicitParameters(t *testing.T) {
 					t.Fatalf("连接串 %q 丢了被显式覆盖的参数 %q", got, key)
 				}
 			}
+			dropped := map[string]bool{}
+			for _, key := range omitted[tc.name] {
+				dropped[strings.ToLower(key)] = true
+			}
 			for _, preset := range allPresets[tc.driver] {
-				if kept[strings.ToLower(preset.key)] {
+				if kept[strings.ToLower(preset.key)] || dropped[strings.ToLower(preset.key)] {
 					continue
 				}
 				if !strings.Contains(got, preset.value) {

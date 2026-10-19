@@ -91,7 +91,7 @@ func New<%.Name%>Service(repo *repository.<%.Name%>Repo) *<%.Name%>Service {
 
 // List 返回分页后的<%.Module%>列表与总条数，页码与每页条数会被归一化。
 // List returns one page of <%.Snake%> records together with the total count; the page and size values are normalised.
-func (s *<%.Name%>Service) List(ctx context.Context, page, size int<% if .HasSearch %>, keyword string<% end %>) ([]model.<%.Name%>, int64, error) {
+func (s *<%.Name%>Service) List(ctx context.Context, tenantID string, page, size int<% if .HasSearch %>, keyword string<% end %>) ([]model.<%.Name%>, int64, error) {
 	if page < 1 {
 		page = 1
 	}
@@ -102,7 +102,7 @@ func (s *<%.Name%>Service) List(ctx context.Context, page, size int<% if .HasSea
 		size = 100
 	}
 
-	items, total, err := s.repo.List(ctx, page, size<% if .HasSearch %>, keyword<% end %>)
+	items, total, err := s.repo.List(ctx, tenantID, page, size<% if .HasSearch %>, keyword<% end %>)
 	if err != nil {
 		return nil, 0, errx.WrapDetail(err, Err<%.Name%>Store, "op=list page=%d size=%d", page, size)
 	}
@@ -111,8 +111,8 @@ func (s *<%.Name%>Service) List(ctx context.Context, page, size int<% if .HasSea
 
 // Get 读取单条<%.Module%>记录，记录不存在时返回 Err<%.Name%>NotFound。
 // Get reads one <%.Snake%> record and returns Err<%.Name%>NotFound when it is absent.
-func (s *<%.Name%>Service) Get(ctx context.Context, id <%.Primary.GoType%>) (*model.<%.Name%>, error) {
-	item, err := s.repo.Find(ctx, id)
+func (s *<%.Name%>Service) Get(ctx context.Context, tenantID string, id <%.Primary.GoType%>) (*model.<%.Name%>, error) {
+	item, err := s.repo.Find(ctx, tenantID, id)
 	if err != nil {
 		if errors.Is(err, repository.Err<%.Name%>NotFound) {
 			return nil, errx.Wrap(err, Err<%.Name%>NotFound)
@@ -124,14 +124,14 @@ func (s *<%.Name%>Service) Get(ctx context.Context, id <%.Primary.GoType%>) (*mo
 
 // Create 校验并写入一条新的<%.Module%>记录。
 // Create validates the payload and writes a new <%.Snake%> record.
-func (s *<%.Name%>Service) Create(ctx context.Context, in <%.Name%>Input) (*model.<%.Name%>, error) {
+func (s *<%.Name%>Service) Create(ctx context.Context, tenantID string, in <%.Name%>Input) (*model.<%.Name%>, error) {
 	if err := in.Validate(); err != nil {
 		return nil, err
 	}
 
 	item := &model.<%.Name%>{}
 	in.Apply(item)
-	if err := s.repo.Create(ctx, item); err != nil {
+	if err := s.repo.Create(ctx, tenantID, item); err != nil {
 		return nil, errx.WrapDetail(err, Err<%.Name%>Store, "op=create")
 	}
 	logx.Default().Info("<%.Snake%> created | <%.Snake%> 已创建", logx.Any("<%.Primary.Column%>", item.<%.Primary.GoName%>))
@@ -140,17 +140,17 @@ func (s *<%.Name%>Service) Create(ctx context.Context, in <%.Name%>Input) (*mode
 
 // Update 校验并覆盖写入一条<%.Module%>记录，记录不存在时返回 Err<%.Name%>NotFound。
 // Update validates the payload and overwrites the <%.Snake%> record, returning Err<%.Name%>NotFound when it is absent.
-func (s *<%.Name%>Service) Update(ctx context.Context, id <%.Primary.GoType%>, in <%.Name%>Input) (*model.<%.Name%>, error) {
+func (s *<%.Name%>Service) Update(ctx context.Context, tenantID string, id <%.Primary.GoType%>, in <%.Name%>Input) (*model.<%.Name%>, error) {
 	if err := in.Validate(); err != nil {
 		return nil, err
 	}
 
-	item, err := s.Get(ctx, id)
+	item, err := s.Get(ctx, tenantID, id)
 	if err != nil {
 		return nil, err
 	}
 	in.Apply(item)
-	if err := s.repo.Update(ctx, item); err != nil {
+	if err := s.repo.Update(ctx, tenantID, item); err != nil {
 		if errors.Is(err, repository.Err<%.Name%>NotFound) {
 			return nil, errx.Wrap(err, Err<%.Name%>NotFound)
 		}
@@ -162,8 +162,8 @@ func (s *<%.Name%>Service) Update(ctx context.Context, id <%.Primary.GoType%>, i
 
 // Delete 删除一条<%.Module%>记录，记录不存在时返回 Err<%.Name%>NotFound。
 // Delete removes one <%.Snake%> record and returns Err<%.Name%>NotFound when it is absent.
-func (s *<%.Name%>Service) Delete(ctx context.Context, id <%.Primary.GoType%>) error {
-	if err := s.repo.Delete(ctx, id); err != nil {
+func (s *<%.Name%>Service) Delete(ctx context.Context, tenantID string, id <%.Primary.GoType%>) error {
+	if err := s.repo.Delete(ctx, tenantID, id); err != nil {
 		if errors.Is(err, repository.Err<%.Name%>NotFound) {
 			return errx.Wrap(err, Err<%.Name%>NotFound)
 		}
