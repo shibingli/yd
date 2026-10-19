@@ -421,6 +421,84 @@
     }
   });
 
+  /* 抽屉式侧栏：64rem 以下由顶栏按钮打开，遮罩、Esc 与导航点击关闭。
+     Off-canvas rail: opened by the topbar button below 64rem, closed by the scrim, Escape or a nav click. */
+  function rail() {
+    return document.querySelector("[data-yd-sidebar]");
+  }
+
+  function setRailOpen(open) {
+    var aside = rail();
+    if (aside) {
+      aside.classList.toggle("is-open", !!open);
+    }
+    var backdrop = document.querySelector("[data-yd-sidebar-backdrop]");
+    if (backdrop) {
+      backdrop.classList.toggle("is-open", !!open);
+    }
+    var buttons = document.querySelectorAll("[data-yd-sidebar-open]");
+    for (var i = 0; i < buttons.length; i++) {
+      buttons[i].setAttribute("aria-expanded", open ? "true" : "false");
+    }
+    document.body.classList.toggle("yd-sidebar-open", !!open);
+  }
+
+  document.addEventListener("click", function (event) {
+    var target = event.target;
+    if (!target || !target.closest) {
+      return;
+    }
+    if (target.closest("[data-yd-sidebar-open]")) {
+      event.preventDefault();
+      var aside = rail();
+      setRailOpen(!(aside && aside.classList.contains("is-open")));
+      return;
+    }
+    if (target.closest("[data-yd-sidebar-backdrop]")) {
+      event.preventDefault();
+      setRailOpen(false);
+      return;
+    }
+    if (target.closest("[data-yd-sidebar] a")) {
+      setRailOpen(false);
+    }
+  });
+
+  document.addEventListener("keydown", function (event) {
+    if (event.key === "Escape") {
+      setRailOpen(false);
+    }
+  });
+
+  window.addEventListener("resize", function () {
+    if (window.matchMedia && window.matchMedia("(min-width: 64rem)").matches) {
+      setRailOpen(false);
+    }
+  });
+
+  /* 只有替换外壳的交换才需要收起侧栏：指标轮询只交换 #yd-workspace 内的节点，
+     每次轮询都关一次会让用户刚打开的抽屉莫名其妙地消失。
+     Only a swap that replaces the shell closes the rail: metrics polling swaps a node inside
+     #yd-workspace, and closing on every poll would make a drawer the user just opened vanish. */
+  function swapReplacedRail(root) {
+    var aside = rail();
+    if (!aside || !root || root.nodeType !== 1) {
+      return true;
+    }
+    return root.contains(aside);
+  }
+
+  ["htmx:after:swap", "htmx:afterSwap"].forEach(function (name) {
+    document.addEventListener(name, function (event) {
+      var detail = (event && event.detail) || {};
+      var ctx = detail.ctx || {};
+      var target = ctx.target || detail.target || null;
+      if (swapReplacedRail(target)) {
+        setRailOpen(false);
+      }
+    });
+  });
+
   /* 主题与语言：两者都是纯客户端选择，因此各自有一处存放，谁也不去打扰服务端。
      Theme and language: both are purely client-side choices, so each has exactly one place to live and neither bothers
      the server. */
@@ -445,6 +523,22 @@
     }
   }
 
+  /* rememberTheme 同时写 localStorage 与 cookie：前者供本页循环，后者让服务端下次能预渲染首屏。
+     rememberTheme writes both localStorage and the cookie: the former drives the cycle on this page, the latter
+     lets the server pre-render the next page's first paint. */
+  function rememberTheme(theme) {
+    try {
+      window.localStorage.setItem(THEME_KEY, theme);
+    } catch (error) {
+      /* 写不进去也不影响本次会话：状态已经落在 DOM 上了。 | A failed write does not affect this session: the state already sits in the DOM. */
+    }
+    try {
+      document.cookie = THEME_KEY + "=" + encodeURIComponent(theme) + ";path=/;max-age=" + LANG_MAX_AGE + ";samesite=lax";
+    } catch (error) {
+      /* cookie 被禁用时只保留 localStorage。 | When cookies are disabled, localStorage alone remains. */
+    }
+  }
+
   /* applyTheme 只改 <html> 上的一个属性：三个标签谁可见由 app.css 决定，脚本里没有一句文案。 | applyTheme writes one attribute on <html> and nothing else: app.css decides which of the three labels shows, so the script holds no copy. */
   function applyTheme(theme) {
     document.documentElement.setAttribute("data-theme", theme);
@@ -456,11 +550,7 @@
     var index = THEMES.indexOf(current);
     var next = THEMES[(index + 1) % THEMES.length];
     applyTheme(next);
-    try {
-      window.localStorage.setItem(THEME_KEY, next);
-    } catch (error) {
-      /* 写不进去也不影响本次会话：状态已经落在 DOM 上了。 | A failed write does not affect this session: the state already sits in the DOM. */
-    }
+    rememberTheme(next);
     return next;
   }
 
@@ -475,7 +565,7 @@
   /* 首屏就应用已存的主题：defer 脚本在解析结束后、首次绘制之前运行，因此不会有可见的闪烁。 */
   /* The stored theme is applied at first paint: a deferred script runs after parsing and before the first paint, so no
      flash is visible. */
-  applyTheme(readTheme() || THEMES[0]);
+  applyTheme(readTheme() || "auto");
 
   /* 国密装配：加密由 yd-guomi-htmx 以声明式属性接管，这里只负责安装一次。 | Guomi assembly: encryption is taken over by yd-guomi-htmx through declarative attributes, so this only installs it once. */
   if (window.ydGuomiHtmx && typeof window.ydGuomiHtmx.install === "function") {

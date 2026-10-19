@@ -1056,3 +1056,30 @@ func TestLayoutStaticReferencesUseAssetHelper(t *testing.T) {
 		}
 	}
 }
+
+// TestResponsiveShellHooks pins the mobile navigation contract: a trigger in the top bar, an
+// off-canvas backdrop, and a stable id the trigger can control. | TestResponsiveShellHooks 固定
+// 移动端导航契约：顶栏开关、抽屉遮罩，以及开关可通过 aria-controls 指向的稳定 id。
+func TestResponsiveShellHooks(t *testing.T) {
+	read := func(rel string) string {
+		t.Helper()
+		raw, err := os.ReadFile(filepath.Join("templates", filepath.FromSlash(rel)))
+		if err != nil {
+			t.Fatalf("读取 %s 失败: %v", rel, err)
+		}
+		return string(raw)
+	}
+	for _, want := range []struct {
+		file string
+		text string
+	}{
+		{"partials/topbar.html", "data-yd-sidebar-open"},
+		{"partials/sidebar.html", `id="yd-sidebar"`},
+		{"layouts/dashboard.html", "data-yd-sidebar-backdrop"},
+		{"layouts/dashboard.html", "yd-shell--app"},
+	} {
+		if !strings.Contains(read(want.file), want.text) {
+			t.Errorf("%s 缺少 %q", want.file, want.text)
+		}
+	}
+}

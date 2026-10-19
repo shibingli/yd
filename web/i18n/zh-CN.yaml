@@ -21,6 +21,7 @@ a11y:
 
 nav:
   main: 主导航
+  open_menu: 打开导航菜单
   toggle: 折叠或展开导航
   logout: 退出登录
   dashboard: 仪表盘

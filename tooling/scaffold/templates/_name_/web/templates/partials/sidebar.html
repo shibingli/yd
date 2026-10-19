@@ -25,7 +25,7 @@
   hx-push-url records history, so back/forward and a direct URL hit both land on the same page.
 */}}
 {{- define "partials/sidebar" -}}
-<aside class="yd-sidebar" data-yd-sidebar aria-label="{{ tr "nav.main" }}">
+<aside id="yd-sidebar" class="yd-sidebar" data-yd-sidebar aria-label="{{ tr "nav.main" }}">
   <div class="yd-sidebar__brand">
     <a class="yd-brand" href="/" hx-get="/" hx-target="#yd-shell" hx-swap="innerMorph" hx-push-url="true">
       <span class="yd-brand__mark" aria-hidden="true">yd</span>

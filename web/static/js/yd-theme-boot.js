@@ -34,8 +34,10 @@
   var THEME_KEY = 'yd_theme';
   // DARK_QUERY is the media query that answers "does the system ask for dark?" | DARK_QUERY 回答「系统是否偏好深色」的媒体查询。
   var DARK_QUERY = '(prefers-color-scheme: dark)';
-  // CHOICES is the three-state whitelist; anything else is ignored. | CHOICES 是三态白名单，其它取值一律忽略。
-  var CHOICES = { light: true, dark: true, system: true };
+  // CHOICES is the three-state whitelist; "auto" is the generated projects' spelling of "system"
+  // and is kept so an older stored preference keeps working. | CHOICES 是三态白名单；
+  // "auto" 是生成项目对 "system" 的写法，保留它是为了让旧偏好继续生效。
+  var CHOICES = { light: true, dark: true, system: true, auto: true };
 
   // env returns the global object, which keeps the file testable outside a browser.
   // env 返回全局对象，使本文件在浏览器之外也可测试。
@@ -118,7 +120,7 @@
   // resolve 把三态偏好解析为实际绘制的具体主题。
   function resolve(value) {
     var picked = choice(value) || 'system';
-    return picked === 'system' ? systemResolved() : picked;
+    return picked === 'system' || picked === 'auto' ? systemResolved() : picked;
   }
 
   // apply writes the resolved theme onto <html>; it returns the resolved value.

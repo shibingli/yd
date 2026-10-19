@@ -23,6 +23,13 @@
 <header id="yd-topbar" class="yd-topbar" data-yd-i18n-attr="aria-label:topbar.region" aria-label="{{tr "topbar.region"}}">
   <div id="yd-progress" class="yd-progress htmx-indicator" role="progressbar" aria-hidden="true"></div>
 
+  {{/* Off-canvas rail trigger, shown only below the 64rem breakpoint. | 抽屉式侧栏开关，仅在 64rem 断点以下显示。 */}}
+  <button type="button" class="yd-icon-btn yd-topbar__menu" data-yd-sidebar-open
+          aria-controls="yd-sidebar" aria-expanded="false"
+          data-yd-i18n-attr="aria-label:nav.open_menu" aria-label="{{tr "nav.open_menu"}}">
+    <span aria-hidden="true">☰</span>
+  </button>
+
   <nav class="yd-breadcrumb" data-yd-i18n-attr="aria-label:topbar.breadcrumb" aria-label="{{tr "topbar.breadcrumb"}}">
     <ol class="yd-breadcrumb__list">
       <li class="yd-breadcrumb__item">

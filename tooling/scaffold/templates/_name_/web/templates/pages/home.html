@@ -61,9 +61,9 @@
         {{ range .User.Roles }}<span class="yd-badge yd-badge--muted">{{ . }}</span>{{ end }}
       </dd>
     </dl>
-    {{/* 首登提示在首页也出现一次：用户可能直接从书签进入某个内页，横幅之外的第二次提醒落在最常去的地方。 */}}
-    {{/* The first-sign-in notice appears here as well: a user may enter straight from a bookmark into an inner page, so
-         the second reminder sits where people actually land. */}}
+    {{/* 首登提示只在这里给一次：外壳不再重复，概览页因此只有一条横幅，内容也不会被推低。 */}}
+    {{/* The first-sign-in notice appears here once: the shell no longer repeats it, so the overview shows a single
+         banner and the actual content stays where it belongs. */}}
     {{ if .SeedPassword }}
     <div class="yd-banner yd-banner--warn" role="alert">
       <span class="yd-banner__text">{{ .SeedNotice }}</span>

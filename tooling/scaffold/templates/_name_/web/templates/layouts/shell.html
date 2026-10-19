@@ -17,12 +17,19 @@
 <a class="yd-skip-link" href="#yd-workspace">{{ tr "ui.skip" }}</a>
 
 {{ template "partials/sidebar" . }}
+<div class="yd-sidebar-backdrop" data-yd-sidebar-backdrop aria-hidden="true"></div>
 
 <div class="yd-main">
   {{/* 顶栏左侧只放当前页面标题：产品名与版本已经在侧栏的品牌区与页脚出现，重复一次只会挤占空间。
        The top bar's left side carries the current page title only: the product name and version already
        appear in the rail's brand block and footer, and a second copy would only crowd the bar. */}}
   <header class="yd-topbar" role="banner">
+    {{/* 抽屉式侧栏开关，仅在 64rem 断点以下显示。 | Off-canvas rail trigger, shown only below the 64rem breakpoint. */}}
+    <button type="button" class="yd-icon-btn yd-topbar__menu" data-yd-sidebar-open
+            aria-controls="yd-sidebar" aria-expanded="false"
+            data-yd-i18n-attr="aria-label:nav.open_menu" aria-label="{{ tr "nav.open_menu" }}">
+      <span aria-hidden="true">☰</span>
+    </button>
     <div class="yd-topbar__left">
       <p class="yd-topbar__title">{{ .Title }}</p>
     </div>
@@ -75,14 +82,10 @@
     </nav>
   </header>
 
-  {{ if .SeedPassword }}
-  <div class="yd-banner yd-banner--warn" role="alert" data-yd-seed-password>
-    <span class="yd-banner__text">{{ .SeedNotice }}</span>
-    <a class="yd-btn yd-btn--ghost yd-btn--sm" href="/account"
-       hx-get="/account" hx-target="#yd-workspace" hx-swap="innerMorph" hx-push-url="true">{{ tr "account.change_password" }}</a>
-  </div>
-  {{ end }}
-
+  {{/* 首登改密提示不放在外壳里：首页身份卡与账号页已经就地给出，外壳再重复一次会让每个页面
+       顶部都多出一条横幅，概览页甚至会同时出现两条。 | The first-sign-in password notice does not live in the
+       shell: the home identity card and the account page already carry it in context, and repeating it in the
+       shell adds a banner above every page — the overview would show two at once. */}}
   <div id="yd-errors" class="yd-errors" role="alert" aria-live="assertive" data-yd-errors-outlet></div>
 
   <main id="yd-workspace" class="yd-workspace" tabindex="-1" data-yd-workspace>{{ .Content }}</main>

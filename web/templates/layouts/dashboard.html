@@ -28,13 +28,14 @@
 <!doctype html>
 <html lang="{{.Lang}}" data-theme="{{.Theme}}">
 {{template "base.head" .}}
-<body class="yd-shell bg-surface text-content antialiased"
+<body class="yd-shell yd-shell--app bg-surface text-content antialiased"
       hx-target:inherited="#yd-workspace"
       hx-swap:inherited="innerMorph"
       hx-push-url:inherited="true"
       hx-indicator:inherited="#yd-progress">
 <a class="yd-skip-link" href="#yd-workspace" data-yd-i18n="a11y.skip_to_content">{{tr "a11y.skip_to_content"}}</a>
 {{template "partials/sidebar" .}}
+<div class="yd-sidebar-backdrop" data-yd-sidebar-backdrop aria-hidden="true"></div>
 <div class="yd-main">
 {{template "partials/topbar" .}}
 <main id="yd-workspace" class="yd-workspace" tabindex="-1" data-yd-workspace>

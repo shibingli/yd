@@ -27,6 +27,26 @@ const (
 	baseLayoutPath  = "templates/layouts/base.html"
 )
 
+// TestMobileRailSurvivesWorkspaceSwaps pins the off-canvas rail against htmx polling: a metrics
+// refresh inside #yd-workspace must not close a rail the user just opened. Only a swap that
+// replaces the shell (and with it the rail) may reset the overlay. | TestMobileRailSurvivesWorkspaceSwaps
+// 固定抽屉式侧栏在 htmx 轮询下的行为：工作区内的指标刷新不得关闭用户刚打开的侧栏，
+// 只有替换外壳（连同侧栏一起）的交换才允许重置覆盖层。
+func TestMobileRailSurvivesWorkspaceSwaps(t *testing.T) {
+	app := string(readEmbedded(t, web.FS(), appJSPath))
+	for _, want := range []string{
+		"function swapReplacedRail(root) {",
+		"root.contains(aside)",
+	} {
+		if !strings.Contains(app, want) {
+			t.Errorf("yd-app.js is missing %q | yd-app.js 缺少 %q", want, want)
+		}
+	}
+	if strings.Contains(app, "applyMobileSidebar(false);\n  }\n\n  function bindShellEvents") {
+		t.Error("yd-app.js still closes the rail on every swap, including workspace polls | yd-app.js 仍在每次交换（含工作区轮询）时关闭侧栏")
+	}
+}
+
 // jsBody returns the body of the first function whose signature contains signature.
 // jsBody 返回首个签名包含 signature 的函数体。
 //
@@ -177,7 +197,7 @@ func TestThemeSwitchHasThreeStatesAndNoFlash(t *testing.T) {
 	//    三种状态、一份白名单，由首屏脚本与外壳共用：light、dark 与 system，
 	//    其中只有 "system" 需要浏览器来决定。
 	for _, want := range []string{
-		"var CHOICES = { light: true, dark: true, system: true };",
+		"var CHOICES = { light: true, dark: true, system: true, auto: true };",
 		"var THEME_KEY = 'yd_theme';",
 		"var DARK_QUERY = '(prefers-color-scheme: dark)';",
 		"store.getItem(THEME_KEY)",

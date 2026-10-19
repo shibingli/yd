@@ -2720,3 +2720,95 @@ func TestGeneratePinsTheRunningYdVersion(t *testing.T) {
 		t.Errorf("版本未知时不应写入 require:\n%s", got)
 	}
 }
+
+// TestGenerateThemeBootAndAutoTokens pins the generated theme pipeline: the boot script runs before
+// the stylesheet, the default is "auto", and the auto dark block carries every semantic token the
+// shell uses. The last part is what keeps the workspace readable on a system-dark visitor. |
+// TestGenerateThemeBootAndAutoTokens 固定生成项目的主题链路：首屏脚本先于样式表、默认 auto，
+// 且 auto 深色块覆盖外壳使用的全部语义令牌——这正是系统深色下工作区保持可读的关键。
+func TestGenerateThemeBootAndAutoTokens(t *testing.T) {
+	pr, _ := generateMem(t, scaffold.DefaultOptions("theme-app"))
+
+	base := pr.read("web/templates/layouts/base.html")
+	if !strings.Contains(base, `data-theme="auto"`) {
+		t.Error("generated base.html must default to data-theme=auto | 生成的 base.html 必须默认 data-theme=auto")
+	}
+	boot, css := strings.Index(base, "yd-theme-boot.js"), strings.Index(base, `asset "/static/css/yd.css"`)
+	if boot < 0 || css < 0 || boot > css {
+		t.Errorf("yd-theme-boot.js must load before the stylesheet (boot=%d css=%d) | yd-theme-boot.js 必须先于样式表加载", boot, css)
+	}
+
+	app := pr.read("web/static/js/yd-app.js")
+	for _, want := range []string{
+		"function rememberTheme(theme)",
+		"document.cookie = THEME_KEY",
+		`applyTheme(readTheme() || "auto")`,
+	} {
+		if !strings.Contains(app, want) {
+			t.Errorf("generated yd-app.js is missing %q | 生成的 yd-app.js 缺少 %q", want, want)
+		}
+	}
+
+	cssBody := pr.read("web/static/css/app.css")
+	for _, want := range []string{
+		`@media (prefers-color-scheme: dark)`,
+		":root[data-theme=\"auto\"]",
+		"--color-surface-muted: #111c2f;",
+		"--color-success: #4ade80;",
+		"--color-accent: #60a5fa;",
+	} {
+		if !strings.Contains(cssBody, want) {
+			t.Errorf("generated app.css auto block is missing %q | 生成的 app.css auto 深色块缺少 %q", want, want)
+		}
+	}
+}
+
+// TestSeedPasswordNoticeAppearsOnceOnHome pins the notice placement: the shell must not repeat the
+// first-sign-in password reminder above every page, because home and account already carry it in
+// context. Two banners on the overview page push the actual content down and read as noise. |
+// TestSeedPasswordNoticeAppearsOnceOnHome 固定提示位置：外壳不得在每个页面顶部重复首登改密提醒，
+// 首页与账号页已经就地给出；概览页上下两条横幅既挤占内容，也只是噪音。
+func TestSeedPasswordNoticeAppearsOnceOnHome(t *testing.T) {
+	pr, _ := generateMem(t, scaffold.DefaultOptions("notice-app"))
+
+	shell := pr.read("web/templates/layouts/shell.html")
+	for _, unwanted := range []string{"SeedNotice", "data-yd-seed-password"} {
+		if strings.Contains(shell, unwanted) {
+			t.Errorf("shell.html still renders the seed-password banner (%q) | shell.html 仍渲染种子口令横幅（%q）", unwanted, unwanted)
+		}
+	}
+
+	home := pr.read("web/templates/pages/home.html")
+	if got := strings.Count(home, "{{ .SeedNotice }}"); got != 1 {
+		t.Errorf("home.html must carry exactly one notice, got %d | home.html 必须恰好包含一条提示，实际为 %d", got, got)
+	}
+	account := pr.read("web/templates/pages/account.html")
+	if !strings.Contains(account, "{{ .SeedNotice }}") {
+		t.Error("account.html must keep its own password notice | account.html 必须保留自己的改密提示")
+	}
+}
+
+// TestGenerateResponsiveShellHooks pins the generated mobile navigation hooks and the responsive
+// component layer. | TestGenerateResponsiveShellHooks 固定生成项目的移动端导航钩子与响应式组件层。
+func TestGenerateResponsiveShellHooks(t *testing.T) {
+	pr, _ := generateMem(t, scaffold.DefaultOptions("responsive-app"))
+
+	for _, want := range []struct {
+		file string
+		text string
+	}{
+		{"web/templates/layouts/shell.html", "data-yd-sidebar-open"},
+		{"web/templates/layouts/shell.html", "data-yd-sidebar-backdrop"},
+		{"web/templates/partials/sidebar.html", `id="yd-sidebar"`},
+		{"web/templates/layouts/base.html", "yd-shell--app"},
+		{"web/static/js/yd-app.js", "function setRailOpen"},
+		{"web/static/js/yd-app.js", "function swapReplacedRail(root)"},
+		{"web/static/css/components.css", "max-width: 63.999rem"},
+		{"web/static/css/components.css", "Responsive layout"},
+		{"web/static/css/components.css", "padding: clamp(1rem, 0.5rem + 1vw, 4rem);"},
+	} {
+		if !strings.Contains(pr.read(want.file), want.text) {
+			t.Errorf("%s 缺少 %q", want.file, want.text)
+		}
+	}
+}

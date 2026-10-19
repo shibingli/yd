@@ -77,13 +77,18 @@
        button directly, so every protected route carries its own server-side guard (authz.Require / authz.Allow); hiding a
        button without guarding its route is the defect this file cannot prevent.
 */}}<!doctype html>
-<html lang="{{ .Lang }}" data-theme="light">
+<html lang="{{ .Lang }}" data-theme="auto">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="color-scheme" content="light dark">
   <meta name="description" content="{{ .Description }}">
   <title>{{ with .Title }}{{ . }} · {{ end }}{{ .Name }}</title>
+  {{/* 首屏主题：在样式表之前同步解析 auth/system，避免系统深色下先画出一帧浅色。
+       服务端按 cookie 预渲染；localStorage/cookie 由 yd-app.js 写入。 */}}
+  {{/* First-paint theme: resolve auto/system synchronously before the stylesheet, so a system-dark
+       visitor never sees a light frame first. The server seeds it from the cookie; yd-app.js persists it. */}}
+  <script src="{{ asset "/static/js/yd-theme-boot.js" }}"></script>
   <link rel="stylesheet" href="{{ asset "/static/css/yd.css" }}">
   {{/* 图标是同源静态资源：yd build 会把它连同全部前端资产嵌入二进制，运行时零外部请求。
        The icon is a same-origin static asset: yd build embeds it with every front-end asset, so runtime makes no
@@ -112,7 +117,7 @@
 {{/* #yd-shell 同时是 flex 容器：侧栏与主列必须是它的直接子元素，否则主列会从 x=0 起排并落到侧栏下面。
      #yd-shell is also the flex container: the rail and the main column must be its direct children,
      otherwise the main column starts at x=0 and slides underneath the rail. */}}
-<div id="yd-shell" class="yd-shell">
+<div id="yd-shell" class="yd-shell{{ if .SignedIn }} yd-shell--app{{ end }}">
   {{ template "layouts/shell.html" . }}
 </div>
 

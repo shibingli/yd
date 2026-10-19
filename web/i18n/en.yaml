@@ -19,6 +19,7 @@ a11y:
 
 nav:
   main: Main navigation
+  open_menu: Open navigation menu
   toggle: Collapse or expand the navigation
   logout: Sign out
   dashboard: Dashboard

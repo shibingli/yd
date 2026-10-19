@@ -20,6 +20,8 @@
  *   [data-yd-theme-set]        <select> holding light | dark | system | 选择 light | dark | system 的下拉
  *   [data-yd-sidebar]          the collapsible left navigation | 可折叠的左侧导航
  *   [data-yd-sidebar-toggle]   collapse / expand it | 折叠或展开
+ *   [data-yd-sidebar-open]     open the off-canvas rail below 64rem | 在 64rem 以下打开抽屉式侧栏
+ *   [data-yd-sidebar-backdrop] close it by clicking the scrim | 点击遮罩关闭抽屉
  *   [data-yd-modal-open="id"]  open the dialog with that id | 打开该 id 的对话框
  *   [data-yd-modal-close]      close the surrounding dialog | 关闭所在对话框
  *   [data-yd-modal-confirm]    run the pending action, then close | 执行待确认动作后关闭
@@ -266,6 +268,35 @@
     write(SIDEBAR_KEY, next ? 'true' : 'false');
   }
 
+  // applyMobileSidebar opens the off-canvas rail below the 64rem breakpoint and keeps the
+  // backdrop, body scroll lock and aria-expanded state in sync. | applyMobileSidebar 在 64rem
+  // 断点以下打开抽屉式侧栏，并同步遮罩、页面滚动锁与 aria-expanded。
+  function applyMobileSidebar(open) {
+    var aside = sidebar();
+    var backdrop = one('[data-yd-sidebar-backdrop]');
+    var d = win().document;
+    if (aside) {
+      aside.classList.toggle('is-open', !!open);
+      all('[data-yd-sidebar-open]').forEach(function (button) {
+        button.setAttribute('aria-expanded', open ? 'true' : 'false');
+      });
+    }
+    if (backdrop) {
+      backdrop.classList.toggle('is-open', !!open);
+    }
+    if (d && d.body && d.body.classList) {
+      d.body.classList.toggle('yd-sidebar-open', !!open);
+    }
+  }
+
+  function toggleMobileSidebar() {
+    var aside = sidebar();
+    if (!aside) {
+      return;
+    }
+    applyMobileSidebar(!aside.classList.contains('is-open'));
+  }
+
   // syncActiveNav marks the link matching the current URL, which htmx navigation changes
   // without ever re-rendering the persistent sidebar.
   // syncActiveNav 标记与当前 URL 匹配的链接：htmx 导航不会重新渲染常驻侧边栏，因此需要这里同步。
@@ -506,6 +537,19 @@
       toggleSidebar();
       return;
     }
+    if (closest(target, '[data-yd-sidebar-open]')) {
+      event.preventDefault();
+      toggleMobileSidebar();
+      return;
+    }
+    if (closest(target, '[data-yd-sidebar-backdrop]')) {
+      event.preventDefault();
+      applyMobileSidebar(false);
+      return;
+    }
+    if (closest(target, '[data-yd-sidebar] a')) {
+      applyMobileSidebar(false);
+    }
     if (closest(target, '[data-yd-reconnect]')) {
       event.preventDefault();
       reconnect();
@@ -541,6 +585,20 @@
       return;
     }
     closeModal(openModalElement());
+    applyMobileSidebar(false);
+  }
+
+  // swapReplacedRail reports whether a swap replaced the shell itself. A metrics poll swaps a
+  // node inside #yd-workspace and must leave an open rail alone; only a swap whose target
+  // contains the rail (typically #yd-shell) needs the overlay reset. | swapReplacedRail 报告一次
+  // 交换是否替换了外壳本身。指标轮询只交换 #yd-workspace 内的节点，必须保持已打开的侧栏；
+  // 只有目标包含侧栏（通常是 #yd-shell）的交换才需要重置覆盖层。
+  function swapReplacedRail(root) {
+    var aside = sidebar();
+    if (!aside || !root || root.nodeType !== 1) {
+      return true;
+    }
+    return root.contains(aside);
   }
 
   function onAfterSwap(event) {
@@ -553,10 +611,24 @@
     formatCells(root);
     autoDismissFlashes(root);
     syncActiveNav();
+    // A shell swap replaces the rail; the overlay state and scroll lock must not outlive it. |
+    // 外壳交换会替换侧栏，覆盖层状态与滚动锁不得残留。
+    if (swapReplacedRail(root)) {
+      applyMobileSidebar(false);
+    }
   }
 
   function bindShellEvents() {
     onDocument('click', onClick);
+    // A viewport that grows past the drawer breakpoint must close the overlay, otherwise the
+    // body scroll lock would survive a rotation or a window resize. | 视口放大到抽屉断点以上时
+    // 必须关闭覆盖层，否则旋转或缩放后页面滚动锁会残留。
+    win().addEventListener('resize', function () {
+      var media = win().matchMedia;
+      if (typeof media === 'function' && media('(min-width: 64rem)').matches) {
+        applyMobileSidebar(false);
+      }
+    });
     onDocument('change', onChange);
     onDocument('keydown', onKeyDown);
     onDocument('htmx:after:swap', onAfterSwap);
@@ -638,6 +710,7 @@
 
     applyTheme(storedTheme() || 'system', false);
     applySidebar(read(SIDEBAR_KEY) === 'true');
+    applyMobileSidebar(false);
     syncActiveNav();
     formatCells(win().document);
     autoDismissFlashes(win().document);

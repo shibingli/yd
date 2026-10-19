@@ -96,6 +96,29 @@
 /* Everything here is variable driven: no literal color value may appear in a template or in this layer. | 本层完全由变量驱动：模板与本层内都不得出现字面色值。 */
 /* Declared in @layer components so that utility classes in markup still win over these defaults. | 声明在 @layer components 中，使标记里的工具类仍能覆盖这些默认值。 */
 @layer components {
+  /* Responsive shell primitives; the media queries live at the end of this file.
+     The workspace and page stay fluid: no fixed max-width competes with the viewport. | 响应式外壳原语；
+     媒体查询位于文件末尾。工作区与页面保持流式：不设与视口竞争的固定最大宽度。 */
+  .yd-page {
+    width: 100%;
+    margin: 0;
+  }
+
+  /* The top bar selector is two classes deep so it outranks .yd-icon-btn, which also sets display. | 顶栏选择器用两级类名，
+     以压过同样设置 display 的 .yd-icon-btn。 */
+  .yd-topbar .yd-topbar__menu {
+    display: none;
+    flex: 0 0 auto;
+  }
+
+  .yd-sidebar-backdrop {
+    display: none;
+  }
+
+  body.yd-sidebar-open {
+    overflow: hidden;
+  }
+
   /* ---------------------------------------------------------------- shell | 外壳 */
 
   /* Page root: a row holding the collapsible rail and the scrolling workspace. | 页面根节点：容纳可折叠导航栏与滚动工作区的横向容器。 */
@@ -109,10 +132,27 @@
 
   /* Column right of the rail; min-width:0 stops a wide table from stretching the whole row. | 导航栏右侧的列；min-width:0 防止宽表格撑开整行。 */
   .yd-main {
+    position: relative;
     display: flex;
     flex: 1 1 auto;
     flex-direction: column;
     min-width: 0;
+  }
+
+  /* Signed-in shell: the window stops scrolling and the main column owns the vertical scrollbar,
+     so a long page always exposes one right beside its content instead of relying on the window
+     scrollbar. The anonymous shell is exempt: a sign-in card taller than the viewport must still
+     scroll the page. | 登录后的外壳不再滚动窗口，纵向滚动条归主列所有，长页面因此始终在内容旁给出
+     滚动条；未登录外壳不适用——高于视口的登录卡片仍需整页滚动。 */
+  .yd-shell--app {
+    height: 100dvh;
+    overflow: hidden;
+  }
+
+  .yd-shell--app .yd-main {
+    height: 100dvh;
+    overflow-y: auto;
+    overscroll-behavior: contain;
   }
 
   /* Swap target of every htmx navigation, focused programmatically after a swap. | 每次 htmx 导航的交换目标，交换后由脚本程序化聚焦。 */
@@ -121,7 +161,9 @@
     flex: 1 1 auto;
     flex-direction: column;
     min-width: 0;
-    padding: 1.5rem;
+    /* Fluid gutter: 16px on phones, about 27px on 1920, 34px on 2560 and 46px on 3840 CSS px. | 流式留白：
+       手机上 16px，1920 CSS px 约 27px，2560 约 34px，3840（4K@100%）约 46px。 */
+    padding: clamp(1rem, 0.5rem + 1vw, 4rem);
   }
 
   .yd-workspace:focus-visible {
@@ -742,10 +784,12 @@
     flex-wrap: wrap;
   }
 
-  /* Page heading, an h1 in every page template. | 页面主标题，在所有页面模板中均为 h1。 */
+  /* Page heading, an h1 in every page template. The fluid size keeps its weight on 4K while
+     staying compact on a phone. | 页面主标题，在所有页面模板中均为 h1。流式字号让它在 4K 上仍有分量，
+     在手机上又保持紧凑。 */
   .yd-page__title {
     margin: 0;
-    font-size: 1.5rem;
+    font-size: clamp(1.5rem, 1.25rem + 0.45vw, 2rem);
     font-weight: 600;
     line-height: 1.2;
     color: var(--color-content);
@@ -2695,3 +2739,141 @@
 }
 
 }
+
+/* ============================================================================================
+   Responsive layout | 响应式布局
+
+   Breakpoints are expressed in rem, so browser zoom and OS display scaling — both of which
+   change the CSS viewport — land on the same rules as physical screen width. Typical effective
+   widths: 1920 @100%, 1536 @125%, 1280 @150%, 1093 @175%, 960 @200%; 1366 @125% is 1093.
+   断点使用 rem：浏览器缩放与系统显示缩放都会改变 CSS 视口宽度，因此与物理分辨率落在同一组
+   规则上。常见有效宽度：1920@100%、1536@125%、1280@150%、1093@175%、960@200%；
+   1366@125% 为 1093。
+   ============================================================================================ */
+
+@media (max-width: 63.999rem) {
+  /* Under 1024 CSS px (1024 tablet, 1280@125%, 1536@150%): the rail leaves the flow and opens
+     as an overlay drawer, so the workspace keeps the full width. | 低于 1024 CSS px 时侧栏脱离
+     文档流，以覆盖式抽屉打开，工作区保留整宽。 */
+  .yd-topbar .yd-topbar__menu {
+    display: inline-flex;
+  }
+
+  .yd-sidebar {
+    position: fixed;
+    inset: 0 auto 0 0;
+    z-index: 70;
+    width: min(18rem, 85vw);
+    height: 100dvh;
+    transform: translateX(-100%);
+    transition: transform 180ms ease;
+    box-shadow: var(--shadow-card);
+  }
+
+  .yd-sidebar.is-open {
+    transform: translateX(0);
+  }
+
+  .yd-sidebar-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 60;
+    background-color: color-mix(in oklab, var(--color-content) 45%, transparent);
+  }
+
+  .yd-sidebar-backdrop.is-open {
+    display: block;
+  }
+
+  .yd-main {
+    width: 100%;
+  }
+
+  .yd-topbar {
+    padding-inline: 0.75rem;
+  }
+}
+
+@media (max-width: 47.999rem) {
+  /* Phones and narrow effective viewports (1366@150%, 1600@200%). | 手机与窄有效视口。 */
+  .yd-topbar {
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    padding-block: 0.5rem;
+  }
+
+  .yd-topbar__actions,
+  .yd-topbar__right {
+    width: 100%;
+    margin-left: 0;
+    justify-content: flex-end;
+    flex-wrap: wrap;
+  }
+
+  .yd-workspace {
+    padding: 1rem;
+  }
+
+  .yd-page {
+    gap: 1rem;
+  }
+
+  .yd-page__header {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .yd-page__actions {
+    justify-content: flex-start;
+  }
+
+  .yd-user__name,
+  .yd-tenant__label {
+    display: none;
+  }
+
+  .yd-page__title {
+    font-size: clamp(1.25rem, 1.1rem + 0.8vw, 1.5rem);
+  }
+}
+
+@media (max-width: 29.999rem) {
+  /* Phones in portrait and 320–480 CSS px. | 手机竖屏与 320–480 CSS px。 */
+  .yd-workspace {
+    padding: 0.75rem;
+  }
+
+  .yd-topbar__actions,
+  .yd-topbar__right {
+    gap: 0.25rem;
+  }
+
+  .yd-theme-toggle .yd-theme__state {
+    display: none;
+  }
+
+  .yd-drawer {
+    width: 100vw;
+    max-width: 100vw;
+    border-radius: 0;
+  }
+
+  .yd-modal {
+    padding: 0.75rem;
+  }
+
+  .yd-modal__panel {
+    width: 100%;
+    max-height: calc(100dvh - 1.5rem);
+  }
+
+  .yd-kpis,
+  .yd-grid,
+  .yd-grid--2,
+  .yd-grid--3,
+  .yd-cards,
+  .yd-cards--roles {
+    grid-template-columns: 1fr;
+  }
+}
+

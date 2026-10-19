@@ -101,9 +101,9 @@ yd docker --tag {{ .Name }}:latest
 `internal/meta.SeedTenantSlug`（`default`）与 `internal/meta.SeedAdminUsername`（`admin`）。
 这两项与口令一样只在**租户表为空**时生效；已有数据后修改配置不会迁移既有租户或账号。
 
-> **首次登录后请立即修改默认口令** —— 首页横幅会提醒，账号页的「修改口令」表单完成改密与 `sec_key` 轮换
+> **首次登录后请立即修改默认口令** —— 首页身份卡会提醒，账号页的「修改口令」表单完成改密与 `sec_key` 轮换
 > （改密或轮换 `sec_key` 都会让此前签发的全部令牌立即失效，因此保存后需要重新登录）。
-> README、首页横幅与账号页引用的是 `internal/meta` 里的同一句 `SeedPasswordNotice`，改文案只需改那一处。
+> README、首页身份卡与账号页引用的是 `internal/meta` 里的同一句 `SeedPasswordNotice`，改文案只需改那一处。
 > 口令明文永不进入日志：启动日志与告警只说「用了哪一个来源」，从不说口令是什么。
 
 种子只创建一个默认租户；需要验证「跨租户不可见」时，用 `admin` 在租户管理页再建一个租户即可，

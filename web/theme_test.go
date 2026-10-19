@@ -309,6 +309,70 @@ func TestBuiltCssIsMinifiedAndNonEmpty(t *testing.T) {
 	}
 }
 
+// TestMainColumnScrollsIndependently pins the long-page contract: the signed-in shell owns the
+// viewport, and the main column carries its own vertical scrollbar. Relying on the window
+// scrollbar leaves long pages with no visible scroll affordance next to the content. |
+// TestMainColumnScrollsIndependently 固定长页面契约：登录后的外壳占满视口，主列自身携带纵向滚动条；
+// 依赖窗口滚动条会让长页面在内容旁看不到任何滚动提示。
+func TestMainColumnScrollsIndependently(t *testing.T) {
+	css := appSource(t)
+
+	shell := cssBlock(t, css, ".yd-shell--app")
+	if height, ok := cssValue(shell, "height"); !ok || height != "100dvh" {
+		t.Errorf(".yd-shell--app must fill the viewport with height: 100dvh, got %q | .yd-shell--app 必须以 height: 100dvh 占满视口，实际为 %q", height, height)
+	}
+	if overflow, ok := cssValue(shell, "overflow"); !ok || overflow != "hidden" {
+		t.Errorf(".yd-shell--app must clip the page scroll with overflow: hidden, got %q | .yd-shell--app 必须以 overflow: hidden 阻止窗口滚动，实际为 %q", overflow, overflow)
+	}
+
+	// Absolutely positioned descendants (Tailwind's sr-only spans inside table cells, dropdown
+	// panels) anchor to the initial containing block unless a column is positioned. Without this
+	// they escape the scroll container and give the window an extra scroll range. |
+	// 绝对定位的后代（表格单元格里的 sr-only 片段、下拉面板）在没有定位列时会锚定到初始包含块，
+	// 从而逃出滚动容器，让窗口多出一段滚动范围。
+	column := cssBlock(t, css, ".yd-main")
+	if position, ok := cssValue(column, "position"); !ok || position != "relative" {
+		t.Errorf(".yd-main must be position: relative so absolute descendants stay in the scroll container, got %q | .yd-main 必须是 position: relative，使绝对定位后代留在滚动容器内，实际为 %q", position, position)
+	}
+
+	main := cssBlock(t, css, ".yd-shell--app .yd-main")
+	if overflow, ok := cssValue(main, "overflow-y"); !ok || overflow != "auto" {
+		t.Errorf(".yd-shell--app .yd-main must scroll with overflow-y: auto, got %q | .yd-shell--app .yd-main 必须以 overflow-y: auto 滚动，实际为 %q", overflow, overflow)
+	}
+	if height, ok := cssValue(main, "height"); !ok || height != "100dvh" {
+		t.Errorf(".yd-shell--app .yd-main must fill the shell with height: 100dvh, got %q | .yd-shell--app .yd-main 必须以 height: 100dvh 填满外壳，实际为 %q", height, height)
+	}
+}
+
+// TestWideViewportsStayFluid pins the 4K contract: the workspace and page must not cap their
+// width, and the gutter and heading must keep scaling with the viewport instead of stopping at a
+// value chosen for 2560. | TestWideViewportsStayFluid 固定 4K 契约：工作区与页面不得限制宽度，
+// 留白与主标题必须随视口继续缩放，而不是停在为 2560 选定的数值上。
+func TestWideViewportsStayFluid(t *testing.T) {
+	css := appSource(t)
+
+	workspace := cssBlock(t, css, ".yd-workspace")
+	padding, ok := cssValue(workspace, "padding")
+	if !ok {
+		t.Fatal(".yd-workspace has no padding | .yd-workspace 没有 padding")
+	}
+	if !strings.HasPrefix(padding, "clamp(") || !strings.HasSuffix(padding, "4rem)") {
+		t.Errorf(".yd-workspace padding must be a clamp ending in 4rem for 4K, got %q | .yd-workspace 的 padding 必须是以 4rem 收尾的 clamp 以适配 4K，实际为 %q", padding, padding)
+	}
+
+	for _, selector := range []string{".yd-workspace", ".yd-page"} {
+		if limit, ok := cssValue(cssBlock(t, css, selector), "max-width"); ok {
+			t.Errorf("%s caps its width at %s, so the right side stops being fluid | %s 将宽度限制为 %s，右侧不再是流式布局", selector, limit, selector, limit)
+		}
+	}
+
+	title := cssBlock(t, css, ".yd-page__title")
+	size, ok := cssValue(title, "font-size")
+	if !ok || !strings.HasPrefix(size, "clamp(") {
+		t.Errorf(".yd-page__title must scale fluidly with clamp(), got %q | .yd-page__title 必须用 clamp() 流式缩放，实际为 %q", size, size)
+	}
+}
+
 // TestModalDialogsStayCentered pins the automatic margins that Tailwind Preflight erases. | TestModalDialogsStayCentered
 // 锁定会被 Tailwind Preflight 抹掉的自动外边距。
 //
