@@ -230,17 +230,14 @@ func TestScaffoldBuildRun(t *testing.T) {
 // The generated project's seed credentials and session cookie name (same source as internal/meta): the probe signs in with
 // the default credentials and then creates a tenant, a role and a user through the real endpoints as the administrator.
 const (
-	seedTenant = "demo"
-	seedAdmin  = "admin"
+	// seedTenant 是种子写出的唯一租户。 | seedTenant is the only tenant the seed writes.
+	seedTenant = "default"
+	// seedAdmin 是该租户的管理员登录名。 | seedAdmin is that tenant's administrator sign-in name.
+	seedAdmin = "admin"
 	// seedAdminPassword 是未配置 seed.admin_password 时开发环境使用的那一枚文档化口令（internal/meta.DevSeedAdminPassword）。
 	// seedAdminPassword is the documented password development falls back to while seed.admin_password is unset
 	// (internal/meta.DevSeedAdminPassword).
-	seedAdminPassword = "Admin@123456"
-	// seedOpsTenant 与 seedOpsAdmin 是第二个演示租户及其管理员：它存在的意义是让跨租户隔离可被自动化验证。
-	// seedOpsTenant and seedOpsAdmin are the second demo tenant and its administrator: it exists so that cross-tenant
-	// isolation is verifiable by automation.
-	seedOpsTenant = "acme"
-	seedOpsAdmin  = "acme-admin"
+	seedAdminPassword = "admin123"
 	// probeUserPassword 是探针自建账号的口令，长度满足口令强度下限。 | probeUserPassword is the created account's password, above the strength floor.
 	probeUserPassword = "Probe@123456"
 	// e2eMasterKey 是生产场景注入的 32 字节测试主密钥（公开测试值，不是真实密钥）。
@@ -386,10 +383,9 @@ func (c seedCounts) String() string {
 	return fmt.Sprintf("租户=%d 账号=%d 角色=%d 角色权限=%d", c.tenants, c.users, c.roles, c.rolePerms)
 }
 
-// seedTenantTotal 是种子数据写出的租户数：两个演示租户（demo 与 acme），第二个专门用来按手验证跨租户隔离。
-// seedTenantTotal is the number of tenants the seed writes: the two demo tenants (demo and acme), the second of which
-// exists to verify cross-tenant isolation by hand.
-const seedTenantTotal = 2
+// seedTenantTotal is the number of tenants the seed writes: the single default tenant.
+// seedTenantTotal 是种子数据写出的租户数：唯一一个默认租户。
+const seedTenantTotal = 1
 
 // expectedSeedCounts 从框架注册表推导期望行数，使期望值不可能与种子数据的真源漂移：
 // 角色数取自 authz.Roles，角色→能力绑定数取自 authz.BuiltinGrants。
@@ -672,10 +668,10 @@ func TestSeedRefusesWithoutPasswordOutsideDevelopment(t *testing.T) {
 	assertSeedAccounts(t, dbFile)
 }
 
-// assertSeedAccounts 直接读库核对种子账号：两个租户、每个租户一个管理员、每个管理员都带着所有者角色，
+// assertSeedAccounts 直接读库核对种子账号：唯一 default 租户、一个 admin 管理员、管理员带着所有者角色，
 // 而口令只以 SM3-PBKDF2 散列落库。
-// assertSeedAccounts reads the database and checks the seeded accounts: two tenants, one administrator each, every
-// administrator holding the owner role, and every password stored as an SM3-PBKDF2 hash only.
+// assertSeedAccounts reads the database and checks the seeded account: one default tenant, one admin administrator holding
+// the owner role, and the password stored as an SM3-PBKDF2 hash only.
 func assertSeedAccounts(t *testing.T, dbFile string) {
 	t.Helper()
 
@@ -697,16 +693,16 @@ func assertSeedAccounts(t *testing.T, dbFile string) {
 		t.Fatalf("遍历租户失败: %v", err)
 	}
 	_ = rows.Close()
-	for _, want := range []string{seedTenant, seedOpsTenant} {
+	for _, want := range []string{seedTenant} {
 		if !slugs[want] {
 			t.Errorf("yd_auth_tenants 缺少种子租户 %q", want)
 		}
 	}
 
-	// 每个租户一个管理员，且角色绑定就落在这两列上：用户名与注册表里的所有者角色。
-	// One administrator per tenant, with the role binding stored on these very columns: the username and the registry's
+	// 唯一管理员，且角色绑定就落在这些列上：用户名与注册表里的所有者角色。
+	// The single administrator, with the role binding stored on these very columns: the username and the registry's
 	// owner role.
-	admins := map[string]string{seedAdmin: seedTenant, seedOpsAdmin: seedOpsTenant}
+	admins := map[string]string{seedAdmin: seedTenant}
 	seen := map[string]bool{}
 	userRows, err := db.Query(`SELECT username, roles, password_hash FROM yd_auth_users`)
 	if err != nil {

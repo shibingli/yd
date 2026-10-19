@@ -63,8 +63,8 @@ var (
 	ErrNilApp = errx.New("router: nil application facade | router：应用门面为空")
 	// ErrAuth reports a failed auth store, master key or token issuer assembly. | ErrAuth 表示鉴权存储、主密钥或令牌签发器装配失败。
 	ErrAuth = errx.New("router: authentication service unavailable | router：鉴权服务装配失败")
-	// ErrSeed reports a failed demo seed write. | ErrSeed 表示演示种子数据写入失败。
-	ErrSeed = errx.New("router: demo seed failed | router：演示数据写入失败")
+	// ErrSeed reports a failed default seed write. | ErrSeed 表示默认数据写入失败。
+	ErrSeed = errx.New("router: default seed failed | router：默认数据写入失败")
 	// ErrTicker reports a failed realtime publisher start. | ErrTicker 表示实时推送器启动失败。
 	ErrTicker = errx.New("router: realtime publisher failed to start | router：实时推送启动失败")
 )

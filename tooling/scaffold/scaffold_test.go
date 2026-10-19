@@ -1433,25 +1433,19 @@ func TestGeneratedAppServesFrameworkFeatures(t *testing.T) {
 // internal/meta and are kept here for the assertions, while assertSeedCredentialsDocumented verifies them verbatim so
 // neither side can drift away on its own.
 const (
-	// probeTenant is the demo tenant's key (the sign-in form's tenant field). | probeTenant 是演示租户的标识（登录表单的租户字段）。
-	probeTenant = "demo"
-	// probeAdmin is the demo tenant's administrator sign-in name. | probeAdmin 是演示租户的管理员登录名。
+	// probeTenant is the default tenant's key (the sign-in form's tenant field). | probeTenant 是默认租户的标识（登录表单的租户字段）。
+	probeTenant = "default"
+	// probeAdmin is the default tenant's administrator sign-in name. | probeAdmin 是默认租户的管理员登录名。
 	probeAdmin = "admin"
-	// probeAdminPassword 是演示租户管理员的初始口令：探针应用没有配置 seed.admin_password 也没有声明非 development 环境，
+	// probeAdminPassword 是默认租户管理员的初始口令：探针应用没有配置 seed.admin_password 也没有声明非 development 环境，
 	// 因此种子写入走的是开发回退，用的正是那一枚文档化的开发口令（internal/meta.DevSeedAdminPassword）。
-	// probeAdminPassword is the demo administrator's initial password: the probe application configures no
+	// probeAdminPassword is the default administrator's initial password: the probe application configures no
 	// seed.admin_password and declares no non-development environment, so the seed takes the development fallback and uses
 	// exactly the documented development password (internal/meta.DevSeedAdminPassword).
-	probeAdminPassword = "Admin@123456"
-	// probeOpsTenant 是第二个租户的标识，也是跨租户用例里「另一个租户」的名字。
-	// probeOpsTenant is the second tenant's key and the name of "the other tenant" in the cross-tenant cases.
-	probeOpsTenant = "acme"
-	// probeOpsAdmin is the second tenant's administrator sign-in name. | probeOpsAdmin 是第二个租户的管理员登录名。
-	probeOpsAdmin = "acme-admin"
-	// probeOpsPassword 是第二个租户管理员的口令：两个种子管理员共用同一枚由配置下发的口令，因此它与演示租户的那个相同。
-	// probeOpsPassword is the second tenant administrator's password: both seeded administrators share the one password the
-	// configuration hands down, so it is the same one as the demo tenant's.
-	probeOpsPassword = probeAdminPassword
+	probeAdminPassword = "admin123"
+	// probeOtherTenant 是种子**不会**创建的租户标识，跨租户用例用它模拟「另一个租户」。
+	// probeOtherTenant is a tenant slug the seed does **not** create; the cross-tenant cases use it as "the other tenant".
+	probeOtherTenant = "acme"
 	// staleSeedPassword 是曾经硬编码在 internal/meta 里的第二枚口令：它必须彻底消失，任何文件里再出现即为回归。
 	// staleSeedPassword is the second password that used to be hard-coded in internal/meta: it must be gone for good, and
 	// its reappearance anywhere is a regression.
@@ -1488,9 +1482,8 @@ func assertSeedCredentialsDocumented(t *testing.T, projDir string) {
 	metaSrc := read("internal/meta/meta.go")
 	for _, want := range []string{
 		`SeedTenantSlug = "` + probeTenant + `"`,
+		`SeedTenantName = "默认租户 | Default tenant"`,
 		`SeedAdminUsername = "` + probeAdmin + `"`,
-		`SeedOpsSlug = "` + probeOpsTenant + `"`,
-		`SeedOpsAdminUsername = "` + probeOpsAdmin + `"`,
 		`SeedPasswordConfigKey = "seed.admin_password"`,
 		`SeedPasswordEnvKey = EnvPrefix + "SEED_ADMIN_PASSWORD"`,
 		`DevSeedAdminPassword = "` + probeAdminPassword + `"`,
@@ -1499,6 +1492,14 @@ func assertSeedCredentialsDocumented(t *testing.T, projDir string) {
 	} {
 		if !strings.Contains(metaSrc, want) {
 			t.Errorf("internal/meta/meta.go 缺少 %q", want)
+		}
+	}
+	// 第二个种子租户必须彻底消失：它既不再被写入，也不该留下任何常量或文档。
+	// The second seeded tenant must be gone for good: it is no longer written, and no constant or document may mention it.
+	for _, banned := range []string{"SeedOpsSlug", "SeedOpsName", "SeedOpsAdminUsername", "SeedOpsAdminEmail"} {
+		decl := regexpx.MustCompile(`(?m)(^|[^A-Za-z0-9_])` + banned + `\s*=`)
+		if decl.MatchString(metaSrc) {
+			t.Errorf("internal/meta/meta.go 仍含第二个种子租户常量 %s", banned)
 		}
 	}
 	// 那两枚硬编码口令常量必须彻底消失：口令只经配置下发，开发回退也只有一个名字（DevSeedAdminPassword）。
@@ -1537,7 +1538,6 @@ func assertSeedCredentialsDocumented(t *testing.T, projDir string) {
 		probeAdminPassword,
 		"SeedPasswordNotice",
 		probeTenant,
-		probeOpsTenant,
 	} {
 		if !strings.Contains(readme, want) {
 			t.Errorf("README.md 缺少 %q", want)
@@ -1622,7 +1622,7 @@ func assertAuthzCheckPasses(t *testing.T, fsys afero.Fs, dir, where string) auth
 func assertNoUserData(t *testing.T, where, body string) {
 	t.Helper()
 
-	for _, leak := range []string{"@example.com", probeOpsAdmin, probeAdmin + "@"} {
+	for _, leak := range []string{"@example.com", probeAdmin + "@"} {
 		if strings.Contains(body, leak) {
 			t.Errorf("%s 泄漏了用户数据 %q:\n%s", where, leak, body)
 		}
@@ -1833,11 +1833,22 @@ func TestGeneratedAppSupportsAuth(t *testing.T) {
 		browser := newProbeClient(t, httpTimeout)
 		token := signIn(t, browser, base, probeTenant, probeAdmin, probeAdminPassword)
 
-		// demo 的令牌 + acme 的请求头：令牌声明优先，请求头一旦指向别的租户就是提权，一律 403。
-		// The demo token with the acme header: the token's claim wins and a header naming another tenant is escalation, refused with 403.
+		// 种子只创建 default 租户，因此这里先以管理员身份建出第二个租户，再拿它做提权目标。
+		// The seed creates only the default tenant, so create a second one as the administrator and use it as the escalation target.
+		respNew, newBody := postForm(t, browser, base+"/tenants", map[string]string{
+			"slug": probeOtherTenant,
+			"name": "Other tenant",
+		}, map[string]string{"HX-Request": "true"})
+		if respNew.StatusCode < http.StatusOK || respNew.StatusCode >= http.StatusMultipleChoices {
+			t.Fatalf("创建第二个租户状态码 = %d, 期望 2xx\n%s", respNew.StatusCode, newBody)
+		}
+
+		// default 的令牌 + 另一个租户的请求头：令牌声明优先，请求头一旦指向别的租户就是提权，一律 403。
+		// The default token with the other tenant's header: the token's claim wins and a header naming another tenant is
+		// escalation, refused with 403.
 		resp, body := getText(t, browser, base+"/users", map[string]string{
 			"HX-Request": "true",
-			"X-Tenant":   probeOpsTenant,
+			"X-Tenant":   probeOtherTenant,
 		})
 		if resp.StatusCode != http.StatusForbidden {
 			t.Fatalf("跨租户 GET /users 状态码 = %d, 期望 403\n%s", resp.StatusCode, body)
@@ -1853,7 +1864,7 @@ func TestGeneratedAppSupportsAuth(t *testing.T) {
 		respAPI, bodyAPI := getText(t, api, base+"/users", map[string]string{
 			"HX-Request":    "true",
 			"Authorization": "Bearer " + token,
-			"X-Tenant":      probeOpsTenant,
+			"X-Tenant":      probeOtherTenant,
 		})
 		if respAPI.StatusCode != http.StatusForbidden {
 			t.Fatalf("API 形态跨租户 GET /users 状态码 = %d, 期望 403\n%s", respAPI.StatusCode, bodyAPI)
@@ -1870,24 +1881,6 @@ func TestGeneratedAppSupportsAuth(t *testing.T) {
 		if respOwn.StatusCode != http.StatusOK || !strings.Contains(own, probeAdmin+"@example.com") {
 			t.Errorf("令牌指向自己租户时未返回数据（状态码 %d）:\n%s", respOwn.StatusCode, own)
 		}
-
-		// 另一个租户的令牌在自己租户里同样是好的，换成 demo 的请求头才被拒绝，且不泄漏 demo 侧的任何一行数据。
-		// The other tenant's token works just as well inside its own tenant and is refused only when it names demo, without
-		// leaking a single row of demo's data.
-		ops := newProbeClient(t, httpTimeout)
-		signIn(t, ops, base, probeOpsTenant, probeOpsAdmin, probeOpsPassword)
-		respOps, opsBody := getText(t, ops, base+"/users", map[string]string{"HX-Request": "true"})
-		if respOps.StatusCode != http.StatusOK || !strings.Contains(opsBody, probeOpsAdmin+"@example.com") {
-			t.Fatalf("acme 令牌读自己的用户列表失败（状态码 %d）:\n%s", respOps.StatusCode, opsBody)
-		}
-		respCross, crossBody := getText(t, ops, base+"/users", map[string]string{
-			"HX-Request": "true",
-			"X-Tenant":   probeTenant,
-		})
-		if respCross.StatusCode != http.StatusForbidden {
-			t.Fatalf("acme 令牌读 demo 用户列表状态码 = %d, 期望 403\n%s", respCross.StatusCode, crossBody)
-		}
-		assertNoUserData(t, "acme 令牌读 demo 用户列表", crossBody)
 	})
 
 	t.Run("权限信封按主体下发且守卫值取自注册表", func(t *testing.T) {

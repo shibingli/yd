@@ -22,11 +22,11 @@
 // 应用与鉴权照常可用。
 //
 // Default data is written once and only once, and never with a password nobody configured: Seed fills an empty database
-// with the two demo tenants, the built-in roles of the authz registry together with their capability bindings, and one
-// owner account per tenant, where the password comes from seed.admin_password (YD_SEED_ADMIN_PASSWORD) — development falls
+// with the default tenant, the built-in roles of the authz registry together with their capability bindings, and its
+// owner account, where the password comes from seed.admin_password (YD_SEED_ADMIN_PASSWORD) — development falls
 // back to a documented password and warns on every start, while any other environment refuses to seed at all. |
-// 默认数据只写入一次，且绝不会用一枚无人配置过的口令写入：Seed 在空库里写入两个演示租户、authz 注册表的内置角色及其
-// 能力绑定，以及每个租户一个所有者账号；口令来自 seed.admin_password（YD_SEED_ADMIN_PASSWORD）——开发环境回退到
+// 默认数据只写入一次，且绝不会用一枚无人配置过的口令写入：Seed 在空库里写入默认租户、authz 注册表的内置角色及其
+// 能力绑定，以及该租户的所有者账号；口令来自 seed.admin_password（YD_SEED_ADMIN_PASSWORD）——开发环境回退到
 // 文档化的开发口令并每次启动告警，其它环境则直接拒绝写入。
 {{ else -}}
 // Package repository is the persistence boundary: it exposes this project's models upwards and depends on nothing but
@@ -44,11 +44,11 @@
 // `yd new --db sqlite`（或 mysql / postgres）重新生成项目：上层代码一行都不用改，因为 Open 是唯一的装配点。
 //
 // Default data is written once and only once, and never with a password nobody configured: Seed fills the in-memory store
-// with the two demo tenants, the built-in roles of the authz registry together with their capability bindings, and one
-// owner account per tenant, where the password comes from seed.admin_password (YD_SEED_ADMIN_PASSWORD) — development falls
+// with the default tenant, the built-in roles of the authz registry together with their capability bindings, and its
+// owner account, where the password comes from seed.admin_password (YD_SEED_ADMIN_PASSWORD) — development falls
 // back to a documented password and warns on every start, while any other environment refuses to seed at all. |
-// 默认数据只写入一次，且绝不会用一枚无人配置过的口令写入：Seed 在内存实现里写入两个演示租户、authz 注册表的内置角色
-// 及其能力绑定，以及每个租户一个所有者账号；口令来自 seed.admin_password（YD_SEED_ADMIN_PASSWORD）——开发环境回退到
+// 默认数据只写入一次，且绝不会用一枚无人配置过的口令写入：Seed 在内存实现里写入默认租户、authz 注册表的内置角色
+// 及其能力绑定，以及该租户的所有者账号；口令来自 seed.admin_password（YD_SEED_ADMIN_PASSWORD）——开发环境回退到
 // 文档化的开发口令并每次启动告警，其它环境则直接拒绝写入。
 {{ end -}}
 package repository
@@ -79,8 +79,8 @@ import (
 var (
 	// ErrOpen reports a failed auth service or token issuer assembly. | ErrOpen 表示鉴权服务或令牌签发器装配失败。
 	ErrOpen = errx.New("repository: auth store assembly failed | repository：鉴权存储装配失败")
-	// ErrSeed reports a failed demo seed write. | ErrSeed 表示演示种子数据写入失败。
-	ErrSeed = errx.New("repository: demo seed failed | repository：演示数据写入失败")
+	// ErrSeed reports a failed default seed write. | ErrSeed 表示默认数据写入失败。
+	ErrSeed = errx.New("repository: default seed failed | repository：默认数据写入失败")
 )
 
 {{ if ne .DB "none" -}}
@@ -315,7 +315,7 @@ func (s *Store) Close() error {
 	return s.release()
 }
 
-// seedSpec describes one demo tenant together with its administrator account. | seedSpec 描述一个演示租户及其管理员账号。
+// seedSpec describes the seeded tenant together with its administrator account. | seedSpec 描述种子租户及其管理员账号。
 type seedSpec struct {
 	// Slug is the tenant key and the value of the tenant field on the sign-in page. | Slug 是租户标识，同时是登录页的租户字段取值。
 	Slug string
@@ -327,12 +327,10 @@ type seedSpec struct {
 	Email string
 }
 
-// seedSpecs returns every demo tenant; the second one exists to verify cross-tenant isolation by hand. | seedSpecs 返回全部演示租户；第二个租户专门用来在开发期验证跨租户隔离。
+// seedSpecs returns the single default tenant and its administrator. | seedSpecs 返回唯一的默认租户及其管理员。
 //
-// 口令不在这份清单里，这是刻意的：两个租户的管理员共用同一枚由配置下发的口令（见 seedPassword），
-// 因此清单只描述「数据长什么样」，不描述「怎么进去」。
-// The password is deliberately absent from this list: both administrators share the one password handed down by the
-// configuration (see seedPassword), so the list describes what the data looks like and never how to get in.
+// 口令不在这份清单里，这是刻意的：清单只描述「数据长什么样」，不描述「怎么进去」。
+// The password is deliberately absent from this list: the list describes what the data looks like and never how to get in.
 func seedSpecs() []seedSpec {
 	return []seedSpec{
 		{
@@ -341,18 +339,12 @@ func seedSpecs() []seedSpec {
 			Username: meta.SeedAdminUsername,
 			Email:    meta.SeedAdminEmail,
 		},
-		{
-			Slug:     meta.SeedOpsSlug,
-			Name:     meta.SeedOpsName,
-			Username: meta.SeedOpsAdminUsername,
-			Email:    meta.SeedOpsAdminEmail,
-		},
 	}
 }
 
-// Seed 幂等写入默认数据：两个租户、四个内置角色及其能力绑定，以及每个租户的一个管理员。
-// Seed writes the default data idempotently: two tenants, the four built-in roles with their capability bindings, and one
-// administrator per tenant.
+// Seed 幂等写入默认数据：默认租户、四个内置角色及其能力绑定，以及该租户的管理员。
+// Seed writes the default data idempotently: the default tenant, the four built-in roles with their capability bindings,
+// and that tenant's administrator.
 //
 // 幂等由数据本身判定，而且整个种子数据只有一道总闸：**租户表为空**才写入。
 // 首次启动因此写入一次，之后每次启动什么都不做；多副本同时启动时，唯一索引冲突被读作「另一个副本已先完成初始化」
@@ -406,7 +398,7 @@ func (s *Store) Seed(ctx context.Context) error {
 		}
 	}
 
-	s.log.Info("default data seeded: tenants, built-in roles, their capability bindings and one owner per tenant | 默认数据已写入：租户、内置角色、其能力绑定与每个租户的所有者账号",
+	s.log.Info("default data seeded: the default tenant, built-in roles, their capability bindings and its owner | 默认数据已写入：默认租户、内置角色、其能力绑定与该租户的所有者账号",
 		logx.Int("tenants", len(seedSpecs())),
 		logx.Int("roles", len(authz.BuiltinRoles())),
 		logx.Int("permissions", len(authz.BuiltinPermissions())),

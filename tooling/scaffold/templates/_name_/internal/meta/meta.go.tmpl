@@ -73,8 +73,8 @@ const (
 	DevMasterKey = "yd-scaffold-development-master-key-please-replace"
 )
 
-// 种子数据：一条命令即得到可登录的演示环境，README 与登录页展示的凭据线索都取自这里。
-// Seed data: one command yields a sign-in-ready demo environment, and the credential pointers shown by the README and by
+// 种子数据：一条命令即得到可登录的默认环境，README 与登录页展示的凭据线索都取自这里。
+// Seed data: one command yields a sign-in-ready default environment, and the credential pointers shown by the README and by
 // the sign-in page are read from here.
 //
 // 口令**不在**这里，这是刻意的：种子口令来自配置键 seed.admin_password（环境变量 YD_SEED_ADMIN_PASSWORD 覆盖它）。
@@ -89,28 +89,17 @@ const (
 // What the store keeps is always an SM3 + salt + iterations hash plus a per-user sec_key; the only clear text that exists
 // at all is the built-in development password below.
 const (
-	// SeedTenantSlug is the demo tenant's key (the X-Tenant header and the subdomain both use it). | SeedTenantSlug 是演示租户的标识（X-Tenant 请求头与子域名都用它）。
-	SeedTenantSlug = "demo"
-	// SeedTenantName is the demo tenant's display name. | SeedTenantName 是演示租户的展示名。
-	SeedTenantName = "演示租户 | Demo tenant"
-	// SeedAdminUsername is the demo tenant's administrator sign-in name (sign-in uses the name, not the address). | SeedAdminUsername 是演示租户的管理员登录名（登录用登录名，不是邮箱）。
+	// SeedTenantSlug is the default tenant's key (the X-Tenant header and the subdomain both use it). | SeedTenantSlug 是默认租户的标识（X-Tenant 请求头与子域名都用它）。
+	SeedTenantSlug = "default"
+	// SeedTenantName is the default tenant's display name. | SeedTenantName 是默认租户的展示名。
+	SeedTenantName = "默认租户 | Default tenant"
+	// SeedAdminUsername is the default tenant's administrator sign-in name (sign-in uses the name, not the address). | SeedAdminUsername 是默认租户的管理员登录名（登录用登录名，不是邮箱）。
 	SeedAdminUsername = "admin"
-	// SeedAdminEmail is the demo administrator's e-mail address. | SeedAdminEmail 是演示租户管理员的邮箱。
+	// SeedAdminEmail is the default administrator's e-mail address. | SeedAdminEmail 是默认租户管理员的邮箱。
 	SeedAdminEmail = "admin@example.com"
 
-	// SeedOpsSlug 是第二个租户的标识：它让「跨租户不可见」成为一条可被自动化验证的硬边界，而不是一句承诺。
-	// SeedOpsSlug is the second tenant's key: it turns "tenants cannot see each other" into an automation-verifiable hard
-	// boundary instead of a promise.
-	SeedOpsSlug = "acme"
-	// SeedOpsName is the second tenant's display name. | SeedOpsName 是第二个租户的展示名。
-	SeedOpsName = "示例租户 ACME | Sample tenant ACME"
-	// SeedOpsAdminUsername is the second tenant's administrator sign-in name. | SeedOpsAdminUsername 是第二个租户的管理员登录名。
-	SeedOpsAdminUsername = "acme-admin"
-	// SeedOpsAdminEmail is the second tenant administrator's e-mail address. | SeedOpsAdminEmail 是第二个租户管理员的邮箱。
-	SeedOpsAdminEmail = "acme-admin@example.com"
-
 	// SeedPasswordConfigKey 是种子管理员口令的配置键；configs/config.yaml、README 与告警引用同一处。
-	// SeedPasswordConfigKey is the configuration key of the seeded administrators' password, quoted by configs/config.yaml,
+	// SeedPasswordConfigKey is the configuration key of the seeded administrator's password, quoted by configs/config.yaml,
 	// by the README and by the warnings.
 	SeedPasswordConfigKey = "seed.admin_password"
 	// SeedPasswordEnvKey 是覆盖它的环境变量名（环境变量始终胜过配置文件），告警与 README 引用同一处。
@@ -124,7 +113,7 @@ const (
 	// **and** app.env is development, and every start warns about it. It exists so a freshly generated project is
 	// sign-in-ready; it is printed in the README and on the sign-in page, which is exactly why it must never be used in any
 	// other environment.
-	DevSeedAdminPassword = "Admin@123456"
+	DevSeedAdminPassword = "admin123"
 
 	// SeedPasswordNotice 是首登必改口令的提示文案，登录页、首页横幅与 README 引用同一句。
 	// SeedPasswordNotice is the mandatory password-change notice shown at first sign-in; the sign-in page, the home

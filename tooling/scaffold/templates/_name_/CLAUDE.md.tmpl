@@ -100,7 +100,7 @@
    新增敏感字段沿用同一套声明式加密，禁止自行发明第二套编码。
 
 种子数据（`internal/repository` 的 `Seed`）只在**租户表为空**时写入一次（并发副本的「唯一索引冲突」按「已初始化」处理）：
-两个演示租户、四个内置角色与各自的 `owner` 管理员。口令来自 `seed.admin_password` / `YD_SEED_ADMIN_PASSWORD`，
+默认租户、四个内置角色与该租户的 `owner` 管理员。口令来自 `seed.admin_password` / `YD_SEED_ADMIN_PASSWORD`，
 **不硬编码**：开发环境未配置时用文档化的 `meta.DevSeedAdminPassword` 并每次启动告警，其它环境未配置时**拒绝初始化**并告警；
 口令明文永不写入日志。**首次登录后必须立即改密**——登录页、首页横幅与账号页共用 `meta.SeedPasswordNotice` 这一句文案，
 改提醒只需改那一处；`store.SeedPasswordUnchanged` 用一次口令校验判断账号是否仍在用默认口令。

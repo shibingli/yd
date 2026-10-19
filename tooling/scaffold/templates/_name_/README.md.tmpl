@@ -67,10 +67,10 @@ yd docker --tag {{ .Name }}:latest
 
 ## 第一次运行：默认凭据
 
-演示数据只在**租户表为空**时写入一次（判断本身只有这一条），第二次、第三次启动都不会再写任何一行；
+默认数据只在**租户表为空**时写入一次（判断本身只有这一条），第二次、第三次启动都不会再写任何一行；
 两个并发的副本同时启动时，先写入的那个赢，另一个把「唯一索引冲突」当作「已经初始化过」而不是错误。
-一次写入的内容是：两个租户、每个租户的内置角色（`owner` / `admin` / `auditor` / `member`，各自的能力绑定取自框架注册表的
-`authz.BuiltinGrants()`）、以及每个租户的一个 `owner` 管理员。
+一次写入的内容是：默认租户、该租户的内置角色（`owner` / `admin` / `auditor` / `member`，各自的能力绑定取自框架注册表的
+`authz.BuiltinGrants()`）、以及该租户的一个 `owner` 管理员。
 
 口令**不硬编码在源码里**，来源按优先级只有两处：
 
@@ -81,32 +81,33 @@ yd docker --tag {{ .Name }}:latest
 
 未配置时的行为取决于 `app.env`：
 
-- **`development`**：用文档化的开发口令 `Admin@123456`（`internal/meta.DevSeedAdminPassword`），并**每次启动都告警**；
-- **其它任何环境**（`production` / `staging` / 未声明）：**拒绝写入任何种子数据**，打印一条明确的告警，应用照常启动——
-  但此时一个租户、一个管理员都不会被创建，直到你把 `YD_SEED_ADMIN_PASSWORD` 设好并重启。
-  一个口令公开可查的管理员账号绝不在真实环境中被创建。
+- **`development`**：用文档化的开发口令 `admin123`（`internal/meta.DevSeedAdminPassword`），并**每次启动都告警**；
+- **其它任何环境**（把 `app.env` 设为 `production` / `staging` 等非 `development` 取值）：**拒绝写入任何种子数据**，
+  打印一条明确的告警，应用照常启动——但此时一个租户、一个管理员都不会被创建，直到你把 `YD_SEED_ADMIN_PASSWORD`
+  设好并重启。一个口令公开可查的管理员账号绝不在真实环境中被创建。
+- **未设置 `app.env` 时框架默认是 `development`**；因此生产部署必须显式设置 `YD_APP_ENV=production`
+  （或 `app.env: production`），否则会按开发环境处理并使用 `admin123` 回退。
 
 | 租户（登录页"租户"字段） | 租户名称 | 登录名 | 初始口令 |
 |---|---|---|---|
-| `demo` | 演示租户 | `admin` | `seed.admin_password`（开发环境缺省为 `Admin@123456`） |
-| `acme` | 示例租户 ACME | `acme-admin` | 同上，两个租户的管理员共用同一个种子口令 |
+| `default` | 默认租户 | `admin` | `seed.admin_password`（开发环境缺省为 `admin123`） |
 
 > **首次登录后请立即修改默认口令** —— 登录页与首页横幅都会提醒，账号页的「修改口令」表单完成改密与 `sec_key` 轮换
 > （改密或轮换 `sec_key` 都会让此前签发的全部令牌立即失效，因此保存后需要重新登录）。
 > README、登录页与横幅引用的是 `internal/meta` 里的同一句 `SeedPasswordNotice`，改文案只需改那一处。
 > 口令明文永不进入日志：启动日志与告警只说「用了哪一个来源」，从不说口令是什么。
 
-第二个租户不是装饰：它是「跨租户不可见」这条硬边界的可验证样本——用 `demo` 的令牌去读 `acme` 的数据，
-得到的只会是「没有这条数据」，而不是任何能推断出对方是否存在的差异。
+种子只创建一个默认租户；需要验证「跨租户不可见」时，用 `admin` 在租户管理页再建一个租户即可，
+不需要为了演示而预置第二个租户。
 
 库里保存的永远是 SM3 + 盐 + 迭代的散列与逐用户 `sec_key`；明文只在你自己的配置或环境变量里存在。
 
 The seed is written once, only while the tenant table is empty: a second or third start writes no further row, and when two
 replicas start together the first one wins while the other reads the unique-index conflict as "already initialised" rather
-than as an error. One run creates two tenants, their built-in roles (`owner` / `admin` / `auditor` / `member`, with the
-capability bindings taken from the framework registry's `authz.BuiltinGrants()`) and one `owner` administrator per tenant.
+than as an error. One run creates the default tenant, its built-in roles (`owner` / `admin` / `auditor` / `member`, with the
+capability bindings taken from the framework registry's `authz.BuiltinGrants()`) and one `owner` administrator.
 The password is never hard-coded: it comes from `seed.admin_password` or `YD_SEED_ADMIN_PASSWORD`, and an unset value is
-answered differently per environment — development falls back to the documented `Admin@123456` and warns on every start,
+answered differently per environment — development falls back to the documented `admin123` and warns on every start,
 while every other environment refuses the seed with an explicit warning and creates no tenant and no administrator at all
 until the variable is set. The clear text never reaches a log.
 
@@ -152,7 +153,7 @@ assembly point.
   再附上 `X-YD-Encrypted: sm2` 请求头；服务端用 SM2 私钥解密，请求体里不留任何明文。
 - **会话**：登录成功后令牌写入 `HttpOnly` + `SameSite=Lax` 的 `yd_token` cookie；浏览器请求由 `middleware.Promote`
   提升成 `Authorization: Bearer <token>`，与 API 客户端走同一条校验路径。
-- **租户来源**：登录表单的「租户」字段填标识（`demo`）或 `tn_` ID；也接受 `X-Tenant` 请求头与子域名。
+- **租户来源**：登录表单的「租户」字段填标识（`default`）或 `tn_` ID；也接受 `X-Tenant` 请求头与子域名。
   带令牌的请求以令牌里的 `tid` 声明为准，请求头或子域名与它不一致即 403。
 - **能力（权限）**：能力标识由框架注册表 `authz` 声明（`authz.PermUserRead`、`authz.PermUserUpdate`、`authz.PermRoleManage`、
   `authz.PermTenantCreate` 等十六个），`internal/model` 只是它的一份渲染视图；
@@ -226,8 +227,10 @@ WorkingDirectory=/opt/{{ .Name }}
 ExecStart=/opt/{{ .Name }}/bin/{{ .Name }} -service run
 Restart=always
 RestartSec=5
-# 口令与主密钥只经环境变量注入，绝不写进单元文件
-Environment=YD_AUTH_MASTER_KEY=
+# 口令与主密钥只经环境变量注入：放进 root:root 0600 的环境文件，不写进单元文件本身。
+# Passwords and the master key arrive through environment variables: keep them in a root:root 0600 environment file,
+# never in the unit file itself.
+EnvironmentFile=/etc/{{ .Name }}/yd.env
 
 [Install]
 WantedBy=multi-user.target
@@ -238,6 +241,17 @@ sudo systemctl daemon-reload
 sudo systemctl enable --now {{ .Name }}
 systemctl status {{ .Name }}
 ```
+
+`/etc/{{ .Name }}/yd.env` 至少包含以下三行（文件权限 0600、属主 root）：
+
+```bash
+YD_APP_ENV=production
+YD_AUTH_MASTER_KEY=<32 字节随机值的 Base64>
+YD_SEED_ADMIN_PASSWORD=<强口令>
+```
+
+`YD_AUTH_MASTER_KEY` 是封装每用户 `sec_key` 的主密钥，不是管理员登录口令；管理员口令来自
+`YD_SEED_ADMIN_PASSWORD`，且只在租户表为空时使用一次。
 
 ## 无 Dockerfile 打包（ko）
 
