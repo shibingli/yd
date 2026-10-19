@@ -765,20 +765,21 @@ if err != nil {
 
 ## 15. 性能参考
 
-Windows / i9-10980HK / Go 1.27.2，100 行列表页，单核中位数（`-benchtime=1s -count=5`）：
+Windows / i9-10980HK / Go 1.27.2，100 行列表页，单核中位数（`-benchtime=2s`，3–5 遍）：
 
 | 引擎 | ns/op | allocs/op |
 |---|---:|---:|
-| quicktemplate | 28,439 | 0 |
-| **yd-render** | **64,328** | **0** |
-| templ | 144,927 | 1,823 |
-| Jet | 161,579 | 6 |
-| text/template | 236,767 | 811 |
-| html/template | 1,074,965 | 7,142 |
+| quicktemplate | 27,036 | 0 |
+| **yd-render** | **41,748** | **0** |
+| templ | 140,378 | 1,823 |
+| Jet | 165,985 | 6 |
+| text/template | 247,408 | 811 |
+| html/template | 1,055,921 | 7,142 |
 
-- 比 `html/template` 快 **16.7×**，比 `text/template` 快 **3.7×**；
-- 框架真实页面 dashboard 为 **6.8 µs / 2 allocs**（标准库 95.3 µs / 769），约 **14×**；
-- 并行吞吐约为 `html/template` 的 **24.1×**。
+- 比 `html/template` 快 **25.3×**，比 `text/template` 快 **5.9×**；
+- 框架真实页面 dashboard 为 **5.1 µs / 2 allocs**（标准库约 82.8 µs / 769），约 **16.2×**；
+- 上表把输出写到 `io.Discard`；把页面物化到真实缓冲后，yd-render 为 **40.7 µs**，
+  quicktemplate 为 **39.0 µs**，两者基本持平（1.04×）。
 
 完整对比、转义矩阵与复现命令见 [`benchmarks/template/README.md`](../benchmarks/template/README.md)，
 瓶颈分析与设计见 [`render-performance.md`](render-performance.md)。
