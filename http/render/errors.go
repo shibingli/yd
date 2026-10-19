@@ -26,6 +26,8 @@ var (
 	ErrHtmxOddArgs = errx.New("hx requires an even number of arguments | hx 需要偶数个参数")
 	// ErrHtmxKeyNotString reports a non-string key for the hx helper. | ErrHtmxKeyNotString 表示 hx 辅助函数的键不是字符串。
 	ErrHtmxKeyNotString = errx.New("hx keys must be strings | hx 的键必须是字符串")
+	// ErrHtmxInvalidKey reports an attribute name the hx helper cannot emit safely. | ErrHtmxInvalidKey 表示 hx 辅助函数无法安全输出的属性名。
+	ErrHtmxInvalidKey = errx.New("hx key is not a plain attribute name | hx 的键不是普通属性名")
 	// ErrInvalidFunc reports a template function with an unusable signature. | ErrInvalidFunc 表示模板函数签名不可用。
 	ErrInvalidFunc = errx.New("invalid template function | 非法的模板函数")
 )

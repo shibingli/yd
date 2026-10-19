@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"html"
 	"html/template"
 	"sort"
 	"strings"
@@ -146,9 +147,11 @@ func humanTime(t time.Time) string {
 
 // htmxAttrs builds htmx attributes from alternating key/value arguments. | htmxAttrs 由交替的键值参数构造 htmx 属性。
 //
-// Keys may be given with or without the hx- prefix; values are HTML-escaped by
-// html/template when the result is used as an attribute value. | 键可带可不带 hx- 前缀；
-// 结果作为属性值时由 html/template 负责转义。
+// Keys may be given with or without the hx- prefix. The result is a
+// template.HTMLAttr, which html/template inserts verbatim, so the helper escapes
+// every value itself and rejects keys that are not plain attribute names. | 键可带可不带
+// hx- 前缀。结果是 template.HTMLAttr，html/template 会原样插入，因此本函数自行转义每个值，
+// 并拒绝不是普通属性名的键。
 func htmxAttrs(kv ...any) (template.HTMLAttr, error) {
 	if len(kv)%2 != 0 {
 		return "", errx.Detail(ErrHtmxOddArgs, "got %[1]d args | 需要 %[1]d 个参数", len(kv))
@@ -159,13 +162,42 @@ func htmxAttrs(kv ...any) (template.HTMLAttr, error) {
 		if !ok {
 			return "", errx.Detail(ErrHtmxKeyNotString, "index=%[1]d | 索引=%[1]d", i)
 		}
+		if k == "" {
+			return "", errx.Detail(ErrHtmxInvalidKey, "key=%[1]q | 键=%[1]q", k)
+		}
 		if !strings.HasPrefix(k, "hx-") {
 			k = "hx-" + k
 		}
-		pairs = append(pairs, fmt.Sprintf(`%s="%v"`, k, kv[i+1]))
+		if !validAttrName(k) {
+			return "", errx.Detail(ErrHtmxInvalidKey, "key=%[1]q | 键=%[1]q", k)
+		}
+		pairs = append(pairs, fmt.Sprintf(`%s="%s"`, k, html.EscapeString(fmt.Sprint(kv[i+1]))))
 	}
 	sort.Strings(pairs)
 	return template.HTMLAttr(strings.Join(pairs, " ")), nil
+}
+
+// validAttrName reports whether name is a plain HTML attribute name: letters,
+// digits, underscores, dashes and colons only. | validAttrName 报告 name 是否为普通 HTML
+// 属性名：仅允许字母、数字、下划线、连字符与冒号。
+//
+// Anything else (quotes, whitespace, "=", "<", ">", "/") could terminate the
+// attribute or the tag, so it is refused rather than escaped: an attribute name
+// has no legal escaped form. | 其它字符（引号、空白、"="、"<"、">"、"/"）可能终止属性或标签，
+// 因此直接拒绝而不是转义：属性名没有合法的转义形态。
+func validAttrName(name string) bool {
+	if name == "" {
+		return false
+	}
+	for _, r := range name {
+		switch {
+		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9':
+		case r == '_' || r == '-' || r == ':':
+		default:
+			return false
+		}
+	}
+	return true
 }
 
 // assetFunc returns a function that appends a content hash to a URL path. | assetFunc 返回把内容哈希追加到 URL 路径的函数。
