@@ -42,6 +42,10 @@
 配置解析优先级由高到低：**命令行参数 > 环境变量（含 `.env`）> 配置文件 > 框架默认值**。
 环境变量前缀固定 **`YD_`**，下划线自动转多级嵌套（`YD_DB_MAXCONN` → `db.maxconn`，`YD_SERVER_PORT` → `server.port`）。
 
+运行环境 `app.env` / `YD_APP_ENV` 接受完整名与短别名：`development`/`dev`、`production`/`prod`，
+忽略大小写与首尾空白，统一经 `core/envx.Normalize` 归一化。未知取值在框架热重载与资产覆盖上仍按开发处理，
+种子写入与主密钥校验仍只认显式 development。
+
 > 注：`docs/需求设计说明书.md` 原文写的是 `YUNGO_` 前缀，团队已决定统一改为 `YD_`；
 > 需求基线文档保持只读不改，本变更以本文件、`AGENTS.md` 与实施计划为准。
 
@@ -262,6 +266,8 @@ yd build             # 跨平台静态打包（Tailwind 剪裁压缩 + go:embed 
 yd docker            # 基于 scratch 的多阶段镜像构建
 yd assets update     # 在线更新前端依赖并锁定校验和
 yd assets verify --offline   # 离线完整性校验
+yd assets minify     # 生成生产压缩资产（*.min.js、yd.min.css）
+yd assets minify --check     # 校验已提交的压缩资产是否漂移
 ```
 
 ## 11. 优雅退出（强制）
@@ -344,12 +350,12 @@ yd assets verify --offline   # 离线完整性校验
 ## 14. 可选外部工具（强制）
 
 `tools` 包（`github.com/shibingli/yd/tooling/tools`）是**唯一的探测与安装入口**：`betteralign`（内存对齐）、
-`ko`（无 Dockerfile 镜像打包）、`tailwindcss`（样式表编译）、`docker`（镜像构建）四个工具一律经它处理，
-注册表顺序固定为这四条。**禁止**在脚本、CI 或文档里另立一套「自己 `go install` 到全局」的指引。
+`ko`（无 Dockerfile 镜像打包）、`tailwindcss`（样式表编译）、`minify`（JavaScript 压缩）、`docker`（镜像构建）
+五个工具一律经它处理，注册表顺序固定为这五条。**禁止**在脚本、CI 或文档里另立一套「自己 `go install` 到全局」的指引。
 
 - **API 与 CLI 同源**：`Registry()` / `Lookup(name)` / `Check(dir)` / `Missing(dir)` / `Hints(dir)` /
   `CheckWith(Options)` / `MissingWith(Options)` / `HintsWith(Options)` / `InstallWith(ctx, Options, names, log)`
-  （`Options.Binaries` 接收 `align.bin` / `ko.binary` / `tailwind.bin`，使探测、安装与真实命令看到同一份配置）/
+  （`Options.Binaries` 接收 `align.bin` / `ko.binary` / `tailwind.bin` / `minify.bin`，使探测、安装与真实命令看到同一份配置）/
   `Install(ctx, dir, names, log)` / `InstallAll(ctx, dir, log)`，结果以 `*Report{Installed, Skipped, Failed}` 返回；
   CLI 侧是 `yd tools [check]`（列出每个工具的状态、路径或版本与安装提示）与
   `yd tools install [名称...]`（缺省为全部 **Go 可安装**项；`tailwindcss` 需显式点名，见下）。探测**只读**：
@@ -364,9 +370,14 @@ yd assets verify --offline   # 离线完整性校验
   `GOPROXY=https://goproxy.io,https://goproxy.cn,https://mirrors.aliyun.com/goproxy/,direct` 与 `GOSUMDB=off`；
   显式导出的 `GOPROXY` / `GOSUMDB` 优先，空值回退默认值。删除 `.yd/tools` 即完成一次彻底重置。
 - **工具一律可选**：缺失只影响对应能力——`yd align` / `yd ko` / `yd docker` 各自返回哨兵并给出安装提示，
-  `tailwindcss` 缺失时样式表阶段以告警跳过——**不得**让 `yd build` / `yd dev` / `yd gen` / `go test` 或 CI 失败。
-  `betteralign`（`go install github.com/dkorunic/betteralign/cmd/betteralign@latest`）与
-  `ko`（`go install github.com/google/ko@latest`）走 `go install`；`tailwindcss` 由
+  `tailwindcss` 缺失时样式表阶段以告警跳过，`minify` 缺失时 JavaScript 压缩阶段以告警跳过——
+  **不得**让 `yd build` / `yd dev` / `yd gen` / `go test` 或 CI 失败。
+  `betteralign`（`go install github.com/dkorunic/betteralign/cmd/betteralign@latest`）、
+  `ko`（`go install github.com/google/ko@latest`）与
+  `minify`（`go install github.com/tdewolff/minify/v2/cmd/minify@latest`）走 `go install`；
+  `yd build` 侧由 `--minify-assets`（默认开启，配置 `build.minify_assets`）与 `--minify-bin`
+  （配置 `minify.bin`）控制，解析链为 `--minify-bin` → `minify.bin` → `YD_MINIFY_BIN` →
+  `.yd/tools/minify[.exe]` → `PATH`；`tailwindcss` 由
   `yd tools install tailwindcss` 下载 GitHub Release 的 standalone 二进制到 `.yd/tools/`（只安装它时不需要 Go 工具链），
   下载遵循 `http.proxy`（`YD_HTTP_PROXY`；为空时使用标准 `HTTP_PROXY` / `HTTPS_PROXY` / `NO_PROXY`）与
   `tailwind.url`（`YD_TAILWIND_URL`，GitHub 不可达时指向镜像）；`docker` 需安装 Docker Engine / Docker Desktop，
@@ -377,7 +388,7 @@ yd assets verify --offline   # 离线完整性校验
   （e2e / CI 入口不得带网络副作用）。安装失败只 Warn 并给出提示，绝不影响建项目成功。
 - **错误一律哨兵**：`ErrUnknownTool` / `ErrNoGoToolchain` / `ErrNotInstallable` / `ErrInstallFailed`，
   调用方用 `errors.Is` 判定（见第 4.2 条「错误处理」）。
-- **依赖方向单向**：`tools` 聚合 `align` / `ko` / `toolchain` 的解析器，这三者**不得**反向 import `tools`
+- **依赖方向单向**：`tools` 聚合 `align` / `ko` / `toolchain` / `build` 的解析器，这几者**不得**反向 import `tools`
   （成环会让提示文案被迫出现第二份副本，由 `repotest` 的守卫强制）。
 
 ## 15. 数据持久化与索引（强制）
@@ -683,3 +694,26 @@ yd versions sync               # 仅重新生成 version_generated.go
   同源（`connect-src 'self'`），跨源目标直接提示而不发送，会话 cookie 自动携带。
 - **查看器主题跟随应用**：查看器读取同一份 `localStorage.yd_theme`，顶栏按钮按
   浅色 → 深色 → 跟随系统循环；表单控件边框使用 `--field` 令牌，明暗两套主题都必须清晰可见。
+
+### 22.6 生产资产压缩（强制）
+
+- **开发期用源码，生产期用压缩版**：`yd dev` / `app.env != production` 时模板引用源码；
+  `yd build` 在编译前执行压缩阶段，产物写在 `web/static` 旁边并由 `go:embed` 打进二进制。
+- **分工固定**：CSS 只由 Tailwind v4 的 `--minify` 产出 `yd.min.css`（`yd.css` 是 Tailwind 的编译产物，项目构建时同样带 `--minify`，供开发与回退）；
+  JavaScript 只由可选工具 `minify`（tdewolff/minify）产出 `*.min.js`。禁止用其它压缩器处理 CSS，
+  也不得用 `minify` 处理 Tailwind 输入 `app.css` / `components.css`。
+- **模板必须走 `asset` 助手**：所有 `/static/...` 引用写成 `{{ asset "/static/..." }}`；
+  production 下助手优先解析同名 `.min.js` / `.min.css` 并对其内容取哈希，文件缺失时回退源码。
+  已是 `.min.*` 的 vendored 资源原样解析，不会二次加后缀。
+- **合并静态树**：`render.Options.AssetFS` 必须指向与 `Router().StaticFS` 相同的 `/static` 合并树
+  （生成项目通过 `app.WithStaticFS(web.Static())` 注入），否则框架共享脚本在 asset 助手里找不到。
+- **覆盖层不得串层**：`afs.HideShadowedMin` 在项目层提供源码但没有压缩同族文件时隐藏框架层的 `.min`，
+  防止框架示例脚本顶替项目脚本；开发期磁盘层同样应用该规则。
+- **`--minify-assets=false` 只抑制重新生成**：已有的 `.min` 文件仍可能被解析；框架层同名文件已由
+  `HideShadowedMin` 隐藏，项目自有的陈旧 `.min` 由 `yd assets minify` 重新生成或按清单清理。
+- **入库边界**：框架共享资产的 `.min` 文件提交入库（随 `frameworkweb.FS()` 进入生成项目）；
+  生成项目自有的 `.min` 文件由 `.gitignore` 忽略，`yd build` 每次重新生成。
+- **工具缺失**：`yd build` 与 `yd assets minify` 普通模式告警并跳过（asset 助手回退源码）；
+  `yd assets minify --check` 在工具缺失、文件缺失或内容漂移时返回非零，供 CI 使用。
+- **守卫**：`tooling/build/minify_sync_test.go` 在工具可用时逐文件比对已提交的 `.min` 与源码，
+  漂移即失败；工具缺失时 `t.Skipf` 并说明原因。

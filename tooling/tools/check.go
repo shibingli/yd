@@ -8,6 +8,7 @@ import (
 
 	"github.com/shibingli/yd/core/errx"
 	"github.com/shibingli/yd/tooling/align"
+	"github.com/shibingli/yd/tooling/build"
 	"github.com/shibingli/yd/tooling/ko"
 	"github.com/shibingli/yd/tooling/toolchain"
 )
@@ -47,10 +48,10 @@ const hintLabel = "install | 安装"
 // 命令一致的状态行。
 type Options struct {
 	// Binaries maps a registry name to the explicitly configured executable: align.bin,
-	// ko.binary or tailwind.bin. Entries rank exactly where the matching resolver puts its
-	// ConfigBin, i.e. above the environment variable, the project-local copy and PATH. | Binaries
-	// 把注册表名称映射到显式配置的可执行文件：align.bin、ko.binary 或 tailwind.bin。条目所处优先级与
-	// 对应解析器的 ConfigBin 完全一致，即高于环境变量、项目内副本与 PATH。
+	// ko.binary, tailwind.bin or minify.bin. Entries rank exactly where the matching resolver puts
+	// its ConfigBin, i.e. above the environment variable, the project-local copy and PATH. | Binaries
+	// 把注册表名称映射到显式配置的可执行文件：align.bin、ko.binary、tailwind.bin 或 minify.bin。
+	// 条目所处优先级与对应解析器的 ConfigBin 完全一致，即高于环境变量、项目内副本与 PATH。
 	Binaries map[string]string
 	// PathLookup resolves a bare command name; nil means the package-level PathLookup. | PathLookup
 	// 解析裸命令名；nil 表示包级 PathLookup。
@@ -106,6 +107,8 @@ var resolveTool = func(t Tool, o Options) (string, error) {
 			ConfigBin:  o.configuredBin(t.Name),
 			LocalDir:   o.Dir,
 		})
+	case toolMinify:
+		return build.ResolveMinifyBinWith(o.Dir, o.configuredBin(t.Name), o.PathLookup)
 	case toolDocker:
 		path, err := o.PathLookup(t.Name)
 		if err != nil {
@@ -131,6 +134,8 @@ func notFoundSentinel(t Tool) error {
 		return ko.ErrBinaryNotFound
 	case toolTailwindcss:
 		return toolchain.ErrToolNotFound
+	case toolMinify:
+		return build.ErrMinifyNotFound
 	case toolDocker:
 		return errDockerNotFound
 	}

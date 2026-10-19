@@ -137,13 +137,14 @@ type AnnotationResponse struct {
 	// 其后的 @Example 行绑定的示例，原样保留。
 	Example string
 
-	// Code is the status code, 0 for the default response or a range such as "2XX". | Code 为状态码，
-	// 0 表示默认响应或 "2XX" 这类区间。
-	Code int
 	// CodeText preserves the literal response key, including range keys ("2XX") that cannot be
 	// represented as an int. Empty means Code is authoritative. | CodeText 保留字面响应键，包括
 	// 无法用整数表示的区间键（"2XX"）；为空时以 Code 为准。
 	CodeText string
+
+	// Code is the status code, 0 for the default response or a range such as "2XX". | Code 为状态码，
+	// 0 表示默认响应或 "2XX" 这类区间。
+	Code int
 }
 
 // Report summarizes annotation coverage. | Report 汇总注解覆盖情况。

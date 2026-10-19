@@ -33,7 +33,7 @@ yd tools install               # install the missing go-installable tools into .
 第 3 步与第 4 步是同一次交付的两条可选路径（Dockerfile 构建 vs 源码直出），按目标环境二选一或都跑。
 `yd ko` 依赖可选的 ko 外部工具：流水线里没装它时**跳过该步即可**，不要让整个构建失败
 （安装：`yd tools install ko`，装进项目内 `.yd/tools/`；镜像仓库、标签与平台也可写进 `configs/config.yaml` 的 `ko` 段）。
-排查环境时用 `yd tools check` 一次列出全部可选工具的状态与安装提示；这四个工具一律可选，
+排查环境时用 `yd tools check` 一次列出全部可选工具的状态与安装提示；这五个工具一律可选，
 缺失只影响对应能力，不得让流水线失败。
 
 依赖的前端资产在构建前由 Tailwind 阶段裁剪压缩（`{{ .AssetRoot }}/static/css/yd.css`），

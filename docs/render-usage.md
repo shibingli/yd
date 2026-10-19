@@ -429,6 +429,10 @@ func renderPage(engine *render.Engine, name string, data map[string]any) ([]byte
 - 已有查询串时用 `&` 追加。
 - 哈希按引擎实例缓存；Dev 模式重新加载会重建缓存，因此文件改动会得到新哈希。
 - 文件不存在返回 `ErrAssetNotFound`。
+- `render.Options.Production` 为 true 时优先解析同名 `.min.js` / `.min.css`，并对压缩文件取哈希；
+  压缩文件不存在时回退源码。`.min.*` 路径原样处理，不会二次加后缀。
+- `render.Options.AssetFS` 应指向 `/static` 的合并文件系统（根为 `/static/` 前缀）；
+  生成项目通过 `app.WithStaticFS(web.Static())` 注入，否则框架共享脚本会解析失败。
 
 ---
 

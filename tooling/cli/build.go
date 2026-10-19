@@ -43,6 +43,10 @@ const (
 	flagBuildNoTailwind = "no-tailwind"
 	// flagBuildMinify asks tailwindcss for the minified stylesheet. | flagBuildMinify 要求 tailwindcss 输出压缩后的样式表。
 	flagBuildMinify = "minify"
+	// flagBuildMinifyAssets turns the production asset-minification stages on. | flagBuildMinifyAssets 开启生产资产压缩阶段。
+	flagBuildMinifyAssets = "minify-assets"
+	// flagBuildMinifyBin pins the minify executable. | flagBuildMinifyBin 直接指定 minify 可执行文件。
+	flagBuildMinifyBin = "minify-bin"
 	// flagBuildOffline forces -mod=vendor, so no module is fetched from the network. | flagBuildOffline 强制 -mod=vendor，不从网络拉取任何模块。
 	flagBuildOffline = "offline"
 	// flagBuildTags adds build tags. | flagBuildTags 追加构建标签。
@@ -63,6 +67,10 @@ const buildAllTargets = "linux/amd64,linux/arm64,darwin/arm64,windows/amd64"
 // reads. | keyLogFormat 是 commandLogger 消费的日志格式键，与 configureLogger 读取的键相同。
 const keyLogFormat = "log.format"
 
+// keyBuildMinifyAssets is the configuration key mirroring --minify-assets. | keyBuildMinifyAssets
+// 是 --minify-assets 对应的配置键。
+const keyBuildMinifyAssets = "build.minify_assets"
+
 // buildFlags keeps the build command's flag set, installed by registerBuildFlags. | buildFlags 保存 build
 // 命令的标志集，由 registerBuildFlags 安装。
 var buildFlags *pflag.FlagSet
@@ -77,6 +85,16 @@ var buildExecCommand build.ExecCommandFunc
 // command's own skip-tolerant wrapper around build.BuildTailwind. | buildTailwindFunc 覆盖 build 命令注入的
 // 样式表阶段；nil 表示使用命令自身的、容忍缺失的 build.BuildTailwind 包装。
 var buildTailwindFunc build.TailwindFunc
+
+// buildMinifyFunc overrides the JavaScript minification stage the build command injects; nil means
+// the command's own skip-tolerant wrapper around build.BuildMinify. | buildMinifyFunc 覆盖 build 命令注入的
+// JavaScript 压缩阶段；nil 表示使用命令自身的、容忍缺失的 build.BuildMinify 包装。
+var buildMinifyFunc build.MinifyFunc
+
+// buildMinifyCall is the underlying minify implementation the default stage wraps; tests replace
+// it to exercise the skip-on-missing-tool behavior without a real binary. | buildMinifyCall 是默认阶段
+// 包装的底层实现；测试替换它，以便在真实二进制缺席时验证「缺失即跳过」的行为。
+var buildMinifyCall = build.BuildMinify
 
 func init() {
 	Register(Command{
@@ -102,7 +120,9 @@ func registerBuildFlags(fs *pflag.FlagSet) {
 	fs.String(flagBuildName, "", "artifact base name | 产物基础名")
 	fs.Bool(flagBuildTailwind, true, "run the Tailwind CSS stage | 执行 Tailwind CSS 阶段")
 	fs.Bool(flagBuildNoTailwind, false, "skip the Tailwind CSS stage, overriding --tailwind | 跳过 Tailwind CSS 阶段，优先于 --tailwind")
-	fs.Bool(flagBuildMinify, false, "produce the minified stylesheet (--tailwind) | 产出压缩后的样式表（--tailwind）")
+	fs.Bool(flagBuildMinify, false, "produce yd.min.css with Tailwind --minify (default follows --minify-assets) | 用 Tailwind --minify 产出 yd.min.css（默认跟随 --minify-assets）")
+	fs.Bool(flagBuildMinifyAssets, true, "minify JS/CSS assets for production; existing .min files may still be used | 为生产构建压缩 JS/CSS 资产；已有的 .min 文件仍可能被使用")
+	fs.String(flagBuildMinifyBin, "", "minify executable, skips the resolution chain | minify 可执行文件，跳过解析链")
 	fs.Bool(flagBuildOffline, false, "force -mod=vendor and forbid network access | 强制 -mod=vendor 并禁止网络访问")
 	fs.StringArray(flagBuildTags, nil, "build tags, repeatable | 构建标签，可重复")
 	fs.StringArray(flagBuildLDFlags, nil, "extra linker flags, repeatable | 额外的链接参数，可重复")
@@ -134,6 +154,11 @@ func buildOptions(env *Env, fs *pflag.FlagSet, log *logx.Logger) (build.Options,
 	if err != nil {
 		return build.Options{}, err
 	}
+	minifyAssets := buildMinifyAssetsEnabled(env, fs)
+	tailwindMinify := minifyAssets
+	if flagChanged(fs, flagBuildMinify) {
+		tailwindMinify = flagBool(fs, flagBuildMinify)
+	}
 	return build.Options{
 		Dir:     env.WorkDir,
 		Package: projectEntry(env, env.WorkDir),
@@ -144,7 +169,11 @@ func buildOptions(env *Env, fs *pflag.FlagSet, log *logx.Logger) (build.Options,
 		Tags:    flagStrings(fs, flagBuildTags),
 		Tailwind: build.TailwindOptions{
 			Enabled: buildTailwindEnabled(fs),
-			Minify:  flagBool(fs, flagBuildMinify),
+			Minify:  tailwindMinify,
+		},
+		Minify: build.MinifyOptions{
+			Enabled: minifyAssets,
+			Bin:     buildMinifyBin(env, fs),
 		},
 		Offline:      flagBool(fs, flagBuildOffline),
 		TrimPath:     true,
@@ -152,6 +181,7 @@ func buildOptions(env *Env, fs *pflag.FlagSet, log *logx.Logger) (build.Options,
 		Commit:       version.Commit,
 		Date:         version.Date,
 		TailwindFunc: buildTailwindStage(log),
+		MinifyFunc:   buildMinifyStage(log),
 		ExecCommand:  buildExecCommand,
 	}, nil
 }
@@ -199,6 +229,48 @@ func buildTailwindEnabled(fs *pflag.FlagSet) bool {
 		enabled = false
 	}
 	return enabled
+}
+
+// buildMinifyAssetsEnabled reports whether the production asset-minification stages run. The flag
+// wins; otherwise build.minify_assets applies; the default is on. | buildMinifyAssetsEnabled 报告生产资产
+// 压缩阶段是否运行。命令行标志优先，其次是 build.minify_assets，默认开启。
+func buildMinifyAssetsEnabled(env *Env, fs *pflag.FlagSet) bool {
+	if flagChanged(fs, flagBuildMinifyAssets) {
+		return flagBool(fs, flagBuildMinifyAssets)
+	}
+	if env != nil && env.Cfg != nil && env.Cfg.IsSet(keyBuildMinifyAssets) {
+		return env.Cfg.GetBool(keyBuildMinifyAssets)
+	}
+	return true
+}
+
+// buildMinifyBin resolves the minify executable from --minify-bin or minify.bin; the resolver
+// chain handles the environment, .yd/tools and PATH. | buildMinifyBin 从 --minify-bin 或 minify.bin
+// 解析 minify 可执行文件；解析链负责环境变量、.yd/tools 与 PATH。
+func buildMinifyBin(env *Env, fs *pflag.FlagSet) string {
+	if v := flagString(fs, flagBuildMinifyBin); v != "" {
+		return v
+	}
+	return configString(env, build.KeyMinifyBin)
+}
+
+// buildMinifyStage returns the JavaScript hook the build command injects. A missing minify binary
+// is not a build failure: the stage is skipped with a warning, because the compiled binary is still
+// valid and the asset helper falls back to the source paths. | buildMinifyStage 返回 build 命令注入的
+// JavaScript 钩子。缺少 minify 二进制不算构建失败：该阶段会以告警跳过，因为编译出的二进制依然有效，
+// 且 asset 助手会回退到源码路径。
+func buildMinifyStage(log *logx.Logger) build.MinifyFunc {
+	if buildMinifyFunc != nil {
+		return buildMinifyFunc
+	}
+	return func(ctx context.Context, dir string, o build.MinifyOptions) (build.MinifyResult, error) {
+		res, err := buildMinifyCall(ctx, dir, o, log)
+		if errors.Is(err, build.ErrMinifyNotFound) {
+			log.Warn("minify stage skipped | 跳过 JS 压缩阶段", logx.Err(err))
+			return build.MinifyResult{}, nil
+		}
+		return res, err
+	}
 }
 
 // buildTailwindStage returns the stylesheet hook the build command injects. A project without a

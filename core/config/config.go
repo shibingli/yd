@@ -103,6 +103,10 @@ type Config struct {
 
 	flags *pflag.FlagSet
 
+	// watcher is the fsnotify watcher started by Watch; watchMu guards it and watchErr. | watcher
+	// 是 Watch 启动的 fsnotify 监视器；watchMu 保护它和 watchErr。
+	watcher *fsnotify.Watcher
+
 	name        string
 	configDir   string
 	configName  string
@@ -110,9 +114,6 @@ type Config struct {
 	configFile  string
 	configLocal string
 
-	// watcher is the fsnotify watcher started by Watch; watchMu guards it and watchErr. | watcher
-	// 是 Watch 启动的 fsnotify 监视器；watchMu 保护它和 watchErr。
-	watcher *fsnotify.Watcher
 	watchMu sync.RWMutex
 
 	// mu serialises reads against reloads. viper documents that Get and Set/ReadConfig are not

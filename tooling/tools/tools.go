@@ -1,16 +1,17 @@
 // Package tools is the single probe-and-install entry point for the optional external tools the
 // framework shells out to. | Package tools 是框架所调用可选外部工具的统一探测与安装入口。
 //
-// Four tools are optional by design, and each resolver chain is owned by the package that uses it: | 按设计共有四个可选工具，
+// Five tools are optional by design, and each resolver chain is owned by the package that uses it: | 按设计共有五个可选工具，
 // 各自的解析链由使用它的包负责：
 //
 //   - betteralign, behind align.Resolve, reports struct field orders that waste memory (CLAUDE.md §8); |  - betteralign 由 align.Resolve 解析，报告浪费内存的结构体字段顺序（CLAUDE.md §8）；
 //   - ko, behind ko.Resolve, builds images without a Dockerfile (CLAUDE.md §13); |  - ko 由 ko.Resolve 解析，无需 Dockerfile 构建镜像（CLAUDE.md §13）；
 //   - tailwindcss, behind toolchain.ResolveTailwind, compiles the stylesheets; |  - tailwindcss 由 toolchain.ResolveTailwind 解析，编译样式表；
+//   - minify, behind build.ResolveMinifyBin, minifies the JavaScript assets; |  - minify 由 build.ResolveMinifyBin 解析，压缩 JavaScript 资产；
 //   - docker, looked up on PATH, builds and runs the container images. |  - docker 在 PATH 上查找，构建并运行容器镜像。
 //
 // What this package adds is the one place that can answer "what is still missing on this machine",
-// and the one command that installs it: Registry lists the four entries, Check probes them through
+// and the one command that installs it: Registry lists the five entries, Check probes them through
 // their own chains, Hints renders the bilingual recovery hints, and Install either runs `go install`
 // with GOBIN, GOPATH, GOMODCACHE and GOCACHE pinned inside <dir>/.yd/tools, or downloads the
 // tailwindcss standalone binary into the same directory. Both routes land on the project-local
@@ -25,11 +26,11 @@
 // Check、Missing 与 Hints 不安装任何东西、不触网、也不执行任何工具，因此工具缺失只会产出提示。版本号因此在探测时留空，
 // 由 Install 在工具真正安装后填入。
 //
-// Dependency direction: tools depends on align, ko and toolchain - never the other way around. The
-// three resolvers must not import this package, otherwise the cycle would force a second copy of
-// their InstallHint constants, and two copies of a hint are exactly how hints drift apart. | 依赖方向：
-// tools 依赖 align、ko、toolchain，反向绝不成立。三个解析包不得 import 本包，否则成环会迫使它们的 InstallHint
-// 常量出现第二份副本，而两份提示正是提示漂移的根源。
+// Dependency direction: tools depends on align, ko, toolchain and build - never the other way
+// around. The resolvers must not import this package, otherwise the cycle would force a second copy
+// of their InstallHint constants, and two copies of a hint are exactly how hints drift apart. | 依赖方向：
+// tools 依赖 align、ko、toolchain、build，反向绝不成立。各解析包不得 import 本包，否则成环会迫使它们的
+// InstallHint 常量出现第二份副本，而两份提示正是提示漂移的根源。
 //
 // Every failure path references a package-level sentinel declared here, so callers decide with
 // errors.Is instead of string matching. | 所有失败路径都引用本文件声明的包级哨兵，调用方用 errors.Is 判定而不做字符串匹配。

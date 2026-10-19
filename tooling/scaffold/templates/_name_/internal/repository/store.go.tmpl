@@ -67,6 +67,7 @@ import (
 {{- end }}
 	"{{ .YdModule }}/security/authz"
 	"{{ .YdModule }}/core/config"
+	"{{ .YdModule }}/core/envx"
 {{- if ne .DB "none" }}
 	"{{ .YdModule }}/data/gormx"
 {{- end }}
@@ -573,7 +574,7 @@ func seedEnv(c *config.Config) string {
 	if c == nil {
 		return meta.EnvDevelopment
 	}
-	env := strings.TrimSpace(c.GetString(meta.ConfigEnvKey))
+	env := envx.Normalize(c.GetString(meta.ConfigEnvKey))
 	if env == "" {
 		return meta.EnvDevelopment
 	}

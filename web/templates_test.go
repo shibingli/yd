@@ -205,6 +205,11 @@ func templateFuncs() template.FuncMap {
 			}
 			return name
 		},
+		// asset is the identity here: these tests pin the script order and the local
+		// path, while the production .min resolution is covered by http/render tests.
+		// asset 在这里是恒等函数：本组测试固定脚本顺序与本地路径，
+		// production 的 .min 解析由 http/render 的测试覆盖。
+		"asset": func(p string) string { return p },
 	}
 }
 
@@ -1029,5 +1034,25 @@ func TestAuthzGuardsUseTheRegistryTokens(t *testing.T) {
 
 	if got := executeWith(t, tmpl, "partials/users/row", rows[0]); strings.Contains(got, "hx-delete=") {
 		t.Error("partials/users/row: a subject without the delete capability still receives the delete button | partials/users/row：未持有删除能力的主体仍收到了删除按钮")
+	}
+}
+
+// TestLayoutStaticReferencesUseAssetHelper pins the single entry point for
+// static URLs: a raw /static reference would bypass the production .min
+// resolution and the content hash. | TestLayoutStaticReferencesUseAssetHelper
+// 固定静态 URL 的唯一入口：裸 /static 引用会绕过 production 的 .min 解析与内容哈希。
+func TestLayoutStaticReferencesUseAssetHelper(t *testing.T) {
+	raw, err := os.ReadFile(filepath.Join("templates", "layouts", "base.html"))
+	if err != nil {
+		t.Fatalf("读取 base.html 失败: %v", err)
+	}
+	for _, want := range []string{
+		`{{ asset "/static/css/yd.css" }}`,
+		`{{ asset "/static/js/yd-app.js" }}`,
+		`{{ asset "/static/js/yd-theme-boot.js" }}`,
+	} {
+		if !strings.Contains(string(raw), want) {
+			t.Errorf("base.html 未通过 asset 解析 %q", want)
+		}
 	}
 }

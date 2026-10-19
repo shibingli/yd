@@ -49,7 +49,7 @@ func TestDefaultRendererRendersByRelativePath(t *testing.T) {
 	r, err := newRenderer(newTemplateFS(t, map[string]string{
 		"templates/layouts/base.html": testLayout,
 		"templates/pages/home.html":   testPage,
-	}), false)
+	}), nil, false)
 	if err != nil {
 		t.Fatalf("构建渲染器失败: %v", err)
 	}
@@ -70,7 +70,7 @@ func TestDefaultRendererRendersByRelativePath(t *testing.T) {
 func TestDefaultRendererCachesUnlessDev(t *testing.T) {
 	fsys := newTemplateFS(t, map[string]string{"templates/one.html": "<p>one</p>"})
 
-	cached, err := newRenderer(fsys, false)
+	cached, err := newRenderer(fsys, nil, false)
 	if err != nil {
 		t.Fatalf("构建渲染器失败: %v", err)
 	}
@@ -86,7 +86,7 @@ func TestDefaultRendererCachesUnlessDev(t *testing.T) {
 		t.Errorf("缓存输出 = %q, 期望仍为旧内容", got)
 	}
 
-	dev, err := newRenderer(fsys, true)
+	dev, err := newRenderer(fsys, nil, true)
 	if err != nil {
 		t.Fatalf("构建 dev 渲染器失败: %v", err)
 	}
@@ -99,7 +99,7 @@ func TestDefaultRendererWithoutTemplates(t *testing.T) {
 	// A filesystem without a templates directory: the renderer still builds,
 	// and rendering reports the missing template. | 没有模板目录的文件系统：
 	// 渲染器仍可构建，渲染时报告模板缺失。
-	r, err := newRenderer(afs.NewMem(), false)
+	r, err := newRenderer(afs.NewMem(), nil, false)
 	if err != nil {
 		t.Fatalf("缺少模板目录时不应报错: %v", err)
 	}
@@ -112,7 +112,7 @@ func TestDefaultRendererWithoutTemplates(t *testing.T) {
 	if err := mem.MkdirAll(assetsTemplatesDir, 0o755); err != nil {
 		t.Fatalf("创建模板目录失败: %v", err)
 	}
-	empty, err := newRenderer(mem, false)
+	empty, err := newRenderer(mem, nil, false)
 	if err != nil {
 		t.Fatalf("空模板目录不应报错: %v", err)
 	}
@@ -127,12 +127,12 @@ func TestDefaultRendererReportsParseErrors(t *testing.T) {
 	}
 
 	// Eager mode fails fast at construction. | 立即模式在构造期快速失败。
-	if _, err := newRenderer(broken(), false); !errors.Is(err, render.ErrParseTemplate) {
+	if _, err := newRenderer(broken(), nil, false); !errors.Is(err, render.ErrParseTemplate) {
 		t.Errorf("立即模式构造错误 = %v, 期望 render.ErrParseTemplate", err)
 	}
 
 	// Hot-reload mode surfaces the error on render instead. | 热重载模式在渲染时暴露错误。
-	dev, err := newRenderer(broken(), true)
+	dev, err := newRenderer(broken(), nil, true)
 	if err != nil {
 		t.Fatalf("dev 模式构造不应报错: %v", err)
 	}
@@ -303,5 +303,29 @@ func TestRenderFlowsThroughCompressionMiddleware(t *testing.T) {
 		if !strings.Contains(string(body), wantFragment) {
 			t.Errorf("解压后的正文缺少片段 %q: %q", wantFragment, body)
 		}
+	}
+}
+
+// TestNewRendererPassesProductionAssetsToTheEngine pins the two options the
+// asset helper depends on: the merged static tree and the production flag. | TestNewRendererPassesProductionAssetsToTheEngine
+// 固定 asset 助手依赖的两个选项：合并静态树与 production 标志。
+func TestNewRendererPassesProductionAssetsToTheEngine(t *testing.T) {
+	fsys := newTemplateFS(t, map[string]string{"templates/one.html": "<p>one</p>"})
+	static := afs.NewMem()
+
+	dev, err := newRenderer(fsys, static, true)
+	if err != nil {
+		t.Fatalf("dev renderer 失败: %v", err)
+	}
+	if opts := dev.Options(); opts.AssetFS != static || opts.Production {
+		t.Errorf("dev options = %+v，期望 AssetFS=static Production=false", opts)
+	}
+
+	prod, err := newRenderer(fsys, static, false)
+	if err != nil {
+		t.Fatalf("prod renderer 失败: %v", err)
+	}
+	if opts := prod.Options(); opts.AssetFS != static || !opts.Production {
+		t.Errorf("prod options = %+v，期望 AssetFS=static Production=true", opts)
 	}
 }

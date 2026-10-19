@@ -592,3 +592,60 @@ func TestRunStopsOnContextCancel(t *testing.T) {
 		t.Error("the listener should be closed once Run returns | Run 返回后监听应当已关闭")
 	}
 }
+
+// TestWithStaticFSServesAssetHelperTheMergedTree proves the renderer's asset
+// helper reads the same merged static tree the caller mounts: framework-provided
+// scripts are absent from the project's own web/static. | TestWithStaticFSServesAssetHelperTheMergedTree
+// 证明渲染器的 asset 助手读取调用方挂载的同一棵合并静态树：框架共享脚本并不在项目自有的 web/static 里。
+func TestWithStaticFSServesAssetHelperTheMergedTree(t *testing.T) {
+	fsys := afs.NewMem()
+	if err := afero.WriteFile(fsys, "templates/page.html", []byte(`{{ asset "/static/js/app.js" }}`), 0o644); err != nil {
+		t.Fatalf("写入模板失败: %v", err)
+	}
+	staticFS := afs.NewMem()
+	for path, body := range map[string]string{
+		"js/app.js":     `console.log("source")`,
+		"js/app.min.js": `console.log("min")`,
+	} {
+		if err := afero.WriteFile(staticFS, path, []byte(body), 0o644); err != nil {
+			t.Fatalf("写入静态资源 %s 失败: %v", path, err)
+		}
+	}
+
+	cfg, err := config.Load(config.Options{FS: afs.NewMem(), ConfigDir: "."})
+	if err != nil {
+		t.Fatalf("加载测试配置失败: %v", err)
+	}
+	cfg.Set("app.env", "production")
+	a, err := New(
+		WithFS(fsys),
+		WithStaticFS(staticFS),
+		WithConfig(cfg),
+		WithLogger(logx.New(logx.Options{Writer: io.Discard})),
+	)
+	if err != nil {
+		t.Fatalf("New 失败: %v", err)
+	}
+	a.GET("/", renderHandler(t, a, http.StatusOK, "page.html", nil))
+
+	rec := doRequest(t, a, http.MethodGet, "/", nil)
+	if body := rec.Body.String(); !strings.Contains(body, "/static/js/app.min.js?v=") {
+		t.Errorf("production 页面未解析到压缩资源: %q", body)
+	}
+}
+
+// TestNewDefaultsStaticFSToTheAssetSubtree proves an app that never calls
+// WithStaticFS still resolves /static paths against its own asset tree. | TestNewDefaultsStaticFSToTheAssetSubtree
+// 证明未调用 WithStaticFS 的应用仍按自己的资产树解析 /static 路径。
+func TestNewDefaultsStaticFSToTheAssetSubtree(t *testing.T) {
+	a := newTestApp(t, map[string]string{
+		"templates/page.html": `{{ asset "/static/js/app.js" }}`,
+		"static/js/app.js":    `console.log("source")`,
+	})
+	a.GET("/", renderHandler(t, a, http.StatusOK, "page.html", nil))
+
+	rec := doRequest(t, a, http.MethodGet, "/", nil)
+	if body := rec.Body.String(); !strings.Contains(body, "/static/js/app.js?v=") {
+		t.Errorf("默认 staticFS 未解析到源码资源: %q", body)
+	}
+}

@@ -30,8 +30,13 @@ import (
 // renderer then reports every name as missing instead of failing the wiring.
 // | 模板是可选的：不附带模板的应用仍可启动，此时渲染器把每个名字都报告为缺失，
 // 而不是让装配失败。
-func newRenderer(fsys afero.Fs, dev bool) (*render.Engine, error) {
-	opts := render.Options{Root: assetsTemplatesDir, Dev: dev}
+func newRenderer(fsys, staticFS afero.Fs, dev bool) (*render.Engine, error) {
+	opts := render.Options{
+		Root:       assetsTemplatesDir,
+		Dev:        dev,
+		AssetFS:    staticFS,
+		Production: !dev,
+	}
 	engine, err := render.New(fsys, opts)
 	if err == nil {
 		return engine, nil

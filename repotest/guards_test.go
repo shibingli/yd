@@ -614,13 +614,13 @@ func isBareIdentifierArgument(call *ast.CallExpr) bool {
 // tools 聚合 align / ko / toolchain 三个解析器，因此这三个包**不得**反向 import tools：
 // 一旦反向引用就成环，注册表也就无法再引用它们各自的 InstallHint 常量，
 // 只能各写一份提示文案，而这正是「两处提示不一致」的来源。
-// The tools package aggregates the align, ko and toolchain resolvers, so those three must never
-// import it back: the reference would be a cycle, and the registry would lose its ability to reuse
+// The tools package aggregates the align, ko, toolchain and build resolvers, so those packages must
+// never import it back: the reference would be a cycle, and the registry would lose its ability to reuse
 // their InstallHint constants — forcing a second copy of each hint, which is exactly how two hints
 // drift apart.
 func TestToolResolversDoNotImportTheRegistry(t *testing.T) {
 	const registryPath = "github.com/shibingli/yd/tooling/tools"
-	resolvers := []string{"tooling/align/", "tooling/ko/", "tooling/toolchain/"}
+	resolvers := []string{"tooling/align/", "tooling/ko/", "tooling/toolchain/", "tooling/build/"}
 	for _, f := range scanGoFiles(t, repoRoot(t)) {
 		if f.isTest || strings.HasPrefix(f.rel, "repotest/") {
 			continue

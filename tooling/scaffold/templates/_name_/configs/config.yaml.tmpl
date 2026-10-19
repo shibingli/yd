@@ -42,6 +42,9 @@ log:
 # admin_password 未配置时的行为按 app.env 分流：development 回退到 internal/meta 里那个文档化口令并每次启动告警；
 # 其它任何环境（production / staging 等非 development 取值）**拒绝写入种子数据**并告警——绝不会用默认口令在生产开出管理员账号。
 # 注意：app.env 未设置时框架默认值是 development，因此生产部署必须显式设置 YD_APP_ENV=production（或 app.env: production）。
+# 运行环境接受完整名与短别名：development|dev、production|prod，忽略大小写与首尾空白。
+# The runtime environment accepts full names and short aliases: development|dev and production|prod, case-insensitive
+# and ignoring surrounding blanks.
 # An unset admin_password is answered differently per app.env: development falls back to the documented password in internal/meta
 # and warns on every start, while any other environment (production, staging, anything other than development) refuses the seed
 # with a warning — a default password never opens an administrator account in production. Note that app.env defaults to

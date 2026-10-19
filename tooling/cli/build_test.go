@@ -18,6 +18,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/shibingli/yd/core/config"
+	"github.com/shibingli/yd/core/logx"
 	"github.com/shibingli/yd/core/version"
 	"github.com/shibingli/yd/tooling/build"
 	"github.com/spf13/afero"
@@ -262,7 +264,8 @@ func TestBuildCommandRegistered(t *testing.T) {
 	registerBuildFlags(fs)
 	for _, name := range []string{
 		flagBuildOS, flagBuildArch, flagBuildTargets, flagBuildAll, flagBuildOutput, flagBuildName,
-		flagBuildTailwind, flagBuildNoTailwind, flagBuildMinify, flagBuildOffline, flagBuildTags, flagBuildLDFlags,
+		flagBuildTailwind, flagBuildNoTailwind, flagBuildMinify, flagBuildMinifyAssets, flagBuildMinifyBin,
+		flagBuildOffline, flagBuildTags, flagBuildLDFlags,
 	} {
 		if fs.Lookup(name) == nil {
 			t.Errorf("build 命令缺少标志 --%s", name)
@@ -281,7 +284,7 @@ func TestBuildCommandHelp(t *testing.T) {
 		t.Fatalf("build --help 不应返回错误: %v", err)
 	}
 	out := te.out.String()
-	for _, want := range []string{"yd build", "Usage", "--targets", "--os", "--arch", "--all", "--output", "--name", "--tailwind", "--no-tailwind", "--minify", "--offline", "--tags", "--ldflags"} {
+	for _, want := range []string{"yd build", "Usage", "--targets", "--os", "--arch", "--all", "--output", "--name", "--tailwind", "--no-tailwind", "--minify", "--minify-assets", "--minify-bin", "--offline", "--tags", "--ldflags"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("build 帮助缺少 %q：\n%s", want, out)
 		}
@@ -562,6 +565,10 @@ func TestBuildTailwindFlagsControlStage(t *testing.T) {
 		seen = append(seen, o)
 		return 42, nil
 	})
+	// The minify stage must not depend on the host having a minify binary. | 压缩阶段不得依赖本机是否装有 minify。
+	useBuildMinify(t, func(_ context.Context, _ string, _ build.MinifyOptions) (build.MinifyResult, error) {
+		return build.MinifyResult{}, nil
+	})
 
 	cases := []struct {
 		name    string
@@ -569,9 +576,11 @@ func TestBuildTailwindFlagsControlStage(t *testing.T) {
 		wantRun bool
 		minify  bool
 	}{
-		{"default runs and trims | 默认执行且不压缩", []string{"build"}, true, false},
+		{"default runs and minifies | 默认执行且压缩", []string{"build"}, true, true},
 		{"minify | 压缩", []string{"build", "--minify"}, true, true},
-		{"explicit on | 显式开启", []string{"build", "--tailwind"}, true, false},
+		{"minify=false | 显式关闭压缩", []string{"build", "--minify=false"}, true, false},
+		{"minify-assets=false | 关闭资产压缩", []string{"build", "--minify-assets=false"}, true, false},
+		{"explicit on | 显式开启", []string{"build", "--tailwind"}, true, true},
 		{"tailwind=false | 显式关闭", []string{"build", "--tailwind=false"}, false, false},
 		{"no-tailwind wins | no-tailwind 优先", []string{"build", "--tailwind", "--no-tailwind"}, false, false},
 	}
@@ -651,4 +660,103 @@ func TestBuildRealCompileOfCmdYD(t *testing.T) {
 		t.Errorf("构建报告缺少产物路径 %q：\n%s", out, got)
 	}
 	t.Logf("真实产物: %s (%d 字节)", out, fi.Size())
+}
+
+// useBuildMinify injects the JavaScript stage for the duration of one test. | useBuildMinify 在单个测试期间注入 JavaScript 压缩阶段。
+func useBuildMinify(t *testing.T, stage build.MinifyFunc) {
+	t.Helper()
+	old := buildMinifyFunc
+	buildMinifyFunc = stage
+	t.Cleanup(func() { buildMinifyFunc = old })
+}
+
+// TestBuildMinifyFlags pins --minify-assets, --minify-bin and their configuration
+// fallbacks. | TestBuildMinifyFlags 固定 --minify-assets、--minify-bin 及其配置回退。
+func TestBuildMinifyFlags(t *testing.T) {
+	dir := newBuildDir(t)
+	useBuildExec(t, cliFakeGoBuild())
+	useBuildTailwind(t, func(_ context.Context, _ string, _ build.TailwindOptions) (int64, error) {
+		return 0, nil
+	})
+	var seen []build.MinifyOptions
+	useBuildMinify(t, func(_ context.Context, _ string, o build.MinifyOptions) (build.MinifyResult, error) {
+		seen = append(seen, o)
+		return build.MinifyResult{}, nil
+	})
+
+	cases := []struct {
+		name        string
+		args        []string
+		configure   func(*config.Config)
+		wantCalls   int
+		wantEnabled bool
+		wantBin     string
+	}{
+		{"default enabled", nil, nil, 1, true, ""},
+		{"flag disables", []string{"--minify-assets=false"}, nil, 0, false, ""},
+		{"bin flag", []string{"--minify-bin", "/tmp/minify"}, nil, 1, true, "/tmp/minify"},
+		{"config disables", nil, func(c *config.Config) { c.Set(keyBuildMinifyAssets, false) }, 0, false, ""},
+		{"config bin", nil, func(c *config.Config) { c.Set(build.KeyMinifyBin, "/tmp/minify") }, 1, true, "/tmp/minify"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			seen = nil
+			te := newTestEnv(t, nil, "", false)
+			te.env.WorkDir = dir
+			if tc.configure != nil {
+				cfg, err := config.Load(config.Options{FS: afero.NewMemMapFs()})
+				if err != nil {
+					t.Fatalf("加载测试配置失败: %v", err)
+				}
+				tc.configure(cfg)
+				te.env.Cfg = cfg
+			}
+			args := append([]string{buildCommandName}, tc.args...)
+			if err := Execute(context.Background(), args, te.env); err != nil {
+				t.Fatalf("Execute(%v) 失败: %v\n%s", args, err, te.errs.String())
+			}
+			if len(seen) != tc.wantCalls {
+				t.Fatalf("压缩阶段调用次数 = %d，期望 %d", len(seen), tc.wantCalls)
+			}
+			if tc.wantCalls == 0 {
+				return
+			}
+			if seen[0].Enabled != tc.wantEnabled {
+				t.Errorf("Enabled = %v，期望 %v", seen[0].Enabled, tc.wantEnabled)
+			}
+			if seen[0].Bin != tc.wantBin {
+				t.Errorf("Bin = %q，期望 %q", seen[0].Bin, tc.wantBin)
+			}
+		})
+	}
+}
+
+// TestBuildMinifyMissingToolWarnsAndContinues pins the optional-tool contract:
+// a missing minify binary warns and the build still succeeds. | TestBuildMinifyMissingToolWarnsAndContinues
+// 固定可选工具契约：缺少 minify 时告警，构建仍然成功。
+func TestBuildMinifyMissingToolWarnsAndContinues(t *testing.T) {
+	dir := newBuildDir(t)
+	useBuildExec(t, cliFakeGoBuild())
+	useBuildTailwind(t, func(_ context.Context, _ string, _ build.TailwindOptions) (int64, error) {
+		return 0, nil
+	})
+	oldCall := buildMinifyCall
+	buildMinifyCall = func(_ context.Context, _ string, _ build.MinifyOptions, _ *logx.Logger) (build.MinifyResult, error) {
+		return build.MinifyResult{}, build.ErrMinifyNotFound
+	}
+	t.Cleanup(func() { buildMinifyCall = oldCall })
+
+	te := newTestEnv(t, nil, "", false)
+	te.env.WorkDir = dir
+	cfg, err := config.Load(config.Options{FS: afero.NewMemMapFs()})
+	if err != nil {
+		t.Fatalf("加载测试配置失败: %v", err)
+	}
+	te.env.Cfg = cfg
+	if err := Execute(context.Background(), []string{buildCommandName}, te.env); err != nil {
+		t.Fatalf("minify 缺失不得让 build 失败: %v\n%s", err, te.errs.String())
+	}
+	if !strings.Contains(te.errs.String(), "minify stage skipped") || !strings.Contains(te.errs.String(), "跳过 JS 压缩阶段") {
+		t.Errorf("缺少双语告警:\n%s", te.errs.String())
+	}
 }

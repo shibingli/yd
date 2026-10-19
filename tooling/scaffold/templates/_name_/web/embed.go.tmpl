@@ -83,7 +83,12 @@ func Static() (afs.FS, error) {
 	if err != nil {
 		return nil, err
 	}
-	merged := afs.Overlay(framework, project)
+	// 框架的 .min 同族文件不得遮蔽项目自己的同名源码：项目提供 yd-app.js 但没有
+	// yd-app.min.js 时，必须回退到项目源码，而不是框架示例脚本。
+	// A framework .min sibling must never shadow the project's own source of the same name: when the
+	// project ships yd-app.js without yd-app.min.js, it must fall back to that source rather than the
+	// framework's sample script.
+	merged := afs.HideShadowedMin(afs.Overlay(framework, project), project)
 
 	if !meta.IsDevelopment() {
 		return merged, nil
@@ -92,7 +97,8 @@ func Static() (afs.FS, error) {
 	if !ok {
 		return merged, nil
 	}
-	return afs.Overlay(merged, afs.NewOS(filepath.Join(root, staticDir))), nil
+	dev := afs.NewOS(filepath.Join(root, staticDir))
+	return afs.HideShadowedMin(afs.Overlay(merged, dev), dev), nil
 }
 
 // I18n 返回语言目录子树，供 i18n.New 直接以该子树的根为目录根加载文案。

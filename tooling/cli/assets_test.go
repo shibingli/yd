@@ -6,13 +6,17 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"strings"
 	"sync/atomic"
 	"testing"
 
 	"github.com/shibingli/yd/core/afs"
+	"github.com/shibingli/yd/core/config"
+	"github.com/shibingli/yd/core/logx"
 	"github.com/shibingli/yd/tooling/assets"
+	"github.com/shibingli/yd/tooling/build"
 	"github.com/spf13/afero"
 	"github.com/spf13/pflag"
 )
@@ -337,5 +341,196 @@ func TestAssetsUpdateOptionsReadsProxy(t *testing.T) {
 	opts := updateOptions(te.env, fs, "web/assets.lock.json", "web")
 	if opts.Proxy != "http://proxy.local:8080" {
 		t.Fatalf("Proxy = %q，期望配置值 | want the configured value", opts.Proxy)
+	}
+}
+
+// useAssetsMinify injects the two minification stages and records their calls. | useAssetsMinify
+// 注入两个压缩阶段并记录调用。
+func useAssetsMinify(
+	t *testing.T,
+	js func(context.Context, string, build.MinifyOptions, *logx.Logger) (build.MinifyResult, error),
+	css func(context.Context, string, build.TailwindOptions, *logx.Logger) (int64, error),
+	resolve func(string, string) (string, error),
+) {
+	t.Helper()
+	oldJS, oldCSS, oldResolve := assetsMinifyJSFunc, assetsMinifyCSSFunc, assetsResolveTailwindBin
+	assetsMinifyJSFunc, assetsMinifyCSSFunc, assetsResolveTailwindBin = js, css, resolve
+	t.Cleanup(func() {
+		assetsMinifyJSFunc, assetsMinifyCSSFunc, assetsResolveTailwindBin = oldJS, oldCSS, oldResolve
+	})
+}
+
+// TestAssetsMinifyWritesJSAndCSS pins the normal mode: JS and CSS stages run
+// once each, and only the JS stage receives CheckOnly=false. | TestAssetsMinifyWritesJSAndCSS
+// 固定普通模式：JS 与 CSS 各执行一次，只有 JS 阶段收到 CheckOnly=false。
+func TestAssetsMinifyWritesJSAndCSS(t *testing.T) {
+	var jsCalls, cssCalls int
+	var gotJS build.MinifyOptions
+	var gotCSS build.TailwindOptions
+	useAssetsMinify(t,
+		func(_ context.Context, _ string, o build.MinifyOptions, _ *logx.Logger) (build.MinifyResult, error) {
+			jsCalls++
+			gotJS = o
+			return build.MinifyResult{Files: 2, Bytes: 32}, nil
+		},
+		func(_ context.Context, _ string, o build.TailwindOptions, _ *logx.Logger) (int64, error) {
+			cssCalls++
+			gotCSS = o
+			return 16, nil
+		},
+		func(string, string) (string, error) { return "/fake/tailwindcss", nil },
+	)
+
+	te := newTestEnv(t, nil, "", false)
+	te.env.WorkDir = t.TempDir()
+	if err := Execute(context.Background(), []string{"assets", "minify"}, te.env); err != nil {
+		t.Fatalf("assets minify 失败: %v\n%s", err, te.errs.String())
+	}
+	if jsCalls != 1 || cssCalls != 1 {
+		t.Fatalf("JS/CSS 调用次数 = %d/%d，期望 1/1", jsCalls, cssCalls)
+	}
+	if gotJS.CheckOnly {
+		t.Error("normal mode must not set CheckOnly | 普通模式不应启用 CheckOnly")
+	}
+	if !gotCSS.MinifyOnly || !gotCSS.Minify {
+		t.Errorf("CSS 选项 = %+v，期望 MinifyOnly 与 Minify 都为 true", gotCSS)
+	}
+	if !strings.Contains(te.out.String(), "js files | JS 文件: 2") {
+		t.Errorf("报告缺少 JS 统计:\n%s", te.out.String())
+	}
+}
+
+// TestAssetsMinifyCheckFailsOnDrift pins --check: a mismatch is a non-zero
+// ErrAssetDrift. | TestAssetsMinifyCheckFailsOnDrift 固定 --check：内容不匹配返回 ErrAssetDrift。
+func TestAssetsMinifyCheckFailsOnDrift(t *testing.T) {
+	useAssetsMinify(t,
+		func(_ context.Context, _ string, o build.MinifyOptions, _ *logx.Logger) (build.MinifyResult, error) {
+			if !o.CheckOnly {
+				t.Error("--check must call with CheckOnly | --check 必须以 CheckOnly 调用")
+			}
+			return build.MinifyResult{Mismatched: []string{"web/static/js/app.js"}}, nil
+		},
+		func(_ context.Context, _ string, o build.TailwindOptions, _ *logx.Logger) (int64, error) {
+			_ = os.WriteFile(o.MinOutput, []byte("css"), 0o644)
+			return 3, nil
+		},
+		func(string, string) (string, error) { return "/fake/tailwindcss", nil },
+	)
+	te := newTestEnv(t, nil, "", false)
+	te.env.WorkDir = t.TempDir()
+	err := Execute(context.Background(), []string{"assets", "minify", "--check"}, te.env)
+	if !errors.Is(err, ErrAssetDrift) {
+		t.Fatalf("err = %v，期望 ErrAssetDrift", err)
+	}
+}
+
+// TestAssetsMinifyCheckFailsWhenToolMissing pins the strict check mode: a missing
+// tool must not be reported as success. | TestAssetsMinifyCheckFailsWhenToolMissing
+// 固定严格的校验模式：工具缺失绝不能报告成功。
+func TestAssetsMinifyCheckFailsWhenToolMissing(t *testing.T) {
+	useAssetsMinify(t,
+		func(context.Context, string, build.MinifyOptions, *logx.Logger) (build.MinifyResult, error) {
+			return build.MinifyResult{}, build.ErrMinifyNotFound
+		},
+		func(context.Context, string, build.TailwindOptions, *logx.Logger) (int64, error) {
+			t.Error("a missing JS tool must stop before CSS | JS 工具缺失时不应继续到 CSS")
+			return 0, nil
+		},
+		func(string, string) (string, error) { return "/fake/tailwindcss", nil },
+	)
+	te := newTestEnv(t, nil, "", false)
+	te.env.WorkDir = t.TempDir()
+	err := Execute(context.Background(), []string{"assets", "minify", "--check"}, te.env)
+	if err == nil || !errors.Is(err, build.ErrMinifyNotFound) {
+		t.Fatalf("err = %v，期望包裹 build.ErrMinifyNotFound", err)
+	}
+}
+
+// TestAssetsMinifySkipsMissingToolWithoutCheck pins the normal build contract:
+// a missing tool warns and the rest of the stages still run. | TestAssetsMinifySkipsMissingToolWithoutCheck
+// 固定普通构建契约：工具缺失只告警，其余阶段照常执行。
+func TestAssetsMinifySkipsMissingToolWithoutCheck(t *testing.T) {
+	cssCalls := 0
+	useAssetsMinify(t,
+		func(context.Context, string, build.MinifyOptions, *logx.Logger) (build.MinifyResult, error) {
+			return build.MinifyResult{}, build.ErrMinifyNotFound
+		},
+		func(context.Context, string, build.TailwindOptions, *logx.Logger) (int64, error) {
+			cssCalls++
+			return 0, nil
+		},
+		func(string, string) (string, error) { return "/fake/tailwindcss", nil },
+	)
+	te := newTestEnv(t, nil, "", false)
+	te.env.WorkDir = t.TempDir()
+	cfg, err := config.Load(config.Options{FS: afero.NewMemMapFs()})
+	if err != nil {
+		t.Fatalf("加载测试配置失败: %v", err)
+	}
+	te.env.Cfg = cfg
+	if err := Execute(context.Background(), []string{"assets", "minify"}, te.env); err != nil {
+		t.Fatalf("工具缺失不得让 assets minify 失败: %v\n%s", err, te.errs.String())
+	}
+	if cssCalls != 1 {
+		t.Errorf("CSS 阶段调用次数 = %d，期望 1", cssCalls)
+	}
+	if errs := te.errs.String(); !strings.Contains(errs, "js minify skipped") || !strings.Contains(errs, "跳过 JS 压缩") {
+		t.Errorf("缺少双语告警:\n%s", errs)
+	}
+}
+
+// TestAssetsMinifyCheckFailsWhenCSSInputMissingButCommittedExists pins the strict
+// check: a committed yd.min.css whose Tailwind input disappeared is drift. | TestAssetsMinifyCheckFailsWhenCSSInputMissingButCommittedExists
+// 固定严格校验：已提交 yd.min.css 而 Tailwind 输入消失属于漂移。
+func TestAssetsMinifyCheckFailsWhenCSSInputMissingButCommittedExists(t *testing.T) {
+	cssDir := filepath.Join(t.TempDir(), "web", "static", "css")
+	if err := os.MkdirAll(cssDir, 0o755); err != nil {
+		t.Fatalf("创建 css 目录失败: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(cssDir, "yd.min.css"), []byte("stale"), 0o644); err != nil {
+		t.Fatalf("写入 yd.min.css 失败: %v", err)
+	}
+	useAssetsMinify(t,
+		func(context.Context, string, build.MinifyOptions, *logx.Logger) (build.MinifyResult, error) {
+			return build.MinifyResult{}, nil
+		},
+		func(context.Context, string, build.TailwindOptions, *logx.Logger) (int64, error) {
+			return 0, build.ErrTailwindInput
+		},
+		func(string, string) (string, error) { return "/fake/tailwindcss", nil },
+	)
+	te := newTestEnv(t, nil, "", false)
+	te.env.WorkDir = filepath.Dir(filepath.Dir(cssDir)) // <dir>/web
+	te.env.WorkDir = filepath.Dir(te.env.WorkDir)
+	err := Execute(context.Background(), []string{"assets", "minify", "--check"}, te.env)
+	if !errors.Is(err, ErrAssetDrift) {
+		t.Fatalf("err = %v，期望 ErrAssetDrift", err)
+	}
+}
+
+// TestAssetsMinifyHonoursRoot pins the custom --root path for the CSS output. | TestAssetsMinifyHonoursRoot
+// 固定 --root 对 CSS 产物路径的影响。
+func TestAssetsMinifyHonoursRoot(t *testing.T) {
+	dir := t.TempDir()
+	root := filepath.Join(dir, "assets-root")
+	var gotCSS build.TailwindOptions
+	useAssetsMinify(t,
+		func(context.Context, string, build.MinifyOptions, *logx.Logger) (build.MinifyResult, error) {
+			return build.MinifyResult{}, nil
+		},
+		func(_ context.Context, _ string, o build.TailwindOptions, _ *logx.Logger) (int64, error) {
+			gotCSS = o
+			return 0, nil
+		},
+		func(string, string) (string, error) { return "/fake/tailwindcss", nil },
+	)
+	te := newTestEnv(t, nil, "", false)
+	te.env.WorkDir = dir
+	if err := Execute(context.Background(), []string{"assets", "minify", "--root", root}, te.env); err != nil {
+		t.Fatalf("assets minify 失败: %v\n%s", err, te.errs.String())
+	}
+	want := filepath.Join(root, "static", "css", "yd.min.css")
+	if gotCSS.MinOutput != want {
+		t.Errorf("MinOutput = %q，期望 %q", gotCSS.MinOutput, want)
 	}
 }

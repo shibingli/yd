@@ -55,6 +55,8 @@
       `details.yd-menu` 面板；所有变更动作带 `data-yd-confirm`，多按钮表单必须把 `event.submitter` 传回
       `requestSubmit`；登录前外壳只有登录卡片（含离线图标品牌区）与语言/主题切换；接口组一律新标签页打开；
       侧栏页脚只显示版本；favicon 指向同源 `/static/img/yd-icon.svg`，不得使用 CDN 或 `data:,`。
+- [ ] **静态引用**：模板中的 `/static/...` 一律写成 `{{ "{{ asset \"/static/...\" }}" }}`；
+      production 下解析 `*.min.js` / `yd.min.css`，开发期使用源码，禁止裸写 `/static/...`。
 - [ ] **Tailwind v4**：项目样式必须经 `@theme` 语义令牌与 `@layer components` 定义，
       可复用工具类用 `@apply`，颜色不得在令牌块之外写字面量。
 - [ ] **实时推送与文档**：htmx 4 SSE 只交换匿名消息；WebSocket 的发送控件必须位于 `hx-ws:connect` 元素内部
@@ -87,9 +89,9 @@
 - [ ] **服务模式优雅退出**：被服务管理器托管时（无终端或 `-service run`）由 `service.Run` 驱动 `application.Run`，
       停止只取消 context 并等待它返回；入口与业务代码**禁止** `os.Exit`、`panic` 或自建后台进程来「停服务」，
       `-service install|uninstall|start|stop|restart|status` 这类控制动作只执行一次服务管理器调用、不得启动服务器。
-- [ ] **可选外部工具**：`betteralign` / `ko` / `tailwindcss` / `docker` 一律经 `yd tools` 探测与安装
+- [ ] **可选外部工具**：`betteralign` / `ko` / `tailwindcss` / `minify` / `docker` 一律经 `yd tools` 探测与安装
       （`yd tools check` 只报告；`yd tools install` 把可 `go install` 的项装进项目内 `.yd/tools/`，`GOBIN` 指向它的绝对路径），
-      **禁止**手写 `go install` 装到全局，**禁止**改动 `PATH` 或往 `~/go/bin` 写东西；四个工具一律可选，
+      **禁止**手写 `go install` 装到全局，**禁止**改动 `PATH` 或往 `~/go/bin` 写东西；五个工具一律可选，
       缺失只影响对应能力，**不得**让 `go build` / `go vet` / `go test` 或 CI 失败（`yd new --yes` 不得触网）；
       哨兵 `tools.ErrUnknownTool` / `tools.ErrNoGoToolchain` / `tools.ErrNotInstallable` / `tools.ErrInstallFailed`
       一律用 `errors.Is` 判定。

@@ -585,7 +585,10 @@ func TestSeedRefusesWithoutPasswordOutsideDevelopment(t *testing.T) {
 	// development key must never seal production sec_keys), so the production runs inject one.
 	// | 非开发环境下缺少 auth.master_key 时脚手架拒绝启动（文档化的开发密钥绝不能用于封装生产
 	// sec_key），因此生产场景注入一枚测试主密钥。
-	addr, logs, stop := startAppEnv(t, project, []string{"YD_APP_ENV=production", "YD_AUTH_MASTER_KEY=" + e2eMasterKey})
+	// 第一段用短别名 prod 启动：它必须与 production 一样触发主密钥校验、种子拒绝与安全 Cookie。
+	// The first run starts with the short alias prod: it must trigger the same master-key check, seed refusal and
+	// secure cookies as production.
+	addr, logs, stop := startAppEnv(t, project, []string{"YD_APP_ENV=prod", "YD_AUTH_MASTER_KEY=" + e2eMasterKey})
 	base := "http://" + addr
 
 	// 未初始化的库没有任何账号可以登录：文档化的默认凭据必须被拒。
@@ -699,23 +702,26 @@ func assertSeedAccounts(t *testing.T, dbFile string) {
 		}
 	}
 
-	// 唯一管理员，且角色绑定就落在这些列上：用户名与注册表里的所有者角色。
-	// The single administrator, with the role binding stored on these very columns: the username and the registry's
-	// owner role.
+	// 唯一管理员，且角色绑定落在成员关系表上：用户是全局身份，角色按租户存放在
+	// yd_auth_user_tenants。 | The single administrator, with the role binding stored on the membership:
+	// users are global identities and roles live per tenant in yd_auth_user_tenants.
 	admins := map[string]string{seedAdmin: seedTenant}
 	seen := map[string]bool{}
-	userRows, err := db.Query(`SELECT username, roles, password_hash FROM yd_auth_users`)
+	userRows, err := db.Query(`SELECT u.username, t.slug, m.roles, u.password_hash
+		FROM yd_auth_users u
+		JOIN yd_auth_user_tenants m ON m.user_id = u.id
+		JOIN yd_auth_tenants t ON t.id = m.tenant_id`)
 	if err != nil {
-		t.Fatalf("读取 yd_auth_users 失败: %v", err)
+		t.Fatalf("读取 yd_auth_users 与 yd_auth_user_tenants 失败: %v", err)
 	}
 	for userRows.Next() {
-		var username, roles, hash string
-		if err := userRows.Scan(&username, &roles, &hash); err != nil {
+		var username, tenant, roles, hash string
+		if err := userRows.Scan(&username, &tenant, &roles, &hash); err != nil {
 			t.Fatalf("扫描账号失败: %v", err)
 		}
-		tenant, want := admins[username]
-		if !want {
-			t.Errorf("yd_auth_users 里出现了非种子账号 %q", username)
+		wantTenant, want := admins[username]
+		if !want || tenant != wantTenant {
+			t.Errorf("yd_auth_user_tenants 里出现了非种子账号 %q @ %q", username, tenant)
 			continue
 		}
 		seen[username] = true

@@ -50,12 +50,12 @@ const (
 type HtmxMessage struct {
 	// Headers carries the per-message request headers, sent under "headers" by htmx 4 and under "HEADERS" by older releases. | Headers 承载逐条消息的请求头：htmx 4 放在 "headers"，旧版本放在 "HEADERS"。
 	Headers map[string]string `json:"headers,omitempty"`
+	// Values holds every non-header field of an inbound htmx 4 message, keyed by form field name. | Values 以表单字段名为键，保存入站 htmx 4 消息中除请求头外的全部字段。
+	Values map[string]any `json:"-"`
 	// Body is the text payload; htmx 4 has no dedicated field, so it is derived from the single value or the conventional message/body/text field. | Body 是文本载荷；htmx 4 没有专门字段，因此由唯一值或约定的 message/body/text 字段推导。
 	Body string `json:"BODY,omitempty"`
 	// Content is the response fragment the htmx 4 extension swaps into its target; it is only set on replies. | Content 是 htmx 4 扩展交换进目标元素的响应片段，只在应答中设置。
 	Content string `json:"content,omitempty"`
-	// Values holds every non-header field of an inbound htmx 4 message, keyed by form field name. | Values 以表单字段名为键，保存入站 htmx 4 消息中除请求头外的全部字段。
-	Values map[string]any `json:"-"`
 }
 
 // UnmarshalJSON accepts both the htmx 4 flat envelope and the legacy HEADERS/BODY envelope. | UnmarshalJSON

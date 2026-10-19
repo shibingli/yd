@@ -422,15 +422,15 @@ Windows 走 SCM、Linux 走 systemd、macOS 走 launchd。禁止为单个平台�
 
 ## 18. 可选外部工具契约
 
-四个**可选外部工具**——`betteralign`（内存对齐）、`ko`（无 Dockerfile 镜像打包）、`tailwindcss`（样式表编译）、
-`docker`（Dockerfile 镜像构建）——由 `github.com/shibingli/yd/tooling/tools` 统一探测与安装。
-`align` / `ko` / `toolchain` 各自的 `Resolve` 仍是「工具在哪」的唯一事实来源，`tools` 只做**单向聚合**：
+五个**可选外部工具**——`betteralign`（内存对齐）、`ko`（无 Dockerfile 镜像打包）、`tailwindcss`（样式表编译）、
+`minify`（JavaScript 压缩）、`docker`（Dockerfile 镜像构建）——由 `github.com/shibingli/yd/tooling/tools` 统一探测与安装。
+`align` / `ko` / `toolchain` / `build` 各自的 `Resolve` 仍是「工具在哪」的唯一事实来源，`tools` 只做**单向聚合**：
 注册表、探测与安装都建在它们之上，提示文案也复用它们的 `InstallHint`。
 
 | 项 | 值 |
 |---|---|
 | 包 | `github.com/shibingli/yd/tooling/tools` |
-| 注册表 | `betteralign` / `ko` / `tailwindcss` / `docker`（顺序固定） |
+| 注册表 | `betteralign` / `ko` / `tailwindcss` / `minify` / `docker`（顺序固定） |
 | API | `Registry()` / `Lookup(name)` / `Check(dir)` / `Missing(dir)` / `Hints(dir)` / `Install(ctx, dir, names, log)` / `InstallAll(ctx, dir, log)` |
 | 安装结果 | `*Report{Installed, Skipped, Failed}` |
 | CLI | `yd tools [check]`；`yd tools install [名称...]`（缺省为全部 Go 可安装项；`tailwindcss` 需显式点名） |
@@ -440,8 +440,8 @@ Windows 走 SCM、Linux 走 systemd、macOS 走 launchd。禁止为单个平台�
 
 - **探测只读**：`Check` / `Missing` / `Hints` 不触网、不执行工具、不改动文件；提示逐条给出工具名、
   路径或版本与缺失时的安装途径。机器上没有 `go` 工具链时安装返回 `ErrNoGoToolchain`，**绝不 panic**。
-- **安装方式分三类**：`betteralign`（`go install github.com/dkorunic/betteralign/cmd/betteralign@latest`）
-  与 `ko`（`go install github.com/google/ko@latest`）走 `go install`；`tailwindcss` 由
+- **安装方式分三类**：`betteralign`（`go install github.com/dkorunic/betteralign/cmd/betteralign@latest`）、
+  `ko`（`go install github.com/google/ko@latest`）与 `minify`（`go install github.com/tdewolff/minify/v2/cmd/minify@latest`）走 `go install`；`tailwindcss` 由
   `yd tools install tailwindcss` 下载 GitHub Release 的 standalone 二进制（遵循 `http.proxy` 与 `tailwind.url`，
   只装它时不需要 Go 工具链）；`docker` 需安装 Docker Engine / Docker Desktop，
   `Install` 对它返回 `ErrNotInstallable` 并给出获取途径——这是明确的「不代装」，不是失败。
@@ -450,8 +450,8 @@ Windows 走 SCM、Linux 走 systemd、macOS 走 launchd。禁止为单个平台�
   显式导出的代理与校验设置优先。
 - **不改 PATH**：安装只落在项目内 `.yd/tools/`，**不得**改动用户 `PATH`，也**不得**往 `~/go/bin` 写东西；
   往全局写属于越界，且在 CI 上不可预期（见 §17 对 ko 的同款约束）。
-- **缺失不阻塞**：四个工具一律可选，缺失只影响对应能力——`yd align` / `yd ko` / `yd docker` 返回各自哨兵
-  并给出安装提示，`tailwindcss` 缺失时 `yd dev` / `yd build` 的样式表阶段以告警跳过——
+- **缺失不阻塞**：五个工具一律可选，缺失只影响对应能力——`yd align` / `yd ko` / `yd docker` 返回各自哨兵
+  并给出安装提示，`tailwindcss` 缺失时样式表阶段、`minify` 缺失时 JavaScript 压缩阶段都以告警跳过——
   **不得**让 `yd build` / `yd dev` / `yd gen` / `go test` 或 CI 失败。
 - **`yd new` 收尾**：项目生成后探测一次并打印缺失清单；交互模式询问「现在就安装缺失的工具吗？」（默认是），
   答是则 `InstallAll`；非交互场景用 `--install-tools` 显式安装；**`--yes` 不触网**

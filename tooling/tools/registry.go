@@ -1,5 +1,5 @@
-// This file holds the tool registry: the four optional external tools in a fixed order, plus the
-// lookup used by the install command. | 本文件保存工具注册表：固定顺序的四个可选外部工具，以及安装命令所用的查找。
+// This file holds the tool registry: the five optional external tools in a fixed order, plus the
+// lookup used by the install command. | 本文件保存工具注册表：固定顺序的五个可选外部工具，以及安装命令所用的查找。
 //
 // The registry is the single source of truth for names, purposes and install hints. | 注册表是名称、用途与安装提示的唯一来源。
 
@@ -10,6 +10,7 @@ import (
 
 	"github.com/shibingli/yd/core/errx"
 	"github.com/shibingli/yd/tooling/align"
+	"github.com/shibingli/yd/tooling/build"
 	"github.com/shibingli/yd/tooling/ko"
 )
 
@@ -21,6 +22,8 @@ const (
 	NameKo = "ko"
 	// NameTailwindcss is the optional Tailwind CSS standalone compiler of the toolchain package. | NameTailwindcss 是 toolchain 包可选的 Tailwind CSS standalone 编译器。
 	NameTailwindcss = "tailwindcss"
+	// NameMinify is the optional JavaScript minifier of the build package. | NameMinify 是 build 包可选的 JavaScript 压缩器。
+	NameMinify = "minify"
 	// NameDocker is the container engine behind `yd docker` and `yd ko --local`. | NameDocker 是 `yd docker` 与 `yd ko --local` 背后的容器引擎。
 	NameDocker = "docker"
 
@@ -28,10 +31,11 @@ const (
 	toolBetteralign = NameBetteralign
 	toolKo          = NameKo
 	toolTailwindcss = NameTailwindcss
+	toolMinify      = NameMinify
 	toolDocker      = NameDocker
 )
 
-// registry holds the four entries in the order Registry returns them. | registry 按 Registry 返回的顺序保存四个条目。
+// registry holds the five entries in the order Registry returns them. | registry 按 Registry 返回的顺序保存五个条目。
 //
 // betteralign and ko quote align.InstallHint and ko.InstallHint verbatim instead of repeating the
 // command, so each hint has exactly one definition and the registry can never drift from the
@@ -65,6 +69,14 @@ var registry = []Tool{
 		Summary:     "compile Tailwind CSS v4 stylesheets | 编译 Tailwind CSS v4 样式表",
 		InstallHint: "run `yd tools install tailwindcss` (proxy: http.proxy, mirror: tailwind.url) or drop the binary into " + LocalToolDir + " | 运行 `yd tools install tailwindcss`（代理：http.proxy，镜像：tailwind.url），或把二进制放入 " + LocalToolDir,
 		DocURL:      "https://tailwindcss.com/docs/installation/tailwind-cli",
+		VersionArgs: []string{"--version"},
+	},
+	{
+		Name:        toolMinify,
+		Summary:     "minify JavaScript bundles | 压缩 JavaScript 产物",
+		InstallHint: build.MinifyInstallHint,
+		GoInstall:   "github.com/tdewolff/minify/v2/cmd/minify@latest",
+		DocURL:      "https://github.com/tdewolff/minify",
 		VersionArgs: []string{"--version"},
 	},
 	{

@@ -166,7 +166,11 @@ const specGitignore = "bin/\n" +
 	"# Local database files (the default landing spot of yd new --db sqlite, WAL sidecars included) | 本地数据库文件（yd new --db sqlite 的默认落点，含 WAL 边车文件）\n" +
 	"data/*.db\n" +
 	"data/*.db-wal\n" +
-	"data/*.db-shm\n"
+	"data/*.db-shm\n" +
+	"\n" +
+	"# `yd build` 生成的压缩资产 | minified assets produced by `yd build`\n" +
+	"web/static/**/*.min.js\n" +
+	"web/static/**/*.min.css\n"
 
 // specGitattributes 是需求基线 §二.3 的 .gitattributes 模板逐字内容。
 // specGitattributes is the verbatim .gitattributes template of the baseline §二.3.
@@ -2648,6 +2652,49 @@ func TestGenerateSupportsTheFullHtmx4ExtensionSet(t *testing.T) {
 	} {
 		if !strings.Contains(meta, want) {
 			t.Errorf("meta.go 缺少脚本 %q", want)
+		}
+	}
+}
+
+// TestGenerateRuntimeEnvUsesEnvx 断言生成代码复用 core/envx 归一化运行环境名，
+// 使 dev/prod 短别名在 meta.Env 与种子判定上行为一致。
+// TestGenerateRuntimeEnvUsesEnvx asserts the generated code reuses core/envx to normalize the runtime
+// environment name, so the dev/prod aliases behave the same in meta.Env and in the seed decision.
+func TestGenerateRuntimeEnvUsesEnvx(t *testing.T) {
+	pr, _ := generateMem(t, scaffold.DefaultOptions("env-app"))
+
+	for _, want := range []struct {
+		file string
+		text string
+	}{
+		{"internal/meta/meta.go", "envx.Normalize"},
+		{"internal/repository/store.go", "envx.Normalize"},
+	} {
+		if !strings.Contains(pr.read(want.file), want.text) {
+			t.Errorf("%s 缺少 %q，运行环境名必须经 core/envx 归一化", want.file, want.text)
+		}
+	}
+}
+
+// TestGenerateWiresStaticFSToRenderer 断言生成项目把 web.Static() 交给
+// app.WithStaticFS，并让布局的静态引用统一走 asset。
+// TestGenerateWiresStaticFSToRenderer asserts the generated project hands web.Static() to
+// app.WithStaticFS and routes every layout static reference through asset.
+func TestGenerateWiresStaticFSToRenderer(t *testing.T) {
+	pr, _ := generateMem(t, scaffold.DefaultOptions("asset-app"))
+
+	if !strings.Contains(pr.read("cmd/app/main.go"), "app.WithStaticFS(static)") {
+		t.Error("the generated main.go must pass web.Static() to app.WithStaticFS | 生成的 main.go 必须把 web.Static() 交给 app.WithStaticFS")
+	}
+	if !strings.Contains(pr.read("web/embed.go"), "afs.HideShadowedMin") {
+		t.Error("generated embed.go must hide shadowed framework .min assets | 生成的 embed.go 必须隐藏被项目源码遮蔽的框架 .min 资产")
+	}
+	for _, want := range []string{
+		`{{ asset "/static/css/yd.css" }}`,
+		`{{ asset "/static/js/yd-app.js" }}`,
+	} {
+		if !strings.Contains(pr.read("web/templates/layouts/base.html"), want) {
+			t.Errorf("生成的 base.html 未通过 asset 解析 %q", want)
 		}
 	}
 }

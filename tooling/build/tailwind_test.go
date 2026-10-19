@@ -177,15 +177,24 @@ func TestBuildTailwindArgvWithInjectedExec(t *testing.T) {
 	if bytesWritten != int64(len("/* compiled */")) {
 		t.Errorf("产出字节数 = %d, 期望 %d", bytesWritten, len("/* compiled */"))
 	}
-	argv := fake.calls[0]
-	if got, _ := flagValue(argv, "-i"); got != filepath.Join(dir, DefaultTailwindInput) {
-		t.Errorf("-i = %q, 期望 %q", got, filepath.Join(dir, DefaultTailwindInput))
+	if len(fake.calls) != 2 {
+		t.Fatalf("tailwindcss 调用次数 = %d, 期望 2", len(fake.calls))
 	}
-	if got, _ := flagValue(argv, "-o"); got != filepath.Join(dir, DefaultTailwindOutput) {
-		t.Errorf("-o = %q, 期望 %q", got, filepath.Join(dir, DefaultTailwindOutput))
+	first, second := fake.calls[0], fake.calls[1]
+	if got, _ := flagValue(first, "-i"); got != filepath.Join(dir, DefaultTailwindInput) {
+		t.Errorf("第一遍 -i = %q, 期望 %q", got, filepath.Join(dir, DefaultTailwindInput))
 	}
-	if !slices.Contains(argv, "--minify") {
-		t.Errorf("argv = %v, 缺少 --minify", argv)
+	if got, _ := flagValue(first, "-o"); got != filepath.Join(dir, DefaultTailwindOutput) {
+		t.Errorf("第一遍 -o = %q, 期望 %q", got, filepath.Join(dir, DefaultTailwindOutput))
+	}
+	if slices.Contains(first, "--minify") {
+		t.Errorf("第一遍不应带 --minify: %v", first)
+	}
+	if got, _ := flagValue(second, "-o"); got != filepath.Join(dir, DefaultTailwindMinOutput) {
+		t.Errorf("第二遍 -o = %q, 期望 %q", got, filepath.Join(dir, DefaultTailwindMinOutput))
+	}
+	if !slices.Contains(second, "--minify") {
+		t.Errorf("第二遍 argv = %v, 缺少 --minify", second)
 	}
 }
 
@@ -197,4 +206,76 @@ func containsLine(s, want string) bool {
 		}
 	}
 	return false
+}
+
+// TestBuildTailwindProducesMinifiedStylesheet pins the two-pass production build:
+// the first pass writes the debuggable yd.css, the second writes yd.min.css with
+// Tailwind's own --minify. | TestBuildTailwindProducesMinifiedStylesheet 固定生产双遍构建：
+// 第一遍写可调试的 yd.css，第二遍用 Tailwind 自己的 --minify 写 yd.min.css。
+func TestBuildTailwindProducesMinifiedStylesheet(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, DefaultTailwindInput), "@import \"tailwindcss\";\n")
+	fake := &fakeExec{onCall: func(_ string, args []string) {
+		if out, ok := flagValue(args, "-o"); ok {
+			_ = os.WriteFile(out, []byte("/* built */"), 0o644)
+		}
+	}}
+
+	if _, err := buildTailwindWith(context.Background(), dir, TailwindOptions{
+		Enabled: true,
+		Minify:  true,
+	}, testLogger(), fake.exec); err != nil {
+		t.Fatalf("buildTailwindWith 失败: %v", err)
+	}
+	if len(fake.calls) != 2 {
+		t.Fatalf("tailwindcss 调用次数 = %d，期望 2", len(fake.calls))
+	}
+	first, second := fake.calls[0], fake.calls[1]
+	if slices.Contains(first, "--minify") {
+		t.Errorf("第一遍不应带 --minify: %v", first)
+	}
+	if got, _ := flagValue(first, "-o"); got != filepath.Join(dir, DefaultTailwindOutput) {
+		t.Errorf("第一遍 -o = %q，期望 %q", got, filepath.Join(dir, DefaultTailwindOutput))
+	}
+	if !slices.Contains(second, "--minify") {
+		t.Errorf("第二遍缺少 --minify: %v", second)
+	}
+	if got, _ := flagValue(second, "-o"); got != filepath.Join(dir, DefaultTailwindMinOutput) {
+		t.Errorf("第二遍 -o = %q，期望 %q", got, filepath.Join(dir, DefaultTailwindMinOutput))
+	}
+}
+
+// TestBuildTailwindMinifyOnlySkipsSourcePass pins the single-purpose mode used by
+// `yd assets minify`: only the minified stylesheet is written. | TestBuildTailwindMinifyOnlySkipsSourcePass
+// 固定 `yd assets minify` 使用的单遍模式：只写压缩样式表。
+func TestBuildTailwindMinifyOnlySkipsSourcePass(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, DefaultTailwindInput), "@import \"tailwindcss\";\n")
+	fake := &fakeExec{onCall: func(_ string, args []string) {
+		if out, ok := flagValue(args, "-o"); ok {
+			_ = os.WriteFile(out, []byte("/* built */"), 0o644)
+		}
+	}}
+
+	size, err := buildTailwindWith(context.Background(), dir, TailwindOptions{
+		Enabled:    true,
+		Minify:     true,
+		MinifyOnly: true,
+	}, testLogger(), fake.exec)
+	if err != nil {
+		t.Fatalf("buildTailwindWith 失败: %v", err)
+	}
+	if len(fake.calls) != 1 {
+		t.Fatalf("tailwindcss 调用次数 = %d，期望 1", len(fake.calls))
+	}
+	argv := fake.calls[0]
+	if !slices.Contains(argv, "--minify") {
+		t.Errorf("缺少 --minify: %v", argv)
+	}
+	if got, _ := flagValue(argv, "-o"); got != filepath.Join(dir, DefaultTailwindMinOutput) {
+		t.Errorf("-o = %q，期望 %q", got, filepath.Join(dir, DefaultTailwindMinOutput))
+	}
+	if size != int64(len("/* built */")) {
+		t.Errorf("返回字节数 = %d，期望 %d", size, len("/* built */"))
+	}
 }

@@ -24,3 +24,7 @@ node_modules/
 data/*.db
 data/*.db-wal
 data/*.db-shm
+
+# `yd build` 生成的压缩资产 | minified assets produced by `yd build`
+web/static/**/*.min.js
+web/static/**/*.min.css

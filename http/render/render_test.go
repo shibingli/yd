@@ -2,6 +2,8 @@ package render_test
 
 import (
 	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
 	"html/template"
 	"strings"
 	"testing"
@@ -337,5 +339,108 @@ func TestAddFuncReturnsIndependentEngine(t *testing.T) {
 	}
 	if _, ok := base.FuncMap()["shout"]; ok {
 		t.Fatal("AddFunc 不得修改原引擎的函数表 | AddFunc must not mutate the source engine's function map")
+	}
+}
+
+// renderAsset executes one template with no data. | renderAsset 在无数据情况下执行一个模板。
+func renderAsset(t *testing.T, e *render.Engine, name string) string {
+	t.Helper()
+	var buf bytes.Buffer
+	if err := e.Render(&buf, name, nil); err != nil {
+		t.Fatalf("Render(%q) 失败: %v", name, err)
+	}
+	return buf.String()
+}
+
+// assetHash returns the first four sha256 bytes as hex, matching assetFunc. | assetHash
+// 返回 sha256 前四字节的十六进制，与 assetFunc 一致。
+func assetHash(body string) string {
+	sum := sha256.Sum256([]byte(body))
+	return hex.EncodeToString(sum[:4])
+}
+
+// TestAssetFuncPrefersMinifiedSiblingInProduction pins the production resolution:
+// a .min.js/.min.css sibling wins, and its content is what the hash covers. | TestAssetFuncPrefersMinifiedSiblingInProduction
+// 固定生产环境解析：优先使用 .min.js/.min.css 同族文件，哈希覆盖的是压缩内容。
+func TestAssetFuncPrefersMinifiedSiblingInProduction(t *testing.T) {
+	mem := writeTemplates(t, map[string]string{
+		"templates/js.html":            `{{ asset "/static/js/app.js" }}`,
+		"templates/css.html":           `{{ asset "/static/css/yd.css" }}`,
+		"templates/already.html":       `{{ asset "/static/js/vendor/htmx.min.js" }}`,
+		"static/js/app.js":             `console.log("source")`,
+		"static/js/app.min.js":         `console.log("min")`,
+		"static/css/yd.css":            `body{color:blue}`,
+		"static/css/yd.min.css":        `body{color:red}`,
+		"static/js/vendor/htmx.min.js": `/*min*/`,
+	})
+	e, err := render.New(mem, render.Options{Production: true})
+	if err != nil {
+		t.Fatalf("New 失败: %v", err)
+	}
+
+	if got, want := renderAsset(t, e, "js.html"), "/static/js/app.min.js?v="+assetHash(`console.log("min")`); got != want {
+		t.Errorf("js asset = %q，期望 %q", got, want)
+	}
+	if got, want := renderAsset(t, e, "css.html"), "/static/css/yd.min.css?v="+assetHash(`body{color:red}`); got != want {
+		t.Errorf("css asset = %q，期望 %q", got, want)
+	}
+	if got, want := renderAsset(t, e, "already.html"), "/static/js/vendor/htmx.min.js?v="+assetHash(`/*min*/`); got != want {
+		t.Errorf("already-minified asset = %q，期望 %q（不得二次加 .min）", got, want)
+	}
+}
+
+// TestAssetFuncKeepsSourceOutsideProduction pins development behavior: the source
+// path is served and hashed even when a .min sibling exists. | TestAssetFuncKeepsSourceOutsideProduction
+// 固定开发行为：即使存在 .min 同族文件，也仍使用并哈希源码。
+func TestAssetFuncKeepsSourceOutsideProduction(t *testing.T) {
+	mem := writeTemplates(t, map[string]string{
+		"templates/a.html":     `{{ asset "/static/js/app.js" }}`,
+		"static/js/app.js":     `console.log("source")`,
+		"static/js/app.min.js": `console.log("min")`,
+	})
+	e, err := render.New(mem, render.Options{})
+	if err != nil {
+		t.Fatalf("New 失败: %v", err)
+	}
+	if got, want := renderAsset(t, e, "a.html"), "/static/js/app.js?v="+assetHash(`console.log("source")`); got != want {
+		t.Errorf("asset = %q，期望 %q", got, want)
+	}
+}
+
+// TestAssetFuncFallsBackWhenMinifiedSiblingIsMissing pins the Tailwind-skip path:
+// production without yd.min.css must still serve yd.css. | TestAssetFuncFallsBackWhenMinifiedSiblingIsMissing
+// 固定 Tailwind 跳过时的回退：production 没有 yd.min.css 时仍使用 yd.css。
+func TestAssetFuncFallsBackWhenMinifiedSiblingIsMissing(t *testing.T) {
+	mem := writeTemplates(t, map[string]string{
+		"templates/a.html":  `{{ asset "/static/css/yd.css" }}`,
+		"static/css/yd.css": `body{color:blue}`,
+	})
+	e, err := render.New(mem, render.Options{Production: true})
+	if err != nil {
+		t.Fatalf("New 失败: %v", err)
+	}
+	if got, want := renderAsset(t, e, "a.html"), "/static/css/yd.css?v="+assetHash(`body{color:blue}`); got != want {
+		t.Errorf("asset = %q，期望 %q", got, want)
+	}
+}
+
+// TestAssetFuncUsesAssetFSForStaticPrefix pins the merged static tree lookup:
+// /static/... is read from AssetFS, which is what the scaffold passes as web.Static(). | TestAssetFuncUsesAssetFSForStaticPrefix
+// 固定合并静态树查找：/static/... 从 AssetFS 读取，正是脚手架传入的 web.Static()。
+func TestAssetFuncUsesAssetFSForStaticPrefix(t *testing.T) {
+	mem := writeTemplates(t, map[string]string{
+		"templates/a.html": `{{ asset "/static/js/app.js" }}`,
+		"static/js/app.js": `console.log("fs source")`,
+	})
+	assetFS := writeTemplates(t, map[string]string{
+		"js/app.js":     `console.log("asset source")`,
+		"js/app.min.js": `console.log("asset min")`,
+	})
+	e, err := render.New(mem, render.Options{Production: true, AssetFS: assetFS})
+	if err != nil {
+		t.Fatalf("New 失败: %v", err)
+	}
+	if got, want := renderAsset(t, e, "a.html"), "/static/js/app.min.js?v="+assetHash(`console.log("asset min")`); got != want {
+		t.Errorf("asset = %q，期望 %q", got, want)
 	}
 }

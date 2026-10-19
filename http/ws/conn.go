@@ -44,6 +44,8 @@ const maskKeyBatch = 16
 // 省掉每条消息一次系统调用。读侧默认直接读 net.Conn（无 bufio 中间层，除非 ReadBufferSize 要求），
 // ReadMessage 返回的切片指向连接内部复用缓冲；该切片在**下一次读操作前**有效，需要长期持有请自行复制。
 type Conn struct {
+	writeDeadline time.Time
+
 	conn net.Conn
 
 	readErr error
@@ -114,8 +116,7 @@ type Conn struct {
 	// application's value instead of clearing it. | deadlineMu 保护 writeDeadline，即经
 	// SetWriteDeadline 设置的最后一个超时。控制帧会临时覆盖传输层超时，之后必须恢复应用设置的值，
 	// 而不是把它清零。
-	deadlineMu    sync.Mutex
-	writeDeadline time.Time
+	deadlineMu sync.Mutex
 
 	// trackMu guards untrack, which Close / CloseNow consume exactly once. | trackMu 保护 untrack，Close / CloseNow 恰好消费一次。
 	trackMu sync.Mutex

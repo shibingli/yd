@@ -26,8 +26,10 @@ var (
 const (
 	// DefaultTailwindInput is the stylesheet scanned by Tailwind, relative to the build directory. | DefaultTailwindInput 是 Tailwind 扫描的样式表，相对构建目录。
 	DefaultTailwindInput = "web/static/css/app.css"
-	// DefaultTailwindOutput is the minified stylesheet embedded by go:embed, relative to the build directory. | DefaultTailwindOutput 是由 go:embed 内嵌的压缩样式表，相对构建目录。
+	// DefaultTailwindOutput is the uncompressed stylesheet embedded by go:embed, relative to the build directory. | DefaultTailwindOutput 是未压缩、由 go:embed 内嵌的样式表，相对构建目录。
 	DefaultTailwindOutput = "web/static/css/yd.css"
+	// DefaultTailwindMinOutput is the Tailwind-minified production stylesheet, relative to the build directory. | DefaultTailwindMinOutput 是 Tailwind 压缩后的生产样式表，相对构建目录。
+	DefaultTailwindMinOutput = "web/static/css/yd.min.css"
 	// tailwindEnvBin is the environment variable holding the tailwindcss path. | tailwindEnvBin 是保存 tailwindcss 路径的环境变量。
 	tailwindEnvBin = "YD_TAILWIND_BIN"
 	// localToolsDir is the project-local directory managed by `yd assets`. | localToolsDir is `.yd/tools`，由 `yd assets` 管理的项目内目录。
@@ -40,12 +42,16 @@ type TailwindOptions struct {
 	Bin string
 	// Input is the scanned stylesheet; empty means DefaultTailwindInput. | Input 是被扫描的样式表；为空表示 DefaultTailwindInput。
 	Input string
-	// Output is the minified stylesheet; empty means DefaultTailwindOutput. | Output 是压缩后的样式表；为空表示 DefaultTailwindOutput。
+	// Output is the uncompressed stylesheet; empty means DefaultTailwindOutput. | Output 是未压缩的样式表；为空表示 DefaultTailwindOutput。
 	Output string
+	// MinOutput is the Tailwind-minified stylesheet; empty means DefaultTailwindMinOutput. | MinOutput 是 Tailwind 压缩后的样式表；为空表示 DefaultTailwindMinOutput。
+	MinOutput string
 	// Enabled turns the stage on. | Enabled 启用该阶段。
 	Enabled bool
-	// Minify asks tailwindcss for the minified output. | Minify 要求 tailwindcss 输出压缩结果。
+	// Minify produces MinOutput with a second --minify pass. | Minify 用第二遍 --minify 产出 MinOutput。
 	Minify bool
+	// MinifyOnly skips the uncompressed pass; used by `yd assets minify`. | MinifyOnly 跳过未压缩那遍；供 `yd assets minify` 使用。
+	MinifyOnly bool
 }
 
 // TailwindFunc builds the Tailwind stylesheet and returns the number of bytes
@@ -69,9 +75,14 @@ func inputPath(dir string, o TailwindOptions) string {
 	return resolvePath(dir, orDefault(o.Input, DefaultTailwindInput))
 }
 
-// outputPath resolves the stylesheet produced by Tailwind. | outputPath 解析 Tailwind 产出的样式表路径。
+// outputPath resolves the uncompressed stylesheet produced by Tailwind. | outputPath 解析 Tailwind 产出的未压缩样式表路径。
 func outputPath(dir string, o TailwindOptions) string {
 	return resolvePath(dir, orDefault(o.Output, DefaultTailwindOutput))
+}
+
+// minOutputPath resolves the minified stylesheet produced by Tailwind. | minOutputPath 解析 Tailwind 产出的压缩样式表路径。
+func minOutputPath(dir string, o TailwindOptions) string {
+	return resolvePath(dir, orDefault(o.MinOutput, DefaultTailwindMinOutput))
 }
 
 // orDefault returns value when it is non-empty and fallback otherwise. | orDefault 在 value 非空时返回它，否则返回 fallback。
@@ -105,7 +116,7 @@ func ResolveTailwindBin(dir, bin string) (string, error) {
 	}
 	local := filepath.Join(dir, filepath.FromSlash(localToolsDir), tailwindBinName())
 	if info, err := os.Stat(local); err == nil && !info.IsDir() {
-		return local, nil
+		return absoluteBin(local), nil
 	}
 	// Look the command up without the platform file name: on Windows the standalone compiler is a
 	// real .exe, but package managers often expose it as a .cmd shim, and LookPath("tailwindcss.exe")
@@ -134,11 +145,22 @@ func resolveBin(dir, bin string) (string, error) {
 	if !filepath.IsAbs(path) {
 		path = filepath.Join(dir, path)
 	}
+	path = absoluteBin(path)
 	info, err := os.Stat(path)
 	if err != nil || info.IsDir() {
 		return "", errx.Detail(ErrTailwindNotFound, "%s is not an executable file | %s 不是可执行文件", path, path)
 	}
 	return path, nil
+}
+
+// absoluteBin returns the absolute form of path, falling back to the input when
+// the working directory cannot be resolved. | absoluteBin 返回 path 的绝对形式；
+// 工作目录无法解析时回退到原值。
+func absoluteBin(path string) string {
+	if abs, err := filepath.Abs(path); err == nil {
+		return abs
+	}
+	return path
 }
 
 // BuildTailwind runs the standalone tailwindcss binary and returns the size of the
@@ -156,6 +178,14 @@ func BuildTailwind(ctx context.Context, dir string, o TailwindOptions, log *logx
 // fake tailwindcss everywhere. | buildTailwindWith 是接受可注入命令构造器的 BuildTailwind，
 // Build 借此让 Options.ExecCommand 同样驱动资产阶段，测试可在任意平台伪造 tailwindcss。
 func buildTailwindWith(ctx context.Context, dir string, o TailwindOptions, log *logx.Logger, run ExecCommandFunc) (int64, error) {
+	// Normalize the project directory up front: the binary, input and outputs are then all
+	// absolute, so cmd.Dir cannot double-apply a relative path. | 先归一化项目目录：二进制、输入与产物
+	// 随后都是绝对路径，cmd.Dir 不会把相对路径二次拼接。
+	absDir, err := filepath.Abs(dir)
+	if err != nil {
+		return 0, errx.WrapDetail(err, ErrInvalidOptions, "cannot resolve %q | 无法解析 %q", dir, dir)
+	}
+	dir = absDir
 	input := inputPath(dir, o)
 	if info, err := os.Stat(input); err != nil || info.IsDir() {
 		return 0, errx.Detail(ErrTailwindInput, "%s is missing | %s 不存在", input, input)
@@ -164,10 +194,32 @@ func buildTailwindWith(ctx context.Context, dir string, o TailwindOptions, log *
 	if err != nil {
 		return 0, err
 	}
-	output := outputPath(dir, o)
 
+	var sourceSize int64
+	if !o.MinifyOnly {
+		sourceSize, err = runTailwind(ctx, run, dir, bin, input, outputPath(dir, o), false, log)
+		if err != nil {
+			return 0, err
+		}
+	}
+	if o.Minify || o.MinifyOnly {
+		minSize, err := runTailwind(ctx, run, dir, bin, input, minOutputPath(dir, o), true, log)
+		if err != nil {
+			return 0, err
+		}
+		if o.MinifyOnly {
+			return minSize, nil
+		}
+	}
+	return sourceSize, nil
+}
+
+// runTailwind executes one tailwindcss pass and returns the produced size.
+// minify selects the --minify flag; the caller decides which output path it writes. | runTailwind
+// 执行一遍 tailwindcss 并返回产物字节数；minify 选择 --minify，输出路径由调用方决定。
+func runTailwind(ctx context.Context, run ExecCommandFunc, dir, bin, input, output string, minify bool, log *logx.Logger) (int64, error) {
 	args := []string{"-i", input, "-o", output}
-	if o.Minify {
+	if minify {
 		args = append(args, "--minify")
 	}
 	cmd := run(ctx, bin, args...)
@@ -185,7 +237,7 @@ func buildTailwindWith(ctx context.Context, dir string, o TailwindOptions, log *
 		logx.Str("bin", bin),
 		logx.Str("input", input),
 		logx.Str("output", output),
-		logx.Bool("minify", o.Minify),
+		logx.Bool("minify", minify),
 		logx.Int64("bytes", info.Size()),
 	)
 	return info.Size(), nil

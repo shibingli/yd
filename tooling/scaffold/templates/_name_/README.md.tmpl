@@ -56,10 +56,13 @@ go mod tidy
 # 2. 本地开发（热重载：Go 编译重启 + Tailwind 监听 + 模板局部刷新）
 yd dev
 
-# 3. 跨平台静态打包（Tailwind 剪裁压缩 + go:embed + 单二进制）
+# 3. 跨平台静态打包（Tailwind 剪裁压缩 + JS 压缩 + go:embed + 单二进制）
 yd build
 
-# 4. 构建 scratch 生产镜像
+# 4. 校验压缩资产是否漂移（CI 可用）
+yd assets minify --check
+
+# 5. 构建 scratch 生产镜像
 yd docker --tag {{ .Name }}:latest
 ```
 
@@ -87,6 +90,7 @@ yd docker --tag {{ .Name }}:latest
   设好并重启。一个口令公开可查的管理员账号绝不在真实环境中被创建。
 - **未设置 `app.env` 时框架默认是 `development`**；因此生产部署必须显式设置 `YD_APP_ENV=production`
   （或 `app.env: production`），否则会按开发环境处理并使用 `admin123` 回退。
+- `app.env` 接受短别名：`dev` 等同 `development`，`prod` 等同 `production`（忽略大小写与首尾空白）。
 
 | 种子租户（登录后默认进入） | 租户名称 | 登录名 | 初始口令 |
 |---|---|---|---|
@@ -326,25 +330,26 @@ ko 只把 Go 源码编译成镜像层，唯一需要联网的部分是**拉取�
 
 ## 可选外部工具
 
-有四个能力依赖**外部工具**，它们都不是本项目的 Go 依赖（不进 `go.mod`），由 `yd tools` 统一探测与安装：
+有五个能力依赖**外部工具**，它们都不是本项目的 Go 依赖（不进 `go.mod`），由 `yd tools` 统一探测与安装：
 
 | 工具 | 用途 | 缺失时的影响 |
 |---|---|---|
 | `betteralign` | 结构体内存对齐检查与重排（`yd align --apply`） | 只有 `yd align` 会报错并给出安装提示 |
 | `ko` | 无 Dockerfile 的镜像打包（`yd ko`） | 只有 `yd ko` 会报错并给出安装提示 |
 | `tailwindcss` | 样式表编译（Tailwind CSS v4 standalone） | `yd dev` / `yd build` 的样式表阶段以告警跳过，构建照常完成 |
+| `minify` | JavaScript 压缩（`yd build` / `yd assets minify`） | JS 压缩阶段以告警跳过，生产页面回退到源码脚本 |
 | `docker` | Dockerfile 多阶段镜像构建（`yd docker`） | 只有 `yd docker` 会报错，并提示安装 Docker Engine / Docker Desktop |
 
 **工具缺失不会让 `yd build` / `yd dev` / `go test` 失败**：只有在真正用到对应能力时才会报错，
 并在错误里带上安装提示。
 
 ```bash
-# Probe all four tools: status, path or version, and the install hint when one is missing | 探测四个工具：状态、路径或版本，以及缺失时的安装提示
+# Probe all five tools: status, path or version, and the install hint when one is missing | 探测五个工具：状态、路径或版本，以及缺失时的安装提示
 yd tools check
 
-# Install the Go-installable tools (defaults to betteralign + ko) | 安装可 go install 的工具（缺省为 betteralign + ko）
+# Install the Go-installable tools (defaults to betteralign + ko + minify) | 安装可 go install 的工具（缺省为 betteralign + ko + minify）
 yd tools install
-yd tools install betteralign ko
+yd tools install betteralign ko minify
 
 # Download the Tailwind standalone binary into .yd/tools | 把 Tailwind standalone 二进制下载到 .yd/tools
 yd tools install tailwindcss

@@ -137,6 +137,7 @@ Co-Authored-By: Eric Shi <shibingli@sina.com>
 ```bash
 yd dev       # 热重载开发（Go 编译重启 + Tailwind 监听 + 模板局部刷新）
 yd build     # 跨平台静态打包（Tailwind 剪裁压缩 + go:embed + 单二进制）
+yd assets minify --check   # 校验 *.min.js 与 yd.min.css 是否漂移
 yd docker    # 基于 scratch 的多阶段镜像构建
 yd gen module|crud   # 低代码生成（DB Schema 或 Go Struct）
 ```
@@ -154,6 +155,9 @@ yd gen module|crud   # 低代码生成（DB Schema 或 Go Struct）
   内容安全策略只允许 `script-src 'self'`，因此**禁止内联脚本**与内联样式。
 - 所有样式必须继承 Tailwind v4：`app.css` 引入 `@import "tailwindcss"`，设计令牌写在 `@theme`，
   项目与框架组件写在 `@layer components`；可复用的工具类用 `@apply`，颜色不得在令牌块之外写字面量。
+- **模板静态引用一律 `{{ "{{ asset \"/static/...\" }}" }}`**：production 下自动解析 `*.min.js` / `yd.min.css`，
+  开发期使用源码；禁止裸写 `/static/...`。CSS 压缩只由 Tailwind `--minify` 负责，JS 压缩由 `minify` 工具负责。
+- `app.env` / `YD_APP_ENV` 接受 `development`/`dev` 与 `production`/`prod`（忽略大小写与首尾空白）。
 - 语言切换与侧栏导航一律 `hx-target="#yd-shell"`：服务端返回整块外壳，侧栏高亮与语言才会同步；
   登录前外壳只保留登录卡片（含离线 SVG 品牌区 `/static/img/yd-icon.svg`）与右上角的语言/主题切换。
   favicon 同样指向该同源图标，禁止 `data:,` 空图标或外链；侧栏页脚只显示版本，不列中间件与组件。
@@ -170,10 +174,10 @@ yd gen module|crud   # 低代码生成（DB Schema 或 Go Struct）
 - OpenAPI 查看器左侧按 `tag` 分组，操作详情提供同源在线测试（服务器、鉴权头、参数与 JSON 请求体，
   响应显示状态/耗时/响应头/正文）；跨源请求会被 CSP 拦截，因此只允许同源。
   查看器读取 `localStorage.yd_theme` 并在顶栏提供浅色/深色/跟随系统切换，控件边框必须清晰可见。
-- **可选外部工具一律经 `yd tools`**：`betteralign` / `ko` / `tailwindcss` / `docker` 用 `yd tools check` 探测、
+- **可选外部工具一律经 `yd tools`**：`betteralign` / `ko` / `tailwindcss` / `minify` / `docker` 用 `yd tools check` 探测、
   `yd tools install [名称...]` 安装（落在项目内 `.yd/tools/`，`GOBIN` 指向它的绝对路径）；
   **禁止**手写 `go install` 装到全局，**禁止**改动 `PATH` 或往 `~/go/bin` 写东西。
-  四个工具都是可选的，缺失只影响对应能力，**不得**让 `yd build` / `yd dev` / `yd gen` / `go test` 或 CI 失败；
+  五个工具都是可选的，缺失只影响对应能力，**不得**让 `yd build` / `yd dev` / `yd gen` / `go test` 或 CI 失败；
   安装失败只告警（`yd new --yes` 不触网），判定哨兵一律用 `errors.Is`（`tools.ErrUnknownTool` /
   `tools.ErrNoGoToolchain` / `tools.ErrNotInstallable` / `tools.ErrInstallFailed`）。
 

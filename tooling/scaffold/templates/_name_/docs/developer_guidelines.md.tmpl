@@ -26,6 +26,7 @@
 - 片段命名：`<资源>/<动作>.html`，例如 `users/list.html`、`users/row.html`、`users/form.html`；片段首行用
   `{{ "{{- define \"partials/<资源>/<动作>\" -}}" }}` 命名，页面用 `{{ "{{ template \"partials/users/list\" . }}" }}` 引入（数据契约写在文件头的注释里）。
 - 禁止在模板中书写内联样式表；样式一律来自 Tailwind v4 语义化类（`bg-surface`、`text-content`、`border-border-subtle`、`bg-brand-600` …）。
+- 模板中的静态资源引用一律写成 `{{ "{{ asset \"/static/...\" }}" }}`：production 下自动解析 `*.min.js` / `yd.min.css` 并追加内容哈希，开发期使用源码；禁止裸写 `/static/...`。
 - 禁止硬编码颜色字面量（`#1d4ed8` 之类）；需要新色值请在 `{{ .AssetRoot }}/static/css/app.css` 的 `@theme` 中新增语义变量。
 - 面向用户的文案一律写进 `{{ .AssetRoot }}/i18n/{zh-CN,en}.yaml`，模板只写 `{{ "{{ tr \"page.users.title\" }}" }}`（带参数时
   `{{ "{{ tr \"page.users.subtitle\" .Total }}" }}`）。两份目录的键集合必须严格一致：少一个键，页面上出现的就是键名本身。

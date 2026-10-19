@@ -4,12 +4,12 @@ import (
 	"embed"
 	"errors"
 	"io/fs"
-	"strings"
 
 	"github.com/spf13/afero"
 
 	"github.com/shibingli/yd/core/afs"
 	"github.com/shibingli/yd/core/config"
+	"github.com/shibingli/yd/core/envx"
 	"github.com/shibingli/yd/core/errx"
 	"github.com/shibingli/yd/http/i18n"
 )
@@ -124,5 +124,5 @@ func isDevelopment(c *config.Config) bool {
 	if c == nil {
 		return true
 	}
-	return !strings.EqualFold(strings.TrimSpace(c.GetString("app.env")), "production")
+	return !envx.IsProduction(c.GetString("app.env"))
 }

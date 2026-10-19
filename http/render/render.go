@@ -90,6 +90,10 @@ var (
 
 // Options configures an Engine. | Options 配置渲染引擎。
 type Options struct {
+	// AssetFS is the filesystem rooted at the "/static" URL prefix, used by the asset
+	// helper; nil means the helper resolves paths against the template filesystem.
+	// | AssetFS 是根为 "/static" URL 前缀的文件系统，供 asset 助手解析；为空表示按模板文件系统解析。
+	AssetFS afero.Fs
 	// Funcs are extra template functions, merged over the defaults. | Funcs 是额外的模板函数，会覆盖同名默认函数。
 	Funcs template.FuncMap
 	// Root is the directory scanned for templates; empty means "templates". | Root 是模板扫描目录，空表示 "templates"。
@@ -99,6 +103,10 @@ type Options struct {
 	RightDelim string
 	// Exts lists the file extensions to parse; empty means [".html", ".gotmpl"]. | Exts 列出参与解析的扩展名，空表示 [".html", ".gotmpl"]。
 	Exts []string
+	// Production makes the asset helper prefer the ".min.js" / ".min.css" sibling of
+	// a referenced file and hash that sibling; false keeps the source file.
+	// | Production 使 asset 助手优先使用被引用文件的 .min.js / .min.css 同族文件并对其取哈希；false 使用源码。
+	Production bool
 	// Dev disables caching so edits take effect immediately. | Dev 关闭缓存，使改动立即生效。
 	Dev bool
 }
@@ -290,7 +298,7 @@ type templateFile struct {
 
 // funcMap returns the merged default and caller functions. | funcMap 返回默认函数与调用方函数的合并结果。
 func (e *Engine) funcMap() template.FuncMap {
-	m := Funcs(e.fsys)
+	m := funcsFor(e.fsys, e.opts.AssetFS, e.opts.Production)
 	for k, v := range e.opts.Funcs {
 		m[k] = v
 	}

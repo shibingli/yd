@@ -67,8 +67,8 @@
      wrong frame is ever painted. yd-app.js takes over the interactive three-state switch.
      首屏主题，位于样式表之前，因此是同步脚本：它只读取 yd_theme 偏好并写入 <html data-theme>，
      既不等待网络，也绝不画出错误的帧。交互式三态切换由随后加载的 yd-app.js 接管。 */}}
-<script src="/static/js/yd-theme-boot.js"></script>
-<link rel="stylesheet" href="/static/css/yd.css">
+<script src="{{ asset "/static/js/yd-theme-boot.js" }}"></script>
+<link rel="stylesheet" href="{{ asset "/static/css/yd.css" }}">
 {{/* The server injects the current catalog as JSON: no extra request, fully offline. | 服务端把当前语言目录以 JSON 注入：不额外发请求，完全离线可用。 */}}
 {{/* Envelope shape | 信封结构: {"lang":"…","fallback":"…","catalogs":{"<lang>":{…}}} */}}
 <script id="yd-i18n-catalog" type="application/json">{{.I18nJSON}}</script>
@@ -86,30 +86,30 @@
 {{/* Single allowed order: htmx core, hx-* extensions, Alpine, compat, guomi, i18n, authz, app. | 唯一允许的顺序：htmx 核心、hx-* 扩展、Alpine、兼容层、国密、i18n、权限、应用。 */}}
 {{/* csp and the two htmx 2 compatibility layers are locked in the manifest but deliberately not loaded: csp needs a nonce policy, and the compat layers would undo the 4.x semantics this UI is built on. | csp 与两个 htmx 2 兼容层已锁定在资产清单中，但刻意不加载：csp 需要 nonce 策略，兼容层会抵消本 UI 所基于的 4.x 语义。 */}}
 {{/* defer keeps the order while never blocking rendering. | defer 保证顺序且不阻塞渲染。 */}}
-<script src="/static/js/vendor/htmx.min.js" defer></script>
-<script src="/static/js/vendor/hx-head.min.js" defer></script>
-<script src="/static/js/vendor/hx-targets.min.js" defer></script>
-<script src="/static/js/vendor/hx-upsert.min.js" defer></script>
-<script src="/static/js/vendor/hx-pending.min.js" defer></script>
-<script src="/static/js/vendor/hx-preload.min.js" defer></script>
-<script src="/static/js/vendor/hx-multipart.min.js" defer></script>
-<script src="/static/js/vendor/hx-download.min.js" defer></script>
-<script src="/static/js/vendor/hx-browser-indicator.min.js" defer></script>
-<script src="/static/js/vendor/hx-history-cache.min.js" defer></script>
-<script src="/static/js/vendor/hx-live.min.js" defer></script>
-<script src="/static/js/vendor/hx-prompt.min.js" defer></script>
-<script src="/static/js/vendor/hx-ptag.min.js" defer></script>
-<script src="/static/js/vendor/hx-sse.min.js" defer></script>
-<script src="/static/js/vendor/hx-ws.min.js" defer></script>
-<script src="/static/js/vendor/alpine.min.js" defer></script>
-<script src="/static/js/vendor/hx-alpine-compat.min.js" defer></script>
-<script src="/static/js/yd-guomi.js" defer></script>
-<script src="/static/js/yd-guomi-htmx.js" defer></script>
-<script src="/static/js/yd-i18n.js" defer></script>
+<script src="{{ asset "/static/js/vendor/htmx.min.js" }}" defer></script>
+<script src="{{ asset "/static/js/vendor/hx-head.min.js" }}" defer></script>
+<script src="{{ asset "/static/js/vendor/hx-targets.min.js" }}" defer></script>
+<script src="{{ asset "/static/js/vendor/hx-upsert.min.js" }}" defer></script>
+<script src="{{ asset "/static/js/vendor/hx-pending.min.js" }}" defer></script>
+<script src="{{ asset "/static/js/vendor/hx-preload.min.js" }}" defer></script>
+<script src="{{ asset "/static/js/vendor/hx-multipart.min.js" }}" defer></script>
+<script src="{{ asset "/static/js/vendor/hx-download.min.js" }}" defer></script>
+<script src="{{ asset "/static/js/vendor/hx-browser-indicator.min.js" }}" defer></script>
+<script src="{{ asset "/static/js/vendor/hx-history-cache.min.js" }}" defer></script>
+<script src="{{ asset "/static/js/vendor/hx-live.min.js" }}" defer></script>
+<script src="{{ asset "/static/js/vendor/hx-prompt.min.js" }}" defer></script>
+<script src="{{ asset "/static/js/vendor/hx-ptag.min.js" }}" defer></script>
+<script src="{{ asset "/static/js/vendor/hx-sse.min.js" }}" defer></script>
+<script src="{{ asset "/static/js/vendor/hx-ws.min.js" }}" defer></script>
+<script src="{{ asset "/static/js/vendor/alpine.min.js" }}" defer></script>
+<script src="{{ asset "/static/js/vendor/hx-alpine-compat.min.js" }}" defer></script>
+<script src="{{ asset "/static/js/yd-guomi.js" }}" defer></script>
+<script src="{{ asset "/static/js/yd-guomi-htmx.js" }}" defer></script>
+<script src="{{ asset "/static/js/yd-i18n.js" }}" defer></script>
 {{/* Loaded after yd-i18n.js and before yd-app.js: it reads the injected payload at start and re-binds
      the guards after every htmx swap, so an application script that runs later sees yd.can ready.
      位于 yd-i18n.js 之后、yd-app.js 之前加载：它在启动时读取注入的载荷，并在每次 htmx 交换后重新绑定
      守卫，因此之后运行的业务脚本可以直接使用 yd.can。 */}}
-<script src="/static/js/yd-authz.js" defer></script>
-<script src="/static/js/yd-app.js" defer></script>
+<script src="{{ asset "/static/js/yd-authz.js" }}" defer></script>
+<script src="{{ asset "/static/js/yd-app.js" }}" defer></script>
 {{- end -}}

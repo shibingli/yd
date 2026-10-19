@@ -5,6 +5,8 @@ package meta
 import (
 	"os"
 	"strings"
+
+	"{{ .YdModule }}/core/envx"
 )
 
 // 元信息常量由 yd new 依据脚手架参数写入；需要改动请回到脚手架模板重新生成。
@@ -42,9 +44,11 @@ const (
 	EnvPrefix = "YD_"
 	// ConfigEnvKey is the configuration key holding the runtime environment. | ConfigEnvKey 是运行环境所在的配置键。
 	ConfigEnvKey = "app.env"
-	// EnvProduction and EnvDevelopment are the two runtime environment values. | EnvProduction 与 EnvDevelopment 是运行环境的两个取值。
-	EnvProduction  = "production"
-	EnvDevelopment = "development"
+	// EnvProduction and EnvDevelopment are the two canonical runtime environment values;
+	// core/envx accepts the dev/prod aliases as well. | EnvProduction 与 EnvDevelopment 是两个规范运行环境取值；
+	// core/envx 同时接受 dev/prod 短别名。
+	EnvProduction  = envx.Production
+	EnvDevelopment = envx.Development
 
 	// ToastEvent 是服务端下发提示的事件名，控制器通过 HX-Trigger 触发，页面在 body 上订阅。
 	// ToastEvent is the event name of a server-sent toast: controllers fire it through HX-Trigger and pages subscribe on the body.
@@ -153,19 +157,22 @@ var HtmxExtScripts = []string{
 // Env 返回运行环境名：优先取环境变量 YD_APP_ENV，未设置时按开发环境处理。
 // Env returns the runtime environment: it prefers the YD_APP_ENV environment variable and falls back to development.
 //
+// 取值经 core/envx 归一化：development/dev 与 production/prod 等价，大小写与首尾空白不影响判定。
 // 未知环境一律按开发处理，与框架 app 门面对 isDevelopment 的判定保持一致，
 // 避免新项目因为漏配环境名而失去模板热重载。
-// An unknown environment counts as development, matching isDevelopment in the framework's app facade, so a fresh
-// project never loses template hot reloading just because the environment name is unset.
+// The value is normalized through core/envx: development/dev and production/prod are equivalent, and case and
+// surrounding blanks never affect the decision. An unknown environment counts as development, matching isDevelopment
+// in the framework's app facade, so a fresh project never loses template hot reloading just because the name is unset.
 func Env() string {
 	if v := strings.TrimSpace(os.Getenv(EnvPrefix + "APP_ENV")); v != "" {
-		return v
+		return envx.Normalize(v)
 	}
 	return EnvDevelopment
 }
 
-// IsProduction reports whether the runtime environment is production. | IsProduction 报告当前是否为生产环境。
-func IsProduction() bool { return strings.EqualFold(Env(), EnvProduction) }
+// IsProduction reports whether the runtime environment is production.
+// The prod alias is accepted. | IsProduction 报告当前是否为生产环境；接受 prod 短别名。
+func IsProduction() bool { return envx.IsProduction(Env()) }
 
 // IsDevelopment reports whether the runtime environment is development. | IsDevelopment 报告当前是否为开发环境。
 func IsDevelopment() bool { return !IsProduction() }

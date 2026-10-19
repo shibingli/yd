@@ -84,11 +84,11 @@
   <meta name="color-scheme" content="light dark">
   <meta name="description" content="{{ .Description }}">
   <title>{{ with .Title }}{{ . }} · {{ end }}{{ .Name }}</title>
-  <link rel="stylesheet" href="/static/css/yd.css">
+  <link rel="stylesheet" href="{{ asset "/static/css/yd.css" }}">
   {{/* 图标是同源静态资源：yd build 会把它连同全部前端资产嵌入二进制，运行时零外部请求。
        The icon is a same-origin static asset: yd build embeds it with every front-end asset, so runtime makes no
        external request. */}}
-  <link rel="icon" type="image/svg+xml" href="/static/img/yd-icon.svg">
+  <link rel="icon" type="image/svg+xml" href="{{ asset "/static/img/yd-icon.svg" }}">
   {{/* 权限信封：只有控制器经 authz.Data(subject) 提供时才注入，缺省时整段不出现，
        yd-authz.js 因而一个能力都不授予（失败关闭）——宁可不显示按钮，也不显示一个服务端会拒绝的按钮。
        注入的 JSON 必须是 template.JS：html/template 把 <script type="application/json"> 当作 JavaScript 容器，
@@ -128,13 +128,13 @@
      data-yd-role guards after every htmx swap, so application scripts that run later can use yd.can straight away.
      Theme and language choices are applied in yd-app.js, so no inline script is needed here — the CSP allows 'self'
      only, and an inline script would be rejected by the browser anyway. */}}
-<script src="/static/js/vendor/htmx.min.js" defer></script>
+<script src="{{ asset "/static/js/vendor/htmx.min.js" }}" defer></script>
 {{- range .Scripts }}
-<script src="{{ . }}" defer></script>
+<script src="{{ asset . }}" defer></script>
 {{- end }}
-<script src="/static/js/yd-guomi.js" defer></script>
-<script src="/static/js/yd-guomi-htmx.js" defer></script>
-<script src="/static/js/yd-authz.js" defer></script>
-<script src="/static/js/yd-app.js" defer></script>
+<script src="{{ asset "/static/js/yd-guomi.js" }}" defer></script>
+<script src="{{ asset "/static/js/yd-guomi-htmx.js" }}" defer></script>
+<script src="{{ asset "/static/js/yd-authz.js" }}" defer></script>
+<script src="{{ asset "/static/js/yd-app.js" }}" defer></script>
 </body>
 </html>

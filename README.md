@@ -64,8 +64,8 @@ yd authz check            # 静态校验，有错非零退出（可进 CI）
 yd completion bash        # 打印脚本（source <(yd completion bash)）
 yd completion install     # 探测 shell、写脚本并打印加载行（默认不动 rc 文件）
 
-# 可选外部工具：betteralign / ko / tailwindcss / docker 的统一探测与安装
-yd tools check            # 列出四个工具的状态与安装提示，只读、不触网
+# 可选外部工具：betteralign / ko / tailwindcss / minify / docker 的统一探测与安装
+yd tools check            # 列出五个工具的状态与安装提示，只读、不触网
 yd tools install          # 把缺失且可 go install 的项装进项目内 .yd/tools/（不改 PATH）
 yd tools install tailwindcss  # 下载 Tailwind standalone 二进制到 .yd/tools/
 ```

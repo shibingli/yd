@@ -32,6 +32,8 @@ const (
 	cliToolKo = "ko"
 	// cliToolTailwind is the optional CSS compiler, which cannot be installed by go install. | cliToolTailwind 是可选 CSS 编译器，无法用 go install 安装。
 	cliToolTailwind = "tailwindcss"
+	// cliToolMinify is the optional JavaScript minifier. | cliToolMinify 是可选 JavaScript 压缩器。
+	cliToolMinify = "minify"
 	// cliToolDocker is the optional container engine, which cannot be installed by go install. | cliToolDocker 是可选容器引擎，无法用 go install 安装。
 	cliToolDocker = "docker"
 )
@@ -294,7 +296,7 @@ func TestToolsCheckPrintsTableAndHints(t *testing.T) {
 	}
 
 	out := te.out.String()
-	if !strings.Contains(out, "tools | 工具: 4") {
+	if !strings.Contains(out, "tools | 工具: 5") {
 		t.Errorf("状态表缺少表头 | the table misses its header:\n%s", out)
 	}
 	for _, want := range []struct {
@@ -305,6 +307,7 @@ func TestToolsCheckPrintsTableAndHints(t *testing.T) {
 		{cliToolBetteralign, toolsStateReady, pathStub.at(cliToolBetteralign)},
 		{cliToolKo, toolsStateReady, localKo},
 		{cliToolTailwind, toolsStateMissing, "-"},
+		{cliToolMinify, toolsStateMissing, "-"},
 		{cliToolDocker, toolsStateReady, pathStub.at(cliToolDocker)},
 	} {
 		row := fmt.Sprintf("  %-13s %s %s", want.name, want.state, want.detail)
@@ -376,7 +379,7 @@ func TestToolsCheckAcceptsItsActionWord(t *testing.T) {
 	if err := Execute(context.Background(), []string{toolsCommandName, toolsActionCheck}, te.env); err != nil {
 		t.Fatalf("yd tools check 失败 | yd tools check failed: %v", err)
 	}
-	if !strings.Contains(te.out.String(), "tools | 工具: 4") {
+	if !strings.Contains(te.out.String(), "tools | 工具: 5") {
 		t.Errorf("状态表未打印 | the table was not printed:\n%s", te.out.String())
 	}
 	if got := exec.count(); got != 0 {
@@ -402,12 +405,13 @@ func TestToolsInstallDefaultsToEveryInstallableTool(t *testing.T) {
 	}
 
 	installs := exec.installs()
-	if len(installs) != 2 {
-		t.Fatalf("安装了 %d 次，期望 2 次（docker 与 tailwindcss 不可自动安装）| ran %d installs, want 2", len(installs), len(installs))
+	if len(installs) != 3 {
+		t.Fatalf("安装了 %d 次，期望 3 次（docker 与 tailwindcss 不可自动安装）| ran %d installs, want 3", len(installs), len(installs))
 	}
 	wantTargets := []string{
 		"github.com/dkorunic/betteralign/cmd/betteralign@latest",
 		"github.com/google/ko@latest",
+		"github.com/tdewolff/minify/v2/cmd/minify@latest",
 	}
 	wantGobin := filepath.Join(te.env.WorkDir, filepath.FromSlash(tools.LocalToolDir))
 	for i, call := range installs {
@@ -424,7 +428,7 @@ func TestToolsInstallDefaultsToEveryInstallableTool(t *testing.T) {
 			t.Errorf("第 %d 次安装的 GOBIN = %q，期望 %q | want %q", i+1, got, wantGobin, wantGobin)
 		}
 	}
-	for _, name := range []string{cliToolBetteralign, cliToolKo} {
+	for _, name := range []string{cliToolBetteralign, cliToolKo, cliToolMinify} {
 		if _, err := os.Stat(newToolBin(te.env.WorkDir, name)); err != nil {
 			t.Errorf("%s 未落在项目内工具目录 | %s is missing: %v", name, name, err)
 		}
@@ -432,7 +436,7 @@ func TestToolsInstallDefaultsToEveryInstallableTool(t *testing.T) {
 
 	out := te.out.String()
 	for _, want := range []string{
-		"installed | 已安装: 2",
+		"installed | 已安装: 3",
 		"skipped | 已跳过: 0",
 		"failed | 失败: 0",
 		"fake-version 9.9.9",
@@ -523,8 +527,8 @@ func TestToolsInstallReportsFailureWithNonZeroExit(t *testing.T) {
 		t.Errorf("err = %v，期望匹配 ErrInstallFailed | want ErrInstallFailed", err)
 	}
 	out := te.out.String()
-	if !strings.Contains(out, "failed | 失败: 2") {
-		t.Errorf("摘要未报告两次失败 | the summary misses the failures:\n%s", out)
+	if !strings.Contains(out, "failed | 失败: 3") {
+		t.Errorf("摘要未报告三次失败 | the summary misses the failures:\n%s", out)
 	}
 	if !strings.Contains(out, "installed | 已安装: 0") {
 		t.Errorf("摘要未报告零次成功 | the summary misses the empty install list:\n%s", out)
@@ -723,7 +727,7 @@ func TestNewInstallToolsFlagInstallsThem(t *testing.T) {
 	}
 
 	installs := exec.installs()
-	if len(installs) != 2 {
+	if len(installs) != 3 {
 		t.Fatalf("安装了 %d 次，期望 2 次 | ran %d installs, want 2", len(installs), len(installs))
 	}
 	projectDir := filepath.Join(te.env.WorkDir, "demo")
@@ -733,13 +737,13 @@ func TestNewInstallToolsFlagInstallsThem(t *testing.T) {
 			t.Errorf("GOBIN = %q，期望新项目的工具目录 %q | want %q", got, wantGobin, wantGobin)
 		}
 	}
-	for _, name := range []string{cliToolBetteralign, cliToolKo} {
+	for _, name := range []string{cliToolBetteralign, cliToolKo, cliToolMinify} {
 		if _, err := os.Stat(newToolBin(projectDir, name)); err != nil {
 			t.Errorf("%s 未安装进新项目 | %s is missing: %v", name, name, err)
 		}
 	}
 	out := te.out.String()
-	for _, want := range []string{"missing tools | 缺失工具:", "installed | 已安装: 2", "failed | 失败: 0"} {
+	for _, want := range []string{"missing tools | 缺失工具:", "installed | 已安装: 3", "failed | 失败: 0"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("输出缺少 %q | the output misses %q:\n%s", want, want, out)
 		}
@@ -760,7 +764,7 @@ func TestNewInstallFailureStillSucceeds(t *testing.T) {
 	}
 
 	out := te.out.String()
-	if !strings.Contains(out, "failed | 失败: 2") {
+	if !strings.Contains(out, "failed | 失败: 3") {
 		t.Errorf("摘要未报告失败 | the summary misses the failures:\n%s", out)
 	}
 	if !existsMem(t, te.env.FS, filepath.Join(te.env.WorkDir, "demo", ".yd.json")) {
@@ -791,7 +795,7 @@ func TestNewTTYToolPromptInstallsOnYes(t *testing.T) {
 	if !strings.Contains(out, "现在就安装缺失的工具吗？| Install the missing tools now?") {
 		t.Errorf("未询问是否安装 | the question was not asked:\n%s", out)
 	}
-	if len(exec.installs()) != 2 {
+	if len(exec.installs()) != 3 {
 		t.Errorf("答是时应安装两个工具 | answering yes must install both:\n%s", out)
 	}
 	if !existsMem(t, te.env.FS, filepath.Join(te.env.WorkDir, "demo", ".yd.json")) {

@@ -23,7 +23,7 @@
          Brand area: the icon is a same-origin SVG embedded in the binary and works offline; the project name
          comes from the render data instead of being hard-coded. */}}
     <div class="yd-login-card__brand">
-      <img class="yd-login-card__logo" src="/static/img/yd-icon.svg" alt="" width="56" height="56">
+      <img class="yd-login-card__logo" src="{{ asset "/static/img/yd-icon.svg" }}" alt="" width="56" height="56">
       <div class="yd-login-card__identity">
         <p class="yd-login-card__name">{{ .Name }}</p>
         <p class="yd-login-card__tagline">{{ tr "app.tagline" }}</p>

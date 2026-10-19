@@ -21,12 +21,12 @@ import (
 const maxNestingDepth = 10000
 
 type decoder struct {
+	timeVal   time.Time
 	data      []byte
 	arena     []byte
-	timeVal   time.Time
-	timeRaw   [40]byte
 	pos       int
 	depth     int
+	timeRaw   [40]byte
 	timeLen   uint8
 	useNumber bool
 	skipLen   bool
@@ -427,10 +427,10 @@ func decodeTextUnmarshaler(d *decoder, v reflect.Value) error {
 func buildStructDecoder(t reflect.Type) decodeFunc {
 	info := cachedStruct(t)
 	type decField struct {
-		index     []int
-		offset    uintptr
 		fast      fastFieldDec
 		dec       func() decodeFunc
+		index     []int
+		offset    uintptr
 		fastOK    bool
 		quoted    bool
 		rawQuoted bool

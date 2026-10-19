@@ -5,15 +5,21 @@
 package cli
 
 import (
+	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strings"
 	"text/tabwriter"
 
 	"github.com/shibingli/yd/core/errx"
+	"github.com/shibingli/yd/core/logx"
 	"github.com/shibingli/yd/tooling/assets"
+	"github.com/shibingli/yd/tooling/build"
 	"github.com/spf13/pflag"
 )
 
@@ -42,10 +48,20 @@ const (
 	flagAssetsKind = "kind"
 	// flagAssetsLicense is the license of an added asset. | flagAssetsLicense 是新增资产的许可。
 	flagAssetsLicense = "license"
+	// flagAssetsMinifyBin pins the minify executable used by `yd assets minify`. | flagAssetsMinifyBin
+	// 直接指定 `yd assets minify` 使用的 minify 可执行文件。
+	flagAssetsMinifyBin = "minify-bin"
+)
+
+// The minification stages used by `yd assets minify`; tests replace them. | `yd assets minify` 使用的压缩阶段；测试会替换它们。
+var (
+	assetsMinifyJSFunc       = build.BuildMinify
+	assetsMinifyCSSFunc      = build.BuildTailwind
+	assetsResolveTailwindBin = build.ResolveTailwindBin
 )
 
 // assetsUsageLine is the usage line of the assets command. | assetsUsageLine 是 assets 命令的用法行。
-const assetsUsageLine = "yd assets <list|update|verify|add> [flags] [args]"
+const assetsUsageLine = "yd assets <list|update|verify|add|minify> [flags] [args]"
 
 // assetsHTTPClient is the HTTP client the assets command downloads through. It is a variable so tests can
 // substitute a client whose transport they can observe, which is how "offline never touches the network"
@@ -83,6 +99,7 @@ func registerAssetsFlags(fs *pflag.FlagSet) {
 	fs.String(flagAssetsVersion, "", "asset version (add) | 资产版本（add）")
 	fs.String(flagAssetsKind, "", "asset kind: js/css/wasm/html/binary (add) | 资产类型（add）")
 	fs.String(flagAssetsLicense, "", "SPDX license identifier (add) | SPDX 许可标识（add）")
+	fs.String(flagAssetsMinifyBin, "", "minify executable (minify) | minify 可执行文件（minify）")
 	assetsFlags = fs
 }
 
@@ -105,6 +122,8 @@ func runAssets(ctx context.Context, env *Env) error {
 		return runAssetsVerify(env, fs)
 	case "add":
 		return runAssetsAdd(ctx, env, fs, rest)
+	case "minify":
+		return runAssetsMinify(ctx, env, fs)
 	default:
 		fmt.Fprintf(env.Err, "yd assets: unknown subcommand %q | yd assets：未知子命令 %q\n", sub, sub)
 		printAssetsUsage(env.Err)
@@ -221,6 +240,124 @@ func runAssetsAdd(ctx context.Context, env *Env, fs *pflag.FlagSet, args []strin
 	return nil
 }
 
+// runAssetsMinify generates or verifies the minified assets under web/static.
+// CSS is minified only by Tailwind --minify; JavaScript only by the minify CLI. | runAssetsMinify
+// 生成或校验 web/static 下的压缩资产。CSS 只由 Tailwind --minify 压缩，JavaScript 只由 minify CLI 压缩。
+func runAssetsMinify(ctx context.Context, env *Env, fs *pflag.FlagSet) error {
+	_, root := assetsPaths(env, fs)
+	staticRoot := filepath.Join(root, "static")
+	check := flagBool(fs, flagAssetsCheck)
+	log := commandLogger(env)
+
+	jsBin := flagString(fs, flagAssetsMinifyBin)
+	if jsBin == "" {
+		jsBin = configString(env, build.KeyMinifyBin)
+	}
+	jsRes, jsErr := assetsMinifyJSFunc(ctx, env.WorkDir, build.MinifyOptions{
+		Bin:       jsBin,
+		Root:      staticRoot,
+		Enabled:   true,
+		CheckOnly: check,
+	}, log)
+	switch {
+	case errors.Is(jsErr, build.ErrMinifyNotFound):
+		if check {
+			return jsErr
+		}
+		log.Warn("js minify skipped | 跳过 JS 压缩", logx.Err(jsErr))
+	case jsErr != nil:
+		return jsErr
+	}
+
+	cssDrift, err := runAssetsMinifyCSS(ctx, env, staticRoot, check, log)
+	if err != nil {
+		return err
+	}
+	drift := cssDrift || len(jsRes.Mismatched) > 0 || len(jsRes.Missing) > 0 || len(jsRes.Stale) > 0
+	if check && drift {
+		return errx.Detail(ErrAssetDrift,
+			"run `yd assets minify` to regenerate | 运行 `yd assets minify` 重新生成")
+	}
+
+	fmt.Fprintf(env.Out, "js files | JS 文件: %d\n", jsRes.Files)
+	fmt.Fprintf(env.Out, "js bytes | JS 字节: %d\n", jsRes.Bytes)
+	if len(jsRes.Mismatched) > 0 {
+		fmt.Fprintf(env.Out, "mismatch | 不匹配: %s\n", strings.Join(jsRes.Mismatched, ", "))
+	}
+	if len(jsRes.Missing) > 0 {
+		fmt.Fprintf(env.Out, "missing | 缺失: %s\n", strings.Join(jsRes.Missing, ", "))
+	}
+	if len(jsRes.Stale) > 0 {
+		fmt.Fprintf(env.Out, "stale | 多余: %s\n", strings.Join(jsRes.Stale, ", "))
+	}
+	if check {
+		fmt.Fprintf(env.Out, "checked | 已检查: %d\n", jsRes.Files)
+	}
+	return nil
+}
+
+// runAssetsMinifyCSS produces or verifies yd.min.css through Tailwind's own
+// --minify pass. It reports drift only in check mode. | runAssetsMinifyCSS 通过
+// Tailwind 自己的 --minify 产出或校验 yd.min.css；只有校验模式会报告漂移。
+func runAssetsMinifyCSS(ctx context.Context, env *Env, staticRoot string, check bool, log *logx.Logger) (bool, error) {
+	bin, err := assetsResolveTailwindBin(env.WorkDir, configString(env, keyDevTailwindBin))
+	if err != nil {
+		if check {
+			return false, err
+		}
+		log.Warn("css minify skipped | 跳过 CSS 压缩", logx.Err(err))
+		return false, nil
+	}
+
+	committed := filepath.Join(staticRoot, "css", "yd.min.css")
+	opts := build.TailwindOptions{
+		Enabled:    true,
+		Minify:     true,
+		MinifyOnly: true,
+		Bin:        bin,
+		MinOutput:  committed,
+	}
+	var compare string
+	if check {
+		dir, err := os.MkdirTemp("", "yd-css-check-")
+		if err != nil {
+			return false, err
+		}
+		defer func() { _ = os.RemoveAll(dir) }()
+		compare = filepath.Join(dir, "yd.min.css")
+		opts.MinOutput = compare
+	}
+
+	if _, err := assetsMinifyCSSFunc(ctx, env.WorkDir, opts, log); err != nil {
+		if errors.Is(err, build.ErrTailwindInput) {
+			// A committed yd.min.css without its Tailwind input is drift, not a skip: the
+			// stale stylesheet would otherwise pass --check forever. | 已提交 yd.min.css 而
+			// Tailwind 输入缺失属于漂移，不是跳过：否则过期样式表会永远通过 --check。
+			if check {
+				if _, statErr := os.Stat(committed); statErr == nil {
+					return true, nil
+				}
+			}
+			log.Warn("css minify skipped | 跳过 CSS 压缩", logx.Err(err))
+			return false, nil
+		}
+		return false, err
+	}
+	if !check {
+		return false, nil
+	}
+
+	fresh, err := os.ReadFile(compare)
+	if err != nil {
+		return true, nil
+	}
+	want, err := os.ReadFile(committed)
+	if err != nil || !bytes.Equal(fresh, want) {
+		return true, nil
+	}
+	return false, nil
+}
+
 // updateOptions assembles the assets package options from the parsed flags. | updateOptions 依据已解析的标志组装 assets 包选项。
 func updateOptions(env *Env, fs *pflag.FlagSet, manifestPath, root string) assets.UpdateOptions {
 	return assets.UpdateOptions{
@@ -258,6 +395,7 @@ func printAssetsUsage(w io.Writer) {
 	fmt.Fprintf(w, "  update  download, verify and lock assets | 下载、校验并锁定资产\n")
 	fmt.Fprintf(w, "  verify  verify the working tree offline | 离线校验工作区\n")
 	fmt.Fprintf(w, "  add     add and lock one asset | 新增并锁定单个资产\n")
+	fmt.Fprintf(w, "  minify  generate or verify minified JS/CSS | 生成或校验压缩后的 JS/CSS\n")
 	fmt.Fprintf(w, "\nGlobal flags | 全局标志:\n%s", globalFlagUsages())
 	fmt.Fprintf(w, "  -h, --help                 print help | 打印帮助\n")
 }

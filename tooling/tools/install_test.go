@@ -23,6 +23,7 @@ import (
 const (
 	betteralignTarget = "github.com/dkorunic/betteralign/cmd/betteralign@latest"
 	koTarget          = "github.com/google/ko@latest"
+	minifyTarget      = "github.com/tdewolff/minify/v2/cmd/minify@latest"
 )
 
 // TestInstallWithSkipsConfiguredBinariesWithoutGoToolchain proves the installer shares the probe's
@@ -35,8 +36,8 @@ func TestInstallWithSkipsConfiguredBinariesWithoutGoToolchain(t *testing.T) {
 	// PATH has neither go nor any tool; only the configured paths can resolve them. | PATH 上既没有 go
 	// 也没有任何工具，只有配置路径能解析它们。
 	usePATH(newFakePATH(t))
-	bins := make(map[string]string, 2)
-	for _, name := range []string{NameBetteralign, NameKo} {
+	bins := make(map[string]string, 3)
+	for _, name := range []string{NameBetteralign, NameKo, NameMinify} {
 		p := filepath.Join(root, "configured-"+name)
 		stubFile(t, p)
 		bins[name] = p
@@ -48,8 +49,9 @@ func TestInstallWithSkipsConfiguredBinariesWithoutGoToolchain(t *testing.T) {
 	if err != nil {
 		t.Fatalf("InstallWith 返回错误 | InstallWith failed: %v", err)
 	}
-	if got := statusNames(report.Skipped); strings.Join(got, ",") != NameBetteralign+","+NameKo {
-		t.Fatalf("Skipped = %v，期望 %v | want %v", got, []string{NameBetteralign, NameKo}, []string{NameBetteralign, NameKo})
+	if got := statusNames(report.Skipped); strings.Join(got, ",") != NameBetteralign+","+NameKo+","+NameMinify {
+		t.Fatalf("Skipped = %v，期望 %v | want %v", got,
+			[]string{NameBetteralign, NameKo, NameMinify}, []string{NameBetteralign, NameKo, NameMinify})
 	}
 	if len(report.Installed) != 0 || len(report.Failed) != 0 {
 		t.Errorf("Installed = %v，Failed = %v，期望都为空 | both must be empty",
@@ -77,8 +79,8 @@ func TestInstallAllLandsInTheProjectLocalDir(t *testing.T) {
 	if err != nil {
 		t.Fatalf("InstallAll 返回错误 %v | InstallAll failed: %[1]v", err)
 	}
-	if got := statusNames(report.Installed); strings.Join(got, ",") != toolBetteralign+","+toolKo {
-		t.Fatalf("Installed = %v，期望 betteralign,ko | want betteralign,ko", got)
+	if got := statusNames(report.Installed); strings.Join(got, ",") != toolBetteralign+","+toolKo+","+toolMinify {
+		t.Fatalf("Installed = %v，期望 betteralign,ko,minify | want betteralign,ko,minify", got)
 	}
 	if len(report.Skipped) != 0 || len(report.Failed) != 0 {
 		t.Errorf("Skipped = %v，Failed = %v，期望都为空 | both must be empty", statusNames(report.Skipped), failureNames(report.Failed))
@@ -86,10 +88,10 @@ func TestInstallAllLandsInTheProjectLocalDir(t *testing.T) {
 
 	wantDir := filepath.Join(root, ".yd", "tools")
 	installs := exec.installCalls()
-	if len(installs) != 2 {
-		t.Fatalf("执行了 %d 次 go install，期望 2 次 | ran %d go install calls, want 2", len(installs), len(installs))
+	if len(installs) != 3 {
+		t.Fatalf("执行了 %d 次 go install，期望 3 次 | ran %d go install calls, want 3", len(installs), len(installs))
 	}
-	for i, want := range []string{betteralignTarget, koTarget} {
+	for i, want := range []string{betteralignTarget, koTarget, minifyTarget} {
 		call := installs[i]
 		if call.name != path.known["go"] {
 			t.Errorf("第 %d 次安装用了 %q，期望 PATH 上的 go %q", i+1, call.name, path.known["go"])
@@ -119,7 +121,7 @@ func TestInstallAllLandsInTheProjectLocalDir(t *testing.T) {
 		}
 	}
 
-	for _, name := range []string{toolBetteralign, toolKo} {
+	for _, name := range []string{toolBetteralign, toolKo, toolMinify} {
 		if _, err := os.Stat(localBin(root, name)); err != nil {
 			t.Errorf("项目内未找到 %s | %s is not in the project: %v", name, name, err)
 		}
@@ -130,8 +132,8 @@ func TestInstallAllLandsInTheProjectLocalDir(t *testing.T) {
 		t.Errorf("betteralign.Version = %q，期望 %q", got, "≈ fake v1.2.3")
 	}
 	queries := exec.versionCalls()
-	if len(queries) != 2 {
-		t.Fatalf("执行了 %d 次版本查询，期望 2 次 | ran %d version queries, want 2", len(queries), len(queries))
+	if len(queries) != 3 {
+		t.Fatalf("执行了 %d 次版本查询，期望 3 次 | ran %d version queries, want 3", len(queries), len(queries))
 	}
 	for i, want := range []struct {
 		binary string
@@ -139,6 +141,7 @@ func TestInstallAllLandsInTheProjectLocalDir(t *testing.T) {
 	}{
 		{toolBetteralign, "-V=full"},
 		{toolKo, "version"},
+		{toolMinify, "--version"},
 	} {
 		if !strings.Contains(queries[i].name, want.binary) {
 			t.Errorf("第 %d 次版本查询用了 %q，期望含 %q", i+1, queries[i].name, want.binary)
@@ -285,8 +288,8 @@ func TestInstallContinuesAfterAFailure(t *testing.T) {
 	if !errors.Is(err, ErrInstallFailed) {
 		t.Fatalf("err = %v，期望 ErrInstallFailed | want ErrInstallFailed", err)
 	}
-	if got := statusNames(report.Installed); strings.Join(got, ",") != toolBetteralign {
-		t.Errorf("Installed = %v，期望 betteralign | want betteralign", got)
+	if got := statusNames(report.Installed); strings.Join(got, ",") != toolBetteralign+","+toolMinify {
+		t.Errorf("Installed = %v，期望 betteralign,minify | want betteralign,minify", got)
 	}
 	if got := failureNames(report.Failed); strings.Join(got, ",") != toolKo {
 		t.Errorf("Failed = %v，期望 ko | want ko", got)
@@ -298,8 +301,8 @@ func TestInstallContinuesAfterAFailure(t *testing.T) {
 	if !strings.Contains(failure.Error(), "ko: boom") {
 		t.Errorf("失败条目未带上输出末尾 | the failure does not carry the output tail: %v", failure)
 	}
-	if targets := exec.installTargets(); strings.Join(targets, ",") != betteralignTarget+","+koTarget {
-		t.Errorf("安装目标 = %v，期望两次尝试都发生 | both attempts must happen", targets)
+	if targets := exec.installTargets(); strings.Join(targets, ",") != betteralignTarget+","+koTarget+","+minifyTarget {
+		t.Errorf("安装目标 = %v，期望三次尝试都发生 | all three attempts must happen", targets)
 	}
 	if _, err := os.Stat(localBin(root, toolBetteralign)); err != nil {
 		t.Errorf("成功的那一个没有落地 | the successful tool did not land: %v", err)
@@ -381,8 +384,8 @@ func TestInstallReportsUnexpectedResolutionFailure(t *testing.T) {
 	if got := failureNames(report.Failed); strings.Join(got, ",") != toolBetteralign {
 		t.Errorf("Failed = %v，期望 betteralign | want betteralign", got)
 	}
-	if got := statusNames(report.Installed); strings.Join(got, ",") != toolKo {
-		t.Errorf("Installed = %v，期望 ko 仍然安装成功 | ko must still be installed", got)
+	if got := statusNames(report.Installed); strings.Join(got, ",") != toolKo+","+toolMinify {
+		t.Errorf("Installed = %v，期望 ko、minify 仍然安装成功 | ko and minify must still be installed", got)
 	}
 }
 

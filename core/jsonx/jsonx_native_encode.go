@@ -512,17 +512,18 @@ func fastStructFor(t reflect.Type) *fastStructInfo {
 func buildStructEncoder(t reflect.Type) encodeFunc {
 	fields := cachedStruct(t).fields
 	type encField struct {
-		key       []byte
-		fastKey   []byte
 		typ       reflect.Type
-		index     []int
-		offset    uintptr
-		direct    int
 		fast      func(*encoder, unsafe.Pointer) error
 		fastEmpty func(unsafe.Pointer) bool
 		enc       encodeFunc
 		quotedEnc func(*encoder, reflect.Value) error
 		isZero    func(reflect.Value) bool
+		full      func(*encoder, unsafe.Pointer) error
+		key       []byte
+		fastKey   []byte
+		index     []int
+		offset    uintptr
+		direct    int
 		keyPad    [16]byte
 		omitEmpty bool
 		omitZero  bool
@@ -530,7 +531,6 @@ func buildStructEncoder(t reflect.Type) encodeFunc {
 		fastOK    bool
 		keyFixed  bool
 		kind      uint8
-		full      func(*encoder, unsafe.Pointer) error
 	}
 	list := make([]encField, len(fields))
 	allFast := true

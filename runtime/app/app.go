@@ -44,6 +44,7 @@ import (
 	"github.com/spf13/afero"
 
 	"github.com/shibingli/yd/core/config"
+	"github.com/shibingli/yd/core/envx"
 	"github.com/shibingli/yd/core/errx"
 	"github.com/shibingli/yd/core/logx"
 	"github.com/shibingli/yd/http/i18n"
@@ -109,14 +110,21 @@ const (
 // 只有 Run 与 Close 之间不可并发调用。
 type App struct {
 	fs       afero.Fs
+	staticFS afero.Fs
 	renderer router.Renderer
 	grpc     GRPCServer
+
+	grpcErr error
+
+	closeErr error
 
 	cfg      *config.Config
 	log      *logx.Logger
 	router   *router.Router
 	server   *server.Server
 	services map[string]any
+
+	closeDone chan struct{}
 
 	configDir      string
 	layout         string
@@ -128,14 +136,11 @@ type App struct {
 	// every caller sees the same outcome. | grpcOnce 保证 gRPC 退出阶段最多执行一次；grpcErr 保存
 	// 结果，使每个调用方看到同一个结局。
 	grpcOnce sync.Once
-	grpcErr  error
 
 	// closeOnce/closeDone make concurrent Close calls wait for the same hook run and share its
 	// error instead of the second caller returning before resources are released. | closeOnce/closeDone
 	// 让并发的 Close 调用等待同一次钩子执行并共享错误，而不是让第二个调用方在资源释放前返回。
 	closeOnce sync.Once
-	closeDone chan struct{}
-	closeErr  error
 
 	// mu guards services and hooks. | mu 保护 services 与 hooks。
 	mu sync.Mutex
@@ -153,6 +158,12 @@ func WithConfig(c *config.Config) Option { return func(a *App) { a.cfg = c } }
 // without it the framework's embedded assets are used. | WithFS 设置承载
 // templates/、static/ 与 langs/ 的资产文件系统；未提供时使用框架内嵌资产。
 func WithFS(fsys afero.Fs) Option { return func(a *App) { a.fs = fsys } }
+
+// WithStaticFS sets the filesystem rooted at the /static URL prefix. It is what
+// the renderer's asset helper reads, so it must be the same merged tree mounted
+// through Router().StaticFS. | WithStaticFS 设置根为 /static URL 前缀的文件系统。
+// 渲染器的 asset 助手读取它，因此它必须与 Router().StaticFS 挂载的是同一棵合并树。
+func WithStaticFS(fsys afero.Fs) Option { return func(a *App) { a.staticFS = fsys } }
 
 // WithLogger injects the logger shared by the app and the HTTP server;
 // without it the logx global default is used. | WithLogger 注入应用与 HTTP
@@ -214,6 +225,13 @@ func New(opts ...Option) (*App, error) {
 	if a.fs == nil {
 		return nil, ErrNilFS
 	}
+	if a.staticFS == nil {
+		static, err := assetDir(a.fs, assetsStaticDir)
+		if err != nil {
+			return nil, err
+		}
+		a.staticFS = static
+	}
 	if a.log == nil {
 		a.log = logx.Default()
 	}
@@ -229,7 +247,7 @@ func New(opts ...Option) (*App, error) {
 	a.router = router.New()
 
 	if a.renderer == nil {
-		engine, err := newRenderer(a.fs, isDevelopment(a.cfg))
+		engine, err := newRenderer(a.fs, a.staticFS, isDevelopment(a.cfg))
 		if err != nil {
 			return nil, err
 		}
@@ -282,11 +300,7 @@ func Default() (*App, error) {
 		a.Use(i18n.Middleware(bundle, i18n.Options{}))
 	}
 
-	static, err := assetDir(a.fs, assetsStaticDir)
-	if err != nil {
-		return nil, err
-	}
-	a.router.StaticFS(staticURLPrefix, static)
+	a.router.StaticFS(staticURLPrefix, a.staticFS)
 
 	a.log.Info("app assembled | 应用已装配", logx.Str("env", a.env()))
 	return a, nil
@@ -317,7 +331,7 @@ func (a *App) env() string {
 	if a.cfg == nil {
 		return ""
 	}
-	return a.cfg.GetString("app.env")
+	return envx.Normalize(a.cfg.GetString("app.env"))
 }
 
 // ---------------------------------------------------------------- routing | 路由

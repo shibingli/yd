@@ -666,6 +666,9 @@ func TestBuildRunsInjectedTailwindHook(t *testing.T) {
 			if gotTail.Input != DefaultTailwindInput || gotTail.Output != DefaultTailwindOutput {
 				t.Errorf("Tailwind 输入/输出 = %q/%q, 期望默认值 %q/%q", gotTail.Input, gotTail.Output, DefaultTailwindInput, DefaultTailwindOutput)
 			}
+			if gotTail.MinOutput != DefaultTailwindMinOutput {
+				t.Errorf("Tailwind MinOutput = %q, 期望默认值 %q", gotTail.MinOutput, DefaultTailwindMinOutput)
+			}
 		})
 	}
 }
@@ -759,5 +762,48 @@ func TestBuildDefaultsTargetsToHost(t *testing.T) {
 	}
 	if want := filepath.Join(dir, "bin", exeName("demo")); art.Path != want {
 		t.Fatalf("产物路径 = %q, 期望 %q", art.Path, want)
+	}
+}
+
+// TestBuildRunsInjectedMinifyHook asserts the minify stage runs once, before
+// go build, with the default root. | TestBuildRunsInjectedMinifyHook 断言压缩阶段
+// 在 go build 之前执行一次，并使用默认根目录。
+func TestBuildRunsInjectedMinifyHook(t *testing.T) {
+	dir := t.TempDir()
+	fake := fakeGoBuild(elfMagic)
+	var (
+		called   bool
+		gotDir   string
+		got      MinifyOptions
+		execSeen bool
+	)
+	hook := func(_ context.Context, d string, o MinifyOptions) (MinifyResult, error) {
+		called = true
+		gotDir, got = d, o
+		execSeen = len(fake.calls) == 0
+		return MinifyResult{Files: 2, Bytes: 64}, nil
+	}
+	_, err := Build(context.Background(), Options{
+		Dir:         dir,
+		Name:        "app",
+		Targets:     []Target{{GOOS: "linux", GOARCH: "amd64"}},
+		Minify:      MinifyOptions{Enabled: true},
+		MinifyFunc:  hook,
+		ExecCommand: fake.exec,
+	}, testLogger())
+	if err != nil {
+		t.Fatalf("Build 失败: %v", err)
+	}
+	if !called {
+		t.Fatal("Minify hook was not called | Minify 钩子未执行")
+	}
+	if !execSeen {
+		t.Error("the minify stage must run before go build | 压缩阶段必须在 go build 之前执行")
+	}
+	if gotDir != dir {
+		t.Errorf("目录 = %q, 期望 %q", gotDir, dir)
+	}
+	if got.Root != DefaultMinifyRoot {
+		t.Errorf("Root = %q, 期望 %q", got.Root, DefaultMinifyRoot)
 	}
 }

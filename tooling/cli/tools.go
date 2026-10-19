@@ -14,6 +14,7 @@ import (
 	"strings"
 
 	"github.com/shibingli/yd/core/errx"
+	"github.com/shibingli/yd/tooling/build"
 	"github.com/shibingli/yd/tooling/ko"
 	"github.com/shibingli/yd/tooling/tools"
 	"github.com/spf13/pflag"
@@ -154,11 +155,12 @@ func runToolsCheck(env *Env) error {
 // toolsProbeOptions maps the layered configuration onto the probe's executables. | toolsProbeOptions
 // 把分层配置映射为探测所用的可执行文件。
 //
-// The three keys are the same ones the commands themselves read (align.bin, ko.binary,
-// tailwind.bin), so `yd tools check` and `yd align`/`yd ko`/`yd dev` agree on what is available;
-// leaving them empty keeps the env -> .yd/tools -> PATH tail of each chain unchanged. | 三个键与各命令
-// 自身读取的键完全一致（align.bin、ko.binary、tailwind.bin），因此 `yd tools check` 与
-// `yd align`/`yd ko`/`yd dev` 对「什么可用」的判断一致；留空则各链条尾部「环境变量 → .yd/tools → PATH」不变。
+// The four keys are the same ones the commands themselves read (align.bin, ko.binary,
+// tailwind.bin, minify.bin), so `yd tools check` and `yd align`/`yd ko`/`yd dev`/`yd build` agree
+// on what is available; leaving them empty keeps the env -> .yd/tools -> PATH tail of each chain
+// unchanged. | 四个键与各命令自身读取的键完全一致（align.bin、ko.binary、tailwind.bin、minify.bin），
+// 因此 `yd tools check` 与 `yd align`/`yd ko`/`yd dev`/`yd build` 对「什么可用」的判断一致；
+// 留空则各链条尾部「环境变量 → .yd/tools → PATH」不变。
 func toolsProbeOptions(env *Env) tools.Options {
 	opts := tools.Options{
 		Dir:         env.WorkDir,
@@ -172,6 +174,7 @@ func toolsProbeOptions(env *Env) tools.Options {
 		tools.NameBetteralign: configString(env, keyAlignBin),
 		tools.NameKo:          configString(env, ko.KeyBinary),
 		tools.NameTailwindcss: configString(env, keyDevTailwindBin),
+		tools.NameMinify:      configString(env, build.KeyMinifyBin),
 	}
 	return opts
 }

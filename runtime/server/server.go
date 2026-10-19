@@ -75,22 +75,16 @@ var (
 // HTTP/2，无需外部 h2c 包）；HTTP/3 运行在 QUIC（UDP）监听上，并通过 Alt-Svc 头对外通告。
 type Server struct {
 	ln        net.Listener
+	h3Conn    net.PacketConn
+	firstErr  error
 	logger    *logx.Logger
 	httpSrv   *http.Server
 	h3Srv     *http3.Server
-	h3Conn    net.PacketConn
 	acme      *acmeManager
 	lifecycle *lifecycle.Registry
 
 	serveErr chan error
 	done     chan struct{}
-
-	// errMu guards firstErr, the first fatal serve error. It is reported from
-	// Run even when the done channel wins the select. | errMu 保护 firstErr，
-	// 即首个致命服务错误；即使 select 选中了 done，Run 也会把它返回。
-	errMu    sync.Mutex
-	firstErr error
-	doneOnce sync.Once
 
 	// hijacked holds every connection a handler took over with http.Hijacker;
 	// http.Server.Shutdown does not know about them, so the server must close
@@ -104,6 +98,13 @@ type Server struct {
 
 	tcpPort int
 	h3Port  int
+
+	doneOnce sync.Once
+
+	// errMu guards firstErr, the first fatal serve error. It is reported from
+	// Run even when the done channel wins the select. | errMu 保护 firstErr，
+	// 即首个致命服务错误；即使 select 选中了 done，Run 也会把它返回。
+	errMu sync.Mutex
 
 	// mu guards the mutable state above: started, closing, the listeners and hijacked. | mu 保护上述可变状态：started、closing、监听器与 hijacked。
 	mu sync.Mutex

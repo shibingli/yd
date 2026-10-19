@@ -19,14 +19,14 @@ import (
 func TestCheckReportsEveryTool(t *testing.T) {
 	isolate(t)
 	root := t.TempDir()
-	path := newFakePATH(t, toolBetteralign, toolTailwindcss, toolDocker)
+	path := newFakePATH(t, toolBetteralign, toolTailwindcss, toolMinify, toolDocker)
 	usePATH(path)
 	exec := &fakeExec{}
 	injectExec(t, exec.run)
 
 	statuses := Check(root)
-	if len(statuses) != 4 {
-		t.Fatalf("Check 返回 %d 行，期望 4 行 | Check returned %d rows, want 4", len(statuses), len(statuses))
+	if len(statuses) != 5 {
+		t.Fatalf("Check 返回 %d 行，期望 5 行 | Check returned %d rows, want 5", len(statuses), len(statuses))
 	}
 	byName := statusesByName(statuses)
 	for _, want := range []struct {
@@ -36,6 +36,7 @@ func TestCheckReportsEveryTool(t *testing.T) {
 		{toolBetteralign, true},
 		{toolKo, false},
 		{toolTailwindcss, true},
+		{toolMinify, true},
 		{toolDocker, true},
 	} {
 		st := byName[want.name]
@@ -69,7 +70,7 @@ func TestCheckPrefersProjectLocalCopy(t *testing.T) {
 	isolate(t)
 	root := t.TempDir()
 	// PATH knows both tools, and a real project-local copy exists for each. | PATH 认识这两个工具，同时项目内各有一份真实副本。
-	path := newFakePATH(t, toolBetteralign, toolKo, toolTailwindcss, toolDocker)
+	path := newFakePATH(t, toolBetteralign, toolKo, toolTailwindcss, toolMinify, toolDocker)
 	usePATH(path)
 	stubFile(t, localBin(root, toolBetteralign))
 	stubFile(t, localBin(root, toolKo))
@@ -108,15 +109,15 @@ func TestCheckWithHonoursConfiguredBinaries(t *testing.T) {
 	root := t.TempDir()
 	// PATH offers nothing; only the configured paths can resolve the three tools. | PATH 上什么都没有，只有配置路径能解析这三个工具。
 	usePATH(newFakePATH(t))
-	bins := make(map[string]string, 3)
-	for _, name := range []string{NameBetteralign, NameKo, NameTailwindcss} {
+	bins := make(map[string]string, 4)
+	for _, name := range []string{NameBetteralign, NameKo, NameTailwindcss, NameMinify} {
 		p := filepath.Join(root, "configured-"+name)
 		stubFile(t, p)
 		bins[name] = p
 	}
 
 	byName := statusesByName(CheckWith(Options{Dir: root, Binaries: bins}))
-	for _, name := range []string{NameBetteralign, NameKo, NameTailwindcss} {
+	for _, name := range []string{NameBetteralign, NameKo, NameTailwindcss, NameMinify} {
 		st := byName[name]
 		if !st.Found {
 			t.Errorf("%s 未就绪 | %s is not ready: %v", name, name, st.Err)
@@ -166,8 +167,8 @@ func TestCheckReportsUnexpectedResolverFailures(t *testing.T) {
 	}
 	// Neither of them counts as missing: reinstalling cannot repair a chain. | 两者都不算缺失：再装一次修不好链。
 	missing := Missing(root)
-	if got := statusNames(missing); strings.Join(got, ",") != toolTailwindcss+","+toolDocker {
-		t.Errorf("Missing = %v，期望 %v", got, []string{toolTailwindcss, toolDocker})
+	if got := statusNames(missing); strings.Join(got, ",") != toolTailwindcss+","+toolMinify+","+toolDocker {
+		t.Errorf("Missing = %v，期望 %v", got, []string{toolTailwindcss, toolMinify, toolDocker})
 	}
 	for _, line := range Hints(root) {
 		if strings.Contains(line, toolBetteralign) || strings.Contains(line, "ko:") {
@@ -217,6 +218,7 @@ func isolate(t *testing.T) {
 	t.Setenv(align.EnvToolBin, "")
 	t.Setenv(ko.EnvBinary, "")
 	t.Setenv(toolchain.EnvTailwindBin, "")
+	t.Setenv("YD_MINIFY_BIN", "")
 	prevPath, prevKoPath, prevResolve := PathLookup, ko.PathLookup, resolveTool
 	t.Cleanup(func() {
 		PathLookup, ko.PathLookup, resolveTool = prevPath, prevKoPath, prevResolve

@@ -58,6 +58,8 @@ var (
 	ErrEmptyOptions = errx.New("cli: no options to choose from | cli：无可选项")
 	// ErrOutputFailed reports a failure while writing command output. | ErrOutputFailed 表示写出命令输出失败。
 	ErrOutputFailed = errx.New("cli: failed to write output | cli：写出输出失败")
+	// ErrAssetDrift reports committed minified assets that no longer match their sources. | ErrAssetDrift 表示已提交的压缩资产与源码不再一致。
+	ErrAssetDrift = errx.New("cli: committed minified asset is out of date | cli：已提交的压缩资产已过期")
 	// ErrEmptyCommandName reports a command registered without a name. | ErrEmptyCommandName 表示注册的命令名为空。
 	ErrEmptyCommandName = errx.New("cli: empty command name | cli：命令名为空")
 	// ErrDuplicateCommand reports a command name registered twice. | ErrDuplicateCommand 表示命令名重复注册。

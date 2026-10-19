@@ -13,6 +13,7 @@ import (
 
 	"github.com/spf13/afero"
 
+	"github.com/shibingli/yd/core/afs"
 	"github.com/shibingli/yd/core/errx"
 	"github.com/shibingli/yd/core/jsonx"
 )
@@ -35,7 +36,13 @@ type assetCache struct {
 // "can", "hasRole", "perm" and "role" are included too: they grant nothing and
 // return their argument until an authority is injected through AuthzKey. | 其中还包含
 // "can"、"hasRole"、"perm" 与 "role"：在通过 AuthzKey 注入判定主体之前，它们不授予任何能力并原样返回参数。
-func Funcs(fsys afero.Fs) template.FuncMap {
+func Funcs(fsys afero.Fs) template.FuncMap { return funcsFor(fsys, nil, false) }
+
+// funcsFor returns the template function map of one engine configuration.
+// assetFS is rooted at the /static URL prefix and production selects the
+// minified sibling resolution. | funcsFor 返回单个引擎配置的模板函数表。
+// assetFS 根为 /static URL 前缀，production 选择压缩同族文件解析。
+func funcsFor(fsys, assetFS afero.Fs, production bool) template.FuncMap {
 	cache := &assetCache{seen: map[string]string{}}
 	return template.FuncMap{
 		"tr":        tr,
@@ -57,7 +64,7 @@ func Funcs(fsys afero.Fs) template.FuncMap {
 		"humanSize": humanSize,
 		"humanTime": humanTime,
 		"hx":        htmxAttrs,
-		"asset":     cache.assetFunc(fsys),
+		"asset":     cache.assetFunc(fsys, assetFS, production),
 	}
 }
 
@@ -208,32 +215,96 @@ func validAttrName(name string) bool {
 
 // assetFunc returns a function that appends a content hash to a URL path. | assetFunc 返回把内容哈希追加到 URL 路径的函数。
 //
-// The argument is a URL path such as "/static/css/yd.css"; the file is looked
-// up in fsys without the leading slash. | 参数形如 "/static/css/yd.css"；文件在 fsys 中去掉前导斜杠后查找。
-func (c *assetCache) assetFunc(fsys afero.Fs) func(string) (string, error) {
+// The argument is a URL path such as "/static/css/yd.css". Paths under /static are
+// read from assetFS when it is set; everything else is read from fsys. In production
+// mode a .min.js/.min.css sibling wins, and the hash covers that sibling. | 参数形如
+// "/static/css/yd.css"。设置了 assetFS 时 /static 下的路径从它读取，其余从 fsys 读取；
+// production 模式下 .min.js/.min.css 同族文件优先，哈希覆盖该压缩文件。
+func (c *assetCache) assetFunc(fsys, assetFS afero.Fs, production bool) func(string) (string, error) {
 	return func(p string) (string, error) {
 		if p == "" {
 			return "", errx.Detail(ErrAssetNotFound, "empty path | 路径为空")
 		}
+		urlPath, file, readFS := resolveAsset(fsys, assetFS, p, production)
 		c.mu.RLock()
-		h, ok := c.seen[p]
+		h, ok := c.seen[urlPath]
 		c.mu.RUnlock()
 		if !ok {
-			file := strings.TrimPrefix(strings.ReplaceAll(p, "\\", "/"), "/")
-			b, err := afero.ReadFile(fsys, file)
+			b, err := afero.ReadFile(readFS, file)
 			if err != nil {
 				return "", errx.WrapDetail(err, ErrAssetNotFound, "path=%[1]s | 路径=%[1]s", p)
 			}
 			sum := sha256.Sum256(b)
 			h = hex.EncodeToString(sum[:4])
 			c.mu.Lock()
-			c.seen[p] = h
+			c.seen[urlPath] = h
 			c.mu.Unlock()
 		}
-		sep := "?"
-		if strings.Contains(p, "?") {
-			sep = "&"
-		}
-		return p + sep + "v=" + h, nil
+		return appendVersion(urlPath, h), nil
 	}
+}
+
+// resolveAsset maps a URL path to the URL to emit, the filesystem path to read
+// and the filesystem holding it. | resolveAsset 把 URL 路径映射为要输出的 URL、要读取的文件路径与所属文件系统。
+//
+// assetFS is rooted at /static: "/static/js/app.js" becomes "js/app.js" inside it.
+// When production is true and the file is minifiable, an existing .min sibling
+// replaces it in both the URL and the read path. | assetFS 根为 /static：
+// "/static/js/app.js" 在其中变为 "js/app.js"。production 为真且文件可压缩时，
+// 存在的 .min 同族文件同时替换 URL 与读取路径。
+func resolveAsset(fsys, assetFS afero.Fs, p string, production bool) (urlPath, file string, readFS afero.Fs) {
+	raw, query := splitAssetQuery(p)
+	readFS = fsys
+	file = strings.TrimPrefix(strings.ReplaceAll(raw, "\\", "/"), "/")
+	if assetFS != nil && strings.HasPrefix(file, "static/") {
+		readFS = assetFS
+		file = strings.TrimPrefix(file, "static/")
+	}
+	if production && minifiable(file) {
+		candidate := minifiedPath(file)
+		if afs.Exists(readFS, candidate) {
+			file = candidate
+			raw = minifiedPath(raw)
+		}
+	}
+	return raw + query, file, readFS
+}
+
+// splitAssetQuery splits a URL path into its path and query, keeping the "?"
+// in the query part. | splitAssetQuery 把 URL 路径拆成路径与查询串，查询串保留 "?"。
+func splitAssetQuery(p string) (raw, query string) {
+	raw, rest, ok := strings.Cut(p, "?")
+	if !ok {
+		return p, ""
+	}
+	return raw, "?" + rest
+}
+
+// minifiable reports whether a JS or CSS path can have a .min sibling.
+// Already-minified paths are excluded so they are never suffixed twice. | minifiable 报告
+// JS/CSS 路径是否有 .min 同族文件；已是 .min 的路径被排除，绝不重复加后缀。
+func minifiable(file string) bool {
+	return (strings.HasSuffix(file, ".js") || strings.HasSuffix(file, ".css")) &&
+		!strings.HasSuffix(file, ".min.js") && !strings.HasSuffix(file, ".min.css")
+}
+
+// minifiedPath inserts ".min" before the .js/.css extension. | minifiedPath 在 .js/.css 扩展名前插入 ".min"。
+func minifiedPath(p string) string {
+	switch {
+	case strings.HasSuffix(p, ".js"):
+		return strings.TrimSuffix(p, ".js") + ".min.js"
+	case strings.HasSuffix(p, ".css"):
+		return strings.TrimSuffix(p, ".css") + ".min.css"
+	default:
+		return p
+	}
+}
+
+// appendVersion appends the content-hash query parameter. | appendVersion 追加内容哈希查询参数。
+func appendVersion(p, h string) string {
+	sep := "?"
+	if strings.Contains(p, "?") {
+		sep = "&"
+	}
+	return p + sep + "v=" + h
 }

@@ -36,7 +36,9 @@ import (
 // 因为本文件只检视解析树而不渲染。四个权限辅助函数仍然接到注册表上：
 // 一个守卫若写了一条不再被注册的能力，在这里也必须显现，而不是只在渲染绑定里显现。
 var parseFuncs = template.FuncMap{
-	"tr":      func(key string, args ...any) string { return key },
+	"tr": func(key string, args ...any) string { return key },
+	// asset is only needed so the layout parses; its value is never rendered here. | asset 只为让布局通过解析；此处从不渲染它的取值。
+	"asset":   func(p string) string { return p },
 	"dict":    func(pairs ...any) (map[string]any, error) { return nil, nil },
 	"list":    func(items ...any) []any { return items },
 	"can":     func(ref any) bool { _, err := authz.ResolvePermission(parseRef(ref)); return err == nil },

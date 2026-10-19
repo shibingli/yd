@@ -1,11 +1,13 @@
 // Package build implements the cross-platform static packaging pipeline behind `yd build`. | Package build 实现 `yd build` 背后的跨平台静态打包流水线。
 //
-// The pipeline is driven by Options and has four stages: | 流水线由 Options 驱动，共四个阶段：
+// The pipeline is driven by Options and has five stages: | 流水线由 Options 驱动，共五个阶段：
 //
-//  1. an optional Tailwind CSS pass that trims and minifies the stylesheet so that it can be embedded; |  1. 可选的 Tailwind CSS 阶段，剪裁压缩样式表以便内嵌；
-//  2. version injection through `-ldflags -X github.com/shibingli/yd/core/version.*`; |  2. 通过 `-ldflags -X github.com/shibingli/yd/core/version.*` 注入版本信息；
-//  3. CGO-free compilation (`CGO_ENABLED=0`) for every requested target; |  3. 为每个目标平台执行无 CGO 编译（`CGO_ENABLED=0`）；
-//  4. verification of every artifact: existence, size and executable magic. |  4. 校验每个产物：存在性、大小与可执行魔数。
+//  1. an optional Tailwind CSS pass that writes the uncompressed stylesheet and, when minification
+//     is on, a second `--minify` pass for the production stylesheet; |  1. 可选的 Tailwind CSS 阶段，写出未压缩样式表，并在启用压缩时以第二遍 `--minify` 产出生产样式表；
+//  2. an optional JavaScript pass that writes one `.min.js` per source; |  2. 可选的 JavaScript 阶段，为每个源码写出 `.min.js`；
+//  3. version injection through `-ldflags -X github.com/shibingli/yd/core/version.*`; |  3. 通过 `-ldflags -X github.com/shibingli/yd/core/version.*` 注入版本信息；
+//  4. CGO-free compilation (`CGO_ENABLED=0`) for every requested target; |  4. 为每个目标平台执行无 CGO 编译（`CGO_ENABLED=0`）；
+//  5. verification of every artifact: existence, size and executable magic. |  5. 校验每个产物：存在性、大小与可执行魔数。
 //
 // The result is a single statically linked file per target, which is exactly what a
 // scratch container needs. Every external command goes through Options.ExecCommand,
@@ -52,6 +54,10 @@ type Options struct {
 	ExecCommand ExecCommandFunc
 	// Tailwind configures the optional stylesheet stage. | Tailwind 配置可选的样式表阶段。
 	Tailwind TailwindOptions
+	// Minify configures the optional JavaScript minification stage. | Minify 配置可选的 JavaScript 压缩阶段。
+	Minify MinifyOptions
+	// MinifyFunc overrides the built-in JavaScript minifier; nil means BuildMinify. | MinifyFunc 覆盖内置 JavaScript 压缩实现；nil 表示 BuildMinify。
+	MinifyFunc MinifyFunc
 	// Dir is the project directory, i.e. the module root; empty means the current directory. | Dir 是项目目录（模块根）；为空表示当前目录。
 	Dir string
 	// Output is the artifact path of a single-target build; empty means bin/<name>.
@@ -147,6 +153,12 @@ func (o Options) withDefaults() (Options, error) {
 	}
 	if o.Tailwind.Output == "" {
 		o.Tailwind.Output = DefaultTailwindOutput
+	}
+	if o.Tailwind.MinOutput == "" {
+		o.Tailwind.MinOutput = DefaultTailwindMinOutput
+	}
+	if o.Minify.Root == "" {
+		o.Minify.Root = DefaultMinifyRoot
 	}
 	return o, nil
 }
@@ -281,8 +293,9 @@ func mergeEnv(base []string, overrides ...[]string) []string {
 // (3) `go build` with CGO_ENABLED=0 (plus -mod=vendor when Offline) and (4) magic,
 // size and existence verification. A failure in any step aborts the run and the
 // compiler output is carried by the returned error. | 步骤：(1) 可选的 Tailwind 阶段，
-// (2) 通过 ldflags 注入版本信息，(3) 以 CGO_ENABLED=0 执行 `go build`（Offline 时附带
-// -mod=vendor），(4) 校验魔数、大小与存在性。任一步失败都会中止运行，编译器输出随返回的错误一并带出。
+// (2) 可选的 JavaScript 压缩阶段，(3) 通过 ldflags 注入版本信息，(4) 以 CGO_ENABLED=0 执行
+// `go build`（Offline 时附带 -mod=vendor），(5) 校验魔数、大小与存在性。任一步失败都会中止运行，
+// 编译器输出随返回的错误一并带出。
 func Build(ctx context.Context, o Options, log *logx.Logger) (*Report, error) {
 	if log == nil {
 		log = logx.Default()
@@ -302,6 +315,17 @@ func Build(ctx context.Context, o Options, log *logx.Logger) (*Report, error) {
 		log.Info("tailwind stage finished | Tailwind 阶段已完成",
 			logx.Int64("bytes", size),
 			logx.Str("output", outputPath(o.Dir, o.Tailwind)),
+		)
+	}
+
+	if o.Minify.Enabled {
+		res, err := o.runMinify(ctx, log)
+		if err != nil {
+			return nil, err
+		}
+		log.Info("minify stage finished | JS 压缩阶段已完成",
+			logx.Int("files", res.Files),
+			logx.Int64("bytes", res.Bytes),
 		)
 	}
 
@@ -350,4 +374,14 @@ func (o Options) buildTailwind(ctx context.Context, log *logx.Logger) (int64, er
 		return o.TailwindFunc(ctx, o.Dir, o.Tailwind)
 	}
 	return buildTailwindWith(ctx, o.Dir, o.Tailwind, log, o.execCommand())
+}
+
+// runMinify runs the JavaScript minification stage through the injected hook
+// when present and through the built-in implementation otherwise. | runMinify
+// 优先通过注入的钩子执行 JavaScript 压缩阶段，无钩子时使用内置实现。
+func (o Options) runMinify(ctx context.Context, log *logx.Logger) (MinifyResult, error) {
+	if o.MinifyFunc != nil {
+		return o.MinifyFunc(ctx, o.Dir, o.Minify)
+	}
+	return buildMinifyWith(ctx, o.Dir, o.Minify, log, o.execCommand())
 }

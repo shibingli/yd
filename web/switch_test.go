@@ -158,8 +158,8 @@ func TestThemeSwitchHasThreeStatesAndNoFlash(t *testing.T) {
 	//    before the stylesheet link, so the first painted frame already carries the right theme.
 	//    顺序正是关键：解析脚本在 <head> 内执行，其标签位于样式表之前，
 	//    因此首帧画出来就是正确的主题。
-	bootAt := strings.Index(base, `<script src="/static/js/yd-theme-boot.js"></script>`)
-	cssAt := strings.Index(base, `<link rel="stylesheet" href="/static/css/yd.css">`)
+	bootAt := strings.Index(base, `<script src="{{ asset "/static/js/yd-theme-boot.js" }}"></script>`)
+	cssAt := strings.Index(base, `<link rel="stylesheet" href="{{ asset "/static/css/yd.css" }}">`)
 	switch {
 	case bootAt < 0:
 		t.Fatal("base.head does not load yd-theme-boot.js synchronously | base.head 没有同步加载 yd-theme-boot.js")
@@ -168,7 +168,7 @@ func TestThemeSwitchHasThreeStatesAndNoFlash(t *testing.T) {
 	case bootAt > cssAt:
 		t.Error("yd-theme-boot.js is loaded after the stylesheet, so the browser paints one wrong frame first | yd-theme-boot.js 在样式表之后加载，浏览器会先画出错误的一帧")
 	}
-	if strings.Contains(base[bootAt:bootAt+len(`<script src="/static/js/yd-theme-boot.js"></script>`)], "defer") {
+	if strings.Contains(base[bootAt:bootAt+len(`<script src="{{ asset "/static/js/yd-theme-boot.js" }}"></script>`)], "defer") {
 		t.Error("yd-theme-boot.js must stay synchronous: a deferred script resolves the theme after the first paint | yd-theme-boot.js 必须保持同步：defer 脚本会在首帧之后才解析主题")
 	}
 

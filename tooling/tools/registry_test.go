@@ -9,10 +9,10 @@ import (
 	"github.com/shibingli/yd/tooling/ko"
 )
 
-// TestRegistryOrderAndShape pins the four entries and their order, which is also the order of every
-// status table and every report. | TestRegistryOrderAndShape 固定四个条目及其顺序，该顺序也是每张状态表与每份报告的顺序。
+// TestRegistryOrderAndShape pins the five entries and their order, which is also the order of every
+// status table and every report. | TestRegistryOrderAndShape 固定五个条目及其顺序，该顺序也是每张状态表与每份报告的顺序。
 func TestRegistryOrderAndShape(t *testing.T) {
-	want := []string{toolBetteralign, toolKo, toolTailwindcss, toolDocker}
+	want := []string{toolBetteralign, toolKo, toolTailwindcss, toolMinify, toolDocker}
 	got := Registry()
 	if len(got) != len(want) {
 		t.Fatalf("Registry() 有 %d 个条目，期望 %d 个 | Registry() has %d entries, want %d", len(got), len(want), len(got), len(want))
@@ -42,7 +42,7 @@ func TestRegistryOrderAndShape(t *testing.T) {
 			t.Errorf("%s 的 InstallHint 未中英同步 | InstallHint is not bilingual: %q", name, hint)
 		}
 	}
-	// Exactly the two Go-installable entries carry a target. | 只有两个可用 go install 安装的条目携带目标。
+	// Exactly the three Go-installable entries carry a target. | 只有三个可用 go install 安装的条目携带目标。
 	for _, want := range []struct {
 		name      string
 		goInstall string
@@ -50,6 +50,7 @@ func TestRegistryOrderAndShape(t *testing.T) {
 		{toolBetteralign, "github.com/dkorunic/betteralign/cmd/betteralign@latest"},
 		{toolKo, "github.com/google/ko@latest"},
 		{toolTailwindcss, ""},
+		{toolMinify, "github.com/tdewolff/minify/v2/cmd/minify@latest"},
 		{toolDocker, ""},
 	} {
 		if got := lookupFor(t, want.name).GoInstall; got != want.goInstall {
@@ -98,6 +99,7 @@ func TestRegistryVersionQueries(t *testing.T) {
 		{toolBetteralign, []string{"-V=full"}},
 		{toolKo, []string{"version"}},
 		{toolTailwindcss, []string{"--version"}},
+		{toolMinify, []string{"--version"}},
 		{toolDocker, nil},
 	} {
 		got := lookupFor(t, want.name).VersionArgs
@@ -113,7 +115,7 @@ func TestRegistryReturnsACopy(t *testing.T) {
 	first[0].Name = "tampered"
 	first[0].InstallHint = "tampered"
 	first[0].VersionArgs[0] = "tampered"
-	first[3].VersionArgs = []string{"tampered"}
+	first[4].VersionArgs = []string{"tampered"}
 
 	second := Registry()
 	if second[0].Name != toolBetteralign {
@@ -125,8 +127,11 @@ func TestRegistryReturnsACopy(t *testing.T) {
 	if strings.Join(second[0].VersionArgs, " ") != "-V=full" {
 		t.Errorf("Registry()[0].VersionArgs = %v，注册表被调用方改动 | the registry was mutated", second[0].VersionArgs)
 	}
-	if second[3].VersionArgs != nil {
-		t.Errorf("Registry()[3].VersionArgs = %v，期望 nil | want nil", second[3].VersionArgs)
+	if strings.Join(second[3].VersionArgs, " ") != "--version" {
+		t.Errorf("Registry()[3].VersionArgs = %v，期望 --version | want --version", second[3].VersionArgs)
+	}
+	if second[4].VersionArgs != nil {
+		t.Errorf("Registry()[4].VersionArgs = %v，期望 nil | want nil", second[4].VersionArgs)
 	}
 }
 
