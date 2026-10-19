@@ -117,7 +117,7 @@ core/          与领域无关的基础原语
   version/     版本信息（-ldflags 注入）
 http/          HTTP 与前端交付
   router/      自研基数树路由（混合参数后缀捕获 · HEAD/OPTIONS 语义 · 流式上传 · Range/ETag 下载）
-  render/      模板引擎（afero 模板集 · Dev 免缓存 · asset/dict/json/hx）
+  render/      编译式 HTML 模板引擎（html/template 语法与上下文转义 · 布局 · 缓冲池 · Dev 热重载 · asset/dict/json/hx）
   htmx/        Htmx 4 服务端辅助（HX-* 响应头 · hx-partial · OOB）
   sse/ ws/     W3C 事件流广播 · WebSocket RFC 6455/7692/7936/8441/9220（自研握手与帧编解码）
   i18n/        YAML/TOML/JSON 目录 + Accept-Language q 值协商
@@ -182,7 +182,7 @@ repotest/      仓库治理守卫（治理文件与规范的可执行断言）
 
 完整基准位于 [`benchmarks/`](benchmarks/README.md)，x86_64 单核/多核专项报告见 [`benchmarks/x86_64-single-multi-core.md`](benchmarks/x86_64-single-multi-core.md)，每个类别是一个独立 Go 模块，自带 `go.mod`/`go.sum` 与 README，不会把对比库带进主模块依赖。主表统一在 **x86_64 基准平台**（AMD Ryzen AI MAX+ 395，16 核 32 线程，30 GiB，Ubuntu 26.04，Go 1.27.2，AVX-512 VBMI2）上采集；每个实现独立进程、轮转顺序、多轮中位数，并给出 CPU 利用率与峰值 RSS。所有参测开源实现都保留在同一张表中，包括 yd 落后的项目。
 
-| 类别 | 基准模块 | 核心结论（x86_64 主表） |
+| 类别 | 基准模块 | 核心结论（x86_64 主表；模板引擎为 Windows 开发机口径） |
 |---|---|---|
 | WebSocket | [`benchmarks/ws`](benchmarks/ws/README.md) | 与 coder/gorilla/gobwas/gws 兼容性 18/18；顺序回显 32 B–64 KiB 五档延迟最低（64 KiB 16,776 ns / 3,906 MB/s），唯一全程 `0 B/op、0 allocs/op`；并发 1 KiB 下预读模式 1,455 ns / 703.76 MB/s / 0 allocs，领先 gws（2,069 ns / 494.81 MB/s / 2 allocs）约 29.7%，同步模式 2,309 ns / 443.55 MB/s 且 CPU/RSS 最低；批量写 API 让 1 KiB × 8 流水线回显达到 1,366.11 MB/s（4.92×） |
 | Router | [`benchmarks/router`](benchmarks/router/README.md) | param/deep/wildcard/miss 最快（1.1–1.6 ns），五类路径零分配；静态路径 httprouter 0.9 ns、yd 1.1 ns；WebSocket 握手经 router 增加约 15 ns（4.2%） |
@@ -192,8 +192,9 @@ repotest/      仓库治理守卫（治理文件与规范的可执行断言）
 | 国密/常密 | [`benchmarks/crypto`](benchmarks/crypto/README.md) | 后端切换到 emmansun/gmsm v0.45.0：SM3 4 KiB 12.51→7.36 µs（1.70×）；HMAC-SM3 1.77→0.73 µs（2.42×，0 allocs）；PBKDF2 939.6→283.3 µs（3.32×）；SM4-GCM 4 KiB 45.29→5.41 µs（8.37×，757.3 MB/s）；SM2 签名 131.6→14.36 µs（9.16×）、验签 687.9→34.39 µs（20.0×）、加密 715.8→35.97 µs（19.9×）、解密 554.5→29.02 µs（19.1×）；SM2 签名/验签快于 ECDSA P-256 |
 | 压缩 | [`benchmarks/compress`](benchmarks/compress/README.md) | zstd/fastest text 压缩 8.04 GB/s、压缩率 0.002，zstd 解压 13.67 GB/s；snappy text 压缩 13.57 GB/s 但压缩率 0.049；klauspost gzip 约为标准库 gzip 的 3.7 倍吞吐，压缩率相同；brotli/q9 json 压缩率 0.021 但吞吐/内存成本最高 |
 | 日志 | [`benchmarks/logx`](benchmarks/logx/README.md) | dynamic Info 111.7 ns/op、零分配，略快于 zerolog（112.9 ns）；prebound Info 103.1 ns，慢于 zerolog 94.9 ns 约 8.6%；禁用路径 prebound 1.8 ns、零分配，与 logrus 并列最快，dynamic 7.9 ns（slog 5.1 ns 更快） |
+| 模板引擎 | [`benchmarks/template`](benchmarks/template/README.md) | 编译式 yd-render 在 100 行列表页上为 64.3 µs / **0 allocs**（单核中位数），比 html/template（1,074.9 µs / 7,142 allocs）快 **16.7×**、text/template 快 3.7×、Jet 快 2.5×、templ 快 2.3×；代码生成式 quicktemplate（28.4 µs / 0 allocs）仍快 2.3×。框架真实页面 dashboard 6.8 µs / 2 allocs（标准库 95.3 µs / 769，**14.0×**），并行吞吐约为 html/template 的 **24.1×**。转义矩阵中只有 html/template、yd-render、templ 同时拦截 `javascript:` URL |
 
-汇总口径、测试环境与完整表格见 [`benchmarks/README.md`](benchmarks/README.md)。CPU/内存利用率由 Linux `/usr/bin/time -v` 对每个实现单独进程测量；基准数值对机器负载、温度与电源策略敏感，跨进程独立运行的波动可达约 15%。
+汇总口径、测试环境与完整表格见 [`benchmarks/README.md`](benchmarks/README.md)。模板引擎的使用说明见 [`docs/render-usage.md`](docs/render-usage.md)，瓶颈分析与设计见 [`docs/render-performance.md`](docs/render-performance.md)。CPU/内存利用率由 Linux `/usr/bin/time -v` 对每个实现单独进程测量；基准数值对机器负载、温度与电源策略敏感，跨进程独立运行的波动可达约 15%。
 
 ```bash
 cd benchmarks/<模块>
