@@ -39,6 +39,10 @@ cd benchmarks/<模块>
 go test ./...                         # 正确性/兼容性/夹具校验
 go test -run '^$' -bench . -benchmem  # 同进程快速检查
 
+# 模板模块另有「输出物化」口径：所有引擎写入可复用 bytes.Buffer
+cd benchmarks/template
+go test -run '^$' -bench BenchmarkEnginesMaterialized -benchmem -benchtime=2s -count=5
+
 # 公平采样（以 base64 为例；amd64 默认即自研内核）
 for c in stdlib cloudwego/base64x cristalhq/base64 yd-b64x; do
   YD_BENCH_ONLY=$c GOEXPERIMENT=simd go test -run '^$' -bench . -benchmem \
@@ -56,6 +60,6 @@ done
 - **crypto**：后端由 tjfoc/gmsm v1.4.1 切换到 emmansun/gmsm v0.45.0。SM3 4 KiB 12,506→7,360 ns（1.70×）；HMAC-SM3 1,765→729 ns（2.42×，0 allocs）；PBKDF2 939,609→283,344 ns（3.32×）；SM4-GCM 4 KiB seal 45,290→5,409 ns（8.37×，757.3 MB/s）；SM2 签名 131,572→14,364 ns（9.16×）、验签 687,942→34,392 ns（20.0×）、加密 715,805→35,969 ns（19.9×）、解密 554,528→29,024 ns（19.1×）。SM2 签名/验签快于 ECDSA P-256；SM3/SM4 无 SHA-NI/AES-NI 对应指令，仍慢于 SHA-256/AES-GCM。
 - **compress**：zstd/fastest text 压缩 8.04 GB/s、压缩率 0.002，zstd 解压 13.67 GB/s；snappy text 压缩 13.57 GB/s 但压缩率 0.049；klauspost gzip 约标准库 gzip 的 3.7 倍吞吐，压缩率相同；brotli/q9 json 压缩率最好（0.021）但吞吐与内存成本最高。
 - **logx**：dynamic Info 111.7 ns/op、零分配，略快于 zerolog（112.9 ns）；prebound Info 为 103.1 ns，**慢于 zerolog 的 94.9 ns 约 8.6%**；禁用路径 prebound 为 1.8 ns、零分配，与 logrus 并列最快，dynamic 为 7.9 ns（slog 5.1 ns 更快）。
-- **template**：编译式 yd-render 在 100 行页面上为 64.3 µs/**0 allocs**（单核中位数），比 html/template（1,074.9 µs/7,142）快 **16.7×**，比 text/template 快 3.7×，比 Jet 快 2.5×，比 templ 快 2.3×；代码生成式 quicktemplate（28.4 µs/0 allocs）仍快 2.3×。上下文转义矩阵中只有 html/template、yd-render 与 templ 同时拦截 `javascript:` URL，其余引擎仅做 HTML 转义。
+- **template**：编译式 yd-render 在 100 行页面上为 41.7 µs/**0 allocs**（单核中位数），比 html/template（1,055.9 µs/7,142）快 **25.3×**，比 text/template 快 5.9×，比 Jet 快 4.0×，比 templ 快 3.4×；代码生成式 quicktemplate 在 `io.Discard` 口径下为 27.0 µs/0 allocs（快 1.54×），但把输出物化到真实缓冲后为 39.0 µs vs 40.7 µs（**1.04×，基本持平**）——差距主要来自流式写出与仅转义 5 个 HTML 字符，而非解释执行。上下文转义矩阵中只有 html/template、yd-render 与 templ 同时拦截 `javascript:` URL，其余引擎仅做 HTML 转义。
 
 基准数值对机器负载、温度与电源策略敏感，跨进程独立运行的波动可达约 15%。跨机比较请以同一平台的相对关系为准。

@@ -251,6 +251,45 @@ func BenchmarkEngines(b *testing.B) {
 	}
 }
 
+// BenchmarkEnginesMaterialized renders the same page into a reusable buffer, so
+// every engine pays for producing the output bytes. The discard benchmark above
+// isolates CPU, but it structurally favors streaming engines: they can send
+// every chunk straight to io.Discard, while an engine that guarantees an
+// all-or-nothing response must materialize the page first. | BenchmarkEnginesMaterialized
+// 把同一页面渲染进可复用缓冲，使每个引擎都为产出字节付费。上面的 discard 基准隔离
+// CPU，但在结构上偏向流式引擎：它们可以把每个片段直接交给 io.Discard，而保证
+// 「要么整页、要么无输出」的引擎必须先物化页面。
+func BenchmarkEnginesMaterialized(b *testing.B) {
+	page := Fixture()
+	small := SmallFixture()
+	pageMap := MapOf(page)
+	smallMap := MapOf(small)
+	buf := bytes.NewBuffer(make([]byte, 0, 1<<20))
+
+	for _, e := range benchEngines(b) {
+		if !selected(e.name) {
+			continue
+		}
+		run := func(b *testing.B, p *Page, pm map[string]any) {
+			b.ReportAllocs()
+			for i := 0; i < b.N; i++ {
+				buf.Reset()
+				var err error
+				if e.page != nil {
+					err = e.page(buf, p)
+				} else {
+					err = e.mapPage(buf, pm)
+				}
+				if err != nil {
+					b.Fatal(err)
+				}
+			}
+		}
+		b.Run(e.name+"/page100", func(b *testing.B) { run(b, page, pageMap) })
+		b.Run(e.name+"/small5", func(b *testing.B) { run(b, small, smallMap) })
+	}
+}
+
 // TestEscapingMatrix renders hostile text, attribute and URL values through
 // every engine and records which contextual protections actually hold.
 // | TestEscapingMatrix 用敌对的文本、属性与 URL 值渲染每个引擎，并记录实际生效的上下文防护。
