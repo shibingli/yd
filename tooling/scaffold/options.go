@@ -2,6 +2,7 @@ package scaffold
 
 import (
 	"github.com/shibingli/yd/core/errx"
+	"github.com/shibingli/yd/core/version"
 )
 
 // Options describes every input of one project generation. | Options 描述一次项目生成的全部输入。
@@ -16,6 +17,13 @@ type Options struct {
 	License string
 	// A non-empty LocalReplace adds a go.mod replace pointing at a local yd checkout (development only). | LocalReplace 非空时向 go.mod 写入 replace 指向本地 yd 仓库（开发期联调）。
 	LocalReplace string
+	// YdVersion pins the framework module in the generated go.mod. Empty means no
+	// pin: go mod tidy resolves the current module version. The CLI fills this from
+	// the running binary's module version so a generated project never resolves to an
+	// older framework that lacks the packages it imports. | YdVersion 在生成的 go.mod 中
+	// 锁定框架模块版本。为空表示不锁定，由 go mod tidy 解析当前模块版本；CLI 用运行中二进制
+	// 的模块版本填充它，避免生成项目解析到缺少所导入包的旧框架。
+	YdVersion string
 	// HtmxExts lists the Htmx 4 extensions to ship with the project (ws, sse, preload, alpine). | HtmxExts 是需要随项目加载的 Htmx 4 扩展（ws、sse、preload、alpine）。
 	HtmxExts []string
 	// Redis enables the go-redis cache integration. | Redis 表示是否接入 go-redis 缓存。
@@ -39,12 +47,13 @@ type Options struct {
 // License = Apache-2.0, HtmxExts = {preload, sse, ws} and every other feature switch off.
 func DefaultOptions(name string) Options {
 	return Options{
-		Name:     name,
-		Module:   defaultModule(name),
-		DB:       DBDefault,
-		License:  LicenseApache2,
-		Tailwind: true,
-		HtmxExts: []string{ExtPreload, ExtSSE, ExtWS},
+		Name:      name,
+		Module:    defaultModule(name),
+		DB:        DBDefault,
+		License:   LicenseApache2,
+		Tailwind:  true,
+		HtmxExts:  []string{ExtPreload, ExtSSE, ExtWS},
+		YdVersion: version.ModuleVersion(),
 	}
 }
 

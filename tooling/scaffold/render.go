@@ -76,6 +76,8 @@ type view struct {
 	// 的 Go 字符串字面量，使含空格的路径无法破坏（或注入）go.mod 的 replace 指令。
 	LocalReplaceQuoted string
 	AssetRoot          string
+	// YdVersion pins the framework module in the generated go.mod; empty means none. | YdVersion 在生成的 go.mod 中锁定框架模块；为空表示不锁定。
+	YdVersion string
 
 	// versions and framework constants | 版本与框架常量
 	GoVersion       string
@@ -128,6 +130,7 @@ func newView(o Options) view {
 			return o.LocalReplace
 		}(),
 		AssetRoot:       AssetRoot,
+		YdVersion:       o.YdVersion,
 		Redis:           o.Redis,
 		Asynq:           o.Asynq,
 		GRPC:            o.GRPC,

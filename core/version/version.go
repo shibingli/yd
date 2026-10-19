@@ -13,18 +13,37 @@ var (
 	Date = "unknown"
 )
 
+// ModuleVersion returns the module version of the running yd binary. It prefers
+// an ldflags-injected Version and falls back to the main module version recorded
+// by `go install module/cmd@version`; development placeholders are filtered.
+// An empty result means the version is unknown and must not be written to a
+// generated go.mod. | ModuleVersion 返回运行中的 yd 二进制的模块版本：优先使用 ldflags
+// 注入的 Version，其次使用 `go install module/cmd@version` 记录的 main module 版本；
+// 开发占位符会被过滤。返回空串表示版本未知，不得写进生成的 go.mod。
+func ModuleVersion() string {
+	if Version != "" && Version != "dev" {
+		return Version
+	}
+	if bi, ok := debug.ReadBuildInfo(); ok {
+		// `go install module/cmd@vX.Y.Z` records the module version in Main.Version even
+		// without ldflags; ignoring it made installed binaries report "dev". | 即使没有
+		// ldflags，`go install module/cmd@vX.Y.Z` 也会把模块版本写进 Main.Version；忽略它
+		// 会让安装出来的二进制报告 "dev"。
+		if mv := bi.Main.Version; mv != "" && mv != "(devel)" {
+			return mv
+		}
+	}
+	return ""
+}
+
 // String returns a readable "version (commit, build time)" string. | String 返回 "版本 (提交, 构建时间)" 形式的可读字符串。
 func String() string {
 	v, c, d := Version, Commit, Date
 	if v == "dev" {
+		if mv := ModuleVersion(); mv != "" {
+			v = mv
+		}
 		if bi, ok := debug.ReadBuildInfo(); ok {
-			// `go install module/cmd@vX.Y.Z` records the module version in Main.Version even
-			// without ldflags; ignoring it made installed binaries report "dev". | 即使没有
-			// ldflags，`go install module/cmd@vX.Y.Z` 也会把模块版本写进 Main.Version；忽略它
-			// 会让安装出来的二进制报告 "dev"。
-			if mv := bi.Main.Version; mv != "" && mv != "(devel)" {
-				v = mv
-			}
 			for _, s := range bi.Settings {
 				if s.Key == "vcs.revision" && c == "none" {
 					c = s.Value

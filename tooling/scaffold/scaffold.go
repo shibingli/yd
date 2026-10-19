@@ -180,6 +180,11 @@ func normalize(o Options) (Options, error) {
 			return Options{}, errx.Detail(ErrNameInvalid, "local replace path contains a control character | 本地替换路径包含控制字符")
 		}
 	}
+
+	o.YdVersion = strings.TrimSpace(o.YdVersion)
+	if o.YdVersion == "dev" || o.YdVersion == "(devel)" {
+		o.YdVersion = ""
+	}
 	return o, nil
 }
 
