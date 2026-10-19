@@ -166,10 +166,11 @@ func TestHtmxFragmentWireFormat(t *testing.T) {
 func TestHtmxHandlerEchoAndCallbacks(t *testing.T) {
 	h := newHtmxHarness(t)
 
-	t.Run("OnMessage 为 nil 时回显 BODY", func(t *testing.T) {
+	t.Run("OnMessage 为 nil 时以 content 回显正文", func(t *testing.T) {
 		c := h.dial(t, "/echo")
 
-		// the request is a raw JSON literal, independently verifying the HEADERS / BODY field names | 请求直接用 JSON 字面量构造，独立校验 HEADERS / BODY 字段名
+		// the request is a raw JSON literal, independently verifying that the legacy HEADERS / BODY
+		// envelope is still accepted | 请求直接用 JSON 字面量构造，独立校验旧的 HEADERS / BODY 信封仍被接受
 		const in = `{"HEADERS":{"hx-target":"#log","hx-swap":"beforeend"},"BODY":"raw json body | 原始 JSON 正文"}`
 		if err := c.WriteMessage(TextMessage, []byte(in)); err != nil {
 			t.Fatalf("写入信封失败: %v", err)
@@ -188,22 +189,27 @@ func TestHtmxHandlerEchoAndCallbacks(t *testing.T) {
 			t.Fatalf("回显解码失败: %v", err)
 		}
 		if echo.Body != "raw json body | 原始 JSON 正文" {
-			t.Fatalf("回显 BODY = %q, 期望 %q", echo.Body, "raw json body | 原始 JSON 正文")
+			t.Fatalf("回显正文 = %q, 期望 %q", echo.Body, "raw json body | 原始 JSON 正文")
 		}
-		// the request-side HEADERS must not be echoed back as response directives | 请求侧的 HEADERS 不应被当作响应指令回送
+		// htmx 4 swaps "content" and ignores BODY; the request-side headers must not be echoed back. | htmx 4 只交换
+		// "content" 而忽略 BODY；请求侧的请求头不得回送。
 		var shape map[string]any
 		if err := jsonx.Unmarshal(got, &shape); err != nil {
 			t.Fatalf("回显形状解析失败: %v", err)
 		}
-		if _, ok := shape["HEADERS"]; ok {
-			t.Fatalf("回显不应携带 HEADERS: %s", got)
+		if _, ok := shape["headers"]; ok {
+			t.Fatalf("回显不应携带 headers: %s", got)
 		}
-		if _, ok := shape["BODY"]; !ok {
-			t.Fatalf("回显必须携带 BODY: %s", got)
+		if _, ok := shape["BODY"]; ok {
+			t.Fatalf("回显不应携带 BODY: %s", got)
+		}
+		if content, ok := shape["content"]; !ok || content != "raw json body | 原始 JSON 正文" {
+			t.Fatalf("回显 content = %v (存在=%v), 期望正文", content, ok)
 		}
 
-		// a second message on the same connection proves the loop keeps running | 同一连接上继续第二条，证明读循环持续工作
-		if err := c.WriteMessage(TextMessage, []byte(`{"HEADERS":{},"BODY":"second | 第二条"}`)); err != nil {
+		// the htmx 4 flat envelope on the same connection proves both shapes and the running loop | 同一连接上再发
+		// htmx 4 扁平信封，证明两种形态都可用且读循环持续工作
+		if err := c.WriteMessage(TextMessage, []byte(`{"message":"second | 第二条","headers":{"hx-target":"#log"}}`)); err != nil {
 			t.Fatalf("写入第二条失败: %v", err)
 		}
 		_, got = readOrFail(t, c, "第二条回显")
@@ -211,7 +217,36 @@ func TestHtmxHandlerEchoAndCallbacks(t *testing.T) {
 			t.Fatalf("第二条回显解码失败: %v", err)
 		}
 		if echo.Body != "second | 第二条" {
-			t.Fatalf("第二条回显 BODY = %q", echo.Body)
+			t.Fatalf("第二条回显正文 = %q", echo.Body)
+		}
+	})
+
+	t.Run("htmx 4 扁平信封暴露 Values", func(t *testing.T) {
+		// a dedicated harness keeps this connection's OnClose error out of the shared /chat record | 独立脚手架
+		// 让这条连接的 OnClose 错误不会混进共享的 /chat 记录
+		flat := newHtmxHarness(t)
+		c := flat.dial(t, "/chat", "htmx")
+		recvOrTimeout(t, flat.chat.opened, 3*time.Second, "OnOpen 回调")
+
+		const in = `{"room":"ops","message":"hello | 你好","headers":{"hx-target":"#chat"}}`
+		if err := c.WriteMessage(TextMessage, []byte(in)); err != nil {
+			t.Fatalf("写入扁平信封失败: %v", err)
+		}
+		msg := recvOrTimeout(t, flat.chat.messages, 3*time.Second, "OnMessage 回调")
+		if msg.Body != "hello | 你好" {
+			t.Fatalf("Body = %q, 期望 %q", msg.Body, "hello | 你好")
+		}
+		if got, ok := msg.Values["room"]; !ok || got != "ops" {
+			t.Fatalf("Values[room] = %v (存在=%v), 期望 ops", got, ok)
+		}
+		if msg.Headers["hx-target"] != "#chat" {
+			t.Fatalf("Headers = %v, 期望 hx-target=#chat", msg.Headers)
+		}
+		// the callback's fragment still reaches the client | 回调写出的片段仍然会到达客户端
+		op, got := readOrFail(t, c, "回调片段")
+		want := `<hx-partial hx-target="#chat" hx-swap="beforeend"><p>hello | 你好</p></hx-partial>`
+		if op != TextMessage || string(got) != want {
+			t.Fatalf("片段不一致: 类型 %v, 实际 %s, 期望 %s", op, got, want)
 		}
 	})
 

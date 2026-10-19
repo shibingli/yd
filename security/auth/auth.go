@@ -7,9 +7,12 @@
 //  1. Tenant isolation is a hard boundary. Every Store method that reads an
 //     entity by id takes a tenantID and validates it; a cross-tenant read is
 //     reported as ErrNotFound, never as ErrForbidden, so a probe learns nothing
-//     about the existence of a foreign entity. | 租户是硬边界：Store 中任何按 ID 读取实体的方法
+//     about the existence of a foreign entity. Users are global identities whose
+//     memberships and per-tenant roles live in yd_auth_user_tenants; a token
+//     carries exactly one active tenant. | 租户是硬边界：Store 中任何按 ID 读取实体的方法
 //     都带 tenantID 并校验；跨租户读取一律报 ErrNotFound 而非 ErrForbidden，探测者无法从错误里
-//     推断外部实体是否存在。
+//     推断外部实体是否存在。用户是全局身份，其成员关系与各租户角色存放在 yd_auth_user_tenants；
+//     一枚令牌只携带一个活动租户。
 //  2. The JWT signing key is private to each user. CreateUser generates a random
 //     sec_key of SecKeyLen bytes and stores it only as SM4-GCM ciphertext
 //     (User.EncryptedSecKey); signing uses jwt.Sign with that key and the user id

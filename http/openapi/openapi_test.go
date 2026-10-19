@@ -272,11 +272,19 @@ func TestViewerHTMLHasNoExternalCDN(t *testing.T) {
 	body := strings.ToLower(rec.Body.String())
 	for _, bad := range []string{
 		`src="http`, `src='http`, `href="http`, `href='http`,
-		`url(http`, `@import`, `<script src=`, `<link`,
+		`url(http`, `@import`, `<link`,
 	} {
 		if strings.Contains(body, bad) {
 			t.Errorf("viewer must not reference external assets | 查看器不得引用外部资源: %q", bad)
 		}
+	}
+	// The one script is same-origin, which is what keeps script-src 'self' working. | 唯一的脚本来自同源，
+	// 这正是 script-src 'self' 能继续生效的原因。
+	if !strings.Contains(body, `/static/js/yd-openapi-viewer.js`) {
+		t.Errorf("viewer must load the same-origin viewer script | 查看器必须加载同源查看器脚本")
+	}
+	if strings.Count(body, "<script src=") != 1 {
+		t.Errorf("viewer must load exactly one external script | 查看器只能加载一个外部脚本")
 	}
 	if !strings.Contains(body, "<!doctype html") {
 		t.Errorf("viewer must be a complete HTML page | 查看器必须是完整 HTML 页面")

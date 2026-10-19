@@ -36,6 +36,92 @@ func (c *Controller) Roles(ctx *router.Ctx) {
 	c.rolesPage(ctx, http.StatusOK, "")
 }
 
+// NewRoleForm returns the form fragment of the role creation drawer. | NewRoleForm 返回新建角色抽屉的表单片段。
+//
+// @Summary Role creation form | 新建角色表单
+// @Description Renders the drawer fragment fetched by the "create role" button; the form posts to POST /roles.
+// @Description 渲染「新建角色」按钮取用的抽屉片段；表单提交到 POST /roles。
+// @Tags roles
+// @Accept html
+// @Produce html
+// @Success 200 {object} string "drawer fragment | 抽屉片段"
+// @Failure 401 {object} string "no session | 无有效会话"
+// @Failure 403 {object} string "missing role:manage | 缺少 role:manage"
+// @Security BearerAuth
+// @Router /roles/new [get]
+func (c *Controller) NewRoleForm(ctx *router.Ctx) {
+	tenantID, ok := c.tenantID(ctx)
+	if !ok {
+		return
+	}
+	_, catalogue, err := c.roles.Matrix(ctx.Request.Context(), tenantID)
+	if err != nil {
+		c.failService(ctx, err)
+		return
+	}
+	c.render(ctx, http.StatusOK, TplRoleCreateDrawer, c.view(ctx, "新建角色 | Create role", map[string]any{
+		"Catalogue": catalogue,
+	}))
+}
+
+// EditRoleForm 返回编辑角色抽屉：名称只读，说明与权限勾选可改。
+// EditRoleForm returns the role edit drawer: the name is read-only while description and capabilities stay editable.
+//
+// @Summary Role edit form | 编辑角色表单
+// @Description Renders one role with the full capability catalogue ticked to its current grants. The form posts to
+// @Description POST /roles, whose upsert semantics keep the existing role id because the name travels in a hidden field.
+// @Description 渲染单个角色与完整能力目录，勾选状态对应当前授予。表单提交到 POST /roles；名称由隐藏字段带回，
+// @Description 因此 upsert 语义会更新既有角色而不是新建一个。
+// @Tags roles
+// @Accept html
+// @Produce html
+// @Param id path string true "role id | 角色 ID"
+// @Success 200 {object} string "drawer fragment | 抽屉片段"
+// @Failure 401 {object} string "no session | 无有效会话"
+// @Failure 403 {object} string "missing role:manage | 缺少 role:manage"
+// @Failure 404 {object} string "no such role in this tenant | 本租户内没有该角色"
+// @Security BearerAuth
+// @Router /roles/{id}/edit [get]
+func (c *Controller) EditRoleForm(ctx *router.Ctx) {
+	tenantID, ok := c.tenantID(ctx)
+	if !ok {
+		return
+	}
+	role, err := c.roles.Get(ctx.Request.Context(), tenantID, ctx.Param("id"))
+	if err != nil {
+		c.failService(ctx, err)
+		return
+	}
+	_, catalogue, err := c.roles.Matrix(ctx.Request.Context(), tenantID)
+	if err != nil {
+		c.failService(ctx, err)
+		return
+	}
+	// 勾选状态在这里算好：模板只读布尔值，不调用带参数的方法。
+	// The ticked state is computed here: the template only reads a boolean and never calls a
+	// method with an argument.
+	options := make([]permissionOption, 0, len(catalogue))
+	for _, info := range catalogue {
+		options = append(options, permissionOption{Info: info, Granted: role.Granted(info.Key)})
+	}
+	// The key must not be "Role": authz.Data injects the role-name map under that very key and
+	// would overwrite the record. | 键名不能是 "Role"：authz.Data 会在同名键下注入角色名映射，
+	// 从而覆盖这条记录。
+	c.render(ctx, http.StatusOK, TplRoleEditDrawer, c.view(ctx, "编辑角色 | Edit role", map[string]any{
+		"Target":            role,
+		"PermissionOptions": options,
+	}))
+}
+
+// permissionOption 是权限目录中的一项与它在该角色上的勾选状态。
+// permissionOption pairs one catalogue entry with its ticked state on a role.
+type permissionOption struct {
+	// Info is the catalogue entry. | Info 是权限目录项。
+	Info model.PermissionInfo
+	// Granted reports whether this role holds it. | Granted 报告该角色是否已授予它。
+	Granted bool
+}
+
 // SaveRole 新建或覆盖一个角色（同名即覆盖，因此表单既新建也编辑）。
 // SaveRole creates or replaces a role; the same name replaces, so one form both creates and edits.
 //

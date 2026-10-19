@@ -61,27 +61,31 @@ func (tenantRow) TableName() string { return tableTenants }
 
 // userRow maps auth.User onto yd_auth_users. | userRow 把 auth.User 映射到 yd_auth_users。
 //
-// There is no primary key column: inside a tenant the id is unique, but the same
-// id may legitimately exist in another tenant, so uniqueness is expressed by
-// yd_idx_auth_users_tenant_id on (tenant_id, id) — exactly the pair every lookup
-// filters on. | 这里没有单列主键：租户内 ID 唯一，但同一个 ID 合法地可以存在于另一个租户，
-// 因此唯一性由 (tenant_id, id) 上的 yd_idx_auth_users_tenant_id 表达 —— 这正是每次查询都用来过滤的那一对。
+// A user is a global identity: the primary key is the user id and the sign-in
+// name is unique across every tenant. tenant_id keeps the immutable home tenant
+// that seals the sec_key, while default_tenant_id is the configurable tenant a
+// bare sign-in lands in. Per-tenant roles live in yd_auth_user_tenants. | 用户是全局身份：
+// 主键是用户 ID，登录名在所有租户之间唯一。tenant_id 保存封装 sec_key 的不可变身份租户，
+// default_tenant_id 是可配置的登录默认租户；各租户的角色存放在 yd_auth_user_tenants。
 //
-// Roles is JSON text produced by jsonx, and EncryptedSecKey is the SM4 ciphertext
-// as raw bytes. | Roles 是 jsonx 生成的 JSON 文本，EncryptedSecKey 是 SM4 密文的原始字节。
+// EncryptedSecKey is the SM4 ciphertext as raw bytes. | EncryptedSecKey 是 SM4 密文的原始字节。
 type userRow struct {
-	// CreatedAt is the Service clock time; ListUsers orders by it inside the tenant. | CreatedAt 是 Service 时钟时间；ListUsers 在租户内按它排序。
-	CreatedAt time.Time `gorm:"column:created_at;index:yd_idx_auth_users_tenant_created_at,priority:2"`
+	// CreatedAt is the Service clock time; ListUsers orders by it. | CreatedAt 是 Service 时钟时间；ListUsers 按它排序。
+	CreatedAt time.Time `gorm:"column:created_at;index:yd_idx_auth_users_created_at"`
 	// UpdatedAt is the Service clock time of the last mutation. | UpdatedAt 是最后修改的 Service 时钟时间。
 	UpdatedAt time.Time `gorm:"column:updated_at"`
-	// ID is the user id. | ID 是用户 ID。
-	ID string `gorm:"column:id;type:varchar(64);not null;uniqueIndex:yd_idx_auth_users_tenant_id,priority:2"`
-	// TenantID is the owning tenant; it starts every index so a tenant can be scanned in isolation. | TenantID 是所属租户；它位于每个索引的首列，租户因此可以独立扫描。
-	TenantID string `gorm:"column:tenant_id;type:varchar(64);not null;uniqueIndex:yd_idx_auth_users_tenant_id,priority:1;uniqueIndex:yd_idx_auth_users_tenant_username,priority:1;index:yd_idx_auth_users_tenant_created_at,priority:1"`
+	// ID is the globally unique user id; a unique index carries the guarantee instead of a
+	// primary key, so an existing tenant-scoped table needs no rebuild on upgrade.
+	// | ID 是全局唯一的用户 ID；保证由唯一索引承担而不是主键，因此既有租户内表在升级时不需要重建。
+	ID string `gorm:"column:id;type:varchar(64);not null;uniqueIndex:yd_idx_auth_users_id"`
+	// TenantID is the immutable home tenant that seals the sec_key. | TenantID 是封装 sec_key 的不可变身份租户。
+	TenantID string `gorm:"column:tenant_id;type:varchar(64);not null;index:yd_idx_auth_users_home_tenant"`
+	// DefaultTenantID is the tenant a bare sign-in lands in. | DefaultTenantID 是未指明租户时登录落入的租户。
+	DefaultTenantID string `gorm:"column:default_tenant_id;type:varchar(64);index:yd_idx_auth_users_default_tenant"`
 	// Username is the sign-in name as created. | Username 是创建时原样的登录名。
 	Username string `gorm:"column:username;type:varchar(128);not null"`
-	// UsernameKey is the folded sign-in name; yd_idx_auth_users_tenant_username is unique on it. | UsernameKey 是折叠后的登录名；yd_idx_auth_users_tenant_username 在其上唯一。
-	UsernameKey string `gorm:"column:username_key;type:varchar(128);not null;uniqueIndex:yd_idx_auth_users_tenant_username,priority:2"`
+	// UsernameKey is the folded sign-in name; yd_idx_auth_users_username is unique on it across tenants. | UsernameKey 是折叠后的登录名；yd_idx_auth_users_username 在其上全局唯一。
+	UsernameKey string `gorm:"column:username_key;type:varchar(128);not null;uniqueIndex:yd_idx_auth_users_username"`
 	// Email is optional and never a sign-in key. | Email 可选，且从不作为登录键。
 	Email string `gorm:"column:email;type:varchar(191)"`
 	// DisplayName is optional. | DisplayName 可选。
@@ -90,14 +94,40 @@ type userRow struct {
 	PasswordHash string `gorm:"column:password_hash;type:varchar(255)"`
 	// Status is "active" or "disabled". | Status 取 "active" 或 "disabled"。
 	Status string `gorm:"column:status;type:varchar(32);not null"`
-	// Roles is the JSON text of the role names, empty when there are none. | Roles 是角色名的 JSON 文本，没有角色时为空串。
-	Roles string `gorm:"column:roles;type:text"`
 	// EncryptedSecKey is the SM4-GCM sealed per-user JWT key; size keeps MySQL on varbinary. | EncryptedSecKey 是 SM4-GCM 封装的每用户 JWT 密钥；size 让 MySQL 落在 varbinary 上。
 	EncryptedSecKey []byte `gorm:"column:encrypted_sec_key;size:4096"`
 }
 
 // TableName pins the table name. | TableName 固定表名。
 func (userRow) TableName() string { return tableUsers }
+
+// userTenantRow maps one membership onto yd_auth_user_tenants. | userTenantRow 把一条成员关系映射到 yd_auth_user_tenants。
+//
+// The natural key is (user_id, tenant_id); the unique index sits on it, while the
+// tenant-first index serves "every member of this tenant". The per-user default
+// flag is denormalised here as well so the tenant switcher can read the default
+// without a second lookup. | 自然键是 (user_id, tenant_id)，唯一索引建在它上面；
+// 以 tenant_id 打头的索引服务「这个租户的全部成员」。每用户默认标记也在这里冗余一份，
+// 租户切换器因此无需二次查询即可读出默认租户。
+type userTenantRow struct {
+	// CreatedAt is the membership creation time. | CreatedAt 是成员关系的创建时间。
+	CreatedAt time.Time `gorm:"column:created_at;index:yd_idx_auth_user_tenants_tenant_created_at,priority:2"`
+	// UpdatedAt is the last mutation time. | UpdatedAt 是最后修改时间。
+	UpdatedAt time.Time `gorm:"column:updated_at"`
+	// UserID is the member. | UserID 是成员用户。
+	UserID string `gorm:"column:user_id;type:varchar(64);not null;uniqueIndex:yd_idx_auth_user_tenants_user_tenant,priority:1;index:yd_idx_auth_user_tenants_tenant,priority:2;index:yd_idx_auth_user_tenants_user_default,priority:1"`
+	// TenantID is the tenant the user belongs to. | TenantID 是用户隶属的租户。
+	TenantID string `gorm:"column:tenant_id;type:varchar(64);not null;uniqueIndex:yd_idx_auth_user_tenants_user_tenant,priority:2;index:yd_idx_auth_user_tenants_tenant,priority:1;index:yd_idx_auth_user_tenants_tenant_created_at,priority:1"`
+	// Roles is the JSON text of the role names inside this tenant. | Roles 是该租户内角色名的 JSON 文本。
+	Roles string `gorm:"column:roles;type:text"`
+	// IsDefault marks the sign-in default of this user. | IsDefault 标记该用户的登录默认租户。
+	IsDefault bool `gorm:"column:is_default;not null;default:false;index:yd_idx_auth_user_tenants_user_default,priority:2"`
+	// ID is the surrogate primary key, kept for MySQL portability. | ID 是为 MySQL 可移植性保留的代理主键。
+	ID uint64 `gorm:"column:id;primaryKey;autoIncrement"`
+}
+
+// TableName pins the table name. | TableName 固定表名。
+func (userTenantRow) TableName() string { return tableUserTenants }
 
 // roleRow maps auth.Role onto yd_auth_roles. | roleRow 把 auth.Role 映射到 yd_auth_roles。
 //
@@ -168,42 +198,47 @@ func tenantToRow(t *auth.Tenant) tenantRow {
 
 // userFromRow converts a stored row into the domain type. | userFromRow 把库中行转换为领域类型。
 //
-// A malformed roles column is reported as ErrCorruptRow instead of being silently
-// read as "no roles", because a role that vanishes without a trace is exactly the
-// kind of silent privilege change this package must not produce. | roles 列损坏时报
-// ErrCorruptRow，而不是静默读成「没有角色」：权限无声无息地消失，正是本包绝不能产生的那类静默变更。
+// Roles and TenantIDs stay empty here: both belong to the memberships, so the
+// caller fills them in after loading yd_auth_user_tenants. | Roles 与 TenantIDs 在这里保持为空：
+// 两者都属于成员关系，调用方在读取 yd_auth_user_tenants 后填充。
 func userFromRow(row *userRow) (*auth.User, error) {
 	if row == nil {
 		return nil, nil
 	}
-	roles, err := decodeRoles(row.Roles)
-	if err != nil {
-		return nil, err
-	}
 	return &auth.User{
 		ID:              row.ID,
 		TenantID:        row.TenantID,
+		HomeTenantID:    row.TenantID,
+		DefaultTenantID: row.DefaultTenantID,
 		Username:        row.Username,
 		Email:           row.Email,
 		DisplayName:     row.DisplayName,
 		PasswordHash:    row.PasswordHash,
 		Status:          auth.Status(row.Status),
 		EncryptedSecKey: append([]byte(nil), row.EncryptedSecKey...),
-		Roles:           roles,
 		CreatedAt:       row.CreatedAt,
 		UpdatedAt:       row.UpdatedAt,
 	}, nil
 }
 
 // userToRow converts a domain user into its row. | userToRow 把领域用户转换为其行。
+//
+// The home tenant is never taken from the request-scoped TenantID: switching
+// tenants must not move the row or make the sealed sec_key unreadable. | 身份租户绝不取自
+// 请求作用域的 TenantID：切换租户不能挪动该行，也不能让封装的 sec_key 变得无法解开。
 func userToRow(u *auth.User) (userRow, error) {
-	roles, err := encodeRoles(u.Roles)
-	if err != nil {
-		return userRow{}, err
+	home := u.HomeTenantID
+	if home == "" {
+		home = u.TenantID
+	}
+	def := u.DefaultTenantID
+	if def == "" {
+		def = home
 	}
 	return userRow{
 		ID:              u.ID,
-		TenantID:        u.TenantID,
+		TenantID:        home,
+		DefaultTenantID: def,
 		Username:        u.Username,
 		UsernameKey:     keyOf(u.Username),
 		Email:           u.Email,
@@ -211,9 +246,37 @@ func userToRow(u *auth.User) (userRow, error) {
 		PasswordHash:    u.PasswordHash,
 		Status:          string(u.Status),
 		EncryptedSecKey: append([]byte(nil), u.EncryptedSecKey...),
-		Roles:           roles,
 		CreatedAt:       u.CreatedAt,
 		UpdatedAt:       u.UpdatedAt,
+	}, nil
+}
+
+// membershipFromRow decodes the roles of one membership row. | membershipFromRow 解码一条成员关系行的角色。
+//
+// A malformed roles column is reported as ErrCorruptRow instead of being silently
+// read as "no roles", because a role that vanishes without a trace is exactly the
+// kind of silent privilege change this package must not produce. | roles 列损坏时报
+// ErrCorruptRow，而不是静默读成「没有角色」：权限无声无息地消失，正是本包绝不能产生的那类静默变更。
+func membershipFromRow(row *userTenantRow) ([]string, error) {
+	if row == nil {
+		return nil, nil
+	}
+	return decodeRoles(row.Roles)
+}
+
+// userTenantToRow converts one membership into its row. | userTenantToRow 把一条成员关系转换为其行。
+func userTenantToRow(userID, tenantID string, roles []string, isDefault bool, now time.Time) (userTenantRow, error) {
+	encoded, err := encodeRoles(roles)
+	if err != nil {
+		return userTenantRow{}, err
+	}
+	return userTenantRow{
+		UserID:    userID,
+		TenantID:  tenantID,
+		Roles:     encoded,
+		IsDefault: isDefault,
+		CreatedAt: now,
+		UpdatedAt: now,
 	}, nil
 }
 

@@ -350,6 +350,128 @@ func (c *Controller) RotateUserSecKey(ctx *router.Ctx) {
 	c.usersPage(ctx, http.StatusOK, "", "sec_key 已轮换，该用户的旧令牌已失效 | sec_key rotated, the user's old tokens are gone")
 }
 
+// NewUserForm returns the form fragment of the user creation drawer. | NewUserForm 返回新建用户抽屉的表单片段。
+//
+// @Summary User creation form | 新建用户表单
+// @Description Renders the drawer fragment fetched by the "create user" button; the form itself posts to POST /users.
+// @Description 渲染「新建用户」按钮取用的抽屉片段；表单本身提交到 POST /users。
+// @Tags users
+// @Accept html
+// @Produce html
+// @Success 200 {object} string "drawer fragment | 抽屉片段"
+// @Failure 401 {object} string "no session | 无有效会话"
+// @Failure 403 {object} string "missing user:create | 缺少 user:create"
+// @Security BearerAuth
+// @Router /users/new [get]
+func (c *Controller) NewUserForm(ctx *router.Ctx) {
+	tenantID, ok := c.tenantID(ctx)
+	if !ok {
+		return
+	}
+	roles, err := c.users.Roles(ctx.Request.Context(), tenantID)
+	if err != nil {
+		c.failService(ctx, err)
+		return
+	}
+	c.render(ctx, http.StatusOK, TplUserCreateDrawer, c.view(ctx, "新建用户 | Create user", map[string]any{
+		"RoleList":    roles,
+		"KeyEndpoint": PubkeyPath,
+	}))
+}
+
+// EditUserForm 返回编辑用户抽屉：资料、角色、成员租户、口令、状态与 sec_key 都在这里。
+// EditUserForm returns the user edit drawer: profile, roles, memberships, password, status and sec_key.
+//
+// @Summary User edit form | 编辑用户表单
+// @Description Renders the edit drawer for one user. Every write form inside posts to its own endpoint, so one drawer
+// @Description covers the whole lifecycle without a second navigation level.
+// @Description 渲染单个用户的编辑抽屉。抽屉里的每个写表单各自提交到独立端点，因此一个抽屉就覆盖了整个生命周期，
+// @Description 不需要第二层导航。
+// @Tags users
+// @Accept html
+// @Produce html
+// @Param id path string true "user id | 用户 ID"
+// @Success 200 {object} string "drawer fragment | 抽屉片段"
+// @Failure 401 {object} string "no session | 无有效会话"
+// @Failure 403 {object} string "missing user:update | 缺少 user:update"
+// @Failure 404 {object} string "no such user in this tenant | 本租户内没有该用户"
+// @Security BearerAuth
+// @Router /users/{id}/edit [get]
+func (c *Controller) EditUserForm(ctx *router.Ctx) {
+	tenantID, ok := c.tenantID(ctx)
+	if !ok {
+		return
+	}
+	userID := ctx.Param("id")
+	if !c.canManageUser(ctx, tenantID, userID) {
+		c.failService(ctx, auth.ErrForbidden)
+		return
+	}
+	target, err := c.users.Get(ctx.Request.Context(), tenantID, userID)
+	if err != nil {
+		c.failService(ctx, err)
+		return
+	}
+	roles, err := c.users.Roles(ctx.Request.Context(), tenantID)
+	if err != nil {
+		c.failService(ctx, err)
+		return
+	}
+	data := c.view(ctx, "编辑用户 | Edit user", map[string]any{
+		"Target":       target,
+		"RoleOptions":  model.RoleOptions(roles, target.Roles),
+		"KeyEndpoint":  PubkeyPath,
+		"CanListTenants": authz.Can(ctx.Request.Context(), authz.PermTenantRead),
+	})
+	if all, err := c.tenants.List(ctx.Request.Context()); err == nil {
+		data["AllTenants"] = all
+	}
+	c.render(ctx, http.StatusOK, TplUserEditDrawer, data)
+}
+
+// SetUserTenants 覆盖用户的成员租户与默认租户。
+// SetUserTenants replaces a user's memberships and default tenant.
+//
+// @Summary Set user tenants | 设置用户的成员租户
+// @Description Adds and removes memberships and picks the default tenant among them. The home and current default
+// @Description memberships cannot be removed; the service refuses that with 409.
+// @Description 增删成员租户，并在其中指定默认租户。身份租户与当前默认租户不可移除，服务层以 409 拒绝。
+// @Tags users
+// @Accept html
+// @Produce html
+// @Param id path string true "user id | 用户 ID"
+// @Param tenants formData []string true "tenant ids the user belongs to | 用户隶属的租户 ID"
+// @Param default_tenant formData string true "default tenant id, must be one of tenants | 默认租户 ID，必须在 tenants 内"
+// @Success 200 {object} string "refreshed user list fragment | 刷新后的用户列表片段"
+// @Failure 401 {object} string "no session | 无有效会话"
+// @Failure 403 {object} string "missing user:update | 缺少 user:update"
+// @Failure 404 {object} string "no such user in this tenant | 本租户内没有该用户"
+// @Failure 409 {object} string "the home or default membership cannot be removed | 身份租户或默认租户不可移除"
+// @Failure 422 {object} string "no tenant selected, or the default is outside the selection | 未选择租户，或默认租户不在选择内"
+// @Security BearerAuth
+// @Router /users/{id}/tenants [post]
+func (c *Controller) SetUserTenants(ctx *router.Ctx) {
+	tenantID, ok := c.tenantID(ctx)
+	if !ok {
+		return
+	}
+	userID := ctx.Param("id")
+	if !c.canManageUser(ctx, tenantID, userID) {
+		c.failService(ctx, auth.ErrForbidden)
+		return
+	}
+	if err := c.users.SetTenants(ctx.Request.Context(), tenantID, userID,
+		formValues(ctx, FieldTenants), field(ctx, FieldDefaultTenant)); err != nil {
+		c.failService(ctx, err)
+		return
+	}
+	c.log.Info("user memberships updated | 用户成员租户已更新",
+		logx.Str("tenant", tenantID),
+		logx.Str("user", userID),
+	)
+	c.usersPage(ctx, http.StatusOK, "", "成员租户已更新 | memberships updated")
+}
+
 // userCard 把一行用户与它的角色勾选状态绑在一起。
 // userCard binds one user row to its role checkboxes.
 //

@@ -1,0 +1,157 @@
+{{/*
+  partials/users/edit_drawer.html —— 编辑用户抽屉的内容（由 GET /users/{id}/edit 渲染）。
+  partials/users/edit_drawer.html — the content of the user edit drawer (rendered by GET /users/{id}/edit).
+
+  一个抽屉覆盖整条生命周期，但每个动作仍是一个独立表单、一条独立路由：改资料不会顺手改角色，
+  重置口令不会顺手停用账号。所有写动作都带 data-yd-confirm，提交前必须经过全局确认对话框。
+  One drawer covers the whole lifecycle, yet every action stays a separate form and a separate route:
+  editing a profile never rewrites roles and resetting a password never disables the account. Every write
+  carries data-yd-confirm, so the global confirmation dialog always runs first.
+
+  数据契约 | Data contract: .Target（model.User） .RoleOptions（[]model.RoleOption） .AllTenants
+  （[]model.Tenant，仅在持有 tenant:read 时注入） .CanListTenants .KeyEndpoint .Perm。
+*/}}
+{{- $target := .Target -}}
+<div class="yd-drawer__head">
+  <h2 class="yd-section__title">{{ tr "page.users.edit" }}</h2>
+  <p class="yd-section__hint">
+    {{ $target.Display }} · <code class="yd-code">{{ $target.Username }}</code>
+    {{- if $target.DefaultTenantID }} · {{ tr "tenant.default" }}{{ end }}
+  </p>
+</div>
+
+<section class="yd-drawer__section" aria-labelledby="yd-drawer-profile">
+  <h3 class="yd-section__title" id="yd-drawer-profile">{{ tr "page.users.profile" }}</h3>
+  <form class="yd-form" method="post" action="/users/{{ $target.ID }}"
+        hx-post="/users/{{ $target.ID }}" hx-target="#yd-workspace" hx-swap="innerMorph"
+        hx-status:409="target:#yd-errors swap:innerHTML"
+        hx-status:422="target:#yd-errors swap:innerHTML"
+        hx-disabled-elt="find button[type='submit']"
+        data-yd-confirm="{{ tr "confirm.update_user" }}" novalidate>
+    <div class="yd-form__field">
+      <label class="yd-form__label" for="yd-drawer-username">{{ tr "field.username" }}</label>
+      <input class="yd-input" id="yd-drawer-username" name="username" type="text"
+             required maxlength="64" value="{{ $target.Username }}">
+    </div>
+    <div class="yd-form__field">
+      <label class="yd-form__label" for="yd-drawer-display">{{ tr "field.display_name" }}</label>
+      <input class="yd-input" id="yd-drawer-display" name="display_name" type="text"
+             maxlength="64" value="{{ $target.DisplayName }}">
+    </div>
+    <div class="yd-form__field">
+      <label class="yd-form__label" for="yd-drawer-email">{{ tr "field.email" }}</label>
+      <input class="yd-input" id="yd-drawer-email" name="email" type="email"
+             maxlength="254" value="{{ $target.Email }}">
+    </div>
+    <div class="yd-form__actions">
+      <button type="submit" class="yd-btn yd-btn--primary">{{ tr "ui.save" }}</button>
+    </div>
+  </form>
+</section>
+
+<section class="yd-drawer__section" aria-labelledby="yd-drawer-roles">
+  <h3 class="yd-section__title" id="yd-drawer-roles">{{ tr "field.roles" }}</h3>
+  <form class="yd-form" method="post" action="/users/{{ $target.ID }}/roles"
+        hx-post="/users/{{ $target.ID }}/roles" hx-target="#yd-workspace" hx-swap="innerMorph"
+        hx-status:422="target:#yd-errors swap:innerHTML"
+        hx-disabled-elt="find button[type='submit']"
+        data-yd-confirm="{{ tr "confirm.assign_roles" }}" novalidate>
+    <fieldset class="yd-form__fieldset">
+      <legend class="yd-form__label">{{ tr "field.roles" }}</legend>
+      {{ range .RoleOptions }}
+      <label class="yd-check" for="yd-drawer-role-{{ .Name }}">
+        <input class="yd-check__input" id="yd-drawer-role-{{ .Name }}" type="checkbox"
+               name="roles" value="{{ .Name }}"{{ if .Selected }} checked{{ end }}>
+        <span class="yd-check__label">{{ .Name }}</span>
+        <span class="yd-hint">{{ .Description }}</span>
+      </label>
+      {{ end }}
+    </fieldset>
+    <div class="yd-form__actions">
+      <button type="submit" class="yd-btn yd-btn--primary">{{ tr "ui.assign" }}</button>
+    </div>
+  </form>
+</section>
+
+{{- if .CanListTenants }}
+<section class="yd-drawer__section" aria-labelledby="yd-drawer-tenants">
+  <h3 class="yd-section__title" id="yd-drawer-tenants">{{ tr "tenant.memberships" }}</h3>
+  <p class="yd-section__hint">{{ tr "tenant.memberships_hint" }}</p>
+  <form class="yd-form" method="post" action="/users/{{ $target.ID }}/tenants"
+        hx-post="/users/{{ $target.ID }}/tenants" hx-target="#yd-workspace" hx-swap="innerMorph"
+        hx-status:409="target:#yd-errors swap:innerHTML"
+        hx-status:422="target:#yd-errors swap:innerHTML"
+        hx-disabled-elt="find button[type='submit']"
+        data-yd-confirm="{{ tr "confirm.set_tenants" }}" novalidate>
+    <fieldset class="yd-form__fieldset">
+      <legend class="yd-form__label">{{ tr "tenant.memberships" }}</legend>
+      {{ range .AllTenants }}
+      {{- if $target.HasTenant .ID }}
+      {{/* 禁用的复选框不会提交，隐藏字段保证身份租户与默认租户仍在提交集合里。 */}}
+      {{/* A disabled checkbox is not submitted; the hidden field keeps the home and default tenants in the set. */}}
+      <input type="hidden" name="tenants" value="{{ .ID }}">
+      {{- end }}
+      <label class="yd-check" for="yd-drawer-tenant-{{ .ID }}">
+        <input class="yd-check__input" id="yd-drawer-tenant-{{ .ID }}" type="checkbox"
+               name="tenants" value="{{ .ID }}"
+               {{- if $target.HasTenant .ID }} checked{{ end }}
+               {{- if or (eq .ID $target.HomeTenantID) (eq .ID $target.DefaultTenantID) }} disabled{{ end }}>
+        <span class="yd-check__label">{{ .Display }}</span>
+        {{- if eq .ID $target.HomeTenantID }}<span class="yd-badge yd-badge--muted">{{ tr "tenant.home" }}</span>{{ end }}
+        {{- if eq .ID $target.DefaultTenantID }}<span class="yd-badge yd-badge--info">{{ tr "tenant.default" }}</span>{{ end }}
+      </label>
+      {{ end }}
+    </fieldset>
+    <div class="yd-form__field">
+      <label class="yd-form__label" for="yd-drawer-default-tenant">{{ tr "tenant.default" }}</label>
+      <select class="yd-select" id="yd-drawer-default-tenant" name="default_tenant">
+        {{ range .AllTenants }}
+        <option value="{{ .ID }}"{{ if eq .ID $target.DefaultTenantID }} selected{{ end }}>{{ .Display }}</option>
+        {{ end }}
+      </select>
+      <span class="yd-hint">{{ tr "tenant.default_hint" }}</span>
+    </div>
+    <div class="yd-form__actions">
+      <button type="submit" class="yd-btn yd-btn--primary">{{ tr "ui.save" }}</button>
+    </div>
+  </form>
+</section>
+{{- end }}
+
+<section class="yd-drawer__section" aria-labelledby="yd-drawer-password">
+  <h3 class="yd-section__title" id="yd-drawer-password">{{ tr "ui.reset_password" }}</h3>
+  <form class="yd-form" method="post" action="/users/{{ $target.ID }}/password"
+        data-yd-encrypt="sm2" data-yd-pubkey="{{ .KeyEndpoint }}"
+        hx-post="/users/{{ $target.ID }}/password" hx-target="#yd-workspace" hx-swap="innerMorph"
+        hx-status:400="target:#yd-errors swap:innerHTML"
+        hx-status:422="target:#yd-errors swap:innerHTML"
+        hx-disabled-elt="find button[type='submit']"
+        data-yd-confirm="{{ tr "confirm.reset_password" }}" novalidate>
+    <div class="yd-form__field">
+      <label class="yd-form__label" for="yd-drawer-password-input">{{ tr "page.users.new_password" }}</label>
+      <input class="yd-input" id="yd-drawer-password-input" name="password" type="password"
+             autocomplete="new-password" required data-yd-sensitive>
+    </div>
+    <div class="yd-form__actions">
+      <button type="submit" class="yd-btn yd-btn--ghost">{{ tr "ui.reset_password" }}</button>
+    </div>
+  </form>
+</section>
+
+<section class="yd-drawer__section" aria-labelledby="yd-drawer-status">
+  <h3 class="yd-section__title" id="yd-drawer-status">{{ tr "field.status" }}</h3>
+  <form method="post" action="/users/{{ $target.ID }}/status"
+        hx-post="/users/{{ $target.ID }}/status" hx-target="#yd-workspace" hx-swap="innerMorph"
+        data-yd-confirm="{{ if $target.Active }}{{ tr "confirm.disable_user" }}{{ else }}{{ tr "confirm.enable_user" }}{{ end }}">
+    {{ if $target.Active }}
+    <button type="submit" name="status" value="disabled" class="yd-btn yd-btn--ghost">{{ tr "ui.disable" }}</button>
+    {{ else }}
+    <button type="submit" name="status" value="active" class="yd-btn yd-btn--ghost">{{ tr "ui.enable" }}</button>
+    {{ end }}
+  </form>
+  <form method="post" action="/users/{{ $target.ID }}/sec-key"
+        hx-post="/users/{{ $target.ID }}/sec-key" hx-target="#yd-workspace" hx-swap="innerMorph"
+        data-yd-confirm="{{ tr "confirm.rotate_key" }}">
+    <button type="submit" class="yd-btn yd-btn--ghost">{{ tr "ui.rotate_key" }}</button>
+  </form>
+</section>

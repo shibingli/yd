@@ -38,7 +38,9 @@ var (
 // LoginInput 是一次登录请求的全部输入；Password 是 SM2 密文（原始字节或标准 Base64）。
 // LoginInput carries every input of one sign-in request; Password is the SM2 ciphertext (raw bytes or standard Base64).
 type LoginInput struct {
-	// TenantID is the already resolved tenant id. | TenantID 是已解析出的租户 ID。
+	// TenantID is the already resolved tenant id; empty means a tenant-less sign-in
+	// that lands in the user's default tenant. | TenantID 是已解析出的租户 ID；
+	// 为空表示无租户登录，将落入用户的默认租户。
 	TenantID string
 	// Username is the sign-in name inside the tenant (not the e-mail address). | Username 是租户内的登录名（不是邮箱）。
 	Username string
@@ -143,6 +145,28 @@ func (s *AuthService) Login(ctx context.Context, in LoginInput) (*auth.LoginResu
 		logx.Str("username", result.User.Username),
 	)
 	return result, nil
+}
+
+// SwitchTenant verifies the membership and issues a token for the target tenant. | SwitchTenant 校验成员关系并为目标租户签发新令牌。
+//
+// A non-member and a missing tenant are indistinguishable inside the auth package and both end in ErrNotFound,
+// which the controller maps to 404, so the switch endpoint cannot be used to enumerate a user's memberships.
+// | 非成员与不存在的租户在 auth 包内不可区分，都以 ErrNotFound 结束；控制器把它映射为 404，
+// 因此切换接口不能被用来枚举用户的成员租户。
+func (s *AuthService) SwitchTenant(ctx context.Context, userID, tenantID string) (*auth.LoginResult, error) {
+	u, err := s.store.Auth().SwitchTenant(ctx, userID, tenantID)
+	if err != nil {
+		return nil, err
+	}
+	token, expiresAt, err := s.store.Issuer().Issue(ctx, u)
+	if err != nil {
+		return nil, errx.Wrap(err, ErrCredentials)
+	}
+	s.log.Info("tenant switched | 已切换租户",
+		logx.Str("tenant", u.TenantID),
+		logx.Str("user", u.ID),
+	)
+	return &auth.LoginResult{Token: token, ExpiresAt: expiresAt, User: u}, nil
 }
 
 // ChangePassword 校验当前口令后设置新口令；auth 包会同时轮换 sec_key，让旧令牌立即失效。

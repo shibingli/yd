@@ -190,7 +190,7 @@ func TestMigrateCreatesEveryTableAndIndex(t *testing.T) {
 		t.Fatalf("second Migrate() = %v, want nil | 第二次 Migrate() = %v，期望 nil", err, err)
 	}
 
-	for _, table := range []string{tableTenants, tableUsers, tableRoles, tableRolePermissions} {
+	for _, table := range []string{tableTenants, tableUsers, tableUserTenants, tableRoles, tableRolePermissions} {
 		if !db.Migrator().HasTable(table) {
 			t.Errorf("table %q is missing after Migrate | 迁移后缺少表 %q", table, table)
 		}
@@ -204,9 +204,15 @@ func TestMigrateCreatesEveryTableAndIndex(t *testing.T) {
 	}{
 		{indexTenantsSlug, tableTenants, true, []string{"slug_key"}},
 		{indexTenantsCreatedAt, tableTenants, false, []string{"created_at"}},
-		{indexUsersTenantID, tableUsers, true, []string{"tenant_id", "id"}},
-		{indexUsersTenantUsername, tableUsers, true, []string{"tenant_id", "username_key"}},
-		{indexUsersTenantCreatedAt, tableUsers, false, []string{"tenant_id", "created_at"}},
+		{indexUsersID, tableUsers, true, []string{"id"}},
+		{indexUsersUsername, tableUsers, true, []string{"username_key"}},
+		{indexUsersCreatedAt, tableUsers, false, []string{"created_at"}},
+		{indexUsersHomeTenant, tableUsers, false, []string{"tenant_id"}},
+		{indexUsersDefaultTenant, tableUsers, false, []string{"default_tenant_id"}},
+		{indexUserTenantsUnique, tableUserTenants, true, []string{"user_id", "tenant_id"}},
+		{indexUserTenantsTenant, tableUserTenants, false, []string{"tenant_id", "user_id"}},
+		{indexUserTenantsTenantAt, tableUserTenants, false, []string{"tenant_id", "created_at"}},
+		{indexUserTenantsUserDeflt, tableUserTenants, false, []string{"user_id", "is_default"}},
 		{indexRolesTenantID, tableRoles, true, []string{"tenant_id", "id"}},
 		{indexRolesTenantName, tableRoles, true, []string{"tenant_id", "name"}},
 		{indexRolePermsUnique, tableRolePermissions, true, []string{"tenant_id", "role_id", "permission"}},
@@ -266,7 +272,7 @@ type indexMeta struct {
 func listIndexes(t *testing.T, db *gorm.DB) map[string]indexMeta {
 	t.Helper()
 	out := make(map[string]indexMeta)
-	for _, table := range []string{tableTenants, tableUsers, tableRoles, tableRolePermissions} {
+	for _, table := range []string{tableTenants, tableUsers, tableUserTenants, tableRoles, tableRolePermissions} {
 		var rows []struct {
 			Name   string `gorm:"column:name"`
 			Unique int    `gorm:"column:unique"`
@@ -390,5 +396,67 @@ func TestMigratePrefixesEveryObjectWithYD(t *testing.T) {
 		if !strings.HasPrefix(name, "yd_idx_") {
 			t.Errorf("index %q does not start with yd_idx_ | 索引 %q 不以 yd_idx_ 开头", name, name)
 		}
+	}
+}
+
+// TestMigrateBackfillsMembershipsFromLegacyUsers upgrades a database written before memberships
+// existed and proves the account keeps its roles and default tenant. | TestMigrateBackfillsMembershipsFromLegacyUsers
+// 升级成员关系出现之前写入的数据库，并证明账号保留角色与默认租户。
+func TestMigrateBackfillsMembershipsFromLegacyUsers(t *testing.T) {
+	ctx := context.Background()
+	db := openDB(t, filepath.Join(t.TempDir(), "legacy.db"))
+
+	// The legacy schema: tenant-scoped users with a roles column and no membership table.
+	// | 旧 schema：租户内的用户带 roles 列，没有成员关系表。
+	stmts := []string{
+		`CREATE TABLE yd_auth_tenants (
+			created_at datetime, id varchar(64) PRIMARY KEY, slug varchar(128) NOT NULL,
+			slug_key varchar(128) NOT NULL, name varchar(128) NOT NULL, status varchar(32) NOT NULL)`,
+		`CREATE TABLE yd_auth_users (
+			created_at datetime, updated_at datetime, id varchar(64) NOT NULL,
+			tenant_id varchar(64) NOT NULL, username varchar(128) NOT NULL,
+			username_key varchar(128) NOT NULL, email varchar(191), display_name varchar(191),
+			password_hash varchar(255), status varchar(32) NOT NULL, roles text,
+			encrypted_sec_key blob)`,
+		`INSERT INTO yd_auth_tenants (created_at, id, slug, slug_key, name, status)
+			VALUES ('2026-01-01 00:00:00', 'tn_a', 'alpha', 'alpha', 'Alpha', 'active')`,
+		`INSERT INTO yd_auth_users (created_at, updated_at, id, tenant_id, username, username_key,
+			status, roles, encrypted_sec_key)
+			VALUES ('2026-01-01 00:00:00', '2026-01-01 00:00:00', 'us_a', 'tn_a', 'Alice', 'alice',
+			'active', '["owner"]', X'00')`,
+	}
+	for _, stmt := range stmts {
+		if err := db.Exec(stmt).Error; err != nil {
+			t.Fatalf("legacy setup failed: %v | 旧 schema 准备失败：%v", err, err)
+		}
+	}
+
+	if err := Migrate(ctx, db); err != nil {
+		t.Fatalf("Migrate() = %v, want nil | Migrate() = %v，期望 nil", err, err)
+	}
+	// Idempotence: the upgrade runs on every start. | 幂等：升级在每次启动时都会运行。
+	if err := Migrate(ctx, db); err != nil {
+		t.Fatalf("second Migrate() = %v, want nil | 第二次 Migrate() = %v，期望 nil", err, err)
+	}
+
+	store, err := New(db, Options{QueryTimeout: time.Minute})
+	if err != nil {
+		t.Fatalf("New() = %v | New() = %v", err, err)
+	}
+	u, err := store.GetUser(ctx, "tn_a", "us_a")
+	if err != nil {
+		t.Fatalf("GetUser() = %v, want nil | GetUser() = %v，期望 nil", err, err)
+	}
+	if u.HomeTenantID != "tn_a" || u.DefaultTenantID != "tn_a" || u.TenantID != "tn_a" {
+		t.Fatalf("tenants = home %[1]q default %[2]q active %[3]q, want tn_a | 租户 = 身份 %[1]q 默认 %[2]q 活动 %[3]q，期望 tn_a",
+			u.HomeTenantID, u.DefaultTenantID, u.TenantID)
+	}
+	if len(u.Roles) != 1 || u.Roles[0] != "owner" {
+		t.Fatalf("roles = %v, want [owner] | 角色 = %v，期望 [owner]", u.Roles, u.Roles)
+	}
+	tenants, err := store.ListUserTenants(ctx, "us_a")
+	if err != nil || len(tenants) != 1 || tenants[0].ID != "tn_a" {
+		t.Fatalf("ListUserTenants() = %v, %v; want one tn_a | ListUserTenants() = %v，%v；期望一个 tn_a",
+			tenants, err, tenants, err)
 	}
 }

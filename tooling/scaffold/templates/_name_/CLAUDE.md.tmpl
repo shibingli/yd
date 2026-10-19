@@ -79,13 +79,17 @@
 这一节约束的是「谁能看到什么」：违反其中任何一条，后果都不是页面难看，而是另一个租户的数据被读到或被改动。
 
 1. **租户只来自令牌，不来自请求**：查询一律带上 `tenantID`，且该值只能取自 `internal/middleware` 从令牌 `tid` 声明解析出的上下文。
-   子域名与 `X-Tenant` 请求头只用于**解析**租户（登录页预填、匿名请求定位），一旦与令牌声明不一致即 403；
-   禁止从表单字段或查询参数取租户 ID 去查数据。
+   子域名与 `X-Tenant` 请求头只用于**匿名请求定位**；登录表单不带租户字段，服务端按全局登录名认证并落入默认租户，
+   一旦请求指明的租户与令牌声明不一致即 403；禁止从表单字段或查询参数取租户 ID 去查数据。
    ```go
    tenantID, ok := middleware.TenantID(ctx) // 唯一可信来源 | the only trusted source
    ```
 2. **未知与越权同形**：跨租户或已删除的实体一律返回 `auth.ErrNotFound`（404 语义），**绝不**返回 `auth.ErrForbidden`。
    响应上的任何差异都会变成「另一个租户是否存在」的探针，这是 `auth.Store` 的接口契约，换存储实现时同样受它约束。
+2.1 **用户是全局身份，租户是成员关系**：登录名全局唯一；一个用户可隶属多个租户（`yd_auth_user_tenants`），
+   必须有且只有一个默认租户（`default_tenant_id`）。`auth.User.TenantID` 是当前活动租户，`HomeTenantID`
+   是不可变的身份租户（封装 sec_key），`DefaultTenantID` 是无租户登录落入的租户。切换租户（`POST /tenant/switch`）
+   必须校验成员关系并重新签发令牌；非成员与不存在的租户都返回 404；身份租户与默认租户不可移除。
 3. **能力守卫挂在路由上**：受保护端点必须显式声明 `authz.Require(authz.PermXxx)`，处理器内部不得再抄一份权限判断；
    `authz.Require` 就是 `auth.RequirePermission` 的注册表包装（它把标识、常量名、数据键、脚本键四种写法解析成注册过的标识），
    因此路由上绝不允许出现 `auth.RequirePermission("user:create")` 这样的字面量调用；
@@ -103,8 +107,9 @@
 默认租户、四个内置角色与该租户的 `owner` 管理员。租户标识与登录名来自 `seed.tenant` / `seed.username`
 （环境变量 `YD_SEED_TENANT` / `YD_SEED_USERNAME` 覆盖，留空回退到 `default` / `admin`）；口令来自 `seed.admin_password` / `YD_SEED_ADMIN_PASSWORD`，
 **不硬编码**：开发环境未配置时用文档化的 `meta.DevSeedAdminPassword` 并每次启动告警，其它环境未配置时**拒绝初始化**并告警；
-口令明文永不写入日志。**首次登录后必须立即改密**——登录页、首页横幅与账号页共用 `meta.SeedPasswordNotice` 这一句文案，
-改提醒只需改那一处；`store.SeedPasswordUnchanged` 用一次口令校验判断账号是否仍在用默认口令。
+口令明文永不写入日志。**首次登录后必须立即改密**——首页横幅与账号页共用 `meta.SeedPasswordNotice` 这一句文案
+（登录页只保留登录功能，不显示种子凭据说明），改提醒只需改那一处；`store.SeedPasswordUnchanged`
+用一次口令校验判断账号是否仍在用默认口令。
 
 ## 7. 提交纪律（强制）
 
@@ -147,6 +152,24 @@ yd gen module|crud   # 低代码生成（DB Schema 或 Go Struct）
   两份目录的键集合必须严格一致（脚手架测试会逐键核对），少一个键页面就会把键名原样显示出来。
 - 主题（浅色 / 深色 / 跟随系统）与语言切换都是纯客户端行为，落在 `{{ .AssetRoot }}/static/js/yd-app.js`；
   内容安全策略只允许 `script-src 'self'`，因此**禁止内联脚本**与内联样式。
+- 所有样式必须继承 Tailwind v4：`app.css` 引入 `@import "tailwindcss"`，设计令牌写在 `@theme`，
+  项目与框架组件写在 `@layer components`；可复用的工具类用 `@apply`，颜色不得在令牌块之外写字面量。
+- 语言切换与侧栏导航一律 `hx-target="#yd-shell"`：服务端返回整块外壳，侧栏高亮与语言才会同步；
+  登录前外壳只保留登录卡片（含离线 SVG 品牌区 `/static/img/yd-icon.svg`）与右上角的语言/主题切换。
+  favicon 同样指向该同源图标，禁止 `data:,` 空图标或外链；侧栏页脚只显示版本，不列中间件与组件。
+- 接口组（接口文档、OpenAPI JSON、健康检查）一律 `target="_blank" rel="noopener noreferrer"` 新标签页打开，
+  页面内的 `/docs`、`/openapi.json` 链接同样处理；它们不能换进工作区。
+- 新增/编辑一律用右侧抽屉（`#yd-drawer` + `data-yd-drawer-open` + `hx-get` 片段）；
+  列表操作用下拉菜单（`details.yd-menu`），顶栏租户切换复用同一套面板与条目样式（不用原生 select）；
+  所有变更动作必须带 `data-yd-confirm` 并经过全局确认对话框；多按钮表单确认后必须把
+  `event.submitter` 传回 `requestSubmit`，否则按钮的 `name`/`value` 会丢失。
+- 首页资源仪表盘每 5 秒轮询 `GET /metrics`，用纯 SVG 仪表盘展示宿主机与进程的 CPU/内存；
+  指标来自 `core/sysinfo` 与 `runtime/metrics`，平台不支持时显示「不可用」，不得编造数字。
+- htmx 4 只交换匿名 SSE 消息：`Broker.PublishHTML` 发送无名 `data:` 消息，命名事件仅用于旁路通知；
+  OpenAPI 查看器脚本必须是同源外链，内联脚本会被 CSP 拦截并让 `/docs` 空白。
+- OpenAPI 查看器左侧按 `tag` 分组，操作详情提供同源在线测试（服务器、鉴权头、参数与 JSON 请求体，
+  响应显示状态/耗时/响应头/正文）；跨源请求会被 CSP 拦截，因此只允许同源。
+  查看器读取 `localStorage.yd_theme` 并在顶栏提供浅色/深色/跟随系统切换，控件边框必须清晰可见。
 - **可选外部工具一律经 `yd tools`**：`betteralign` / `ko` / `tailwindcss` / `docker` 用 `yd tools check` 探测、
   `yd tools install [名称...]` 安装（落在项目内 `.yd/tools/`，`GOBIN` 指向它的绝对路径）；
   **禁止**手写 `go install` 装到全局，**禁止**改动 `PATH` 或往 `~/go/bin` 写东西。

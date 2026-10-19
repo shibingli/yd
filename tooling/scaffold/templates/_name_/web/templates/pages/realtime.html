@@ -65,21 +65,34 @@
       <p class="yd-section__hint">
         {{ tr "page.realtime.ws_hint" .Target }}
       </p>
-      {{/* 回显消息以 beforeend 追加，因此这里是一条可滚动的对话记录而不是被覆盖的一块内容。
-           Echoed messages are appended with beforeend, which makes this a scrollable log instead of an overwritten block. */}}
-      <div class="yd-stream yd-stream--log" id="yd-ws-stream" role="log" aria-live="polite" aria-relevant="additions"
-           hx-ws:connect="/ws" hx-target="this" hx-swap="beforeend">
-        <p class="yd-stream__placeholder">{{ tr "page.realtime.ws_placeholder" }}</p>
-      </div>
+      {{/* 连接元素必须包住发送控件：htmx 4 的 ws 扩展用 closest() 从发送元素向上找 hx-ws:connect，
+           把发送按钮放在连接元素之外会报 "No WebSocket connection found" 并且不会发出任何消息。
+           连接元素同时给出默认目标与交换策略，服务端回显与主动推送都复用它们。
+           The connect element must wrap the send controls: the htmx 4 ws extension walks up from the sender
+           with closest(), so a send button outside the connect element reports "No WebSocket connection found"
+           and sends nothing. The connect element also carries the default target and swap used by the echo and
+           by server pushes. */}}
+      <div class="yd-ws" id="yd-ws"
+           hx-ws:connect="/ws" hx-target="#yd-ws-stream" hx-swap="beforeend">
+        {{/* 回显消息以 beforeend 追加，因此这里是一条可滚动的对话记录而不是被覆盖的一块内容。
+             Echoed messages are appended with beforeend, which makes this a scrollable log instead of an overwritten block. */}}
+        <div class="yd-stream yd-stream--log" id="yd-ws-stream" role="log" aria-live="polite" aria-relevant="additions">
+          <p class="yd-stream__placeholder">{{ tr "page.realtime.ws_placeholder" }}</p>
+        </div>
 
-      {{/* 输入区是 div 而不是 form：它从不离开页面，只把内容喂给套接字。
-           The composer is a div rather than a form: it never leaves the page, it only feeds the socket. */}}
-      <div class="yd-composer" data-yd-ws-composer>
-        <label class="sr-only" for="yd-ws-message">{{ tr "page.realtime.composer_label" }}</label>
-        <input class="yd-input yd-composer__input" id="yd-ws-message" name="message" type="text"
-               autocomplete="off" placeholder="{{ tr "page.realtime.composer_placeholder" }}">
-        <button type="button" class="yd-btn yd-btn--primary"
-                hx-ws:send="true" hx-include="closest [data-yd-ws-composer]">{{ tr "ui.send" }}</button>
+        {{/* 输入区是 div 而不是 form：它从不离开页面，只把内容喂给套接字。回车由 yd-app.js 点击同一个发送按钮，
+             不能用 hx-trigger 过滤器——htmx 用 new Function 编译过滤器，会被 CSP 的 script-src 'self' 拦截。
+             The composer is a div rather than a form: it never leaves the page, it only feeds the socket.
+             Enter is handled by yd-app.js clicking the same send button; an hx-trigger filter cannot be used
+             because htmx compiles filters with new Function, which CSP script-src 'self' blocks. */}}
+        <div class="yd-composer" data-yd-ws-composer>
+          <label class="sr-only" for="yd-ws-message">{{ tr "page.realtime.composer_label" }}</label>
+          <input class="yd-input yd-composer__input" id="yd-ws-message" name="message" type="text"
+                 autocomplete="off" placeholder="{{ tr "page.realtime.composer_placeholder" }}"
+                 data-yd-ws-enter>
+          <button type="button" class="yd-btn yd-btn--primary"
+                  hx-ws:send="true" hx-include="closest [data-yd-ws-composer]">{{ tr "ui.send" }}</button>
+        </div>
       </div>
     </section>
   </div>
@@ -89,7 +102,7 @@
     <p class="yd-section__hint">{{ tr "page.realtime.data_hint" }}</p>
     <p class="yd-hint">
       {{ tr "page.realtime.data_body" }}
-      <a class="yd-link" href="/openapi.json">OpenAPI</a>
+      <a class="yd-link" href="/openapi.json" target="_blank" rel="noopener noreferrer">OpenAPI</a>
     </p>
   </section>
 </section>

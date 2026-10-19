@@ -122,9 +122,14 @@ func (b *Broker) Publish(topic string, e Event) {
 
 // PublishHTML publishes an HTML partial update using Htmx SSE semantics. | PublishHTML 以 Htmx SSE 语义发布一段 HTML 局部更新。
 //
-// The event name is fixed to the topic name (clients can trigger it with sse-swap="<topic>"), and the data is | 事件名固定为主题名（客户端可用 sse-swap="<topic>" 触发），数据为
-// `<hx-partial hx-target="…" hx-swap="…">…</hx-partial>`; | `<hx-partial hx-target="…" hx-swap="…">…</hx-partial>`；
-// the hx-target / hx-swap attribute values are HTML-attribute-escaped, while the html fragment itself is transmitted as is. | hx-target / hx-swap 的属性值会做 HTML 属性转义，html 片段本身按原样传输。
+// The event is an anonymous SSE message: htmx 4 removed sse-swap and swaps unnamed messages automatically.
+// Naming it after the topic would turn it into a DOM event instead of a swap, which is what silently left
+// every htmx 4 clock on "connecting". The data is `<hx-partial hx-target="…" hx-swap="…">…</hx-partial>`;
+// the hx-target / hx-swap attribute values are HTML-attribute-escaped, while the html fragment itself is
+// transmitted as is. | 该事件是匿名 SSE 消息：htmx 4 已移除 sse-swap，并自动交换无名消息。把它命名为主题名会
+// 将其变成 DOM 事件而不是交换，这正是所有 htmx 4 时钟停在「连接中」的原因。数据为
+// `<hx-partial hx-target="…" hx-swap="…">…</hx-partial>`；hx-target / hx-swap 的属性值会做 HTML 属性转义，
+// html 片段本身按原样传输。
 func (b *Broker) PublishHTML(topic, target, swap, html string) {
 	var sb strings.Builder
 	sb.Grow(len(html) + len(target) + len(swap) + 48)
@@ -135,7 +140,7 @@ func (b *Broker) PublishHTML(topic, target, swap, html string) {
 	sb.WriteString(`">`)
 	sb.WriteString(html)
 	sb.WriteString(`</hx-partial>`)
-	b.Publish(topic, Event{Name: topic, Data: []byte(sb.String())})
+	b.Publish(topic, Event{Data: []byte(sb.String())})
 }
 
 // Clients returns the current number of subscribers under a topic. | Clients 返回主题下当前的订阅者数量。

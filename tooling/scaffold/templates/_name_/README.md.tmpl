@@ -88,7 +88,7 @@ yd docker --tag {{ .Name }}:latest
 - **未设置 `app.env` 时框架默认是 `development`**；因此生产部署必须显式设置 `YD_APP_ENV=production`
   （或 `app.env: production`），否则会按开发环境处理并使用 `admin123` 回退。
 
-| 租户（登录页"租户"字段） | 租户名称 | 登录名 | 初始口令 |
+| 种子租户（登录后默认进入） | 租户名称 | 登录名 | 初始口令 |
 |---|---|---|---|
 | `seed.tenant`（默认 `default`） | 默认租户 | `seed.username`（默认 `admin`） | `seed.admin_password`（开发环境缺省为 `admin123`） |
 
@@ -97,9 +97,9 @@ yd docker --tag {{ .Name }}:latest
 `internal/meta.SeedTenantSlug`（`default`）与 `internal/meta.SeedAdminUsername`（`admin`）。
 这两项与口令一样只在**租户表为空**时生效；已有数据后修改配置不会迁移既有租户或账号。
 
-> **首次登录后请立即修改默认口令** —— 登录页与首页横幅都会提醒，账号页的「修改口令」表单完成改密与 `sec_key` 轮换
+> **首次登录后请立即修改默认口令** —— 首页横幅会提醒，账号页的「修改口令」表单完成改密与 `sec_key` 轮换
 > （改密或轮换 `sec_key` 都会让此前签发的全部令牌立即失效，因此保存后需要重新登录）。
-> README、登录页与横幅引用的是 `internal/meta` 里的同一句 `SeedPasswordNotice`，改文案只需改那一处。
+> README、首页横幅与账号页引用的是 `internal/meta` 里的同一句 `SeedPasswordNotice`，改文案只需改那一处。
 > 口令明文永不进入日志：启动日志与告警只说「用了哪一个来源」，从不说口令是什么。
 
 种子只创建一个默认租户；需要验证「跨租户不可见」时，用 `admin` 在租户管理页再建一个租户即可，
@@ -124,7 +124,7 @@ until the variable is set. The clear text never reaches a log.
 `internal/repository` 在启动时打开配置里的数据库、执行一次幂等的自动迁移，再把框架的 GORM 实现注入 `auth.Service`：
 
 - **表由框架拥有**：`yd_auth_tenants`、`yd_auth_users`、`yd_auth_roles`、`yd_auth_role_permissions` 四张表由 `security/auth/gormstore.Migrate` 建出，
-  索引随表一起建好（库内唯一租户标识、租户内唯一登录名、租户内唯一角色名、角色权限唯一等）。`internal/model` 只描述渲染用的视图类型，不拥有 DDL。
+  索引随表一起建好（库内唯一租户标识、全局唯一登录名、租户内唯一角色名、成员关系唯一、角色权限唯一等）。`internal/model` 只描述渲染用的视图类型，不拥有 DDL。
 - **SQLite 默认落点**：`configs/config.yaml` 的 `db.dsn` 指向 `data/{{ .Name }}.db`（相对进程工作目录），WAL 边车文件 `-wal` / `-shm` 与库文件一起被 `.gitignore` 忽略。
   驱动不会自建目录，因此 `data/` 随项目一起生成（`data/.gitkeep`）；**生产环境请把 `db.dsn` 写成绝对路径**，并确保目录已存在。
 - **连接池与时长**：`db.maxconn`、`db.maxidle`、`db.slow_threshold` 与框架的 `data/gormx` 同源；单条鉴权语句的上限是 `auth.gorm.query_timeout`（`0` 表示不额外设限）。
@@ -160,7 +160,8 @@ assembly point.
   再附上 `X-YD-Encrypted: sm2` 请求头；服务端用 SM2 私钥解密，请求体里不留任何明文。
 - **会话**：登录成功后令牌写入 `HttpOnly` + `SameSite=Lax` 的 `yd_token` cookie；浏览器请求由 `middleware.Promote`
   提升成 `Authorization: Bearer <token>`，与 API 客户端走同一条校验路径。
-- **租户来源**：登录表单的「租户」字段填标识（`default`）或 `tn_` ID；也接受 `X-Tenant` 请求头与子域名。
+- **租户来源**：登录表单只填用户名与口令，登录后落入用户的默认租户；已登录时可用顶栏下拉切换成员租户，
+  匿名请求仍接受 `X-Tenant` 请求头与子域名来定位租户。
   带令牌的请求以令牌里的 `tid` 声明为准，请求头或子域名与它不一致即 403。
 - **能力（权限）**：能力标识由框架注册表 `authz` 声明（`authz.PermUserRead`、`authz.PermUserUpdate`、`authz.PermRoleManage`、
   `authz.PermTenantCreate` 等十六个），`internal/model` 只是它的一份渲染视图；

@@ -5,16 +5,43 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/shibingli/yd/core/errx"
 )
 
+// membership is one user's participation in one tenant: the roles granted there
+// and whether that tenant is the sign-in default. | membership 是一个用户在某个租户中的成员关系：
+// 该租户授予的角色，以及它是否为登录默认租户。
+type membership struct {
+	// createdAt orders memberships deterministically when timestamps tie. | createdAt 在时间戳相同时提供确定顺序。
+	createdAt time.Time
+	// roles holds the role names of that tenant. | roles 保存该租户内的角色名。
+	roles []string
+	// defaultTenant marks the tenant a bare sign-in lands in. | defaultTenant 标记未指明租户时登录落入的租户。
+	defaultTenant bool
+}
+
+// clone returns a deep copy of m. | clone 返回 m 的深拷贝。
+func (m *membership) clone() *membership {
+	if m == nil {
+		return nil
+	}
+	dup := *m
+	if m.roles != nil {
+		dup.roles = append([]string(nil), m.roles...)
+	}
+	return &dup
+}
+
 // memoryStore is the default in-process Store. | memoryStore 是默认的进程内 Store。
 //
-// Every map is keyed by tenant id first, so a lookup for another tenant simply
-// misses and reports ErrNotFound; there is no code path that could return a
-// foreign entity even by accident. | 每个 map 都以租户 ID 为第一层键，因此对其它租户的查询必然
-// 未命中并报 ErrNotFound；不存在任何可能意外返回外部实体的代码路径。
+// Users are global identities: one row holds the password, the sec_key and the
+// immutable home tenant, while memberships carry the per-tenant roles. A lookup
+// for a tenant the user does not belong to simply misses and reports ErrNotFound,
+// so there is no code path that could return a foreign entity even by accident.
+// | 用户是全局身份：一条记录保存口令、sec_key 与不可变的身份租户，成员关系则携带各租户的角色。
+// 对用户并不隶属的租户做查询必然未命中并报 ErrNotFound，因此不存在任何可能意外返回外部实体的代码路径。
 //
 // Reads hand out deep copies, so a caller can never mutate stored state and two
 // goroutines never share a mutable struct: the whole type is -race clean. | 读取一律交出深拷贝，
@@ -24,10 +51,14 @@ type memoryStore struct {
 	tenants map[string]*Tenant
 	// slugs maps tenant slug to tenant id. | slugs 把租户 Slug 映射到租户 ID。
 	slugs map[string]string
-	// users maps tenant id to user id to user. | users 把租户 ID 映射到用户 ID 再到用户。
-	users map[string]map[string]*User
-	// usernames maps tenant id to the lowercased username to user id. | usernames 把租户 ID 映射到小写用户名再到用户 ID。
-	usernames map[string]map[string]string
+	// users maps user id to the global user record (its TenantID is the home tenant). | users 把用户 ID 映射到全局用户记录（其 TenantID 是身份租户）。
+	users map[string]*User
+	// usernames maps the lowercased globally unique username to user id. | usernames 把全局唯一的折叠登录名映射到用户 ID。
+	usernames map[string]string
+	// members maps tenant id to user id to membership. | members 把租户 ID 映射到用户 ID 再到成员关系。
+	members map[string]map[string]*membership
+	// userMembers maps user id to tenant id to membership. | userMembers 把用户 ID 映射到租户 ID 再到成员关系。
+	userMembers map[string]map[string]*membership
 	// roles maps tenant id to role id to role. | roles 把租户 ID 映射到角色 ID 再到角色。
 	roles map[string]map[string]*Role
 	// roleNames maps tenant id to role name to role id. | roleNames 把租户 ID 映射到角色名再到角色 ID。
@@ -48,12 +79,14 @@ func NewMemoryStore() Store { return newMemoryStore() }
 // newMemoryStore returns the concrete store, which tests use to inspect raw state. | newMemoryStore 返回具体类型，测试用它检查库中原始状态。
 func newMemoryStore() *memoryStore {
 	return &memoryStore{
-		tenants:   make(map[string]*Tenant),
-		slugs:     make(map[string]string),
-		users:     make(map[string]map[string]*User),
-		usernames: make(map[string]map[string]string),
-		roles:     make(map[string]map[string]*Role),
-		roleNames: make(map[string]map[string]string),
+		tenants:     make(map[string]*Tenant),
+		slugs:       make(map[string]string),
+		users:       make(map[string]*User),
+		usernames:   make(map[string]string),
+		members:     make(map[string]map[string]*membership),
+		userMembers: make(map[string]map[string]*membership),
+		roles:       make(map[string]map[string]*Role),
+		roleNames:   make(map[string]map[string]string),
 	}
 }
 
@@ -107,7 +140,14 @@ func (m *memoryStore) ListTenants(_ context.Context) ([]*Tenant, error) {
 	return out, nil
 }
 
-// CreateUser stores a new user inside its tenant. | CreateUser 在用户的租户内存入新用户。
+// CreateUser stores a new global user and its memberships. | CreateUser 存入新的全局用户及其成员关系。
+//
+// u.TenantID is the immutable home tenant and the first membership. Additional
+// ids in u.TenantIDs become memberships without roles, which the caller fills in
+// through AddUserTenant. The username is globally unique, so two tenants can no
+// longer hold the same sign-in name. | u.TenantID 是不可变的身份租户与第一个成员关系；
+// u.TenantIDs 中额外的 ID 会成为没有角色的成员关系，由调用方通过 AddUserTenant 补齐。
+// 登录名全局唯一，因此两个租户不再能持有同一个登录名。
 func (m *memoryStore) CreateUser(_ context.Context, u *User) error {
 	if u == nil || u.ID == "" {
 		return errx.Detail(ErrInvalidInput, "user requires an id | 用户必须带 ID")
@@ -119,69 +159,166 @@ func (m *memoryStore) CreateUser(_ context.Context, u *User) error {
 		return errx.Detail(ErrInvalidInput, "user requires a username | 用户必须带用户名")
 	}
 	key := usernameKey(u.Username)
+	stored := cloneUser(u)
+	stored.TenantID = u.TenantID
+	stored.HomeTenantID = u.TenantID
+	if stored.DefaultTenantID == "" {
+		stored.DefaultTenantID = u.TenantID
+	}
+	stored.Roles = nil
+	stored.TenantIDs = nil
+
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if _, ok := m.tenants[u.TenantID]; !ok {
 		// A user outside a known tenant is unreachable, so the write is refused. | 不属于已知租户的用户不可达，因此拒绝写入。
 		return ErrNotFound
 	}
-	byID, ok := m.users[u.TenantID]
-	if !ok {
-		byID = make(map[string]*User)
-		m.users[u.TenantID] = byID
-	}
-	if _, dup := byID[u.ID]; dup {
+	if _, dup := m.users[u.ID]; dup {
 		return errx.Detail(ErrConflict, "user id %q already exists | 用户 ID %q 已存在", u.ID, u.ID)
 	}
-	byName, ok := m.usernames[u.TenantID]
-	if !ok {
-		byName = make(map[string]string)
-		m.usernames[u.TenantID] = byName
-	}
-	if _, dup := byName[key]; dup {
+	if _, dup := m.usernames[key]; dup {
 		return errx.Detail(ErrConflict, "username %q already exists | 用户名 %q 已存在", u.Username, u.Username)
 	}
-	byID[u.ID] = cloneUser(u)
-	byName[key] = u.ID
+	if _, ok := m.tenants[stored.DefaultTenantID]; !ok {
+		return ErrNotFound
+	}
+
+	m.users[u.ID] = stored
+	m.usernames[key] = u.ID
+	m.addMembershipLocked(u.ID, u.TenantID, u.Roles, stored.DefaultTenantID == u.TenantID, stored.CreatedAt)
+	for _, tenantID := range u.TenantIDs {
+		if tenantID == "" || tenantID == u.TenantID {
+			continue
+		}
+		if _, ok := m.tenants[tenantID]; !ok {
+			return ErrNotFound
+		}
+		if _, exists := m.members[tenantID][u.ID]; exists {
+			continue
+		}
+		m.addMembershipLocked(u.ID, tenantID, nil, stored.DefaultTenantID == tenantID, stored.CreatedAt)
+	}
 	return nil
 }
 
-// GetUser returns the user of that tenant. | GetUser 返回该租户下的用户。
+// addMembershipLocked files one membership under both indexes; the caller holds the write lock.
+// | addMembershipLocked 把一条成员关系同时写入两个索引；调用方必须持有写锁。
+func (m *memoryStore) addMembershipLocked(userID, tenantID string, roles []string, isDefault bool, createdAt time.Time) {
+	entry := &membership{roles: append([]string(nil), roles...), createdAt: createdAt, defaultTenant: isDefault}
+	byTenant, ok := m.members[tenantID]
+	if !ok {
+		byTenant = make(map[string]*membership)
+		m.members[tenantID] = byTenant
+	}
+	byTenant[userID] = entry
+	byUser, ok := m.userMembers[userID]
+	if !ok {
+		byUser = make(map[string]*membership)
+		m.userMembers[userID] = byUser
+	}
+	byUser[tenantID] = entry
+}
+
+// GetUser returns the user acting in that tenant. | GetUser 返回在该租户中活动的用户。
 func (m *memoryStore) GetUser(_ context.Context, tenantID, userID string) (*User, error) {
 	if strings.TrimSpace(tenantID) == "" {
 		return nil, ErrTenantRequired
 	}
 	m.mu.RLock()
 	defer m.mu.RUnlock()
-	u, ok := m.users[tenantID][userID]
+	return m.buildUserLocked(tenantID, userID)
+}
+
+// buildUserLocked materialises the request-scoped view of a stored user. | buildUserLocked 构造库中用户在请求作用域下的视图。
+//
+// The caller holds at least a read lock. | 调用方至少持有读锁。
+func (m *memoryStore) buildUserLocked(tenantID, userID string) (*User, error) {
+	stored, ok := m.users[userID]
 	if !ok {
 		return nil, ErrNotFound
 	}
-	return cloneUser(u), nil
+	entry, ok := m.members[tenantID][userID]
+	if !ok {
+		return nil, ErrNotFound
+	}
+	out := cloneUser(stored)
+	out.TenantID = tenantID
+	out.HomeTenantID = stored.TenantID
+	out.DefaultTenantID = stored.DefaultTenantID
+	if out.DefaultTenantID == "" {
+		out.DefaultTenantID = stored.TenantID
+	}
+	out.Roles = append([]string(nil), entry.roles...)
+	out.TenantIDs = m.tenantIDsLocked(userID)
+	return out, nil
+}
+
+// tenantIDsLocked returns the sorted membership ids of one user. | tenantIDsLocked 返回某用户已排序的成员租户 ID。
+func (m *memoryStore) tenantIDsLocked(userID string) []string {
+	byUser := m.userMembers[userID]
+	out := make([]string, 0, len(byUser))
+	for tenantID := range byUser {
+		out = append(out, tenantID)
+	}
+	sort.Strings(out)
+	return out
 }
 
 // GetUserByUsername returns the user of that tenant by username. | GetUserByUsername 按用户名返回该租户下的用户。
 //
-// Usernames are matched case-insensitively, so "Alice" and "alice" are one account
-// inside a tenant. | 用户名按大小写不敏感匹配，因此同一租户内 "Alice" 与 "alice" 是同一个账号。
+// Usernames are matched case-insensitively; the name itself is globally unique. | 用户名按大小写不敏感匹配；登录名本身全局唯一。
 func (m *memoryStore) GetUserByUsername(_ context.Context, tenantID, username string) (*User, error) {
 	if strings.TrimSpace(tenantID) == "" {
 		return nil, ErrTenantRequired
 	}
 	m.mu.RLock()
 	defer m.mu.RUnlock()
-	id, ok := m.usernames[tenantID][usernameKey(username)]
+	id, ok := m.usernames[usernameKey(username)]
 	if !ok {
 		return nil, ErrNotFound
 	}
-	u, ok := m.users[tenantID][id]
-	if !ok {
-		return nil, ErrNotFound
-	}
-	return cloneUser(u), nil
+	return m.buildUserLocked(tenantID, id)
 }
 
-// ListUsers returns every user of the tenant ordered by creation time and then by id. | ListUsers 按创建时间、再按 ID 返回该租户的全部用户。
+// GetUserByName returns the globally unique user by sign-in name, acting in the
+// user's default tenant. | GetUserByName 按全局唯一的登录名返回用户，并以默认租户作为活动租户。
+func (m *memoryStore) GetUserByName(_ context.Context, username string) (*User, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	id, ok := m.usernames[usernameKey(username)]
+	if !ok {
+		return nil, ErrNotFound
+	}
+	return m.buildDefaultUserLocked(id)
+}
+
+// GetUserByID returns the user by global id, acting in the user's default tenant. | GetUserByID 按全局 ID 返回用户，并以默认租户作为活动租户。
+func (m *memoryStore) GetUserByID(_ context.Context, userID string) (*User, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.buildDefaultUserLocked(userID)
+}
+
+// buildDefaultUserLocked materialises a user in the default tenant (home when the
+// default membership has gone missing). | buildDefaultUserLocked 以默认租户构造用户
+// （默认成员关系丢失时回退到身份租户）。
+func (m *memoryStore) buildDefaultUserLocked(userID string) (*User, error) {
+	stored, ok := m.users[userID]
+	if !ok {
+		return nil, ErrNotFound
+	}
+	target := stored.DefaultTenantID
+	if target == "" {
+		target = stored.TenantID
+	}
+	if _, ok := m.members[target][userID]; !ok {
+		target = stored.TenantID
+	}
+	return m.buildUserLocked(target, userID)
+}
+
+// ListUsers returns every member of the tenant ordered by creation time and then by id. | ListUsers 按创建时间、再按 ID 返回该租户的全部成员。
 func (m *memoryStore) ListUsers(_ context.Context, tenantID string) ([]*User, error) {
 	if strings.TrimSpace(tenantID) == "" {
 		return nil, ErrTenantRequired
@@ -191,9 +328,13 @@ func (m *memoryStore) ListUsers(_ context.Context, tenantID string) ([]*User, er
 	if _, ok := m.tenants[tenantID]; !ok {
 		return nil, ErrNotFound
 	}
-	out := make([]*User, 0, len(m.users[tenantID]))
-	for _, u := range m.users[tenantID] {
-		out = append(out, cloneUser(u))
+	out := make([]*User, 0, len(m.members[tenantID]))
+	for userID := range m.members[tenantID] {
+		u, err := m.buildUserLocked(tenantID, userID)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, u)
 	}
 	sort.Slice(out, func(i, j int) bool {
 		if !out[i].CreatedAt.Equal(out[j].CreatedAt) {
@@ -204,7 +345,7 @@ func (m *memoryStore) ListUsers(_ context.Context, tenantID string) ([]*User, er
 	return out, nil
 }
 
-// UpdateUser replaces an existing user of the tenant. | UpdateUser 覆盖该租户内已存在的用户。
+// UpdateUser replaces the stored profile and the roles inside tenantID. | UpdateUser 覆盖库中资料及在 tenantID 内的角色。
 func (m *memoryStore) UpdateUser(_ context.Context, tenantID string, u *User) error {
 	if strings.TrimSpace(tenantID) == "" {
 		return ErrTenantRequired
@@ -218,26 +359,114 @@ func (m *memoryStore) UpdateUser(_ context.Context, tenantID string, u *User) er
 	key := usernameKey(u.Username)
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	byID := m.users[tenantID]
-	old, ok := byID[u.ID]
+	stored, ok := m.users[u.ID]
 	if !ok {
 		return ErrNotFound
 	}
-	byName := m.usernames[tenantID]
-	oldKey := usernameKey(old.Username)
+	if _, ok := m.members[tenantID][u.ID]; !ok {
+		return ErrNotFound
+	}
+	oldKey := usernameKey(stored.Username)
 	if oldKey != key {
-		if holder, dup := byName[key]; dup && holder != u.ID {
+		if holder, dup := m.usernames[key]; dup && holder != u.ID {
 			return errx.Detail(ErrConflict, "username %q already exists | 用户名 %q 已存在", u.Username, u.Username)
 		}
-		delete(byName, oldKey)
-		byName[key] = u.ID
+		delete(m.usernames, oldKey)
+		m.usernames[key] = u.ID
 	}
-	// The tenant is the key this record is filed under, never whatever the payload carried;
-	// storing an empty value would make the row unusable for token issuance and role lookup.
-	// | 租户就是本条记录所在的键，而不是载荷携带的值；存入空值会让该行无法签令牌、也无法查角色。
 	updated := cloneUser(u)
-	updated.TenantID = tenantID
-	byID[u.ID] = updated
+	updated.ID = stored.ID
+	updated.TenantID = stored.TenantID
+	updated.HomeTenantID = stored.TenantID
+	updated.DefaultTenantID = stored.DefaultTenantID
+	updated.TenantIDs = nil
+	updated.Roles = nil
+	m.users[u.ID] = updated
+	entry := m.members[tenantID][u.ID]
+	entry.roles = append([]string(nil), u.Roles...)
+	return nil
+}
+
+// ListUserTenants returns every tenant the user belongs to, ordered by creation time. | ListUserTenants 按创建时间返回该用户隶属的全部租户。
+func (m *memoryStore) ListUserTenants(_ context.Context, userID string) ([]*Tenant, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	if _, ok := m.users[userID]; !ok {
+		return nil, ErrNotFound
+	}
+	out := make([]*Tenant, 0, len(m.userMembers[userID]))
+	for tenantID := range m.userMembers[userID] {
+		if t, ok := m.tenants[tenantID]; ok {
+			out = append(out, cloneTenant(t))
+		}
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if !out[i].CreatedAt.Equal(out[j].CreatedAt) {
+			return out[i].CreatedAt.Before(out[j].CreatedAt)
+		}
+		return out[i].ID < out[j].ID
+	})
+	return out, nil
+}
+
+// AddUserTenant adds a membership, replacing the roles of an existing one. | AddUserTenant 添加成员关系，已存在时覆盖其角色。
+func (m *memoryStore) AddUserTenant(_ context.Context, userID, tenantID string, roles []string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if _, ok := m.users[userID]; !ok {
+		return ErrNotFound
+	}
+	if _, ok := m.tenants[tenantID]; !ok {
+		return ErrNotFound
+	}
+	if entry, ok := m.members[tenantID][userID]; ok {
+		entry.roles = append([]string(nil), roles...)
+		return nil
+	}
+	isDefault := m.users[userID].DefaultTenantID == tenantID
+	m.addMembershipLocked(userID, tenantID, roles, isDefault, m.users[userID].CreatedAt)
+	return nil
+}
+
+// RemoveUserTenant removes a membership that is neither the home nor the default tenant. | RemoveUserTenant 移除既非身份租户也非默认租户的成员关系。
+func (m *memoryStore) RemoveUserTenant(_ context.Context, userID, tenantID string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	stored, ok := m.users[userID]
+	if !ok {
+		return ErrNotFound
+	}
+	entry, ok := m.members[tenantID][userID]
+	if !ok {
+		return ErrNotFound
+	}
+	if tenantID == stored.TenantID || entry.defaultTenant || stored.DefaultTenantID == tenantID {
+		return errx.Detail(ErrConflict, "the home and default tenants cannot be removed | 身份租户与默认租户不可移除")
+	}
+	delete(m.members[tenantID], userID)
+	delete(m.userMembers[userID], tenantID)
+	return nil
+}
+
+// SetDefaultTenant makes an existing membership the sign-in default. | SetDefaultTenant 把已有成员关系设为登录默认租户。
+func (m *memoryStore) SetDefaultTenant(_ context.Context, userID, tenantID string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	stored, ok := m.users[userID]
+	if !ok {
+		return ErrNotFound
+	}
+	if _, ok := m.members[tenantID][userID]; !ok {
+		return ErrNotFound
+	}
+	if stored.DefaultTenantID == tenantID {
+		return nil
+	}
+	if entry, ok := m.members[stored.DefaultTenantID][userID]; ok {
+		entry.defaultTenant = false
+	}
+	stored.DefaultTenantID = tenantID
+	m.members[tenantID][userID].defaultTenant = true
 	return nil
 }
 

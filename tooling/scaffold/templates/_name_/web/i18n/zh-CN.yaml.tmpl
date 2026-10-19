@@ -57,10 +57,14 @@ ui:
   assign: "分配角色"
   enable: "启用"
   disable: "停用"
-  grant: "授予"
-  revoke: "回收"
+  actions: "操作"
   reset_password: "重置口令"
   rotate_key: "轮换 sec_key"
+  cancel: "取消"
+  confirm: "确认"
+  close: "关闭"
+  network_error: "网络异常，请稍后重试"
+  reload: "重新加载"
 
 field:
   user: "用户"
@@ -97,6 +101,13 @@ role:
 
 tenant:
   current: "当前租户"
+  switch: "切换租户"
+  default: "默认"
+  home: "身份租户"
+  set_default: "设为默认"
+  memberships: "成员租户"
+  memberships_hint: "用户可以同时隶属多个租户；身份租户与默认租户不可移除。"
+  default_hint: "无租户登录时落入默认租户。"
   empty: "还没有任何租户"
   no_match: "没有匹配的租户，换个关键字试试"
 
@@ -108,18 +119,44 @@ permission:
   granted: "已授予"
   denied: "未授予"
 
+metrics:
+  title: "系统资源"
+  hint: "每 5 秒刷新"
+  cpu_cores: "CPU 核心数"
+  cpu_usage: "CPU 利用率"
+  memory_total: "总内存"
+  memory_usage: "内存利用率"
+  process_cpu: "程序 CPU"
+  process_memory: "程序内存"
+  unavailable: "平台不支持"
+
 realtime:
   connecting: "连接中"
+  connected: "实时连接正常"
+  disconnected: "实时连接已断开，正在重连"
 
 login:
   title: "登录"
-  subtitle: "口令在浏览器里用 SM2 加密后才发出，服务端只接收密文。"
-  tenant_hint: "租户标识或 tn_ ID，必须与账号所属租户一致"
-  tenant_label: "默认租户"
-  notice_label: "口令策略"
-  credentials_label: "默认凭据"
-  credentials_hint: "种子账号与初始口令见 README 的「第一次运行」一节"
+  subtitle: "欢迎回来，请使用你的账号登录。"
   key_unavailable: "密钥对不可用，登录已停用"
+
+confirm:
+  title: "请确认"
+  logout: "确定要退出登录吗？"
+  switch_tenant: "切换租户后页面会重新加载，确定继续吗？"
+  create_user: "确定要创建这个用户吗？"
+  update_user: "确定要保存用户的资料修改吗？"
+  assign_roles: "确定要用当前勾选覆盖用户的角色吗？"
+  set_tenants: "确定要更新用户的成员租户吗？"
+  reset_password: "确定要重置该用户的口令吗？旧令牌会立即失效。"
+  rotate_key: "确定要轮换 sec_key 吗？所有旧令牌会立即失效。"
+  disable_user: "确定要停用该用户吗？"
+  enable_user: "确定要启用该用户吗？"
+  create_tenant: "确定要创建这个租户吗？"
+  create_role: "确定要保存这个角色吗？"
+  delete_role: "确定要删除这个角色吗？该操作不可撤销。"
+  change_password: "确定要修改口令吗？修改后需要重新登录。"
+  set_default_tenant: "确定要把该租户设为默认租户吗？"
 
 account:
   change_password: "修改口令"
@@ -127,6 +164,7 @@ account:
 
 page:
   home:
+    title: "概览"
     subtitle: "yd 框架生成的后台应用骨架"
     identity: "当前身份"
     server_time: "服务端时间"
@@ -145,6 +183,8 @@ page:
     next_3: "核对注解覆盖率："
   users:
     title: "用户管理"
+    edit: "编辑用户"
+    profile: "资料"
     subtitle: "共 %d 条"
     keyword: "关键字「%s」"
     scope: "仅本租户"
@@ -172,6 +212,7 @@ page:
     name_placeholder: "示例租户"
   roles:
     title: "角色管理"
+    edit: "编辑角色"
     subtitle: "本租户共 %d 个角色"
     table_title: "角色列表"
     create: "新建或覆盖角色"

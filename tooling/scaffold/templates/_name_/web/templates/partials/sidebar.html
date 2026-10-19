@@ -7,7 +7,7 @@
   This file defines templates and renders no body: the render engine parses the whole tree into one template set, so a
   page pulls it in with {{template "partials/sidebar" .}} and the chrome exists in exactly one place.
 
-  数据契约 | Data contract：.Path（当前路径，用于高亮）、.Name、.Version、.Features、.SignedIn，
+  数据契约 | Data contract：.Path（当前路径，用于高亮）、.Name、.Version、.SignedIn，
   以及 authz.Data 注入的四个键 .Authz/.Perm/.Role/.AuthzJSON——.Perm 把能力名映射为它的标识，
   `can .Perm.TenantRead` 读的就是它（写能力只影响页面内的按钮，不影响这一项出不出现）。
   .Path (the current path, for highlighting), .Name, .Version, .Features, .SignedIn, plus the four keys
@@ -27,7 +27,7 @@
 {{- define "partials/sidebar" -}}
 <aside class="yd-sidebar" data-yd-sidebar aria-label="{{ tr "nav.main" }}">
   <div class="yd-sidebar__brand">
-    <a class="yd-brand" href="/" hx-get="/" hx-target="#yd-workspace" hx-swap="innerMorph" hx-push-url="true">
+    <a class="yd-brand" href="/" hx-get="/" hx-target="#yd-shell" hx-swap="innerMorph" hx-push-url="true">
       <span class="yd-brand__mark" aria-hidden="true">yd</span>
       <span class="yd-brand__name">{{ .Name }}</span>
     </a>
@@ -36,7 +36,7 @@
   <nav class="yd-nav" aria-label="{{ tr "nav.site" }}">
     {{- if .SignedIn }}
     <p class="yd-nav__section">{{ tr "nav.group.overview" }}</p>
-    <a class="yd-nav__link" href="/" hx-get="/" hx-target="#yd-workspace" hx-swap="innerMorph" hx-push-url="true"
+    <a class="yd-nav__link" href="/" hx-get="/" hx-target="#yd-shell" hx-swap="innerMorph" hx-push-url="true"
        data-yd-nav="home"{{ if eq .Path "/" }} aria-current="page"{{ end }}>
       <span class="yd-nav__label">{{ tr "nav.home" }}</span>
     </a>
@@ -53,38 +53,38 @@
     <p class="yd-nav__section">{{ tr "nav.group.access" }}</p>
     {{- end }}
     {{- if can .Perm.TenantRead }}
-    <a class="yd-nav__link" href="/tenants" hx-get="/tenants" hx-target="#yd-workspace" hx-swap="innerMorph" hx-push-url="true"
+    <a class="yd-nav__link" href="/tenants" hx-get="/tenants" hx-target="#yd-shell" hx-swap="innerMorph" hx-push-url="true"
        data-yd-nav="tenants"{{ if hasPrefix .Path "/tenants" }} aria-current="page"{{ end }}>
       <span class="yd-nav__label">{{ tr "nav.tenants" }}</span>
     </a>
     {{- end }}
     {{- if can "PermUserRead" }}
-    <a class="yd-nav__link" href="/users" hx-get="/users" hx-target="#yd-workspace" hx-swap="innerMorph" hx-push-url="true"
+    <a class="yd-nav__link" href="/users" hx-get="/users" hx-target="#yd-shell" hx-swap="innerMorph" hx-push-url="true"
        data-yd-nav="users"{{ if hasPrefix .Path "/users" }} aria-current="page"{{ end }}>
       <span class="yd-nav__label">{{ tr "nav.users" }}</span>
     </a>
     {{- end }}
     {{- if can .Perm.RoleRead }}
-    <a class="yd-nav__link" href="/roles" hx-get="/roles" hx-target="#yd-workspace" hx-swap="innerMorph" hx-push-url="true"
+    <a class="yd-nav__link" href="/roles" hx-get="/roles" hx-target="#yd-shell" hx-swap="innerMorph" hx-push-url="true"
        data-yd-nav="roles"{{ if hasPrefix .Path "/roles" }} aria-current="page"{{ end }}>
       <span class="yd-nav__label">{{ tr "nav.roles" }}</span>
     </a>
     {{- end }}
     {{- if can .Perm.PermissionRead }}
-    <a class="yd-nav__link" href="/permissions" hx-get="/permissions" hx-target="#yd-workspace" hx-swap="innerMorph" hx-push-url="true"
+    <a class="yd-nav__link" href="/permissions" hx-get="/permissions" hx-target="#yd-shell" hx-swap="innerMorph" hx-push-url="true"
        data-yd-nav="permissions"{{ if hasPrefix .Path "/permissions" }} aria-current="page"{{ end }}>
       <span class="yd-nav__label">{{ tr "nav.permissions" }}</span>
     </a>
     {{- end }}
 
     <p class="yd-nav__section">{{ tr "nav.group.self" }}</p>
-    <a class="yd-nav__link" href="/account" hx-get="/account" hx-target="#yd-workspace" hx-swap="innerMorph" hx-push-url="true"
+    <a class="yd-nav__link" href="/account" hx-get="/account" hx-target="#yd-shell" hx-swap="innerMorph" hx-push-url="true"
        data-yd-nav="account"{{ if hasPrefix .Path "/account" }} aria-current="page"{{ end }}>
       <span class="yd-nav__label">{{ tr "nav.account" }}</span>
     </a>
 
     <p class="yd-nav__section">{{ tr "nav.group.realtime" }}</p>
-    <a class="yd-nav__link" href="/realtime" hx-get="/realtime" hx-target="#yd-workspace" hx-swap="innerMorph" hx-push-url="true"
+    <a class="yd-nav__link" href="/realtime" hx-get="/realtime" hx-target="#yd-shell" hx-swap="innerMorph" hx-push-url="true"
        data-yd-nav="realtime"{{ if hasPrefix .Path "/realtime" }} aria-current="page"{{ end }}>
       <span class="yd-nav__label">{{ tr "nav.realtime" }}</span>
     </a>
@@ -93,31 +93,28 @@
     {{/* 接口一组不需要会话：OpenAPI 文档与健康检查本来就是给运维与外部调用方看的，登录页上也要能找到它们。
          The API group needs no session: the OpenAPI document and the health probe exist for operators and for outside
          callers, and the sign-in page must be able to reach them too. */}}
-    {{/* /docs 与 /openapi.json 是普通链接而不是 htmx 导航：前者是框架渲染的整页 HTML，
-         换进工作区会把一个 <html> 嵌进另一个 <html> 里。
-         /docs and /openapi.json are plain links rather than htmx navigations: the former is a whole HTML page rendered by
-         the framework, and swapping it into the workspace would nest one <html> inside another. */}}
+    {{/* 接口一组一律在新标签页打开：文档是整页 HTML、JSON 与健康检查是机器可读响应，换进工作区要么嵌套 <html>，
+         要么把工作区变成一段裸 JSON。target="_blank" 同时绕过 htmx 的局部导航。
+         The API group always opens in a new tab: the document is a whole HTML page while the JSON and the health probe
+         are machine-readable responses; swapping either into the workspace would nest an <html> or replace the page
+         with raw JSON. target="_blank" also bypasses htmx partial navigation. */}}
     <p class="yd-nav__section">{{ tr "nav.group.api" }}</p>
-    <a class="yd-nav__link" href="/docs" data-yd-nav="docs">
+    <a class="yd-nav__link" href="/docs" data-yd-nav="docs" target="_blank" rel="noopener noreferrer">
       <span class="yd-nav__label">{{ tr "nav.docs" }}</span>
     </a>
-    <a class="yd-nav__link" href="/openapi.json" data-yd-nav="openapi">
+    <a class="yd-nav__link" href="/openapi.json" data-yd-nav="openapi" target="_blank" rel="noopener noreferrer">
       <span class="yd-nav__label">OpenAPI 3.0 JSON</span>
     </a>
-    <a class="yd-nav__link" href="/healthz" data-yd-nav="health">
+    <a class="yd-nav__link" href="/healthz" data-yd-nav="health" target="_blank" rel="noopener noreferrer">
       <span class="yd-nav__label">{{ tr "nav.health" }}</span>
     </a>
   </nav>
 
+  {{/* 页脚只保留版本：中间件与组件清单属于构建细节，放在每位用户都能看到的导航里只会增加噪音。
+       The footer keeps the version only: the middleware and component list is a build detail, and showing it in the
+       navigation every user sees only adds noise. */}}
   <div class="yd-sidebar__footer">
     <p class="yd-hint">{{ tr "nav.version" }} {{ .Version }}</p>
-    {{- with .Features }}
-    <ul class="yd-hint">
-      {{- range . }}
-      <li>{{ . }}</li>
-      {{- end }}
-    </ul>
-    {{- end }}
   </div>
 </aside>
 {{- end -}}

@@ -82,6 +82,7 @@ var requiredFiles = []string{
 	"internal/repository/user_repo.go",
 	"internal/router/router.go",
 	"internal/service/auth.go",
+	"internal/service/metrics.go",
 	"internal/service/realtime.go",
 	"internal/service/role.go",
 	"internal/service/tenant.go",
@@ -94,6 +95,7 @@ var requiredFiles = []string{
 	"web/static/css/components.css",
 	"web/static/js/yd-app.js",
 	"web/templates/layouts/base.html",
+	"web/templates/layouts/shell.html",
 	"web/templates/pages/account.html",
 	"web/templates/pages/error.html",
 	"web/templates/pages/home.html",
@@ -104,12 +106,20 @@ var requiredFiles = []string{
 	"web/templates/pages/tenants.html",
 	"web/templates/pages/users.html",
 	"web/templates/partials/flash.html",
+	"web/templates/partials/home/metrics.html",
+	"web/templates/partials/home/metrics_fragment.html",
 	"web/templates/partials/login.html",
+	"web/templates/partials/roles/drawer.html",
+	"web/templates/partials/roles/edit_drawer.html",
 	"web/templates/partials/roles/form.html",
 	"web/templates/partials/roles/list.html",
+	"web/templates/partials/shell-switches.html",
 	"web/templates/partials/sidebar.html",
+	"web/templates/partials/tenants/drawer.html",
 	"web/templates/partials/tenants/form.html",
 	"web/templates/partials/tenants/list.html",
+	"web/templates/partials/users/create_drawer.html",
+	"web/templates/partials/users/edit_drawer.html",
 	"web/templates/partials/users/form.html",
 	"web/templates/partials/users/list.html",
 	"web/templates/partials/users/row.html",
@@ -406,6 +416,44 @@ func TestGenerateFeaturesReflectedInConfigAndRoutes(t *testing.T) {
 	}
 	if strings.Contains(prPlain.read("internal/router/router.go"), "asynq") {
 		t.Error("router.go must not mention asynq while Asynq is off | 未开启 Asynq 时 router.go 不应出现 asynq")
+	}
+}
+
+// TestGeneratedRealtimeWrapsWSSendControls pins the htmx 4 WebSocket contract of the generated demo. | TestGeneratedRealtimeWrapsWSSendControls
+// 锁定生成项目里 htmx 4 WebSocket 的契约。
+//
+// The extension finds the connection with closest(), so the composer and the send button must be nested in the
+// element carrying hx-ws:connect; otherwise a click reports "No WebSocket connection found" and sends nothing.
+// Enter cannot use an hx-trigger filter because htmx compiles filters with new Function, which the CSP
+// script-src 'self' blocks, so the app script clicks the same button instead. | 扩展用 closest() 查找连接，
+// 因此输入区与发送按钮必须嵌在带 hx-ws:connect 的元素内部，否则点击只会报 "No WebSocket connection found"
+// 而不会发出消息。回车不能用 hx-trigger 过滤器，因为 htmx 用 new Function 编译过滤器，会被 CSP
+// script-src 'self' 拦截；改由应用脚本点击同一个按钮。
+func TestGeneratedRealtimeWrapsWSSendControls(t *testing.T) {
+	pr, _ := generateMem(t, scaffold.DefaultOptions("realtime-app"))
+
+	page := pr.read("web/templates/pages/realtime.html")
+	connectAt := strings.Index(page, `hx-ws:connect="/ws"`)
+	composerAt := strings.Index(page, `class="yd-composer" data-yd-ws-composer`)
+	sendAt := strings.Index(page, `hx-ws:send="true"`)
+	switch {
+	case connectAt < 0:
+		t.Fatal("realtime.html does not open a WebSocket connection | realtime.html 未打开 WebSocket 连接")
+	case composerAt < 0 || sendAt < 0:
+		t.Fatal("realtime.html lacks the composer or the send button | realtime.html 缺少输入区或发送按钮")
+	case connectAt > composerAt || composerAt > sendAt:
+		t.Errorf("hx-ws:connect must wrap the composer and send button (connect=%d composer=%d send=%d) | hx-ws:connect 必须包住输入区与发送按钮（connect=%d composer=%d send=%d）",
+			connectAt, composerAt, sendAt, connectAt, composerAt, sendAt)
+	}
+	if strings.Contains(page, `hx-trigger="keyup`) {
+		t.Error("the composer must not use an hx-trigger filter: the CSP blocks htmx's new Function compilation | 输入区不得使用 hx-trigger 过滤器：CSP 会拦截 htmx 的 new Function 编译")
+	}
+
+	app := pr.read("web/static/js/yd-app.js")
+	for _, want := range []string{"data-yd-ws-enter", "window.htmx.process(document.body)"} {
+		if !strings.Contains(app, want) {
+			t.Errorf("yd-app.js lacks %q | yd-app.js 缺少 %q", want, want)
+		}
 	}
 }
 
@@ -1273,7 +1321,12 @@ func TestGeneratedAppServesFrameworkFeatures(t *testing.T) {
 
 		select {
 		case frame := <-frames:
-			for _, want := range []string{"event: yd.events", "<hx-partial", `hx-target="#yd-clock"`, "<time"} {
+			// htmx 4 swaps unnamed messages automatically; a named event would never reach the clock.
+			// | htmx 4 自动交换无名消息；命名事件永远到不了时钟。
+			if strings.Contains(frame, "event: yd.events") {
+				t.Errorf("SSE 帧不应带事件名（htmx 4 只交换无名消息）:\n%s", frame)
+			}
+			for _, want := range []string{"data: ", "<hx-partial", `hx-target="#yd-clock"`, "<time"} {
 				if !strings.Contains(frame, want) {
 					t.Errorf("SSE 帧缺少 %q:\n%s", want, frame)
 				}
@@ -2042,6 +2095,21 @@ func TestGeneratedI18nCatalogueCoversEveryTrKey(t *testing.T) {
 			}
 		}
 	}
+	// Dashboard gauge captions are data-driven: the template calls tr with .LabelKey, so the literal key
+	// lives in Go. Scan those references too, otherwise a legitimately used key is reported as stale.
+	// | 仪表盘标题是数据驱动的：模板用 .LabelKey 调 tr，字面键名留在 Go 里。这里一并扫描这些引用，
+	// 否则真正被用到的键会被误报为陈旧键。
+	goKeyPattern := regexpx.MustCompile(`"(metrics\.[a-z0-9_.]+)"`)
+	for _, rel := range requiredFiles {
+		if !strings.HasPrefix(rel, "internal/") || !strings.HasSuffix(rel, ".go") {
+			continue
+		}
+		for _, match := range goKeyPattern.FindAllStringSubmatch(pr.read(rel), -1) {
+			if _, seen := used[match[1]]; !seen {
+				used[match[1]] = rel
+			}
+		}
+	}
 	if len(used) == 0 {
 		t.Fatal("no tr key was found in the templates | 模板里没有找到任何 tr 键")
 	}
@@ -2112,9 +2180,11 @@ func readCatalogue(t *testing.T, pr project, rel string) map[string]string {
 	return flat
 }
 
-// TestGeneratedSeedConfigOverridesDefaults 验证 seed.tenant 与 seed.username 从配置文件读取并真正落到种子数据与登录页。
+// TestGeneratedSeedConfigOverridesDefaults 验证 seed.tenant 与 seed.username 从配置文件读取并真正落到种子数据；
+// 登录页不再显示租户字段，因此这里同时断言这一点，再用显式租户完成一次登录来证明种子租户确实叫 acme。
 // TestGeneratedSeedConfigOverridesDefaults verifies that seed.tenant and seed.username are read from the configuration and
-// really reach the seeded data and the sign-in page.
+// really reach the seeded data. The sign-in page no longer carries a tenant field, which this also asserts; an explicit
+// tenant then signs in to prove the seeded tenant is really named acme.
 func TestGeneratedSeedConfigOverridesDefaults(t *testing.T) {
 	if testing.Short() {
 		t.Skip("短模式跳过真实鉴权验证 | skipped in short mode")
@@ -2146,8 +2216,11 @@ func TestGeneratedSeedConfigOverridesDefaults(t *testing.T) {
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("GET /login 状态码 = %d, 期望 200\n%s", resp.StatusCode, page)
 	}
-	if !strings.Contains(page, `value="acme"`) {
-		t.Errorf("登录页租户字段未预填配置值 acme:\n%s", page)
+	if strings.Contains(page, `name="tenant"`) {
+		t.Errorf("登录页不应再显示租户字段:\n%s", page)
+	}
+	if strings.Contains(page, `acme`) {
+		t.Errorf("登录页不应泄露默认租户标识:\n%s", page)
 	}
 
 	browser := newProbeClient(t, httpTimeout)

@@ -48,6 +48,21 @@
       `YD_SEED_ADMIN_PASSWORD` 读取，开发环境才回退到 `internal/meta` 里那个文档化口令，且口令永不写进日志）。
 - [ ] **租户隔离**：查询一律带 `tenantID`，且只取自 `middleware.TenantID(ctx)`（令牌 `tid` 声明）；
       跨租户或未知实体返回 `auth.ErrNotFound`，绝不返回 `ErrForbidden`，避免响应差异变成租户枚举的探针。
+- [ ] **用户是全局身份**：登录名全局唯一；一个用户可隶属多个租户（`yd_auth_user_tenants`），
+      必须有且只有一个默认租户；登录页不显示租户，服务端按全局登录名认证并落入默认租户；
+      切换租户校验成员关系并重新签发令牌；身份租户与默认租户不可移除；旧库升级必须回填成员关系。
+- [ ] **前端交互**：导航/语言切换 `hx-target="#yd-shell"`；新增/编辑走抽屉；列表操作与顶栏租户切换共用
+      `details.yd-menu` 面板；所有变更动作带 `data-yd-confirm`，多按钮表单必须把 `event.submitter` 传回
+      `requestSubmit`；登录前外壳只有登录卡片（含离线图标品牌区）与语言/主题切换；接口组一律新标签页打开；
+      侧栏页脚只显示版本；favicon 指向同源 `/static/img/yd-icon.svg`，不得使用 CDN 或 `data:,`。
+- [ ] **Tailwind v4**：项目样式必须经 `@theme` 语义令牌与 `@layer components` 定义，
+      可复用工具类用 `@apply`，颜色不得在令牌块之外写字面量。
+- [ ] **实时推送与文档**：htmx 4 SSE 只交换匿名消息；WebSocket 的发送控件必须位于 `hx-ws:connect` 元素内部
+      （扩展用 `closest()` 向上找连接，否则消息不会发出），下行只交换 `content`，回车发送由脚本点击按钮
+      （`hx-trigger` 过滤器会被 CSP 拦截），`htmx:ws:error` 不等于断开；OpenAPI 查看器脚本必须同源外链；
+      首页资源仪表盘为纯 SVG，平台不支持的指标显示「不可用」。
+- [ ] **OpenAPI 查看器**：左侧按 tag 分组；操作详情提供同源在线测试（跨源被 CSP 拦截）；
+      查看器读取 `yd_theme` 并支持浅色/深色/跟随系统切换，控件边框在明暗两套主题下都必须可见。
 - [ ] **能力守卫**：受保护端点必须在路由上声明 `authz.Require(authz.PermXxx)`（它是 `auth.RequirePermission` 的注册表包装，
       守卫里因此不出现任何标识字面量），处理器内不再重复判权；
       `registerPublic` 只允许登录、登出、健康检查与 SM2 公钥四个端点。

@@ -1,0 +1,11 @@
+{{/*
+  partials/tenants/drawer.html —— 新建租户抽屉的内容（由 GET /tenants/new 渲染）。
+  partials/tenants/drawer.html — the content of the tenant creation drawer (rendered by GET /tenants/new).
+
+  数据契约 | Data contract: 无额外键（表单与错误槽位复用全局数据）。 | No extra keys (the form and the error slot reuse global data).
+*/}}
+<div class="yd-drawer__head">
+  <h2 class="yd-section__title">{{ tr "page.tenants.create" }}</h2>
+  <p class="yd-section__hint">{{ tr "page.tenants.create_hint" }}</p>
+</div>
+{{ template "partials/tenants/form" . }}

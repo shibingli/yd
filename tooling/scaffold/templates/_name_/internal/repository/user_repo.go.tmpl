@@ -131,3 +131,49 @@ func (r *UserRepo) Permissions(u *auth.User) []model.Permission {
 func (r *UserRepo) HasPermission(u *auth.User, p model.Permission) bool {
 	return r.store.Auth().HasPermission(u, auth.Permission(p))
 }
+
+// Tenants 返回用户隶属的全部租户，供右上角的租户切换器与用户编辑抽屉使用。
+// Tenants returns every tenant the user belongs to, feeding the top-right tenant switcher and the user drawer.
+func (r *UserRepo) Tenants(ctx context.Context, userID string) ([]model.Tenant, error) {
+	list, err := r.store.Auth().ListUserTenants(ctx, userID)
+	if err != nil {
+		return nil, err
+	}
+	return model.TenantsFromAuth(list), nil
+}
+
+// AddTenant 把用户加入另一个租户；角色名必须存在于目标租户。
+// AddTenant joins the user to another tenant; every role must exist inside that tenant.
+func (r *UserRepo) AddTenant(ctx context.Context, userID, tenantID string, roles []string) error {
+	return r.store.Auth().AddUserTenant(ctx, userID, tenantID, roles)
+}
+
+// RemoveTenant 移除一条非默认成员关系；身份租户与默认租户由框架以 ErrConflict 拒绝。
+// RemoveTenant drops a non-default membership; the framework refuses the home and default tenants with ErrConflict.
+func (r *UserRepo) RemoveTenant(ctx context.Context, userID, tenantID string) error {
+	return r.store.Auth().RemoveUserTenant(ctx, userID, tenantID)
+}
+
+// SetDefaultTenant picks the tenant a tenant-less sign-in lands in. | SetDefaultTenant 指定用户的登录默认租户。
+func (r *UserRepo) SetDefaultTenant(ctx context.Context, userID, tenantID string) error {
+	return r.store.Auth().SetDefaultTenant(ctx, userID, tenantID)
+}
+
+// SwitchTenant 校验成员关系并返回用户在目标租户中的视图；非成员与不存在的租户不可区分。
+// SwitchTenant verifies the membership and returns the user acting in the target tenant; a non-member is indistinguishable from a missing tenant.
+func (r *UserRepo) SwitchTenant(ctx context.Context, userID, tenantID string) (model.User, error) {
+	u, err := r.store.Auth().SwitchTenant(ctx, userID, tenantID)
+	if err != nil {
+		return model.User{}, err
+	}
+	return model.UserFromAuth(u), nil
+}
+
+// GetGlobal reads a user by global id, acting in the default tenant. | GetGlobal 按全局用户 ID 读取用户，以默认租户作为活动租户。
+func (r *UserRepo) GetGlobal(ctx context.Context, userID string) (model.User, error) {
+	u, err := r.store.Raw().GetUserByID(ctx, userID)
+	if err != nil {
+		return model.User{}, err
+	}
+	return model.UserFromAuth(u), nil
+}

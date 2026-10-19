@@ -20,7 +20,12 @@
     /* 连接状态标签：右侧的状态徽标。 | Connection badge: the state pill on the right. */
     badge: "[data-yd-connection-state]",
     /* 可关闭容器：错误片段与提示条都位于其中之一里。 | Dismissable container: both the error fragment and the notices sit inside one. */
-    dismissable: "[data-yd-dismissable], [data-yd-errors-outlet]"
+    dismissable: "[data-yd-dismissable], [data-yd-errors-outlet]",
+    /* 抽屉与确认对话框：两者都由 layouts/shell.html 渲染一次，脚本只负责开合。 | Drawer and confirmation dialog: both are rendered once by layouts/shell.html and the script only opens and closes them. */
+    drawer: "#yd-drawer",
+    drawerBody: "#yd-drawer-body",
+    confirm: "#yd-confirm",
+    confirmText: "[data-yd-confirm-text]"
   };
 
   /* 服务端事件名：与控制器的 meta.ToastEvent 一致。 | Server event names: they match meta.ToastEvent in the controller. */
@@ -39,17 +44,28 @@
     open: false
   };
 
-  /* connectionEvents 汇总四个生命周期事件：连接建立与断开各两条通道，处理逻辑完全一致。 | connectionEvents collects the four lifecycle events: two channels times two transitions, all handled identically. */
+  /* connectionEvents 汇总连接建立事件：两条通道处理逻辑完全一致。 | connectionEvents collects the connection-established events; both channels are handled identically. */
   var connectionEvents = {
     "htmx:sse:after:connection": true,
     "htmx:ws:after:connection": true
   };
+  /* 只有真正的关闭事件才代表断开。htmx:ws:error 也可能来自一次发送失败（例如发送按钮不在连接元素内），
+     此时套接字仍然开着，把它当作断开会让徽标与横幅误报。 | Only real close events mean disconnected.
+     htmx:ws:error can also come from a failed send (for example a send button outside the connect element)
+     while the socket stays open, so treating it as a disconnect raises a false alarm in the badge and banner. */
   var disconnectionEvents = {
     "htmx:sse:close": true,
     "htmx:sse:error": true,
-    "htmx:ws:close": true,
-    "htmx:ws:error": true
+    "htmx:ws:close": true
   };
+
+  /* bodyLabel reads one localized label the layout rendered onto <body>: the copy stays in the catalogue and the
+     script only reads it, so a language switch needs no second dictionary here.
+     bodyLabel 读取布局渲染在 <body> 上的本地化文案：文案留在语言目录里，脚本只读取，因此切换语言不需要在这里再放一份词典。 */
+  function bodyLabel(name, fallback) {
+    var value = document.body ? document.body.getAttribute(name) : "";
+    return value || fallback || "";
+  }
 
   /* appendNotice 追加一条通知；容器不存在时静默返回，绝不因为缺少装饰性元素而抛错。 | appendNotice appends one notice and returns quietly when the container is missing, so a decorative element can never break the page. */
   function appendNotice(text, level) {
@@ -76,11 +92,20 @@
     close.type = "button";
     close.className = "yd-btn yd-btn--ghost yd-btn--sm";
     close.setAttribute("data-yd-dismiss", "");
-    close.textContent = "关闭 | Close";
+    close.textContent = bodyLabel("data-yd-close", "Close");
     item.appendChild(close);
 
     flash.insertBefore(item, banner || null);
     return item;
+  }
+
+  /* hasRealtime reports whether this page actually carries a realtime channel. Navigating away from
+     the clock legitimately aborts its SSE stream; that abort must not tell a user on a page with no
+     realtime element that "the connection dropped".
+     hasRealtime 报告当前页面是否真的带有实时通道。离开时钟页面时中止 SSE 流是正常行为；
+     在没有实时元素的页面上，这次中止不能告诉用户「连接已断开」。 */
+  function hasRealtime() {
+    return !!(document.querySelector("[hx-sse\\:connect]") || document.querySelector("[hx-ws\\:connect]"));
   }
 
   /* setConnection 切换连接状态：状态条与状态徽标必须同时变化，否则用户会看到自相矛盾的界面。
@@ -90,13 +115,15 @@
 
     var banner = document.querySelector(SELECTORS.connection);
     if (banner) {
-      banner.hidden = connected;
+      banner.hidden = connected || !hasRealtime();
     }
 
     var badges = document.querySelectorAll(SELECTORS.badge);
     for (var i = 0; i < badges.length; i++) {
       badges[i].setAttribute("data-yd-connection-state", connected ? "open" : "closed");
-      badges[i].textContent = connected ? "实时连接正常 | connected" : "连接已断开 | disconnected";
+      badges[i].textContent = connected
+        ? bodyLabel("data-yd-connected", "connected")
+        : bodyLabel("data-yd-disconnected", "disconnected");
     }
   }
 
@@ -110,10 +137,150 @@
     return false;
   }
 
+  /* 抽屉：点「新建/编辑」时立即打开，htmx 随后把片段换进 #yd-drawer-body。
+     Drawer: opening happens on the click and htmx swaps the fragment into #yd-drawer-body afterwards. */
+  function openDrawer() {
+    var drawer = document.querySelector(SELECTORS.drawer);
+    if (!drawer || typeof drawer.showModal !== "function" || drawer.open) {
+      return;
+    }
+    drawer.showModal();
+  }
+
+  /* closeDrawer 关闭抽屉；未打开时是空操作。 | closeDrawer closes the drawer and is a no-op while it is closed. */
+  function closeDrawer() {
+    var drawer = document.querySelector(SELECTORS.drawer);
+    if (drawer && drawer.open && typeof drawer.close === "function") {
+      drawer.close();
+    }
+  }
+
+  /* askConfirm 打开全局确认对话框，只有点「确认」才执行回调；文案来自模板的 tr，脚本里没有一句业务文案。
+     askConfirm opens the global confirmation dialog and runs the callback only on "confirm"; the copy comes from
+     the template's tr, so the script holds no business sentence. */
+  function askConfirm(message, onConfirm) {
+    var dialog = document.querySelector(SELECTORS.confirm);
+    if (!dialog || typeof dialog.showModal !== "function") {
+      /* 不支持 dialog 的浏览器退化为原生确认框：宁可多一次阻断，也不能跳过确认。 | Browsers without dialog fall back to the native prompt: an extra stop is better than skipping the confirmation. */
+      if (window.confirm(message || "")) {
+        onConfirm();
+      }
+      return;
+    }
+    var text = dialog.querySelector(SELECTORS.confirmText);
+    if (text) {
+      text.textContent = message || "";
+    }
+    function onClose() {
+      dialog.removeEventListener("close", onClose);
+      if (dialog.returnValue === "confirm") {
+        onConfirm();
+      }
+    }
+    dialog.returnValue = "";
+    dialog.addEventListener("close", onClose);
+    dialog.showModal();
+  }
+
+  /* 列表操作菜单：details 提供无脚本开合；打开后把面板改为 fixed 定位，避开表格容器的 overflow 裁切。
+     List action menus: details provides the no-script toggle; once open the panel is lifted into fixed
+     positioning so the table wrapper's overflow clipping cannot cut it off. */
+  function closeMenus(except) {
+    var menus = document.querySelectorAll("details[data-yd-menu][open]");
+    for (var i = 0; i < menus.length; i++) {
+      if (menus[i] !== except) {
+        menus[i].open = false;
+      }
+    }
+  }
+
+  function positionMenu(menu) {
+    var summary = menu.querySelector("summary");
+    var panel = menu.querySelector(".yd-menu__panel");
+    if (!summary || !panel) {
+      return;
+    }
+    var rect = summary.getBoundingClientRect();
+    panel.style.position = "fixed";
+    panel.style.top = (rect.bottom + 4) + "px";
+    /* The stylesheet anchors the panel with right:0; fixed positioning needs one horizontal side
+       only, otherwise left+right stretch it across the viewport. | 样式表用 right:0 锚定面板；
+       fixed 定位只能保留一个水平边，否则 left+right 会把它拉满整个视口。 */
+    panel.style.right = "auto";
+    panel.style.left = Math.max(8, rect.right - panel.offsetWidth) + "px";
+  }
+
+  document.addEventListener("toggle", function (event) {
+    var menu = event.target;
+    if (!menu || !menu.matches || !menu.matches("details[data-yd-menu]") || !menu.open) {
+      return;
+    }
+    closeMenus(menu);
+    positionMenu(menu);
+  }, true);
+
+  document.addEventListener("click", function (event) {
+    if (event.target && event.target.closest && !event.target.closest("[data-yd-menu]")) {
+      closeMenus(null);
+    }
+  }, true);
+
+  window.addEventListener("resize", function () { closeMenus(null); });
+  /* Reposition on scroll rather than closing: a scroll caused by the click itself (the row was just
+     brought into view) must not close the menu the click had opened. | 滚动时重新定位而不是关闭：
+     点击本身引发的滚动（刚把该行带入视口）不能关掉这次点击打开的面板。 */
+  window.addEventListener("scroll", function () {
+    var open = document.querySelector("details[data-yd-menu][open]");
+    if (open) {
+      positionMenu(open);
+    }
+  }, true);
+
+  /* 回车发送 WebSocket 消息：htmx 的触发器过滤器（keyup[key=='Enter']）用 new Function 编译，
+     会被 CSP 的 script-src 'self' 拦截；这里用普通监听器点击同一个发送按钮，发送路径与点击完全一致。
+     Enter sends a WebSocket message: htmx trigger filters (keyup[key=='Enter']) compile with
+     new Function, which CSP script-src 'self' blocks, so a plain listener clicks the same send
+     button and takes the exact same send path. */
+  document.addEventListener("keydown", function (event) {
+    if (event.key !== "Enter" || event.isComposing || event.defaultPrevented) {
+      return;
+    }
+    var input = event.target;
+    if (!input || !input.closest || !input.closest("[data-yd-ws-enter]")) {
+      return;
+    }
+    var composer = input.closest("[data-yd-ws-composer]");
+    var send = composer && composer.querySelector("[hx-ws\\:send]");
+    if (!send) {
+      return;
+    }
+    event.preventDefault();
+    send.click();
+  });
+
   /* 事件委托：提示条是运行期生成的，逐个绑定会在每次换入后失效。 | Event delegation: notices are created at runtime, so per-element listeners would go stale after every swap. */
   document.addEventListener("click", function (event) {
     var target = event.target;
     if (!target || !target.closest) {
+      return;
+    }
+
+    /* 抽屉入口：不阻止默认行为，htmx 的 hx-get 继续把片段取进 #yd-drawer-body。 | Drawer entry: the default is not prevented, so htmx's hx-get still fetches the fragment into #yd-drawer-body. */
+    if (target.closest("[data-yd-drawer-open]")) {
+      openDrawer();
+      return;
+    }
+
+    if (target.closest("[data-yd-drawer-close]")) {
+      event.preventDefault();
+      closeDrawer();
+      return;
+    }
+
+    /* 点击抽屉遮罩（dialog 自身）关闭它。 | Clicking the drawer backdrop (the dialog itself) closes it. */
+    var drawer = target.closest(SELECTORS.drawer);
+    if (drawer && target === drawer) {
+      closeDrawer();
       return;
     }
 
@@ -148,6 +315,80 @@
     }
   });
 
+  /* 全局确认：表单提交与普通点击都必须在捕获阶段先过这一关，否则 htmx 会在冒泡阶段直接发出请求。
+     Global confirmation: both form submissions and plain clicks pass through this capture-phase gate first,
+     otherwise htmx would send the request during the bubble phase. */
+  document.addEventListener("submit", function (event) {
+    var form = event.target && event.target.closest ? event.target.closest("form[data-yd-confirm]") : null;
+    if (!form || form.getAttribute("data-yd-confirmed") === "1") {
+      return;
+    }
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    /* requestSubmit 不带提交者时会丢掉提交按钮的 name/value（例如租户菜单里每个条目各带一个 tenant 值），
+       因此先把 event.submitter 记下来并原样传回去。 | requestSubmit without a submitter drops the clicked
+       button's name/value (the tenant menu carries one tenant per entry), so remember event.submitter and pass
+       it back unchanged. */
+    var submitter = event.submitter || null;
+    askConfirm(form.getAttribute("data-yd-confirm"), function () {
+      form.setAttribute("data-yd-confirmed", "1");
+      try {
+        if (submitter) {
+          form.requestSubmit(submitter);
+        } else {
+          form.requestSubmit();
+        }
+      } finally {
+        form.removeAttribute("data-yd-confirmed");
+      }
+    });
+  }, true);
+
+  document.addEventListener("click", function (event) {
+    var el = event.target && event.target.closest ? event.target.closest("[data-yd-confirm]") : null;
+    if (!el || el.tagName === "FORM" || el.getAttribute("data-yd-confirmed") === "1") {
+      return;
+    }
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    askConfirm(el.getAttribute("data-yd-confirm"), function () {
+      el.setAttribute("data-yd-confirmed", "1");
+      try {
+        el.click();
+      } finally {
+        el.removeAttribute("data-yd-confirmed");
+      }
+    });
+  }, true);
+
+  /* 抽屉里的写操作成功即关闭抽屉：验证失败（4xx）保持打开，用户可以在原处修正。
+     A successful write inside the drawer closes it; a validation failure (4xx) keeps it open so the user can
+     correct the input in place. */
+  /* htmx 4 names its lifecycle events with colons (htmx:after:request); the legacy spelling is kept
+     as a fallback so the drawer still closes on an older core. | htmx 4 的生命周期事件用冒号命名
+     （htmx:after:request）；同时保留旧拼写作为回退，使抽屉在较旧的 core 上也会关闭。 */
+  ["htmx:after:request", "htmx:afterRequest"].forEach(function (name) {
+    document.addEventListener(name, function (event) {
+      var detail = event.detail || {};
+      /* htmx 4 carries the request state in detail.ctx: sourceElement is the form and status is
+         the response code. The legacy shape (detail.elt + detail.xhr) stays as a fallback. */
+      /* htmx 4 把请求状态放在 detail.ctx 里：sourceElement 是发起请求的表单，status 是响应码；
+         旧形态（detail.elt + detail.xhr）作为回退保留。 */
+      var ctx = detail.ctx || {};
+      var status = typeof ctx.status === "number" ? ctx.status : (ctx.response && ctx.response.status);
+      if (typeof status !== "number") {
+        status = detail.xhr && detail.xhr.status;
+      }
+      var elt = ctx.sourceElement || detail.elt || (detail.requestConfig && detail.requestConfig.elt);
+      if (typeof status !== "number" || status < 200 || status >= 300 || !elt || !elt.closest) {
+        return;
+      }
+      if (elt.closest(SELECTORS.drawerBody)) {
+        closeDrawer();
+      }
+    });
+  });
+
   /* 服务端提示：HX-Trigger 的 detail 直接就是事件负载，控制器不需要拼装任何提示 HTML。 | Server notices: the HX-Trigger detail is the payload itself, so controllers assemble no notice markup. */
   document.addEventListener(EVENTS.toast, function (event) {
     var detail = event.detail || {};
@@ -168,7 +409,7 @@
 
   /* 网络层失败与状态码失败是两件事：前者在这里提示，后者由表单的 hx-status 声明式处理。 | A transport failure and a status-code failure are two different things: the former is reported here while the latter is handled declaratively by the form's hx-status. */
   document.addEventListener("htmx:send:error", function () {
-    appendNotice("网络异常，请稍后重试 | Network error, please retry", "error");
+    appendNotice(bodyLabel("data-yd-network-error", "Network error, please retry"), "error");
   });
 
   /* 换入新内容后把状态徽标恢复成追踪到的连接状态：新片段只带 idle 初值，直接照它显示会让在线用户看到「已断开」。
@@ -239,6 +480,15 @@
   /* 国密装配：加密由 yd-guomi-htmx 以声明式属性接管，这里只负责安装一次。 | Guomi assembly: encryption is taken over by yd-guomi-htmx through declarative attributes, so this only installs it once. */
   if (window.ydGuomiHtmx && typeof window.ydGuomiHtmx.install === "function") {
     window.ydGuomiHtmx.install();
+  }
+
+  /* 兜底再处理一次整页：htmx 的初始化是一个 setTimeout，可能早于扩展脚本注册（deferred 脚本之间允许定时器插入），
+     那样首屏的 sse/ws 元素就永远拿不到连接。process 对已处理的元素是幂等的，重复调用不会建立第二条连接。
+     Process the page once more as a safety net: htmx initializes from a timer that can run before the extension
+     scripts register (timers may fire between deferred scripts), leaving the first-paint sse/ws elements without a
+     connection. process is idempotent for processed elements, so a repeat call never opens a second connection. */
+  if (window.htmx && typeof window.htmx.process === "function") {
+    window.htmx.process(document.body);
   }
 
   yd.ready = true;

@@ -35,6 +35,10 @@
         {{ tr "nav.permissions" }}
       </a>
       {{- end }}
+      {{- if can .Perm.RoleManage }}
+      <button type="button" class="yd-btn yd-btn--primary" data-yd-drawer-open data-yd-perm="{{ .Perm.RoleManage }}"
+              hx-get="/roles/new" hx-target="#yd-drawer-body" hx-swap="innerHTML">{{ tr "page.roles.create" }}</button>
+      {{- end }}
     </div>
   </header>
 
@@ -43,13 +47,5 @@
     {{ template "partials/roles/list" . }}
   </section>
 
-  {{- if can .Perm.RoleManage }}
-  <section class="yd-card yd-section">
-    <details class="yd-details" {{ if .Empty }}open{{ end }}>
-      <summary class="yd-details__summary">{{ tr "page.roles.create" }}</summary>
-      {{ template "partials/roles/form" . }}
-      <p class="yd-hint">{{ tr "page.roles.create_hint" }}</p>
-    </details>
-  </section>
-  {{- end }}
+  <p class="yd-hint">{{ tr "page.roles.create_hint" }}</p>
 </section>

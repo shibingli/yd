@@ -36,6 +36,23 @@ func (c *Controller) Tenants(ctx *router.Ctx) {
 	c.tenantsPage(ctx, http.StatusOK, field(ctx, FieldKeyword), "")
 }
 
+// NewTenantForm returns the form fragment of the tenant creation drawer. | NewTenantForm 返回新建租户抽屉的表单片段。
+//
+// @Summary Tenant creation form | 新建租户表单
+// @Description Renders the drawer fragment fetched by the "create tenant" button; the form posts to POST /tenants.
+// @Description 渲染「新建租户」按钮取用的抽屉片段；表单提交到 POST /tenants。
+// @Tags tenants
+// @Accept html
+// @Produce html
+// @Success 200 {object} string "drawer fragment | 抽屉片段"
+// @Failure 401 {object} string "no session | 无有效会话"
+// @Failure 403 {object} string "missing tenant:create | 缺少 tenant:create"
+// @Security BearerAuth
+// @Router /tenants/new [get]
+func (c *Controller) NewTenantForm(ctx *router.Ctx) {
+	c.render(ctx, http.StatusOK, TplTenantCreateDrawer, c.view(ctx, "新建租户 | Create tenant", nil))
+}
+
 // CreateTenant 新建租户：slug 即 X-Tenant 请求头与子域名的取值，因此它与名称一起在业务层校验。
 // CreateTenant adds a tenant: the slug is what the X-Tenant header and the subdomain carry, so it is validated in the business layer together with the name.
 //

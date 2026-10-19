@@ -2,6 +2,7 @@ package ws
 
 import (
 	stdhtml "html"
+	"strings"
 
 	"github.com/shibingli/yd/core/errx"
 	"github.com/shibingli/yd/core/jsonx"
@@ -35,16 +36,99 @@ const (
 
 // ---------------------------------------------------------------- Messages | 消息
 
-// HtmxMessage is the JSON envelope exchanged by the htmx `hx-ws` extension. | HtmxMessage 是 htmx `hx-ws` 扩展收发的 JSON 信封。
+// HtmxMessage is one message exchanged by the htmx `hx-ws` extension. | HtmxMessage 是 htmx `hx-ws` 扩展收发的一条消息。
 //
-// The extension sends and receives {"HEADERS":{...},"BODY":"..."}: HEADERS carries the per-message | 该扩展以 {"HEADERS":{...},"BODY":"..."} 收发：HEADERS 承载逐条消息的
-// request headers (hx-target, hx-swap, …) and BODY carries the text payload. | 请求头（hx-target、hx-swap 等），BODY 承载文本载荷。
+// htmx 4 sends a flat JSON object: every form value is a top-level key and the per-message request
+// headers live under "headers", for example {"message":"hi","headers":{...}}. Older releases sent
+// {"HEADERS":{...},"BODY":"..."}; both shapes are accepted on input. On output the extension reads
+// "content" as the fragment to swap, so the built-in echo replies with {"content":"…"}. | htmx 4 发送
+// 扁平 JSON 对象：每个表单字段都是顶层键，逐条消息的请求头放在 "headers" 下，例如
+// {"message":"hi","headers":{...}}。旧版本发送 {"HEADERS":{...},"BODY":"..."}；输入时两种形态都接受。
+// 输出方向扩展读取 "content" 作为要交换的片段，因此内建回显以 {"content":"…"} 应答。
+//
 // Both directions are encoded with the framework's adaptive JSON layer (jsonx), never with encoding/json directly. | 两个方向都使用框架自适应 JSON 层（jsonx）编解码，绝不直接使用 encoding/json。
 type HtmxMessage struct {
-	// Headers maps to the JSON field HEADERS; it is omitted from the output when empty. | Headers 对应 JSON 字段 HEADERS；为空时输出中省略该字段。
-	Headers map[string]string `json:"HEADERS,omitempty"`
-	// Body maps to the JSON field BODY and is always written. | Body 对应 JSON 字段 BODY，始终写出。
-	Body string `json:"BODY"`
+	// Headers carries the per-message request headers, sent under "headers" by htmx 4 and under "HEADERS" by older releases. | Headers 承载逐条消息的请求头：htmx 4 放在 "headers"，旧版本放在 "HEADERS"。
+	Headers map[string]string `json:"headers,omitempty"`
+	// Body is the text payload; htmx 4 has no dedicated field, so it is derived from the single value or the conventional message/body/text field. | Body 是文本载荷；htmx 4 没有专门字段，因此由唯一值或约定的 message/body/text 字段推导。
+	Body string `json:"BODY,omitempty"`
+	// Content is the response fragment the htmx 4 extension swaps into its target; it is only set on replies. | Content 是 htmx 4 扩展交换进目标元素的响应片段，只在应答中设置。
+	Content string `json:"content,omitempty"`
+	// Values holds every non-header field of an inbound htmx 4 message, keyed by form field name. | Values 以表单字段名为键，保存入站 htmx 4 消息中除请求头外的全部字段。
+	Values map[string]any `json:"-"`
+}
+
+// UnmarshalJSON accepts both the htmx 4 flat envelope and the legacy HEADERS/BODY envelope. | UnmarshalJSON
+// 同时接受 htmx 4 的扁平信封与旧的 HEADERS/BODY 信封。
+func (m *HtmxMessage) UnmarshalJSON(data []byte) error {
+	var raw map[string]any
+	if err := jsonx.Unmarshal(data, &raw); err != nil {
+		return err
+	}
+	*m = HtmxMessage{Values: make(map[string]any, len(raw))}
+	for key, value := range raw {
+		switch {
+		case strings.EqualFold(key, "headers"):
+			m.Headers = htmxHeaderStrings(value, m.Headers)
+		case strings.EqualFold(key, "BODY"), strings.EqualFold(key, "content"):
+			m.Body = htmxScalarString(value)
+		default:
+			m.Values[key] = value
+		}
+	}
+	if m.Body != "" {
+		return nil
+	}
+	// htmx 4 has no body field: a single form value is the body, and a multi-field form falls back to
+	// the conventional names in order. | htmx 4 没有正文字段：只有一个表单值时它就是正文，多字段表单按
+	// 约定名称依次回退。
+	if len(m.Values) == 1 {
+		for _, value := range m.Values {
+			m.Body = htmxScalarString(value)
+		}
+		return nil
+	}
+	for _, key := range []string{"message", "body", "text"} {
+		if value, ok := m.Values[key]; ok {
+			m.Body = htmxScalarString(value)
+			return nil
+		}
+	}
+	return nil
+}
+
+// htmxHeaderStrings converts the headers object of an inbound message to strings. | htmxHeaderStrings 把入站消息的请求头对象转换为字符串映射。
+//
+// htmx sends strings today, but a client is free to send numbers or arrays; converting them keeps the
+// handler from failing the whole message over one header. | htmx 目前发送字符串，但客户端也可能发送数字或数组；
+// 逐个转换可避免整条消息因为一个请求头而失败。
+func htmxHeaderStrings(value any, dst map[string]string) map[string]string {
+	src, ok := value.(map[string]any)
+	if !ok {
+		return dst
+	}
+	if dst == nil {
+		dst = make(map[string]string, len(src))
+	}
+	for key, entry := range src {
+		dst[key] = htmxScalarString(entry)
+	}
+	return dst
+}
+
+// htmxScalarString renders one JSON value as text for the echo path. | htmxScalarString 把单个 JSON 值渲染为文本，供回显路径使用。
+func htmxScalarString(value any) string {
+	if text, ok := value.(string); ok {
+		return text
+	}
+	if value == nil {
+		return ""
+	}
+	encoded, err := jsonx.Marshal(value)
+	if err != nil {
+		return ""
+	}
+	return string(encoded)
 }
 
 // ---------------------------------------------------------------- Endpoint | 端点
@@ -69,8 +153,8 @@ type HtmxOptions struct {
 //
 // The request is upgraded with o.Options (o.Subprotocols winning when non-empty); then o.OnOpen is called once, | 请求以 o.Options 升级（o.Subprotocols 非空时优先）；随后调用一次 o.OnOpen，
 // every text message is decoded as an htmx JSON envelope and handed to o.OnMessage, and when o.OnMessage is nil | 每条文本消息都被解码为 htmx JSON 信封并交给 o.OnMessage，而 o.OnMessage 为 nil 时
-// the handler echoes Body back as a fresh envelope (the request-side Headers are deliberately not echoed, they are | 处理器把 Body 作为新信封回显（请求侧的 Headers 刻意不回送，它们是请求指令而非
-// requests rather than response directives). | 响应指令）。
+// the handler echoes Body back as {"content":"…"}, the shape the htmx 4 extension swaps into its target | 处理器把 Body 以 {"content":"…"} 回显，这正是 htmx 4 扩展交换进目标元素的形态
+// (the request-side Headers are deliberately not echoed, they are requests rather than response directives). | （请求侧的 Headers 刻意不回送，它们是请求指令而非响应指令）。
 //
 // Non-text messages and text that is not a valid envelope are protocol errors: the connection is closed with 1003 | 非文本消息、以及不是合法信封的文本都属于协议错误：连接以 1003（不支持的数据类型）
 // (unsupported data) and the loop ends. o.OnClose observes the terminating error in every case and runs before the | 关闭并结束循环。任何情况下 o.OnClose 都能观察到终止错误，并在底层连接关闭之前执行。
@@ -131,7 +215,9 @@ func serveHtmx(conn *Conn, o HtmxOptions) error {
 			continue
 		}
 
-		echo, err := encodeHtmxMessage(HtmxMessage{Body: msg.Body})
+		// htmx 4 reads "content" from the reply; a BODY field would be parsed but never swapped. | htmx 4 从应答中读取
+		// "content"；BODY 字段虽然能被解析，却永远不会被交换。
+		echo, err := encodeHtmxMessage(HtmxMessage{Content: msg.Body})
 		if err != nil {
 			_ = conn.Close(CloseInternalServerErr, closeReasonHtmxEncode)
 			return err

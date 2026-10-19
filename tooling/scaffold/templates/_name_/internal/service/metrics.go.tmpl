@@ -1,0 +1,191 @@
+// 本文件是首页仪表盘的系统指标服务：宿主机 CPU/内存与当前进程 CPU/内存。
+// This file is the system-metrics service of the home dashboard: host CPU and memory plus the current process's
+// CPU and memory.
+//
+// 指标全部来自标准库与框架的 core/sysinfo：不引入 gopsutil 之类的新依赖，也不需要 cgo。
+// 宿主机 CPU 用两次累计快照的差值计算，进程 CPU 用 runtime/metrics 的累计 CPU 秒数计算；
+// 第一次采样会短暂等待约 150ms 以取得一个有意义的窗口，之后每次轮询都只做一次快照。
+// Every value comes from the standard library and the framework's core/sysinfo: no gopsutil-like dependency and no
+// cgo. Host CPU is the difference between two cumulative snapshots, and process CPU is the cumulative CPU seconds
+// reported by runtime/metrics. The first sample waits about 150ms so that it has a meaningful window; later polls
+// only take one snapshot.
+
+package service
+
+import (
+	"runtime"
+	"runtime/metrics"
+	"sync"
+	"time"
+
+	"{{ .YdModule }}/core/sysinfo"
+)
+
+// hostSampleWindow bounds the first CPU sample; later samples span the caller's polling interval.
+// | hostSampleWindow 是首次 CPU 采样的窗口；之后的采样跨度就是调用方的轮询间隔。
+const hostSampleWindow = 150 * time.Millisecond
+
+// processCPUMetricNames are the two cumulative classes whose difference is the CPU time the
+// process actually spent executing Go code and its runtime. | processCPUMetricNames 是两个累计类别，
+// 它们的差值就是进程真正用于执行 Go 代码及其运行时的 CPU 时间。
+var processCPUMetricNames = [...]string{
+	"/cpu/classes/total:cpu-seconds",
+	"/cpu/classes/idle:cpu-seconds",
+}
+
+// Metrics is one dashboard snapshot. | Metrics 是一次仪表盘快照。
+type Metrics struct {
+	// CPUCores is the number of logical CPUs visible to the process. | CPUCores 是进程可见的逻辑 CPU 数。
+	CPUCores int
+	// CPUPercent is the host-wide busy percentage in [0, 100]. | CPUPercent 是全主机忙碌百分比，取值 [0, 100]。
+	CPUPercent float64
+	// MemoryTotal is the host memory total in bytes, or 0 when unknown. | MemoryTotal 是宿主机内存总量（字节），未知时为 0。
+	MemoryTotal uint64
+	// MemoryAvailable is the host memory currently available in bytes. | MemoryAvailable 是宿主机当前可用内存（字节）。
+	MemoryAvailable uint64
+	// MemoryPercent is the host memory used percentage in [0, 100]. | MemoryPercent 是宿主机内存使用百分比，取值 [0, 100]。
+	MemoryPercent float64
+	// ProcessCPUPercent is the share of the host CPU used by this process. | ProcessCPUPercent 是本进程占用的宿主 CPU 份额。
+	ProcessCPUPercent float64
+	// ProcessMemory is the memory the Go runtime obtained from the OS in bytes. | ProcessMemory 是 Go 运行时向操作系统申请的内存（字节）。
+	ProcessMemory uint64
+	// ProcessMemoryPercent is ProcessMemory as a share of the host total. | ProcessMemoryPercent 是 ProcessMemory 占宿主总量的比例。
+	ProcessMemoryPercent float64
+	// HostCPU reports whether the platform exposes host CPU times. | HostCPU 报告平台是否提供宿主机 CPU 时间。
+	HostCPU bool
+	// HostMemory reports whether the platform exposes host memory. | HostMemory 报告平台是否提供宿主机内存。
+	HostMemory bool
+}
+
+// MetricsService samples and caches the deltas needed by the dashboard. | MetricsService 采样并保存仪表盘所需的差值。
+//
+// It is safe for concurrent use; a snapshot is serialised so two polls never share a half-updated
+// previous sample. | 它并发安全；快照串行执行，两次轮询不会共享一个更新到一半的上一次采样。
+type MetricsService struct {
+	// procAt is when procPrev was taken. | procAt 是 procPrev 的采样时刻。
+	procAt time.Time
+	// hostPrev is the last host CPU snapshot. | hostPrev 是上一次宿主机 CPU 快照。
+	hostPrev sysinfo.CPUSample
+	// procPrev is the last process CPU seconds reading. | procPrev 是上一次进程 CPU 秒数读数。
+	procPrev float64
+	// mu guards the sampling state and serialises snapshots. | mu 保护采样状态并串行化快照。
+	mu sync.Mutex
+	// hostHave reports whether hostPrev is valid. | hostHave 报告 hostPrev 是否有效。
+	hostHave bool
+	// procHave reports whether procPrev is valid. | procHave 报告 procPrev 是否有效。
+	procHave bool
+	// procMetricOK reports whether the runtime exposes the CPU class metrics. | procMetricOK 报告运行时是否提供 CPU 类别指标。
+	procMetricOK bool
+}
+
+// NewMetricsService builds a sampler; the first Snapshot fills the baseline. | NewMetricsService 构造采样器；首次 Snapshot 填充基线。
+func NewMetricsService() *MetricsService {
+	return &MetricsService{procMetricOK: processCPUMetricsAvailable()}
+}
+
+// processCPUMetricsAvailable checks the names against the runtime's catalogue, so a future Go
+// version that renames a metric degrades to "unavailable" instead of panicking inside metrics.Read.
+// | processCPUMetricsAvailable 对照运行时的目录检查名称，未来 Go 版本改名时退化为「不可用」，
+// 而不是在 metrics.Read 里 panic。
+func processCPUMetricsAvailable() bool {
+	known := make(map[string]struct{})
+	for _, description := range metrics.All() {
+		known[description.Name] = struct{}{}
+	}
+	for _, name := range processCPUMetricNames {
+		if _, ok := known[name]; !ok {
+			return false
+		}
+	}
+	return true
+}
+
+// processCPUSeconds returns the cumulative CPU seconds this process has spent executing Go
+// code and its runtime. | processCPUSeconds 返回本进程用于执行 Go 代码及其运行时的累计 CPU 秒数。
+func (s *MetricsService) processCPUSeconds() (float64, bool) {
+	if !s.procMetricOK {
+		return 0, false
+	}
+	samples := make([]metrics.Sample, len(processCPUMetricNames))
+	for i, name := range processCPUMetricNames {
+		samples[i].Name = name
+	}
+	metrics.Read(samples)
+	var total, idle float64
+	for i, sample := range samples {
+		if sample.Value.Kind() != metrics.KindFloat64 {
+			return 0, false
+		}
+		if i == 0 {
+			total = sample.Value.Float64()
+		} else {
+			idle = sample.Value.Float64()
+		}
+	}
+	if total <= idle {
+		return 0, true
+	}
+	return total - idle, true
+}
+
+// Snapshot returns the current dashboard values. | Snapshot 返回当前仪表盘取值。
+func (s *MetricsService) Snapshot() Metrics {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	out := Metrics{
+		CPUCores:       sysinfo.NumCPU(),
+		MemoryTotal:    sysinfo.MemoryTotal(),
+		MemoryAvailable: sysinfo.MemoryAvailable(),
+	}
+	if out.MemoryTotal > 0 && out.MemoryAvailable <= out.MemoryTotal {
+		used := out.MemoryTotal - out.MemoryAvailable
+		out.MemoryPercent = float64(used) / float64(out.MemoryTotal) * 100
+		out.HostMemory = true
+	}
+	if out.CPUCores <= 0 {
+		out.CPUCores = 1
+	}
+
+	// Take one snapshot, wait only when a baseline is missing, then take the second.
+	// | 先取一次快照，只在缺少基线时等待，再取第二次。
+	hostFirst, hostOK := sysinfo.CPUSnapshot()
+	procFirst, procOK := s.processCPUSeconds()
+	if (!s.hostHave && hostOK) || (!s.procHave && procOK) {
+		time.Sleep(hostSampleWindow)
+	}
+	hostNow, hostNowOK := sysinfo.CPUSnapshot()
+	procNow, procNowOK := s.processCPUSeconds()
+	now := time.Now()
+
+	if hostNowOK {
+		switch {
+		case s.hostHave:
+			out.CPUPercent = hostNow.Usage(s.hostPrev)
+		case hostOK:
+			out.CPUPercent = hostNow.Usage(hostFirst)
+		}
+		s.hostPrev, s.hostHave = hostNow, true
+		out.HostCPU = true
+	}
+	if procNowOK {
+		previous, previousAt, have := s.procPrev, s.procAt, s.procHave
+		if !have && procOK {
+			previous, previousAt, have = procFirst, now.Add(-hostSampleWindow), true
+		}
+		if have {
+			if wall := now.Sub(previousAt).Seconds(); wall > 0 && procNow >= previous {
+				out.ProcessCPUPercent = (procNow - previous) / wall / float64(out.CPUCores) * 100
+			}
+		}
+		s.procPrev, s.procAt, s.procHave = procNow, now, true
+	}
+
+	var stats runtime.MemStats
+	runtime.ReadMemStats(&stats)
+	out.ProcessMemory = stats.Sys
+	if out.MemoryTotal > 0 {
+		out.ProcessMemoryPercent = float64(stats.Sys) / float64(out.MemoryTotal) * 100
+	}
+	return out
+}

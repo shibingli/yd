@@ -22,11 +22,8 @@ package web
 
 import (
 	"embed"
-	"io/fs"
 	"os"
 	"path/filepath"
-
-	"github.com/spf13/afero"
 
 	"{{ .Module }}/internal/meta"
 	"{{ .YdModule }}/core/afs"
@@ -66,7 +63,7 @@ func Assets() afs.FS {
 		// No on-disk assets: fall back to the embedded copy instead of failing to boot. | 找不到磁盘资产：退回内嵌副本，绝不因为开发期布局差异而启动失败。
 		return afs.NewEmbed(embedded)
 	}
-	return afero.NewCopyOnWriteFs(afs.NewEmbed(embedded), afs.NewOS(root))
+	return afs.Overlay(afs.NewEmbed(embedded), afs.NewOS(root))
 }
 
 // Static 返回 /static 的合并文件系统：本项目 static/ 覆盖框架 static/，再由开发期磁盘副本覆盖两者。
@@ -82,11 +79,11 @@ func Static() (afs.FS, error) {
 		return nil, err
 	}
 
-	project, err := sub(embedded, staticDir)
+	project, err := afs.Sub(embedded, staticDir)
 	if err != nil {
 		return nil, err
 	}
-	merged := afero.NewCopyOnWriteFs(framework, project)
+	merged := afs.Overlay(framework, project)
 
 	if !meta.IsDevelopment() {
 		return merged, nil
@@ -95,7 +92,7 @@ func Static() (afs.FS, error) {
 	if !ok {
 		return merged, nil
 	}
-	return afero.NewCopyOnWriteFs(merged, afs.NewOS(filepath.Join(root, staticDir))), nil
+	return afs.Overlay(merged, afs.NewOS(filepath.Join(root, staticDir))), nil
 }
 
 // I18n 返回语言目录子树，供 i18n.New 直接以该子树的根为目录根加载文案。
@@ -104,7 +101,7 @@ func Static() (afs.FS, error) {
 // 文案只在启动期读取一次，因此这里始终使用内嵌副本，不受开发期覆盖影响。
 // Catalogues are read once at startup, so this always uses the embedded copy and ignores the development overlay.
 func I18n() afs.FS {
-	sub, err := sub(embedded, i18nDir)
+	sub, err := afs.Sub(embedded, i18nDir)
 	if err != nil {
 		// 语言目录缺失时降级为空树：i18n.New 会据此报告 ErrNoCatalogs，由调用方决定如何处置。
 		// A missing catalogue tree degrades to an empty tree: i18n.New then reports ErrNoCatalogs and the caller decides.
@@ -116,28 +113,13 @@ func I18n() afs.FS {
 // frameworkStatic 返回框架 static/ 子树（vendor 脚本、yd.css 与国密/i18n 脚本的来源）。
 // frameworkStatic returns the framework's static/ subtree (the source of the vendored scripts, yd.css and the guomi/i18n scripts).
 func frameworkStatic() (afs.FS, error) {
-	from, ok := frameworkweb.FS().(afero.FromIOFS)
+	from, ok := afs.IOFSTree(frameworkweb.FS())
 	if !ok {
 		// 框架资产不再是 io/fs 后端：返回内存空树，由调用方决定是否继续。（框架当前实现必然是 io/fs 后端。）
 		// The framework assets are no longer an io/fs backend: return an empty in-memory tree and let the caller decide.
 		return afs.NewMem(), nil
 	}
-	sub, err := fs.Sub(from.FS, staticDir)
-	if err != nil {
-		return nil, err
-	}
-	return afs.NewEmbed(sub), nil
-}
-
-// sub 在 io/fs 语义的内嵌资产上定位子树；内嵌后端要求 "/" 路径，因此这里用 fs.Sub 而非 afero 的 BasePathFs。
-// sub locates a subtree inside the io/fs-backed embedded assets; because that backend requires "/" paths this uses
-// fs.Sub rather than afero's BasePathFs (which joins with the OS separator and breaks fs.ValidPath on Windows).
-func sub(parent fs.FS, dir string) (afs.FS, error) {
-	sub, err := fs.Sub(parent, dir)
-	if err != nil {
-		return nil, err
-	}
-	return afs.NewEmbed(sub), nil
+	return afs.Sub(from, staticDir)
 }
 
 // developmentRoot 定位开发期的资产根目录（默认 {{ .AssetRoot }}）。

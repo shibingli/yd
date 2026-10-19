@@ -47,6 +47,10 @@
     </div>
     <div class="yd-page__actions">
       <span class="yd-badge yd-badge--muted">{{ tr "page.users.scope" }}</span>
+      {{- if can .Perm.UserCreate }}
+      <button type="button" class="yd-btn yd-btn--primary" data-yd-drawer-open data-yd-perm="{{ .Perm.UserCreate }}"
+              hx-get="/users/new" hx-target="#yd-drawer-body" hx-swap="innerHTML">{{ tr "page.users.create" }}</button>
+      {{- end }}
     </div>
   </header>
 
@@ -69,13 +73,5 @@
     {{ template "partials/users/list" . }}
   </section>
 
-  {{- if can .Perm.UserCreate }}
-  <section class="yd-card yd-section">
-    <details class="yd-details" {{ if .Empty }}open{{ end }}>
-      <summary class="yd-details__summary">{{ tr "page.users.create" }}</summary>
-      {{ template "partials/users/form" . }}
-      <p class="yd-hint">{{ tr "page.users.create_hint" }}</p>
-    </details>
-  </section>
-  {{- end }}
+  <p class="yd-hint">{{ tr "page.users.create_hint" }}</p>
 </section>

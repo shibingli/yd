@@ -10,14 +10,19 @@ import (
 	"github.com/shibingli/yd/security/guomi"
 )
 
-// User is one subject inside exactly one tenant. | User 是某一个租户内的一个主体。
+// User is a global identity that may belong to several tenants. | User 是可以隶属多个租户的全局身份。
+//
+// TenantID is the tenant this value acts in for the request or token at hand,
+// HomeTenantID is the immutable identity tenant and DefaultTenantID is where a
+// tenant-less sign-in lands. | TenantID 是本次请求或令牌下活动的租户，
+// HomeTenantID 是不可变的身份租户，DefaultTenantID 是无租户登录落入的租户。
 //
 // The struct never carries a plaintext password or a plaintext sec_key: PasswordHash
 // is guomi.HashPassword output and EncryptedSecKey is SM4-GCM ciphertext sealed
-// with the Service master key, bound to the tenant id and the user id as
+// with the Service master key, bound to the home tenant id and the user id as
 // additional authenticated data. | 该结构从不携带明文口令或明文 sec_key：PasswordHash 是
 // guomi.HashPassword 的结果，EncryptedSecKey 是用 Service 主密钥以 SM4-GCM 封装的密文，
-// 并以租户 ID 与用户 ID 作为附加认证数据绑定。
+// 并以身份租户 ID 与用户 ID 作为附加认证数据绑定。
 type User struct {
 	// CreatedAt is the creation time in the Service clock. | CreatedAt 是 Service 时钟下的创建时间。
 	CreatedAt time.Time
@@ -25,9 +30,19 @@ type User struct {
 	UpdatedAt time.Time
 	// ID is the generated identifier, prefixed with "us_", and doubles as the JWT "kid". | ID 是生成的标识符，前缀为 "us_"，同时作为 JWT 的 "kid"。
 	ID string
-	// TenantID is the owning tenant; it is part of every lookup and every sec_key binding. | TenantID 是所属租户，参与每一次查询与每一次 sec_key 绑定。
+	// TenantID is the tenant this user acts in for the current request or token. | TenantID 是当前请求或令牌下该用户实际所在的租户。
+	//
+	// A user may belong to several tenants; this field always carries the active one,
+	// while HomeTenantID carries the immutable identity tenant. | 一个用户可以隶属于多个租户；
+	// 本字段始终是当前生效的那个，HomeTenantID 则是不变的身份租户。
 	TenantID string
-	// Username is the unique sign-in name inside the tenant. | Username 是租户内唯一的登录名。
+	// HomeTenantID is the tenant that owns this identity and seals its sec_key; it never changes. | HomeTenantID 是拥有该身份并封装其 sec_key 的租户，永不改变。
+	HomeTenantID string
+	// DefaultTenantID is the tenant a sign-in without a tenant name lands in; the user may change it. | DefaultTenantID 是未指明租户时登录落入的租户，用户可以修改。
+	DefaultTenantID string
+	// TenantIDs lists every tenant this user belongs to. | TenantIDs 列出该用户隶属的全部租户。
+	TenantIDs []string
+	// Username is the globally unique sign-in name. | Username 是全局唯一的登录名。
 	Username string
 	// Email is the optional contact address; it is not a sign-in key. | Email 是可选的联络邮箱，不作为登录键。
 	Email string
@@ -108,6 +123,9 @@ func (s *Service) CreateUser(ctx context.Context, tenantID string, in CreateUser
 	u := &User{
 		ID:              id,
 		TenantID:        tenantID,
+		HomeTenantID:    tenantID,
+		DefaultTenantID: tenantID,
+		TenantIDs:       []string{tenantID},
 		Username:        username,
 		Email:           strings.TrimSpace(in.Email),
 		DisplayName:     strings.TrimSpace(in.DisplayName),
@@ -232,7 +250,7 @@ func (s *Service) SetPassword(ctx context.Context, tenantID, userID, password st
 	if err != nil {
 		return err
 	}
-	sealed, err := sealSecKey(s.masterKey, u.TenantID, u.ID, secKey)
+	sealed, err := sealSecKey(s.masterKey, homeTenantOf(u), u.ID, secKey)
 	if err != nil {
 		return err
 	}
@@ -253,10 +271,18 @@ func (s *Service) SetPassword(ctx context.Context, tenantID, userID, password st
 // cannot use this call to probe for accounts either. | 被禁用的用户只有在口令正确后才会得知，
 // 因此陌生人也无法借本调用探测账号。
 func (s *Service) Authenticate(ctx context.Context, tenantID, username, password string) (*User, error) {
+	// An empty tenant means a tenant-less sign-in: the username is globally unique
+	// and the user lands in its default tenant. | 空租户表示不带租户的登录：登录名全局唯一，
+	// 用户落入其默认租户。
+	var (
+		u   *User
+		err error
+	)
 	if strings.TrimSpace(tenantID) == "" {
-		return nil, ErrTenantRequired
+		u, err = s.store.GetUserByName(ctx, strings.TrimSpace(username))
+	} else {
+		u, err = s.store.GetUserByUsername(ctx, tenantID, strings.TrimSpace(username))
 	}
-	u, err := s.store.GetUserByUsername(ctx, tenantID, strings.TrimSpace(username))
 	if err != nil {
 		// Burn the same PBKDF2 work a real account would burn. | 消耗与真实账号相同的 PBKDF2 运算量。
 		_, _ = guomi.VerifyPassword(s.dummyHash, password)
@@ -285,7 +311,25 @@ func (s *Service) SecKey(_ context.Context, u *User) ([]byte, error) {
 	if u == nil || len(u.EncryptedSecKey) == 0 {
 		return nil, errx.Detail(ErrSecKeyMissing, "user has no encrypted sec_key | 用户没有加密的 sec_key")
 	}
-	return openSecKey(s.masterKey, u.TenantID, u.ID, u.EncryptedSecKey)
+	// The key is sealed with the immutable identity tenant, never with the tenant the
+	// request happens to act in: switching tenants must not make the key unreadable.
+	// | 密钥用不可变的身份租户封装，绝不用请求当前所在的租户：切换租户不能让密钥变得不可解。
+	return openSecKey(s.masterKey, homeTenantOf(u), u.ID, u.EncryptedSecKey)
+}
+
+// homeTenantOf returns the tenant that seals the sec_key of u. | homeTenantOf 返回封装 u 的 sec_key 的租户。
+//
+// Records written before HomeTenantID existed carry the tenant in TenantID, so the
+// fallback keeps them readable. | HomeTenantID 出现之前写入的记录把租户放在 TenantID 上，
+// 因此这里回退到它，旧记录仍然可解。
+func homeTenantOf(u *User) string {
+	if u == nil {
+		return ""
+	}
+	if u.HomeTenantID != "" {
+		return u.HomeTenantID
+	}
+	return u.TenantID
 }
 
 // RotateSecKey replaces the per-user JWT key with a fresh random one. | RotateSecKey 用新的随机密钥替换每用户 JWT 密钥。
@@ -302,7 +346,7 @@ func (s *Service) RotateSecKey(ctx context.Context, tenantID, userID string) err
 	if err != nil {
 		return err
 	}
-	sealed, err := sealSecKey(s.masterKey, u.TenantID, u.ID, secKey)
+	sealed, err := sealSecKey(s.masterKey, homeTenantOf(u), u.ID, secKey)
 	if err != nil {
 		return err
 	}
@@ -362,6 +406,9 @@ func cloneUser(u *User) *User {
 	dup := *u
 	if u.Roles != nil {
 		dup.Roles = append([]string(nil), u.Roles...)
+	}
+	if u.TenantIDs != nil {
+		dup.TenantIDs = append([]string(nil), u.TenantIDs...)
 	}
 	if u.EncryptedSecKey != nil {
 		dup.EncryptedSecKey = append([]byte(nil), u.EncryptedSecKey...)

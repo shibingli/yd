@@ -11,9 +11,10 @@ import (
 	"image/draw"
 	"image/png"
 	"net/http"
+	"strconv"
 
-	"{{ .Module }}/internal/meta"
 	"{{ .Module }}/internal/model"
+	"{{ .Module }}/internal/service"
 	"{{ .YdModule }}/core/errx"
 	"{{ .YdModule }}/security/guomi"
 	"{{ .YdModule }}/core/logx"
@@ -65,15 +66,123 @@ func (c *Controller) Index(ctx *router.Ctx) {
 		return
 	}
 
-	c.render(ctx, http.StatusOK, TplHome, c.view(ctx, meta.Name, map[string]any{
+	c.render(ctx, http.StatusOK, TplHome, c.view(ctx, "概览 | Overview", map[string]any{
 		"Users":      head(users, recentLimit),
 		"UserCount":  len(users),
 		"RoleCount":  len(roles),
 		"Permission": len(model.PermissionKeys()),
+		"Gauges":     c.metricGauges(c.metrics.Snapshot()),
 	}))
 }
 
-// Health 健康检查：供容器探针与负载均衡使用，永远只回 "ok"。
+// Metrics 返回首页仪表盘的指标片段，由首页每 5 秒轮询刷新一次。
+// Metrics returns the dashboard metrics fragment, polled by the home page every five seconds.
+//
+// @Summary Resource metrics fragment | 资源指标片段
+// @Description Renders the gauge grid for the host CPU and memory plus this process's CPU and memory. The fragment is
+// @Description swapped into #yd-metrics with innerMorph, so the gauges update without rebuilding the page. Values come
+// @Description from core/sysinfo and runtime/metrics; a platform that exposes no host CPU or memory times reports the
+// @Description corresponding gauge as unavailable instead of inventing a number.
+// @Description 渲染宿主机 CPU/内存与本进程 CPU/内存的仪表盘网格。片段以 innerMorph 换入 #yd-metrics，因此仪表盘就地刷新、
+// @Description 不重建页面。取值来自 core/sysinfo 与 runtime/metrics；平台不提供宿主 CPU 或内存时，对应仪表盘显示「不可用」，
+// @Description 绝不编造数字。
+// @Tags pages
+// @Accept html
+// @Produce html
+// @Success 200 {object} string "metrics fragment | 指标片段"
+// @Failure 401 {object} string "no session | 无有效会话"
+// @Security BearerAuth
+// @Router /metrics [get]
+func (c *Controller) Metrics(ctx *router.Ctx) {
+	c.render(ctx, http.StatusOK, TplMetrics, c.view(ctx, "资源指标 | Metrics", map[string]any{
+		"Gauges": c.metricGauges(c.metrics.Snapshot()),
+	}))
+}
+
+// metricGauge 是模板渲染一个仪表盘所需的全部取值。
+// metricGauge carries everything the template needs to render one gauge.
+type metricGauge struct {
+	// LabelKey is the i18n key of the caption. | LabelKey 是标题的 i18n 键。
+	LabelKey string
+	// Value is the formatted reading shown in the dial. | Value 是仪表盘中央的格式化读数。
+	Value string
+	// Tone selects the warn/danger colour pair; empty uses the brand colour. | Tone 选择警示/危险配色；为空时使用品牌色。
+	Tone string
+	// Percent is the arc fill in [0, 100]. | Percent 是圆弧填充比例，取值 [0, 100]。
+	Percent float64
+	// Supported reports whether the platform exposed the value. | Supported 报告平台是否提供了该取值。
+	Supported bool
+}
+
+// metricGauges turns one snapshot into the six dashboard gauges in a fixed order.
+// | metricGauges 把一次快照转换为固定顺序的六个仪表盘。
+func (c *Controller) metricGauges(m service.Metrics) []metricGauge {
+	gauges := []metricGauge{
+		{LabelKey: "metrics.cpu_cores", Value: strconv.Itoa(m.CPUCores), Percent: 100, Supported: true},
+		{LabelKey: "metrics.cpu_usage", Value: formatPercent(m.CPUPercent), Percent: clampPercent(m.CPUPercent), Tone: toneFor(m.CPUPercent), Supported: m.HostCPU},
+		{LabelKey: "metrics.memory_total", Value: formatBytes(m.MemoryTotal), Percent: 100, Supported: m.HostMemory && m.MemoryTotal > 0},
+		{LabelKey: "metrics.memory_usage", Value: formatPercent(m.MemoryPercent), Percent: clampPercent(m.MemoryPercent), Tone: toneFor(m.MemoryPercent), Supported: m.HostMemory},
+		{LabelKey: "metrics.process_cpu", Value: formatPercent(m.ProcessCPUPercent), Percent: clampPercent(m.ProcessCPUPercent), Tone: toneFor(m.ProcessCPUPercent), Supported: true},
+		{LabelKey: "metrics.process_memory", Value: formatBytes(m.ProcessMemory), Percent: clampPercent(m.ProcessMemoryPercent), Tone: toneFor(m.ProcessMemoryPercent), Supported: true},
+	}
+	for i := range gauges {
+		if !gauges[i].Supported {
+			gauges[i].Value = "—"
+			gauges[i].Percent = 0
+			gauges[i].Tone = ""
+		}
+	}
+	return gauges
+}
+
+// formatPercent renders one percentage with a single decimal. | formatPercent 以一位小数渲染百分比。
+func formatPercent(v float64) string { return strconv.FormatFloat(v, 'f', 1, 64) + "%" }
+
+// clampPercent confines a percentage to the gauge's [0, 100] range. | clampPercent 把百分比限制在仪表盘的 [0, 100] 区间。
+func clampPercent(v float64) float64 {
+	switch {
+	case v < 0:
+		return 0
+	case v > 100:
+		return 100
+	default:
+		return v
+	}
+}
+
+// toneFor maps a usage percentage onto the warn/danger colour pair. | toneFor 把使用率映射到警示/危险配色。
+func toneFor(v float64) string {
+	switch {
+	case v >= 90:
+		return "danger"
+	case v >= 70:
+		return "warn"
+	default:
+		return ""
+	}
+}
+
+// formatBytes renders a byte count in the largest binary unit that keeps it readable.
+// | formatBytes 用最大的二进制单位渲染字节数，使读数保持易读。
+func formatBytes(n uint64) string {
+	const (
+		kib = 1 << 10
+		mib = 1 << 20
+		gib = 1 << 30
+	)
+	switch {
+	case n >= gib:
+		return strconv.FormatFloat(float64(n)/gib, 'f', 1, 64) + " GiB"
+	case n >= mib:
+		return strconv.FormatFloat(float64(n)/mib, 'f', 1, 64) + " MiB"
+	case n >= kib:
+		return strconv.FormatFloat(float64(n)/kib, 'f', 0, 64) + " KiB"
+	default:
+		return strconv.FormatUint(n, 10) + " B"
+	}
+}
+
+// Health 健康检查：容器探针与负载均衡使用，永远只回 "ok"。
 // Health is the liveness probe for containers and load balancers; it always answers "ok".
 //
 // @Summary Health probe | 健康检查

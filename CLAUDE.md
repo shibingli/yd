@@ -198,9 +198,23 @@ Co-Authored-By: Eric Shi <shibingli@sina.com>
 
 - **租户是硬边界**：任何按 ID 读写实体的方法都必须同时校验 `TenantID`；
   跨租户访问一律返回 404/403，**不得返回任何数据**，也不得泄露资源是否存在。
+- **用户是全局身份，租户是成员关系**：登录名全局唯一（`username_key` 全局唯一索引），
+  一个用户可隶属多个租户，成员关系与各租户角色存放在 `yd_auth_user_tenants`。
+  `auth.User.TenantID` 是当前活动租户，`HomeTenantID` 是不可变的身份租户（封装 sec_key），
+  `DefaultTenantID` 是无租户登录时落入的租户，可由用户或管理员修改。新增/修改成员关系必须：
+  ① 目标租户存在；② 默认租户在成员集合内；③ 身份租户与默认租户不可移除。
+- **登录页不显示租户，也不显示种子凭据说明**：登录表单只提交用户名与口令，服务端按全局登录名
+  认证并落入默认租户。子域名与 `X-Tenant` 仍可指定租户，但只对该用户已隶属的租户生效。
+- **切换租户必须校验成员关系并重新签发令牌**：`POST /tenant/switch` 只接受成员租户，
+  非成员与不存在的租户都返回 404；新令牌的 `tid` 是目标租户，旧令牌在自身租户内继续有效至过期。
+- **列表交互统一**：新增/编辑走右侧抽屉（`#yd-drawer`），列表操作用下拉菜单（`details.yd-menu`），
+  所有变更动作（退出、删除、启停、轮换、重置、创建、保存、切换租户、修改默认租户）都必须先经过
+  `data-yd-confirm` 的全局确认对话框。
 - **每用户独立 JWT 密钥（强制）**：创建用户时生成该用户专属的 `sec_key`；
   签发与验签**只允许**使用该用户的 `sec_key`，**严禁**任何全局 JWT 密钥作为兜底。
   令牌的 `kid` 承载用户 ID，验签方据此取密钥，**不得为取密钥而解析未验签的载荷**。
+  `sec_key` 以不可变的 `HomeTenantID` 作为 SM4-GCM 附加认证数据封装，**不得**用当前活动租户封装：
+  否则切换租户会让密钥无法解开。
 - **密钥与口令的落库形态**：口令只存 `guomi.HashPassword`（SM3 + 盐 + 多轮）结果；
   `sec_key` 以 SM4 加密存储，主密钥来自配置/环境变量，**不得**明文入库、不得写进日志。
 - **失效语义**：用户被禁用、被删除或轮换 `sec_key` 后，其既有令牌必须立即失效。
@@ -383,11 +397,17 @@ yd assets verify --offline   # 离线完整性校验
   | 表 | 索引 |
   |---|---|
   | `yd_auth_tenants` | `slug_key` 唯一；`created_at` |
-  | `yd_auth_users` | `(tenant_id, id)` 唯一；`(tenant_id, username_key)` 唯一；`(tenant_id, created_at)` |
+  | `yd_auth_users` | `id` 唯一；`username_key` **全局唯一**；`tenant_id`（身份租户）索引；`default_tenant_id` 索引；`created_at` |
+  | `yd_auth_user_tenants` | `(user_id, tenant_id)` 唯一；`(tenant_id, user_id)`；`(tenant_id, created_at)`；`(user_id, is_default)` |
   | `yd_auth_roles` | `(tenant_id, id)` 唯一；`(tenant_id, name)` 唯一 |
   | `yd_auth_role_permissions` | `(tenant_id, role_id, permission)` 唯一；`(tenant_id, role_id)` |
 
-  唯一性由大小写折叠列（`slug_key`/`username_key`）承载，因此「租户外唯一」与「租户内唯一」各自成立。
+  用户是全局身份：登录名（`username_key`）在整个部署内唯一，`yd_auth_users.tenant_id` 是不可变的身份租户，
+  各租户角色存放在 `yd_auth_user_tenants`。`yd_auth_user_tenants` 是唯一一处既有以 `tenant_id` 打头
+  （按租户列成员）又有以 `user_id` 打头（按用户列成员）索引的表，这是成员关系双向查询的必然结果；
+  其它鉴权表一律以 `tenant_id` 打头。
+- **升级必须回填成员关系**：旧库的 `yd_auth_users.roles` 列在迁移时复制为身份租户的成员关系，
+  并补齐 `default_tenant_id`；`Migrate` 必须幂等，既有账号在升级后仍能登录。
 - **迁移必须幂等**：连跑两次不得报错、不得重复建索引。
 - **新增按 ID 读写的鉴权方法时，必须同时给出对应的联合索引**，并在 `repotest` 或该包的测试里断言它真的被建出来。
 
@@ -583,3 +603,83 @@ yd versions sync               # 仅重新生成 version_generated.go
 - **新增维度走 `KeyFunc`**：缺失值一律返回固定标记（`-`），**不得返回空串**——
   空串会把所有无法识别的请求挤进同一个桶，把按维度限流悄悄变成全局限流。
 - 共享 `LimitStore` 的多条规则必须使用不同的 `KeyPrefix`，否则不同规则会互相消耗令牌。
+
+## 22. 前端交互、样式与实时推送（强制）
+
+### 22.1 外壳、导航与语言
+
+- **局部导航换整块外壳**：侧栏与顶栏内的导航/语言链接一律 `hx-target="#yd-shell"`，服务端在
+  `HX-Target` 命中 `yd-shell` 时先渲染页面片段、再以 `layouts/shell.html` 包裹（`Controller.renderShell`）。
+  只换 `#yd-workspace` 会让侧栏高亮与语言停在旧状态，这是必须避免的回归。
+- **`#yd-shell` 必须同时是 flex 容器**：侧栏与主列是它的直接子元素；否则主列从 `x=0` 起排、
+  滑到侧栏下面。
+- **登录页只保留登录功能**：未登录外壳没有侧栏、顶栏导航、页脚、租户字段与凭据说明，
+  只有登录卡片（含品牌区：离线 SVG 图标 + 项目名）与右上角的语言/主题切换。登录成功后由服务端落入用户的默认租户。
+- **图标必须离线**：favicon 指向同源静态资产 `/static/img/yd-icon.svg`（框架 `web/static/img/yd-icon.svg`，
+  随二进制嵌入），禁止 `data:,` 空图标、CDN 或外链；登录卡片品牌区复用同一图标。
+- **侧栏页脚只显示版本**：中间件与组件清单属于构建细节，不再出现在导航里。
+- **接口组一律新标签页打开**：接口文档、OpenAPI JSON、健康检查（以及页面内的 `/docs`、`/openapi.json` 链接）
+  都带 `target="_blank" rel="noopener noreferrer"`；它们是整页/机器响应，不能换进工作区。
+
+### 22.2 抽屉、确认与列表操作
+
+- **新增/编辑一律用右侧抽屉**（`<dialog id="yd-drawer">` + `data-yd-drawer-open` + `hx-get` 片段），
+  页面不预渲染隐藏表单；写操作成功（2xx）后 `yd-app.js` 关闭抽屉，4xx 保持打开以便就地修正。
+- **所有变更动作必须确认**：退出、删除、启停、轮换 sec_key、重置口令、创建、保存、切换租户、
+  修改默认租户都带 `data-yd-confirm`；确认对话框的文案来自模板的 `tr`，脚本里不写业务文案。
+  表单在捕获阶段拦截后必须用 `requestSubmit` 重新提交，且要识别 htmx 4 的 `detail.ctx` 形态。
+- **列表操作用下拉菜单**：用户与角色列表的行内动作统一放在 `details.yd-menu` 中；
+  面板由脚本提升为 `position: fixed` 并用 `right:auto` + `left` 定位，避免被表格容器的
+  `overflow-x` 裁切。**顶栏租户切换复用同一套 `details.yd-menu` 面板与 `.yd-menu__item`**，
+  不再使用原生 `select`（其选项由操作系统绘制，无法与站内控件统一）。
+- **确认框必须保留提交者**：多按钮表单（例如租户菜单每个条目各带一个 `tenant` 值）在确认后要用
+  `form.requestSubmit(event.submitter)` 重新提交；不带 submitter 的 `requestSubmit()` 会丢掉按钮的
+  `name`/`value`，服务端因此收不到目标值。
+- **轮询与变更不得写入历史**：`body` 的 `hx-push-url:inherited` 为 `false`，只有导航链接显式
+  `hx-push-url="true"`；指标轮询必须 `hx-target="this"` 且 `hx-push-url="false"`。
+
+### 22.3 Tailwind v4 与主题
+
+- **所有项目样式继承 Tailwind v4**：`app.css` 必须 `@import "tailwindcss"`，设计令牌写在 `@theme`，
+  项目与框架组件写在 `@layer components`；可复用工具类用 `@apply` 引入，组件自身几何尺寸才写普通声明。
+- **颜色只来自语义令牌**：浅色/深色/跟随系统三态由 `<html data-theme>` 承载，暗色只重写令牌；
+  禁止在令牌块之外写颜色字面量（守卫 `TestNoHardcodedColorsInAppCSS`）。
+- **原生控件也要适配**：`:root` / `[data-theme="dark"]` / `auto` 三处声明 `color-scheme`，
+  `dialog`、`select`、滚动条与焦点环随主题切换。
+- **主题切换按钮保持高对比**：使用 `.yd-theme-toggle` 的实心表面与内容色，不得只依赖 ghost 变体。
+
+### 22.4 首页资源仪表盘
+
+- 首页通过 `GET /metrics` 每 5 秒轮询并 `innerMorph` 到 `#yd-metrics`，展示宿主机 CPU 核心数/利用率、
+  总内存/利用率与当前进程 CPU/内存。仪表盘是纯服务端渲染的 SVG（`pathLength="100"` +
+  `stroke-dasharray`），不得引入图表库或内联脚本。
+- 指标来自 `core/sysinfo`（`CPUSnapshot` / `MemoryTotal` / `MemoryAvailable`，Windows 走
+  `GetSystemTimes` / `GlobalMemoryStatusEx`）与 `runtime/metrics`；平台不提供时显示「不可用」，
+  **不得编造数字**。首次采样允许约 150ms 的窗口等待，之后只做一次快照。
+
+### 22.5 htmx 4 实时通道与 OpenAPI 查看器
+
+- **SSE 推送必须是匿名消息**：htmx 4 移除了 `sse-swap`，只自动交换无名 `data:` 消息；
+  把事件命名为主题名会变成 DOM 事件，页面会永远停在「连接中」。`Broker.PublishHTML` 因此发送
+  无名消息，命名事件只用于 `yd:tick` 之类的旁路通知。
+- **WebSocket 发送控件必须在连接元素内部**：htmx 4 的 `hx-ws:send` 用 `closest()` 从发送元素向上找
+  `hx-ws:connect`；把输入框/按钮放在连接元素之外会报 “No WebSocket connection found”，消息根本不会发出。
+  连接元素还必须给出 `hx-target` / `hx-swap`，回显与主动推送都依赖它们。
+- **htmx 4 的 WS 信封与旧版不同**：上行是扁平 JSON（表单字段为顶层键，请求头在 `headers`），下行只交换
+  `content`。`ws.HtmxMessage` 同时接受扁平与旧的 `HEADERS`/`BODY` 形态，把唯一值或 `message` 字段解为
+  `Body`，默认回显以 `{"content":"…"}` 应答；`hx-partial` 原样文本由 htmx 核心改写为 `template[type=partial]`。
+- **回车发送不得用 `hx-trigger` 过滤器**：`keyup[key=='Enter']` 由 htmx 用 `new Function` 编译，
+  会被 CSP 的 `script-src 'self'` 拦截；由 `yd-app.js` 的普通监听器点击同一个发送按钮。
+- **错误事件不等于断开**：`htmx:ws:error` 也可能来自一次发送失败而套接字仍然开着，连接徽标与横幅
+  只应响应 `htmx:ws:close` / `htmx:sse:close` / `htmx:sse:error`，否则会把正常连接误报为断开。
+- **离开实时页面不算掉线**：`yd-app.js` 只在页面存在 `hx-sse:connect` / `hx-ws:connect` 元素时显示
+  断线横幅，导航导致的 SSE 流中止不得提示「连接已断开」。
+- **查看器脚本必须同源外链**：CSP 是 `script-src 'self'`，内联脚本会被浏览器拦截，
+  表现为 `/docs` 页面空白。查看器脚本固定在 `web/static/js/yd-openapi-viewer.js`，
+  由 `openapi.Options.ViewerScript` 指向（当前 `?v=5` 用于绕过旧缓存），禁止内联脚本与 CDN。
+- **查看器交互**：左侧导航按第一个 `tag` 分组（`doc.tags` 顺序优先，随后是未声明的 tag，
+  最后是 webhooks、数据模型与安全方案）；操作详情提供**同源在线测试**——服务器、鉴权头、
+  path/query/header 参数与 JSON 请求体，响应显示状态、耗时、响应头与正文。测试请求只允许
+  同源（`connect-src 'self'`），跨源目标直接提示而不发送，会话 cookie 自动携带。
+- **查看器主题跟随应用**：查看器读取同一份 `localStorage.yd_theme`，顶栏按钮按
+  浅色 → 深色 → 跟随系统循环；表单控件边框使用 `--field` 令牌，明暗两套主题都必须清晰可见。

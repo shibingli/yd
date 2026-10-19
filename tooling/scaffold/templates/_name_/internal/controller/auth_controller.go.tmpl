@@ -97,17 +97,26 @@ func (c *Controller) Login(ctx *router.Ctx) {
 		tenantKey, _ = middleware.TenantSlug(ctx)
 	}
 
-	tenantID, err := c.tenants.Resolve(ctx.Request.Context(), tenantKey)
-	if err != nil {
-		// 租户不存在与口令错误回同一句：登录接口是匿名可达的，任何差异都会变成租户枚举的旁路。
-		// An unknown tenant and a wrong password answer alike: the sign-in endpoint is reachable anonymously and any
-		// difference would become a side channel for enumerating tenants.
-		c.log.Warn("sign-in refused: unresolvable tenant | 登录被拒绝：租户无法解析",
-			logx.Err(err),
-			logx.Str("tenant_key", tenantKey),
-		)
-		c.loginFailed(ctx, http.StatusUnauthorized, msgUnauthorized, username)
-		return
+	// 登录页不再要求租户：表单没有该字段时，登录名按全局唯一身份解析，用户落入自己的默认租户。
+	// 子域名或 X-Tenant 仍然可以指定租户，此时按指定租户校验成员关系。
+	// The sign-in page no longer asks for a tenant: without the field the globally unique
+	// username is resolved and the user lands in their default tenant. A subdomain or an
+	// X-Tenant header may still name one, in which case the membership is checked for it.
+	tenantID := ""
+	if tenantKey != "" {
+		resolved, err := c.tenants.Resolve(ctx.Request.Context(), tenantKey)
+		if err != nil {
+			// 租户不存在与口令错误回同一句：登录接口是匿名可达的，任何差异都会变成租户枚举的旁路。
+			// An unknown tenant and a wrong password answer alike: the sign-in endpoint is reachable anonymously and any
+			// difference would become a side channel for enumerating tenants.
+			c.log.Warn("sign-in refused: unresolvable tenant | 登录被拒绝：租户无法解析",
+				logx.Err(err),
+				logx.Str("tenant_key", tenantKey),
+			)
+			c.loginFailed(ctx, http.StatusUnauthorized, msgUnauthorized, username)
+			return
+		}
+		tenantID = resolved
 	}
 
 	result, err := c.auth.Login(ctx.Request.Context(), service.LoginInput{
@@ -153,6 +162,85 @@ func (c *Controller) Logout(ctx *router.Ctx) {
 		)
 	}
 	c.redirect(ctx, "/login")
+}
+
+// SwitchTenant 切换当前会话的活动租户，并为目标租户重新签发令牌。
+// SwitchTenant switches the active tenant of this session and re-issues the token for the target tenant.
+//
+// @Summary Switch the active tenant | 切换活动租户
+// @Description Verifies that the signed-in user belongs to the target tenant (a slug or a tn_ id), then issues a fresh
+// @Description token whose tid claim is that tenant and writes it into the session cookie. A tenant the user does not
+// @Description belong to answers exactly like a missing tenant, so membership cannot be probed.
+// @Description 校验当前用户是否隶属目标租户（标识或 tn_ ID），随后签发 tid 声明为目标租户的新令牌并写入会话 cookie。
+// @Description 用户并不隶属的租户与不存在的租户返回完全相同的 404，因此无法探测成员关系。
+// @Tags auth
+// @Accept html
+// @Produce html
+// @Param tenant formData string true "tenant id or slug | 租户 ID 或标识"
+// @Success 200 {object} string "HX-Redirect to the workspace | 指向工作区的 HX-Redirect"
+// @Success 303 {object} string "redirect to the workspace | 303 跳转到工作区"
+// @Failure 401 {object} string "no session | 无有效会话"
+// @Failure 404 {object} string "not a member of that tenant | 不是该租户的成员"
+// @Security BearerAuth
+// @Router /tenant/switch [post]
+func (c *Controller) SwitchTenant(ctx *router.Ctx) {
+	user, ok := auth.CurrentUser(ctx)
+	if !ok || user == nil {
+		c.fail(ctx, http.StatusUnauthorized, msgUnauthorized)
+		return
+	}
+	tenantKey := field(ctx, FieldTenant)
+	if tenantKey == "" {
+		c.fail(ctx, http.StatusUnprocessableEntity, service.ErrTenantMissing.Error())
+		return
+	}
+	tenantID, err := c.tenants.Resolve(ctx.Request.Context(), tenantKey)
+	if err != nil {
+		c.failService(ctx, err)
+		return
+	}
+	result, err := c.auth.SwitchTenant(ctx.Request.Context(), user.ID, tenantID)
+	if err != nil {
+		c.failService(ctx, err)
+		return
+	}
+	c.setSession(ctx, result)
+	c.redirect(ctx, "/")
+}
+
+// SetOwnDefaultTenant changes the signed-in user's own default tenant. | SetOwnDefaultTenant 修改当前用户自己的默认租户。
+//
+// @Summary Set my default tenant | 设置我的默认租户
+// @Description Makes one of the user's own memberships the tenant a tenant-less sign-in lands in. The target must be an
+// @Description existing membership; the membership check is the authorization, so no extra capability is required.
+// @Description 把用户自己的某个成员租户设为无租户登录时落入的租户。目标必须是已有成员关系；成员关系本身就是授权，
+// @Description 因此不需要额外能力。
+// @Tags account
+// @Accept html
+// @Produce html
+// @Param tenant formData string true "tenant id or slug | 租户 ID 或标识"
+// @Success 200 {object} string "refreshed account page | 刷新后的账号页"
+// @Failure 401 {object} string "no session | 无有效会话"
+// @Failure 404 {object} string "not a member of that tenant | 不是该租户的成员"
+// @Security BearerAuth
+// @Router /account/default-tenant [post]
+func (c *Controller) SetOwnDefaultTenant(ctx *router.Ctx) {
+	user, ok := auth.CurrentUser(ctx)
+	if !ok || user == nil {
+		c.fail(ctx, http.StatusUnauthorized, msgUnauthorized)
+		return
+	}
+	tenantID, err := c.tenants.Resolve(ctx.Request.Context(), field(ctx, FieldTenant))
+	if err != nil {
+		c.failService(ctx, err)
+		return
+	}
+	if err := c.users.SetOwnDefaultTenant(ctx.Request.Context(), user.ID, tenantID); err != nil {
+		c.failService(ctx, err)
+		return
+	}
+	c.toast(ctx, "默认租户已更新 | default tenant updated")
+	c.Account(ctx)
 }
 
 // Account 渲染账号自助页：当前身份、权限全集、改密与 sec_key 轮换。
@@ -278,10 +366,8 @@ func (c *Controller) loginData(ctx *router.Ctx, message, username string) map[st
 	// KeyEndpoint is not repeated here: view() already injects PubkeyPath into every page's data, and a second copy would
 	// only add one more string that can drift away from the route.
 	return c.view(ctx, "登录 | Sign in", map[string]any{
-		"Error":      message,
-		"Username":   username,
-		"SeedTenant": c.store.SeedTenant(),
-		"SeedNotice": meta.SeedPasswordNotice,
+		"Error":    message,
+		"Username": username,
 	})
 }
 

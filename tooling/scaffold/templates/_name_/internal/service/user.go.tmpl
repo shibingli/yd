@@ -27,6 +27,8 @@ var (
 	ErrRoleUnknown = errx.New("unknown role | 角色不存在")
 	// ErrSelfOperation reports a dangerous operation on one's own account (disabling oneself, for instance). | ErrSelfOperation 表示对自己执行了危险操作（如停用自己）。
 	ErrSelfOperation = errx.New("you cannot disable your own account | 不能停用自己的账号")
+	// ErrTenantSelection reports an empty membership set or a default tenant outside it. | ErrTenantSelection 表示成员租户为空，或默认租户不在其中。
+	ErrTenantSelection = errx.New("select at least one tenant and pick the default tenant among them | 至少选择一个租户，并把默认租户选在其中")
 )
 
 // Length bounds for the e-mail address and the password. | 邮箱与口令的长度边界。
@@ -217,6 +219,121 @@ func (s *UserService) RotateSecKey(ctx context.Context, tenantID, userID string)
 // Roles returns this tenant's roles for the role checkboxes of the user form. | Roles 返回本租户的角色清单，供用户表单的角色多选渲染。
 func (s *UserService) Roles(ctx context.Context, tenantID string) ([]model.Role, error) {
 	return s.roles.List(ctx, tenantID)
+}
+
+// Tenants returns every tenant the user belongs to. | Tenants 返回用户隶属的全部租户。
+func (s *UserService) Tenants(ctx context.Context, userID string) ([]model.Tenant, error) {
+	return s.users.Tenants(ctx, userID)
+}
+
+// SetTenants replaces the user's memberships and default tenant. | SetTenants 覆盖用户的成员租户与默认租户。
+//
+// 顺序是有意安排的：先补齐新租户、再切换默认租户、最后移除多余租户。这样旧默认租户在
+// 移除时已经不再是默认，仓储层「默认租户不可移除」的规则因此不会挡住一次合法的调整。
+// The order is deliberate: add the new tenants, switch the default, and only then drop the
+// extras. That way the old default is no longer the default when it is removed, so the store's
+// "the default tenant cannot be removed" rule never blocks a legitimate adjustment.
+func (s *UserService) SetTenants(ctx context.Context, actorTenantID, userID string, tenantIDs []string, defaultTenantID string) error {
+	if _, err := s.users.Get(ctx, actorTenantID, userID); err != nil {
+		return ErrUserNotFound
+	}
+	desired := make([]string, 0, len(tenantIDs))
+	seen := make(map[string]struct{}, len(tenantIDs))
+	for _, id := range tenantIDs {
+		id = strings.TrimSpace(id)
+		if id == "" {
+			continue
+		}
+		if _, dup := seen[id]; dup {
+			continue
+		}
+		seen[id] = struct{}{}
+		desired = append(desired, id)
+	}
+	if len(desired) == 0 {
+		return ErrTenantSelection
+	}
+	defaultTenantID = strings.TrimSpace(defaultTenantID)
+	if defaultTenantID == "" {
+		defaultTenantID = desired[0]
+	}
+	if _, ok := seen[defaultTenantID]; !ok {
+		return ErrTenantSelection
+	}
+
+	current, err := s.users.Tenants(ctx, userID)
+	if err != nil {
+		return err
+	}
+	currentSet := make(map[string]struct{}, len(current))
+	for _, t := range current {
+		currentSet[t.ID] = struct{}{}
+	}
+	for _, id := range desired {
+		if _, ok := currentSet[id]; ok {
+			continue
+		}
+		roles := s.defaultRoles(ctx, id)
+		if err := s.users.AddTenant(ctx, userID, id, roles); err != nil {
+			return err
+		}
+	}
+	if err := s.users.SetDefaultTenant(ctx, userID, defaultTenantID); err != nil {
+		return err
+	}
+	desiredSet := seen
+	for _, t := range current {
+		if _, keep := desiredSet[t.ID]; keep {
+			continue
+		}
+		if err := s.users.RemoveTenant(ctx, userID, t.ID); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// SetDefaultTenant 管理员为用户指定默认租户；目标必须是该用户的成员租户。
+// SetDefaultTenant lets an administrator pick a user's default tenant, which must be one of that user's memberships.
+func (s *UserService) SetDefaultTenant(ctx context.Context, actorTenantID, userID, tenantID string) error {
+	if _, err := s.users.Get(ctx, actorTenantID, userID); err != nil {
+		return ErrUserNotFound
+	}
+	return s.users.SetDefaultTenant(ctx, userID, tenantID)
+}
+
+// SetOwnDefaultTenant 让用户修改自己的默认租户；成员关系由仓储层校验。
+// SetOwnDefaultTenant lets a user change their own default tenant; the store verifies the membership.
+func (s *UserService) SetOwnDefaultTenant(ctx context.Context, userID, tenantID string) error {
+	return s.users.SetDefaultTenant(ctx, userID, tenantID)
+}
+
+// SwitchTenant 返回用户在目标租户中的视图；非成员与不存在的租户都报 ErrUserNotFound。
+// SwitchTenant returns the user acting in the target tenant; a non-member and a missing tenant both report ErrUserNotFound.
+func (s *UserService) SwitchTenant(ctx context.Context, userID, tenantID string) (model.User, error) {
+	u, err := s.users.SwitchTenant(ctx, userID, tenantID)
+	if err != nil {
+		return model.User{}, ErrUserNotFound
+	}
+	return u, nil
+}
+
+// defaultRoles 返回新成员在目标租户的初始角色：存在 member 就用它，否则不授予任何角色。
+// defaultRoles returns the initial roles of a new membership: member when that role exists, otherwise none.
+//
+// 目标租户可能由另一个管理员刚建成、角色尚未写入，因此这里绝不把「找不到 member」当作错误。
+// A freshly created tenant may not hold its roles yet, so a missing member role is never an error here.
+func (s *UserService) defaultRoles(ctx context.Context, tenantID string) []string {
+	catalogue, err := s.roles.List(ctx, tenantID)
+	if err != nil {
+		return nil
+	}
+	for _, role := range catalogue {
+		if strings.EqualFold(role.Name, model.RoleMember) {
+			return []string{role.Name}
+		}
+	}
+	return nil
 }
 
 // normaliseRoles 校验并去重角色名：空集合落到 member，未知名称以 ErrRoleUnknown 拒绝（失败即关闭）。

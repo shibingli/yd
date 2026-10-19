@@ -1,0 +1,32 @@
+{{/*
+  partials/shell-switches.html —— 语言与主题切换：登录前与登录后共用的唯一一组控件。
+  partials/shell-switches.html — the language and theme switches: the only such controls, shared before and after sign-in.
+
+  语言链接以 hx-get 取回整块外壳（目标 #yd-shell），而不是只换工作区：侧栏的分组标题与当前项的高亮
+  也随之更新。主题按钮只改 <html data-theme>，页面结构不动。
+  The language links fetch the whole shell (target #yd-shell) rather than the workspace alone, so the
+  sidebar captions and the active item follow the switch as well. The theme button only rewrites
+  <html data-theme> and never rebuilds the page.
+
+  数据契约 | Data contract: .Path .Lang。
+*/}}
+{{- define "partials/shell-switches" -}}
+<span class="yd-switch" role="group" aria-label="{{ tr "ui.language" }}">
+  <a class="yd-switch__item{{ if eq .Lang "zh-CN" }} yd-switch__item--on{{ end }}"
+     href="{{ .Path }}?lang=zh-CN" data-yd-lang="zh-CN"
+     hx-get="{{ .Path }}?lang=zh-CN" hx-target="#yd-shell" hx-swap="innerMorph" hx-push-url="true">中文</a>
+  <a class="yd-switch__item{{ if eq .Lang "en" }} yd-switch__item--on{{ end }}"
+     href="{{ .Path }}?lang=en" data-yd-lang="en"
+     hx-get="{{ .Path }}?lang=en" hx-target="#yd-shell" hx-swap="innerMorph" hx-push-url="true">English</a>
+</span>
+
+{{/* 三态主题：三个标签各自可见与否完全由 CSS 决定，脚本里没有一句文案。 */}}
+{{/* Three-state theme: CSS alone decides which label is visible, so the script holds no copy. */}}
+<button type="button" class="yd-btn yd-btn--ghost yd-btn--sm yd-theme-toggle" data-yd-theme-toggle
+        aria-label="{{ tr "ui.theme" }}" title="{{ tr "ui.theme" }}">
+  <span class="yd-theme__icon" aria-hidden="true">◐</span>
+  <span class="yd-theme__state" data-yd-theme-state="light">{{ tr "ui.theme_light" }}</span>
+  <span class="yd-theme__state" data-yd-theme-state="dark">{{ tr "ui.theme_dark" }}</span>
+  <span class="yd-theme__state" data-yd-theme-state="auto">{{ tr "ui.theme_auto" }}</span>
+</button>
+{{- end -}}

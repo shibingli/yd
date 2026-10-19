@@ -1,0 +1,11 @@
+{{/*
+  partials/home/metrics_fragment.html —— /metrics 端点返回的片段：只把共享的仪表盘网格渲染出来。
+  partials/home/metrics_fragment.html — the fragment returned by /metrics: it renders the shared gauge grid only.
+
+  本文件没有 define，因此控制器可以直接以文件名渲染它；网格本身仍只有 partials/home/metrics.html 一份。
+  This file carries no define, so the controller renders it by file name, while the grid itself still lives
+  exactly once in partials/home/metrics.html.
+
+  数据契约 | Data contract: .Gauges。
+*/}}
+{{ template "partials/home/metrics-panel" . }}

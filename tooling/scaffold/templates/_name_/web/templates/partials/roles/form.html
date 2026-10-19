@@ -19,6 +19,7 @@
       hx-post="/roles" hx-target="#yd-workspace" hx-swap="innerMorph"
       hx-status:422="target:#yd-errors swap:innerHTML"
       hx-disabled-elt="find button[type='submit']"
+      data-yd-confirm="{{ tr "confirm.create_role" }}"
       novalidate>
   <div class="yd-form__field">
     <label class="yd-form__label" for="yd-role-name">{{ tr "field.role_name" }}</label>

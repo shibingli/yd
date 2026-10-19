@@ -32,6 +32,10 @@
     </div>
     <div class="yd-page__actions">
       <span class="yd-badge yd-badge--muted">{{ tr "page.tenants.scope" }}</span>
+      {{- if can .Perm.TenantCreate }}
+      <button type="button" class="yd-btn yd-btn--primary" data-yd-drawer-open data-yd-perm="{{ .Perm.TenantCreate }}"
+              hx-get="/tenants/new" hx-target="#yd-drawer-body" hx-swap="innerHTML">{{ tr "page.tenants.create" }}</button>
+      {{- end }}
     </div>
   </header>
 
@@ -49,13 +53,5 @@
     {{ template "partials/tenants/list" . }}
   </section>
 
-  {{- if can .Perm.TenantCreate }}
-  <section class="yd-card yd-section">
-    <details class="yd-details" {{ if .Empty }}open{{ end }}>
-      <summary class="yd-details__summary">{{ tr "page.tenants.create" }}</summary>
-      {{ template "partials/tenants/form" . }}
-      <p class="yd-hint">{{ tr "page.tenants.create_hint" }}</p>
-    </details>
-  </section>
-  {{- end }}
+  <p class="yd-hint">{{ tr "page.tenants.create_hint" }}</p>
 </section>

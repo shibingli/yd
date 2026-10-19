@@ -268,7 +268,7 @@ func degradeToMemory(log *logx.Logger, err error) auth.Store {
 // authTables 列出迁移建出的表，供启动日志一眼看出鉴权数据落在哪里（只读，不要修改）。
 // authTables lists the tables created by the migration, so one look at the startup log shows where auth data lives
 // (read-only; never mutated).
-var authTables = []string{"yd_auth_tenants", "yd_auth_users", "yd_auth_roles", "yd_auth_role_permissions"}
+var authTables = []string{"yd_auth_tenants", "yd_auth_users", "yd_auth_user_tenants", "yd_auth_roles", "yd_auth_role_permissions"}
 
 {{ else -}}
 func openRaw(_ Options, log *logx.Logger) (auth.Store, any, func() error) {
@@ -317,7 +317,7 @@ func (s *Store) Close() error {
 
 // seedSpec describes the seeded tenant together with its administrator account. | seedSpec 描述种子租户及其管理员账号。
 type seedSpec struct {
-	// Slug is the tenant key and the value of the tenant field on the sign-in page. | Slug 是租户标识，同时是登录页的租户字段取值。
+	// Slug is the readable tenant key used by the X-Tenant header and subdomains. | Slug 是租户的可读标识，X-Tenant 请求头与子域名用它定位租户。
 	Slug string
 	// Name is the tenant display name. | Name 是租户展示名。
 	Name string

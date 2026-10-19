@@ -134,8 +134,8 @@ func Register(a *app.App) error {
 // registerPublic mounts the anonymously reachable endpoints: the sign-in page, the sign-in submission, sign-out, the
 // health probe and the SM2 public key.
 //
-// 公开组仍然跑租户中间件（Required 为 false）：登录页需要认识「acme.example.com 这个子域是谁」才能预填租户字段，
-// 而 Required 为 false 保证了一个什么也没指明的请求照样能渲染出登录表单。
+// 公开组仍然跑租户中间件（Required 为 false）：匿名请求可以用子域名或 X-Tenant 定位租户，
+// 而 Required 为 false 保证了一个什么也没指明的请求照样能渲染出登录表单；登录表单本身不带租户字段。
 // The public group still runs the tenant middleware with Required false: the sign-in page has to know which tenant
 // acme.example.com names in order to pre-fill the field, while Required false keeps a request that names no tenant
 // renderable.
@@ -216,13 +216,19 @@ func registerProtected(a *app.App, ctrl *controller.Controller, store *repositor
 		}),
 	)
 
-	// 会话即可访问：个人落地页、账号自助与实时演示。
-	// Session-only: the personal landing page, self-service account actions and the realtime demo.
+	// 会话即可访问：个人落地页、账号自助、租户切换与实时演示。
+	// Session-only: the personal landing page, self-service account actions, the tenant switch and the realtime demo.
 	g.GET("/", ctrl.Index)
+	g.GET("/metrics", ctrl.Metrics)
 	g.GET("/realtime", ctrl.Page)
 	g.GET("/account", ctrl.Account)
 	g.POST("/account/password", ctrl.ChangePassword)
 	g.POST("/account/sec-key", ctrl.RotateSecKey)
+	// 切换租户只要求「是目标租户的成员」，成员关系本身就是授权；默认租户同理。
+	// The tenant switch requires only membership of the target tenant, which is itself the
+	// authorization; the same holds for the default-tenant choice.
+	g.POST("/tenant/switch", ctrl.SwitchTenant)
+	g.POST("/account/default-tenant", ctrl.SetOwnDefaultTenant)
 
 	// 占位图端点：既是混合捕获模式的活文档，也是「静态资源必须带会话」的样板。
 	// The placeholder endpoints: living documentation of the mixed capture patterns and the template for "even an asset needs a session".
@@ -238,13 +244,17 @@ func registerProtected(a *app.App, ctrl *controller.Controller, store *repositor
 	// Tenants: reading and creating map onto the registry's tenant:read and tenant:create, because tenants are the
 	// boundary of everything else.
 	g.GET("/tenants", ctrl.Tenants, authz.Require(authz.PermTenantRead))
+	g.GET("/tenants/new", ctrl.NewTenantForm, authz.Require(authz.PermTenantCreate))
 	g.POST("/tenants", ctrl.CreateTenant, authz.Require(authz.PermTenantCreate))
 
 	// 用户：读数与改数分属不同能力，因此「能看」与「能动」在种子数据里就是两件事，且每一次调用都带着上下文里的租户 ID。
 	// Users: reading and changing are separate capabilities, so "may look" and "may touch" are two different things in the
 	// seeded data as well, and every call carries the tenant id from the context.
 	g.GET("/users", ctrl.Users, authz.Require(authz.PermUserRead))
+	g.GET("/users/new", ctrl.NewUserForm, authz.Require(authz.PermUserCreate))
 	g.POST("/users", ctrl.CreateUser, authz.Require(authz.PermUserCreate))
+	g.GET("/users/:id/edit", ctrl.EditUserForm, authz.Require(authz.PermUserUpdate))
+	g.POST("/users/:id/tenants", ctrl.SetUserTenants, authz.Require(authz.PermUserUpdate))
 	g.POST("/users/:id", ctrl.UpdateUser, authz.Require(authz.PermUserUpdate))
 	g.POST("/users/:id/roles", ctrl.SetUserRoles, authz.Require(authz.PermUserUpdate))
 	g.POST("/users/:id/status", ctrl.SetUserStatus, authz.Require(authz.PermUserUpdate))
@@ -257,6 +267,8 @@ func registerProtected(a *app.App, ctrl *controller.Controller, store *repositor
 	// the threshold with "change a role", while creating one (role:manage) and deleting one (role:delete) follow the
 	// lifecycle capabilities separately.
 	g.GET("/roles", ctrl.Roles, authz.Require(authz.PermRoleRead))
+	g.GET("/roles/new", ctrl.NewRoleForm, authz.Require(authz.PermRoleManage))
+	g.GET("/roles/:id/edit", ctrl.EditRoleForm, authz.Require(authz.PermRoleManage))
 	g.POST("/roles", ctrl.SaveRole, authz.Require(authz.PermRoleManage))
 	g.POST("/roles/:id/permissions", ctrl.ToggleRolePermission, authz.Require(authz.PermRoleUpdate))
 	g.POST("/roles/:id/delete", ctrl.DeleteRole, authz.Require(authz.PermRoleDelete))

@@ -37,49 +37,30 @@
       {{ range $role.Permissions }}<span class="yd-badge yd-badge--info">{{ . }}</span>{{ else }}<span class="yd-hint">{{ tr "role.no_permission" }}</span>{{ end }}
     </p>
 
-    {{- if can $.Perm.RoleUpdate }}
-    {{/* 能力的授予与回收就地完成：每个能力一个表单、一个按钮，提交后返回的正是这一页（见 internal/controller 的
-         rolesPage），因此表格、徽标与提示三者一起更新，不会出现「点了按钮却停在半路」的中间态。
-         Granting and revoking happen in place: one form and one button per capability, and what comes back is this very
-         page (see rolesPage in internal/controller), so the table, the badges and the notice update together instead of
-         leaving the click stranded half way. */}}
-    <details class="yd-details">
-      <summary class="yd-details__summary">{{ tr "role.permissions" }}</summary>
-      <ul class="yd-list">
-        {{ range $.Catalogue }}
-        <li class="yd-list__item">
-          <code class="yd-code">{{ .Key }}</code>
-          <span class="yd-hint">{{ .Label }}</span>
-          <form method="post" action="/roles/{{ $role.ID }}/permissions"
-                hx-post="/roles/{{ $role.ID }}/permissions"
-                hx-status:422="target:#yd-errors swap:innerHTML"
-                hx-status:404="target:#yd-errors swap:innerHTML">
-            <input type="hidden" name="permission" value="{{ .Key }}">
-            {{ if $role.Granted .Key }}
-            <input type="hidden" name="granted" value="false">
-            <button type="submit" class="yd-btn yd-btn--ghost yd-btn--sm">{{ tr "ui.revoke" }}</button>
-            {{ else }}
-            <input type="hidden" name="granted" value="true">
-            <button type="submit" class="yd-btn yd-btn--ghost yd-btn--sm">{{ tr "ui.grant" }}</button>
-            {{ end }}
-          </form>
-        </li>
-        {{ end }}
-      </ul>
+    {{- if or (can $.Perm.RoleManage) (can $.Perm.RoleDelete) }}
+    {{/* 列表操作统一收进下拉菜单：编辑打开抽屉，删除仍需一次确认。权限勾选也搬进抽屉，
+         列表因此只回答「这个角色被授予了什么」，不再同时承担编辑。 */}}
+    {{/* List actions live in one dropdown: edit opens the drawer and delete still asks for confirmation.
+         Capability checkboxes move into the drawer as well, so the list answers "what is this role granted"
+         and no longer doubles as an editor. */}}
+    <details class="yd-menu" data-yd-menu>
+      <summary class="yd-btn yd-btn--ghost yd-btn--sm">{{ tr "ui.actions" }}</summary>
+      <div class="yd-menu__panel" role="menu">
+        {{- if can $.Perm.RoleManage }}
+        <button type="button" class="yd-menu__item" role="menuitem" data-yd-drawer-open
+                hx-get="/roles/{{ $role.ID }}/edit" hx-target="#yd-drawer-body" hx-swap="innerHTML">{{ tr "ui.edit" }}</button>
+        {{- end }}
+        {{- if can $.Perm.RoleDelete }}
+        <form method="post" action="/roles/{{ $role.ID }}/delete"
+              hx-post="/roles/{{ $role.ID }}/delete"
+              hx-status:409="target:#yd-errors swap:innerHTML"
+              hx-status:404="target:#yd-errors swap:innerHTML"
+              data-yd-confirm="{{ tr "confirm.delete_role" }}">
+          <button type="submit" class="yd-menu__item yd-menu__item--danger" role="menuitem" {{ if $role.Builtin }}disabled{{ end }}>{{ tr "ui.delete" }}</button>
+        </form>
+        {{- end }}
+      </div>
     </details>
-
-    {{- end }}
-
-    {{- if can $.Perm.RoleDelete }}
-    <div class="yd-form__actions">
-      {{/* 删除是一条独立的路由（POST /roles/{id}/delete），因此它不可能被一次误提交的资料变更顺手触发。 */}}
-      <form method="post" action="/roles/{{ $role.ID }}/delete"
-            hx-post="/roles/{{ $role.ID }}/delete"
-            hx-status:409="target:#yd-errors swap:innerHTML"
-            hx-status:404="target:#yd-errors swap:innerHTML">
-        <button type="submit" class="yd-btn yd-btn--ghost yd-btn--sm" {{ if $role.Builtin }}disabled{{ end }}>{{ tr "ui.delete" }}</button>
-      </form>
-    </div>
     {{- end }}
   </article>
   {{ end }}

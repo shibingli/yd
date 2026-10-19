@@ -57,8 +57,6 @@ type roleCache struct {
 	loadedAt map[string]time.Time
 	// perms maps tenant id to role name to permissions. | perms 把租户 ID 映射到角色名再到权限列表。
 	perms map[string]map[string][]Permission
-	// ttl bounds the staleness of one tenant. | ttl 限定单个租户缓存的最大陈旧时长。
-	ttl time.Duration
 	// version counts invalidations per tenant. A load publishes only if its tenant's version did
 	// not move while it was reading the store, and a reader retries when the version moved under
 	// it; without that, an invalidation between "the cache is fresh" and "look up the name" makes
@@ -69,6 +67,8 @@ type roleCache struct {
 	// 库里存在的角色会被看成不存在（虽然失败关闭，但会让 SetUserRoles 报出假错误）。按租户而非全局计数：
 	// 一个租户写角色，不能让另一个租户的陈旧读取看起来仍然可接受。
 	version map[string]uint64
+	// ttl bounds the staleness of one tenant. | ttl 限定单个租户缓存的最大陈旧时长。
+	ttl time.Duration
 	// mu guards the fields above and is kept last to shrink the pointer
 	// bytes the collector has to scan. | mu 保护上述字段，并置于最后以减少回收器需要扫描的指针字节数。
 	mu sync.RWMutex

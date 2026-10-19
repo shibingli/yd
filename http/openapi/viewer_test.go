@@ -1,6 +1,7 @@
 package openapi
 
 import (
+	"os"
 	"strings"
 	"testing"
 
@@ -62,19 +63,43 @@ func TestViewerScriptIslandStaysValid(t *testing.T) {
 // object kinds and no external asset references. | TestViewerCoversAllObjectKinds 检查模板包含
 // 扩展对象类型的渲染器，且不引用外部资源。
 func TestViewerCoversAllObjectKinds(t *testing.T) {
+	raw, err := os.ReadFile("../../web/static/js/yd-openapi-viewer.js")
+	if err != nil {
+		t.Fatalf("read viewer script: %v | 读取查看器脚本失败：%v", err, err)
+	}
+	script := string(raw)
 	for _, want := range []string{
 		"renderOverview", "renderSecuritySchemes", "renderSecurityRequirement",
 		"renderCallbacks", "renderLinks", "renderEncoding", "renderExamples",
 		"renderSchema", "renderExtensions", "webhooks", "prefixItems", "allOf", "oneOf", "anyOf",
+		"route-group", "data-try-send", "sendTry", "theme-toggle",
 	} {
-		if !strings.Contains(viewerTemplate, want) {
-			t.Errorf("viewer template lacks %q | 查看器模板缺少 %q", want, want)
+		if !strings.Contains(script, want) {
+			t.Errorf("viewer script lacks %q | 查看器脚本缺少 %q", want, want)
+		}
+	}
+	// The page must load the script from the same origin and nothing else. | 页面只能从同源加载该脚本，不得引用其它资源。
+	if !strings.Contains(viewerTemplate, `<script src="`+viewerScriptPlaceholder+`" defer></script>`) {
+		t.Errorf("viewer template does not load the same-origin viewer script | 查看器模板未加载同源查看器脚本")
+	}
+	if !strings.Contains(viewerTemplate, `id="theme-toggle"`) {
+		t.Errorf("viewer template lacks the theme toggle | 查看器模板缺少主题切换按钮")
+	}
+	for _, want := range []string{`class="try"`, `class="route-group"`} {
+		if !strings.Contains(script, want) {
+			t.Errorf("viewer script lacks %q | 查看器脚本缺少 %q", want, want)
 		}
 	}
 	lower := strings.ToLower(viewerTemplate)
-	for _, bad := range []string{"<script src=", "<link ", "url(http", "@import", "javascript:"} {
+	for _, bad := range []string{"<link ", "url(http", "@import", "javascript:"} {
 		if strings.Contains(lower, bad) {
 			t.Errorf("viewer template references external or unsafe content %q | 查看器模板引用了外部或不安全内容 %q", bad, bad)
+		}
+	}
+	lowerScript := strings.ToLower(script)
+	for _, bad := range []string{"http://", "https://", "cdn."} {
+		if strings.Contains(lowerScript, bad) {
+			t.Errorf("viewer script references an external host %q | 查看器脚本引用了外部主机 %q", bad, bad)
 		}
 	}
 }

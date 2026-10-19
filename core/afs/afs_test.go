@@ -726,3 +726,73 @@ func TestWriteFileIfChangedOverBasePath(t *testing.T) {
 		t.Fatalf("内容 = %q, err = %v | content/error", got, err)
 	}
 }
+
+// TestOverlayPrefersUpperAndFallsBackToBase proves the copy-on-write facade keeps the embedded tree as a
+// read-only floor: upper wins on conflicts, base fills the gaps and writes never reach base.
+// | TestOverlayPrefersUpperAndFallsBackToBase 证明写时复制门面把内嵌树当作只读底板：
+// upper 在冲突时胜出，base 补缺，写入永远不落回 base。
+func TestOverlayPrefersUpperAndFallsBackToBase(t *testing.T) {
+	base := afs.NewEmbed(fstest.MapFS{
+		"a.txt": &fstest.MapFile{Data: []byte("base-a")},
+		"b.txt": &fstest.MapFile{Data: []byte("base-b")},
+	})
+	upper := afs.NewMem()
+	if err := afero.WriteFile(upper, "a.txt", []byte("upper-a"), 0o644); err != nil {
+		t.Fatalf("写入 upper 失败 | failed: %v", err)
+	}
+
+	overlay := afs.Overlay(base, upper)
+	got, err := afero.ReadFile(overlay, "a.txt")
+	if err != nil || string(got) != "upper-a" {
+		t.Fatalf("冲突文件 = %q, err = %v，期望 upper-a | conflict = %q, err = %v", got, err, got, err)
+	}
+	got, err = afero.ReadFile(overlay, "b.txt")
+	if err != nil || string(got) != "base-b" {
+		t.Fatalf("回落文件 = %q, err = %v，期望 base-b | fallback = %q, err = %v", got, err, got, err)
+	}
+	if err := afero.WriteFile(overlay, "c.txt", []byte("new"), 0o644); err != nil {
+		t.Fatalf("写入 overlay 失败 | failed: %v", err)
+	}
+	if _, err := afero.ReadFile(base, "c.txt"); err == nil {
+		t.Fatal("写入不得落到只读 base | a write must not land in read-only base")
+	}
+	if got, err := afero.ReadFile(upper, "c.txt"); err != nil || string(got) != "new" {
+		t.Fatalf("upper 中的新文件 = %q, err = %v | new upper file = %q, err = %v", got, err, got, err)
+	}
+}
+
+// TestIOFSTreeAndSub proves the embedded view and subtree helpers expose exactly the io/fs tree that
+// NewEmbed wrapped, and reject a non-embedded filesystem. | TestIOFSTreeAndSub 证明内嵌视图与子树助手
+// 暴露的正是 NewEmbed 包装的那棵 io/fs 树，并拒绝非内嵌文件系统。
+func TestIOFSTreeAndSub(t *testing.T) {
+	embedded := afs.NewEmbed(fstest.MapFS{
+		"static/css/x.css": &fstest.MapFile{Data: []byte("x")},
+		"other.txt":        &fstest.MapFile{Data: []byte("o")},
+	})
+	tree, ok := afs.IOFSTree(embedded)
+	if !ok {
+		t.Fatal("NewEmbed 返回的 FS 必须可还原为 io/fs 树 | a NewEmbed FS must expose its io/fs tree")
+	}
+	sub, err := afs.Sub(tree, "static")
+	if err != nil {
+		t.Fatalf("Sub 失败 | failed: %v", err)
+	}
+	got, err := afero.ReadFile(sub, "css/x.css")
+	if err != nil || string(got) != "x" {
+		t.Fatalf("子树文件 = %q, err = %v | subtree file = %q, err = %v", got, err, got, err)
+	}
+	if _, err := afero.ReadFile(sub, "other.txt"); err == nil {
+		t.Fatal("子树不得包含父树中的兄弟文件 | the subtree must not expose a sibling of the parent")
+	}
+	if _, ok := afs.IOFSTree(afs.NewMem()); ok {
+		t.Fatal("内存 FS 不是内嵌 FS | a memory FS is not an embedded FS")
+	}
+	// fs.Sub validates lazily: a missing directory may only fail on access. Either failure mode is
+	// acceptable as long as the subtree never serves content. | fs.Sub 惰性校验：目录不存在时可能到访问
+	// 才报错；两种失败方式都可接受，只要子树绝不提供内容。
+	if missing, err := afs.Sub(tree, "missing"); err == nil {
+		if _, readErr := afero.ReadFile(missing, "anything"); readErr == nil {
+			t.Fatal("不存在的子树不得提供任何内容 | a missing subtree must serve nothing")
+		}
+	}
+}

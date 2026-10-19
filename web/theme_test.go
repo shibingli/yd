@@ -309,6 +309,40 @@ func TestBuiltCssIsMinifiedAndNonEmpty(t *testing.T) {
 	}
 }
 
+// TestModalDialogsStayCentered pins the automatic margins that Tailwind Preflight erases. | TestModalDialogsStayCentered
+// 锁定会被 Tailwind Preflight 抹掉的自动外边距。
+//
+// Preflight sets `margin: 0` on every element, which also overrides the user agent's
+// `dialog:modal { margin: auto }`; without the explicit rule the confirmation dialog is pinned to the
+// top-left corner instead of the middle of the screen. The drawer needs an equally specific rule declared
+// later, otherwise it would be centred too. | Preflight 把所有元素的 margin 归零，连带覆盖了浏览器对
+// `dialog:modal { margin: auto }` 的设定；缺少显式规则时确认框会钉在左上角而不是屏幕中央。抽屉需要
+// 一条特异性相同且声明更晚的规则，否则它也会被居中。
+func TestModalDialogsStayCentered(t *testing.T) {
+	css := appSource(t)
+	confirm := cssBlock(t, css, ".yd-dialog:modal")
+	if margin, ok := cssValue(confirm, "margin"); !ok || margin != "auto" {
+		t.Errorf(".yd-dialog:modal must declare `margin: auto`, got %q | .yd-dialog:modal 必须声明 `margin: auto`，实际为 %q", margin, margin)
+	}
+
+	drawer := cssBlock(t, css, ".yd-drawer:modal")
+	if margin, ok := cssValue(drawer, "margin"); !ok || margin != "0 0 0 auto" {
+		t.Errorf(".yd-drawer:modal must keep the right-aligned margin, got %q | .yd-drawer:modal 必须保持右对齐外边距，实际为 %q", margin, margin)
+	}
+
+	// Equal specificity means source order decides; the drawer must come second. Match the selector together
+	// with its opening brace so the comments mentioning it do not skew the offsets. | 特异性相同时由源码顺序
+	// 决定，抽屉必须声明在后。匹配选择器及其左花括号，避免提及它的注释干扰偏移量。
+	if strings.Index(css, ".yd-drawer:modal {") < strings.Index(css, ".yd-dialog:modal {") {
+		t.Error("the drawer rule must follow the dialog rule to win at equal specificity | 抽屉规则必须位于对话框规则之后，才能在同等特异性下胜出")
+	}
+
+	built := string(readEmbedded(t, web.FS(), builtCSSPath))
+	if !strings.Contains(built, ".yd-dialog:modal{margin:auto}") {
+		t.Error("the committed yd.css lacks the modal centring rule; rerun the Tailwind build | 签入的 yd.css 缺少模态居中规则，请重新执行 Tailwind 构建")
+	}
+}
+
 // hexLiteral matches the six and eight digit hex colour literals banned from templates. | hexLiteral 匹配模板中禁止出现的 6 位与 8 位十六进制色值。
 var hexLiteral = regexpx.MustCompile(`#[0-9a-fA-F]{8}\b|#[0-9a-fA-F]{6}\b`)
 

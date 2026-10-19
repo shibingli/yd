@@ -73,6 +73,40 @@ func NewEmbed(f fs.FS) FS {
 	return afero.FromIOFS{FS: f}
 }
 
+// Overlay returns a copy-on-write filesystem where upper shadows base. | Overlay 返回写时复制文件系统，upper 覆盖 base。
+//
+// Reads fall through to base when upper has no entry, and every write lands in upper, so a read-only
+// embedded tree can sit underneath a writable disk tree. | 读取在 upper 缺失时回落到 base，所有写入都落在
+// upper，因此只读的内嵌树可以垫在可写的磁盘树下面。
+func Overlay(base, upper FS) FS {
+	return afero.NewCopyOnWriteFs(base, upper)
+}
+
+// IOFSTree returns the io/fs view behind an embedded filesystem. | IOFSTree 返回内嵌文件系统背后的 io/fs 视图。
+//
+// The second result is false when fsys did not come from NewEmbed; callers then decide whether to
+// degrade or fail. | 当 fsys 并非来自 NewEmbed 时第二返回值为 false，调用方据此决定降级还是失败。
+func IOFSTree(fsys FS) (fs.FS, bool) {
+	from, ok := fsys.(afero.FromIOFS)
+	if !ok {
+		return nil, false
+	}
+	return from.FS, true
+}
+
+// Sub returns the subtree rooted at dir as a read-only embedded filesystem. | Sub 返回以 dir 为根的只读内嵌文件系统。
+//
+// fs.Sub is used rather than afero's BasePathFs because the embedded backend requires "/"-separated
+// fs.ValidPath names while BasePathFs joins with the OS separator. | 这里用 fs.Sub 而不是 afero 的
+// BasePathFs：内嵌后端要求 "/" 分隔的 fs.ValidPath 名称，而 BasePathFs 会用操作系统分隔符拼接。
+func Sub(parent fs.FS, dir string) (FS, error) {
+	sub, err := fs.Sub(parent, dir)
+	if err != nil {
+		return nil, err
+	}
+	return NewEmbed(sub), nil
+}
+
 // CopyDir 把 src 上以 srcDir 为根的目录树递归复制到 dst 的 dstDir 之下，
 // 保留相对结构：srcDir 自身不产生额外层级（其内容直接落在 dstDir 内），
 // 缺失的父目录与空目录都会被创建。目录权限统一为 0o755，文件权限统一为

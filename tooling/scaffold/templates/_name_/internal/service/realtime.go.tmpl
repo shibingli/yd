@@ -24,6 +24,10 @@ const (
 	ClockTarget = "#yd-clock"
 	// ClockSwap is the clock swap strategy: an in-place morph swap that avoids a full rebuild and its flicker. | ClockSwap 是时钟片段的替换策略：就地形态替换，避免整块重建导致闪烁。
 	ClockSwap = "innerMorph"
+	// EchoTarget is the WebSocket echo log's selector, matching the container in pages/realtime.html. | EchoTarget 是 WebSocket 回显日志的选择器，与 pages/realtime.html 的容器一致。
+	EchoTarget = "#yd-ws-stream"
+	// EchoSwap appends each echoed message to the log instead of replacing its content. | EchoSwap 把每条回显消息追加到日志，而不是替换其内容。
+	EchoSwap = "beforeend"
 	// TickEvent is the client-side event shipped along with the fragment; pages subscribe to it on demand. | TickEvent 是随片段一并下发的客户端事件名，页面按需订阅。
 	TickEvent = "yd:tick"
 	// DefaultTickInterval is the default push interval. | DefaultTickInterval 是默认推送间隔。
@@ -40,16 +44,16 @@ var ErrTickerRunning = errx.New("ticker already running | 时钟已在运行")
 // The fragment is rendered server-side (HTML rather than JSON) to stay consistent with htmx's swap semantics; the
 // front end assembles nothing.
 type Ticker struct {
-	// broker is the event broadcaster. | broker 是事件广播器。
-	broker *sse.Broker
-	// interval is the push interval. | interval 是推送间隔。
-	interval time.Duration
 	// started is the start instant, used to compute the uptime. | started 是启动时刻，用于计算运行时长。
 	started time.Time
+	// broker is the event broadcaster. | broker 是事件广播器。
+	broker *sse.Broker
 	// done is closed once the background goroutine has returned. | done 在后台协程退出后关闭。
 	done chan struct{}
 	// cancel stops the background goroutine. | cancel 中止后台协程。
 	cancel context.CancelFunc
+	// interval is the push interval. | interval 是推送间隔。
+	interval time.Duration
 }
 
 // NewTicker 构造时钟；interval 非正时取 DefaultTickInterval。

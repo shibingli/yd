@@ -79,7 +79,9 @@ cookie 里的令牌          验签 / 有效期 /         以令牌的 tid 声�
 - **令牌来源唯一**：浏览器用 HttpOnly 的 `yd_token` cookie 存令牌，`Promote` 把它提升成 `Authorization: Bearer <token>`；
   htmx 与 API 客户端直接带请求头。两者此后走同一条校验路径，令牌怎么存不影响鉴权逻辑。
 - **租户只信令牌**：`middleware.Tenant` 在鉴权之后运行，因此它读到的是已校验的身份。子域名与 `X-Tenant` 请求头
-  只在**匿名**请求里用于解析租户（登录页预填租户字段）；带令牌的请求一旦与令牌声明不一致，立即 403。
+  只在**匿名**请求里用于定位租户；登录表单不再带租户字段，服务端按全局登录名认证并落入用户的默认租户。
+  用户可隶属多个租户（`yd_auth_user_tenants`），切换租户必须校验成员关系并重新签发令牌；
+  带令牌的请求一旦与令牌声明不一致，立即 403。
 - **能力守卫挂在路由上**：`g.GET("/users", ctrl.Users, authz.Require(authz.PermUserRead))`。
   `authz.Require` 是 `auth.RequirePermission` 的注册表包装（把四种写法解析成注册过的标识），因此守卫一律引常量，
   写 `auth.RequirePermission("user:read")` 那样的字面量既不必要，也会被 `yd authz check` 点名。

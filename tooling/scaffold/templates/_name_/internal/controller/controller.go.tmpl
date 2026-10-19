@@ -9,8 +9,10 @@
 package controller
 
 import (
+	"bytes"
 	"context"
 	"errors"
+	"html/template"
 	"net/http"
 	"strings"
 
@@ -26,6 +28,7 @@ import (
 	"{{ .YdModule }}/http/htmx"
 	"{{ .YdModule }}/http/i18n"
 	"{{ .YdModule }}/core/logx"
+	"{{ .YdModule }}/http/render"
 	"{{ .YdModule }}/http/router"
 )
 
@@ -50,6 +53,18 @@ const (
 	TplRealtime = "pages/realtime.html"
 	// TplError is the validation failure fragment swapped in by the front end's hx-status:422. | TplError 是校验失败片段，由前端的 hx-status:422 声明式换入。
 	TplError = "pages/error.html"
+	// TplUserCreateDrawer is the user creation drawer fragment. | TplUserCreateDrawer 是新建用户抽屉片段。
+	TplUserCreateDrawer = "partials/users/create_drawer.html"
+	// TplUserEditDrawer is the user edit drawer fragment. | TplUserEditDrawer 是编辑用户抽屉片段。
+	TplUserEditDrawer = "partials/users/edit_drawer.html"
+	// TplTenantCreateDrawer is the tenant creation drawer fragment. | TplTenantCreateDrawer 是新建租户抽屉片段。
+	TplTenantCreateDrawer = "partials/tenants/drawer.html"
+	// TplRoleCreateDrawer is the role creation drawer fragment. | TplRoleCreateDrawer 是新建角色抽屉片段。
+	TplRoleCreateDrawer = "partials/roles/drawer.html"
+	// TplRoleEditDrawer is the role edit drawer fragment. | TplRoleEditDrawer 是编辑角色抽屉片段。
+	TplRoleEditDrawer = "partials/roles/edit_drawer.html"
+	// TplMetrics is the dashboard metrics fragment polled by the home page. | TplMetrics 是首页轮询的仪表盘指标片段。
+	TplMetrics = "partials/home/metrics_fragment.html"
 )
 
 // 列表片段名：增删改之后返回的就是它们，因此 htmx 只换工作区、不重载整页。
@@ -107,6 +122,10 @@ const (
 	FieldKeyword = "q"
 	// FieldRoles is the role multiple-choice of the user form. | FieldRoles 是用户表单里的角色多选。
 	FieldRoles = "roles"
+	// FieldTenants is the tenant multiple-choice of the membership form. | FieldTenants 是成员关系表单里的租户多选。
+	FieldTenants = "tenants"
+	// FieldDefaultTenant is the default-tenant select of the membership form. | FieldDefaultTenant 是成员关系表单里的默认租户选择。
+	FieldDefaultTenant = "default_tenant"
 	// FieldStatus is the target status of the enable/disable form. | FieldStatus 是启用/停用表单的目标状态。
 	FieldStatus = "status"
 	// FieldPermission is the capability toggled in the permission matrix. | FieldPermission 是权限矩阵里被切换的能力标识。
@@ -147,6 +166,8 @@ type Controller struct {
 	users *service.UserService
 	// roles is the role and permission-matrix service. | roles 是角色与权限矩阵服务。
 	roles *service.RoleService
+	// metrics samples the host and process resource gauges. | metrics 采样宿主机与进程资源仪表盘。
+	metrics *service.MetricsService
 	// log records assembly and business events. | log 记录装配与业务事件。
 	log *logx.Logger
 }
@@ -178,6 +199,7 @@ func New(a *app.App, store *repository.Store, log *logx.Logger) (*Controller, er
 		tenants: service.NewTenantService(store),
 		users:   service.NewUserService(store, authSvc),
 		roles:   service.NewRoleService(store),
+		metrics: service.NewMetricsService(),
 		log:     log,
 	}, nil
 }
@@ -353,17 +375,35 @@ func (c *Controller) view(ctx *router.Ctx, title string, extra map[string]any) m
 		"Lang":            c.lang(ctx),
 		"TenantHeader":    meta.TenantHeader,
 		"SeedNotice":      meta.SeedPasswordNotice,
-		"User":            nil,
-		"Tenant":          nil,
-		"SignedIn":        false,
-		"SeedPassword":    false,
-		"Permissions":     []model.Permission{},
+		"User":             nil,
+		"Tenant":           nil,
+		"Tenants":          []model.Tenant{},
+		"DefaultTenantID":  "",
+		"SignedIn":         false,
+		"SeedPassword":     false,
+		"Permissions":      []model.Permission{},
 	}
 	for k, v := range extra {
 		data[k] = v
 	}
 
 	user, _ := auth.CurrentUser(ctx)
+
+	// 默认租户可以在账号页随时修改，而上下文里的用户来自本请求刚开始时的令牌校验。
+	// 每次渲染前按「当前活动租户」重读一次，页面上的默认标记与右上角下拉因此总是最新的；
+	// 读失败时保留令牌里的视图，渲染不因一次存储抖动而失败。
+	// The default tenant can change at any time on the account page, while the user in the
+	// context was loaded when this request was verified. Re-reading the user for the active
+	// tenant before each render keeps the default marker and the top-right dropdown current;
+	// a failed read keeps the token view, so one store hiccup never fails the render.
+	if user != nil {
+		if tenantID, ok := middleware.TenantID(ctx); ok {
+			if fresh, err := c.store.Auth().GetUser(ctx.Request.Context(), tenantID, user.ID); err == nil {
+				user = fresh
+				ctx.Set(auth.DefaultCtxKey, fresh)
+			}
+		}
+	}
 
 	// 权限信封在「未登录」的提前返回**之前**合并：匿名请求因此也会得到一个「什么都不授予」的信封，
 	// 页面在两种情况下走的是同一条路径，而不是各自判空。链上没有 authz.Middleware 时在这里自建主体，
@@ -391,8 +431,18 @@ func (c *Controller) view(ctx *router.Ctx, title string, extra map[string]any) m
 	// struct to a template would make every page recompute them.
 	data["User"] = model.UserFromAuth(user)
 	data["SignedIn"] = true
+	data["DefaultTenantID"] = user.DefaultTenantID
 	data["Permissions"] = c.auth.Permissions(user)
 	data["SeedPassword"] = c.auth.SeedPasswordUnchanged(user)
+
+	// 右上角的租户下拉读的就是这份成员清单：只有成员租户才会出现在里面，切换服务端再校验一次。
+	// The top-right tenant dropdown reads exactly this membership list: only tenants the user
+	// belongs to appear, and the switch endpoint verifies the membership again server-side.
+	if members, err := c.users.Tenants(ctx.Request.Context(), user.ID); err == nil {
+		data["Tenants"] = members
+	} else {
+		c.log.Warn("tenant memberships unavailable | 租户成员关系不可用", logx.Err(err), logx.Str("user", user.ID))
+	}
 
 	// 模板不再需要「能不能写用户」这类布尔值：判断改由 can/hasRole 与 .Perm 数据键完成，
 	// 助手把引用交给注册表解析，因此授权规则只有注册表那一处，模板里既没有权限清单，也没有第二份判定。
@@ -458,11 +508,67 @@ func formValues(ctx *router.Ctx, name string) []string {
 
 // render 渲染片段或整页：app.Render 依据 HX-Request 与 HX-Request-Type 自动选择「只片段」还是「布局包裹片段」。
 // render renders a fragment or a whole page: app.Render picks "fragment only" or "layout-wrapped fragment" from HX-Request and HX-Request-Type.
+//
+// 「整块外壳」请求（hx-target="#yd-shell"）先渲染页面片段，再把它作为 .Content 交给 layouts/shell.html：
+// 侧栏高亮与语言因此随每次导航一起更新。表单与局部刷新仍然只换 #yd-workspace，不会重建外壳。
+// A "whole shell" request (hx-target="#yd-shell") renders the page fragment first and then hands it to
+// layouts/shell.html as .Content, which is what keeps the sidebar highlight and language in step with every
+// navigation. Forms and partial refreshes still swap #yd-workspace alone and never rebuild the shell.
 func (c *Controller) render(ctx *router.Ctx, status int, name string, data map[string]any) {
+	if isShellTarget(ctx.Request) {
+		c.renderShell(ctx, status, name, data)
+		return
+	}
 	if err := c.app.Render(ctx, status, name, data); err != nil {
 		c.log.Error("render failed | 渲染失败",
 			logx.Err(err),
 			logx.Str("template", name),
+			logx.Str("path", ctx.Path()),
+		)
+	}
+}
+
+// isShellTarget reports whether this htmx request swaps the whole shell rather than the workspace. | isShellTarget 报告本次 htmx 请求换入的是整块外壳而不是工作区。
+func isShellTarget(r *http.Request) bool {
+	return strings.Contains(htmx.Target(r), "yd-shell")
+}
+
+// renderShell renders the page fragment and then the shell around it. | renderShell 先渲染页面片段，再把它包进外壳。
+//
+// 页面片段直接经渲染器写出，因此译者必须在这里显式注入：app.Render 只会在它自己的调用里补译者，
+// 这次中转不经过它。外壳本身仍由 app.Render 渲染，译者照常注入。
+// The page fragment is rendered directly through the renderer, so the translator has to be injected here:
+// app.Render only adds it inside its own call, which this intermediate step bypasses. The shell itself is
+// still rendered by app.Render, which injects the translator as usual.
+func (c *Controller) renderShell(ctx *router.Ctx, status int, name string, data map[string]any) {
+	if c.app.Renderer() == nil {
+		c.fail(ctx, http.StatusInternalServerError, msgInternal)
+		return
+	}
+	pageData := make(map[string]any, len(data)+1)
+	for k, v := range data {
+		pageData[k] = v
+	}
+	pageData[render.TranslatorKey] = i18n.FromContext(ctx)
+
+	var page bytes.Buffer
+	if err := c.app.Renderer().Render(&page, name, pageData); err != nil {
+		c.log.Error("shell fragment render failed | 外壳片段渲染失败",
+			logx.Err(err),
+			logx.Str("template", name),
+			logx.Str("path", ctx.Path()),
+		)
+		return
+	}
+
+	shellData := make(map[string]any, len(data)+1)
+	for k, v := range data {
+		shellData[k] = v
+	}
+	shellData["Content"] = template.HTML(page.String()) //nolint:gosec // trusted: rendered from a template | 可信：由模板渲染
+	if err := c.app.Render(ctx, status, "layouts/shell.html", shellData); err != nil {
+		c.log.Error("shell render failed | 外壳渲染失败",
+			logx.Err(err),
 			logx.Str("path", ctx.Path()),
 		)
 	}
@@ -559,7 +665,8 @@ func statusFor(err error) (int, string) {
 		errors.Is(err, service.ErrRoleNameRequired),
 		errors.Is(err, service.ErrPermissionUnknown),
 		errors.Is(err, service.ErrTenantNameRequired),
-		errors.Is(err, service.ErrTenantSlugInvalid):
+		errors.Is(err, service.ErrTenantSlugInvalid),
+		errors.Is(err, service.ErrTenantSelection):
 		// 校验失败一律 422：与前端的 hx-status:422 契约对齐，且语义比 400 更精确。
 		// Validation failures are always 422: it matches the front end's hx-status:422 contract and is more precise than 400.
 		return http.StatusUnprocessableEntity, err.Error()

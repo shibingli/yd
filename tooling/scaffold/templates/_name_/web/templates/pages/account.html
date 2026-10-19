@@ -62,6 +62,33 @@
     </section>
   </div>
 
+  {{/* 成员租户与默认租户：切换器只列成员租户，默认租户决定下次无租户登录落在哪里。
+       Memberships and the default tenant: the switcher lists memberships only, and the default
+       tenant decides where the next tenant-less sign-in lands. */}}
+  <section class="yd-card yd-section" aria-labelledby="yd-account-tenants">
+    <h2 class="yd-section__title" id="yd-account-tenants">{{ tr "tenant.memberships" }}</h2>
+    <p class="yd-section__hint">{{ tr "tenant.memberships_hint" }}</p>
+    <ul class="yd-list">
+      {{ range .Tenants }}
+      <li class="yd-list__item">
+        <span class="yd-list__primary">{{ .Display }}</span>
+        {{- if eq .ID $.DefaultTenantID }}
+        <span class="yd-badge yd-badge--info">{{ tr "tenant.default" }}</span>
+        {{- else }}
+        <form method="post" action="/account/default-tenant" hx-post="/account/default-tenant"
+              hx-target="#yd-workspace" hx-swap="innerMorph"
+              data-yd-confirm="{{ tr "confirm.set_default_tenant" }}">
+          <input type="hidden" name="tenant" value="{{ .ID }}">
+          <button type="submit" class="yd-btn yd-btn--ghost yd-btn--sm">{{ tr "tenant.set_default" }}</button>
+        </form>
+        {{- end }}
+      </li>
+      {{ else }}
+      <li class="yd-list__item"><span class="yd-hint">{{ tr "tenant.empty" }}</span></li>
+      {{ end }}
+    </ul>
+  </section>
+
   <section class="yd-card yd-section" aria-labelledby="yd-account-password">
     <h2 class="yd-section__title" id="yd-account-password">{{ tr "account.change_password" }}</h2>
     <p class="yd-section__hint">{{ tr "page.account.password_hint" }}</p>
@@ -75,6 +102,7 @@
           hx-status:401="target:#yd-errors swap:innerHTML"
           hx-status:422="target:#yd-errors swap:innerHTML"
           hx-disabled-elt="find button[type='submit']"
+          data-yd-confirm="{{ tr "confirm.change_password" }}"
           novalidate>
       <div class="yd-form__field">
         <label class="yd-form__label" for="yd-account-current">{{ tr "field.current_password" }}</label>
@@ -101,7 +129,8 @@
   <section class="yd-card yd-section" aria-labelledby="yd-account-seckey">
     <h2 class="yd-section__title" id="yd-account-seckey">{{ tr "account.rotate_key" }}</h2>
     <p class="yd-section__hint">{{ tr "page.account.seckey_hint" }}</p>
-    <form method="post" action="/account/sec-key" hx-post="/account/sec-key" hx-target="#yd-workspace" hx-swap="innerMorph">
+    <form method="post" action="/account/sec-key" hx-post="/account/sec-key" hx-target="#yd-workspace" hx-swap="innerMorph"
+          data-yd-confirm="{{ tr "confirm.rotate_key" }}">
       <div class="yd-form__actions">
         <button type="submit" class="yd-btn yd-btn--ghost">{{ tr "ui.rotate_key" }}</button>
       </div>

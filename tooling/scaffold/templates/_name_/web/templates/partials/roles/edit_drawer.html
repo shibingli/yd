@@ -1,0 +1,53 @@
+{{/*
+  partials/roles/edit_drawer.html —— 编辑角色抽屉的内容（由 GET /roles/{id}/edit 渲染）。
+  partials/roles/edit_drawer.html — the content of the role edit drawer (rendered by GET /roles/{id}/edit).
+
+  角色名是保存时的 upsert 键，因此编辑时只读：改名会创建另一个角色而不是重命名，把这一点
+  藏在一个可编辑输入框后面只会制造一次意外的新增。说明与权限勾选可改。
+  The role name is the upsert key, so it stays read-only while editing: renaming would create another
+  role rather than rename this one, and hiding that behind an editable input would only manufacture an
+  accidental insert. Description and capability checkboxes remain editable.
+
+  数据契约 | Data contract: .Target（model.Role；刻意不叫 .Role，那个键属于 authz.Data 的角色名映射）
+  .PermissionOptions（[]permissionOption，含目录项与勾选状态）。
+  .Target (model.Role; deliberately not .Role, a key owned by authz.Data's role-name map) and
+  .PermissionOptions ([]permissionOption, catalogue entry plus ticked state).
+*/}}
+{{- $role := .Target -}}
+<div class="yd-drawer__head">
+  <h2 class="yd-section__title">{{ tr "page.roles.edit" }}</h2>
+  <p class="yd-section__hint">{{ $role.Name }}{{ if $role.Builtin }} · {{ tr "role.builtin" }}{{ end }}</p>
+</div>
+
+<form class="yd-form" method="post" action="/roles"
+      hx-post="/roles" hx-target="#yd-workspace" hx-swap="innerMorph"
+      hx-status:422="target:#yd-errors swap:innerHTML"
+      hx-disabled-elt="find button[type='submit']"
+      data-yd-confirm="{{ tr "confirm.create_role" }}" novalidate>
+  <input type="hidden" name="name" value="{{ $role.Name }}">
+  <div class="yd-form__field">
+    <label class="yd-form__label" for="yd-role-edit-name">{{ tr "field.role_name" }}</label>
+    <input class="yd-input" id="yd-role-edit-name" type="text" value="{{ $role.Name }}" readonly>
+  </div>
+  <div class="yd-form__field">
+    <label class="yd-form__label" for="yd-role-edit-description">{{ tr "field.description" }}</label>
+    <input class="yd-input" id="yd-role-edit-description" name="description" type="text"
+           autocomplete="off" maxlength="128" value="{{ $role.Description }}">
+  </div>
+
+  <fieldset class="yd-form__fieldset">
+    <legend class="yd-form__label">{{ tr "role.permissions" }}</legend>
+    {{ range .PermissionOptions }}
+    <label class="yd-check" for="yd-role-edit-perm-{{ .Info.Key }}">
+      <input class="yd-check__input" id="yd-role-edit-perm-{{ .Info.Key }}" type="checkbox"
+             name="permission" value="{{ .Info.Key }}"{{ if .Granted }} checked{{ end }}>
+      <span class="yd-check__label"><code class="yd-code">{{ .Info.Key }}</code> {{ .Info.Label }}</span>
+      <span class="yd-hint">{{ .Info.Module }}</span>
+    </label>
+    {{ end }}
+  </fieldset>
+
+  <div class="yd-form__actions">
+    <button type="submit" class="yd-btn yd-btn--primary">{{ tr "ui.save" }}</button>
+  </div>
+</form>

@@ -141,26 +141,43 @@ func TestCrossTenantAccessIsNotFoundNotForbidden(t *testing.T) {
 	}
 }
 
-// TestUniqueIndexesScopeUniquenessToTheTenant proves the composite unique indexes
-// do the work, not only the pre-checks: the same id and the same username coexist
-// in two tenants and collide inside one. | TestUniqueIndexesScopeUniquenessToTheTenant 证明
-// 起作用的是联合唯一索引而不只是预检：同一个 ID 与同一个用户名可以并存于两个租户，而在同一租户内相撞。
-func TestUniqueIndexesScopeUniquenessToTheTenant(t *testing.T) {
+// TestUniqueIndexesEnforceGlobalIdentityAndMembership proves the unique indexes do
+// the work, not only the pre-checks: a user id and a sign-in name are globally
+// unique, one user may hold memberships of two tenants, and the same membership
+// cannot be inserted twice. | TestUniqueIndexesEnforceGlobalIdentityAndMembership 证明
+// 起作用的是唯一索引而不只是预检：用户 ID 与登录名全局唯一，同一个用户可以隶属两个租户，
+// 而同一条成员关系不能重复插入。
+func TestUniqueIndexesEnforceGlobalIdentityAndMembership(t *testing.T) {
 	ctx := context.Background()
 	store, db, _ := capturedStore(t)
 	seedTwoTenants(t, ctx, store)
 
-	row := userRow{ID: "us_dup", TenantID: "tn_b", Username: "Alice", UsernameKey: keyOf("Alice"), Status: string(auth.StatusActive)}
+	row := userRow{ID: "us_dup", TenantID: "tn_b", DefaultTenantID: "tn_b", Username: "DupUser", UsernameKey: keyOf("DupUser"), Status: string(auth.StatusActive)}
 	if err := db.Create(&row).Error; err != nil {
-		t.Fatalf("cross-tenant insert of the same id failed: %[1]v | 跨租户插入同一个 ID 失败：%[1]v", err)
+		t.Fatalf("insert of the first global user failed: %[1]v | 插入首个全局用户失败：%[1]v", err)
 	}
-	sameID := userRow{ID: "us_dup", TenantID: "tn_a", Username: "Bob", UsernameKey: keyOf("Bob"), Status: string(auth.StatusActive)}
+	sameID := userRow{ID: "us_dup", TenantID: "tn_a", DefaultTenantID: "tn_a", Username: "Bob", UsernameKey: keyOf("Bob"), Status: string(auth.StatusActive)}
 	if err := db.Create(&sameID).Error; !isDuplicate(err) {
-		t.Fatalf("duplicate (tenant_id, id) = %[1]v, want a unique violation | 重复的 (tenant_id, id) = %[1]v，期望唯一约束冲突", err)
+		t.Fatalf("duplicate user id = %[1]v, want a unique violation | 重复的用户 ID = %[1]v，期望唯一约束冲突", err)
 	}
-	sameName := userRow{ID: "us_other", TenantID: "tn_a", Username: "alice", UsernameKey: keyOf("alice"), Status: string(auth.StatusActive)}
+	sameName := userRow{ID: "us_other", TenantID: "tn_a", DefaultTenantID: "tn_a", Username: "dupuser", UsernameKey: keyOf("dupuser"), Status: string(auth.StatusActive)}
 	if err := db.Create(&sameName).Error; !isDuplicate(err) {
-		t.Fatalf("duplicate (tenant_id, username_key) = %[1]v, want a unique violation | 重复的 (tenant_id, username_key) = %[1]v，期望唯一约束冲突", err)
+		t.Fatalf("duplicate global username_key = %[1]v, want a unique violation | 重复的全局 username_key = %[1]v，期望唯一约束冲突", err)
+	}
+
+	// The same user may hold one membership per tenant, but not two of the same pair.
+	// | 同一个用户可以在每个租户各有一条成员关系，但同一对不能出现两次。
+	first := userTenantRow{UserID: "us_dup", TenantID: "tn_a", Roles: `["member"]`}
+	if err := db.Create(&first).Error; err != nil {
+		t.Fatalf("first membership insert failed: %[1]v | 首条成员关系插入失败：%[1]v", err)
+	}
+	second := userTenantRow{UserID: "us_dup", TenantID: "tn_b", Roles: `["owner"]`}
+	if err := db.Create(&second).Error; err != nil {
+		t.Fatalf("membership of a second tenant failed: %[1]v | 第二个租户的成员关系插入失败：%[1]v", err)
+	}
+	duplicate := userTenantRow{UserID: "us_dup", TenantID: "tn_a", Roles: `[]`}
+	if err := db.Create(&duplicate).Error; !isDuplicate(err) {
+		t.Fatalf("duplicate (user_id, tenant_id) = %[1]v, want a unique violation | 重复的 (user_id, tenant_id) = %[1]v，期望唯一约束冲突", err)
 	}
 
 	role := roleRow{ID: "rl_dup", TenantID: "tn_b", Name: "admin"}

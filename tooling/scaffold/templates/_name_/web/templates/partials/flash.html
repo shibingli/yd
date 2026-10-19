@@ -16,8 +16,8 @@
   {{/* 连接状态条：默认隐藏，由 yd-app.js 在 htmx:sse:* 与 htmx:ws:* 事件上切换。
        Connection banner: hidden by default and toggled by yd-app.js on the htmx:sse:* and htmx:ws:* events. */}}
   <div id="yd-connection" class="yd-flash__item yd-flash__item--warn" role="status" hidden data-yd-connection>
-    <span class="yd-flash__text">实时连接已断开，正在重连 | the realtime connection dropped and is reconnecting</span>
-    <button type="button" class="yd-btn yd-btn--ghost yd-btn--sm" data-yd-reload>重新加载 | Reload</button>
+    <span class="yd-flash__text">{{ tr "realtime.disconnected" }}</span>
+    <button type="button" class="yd-btn yd-btn--ghost yd-btn--sm" data-yd-reload>{{ tr "ui.reload" }}</button>
   </div>
 </div>
 {{- end -}}

@@ -31,12 +31,15 @@ func scanStore(s *memoryStore) []string {
 	for _, tn := range s.tenants {
 		out = append(out, tn.ID, tn.Slug, tn.Name, string(tn.Status))
 	}
-	for _, byID := range s.users {
-		for _, u := range byID {
-			out = append(out,
-				u.ID, u.TenantID, u.Username, u.Email, u.DisplayName,
-				u.PasswordHash, string(u.Status), string(u.EncryptedSecKey))
-			out = append(out, u.Roles...)
+	for _, u := range s.users {
+		out = append(out,
+			u.ID, u.TenantID, u.DefaultTenantID, u.Username, u.Email, u.DisplayName,
+			u.PasswordHash, string(u.Status), string(u.EncryptedSecKey))
+	}
+	// Per-tenant roles live on the memberships, not on the user row. | 各租户的角色存放在成员关系上，而不是用户行上。
+	for _, byUser := range s.members {
+		for _, membership := range byUser {
+			out = append(out, membership.roles...)
 		}
 	}
 	for _, byID := range s.roles {
@@ -46,10 +49,8 @@ func scanStore(s *memoryStore) []string {
 		}
 	}
 	// The uniqueness indexes are part of the stored state as well. | 唯一性索引同样属于库中状态。
-	for _, byName := range s.usernames {
-		for name := range byName {
-			out = append(out, name)
-		}
+	for name := range s.usernames {
+		out = append(out, name)
 	}
 	for _, byName := range s.roleNames {
 		for name := range byName {
@@ -303,9 +304,14 @@ func TestAuthenticateDoesNotLeakUserExistence(t *testing.T) {
 	requireIs(t, errDisabledRight, ErrUserDisabled, "Authenticate(disabled, right password)")
 	requireNoUser(t, disabledRight, "Authenticate(disabled, right password)")
 
-	// An empty tenant is still refused loudly: it is a caller bug, not a probe. | 空租户仍被明确拒绝：那是调用方缺陷，而非探测。
-	if _, err := f.svc.Authenticate(testCtx, "  ", f.member.Username, testPassword); !errors.Is(err, ErrTenantRequired) {
-		t.Fatalf("empty tenant want ErrTenantRequired, got %v | 空租户期望 ErrTenantRequired，实际 %v", err, err)
+	// An empty tenant performs a tenant-less sign-in against the globally unique
+	// username and lands the user in its default tenant. | 空租户执行无租户登录：
+	// 按全局唯一的登录名认证，并让用户落入其默认租户。
+	global, errGlobal := f.svc.Authenticate(testCtx, "  ", f.admin.Username, testPassword)
+	requireNoError(t, errGlobal, "Authenticate(empty tenant)")
+	if global == nil || global.TenantID != f.admin.DefaultTenantID {
+		t.Fatalf("tenant-less sign-in landed in %v, want default %q | 无租户登录落入 %v，期望默认租户 %q",
+			global, f.admin.DefaultTenantID, global, f.admin.DefaultTenantID)
 	}
 
 	// Timing parity is structural: the dummy hash carries the same algorithm and

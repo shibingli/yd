@@ -5,7 +5,9 @@
 package controller
 
 import (
+	"html"
 	"net/http"
+	"strings"
 	"time"
 
 	"{{ .Module }}/internal/service"
@@ -29,11 +31,13 @@ const (
 // Page renders the realtime demo page: a full-page request gets the layout-wrapped page and an htmx request the fragment.
 //
 // @Summary Realtime demo page | 实时推送演示页
-// @Description Renders pages/realtime.html, which subscribes to the SSE endpoint through sse-swap and to the
-// @Description WebSocket endpoint through the htmx WebSocket extension. Both channels push the same server-rendered clock
-// @Description fragment, so one target element is fed twice and a broken channel is visible at a glance.
-// @Description 渲染 pages/realtime.html：页面通过 sse-swap 订阅 SSE 端点，并通过 htmx 的 WebSocket 扩展订阅 WebSocket 端点。
-// @Description 两条通道推送的是同一份服务端渲染的时钟片段，因此同一个目标元素被两路刷新，坏掉的通道一眼可见。
+// @Description Renders pages/realtime.html, which subscribes to the SSE endpoint through hx-sse:connect (htmx 4 swaps
+// @Description unnamed messages automatically) and to the WebSocket endpoint through the htmx WebSocket extension. Both
+// @Description channels push the same server-rendered clock fragment, so one target element is fed twice and a broken
+// @Description channel is visible at a glance.
+// @Description 渲染 pages/realtime.html：页面通过 hx-sse:connect 订阅 SSE 端点（htmx 4 自动交换无名消息），并通过 htmx 的
+// @Description WebSocket 扩展订阅 WebSocket 端点。两条通道推送的是同一份服务端渲染的时钟片段，因此同一个目标元素被两路刷新，
+// @Description 坏掉的通道一眼可见。
 // @Tags pages
 // @Accept html
 // @Produce html
@@ -59,10 +63,11 @@ func (c *Controller) Page(ctx *router.Ctx) {
 // as ws.HtmxHandler).
 //
 // @Summary Event stream (SSE) | 事件流（SSE）
-// @Description Opens a text/event-stream subscribed to the yd.events topic. Clock frames arrive as htmx partial updates
-// @Description (sse-swap="yd.events"), and a yd:tick event accompanies each frame. A `: ping` comment frame is written every
-// @Description 15 seconds, and the Last-Event-ID request header is preserved for resumption by upper layers.
-// @Description 打开 text/event-stream 并订阅 yd.events 主题：时钟帧以 htmx 局部更新形式到达（sse-swap="yd.events"），
+// @Description Opens a text/event-stream subscribed to the yd.events topic. Clock frames arrive as unnamed htmx partial
+// @Description updates (htmx 4 swaps them automatically), and a yd:tick event accompanies each frame. A `: ping` comment
+// @Description frame is written every 15 seconds, and the Last-Event-ID request header is preserved for resumption by
+// @Description upper layers.
+// @Description 打开 text/event-stream 并订阅 yd.events 主题：时钟帧以无名 htmx 局部更新形式到达（htmx 4 自动交换），
 // @Description 每帧附带一个 yd:tick 事件；每 15 秒写一条 `: ping` 注释帧，Last-Event-ID 请求头保留给上层做断点续传。
 // @Tags realtime
 // @Accept text
@@ -89,11 +94,13 @@ func (c *Controller) Stream(broker *sse.Broker) router.HandlerFunc {
 // Socket builds the WebSocket endpoint handler: the echo behaviour is built in and the clock fragment is pushed
 // periodically on top of it.
 //
-// 回显来自 ws.HtmxHandler 的默认实现（OnMessage 为 nil 时把消息体的 BODY 原样回声），主动推送则由 OnOpen 启动的
-// 协程完成：写失败即代表对端已断开，协程立即返回，不需要额外的生命周期管理。
-// The echo comes from ws.HtmxHandler's default behaviour (a nil OnMessage echoes the message BODY back), and the push is
-// performed by the goroutine started in OnOpen: a write error means the peer is gone, so the goroutine returns at once and
-// needs no further lifecycle management.
+// 回显由 OnMessage 完成：htmx 4 把表单字段作为顶层键发送（没有 BODY 字段），ws.HtmxMessage 已把唯一值或约定的
+// message 字段解为 Body；这里再做 HTML 转义后追加到日志。主动推送则由 OnOpen 启动的协程完成：写失败即代表对端已断开，
+// 协程立即返回，不需要额外的生命周期管理。
+// The echo is handled by OnMessage: htmx 4 sends form fields as top-level keys (there is no BODY field), and
+// ws.HtmxMessage resolves the single value or the conventional message field into Body; the handler escapes it and
+// appends it to the log. The push is performed by the goroutine started in OnOpen: a write error means the peer is gone,
+// so the goroutine returns at once and needs no further lifecycle management.
 //
 // @Summary WebSocket echo and push | WebSocket 回显与推送
 // @Description Upgrades the connection with the htmx subprotocol, echoes every htmx message envelope back and pushes a
@@ -119,6 +126,9 @@ func (c *Controller) Socket(ticker *service.Ticker) router.HandlerFunc {
 		OnOpen: func(conn *ws.Conn) {
 			go c.pushClock(conn, ticker)
 		},
+		OnMessage: func(conn *ws.Conn, msg ws.HtmxMessage) {
+			c.echoMessage(conn, msg)
+		},
 		OnClose: func(conn *ws.Conn, err error) {
 			c.app.Logger().Debug("websocket closed | WebSocket 已关闭",
 				logx.Str("remote", remoteAddr(conn)),
@@ -126,6 +136,23 @@ func (c *Controller) Socket(ticker *service.Ticker) router.HandlerFunc {
 			)
 		},
 	})
+}
+
+// echoMessage 把一条转义后的消息片段追加到发送方的回显日志。
+// echoMessage appends one escaped message fragment to the sender's echo log.
+//
+// 回显内容是用户输入，必须 HTML 转义：htmx 会把片段内容交换进页面，未转义的输入会被当作标记执行。
+// The echoed content is user input and must be HTML-escaped: htmx swaps the fragment into the page, so
+// unescaped input would be executed as markup.
+func (c *Controller) echoMessage(conn *ws.Conn, msg ws.HtmxMessage) {
+	text := strings.TrimSpace(msg.Body)
+	if text == "" {
+		return
+	}
+	fragment := `<p class="yd-stream__item">` + html.EscapeString(text) + `</p>`
+	if err := conn.WriteHtmxFragment(service.EchoTarget, service.EchoSwap, fragment); err != nil {
+		c.app.Logger().Debug("websocket echo failed | WebSocket 回显失败", logx.Err(err))
+	}
 }
 
 // pushClock 按推送节拍向单条连接写时钟片段，直到写出失败（对端已断开）为止。

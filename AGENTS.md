@@ -71,6 +71,10 @@
 - [ ] **正则安全**：所有正则必须经 `core/regexpx`，禁止直接 `import "regexp"` 或 `"github.com/dlclark/regexp2"`；包装层对 RE2 兼容模式走标准库线性引擎，只有 .NET 构造走 regexp2 + 强制超时，不得关闭超时；批量扫描不得掉到 regexp2 路径（大文件上是二次复杂度）。
 - [ ] **版本同步**：改动 `go.mod` 或 `web/assets.lock.json` 后必须运行 `yd versions sync`；提交里必须同时包含 `tooling/scaffold/version_generated.go` 的更新，且 `yd versions check` 通过。
 - [ ] **请求边界**：外部输入必须限长（WebSocket `MaxMessageSize`、请求体 `MaxBytesReader`），并设置读写超时。
+- [ ] **htmx 4 实时通道**：`hx-ws:send` 必须位于 `hx-ws:connect` 元素内部（扩展用 `closest()` 向上找连接，
+      否则报 “No WebSocket connection found” 且消息不会发出）；下行只交换 `content`，旧 `BODY` 不会渲染；
+      回车发送不得用 `hx-trigger` 过滤器（`new Function` 被 CSP 拦截），由 `yd-app.js` 点击发送按钮；
+      `htmx:ws:error` 也可能只是发送失败，连接状态只响应 `htmx:ws:close` 等真正的断开事件。
       **例外**：CONNECT（含 RFC 8441/9220 Extended CONNECT）的正文是隧道或 WebSocket 字节流，
       不套 `MaxBytesReader`；处理器在 HTTP/2/3 下必须阻塞到连接结束。
 - [ ] **JSON/Base64 统一走封装层**：全仓禁止 `import "encoding/json"` 与 `import "encoding/base64"`，
@@ -86,8 +90,13 @@
       自检：`grep -rn 'fmt\.Errorf' --include=*.go . | grep -v '^./core/errx/'` 无命中。
 - [ ] **多租户隔离**：任何按 ID 读写实体的路径都必须校验 `TenantID`；跨租户访问返回 403/404
       且不泄露资源存在性。
+- [ ] **用户是全局身份**：登录名全局唯一；一个用户可隶属多个租户（`yd_auth_user_tenants`），
+      必须有且只有一个默认租户（`default_tenant_id`）。登录页不显示租户，服务端按全局登录名
+      认证并落入默认租户；切换租户必须校验成员关系并重新签发令牌；身份租户与默认租户不可移除。
+      旧库升级必须回填成员关系（`Migrate` 幂等）。
 - [ ] **每用户 JWT 密钥**：令牌只允许用该用户的 `sec_key` 签发与验签，**禁止全局兜底密钥**；
-      `sec_key` 必须以 SM4 加密存储，口令只存 `guomi.HashPassword` 结果。
+      `sec_key` 必须以 SM4 加密存储并将不可变的 `HomeTenantID` 作为附加认证数据，
+      口令只存 `guomi.HashPassword` 结果。
 - [ ] **令牌失效**：用户禁用/删除/轮换 `sec_key` 后旧令牌必须立即失效。
 - [ ] **内存对齐**：提交前运行 `betteralign -apply ./...`（或 `yd align --apply`，后者迭代到
       不动点并报告 `passes | 遍数`），重排后 `go test ./...` 必须仍然通过；工具缺失不得导致
@@ -95,7 +104,26 @@
       该工具必须用不低于本模块 `go` 指令版本的 Go 构建，否则报
       `package requires newer Go version` / `export data version ... greater than maximum supported version`。
 - [ ] **前端 i18n 与主题**：新增文案必须有 `data-yd-i18n` 且中英目录齐全；
-      语言切换走 htmx 局部刷新，主题支持 light/dark/system 三态并持久化。
+      语言切换必须 `hx-target="#yd-shell"` 刷新整块外壳（否则侧栏高亮与语言停在旧状态），
+      主题支持 light/dark/system 三态并持久化。
+- [ ] **Tailwind v4 分层**：所有项目样式必须建立在 Tailwind v4 之上——`@import "tailwindcss"`、
+      `@theme` 语义令牌、`@layer components`；可复用工具类用 `@apply`，颜色不得在令牌块之外写字面量。
+- [ ] **交互约定**：新增/编辑走右侧抽屉（`#yd-drawer`），列表操作与顶栏租户切换共用下拉菜单
+      （`details.yd-menu` 与同一套面板样式，不用原生 select 呈现租户选项）；所有变更动作（退出、删除、启停、
+      轮换、重置、创建、保存、切换租户、改默认租户）必须带 `data-yd-confirm` 并经过全局确认对话框；
+      多按钮表单确认后必须把 `event.submitter` 传回 `requestSubmit`；轮询与变更不得写历史。
+- [ ] **登录页最小化**：未登录外壳只有登录卡片（含离线图标品牌区）与语言/主题切换，不得出现侧栏、
+      顶栏导航、页脚、租户字段或种子凭据说明；favicon 指向同源 `/static/img/yd-icon.svg`，
+      禁止 `data:,` 空图标、CDN 或外链；侧栏页脚只显示版本。
+- [ ] **接口组新标签页**：接口文档、OpenAPI JSON、健康检查以及页面内的 `/docs`、`/openapi.json` 链接
+      必须带 `target="_blank" rel="noopener noreferrer"`，不得换进工作区。
+- [ ] **实时推送**：htmx 4 只交换匿名 SSE 消息，`Broker.PublishHTML` 必须发送无名 `data:` 消息；
+      导航离开实时页面导致的流中止不得显示断线横幅。
+- [ ] **OpenAPI 查看器**：脚本必须是同源外链（`/static/js/yd-openapi-viewer.js`），
+      禁止内联脚本与 CDN，否则 CSP 会拦截并让 `/docs` 空白。
+- [ ] **首页资源仪表盘**：`/metrics` 每 5 秒轮询，纯 SVG 仪表盘、主题令牌着色；
+      宿主机 CPU/内存来自 `core/sysinfo`，进程 CPU/内存来自 `runtime/metrics`；
+      平台不支持时显示「不可用」，不得编造数字。
 - [ ] **OpenAPI 注释完整**：对外 HTTP 处理器的 doc 注释必须含完整注解块
       （`@Summary/@Description/@Tags/@Accept/@Produce/@Param/@Success/@Failure/@Security/@Router`），缺项即未完成。
 - [ ] **优雅退出**：关停顺序固定为「长连接钩子 → HTTP/3 关闭 → HTTP 排空 → 强制关闭残留 hijack 连接 →

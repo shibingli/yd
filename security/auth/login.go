@@ -20,7 +20,12 @@ type LoginResult struct {
 	Token string
 }
 
-// Login authenticates a tenant-scoped username and issues a token for it. | Login 认证租户内的用户名并为其签发令牌。
+// Login authenticates a username and issues a token for it. | Login 认证用户名并为其签发令牌。
+//
+// An empty tenantID means a tenant-less sign-in: the username is globally unique
+// and the user lands in its default tenant. A non-empty tenantID scopes the lookup
+// to that tenant and therefore also checks membership. | 空 tenantID 表示无租户登录：
+// 登录名全局唯一，用户落入其默认租户；非空 tenantID 把查询限定在该租户，因而同时校验成员关系。
 //
 // The password is verified by Authenticate, so a missing user and a wrong password
 // are indistinguishable here as well, and the token is signed with the sec_key of

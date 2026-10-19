@@ -65,6 +65,14 @@ const (
 	// DefaultDocsPath is the default endpoint serving the built-in viewer. | DefaultDocsPath 是提供内置查看器的默认端点。
 	DefaultDocsPath = "/docs"
 
+	// DefaultViewerScript is the same-origin script the viewer page loads. | DefaultViewerScript 是查看器页面加载的同源脚本。
+	//
+	// It must stay same-origin: generated projects ship `script-src 'self'`, so an inline script is
+	// blocked by the browser and a CDN script would violate the framework's no-CDN rule.
+	// | 它必须保持同源：生成项目的内容安全策略是 `script-src 'self'`，内联脚本会被浏览器拦截，
+	// CDN 脚本则违反框架的「禁止 CDN」约定。
+	DefaultViewerScript = "/static/js/yd-openapi-viewer.js?v=5"
+
 	// LatestSpecVersion is the newest OpenAPI specification supported by the model. Setting
 	// Document.OpenAPI to this value enables the 3.1 object additions (webhooks,
 	// jsonSchemaDialect, info.summary, license.identifier, components.pathItems and schema type
@@ -619,6 +627,11 @@ type Options struct {
 	Path string
 	// DocsPath is the endpoint returning the built-in viewer; empty means DefaultDocsPath. | DocsPath 是返回内置查看器的端点，留空表示 DefaultDocsPath。
 	DocsPath string
+	// ViewerScript is the same-origin URL of the viewer script; empty means DefaultViewerScript.
+	// It must not be a CDN address: the framework forbids external runtime references.
+	// | ViewerScript 是查看器脚本的同源 URL，留空表示 DefaultViewerScript。它不得是 CDN 地址：
+	// 框架禁止运行时外部引用。
+	ViewerScript string
 	// Title is the viewer page title; empty falls back to Info.Title. | Title 为查看器页面标题，留空时回退到 Info.Title。
 	Title string
 	// SourceDirs lists the source directories holding type annotations; when TypeAnnotations
@@ -643,6 +656,9 @@ func (o Options) withDefaults() Options {
 	}
 	if !strings.HasPrefix(o.DocsPath, "/") {
 		o.DocsPath = "/" + o.DocsPath
+	}
+	if strings.TrimSpace(o.ViewerScript) == "" {
+		o.ViewerScript = DefaultViewerScript
 	}
 	return o
 }

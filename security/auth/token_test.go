@@ -316,13 +316,15 @@ func TestIssueAndIssuerValidation(t *testing.T) {
 	if _, _, err := f.issuer.Issue(testCtx, &User{ID: f.member.ID, Status: StatusActive}); !errors.Is(err, ErrTenantRequired) {
 		t.Fatalf("Issue(no tenant) want ErrTenantRequired, got %v | Issue(无租户) 期望 ErrTenantRequired，实际 %v", err, err)
 	}
-	// The tenant of the token is taken from the user, so a user record from another
-	// tenant cannot be signed into this tenant. | 令牌的租户取自用户，因此另一个租户的用户记录
-	// 无法被签进本租户。
+	// The sec_key is sealed with the immutable home tenant, so a record re-labelled
+	// to another identity tenant cannot be signed with: opening the ciphertext fails.
+	// | sec_key 用不可变的身份租户封装，因此被改标为其它身份租户的记录无法签发：
+	// 密文解不开。
 	foreign := *f.member
 	foreign.TenantID = f.tenantB.ID
+	foreign.HomeTenantID = f.tenantB.ID
 	if _, _, err := f.issuer.Issue(testCtx, &foreign); !errors.Is(err, ErrSecKeyMissing) {
-		t.Fatalf("a record re-labelled to another tenant want ErrSecKeyMissing, got %v | 被改标为其它租户的记录期望 ErrSecKeyMissing，实际 %v", err, err)
+		t.Fatalf("a record re-labelled to another home tenant want ErrSecKeyMissing, got %v | 被改标为其它身份租户的记录期望 ErrSecKeyMissing，实际 %v", err, err)
 	}
 }
 

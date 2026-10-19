@@ -11,16 +11,20 @@
 //     connection; Migrate builds the tables and every index. | New 接受已经打开的 *gorm.DB
 //     （见 data/gormx），自身绝不打开连接；Migrate 负责建表与建全部索引。
 //   - the contract is the one of auth.Store, aligned line by line with the memory
-//     implementation: every method carries a tenantID and writes it into the SQL
-//     WHERE clause, a foreign or unknown entity reports auth.ErrNotFound (never
-//     auth.ErrForbidden), and a unique-constraint violation wraps auth.ErrConflict. | 契约即
-//     auth.Store 的契约，并与内存实现逐条对齐：每个方法都带 tenantID 且写进 SQL 的 WHERE；
-//     外部或未知实体报 auth.ErrNotFound（绝不报 auth.ErrForbidden）；唯一约束冲突包装 auth.ErrConflict。
+//     implementation: every tenant-scoped method writes its tenantID into the SQL
+//     WHERE clause, while the global lookup and membership methods use the globally
+//     unique user id or username_key; a foreign or unknown entity reports
+//     auth.ErrNotFound (never auth.ErrForbidden), and a unique-constraint violation
+//     wraps auth.ErrConflict. | 契约即 auth.Store 的契约，并与内存实现逐条对齐：
+//     所有按租户的方法都把 tenantID 写进 SQL 的 WHERE，全局查找与成员关系方法则使用全局唯一的
+//     用户 ID 或 username_key；外部或未知实体报 auth.ErrNotFound（绝不报 auth.ErrForbidden）；
+//     唯一约束冲突包装 auth.ErrConflict。
 //
 // Tables | 表：
 //
 //	yd_auth_tenants            租户
-//	yd_auth_users              用户（含口令散列与 sec_key 密文）
+//	yd_auth_users              全局用户（含口令散列与 sec_key 密文）
+//	yd_auth_user_tenants       用户与租户的成员关系（含各租户角色与默认标记）
 //	yd_auth_roles              角色
 //	yd_auth_role_permissions   角色与权限的关联表
 //
@@ -76,8 +80,10 @@ var (
 const (
 	// tableTenants holds one row per tenant. | tableTenants 每个租户一行。
 	tableTenants = "yd_auth_tenants"
-	// tableUsers holds one row per user. | tableUsers 每个用户一行。
+	// tableUsers holds one row per global user. | tableUsers 每个全局用户一行。
 	tableUsers = "yd_auth_users"
+	// tableUserTenants holds one row per user-tenant membership. | tableUserTenants 每条用户-租户成员关系一行。
+	tableUserTenants = "yd_auth_user_tenants"
 	// tableRoles holds one row per role. | tableRoles 每个角色一行。
 	tableRoles = "yd_auth_roles"
 	// tableRolePermissions holds one row per granted capability. | tableRolePermissions 每项被授予的能力一行。
@@ -88,9 +94,15 @@ const (
 const (
 	indexTenantsSlug          = "yd_idx_auth_tenants_slug"
 	indexTenantsCreatedAt     = "yd_idx_auth_tenants_created_at"
-	indexUsersTenantID        = "yd_idx_auth_users_tenant_id"
-	indexUsersTenantUsername  = "yd_idx_auth_users_tenant_username"
-	indexUsersTenantCreatedAt = "yd_idx_auth_users_tenant_created_at"
+	indexUsersID              = "yd_idx_auth_users_id"
+	indexUsersUsername        = "yd_idx_auth_users_username"
+	indexUsersCreatedAt       = "yd_idx_auth_users_created_at"
+	indexUsersHomeTenant      = "yd_idx_auth_users_home_tenant"
+	indexUsersDefaultTenant   = "yd_idx_auth_users_default_tenant"
+	indexUserTenantsUnique    = "yd_idx_auth_user_tenants_user_tenant"
+	indexUserTenantsTenant    = "yd_idx_auth_user_tenants_tenant"
+	indexUserTenantsTenantAt  = "yd_idx_auth_user_tenants_tenant_created_at"
+	indexUserTenantsUserDeflt = "yd_idx_auth_user_tenants_user_default"
 	indexRolesTenantID        = "yd_idx_auth_roles_tenant_id"
 	indexRolesTenantName      = "yd_idx_auth_roles_tenant_name"
 	indexRolePermsUnique      = "yd_idx_auth_role_permissions_tenant_role_perm"
@@ -174,13 +186,48 @@ func Migrate(ctx context.Context, db *gorm.DB) error {
 	if db == nil {
 		return ErrNilDB
 	}
-	err := db.WithContext(ctx).AutoMigrate(
+	if err := db.WithContext(ctx).AutoMigrate(
 		&tenantRow{},
 		&userRow{},
+		&userTenantRow{},
 		&roleRow{},
 		&rolePermissionRow{},
-	)
-	return errx.Wrap(err, ErrMigrateFailed)
+	); err != nil {
+		return errx.Wrap(err, ErrMigrateFailed)
+	}
+	return errx.Wrap(backfillMemberships(db.WithContext(ctx)), ErrMigrateFailed)
+}
+
+// backfillMemberships upgrades a database written before memberships existed. | backfillMemberships 升级成员关系出现之前写入的数据库。
+//
+// The old user row was tenant-scoped and carried its roles in a roles column; the new model
+// keeps one global user plus yd_auth_user_tenants. This copies each legacy row into a home
+// membership and fills default_tenant_id, so an existing project keeps signing in after the
+// upgrade instead of losing every account to a missing membership. | 旧的用户行是租户内记录，
+// 角色放在 roles 列里；新模型是一条全局用户加 yd_auth_user_tenants。这里把每条旧记录复制成
+// 身份租户的成员关系并补齐 default_tenant_id，使既有项目升级后仍能登录，而不是因为缺少成员关系
+// 丢掉全部账号。
+//
+// It is idempotent: the NOT EXISTS clause and the WHERE on an empty default make a second run a
+// no-op. | 它是幂等的：NOT EXISTS 子句与「默认租户为空」的条件让第二次运行什么都不做。
+func backfillMemberships(db *gorm.DB) error {
+	if err := db.Exec(
+		"UPDATE " + tableUsers + " SET default_tenant_id = tenant_id WHERE default_tenant_id IS NULL OR default_tenant_id = ''",
+	).Error; err != nil {
+		return err
+	}
+	// The roles column only exists on databases created before memberships; a fresh schema has
+	// no such column and there is nothing to copy. | roles 列只存在于成员关系出现之前的库；
+	// 全新 schema 没有该列，因此没有可复制的数据。
+	if !db.Migrator().HasColumn(tableUsers, "roles") {
+		return nil
+	}
+	return db.Exec(
+		"INSERT INTO " + tableUserTenants + " (user_id, tenant_id, roles, is_default, created_at, updated_at) " +
+			"SELECT u.id, u.tenant_id, COALESCE(u.roles, ''), true, u.created_at, u.updated_at " +
+			"FROM " + tableUsers + " u " +
+			"WHERE NOT EXISTS (SELECT 1 FROM " + tableUserTenants + " m WHERE m.user_id = u.id AND m.tenant_id = u.tenant_id)",
+	).Error
 }
 
 // scoped derives a context bounded by Options.QueryTimeout. | scoped 派生一个受 Options.QueryTimeout 限制的上下文。

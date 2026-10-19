@@ -24,7 +24,7 @@
 <section class="yd-page" data-yd-page="home" aria-labelledby="yd-home-title">
   <header class="yd-page__header">
     <div>
-      <h1 class="yd-page__title" id="yd-home-title">{{ .Name }}</h1>
+      <h1 class="yd-page__title" id="yd-home-title">{{ tr "page.home.title" }}</h1>
       <p class="yd-page__subtitle">{{ tr "page.home.subtitle" }}</p>
     </div>
     <div class="yd-page__actions">
@@ -110,6 +110,19 @@
     </section>
   </div>
 
+  {{/* 资源仪表盘：宿主机 CPU/内存与当前进程 CPU/内存，每 5 秒轮询一次片段，以 innerMorph 就地更新。
+       Resource gauges: host CPU/memory and this process's CPU/memory, polled every five seconds as a fragment
+       and morphed in place. */}}
+  <section class="yd-card yd-section" aria-labelledby="yd-home-metrics">
+    <header class="yd-section__header">
+      <h2 class="yd-section__title" id="yd-home-metrics">{{ tr "metrics.title" }}</h2>
+      <span class="yd-badge yd-badge--muted">{{ tr "metrics.hint" }}</span>
+    </header>
+    <div id="yd-metrics" hx-get="/metrics" hx-trigger="every 5s" hx-target="this" hx-swap="innerMorph" hx-push-url="false">
+      {{ template "partials/home/metrics-panel" . }}
+    </div>
+  </section>
+
   <section class="yd-card yd-section" aria-labelledby="yd-home-users">
     <header class="yd-section__header">
       <h2 class="yd-section__title" id="yd-home-users">{{ tr "page.home.recent_users" }}</h2>
@@ -139,7 +152,7 @@
     <ol class="yd-list yd-list--ordered">
       <li class="yd-list__item">{{ tr "page.home.next_1" }} <code class="yd-code">internal/router/router.go</code></li>
       <li class="yd-list__item">{{ tr "page.home.next_2" }} <code class="yd-code">internal/service</code> · <code class="yd-code">internal/repository</code></li>
-      <li class="yd-list__item">{{ tr "page.home.next_3" }} <a class="yd-link" href="/docs">/docs</a></li>
+      <li class="yd-list__item">{{ tr "page.home.next_3" }} <a class="yd-link" href="/docs" target="_blank" rel="noopener noreferrer">/docs</a></li>
     </ol>
   </section>
 </section>

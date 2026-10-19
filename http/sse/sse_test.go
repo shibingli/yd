@@ -500,8 +500,10 @@ func TestBrokerPublishHTMLLineFormat(t *testing.T) {
 	b.PublishHTML("msgs", "#list", "innerHTML", `<li class="x">hi</li>`)
 
 	e := recvEvent(t, ch, time.Second)
-	if e.Name != "msgs" {
-		t.Errorf("Event.Name = %q，期望 msgs", e.Name)
+	// htmx 4 swaps unnamed messages automatically; a named event would be dispatched as a DOM event instead.
+	// | htmx 4 自动交换无名消息；命名事件只会被当作 DOM 事件派发。
+	if e.Name != "" {
+		t.Errorf("Event.Name = %q，期望空串（匿名消息）", e.Name)
 	}
 	want := `<hx-partial hx-target="#list" hx-swap="innerHTML"><li class="x">hi</li></hx-partial>`
 	if string(e.Data) != want {
@@ -517,7 +519,7 @@ func TestBrokerPublishHTMLLineFormat(t *testing.T) {
 	if err := w.WriteEvent(e); err != nil {
 		t.Fatalf("WriteEvent 返回错误: %v", err)
 	}
-	wantWire := "event: msgs\ndata: " + want + "\n\n"
+	wantWire := "data: " + want + "\n\n"
 	if got := rec.String(); got != wantWire {
 		t.Fatalf("线格式不匹配:\n got = %q\nwant = %q", got, wantWire)
 	}
@@ -599,8 +601,10 @@ func TestHandlerSendsHtmxPartialEvent(t *testing.T) {
 		}
 	}
 	body := readUntil(t, resp.Body, "<hx-partial", 2*time.Second)
-	if !strings.Contains(body, "event: msgs\n") {
-		t.Errorf("未收到 event: msgs，实际 %q", body)
+	// htmx 4 only swaps unnamed messages; a named event would be dispatched as a DOM event. | htmx 4 只交换无名消息；
+	// 命名事件只会被当作 DOM 事件派发。
+	if strings.Contains(body, "event: msgs") {
+		t.Errorf("事件不应带名称，实际 %q", body)
 	}
 	if !strings.Contains(body, "<hx-partial") {
 		t.Errorf("未收到 hx-partial 片段，实际 %q", body)
