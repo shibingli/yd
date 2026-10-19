@@ -75,6 +75,11 @@ YD_GUOMI_SM2_PRIVATE_KEY=
 YD_AUTH_MASTER_KEY=
 YD_AUTH_TOKEN_TTL=2h
 
+# 可选：覆盖 seed.tenant / seed.username；留空则使用 internal/meta 的 default / admin。
+# Optional: override seed.tenant / seed.username; empty falls back to default / admin in internal/meta.
+# YD_SEED_TENANT=default
+# YD_SEED_USERNAME=admin
+
 # 默认数据（种子）管理员的口令：只在租户表为空时用一次，之后改口令请在账号页操作。
 # The seed administrator's password: used once, while the tenant table is empty; change it later from the account page.
 # 留空时：development 回退到 internal/meta 的文档化开发口令并每次启动告警；其它环境**不写入任何种子数据**并告警。

@@ -1484,6 +1484,8 @@ func assertSeedCredentialsDocumented(t *testing.T, projDir string) {
 		`SeedTenantSlug = "` + probeTenant + `"`,
 		`SeedTenantName = "默认租户 | Default tenant"`,
 		`SeedAdminUsername = "` + probeAdmin + `"`,
+		`SeedTenantConfigKey = "seed.tenant"`,
+		`SeedUsernameConfigKey = "seed.username"`,
 		`SeedPasswordConfigKey = "seed.admin_password"`,
 		`SeedPasswordEnvKey = EnvPrefix + "SEED_ADMIN_PASSWORD"`,
 		`DevSeedAdminPassword = "` + probeAdminPassword + `"`,
@@ -1518,7 +1520,7 @@ func assertSeedCredentialsDocumented(t *testing.T, projDir string) {
 	// The configuration file and the .env template are where the two sources land: the key in the file must be an empty
 	// string and the template line must be an empty assignment.
 	cfg := read("configs/config.yaml")
-	for _, want := range []string{"seed:", "admin_password:"} {
+	for _, want := range []string{"seed:", "tenant:", "username:", "admin_password:"} {
 		if !strings.Contains(cfg, want) {
 			t.Errorf("configs/config.yaml 缺少 %q", want)
 		}
@@ -1535,6 +1537,8 @@ func assertSeedCredentialsDocumented(t *testing.T, projDir string) {
 	for _, want := range []string{
 		"seed.admin_password",
 		"YD_SEED_ADMIN_PASSWORD",
+		"seed.tenant",
+		"seed.username",
 		probeAdminPassword,
 		"SeedPasswordNotice",
 		probeTenant,
@@ -2108,10 +2112,59 @@ func readCatalogue(t *testing.T, pr project, rel string) map[string]string {
 	return flat
 }
 
+// TestGeneratedSeedConfigOverridesDefaults 验证 seed.tenant 与 seed.username 从配置文件读取并真正落到种子数据与登录页。
+// TestGeneratedSeedConfigOverridesDefaults verifies that seed.tenant and seed.username are read from the configuration and
+// really reach the seeded data and the sign-in page.
+func TestGeneratedSeedConfigOverridesDefaults(t *testing.T) {
+	if testing.Short() {
+		t.Skip("短模式跳过真实鉴权验证 | skipped in short mode")
+	}
+
+	_, base := startProbeAppWith(t, "yd-seed-config-probe", func(projDir string) {
+		path := filepath.Join(projDir, "configs", "config.yaml")
+		data, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatalf("读取 %s 失败: %v", path, err)
+		}
+		text := string(data)
+		for _, repl := range [][2]string{
+			{"tenant: default", "tenant: acme"},
+			{"username: admin", "username: root"},
+		} {
+			if !strings.Contains(text, repl[0]) {
+				t.Fatalf("configs/config.yaml 缺少 %q:\n%s", repl[0], text)
+			}
+			text = strings.Replace(text, repl[0], repl[1], 1)
+		}
+		if err := os.WriteFile(path, []byte(text), 0o644); err != nil {
+			t.Fatalf("写入 %s 失败: %v", path, err)
+		}
+	})
+
+	anon := newProbeClient(t, httpTimeout)
+	resp, page := getText(t, anon, base+"/login", nil)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("GET /login 状态码 = %d, 期望 200\n%s", resp.StatusCode, page)
+	}
+	if !strings.Contains(page, `value="acme"`) {
+		t.Errorf("登录页租户字段未预填配置值 acme:\n%s", page)
+	}
+
+	browser := newProbeClient(t, httpTimeout)
+	signIn(t, browser, base, "acme", "root", probeAdminPassword)
+}
+
 // startProbeApp 生成项目、编译它并在随机端口上启动，返回项目目录与基地址。
 // startProbeApp generates the project, compiles it and starts it on a random free port, returning the project directory
 // and the base URL.
 func startProbeApp(t *testing.T, name string) (string, string) {
+	return startProbeAppWith(t, name, nil)
+}
+
+// startProbeAppWith 与 startProbeApp 相同，但在编译前给调用方一次修改生成项目的机会（例如改写配置）。
+// startProbeAppWith is startProbeApp with one chance for the caller to edit the generated project before it is compiled
+// (rewriting the configuration, for instance).
+func startProbeAppWith(t *testing.T, name string, edit func(projDir string)) (string, string) {
 	t.Helper()
 
 	goBin, err := exec.LookPath("go")
@@ -2130,6 +2183,9 @@ func startProbeApp(t *testing.T, name string) (string, string) {
 	}
 
 	projDir := filepath.Join(dir, o.Name)
+	if edit != nil {
+		edit(projDir)
+	}
 	bin := filepath.Join(projDir, "app")
 	if runtime.GOOS == "windows" {
 		bin += ".exe"

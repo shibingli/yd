@@ -327,16 +327,38 @@ type seedSpec struct {
 	Email string
 }
 
-// seedSpecs returns the single default tenant and its administrator. | seedSpecs 返回唯一的默认租户及其管理员。
+// SeedTenant 返回生效的默认租户标识：优先 seed.tenant 配置（含 YD_SEED_TENANT 环境变量），留空时回退到内置默认值。
+// SeedTenant returns the effective default tenant key: seed.tenant wins (including YD_SEED_TENANT), and an empty value
+// falls back to the built-in default.
+func (s *Store) SeedTenant() string {
+	if value := strings.TrimSpace(s.cfg.GetString(meta.SeedTenantConfigKey)); value != "" {
+		return value
+	}
+	return meta.SeedTenantSlug
+}
+
+// SeedUsername 返回生效的管理员登录名：优先 seed.username 配置（含 YD_SEED_USERNAME 环境变量），留空时回退到内置默认值。
+// SeedUsername returns the effective administrator sign-in name: seed.username wins (including YD_SEED_USERNAME), and an
+// empty value falls back to the built-in default.
+func (s *Store) SeedUsername() string {
+	if value := strings.TrimSpace(s.cfg.GetString(meta.SeedUsernameConfigKey)); value != "" {
+		return value
+	}
+	return meta.SeedAdminUsername
+}
+
+// seedSpecs 返回唯一的默认租户及其管理员；租户标识与登录名取自配置，留空时使用内置默认值。
+// seedSpecs returns the single default tenant and its administrator; the tenant key and sign-in name come from the
+// configuration and fall back to the built-in defaults when empty.
 //
 // 口令不在这份清单里，这是刻意的：清单只描述「数据长什么样」，不描述「怎么进去」。
 // The password is deliberately absent from this list: the list describes what the data looks like and never how to get in.
-func seedSpecs() []seedSpec {
+func (s *Store) seedSpecs() []seedSpec {
 	return []seedSpec{
 		{
-			Slug:     meta.SeedTenantSlug,
+			Slug:     s.SeedTenant(),
 			Name:     meta.SeedTenantName,
-			Username: meta.SeedAdminUsername,
+			Username: s.SeedUsername(),
 			Email:    meta.SeedAdminEmail,
 		},
 	}
@@ -383,7 +405,7 @@ func (s *Store) Seed(ctx context.Context) error {
 	}
 
 	roles := NewRoleRepo(s)
-	for _, spec := range seedSpecs() {
+	for _, spec := range s.seedSpecs() {
 		if err := s.seedTenant(ctx, roles, spec, password); err != nil {
 			if errors.Is(err, auth.ErrConflict) {
 				// 另一个副本在同一瞬间完成了同一次初始化：这正是幂等被兑现的样子，不是故障。
@@ -399,7 +421,7 @@ func (s *Store) Seed(ctx context.Context) error {
 	}
 
 	s.log.Info("default data seeded: the default tenant, built-in roles, their capability bindings and its owner | 默认数据已写入：默认租户、内置角色、其能力绑定与该租户的所有者账号",
-		logx.Int("tenants", len(seedSpecs())),
+		logx.Int("tenants", len(s.seedSpecs())),
 		logx.Int("roles", len(authz.BuiltinRoles())),
 		logx.Int("permissions", len(authz.BuiltinPermissions())),
 	)
@@ -591,7 +613,7 @@ func (s *Store) SeedPasswordUnchanged(u *auth.User) bool {
 	if !ok {
 		return false
 	}
-	for _, spec := range seedSpecs() {
+	for _, spec := range s.seedSpecs() {
 		if spec.Username != u.Username {
 			continue
 		}

@@ -98,6 +98,19 @@ const (
 	// SeedAdminEmail is the default administrator's e-mail address. | SeedAdminEmail 是默认租户管理员的邮箱。
 	SeedAdminEmail = "admin@example.com"
 
+	// SeedTenantConfigKey 是默认租户标识的配置键；留空时回退到 SeedTenantSlug。环境变量 YD_SEED_TENANT 覆盖它。
+	// SeedTenantConfigKey is the configuration key of the default tenant key; empty falls back to SeedTenantSlug.
+	// The environment variable YD_SEED_TENANT overrides it.
+	SeedTenantConfigKey = "seed.tenant"
+	// SeedTenantEnvKey is the environment variable that overrides SeedTenantConfigKey. | SeedTenantEnvKey 是覆盖 SeedTenantConfigKey 的环境变量。
+	SeedTenantEnvKey = EnvPrefix + "SEED_TENANT"
+	// SeedUsernameConfigKey 是管理员登录名的配置键；留空时回退到 SeedAdminUsername。环境变量 YD_SEED_USERNAME 覆盖它。
+	// SeedUsernameConfigKey is the configuration key of the administrator sign-in name; empty falls back to SeedAdminUsername.
+	// The environment variable YD_SEED_USERNAME overrides it.
+	SeedUsernameConfigKey = "seed.username"
+	// SeedUsernameEnvKey is the environment variable that overrides SeedUsernameConfigKey. | SeedUsernameEnvKey 是覆盖 SeedUsernameConfigKey 的环境变量。
+	SeedUsernameEnvKey = EnvPrefix + "SEED_USERNAME"
+
 	// SeedPasswordConfigKey 是种子管理员口令的配置键；configs/config.yaml、README 与告警引用同一处。
 	// SeedPasswordConfigKey is the configuration key of the seeded administrator's password, quoted by configs/config.yaml,
 	// by the README and by the warnings.

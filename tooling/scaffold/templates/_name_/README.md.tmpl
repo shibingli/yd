@@ -90,7 +90,12 @@ yd docker --tag {{ .Name }}:latest
 
 | 租户（登录页"租户"字段） | 租户名称 | 登录名 | 初始口令 |
 |---|---|---|---|
-| `default` | 默认租户 | `admin` | `seed.admin_password`（开发环境缺省为 `admin123`） |
+| `seed.tenant`（默认 `default`） | 默认租户 | `seed.username`（默认 `admin`） | `seed.admin_password`（开发环境缺省为 `admin123`） |
+
+默认租户标识与管理员登录名同样可以在 `configs/config.yaml` 的 `seed.tenant` / `seed.username` 中修改；
+对应的环境变量是 `YD_SEED_TENANT` / `YD_SEED_USERNAME`（环境变量优先于配置文件）。留空时分别回退到
+`internal/meta.SeedTenantSlug`（`default`）与 `internal/meta.SeedAdminUsername`（`admin`）。
+这两项与口令一样只在**租户表为空**时生效；已有数据后修改配置不会迁移既有租户或账号。
 
 > **首次登录后请立即修改默认口令** —— 登录页与首页横幅都会提醒，账号页的「修改口令」表单完成改密与 `sec_key` 轮换
 > （改密或轮换 `sec_key` 都会让此前签发的全部令牌立即失效，因此保存后需要重新登录）。
@@ -106,6 +111,8 @@ The seed is written once, only while the tenant table is empty: a second or thir
 replicas start together the first one wins while the other reads the unique-index conflict as "already initialised" rather
 than as an error. One run creates the default tenant, its built-in roles (`owner` / `admin` / `auditor` / `member`, with the
 capability bindings taken from the framework registry's `authz.BuiltinGrants()`) and one `owner` administrator.
+The tenant key and administrator name come from `seed.tenant` and `seed.username` (or `YD_SEED_TENANT` / `YD_SEED_USERNAME`,
+which win over the file), falling back to `default` and `admin` when empty.
 The password is never hard-coded: it comes from `seed.admin_password` or `YD_SEED_ADMIN_PASSWORD`, and an unset value is
 answered differently per environment — development falls back to the documented `admin123` and warns on every start,
 while every other environment refuses the seed with an explicit warning and creates no tenant and no administrator at all

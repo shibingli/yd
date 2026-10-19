@@ -280,7 +280,7 @@ func (c *Controller) loginData(ctx *router.Ctx, message, username string) map[st
 	return c.view(ctx, "登录 | Sign in", map[string]any{
 		"Error":      message,
 		"Username":   username,
-		"SeedTenant": meta.SeedTenantSlug,
+		"SeedTenant": c.store.SeedTenant(),
 		"SeedNotice": meta.SeedPasswordNotice,
 	})
 }
