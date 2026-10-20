@@ -452,6 +452,9 @@ func TestGenerateFeaturesReflectedInConfigAndRoutes(t *testing.T) {
 
 	plain := scaffold.DefaultOptions("plain-app")
 	plain.DB = scaffold.DBNone
+	// I18n now defaults to on, so the all-off fixture turns it off explicitly before asserting the config shape.
+	// I18n 现在默认开启，因此这个「全部关闭」的夹具先显式关掉它，再断言配置形态。
+	plain.I18n = false
 	prPlain, _ := generateMem(t, plain)
 	cfgPlain := prPlain.read("configs/config.yaml")
 	for _, unwanted := range []string{"redis:", "asynq:", "grpc:", "i18n:"} {
@@ -2498,6 +2501,17 @@ func startProbeAppWith(t *testing.T, name string, edit func(projDir string)) (st
 func startProbeAppDBWith(t *testing.T, name, db string, edit func(projDir string)) (string, string) {
 	t.Helper()
 
+	projDir, base, stop := startProbeAppDBWithStop(t, name, db, edit)
+	t.Cleanup(stop)
+	return projDir, base
+}
+
+// startProbeAppDBWithStop 与 startProbeAppDBWith 相同，但把停止函数交给调用方；升级用例需要先停止进程再改库。
+// startProbeAppDBWithStop is startProbeAppDBWith with the stop function returned to the caller; upgrade cases stop the
+// process before changing the database.
+func startProbeAppDBWithStop(t *testing.T, name, db string, edit func(projDir string)) (string, string, func()) {
+	t.Helper()
+
 	goBin, err := exec.LookPath("go")
 	if err != nil {
 		t.Skipf("未找到 go 工具链，跳过端到端验证: %v", err)
@@ -2529,7 +2543,8 @@ func startProbeAppDBWith(t *testing.T, name, db string, edit func(projDir string
 	if err != nil {
 		t.Fatalf("生成的骨架无法编译: %v\n%s", err, output)
 	}
-	return projDir, startGeneratedApp(t, bin, projDir)
+	base, stop := startGeneratedAppWithStop(t, bin, projDir)
+	return projDir, base, stop
 }
 
 // newProbeClient 返回端到端探针使用的客户端：带 cookie jar（浏览器会话）、固定英文文案、且从不自行跟随重定向。
@@ -2664,13 +2679,25 @@ func createProbeUser(t *testing.T, client *http.Client, base, token, username, r
 // startGeneratedApp 在随机空闲端口上启动生成的应用，返回基地址，并在用例结束时终止进程。
 // startGeneratedApp starts the generated application on a random free port, returns its base URL and kills the process
 // when the case ends.
+func startGeneratedApp(t *testing.T, bin, dir string) string {
+	t.Helper()
+
+	base, stop := startGeneratedAppWithStop(t, bin, dir)
+	t.Cleanup(stop)
+	return base
+}
+
+// startGeneratedAppWithStop 与 startGeneratedApp 相同，但把停止函数交给调用方，供「停止 → 修改数据库 → 重启」的
+// 升级用例使用；调用方必须自己调用 stop。
+// startGeneratedAppWithStop is startGeneratedApp with the stop function returned to the caller, for upgrade cases that
+// stop the app, change the database and start it again; the caller must call stop itself.
 //
 // 端口经 YD_SERVER_PORT 注入（映射到 server.port），因此不与开发机上任何常驻服务抢端口；
 // 启动输出被收集起来，就绪等待超时时一并打印，排障不必再手动复现。
 // The port is injected through YD_SERVER_PORT (mapped onto server.port), so no resident service on the developer machine
 // can collide; the startup output is collected and printed when the readiness wait times out, which keeps debugging free
 // of manual reproduction.
-func startGeneratedApp(t *testing.T, bin, dir string) string {
+func startGeneratedAppWithStop(t *testing.T, bin, dir string) (string, func()) {
 	t.Helper()
 
 	port := freePort(t)
@@ -2691,12 +2718,15 @@ func startGeneratedApp(t *testing.T, bin, dir string) string {
 	if err := cmd.Start(); err != nil {
 		t.Fatalf("启动生成的应用失败: %v", err)
 	}
-	t.Cleanup(func() {
-		if cmd.Process != nil {
-			_ = cmd.Process.Kill()
-			_, _ = cmd.Process.Wait()
+	stopped := false
+	stop := func() {
+		if stopped || cmd.Process == nil {
+			return
 		}
-	})
+		stopped = true
+		_ = cmd.Process.Kill()
+		_, _ = cmd.Process.Wait()
+	}
 
 	base := "http://127.0.0.1:" + strconv.Itoa(port)
 	probe := &http.Client{Timeout: httpTimeout}
@@ -2709,6 +2739,7 @@ func startGeneratedApp(t *testing.T, bin, dir string) string {
 			ready = resp.StatusCode == http.StatusOK
 		}
 		if !ready && time.Now().After(deadline) {
+			stop()
 			t.Fatalf("生成的应用未在 %s 内就绪:\n%s", startupTimeout, logs.String())
 		}
 		if !ready {
@@ -2717,7 +2748,7 @@ func startGeneratedApp(t *testing.T, bin, dir string) string {
 	}
 
 	t.Logf("生成的应用已就绪: %s", base)
-	return base
+	return base, stop
 }
 
 // freePort 向内核申请一个空闲端口并立即释放，把它留给生成的应用独占监听。

@@ -105,14 +105,7 @@ func (r *RoleRepo) Ensure(ctx context.Context, tenantID string) error {
 	// 授权表按角色名索引：注册表不认识的权限标识根本进不来，因为它们来自同一张表。
 	// The grants are indexed by role name: an unknown capability token cannot get in here, because both sides come from
 	// the same table.
-	grants := make(map[string][]model.Permission, len(authz.BuiltinRoles()))
-	for _, grant := range authz.BuiltinGrants() {
-		perms := make([]model.Permission, 0, len(grant.Permissions))
-		for _, token := range grant.Permissions {
-			perms = append(perms, model.Permission(token))
-		}
-		grants[grant.Role] = perms
-	}
+	grants := builtinGrantMap()
 
 	for _, tpl := range authz.BuiltinRoles() {
 		if have[strings.ToLower(tpl.Name)] {
@@ -123,4 +116,81 @@ func (r *RoleRepo) Ensure(ctx context.Context, tenantID string) error {
 		}
 	}
 	return nil
+}
+
+// Reconcile 为既有租户补齐内置角色缺失的能力绑定：只增不减，使升级后新增的能力（如 message:*）立即可用。
+// Reconcile adds the missing built-in capability bindings of an existing tenant: it only adds, never removes, so a
+// capability introduced by an upgrade (message:*) becomes usable immediately.
+//
+// 与 Ensure 的差别：Ensure 只在角色不存在时写入完整授权；Reconcile 还会把注册表新增、而库中尚未授予的能力补上。
+// 它绝不删除已有能力，因此使用者额外授予的自定义能力会保留；自定义角色完全不在处理范围内。
+// The difference from Ensure: Ensure writes the full grant only when the role is absent, while Reconcile also adds a
+// capability the registry has introduced but the database has not granted yet. It never removes an existing capability,
+// so custom grants survive; custom roles are not touched at all.
+//
+// 返回值是本次补上的能力条数，调用方据此只在确有变化时记一条日志，避免每次启动都刷屏。
+// The return value is the number of capabilities added, so the caller can log only when something actually changed
+// instead of flooding every start.
+func (r *RoleRepo) Reconcile(ctx context.Context, tenantID string) (int, error) {
+	existing, err := r.List(ctx, tenantID)
+	if err != nil {
+		return 0, err
+	}
+	byName := make(map[string]model.Role, len(existing))
+	for _, role := range existing {
+		byName[strings.ToLower(role.Name)] = role
+	}
+	grants := builtinGrantMap()
+	added := 0
+	for _, tpl := range authz.BuiltinRoles() {
+		grant := grants[tpl.Name]
+		role, found := byName[strings.ToLower(tpl.Name)]
+		if !found {
+			if _, err := r.Upsert(ctx, tenantID, tpl.Name, tpl.Description, grant); err != nil {
+				return added, err
+			}
+			added += len(grant)
+			continue
+		}
+		held := make(map[model.Permission]bool, len(role.Permissions))
+		for _, permission := range role.Permissions {
+			held[permission] = true
+		}
+		missing := make([]model.Permission, 0, len(grant))
+		for _, permission := range grant {
+			if !held[permission] {
+				missing = append(missing, permission)
+			}
+		}
+		if len(missing) == 0 {
+			continue
+		}
+		merged := make([]model.Permission, 0, len(role.Permissions)+len(missing))
+		merged = append(merged, role.Permissions...)
+		merged = append(merged, missing...)
+		description := strings.TrimSpace(role.Description)
+		if description == "" {
+			description = tpl.Description
+		}
+		if _, err := r.Upsert(ctx, tenantID, role.Name, description, merged); err != nil {
+			return added, err
+		}
+		added += len(missing)
+	}
+	return added, nil
+}
+
+// builtinGrantMap 把注册表的授权表转换为按角色名索引的能力切片；两侧来自同一张表，未知标识无法进入。
+// builtinGrantMap converts the registry's grant table into capability slices keyed by role name; both sides come from
+// the same table, so an unknown token cannot get in.
+func builtinGrantMap() map[string][]model.Permission {
+	grants := make(map[string][]model.Permission, len(authz.BuiltinRoles()))
+	for _, grant := range authz.BuiltinGrants() {
+		perms := make([]model.Permission, 0, len(grant.Permissions))
+		for _, token := range grant.Permissions {
+			perms = append(perms, model.Permission(token))
+		}
+		grants[grant.Role] = perms
+	}
+	return grants
 }

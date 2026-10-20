@@ -3,12 +3,16 @@ package scaffold_test
 import (
 	"bytes"
 	"context"
+	"database/sql"
 	"mime/multipart"
 	"net/http"
+	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
 
+	_ "github.com/glebarez/sqlite"
 	"github.com/shibingli/yd/core/jsonx"
 	"github.com/shibingli/yd/http/ws"
 	"github.com/shibingli/yd/tooling/scaffold"
@@ -831,6 +835,92 @@ func TestGeneratedAppMessageCentre(t *testing.T) {
 			t.Errorf("好友页缺少好友面板:\n%s", body)
 		}
 	})
+}
+
+// TestGeneratedAppReconcilesBuiltinRoleGrants 模拟旧库升级：先正常启动一次，删掉内置角色上的 message:* 绑定，
+// 再启动一次，验证 Seed 只补缺失能力就能让管理员重新访问消息中心。
+// TestGeneratedAppReconcilesBuiltinRoleGrants simulates a database upgrade: start once, delete the message:* bindings
+// from the built-in roles, start again, and verify that Seed's add-only reconciliation restores the administrator's
+// access to the message centre.
+func TestGeneratedAppReconcilesBuiltinRoleGrants(t *testing.T) {
+	if testing.Short() {
+		t.Skip("短模式跳过真实服务验证 | skipped in short mode")
+	}
+
+	const name = "yd-reconcile-probe"
+	projDir, base, stop := startProbeAppDBWithStop(t, name, scaffold.DBSQLite, nil)
+	admin := newProbeClient(t, httpTimeout)
+	token := signIn(t, admin, base, probeTenant, probeAdmin, probeAdminPassword)
+	resp, body := probeGet(t, admin, base+"/api/v1/messages", token)
+	requireProbeStatus(t, resp, body, http.StatusOK, "初始消息中心")
+	stop()
+
+	dbFile := filepath.Join(projDir, "data", name+".db")
+	db, err := sql.Open("sqlite", filepath.ToSlash(dbFile))
+	if err != nil {
+		t.Fatalf("打开生成的 SQLite 库失败: %v", err)
+	}
+	result, err := db.Exec("DELETE FROM yd_auth_role_permissions WHERE permission LIKE 'message%'")
+	if err != nil {
+		_ = db.Close()
+		t.Fatalf("删除 message 能力失败: %v", err)
+	}
+	removed, err := result.RowsAffected()
+	if err != nil || removed == 0 {
+		_ = db.Close()
+		t.Fatalf("没有删除任何 message 能力（rows=%d, err=%v），初始种子可能不含消息权限", removed, err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatalf("关闭 SQLite 库失败: %v", err)
+	}
+
+	// 第二次启动触发 Seed 的补齐逻辑；登录使用同一份库与开发主密钥。
+	// The second start triggers Seed's reconciliation; sign-in uses the same database and the development master key.
+	bin := filepath.Join(projDir, "app")
+	if runtime.GOOS == "windows" {
+		bin += ".exe"
+	}
+	restartedBase, restartedStop := startGeneratedAppWithStop(t, bin, projDir)
+	defer restartedStop()
+	restarted := newProbeClient(t, httpTimeout)
+	restartedToken := signIn(t, restarted, restartedBase, probeTenant, probeAdmin, probeAdminPassword)
+	resp, body = probeGet(t, restarted, restartedBase+"/api/v1/messages", restartedToken)
+	requireProbeStatus(t, resp, body, http.StatusOK, "补齐内置角色能力后的消息中心")
+
+	// 四个内置角色都应重新拿到各自的消息能力。
+	// All four built-in roles must have their message capabilities back.
+	db, err = sql.Open("sqlite", filepath.ToSlash(dbFile))
+	if err != nil {
+		t.Fatalf("重新打开 SQLite 库失败: %v", err)
+	}
+	defer func() { _ = db.Close() }()
+	rows, err := db.Query(`
+SELECT r.name, COUNT(p.permission)
+FROM yd_auth_roles r
+LEFT JOIN yd_auth_role_permissions p
+  ON p.tenant_id = r.tenant_id AND p.role_id = r.id AND p.permission LIKE 'message%'
+GROUP BY r.name`)
+	if err != nil {
+		t.Fatalf("统计补齐后的能力失败: %v", err)
+	}
+	defer func() { _ = rows.Close() }()
+	counts := map[string]int{}
+	for rows.Next() {
+		var role string
+		var count int
+		if err := rows.Scan(&role, &count); err != nil {
+			t.Fatalf("读取能力计数失败: %v", err)
+		}
+		counts[role] = count
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatalf("遍历能力计数失败: %v", err)
+	}
+	for _, role := range []string{"owner", "admin", "auditor", "member"} {
+		if counts[role] == 0 {
+			t.Errorf("内置角色 %q 没有补齐消息能力: %v", role, counts)
+		}
+	}
 }
 
 // dialMessageSocket 建立消息 WebSocket 并读掉初始未读徽标，返回已订阅的连接。

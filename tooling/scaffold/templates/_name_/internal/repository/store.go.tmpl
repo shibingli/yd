@@ -432,24 +432,57 @@ func (s *Store) seedSpecs() []seedSpec {
 // Seed writes the default data idempotently: the default tenant, the four built-in roles with their capability bindings,
 // and that tenant's administrator.
 //
-// 幂等由数据本身判定，而且整个种子数据只有一道总闸：**租户表为空**才写入。
-// 首次启动因此写入一次，之后每次启动什么都不做；多副本同时启动时，唯一索引冲突被读作「另一个副本已先完成初始化」
+// 创建数据由数据本身判定，而且只有一道总闸：**租户表为空**才创建。
+// 首次启动因此写入一次，之后每次启动不再创建任何租户或账号；多副本同时启动时，唯一索引冲突被读作「另一个副本已先完成初始化」
 // 而不是错误（auth.ErrConflict），于是两个副本也只会留下唯一一份数据。
-// Idempotence is decided by the data itself, behind a single gate: nothing is written unless the **tenant table is
-// empty**. The first start therefore writes everything, every later start does nothing, and when several replicas start at
-// the same moment a unique-index conflict is read as "another replica finished the very same initialisation first"
-// rather than as an error (auth.ErrConflict) — so even then exactly one copy of the data lands.
+// Creation is decided by the data itself, behind a single gate: nothing is created unless the **tenant table is
+// empty**. The first start therefore writes everything, every later start creates no tenant and no account, and when
+// several replicas start at the same moment a unique-index conflict is read as "another replica finished the very same
+// initialisation first" rather than as an error (auth.ErrConflict) — so even then exactly one copy of the data lands.
 //
-// 使用者改过的角色与口令因此永远不会被改回去，被停用或删除的种子账号也不会被悄悄复活。
-// A role or a password the user has since changed is therefore never reverted, and a seeded account that was disabled or
-// deleted is not silently resurrected either.
+// 既有库每次启动只做一次补齐：内置角色缺少的默认能力会被加回去（只增不减），使升级后新增的能力（如 message:*）立即可用；
+// 自定义角色、额外授予的能力与口令都不受影响，被停用或删除的种子账号也不会被悄悄复活。
+// An existing database is reconciled on every start: missing default capabilities of the built-in roles are added back
+// (add-only), so capabilities introduced by an upgrade (message:*) become usable immediately; custom roles, extra grants
+// and passwords are untouched, and a seeded account that was disabled or deleted is not silently resurrected either.
 //
-// 口令来自配置：未配置时开发环境回退到内置开发口令并每次启动告警，非 development 环境**拒绝写入**并告警
-// （见 seedPassword），因此这里没有、也不允许有任何一个写在源码里的口令。
+// 口令来自配置：未配置时开发环境回退到内置开发口令并每次启动告警，非 development 环境**拒绝创建**并告警
+// （见 seedPassword），因此这里没有、也不允许有任何一个写在源码里的口令。补齐既有租户的内置能力不需要口令。
 // The password comes from the configuration: when none is configured development falls back to the built-in development
-// password with a warning on every start, while an environment that does not call itself development **refuses to write
-// anything** and says so (see seedPassword) — which is why no password is written in the sources here, or anywhere else.
+// password with a warning on every start, while an environment that does not call itself development **refuses to
+// create anything** and says so (see seedPassword) — which is why no password is written in the sources here, or
+// anywhere else. Reconciling an existing tenant's built-in capabilities needs no password.
 func (s *Store) Seed(ctx context.Context) error {
+	tenants, err := s.svc.ListTenants(ctx)
+	if err != nil {
+		return errx.Wrap(err, ErrSeed)
+	}
+	roles := NewRoleRepo(s)
+	if len(tenants) > 0 {
+		// 既有库不重建租户与账号，只把注册表新增、而库中尚未授予的内置能力补上；自定义角色与自定义授权不受影响。
+		// An existing database recreates neither tenants nor accounts: it only adds built-in capabilities the registry
+		// has introduced but the database has not granted yet; custom roles and custom grants are untouched.
+		added := 0
+		for _, tenant := range tenants {
+			count, err := roles.Reconcile(ctx, tenant.ID)
+			if err != nil {
+				return errx.Wrap(err, ErrSeed)
+			}
+			added += count
+		}
+		if added > 0 {
+			s.log.Info("built-in role grants upgraded | 内置角色能力已升级",
+				logx.Int("tenants", len(tenants)),
+				logx.Int("permissions", added),
+			)
+		} else {
+			s.log.Debug("default data is already present, nothing is seeded | 默认数据已存在，不写入种子数据",
+				logx.Int("tenants", len(tenants)),
+			)
+		}
+		return nil
+	}
+
 	password, ok := s.seedPassword()
 	if !ok {
 		// 拒绝写入种子数据。原因与后果已在 seedPassword 里说过一次，这里不再重复刷屏。
@@ -457,18 +490,6 @@ func (s *Store) Seed(ctx context.Context) error {
 		return nil
 	}
 
-	tenants, err := s.svc.ListTenants(ctx)
-	if err != nil {
-		return errx.Wrap(err, ErrSeed)
-	}
-	if len(tenants) > 0 {
-		s.log.Debug("default data is already present, nothing is seeded | 默认数据已存在，不写入种子数据",
-			logx.Int("tenants", len(tenants)),
-		)
-		return nil
-	}
-
-	roles := NewRoleRepo(s)
 	for _, spec := range s.seedSpecs() {
 		if err := s.seedTenant(ctx, roles, spec, password); err != nil {
 			if errors.Is(err, auth.ErrConflict) {

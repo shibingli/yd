@@ -99,11 +99,11 @@ func Register(a *app.App) error {
 	}
 	a.OnShutdown(func(context.Context) error { return store.Close() })
 
-	// 默认数据只在租户表为空时写入一次，而且没有配置种子口令时一律不写（非开发环境尤其如此），
-	// 因此调用它既幂等、又不可能在任何环境里开出一个口令公开可查的管理员账号。
-	// The default data is written exactly once, only while the tenant table is empty, and never at all without a configured
-	// seed password — least of all outside development — so calling this is both idempotent and incapable of opening an
-	// administrator account with a publicly documented password in any environment.
+	// 默认数据只在租户表为空时创建，而且没有配置种子口令时不会创建任何账号；既有租户每次启动只补齐内置角色
+	// 缺失的能力绑定（只增不减），因此升级后新增的能力立即可用。
+	// The default data is created only while the tenant table is empty, and no account is created without a seed
+	// password; an existing tenant only gets its missing built-in capabilities reconciled on each start (add-only), so a
+	// capability introduced by an upgrade is usable immediately.
 	if err := store.Seed(context.Background()); err != nil {
 		return errx.Wrap(err, ErrSeed)
 	}
