@@ -104,6 +104,47 @@ func TestViewerCoversAllObjectKinds(t *testing.T) {
 	}
 }
 
+// TestViewerThemeButtonUsesBundledIcons pins the viewer's stateful theme icon: the three glyphs
+// come from the shared sprite, CSS selects the active one, and the script updates only the label
+// so it never wipes the icon nodes. | TestViewerThemeButtonUsesBundledIcons 固定查看器的状态主题图标：
+// 三枚图标来自共享 sprite，CSS 选出当前一枚，脚本只更新文字，绝不会清掉图标节点。
+func TestViewerThemeButtonUsesBundledIcons(t *testing.T) {
+	for _, want := range []string{
+		`data-theme-glyph="light"`,
+		`data-theme-glyph="dark"`,
+		`data-theme-glyph="system"`,
+		`#i-lucide-sun`,
+		`#i-lucide-moon`,
+		`#i-lucide-monitor`,
+		`id="theme-label"`,
+	} {
+		if !strings.Contains(viewerTemplate, want) {
+			t.Errorf("viewer template is missing %q | 查看器模板缺少 %q", want, want)
+		}
+	}
+	for _, want := range []string{
+		`.theme-toggle[data-theme-choice="light"]`,
+		`.theme-toggle[data-theme-choice="dark"]`,
+		`.theme-toggle[data-theme-choice="auto"]`,
+	} {
+		if !strings.Contains(viewerTemplate, want) {
+			t.Errorf("viewer stylesheet is missing %q | 查看器样式缺少 %q", want, want)
+		}
+	}
+
+	raw, err := os.ReadFile("../../web/static/js/yd-openapi-viewer.js")
+	if err != nil {
+		t.Fatalf("read viewer script: %v | 读取查看器脚本失败：%v", err, err)
+	}
+	script := string(raw)
+	if strings.Contains(script, "button.textContent") {
+		t.Error("the viewer script wipes the theme button with textContent, removing its icons | 查看器脚本用 textContent 覆盖主题按钮，会清掉图标")
+	}
+	if !strings.Contains(script, "theme-label") {
+		t.Error("the viewer script does not update the theme label node | 查看器脚本没有更新主题文字节点")
+	}
+}
+
 // TestEscapeJSONForScriptActuallyEscapes is the regression for a no-op sanitizer that relied on
 // jsonx's HTML escaping; a raw "</script>" would otherwise terminate the JSON island. | TestEscapeJSONForScriptActuallyEscapes
 // 是空操作清洗器的回归——它曾依赖 jsonx 的 HTML 转义；否则原始 "</script>" 会终止 JSON 岛。

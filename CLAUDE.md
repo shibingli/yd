@@ -756,6 +756,8 @@ yd versions sync               # 仅重新生成 version_generated.go
 - **主题按钮的图标切换**：主题按钮携带 `lucide-sun` / `lucide-moon` / `lucide-monitor` 三枚图标，
   由 `data-yd-theme-state` 经 CSS 选出；语言按钮使用 `lucide-languages`；登录/登出使用
   `lucide-log-in` / `lucide-log-out`。新增按钮必须沿用同一片段，不得各写一套图标。
+  OpenAPI 查看器的 `#theme-toggle` 同样使用这三枚图标（`data-theme-choice` + CSS），
+  脚本只更新 `#theme-label`，**不得**用 `textContent` 覆盖按钮，否则会清掉图标节点。
 - **SVG 压缩**：sprite 与其他 `.svg` 一样进入 `minify` 阶段，生产模板解析 `.min.svg`；
   `yd assets minify --check` 同时校验 JS 与 SVG。不要手工编辑生成文件
   （`icons.svg` 文件头带生成标记）。

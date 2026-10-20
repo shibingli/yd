@@ -159,6 +159,10 @@ yd assets minify --check
 
 新增图标时，先在模板中加入片段调用，再运行 `yd icons sync`。生成器会自动把它加入 sprite。
 
+OpenAPI 查看器（`/docs`）的 `#theme-toggle` 也复用 `lucide-sun` / `lucide-moon` /
+`lucide-monitor` 三枚图标，由 `data-theme-choice` 经 CSS 选出；脚本只更新
+`#theme-label` 的文字，**不得**对按钮设置 `textContent`，否则会把三个图标节点一起清掉。
+
 ## 6. 图标集来源、版本与许可
 
 - 图标集：**Lucide**

@@ -96,8 +96,13 @@ main{display:flex;align-items:flex-start}
 aside{width:340px;flex:0 0 340px;border-right:1px solid var(--line);padding:12px;position:sticky;top:52px;max-height:calc(100vh - 52px);overflow:auto}
 input[type=search]{width:100%;padding:7px 9px;border:1px solid var(--field);border-radius:7px;background:var(--bg);color:var(--fg);margin-bottom:10px;font:inherit}
 input[type=search]:focus-visible,.try input:focus-visible,.try select:focus-visible,.try textarea:focus-visible,.theme-toggle:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
-.theme-toggle{padding:4px 9px;border:1px solid var(--field);border-radius:999px;background:var(--bg);color:var(--fg);font:inherit;font-size:12px;font-weight:600;cursor:pointer;white-space:nowrap}
+.theme-toggle{display:inline-flex;align-items:center;gap:6px;padding:4px 9px;border:1px solid var(--field);border-radius:999px;background:var(--bg);color:var(--fg);font:inherit;font-size:12px;font-weight:600;cursor:pointer;white-space:nowrap}
 .theme-toggle:hover{background:var(--panel)}
+.theme-icon{display:none;flex:0 0 auto;width:14px;height:14px}
+.theme-toggle[data-theme-choice="light"] .theme-icon[data-theme-glyph="light"],
+.theme-toggle[data-theme-choice="dark"] .theme-icon[data-theme-glyph="dark"],
+.theme-toggle[data-theme-choice="auto"] .theme-icon[data-theme-glyph="system"],
+.theme-toggle:not([data-theme-choice]) .theme-icon[data-theme-glyph="light"]{display:inline-block}
 .route{display:flex;gap:8px;align-items:center;width:100%;text-align:left;background:none;border:0;border-radius:7px;padding:6px 8px;cursor:pointer;color:inherit;font:inherit}
 .route:hover{background:var(--panel)}
 .route.active{background:var(--panel);outline:1px solid var(--line)}
@@ -178,7 +183,12 @@ noscript{display:block;padding:14px 18px;color:var(--muted)}
 <header class="topbar">
 <h1 id="doc-title">API</h1>
 <span class="version" id="doc-version"></span>
-<button type="button" class="theme-toggle" id="theme-toggle" aria-label="Toggle light/dark theme | 切换明暗主题">System | 跟随系统</button>
+<button type="button" class="theme-toggle" id="theme-toggle" aria-label="Toggle light/dark theme | 切换明暗主题">
+<svg class="theme-icon" data-theme-glyph="light" aria-hidden="true" focusable="false"><use href="/static/img/icons.svg#i-lucide-sun"></use></svg>
+<svg class="theme-icon" data-theme-glyph="dark" aria-hidden="true" focusable="false"><use href="/static/img/icons.svg#i-lucide-moon"></use></svg>
+<svg class="theme-icon" data-theme-glyph="system" aria-hidden="true" focusable="false"><use href="/static/img/icons.svg#i-lucide-monitor"></use></svg>
+<span id="theme-label">System | 跟随系统</span>
+</button>
 <span class="description" id="doc-description"></span>
 </header>
 <main>

@@ -40,7 +40,10 @@
     var button = document.getElementById('theme-toggle');
     if (button) {
       button.setAttribute('data-theme-choice', choice);
-      button.textContent = choice === 'light' ? 'Light | 浅色' : (choice === 'dark' ? 'Dark | 深色' : 'System | 跟随系统');
+      var label = document.getElementById('theme-label');
+      if (label) {
+        label.textContent = choice === 'light' ? 'Light | 浅色' : (choice === 'dark' ? 'Dark | 深色' : 'System | 跟随系统');
+      }
     }
   }
 
