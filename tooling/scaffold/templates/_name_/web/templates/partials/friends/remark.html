@@ -19,6 +19,8 @@
 </div>
 <form class="yd-form" method="post" action="/friends/{{ .Friend.Profile.ID }}/remark"
       hx-post="/friends/{{ .Friend.Profile.ID }}/remark" hx-target="#yd-friends-panel" hx-swap="outerMorph"
+      hx-status:409="target:#yd-drawer-errors swap:innerHTML"
+      hx-status:422="target:#yd-drawer-errors swap:innerHTML"
       data-yd-confirm="{{ tr "confirm.save_remark" }}">
   <div class="yd-field">
     <label class="yd-label" for="yd-friend-remark">{{ tr "friend.remark" }}</label>

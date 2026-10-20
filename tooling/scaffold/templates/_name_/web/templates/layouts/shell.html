@@ -151,6 +151,13 @@
   <div class="yd-dialog__panel yd-drawer__panel">
     <button type="button" class="yd-icon-btn yd-drawer__close" data-yd-drawer-close
             aria-label="{{ tr "ui.close" }}">×</button>
+    {{/* 抽屉内的错误槽位：抽屉是顶层模态，页面上的 #yd-errors 会被 ::backdrop 盖住，因此抽屉表单的
+         校验失败必须落在抽屉内部。yd-app.js 在打开与关闭抽屉时清空它。 |
+         The in-drawer error slot: the drawer is a top-layer modal, so the page-level #yd-errors sits behind
+         ::backdrop; validation failures from drawer forms must land inside the drawer. yd-app.js clears it when the
+         drawer opens or closes. */}}
+    <div id="yd-drawer-errors" class="yd-errors yd-errors--drawer" role="alert" aria-live="assertive"
+         data-yd-errors-outlet></div>
     <div id="yd-drawer-body" class="yd-drawer__body"></div>
   </div>
 </dialog>

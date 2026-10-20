@@ -3428,6 +3428,50 @@ func TestGenerateResponsiveShellHooks(t *testing.T) {
 	}
 }
 
+// TestGeneratedDrawerErrorsStayInsideDrawer 断言抽屉表单的校验错误落在抽屉内部的槽位，
+// 而不是被模态遮罩压在下面的页面级 #yd-errors。
+// TestGeneratedDrawerErrorsStayInsideDrawer asserts that drawer-form validation errors land in the in-drawer outlet
+// instead of the page-level #yd-errors hidden behind the modal backdrop.
+func TestGeneratedDrawerErrorsStayInsideDrawer(t *testing.T) {
+	pr, _ := generateMem(t, scaffold.DefaultOptions("drawer-errors-app"))
+
+	shell := pr.read("web/templates/layouts/shell.html")
+	for _, want := range []string{`id="yd-drawer-errors"`, "yd-errors--drawer"} {
+		if !strings.Contains(shell, want) {
+			t.Errorf("shell.html 缺少抽屉错误槽位 %q", want)
+		}
+	}
+
+	drawerForms := []string{
+		"web/templates/partials/users/form.html",
+		"web/templates/partials/users/edit_drawer.html",
+		"web/templates/partials/tenants/form.html",
+		"web/templates/partials/roles/form.html",
+		"web/templates/partials/roles/edit_drawer.html",
+		"web/templates/partials/friends/request.html",
+		"web/templates/partials/friends/remark.html",
+		"web/templates/partials/messages/compose.html",
+		"web/templates/partials/messages/group_settings.html",
+		"web/templates/partials/messages/pin.html",
+		"web/templates/partials/message_settings/type_form.html",
+		"web/templates/partials/message_settings/tag_form.html",
+	}
+	for _, rel := range drawerForms {
+		if strings.Contains(pr.read(rel), "target:#yd-errors") {
+			t.Errorf("%s 的校验错误仍指向页面级 #yd-errors，会被抽屉遮罩盖住", rel)
+		}
+	}
+	for _, rel := range []string{
+		"web/templates/partials/users/form.html",
+		"web/templates/partials/tenants/form.html",
+		"web/templates/partials/roles/form.html",
+	} {
+		if !strings.Contains(pr.read(rel), "target:#yd-drawer-errors") {
+			t.Errorf("%s 未把校验错误指向抽屉内槽位", rel)
+		}
+	}
+}
+
 // TestGeneratedMessageCentreUsesInlineNewConversationPanel 断言新建会话不再打开抽屉，
 // 而是在会话栏内提供「会话 / 联系人」双页签：点好友直接开单聊，勾选多位好友创建群聊。
 // TestGeneratedMessageCentreUsesInlineNewConversationPanel asserts that starting a conversation no longer opens a

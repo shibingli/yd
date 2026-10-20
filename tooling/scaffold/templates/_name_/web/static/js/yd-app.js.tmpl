@@ -580,9 +580,20 @@
     return false;
   }
 
+  /* 抽屉内的错误槽位与页面上的 #yd-errors 分开：打开或关闭抽屉时清空旧错误，避免下一次表单继承上一次的提示。 |
+     The in-drawer error outlet is separate from the page-level #yd-errors; opening or closing the drawer clears stale
+     errors so the next form never inherits the previous one's notice. */
+  function clearDrawerErrors() {
+    var slot = document.getElementById("yd-drawer-errors");
+    if (slot) {
+      slot.innerHTML = "";
+    }
+  }
+
   /* 抽屉：点「新建/编辑」时立即打开，htmx 随后把片段换进 #yd-drawer-body。
      Drawer: opening happens on the click and htmx swaps the fragment into #yd-drawer-body afterwards. */
   function openDrawer() {
+    clearDrawerErrors();
     var drawer = document.querySelector(SELECTORS.drawer);
     if (!drawer || typeof drawer.showModal !== "function" || drawer.open) {
       return;
@@ -596,6 +607,7 @@
     if (drawer && drawer.open && typeof drawer.close === "function") {
       drawer.close();
     }
+    clearDrawerErrors();
   }
 
   /* askConfirm 打开全局确认对话框，只有点「确认」才执行回调；文案来自模板的 tr，脚本里没有一句业务文案。

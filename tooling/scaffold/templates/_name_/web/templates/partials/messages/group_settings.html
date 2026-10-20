@@ -16,6 +16,8 @@
 {{- if .CanManage }}
 <form class="yd-form" method="post" action="/messages/groups/{{ .Conversation.ID }}/rename"
       hx-post="/messages/groups/{{ .Conversation.ID }}/rename" hx-target="#yd-workspace" hx-swap="innerMorph"
+      hx-status:409="target:#yd-drawer-errors swap:innerHTML"
+      hx-status:422="target:#yd-drawer-errors swap:innerHTML"
       data-yd-confirm="{{ tr "confirm.rename_group" }}">
   <div class="yd-field">
     <label class="yd-label" for="yd-group-title">{{ tr "message.group_title" }}</label>
@@ -28,6 +30,8 @@
 
 <form class="yd-form" method="post" action="/messages/groups/{{ .Conversation.ID }}/members"
       hx-post="/messages/groups/{{ .Conversation.ID }}/members" hx-target="#yd-workspace" hx-swap="innerMorph"
+      hx-status:409="target:#yd-drawer-errors swap:innerHTML"
+      hx-status:422="target:#yd-drawer-errors swap:innerHTML"
       data-yd-confirm="{{ tr "confirm.add_group_member" }}">
   <input type="hidden" name="action" value="add">
   <div class="yd-field">
@@ -53,6 +57,8 @@
       {{- if $.CanManage }}{{ if ne .ID $.ActorID }}
       <form method="post" action="/messages/groups/{{ $.Conversation.ID }}/members"
             hx-post="/messages/groups/{{ $.Conversation.ID }}/members" hx-target="#yd-workspace" hx-swap="innerMorph"
+            hx-status:409="target:#yd-drawer-errors swap:innerHTML"
+            hx-status:422="target:#yd-drawer-errors swap:innerHTML"
             data-yd-confirm="{{ tr "confirm.remove_group_member" }}">
         <input type="hidden" name="action" value="remove">
         <input type="hidden" name="member_id" value="{{ .ID }}">
@@ -67,12 +73,16 @@
 <div class="yd-form__actions">
   <form method="post" action="/messages/groups/{{ .Conversation.ID }}/leave"
         hx-post="/messages/groups/{{ .Conversation.ID }}/leave" hx-target="#yd-workspace"
+        hx-status:409="target:#yd-drawer-errors swap:innerHTML"
+        hx-status:422="target:#yd-drawer-errors swap:innerHTML"
         data-yd-confirm="{{ tr "confirm.leave_group" }}">
     <button type="submit" class="yd-btn yd-btn--ghost">{{ tr "message.leave_group" }}</button>
   </form>
   {{- if .CanManage }}
   <form method="post" action="/messages/groups/{{ .Conversation.ID }}/dissolve"
         hx-post="/messages/groups/{{ .Conversation.ID }}/dissolve" hx-target="#yd-workspace"
+        hx-status:409="target:#yd-drawer-errors swap:innerHTML"
+        hx-status:422="target:#yd-drawer-errors swap:innerHTML"
         data-yd-confirm="{{ tr "confirm.dissolve_group" }}">
     <button type="submit" class="yd-btn yd-btn--danger">{{ tr "message.dissolve_group" }}</button>
   </form>

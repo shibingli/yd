@@ -16,6 +16,8 @@
 <p class="yd-msg-pin__subject">{{ if .Message.Title }}{{ .Message.Title }}{{ else }}{{ tr "message.untitled" }}{{ end }}</p>
 <form class="yd-form" method="post" action="/messages/{{ .Message.ID }}/pin"
       hx-post="/messages/{{ .Message.ID }}/pin" hx-target="#yd-workspace" hx-swap="innerMorph"
+      hx-status:409="target:#yd-drawer-errors swap:innerHTML"
+      hx-status:422="target:#yd-drawer-errors swap:innerHTML"
       data-yd-confirm="{{ tr "confirm.pin_message" }}">
   <input type="hidden" name="conversation_id" value="{{ .Message.ConversationID }}">
   <div class="yd-field">

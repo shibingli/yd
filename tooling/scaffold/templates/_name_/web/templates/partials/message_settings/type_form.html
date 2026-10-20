@@ -9,6 +9,8 @@
 </div>
 <form class="yd-form" method="post" action="/message-settings/types"
       hx-post="/message-settings/types" hx-target="#yd-message-settings-body" hx-swap="outerMorph"
+      hx-status:409="target:#yd-drawer-errors swap:innerHTML"
+      hx-status:422="target:#yd-drawer-errors swap:innerHTML"
       data-yd-confirm="{{ tr "confirm.save_type" }}">
   <div class="yd-field">
     <label class="yd-label" for="yd-type-key">{{ tr "message.settings.key" }}</label>

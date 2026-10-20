@@ -32,6 +32,8 @@
 </div>
 <form id="yd-compose-form" class="yd-form" method="post" action="{{ $action }}"
       hx-post="{{ $action }}" hx-target="#yd-workspace" hx-swap="innerMorph"
+      hx-status:409="target:#yd-drawer-errors swap:innerHTML"
+      hx-status:422="target:#yd-drawer-errors swap:innerHTML"
       data-yd-confirm="{{ tr "confirm.send_message" }}">
   <div class="yd-field">
     <label class="yd-label" for="yd-compose-type">{{ tr "message.type" }}</label>
@@ -103,7 +105,7 @@
 {{- if ne $mode "edit" }}
 <form class="yd-upload" method="post" action="/messages/attachments"
       hx-post="/messages/attachments" hx-target="#yd-attachment-list" hx-swap="beforeend"
-      hx-encoding="multipart/form-data" hx-status:422="target:#yd-errors swap:innerHTML"
+      hx-encoding="multipart/form-data" hx-status:422="target:#yd-drawer-errors swap:innerHTML"
       data-yd-drawer-persist>
   <label class="yd-label" for="yd-attachment-file">{{ tr "message.add_attachment" }}</label>
   <input class="yd-input" id="yd-attachment-file" name="file" type="file">

@@ -2697,6 +2697,12 @@
   margin: 0 1rem;
 }
 
+/* In-drawer error outlet: no page gutter, and it clears the floated close button. | 抽屉内错误槽位：去掉页面边距，并避开右浮动关闭按钮。 */
+.yd-errors--drawer {
+  margin: 0 0 1rem;
+  clear: both;
+}
+
 .yd-errors:empty {
   display: none;
 }

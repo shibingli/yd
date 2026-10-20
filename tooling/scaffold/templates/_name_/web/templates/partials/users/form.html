@@ -32,9 +32,9 @@
 <form class="yd-form" method="post" action="/users"
       data-yd-encrypt="sm2" data-yd-pubkey="{{ .KeyEndpoint }}"
       hx-post="/users" hx-target="#yd-workspace" hx-swap="innerMorph"
-      hx-status:400="target:#yd-errors swap:innerHTML"
-      hx-status:409="target:#yd-errors swap:innerHTML"
-      hx-status:422="target:#yd-errors swap:innerHTML"
+      hx-status:400="target:#yd-drawer-errors swap:innerHTML"
+      hx-status:409="target:#yd-drawer-errors swap:innerHTML"
+      hx-status:422="target:#yd-drawer-errors swap:innerHTML"
       hx-disabled-elt="find button[type='submit']"
       data-yd-confirm="{{ tr "confirm.create_user" }}"
       novalidate>

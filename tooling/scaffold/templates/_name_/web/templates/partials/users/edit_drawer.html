@@ -24,8 +24,8 @@
   <h3 class="yd-section__title" id="yd-drawer-profile">{{ tr "page.users.profile" }}</h3>
   <form class="yd-form" method="post" action="/users/{{ $target.ID }}"
         hx-post="/users/{{ $target.ID }}" hx-target="#yd-workspace" hx-swap="innerMorph"
-        hx-status:409="target:#yd-errors swap:innerHTML"
-        hx-status:422="target:#yd-errors swap:innerHTML"
+        hx-status:409="target:#yd-drawer-errors swap:innerHTML"
+        hx-status:422="target:#yd-drawer-errors swap:innerHTML"
         hx-disabled-elt="find button[type='submit']"
         data-yd-confirm="{{ tr "confirm.update_user" }}" novalidate>
     <div class="yd-form__field">
@@ -53,7 +53,7 @@
   <h3 class="yd-section__title" id="yd-drawer-roles">{{ tr "field.roles" }}</h3>
   <form class="yd-form" method="post" action="/users/{{ $target.ID }}/roles"
         hx-post="/users/{{ $target.ID }}/roles" hx-target="#yd-workspace" hx-swap="innerMorph"
-        hx-status:422="target:#yd-errors swap:innerHTML"
+        hx-status:422="target:#yd-drawer-errors swap:innerHTML"
         hx-disabled-elt="find button[type='submit']"
         data-yd-confirm="{{ tr "confirm.assign_roles" }}" novalidate>
     <fieldset class="yd-form__fieldset">
@@ -79,8 +79,8 @@
   <p class="yd-section__hint">{{ tr "tenant.memberships_hint" }}</p>
   <form class="yd-form" method="post" action="/users/{{ $target.ID }}/tenants"
         hx-post="/users/{{ $target.ID }}/tenants" hx-target="#yd-workspace" hx-swap="innerMorph"
-        hx-status:409="target:#yd-errors swap:innerHTML"
-        hx-status:422="target:#yd-errors swap:innerHTML"
+        hx-status:409="target:#yd-drawer-errors swap:innerHTML"
+        hx-status:422="target:#yd-drawer-errors swap:innerHTML"
         hx-disabled-elt="find button[type='submit']"
         data-yd-confirm="{{ tr "confirm.set_tenants" }}" novalidate>
     <fieldset class="yd-form__fieldset">
@@ -123,8 +123,8 @@
   <form class="yd-form" method="post" action="/users/{{ $target.ID }}/password"
         data-yd-encrypt="sm2" data-yd-pubkey="{{ .KeyEndpoint }}"
         hx-post="/users/{{ $target.ID }}/password" hx-target="#yd-workspace" hx-swap="innerMorph"
-        hx-status:400="target:#yd-errors swap:innerHTML"
-        hx-status:422="target:#yd-errors swap:innerHTML"
+        hx-status:400="target:#yd-drawer-errors swap:innerHTML"
+        hx-status:422="target:#yd-drawer-errors swap:innerHTML"
         hx-disabled-elt="find button[type='submit']"
         data-yd-confirm="{{ tr "confirm.reset_password" }}" novalidate>
     <div class="yd-form__field">
@@ -142,6 +142,8 @@
   <h3 class="yd-section__title" id="yd-drawer-status">{{ tr "field.status" }}</h3>
   <form method="post" action="/users/{{ $target.ID }}/status"
         hx-post="/users/{{ $target.ID }}/status" hx-target="#yd-workspace" hx-swap="innerMorph"
+        hx-status:409="target:#yd-drawer-errors swap:innerHTML"
+        hx-status:422="target:#yd-drawer-errors swap:innerHTML"
         data-yd-confirm="{{ if $target.Active }}{{ tr "confirm.disable_user" }}{{ else }}{{ tr "confirm.enable_user" }}{{ end }}">
     {{ if $target.Active }}
     <button type="submit" name="status" value="disabled" class="yd-btn yd-btn--ghost">{{ tr "ui.disable" }}</button>
@@ -151,6 +153,8 @@
   </form>
   <form method="post" action="/users/{{ $target.ID }}/sec-key"
         hx-post="/users/{{ $target.ID }}/sec-key" hx-target="#yd-workspace" hx-swap="innerMorph"
+        hx-status:409="target:#yd-drawer-errors swap:innerHTML"
+        hx-status:422="target:#yd-drawer-errors swap:innerHTML"
         data-yd-confirm="{{ tr "confirm.rotate_key" }}">
     <button type="submit" class="yd-btn yd-btn--ghost">{{ tr "ui.rotate_key" }}</button>
   </form>

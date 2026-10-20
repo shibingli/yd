@@ -13,6 +13,8 @@
 </div>
 <form class="yd-form" method="post" action="/message-settings/tags"
       hx-post="/message-settings/tags" hx-target="#yd-message-settings-body" hx-swap="outerMorph"
+      hx-status:409="target:#yd-drawer-errors swap:innerHTML"
+      hx-status:422="target:#yd-drawer-errors swap:innerHTML"
       data-yd-confirm="{{ tr "confirm.save_tag" }}">
   {{- if eq .Mode "edit" }}
   <input type="hidden" name="id" value="{{ .Item.ID }}">

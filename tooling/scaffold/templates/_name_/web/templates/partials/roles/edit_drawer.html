@@ -21,7 +21,7 @@
 
 <form class="yd-form" method="post" action="/roles"
       hx-post="/roles" hx-target="#yd-workspace" hx-swap="innerMorph"
-      hx-status:422="target:#yd-errors swap:innerHTML"
+      hx-status:422="target:#yd-drawer-errors swap:innerHTML"
       hx-disabled-elt="find button[type='submit']"
       data-yd-confirm="{{ tr "confirm.create_role" }}" novalidate>
   <input type="hidden" name="name" value="{{ $role.Name }}">
