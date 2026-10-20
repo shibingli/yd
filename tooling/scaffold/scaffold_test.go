@@ -991,6 +991,52 @@ func TestInteractiveTTYReadsAnswers(t *testing.T) {
 	}
 }
 
+// TestInteractiveTTYAsynqNeedsRedis 断言交互里先关 Redis 再开 Asynq 会明确提示并补问 Redis：
+// 补答 y 得到两者同时启用，补答 n 则以 ErrAsynqRequiresRedis 拒绝，而不是生成无法工作的队列骨架。
+// TestInteractiveTTYAsynqNeedsRedis asserts that turning Redis off and then enabling Asynq prints an explicit notice
+// and asks for Redis again: y yields both enabled, n is refused with ErrAsynqRequiresRedis instead of generating queue
+// wiring that cannot work.
+func TestInteractiveTTYAsynqNeedsRedis(t *testing.T) {
+	prefix := []string{
+		"shop-app", // 项目名 | project name
+		"",         // 模块路径跟随项目名 | module follows the new name
+		"sqlite",   // 数据库 | database
+		"n",        // redis 关闭 | Redis off
+		"y",        // asynq 开启 | Asynq on
+		"n",        // grpc
+		"",         // i18n 默认开启 | i18n keeps its default (on)
+		"",         // tailwind 默认开启 | tailwind keeps its default (on)
+	}
+	for _, tc := range []struct {
+		name      string
+		answer    string
+		wantErr   error
+		wantRedis bool
+	}{
+		{name: "accepts the re-prompt | 补答 y", answer: "y", wantRedis: true},
+		{name: "refuses when declined | 补答 n 时拒绝", answer: "n", wantErr: scaffold.ErrAsynqRequiresRedis},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			answers := strings.Join(append(append([]string{}, prefix...), tc.answer, "sse, ws", ""), "\n") + "\n"
+			var out bytes.Buffer
+			got, err := scaffold.Interactive(strings.NewReader(answers), &out, scaffold.DefaultOptions("base-app"), true)
+			if !errors.Is(err, tc.wantErr) {
+				t.Fatalf("err = %v, 期望 %v | err = %v, want %v", err, tc.wantErr, err, tc.wantErr)
+			}
+			if !strings.Contains(out.String(), "Asynq requires Redis") {
+				t.Errorf("交互没有给出 Asynq 依赖 Redis 的提示：\n%s", out.String())
+			}
+			if !got.Asynq || got.Redis != tc.wantRedis {
+				t.Errorf("redis=%v asynq=%v, 期望 redis=%v asynq=true | redis=%v asynq=%v, want redis=%v asynq=true",
+					got.Redis, got.Asynq, tc.wantRedis, got.Redis, got.Asynq, tc.wantRedis)
+			}
+			if tc.wantErr == nil && (!got.Tailwind || !got.I18n || len(got.HtmxExts) != 2) {
+				t.Errorf("后续回答未被正确消费：%+v", got)
+			}
+		})
+	}
+}
+
 // TestGeneratedGovernanceDocsStateConstraints 断言生成的治理文档覆盖硬性约束。
 // TestGeneratedGovernanceDocsStateConstraints asserts the generated governance docs cover the hard constraints.
 func TestGeneratedGovernanceDocsStateConstraints(t *testing.T) {
@@ -1144,14 +1190,13 @@ func TestRealGenerateCompilesWithGoBuild(t *testing.T) {
 	t.Logf("真实生成 + go build 通过: %d 个文件，产物 %s（%d 字节）", len(res.Files), filepath.Base(bin), info.Size())
 }
 
-// TestRealGenerateCompilesRealtimeBusCombinations 覆盖 redis 与 asynq 的独立组合。
-// TestRealGenerateCompilesRealtimeBusCombinations covers the independent redis and asynq combinations.
+// TestRealGenerateCompilesRealtimeBusCombinations 覆盖 redis 与 asynq 的组合。
+// TestRealGenerateCompilesRealtimeBusCombinations covers the redis and asynq combinations.
 //
-// 这两个开关在消息总线里是彼此独立的：asynq 只提供失败广播的持久重试，未开启时不得留下
-// 对 asynqx 的类型引用或未使用的变量；只开 asynq 也不得引入 Redis 客户端。
-// The two switches are independent in the message bus: asynq only provides durable retries for failed broadcasts, so
-// turning it off must leave neither an asynqx type reference nor an unused variable behind, and asynq without redis must
-// not pull in the Redis client either.
+// asynq 是 Redis 驱动的队列：只开 asynq 必须在生成前被拒绝（ErrAsynqRequiresRedis），
+// 只开 redis 则必须能编译，并且消息总线不留下任何 asynqx 引用。
+// Asynq is a Redis-backed queue: asynq without Redis must be refused before generation (ErrAsynqRequiresRedis), while
+// Redis without Asynq must compile and leave no asynqx reference in the message bus.
 func TestRealGenerateCompilesRealtimeBusCombinations(t *testing.T) {
 	if testing.Short() {
 		t.Skip("短模式跳过真实编译 | skipped in short mode")
@@ -1162,12 +1207,13 @@ func TestRealGenerateCompilesRealtimeBusCombinations(t *testing.T) {
 	}
 
 	for _, tc := range []struct {
-		name  string
-		redis bool
-		asynq bool
+		name    string
+		redis   bool
+		asynq   bool
+		wantErr error
 	}{
 		{name: "redis without asynq | 只开 redis", redis: true},
-		{name: "asynq without redis | 只开 asynq", asynq: true},
+		{name: "asynq without redis is refused | 只开 asynq 被拒绝", asynq: true, wantErr: scaffold.ErrAsynqRequiresRedis},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			dir := t.TempDir()
@@ -1176,7 +1222,14 @@ func TestRealGenerateCompilesRealtimeBusCombinations(t *testing.T) {
 			o.Redis = tc.redis
 			o.Asynq = tc.asynq
 			o.LocalReplace = filepath.ToSlash(repoRoot(t))
-			if _, err := scaffold.Generate(context.Background(), o, afs.NewOS(dir), nil); err != nil {
+			_, err := scaffold.Generate(context.Background(), o, afs.NewOS(dir), nil)
+			if tc.wantErr != nil {
+				if !errors.Is(err, tc.wantErr) {
+					t.Fatalf("Generate err = %v, 期望 %v | Generate err = %v, want %v", err, tc.wantErr, err, tc.wantErr)
+				}
+				return
+			}
+			if err != nil {
 				t.Fatalf("真实生成失败: %v", err)
 			}
 

@@ -156,6 +156,8 @@ var (
 	ErrLicenseUnsupported = errx.New("unsupported license | 不支持的协议")
 	// ErrHtmxExtUnknown reports an unknown Htmx extension name. | ErrHtmxExtUnknown 表示 Htmx 扩展名未知。
 	ErrHtmxExtUnknown = errx.New("unknown htmx extension | 未知的 Htmx 扩展")
+	// ErrAsynqRequiresRedis reports Asynq without the Redis integration it runs on. | ErrAsynqRequiresRedis 表示启用了 Asynq 却没有接入它依赖的 Redis。
+	ErrAsynqRequiresRedis = errx.New("asynq requires Redis; pass --redis or disable --asynq | Asynq 依赖 Redis；请同时传 --redis，或关闭 --asynq")
 	// ErrConflict reports existing target files with different content. | ErrConflict 表示目标文件已存在且内容不同。
 	ErrConflict = errx.New("target file exists with different content | 目标文件已存在且内容不同")
 	// ErrCanceled reports a cancelled generation run. | ErrCanceled 表示生成过程被取消。
