@@ -124,6 +124,7 @@ func Register(a *app.App) error {
 	if err := startTicker(a, ticker, broker); err != nil {
 		return err
 	}
+	startMessageRuntime(a, ctrl)
 
 	registerOpenAPI(a)
 	registerFeatures(a)
@@ -260,6 +261,109 @@ func registerProtected(a *app.App, ctrl *controller.Controller, store *repositor
 	g.GET("/ws", ctrl.Socket(ticker))
 	g.GET("/ws/metrics", ctrl.MetricsSocket())
 
+	// 站内消息中心：读、发、改、撤、置顶、类型目录与审计各自对应注册表里的一条能力。
+	// The in-app message centre: reading, sending, editing, recalling, pinning, the type catalogue and the audit trail
+	// each map onto one capability of the registry.
+	g.GET("/messages", ctrl.Messages, authz.Require(authz.PermMessageRead))
+	g.GET("/messages/list", ctrl.MessageList, authz.Require(authz.PermMessageRead))
+	g.GET("/messages/conversations", ctrl.MessageConversations, authz.Require(authz.PermMessageRead))
+	g.GET("/messages/new", ctrl.NewMessageDrawer, authz.Require(authz.PermMessageSend))
+	g.GET("/messages/direct/:id", ctrl.OpenDirectConversation, authz.Require(authz.PermMessageSend))
+	g.POST("/messages", ctrl.SendMessage, authz.Require(authz.PermMessageSend))
+	g.GET("/messages/system/new", ctrl.NewSystemDrawer, authz.Require(authz.PermMessageSystem))
+	g.POST("/messages/system", ctrl.SendSystemMessage, authz.Require(authz.PermMessageSystem))
+	g.GET("/messages/admin", ctrl.MessageAdmin, authz.Require(authz.PermMessageManage))
+	g.GET("/messages/admin/audit", ctrl.MessageAudit, authz.Require(authz.PermMessageManage))
+	g.POST("/messages/attachments", ctrl.UploadMessageAttachment, authz.Require(authz.PermMessageSend))
+	g.GET("/messages/attachments/:id", ctrl.DownloadMessageAttachment, authz.Require(authz.PermMessageRead))
+	g.GET("/messages/:id", ctrl.MessageThread, authz.Require(authz.PermMessageRead))
+	g.GET("/messages/:id/thread", ctrl.MessageThreadFragment, authz.Require(authz.PermMessageRead))
+	g.GET("/messages/:id/history", ctrl.MessageThreadHistory, authz.Require(authz.PermMessageRead))
+	g.GET("/messages/:id/edit", ctrl.EditMessageDrawer, authz.Require(authz.PermMessageUpdate))
+	g.POST("/messages/:id", ctrl.UpdateMessage, authz.Require(authz.PermMessageUpdate))
+	g.POST("/messages/:id/recall", ctrl.RecallMessage, authz.Require(authz.PermMessageDelete))
+	g.POST("/messages/:id/revoke", ctrl.RevokeSystemMessage, authz.Require(authz.PermMessageSystem))
+	g.POST("/messages/:id/read", ctrl.MarkMessageRead, authz.Require(authz.PermMessageRead))
+	g.POST("/messages/:id/pin", ctrl.PinMessage, authz.Require(authz.PermMessageManage))
+	g.POST("/messages/:id/unpin", ctrl.UnpinMessage, authz.Require(authz.PermMessageManage))
+	g.GET("/messages/:id/pin", ctrl.PinMessageDrawer, authz.Require(authz.PermMessageManage))
+	g.POST("/messages/groups", ctrl.CreateMessageGroup, authz.Require(authz.PermMessageSend))
+	g.GET("/messages/groups/:id/settings", ctrl.MessageGroupDrawer, authz.Require(authz.PermMessageSend))
+	g.POST("/messages/groups/:id/members", ctrl.ChangeMessageGroupMember, authz.Require(authz.PermMessageSend))
+	g.POST("/messages/groups/:id/rename", ctrl.RenameMessageGroup, authz.Require(authz.PermMessageSend))
+	g.POST("/messages/groups/:id/leave", ctrl.LeaveMessageGroup, authz.Require(authz.PermMessageSend))
+	g.POST("/messages/groups/:id/dissolve", ctrl.DissolveMessageGroup, authz.Require(authz.PermMessageSend))
+
+	// 好友生命周期：申请、接受/拒绝/取消、删除、拉黑与备注。
+	// The friend lifecycle: request, accept/reject/cancel, remove, block and remark.
+	g.GET("/friends", ctrl.Friends, authz.Require(authz.PermMessageRead))
+	g.GET("/friends/summary", ctrl.FriendSummaryFragment, authz.Require(authz.PermMessageRead))
+	g.GET("/friends/search", ctrl.FriendSearch, authz.Require(authz.PermMessageRead))
+	g.GET("/friends/new", ctrl.NewFriendRequestDrawer, authz.Require(authz.PermMessageRead))
+	g.POST("/friends/requests", ctrl.SendFriendRequest, authz.Require(authz.PermMessageRead))
+	g.POST("/friends/requests/:id/accept", ctrl.AcceptFriendRequest, authz.Require(authz.PermMessageRead))
+	g.POST("/friends/requests/:id/reject", ctrl.RejectFriendRequest, authz.Require(authz.PermMessageRead))
+	g.POST("/friends/requests/:id/cancel", ctrl.CancelFriendRequest, authz.Require(authz.PermMessageRead))
+	g.GET("/friends/:id/remark", ctrl.FriendRemarkDrawer, authz.Require(authz.PermMessageRead))
+	g.POST("/friends/:id/remark", ctrl.SetFriendRemark, authz.Require(authz.PermMessageRead))
+	g.POST("/friends/:id/remove", ctrl.RemoveFriend, authz.Require(authz.PermMessageRead))
+	g.POST("/friends/:id/block", ctrl.BlockFriend, authz.Require(authz.PermMessageRead))
+	g.POST("/friends/:id/unblock", ctrl.UnblockFriend, authz.Require(authz.PermMessageRead))
+
+	// 消息类型、分组与标签：读目录与生命周期管理分开。
+	// Message types, groups and labels: reading the catalogue is separate from its lifecycle.
+	g.GET("/message-settings", ctrl.MessageSettings, authz.Require(authz.PermMessageTypeRead))
+	g.GET("/message-settings/body", ctrl.MessageSettingsBody, authz.Require(authz.PermMessageTypeRead))
+	g.GET("/message-settings/types/new", ctrl.NewMessageTypeDrawer, authz.Require(authz.PermMessageTypeManage))
+	g.GET("/message-settings/types/:key/edit", ctrl.EditMessageTypeDrawer, authz.Require(authz.PermMessageTypeManage))
+	g.POST("/message-settings/types", ctrl.SaveMessageType, authz.Require(authz.PermMessageTypeManage))
+	g.POST("/message-settings/types/:key/archive", ctrl.ArchiveMessageType, authz.Require(authz.PermMessageTypeManage))
+	g.POST("/message-settings/types/:key/restore", ctrl.RestoreMessageType, authz.Require(authz.PermMessageTypeManage))
+	g.POST("/message-settings/types/:key/delete", ctrl.DeleteMessageType, authz.Require(authz.PermMessageTypeManage))
+	g.GET("/message-settings/tags/new", ctrl.NewMessageTagDrawer, authz.Require(authz.PermMessageTypeManage))
+	g.GET("/message-settings/tags/:id/edit", ctrl.EditMessageTagDrawer, authz.Require(authz.PermMessageTypeManage))
+	g.POST("/message-settings/tags", ctrl.SaveMessageTag, authz.Require(authz.PermMessageTypeManage))
+	g.POST("/message-settings/tags/:id/archive", ctrl.ArchiveMessageTag, authz.Require(authz.PermMessageTypeManage))
+	g.POST("/message-settings/tags/:id/restore", ctrl.RestoreMessageTag, authz.Require(authz.PermMessageTypeManage))
+	g.POST("/message-settings/tags/:id/delete", ctrl.DeleteMessageTag, authz.Require(authz.PermMessageTypeManage))
+
+	// JSON API：与 HTML 共用同一套 service，供离线客户端与脚本读取。
+	// The JSON API: it shares the very same service as the HTML pages, for offline clients and scripts.
+	g.GET("/api/v1/messages/conversations", ctrl.APIConversations, authz.Require(authz.PermMessageRead))
+	g.GET("/api/v1/messages/conversations/:id", ctrl.APIConversation, authz.Require(authz.PermMessageRead))
+	g.GET("/api/v1/messages", ctrl.APIMessages, authz.Require(authz.PermMessageRead))
+	g.GET("/api/v1/messages/:id", ctrl.APIMessage, authz.Require(authz.PermMessageRead))
+	g.POST("/api/v1/messages", ctrl.APISendMessage, authz.Require(authz.PermMessageSend))
+	g.POST("/api/v1/messages/system", ctrl.APISendSystem, authz.Require(authz.PermMessageSystem))
+	g.POST("/api/v1/messages/:id", ctrl.APIUpdateMessage, authz.Require(authz.PermMessageUpdate))
+	g.POST("/api/v1/messages/:id/recall", ctrl.APIRecallMessage, authz.Require(authz.PermMessageDelete))
+	g.POST("/api/v1/messages/:id/revoke", ctrl.APIRevokeSystemMessage, authz.Require(authz.PermMessageSystem))
+	g.POST("/api/v1/messages/:id/read", ctrl.APIMarkRead, authz.Require(authz.PermMessageRead))
+	g.POST("/api/v1/messages/:id/pin", ctrl.APIPinMessage, authz.Require(authz.PermMessageManage))
+	g.POST("/api/v1/messages/:id/unpin", ctrl.APIUnpinMessage, authz.Require(authz.PermMessageManage))
+	g.POST("/api/v1/messages/attachments", ctrl.APIUploadAttachment, authz.Require(authz.PermMessageSend))
+	g.GET("/api/v1/messages/attachments/:id", ctrl.APIDownloadAttachment, authz.Require(authz.PermMessageRead))
+	g.GET("/api/v1/friends", ctrl.APIFriends, authz.Require(authz.PermMessageRead))
+	g.GET("/api/v1/friends/search", ctrl.APIFriendSearch, authz.Require(authz.PermMessageRead))
+	g.POST("/api/v1/friends/requests", ctrl.APISendFriendRequest, authz.Require(authz.PermMessageRead))
+	g.POST("/api/v1/friends/requests/:id/accept", ctrl.APIAcceptFriendRequest, authz.Require(authz.PermMessageRead))
+	g.POST("/api/v1/friends/requests/:id/reject", ctrl.APIRejectFriendRequest, authz.Require(authz.PermMessageRead))
+	g.POST("/api/v1/friends/requests/:id/cancel", ctrl.APICancelFriendRequest, authz.Require(authz.PermMessageRead))
+	g.POST("/api/v1/friends/:id/remove", ctrl.APIRemoveFriend, authz.Require(authz.PermMessageRead))
+	g.POST("/api/v1/friends/:id/block", ctrl.APIBlockFriend, authz.Require(authz.PermMessageRead))
+	g.POST("/api/v1/friends/:id/unblock", ctrl.APIUnblockFriend, authz.Require(authz.PermMessageRead))
+	g.POST("/api/v1/friends/:id/remark", ctrl.APISetFriendRemark, authz.Require(authz.PermMessageRead))
+	g.GET("/api/v1/message-types", ctrl.APIMessageTypes, authz.Require(authz.PermMessageTypeRead))
+	g.POST("/api/v1/message-types", ctrl.APISaveMessageType, authz.Require(authz.PermMessageTypeManage))
+	g.POST("/api/v1/message-types/:key/archive", ctrl.APIArchiveMessageType, authz.Require(authz.PermMessageTypeManage))
+	g.GET("/api/v1/message-tags", ctrl.APIMessageTags, authz.Require(authz.PermMessageTypeRead))
+	g.POST("/api/v1/message-tags", ctrl.APISaveMessageTag, authz.Require(authz.PermMessageTypeManage))
+	g.POST("/api/v1/message-tags/:id/archive", ctrl.APIArchiveMessageTag, authz.Require(authz.PermMessageTypeManage))
+
+	// 实时消息通道：WebSocket 推送与单条快捷回复共用同一条连接。
+	// The realtime message channel: WebSocket pushes and the quick reply share one connection.
+	g.GET("/ws/messages", ctrl.MessageSocket(), authz.Require(authz.PermMessageRead))
+
 	// 租户：读与建分别对应注册表的 tenant:read 与 tenant:create，因为租户是其它一切数据的边界。
 	// Tenants: reading and creating map onto the registry's tenant:read and tenant:create, because tenants are the
 	// boundary of everything else.
@@ -361,6 +465,19 @@ func startTicker(a *app.App, ticker *service.Ticker, broker *sse.Broker) error {
 
 	ticker.LogStart(a.Logger(), broker.Clients(service.EventsTopic))
 	return nil
+}
+
+// startMessageRuntime 启动消息总线订阅与待挂载附件清理，并把停止动作挂到关停钩子上。
+// startMessageRuntime starts the bus subscription and the pending-upload cleaner, and hangs their stop action on the
+// shutdown hook.
+func startMessageRuntime(a *app.App, ctrl *controller.Controller) {
+	ctx, cancel := context.WithCancel(context.Background())
+	ctrl.StartMessageHub(ctx)
+	ctrl.StartMessageJanitor(ctx)
+	a.OnShutdown(func(context.Context) error {
+		cancel()
+		return nil
+	})
 }
 
 // registerOpenAPI 生成 OpenAPI 文档并挂载 JSON 端点与内置查看器。

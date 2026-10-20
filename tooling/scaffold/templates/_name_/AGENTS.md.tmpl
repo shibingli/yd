@@ -60,7 +60,8 @@
 - [ ] **图标**：只使用 `{{ "{{template \"partials/icon\" \"lucide-…\"}}" }}`；`yd icons sync` 生成按需
       sprite，`yd icons check` 校验漂移；禁止内联 SVG、Iconify 运行时与 CDN；`minify` 同时处理 SVG。
 - [ ] **Tailwind v4**：项目样式必须经 `@theme` 语义令牌与 `@layer components` 定义，
-      可复用工具类用 `@apply`，颜色不得在令牌块之外写字面量。
+      可复用工具类用 `@apply`，颜色不得在令牌块之外写字面量；`@source` 要覆盖 `static/js/yd-*.js`，
+      否则脚本运行期添加的类会被裁掉；EasyMDE 等无层 vendor CSS 的覆盖写在 `@layer` 之外。
 - [ ] **实时推送与文档**：htmx 4 SSE 只交换匿名消息；WebSocket 的发送控件必须位于 `hx-ws:connect` 元素内部
       （扩展用 `closest()` 向上找连接，否则消息不会发出），下行只交换 `content`，回车发送由脚本点击按钮
       （`hx-trigger` 过滤器会被 CSP 拦截），`htmx:ws:error` 不等于断开；重连交给 hx-sse / hx-ws 的退避机制
@@ -81,6 +82,12 @@
       登记在 `internal/middleware/observability.go`；状态为 `registered → active → stopped`，关闭后计数保留；
       请求指标只用原子操作，panic 只由最内层观察者计数并重抛；首页只经一条 `/ws/metrics` 每 5 秒接收
       系统资源与中间件两块片段，不得再写 HTTP 轮询或重同步。详见框架 `docs/middleware-metrics.md`。
+- [ ] **站内消息中心**：所有查询以 `tenant_id` 为第一条件；普通用户只能编辑/撤回自己的消息，
+      系统公告与置顶分别要求 `message:system` / `message:manage`；撤回是软墓碑（正文保留供审计，非管理员不可见），
+      置顶只作用于系统来源消息并支持起止窗口；类型/分组/标签的写操作只允许 `message-type:manage`；
+      消息中心使用即时通讯布局（左会话、右上历史、右下内联撰写），日常发送不弹确认，公告与破坏性动作保留确认，
+      实时刷新只重取历史片段、不得清掉撰写区草稿；跨节点投递要求生成项目时选择 `redis`（持久重试再选 `asynq`）
+      并给每个副本唯一的 `message.node_id`，未生成 Redis 集成的项目只编译进程内总线，事后补配置不生效。
 - [ ] **国密合规**：敏感数据加解密必须走 `guomi`（SM2/SM3/SM4），口令存储用 SM3 + 盐 + 迭代，禁止 MD5/SHA1。
 - [ ] **传输加密**：前端敏感字段提交必须声明式触发 SM2 前置加密（`data-yd-encrypt="sm2"`）。
 - [ ] **注入面**：SQL 只允许参数化查询；模板输出默认走 `html/template` 转义。

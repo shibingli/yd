@@ -41,6 +41,42 @@
       <span class="yd-nav__label">{{ tr "nav.home" }}</span>
     </a>
 
+    {{- if .MessageAvailable }}
+    {{/* 消息中心一组：消息与好友是每位成员的日常入口；治理与目录设置只对相应能力出现。
+         The message-centre group: messages and friends are the daily entries for every member; moderation and catalogue
+         settings appear only under the matching capabilities. */}}
+    <p class="yd-nav__section">{{ tr "nav.group.messages" }}</p>
+    {{/* 治理页 /messages/admin 属于另一项菜单，因此「消息中心」只在非治理路径上高亮；
+         否则两项会同时带 aria-current，读者无法判断自己在哪一层。
+         The moderation page /messages/admin belongs to another entry, so "Messages" highlights only outside that
+         subtree; otherwise both rows carry aria-current and the reader cannot tell which level they are on. */}}
+    <a class="yd-nav__link" href="/messages" hx-get="/messages" hx-target="#yd-shell" hx-swap="innerMorph" hx-push-url="true"
+       data-yd-nav="messages"{{ if and (hasPrefix .Path "/messages") (not (hasPrefix .Path "/messages/admin")) }} aria-current="page"{{ end }}>
+      <span class="yd-nav__label">{{ tr "nav.messages" }}</span>
+      {{ template "partials/messages/unread_badge" . }}
+    </a>
+    <a class="yd-nav__link" href="/friends" hx-get="/friends" hx-target="#yd-shell" hx-swap="innerMorph" hx-push-url="true"
+       data-yd-nav="friends"{{ if hasPrefix .Path "/friends" }} aria-current="page"{{ end }}>
+      <span class="yd-nav__label">{{ tr "nav.friends" }}</span>
+      {{- if gt .Unread.FriendRequests 0 }}
+      <span class="yd-badge yd-badge--warn">{{ .Unread.FriendRequests }}</span>
+      {{- end }}
+    </a>
+    {{- if can .Perm.MessageManage }}
+    <a class="yd-nav__link" href="/messages/admin" hx-get="/messages/admin" hx-target="#yd-shell" hx-swap="innerMorph" hx-push-url="true"
+       data-yd-nav="message-admin"{{ if hasPrefix .Path "/messages/admin" }} aria-current="page"{{ end }}>
+      <span class="yd-nav__label">{{ tr "nav.message_admin" }}</span>
+    </a>
+    {{- end }}
+    {{- if can .Perm.MessageTypeRead }}
+    <a class="yd-nav__link" href="/message-settings" hx-get="/message-settings" hx-target="#yd-shell" hx-swap="innerMorph" hx-push-url="true"
+       data-yd-nav="message-settings"{{ if hasPrefix .Path "/message-settings" }} aria-current="page"{{ end }}>
+      <span class="yd-nav__label">{{ tr "nav.message_settings" }}</span>
+    </a>
+    {{- end }}
+
+    {{- end }}
+
     {{/* 访问控制一组：每一项各自对应一条能力，读权限决定「看不看得见」，写权限只决定页面内的按钮。 */}}
     {{/* The access-control group: one nav item per capability, where a read permission decides whether it appears and a
          write permission only decides which buttons a page shows. */}}

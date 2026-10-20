@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-10-17T04:00:05.1412707Z",
+  "generated_at": "2026-10-20T07:09:24.5053226Z",
   "sources": [
     "https://cdn.jsdelivr.net/npm/{pkg}@{ver}/{file}",
     "https://unpkg.com/{pkg}@{ver}/{file}"
@@ -15,6 +15,46 @@
       "kind": "js",
       "size": 55891,
       "required": true
+    },
+    {
+      "name": "easymde",
+      "version": "2.20.0",
+      "url": "https://cdn.jsdelivr.net/npm/easymde@2.20.0/dist/easymde.min.js",
+      "path": "static/js/vendor/easymde.min.js",
+      "sha256": "d684d83b1a2ed08b664e6e140984dbb2c26d7e6198a6537fcae3355e85cd47ba",
+      "license": "MIT",
+      "kind": "js",
+      "size": 326778
+    },
+    {
+      "name": "easymde-css",
+      "version": "2.20.0",
+      "url": "https://cdn.jsdelivr.net/npm/easymde@2.20.0/dist/easymde.min.css",
+      "path": "static/js/vendor/easymde.min.css",
+      "sha256": "e7a7feebd8e4a193c03f87dea9f782d40c0e50baa8b8b93cc552f92aa51a61c0",
+      "license": "MIT",
+      "kind": "css",
+      "size": 12923
+    },
+    {
+      "name": "font-awesome",
+      "version": "4.7.0",
+      "url": "https://cdn.jsdelivr.net/npm/font-awesome@4.7.0/css/font-awesome.min.css",
+      "path": "static/js/vendor/font-awesome.min.css",
+      "sha256": "799aeb25cc0373fdee0e1b1db7ad6c2f6a0e058dfadaa3379689f583213190bd",
+      "license": "MIT",
+      "kind": "css",
+      "size": 31000
+    },
+    {
+      "name": "font-awesome-webfont",
+      "version": "4.7.0",
+      "url": "https://cdn.jsdelivr.net/npm/font-awesome@4.7.0/fonts/fontawesome-webfont.woff2",
+      "path": "static/js/fonts/fontawesome-webfont.woff2",
+      "sha256": "2adefcbc041e7d18fcf2d417879dc5a09997aa64d675b7a3c4b6ce33da13f3fe",
+      "license": "OFL-1.1",
+      "kind": "binary",
+      "size": 77160
     },
     {
       "name": "htmx",

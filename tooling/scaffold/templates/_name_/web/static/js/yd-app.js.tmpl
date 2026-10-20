@@ -837,15 +837,90 @@
         return;
       }
       if (elt.closest(SELECTORS.drawerBody)) {
+        /* 附件上传等「局部成功」的表单带 data-yd-drawer-persist：它只把结果追加进抽屉，
+           关闭抽屉会打断正在编辑的消息。 | A "partial success" form such as the attachment upload carries
+           data-yd-drawer-persist: it only appends into the drawer, and closing the drawer would interrupt the message
+           being edited. */
+        if (elt.closest("[data-yd-drawer-persist]")) {
+          return;
+        }
         closeDrawer();
       }
     });
   });
 
+  /* 消息中心的实时通知：服务端以 htmx 片段推入 #yd-message-notices，本层只负责在数秒后移除，
+     因此通知不会在非消息页上永久停留。 | Realtime notices of the message centre: the server pushes an htmx fragment into
+     #yd-message-notices and this layer only removes it after a few seconds, so a notice never stays forever on a
+     non-message page. */
+  var scheduledNotices = null;
+  function scheduleServerNotices() {
+    if (!scheduledNotices && window.WeakSet) {
+      scheduledNotices = new WeakSet();
+    }
+    var notices = document.querySelectorAll("[data-yd-message-notice]");
+    for (var i = 0; i < notices.length; i++) {
+      var node = notices[i];
+      if (scheduledNotices) {
+        if (scheduledNotices.has(node)) {
+          continue;
+        }
+        scheduledNotices.add(node);
+      }
+      window.setTimeout(function (target) {
+        return function () {
+          if (!target.parentNode) {
+            return;
+          }
+          target.classList.add("yd-message-notice--leaving");
+          window.setTimeout(function () {
+            if (target.parentNode) {
+              target.parentNode.removeChild(target);
+            }
+          }, 200);
+        };
+      }(node), 6000);
+    }
+  }
+
   /* 服务端提示：HX-Trigger 的 detail 直接就是事件负载，控制器不需要拼装任何提示 HTML。 | Server notices: the HX-Trigger detail is the payload itself, so controllers assemble no notice markup. */
   document.addEventListener(EVENTS.toast, function (event) {
     var detail = event.detail || {};
     appendNotice(detail.text, detail.level);
+  });
+
+  /* 消息 WebSocket 的 JSON 事件：扩展只在载荷含 content 时交换 DOM，因此不含 content 的事件会原样到达这里。
+     这里只把它转成 DOM 事件，消息页的 yd-message.js 负责决定是否重取线程或会话列表；胶水层本身不写业务。
+     JSON events of the message WebSocket: the extension swaps the DOM only when the payload carries content, so an
+     event without content arrives here. This layer only re-dispatches it as a DOM event; yd-message.js on the message
+     pages decides whether to refetch the thread or the conversation list, so the glue keeps no business logic. */
+  ["htmx:after:swap", "htmx:afterSwap"].forEach(function (name) {
+    document.addEventListener(name, scheduleServerNotices);
+  });
+  scheduleServerNotices();
+
+  document.addEventListener("htmx:ws:after:message:incoming", function (event) {
+    var message = event.detail && event.detail.message;
+    if (!message || typeof message.json !== "function") {
+      return;
+    }
+    message.json().then(function (payload) {
+      if (!payload || !payload.yd_event) {
+        return;
+      }
+      document.dispatchEvent(new CustomEvent("yd:realtime", {detail: payload, bubbles: true}));
+    }).catch(function () {
+      /* 非 JSON 的推送是服务端的 htmx 片段，扩展已经处理，这里无需再做任何事。
+         A non-JSON push is a server htmx fragment that the extension has already swapped; nothing to do here. */
+    });
+  });
+  ["htmx:ws:after:message:outgoing"].forEach(function (name) {
+    document.addEventListener(name, function () {
+      var input = document.getElementById("yd-quick-input");
+      if (input) {
+        input.value = "";
+      }
+    });
   });
 
   /* 连接生命周期：两条通道共用同一个聚合管理器与同一个横幅。 | Connection lifecycle: both channels share one
@@ -1044,6 +1119,61 @@
   if (window.htmx && typeof window.htmx.process === "function") {
     window.htmx.process(document.body);
   }
+
+  /* 页面级资产：htmx 局部导航只替换工作区，不会重写 <head>，因此消息页的编辑器脚本需要按需补齐。
+     本函数读取 #yd-page-assets 上的 data-yd-styles / data-yd-scripts，幂等地插入缺失项；
+     脚本按声明顺序串行加载，保证 EasyMDE 先于 yd-message-editor.js 执行。
+     Page assets: an htmx partial navigation replaces only the workspace and never rewrites <head>, so the message
+     editor must be loaded on demand. This reads data-yd-styles / data-yd-scripts from #yd-page-assets and inserts the
+     missing entries idempotently; scripts load one after another in declaration order, so EasyMDE precedes
+     yd-message-editor.js. */
+  function loadPageAssets(root) {
+    var node = (root || document).querySelector("#yd-page-assets");
+    if (!node) {
+      return;
+    }
+    var styles = (node.getAttribute("data-yd-styles") || "").split(/\s+/).filter(Boolean);
+    for (var i = 0; i < styles.length; i++) {
+      if (document.querySelector('link[rel="stylesheet"][href="' + styles[i] + '"]')) {
+        continue;
+      }
+      var link = document.createElement("link");
+      link.rel = "stylesheet";
+      link.href = styles[i];
+      document.head.appendChild(link);
+    }
+    var scripts = (node.getAttribute("data-yd-scripts") || "").split(/\s+/).filter(Boolean);
+    var pending = scripts.filter(function (src) {
+      return !document.querySelector('script[src="' + src + '"]');
+    });
+    if (!pending.length) {
+      if (yd.messageEditor) {
+        yd.messageEditor.init(document);
+      }
+      return;
+    }
+    function next(index) {
+      if (index >= pending.length) {
+        if (yd.messageEditor) {
+          yd.messageEditor.init(document);
+        }
+        return;
+      }
+      var script = document.createElement("script");
+      script.src = pending[index];
+      script.defer = false;
+      script.async = false;
+      script.onload = function () { next(index + 1); };
+      script.onerror = function () { next(index + 1); };
+      document.head.appendChild(script);
+    }
+    next(0);
+  }
+  document.addEventListener("htmx:after:swap", function () { loadPageAssets(document); });
+  ["htmx:afterSwap"].forEach(function (name) {
+    document.addEventListener(name, function () { loadPageAssets(document); });
+  });
+  loadPageAssets(document);
 
   /* 首屏重绘一次聚合状态：状态徽标显示连接中，横幅保持隐藏直到真的掉线。 | Repaint the aggregate once at first
      paint: the badge shows connecting while the banner stays hidden until a real drop. */

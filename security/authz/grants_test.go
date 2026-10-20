@@ -204,18 +204,37 @@ func TestBuiltinGrantsAuditorIsReadOnly(t *testing.T) {
 	}
 }
 
-// TestBuiltinGrantsMemberGrantsNothing pins the empty member grant. | TestBuiltinGrantsMemberGrantsNothing 钉住成员的空授权。
+// TestBuiltinGrantsMemberHoldsOnlyMessageSelfService pins the one deliberate non-empty member
+// grant. | TestBuiltinGrantsMemberHoldsOnlyMessageSelfService 钉住成员唯一一处刻意的非空授权。
 //
-// It is the one grant that has to stay empty: this registry has no "own resource" scope, so any
-// capability at all would let an ordinary account reach its colleagues' data. | 它是唯一必须保持为空的授权：
-// 本注册表没有「仅自己的资源」这个范围，因此任何一项能力都会让普通账号碰到同事的数据。
-func TestBuiltinGrantsMemberGrantsNothing(t *testing.T) {
+// Every other capability is tenant-wide, so granting one would let an ordinary account reach its
+// colleagues' data. The four message capabilities are different: the messaging service scopes them
+// to conversations the member belongs to and to messages the member actually sent, which is why
+// they are the only entries here and why this list must stay closed. | 其余能力都是租户级的，
+// 授予任何一项都会让普通账号碰到同事的数据。四项消息能力不同：消息服务把它们限定在成员所属的会话
+// 与成员真正发送过的消息上，这正是它们是这里唯一条目、且这份清单必须保持封闭的原因。
+func TestBuiltinGrantsMemberHoldsOnlyMessageSelfService(t *testing.T) {
 	g, ok := authz.GrantOf(authz.RoleMember)
 	if !ok {
 		t.Fatalf("GrantOf(%q) reports no grant | GrantOf(%q) 报告没有授权", authz.RoleMember, authz.RoleMember)
 	}
-	if len(g.Permissions) != 0 {
-		t.Errorf("the member grants %v, want nothing | 成员授予了 %v，期望什么都不授予", g.Permissions, g.Permissions)
+	want := map[string]bool{
+		authz.PermMessageRead:   true,
+		authz.PermMessageSend:   true,
+		authz.PermMessageUpdate: true,
+		authz.PermMessageDelete: true,
+	}
+	held := make(map[string]bool, len(g.Permissions))
+	for _, token := range g.Permissions {
+		held[token] = true
+		if !want[token] {
+			t.Errorf("the member holds %q, which is outside the self-service message scope | 成员持有 %q，超出了消息自助范围", token, token)
+		}
+	}
+	for token := range want {
+		if !held[token] {
+			t.Errorf("the member does not hold %q | 成员不持有 %q", token, token)
+		}
 	}
 }
 

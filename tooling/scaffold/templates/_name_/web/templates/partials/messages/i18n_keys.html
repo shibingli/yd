@@ -1,0 +1,28 @@
+{{/*
+  partials/messages/i18n_keys.html —— Go 侧动态使用的语言目录键清单。
+  partials/messages/i18n_keys.html — the catalogue keys used dynamically from Go.
+
+  这些键由推送器与关系映射在运行时选取，模板里没有字面量调用；本文件把它们集中登记一次，
+  既让静态目录检查看到它们，也让新增推送类型时有一个明确的落点。本文件不产出正文。
+  These keys are selected at runtime by the pusher and by the relation map and have no literal template call. This file
+  registers them once, so the static catalogue check sees them and a new push type has an obvious home. It renders no
+  body.
+
+  动态键 | Dynamic keys:
+  {{ tr "message.notice.friend_requested" }}
+  {{ tr "message.notice.friend_accepted" }}
+  {{ tr "message.notice.friend_rejected" }}
+  {{ tr "message.notice.friend_removed" }}
+  {{ tr "message.notice.friend_blocked" }}
+  {{ tr "message.notice.recalled" }}
+  {{ tr "message.notice.pinned" }}
+  {{ tr "message.notice.failed" }}
+  {{ tr "friend.relation.none" }}
+  {{ tr "friend.relation.friend" }}
+  {{ tr "friend.relation.incoming" }}
+  {{ tr "friend.relation.outgoing" }}
+  {{ tr "friend.relation.blocked" }}
+  {{ tr "message.system_channel" }}
+  {{ tr "message.group_untitled" }}
+  {{ tr "message.group_default_title" }}
+*/}}

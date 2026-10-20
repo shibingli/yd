@@ -208,6 +208,22 @@ func containsLine(s, want string) bool {
 	return false
 }
 
+// writeFakeTailwindBin writes an existing placeholder binary so the resolver succeeds without the real tool.
+// | writeFakeTailwindBin 写入一个存在的占位二进制，使解析器无需真实工具即可通过。
+func writeFakeTailwindBin(t *testing.T, dir string) string {
+	t.Helper()
+
+	name := "tailwindcss"
+	if runtime.GOOS == "windows" {
+		name += ".exe"
+	}
+	path := filepath.Join(dir, name)
+	if err := os.WriteFile(path, []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatalf("写入占位 tailwindcss 失败: %v", err)
+	}
+	return path
+}
+
 // TestBuildTailwindProducesMinifiedStylesheet pins the two-pass production build:
 // the first pass writes the debuggable yd.css, the second writes yd.min.css with
 // Tailwind's own --minify. | TestBuildTailwindProducesMinifiedStylesheet 固定生产双遍构建：
@@ -215,6 +231,10 @@ func containsLine(s, want string) bool {
 func TestBuildTailwindProducesMinifiedStylesheet(t *testing.T) {
 	dir := t.TempDir()
 	writeFile(t, filepath.Join(dir, DefaultTailwindInput), "@import \"tailwindcss\";\n")
+	// 注入一个存在的占位二进制：解析链要求文件真实存在，而真正的执行由 fakeExec 代替，因此这里不依赖 PATH 上的工具。
+	// Inject an existing placeholder binary: the resolver requires a real file while fakeExec replaces the actual run, so
+	// this test never depends on the tool being present on PATH.
+	bin := writeFakeTailwindBin(t, dir)
 	fake := &fakeExec{onCall: func(_ string, args []string) {
 		if out, ok := flagValue(args, "-o"); ok {
 			_ = os.WriteFile(out, []byte("/* built */"), 0o644)
@@ -223,6 +243,7 @@ func TestBuildTailwindProducesMinifiedStylesheet(t *testing.T) {
 
 	if _, err := buildTailwindWith(context.Background(), dir, TailwindOptions{
 		Enabled: true,
+		Bin:     bin,
 		Minify:  true,
 	}, testLogger(), fake.exec); err != nil {
 		t.Fatalf("buildTailwindWith 失败: %v", err)
@@ -251,6 +272,7 @@ func TestBuildTailwindProducesMinifiedStylesheet(t *testing.T) {
 func TestBuildTailwindMinifyOnlySkipsSourcePass(t *testing.T) {
 	dir := t.TempDir()
 	writeFile(t, filepath.Join(dir, DefaultTailwindInput), "@import \"tailwindcss\";\n")
+	bin := writeFakeTailwindBin(t, dir)
 	fake := &fakeExec{onCall: func(_ string, args []string) {
 		if out, ok := flagValue(args, "-o"); ok {
 			_ = os.WriteFile(out, []byte("/* built */"), 0o644)
@@ -259,6 +281,7 @@ func TestBuildTailwindMinifyOnlySkipsSourcePass(t *testing.T) {
 
 	size, err := buildTailwindWith(context.Background(), dir, TailwindOptions{
 		Enabled:    true,
+		Bin:        bin,
 		Minify:     true,
 		MinifyOnly: true,
 	}, testLogger(), fake.exec)

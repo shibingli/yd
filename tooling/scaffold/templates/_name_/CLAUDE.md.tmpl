@@ -111,6 +111,30 @@
 （登录页只保留登录功能，不显示种子凭据说明），改提醒只需改那一处；`store.SeedPasswordUnchanged`
 用一次口令校验判断账号是否仍在用默认口令。
 
+## 6.1 站内消息中心（强制）
+
+消息中心的规则在框架域包 `{{ .YdModule }}/messaging`（不依赖 GORM 与 HTTP），持久化在
+`{{ .YdModule }}/messaging/gormstore`；本项目的装配与展示在 `internal/service/message*.go`、
+`internal/controller/message_*_controller.go`、`message_api.go`、`message_stream.go`、`friend_controller.go`。
+修改时遵守以下边界：
+
+1. **租户硬边界**：所有查询以 `tenant_id` 为第一条件；跨租户与非成员一律 404/403，且不泄露资源存在性。
+2. **能力判定**：读 `message:read`、发 `message:send`、改自己的 `message:update`、撤自己的 `message:delete`、
+   系统公告 `message:system`、治理与置顶 `message:manage`、目录 `message-type:read|manage`。
+   普通用户的「仅本人」由服务端强制（`messaging.Edit` / `messaging.Recall`），前端显隐不是安全边界。
+3. **撤回是软墓碑**：正文保留供审计，非管理员只看到空正文与空附件；系统公告撤销同样走这条路径。
+   置顶只作用于系统来源消息，`pinned + pin_start_at + pin_end_at` 决定当前是否生效。
+4. **富文本**：存储 Markdown 源 + goldmark 渲染并净化的 HTML + 纯文本投影；不得直接把用户输入当 HTML 输出。
+   编辑器是本地 vendored 的 EasyMDE，禁止 CDN 与内联脚本。
+5. **前端交互**：消息中心是即时通讯布局——左侧会话列表、右上方历史、右下方内联撰写区；后台治理与目录设置
+   保持列表式管理页。日常消息直接在内联撰写区发送，不弹确认；公告频道、撤回/撤销、退出/解散、置顶与好友变更
+   必须先过 `data-yd-confirm`；新建会话、编辑、置顶与群设置走右侧抽屉（`#yd-drawer`）。
+   列表操作用 `details.yd-menu`；实时刷新只重取 `/messages/:id/history`，不重建撰写区、不清掉草稿，也不整页跳转。
+6. **实时与多节点**：`#yd-shell` 持有唯一的 `/ws/messages` 连接；事件只带 ID 与元数据，接收方按权限重取。
+   单节点用进程内 Hub；多节点要求生成时选择 `redis`（持久重试再选 `asynq`），并给每个副本唯一的
+   `message.node_id`。未生成 Redis 集成的项目只编译本地总线，事后补配置不生效。
+7. **数据表**：`yd_msg_*` 由 `messaginggorm.Migrate` 建出；索引以 `tenant_id` 打头。改表结构时同步迁移与测试。
+
 ## 7. 提交纪律（强制）
 
 **一律禁止在提交信息、作者、署名、脚注、PR 描述、分支名、代码注释与文档中出现任何 Claude / Anthropic / AI 助手相关内容**
@@ -156,6 +180,8 @@ yd gen module|crud   # 低代码生成（DB Schema 或 Go Struct）
   内容安全策略只允许 `script-src 'self'`，因此**禁止内联脚本**与内联样式。
 - 所有样式必须继承 Tailwind v4：`app.css` 引入 `@import "tailwindcss"`，设计令牌写在 `@theme`，
   项目与框架组件写在 `@layer components`；可复用的工具类用 `@apply`，颜色不得在令牌块之外写字面量。
+  `@source` 必须覆盖 `static/js/yd-*.js`，否则脚本运行期添加的类（`yd-editor--dark`、`yd-sidebar-open`）
+  会被裁掉；EasyMDE 等无层 vendor CSS 的覆盖必须写在 `@layer` 之外并提高特异性。
 - **模板静态引用一律 `{{ "{{ asset \"/static/...\" }}" }}`**：production 下自动解析 `*.min.js` / `yd.min.css`，
   开发期使用源码；禁止裸写 `/static/...`。CSS 压缩只由 Tailwind `--minify` 负责，JS 压缩由 `minify` 工具负责。
 - `app.env` / `YD_APP_ENV` 接受 `development`/`dev` 与 `production`/`prod`（忽略大小写与首尾空白）。

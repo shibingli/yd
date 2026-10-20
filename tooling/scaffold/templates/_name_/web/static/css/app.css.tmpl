@@ -15,6 +15,11 @@
 /* 扫描范围：模板与 Go 源码中的类名都会被裁剪保留。 | Scan scope: class names found in templates and Go sources are kept by the purger. */
 @source "../../templates/**/*.html";
 @source "../../../internal/**/*.go";
+/* 脚本也会在运行期添加类名（例如编辑器的 yd-editor--dark、侧栏的 yd-sidebar-open）；
+   不扫描脚本，Tailwind 会把这些只在 JS 里出现的类裁掉。 | Scripts also add class names at runtime
+   (the editor's yd-editor--dark, the rail's yd-sidebar-open); without scanning them Tailwind would drop
+   every class that only appears in JavaScript. */
+@source "../../static/js/yd-*.js";
 
 /* 语义化主题变量（蓝色系主色调）：页面只引用语义名，不写颜色字面量。 | Semantic theme variables (blue brand scale): pages reference semantic names, never raw colour literals. */
 @theme {

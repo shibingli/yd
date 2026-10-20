@@ -30,6 +30,8 @@ import (
 	"{{ .YdModule }}/core/logx"
 	"{{ .YdModule }}/http/render"
 	"{{ .YdModule }}/http/router"
+	"{{ .YdModule }}/messaging"
+	"{{ .YdModule }}/messaging/realtime"
 	"{{ .YdModule }}/runtime/metricsx"
 )
 
@@ -72,6 +74,51 @@ const (
 	// TplLiveMetrics is the unified system-resource and middleware-runtime panel pushed over WebSocket. | TplLiveMetrics
 	// 是经 WebSocket 推送的系统资源与中间件运行时统一面板。
 	TplLiveMetrics = "partials/home/live_metrics.html"
+	// TplMessages is the message-centre page. | TplMessages 是消息中心页面。
+	TplMessages = "pages/messages.html"
+	// TplMessageThread is the conversation thread fragment. | TplMessageThread 是会话线程片段。
+	TplMessageThread = "partials/messages/thread.html"
+	// TplMessageHistory is the message list alone, refreshed over WebSocket without rebuilding the composer. |
+	// TplMessageHistory 是只含消息列表的片段，经 WebSocket 刷新时不会重建撰写区。
+	TplMessageHistory = "partials/messages/history.html"
+	// TplMessageConversations is the conversation list fragment. | TplMessageConversations 是会话列表片段。
+	TplMessageConversations = "partials/messages/conversations.html"
+	// TplMessageSearch is the mixed search result list. | TplMessageSearch 是混合检索结果列表。
+	TplMessageSearch = "partials/messages/search.html"
+	// TplMessageCompose is the create/edit message drawer. | TplMessageCompose 是新建/编辑消息抽屉。
+	TplMessageCompose = "partials/messages/compose.html"
+	// TplMessagePin is the pin-window drawer. | TplMessagePin 是置顶窗口抽屉。
+	TplMessagePin = "partials/messages/pin.html"
+	// TplMessageGroupDrawer is the group settings drawer. | TplMessageGroupDrawer 是群设置抽屉。
+	TplMessageGroupDrawer = "partials/messages/group_settings.html"
+	// TplFriends is the friend-management page. | TplFriends 是好友管理页面。
+	TplFriends = "pages/friends.html"
+	// TplFriendSummary is the friend page fragment. | TplFriendSummary 是好友页片段。
+	TplFriendSummary = "partials/friends/summary.html"
+	// TplFriendSearch is the friend search result list. | TplFriendSearch 是好友检索结果列表。
+	TplFriendSearch = "partials/friends/search.html"
+	// TplFriendRemark is the remark drawer. | TplFriendRemark 是备注抽屉。
+	TplFriendRemark = "partials/friends/remark.html"
+	// TplFriendRequestDrawer is the add-friend drawer. | TplFriendRequestDrawer 是添加好友抽屉。
+	TplFriendRequestDrawer = "partials/friends/request.html"
+	// TplMessageSettings is the type/group/tag settings page. | TplMessageSettings 是类型/分组/标签设置页。
+	TplMessageSettings = "pages/message_settings.html"
+	// TplMessageSettingsBody is the settings page fragment. | TplMessageSettingsBody 是设置页片段。
+	TplMessageSettingsBody = "partials/message_settings/body.html"
+	// TplMessageTypeDrawer is the type create/edit drawer. | TplMessageTypeDrawer 是类型新建/编辑抽屉。
+	TplMessageTypeDrawer = "partials/message_settings/type_form.html"
+	// TplMessageTagDrawer is the group/tag create/edit drawer. | TplMessageTagDrawer 是分组/标签新建/编辑抽屉。
+	TplMessageTagDrawer = "partials/message_settings/tag_form.html"
+	// TplMessageAudit is the administrator moderation and audit page. | TplMessageAudit 是管理员治理与审计页面。
+	TplMessageAudit = "pages/message_audit.html"
+	// TplMessageAuditBody is the administrator moderation page fragment. | TplMessageAuditBody 是管理员治理页面片段。
+	TplMessageAuditBody = "partials/messages/audit.html"
+	// TplMessageNotice is the realtime notice fragment pushed into the shell. | TplMessageNotice 是推送到外壳的实时通知片段。
+	TplMessageNotice = "partials/messages/notice.html"
+	// TplUnreadBadge is the shell unread badge fragment. | TplUnreadBadge 是外壳未读徽标片段。
+	TplUnreadBadge = "partials/messages/unread_badge.html"
+	// TplMessageAttachment is one uploaded attachment chip. | TplMessageAttachment 是一个已上传附件标签。
+	TplMessageAttachment = "partials/messages/attachment_chip.html"
 )
 
 // 列表片段名：增删改之后返回的就是它们，因此 htmx 只换工作区、不重载整页。
@@ -153,6 +200,59 @@ const (
 	FieldConfirm = "confirm"
 	// FieldCurrent is the current-password field. | FieldCurrent 是当前口令字段。
 	FieldCurrent = "current"
+
+	// FieldConversation is the conversation id of a message form. | FieldConversation 是消息表单的会话 ID。
+	FieldConversation = "conversation_id"
+	// FieldRecipient is the friend id used to open a direct conversation. | FieldRecipient 是开启单聊的好友 ID。
+	FieldRecipient = "recipient_id"
+	// FieldGroupTitle is the new group title. | FieldGroupTitle 是新群名称。
+	FieldGroupTitle = "group_title"
+	// FieldGroupMembers lists the selected group members. | FieldGroupMembers 列出所选群成员。
+	FieldGroupMembers = "group_members"
+	// FieldTypeKey is the message type key. | FieldTypeKey 是消息类型键。
+	FieldTypeKey = "type_key"
+	// FieldTitle is the message title. | FieldTitle 是消息标题。
+	FieldTitle = "title"
+	// FieldMarkdown is the Markdown body. | FieldMarkdown 是 Markdown 正文。
+	FieldMarkdown = "body_markdown"
+	// FieldTagIDs lists selected labels. | FieldTagIDs 列出所选标签。
+	FieldTagIDs = "tag_ids"
+	// FieldGroupIDs lists selected groups. | FieldGroupIDs 列出所选分组。
+	FieldGroupIDs = "group_ids"
+	// FieldAttachmentIDs lists pending uploads bound to a message. | FieldAttachmentIDs 列出绑定到消息的待挂载上传。
+	FieldAttachmentIDs = "attachment_ids"
+	// FieldReason is the recall reason. | FieldReason 是撤回原因。
+	FieldReason = "reason"
+	// FieldPinStart is the optional pin window start. | FieldPinStart 是置顶窗口的可选起点。
+	FieldPinStart = "pin_start"
+	// FieldPinEnd is the optional pin window end. | FieldPinEnd 是置顶窗口的可选终点。
+	FieldPinEnd = "pin_end"
+	// FieldFolder is the message folder filter. | FieldFolder 是消息文件夹过滤。
+	FieldFolder = "folder"
+	// FieldSender filters by sender id. | FieldSender 按发送人 ID 过滤。
+	FieldSender = "sender"
+	// FieldContent filters the body text. | FieldContent 过滤正文文本。
+	FieldContent = "content"
+	// FieldTag filters by one group or label id. | FieldTag 按一个分组或标签 ID 过滤。
+	FieldTag = "tag"
+	// FieldKind is the group/tag kind selector. | FieldKind 是分组/标签类型选择器。
+	FieldKind = "kind"
+	// FieldKey is the stable key of a type or tag. | FieldKey 是类型或标签的稳定键。
+	FieldKey = "key"
+	// FieldNameEN is the English label of a type or tag. | FieldNameEN 是类型或标签的英文名。
+	FieldNameEN = "name_en"
+	// FieldTone is the semantic colour role. | FieldTone 是语义色角色。
+	FieldTone = "tone"
+	// FieldFriend is the friend id of a friendship action. | FieldFriend 是好友动作的好友 ID。
+	FieldFriend = "friend_id"
+	// FieldRemark is the friend remark. | FieldRemark 是好友备注。
+	FieldRemark = "remark"
+	// FieldRequest is the friend request id. | FieldRequest 是好友申请 ID。
+	FieldRequest = "request_id"
+	// FieldBody is the quick-send text sent over WebSocket. | FieldBody 是经 WebSocket 发送的快捷消息文本。
+	FieldBody = "body"
+	// FieldAction is the inbound WebSocket action name. | FieldAction 是入站 WebSocket 动作名。
+	FieldAction = "action"
 )
 
 // ErrPlaceholder reports a failed placeholder image encoding (practically only possible when memory is exhausted). | ErrPlaceholder 表示占位图编码失败（几乎只可能因为内存耗尽）。
@@ -177,6 +277,15 @@ type Controller struct {
 	// path the controllers use for metrics. | provider 把系统仪表盘与中间件注册表组合在同一个接口之后；它是控制器
 	// 读取指标的唯一路径。
 	provider metricsx.Provider
+	// messages is the message-centre facade; nil-capable when the project has no database. | messages 是消息中心门面；项目没有数据库时可为空。
+	messages *service.MessageService
+	// messageErr records why the message centre is unavailable, shown on its pages. | messageErr 记录消息中心不可用的原因，并在其页面上展示。
+	messageErr error
+	// hub fans message events out to WebSocket subscribers. | hub 把消息事件分发给 WebSocket 订阅者。
+	hub *realtime.Hub
+	// i18n is the catalogue bundle, used to translate outside a template execution (conversation
+	// titles, pushed notices). | i18n 是语言目录包，用于在模板执行之外翻译（会话标题、推送通知）。
+	i18n *i18n.Bundle
 	// log records assembly and business events. | log 记录装配与业务事件。
 	log *logx.Logger
 }
@@ -202,16 +311,65 @@ func New(a *app.App, store *repository.Store, log *logx.Logger) (*Controller, er
 		return nil, err
 	}
 	metricsSvc := service.NewMetricsService()
+	hub, closeMessageBus, busErr := service.NewMessageBus(a.Config(), log)
+	if busErr != nil {
+		log.Warn("message bus is unavailable, falling back to in-process delivery | 消息总线不可用，回退到进程内投递",
+			logx.Err(busErr),
+		)
+		hub = realtime.New(log)
+		closeMessageBus = func() error { return nil }
+	}
+	a.OnShutdown(func(context.Context) error { return closeMessageBus() })
+	var bundle *i18n.Bundle
+	if value, ok := a.Get(app.ServiceI18n); ok {
+		bundle, _ = value.(*i18n.Bundle)
+	}
+	messages, messageErr := service.NewMessageService(store, hub, a.Config(), log)
+	if messageErr != nil {
+		if !errors.Is(messageErr, service.ErrMessageUnavailable) {
+			return nil, messageErr
+		}
+		log.Warn("message centre is disabled | 消息中心已禁用", logx.Err(messageErr))
+	}
 	return &Controller{
-		app:      a,
-		store:    store,
-		auth:     authSvc,
-		tenants:  service.NewTenantService(store),
-		users:    service.NewUserService(store, authSvc),
-		roles:    service.NewRoleService(store),
-		provider: metricsx.NewCollector(metricsSvc, a.MiddlewareMetrics()),
-		log:      log,
+		app:        a,
+		store:      store,
+		auth:       authSvc,
+		tenants:    service.NewTenantService(store),
+		users:      service.NewUserService(store, authSvc),
+		roles:      service.NewRoleService(store),
+		provider:   metricsx.NewCollector(metricsSvc, a.MiddlewareMetrics()),
+		messages:   messages,
+		messageErr: messageErr,
+		hub:        hub,
+		i18n:       bundle,
+		log:        log,
 	}, nil
+}
+
+// MessageHub returns the realtime hub shared by the controller and its WebSocket endpoint. |
+// MessageHub 返回控制器与其 WebSocket 端点共享的实时 Hub。
+func (c *Controller) MessageHub() *realtime.Hub { return c.hub }
+
+// MessagesAvailable reports whether the message centre can serve requests. | MessagesAvailable 报告消息中心能否服务请求。
+func (c *Controller) MessagesAvailable() bool {
+	return c != nil && c.messages != nil && c.messages.Available()
+}
+
+// StartMessageHub starts the cross-node subscription; the caller owns the context and cancels it on
+// shutdown. | StartMessageHub 启动跨节点订阅；调用方拥有上下文并在关停时取消。
+func (c *Controller) StartMessageHub(ctx context.Context) {
+	if c.hub != nil {
+		c.hub.Start(ctx)
+	}
+}
+
+// StartMessageJanitor starts the pending-upload cleaner; the caller owns the context and cancels it
+// on shutdown. | StartMessageJanitor 启动待挂载上传清理器；调用方拥有上下文并在关停时取消。
+func (c *Controller) StartMessageJanitor(ctx context.Context) {
+	if c.messages != nil {
+		c.messages.StartJanitor(ctx)
+	}
 }
 
 // Issuer returns the token issuer, which the router uses to assemble the auth middleware. | Issuer 返回令牌签发器，路由层用它装配鉴权中间件。
@@ -392,6 +550,11 @@ func (c *Controller) view(ctx *router.Ctx, title string, extra map[string]any) m
 		"SignedIn":         false,
 		"SeedPassword":     false,
 		"Permissions":      []model.Permission{},
+		"PageStyles":       []string{},
+		"PageScripts":      []string{},
+		"Unread":           messaging.UnreadSummary{},
+		"MessageAvailable": c.MessagesAvailable(),
+		"MessageError":     "",
 	}
 	for k, v := range extra {
 		data[k] = v
@@ -465,6 +628,20 @@ func (c *Controller) view(ctx *router.Ctx, title string, extra map[string]any) m
 		if tenant, err := c.tenants.Get(ctx.Request.Context(), tenantID); err == nil {
 			data["Tenant"] = tenant
 		}
+	}
+
+	// 未读徽标在每个登录页渲染：消息中心不可用时保持零值，且绝不因为它拖垮整页渲染。
+	// The unread badge is rendered on every signed-in page: when the centre is unavailable it stays zero, and it must
+	// never take the whole page down.
+	if c.MessagesAvailable() {
+		if summary, err := c.messages.Unread(ctx.Request.Context(), c.messageActor(ctx)); err == nil {
+			data["Unread"] = summary
+		} else {
+			c.log.Debug("unread summary unavailable | 未读汇总不可用", logx.Err(err))
+		}
+	}
+	if c.messageErr != nil {
+		data["MessageError"] = c.messageErr.Error()
 	}
 	return data
 }
@@ -700,18 +877,41 @@ func statusFor(err error) (int, string) {
 		// An invalid token, a wrong password and a disabled user share one sentence: the internal classification is fine
 		// grained while the outward one has to stay coarse.
 		return http.StatusUnauthorized, msgUnauthorized
-	case errors.Is(err, auth.ErrNotFound):
+	case errors.Is(err, auth.ErrNotFound),
+		errors.Is(err, messaging.ErrNotFound),
+		errors.Is(err, messaging.ErrAttachmentNotFound):
 		return http.StatusNotFound, err.Error()
 	case errors.Is(err, auth.ErrWeakPassword), errors.Is(err, auth.ErrInvalidInput):
 		// 框架 sentinel 与项目 sentinel 落在同一个状态码上：调用方分辨不出拒绝来自哪一层。
 		// Framework sentinels land on the same status codes as this project's own, so a caller cannot tell which layer refused.
 		return http.StatusUnprocessableEntity, err.Error()
-	case errors.Is(err, auth.ErrForbidden), errors.Is(err, middleware.ErrTenantMismatch):
-		// 跨租户访问与越权访问都落在这里：对外只回一句，不回显任何租户或用户信息。
-		// Cross-tenant access and privilege escalation both land here: one sentence goes out and no tenant or user information ever does.
+	case errors.Is(err, auth.ErrForbidden), errors.Is(err, middleware.ErrTenantMismatch),
+		errors.Is(err, messaging.ErrForbidden), errors.Is(err, messaging.ErrNotFriend),
+		errors.Is(err, messaging.ErrBlocked), errors.Is(err, messaging.ErrNotSender),
+		errors.Is(err, messaging.ErrSystemOnly), errors.Is(err, messaging.ErrPinNotAllowed),
+		errors.Is(err, messaging.ErrNotMember):
+		// 跨租户访问与越权访问都落在这里：对外只回一句，不回显任何租户或用户信息。消息中心把
+		// 「不是好友」「不是成员」与权限拒绝映射到同一个 403，调用方因此无法探测关系是否存在。
+		// Cross-tenant access and privilege escalation both land here: one sentence goes out and no tenant or user
+		// information ever does. The message centre maps "not a friend" and "not a member" onto the same 403, so a
+		// caller cannot probe whether a relationship exists.
 		return http.StatusForbidden, msgForbidden
-	case errors.Is(err, service.ErrSelfOperation), errors.Is(err, service.ErrBuiltinRoleProtected), errors.Is(err, auth.ErrConflict):
+	case errors.Is(err, service.ErrSelfOperation), errors.Is(err, service.ErrBuiltinRoleProtected), errors.Is(err, auth.ErrConflict),
+		errors.Is(err, messaging.ErrRecallExpired), errors.Is(err, messaging.ErrEditExpired),
+		errors.Is(err, messaging.ErrDuplicateRequest), errors.Is(err, messaging.ErrConversationClosed),
+		errors.Is(err, messaging.ErrTypeProtected), errors.Is(err, messaging.ErrTypeInUse):
 		return http.StatusConflict, err.Error()
+	case errors.Is(err, messaging.ErrAttachmentTooLarge):
+		return http.StatusRequestEntityTooLarge, err.Error()
+	case errors.Is(err, messaging.ErrAttachmentType):
+		return http.StatusUnsupportedMediaType, err.Error()
+	case errors.Is(err, messaging.ErrUnavailable):
+		return http.StatusServiceUnavailable, err.Error()
+	case errors.Is(err, messaging.ErrInvalidInput), errors.Is(err, messaging.ErrSelfOperation),
+		errors.Is(err, messaging.ErrTypeUnknown), errors.Is(err, messaging.ErrTagUnknown),
+		errors.Is(err, messaging.ErrPinWindowInvalid), errors.Is(err, messaging.ErrTooManyMembers),
+		errors.Is(err, messaging.ErrTooManyAttachments), errors.Is(err, messaging.ErrSearchTooBroad):
+		return http.StatusUnprocessableEntity, err.Error()
 	default:
 		return http.StatusInternalServerError, msgInternal
 	}

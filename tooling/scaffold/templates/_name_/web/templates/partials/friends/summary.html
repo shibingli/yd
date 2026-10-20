@@ -1,0 +1,141 @@
+{{/*
+  partials/friends/summary.html —— 好友面板：好友、收到/发出申请与拉黑列表。
+  partials/friends/summary.html — the friend panel: friends, both request directions and blocked users.
+
+  接受/拒绝/取消、删除、拉黑与解除都先经过全局确认框；备注与发消息分别打开抽屉与消息中心。
+  Accept/reject/cancel, remove, block and unblock all pass through the global confirmation dialog; remark opens a drawer
+  and messaging opens the message centre.
+*/}}
+{{- define "partials/friends/summary" -}}
+<div id="yd-friends-panel" class="yd-friends" data-yd-friends-panel>
+  <section class="yd-card yd-section" aria-labelledby="yd-friends-incoming">
+    <header class="yd-section__header">
+      <h2 class="yd-section__title" id="yd-friends-incoming">{{ tr "friend.incoming" }}</h2>
+      <span class="yd-badge yd-badge--muted">{{ len .Incoming }}</span>
+    </header>
+    {{- if .Incoming }}
+    <ul class="yd-friend-list">
+      {{- range .Incoming }}
+      <li class="yd-friend">
+        <span class="yd-avatar yd-avatar--sm" aria-hidden="true">{{ .Initial }}</span>
+        <div class="yd-friend__main">
+          <strong>{{ .Name }}</strong>
+          <p class="yd-hint">{{ if .Message }}{{ .Message }}{{ else }}{{ tr "friend.no_greeting" }}{{ end }} · {{ .When }}</p>
+        </div>
+        <div class="yd-friend__actions">
+          <form method="post" action="/friends/requests/{{ .ID }}/accept"
+                hx-post="/friends/requests/{{ .ID }}/accept" hx-target="#yd-friends-panel" hx-swap="outerMorph"
+                data-yd-confirm="{{ tr "confirm.accept_friend" }}">
+            <button type="submit" class="yd-btn yd-btn--primary yd-btn--sm">{{ tr "friend.accept" }}</button>
+          </form>
+          <form method="post" action="/friends/requests/{{ .ID }}/reject"
+                hx-post="/friends/requests/{{ .ID }}/reject" hx-target="#yd-friends-panel" hx-swap="outerMorph"
+                data-yd-confirm="{{ tr "confirm.reject_friend" }}">
+            <button type="submit" class="yd-btn yd-btn--ghost yd-btn--sm">{{ tr "friend.reject" }}</button>
+          </form>
+        </div>
+      </li>
+      {{- end }}
+    </ul>
+    {{- else }}
+    <p class="yd-hint">{{ tr "friend.no_incoming" }}</p>
+    {{- end }}
+  </section>
+
+  <section class="yd-card yd-section" aria-labelledby="yd-friends-list-title">
+    <header class="yd-section__header">
+      <h2 class="yd-section__title" id="yd-friends-list-title">{{ tr "friend.friends" }}</h2>
+      <span class="yd-badge yd-badge--muted">{{ len .Friends }}</span>
+    </header>
+    {{- if .Friends }}
+    <ul class="yd-friend-list">
+      {{- range .Friends }}
+      <li class="yd-friend">
+        <span class="yd-avatar yd-avatar--sm" aria-hidden="true">{{ .Initial }}</span>
+        <div class="yd-friend__main">
+          <strong>{{ .Name }}</strong>
+          <p class="yd-hint">{{ .Profile.Username }}{{ with .Profile.Email }} · {{ . }}{{ end }}</p>
+        </div>
+        <div class="yd-friend__actions">
+          <a class="yd-btn yd-btn--primary yd-btn--sm" href="/messages/direct/{{ .Profile.ID }}"
+             hx-get="/messages/direct/{{ .Profile.ID }}" hx-target="#yd-workspace" hx-swap="innerMorph" hx-push-url="true">
+            {{ template "partials/icon" "lucide-message-square" }}{{ tr "friend.message" }}
+          </a>
+          <details class="yd-menu" data-yd-menu>
+            <summary class="yd-btn yd-btn--ghost yd-btn--sm" aria-label="{{ tr "ui.actions" }}">{{ template "partials/icon" "lucide-more-horizontal" }}</summary>
+            <div class="yd-menu__panel" role="menu">
+              <button type="button" class="yd-menu__item" role="menuitem" data-yd-drawer-open
+                      hx-get="/friends/{{ .Profile.ID }}/remark" hx-target="#yd-drawer-body" hx-swap="innerHTML">{{ tr "friend.remark" }}</button>
+              <form method="post" action="/friends/{{ .Profile.ID }}/remove"
+                    hx-post="/friends/{{ .Profile.ID }}/remove" hx-target="#yd-friends-panel" hx-swap="outerMorph"
+                    data-yd-confirm="{{ tr "confirm.remove_friend" }}">
+                <button type="submit" class="yd-menu__item" role="menuitem">{{ tr "friend.remove" }}</button>
+              </form>
+              <form method="post" action="/friends/{{ .Profile.ID }}/block"
+                    hx-post="/friends/{{ .Profile.ID }}/block" hx-target="#yd-friends-panel" hx-swap="outerMorph"
+                    data-yd-confirm="{{ tr "confirm.block_friend" }}">
+                <button type="submit" class="yd-menu__item" role="menuitem">{{ tr "friend.block" }}</button>
+              </form>
+            </div>
+          </details>
+        </div>
+      </li>
+      {{- end }}
+    </ul>
+    {{- else }}
+    <p class="yd-hint">{{ tr "friend.no_friends" }}</p>
+    {{- end }}
+  </section>
+
+  <div class="yd-friends__columns">
+    <section class="yd-card yd-section" aria-labelledby="yd-friends-outgoing">
+      <header class="yd-section__header">
+        <h2 class="yd-section__title" id="yd-friends-outgoing">{{ tr "friend.outgoing" }}</h2>
+        <span class="yd-badge yd-badge--muted">{{ len .Outgoing }}</span>
+      </header>
+      {{- if .Outgoing }}
+      <ul class="yd-friend-list">
+        {{- range .Outgoing }}
+        <li class="yd-friend">
+          <span class="yd-avatar yd-avatar--sm" aria-hidden="true">{{ .Initial }}</span>
+          <div class="yd-friend__main"><strong>{{ .Name }}</strong><p class="yd-hint">{{ .When }}</p></div>
+          <form method="post" action="/friends/requests/{{ .ID }}/cancel"
+                hx-post="/friends/requests/{{ .ID }}/cancel" hx-target="#yd-friends-panel" hx-swap="outerMorph"
+                data-yd-confirm="{{ tr "confirm.cancel_friend" }}">
+            <button type="submit" class="yd-btn yd-btn--ghost yd-btn--sm">{{ tr "ui.cancel" }}</button>
+          </form>
+        </li>
+        {{- end }}
+      </ul>
+      {{- else }}
+      <p class="yd-hint">{{ tr "friend.no_outgoing" }}</p>
+      {{- end }}
+    </section>
+
+    <section class="yd-card yd-section" aria-labelledby="yd-friends-blocked">
+      <header class="yd-section__header">
+        <h2 class="yd-section__title" id="yd-friends-blocked">{{ tr "friend.blocked" }}</h2>
+        <span class="yd-badge yd-badge--muted">{{ len .Blocked }}</span>
+      </header>
+      {{- if .Blocked }}
+      <ul class="yd-friend-list">
+        {{- range .Blocked }}
+        <li class="yd-friend">
+          <span class="yd-avatar yd-avatar--sm" aria-hidden="true">{{ .Initial }}</span>
+          <div class="yd-friend__main"><strong>{{ .Name }}</strong></div>
+          <form method="post" action="/friends/{{ .Profile.ID }}/unblock"
+                hx-post="/friends/{{ .Profile.ID }}/unblock" hx-target="#yd-friends-panel" hx-swap="outerMorph"
+                data-yd-confirm="{{ tr "confirm.unblock_friend" }}">
+            <button type="submit" class="yd-btn yd-btn--ghost yd-btn--sm">{{ tr "friend.unblock" }}</button>
+          </form>
+        </li>
+        {{- end }}
+      </ul>
+      {{- else }}
+      <p class="yd-hint">{{ tr "friend.no_blocked" }}</p>
+      {{- end }}
+    </section>
+  </div>
+</div>
+{{- end -}}
+{{ template "partials/friends/summary" . }}

@@ -1,0 +1,647 @@
+// 本文件是管理员的治理页、审计页与消息类型/分组/标签目录的设置页。
+// This file holds the administrator moderation page, the audit page and the message type, group and tag settings page.
+
+package controller
+
+import (
+	"net/http"
+	"strings"
+
+	"{{ .YdModule }}/core/logx"
+	"{{ .YdModule }}/http/router"
+	"{{ .YdModule }}/messaging"
+	"{{ .YdModule }}/security/authz"
+)
+
+// MessageAdmin renders the administrator moderation page. | MessageAdmin 渲染管理员治理页面。
+//
+// @Summary Message moderation | 消息治理
+// @Description Lists every message of the tenant with the same mixed search as the message centre and exposes recall,
+// @Description revoke and pin actions. Only message:manage may open it.
+// @Description 列出本租户的全部消息，使用与消息中心相同的混合检索，并提供撤回、撤销与置顶动作。仅 message:manage 可打开。
+// @Tags messages
+// @Accept html
+// @Produce html
+// @Param q query string false "mixed full-text query | 混合全文检索词"
+// @Param type_key query string false "message type key | 消息类型键"
+// @Param sender query string false "sender id | 发送人 ID"
+// @Param folder query string false "all|sent|system|pinned | 文件夹"
+// @Param page query int false "1-based page | 从 1 开始的页码"
+// @Success 200 {object} string "moderation page or fragment | 治理页面或片段"
+// @Failure 403 {object} string "missing message:manage | 缺少 message:manage"
+// @Security BearerAuth
+// @Router /messages/admin [get]
+func (c *Controller) MessageAdmin(ctx *router.Ctx) {
+	if !c.MessagesAvailable() {
+		c.messageUnavailable(ctx)
+		return
+	}
+	c.renderAdminPage(ctx, "")
+}
+
+// MessageAudit renders the audit page. | MessageAudit 渲染审计页面。
+//
+// @Summary Message audit | 消息审计
+// @Description Lists audit entries (recall, revoke, pin, edit) with an optional action and message filter.
+// @Description 列出审计记录（撤回、撤销、置顶、编辑），可按动作与消息过滤。
+// @Tags messages
+// @Accept html
+// @Produce html
+// @Param action query string false "action identifier | 动作标识"
+// @Param message_id query string false "message id | 消息 ID"
+// @Param page query int false "1-based page | 从 1 开始的页码"
+// @Success 200 {object} string "audit page or fragment | 审计页面或片段"
+// @Failure 403 {object} string "missing message:manage | 缺少 message:manage"
+// @Security BearerAuth
+// @Router /messages/admin/audit [get]
+func (c *Controller) MessageAudit(ctx *router.Ctx) {
+	if !c.MessagesAvailable() {
+		c.messageUnavailable(ctx)
+		return
+	}
+	c.renderAuditPage(ctx, "")
+}
+
+// renderAdminPage builds the moderation page with a notice. | renderAdminPage 构建带提示的治理页面。
+func (c *Controller) renderAdminPage(ctx *router.Ctx, notice string) {
+	actor := c.messageActor(ctx)
+	lang := c.lang(ctx)
+	filters := parseMessageFilters(ctx)
+	result, err := c.messages.Messages(ctx.Request.Context(), actor, messaging.MessageFilter{
+		Query:    filters.Query,
+		TypeKey:  filters.TypeKey,
+		SenderID: filters.SenderID,
+		TagID:    filters.TagID,
+		Folder:   filters.Folder,
+		Page:     filters.Page,
+		PageSize: c.messages.Options().PageSize,
+	})
+	if err != nil {
+		c.failService(ctx, err)
+		return
+	}
+	audit, auditTotal, err := c.messages.Audit(ctx.Request.Context(), actor, messaging.AuditFilter{
+		Page:     1,
+		PageSize: c.messages.Options().PageSize,
+	})
+	if err != nil {
+		c.failService(ctx, err)
+		return
+	}
+	page := messagePage{
+		Filters:       filters,
+		Results:       c.messageViewsOf(actor, result.Messages, lang, nowUTC()),
+		Total:         result.Total,
+		CanManage:     true,
+		CanSystem:     authz.Can(ctx.Request.Context(), authz.PermMessageSystem),
+		CanTypeManage: authz.Can(ctx.Request.Context(), authz.PermMessageTypeManage),
+		UserID:        actor.ID,
+	}
+	data := c.view(ctx, "消息治理 | Message moderation", page.data())
+	data["AdminMode"] = true
+	data["Audit"] = auditViewsOf(audit)
+	data["AuditTotal"] = auditTotal
+	if notice != "" {
+		c.toast(ctx, notice)
+	}
+	c.render(ctx, http.StatusOK, TplMessageAudit, data)
+}
+
+// renderAuditPage builds the audit-focused page. | renderAuditPage 构建以审计为中心的页面。
+func (c *Controller) renderAuditPage(ctx *router.Ctx, notice string) {
+	actor := c.messageActor(ctx)
+	filter := messaging.AuditFilter{
+		Action:    strings.TrimSpace(ctx.Query("action")),
+		MessageID: strings.TrimSpace(ctx.Query("message_id")),
+		Page:      pageQuery(ctx),
+		PageSize:  c.messages.Options().PageSize,
+	}
+	audit, total, err := c.messages.Audit(ctx.Request.Context(), actor, filter)
+	if err != nil {
+		c.failService(ctx, err)
+		return
+	}
+	data := c.view(ctx, "消息审计 | Message audit", map[string]any{
+		"Audit":      auditViewsOf(audit),
+		"AuditTotal": total,
+		"AuditMode":  true,
+		"Filter":     filter,
+		"CanManage":  true,
+		"ActorID":    actor.ID,
+	})
+	if notice != "" {
+		c.toast(ctx, notice)
+	}
+	c.render(ctx, http.StatusOK, TplMessageAudit, data)
+}
+
+// MessageSettings renders the catalogue settings page. | MessageSettings 渲染目录设置页。
+//
+// @Summary Message catalogue settings | 消息目录设置
+// @Description Lists message types, groups and labels, including archived rows for managers. Reading requires
+// @Description message-type:read; mutations require message-type:manage.
+// @Description 列出消息类型、分组与标签；管理员还能看到已归档记录。读取需要 message-type:read，变更需要 message-type:manage。
+// @Tags messages
+// @Accept html
+// @Produce html
+// @Success 200 {object} string "settings page or fragment | 设置页面或片段"
+// @Failure 403 {object} string "missing message-type:read | 缺少 message-type:read"
+// @Security BearerAuth
+// @Router /message-settings [get]
+func (c *Controller) MessageSettings(ctx *router.Ctx) {
+	if !c.MessagesAvailable() {
+		c.messageUnavailable(ctx)
+		return
+	}
+	data, err := c.settingsData(ctx)
+	if err != nil {
+		c.failService(ctx, err)
+		return
+	}
+	c.render(ctx, http.StatusOK, TplMessageSettings, data)
+}
+
+// MessageSettingsBody renders the settings fragment. | MessageSettingsBody 渲染设置片段。
+//
+// @Summary Catalogue settings fragment | 消息目录设置片段
+// @Description Returns the settings body after a mutation so htmx can morph the workspace.
+// @Description 变更后返回设置正文，供 htmx 形态替换工作区。
+// @Tags messages
+// @Accept html
+// @Produce html
+// @Success 200 {object} string "settings fragment | 设置片段"
+// @Security BearerAuth
+// @Router /message-settings/body [get]
+func (c *Controller) MessageSettingsBody(ctx *router.Ctx) {
+	if !c.MessagesAvailable() {
+		return
+	}
+	data, err := c.settingsData(ctx)
+	if err != nil {
+		c.failService(ctx, err)
+		return
+	}
+	c.render(ctx, http.StatusOK, TplMessageSettingsBody, data)
+}
+
+// settingsData loads the catalogue page. | settingsData 加载目录页面数据。
+func (c *Controller) settingsData(ctx *router.Ctx) (map[string]any, error) {
+	actor := c.messageActor(ctx)
+	lang := c.lang(ctx)
+	includeArchived := authz.Can(ctx.Request.Context(), authz.PermMessageTypeManage)
+	types, err := c.messages.ListTypes(ctx.Request.Context(), actor, includeArchived)
+	if err != nil {
+		return nil, err
+	}
+	groups, err := c.messages.ListTags(ctx.Request.Context(), actor, messaging.TagGroup, includeArchived)
+	if err != nil {
+		return nil, err
+	}
+	tags, err := c.messages.ListTags(ctx.Request.Context(), actor, messaging.TagLabel, includeArchived)
+	if err != nil {
+		return nil, err
+	}
+	return c.view(ctx, "消息目录 | Message catalogue", map[string]any{
+		"Types":         messageTypeViewsOf(types, lang),
+		"Groups":        tagViewsOf(groups, lang),
+		"Tags":          tagViewsOf(tags, lang),
+		"CanTypeManage": authz.Can(ctx.Request.Context(), authz.PermMessageTypeManage),
+	}), nil
+}
+
+// NewMessageTypeDrawer renders the create-type drawer. | NewMessageTypeDrawer 渲染新建类型抽屉。
+//
+// @Summary Create type drawer | 新建类型抽屉
+// @Description Renders the type form with an empty key. | 渲染带空键的类型表单。
+// @Tags messages
+// @Accept html
+// @Produce html
+// @Success 200 {object} string "drawer fragment | 抽屉片段"
+// @Security BearerAuth
+// @Router /message-settings/types/new [get]
+func (c *Controller) NewMessageTypeDrawer(ctx *router.Ctx) {
+	if !c.MessagesAvailable() {
+		c.messageUnavailable(ctx)
+		return
+	}
+	c.render(ctx, http.StatusOK, TplMessageTypeDrawer, c.view(ctx, "新建消息类型 | New message type", map[string]any{
+		"Mode": "create",
+		"Item": messageTypeView{},
+	}))
+}
+
+// EditMessageTypeDrawer renders the edit-type drawer. | EditMessageTypeDrawer 渲染编辑类型抽屉。
+//
+// @Summary Edit type drawer | 编辑类型抽屉
+// @Description Renders the type form for one key. | 渲染指定键的类型表单。
+// @Tags messages
+// @Accept html
+// @Produce html
+// @Param key path string true "type key | 类型键"
+// @Success 200 {object} string "drawer fragment | 抽屉片段"
+// @Security BearerAuth
+// @Router /message-settings/types/{key}/edit [get]
+func (c *Controller) EditMessageTypeDrawer(ctx *router.Ctx) {
+	if !c.MessagesAvailable() {
+		c.messageUnavailable(ctx)
+		return
+	}
+	types, err := c.messages.ListTypes(ctx.Request.Context(), c.messageActor(ctx), true)
+	if err != nil {
+		c.failService(ctx, err)
+		return
+	}
+	var item *messaging.MessageType
+	for i := range types {
+		if types[i].Key == ctx.Param("key") {
+			item = &types[i]
+			break
+		}
+	}
+	if item == nil {
+		c.failService(ctx, messaging.ErrTypeUnknown)
+		return
+	}
+	c.render(ctx, http.StatusOK, TplMessageTypeDrawer, c.view(ctx, "编辑消息类型 | Edit message type", map[string]any{
+		"Mode": "edit",
+		"Item": messageTypeViewsOf([]messaging.MessageType{*item}, c.lang(ctx))[0],
+	}))
+}
+
+// SaveMessageType creates or updates a type. | SaveMessageType 新建或更新类型。
+//
+// @Summary Save type | 保存类型
+// @Description Creates a type when the key is absent, otherwise updates its labels and tone.
+// @Description 键不存在时新建类型，否则更新其标签与语义色。
+// @Tags messages
+// @Accept html
+// @Produce html
+// @Param key formData string true "type key | 类型键"
+// @Param name formData string true "Chinese label | 中文名"
+// @Param name_en formData string true "English label | 英文名"
+// @Param tone formData string false "neutral|info|success|warn|danger | 语义色"
+// @Success 200 {object} string "refreshed settings fragment | 刷新后的设置片段"
+// @Security BearerAuth
+// @Router /message-settings/types [post]
+func (c *Controller) SaveMessageType(ctx *router.Ctx) {
+	if !c.MessagesAvailable() {
+		c.messageUnavailable(ctx)
+		return
+	}
+	actor := c.messageActor(ctx)
+	input := messaging.TypeInput{
+		Key:    field(ctx, FieldKey),
+		Name:   field(ctx, FieldName),
+		NameEN: field(ctx, FieldNameEN),
+		Tone:   field(ctx, FieldTone),
+	}
+	var err error
+	if c.messagesTypeExists(ctx, input.Key) {
+		_, err = c.messages.UpdateType(ctx.Request.Context(), actor, input.Key, input)
+	} else {
+		_, err = c.messages.CreateType(ctx.Request.Context(), actor, input)
+	}
+	if err != nil {
+		c.failService(ctx, err)
+		return
+	}
+	c.toast(ctx, "类型已保存 | type saved")
+	data, err := c.settingsData(ctx)
+	if err != nil {
+		c.failService(ctx, err)
+		return
+	}
+	c.render(ctx, http.StatusOK, TplMessageSettingsBody, data)
+}
+
+// messagesTypeExists reports whether a type key is already present. | messagesTypeExists 报告类型键是否已存在。
+func (c *Controller) messagesTypeExists(ctx *router.Ctx, key string) bool {
+	if strings.TrimSpace(key) == "" {
+		return false
+	}
+	types, err := c.messages.ListTypes(ctx.Request.Context(), c.messageActor(ctx), true)
+	if err != nil {
+		return false
+	}
+	for _, item := range types {
+		if item.Key == strings.ToLower(strings.TrimSpace(key)) {
+			return true
+		}
+	}
+	return false
+}
+
+// ArchiveMessageType archives a type. | ArchiveMessageType 归档类型。
+//
+// @Summary Archive type | 归档类型
+// @Description Archives a non-protected type so it can no longer be selected for new messages.
+// @Description 归档非受保护类型，使其不能再用于新消息。
+// @Tags messages
+// @Accept html
+// @Produce html
+// @Param key path string true "type key | 类型键"
+// @Success 200 {object} string "refreshed settings fragment | 刷新后的设置片段"
+// @Security BearerAuth
+// @Router /message-settings/types/{key}/archive [post]
+func (c *Controller) ArchiveMessageType(ctx *router.Ctx) {
+	c.setTypeArchived(ctx, true, "类型已归档 | type archived")
+}
+
+// RestoreMessageType restores an archived type. | RestoreMessageType 恢复已归档类型。
+//
+// @Summary Restore type | 恢复类型
+// @Description Makes an archived type selectable again.
+// @Description 让已归档类型重新可选。
+// @Tags messages
+// @Accept html
+// @Produce html
+// @Param key path string true "type key | 类型键"
+// @Success 200 {object} string "refreshed settings fragment | 刷新后的设置片段"
+// @Security BearerAuth
+// @Router /message-settings/types/{key}/restore [post]
+func (c *Controller) RestoreMessageType(ctx *router.Ctx) {
+	c.setTypeArchived(ctx, false, "类型已恢复 | type restored")
+}
+
+// setTypeArchived applies an archive/restore action and renders the settings body. | setTypeArchived 应用归档/恢复动作并渲染设置正文。
+func (c *Controller) setTypeArchived(ctx *router.Ctx, archived bool, notice string) {
+	if !c.MessagesAvailable() {
+		c.messageUnavailable(ctx)
+		return
+	}
+	if err := c.messages.SetTypeArchived(ctx.Request.Context(), c.messageActor(ctx), ctx.Param("key"), archived); err != nil {
+		c.failService(ctx, err)
+		return
+	}
+	c.toast(ctx, notice)
+	data, err := c.settingsData(ctx)
+	if err != nil {
+		c.failService(ctx, err)
+		return
+	}
+	c.render(ctx, http.StatusOK, TplMessageSettingsBody, data)
+}
+
+// DeleteMessageType removes an unused custom type. | DeleteMessageType 删除未使用的自定义类型。
+//
+// @Summary Delete type | 删除类型
+// @Description Deletes a custom type that owns no message; built-in and protected types are refused.
+// @Description 删除没有任何消息的自定义类型；内置与受保护类型会被拒绝。
+// @Tags messages
+// @Accept html
+// @Produce html
+// @Param key path string true "type key | 类型键"
+// @Success 200 {object} string "refreshed settings fragment | 刷新后的设置片段"
+// @Security BearerAuth
+// @Router /message-settings/types/{key}/delete [post]
+func (c *Controller) DeleteMessageType(ctx *router.Ctx) {
+	if !c.MessagesAvailable() {
+		c.messageUnavailable(ctx)
+		return
+	}
+	if err := c.messages.DeleteType(ctx.Request.Context(), c.messageActor(ctx), ctx.Param("key")); err != nil {
+		c.failService(ctx, err)
+		return
+	}
+	c.toast(ctx, "类型已删除 | type deleted")
+	data, err := c.settingsData(ctx)
+	if err != nil {
+		c.failService(ctx, err)
+		return
+	}
+	c.render(ctx, http.StatusOK, TplMessageSettingsBody, data)
+}
+
+// NewMessageTagDrawer renders the create group/label drawer. | NewMessageTagDrawer 渲染新建分组/标签抽屉。
+//
+// @Summary Create group/label drawer | 新建分组/标签抽屉
+// @Description Renders the group or label form with the kind preselected from the query.
+// @Description 渲染分组或标签表单，类型由查询串预选。
+// @Tags messages
+// @Accept html
+// @Produce html
+// @Param kind query string false "group|tag | 分组或标签"
+// @Success 200 {object} string "drawer fragment | 抽屉片段"
+// @Security BearerAuth
+// @Router /message-settings/tags/new [get]
+func (c *Controller) NewMessageTagDrawer(ctx *router.Ctx) {
+	if !c.MessagesAvailable() {
+		c.messageUnavailable(ctx)
+		return
+	}
+	kind := ctx.Query(FieldKind)
+	if kind != string(messaging.TagGroup) {
+		kind = string(messaging.TagLabel)
+	}
+	c.render(ctx, http.StatusOK, TplMessageTagDrawer, c.view(ctx, "新建分组/标签 | New group/tag", map[string]any{
+		"Mode": "create",
+		"Kind": kind,
+		"Item": tagView{},
+	}))
+}
+
+// EditMessageTagDrawer renders the edit group/label drawer. | EditMessageTagDrawer 渲染编辑分组/标签抽屉。
+//
+// @Summary Edit group/label drawer | 编辑分组/标签抽屉
+// @Description Renders the form for one group or label id.
+// @Description 渲染指定分组或标签 ID 的表单。
+// @Tags messages
+// @Accept html
+// @Produce html
+// @Param id path string true "tag id | 标签 ID"
+// @Success 200 {object} string "drawer fragment | 抽屉片段"
+// @Security BearerAuth
+// @Router /message-settings/tags/{id}/edit [get]
+func (c *Controller) EditMessageTagDrawer(ctx *router.Ctx) {
+	if !c.MessagesAvailable() {
+		c.messageUnavailable(ctx)
+		return
+	}
+	groupItems, err := c.messages.ListTags(ctx.Request.Context(), c.messageActor(ctx), messaging.TagGroup, true)
+	if err != nil {
+		c.failService(ctx, err)
+		return
+	}
+	labelItems, err := c.messages.ListTags(ctx.Request.Context(), c.messageActor(ctx), messaging.TagLabel, true)
+	if err != nil {
+		c.failService(ctx, err)
+		return
+	}
+	for _, list := range [][]messaging.Tag{groupItems, labelItems} {
+		for _, item := range list {
+			if item.ID == ctx.Param("id") {
+				c.render(ctx, http.StatusOK, TplMessageTagDrawer, c.view(ctx, "编辑分组/标签 | Edit group/tag", map[string]any{
+					"Mode": "edit",
+					"Kind": string(item.Kind),
+					"Item": tagViewsOf([]messaging.Tag{item}, c.lang(ctx))[0],
+				}))
+				return
+			}
+		}
+	}
+	c.failService(ctx, messaging.ErrTagUnknown)
+}
+
+// SaveMessageTag creates or updates a group or label. | SaveMessageTag 新建或更新分组或标签。
+//
+// @Summary Save group/label | 保存分组/标签
+// @Description Creates a group/label when the id is absent, otherwise updates its labels and tone.
+// @Description ID 不存在时新建分组/标签，否则更新其标签与语义色。
+// @Tags messages
+// @Accept html
+// @Produce html
+// @Param id formData string false "existing tag id | 既有标签 ID"
+// @Param kind formData string true "group|tag | 分组或标签"
+// @Param key formData string true "stable slug | 稳定标识"
+// @Param name formData string true "Chinese label | 中文名"
+// @Param name_en formData string true "English label | 英文名"
+// @Param tone formData string false "semantic tone | 语义色"
+// @Success 200 {object} string "refreshed settings fragment | 刷新后的设置片段"
+// @Security BearerAuth
+// @Router /message-settings/tags [post]
+func (c *Controller) SaveMessageTag(ctx *router.Ctx) {
+	if !c.MessagesAvailable() {
+		c.messageUnavailable(ctx)
+		return
+	}
+	actor := c.messageActor(ctx)
+	input := messaging.TagInput{
+		Key:    field(ctx, FieldKey),
+		Name:   field(ctx, FieldName),
+		NameEN: field(ctx, FieldNameEN),
+		Tone:   field(ctx, FieldTone),
+	}
+	id := field(ctx, "id")
+	var err error
+	if id != "" {
+		_, err = c.messages.UpdateTag(ctx.Request.Context(), actor, id, input)
+	} else {
+		kind := messaging.TagKind(field(ctx, FieldKind))
+		_, err = c.messages.CreateTag(ctx.Request.Context(), actor, kind, input)
+	}
+	if err != nil {
+		c.failService(ctx, err)
+		return
+	}
+	c.toast(ctx, "分组/标签已保存 | group/label saved")
+	data, err := c.settingsData(ctx)
+	if err != nil {
+		c.failService(ctx, err)
+		return
+	}
+	c.render(ctx, http.StatusOK, TplMessageSettingsBody, data)
+}
+
+// ArchiveMessageTag archives a group or label. | ArchiveMessageTag 归档分组或标签。
+//
+// @Summary Archive group/label | 归档分组/标签
+// @Description Archives a group or label so it can no longer be selected for new messages.
+// @Description 归档分组或标签，使其不能再用于新消息。
+// @Tags messages
+// @Accept html
+// @Produce html
+// @Param id path string true "tag id | 标签 ID"
+// @Success 200 {object} string "refreshed settings fragment | 刷新后的设置片段"
+// @Security BearerAuth
+// @Router /message-settings/tags/{id}/archive [post]
+func (c *Controller) ArchiveMessageTag(ctx *router.Ctx) {
+	c.setTagArchived(ctx, true, "分组/标签已归档 | group/label archived")
+}
+
+// RestoreMessageTag restores an archived group or label. | RestoreMessageTag 恢复已归档分组或标签。
+//
+// @Summary Restore group/label | 恢复分组/标签
+// @Description Makes an archived group or label selectable again.
+// @Description 让已归档分组或标签重新可选。
+// @Tags messages
+// @Accept html
+// @Produce html
+// @Param id path string true "tag id | 标签 ID"
+// @Success 200 {object} string "refreshed settings fragment | 刷新后的设置片段"
+// @Security BearerAuth
+// @Router /message-settings/tags/{id}/restore [post]
+func (c *Controller) RestoreMessageTag(ctx *router.Ctx) {
+	c.setTagArchived(ctx, false, "分组/标签已恢复 | group/label restored")
+}
+
+// setTagArchived applies an archive/restore action and renders the settings body. | setTagArchived 应用归档/恢复动作并渲染设置正文。
+func (c *Controller) setTagArchived(ctx *router.Ctx, archived bool, notice string) {
+	if !c.MessagesAvailable() {
+		c.messageUnavailable(ctx)
+		return
+	}
+	if err := c.messages.SetTagArchived(ctx.Request.Context(), c.messageActor(ctx), ctx.Param("id"), archived); err != nil {
+		c.failService(ctx, err)
+		return
+	}
+	c.toast(ctx, notice)
+	data, err := c.settingsData(ctx)
+	if err != nil {
+		c.failService(ctx, err)
+		return
+	}
+	c.render(ctx, http.StatusOK, TplMessageSettingsBody, data)
+}
+
+// DeleteMessageTag removes an unused group or label. | DeleteMessageTag 删除未使用的分组或标签。
+//
+// @Summary Delete group/label | 删除分组/标签
+// @Description Deletes a group or label that no message carries.
+// @Description 删除没有任何消息携带的分组或标签。
+// @Tags messages
+// @Accept html
+// @Produce html
+// @Param id path string true "tag id | 标签 ID"
+// @Success 200 {object} string "refreshed settings fragment | 刷新后的设置片段"
+// @Security BearerAuth
+// @Router /message-settings/tags/{id}/delete [post]
+func (c *Controller) DeleteMessageTag(ctx *router.Ctx) {
+	if !c.MessagesAvailable() {
+		c.messageUnavailable(ctx)
+		return
+	}
+	if err := c.messages.DeleteTag(ctx.Request.Context(), c.messageActor(ctx), ctx.Param("id")); err != nil {
+		c.failService(ctx, err)
+		return
+	}
+	c.toast(ctx, "分组/标签已删除 | group/label deleted")
+	data, err := c.settingsData(ctx)
+	if err != nil {
+		c.failService(ctx, err)
+		return
+	}
+	c.render(ctx, http.StatusOK, TplMessageSettingsBody, data)
+}
+
+// pageQuery parses the page query parameter. | pageQuery 解析 page 查询参数。
+func pageQuery(ctx *router.Ctx) int {
+	value := strings.TrimSpace(ctx.Query("page"))
+	if value == "" {
+		return 1
+	}
+	page := 0
+	for _, r := range value {
+		if r < '0' || r > '9' {
+			return 1
+		}
+		page = page*10 + int(r-'0')
+		if page > 100000 {
+			return 100000
+		}
+	}
+	if page < 1 {
+		return 1
+	}
+	return page
+}
+
+// logAdminAction records an administrator action for operations. | logAdminAction 为运维记录一次管理员动作。
+func (c *Controller) logAdminAction(ctx *router.Ctx, action string, messageID string) {
+	actor := c.messageActor(ctx)
+	c.log.Info("message administration action | 消息管理动作",
+		logx.Str("action", action),
+		logx.Str("tenant", actor.TenantID),
+		logx.Str("actor", actor.ID),
+		logx.Str("message", messageID),
+	)
+}

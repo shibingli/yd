@@ -1,0 +1,293 @@
+// 本文件是系统公告与群生命周期端点：公告抽屉与发送、群创建、成员增删、改名、退出与解散。
+// This file holds the announcement and group lifecycle endpoints: the announcement drawer and send, group creation,
+// membership changes, rename, leave and dissolve.
+
+package controller
+
+import (
+	"net/http"
+	"strings"
+
+	"{{ .YdModule }}/http/router"
+	"{{ .YdModule }}/messaging"
+)
+
+// Field names and values of a group membership action. | 群成员动作的字段名与取值。
+const (
+	// fieldMemberID is the target member of a group action. | fieldMemberID 是群动作的目标成员。
+	fieldMemberID = "member_id"
+	// groupActionAdd adds a member. | groupActionAdd 添加成员。
+	groupActionAdd = "add"
+	// groupActionRemove removes a member. | groupActionRemove 移除成员。
+	groupActionRemove = "remove"
+)
+
+// NewSystemDrawer renders the announcement composer. | NewSystemDrawer 渲染公告撰写器。
+//
+// @Summary Announcement drawer | 公告抽屉
+// @Description Renders the composer for an administrator announcement; the form posts to POST /messages/system.
+// @Description 渲染管理员公告撰写器；表单提交到 POST /messages/system。
+// @Tags messages
+// @Accept html
+// @Produce html
+// @Success 200 {object} string "drawer fragment | 抽屉片段"
+// @Failure 403 {object} string "missing message:system | 缺少 message:system"
+// @Security BearerAuth
+// @Router /messages/system/new [get]
+func (c *Controller) NewSystemDrawer(ctx *router.Ctx) {
+	if !c.MessagesAvailable() {
+		c.messageUnavailable(ctx)
+		return
+	}
+	catalog, err := c.catalogData(ctx, c.messageActor(ctx))
+	if err != nil {
+		c.failService(ctx, err)
+		return
+	}
+	c.render(ctx, http.StatusOK, TplMessageCompose, c.view(ctx, "系统公告 | Announcement", map[string]any{
+		"Mode":        "system",
+		"Catalog":     catalog,
+		"DefaultType": messaging.TypeAnnouncement,
+		"Message":     messageView{},
+		"PageStyles":  messagePageStyles,
+		"PageScripts": messagePageScripts,
+	}))
+}
+
+// SendSystemMessage publishes an announcement. | SendSystemMessage 发布公告。
+//
+// @Summary Send announcement | 发送公告
+// @Description Sends an administrator announcement into the tenant channel, with the same attachment and tag support as a
+// @Description normal message.
+// @Description 向租户公告频道发送管理员公告，附件与标签能力与普通消息一致。
+// @Tags messages
+// @Accept html
+// @Produce html
+// @Param type_key formData string false "message type key | 消息类型键"
+// @Param title formData string false "title | 标题"
+// @Param body_markdown formData string true "Markdown body | Markdown 正文"
+// @Param tag_ids formData []string false "labels | 标签"
+// @Param group_ids formData []string false "groups | 分组"
+// @Param attachment_ids formData []string false "attachments | 附件"
+// @Success 200 {object} string "refreshed moderation page | 刷新后的治理页面"
+// @Failure 403 {object} string "missing message:system | 缺少 message:system"
+// @Security BearerAuth
+// @Router /messages/system [post]
+func (c *Controller) SendSystemMessage(ctx *router.Ctx) {
+	if !c.MessagesAvailable() {
+		c.messageUnavailable(ctx)
+		return
+	}
+	message, err := c.messages.SendSystem(ctx.Request.Context(), c.messageActor(ctx), messaging.SendInput{
+		TypeKey:       field(ctx, FieldTypeKey),
+		Title:         field(ctx, FieldTitle),
+		Markdown:      longField(ctx, FieldMarkdown, c.messages.Options().MaxBodyLen),
+		TagIDs:        formValues(ctx, FieldTagIDs),
+		GroupIDs:      formValues(ctx, FieldGroupIDs),
+		AttachmentIDs: formValues(ctx, FieldAttachmentIDs),
+	})
+	if err != nil {
+		c.failService(ctx, err)
+		return
+	}
+	c.renderMessagePageByID(ctx, message.ConversationID, "公告已发布 | announcement published")
+}
+
+// CreateMessageGroup creates a group from selected friends. | CreateMessageGroup 从所选好友创建群。
+//
+// @Summary Create group | 创建群
+// @Description Creates a group with the actor as owner and the selected friends as members.
+// @Description 创建以主体为群主、所选好友为成员的群。
+// @Tags messages
+// @Accept html
+// @Produce html
+// @Param group_title formData string true "group title | 群名"
+// @Param group_members formData []string true "friend ids | 好友 ID"
+// @Success 200 {object} string "refreshed message centre | 刷新后的消息中心"
+// @Security BearerAuth
+// @Router /messages/groups [post]
+func (c *Controller) CreateMessageGroup(ctx *router.Ctx) {
+	if !c.MessagesAvailable() {
+		c.messageUnavailable(ctx)
+		return
+	}
+	title := field(ctx, FieldGroupTitle)
+	if title == "" {
+		title = c.tr(c.lang(ctx), "message.group_default_title")
+	}
+	conv, err := c.messages.CreateGroup(ctx.Request.Context(), c.messageActor(ctx), title, formValues(ctx, FieldGroupMembers))
+	if err != nil {
+		c.failService(ctx, err)
+		return
+	}
+	c.renderMessagePageByID(ctx, conv.ID, "群聊已创建 | group created")
+}
+
+// MessageGroupDrawer renders the group settings drawer. | MessageGroupDrawer 渲染群设置抽屉。
+//
+// @Summary Group settings drawer | 群设置抽屉
+// @Description Renders rename, add-member, remove-member, leave and dissolve controls for one group; mutations are
+// @Description available to the owner or a moderator.
+// @Description 渲染一个群的重命名、加成员、移成员、退出与解散控件；变更仅对群主或管理员开放。
+// @Tags messages
+// @Accept html
+// @Produce html
+// @Param id path string true "conversation id | 会话 ID"
+// @Success 200 {object} string "drawer fragment | 抽屉片段"
+// @Security BearerAuth
+// @Router /messages/groups/{id}/settings [get]
+func (c *Controller) MessageGroupDrawer(ctx *router.Ctx) {
+	if !c.MessagesAvailable() {
+		c.messageUnavailable(ctx)
+		return
+	}
+	actor := c.messageActor(ctx)
+	conversation, _, err := c.messages.Conversation(ctx.Request.Context(), actor, ctx.Param("id"))
+	if err != nil {
+		c.failService(ctx, err)
+		return
+	}
+	if conversation.Kind != messaging.KindGroup {
+		c.failService(ctx, messaging.ErrInvalidInput)
+		return
+	}
+	views := c.conversationViewsOf(actor, []messaging.ConversationView{conversation}, c.lang(ctx), conversation.ID)
+	if len(views) == 0 {
+		c.failService(ctx, messaging.ErrNotFound)
+		return
+	}
+	summary, err := c.messages.FriendSummary(ctx.Request.Context(), actor)
+	candidates := make([]friendView, 0)
+	if err == nil {
+		memberIDs := make(map[string]struct{}, len(conversation.Members))
+		for _, member := range conversation.Members {
+			memberIDs[member.ID] = struct{}{}
+		}
+		for _, friend := range summary.Friends {
+			if _, ok := memberIDs[friend.Profile.ID]; ok {
+				continue
+			}
+			friendView := friendViewsOf([]messaging.FriendView{friend})
+			candidates = append(candidates, friendView[0])
+		}
+	}
+	c.render(ctx, http.StatusOK, TplMessageGroupDrawer, c.view(ctx, "群设置 | Group settings", map[string]any{
+		"Conversation": views[0],
+		"Candidates":   candidates,
+		"CanManage":    conversation.CreatedBy == actor.ID || actor.Manage,
+		"ActorID":      actor.ID,
+	}))
+}
+
+// ChangeMessageGroupMember adds or removes one member. | ChangeMessageGroupMember 添加或移除一位成员。
+//
+// @Summary Change group member | 变更群成员
+// @Description Adds a friend to the group or removes a member; only the owner or a moderator may do it.
+// @Description 向群添加好友或移除成员；仅群主或管理员可执行。
+// @Tags messages
+// @Accept html
+// @Produce html
+// @Param id path string true "conversation id | 会话 ID"
+// @Param action formData string true "add|remove | 添加或移除"
+// @Param member_id formData string true "member user id | 成员用户 ID"
+// @Success 200 {object} string "refreshed message centre | 刷新后的消息中心"
+// @Security BearerAuth
+// @Router /messages/groups/{id}/members [post]
+func (c *Controller) ChangeMessageGroupMember(ctx *router.Ctx) {
+	if !c.MessagesAvailable() {
+		c.messageUnavailable(ctx)
+		return
+	}
+	actor := c.messageActor(ctx)
+	memberID := field(ctx, fieldMemberID)
+	var err error
+	notice := "群成员已更新 | group members updated"
+	if field(ctx, FieldAction) == groupActionRemove {
+		err = c.messages.RemoveGroupMember(ctx.Request.Context(), actor, ctx.Param("id"), memberID)
+		notice = "成员已移出群聊 | member removed"
+	} else {
+		err = c.messages.AddGroupMember(ctx.Request.Context(), actor, ctx.Param("id"), memberID)
+		notice = "成员已加入群聊 | member added"
+	}
+	if err != nil {
+		c.failService(ctx, err)
+		return
+	}
+	c.renderMessagePageByID(ctx, ctx.Param("id"), notice)
+}
+
+// RenameMessageGroup renames a group. | RenameMessageGroup 修改群名。
+//
+// @Summary Rename group | 修改群名
+// @Description Renames a group; only the owner or a moderator may do it.
+// @Description 修改群名；仅群主或管理员可执行。
+// @Tags messages
+// @Accept html
+// @Produce html
+// @Param id path string true "conversation id | 会话 ID"
+// @Param title formData string true "new title | 新群名"
+// @Success 200 {object} string "refreshed message centre | 刷新后的消息中心"
+// @Security BearerAuth
+// @Router /messages/groups/{id}/rename [post]
+func (c *Controller) RenameMessageGroup(ctx *router.Ctx) {
+	if !c.MessagesAvailable() {
+		c.messageUnavailable(ctx)
+		return
+	}
+	if err := c.messages.RenameGroup(ctx.Request.Context(), c.messageActor(ctx), ctx.Param("id"), field(ctx, FieldTitle)); err != nil {
+		c.failService(ctx, err)
+		return
+	}
+	c.renderMessagePageByID(ctx, ctx.Param("id"), "群名已更新 | group renamed")
+}
+
+// LeaveMessageGroup leaves a group. | LeaveMessageGroup 退出群聊。
+//
+// @Summary Leave group | 退出群聊
+// @Description Removes the actor from a group; the owner must dissolve it instead.
+// @Description 让主体退出群聊；群主必须改为解散。
+// @Tags messages
+// @Accept html
+// @Produce html
+// @Param id path string true "conversation id | 会话 ID"
+// @Success 303 {object} string "redirect to messages | 重定向到消息中心"
+// @Security BearerAuth
+// @Router /messages/groups/{id}/leave [post]
+func (c *Controller) LeaveMessageGroup(ctx *router.Ctx) {
+	if !c.MessagesAvailable() {
+		c.messageUnavailable(ctx)
+		return
+	}
+	if err := c.messages.LeaveGroup(ctx.Request.Context(), c.messageActor(ctx), ctx.Param("id")); err != nil {
+		c.failService(ctx, err)
+		return
+	}
+	c.redirect(ctx, "/messages")
+}
+
+// DissolveMessageGroup dissolves a group. | DissolveMessageGroup 解散群聊。
+//
+// @Summary Dissolve group | 解散群聊
+// @Description Closes a group; only the owner or a moderator may do it.
+// @Description 关闭群聊；仅群主或管理员可执行。
+// @Tags messages
+// @Accept html
+// @Produce html
+// @Param id path string true "conversation id | 会话 ID"
+// @Success 303 {object} string "redirect to messages | 重定向到消息中心"
+// @Security BearerAuth
+// @Router /messages/groups/{id}/dissolve [post]
+func (c *Controller) DissolveMessageGroup(ctx *router.Ctx) {
+	if !c.MessagesAvailable() {
+		c.messageUnavailable(ctx)
+		return
+	}
+	if err := c.messages.DissolveGroup(ctx.Request.Context(), c.messageActor(ctx), ctx.Param("id")); err != nil {
+		c.failService(ctx, err)
+		return
+	}
+	c.redirect(ctx, "/messages")
+}
+
+// trimID trims one identifier field. | trimID 裁剪一个标识字段。
+func trimID(ctx *router.Ctx, name string) string { return strings.TrimSpace(ctx.Query(name)) }

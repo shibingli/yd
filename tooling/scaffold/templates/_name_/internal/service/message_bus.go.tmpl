@@ -1,0 +1,198 @@
+// 本文件装配消息中心的实时总线：单节点使用进程内 Hub，多节点使用 Redis Pub/Sub，并用 asynq 为失败的广播提供持久重试。
+// This file wires the message-centre realtime bus: a single node uses the in-process hub, multiple nodes use Redis
+// Pub/Sub, and asynq provides durable retries for failed broadcasts.
+
+package service
+
+import (
+	"{{ .YdModule }}/core/config"
+	"{{ .YdModule }}/core/logx"
+	"{{ .YdModule }}/messaging/realtime"
+{{- if .Redis }}
+	"context"
+	"os"
+	"strconv"
+	"strings"
+	"time"
+
+	"{{ .YdModule }}/data/redisx"
+{{- end }}
+{{- if and .Redis .Asynq }}
+	"{{ .YdModule }}/core/jsonx"
+	"{{ .YdModule }}/messaging"
+	"{{ .YdModule }}/data/asynqx"
+	"github.com/hibiken/asynq"
+{{- end }}
+)
+
+// 消息总线配置键：node_id 让运维在多副本部署中固定节点标识；留空时按主机名与进程号生成。
+// Message bus configuration key: node_id lets operations pin a node identity in a multi-replica deployment; when empty
+// it is derived from the hostname and process id.
+const configMessageNodeID = "message.node_id"
+
+{{- if and .Redis .Asynq }}
+// messageEventTask is the durable broadcast task type. | messageEventTask 是持久广播任务类型。
+const messageEventTask = "yd:message:event"
+{{- end }}
+
+// NewMessageBus assembles the realtime hub.
+// NewMessageBus 装配实时 Hub。
+//
+// A project without a redis section gets the in-process hub and needs no infrastructure. A project
+// with redis gets Redis Pub/Sub and therefore cross-node delivery. When asynq is also enabled, a
+// failed Pub/Sub write is enqueued and republished by whichever node processes the task. A failed
+// Redis connection never blocks startup: the local hub keeps working and the failure is logged. |
+// 未配置 redis 的项目拿到进程内 Hub，不需要任何基础设施。配置了 redis 的项目得到 Redis Pub/Sub，
+// 因而具备跨节点投递。同时启用 asynq 时，Pub/Sub 写入失败会入队，并由处理该任务的任一节点重发。
+// Redis 连接失败绝不阻塞启动：本地 Hub 继续工作，失败只记录日志。
+func NewMessageBus(cfg *config.Config, log *logx.Logger) (*realtime.Hub, func() error, error) {
+	if log == nil {
+		log = logx.Default()
+	}
+{{- if .Redis }}
+	redisClient, err := redisx.Open(redisx.OptionsFromConfig(cfg))
+	if err != nil {
+		log.Warn("redis is configured but unavailable, message delivery stays local | 已配置 redis 但不可用，消息投递保持本地",
+			logx.Err(err),
+		)
+		return realtime.New(log), func() error { return nil }, nil
+	}
+	// 启动时做一次有界探测：Redis 不可达就明确退回单节点，而不是让订阅协程每秒重试并刷日志。
+	// A bounded probe at startup: an unreachable Redis degrades explicitly to single-node instead of letting the
+	// subscription goroutine retry and flood the log every second.
+	healthCtx, healthCancel := context.WithTimeout(context.Background(), 2*time.Second)
+	healthErr := redisx.Health(healthCtx, redisClient)
+	healthCancel()
+	if healthErr != nil {
+		_ = redisx.Close(redisClient)
+		log.Warn("redis health check failed, message delivery stays local | Redis 健康检查失败，消息投递保持本地",
+			logx.Err(healthErr),
+		)
+		return realtime.New(log), func() error { return nil }, nil
+	}
+	bus, err := realtime.NewRedisBus(redisClient, realtime.DefaultRedisChannel, log)
+	if err != nil {
+		_ = redisx.Close(redisClient)
+		log.Warn("message bus is unavailable, delivery stays local | 消息总线不可用，投递保持本地", logx.Err(err))
+		return realtime.New(log), func() error { return nil }, nil
+	}
+	nodeID := nodeIdentity(cfg)
+	var retry realtime.RetryQueue
+{{- if .Asynq }}
+	var (
+		taskSrv *asynqx.Server
+		taskCli *asynqx.Client
+	)
+{{- end }}
+{{- if .Asynq }}
+	registry := asynqx.NewRegistry()
+	registry.Register(messageEventTask, func(ctx context.Context, payload asynqx.Payload) error {
+		raw, marshalErr := jsonx.Marshal(payload)
+		if marshalErr != nil {
+			return marshalErr
+		}
+		var event messaging.Event
+		if unmarshalErr := jsonx.Unmarshal(raw, &event); unmarshalErr != nil {
+			return unmarshalErr
+		}
+		return bus.Publish(ctx, event)
+	})
+	if regErr := registry.Err(); regErr != nil {
+		log.Warn("message retry task registry is invalid | 消息重试任务注册表非法", logx.Err(regErr))
+	} else {
+		options := asynqx.OptionsFromConfig(cfg)
+		redisOpt := asynq.RedisClientOpt{
+			Addr:     strings.TrimSpace(cfg.GetString("redis.addr")),
+			Password: cfg.GetString("redis.password"),
+			DB:       cfg.GetInt("redis.db"),
+		}
+		if options.RedisAddr == "" {
+			options.RedisAddr = redisOpt.Addr
+		}
+		client, clientErr := asynqx.NewClient(redisOpt, options)
+		if clientErr != nil {
+			log.Warn("message retry client is unavailable | 消息重试客户端不可用", logx.Err(clientErr))
+		} else {
+			server := asynqx.NewServer(registry, redisOpt, options, log)
+			if startErr := server.Start(); startErr != nil {
+				log.Warn("message retry worker is unavailable | 消息重试工作器不可用", logx.Err(startErr))
+				_ = client.Close()
+			} else {
+				taskCli = client
+				taskSrv = server
+				retry = &asynqRetryQueue{client: client}
+			}
+		}
+	}
+{{- end }}
+	hub := realtime.NewDistributed(log, bus, retry, nodeID)
+	log.Info("message bus is ready | 消息总线已就绪",
+		logx.Str("node", nodeID),
+		logx.Str("channel", realtime.DefaultRedisChannel),
+		logx.Bool("durable_retry", retry != nil),
+	)
+	return hub, func() error {
+		hub.Close()
+{{- if .Asynq }}
+		if taskSrv != nil {
+			taskSrv.Shutdown()
+		}
+		if taskCli != nil {
+			if closeErr := taskCli.Close(); closeErr != nil {
+				log.Warn("message retry client close failed | 消息重试客户端关闭失败", logx.Err(closeErr))
+			}
+		}
+{{- end }}
+		return redisx.Close(redisClient)
+	}, nil
+{{- else }}
+	// 没有 Redis 时没有跨节点能力：这是单节点部署的正常形态，而不是故障。
+	// Without Redis there is no cross-node delivery: that is the normal single-node shape, not a fault.
+	log.Info("message delivery is local to this process | 消息投递仅限本进程")
+	return realtime.New(log), func() error { return nil }, nil
+{{- end }}
+}
+
+{{- if .Redis }}
+
+// nodeIdentity returns the configured node id or a stable per-process fallback. | nodeIdentity 返回配置的节点 ID，
+// 缺失时返回按进程推导的稳定回退值。
+func nodeIdentity(cfg *config.Config) string {
+	if cfg != nil {
+		if value := strings.TrimSpace(cfg.GetString(configMessageNodeID)); value != "" {
+			return value
+		}
+	}
+	host, err := os.Hostname()
+	if err != nil || strings.TrimSpace(host) == "" {
+		host = "node"
+	}
+	return host + "-" + strconv.Itoa(os.Getpid())
+}
+{{- end }}
+
+{{- if and .Redis .Asynq }}
+
+// asynqRetryQueue republishes failed broadcasts through the task queue. | asynqRetryQueue 通过任务队列重发失败的广播。
+type asynqRetryQueue struct {
+	// client enqueues the durable task. | client 入队持久任务。
+	client *asynqx.Client
+}
+
+// Enqueue stores one event for a later republish. | Enqueue 保存一条事件供稍后重发。
+func (q *asynqRetryQueue) Enqueue(ctx context.Context, event messaging.Event) error {
+	if q == nil || q.client == nil {
+		return nil
+	}
+	// The request context is cancelled once the response is written, so the enqueue uses its own short-lived context.
+	// 请求上下文在响应结束后会被取消，入队必须使用自己的短超时上下文。
+	enqueueCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	_, err := q.client.Enqueue(enqueueCtx, messageEventTask, event)
+	if err != nil {
+		return err
+	}
+	_ = ctx
+	return nil
+}
+{{- end }}

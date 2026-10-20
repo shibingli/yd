@@ -1,0 +1,9 @@
+{{/*
+  pages/message_audit.html —— 管理员治理与审计页。
+  pages/message_audit.html — the administrator moderation and audit page.
+
+  正文由 partials/messages/audit.html 决定：AdminMode 显示消息与最近审计，AuditMode 显示完整审计表。
+  The body is chosen by partials/messages/audit.html: AdminMode shows messages and recent audit, AuditMode the full
+  audit table.
+*/}}
+{{ template "partials/messages/audit" . }}

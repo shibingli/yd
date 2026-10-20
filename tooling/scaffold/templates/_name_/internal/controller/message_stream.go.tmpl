@@ -1,0 +1,234 @@
+// 本文件是消息中心的 WebSocket 端点：服务端推送消息与好友事件，客户端也可以经同一条连接快捷发送。
+// This file is the message-centre WebSocket endpoint: the server pushes message and friend events, and the client may also
+// quick-send over the same connection.
+
+package controller
+
+import (
+	"bytes"
+	"context"
+	"strconv"
+	"time"
+
+	"{{ .YdModule }}/core/jsonx"
+	"{{ .YdModule }}/core/logx"
+	"{{ .YdModule }}/http/render"
+	"{{ .YdModule }}/http/router"
+	"{{ .YdModule }}/http/ws"
+	"{{ .YdModule }}/messaging"
+	"{{ .YdModule }}/messaging/realtime"
+)
+
+// Write timeout and action names of the message WebSocket. | 消息 WebSocket 的写入超时与动作名。
+const (
+	// messageSocketWriteTimeout bounds one frame write. | messageSocketWriteTimeout 限定单帧写出时间。
+	messageSocketWriteTimeout = 5 * time.Second
+	// messageActionSend is the inbound quick-send action. | messageActionSend 是入站快捷发送动作。
+	messageActionSend = "send"
+	// messageActionRead is the inbound mark-read action. | messageActionRead 是入站标记已读动作。
+	messageActionRead = "read"
+	// messageActionPing is the inbound keep-alive action. | messageActionPing 是入站保活动作。
+	messageActionPing = "ping"
+)
+
+// MessageSocket 构造消息实时端点。
+// MessageSocket builds the realtime message endpoint.
+//
+// @Summary Message stream (WebSocket) | 消息实时流（WebSocket）
+// @Description Upgrades with the htmx subprotocol. The server pushes one JSON event per message, friend or pin change,
+// @Description refreshes the unread badge through an htmx partial and turns friend/recall/pin events into notices. Inbound
+// @Description flat JSON may carry action=send (conversation + body) for a quick reply, action=read (conversation) or
+// @Description action=ping; every other inbound message is ignored.
+// @Description 以 htmx 子协议升级。服务端为每条消息、好友或置顶变化推送一个 JSON 事件，通过 htmx 片段刷新未读徽标，
+// @Description 并把好友/撤回/置顶事件转成通知。入站扁平 JSON 可携带 action=send（会话 + 正文）做快捷回复、
+// @Description action=read（会话）或 action=ping；其它入站内容一律忽略。
+// @Tags messages
+// @Accept json
+// @Produce json
+// @Param Upgrade header string true "must be websocket | 必须为 websocket"
+// @Success 101 {string} string "switching protocols | 协议切换"
+// @Success 200 {string} string "extended CONNECT established | 扩展连接已建立"
+// @Failure 400 {object} string "upgrade failure written by the framework | 框架写出的升级失败响应"
+// @Failure 401 {object} string "no session | 无有效会话"
+// @Failure 403 {object} string "missing message:read | 缺少 message:read"
+// @Security BearerAuth
+// @Router /ws/messages [get]
+func (c *Controller) MessageSocket() router.HandlerFunc {
+	return func(ctx *router.Ctx) {
+		if !c.MessagesAvailable() {
+			c.messageUnavailable(ctx)
+			return
+		}
+		actor := c.messageActor(ctx)
+		lang := c.lang(ctx)
+		var unsubscribe func()
+		handler := ws.HtmxHandler(ws.HtmxOptions{
+			Subprotocols: []string{"htmx"},
+			OnOpen: func(conn *ws.Conn) {
+				unsubscribe = c.hub.Subscribe(realtime.Subscription{
+					TenantID:       actor.TenantID,
+					UserID:         actor.ID,
+					ConversationID: ctx.Query(FieldConversation),
+					Lang:           lang,
+					Deliver: func(event messaging.Event) {
+						c.deliverMessageEvent(conn, actor, lang, event)
+					},
+				})
+				c.pushUnreadBadge(conn, actor, lang)
+			},
+			OnMessage: func(conn *ws.Conn, msg ws.HtmxMessage) {
+				c.handleMessageSocketInput(conn, actor, lang, msg)
+			},
+			OnClose: func(*ws.Conn, error) {
+				if unsubscribe != nil {
+					unsubscribe()
+				}
+			},
+		})
+		handler(ctx)
+	}
+}
+
+// handleMessageSocketInput handles one inbound htmx message. | handleMessageSocketInput 处理一条入站 htmx 消息。
+func (c *Controller) handleMessageSocketInput(conn *ws.Conn, actor messaging.Actor, lang string, msg ws.HtmxMessage) {
+	action := valueString(msg.Values[FieldAction])
+	switch action {
+	case messageActionPing:
+		return
+	case messageActionRead:
+		conversationID := valueString(msg.Values[FieldConversation])
+		if conversationID == "" {
+			conversationID = valueString(msg.Values["conversation"])
+		}
+		if err := c.messages.MarkRead(context.Background(), actor, conversationID); err != nil {
+			c.pushSocketNotice(conn, lang, "message.notice.failed")
+		}
+	case messageActionSend:
+		conversationID := valueString(msg.Values[FieldConversation])
+		if conversationID == "" {
+			conversationID = valueString(msg.Values["conversation"])
+		}
+		body := valueString(msg.Values[FieldBody])
+		if body == "" {
+			body = msg.Body
+		}
+		if _, err := c.messages.Send(context.Background(), actor, messaging.SendInput{
+			ConversationID: conversationID,
+			Markdown:       body,
+		}); err != nil {
+			c.log.Warn("quick send over WebSocket failed | WebSocket 快捷发送失败", logx.Err(err), logx.Str("conversation", conversationID))
+			c.pushSocketNotice(conn, lang, "message.notice.failed")
+		}
+	default:
+		// 未知动作一律忽略：端点不回显入站内容，避免把任意输入交换进页面。
+		// Unknown actions are ignored: the endpoint never echoes inbound content into the page.
+	}
+}
+
+// deliverMessageEvent pushes one event, the refreshed badge and an optional notice to one connection. |
+// deliverMessageEvent 向一条连接推送事件、刷新后的徽标与可选通知。
+func (c *Controller) deliverMessageEvent(conn *ws.Conn, actor messaging.Actor, lang string, event messaging.Event) {
+	payload := map[string]any{
+		"yd_event":        event.Type,
+		"conversation_id": event.ConversationID,
+		"message_id":      event.MessageID,
+		"actor_id":        event.ActorID,
+		"at":              event.At.UTC().Format(time.RFC3339),
+	}
+	if data, err := jsonx.Marshal(payload); err == nil {
+		if err := conn.SetWriteDeadline(time.Now().Add(messageSocketWriteTimeout)); err == nil {
+			if err := conn.WriteMessage(ws.TextMessage, data); err != nil {
+				_ = conn.CloseNow()
+				return
+			}
+		}
+	}
+	c.pushUnreadBadge(conn, actor, lang)
+	switch event.Type {
+	case messaging.EventFriendRequested:
+		c.pushSocketNotice(conn, lang, "message.notice.friend_requested")
+	case messaging.EventFriendAccepted:
+		c.pushSocketNotice(conn, lang, "message.notice.friend_accepted")
+	case messaging.EventFriendRejected:
+		c.pushSocketNotice(conn, lang, "message.notice.friend_rejected")
+	case messaging.EventFriendRemoved:
+		c.pushSocketNotice(conn, lang, "message.notice.friend_removed")
+	case messaging.EventFriendBlocked:
+		c.pushSocketNotice(conn, lang, "message.notice.friend_blocked")
+	case messaging.EventMessageRecalled:
+		c.pushSocketNotice(conn, lang, "message.notice.recalled")
+	case messaging.EventMessagePinned:
+		c.pushSocketNotice(conn, lang, "message.notice.pinned")
+	}
+}
+
+// pushUnreadBadge renders and pushes the current unread badge. | pushUnreadBadge 渲染并推送当前未读徽标。
+func (c *Controller) pushUnreadBadge(conn *ws.Conn, actor messaging.Actor, lang string) {
+	if c.app.Renderer() == nil {
+		return
+	}
+	summary, err := c.messages.Unread(context.Background(), actor)
+	if err != nil {
+		return
+	}
+	data := map[string]any{"Unread": summary}
+	if c.i18n != nil {
+		data[render.TranslatorKey] = c.i18n.Translator(lang)
+	}
+	var buf bytes.Buffer
+	if err := c.app.Renderer().Render(&buf, TplUnreadBadge, data); err != nil {
+		c.log.Debug("unread badge render failed | 未读徽标渲染失败", logx.Err(err))
+		return
+	}
+	if err := conn.SetWriteDeadline(time.Now().Add(messageSocketWriteTimeout)); err != nil {
+		_ = conn.CloseNow()
+		return
+	}
+	if err := conn.WriteHtmxFragment("#yd-unread-badge", "outerHTML", buf.String()); err != nil {
+		_ = conn.CloseNow()
+	}
+}
+
+// pushSocketNotice pushes one localised notice into the shell notice area. | pushSocketNotice 把一条本地化通知推送到外壳通知区。
+func (c *Controller) pushSocketNotice(conn *ws.Conn, lang, key string) {
+	if c.app.Renderer() == nil {
+		return
+	}
+	text := key
+	if c.i18n != nil {
+		text = c.i18n.Translator(lang).T(key)
+	}
+	data := map[string]any{"Notice": text}
+	if c.i18n != nil {
+		data[render.TranslatorKey] = c.i18n.Translator(lang)
+	}
+	var buf bytes.Buffer
+	if err := c.app.Renderer().Render(&buf, TplMessageNotice, data); err != nil {
+		return
+	}
+	if err := conn.SetWriteDeadline(time.Now().Add(messageSocketWriteTimeout)); err != nil {
+		_ = conn.CloseNow()
+		return
+	}
+	if err := conn.WriteHtmxFragment("#yd-message-notices", "beforeend", buf.String()); err != nil {
+		_ = conn.CloseNow()
+	}
+}
+
+// valueString converts one inbound JSON value to text. | valueString 把一个入站 JSON 值转成文本。
+func valueString(value any) string {
+	switch v := value.(type) {
+	case string:
+		return v
+	case nil:
+		return ""
+	case float64:
+		return strconv.FormatFloat(v, 'f', -1, 64)
+	default:
+		data, err := jsonx.Marshal(v)
+		if err != nil {
+			return ""
+		}
+		return string(data)
+	}
+}

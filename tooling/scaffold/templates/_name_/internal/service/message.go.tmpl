@@ -1,0 +1,179 @@
+// 本文件装配站内消息中心：领域规则来自框架 messaging 包，这里只负责配置、用户目录、附件目录与实时 Hub 的接线。
+// This file wires the in-app message centre: the rules live in the framework messaging package, while this file only
+// connects configuration, the user directory, the attachment directory and the realtime hub.
+
+package service
+
+import (
+	"context"
+	"strings"
+	"time"
+
+	"{{ .Module }}/internal/repository"
+	"{{ .YdModule }}/core/config"
+	"{{ .YdModule }}/core/errx"
+	"{{ .YdModule }}/core/logx"
+	"{{ .YdModule }}/messaging"
+	"{{ .YdModule }}/messaging/authdirectory"
+	"{{ .YdModule }}/messaging/filestore"
+	"{{ .YdModule }}/messaging/markdown"
+	"{{ .YdModule }}/messaging/realtime"
+)
+
+// 消息中心配置键：与 configs/config.yaml 的 message 段一一对应，YD_MESSAGE_* 自动映射。
+// Message-centre configuration keys: they match the message section of configs/config.yaml and YD_MESSAGE_* maps onto them.
+const (
+	// configRecallWindow bounds a regular author's recall. | configRecallWindow 限制普通作者的撤回窗口。
+	configRecallWindow = "message.recall_window"
+	// configEditWindow bounds a regular author's edit. | configEditWindow 限制普通作者的编辑窗口。
+	configEditWindow = "message.edit_window"
+	// configMaxAttachments is the files-per-message ceiling. | configMaxAttachments 是单条消息的附件数上限。
+	configMaxAttachments = "message.max_attachments"
+	// configMaxAttachmentSize is the per-file byte ceiling. | configMaxAttachmentSize 是单文件字节上限。
+	configMaxAttachmentSize = "message.max_attachment_size"
+	// configMaxGroupMembers is the group member ceiling. | configMaxGroupMembers 是群成员上限。
+	configMaxGroupMembers = "message.max_group_members"
+	// configPageSize is the default page length. | configPageSize 是默认页长。
+	configPageSize = "message.page_size"
+	// configAttachmentDir is the local attachment directory. | configAttachmentDir 是本地附件目录。
+	configAttachmentDir = "message.attachment_dir"
+	// configAllowedTypes is the optional attachment MIME allow list. | configAllowedTypes 是可选附件 MIME 白名单。
+	configAllowedTypes = "message.allowed_types"
+	// configPendingTTL is how long an unattached upload survives. | configPendingTTL 是未挂载上传的保留时长。
+	configPendingTTL = "message.pending_ttl"
+	// defaultAttachmentDir is the attachment directory when none is configured. | defaultAttachmentDir 是未配置时的附件目录。
+	defaultAttachmentDir = "data/attachments"
+)
+
+// ErrMessageUnavailable reports a message centre without a usable store. | ErrMessageUnavailable 表示消息中心没有可用存储。
+var ErrMessageUnavailable = errx.New("message centre is unavailable | 消息中心不可用")
+
+// MessageService is the project-facing facade of the messaging domain. | MessageService 是消息领域对项目侧的门面。
+type MessageService struct {
+	// Service is the embedded domain service; nil means the centre is unavailable. | Service 是内嵌的领域服务；nil 表示消息中心不可用。
+	*messaging.Service
+	// hub fans realtime events out to WebSocket subscribers. | hub 把实时事件分发给 WebSocket 订阅者。
+	hub *realtime.Hub
+	// log records janitor failures. | log 记录清理任务失败。
+	log *logx.Logger
+}
+
+// NewMessageService assembles the message centre over the project's store and configuration. |
+// NewMessageService 在项目存储与配置之上装配消息中心。
+//
+// The realtime hub is created even when the store is unavailable, so the controller always has one
+// object to pass to its WebSocket endpoint; the endpoint itself refuses when the service is nil. |
+// 即使存储不可用也会创建实时 Hub，使控制器总有一个对象可交给 WebSocket 端点；服务为 nil 时端点自行拒绝。
+func NewMessageService(store *repository.Store, hub *realtime.Hub, cfg *config.Config, log *logx.Logger) (*MessageService, error) {
+	if log == nil {
+		log = logx.Default()
+	}
+	if hub == nil {
+		hub = realtime.New(log)
+	}
+	if store == nil || !store.MessageAvailable() {
+		reason := messaging.ErrUnavailable
+		if store != nil && store.MessageError() != nil {
+			reason = store.MessageError()
+		}
+		return &MessageService{hub: hub, log: log}, errx.Wrap(reason, ErrMessageUnavailable)
+	}
+	directory, err := authdirectory.New(store.Auth())
+	if err != nil {
+		return &MessageService{hub: hub, log: log}, errx.Wrap(err, ErrMessageUnavailable)
+	}
+
+	options := messaging.DefaultOptions()
+	if cfg != nil {
+		if value := cfg.Duration(configRecallWindow); value > 0 {
+			options.RecallWindow = value
+		}
+		if value := cfg.Duration(configEditWindow); value > 0 {
+			options.EditWindow = value
+		} else {
+			options.EditWindow = options.RecallWindow
+		}
+		if value := cfg.GetInt(configMaxAttachments); value > 0 {
+			options.MaxAttachments = value
+		}
+		if value := cfg.GetInt64(configMaxAttachmentSize); value > 0 {
+			options.MaxAttachmentSize = value
+		}
+		if value := cfg.GetInt(configMaxGroupMembers); value > 0 {
+			options.MaxMembers = value
+		}
+		if value := cfg.GetInt(configPageSize); value > 0 {
+			options.PageSize = value
+		}
+		if value := cfg.GetStringSlice(configAllowedTypes); len(value) > 0 {
+			options.AllowedTypes = value
+		}
+		if value := cfg.Duration(configPendingTTL); value > 0 {
+			options.PendingTTL = value
+		}
+	}
+
+	var blobs messaging.BlobStore
+	attachmentDir := defaultAttachmentDir
+	if cfg != nil {
+		if value := strings.TrimSpace(cfg.GetString(configAttachmentDir)); value != "" {
+			attachmentDir = value
+		}
+	}
+	fileStore, err := filestore.New(attachmentDir)
+	if err != nil {
+		log.Warn("attachment storage is unavailable, uploads are disabled | 附件存储不可用，上传已禁用",
+			logx.Err(err),
+			logx.Str("dir", attachmentDir),
+		)
+	} else {
+		blobs = fileStore
+	}
+
+	svc, err := messaging.New(store.MessageStore(), directory, markdown.New(), blobs, hub, log, options)
+	if err != nil {
+		return &MessageService{hub: hub, log: log}, errx.Wrap(err, ErrMessageUnavailable)
+	}
+	return &MessageService{Service: svc, hub: hub, log: log}, nil
+}
+
+// Available reports whether the message centre can serve requests. | Available 报告消息中心能否服务请求。
+func (m *MessageService) Available() bool { return m != nil && m.Service != nil }
+
+// Hub returns the realtime hub, which is never nil after construction. | Hub 返回实时 Hub，构造后永不为 nil。
+func (m *MessageService) Hub() *realtime.Hub {
+	if m == nil {
+		return nil
+	}
+	return m.hub
+}
+
+// StartJanitor removes expired pending uploads until ctx is cancelled. | StartJanitor 清理过期的待挂载上传，直到 ctx 被取消。
+//
+// The goroutine has exactly one exit: ctx.Done. The caller owns the cancellation and registers it on
+// the application shutdown hook. | 该协程只有一个出口：ctx.Done。调用方拥有取消权，并把它挂到应用关停钩子上。
+func (m *MessageService) StartJanitor(ctx context.Context) {
+	if !m.Available() {
+		return
+	}
+	ttl := m.Options().PendingTTL
+	go func() {
+		ticker := time.NewTicker(time.Hour)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				removed, err := m.CleanupPending(ctx, time.Now().UTC().Add(-ttl))
+				if err != nil {
+					m.log.Warn("pending attachment cleanup failed | 待挂载附件清理失败", logx.Err(err))
+					continue
+				}
+				if removed > 0 {
+					m.log.Info("pending attachments cleaned up | 待挂载附件已清理", logx.Int("count", removed))
+				}
+			}
+		}
+	}()
+}

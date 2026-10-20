@@ -665,6 +665,11 @@ yd versions sync               # 仅重新生成 version_generated.go
 - **原生控件也要适配**：`:root` / `[data-theme="dark"]` / `auto` 三处声明 `color-scheme`，
   `dialog`、`select`、滚动条与焦点环随主题切换。
 - **主题切换按钮保持高对比**：使用 `.yd-theme-toggle` 的实心表面与内容色，不得只依赖 ghost 变体。
+- **Tailwind 扫描范围必须包含脚本**：`app.css` 的 `@source` 除模板与 Go 外，还要覆盖 `static/js/yd-*.js`；
+  脚本在运行期添加的类（如编辑器的 `yd-editor--dark`、侧栏的 `yd-sidebar-open`）若不在扫描范围内，
+  Tailwind 会把它们裁掉，表现为暗色编辑区仍是白底。不得扫描整个 vendor 目录（体积与产物不确定）。
+- **第三方 CSS 的覆盖必须放在层外**：EasyMDE 等 vendor CSS 是无层的；写在 `@layer components` 里的规则
+  永远输给它，即使选择器更具体。覆盖规则要无层、并用容器类提高特异性（如 `.yd-editor .EasyMDEContainer .CodeMirror`）。
 
 ### 22.4 首页资源仪表盘
 
@@ -794,3 +799,33 @@ yd versions sync               # 仅重新生成 version_generated.go
 - **使用文档**：`docs/middleware-metrics.md` 是接口、自定义指标、生命周期与检查清单的唯一入口。
 - **禁止事项**：不得为每个请求创建 `Entry`/直方图，不得在请求路径取注册表写锁，不得用 `Use` 装配后再
   另补一套统计，不得在关闭后重新置为 `active`。
+
+## 23. 站内消息中心（强制）
+
+消息中心由框架域包 `messaging` + `messaging/gormstore` 与脚手架接线组成，使用说明见
+`docs/message-center.md`。以下约束不可绕过：
+
+- **租户硬边界**：12 张 `yd_msg_*` 表全部以 `tenant_id` 为第一条件；跨租户与不存在一律 `messaging.ErrNotFound`，
+  不得返回任何数据，也不得用 403 暴露资源是否存在。
+- **好友规则**：单聊必须已接受好友且双方未拉黑；群发成员必须都是发起人的好友；拉黑同时删除好友关系并关闭申请。
+- **系统消息**：只有 `message:system` 可发布/撤销；撤销是软撤回，正文保留在库中，审计记录保留标题与 Markdown 正文；
+  HTML 的 `/messages/:id/revoke` 与 JSON API 的 `/api/v1/messages/:id/revoke` 共用同一条路径；
+  置顶只有 `message:manage`，且只允许系统来源消息与可选时间段。
+- **撤回窗口**：普通用户受 `message.recall_window`（配置）限制且只能撤回本人消息；管理员不受窗口限制。
+  正文对无 `message:manage` 的读者不可见，墓碑仍占位。
+- **已读水位**：未读 = 创建时间晚于 `last_read_at` 且非本人发送；只有确实存在未读时才推进水位并广播已读事件，
+  避免两个客户端互相刷新形成事件回环。
+- **权限**：新增能力只在 `security/authz` 注册；`member` 只持有 `message:read/send/update/delete`，
+  其作用域由服务端限制为本人消息；`auditor` 只持有 `message:read` 与 `message-type:read`。
+- **富文本**：Markdown 源 + 服务端 goldmark 渲染；原始 HTML 与危险链接必须被移除。客户端提交的 HTML 不得信任，
+  模板只能输出净化后的 `BodyHTML`。
+- **附件**：MIME 由服务端嗅探，白名单不含 HTML/SVG/脚本；存储键不得包含原始文件名；下载必须按消息可见性鉴权。
+- **实时**：单节点进程内 Hub；多节点在生成项目时选择 `redis`（Pub/Sub 广播），需要持久重试再选择 `asynq`；
+  未生成这两项集成的项目只编译本地总线，事后补 `redis` 配置不生效。`message.node_id` 多副本唯一。
+  Redis 不可达时明确降级为单节点并告警，不得阻塞启动。
+- **前端**：消息中心是即时通讯布局——左侧会话列表、右上方历史消息、右下方内联撰写区；后台治理与目录设置
+  保持列表式管理页。日常消息在内联撰写区直接发送，不弹确认；公告频道、撤回、撤销、退出、解散、置顶与好友变更
+  仍走 `data-yd-confirm`。新建会话、编辑消息、置顶与群设置走右侧抽屉；消息页以外的导航不得建立第二条消息连接。
+  实时刷新只重取 `/messages/:id/history`，不得重建撰写区或清掉草稿。
+- **检索**：`search_text` 便携式分词 `LIKE`（`!` 转义）；替换为外部 FTS 时只改 Store 实现，不改领域规则与页面。
+- **文档**：`docs/message-center.md` 是能力、配置、API、WebSocket 协议与多节点部署的唯一入口。

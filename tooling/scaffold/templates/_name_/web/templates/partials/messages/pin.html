@@ -1,0 +1,35 @@
+{{/*
+  partials/messages/pin.html —— 置顶公告的时间段抽屉。
+  partials/messages/pin.html — the pin-window drawer for an announcement.
+
+  起点与终点都可留空：起点留空表示立即生效，终点留空表示直到显式取消。服务端再次校验终点必须晚于起点
+  与当前时间，因此前端时间控件只是便利，不是边界。
+  Both start and end may be empty: an empty start is effective immediately and an empty end lasts until an explicit
+  unpin. The server re-checks that the end is after the start and after now, so the browser control is a convenience,
+  never the boundary.
+*/}}
+{{- define "partials/messages/pin" -}}
+<div class="yd-drawer__head">
+  <h2 class="yd-section__title">{{ tr "message.pin_title" }}</h2>
+  <p class="yd-section__hint">{{ tr "message.pin_hint" }}</p>
+</div>
+<p class="yd-msg-pin__subject">{{ if .Message.Title }}{{ .Message.Title }}{{ else }}{{ tr "message.untitled" }}{{ end }}</p>
+<form class="yd-form" method="post" action="/messages/{{ .Message.ID }}/pin"
+      hx-post="/messages/{{ .Message.ID }}/pin" hx-target="#yd-workspace" hx-swap="innerMorph"
+      data-yd-confirm="{{ tr "confirm.pin_message" }}">
+  <input type="hidden" name="conversation_id" value="{{ .Message.ConversationID }}">
+  <div class="yd-field">
+    <label class="yd-label" for="yd-pin-start">{{ tr "message.pin_start" }}</label>
+    <input class="yd-input" id="yd-pin-start" name="pin_start" type="datetime-local">
+  </div>
+  <div class="yd-field">
+    <label class="yd-label" for="yd-pin-end">{{ tr "message.pin_end" }}</label>
+    <input class="yd-input" id="yd-pin-end" name="pin_end" type="datetime-local">
+  </div>
+  <div class="yd-form__actions">
+    <button type="button" class="yd-btn yd-btn--ghost" data-yd-drawer-close>{{ tr "ui.cancel" }}</button>
+    <button type="submit" class="yd-btn yd-btn--primary">{{ tr "message.pin" }}</button>
+  </div>
+</form>
+{{- end -}}
+{{ template "partials/messages/pin" . }}

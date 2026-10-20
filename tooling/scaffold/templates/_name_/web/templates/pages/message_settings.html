@@ -1,0 +1,13 @@
+{{/*
+  pages/message_settings.html —— 消息类型、分组与标签设置页。
+  pages/message_settings.html — the message type, group and label settings page.
+*/}}
+<section class="yd-page" data-yd-page="message-settings" aria-labelledby="yd-message-settings-title">
+  <header class="yd-page__header">
+    <div>
+      <h1 class="yd-page__title" id="yd-message-settings-title">{{ tr "page.message_settings.title" }}</h1>
+      <p class="yd-page__subtitle">{{ tr "page.message_settings.subtitle" }}</p>
+    </div>
+  </header>
+  {{ template "partials/message_settings/body" . }}
+</section>

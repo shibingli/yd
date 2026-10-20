@@ -85,6 +85,12 @@
     </nav>
   </header>
 
+  {{/* 实时通知区：WebSocket 推送的好友、撤回与置顶事件落到这里；它与 #yd-errors 分开，
+       因为通知是信息性消息，错误槽位只承载失败。 | The realtime notice area: WebSocket-pushed friend, recall and pin
+       events land here. It is separate from #yd-errors because notices are informational while the error slot carries
+       failures only. */}}
+  <div id="yd-message-notices" class="yd-message-notices" role="status" aria-live="polite"></div>
+
   {{/* 首登改密提示不放在外壳里：首页身份卡与账号页已经就地给出，外壳再重复一次会让每个页面
        顶部都多出一条横幅，概览页甚至会同时出现两条。 | The first-sign-in password notice does not live in the
        shell: the home identity card and the account page already carry it in context, and repeating it in the

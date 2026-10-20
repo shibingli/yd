@@ -2922,3 +2922,1356 @@
   }
 }
 
+/* ============================================================================================
+   站内消息中心与好友：布局、气泡、标签、编辑器与通知。
+   In-app message centre and friends: layout, bubbles, labels, editor and notices.
+
+   全部颜色来自语义令牌；暗色主题只重写令牌，本层因此无需再来一套覆盖规则。
+   Every colour comes from a semantic token; dark mode only redefines tokens, so this layer needs no second set of rules.
+   ============================================================================================ */
+@layer components {
+  /* Danger badge alias: message views use the semantic "danger" tone name. | 危险徽标别名：消息视图使用语义化的 danger 名称。 */
+  .yd-badge--danger {
+    background: color-mix(in srgb, var(--color-danger) 14%, var(--color-surface));
+    color: var(--color-danger);
+  }
+
+  /* Filter bar: search grows, selects keep their intrinsic width. | 过滤栏：搜索框伸展，选择框保持固有宽度。 */
+  .yd-msg-filters {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    align-items: center;
+  }
+
+  .yd-msg-filters .yd-input {
+    flex: 1 1 16rem;
+  }
+
+  .yd-msg-pinned {
+    display: flex;
+    gap: 0.75rem;
+    overflow-x: auto;
+    padding-bottom: 0.25rem;
+  }
+
+  .yd-msg-pinned__item {
+    display: flex;
+    flex: 0 0 auto;
+    align-items: center;
+    gap: 0.5rem;
+    max-width: 28rem;
+    padding: 0.625rem 0.875rem;
+    border: 1px solid var(--color-border-subtle);
+    border-radius: var(--radius-card);
+    background: color-mix(in srgb, var(--color-info) 8%, var(--color-surface));
+    color: var(--color-content);
+    text-decoration: none;
+  }
+
+  .yd-msg-pinned__item:hover {
+    border-color: var(--color-accent);
+  }
+
+  .yd-msg-pinned__title {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .yd-msg-pinned__meta {
+    color: var(--color-content-muted);
+    font-size: 0.75rem;
+    white-space: nowrap;
+  }
+
+  /* Two-panel layout: the rail keeps a readable width and the thread fills the rest. | 双栏布局：左栏保持可读宽度，线程占满其余空间。 */
+  .yd-msg-layout {
+    display: grid;
+    grid-template-columns: minmax(16rem, 22rem) minmax(0, 1fr);
+    gap: 1rem;
+    align-items: start;
+    margin-top: 1rem;
+  }
+
+  .yd-msg-rail,
+  .yd-msg-panel {
+    min-width: 0;
+  }
+
+  .yd-msg-rail {
+    border: 1px solid var(--color-border-subtle);
+    border-radius: var(--radius-card);
+    background: var(--color-surface);
+    box-shadow: var(--shadow-card);
+    overflow: hidden;
+  }
+
+  .yd-msg-rail__head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem;
+    padding: 0.875rem 1rem;
+    border-bottom: 1px solid var(--color-border-subtle);
+  }
+
+  .yd-msg-rail__title {
+    font-weight: 600;
+  }
+
+  .yd-msg-conversations {
+    display: flex;
+    flex-direction: column;
+    max-height: min(70vh, 44rem);
+    overflow-y: auto;
+  }
+
+  .yd-msg-conv {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 0.75rem 1rem;
+    border-bottom: 1px solid var(--color-border-subtle);
+    color: var(--color-content);
+    text-decoration: none;
+  }
+
+  .yd-msg-conv:hover {
+    background: var(--color-surface-muted);
+  }
+
+  .yd-msg-conv--active {
+    background: color-mix(in srgb, var(--color-accent) 10%, var(--color-surface));
+    box-shadow: inset 3px 0 0 var(--color-accent);
+  }
+
+  .yd-msg-conv__main {
+    display: flex;
+    flex: 1 1 auto;
+    min-width: 0;
+    flex-direction: column;
+    gap: 0.125rem;
+  }
+
+  .yd-msg-conv__title {
+    display: flex;
+    align-items: center;
+    gap: 0.375rem;
+    font-weight: 600;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .yd-msg-conv__preview {
+    overflow: hidden;
+    color: var(--color-content-muted);
+    font-size: 0.8125rem;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .yd-msg-conv__meta {
+    display: flex;
+    flex: 0 0 auto;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 0.25rem;
+  }
+
+  .yd-msg-conv__time {
+    color: var(--color-content-muted);
+    font-size: 0.6875rem;
+    white-space: nowrap;
+  }
+
+  /* Thread panel. | 线程面板。 */
+  .yd-msg-thread {
+    display: flex;
+    flex-direction: column;
+    min-height: 30rem;
+    border: 1px solid var(--color-border-subtle);
+    border-radius: var(--radius-card);
+    background: var(--color-surface);
+    box-shadow: var(--shadow-card);
+    overflow: hidden;
+  }
+
+  .yd-msg-thread__head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+    padding: 0.875rem 1rem;
+    border-bottom: 1px solid var(--color-border-subtle);
+  }
+
+  .yd-msg-thread__identity {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    min-width: 0;
+  }
+
+  .yd-msg-thread__title {
+    display: flex;
+    align-items: center;
+    gap: 0.375rem;
+    margin: 0;
+    font-size: 1.0625rem;
+  }
+
+  .yd-msg-thread__hint {
+    margin: 0;
+    color: var(--color-content-muted);
+    font-size: 0.75rem;
+  }
+
+  .yd-msg-thread__actions {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.5rem;
+  }
+
+  .yd-msg-thread__body {
+    display: flex;
+    flex: 1 1 auto;
+    flex-direction: column;
+    gap: 0.75rem;
+    padding: 1rem;
+    max-height: min(60vh, 42rem);
+    overflow-y: auto;
+    background: var(--color-surface-muted);
+  }
+
+  .yd-msg-thread__empty {
+    margin: auto;
+  }
+
+  /* Message bubble. | 消息气泡。 */
+  .yd-msg {
+    max-width: min(48rem, 92%);
+    padding: 0.75rem 0.875rem;
+    border: 1px solid var(--color-border-subtle);
+    border-radius: 0.875rem;
+    background: var(--color-surface);
+  }
+
+  .yd-msg--mine {
+    align-self: flex-end;
+    background: color-mix(in srgb, var(--color-accent) 8%, var(--color-surface));
+    border-color: color-mix(in srgb, var(--color-accent) 28%, var(--color-border-subtle));
+  }
+
+  .yd-msg--recalled {
+    opacity: 0.8;
+  }
+
+  .yd-msg__head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.375rem;
+  }
+
+  .yd-msg__sender {
+    font-weight: 600;
+  }
+
+  .yd-msg__time {
+    color: var(--color-content-muted);
+    font-size: 0.6875rem;
+  }
+
+  .yd-msg__menu {
+    margin-left: auto;
+  }
+
+  .yd-msg__title {
+    margin: 0.5rem 0 0.25rem;
+    font-size: 0.9375rem;
+  }
+
+  .yd-msg__body {
+    margin-top: 0.375rem;
+    overflow-wrap: anywhere;
+  }
+
+  .yd-msg__tombstone {
+    display: flex;
+    align-items: center;
+    gap: 0.375rem;
+    margin: 0.5rem 0 0;
+    color: var(--color-content-muted);
+    font-style: italic;
+  }
+
+  .yd-msg__tags,
+  .yd-msg__attachments {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.375rem;
+    margin-top: 0.5rem;
+  }
+
+  .yd-msg__foot {
+    margin-top: 0.375rem;
+    text-align: right;
+  }
+
+  .yd-msg__read {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+    color: var(--color-content-muted);
+    font-size: 0.6875rem;
+  }
+
+  .yd-tag {
+    display: inline-flex;
+    align-items: center;
+    padding: 0.125rem 0.5rem;
+    border: 1px solid var(--color-border-subtle);
+    border-radius: 999px;
+    color: var(--color-content-muted);
+    font-size: 0.75rem;
+  }
+
+  .yd-tag--info { color: var(--color-info); border-color: color-mix(in srgb, var(--color-info) 40%, var(--color-border-subtle)); }
+  .yd-tag--success { color: var(--color-success); border-color: color-mix(in srgb, var(--color-success) 40%, var(--color-border-subtle)); }
+  .yd-tag--warn { color: var(--color-warning); border-color: color-mix(in srgb, var(--color-warning) 40%, var(--color-border-subtle)); }
+  .yd-tag--danger { color: var(--color-danger); border-color: color-mix(in srgb, var(--color-danger) 40%, var(--color-border-subtle)); }
+
+  /* Quick reply over the shared WebSocket. | 经共享 WebSocket 的快捷回复。 */
+  .yd-msg-quick {
+    display: flex;
+    gap: 0.5rem;
+    padding: 0.75rem 1rem;
+    border-top: 1px solid var(--color-border-subtle);
+    background: var(--color-surface);
+  }
+
+  .yd-msg-quick .yd-input {
+    flex: 1 1 auto;
+  }
+
+  /* Search results. | 检索结果。 */
+  .yd-msg-results {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+  }
+
+  .yd-msg-result {
+    padding: 0.75rem 0.875rem;
+    border: 1px solid var(--color-border-subtle);
+    border-radius: 0.75rem;
+    background: var(--color-surface);
+  }
+
+  .yd-msg-result--recalled {
+    opacity: 0.8;
+  }
+
+  .yd-msg-result__head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.5rem;
+  }
+
+  .yd-msg-result__title {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .yd-msg-result__meta {
+    margin-left: auto;
+    color: var(--color-content-muted);
+    font-size: 0.75rem;
+  }
+
+  .yd-msg-result__preview {
+    margin: 0.375rem 0;
+    color: var(--color-content-muted);
+  }
+
+  .yd-msg-result__foot {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.5rem;
+  }
+
+  /* Attachments. | 附件。 */
+  .yd-attachments {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    min-height: 1.5rem;
+  }
+
+  .yd-attachment,
+  .yd-attachment-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.375rem;
+    padding: 0.375rem 0.625rem;
+    border: 1px solid var(--color-border-subtle);
+    border-radius: 999px;
+    background: var(--color-surface-muted);
+    color: var(--color-content);
+    font-size: 0.8125rem;
+    text-decoration: none;
+  }
+
+  .yd-attachment:hover {
+    border-color: var(--color-accent);
+  }
+
+  .yd-attachment__size,
+  .yd-attachment-chip__size {
+    color: var(--color-content-muted);
+    font-size: 0.6875rem;
+  }
+
+  .yd-attachment-chip__remove {
+    padding: 0 0.25rem;
+    min-height: 1.25rem;
+    min-width: 1.25rem;
+  }
+
+  .yd-upload {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: end;
+    gap: 0.5rem;
+    margin-top: 0.75rem;
+    padding: 0.75rem;
+    border: 1px dashed var(--color-border-subtle);
+    border-radius: 0.75rem;
+  }
+
+  /* Checkbox groups. | 复选组。 */
+  .yd-checks {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+  }
+
+  .yd-check {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.375rem;
+    padding: 0.25rem 0.5rem;
+    border: 1px solid var(--color-border-subtle);
+    border-radius: 999px;
+    font-size: 0.8125rem;
+  }
+
+  /* Markdown prose. | Markdown 正文。 */
+  .yd-prose {
+    line-height: 1.65;
+  }
+
+  .yd-prose > :first-child { margin-top: 0; }
+  .yd-prose > :last-child { margin-bottom: 0; }
+  .yd-prose h1,
+  .yd-prose h2,
+  .yd-prose h3,
+  .yd-prose h4 {
+    margin: 0.75rem 0 0.375rem;
+    font-weight: 650;
+    line-height: 1.3;
+  }
+  .yd-prose p { margin: 0.375rem 0; }
+  .yd-prose ul,
+  .yd-prose ol { margin: 0.375rem 0; padding-left: 1.25rem; }
+  .yd-prose ul { list-style: disc; }
+  .yd-prose ol { list-style: decimal; }
+  .yd-prose blockquote {
+    margin: 0.5rem 0;
+    padding-left: 0.75rem;
+    border-left: 3px solid var(--color-border-subtle);
+    color: var(--color-content-muted);
+  }
+  .yd-prose code {
+    padding: 0.0625rem 0.25rem;
+    border-radius: 0.375rem;
+    background: var(--color-surface-muted);
+    font-family: var(--font-mono);
+    font-size: 0.875em;
+  }
+  .yd-prose pre {
+    margin: 0.5rem 0;
+    padding: 0.75rem;
+    border: 1px solid var(--color-border-subtle);
+    border-radius: 0.625rem;
+    background: var(--color-surface-muted);
+    overflow-x: auto;
+  }
+  .yd-prose pre code { padding: 0; background: transparent; }
+  .yd-prose table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 0.5rem 0;
+  }
+  .yd-prose th,
+  .yd-prose td {
+    padding: 0.375rem 0.5rem;
+    border: 1px solid var(--color-border-subtle);
+    text-align: left;
+  }
+  .yd-prose img { max-width: 100%; height: auto; border-radius: 0.5rem; }
+  .yd-prose a { color: var(--color-accent); text-decoration: underline; }
+
+  /* Editor container: the fallback textarea stays usable without JavaScript. | 编辑器容器：无脚本时回退到 textarea。 */
+  .yd-editor {
+    border: 1px solid var(--color-border-subtle);
+    border-radius: 0.75rem;
+    background: var(--color-surface);
+    overflow: hidden;
+  }
+
+  .yd-editor__fallback {
+    display: block;
+    width: 100%;
+    min-height: 14rem;
+    padding: 0.875rem;
+    border: 0;
+    background: transparent;
+    color: var(--color-content);
+    font-family: var(--font-mono);
+    font-size: 0.875rem;
+    resize: vertical;
+  }
+
+  /* EasyMDE overrides: CodeMirror and the toolbar inherit the same semantic tokens in both themes. |
+     EasyMDE 覆盖：CodeMirror 与工具栏在两套主题下都继承同一组语义令牌。 */
+  .yd-editor .EasyMDEContainer,
+  .yd-editor .CodeMirror {
+    background: var(--color-surface);
+    color: var(--color-content);
+    font-family: var(--font-mono);
+  }
+
+  .yd-editor .editor-toolbar {
+    border-color: var(--color-border-subtle);
+    background: var(--color-surface-muted);
+    opacity: 1;
+  }
+
+  .yd-editor .editor-toolbar a {
+    color: var(--color-content);
+    border-color: transparent;
+  }
+
+  .yd-editor .editor-toolbar a.active,
+  .yd-editor .editor-toolbar a:hover {
+    background: color-mix(in srgb, var(--color-accent) 12%, var(--color-surface));
+    border-color: var(--color-border-subtle);
+  }
+
+  .yd-editor .editor-toolbar i.separator {
+    border-left-color: var(--color-border-subtle);
+    border-right-color: var(--color-border-subtle);
+  }
+
+  .yd-editor .CodeMirror-cursor {
+    border-left-color: var(--color-content);
+  }
+
+  .yd-editor .CodeMirror-selected,
+  .yd-editor .CodeMirror-focused .CodeMirror-selected {
+    background: color-mix(in srgb, var(--color-accent) 22%, var(--color-surface));
+  }
+
+  .yd-editor .editor-preview,
+  .yd-editor .editor-preview-side {
+    background: var(--color-surface);
+    color: var(--color-content);
+  }
+
+  .yd-editor .editor-statusbar {
+    color: var(--color-content-muted);
+  }
+
+  .yd-editor--dark .CodeMirror,
+  .yd-editor--dark .editor-preview,
+  .yd-editor--dark .editor-preview-side {
+    background: var(--color-surface);
+    color: var(--color-content);
+  }
+
+  .yd-editor--dark .editor-toolbar {
+    background: var(--color-surface-muted);
+  }
+
+  /* Group settings member list. | 群设置成员列表。 */
+  .yd-msg-members {
+    display: flex;
+    flex-direction: column;
+    gap: 0.375rem;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+
+  .yd-msg-members__item {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.375rem 0;
+    border-bottom: 1px solid var(--color-border-subtle);
+  }
+
+  .yd-msg-members__item form { margin-left: auto; }
+
+  /* Friends. | 好友。 */
+  .yd-friends {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+  }
+
+  .yd-friends__columns {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 1rem;
+  }
+
+  .yd-friend-list {
+    display: flex;
+    flex-direction: column;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+
+  .yd-friend {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 0.625rem 0;
+    border-bottom: 1px solid var(--color-border-subtle);
+  }
+
+  .yd-friend:last-child { border-bottom: 0; }
+
+  .yd-friend__main {
+    flex: 1 1 auto;
+    min-width: 0;
+  }
+
+  .yd-friend__main p { margin: 0.125rem 0 0; }
+
+  .yd-friend__actions {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.375rem;
+  }
+
+  .yd-friend--target {
+    margin-bottom: 0.75rem;
+    padding: 0.75rem;
+    border: 1px solid var(--color-border-subtle);
+    border-radius: 0.75rem;
+    background: var(--color-surface-muted);
+  }
+
+  /* Realtime notices. | 实时通知。 */
+  .yd-message-notices {
+    position: fixed;
+    top: 4.5rem;
+    right: 1rem;
+    z-index: 60;
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    max-width: min(24rem, calc(100vw - 2rem));
+    pointer-events: none;
+  }
+
+  .yd-message-notice {
+    padding: 0.625rem 0.875rem;
+    transition: opacity 180ms ease, transform 180ms ease;
+    border: 1px solid color-mix(in srgb, var(--color-info) 35%, var(--color-border-subtle));
+    border-radius: 0.75rem;
+    background: color-mix(in srgb, var(--color-info) 12%, var(--color-surface));
+    color: var(--color-content);
+    box-shadow: var(--shadow-card);
+    font-size: 0.8125rem;
+    pointer-events: auto;
+  }
+
+  .yd-message-notice--leaving {
+    opacity: 0;
+    transform: translateY(-0.25rem);
+  }
+
+  /* Settings. | 设置。 */
+  .yd-settings {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+  }
+
+  .yd-msg-admin-list {
+    max-height: none;
+    background: transparent;
+    padding: 0;
+  }
+
+  .yd-msg-welcome__list {
+    margin: 0.5rem 0 0;
+    padding-left: 1.25rem;
+    color: var(--color-content-muted);
+    list-style: disc;
+  }
+}
+
+@media (max-width: 64rem) {
+  .yd-msg-layout,
+  .yd-friends__columns {
+    grid-template-columns: 1fr;
+  }
+
+  .yd-msg-conversations {
+    max-height: 20rem;
+  }
+
+  .yd-msg-thread__body {
+    max-height: 55vh;
+  }
+}
+
+@layer components {
+  /* Attachment names and labels shared by the compose drawer and the rendered bubbles. | 撰写抽屉与消息气泡共用的附件名与字段标签。 */
+  .yd-attachment__name,
+  .yd-attachment-chip__name {
+    max-width: 14rem;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .yd-label {
+    display: block;
+    margin-bottom: 0.25rem;
+    color: var(--color-content);
+    font-size: 0.8125rem;
+    font-weight: 600;
+  }
+
+  .yd-friend-search {
+    margin-bottom: 0.5rem;
+  }
+
+  .yd-messages-page {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+  }
+
+  .yd-msg-pin__subject {
+    margin: 0 0 0.75rem;
+    padding: 0.5rem 0.75rem;
+    border: 1px solid var(--color-border-subtle);
+    border-radius: 0.625rem;
+    background: var(--color-surface-muted);
+    font-weight: 600;
+  }
+
+  .yd-msg-welcome {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+  }
+}
+
+/* ============================================================================================
+   消息中心的即时通讯布局：会话列表 / 历史消息 / 内联撰写区。
+   The message centre's messenger layout: conversation list / history / inline composer.
+
+   这三个区域各占固定高度，滚动只发生在会话列表与历史消息内部；页面本身不再整页滚动。
+   The three regions own their heights and scrolling happens only inside the conversation list and the history, never
+   on the page itself.
+   ============================================================================================ */
+@layer components {
+  /* The message page is the only page that removes the workspace gutter and fills the main column. | 消息中心是唯一移除
+     工作区留白并填满主列高度的页面。 */
+  .yd-main:has(.yd-messages-page) {
+    overflow: hidden;
+  }
+
+  .yd-main:has(.yd-messages-page) .yd-footer {
+    display: none;
+  }
+
+  .yd-workspace:has(> .yd-messages-page) {
+    min-height: 0;
+    padding: 0;
+  }
+
+  .yd-messages-page {
+    flex: 1 1 auto;
+    min-height: 0;
+    gap: 0;
+    overflow: hidden;
+  }
+
+  .yd-msg-app {
+    display: grid;
+    flex: 1 1 auto;
+    grid-template-columns: clamp(18rem, 24vw, 24rem) minmax(0, 1fr);
+    min-height: 0;
+    background: var(--color-surface);
+  }
+
+  /* ---------------------------------------------------------------- conversation rail | 会话栏 */
+  .yd-msg-sidebar {
+    display: flex;
+    min-width: 0;
+    min-height: 0;
+    flex-direction: column;
+    border-right: 1px solid var(--color-border-subtle);
+    background: var(--color-surface);
+  }
+
+  .yd-msg-sidebar__head {
+    display: flex;
+    flex: 0 0 auto;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem;
+    padding: 0.75rem 1rem;
+    border-bottom: 1px solid var(--color-border-subtle);
+  }
+
+  .yd-msg-sidebar__heading {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    min-width: 0;
+  }
+
+  .yd-msg-sidebar__title {
+    margin: 0;
+    font-size: 1rem;
+    font-weight: 700;
+  }
+
+  .yd-msg-search {
+    display: flex;
+    flex: 0 0 auto;
+    flex-direction: column;
+    gap: 0.5rem;
+    padding: 0.75rem 1rem;
+    border-bottom: 1px solid var(--color-border-subtle);
+  }
+
+  .yd-msg-search__row {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+  }
+
+  .yd-msg-search__input {
+    flex: 1 1 auto;
+    min-width: 0;
+  }
+
+  .yd-msg-search__filters summary {
+    color: var(--color-content-muted);
+    font-size: 0.8125rem;
+    cursor: pointer;
+  }
+
+  .yd-msg-search__fields {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    margin-top: 0.5rem;
+  }
+
+  .yd-msg-pins {
+    flex: 0 0 auto;
+    border-bottom: 1px solid var(--color-border-subtle);
+  }
+
+  .yd-msg-pins__summary {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.625rem 1rem;
+    color: var(--color-content-muted);
+    font-size: 0.8125rem;
+    cursor: pointer;
+  }
+
+  .yd-msg-pins__list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.125rem;
+    max-height: 12rem;
+    padding: 0 0.5rem 0.5rem;
+    overflow-y: auto;
+  }
+
+  .yd-msg-pin {
+    display: flex;
+    align-items: center;
+    gap: 0.375rem;
+    padding: 0.5rem 0.625rem;
+    border-radius: 0.5rem;
+    color: var(--color-content);
+    text-decoration: none;
+  }
+
+  .yd-msg-pin:hover {
+    background: var(--color-surface-muted);
+  }
+
+  .yd-msg-pin__title {
+    overflow: hidden;
+    font-weight: 600;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .yd-msg-pin__meta {
+    margin-left: auto;
+    color: var(--color-content-muted);
+    font-size: 0.6875rem;
+    white-space: nowrap;
+  }
+
+  .yd-msg-sidebar__section {
+    flex: 0 0 auto;
+    padding: 0.5rem 1rem 0.25rem;
+    color: var(--color-content-muted);
+    font-size: 0.6875rem;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+  }
+
+  .yd-msg-sidebar .yd-msg-conversations {
+    flex: 1 1 auto;
+    max-height: none;
+    overflow-y: auto;
+  }
+
+  .yd-msg-sidebar .yd-msg-conv {
+    padding: 0.625rem 1rem;
+  }
+
+  /* ---------------------------------------------------------------- chat panel | 聊天面板 */
+  .yd-msg-main {
+    display: flex;
+    min-width: 0;
+    min-height: 0;
+    flex-direction: column;
+    background: var(--color-surface-muted);
+  }
+
+  .yd-msg-thread {
+    display: flex;
+    flex: 1 1 auto;
+    min-height: 0;
+    flex-direction: column;
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+    box-shadow: none;
+    overflow: hidden;
+  }
+
+  .yd-msg-thread__head {
+    flex: 0 0 auto;
+    padding: 0.75rem 1rem;
+    background: var(--color-surface);
+    border-bottom: 1px solid var(--color-border-subtle);
+  }
+
+  .yd-msg-thread__body {
+    display: flex;
+    flex: 1 1 auto;
+    min-height: 0;
+    max-height: none;
+    flex-direction: column;
+    gap: 0.5rem;
+    padding: 1rem clamp(1rem, 2vw, 2rem);
+    overflow-y: auto;
+    background: var(--color-surface-muted);
+  }
+
+  .yd-msg-back {
+    display: none;
+    align-items: center;
+    justify-content: center;
+    width: 2rem;
+    height: 2rem;
+    border-radius: 0.5rem;
+    color: var(--color-content);
+    text-decoration: none;
+  }
+
+  .yd-msg-back:hover {
+    background: var(--color-surface-muted);
+  }
+
+  /* ---------------------------------------------------------------- bubbles | 气泡 */
+  .yd-msg {
+    display: flex;
+    align-self: flex-start;
+    align-items: flex-start;
+    gap: 0.5rem;
+    max-width: min(46rem, 90%);
+    padding: 0;
+    border: 0;
+    background: transparent;
+  }
+
+  .yd-msg--mine {
+    flex-direction: row-reverse;
+    align-self: flex-end;
+    background: transparent;
+    border-color: transparent;
+  }
+
+  .yd-msg__avatar {
+    flex: 0 0 auto;
+  }
+
+  .yd-msg__stack {
+    display: flex;
+    min-width: 0;
+    flex-direction: column;
+    gap: 0.25rem;
+  }
+
+  .yd-msg__meta {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.375rem;
+    color: var(--color-content-muted);
+    font-size: 0.75rem;
+  }
+
+  .yd-msg--mine .yd-msg__meta {
+    justify-content: flex-end;
+  }
+
+  .yd-msg__sender {
+    color: var(--color-content);
+    font-weight: 600;
+  }
+
+  .yd-msg__bubble {
+    padding: 0.625rem 0.75rem;
+    border: 1px solid var(--color-border-subtle);
+    border-radius: 0.875rem;
+    background: var(--color-surface);
+    box-shadow: var(--shadow-card);
+    overflow-wrap: anywhere;
+  }
+
+  .yd-msg--mine .yd-msg__bubble {
+    background: color-mix(in srgb, var(--color-accent) 10%, var(--color-surface));
+    border-color: color-mix(in srgb, var(--color-accent) 30%, var(--color-border-subtle));
+  }
+
+  .yd-msg__title {
+    margin: 0 0 0.25rem;
+    font-size: 0.9375rem;
+  }
+
+  .yd-msg__body {
+    margin-top: 0;
+  }
+
+  .yd-msg__tombstone {
+    margin: 0;
+  }
+
+  .yd-msg__foot {
+    margin-top: 0.375rem;
+    text-align: right;
+  }
+
+  /* ---------------------------------------------------------------- search mode | 检索模式 */
+  .yd-msg-search-results {
+    display: flex;
+    flex: 1 1 auto;
+    min-height: 0;
+    flex-direction: column;
+    background: var(--color-surface);
+  }
+
+  .yd-msg-search-results__head {
+    display: flex;
+    flex: 0 0 auto;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 0.75rem 1rem;
+    border-bottom: 1px solid var(--color-border-subtle);
+  }
+
+  .yd-msg-search-results__heading {
+    flex: 1 1 auto;
+    min-width: 0;
+  }
+
+  .yd-msg-search-results__title {
+    margin: 0;
+    font-size: 1rem;
+  }
+
+  .yd-msg-search-results .yd-msg-results {
+    flex: 1 1 auto;
+    padding: 1rem;
+    overflow-y: auto;
+  }
+
+  .yd-msg-search-results__empty {
+    margin: 1.5rem;
+  }
+
+  /* ---------------------------------------------------------------- welcome | 空状态 */
+  .yd-msg-welcome {
+    max-width: 34rem;
+    margin: auto;
+    padding: 2rem;
+    align-items: center;
+    text-align: center;
+  }
+
+  .yd-msg-welcome svg {
+    width: 3rem;
+    height: 3rem;
+    color: var(--color-accent);
+  }
+
+  .yd-msg-welcome__title {
+    margin: 0;
+    font-size: 1.25rem;
+  }
+
+  .yd-msg-welcome__list {
+    text-align: left;
+  }
+
+  /* ---------------------------------------------------------------- composer | 撰写区 */
+  .yd-msg-composer {
+    display: flex;
+    flex: 0 0 auto;
+    flex-direction: column;
+    gap: 0.5rem;
+    padding: 0.75rem clamp(1rem, 2vw, 2rem);
+    border-top: 1px solid var(--color-border-subtle);
+    background: var(--color-surface);
+  }
+
+  .yd-msg-composer__form {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+  }
+
+  .yd-msg-composer__top {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.5rem;
+  }
+
+  .yd-msg-composer__type {
+    width: auto;
+    min-width: 7rem;
+  }
+
+  .yd-msg-composer__title {
+    flex: 1 1 14rem;
+    min-width: 0;
+  }
+
+  .yd-msg-composer__errors {
+    color: var(--color-danger);
+    font-size: 0.8125rem;
+  }
+
+  .yd-msg-composer__errors:empty,
+  .yd-msg-composer__attachments:empty {
+    display: none;
+  }
+
+  .yd-msg-composer__more summary {
+    color: var(--color-content-muted);
+    font-size: 0.8125rem;
+    cursor: pointer;
+  }
+
+  .yd-msg-composer__more-body {
+    display: grid;
+    gap: 0.5rem;
+    margin-top: 0.5rem;
+    padding: 0.75rem;
+    border: 1px solid var(--color-border-subtle);
+    border-radius: 0.5rem;
+    background: var(--color-surface-muted);
+  }
+
+  .yd-msg-composer__bar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.5rem;
+  }
+
+  .yd-msg-composer__upload {
+    display: flex;
+    align-items: center;
+    gap: 0.375rem;
+  }
+
+  .yd-msg-composer__hint {
+    flex: 1 1 auto;
+    font-size: 0.75rem;
+  }
+
+  .yd-msg-composer__send {
+    margin-left: auto;
+  }
+
+  .yd-msg-composer__readonly {
+    margin: 0;
+  }
+
+  .yd-editor--compact .yd-editor__fallback {
+    min-height: 6rem;
+  }
+
+  .yd-editor--compact .EasyMDEContainer .CodeMirror {
+    min-height: 96px;
+    max-height: 180px;
+  }
+
+  /* Short histories sit at the bottom, next to the composer, like a chat window; once the history
+     overflows, the auto margin collapses and normal scrolling takes over. | 消息较少时历史贴着撰写区
+     底部排列，像聊天窗口一样；内容溢出后自动外边距归零，恢复正常滚动。 */
+  .yd-msg-thread__body > :first-child {
+    margin-top: auto;
+  }
+}
+
+@media (max-width: 63.999rem) {
+  .yd-msg-app {
+    grid-template-columns: minmax(15rem, 18rem) minmax(0, 1fr);
+  }
+}
+
+@media (max-width: 47.999rem) {
+  .yd-main:has(.yd-messages-page) .yd-footer {
+    display: none;
+  }
+
+  .yd-msg-app {
+    grid-template-columns: 1fr;
+  }
+
+  .yd-msg-app--active .yd-msg-sidebar {
+    display: none;
+  }
+
+  .yd-msg-app:not(.yd-msg-app--active) .yd-msg-main {
+    display: none;
+  }
+
+  .yd-msg-sidebar {
+    border-right: 0;
+  }
+
+  .yd-msg-back {
+    display: inline-flex;
+  }
+
+  .yd-msg-thread__body {
+    padding: 0.75rem;
+  }
+
+  .yd-msg-composer {
+    padding: 0.5rem 0.75rem;
+  }
+
+  .yd-msg-composer__hint {
+    display: none;
+  }
+
+  .yd-msg {
+    max-width: 96%;
+  }
+}
+
+/* ============================================================================================
+   EasyMDE 覆盖（无层） | EasyMDE overrides (unlayered)
+
+   EasyMDE 的 vendor CSS 是无层样式；写在 @layer components 里的规则永远输给它，即使选择器更具体。
+   因此这组覆盖必须留在层外，并用 .EasyMDEContainer 提高特异性，保证明暗两套主题都能覆盖 vendor 的
+   白色背景与黑色文字。 | EasyMDE's vendor CSS is unlayered; rules inside @layer components always lose to it,
+   even with a more specific selector. These overrides therefore stay outside every layer and add
+   .EasyMDEContainer for specificity, so both themes override the vendor's white background and black text.
+   ============================================================================================ */
+.yd-editor .EasyMDEContainer .CodeMirror,
+.yd-editor .EasyMDEContainer .CodeMirror-fullscreen {
+  background: var(--color-surface);
+  color: var(--color-content);
+  font-family: var(--font-mono);
+}
+
+.yd-editor .EasyMDEContainer .editor-toolbar {
+  border-color: var(--color-border-subtle);
+  background: var(--color-surface-muted);
+  opacity: 1;
+}
+
+.yd-editor .EasyMDEContainer .editor-toolbar a {
+  color: var(--color-content);
+  border-color: transparent;
+}
+
+.yd-editor .EasyMDEContainer .editor-toolbar a.active,
+.yd-editor .EasyMDEContainer .editor-toolbar a:hover {
+  background: color-mix(in srgb, var(--color-accent) 12%, var(--color-surface));
+  border-color: var(--color-border-subtle);
+}
+
+.yd-editor .EasyMDEContainer .editor-toolbar i.separator {
+  border-left-color: var(--color-border-subtle);
+  border-right-color: var(--color-border-subtle);
+}
+
+.yd-editor .EasyMDEContainer .CodeMirror-cursor {
+  border-left-color: var(--color-content);
+}
+
+.yd-editor .EasyMDEContainer .CodeMirror-selected,
+.yd-editor .EasyMDEContainer .CodeMirror-focused .CodeMirror-selected {
+  background: color-mix(in srgb, var(--color-accent) 22%, var(--color-surface));
+}
+
+.yd-editor .EasyMDEContainer .editor-preview,
+.yd-editor .EasyMDEContainer .editor-preview-side {
+  background: var(--color-surface);
+  color: var(--color-content);
+}
+
+.yd-editor .EasyMDEContainer .editor-statusbar {
+  color: var(--color-content-muted);
+}

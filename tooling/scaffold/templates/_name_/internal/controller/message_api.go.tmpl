@@ -1,0 +1,986 @@
+// 本文件是消息中心的 JSON API：与 HTML 页面共用同一套领域服务，因此权限、租户边界与业务规则只有一份。
+// This file is the message-centre JSON API: it shares the very same domain service as the HTML pages, so permissions,
+// tenant boundaries and business rules exist exactly once.
+
+package controller
+
+import (
+	"net/http"
+	"time"
+
+	"{{ .YdModule }}/core/logx"
+	"{{ .YdModule }}/http/router"
+	"{{ .YdModule }}/messaging"
+)
+
+// APISendRequest is the JSON/form payload of a send. | APISendRequest 是发送的 JSON/表单载荷。
+//
+// @Name APISendRequest
+type APISendRequest struct {
+	// ConversationID is the target conversation. | ConversationID 是目标会话。
+	ConversationID string `json:"conversation_id" form:"conversation_id"`
+	// RecipientID opens a direct conversation when no conversation is named. | RecipientID 在未指定会话时开启单聊。
+	RecipientID string `json:"recipient_id" form:"recipient_id"`
+	// GroupTitle names a new group when several recipients are selected. | GroupTitle 在选中多个收件人时命名新群。
+	GroupTitle string `json:"group_title" form:"group_title"`
+	// GroupMembers lists the new group's recipients. | GroupMembers 列出新群收件人。
+	GroupMembers []string `json:"group_members" form:"group_members"`
+	// TypeKey is the message type. | TypeKey 是消息类型。
+	TypeKey string `json:"type_key" form:"type_key"`
+	// Title is the optional subject. | Title 是可选标题。
+	Title string `json:"title" form:"title"`
+	// Markdown is the body source. | Markdown 是正文源。
+	Markdown string `json:"body_markdown" form:"body_markdown"`
+	// TagIDs lists labels. | TagIDs 列出标签。
+	TagIDs []string `json:"tag_ids" form:"tag_ids"`
+	// GroupIDs lists groups. | GroupIDs 列出分组。
+	GroupIDs []string `json:"group_ids" form:"group_ids"`
+	// AttachmentIDs lists pending uploads. | AttachmentIDs 列出待挂载上传。
+	AttachmentIDs []string `json:"attachment_ids" form:"attachment_ids"`
+}
+
+// APIEditRequest is the JSON/form payload of an edit. | APIEditRequest 是编辑的 JSON/表单载荷。
+//
+// @Name APIEditRequest
+type APIEditRequest struct {
+	// TypeKey is the message type. | TypeKey 是消息类型。
+	TypeKey string `json:"type_key" form:"type_key"`
+	// Title is the subject. | Title 是标题。
+	Title string `json:"title" form:"title"`
+	// Markdown is the body source. | Markdown 是正文源。
+	Markdown string `json:"body_markdown" form:"body_markdown"`
+	// TagIDs lists labels. | TagIDs 列出标签。
+	TagIDs []string `json:"tag_ids" form:"tag_ids"`
+	// GroupIDs lists groups. | GroupIDs 列出分组。
+	GroupIDs []string `json:"group_ids" form:"group_ids"`
+}
+
+// APIPinRequest is the pin window payload. | APIPinRequest 是置顶窗口载荷。
+//
+// @Name APIPinRequest
+type APIPinRequest struct {
+	// Start is an RFC3339 start or empty. | Start 是 RFC3339 起点或空。
+	Start string `json:"pin_start" form:"pin_start"`
+	// End is an RFC3339 end or empty. | End 是 RFC3339 终点或空。
+	End string `json:"pin_end" form:"pin_end"`
+}
+
+// APIFriendRequest is the friend request payload. | APIFriendRequest 是好友申请载荷。
+//
+// @Name APIFriendRequest
+type APIFriendRequest struct {
+	// FriendID is the target. | FriendID 是目标。
+	FriendID string `json:"friend_id" form:"friend_id"`
+	// Message is the greeting. | Message 是招呼语。
+	Message string `json:"message" form:"message"`
+	// Remark is the alias for a remark action. | Remark 是备注动作的别名。
+	Remark string `json:"remark" form:"remark"`
+}
+
+// APITypeRequest is the type payload. | APITypeRequest 是类型载荷。
+//
+// @Name APITypeRequest
+type APITypeRequest struct {
+	// Key is the stable slug. | Key 是稳定标识。
+	Key string `json:"key" form:"key"`
+	// Name is the Chinese label. | Name 是中文名。
+	Name string `json:"name" form:"name"`
+	// NameEN is the English label. | NameEN 是英文名。
+	NameEN string `json:"name_en" form:"name_en"`
+	// Tone is the semantic colour role. | Tone 是语义色角色。
+	Tone string `json:"tone" form:"tone"`
+}
+
+// APITagRequest is the group/label payload. | APITagRequest 是分组/标签载荷。
+//
+// @Name APITagRequest
+type APITagRequest struct {
+	// ID is the existing tag id for an update. | ID 是更新时的既有标签 ID。
+	ID string `json:"id" form:"id"`
+	// Kind is group or tag. | Kind 取 group 或 tag。
+	Kind string `json:"kind" form:"kind"`
+	// Key is the stable slug. | Key 是稳定标识。
+	Key string `json:"key" form:"key"`
+	// Name is the Chinese label. | Name 是中文名。
+	Name string `json:"name" form:"name"`
+	// NameEN is the English label. | NameEN 是英文名。
+	NameEN string `json:"name_en" form:"name_en"`
+	// Tone is the semantic colour role. | Tone 是语义色角色。
+	Tone string `json:"tone" form:"tone"`
+}
+
+// APIConversations lists conversations. | APIConversations 列出会话。
+//
+// @Summary List conversations | 列出会话
+// @Description Returns the actor's conversations with unread counts, last messages and members.
+// @Description 返回主体的会话及未读数、最后一条消息与成员。
+// @Tags messages
+// @Produce json
+// @Success 200 {object} string "conversation list | 会话列表"
+// @Security BearerAuth
+// @Router /api/v1/messages/conversations [get]
+func (c *Controller) APIConversations(ctx *router.Ctx) {
+	if !c.apiAvailable(ctx) {
+		return
+	}
+	actor := c.messageActor(ctx)
+	list, err := c.messages.Conversations(ctx.Request.Context(), actor)
+	if err != nil {
+		c.apiFail(ctx, err)
+		return
+	}
+	_ = ctx.JSON(http.StatusOK, map[string]any{"conversations": list})
+}
+
+// APIConversation returns one conversation and its newest page. | APIConversation 返回一个会话及其最新一页。
+//
+// @Summary Conversation detail | 会话详情
+// @Description Returns one conversation and its newest page of messages; opening it advances the read watermark.
+// @Description 返回一个会话及其最新一页消息；打开动作会推进已读水位。
+// @Tags messages
+// @Produce json
+// @Param id path string true "conversation id | 会话 ID"
+// @Success 200 {object} string "conversation and messages | 会话与消息"
+// @Security BearerAuth
+// @Router /api/v1/messages/conversations/{id} [get]
+func (c *Controller) APIConversation(ctx *router.Ctx) {
+	if !c.apiAvailable(ctx) {
+		return
+	}
+	actor := c.messageActor(ctx)
+	conversation, messages, err := c.messages.Conversation(ctx.Request.Context(), actor, ctx.Param("id"))
+	if err != nil {
+		c.apiFail(ctx, err)
+		return
+	}
+	_ = ctx.JSON(http.StatusOK, map[string]any{"conversation": conversation, "messages": messages})
+}
+
+// APIMessages searches messages. | APIMessages 检索消息。
+//
+// @Summary Search messages | 检索消息
+// @Description Returns one page of the same mixed search the HTML page uses.
+// @Description 返回与 HTML 页面相同的混合检索的一页。
+// @Tags messages
+// @Produce json
+// @Param q query string false "mixed full-text query | 混合全文检索词"
+// @Param folder query string false "all|unread|sent|system|pinned | 文件夹"
+// @Param type_key query string false "type key | 类型键"
+// @Param sender query string false "sender id | 发送人 ID"
+// @Param tag query string false "group or label id | 分组或标签 ID"
+// @Param page query int false "1-based page | 从 1 开始的页码"
+// @Success 200 {object} string "message page | 消息页"
+// @Security BearerAuth
+// @Router /api/v1/messages [get]
+func (c *Controller) APIMessages(ctx *router.Ctx) {
+	if !c.apiAvailable(ctx) {
+		return
+	}
+	filters := parseMessageFilters(ctx)
+	result, err := c.messages.Messages(ctx.Request.Context(), c.messageActor(ctx), messaging.MessageFilter{
+		Query:    filters.Query,
+		TypeKey:  filters.TypeKey,
+		SenderID: filters.SenderID,
+		TagID:    filters.TagID,
+		Folder:   filters.Folder,
+		Page:     filters.Page,
+		PageSize: c.messages.Options().PageSize,
+	})
+	if err != nil {
+		c.apiFail(ctx, err)
+		return
+	}
+	_ = ctx.JSON(http.StatusOK, result)
+}
+
+// APIMessage returns one message. | APIMessage 返回一条消息。
+//
+// @Summary Message detail | 消息详情
+// @Description Returns one message with attachments, tags and read counts when the actor may see it.
+// @Description 在主体可见时返回一条消息及其附件、标签与已读计数。
+// @Tags messages
+// @Produce json
+// @Param id path string true "message id | 消息 ID"
+// @Success 200 {object} string "message | 消息"
+// @Security BearerAuth
+// @Router /api/v1/messages/{id} [get]
+func (c *Controller) APIMessage(ctx *router.Ctx) {
+	if !c.apiAvailable(ctx) {
+		return
+	}
+	message, err := c.messages.Message(ctx.Request.Context(), c.messageActor(ctx), ctx.Param("id"))
+	if err != nil {
+		c.apiFail(ctx, err)
+		return
+	}
+	_ = ctx.JSON(http.StatusOK, message)
+}
+
+// APISendMessage sends a message. | APISendMessage 发送消息。
+//
+// @Summary Send message | 发送消息
+// @Description Resolves a conversation, direct friend or group, then sends the message.
+// @Description 解析会话、单聊好友或群，然后发送消息。
+// @Tags messages
+// @Accept json
+// @Produce json
+// @Param body body APISendRequest true "send payload | 发送载荷"
+// @Success 201 {object} string "created message | 已创建消息"
+// @Security BearerAuth
+// @Router /api/v1/messages [post]
+func (c *Controller) APISendMessage(ctx *router.Ctx) {
+	if !c.apiAvailable(ctx) {
+		return
+	}
+	var request APISendRequest
+	if err := ctx.Bind(&request); err != nil {
+		c.apiFail(ctx, messaging.ErrInvalidInput)
+		return
+	}
+	actor := c.messageActor(ctx)
+	conversationID, err := c.apiConversation(ctx, actor, request)
+	if err != nil {
+		c.apiFail(ctx, err)
+		return
+	}
+	message, err := c.messages.Send(ctx.Request.Context(), actor, messaging.SendInput{
+		ConversationID: conversationID,
+		TypeKey:        request.TypeKey,
+		Title:          request.Title,
+		Markdown:       request.Markdown,
+		TagIDs:         request.TagIDs,
+		GroupIDs:       request.GroupIDs,
+		AttachmentIDs:  request.AttachmentIDs,
+	})
+	if err != nil {
+		c.apiFail(ctx, err)
+		return
+	}
+	_ = ctx.JSON(http.StatusCreated, message)
+}
+
+// apiConversation resolves the API send target. | apiConversation 解析 API 发送目标。
+func (c *Controller) apiConversation(ctx *router.Ctx, actor messaging.Actor, request APISendRequest) (string, error) {
+	if request.ConversationID != "" {
+		return request.ConversationID, nil
+	}
+	recipients := request.GroupMembers
+	if request.RecipientID != "" {
+		recipients = append(recipients, request.RecipientID)
+	}
+	switch len(recipients) {
+	case 0:
+		return "", messaging.ErrInvalidInput
+	case 1:
+		conversation, err := c.messages.DirectConversation(ctx.Request.Context(), actor, recipients[0])
+		if err != nil {
+			return "", err
+		}
+		return conversation.ID, nil
+	default:
+		title := request.GroupTitle
+		if title == "" {
+			title = c.tr(c.lang(ctx), "message.group_default_title")
+		}
+		conversation, err := c.messages.CreateGroup(ctx.Request.Context(), actor, title, recipients)
+		if err != nil {
+			return "", err
+		}
+		return conversation.ID, nil
+	}
+}
+
+// APISendSystem sends an announcement. | APISendSystem 发送公告。
+//
+// @Summary Send announcement | 发送公告
+// @Description Sends an administrator announcement into the tenant channel.
+// @Description 向租户公告频道发送管理员公告。
+// @Tags messages
+// @Accept json
+// @Produce json
+// @Param body body APISendRequest true "announcement payload | 公告载荷"
+// @Success 201 {object} string "created announcement | 已创建公告"
+// @Security BearerAuth
+// @Router /api/v1/messages/system [post]
+func (c *Controller) APISendSystem(ctx *router.Ctx) {
+	if !c.apiAvailable(ctx) {
+		return
+	}
+	var request APISendRequest
+	if err := ctx.Bind(&request); err != nil {
+		c.apiFail(ctx, messaging.ErrInvalidInput)
+		return
+	}
+	message, err := c.messages.SendSystem(ctx.Request.Context(), c.messageActor(ctx), messaging.SendInput{
+		TypeKey:       request.TypeKey,
+		Title:         request.Title,
+		Markdown:      request.Markdown,
+		TagIDs:        request.TagIDs,
+		GroupIDs:      request.GroupIDs,
+		AttachmentIDs: request.AttachmentIDs,
+	})
+	if err != nil {
+		c.apiFail(ctx, err)
+		return
+	}
+	_ = ctx.JSON(http.StatusCreated, message)
+}
+
+// APIUpdateMessage edits a message. | APIUpdateMessage 编辑消息。
+//
+// @Summary Edit message | 编辑消息
+// @Description Edits a message inside the edit window or as a moderator.
+// @Description 在编辑窗口内或以管理员身份编辑消息。
+// @Tags messages
+// @Accept json
+// @Produce json
+// @Param id path string true "message id | 消息 ID"
+// @Param body body APIEditRequest true "edit payload | 编辑载荷"
+// @Success 200 {object} string "updated message | 已更新消息"
+// @Security BearerAuth
+// @Router /api/v1/messages/{id} [post]
+func (c *Controller) APIUpdateMessage(ctx *router.Ctx) {
+	if !c.apiAvailable(ctx) {
+		return
+	}
+	var request APIEditRequest
+	if err := ctx.Bind(&request); err != nil {
+		c.apiFail(ctx, messaging.ErrInvalidInput)
+		return
+	}
+	message, err := c.messages.Edit(ctx.Request.Context(), c.messageActor(ctx), ctx.Param("id"), messaging.EditInput{
+		TypeKey:  request.TypeKey,
+		Title:    request.Title,
+		Markdown: request.Markdown,
+		TagIDs:   request.TagIDs,
+		GroupIDs: request.GroupIDs,
+	})
+	if err != nil {
+		c.apiFail(ctx, err)
+		return
+	}
+	_ = ctx.JSON(http.StatusOK, message)
+}
+
+// APIRecallMessage recalls a message. | APIRecallMessage 撤回消息。
+//
+// @Summary Recall message | 撤回消息
+// @Description Recalls a message; the body is retained for audit.
+// @Description 撤回消息；正文保留供审计。
+// @Tags messages
+// @Produce json
+// @Param id path string true "message id | 消息 ID"
+// @Success 204 {string} string "no content | 无内容"
+// @Security BearerAuth
+// @Router /api/v1/messages/{id}/recall [post]
+func (c *Controller) APIRecallMessage(ctx *router.Ctx) {
+	if !c.apiAvailable(ctx) {
+		return
+	}
+	if err := c.messages.Recall(ctx.Request.Context(), c.messageActor(ctx), ctx.Param("id"), field(ctx, FieldReason)); err != nil {
+		c.apiFail(ctx, err)
+		return
+	}
+	if err := ctx.NoContent(http.StatusNoContent); err != nil {
+		c.log.Warn("api recall response failed | API 撤回响应失败", logx.Err(err))
+	}
+}
+
+// APIRevokeSystemMessage revokes an announcement. | APIRevokeSystemMessage 撤销系统公告。
+//
+// @Summary Revoke announcement | 撤销系统公告
+// @Description Revokes a sent announcement; regular readers receive an empty tombstone while the original body is
+// @Description retained for audit.
+// @Description 撤销已发送的系统公告；普通读者拿到空墓碑，原文保留供审计。
+// @Tags messages
+// @Produce json
+// @Param id path string true "message id | 消息 ID"
+// @Success 204 {string} string "no content | 无内容"
+// @Failure 403 {object} string "missing message:system | 缺少 message:system"
+// @Failure 404 {object} string "message not found | 消息不存在"
+// @Security BearerAuth
+// @Router /api/v1/messages/{id}/revoke [post]
+func (c *Controller) APIRevokeSystemMessage(ctx *router.Ctx) {
+	if !c.apiAvailable(ctx) {
+		return
+	}
+	if err := c.messages.Recall(ctx.Request.Context(), c.messageActor(ctx), ctx.Param("id"), field(ctx, FieldReason)); err != nil {
+		c.apiFail(ctx, err)
+		return
+	}
+	if err := ctx.NoContent(http.StatusNoContent); err != nil {
+		c.log.Warn("api revoke response failed | API 撤销响应失败", logx.Err(err))
+	}
+}
+
+// APIMarkRead advances the read watermark. | APIMarkRead 推进已读水位。
+//
+// @Summary Mark read | 标记已读
+// @Description Advances the actor's read watermark in a conversation.
+// @Description 推进主体在会话中的已读水位。
+// @Tags messages
+// @Produce json
+// @Param id path string true "conversation id | 会话 ID"
+// @Success 204 {string} string "no content | 无内容"
+// @Security BearerAuth
+// @Router /api/v1/messages/{id}/read [post]
+func (c *Controller) APIMarkRead(ctx *router.Ctx) {
+	if !c.apiAvailable(ctx) {
+		return
+	}
+	if err := c.messages.MarkRead(ctx.Request.Context(), c.messageActor(ctx), ctx.Param("id")); err != nil {
+		c.apiFail(ctx, err)
+		return
+	}
+	if err := ctx.NoContent(http.StatusNoContent); err != nil {
+		c.log.Warn("api read response failed | API 已读响应失败", logx.Err(err))
+	}
+}
+
+// APIPinMessage pins an announcement. | APIPinMessage 置顶公告。
+//
+// @Summary Pin announcement | 置顶公告
+// @Description Pins a system message with an optional window.
+// @Description 置顶系统消息，可带时间窗口。
+// @Tags messages
+// @Accept json
+// @Produce json
+// @Param id path string true "message id | 消息 ID"
+// @Param body body APIPinRequest true "pin window | 置顶窗口"
+// @Success 204 {string} string "no content | 无内容"
+// @Security BearerAuth
+// @Router /api/v1/messages/{id}/pin [post]
+func (c *Controller) APIPinMessage(ctx *router.Ctx) {
+	if !c.apiAvailable(ctx) {
+		return
+	}
+	var request APIPinRequest
+	if err := ctx.Bind(&request); err != nil {
+		c.apiFail(ctx, messaging.ErrInvalidInput)
+		return
+	}
+	start, err := parsePinTime(request.Start)
+	if err != nil {
+		c.apiFail(ctx, err)
+		return
+	}
+	end, err := parsePinTime(request.End)
+	if err != nil {
+		c.apiFail(ctx, err)
+		return
+	}
+	if err := c.messages.Pin(ctx.Request.Context(), c.messageActor(ctx), ctx.Param("id"), start, end); err != nil {
+		c.apiFail(ctx, err)
+		return
+	}
+	if err := ctx.NoContent(http.StatusNoContent); err != nil {
+		c.log.Warn("api pin response failed | API 置顶响应失败", logx.Err(err))
+	}
+}
+
+// APIUnpinMessage clears a pin. | APIUnpinMessage 取消置顶。
+//
+// @Summary Unpin announcement | 取消置顶
+// @Description Clears the pin window.
+// @Description 清除置顶窗口。
+// @Tags messages
+// @Produce json
+// @Param id path string true "message id | 消息 ID"
+// @Success 204 {string} string "no content | 无内容"
+// @Security BearerAuth
+// @Router /api/v1/messages/{id}/unpin [post]
+func (c *Controller) APIUnpinMessage(ctx *router.Ctx) {
+	if !c.apiAvailable(ctx) {
+		return
+	}
+	if err := c.messages.Unpin(ctx.Request.Context(), c.messageActor(ctx), ctx.Param("id")); err != nil {
+		c.apiFail(ctx, err)
+		return
+	}
+	if err := ctx.NoContent(http.StatusNoContent); err != nil {
+		c.log.Warn("api unpin response failed | API 取消置顶响应失败", logx.Err(err))
+	}
+}
+
+// APIUploadAttachment uploads one pending file. | APIUploadAttachment 上传一个待挂载文件。
+//
+// @Summary Upload attachment | 上传附件
+// @Description Stores a pending upload with the same size and content-type checks as the HTML form.
+// @Description 使用与 HTML 表单相同的大小与内容类型校验保存待挂载上传。
+// @Tags messages
+// @Accept multipart/form-data
+// @Produce json
+// @Param file formData file true "attachment | 附件"
+// @Success 201 {object} string "attachment record | 附件记录"
+// @Security BearerAuth
+// @Router /api/v1/messages/attachments [post]
+func (c *Controller) APIUploadAttachment(ctx *router.Ctx) {
+	if !c.apiAvailable(ctx) {
+		return
+	}
+	file, header, err := ctx.FormFile("file")
+	if err != nil {
+		c.apiFail(ctx, messaging.ErrInvalidInput)
+		return
+	}
+	defer func() { _ = file.Close() }()
+	attachment, err := c.messages.UploadAttachment(ctx.Request.Context(), c.messageActor(ctx), header.Filename, header.Size, file)
+	if err != nil {
+		c.apiFail(ctx, err)
+		return
+	}
+	_ = ctx.JSON(http.StatusCreated, attachment)
+}
+
+// APIDownloadAttachment streams an attachment. | APIDownloadAttachment 流式返回附件。
+//
+// @Summary Download attachment | 下载附件
+// @Description Streams attachment bytes after the same visibility check as the HTML endpoint.
+// @Description 在与 HTML 端点相同的可见性检查后流式返回附件字节。
+// @Tags messages
+// @Produce octet-stream
+// @Param id path string true "attachment id | 附件 ID"
+// @Success 200 {file} file "attachment bytes | 附件字节"
+// @Security BearerAuth
+// @Router /api/v1/messages/attachments/{id} [get]
+func (c *Controller) APIDownloadAttachment(ctx *router.Ctx) {
+	c.DownloadMessageAttachment(ctx)
+}
+
+// APIFriends returns the friend summary. | APIFriends 返回好友汇总。
+//
+// @Summary Friends | 好友
+// @Description Returns accepted friends, pending requests in both directions and blocked users.
+// @Description 返回已接受好友、两个方向的待处理申请与拉黑用户。
+// @Tags friends
+// @Produce json
+// @Success 200 {object} string "friend summary | 好友汇总"
+// @Security BearerAuth
+// @Router /api/v1/friends [get]
+func (c *Controller) APIFriends(ctx *router.Ctx) {
+	if !c.apiAvailable(ctx) {
+		return
+	}
+	summary, err := c.messages.FriendSummary(ctx.Request.Context(), c.messageActor(ctx))
+	if err != nil {
+		c.apiFail(ctx, err)
+		return
+	}
+	_ = ctx.JSON(http.StatusOK, summary)
+}
+
+// APIFriendSearch searches candidates. | APIFriendSearch 检索候选用户。
+//
+// @Summary Search users | 检索用户
+// @Description Searches active tenant users and reports the current relation.
+// @Description 检索本租户活跃用户并报告当前关系。
+// @Tags friends
+// @Produce json
+// @Param q query string false "keyword | 关键字"
+// @Success 200 {object} string "candidate list | 候选列表"
+// @Security BearerAuth
+// @Router /api/v1/friends/search [get]
+func (c *Controller) APIFriendSearch(ctx *router.Ctx) {
+	if !c.apiAvailable(ctx) {
+		return
+	}
+	candidates, err := c.messages.SearchUsers(ctx.Request.Context(), c.messageActor(ctx), ctx.Query("q"))
+	if err != nil {
+		c.apiFail(ctx, err)
+		return
+	}
+	_ = ctx.JSON(http.StatusOK, map[string]any{"candidates": candidates})
+}
+
+// APISendFriendRequest sends a request. | APISendFriendRequest 发送好友申请。
+//
+// @Summary Send friend request | 发送好友申请
+// @Description Creates a pending request to another active tenant user.
+// @Description 向另一个活跃租户用户发起待处理申请。
+// @Tags friends
+// @Accept json
+// @Produce json
+// @Param body body APIFriendRequest true "request payload | 申请载荷"
+// @Success 201 {object} string "created request | 已创建申请"
+// @Security BearerAuth
+// @Router /api/v1/friends/requests [post]
+func (c *Controller) APISendFriendRequest(ctx *router.Ctx) {
+	if !c.apiAvailable(ctx) {
+		return
+	}
+	var request APIFriendRequest
+	if err := ctx.Bind(&request); err != nil {
+		c.apiFail(ctx, messaging.ErrInvalidInput)
+		return
+	}
+	friendRequest, err := c.messages.SendFriendRequest(ctx.Request.Context(), c.messageActor(ctx), request.FriendID, request.Message)
+	if err != nil {
+		c.apiFail(ctx, err)
+		return
+	}
+	_ = ctx.JSON(http.StatusCreated, friendRequest)
+}
+
+// APIAcceptFriendRequest accepts a request. | APIAcceptFriendRequest 接受申请。
+//
+// @Summary Accept request | 接受申请
+// @Description Accepts an incoming pending request.
+// @Description 接受收到的待处理申请。
+// @Tags friends
+// @Produce json
+// @Param id path string true "request id | 申请 ID"
+// @Success 204 {string} string "no content | 无内容"
+// @Security BearerAuth
+// @Router /api/v1/friends/requests/{id}/accept [post]
+func (c *Controller) APIAcceptFriendRequest(ctx *router.Ctx) {
+	c.apiRespondFriend(ctx, true)
+}
+
+// APIRejectFriendRequest rejects a request. | APIRejectFriendRequest 拒绝申请。
+//
+// @Summary Reject request | 拒绝申请
+// @Description Rejects an incoming pending request.
+// @Description 拒绝收到的待处理申请。
+// @Tags friends
+// @Produce json
+// @Param id path string true "request id | 申请 ID"
+// @Success 204 {string} string "no content | 无内容"
+// @Security BearerAuth
+// @Router /api/v1/friends/requests/{id}/reject [post]
+func (c *Controller) APIRejectFriendRequest(ctx *router.Ctx) {
+	c.apiRespondFriend(ctx, false)
+}
+
+// apiRespondFriend applies accept/reject and writes no content. | apiRespondFriend 应用接受/拒绝并写出无内容响应。
+func (c *Controller) apiRespondFriend(ctx *router.Ctx, accept bool) {
+	if !c.apiAvailable(ctx) {
+		return
+	}
+	if err := c.messages.RespondFriendRequest(ctx.Request.Context(), c.messageActor(ctx), ctx.Param("id"), accept); err != nil {
+		c.apiFail(ctx, err)
+		return
+	}
+	if err := ctx.NoContent(http.StatusNoContent); err != nil {
+		c.log.Warn("api friend response failed | API 好友响应失败", logx.Err(err))
+	}
+}
+
+// APICancelFriendRequest cancels an outgoing request. | APICancelFriendRequest 取消发出的申请。
+//
+// @Summary Cancel request | 取消申请
+// @Description Withdraws an outgoing pending request.
+// @Description 撤回发出的待处理申请。
+// @Tags friends
+// @Produce json
+// @Param id path string true "request id | 申请 ID"
+// @Success 204 {string} string "no content | 无内容"
+// @Security BearerAuth
+// @Router /api/v1/friends/requests/{id}/cancel [post]
+func (c *Controller) APICancelFriendRequest(ctx *router.Ctx) {
+	if !c.apiAvailable(ctx) {
+		return
+	}
+	if err := c.messages.CancelFriendRequest(ctx.Request.Context(), c.messageActor(ctx), ctx.Param("id")); err != nil {
+		c.apiFail(ctx, err)
+		return
+	}
+	if err := ctx.NoContent(http.StatusNoContent); err != nil {
+		c.log.Warn("api cancel response failed | API 取消响应失败", logx.Err(err))
+	}
+}
+
+// APIRemoveFriend removes a friendship. | APIRemoveFriend 删除好友关系。
+//
+// @Summary Remove friend | 删除好友
+// @Description Deletes the friendship. | 删除好友关系。
+// @Tags friends
+// @Produce json
+// @Param id path string true "friend user id | 好友用户 ID"
+// @Success 204 {string} string "no content | 无内容"
+// @Security BearerAuth
+// @Router /api/v1/friends/{id}/remove [post]
+func (c *Controller) APIRemoveFriend(ctx *router.Ctx) {
+	c.apiFriendAction(ctx, func(actor messaging.Actor, id string) error {
+		return c.messages.RemoveFriend(ctx.Request.Context(), actor, id)
+	})
+}
+
+// APIBlockFriend blocks a user. | APIBlockFriend 拉黑用户。
+//
+// @Summary Block user | 拉黑用户
+// @Description Blocks the user and removes the friendship.
+// @Description 拉黑用户并删除好友关系。
+// @Tags friends
+// @Produce json
+// @Param id path string true "target user id | 目标用户 ID"
+// @Success 204 {string} string "no content | 无内容"
+// @Security BearerAuth
+// @Router /api/v1/friends/{id}/block [post]
+func (c *Controller) APIBlockFriend(ctx *router.Ctx) {
+	c.apiFriendAction(ctx, func(actor messaging.Actor, id string) error {
+		return c.messages.BlockUser(ctx.Request.Context(), actor, id)
+	})
+}
+
+// APIUnblockFriend removes a block. | APIUnblockFriend 解除拉黑。
+//
+// @Summary Unblock user | 解除拉黑
+// @Description Removes the actor's block.
+// @Description 解除主体对该用户的拉黑。
+// @Tags friends
+// @Produce json
+// @Param id path string true "target user id | 目标用户 ID"
+// @Success 204 {string} string "no content | 无内容"
+// @Security BearerAuth
+// @Router /api/v1/friends/{id}/unblock [post]
+func (c *Controller) APIUnblockFriend(ctx *router.Ctx) {
+	c.apiFriendAction(ctx, func(actor messaging.Actor, id string) error {
+		return c.messages.UnblockUser(ctx.Request.Context(), actor, id)
+	})
+}
+
+// apiFriendAction runs one idempotent friend action. | apiFriendAction 执行一个幂等好友动作。
+func (c *Controller) apiFriendAction(ctx *router.Ctx, action func(messaging.Actor, string) error) {
+	if !c.apiAvailable(ctx) {
+		return
+	}
+	if err := action(c.messageActor(ctx), ctx.Param("id")); err != nil {
+		c.apiFail(ctx, err)
+		return
+	}
+	if err := ctx.NoContent(http.StatusNoContent); err != nil {
+		c.log.Warn("api friend action response failed | API 好友动作响应失败", logx.Err(err))
+	}
+}
+
+// APISetFriendRemark stores a remark. | APISetFriendRemark 保存备注。
+//
+// @Summary Set remark | 设置备注
+// @Description Stores or clears the actor's alias for a friend.
+// @Description 保存或清除主体对好友的备注。
+// @Tags friends
+// @Accept json
+// @Produce json
+// @Param id path string true "friend user id | 好友用户 ID"
+// @Param body body APIFriendRequest true "remark payload | 备注载荷"
+// @Success 204 {string} string "no content | 无内容"
+// @Security BearerAuth
+// @Router /api/v1/friends/{id}/remark [post]
+func (c *Controller) APISetFriendRemark(ctx *router.Ctx) {
+	if !c.apiAvailable(ctx) {
+		return
+	}
+	var request APIFriendRequest
+	if err := ctx.Bind(&request); err != nil {
+		c.apiFail(ctx, messaging.ErrInvalidInput)
+		return
+	}
+	if err := c.messages.SetFriendRemark(ctx.Request.Context(), c.messageActor(ctx), ctx.Param("id"), request.Remark); err != nil {
+		c.apiFail(ctx, err)
+		return
+	}
+	if err := ctx.NoContent(http.StatusNoContent); err != nil {
+		c.log.Warn("api remark response failed | API 备注响应失败", logx.Err(err))
+	}
+}
+
+// APIMessageTypes lists types. | APIMessageTypes 列出类型。
+//
+// @Summary List message types | 列出消息类型
+// @Description Returns active types, plus archived rows for message-type:manage.
+// @Description 返回生效类型；message-type:manage 还会看到已归档记录。
+// @Tags messages
+// @Produce json
+// @Success 200 {object} string "type list | 类型列表"
+// @Security BearerAuth
+// @Router /api/v1/message-types [get]
+func (c *Controller) APIMessageTypes(ctx *router.Ctx) {
+	if !c.apiAvailable(ctx) {
+		return
+	}
+	actor := c.messageActor(ctx)
+	list, err := c.messages.ListTypes(ctx.Request.Context(), actor, actor.TypeManage)
+	if err != nil {
+		c.apiFail(ctx, err)
+		return
+	}
+	_ = ctx.JSON(http.StatusOK, map[string]any{"types": list})
+}
+
+// APISaveMessageType creates or updates a type. | APISaveMessageType 新建或更新类型。
+//
+// @Summary Save message type | 保存消息类型
+// @Description Creates a type, or updates the type named by the JSON body's key.
+// @Description 新建类型，或更新请求体 key 指定的类型。
+// @Tags messages
+// @Accept json
+// @Produce json
+// @Param body body APITypeRequest true "type payload | 类型载荷"
+// @Success 200 {object} string "saved type | 已保存类型"
+// @Security BearerAuth
+// @Router /api/v1/message-types [post]
+func (c *Controller) APISaveMessageType(ctx *router.Ctx) {
+	if !c.apiAvailable(ctx) {
+		return
+	}
+	var request APITypeRequest
+	if err := ctx.Bind(&request); err != nil {
+		c.apiFail(ctx, messaging.ErrInvalidInput)
+		return
+	}
+	actor := c.messageActor(ctx)
+	input := messaging.TypeInput{Key: request.Key, Name: request.Name, NameEN: request.NameEN, Tone: request.Tone}
+	var (
+		item messaging.MessageType
+		err  error
+	)
+	if c.messagesTypeExists(ctx, request.Key) {
+		item, err = c.messages.UpdateType(ctx.Request.Context(), actor, request.Key, input)
+	} else {
+		item, err = c.messages.CreateType(ctx.Request.Context(), actor, input)
+	}
+	if err != nil {
+		c.apiFail(ctx, err)
+		return
+	}
+	_ = ctx.JSON(http.StatusOK, item)
+}
+
+// APIArchiveMessageType archives a type. | APIArchiveMessageType 归档类型。
+//
+// @Summary Archive type | 归档类型
+// @Description Archives a non-protected type.
+// @Description 归档一个非受保护类型。
+// @Tags messages
+// @Produce json
+// @Param key path string true "type key | 类型键"
+// @Success 204 {string} string "no content | 无内容"
+// @Security BearerAuth
+// @Router /api/v1/message-types/{key}/archive [post]
+func (c *Controller) APIArchiveMessageType(ctx *router.Ctx) {
+	if !c.apiAvailable(ctx) {
+		return
+	}
+	if err := c.messages.SetTypeArchived(ctx.Request.Context(), c.messageActor(ctx), ctx.Param("key"), true); err != nil {
+		c.apiFail(ctx, err)
+		return
+	}
+	if err := ctx.NoContent(http.StatusNoContent); err != nil {
+		c.log.Warn("api type archive response failed | API 类型归档响应失败", logx.Err(err))
+	}
+}
+
+// APIMessageTags lists groups or labels. | APIMessageTags 列出分组或标签。
+//
+// @Summary List groups/labels | 列出分组/标签
+// @Description Returns groups when kind=group, otherwise labels; managers also see archived rows.
+// @Description kind=group 时返回分组，否则返回标签；管理员还能看到已归档记录。
+// @Tags messages
+// @Produce json
+// @Param kind query string false "group|tag | 分组或标签"
+// @Success 200 {object} string "tag list | 标签列表"
+// @Security BearerAuth
+// @Router /api/v1/message-tags [get]
+func (c *Controller) APIMessageTags(ctx *router.Ctx) {
+	if !c.apiAvailable(ctx) {
+		return
+	}
+	actor := c.messageActor(ctx)
+	kind := messaging.TagKind(ctx.Query(FieldKind))
+	if kind != messaging.TagGroup && kind != messaging.TagLabel {
+		kind = messaging.TagLabel
+	}
+	list, err := c.messages.ListTags(ctx.Request.Context(), actor, kind, actor.TypeManage)
+	if err != nil {
+		c.apiFail(ctx, err)
+		return
+	}
+	_ = ctx.JSON(http.StatusOK, map[string]any{"tags": list})
+}
+
+// APISaveMessageTag creates or updates a group/label. | APISaveMessageTag 新建或更新分组/标签。
+//
+// @Summary Save group/label | 保存分组/标签
+// @Description Creates a group/label when the body has no id, otherwise updates it.
+// @Description 请求体没有 id 时新建分组/标签，否则更新。
+// @Tags messages
+// @Accept json
+// @Produce json
+// @Param body body APITagRequest true "tag payload | 标签载荷"
+// @Success 200 {object} string "saved tag | 已保存标签"
+// @Security BearerAuth
+// @Router /api/v1/message-tags [post]
+func (c *Controller) APISaveMessageTag(ctx *router.Ctx) {
+	if !c.apiAvailable(ctx) {
+		return
+	}
+	var request APITagRequest
+	if err := ctx.Bind(&request); err != nil {
+		c.apiFail(ctx, messaging.ErrInvalidInput)
+		return
+	}
+	actor := c.messageActor(ctx)
+	input := messaging.TagInput{Key: request.Key, Name: request.Name, NameEN: request.NameEN, Tone: request.Tone}
+	var (
+		item messaging.Tag
+		err  error
+	)
+	if request.ID != "" {
+		item, err = c.messages.UpdateTag(ctx.Request.Context(), actor, request.ID, input)
+	} else {
+		item, err = c.messages.CreateTag(ctx.Request.Context(), actor, messaging.TagKind(request.Kind), input)
+	}
+	if err != nil {
+		c.apiFail(ctx, err)
+		return
+	}
+	_ = ctx.JSON(http.StatusOK, item)
+}
+
+// APIArchiveMessageTag archives a group/label. | APIArchiveMessageTag 归档分组/标签。
+//
+// @Summary Archive group/label | 归档分组/标签
+// @Description Archives a group or label.
+// @Description 归档一个分组或标签。
+// @Tags messages
+// @Produce json
+// @Param id path string true "tag id | 标签 ID"
+// @Success 204 {string} string "no content | 无内容"
+// @Security BearerAuth
+// @Router /api/v1/message-tags/{id}/archive [post]
+func (c *Controller) APIArchiveMessageTag(ctx *router.Ctx) {
+	if !c.apiAvailable(ctx) {
+		return
+	}
+	if err := c.messages.SetTagArchived(ctx.Request.Context(), c.messageActor(ctx), ctx.Param("id"), true); err != nil {
+		c.apiFail(ctx, err)
+		return
+	}
+	if err := ctx.NoContent(http.StatusNoContent); err != nil {
+		c.log.Warn("api tag archive response failed | API 标签归档响应失败", logx.Err(err))
+	}
+}
+
+// apiAvailable reports availability and writes a JSON error when unavailable. | apiAvailable 报告可用性，不可用时写出 JSON 错误。
+func (c *Controller) apiAvailable(ctx *router.Ctx) bool {
+	if c.MessagesAvailable() {
+		return true
+	}
+	_ = ctx.JSON(http.StatusServiceUnavailable, map[string]any{
+		"error": "message centre is unavailable | 消息中心不可用",
+	})
+	return false
+}
+
+// apiFail maps a domain error onto a JSON response. | apiFail 把领域错误映射为 JSON 响应。
+func (c *Controller) apiFail(ctx *router.Ctx, err error) {
+	status, message := statusFor(err)
+	if status == http.StatusInternalServerError {
+		c.log.Error("message API request failed | 消息 API 请求失败", logx.Err(err), logx.Str("path", ctx.Path()))
+		message = msgInternal
+	}
+	_ = ctx.JSON(status, map[string]any{"error": message})
+}
+
+// nowUTC returns the current UTC instant. | nowUTC 返回当前 UTC 时刻。
+func nowUTC() time.Time { return time.Now().UTC() }

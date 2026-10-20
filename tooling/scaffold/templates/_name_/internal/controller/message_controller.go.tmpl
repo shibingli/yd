@@ -1,0 +1,1022 @@
+// 本文件是消息中心的页面、片段与写操作端点：列表、会话线程、检索、发送、编辑、撤回、置顶与附件。
+// This file holds the message-centre pages, fragments and write endpoints: the list, the thread, search, sending,
+// editing, recall, pinning and attachments.
+
+package controller
+
+import (
+	"mime"
+	"net/http"
+	"strconv"
+	"strings"
+	"time"
+	"unicode/utf8"
+
+	"{{ .YdModule }}/core/errx"
+	"{{ .YdModule }}/core/logx"
+	"{{ .YdModule }}/http/router"
+	"{{ .YdModule }}/messaging"
+	"{{ .YdModule }}/security/authz"
+)
+
+// Additional message form field: the recipient checkboxes. | 消息表单的附加字段：收件人多选。
+const fieldRecipients = "recipient_ids"
+
+// messageFilters is the parsed filter bar state. | messageFilters 是解析后的过滤栏状态。
+type messageFilters struct {
+	// Query is the mixed full-text expression. | Query 是混合全文检索表达式。
+	Query string
+	// TypeKey filters by message type. | TypeKey 按消息类型过滤。
+	TypeKey string
+	// SenderID filters by author. | SenderID 按作者过滤。
+	SenderID string
+	// TagID filters by a group or label. | TagID 按分组或标签过滤。
+	TagID string
+	// Folder is all, unread, sent, system or pinned. | Folder 取 all、unread、sent、system 或 pinned。
+	Folder string
+	// Page is the 1-based page number. | Page 是从 1 开始的页码。
+	Page int
+	// Active reports whether any filter is set. | Active 报告是否设置了任何过滤条件。
+	Active bool
+}
+
+// catalogView is the compose catalogue. | catalogView 是撰写目录。
+type catalogView struct {
+	// Types are active message types. | Types 是生效的消息类型。
+	Types []messageTypeView
+	// Groups are active group markers. | Groups 是生效的分组标记。
+	Groups []tagView
+	// Tags are active free-form labels. | Tags 是生效的自由标签。
+	Tags []tagView
+}
+
+// messagePage is the complete data of one message-centre render. | messagePage 是一次消息中心渲染的完整数据。
+type messagePage struct {
+	// Filters is the filter bar state. | Filters 是过滤栏状态。
+	Filters messageFilters
+	// Conversations is the conversation list. | Conversations 是会话列表。
+	Conversations []conversationView
+	// Pinned is the active pinned announcement strip. | Pinned 是生效的置顶公告条。
+	Pinned []messageView
+	// Catalog is the compose catalogue. | Catalog 是撰写目录。
+	Catalog catalogView
+	// Friends is the friend picker of the compose drawer. | Friends 是撰写抽屉的好友选择列表。
+	Friends []friendView
+	// Results is the search result page. | Results 是检索结果页。
+	Results []messageView
+	// Total is the unpaged search result count. | Total 是不分页的检索结果数。
+	Total int
+	// SearchMode reports whether the results panel should be shown. | SearchMode 报告是否展示检索结果面板。
+	SearchMode bool
+	// Active is the open conversation. | Active 是当前打开的会话。
+	Active *conversationView
+	// Thread is the open conversation's newest page. | Thread 是当前会话的最新一页。
+	Thread []messageView
+	// CanSend reports message:send. | CanSend 报告 message:send。
+	CanSend bool
+	// CanManage reports message:manage. | CanManage 报告 message:manage。
+	CanManage bool
+	// CanSystem reports message:system. | CanSystem 报告 message:system。
+	CanSystem bool
+	// CanTypeManage reports message-type:manage. | CanTypeManage 报告 message-type:manage。
+	CanTypeManage bool
+	// UserID is the actor id, used to tell a group owner. | UserID 是主体 ID，用于判断群主。
+	UserID string
+}
+
+// data flattens the page into the render map. | data 把页面摊平进渲染数据。
+func (p messagePage) data() map[string]any {
+	return map[string]any{
+		"Filters":           p.Filters,
+		"Conversations":     p.Conversations,
+		"Pinned":            p.Pinned,
+		"Catalog":           p.Catalog,
+		"Friends":           p.Friends,
+		"Results":           p.Results,
+		"Total":             p.Total,
+		"SearchMode":        p.SearchMode,
+		"ActiveConversation": p.Active,
+		"Thread":            p.Thread,
+		"CanSend":           p.CanSend,
+		"CanManage":         p.CanManage,
+		"CanSystem":         p.CanSystem,
+		"CanTypeManage":     p.CanTypeManage,
+		"ActorID":           p.UserID,
+		"PageStyles":        messagePageStyles,
+		"PageScripts":       messagePageScripts,
+	}
+}
+
+// Messages renders the message centre. | Messages 渲染消息中心。
+//
+// @Summary Message centre | 消息中心
+// @Description Renders the conversation list, the pinned announcement strip and either the open thread or the mixed
+// @Description search results. The filter bar searches title, body, sender and type together, and every query stays
+// @Description inside the token's tenant.
+// @Description 渲染会话列表、置顶公告条，以及当前线程或混合检索结果。过滤栏同时检索标题、正文、发送人与类型，
+// @Description 且每次查询都限制在令牌所属租户内。
+// @Tags messages
+// @Accept html
+// @Produce html
+// @Param q query string false "mixed full-text query | 混合全文检索词"
+// @Param folder query string false "all|unread|sent|system|pinned | 文件夹"
+// @Param type_key query string false "message type key | 消息类型键"
+// @Param sender query string false "sender id | 发送人 ID"
+// @Param tag query string false "group or label id | 分组或标签 ID"
+// @Param HX-Request header string false "htmx partial request | htmx 局部请求标记"
+// @Success 200 {object} string "message centre page or fragment | 消息中心整页或片段"
+// @Failure 401 {object} string "no session | 无有效会话"
+// @Failure 403 {object} string "missing message:read | 缺少 message:read"
+// @Failure 503 {object} string "message centre unavailable | 消息中心不可用"
+// @Security BearerAuth
+// @Router /messages [get]
+func (c *Controller) Messages(ctx *router.Ctx) {
+	if !c.MessagesAvailable() {
+		c.messageUnavailable(ctx)
+		return
+	}
+	page, err := c.loadMessagePage(ctx, "", parseMessageFilters(ctx))
+	if err != nil {
+		c.failService(ctx, err)
+		return
+	}
+	c.renderMessagePage(ctx, http.StatusOK, page, "消息中心 | Messages", "")
+}
+
+// MessageThread renders one conversation. | MessageThread 渲染一个会话。
+//
+// @Summary Message thread | 消息会话
+// @Description Renders the same message centre with one conversation open. Opening it advances the read watermark and
+// @Description publishes a read event to the other members.
+// @Description 渲染同一个消息中心并打开一个会话。打开动作推进已读水位，并向其他成员发布已读事件。
+// @Tags messages
+// @Accept html
+// @Produce html
+// @Param id path string true "conversation id | 会话 ID"
+// @Success 200 {object} string "message centre page or fragment | 消息中心整页或片段"
+// @Failure 401 {object} string "no session | 无有效会话"
+// @Failure 403 {object} string "missing message:read | 缺少 message:read"
+// @Failure 404 {object} string "conversation not found | 会话不存在"
+// @Security BearerAuth
+// @Router /messages/{id} [get]
+func (c *Controller) MessageThread(ctx *router.Ctx) {
+	if !c.MessagesAvailable() {
+		c.messageUnavailable(ctx)
+		return
+	}
+	page, err := c.loadMessagePage(ctx, ctx.Param("id"), parseMessageFilters(ctx))
+	if err != nil {
+		c.failService(ctx, err)
+		return
+	}
+	c.renderMessagePage(ctx, http.StatusOK, page, "消息中心 | Messages", "")
+}
+
+// MessageThreadFragment renders only the thread body for the realtime refresh. | MessageThreadFragment 只渲染线程正文，供实时刷新使用。
+//
+// @Summary Thread fragment | 会话片段
+// @Description Returns the rendered thread for one conversation. The WebSocket client calls it when a message event
+// @Description names the open conversation.
+// @Description 返回一个会话的渲染线程。WebSocket 客户端在消息事件指向当前会话时调用它。
+// @Tags messages
+// @Accept html
+// @Produce html
+// @Param id path string true "conversation id | 会话 ID"
+// @Success 200 {object} string "thread fragment | 线程片段"
+// @Failure 404 {object} string "conversation not found | 会话不存在"
+// @Security BearerAuth
+// @Router /messages/{id}/thread [get]
+func (c *Controller) MessageThreadFragment(ctx *router.Ctx) {
+	if !c.MessagesAvailable() {
+		c.messageUnavailable(ctx)
+		return
+	}
+	data, err := c.threadData(ctx, ctx.Param("id"))
+	if err != nil {
+		c.failService(ctx, err)
+		return
+	}
+	c.render(ctx, http.StatusOK, TplMessageThread, data)
+}
+
+// MessageThreadHistory renders the message list alone for the realtime refresh. | MessageThreadHistory 只渲染消息列表，供实时刷新使用。
+//
+// @Summary Message history fragment | 消息历史片段
+// @Description Returns only the message list of one conversation. The WebSocket client swaps it into the history
+// @Description region, so the inline composer and the draft it holds are never rebuilt.
+// @Description 返回一个会话的消息列表。WebSocket 客户端把它换进历史区域，内联撰写区与其中的草稿因此不会被重建。
+// @Tags messages
+// @Accept html
+// @Produce html
+// @Param id path string true "conversation id | 会话 ID"
+// @Success 200 {object} string "message history fragment | 消息历史片段"
+// @Failure 404 {object} string "conversation not found | 会话不存在"
+// @Security BearerAuth
+// @Router /messages/{id}/history [get]
+func (c *Controller) MessageThreadHistory(ctx *router.Ctx) {
+	if !c.MessagesAvailable() {
+		c.messageUnavailable(ctx)
+		return
+	}
+	data, err := c.threadData(ctx, ctx.Param("id"))
+	if err != nil {
+		c.failService(ctx, err)
+		return
+	}
+	c.render(ctx, http.StatusOK, TplMessageHistory, data)
+}
+
+// MessageConversations renders the conversation list fragment. | MessageConversations 渲染会话列表片段。
+//
+// @Summary Conversation list | 会话列表
+// @Description Returns the conversation list; the realtime client refreshes it after message events.
+// @Description 返回会话列表；实时客户端在消息事件后刷新它。
+// @Tags messages
+// @Accept html
+// @Produce html
+// @Success 200 {object} string "conversation list fragment | 会话列表片段"
+// @Security BearerAuth
+// @Router /messages/conversations [get]
+func (c *Controller) MessageConversations(ctx *router.Ctx) {
+	if !c.MessagesAvailable() {
+		return
+	}
+	page, err := c.loadMessagePage(ctx, ctx.Query("active"), parseMessageFilters(ctx))
+	if err != nil {
+		c.failService(ctx, err)
+		return
+	}
+	data := c.view(ctx, "会话 | Conversations", map[string]any{
+		"Conversations": page.Conversations,
+		"ActiveID":      ctx.Query("active"),
+	})
+	c.render(ctx, http.StatusOK, TplMessageConversations, data)
+}
+
+// MessageList renders the mixed search results. | MessageList 渲染混合检索结果。
+//
+// @Summary Search messages | 检索消息
+// @Description Searches title, body, sender and type inside the tenant, with optional type, sender, title, content and
+// @Description group/label filters.
+// @Description 在租户内检索标题、正文、发送人与类型，并支持类型、发送人、标题、内容与分组/标签过滤。
+// @Tags messages
+// @Accept html
+// @Produce html
+// @Param q query string false "mixed full-text query | 混合全文检索词"
+// @Param type_key query string false "message type key | 消息类型键"
+// @Param sender query string false "sender id | 发送人 ID"
+// @Param title query string false "title filter | 标题过滤"
+// @Param content query string false "content filter | 内容过滤"
+// @Param tag query string false "group or label id | 分组或标签 ID"
+// @Param page query int false "1-based page | 从 1 开始的页码"
+// @Success 200 {object} string "search result fragment | 检索结果片段"
+// @Security BearerAuth
+// @Router /messages/list [get]
+func (c *Controller) MessageList(ctx *router.Ctx) {
+	if !c.MessagesAvailable() {
+		return
+	}
+	page, err := c.loadMessagePage(ctx, "", parseMessageFilters(ctx))
+	if err != nil {
+		c.failService(ctx, err)
+		return
+	}
+	data := c.view(ctx, "检索结果 | Search results", page.data())
+	data["Results"] = page.Results
+	data["Total"] = page.Total
+	data["Filters"] = page.Filters
+	c.render(ctx, http.StatusOK, TplMessageSearch, data)
+}
+
+// OpenDirectConversation opens the canonical direct conversation with one friend. | OpenDirectConversation 打开与一位好友的规范单聊。
+//
+// @Summary Open direct conversation | 打开单聊
+// @Description Resolves or creates the direct conversation with a friend and renders the message centre with it open.
+// @Description 解析或创建与好友的单聊，并渲染打开该会话的消息中心。
+// @Tags messages
+// @Accept html
+// @Produce html
+// @Param id path string true "friend user id | 好友用户 ID"
+// @Success 200 {object} string "message centre page | 消息中心页面"
+// @Failure 403 {object} string "not a friend | 不是好友"
+// @Security BearerAuth
+// @Router /messages/direct/{id} [get]
+func (c *Controller) OpenDirectConversation(ctx *router.Ctx) {
+	if !c.MessagesAvailable() {
+		c.messageUnavailable(ctx)
+		return
+	}
+	conv, err := c.messages.DirectConversation(ctx.Request.Context(), c.messageActor(ctx), ctx.Param("id"))
+	if err != nil {
+		c.failService(ctx, err)
+		return
+	}
+	c.renderMessagePageByID(ctx, conv.ID, "")
+}
+
+// NewMessageDrawer renders the create-message drawer. | NewMessageDrawer 渲染新建消息抽屉。
+//
+// @Summary Create message drawer | 新建消息抽屉
+// @Description Renders the composer with the active type catalogue, the conversation picker, the friend picker and the
+// @Description Toast UI editor. The form posts to POST /messages.
+// @Description 渲染撰写器：生效类型目录、会话选择、好友选择与 Toast UI 编辑器。表单提交到 POST /messages。
+// @Tags messages
+// @Accept html
+// @Produce html
+// @Param conversation query string false "preselected conversation | 预选会话"
+// @Success 200 {object} string "drawer fragment | 抽屉片段"
+// @Failure 503 {object} string "message centre unavailable | 消息中心不可用"
+// @Security BearerAuth
+// @Router /messages/new [get]
+func (c *Controller) NewMessageDrawer(ctx *router.Ctx) {
+	if !c.MessagesAvailable() {
+		c.messageUnavailable(ctx)
+		return
+	}
+	actor := c.messageActor(ctx)
+	catalog, err := c.catalogData(ctx, actor)
+	if err != nil {
+		c.failService(ctx, err)
+		return
+	}
+	page, err := c.loadMessagePage(ctx, "", messageFilters{})
+	if err != nil {
+		c.failService(ctx, err)
+		return
+	}
+	preset := strings.TrimSpace(ctx.Query(FieldConversation))
+	presetTitle := ""
+	selectable := make([]conversationView, 0, len(page.Conversations))
+	for _, conversation := range page.Conversations {
+		if conversation.IsSystem {
+			continue
+		}
+		selectable = append(selectable, conversation)
+		if conversation.ID == preset {
+			presetTitle = conversation.Title
+		}
+	}
+	c.render(ctx, http.StatusOK, TplMessageCompose, c.view(ctx, "新建消息 | New message", map[string]any{
+		"Mode":          "create",
+		"Catalog":       catalog,
+		"Conversations": selectable,
+		"Friends":       page.Friends,
+		"PresetID":      preset,
+		"PresetTitle":   presetTitle,
+		"DefaultType":   messaging.TypeNormal,
+		"Message":       messageView{},
+		"PageStyles":    messagePageStyles,
+		"PageScripts":   messagePageScripts,
+	}))
+}
+
+// EditMessageDrawer renders the edit drawer. | EditMessageDrawer 渲染编辑抽屉。
+//
+// @Summary Edit message drawer | 编辑消息抽屉
+// @Description Renders the editor for a message the actor may edit; the authorisation is enforced again by the domain
+// @Description service when the form is submitted.
+// @Description 为当前主体可编辑的消息渲染编辑器；表单提交时领域服务会再次校验授权。
+// @Tags messages
+// @Accept html
+// @Produce html
+// @Param id path string true "message id | 消息 ID"
+// @Success 200 {object} string "drawer fragment | 抽屉片段"
+// @Failure 403 {object} string "edit window expired or not the sender | 编辑窗口已过期或不是发送者"
+// @Failure 404 {object} string "message not found | 消息不存在"
+// @Security BearerAuth
+// @Router /messages/{id}/edit [get]
+func (c *Controller) EditMessageDrawer(ctx *router.Ctx) {
+	if !c.MessagesAvailable() {
+		c.messageUnavailable(ctx)
+		return
+	}
+	actor := c.messageActor(ctx)
+	msg, err := c.messages.Message(ctx.Request.Context(), actor, ctx.Param("id"))
+	if err != nil {
+		c.failService(ctx, err)
+		return
+	}
+	view := c.messageViewOf(actor, msg, c.lang(ctx), time.Now().UTC())
+	if !view.CanEdit {
+		c.failService(ctx, messaging.ErrEditExpired)
+		return
+	}
+	catalog, err := c.catalogData(ctx, actor)
+	if err != nil {
+		c.failService(ctx, err)
+		return
+	}
+	c.render(ctx, http.StatusOK, TplMessageCompose, c.view(ctx, "编辑消息 | Edit message", map[string]any{
+		"Mode":        "edit",
+		"Catalog":     catalog,
+		"Message":     view,
+		"PresetID":    msg.ConversationID,
+		"DefaultType": view.TypeKey,
+		"PageStyles":  messagePageStyles,
+		"PageScripts": messagePageScripts,
+	}))
+}
+
+// SendMessage sends one message to an existing conversation, a friend or a new group. | SendMessage 向既有会话、好友或新群发送一条消息。
+//
+// @Summary Send message | 发送消息
+// @Description Resolves the target conversation (existing id, one friend, or several friends plus a group title),
+// @Description renders Markdown on the server, binds pending attachments and publishes the message event.
+// @Description 解析目标会话（既有 ID、单个好友，或多个好友加群名），服务端渲染 Markdown、绑定待挂载附件并发布消息事件。
+// @Tags messages
+// @Accept html
+// @Produce html
+// @Param conversation_id formData string false "existing conversation id | 既有会话 ID"
+// @Param recipient_ids formData []string false "friend ids for a new direct or group conversation | 新单聊或群聊的好友 ID"
+// @Param group_title formData string false "group title | 群名"
+// @Param type_key formData string false "message type key | 消息类型键"
+// @Param title formData string false "message title | 消息标题"
+// @Param body_markdown formData string true "Markdown body | Markdown 正文"
+// @Param tag_ids formData []string false "label ids | 标签 ID"
+// @Param group_ids formData []string false "group ids | 分组 ID"
+// @Param attachment_ids formData []string false "pending attachment ids | 待挂载附件 ID"
+// @Success 200 {object} string "refreshed message centre | 刷新后的消息中心"
+// @Failure 403 {object} string "not a friend or not a member | 非好友或非成员"
+// @Failure 422 {object} string "validation failure | 校验失败"
+// @Security BearerAuth
+// @Router /messages [post]
+func (c *Controller) SendMessage(ctx *router.Ctx) {
+	if !c.MessagesAvailable() {
+		c.messageUnavailable(ctx)
+		return
+	}
+	actor := c.messageActor(ctx)
+	conversationID, err := c.resolveConversation(ctx, actor)
+	if err != nil {
+		c.failService(ctx, err)
+		return
+	}
+	message, err := c.messages.Send(ctx.Request.Context(), actor, messaging.SendInput{
+		ConversationID: conversationID,
+		TypeKey:        field(ctx, FieldTypeKey),
+		Title:          field(ctx, FieldTitle),
+		Markdown:       longField(ctx, FieldMarkdown, c.messages.Options().MaxBodyLen),
+		TagIDs:         formValues(ctx, FieldTagIDs),
+		GroupIDs:       formValues(ctx, FieldGroupIDs),
+		AttachmentIDs:  formValues(ctx, FieldAttachmentIDs),
+	})
+	if err != nil {
+		c.failService(ctx, err)
+		return
+	}
+	c.log.Info("message sent | 消息已发送",
+		logx.Str("tenant", actor.TenantID),
+		logx.Str("conversation", message.ConversationID),
+		logx.Str("message", message.ID),
+	)
+	c.renderMessagePageByID(ctx, message.ConversationID, "消息已发送 | message sent")
+}
+
+// resolveConversation resolves the conversation a create form targets. | resolveConversation 解析新建表单的目标会话。
+func (c *Controller) resolveConversation(ctx *router.Ctx, actor messaging.Actor) (string, error) {
+	if id := strings.TrimSpace(field(ctx, FieldConversation)); id != "" {
+		return id, nil
+	}
+	recipients := formValues(ctx, fieldRecipients)
+	switch len(recipients) {
+	case 0:
+		return "", errx.Detail(messaging.ErrInvalidInput, "choose a conversation or a friend | 请选择会话或好友")
+	case 1:
+		conv, err := c.messages.DirectConversation(ctx.Request.Context(), actor, recipients[0])
+		if err != nil {
+			return "", err
+		}
+		return conv.ID, nil
+	default:
+		title := field(ctx, FieldGroupTitle)
+		if title == "" {
+			title = c.tr(c.lang(ctx), "message.group_default_title")
+		}
+		conv, err := c.messages.CreateGroup(ctx.Request.Context(), actor, title, recipients)
+		if err != nil {
+			return "", err
+		}
+		return conv.ID, nil
+	}
+}
+
+// UpdateMessage edits a message. | UpdateMessage 编辑消息。
+//
+// @Summary Edit message | 编辑消息
+// @Description Edits a message inside the edit window or as a moderator, re-rendering the Markdown and replacing the
+// @Description group and label set.
+// @Description 在编辑窗口内或以管理员身份编辑消息，重新渲染 Markdown 并替换分组与标签集合。
+// @Tags messages
+// @Accept html
+// @Produce html
+// @Param id path string true "message id | 消息 ID"
+// @Param type_key formData string false "message type key | 消息类型键"
+// @Param title formData string false "message title | 消息标题"
+// @Param body_markdown formData string true "Markdown body | Markdown 正文"
+// @Param tag_ids formData []string false "label ids | 标签 ID"
+// @Param group_ids formData []string false "group ids | 分组 ID"
+// @Success 200 {object} string "refreshed message centre | 刷新后的消息中心"
+// @Failure 403 {object} string "not the sender or the edit window expired | 不是发送者或编辑窗口已过期"
+// @Failure 404 {object} string "message not found | 消息不存在"
+// @Security BearerAuth
+// @Router /messages/{id} [post]
+func (c *Controller) UpdateMessage(ctx *router.Ctx) {
+	if !c.MessagesAvailable() {
+		c.messageUnavailable(ctx)
+		return
+	}
+	actor := c.messageActor(ctx)
+	message, err := c.messages.Edit(ctx.Request.Context(), actor, ctx.Param("id"), messaging.EditInput{
+		TypeKey:  field(ctx, FieldTypeKey),
+		Title:    field(ctx, FieldTitle),
+		Markdown: longField(ctx, FieldMarkdown, c.messages.Options().MaxBodyLen),
+		TagIDs:   formValues(ctx, FieldTagIDs),
+		GroupIDs: formValues(ctx, FieldGroupIDs),
+	})
+	if err != nil {
+		c.failService(ctx, err)
+		return
+	}
+	c.log.Info("message edited | 消息已编辑",
+		logx.Str("tenant", actor.TenantID),
+		logx.Str("conversation", message.ConversationID),
+		logx.Str("message", message.ID),
+	)
+	c.renderMessagePageByID(ctx, message.ConversationID, "消息已更新 | message updated")
+}
+
+// RecallMessage recalls the actor's own message inside the recall window. | RecallMessage 在撤回窗口内撤回主体自己的消息。
+//
+// @Summary Recall message | 撤回消息
+// @Description Recalls a message. The body is retained for audit and replaced by a tombstone for readers without
+// @Description message:manage.
+// @Description 撤回消息。正文保留供审计，对没有 message:manage 的读者显示为墓碑。
+// @Tags messages
+// @Accept html
+// @Produce html
+// @Param id path string true "message id | 消息 ID"
+// @Param conversation_id formData string true "owning conversation | 所属会话"
+// @Param reason formData string false "recall reason | 撤回原因"
+// @Success 200 {object} string "refreshed message centre | 刷新后的消息中心"
+// @Failure 403 {object} string "not the sender or the recall window expired | 不是发送者或撤回窗口已过期"
+// @Security BearerAuth
+// @Router /messages/{id}/recall [post]
+func (c *Controller) RecallMessage(ctx *router.Ctx) {
+	if !c.MessagesAvailable() {
+		c.messageUnavailable(ctx)
+		return
+	}
+	actor := c.messageActor(ctx)
+	if err := c.messages.Recall(ctx.Request.Context(), actor, ctx.Param("id"), field(ctx, FieldReason)); err != nil {
+		c.failService(ctx, err)
+		return
+	}
+	c.renderMessagePageByID(ctx, field(ctx, FieldConversation), "消息已撤回 | message recalled")
+}
+
+// RevokeSystemMessage revokes an announcement while keeping its history. | RevokeSystemMessage 撤销公告并保留其历史。
+//
+// @Summary Revoke announcement | 撤销系统公告
+// @Description Recalls a system message as its administrator and keeps the title and Markdown body in the audit entry.
+// @Description 管理员撤回系统消息，并在审计记录中保留标题与 Markdown 正文。
+// @Tags messages
+// @Accept html
+// @Produce html
+// @Param id path string true "message id | 消息 ID"
+// @Param reason formData string false "revoke reason | 撤销原因"
+// @Success 200 {object} string "refreshed moderation page | 刷新后的治理页面"
+// @Failure 403 {object} string "missing message:system | 缺少 message:system"
+// @Security BearerAuth
+// @Router /messages/{id}/revoke [post]
+func (c *Controller) RevokeSystemMessage(ctx *router.Ctx) {
+	if !c.MessagesAvailable() {
+		c.messageUnavailable(ctx)
+		return
+	}
+	actor := c.messageActor(ctx)
+	if err := c.messages.Recall(ctx.Request.Context(), actor, ctx.Param("id"), field(ctx, FieldReason)); err != nil {
+		c.failService(ctx, err)
+		return
+	}
+	if conversationID := field(ctx, FieldConversation); conversationID != "" {
+		c.renderMessagePageByID(ctx, conversationID, "公告已撤销，历史记录已保留 | announcement revoked, history retained")
+		return
+	}
+	c.renderAdminPage(ctx, "公告已撤销，历史记录已保留 | announcement revoked, history retained")
+}
+
+// MarkMessageRead advances the read watermark. | MarkMessageRead 推进已读水位。
+//
+// @Summary Mark conversation read | 标记会话已读
+// @Description Advances the actor's read watermark in a conversation and emits a read event.
+// @Description 推进主体在会话中的已读水位并发出已读事件。
+// @Tags messages
+// @Accept html
+// @Produce html
+// @Param id path string true "conversation id | 会话 ID"
+// @Success 204 {string} string "no content | 无内容"
+// @Security BearerAuth
+// @Router /messages/{id}/read [post]
+func (c *Controller) MarkMessageRead(ctx *router.Ctx) {
+	if !c.MessagesAvailable() {
+		return
+	}
+	if err := c.messages.MarkRead(ctx.Request.Context(), c.messageActor(ctx), ctx.Param("id")); err != nil {
+		c.failService(ctx, err)
+		return
+	}
+	if err := ctx.NoContent(http.StatusNoContent); err != nil {
+		c.log.Warn("mark-read response failed | 标记已读响应失败", logx.Err(err))
+	}
+}
+
+// PinMessageDrawer renders the pin window form. | PinMessageDrawer 渲染置顶窗口表单。
+//
+// @Summary Pin drawer | 置顶抽屉
+// @Description Renders the start/end inputs for pinning one system announcement.
+// @Description 渲染一条系统公告的置顶起止时间输入。
+// @Tags messages
+// @Accept html
+// @Produce html
+// @Param id path string true "message id | 消息 ID"
+// @Success 200 {object} string "drawer fragment | 抽屉片段"
+// @Security BearerAuth
+// @Router /messages/{id}/pin [get]
+func (c *Controller) PinMessageDrawer(ctx *router.Ctx) {
+	if !c.MessagesAvailable() {
+		c.messageUnavailable(ctx)
+		return
+	}
+	actor := c.messageActor(ctx)
+	msg, err := c.messages.Message(ctx.Request.Context(), actor, ctx.Param("id"))
+	if err != nil {
+		c.failService(ctx, err)
+		return
+	}
+	view := c.messageViewOf(actor, msg, c.lang(ctx), time.Now().UTC())
+	if !view.CanPin {
+		c.failService(ctx, messaging.ErrPinNotAllowed)
+		return
+	}
+	c.render(ctx, http.StatusOK, TplMessagePin, c.view(ctx, "置顶公告 | Pin announcement", map[string]any{
+		"Message": view,
+	}))
+}
+
+// PinMessage pins a system message, optionally for a time window. | PinMessage 置顶系统消息，可选时间段。
+//
+// @Summary Pin announcement | 置顶公告
+// @Description Pins a system message from now or a future start until an optional end. Only message:manage may pin,
+// @Description and only system-origin messages are eligible.
+// @Description 从当前或未来起点置顶一条系统消息，直到可选的终点。只有 message:manage 可以置顶，且只有系统消息符合条件。
+// @Tags messages
+// @Accept html
+// @Produce html
+// @Param id path string true "message id | 消息 ID"
+// @Param pin_start formData string false "start, RFC3339 or datetime-local | 起点，RFC3339 或 datetime-local"
+// @Param pin_end formData string false "end, RFC3339 or datetime-local | 终点，RFC3339 或 datetime-local"
+// @Success 200 {object} string "refreshed moderation page | 刷新后的治理页面"
+// @Failure 403 {object} string "missing message:manage | 缺少 message:manage"
+// @Failure 422 {object} string "invalid pin window | 非法的置顶窗口"
+// @Security BearerAuth
+// @Router /messages/{id}/pin [post]
+func (c *Controller) PinMessage(ctx *router.Ctx) {
+	if !c.MessagesAvailable() {
+		c.messageUnavailable(ctx)
+		return
+	}
+	start, err := parsePinTime(field(ctx, FieldPinStart))
+	if err != nil {
+		c.failService(ctx, err)
+		return
+	}
+	end, err := parsePinTime(field(ctx, FieldPinEnd))
+	if err != nil {
+		c.failService(ctx, err)
+		return
+	}
+	if err := c.messages.Pin(ctx.Request.Context(), c.messageActor(ctx), ctx.Param("id"), start, end); err != nil {
+		c.failService(ctx, err)
+		return
+	}
+	if conversationID := field(ctx, FieldConversation); conversationID != "" {
+		c.renderMessagePageByID(ctx, conversationID, "公告已置顶 | announcement pinned")
+		return
+	}
+	c.renderAdminPage(ctx, "公告已置顶 | announcement pinned")
+}
+
+// UnpinMessage clears a pin. | UnpinMessage 取消置顶。
+//
+// @Summary Unpin announcement | 取消置顶
+// @Description Clears the pin window of a system message.
+// @Description 清除系统消息的置顶窗口。
+// @Tags messages
+// @Accept html
+// @Produce html
+// @Param id path string true "message id | 消息 ID"
+// @Success 200 {object} string "refreshed moderation page | 刷新后的治理页面"
+// @Security BearerAuth
+// @Router /messages/{id}/unpin [post]
+func (c *Controller) UnpinMessage(ctx *router.Ctx) {
+	if !c.MessagesAvailable() {
+		c.messageUnavailable(ctx)
+		return
+	}
+	if err := c.messages.Unpin(ctx.Request.Context(), c.messageActor(ctx), ctx.Param("id")); err != nil {
+		c.failService(ctx, err)
+		return
+	}
+	if conversationID := field(ctx, FieldConversation); conversationID != "" {
+		c.renderMessagePageByID(ctx, conversationID, "已取消置顶 | announcement unpinned")
+		return
+	}
+	c.renderAdminPage(ctx, "已取消置顶 | announcement unpinned")
+}
+
+// UploadMessageAttachment stores one pending file and returns its chip. | UploadMessageAttachment 保存一个待挂载文件并返回标签。
+//
+// @Summary Upload attachment | 上传附件
+// @Description Stores a pending attachment (size and content type enforced server-side) and returns the chip that
+// @Description binds its id to the message form.
+// @Description 保存待挂载附件（服务端强制大小与内容类型），并返回把 ID 绑定到消息表单的标签。
+// @Tags messages
+// @Accept multipart/form-data
+// @Produce html
+// @Param file formData file true "attachment | 附件"
+// @Success 200 {object} string "attachment chip | 附件标签"
+// @Failure 413 {object} string "too large | 超过大小上限"
+// @Failure 415 {object} string "content type not allowed | 内容类型不允许"
+// @Security BearerAuth
+// @Router /messages/attachments [post]
+func (c *Controller) UploadMessageAttachment(ctx *router.Ctx) {
+	if !c.MessagesAvailable() {
+		c.messageUnavailable(ctx)
+		return
+	}
+	file, header, err := ctx.FormFile("file")
+	if err != nil {
+		c.failService(ctx, messaging.ErrInvalidInput)
+		return
+	}
+	defer func() {
+		if closeErr := file.Close(); closeErr != nil {
+			c.log.Debug("attachment stream close failed | 附件流关闭失败", logx.Err(closeErr))
+		}
+	}()
+	attachment, err := c.messages.UploadAttachment(ctx.Request.Context(), c.messageActor(ctx), header.Filename, header.Size, file)
+	if err != nil {
+		c.failService(ctx, err)
+		return
+	}
+	c.render(ctx, http.StatusOK, TplMessageAttachment, c.view(ctx, "附件 | Attachment", map[string]any{
+		"Attachment": messageAttachmentView{
+			Attachment: attachment,
+			SizeText:   sizeText(attachment.Size),
+			Image:      strings.HasPrefix(attachment.ContentType, "image/"),
+		},
+	}))
+}
+
+// DownloadMessageAttachment streams an attachment after checking message visibility. | DownloadMessageAttachment 在检查消息可见性后流式返回附件。
+//
+// @Summary Download attachment | 下载附件
+// @Description Streams the attachment bytes with a download disposition and nosniff, after the service verifies that the
+// @Description actor is its uploader or a participant of the owning message.
+// @Description 在服务确认主体是上传者或所属消息的参与者后，以下载处置与 nosniff 流式返回附件字节。
+// @Tags messages
+// @Produce octet-stream
+// @Param id path string true "attachment id | 附件 ID"
+// @Success 200 {file} file "attachment bytes | 附件字节"
+// @Failure 404 {object} string "attachment not found | 附件不存在"
+// @Security BearerAuth
+// @Router /messages/attachments/{id} [get]
+func (c *Controller) DownloadMessageAttachment(ctx *router.Ctx) {
+	if !c.MessagesAvailable() {
+		c.messageUnavailable(ctx)
+		return
+	}
+	attachment, data, err := c.messages.DownloadAttachment(ctx.Request.Context(), c.messageActor(ctx), ctx.Param("id"))
+	if err != nil {
+		c.failService(ctx, err)
+		return
+	}
+	disposition := mime.FormatMediaType("attachment", map[string]string{"filename": safeDownloadName(attachment.OriginalName)})
+	if disposition == "" {
+		disposition = "attachment"
+	}
+	ctx.SetHeader("Content-Disposition", disposition)
+	ctx.SetHeader("X-Content-Type-Options", "nosniff")
+	if err := ctx.Blob(http.StatusOK, attachment.ContentType, data); err != nil {
+		c.log.Warn("attachment write failed | 附件写出失败", logx.Err(err))
+	}
+}
+
+// safeDownloadName removes control characters so a file name cannot break the response headers. |
+// safeDownloadName 去掉控制字符，使文件名无法破坏响应头。
+func safeDownloadName(name string) string {
+	name = strings.Map(func(r rune) rune {
+		if r < 0x20 || r == 0x7f {
+			return -1
+		}
+		return r
+	}, strings.TrimSpace(name))
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return "file"
+	}
+	return name
+}
+
+// renderMessagePageByID renders the message centre with one conversation open. | renderMessagePageByID 渲染打开指定会话的消息中心。
+func (c *Controller) renderMessagePageByID(ctx *router.Ctx, conversationID, notice string) {
+	page, err := c.loadMessagePage(ctx, conversationID, messageFilters{})
+	if err != nil {
+		c.failService(ctx, err)
+		return
+	}
+	c.renderMessagePage(ctx, http.StatusOK, page, "消息中心 | Messages", notice)
+}
+
+// renderMessagePage renders the page with an optional toast. | renderMessagePage 渲染页面并可附带提示。
+func (c *Controller) renderMessagePage(ctx *router.Ctx, status int, page messagePage, title, notice string) {
+	data := c.view(ctx, title, page.data())
+	if notice != "" {
+		c.toast(ctx, notice)
+	}
+	c.render(ctx, status, TplMessages, data)
+}
+
+// loadMessagePage assembles the conversation list, catalogue, pinned strip and optional thread/results. |
+// loadMessagePage 组装会话列表、目录、置顶条以及可选的线程/检索结果。
+func (c *Controller) loadMessagePage(ctx *router.Ctx, activeID string, filters messageFilters) (messagePage, error) {
+	actor := c.messageActor(ctx)
+	lang := c.lang(ctx)
+	page := messagePage{
+		Filters:       filters,
+		CanSend:       authz.Can(ctx.Request.Context(), authz.PermMessageSend),
+		CanManage:     authz.Can(ctx.Request.Context(), authz.PermMessageManage),
+		CanSystem:     authz.Can(ctx.Request.Context(), authz.PermMessageSystem),
+		CanTypeManage: authz.Can(ctx.Request.Context(), authz.PermMessageTypeManage),
+		UserID:        actor.ID,
+	}
+	conversations, err := c.messages.Conversations(ctx.Request.Context(), actor)
+	if err != nil {
+		return page, err
+	}
+	page.Conversations = c.conversationViewsOf(actor, conversations, lang, activeID)
+
+	pinned, err := c.messages.PinnedMessages(ctx.Request.Context(), actor)
+	if err != nil {
+		return page, err
+	}
+	page.Pinned = c.messageViewsOf(actor, pinned, lang, time.Now().UTC())
+
+	catalog, err := c.catalogData(ctx, actor)
+	if err != nil {
+		return page, err
+	}
+	page.Catalog = catalog
+
+	summary, err := c.messages.FriendSummary(ctx.Request.Context(), actor)
+	if err == nil {
+		page.Friends = friendViewsOf(summary.Friends)
+	}
+
+	if activeID != "" {
+		conv, messages, err := c.messages.Conversation(ctx.Request.Context(), actor, activeID)
+		if err != nil {
+			return page, err
+		}
+		views := c.conversationViewsOf(actor, []messaging.ConversationView{conv}, lang, activeID)
+		if len(views) > 0 {
+			active := views[0]
+			page.Active = &active
+		}
+		page.Thread = c.messageViewsOf(actor, messages, lang, time.Now().UTC())
+	}
+
+	if filters.Active {
+		result, err := c.messages.Messages(ctx.Request.Context(), actor, messaging.MessageFilter{
+			Query:    filters.Query,
+			TypeKey:  filters.TypeKey,
+			SenderID: filters.SenderID,
+			TagID:    filters.TagID,
+			Folder:   filters.Folder,
+			Page:     filters.Page,
+			PageSize: c.messages.Options().PageSize,
+		})
+		if err != nil {
+			return page, err
+		}
+		page.Results = c.messageViewsOf(actor, result.Messages, lang, time.Now().UTC())
+		page.Total = result.Total
+		page.SearchMode = true
+	}
+	return page, nil
+}
+
+// threadData builds the fragment data for a live thread refresh. | threadData 构建实时线程刷新的片段数据。
+func (c *Controller) threadData(ctx *router.Ctx, conversationID string) (map[string]any, error) {
+	actor := c.messageActor(ctx)
+	lang := c.lang(ctx)
+	conv, messages, err := c.messages.Conversation(ctx.Request.Context(), actor, conversationID)
+	if err != nil {
+		return nil, err
+	}
+	views := c.conversationViewsOf(actor, []messaging.ConversationView{conv}, lang, conversationID)
+	var active *conversationView
+	if len(views) > 0 {
+		active = &views[0]
+	}
+	catalog, err := c.catalogData(ctx, actor)
+	if err != nil {
+		return nil, err
+	}
+	data := c.view(ctx, "会话 | Conversation", map[string]any{
+		"ActiveConversation": active,
+		"Thread":             c.messageViewsOf(actor, messages, lang, time.Now().UTC()),
+		"Catalog":            catalog,
+		"CanSend":            authz.Can(ctx.Request.Context(), authz.PermMessageSend),
+		"CanManage":          authz.Can(ctx.Request.Context(), authz.PermMessageManage),
+		"CanSystem":          authz.Can(ctx.Request.Context(), authz.PermMessageSystem),
+		"ActorID":            actor.ID,
+	})
+	return data, nil
+}
+
+// catalogData converts the active catalogue. | catalogData 转换生效目录。
+func (c *Controller) catalogData(ctx *router.Ctx, actor messaging.Actor) (catalogView, error) {
+	catalog, err := c.messages.Catalog(ctx.Request.Context(), actor)
+	if err != nil {
+		return catalogView{}, err
+	}
+	return catalogView{
+		Types:  messageTypeViewsOf(catalog.Types, c.lang(ctx)),
+		Groups: tagViewsOf(catalog.Groups, c.lang(ctx)),
+		Tags:   tagViewsOf(catalog.Tags, c.lang(ctx)),
+	}, nil
+}
+
+// messageUnavailable renders the message centre with its unavailable notice. | messageUnavailable 渲染带不可用提示的消息中心。
+func (c *Controller) messageUnavailable(ctx *router.Ctx) {
+	data := c.view(ctx, "消息中心 | Messages", map[string]any{"Unavailable": true})
+	c.render(ctx, http.StatusServiceUnavailable, TplMessages, data)
+}
+
+// parseMessageFilters reads the filter bar from the query string. | parseMessageFilters 从查询串读取过滤栏。
+func parseMessageFilters(ctx *router.Ctx) messageFilters {
+	filters := messageFilters{
+		Query:    strings.TrimSpace(ctx.Query("q")),
+		TypeKey:  strings.TrimSpace(ctx.Query(FieldTypeKey)),
+		SenderID: strings.TrimSpace(ctx.Query(FieldSender)),
+		TagID:    strings.TrimSpace(ctx.Query(FieldTag)),
+		Folder:   strings.TrimSpace(ctx.Query(FieldFolder)),
+	}
+	if filters.Folder == "" {
+		filters.Folder = messaging.FolderAll
+	}
+	if page, err := strconv.Atoi(ctx.Query("page")); err == nil && page > 0 {
+		filters.Page = page
+	}
+	if filters.Page == 0 {
+		filters.Page = 1
+	}
+	filters.Active = filters.Query != "" || filters.TypeKey != "" || filters.SenderID != "" ||
+		filters.TagID != "" || (filters.Folder != messaging.FolderAll && filters.Folder != "")
+	return filters
+}
+
+// longField reads a long text field and truncates it by runes. | longField 读取长文本字段并按符文截断。
+func longField(ctx *router.Ctx, name string, max int) string {
+	value := strings.TrimSpace(ctx.FormValue(name))
+	if max <= 0 {
+		return value
+	}
+	return truncateText(value, max)
+}
+
+// truncateText caps a string by runes. | truncateText 按符文限制字符串长度。
+func truncateText(value string, max int) string {
+	if utf8.RuneCountInString(value) <= max {
+		return value
+	}
+	runes := []rune(value)
+	return string(runes[:max])
+}
+
+// parsePinTime parses a datetime-local, date or RFC3339 value. | parsePinTime 解析 datetime-local、日期或 RFC3339 取值。
+func parsePinTime(value string) (*time.Time, error) {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return nil, nil
+	}
+	layouts := []string{time.RFC3339, "2006-01-02T15:04", "2006-01-02T15:04:05", "2006-01-02"}
+	for _, layout := range layouts {
+		if parsed, err := time.ParseInLocation(layout, value, time.UTC); err == nil {
+			parsed = parsed.UTC()
+			return &parsed, nil
+		}
+	}
+	return nil, errx.Detail(messaging.ErrPinWindowInvalid, "value=%[1]q | 取值=%[1]q", value)
+}

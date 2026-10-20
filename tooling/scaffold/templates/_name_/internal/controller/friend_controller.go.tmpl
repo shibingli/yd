@@ -1,0 +1,470 @@
+// 本文件是好友页面与生命周期端点：搜索、申请、接受/拒绝/取消、备注、删除、拉黑与解除。
+// This file holds the friend page and lifecycle endpoints: search, request, accept/reject/cancel, remark, remove, block and
+// unblock.
+
+package controller
+
+import (
+	"net/http"
+	"strings"
+
+	"{{ .YdModule }}/core/logx"
+	"{{ .YdModule }}/http/router"
+	"{{ .YdModule }}/messaging"
+)
+
+// relationKeys maps a relation token to its catalogue key. The literals live here rather than being
+// concatenated at call time, so the static checker can see every key. | relationKeys 把关系标识映射到目录键。
+// 字面量放在这里而不是在调用处拼接，静态检查因此能看到每一个键。
+var relationKeys = map[string]string{
+	messaging.RelationNone:     "friend.relation.none",
+	messaging.RelationFriend:   "friend.relation.friend",
+	messaging.RelationIncoming: "friend.relation.incoming",
+	messaging.RelationOutgoing: "friend.relation.outgoing",
+	messaging.RelationBlocked:  "friend.relation.blocked",
+}
+
+// friendCandidateView is one search result. | friendCandidateView 是一条检索结果。
+type friendCandidateView struct {
+	// Profile is the candidate profile. | Profile 是候选资料。
+	Profile messaging.Profile
+	// Name is the display name. | Name 是展示名。
+	Name string
+	// Initial is the avatar letter. | Initial 是头像首字母。
+	Initial string
+	// Relation is the stable relation token. | Relation 是稳定关系标识。
+	Relation string
+	// RelationLabel is the localised relation label. | RelationLabel 是本地化关系标签。
+	RelationLabel string
+	// CanRequest reports whether a request may be sent. | CanRequest 报告是否可以发送申请。
+	CanRequest bool
+}
+
+// friendRequestRow is one request ready for rendering. | friendRequestRow 是可直接渲染的申请。
+type friendRequestRow struct {
+	// FriendRequest is the stored request. | FriendRequest 是存储的申请。
+	messaging.FriendRequestView
+	// Name is the other side's display name. | Name 是对方的展示名。
+	Name string
+	// Initial is the avatar letter. | Initial 是头像首字母。
+	Initial string
+	// When is the formatted request time. | When 是格式化的申请时间。
+	When string
+}
+
+// blockedRow is one blocked user. | blockedRow 是一个被拉黑用户。
+type blockedRow struct {
+	// Profile is the blocked profile. | Profile 是被拉黑资料。
+	Profile messaging.Profile
+	// Name is the display name. | Name 是展示名。
+	Name string
+	// Initial is the avatar letter. | Initial 是头像首字母。
+	Initial string
+}
+
+// Friends renders the friend page. | Friends 渲染好友页面。
+//
+// @Summary Friends | 好友
+// @Description Renders accepted friends, incoming and outgoing requests, blocked users and a user search. Every action
+// @Description stays inside the tenant and inside the actor's own relationships.
+// @Description 渲染已接受好友、收到与发出的申请、拉黑用户与用户检索。所有动作都限制在租户内且只作用于主体自己的关系。
+// @Tags friends
+// @Accept html
+// @Produce html
+// @Param q query string false "user search keyword | 用户检索词"
+// @Success 200 {object} string "friend page or fragment | 好友页面或片段"
+// @Failure 401 {object} string "no session | 无有效会话"
+// @Failure 403 {object} string "missing message:read | 缺少 message:read"
+// @Security BearerAuth
+// @Router /friends [get]
+func (c *Controller) Friends(ctx *router.Ctx) {
+	if !c.MessagesAvailable() {
+		c.messageUnavailable(ctx)
+		return
+	}
+	actor := c.messageActor(ctx)
+	summary, err := c.messages.FriendSummary(ctx.Request.Context(), actor)
+	if err != nil {
+		c.failService(ctx, err)
+		return
+	}
+	data := c.friendPageData(ctx, summary)
+	data["Query"] = strings.TrimSpace(ctx.Query("q"))
+	c.render(ctx, http.StatusOK, TplFriends, data)
+}
+
+// FriendSummaryFragment renders the friend panel for realtime refresh. | FriendSummaryFragment 渲染好友面板，供实时刷新。
+//
+// @Summary Friend panel fragment | 好友面板片段
+// @Description Returns the friend panel; the WebSocket client refreshes it after friend events.
+// @Description 返回好友面板；WebSocket 客户端在好友事件后刷新它。
+// @Tags friends
+// @Accept html
+// @Produce html
+// @Success 200 {object} string "friend panel fragment | 好友面板片段"
+// @Security BearerAuth
+// @Router /friends/summary [get]
+func (c *Controller) FriendSummaryFragment(ctx *router.Ctx) {
+	if !c.MessagesAvailable() {
+		return
+	}
+	actor := c.messageActor(ctx)
+	summary, err := c.messages.FriendSummary(ctx.Request.Context(), actor)
+	if err != nil {
+		c.failService(ctx, err)
+		return
+	}
+	c.render(ctx, http.StatusOK, TplFriendSummary, c.friendPageData(ctx, summary))
+}
+
+// friendPageData converts a summary into template data. | friendPageData 把汇总转成模板数据。
+func (c *Controller) friendPageData(ctx *router.Ctx, summary messaging.FriendSummary) map[string]any {
+	incoming := make([]friendRequestRow, 0, len(summary.Incoming))
+	for _, request := range summary.Incoming {
+		name := request.Requester.Display()
+		incoming = append(incoming, friendRequestRow{FriendRequestView: request, Name: name, Initial: initialOf(name), When: formatWhen(request.CreatedAt)})
+	}
+	outgoing := make([]friendRequestRow, 0, len(summary.Outgoing))
+	for _, request := range summary.Outgoing {
+		name := request.Addressee.Display()
+		outgoing = append(outgoing, friendRequestRow{FriendRequestView: request, Name: name, Initial: initialOf(name), When: formatWhen(request.CreatedAt)})
+	}
+	blocked := make([]blockedRow, 0, len(summary.Blocked))
+	for _, profile := range summary.Blocked {
+		name := profile.Display()
+		blocked = append(blocked, blockedRow{Profile: profile, Name: name, Initial: initialOf(name)})
+	}
+	return c.view(ctx, "好友 | Friends", map[string]any{
+		"Friends":  friendViewsOf(summary.Friends),
+		"Incoming": incoming,
+		"Outgoing": outgoing,
+		"Blocked":  blocked,
+	})
+}
+
+// FriendSearch searches tenant users and marks the current relation. | FriendSearch 检索租户用户并标记当前关系。
+//
+// @Summary Search users | 检索用户
+// @Description Searches active users of the tenant by name, sign-in name or e-mail and reports whether each is already a
+// @Description friend, has a pending request or is blocked.
+// @Description 按名称、登录名或邮箱检索本租户活跃用户，并报告其是否已是好友、有待处理申请或被拉黑。
+// @Tags friends
+// @Accept html
+// @Produce html
+// @Param q query string false "keyword | 关键字"
+// @Success 200 {object} string "candidate list fragment | 候选列表片段"
+// @Security BearerAuth
+// @Router /friends/search [get]
+func (c *Controller) FriendSearch(ctx *router.Ctx) {
+	if !c.MessagesAvailable() {
+		return
+	}
+	query := strings.TrimSpace(ctx.Query("q"))
+	actor := c.messageActor(ctx)
+	candidates, err := c.messages.SearchUsers(ctx.Request.Context(), actor, query)
+	if err != nil {
+		c.failService(ctx, err)
+		return
+	}
+	views := make([]friendCandidateView, 0, len(candidates))
+	for _, candidate := range candidates {
+		name := candidate.Profile.Display()
+		views = append(views, friendCandidateView{
+			Profile:       candidate.Profile,
+			Name:          name,
+			Initial:       initialOf(name),
+			Relation:      candidate.Relation,
+			RelationLabel: c.tr(c.lang(ctx), relationKeys[candidate.Relation]),
+			CanRequest:    candidate.Relation == messaging.RelationNone,
+		})
+	}
+	data := c.view(ctx, "好友检索 | Friend search", map[string]any{
+		"Candidates": views,
+		"Query":      query,
+	})
+	c.render(ctx, http.StatusOK, TplFriendSearch, data)
+}
+
+// NewFriendRequestDrawer renders the add-friend drawer. | NewFriendRequestDrawer 渲染添加好友抽屉。
+//
+// @Summary Add friend drawer | 添加好友抽屉
+// @Description Renders the greeting form for one candidate; the candidate profile is resolved server-side.
+// @Description 渲染单个候选的招呼语表单；候选资料由服务端解析。
+// @Tags friends
+// @Accept html
+// @Produce html
+// @Param friend_id query string true "candidate user id | 候选用户 ID"
+// @Success 200 {object} string "drawer fragment | 抽屉片段"
+// @Security BearerAuth
+// @Router /friends/new [get]
+func (c *Controller) NewFriendRequestDrawer(ctx *router.Ctx) {
+	if !c.MessagesAvailable() {
+		c.messageUnavailable(ctx)
+		return
+	}
+	friendID := strings.TrimSpace(ctx.Query(FieldFriend))
+	if friendID == "" {
+		c.failService(ctx, messaging.ErrInvalidInput)
+		return
+	}
+	profiles, err := c.messages.Profiles(ctx.Request.Context(), c.messageActor(ctx).TenantID, []string{friendID})
+	if err != nil {
+		c.failService(ctx, err)
+		return
+	}
+	profile, ok := profiles[friendID]
+	if !ok {
+		c.failService(ctx, messaging.ErrNotFound)
+		return
+	}
+	name := profile.Display()
+	c.render(ctx, http.StatusOK, TplFriendRequestDrawer, c.view(ctx, "添加好友 | Add friend", map[string]any{
+		"Target":  profile,
+		"Name":    name,
+		"Initial": initialOf(name),
+	}))
+}
+
+// SendFriendRequest sends one request. | SendFriendRequest 发送一条好友申请。
+//
+// @Summary Send friend request | 发送好友申请
+// @Description Creates a pending request with an optional greeting. A block in either direction, an existing friendship
+// @Description and a duplicate pending request are all refused.
+// @Description 创建带可选招呼语的待处理申请。任一方向的拉黑、已存在好友关系与重复待处理申请都会被拒绝。
+// @Tags friends
+// @Accept html
+// @Produce html
+// @Param friend_id formData string true "target user id | 目标用户 ID"
+// @Param message formData string false "greeting | 招呼语"
+// @Success 200 {object} string "friend panel fragment | 好友面板片段"
+// @Security BearerAuth
+// @Router /friends/requests [post]
+func (c *Controller) SendFriendRequest(ctx *router.Ctx) {
+	if !c.MessagesAvailable() {
+		c.messageUnavailable(ctx)
+		return
+	}
+	if _, err := c.messages.SendFriendRequest(ctx.Request.Context(), c.messageActor(ctx), field(ctx, FieldFriend), field(ctx, "message")); err != nil {
+		c.failService(ctx, err)
+		return
+	}
+	c.renderFriendSummaryWithNotice(ctx, "好友申请已发送 | friend request sent")
+}
+
+// AcceptFriendRequest accepts an incoming request. | AcceptFriendRequest 接受收到的申请。
+//
+// @Summary Accept request | 接受申请
+// @Description Accepts a pending incoming request and creates the friendship atomically.
+// @Description 接受收到的待处理申请并原子地创建好友关系。
+// @Tags friends
+// @Accept html
+// @Produce html
+// @Param id path string true "request id | 申请 ID"
+// @Success 200 {object} string "friend panel fragment | 好友面板片段"
+// @Security BearerAuth
+// @Router /friends/requests/{id}/accept [post]
+func (c *Controller) AcceptFriendRequest(ctx *router.Ctx) {
+	if !c.MessagesAvailable() {
+		c.messageUnavailable(ctx)
+		return
+	}
+	if err := c.messages.RespondFriendRequest(ctx.Request.Context(), c.messageActor(ctx), ctx.Param("id"), true); err != nil {
+		c.failService(ctx, err)
+		return
+	}
+	c.renderFriendSummaryWithNotice(ctx, "已接受好友申请 | friend request accepted")
+}
+
+// RejectFriendRequest rejects an incoming request. | RejectFriendRequest 拒绝收到的申请。
+//
+// @Summary Reject request | 拒绝申请
+// @Description Rejects a pending incoming request.
+// @Description 拒绝收到的待处理申请。
+// @Tags friends
+// @Accept html
+// @Produce html
+// @Param id path string true "request id | 申请 ID"
+// @Success 200 {object} string "friend panel fragment | 好友面板片段"
+// @Security BearerAuth
+// @Router /friends/requests/{id}/reject [post]
+func (c *Controller) RejectFriendRequest(ctx *router.Ctx) {
+	if !c.MessagesAvailable() {
+		c.messageUnavailable(ctx)
+		return
+	}
+	if err := c.messages.RespondFriendRequest(ctx.Request.Context(), c.messageActor(ctx), ctx.Param("id"), false); err != nil {
+		c.failService(ctx, err)
+		return
+	}
+	c.renderFriendSummaryWithNotice(ctx, "已拒绝好友申请 | friend request rejected")
+}
+
+// CancelFriendRequest withdraws an outgoing request. | CancelFriendRequest 撤回发出的申请。
+//
+// @Summary Cancel request | 取消申请
+// @Description Withdraws a pending outgoing request.
+// @Description 撤回发出的待处理申请。
+// @Tags friends
+// @Accept html
+// @Produce html
+// @Param id path string true "request id | 申请 ID"
+// @Success 200 {object} string "friend panel fragment | 好友面板片段"
+// @Security BearerAuth
+// @Router /friends/requests/{id}/cancel [post]
+func (c *Controller) CancelFriendRequest(ctx *router.Ctx) {
+	if !c.MessagesAvailable() {
+		c.messageUnavailable(ctx)
+		return
+	}
+	if err := c.messages.CancelFriendRequest(ctx.Request.Context(), c.messageActor(ctx), ctx.Param("id")); err != nil {
+		c.failService(ctx, err)
+		return
+	}
+	c.renderFriendSummaryWithNotice(ctx, "好友申请已取消 | friend request cancelled")
+}
+
+// FriendRemarkDrawer renders the remark drawer. | FriendRemarkDrawer 渲染备注抽屉。
+//
+// @Summary Friend remark drawer | 好友备注抽屉
+// @Description Renders the alias form for one accepted friend.
+// @Description 渲染一位已接受好友的备注表单。
+// @Tags friends
+// @Accept html
+// @Produce html
+// @Param id path string true "friend user id | 好友用户 ID"
+// @Success 200 {object} string "drawer fragment | 抽屉片段"
+// @Security BearerAuth
+// @Router /friends/{id}/remark [get]
+func (c *Controller) FriendRemarkDrawer(ctx *router.Ctx) {
+	if !c.MessagesAvailable() {
+		c.messageUnavailable(ctx)
+		return
+	}
+	actor := c.messageActor(ctx)
+	summary, err := c.messages.FriendSummary(ctx.Request.Context(), actor)
+	if err != nil {
+		c.failService(ctx, err)
+		return
+	}
+	for _, friend := range summary.Friends {
+		if friend.Profile.ID != ctx.Param("id") {
+			continue
+		}
+		c.render(ctx, http.StatusOK, TplFriendRemark, c.view(ctx, "好友备注 | Friend remark", map[string]any{
+			"Friend": friendViewsOf([]messaging.FriendView{friend})[0],
+		}))
+		return
+	}
+	c.failService(ctx, messaging.ErrNotFriend)
+}
+
+// SetFriendRemark stores the actor's alias for a friend. | SetFriendRemark 保存主体对好友的备注。
+//
+// @Summary Set remark | 设置备注
+// @Description Stores or clears the alias shown instead of the friend's profile name.
+// @Description 保存或清除替代好友资料名展示的备注。
+// @Tags friends
+// @Accept html
+// @Produce html
+// @Param id path string true "friend user id | 好友用户 ID"
+// @Param remark formData string false "alias | 备注"
+// @Success 200 {object} string "friend panel fragment | 好友面板片段"
+// @Security BearerAuth
+// @Router /friends/{id}/remark [post]
+func (c *Controller) SetFriendRemark(ctx *router.Ctx) {
+	if !c.MessagesAvailable() {
+		c.messageUnavailable(ctx)
+		return
+	}
+	if err := c.messages.SetFriendRemark(ctx.Request.Context(), c.messageActor(ctx), ctx.Param("id"), field(ctx, FieldRemark)); err != nil {
+		c.failService(ctx, err)
+		return
+	}
+	c.renderFriendSummaryWithNotice(ctx, "备注已保存 | remark saved")
+}
+
+// RemoveFriend deletes a friendship. | RemoveFriend 删除好友关系。
+//
+// @Summary Remove friend | 删除好友
+// @Description Deletes the friendship. Direct messages already exchanged are kept; new direct messages are refused until
+// @Description the two users become friends again.
+// @Description 删除好友关系。已交换的单聊消息保留；在重新成为好友之前新的单聊会被拒绝。
+// @Tags friends
+// @Accept html
+// @Produce html
+// @Param id path string true "friend user id | 好友用户 ID"
+// @Success 200 {object} string "friend panel fragment | 好友面板片段"
+// @Security BearerAuth
+// @Router /friends/{id}/remove [post]
+func (c *Controller) RemoveFriend(ctx *router.Ctx) {
+	if !c.MessagesAvailable() {
+		c.messageUnavailable(ctx)
+		return
+	}
+	if err := c.messages.RemoveFriend(ctx.Request.Context(), c.messageActor(ctx), ctx.Param("id")); err != nil {
+		c.failService(ctx, err)
+		return
+	}
+	c.renderFriendSummaryWithNotice(ctx, "好友已删除 | friend removed")
+}
+
+// BlockFriend blocks a user. | BlockFriend 拉黑用户。
+//
+// @Summary Block user | 拉黑用户
+// @Description Blocks the user, removes the friendship and closes pending requests in both directions.
+// @Description 拉黑用户、删除好友关系并关闭两个方向的待处理申请。
+// @Tags friends
+// @Accept html
+// @Produce html
+// @Param id path string true "target user id | 目标用户 ID"
+// @Success 200 {object} string "friend panel fragment | 好友面板片段"
+// @Security BearerAuth
+// @Router /friends/{id}/block [post]
+func (c *Controller) BlockFriend(ctx *router.Ctx) {
+	if !c.MessagesAvailable() {
+		c.messageUnavailable(ctx)
+		return
+	}
+	if err := c.messages.BlockUser(ctx.Request.Context(), c.messageActor(ctx), ctx.Param("id")); err != nil {
+		c.failService(ctx, err)
+		return
+	}
+	c.renderFriendSummaryWithNotice(ctx, "已拉黑该用户 | user blocked")
+}
+
+// UnblockFriend removes a block. | UnblockFriend 解除拉黑。
+//
+// @Summary Unblock user | 解除拉黑
+// @Description Removes the actor's block; the friendship is not restored automatically.
+// @Description 解除主体对该用户的拉黑；好友关系不会自动恢复。
+// @Tags friends
+// @Accept html
+// @Produce html
+// @Param id path string true "target user id | 目标用户 ID"
+// @Success 200 {object} string "friend panel fragment | 好友面板片段"
+// @Security BearerAuth
+// @Router /friends/{id}/unblock [post]
+func (c *Controller) UnblockFriend(ctx *router.Ctx) {
+	if !c.MessagesAvailable() {
+		c.messageUnavailable(ctx)
+		return
+	}
+	if err := c.messages.UnblockUser(ctx.Request.Context(), c.messageActor(ctx), ctx.Param("id")); err != nil {
+		c.failService(ctx, err)
+		return
+	}
+	c.renderFriendSummaryWithNotice(ctx, "已解除拉黑 | user unblocked")
+}
+
+// renderFriendSummaryWithNotice renders the friend panel and emits a toast. | renderFriendSummaryWithNotice 渲染好友面板并发出提示。
+func (c *Controller) renderFriendSummaryWithNotice(ctx *router.Ctx, notice string) {
+	actor := c.messageActor(ctx)
+	summary, err := c.messages.FriendSummary(ctx.Request.Context(), actor)
+	if err != nil {
+		c.failService(ctx, err)
+		return
+	}
+	c.toast(ctx, notice)
+	c.log.Debug("friend action finished | 好友动作完成", logx.Str("actor", actor.ID))
+	c.render(ctx, http.StatusOK, TplFriendSummary, c.friendPageData(ctx, summary))
+}

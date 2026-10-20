@@ -16,14 +16,20 @@ const (
 	GroupRole = "role"
 	// GroupPermission is the permission registry resource group. | GroupPermission 是权限注册表资源分组。
 	GroupPermission = "permission"
+	// GroupMessage is the in-app message-centre resource group. | GroupMessage 是站内消息中心资源分组。
+	GroupMessage = "message"
+	// GroupMessageType is the message type, group and tag catalogue resource group. | GroupMessageType 是消息类型、分组与标签目录资源分组。
+	GroupMessageType = "message-type"
 )
 
 // groupLabels maps every framework resource group to its bilingual label. | groupLabels 把每个框架资源分组映射到中英对照标签。
 var groupLabels = map[string]string{
-	GroupTenant:     "tenant | 租户",
-	GroupUser:       "user | 用户",
-	GroupRole:       "role | 角色",
-	GroupPermission: "permission | 权限",
+	GroupTenant:      "tenant | 租户",
+	GroupUser:        "user | 用户",
+	GroupRole:        "role | 角色",
+	GroupPermission:  "permission | 权限",
+	GroupMessage:     "message | 消息",
+	GroupMessageType: "message-type | 消息类型",
 }
 
 // GroupLabel returns the bilingual label of a resource group. | GroupLabel 返回资源分组的中英对照标签。
@@ -83,6 +89,23 @@ const (
 	PermPermissionRead = "permission:read"
 	// PermPermissionManage allows declaring and retiring capabilities. | PermPermissionManage 允许声明与废止能力。
 	PermPermissionManage = "permission:manage"
+
+	// PermMessageRead allows using the message centre and reading visible messages. | PermMessageRead 允许使用消息中心并读取可见消息。
+	PermMessageRead = "message:read"
+	// PermMessageSend allows sending messages to friends and groups. | PermMessageSend 允许向好友与群发送消息。
+	PermMessageSend = "message:send"
+	// PermMessageUpdate allows editing one's own messages inside the edit window. | PermMessageUpdate 允许在编辑窗口内编辑自己的消息。
+	PermMessageUpdate = "message:update"
+	// PermMessageDelete allows recalling one's own messages inside the recall window. | PermMessageDelete 允许在撤回窗口内撤回自己的消息。
+	PermMessageDelete = "message:delete"
+	// PermMessageSystem allows posting and revoking administrator announcements. | PermMessageSystem 允许发布与撤销管理员公告。
+	PermMessageSystem = "message:system"
+	// PermMessageManage allows moderating every message and pinning announcements. | PermMessageManage 允许管理全部消息并置顶公告。
+	PermMessageManage = "message:manage"
+	// PermMessageTypeRead allows reading the message type, group and tag catalogue. | PermMessageTypeRead 允许读取消息类型、分组与标签目录。
+	PermMessageTypeRead = "message-type:read"
+	// PermMessageTypeManage allows the message type, group and tag lifecycle. | PermMessageTypeManage 允许管理消息类型、分组与标签生命周期。
+	PermMessageTypeManage = "message-type:manage"
 )
 
 // Role names. | 角色名。
@@ -127,6 +150,15 @@ var builtinPermissions = []Permission{
 
 	{Name: PermPermissionRead, Description: "Read the permission registry | 查看权限注册表"},
 	{Name: PermPermissionManage, Description: "Declare and retire capabilities | 声明与废止能力"},
+
+	{Name: PermMessageRead, Description: "Use the message centre and read visible messages | 使用消息中心并读取可见消息"},
+	{Name: PermMessageSend, Description: "Send direct and group messages | 发送单聊与群聊消息"},
+	{Name: PermMessageUpdate, Description: "Edit own messages inside the edit window | 在编辑窗口内编辑自己的消息"},
+	{Name: PermMessageDelete, Description: "Recall own messages inside the recall window | 在撤回窗口内撤回自己的消息"},
+	{Name: PermMessageSystem, Description: "Post and revoke administrator announcements | 发布与撤销管理员公告"},
+	{Name: PermMessageManage, Description: "Moderate every message and pin announcements | 管理全部消息并置顶公告"},
+	{Name: PermMessageTypeRead, Description: "Read message types, groups and tags | 读取消息类型、分组与标签"},
+	{Name: PermMessageTypeManage, Description: "Manage the message type, group and tag lifecycle | 管理消息类型、分组与标签生命周期"},
 }
 
 // builtinRoles is the framework role vocabulary. | builtinRoles 是框架角色词汇表。

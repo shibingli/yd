@@ -1,0 +1,391 @@
+// 本文件把消息领域对象转换成模板视图：只做展示派生（标签、时间、首字母、可操作标记），不改变业务判定。
+// This file converts message domain objects into template views: it only derives presentation values
+// (labels, times, initials, action flags) and never changes a business decision.
+
+package controller
+
+import (
+	"html/template"
+	"strings"
+	"time"
+	"unicode/utf8"
+
+	"{{ .YdModule }}/messaging"
+	"{{ .YdModule }}/security/auth"
+	"{{ .YdModule }}/security/authz"
+	"{{ .Module }}/internal/middleware"
+	"{{ .YdModule }}/http/router"
+)
+
+// 消息页面使用的静态资产：编辑器与实时脚本只在这些页面加载，避免拖慢其它工作区。
+// Static assets of the message pages: the editor and realtime scripts load only here, so they never slow down another
+// workspace.
+var (
+	messagePageStyles = []string{
+		"/static/js/vendor/font-awesome.min.css",
+		"/static/js/vendor/easymde.min.css",
+	}
+	messagePageScripts = []string{
+		"/static/js/vendor/easymde.min.js",
+		"/static/js/yd-message-editor.js",
+		"/static/js/yd-message.js",
+	}
+)
+
+// messageActor builds the domain actor from the request. Capabilities come from the authz registry,
+// so a permission name is never spelled out here. | messageActor 从请求构造领域主体。
+// 能力来自 authz 注册表，这里不写任何权限字面量。
+func (c *Controller) messageActor(ctx *router.Ctx) messaging.Actor {
+	actor := messaging.Actor{}
+	user, ok := auth.CurrentUser(ctx)
+	if !ok || user == nil {
+		return actor
+	}
+	actor.ID = user.ID
+	actor.TenantID = user.TenantID
+	actor.DisplayName = user.DisplayName
+	if actor.DisplayName == "" {
+		actor.DisplayName = user.Username
+	}
+	if tenantID, ok := middleware.TenantID(ctx); ok {
+		actor.TenantID = tenantID
+	}
+	request := ctx.Request.Context()
+	actor.Manage = authz.Can(request, authz.PermMessageManage)
+	actor.System = authz.Can(request, authz.PermMessageSystem)
+	actor.TypeManage = authz.Can(request, authz.PermMessageTypeManage)
+	return actor
+}
+
+// messageTagView is one label ready for rendering. | messageTagView 是可直接渲染的标签。
+type messageTagView struct {
+	// ID is the tag id. | ID 是标签 ID。
+	ID string
+	// Key is the stable slug. | Key 是稳定标识。
+	Key string
+	// Label is the localised name. | Label 是本地化名称。
+	Label string
+	// Tone is the semantic colour role. | Tone 是语义色角色。
+	Tone string
+}
+
+// messageAttachmentView is one attachment ready for rendering. | messageAttachmentView 是可直接渲染的附件。
+type messageAttachmentView struct {
+	// Attachment is the stored record. | Attachment 是存储记录。
+	messaging.Attachment
+	// SizeText is a human-readable size. | SizeText 是人类可读大小。
+	SizeText string
+	// Image reports whether the attachment can be previewed inline. | Image 报告附件是否可内联预览。
+	Image bool
+}
+
+// messageView is one message ready for rendering. | messageView 是可直接渲染的消息。
+type messageView struct {
+	// MessageView is the domain projection. | MessageView 是领域投影。
+	messaging.MessageView
+	// HTML is the sanitised body fragment. | HTML 是净化后的正文片段。
+	HTML template.HTML
+	// TypeLabel is the localised type name. | TypeLabel 是本地化类型名。
+	TypeLabel string
+	// SenderName is the display name snapshot. | SenderName 是展示名快照。
+	SenderName string
+	// SenderInitial is the avatar letter. | SenderInitial 是头像首字母。
+	SenderInitial string
+	// When is the formatted send time. | When 是格式化的发送时间。
+	When string
+	// Preview is the plain-text teaser. | Preview 是纯文本摘要。
+	Preview string
+	// Attachments are the attachment views. | Attachments 是附件视图。
+	Attachments []messageAttachmentView
+	// Tags are the label views. | Tags 是标签视图。
+	Tags []messageTagView
+	// Groups are the group views. | Groups 是分组视图。
+	Groups []messageTagView
+	// CanEdit reports whether the edit action is offered. | CanEdit 报告是否提供编辑动作。
+	CanEdit bool
+	// CanRecall reports whether the recall action is offered. | CanRecall 报告是否提供撤回动作。
+	CanRecall bool
+	// CanRevoke reports whether the system revoke action is offered. | CanRevoke 报告是否提供系统撤销动作。
+	CanRevoke bool
+	// CanPin reports whether the pin action is offered. | CanPin 报告是否提供置顶动作。
+	CanPin bool
+	// PinnedNow reports whether the pin is active. | PinnedNow 报告置顶是否生效。
+	PinnedNow bool
+	// Recalled reports whether the message is a tombstone. | Recalled 报告消息是否为墓碑。
+	Recalled bool
+	// Mine reports whether the actor wrote it. | Mine 报告当前主体是否作者。
+	Mine bool
+}
+
+// conversationView is one conversation ready for rendering. | conversationView 是可直接渲染的会话。
+type conversationView struct {
+	// ConversationView is the domain projection. | ConversationView 是领域投影。
+	messaging.ConversationView
+	// Title is the resolved display title. | Title 是解析后的展示标题。
+	Title string
+	// Initial is the avatar letter. | Initial 是头像首字母。
+	Initial string
+	// LastPreview is the plain-text teaser of the newest message. | LastPreview 是最新消息的纯文本摘要。
+	LastPreview string
+	// LastWhen is the formatted time of the newest message. | LastWhen 是最新消息的格式化时间。
+	LastWhen string
+	// LastRecalled reports whether the newest message is a tombstone. | LastRecalled 报告最新消息是否为墓碑。
+	LastRecalled bool
+	// IsSystem reports the announcement channel. | IsSystem 报告是否为公告频道。
+	IsSystem bool
+	// IsDirect reports a direct conversation. | IsDirect 报告是否为单聊。
+	IsDirect bool
+	// IsGroup reports a group conversation. | IsGroup 报告是否为群聊。
+	IsGroup bool
+	// Active marks the conversation currently open. | Active 标记当前打开的会话。
+	Active bool
+}
+
+// friendView is one friend ready for rendering. | friendView 是可直接渲染的好友。
+type friendView struct {
+	// FriendView is the domain projection. | FriendView 是领域投影。
+	messaging.FriendView
+	// Name is the remark-or-profile display name. | Name 是备注或资料展示名。
+	Name string
+	// Initial is the avatar letter. | Initial 是头像首字母。
+	Initial string
+}
+
+// messageTypeView is one type ready for rendering. | messageTypeView 是可直接渲染的消息类型。
+type messageTypeView struct {
+	// MessageType is the domain record. | MessageType 是领域记录。
+	messaging.MessageType
+	// Label is the localised name. | Label 是本地化名称。
+	Label string
+	// Archived reports whether the type is retired. | Archived 报告类型是否已归档。
+	Archived bool
+}
+
+// tagView is one group or label ready for rendering. | tagView 是可直接渲染的分组或标签。
+type tagView struct {
+	// Tag is the domain record. | Tag 是领域记录。
+	messaging.Tag
+	// Label is the localised name. | Label 是本地化名称。
+	Label string
+	// Archived reports whether the tag is retired. | Archived 报告标签是否已归档。
+	Archived bool
+}
+
+// auditView is one audit entry ready for rendering. | auditView 是可直接渲染的审计记录。
+type auditView struct {
+	// AuditEntry is the stored entry. | AuditEntry 是存储记录。
+	messaging.AuditEntry
+	// When is the formatted action time. | When 是格式化的动作时间。
+	When string
+}
+
+// messageViewOf converts one domain message. | messageViewOf 转换一条领域消息。
+func (c *Controller) messageViewOf(actor messaging.Actor, msg messaging.MessageView, lang string, now time.Time) messageView {
+	view := messageView{
+		MessageView:   msg,
+		HTML:          template.HTML(msg.BodyHTML), //nolint:gosec // sanitised by the messaging renderer | 已由消息渲染器净化
+		TypeLabel:     msg.Label(lang),
+		SenderName:    msg.SenderName,
+		SenderInitial: initialOf(msg.SenderName),
+		When:          formatWhen(msg.CreatedAt),
+		Preview:       previewOf(msg.BodyText, 120),
+		PinnedNow:     msg.PinnedNow(now),
+		Recalled:      msg.Status == messaging.StatusRecalled,
+		Mine:          msg.SenderID == actor.ID,
+	}
+	if strings.TrimSpace(view.SenderName) == "" {
+		view.SenderName = "?"
+	}
+	for _, attachment := range msg.Attachments {
+		view.Attachments = append(view.Attachments, messageAttachmentView{
+			Attachment: attachment,
+			SizeText:   sizeText(attachment.Size),
+			Image:      strings.HasPrefix(attachment.ContentType, "image/"),
+		})
+	}
+	for _, tag := range msg.Tags {
+		view.Tags = append(view.Tags, messageTagView{ID: tag.ID, Key: tag.Key, Label: tag.Label(lang), Tone: tag.Tone})
+	}
+	for _, group := range msg.Groups {
+		view.Groups = append(view.Groups, messageTagView{ID: group.ID, Key: group.Key, Label: group.Label(lang), Tone: group.Tone})
+	}
+
+	sent := msg.Status == messaging.StatusSent
+	systemOrigin := msg.Origin == messaging.OriginSystem
+	withinEdit := now.Sub(msg.CreatedAt) <= c.messages.Options().EditWindow
+	withinRecall := now.Sub(msg.CreatedAt) <= c.messages.Options().RecallWindow
+	view.CanEdit = sent && (actor.Manage || (view.Mine && !systemOrigin && withinEdit))
+	view.CanRecall = sent && !systemOrigin && (actor.Manage || (view.Mine && withinRecall))
+	view.CanRevoke = sent && systemOrigin && (actor.System || actor.Manage)
+	view.CanPin = sent && systemOrigin && actor.Manage
+	return view
+}
+
+// messageViewsOf converts a batch. | messageViewsOf 批量转换。
+func (c *Controller) messageViewsOf(actor messaging.Actor, list []messaging.MessageView, lang string, now time.Time) []messageView {
+	out := make([]messageView, 0, len(list))
+	for _, msg := range list {
+		out = append(out, c.messageViewOf(actor, msg, lang, now))
+	}
+	return out
+}
+
+// conversationViewsOf converts the conversation list, resolving titles and teasers. |
+// conversationViewsOf 转换会话列表，解析标题与摘要。
+func (c *Controller) conversationViewsOf(actor messaging.Actor, list []messaging.ConversationView, lang string, activeID string) []conversationView {
+	out := make([]conversationView, 0, len(list))
+	for _, conv := range list {
+		view := conversationView{
+			ConversationView: conv,
+			IsSystem:         conv.Kind == messaging.KindSystem,
+			IsDirect:         conv.Kind == messaging.KindDirect,
+			IsGroup:          conv.Kind == messaging.KindGroup,
+			Active:           conv.ID == activeID,
+		}
+		switch {
+		case conv.Kind == messaging.KindSystem:
+			view.Title = c.tr(lang, "message.system_channel")
+			view.Initial = "◆"
+		case conv.Kind == messaging.KindDirect && conv.Peer != nil:
+			view.Title = conv.Peer.Display()
+			view.Initial = initialOf(view.Title)
+		default:
+			view.Title = conv.Title
+			if view.Title == "" {
+				view.Title = c.tr(lang, "message.group_untitled")
+			}
+			view.Initial = initialOf(view.Title)
+		}
+		if conv.LastMessage != nil {
+			view.LastWhen = formatWhen(conv.LastMessage.CreatedAt)
+			view.LastRecalled = conv.LastMessage.Recalled()
+			view.LastPreview = previewOf(conv.LastMessage.BodyText, 80)
+		}
+		out = append(out, view)
+	}
+	return out
+}
+
+// friendViewsOf converts friends. | friendViewsOf 转换好友列表。
+func friendViewsOf(list []messaging.FriendView) []friendView {
+	out := make([]friendView, 0, len(list))
+	for _, friend := range list {
+		name := friend.Display()
+		out = append(out, friendView{FriendView: friend, Name: name, Initial: initialOf(name)})
+	}
+	return out
+}
+
+// messageTypeViewsOf converts types. | messageTypeViewsOf 转换消息类型。
+func messageTypeViewsOf(list []messaging.MessageType, lang string) []messageTypeView {
+	out := make([]messageTypeView, 0, len(list))
+	for _, item := range list {
+		out = append(out, messageTypeView{MessageType: item, Label: item.Label(lang), Archived: item.Archived()})
+	}
+	return out
+}
+
+// tagViewsOf converts groups or labels. | tagViewsOf 转换分组或标签。
+func tagViewsOf(list []messaging.Tag, lang string) []tagView {
+	out := make([]tagView, 0, len(list))
+	for _, item := range list {
+		out = append(out, tagView{Tag: item, Label: item.Label(lang), Archived: item.Archived()})
+	}
+	return out
+}
+
+// auditViewsOf converts audit entries. | auditViewsOf 转换审计记录。
+func auditViewsOf(list []messaging.AuditEntry) []auditView {
+	out := make([]auditView, 0, len(list))
+	for _, item := range list {
+		out = append(out, auditView{AuditEntry: item, When: formatWhen(item.CreatedAt)})
+	}
+	return out
+}
+
+// initialOf returns the first rune of a display name. | initialOf 返回展示名的第一个符文。
+func initialOf(value string) string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return "?"
+	}
+	first, _ := utf8.DecodeRuneInString(value)
+	if first == utf8.RuneError {
+		return "?"
+	}
+	return strings.ToUpper(string(first))
+}
+
+// previewOf collapses whitespace and truncates by runes. | previewOf 折叠空白并按符文截断。
+func previewOf(value string, limit int) string {
+	value = strings.Join(strings.Fields(value), " ")
+	if limit <= 0 {
+		return value
+	}
+	runes := []rune(value)
+	if len(runes) <= limit {
+		return value
+	}
+	return string(runes[:limit]) + "…"
+}
+
+// formatWhen renders a UTC timestamp in the page's fixed list format. | formatWhen 以列表固定格式渲染 UTC 时间戳。
+func formatWhen(at time.Time) string {
+	if at.IsZero() {
+		return ""
+	}
+	return at.UTC().Format("2006-01-02 15:04")
+}
+
+// sizeText renders a byte count as B, KiB or MiB. | sizeText 把字节数渲染为 B、KiB 或 MiB。
+func sizeText(size int64) string {
+	switch {
+	case size < 1024:
+		return strconvInt(size) + " B"
+	case size < 1024*1024:
+		return strconvFloat(float64(size)/1024) + " KiB"
+	default:
+		return strconvFloat(float64(size)/(1024*1024)) + " MiB"
+	}
+}
+
+// strconvInt formats an integer without importing fmt into a hot template path. | strconvInt 不把 fmt 引入模板热路径地格式化整数。
+func strconvInt(value int64) string {
+	if value == 0 {
+		return "0"
+	}
+	negative := value < 0
+	if negative {
+		value = -value
+	}
+	var digits [20]byte
+	pos := len(digits)
+	for value > 0 {
+		pos--
+		digits[pos] = byte('0' + value%10)
+		value /= 10
+	}
+	if negative {
+		pos--
+		digits[pos] = '-'
+	}
+	return string(digits[pos:])
+}
+
+// strconvFloat formats one decimal place for a size. | strconvFloat 为大小保留一位小数。
+func strconvFloat(value float64) string {
+	whole := int64(value)
+	frac := int64((value - float64(whole)) * 10)
+	if frac < 0 {
+		frac = 0
+	}
+	return strconvInt(whole) + "." + strconvInt(frac)
+}
+
+// tr renders one catalogue key outside a template execution. | tr 在模板执行之外渲染一个语言目录键。
+func (c *Controller) tr(lang, key string) string {
+	if c.i18n == nil {
+		return key
+	}
+	return c.i18n.Translator(lang).T(key)
+}

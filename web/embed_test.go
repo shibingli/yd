@@ -31,6 +31,10 @@ const lockFilePath = "assets.lock.json"
 // vendorDir is the directory holding every vendored third-party script. | vendorDir 是存放全部 vendoring 第三方脚本的目录。
 const vendorDir = "static/js/vendor"
 
+// vendorFontDir holds vendored font files referenced by a stylesheet's relative URL. |
+// vendorFontDir 存放被样式表相对路径引用的 vendoring 字体文件。
+const vendorFontDir = "static/js/fonts"
+
 // minVendorBytes is the smallest plausible size of a minified library; anything smaller is a truncated download. | minVendorBytes 是压缩后库文件的最小可信体积；更小即视为下载被截断。
 const minVendorBytes = 256
 
@@ -173,8 +177,9 @@ func TestAllManifestAssetsExistAndMatchChecksum(t *testing.T) {
 			if !fs.ValidPath(a.Path) {
 				t.Fatalf("path %q must satisfy fs.ValidPath | path %q 必须满足 fs.ValidPath", a.Path, a.Path)
 			}
-			if !strings.HasPrefix(a.Path, vendorDir+"/") {
-				t.Fatalf("path %q must live under %s/ | path %q 必须位于 %s/ 之下", a.Path, vendorDir, a.Path, vendorDir)
+			if !strings.HasPrefix(a.Path, vendorDir+"/") && !strings.HasPrefix(a.Path, vendorFontDir+"/") {
+				t.Fatalf("path %q must live under %s/ or %s/ | path %q 必须位于 %s/ 或 %s/ 之下",
+					a.Path, vendorDir, vendorFontDir, a.Path, vendorDir, vendorFontDir)
 			}
 
 			if !sha256Hex(a.SHA256) {
@@ -310,21 +315,23 @@ func TestVendoredTreeMatchesManifestPaths(t *testing.T) {
 	}
 
 	var onDisk []string
-	err := afs.Walk(fsys, vendorDir, func(p string, info os.FileInfo, err error) error {
-		if err != nil {
-			return err
-		}
-		if info.IsDir() || !strings.HasSuffix(p, ".js") {
+	for _, root := range []string{vendorDir, vendorFontDir} {
+		err := afs.Walk(fsys, root, func(p string, info os.FileInfo, err error) error {
+			if err != nil {
+				return err
+			}
+			if info.IsDir() || path.Base(p) == "LICENSES.md" {
+				return nil
+			}
+			onDisk = append(onDisk, p)
+			if !locked[p] {
+				t.Errorf("asset %q is vendored but absent from %s | 资产 %q 已 vendoring 但未登记在 %s 中", p, lockFilePath, p, lockFilePath)
+			}
 			return nil
+		})
+		if err != nil {
+			t.Fatalf("walking %s failed: %v | 遍历 %s 失败: %v", root, err, root, err)
 		}
-		onDisk = append(onDisk, p)
-		if !locked[p] {
-			t.Errorf("script %q is vendored but absent from %s | 脚本 %q 已 vendoring 但未登记在 %s 中", p, lockFilePath, p, lockFilePath)
-		}
-		return nil
-	})
-	if err != nil {
-		t.Fatalf("walking %s failed: %v | 遍历 %s 失败: %v", vendorDir, err, vendorDir, err)
 	}
 
 	disk := make(map[string]bool, len(onDisk))

@@ -50,6 +50,8 @@ var builtinGrants = []Grant{
 			PermUserCreate, PermUserRead, PermUserUpdate, PermUserDelete,
 			PermRoleCreate, PermRoleRead, PermRoleUpdate, PermRoleDelete, PermRoleManage,
 			PermPermissionRead, PermPermissionManage,
+			PermMessageRead, PermMessageSend, PermMessageUpdate, PermMessageDelete,
+			PermMessageSystem, PermMessageManage, PermMessageTypeRead, PermMessageTypeManage,
 		},
 	},
 	{
@@ -77,6 +79,8 @@ var builtinGrants = []Grant{
 			PermUserCreate, PermUserRead, PermUserUpdate, PermUserDelete,
 			PermRoleCreate, PermRoleRead, PermRoleUpdate, PermRoleDelete, PermRoleManage,
 			PermPermissionRead,
+			PermMessageRead, PermMessageSend, PermMessageUpdate, PermMessageDelete,
+			PermMessageSystem, PermMessageManage, PermMessageTypeRead, PermMessageTypeManage,
 		},
 	},
 	{
@@ -92,20 +96,25 @@ var builtinGrants = []Grant{
 		Role: RoleAuditor,
 		Permissions: []string{
 			PermTenantRead, PermUserRead, PermRoleRead, PermPermissionRead,
+			PermMessageRead, PermMessageTypeRead,
 		},
 	},
 	{
-		// The member grants nothing, and that is the honest default rather than a placeholder. |
-		// 普通成员不授予任何能力，这是诚实的默认值而不是占位符。
+		// The member holds exactly the message-centre capabilities whose scope is the author
+		// themselves. | 普通成员恰好持有那些作用域就是作者本人的消息中心能力。
 		//
-		// Every capability of this registry is tenant-wide - there is no "own resource" scope - so any
-		// grant at all would let an ordinary account read or change the data of its colleagues. A
-		// member signs in, sees its own account page, and is offered nothing else; a project that wants
-		// more gives more, deliberately, on the permission matrix. | 本注册表的每项能力都是租户级的——
-		// 不存在「仅自己的资源」这个范围——因此任何一项授予都会让普通账号读到或改到同事的数据。
-		// 成员能登录、能看到自己的账号页，此外什么也得不到；想要更多的项目请在权限矩阵上刻意地授予。
-		Role:        RoleMember,
-		Permissions: []string{},
+		// This is the one deliberate exception to "the member grants nothing": message:update and
+		// message:delete are not tenant-wide grants, because the messaging service refuses a message
+		// the actor did not send and refuses a recall after the configured window. message:read and
+		// message:send similarly operate on conversations the actor belongs to and on accepted
+		// friendships only. Every other capability stays withheld, because it really is tenant-wide. |
+		// 这是「成员不授予任何能力」的唯一一处刻意例外：message:update 与 message:delete 不是租户级授权，
+		// 因为消息服务会拒绝主体没有发送过的消息，也会拒绝超出配置窗口的撤回。message:read 与 message:send
+		// 同样只作用于主体所属的会话与已接受的好友关系。其余能力仍然不授予，因为它们确实是租户级的。
+		Role: RoleMember,
+		Permissions: []string{
+			PermMessageRead, PermMessageSend, PermMessageUpdate, PermMessageDelete,
+		},
 	},
 }
 

@@ -28,6 +28,44 @@ Go {{ .GoVersion }} + Htmx {{ .HtmxVersion }} + Tailwind CSS {{ .TailwindVersion
 | tailwind | {{ .Tailwind }} |
 | htmx 扩展 | {{ range $i, $e := .HtmxExts }}{{ if $i }}, {{ end }}{{ $e }}{{ end }} |
 
+## 站内消息中心
+
+项目内含一套租户级消息中心，随项目生成即可用（需要真实数据库；`--db none` 的项目会显式报告不可用）：
+
+- **好友**：`/friends` 支持用户检索、申请、接受/拒绝/取消、删除、拉黑/解除与备注。
+- **会话**：`/messages` 是即时通讯布局——左侧会话列表（单聊、群聊、公告频道）与检索/置顶入口，
+  右上方历史消息，右下方内联撰写区；日常消息直接发送，公告与破坏性动作保留确认。
+  新建会话、编辑、置顶与群设置走右侧抽屉；消息治理与目录设置仍是列表式后台管理页。
+- **系统公告**：只有 `message:system` 能发布；撤销保留审计原文，普通成员只看到墓碑。
+  置顶只作用于系统公告，支持立即或未来开始与可选结束时间。
+- **消息治理**：`/messages/admin` 与 `/messages/admin/audit` 提供全租户治理与审计；
+  `/message-settings` 维护消息类型、分组与标签（内置 announcement / normal / system / finance / marketing）。
+- **富文本**：Markdown 源由服务端 goldmark 渲染并净化（原始 HTML 与危险链接被移除），
+  编辑器为本地 vendored 的 EasyMDE 2.20，无 CDN、无 Node 构建。
+- **附件**：先上传后挂载，内容类型由字节嗅探、大小与 MIME 白名单由服务端强制；下载按消息可见性鉴权。
+- **实时与离线**：`/ws/messages` 推送消息、好友、撤回与置顶事件；`/api/v1/messages/...` 与
+  `/api/v1/friends/...` 提供等价的 JSON API（含 `/:id/revoke` 系统公告撤销）。
+
+相关配置在 `configs/config.yaml` 的 `message` 段：`recall_window`、`edit_window`、`max_attachments`、
+`max_attachment_size`、`max_group_members`、`page_size`、`attachment_dir`、`pending_ttl`、`node_id`、
+`allowed_types`；环境变量统一为 `YD_MESSAGE_*`（例如 `YD_MESSAGE_RECALL_WINDOW=10m`）。
+
+单节点无需额外基础设施，实时投递在进程内完成。多节点部署需要在生成项目时选择 `redis` 集成
+（持久重试再选择 `asynq`），然后配置 `redis`（Pub/Sub 频道 `yd:message:events`）与可选的 `asynq`
+（失败广播进入 `yd:message:event` 持久重试）；每个副本应设置唯一的 `message.node_id`，
+Redis 不可达时应用会明确告警并退回单节点投递，启动不受影响。未选择这两项的项目只编译本地总线，
+事后补写 `redis` 配置不会生效。
+
+The generated project ships a tenant-scoped message centre: the friend lifecycle, direct and group chats, administrator
+announcements with audit-preserving revocation and time-window pinning, mixed full-text search, message types, groups and
+tags, attachments, a locally vendored EasyMDE Markdown editor, a JSON API and a WebSocket push channel. It needs a real
+database; a project generated with `--db none` reports the centre as unavailable instead of pretending to work. Configure
+`message.recall_window`, `edit_window`, attachment limits and `node_id` under the `message` section (`YD_MESSAGE_*`
+environment variables map onto it). A single node delivers realtime events in-process; a multi-node deployment requires
+choosing the redis integration when the project is generated (plus asynq for durable retries), configures Redis Pub/Sub
+and optional asynq retries, and must give every replica a unique `message.node_id`. A project generated without those
+integrations compiles the local bus only, so adding a redis section afterwards has no effect.
+
 ## 目录结构
 
 ```

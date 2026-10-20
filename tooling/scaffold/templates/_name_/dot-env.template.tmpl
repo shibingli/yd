@@ -41,6 +41,7 @@ YD_DB_SLOW_THRESHOLD=200ms
 # Redis: single | sentinel | cluster
 YD_REDIS_MODE=single
 YD_REDIS_ADDR=127.0.0.1:6379
+# YD_REDIS_PASSWORD=
 {{- end }}
 {{- if .Asynq }}
 
@@ -63,6 +64,23 @@ YD_GRPC_PORT=9090
 YD_I18N_DEFAULT=zh-CN
 YD_I18N_FALLBACK=en
 {{- end }}
+
+
+# 站内消息中心：撤回/编辑窗口、附件与多节点节点标识。
+# In-app message centre: recall/edit windows, attachments and the multi-node node identity.
+# 同时开启 Redis 与 asynq 时，实时事件经 Redis Pub/Sub 跨节点广播，失败广播进入 asynq 持久重试。
+# With Redis and asynq both enabled, realtime events broadcast across nodes through Redis Pub/Sub and failed broadcasts
+# enter a durable asynq retry queue.
+YD_MESSAGE_RECALL_WINDOW=5m
+YD_MESSAGE_EDIT_WINDOW=5m
+YD_MESSAGE_MAX_ATTACHMENTS=10
+YD_MESSAGE_MAX_ATTACHMENT_SIZE=20971520
+YD_MESSAGE_MAX_GROUP_MEMBERS=50
+YD_MESSAGE_PAGE_SIZE=20
+YD_MESSAGE_ATTACHMENT_DIR=data/attachments
+YD_MESSAGE_PENDING_TTL=24h
+# Must be unique per replica; empty derives from hostname and pid. | 多副本部署必须唯一；留空按主机名与进程号生成。
+# YD_MESSAGE_NODE_ID=node-1
 
 # 国密（仅开发环境使用测试向量，生产环境必须走密钥管理服务）
 # Guomi crypto (development uses test vectors only; production must use a key management service)

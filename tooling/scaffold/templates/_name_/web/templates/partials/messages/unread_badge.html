@@ -1,0 +1,15 @@
+{{/*
+  partials/messages/unread_badge.html —— 消息未读徽标。
+  partials/messages/unread_badge.html — the unread message badge.
+
+  根内容与 define 都存在：侧栏通过 define 引用它，WebSocket 推送则把本文件作为片段直接渲染，
+  并以 outerHTML 换入 #yd-unread-badge，因此徽标在两种路径下形状完全一致。
+  Both the root content and the define exist: the rail includes the define, while the WebSocket push renders this file
+  as a fragment and swaps it into #yd-unread-badge with outerHTML, so the badge has one shape on both paths.
+
+  数据契约 | Data contract: .Unread（messaging.UnreadSummary）。
+*/}}
+{{- define "partials/messages/unread_badge" -}}
+<span id="yd-unread-badge" class="yd-badge{{ if gt .Unread.Total 0 }} yd-badge--danger{{ else }} yd-badge--muted{{ end }}"{{ if eq .Unread.Total 0 }} hidden{{ end }}>{{ if gt .Unread.Total 99 }}99+{{ else }}{{ .Unread.Total }}{{ end }}</span>
+{{- end -}}
+{{ template "partials/messages/unread_badge" . }}

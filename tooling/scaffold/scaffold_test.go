@@ -63,7 +63,14 @@ var requiredFiles = []string{
 	"go.mod",
 	"internal/controller/auth_controller.go",
 	"internal/controller/controller.go",
+	"internal/controller/friend_controller.go",
 	"internal/controller/home.go",
+	"internal/controller/message_admin.go",
+	"internal/controller/message_api.go",
+	"internal/controller/message_controller.go",
+	"internal/controller/message_stream.go",
+	"internal/controller/message_system_controller.go",
+	"internal/controller/message_view.go",
 	"internal/controller/metrics_stream.go",
 	"internal/controller/middleware_metrics.go",
 	"internal/controller/realtime.go",
@@ -85,6 +92,8 @@ var requiredFiles = []string{
 	"internal/repository/user_repo.go",
 	"internal/router/router.go",
 	"internal/service/auth.go",
+	"internal/service/message.go",
+	"internal/service/message_bus.go",
 	"internal/service/metrics.go",
 	"internal/service/realtime.go",
 	"internal/service/role.go",
@@ -101,14 +110,22 @@ var requiredFiles = []string{
 	"web/templates/layouts/shell.html",
 	"web/templates/pages/account.html",
 	"web/templates/pages/error.html",
+	"web/templates/pages/friends.html",
 	"web/templates/pages/home.html",
 	"web/templates/pages/login.html",
+	"web/templates/pages/message_audit.html",
+	"web/templates/pages/message_settings.html",
+	"web/templates/pages/messages.html",
 	"web/templates/pages/permissions.html",
 	"web/templates/pages/realtime.html",
 	"web/templates/pages/roles.html",
 	"web/templates/pages/tenants.html",
 	"web/templates/pages/users.html",
 	"web/templates/partials/flash.html",
+	"web/templates/partials/friends/remark.html",
+	"web/templates/partials/friends/request.html",
+	"web/templates/partials/friends/search.html",
+	"web/templates/partials/friends/summary.html",
 	"web/templates/partials/home/live_metrics.html",
 	"web/templates/partials/home/metrics.html",
 	"web/templates/partials/home/metrics_fragment.html",
@@ -116,6 +133,23 @@ var requiredFiles = []string{
 	"web/templates/partials/home/middleware_fragment.html",
 	"web/templates/partials/icon.html",
 	"web/templates/partials/login.html",
+	"web/templates/partials/message_settings/body.html",
+	"web/templates/partials/message_settings/tag_form.html",
+	"web/templates/partials/message_settings/type_form.html",
+	"web/templates/partials/messages/attachment_chip.html",
+	"web/templates/partials/messages/audit.html",
+	"web/templates/partials/messages/compose.html",
+	"web/templates/partials/messages/composer.html",
+	"web/templates/partials/messages/conversations.html",
+	"web/templates/partials/messages/group_settings.html",
+	"web/templates/partials/messages/history.html",
+	"web/templates/partials/messages/i18n_keys.html",
+	"web/templates/partials/messages/message.html",
+	"web/templates/partials/messages/notice.html",
+	"web/templates/partials/messages/pin.html",
+	"web/templates/partials/messages/search.html",
+	"web/templates/partials/messages/thread.html",
+	"web/templates/partials/messages/unread_badge.html",
 	"web/templates/partials/roles/drawer.html",
 	"web/templates/partials/roles/edit_drawer.html",
 	"web/templates/partials/roles/form.html",
@@ -1107,6 +1141,55 @@ func TestRealGenerateCompilesWithGoBuild(t *testing.T) {
 	t.Logf("真实生成 + go build 通过: %d 个文件，产物 %s（%d 字节）", len(res.Files), filepath.Base(bin), info.Size())
 }
 
+// TestRealGenerateCompilesRealtimeBusCombinations 覆盖 redis 与 asynq 的独立组合。
+// TestRealGenerateCompilesRealtimeBusCombinations covers the independent redis and asynq combinations.
+//
+// 这两个开关在消息总线里是彼此独立的：asynq 只提供失败广播的持久重试，未开启时不得留下
+// 对 asynqx 的类型引用或未使用的变量；只开 asynq 也不得引入 Redis 客户端。
+// The two switches are independent in the message bus: asynq only provides durable retries for failed broadcasts, so
+// turning it off must leave neither an asynqx type reference nor an unused variable behind, and asynq without redis must
+// not pull in the Redis client either.
+func TestRealGenerateCompilesRealtimeBusCombinations(t *testing.T) {
+	if testing.Short() {
+		t.Skip("短模式跳过真实编译 | skipped in short mode")
+	}
+	goBin, err := exec.LookPath("go")
+	if err != nil {
+		t.Skipf("未找到 go 工具链，跳过真实编译: %v", err)
+	}
+
+	for _, tc := range []struct {
+		name  string
+		redis bool
+		asynq bool
+	}{
+		{name: "redis without asynq | 只开 redis", redis: true},
+		{name: "asynq without redis | 只开 asynq", asynq: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := t.TempDir()
+			o := scaffold.DefaultOptions("yd-realtime-probe")
+			o.DB = scaffold.DBSQLite
+			o.Redis = tc.redis
+			o.Asynq = tc.asynq
+			o.LocalReplace = filepath.ToSlash(repoRoot(t))
+			if _, err := scaffold.Generate(context.Background(), o, afs.NewOS(dir), nil); err != nil {
+				t.Fatalf("真实生成失败: %v", err)
+			}
+
+			projDir := filepath.Join(dir, o.Name)
+			output, err := runGo(goBin, projDir, true, "build", "-mod=mod", "./...")
+			if err != nil {
+				t.Logf("GOPROXY=off 编译失败，回退到环境代理重试:\n%s", output)
+				output, err = runGo(goBin, projDir, false, "build", "-mod=mod", "./...")
+			}
+			if err != nil {
+				t.Fatalf("生成的骨架无法编译（redis=%v asynq=%v）: %v\n%s", tc.redis, tc.asynq, err, output)
+			}
+		})
+	}
+}
+
 // runGo 在 dir 中执行 go 子命令，offline 为真时强制 GOPROXY=off 并清空 GOFLAGS、关闭工作区。
 // runGo runs a go subcommand inside dir, forcing GOPROXY=off when offline is true and clearing GOFLAGS/GOWORK.
 func runGo(goBin, dir string, offline bool, args ...string) (string, error) {
@@ -1601,6 +1684,37 @@ func TestGeneratedAppServesFrameworkFeatures(t *testing.T) {
 		}
 		if !strings.Contains(miss, "no user matches") {
 			t.Errorf("无匹配的筛选未返回空状态片段:\n%s", miss)
+		}
+	})
+
+	t.Run("无数据库时消息中心显式不可用", func(t *testing.T) {
+		// 本探针项目以 --db none 生成：导航里不应出现消息入口，两个端点都必须明确报告不可用，而不是假装成功。
+		// This probe was generated with --db none: the navigation must carry no message entry and both endpoints must report
+		// the centre as unavailable rather than pretending to work.
+		resp, page := getText(t, client, base+"/", nil)
+		if resp.StatusCode != http.StatusOK {
+			t.Fatalf("GET / 状态码 = %d, 期望 200\n%s", resp.StatusCode, page)
+		}
+		for _, unwanted := range []string{`href="/messages"`, `href="/friends"`} {
+			if strings.Contains(page, unwanted) {
+				t.Errorf("无数据库的项目仍在导航里渲染 %q", unwanted)
+			}
+		}
+
+		resp, page = getText(t, client, base+"/messages", nil)
+		if resp.StatusCode != http.StatusServiceUnavailable {
+			t.Fatalf("GET /messages 状态码 = %d, 期望 503\n%s", resp.StatusCode, page)
+		}
+		if !strings.Contains(page, "The message centre is unavailable") {
+			t.Errorf("不可用页面缺少说明文案:\n%s", page)
+		}
+
+		resp, body := getText(t, client, base+"/api/v1/messages", nil)
+		if resp.StatusCode != http.StatusServiceUnavailable {
+			t.Fatalf("GET /api/v1/messages 状态码 = %d, 期望 503\n%s", resp.StatusCode, body)
+		}
+		if !strings.Contains(body, "message centre is unavailable") {
+			t.Errorf("不可用 API 缺少说明文案:\n%s", body)
 		}
 	})
 }
@@ -2375,6 +2489,15 @@ func startProbeApp(t *testing.T, name string) (string, string) {
 func startProbeAppWith(t *testing.T, name string, edit func(projDir string)) (string, string) {
 	t.Helper()
 
+	return startProbeAppDBWith(t, name, scaffold.DBNone, edit)
+}
+
+// startProbeAppDBWith 与 startProbeAppWith 相同，但由调用方选择数据库驱动；消息中心的持久化与种子数据需要真实数据库。
+// startProbeAppDBWith is startProbeAppWith with the database driver chosen by the caller; the message centre's
+// persistence and seed data need a real database.
+func startProbeAppDBWith(t *testing.T, name, db string, edit func(projDir string)) (string, string) {
+	t.Helper()
+
 	goBin, err := exec.LookPath("go")
 	if err != nil {
 		t.Skipf("未找到 go 工具链，跳过端到端验证: %v", err)
@@ -2384,7 +2507,7 @@ func startProbeAppWith(t *testing.T, name string, edit func(projDir string)) (st
 	o := scaffold.DefaultOptions(name)
 	// 与端到端验证无关的依赖一律不引入：模板、路由与鉴权链路都不需要数据库。
 	// Anything unrelated to the end-to-end checks is left out: templates, routes and the authentication chain need no database.
-	o.DB = scaffold.DBNone
+	o.DB = db
 	o.LocalReplace = filepath.ToSlash(repoRoot(t))
 	if _, err := scaffold.Generate(context.Background(), o, afs.NewOS(dir), nil); err != nil {
 		t.Fatalf("真实生成失败: %v", err)

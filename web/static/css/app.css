@@ -11,3 +11,8 @@
 /* The Go pattern scans template strings embedded in handlers and controllers. | Go 通配用于扫描处理器与控制器中内嵌的模板字符串。        */
 @source "../../templates/**/*.html";
 @source "../../../http/**/*.go";
+/* 脚本也会在运行期添加类名（例如编辑器的 yd-editor--dark、侧栏的 yd-sidebar-open）；
+   不扫描脚本，Tailwind 会把这些只在 JS 里出现的类裁掉。 | Scripts also add class names at runtime
+   (the editor's yd-editor--dark, the rail's yd-sidebar-open); without scanning them Tailwind would drop
+   every class that only appears in JavaScript. */
+@source "../../static/js/yd-*.js";

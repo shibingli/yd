@@ -90,6 +90,9 @@
        visitor never sees a light frame first. The server seeds it from the cookie; yd-app.js persists it. */}}
   <script src="{{ asset "/static/js/yd-theme-boot.js" }}"></script>
   <link rel="stylesheet" href="{{ asset "/static/css/yd.css" }}">
+  {{- range .PageStyles }}
+  <link rel="stylesheet" href="{{ asset . }}">
+  {{- end }}
   {{/* 图标是同源静态资源：yd build 会把它连同全部前端资产嵌入二进制，运行时零外部请求。
        The icon is a same-origin static asset: yd build embeds it with every front-end asset, so runtime makes no
        external request. */}}
@@ -123,7 +126,13 @@
 {{/* #yd-shell 同时是 flex 容器：侧栏与主列必须是它的直接子元素，否则主列会从 x=0 起排并落到侧栏下面。
      #yd-shell is also the flex container: the rail and the main column must be its direct children,
      otherwise the main column starts at x=0 and slides underneath the rail. */}}
-<div id="yd-shell" class="yd-shell{{ if .SignedIn }} yd-shell--app{{ end }}">
+{{/* 登录后的外壳同时承载消息中心的实时连接：外壳在导航时被替换，连接因此随导航重连，
+     租户切换后新连接必然带着新令牌，不会把上一个租户的事件推给当前页面。
+     The signed-in shell also owns the message-centre realtime connection: the shell is replaced on navigation, so the
+     connection reconnects with the navigation, and after a tenant switch the new connection necessarily carries the new
+     token instead of pushing the previous tenant's events into the page. */}}
+<div id="yd-shell" class="yd-shell{{ if .SignedIn }} yd-shell--app{{ end }}"
+     {{- if .SignedIn }} hx-ws:connect="/ws/messages" hx-target="#yd-message-notices" hx-swap="innerMorph"{{ end }}>
   {{ template "layouts/shell.html" . }}
 </div>
 
@@ -147,5 +156,8 @@
 <script src="{{ asset "/static/js/yd-guomi-htmx.js" }}" defer></script>
 <script src="{{ asset "/static/js/yd-authz.js" }}" defer></script>
 <script src="{{ asset "/static/js/yd-app.js" }}" defer></script>
+{{- range .PageScripts }}
+<script src="{{ asset . }}" defer></script>
+{{- end }}
 </body>
 </html>

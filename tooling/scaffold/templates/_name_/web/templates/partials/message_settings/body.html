@@ -1,0 +1,152 @@
+{{/*
+  partials/message_settings/body.html —— 消息类型、分组与标签的目录设置。
+  partials/message_settings/body.html — the message type, group and label catalogue settings.
+
+  三张表共用一种行内下拉菜单；新增与编辑都打开抽屉，归档/恢复/删除先经过确认框。受保护的系统类型
+  与仍有消息引用的目录项由服务端拒绝删除，页面上的按钮只是提前给出提示。
+  The three tables share one row menu; create and edit open drawers, archive/restore/delete pass through the confirmation
+  dialog. The server refuses to delete the protected system type or any catalogue item still referenced by messages; the
+  buttons here only mirror that rule.
+*/}}
+{{- define "partials/message_settings/body" -}}
+<div id="yd-message-settings-body" class="yd-settings" data-yd-message-settings-body>
+  <section class="yd-card yd-section" aria-labelledby="yd-settings-types">
+    <header class="yd-section__header">
+      <h2 class="yd-section__title" id="yd-settings-types">{{ tr "message.settings.types" }}</h2>
+      {{- if .CanTypeManage }}
+      <button type="button" class="yd-btn yd-btn--primary yd-btn--sm" data-yd-drawer-open
+              hx-get="/message-settings/types/new" hx-target="#yd-drawer-body" hx-swap="innerHTML">{{ tr "message.settings.new_type" }}</button>
+      {{- end }}
+    </header>
+    <div class="yd-table__wrap">
+      <table class="yd-table">
+        <thead class="yd-table__head"><tr>
+          <th class="yd-table__th" scope="col">{{ tr "field.name" }}</th>
+          <th class="yd-table__th" scope="col">{{ tr "message.settings.key" }}</th>
+          <th class="yd-table__th" scope="col">{{ tr "message.settings.tone" }}</th>
+          <th class="yd-table__th" scope="col">{{ tr "field.status" }}</th>
+          {{- if .CanTypeManage }}<th class="yd-table__th" scope="col">{{ tr "field.actions" }}</th>{{ end }}
+        </tr></thead>
+        <tbody class="yd-table__body">
+          {{- range .Types }}
+          <tr class="yd-table__row">
+            <td class="yd-table__td"><span class="yd-table__primary">{{ .Label }}</span>{{ if .Protected }} <span class="yd-badge yd-badge--info">{{ tr "message.settings.protected" }}</span>{{ end }}</td>
+            <td class="yd-table__td"><code class="yd-code">{{ .Key }}</code></td>
+            <td class="yd-table__td"><span class="yd-badge {{ if eq .Tone "neutral" }}yd-badge--muted{{ else }}yd-badge--{{ .Tone }}{{ end }}">{{ .Tone }}</span></td>
+            <td class="yd-table__td">{{ if .Archived }}<span class="yd-badge yd-badge--warn">{{ tr "message.settings.archived" }}</span>{{ else }}<span class="yd-badge yd-badge--success">{{ tr "status.active" }}</span>{{ end }}</td>
+            {{- if $.CanTypeManage }}
+            <td class="yd-table__td yd-table__td--actions">
+              <details class="yd-menu" data-yd-menu>
+                <summary class="yd-btn yd-btn--ghost yd-btn--sm">{{ tr "ui.actions" }}</summary>
+                <div class="yd-menu__panel" role="menu">
+                  <button type="button" class="yd-menu__item" role="menuitem" data-yd-drawer-open
+                          hx-get="/message-settings/types/{{ .Key }}/edit" hx-target="#yd-drawer-body" hx-swap="innerHTML">{{ tr "ui.edit" }}</button>
+                  {{- if .Archived }}
+                  <form method="post" action="/message-settings/types/{{ .Key }}/restore"
+                        hx-post="/message-settings/types/{{ .Key }}/restore" hx-target="#yd-message-settings-body" hx-swap="outerMorph"
+                        data-yd-confirm="{{ tr "confirm.restore_type" }}">
+                    <button type="submit" class="yd-menu__item" role="menuitem">{{ tr "message.settings.restore" }}</button>
+                  </form>
+                  {{- else }}
+                  <form method="post" action="/message-settings/types/{{ .Key }}/archive"
+                        hx-post="/message-settings/types/{{ .Key }}/archive" hx-target="#yd-message-settings-body" hx-swap="outerMorph"
+                        data-yd-confirm="{{ tr "confirm.archive_type" }}">
+                    <button type="submit" class="yd-menu__item" role="menuitem">{{ tr "message.settings.archive" }}</button>
+                  </form>
+                  {{- end }}
+                  {{- if and (not .Builtin) (not .Protected) }}
+                  <form method="post" action="/message-settings/types/{{ .Key }}/delete"
+                        hx-post="/message-settings/types/{{ .Key }}/delete" hx-target="#yd-message-settings-body" hx-swap="outerMorph"
+                        data-yd-confirm="{{ tr "confirm.delete_type" }}">
+                    <button type="submit" class="yd-menu__item" role="menuitem">{{ tr "ui.delete" }}</button>
+                  </form>
+                  {{- end }}
+                </div>
+              </details>
+            </td>
+            {{- end }}
+          </tr>
+          {{- end }}
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section class="yd-card yd-section" aria-labelledby="yd-settings-groups">
+    <header class="yd-section__header">
+      <h2 class="yd-section__title" id="yd-settings-groups">{{ tr "message.settings.groups" }}</h2>
+      {{- if .CanTypeManage }}
+      <button type="button" class="yd-btn yd-btn--primary yd-btn--sm" data-yd-drawer-open
+              hx-get="/message-settings/tags/new?kind=group" hx-target="#yd-drawer-body" hx-swap="innerHTML">{{ tr "message.settings.new_group" }}</button>
+      {{- end }}
+    </header>
+    {{ template "partials/message_settings/tag_table" (dict "Items" .Groups "CanManage" .CanTypeManage) }}
+  </section>
+
+  <section class="yd-card yd-section" aria-labelledby="yd-settings-tags">
+    <header class="yd-section__header">
+      <h2 class="yd-section__title" id="yd-settings-tags">{{ tr "message.settings.tags" }}</h2>
+      {{- if .CanTypeManage }}
+      <button type="button" class="yd-btn yd-btn--primary yd-btn--sm" data-yd-drawer-open
+              hx-get="/message-settings/tags/new?kind=tag" hx-target="#yd-drawer-body" hx-swap="innerHTML">{{ tr "message.settings.new_tag" }}</button>
+      {{- end }}
+    </header>
+    {{ template "partials/message_settings/tag_table" (dict "Items" .Tags "CanManage" .CanTypeManage) }}
+  </section>
+</div>
+{{- end -}}
+
+{{- define "partials/message_settings/tag_table" -}}
+<div class="yd-table__wrap">
+  <table class="yd-table">
+    <thead class="yd-table__head"><tr>
+      <th class="yd-table__th" scope="col">{{ tr "field.name" }}</th>
+      <th class="yd-table__th" scope="col">{{ tr "message.settings.key" }}</th>
+      <th class="yd-table__th" scope="col">{{ tr "field.status" }}</th>
+      {{- if .CanManage }}<th class="yd-table__th" scope="col">{{ tr "field.actions" }}</th>{{ end }}
+    </tr></thead>
+    <tbody class="yd-table__body">
+      {{- range .Items }}
+      <tr class="yd-table__row">
+        <td class="yd-table__td"><span class="yd-table__primary">{{ .Label }}</span></td>
+        <td class="yd-table__td"><code class="yd-code">{{ .Key }}</code></td>
+        <td class="yd-table__td">{{ if .Archived }}<span class="yd-badge yd-badge--warn">{{ tr "message.settings.archived" }}</span>{{ else }}<span class="yd-badge yd-badge--success">{{ tr "status.active" }}</span>{{ end }}</td>
+        {{- if $.CanManage }}
+        <td class="yd-table__td yd-table__td--actions">
+          <details class="yd-menu" data-yd-menu>
+            <summary class="yd-btn yd-btn--ghost yd-btn--sm">{{ tr "ui.actions" }}</summary>
+            <div class="yd-menu__panel" role="menu">
+              <button type="button" class="yd-menu__item" role="menuitem" data-yd-drawer-open
+                      hx-get="/message-settings/tags/{{ .ID }}/edit" hx-target="#yd-drawer-body" hx-swap="innerHTML">{{ tr "ui.edit" }}</button>
+              {{- if .Archived }}
+              <form method="post" action="/message-settings/tags/{{ .ID }}/restore"
+                    hx-post="/message-settings/tags/{{ .ID }}/restore" hx-target="#yd-message-settings-body" hx-swap="outerMorph"
+                    data-yd-confirm="{{ tr "confirm.restore_tag" }}">
+                <button type="submit" class="yd-menu__item" role="menuitem">{{ tr "message.settings.restore" }}</button>
+              </form>
+              {{- else }}
+              <form method="post" action="/message-settings/tags/{{ .ID }}/archive"
+                    hx-post="/message-settings/tags/{{ .ID }}/archive" hx-target="#yd-message-settings-body" hx-swap="outerMorph"
+                    data-yd-confirm="{{ tr "confirm.archive_tag" }}">
+                <button type="submit" class="yd-menu__item" role="menuitem">{{ tr "message.settings.archive" }}</button>
+              </form>
+              {{- end }}
+              <form method="post" action="/message-settings/tags/{{ .ID }}/delete"
+                    hx-post="/message-settings/tags/{{ .ID }}/delete" hx-target="#yd-message-settings-body" hx-swap="outerMorph"
+                    data-yd-confirm="{{ tr "confirm.delete_tag" }}">
+                <button type="submit" class="yd-menu__item" role="menuitem">{{ tr "ui.delete" }}</button>
+              </form>
+            </div>
+          </details>
+        </td>
+        {{- end }}
+      </tr>
+      {{- else }}
+      <tr class="yd-table__row yd-table__row--empty"><td class="yd-table__td" colspan="{{ if .CanManage }}4{{ else }}3{{ end }}">{{ tr "message.settings.empty" }}</td></tr>
+      {{- end }}
+    </tbody>
+  </table>
+</div>
+{{- end -}}
+
+{{ template "partials/message_settings/body" . }}
