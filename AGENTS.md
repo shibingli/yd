@@ -104,8 +104,8 @@
       该工具必须用不低于本模块 `go` 指令版本的 Go 构建，否则报
       `package requires newer Go version` / `export data version ... greater than maximum supported version`。
 - [ ] **前端 i18n 与主题**：新增文案必须有 `data-yd-i18n` 且中英目录齐全；
-      语言切换必须 `hx-target="#yd-shell"` 刷新整块外壳（否则侧栏高亮与语言停在旧状态），
-      主题支持 light/dark/system 三态并持久化。
+      语言切换是单一状态按钮（显示当前语言，点击循环），必须 `hx-target="#yd-shell"` 刷新整块外壳
+      （否则侧栏高亮与语言停在旧状态），并同步 `<html lang>`；主题支持 light/dark/system 三态并持久化。
 - [ ] **Tailwind v4 分层**：所有项目样式必须建立在 Tailwind v4 之上——`@import "tailwindcss"`、
       `@theme` 语义令牌、`@layer components`；可复用工具类用 `@apply`，颜色不得在令牌块之外写字面量。
 - [ ] **交互约定**：新增/编辑走右侧抽屉（`#yd-drawer`），列表操作与顶栏租户切换共用下拉菜单
@@ -119,6 +119,10 @@
       必须带 `target="_blank" rel="noopener noreferrer"`，不得换进工作区。
 - [ ] **实时推送**：htmx 4 只交换匿名 SSE 消息，`Broker.PublishHTML` 必须发送无名 `data:` 消息；
       导航离开实时页面导致的流中止不得显示断线横幅。
+- [ ] **重连与恢复**：重连交给 hx-sse / hx-ws 的退避机制（SSE 回传 `Last-Event-ID`，WS 重开后 flush 上行队列），
+      不得另写重连定时器；`#yd-connection` 是唯一横幅（连接中 / 重连中 #N / 已失败 / 离线），
+      全部恢复后隐藏并给出 3 秒恢复提示；恢复时按 `data-yd-resync` 重取片段并派发 `yd:realtime:recovered`；
+      导航与 `htmx:after:swap` 必须清理定时器、提示节点与旧通道状态。
 - [ ] **OpenAPI 查看器**：脚本必须是同源外链（`/static/js/yd-openapi-viewer.js`），
       禁止内联脚本与 CDN，否则 CSP 会拦截并让 `/docs` 空白。
 - [ ] **首页资源仪表盘**：`/metrics` 每 5 秒轮询，纯 SVG 仪表盘、主题令牌着色；

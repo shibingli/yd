@@ -110,8 +110,14 @@
       hx-target:inherited="#yd-workspace"
       hx-swap:inherited="innerMorph"
       hx-push-url:inherited="false"
+      data-yd-connecting="{{ tr "realtime.connecting" }}"
       data-yd-connected="{{ tr "realtime.connected" }}"
       data-yd-disconnected="{{ tr "realtime.disconnected" }}"
+      data-yd-idle="{{ tr "realtime.idle" }}"
+      data-yd-reconnecting="{{ tr "realtime.disconnected" }}"
+      data-yd-failed="{{ tr "realtime.failed" }}"
+      data-yd-offline="{{ tr "realtime.offline" }}"
+      data-yd-recovered="{{ tr "realtime.recovered" }}"
       data-yd-close="{{ tr "ui.close" }}"
       data-yd-network-error="{{ tr "ui.network_error" }}">
 {{/* #yd-shell 同时是 flex 容器：侧栏与主列必须是它的直接子元素，否则主列会从 x=0 起排并落到侧栏下面。

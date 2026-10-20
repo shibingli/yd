@@ -604,7 +604,7 @@ func TestLoginFormDeclaresGuomiEncryption(t *testing.T) {
 		`hx-post="/login"`,
 		`hx-status:422="target:#errors swap:innerHTML"`,
 		`id="errors"`,
-		`data-yd-lang=`,
+		`data-yd-lang-toggle`,
 	}
 	for _, needle := range checks {
 		if !strings.Contains(html, needle) {
@@ -1053,6 +1053,27 @@ func TestLayoutStaticReferencesUseAssetHelper(t *testing.T) {
 	} {
 		if !strings.Contains(string(raw), want) {
 			t.Errorf("base.html 未通过 asset 解析 %q", want)
+		}
+	}
+}
+
+// TestRealtimeBannerLifecycleHooks pins the single banner the reconnect manager updates: a stable
+// text node, an attempt badge, and a retry control. | TestRealtimeBannerLifecycleHooks 固定重连管理器
+// 更新的唯一横幅：稳定的文本节点、重试次数徽标与重试按钮。
+func TestRealtimeBannerLifecycleHooks(t *testing.T) {
+	raw, err := os.ReadFile(filepath.Join("templates", "partials", "flash.html"))
+	if err != nil {
+		t.Fatalf("读取 flash.html 失败: %v", err)
+	}
+	flash := string(raw)
+	for _, want := range []string{
+		`id="yd-connection"`,
+		"data-yd-connection-text",
+		"data-yd-connection-attempt",
+		"data-yd-reconnect",
+	} {
+		if !strings.Contains(flash, want) {
+			t.Errorf("flash.html is missing %q | flash.html 缺少 %q", want, want)
 		}
 	}
 }

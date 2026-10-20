@@ -32,7 +32,8 @@
   {{end}}{{end}}
 
   <div id="yd-connection" class="yd-flash__item yd-flash__item--warn" role="status" data-yd-connection hidden>
-    <span class="yd-flash__text" data-yd-i18n="realtime.status.reconnecting">{{tr "realtime.status.reconnecting"}}</span>
+    <span class="yd-flash__text" data-yd-connection-text data-yd-i18n="realtime.status.reconnecting">{{tr "realtime.status.reconnecting"}}</span>
+    <span class="yd-badge yd-badge--muted" data-yd-connection-attempt hidden></span>
     <button type="button" class="yd-btn yd-btn--ghost" data-yd-reconnect data-yd-i18n="action.retry">{{tr "action.retry"}}</button>
   </div>
 </div>

@@ -61,8 +61,11 @@
       可复用工具类用 `@apply`，颜色不得在令牌块之外写字面量。
 - [ ] **实时推送与文档**：htmx 4 SSE 只交换匿名消息；WebSocket 的发送控件必须位于 `hx-ws:connect` 元素内部
       （扩展用 `closest()` 向上找连接，否则消息不会发出），下行只交换 `content`，回车发送由脚本点击按钮
-      （`hx-trigger` 过滤器会被 CSP 拦截），`htmx:ws:error` 不等于断开；OpenAPI 查看器脚本必须同源外链；
-      首页资源仪表盘为纯 SVG，平台不支持的指标显示「不可用」。
+      （`hx-trigger` 过滤器会被 CSP 拦截），`htmx:ws:error` 不等于断开；重连交给 hx-sse / hx-ws 的退避机制
+      （SSE 回传 `Last-Event-ID`，WS 重开后 flush 上行队列），不得另写定时器；`#yd-connection` 是唯一横幅
+      （连接中 / 重连中 #N / 已失败 / 离线），恢复后隐藏并给出短暂成功提示；恢复时按 `data-yd-resync`
+      重取片段并派发 `yd:realtime:recovered`，导航与 htmx 交换必须清理旧提示与通道状态；
+      OpenAPI 查看器脚本必须同源外链；首页资源仪表盘为纯 SVG，平台不支持的指标显示「不可用」。
 - [ ] **OpenAPI 查看器**：左侧按 tag 分组；操作详情提供同源在线测试（跨源被 CSP 拦截）；
       查看器读取 `yd_theme` 并支持浅色/深色/跟随系统切换，控件边框在明暗两套主题下都必须可见。
 - [ ] **能力守卫**：受保护端点必须在路由上声明 `authz.Require(authz.PermXxx)`（它是 `auth.RequirePermission` 的注册表包装，

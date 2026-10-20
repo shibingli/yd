@@ -313,6 +313,9 @@ realtime:
     closed: 已断开
     idle: 空闲
     reconnecting: 连接已断开，正在重连…
+    failed: 连接已断开，自动重连已停止
+    offline: 网络已离线，恢复后会自动重连
+    recovered: 实时连接已恢复
 
 i18n:
   title: 国际化

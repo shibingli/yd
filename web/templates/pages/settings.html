@@ -89,10 +89,9 @@
   <section class="yd-card yd-section" aria-labelledby="yd-settings-language">
     <h2 class="yd-section__title" id="yd-settings-language" data-yd-i18n="settings.language">{{tr "settings.language"}}</h2>
     <p class="yd-section__hint" data-yd-i18n="settings.language_hint">{{tr "settings.language_hint"}}</p>
-    {{/* Hot switching: yd-i18n.js rewrites every data-yd-i18n node in place. | 热切换：yd-i18n.js 就地重写所有 data-yd-i18n 节点。 */}}
-    <div class="yd-lang" role="group" data-yd-i18n-attr="aria-label:settings.language" aria-label="{{tr "settings.language"}}">
-      <button type="button" class="yd-lang__btn" data-yd-lang="zh-CN" data-yd-i18n="lang.zh-CN">{{tr "lang.zh-CN"}}</button>
-      <button type="button" class="yd-lang__btn" data-yd-lang="en" data-yd-i18n="lang.en">{{tr "lang.en"}}</button>
+    {{/* Hot switching: one button cycles and yd-i18n.js rewrites every data-yd-i18n node in place. | 热切换：单一按钮循环切换，yd-i18n.js 就地重写所有 data-yd-i18n 节点。 */}}
+    <div class="yd-lang">
+      {{template "partials/lang-toggle" .}}
     </div>
   </section>
 

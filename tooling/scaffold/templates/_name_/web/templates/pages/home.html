@@ -80,7 +80,8 @@
       <p class="yd-section__hint">{{ tr "page.home.server_time_hint" }}</p>
       {{/* 初始内容与推送片段保持同样的结构，交换时不会出现布局跳动。
            The initial content keeps the same shape as the pushed fragment so the swap never shifts the layout. */}}
-      <div id="yd-clock" class="yd-clock" role="timer" aria-live="off" hx-sse:connect="/events" hx-sse:close="yd:close">
+      <div id="yd-clock" class="yd-clock" role="timer" aria-live="off" hx-sse:connect="/events" hx-sse:close="yd:close"
+           data-yd-resync="/metrics" data-yd-resync-target="#yd-metrics" data-yd-resync-swap="innerMorph">
         <time class="font-mono text-lg" datetime="">--:--:--</time>
         <span class="text-content-muted ms-2 text-sm">{{ tr "realtime.connecting" }}</span>
       </div>

@@ -1402,6 +1402,34 @@
     font-weight: 600;
   }
 
+  /* Single language toggle: one button shows the active language, styled like the theme toggle.
+     <html lang> alone decides which label is visible, so the script never rewrites the copy. |
+     单一语言按钮：一个按钮显示当前语言，样式与主题按钮一致。哪个标签可见完全由 <html lang>
+     决定，脚本因此不需要改写文案。 */
+  .yd-lang-toggle {
+    border-color: var(--color-border-subtle);
+    background-color: var(--color-surface);
+    color: var(--color-content);
+  }
+
+  .yd-lang-toggle:hover {
+    background-color: var(--color-surface-muted);
+    color: var(--color-content);
+  }
+
+  .yd-lang__icon {
+    @apply text-sm leading-none;
+  }
+
+  .yd-lang-toggle .yd-lang__state {
+    display: none;
+  }
+
+  :root[lang="zh-CN"] [data-yd-lang-state="zh-CN"],
+  :root[lang="en"] [data-yd-lang-state="en"] {
+    display: inline;
+  }
+
   /* ---------------------------------------------------------------- user menu | 用户菜单 */
 
   /* Alpine driven dropdown anchored to the trigger. | 由 Alpine 驱动、锚定在触发按钮上的下拉菜单。 */
@@ -2848,7 +2876,8 @@
     gap: 0.25rem;
   }
 
-  .yd-theme-toggle .yd-theme__state {
+  .yd-theme-toggle .yd-theme__state,
+  .yd-lang-toggle .yd-lang__state[data-yd-lang-state] {
     display: none;
   }
 

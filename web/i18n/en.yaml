@@ -311,6 +311,9 @@ realtime:
     closed: Disconnected
     idle: Idle
     reconnecting: The stream is down; reconnecting…
+    failed: The stream is down and automatic reconnection has stopped
+    offline: The network is offline; reconnecting once it returns
+    recovered: The realtime connection is restored
 
 i18n:
   title: Internationalisation

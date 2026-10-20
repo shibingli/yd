@@ -251,7 +251,7 @@ Co-Authored-By: Eric Shi <shibingli@sina.com>
 
 - 所有面向用户的文案必须带 `data-yd-i18n="key"`，并在 `web/i18n/{zh-CN,en}.yaml` 中提供
   **中英两份**目录；缺失键回退顺序为「当前语言 → 默认语言 → 键名本身」。
-- 语言切换必须**局部刷新**（htmx 重取 `#yd-workspace`），不得整页跳转；
+- 语言切换必须**局部刷新**（htmx 重取 `#yd-shell`，使侧栏、顶栏与工作区一起跟随），不得整页跳转；
   语言与主题都必须持久化（localStorage + cookie），刷新后保持一致。
 - 主题支持 `light` / `dark` / `system` 三态，切换即时生效且不得出现闪烁；
   颜色一律来自 `@theme` 语义变量，禁止硬编码色值。
@@ -624,6 +624,11 @@ yd versions sync               # 仅重新生成 version_generated.go
   只换 `#yd-workspace` 会让侧栏高亮与语言停在旧状态，这是必须避免的回归。
 - **`#yd-shell` 必须同时是 flex 容器**：侧栏与主列是它的直接子元素；否则主列从 `x=0` 起排、
   滑到侧栏下面。
+- **语言切换是单一状态按钮**：`partials/lang-toggle.html`（生成项目为 `partials/shell-switches.html`）
+  只渲染一个按钮，显示当前语言（`lang.zh-CN` / `lang.en` 两个状态标签由 `<html lang>` 经 CSS 选出），
+  点击切到另一种语言并以此前的 `#yd-shell` 局部刷新；不得再渲染两个并排的语言按钮。
+  外壳交换不会重写 `<html>`，因此点击时必须同步 `document.documentElement.lang`，否则状态标签和
+  辅助技术会停在旧语言；无脚本时 `href` 指向另一种语言，整页导航仍然可用。
 - **登录页只保留登录功能**：未登录外壳没有侧栏、顶栏导航、页脚、租户字段与凭据说明，
   只有登录卡片（含品牌区：离线 SVG 图标 + 项目名）与右上角的语言/主题切换。登录成功后由服务端落入用户的默认租户。
 - **图标必须离线**：favicon 指向同源静态资产 `/static/img/yd-icon.svg`（框架 `web/static/img/yd-icon.svg`，
@@ -685,6 +690,19 @@ yd versions sync               # 仅重新生成 version_generated.go
   只应响应 `htmx:ws:close` / `htmx:sse:close` / `htmx:sse:error`，否则会把正常连接误报为断开。
 - **离开实时页面不算掉线**：`yd-app.js` 只在页面存在 `hx-sse:connect` / `hx-ws:connect` 元素时显示
   断线横幅，导航导致的 SSE 流中止不得提示「连接已断开」。
+- **重连由扩展负责，前端只观察**：hx-sse / hx-ws 默认以指数退避 + 抖动重连（`reconnectDelay` 500ms、
+  `reconnectMaxDelay` 60s、后台暂停），SSE 自动回传 `Last-Event-ID`，WS 在断线期间排队最多 100 条上行消息
+  并在重开后 flush。不得再写第二套重连定时器或自行重开第二条连接；`yd-app.js` 只消费
+  `htmx:sse:*` / `htmx:ws:*` 事件并更新界面。
+- **一个横幅、四种状态**：`#yd-connection` 是唯一的重连横幅，由聚合状态驱动：连接中、重连中（附 `#N`
+  重试次数）、已失败、网络离线。所有通道恢复后立即隐藏，并以 3 秒的 `realtime.status.recovered` 成功提示收尾。
+  导航或 `htmx:after:swap` 必须清理定时器、提示节点与已移除通道的状态，不得把旧页面的掉线提示带到新页面。
+- **恢复通信有两条声明式通道**：通道恢复时派发 `yd:realtime:recovered`（含 `channel` / `attempt` /
+  `lastEventId` / `resynced`），并按元素的 `data-yd-resync`（配合 `data-yd-resync-target` /
+  `data-yd-resync-swap`）重取一个数据片段；重取目标不得是承载该数据流的元素本身，否则会再次拆掉连接。
+- **手动重试不重载页面**：`[data-yd-reconnect]` 通过扩展记录在元素上的连接对象取消退避并立即重连
+  （SSE abort 当前流、WS 无状态码关闭并以 1005 触发重连——浏览器客户端只允许 1000 与 3000-4999），
+  只有连接对象已不存在时才回退整页重载。
 - **查看器脚本必须同源外链**：CSP 是 `script-src 'self'`，内联脚本会被浏览器拦截，
   表现为 `/docs` 页面空白。查看器脚本固定在 `web/static/js/yd-openapi-viewer.js`，
   由 `openapi.Options.ViewerScript` 指向（当前 `?v=5` 用于绕过旧缓存），禁止内联脚本与 CDN。

@@ -2763,6 +2763,97 @@ func TestGenerateThemeBootAndAutoTokens(t *testing.T) {
 	}
 }
 
+// TestGenerateLanguageToggle pins the generated single language button: it shows the active
+// language, carries the next language for the no-JS link and htmx shell swap, and no longer
+// renders the old segmented control. | TestGenerateLanguageToggle 固定生成项目的单一语言按钮：
+// 它显示当前语言，在无脚本链接与 htmx 外壳交换里携带目标语言，并且不再渲染旧的分段控件。
+func TestGenerateLanguageToggle(t *testing.T) {
+	pr, _ := generateMem(t, scaffold.DefaultOptions("lang-app"))
+
+	switches := pr.read("web/templates/partials/shell-switches.html")
+	if got := strings.Count(switches, "data-yd-lang-toggle"); got != 1 {
+		t.Errorf("shell-switches.html has %d language toggles, want 1 | shell-switches.html 有 %d 个语言按钮，应为 1", got, got)
+	}
+	if strings.Contains(switches, "yd-switch__item") {
+		t.Error("shell-switches.html still renders the old two-link switcher | shell-switches.html 仍渲染旧的双链接切换")
+	}
+	for _, want := range []string{`data-yd-lang-next="`, `hx-target="#yd-shell"`, `href="{{ .Path }}?lang=`} {
+		if !strings.Contains(switches, want) {
+			t.Errorf("shell-switches.html is missing %q | shell-switches.html 缺少 %q", want, want)
+		}
+	}
+
+	app := pr.read("web/static/js/yd-app.js")
+	if !strings.Contains(app, "data-yd-lang-toggle") || !strings.Contains(app, "rememberLang(") {
+		t.Error("generated yd-app.js does not remember the language chosen through the toggle | 生成的 yd-app.js 没有记住按钮选择的语言")
+	}
+	if !strings.Contains(app, `setAttribute("lang", lang)`) {
+		t.Error("generated yd-app.js does not sync <html lang> after a shell-only language swap | 生成的 yd-app.js 在外壳语言交换后没有同步 <html lang>")
+	}
+
+	for _, file := range []string{"web/i18n/zh-CN.yaml", "web/i18n/en.yaml"} {
+		body := pr.read(file)
+		for _, want := range []string{"zh-cn:", "en:"} {
+			if !strings.Contains(body, want) {
+				t.Errorf("%s is missing the lang.%s label | %s 缺少 lang.%s 文案", file, strings.TrimSuffix(want, ":"), file, strings.TrimSuffix(want, ":"))
+			}
+		}
+	}
+}
+
+// TestGenerateRealtimeRecoveryHooks pins the generated reconnect manager, its single banner and the
+// declarative resync hook. | TestGenerateRealtimeRecoveryHooks 固定生成项目的重连管理器、唯一横幅与声明式重新同步钩子。
+func TestGenerateRealtimeRecoveryHooks(t *testing.T) {
+	pr, _ := generateMem(t, scaffold.DefaultOptions("realtime-app"))
+
+	app := pr.read("web/static/js/yd-app.js")
+	for _, want := range []string{
+		"function realtimeElements()",
+		"function refreshConnection()",
+		"function retryRealtime()",
+		"function resyncRealtime(",
+		"yd:realtime:recovered",
+		"data-yd-resync",
+		"data-yd-resync-target",
+		"data-yd-connection-attempt",
+		"noticeItem",
+		"readyState",
+		"pagehide",
+	} {
+		if !strings.Contains(app, want) {
+			t.Errorf("generated yd-app.js is missing %q | 生成的 yd-app.js 缺少 %q", want, want)
+		}
+	}
+
+	base := pr.read("web/templates/layouts/base.html")
+	for _, want := range []string{"data-yd-connecting", "data-yd-recovered", "data-yd-offline"} {
+		if !strings.Contains(base, want) {
+			t.Errorf("generated base.html is missing %q | 生成的 base.html 缺少 %q", want, want)
+		}
+	}
+
+	flash := pr.read("web/templates/partials/flash.html")
+	for _, want := range []string{"data-yd-connection-text", "data-yd-connection-attempt", "data-yd-reconnect"} {
+		if !strings.Contains(flash, want) {
+			t.Errorf("generated flash.html is missing %q | 生成的 flash.html 缺少 %q", want, want)
+		}
+	}
+
+	home := pr.read("web/templates/pages/home.html")
+	if !strings.Contains(home, `data-yd-resync="/metrics"`) || !strings.Contains(home, `data-yd-resync-target="#yd-metrics"`) {
+		t.Error("the home clock must resync the metrics panel after a reconnect | 首页时钟必须在重连后重新同步指标面板")
+	}
+
+	for _, file := range []string{"web/i18n/zh-CN.yaml", "web/i18n/en.yaml"} {
+		body := pr.read(file)
+		for _, want := range []string{"recovered:", "offline:", "retry:"} {
+			if !strings.Contains(body, want) {
+				t.Errorf("%s is missing %q | %s 缺少 %q", file, want, file, want)
+			}
+		}
+	}
+}
+
 // TestSidebarOmitsHealthMenuItem pins the API group to the two links that need the chrome: the
 // health probe still exists as a public endpoint, but it is an operator concern, not a navigation
 // destination, so it must not occupy a sidebar row. | TestSidebarOmitsHealthMenuItem 固定接口组只保留

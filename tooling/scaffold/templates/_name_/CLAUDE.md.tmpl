@@ -151,7 +151,8 @@ yd gen module|crud   # 低代码生成（DB Schema 或 Go Struct）
   往公开组里加端点等同于把数据交给互联网，必须先说清理由。
 - 面向用户的文案一律写进 `{{ .AssetRoot }}/i18n/{zh-CN,en}.yaml`，模板只写 `tr "键名"`；
   两份目录的键集合必须严格一致（脚手架测试会逐键核对），少一个键页面就会把键名原样显示出来。
-- 主题（浅色 / 深色 / 跟随系统）与语言切换都是纯客户端行为，落在 `{{ .AssetRoot }}/static/js/yd-app.js`；
+- 主题（浅色 / 深色 / 跟随系统）是纯客户端行为，落在 `{{ .AssetRoot }}/static/js/yd-app.js`；
+  语言切换是单一状态按钮（显示当前语言，点击循环），选择写 cookie 后经 htmx 换入整个 `#yd-shell`，并同步 `<html lang>`；
   内容安全策略只允许 `script-src 'self'`，因此**禁止内联脚本**与内联样式。
 - 所有样式必须继承 Tailwind v4：`app.css` 引入 `@import "tailwindcss"`，设计令牌写在 `@theme`，
   项目与框架组件写在 `@layer components`；可复用的工具类用 `@apply`，颜色不得在令牌块之外写字面量。
@@ -171,6 +172,11 @@ yd gen module|crud   # 低代码生成（DB Schema 或 Go Struct）
   指标来自 `core/sysinfo` 与 `runtime/metrics`，平台不支持时显示「不可用」，不得编造数字。
 - htmx 4 只交换匿名 SSE 消息：`Broker.PublishHTML` 发送无名 `data:` 消息，命名事件仅用于旁路通知；
   OpenAPI 查看器脚本必须是同源外链，内联脚本会被 CSP 拦截并让 `/docs` 空白。
+- 重连交给 hx-sse / hx-ws 的指数退避（SSE 自动回传 `Last-Event-ID`，WS 断线期间排队并在重开后 flush）；
+  `#yd-connection` 是唯一横幅，显示连接中 / 重连中（#N）/ 已失败 / 离线，全部恢复后隐藏并给出 3 秒成功提示。
+  恢复时按 `data-yd-resync` 重取片段并派发 `yd:realtime:recovered`；导航与 `htmx:after:swap` 必须清理
+  定时器、提示节点与旧通道状态；重试按钮通过扩展的连接对象立即重连（WS 无状态码关闭，以 1005 触发重连），
+  只有连接对象不存在时才整页重载。
 - OpenAPI 查看器左侧按 `tag` 分组，操作详情提供同源在线测试（服务器、鉴权头、参数与 JSON 请求体，
   响应显示状态/耗时/响应头/正文）；跨源请求会被 CSP 拦截，因此只允许同源。
   查看器读取 `localStorage.yd_theme` 并在顶栏提供浅色/深色/跟随系统切换，控件边框必须清晰可见。

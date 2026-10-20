@@ -47,6 +47,51 @@ func TestMobileRailSurvivesWorkspaceSwaps(t *testing.T) {
 	}
 }
 
+// TestLanguageToggleIsOneStatefulButton pins the single language control: one button shows the
+// active language (CSS picks the matching state label), and a click switches to the other one
+// through the same setLang path as before. | TestLanguageToggleIsOneStatefulButton 固定单一语言
+// 控件：按钮显示当前语言（CSS 选出对应状态标签），点击经同一条 setLang 路径切到另一种语言。
+func TestLanguageToggleIsOneStatefulButton(t *testing.T) {
+	app := string(readEmbedded(t, web.FS(), appJSPath))
+	if !strings.Contains(app, "data-yd-lang-toggle") {
+		t.Error("yd-app.js does not handle [data-yd-lang-toggle] | yd-app.js 没有处理 [data-yd-lang-toggle]")
+	}
+	toggle := jsBody(t, app, "function toggleLanguage() {")
+	if !strings.Contains(toggle, "setLang(") || !strings.Contains(toggle, "documentElement.lang") {
+		t.Error("toggleLanguage must derive the next language from <html lang> and call setLang | toggleLanguage 必须从 <html lang> 推导目标语言并调用 setLang")
+	}
+
+	css := appSource(t)
+	for _, want := range []string{
+		`.yd-lang-toggle .yd-lang__state`,
+		`[data-yd-lang-state="zh-CN"]`,
+		`[data-yd-lang-state="en"]`,
+	} {
+		if !strings.Contains(css, want) {
+			t.Errorf("stylesheet is missing %q for the language toggle state | 样式表缺少语言按钮状态所需的 %q", want, want)
+		}
+	}
+
+	partial := string(readEmbedded(t, web.FS(), "templates/partials/lang-toggle.html"))
+	if !strings.Contains(partial, "data-yd-lang-toggle") {
+		t.Error("partials/lang-toggle.html does not render the single language toggle | partials/lang-toggle.html 没有渲染单一语言按钮")
+	}
+	for _, path := range []string{
+		"templates/partials/topbar.html",
+		"templates/pages/login.html",
+		"templates/pages/settings.html",
+		"templates/pages/i18n_demo.html",
+	} {
+		body := string(readEmbedded(t, web.FS(), path))
+		if !strings.Contains(body, `{{template "partials/lang-toggle" .}}`) {
+			t.Errorf("%s does not include the single language toggle | %s 没有引用单一语言按钮", path, path)
+		}
+		if strings.Contains(body, "yd-lang__btn") {
+			t.Errorf("%s still renders the old two-button switcher | %s 仍渲染旧的双按钮切换", path, path)
+		}
+	}
+}
+
 // jsBody returns the body of the first function whose signature contains signature.
 // jsBody 返回首个签名包含 signature 的函数体。
 //

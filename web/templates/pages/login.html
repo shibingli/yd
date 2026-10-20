@@ -81,10 +81,9 @@
 
     <p class="yd-hint" data-yd-i18n="login.guomi_hint">{{tr "login.guomi_hint"}}</p>
 
-    {{/* Language can be switched before signing in; yd-i18n.js re-renders in place. | 登录前即可切换语言；yd-i18n.js 原地重绘。 */}}
-    <div class="yd-lang yd-lang--auth" role="group" data-yd-i18n-attr="aria-label:topbar.language" aria-label="{{tr "topbar.language"}}">
-      <button type="button" class="yd-lang__btn" data-yd-lang="zh-CN" data-yd-i18n="lang.zh-CN">{{tr "lang.zh-CN"}}</button>
-      <button type="button" class="yd-lang__btn" data-yd-lang="en" data-yd-i18n="lang.en">{{tr "lang.en"}}</button>
+    {{/* Language can be switched before signing in; one button cycles and yd-i18n.js re-renders in place. | 登录前即可切换语言；单一按钮循环切换，yd-i18n.js 原地重绘。 */}}
+    <div class="yd-lang yd-lang--auth">
+      {{template "partials/lang-toggle" .}}
     </div>
   </div>
 </main>

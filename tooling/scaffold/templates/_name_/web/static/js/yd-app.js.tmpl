@@ -40,23 +40,14 @@
      state holds the state that outlives a fragment: a connection is long-lived while the element carrying it is
      replaced on navigation, so the state cannot live in the DOM alone. */
   var state = {
-    /* open 为真表示至少一条实时通道当前是连着的。 | open is true while at least one realtime channel is connected. */
-    open: false
-  };
-
-  /* connectionEvents 汇总连接建立事件：两条通道处理逻辑完全一致。 | connectionEvents collects the connection-established events; both channels are handled identically. */
-  var connectionEvents = {
-    "htmx:sse:after:connection": true,
-    "htmx:ws:after:connection": true
-  };
-  /* 只有真正的关闭事件才代表断开。htmx:ws:error 也可能来自一次发送失败（例如发送按钮不在连接元素内），
-     此时套接字仍然开着，把它当作断开会让徽标与横幅误报。 | Only real close events mean disconnected.
-     htmx:ws:error can also come from a failed send (for example a send button outside the connect element)
-     while the socket stays open, so treating it as a disconnect raises a false alarm in the badge and banner. */
-  var disconnectionEvents = {
-    "htmx:sse:close": true,
-    "htmx:sse:error": true,
-    "htmx:ws:close": true
+    /* open 为真表示所有实时通道当前都是连着的。 | open is true while every realtime channel is connected. */
+    open: false,
+    /* hadDrop 记录是否发生过掉线，用于在恢复时只提示一次。 | hadDrop records whether a drop happened so recovery is announced once. */
+    hadDrop: false,
+    /* noticeTimer 是恢复提示的自动消失定时器，导航或页面隐藏时清空。 | noticeTimer auto-dismisses the recovery notice and is cleared on navigation or pagehide. */
+    noticeTimer: null,
+    /* noticeItem 是当前恢复提示节点，导航时必须一并移除。 | noticeItem is the current recovery notice and must be removed on navigation too. */
+    noticeItem: null
   };
 
   /* bodyLabel reads one localized label the layout rendered onto <body>: the copy stays in the catalogue and the
@@ -99,32 +90,484 @@
     return item;
   }
 
-  /* hasRealtime reports whether this page actually carries a realtime channel. Navigating away from
-     the clock legitimately aborts its SSE stream; that abort must not tell a user on a page with no
-     realtime element that "the connection dropped".
-     hasRealtime 报告当前页面是否真的带有实时通道。离开时钟页面时中止 SSE 流是正常行为；
-     在没有实时元素的页面上，这次中止不能告诉用户「连接已断开」。 */
-  function hasRealtime() {
-    return !!(document.querySelector("[hx-sse\\:connect]") || document.querySelector("[hx-ws\\:connect]"));
+  /* 实时连接管理器：聚合 SSE 与 WebSocket 两条通道，只维护一个横幅。
+     The realtime manager aggregates the SSE and WebSocket channels behind a single banner. */
+  var RECOVERY_NOTICE_TIMEOUT = 3000;
+
+  /* realtimeElements 返回当前页面所有承载实时流的元素；元素随导航被替换，状态因此随连接结束。
+     realtimeElements returns every element that owns a stream; elements are replaced on navigation, so their
+     state ends with the connection. */
+  function realtimeElements() {
+    return Array.prototype.slice.call(
+      document.querySelectorAll("[hx-sse\\:connect], [hx-ws\\:connect]")
+    );
   }
 
-  /* setConnection 切换连接状态：状态条与状态徽标必须同时变化，否则用户会看到自相矛盾的界面。
-     setConnection flips the connection state: the banner and the badge must change together or the page contradicts itself. */
-  function setConnection(connected) {
-    state.open = connected;
-
-    var banner = document.querySelector(SELECTORS.connection);
-    if (banner) {
-      banner.hidden = connected || !hasRealtime();
+  /* realtimeChannel 把单通道状态挂在元素上，避免用 DOM 属性污染模板。 | realtimeChannel keeps per-channel
+     state on the element instead of polluting the markup with extra attributes. */
+  function realtimeChannel(element) {
+    if (!element.__ydRealtime) {
+      element.__ydRealtime = {
+        kind: element.getAttribute("hx-sse:connect") !== null ? "sse" : "ws",
+        state: "connecting",
+        attempt: 0,
+        wasDown: false,
+        lastEventId: ""
+      };
     }
+    return element.__ydRealtime;
+  }
 
+  function realtimeOffline() {
+    return !!(window.navigator && window.navigator.onLine === false);
+  }
+
+  /* setConnection 只画状态徽标；横幅由下方独立生命周期管理，两条通道不会产生两个横幅。
+     setConnection paints the status badge only; the banner has its own lifecycle below so two channels cannot
+     produce two banners. */
+  function setConnection(status) {
+    state.open = status === "open";
+    var labels = {
+      open: "data-yd-connected",
+      connecting: "data-yd-connecting",
+      closed: "data-yd-disconnected",
+      idle: "data-yd-idle"
+    };
     var badges = document.querySelectorAll(SELECTORS.badge);
     for (var i = 0; i < badges.length; i++) {
-      badges[i].setAttribute("data-yd-connection-state", connected ? "open" : "closed");
-      badges[i].textContent = connected
-        ? bodyLabel("data-yd-connected", "connected")
-        : bodyLabel("data-yd-disconnected", "disconnected");
+      badges[i].setAttribute("data-yd-connection-state", status);
+      badges[i].textContent = bodyLabel(labels[status] || labels.idle, status);
     }
+  }
+
+  function connectionBanner() {
+    return document.querySelector(SELECTORS.connection);
+  }
+
+  function hideConnectionBanner() {
+    var banner = connectionBanner();
+    if (banner) {
+      banner.hidden = true;
+    }
+    var attempt = document.querySelector("[data-yd-connection-attempt]");
+    if (attempt) {
+      attempt.hidden = true;
+      attempt.textContent = "";
+    }
+  }
+
+  /* showConnectionBanner 就地更新唯一横幅；重试次数单独成节点，句子本身仍来自语言目录。
+     showConnectionBanner updates the single banner in place; the attempt count is a separate node while the
+     sentence stays in the catalogue. */
+  function showConnectionBanner(status, attempt) {
+    var banner = connectionBanner();
+    if (!banner) {
+      return;
+    }
+    banner.hidden = false;
+    var text = banner.querySelector("[data-yd-connection-text]") || banner.querySelector(".yd-flash__text");
+    if (text) {
+      var key = status === "offline"
+        ? "data-yd-offline"
+        : (status === "closed" ? "data-yd-failed" : "data-yd-reconnecting");
+      text.textContent = bodyLabel(key, text.textContent);
+    }
+    var badge = banner.querySelector("[data-yd-connection-attempt]");
+    if (badge) {
+      var numbered = attempt > 0 && status !== "offline" && status !== "closed";
+      badge.hidden = !numbered;
+      badge.textContent = numbered ? "#" + attempt : "";
+    }
+  }
+
+  function clearConnectionNotice() {
+    if (state.noticeTimer) {
+      window.clearTimeout(state.noticeTimer);
+      state.noticeTimer = null;
+    }
+    /* 同时移除节点才能覆盖导航场景：提示容器在外壳里，否则会在没有实时元素的页面上留下过期的「已恢复」。
+       Removing the node as well matters on navigation: the flash container lives in the shell and would otherwise
+       keep a stale "restored" notice on a page with no realtime elements. */
+    if (state.noticeItem && state.noticeItem.parentNode) {
+      state.noticeItem.parentNode.removeChild(state.noticeItem);
+    }
+    state.noticeItem = null;
+  }
+
+  function showRecoveredNotice() {
+    var item = appendNotice(bodyLabel("data-yd-recovered", "Connection restored"), "success");
+    if (!item) {
+      return;
+    }
+    clearConnectionNotice();
+    state.noticeItem = item;
+    state.noticeTimer = window.setTimeout(function () {
+      state.noticeTimer = null;
+      state.noticeItem = null;
+      if (item.parentNode) {
+        item.parentNode.removeChild(item);
+      }
+    }, RECOVERY_NOTICE_TIMEOUT);
+  }
+
+  /* refreshConnection 聚合所有仍在文档中的通道。从未掉线的通道在首次握手期间保持横幅隐藏，
+     快速首连因此不会闪一下警告；没有实时元素的页面完全重置管理器。
+     refreshConnection aggregates every channel still in the document. A channel that never dropped keeps the
+     banner hidden during the initial handshake, so a fast first connection never flashes a warning; a page
+     without realtime elements resets the manager entirely. */
+  function refreshConnection() {
+    var elements = realtimeElements();
+    var open = 0;
+    var down = 0;
+    var failed = 0;
+    var attempt = 0;
+
+    for (var i = 0; i < elements.length; i++) {
+      var channel = realtimeChannel(elements[i]);
+      if (channel.state === "open") {
+        open++;
+        continue;
+      }
+      down++;
+      if (channel.state === "failed") {
+        failed++;
+      }
+      if (channel.attempt > attempt) {
+        attempt = channel.attempt;
+      }
+    }
+
+    if (elements.length === 0) {
+      setConnection("idle");
+      hideConnectionBanner();
+      state.hadDrop = false;
+      clearConnectionNotice();
+      return;
+    }
+
+    /* 浏览器报告离线时即使套接字看起来仍开着也显示离线；传输层可能还没察觉。 | A browser that reports
+       itself offline shows that state even while the sockets look open; the transport may not have noticed yet. */
+    if (realtimeOffline()) {
+      /* 离线本身就是一次掉线；恢复时据此只提示一次。 | Being offline is itself a drop; this is what makes the
+         online transition announce recovery exactly once. */
+      state.hadDrop = true;
+      clearConnectionNotice();
+      setConnection("connecting");
+      showConnectionBanner("offline", 0);
+      return;
+    }
+
+    if (open === elements.length) {
+      setConnection("open");
+      hideConnectionBanner();
+      if (state.hadDrop) {
+        state.hadDrop = false;
+        showRecoveredNotice();
+      }
+      return;
+    }
+
+    var status = failed > 0 ? "closed" : "connecting";
+    setConnection(status);
+    if (state.hadDrop || failed > 0 || attempt > 0) {
+      showConnectionBanner(status, attempt);
+    } else {
+      hideConnectionBanner();
+    }
+  }
+
+  /* resyncRealtime 执行声明式恢复请求：元素可以指定通道恢复后要重取的片段；默认目标不是承载
+     数据流的元素本身，交换它会再次拆掉连接。 | resyncRealtime performs the declarative recovery fetch: an
+     element may name a fragment to reload once its channel resumes. The default target is not the element
+     that owns the stream, because swapping it would tear the connection down again. */
+  function resyncRealtime(element) {
+    var url = element.getAttribute("data-yd-resync");
+    if (!url || !window.htmx || typeof window.htmx.ajax !== "function") {
+      return false;
+    }
+    var target = element.getAttribute("data-yd-resync-target") || "#yd-workspace";
+    var swap = element.getAttribute("data-yd-resync-swap") || "innerMorph";
+    try {
+      window.htmx.ajax("GET", url, { source: element, target: target, swap: swap });
+      return true;
+    } catch (error) {
+      return false;
+    }
+  }
+
+  function announceRecovered(element, channel, detail) {
+    if (typeof window.CustomEvent !== "function" || typeof element.dispatchEvent !== "function") {
+      return;
+    }
+    var connection = (detail && detail.connection) || {};
+    element.dispatchEvent(new window.CustomEvent("yd:realtime:recovered", {
+      bubbles: true,
+      detail: {
+        channel: channel.kind,
+        element: element,
+        attempt: connection.attempt || 0,
+        lastEventId: connection.lastEventId || channel.lastEventId || "",
+        resynced: resyncRealtime(element)
+      }
+    }));
+  }
+
+  function markChannelOpen(element, detail) {
+    var channel = realtimeChannel(element);
+    var connection = (detail && detail.connection) || {};
+    var resumed = channel.wasDown;
+    channel.state = "open";
+    channel.attempt = 0;
+    channel.lastEventId = connection.lastEventId || channel.lastEventId || "";
+    if (resumed) {
+      channel.wasDown = false;
+      announceRecovered(element, channel, detail);
+    }
+    refreshConnection();
+  }
+
+  function markChannelDown(element, status, detail) {
+    if (!element || element.nodeType !== 1 || !element.isConnected) {
+      return;
+    }
+    var channel = realtimeChannel(element);
+    var connection = (detail && detail.connection) || {};
+    channel.state = status;
+    channel.wasDown = true;
+    state.hadDrop = true;
+    /* 新的掉线立即作废「已恢复」提示。 | A newer drop invalidates the "restored" notice immediately. */
+    clearConnectionNotice();
+    if (connection.attempt > channel.attempt) {
+      channel.attempt = connection.attempt;
+    }
+    refreshConnection();
+  }
+
+  function realtimeEventTarget(event) {
+    var target = event && event.target;
+    return target && target.nodeType === 1 ? target : null;
+  }
+
+  function realtimeEventDetail(event) {
+    return (event && event.detail) || {};
+  }
+
+  function onSSEBefore(event) {
+    var element = realtimeEventTarget(event);
+    if (!element) {
+      return;
+    }
+    var detail = realtimeEventDetail(event);
+    var channel = realtimeChannel(element);
+    channel.state = "connecting";
+    channel.attempt = (detail.connection && detail.connection.attempt) || 0;
+    if (channel.attempt > 0) {
+      channel.wasDown = true;
+      state.hadDrop = true;
+    }
+    refreshConnection();
+  }
+
+  function onSSEAfter(event) {
+    var element = realtimeEventTarget(event);
+    if (element) {
+      markChannelOpen(element, realtimeEventDetail(event));
+    }
+  }
+
+  function onSSEClose(event) {
+    var element = realtimeEventTarget(event);
+    if (!element) {
+      return;
+    }
+    var detail = realtimeEventDetail(event);
+    var reason = detail.reason || "";
+    if (reason === "removed" || reason === "cleanup" || reason === "cancelled" || reason === "message" || !element.isConnected) {
+      delete element.__ydRealtime;
+      refreshConnection();
+      return;
+    }
+    /* 服务端结束流会由扩展转成下一次尝试，因此保持「重连中」而不是报永久失败。
+       The extension turns a server-side end into another attempt, so stay in reconnecting rather than
+       reporting a permanent failure. */
+    markChannelDown(element, "connecting", detail);
+  }
+
+  function onSSEError(event) {
+    var element = realtimeEventTarget(event);
+    if (!element) {
+      return;
+    }
+    var detail = realtimeEventDetail(event);
+    var status = detail.status || 0;
+    /* 没有连接对象的错误是首次请求失败：扩展在该路径上没有重试循环，因此应报「重连已停止」而不是「重连中」。
+       An error without a connection object is the initial request failing: the extension has no retry loop for that
+       path, so the honest state is "reconnection stopped", not "retrying". */
+    var terminal = !detail.connection || status === 401 || status === 403 || status === 404;
+    if (terminal && detail.connection && detail.connection.config) {
+      /* 否则扩展会对终止性状态码无限重试。 | The extension would otherwise keep retrying a terminal status forever. */
+      detail.connection.config.reconnect = false;
+    }
+    markChannelDown(element, terminal ? "failed" : "connecting", detail);
+  }
+
+  function onWSBefore(event) {
+    var element = realtimeEventTarget(event);
+    if (!element) {
+      return;
+    }
+    var detail = realtimeEventDetail(event);
+    var channel = realtimeChannel(element);
+    channel.state = "connecting";
+    channel.attempt = (detail.connection && detail.connection.attempt) || 0;
+    if (channel.attempt > 0) {
+      channel.wasDown = true;
+      state.hadDrop = true;
+    }
+    refreshConnection();
+  }
+
+  function onWSAfter(event) {
+    var element = realtimeEventTarget(event);
+    if (element) {
+      markChannelOpen(element, realtimeEventDetail(event));
+    }
+  }
+
+  function onWSClose(event) {
+    var element = realtimeEventTarget(event);
+    if (!element) {
+      return;
+    }
+    var detail = realtimeEventDetail(event);
+    var reason = detail.reason || "";
+    if (reason === "removed" || reason === "cancelled" || !element.isConnected) {
+      delete element.__ydRealtime;
+      refreshConnection();
+      return;
+    }
+    var code = detail.code;
+    var retryable = code === null || code === undefined || [1001, 1005, 1006, 1011, 1012, 1013, 1014].indexOf(code) >= 0;
+    if (!retryable && detail.connection && detail.connection.config) {
+      detail.connection.config.reconnect = false;
+    }
+    markChannelDown(element, retryable ? "connecting" : "failed", detail);
+  }
+
+  /* 发送失败时套接字可能仍然开着，这不能报成断开。 | A failed send may leave the socket open, which must not
+     be reported as a disconnect. */
+  function onWebSocketError(event) {
+    var detail = realtimeEventDetail(event);
+    var connection = detail.connection || null;
+    if (connection && connection.socket && connection.socket.readyState === 1) {
+      return;
+    }
+    var element = realtimeEventTarget(event);
+    if (element) {
+      markChannelDown(element, "connecting", detail);
+    }
+  }
+
+  /* retryRealtime 让扩展立刻重连，而不是等下一次退避；连接对象不存在时重载页面是唯一安全的重连方式。
+     retryRealtime makes the extension reconnect now instead of waiting for the next backoff; when no connection
+     object exists, a reload is the only safe recovery. */
+  function retryRealtime() {
+    var retried = false;
+    var failed = false;
+    var known = realtimeElements();
+    for (var k = 0; k < known.length; k++) {
+      if (known[k].__ydRealtime && known[k].__ydRealtime.state === "failed") {
+        failed = true;
+      }
+    }
+    var elements = document.querySelectorAll("[hx-sse\\:connect]");
+    for (var i = 0; i < elements.length; i++) {
+      var connection = elements[i]._htmx && elements[i]._htmx.sse;
+      if (!connection) {
+        continue;
+      }
+      retried = true;
+      if (typeof connection.delayCanceller === "function") {
+        connection.delayCanceller();
+      }
+      if (connection.abortController && typeof connection.abortController.abort === "function") {
+        connection.abortController.abort();
+      }
+    }
+
+    elements = document.querySelectorAll("[hx-ws\\:connect]");
+    for (var j = 0; j < elements.length; j++) {
+      var ws = elements[j]._htmx && elements[j]._htmx.ws && elements[j]._htmx.ws.connection;
+      if (!ws || !ws.socket) {
+        continue;
+      }
+      retried = true;
+      try {
+        /* 不传状态码：浏览器在这里只允许 1000 与 3000-4999，而无状态码的关闭会以 1005 上报，
+           扩展正是据此重连。 | No status code: browsers only allow 1000 and 3000-4999 here, and a bare
+           close surfaces as 1005, which the extension reconnects on. */
+        ws.socket.close();
+      } catch (error) {
+        /* a socket already leaving has nothing left to retry | 已在关闭的套接字无需再重试 */
+      }
+    }
+
+    if (!retried || failed) {
+      window.location.reload();
+      return;
+    }
+    state.hadDrop = true;
+    refreshConnection();
+  }
+
+  function onRealtimeOnline() {
+    var elements = realtimeElements();
+    if (!elements.length) {
+      return;
+    }
+    var down = false;
+    for (var i = 0; i < elements.length; i++) {
+      if (realtimeChannel(elements[i]).state !== "open") {
+        down = true;
+      }
+    }
+    if (!down) {
+      refreshConnection();
+      return;
+    }
+    state.hadDrop = true;
+    retryRealtime();
+    refreshConnection();
+  }
+
+  function onRealtimeOffline() {
+    if (!realtimeElements().length) {
+      return;
+    }
+    state.hadDrop = true;
+    clearConnectionNotice();
+    refreshConnection();
+  }
+
+  /* pruneRealtime 清掉已被交换移除的元素状态，再重绘聚合结果。 | pruneRealtime drops state for elements a swap
+     removed, then repaints the aggregate. */
+  function pruneRealtime() {
+    var elements = realtimeElements();
+    var replaced = false;
+    for (var i = 0; i < elements.length; i++) {
+      if (!elements[i].__ydRealtime) {
+        replaced = true;
+      }
+      if (!elements[i].isConnected && elements[i].__ydRealtime) {
+        delete elements[i].__ydRealtime;
+      }
+    }
+    /* 交换后的新流元素属于新页面；旧页面的掉线不得在新页面上产生恢复提示。 | New stream elements after a swap
+       belong to a new page; a drop on the old page must not produce a recovery notice on the new one. */
+    if (replaced) {
+      state.hadDrop = false;
+    }
+    refreshConnection();
   }
 
   /* dismiss 清空最近的可关闭容器：错误片段与提示条共用同一条退场路径。 | dismiss empties the nearest dismissable container so the error fragment and the notices share one exit path. */
@@ -302,16 +745,26 @@
        A language link: the choice is recorded and the event is let through — htmx swaps the result of the ?lang=
        request into the workspace while the very same href is an ordinary navigation without htmx, so one set of markup
        serves both paths. */
+    /* 单一语言按钮：记下目标语言后放行，htmx 或普通 href 都会重取整块外壳。
+       The single language toggle: remember the target language and let the click through; htmx or the plain href
+       refetches the whole shell either way. */
+    var langToggle = target.closest("[data-yd-lang-toggle]");
+    if (langToggle) {
+      rememberLang(langToggle.getAttribute("data-yd-lang-next"));
+      return;
+    }
     var langLink = target.closest("[data-yd-lang]");
     if (langLink) {
       rememberLang(langLink.getAttribute("data-yd-lang"));
       return;
     }
 
-    /* 重新加载按钮只负责重开订阅：局部刷新的状态由服务端决定，前端不做增量修补。 | The reload button only re-opens the subscription: partial-refresh state is the server's call and the front end never patches it incrementally. */
-    if (target.closest("[data-yd-reload]")) {
+    /* 重试按钮立即让扩展重连；只有连接对象已不存在时才退回整页重载。 | The retry button makes the extension
+       reconnect immediately and falls back to a full reload only when no connection object is left. */
+    if (target.closest("[data-yd-reconnect]")) {
       event.preventDefault();
-      window.location.reload();
+      retryRealtime();
+      return;
     }
   });
 
@@ -395,17 +848,20 @@
     appendNotice(detail.text, detail.level);
   });
 
-  /* 连接生命周期：SSE 与 WebSocket 的四个事件走同一条路径。 | Connection lifecycle: the four SSE and WebSocket events take a single path. */
-  Object.keys(connectionEvents).forEach(function (name) {
-    document.addEventListener(name, function () {
-      setConnection(true);
-    });
-  });
-  Object.keys(disconnectionEvents).forEach(function (name) {
-    document.addEventListener(name, function () {
-      setConnection(false);
-    });
-  });
+  /* 连接生命周期：两条通道共用同一个聚合管理器与同一个横幅。 | Connection lifecycle: both channels share one
+     aggregate manager and one banner. */
+  document.addEventListener("htmx:sse:before:connection", onSSEBefore);
+  document.addEventListener("htmx:sse:after:connection", onSSEAfter);
+  document.addEventListener("htmx:sse:close", onSSEClose);
+  document.addEventListener("htmx:sse:error", onSSEError);
+  document.addEventListener("htmx:ws:before:connection", onWSBefore);
+  document.addEventListener("htmx:ws:after:connection", onWSAfter);
+  document.addEventListener("htmx:ws:close", onWSClose);
+  document.addEventListener("htmx:ws:error", onWebSocketError);
+  window.addEventListener("online", onRealtimeOnline);
+  window.addEventListener("offline", onRealtimeOffline);
+  /* 定时器与半开通道不得比文档活得更久。 | Timers and half-open channels must not outlive the document. */
+  window.addEventListener("pagehide", clearConnectionNotice);
 
   /* 网络层失败与状态码失败是两件事：前者在这里提示，后者由表单的 hx-status 声明式处理。 | A transport failure and a status-code failure are two different things: the former is reported here while the latter is handled declaratively by the form's hx-status. */
   document.addEventListener("htmx:send:error", function () {
@@ -415,11 +871,7 @@
   /* 换入新内容后把状态徽标恢复成追踪到的连接状态：新片段只带 idle 初值，直接照它显示会让在线用户看到「已断开」。
      After new content is swapped in the badge is brought back in line with the tracked connection state: a fresh
      fragment only carries the idle default and showing that verbatim would tell a connected user they are offline. */
-  document.addEventListener("htmx:after:swap", function () {
-    if (document.querySelector(SELECTORS.badge)) {
-      setConnection(state.open);
-    }
-  });
+  document.addEventListener("htmx:after:swap", pruneRealtime);
 
   /* 抽屉式侧栏：64rem 以下由顶栏按钮打开，遮罩、Esc 与导航点击关闭。
      Off-canvas rail: opened by the topbar button below 64rem, closed by the scrim, Escape or a nav click. */
@@ -559,6 +1011,12 @@
     if (!lang) {
       return;
     }
+    /* 语言切换只换 #yd-shell，不会重写 <html>；必须同步根元素的 lang，否则 CSS 状态标签与
+       辅助技术仍停在旧语言。 | The switch swaps only #yd-shell and never rewrites <html>; sync the root lang
+       or the CSS state labels and assistive technology stay in the old language. */
+    if (document.documentElement) {
+      document.documentElement.setAttribute("lang", lang);
+    }
     document.cookie = LANG_COOKIE + "=" + encodeURIComponent(lang) + ";path=/;max-age=" + LANG_MAX_AGE + ";samesite=lax";
   }
 
@@ -580,6 +1038,10 @@
   if (window.htmx && typeof window.htmx.process === "function") {
     window.htmx.process(document.body);
   }
+
+  /* 首屏重绘一次聚合状态：状态徽标显示连接中，横幅保持隐藏直到真的掉线。 | Repaint the aggregate once at first
+     paint: the badge shows connecting while the banner stays hidden until a real drop. */
+  refreshConnection();
 
   yd.ready = true;
 })();

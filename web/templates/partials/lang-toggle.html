@@ -1,0 +1,20 @@
+{{/*
+  partials/lang-toggle.html —— 语言切换：单一按钮，显示当前语言，点击切到另一种。
+  partials/lang-toggle.html — the language switch: one button that shows the active language and cycles to the other.
+
+  <html lang> 由服务端渲染、由 yd-i18n.js 的 setLang 更新；CSS 据此只显示匹配的语言名，
+  因此按钮的文案与 aria 状态在切换后自然跟随，不需要脚本再改一处文案。
+  <html lang> is rendered by the server and updated by yd-i18n.js setLang; CSS therefore shows only the matching
+  language name, so the label and the accessible state follow the switch without a second copy in script.
+
+  数据契约 | Data contract: none — the two names are catalogue autonyms.
+*/}}
+{{- define "partials/lang-toggle" -}}
+<button type="button" class="yd-btn yd-btn--ghost yd-btn--sm yd-lang-toggle" data-yd-lang-toggle
+        data-yd-i18n-attr="aria-label:topbar.language,title:topbar.language"
+        aria-label="{{tr "topbar.language"}}" title="{{tr "topbar.language"}}">
+  <span class="yd-lang__icon" aria-hidden="true">文</span>
+  <span class="yd-lang__state" data-yd-lang-state="zh-CN" data-yd-i18n="lang.zh-CN">{{tr "lang.zh-CN"}}</span>
+  <span class="yd-lang__state" data-yd-lang-state="en" data-yd-i18n="lang.en">{{tr "lang.en"}}</span>
+</button>
+{{- end -}}
