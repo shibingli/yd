@@ -106,6 +106,9 @@
 - [ ] **前端 i18n 与主题**：新增文案必须有 `data-yd-i18n` 且中英目录齐全；
       语言切换是单一状态按钮（显示当前语言，点击循环），必须 `hx-target="#yd-shell"` 刷新整块外壳
       （否则侧栏高亮与语言停在旧状态），并同步 `<html lang>`；主题支持 light/dark/system 三态并持久化。
+- [ ] **离线图标**：所有图标只经 `{{template "partials/icon" "lucide-…"}}` 引用；
+      `yd icons sync` 按模板生成按需 sprite，`yd icons check` 进 CI；禁止内联 SVG、Iconify 运行时与 CDN；
+      `minify` 阶段同时产出 `*.min.svg`，生产模板经 `asset` 助手解析。详见 `docs/icon-usage.md`。
 - [ ] **Tailwind v4 分层**：所有项目样式必须建立在 Tailwind v4 之上——`@import "tailwindcss"`、
       `@theme` 语义令牌、`@layer components`；可复用工具类用 `@apply`，颜色不得在令牌块之外写字面量。
 - [ ] **交互约定**：新增/编辑走右侧抽屉（`#yd-drawer`），列表操作与顶栏租户切换共用下拉菜单

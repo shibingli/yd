@@ -474,7 +474,7 @@ func TestAssetsMinifySkipsMissingToolWithoutCheck(t *testing.T) {
 	if cssCalls != 1 {
 		t.Errorf("CSS 阶段调用次数 = %d，期望 1", cssCalls)
 	}
-	if errs := te.errs.String(); !strings.Contains(errs, "js minify skipped") || !strings.Contains(errs, "跳过 JS 压缩") {
+	if errs := te.errs.String(); !strings.Contains(errs, "asset minify skipped") || !strings.Contains(errs, "跳过资产压缩") {
 		t.Errorf("缺少双语告警:\n%s", errs)
 	}
 }

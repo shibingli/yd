@@ -264,7 +264,7 @@ func runAssetsMinify(ctx context.Context, env *Env, fs *pflag.FlagSet) error {
 		if check {
 			return jsErr
 		}
-		log.Warn("js minify skipped | 跳过 JS 压缩", logx.Err(jsErr))
+		log.Warn("asset minify skipped | 跳过资产压缩", logx.Err(jsErr))
 	case jsErr != nil:
 		return jsErr
 	}
@@ -279,8 +279,9 @@ func runAssetsMinify(ctx context.Context, env *Env, fs *pflag.FlagSet) error {
 			"run `yd assets minify` to regenerate | 运行 `yd assets minify` 重新生成")
 	}
 
-	fmt.Fprintf(env.Out, "js files | JS 文件: %d\n", jsRes.Files)
-	fmt.Fprintf(env.Out, "js bytes | JS 字节: %d\n", jsRes.Bytes)
+	fmt.Fprintf(env.Out, "js files | JS 文件: %d\n", jsRes.Files-jsRes.SVGFiles)
+	fmt.Fprintf(env.Out, "svg files | SVG 文件: %d\n", jsRes.SVGFiles)
+	fmt.Fprintf(env.Out, "bytes | 字节: %d\n", jsRes.Bytes)
 	if len(jsRes.Mismatched) > 0 {
 		fmt.Fprintf(env.Out, "mismatch | 不匹配: %s\n", strings.Join(jsRes.Mismatched, ", "))
 	}

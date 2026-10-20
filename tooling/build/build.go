@@ -323,7 +323,7 @@ func Build(ctx context.Context, o Options, log *logx.Logger) (*Report, error) {
 		if err != nil {
 			return nil, err
 		}
-		log.Info("minify stage finished | JS 压缩阶段已完成",
+		log.Info("minify stage finished | 资产压缩阶段已完成",
 			logx.Int("files", res.Files),
 			logx.Int64("bytes", res.Bytes),
 		)

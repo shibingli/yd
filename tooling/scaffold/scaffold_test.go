@@ -108,6 +108,7 @@ var requiredFiles = []string{
 	"web/templates/partials/flash.html",
 	"web/templates/partials/home/metrics.html",
 	"web/templates/partials/home/metrics_fragment.html",
+	"web/templates/partials/icon.html",
 	"web/templates/partials/login.html",
 	"web/templates/partials/roles/drawer.html",
 	"web/templates/partials/roles/edit_drawer.html",
@@ -361,7 +362,7 @@ func TestGenerateTailwindAddsCssEntry(t *testing.T) {
 	on.Tailwind = true
 	prOn, _ := generateMem(t, on)
 	css := prOn.read("web/static/css/app.css")
-	for _, want := range []string{`@import "tailwindcss"`, "@theme", "--color-brand-600"} {
+	for _, want := range []string{`@import "tailwindcss" source(none)`, "@theme", "--color-brand-600"} {
 		if !strings.Contains(css, want) {
 			t.Errorf("开启 Tailwind 时 app.css 缺少 %q:\n%s", want, css)
 		}
@@ -2759,6 +2760,42 @@ func TestGenerateThemeBootAndAutoTokens(t *testing.T) {
 	} {
 		if !strings.Contains(cssBody, want) {
 			t.Errorf("generated app.css auto block is missing %q | 生成的 app.css auto 深色块缺少 %q", want, want)
+		}
+	}
+}
+
+// TestGenerateIconsUseTheBundledSprite pins the generated icon contract: every requested button
+// references the shared partial, and the partial resolves the framework sprite instead of copying
+// icon bodies into templates. | TestGenerateIconsUseTheBundledSprite 固定生成项目的图标契约：
+// 所有指定按钮都引用共享片段，片段解析框架 sprite，而不是把图标体复制进模板。
+func TestGenerateIconsUseTheBundledSprite(t *testing.T) {
+	pr, _ := generateMem(t, scaffold.DefaultOptions("icon-app"))
+
+	partial := pr.read("web/templates/partials/icon.html")
+	for _, want := range []string{
+		`asset "/static/img/icons.svg"`,
+		`data-yd-icon="{{ . }}"`,
+		`focusable="false"`,
+	} {
+		if !strings.Contains(partial, want) {
+			t.Errorf("partials/icon.html is missing %q | partials/icon.html 缺少 %q", want, want)
+		}
+	}
+
+	for _, want := range []struct {
+		file string
+		icon string
+	}{
+		{"web/templates/partials/login.html", "lucide-log-in"},
+		{"web/templates/layouts/shell.html", "lucide-log-out"},
+		{"web/templates/partials/shell-switches.html", "lucide-languages"},
+		{"web/templates/partials/shell-switches.html", "lucide-sun"},
+		{"web/templates/partials/shell-switches.html", "lucide-moon"},
+		{"web/templates/partials/shell-switches.html", "lucide-monitor"},
+	} {
+		needle := `template "partials/icon" "` + want.icon + `"`
+		if !strings.Contains(pr.read(want.file), needle) {
+			t.Errorf("%s is missing %s | %s 缺少 %s", want.file, needle, want.file, needle)
 		}
 	}
 }

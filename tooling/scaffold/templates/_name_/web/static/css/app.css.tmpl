@@ -1,7 +1,10 @@
 /* {{ .Name }} 样式入口：所有页面样式都从这里出发，禁止在 HTML 中写内联样式表。 | {{ .Name }} style entry: every page style starts here; inline style sheets in HTML are forbidden. */
 {{- if .Tailwind }}
 /* Tailwind v4 由 Go 脚手架静默编译（无 Node.js 管道），产物写入 {{ .AssetRoot }}/static/css/yd.css。 | Tailwind v4 is compiled silently by the Go toolchain (no Node.js pipeline) into {{ .AssetRoot }}/static/css/yd.css. */
-@import "tailwindcss";
+@import "tailwindcss" source(none);
+/* 关闭自动源探测：下面的 @source 是唯一扫描范围，项目依赖与图标数据不会污染产物。
+   Disable automatic source detection: the @source lines below are the only scan roots, so project
+   dependencies and icon data cannot pollute the generated stylesheet. */
 
 /* 框架管理端组件层：yd new 从框架资产逐字节复制而来，提供 .yd-shell、.yd-table 等全部组件；
    项目可以按需修改它，但修改后请同步更新项目的视觉基线。 | Framework admin component layer: copied verbatim from

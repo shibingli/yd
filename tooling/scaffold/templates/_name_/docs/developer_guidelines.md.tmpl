@@ -32,6 +32,9 @@
   `{{ "{{ tr \"page.users.subtitle\" .Total }}" }}`）。两份目录的键集合必须严格一致：少一个键，页面上出现的就是键名本身。
 - 需要「某权限是否可见」这类判断时，由控制器把布尔值算好放进页面数据（`Can*`），模板只读结果：
   模板函数表刻意不提供「切片是否包含」之类的助手，否则授权规则会以第二种实现散落到视图层。
+- 图标只经 `{{ "{{template \"partials/icon\" \"lucide-…\"}}" }}` 引用：框架 sprite 随静态树合并提供，
+  项目自定义图标运行 `yd icons sync` 生成自己的 `web/static/img/icons.svg`；禁止内联 SVG、Iconify 运行时与 CDN。
+  `yd assets minify` 同时产出 `.min.svg`，生产模板由 `asset` 助手解析。
 - 主题切换是纯客户端行为（`{{ .AssetRoot }}/static/js/yd-app.js`）：`<html data-theme="light|dark|auto">` 承载主题。
   语言切换是单一状态按钮：按钮显示当前语言，`?lang=` 与 `yd_lang` cookie 承载选择，htmx 换入整个 `#yd-shell`
   （侧栏、顶栏与工作区一起更新），因此语言切换不刷新整页；脚本同时更新 `<html lang>`。

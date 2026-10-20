@@ -112,7 +112,10 @@
     {{/* Logout stays an htmx form: the handler answers with HX-Redirect and the browser navigates once. | 退出登录仍走 htmx：处理函数用 HX-Redirect 应答，浏览器只跳转一次。 */}}
     <form class="yd-sidebar__logout" method="post" action="/logout"
           hx-post="/logout" hx-target="#yd-workspace" hx-swap="innerMorph">
-      <button type="submit" class="yd-btn yd-btn--ghost yd-btn--block" data-yd-i18n="nav.logout">{{tr "nav.logout"}}</button>
+      <button type="submit" class="yd-btn yd-btn--ghost yd-btn--block">
+        {{template "partials/icon" "lucide-log-out"}}
+        <span data-yd-i18n="nav.logout">{{tr "nav.logout"}}</span>
+      </button>
     </form>
   </div>
 </aside>

@@ -18,7 +18,7 @@
    data-yd-lang-toggle data-yd-lang-next="{{ $next }}"
    hx-get="{{ .Path }}?lang={{ $next }}" hx-target="#yd-shell" hx-swap="innerMorph" hx-push-url="true"
    aria-label="{{ tr "ui.language" }}" title="{{ tr "ui.language" }}">
-  <span class="yd-lang__icon" aria-hidden="true">文</span>
+  {{ template "partials/icon" "lucide-languages" }}
   <span class="yd-lang__state" data-yd-lang-state="zh-CN">{{ tr "lang.zh-cn" }}</span>
   <span class="yd-lang__state" data-yd-lang-state="en">{{ tr "lang.en" }}</span>
 </a>
@@ -27,7 +27,9 @@
 {{/* Three-state theme: CSS alone decides which label is visible, so the script holds no copy. */}}
 <button type="button" class="yd-btn yd-btn--ghost yd-btn--sm yd-theme-toggle" data-yd-theme-toggle
         aria-label="{{ tr "ui.theme" }}" title="{{ tr "ui.theme" }}">
-  <span class="yd-theme__icon" aria-hidden="true">◐</span>
+  <span class="yd-theme__glyph" data-yd-theme-glyph="light">{{ template "partials/icon" "lucide-sun" }}</span>
+  <span class="yd-theme__glyph" data-yd-theme-glyph="dark">{{ template "partials/icon" "lucide-moon" }}</span>
+  <span class="yd-theme__glyph" data-yd-theme-glyph="system">{{ template "partials/icon" "lucide-monitor" }}</span>
   <span class="yd-theme__state" data-yd-theme-state="light">{{ tr "ui.theme_light" }}</span>
   <span class="yd-theme__state" data-yd-theme-state="dark">{{ tr "ui.theme_dark" }}</span>
   <span class="yd-theme__state" data-yd-theme-state="auto">{{ tr "ui.theme_auto" }}</span>

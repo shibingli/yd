@@ -60,15 +60,11 @@
   <div class="yd-topbar__actions">
     {{template "partials/lang-toggle" .}}
 
-    <button type="button" class="yd-icon-btn" data-yd-theme-toggle aria-pressed="false"
+    <button type="button" class="yd-icon-btn yd-theme-toggle" data-yd-theme-toggle aria-pressed="false"
             data-yd-i18n-attr="aria-label:topbar.theme.toggle" aria-label="{{tr "topbar.theme.toggle"}}">
-      <svg class="yd-icon yd-icon--light" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
-        <circle cx="12" cy="12" r="4"></circle>
-        <path d="M12 2v2M12 20v2M2 12h2M20 12h2M5 5l1.5 1.5M17.5 17.5 19 19M19 5l-1.5 1.5M6.5 17.5 5 19" stroke-linecap="round"></path>
-      </svg>
-      <svg class="yd-icon yd-icon--dark" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
-        <path d="M20 14.5A8.5 8.5 0 0 1 9.5 4a8.5 8.5 0 1 0 10.5 10.5Z" stroke-linejoin="round"></path>
-      </svg>
+      <span class="yd-theme__glyph" data-yd-theme-glyph="light">{{template "partials/icon" "lucide-sun"}}</span>
+      <span class="yd-theme__glyph" data-yd-theme-glyph="dark">{{template "partials/icon" "lucide-moon"}}</span>
+      <span class="yd-theme__glyph" data-yd-theme-glyph="system">{{template "partials/icon" "lucide-monitor"}}</span>
       <span class="sr-only" data-yd-i18n="topbar.theme.toggle">{{tr "topbar.theme.toggle"}}</span>
     </button>
 
@@ -87,7 +83,10 @@
         <a class="yd-user__item" role="menuitem" href="/i18n_demo" hx-get="/i18n_demo" hx-target="#yd-workspace" hx-swap="innerMorph" hx-push-url="true"
            data-yd-i18n="topbar.menu.language">{{tr "topbar.menu.language"}}</a>
         <form class="yd-user__item" method="post" action="/logout" hx-post="/logout" hx-target="#yd-workspace" hx-swap="innerMorph">
-          <button type="submit" class="yd-user__link" data-yd-i18n="topbar.menu.logout">{{tr "topbar.menu.logout"}}</button>
+          <button type="submit" class="yd-user__link">
+            {{template "partials/icon" "lucide-log-out"}}
+            <span data-yd-i18n="topbar.menu.logout">{{tr "topbar.menu.logout"}}</span>
+          </button>
         </form>
       </div>
     </div>

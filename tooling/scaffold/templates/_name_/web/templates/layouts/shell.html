@@ -77,7 +77,10 @@
       </span>
       <form method="post" action="/logout" hx-post="/logout" hx-target="#yd-workspace" hx-swap="innerMorph"
             data-yd-confirm="{{ tr "confirm.logout" }}">
-        <button type="submit" class="yd-btn yd-btn--ghost yd-btn--sm" data-yd-signout>{{ tr "ui.sign_out" }}</button>
+        <button type="submit" class="yd-btn yd-btn--ghost yd-btn--sm" data-yd-signout>
+          {{ template "partials/icon" "lucide-log-out" }}
+          <span>{{ tr "ui.sign_out" }}</span>
+        </button>
       </form>
     </nav>
   </header>

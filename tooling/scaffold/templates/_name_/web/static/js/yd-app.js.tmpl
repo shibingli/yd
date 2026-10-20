@@ -994,6 +994,12 @@
   /* applyTheme 只改 <html> 上的一个属性：三个标签谁可见由 app.css 决定，脚本里没有一句文案。 | applyTheme writes one attribute on <html> and nothing else: app.css decides which of the three labels shows, so the script holds no copy. */
   function applyTheme(theme) {
     document.documentElement.setAttribute("data-theme", theme);
+    /* 主题按钮同时携带三个图标，data-yd-theme-state 决定显示哪一个。 | The theme button carries all three
+       glyphs; data-yd-theme-state decides which one is visible. */
+    var toggles = document.querySelectorAll("[data-yd-theme-toggle]");
+    for (var i = 0; i < toggles.length; i++) {
+      toggles[i].setAttribute("data-yd-theme-state", theme);
+    }
   }
 
   /* cycleTheme 按固定顺序循环并记住结果，返回新状态供调用方使用。 | cycleTheme cycles in a fixed order and remembers the result, returning the new state to its caller. */

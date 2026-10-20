@@ -59,7 +59,10 @@
     {{/* 公钥不可用时按钮保持禁用：与其提交一个必然被拒的明文请求，不如把原因说清楚。
          The button stays disabled while the key is unavailable: rather than submitting a clear-text request that is bound
          to be rejected, the reason is stated right here. */}}
-    <button type="submit" class="yd-btn yd-btn--primary" {{ if not .PublicKey }}disabled{{ end }}>{{ tr "ui.sign_in" }}</button>
+    <button type="submit" class="yd-btn yd-btn--primary" {{ if not .PublicKey }}disabled{{ end }}>
+      {{ template "partials/icon" "lucide-log-in" }}
+      <span>{{ tr "ui.sign_in" }}</span>
+    </button>
     {{ if not .PublicKey }}
     <span class="yd-hint">{{ tr "login.key_unavailable" }}</span>
     {{ end }}

@@ -168,6 +168,9 @@ yd gen module|crud   # 低代码生成（DB Schema 或 Go Struct）
   列表操作用下拉菜单（`details.yd-menu`），顶栏租户切换复用同一套面板与条目样式（不用原生 select）；
   所有变更动作必须带 `data-yd-confirm` 并经过全局确认对话框；多按钮表单确认后必须把
   `event.submitter` 传回 `requestSubmit`，否则按钮的 `name`/`value` 会丢失。
+- 图标一律写成 `{{ "{{template \"partials/icon\" \"lucide-…\"}}" }}`：框架 sprite 由 `yd icons sync`
+  按模板引用生成，项目自定义图标同样运行该命令；禁止内联 SVG、Iconify 运行时与 CDN。
+  `yd assets minify` 同时压缩 `.js` 与 `.svg`，生产模板经 `asset` 助手解析 `.min.svg`。
 - 首页资源仪表盘每 5 秒轮询 `GET /metrics`，用纯 SVG 仪表盘展示宿主机与进程的 CPU/内存；
   指标来自 `core/sysinfo` 与 `runtime/metrics`，平台不支持时显示「不可用」，不得编造数字。
 - htmx 4 只交换匿名 SSE 消息：`Broker.PublishHTML` 发送无名 `data:` 消息，命名事件仅用于旁路通知；

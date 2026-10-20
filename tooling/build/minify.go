@@ -1,7 +1,8 @@
-// This file implements the JavaScript minification stage: it resolves the
-// optional minify CLI, walks web/static, writes one .min.js per source and can
-// verify committed output without writing. | 本文件实现 JavaScript 压缩阶段：
-// 解析可选的 minify CLI、遍历 web/static、为每个源码写出 .min.js，并能在不写盘的前提下校验已提交产物。
+// This file implements the asset minification stage: it resolves the optional minify CLI, walks
+// web/static, writes one .min.js or .min.svg per source and can verify committed output without
+// writing. CSS is deliberately excluded: Tailwind owns it. | 本文件实现资产压缩阶段：
+// 解析可选的 minify CLI、遍历 web/static、为每个源码写出 .min.js 或 .min.svg，并能在不写盘的前提下
+// 校验已提交产物。CSS 刻意排除在外：它由 Tailwind 负责。
 package build
 
 import (
@@ -20,9 +21,9 @@ import (
 	"github.com/shibingli/yd/core/logx"
 )
 
-// The JavaScript minification stage's constants. | JavaScript 压缩阶段的常量。
+// The asset minification stage's constants. | 资产压缩阶段的常量。
 const (
-	// DefaultMinifyRoot is the directory scanned for .js sources, relative to the build directory. | DefaultMinifyRoot 是扫描 .js 源码的目录，相对构建目录。
+	// DefaultMinifyRoot is the directory scanned for .js and .svg sources, relative to the build directory. | DefaultMinifyRoot 是扫描 .js 与 .svg 源码的目录，相对构建目录。
 	DefaultMinifyRoot = "web/static"
 	// KeyMinifyBin is the configuration key holding the minify executable. | KeyMinifyBin 是保存 minify 可执行文件的配置键。
 	KeyMinifyBin = "minify.bin"
@@ -32,12 +33,12 @@ const (
 	minifyEnvBin = "YD_MINIFY_BIN"
 )
 
-// Sentinel errors of the JavaScript minification stage. | JavaScript 压缩阶段的哨兵错误。
+// Sentinel errors of the asset minification stage. | 资产压缩阶段的哨兵错误。
 var (
 	// ErrMinifyNotFound indicates that no minify executable could be located. | ErrMinifyNotFound 表示未能定位到 minify 可执行文件。
 	ErrMinifyNotFound = errx.New("build: minify executable not found | build：未找到 minify 可执行文件")
 	// ErrMinify indicates that the minify process failed or produced nothing. | ErrMinify 表示 minify 进程失败或未产出结果。
-	ErrMinify = errx.New("build: JavaScript minification failed | build：JavaScript 压缩失败")
+	ErrMinify = errx.New("build: asset minification failed | build：资产压缩失败")
 )
 
 // MinifyOptions configures the JavaScript minification stage. | MinifyOptions 配置 JavaScript 压缩阶段。
@@ -48,7 +49,7 @@ type MinifyOptions struct {
 	Root string
 	// Enabled turns the stage on in Build. | Enabled 在 Build 中启用该阶段。
 	Enabled bool
-	// CheckOnly verifies committed .min.js files instead of writing them. | CheckOnly 校验已提交的 .min.js 而不是写入。
+	// CheckOnly verifies committed .min.js/.min.svg files instead of writing them. | CheckOnly 校验已提交的 .min.js/.min.svg 而不是写入。
 	CheckOnly bool
 }
 
@@ -62,8 +63,10 @@ type MinifyResult struct {
 	Stale []string
 	// Files is the number of source files processed. | Files 是处理的源码文件数。
 	Files int
-	// Bytes is the total size of the produced .min.js files. | Bytes 是产出的 .min.js 文件总字节数。
+	// Bytes is the total size of the produced .min.js and .min.svg files. | Bytes 是产出的 .min.js 与 .min.svg 文件总字节数。
 	Bytes int64
+	// SVGFiles is the number of .svg sources among Files. | SVGFiles 是 Files 中 .svg 源码的数量。
+	SVGFiles int
 }
 
 // MinifyFunc builds the JavaScript assets and is the injection point of Build;
@@ -179,7 +182,7 @@ func buildMinifyWith(ctx context.Context, dir string, o MinifyOptions, log *logx
 		previous = cleanGeneratedMinified(root, dir, previous, log)
 	}
 
-	files, err := jsSources(root)
+	files, err := minifySources(root)
 	if err != nil {
 		return MinifyResult{}, errx.WrapDetail(err, ErrMinify, "walk %[1]s | 遍历 %[1]s", root)
 	}
@@ -197,7 +200,10 @@ func buildMinifyWith(ctx context.Context, dir string, o MinifyOptions, log *logx
 	if o.CheckOnly {
 		res := MinifyResult{Files: len(files), Stale: orphanedMinified(root, dir, previous)}
 		for _, input := range files {
-			if err := checkMinified(ctx, run, dir, bin, input, inputOut(dir, input), relTo(dir, input), &res); err != nil {
+			if strings.HasSuffix(input, ".svg") {
+				res.SVGFiles++
+			}
+			if err := checkMinified(ctx, run, dir, bin, input, minifiedOutput(dir, input), relTo(dir, input), &res); err != nil {
 				return MinifyResult{}, err
 			}
 		}
@@ -212,7 +218,7 @@ func buildMinifyWith(ctx context.Context, dir string, o MinifyOptions, log *logx
 	generated := make([]string, 0, len(files))
 	for _, input := range files {
 		rel := relTo(dir, input)
-		outRel := strings.TrimSuffix(rel, ".js") + ".min.js"
+		outRel := minifiedRel(rel)
 		out := resolvePath(dir, outRel)
 		size, err := writeMinified(ctx, run, dir, bin, input, out)
 		if err != nil {
@@ -220,8 +226,11 @@ func buildMinifyWith(ctx context.Context, dir string, o MinifyOptions, log *logx
 		}
 		generated = append(generated, outRel)
 		res.Files++
+		if strings.HasSuffix(input, ".svg") {
+			res.SVGFiles++
+		}
 		res.Bytes += size
-		log.Debug("javascript minified | JavaScript 已压缩",
+		log.Debug("asset minified | 资产已压缩",
 			logx.Str("input", rel),
 			logx.Str("output", outRel),
 			logx.Int64("bytes", size),
@@ -241,15 +250,39 @@ func relTo(dir, input string) string {
 	return filepath.ToSlash(rel)
 }
 
-// inputOut returns the minified output path of a source. | inputOut 返回源码的压缩产物路径。
-func inputOut(dir, input string) string {
-	return resolvePath(dir, strings.TrimSuffix(relTo(dir, input), ".js")+".min.js")
+// minifiedOutput returns the minified output path of a source. | minifiedOutput 返回源码的压缩产物路径。
+func minifiedOutput(dir, input string) string {
+	return resolvePath(dir, minifiedRel(relTo(dir, input)))
 }
 
-// jsSources returns every .js source under root, sorted, skipping vendor trees
-// and already-minified files. | jsSources 返回 root 下全部 .js 源码（已排序），
-// 跳过 vendor 目录与已压缩文件。
-func jsSources(root string) ([]string, error) {
+// minifiedRel inserts .min before the .js or .svg extension. | minifiedRel 在 .js 或 .svg 扩展名前插入 .min。
+func minifiedRel(rel string) string {
+	switch {
+	case strings.HasSuffix(rel, ".js"):
+		return strings.TrimSuffix(rel, ".js") + ".min.js"
+	case strings.HasSuffix(rel, ".svg"):
+		return strings.TrimSuffix(rel, ".svg") + ".min.svg"
+	default:
+		return rel
+	}
+}
+
+// minifiedSource returns the source path of a tracked minified output. | minifiedSource 返回受跟踪的压缩产物对应的源码路径。
+func minifiedSource(abs string) (string, bool) {
+	switch {
+	case strings.HasSuffix(abs, ".min.js"):
+		return strings.TrimSuffix(abs, ".min.js") + ".js", true
+	case strings.HasSuffix(abs, ".min.svg"):
+		return strings.TrimSuffix(abs, ".min.svg") + ".svg", true
+	default:
+		return "", false
+	}
+}
+
+// minifySources returns every .js and .svg source under root, sorted, skipping vendor trees and
+// already-minified files. CSS stays out: Tailwind owns its minification. | minifySources 返回 root 下
+// 全部 .js 与 .svg 源码（已排序），跳过 vendor 目录与已压缩文件。CSS 不在其中：它由 Tailwind 压缩。
+func minifySources(root string) ([]string, error) {
 	var out []string
 	err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
@@ -262,7 +295,10 @@ func jsSources(root string) ([]string, error) {
 			return nil
 		}
 		name := d.Name()
-		if !strings.HasSuffix(name, ".js") || strings.HasSuffix(name, ".min.js") {
+		if strings.HasSuffix(name, ".min.js") || strings.HasSuffix(name, ".min.svg") {
+			return nil
+		}
+		if !strings.HasSuffix(name, ".js") && !strings.HasSuffix(name, ".svg") {
 			return nil
 		}
 		out = append(out, path)
@@ -300,6 +336,7 @@ func checkMinified(ctx context.Context, run ExecCommandFunc, dir, bin, input, ou
 	if err := cmd.Run(); err != nil {
 		return errx.WrapDetail(err, ErrMinify, "%s | %s: %s", input, input, strings.TrimSpace(stderr.String()))
 	}
+	res.Bytes += int64(stdout.Len())
 	want, err := os.ReadFile(out)
 	if errors.Is(err, os.ErrNotExist) {
 		res.Missing = append(res.Missing, rel)
@@ -369,12 +406,12 @@ func writeMinifyManifest(dir string, outputs []string, log *logx.Logger) {
 	}
 }
 
-// ownedOutput reports whether rel is a .min.js output this stage may own: inside
-// root, not under vendor and ending in .min.js. | ownedOutput 报告 rel 是否可能是本阶段
-// 拥有的 .min.js 产物：位于 root 内、不在 vendor 下且以 .min.js 结尾。
+// ownedOutput reports whether rel is a .min.js or .min.svg output this stage may own: inside root,
+// not under vendor and ending in a tracked suffix. | ownedOutput 报告 rel 是否可能是本阶段拥有的
+// .min.js 或 .min.svg 产物：位于 root 内、不在 vendor 下且以受跟踪后缀结尾。
 func ownedOutput(root, dir, rel string) (string, bool) {
 	cleanRel := filepath.ToSlash(rel)
-	if !strings.HasSuffix(cleanRel, ".min.js") || strings.Contains("/"+cleanRel+"/", "/vendor/") {
+	if _, ok := minifiedSource(cleanRel); !ok || strings.Contains("/"+cleanRel+"/", "/vendor/") {
 		return "", false
 	}
 	abs := resolvePath(dir, cleanRel)
@@ -395,7 +432,10 @@ func cleanGeneratedMinified(root, dir string, outputs []string, log *logx.Logger
 			continue
 		}
 		cleanRel := filepath.ToSlash(rel)
-		source := strings.TrimSuffix(abs, ".min.js") + ".js"
+		source, ok := minifiedSource(abs)
+		if !ok {
+			continue
+		}
 		if _, err := os.Stat(source); !errors.Is(err, os.ErrNotExist) {
 			kept = append(kept, cleanRel)
 			continue
@@ -420,7 +460,10 @@ func orphanedMinified(root, dir string, outputs []string) []string {
 		if !ok {
 			continue
 		}
-		source := strings.TrimSuffix(abs, ".min.js") + ".js"
+		source, ok := minifiedSource(abs)
+		if !ok {
+			continue
+		}
 		if _, err := os.Stat(source); errors.Is(err, os.ErrNotExist) {
 			stale = append(stale, filepath.ToSlash(rel))
 		}

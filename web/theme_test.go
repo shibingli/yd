@@ -119,8 +119,11 @@ var sourceGlobPattern = regexpx.MustCompile(`@source\s+"([^"]+)"`)
 func TestThemeDefinesBlueBrandScaleAndSemanticTokens(t *testing.T) {
 	css := string(readEmbedded(t, web.FS(), appCSSPath))
 
-	if first := strings.TrimSpace(strings.SplitN(css, "\n", 2)[0]); first != `@import "tailwindcss";` {
-		t.Errorf("app.css must start with `@import \"tailwindcss\";`, got %q | app.css 首行必须是 `@import \"tailwindcss\";`，实际为 %q", first, first)
+	if !strings.Contains(css, `@import "tailwindcss" source(none);`) {
+		t.Error("app.css must disable Tailwind's automatic source detection with source(none) and rely on explicit @source roots | app.css 必须用 source(none) 关闭 Tailwind 自动源探测，只依赖显式 @source 根")
+	}
+	if first := strings.TrimSpace(strings.SplitN(css, "\n", 2)[0]); first != `@import "tailwindcss" source(none);` {
+		t.Errorf("app.css must start with `@import \"tailwindcss\" source(none);`, got %q | app.css 首行必须是 `@import \"tailwindcss\" source(none);`，实际为 %q", first, first)
 	}
 	for _, want := range []string{`@source "../../templates/**/*.html";`, `@source "../../../http/**/*.go";`} {
 		if !strings.Contains(css, want) {
@@ -341,6 +344,28 @@ func TestMainColumnScrollsIndependently(t *testing.T) {
 	}
 	if height, ok := cssValue(main, "height"); !ok || height != "100dvh" {
 		t.Errorf(".yd-shell--app .yd-main must fill the shell with height: 100dvh, got %q | .yd-shell--app .yd-main 必须以 height: 100dvh 填满外壳，实际为 %q", height, height)
+	}
+}
+
+// TestThemeStateSelectorDoesNotMatchToggle pins the selector scope that keeps the theme button
+// inline-flex: the button also carries data-yd-theme-state for the glyph switch, so a bare
+// [data-yd-theme-state] visibility rule would override .yd-btn with display:inline and break the
+// icon/text centering. | TestThemeStateSelectorDoesNotMatchToggle 固定主题按钮的选择器范围：
+// 按钮自身也带 data-yd-theme-state 用于图标切换，裸 [data-yd-theme-state] 可见性规则会把
+// .yd-btn 的 inline-flex 覆盖成 display:inline，破坏图标与文字的居中。
+func TestThemeStateSelectorDoesNotMatchToggle(t *testing.T) {
+	css := appSource(t)
+	if strings.Contains(css, `:root[data-theme="light"] [data-yd-theme-state="light"]`) {
+		t.Error("the theme label rule must be scoped to .yd-theme__state; a bare attribute selector also matches the toggle button | 主题标签规则必须限定在 .yd-theme__state；裸属性选择器也会匹配按钮")
+	}
+	for _, want := range []string{
+		`.yd-theme__state[data-yd-theme-state="light"]`,
+		`.yd-theme__state[data-yd-theme-state="dark"]`,
+		`.yd-theme__state[data-yd-theme-state="auto"]`,
+	} {
+		if !strings.Contains(css, want) {
+			t.Errorf("theme label visibility is missing %q | 主题标签可见性缺少 %q", want, want)
+		}
 	}
 }
 

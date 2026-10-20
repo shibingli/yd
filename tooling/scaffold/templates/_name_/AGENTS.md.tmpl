@@ -57,6 +57,8 @@
       侧栏页脚只显示版本；favicon 指向同源 `/static/img/yd-icon.svg`，不得使用 CDN 或 `data:,`。
 - [ ] **静态引用**：模板中的 `/static/...` 一律写成 `{{ "{{ asset \"/static/...\" }}" }}`；
       production 下解析 `*.min.js` / `yd.min.css`，开发期使用源码，禁止裸写 `/static/...`。
+- [ ] **图标**：只使用 `{{ "{{template \"partials/icon\" \"lucide-…\"}}" }}`；`yd icons sync` 生成按需
+      sprite，`yd icons check` 校验漂移；禁止内联 SVG、Iconify 运行时与 CDN；`minify` 同时处理 SVG。
 - [ ] **Tailwind v4**：项目样式必须经 `@theme` 语义令牌与 `@layer components` 定义，
       可复用工具类用 `@apply`，颜色不得在令牌块之外写字面量。
 - [ ] **实时推送与文档**：htmx 4 SSE 只交换匿名消息；WebSocket 的发送控件必须位于 `hx-ws:connect` 元素内部

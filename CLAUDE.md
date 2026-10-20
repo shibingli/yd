@@ -266,8 +266,10 @@ yd build             # 跨平台静态打包（Tailwind 剪裁压缩 + go:embed 
 yd docker            # 基于 scratch 的多阶段镜像构建
 yd assets update     # 在线更新前端依赖并锁定校验和
 yd assets verify --offline   # 离线完整性校验
-yd assets minify     # 生成生产压缩资产（*.min.js、yd.min.css）
+yd assets minify     # 生成生产压缩资产（*.min.js、*.min.svg、yd.min.css）
 yd assets minify --check     # 校验已提交的压缩资产是否漂移
+yd icons sync        # 按模板引用重新生成 web/static/img/icons.svg
+yd icons check       # 校验图标 sprite 是否漂移（CI 可用）
 ```
 
 ## 11. 优雅退出（强制）
@@ -350,7 +352,7 @@ yd assets minify --check     # 校验已提交的压缩资产是否漂移
 ## 14. 可选外部工具（强制）
 
 `tools` 包（`github.com/shibingli/yd/tooling/tools`）是**唯一的探测与安装入口**：`betteralign`（内存对齐）、
-`ko`（无 Dockerfile 镜像打包）、`tailwindcss`（样式表编译）、`minify`（JavaScript 压缩）、`docker`（镜像构建）
+`ko`（无 Dockerfile 镜像打包）、`tailwindcss`（样式表编译）、`minify`（JavaScript/SVG 压缩）、`docker`（镜像构建）
 五个工具一律经它处理，注册表顺序固定为这五条。**禁止**在脚本、CI 或文档里另立一套「自己 `go install` 到全局」的指引。
 
 - **API 与 CLI 同源**：`Registry()` / `Lookup(name)` / `Check(dir)` / `Missing(dir)` / `Hints(dir)` /
@@ -370,7 +372,7 @@ yd assets minify --check     # 校验已提交的压缩资产是否漂移
   `GOPROXY=https://goproxy.io,https://goproxy.cn,https://mirrors.aliyun.com/goproxy/,direct` 与 `GOSUMDB=off`；
   显式导出的 `GOPROXY` / `GOSUMDB` 优先，空值回退默认值。删除 `.yd/tools` 即完成一次彻底重置。
 - **工具一律可选**：缺失只影响对应能力——`yd align` / `yd ko` / `yd docker` 各自返回哨兵并给出安装提示，
-  `tailwindcss` 缺失时样式表阶段以告警跳过，`minify` 缺失时 JavaScript 压缩阶段以告警跳过——
+  `tailwindcss` 缺失时样式表阶段以告警跳过，`minify` 缺失时 JavaScript/SVG 压缩阶段以告警跳过——
   **不得**让 `yd build` / `yd dev` / `yd gen` / `go test` 或 CI 失败。
   `betteralign`（`go install github.com/dkorunic/betteralign/cmd/betteralign@latest`）、
   `ko`（`go install github.com/google/ko@latest`）与
@@ -718,10 +720,10 @@ yd versions sync               # 仅重新生成 version_generated.go
 - **开发期用源码，生产期用压缩版**：`yd dev` / `app.env != production` 时模板引用源码；
   `yd build` 在编译前执行压缩阶段，产物写在 `web/static` 旁边并由 `go:embed` 打进二进制。
 - **分工固定**：CSS 只由 Tailwind v4 的 `--minify` 产出 `yd.min.css`（`yd.css` 是 Tailwind 的编译产物，项目构建时同样带 `--minify`，供开发与回退）；
-  JavaScript 只由可选工具 `minify`（tdewolff/minify）产出 `*.min.js`。禁止用其它压缩器处理 CSS，
-  也不得用 `minify` 处理 Tailwind 输入 `app.css` / `components.css`。
+  JavaScript 与 SVG 只由可选工具 `minify`（tdewolff/minify）产出 `*.min.js` / `*.min.svg`。
+  禁止用其它压缩器处理 CSS，也不得用 `minify` 处理 Tailwind 输入 `app.css` / `components.css`。
 - **模板必须走 `asset` 助手**：所有 `/static/...` 引用写成 `{{ asset "/static/..." }}`；
-  production 下助手优先解析同名 `.min.js` / `.min.css` 并对其内容取哈希，文件缺失时回退源码。
+  production 下助手优先解析同名 `.min.js` / `.min.css` / `.min.svg` 并对其内容取哈希，文件缺失时回退源码。
   已是 `.min.*` 的 vendored 资源原样解析，不会二次加后缀。
 - **合并静态树**：`render.Options.AssetFS` 必须指向与 `Router().StaticFS` 相同的 `/static` 合并树
   （生成项目通过 `app.WithStaticFS(web.Static())` 注入），否则框架共享脚本在 asset 助手里找不到。
@@ -734,4 +736,27 @@ yd versions sync               # 仅重新生成 version_generated.go
 - **工具缺失**：`yd build` 与 `yd assets minify` 普通模式告警并跳过（asset 助手回退源码）；
   `yd assets minify --check` 在工具缺失、文件缺失或内容漂移时返回非零，供 CI 使用。
 - **守卫**：`tooling/build/minify_sync_test.go` 在工具可用时逐文件比对已提交的 `.min` 与源码，
-  漂移即失败；工具缺失时 `t.Skipf` 并说明原因。
+  漂移即失败；工具缺失时 `t.Skipf` 并说明原因。守卫同时覆盖 `.js` 与 `.svg`。
+
+### 22.7 离线图标（Iconify 子集，强制）
+
+- **唯一引用形式**：所有图标必须写成 `{{template "partials/icon" "lucide-<name>"}}`，
+  禁止内联 `<svg>`、裸 `<use href="#i-…">`、Iconify 运行时脚本、`iconify-icon` 自定义元素，
+  以及任何运行时 Iconify API / CDN 请求。图标是装饰性的，默认 `aria-hidden="true"`；
+  语义必须由按钮或链接的可见文本 / `aria-label` 提供。
+- **按需 sprite**：`yd icons sync` 扫描 `web/templates` 与脚手架模板树中上述调用，
+  只把实际引用的图标写进 `web/static/img/icons.svg`；未经引用的图标不得进入前端产物。
+  新增/删除图标引用后必须运行 `yd icons sync` 与 `yd assets minify`，并提交两个产物。
+  CI 运行 `yd icons check`；守卫 `TestRepositorySpriteMatchesTemplates` 拦截漂移。
+- **图标源固定**：`tooling/icons/data/lucide.json` 是 `@iconify-json/lucide@1.2.146` 的逐字节副本
+  （ISC，SHA-256 记录在 `tooling/icons/data/README.md` 与常量中），仅作为构建期输入；
+  禁止复制完整 JSON 到 `web/static` 或应用二进制。替换版本必须同时更新版本、许可与校验和。
+- **尺寸与颜色**：`.yd-icon` 提供默认尺寸与行内对齐；颜色继承 `currentColor`，
+  尺寸/颜色继续用 Tailwind v4 的 `size-*` / `text-*` 或语义令牌，不得写色值字面量。
+- **主题按钮的图标切换**：主题按钮携带 `lucide-sun` / `lucide-moon` / `lucide-monitor` 三枚图标，
+  由 `data-yd-theme-state` 经 CSS 选出；语言按钮使用 `lucide-languages`；登录/登出使用
+  `lucide-log-in` / `lucide-log-out`。新增按钮必须沿用同一片段，不得各写一套图标。
+- **SVG 压缩**：sprite 与其他 `.svg` 一样进入 `minify` 阶段，生产模板解析 `.min.svg`；
+  `yd assets minify --check` 同时校验 JS 与 SVG。不要手工编辑生成文件
+  （`icons.svg` 文件头带生成标记）。
+- **使用文档**：`docs/icon-usage.md` 是新增/更新图标、命令、许可与故障排查的唯一入口。

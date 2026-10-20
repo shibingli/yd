@@ -254,10 +254,10 @@ func buildMinifyBin(env *Env, fs *pflag.FlagSet) string {
 	return configString(env, build.KeyMinifyBin)
 }
 
-// buildMinifyStage returns the JavaScript hook the build command injects. A missing minify binary
-// is not a build failure: the stage is skipped with a warning, because the compiled binary is still
+// buildMinifyStage returns the asset hook the build command injects. A missing minify binary is
+// not a build failure: the stage is skipped with a warning, because the compiled binary is still
 // valid and the asset helper falls back to the source paths. | buildMinifyStage 返回 build 命令注入的
-// JavaScript 钩子。缺少 minify 二进制不算构建失败：该阶段会以告警跳过，因为编译出的二进制依然有效，
+// 资产钩子。缺少 minify 二进制不算构建失败：该阶段会以告警跳过，因为编译出的二进制依然有效，
 // 且 asset 助手会回退到源码路径。
 func buildMinifyStage(log *logx.Logger) build.MinifyFunc {
 	if buildMinifyFunc != nil {
@@ -266,7 +266,7 @@ func buildMinifyStage(log *logx.Logger) build.MinifyFunc {
 	return func(ctx context.Context, dir string, o build.MinifyOptions) (build.MinifyResult, error) {
 		res, err := buildMinifyCall(ctx, dir, o, log)
 		if errors.Is(err, build.ErrMinifyNotFound) {
-			log.Warn("minify stage skipped | 跳过 JS 压缩阶段", logx.Err(err))
+			log.Warn("minify stage skipped | 跳过资产压缩阶段", logx.Err(err))
 			return build.MinifyResult{}, nil
 		}
 		return res, err

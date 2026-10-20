@@ -13,7 +13,7 @@
 <button type="button" class="yd-btn yd-btn--ghost yd-btn--sm yd-lang-toggle" data-yd-lang-toggle
         data-yd-i18n-attr="aria-label:topbar.language,title:topbar.language"
         aria-label="{{tr "topbar.language"}}" title="{{tr "topbar.language"}}">
-  <span class="yd-lang__icon" aria-hidden="true">文</span>
+  {{template "partials/icon" "lucide-languages"}}
   <span class="yd-lang__state" data-yd-lang-state="zh-CN" data-yd-i18n="lang.zh-CN">{{tr "lang.zh-CN"}}</span>
   <span class="yd-lang__state" data-yd-lang-state="en" data-yd-i18n="lang.en">{{tr "lang.en"}}</span>
 </button>

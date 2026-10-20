@@ -19,9 +19,9 @@ import (
 func TestFrameworkMinAssetsAreUpToDate(t *testing.T) {
 	root := filepath.Join("..", "..")
 
-	t.Run("javascript", func(t *testing.T) {
+	t.Run("javascript and svg", func(t *testing.T) {
 		if _, err := ResolveMinifyBin(root, ""); err != nil {
-			t.Skipf("minify 不可用，跳过 JS 同步校验（%s）: %v", MinifyInstallHint, err)
+			t.Skipf("minify 不可用，跳过 JS/SVG 同步校验（%s）: %v", MinifyInstallHint, err)
 		}
 		res, err := BuildMinify(context.Background(), root, MinifyOptions{
 			Root: DefaultMinifyRoot, CheckOnly: true,
@@ -30,7 +30,7 @@ func TestFrameworkMinAssetsAreUpToDate(t *testing.T) {
 			t.Fatalf("BuildMinify(--check) 失败: %v", err)
 		}
 		if len(res.Missing) > 0 || len(res.Mismatched) > 0 || len(res.Stale) > 0 {
-			t.Errorf("框架压缩 JS 已漂移，运行 `yd assets minify`: missing=%v mismatched=%v stale=%v",
+			t.Errorf("框架压缩 JS/SVG 已漂移，运行 `yd assets minify`: missing=%v mismatched=%v stale=%v",
 				res.Missing, res.Mismatched, res.Stale)
 		}
 	})

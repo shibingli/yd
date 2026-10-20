@@ -360,18 +360,21 @@ func assetHash(body string) string {
 }
 
 // TestAssetFuncPrefersMinifiedSiblingInProduction pins the production resolution:
-// a .min.js/.min.css sibling wins, and its content is what the hash covers. | TestAssetFuncPrefersMinifiedSiblingInProduction
-// 固定生产环境解析：优先使用 .min.js/.min.css 同族文件，哈希覆盖的是压缩内容。
+// a .min.js/.min.css/.min.svg sibling wins, and its content is what the hash covers. | TestAssetFuncPrefersMinifiedSiblingInProduction
+// 固定生产环境解析：优先使用 .min.js/.min.css/.min.svg 同族文件，哈希覆盖的是压缩内容。
 func TestAssetFuncPrefersMinifiedSiblingInProduction(t *testing.T) {
 	mem := writeTemplates(t, map[string]string{
 		"templates/js.html":            `{{ asset "/static/js/app.js" }}`,
 		"templates/css.html":           `{{ asset "/static/css/yd.css" }}`,
 		"templates/already.html":       `{{ asset "/static/js/vendor/htmx.min.js" }}`,
+		"templates/svg.html":           `{{ asset "/static/img/icons.svg" }}`,
 		"static/js/app.js":             `console.log("source")`,
 		"static/js/app.min.js":         `console.log("min")`,
 		"static/css/yd.css":            `body{color:blue}`,
 		"static/css/yd.min.css":        `body{color:red}`,
 		"static/js/vendor/htmx.min.js": `/*min*/`,
+		"static/img/icons.svg":         `<svg>  <symbol/></svg>`,
+		"static/img/icons.min.svg":     `<svg><symbol/></svg>`,
 	})
 	e, err := render.New(mem, render.Options{Production: true})
 	if err != nil {
@@ -386,6 +389,9 @@ func TestAssetFuncPrefersMinifiedSiblingInProduction(t *testing.T) {
 	}
 	if got, want := renderAsset(t, e, "already.html"), "/static/js/vendor/htmx.min.js?v="+assetHash(`/*min*/`); got != want {
 		t.Errorf("already-minified asset = %q，期望 %q（不得二次加 .min）", got, want)
+	}
+	if got, want := renderAsset(t, e, "svg.html"), "/static/img/icons.min.svg?v="+assetHash(`<svg><symbol/></svg>`); got != want {
+		t.Errorf("svg asset = %q，期望 %q", got, want)
 	}
 }
 

@@ -622,20 +622,26 @@
     flex: 0 0 auto;
     width: 1.125rem;
     height: 1.125rem;
+    vertical-align: -0.125em;
   }
 
-  /* The theme button ships both glyphs and shows the one naming the active theme. | 主题按钮同时携带两个图标，只显示与当前主题相符的那一个。 */
-  .yd-icon--dark {
+  /* The theme button ships one glyph per choice and shows the one matching data-yd-theme-state. |
+     主题按钮为每种选择携带一个图标，只显示与 data-yd-theme-state 相符的那一个。 */
+  .yd-theme__glyph {
     display: none;
+    align-items: center;
   }
 
-  /* Sun glyph, swapped out once the dark theme is active. | 太阳图标，暗色主题生效后被替换掉。 */
-  [data-theme="dark"] .yd-icon--light {
-    display: none;
+  .yd-theme__glyph .yd-icon {
+    width: 1rem;
+    height: 1rem;
   }
 
-  [data-theme="dark"] .yd-icon--dark {
-    display: inline-block;
+  .yd-theme-toggle[data-yd-theme-state="light"] [data-yd-theme-glyph="light"],
+  .yd-theme-toggle[data-yd-theme-state="dark"] [data-yd-theme-glyph="dark"],
+  .yd-theme-toggle[data-yd-theme-state="auto"] [data-yd-theme-glyph="system"],
+  .yd-theme-toggle:not([data-yd-theme-state]) [data-yd-theme-glyph="light"] {
+    display: inline-flex;
   }
 
   /* ---------------------------------------------------------------- avatar | 头像 */
@@ -1541,7 +1547,9 @@
 
   /* Submit button inside the logout row; it paints the row so the form can stay padding free. | 退出行内的提交按钮；由它绘制该行，表单因此可保持无内边距。 */
   .yd-user__link {
-    display: block;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
     width: 100%;
     padding: 0.5rem 0.625rem;
     border: 0;
@@ -2054,10 +2062,6 @@
     color: var(--color-content);
   }
 
-  .yd-theme__icon {
-    @apply text-sm leading-none;
-  }
-
   /* Tenant switcher: a normal dropdown built from the same panel and item styles as every list action menu,
      so the top bar cannot drift away from the rest of the interface. | 租户切换器：与所有列表操作菜单共用同一套
      面板与条目样式，顶栏因此不会和界面其余部分各走一套。 */
@@ -2377,9 +2381,13 @@
   display: none;
 }
 
-:root[data-theme="light"] [data-yd-theme-state="light"],
-:root[data-theme="dark"] [data-yd-theme-state="dark"],
-:root[data-theme="auto"] [data-yd-theme-state="auto"] {
+/* Scope the visibility rule to the label spans: the toggle button itself also carries
+   data-yd-theme-state for the glyph switch, and matching it here would override .yd-btn's
+   inline-flex with display:inline. | 把可见性规则限定在标签节点上：按钮自身也带
+   data-yd-theme-state 用于图标切换，在这里匹配到它会把 .yd-btn 的 inline-flex 覆盖成 display:inline。 */
+:root[data-theme="light"] .yd-theme__state[data-yd-theme-state="light"],
+:root[data-theme="dark"] .yd-theme__state[data-yd-theme-state="dark"],
+:root[data-theme="auto"] .yd-theme__state[data-yd-theme-state="auto"] {
   display: inline;
 }
 

@@ -76,7 +76,10 @@
         <a class="yd-link" href="/reset" data-yd-i18n="login.forgot">{{tr "login.forgot"}}</a>
       </div>
 
-      <button type="submit" class="yd-btn yd-btn--primary yd-btn--block" data-yd-i18n="login.submit">{{tr "login.submit"}}</button>
+      <button type="submit" class="yd-btn yd-btn--primary yd-btn--block">
+        {{template "partials/icon" "lucide-log-in"}}
+        <span data-yd-i18n="login.submit">{{tr "login.submit"}}</span>
+      </button>
     </form>
 
     <p class="yd-hint" data-yd-i18n="login.guomi_hint">{{tr "login.guomi_hint"}}</p>

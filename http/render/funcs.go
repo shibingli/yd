@@ -280,21 +280,23 @@ func splitAssetQuery(p string) (raw, query string) {
 	return raw, "?" + rest
 }
 
-// minifiable reports whether a JS or CSS path can have a .min sibling.
+// minifiable reports whether a JS, CSS or SVG path can have a .min sibling.
 // Already-minified paths are excluded so they are never suffixed twice. | minifiable 报告
-// JS/CSS 路径是否有 .min 同族文件；已是 .min 的路径被排除，绝不重复加后缀。
+// JS/CSS/SVG 路径是否有 .min 同族文件；已是 .min 的路径被排除，绝不重复加后缀。
 func minifiable(file string) bool {
-	return (strings.HasSuffix(file, ".js") || strings.HasSuffix(file, ".css")) &&
-		!strings.HasSuffix(file, ".min.js") && !strings.HasSuffix(file, ".min.css")
+	return (strings.HasSuffix(file, ".js") || strings.HasSuffix(file, ".css") || strings.HasSuffix(file, ".svg")) &&
+		!strings.HasSuffix(file, ".min.js") && !strings.HasSuffix(file, ".min.css") && !strings.HasSuffix(file, ".min.svg")
 }
 
-// minifiedPath inserts ".min" before the .js/.css extension. | minifiedPath 在 .js/.css 扩展名前插入 ".min"。
+// minifiedPath inserts ".min" before the .js/.css/.svg extension. | minifiedPath 在 .js/.css/.svg 扩展名前插入 ".min"。
 func minifiedPath(p string) string {
 	switch {
 	case strings.HasSuffix(p, ".js"):
 		return strings.TrimSuffix(p, ".js") + ".min.js"
 	case strings.HasSuffix(p, ".css"):
 		return strings.TrimSuffix(p, ".css") + ".min.css"
+	case strings.HasSuffix(p, ".svg"):
+		return strings.TrimSuffix(p, ".svg") + ".min.svg"
 	default:
 		return p
 	}

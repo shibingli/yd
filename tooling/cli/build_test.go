@@ -756,7 +756,7 @@ func TestBuildMinifyMissingToolWarnsAndContinues(t *testing.T) {
 	if err := Execute(context.Background(), []string{buildCommandName}, te.env); err != nil {
 		t.Fatalf("minify 缺失不得让 build 失败: %v\n%s", err, te.errs.String())
 	}
-	if !strings.Contains(te.errs.String(), "minify stage skipped") || !strings.Contains(te.errs.String(), "跳过 JS 压缩阶段") {
+	if !strings.Contains(te.errs.String(), "minify stage skipped") || !strings.Contains(te.errs.String(), "跳过资产压缩阶段") {
 		t.Errorf("缺少双语告警:\n%s", te.errs.String())
 	}
 }

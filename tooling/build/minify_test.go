@@ -107,6 +107,42 @@ func TestBuildMinifyWritesMinSiblings(t *testing.T) {
 	}
 }
 
+// TestBuildMinifyMinifiesSVG pins the second asset kind: an .svg source produces .min.svg and is
+// counted separately, while CSS remains Tailwind's responsibility. | TestBuildMinifyMinifiesSVG
+// 固定第二种资产：.svg 源码产出 .min.svg 并单独计数，CSS 仍由 Tailwind 负责。
+func TestBuildMinifyMinifiesSVG(t *testing.T) {
+	dir := t.TempDir()
+	src := filepath.Join(dir, "web", "static", "img", "icons.svg")
+	writeFile(t, src, "<svg>  <symbol/></svg>\n")
+	writeFile(t, filepath.Join(dir, "web", "static", "css", "app.css"), "@import \"tailwindcss\";\n")
+	bin := filepath.Join(dir, minifyBinName())
+	writeFile(t, bin, "stand-in\n")
+
+	fake := &fakeExec{onCall: func(_ string, args []string) {
+		out, ok := flagValue(args, "-o")
+		if !ok {
+			return
+		}
+		_ = os.WriteFile(out, []byte("<svg><symbol/></svg>"), 0o644)
+	}}
+	res, err := buildMinifyWith(context.Background(), dir, MinifyOptions{
+		Bin: bin, Root: DefaultMinifyRoot,
+	}, testLogger(), fake.exec)
+	if err != nil {
+		t.Fatalf("buildMinifyWith 失败: %v", err)
+	}
+	if len(fake.calls) != 1 {
+		t.Fatalf("minify 调用次数 = %d, 期望 1（CSS 不应进入本阶段）: %v", len(fake.calls), fake.calls)
+	}
+	out := filepath.Join(dir, "web", "static", "img", "icons.min.svg")
+	if _, err := os.Stat(out); err != nil {
+		t.Fatalf("缺少 %s: %v", out, err)
+	}
+	if res.Files != 1 || res.SVGFiles != 1 {
+		t.Errorf("结果 = %+v, 期望 Files=1 SVGFiles=1", res)
+	}
+}
+
 // TestBuildMinifyCleansStaleOutput pins the cleanup of a manifest-tracked
 // .min.js whose source disappeared, while a live pair survives. | TestBuildMinifyCleansStaleOutput
 // 固定清理清单中源文件已消失的 .min.js，同时保留仍然有效的成对文件。
