@@ -2197,6 +2197,16 @@ func TestGeneratedAppSupportsAuth(t *testing.T) {
 		if strings.Contains(tenants, "escalation-probe") {
 			t.Errorf("被拒绝的越权写入居然生效了:\n%s", tenants)
 		}
+
+		// 默认租户名以中文开头，首字符必须按 rune 截取；按字节截断会产生非法 UTF-8，徽标因此空白。
+		// The default tenant name starts with Chinese, so its initial must be cut by rune; a byte slice yields
+		// invalid UTF-8 and leaves the badge blank.
+		if !strings.Contains(tenants, ">默</span>") {
+			t.Errorf("租户列表的标识徽标未显示首字符「默」:\n%s", tenants)
+		}
+		if strings.Contains(tenants, "�") {
+			t.Errorf("租户列表出现替换字符，说明首字符按字节截断:\n%s", tenants)
+		}
 	})
 }
 
@@ -3168,6 +3178,22 @@ func TestHomeShowsMiddlewareRuntime(t *testing.T) {
 	}
 	if !strings.Contains(pr.read("internal/service/metrics.go"), "metricsx.SystemSource") {
 		t.Error("metrics service 未实现系统来源接口 | the metrics service does not implement the system source")
+	}
+}
+
+// TestGeneratedInitialsAreRuneSafe proves the tenant and user avatars derive their initial from a
+// rune rather than a byte, so non-ASCII names never produce an unrenderable badge. | TestGeneratedInitialsAreRuneSafe
+// 证明租户与用户徽标按 rune 而不是字节取首字符，非 ASCII 名称因此不会渲染出空徽标。
+func TestGeneratedInitialsAreRuneSafe(t *testing.T) {
+	pr, _ := generateMem(t, scaffold.DefaultOptions("initials-app"))
+	for _, rel := range []string{"internal/model/tenant.go", "internal/model/user.go"} {
+		src := pr.read(rel)
+		if strings.Contains(src, "trimmed[:1]") {
+			t.Errorf("%s still slices the initial by byte | %s 仍按字节截取首字符", rel, rel)
+		}
+		if !strings.Contains(src, "utf8.DecodeRuneInString") {
+			t.Errorf("%s does not decode the first rune | %s 未按 rune 解码首字符", rel, rel)
+		}
 	}
 }
 

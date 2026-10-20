@@ -6,6 +6,7 @@ package model
 import (
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"{{ .YdModule }}/security/auth"
 )
@@ -89,5 +90,11 @@ func (t Tenant) Initial() string {
 	if trimmed == "" {
 		return "?"
 	}
-	return strings.ToUpper(trimmed[:1])
+	// 首字符必须按 rune 截取：租户名允许中文，按字节切会得到非法 UTF-8，徽标因此空白。
+	// Cut the initial by rune: tenant names may be Chinese, and a byte slice yields invalid UTF-8 that leaves the badge blank.
+	first, _ := utf8.DecodeRuneInString(trimmed)
+	if first == utf8.RuneError {
+		return "?"
+	}
+	return strings.ToUpper(string(first))
 }

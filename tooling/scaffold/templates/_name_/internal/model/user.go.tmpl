@@ -15,6 +15,7 @@ package model
 import (
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"{{ .YdModule }}/security/auth"
 )
@@ -116,9 +117,17 @@ func (u User) Display() string {
 // Initial returns the first character (upper-cased) used by the badge placeholder. | Initial 返回徽标占位用的首字符（大写）。
 func (u User) Initial() string {
 	for _, candidate := range []string{u.DisplayName, u.Username, u.Email} {
-		if trimmed := strings.TrimSpace(candidate); trimmed != "" {
-			return strings.ToUpper(trimmed[:1])
+		trimmed := strings.TrimSpace(candidate)
+		if trimmed == "" {
+			continue
 		}
+		// 与租户徽标一致：按 rune 取首字符，中文与 emoji 都不会被切成非法 UTF-8。
+		// Match the tenant badge: take the first rune so Chinese and emoji are never split into invalid UTF-8.
+		first, _ := utf8.DecodeRuneInString(trimmed)
+		if first == utf8.RuneError {
+			continue
+		}
+		return strings.ToUpper(string(first))
 	}
 	return "?"
 }
