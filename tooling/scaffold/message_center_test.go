@@ -771,10 +771,23 @@ func TestGeneratedAppMessageCentre(t *testing.T) {
 			`hx-ws:connect="/ws/messages"`,
 			"yd-message-editor.js",
 			"yd-message.js",
+			`data-yd-msg-tab="conversations"`,
+			`data-yd-msg-tab="contacts"`,
+			`id="yd-contacts-panel"`,
+			`id="yd-contact-list"`,
+			`data-yd-contact-search`,
+			`action="/messages/groups"`,
+			`data-yd-user-menu`,
+			`id="yd-unread-badge"`,
+			`href="/messages?folder=unread"`,
+			`href="/account"`,
 		} {
 			if !strings.Contains(body, want) {
 				t.Errorf("消息中心页面缺少 %q", want)
 			}
+		}
+		if strings.Contains(body, `hx-get="/messages/new"`) {
+			t.Errorf("消息中心仍从抽屉打开新建会话:\n%s", body)
 		}
 		// 消息中心与消息治理是两项菜单：进入治理页时只有治理项高亮，返回消息中心时只有消息项高亮。
 		// Messages and moderation are two separate entries: the moderation page highlights only moderation, and the

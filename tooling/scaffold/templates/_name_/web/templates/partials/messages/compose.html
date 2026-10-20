@@ -1,11 +1,14 @@
 {{/*
-  partials/messages/compose.html —— 新建、编辑与系统公告共用的抽屉。
-  partials/messages/compose.html — the shared drawer for creating, editing and announcing.
+  partials/messages/compose.html —— 编辑消息与系统公告共用的抽屉。
+  partials/messages/compose.html — the shared drawer for editing messages and publishing announcements.
 
-  三种模式只改变标题、提交地址与收件区，其余字段（类型、标题、Markdown、分组、标签、附件）完全一致，
+  新建会话不再经过这里：它由会话栏的「联系人」页签就地完成，点好友直接开单聊、勾选好友创建群聊。
+  两种模式只改变标题与提交地址，其余字段（类型、标题、Markdown、分组、标签、附件）完全一致，
   因此服务端的校验与模板的字段名只有一份。
-  The three modes change only the title, the submit address and the recipient area; every other field (type, title,
-  Markdown, groups, labels, attachments) is identical, so the server validation and the field names exist exactly once.
+  Starting a conversation no longer passes through this drawer: the rail's contacts tab does it in place, opening a
+  direct chat on a row click and creating a group from the checked friends. The two modes change only the title and the
+  submit address; every other field (type, title, Markdown, groups, labels, attachments) is identical, so the server
+  validation and the field names exist exactly once.
 
   附件上传是抽屉内的独立表单，带 data-yd-drawer-persist：成功上传不会关闭抽屉，只会把附件标签追加到
   #yd-attachment-list；标签里的隐藏字段属于主表单，因此随主表单一起提交。
@@ -13,7 +16,7 @@
   never closes the drawer and only appends the chip to #yd-attachment-list; the chip's hidden field belongs to the main
   form and is therefore submitted with it.
 
-  数据契约 | Data contract: .Mode .Catalog .Conversations .Friends .PresetID .PresetTitle .DefaultType .Message .Lang。
+  数据契约 | Data contract: .Mode .Catalog .DefaultType .Message .Lang。
 */}}
 {{- define "partials/messages/compose" -}}
 {{- $mode := .Mode -}}
@@ -24,45 +27,12 @@
   {{- $action = "/messages/system" -}}
 {{- end -}}
 <div class="yd-drawer__head">
-  <h2 class="yd-section__title">{{ if eq $mode "edit" }}{{ tr "message.edit_title" }}{{ else if eq $mode "system" }}{{ tr "message.announce_title" }}{{ else }}{{ tr "message.compose_title" }}{{ end }}</h2>
+  <h2 class="yd-section__title">{{ if eq $mode "edit" }}{{ tr "message.edit_title" }}{{ else }}{{ tr "message.announce_title" }}{{ end }}</h2>
   <p class="yd-section__hint">{{ tr "message.compose_hint" }}</p>
 </div>
 <form id="yd-compose-form" class="yd-form" method="post" action="{{ $action }}"
       hx-post="{{ $action }}" hx-target="#yd-workspace" hx-swap="innerMorph"
       data-yd-confirm="{{ tr "confirm.send_message" }}">
-  {{- if eq $mode "create" }}
-    {{- if .PresetID }}
-    <input type="hidden" name="conversation_id" value="{{ .PresetID }}">
-    <p class="yd-hint">{{ tr "message.sending_to" }} <strong>{{ .PresetTitle }}</strong></p>
-    {{- else }}
-    <div class="yd-field">
-      <label class="yd-label" for="yd-compose-conversation">{{ tr "message.existing_conversation" }}</label>
-      <select class="yd-select" id="yd-compose-conversation" name="conversation_id">
-        <option value="">{{ tr "message.choose_conversation" }}</option>
-        {{- range .Conversations }}
-        <option value="{{ .ID }}">{{ .Title }}</option>
-        {{- end }}
-      </select>
-    </div>
-    <div class="yd-field">
-      <span class="yd-label">{{ tr "message.or_friends" }}</span>
-      <div class="yd-checks">
-        {{- range .Friends }}
-        <label class="yd-check"><input type="checkbox" name="recipient_ids" value="{{ .Profile.ID }}"> {{ .Name }}</label>
-        {{- else }}
-        <p class="yd-hint">{{ tr "message.no_friends" }}</p>
-        {{- end }}
-      </div>
-      <p class="yd-hint">{{ tr "message.group_hint_short" }}</p>
-    </div>
-    <div class="yd-field">
-      <label class="yd-label" for="yd-compose-group-title">{{ tr "message.group_title" }}</label>
-      <input class="yd-input" id="yd-compose-group-title" name="group_title" type="text" maxlength="160"
-             placeholder="{{ tr "message.group_title_placeholder" }}">
-    </div>
-    {{- end }}
-  {{- end }}
-
   <div class="yd-field">
     <label class="yd-label" for="yd-compose-type">{{ tr "message.type" }}</label>
     <select class="yd-select" id="yd-compose-type" name="type_key">

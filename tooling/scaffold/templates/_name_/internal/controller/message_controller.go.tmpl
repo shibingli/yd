@@ -314,62 +314,6 @@ func (c *Controller) OpenDirectConversation(ctx *router.Ctx) {
 	c.renderMessagePageByID(ctx, conv.ID, "")
 }
 
-// NewMessageDrawer renders the create-message drawer. | NewMessageDrawer 渲染新建消息抽屉。
-//
-// @Summary Create message drawer | 新建消息抽屉
-// @Description Renders the composer with the active type catalogue, the conversation picker, the friend picker and the
-// @Description Toast UI editor. The form posts to POST /messages.
-// @Description 渲染撰写器：生效类型目录、会话选择、好友选择与 Toast UI 编辑器。表单提交到 POST /messages。
-// @Tags messages
-// @Accept html
-// @Produce html
-// @Param conversation query string false "preselected conversation | 预选会话"
-// @Success 200 {object} string "drawer fragment | 抽屉片段"
-// @Failure 503 {object} string "message centre unavailable | 消息中心不可用"
-// @Security BearerAuth
-// @Router /messages/new [get]
-func (c *Controller) NewMessageDrawer(ctx *router.Ctx) {
-	if !c.MessagesAvailable() {
-		c.messageUnavailable(ctx)
-		return
-	}
-	actor := c.messageActor(ctx)
-	catalog, err := c.catalogData(ctx, actor)
-	if err != nil {
-		c.failService(ctx, err)
-		return
-	}
-	page, err := c.loadMessagePage(ctx, "", messageFilters{})
-	if err != nil {
-		c.failService(ctx, err)
-		return
-	}
-	preset := strings.TrimSpace(ctx.Query(FieldConversation))
-	presetTitle := ""
-	selectable := make([]conversationView, 0, len(page.Conversations))
-	for _, conversation := range page.Conversations {
-		if conversation.IsSystem {
-			continue
-		}
-		selectable = append(selectable, conversation)
-		if conversation.ID == preset {
-			presetTitle = conversation.Title
-		}
-	}
-	c.render(ctx, http.StatusOK, TplMessageCompose, c.view(ctx, "新建消息 | New message", map[string]any{
-		"Mode":          "create",
-		"Catalog":       catalog,
-		"Conversations": selectable,
-		"Friends":       page.Friends,
-		"PresetID":      preset,
-		"PresetTitle":   presetTitle,
-		"DefaultType":   messaging.TypeNormal,
-		"Message":       messageView{},
-		"PageStyles":    messagePageStyles,
-		"PageScripts":   messagePageScripts,
-	}))
-}
-
 // EditMessageDrawer renders the edit drawer. | EditMessageDrawer 渲染编辑抽屉。
 //
 // @Summary Edit message drawer | 编辑消息抽屉
@@ -410,7 +354,6 @@ func (c *Controller) EditMessageDrawer(ctx *router.Ctx) {
 		"Mode":        "edit",
 		"Catalog":     catalog,
 		"Message":     view,
-		"PresetID":    msg.ConversationID,
 		"DefaultType": view.TypeKey,
 		"PageStyles":  messagePageStyles,
 		"PageScripts": messagePageScripts,

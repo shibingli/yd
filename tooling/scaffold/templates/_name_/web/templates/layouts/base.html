@@ -132,7 +132,7 @@
      connection reconnects with the navigation, and after a tenant switch the new connection necessarily carries the new
      token instead of pushing the previous tenant's events into the page. */}}
 <div id="yd-shell" class="yd-shell{{ if .SignedIn }} yd-shell--app{{ end }}"
-     {{- if .SignedIn }} hx-ws:connect="/ws/messages" hx-target="#yd-message-notices" hx-swap="innerMorph"{{ end }}>
+     {{- if and .SignedIn .MessageAvailable (can .Perm.MessageRead) }} hx-ws:connect="/ws/messages" hx-target="#yd-message-notices" hx-swap="innerMorph"{{ end }}>
   {{ template "layouts/shell.html" . }}
 </div>
 

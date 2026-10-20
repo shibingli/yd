@@ -41,10 +41,12 @@
       <span class="yd-nav__label">{{ tr "nav.home" }}</span>
     </a>
 
-    {{- if .MessageAvailable }}
+    {{- if and .MessageAvailable (can .Perm.MessageRead) }}
     {{/* 消息中心一组：消息与好友是每位成员的日常入口；治理与目录设置只对相应能力出现。
+         整组以 message:read 为门槛：没有读权限的账号不会看到会返回 403 的入口。
          The message-centre group: messages and friends are the daily entries for every member; moderation and catalogue
-         settings appear only under the matching capabilities. */}}
+         settings appear only under the matching capabilities. The whole group is gated by message:read, so an account
+         without it never sees an entry that would answer 403. */}}
     <p class="yd-nav__section">{{ tr "nav.group.messages" }}</p>
     {{/* 治理页 /messages/admin 属于另一项菜单，因此「消息中心」只在非治理路径上高亮；
          否则两项会同时带 aria-current，读者无法判断自己在哪一层。
@@ -53,7 +55,6 @@
     <a class="yd-nav__link" href="/messages" hx-get="/messages" hx-target="#yd-shell" hx-swap="innerMorph" hx-push-url="true"
        data-yd-nav="messages"{{ if and (hasPrefix .Path "/messages") (not (hasPrefix .Path "/messages/admin")) }} aria-current="page"{{ end }}>
       <span class="yd-nav__label">{{ tr "nav.messages" }}</span>
-      {{ template "partials/messages/unread_badge" . }}
     </a>
     <a class="yd-nav__link" href="/friends" hx-get="/friends" hx-target="#yd-shell" hx-swap="innerMorph" hx-push-url="true"
        data-yd-nav="friends"{{ if hasPrefix .Path "/friends" }} aria-current="page"{{ end }}>

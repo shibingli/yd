@@ -1,15 +1,18 @@
 {{/*
-  partials/messages/unread_badge.html —— 消息未读徽标。
-  partials/messages/unread_badge.html — the unread message badge.
+  partials/messages/unread_badge.html —— 右上角用户名上的未读消息角标。
+  partials/messages/unread_badge.html — the unread message badge on the top-right user name.
 
-  根内容与 define 都存在：侧栏通过 define 引用它，WebSocket 推送则把本文件作为片段直接渲染，
+  根内容与 define 都存在：外壳通过 define 引用它，WebSocket 推送则把本文件作为片段直接渲染，
   并以 outerHTML 换入 #yd-unread-badge，因此徽标在两种路径下形状完全一致。
-  Both the root content and the define exist: the rail includes the define, while the WebSocket push renders this file
-  as a fragment and swaps it into #yd-unread-badge with outerHTML, so the badge has one shape on both paths.
+  角标只在有未读时出现，99 以上统一显示 99+；颜色与描边全部来自语义令牌，明暗两套主题共用一份规则。
+  Both the root content and the define exist: the shell includes the define, while the WebSocket push renders this file
+  as a fragment and swaps it into #yd-unread-badge with outerHTML, so the badge has one shape on both paths. It only
+  appears while there are unread messages and caps the count at 99+; colours and the ring come from semantic tokens, so
+  light and dark share one rule.
 
   数据契约 | Data contract: .Unread（messaging.UnreadSummary）。
 */}}
 {{- define "partials/messages/unread_badge" -}}
-<span id="yd-unread-badge" class="yd-badge{{ if gt .Unread.Total 0 }} yd-badge--danger{{ else }} yd-badge--muted{{ end }}"{{ if eq .Unread.Total 0 }} hidden{{ end }}>{{ if gt .Unread.Total 99 }}99+{{ else }}{{ .Unread.Total }}{{ end }}</span>
+<span id="yd-unread-badge" class="yd-badge{{ if gt .Unread.Total 0 }} yd-badge--danger yd-user__badge{{ end }}"{{ if eq .Unread.Total 0 }} hidden{{ end }}>{{ if gt .Unread.Total 99 }}99+{{ else }}{{ .Unread.Total }}{{ end }}</span>
 {{- end -}}
 {{ template "partials/messages/unread_badge" . }}

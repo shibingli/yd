@@ -1,0 +1,67 @@
+{{/*
+  partials/messages/contacts.html —— 会话栏的「联系人」页签。
+  partials/messages/contacts.html — the "contacts" tab of the conversation rail.
+
+  点好友整行直接创建或打开单聊；勾选至少两位好友后，底部出现群名与创建按钮，提交到 POST /messages/groups。
+  两种动作都在同一页完成，不打开抽屉或对话框，右侧当前会话与草稿保持不变。
+  Clicking a friend row creates or opens a direct chat; checking at least two friends reveals the group name and the
+  create button, which posts to POST /messages/groups. Both actions happen in place, without a drawer or dialog, so the
+  open thread and its draft stay untouched.
+
+  数据契约 | Data contract: .Friends。
+
+  筛选与选择状态由 yd-message.js 维护：输入框按姓名与登录名过滤，勾选框数量驱动群名区与提交按钮。
+  yd-message.js owns filtering and selection state: the input filters by display name and username, and the checkbox
+  count drives the group field and the submit button.
+*/}}
+{{- define "partials/messages/contacts" -}}
+<div class="yd-msg-contacts" data-yd-contacts>
+  <div class="yd-msg-contacts__search">
+    <label class="sr-only" for="yd-contact-q">{{ tr "message.contact_search_label" }}</label>
+    <input class="yd-input" id="yd-contact-q" type="search" autocomplete="off"
+           placeholder="{{ tr "message.contact_search_placeholder" }}" data-yd-contact-search>
+  </div>
+  <p class="yd-hint yd-msg-contacts__tip">{{ tr "message.contact_hint" }}</p>
+
+  {{- if .Friends }}
+  <form class="yd-msg-contacts__form" method="post" action="/messages/groups"
+        hx-post="/messages/groups" hx-target="#yd-workspace" hx-swap="innerMorph">
+    <div id="yd-contact-list" class="yd-msg-contacts__list" data-yd-contact-list>
+      {{- range .Friends }}
+      <div class="yd-msg-contact" data-yd-contact
+           data-yd-contact-name="{{ .Name }}" data-yd-contact-username="{{ .Profile.Username }}">
+        <label class="yd-msg-contact__select">
+          <input type="checkbox" name="group_members" value="{{ .Profile.ID }}" data-yd-contact-check>
+          <span class="sr-only">{{ tr "message.select_contact" }} {{ .Name }}</span>
+        </label>
+        <a class="yd-msg-contact__link" href="/messages/direct/{{ .Profile.ID }}"
+           hx-get="/messages/direct/{{ .Profile.ID }}" hx-target="#yd-workspace" hx-swap="innerMorph"
+           hx-push-url="true">
+          <span class="yd-avatar yd-avatar--sm" aria-hidden="true">{{ .Initial }}</span>
+          <span class="yd-msg-contact__name">{{ .Name }}</span>
+          <span class="yd-msg-contact__action" aria-hidden="true">{{ template "partials/icon" "lucide-message-circle" }}</span>
+        </a>
+      </div>
+      {{- end }}
+    </div>
+    <div class="yd-msg-contacts__actions">
+      <p class="yd-hint yd-msg-contacts__count">
+        {{ tr "message.selected" }} <strong data-yd-contact-count>0</strong>
+      </p>
+      <p class="yd-hint yd-msg-contacts__hint" data-yd-contact-hint>{{ tr "message.group_hint_short" }}</p>
+      <div class="yd-msg-contacts__group" data-yd-contact-group hidden>
+        <label class="yd-label" for="yd-contact-group-title">{{ tr "message.group_title" }}</label>
+        <input class="yd-input" id="yd-contact-group-title" name="group_title" type="text" maxlength="160"
+               placeholder="{{ tr "message.group_title_placeholder" }}">
+      </div>
+      <button type="submit" class="yd-btn yd-btn--primary" data-yd-contact-submit disabled>
+        {{ template "partials/icon" "lucide-users" }}{{ tr "message.create_group" }}
+      </button>
+    </div>
+  </form>
+  {{- else }}
+  <p class="yd-hint yd-msg-contacts__empty">{{ tr "message.no_friends" }}</p>
+  {{- end }}
+</div>
+{{- end -}}
+{{ template "partials/messages/contacts" . }}

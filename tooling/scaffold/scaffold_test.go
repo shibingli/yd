@@ -140,6 +140,7 @@ var requiredFiles = []string{
 	"web/templates/partials/messages/audit.html",
 	"web/templates/partials/messages/compose.html",
 	"web/templates/partials/messages/composer.html",
+	"web/templates/partials/messages/contacts.html",
 	"web/templates/partials/messages/conversations.html",
 	"web/templates/partials/messages/group_settings.html",
 	"web/templates/partials/messages/history.html",
@@ -3423,6 +3424,105 @@ func TestGenerateResponsiveShellHooks(t *testing.T) {
 	} {
 		if !strings.Contains(pr.read(want.file), want.text) {
 			t.Errorf("%s 缺少 %q", want.file, want.text)
+		}
+	}
+}
+
+// TestGeneratedMessageCentreUsesInlineNewConversationPanel 断言新建会话不再打开抽屉，
+// 而是在会话栏内提供「会话 / 联系人」双页签：点好友直接开单聊，勾选多位好友创建群聊。
+// TestGeneratedMessageCentreUsesInlineNewConversationPanel asserts that starting a conversation no longer opens a
+// drawer: the conversation rail carries "conversations / contacts" tabs, where a friend row opens a direct chat and
+// several checked friends create a group.
+func TestGeneratedMessageCentreUsesInlineNewConversationPanel(t *testing.T) {
+	pr, _ := generateMem(t, scaffold.DefaultOptions("message-contacts-app"))
+
+	messages := pr.read("web/templates/pages/messages.html")
+	for _, want := range []string{
+		`data-yd-msg-tab="conversations"`,
+		`data-yd-msg-tab="contacts"`,
+		`data-yd-msg-tab-open="contacts"`,
+		`partials/messages/contacts`,
+		"lucide-message-square",
+		"lucide-users",
+	} {
+		if !strings.Contains(messages, want) {
+			t.Errorf("messages.html 缺少 %q", want)
+		}
+	}
+	if strings.Contains(messages, `hx-get="/messages/new"`) {
+		t.Error("messages.html 仍从抽屉打开新建会话 | messages.html still opens the create drawer")
+	}
+
+	contacts := pr.read("web/templates/partials/messages/contacts.html")
+	for _, want := range []string{
+		`action="/messages/groups"`,
+		`name="group_members"`,
+		`name="group_title"`,
+		`href="/messages/direct/`,
+		`data-yd-contact-search`,
+		`data-yd-contact-check`,
+		`data-yd-contact-submit`,
+	} {
+		if !strings.Contains(contacts, want) {
+			t.Errorf("contacts.html 缺少 %q", want)
+		}
+	}
+
+	shell := pr.read("web/templates/layouts/shell.html")
+	for _, want := range []string{
+		`data-yd-user-menu`,
+		`href="/messages?folder=unread"`,
+		`href="/account"`,
+		`partials/messages/unread_badge`,
+		`class="yd-menu__item yd-user-menu__item"`,
+		"lucide-mail",
+		"lucide-user-round",
+	} {
+		if !strings.Contains(shell, want) {
+			t.Errorf("shell.html 缺少 %q", want)
+		}
+	}
+	// 未读角标必须排在用户名之后、菜单箭头之前，不能盖在头像角上。
+	// The unread badge must follow the user name and precede the menu caret instead of covering the avatar corner.
+	nameAt := strings.Index(shell, `yd-user__name`)
+	badgeAt := strings.Index(shell, `partials/messages/unread_badge`)
+	caretAt := strings.Index(shell, `yd-user-menu__caret`)
+	if nameAt < 0 || badgeAt < 0 || caretAt < 0 || badgeAt < nameAt || caretAt < badgeAt {
+		t.Errorf("用户菜单顺序应为 用户名 → 未读角标 → 箭头，实际 name=%d badge=%d caret=%d", nameAt, badgeAt, caretAt)
+	}
+
+	css := pr.read("web/static/css/components.css")
+	for _, want := range []string{
+		".yd-user .yd-user__badge",
+		".yd-menu__item.yd-user-menu__item .yd-icon",
+	} {
+		if !strings.Contains(css, want) {
+			t.Errorf("components.css 缺少 %q", want)
+		}
+	}
+
+	if sidebar := pr.read("web/templates/partials/sidebar.html"); strings.Contains(sidebar, `partials/messages/unread_badge`) {
+		t.Error("sidebar.html 仍渲染未读徽标，应与右上角用户名徽标重复 | sidebar.html still renders a second unread badge")
+	}
+
+	zh := readCatalogue(t, pr, "web/i18n/zh-CN.yaml")
+	en := readCatalogue(t, pr, "web/i18n/en.yaml")
+	for _, key := range []string{
+		"message.contacts",
+		"message.contact_search_label",
+		"message.contact_search_placeholder",
+		"message.contact_hint",
+		"message.select_contact",
+		"message.selected",
+		"message.create_group",
+		"nav.unread_messages",
+		"nav.my_profile",
+	} {
+		if _, ok := zh[key]; !ok {
+			t.Errorf("zh-CN.yaml 缺少 %q", key)
+		}
+		if _, ok := en[key]; !ok {
+			t.Errorf("en.yaml 缺少 %q", key)
 		}
 	}
 }

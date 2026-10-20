@@ -175,6 +175,69 @@
     if (yd.messageEditor) {
       yd.messageEditor.init(document);
     }
+    syncContactSelection();
+    filterContacts();
+  }
+
+  /* 会话栏页签：在「会话」与「联系人」之间切换；只读角色没有联系人页签时是空操作。
+     Conversation-rail tabs: switch between conversations and contacts; a no-op when a read-only role has no contacts
+     tab. */
+  function activateMsgTab(name) {
+    var tabs = document.querySelectorAll("[data-yd-msg-tab]");
+    for (var i = 0; i < tabs.length; i++) {
+      var selected = tabs[i].getAttribute("data-yd-msg-tab") === name;
+      tabs[i].setAttribute("aria-selected", selected ? "true" : "false");
+      tabs[i].setAttribute("tabindex", selected ? "0" : "-1");
+    }
+    var panels = document.querySelectorAll("[data-yd-msg-panel]");
+    for (var j = 0; j < panels.length; j++) {
+      panels[j].hidden = panels[j].getAttribute("data-yd-msg-panel") !== name;
+    }
+  }
+
+  /* 联系人搜索只过滤已渲染的行，不发起请求；姓名与登录名都参与匹配。
+     The contact search filters the rendered rows without a request; both display name and username take part. */
+  function filterContacts() {
+    var input = document.querySelector("[data-yd-contact-search]");
+    if (!input) {
+      return;
+    }
+    var query = (input.value || "").trim().toLowerCase();
+    var rows = document.querySelectorAll("[data-yd-contact]");
+    for (var i = 0; i < rows.length; i++) {
+      var name = (rows[i].getAttribute("data-yd-contact-name") || "").toLowerCase();
+      var username = (rows[i].getAttribute("data-yd-contact-username") || "").toLowerCase();
+      rows[i].hidden = query !== "" && name.indexOf(query) === -1 && username.indexOf(query) === -1;
+    }
+  }
+
+  /* 勾选数量驱动群名区与提交按钮：少于两位好友时两者保持隐藏/禁用，与服务端「至少两人建群」的入口一致。
+     The checked count drives the group field and the submit button: with fewer than two friends both stay hidden or
+     disabled, matching the server's "at least two friends make a group" entry point. */
+  function syncContactSelection() {
+    var checks = document.querySelectorAll("[data-yd-contact-check]");
+    var count = 0;
+    for (var i = 0; i < checks.length; i++) {
+      if (checks[i].checked) {
+        count++;
+      }
+    }
+    var countEl = document.querySelector("[data-yd-contact-count]");
+    if (countEl) {
+      countEl.textContent = String(count);
+    }
+    var group = document.querySelector("[data-yd-contact-group]");
+    if (group) {
+      group.hidden = count < 2;
+    }
+    var hint = document.querySelector("[data-yd-contact-hint]");
+    if (hint) {
+      hint.hidden = count >= 2;
+    }
+    var submit = document.querySelector("[data-yd-contact-submit]");
+    if (submit) {
+      submit.disabled = count < 2;
+    }
   }
 
   /* 撰写区提交成功后清空草稿：EasyMDE 的实例可能被 morph 复用，不清空会把刚发出去的内容留在输入框里。 |
@@ -257,6 +320,65 @@
     form.requestSubmit();
   }, true);
 
+  /* 页签点击与「新建会话」入口：入口同时把焦点送进联系人搜索框，键盘用户不必再 Tab 一次。 |
+     Tab clicks and the "new chat" entry: the entry also focuses the contact search so keyboard users need no extra
+     Tab stop. */
+  document.addEventListener("click", function (event) {
+    var target = event.target;
+    if (!target || !target.closest) {
+      return;
+    }
+    var tab = target.closest("[data-yd-msg-tab]");
+    if (tab) {
+      event.preventDefault();
+      activateMsgTab(tab.getAttribute("data-yd-msg-tab"));
+      return;
+    }
+    var opener = target.closest("[data-yd-msg-tab-open]");
+    if (opener) {
+      event.preventDefault();
+      activateMsgTab(opener.getAttribute("data-yd-msg-tab-open"));
+      var search = document.querySelector("[data-yd-contact-search]");
+      if (search) {
+        search.focus();
+      }
+    }
+  });
+
+  /* 左右方向键在页签间移动，符合 WAI-ARIA 的 tabs 键盘模型。 |
+     Left and right arrows move between tabs, following the WAI-ARIA tabs keyboard model. */
+  document.addEventListener("keydown", function (event) {
+    var target = event.target;
+    if (!target || !target.closest) {
+      return;
+    }
+    var tab = target.closest("[data-yd-msg-tab]");
+    if (!tab || (event.key !== "ArrowLeft" && event.key !== "ArrowRight")) {
+      return;
+    }
+    var tabs = document.querySelectorAll("[data-yd-msg-tab]");
+    if (tabs.length < 2) {
+      return;
+    }
+    var index = Array.prototype.indexOf.call(tabs, tab);
+    var next = event.key === "ArrowRight" ? (index + 1) % tabs.length : (index - 1 + tabs.length) % tabs.length;
+    event.preventDefault();
+    activateMsgTab(tabs[next].getAttribute("data-yd-msg-tab"));
+    tabs[next].focus();
+  });
+
+  document.addEventListener("input", function (event) {
+    if (event.target && event.target.matches && event.target.matches("[data-yd-contact-search]")) {
+      filterContacts();
+    }
+  });
+
+  document.addEventListener("change", function (event) {
+    if (event.target && event.target.matches && event.target.matches("[data-yd-contact-check]")) {
+      syncContactSelection();
+    }
+  });
+
   document.addEventListener("yd:realtime", onRealtime);
   ["htmx:after:swap", "htmx:afterSwap"].forEach(function (name) {
     document.addEventListener(name, onSwap);
@@ -276,6 +398,10 @@
   document.addEventListener("DOMContentLoaded", function () {
     scrollThread();
     lastConversation = activeConversation();
+    syncContactSelection();
+    filterContacts();
   });
   scrollThread();
+  syncContactSelection();
+  filterContacts();
 })();

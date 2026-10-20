@@ -267,7 +267,6 @@ func registerProtected(a *app.App, ctrl *controller.Controller, store *repositor
 	g.GET("/messages", ctrl.Messages, authz.Require(authz.PermMessageRead))
 	g.GET("/messages/list", ctrl.MessageList, authz.Require(authz.PermMessageRead))
 	g.GET("/messages/conversations", ctrl.MessageConversations, authz.Require(authz.PermMessageRead))
-	g.GET("/messages/new", ctrl.NewMessageDrawer, authz.Require(authz.PermMessageSend))
 	g.GET("/messages/direct/:id", ctrl.OpenDirectConversation, authz.Require(authz.PermMessageSend))
 	g.POST("/messages", ctrl.SendMessage, authz.Require(authz.PermMessageSend))
 	g.GET("/messages/system/new", ctrl.NewSystemDrawer, authz.Require(authz.PermMessageSystem))

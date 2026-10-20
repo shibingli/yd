@@ -71,10 +71,34 @@
       </details>
       {{- end }}
 
-      <span class="yd-user">
-        <span class="yd-avatar yd-avatar--sm" aria-hidden="true">{{ .User.Initial }}</span>
-        <span class="yd-user__name">{{ .User.Display }}</span>
-      </span>
+      {{/* 用户名本身就是用户菜单：头像角标显示未读消息数，菜单只放「未读消息」与「我的资料」两项；
+           退出登录仍是右侧独立按钮，菜单保持两项，不把退出混进导航。
+           The user name is the user menu: the avatar corner carries the unread count, and the menu holds exactly
+           "unread messages" and "my profile"; sign-out stays a separate button so the menu keeps two entries. */}}
+      <details class="yd-user yd-menu" data-yd-user-menu data-yd-menu>
+        <summary class="yd-user__trigger" aria-haspopup="menu">
+          <span class="yd-user__avatar">
+            <span class="yd-avatar yd-avatar--sm" aria-hidden="true">{{ .User.Initial }}</span>
+          </span>
+          <span class="yd-user__name">{{ .User.Display }}</span>
+          {{- if and .MessageAvailable (can .Perm.MessageRead) }}
+          {{ template "partials/messages/unread_badge" . }}
+          {{- end }}
+          <span class="yd-user-menu__caret" aria-hidden="true">▾</span>
+        </summary>
+        <div class="yd-user__menu yd-menu__panel" role="menu" aria-label="{{ tr "nav.user_menu" }}">
+          {{- if and .MessageAvailable (can .Perm.MessageRead) }}
+          <a class="yd-menu__item yd-user-menu__item" role="menuitem" href="/messages?folder=unread"
+             hx-get="/messages?folder=unread" hx-target="#yd-shell" hx-swap="innerMorph" hx-push-url="true">
+            {{ template "partials/icon" "lucide-mail" }}<span>{{ tr "nav.unread_messages" }}</span>
+          </a>
+          {{- end }}
+          <a class="yd-menu__item yd-user-menu__item" role="menuitem" href="/account"
+             hx-get="/account" hx-target="#yd-shell" hx-swap="innerMorph" hx-push-url="true">
+            {{ template "partials/icon" "lucide-user-round" }}<span>{{ tr "nav.my_profile" }}</span>
+          </a>
+        </div>
+      </details>
       <form method="post" action="/logout" hx-post="/logout" hx-target="#yd-workspace" hx-swap="innerMorph"
             data-yd-confirm="{{ tr "confirm.logout" }}">
         <button type="submit" class="yd-btn yd-btn--ghost yd-btn--sm" data-yd-signout>
