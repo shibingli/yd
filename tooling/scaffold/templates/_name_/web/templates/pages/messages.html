@@ -84,7 +84,7 @@
               {{- range .Catalog.Groups }}<option value="{{ .ID }}"{{ if eq .ID $.Filters.TagID }} selected{{ end }}>{{ .Label }}</option>{{ end }}
               {{- range .Catalog.Tags }}<option value="{{ .ID }}"{{ if eq .ID $.Filters.TagID }} selected{{ end }}>#{{ .Label }}</option>{{ end }}
             </select>
-            <button type="submit" class="yd-btn yd-btn--ghost yd-btn--sm">{{ tr "ui.search" }}</button>
+            <button type="submit" class="yd-btn">{{ tr "ui.search" }}</button>
           </div>
         </details>
       </form>
