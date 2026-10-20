@@ -2,11 +2,21 @@
 // helpers around them. | Package completion 把命令注册表变成 shell 补全脚本，以及围绕它的环境增强。
 //
 // Four shells are supported - bash, zsh, csh and powershell - and all four scripts are generated from
-// one registry view instead of being written by hand. A new command or a new flag therefore shows up
-// in every script on its own, which is the only way four copies cannot drift apart: four hand-written
-// scripts silently diverge the first time somebody forgets one of them. | 支持四种 shell——bash、zsh、csh
-// 与 powershell——四份脚本都由同一个注册表视图生成而不是手写。新增命令或新增标志会自动出现在每一份脚本里，
-// 这也是四份副本不会漂移的唯一途径：手写的四份脚本，只要有人漏改其中一份，就会无声地彼此分叉。
+// one registry view instead of being written by hand. A new command, a new flag or a new positional
+// vocabulary therefore shows up in every script on its own, which is the only way four copies cannot
+// drift apart: four hand-written scripts silently diverge the first time somebody forgets one of them.
+// | 支持四种 shell——bash、zsh、csh 与 powershell——四份脚本都由同一个注册表视图生成而不是手写。新增命令、
+// 新增标志或新的位置参数词表会自动出现在每一份脚本里，这也是四份副本不会漂移的唯一途径：手写的四份脚本，
+// 只要有人漏改其中一份，就会无声地彼此分叉。
+//
+// Positional arguments are described by Command.Positionals: action words such as `list` or `install`,
+// and enumerated values such as the names of the optional tools. bash, zsh and PowerShell count the
+// position after the command word - skipping the values of value-taking flags - and answer it from the
+// matching slot. csh's `complete` cannot condition a rule on the command word and a later position at
+// once, so its script merges only the first positional slot into the command's next-word rule. | 位置参数由
+// Command.Positionals 描述：`list`、`install` 这类动作词，以及可选工具名这类枚举值。bash、zsh 与 PowerShell
+// 会统计命令词之后的位置（跳过取值标志的取值），并从匹配的槽位给出候选。csh 的 `complete` 无法让规则同时以
+// 命令词和更靠后的位置为条件，因此它的脚本只把第一个位置槽位并入命令的下一个词规则。
 //
 // This package deliberately does NOT import the cli package: cli imports it, so the reverse direction
 // would be an import cycle. The caller maps its own registry into the view types declared here
@@ -29,6 +39,7 @@ package completion
 import (
 	"fmt"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/shibingli/yd/core/errx"
@@ -231,6 +242,52 @@ type Command struct {
 	// Flags are the flags this command accepts, including the global ones it does not shadow. | Flags
 	// 是该命令接受的标志，含它未遮蔽的全局标志。
 	Flags []Flag
+	// Positionals describes the command's positional arguments in order. | Positionals 按顺序描述命令的位置参数。
+	Positionals []Positional
+}
+
+// Positional is one positional argument slot of a command. | Positional 是一个命令的位置参数槽位。
+//
+// Values are static words - action words such as `check` or `install`, a generator kind, or the name of
+// an optional tool. An empty Values list means the slot has no vocabulary of its own, so the shell's own
+// fallback (file names, usually) still applies. | Values 是静态词——`check`、`install` 这类动作词、生成类型，
+// 或可选工具名。Values 为空表示该槽位没有自己的词表，shell 自带的回退（通常是文件名）依然生效。
+type Positional struct {
+	// Name identifies the slot in the generated data, e.g. "action" or "name". | Name 在生成的数据中标识该槽位，
+	// 例如 "action" 或 "name"。
+	Name string
+	// Description is the bilingual text shown next to every candidate of the slot. | Description 是显示在该槽位
+	// 每个候选旁边的双语文案。
+	Description string
+	// Values are the candidate words of the slot. | Values 是该槽位的候选词。
+	Values []string
+	// Variadic reports that the slot repeats for every remaining positional word. | Variadic 表示该槽位对之后
+	// 每一个位置词重复生效。
+	Variadic bool
+}
+
+// hasPositionalValues reports whether any slot of the command carries candidates. | hasPositionalValues 报告
+// 命令是否有任一槽位携带候选词。
+func (c Command) hasPositionalValues() bool {
+	for _, p := range c.Positionals {
+		if len(p.Values) > 0 {
+			return true
+		}
+	}
+	return false
+}
+
+// pattern renders the case label of the n-th positional slot, 1-based. | pattern 渲染第 n 个位置槽位的 case 标签，
+// n 从 1 开始。
+//
+// A variadic slot uses the `N|*` form so every later word reaches the same arm. | 可变槽位使用 `N|*` 形式，
+// 使之后每个词都落到同一分支。
+func (p Positional) pattern(n int) string {
+	label := strconv.Itoa(n)
+	if p.Variadic {
+		label += "|*"
+	}
+	return label
 }
 
 // Flag is the completion-relevant view of one flag. | Flag 是一个标志在补全视角下的视图。
@@ -348,8 +405,20 @@ func (r Registry) view() (view, error) {
 		if strings.TrimSpace(c.Name) == "" {
 			return view{}, errx.Detail(ErrInvalidRegistry, "empty command name | 命令名为空")
 		}
+		for i, p := range c.Positionals {
+			if p.Variadic && i != len(c.Positionals)-1 {
+				return view{}, errx.Detail(ErrInvalidRegistry,
+					"%[1]q: variadic positional %[2]q must be last | %[1]q：可变位置参数 %[2]q 必须位于最后",
+					c.Name, p.Name)
+			}
+		}
 		merged := mergeFlags(c.Flags, v.globals)
-		v.commands = append(v.commands, Command{Name: c.Name, Short: c.Short, Flags: merged})
+		v.commands = append(v.commands, Command{
+			Name:        c.Name,
+			Short:       c.Short,
+			Flags:       merged,
+			Positionals: c.Positionals,
+		})
 	}
 	sort.Slice(v.commands, func(i, j int) bool { return v.commands[i].Name < v.commands[j].Name })
 	v.valueWords = valueWords(v)

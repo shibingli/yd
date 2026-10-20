@@ -8,17 +8,19 @@ package completion
 import (
 	"errors"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 )
 
 // fixtureRegistry is the registry every generation test renders. | fixtureRegistry 是每个生成测试所渲染的注册表。
 //
-// It carries the three shapes a script has to survive: a global flag, a command that shadows one of them
+// It carries the four shapes a script has to survive: a global flag, a command that shadows one of them
 // (`assets --version` takes a value while `yd --version` is a switch - the live case in this repository),
-// and a command with no flags of its own (gen), whose list is therefore the global flags alone. | 它带上脚本
-// 必须扛住的三件事：一个全局标志、一个遮蔽了其中之一的命令（`assets --version` 需要取值，而 `yd --version`
-// 是开关——本仓的真实情形），以及一个自身没有标志的命令（gen），它的词表因此只有全局标志。
+// a command with no flags of its own (gen), whose list is therefore the global flags alone, and commands
+// whose positional arguments carry action words and a repeating tool-name slot. | 它带上脚本必须扛住的四件事：
+// 一个全局标志、一个遮蔽了其中之一的命令（`assets --version` 需要取值，而 `yd --version` 是开关——本仓的真实情形）、
+// 一个自身没有标志的命令（gen，它的词表因此只有全局标志），以及位置参数携带动作词与可变工具名槽位的命令。
 func fixtureRegistry() Registry {
 	return Registry{
 		Program:  "yd",
@@ -32,17 +34,33 @@ func fixtureRegistry() Registry {
 			{Name: "assets", Short: "manage assets | 管理资产", Flags: []Flag{
 				{Name: "version", Usage: "asset version | 资产版本", TakesValue: true},
 				{Name: "local", Usage: "local assets only | 仅本地资产"},
-			}},
+			}, Positionals: fixturePositionals["assets"]},
 			{Name: "build", Short: "build the project | 构建项目", Flags: []Flag{
 				{Name: "output", Shorthand: "o", Usage: "output directory | 输出目录", TakesValue: true},
 				{Name: "release", Usage: "release build | 发布构建"},
 			}},
-			{Name: "gen", Short: "generate code | 生成代码"},
+			{Name: "gen", Short: "generate code | 生成代码", Positionals: fixturePositionals["gen"]},
 			{Name: "new", Short: "scaffold a project | 创建项目", Flags: []Flag{
 				{Name: "name", Shorthand: "n", Usage: "project name | 项目名", TakesValue: true},
 			}},
+			{Name: "tools", Short: "manage tools | 管理工具", Positionals: fixturePositionals["tools"]},
 		},
 	}
+}
+
+// fixturePositionals is the positional vocabulary the fixture carries, keyed by command. | fixturePositionals
+// 是夹具携带的位置参数词表，按命令索引。
+var fixturePositionals = map[string][]Positional{
+	"assets": {
+		{Name: "action", Description: "asset action | 资产动作", Values: []string{"list", "update", "verify"}},
+	},
+	"gen": {
+		{Name: "kind", Description: "generator kind | 生成类型", Values: []string{"module", "crud"}},
+	},
+	"tools": {
+		{Name: "action", Description: "tool action | 工具动作", Values: []string{"check", "install"}},
+		{Name: "name", Description: "tool name | 工具名", Values: []string{"betteralign", "ko"}, Variadic: true},
+	},
 }
 
 // fixtureValueWords is the value-taking vocabulary the fixture must produce. | fixtureValueWords 是夹具必须产出的取值词表。
@@ -64,6 +82,7 @@ var fixtureArmWords = map[string][]string{
 	"build":  {"--config", "-c", "--output", "-o", "--release", "--verbose", "-v", "--version"},
 	"gen":    {"--config", "-c", "--verbose", "-v", "--version"},
 	"new":    {"--config", "-c", "--name", "-n", "--verbose", "-v", "--version"},
+	"tools":  {"--config", "-c", "--verbose", "-v", "--version"},
 }
 
 // scriptLine returns the first line of script that starts with prefix. | scriptLine 返回脚本中以 prefix 开头的第一行。
@@ -179,6 +198,113 @@ func cshFirstWord(t *testing.T, script string) []string {
 	return nil
 }
 
+// bashPositionalArm returns the candidate words of one bash positional arm. | bashPositionalArm 返回某个 bash
+// 位置参数分支的候选词。
+func bashPositionalArm(t *testing.T, script, cmd, pos string) []string {
+	t.Helper()
+	block := positionalBlock(t, script, cmd,
+		"            "+cmd+")\n                case \"$pos\" in\n",
+		"\n                ;;\n")
+	prefix := "                    " + pos + ") COMPREPLY=($(compgen -W \""
+	for _, line := range strings.Split(block, "\n") {
+		if !strings.HasPrefix(line, prefix) {
+			continue
+		}
+		_, rest, _ := strings.Cut(line, `compgen -W "`)
+		words, _, _ := strings.Cut(rest, `"`)
+		return strings.Fields(words)
+	}
+	t.Fatalf("bash command %q has no positional arm %q | bash 命令 %q 缺少位置分支 %q", cmd, pos, cmd, pos)
+	return nil
+}
+
+// zshPositionalArm returns the candidate words of one zsh positional arm. | zshPositionalArm 返回某个 zsh
+// 位置参数分支的候选词。
+func zshPositionalArm(t *testing.T, script, cmd, pos string) []string {
+	t.Helper()
+	block := positionalBlock(t, script, cmd,
+		"        "+cmd+")\n            case \"$pos\" in\n",
+		"\n            ;;\n")
+	prefix := "                " + pos + ") positional=("
+	for _, line := range strings.Split(block, "\n") {
+		if !strings.HasPrefix(line, prefix) {
+			continue
+		}
+		entries := quotedWords(line)
+		values := make([]string, 0, len(entries))
+		for _, entry := range entries {
+			value, _, _ := strings.Cut(entry, ":")
+			values = append(values, value)
+		}
+		return values
+	}
+	t.Fatalf("zsh command %q has no positional arm %q | zsh 命令 %q 缺少位置分支 %q", cmd, pos, cmd, pos)
+	return nil
+}
+
+// powerShellPositionalValues returns the candidate words of one PowerShell positional slot. | powerShellPositionalValues
+// 返回某个 PowerShell 位置槽位的候选词。
+func powerShellPositionalValues(t *testing.T, script, cmd string, slot int) []string {
+	t.Helper()
+	// The Flags table uses the same `'command' = @(` shape, so the search must start at the Positionals
+	// table; otherwise the flag entries are read as positional slots. | Flags 表使用同样的
+	// `'command' = @(` 形态，因此搜索必须从 Positionals 表开始，否则会把标志条目读成位置槽位。
+	const table = "    Positionals = @{\n"
+	start := strings.Index(script, table)
+	if start < 0 {
+		t.Fatalf("the PowerShell script has no Positionals table | PowerShell 脚本缺少 Positionals 表")
+	}
+	block := positionalBlock(t, script[start:], cmd,
+		"        "+quotePowerShell(cmd)+" = @(\n",
+		"\n        )\n")
+	lines := strings.Split(block, "\n")
+	want := "            @{ "
+	index := 0
+	for _, line := range lines {
+		if !strings.HasPrefix(line, want) {
+			continue
+		}
+		index++
+		if index != slot {
+			continue
+		}
+		start := strings.Index(line, "Values = @(")
+		if start < 0 {
+			t.Fatalf("PowerShell slot %d of %q has no Values | PowerShell 槽位缺少 Values", slot, cmd)
+		}
+		return powerShellQuotedWords(line[start+len("Values = @("):])
+	}
+	t.Fatalf("PowerShell command %q has no slot %d | PowerShell 命令 %q 缺少槽位 %d", cmd, slot, cmd, slot)
+	return nil
+}
+
+// positionalBlock returns the text of one command's positional block, from marker to terminator.
+// | positionalBlock 返回某个命令位置参数块的文本，从 marker 到 terminator。
+func positionalBlock(t *testing.T, script, cmd, marker, terminator string) string {
+	t.Helper()
+	start := strings.Index(script, marker)
+	if start < 0 {
+		t.Fatalf("script has no positional block for %q | 脚本缺少命令 %q 的位置参数块", cmd, cmd)
+	}
+	rest := script[start:]
+	end := strings.Index(rest, terminator)
+	if end < 0 {
+		t.Fatalf("the positional block of %q is not terminated | 命令 %q 的位置参数块没有结束标记", cmd, cmd)
+	}
+	return rest[:end+len(terminator)]
+}
+
+// powerShellQuotedWords returns every single-quoted word of a fragment. | powerShellQuotedWords 返回片段中每个
+// 单引号包裹的词。
+func powerShellQuotedWords(fragment string) []string {
+	parts := strings.Split(fragment, "'")
+	words := make([]string, 0, len(parts)/2)
+	for i := 1; i < len(parts); i += 2 {
+		words = append(words, parts[i])
+	}
+	return words
+}
+
 // TestGenerateRendersEveryShell 四种 shell 都必须渲染出脚本，且同样输入渲染两次逐字节一致。
 // TestGenerateRendersEveryShell requires all four shells to render, identically on repeated renders.
 func TestGenerateRendersEveryShell(t *testing.T) {
@@ -211,7 +337,7 @@ func TestGenerateRendersEveryShell(t *testing.T) {
 // 某个命令在某一份脚本里缺席，意味着有人手写或手工改动过脚本，而不是由注册表生成。
 func TestGenerateCoversEveryCommandInEveryShell(t *testing.T) {
 	reg := fixtureRegistry()
-	names := []string{"assets", "build", "gen", "new"}
+	names := []string{"assets", "build", "gen", "new", "tools"}
 	for _, sh := range Shells() {
 		script, err := Generate(sh, reg)
 		if err != nil {
@@ -246,7 +372,7 @@ func TestBashListsEveryFlagAndDistinguishesValues(t *testing.T) {
 		want []string
 		got  []string
 	}{
-		{"_yd_commands", []string{"assets", "build", "gen", "new"}, bashWordList(t, script, "_yd_commands")},
+		{"_yd_commands", []string{"assets", "build", "gen", "new", "tools"}, bashWordList(t, script, "_yd_commands")},
 		{"_yd_global_flags", fixtureGlobalWords, bashWordList(t, script, "_yd_global_flags")},
 		{"_yd_value_flags", fixtureValueWords, bashWordList(t, script, "_yd_value_flags")},
 	}
@@ -261,6 +387,106 @@ func TestBashListsEveryFlagAndDistinguishesValues(t *testing.T) {
 			t.Errorf("arm %q = %v, want %v | 分支词表不符", cmd, got, want)
 		}
 	}
+}
+
+// TestBashCompletesPositionalArguments bash 必须按位置给出动作词，并让可变槽位覆盖后续位置。
+// TestBashCompletesPositionalArguments requires bash to offer action words by position and to repeat a variadic slot.
+//
+// The positional arms are separate from the flag arms on purpose: a non-flag word must never be answered with
+// flags, which is exactly what the old script did once the command word was known. | 位置分支与标志分支刻意分开：
+// 非标志词绝不能用标志来回答，而旧脚本在认出命令词之后恰恰就是这么做的。
+func TestBashCompletesPositionalArguments(t *testing.T) {
+	script, err := Generate(Bash, fixtureRegistry())
+	if err != nil {
+		t.Fatalf("generate failed | 生成失败: %v", err)
+	}
+	for cmd, slots := range fixturePositionals {
+		for i, slot := range slots {
+			pos := positionalPattern(i+1, slot)
+			if got := bashPositionalArm(t, script, cmd, pos); !slices.Equal(got, slot.Values) {
+				t.Errorf("%s position %s = %v, want %v | 位置候选不符", cmd, pos, got, slot.Values)
+			}
+		}
+	}
+	for _, cmd := range []string{"build", "new"} {
+		if strings.Contains(script, "            "+cmd+")\n                case \"$pos\" in\n") {
+			t.Errorf("command %q with no positionals has a positional arm | 无位置参数的命令出现了位置分支: %q", cmd, cmd)
+		}
+	}
+}
+
+// TestZshCompletesPositionalArguments zsh 的位置分支必须携带描述。
+// TestZshCompletesPositionalArguments requires the zsh positional arms to carry their descriptions.
+func TestZshCompletesPositionalArguments(t *testing.T) {
+	script, err := Generate(Zsh, fixtureRegistry())
+	if err != nil {
+		t.Fatalf("generate failed | 生成失败: %v", err)
+	}
+	for cmd, slots := range fixturePositionals {
+		for i, slot := range slots {
+			pos := positionalPattern(i+1, slot)
+			if got := zshPositionalArm(t, script, cmd, pos); !slices.Equal(got, slot.Values) {
+				t.Errorf("%s position %s = %v, want %v | 位置候选不符", cmd, pos, got, slot.Values)
+			}
+		}
+	}
+	if !strings.Contains(script, "_describe -t arguments 'yd argument | yd 参数' positional") {
+		t.Error("the zsh script does not describe positional candidates | zsh 脚本没有为位置候选提供描述")
+	}
+}
+
+// TestPowerShellCarriesPositionals powershell 必须内嵌位置参数表与可变标记。
+// TestPowerShellCarriesPositionals requires PowerShell to embed the positional table and the variadic flag.
+func TestPowerShellCarriesPositionals(t *testing.T) {
+	script, err := Generate(PowerShell, fixtureRegistry())
+	if err != nil {
+		t.Fatalf("generate failed | 生成失败: %v", err)
+	}
+	if !strings.Contains(script, "    Positionals = @{\n") {
+		t.Fatal("the PowerShell script has no Positionals table | PowerShell 脚本缺少 Positionals 表")
+	}
+	for cmd, slots := range fixturePositionals {
+		for i, slot := range slots {
+			if got := powerShellPositionalValues(t, script, cmd, i+1); !slices.Equal(got, slot.Values) {
+				t.Errorf("%s slot %d = %v, want %v | 位置候选不符", cmd, i+1, got, slot.Values)
+			}
+		}
+	}
+	if !strings.Contains(script, "Variadic = $true") {
+		t.Error("the PowerShell script does not mark the variadic slot | PowerShell 脚本没有标记可变槽位")
+	}
+}
+
+// TestGenerateRejectsNonFinalVariadicPositional 可变槽位不在最后必须被拒绝。
+// TestGenerateRejectsNonFinalVariadicPositional rejects a variadic slot that is not the last one.
+//
+// A non-final variadic slot would swallow every later position, so the registry is refused instead of
+// rendering a script whose later arms can never be reached. | 非末尾的可变槽位会吞掉之后的所有位置，因此拒绝该
+// 注册表，而不是渲染出一份后续分支永远走不到的脚本。
+func TestGenerateRejectsNonFinalVariadicPositional(t *testing.T) {
+	reg := Registry{
+		Program: "yd",
+		Commands: []Command{{
+			Name: "tools",
+			Positionals: []Positional{
+				{Name: "name", Values: []string{"one"}, Variadic: true},
+				{Name: "action", Values: []string{"two"}},
+			},
+		}},
+	}
+	if _, err := Generate(Bash, reg); !errors.Is(err, ErrInvalidRegistry) {
+		t.Fatalf("want ErrInvalidRegistry, got %v | 期望哨兵错误", err)
+	}
+}
+
+// positionalPattern renders the case label a positional slot must use. | positionalPattern 渲染位置槽位必须使用的
+// case 标签。
+func positionalPattern(index int, slot Positional) string {
+	pattern := strconv.Itoa(index)
+	if slot.Variadic {
+		pattern += "|*"
+	}
+	return pattern
 }
 
 // TestPowerShellListsValueFlags powershell 也必须把需要取值的标志单列成表。
@@ -316,15 +542,24 @@ func TestZshAndPowerShellCarryDescriptions(t *testing.T) {
 
 // TestCshNextWordRules 校验 csh 的逐命令规则与位置规则。
 // TestCshNextWordRules checks the csh per-command rules and the position rule.
+//
+// csh cannot condition a rule on both the command word and a later position, so only the first positional
+// slot is merged into the command's next-word rule; later slots fall back to the shell's own completion.
+// | csh 无法让一条规则同时以命令词和更靠后的位置为条件，因此只把第一个位置槽位并入命令的下一个词规则；
+// 更靠后的槽位交给 shell 自带的补全。
 func TestCshNextWordRules(t *testing.T) {
 	script, err := Generate(Csh, fixtureRegistry())
 	if err != nil {
 		t.Fatalf("generate failed | 生成失败: %v", err)
 	}
-	if got, want := cshFirstWord(t, script), []string{"assets", "build", "gen", "new"}; !slices.Equal(got, want) {
+	if got, want := cshFirstWord(t, script), []string{"assets", "build", "gen", "new", "tools"}; !slices.Equal(got, want) {
 		t.Errorf("position rule = %v, want %v | 位置规则不符", got, want)
 	}
-	for cmd, want := range fixtureArmWords {
+	for cmd, flags := range fixtureArmWords {
+		want := flags
+		if slots, ok := fixturePositionals[cmd]; ok && len(slots) > 0 {
+			want = append(slices.Clone(slots[0].Values), flags...)
+		}
 		if got := cshNextWord(t, script, cmd); !slices.Equal(got, want) {
 			t.Errorf("rule %q = %v, want %v | 规则词表不符", cmd, got, want)
 		}

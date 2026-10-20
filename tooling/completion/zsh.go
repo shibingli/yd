@@ -26,7 +26,7 @@ const zshPreamble = `# yd zsh completion, generated from the command registry - 
 // 交给 zsh 自带的文件补全——这正是 `yd new` 的项目名与 `yd build --output` 的取值仍能按路径补全的原因。
 const zshHead = `_yd_completion() {
     local -a commands flags global_flags
-    local cmd="" word i
+    local cmd="" word i cmd_index skip
     local value_flags="%VALUE_FLAGS%"
 
     commands=(
@@ -37,11 +37,25 @@ const zshHead = `_yd_completion() {
 %GLOBALS%
     )
 
-    # Only the words before the cursor can name a command. | 只有光标之前的词才能命名命令。
+    # Only the words before the cursor can name a command; the value of a value-taking flag cannot. |
+    # 只有光标之前的词才能命名命令；取值标志的取值不能。
+    cmd=""
+    cmd_index=-1
+    skip=0
     for ((i = 2; i < CURRENT; i++)); do
         word="${words[i]}"
-        [[ "$word" == -* ]] && continue
+        if (( skip )); then
+            skip=0
+            continue
+        fi
+        if [[ "$word" == -* ]]; then
+            case " $value_flags " in
+                *" $word "*) skip=1 ;;
+            esac
+            continue
+        fi
         cmd="$word"
+        cmd_index=$i
         break
     done
 
@@ -61,8 +75,33 @@ const zshHead = `_yd_completion() {
         esac
     fi
 
-    # A positional argument: nothing is offered here, zsh's file completion keeps it. | 位置参数：此处不提供候选，交给 zsh 的文件补全。
+    # A positional argument: offer the command's positional vocabulary, else zsh's file completion keeps
+    # the word. | 位置参数：给出该命令的位置参数词表，否则交给 zsh 的文件补全。
     if [[ "${words[CURRENT]}" != -* ]]; then
+        local -a positional
+        local pos=0 skip=0
+        for ((i = cmd_index + 1; i < CURRENT; i++)); do
+            word="${words[i]}"
+            if (( skip )); then
+                skip=0
+                continue
+            fi
+            if [[ "$word" == -* ]]; then
+                case " $value_flags " in
+                    *" $word "*) skip=1 ;;
+                esac
+                continue
+            fi
+            pos=$((pos + 1))
+        done
+        pos=$((pos + 1))
+        case "$cmd" in
+%POSITIONALS%
+        esac
+        if (( ${#positional[@]} )); then
+            _describe -t arguments 'yd argument | yd 参数' positional
+            return 0
+        fi
         return 1
     fi
 
@@ -96,6 +135,7 @@ func generateZsh(v view) string {
 		"%COMMANDS%", zshLines(commandEntries(v.commands)),
 		"%GLOBALS%", zshLines(flagEntries(v.globals)),
 		"%CASES%", zshCases(v),
+		"%POSITIONALS%", zshPositionalCases(v),
 		"%VALUE_FLAGS%", strings.Join(v.valueWords, " "))
 	footer := fill(zshFooter, "%PROGRAM%", v.program, "%TOOLSDIR%", v.toolsDir)
 	return zshPreamble + "\n\n" + head + "\n\n" + footer + "\n"
@@ -115,6 +155,41 @@ func zshCases(v view) string {
 		b.WriteString(")\n            flags=(\n")
 		b.WriteString(zshLines(flagEntries(c.Flags)))
 		b.WriteString("\n            )\n            ;;\n")
+	}
+	return strings.TrimSuffix(b.String(), "\n")
+}
+
+// zshPositionalCases renders the per-command arms that fill the positional candidate array. | zshPositionalCases
+// 渲染填充位置候选数组的逐命令分支。
+//
+// Each candidate carries the slot's description, so the positional half of the completion shows the same
+// documentation the command and flag halves do. | 每个候选都带上槽位的描述，因此补全的位置参数部分与命令、标志
+// 两部分一样具备文档价值。
+func zshPositionalCases(v view) string {
+	var b strings.Builder
+	for _, c := range v.commands {
+		if !c.hasPositionalValues() {
+			continue
+		}
+		b.WriteString("        ")
+		b.WriteString(c.Name)
+		b.WriteString(")\n            case \"$pos\" in\n")
+		for i, p := range c.Positionals {
+			if len(p.Values) == 0 {
+				continue
+			}
+			b.WriteString("                ")
+			b.WriteString(p.pattern(i + 1))
+			b.WriteString(") positional=(")
+			for j, value := range p.Values {
+				if j > 0 {
+					b.WriteString(" ")
+				}
+				b.WriteString(quoteSingle(describe(value, p.Description)))
+			}
+			b.WriteString(") ;;\n")
+		}
+		b.WriteString("            esac\n            ;;\n")
 	}
 	return strings.TrimSuffix(b.String(), "\n")
 }

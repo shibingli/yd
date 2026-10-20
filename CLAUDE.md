@@ -539,6 +539,15 @@ yd completion install [--shell S] [--dir D] [--print] [--append-rc] [--yes]
 
 - **从命令注册表生成，禁止手写脚本**：手写四份必然与命令、标志漂移。新增命令或标志时补全必须自动跟上，
   由测试断言「每个已注册命令都出现在四种脚本里」。
+- **位置参数同样来自注册表**：`cli.Command.Positionals` 按顺序描述动作词与枚举值
+  （如 `assets <list|update|verify|add|minify>`、`tools install <name...>`、`service <action>`），
+  与标志一起进入四份脚本；bash/zsh/PowerShell 会先跳过取值标志的取值再统计位置，非标志位置上
+  **绝不再用标志回答**。路径类参数（项目名、包模式）保持空词表，回退 shell 自带的文件补全。
+  可变槽位必须声明在最后。csh 的 `complete` 无法同时以命令词与位置为条件，只补第一个位置槽位，
+  其余回退文件补全。
+- **CLI 参数变更必须同批更新补全**：新增、重命名或删除命令/标志/位置参数时，必须在**同一次变更**中
+  更新 `cli.Command` 的标志声明与 `Positionals`，并同步更新受影响的补全测试；`yd completion <shell>`
+  的产物不得落后于命令定义。只改命令定义而不改补全描述（或反之）视为未完成。
 - **默认绝不碰 rc 文件**（`~/.bashrc`、`~/.zshrc`、`~/.cshrc`、`$PROFILE`）：
   与「不得改动用户 PATH」同一原则。只有显式 `--append-rc` 才追加，且必须**幂等**（带标记行）、
   **先备份**（备份与改动前逐字节一致）、并在输出里说明改了什么、备份在哪。

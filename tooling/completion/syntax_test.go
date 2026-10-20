@@ -198,7 +198,11 @@ func TestGeneratedBashScriptLoadsAndRegisters(t *testing.T) {
 // （测试在那里写了桩程序）放到 PATH 最前面。桩程序只对这个进程存在。
 const powerShellProbeDriver = `$env:PATH = "$PSScriptRoot;$env:PATH"
 . %SCRIPT%
-foreach ($line in @('yd ', 'yd bu', 'yd build -', 'yd build --', 'yd --', 'yd build --output ')) {
+foreach ($line in @(
+    'yd ', 'yd bu', 'yd build -', 'yd build --', 'yd --', 'yd build --output ',
+    'yd assets ', 'yd assets u', 'yd tools ', 'yd tools install ', 'yd tools install ko ',
+    'yd gen ', 'yd build foo ', 'yd assets list ', 'yd --config cfg assets '
+)) {
     $matches = @((TabExpansion2 $line $line.Length).CompletionMatches | ForEach-Object { $_.CompletionText })
     Write-Host ("probe:{0}={1}" -f $line, ($matches -join ' '))
 }`
@@ -284,6 +288,28 @@ func TestGeneratedPowerShellScriptCompletes(t *testing.T) {
 	for _, word := range offers["yd build --output "] {
 		if strings.HasPrefix(word, "-") {
 			t.Errorf("a flag %q was offered after a value-taking flag | 取值标志之后竟给出了标志: %q", word, word)
+		}
+	}
+
+	// Positional arguments are answered with the vocabulary of their slot. | 位置参数用其槽位的词表回答。
+	assertOffers(t, offers, "yd assets ", fixturePositionals["assets"][0].Values)
+	assertOffers(t, offers, "yd assets u", []string{"update"})
+	assertOffers(t, offers, "yd tools ", fixturePositionals["tools"][0].Values)
+	assertOffers(t, offers, "yd tools install ", fixturePositionals["tools"][1].Values)
+	assertOffers(t, offers, "yd tools install ko ", fixturePositionals["tools"][1].Values)
+	assertOffers(t, offers, "yd gen ", fixturePositionals["gen"][0].Values)
+	// A value-taking global flag before the command word must not be mistaken for the command. | 命令词之前
+	// 的取值型全局标志不得被误当成命令词。
+	assertOffers(t, offers, "yd --config cfg assets ", fixturePositionals["assets"][0].Values)
+
+	// A position with no vocabulary - a path, a project name, or the word after an action that takes no
+	// argument - must never be answered with flags. | 没有词表的位置——路径、项目名，或不接受参数的动作词之后
+	// ——绝不能用标志来回答。
+	for _, cursor := range []string{"yd build foo ", "yd assets list "} {
+		for _, word := range offers[cursor] {
+			if strings.HasPrefix(word, "-") {
+				t.Errorf("a flag %q was offered at a positional position %q | 位置参数处竟给出了标志 %q", word, cursor, word)
+			}
 		}
 	}
 }

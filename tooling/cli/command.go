@@ -36,6 +36,29 @@ type Command struct {
 	// Usage is the usage line, e.g. "yd assets update [--check] [--offline]". | Usage 是用法行，例如
 	// "yd assets update [--check] [--offline]"。
 	Usage string
+	// Positionals describes the positional arguments in order, so shell completion can offer action words
+	// and enumerated values instead of leaving the word to file completion. | Positionals 按顺序描述位置参数，
+	// 使 shell 补全可以给出动作词与枚举值，而不是把该词交给文件补全。
+	Positionals []Positional
+}
+
+// Positional describes one positional argument slot of a command. | Positional 描述一个命令的位置参数槽位。
+//
+// Values are the static candidate words of the slot; an empty slice means the slot has no vocabulary and
+// the shell's own fallback (file names, usually) applies. Variadic slots repeat for every later word and
+// must be declared last. | Values 是槽位的静态候选词；空切片表示该槽位没有词表，交给 shell 自带的回退
+// （通常是文件名）。可变槽位对之后每个词重复生效，且必须声明在最后。
+type Positional struct {
+	// Name identifies the slot, e.g. "action" or "name". | Name 标识槽位，例如 "action" 或 "name"。
+	Name string
+	// Description is the bilingual text shown next to every candidate. | Description 是显示在每个候选旁边的
+	// 双语文案。
+	Description string
+	// Values are the candidate words of the slot. | Values 是该槽位的候选词。
+	Values []string
+	// Variadic reports that the slot repeats for every remaining positional word. | Variadic 表示该槽位对之后
+	// 每一个位置词重复生效。
+	Variadic bool
 }
 
 // Env carries everything a command is allowed to touch. | Env 承载命令可以触及的一切。

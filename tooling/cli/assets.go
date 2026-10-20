@@ -53,6 +53,25 @@ const (
 	flagAssetsMinifyBin = "minify-bin"
 )
 
+// The assets command's action words. | assets 命令的动作词。
+const (
+	// assetsActionList prints the lock file. | assetsActionList 打印锁文件。
+	assetsActionList = "list"
+	// assetsActionUpdate downloads, verifies and locks assets. | assetsActionUpdate 下载、校验并锁定资产。
+	assetsActionUpdate = "update"
+	// assetsActionVerify checks the working tree offline. | assetsActionVerify 离线校验工作区。
+	assetsActionVerify = "verify"
+	// assetsActionAdd adds and locks one asset. | assetsActionAdd 新增并锁定单个资产。
+	assetsActionAdd = "add"
+	// assetsActionMinify generates or verifies minified assets. | assetsActionMinify 生成或校验压缩资产。
+	assetsActionMinify = "minify"
+)
+
+// assetsActionWords lists the action words in usage order. | assetsActionWords 按用法顺序列出动作词。
+var assetsActionWords = []string{
+	assetsActionList, assetsActionUpdate, assetsActionVerify, assetsActionAdd, assetsActionMinify,
+}
+
 // The minification stages used by `yd assets minify`; tests replace them. | `yd assets minify` 使用的压缩阶段；测试会替换它们。
 var (
 	assetsMinifyJSFunc       = build.BuildMinify
@@ -83,6 +102,11 @@ func init() {
 		Usage: assetsUsageLine,
 		Flags: registerAssetsFlags,
 		Run:   runAssets,
+		Positionals: []Positional{{
+			Name:        "action",
+			Description: "asset action: list/update/verify/add/minify | 资产动作",
+			Values:      assetsActionWords,
+		}},
 	})
 }
 
@@ -114,15 +138,15 @@ func runAssets(ctx context.Context, env *Env) error {
 
 	sub, rest := args[0], args[1:]
 	switch sub {
-	case "list":
+	case assetsActionList:
 		return runAssetsList(env, fs)
-	case "update":
+	case assetsActionUpdate:
 		return runAssetsUpdate(ctx, env, fs)
-	case "verify":
+	case assetsActionVerify:
 		return runAssetsVerify(env, fs)
-	case "add":
+	case assetsActionAdd:
 		return runAssetsAdd(ctx, env, fs, rest)
-	case "minify":
+	case assetsActionMinify:
 		return runAssetsMinify(ctx, env, fs)
 	default:
 		fmt.Fprintf(env.Err, "yd assets: unknown subcommand %q | yd assets：未知子命令 %q\n", sub, sub)

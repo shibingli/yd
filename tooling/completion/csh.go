@@ -27,11 +27,22 @@ const cshFooter = `# Optional environment enhancement: the project-local tool di
 // what it already knows about a command: a second statement for the same command would silently discard
 // the first one's rules. | 所有内容都在同一条 `complete` 语句里，因为该内建命令对同一个命令是替换而不是追加：
 // 为同一个命令再写一条语句，会悄悄丢掉前一条的规则。
+//
+// csh's `complete` can condition a rule on the command word or on a position, but not on both at once, so
+// only the first positional slot is merged into the command's next-word rule; later slots fall back to the
+// shell's own file completion. The other three scripts are position-aware and complete every slot. | csh 的
+// `complete` 只能让规则以命令词或位置之一为条件，不能同时两者；因此只把第一个位置槽位并入命令的下一个词规则，
+// 更靠后的槽位交给 shell 自带的文件补全。其余三份脚本都按位置补全每一个槽位。
 func generateCsh(v view) string {
 	patterns := make([]string, 0, len(v.commands)+1)
 	patterns = append(patterns, cshSpec("p/1", v.commandNames()))
 	for _, c := range v.commands {
-		patterns = append(patterns, cshSpec("n/"+c.Name, flagWords(c.Flags)))
+		words := make([]string, 0, len(c.Positionals)+len(c.Flags)*2)
+		if len(c.Positionals) > 0 {
+			words = append(words, c.Positionals[0].Values...)
+		}
+		words = append(words, flagWords(c.Flags)...)
+		patterns = append(patterns, cshSpec("n/"+c.Name, words))
 	}
 	var b strings.Builder
 	b.WriteString(fill(cshPreamble, "%PROGRAM%", v.program))

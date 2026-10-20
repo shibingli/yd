@@ -90,9 +90,13 @@ func init() {
 		Short: "generate and install shell completion | 生成并安装 shell 补全",
 		Long: "Print or install a completion script for bash, zsh, csh or powershell.\n" +
 			"打印或安装 bash、zsh、csh、powershell 的补全脚本。\n" +
-			"The scripts are generated from the command registry, so a command or a flag added later is\n" +
-			"completed without anybody editing a script by hand.\n" +
-			"脚本由命令注册表生成，因此日后新增的命令或标志无需任何人手工修改脚本即可被补全。\n" +
+			"The scripts are generated from the command registry, so a command, a flag or a positional\n" +
+			"vocabulary added later is completed without anybody editing a script by hand. Positional words\n" +
+			"are action words and enumerated values such as `yd assets <list|update|...>` and\n" +
+			"`yd tools install <name...>`; paths keep the shell's own file completion.\n" +
+			"脚本由命令注册表生成，因此日后新增的命令、标志或位置参数词表无需任何人手工修改脚本即可被补全。\n" +
+			"位置参数包括动作词与枚举值，例如 `yd assets <list|update|...>` 与 `yd tools install <name...>`；\n" +
+			"路径仍交给 shell 自带的文件补全。\n" +
 			"install writes the script to <dir>/.yd/completion.<shell> and prints the line that loads it.\n" +
 			"powershell is the one exception to that file name: its script lands in completion.ps1, because\n" +
 			"the PowerShell dot-source operator loads a \".ps1\" file only.\n" +
@@ -109,7 +113,27 @@ func init() {
 		Usage: completionUsageLine,
 		Flags: registerCompletionFlags,
 		Run:   runCompletion,
+		Positionals: []Positional{{
+			Name:        "action",
+			Description: "shell or action: bash/zsh/csh/powershell/detect/install | shell 或动作",
+			Values:      completionActionWords(),
+		}},
 	})
+}
+
+// completionActionWords lists the four shells and the two action words in usage order. | completionActionWords
+// 按用法顺序列出四种 shell 与两个动作词。
+//
+// The shells are taken from completion.Shells rather than retyped, so a fifth shell reaches the completion
+// of the completion command itself without a second list to update. | shell 取自 completion.Shells 而不是重抄，
+// 因此新增第五种 shell 时，`yd completion` 自身的补全也无需第二份列表。
+func completionActionWords() []string {
+	shells := completion.Shells()
+	out := make([]string, 0, len(shells)+2)
+	for _, sh := range shells {
+		out = append(out, string(sh))
+	}
+	return append(out, completionActionDetect, completionActionInstall)
 }
 
 // registerCompletionFlags declares the completion command's flags. | registerCompletionFlags 声明 completion 命令的标志。
@@ -300,8 +324,10 @@ func completionRequest(env *Env, opts completionOptions) completion.Request {
 //
 // Each command is asked for its flags through the very same function Execute uses, so what is completed
 // is exactly what can be typed - including the global flags, which every command accepts after its own
-// name. A command added tomorrow needs no change here at all. | 每个命令的标志都经由 Execute 所用的同一个函数取得，
-// 因此能被补全的正是能被输入的东西——包括每个命令在自身名字之后都接受的全局标志。明天新增的命令完全不需要改这里。
+// name - and its positional vocabulary is carried over as declared. A command added tomorrow needs no
+// change here at all; it only has to describe its positionals where it is registered. | 每个命令的标志都经由
+// Execute 所用的同一个函数取得，因此能被补全的正是能被输入的东西——包括每个命令在自身名字之后都接受的全局标志
+// ——而它的位置参数词表按声明原样传递。明天新增的命令完全不需要改这里；它只需在注册处描述自己的位置参数。
 func completionRegistry(env *Env) completion.Registry {
 	quiet := *env
 	quiet.Out = io.Discard
@@ -315,9 +341,10 @@ func completionRegistry(env *Env) completion.Registry {
 	for _, c := range cmds {
 		fs := newCommandFlagSet(&quiet, c)
 		reg.Commands = append(reg.Commands, completion.Command{
-			Name:  c.Name,
-			Short: c.Short,
-			Flags: completionFlagsOf(fs),
+			Name:        c.Name,
+			Short:       c.Short,
+			Flags:       completionFlagsOf(fs),
+			Positionals: completionPositionals(c.Positionals),
 		})
 	}
 	return reg
@@ -330,6 +357,29 @@ func completionGlobalFlags() []completion.Flag {
 	fs.SetOutput(io.Discard)
 	registerGlobalFlags(fs)
 	return completionFlagsOf(fs)
+}
+
+// completionPositionals converts the command's positional slots into the completion view. | completionPositionals
+// 把命令的位置槽位转换为补全视图。
+//
+// The value slices are copied so the generated script can never alias a slice another command mutates; the
+// registry is assembled once per invocation, and a command's slice is shared with its registration value.
+// | 候选词切片会被复制，使生成的脚本绝不会别名到另一个命令可能修改的切片；注册表每次调用只装配一次，而命令的
+// 切片与它的注册值共享。
+func completionPositionals(in []Positional) []completion.Positional {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make([]completion.Positional, len(in))
+	for i, p := range in {
+		out[i] = completion.Positional{
+			Name:        p.Name,
+			Description: p.Description,
+			Values:      append([]string(nil), p.Values...),
+			Variadic:    p.Variadic,
+		}
+	}
+	return out
 }
 
 // completionFlagsOf converts a flag set into the completion view. | completionFlagsOf 把标志集转换为补全视图。

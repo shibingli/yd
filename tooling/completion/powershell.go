@@ -32,18 +32,31 @@ const powerShellBody = `Register-ArgumentCompleter -Native -CommandName %PROGRAM
         $wordToComplete = ''
     }
 
-    # The first element that is not a flag is the command. | 第一个不是标志的元素就是命令。
+    $elements = @($commandAst.CommandElements)
+
+    # The first element that is not a flag - or the value of a value-taking flag - is the command. | 第一个
+    # 不是标志、也不是取值标志取值的元素就是命令。
     $command = $null
-    foreach ($element in @($commandAst.CommandElements | Select-Object -Skip 1)) {
-        $text = $element.Extent.Text
-        if ($text -notlike '-*') {
-            $command = $text
-            break
+    $commandIndex = -1
+    $skip = $false
+    for ($i = 1; $i -lt $elements.Count; $i++) {
+        $text = $elements[$i].Extent.Text
+        if ($skip) {
+            $skip = $false
+            continue
         }
+        if ($text.StartsWith('-')) {
+            if ($global:ydCompletion.ValueFlags -contains $text) {
+                $skip = $true
+            }
+            continue
+        }
+        $command = $text
+        $commandIndex = $i
+        break
     }
 
     $previous = $null
-    $elements = @($commandAst.CommandElements)
     if ($elements.Count -gt 0) {
         $last = $elements[$elements.Count - 1].Extent.Text
         if ($last -eq $wordToComplete) {
@@ -57,6 +70,49 @@ const powerShellBody = `Register-ArgumentCompleter -Native -CommandName %PROGRAM
     if ($null -ne $previous -and $global:ydCompletion.ValueFlags -contains $previous) {
         # A word that follows a value-taking flag is that flag's value, so nothing is offered for it. | 取值标志
         # 之后的那个词是它的取值，因此不为它提供候选。
+        return
+    }
+
+    # A non-flag word after a known command is a positional argument. | 已知命令之后的非标志词是位置参数。
+    if ($null -ne $command -and $commandIndex -ge 0 -and -not $wordToComplete.StartsWith('-') -and $global:ydCompletion.Flags.ContainsKey($command)) {
+        $end = $elements.Count
+        if ($end -gt 0 -and $elements[$end - 1].Extent.Text -eq $wordToComplete) {
+            $end--
+        }
+        $pos = 0
+        $skip = $false
+        for ($i = $commandIndex + 1; $i -lt $end; $i++) {
+            $text = $elements[$i].Extent.Text
+            if ($skip) {
+                $skip = $false
+                continue
+            }
+            if ($text.StartsWith('-')) {
+                if ($global:ydCompletion.ValueFlags -contains $text) {
+                    $skip = $true
+                }
+                continue
+            }
+            $pos++
+        }
+        $pos++
+        $slot = $null
+        if ($global:ydCompletion.Positionals.ContainsKey($command)) {
+            $slots = $global:ydCompletion.Positionals[$command]
+            if ($pos -le $slots.Count) {
+                $slot = $slots[$pos - 1]
+            } elseif ($slots.Count -gt 0 -and $slots[$slots.Count - 1].Variadic) {
+                $slot = $slots[$slots.Count - 1]
+            }
+        }
+        if ($null -ne $slot) {
+            foreach ($value in $slot.Values) {
+                if ($value.StartsWith($wordToComplete)) {
+                    [System.Management.Automation.CompletionResult]::new(
+                        $value, $value, 'ParameterValue', $slot.Description)
+                }
+            }
+        }
         return
     }
 
@@ -112,11 +168,49 @@ func generatePowerShell(v view) string {
 	b.WriteString("    }\n")
 	b.WriteString("    ValueFlags = @(")
 	b.WriteString(powerShellWords(v.valueWords))
-	b.WriteString(")\n}\n\n")
+	b.WriteString(")\n")
+	b.WriteString("    Positionals = @{\n")
+	b.WriteString(powerShellPositionalEntries(v.commands))
+	b.WriteString("    }\n}\n\n")
 	b.WriteString(fill(powerShellBody, "%PROGRAM%", v.program))
 	b.WriteString("\n\n")
 	b.WriteString(fill(powerShellFooter, "%TOOLSDIR%", v.toolsDir))
 	b.WriteByte('\n')
+	return b.String()
+}
+
+// powerShellPositionalEntries renders the per-command positional tables. | powerShellPositionalEntries 渲染逐命令的
+// 位置参数表。
+//
+// Slots are emitted in declaration order because the completer indexes them by position; an empty slot is
+// kept as `Values = @()` so later slots do not shift. | 槽位按声明顺序输出，因为补全器按位置索引它们；空槽位保留为
+// `Values = @()`，使后续槽位不会错位。
+func powerShellPositionalEntries(commands []Command) string {
+	var b strings.Builder
+	for _, c := range commands {
+		if !c.hasPositionalValues() {
+			continue
+		}
+		b.WriteString("        ")
+		b.WriteString(quotePowerShell(c.Name))
+		b.WriteString(" = @(\n")
+		for _, p := range c.Positionals {
+			b.WriteString("            @{ Name = ")
+			b.WriteString(quotePowerShell(p.Name))
+			if p.Description != "" {
+				b.WriteString("; Description = ")
+				b.WriteString(quotePowerShell(p.Description))
+			}
+			b.WriteString("; Values = @(")
+			b.WriteString(powerShellWords(p.Values))
+			b.WriteString(")")
+			if p.Variadic {
+				b.WriteString("; Variadic = $true")
+			}
+			b.WriteString(" }\n")
+		}
+		b.WriteString("        )\n")
+	}
 	return b.String()
 }
 

@@ -56,6 +56,11 @@ func init() {
 		Usage: iconsUsageLine,
 		Flags: registerIconsFlags,
 		Run:   runIcons,
+		Positionals: []Positional{{
+			Name:        "action",
+			Description: "action: sync/check | 动作",
+			Values:      []string{iconsActionSync, iconsActionCheck},
+		}},
 	})
 }
 

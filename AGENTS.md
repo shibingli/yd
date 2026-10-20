@@ -166,8 +166,11 @@
       非 development 环境未配置 `seed.admin_password` / `YD_SEED_ADMIN_PASSWORD` 时**拒绝初始化**，
       **绝不**用默认口令在生产开管理员；口令永不进日志。
 - [ ] **Shell 补全**：`yd completion` 的四种脚本**从命令注册表生成**（禁止手写）；
-      **默认绝不改 rc 文件**，`--append-rc` 才追加且必须幂等 + 先备份；PATH 片段默认注释掉；
-      PowerShell 脚本文件名必须是 `.ps1`（点源只加载 `.ps1`，用别的后缀会静默失效）；
+      位置参数（动作词/枚举值）由 `Command.Positionals` 描述并一起生成，非标志位置不得用标志回答，
+      csh 只补第一个位置槽位；**命令/标志/位置参数新增、重命名或删除时，必须在同一次变更中更新
+      `Command` 的标志声明与 `Positionals` 及补全测试**，`yd completion` 不得落后于命令定义；
+      **默认绝不改 rc 文件**，`--append-rc` 才追加且必须幂等 + 先备份；
+      PATH 片段默认注释掉；PowerShell 脚本文件名必须是 `.ps1`（点源只加载 `.ps1`，用别的后缀会静默失效）；
       语法检查找不到解释器时 `t.Skipf` 写明原因，**不得静默通过**。
 - [ ] **不直接 panic**：非测试代码里除 `recover()` 块中的 `panic(rec)` 重新抛出外，
       **不得出现 `panic(`**；接线期错误一律登记并由 `Router.Validate()` / `cli.Execute()` 启动时返回，

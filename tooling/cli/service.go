@@ -106,6 +106,18 @@ func init() {
 		Usage: serviceUsageLine,
 		Flags: registerServiceFlags,
 		Run:   runService,
+		Positionals: []Positional{{
+			Name:        "action",
+			Description: "service action: install/uninstall/start/stop/restart/status | 服务动作",
+			Values: []string{
+				string(service.ActionInstall),
+				string(service.ActionUninstall),
+				string(service.ActionStart),
+				string(service.ActionStop),
+				string(service.ActionRestart),
+				string(service.ActionStatus),
+			},
+		}},
 	})
 }
 

@@ -81,10 +81,29 @@ func init() {
 			"`yd tools install` 会接触网络。\n" +
 			"check never fails a build: a missing optional tool is a hint, not an error.\n" +
 			"check 绝不让构建失败：可选工具缺失是提示，不是错误。",
-		Usage: toolsUsageLine,
-		Flags: registerToolsFlags,
-		Run:   runTools,
+		Usage:       toolsUsageLine,
+		Flags:       registerToolsFlags,
+		Run:         runTools,
+		Positionals: toolsPositionals(),
 	})
+}
+
+// toolsPositionals describes the action word and the repeatable tool-name slot. | toolsPositionals 描述动作词与
+// 可重复的工具名槽位。
+//
+// The names come from tools.Registry rather than a second list, so a tool added to the installer is
+// completed without anybody editing the completion command. | 名称取自 tools.Registry 而不是第二份列表，因此
+// 安装器新增工具时无需任何人改动 completion 命令即可被补全。
+func toolsPositionals() []Positional {
+	registered := tools.Registry()
+	names := make([]string, 0, len(registered))
+	for _, t := range registered {
+		names = append(names, t.Name)
+	}
+	return []Positional{
+		{Name: "action", Description: "action: check/install | 动作", Values: []string{toolsActionCheck, toolsActionInstall}},
+		{Name: "name", Description: "tool name | 工具名", Values: names, Variadic: true},
+	}
 }
 
 // registerToolsFlags captures the command's flag set. | registerToolsFlags 捕获命令的标志集。

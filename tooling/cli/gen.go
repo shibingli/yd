@@ -70,6 +70,11 @@ func init() {
 		Usage: genUsageLine,
 		Flags: registerGenFlags,
 		Run:   runGen,
+		Positionals: []Positional{{
+			Name:        "kind",
+			Description: "generator kind: module/crud | 生成类型",
+			Values:      []string{genKindModule, genKindCrud},
+		}},
 	})
 }
 

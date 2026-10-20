@@ -27,17 +27,24 @@ const bashPreamble = `# yd bash completion, generated from the command registry 
 // 判断先于任何候选词表的构建：没有前者，正在补全的那个词会被当成命令名（于是 `yd bu<TAB>` 什么都补不出来）；
 // 没有后者，`yd build --output <TAB>` 会在本该出现文件名的地方提供标志。
 const bashBody = `_yd_completion() {
-    local cur cmd word i
+    local cur cmd word i cmd_i skip pos
     COMPREPLY=()
     cur="${COMP_WORDS[COMP_CWORD]}"
 
-    # Only the words before the cursor can name a command. | 只有光标之前的词才能命名命令。
+    # Only the words before the cursor can name a command; the value of a value-taking flag cannot. |
+    # 只有光标之前的词才能命名命令；取值标志的取值不能。
     cmd=""
+    cmd_i=-1
+    skip=0
     for ((i = 1; i < COMP_CWORD; i++)); do
         word="${COMP_WORDS[i]}"
+        if (( skip )); then
+            skip=0
+            continue
+        fi
         case "$word" in
-            -*) continue ;;
-            *) cmd="$word"; break ;;
+            -*) case " $_yd_value_flags " in *" $word "*) skip=1 ;; esac ;;
+            *) cmd="$word"; cmd_i=$i; break ;;
         esac
     done
 
@@ -60,7 +67,29 @@ const bashBody = `_yd_completion() {
     # The command word itself is being typed. | 正在输入命令词本身。
     if [[ -z "$cmd" ]]; then
         COMPREPLY=($(compgen -W "$_yd_commands" -- "$cur"))
+        return 0
     fi
+
+    # A positional argument: count the words after the command, skipping flag values. | 位置参数：统计命令之后
+    # 的词，跳过取值标志的取值。
+    pos=0
+    skip=0
+    for ((i = cmd_i + 1; i < COMP_CWORD; i++)); do
+        word="${COMP_WORDS[i]}"
+        if (( skip )); then
+            skip=0
+            continue
+        fi
+        case "$word" in
+            -*) case " $_yd_value_flags " in *" $word "*) skip=1 ;; esac ;;
+            *) pos=$((pos + 1)) ;;
+        esac
+    done
+    pos=$((pos + 1))
+
+    case "$cmd" in
+%POSITIONALS%
+    esac
 
     return 0
 }
@@ -84,11 +113,44 @@ func generateBash(v view) string {
 	b.WriteString("\n\n# Flags that consume the next word | 会消耗下一个词的标志\n_yd_value_flags=")
 	b.WriteString(bashList(v.valueWords))
 	b.WriteString("\n\n")
-	b.WriteString(fill(bashBody, "%COMMANDS%", bashCases(v), "%PROGRAM%", v.program))
+	b.WriteString(fill(bashBody,
+		"%COMMANDS%", bashCases(v),
+		"%POSITIONALS%", bashPositionalCases(v),
+		"%PROGRAM%", v.program))
 	b.WriteByte('\n')
 	b.WriteString(fill(bashFooter, "%TOOLSDIR%", v.toolsDir))
 	b.WriteByte('\n')
 	return b.String()
+}
+
+// bashPositionalCases renders the per-command case block that answers a positional word. | bashPositionalCases
+// 渲染回答位置词的逐命令 case 块。
+//
+// A command with no candidate values is left out entirely: an empty arm would only add noise, and the
+// `complete -o default` registration already lets readline complete that word as a path. | 没有任何候选词的
+// 命令完全不出现：空分支只会增加噪音，而 `complete -o default` 登记本就会让 readline 把那个词按路径补全。
+func bashPositionalCases(v view) string {
+	var b strings.Builder
+	for _, c := range v.commands {
+		if !c.hasPositionalValues() {
+			continue
+		}
+		b.WriteString("            ")
+		b.WriteString(c.Name)
+		b.WriteString(")\n                case \"$pos\" in\n")
+		for i, p := range c.Positionals {
+			if len(p.Values) == 0 {
+				continue
+			}
+			b.WriteString("                    ")
+			b.WriteString(p.pattern(i + 1))
+			b.WriteString(") COMPREPLY=($(compgen -W \"")
+			b.WriteString(strings.Join(p.Values, " "))
+			b.WriteString("\" -- \"$cur\")) ;;\n")
+		}
+		b.WriteString("                esac\n                ;;\n")
+	}
+	return strings.TrimSuffix(b.String(), "\n")
 }
 
 // bashCases renders the per-command case arms inside the completion function. | bashCases 渲染补全函数中逐命令的

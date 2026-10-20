@@ -16,6 +16,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -219,6 +220,48 @@ func TestCompletionRegistryMirrorsFlagsAndValueKind(t *testing.T) {
 	}
 	if contains(zshWords, "--verbose") {
 		t.Errorf("the zsh value list wrongly holds --verbose | zsh 取值词表不该含 --verbose: %v", zshWords)
+	}
+}
+
+// TestCompletionRegistryMirrorsPositionals 每个命令的位置参数描述都必须原样进入补全视图。
+// TestCompletionRegistryMirrorsPositionals requires every command's positional description to reach the view.
+//
+// The expectations are taken from Commands() rather than retyped here, so this test cannot pass by agreeing
+// with a second copy of the registry: it fails when the mapping drops a slot, reorders one, or loses the
+// variadic marker. | 期望值取自 Commands() 而不是在这里重抄一遍，因此本测试不可能靠与第二份注册表保持一致而通过：
+// 映射一旦漏掉槽位、打乱顺序或丢掉可变标记，它就会失败。
+func TestCompletionRegistryMirrorsPositionals(t *testing.T) {
+	te := completionEnv(t, "linux", completionShellVars("/bin/bash"), "", false)
+	reg := completionRegistry(te.env)
+	mapped := make(map[string]completion.Command, len(reg.Commands))
+	for _, c := range reg.Commands {
+		mapped[c.Name] = c
+	}
+
+	for _, c := range Commands() {
+		got, ok := mapped[c.Name]
+		if !ok {
+			t.Fatalf("command %q is missing from the registry | 注册表中缺少命令 %q", c.Name, c.Name)
+		}
+		if len(got.Positionals) != len(c.Positionals) {
+			t.Fatalf("%s: mapped %d positional slots, want %d | %s：映射出 %d 个位置槽位，期望 %d 个",
+				c.Name, len(got.Positionals), len(c.Positionals), c.Name, len(got.Positionals), len(c.Positionals))
+		}
+		for i := range c.Positionals {
+			want, have := c.Positionals[i], got.Positionals[i]
+			if !slices.Equal(have.Values, want.Values) {
+				t.Errorf("%s slot %d values = %v, want %v | 位置候选不符", c.Name, i+1, have.Values, want.Values)
+			}
+			if have.Variadic != want.Variadic {
+				t.Errorf("%s slot %d variadic = %v, want %v | 可变标记不符", c.Name, i+1, have.Variadic, want.Variadic)
+			}
+			if have.Description != want.Description {
+				t.Errorf("%s slot %d description = %q, want %q | 位置描述不符", c.Name, i+1, have.Description, want.Description)
+			}
+			if strings.TrimSpace(have.Description) == "" {
+				t.Errorf("%s slot %d has no description | %s 的第 %d 个位置槽位缺少描述", c.Name, i+1, c.Name, i+1)
+			}
+		}
 	}
 }
 
@@ -627,6 +670,12 @@ COMP_WORDS=("$2" ''); COMP_CWORD=1; _yd_completion; echo "cmds:${#COMPREPLY[@]}:
 COMP_WORDS=("$2" build --); COMP_CWORD=2; _yd_completion; echo "flags:${#COMPREPLY[@]}:${COMPREPLY[*]}"
 COMP_WORDS=("$2" build --output ''); COMP_CWORD=3; _yd_completion; echo "value:${#COMPREPLY[@]}:${COMPREPLY[*]}"
 COMP_WORDS=("$2" gen ''); COMP_CWORD=2; _yd_completion; echo "pos:${#COMPREPLY[@]}:${COMPREPLY[*]}"
+COMP_WORDS=("$2" completion ''); COMP_CWORD=2; _yd_completion; echo "completion:${#COMPREPLY[@]}:${COMPREPLY[*]}"
+COMP_WORDS=("$2" assets ''); COMP_CWORD=2; _yd_completion; echo "assets:${#COMPREPLY[@]}:${COMPREPLY[*]}"
+COMP_WORDS=("$2" tools install ''); COMP_CWORD=3; _yd_completion; echo "tools:${#COMPREPLY[@]}:${COMPREPLY[*]}"
+COMP_WORDS=("$2" assets --manifest lock.json ''); COMP_CWORD=4; _yd_completion; echo "skipflag:${#COMPREPLY[@]}:${COMPREPLY[*]}"
+COMP_WORDS=("$2" --config cfg assets ''); COMP_CWORD=4; _yd_completion; echo "skipglobal:${#COMPREPLY[@]}:${COMPREPLY[*]}"
+COMP_WORDS=("$2" assets list ''); COMP_CWORD=3; _yd_completion; echo "noposition:${#COMPREPLY[@]}:${COMPREPLY[*]}"
 COMP_WORDS=("$2" --); COMP_CWORD=1; _yd_completion; echo "globals:${#COMPREPLY[@]}:${COMPREPLY[*]}"`
 	out, err := exec.Command(bin, "--noprofile", "--norc", "-c", driver, "yd-completion-test", filepath.ToSlash(path), "yd").CombinedOutput()
 	if err != nil {
@@ -640,7 +689,9 @@ COMP_WORDS=("$2" --); COMP_CWORD=1; _yd_completion; echo "globals:${#COMPREPLY[@
 		switch {
 		case !found:
 			t.Fatalf("unexpected output while loading the script | 加载脚本时出现意外输出: %q", line)
-		case name == "reg", name == "cmds", name == "flags", name == "value", name == "pos", name == "globals":
+		case name == "reg", name == "cmds", name == "flags", name == "value", name == "pos",
+			name == "completion", name == "assets", name == "tools", name == "skipflag",
+			name == "skipglobal", name == "noposition", name == "globals":
 			probes[name] = rest
 		default:
 			t.Fatalf("unexpected output while loading the script | 加载脚本时出现意外输出: %q", line)
@@ -665,8 +716,26 @@ COMP_WORDS=("$2" --); COMP_CWORD=1; _yd_completion; echo "globals:${#COMPREPLY[@
 	if count := strings.Split(probes["value"], ":")[0]; count != "0" {
 		t.Errorf("yd build --output <TAB> offered %s candidates | yd build --output <TAB> 给出了 %s 个候选: %s", count, count, probes["value"])
 	}
-	if count := strings.Split(probes["pos"], ":")[0]; count != "0" {
-		t.Errorf("yd gen <TAB> offered %s candidates | yd gen <TAB> 给出了 %s 个候选: %s", count, count, probes["pos"])
+	if count := strings.Split(probes["noposition"], ":")[0]; count != "0" {
+		t.Errorf("yd assets list <TAB> offered %s candidates | yd assets list <TAB> 给出了 %s 个候选: %s",
+			count, count, probes["noposition"])
+	}
+
+	positionalProbes := map[string][]string{
+		"pos":        {"module", "crud"},
+		"completion": {"bash", "zsh", "csh", "powershell", "detect", "install"},
+		"assets":     {"list", "update", "verify", "add", "minify"},
+		"tools":      {"betteralign", "ko", "tailwindcss", "minify", "docker"},
+		"skipflag":   {"list", "update", "verify", "add", "minify"},
+		"skipglobal": {"list", "update", "verify", "add", "minify"},
+	}
+	for name, want := range positionalProbes {
+		got := strings.Split(probes[name], ":")[1]
+		for _, word := range want {
+			if !strings.Contains(" "+got+" ", " "+word+" ") {
+				t.Errorf("probe %s offered %q, missing %q | 探测 %s 给出的候选中缺少 %q: %s", name, got, word, name, word, got)
+			}
+		}
 	}
 	globals := strings.Split(probes["globals"], ":")[1]
 	for _, want := range []string{"--config", "--env-file", "--verbose", "--quiet", "--no-color", "--version"} {

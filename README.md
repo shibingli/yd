@@ -60,7 +60,7 @@ yd versions upgrade       # Go 模块 + npm 资产一并升级，并重新生成
 yd authz list             # 打印注册表（16 权限 / 4 角色，四种引用形态）
 yd authz check            # 静态校验，有错非零退出（可进 CI）
 
-# Shell 补全：四种 shell 的脚本从命令注册表生成
+# Shell 补全：四种 shell 的脚本从命令注册表生成，命令/标志/位置参数（动作词与枚举值）一起覆盖
 yd completion bash        # 打印脚本（source <(yd completion bash)）
 yd completion install     # 探测 shell、写脚本并打印加载行（默认不动 rc 文件）
 

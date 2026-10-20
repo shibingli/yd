@@ -37,6 +37,16 @@ const (
 // versionsUsageLine is the usage line of the versions command. | versionsUsageLine 是 versions 命令的用法行。
 const versionsUsageLine = "yd versions [check|sync|upgrade] [--dir DIR] [--dry-run] [--go] [--assets]"
 
+// The versions command's action words. | versions 命令的动作词。
+const (
+	// versionsActionCheck verifies the generated version file. | versionsActionCheck 校验生成的版本文件。
+	versionsActionCheck = "check"
+	// versionsActionSync regenerates the version file. | versionsActionSync 重新生成版本文件。
+	versionsActionSync = "sync"
+	// versionsActionUpgrade upgrades Go modules and front-end assets. | versionsActionUpgrade 升级 Go 模块与前端资产。
+	versionsActionUpgrade = "upgrade"
+)
+
 var (
 	// ErrVersionsCommand reports a failed external go command. | ErrVersionsCommand 表示外部 go 命令执行失败。
 	ErrVersionsCommand = errx.New("run go command failed | 执行 go 命令失败")
@@ -114,6 +124,11 @@ func init() {
 		Usage: versionsUsageLine,
 		Flags: registerVersionsFlags,
 		Run:   runVersions,
+		Positionals: []Positional{{
+			Name:        "action",
+			Description: "action: check/sync/upgrade | 动作",
+			Values:      []string{versionsActionCheck, versionsActionSync, versionsActionUpgrade},
+		}},
 	})
 }
 
@@ -129,16 +144,16 @@ func registerVersionsFlags(fs *pflag.FlagSet) {
 // runVersions dispatches the versions subcommands. | runVersions 派发 versions 的子命令。
 func runVersions(ctx context.Context, env *Env) error {
 	args := versionsFlags.Args()
-	sub := "check"
+	sub := versionsActionCheck
 	if len(args) > 0 {
 		sub = args[0]
 	}
 	switch sub {
-	case "check":
+	case versionsActionCheck:
 		return runVersionsCheck(env)
-	case "sync":
+	case versionsActionSync:
 		return runVersionsSync(env)
-	case "upgrade":
+	case versionsActionUpgrade:
 		return runVersionsUpgrade(ctx, env)
 	default:
 		fmt.Fprintf(env.Err, "yd versions: unknown subcommand %q | yd versions：未知子命令 %q\n", sub, sub)

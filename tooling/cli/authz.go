@@ -67,6 +67,11 @@ func init() {
 		Usage: authzUsageLine,
 		Flags: registerAuthzFlags,
 		Run:   runAuthz,
+		Positionals: []Positional{{
+			Name:        "action",
+			Description: "action: check/list | 动作",
+			Values:      []string{authzActionCheck, authzActionList},
+		}},
 	})
 }
 
