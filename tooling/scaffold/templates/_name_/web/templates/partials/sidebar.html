@@ -90,13 +90,15 @@
     </a>
     {{- end }}
 
-    {{/* 接口一组不需要会话：OpenAPI 文档与健康检查本来就是给运维与外部调用方看的，登录页上也要能找到它们。
-         The API group needs no session: the OpenAPI document and the health probe exist for operators and for outside
-         callers, and the sign-in page must be able to reach them too. */}}
-    {{/* 接口一组一律在新标签页打开：文档是整页 HTML、JSON 与健康检查是机器可读响应，换进工作区要么嵌套 <html>，
+    {{/* 接口一组不需要会话：OpenAPI 文档与 JSON 本来就是给运维与外部调用方看的，登录页上也要能找到它们。
+         健康检查只保留为公开端点，不再占用导航：它是运维探测入口，不是日常页面。
+         The API group needs no session: the OpenAPI document and its JSON exist for operators and for outside
+         callers, and the sign-in page must be able to reach them too. The health probe stays a public endpoint but
+         no longer takes a navigation row: it is an operator probe, not a day-to-day page. */}}
+    {{/* 接口一组一律在新标签页打开：文档是整页 HTML、JSON 是机器可读响应，换进工作区要么嵌套 <html>，
          要么把工作区变成一段裸 JSON。target="_blank" 同时绕过 htmx 的局部导航。
-         The API group always opens in a new tab: the document is a whole HTML page while the JSON and the health probe
-         are machine-readable responses; swapping either into the workspace would nest an <html> or replace the page
+         The API group always opens in a new tab: the document is a whole HTML page and the JSON is a
+         machine-readable response; swapping either into the workspace would nest an <html> or replace the page
          with raw JSON. target="_blank" also bypasses htmx partial navigation. */}}
     <p class="yd-nav__section">{{ tr "nav.group.api" }}</p>
     <a class="yd-nav__link" href="/docs" data-yd-nav="docs" target="_blank" rel="noopener noreferrer">
@@ -104,9 +106,6 @@
     </a>
     <a class="yd-nav__link" href="/openapi.json" data-yd-nav="openapi" target="_blank" rel="noopener noreferrer">
       <span class="yd-nav__label">OpenAPI 3.0 JSON</span>
-    </a>
-    <a class="yd-nav__link" href="/healthz" data-yd-nav="health" target="_blank" rel="noopener noreferrer">
-      <span class="yd-nav__label">{{ tr "nav.health" }}</span>
     </a>
   </nav>
 

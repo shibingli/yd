@@ -161,7 +161,7 @@ yd gen module|crud   # 低代码生成（DB Schema 或 Go Struct）
 - 语言切换与侧栏导航一律 `hx-target="#yd-shell"`：服务端返回整块外壳，侧栏高亮与语言才会同步；
   登录前外壳只保留登录卡片（含离线 SVG 品牌区 `/static/img/yd-icon.svg`）与右上角的语言/主题切换。
   favicon 同样指向该同源图标，禁止 `data:,` 空图标或外链；侧栏页脚只显示版本，不列中间件与组件。
-- 接口组（接口文档、OpenAPI JSON、健康检查）一律 `target="_blank" rel="noopener noreferrer"` 新标签页打开，
+- 接口组（接口文档、OpenAPI JSON）一律 `target="_blank" rel="noopener noreferrer"` 新标签页打开，
   页面内的 `/docs`、`/openapi.json` 链接同样处理；它们不能换进工作区。
 - 新增/编辑一律用右侧抽屉（`#yd-drawer` + `data-yd-drawer-open` + `hx-get` 片段）；
   列表操作用下拉菜单（`details.yd-menu`），顶栏租户切换复用同一套面板与条目样式（不用原生 select）；

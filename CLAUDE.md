@@ -629,7 +629,7 @@ yd versions sync               # 仅重新生成 version_generated.go
 - **图标必须离线**：favicon 指向同源静态资产 `/static/img/yd-icon.svg`（框架 `web/static/img/yd-icon.svg`，
   随二进制嵌入），禁止 `data:,` 空图标、CDN 或外链；登录卡片品牌区复用同一图标。
 - **侧栏页脚只显示版本**：中间件与组件清单属于构建细节，不再出现在导航里。
-- **接口组一律新标签页打开**：接口文档、OpenAPI JSON、健康检查（以及页面内的 `/docs`、`/openapi.json` 链接）
+- **接口组一律新标签页打开**：接口文档与 OpenAPI JSON（以及页面内的 `/docs`、`/openapi.json` 链接）
   都带 `target="_blank" rel="noopener noreferrer"`；它们是整页/机器响应，不能换进工作区。
 
 ### 22.2 抽屉、确认与列表操作

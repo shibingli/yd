@@ -2763,6 +2763,32 @@ func TestGenerateThemeBootAndAutoTokens(t *testing.T) {
 	}
 }
 
+// TestSidebarOmitsHealthMenuItem pins the API group to the two links that need the chrome: the
+// health probe still exists as a public endpoint, but it is an operator concern, not a navigation
+// destination, so it must not occupy a sidebar row. | TestSidebarOmitsHealthMenuItem 固定接口组只保留
+// 需要外壳的两个入口：健康检查仍是公开端点，但那是运维关注点而非导航目的地，不应占用侧栏一行。
+func TestSidebarOmitsHealthMenuItem(t *testing.T) {
+	pr, _ := generateMem(t, scaffold.DefaultOptions("nav-app"))
+
+	sidebar := pr.read("web/templates/partials/sidebar.html")
+	for _, unwanted := range []string{`href="/healthz"`, `data-yd-nav="health"`, `nav.health`} {
+		if strings.Contains(sidebar, unwanted) {
+			t.Errorf("sidebar still carries the health menu item (%q) | 侧栏仍包含健康检查菜单项（%q）", unwanted, unwanted)
+		}
+	}
+	for _, want := range []string{`href="/docs"`, `href="/openapi.json"`} {
+		if !strings.Contains(sidebar, want) {
+			t.Errorf("sidebar must keep %q in the API group | 侧栏接口组必须保留 %q", want, want)
+		}
+	}
+
+	for _, file := range []string{"web/i18n/zh-CN.yaml", "web/i18n/en.yaml"} {
+		if strings.Contains(pr.read(file), "health:") {
+			t.Errorf("%s still defines the unused nav.health key | %s 仍定义未使用的 nav.health 键", file, file)
+		}
+	}
+}
+
 // TestSeedPasswordNoticeAppearsOnceOnHome pins the notice placement: the shell must not repeat the
 // first-sign-in password reminder above every page, because home and account already carry it in
 // context. Two banners on the overview page push the actual content down and read as noise. |

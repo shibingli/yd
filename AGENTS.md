@@ -115,7 +115,7 @@
 - [ ] **登录页最小化**：未登录外壳只有登录卡片（含离线图标品牌区）与语言/主题切换，不得出现侧栏、
       顶栏导航、页脚、租户字段或种子凭据说明；favicon 指向同源 `/static/img/yd-icon.svg`，
       禁止 `data:,` 空图标、CDN 或外链；侧栏页脚只显示版本。
-- [ ] **接口组新标签页**：接口文档、OpenAPI JSON、健康检查以及页面内的 `/docs`、`/openapi.json` 链接
+- [ ] **接口组新标签页**：接口文档与 OpenAPI JSON 以及页面内的 `/docs`、`/openapi.json` 链接
       必须带 `target="_blank" rel="noopener noreferrer"`，不得换进工作区。
 - [ ] **实时推送**：htmx 4 只交换匿名 SSE 消息，`Broker.PublishHTML` 必须发送无名 `data:` 消息；
       导航离开实时页面导致的流中止不得显示断线横幅。
