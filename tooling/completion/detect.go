@@ -116,6 +116,38 @@ func override(name string) (Detection, error) {
 	return Detection{Shell: sh, Source: SourceOverride, Probe: string(sh)}, nil
 }
 
+// powerShellDistributionChannel is set by the MSI and Store packages of PowerShell 7; it is absent from
+// some installations, so it only confirms 7 and never proves 5.1. | powerShellDistributionChannel 是
+// PowerShell 7 的 MSI 与 Store 包设置的，但部分安装没有它，因此它只能确认 7，绝不能证明是 5.1。
+const powerShellDistributionChannel = "POWERSHELL_DISTRIBUTION_CHANNEL"
+
+// powerShellProfileDir picks the profile directory of the running PowerShell host. | powerShellProfileDir
+// 选择当前 PowerShell 宿主对应的 profile 目录。
+//
+// PowerShell 7 prepends its own "PowerShell" module directory and also keeps the 5.1
+// "WindowsPowerShell" directory later in PSModulePath, so searching the whole value for
+// "windowspowershell" classifies every pwsh 7 session as 5.1. The first PowerShell-looking segment
+// belongs to the host itself, so it decides; unrelated leading segments are skipped. | PowerShell 7 会把
+// 自己的 "PowerShell" 模块目录放在最前，同时把 5.1 的 "WindowsPowerShell" 目录保留在同一变量靠后的位置，
+// 因此在整个取值里搜索 "windowspowershell" 会把每个 pwsh 7 会话都判成 5.1。第一个像 PowerShell 的段属于宿主
+// 自身，由它决定；无关的前导段跳过。
+func powerShellProfileDir(modulePath string) string {
+	for _, entry := range strings.Split(modulePath, ";") {
+		entry = strings.ToLower(strings.ReplaceAll(strings.TrimSpace(entry), "/", `\`))
+		switch {
+		case entry == "":
+			continue
+		case strings.Contains(entry, "windowspowershell"):
+			return "WindowsPowerShell"
+		case strings.Contains(entry, `\powershell\`),
+			strings.HasSuffix(entry, `\powershell`),
+			strings.Contains(entry, "microsoft.powershell_"):
+			return "PowerShell"
+		}
+	}
+	return "PowerShell"
+}
+
 // StartupFile returns the startup file of one shell: the file --append-rc would touch, and the file the
 // printed instructions name. | StartupFile 返回某个 shell 的启动文件：--append-rc 会改动的文件，也是打印出来的
 // 说明所点名的文件。
@@ -141,14 +173,8 @@ func StartupFile(sh Shell, home, goos string, getenv func(string) string) string
 	case PowerShell:
 		if isWindows(goos) {
 			dir := "PowerShell"
-			// pwsh 7's PSModulePath also contains the 5.1 module directory, so that substring
-			// cannot identify the host. PowerShell 7 sets POWERSHELL_DISTRIBUTION_CHANNEL; when
-			// it is absent, fall back to the 5.1 directory. | pwsh 7 的 PSModulePath 同样包含
-			// 5.1 的模块目录，因此该子串无法识别宿主。PowerShell 7 会设置
-			// POWERSHELL_DISTRIBUTION_CHANNEL；没有它时回退到 5.1 目录。
-			if strings.TrimSpace(getenv("POWERSHELL_DISTRIBUTION_CHANNEL")) == "" &&
-				strings.Contains(strings.ToLower(getenv(ModuleEnvName)), "windowspowershell") {
-				dir = "WindowsPowerShell"
+			if strings.TrimSpace(getenv(powerShellDistributionChannel)) == "" {
+				dir = powerShellProfileDir(getenv(ModuleEnvName))
 			}
 			return filepath.Join(home, "Documents", dir, "Microsoft.PowerShell_profile.ps1")
 		}

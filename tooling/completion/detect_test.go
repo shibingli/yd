@@ -219,6 +219,29 @@ func TestStartupFile(t *testing.T) {
 			want: filepath.Join(home, "Documents", "WindowsPowerShell", "Microsoft.PowerShell_profile.ps1"),
 		},
 		{
+			// The live shape of a pwsh 7 session: its own module directory comes first, and the 5.1
+			// directory is still present later in the same variable. The old "contains WindowsPowerShell"
+			// test classified this as 5.1 and wrote the loading line into the wrong profile.
+			// | pwsh 7 会话的真实形态：它自己的模块目录在前，5.1 的目录仍保留在同一变量的后面。旧的
+			// 「任意位置含 WindowsPowerShell」判断把它当成 5.1，把加载行写进了错误的 profile。
+			name: "pwsh 7 with the 5.1 module directory | 含 5.1 模块目录的 pwsh 7", shell: PowerShell, goos: "windows",
+			env:  map[string]string{ModuleEnvName: `E:\Users\alice\Documents\PowerShell\Modules;C:\Program Files\PowerShell\Modules;C:\Program Files\WindowsPowerShell\Modules;C:\Windows\system32\WindowsPowerShell\v1.0\Modules`},
+			want: filepath.Join(home, "Documents", "PowerShell", "Microsoft.PowerShell_profile.ps1"),
+		},
+		{
+			name: "pwsh 7 store modules | Store 版 pwsh 7 的模块目录", shell: PowerShell, goos: "windows",
+			env:  map[string]string{ModuleEnvName: `C:\Program Files\WindowsApps\Microsoft.PowerShell_7.6.7.0_x64__8wekyb3d8bbwe\Modules;C:\Windows\system32\WindowsPowerShell\v1.0\Modules`},
+			want: filepath.Join(home, "Documents", "PowerShell", "Microsoft.PowerShell_profile.ps1"),
+		},
+		{
+			name: "distribution channel still means pwsh 7 | 发行通道仍表示 pwsh 7", shell: PowerShell, goos: "windows",
+			env: map[string]string{
+				"POWERSHELL_DISTRIBUTION_CHANNEL": "MSI",
+				ModuleEnvName:                     `C:\Windows\system32\WindowsPowerShell\v1.0\Modules`,
+			},
+			want: filepath.Join(home, "Documents", "PowerShell", "Microsoft.PowerShell_profile.ps1"),
+		},
+		{
 			name: "powershell 7 profile on posix | POSIX 上的 PowerShell 7 profile", shell: PowerShell, goos: "linux",
 			want: filepath.Join(home, ".config", "powershell", "profile.ps1"),
 		},

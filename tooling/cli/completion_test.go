@@ -555,6 +555,44 @@ func TestCompletionInstallAppendRCIsIdempotentAndBackedUp(t *testing.T) {
 	}
 }
 
+// TestCompletionInstallUpdatesAChangedLoadLine 脚本路径变化时，install 必须更新已有加载行并报告 updated。
+// TestCompletionInstallUpdatesAChangedLoadLine requires install to update the existing load line and report it.
+func TestCompletionInstallUpdatesAChangedLoadLine(t *testing.T) {
+	fs := afero.NewMemMapFs()
+	te := newTestEnv(t, fs, "", false)
+	stubCompletion(t, "linux", completionShellVars("/bin/bash"))
+	rc := filepath.Join(completionTestHome, ".bashrc")
+
+	if err := execCompletion(t, te, completionActionInstall, "--append-rc", "--dir", completionTestHome+"/one"); err != nil {
+		t.Fatalf("first install failed | 第一次安装失败: %v", err)
+	}
+	te.out.Reset()
+	te.errs.Reset()
+	if err := execCompletion(t, te, completionActionInstall, "--append-rc", "--dir", completionTestHome+"/two"); err != nil {
+		t.Fatalf("second install failed | 第二次安装失败: %v", err)
+	}
+
+	out := te.out.String()
+	if !strings.Contains(out, "updated | 已更新: "+rc) {
+		t.Errorf("the update was not reported | 未报告更新:\n%s", out)
+	}
+	data, err := afero.ReadFile(fs, rc)
+	if err != nil {
+		t.Fatalf("read startup file failed | 读取启动文件失败: %v", err)
+	}
+	if count := strings.Count(string(data), "completion.bash"); count != 1 {
+		t.Errorf("the script path appears %d times, want 1 | 脚本路径出现次数不为 1:\n%s", count, data)
+	}
+	newLine := completion.LoadLine(completion.Bash, filepath.Join(completionTestHome, "two", ".yd", "completion.bash"))
+	if !strings.Contains(string(data), newLine) {
+		t.Errorf("the new load line is missing | 缺少新的加载行:\n%s", data)
+	}
+	oldLine := completion.LoadLine(completion.Bash, filepath.Join(completionTestHome, "one", ".yd", "completion.bash"))
+	if strings.Contains(string(data), oldLine) {
+		t.Errorf("the old load line is still present | 旧的加载行仍然存在:\n%s", data)
+	}
+}
+
 // TestCompletionInstallPromptsOnlyOnATTY 只有 TTY 交互运行才会提问，且 --yes 连问都不问。
 // TestCompletionInstallPromptsOnlyOnATTY prompts only in an interactive TTY, and --yes does not even ask.
 func TestCompletionInstallPromptsOnlyOnATTY(t *testing.T) {

@@ -62,7 +62,7 @@ yd authz check            # 静态校验，有错非零退出（可进 CI）
 
 # Shell 补全：四种 shell 的脚本从命令注册表生成，命令/标志/位置参数（动作词与枚举值）一起覆盖
 yd completion bash        # 打印脚本（source <(yd completion bash)）
-yd completion install     # 探测 shell、写脚本并打印加载行（默认不动 rc 文件）
+yd completion install     # 探测 shell、更新脚本与已有加载行（默认不动 rc 文件）
 
 # 可选外部工具：betteralign / ko / tailwindcss / minify / docker 的统一探测与安装
 yd tools check            # 列出五个工具的状态与安装提示，只读、不触网

@@ -18,6 +18,8 @@ import (
 	"slices"
 	"strings"
 	"testing"
+
+	"github.com/spf13/afero"
 )
 
 // scriptCheck is one shell's real syntax check. | scriptCheck 是某个 shell 的真实语法检查。
@@ -146,6 +148,91 @@ func runSyntaxMatrix(t *testing.T, label string, reg Registry) {
 // TestGeneratedScriptsAreSyntacticallyValid requires all four generated scripts to be accepted by their own interpreter.
 func TestGeneratedScriptsAreSyntacticallyValid(t *testing.T) {
 	runSyntaxMatrix(t, "fixture registry | 夹具注册表", fixtureRegistry())
+}
+
+// TestInstalledPowerShellScriptParsesInWindowsPowerShell 安装出来的脚本必须通过 Windows PowerShell 5.1 的解析器。
+// TestInstalledPowerShellScriptParsesInWindowsPowerShell requires the installed script to pass the 5.1 parser.
+//
+// The matrix above picks the first interpreter on PATH, which is pwsh on a machine that has both; 5.1 is
+// therefore never exercised there. This test installs the script exactly as the CLI does - including the
+// UTF-8 BOM - and hands the resulting file to powershell.exe itself. | 上面的矩阵使用 PATH 上第一个解释器，
+// 在同时装有两种宿主的机器上总是 pwsh，5.1 因此从未被检查。本测试按 CLI 的真实路径安装脚本（含 UTF-8 BOM），
+// 再把落盘文件交给 powershell.exe 自身。
+func TestInstalledPowerShellScriptParsesInWindowsPowerShell(t *testing.T) {
+	bin, err := exec.LookPath("powershell")
+	if err != nil {
+		t.Skipf("skipped: powershell is not on PATH, so the 5.1 parser cannot be checked here | 跳过：PATH 上没有 powershell，本机无法检查 5.1 解析器")
+	}
+	home := t.TempDir()
+	res, err := Install(Request{
+		Registry: fixtureRegistry(),
+		Getenv:   envFunc(map[string]string{"HOME": home, "USERPROFILE": home}),
+		FS:       afero.NewOsFs(),
+		GOOS:     "windows",
+		Shell:    PowerShell,
+		Dir:      home,
+	})
+	if err != nil {
+		t.Fatalf("install failed | 安装失败: %v", err)
+	}
+
+	check := checkFor(t, PowerShell)
+	out, err := exec.Command(bin, check.args(res.ScriptPath)...).CombinedOutput()
+	if err != nil {
+		t.Fatalf("Windows PowerShell rejected the installed script | Windows PowerShell 拒绝了安装脚本: %v\n%s", err, out)
+	}
+	if text := strings.TrimSpace(string(out)); text != "" {
+		t.Logf("%s reported | %s 报告: %s", bin, bin, text)
+	}
+}
+
+// TestInstalledPowerShellProfileLoadsInWindowsPowerShell 5.1 必须能读取安装器写出的 profile 并加载脚本。
+// TestInstalledPowerShellProfileLoadsInWindowsPowerShell requires 5.1 to load the profile the installer writes.
+//
+// This is the end-to-end shape of the encoding bug: the script on its own is valid UTF-8, but the profile
+// is read as ANSI, so a non-ASCII marker comment can swallow the loading line. The child process dot-sources
+// the written profile exactly as 5.1 would. | 这是编码缺陷的端到端形态：脚本本身是合法的 UTF-8，但 profile 会
+// 被按 ANSI 读取，非 ASCII 的标记注释可能吞掉加载行。子进程按 5.1 的方式点源实际写出的 profile。
+func TestInstalledPowerShellProfileLoadsInWindowsPowerShell(t *testing.T) {
+	bin, err := exec.LookPath("powershell")
+	if err != nil {
+		t.Skipf("skipped: powershell is not on PATH, so profile loading cannot be checked here | 跳过：PATH 上没有 powershell，本机无法检查 profile 加载")
+	}
+	home := t.TempDir()
+	res, err := Install(Request{
+		Registry: fixtureRegistry(),
+		Getenv: envFunc(map[string]string{
+			"HOME":        home,
+			"USERPROFILE": home,
+			ModuleEnvName: `C:\Users\alice\Documents\WindowsPowerShell\Modules;C:\Windows\system32\WindowsPowerShell\v1.0\Modules`,
+		}),
+		FS:       afero.NewOsFs(),
+		GOOS:     "windows",
+		Shell:    PowerShell,
+		Dir:      home,
+		AppendRC: true,
+	})
+	if err != nil {
+		t.Fatalf("install failed | 安装失败: %v", err)
+	}
+	if !res.RCAppended {
+		t.Fatalf("the profile was not written | profile 未被写入: %+v", res)
+	}
+
+	driver := ". " + quotePowerShell(res.RCFile) + "\n" +
+		"$line = 'yd tools install '\n" +
+		"$m = @((TabExpansion2 $line $line.Length).CompletionMatches | ForEach-Object { $_.CompletionText })\n" +
+		"Write-Output ($m -join ',')"
+	out, err := exec.Command(bin, "-NoProfile", "-NonInteractive", "-Command", driver).CombinedOutput()
+	if err != nil {
+		t.Fatalf("the profile failed to load | profile 加载失败: %v\n%s", err, out)
+	}
+	offers := strings.Split(strings.TrimSpace(string(out)), ",")
+	for _, want := range fixturePositionals["tools"][1].Values {
+		if !slices.Contains(offers, want) {
+			t.Errorf("the loaded profile offered %q, missing %q | 加载后的 profile 给出 %q，缺少 %q", offers, want, offers, want)
+		}
+	}
 }
 
 // TestGeneratedScriptsSurviveHostileText 含引号、美元符与占位符的文案不得弄坏任何一份脚本。

@@ -77,6 +77,181 @@ func TestResolveDoesNotTouchTheFileSystem(t *testing.T) {
 	}
 }
 
+// TestMarkerLineIsASCII 标记行必须是纯 ASCII。
+// TestMarkerLineIsASCII requires the marker line to be ASCII-only.
+//
+// Windows PowerShell 5.1 reads an existing UTF-8 startup file as ANSI. A non-ASCII byte at the end of the
+// marker comment can consume the newline, which glues the loading line into the comment and silently
+// disables the whole installation. | Windows PowerShell 5.1 会把既有的 UTF-8 启动文件按 ANSI 读取。标记注释
+// 末尾的非 ASCII 字节可能吞掉换行，把加载行粘进注释，从而静默地让整个安装失效。
+func TestMarkerLineIsASCII(t *testing.T) {
+	for i := 0; i < len(markerLine); i++ {
+		if markerLine[i] >= 0x80 {
+			t.Fatalf("markerLine has a non-ASCII byte at %d: %q | 标记行在 %d 处含非 ASCII 字节", i, markerLine, i)
+		}
+	}
+}
+
+// TestInstallUpdatesAnOldMarkerBlock 旧版本的标记块必须就地更新，而不是被跳过或追加成两份。
+// TestInstallUpdatesAnOldMarkerBlock requires an old marker block to be updated in place.
+//
+// An older marker line carried Chinese text. Under Windows PowerShell 5.1 that text consumed the newline
+// and glued the loading line into the comment, so the old block never loaded. A re-install must replace
+// that block with the current one, keep exactly one load line, and back the file up first. | 旧标记行带中文。
+// Windows PowerShell 5.1 下那段文字吞掉了换行，把加载行粘进注释，旧块因此从未生效。重装必须把该块替换为当前块，
+// 只保留一条加载行，并在改动前先备份。
+func TestInstallUpdatesAnOldMarkerBlock(t *testing.T) {
+	fs := afero.NewMemMapFs()
+	req := installRequest(fs, PowerShell, nil)
+	req.AppendRC = true
+	plan, err := Resolve(req)
+	if err != nil {
+		t.Fatalf("resolve failed | 解析失败: %v", err)
+	}
+	old := Marker + " (added by \"yd completion install\") | yd 补全（旧）\n. 'old'\n"
+	if err := afero.WriteFile(fs, plan.RCFile, []byte(old), 0o644); err != nil {
+		t.Fatalf("seed failed | 预置失败: %v", err)
+	}
+
+	res, err := Install(req)
+	if err != nil {
+		t.Fatalf("install failed | 安装失败: %v", err)
+	}
+	if !res.RCUpdated {
+		t.Fatal("an old marker block was not updated | 旧标记块未被更新")
+	}
+	if res.RCAppended {
+		t.Error("an update must not report an append | 更新不得报告为追加")
+	}
+	if res.BackupPath == "" {
+		t.Error("the file was updated without a backup | 更新前没有备份")
+	}
+	if backup := string(readFile(t, fs, res.BackupPath)); backup != old {
+		t.Errorf("the backup is not the original | 备份与原文件不一致:\n%q", backup)
+	}
+	after := string(readFile(t, fs, plan.RCFile))
+	if want := markerLine + "\n" + plan.LoadLine + "\n"; after != want {
+		t.Errorf("the updated block = %q, want %q | 更新后的块不符", after, want)
+	}
+	if count := strings.Count(after, Marker); count != 1 {
+		t.Errorf("the marker appears %d times | 标记出现次数不为 1:\n%s", count, after)
+	}
+
+	second, err := Install(req)
+	if err != nil {
+		t.Fatalf("second install failed | 第二次安装失败: %v", err)
+	}
+	if !second.RCSkipped {
+		t.Error("the second install changed the file | 第二次安装改动了文件")
+	}
+}
+
+// TestInstallCollapsesDuplicateMarkerBlocks 重复的标记块必须合并成一个。
+// TestInstallCollapsesDuplicateMarkerBlocks requires duplicate marker blocks to collapse into one.
+func TestInstallCollapsesDuplicateMarkerBlocks(t *testing.T) {
+	fs := afero.NewMemMapFs()
+	req := installRequest(fs, PowerShell, nil)
+	req.AppendRC = true
+	plan, err := Resolve(req)
+	if err != nil {
+		t.Fatalf("resolve failed | 解析失败: %v", err)
+	}
+	duplicate := markerLine + "\n" + plan.LoadLine + "\n" +
+		"# a user line between the blocks | 两块之间的用户内容\n" +
+		markerLine + "\n" + plan.LoadLine + "\n"
+	if err := afero.WriteFile(fs, plan.RCFile, []byte(duplicate), 0o644); err != nil {
+		t.Fatalf("seed failed | 预置失败: %v", err)
+	}
+
+	res, err := Install(req)
+	if err != nil {
+		t.Fatalf("install failed | 安装失败: %v", err)
+	}
+	if !res.RCUpdated {
+		t.Fatal("duplicate blocks were not collapsed | 重复块未被合并")
+	}
+	after := string(readFile(t, fs, plan.RCFile))
+	if count := strings.Count(after, Marker); count != 1 {
+		t.Errorf("the marker appears %d times, want 1 | 标记出现次数不为 1:\n%s", count, after)
+	}
+	if count := strings.Count(after, plan.LoadLine); count != 1 {
+		t.Errorf("the load line appears %d times, want 1 | 加载行出现次数不为 1:\n%s", count, after)
+	}
+	if !strings.Contains(after, "# a user line between the blocks") {
+		t.Errorf("unrelated content was lost | 无关内容丢失:\n%s", after)
+	}
+}
+
+// TestInstallUpdatesAChangedLoadLine 脚本路径变化时，加载行必须就地更新。
+// TestInstallUpdatesAChangedLoadLine requires a changed script path to update the loading line in place.
+func TestInstallUpdatesAChangedLoadLine(t *testing.T) {
+	fs := afero.NewMemMapFs()
+	first := installRequest(fs, PowerShell, nil)
+	first.AppendRC = true
+	first.Dir = "/one"
+	firstRes, err := Install(first)
+	if err != nil {
+		t.Fatalf("first install failed | 第一次安装失败: %v", err)
+	}
+
+	second := installRequest(fs, PowerShell, nil)
+	second.AppendRC = true
+	second.Dir = "/two"
+	secondPlan, err := Resolve(second)
+	if err != nil {
+		t.Fatalf("resolve failed | 解析失败: %v", err)
+	}
+	secondRes, err := Install(second)
+	if err != nil {
+		t.Fatalf("second install failed | 第二次安装失败: %v", err)
+	}
+	if !secondRes.RCUpdated {
+		t.Fatal("the changed load line was not updated | 变化的加载行未被更新")
+	}
+	after := string(readFile(t, fs, secondPlan.RCFile))
+	if !strings.Contains(after, secondPlan.LoadLine) {
+		t.Errorf("the new load line is missing | 缺少新的加载行:\n%s", after)
+	}
+	if strings.Contains(after, firstRes.LoadLine) {
+		t.Errorf("the old load line is still present | 旧的加载行仍然存在:\n%s", after)
+	}
+	if count := strings.Count(after, Marker); count != 1 {
+		t.Errorf("the marker appears %d times, want 1 | 标记出现次数不为 1:\n%s", count, after)
+	}
+}
+
+// TestInstallWritesPowerShellWithBOM 安装的 PowerShell 脚本必须带 UTF-8 BOM，其它 shell 不得带。
+// TestInstallWritesPowerShellWithBOM requires the installed PowerShell script to carry a UTF-8 BOM and the others not to.
+//
+// Windows PowerShell 5.1 reads a ".ps1" file as ANSI unless it starts with the BOM. The script carries
+// Chinese descriptions, so without the BOM 5.1 parses mojibake and fails at the first hash literal. |
+// Windows PowerShell 5.1 在没有 BOM 时按 ANSI 读取 ".ps1"。脚本含中文描述，缺了 BOM 就会把乱码当代码解析，
+// 在第一个哈希字面量处失败。
+func TestInstallWritesPowerShellWithBOM(t *testing.T) {
+	bom := []byte{0xEF, 0xBB, 0xBF}
+	for _, sh := range Shells() {
+		t.Run(string(sh), func(t *testing.T) {
+			fs := afero.NewMemMapFs()
+			res, err := Install(installRequest(fs, sh, nil))
+			if err != nil {
+				t.Fatalf("install failed | 安装失败: %v", err)
+			}
+			data := readFile(t, fs, res.ScriptPath)
+			hasBOM := bytes.HasPrefix(data, bom)
+			if sh == PowerShell {
+				if !hasBOM {
+					t.Error("the PowerShell script has no UTF-8 BOM | PowerShell 脚本缺少 UTF-8 BOM")
+				}
+			} else if hasBOM {
+				t.Errorf("the %s script must not start with a BOM | %s 脚本不得以 BOM 开头", sh, sh)
+			}
+			if res.Bytes != len(data) {
+				t.Errorf("Bytes = %d, file size = %d | 字节数报告与实际文件不符", res.Bytes, len(data))
+			}
+		})
+	}
+}
+
 // TestResolvePathsAndLoadLine 校验解析出的路径与加载行。
 // TestResolvePathsAndLoadLine checks the resolved paths and the loading line.
 func TestResolvePathsAndLoadLine(t *testing.T) {

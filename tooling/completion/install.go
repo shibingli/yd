@@ -4,6 +4,7 @@
 package completion
 
 import (
+	"bytes"
 	"errors"
 	"io/fs"
 	"os"
@@ -17,13 +18,17 @@ import (
 
 // Marker is the substring that identifies a line as written by this package. | Marker 是标识某一行由本包写入的子串。
 //
-// It is looked up before anything is appended, which is what makes --append-rc idempotent: running the
-// installation twice adds the loading line once. | 追加之前会先查它，这正是 --append-rc 幂等的原因：
-// 把安装跑两遍，加载行只被加一次。
+// It is used to find blocks written by older versions; --append-rc is idempotent on the full marker +
+// loading block, and a stale, duplicated or broken block is rewritten in place. | 它用于查找旧版本写下的块；
+// --append-rc 以「标记行 + 加载行」整块保持幂等，陈旧、重复或损坏的块会被就地重写。
 const Marker = "# yd completion"
 
-// markerLine is the complete comment line written above the loading line. | markerLine 是写在加载行之前的完整注释行。
-const markerLine = Marker + ` (added by "yd completion install") | yd 补全（由 "yd completion install" 添加）`
+// markerLine is the complete comment line written above the loading line. It is deliberately ASCII-only:
+// Windows PowerShell 5.1 reads an existing UTF-8 startup file as ANSI, and a non-ASCII byte at the end of
+// the comment can consume the newline, gluing the loading line into the comment. | markerLine 是写在加载行
+// 之前的完整注释行。它刻意只用 ASCII：Windows PowerShell 5.1 会把既有的 UTF-8 启动文件按 ANSI 读取，注释末尾
+// 的非 ASCII 字节可能吞掉换行，把加载行粘进注释。
+const markerLine = Marker + ` (added by "yd completion install")`
 
 // backupSuffix is appended to the startup file path to name its first backup. | backupSuffix 被追加到启动文件路径之后，
 // 作为第一个备份的名字。
@@ -102,8 +107,12 @@ type Result struct {
 	Bytes int
 	// RCAppended reports that the loading line was appended by this run. | RCAppended 报告本次运行追加了加载行。
 	RCAppended bool
-	// RCSkipped reports that the startup file already carried the marker, so nothing was appended and
-	// the file was left byte for byte as it was. | RCSkipped 报告启动文件已带标记，因此没有追加，
+	// RCUpdated reports that the existing marker block was replaced in place by this run - because it
+	// was written by an older version, was duplicated, or named a different script path. | RCUpdated
+	// 报告本次运行就地替换了已有的标记块——旧版本写下的、重复的，或指向了别的脚本路径。
+	RCUpdated bool
+	// RCSkipped reports that the current marker block was already present, so nothing was written and
+	// the file was left byte for byte as it was. | RCSkipped 报告当前标记块已经存在，因此没有写入，
 	// 文件保持逐字节不变。
 	RCSkipped bool
 }
@@ -244,14 +253,22 @@ func isASCIILetter(b byte) bool {
 	return b >= 'a' && b <= 'z' || b >= 'A' && b <= 'Z'
 }
 
-// Install writes the script and, only when asked, appends the loading line to the startup file. | Install
-// 写入脚本，并且只在被要求时把加载行追加到启动文件。
+// powerShellBOM is the UTF-8 byte-order mark Windows PowerShell 5.1 requires before it will read a .ps1
+// file as UTF-8. The script carries Chinese descriptions, and without the mark 5.1 decodes them as ANSI,
+// which turns the text into mojibake and breaks the quoting of the first hash literal. | powerShellBOM 是
+// Windows PowerShell 5.1 将 .ps1 按 UTF-8 读取所需的字节顺序标记。脚本含中文描述，缺了它 5.1 会按 ANSI 解码，
+// 文本变成乱码并破坏第一个哈希字面量的引号。
+const powerShellBOM = "\xEF\xBB\xBF"
+
+// Install writes the script and, only when asked, writes or updates the loading block of the startup
+// file. | Install 写入脚本，并且只在被要求时写入或更新启动文件的加载块。
 //
 // The script itself is always rewritten, so re-installing is how a user picks up the commands and flags
-// added since the last run. The startup file is a different matter: it is read first, the marker is
-// looked for, and when it is already there the file is left byte for byte untouched - no backup, no
-// write, no new mtime. | 脚本每次都会被重写，因此重装就是用户获取上次运行以来新增命令与标志的方式。
-// 启动文件则不同：先读取、先找标记，标记已存在时文件逐字节保持原样——不备份、不写入、mtime 不变。
+// added since the last run. The startup file is a different matter: the block this run would write is
+// compared with the one already there; when they are identical the file is left byte for byte untouched,
+// otherwise the old block is replaced in place and the file is backed up first. | 脚本每次都会被重写，因此
+// 重装就是用户获取上次运行以来新增命令与标志的方式。启动文件则不同：先比较本次将写入的块与已有的块；
+// 完全一致时文件逐字节保持原样，否则就地替换旧块，并在改动前先做备份。
 func Install(req Request) (Result, error) {
 	plan, err := Resolve(req)
 	if err != nil {
@@ -270,52 +287,145 @@ func Install(req Request) (Result, error) {
 			return Result{}, errx.WrapDetail(err, ErrWriteScript, "%s", dir)
 		}
 	}
-	if err := afero.WriteFile(fsys, plan.ScriptPath, []byte(script), 0o644); err != nil {
+	data := []byte(script)
+	if plan.Detection.Shell == PowerShell {
+		// The printed script stays BOM-free: it is meant for `Out-String | Invoke-Expression`, where the
+		// encoding is already settled. Only the file on disk needs the mark. | 打印出来的脚本保持无 BOM：
+		// 它用于 `Out-String | Invoke-Expression`，编码已经确定。只有落盘文件需要这个标记。
+		data = append([]byte(powerShellBOM), data...)
+	}
+	if err := afero.WriteFile(fsys, plan.ScriptPath, data, 0o644); err != nil {
 		return Result{}, errx.WrapDetail(err, ErrWriteScript, "%s", plan.ScriptPath)
 	}
 
-	res := Result{Plan: plan, Bytes: len(script)}
+	res := Result{Plan: plan, Bytes: len(data)}
 	if !req.AppendRC || plan.RCFile == "" {
 		return res, nil
 	}
-	backup, appended, err := appendStartup(fsys, plan)
+	backup, change, err := writeStartup(fsys, plan)
 	if err != nil {
 		return res, err
 	}
-	res.BackupPath, res.RCAppended, res.RCSkipped = backup, appended, !appended
+	res.BackupPath = backup
+	switch change {
+	case startupAppended:
+		res.RCAppended = true
+	case startupUpdated:
+		res.RCUpdated = true
+	case startupUnchanged:
+		res.RCSkipped = true
+	}
 	return res, nil
 }
 
-// appendStartup adds the marker line and the loading line to the startup file, backing the file up
-// first when it already exists. | appendStartup 把标记行与加载行加入启动文件，文件已存在时先做备份。
+// startupChange is what one writeStartup call did to the startup file. | startupChange 是一次 writeStartup
+// 调用对启动文件所做的改动。
+type startupChange int
+
+const (
+	// startupUnchanged means the current block was already there. | startupUnchanged 表示当前块已存在。
+	startupUnchanged startupChange = iota
+	// startupAppended means a block was added to a file that had none. | startupAppended 表示向没有块的
+	// 文件追加了一个块。
+	startupAppended
+	// startupUpdated means an existing block was replaced in place. | startupUpdated 表示就地替换了已有块。
+	startupUpdated
+)
+
+// writeStartup adds or updates the marker block of the startup file, backing the file up first when it
+// already exists. | writeStartup 添加或更新启动文件的标记块，文件已存在时先做备份。
 //
-// The returned backup is empty when nothing was appended. | 未发生追加时返回的备份路径为空。
-func appendStartup(fsys afero.Fs, plan Plan) (backup string, appended bool, err error) {
+// An existing block is replaced in place - old marker text, duplicate blocks and a stale loading line
+// are all corrected by the same rewrite - so a re-install updates the entry instead of appending a
+// second copy of it. The returned backup is empty when nothing was written. | 已有块会被就地替换——
+// 旧标记文案、重复块与过期的加载行都由同一次重写纠正——因此重装是更新条目，而不是再追加一份。
+// 未发生写入时返回的备份路径为空。
+func writeStartup(fsys afero.Fs, plan Plan) (backup string, change startupChange, err error) {
 	original, err := readStartup(fsys, plan.RCFile)
 	if err != nil {
-		return "", false, err
+		return "", startupUnchanged, err
 	}
-	if strings.Contains(string(original), Marker) {
-		return "", false, nil
+
+	updated, found := replaceBlock(original, plan.LoadLine)
+	if !found {
+		updated = buildBlock(original, plan.LoadLine)
+	}
+	if bytes.Equal(original, updated) {
+		return "", startupUnchanged, nil
 	}
 
 	if original != nil {
 		backup, err = writeBackup(fsys, plan.RCFile, original)
 		if err != nil {
-			return "", false, err
+			return "", startupUnchanged, err
 		}
 	}
 
-	block := buildBlock(original, plan.LoadLine)
 	if dir := filepath.Dir(plan.RCFile); dir != "" && dir != "." {
 		if err := fsys.MkdirAll(dir, 0o755); err != nil {
-			return "", false, errx.WrapDetail(err, ErrWriteStartup, "%s", dir)
+			return "", startupUnchanged, errx.WrapDetail(err, ErrWriteStartup, "%s", dir)
 		}
 	}
-	if err := afero.WriteFile(fsys, plan.RCFile, block, 0o644); err != nil {
-		return "", false, errx.WrapDetail(err, ErrWriteStartup, "%s", plan.RCFile)
+	if err := afero.WriteFile(fsys, plan.RCFile, updated, 0o644); err != nil {
+		return "", startupUnchanged, errx.WrapDetail(err, ErrWriteStartup, "%s", plan.RCFile)
 	}
-	return backup, true, nil
+	if found {
+		return backup, startupUpdated, nil
+	}
+	return backup, startupAppended, nil
+}
+
+// replaceBlock rewrites the first marker block of text and drops every later one. | replaceBlock 重写 text 的
+// 第一个标记块并删除之后的所有标记块。
+//
+// The marker line and the loading line immediately below it are the block; the rest of the file is carried
+// through byte for byte. A marker with no loading line below it is still replaced, and the new block is
+// written with the current loading line. | 标记行与紧随其后的加载行构成一个块；文件其余部分逐字节保留。
+// 标记行下方没有加载行时同样替换，并写入当前的加载行。
+func replaceBlock(text []byte, loadLine string) ([]byte, bool) {
+	lines := strings.SplitAfter(string(text), "\n")
+	var b strings.Builder
+	b.Grow(len(text) + len(markerLine) + len(loadLine) + 2)
+	replaced := false
+	for i := 0; i < len(lines); i++ {
+		if !isMarkerLine(lines[i]) {
+			b.WriteString(lines[i])
+			continue
+		}
+		// A later marker block is a duplicate from an older install: drop it together with its load line.
+		// | 后续标记块是旧安装留下的重复项：连同它的加载行一起删除。
+		if replaced {
+			if i+1 < len(lines) && isLoadLine(lines[i+1]) {
+				i++
+			}
+			continue
+		}
+		b.WriteString(markerLine)
+		b.WriteByte('\n')
+		b.WriteString(loadLine)
+		b.WriteByte('\n')
+		replaced = true
+		if i+1 < len(lines) && isLoadLine(lines[i+1]) {
+			i++
+		}
+	}
+	if !replaced {
+		return nil, false
+	}
+	return []byte(b.String()), true
+}
+
+// isMarkerLine reports whether line starts with the marker written by this package. | isMarkerLine 报告 line
+// 是否以本包写入的标记开头。
+func isMarkerLine(line string) bool {
+	return strings.HasPrefix(strings.TrimSpace(strings.TrimRight(line, "\r\n")), Marker)
+}
+
+// isLoadLine reports whether line is a loading line, in either the sh or the PowerShell spelling. | isLoadLine
+// 报告 line 是否为加载行，sh 与 PowerShell 两种写法都算。
+func isLoadLine(line string) bool {
+	trimmed := strings.TrimSpace(strings.TrimRight(line, "\r\n"))
+	return strings.HasPrefix(trimmed, ". ") || strings.HasPrefix(trimmed, "source ")
 }
 
 // readStartup reads the startup file, distinguishing "absent" from "unreadable". | readStartup 读取启动文件，

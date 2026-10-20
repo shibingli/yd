@@ -98,14 +98,18 @@ func init() {
 			"位置参数包括动作词与枚举值，例如 `yd assets <list|update|...>` 与 `yd tools install <name...>`；\n" +
 			"路径仍交给 shell 自带的文件补全。\n" +
 			"install writes the script to <dir>/.yd/completion.<shell> and prints the line that loads it.\n" +
+			"Every run rewrites the script; with --append-rc an existing marker block is updated in place,\n" +
+			"older or duplicate blocks are collapsed, and a changed script path updates the loading line.\n" +
 			"powershell is the one exception to that file name: its script lands in completion.ps1, because\n" +
 			"the PowerShell dot-source operator loads a \".ps1\" file only.\n" +
 			"It never touches ~/.bashrc, ~/.zshrc, ~/.cshrc or $PROFILE unless --append-rc is given, and\n" +
-			"even then it appends an idempotent marker line and backs the file up first.\n" +
-			"install 把脚本写入 <dir>/.yd/completion.<shell> 并打印加载它的那一行。PowerShell 是这一文件名的唯一例外：\n" +
-			"它的脚本落在 completion.ps1，因为 PowerShell 的点源运算符只加载 \".ps1\" 文件。\n" +
+			"even then it only writes an idempotent marker block and backs the file up first.\n" +
+			"install 把脚本写入 <dir>/.yd/completion.<shell> 并打印加载它的那一行。\n" +
+			"每次运行都会重写脚本；带 --append-rc 时已有标记块会被就地更新，旧块与重复块会合并，\n" +
+			"脚本路径变化时加载行也会随之更新。\n" +
+			"PowerShell 是这一文件名的唯一例外：它的脚本落在 completion.ps1，因为 PowerShell 的点源运算符只加载 \".ps1\" 文件。\n" +
 			"除非显式给出 --append-rc，它绝不触碰 ~/.bashrc、~/.zshrc、~/.cshrc 或 $PROFILE；\n" +
-			"即便给出了，也会追加带标记的幂等内容并先做备份。\n" +
+			"即便给出了，也只写入带标记的幂等块，并先做备份。\n" +
 			"Every script ends with a commented snippet that would put the project-local " + tools.LocalToolDir + "\n" +
 			"directory on PATH; enabling it stays the user's decision.\n" +
 			"每份脚本末尾都有一段被注释掉的片段，可以把项目内的 " + tools.LocalToolDir + " 目录加入 PATH；\n" +
@@ -418,6 +422,11 @@ func printCompletionPlan(w io.Writer, plan completion.Plan) {
 func printCompletionResult(w io.Writer, res completion.Result) {
 	fmt.Fprintf(w, "written | 已写入: %s (%d bytes | 字节)\n", res.ScriptPath, res.Bytes)
 	switch {
+	case res.RCUpdated:
+		fmt.Fprintf(w, "updated | 已更新: %s\n", res.RCFile)
+		if res.BackupPath != "" {
+			fmt.Fprintf(w, "backup | 备份: %s\n", res.BackupPath)
+		}
 	case res.RCAppended:
 		fmt.Fprintf(w, "appended | 已追加: %s\n", res.RCFile)
 		if res.BackupPath != "" {
