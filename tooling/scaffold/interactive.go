@@ -18,7 +18,7 @@ const (
 	// promptDB asks for the database driver. | promptDB 询问数据库驱动。
 	promptDB = "数据库 (mysql/postgres/sqlite/none) | Database (mysql/postgres/sqlite/none)"
 	// promptRedis asks whether Redis is wanted. | promptRedis 询问是否接入 Redis。
-	promptRedis = "启用 Redis 缓存 (y/n) | Enable Redis cache (y/n)"
+	promptRedis = "启用 Redis (y/n) | Enable Redis (y/n)"
 	// promptAsynq asks whether asynq is wanted. | promptAsynq 询问是否接入 asynq。
 	promptAsynq = "启用 Asynq 队列 (y/n) | Enable Asynq queue (y/n)"
 	// promptGRPC asks whether gRPC is wanted. | promptGRPC 询问是否开启 gRPC。

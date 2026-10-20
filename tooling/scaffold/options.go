@@ -26,7 +26,8 @@ type Options struct {
 	YdVersion string
 	// HtmxExts lists the Htmx 4 extensions to ship with the project (ws, sse, preload, alpine). | HtmxExts 是需要随项目加载的 Htmx 4 扩展（ws、sse、preload、alpine）。
 	HtmxExts []string
-	// Redis enables the go-redis cache integration. | Redis 表示是否接入 go-redis 缓存。
+	// Redis enables the go-redis integration used for caching, Pub/Sub and rate limiting. |
+	// Redis 表示接入 go-redis，用于缓存、发布订阅与限流。
 	Redis bool
 	// Asynq enables the asynq distributed task queue. | Asynq 表示是否接入 asynq 分布式任务队列。
 	Asynq bool
@@ -42,9 +43,10 @@ type Options struct {
 
 // DefaultOptions returns the default options for the project called name. | DefaultOptions 返回以 name 为项目名的默认选项。
 //
-// Defaults: Module = github.com/yun-dev/<name>、DB = sqlite、Tailwind = true、 | 默认值
-// Module = github.com/yun-dev/<name>, DB = sqlite, Tailwind = true, | License = Apache-2.0、HtmxExts = {preload, sse, ws}，其余特性开关为 false。
-// License = Apache-2.0, HtmxExts = {preload, sse, ws} and every other feature switch off.
+// Defaults: Module = github.com/yun-dev/<name>, DB = sqlite, Tailwind = true, I18n = true,
+// License = Apache-2.0 and HtmxExts = {preload, sse, ws}; every other feature switch stays off.
+// 默认值：Module = github.com/yun-dev/<name>、DB = sqlite、Tailwind = true、I18n = true、
+// License = Apache-2.0、HtmxExts = {preload, sse, ws}，其余特性开关为 false。
 func DefaultOptions(name string) Options {
 	return Options{
 		Name:      name,
@@ -52,6 +54,7 @@ func DefaultOptions(name string) Options {
 		DB:        DBDefault,
 		License:   LicenseApache2,
 		Tailwind:  true,
+		I18n:      true,
 		HtmxExts:  []string{ExtPreload, ExtSSE, ExtWS},
 		YdVersion: version.ModuleVersion(),
 	}

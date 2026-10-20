@@ -264,9 +264,6 @@ func TestDevRunsChildAndStopsOnCancel(t *testing.T) {
 	go func() { done <- Execute(ctx, []string{"dev", "--no-watch", "--no-tailwind"}, te.env) }()
 
 	devWaitFor(t, 120*time.Second, func() bool { return strings.Contains(out.String(), "dev-app-ready") })
-	if got := out.String(); !strings.Contains(got, "yd dev - "+dir) {
-		t.Errorf("会话摘要缺少项目目录：\n%s", got)
-	}
 
 	cancel()
 	select {
@@ -276,6 +273,20 @@ func TestDevRunsChildAndStopsOnCancel(t *testing.T) {
 		}
 	case <-time.After(30 * time.Second):
 		t.Fatal("取消上下文后 yd dev 未退出 | yd dev did not stop after cancellation")
+	}
+
+	// 会话摘要走命令日志器：与系统其余部分一样是 JSON，并跟随 log.format 配置。
+	// 读取放在循环退出之后，避免与仍在写同一日志器的 dev 协程构成数据竞争。
+	// The session summary goes through the command logger: JSON like the rest of the system, and it follows log.format.
+	// The read happens after the loop exits, so it cannot race with the dev goroutine still writing the same logger.
+	if got := te.errs.String(); !strings.Contains(got, "yd dev session") {
+		t.Errorf("会话摘要未写入结构化日志：\n%s", got)
+	} else {
+		for _, want := range []string{`"watch":false`, `"tailwind":false`, `"stop":"ctrl+c"`} {
+			if !strings.Contains(got, want) {
+				t.Errorf("会话日志缺少 %q：\n%s", want, got)
+			}
+		}
 	}
 }
 

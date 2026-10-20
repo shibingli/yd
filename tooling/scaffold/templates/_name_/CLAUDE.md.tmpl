@@ -18,7 +18,7 @@
 | 特性 | 状态 |
 |---|---|
 | 数据库 | {{ .DB }} |
-| redis 缓存 | {{ .Redis }} |
+| redis 集成 | {{ .Redis }} |
 | asynq 队列 | {{ .Asynq }} |
 | grpc 双通道 | {{ .GRPC }} |
 | 登录鉴权（多租户 / 用户 / 角色 / 权限） | {{ .Auth }} |
@@ -104,7 +104,9 @@
    新增敏感字段沿用同一套声明式加密，禁止自行发明第二套编码。
 
 种子数据（`internal/repository` 的 `Seed`）只在**租户表为空**时写入一次（并发副本的「唯一索引冲突」按「已初始化」处理）：
-默认租户、四个内置角色与该租户的 `owner` 管理员。租户标识与登录名来自 `seed.tenant` / `seed.username`
+默认租户、四个内置角色与该租户的 `owner` 管理员。租户表非空时，每次启动只补齐内置角色**缺失的默认能力**
+（只增不减，不动自定义角色与额外授权，也不需要种子口令），使升级新增的能力（如 `message:*`）立即可用。
+租户标识与登录名来自 `seed.tenant` / `seed.username`
 （环境变量 `YD_SEED_TENANT` / `YD_SEED_USERNAME` 覆盖，留空回退到 `default` / `admin`）；口令来自 `seed.admin_password` / `YD_SEED_ADMIN_PASSWORD`，
 **不硬编码**：开发环境未配置时用文档化的 `meta.DevSeedAdminPassword` 并每次启动告警，其它环境未配置时**拒绝初始化**并告警；
 口令明文永不写入日志。**首次登录后必须立即改密**——首页身份卡与账号页共用 `meta.SeedPasswordNotice` 这一句文案

@@ -20,7 +20,7 @@ Go {{ .GoVersion }} + Htmx {{ .HtmxVersion }} + Tailwind CSS {{ .TailwindVersion
 | 特性 | 状态 |
 |---|---|
 | 数据库 | {{ .DB }} |
-| redis 缓存 | {{ .Redis }} |
+| redis 集成 | {{ .Redis }} |
 | asynq 队列 | {{ .Asynq }} |
 | grpc 双通道 | {{ .GRPC }} |
 | 登录鉴权（多租户 / 用户 / 角色 / 权限） | {{ .Auth }} |
@@ -113,6 +113,10 @@ yd docker --tag {{ .Name }}:latest
 一次写入的内容是：默认租户、该租户的内置角色（`owner` / `admin` / `auditor` / `member`，各自的能力绑定取自框架注册表的
 `authz.BuiltinGrants()`）、以及该租户的一个 `owner` 管理员。
 
+租户表非空时，启动只做一次**只增不减**的能力补齐：内置角色缺少的默认能力会被加回去，使升级新增的能力
+（例如消息中心的 `message:*`）立即可用；自定义角色、额外授予的能力与口令都不受影响，也不需要种子口令。
+因此旧库升级后不需要手工改 SQL，也不会因为缺少新能力而收到 403。
+
 口令**不硬编码在源码里**，来源按优先级只有两处：
 
 | 来源 | 说明 |
@@ -153,6 +157,10 @@ The seed is written once, only while the tenant table is empty: a second or thir
 replicas start together the first one wins while the other reads the unique-index conflict as "already initialised" rather
 than as an error. One run creates the default tenant, its built-in roles (`owner` / `admin` / `auditor` / `member`, with the
 capability bindings taken from the framework registry's `authz.BuiltinGrants()`) and one `owner` administrator.
+When the tenant table is not empty, each start performs an add-only reconciliation: missing default capabilities of the
+built-in roles are added back, so a capability introduced by an upgrade (for example the message centre's `message:*`)
+becomes usable immediately. Custom roles, extra grants and passwords are untouched, and the reconciliation needs no seed
+password — an upgraded database needs no manual SQL and no longer answers 403 just because a new capability was missing.
 The tenant key and administrator name come from `seed.tenant` and `seed.username` (or `YD_SEED_TENANT` / `YD_SEED_USERNAME`,
 which win over the file), falling back to `default` and `admin` when empty.
 The password is never hard-coded: it comes from `seed.admin_password` or `YD_SEED_ADMIN_PASSWORD`, and an unset value is

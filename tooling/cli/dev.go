@@ -4,7 +4,6 @@ package cli
 
 import (
 	"context"
-	"fmt"
 
 	"github.com/shibingli/yd/core/logx"
 	"github.com/shibingli/yd/tooling/toolchain"
@@ -127,33 +126,26 @@ func configString(env *Env, key string) string {
 	return env.Cfg.GetString(key)
 }
 
-// printDevSession writes the session summary before the loop takes over the terminal. | printDevSession 在主循环接管终端之前写出本次会话摘要。
+// printDevSession records the session summary through the command logger, so `yd dev` produces the same
+// structured log stream as the rest of the system; the format follows log.format (JSON by default).
+// printDevSession 通过命令日志器记录会话摘要，使 `yd dev` 与系统其余部分输出同一套结构化日志；
+// 格式跟随 log.format（默认 JSON）。
 func printDevSession(env *Env, o toolchain.DevOptions, r *toolchain.DevRunner) {
-	fmt.Fprintf(env.Out, "yd dev - %s\n", o.Dir)
-	fmt.Fprintf(env.Out, "  watch | 文件监听: %s\n", devSwitch(!o.NoWatch))
-	fmt.Fprintf(env.Out, "  tailwind | Tailwind 监听: %s\n", devSwitch(!o.NoTailwind))
-	fmt.Fprintf(env.Out, "  reload | 热重载: %s\n", devReloadState(r))
+	fields := []logx.Field{
+		logx.Str("dir", o.Dir),
+		logx.Bool("watch", !o.NoWatch),
+		logx.Bool("tailwind", !o.NoTailwind),
+		logx.Bool("reload", r.ReloadEnabled()),
+	}
+	if r.ReloadEnabled() {
+		fields = append(fields, logx.Str("reload_path", toolchain.DevReloadPath))
+	}
 	if o.Port > 0 {
-		fmt.Fprintf(env.Out, "  port | 端口: %d\n", o.Port)
+		fields = append(fields, logx.Int("port", o.Port))
 	}
 	if len(o.AppArgs) > 0 {
-		fmt.Fprintf(env.Out, "  app args | 应用参数: %v\n", o.AppArgs)
+		fields = append(fields, logx.Strs("app_args", o.AppArgs))
 	}
-	fmt.Fprintf(env.Out, "ctrl+c stops the loop | 按 ctrl+c 停止主循环\n")
-}
-
-// devSwitch renders an enabled/disabled pair. | devSwitch 渲染启用/停用的双语取值。
-func devSwitch(on bool) string {
-	if on {
-		return "enabled | 已启用"
-	}
-	return "disabled | 已关闭"
-}
-
-// devReloadState renders the reload endpoint state together with its path. | devReloadState 渲染热重载端点状态及其路径。
-func devReloadState(r *toolchain.DevRunner) string {
-	if !r.ReloadEnabled() {
-		return devSwitch(false)
-	}
-	return devSwitch(true) + " " + toolchain.DevReloadPath
+	fields = append(fields, logx.Str("stop", "ctrl+c"))
+	commandLogger(env).Info("yd dev session | yd dev 会话", fields...)
 }

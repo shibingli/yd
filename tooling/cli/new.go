@@ -32,7 +32,7 @@ const (
 	flagNewModule = "module"
 	// flagNewDB is the database driver. | flagNewDB 是数据库驱动。
 	flagNewDB = "db"
-	// flagNewRedis wires the Redis cache in. | flagNewRedis 接入 Redis 缓存。
+	// flagNewRedis wires in the Redis integration. | flagNewRedis 接入 Redis 集成。
 	flagNewRedis = "redis"
 	// flagNewAsynq wires the Asynq queue in. | flagNewAsynq 接入 Asynq 队列。
 	flagNewAsynq = "asynq"
@@ -94,7 +94,7 @@ func init() {
 func registerNewFlags(fs *pflag.FlagSet) {
 	fs.String(flagNewModule, "", "module path, defaults to github.com/yun-dev/<name> | 模块路径，默认为 github.com/yun-dev/<name>")
 	fs.String(flagNewDB, "", "database driver: mysql/postgres/sqlite/none | 数据库驱动：mysql/postgres/sqlite/none")
-	fs.Bool(flagNewRedis, false, "wire in the Redis cache | 接入 Redis 缓存")
+	fs.Bool(flagNewRedis, false, "wire in the Redis integration | 接入 Redis 集成")
 	fs.Bool(flagNewAsynq, false, "wire in the Asynq queue | 接入 Asynq 队列")
 	fs.Bool(flagNewGRPC, false, "enable the gRPC dual channel | 开启 gRPC 双通道")
 	fs.Bool(flagNewI18n, false, "enable i18n | 开启国际化")
@@ -311,7 +311,7 @@ func interviewNew(env *Env, fs *pflag.FlagSet, o *scaffold.Options) error {
 		question string
 		value    *bool
 	}{
-		{flagNewRedis, "启用 Redis 缓存 | Enable the Redis cache", &o.Redis},
+		{flagNewRedis, "启用 Redis | Enable Redis", &o.Redis},
 		{flagNewAsynq, "启用 Asynq 队列 | Enable the Asynq queue", &o.Asynq},
 		{flagNewGRPC, "启用 gRPC 双通道 | Enable the gRPC dual channel", &o.GRPC},
 		{flagNewI18n, "启用 i18n | Enable i18n", &o.I18n},

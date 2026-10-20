@@ -184,6 +184,21 @@ func TestNewCommandTTYInterviewUsesAnswers(t *testing.T) {
 		t.Fatalf("yd new 失败: %v\n%s", err, te.errs.String())
 	}
 
+	// Redis 不再被描述成「缓存」，因为它也承担 Pub/Sub 与限流；i18n 的默认值必须是 y。
+	// Redis is no longer described as a cache, because it also carries Pub/Sub and rate limiting; i18n must default to y.
+	prompts := te.out.String()
+	for _, want := range []string{
+		"启用 Redis | Enable Redis (y/n)",
+		"启用 i18n | Enable i18n (y/n) [y]",
+	} {
+		if !strings.Contains(prompts, want) {
+			t.Errorf("问答提示缺少 %q：\n%s", want, prompts)
+		}
+	}
+	if strings.Contains(prompts, "Redis 缓存") {
+		t.Errorf("问答提示仍把 Redis 描述为缓存：\n%s", prompts)
+	}
+
 	meta := readMemFile(t, te.env.FS, "shop/.yd.json")
 	for _, want := range []string{
 		`"module": "github.com/yun-dev/shop"`,
