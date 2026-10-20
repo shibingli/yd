@@ -3545,6 +3545,7 @@ func TestGeneratedMessageCentreUsesInlineNewConversationPanel(t *testing.T) {
 	for _, want := range []string{
 		".yd-user .yd-user__badge",
 		".yd-menu__item.yd-user-menu__item .yd-icon",
+		".yd-user-menu__item--unread:has(.yd-user-menu__badge:not([hidden]))",
 	} {
 		if !strings.Contains(css, want) {
 			t.Errorf("components.css 缺少 %q", want)

@@ -2413,9 +2413,11 @@
     min-width: 0;
   }
 
-  /* The unread row reads stronger than the profile row: bold weight and the darkest content token. |
-     未读行比资料行更醒目：加粗字重并使用最深的内容色令牌。 */
-  .yd-menu__item.yd-user-menu__item.yd-user-menu__item--unread {
+  /* The unread row reads stronger only while its count badge is visible. The badge keeps its hidden attribute at
+     zero, so both the badge and the emphasis appear together whenever the WebSocket reports unread messages. |
+     未读行只在计数角标可见时才更醒目。零未读时角标保留 hidden 属性，因此 WebSocket 报告有未读时，角标与强调
+     会同时出现。 */
+  .yd-menu__item.yd-user-menu__item.yd-user-menu__item--unread:has(.yd-user-menu__badge:not([hidden])) {
     color: var(--color-content);
     font-weight: 600;
   }
