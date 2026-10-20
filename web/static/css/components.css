@@ -4053,7 +4053,10 @@
     text-align: center;
   }
 
-  .yd-msg-welcome svg {
+  /* 只放大空状态顶部的装饰图标；写成后代选择器会连按钮里的 pen-line 图标一起放大，把按钮撑成一块巨大的色块。
+     Only the decorative icon at the top of the empty state is enlarged; a descendant selector would also inflate the
+     pen icon inside the button below, blowing the button up into an oversized block. */
+  .yd-msg-welcome > svg {
     width: 3rem;
     height: 3rem;
     color: var(--color-accent);
