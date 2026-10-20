@@ -1,0 +1,84 @@
+// 本文件登记内建中间件的运行时描述符：名称、i18n 标签与作用域只有这一份。
+// This file registers the runtime descriptors of the built-in middleware: the name, i18n label and scope exist
+// exactly once.
+
+package middleware
+
+import "{{ .YdModule }}/runtime/metricsx"
+
+// builtInDescriptors maps the stable middleware names to their dashboard descriptors. | builtInDescriptors 把稳定的
+// 中间件名称映射到仪表盘描述符。
+//
+// The map lives under internal/ because both cmd/app and internal/router consume it, and because every i18n key it
+// names is checked against the generated catalogues. | 该映射放在 internal/ 下，因为 cmd/app 与 internal/router 都要
+// 使用它，而且它引用的每个 i18n 键都会与生成的语言目录核对。
+var builtInDescriptors = map[string]metricsx.Descriptor{
+	"recover": {
+		Name:     "recover",
+		TitleKey: "metrics.middleware.name.recover",
+		Scope:    metricsx.ScopeGlobal,
+	},
+	"request-id": {
+		Name:     "request-id",
+		TitleKey: "metrics.middleware.name.request_id",
+		Scope:    metricsx.ScopeGlobal,
+	},
+	"access-log": {
+		Name:     "access-log",
+		TitleKey: "metrics.middleware.name.access_log",
+		Scope:    metricsx.ScopeGlobal,
+	},
+	"compress": {
+		Name:     "compress",
+		TitleKey: "metrics.middleware.name.compress",
+		Scope:    metricsx.ScopeGlobal,
+	},
+	"cors": {
+		Name:     "cors",
+		TitleKey: "metrics.middleware.name.cors",
+		Scope:    metricsx.ScopeGlobal,
+	},
+	"security": {
+		Name:     "security",
+		TitleKey: "metrics.middleware.name.security",
+		Scope:    metricsx.ScopeGlobal,
+	},
+	"i18n": {
+		Name:     "i18n",
+		TitleKey: "metrics.middleware.name.i18n",
+		Scope:    metricsx.ScopeGlobal,
+	},
+	"promote": {
+		Name:     "promote",
+		TitleKey: "metrics.middleware.name.promote",
+		Scope:    metricsx.ScopeRoute,
+	},
+	"auth": {
+		Name:     "auth",
+		TitleKey: "metrics.middleware.name.auth",
+		Scope:    metricsx.ScopeRoute,
+	},
+	"authz": {
+		Name:     "authz",
+		TitleKey: "metrics.middleware.name.authz",
+		Scope:    metricsx.ScopeRoute,
+	},
+	"tenant": {
+		Name:     "tenant",
+		TitleKey: "metrics.middleware.name.tenant",
+		Scope:    metricsx.ScopeRoute,
+	},
+}
+
+// MetricsDescriptor returns the runtime descriptor of a middleware by its stable name. | MetricsDescriptor 按稳定名称
+// 返回中间件的运行时描述符。
+//
+// Unknown names receive a custom-scoped descriptor whose display label is the name itself, so a project can add its
+// own middleware with the very same call and still get a row on the dashboard. | 未知名称会得到作用域为 custom、
+// 显示标签就是名称本身的描述符，因此项目可以用同一个调用加入自定义中间件，并同样在仪表盘上占一行。
+func MetricsDescriptor(name string) metricsx.Descriptor {
+	if descriptor, ok := builtInDescriptors[name]; ok {
+		return descriptor
+	}
+	return metricsx.Descriptor{Name: name, Title: name, Scope: metricsx.ScopeCustom}
+}

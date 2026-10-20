@@ -133,6 +133,42 @@ metrics:
   process_cpu: "程序 CPU"
   process_memory: "程序内存"
   unavailable: "平台不支持"
+  middleware:
+    title: "中间件运行时"
+    hint: "每 5 秒刷新"
+    empty: "尚未注册中间件"
+    col:
+      name: "中间件"
+      state: "状态"
+      requests: "请求"
+      in_flight: "进行中"
+      aborted: "中止"
+      errors: "错误"
+      panics: "panic"
+      avg: "平均"
+      p95: "P95"
+      max: "最大"
+      last_seen: "最近"
+    state:
+      registered: "已注册"
+      active: "运行中"
+      stopped: "已停止"
+    scope:
+      global: "全局"
+      route: "路由"
+      custom: "自定义"
+    name:
+      recover: "异常恢复"
+      request_id: "请求 ID"
+      access_log: "访问日志"
+      compress: "响应压缩"
+      cors: "跨域"
+      security: "安全响应头"
+      i18n: "多语言"
+      promote: "Cookie 令牌提升"
+      auth: "会话鉴权"
+      authz: "权限授权"
+      tenant: "租户解析"
 
 realtime:
   connecting: "连接中"

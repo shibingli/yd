@@ -30,6 +30,7 @@ import (
 	"{{ .YdModule }}/core/logx"
 	"{{ .YdModule }}/http/render"
 	"{{ .YdModule }}/http/router"
+	"{{ .YdModule }}/runtime/metricsx"
 )
 
 // 模板名：与 web/templates 下的路径一一对应，渲染引擎按该名称查找。
@@ -65,6 +66,9 @@ const (
 	TplRoleEditDrawer = "partials/roles/edit_drawer.html"
 	// TplMetrics is the dashboard metrics fragment polled by the home page. | TplMetrics 是首页轮询的仪表盘指标片段。
 	TplMetrics = "partials/home/metrics_fragment.html"
+	// TplMiddlewareMetrics is the middleware runtime fragment polled by the home page. | TplMiddlewareMetrics
+	// 是首页轮询的中间件运行时片段。
+	TplMiddlewareMetrics = "partials/home/middleware_fragment.html"
 )
 
 // 列表片段名：增删改之后返回的就是它们，因此 htmx 只换工作区、不重载整页。
@@ -166,8 +170,10 @@ type Controller struct {
 	users *service.UserService
 	// roles is the role and permission-matrix service. | roles 是角色与权限矩阵服务。
 	roles *service.RoleService
-	// metrics samples the host and process resource gauges. | metrics 采样宿主机与进程资源仪表盘。
-	metrics *service.MetricsService
+	// provider composes the system gauges with the middleware registry behind one interface; it is the only
+	// path the controllers use for metrics. | provider 把系统仪表盘与中间件注册表组合在同一个接口之后；它是控制器
+	// 读取指标的唯一路径。
+	provider metricsx.Provider
 	// log records assembly and business events. | log 记录装配与业务事件。
 	log *logx.Logger
 }
@@ -192,15 +198,16 @@ func New(a *app.App, store *repository.Store, log *logx.Logger) (*Controller, er
 	if err != nil {
 		return nil, err
 	}
+	metricsSvc := service.NewMetricsService()
 	return &Controller{
-		app:     a,
-		store:   store,
-		auth:    authSvc,
-		tenants: service.NewTenantService(store),
-		users:   service.NewUserService(store, authSvc),
-		roles:   service.NewRoleService(store),
-		metrics: service.NewMetricsService(),
-		log:     log,
+		app:      a,
+		store:    store,
+		auth:     authSvc,
+		tenants:  service.NewTenantService(store),
+		users:    service.NewUserService(store, authSvc),
+		roles:    service.NewRoleService(store),
+		provider: metricsx.NewCollector(metricsSvc, a.MiddlewareMetrics()),
+		log:      log,
 	}, nil
 }
 

@@ -140,10 +140,16 @@ func Register(a *app.App) error {
 // acme.example.com names in order to pre-fill the field, while Required false keeps a request that names no tenant
 // renderable.
 func registerPublic(a *app.App, ctrl *controller.Controller) {
-	g := a.Group("", middleware.Tenant(middleware.TenantOptions{
-		Resolver:     ctrl.ResolveTenant,
-		ErrorHandler: ctrl.Deny,
-	}))
+	// 同一个租户中间件也挂在受保护组上：注册表按 Name 合并，因此两个分组共享一份计数。
+	// The same tenant middleware is mounted on the protected group too: the registry merges by Name, so both
+	// groups share one set of counters.
+	g := a.Group("", a.MiddlewareMetrics().Wrap(
+		middleware.MetricsDescriptor("tenant"),
+		middleware.Tenant(middleware.TenantOptions{
+			Resolver:     ctrl.ResolveTenant,
+			ErrorHandler: ctrl.Deny,
+		}),
+	))
 
 	g.GET(LoginPath, ctrl.LoginPage)
 	g.POST(LoginPath, ctrl.Login)
@@ -205,21 +211,34 @@ func mountGenerated(g *ydrouter.Group, store *repository.Store) {
 
 func registerProtected(a *app.App, ctrl *controller.Controller, store *repository.Store, broker *sse.Broker, ticker *service.Ticker) {
 	g := a.Group("",
-		middleware.Promote(middleware.SessionOptions{}),
-		auth.Middleware(auth.MiddlewareOptions{Issuer: ctrl.Issuer(), ErrorHandler: ctrl.Deny}),
-		authz.Middleware(ctrl.Auth()),
-		middleware.Tenant(middleware.TenantOptions{
-			Required:     true,
-			Subdomain:    true,
-			Resolver:     ctrl.ResolveTenant,
-			ErrorHandler: ctrl.Deny,
-		}),
+		a.MiddlewareMetrics().Wrap(
+			middleware.MetricsDescriptor("promote"),
+			middleware.Promote(middleware.SessionOptions{}),
+		),
+		a.MiddlewareMetrics().Wrap(
+			middleware.MetricsDescriptor("auth"),
+			auth.Middleware(auth.MiddlewareOptions{Issuer: ctrl.Issuer(), ErrorHandler: ctrl.Deny}),
+		),
+		a.MiddlewareMetrics().Wrap(
+			middleware.MetricsDescriptor("authz"),
+			authz.Middleware(ctrl.Auth()),
+		),
+		a.MiddlewareMetrics().Wrap(
+			middleware.MetricsDescriptor("tenant"),
+			middleware.Tenant(middleware.TenantOptions{
+				Required:     true,
+				Subdomain:    true,
+				Resolver:     ctrl.ResolveTenant,
+				ErrorHandler: ctrl.Deny,
+			}),
+		),
 	)
 
 	// 会话即可访问：个人落地页、账号自助、租户切换与实时演示。
 	// Session-only: the personal landing page, self-service account actions, the tenant switch and the realtime demo.
 	g.GET("/", ctrl.Index)
 	g.GET("/metrics", ctrl.Metrics)
+	g.GET("/metrics/middleware", ctrl.MiddlewareMetrics)
 	g.GET("/realtime", ctrl.Page)
 	g.GET("/account", ctrl.Account)
 	g.POST("/account/password", ctrl.ChangePassword)

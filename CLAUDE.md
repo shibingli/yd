@@ -762,3 +762,31 @@ yd versions sync               # 仅重新生成 version_generated.go
   `yd assets minify --check` 同时校验 JS 与 SVG。不要手工编辑生成文件
   （`icons.svg` 文件头带生成标记）。
 - **使用文档**：`docs/icon-usage.md` 是新增/更新图标、命令、许可与故障排查的唯一入口。
+
+### 22.8 系统资源与中间件运行时指标（强制）
+
+- **唯一抽象层**：`runtime/metricsx` 定义 `SystemSource` / `MiddlewareSource` / `Provider` / `Collector`。
+  系统仪表盘与中间件卡片都只读取 `Provider`，控制器不得直连 `MetricsService` 或另算指标；
+  首页一次 `Provider.Snapshot()` 同时供给两张卡片，`/metrics` 使用其中的 `System` 部分，显示契约不变。
+- **内建中间件开箱即观测**：`app.Default` 经 `UseObserved` 登记 `recover` / `request-id` / `access-log` /
+  `compress` / `cors` / `i18n`；生成项目另加 `security` 与路由组的 `promote` / `auth` / `authz` / `tenant`。
+  任何中间件都必须用 `application.UseObserved(descriptor, mw)` 装配；只调用 `Use` 会让它从卡片上消失。
+- **描述符集中登记**：生成项目的名称、`TitleKey` 与作用域只在
+  `internal/middleware/observability.go` 出现一次，其余位置经 `middleware.MetricsDescriptor("name")` 取值。
+  未知名称回退为 `custom` 作用域，项目因此可以加入自定义中间件而不改框架。
+- **全生命周期**：状态固定为 `registered → active → stopped`；`app.Run` 启动时 `Start`，`app.Shutdown`
+  经自动登记的钩子 `Stop`。`Stop` 幂等，关闭后计数保留，迟到请求不得把条目翻回 `active`。
+- **请求指标**：`Requests` / `InFlight` / `Aborted` / `Errors`（5xx）/ `Panics`、平均/P95/最大延迟与 UTC
+  `LastSeen`。panic 只由最内层观察者计数并原样重抛，外层 `Recover` 仍负责 500；不得吞掉 panic。
+  `Aborted` 同样只归给最靠近终止点的观察者；`Errors` 表示“经过该中间件的请求以 5xx 结束”，各层分别记录。
+- **热路径约束**：自动指标只用原子操作，不取锁、不做反射、不分配直方图。`Entry.Incr/Add/SetGauge`
+  的自定义计数会取一把小锁，应按事件调用，不得无意义地每请求重复调用。
+- **同名合并**：同一 `Name` 只占一行，计数合并；同时挂在公开组与受保护组的 `tenant` 因此不会被拆成两行。
+- **端点与前端**：`GET /metrics` 返回系统资源片段，`GET /metrics/middleware` 返回中间件片段，二者都在
+  受保护分组内。首页在系统资源下方渲染 `#yd-middleware-metrics`，每 5 秒 `innerMorph` 刷新，
+  不写历史、不引图表库、不写内联脚本。
+- **i18n**：所有表头、状态、作用域与内建中间件名称都来自 `metrics.middleware.*` 键，
+  `zh-CN` 与 `en` 两份目录必须同时存在；缺失或陈旧键由 `TestGeneratedI18nCatalogueCoversEveryTrKey` 拦截。
+- **使用文档**：`docs/middleware-metrics.md` 是接口、自定义指标、生命周期与检查清单的唯一入口。
+- **禁止事项**：不得为每个请求创建 `Entry`/直方图，不得在请求路径取注册表写锁，不得用 `Use` 装配后再
+  另补一套统计，不得在关闭后重新置为 `active`。

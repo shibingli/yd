@@ -14,11 +14,11 @@ import (
 	"strconv"
 
 	"{{ .Module }}/internal/model"
-	"{{ .Module }}/internal/service"
 	"{{ .YdModule }}/core/errx"
 	"{{ .YdModule }}/security/guomi"
 	"{{ .YdModule }}/core/logx"
 	"{{ .YdModule }}/http/router"
+	"{{ .YdModule }}/runtime/metricsx"
 )
 
 // placeholderSize is the placeholder's edge length in pixels. | placeholderSize 是占位图的边长（像素）。
@@ -66,12 +66,16 @@ func (c *Controller) Index(ctx *router.Ctx) {
 		return
 	}
 
+	// One provider snapshot feeds both cards, so the gauges and the middleware table describe the same
+	// instant. | 一次 provider 快照同时供给两张卡片，因此仪表盘与中间件表描述的是同一时刻。
+	snapshot := c.provider.Snapshot()
 	c.render(ctx, http.StatusOK, TplHome, c.view(ctx, "概览 | Overview", map[string]any{
 		"Users":      head(users, recentLimit),
 		"UserCount":  len(users),
 		"RoleCount":  len(roles),
 		"Permission": len(model.PermissionKeys()),
-		"Gauges":     c.metricGauges(c.metrics.Snapshot()),
+		"Gauges":     c.metricGauges(snapshot.System),
+		"Middleware": c.middlewareRows(snapshot.Middleware),
 	}))
 }
 
@@ -94,8 +98,11 @@ func (c *Controller) Index(ctx *router.Ctx) {
 // @Security BearerAuth
 // @Router /metrics [get]
 func (c *Controller) Metrics(ctx *router.Ctx) {
+	// The system gauges come from the same provider as the middleware table; the display is unchanged,
+	// but the handler no longer knows about the concrete sampler. | 系统仪表盘与中间件表来自同一个 provider；
+	// 显示不变，但处理器不再依赖具体采样器。
 	c.render(ctx, http.StatusOK, TplMetrics, c.view(ctx, "资源指标 | Metrics", map[string]any{
-		"Gauges": c.metricGauges(c.metrics.Snapshot()),
+		"Gauges": c.metricGauges(c.provider.Snapshot().System),
 	}))
 }
 
@@ -116,7 +123,7 @@ type metricGauge struct {
 
 // metricGauges turns one snapshot into the six dashboard gauges in a fixed order.
 // | metricGauges 把一次快照转换为固定顺序的六个仪表盘。
-func (c *Controller) metricGauges(m service.Metrics) []metricGauge {
+func (c *Controller) metricGauges(m metricsx.SystemSnapshot) []metricGauge {
 	gauges := []metricGauge{
 		{LabelKey: "metrics.cpu_cores", Value: strconv.Itoa(m.CPUCores), Percent: 100, Supported: true},
 		{LabelKey: "metrics.cpu_usage", Value: formatPercent(m.CPUPercent), Percent: clampPercent(m.CPUPercent), Tone: toneFor(m.CPUPercent), Supported: m.HostCPU},

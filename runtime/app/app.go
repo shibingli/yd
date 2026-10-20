@@ -50,6 +50,7 @@ import (
 	"github.com/shibingli/yd/http/i18n"
 	"github.com/shibingli/yd/http/router"
 	"github.com/shibingli/yd/middleware"
+	"github.com/shibingli/yd/runtime/metricsx"
 	"github.com/shibingli/yd/runtime/server"
 )
 
@@ -123,6 +124,9 @@ type App struct {
 	router   *router.Router
 	server   *server.Server
 	services map[string]any
+	// metrics observes middleware runtime behaviour and publishes it to dashboards. | metrics 观察中间件
+	// 运行时行为，并发布给仪表盘。
+	metrics *metricsx.Registry
 
 	closeDone chan struct{}
 
@@ -214,6 +218,7 @@ func New(opts ...Option) (*App, error) {
 		layout:    DefaultLayout,
 		configDir: defaultConfigDir,
 		services:  make(map[string]any),
+		metrics:   metricsx.NewRegistry(),
 		closeDone: make(chan struct{}),
 	}
 	for _, fn := range opts {
@@ -263,6 +268,11 @@ func New(opts ...Option) (*App, error) {
 	so.Logger = a.log
 	a.server = server.New(so)
 
+	// The registry is part of the application lifecycle: stopping records the final state while
+	// keeping every counter readable after shutdown. | 注册表属于应用生命周期：停止时记录最终状态，
+	// 同时让全部计数在关闭后仍可读取。
+	a.OnShutdown(func(ctx context.Context) error { return a.metrics.Shutdown(ctx) })
+
 	return a, nil
 }
 
@@ -283,13 +293,11 @@ func Default() (*App, error) {
 		return nil, err
 	}
 
-	a.Use(
-		middleware.Recover(a.log),
-		middleware.RequestID(""),
-		middleware.AccessLog(a.log),
-		middleware.Compress(middleware.CompressOptions{}),
-		middleware.CORS(middleware.CORSOptions{}),
-	)
+	a.UseObserved(metricsx.Descriptor{Name: "recover", Title: "Panic recovery | 异常恢复", Scope: metricsx.ScopeGlobal}, middleware.Recover(a.log))
+	a.UseObserved(metricsx.Descriptor{Name: "request-id", Title: "Request ID | 请求 ID", Scope: metricsx.ScopeGlobal}, middleware.RequestID(""))
+	a.UseObserved(metricsx.Descriptor{Name: "access-log", Title: "Access log | 访问日志", Scope: metricsx.ScopeGlobal}, middleware.AccessLog(a.log))
+	a.UseObserved(metricsx.Descriptor{Name: "compress", Title: "Compression | 响应压缩", Scope: metricsx.ScopeGlobal}, middleware.Compress(middleware.CompressOptions{}))
+	a.UseObserved(metricsx.Descriptor{Name: "cors", Title: "CORS | 跨域", Scope: metricsx.ScopeGlobal}, middleware.CORS(middleware.CORSOptions{}))
 
 	bundle, err := a.i18nBundle()
 	if err != nil {
@@ -297,7 +305,7 @@ func Default() (*App, error) {
 			logx.Err(err))
 	} else {
 		a.Set(ServiceI18n, bundle)
-		a.Use(i18n.Middleware(bundle, i18n.Options{}))
+		a.UseObserved(metricsx.Descriptor{Name: "i18n", Title: "i18n | 多语言", Scope: metricsx.ScopeGlobal}, i18n.Middleware(bundle, i18n.Options{}))
 	}
 
 	a.router.StaticFS(staticURLPrefix, a.staticFS)
@@ -319,6 +327,23 @@ func (a *App) FS() afero.Fs { return a.fs }
 
 // Router returns the underlying router. | Router 返回底层路由器。
 func (a *App) Router() *router.Router { return a.router }
+
+// MiddlewareMetrics returns the registry observing middleware runtime behaviour. | MiddlewareMetrics
+// 返回观察中间件运行时行为的注册表。
+//
+// The registry lives as long as the application: built-in middleware is registered by Default and
+// custom middleware can join through UseObserved or Registry.Wrap. | 注册表与应用同寿：内建中间件由
+// Default 注册，自定义中间件可以通过 UseObserved 或 Registry.Wrap 加入。
+func (a *App) MiddlewareMetrics() *metricsx.Registry { return a.metrics }
+
+// UseObserved registers a middleware and its runtime descriptor in one call. | UseObserved 一次注册中间件
+// 及其运行时描述符。
+//
+// The descriptor controls how the middleware appears on the dashboard; the observed middleware keeps
+// exactly the original semantics. | 描述符决定中间件在仪表盘上的呈现方式；被观察的中间件保持原有语义不变。
+func (a *App) UseObserved(d metricsx.Descriptor, mw router.Middleware) {
+	a.Use(a.metrics.Wrap(d, mw))
+}
 
 // Server returns the HTTP server; it is built but not started until Run. | Server 返回 HTTP 服务器；它已构建，但直到 Run 才启动。
 func (a *App) Server() *server.Server { return a.server }
@@ -390,6 +415,10 @@ func (a *App) Run(ctx context.Context) error {
 		logx.Str("addr", a.server.Addr()),
 		logx.Str("env", a.env()),
 	)
+	// Mark every registered middleware active before the first request arrives, so the dashboard
+	// distinguishes "wired but never started" from "running but idle". | 在首个请求到达前把全部已注册
+	// 中间件标为 active，使仪表盘能区分「已装配但从未启动」与「运行中但空闲」。
+	a.metrics.Start()
 
 	runErr := a.server.Run(ctx)
 	if runErr != nil {

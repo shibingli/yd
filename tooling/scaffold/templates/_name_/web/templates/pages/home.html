@@ -9,11 +9,12 @@
   layouts/base.html, while a request carrying HX-Request: true receives this file's HTML alone.
 
   数据契约 | Data contract: .Name .Module .Version .Features .Users .UserCount .RoleCount .Permission
-  .SignedIn .User .Tenant .SeedPassword .SeedNotice，以及 authz.Data 注入的 .Authz/.Perm/.Role/.AuthzJSON
+  .Gauges .Middleware .SignedIn .User .Tenant .SeedPassword .SeedNotice，以及 authz.Data 注入的 .Authz/.Perm/.Role/.AuthzJSON
   （能力判定一律写 can .Perm.XxxYyy 或 can "PermXxxYyy"，页面里不再有单独的布尔值）。
-  .Name .Module .Version .Features .Users .UserCount .RoleCount .Permission .SignedIn .User .Tenant .SeedPassword
-  .SeedNotice, plus the .Authz/.Perm/.Role/.AuthzJSON envelope injected by authz.Data (every capability check is
-  written as can .Perm.XxxYyy or can "PermXxxYyy"; the page holds no separate booleans of its own).
+  .Name .Module .Version .Features .Users .UserCount .RoleCount .Permission .Gauges .Middleware .SignedIn
+  .User .Tenant .SeedPassword .SeedNotice, plus the .Authz/.Perm/.Role/.AuthzJSON envelope injected by authz.Data
+  (every capability check is written as can .Perm.XxxYyy or can "PermXxxYyy"; the page holds no separate booleans
+  of its own).
 
   时钟区块演示 SSE 的最小闭环：hx-sse:connect 打开 /events，服务端用 PublishHTML 推送的 <hx-partial>
   自带 hx-target="#yd-clock" 与 hx-swap="innerMorph"，因此页面不需要写任何脚本即可持续刷新。
@@ -121,6 +122,21 @@
     </header>
     <div id="yd-metrics" hx-get="/metrics" hx-trigger="every 5s" hx-target="this" hx-swap="innerMorph" hx-push-url="false">
       {{ template "partials/home/metrics-panel" . }}
+    </div>
+  </section>
+
+  {{/* 中间件运行时：全部内建中间件与自定义中间件共用同一张表，每 5 秒轮询一次并就地 morph。
+       这些计数来自请求路径上的原子更新，因此这里看到的是真实执行情况，而不是配置推断。
+       Middleware runtime: every built-in and custom middleware shares one table, polled every five seconds and
+       morphed in place. The counters come from atomics on the request path, so this is observed execution rather
+       than configuration guesswork. */}}
+  <section class="yd-card yd-section" aria-labelledby="yd-home-middleware">
+    <header class="yd-section__header">
+      <h2 class="yd-section__title" id="yd-home-middleware">{{ tr "metrics.middleware.title" }}</h2>
+      <span class="yd-badge yd-badge--muted">{{ tr "metrics.middleware.hint" }}</span>
+    </header>
+    <div id="yd-middleware-metrics" hx-get="/metrics/middleware" hx-trigger="every 5s" hx-target="this" hx-swap="innerMorph" hx-push-url="false">
+      {{ template "partials/home/middleware-panel" . }}
     </div>
   </section>
 

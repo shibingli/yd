@@ -1,0 +1,204 @@
+// 本文件是首页中间件运行时卡片的控制器：把框架指标抽象的快照转换为模板行，不计算任何指标。
+// This file is the controller of the home middleware runtime card: it turns the framework metrics abstraction's
+// snapshot into template rows and computes no metric of its own.
+
+package controller
+
+import (
+	"net/http"
+	"sort"
+	"strconv"
+	"time"
+
+	"{{ .YdModule }}/http/router"
+	"{{ .YdModule }}/runtime/metricsx"
+)
+
+// missingReading is shown when a value has no reading yet. | missingReading 在没有读数时显示。
+const missingReading = "—"
+
+// middlewareStateKeys maps a lifecycle state to its i18n key, so the template never copies a label. | middlewareStateKeys
+// 把生命周期状态映射到 i18n 键，模板因此不复制文案。
+var middlewareStateKeys = map[metricsx.State]string{
+	metricsx.StateRegistered: "metrics.middleware.state.registered",
+	metricsx.StateActive:     "metrics.middleware.state.active",
+	metricsx.StateStopped:    "metrics.middleware.state.stopped",
+}
+
+// middlewareScopeKeys maps a scope to its i18n key. | middlewareScopeKeys 把作用域映射到 i18n 键。
+var middlewareScopeKeys = map[metricsx.Scope]string{
+	metricsx.ScopeGlobal: "metrics.middleware.scope.global",
+	metricsx.ScopeRoute:  "metrics.middleware.scope.route",
+	metricsx.ScopeCustom: "metrics.middleware.scope.custom",
+}
+
+// middlewareRow is one middleware as the template renders it. | middlewareRow 是模板渲染一个中间件所需的一行。
+type middlewareRow struct {
+	// Name is the stable descriptor key. | Name 是稳定的描述符键。
+	Name string
+	// Title is the bilingual fallback label. | Title 是双语兜底标签。
+	Title string
+	// TitleKey is the preferred i18n key. | TitleKey 是首选的 i18n 键。
+	TitleKey string
+	// Scope is the raw scope name. | Scope 是原始作用域名。
+	Scope string
+	// ScopeKey is the i18n key of the scope. | ScopeKey 是作用域的 i18n 键。
+	ScopeKey string
+	// State is the raw lifecycle state. | State 是原始生命周期状态。
+	State string
+	// StateKey is the i18n key of the state. | StateKey 是状态的 i18n 键。
+	StateKey string
+	// Tone selects the badge variant. | Tone 选择徽标配色。
+	Tone string
+	// Average is the formatted mean latency. | Average 是格式化的平均延迟。
+	Average string
+	// P95 is the formatted 95th percentile. | P95 是格式化的 95 分位。
+	P95 string
+	// Max is the formatted maximum latency. | Max 是格式化的最大延迟。
+	Max string
+	// LastSeen is the formatted UTC time of the last request, or a dash. | LastSeen 是最近请求的 UTC 时刻，
+	// 没有时为一个短横线。
+	LastSeen string
+	// Counters and Gauges are the caller-defined values. | Counters 与 Gauges 是调用方定义的值。
+	Counters []middlewareCounter
+	Gauges   []middlewareCounter
+	// Requests, InFlight, Aborted, Errors and Panics are the request counters. | Requests、InFlight、Aborted、
+	// Errors 与 Panics 是请求计数。
+	Requests uint64
+	InFlight uint64
+	Aborted  uint64
+	Errors   uint64
+	Panics   uint64
+}
+
+// middlewareCounter is one caller-defined counter or gauge. | middlewareCounter 是调用方定义的一个计数器或瞬时值。
+type middlewareCounter struct {
+	// Name is the caller's key. | Name 是调用方的键。
+	Name string
+	// Value is the formatted value. | Value 是格式化后的值。
+	Value string
+}
+
+// MiddlewareMetrics 返回首页中间件运行时片段，由首页每 5 秒轮询刷新一次。
+// MiddlewareMetrics returns the middleware runtime fragment, polled by the home page every five seconds.
+//
+// @Summary Middleware runtime fragment | 中间件运行时片段
+// @Description Renders one row per observed middleware from runtime/metricsx: lifecycle state, request, in-flight,
+// @Description aborted, error and panic counters, mean/p95/max latency, the last-seen time and any caller-defined
+// @Description counters. The fragment is swapped into #yd-middleware-metrics with innerMorph, so the table updates in
+// @Description place. Values are observed on the request path; the handler invents none of them.
+// @Description 为 runtime/metricsx 观察到的每个中间件渲染一行：生命周期状态、请求/进行中/中止/错误/panic 计数、
+// @Description 平均/95 分位/最大延迟、最近一次请求时刻，以及调用方自定义的计数器。片段以 innerMorph 换入
+// @Description #yd-middleware-metrics，因此表格就地刷新。全部取值都在请求路径上观察得到，处理器不编造任何数字。
+// @Tags pages
+// @Accept html
+// @Produce html
+// @Success 200 {object} string "middleware runtime fragment | 中间件运行时片段"
+// @Failure 401 {object} string "no session | 无有效会话"
+// @Security BearerAuth
+// @Router /metrics/middleware [get]
+func (c *Controller) MiddlewareMetrics(ctx *router.Ctx) {
+	c.render(ctx, http.StatusOK, TplMiddlewareMetrics, c.view(ctx, "中间件运行时 | Middleware runtime", map[string]any{
+		"Middleware": c.middlewareRows(c.provider.Snapshot().Middleware),
+	}))
+}
+
+// middlewareRows converts the abstraction snapshots into the fixed template shape. | middlewareRows 把抽象快照转换为
+// 固定的模板形态。
+func (c *Controller) middlewareRows(snaps []metricsx.MiddlewareSnapshot) []middlewareRow {
+	rows := make([]middlewareRow, 0, len(snaps))
+	for _, snap := range snaps {
+		title := snap.Title
+		if title == "" {
+			title = snap.Name
+		}
+		row := middlewareRow{
+			Name:     snap.Name,
+			Title:    title,
+			TitleKey: snap.TitleKey,
+			Scope:    string(snap.Scope),
+			ScopeKey: middlewareScopeKeys[snap.Scope],
+			State:    string(snap.State),
+			StateKey: middlewareStateKeys[snap.State],
+			Tone:     middlewareTone(snap.State),
+			Average:  formatLatency(snap.AverageLatency),
+			P95:      formatLatency(snap.P95Latency),
+			Max:      formatLatency(snap.MaxLatency),
+			LastSeen: formatLastSeen(snap.LastSeen),
+			Counters: formatCounters(snap.Counters),
+			Gauges:   formatGauges(snap.Gauges),
+			Requests: snap.Requests,
+			InFlight: snap.InFlight,
+			Aborted:  snap.Aborted,
+			Errors:   snap.Errors,
+			Panics:   snap.Panics,
+		}
+		rows = append(rows, row)
+	}
+	return rows
+}
+
+// middlewareTone maps a lifecycle state to a badge variant. | middlewareTone 把生命周期状态映射为徽标配色。
+func middlewareTone(state metricsx.State) string {
+	switch state {
+	case metricsx.StateActive:
+		return "success"
+	case metricsx.StateStopped:
+		return "warn"
+	default:
+		return "muted"
+	}
+}
+
+// formatLatency renders one duration; a missing reading is a dash. | formatLatency 渲染一个时长；没有读数时为一个短横线。
+func formatLatency(d time.Duration) string {
+	if d <= 0 {
+		return missingReading
+	}
+	if d < time.Microsecond {
+		return "<1µs"
+	}
+	return d.Round(time.Microsecond).String()
+}
+
+// formatLastSeen renders the UTC clock time of the last request. | formatLastSeen 渲染最近一次请求的 UTC 时刻。
+func formatLastSeen(t time.Time) string {
+	if t.IsZero() {
+		return missingReading
+	}
+	return t.UTC().Format("15:04:05")
+}
+
+// formatCounters sorts and formats the caller-defined counters. | formatCounters 排序并格式化调用方定义的计数器。
+func formatCounters(values map[string]uint64) []middlewareCounter {
+	if len(values) == 0 {
+		return nil
+	}
+	names := make([]string, 0, len(values))
+	for name := range values {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	out := make([]middlewareCounter, 0, len(names))
+	for _, name := range names {
+		out = append(out, middlewareCounter{Name: name, Value: strconv.FormatUint(values[name], 10)})
+	}
+	return out
+}
+
+// formatGauges sorts and formats the caller-defined gauges. | formatGauges 排序并格式化调用方定义的瞬时值。
+func formatGauges(values map[string]int64) []middlewareCounter {
+	if len(values) == 0 {
+		return nil
+	}
+	names := make([]string, 0, len(values))
+	for name := range values {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	out := make([]middlewareCounter, 0, len(names))
+	for _, name := range names {
+		out = append(out, middlewareCounter{Name: name, Value: strconv.FormatInt(values[name], 10)})
+	}
+	return out
+}

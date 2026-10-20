@@ -173,6 +173,13 @@ yd gen module|crud   # 低代码生成（DB Schema 或 Go Struct）
   `yd assets minify` 同时压缩 `.js` 与 `.svg`，生产模板经 `asset` 助手解析 `.min.svg`。
 - 首页资源仪表盘每 5 秒轮询 `GET /metrics`，用纯 SVG 仪表盘展示宿主机与进程的 CPU/内存；
   指标来自 `core/sysinfo` 与 `runtime/metrics`，平台不支持时显示「不可用」，不得编造数字。
+- 系统资源与中间件运行时统一经 `runtime/metricsx.Provider` 读取：`GET /metrics` 取 `Provider.Snapshot().System`，
+  首页两张卡片共用一次 `Provider.Snapshot()`，控制器不得直连 `MetricsService`。
+- 中间件运行时卡片轮询 `GET /metrics/middleware`，数据来自 `runtime/metricsx`。所有中间件必须经
+  `application.UseObserved(descriptor, mw)` 装配，描述符集中登记在 `internal/middleware/observability.go`；
+  自定义中间件可复用 `middleware.MetricsDescriptor("name")` 的 custom 回退，并用
+  `Entry.Incr/Add/SetGauge` 发布业务计数。状态为 `registered → active → stopped`，关闭后计数保留；
+  请求路径只用原子操作，panic 只由最内层观察者计数并重抛。详见框架 `docs/middleware-metrics.md`。
 - htmx 4 只交换匿名 SSE 消息：`Broker.PublishHTML` 发送无名 `data:` 消息，命名事件仅用于旁路通知；
   OpenAPI 查看器脚本必须是同源外链，内联脚本会被 CSP 拦截并让 `/docs` 空白。
 - 重连交给 hx-sse / hx-ws 的指数退避（SSE 自动回传 `Last-Event-ID`，WS 断线期间排队并在重开后 flush）；

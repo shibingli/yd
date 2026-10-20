@@ -180,14 +180,16 @@ func assemble(log *logx.Logger) (*app.App, error) {
 	// 其后追加本项目的补充中间件：顺序即执行顺序，安全头必须在最外层之外尽早生效。
 	// The middleware order matches app.Default (recover → request id → access log → compress → CORS) with this
 	// project's extras appended: the order is the execution order, and security headers should land as early as possible.
-	application.Use(
-		ydmw.Recover(log),
-		ydmw.RequestID(""),
-		ydmw.AccessLog(log),
-		ydmw.Compress(ydmw.CompressOptions{}),
-		ydmw.CORS(ydmw.CORSOptions{}),
-		middleware.Security(),
-	)
+	// 每个内建中间件都经 UseObserved 同时登记运行时描述符：首页的中间件卡片因此开箱即有数据，
+	// 自定义中间件也可以走同一条路径加入，而不必修改框架。
+	// Every built-in middleware registers its runtime descriptor through UseObserved, so the home middleware card
+	// has data out of the box; custom middleware joins through the very same path without touching the framework.
+	application.UseObserved(middleware.MetricsDescriptor("recover"), ydmw.Recover(log))
+	application.UseObserved(middleware.MetricsDescriptor("request-id"), ydmw.RequestID(""))
+	application.UseObserved(middleware.MetricsDescriptor("access-log"), ydmw.AccessLog(log))
+	application.UseObserved(middleware.MetricsDescriptor("compress"), ydmw.Compress(ydmw.CompressOptions{}))
+	application.UseObserved(middleware.MetricsDescriptor("cors"), ydmw.CORS(ydmw.CORSOptions{}))
+	application.UseObserved(middleware.MetricsDescriptor("security"), middleware.Security())
 
 	// 静态资源前缀与框架默认值一致；web.Static 已合并框架 vendor 脚本与本项目样式。
 	// The static prefix matches the framework default; web.Static has already merged the framework's vendored scripts with this project's styles.
@@ -226,7 +228,7 @@ func registerI18n(application *app.App, log *logx.Logger) error {
 	}
 
 	application.Set(app.ServiceI18n, bundle)
-	application.Use(i18n.Middleware(bundle, i18n.Options{}))
+	application.UseObserved(middleware.MetricsDescriptor("i18n"), i18n.Middleware(bundle, i18n.Options{}))
 	log.Info("i18n catalogues loaded | 语言目录已加载",
 		logx.Str("default", bundle.DefaultLang()),
 		logx.Strs("langs", bundle.Langs()),

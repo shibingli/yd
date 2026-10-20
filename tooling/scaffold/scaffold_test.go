@@ -64,11 +64,13 @@ var requiredFiles = []string{
 	"internal/controller/auth_controller.go",
 	"internal/controller/controller.go",
 	"internal/controller/home.go",
+	"internal/controller/middleware_metrics.go",
 	"internal/controller/realtime.go",
 	"internal/controller/role_controller.go",
 	"internal/controller/tenant_controller.go",
 	"internal/controller/user_controller.go",
 	"internal/meta/meta.go",
+	"internal/middleware/observability.go",
 	"internal/middleware/security.go",
 	"internal/middleware/session.go",
 	"internal/middleware/tenant.go",
@@ -108,6 +110,8 @@ var requiredFiles = []string{
 	"web/templates/partials/flash.html",
 	"web/templates/partials/home/metrics.html",
 	"web/templates/partials/home/metrics_fragment.html",
+	"web/templates/partials/home/middleware.html",
+	"web/templates/partials/home/middleware_fragment.html",
 	"web/templates/partials/icon.html",
 	"web/templates/partials/login.html",
 	"web/templates/partials/roles/drawer.html",
@@ -1176,9 +1180,54 @@ func TestGeneratedAppServesFrameworkFeatures(t *testing.T) {
 		if resp.StatusCode != http.StatusOK {
 			t.Fatalf("GET / 状态码 = %d, 期望 200\n%s", resp.StatusCode, body)
 		}
-		for _, want := range []string{"<html", `id="yd-workspace"`, "/static/css/yd.css"} {
+		for _, want := range []string{"<html", `id="yd-workspace"`, "/static/css/yd.css", `id="yd-middleware-metrics"`} {
 			if !strings.Contains(body, want) {
 				t.Errorf("GET / 缺少 %q:\n%s", want, body)
+			}
+		}
+	})
+
+	t.Run("系统资源片段", func(t *testing.T) {
+		resp, body := getText(t, client, base+"/metrics", nil)
+		if resp.StatusCode != http.StatusOK {
+			t.Fatalf("GET /metrics 状态码 = %d, 期望 200\n%s", resp.StatusCode, body)
+		}
+		// 改为经统一指标抽象取数后，呈现必须逐字保持原样。 | After routing through the unified metrics
+		// abstraction the rendering must stay byte-for-byte equivalent.
+		for _, want := range []string{
+			`class="yd-metrics-grid"`,
+			`class="yd-gauge`,
+			"CPU cores",
+			"CPU usage",
+			"Total memory",
+			"Process CPU",
+			"Process memory",
+		} {
+			if !strings.Contains(body, want) {
+				t.Errorf("GET /metrics 缺少 %q:\n%s", want, body)
+			}
+		}
+	})
+
+	t.Run("中间件运行时", func(t *testing.T) {
+		resp, body := getText(t, client, base+"/metrics/middleware", nil)
+		if resp.StatusCode != http.StatusOK {
+			t.Fatalf("GET /metrics/middleware 状态码 = %d, 期望 200\n%s", resp.StatusCode, body)
+		}
+		for _, want := range []string{
+			`data-yd-middleware`,
+			`data-yd-middleware-name="recover"`,
+			`data-yd-middleware-name="access-log"`,
+			`data-yd-middleware-name="security"`,
+			`data-yd-middleware-name="i18n"`,
+			`data-yd-middleware-name="promote"`,
+			`data-yd-middleware-name="auth"`,
+			`data-yd-middleware-name="authz"`,
+			`data-yd-middleware-name="tenant"`,
+			">active<",
+		} {
+			if !strings.Contains(body, want) {
+				t.Errorf("GET /metrics/middleware 缺少 %q:\n%s", want, body)
 			}
 		}
 	})
@@ -2944,6 +2993,80 @@ func TestSeedPasswordNoticeAppearsOnceOnHome(t *testing.T) {
 
 // TestGenerateResponsiveShellHooks pins the generated mobile navigation hooks and the responsive
 // component layer. | TestGenerateResponsiveShellHooks 固定生成项目的移动端导航钩子与响应式组件层。
+// TestHomeShowsMiddlewareRuntime pins the middleware runtime card and the instrumentation wiring:
+// every built-in middleware is observed through the same registry, and the fragment is polled just
+// like the system-resource gauges. | TestHomeShowsMiddlewareRuntime 固定中间件运行时卡片与观测接线：
+// 每个内建中间件都经同一注册表观察，片段与系统资源仪表盘一样轮询刷新。
+func TestHomeShowsMiddlewareRuntime(t *testing.T) {
+	pr, _ := generateMem(t, scaffold.DefaultOptions("middleware-app"))
+
+	home := pr.read("web/templates/pages/home.html")
+	for _, want := range []string{
+		`id="yd-middleware-metrics"`,
+		`hx-get="/metrics/middleware"`,
+		`hx-target="this"`,
+		`hx-swap="innerMorph"`,
+		`partials/home/middleware-panel`,
+	} {
+		if !strings.Contains(home, want) {
+			t.Errorf("home.html 缺少 %q | home.html is missing %q", want, want)
+		}
+	}
+	fragment := pr.read("web/templates/partials/home/middleware_fragment.html")
+	if !strings.Contains(fragment, `partials/home/middleware-panel`) {
+		t.Error("middleware_fragment.html 未渲染共享面板 | middleware_fragment.html does not render the shared panel")
+	}
+
+	routerSrc := pr.read("internal/router/router.go")
+	if !strings.Contains(routerSrc, `"/metrics/middleware"`) {
+		t.Error("受保护路由缺少 /metrics/middleware | the protected routes lack /metrics/middleware")
+	}
+	for _, name := range []string{"promote", "auth", "authz", "tenant"} {
+		if !strings.Contains(routerSrc, `MetricsDescriptor("`+name+`")`) {
+			t.Errorf("router.go 未观察路由中间件 %q | router.go does not observe route middleware %q", name, name)
+		}
+	}
+
+	mainSrc := pr.read("cmd/app/main.go")
+	for _, name := range []string{"recover", "request-id", "access-log", "compress", "cors", "security", "i18n"} {
+		if !strings.Contains(mainSrc, `MetricsDescriptor("`+name+`")`) {
+			t.Errorf("main.go 未观察全局中间件 %q | main.go does not observe global middleware %q", name, name)
+		}
+	}
+	if !strings.Contains(pr.read("internal/middleware/observability.go"), "func MetricsDescriptor") {
+		t.Error("observability.go 缺少 MetricsDescriptor 入口 | observability.go lacks the MetricsDescriptor entry point")
+	}
+	controllerSrc := pr.read("internal/controller/controller.go")
+	if !strings.Contains(controllerSrc, "metricsx.Provider") || !strings.Contains(controllerSrc, "metricsx.NewCollector") {
+		t.Error("controller 未通过指标抽象组合来源 | the controller does not compose sources through the metrics abstraction")
+	}
+	if !strings.Contains(pr.read("internal/controller/middleware_metrics.go"), "metricsx.MiddlewareSnapshot") {
+		t.Error("middleware controller 未消费中间件快照 | the middleware controller does not consume middleware snapshots")
+	}
+
+	// 系统资源同样只能经统一抽象取得：控制器不得再直连具体采样服务，否则两条数据路径会分叉。
+	// System resources go through the same abstraction: the controller must not reach the concrete sampler
+	// directly, or the two data paths would diverge.
+	homeSrc := pr.read("internal/controller/home.go")
+	if strings.Contains(homeSrc, "c.metrics.Snapshot()") {
+		t.Error("home.go 仍直连 MetricsService | home.go still reaches MetricsService directly")
+	}
+	for _, want := range []string{
+		"provider.Snapshot().System",
+		"func (c *Controller) metricGauges(m metricsx.SystemSnapshot)",
+	} {
+		if !strings.Contains(homeSrc, want) {
+			t.Errorf("home.go 缺少 %q | home.go is missing %q", want, want)
+		}
+	}
+	if strings.Contains(pr.read("internal/controller/controller.go"), "metrics *service.MetricsService") {
+		t.Error("controller 仍持有具体指标服务字段 | the controller still holds the concrete metrics service field")
+	}
+	if !strings.Contains(pr.read("internal/service/metrics.go"), "metricsx.SystemSource") {
+		t.Error("metrics service 未实现系统来源接口 | the metrics service does not implement the system source")
+	}
+}
+
 func TestGenerateResponsiveShellHooks(t *testing.T) {
 	pr, _ := generateMem(t, scaffold.DefaultOptions("responsive-app"))
 

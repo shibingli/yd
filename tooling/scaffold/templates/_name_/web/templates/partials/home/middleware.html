@@ -1,0 +1,61 @@
+{{/*
+  partials/home/middleware.html —— 首页中间件运行时表格（由 pages/home.html 与 /metrics/middleware 片段共用）。
+  partials/home/middleware.html — the home middleware runtime table, shared by pages/home.html and the
+  /metrics/middleware fragment.
+
+  数据完全来自 runtime/metricsx：每个内建中间件与自定义中间件都在同一张表里，计数、延迟与生命周期状态
+  由注册表在请求路径上用原子操作更新。表格只做呈现，不再计算任何指标。
+  The data comes entirely from runtime/metricsx: every built-in and custom middleware appears in the same table,
+  and the registry updates counters, latency and lifecycle state on the request path with atomics. The table only
+  presents values; it computes no metric of its own.
+
+  数据契约 | Data contract: .Middleware（[]middlewareRow，按注册顺序）。
+*/}}
+{{- define "partials/home/middleware-panel" -}}
+<div class="yd-table__wrap" data-yd-middleware>
+  <table class="yd-table" aria-label="{{ tr "metrics.middleware.title" }}">
+    <caption class="sr-only">{{ tr "metrics.middleware.title" }}</caption>
+    <thead class="yd-table__head">
+      <tr>
+        <th class="yd-table__th" scope="col">{{ tr "metrics.middleware.col.name" }}</th>
+        <th class="yd-table__th" scope="col">{{ tr "metrics.middleware.col.state" }}</th>
+        <th class="yd-table__th" scope="col">{{ tr "metrics.middleware.col.requests" }}</th>
+        <th class="yd-table__th" scope="col">{{ tr "metrics.middleware.col.in_flight" }}</th>
+        <th class="yd-table__th" scope="col">{{ tr "metrics.middleware.col.aborted" }}</th>
+        <th class="yd-table__th" scope="col">{{ tr "metrics.middleware.col.errors" }}</th>
+        <th class="yd-table__th" scope="col">{{ tr "metrics.middleware.col.panics" }}</th>
+        <th class="yd-table__th" scope="col">{{ tr "metrics.middleware.col.avg" }}</th>
+        <th class="yd-table__th" scope="col">{{ tr "metrics.middleware.col.p95" }}</th>
+        <th class="yd-table__th" scope="col">{{ tr "metrics.middleware.col.max" }}</th>
+        <th class="yd-table__th" scope="col">{{ tr "metrics.middleware.col.last_seen" }}</th>
+      </tr>
+    </thead>
+    <tbody class="yd-table__body">
+      {{ range .Middleware }}
+      <tr class="yd-table__row" data-yd-middleware-name="{{ .Name }}">
+        <td class="yd-table__td">
+          <span class="yd-table__primary">{{ if .TitleKey }}{{ tr .TitleKey }}{{ else }}{{ .Title }}{{ end }}</span>
+          <span class="yd-badge yd-badge--muted">{{ if .ScopeKey }}{{ tr .ScopeKey }}{{ else }}{{ .Scope }}{{ end }}</span>
+          {{ range .Counters }}<span class="yd-badge yd-badge--info">{{ .Name }}: {{ .Value }}</span>{{ end }}
+          {{ range .Gauges }}<span class="yd-badge yd-badge--info">{{ .Name }}: {{ .Value }}</span>{{ end }}
+        </td>
+        <td class="yd-table__td"><span class="yd-badge yd-badge--{{ .Tone }}">{{ if .StateKey }}{{ tr .StateKey }}{{ else }}{{ .State }}{{ end }}</span></td>
+        <td class="yd-table__td">{{ .Requests }}</td>
+        <td class="yd-table__td">{{ .InFlight }}</td>
+        <td class="yd-table__td">{{ .Aborted }}</td>
+        <td class="yd-table__td">{{ .Errors }}</td>
+        <td class="yd-table__td">{{ .Panics }}</td>
+        <td class="yd-table__td">{{ .Average }}</td>
+        <td class="yd-table__td">{{ .P95 }}</td>
+        <td class="yd-table__td">{{ .Max }}</td>
+        <td class="yd-table__td">{{ .LastSeen }}</td>
+      </tr>
+      {{ else }}
+      <tr class="yd-table__row yd-table__row--empty">
+        <td class="yd-table__td" colspan="11">{{ tr "metrics.middleware.empty" }}</td>
+      </tr>
+      {{ end }}
+    </tbody>
+  </table>
+</div>
+{{- end -}}

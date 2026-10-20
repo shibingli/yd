@@ -109,6 +109,11 @@
 - [ ] **离线图标**：所有图标只经 `{{template "partials/icon" "lucide-…"}}` 引用；
       `yd icons sync` 按模板生成按需 sprite，`yd icons check` 进 CI；禁止内联 SVG、Iconify 运行时与 CDN；
       `minify` 阶段同时产出 `*.min.svg`，生产模板经 `asset` 助手解析。详见 `docs/icon-usage.md`。
+- [ ] **中间件运行时指标**：所有中间件经 `application.UseObserved(descriptor, mw)` 装配
+      （不得只调 `Use`），名称/i18n 键/作用域集中登记在 `internal/middleware/observability.go`；
+      状态为 `registered → active → stopped`，关闭后计数保留且不得翻回 active；请求指标只走原子操作，
+      panic 只由最内层观察者计数并重抛；`GET /metrics/middleware` 与首页 `#yd-middleware-metrics`
+      每 5 秒刷新。详见 `docs/middleware-metrics.md`。
 - [ ] **Tailwind v4 分层**：所有项目样式必须建立在 Tailwind v4 之上——`@import "tailwindcss"`、
       `@theme` 语义令牌、`@layer components`；可复用工具类用 `@apply`，颜色不得在令牌块之外写字面量。
 - [ ] **交互约定**：新增/编辑走右侧抽屉（`#yd-drawer`），列表操作与顶栏租户切换共用下拉菜单

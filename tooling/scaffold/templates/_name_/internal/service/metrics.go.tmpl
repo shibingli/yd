@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"{{ .YdModule }}/core/sysinfo"
+	"{{ .YdModule }}/runtime/metricsx"
 )
 
 // hostSampleWindow bounds the first CPU sample; later samples span the caller's polling interval.
@@ -33,29 +34,13 @@ var processCPUMetricNames = [...]string{
 	"/cpu/classes/idle:cpu-seconds",
 }
 
-// Metrics is one dashboard snapshot. | Metrics 是一次仪表盘快照。
-type Metrics struct {
-	// CPUCores is the number of logical CPUs visible to the process. | CPUCores 是进程可见的逻辑 CPU 数。
-	CPUCores int
-	// CPUPercent is the host-wide busy percentage in [0, 100]. | CPUPercent 是全主机忙碌百分比，取值 [0, 100]。
-	CPUPercent float64
-	// MemoryTotal is the host memory total in bytes, or 0 when unknown. | MemoryTotal 是宿主机内存总量（字节），未知时为 0。
-	MemoryTotal uint64
-	// MemoryAvailable is the host memory currently available in bytes. | MemoryAvailable 是宿主机当前可用内存（字节）。
-	MemoryAvailable uint64
-	// MemoryPercent is the host memory used percentage in [0, 100]. | MemoryPercent 是宿主机内存使用百分比，取值 [0, 100]。
-	MemoryPercent float64
-	// ProcessCPUPercent is the share of the host CPU used by this process. | ProcessCPUPercent 是本进程占用的宿主 CPU 份额。
-	ProcessCPUPercent float64
-	// ProcessMemory is the memory the Go runtime obtained from the OS in bytes. | ProcessMemory 是 Go 运行时向操作系统申请的内存（字节）。
-	ProcessMemory uint64
-	// ProcessMemoryPercent is ProcessMemory as a share of the host total. | ProcessMemoryPercent 是 ProcessMemory 占宿主总量的比例。
-	ProcessMemoryPercent float64
-	// HostCPU reports whether the platform exposes host CPU times. | HostCPU 报告平台是否提供宿主机 CPU 时间。
-	HostCPU bool
-	// HostMemory reports whether the platform exposes host memory. | HostMemory 报告平台是否提供宿主机内存。
-	HostMemory bool
-}
+// Metrics is one dashboard snapshot, defined once by the framework's metrics abstraction. | Metrics 是一次仪表盘快照，
+// 由框架的指标抽象统一定义。
+//
+// The alias keeps the scaffold's field access (m.CPUCores and friends) unchanged while the contract lives in
+// runtime/metricsx, which is also what the middleware registry and any custom source implement. | 该别名让脚手架原有的
+// 字段访问（m.CPUCores 等）保持不变，而契约定义在 runtime/metricsx 中——中间件注册表与任何自定义来源实现的也是它。
+type Metrics = metricsx.SystemSnapshot
 
 // MetricsService samples and caches the deltas needed by the dashboard. | MetricsService 采样并保存仪表盘所需的差值。
 //
@@ -127,6 +112,12 @@ func (s *MetricsService) processCPUSeconds() (float64, bool) {
 	}
 	return total - idle, true
 }
+
+// SystemSnapshot implements metricsx.SystemSource. | SystemSnapshot 实现 metricsx.SystemSource。
+//
+// It is the adapter the metrics collector calls, so the dashboard never depends on this concrete service. | 它是指标
+// 收集器调用的适配方法，因此仪表盘不依赖这个具体服务。
+func (s *MetricsService) SystemSnapshot() metricsx.SystemSnapshot { return s.Snapshot() }
 
 // Snapshot returns the current dashboard values. | Snapshot 返回当前仪表盘取值。
 func (s *MetricsService) Snapshot() Metrics {

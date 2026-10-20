@@ -1,0 +1,12 @@
+{{/*
+  partials/home/middleware_fragment.html —— /metrics/middleware 端点返回的片段：只渲染共享的中间件表格。
+  partials/home/middleware_fragment.html — the fragment returned by /metrics/middleware: it renders the shared
+  middleware table only.
+
+  本文件没有 define，因此控制器可以直接以文件名渲染它；表格本身仍只有 partials/home/middleware.html 一份。
+  This file carries no define, so the controller renders it by file name, while the table itself still lives
+  exactly once in partials/home/middleware.html.
+
+  数据契约 | Data contract: .Middleware。
+*/}}
+{{ template "partials/home/middleware-panel" . }}

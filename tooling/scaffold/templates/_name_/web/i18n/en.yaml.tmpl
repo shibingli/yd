@@ -128,6 +128,42 @@ metrics:
   process_cpu: "Process CPU"
   process_memory: "Process memory"
   unavailable: "not exposed on this platform"
+  middleware:
+    title: "Middleware runtime"
+    hint: "refreshed every five seconds"
+    empty: "no middleware registered yet"
+    col:
+      name: "Middleware"
+      state: "State"
+      requests: "Requests"
+      in_flight: "In flight"
+      aborted: "Aborted"
+      errors: "Errors"
+      panics: "Panics"
+      avg: "Average"
+      p95: "P95"
+      max: "Max"
+      last_seen: "Last seen"
+    state:
+      registered: "registered"
+      active: "active"
+      stopped: "stopped"
+    scope:
+      global: "global"
+      route: "route"
+      custom: "custom"
+    name:
+      recover: "Panic recovery"
+      request_id: "Request ID"
+      access_log: "Access log"
+      compress: "Compression"
+      cors: "CORS"
+      security: "Security headers"
+      i18n: "i18n"
+      promote: "Cookie token promotion"
+      auth: "Session authentication"
+      authz: "Authorization"
+      tenant: "Tenant resolution"
 
 realtime:
   connecting: "connecting"
