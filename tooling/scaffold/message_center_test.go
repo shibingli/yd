@@ -827,6 +827,8 @@ func TestGeneratedAppMessageCentre(t *testing.T) {
 			`action="/messages/groups"`,
 			`data-yd-user-menu`,
 			`id="yd-unread-badge"`,
+			`id="yd-unread-menu-badge"`,
+			`yd-user-menu__item--unread`,
 			`href="/messages?folder=unread"`,
 			`href="/account"`,
 		} {
@@ -984,8 +986,9 @@ GROUP BY r.name`)
 	}
 }
 
-// dialMessageSocket 建立消息 WebSocket 并读掉初始未读徽标，返回已订阅的连接。
-// dialMessageSocket opens the message WebSocket, consumes the initial unread badge and returns the subscribed connection.
+// dialMessageSocket 建立消息 WebSocket 并读掉两个初始未读徽标（用户名角标与用户菜单计数），返回已订阅的连接。
+// dialMessageSocket opens the message WebSocket, consumes both initial unread badges (the user-name corner and the
+// user-menu count) and returns the subscribed connection.
 func dialMessageSocket(t *testing.T, base, token string) *ws.Conn {
 	t.Helper()
 
@@ -1002,9 +1005,16 @@ func dialMessageSocket(t *testing.T, base, token string) *ws.Conn {
 		_ = conn.CloseNow()
 		t.Fatalf("设置读超时失败: %v", err)
 	}
-	if _, _, err := conn.ReadMessage(); err != nil {
-		_ = conn.CloseNow()
-		t.Fatalf("未收到初始未读徽标: %v\ninitial unread badge was not pushed: %v", err, err)
+	for _, target := range []string{`hx-target="#yd-unread-badge"`, `hx-target="#yd-unread-menu-badge"`} {
+		_, frame, err := conn.ReadMessage()
+		if err != nil {
+			_ = conn.CloseNow()
+			t.Fatalf("未收到初始未读徽标 %s: %v\ninitial unread badge was not pushed: %v", target, err, err)
+		}
+		if !strings.Contains(string(frame), target) {
+			_ = conn.CloseNow()
+			t.Fatalf("未读徽标帧缺少目标 %s: %s\nunread badge frame lacks target %s: %s", target, frame, target, frame)
+		}
 	}
 	return conn
 }

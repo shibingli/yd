@@ -2408,9 +2408,33 @@
     height: 1rem;
   }
 
-  .yd-menu__item.yd-user-menu__item > span {
+  .yd-menu__item.yd-user-menu__item > .yd-user-menu__label {
     flex: 1 1 auto;
     min-width: 0;
+  }
+
+  /* The unread row reads stronger than the profile row: bold weight and the darkest content token. |
+     未读行比资料行更醒目：加粗字重并使用最深的内容色令牌。 */
+  .yd-menu__item.yd-user-menu__item.yd-user-menu__item--unread {
+    color: var(--color-content);
+    font-weight: 600;
+  }
+
+  /* Count pill on the right edge of the unread row. | 未读行右端的计数胶囊。 */
+  .yd-menu__item.yd-user-menu__item .yd-user-menu__badge {
+    justify-content: center;
+    margin-left: auto;
+    min-width: 1.25rem;
+    height: 1.25rem;
+    padding: 0 0.375rem;
+    border: 0;
+    border-radius: 999px;
+    background-color: var(--color-danger);
+    color: var(--color-surface);
+    font-size: 0.6875rem;
+    font-weight: 600;
+    line-height: 1.25rem;
+    text-align: center;
   }
 }
 

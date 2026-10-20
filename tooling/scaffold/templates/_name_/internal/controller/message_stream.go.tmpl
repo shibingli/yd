@@ -162,7 +162,10 @@ func (c *Controller) deliverMessageEvent(conn *ws.Conn, actor messaging.Actor, l
 	}
 }
 
-// pushUnreadBadge renders and pushes the current unread badge. | pushUnreadBadge 渲染并推送当前未读徽标。
+// pushUnreadBadge renders and pushes the current unread badges: the one beside the user name and the count on the
+// "unread messages" row of the user menu. They carry separate ids because both live inside the shell at once. |
+// pushUnreadBadge 渲染并推送当前未读徽标：用户名右侧的角标与用户菜单「未读消息」行的计数。两者同时存在于外壳中，
+// 因此使用各自的 id。
 func (c *Controller) pushUnreadBadge(conn *ws.Conn, actor messaging.Actor, lang string) {
 	if c.app.Renderer() == nil {
 		return
@@ -175,17 +178,26 @@ func (c *Controller) pushUnreadBadge(conn *ws.Conn, actor messaging.Actor, lang 
 	if c.i18n != nil {
 		data[render.TranslatorKey] = c.i18n.Translator(lang)
 	}
-	var buf bytes.Buffer
-	if err := c.app.Renderer().Render(&buf, TplUnreadBadge, data); err != nil {
-		c.log.Debug("unread badge render failed | 未读徽标渲染失败", logx.Err(err))
-		return
-	}
 	if err := conn.SetWriteDeadline(time.Now().Add(messageSocketWriteTimeout)); err != nil {
 		_ = conn.CloseNow()
 		return
 	}
-	if err := conn.WriteHtmxFragment("#yd-unread-badge", "outerHTML", buf.String()); err != nil {
-		_ = conn.CloseNow()
+	for _, badge := range []struct {
+		template string
+		target   string
+	}{
+		{TplUnreadBadge, "#yd-unread-badge"},
+		{TplUnreadMenuBadge, "#yd-unread-menu-badge"},
+	} {
+		var buf bytes.Buffer
+		if err := c.app.Renderer().Render(&buf, badge.template, data); err != nil {
+			c.log.Debug("unread badge render failed | 未读徽标渲染失败", logx.Str("template", badge.template), logx.Err(err))
+			return
+		}
+		if err := conn.WriteHtmxFragment(badge.target, "outerHTML", buf.String()); err != nil {
+			_ = conn.CloseNow()
+			return
+		}
 	}
 }
 

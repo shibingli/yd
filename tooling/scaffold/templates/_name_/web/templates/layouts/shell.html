@@ -88,14 +88,16 @@
         </summary>
         <div class="yd-user__menu yd-menu__panel" role="menu" aria-label="{{ tr "nav.user_menu" }}">
           {{- if and .MessageAvailable (can .Perm.MessageRead) }}
-          <a class="yd-menu__item yd-user-menu__item" role="menuitem" href="/messages?folder=unread"
-             hx-get="/messages?folder=unread" hx-target="#yd-shell" hx-swap="innerMorph" hx-push-url="true">
-            {{ template "partials/icon" "lucide-mail" }}<span>{{ tr "nav.unread_messages" }}</span>
+          <a class="yd-menu__item yd-user-menu__item yd-user-menu__item--unread" role="menuitem"
+             href="/messages?folder=unread" hx-get="/messages?folder=unread" hx-target="#yd-shell"
+             hx-swap="innerMorph" hx-push-url="true">
+            {{ template "partials/icon" "lucide-mail" }}<span class="yd-user-menu__label">{{ tr "nav.unread_messages" }}</span>
+            {{ template "partials/messages/unread_menu_badge" . }}
           </a>
           {{- end }}
           <a class="yd-menu__item yd-user-menu__item" role="menuitem" href="/account"
              hx-get="/account" hx-target="#yd-shell" hx-swap="innerMorph" hx-push-url="true">
-            {{ template "partials/icon" "lucide-user-round" }}<span>{{ tr "nav.my_profile" }}</span>
+            {{ template "partials/icon" "lucide-user-round" }}<span class="yd-user-menu__label">{{ tr "nav.my_profile" }}</span>
           </a>
         </div>
       </details>

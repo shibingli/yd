@@ -151,6 +151,7 @@ var requiredFiles = []string{
 	"web/templates/partials/messages/search.html",
 	"web/templates/partials/messages/thread.html",
 	"web/templates/partials/messages/unread_badge.html",
+	"web/templates/partials/messages/unread_menu_badge.html",
 	"web/templates/partials/roles/drawer.html",
 	"web/templates/partials/roles/edit_drawer.html",
 	"web/templates/partials/roles/form.html",
@@ -3518,6 +3519,8 @@ func TestGeneratedMessageCentreUsesInlineNewConversationPanel(t *testing.T) {
 		`href="/messages?folder=unread"`,
 		`href="/account"`,
 		`partials/messages/unread_badge`,
+		`partials/messages/unread_menu_badge`,
+		`yd-user-menu__item--unread`,
 		`class="yd-menu__item yd-user-menu__item"`,
 		"lucide-mail",
 		"lucide-user-round",
@@ -3525,6 +3528,9 @@ func TestGeneratedMessageCentreUsesInlineNewConversationPanel(t *testing.T) {
 		if !strings.Contains(shell, want) {
 			t.Errorf("shell.html 缺少 %q", want)
 		}
+	}
+	if !strings.Contains(pr.read("web/templates/partials/messages/unread_menu_badge.html"), `id="yd-unread-menu-badge"`) {
+		t.Error("unread_menu_badge.html lacks its own count id | unread_menu_badge.html 缺少独立计数 id")
 	}
 	// 未读角标必须排在用户名之后、菜单箭头之前，不能盖在头像角上。
 	// The unread badge must follow the user name and precede the menu caret instead of covering the avatar corner.
