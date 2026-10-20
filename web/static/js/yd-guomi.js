@@ -796,9 +796,22 @@
     try {
       return sm2DecryptOne(privateKeyHex, bytes);
     } catch (err) {
-      // Auto mode: fall back to the gmsm-style 0x04-prefixed layout only when it is well formed. | 自动模式：仅在结构合法时回退到 gmsm 风格的 0x04 前缀布局。
+      // Auto mode: a raw ciphertext may legitimately start with 0x04, so the prefixed layout is only a
+      // fallback, and the raw error is kept when it was structurally valid. Trying the prefixed layout
+      // and reporting its error would turn a wrong-key decrypt-failed into an off-curve C1; reporting
+      // the prefixed error unconditionally would break the documented error code. | 自动模式：原始密文
+      // 本身可以合法地以 0x04 开头，因此前缀布局只是回退；原始布局结构合法时必须保留原始错误。直接尝试
+      // 前缀布局并报告它的错误，会把错误密钥的 decrypt-failed 变成 C1 不在曲线上；无条件报告前缀错误
+      // 又会破坏文档化的错误码。
       if (prefixed === undefined && bytes.length > 96 && bytes[0] === 0x04) {
-        return sm2DecryptOne(privateKeyHex, bytes.subarray(1));
+        try {
+          return sm2DecryptOne(privateKeyHex, bytes.subarray(1));
+        } catch (prefixedErr) {
+          if (err && err.code === 'decrypt-failed') {
+            throw err;
+          }
+          throw prefixedErr;
+        }
       }
       throw err;
     }

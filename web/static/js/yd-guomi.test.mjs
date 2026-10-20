@@ -222,6 +222,45 @@ test('SM2 key generation, signing and encryption round-trip | SM2 密钥生成�
   assert.throws(() => ydGuomi.sm2.decrypt(pair.privateKey, ciphertext.slice(0, 95)), (err) => err.code === 'invalid-ciphertext');
 });
 
+test('a 0x04-leading raw ciphertext keeps decrypt-failed for a wrong key | 首字节为 0x04 的原始密文对错误密钥仍报 decrypt-failed', async () => {
+  const pair = await ydGuomi.sm2.generateKeyPair();
+  const message = bytes('prefix collision | 前缀碰撞');
+  let ciphertext = null;
+  let foundK = null;
+  for (let i = 1; i < 10000 && ciphertext === null; i++) {
+    const k = i.toString(16).padStart(64, '0');
+    try {
+      const candidate = ydGuomi.sm2.encrypt(pair.publicKey, message, { k });
+      if (candidate[0] === 0x04) {
+        ciphertext = candidate;
+        foundK = k;
+      }
+    } catch (err) {
+      // A fixed k that derives an all-zero stream is unusable; try the next one. | 固定 k 派生出全零密钥流时换下一个。
+    }
+  }
+  assert.ok(ciphertext, 'no raw ciphertext with a 0x04-leading C1 | 未找到 C1 首字节为 0x04 的原始密文');
+  assert.deepEqual(Array.from(ydGuomi.sm2.decrypt(pair.privateKey, ciphertext)), Array.from(message));
+
+  // The raw layout is structurally valid, so a wrong key is a decrypt-failed, not an off-curve C1;
+  // the auto-detection must not fall back to the 0x04-prefixed layout and mask that error. | 原始布局结构合法，
+  // 错误密钥应得到 decrypt-failed 而不是 C1 不在曲线上；自动识别不得回退到 0x04 前缀布局而掩盖该错误。
+  const other = await ydGuomi.sm2.generateKeyPair();
+  assert.throws(
+    () => ydGuomi.sm2.decrypt(other.privateKey, ciphertext),
+    (err) => err.code === 'decrypt-failed',
+  );
+
+  // The same material in the gmsm-style 0x04-prefixed layout still auto-detects correctly. | 同一材料的
+  // gmsm 风格 0x04 前缀布局仍能正确自动识别。
+  const prefixed = ydGuomi.sm2.encrypt(pair.publicKey, message, { k: foundK, c1Prefix: true });
+  assert.deepEqual(Array.from(ydGuomi.sm2.decrypt(pair.privateKey, prefixed)), Array.from(message));
+  assert.throws(
+    () => ydGuomi.sm2.decrypt(other.privateKey, prefixed),
+    (err) => err.code === 'decrypt-failed',
+  );
+});
+
 test('SM3 vectors produced by Go match the JS implementation | Go 生成的 SM3 向量与 JS 实现一致', (t) => {
   if (!goVectors) return t.skip(`Go vectors missing at ${goVectorsPath}; run go test ./web/ first | 缺少 ${goVectorsPath} 处的 Go 向量，请先运行 go test ./web/`);
   assert.ok(goVectors.sm3.length >= 4);
