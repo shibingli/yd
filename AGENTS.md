@@ -112,8 +112,8 @@
 - [ ] **中间件运行时指标**：所有中间件经 `application.UseObserved(descriptor, mw)` 装配
       （不得只调 `Use`），名称/i18n 键/作用域集中登记在 `internal/middleware/observability.go`；
       状态为 `registered → active → stopped`，关闭后计数保留且不得翻回 active；请求指标只走原子操作，
-      panic 只由最内层观察者计数并重抛；`GET /metrics/middleware` 与首页 `#yd-middleware-metrics`
-      每 5 秒刷新。详见 `docs/middleware-metrics.md`。
+      panic 只由最内层观察者计数并重抛；首页只经一条 WebSocket `/ws/metrics` 每 5 秒接收系统资源与
+      中间件两块片段，不得再写 HTTP 轮询或重同步。详见 `docs/middleware-metrics.md`。
 - [ ] **Tailwind v4 分层**：所有项目样式必须建立在 Tailwind v4 之上——`@import "tailwindcss"`、
       `@theme` 语义令牌、`@layer components`；可复用工具类用 `@apply`，颜色不得在令牌块之外写字面量。
 - [ ] **交互约定**：新增/编辑走右侧抽屉（`#yd-drawer`），列表操作与顶栏租户切换共用下拉菜单
@@ -133,7 +133,7 @@
       导航与 `htmx:after:swap` 必须清理定时器、提示节点与旧通道状态。
 - [ ] **OpenAPI 查看器**：脚本必须是同源外链（`/static/js/yd-openapi-viewer.js`），
       禁止内联脚本与 CDN，否则 CSP 会拦截并让 `/docs` 空白。
-- [ ] **首页资源仪表盘**：`/metrics` 每 5 秒轮询，纯 SVG 仪表盘、主题令牌着色；
+- [ ] **首页资源仪表盘**：系统资源与中间件共用一条 `/ws/metrics` 推送，纯 SVG 仪表盘、主题令牌着色；
       宿主机 CPU/内存来自 `core/sysinfo`，进程 CPU/内存来自 `runtime/metrics`；
       平台不支持时显示「不可用」，不得编造数字。
 - [ ] **OpenAPI 注释完整**：对外 HTTP 处理器的 doc 注释必须含完整注解块

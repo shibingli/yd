@@ -668,9 +668,12 @@ yd versions sync               # 仅重新生成 version_generated.go
 
 ### 22.4 首页资源仪表盘
 
-- 首页通过 `GET /metrics` 每 5 秒轮询并 `innerMorph` 到 `#yd-metrics`，展示宿主机 CPU 核心数/利用率、
-  总内存/利用率与当前进程 CPU/内存。仪表盘是纯服务端渲染的 SVG（`pathLength="100"` +
-  `stroke-dasharray`），不得引入图表库或内联脚本。
+- 首页通过**一条** WebSocket（`hx-ws:connect="/ws/metrics"`）接收系统资源与中间件运行时两块片段：
+  服务端每 5 秒把一个 `<hx-partial hx-target="#yd-live-metrics" hx-swap="innerMorph">` 信封推给每条连接，
+  页面不得再为这两块内容建立 HTTP 定时轮询。`GET /metrics` 与 `GET /metrics/middleware` 仅保留为
+  可直接取用的服务端片段（直连、调试与无脚本回退），首页不再请求它们。
+  仪表盘展示宿主机 CPU 核心数/利用率、总内存/利用率与当前进程 CPU/内存，是纯服务端渲染的 SVG
+  （`pathLength="100"` + `stroke-dasharray`），不得引入图表库或内联脚本。
 - 指标来自 `core/sysinfo`（`CPUSnapshot` / `MemoryTotal` / `MemoryAvailable`，Windows 走
   `GetSystemTimes` / `GlobalMemoryStatusEx`）与 `runtime/metrics`；平台不提供时显示「不可用」，
   **不得编造数字**。首次采样允许约 150ms 的窗口等待，之后只做一次快照。
@@ -782,9 +785,10 @@ yd versions sync               # 仅重新生成 version_generated.go
 - **热路径约束**：自动指标只用原子操作，不取锁、不做反射、不分配直方图。`Entry.Incr/Add/SetGauge`
   的自定义计数会取一把小锁，应按事件调用，不得无意义地每请求重复调用。
 - **同名合并**：同一 `Name` 只占一行，计数合并；同时挂在公开组与受保护组的 `tenant` 因此不会被拆成两行。
-- **端点与前端**：`GET /metrics` 返回系统资源片段，`GET /metrics/middleware` 返回中间件片段，二者都在
-  受保护分组内。首页在系统资源下方渲染 `#yd-middleware-metrics`，每 5 秒 `innerMorph` 刷新，
-  不写历史、不引图表库、不写内联脚本。
+- **端点与前端**：`GET /metrics` 与 `GET /metrics/middleware` 仍返回可直接取用的片段，二者都在受保护分组内；
+  首页则只建立**一条** WebSocket `/ws/metrics`，由服务端每 5 秒推送两块内容合并后的一个信封到
+  `#yd-live-metrics`（`innerMorph`）。连接建立后立即推首帧，失败由 hx-ws 扩展退避重连，重连成功即恢复数据，
+  **不得**再为指标另写轮询或 HTTP 重同步。推送端点只写不回显，入站内容一律忽略。
 - **i18n**：所有表头、状态、作用域与内建中间件名称都来自 `metrics.middleware.*` 键，
   `zh-CN` 与 `en` 两份目录必须同时存在；缺失或陈旧键由 `TestGeneratedI18nCatalogueCoversEveryTrKey` 拦截。
 - **使用文档**：`docs/middleware-metrics.md` 是接口、自定义指标、生命周期与检查清单的唯一入口。

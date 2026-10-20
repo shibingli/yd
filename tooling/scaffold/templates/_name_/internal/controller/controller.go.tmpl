@@ -3,7 +3,7 @@
 //
 // Four hard rules: | 四条硬性约定：
 //   - every handler carries a complete OpenAPI 3.0 annotation block above it (see docs/developer_guidelines.md §9.2), which yd build turns into the document; | 每个处理器上方的注释块都是完整的 OpenAPI 3.0 注解（见 docs/developer_guidelines.md §9.2），yd build 据此生成文档；
-//   - endpoints answer with HTML fragments rather than JSON (/events and /ws are streaming, /guomi/pubkey returns the public key as plain text); | 端点返回 HTML 片段而不是 JSON（/events、/ws 是流式端点，/guomi/pubkey 是纯文本公钥）；
+//   - endpoints answer with HTML fragments rather than JSON (/events, /ws and /ws/metrics are streaming, /guomi/pubkey returns the public key as plain text); | 端点返回 HTML 片段而不是 JSON（/events、/ws 与 /ws/metrics 是流式端点，/guomi/pubkey 是纯文本公钥）；
 //   - multi-tenancy is a hard boundary: every business call carries the tenant id from the context, and cross-tenant reads and writes are refused in both the service and the repository layer; | 多租户是硬边界：每一次业务调用都带着上下文里的租户 ID，跨租户的读写在 service/repository 两层各拦一次；
 //   - status codes are derived from the business sentinels via errors.Is and never from parsing error messages. | 状态码由业务哨兵映射而来（errors.Is），绝不解析错误文案。
 package controller
@@ -69,6 +69,9 @@ const (
 	// TplMiddlewareMetrics is the middleware runtime fragment polled by the home page. | TplMiddlewareMetrics
 	// 是首页轮询的中间件运行时片段。
 	TplMiddlewareMetrics = "partials/home/middleware_fragment.html"
+	// TplLiveMetrics is the unified system-resource and middleware-runtime panel pushed over WebSocket. | TplLiveMetrics
+	// 是经 WebSocket 推送的系统资源与中间件运行时统一面板。
+	TplLiveMetrics = "partials/home/live_metrics.html"
 )
 
 // 列表片段名：增删改之后返回的就是它们，因此 htmx 只换工作区、不重载整页。

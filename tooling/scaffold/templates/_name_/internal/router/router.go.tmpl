@@ -258,6 +258,7 @@ func registerProtected(a *app.App, ctrl *controller.Controller, store *repositor
 	// The realtime channels: SSE and WebSocket share one publisher.
 	g.GET("/events", ctrl.Stream(broker))
 	g.GET("/ws", ctrl.Socket(ticker))
+	g.GET("/ws/metrics", ctrl.MetricsSocket())
 
 	// 租户：读与建分别对应注册表的 tenant:read 与 tenant:create，因为租户是其它一切数据的边界。
 	// Tenants: reading and creating map onto the registry's tenant:read and tenant:create, because tenants are the

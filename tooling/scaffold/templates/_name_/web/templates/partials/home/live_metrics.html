@@ -1,0 +1,42 @@
+{{/*
+  partials/home/live_metrics.html —— 系统资源与中间件运行时的统一推送面板。
+  partials/home/live_metrics.html — the unified push panel for system resources and middleware runtime.
+
+  两张卡片由同一条 WebSocket 连接（/ws/metrics）推送：服务端每 5 秒渲染一次本文件，把两段内容包在
+  一个 <hx-partial hx-target="#yd-live-metrics" hx-swap="innerMorph"> 信封里发送，因此页面只需一次握手，
+  也不会产生两套定时轮询。首页初次渲染直接调用同一个 define，初始内容与推送内容结构完全一致，
+  morph 时不会重建连接元素，也不会出现布局跳动。
+  Both cards are pushed over one WebSocket connection (/ws/metrics): the server renders this file every five
+  seconds and sends both sections inside one <hx-partial hx-target="#yd-live-metrics" hx-swap="innerMorph">
+  envelope, so the page needs one handshake and no pair of polling loops. The initial home render calls the very
+  same define, so the initial and pushed content have one shape, the morph never rebuilds the connection element,
+  and the layout never jumps.
+
+  数据契约 | Data contract: .Gauges .Middleware。
+*/}}
+{{- define "partials/home/live-metrics" -}}
+<section class="yd-card yd-section" aria-labelledby="yd-home-metrics">
+  <header class="yd-section__header">
+    <h2 class="yd-section__title" id="yd-home-metrics">{{ tr "metrics.title" }}</h2>
+    <span class="yd-badge yd-badge--muted">{{ tr "metrics.hint" }}</span>
+  </header>
+  <div id="yd-metrics">
+    {{ template "partials/home/metrics-panel" . }}
+  </div>
+</section>
+
+{{/* 中间件运行时：全部内建中间件与自定义中间件共用同一张表。计数来自请求路径上的原子更新，
+     因此这里看到的是真实执行情况，而不是配置推断。
+     Middleware runtime: every built-in and custom middleware shares one table. The counters come from atomics on
+     the request path, so this is observed execution rather than configuration guesswork. */}}
+<section class="yd-card yd-section" aria-labelledby="yd-home-middleware">
+  <header class="yd-section__header">
+    <h2 class="yd-section__title" id="yd-home-middleware">{{ tr "metrics.middleware.title" }}</h2>
+    <span class="yd-badge yd-badge--muted">{{ tr "metrics.middleware.hint" }}</span>
+  </header>
+  <div id="yd-middleware-metrics">
+    {{ template "partials/home/middleware-panel" . }}
+  </div>
+</section>
+{{- end -}}
+{{ template "partials/home/live-metrics" . }}

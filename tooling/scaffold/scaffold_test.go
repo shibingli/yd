@@ -64,6 +64,7 @@ var requiredFiles = []string{
 	"internal/controller/auth_controller.go",
 	"internal/controller/controller.go",
 	"internal/controller/home.go",
+	"internal/controller/metrics_stream.go",
 	"internal/controller/middleware_metrics.go",
 	"internal/controller/realtime.go",
 	"internal/controller/role_controller.go",
@@ -108,6 +109,7 @@ var requiredFiles = []string{
 	"web/templates/pages/tenants.html",
 	"web/templates/pages/users.html",
 	"web/templates/partials/flash.html",
+	"web/templates/partials/home/live_metrics.html",
 	"web/templates/partials/home/metrics.html",
 	"web/templates/partials/home/metrics_fragment.html",
 	"web/templates/partials/home/middleware.html",
@@ -1180,9 +1182,78 @@ func TestGeneratedAppServesFrameworkFeatures(t *testing.T) {
 		if resp.StatusCode != http.StatusOK {
 			t.Fatalf("GET / 状态码 = %d, 期望 200\n%s", resp.StatusCode, body)
 		}
-		for _, want := range []string{"<html", `id="yd-workspace"`, "/static/css/yd.css", `id="yd-middleware-metrics"`} {
+		for _, want := range []string{
+			"<html", `id="yd-workspace"`, "/static/css/yd.css",
+			`id="yd-live-metrics"`, `hx-ws:connect="/ws/metrics"`, `id="yd-middleware-metrics"`,
+		} {
 			if !strings.Contains(body, want) {
 				t.Errorf("GET / 缺少 %q:\n%s", want, body)
+			}
+		}
+		for _, unwanted := range []string{`hx-get="/metrics"`, `hx-get="/metrics/middleware"`} {
+			if strings.Contains(body, unwanted) {
+				t.Errorf("GET / 仍使用指标轮询 %q:\n%s", unwanted, body)
+			}
+		}
+	})
+
+	t.Run("指标 WebSocket 推送", func(t *testing.T) {
+		ctx, cancel := context.WithTimeout(context.Background(), sseTimeout)
+		defer cancel()
+
+		conn, err := ws.Dial(ctx, "ws"+strings.TrimPrefix(base, "http")+"/ws/metrics", ws.DialOptions{
+			Subprotocols: []string{"htmx"},
+			Headers:      http.Header{"Authorization": []string{"Bearer " + token}},
+		})
+		if err != nil {
+			t.Fatalf("指标 WebSocket 握手失败: %v\n指标 WebSocket handshake failed: %v", err, err)
+		}
+		defer func() { _ = conn.CloseNow() }()
+
+		// 连接建立后服务端立即推一帧，两张卡片必须由同一条连接、同一个片段一起送达。
+		// The server pushes one frame immediately after the handshake; one connection and one fragment must carry
+		// both cards together.
+		if err := conn.SetReadDeadline(time.Now().Add(sseTimeout)); err != nil {
+			t.Fatalf("设置读超时失败: %v", err)
+		}
+		op, frame, err := conn.ReadMessage()
+		if err != nil {
+			t.Fatalf("读取指标推送失败: %v", err)
+		}
+		if op != ws.TextMessage {
+			t.Fatalf("指标推送帧类型 = %v, 期望文本帧", op)
+		}
+		for _, want := range []string{
+			"<hx-partial",
+			`hx-target="#yd-live-metrics"`,
+			`hx-swap="innerMorph"`,
+			`id="yd-metrics"`,
+			`class="yd-metrics-grid"`,
+			`class="yd-gauge`,
+			`id="yd-middleware-metrics"`,
+			`data-yd-middleware-name="recover"`,
+		} {
+			if !strings.Contains(string(frame), want) {
+				t.Errorf("指标推送帧缺少 %q:\n%s", want, frame)
+			}
+		}
+
+		// 第二帧证明推送不是一次性的：按 5 秒节拍持续送达，且仍然同时包含两张卡片。
+		// A second frame proves the push is not one-shot: it keeps arriving on the five-second cadence and still
+		// carries both cards.
+		if err := conn.SetReadDeadline(time.Now().Add(7 * time.Second)); err != nil {
+			t.Fatalf("设置第二帧读超时失败: %v", err)
+		}
+		op, frame, err = conn.ReadMessage()
+		if err != nil {
+			t.Fatalf("读取第二帧指标推送失败: %v", err)
+		}
+		if op != ws.TextMessage {
+			t.Fatalf("第二帧类型 = %v, 期望文本帧", op)
+		}
+		for _, want := range []string{`id="yd-metrics"`, `id="yd-middleware-metrics"`} {
+			if !strings.Contains(string(frame), want) {
+				t.Errorf("第二帧缺少 %q:\n%s", want, frame)
 			}
 		}
 	})
@@ -2926,8 +2997,11 @@ func TestGenerateRealtimeRecoveryHooks(t *testing.T) {
 	}
 
 	home := pr.read("web/templates/pages/home.html")
-	if !strings.Contains(home, `data-yd-resync="/metrics"`) || !strings.Contains(home, `data-yd-resync-target="#yd-metrics"`) {
-		t.Error("the home clock must resync the metrics panel after a reconnect | 首页时钟必须在重连后重新同步指标面板")
+	if !strings.Contains(home, `hx-ws:connect="/ws/metrics"`) {
+		t.Error("the home metrics cards must share one WebSocket connection | 首页指标卡片必须共用一条 WebSocket 连接")
+	}
+	if strings.Contains(home, `data-yd-resync="/metrics"`) {
+		t.Error("the home clock must not resync metrics over HTTP after a reconnect | 首页时钟不得在重连后用 HTTP 重同步指标")
 	}
 
 	for _, file := range []string{"web/i18n/zh-CN.yaml", "web/i18n/en.yaml"} {
@@ -2994,22 +3068,44 @@ func TestSeedPasswordNoticeAppearsOnceOnHome(t *testing.T) {
 // TestGenerateResponsiveShellHooks pins the generated mobile navigation hooks and the responsive
 // component layer. | TestGenerateResponsiveShellHooks 固定生成项目的移动端导航钩子与响应式组件层。
 // TestHomeShowsMiddlewareRuntime pins the middleware runtime card and the instrumentation wiring:
-// every built-in middleware is observed through the same registry, and the fragment is polled just
-// like the system-resource gauges. | TestHomeShowsMiddlewareRuntime 固定中间件运行时卡片与观测接线：
-// 每个内建中间件都经同一注册表观察，片段与系统资源仪表盘一样轮询刷新。
+// every built-in middleware is observed through the same registry, and both metric cards share one
+// WebSocket connection instead of two polling loops. | TestHomeShowsMiddlewareRuntime 固定中间件运行时
+// 卡片与观测接线：每个内建中间件都经同一注册表观察，两张指标卡片共用一条 WebSocket 连接而不是两套轮询。
 func TestHomeShowsMiddlewareRuntime(t *testing.T) {
 	pr, _ := generateMem(t, scaffold.DefaultOptions("middleware-app"))
 
 	home := pr.read("web/templates/pages/home.html")
 	for _, want := range []string{
-		`id="yd-middleware-metrics"`,
-		`hx-get="/metrics/middleware"`,
+		`id="yd-live-metrics"`,
+		`hx-ws:connect="/ws/metrics"`,
 		`hx-target="this"`,
 		`hx-swap="innerMorph"`,
-		`partials/home/middleware-panel`,
+		`partials/home/live-metrics`,
 	} {
 		if !strings.Contains(home, want) {
 			t.Errorf("home.html 缺少 %q | home.html is missing %q", want, want)
+		}
+	}
+	for _, unwanted := range []string{
+		`hx-get="/metrics"`,
+		`hx-get="/metrics/middleware"`,
+		`hx-trigger="every 5s"`,
+		`data-yd-resync="/metrics"`,
+	} {
+		if strings.Contains(home, unwanted) {
+			t.Errorf("home.html 仍保留轮询/HTTP 重同步 %q | home.html still keeps polling or HTTP resync %q", unwanted, unwanted)
+		}
+	}
+	live := pr.read("web/templates/partials/home/live_metrics.html")
+	for _, want := range []string{
+		`partials/home/live-metrics`,
+		`id="yd-metrics"`,
+		`id="yd-middleware-metrics"`,
+		`partials/home/metrics-panel`,
+		`partials/home/middleware-panel`,
+	} {
+		if !strings.Contains(live, want) {
+			t.Errorf("live_metrics.html 缺少 %q | live_metrics.html is missing %q", want, want)
 		}
 	}
 	fragment := pr.read("web/templates/partials/home/middleware_fragment.html")
@@ -3018,8 +3114,16 @@ func TestHomeShowsMiddlewareRuntime(t *testing.T) {
 	}
 
 	routerSrc := pr.read("internal/router/router.go")
-	if !strings.Contains(routerSrc, `"/metrics/middleware"`) {
-		t.Error("受保护路由缺少 /metrics/middleware | the protected routes lack /metrics/middleware")
+	for _, want := range []string{`"/metrics/middleware"`, `"/ws/metrics"`, "ctrl.MetricsSocket()"} {
+		if !strings.Contains(routerSrc, want) {
+			t.Errorf("受保护路由缺少 %q | the protected routes lack %q", want, want)
+		}
+	}
+	streamSrc := pr.read("internal/controller/metrics_stream.go")
+	for _, want := range []string{"MetricsSocket", "WriteHtmxFragment", "renderLiveMetrics", "#yd-live-metrics"} {
+		if !strings.Contains(streamSrc, want) {
+			t.Errorf("metrics_stream.go 缺少 %q | metrics_stream.go is missing %q", want, want)
+		}
 	}
 	for _, name := range []string{"promote", "auth", "authz", "tenant"} {
 		if !strings.Contains(routerSrc, `MetricsDescriptor("`+name+`")`) {

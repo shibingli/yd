@@ -79,8 +79,8 @@
       `/metrics` 取 `Provider.Snapshot().System`，首页两张卡片共用一次快照，控制器不得直连 `MetricsService`。
 - [ ] **中间件可观测**：所有中间件经 `application.UseObserved(descriptor, mw)` 装配，名称/i18n 键/作用域
       登记在 `internal/middleware/observability.go`；状态为 `registered → active → stopped`，关闭后计数保留；
-      请求指标只用原子操作，panic 只由最内层观察者计数并重抛；`GET /metrics/middleware` 与首页卡片每 5 秒刷新。
-      详见框架 `docs/middleware-metrics.md`。
+      请求指标只用原子操作，panic 只由最内层观察者计数并重抛；首页只经一条 `/ws/metrics` 每 5 秒接收
+      系统资源与中间件两块片段，不得再写 HTTP 轮询或重同步。详见框架 `docs/middleware-metrics.md`。
 - [ ] **国密合规**：敏感数据加解密必须走 `guomi`（SM2/SM3/SM4），口令存储用 SM3 + 盐 + 迭代，禁止 MD5/SHA1。
 - [ ] **传输加密**：前端敏感字段提交必须声明式触发 SM2 前置加密（`data-yd-encrypt="sm2"`）。
 - [ ] **注入面**：SQL 只允许参数化查询；模板输出默认走 `html/template` 转义。

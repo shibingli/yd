@@ -1,0 +1,157 @@
+// 本文件是首页指标的 WebSocket 推送端点：系统资源与中间件运行时由同一条连接一起送达。
+// This file is the WebSocket push endpoint of the home metrics: system resources and middleware runtime travel
+// together over one connection.
+
+package controller
+
+import (
+	"bytes"
+	"sync"
+	"time"
+
+	"{{ .YdModule }}/core/errx"
+	"{{ .YdModule }}/core/logx"
+	"{{ .YdModule }}/http/i18n"
+	"{{ .YdModule }}/http/render"
+	"{{ .YdModule }}/http/router"
+	"{{ .YdModule }}/http/ws"
+)
+
+// 指标推送契约：目标选择器与替换策略必须与 pages/home.html 的连接元素保持一致。
+// The metrics push contract: the target selector and swap strategy must match the connection element in pages/home.html.
+const (
+	// metricsLiveTarget is the wrapper holding both metric cards. | metricsLiveTarget 是同时承载两张指标卡片的容器。
+	metricsLiveTarget = "#yd-live-metrics"
+	// metricsLiveSwap morphs both cards in place without rebuilding the socket. | metricsLiveSwap 就地形态替换两张卡片，
+	// 不重建套接字。
+	metricsLiveSwap = "innerMorph"
+	// metricsPushInterval is the server push cadence. | metricsPushInterval 是服务端推送节拍。
+	metricsPushInterval = 5 * time.Second
+	// metricsWriteTimeout bounds one frame write so a stalled peer cannot pin the goroutine. | metricsWriteTimeout
+	// 限定单帧写出时间，避免停滞的对端把协程钉住。
+	metricsWriteTimeout = 5 * time.Second
+)
+
+// ErrMetricsRender reports a failed render of the unified metrics panel. | ErrMetricsRender 表示统一指标面板渲染失败。
+var ErrMetricsRender = errx.New("controller: metrics panel render failed | controller：指标面板渲染失败")
+
+// MetricsSocket 构造指标推送端点：同一条 WebSocket 连接每 5 秒收到系统资源与中间件运行时两段片段。
+// MetricsSocket builds the metrics push endpoint: one WebSocket connection receives both the system-resource and
+// middleware-runtime fragments every five seconds.
+//
+// 推送由 OnOpen 启动的协程完成：首帧立即写出，之后按节拍刷新；OnClose 关闭 done 通道使协程退出，写出失败则
+// 主动关闭连接。读出方向只消费协议控制帧，入站数据被忽略（本端点不回显用户输入）。
+// The push runs in the goroutine started by OnOpen: the first frame is immediate and later frames follow the
+// cadence. OnClose closes the done channel so the goroutine exits, and a write failure closes the connection. The
+// read direction only consumes protocol control frames; inbound data is ignored (this endpoint never echoes input).
+//
+// @Summary Metrics stream (WebSocket) | 指标推送（WebSocket）
+// @Description Upgrades with the htmx subprotocol and pushes one rendered fragment every five seconds. The fragment
+// @Description carries both the system-resource gauges and the middleware runtime table, wrapped in a single
+// @Description hx-partial targeting #yd-live-metrics with innerMorph, so one handshake replaces two polling loops.
+// @Description Values come from runtime/metricsx; the endpoint never accepts or echoes inbound content.
+// @Description 以 htmx 子协议升级连接，每 5 秒推送一份渲染好的片段。片段同时包含系统资源仪表盘与中间件运行时表格，
+// @Description 包在一个指向 #yd-live-metrics、采用 innerMorph 的 hx-partial 信封里，因此一次握手替代两套轮询。
+// @Description 取值来自 runtime/metricsx；端点不接受也不回显入站内容。
+// @Tags realtime
+// @Accept json
+// @Produce json
+// @Param Upgrade header string true "must be websocket | 必须为 websocket"
+// @Success 101 {string} string "switching protocols | 协议切换"
+// @Success 200 {string} string "extended CONNECT established | 扩展连接已建立"
+// @Failure 400 {object} string "upgrade failure written by the framework | 框架写出的升级失败响应"
+// @Failure 401 {object} string "no session | 无有效会话"
+// @Security BearerAuth
+// @Router /ws/metrics [get]
+func (c *Controller) MetricsSocket() router.HandlerFunc {
+	return func(ctx *router.Ctx) {
+		translator := i18n.FromContext(ctx)
+		done := make(chan struct{})
+		var once sync.Once
+		handler := ws.HtmxHandler(ws.HtmxOptions{
+			// 子协议与 htmx 的 WebSocket 扩展一致；不声明它，浏览器可能拒绝握手。
+			// The subprotocol matches the htmx WebSocket extension; without it the browser may refuse the handshake.
+			Subprotocols: []string{"htmx"},
+			OnOpen: func(conn *ws.Conn) {
+				go c.pushMetrics(conn, translator, done)
+			},
+			// 纯接收端点：入站消息被忽略，绝不回显（回显会替换掉整块指标面板）。
+			// A receive-only endpoint: inbound messages are ignored and never echoed (an echo would replace the metrics panel).
+			OnMessage: func(*ws.Conn, ws.HtmxMessage) {},
+			OnClose: func(*ws.Conn, error) {
+				once.Do(func() { close(done) })
+			},
+		})
+		handler(ctx)
+	}
+}
+
+// pushMetrics 立即推一帧，随后按节拍推送，直到连接关闭或写出失败。
+// pushMetrics pushes one immediate frame and then keeps pushing on the cadence until the connection closes or a write fails.
+func (c *Controller) pushMetrics(conn *ws.Conn, translator *i18n.Translator, done <-chan struct{}) {
+	ticker := time.NewTicker(metricsPushInterval)
+	defer ticker.Stop()
+
+	send := func() bool {
+		fragment, err := c.renderLiveMetrics(translator)
+		if err != nil {
+			c.log.Warn("metrics panel render failed | 指标面板渲染失败", logx.Err(err))
+			return true
+		}
+		// 写超时防止停滞的客户端永久占用推送协程；超时后连接被关闭，读循环随之退出。
+		// The write deadline keeps a stalled client from holding the push goroutine forever; once it fires the
+		// connection is closed and the read loop exits.
+		if err := conn.SetWriteDeadline(time.Now().Add(metricsWriteTimeout)); err != nil {
+			_ = conn.CloseNow()
+			return false
+		}
+		// 控制帧（pong / close）由 ws 内部带着自己的 deadline 写出，因此这里不必把数据帧的 deadline 清回零；
+		// 下一帧数据写入时会重新设置。清回零反而会丢弃调用方设置的超时语义。
+		// Control frames (pong / close) are written by ws with their own deadlines, so the data frame's deadline
+		// need not be reset here; the next data frame sets a fresh one. Resetting it would discard the caller's
+		// timeout semantics.
+		if err := conn.WriteHtmxFragment(metricsLiveTarget, metricsLiveSwap, fragment); err != nil {
+			_ = conn.CloseNow()
+			return false
+		}
+		return true
+	}
+
+	if !send() {
+		return
+	}
+	for {
+		select {
+		case <-done:
+			return
+		case <-ticker.C:
+			if !send() {
+				return
+			}
+		}
+	}
+}
+
+// renderLiveMetrics 读取一次 Provider 快照并渲染两张卡片；系统资源与中间件因此描述同一时刻。
+// renderLiveMetrics takes one Provider snapshot and renders both cards, so system resources and middleware describe
+// the same instant.
+func (c *Controller) renderLiveMetrics(translator *i18n.Translator) (string, error) {
+	renderer := c.app.Renderer()
+	if renderer == nil {
+		return "", ErrMetricsRender
+	}
+	snapshot := c.provider.Snapshot()
+	data := map[string]any{
+		"Gauges":     c.metricGauges(snapshot.System),
+		"Middleware": c.middlewareRows(snapshot.Middleware),
+	}
+	if translator != nil {
+		data[render.TranslatorKey] = translator
+	}
+
+	var buf bytes.Buffer
+	if err := renderer.Render(&buf, TplLiveMetrics, data); err != nil {
+		return "", errx.Wrap(err, ErrMetricsRender)
+	}
+	return buf.String(), nil
+}

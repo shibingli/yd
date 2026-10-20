@@ -133,9 +133,12 @@ entry.SetGauge("entries", int64(size))
 - `GET /metrics`：系统资源片段。控制器只读取 `Provider.Snapshot().System`，不再直连
   `MetricsService`；片段结构与仪表盘显示保持不变。
 - `GET /metrics/middleware`：中间件运行时片段；
-- 两个端点都在受保护分组内，需要有效会话；
-- 首页在“系统资源”下方渲染 `#yd-middleware-metrics`，每 5 秒以 `innerMorph` 就地刷新，
-  不写历史、不引入图表库或内联脚本；
+- 两个端点都在受保护分组内，需要有效会话；它们保留为可直接取用的服务端片段（直连、调试与无脚本回退），
+  首页不再请求它们；
+- 首页只建立**一条** WebSocket `/ws/metrics`：服务端每 5 秒把两块内容合并渲染成一个
+  `<hx-partial hx-target="#yd-live-metrics" hx-swap="innerMorph">` 信封推给每条连接，首帧在握手后立即写出。
+  连接失败由 hx-ws 扩展按指数退避重连，重连成功后服务端立即补一帧，**不得**另写轮询或 HTTP 重同步；
+- 推送端点只写不回显：入站消息一律忽略，回显会替换整块指标面板；
 - 表头、状态、作用域与内建中间件名称全部来自
   `web/i18n/zh-CN.yaml` / `web/i18n/en.yaml` 的 `metrics.middleware.*` 键；
   `TestGeneratedI18nCatalogueCoversEveryTrKey` 会拦截缺失或陈旧的键；

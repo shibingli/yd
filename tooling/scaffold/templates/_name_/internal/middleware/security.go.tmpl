@@ -29,8 +29,8 @@ const (
 	// forbidding it would break interactions after a swap; style injection is far less dangerous than script injection,
 	// so the relaxation is deliberate.
 	//
-	// connect-src 'self' 同时覆盖 SSE（/events）与 WebSocket（/ws）：CSP3 把 ws:// 与 wss:// 的同源连接计入 'self'。
-	// connect-src 'self' also covers SSE (/events) and WebSocket (/ws): CSP3 counts same-origin ws:// and wss:// under 'self'.
+	// connect-src 'self' 同时覆盖 SSE（/events）与 WebSocket（/ws、/ws/metrics）：CSP3 把 ws:// 与 wss:// 的同源连接计入 'self'。
+	// connect-src 'self' also covers SSE (/events) and WebSocket (/ws, /ws/metrics): CSP3 counts same-origin ws:// and wss:// under 'self'.
 	cspPolicy = "default-src 'self'; " +
 		"base-uri 'self'; " +
 		"form-action 'self'; " +

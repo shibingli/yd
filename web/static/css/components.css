@@ -781,6 +781,14 @@
     gap: 1.5rem;
   }
 
+  /* Unified live-metrics stack: one WebSocket feeds both cards while the page rhythm stays unchanged.
+     | 统一指标推送栈：一条 WebSocket 同时供给两张卡片，并保持页面原有节奏。 */
+  .yd-live-metrics {
+    display: flex;
+    flex-direction: column;
+    gap: 1.5rem;
+  }
+
   /* Page title block and page actions on one wrapping row. | 页面标题块与页面操作同处一行并可换行。 */
   .yd-page__header {
     display: flex;
