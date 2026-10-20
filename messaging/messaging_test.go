@@ -124,6 +124,15 @@ func (n *notifier) count() int {
 	return len(n.events)
 }
 
+// snapshot returns a copy of the recorded events. | snapshot 返回已记录事件的副本。
+func (n *notifier) snapshot() []messaging.Event {
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	out := make([]messaging.Event, len(n.events))
+	copy(out, n.events)
+	return out
+}
+
 // fixture is one wired service with its dependencies. | fixture 是一套装配好的服务及其依赖。
 type fixture struct {
 	svc      *messaging.Service
@@ -290,6 +299,54 @@ func TestFriendLifecycle(t *testing.T) {
 	if err := f.svc.UnblockUser(ctx, bob, alice.ID); err != nil {
 		t.Fatalf("unblock: %v", err)
 	}
+}
+
+// TestReadEventReachesTheReader proves the read-watermark event also reaches the reader. Otherwise the reader's own
+// WebSocket never refreshes the unread badge, and only a page reload clears it. |
+// TestReadEventReachesTheReader 证明推进已读水位的事件也会发给读者本人；否则读者自己的 WebSocket 不会刷新未读角标，
+// 只能通过刷新页面才能清除。
+func TestReadEventReachesTheReader(t *testing.T) {
+	f := newFixture(t)
+	ctx := context.Background()
+	alice, bob := actor("us_alice", "Alice"), actor("us_bob", "Bob")
+	conv := befriend(t, f, alice, bob)
+
+	if _, err := f.svc.Send(ctx, alice, messaging.SendInput{ConversationID: conv.ID, Markdown: "first"}); err != nil {
+		t.Fatalf("send failed: %[1]v | 发送失败: %[1]v", err)
+	}
+	if err := f.svc.MarkRead(ctx, bob, conv.ID); err != nil {
+		t.Fatalf("mark read failed: %[1]v | 标记已读失败: %[1]v", err)
+	}
+	assertReaderInLastReadEvent(t, f, bob.ID)
+
+	if _, err := f.svc.Send(ctx, alice, messaging.SendInput{ConversationID: conv.ID, Markdown: "second"}); err != nil {
+		t.Fatalf("send second failed: %[1]v | 发送第二条失败: %[1]v", err)
+	}
+	if _, _, err := f.svc.Conversation(ctx, bob, conv.ID); err != nil {
+		t.Fatalf("open conversation failed: %[1]v | 打开会话失败: %[1]v", err)
+	}
+	assertReaderInLastReadEvent(t, f, bob.ID)
+}
+
+// assertReaderInLastReadEvent asserts the latest read event lists the reader in its audience. |
+// assertReaderInLastReadEvent 断言最新一条已读事件的受众包含读者本人。
+func assertReaderInLastReadEvent(t *testing.T, f *fixture, readerID string) {
+	t.Helper()
+
+	events := f.notifier.snapshot()
+	for i := len(events) - 1; i >= 0; i-- {
+		if events[i].Type != messaging.EventMessageRead {
+			continue
+		}
+		for _, id := range events[i].Audience {
+			if id == readerID {
+				return
+			}
+		}
+		t.Fatalf("read event audience = %[1]v, missing reader %[2]s | 已读事件受众 = %[1]v, 缺少读者 %[2]s",
+			events[i].Audience, readerID)
+	}
+	t.Fatal("no read event was emitted | 没有发出已读事件")
 }
 
 // TestDirectMessageReadAndRecall walks send, unread, read receipt and recall windows. | TestDirectMessageReadAndRecall 走查发送、未读、已读回执与撤回窗口。

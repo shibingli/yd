@@ -476,6 +476,24 @@ func TestGeneratedAppMessageCentre(t *testing.T) {
 		resp, body = probePostJSON(t, admin, base+"/api/v1/messages/"+conversation+"/read", adminToken, map[string]any{})
 		requireProbeStatus(t, resp, body, http.StatusNoContent, "标记会话已读")
 
+		// 读者本人也必须收到已读事件；事件到达后 deliverMessageEvent 会立即推送刷新后的角标帧。
+		// 否则右上角角标与菜单强调要等整页刷新才消失。
+		// The reader must receive its own read event; deliverMessageEvent pushes the refreshed badges right after it.
+		// Otherwise the corner badge and the menu emphasis only clear after a full page reload.
+		readDeadline := time.Now().Add(sseTimeout)
+		for {
+			if err := socket.SetReadDeadline(readDeadline); err != nil {
+				t.Fatalf("设置读超时失败: %v", err)
+			}
+			_, frame, err := socket.ReadMessage()
+			if err != nil {
+				t.Fatalf("未收到读者自己的已读事件: %v", err)
+			}
+			if strings.Contains(string(frame), `"yd_event":"message.read"`) && strings.Contains(string(frame), conversation) {
+				break
+			}
+		}
+
 		resp, body = probeGet(t, admin, base+"/api/v1/messages/conversations", adminToken)
 		requireProbeStatus(t, resp, body, http.StatusOK, "读取已读后的会话列表")
 		list = decodeProbeJSON[probeConversations](t, body)

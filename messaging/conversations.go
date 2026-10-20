@@ -128,13 +128,10 @@ func (s *Service) Conversation(ctx context.Context, actor Actor, conversationID 
 					member.LastReadAt = &now
 				}
 			}
-			audience := make([]string, 0, len(members))
-			for _, member := range members {
-				if member.UserID != actor.ID {
-					audience = append(audience, member.UserID)
-				}
-			}
-			s.emit(ctx, Event{Type: EventMessageRead, TenantID: actor.TenantID, ConversationID: conv.ID, ActorID: actor.ID, Audience: audience, Detail: map[string]string{"at": now.UTC().Format(time.RFC3339)}})
+			// 受众包含读者本人：读者自己的 WebSocket 连接也要据此刷新未读角标，否则角标会一直停留在旧值。
+			// The audience includes the reader: their own WebSocket connection needs the event to refresh the unread
+			// badge, otherwise the badge keeps the previous count until a page reload.
+			s.emit(ctx, Event{Type: EventMessageRead, TenantID: actor.TenantID, ConversationID: conv.ID, ActorID: actor.ID, Audience: memberIDsOf(members), Detail: map[string]string{"at": now.UTC().Format(time.RFC3339)}})
 		}
 	}
 
@@ -456,13 +453,10 @@ func (s *Service) MarkRead(ctx context.Context, actor Actor, conversationID stri
 	if err := s.store.AdvanceRead(ctx, actor.TenantID, conversationID, actor.ID, now); err != nil {
 		return errx.Wrap(err, ErrUnavailable)
 	}
-	audience := make([]string, 0, len(members))
-	for _, member := range members {
-		if member.UserID != actor.ID {
-			audience = append(audience, member.UserID)
-		}
-	}
-	s.emit(ctx, Event{Type: EventMessageRead, TenantID: actor.TenantID, ConversationID: conversationID, ActorID: actor.ID, Audience: audience, Detail: map[string]string{"at": now.UTC().Format(time.RFC3339)}})
+	// 与打开会话一致：读者本人也在受众里，自己的 WebSocket 才能立即刷新未读角标。
+	// As with opening a conversation, the reader is part of the audience so their own WebSocket refreshes the badge
+	// immediately.
+	s.emit(ctx, Event{Type: EventMessageRead, TenantID: actor.TenantID, ConversationID: conversationID, ActorID: actor.ID, Audience: memberIDsOf(members), Detail: map[string]string{"at": now.UTC().Format(time.RFC3339)}})
 	return nil
 }
 

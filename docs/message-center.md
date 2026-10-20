@@ -162,6 +162,8 @@ asynq:
   - 裸 `<hx-partial>` 片段：未读徽标、实时通知。
   - JSON 事件：`{"yd_event":"message.created","conversation_id":"...","message_id":"...","actor_id":"...","at":"..."}`。
     `yd-app.js` 把它转成 DOM 事件 `yd:realtime`，`yd-message.js` 据此重取当前线程/会话列表/好友面板。
+  - 已读事件（`message.read`）同时发给读者本人：读者自己的连接据此刷新用户名角标与菜单计数，
+    全部读完后无需刷新页面即可隐藏。
 - 客户端上行（扁平 JSON）：
   - `{"action":"send","conversation_id":"cv_...","body":"..."}` 快捷回复。
   - `{"action":"read","conversation_id":"cv_..."}` 标记已读。
