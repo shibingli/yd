@@ -622,6 +622,9 @@ const (
 	RelationOutgoing = "outgoing"
 	// RelationBlocked means either side blocked the other. | RelationBlocked 表示任一方拉黑了对方。
 	RelationBlocked = "blocked"
+	// RelationSelf means the target is the actor itself. Search excludes the actor, so only the request drawer sees it. |
+	// RelationSelf 表示目标就是主体本人。检索会排除主体，因此只有好友申请抽屉会遇到它。
+	RelationSelf = "self"
 )
 
 // UnreadSummary is the badge payload rendered in the shell. | UnreadSummary 是外壳徽标使用的未读汇总。

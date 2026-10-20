@@ -22,6 +22,7 @@ var relationKeys = map[string]string{
 	messaging.RelationIncoming: "friend.relation.incoming",
 	messaging.RelationOutgoing: "friend.relation.outgoing",
 	messaging.RelationBlocked:  "friend.relation.blocked",
+	messaging.RelationSelf:     "friend.relation.self",
 }
 
 // friendCandidateView is one search result. | friendCandidateView 是一条检索结果。
@@ -207,7 +208,8 @@ func (c *Controller) NewFriendRequestDrawer(ctx *router.Ctx) {
 		c.failService(ctx, messaging.ErrInvalidInput)
 		return
 	}
-	profiles, err := c.messages.Profiles(ctx.Request.Context(), c.messageActor(ctx).TenantID, []string{friendID})
+	actor := c.messageActor(ctx)
+	profiles, err := c.messages.Profiles(ctx.Request.Context(), actor.TenantID, []string{friendID})
 	if err != nil {
 		c.failService(ctx, err)
 		return
@@ -217,11 +219,26 @@ func (c *Controller) NewFriendRequestDrawer(ctx *router.Ctx) {
 		c.failService(ctx, messaging.ErrNotFound)
 		return
 	}
+	// 抽屉自行复核关系：直接打开链接、或搜索结果是好友接受前的旧片段时，也不能再显示申请表单。
+	// The drawer re-checks the relation itself: a direct link or a stale search row captured before the friend accepted
+	// must not show the request form either.
+	relation, err := c.messages.FriendRelation(ctx.Request.Context(), actor, friendID)
+	if err != nil {
+		c.failService(ctx, err)
+		return
+	}
+	labelKey, ok := relationKeys[relation]
+	if !ok {
+		labelKey = relationKeys[messaging.RelationNone]
+	}
 	name := profile.Display()
 	c.render(ctx, http.StatusOK, TplFriendRequestDrawer, c.view(ctx, "添加好友 | Add friend", map[string]any{
-		"Target":  profile,
-		"Name":    name,
-		"Initial": initialOf(name),
+		"Target":        profile,
+		"Name":          name,
+		"Initial":       initialOf(name),
+		"CanRequest":    relation == messaging.RelationNone,
+		"Relation":      relation,
+		"RelationLabel": c.tr(c.lang(ctx), labelKey),
 	}))
 }
 

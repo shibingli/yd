@@ -57,10 +57,12 @@
           <p class="yd-hint">{{ .Profile.Username }}{{ with .Profile.Email }} · {{ . }}{{ end }}</p>
         </div>
         <div class="yd-friend__actions">
+          {{- if can $.Perm.MessageSend }}
           <a class="yd-btn yd-btn--primary yd-btn--sm" href="/messages/direct/{{ .Profile.ID }}"
              hx-get="/messages/direct/{{ .Profile.ID }}" hx-target="#yd-workspace" hx-swap="innerMorph" hx-push-url="true">
             {{ template "partials/icon" "lucide-message-square" }}{{ tr "friend.message" }}
           </a>
+          {{- end }}
           <details class="yd-menu" data-yd-menu>
             <summary class="yd-btn yd-btn--ghost yd-btn--sm" aria-label="{{ tr "ui.actions" }}">{{ template "partials/icon" "lucide-more-horizontal" }}</summary>
             <div class="yd-menu__panel" role="menu">

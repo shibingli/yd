@@ -257,6 +257,12 @@ func (s *Service) SearchUsers(ctx context.Context, actor Actor, keyword string) 
 	}
 	out := make([]FriendCandidate, 0, len(profiles))
 	for _, profile := range profiles {
+		// 目录实现可能忽略 excludeID；这里再排除一次，保证任何实现下都不会把自己列为好友候选。
+		// A directory implementation may ignore excludeID; skip the actor again here so no implementation can list the
+		// current user as a friend candidate.
+		if profile.ID == actor.ID {
+			continue
+		}
 		relation, err := s.relationWith(ctx, actor, profile.ID)
 		if err != nil {
 			return nil, err
@@ -264,6 +270,27 @@ func (s *Service) SearchUsers(ctx context.Context, actor Actor, keyword string) 
 		out = append(out, FriendCandidate{Profile: profile, Relation: relation})
 	}
 	return out, nil
+}
+
+// FriendRelation returns the current relation between the actor and another user, including the actor itself. |
+// FriendRelation 返回当前主体与另一用户的关系，并覆盖目标就是主体本人的情况。
+//
+// Search excludes the actor, so RelationSelf can only surface through a direct request-drawer link; callers use this
+// method to refuse an add form for self, friends, pending requests or a blocked pair before rendering it. |
+// 检索会排除主体，因此 RelationSelf 只可能通过直接打开好友申请抽屉出现；调用方据此在渲染申请表单之前拒绝
+// 自己、已是好友、已有待处理申请或拉黑关系。
+func (s *Service) FriendRelation(ctx context.Context, actor Actor, otherID string) (string, error) {
+	if !actor.valid() {
+		return "", ErrInvalidInput
+	}
+	otherID = strings.TrimSpace(otherID)
+	if otherID == "" {
+		return "", ErrInvalidInput
+	}
+	if otherID == actor.ID {
+		return RelationSelf, nil
+	}
+	return s.relationWith(ctx, actor, otherID)
 }
 
 // relationWith classifies the current relation between the actor and another user. | relationWith 分类当前主体与另一用户的关系。

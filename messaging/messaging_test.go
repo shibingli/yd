@@ -243,6 +243,17 @@ func TestFriendLifecycle(t *testing.T) {
 	if ok, err := f.svc.IsFriend(ctx, tenantID, alice.ID, bob.ID); err != nil || !ok {
 		t.Fatalf("friend = %v err = %v", ok, err)
 	}
+	// 已是好友后不能再次申请；关系查询同时覆盖自己与好友两种抽屉场景。
+	// An accepted friendship refuses a second request; the relation query covers both the self and friend drawer cases.
+	if _, err := f.svc.SendFriendRequest(ctx, alice, bob.ID, ""); !errors.Is(err, messaging.ErrDuplicateRequest) {
+		t.Fatalf("request after friendship err = %v", err)
+	}
+	if relation, err := f.svc.FriendRelation(ctx, alice, bob.ID); err != nil || relation != messaging.RelationFriend {
+		t.Fatalf("friend relation = %q err = %v", relation, err)
+	}
+	if relation, err := f.svc.FriendRelation(ctx, alice, alice.ID); err != nil || relation != messaging.RelationSelf {
+		t.Fatalf("self relation = %q err = %v", relation, err)
+	}
 	if err := f.svc.SetFriendRemark(ctx, alice, bob.ID, "Bobby"); err != nil {
 		t.Fatalf("remark: %v", err)
 	}

@@ -317,6 +317,54 @@ func TestGeneratedAppMessageCentre(t *testing.T) {
 		if !friends {
 			t.Fatalf("接受申请后 bob 的好友列表不含管理员: %s", body)
 		}
+
+		// 检索自己不应返回自己；已是好友的候选关系必须标记为 friend。
+		// A search for oneself must not return oneself; an accepted friend must be reported with the friend relation.
+		resp, body = probeGet(t, admin, base+"/api/v1/friends/search?q="+probeAdmin, adminToken)
+		requireProbeStatus(t, resp, body, http.StatusOK, "检索自己")
+		selfCandidates := decodeProbeJSON[probeCandidates](t, body)
+		for _, candidate := range selfCandidates.Candidates {
+			if candidate.Profile.ID == adminID {
+				t.Errorf("好友检索返回了当前用户自己: %s", body)
+			}
+		}
+
+		resp, body = probeGet(t, admin, base+"/api/v1/friends/search?q=bob", adminToken)
+		requireProbeStatus(t, resp, body, http.StatusOK, "检索已是好友的候选")
+		bobCandidates := decodeProbeJSON[probeCandidates](t, body)
+		foundBob := false
+		for _, candidate := range bobCandidates.Candidates {
+			if candidate.Profile.ID != bobID {
+				continue
+			}
+			foundBob = true
+			if candidate.Relation != "friend" {
+				t.Errorf("已是好友的关系 = %q, 期望 friend: %s", candidate.Relation, body)
+			}
+		}
+		if !foundBob {
+			t.Fatalf("好友检索未返回 bob: %s", body)
+		}
+
+		// 添加抽屉必须自行复核关系：已是好友与自己都不能再看到申请表单。
+		// The add drawer re-checks the relation itself: neither an existing friend nor the actor may see the request form.
+		resp, body = probeGet(t, admin, base+"/friends/new?friend_id="+bobID, adminToken)
+		requireProbeStatus(t, resp, body, http.StatusOK, "打开已是好友的添加抽屉")
+		if strings.Contains(body, `action="/friends/requests"`) {
+			t.Errorf("已是好友仍渲染好友申请表单:\n%s", body)
+		}
+		if !strings.Contains(body, "Already friends") {
+			t.Errorf("已是好友的添加抽屉缺少关系说明:\n%s", body)
+		}
+
+		resp, body = probeGet(t, admin, base+"/friends/new?friend_id="+adminID, adminToken)
+		requireProbeStatus(t, resp, body, http.StatusOK, "打开自己的添加抽屉")
+		if strings.Contains(body, `action="/friends/requests"`) {
+			t.Errorf("自己仍渲染好友申请表单:\n%s", body)
+		}
+		if !strings.Contains(body, "You cannot add yourself as a friend") {
+			t.Errorf("自己的添加抽屉缺少提示:\n%s", body)
+		}
 	})
 
 	// 实时通道在发送之前建立：先读一帧初始未读徽标，确认订阅已经生效，避免握手与订阅之间的竞争。

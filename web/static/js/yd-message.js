@@ -139,6 +139,31 @@
     }
   }
 
+  /* refreshFriendSearch 重取当前好友检索结果：好友申请被接受后，旧片段里的「添加」按钮必须立刻消失。
+     只有输入框与结果容器同时存在且查询非空时才发请求，其它页面与空查询都是空操作。 |
+     refreshFriendSearch refetches the active friend search: once a request is accepted, the stale "add" button must
+     disappear at once. It only requests while both the input and the results container exist and the query is
+     non-empty; other pages and an empty query are no-ops. */
+  function refreshFriendSearch() {
+    var input = document.getElementById("yd-friend-q");
+    var target = document.getElementById("yd-friend-search-results");
+    if (!input || !target || !window.htmx) {
+      return;
+    }
+    var query = (input.value || "").trim();
+    if (!query) {
+      return;
+    }
+    try {
+      window.htmx.ajax("GET", "/friends/search?q=" + encodeURIComponent(query), {
+        target: "#yd-friend-search-results",
+        swap: "innerMorph"
+      });
+    } catch (error) {
+      /* 与好友面板一样，失败由下一次事件重试，不弹额外错误。 | As with the friend panel, the next event retries and no extra error is shown. */
+    }
+  }
+
   /* onRealtime 把一条服务端事件分派到对应的局部刷新。 | onRealtime dispatches one server event to the matching partial refresh. */
   function onRealtime(event) {
     var payload = event && event.detail;
@@ -157,7 +182,10 @@
       debounce("conversations", refreshConversations);
     }
     if (kind.indexOf("friend.") === 0) {
-      debounce("friends", refreshFriends);
+      debounce("friends", function () {
+        refreshFriends();
+        refreshFriendSearch();
+      });
       debounce("conversations", refreshConversations);
     }
   }
