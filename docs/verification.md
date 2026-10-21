@@ -55,7 +55,7 @@ ok  github.com/shibingli/yd/e2e  26.829s
 
 `TestScaffoldBuildRun` 覆盖：
 
-1. `yd new demo --module example.com/demo --db sqlite --redis --i18n --htmx-ext sse,ws,preload --local-replace <repo> --yes`
+1. `yd new demo --module example.com/demo --db sqlite --i18n --htmx-ext sse,ws,preload --local-replace <repo> --yes`
 2. 生成物齐全性（`go.mod`、`LICENSE`、`Dockerfile`、`.gitignore`、`.gitattributes`、
    `.yd.json`、`CLAUDE.md`、`AGENTS.md`、`configs/`、`cmd/app/main.go`、
    `docs/developer_guidelines.md`、`web/assets.lock.json` 等）与 `.gitignore` 规范行

@@ -17,10 +17,6 @@ const (
 	promptModule = "模块路径 | Module path"
 	// promptDB asks for the database driver. | promptDB 询问数据库驱动。
 	promptDB = "数据库 (mysql/postgres/sqlite/none) | Database (mysql/postgres/sqlite/none)"
-	// promptRedis asks whether Redis is wanted. | promptRedis 询问是否接入 Redis。
-	promptRedis = "启用 Redis (y/n) | Enable Redis (y/n)"
-	// promptAsynq asks whether asynq is wanted. | promptAsynq 询问是否接入 asynq。
-	promptAsynq = "启用 Asynq 队列（依赖 Redis） (y/n) | Enable Asynq queue (requires Redis) (y/n)"
 	// promptGRPC asks whether gRPC is wanted. | promptGRPC 询问是否开启 gRPC。
 	promptGRPC = "启用 gRPC 双通道 (y/n) | Enable gRPC dual channel (y/n)"
 	// promptI18n asks whether i18n is wanted. | promptI18n 询问是否开启国际化。
@@ -99,12 +95,12 @@ func Interactive(in io.Reader, out io.Writer, base Options, isTTY bool) (Options
 	}
 	base.DB = db
 
+	// Redis 与 asynq 不是开关：它们随每个项目生成，问答不再询问。
+	// Redis and asynq are not switches: they ship with every project, so the interview never asks.
 	for _, toggle := range []struct {
 		prompt string
 		value  *bool
 	}{
-		{promptRedis, &base.Redis},
-		{promptAsynq, &base.Asynq},
 		{promptGRPC, &base.GRPC},
 		{promptI18n, &base.I18n},
 		{promptTailwind, &base.Tailwind},
@@ -118,27 +114,6 @@ func Interactive(in io.Reader, out io.Writer, base Options, isTTY bool) (Options
 			return base, errx.WrapDetail(err, ErrAnswerInvalid, "prompt=%[1]s | 提示=%[1]s", toggle.prompt)
 		}
 		*toggle.value = parsed
-	}
-
-	// Asynq 依赖 Redis：用户先关掉 Redis 又打开 Asynq 时，必须给出明确提示并重新询问，不能静默生成不可用的骨架。
-	// Asynq depends on Redis: when the user turned Redis off and then enabled Asynq, say so and ask again instead of
-	// silently generating a skeleton whose queue cannot work.
-	if base.Asynq && !base.Redis {
-		if _, err := io.WriteString(out, "Asynq requires Redis and must be enabled together with it. | Asynq 依赖 Redis，必须同时启用 Redis。\n"); err != nil {
-			return base, errx.Wrap(err, ErrInputRead)
-		}
-		answer, err := ask(promptRedis, "y")
-		if err != nil {
-			return base, err
-		}
-		parsed, err := parseYesNo(answer)
-		if err != nil {
-			return base, errx.WrapDetail(err, ErrAnswerInvalid, "prompt=%[1]s | 提示=%[1]s", promptRedis)
-		}
-		if !parsed {
-			return base, ErrAsynqRequiresRedis
-		}
-		base.Redis = true
 	}
 
 	extAnswer, err := ask(promptExts, strings.Join(base.HtmxExts, ","))

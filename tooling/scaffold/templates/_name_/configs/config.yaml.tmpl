@@ -72,7 +72,6 @@ db:
   maxidle: 10         # idle connections kept in the pool | 池中保留的空闲连接数
   slow_threshold: 200ms   # slow query threshold | 慢查询阈值
 {{- end }}
-{{- if .Redis }}
 
 redis:
   mode: single        # single | sentinel | cluster
@@ -80,13 +79,10 @@ redis:
   password: ""        # YD_REDIS_PASSWORD | optional Redis AUTH password
   db: 0
   pool_size: 100
-{{- end }}
-{{- if .Asynq }}
 
 asynq:
   queues: "critical:3,default:2,low:1"   # 队列与权重 | queues and weights
   concurrency: 10                        # 并发消费者数 | concurrent consumers
-{{- end }}
 {{- if .GRPC }}
 
 grpc:
@@ -112,18 +108,13 @@ tailwind:
 # 站内消息中心：撤回/编辑窗口、附件与群成员上限、以及多节点实时总线。
 # In-app message centre: recall/edit windows, attachment and group limits, and the multi-node realtime bus.
 #
-# 单节点部署不需要 Redis。同时开启 redis 与 asynq 时，实时事件经 Redis Pub/Sub 跨节点广播，
-# 广播失败的写入进入 asynq 持久重试队列；只开 redis 时仍有跨节点广播，但没有持久重试。
-# 跨节点投递在生成项目时决定：`yd new` 需选择 redis（持久重试再选 asynq），未选择的项目只编译本地总线，
-# 之后再写 redis 段不会生效，需要重新生成或手工接入。
+# Redis 与 asynq 随每个生成项目内建：实时事件经 Redis Pub/Sub 跨节点广播，广播失败的写入进入 asynq
+# 持久重试队列。Redis 不可达时会告警并退回进程内总线，单节点开发无需先启动 Redis。
 # 多副本部署请为每个副本设置唯一的 message.node_id（或 YD_MESSAGE_NODE_ID），留空时按主机名与进程号生成。
-# A single-node deployment needs no Redis. With both redis and asynq enabled, realtime events broadcast across nodes
-# through Redis Pub/Sub and a failed broadcast enters a durable asynq retry queue; with redis alone the broadcast still
-# crosses nodes but has no durable retry. Cross-node delivery is decided when the project is generated: choose redis in
-# `yd new` (and asynq for durable retries). A project generated without them compiles the local bus only, so adding a
-# redis section later has no effect until the integration is generated or wired by hand. In a multi-replica deployment
-# give each replica a unique message.node_id (or YD_MESSAGE_NODE_ID); an empty value is derived from the hostname and
-# process id.
+# Redis and asynq ship with every generated project: realtime events broadcast across nodes through Redis Pub/Sub, and a
+# failed broadcast enters the durable asynq retry queue. An unreachable Redis warns and falls back to the in-process bus,
+# so single-node development needs no Redis running. In a multi-replica deployment give each replica a unique
+# message.node_id (or YD_MESSAGE_NODE_ID); an empty value is derived from the hostname and process id.
 message:
   recall_window: 5m          # 普通用户撤回窗口 | recall window for a regular author
   edit_window: 5m            # 普通用户编辑窗口 | edit window for a regular author

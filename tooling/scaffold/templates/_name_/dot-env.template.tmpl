@@ -35,21 +35,17 @@ YD_DB_MAXCONN=100
 YD_DB_MAXIDLE=10
 YD_DB_SLOW_THRESHOLD=200ms
 {{- end }}
-{{- if .Redis }}
 
 # Redis：single | sentinel | cluster
 # Redis: single | sentinel | cluster
 YD_REDIS_MODE=single
 YD_REDIS_ADDR=127.0.0.1:6379
 # YD_REDIS_PASSWORD=
-{{- end }}
-{{- if .Asynq }}
 
 # 异步任务队列
 # Asynchronous task queue
 YD_ASYNQ_QUEUES="critical:3,default:2,low:1"
 YD_ASYNQ_CONCURRENCY=10
-{{- end }}
 {{- if .GRPC }}
 
 # gRPC 双通道
@@ -68,9 +64,9 @@ YD_I18N_FALLBACK=en
 
 # 站内消息中心：撤回/编辑窗口、附件与多节点节点标识。
 # In-app message centre: recall/edit windows, attachments and the multi-node node identity.
-# 同时开启 Redis 与 asynq 时，实时事件经 Redis Pub/Sub 跨节点广播，失败广播进入 asynq 持久重试。
-# With Redis and asynq both enabled, realtime events broadcast across nodes through Redis Pub/Sub and failed broadcasts
-# enter a durable asynq retry queue.
+# Redis 与 asynq 随生成项目内建：实时事件经 Redis Pub/Sub 跨节点广播，失败广播进入 asynq 持久重试。
+# Redis and asynq ship with every generated project: realtime events broadcast across nodes through Redis Pub/Sub and
+# failed broadcasts enter a durable asynq retry queue.
 YD_MESSAGE_RECALL_WINDOW=5m
 YD_MESSAGE_EDIT_WINDOW=5m
 YD_MESSAGE_MAX_ATTACHMENTS=10

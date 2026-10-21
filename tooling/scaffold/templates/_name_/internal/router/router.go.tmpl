@@ -592,27 +592,22 @@ func parseSource(a *app.App) *openapi.Source {
 	return source
 }
 
-// registerFeatures 登记本项目启用的可选特性。
-// registerFeatures mounts the optional features enabled in this project.
+// registerFeatures 登记本项目的特性装配点。
+// registerFeatures mounts the feature assembly points of this project.
 //
-// 每个特性在这里只登记「装配点」：具体实现随功能落地时补进对应分支，开关本身由脚手架参数决定，
-// 因此开关打开却尚未实现时也能一眼看出缺口在哪。
-// Each feature registers only its assembly point here: the implementation arrives with the feature and goes into the
-// matching branch, while the switches themselves come from the scaffold options, so an enabled-but-unimplemented
-// feature leaves a visible gap instead of silently doing nothing.
+// Redis 与 asynq 是内建能力，始终在这里登记；其余特性各占一个装配点，具体实现随功能落地时补进对应分支，
+// 因此启用却尚未实现时也能一眼看出缺口在哪。
+// Redis and asynq are built in and always registered here; every other feature owns an assembly point whose
+// implementation arrives with the feature, so an enabled-but-unimplemented feature leaves a visible gap instead of
+// silently doing nothing.
 func registerFeatures(a *app.App) {
-{{- if .Redis }}
-
 	// TODO(redis) 在此注册 Redis 缓存装饰器与失效钩子（cache.Decorator），并复用框架的 redisx 客户端。
 	// TODO(redis) Register the Redis cache decorator and its invalidation hooks (cache.Decorator) here, reusing the framework's redisx client.
 	_ = a
-{{- end }}
-{{- if .Asynq }}
 
 	// TODO(asynq) 在此注册 Asynq 任务处理器（task.Handler）与队列权重，处理器内部只调用 internal/service。
 	// TODO(asynq) Register Asynq task handlers (task.Handler) and queue weights here; handlers call internal/service and nothing else.
 	_ = a
-{{- end }}
 {{- if .GRPC }}
 
 	// TODO(grpc) 在此把 gRPC 服务注册到双通道（grpc.Server.RegisterService）上，与 HTTP 共享同一组 service。

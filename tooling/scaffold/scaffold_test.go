@@ -410,6 +410,13 @@ func TestGenerateHiddenFilesNotLostOnMemFS(t *testing.T) {
 	if meta.Features["auth"] != true {
 		t.Errorf(".yd.json features.auth = %v, 期望 true", meta.Features["auth"])
 	}
+	// Redis 与 Asynq 同样是内建能力：没有开关，生成项目一律登记为已接入。
+	// Redis and Asynq are built in as well: there is no switch, and every generated project records them as wired in.
+	for _, key := range []string{"redis", "asynq"} {
+		if meta.Features[key] != true {
+			t.Errorf(".yd.json features.%s = %v, 期望 true", key, meta.Features[key])
+		}
+	}
 }
 
 // TestGenerateTailwindAddsCssEntry 断言 Tailwind 开关决定 CSS 入口内容。
@@ -437,12 +444,14 @@ func TestGenerateTailwindAddsCssEntry(t *testing.T) {
 	}
 }
 
-// TestGenerateFeaturesReflectedInConfigAndRoutes 断言特性开关落到配置与路由骨架。
-// TestGenerateFeaturesReflectedInConfigAndRoutes asserts feature switches reach config and router code.
-func TestGenerateFeaturesReflectedInConfigAndRoutes(t *testing.T) {
+// TestGenerateAlwaysIntegratesRedisAndAsynq 断言 Redis 与 Asynq 是内建能力：默认生成即带配置、接线与装配点，
+// 不存在关闭它们的开关。
+// TestGenerateAlwaysIntegratesRedisAndAsynq asserts Redis and Asynq are built in: the default generation carries their
+// configuration, wiring and assembly points, and no switch can turn them off.
+func TestGenerateAlwaysIntegratesRedisAndAsynq(t *testing.T) {
 	o := scaffold.DefaultOptions("feat-app")
 	o.DB = scaffold.DBPostgres
-	o.Redis, o.Asynq, o.GRPC, o.I18n = true, true, true, true
+	o.GRPC, o.I18n = true, true
 	pr, _ := generateMem(t, o)
 
 	cfg := pr.read("configs/config.yaml")
@@ -451,14 +460,14 @@ func TestGenerateFeaturesReflectedInConfigAndRoutes(t *testing.T) {
 	}
 	for _, want := range []string{"postgres", "redis:", "asynq:", "grpc:", "i18n:"} {
 		if !strings.Contains(cfg, want) {
-			t.Errorf("开启全部特性时 config.yaml 缺少 %q:\n%s", want, cfg)
+			t.Errorf("config.yaml 缺少 %q:\n%s", want, cfg)
 		}
 	}
 
 	router := pr.read("internal/router/router.go")
 	for _, want := range []string{"redis", "asynq", "grpc", "i18n"} {
 		if !strings.Contains(router, want) {
-			t.Errorf("开启全部特性时 internal/router/router.go 缺少 %q 注册代码:\n%s", want, router)
+			t.Errorf("internal/router/router.go 缺少 %q 注册代码:\n%s", want, router)
 		}
 	}
 
@@ -467,20 +476,32 @@ func TestGenerateFeaturesReflectedInConfigAndRoutes(t *testing.T) {
 		t.Errorf("realtime.go 缺少 HTTP/2/3 处理器生命周期说明:\n%s", realtime)
 	}
 
+	// Redis 与 Asynq 不受任何开关控制：关掉其余可选特性后，它们仍必须出现在配置、总线与装配点里。
+	// Redis and Asynq are not switchable: with every other optional feature off they must still appear in the
+	// configuration, the message bus and the assembly points.
 	plain := scaffold.DefaultOptions("plain-app")
 	plain.DB = scaffold.DBNone
-	// I18n now defaults to on, so the all-off fixture turns it off explicitly before asserting the config shape.
-	// I18n 现在默认开启，因此这个「全部关闭」的夹具先显式关掉它，再断言配置形态。
 	plain.I18n = false
 	prPlain, _ := generateMem(t, plain)
 	cfgPlain := prPlain.read("configs/config.yaml")
-	for _, unwanted := range []string{"redis:", "asynq:", "grpc:", "i18n:"} {
+	for _, want := range []string{"redis:", "asynq:"} {
+		if !strings.Contains(cfgPlain, want) {
+			t.Errorf("未开启其它特性时 config.yaml 仍应含 %q:\n%s", want, cfgPlain)
+		}
+	}
+	for _, unwanted := range []string{"grpc:", "i18n:"} {
 		if strings.Contains(cfgPlain, unwanted) {
 			t.Errorf("未开启特性时 config.yaml 不应含 %q:\n%s", unwanted, cfgPlain)
 		}
 	}
-	if strings.Contains(prPlain.read("internal/router/router.go"), "asynq") {
-		t.Error("router.go must not mention asynq while Asynq is off | 未开启 Asynq 时 router.go 不应出现 asynq")
+	bus := prPlain.read("internal/service/message_bus.go")
+	for _, want := range []string{"redisx.Open", "asynqx.NewClient"} {
+		if !strings.Contains(bus, want) {
+			t.Errorf("消息总线应始终装配 %q:\n%s", want, bus)
+		}
+	}
+	if routerPlain := prPlain.read("internal/router/router.go"); !strings.Contains(routerPlain, "asynq") {
+		t.Error("router.go must always mention asynq | router.go 应始终包含 asynq 装配点")
 	}
 }
 
@@ -1035,7 +1056,7 @@ func TestInteractiveNonTTYUsesDefaults(t *testing.T) {
 	want := scaffold.DefaultOptions("demo")
 	if got.Name != want.Name || got.Module != want.Module || got.DB != want.DB ||
 		got.License != want.License || got.Tailwind != want.Tailwind ||
-		got.Redis != want.Redis || got.Asynq != want.Asynq || got.GRPC != want.GRPC || got.I18n != want.I18n ||
+		got.GRPC != want.GRPC || got.I18n != want.I18n ||
 		!slices.Equal(got.HtmxExts, want.HtmxExts) {
 		t.Errorf("非 TTY 应返回默认值:\n实际=%+v\n期望=%+v", got, want)
 	}
@@ -1044,14 +1065,12 @@ func TestInteractiveNonTTYUsesDefaults(t *testing.T) {
 // TestInteractiveTTYReadsAnswers 断言 TTY 下逐项读取回答，空行取默认值。
 // TestInteractiveTTYReadsAnswers asserts TTY mode reads one answer per prompt and empty lines keep defaults.
 func TestInteractiveTTYReadsAnswers(t *testing.T) {
-	// 询问顺序：name、module、db、redis、asynq、grpc、i18n、tailwind、htmx-exts、license。
-	// Prompt order: name, module, db, redis, asynq, grpc, i18n, tailwind, htmx-exts, license.
+	// 询问顺序：name、module、db、grpc、i18n、tailwind、htmx-exts、license；Redis 与 Asynq 是内建能力，不再提问。
+	// Prompt order: name, module, db, grpc, i18n, tailwind, htmx-exts, license; Redis and Asynq are built in and never asked.
 	answers := strings.Join([]string{
 		"shop-app", // 项目名 | project name
 		"",         // 模块路径 → 跟随新项目名 | module follows the new name
 		"postgres", // 数据库 | database
-		"y",        // redis
-		"y",        // asynq
 		"n",        // grpc
 		"y",        // i18n
 		"",         // tailwind → 默认开启 | keeps the default (on)
@@ -1070,60 +1089,20 @@ func TestInteractiveTTYReadsAnswers(t *testing.T) {
 	if got.DB != scaffold.DBPostgres {
 		t.Errorf("DB 解析错误: %q", got.DB)
 	}
-	if !got.Redis || !got.Asynq || got.GRPC || !got.I18n || !got.Tailwind {
+	if got.GRPC || !got.I18n || !got.Tailwind {
 		t.Errorf("特性开关解析错误: %+v", got)
 	}
 	if !slices.Equal(got.HtmxExts, []string{"sse", "ws"}) {
 		t.Errorf("Htmx 扩展解析错误: %v", got.HtmxExts)
 	}
-	if !strings.Contains(out.String(), " | ") {
-		t.Errorf("提示文案应为中英同步（含 \" | \"）: %q", out.String())
+	prompts := out.String()
+	for _, unwanted := range []string{"启用 Redis", "启用 Asynq"} {
+		if strings.Contains(prompts, unwanted) {
+			t.Errorf("Redis 与 Asynq 已内建，问答不应再问 %q：\n%s", unwanted, prompts)
+		}
 	}
-}
-
-// TestInteractiveTTYAsynqNeedsRedis 断言交互里先关 Redis 再开 Asynq 会明确提示并补问 Redis：
-// 补答 y 得到两者同时启用，补答 n 则以 ErrAsynqRequiresRedis 拒绝，而不是生成无法工作的队列骨架。
-// TestInteractiveTTYAsynqNeedsRedis asserts that turning Redis off and then enabling Asynq prints an explicit notice
-// and asks for Redis again: y yields both enabled, n is refused with ErrAsynqRequiresRedis instead of generating queue
-// wiring that cannot work.
-func TestInteractiveTTYAsynqNeedsRedis(t *testing.T) {
-	prefix := []string{
-		"shop-app", // 项目名 | project name
-		"",         // 模块路径跟随项目名 | module follows the new name
-		"sqlite",   // 数据库 | database
-		"n",        // redis 关闭 | Redis off
-		"y",        // asynq 开启 | Asynq on
-		"n",        // grpc
-		"",         // i18n 默认开启 | i18n keeps its default (on)
-		"",         // tailwind 默认开启 | tailwind keeps its default (on)
-	}
-	for _, tc := range []struct {
-		name      string
-		answer    string
-		wantErr   error
-		wantRedis bool
-	}{
-		{name: "accepts the re-prompt | 补答 y", answer: "y", wantRedis: true},
-		{name: "refuses when declined | 补答 n 时拒绝", answer: "n", wantErr: scaffold.ErrAsynqRequiresRedis},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			answers := strings.Join(append(append([]string{}, prefix...), tc.answer, "sse, ws", ""), "\n") + "\n"
-			var out bytes.Buffer
-			got, err := scaffold.Interactive(strings.NewReader(answers), &out, scaffold.DefaultOptions("base-app"), true)
-			if !errors.Is(err, tc.wantErr) {
-				t.Fatalf("err = %v, 期望 %v | err = %v, want %v", err, tc.wantErr, err, tc.wantErr)
-			}
-			if !strings.Contains(out.String(), "Asynq requires Redis") {
-				t.Errorf("交互没有给出 Asynq 依赖 Redis 的提示：\n%s", out.String())
-			}
-			if !got.Asynq || got.Redis != tc.wantRedis {
-				t.Errorf("redis=%v asynq=%v, 期望 redis=%v asynq=true | redis=%v asynq=%v, want redis=%v asynq=true",
-					got.Redis, got.Asynq, tc.wantRedis, got.Redis, got.Asynq, tc.wantRedis)
-			}
-			if tc.wantErr == nil && (!got.Tailwind || !got.I18n || len(got.HtmxExts) != 2) {
-				t.Errorf("后续回答未被正确消费：%+v", got)
-			}
-		})
+	if !strings.Contains(prompts, " | ") {
+		t.Errorf("提示文案应为中英同步（含 \" | \"）: %q", prompts)
 	}
 }
 
@@ -1131,7 +1110,6 @@ func TestInteractiveTTYAsynqNeedsRedis(t *testing.T) {
 // TestGeneratedGovernanceDocsStateConstraints asserts the generated governance docs cover the hard constraints.
 func TestGeneratedGovernanceDocsStateConstraints(t *testing.T) {
 	o := scaffold.DefaultOptions("gov-app")
-	o.Redis, o.Asynq = true, true
 	pr, _ := generateMem(t, o)
 
 	claude := pr.read("CLAUDE.md")
@@ -1236,7 +1214,7 @@ func TestRealGenerateCompilesWithGoBuild(t *testing.T) {
 
 	o := scaffold.DefaultOptions("yd-build-probe")
 	o.DB = scaffold.DBSQLite
-	o.Redis, o.Asynq, o.GRPC, o.I18n = true, true, true, true
+	o.GRPC, o.I18n = true, true
 	o.LocalReplace = filepath.ToSlash(repoRoot(t))
 
 	res, err := scaffold.Generate(context.Background(), o, afs.NewOS(dir), nil)
@@ -1278,62 +1256,6 @@ func TestRealGenerateCompilesWithGoBuild(t *testing.T) {
 		t.Fatalf("产出的可执行文件为空: %s", bin)
 	}
 	t.Logf("真实生成 + go build 通过: %d 个文件，产物 %s（%d 字节）", len(res.Files), filepath.Base(bin), info.Size())
-}
-
-// TestRealGenerateCompilesRealtimeBusCombinations 覆盖 redis 与 asynq 的组合。
-// TestRealGenerateCompilesRealtimeBusCombinations covers the redis and asynq combinations.
-//
-// asynq 是 Redis 驱动的队列：只开 asynq 必须在生成前被拒绝（ErrAsynqRequiresRedis），
-// 只开 redis 则必须能编译，并且消息总线不留下任何 asynqx 引用。
-// Asynq is a Redis-backed queue: asynq without Redis must be refused before generation (ErrAsynqRequiresRedis), while
-// Redis without Asynq must compile and leave no asynqx reference in the message bus.
-func TestRealGenerateCompilesRealtimeBusCombinations(t *testing.T) {
-	if testing.Short() {
-		t.Skip("短模式跳过真实编译 | skipped in short mode")
-	}
-	goBin, err := exec.LookPath("go")
-	if err != nil {
-		t.Skipf("未找到 go 工具链，跳过真实编译: %v", err)
-	}
-
-	for _, tc := range []struct {
-		name    string
-		redis   bool
-		asynq   bool
-		wantErr error
-	}{
-		{name: "redis without asynq | 只开 redis", redis: true},
-		{name: "asynq without redis is refused | 只开 asynq 被拒绝", asynq: true, wantErr: scaffold.ErrAsynqRequiresRedis},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			dir := t.TempDir()
-			o := scaffold.DefaultOptions("yd-realtime-probe")
-			o.DB = scaffold.DBSQLite
-			o.Redis = tc.redis
-			o.Asynq = tc.asynq
-			o.LocalReplace = filepath.ToSlash(repoRoot(t))
-			_, err := scaffold.Generate(context.Background(), o, afs.NewOS(dir), nil)
-			if tc.wantErr != nil {
-				if !errors.Is(err, tc.wantErr) {
-					t.Fatalf("Generate err = %v, 期望 %v | Generate err = %v, want %v", err, tc.wantErr, err, tc.wantErr)
-				}
-				return
-			}
-			if err != nil {
-				t.Fatalf("真实生成失败: %v", err)
-			}
-
-			projDir := filepath.Join(dir, o.Name)
-			output, err := runGo(goBin, projDir, true, "build", "-mod=mod", "./...")
-			if err != nil {
-				t.Logf("GOPROXY=off 编译失败，回退到环境代理重试:\n%s", output)
-				output, err = runGo(goBin, projDir, false, "build", "-mod=mod", "./...")
-			}
-			if err != nil {
-				t.Fatalf("生成的骨架无法编译（redis=%v asynq=%v）: %v\n%s", tc.redis, tc.asynq, err, output)
-			}
-		})
-	}
 }
 
 // runGo 在 dir 中执行 go 子命令，offline 为真时强制 GOPROXY=off 并清空 GOFLAGS、关闭工作区。

@@ -20,7 +20,7 @@ type projectMeta struct {
 	Module string `json:"module"`
 	// AssetRoot is the front-end asset root. | AssetRoot 是前端资产根目录。
 	AssetRoot string `json:"assetRoot"`
-	// Features records the selected component switches. | Features 记录所选组件开关。
+	// Features records the component switches; redis and asynq are always true. | Features 记录组件开关；redis 与 asynq 恒为 true。
 	Features projectFeatures `json:"features"`
 }
 
@@ -30,9 +30,9 @@ type projectFeatures struct {
 	DB string `json:"db"`
 	// HtmxExts lists the selected Htmx extensions. | HtmxExts 是所选 Htmx 扩展。
 	HtmxExts []string `json:"htmxExts"`
-	// Redis tells whether go-redis is wired in. | Redis 表示是否接入 go-redis。
+	// Redis records that go-redis is wired in; it is not switchable. | Redis 记录 go-redis 已接入；它不是开关。
 	Redis bool `json:"redis"`
-	// Asynq tells whether asynq is wired in. | Asynq 表示是否接入 asynq。
+	// Asynq records that asynq is wired in; it is not switchable. | Asynq 记录 asynq 已接入；它不是开关。
 	Asynq bool `json:"asynq"`
 	// GRPC tells whether the gRPC dual channel is enabled. | GRPC 表示是否开启 gRPC 双通道。
 	GRPC bool `json:"grpc"`
@@ -106,8 +106,8 @@ func generatedDocs(o Options, v view, m *assets.Manifest) ([]plannedFile, error)
 		Module: o.Module,
 		Features: projectFeatures{
 			DB:       o.DB,
-			Redis:    o.Redis,
-			Asynq:    o.Asynq,
+			Redis:    true,
+			Asynq:    true,
 			GRPC:     o.GRPC,
 			I18n:     o.I18n,
 			Tailwind: o.Tailwind,

@@ -661,8 +661,6 @@ func newInterviewPins() []string {
 	return []string{
 		"--module", "example.com/demo",
 		"--db", "none",
-		"--redis=false",
-		"--asynq=false",
 		"--grpc=false",
 		"--i18n=false",
 		"--tailwind=false",

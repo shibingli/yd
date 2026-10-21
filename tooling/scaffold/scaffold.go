@@ -160,13 +160,6 @@ func normalize(o Options) (Options, error) {
 		return Options{}, errx.Detail(ErrDBUnsupported, "%[1]q (want: %[2]s) | %[1]q（期望: %[2]s）", o.DB, strings.Join(dbValues(), ", "))
 	}
 
-	// Asynq 是 Redis 驱动的队列；没有 Redis 集成时生成的骨架既没有客户端也没有连接配置，队列无法工作。
-	// Asynq is a Redis-backed queue; without the Redis integration the generated skeleton has neither a client nor a
-	// connection configuration, so the queue cannot work.
-	if o.Asynq && !o.Redis {
-		return Options{}, ErrAsynqRequiresRedis
-	}
-
 	o.License = strings.TrimSpace(o.License)
 	if o.License == "" {
 		o.License = LicenseApache2

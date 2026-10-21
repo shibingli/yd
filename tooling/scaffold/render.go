@@ -94,8 +94,6 @@ type view struct {
 	HtmxExtScripts []string
 
 	// feature switches | 特性开关
-	Redis    bool
-	Asynq    bool
 	GRPC     bool
 	Auth     bool
 	I18n     bool
@@ -131,8 +129,6 @@ func newView(o Options) view {
 		}(),
 		AssetRoot:       AssetRoot,
 		YdVersion:       o.YdVersion,
-		Redis:           o.Redis,
-		Asynq:           o.Asynq,
 		GRPC:            o.GRPC,
 		Auth:            true,
 		I18n:            o.I18n,
@@ -153,12 +149,9 @@ func newView(o Options) view {
 // featuresOf summarises the selected features for templates and startup logs (same source as the Features variable in internal/router).
 func featuresOf(o Options) []string {
 	features := []string{"db:" + o.DB}
-	if o.Redis {
-		features = append(features, "redis")
-	}
-	if o.Asynq {
-		features = append(features, "asynq")
-	}
+	// Redis 与 asynq 不是开关：生成项目一律带它们的配置、消息总线与队列接线。
+	// Redis and asynq are not switches: every generated project ships their configuration, message bus and queue wiring.
+	features = append(features, "redis", "asynq")
 	if o.GRPC {
 		features = append(features, "grpc")
 	}

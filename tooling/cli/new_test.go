@@ -34,7 +34,6 @@ func TestNewCommandGeneratesProject(t *testing.T) {
 	err := Execute(context.Background(), []string{
 		newCommandName, "demo",
 		"--module", "example.com/demo",
-		"--redis",
 		"-y",
 		"--local-replace", localRepo,
 	}, te.env)
@@ -67,9 +66,24 @@ func TestNewCommandGeneratesProject(t *testing.T) {
 	}
 
 	meta := readMemFile(t, te.env.FS, "demo/.yd.json")
-	for _, want := range []string{`"name": "demo"`, `"module": "example.com/demo"`, `"db": "sqlite"`, `"redis": true`, `"tailwind": true`} {
+	for _, want := range []string{`"name": "demo"`, `"module": "example.com/demo"`, `"db": "sqlite"`, `"redis": true`, `"asynq": true`, `"tailwind": true`} {
 		if !strings.Contains(meta, want) {
 			t.Errorf(".yd.json 缺少 %q:\n%s", want, meta)
+		}
+	}
+
+	// Redis 与 Asynq 默认内建：配置、消息总线与路由装配点都不需要任何标志。
+	// Redis and Asynq are built in by default: configuration, message bus and router assembly points need no flag.
+	cfg := readMemFile(t, te.env.FS, "demo/configs/config.yaml")
+	for _, want := range []string{"redis:", "asynq:"} {
+		if !strings.Contains(cfg, want) {
+			t.Errorf("configs/config.yaml 缺少 %q:\n%s", want, cfg)
+		}
+	}
+	bus := readMemFile(t, te.env.FS, "demo/internal/service/message_bus.go")
+	for _, want := range []string{"redisx.Open", "asynqx.NewClient"} {
+		if !strings.Contains(bus, want) {
+			t.Errorf("message_bus.go 缺少 %q:\n%s", want, bus)
 		}
 	}
 
@@ -163,53 +177,14 @@ func (r *lineReader) Read(p []byte) (int, error) {
 	return n, nil
 }
 
-// TestNewCommandAsynqRequiresRedis 断言只传 --asynq 时在生成前以哨兵拒绝，而不是产出一个没有 Redis 的队列骨架。
-// TestNewCommandAsynqRequiresRedis asserts that --asynq alone is refused before generation with the sentinel instead of
-// producing queue wiring without Redis.
-func TestNewCommandAsynqRequiresRedis(t *testing.T) {
-	te := newTestEnv(t, nil, "", false)
-	err := Execute(context.Background(), []string{newCommandName, "shop", "--asynq"}, te.env)
-	if !errors.Is(err, scaffold.ErrAsynqRequiresRedis) {
-		t.Fatalf("err = %v, 期望 ErrAsynqRequiresRedis | err = %v, want ErrAsynqRequiresRedis", err, err)
-	}
-	if _, statErr := te.env.FS.Stat("shop"); statErr == nil {
-		t.Error("依赖缺失时不得生成项目目录 | the project directory must not be created when the dependency is missing")
-	}
-}
-
-// TestNewCommandTTYAsynqRepromptsRedis 断言交互中先关 Redis 再开 Asynq 时会明确提示并补问 Redis；
-// 补答 y 后生成项目同时开启两者。
-// TestNewCommandTTYAsynqRepromptsRedis asserts that turning Redis off and then enabling Asynq prints an explicit notice
-// and asks for Redis again; answering y generates a project with both enabled.
-func TestNewCommandTTYAsynqRepromptsRedis(t *testing.T) {
-	answers := strings.Join([]string{
-		"",  // module follows the project name | 模块路径跟随项目名
-		"3", // sqlite
-		"n", // redis
-		"y", // asynq
-		"n", // grpc
-		"",  // i18n keeps the default (on) | i18n 保持默认（开启）
-		"",  // Tailwind keeps the default (on) | Tailwind 保持默认（开启）
-		"y", // Redis re-prompt | Redis 补问
-		"sse, ws",
-		"",
-	}, "\n") + "\n"
-	te := newTestEnv(t, nil, "", true)
-	// 每次提问都会新建 bufio.Reader（cli/interact.go）；strings.Reader 会一次交付多行，被第一个提问整块吞掉，
-	// 因此这里必须用「一次只交付一行」的 lineReader，否则 Asynq 的回答会被当成模块路径的默认值。
-	// Every question builds a fresh bufio.Reader (cli/interact.go); a strings.Reader hands out several lines per read,
-	// which the first question swallows, so lineReader — one line per read — is required here.
-	te.env.In = newLineReader(answers)
-	if err := Execute(context.Background(), []string{newCommandName, "shop"}, te.env); err != nil {
-		t.Fatalf("yd new 失败: %v\n%s", err, te.errs.String())
-	}
-	if prompts := te.out.String(); !strings.Contains(prompts, "Asynq 依赖 Redis") {
-		t.Errorf("交互没有给出 Asynq 依赖 Redis 的提示：\n%s", prompts)
-	}
-	meta := readMemFile(t, te.env.FS, "shop/.yd.json")
-	for _, want := range []string{`"redis": true`, `"asynq": true`} {
-		if !strings.Contains(meta, want) {
-			t.Errorf(".yd.json 缺少 %q:\n%s", want, meta)
+// TestNewCommandRemovedFeatureFlagsAreRejected 断言 Redis 与 Asynq 的开关已移除：再传旧标志属于未知标志。
+// TestNewCommandRemovedFeatureFlagsAreRejected asserts the Redis and Asynq switches are gone: the old flags are unknown.
+func TestNewCommandRemovedFeatureFlagsAreRejected(t *testing.T) {
+	for _, flag := range []string{"--redis", "--asynq"} {
+		te := newTestEnv(t, nil, "", false)
+		err := Execute(context.Background(), []string{newCommandName, "shop", "-y", flag + "=false"}, te.env)
+		if !errors.Is(err, ErrFlagParse) {
+			t.Errorf("%s: err = %v, 期望 ErrFlagParse | err = %v, want ErrFlagParse", flag, err, err)
 		}
 	}
 }
@@ -217,14 +192,16 @@ func TestNewCommandTTYAsynqRepromptsRedis(t *testing.T) {
 // TestNewCommandTTYInterviewUsesAnswers TTY 下逐项询问并把回答写入生成物。
 // TestNewCommandTTYInterviewUsesAnswers asks one question per option on a TTY and writes the answers into the project.
 func TestNewCommandTTYInterviewUsesAnswers(t *testing.T) {
-	// 询问顺序：项目名、模块路径、数据库、redis、asynq、grpc、i18n、tailwind、扩展、协议。
-	// Question order: project name, module, database, redis, asynq, grpc, i18n, tailwind, extensions, licence.
+	// 询问顺序：项目名、模块路径、数据库、grpc、i18n、tailwind、扩展、协议；Redis 与 Asynq 是内建能力，不再提问。
+	// Question order: project name, module, database, grpc, i18n, tailwind, extensions, licence; Redis and Asynq are built
+	// in and never asked.
 	answers := strings.Join([]string{
 		"shop",
 		"",
 		"2", // 2) postgres
-		"y", "y", "n", "y",
-		"", // Tailwind keeps its default (on) | Tailwind 保持默认（开启）
+		"n", // grpc
+		"y", // i18n
+		"",  // Tailwind keeps its default (on) | Tailwind 保持默认（开启）
 		"sse, ws",
 		"",
 	}, "\n") + "\n"
@@ -235,19 +212,16 @@ func TestNewCommandTTYInterviewUsesAnswers(t *testing.T) {
 		t.Fatalf("yd new 失败: %v\n%s", err, te.errs.String())
 	}
 
-	// Redis 不再被描述成「缓存」，因为它也承担 Pub/Sub 与限流；i18n 的默认值必须是 y。
-	// Redis is no longer described as a cache, because it also carries Pub/Sub and rate limiting; i18n must default to y.
+	// Redis 与 Asynq 已内建，不再出现在问答里；i18n 的默认值必须是 y。
+	// Redis and Asynq are built in and never appear in the interview; i18n must default to y.
 	prompts := te.out.String()
-	for _, want := range []string{
-		"启用 Redis | Enable Redis (y/n)",
-		"启用 i18n | Enable i18n (y/n) [y]",
-	} {
-		if !strings.Contains(prompts, want) {
-			t.Errorf("问答提示缺少 %q：\n%s", want, prompts)
+	for _, unwanted := range []string{"启用 Redis", "启用 Asynq"} {
+		if strings.Contains(prompts, unwanted) {
+			t.Errorf("Redis 与 Asynq 已内建，问答不应再问 %q：\n%s", unwanted, prompts)
 		}
 	}
-	if strings.Contains(prompts, "Redis 缓存") {
-		t.Errorf("问答提示仍把 Redis 描述为缓存：\n%s", prompts)
+	if !strings.Contains(prompts, "启用 i18n | Enable i18n (y/n) [y]") {
+		t.Errorf("问答提示缺少 i18n 默认值：\n%s", prompts)
 	}
 
 	meta := readMemFile(t, te.env.FS, "shop/.yd.json")

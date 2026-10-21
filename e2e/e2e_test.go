@@ -91,7 +91,7 @@ func TestScaffoldBuildRun(t *testing.T) {
 	out, err := runYD(t, bin, tmp, "new", "demo",
 		"--module", "example.com/demo",
 		"--db", "sqlite",
-		"--redis", "--i18n", "--htmx-ext", "sse,ws,preload",
+		"--i18n", "--htmx-ext", "sse,ws,preload",
 		"--local-replace", root,
 		"--yes",
 	)

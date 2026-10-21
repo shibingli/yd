@@ -18,8 +18,8 @@
 | 特性 | 状态 |
 |---|---|
 | 数据库 | {{ .DB }} |
-| redis 集成 | {{ .Redis }} |
-| asynq 队列 | {{ .Asynq }} |
+| redis 集成 | 内置（始终启用） |
+| asynq 队列 | 内置（始终启用） |
 | grpc 双通道 | {{ .GRPC }} |
 | 登录鉴权（多租户 / 用户 / 角色 / 权限） | {{ .Auth }} |
 | i18n | {{ .I18n }} |
@@ -133,8 +133,8 @@
    必须先过 `data-yd-confirm`；新建会话、编辑、置顶与群设置走右侧抽屉（`#yd-drawer`）。
    列表操作用 `details.yd-menu`；实时刷新只重取 `/messages/:id/history`，不重建撰写区、不清掉草稿，也不整页跳转。
 6. **实时与多节点**：`#yd-shell` 持有唯一的 `/ws/messages` 连接；事件只带 ID 与元数据，接收方按权限重取。
-   单节点用进程内 Hub；多节点要求生成时选择 `redis`（持久重试再选 `asynq`），并给每个副本唯一的
-   `message.node_id`。未生成 Redis 集成的项目只编译本地总线，事后补配置不生效。
+   生成项目默认内建 `redis`（Pub/Sub）与 `asynq`（持久重试）；Redis 不可达时告警并退回进程内 Hub，
+   多副本部署必须给每个副本唯一的 `message.node_id`。
 7. **数据表**：`yd_msg_*` 由 `messaginggorm.Migrate` 建出；索引以 `tenant_id` 打头。改表结构时同步迁移与测试。
 
 ## 7. 提交纪律（强制）

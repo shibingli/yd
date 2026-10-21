@@ -32,10 +32,6 @@ const (
 	flagNewModule = "module"
 	// flagNewDB is the database driver. | flagNewDB 是数据库驱动。
 	flagNewDB = "db"
-	// flagNewRedis wires in the Redis integration. | flagNewRedis 接入 Redis 集成。
-	flagNewRedis = "redis"
-	// flagNewAsynq wires the Asynq queue in. | flagNewAsynq 接入 Asynq 队列。
-	flagNewAsynq = "asynq"
 	// flagNewGRPC enables the gRPC dual channel. | flagNewGRPC 开启 gRPC 双通道。
 	flagNewGRPC = "grpc"
 	// flagNewI18n enables internationalisation. | flagNewI18n 开启国际化。
@@ -94,8 +90,6 @@ func init() {
 func registerNewFlags(fs *pflag.FlagSet) {
 	fs.String(flagNewModule, "", "module path, defaults to github.com/yun-dev/<name> | 模块路径，默认为 github.com/yun-dev/<name>")
 	fs.String(flagNewDB, "", "database driver: mysql/postgres/sqlite/none | 数据库驱动：mysql/postgres/sqlite/none")
-	fs.Bool(flagNewRedis, false, "wire in the Redis integration | 接入 Redis 集成")
-	fs.Bool(flagNewAsynq, false, "wire in the Asynq queue (requires --redis) | 接入 Asynq 队列（依赖 --redis）")
 	fs.Bool(flagNewGRPC, false, "enable the gRPC dual channel | 开启 gRPC 双通道")
 	fs.Bool(flagNewI18n, false, "enable i18n | 开启国际化")
 	fs.Bool(flagNewTailwind, false, "wire in Tailwind CSS v4 | 接入 Tailwind CSS v4")
@@ -245,12 +239,6 @@ func applyNewFlags(o *scaffold.Options, env *Env, fs *pflag.FlagSet) {
 	if flagChanged(fs, flagNewDB) {
 		o.DB = flagString(fs, flagNewDB)
 	}
-	if flagChanged(fs, flagNewRedis) {
-		o.Redis = flagBool(fs, flagNewRedis)
-	}
-	if flagChanged(fs, flagNewAsynq) {
-		o.Asynq = flagBool(fs, flagNewAsynq)
-	}
 	if flagChanged(fs, flagNewGRPC) {
 		o.GRPC = flagBool(fs, flagNewGRPC)
 	}
@@ -311,8 +299,6 @@ func interviewNew(env *Env, fs *pflag.FlagSet, o *scaffold.Options) error {
 		question string
 		value    *bool
 	}{
-		{flagNewRedis, "启用 Redis | Enable Redis", &o.Redis},
-		{flagNewAsynq, "启用 Asynq 队列（依赖 Redis） | Enable the Asynq queue (requires Redis)", &o.Asynq},
 		{flagNewGRPC, "启用 gRPC 双通道 | Enable the gRPC dual channel", &o.GRPC},
 		{flagNewI18n, "启用 i18n | Enable i18n", &o.I18n},
 		{flagNewTailwind, "启用 Tailwind CSS v4 | Enable Tailwind CSS v4", &o.Tailwind},
@@ -325,24 +311,6 @@ func interviewNew(env *Env, fs *pflag.FlagSet, o *scaffold.Options) error {
 			return err
 		}
 		*item.value = answer
-	}
-
-	// Asynq 依赖 Redis：没有 Redis 时要么明确拒绝，要么在交互里补问一次，绝不静默生成无法工作的队列接线。
-	// Asynq depends on Redis: without it, either refuse explicitly or ask once more in the interview; never silently
-	// generate queue wiring that cannot work.
-	if o.Asynq && !o.Redis {
-		if flagChanged(fs, flagNewRedis) {
-			return scaffold.ErrAsynqRequiresRedis
-		}
-		fmt.Fprintf(env.Out, "Asynq requires Redis and must be enabled together with it. | Asynq 依赖 Redis，必须同时启用 Redis。\n")
-		answer, err := Confirm(env, "启用 Redis | Enable Redis", true)
-		if err != nil {
-			return err
-		}
-		if !answer {
-			return scaffold.ErrAsynqRequiresRedis
-		}
-		o.Redis = true
 	}
 
 	if !flagChanged(fs, flagNewHtmxExt) {
@@ -392,12 +360,9 @@ func printNewReport(env *Env, o scaffold.Options, res *scaffold.Result) {
 // featuresOf summarises the selected features for the closing report. | featuresOf 汇总所选特性，用于收尾报告。
 func featuresOf(o scaffold.Options) []string {
 	features := []string{"db:" + o.DB}
-	if o.Redis {
-		features = append(features, "redis")
-	}
-	if o.Asynq {
-		features = append(features, "asynq")
-	}
+	// Redis 与 asynq 不是开关：每个生成项目都带它们的配置与接线。
+	// Redis and asynq are not switches: every generated project ships their configuration and wiring.
+	features = append(features, "redis", "asynq")
 	if o.GRPC {
 		features = append(features, "grpc")
 	}

@@ -26,11 +26,6 @@ type Options struct {
 	YdVersion string
 	// HtmxExts lists the Htmx 4 extensions to ship with the project (ws, sse, preload, alpine). | HtmxExts 是需要随项目加载的 Htmx 4 扩展（ws、sse、preload、alpine）。
 	HtmxExts []string
-	// Redis enables the go-redis integration used for caching, Pub/Sub and rate limiting. |
-	// Redis 表示接入 go-redis，用于缓存、发布订阅与限流。
-	Redis bool
-	// Asynq enables the asynq distributed task queue. | Asynq 表示是否接入 asynq 分布式任务队列。
-	Asynq bool
 	// GRPC enables the gRPC dual-channel server. | GRPC 表示是否开启 gRPC 双通道。
 	GRPC bool
 	// I18n enables internationalisation. | I18n 表示是否开启国际化。
@@ -45,8 +40,10 @@ type Options struct {
 //
 // Defaults: Module = github.com/yun-dev/<name>, DB = sqlite, Tailwind = true, I18n = true,
 // License = Apache-2.0 and HtmxExts = {preload, sse, ws}; every other feature switch stays off.
+// Redis and asynq are not switches: every generated project ships their configuration and wiring.
 // 默认值：Module = github.com/yun-dev/<name>、DB = sqlite、Tailwind = true、I18n = true、
 // License = Apache-2.0、HtmxExts = {preload, sse, ws}，其余特性开关为 false。
+// Redis 与 asynq 不是开关：每个生成项目都自带它们的配置与接线。
 func DefaultOptions(name string) Options {
 	return Options{
 		Name:      name,
@@ -156,8 +153,6 @@ var (
 	ErrLicenseUnsupported = errx.New("unsupported license | 不支持的协议")
 	// ErrHtmxExtUnknown reports an unknown Htmx extension name. | ErrHtmxExtUnknown 表示 Htmx 扩展名未知。
 	ErrHtmxExtUnknown = errx.New("unknown htmx extension | 未知的 Htmx 扩展")
-	// ErrAsynqRequiresRedis reports Asynq without the Redis integration it runs on. | ErrAsynqRequiresRedis 表示启用了 Asynq 却没有接入它依赖的 Redis。
-	ErrAsynqRequiresRedis = errx.New("asynq requires Redis; pass --redis or disable --asynq | Asynq 依赖 Redis；请同时传 --redis，或关闭 --asynq")
 	// ErrConflict reports existing target files with different content. | ErrConflict 表示目标文件已存在且内容不同。
 	ErrConflict = errx.New("target file exists with different content | 目标文件已存在且内容不同")
 	// ErrCanceled reports a cancelled generation run. | ErrCanceled 表示生成过程被取消。
