@@ -16,6 +16,8 @@ import (
 )
 
 // cmsArticlePayload is the JSON create/update payload. | cmsArticlePayload 是 JSON 创建/更新载荷。
+//
+// @Name cmsArticlePayload
 type cmsArticlePayload struct {
 	// CategoryID is the primary category. | CategoryID 是主分类。
 	CategoryID string `json:"category_id"`
@@ -74,6 +76,8 @@ func (p cmsArticlePayload) input(id string) cms.ArticleInput {
 }
 
 // cmsCategoryPayload is the JSON category payload. | cmsCategoryPayload 是 JSON 分类载荷。
+//
+// @Name cmsCategoryPayload
 type cmsCategoryPayload struct {
 	// Name is the display name. | Name 是显示名称。
 	Name string `json:"name"`
@@ -90,6 +94,8 @@ type cmsCategoryPayload struct {
 }
 
 // cmsTagPayload is the JSON tag payload. | cmsTagPayload 是 JSON 标签载荷。
+//
+// @Name cmsTagPayload
 type cmsTagPayload struct {
 	// Name is the display name. | Name 是显示名称。
 	Name string `json:"name"`
@@ -98,6 +104,8 @@ type cmsTagPayload struct {
 }
 
 // cmsTransitionPayload is the JSON transition payload. | cmsTransitionPayload 是 JSON 状态转换载荷。
+//
+// @Name cmsTransitionPayload
 type cmsTransitionPayload struct {
 	// Action is the editorial action. | Action 是编辑动作。
 	Action string `json:"action"`
@@ -106,12 +114,16 @@ type cmsTransitionPayload struct {
 }
 
 // cmsModeratePayload is the JSON moderation payload. | cmsModeratePayload 是 JSON 审核载荷。
+//
+// @Name cmsModeratePayload
 type cmsModeratePayload struct {
 	// Status is the target comment state. | Status 是目标评论状态。
 	Status string `json:"status"`
 }
 
 // cmsSettingsPayload is the JSON settings payload. | cmsSettingsPayload 是 JSON 设置载荷。
+//
+// @Name cmsSettingsPayload
 type cmsSettingsPayload struct {
 	// SiteName is the public site title. | SiteName 是公开站点标题。
 	SiteName string `json:"site_name"`

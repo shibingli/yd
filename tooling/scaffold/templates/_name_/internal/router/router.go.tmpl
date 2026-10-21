@@ -18,6 +18,7 @@ import (
 	"{{ .Module }}/internal/middleware"
 	"{{ .Module }}/internal/repository"
 	"{{ .Module }}/internal/service"
+	"{{ .YdModule }}/cms"
 	"{{ .YdModule }}/core/afs"
 	"{{ .YdModule }}/runtime/app"
 	"{{ .YdModule }}/security/auth"
@@ -614,6 +615,7 @@ func registerOpenAPI(a *app.App) {
 	opts.TypeAnnotations = source.Types
 
 	doc := openapi.FromRouterWithAnnotations(a.Router(), openAPIInfo(), opts, source.Annotations, report)
+	registerCMSModels(doc)
 	// 受保护端点统一标注 @Security BearerAuth，方案本身在这里声明，客户端据此生成 Authorization 头。
 	// Protected endpoints are annotated with @Security BearerAuth; the scheme is declared here so clients can build the
 	// Authorization header from the document.
@@ -640,6 +642,42 @@ func registerOpenAPI(a *app.App) {
 		logx.Int("orphan", len(report.Orphan)),
 		logx.Int("incomplete", len(report.Incomplete)),
 	)
+}
+
+// registerCMSModels 为 CMS 注解引用的领域类型补充组件 Schema。 | registerCMSModels adds component schemas for the CMS
+// domain types referenced by handler annotations.
+//
+// 注解解析器只扫描本项目的 internal 目录，而 CMS 的领域类型位于框架模块中，因此注解里的
+// cms.Article 一类引用不会被自动注册；这里用反射补上，文档校验才不会报告无法解析的引用。
+// The annotation parser only scans this project's internal directory while the CMS domain types live in the framework
+// module, so references such as cms.Article are not registered automatically; reflection fills them in here and the
+// document validator no longer reports unresolved references.
+func registerCMSModels(doc *openapi.Document) {
+	if doc == nil {
+		return
+	}
+	if doc.Components.Schemas == nil {
+		doc.Components.Schemas = map[string]*openapi.Schema{}
+	}
+	b := openapi.NewBuilder(openapi.Info{})
+	for _, item := range []struct {
+		name  string
+		value any
+	}{
+		{"cms.Article", cms.Article{}},
+		{"cms.ArticleView", cms.ArticleView{}},
+		{"cms.Category", cms.Category{}},
+		{"cms.Tag", cms.Tag{}},
+		{"cms.Media", cms.Media{}},
+		{"cms.Comment", cms.Comment{}},
+		{"cms.Settings", cms.Settings{}},
+		{"cms.Counts", cms.Counts{}},
+	} {
+		b.RegisterSchema(item.name, item.value)
+	}
+	for name, schema := range b.Build().Components.Schemas {
+		doc.Components.Schemas[name] = schema
+	}
 }
 
 // openAPIInfo 返回文档元信息，取值全部来自 internal/meta，避免文档与代码漂移。

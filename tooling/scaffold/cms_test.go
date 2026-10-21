@@ -216,6 +216,47 @@ func TestGeneratedAppCMS(t *testing.T) {
 	if err := jsonx.Unmarshal([]byte(docBody), &doc); err != nil {
 		t.Fatalf("解析 OpenAPI 文档: %v", err)
 	}
+	// 所有 $ref 必须指向真实注册的组件：CMS 领域类型位于框架模块，注解扫描不会自动补上它们，
+	// 缺少注册时启动日志会告警，文档查看器也会出现空白的响应模型。 |
+	// Every $ref must point at a registered component: the CMS domain types live in the framework module and the
+	// annotation scan cannot register them by itself, so a missing registration warns at start-up and leaves blank
+	// response models in the document viewer.
+	var rawDoc map[string]any
+	if err := jsonx.Unmarshal([]byte(docBody), &rawDoc); err != nil {
+		t.Fatalf("解析 OpenAPI 原始文档: %v", err)
+	}
+	schemas := map[string]any{}
+	if components, ok := rawDoc["components"].(map[string]any); ok {
+		if registered, ok := components["schemas"].(map[string]any); ok {
+			schemas = registered
+		}
+	}
+	var unresolved []string
+	seenRef := map[string]bool{}
+	var walkRefs func(any)
+	walkRefs = func(node any) {
+		switch value := node.(type) {
+		case map[string]any:
+			if ref, ok := value["$ref"].(string); ok && strings.HasPrefix(ref, "#/components/schemas/") {
+				name := strings.TrimPrefix(ref, "#/components/schemas/")
+				if _, ok := schemas[name]; !ok && !seenRef[name] {
+					seenRef[name] = true
+					unresolved = append(unresolved, name)
+				}
+			}
+			for _, child := range value {
+				walkRefs(child)
+			}
+		case []any:
+			for _, child := range value {
+				walkRefs(child)
+			}
+		}
+	}
+	walkRefs(rawDoc)
+	if len(unresolved) > 0 {
+		t.Fatalf("OpenAPI 引用了未注册的 Schema: %s", strings.Join(unresolved, ", "))
+	}
 	pathParams := func(path string) []string {
 		var out []string
 		for _, param := range doc.Paths[path]["get"].Parameters {
