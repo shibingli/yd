@@ -61,11 +61,9 @@ import (
 	"time"
 
 	"{{ .Module }}/internal/meta"
-	"{{ .YdModule }}/cms"
 	"{{ .YdModule }}/messaging"
 	"{{ .YdModule }}/security/auth"
 {{- if ne .DB "none" }}
-	cmsgorm "{{ .YdModule }}/cms/gormstore"
 	messaginggorm "{{ .YdModule }}/messaging/gormstore"
 	"{{ .YdModule }}/security/auth/gormstore"
 {{- end }}
@@ -146,11 +144,6 @@ type Store struct {
 	// msgErr 记录消息中心不可用的原因，供控制器与运维日志读取。
 	// msgErr records why the message centre is unavailable, read by the controller and by operations logs.
 	msgErr error
-	// cms 是内容管理的持久化实现；数据库不可用或迁移失败时为 nil，CMSAvailable 报告该状态。
-	// cms is the CMS store; nil when the database is unavailable or its migration failed, which CMSAvailable reports.
-	cms cms.Store
-	// cmsErr records why the CMS is unavailable. | cmsErr 记录内容管理不可用的原因。
-	cmsErr error
 	// cfg 是装配时的配置，种子口令从它的 seed 段读取（环境变量经前缀映射已在配置层生效）。
 	// cfg is the configuration this store was assembled with, read for the seed password (the environment variable has
 	// already taken effect inside the configuration layer).
@@ -202,13 +195,9 @@ func Open(o Options) (*Store, error) {
 	if msgErr != nil {
 		log.Warn("message centre is unavailable | 消息中心不可用", logx.Err(msgErr))
 	}
-	cmsStore, cmsErr := openCMSStore(db, log)
-	if cmsErr != nil {
-		log.Warn("content management is unavailable | 内容管理不可用", logx.Err(cmsErr))
-	}
 	return &Store{
 		svc: svc, raw: raw, issuer: issuer, log: log, db: db, cfg: o.Config,
-		msg: msgStore, msgErr: msgErr, cms: cmsStore, cmsErr: cmsErr,
+		msg: msgStore, msgErr: msgErr,
 		release: release, persistent: release != nil,
 	}, nil
 }
@@ -222,15 +211,6 @@ func (s *Store) MessageError() error { return s.msgErr }
 
 // MessageAvailable reports whether the message centre has a usable store. | MessageAvailable 报告消息中心是否有可用存储。
 func (s *Store) MessageAvailable() bool { return s.msg != nil }
-
-// CMSStore returns the CMS persistence, or nil when the CMS is unavailable. | CMSStore 返回 CMS 持久化；不可用时返回 nil。
-func (s *Store) CMSStore() cms.Store { return s.cms }
-
-// CMSError reports why the CMS is unavailable. | CMSError 报告 CMS 不可用的原因。
-func (s *Store) CMSError() error { return s.cmsErr }
-
-// CMSAvailable reports whether the CMS has a usable store. | CMSAvailable 报告 CMS 是否有可用存储。
-func (s *Store) CMSAvailable() bool { return s.cms != nil }
 
 // DB returns the database handle used by generated repositories, or nil when the project runs on
 // the in-memory fallback. | DB 返回生成仓储使用的数据库句柄；项目运行在内存降级实现上时返回 nil。
@@ -269,41 +249,6 @@ func openMessageStore(db any, log *logx.Logger) (messaging.Store, error) {
 // openMessageStore 在未选择数据库的生成项目里报告消息中心不可用。
 func openMessageStore(_ any, _ *logx.Logger) (messaging.Store, error) {
 	return nil, errx.Detail(messaging.ErrUnavailable, "the project was generated without a database | 项目生成时未选择数据库")
-}
-{{ end -}}
-
-{{ if ne .DB "none" -}}
-// openCMSStore migrates and opens the CMS tables on the same pool the auth store uses. |
-// openCMSStore 在鉴权存储所用的同一连接池上迁移并打开 CMS 数据表。
-//
-// A failed migration only disables the CMS: every other page must still work, so the error is logged and
-// reported through CMSError instead of refusing to start. | 迁移失败只会禁用 CMS：其它页面必须照常工作，
-// 因此错误只记录并通过 CMSError 上报，绝不因此拒绝启动。
-func openCMSStore(db any, log *logx.Logger) (cms.Store, error) {
-	if db == nil {
-		return nil, errx.Detail(cms.ErrUnavailable, "no database | 没有数据库")
-	}
-	gdb, ok := db.(*gorm.DB)
-	if !ok {
-		return nil, errx.Detail(cms.ErrUnavailable, "unexpected database handle | 非预期的数据库句柄")
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), migrateTimeout)
-	defer cancel()
-	if err := cmsgorm.Migrate(ctx, gdb); err != nil {
-		return nil, errx.Wrap(err, cms.ErrUnavailable)
-	}
-	store, err := cmsgorm.New(gdb)
-	if err != nil {
-		return nil, errx.Wrap(err, cms.ErrUnavailable)
-	}
-	log.Info("CMS tables are ready | CMS 数据表已就绪")
-	return store, nil
-}
-{{ else -}}
-// openCMSStore reports the CMS as unavailable in a project generated without a database. |
-// openCMSStore 在未选择数据库的生成项目里报告 CMS 不可用。
-func openCMSStore(_ any, _ *logx.Logger) (cms.Store, error) {
-	return nil, errx.Detail(cms.ErrUnavailable, "the project was generated without a database | 项目生成时未选择数据库")
 }
 {{ end -}}
 

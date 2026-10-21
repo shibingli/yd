@@ -286,9 +286,12 @@ func TestNameShapes(t *testing.T) {
 	}
 }
 
-// TestGroupLabel requires all four framework groups to carry bilingual labels, while a project group comes back verbatim. | TestGroupLabel 要求框架的四个分组都有中英对照标签，而项目自己的分组原样返回。
+// TestGroupLabel requires every framework group to carry bilingual labels, while a project group comes back verbatim. | TestGroupLabel 要求框架的每个分组都有中英对照标签，而项目自己的分组原样返回。
 func TestGroupLabel(t *testing.T) {
-	for _, g := range []string{authz.GroupTenant, authz.GroupUser, authz.GroupRole, authz.GroupPermission} {
+	for _, g := range []string{
+		authz.GroupTenant, authz.GroupUser, authz.GroupRole, authz.GroupPermission,
+		authz.GroupMessage, authz.GroupMessageType,
+	} {
 		if label := authz.GroupLabel(g); label == g {
 			t.Errorf("GroupLabel(%q) has no translation | 分组 %q 没有译文", g, g)
 		}

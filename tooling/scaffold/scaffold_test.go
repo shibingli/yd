@@ -62,10 +62,6 @@ var requiredFiles = []string{
 	"docs/developer_guidelines.md",
 	"go.mod",
 	"internal/controller/auth_controller.go",
-	"internal/controller/cms_admin.go",
-	"internal/controller/cms_api.go",
-	"internal/controller/cms_public.go",
-	"internal/controller/cms_view.go",
 	"internal/controller/controller.go",
 	"internal/controller/friend_controller.go",
 	"internal/controller/home.go",
@@ -77,8 +73,7 @@ var requiredFiles = []string{
 	"internal/controller/message_view.go",
 	"internal/controller/metrics_stream.go",
 	"internal/controller/middleware_metrics.go",
-	"internal/controller/portal_cms.go",
-	"internal/controller/portal_home.go",
+	"internal/controller/portal_root.go",
 	"internal/controller/realtime.go",
 	"internal/controller/role_controller.go",
 	"internal/controller/tenant_controller.go",
@@ -88,7 +83,6 @@ var requiredFiles = []string{
 	"internal/middleware/security.go",
 	"internal/middleware/session.go",
 	"internal/middleware/tenant.go",
-	"internal/model/cms.go",
 	"internal/model/permission.go",
 	"internal/model/role.go",
 	"internal/model/tenant.go",
@@ -99,7 +93,6 @@ var requiredFiles = []string{
 	"internal/repository/user_repo.go",
 	"internal/router/router.go",
 	"internal/service/auth.go",
-	"internal/service/cms.go",
 	"internal/service/message.go",
 	"internal/service/message_bus.go",
 	"internal/service/metrics.go",
@@ -116,15 +109,6 @@ var requiredFiles = []string{
 	"web/static/js/yd-app.js",
 	"web/templates/mgr/layouts/base.html",
 	"web/templates/mgr/layouts/shell.html",
-	"web/templates/mgr/pages/cms_article_edit.html",
-	"web/templates/mgr/pages/cms_articles.html",
-	"web/templates/mgr/pages/cms_audit.html",
-	"web/templates/mgr/pages/cms_categories.html",
-	"web/templates/mgr/pages/cms_comments.html",
-	"web/templates/mgr/pages/cms_dashboard.html",
-	"web/templates/mgr/pages/cms_media.html",
-	"web/templates/mgr/pages/cms_settings.html",
-	"web/templates/mgr/pages/cms_tags.html",
 	"web/templates/mgr/pages/error.html",
 	"web/templates/mgr/pages/home.html",
 	"web/templates/mgr/pages/message_admin.html",
@@ -133,13 +117,6 @@ var requiredFiles = []string{
 	"web/templates/mgr/pages/roles.html",
 	"web/templates/mgr/pages/tenants.html",
 	"web/templates/mgr/pages/users.html",
-	"web/templates/mgr/partials/cms/article_table.html",
-	"web/templates/mgr/partials/cms/category_form.html",
-	"web/templates/mgr/partials/cms/category_node.html",
-	"web/templates/mgr/partials/cms/i18n_keys.html",
-	"web/templates/mgr/partials/cms/revisions.html",
-	"web/templates/mgr/partials/cms/tag_form.html",
-	"web/templates/mgr/partials/cms/transition_form.html",
 	"web/templates/mgr/partials/flash.html",
 	"web/templates/mgr/partials/home/live_metrics.html",
 	"web/templates/mgr/partials/home/metrics.html",
@@ -153,7 +130,6 @@ var requiredFiles = []string{
 	"web/templates/mgr/partials/messages/audit.html",
 	"web/templates/mgr/partials/messages/message.html",
 	"web/templates/mgr/partials/messages/pin.html",
-	"web/templates/mgr/partials/pager.html",
 	"web/templates/mgr/partials/roles/drawer.html",
 	"web/templates/mgr/partials/roles/edit_drawer.html",
 	"web/templates/mgr/partials/roles/form.html",
@@ -169,19 +145,12 @@ var requiredFiles = []string{
 	"web/templates/mgr/partials/users/list.html",
 	"web/templates/mgr/partials/users/row.html",
 	"web/templates/portal/layouts/base.html",
-	"web/templates/portal/layouts/public_shell.html",
 	"web/templates/portal/layouts/shell.html",
 	"web/templates/portal/pages/account.html",
-	"web/templates/portal/pages/blog.html",
-	"web/templates/portal/pages/blog_article.html",
-	"web/templates/portal/pages/blog_page.html",
 	"web/templates/portal/pages/error.html",
 	"web/templates/portal/pages/friends.html",
-	"web/templates/portal/pages/home.html",
 	"web/templates/portal/pages/login.html",
 	"web/templates/portal/pages/messages.html",
-	"web/templates/portal/pages/my_article_edit.html",
-	"web/templates/portal/pages/my_articles.html",
 	"web/templates/portal/pages/realtime.html",
 	"web/templates/portal/partials/flash.html",
 	"web/templates/portal/partials/friends/remark.html",
@@ -205,7 +174,6 @@ var requiredFiles = []string{
 	"web/templates/portal/partials/messages/thread.html",
 	"web/templates/portal/partials/messages/unread_badge.html",
 	"web/templates/portal/partials/messages/unread_menu_badge.html",
-	"web/templates/portal/partials/pager.html",
 	"web/templates/portal/partials/shell-switches.html",
 	"web/templates/portal/partials/sidebar.html",
 }
@@ -217,7 +185,7 @@ var requiredFiles = []string{
 //     该偏离已记入 docs/superpowers/plans/2026-10-17-yd-tool-installation.md 的差异说明。
 //   - 基线未忽略本地库文件，而 `yd new --db sqlite` 的示例 DSN 默认把库落在 `data/`，
 //     WAL 模式还会生成 `-wal` / `-shm` 边车文件；它们属于本机运行数据，绝不入库。
-//   - 基线未忽略运行期上传目录（消息附件与 CMS 媒体），它们同样是本机运行数据。
+//   - 基线未忽略运行期上传目录（消息附件），它们同样是本机运行数据。
 //
 // specGitignore is the verbatim .gitignore template of the baseline §二.3 (the advisory line has
 // been dropped), plus three deliberate deviations:
@@ -227,8 +195,8 @@ var requiredFiles = []string{
 //   - the baseline does not ignore local database files, yet the SQLite sample DSN of
 //     `yd new --db sqlite` lands the database in `data/`, and WAL mode adds the -wal / -shm
 //     sidecars; they are machine-local runtime data and never belong in version control.
-//   - the baseline does not ignore runtime upload directories (message attachments and CMS media),
-//     which are likewise machine-local runtime data.
+//   - the baseline does not ignore the runtime upload directory (message attachments), which is
+//     likewise machine-local runtime data.
 const specGitignore = "bin/\n" +
 	"dist/\n" +
 	"*.exe\n" +
@@ -251,9 +219,8 @@ const specGitignore = "bin/\n" +
 	"node_modules/\n" +
 	"# Project-local optional tool binaries installed by `yd tools install` | 由 `yd tools install` 安装到项目内的可选工具二进制\n" +
 	".yd/\n" +
-	"# Runtime uploads (message attachments and CMS media) | 运行期上传（消息附件与 CMS 媒体）\n" +
+	"# Runtime uploads (message attachments) | 运行期上传（消息附件）\n" +
 	"data/attachments/\n" +
-	"data/cms-media/\n" +
 	"# Local database files (the default landing spot of yd new --db sqlite, WAL sidecars included) | 本地数据库文件（yd new --db sqlite 的默认落点，含 WAL 边车文件）\n" +
 	"data/*.db\n" +
 	"data/*.db-wal\n" +
@@ -698,9 +665,9 @@ func TestGeneratedPortalAndManagementTreesAreIsolated(t *testing.T) {
 	for _, want := range []string{
 		`g.GET("/mgr", ctrl.ManagementHome`,
 		`g.GET("/mgr/users"`,
-		`g.GET("/mgr/cms"`,
+		`g.GET("/mgr/messages"`,
 		`g.GET("/api/portal/v1/messages"`,
-		`g.GET("/api/v1/cms/articles"`,
+		`g.GET("/api/v1/message-types"`,
 	} {
 		if !strings.Contains(router, want) {
 			t.Errorf("router.go 缺少隔离后的路由 %q | router.go is missing %q", want, want)
@@ -1421,11 +1388,11 @@ func TestGeneratedAppServesFrameworkFeatures(t *testing.T) {
 
 	_, base := startProbeApp(t, "yd-serve-probe")
 
-	// 会话不再是可选项：/ 与 /users 都落在受保护组里，因此探针先用默认凭据登录，此后每条请求都带着那枚 cookie
+	// /users 落在受保护组里，/ 在公开组按登录状态分流；探针先登录，以便后续受保护端点带着那枚 cookie
 	// （中间件 Promote 会把它提升为 Authorization，浏览器与 API 客户端因此走同一条校验路径）。
-	// A session is no longer optional: / and /users live inside the protected group, so the probe signs in with the
-	// default credentials first and every request afterwards carries that cookie (middleware.Promote lifts it into
-	// Authorization, which is how browsers and API clients end up sharing one verification path).
+	// /users lives in the protected group while / dispatches on the session in the public group; the probe signs in so
+	// the protected requests that follow carry that cookie (middleware.Promote lifts it into Authorization, which is
+	// how browsers and API clients end up sharing one verification path).
 	client := newProbeClient(t, httpTimeout)
 	token := signIn(t, client, base, probeTenant, probeAdmin, probeAdminPassword)
 
@@ -1446,18 +1413,23 @@ func TestGeneratedAppServesFrameworkFeatures(t *testing.T) {
 
 	t.Run("整页渲染", func(t *testing.T) {
 		resp, body := getText(t, client, base+"/", nil)
+		if resp.StatusCode != http.StatusSeeOther || resp.Header.Get("Location") != "/account" {
+			t.Fatalf("GET / 状态码 = %d, Location = %q, 期望 303 /account（无数据库时无消息中心）\n%s",
+				resp.StatusCode, resp.Header.Get("Location"), body)
+		}
+		resp, body = getText(t, client, base+"/account", nil)
 		if resp.StatusCode != http.StatusOK {
-			t.Fatalf("GET / 状态码 = %d, 期望 200\n%s", resp.StatusCode, body)
+			t.Fatalf("GET /account 状态码 = %d, 期望 200\n%s", resp.StatusCode, body)
 		}
 		for _, want := range []string{
-			"<html", `id="yd-workspace"`, "/static/css/yd.css", `data-yd-page="portal-home"`,
+			"<html", `id="yd-workspace"`, "/static/css/yd.css", `data-yd-page="account"`,
 		} {
 			if !strings.Contains(body, want) {
-				t.Errorf("GET / 缺少 %q:\n%s", want, body)
+				t.Errorf("GET /account 缺少 %q:\n%s", want, body)
 			}
 		}
 		if strings.Contains(body, `hx-ws:connect="/mgr/ws/metrics"`) {
-			t.Errorf("GET / 门户首页不得建立管理指标连接:\n%s", body)
+			t.Errorf("GET /account 不得建立管理指标连接:\n%s", body)
 		}
 
 		// 管理概览在 /mgr：指标卡片仍由同一条 WebSocket 供给，且不再走 HTTP 轮询。
@@ -1608,11 +1580,10 @@ func TestGeneratedAppServesFrameworkFeatures(t *testing.T) {
 			`"/avatar/{id}.jpg"`,
 			`"/report/{id}-xx.png"`,
 			`"/mgr/users"`,
-			`"/mgr/cms/articles"`,
 			`"/mgr/messages"`,
 			`"/mgr/metrics"`,
 			`"/api/portal/v1/messages"`,
-			`"/api/v1/cms/articles"`,
+			`"/api/v1/message-types"`,
 			`"/events"`,
 			`"/ws"`,
 			`"/login"`,
@@ -1632,7 +1603,6 @@ func TestGeneratedAppServesFrameworkFeatures(t *testing.T) {
 		// The annotation paths must match the split routes: management only under /mgr and /api/v1, member APIs only
 		// under /api/portal/v1.
 		for _, unwanted := range []string{
-			`"/cms/articles":`,
 			`"/users":`,
 			`"/messages/admin":`,
 			`"/message-settings":`,
@@ -1912,9 +1882,9 @@ func TestGeneratedAppServesFrameworkFeatures(t *testing.T) {
 		// 本探针项目以 --db none 生成：导航里不应出现消息入口，两个端点都必须明确报告不可用，而不是假装成功。
 		// This probe was generated with --db none: the navigation must carry no message entry and both endpoints must report
 		// the centre as unavailable rather than pretending to work.
-		resp, page := getText(t, client, base+"/", nil)
+		resp, page := getText(t, client, base+"/account", nil)
 		if resp.StatusCode != http.StatusOK {
-			t.Fatalf("GET / 状态码 = %d, 期望 200\n%s", resp.StatusCode, page)
+			t.Fatalf("GET /account 状态码 = %d, 期望 200\n%s", resp.StatusCode, page)
 		}
 		for _, unwanted := range []string{`href="/messages"`, `href="/friends"`} {
 			if strings.Contains(page, unwanted) {
@@ -2199,27 +2169,21 @@ func TestGeneratedAppSupportsAuth(t *testing.T) {
 	t.Run("未登录被挡在受保护端点之外", func(t *testing.T) {
 		anon := newProbeClient(t, httpTimeout)
 
-		// 根路由是公开内容门户：匿名访客得到 200 的整页，页面里没有任何用户数据。
-		// The root route is the public content portal: an anonymous visitor gets a full 200 page with no user data in it.
+		// 根路由按登录状态分流：匿名访客被送到登录页，页面里没有任何用户数据。
+		// The root route branches on the session: an anonymous visitor is sent to sign-in and no user data is rendered.
 		resp, body := getText(t, anon, base+"/", nil)
-		if resp.StatusCode != http.StatusOK {
-			t.Fatalf("未登录 GET / 状态码 = %d, 期望 200\n%s", resp.StatusCode, body)
+		if resp.StatusCode != http.StatusSeeOther || resp.Header.Get("Location") != "/login" {
+			t.Fatalf("未登录 GET / 状态码 = %d, Location = %q, 期望 303 /login\n%s",
+				resp.StatusCode, resp.Header.Get("Location"), body)
 		}
-		if !strings.Contains(body, "<html") {
-			t.Errorf("未登录 GET / 应是完整的公开门户页面:\n%s", body)
-		}
-		assertNoUserData(t, "未登录 GET /", body)
 
-		// htmx 请求同样拿到公开片段，而不是登录重定向。
-		// An htmx request gets the public fragment as well, not a sign-in redirect.
+		// htmx 请求得到 HX-Redirect 而不是公开片段。
+		// An htmx request gets HX-Redirect instead of a public fragment.
 		respHX, bodyHX := getText(t, anon, base+"/", map[string]string{"HX-Request": "true"})
-		if respHX.StatusCode != http.StatusOK {
-			t.Fatalf("未登录 HX-Request GET / 状态码 = %d, 期望 200\n%s", respHX.StatusCode, bodyHX)
+		if respHX.StatusCode != http.StatusOK || respHX.Header.Get("HX-Redirect") != "/login" {
+			t.Fatalf("未登录 HX-Request GET / 状态码 = %d, HX-Redirect = %q, 期望 200 /login\n%s",
+				respHX.StatusCode, respHX.Header.Get("HX-Redirect"), bodyHX)
 		}
-		if strings.Contains(bodyHX, "<html") {
-			t.Errorf("未登录的 htmx 首页应是片段而不是整页:\n%s", bodyHX)
-		}
-		assertNoUserData(t, "未登录 HX-Request GET /", bodyHX)
 
 		// 个人中心仍然是受保护端点：匿名请求被送到登录页。
 		// The personal centre remains protected: an anonymous request is sent to sign-in.
@@ -2292,8 +2256,8 @@ func TestGeneratedAppSupportsAuth(t *testing.T) {
 		if resp.StatusCode != http.StatusSeeOther {
 			t.Fatalf("登录 POST /login 状态码 = %d, 期望 303\n%s", resp.StatusCode, body)
 		}
-		if loc := resp.Header.Get("Location"); loc != "/" {
-			t.Errorf("登录成功后的 Location = %q, 期望 /", loc)
+		if loc := resp.Header.Get("Location"); loc != "/account" {
+			t.Errorf("登录成功后的 Location = %q, 期望 /account（无数据库时无消息中心）", loc)
 		}
 
 		var session *http.Cookie
@@ -2324,14 +2288,19 @@ func TestGeneratedAppSupportsAuth(t *testing.T) {
 		// The browser shape: the request carries the cookie and no Authorization at all, so the token must have been
 		// lifted by middleware.Promote.
 		resp, body := getText(t, browser, base+"/", map[string]string{"HX-Request": "true"})
+		if resp.StatusCode != http.StatusOK || resp.Header.Get("HX-Redirect") != "/account" {
+			t.Fatalf("已登录 HX-Request GET / 状态码 = %d, HX-Redirect = %q, 期望 200 /account（无数据库时无消息中心）\n%s",
+				resp.StatusCode, resp.Header.Get("HX-Redirect"), body)
+		}
+		resp, body = getText(t, browser, base+"/account", map[string]string{"HX-Request": "true"})
 		if resp.StatusCode != http.StatusOK {
-			t.Fatalf("已登录 HX-Request GET / 状态码 = %d, 期望 200\n%s", resp.StatusCode, body)
+			t.Fatalf("已登录 HX-Request GET /account 状态码 = %d, 期望 200\n%s", resp.StatusCode, body)
 		}
 		if strings.Contains(body, "<html") {
 			t.Errorf("HX-Request 请求不应返回整页 HTML:\n%s", body)
 		}
-		if !strings.Contains(body, `data-yd-page="portal-home"`) {
-			t.Errorf("已登录的 HX-Request 响应不是门户首页片段:\n%s", body)
+		if !strings.Contains(body, `data-yd-page="account"`) {
+			t.Errorf("已登录的 HX-Request 响应不是账号页片段:\n%s", body)
 		}
 
 		// API 形态：显式 Authorization、没有 cookie，走的是同一条校验路径。
@@ -2437,12 +2406,12 @@ func TestGeneratedAppSupportsAuth(t *testing.T) {
 		// data-yd-perm have something to read in the browser.
 		browser := newProbeClient(t, httpTimeout)
 		signIn(t, browser, base, probeTenant, probeAdmin, probeAdminPassword)
-		respHome, homePage := getText(t, browser, base+"/", nil)
+		respHome, homePage := getText(t, browser, base+"/account", nil)
 		if respHome.StatusCode != http.StatusOK || !strings.Contains(homePage, "<html") {
-			t.Fatalf("the signed-in GET / answered %d, want a full 200 page | 已登录 GET / 状态码 = %d, 期望 200 的整页\n%s",
+			t.Fatalf("the signed-in GET /account answered %d, want a full 200 page | 已登录 GET /account 状态码 = %d, 期望 200 的整页\n%s",
 				respHome.StatusCode, respHome.StatusCode, homePage)
 		}
-		env := authzEnvelopeOf(t, "the signed-in home page | 已登录首页", homePage)
+		env := authzEnvelopeOf(t, "the signed-in account page | 已登录账号页", homePage)
 
 		wantPerms := make([]string, 0, len(authz.Permissions()))
 		for _, p := range authz.Permissions() {
@@ -2494,19 +2463,19 @@ func TestGeneratedAppSupportsAuth(t *testing.T) {
 
 		hx := map[string]string{"HX-Request": "true"}
 
-		// member：令牌本身有效（会话即可访问的首页给 200），但用户列表要 user:read → 403。
-		// member: the token itself is valid (the session-only home page answers 200) while the user list needs user:read → 403.
+		// member：令牌本身有效（账号页给 200），但用户列表要 user:read → 403。
+		// member: the token itself is valid (the account page answers 200) while the user list needs user:read → 403.
 		member := newProbeClient(t, httpTimeout)
 		signIn(t, member, base, probeTenant, "probe-member", probeUserPassword)
-		respHome, home := getText(t, member, base+"/", nil)
+		respHome, home := getText(t, member, base+"/account", nil)
 		if respHome.StatusCode != http.StatusOK {
-			t.Fatalf("member 访问首页状态码 = %d, 期望 200（令牌有效）\n%s", respHome.StatusCode, home)
+			t.Fatalf("member 访问账号页状态码 = %d, 期望 200（令牌有效）\n%s", respHome.StatusCode, home)
 		}
 		// 门户默认只有普通用户功能：没有管理能力时连管理入口都不应渲染，管理概览本身也必须 403。
 		// The portal defaults to ordinary-user features: without a management capability the entry is not rendered at all,
 		// and the management overview itself must answer 403.
 		if strings.Contains(home, `href="/mgr"`) || strings.Contains(home, `data-yd-nav="mgr-`) {
-			t.Errorf("member 的门户首页渲染了管理入口:\n%s", home)
+			t.Errorf("member 的账号页渲染了管理入口:\n%s", home)
 		}
 		respMgr, mgrBody := getText(t, member, base+"/mgr", hx)
 		if respMgr.StatusCode != http.StatusForbidden {
@@ -2516,15 +2485,15 @@ func TestGeneratedAppSupportsAuth(t *testing.T) {
 		// 管理员的门户页只多出一个管理入口，页面本身仍是门户片段而不是后台外壳。
 		// The administrator's portal page gains exactly one management entry while remaining a portal fragment, not the
 		// back-office shell.
-		respAdminHome, adminHome := getText(t, admin, base+"/", nil)
+		respAdminHome, adminHome := getText(t, admin, base+"/account", nil)
 		if respAdminHome.StatusCode != http.StatusOK {
-			t.Fatalf("管理员访问门户首页状态码 = %d, 期望 200\n%s", respAdminHome.StatusCode, adminHome)
+			t.Fatalf("管理员访问账号页状态码 = %d, 期望 200\n%s", respAdminHome.StatusCode, adminHome)
 		}
 		if !strings.Contains(adminHome, `href="/mgr"`) {
-			t.Errorf("管理员的门户首页缺少管理入口:\n%s", adminHome)
+			t.Errorf("管理员的账号页缺少管理入口:\n%s", adminHome)
 		}
-		if !strings.Contains(adminHome, `data-yd-page="portal-home"`) {
-			t.Errorf("管理员 GET / 不再是门户片段:\n%s", adminHome)
+		if !strings.Contains(adminHome, `data-yd-page="account"`) {
+			t.Errorf("管理员 GET /account 不是账号页:\n%s", adminHome)
 		}
 		respMember, memberBody := getText(t, member, base+"/mgr/users", hx)
 		if respMember.StatusCode != http.StatusForbidden {
@@ -2583,6 +2552,45 @@ func TestGeneratedAppSupportsAuth(t *testing.T) {
 //
 // 少一个键，页面上出现的就是键名本身；多一个键，则是一句永远不会被读到的文案。
 // A missing key makes the page show the key itself, and a stale one is a sentence nobody ever reads.
+// TestGeneratedAppRootRespectsMessageRead 断言登录落点不会把没有 message:read 的账号送到 403。
+// TestGeneratedAppRootRespectsMessageRead asserts that the signed-in landing route never sends an account without
+// message:read to a 403.
+//
+// 消息中心可用不等于当前账号能读它：自定义角色可能只持有 user:read。此时 `/messages` 由
+// authz.Require(PermMessageRead) 守卫，登录与根路由都必须落到 `/account`。 |
+// The centre being available does not mean the current account may read it: a custom role may hold only user:read.
+// In that case /messages is guarded by authz.Require(PermMessageRead), so both sign-in and the root route must land
+// on /account.
+func TestGeneratedAppRootRespectsMessageRead(t *testing.T) {
+	if testing.Short() {
+		t.Skip("短模式跳过真实启动 | skipped in short mode")
+	}
+
+	_, base := startProbeAppDBWith(t, "yd-no-message-read", scaffold.DBSQLite, nil)
+
+	admin := newProbeClient(t, httpTimeout)
+	adminToken := signIn(t, admin, base, probeTenant, probeAdmin, probeAdminPassword)
+	createProbeRole(t, admin, base, adminToken, "no-messages", authz.PermUserRead)
+	createProbeUser(t, admin, base, adminToken, "probe-no-messages", "no-messages", "probe-no-messages@example.com")
+
+	user := newProbeClient(t, httpTimeout)
+	resp, body := postForm(t, user, base+"/login", map[string]string{
+		"tenant":   probeTenant,
+		"username": "probe-no-messages",
+		"password": sm2Cipher(t, user, base, probeUserPassword),
+	}, map[string]string{"X-YD-Encrypted": "sm2"})
+	if resp.StatusCode != http.StatusSeeOther || resp.Header.Get("Location") != "/account" {
+		t.Fatalf("没有 message:read 的账号登录后 Location = %q（状态码 %d），期望 303 /account\n%s",
+			resp.Header.Get("Location"), resp.StatusCode, body)
+	}
+
+	resp, body = getText(t, user, base+"/", nil)
+	if resp.StatusCode != http.StatusSeeOther || resp.Header.Get("Location") != "/account" {
+		t.Fatalf("没有 message:read 的账号 GET / 的 Location = %q（状态码 %d），期望 303 /account\n%s",
+			resp.Header.Get("Location"), resp.StatusCode, body)
+	}
+}
+
 func TestGeneratedI18nCatalogueCoversEveryTrKey(t *testing.T) {
 	pr, _ := generateMem(t, scaffold.DefaultOptions("i18n-app"))
 
@@ -2907,6 +2915,24 @@ func sessionToken(t *testing.T, client *http.Client, base string) string {
 // 口令同样只能是 SM2 密文：建号是登录之外的第二个解密入口，明文一律拒绝。
 // The password can only be SM2 ciphertext here as well: user creation is the second decryption entry point beside sign-in
 // and plaintext is refused outright.
+// createProbeRole 以管理员身份建一个自定义角色并授予给定能力。
+// createProbeRole creates a custom role with the given capabilities as the administrator.
+func createProbeRole(t *testing.T, client *http.Client, base, token, name string, perms ...string) {
+	t.Helper()
+
+	values := url.Values{"name": {name}, "description": {name}}
+	for _, perm := range perms {
+		values.Add("permission", perm)
+	}
+	resp, body := postFormValues(t, client, base+"/mgr/roles", values, map[string]string{
+		"HX-Request":    "true",
+		"Authorization": "Bearer " + token,
+	})
+	if resp.StatusCode != http.StatusOK || !strings.Contains(body, name) {
+		t.Fatalf("建角色 %s 失败（状态码 %d）:\n%s", name, resp.StatusCode, body)
+	}
+}
+
 func createProbeUser(t *testing.T, client *http.Client, base, token, username, role, email string) {
 	t.Helper()
 

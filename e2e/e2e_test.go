@@ -412,10 +412,10 @@ func expectedSeedCounts() seedCounts {
 // replaced, and whether one more start writes not a single extra row.
 //
 // 这一路走查把「种子数据取自注册表」变成可计数的证据：租户、账号、角色与角色→能力绑定的行数必须与
-// authz.BuiltinRoles / authz.BuiltinGrants 推导出的期望完全一致，而 4 个角色与 16 项能力又必须真的出现在管理员读到的页面上。
+// authz.BuiltinRoles / authz.BuiltinGrants 推导出的期望完全一致，而 4 个角色与注册表里的全部能力又必须真的出现在管理员读到的页面上。
 // The walkthrough turns "the seed takes its data from the registry" into countable evidence: the rows of tenants,
 // accounts, roles and role-to-capability bindings must match exactly what authz.BuiltinRoles / authz.BuiltinGrants imply,
-// and the four roles and sixteen capabilities have to show up on the pages the administrator reads.
+// and the four roles plus every registered capability have to show up on the pages the administrator reads.
 func TestSeedWritesDefaultAuthDataOnce(t *testing.T) {
 	if testing.Short() {
 		t.Skip("短模式跳过种子数据验证 | skipped in short mode")
@@ -467,9 +467,9 @@ func TestSeedWritesDefaultAuthDataOnce(t *testing.T) {
 				t.Errorf("GET %s 返回了空片段", path)
 			}
 		}
-		// 反证：页面上的能力确实来自注册表——4 个内置角色与 16 项能力都出现在管理员读到的片段里。
+		// 反证：页面上的能力确实来自注册表——4 个内置角色与注册表里的全部能力都出现在管理员读到的片段里。
 		// The other direction: the capabilities on the pages really come from the registry — all four built-in roles and
-		// all sixteen capabilities appear in what the administrator reads.
+		// every registered capability appear in what the administrator reads.
 		roles := hxGet(t, client, base+"/mgr/roles")
 		for _, role := range authz.Roles() {
 			if !strings.Contains(roles, role.Name) {

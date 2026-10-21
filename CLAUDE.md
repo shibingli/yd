@@ -848,54 +848,19 @@ yd versions sync               # 仅重新生成 version_generated.go
 - **检索**：`search_text` 便携式分词 `LIKE`（`!` 转义）；替换为外部 FTS 时只改 Store 实现，不改领域规则与页面。
 - **文档**：`docs/message-center.md` 是能力、配置、API、WebSocket 协议与多节点部署的唯一入口。
 
-## 24. 内容管理与发布（强制）
-
-CMS 由框架域包 `cms` + `cms/gormstore` 与脚手架接线组成，是生成项目的**核心模块**（无生成期开关），
-使用说明见 `docs/cms.md`。以下约束不可绕过：
-
-- **租户硬边界**：9 张 `yd_cms_*` 表全部以 `tenant_id` 为第一条件；跨租户与不存在一律返回
-  `cms.ErrNotFound`/具体资源哨兵，不得用 403 暴露资源是否存在。
-- **无限级分类**：邻接表 + 物化路径（`path` 含自身、以 `/` 结尾）；移动分类必须在事务内重写整棵子树的
-  `path` 与 `depth`；父级不得是自身或后代；有子分类或文章的分类不得删除。公开分类页按子树过滤。
-- **发布状态机**：`draft → pending → published → archived`；提交审核、通过/驳回、发布、定时、下线、
-  归档与恢复分别对应 `cms-article:publish` / `cms-article:review`；作者只能编辑/删除自己的文章，
-  `cms-article:manage` 才能越过作者边界。定时发布以 `publish_at` 为准，到期前公开列表、RSS 与站点地图不可见。
-- **修订**：正文或标题变更前写入不可变快照，恢复时先把当前正文快照为新修订；每篇保留
-  `cms.max_revisions` 个版本。删除是软删除，别名改写为 `slug-deleted-id`，旧地址可复用。
-- **富文本**：Markdown 源 + 服务端 goldmark（GFM/脚注）渲染；未启用 `WithUnsafe`，原始 HTML 与危险链接
-  必须被移除；模板只能输出 `model.CMSArticle.Body` / `model.CMSComment.Body` 这类服务端净化结果。
-- **媒体**：MIME 以服务端 `http.DetectContentType` 为准；白名单不得包含 SVG/HTML/脚本；存储键只能是
-  `tenantID/mediaID`，不得包含原始文件名；读取必须按租户鉴权，跨租户返回 404。
-- **评论**：登录用户发表、两级回复；`cms.comments_enabled` 与文章 `allow_comment` 同时为真才接受；
-  审核状态为待审/通过/拒绝/垃圾/删除；删除是墓碑，正文清空但保留回复结构。
-- **公开站点**：`/blog` 列表、分类、标签、搜索、文章、单页、RSS 与站点地图；匿名租户取
-  `cms.public_tenant`（留空用种子租户），请求已指定租户时以请求为准。静态段必须先于 `/blog/:slug` 登记。
-- **权限**：新增能力只在 `security/authz` 注册；读取能力统一以 `:read` 结尾，保证审计员只读不变量；
-  `member` 只持有文章/评论自助与媒体上传，服务端仍强制作者身份；没有审核/发布/管理能力且不是审计员的成员
-  只能看到自己的文章与评论，概览与审计对成员返回 403；前端 `data-yd-perm`/`yd.can` 不是安全边界。
-- **前端**：后台沿用 `#yd-shell`、右侧抽屉、`details.yd-menu` 与 `data-yd-confirm`；文章编辑器使用本地
-  EasyMDE，图片经 `data-yd-editor-upload="/mgr/cms/media/upload"` 上传后插入；公开站点由
-  `portal/layouts/public_shell.html` 承载，只在 `.PublicSite` 为真时由 `portal/layouts/shell.html` 引入。
-- **门户写作中心**：普通成员在 `/account/articles` 管理自己的文章，`/account/articles/new` 与
-  `/account/articles/:id/edit` 提供门户编辑器；作者可提交审核、撤回、退役、恢复与删除，
-  **不得**在门户直接发布或审核；发布必须由 `/mgr/cms` 的管理员完成。服务端在每次写操作前复核作者身份，
-  他人的文章一律按 `cms.ErrArticleNotFound` 处理。根路由 `/` 与 `/blog` 都是匿名可达的公开内容门户，
-  首页展示头条、最新发布与按一级/二级分类组织的内容区块，搜索支持关键字、分类与标签组合条件。
-- **文档**：`docs/cms.md` 是能力、配置、路由、发布流程与安全边界的唯一入口。
-
-## 25. 门户与后台隔离（强制）
+## 24. 门户与后台隔离（强制）
 
 前端门户与后端管理是两套彼此隔离的界面与权限面，任何新页面都必须先确定归属，不得混用。
 
-- **路由**：门户为 `/`、`/blog`、`/messages`、`/friends`、`/account`、`/account/articles`、
-  `/account/articles/new`、`/account/articles/:id/edit`、`/realtime` 与登录/健康检查等公开端点；
-  **`/` 是匿名可达的公开内容门户**，登录不是浏览前提；`/account/**` 才是受保护的个人中心与写作中心。
+- **路由**：门户为 `/`、`/messages`、`/friends`、`/account`、`/realtime` 与登录/健康检查等公开端点；
+  `/` 只按登录状态分流——匿名访客去 `/login`，已登录用户去 `/messages`（消息中心不可用时去 `/account`）。
+  `/messages`、`/friends`、`/account` 才是受保护的个人中心。
   后台管理全部落在 `/mgr/**`（`/mgr` 概览、`/mgr/users`、`/mgr/tenants`、`/mgr/roles`、`/mgr/permissions`、
-  `/mgr/messages`、`/mgr/message-settings`、`/mgr/cms/**`、`/mgr/metrics`、`/mgr/docs`）。
-  门户默认只提供普通用户能力（自己的消息、好友、账号、公开内容与自己的文章），管理端点各自挂管理能力守卫；
+  `/mgr/messages`、`/mgr/message-settings`、`/mgr/metrics`、`/mgr/docs`）。
+  门户默认只提供普通用户能力（自己的消息、好友与账号），管理端点各自挂管理能力守卫；
   `/mgr` 概览要求 `user:read`，其余按注册表逐条守卫。
 - **模板隔离**：门户模板只放 `web/templates/portal/**`，后台模板只放 `web/templates/mgr/**`；
-  两棵树各自持有 `layouts/`、`partials/` 与 `icon`/`flash`/`shell-switches`/`sidebar`/`pager`，
+  两棵树各自持有 `layouts/`、`partials/` 与 `icon`/`flash`/`shell-switches`/`sidebar`，
   **禁止跨树 include**。模板名以 `portal/` 与 `mgr/` 前缀区分，避免同名模板互相覆盖；
   删除或重命名模板时必须同步删除另一棵树里同名的旧文件。
 - **布局选择**：视图数据通过 `render.LayoutKey`（`"Layout"`）指定布局；门户用 `LayoutPortal`
@@ -908,7 +873,7 @@ CMS 由框架域包 `cms` + `cms/gormstore` 与脚手架接线组成，是生成
 - **测试**：新增路由或页面时，同时在 `tooling/scaffold` 的 e2e 里断言门户与管理两套入口；
   模板隔离由 `requiredFiles` 清单与模板路径断言共同守卫，缺失或串树都视为未完成。
 
-## 26. 数据关系与完整性（强制）
+## 25. 数据关系与完整性（强制）
 
 **除主键与索引外，一切数据关联都由应用代码维护，不允许使用任何数据库级关系约束。**
 这样做的目的是跨 SQLite / MySQL / PostgreSQL 的一致行为、可预测的迁移，以及不依赖数据库特性的
@@ -918,26 +883,23 @@ CMS 由框架域包 `cms` + `cms/gormstore` 与脚手架接线组成，是生成
   `constraint:`、`foreignKey:`、`references:`、`many2many:`、`polymorphic:` 标签或会隐式生成外键的关联字段；
   `AutoMigrate` 产出的表不得包含任何外键。SQLite 连接预置**不开启** `foreign_keys`，
   MySQL/PostgreSQL 也不得以触发器或约束代替外键。
-- **只存标识**：关系字段只保存对方的主键（如 `category_id`、`article_id`、`tag_id`、`user_id`、
-  `conversation_id`），不保存 ORM 关联对象；关联对象由服务层按租户查询后装饰成视图。
+- **只存标识**：关系字段只保存对方的主键（如 `user_id`、`conversation_id`、`message_id`、
+  `attachment_id`、`tenant_id`），不保存 ORM 关联对象；关联对象由服务层按租户查询后装饰成视图。
 - **写入时校验**：创建/更新引用前必须确认目标存在、属于同一 `tenant_id` 且状态允许；
   目标不存在或跨租户一律返回该资源的 `ErrNotFound`，不泄露存在性。
 - **删除时人工处理**：删除主记录前，要么拒绝仍有引用（返回 `ErrXInUse`/`ErrXNotEmpty`），
   要么在**同一事务**中按显式顺序清理从属行；不得依赖数据库级联。软删除保留的关联行
-  （文章标签、修订、评论、审计）必须在读取路径继续按可见性过滤。
+  （消息标签、附件、成员关系与审计）必须在读取路径继续按可见性过滤。
 - **校验与写入同事务**：引用校验不能先查后用；创建/更新在写入事务内对目标行加共享锁
   （MySQL `FOR SHARE`；SQLite 自动忽略），多个 ID 先去重并排序后加锁，避免死锁；
   删除目标行时加更新锁并在同一事务内复查引用，杜绝「计数通过后又被插入」的悬空关联。
-  目标被删除时，软删除记录留下的引用（如软删除文章的 `category_id`、`article_tags`）
-  必须在同一事务内清空或删除。
+  目标被删除时，软删除记录留下的引用（如软删除消息留下的 `yd_msg_attachments` /
+  `yd_msg_message_tags` 行）必须在同一事务内清空或删除。
 - **索引不是关系**：索引只用于查询性能与唯一性，不得把索引误当作引用完整性；
-  所有鉴权与 CMS/消息表索引仍以 `tenant_id` 打头。
+  所有鉴权与消息表索引仍以 `tenant_id` 打头。
 - **必须维护的关联表**（新增关联表时同样处理）：
   `yd_auth_user_tenants` 与 `yd_auth_role_permissions`（成员/角色清理）、
   `yd_msg_members` / `yd_msg_messages` / `yd_msg_attachments` / `yd_msg_friend_*` /
-  `yd_msg_message_tags`（会话、成员、附件、关系与标签）、
-  `yd_cms_article_tags` / `yd_cms_revisions` / `yd_cms_comments` / `yd_cms_audit`
-  （文章标签、修订、评论与审计）。
+  `yd_msg_message_tags`（会话、成员、附件、关系与标签）。
 - **守卫**：`repotest` 的 `TestNoForeignKeyDefinitions` 扫描 Go 结构标签、SQL 字符串、模板与
-  `.sql` 文件；CMS/消息/鉴权模型的 GORM Schema 断言不得解析出关联关系；
-  `cms/gormstore` 的 MySQL 集成测试查询 `information_schema`，断言生成的表没有任何外键。
+  `.sql` 文件；消息与鉴权模型的 GORM Schema 断言不得解析出关联关系。

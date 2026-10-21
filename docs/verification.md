@@ -82,7 +82,7 @@ ok  github.com/shibingli/yd/e2e  26.829s
 | 中间件 | 48 个用例；SSE/HEAD/204/304/升级请求一律不压缩；`gzip;q=0` 生效；100 并发压缩无竞态 |
 | 数据层 | Redis 缓存 `singleflight` 100 并发下 loader 只执行一次且 `-race` 干净；asynq 加权队列与指数退避单调性 |
 | 生成器 | 生成代码经 `go/format` 可解析、控制器只返回 HTML 片段、`routes_gen.go` 标记块幂等替换 |
-| 脚手架 | 45 个文件真实生成 → 离线编译 → 启动 → 9 项 HTTP 断言（含 SSE 推送、WS 回显、国密登录链路、422 校验闭环） |
+| 脚手架 | 131 个文件真实生成 → 离线编译 → 启动 → 9 项 HTTP 断言（含 SSE 推送、WS 回显、国密登录链路、422 校验闭环） |
 | 前端 | htmx 4.0.0 与 10 个扩展、Alpine、Idiomorph 全部内嵌并锁定 sha256；模板引用的 149 个 `.yd-*` 类全部有定义 |
 
 ## 3.1 Linux 侧门禁（WSL Ubuntu-24.04）
@@ -244,9 +244,9 @@ go test ./repotest/                  ok
 | 鉴权数据落库 | `auth/gormstore` 19 项测试；关连接池重开仍读得到（`TestRoundTripSurvivesReopen`）；仅 2 个 SQL 形态断言在每个用户/角色语句的 WHERE 里都带 `tenant_id`；跨租户 → `auth.ErrNotFound`（不是 `ErrForbidden`） |
 | 表与索引 `yd_` 前缀 | 迁移后 `sqlite_master`：表 `yd_auth_tenants/users/roles/role_permissions`；索引 `yd_idx_auth_users_tenant_id` 等 9 条；守卫 `TestMigratePrefixesEveryObjectWithYD`；探针模型实测落到 `yd_app_probe_rows` + `yd_idx_app_probe_rows_*` |
 | 索引超长保护 | 63 字节上限，超长取前 54 字节 + `_` + SHA-256(**完整名**) 前 8 位；「同头不同尾」两个长名断言不相等 |
-| 权限常量 | 16 权限 × 4 种拼写（标识 / Go 常量 / 模板键 / JS 键）+ 4 角色；`yd authz check` 对含 `user:creat` 与裸 `"user:create"` 的目录**退出码 1**，对空目录与框架自身**退出码 0** |
-| 默认初始化数据 | 首启行数 `租户=2 账号=2 角色=8 角色权限=68`（期望值由注册表推导）；**三次启动行数一致**；生产环境未配口令**拒绝初始化且四张表为空**；日志无口令明文 |
-| 前端判定 | 从真实 HTTP 响应解析 `<script id="yd-authz">`：匿名时 `granted` 为空（失败关闭），owner 登录后与注册表 16 项完全一致 |
+| 权限常量 | 24 权限 × 4 种拼写（标识 / Go 常量 / 模板键 / JS 键）+ 4 角色；`yd authz check` 对含 `user:creat` 与裸 `"user:create"` 的目录**退出码 1**，对空目录与框架自身**退出码 0** |
+| 默认初始化数据 | 首启行数 `租户=2 账号=2 角色=8 角色权限=112`（期望值由注册表推导）；**三次启动行数一致**；生产环境未配口令**拒绝初始化且四张表为空**；日志无口令明文 |
+| 前端判定 | 从真实 HTTP 响应解析 `<script id="yd-authz">`：匿名时 `granted` 为空（失败关闭），owner 登录后与注册表 24 项完全一致 |
 | Shell 补全 | 四种脚本从命令注册表生成；bash `bash -n` 通过并真 source 注册成功、PowerShell 解析器通过；zsh/csh 无解释器 → **打印原因跳过并汇总「执行 2、跳过 2」**；rc 文件未给 `--append-rc` 时 sha256 不变、给了则先备份且幂等（标记行计数 1） |
 | 自动建库 | 18 个子用例按错误码判定（1049 / 3D000 触发，1045 / 42501 / 42P04 / 连接拒绝不触发）；标识符转义含注入用例；开关关闭时零建库语句；本机无 MySQL/PG 服务，建库链路为**注入验证**，已如实标注 |
 | DSN 预置 | 三种驱动逐参数断言；12 条「显式优先」用例；真实 SQLite 往返（原始文本含 `+00:00`）；`gormx.Open` 确实走预置 |
@@ -912,21 +912,12 @@ goccy/go-json v0.11.2、json-iterator v1.1.12、cristalhq/base64 v0.1.2、segmen
 
 ### 3.17.5 查看器完整渲染
 
-### CMS MySQL 集成验证
+### 3.17.5.1 关系完整性守卫
 
-```bash
-YD_TEST_MYSQL_DSN='user:pass@tcp(host:3306)/db?parseTime=True'   go test ./cms/gormstore -run TestMySQLSchemaAndArticleBehaviours -v
-```
-
-测试会创建一个临时库并在结束时删除；它验证 MySQL 的 `MEDIUMTEXT` 正文列、已移除的超长分类路径索引、
-唯一键的 `errors.Is` 分类、未变化更新的零影响行语义、大小写不敏感标签检索与 100 KiB 正文往返，
-并查询 `information_schema.KEY_COLUMN_USAGE` 断言迁移出的表**没有任何外键**（关系全部由应用代码维护）。
-未设置 `YD_TEST_MYSQL_DSN` 时该用例跳过。
-
-关系完整性另有两组常驻守卫：`repotest.TestNoForeignKeyDefinitions` 扫描 Go 结构标签、SQL 字面量、
+关系完整性由常驻守卫覆盖：`repotest.TestNoForeignKeyDefinitions` 扫描 Go 结构标签、SQL 字面量、
 模板与 `.sql` 文件；`repotest.TestModelsHaveNoDatabaseRelationships` 与
 `security/auth/gormstore.TestAuthModelsHaveNoDatabaseRelationships` 用 GORM Schema 解析断言
-CMS、消息与鉴权模型都推断不出任何关联。删除路径的清理（软删除文章的分类/标签引用、删除角色时
+消息与鉴权模型都推断不出任何关联。删除路径的清理（软删除消息的附件/标签引用、删除角色时
 从成员 JSON 摘除角色名）由对应包的测试覆盖。
 
 `/mgr/docs` 现在渲染：文档概览、服务器与变量、标签、全局安全、安全方案及 OAuth 流程、Webhook、

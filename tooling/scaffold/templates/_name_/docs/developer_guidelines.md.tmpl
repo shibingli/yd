@@ -18,8 +18,8 @@
 
 ```
 {{ .AssetRoot }}/templates/
-├── portal/      # 门户：layouts/、partials/、pages/（home、messages、friends、account、realtime、blog、login、error）
-└── mgr/         # 后台：layouts/、partials/、pages/（home、users、tenants、roles、permissions、messages、message_settings、cms_*、error）
+├── portal/      # 门户：layouts/、partials/、pages/（messages、friends、account、realtime、login、error）
+└── mgr/         # 后台：layouts/、partials/、pages/（home、users、tenants、roles、permissions、messages、message_settings、error）
 ```
 
 - 片段命名：门户放 `portal/partials/<资源>/<动作>.html`，后台放 `mgr/partials/<资源>/<动作>.html`，例如
@@ -205,5 +205,5 @@ log.Info("server started | 服务器已启动", logx.Str("addr", addr))
 - 删除前要么拒绝仍有引用的删除，要么在同一事务中按显式顺序清理从属行；不得依赖数据库级联。
 - 校验与写入必须同事务：对引用目标加共享锁（MySQL `FOR SHARE`；SQLite 忽略），多个 ID 排序后加锁；
   删除目标时加更新锁并复查引用，软删除留下的悬空引用在同一事务内清空。
-- 索引只服务查询与唯一性，不承担引用完整性；鉴权、消息与 CMS 的索引仍以 `tenant_id` 打头。
+- 索引只服务查询与唯一性，不承担引用完整性；鉴权与消息的索引仍以 `tenant_id` 打头。
 - 新增关联表时必须同时提供写入校验、删除/软删除路径、跨租户测试与守卫测试。

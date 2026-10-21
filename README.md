@@ -57,7 +57,7 @@ yd versions check         # 离线校验生成文件与真源一致（CI 可用�
 yd versions upgrade       # Go 模块 + npm 资产一并升级，并重新生成脚手架常量
 
 # 权限：注册表是角色与权限的唯一来源，check 抓拼写错误与裸字符串
-yd authz list             # 打印注册表（16 权限 / 4 角色，四种引用形态）
+yd authz list             # 打印注册表（24 权限 / 4 角色，四种引用形态）
 yd authz check            # 静态校验，有错非零退出（可进 CI）
 
 # Shell 补全：四种 shell 的脚本从命令注册表生成，命令/标志/位置参数（动作词与枚举值）一起覆盖

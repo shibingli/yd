@@ -252,49 +252,29 @@
 - **检索**：`search_text` 便携式分词 `LIKE`（`!` 转义）；替换为外部 FTS 时只改 Store 实现，不改领域规则与页面。
 - **文档**：`docs/message-center.md` 是能力、配置、API、WebSocket 协议与多节点部署的唯一入口。
 
-## 24. 内容管理与发布（强制）
+## 24. 门户与后台隔离（强制）
 
-CMS 由框架域包 `cms` + `cms/gormstore` 与脚手架接线组成，是生成项目的核心模块，使用说明见 `docs/cms.md`。
-
-- **租户硬边界**：9 张 `yd_cms_*` 表全部以 `tenant_id` 为第一条件；跨租户与不存在一律返回领域哨兵，
-  不得用 403 暴露资源是否存在。
-- **无限级分类**：邻接表 + 物化路径；移动分类在事务内重写整棵子树的 `path` 与 `depth`；
-  父级不得是自身或后代；非空分类不得删除。
-- **发布状态机**：`draft → pending → published → archived`；发布/定时/下线/归档/恢复需要
-  `cms-article:publish`，通过/驳回需要 `cms-article:review`；作者边界由服务端强制。
-- **富文本**：Markdown + 服务端 goldmark 安全渲染；原始 HTML 与危险链接必须移除；模板只输出净化后的 HTML。
-- **媒体**：MIME 由服务端嗅探，白名单不含 SVG/HTML/脚本；键为 `tenantID/mediaID`，不含原始文件名。
-- **评论**：登录用户、两级回复、审核状态；删除是墓碑并清空正文。
-- **公开站点**：`/blog` 列表、分类、标签、搜索、文章、单页、RSS 与站点地图；匿名租户取
-  `cms.public_tenant`；静态段先于 `/blog/:slug` 登记。
-- **权限**：新增能力只在 `security/authz` 注册；读取能力以 `:read` 结尾；普通成员只能看到自己的文章与评论，
-  概览与审计对成员返回 403；前端判定不是安全边界。
-- **文档**：`docs/cms.md` 是唯一使用入口。
-
-## 25. 门户与后台隔离（强制）
-
-- **路由**：门户为 `/`、`/blog`、`/messages`、`/friends`、`/account`、`/account/articles`、
-  `/account/articles/new`、`/account/articles/:id/edit`、`/realtime`；`/` 是匿名可达的公开内容门户，
-  登录不是浏览前提；后台管理全部落在 `/mgr/**`。门户默认只有普通用户能力（含自己的文章写作中心），
-  管理端点按注册表逐条挂管理能力守卫。
+- **路由**：门户为 `/`、`/messages`、`/friends`、`/account`、`/realtime`；`/` 只按登录状态分流——
+  匿名访客去 `/login`，已登录用户去 `/messages`（消息中心不可用时去 `/account`）。后台管理全部落在
+  `/mgr/**`。门户默认只有普通用户能力（自己的消息、好友与账号），管理端点按注册表逐条挂管理能力守卫。
 - **模板隔离**：门户只放 `web/templates/portal/**`，后台只放 `web/templates/mgr/**`；两棵树各有自己的
-  `layouts/`、`partials/` 与 `icon`/`flash`/`shell-switches`/`sidebar`/`pager`，禁止跨树 include。
+  `layouts/`、`partials/` 与 `icon`/`flash`/`shell-switches`/`sidebar`，禁止跨树 include。
 - **布局选择**：视图数据经 `render.LayoutKey` 指定 `LayoutPortal` 或 `LayoutMgr`；`#yd-shell` 交换按路径选择
   `ShellPortal` 或 `ShellMgr`。
 - **API 隔离**：成员 API 在 `/api/portal/v1/**`，管理 API 在 `/api/v1/**`；OpenAPI `/api/v1/openapi.json`，
   查看器 `/mgr/docs`，指标推送 `/mgr/ws/metrics`。
 - **测试**：新增路由或页面必须同时更新门户与管理两套 e2e 断言，并把新模板加入 `requiredFiles` 清单。
 
-## 26. 数据关系与完整性（强制）
+## 25. 数据关系与完整性（强制）
 
 - **只允许主键与索引**：禁止 `FOREIGN KEY`/`REFERENCES`、GORM `constraint:`/`foreignKey:`/`references:`/
   `many2many:`/`polymorphic:` 标签与任何会生成外键的关联字段；SQLite 不开启 `foreign_keys`，
   其它方言也不得用触发器或约束代替。
-- **只存标识**：关系字段保存对方主键，不保存 ORM 关联对象；目标存在性、租户归属与状态在服务层校验。
+- **只存标识**：关系字段保存对方主键（如 `user_id`、`conversation_id`、`message_id`、`attachment_id`），
+  不保存 ORM 关联对象；目标存在性、租户归属与状态在服务层校验。
 - **人工清理**：删除时要么拒绝仍有引用，要么在同一事务中按显式顺序删除从属行；不得依赖数据库级联。
 - **校验与写入同事务**：写入事务内对引用目标加共享锁（MySQL `FOR SHARE`），多 ID 去重排序后加锁；
   删除目标时加更新锁并在同一事务复查引用，软删除留下的悬空引用同事务清空。
-- **索引只服务查询与唯一性**，不得当作引用完整性；鉴权、消息与 CMS 的索引仍以 `tenant_id` 打头。
+- **索引只服务查询与唯一性**，不得当作引用完整性；鉴权与消息的索引仍以 `tenant_id` 打头。
 - 新增关联表必须同时提供：写入校验、删除/软删除路径、跨租户测试与守卫测试。
-- 守卫：`TestNoForeignKeyDefinitions`（Go 标签、SQL 字符串、模板与 `.sql`）、GORM Schema 关系断言、
-  MySQL `information_schema` 外键断言。
+- 守卫：`TestNoForeignKeyDefinitions`（Go 标签、SQL 字符串、模板与 `.sql`）、GORM Schema 关系断言。

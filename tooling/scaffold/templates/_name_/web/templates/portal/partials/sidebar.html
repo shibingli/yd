@@ -1,13 +1,12 @@
 {{/*
-  portal/partials/sidebar.html —— 门户侧栏：首页、内容站点、消息、好友、账号与实时演示。
-  portal/partials/sidebar.html — the portal rail: home, the public content site, messages, friends, account and the
-  realtime demo.
+  portal/partials/sidebar.html —— 门户侧栏：消息、好友、账号与实时演示。
+  portal/partials/sidebar.html — the portal rail: messages, friends, account and the realtime demo.
 
-  门户只提供普通用户功能：用户、角色、租户、权限、消息治理、内容管理与站点设置都在 /mgr/** 下，
+  门户只提供普通用户功能：用户、角色、租户、权限、消息治理与站点设置都在 /mgr/** 下，
   门户侧栏不出现这些入口；拥有管理能力的账号只得到一个进入管理后台的链接。
-  The portal offers ordinary-member functionality only: users, roles, tenants, permissions, message moderation,
-  content management and site settings live under /mgr/** and never appear here; an account with management
-  capabilities only gets one link into the back office.
+  The portal offers ordinary-member functionality only: users, roles, tenants, permissions, message moderation and
+  site settings live under /mgr/** and never appear here; an account with management capabilities only gets one link
+  into the back office.
 
   数据契约 | Data contract: .Path、.Name、.Version、.Unread，以及 authz.Data 注入的 .Perm。
 */}}
@@ -21,15 +20,6 @@
   </div>
 
   <nav class="yd-nav" aria-label="{{ tr "nav.site" }}">
-    <p class="yd-nav__section">{{ tr "nav.group.portal" }}</p>
-    <a class="yd-nav__link" href="/" hx-get="/" hx-target="#yd-shell" hx-swap="innerMorph" hx-push-url="true"
-       data-yd-nav="home"{{ if eq .Path "/" }} aria-current="page"{{ end }}>
-      <span class="yd-nav__label">{{ tr "nav.portal_home" }}</span>
-    </a>
-    <a class="yd-nav__link" href="/blog" data-yd-nav="blog">
-      <span class="yd-nav__label">{{ tr "nav.blog" }}</span>
-    </a>
-
     <p class="yd-nav__section">{{ tr "nav.group.self" }}</p>
     {{- if and .MessageAvailable (can .Perm.MessageRead) }}
     <a class="yd-nav__link" href="/messages" hx-get="/messages" hx-target="#yd-shell" hx-swap="innerMorph" hx-push-url="true"
@@ -43,20 +33,8 @@
       {{ template "portal/partials/messages/sidebar_friend_requests" . }}
     </a>
     {{- end }}
-    {{- if and .CMSAvailable (can .Perm.CmsArticleRead) }}
-    <a class="yd-nav__link" href="/account/articles" hx-get="/account/articles" hx-target="#yd-shell" hx-swap="innerMorph" hx-push-url="true"
-       data-yd-nav="my-articles"{{ if and (hasPrefix .Path "/account/articles") (ne .Path "/account/articles/new") }} aria-current="page"{{ end }}>
-      <span class="yd-nav__label">{{ tr "cms.my.title" }}</span>
-    </a>
-    {{- end }}
-    {{- if and .CMSAvailable (can .Perm.CmsArticleCreate) }}
-    <a class="yd-nav__link" href="/account/articles/new" hx-get="/account/articles/new" hx-target="#yd-shell" hx-swap="innerMorph" hx-push-url="true"
-       data-yd-nav="my-article-new"{{ if eq .Path "/account/articles/new" }} aria-current="page"{{ end }}>
-      <span class="yd-nav__label">{{ tr "cms.my.new" }}</span>
-    </a>
-    {{- end }}
     <a class="yd-nav__link" href="/account" hx-get="/account" hx-target="#yd-shell" hx-swap="innerMorph" hx-push-url="true"
-       data-yd-nav="account"{{ if and (hasPrefix .Path "/account") (not (hasPrefix .Path "/account/articles")) }} aria-current="page"{{ end }}>
+       data-yd-nav="account"{{ if hasPrefix .Path "/account" }} aria-current="page"{{ end }}>
       <span class="yd-nav__label">{{ tr "nav.account" }}</span>
     </a>
     <a class="yd-nav__link" href="/realtime" hx-get="/realtime" hx-target="#yd-shell" hx-swap="innerMorph" hx-push-url="true"
@@ -64,12 +42,11 @@
       <span class="yd-nav__label">{{ tr "nav.realtime" }}</span>
     </a>
 
-    {{/* 管理入口的目标必须落在持有者真正能打开的第一页：/mgr 概览要求 user:read，而普通成员
-         只持有 CMS 自助能力（文章读写、媒体上传、评论）。若一律指向 /mgr，成员会得到 403，
-         内容作者因此完全进不了后台。 | The management entry must point at the first page its holder can actually
-         open: the /mgr overview requires user:read, while an ordinary member only holds the CMS self-service
-         capabilities (article read/write, media upload, comments). Pointing everyone at /mgr would answer 403 for
-         members and lock content authors out of the back office entirely. */}}
+    {{/* 管理入口的目标必须落在持有者真正能打开的第一页：/mgr 概览要求 user:read，
+         只有消息治理或消息目录能力的账号则直接进入对应的后台页面。 |
+         The management entry must point at the first page its holder can actually open: the /mgr overview requires
+         user:read, while an account holding only message moderation or catalogue capabilities goes straight to the
+         matching back-office page. */}}
     {{- $mgrHref := "" -}}
     {{- if or (can .Perm.UserRead) (can .Perm.RoleRead) (can .Perm.TenantRead) (can .Perm.PermissionRead) -}}
       {{- $mgrHref = "/mgr" -}}
@@ -77,21 +54,6 @@
       {{- $mgrHref = "/mgr/messages" -}}
     {{- else if can .Perm.MessageTypeRead -}}
       {{- $mgrHref = "/mgr/message-settings" -}}
-    {{- else if and (can .Perm.CmsArticleRead) (not (can .Perm.CmsArticleCreate)) -}}
-      {{/* 没有创作能力的只读角色（如审计员）保留后台入口；普通成员拥有创作能力，写作中心在门户侧，不再跳进后台。 |
-           Read-only roles without authoring (the auditor) keep a back-office entry; ordinary members have the create
-           capability, so their writing centre lives in the portal and no longer jumps into the back office. */}}
-      {{- $mgrHref = "/mgr/cms/articles" -}}
-    {{- else if can .Perm.CmsCategoryManage -}}
-      {{- $mgrHref = "/mgr/cms/categories" -}}
-    {{- else if can .Perm.CmsTagManage -}}
-      {{- $mgrHref = "/mgr/cms/tags" -}}
-    {{- else if can .Perm.CmsMediaDelete -}}
-      {{- $mgrHref = "/mgr/cms/media" -}}
-    {{- else if can .Perm.CmsCommentModerate -}}
-      {{- $mgrHref = "/mgr/cms/comments" -}}
-    {{- else if can .Perm.CmsSiteManage -}}
-      {{- $mgrHref = "/mgr/cms/settings" -}}
     {{- end -}}
     {{- if $mgrHref }}
     <p class="yd-nav__section">{{ tr "nav.group.management" }}</p>

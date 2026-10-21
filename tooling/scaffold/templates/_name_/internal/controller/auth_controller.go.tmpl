@@ -10,11 +10,8 @@ import (
 
 	"{{ .Module }}/internal/meta"
 	"{{ .Module }}/internal/middleware"
-	"{{ .Module }}/internal/model"
 	"{{ .Module }}/internal/service"
-	"{{ .YdModule }}/cms"
 	"{{ .YdModule }}/security/auth"
-	"{{ .YdModule }}/security/authz"
 	"{{ .YdModule }}/core/logx"
 	"{{ .YdModule }}/http/router"
 )
@@ -61,7 +58,7 @@ func (c *Controller) Pubkey(ctx *router.Ctx) {
 // @Router /login [get]
 func (c *Controller) LoginPage(ctx *router.Ctx) {
 	if user, ok := auth.CurrentUser(ctx); ok && user != nil {
-		c.redirect(ctx, "/")
+		c.redirect(ctx, c.portalHome(user))
 		return
 	}
 	c.render(ctx, http.StatusOK, TplLogin, c.loginData(ctx, "", ""))
@@ -139,7 +136,7 @@ func (c *Controller) Login(ctx *router.Ctx) {
 	}
 
 	c.setSession(ctx, result)
-	c.redirect(ctx, "/")
+	c.redirect(ctx, c.portalHome(result.User))
 }
 
 // Logout 清掉会话 cookie 并把浏览器送回登录页。
@@ -209,7 +206,7 @@ func (c *Controller) SwitchTenant(ctx *router.Ctx) {
 		return
 	}
 	c.setSession(ctx, result)
-	c.redirect(ctx, "/")
+	c.redirect(ctx, c.portalHome(result.User))
 }
 
 // SetOwnDefaultTenant changes the signed-in user's own default tenant. | SetOwnDefaultTenant 修改当前用户自己的默认租户。
@@ -271,24 +268,8 @@ func (c *Controller) Account(ctx *router.Ctx) {
 		return
 	}
 	extra := map[string]any{
-		"Roles":           user.Roles,
-		"Permissions":     c.auth.Permissions(user),
-		"MyArticles":      []model.CMSArticle{},
-		"MyArticleCounts": myArticleCounts{},
-	}
-	if c.CMSAvailable() && authz.Can(ctx.Request.Context(), authz.PermCmsArticleRead) {
-		if tenantID, ok := c.tenantID(ctx); ok {
-			if !c.cmsEnsure(ctx, tenantID) {
-				return
-			}
-			actor := c.cmsActor(ctx)
-			if page, err := c.cms.Articles(ctx.Request.Context(), tenantID, cms.ArticleFilter{
-				AuthorID: user.ID, Page: 1, PageSize: 5,
-			}); err == nil {
-				extra["MyArticles"] = cmsArticleRows(page.Items, actor)
-			}
-			extra["MyArticleCounts"] = c.myArticleCounts(ctx, tenantID, user.ID)
-		}
+		"Roles":       user.Roles,
+		"Permissions": c.auth.Permissions(user),
 	}
 	c.render(ctx, http.StatusOK, TplAccount, c.view(ctx, "账号 | Account", extra))
 }

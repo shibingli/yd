@@ -11,7 +11,6 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/shibingli/yd/cms"
 	"github.com/shibingli/yd/core/regexpx"
 	"github.com/shibingli/yd/messaging"
 	"gorm.io/gorm/schema"
@@ -204,8 +203,6 @@ func TestNoForeignKeyDefinitions(t *testing.T) {
 // 关联字段即使没有标签也会让 AutoMigrate 建外键，因此仅扫描标签还不够。
 func TestModelsHaveNoDatabaseRelationships(t *testing.T) {
 	models := []any{
-		&cms.Category{}, &cms.Article{}, &cms.Tag{}, &cms.ArticleTag{}, &cms.Revision{},
-		&cms.Media{}, &cms.Comment{}, &cms.Settings{}, &cms.AuditEntry{},
 		&messaging.Conversation{}, &messaging.Member{}, &messaging.Message{},
 		&messaging.MessageType{}, &messaging.Tag{}, &messaging.MessageTag{},
 		&messaging.Attachment{}, &messaging.FriendRequest{}, &messaging.Friendship{},

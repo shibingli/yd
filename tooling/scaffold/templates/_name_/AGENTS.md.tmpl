@@ -73,7 +73,7 @@
       查看器读取 `yd_theme` 并支持浅色/深色/跟随系统切换，控件边框在明暗两套主题下都必须可见。
 - [ ] **能力守卫**：受保护端点必须在路由上声明 `authz.Require(authz.PermXxx)`（它是 `auth.RequirePermission` 的注册表包装，
       守卫里因此不出现任何标识字面量），处理器内不再重复判权；
-      `registerPublic` 只允许登录、登出、健康检查与 SM2 公钥四个端点。
+      `registerPublic` 只允许根路由分流、登录、登出、健康检查与 SM2 公钥五个端点。
 - [ ] **会话顺序**：`middleware.Promote` → `auth.Middleware` → `authz.Middleware` → `middleware.Tenant` 的顺序不可调换，
       租户中间件必须拿到已校验的身份，权限中间件必须拿到已校验的用户。
 - [ ] **统一指标抽象**：系统资源与中间件运行时都只经 `runtime/metricsx.Provider` 读取；
@@ -88,12 +88,6 @@
       消息中心使用即时通讯布局（左会话、右上历史、右下内联撰写），日常发送不弹确认，公告与破坏性动作保留确认，
       实时刷新只重取历史片段、不得清掉撰写区草稿；跨节点投递要求生成项目时选择 `redis`（持久重试再选 `asynq`）
       并给每个副本唯一的 `message.node_id`，未生成 Redis 集成的项目只编译进程内总线，事后补配置不生效。
-- [ ] **内容管理**：所有 `yd_cms_*` 查询以 `tenant_id` 为第一条件；分类是无限级物化路径，移动时整棵子树
-      在同一事务内重写，禁止环与非空删除；发布/定时/下线/归档/恢复要求 `cms-article:publish`，
-      通过/驳回要求 `cms-article:review`，作者边界由服务端强制；门户 `/account/articles` 只允许作者
-      提交、撤回、退役、恢复与删除，发布与审核必须在 `/mgr/cms` 完成；富文本只输出服务端 goldmark
-      净化后的 HTML；媒体 MIME 由服务端嗅探、白名单不含 SVG/HTML/脚本、键不含原始文件名；`/` 与 `/blog`
-      均匿名可达，公开站点匿名租户取 `cms.public_tenant`，静态段先于 `/blog/:slug` 登记。详见框架 `docs/cms.md`。
 - [ ] **国密合规**：敏感数据加解密必须走 `guomi`（SM2/SM3/SM4），口令存储用 SM3 + 盐 + 迭代，禁止 MD5/SHA1。
 - [ ] **传输加密**：前端敏感字段提交必须声明式触发 SM2 前置加密（`data-yd-encrypt="sm2"`）。
 - [ ] **注入面**：SQL 只允许参数化查询；模板输出默认走 `html/template` 转义。

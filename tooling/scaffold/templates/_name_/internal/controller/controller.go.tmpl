@@ -21,7 +21,6 @@ import (
 	"{{ .Module }}/internal/model"
 	"{{ .Module }}/internal/repository"
 	"{{ .Module }}/internal/service"
-	"{{ .YdModule }}/cms"
 	"{{ .YdModule }}/core/errx"
 	"{{ .YdModule }}/core/logx"
 	"{{ .YdModule }}/http/htmx"
@@ -53,12 +52,6 @@ const (
 // 模板名：与 web/templates 下的路径一一对应，渲染引擎按该名称查找。
 // Template names: they match the paths under web/templates one to one, which is how the render engine looks them up.
 const (
-	// TplPublicHome is the anonymous-capable public portal home fragment. | TplPublicHome 是匿名可达的公开门户首页片段。
-	TplPublicHome = "portal/pages/home.html"
-	// TplMyArticles is the member's own-article list. | TplMyArticles 是成员自己的文章列表。
-	TplMyArticles = "portal/pages/my_articles.html"
-	// TplMyArticleEdit is the portal article editor. | TplMyArticleEdit 是门户文章编辑器。
-	TplMyArticleEdit = "portal/pages/my_article_edit.html"
 	// TplManagementHome is the management overview fragment. | TplManagementHome 是管理概览片段。
 	TplManagementHome = "mgr/pages/home.html"
 	// TplLogin is the sign-in fragment, the only page an anonymous visitor ever sees. | TplLogin 是登录页片段；未登录用户唯一能看到的页面。
@@ -313,10 +306,6 @@ type Controller struct {
 	messageErr error
 	// hub fans message events out to WebSocket subscribers. | hub 把消息事件分发给 WebSocket 订阅者。
 	hub *realtime.Hub
-	// cms is the content-management facade; nil-capable when the project has no database. | cms 是内容管理门面；项目没有数据库时可为空。
-	cms *service.CMSService
-	// cmsErr records why the CMS is unavailable, shown on its pages. | cmsErr 记录 CMS 不可用的原因，并在其页面上展示。
-	cmsErr error
 	// i18n is the catalogue bundle, used to translate outside a template execution (conversation
 	// titles, pushed notices). | i18n 是语言目录包，用于在模板执行之外翻译（会话标题、推送通知）。
 	i18n *i18n.Bundle
@@ -365,13 +354,6 @@ func New(a *app.App, store *repository.Store, log *logx.Logger) (*Controller, er
 		}
 		log.Warn("message centre is disabled | 消息中心已禁用", logx.Err(messageErr))
 	}
-	cmsSvc, cmsErr := service.NewCMSService(store, a.Config(), log)
-	if cmsErr != nil {
-		if !errors.Is(cmsErr, service.ErrCMSUnavailable) {
-			return nil, cmsErr
-		}
-		log.Warn("content management is disabled | 内容管理已禁用", logx.Err(cmsErr))
-	}
 	return &Controller{
 		app:        a,
 		store:      store,
@@ -383,16 +365,9 @@ func New(a *app.App, store *repository.Store, log *logx.Logger) (*Controller, er
 		messages:   messages,
 		messageErr: messageErr,
 		hub:        hub,
-		cms:        cmsSvc,
-		cmsErr:     cmsErr,
 		i18n:       bundle,
 		log:        log,
 	}, nil
-}
-
-// CMSAvailable reports whether the CMS can serve requests. | CMSAvailable 报告内容管理能否服务请求。
-func (c *Controller) CMSAvailable() bool {
-	return c != nil && c.cms != nil && c.cms.Available()
 }
 
 // MessageHub returns the realtime hub shared by the controller and its WebSocket endpoint. |
@@ -611,8 +586,6 @@ func (c *Controller) view(ctx *router.Ctx, title string, extra map[string]any) m
 		"Unread":           messaging.UnreadSummary{},
 		"MessageAvailable": c.MessagesAvailable(),
 		"MessageError":     "",
-		"CMSAvailable":     c.CMSAvailable(),
-		"CMSReadAll":       false,
 	}
 	layout, shell, portal := c.layoutForPath(ctx.Path())
 	data[render.LayoutKey] = layout
@@ -667,7 +640,6 @@ func (c *Controller) view(ctx *router.Ctx, title string, extra map[string]any) m
 	// struct to a template would make every page recompute them.
 	data["User"] = model.UserFromAuth(user)
 	data["SignedIn"] = true
-	data["CMSReadAll"] = c.CMSAvailable() && c.cmsReadAll(ctx)
 	data["DefaultTenantID"] = user.DefaultTenantID
 	data["Permissions"] = c.auth.Permissions(user)
 	data["SeedPassword"] = c.auth.SeedPasswordUnchanged(user)
@@ -1014,33 +986,8 @@ func statusFor(err error) (int, string) {
 		errors.Is(err, messaging.ErrPinWindowInvalid), errors.Is(err, messaging.ErrTooManyMembers),
 		errors.Is(err, messaging.ErrTooManyAttachments), errors.Is(err, messaging.ErrSearchTooBroad):
 		return http.StatusUnprocessableEntity, err.Error()
-	case errors.Is(err, cms.ErrNotFound), errors.Is(err, cms.ErrCategoryNotFound),
-		errors.Is(err, cms.ErrArticleNotFound), errors.Is(err, cms.ErrTagNotFound),
-		errors.Is(err, cms.ErrMediaNotFound), errors.Is(err, cms.ErrCommentNotFound),
-		errors.Is(err, cms.ErrRevisionNotFound):
-		// 跨租户与不存在共用 404：调用方无法探测另一个租户是否持有该资源。 |
-		// Cross-tenant and missing share 404, so a caller cannot probe whether another tenant holds the resource.
-		return http.StatusNotFound, err.Error()
-	case errors.Is(err, cms.ErrForbidden), errors.Is(err, cms.ErrNotAuthor),
-		errors.Is(err, cms.ErrNotCommentAuthor):
-		return http.StatusForbidden, msgForbidden
-	case errors.Is(err, cms.ErrCategoryNotEmpty), errors.Is(err, cms.ErrCategoryCycle),
-		errors.Is(err, cms.ErrArticleTransition), errors.Is(err, cms.ErrArticleNotEditable),
-		errors.Is(err, cms.ErrArticleConflict), errors.Is(err, cms.ErrCategoryConflict),
-		errors.Is(err, cms.ErrCommentsClosed), errors.Is(err, cms.ErrCategorySlugTaken),
-		errors.Is(err, cms.ErrArticleSlugTaken), errors.Is(err, cms.ErrTagSlugTaken),
-		errors.Is(err, cms.ErrTagInUse):
-		return http.StatusConflict, err.Error()
-	case errors.Is(err, cms.ErrMediaTooLarge), errors.Is(err, router.ErrBodyTooLarge):
+	case errors.Is(err, router.ErrBodyTooLarge):
 		return http.StatusRequestEntityTooLarge, err.Error()
-	case errors.Is(err, cms.ErrMediaType):
-		return http.StatusUnsupportedMediaType, err.Error()
-	case errors.Is(err, cms.ErrUnavailable), errors.Is(err, service.ErrCMSUnavailable):
-		return http.StatusServiceUnavailable, err.Error()
-	case errors.Is(err, cms.ErrInvalidInput), errors.Is(err, cms.ErrCategoryParent),
-		errors.Is(err, cms.ErrArticleNotPublic), errors.Is(err, cms.ErrCommentParent),
-		errors.Is(err, cms.ErrTooManyTags), errors.Is(err, cms.ErrSearchTooBroad):
-		return http.StatusUnprocessableEntity, err.Error()
 	default:
 		return http.StatusInternalServerError, msgInternal
 	}

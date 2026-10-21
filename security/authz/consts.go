@@ -3,9 +3,9 @@ package authz
 // Resource groups. | 资源分组。
 //
 // A group is the left half of a capability token, and every permission declared below belongs to
-// exactly one of these four. Keeping them as constants is what lets a caller sort, filter or
+// exactly one of these groups. Keeping them as constants is what lets a caller sort, filter or
 // render a group without spelling its name again. | 分组是能力标识中冒号左半边的内容，
-// 下面声明的每条权限都属于这四类之一。把它们做成常量，调用方才能在不重写名字的前提下排序、
+// 下面声明的每条权限都属于这些分组之一。把它们做成常量，调用方才能在不重写名字的前提下排序、
 // 过滤或渲染某个分组。
 const (
 	// GroupTenant is the tenant resource group. | GroupTenant 是租户资源分组。
@@ -20,18 +20,6 @@ const (
 	GroupMessage = "message"
 	// GroupMessageType is the message type, group and tag catalogue resource group. | GroupMessageType 是消息类型、分组与标签目录资源分组。
 	GroupMessageType = "message-type"
-	// GroupCMSArticle is the CMS article and page resource group. | GroupCMSArticle 是 CMS 文章与单页资源分组。
-	GroupCMSArticle = "cms-article"
-	// GroupCMSCategory is the CMS category tree resource group. | GroupCMSCategory 是 CMS 分类树资源分组。
-	GroupCMSCategory = "cms-category"
-	// GroupCMSTag is the CMS tag resource group. | GroupCMSTag 是 CMS 标签资源分组。
-	GroupCMSTag = "cms-tag"
-	// GroupCMSMedia is the CMS media library resource group. | GroupCMSMedia 是 CMS 媒体库资源分组。
-	GroupCMSMedia = "cms-media"
-	// GroupCMSComment is the CMS comment resource group. | GroupCMSComment 是 CMS 评论资源分组。
-	GroupCMSComment = "cms-comment"
-	// GroupCMSSite is the CMS public-site settings resource group. | GroupCMSSite 是 CMS 公开站点设置资源分组。
-	GroupCMSSite = "cms-site"
 )
 
 // groupLabels maps every framework resource group to its bilingual label. | groupLabels 把每个框架资源分组映射到中英对照标签。
@@ -42,12 +30,6 @@ var groupLabels = map[string]string{
 	GroupPermission:  "permission | 权限",
 	GroupMessage:     "message | 消息",
 	GroupMessageType: "message-type | 消息类型",
-	GroupCMSArticle:  "cms-article | 内容",
-	GroupCMSCategory: "cms-category | 内容分类",
-	GroupCMSTag:      "cms-tag | 内容标签",
-	GroupCMSMedia:    "cms-media | 媒体库",
-	GroupCMSComment:  "cms-comment | 内容评论",
-	GroupCMSSite:     "cms-site | 站点设置",
 }
 
 // GroupLabel returns the bilingual label of a resource group. | GroupLabel 返回资源分组的中英对照标签。
@@ -124,54 +106,6 @@ const (
 	PermMessageTypeRead = "message-type:read"
 	// PermMessageTypeManage allows the message type, group and tag lifecycle. | PermMessageTypeManage 允许管理消息类型、分组与标签生命周期。
 	PermMessageTypeManage = "message-type:manage"
-
-	// PermCmsArticleRead allows reading every article and page in the management area. | PermCmsArticleRead 允许在管理区读取全部文章与单页。
-	PermCmsArticleRead = "cms-article:read"
-	// PermCmsArticleCreate allows creating articles and pages. | PermCmsArticleCreate 允许创建文章与单页。
-	PermCmsArticleCreate = "cms-article:create"
-	// PermCmsArticleUpdate allows editing one's own articles and pages. | PermCmsArticleUpdate 允许编辑自己的文章与单页。
-	PermCmsArticleUpdate = "cms-article:update"
-	// PermCmsArticleDelete allows deleting one's own articles and pages. | PermCmsArticleDelete 允许删除自己的文章与单页。
-	PermCmsArticleDelete = "cms-article:delete"
-	// PermCmsArticlePublish allows publishing, scheduling, unpublishing, archiving and restoring. |
-	// PermCmsArticlePublish 允许发布、定时、下线、归档与恢复。
-	PermCmsArticlePublish = "cms-article:publish"
-	// PermCmsArticleReview allows approving or rejecting pending articles. | PermCmsArticleReview 允许通过或驳回待审文章。
-	PermCmsArticleReview = "cms-article:review"
-	// PermCmsArticleManage allows editing and deleting every article regardless of author. |
-	// PermCmsArticleManage 允许不管作者地编辑与删除全部文章。
-	PermCmsArticleManage = "cms-article:manage"
-
-	// PermCmsCategoryRead allows reading the category tree. | PermCmsCategoryRead 允许读取分类树。
-	PermCmsCategoryRead = "cms-category:read"
-	// PermCmsCategoryManage allows the category lifecycle. | PermCmsCategoryManage 允许分类生命周期。
-	PermCmsCategoryManage = "cms-category:manage"
-
-	// PermCmsTagRead allows reading tags. | PermCmsTagRead 允许读取标签。
-	PermCmsTagRead = "cms-tag:read"
-	// PermCmsTagManage allows the tag lifecycle. | PermCmsTagManage 允许标签生命周期。
-	PermCmsTagManage = "cms-tag:manage"
-
-	// PermCmsMediaRead allows reading the media library. | PermCmsMediaRead 允许读取媒体库。
-	PermCmsMediaRead = "cms-media:read"
-	// PermCmsMediaUpload allows uploading media. | PermCmsMediaUpload 允许上传媒体。
-	PermCmsMediaUpload = "cms-media:upload"
-	// PermCmsMediaDelete allows deleting media. | PermCmsMediaDelete 允许删除媒体。
-	PermCmsMediaDelete = "cms-media:delete"
-
-	// PermCmsCommentRead allows reading comments. | PermCmsCommentRead 允许读取评论。
-	PermCmsCommentRead = "cms-comment:read"
-	// PermCmsCommentCreate allows posting comments. | PermCmsCommentCreate 允许发表评论。
-	PermCmsCommentCreate = "cms-comment:create"
-	// PermCmsCommentModerate allows approving, rejecting and deleting any comment. | PermCmsCommentModerate 允许通过、拒绝与删除任意评论。
-	PermCmsCommentModerate = "cms-comment:moderate"
-	// PermCmsCommentDelete allows deleting one's own comments. | PermCmsCommentDelete 允许删除自己的评论。
-	PermCmsCommentDelete = "cms-comment:delete"
-
-	// PermCmsSiteRead allows reading the public-site settings. | PermCmsSiteRead 允许读取公开站点设置。
-	PermCmsSiteRead = "cms-site:read"
-	// PermCmsSiteManage allows changing the public-site settings. | PermCmsSiteManage 允许修改公开站点设置。
-	PermCmsSiteManage = "cms-site:manage"
 )
 
 // Role names. | 角色名。
@@ -225,27 +159,6 @@ var builtinPermissions = []Permission{
 	{Name: PermMessageManage, Description: "Moderate every message and pin announcements | 管理全部消息并置顶公告"},
 	{Name: PermMessageTypeRead, Description: "Read message types, groups and tags | 读取消息类型、分组与标签"},
 	{Name: PermMessageTypeManage, Description: "Manage the message type, group and tag lifecycle | 管理消息类型、分组与标签生命周期"},
-
-	{Name: PermCmsArticleRead, Description: "Read every article and page in the management area | 在管理区读取全部文章与单页"},
-	{Name: PermCmsArticleCreate, Description: "Create articles and pages | 创建文章与单页"},
-	{Name: PermCmsArticleUpdate, Description: "Edit own articles and pages | 编辑自己的文章与单页"},
-	{Name: PermCmsArticleDelete, Description: "Delete own articles and pages | 删除自己的文章与单页"},
-	{Name: PermCmsArticlePublish, Description: "Publish, schedule, unpublish, archive and restore articles | 发布、定时、下线、归档与恢复文章"},
-	{Name: PermCmsArticleReview, Description: "Approve or reject pending articles | 通过或驳回待审文章"},
-	{Name: PermCmsArticleManage, Description: "Edit and delete every article regardless of author | 不管作者地编辑与删除全部文章"},
-	{Name: PermCmsCategoryRead, Description: "Read the category tree | 读取分类树"},
-	{Name: PermCmsCategoryManage, Description: "Manage the category lifecycle | 管理分类生命周期"},
-	{Name: PermCmsTagRead, Description: "Read tags | 读取标签"},
-	{Name: PermCmsTagManage, Description: "Manage the tag lifecycle | 管理标签生命周期"},
-	{Name: PermCmsMediaRead, Description: "Read the media library | 读取媒体库"},
-	{Name: PermCmsMediaUpload, Description: "Upload media | 上传媒体"},
-	{Name: PermCmsMediaDelete, Description: "Delete media | 删除媒体"},
-	{Name: PermCmsCommentRead, Description: "Read comments | 读取评论"},
-	{Name: PermCmsCommentCreate, Description: "Post comments | 发表评论"},
-	{Name: PermCmsCommentModerate, Description: "Approve, reject and delete any comment | 通过、拒绝与删除任意评论"},
-	{Name: PermCmsCommentDelete, Description: "Delete own comments | 删除自己的评论"},
-	{Name: PermCmsSiteRead, Description: "Read the public-site settings | 读取公开站点设置"},
-	{Name: PermCmsSiteManage, Description: "Change the public-site settings | 修改公开站点设置"},
 }
 
 // builtinRoles is the framework role vocabulary. | builtinRoles 是框架角色词汇表。

@@ -1,0 +1,41 @@
+// 本文件是门户根路由：已登录用户进入消息中心，匿名访客进入登录页。
+// This file holds the portal root route: signed-in users land in the message centre and anonymous visitors on the sign-in page.
+
+package controller
+
+import (
+	"{{ .YdModule }}/security/auth"
+	"{{ .YdModule }}/security/authz"
+	"{{ .YdModule }}/http/router"
+)
+
+// Root 按登录状态把访问者送到正确的起点。
+// Root sends the visitor to the right starting point according to the session.
+//
+// @Summary Portal root | 门户根路由
+// @Description Signed-in users are redirected to /messages, or to /account when the message centre is unavailable; anonymous
+// @Description visitors are redirected to /login. The route is the only entry point shared by both states, so the portal no
+// @Description longer needs a public landing page.
+// @Description 已登录用户重定向到 /messages，消息中心不可用时改去 /account；匿名访客重定向到 /login。该路由是两种状态共用的唯一入口，
+// @Description 门户因此不再需要公开落地页。
+// @Tags auth
+// @Produce html
+// @Success 303 {object} string "redirect to the portal or sign-in page | 重定向到门户或登录页"
+// @Router / [get]
+func (c *Controller) Root(ctx *router.Ctx) {
+	if user, ok := auth.CurrentUser(ctx); ok && user != nil {
+		c.redirect(ctx, c.portalHome(user))
+		return
+	}
+	c.redirect(ctx, LoginPath)
+}
+
+// portalHome 返回已登录用户的落点：消息中心可用且该用户持有 message:read 时去消息中心，否则去账号页。
+// portalHome returns the signed-in landing path: the message centre when it is available and the user holds
+// message:read, the account page otherwise.
+func (c *Controller) portalHome(user *auth.User) string {
+	if c.MessagesAvailable() && authz.NewSubject(c.Auth(), user).Can(authz.PermMessageRead) {
+		return "/messages"
+	}
+	return "/account"
+}

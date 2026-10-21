@@ -18,7 +18,6 @@ import (
 	"{{ .Module }}/internal/middleware"
 	"{{ .Module }}/internal/repository"
 	"{{ .Module }}/internal/service"
-	"{{ .YdModule }}/cms"
 	"{{ .YdModule }}/core/afs"
 	"{{ .YdModule }}/runtime/app"
 	"{{ .YdModule }}/security/auth"
@@ -132,9 +131,9 @@ func Register(a *app.App) error {
 	return nil
 }
 
-// registerPublic 登记匿名可达的端点：登录页、登录提交、登出、健康检查与 SM2 公钥。
-// registerPublic mounts the anonymously reachable endpoints: the sign-in page, the sign-in submission, sign-out, the
-// health probe and the SM2 public key.
+// registerPublic 登记匿名可达的端点：根路由分流、登录页、登录提交、登出、健康检查与 SM2 公钥。
+// registerPublic mounts the anonymously reachable endpoints: the root dispatch, the sign-in page, the sign-in
+// submission, sign-out, the health probe and the SM2 public key.
 //
 // 公开组仍然跑租户中间件（Required 为 false）：匿名请求可以用子域名或 X-Tenant 定位租户，
 // 而 Required 为 false 保证了一个什么也没指明的请求照样能渲染出登录表单；登录表单本身不带租户字段。
@@ -145,10 +144,10 @@ func registerPublic(a *app.App, ctrl *controller.Controller) {
 	// 同一个租户中间件也挂在受保护组上：注册表按 Name 合并，因此两个分组共享一份计数。
 	// The same tenant middleware is mounted on the protected group too: the registry merges by Name, so both
 	// groups share one set of counters.
-	// The public group resolves an optional session: a missing or invalid token continues anonymously, so public
-	// pages can render the comment form and the backstage entry from the sign-in state without blocking anonymous
-	// readers at the login page. | 公开组只做「可选会话」：没有令牌或令牌失效时以匿名继续，公开页面因此可以按
-	// 登录状态渲染评论表单与「返回后台」入口，而不会把匿名读者挡在登录页。
+	// The public group resolves an optional session: a missing or invalid token continues anonymously, so the root
+	// route can send a signed-in visitor to the message centre without blocking anonymous visitors at the sign-in
+	// page. | 公开组只做「可选会话」：没有令牌或令牌失效时以匿名继续，根路由因此可以把已登录用户送到消息中心，
+	// 而不会把匿名访客挡在登录页。
 	g := a.Group("",
 		a.MiddlewareMetrics().Wrap(
 			middleware.MetricsDescriptor("promote"),
@@ -173,10 +172,10 @@ func registerPublic(a *app.App, ctrl *controller.Controller) {
 		),
 	)
 
-	// 根路由是公开内容门户：匿名访客先看到已发布的公开内容，登录只是可选动作。 |
-	// The root route is the public content portal: an anonymous visitor sees published public content first, and signing
-	// in is optional.
-	g.GET("/", ctrl.PortalHome)
+	// 根路由按登录状态分流：匿名访客去登录页，已登录用户去消息中心。 |
+	// The root route branches on the session: an anonymous visitor goes to the sign-in page and a signed-in user to the
+	// message centre.
+	g.GET("/", ctrl.Root)
 	g.GET(LoginPath, ctrl.LoginPage)
 	g.POST(LoginPath, ctrl.Login)
 	// 登出是幂等的清理动作，刻意公开：cookie 里那枚令牌早已失效时，仍然要能把它扔掉。
@@ -184,26 +183,6 @@ func registerPublic(a *app.App, ctrl *controller.Controller) {
 	g.POST("/logout", ctrl.Logout)
 	g.GET("/healthz", ctrl.Health)
 	g.GET("/guomi/pubkey", ctrl.Pubkey)
-
-	// 公开内容站点：匿名可读；租户由请求头/子域名或 cms.public_tenant 决定。
-	// The public content site: anonymously readable; the tenant comes from the header/subdomain or cms.public_tenant.
-	// 静态段必须先于 /blog/:slug 登记，否则 rss.xml、media 与 p 都会被当成文章别名。
-	// Static segments are registered before /blog/:slug, otherwise rss.xml, media and p become article slugs.
-	g.GET("/blog", ctrl.Blog)
-	g.GET("/blog/page/:page", ctrl.BlogPage)
-	g.GET("/blog/search", ctrl.BlogSearch)
-	g.GET("/blog/category/:slug", ctrl.BlogCategory)
-	g.GET("/blog/category/:slug/page/:page", ctrl.BlogCategoryPage)
-	g.GET("/blog/tag/:slug", ctrl.BlogTag)
-	g.GET("/blog/tag/:slug/page/:page", ctrl.BlogTagPage)
-	g.GET("/blog/rss.xml", ctrl.BlogRSS)
-	g.GET("/blog/sitemap.xml", ctrl.BlogSitemap)
-	g.GET("/blog/media/:id", ctrl.BlogMedia)
-	g.GET("/blog/p/:slug", ctrl.BlogStandalonePage)
-	g.GET("/blog/:slug", ctrl.BlogArticle)
-	// 评论写入与读取使用同一个公开租户；处理器自行校验登录与会话成员关系。 |
-	// Comment writes use the same public tenant as reads; the handler verifies the session and membership itself.
-	g.POST("/blog/:slug/comments", ctrl.BlogComment)
 }
 
 // registerProtected 登记需要有效会话的业务端点，并按能力逐条挂上权限守卫。
@@ -221,11 +200,10 @@ func registerPublic(a *app.App, ctrl *controller.Controller) {
 // would build an anonymous subject. The fourth must follow the second as well: it trusts the token first, and the token is
 // the product of the second layer — the other order would turn any request header into trusted input.
 //
-// 权限守卫只挂在业务端点上：首页、实时演示、账号页与两个占位图只要求「有一个有效会话」，
+// 权限守卫只挂在业务端点上：实时演示、账号页与两个占位图只要求「有一个有效会话」，
 // 因为它们展示的是「我是谁」，而不是「我能不能动别人的数据」。
-// The guards hang on the business endpoints only: the home page, the realtime demo, the account page and the two
-// placeholders require nothing beyond a valid session, because what they show is who I am and not whether I may touch
-// somebody else's data.
+// The guards hang on the business endpoints only: the realtime demo, the account page and the two placeholders require
+// nothing beyond a valid session, because what they show is who I am and not whether I may touch somebody else's data.
 //
 // 守卫一律写成 authz.Require(authz.PermXxx)：引用取自注册表而非字面量，写错的名字在装配期就会被点名，
 // 而且 authz.Middleware 已在链上，主体因此必然存在（缺装配时 Require 走的是同一条 403 路径）。
@@ -280,9 +258,9 @@ func registerProtected(a *app.App, ctrl *controller.Controller, store *repositor
 		),
 	)
 
-	// 会话即可访问：个人中心、账号自助、租户切换与实时演示。根路由属于公开门户，不在这里登记。 |
+	// 会话即可访问：个人中心、账号自助、租户切换与实时演示。根路由在公开组按登录状态分流，不在这里登记。 |
 	// Session-only: the personal centre, self-service account actions, the tenant switch and the realtime demo. The root
-	// route belongs to the public portal and is not registered here.
+	// route dispatches on the session in the public group and is not registered here.
 	g.GET("/mgr", ctrl.ManagementHome, authz.Require(authz.PermUserRead))
 	g.GET("/mgr/metrics", ctrl.Metrics, authz.Require(authz.PermUserRead))
 	g.GET("/mgr/metrics/middleware", ctrl.MiddlewareMetrics, authz.Require(authz.PermUserRead))
@@ -292,19 +270,6 @@ func registerProtected(a *app.App, ctrl *controller.Controller, store *repositor
 	g.POST("/account/password", ctrl.ChangePassword)
 	g.POST("/account/sec-key", ctrl.RotateSecKey)
 
-	// 门户写作中心：普通成员在这里管理自己的文章。作者边界由领域服务复核，路由守卫只负责
-	// 「是否具备这类自助能力」。管理员审核仍在 /mgr/cms。 |
-	// The portal writing centre: ordinary members manage their own articles here. The domain service enforces the author
-	// boundary; the route guard only answers whether the self-service capability exists. Administrator review stays under
-	// /mgr/cms.
-	g.POST("/account/media/upload", ctrl.MyMediaUpload, authz.Require(authz.PermCmsMediaUpload))
-	g.GET("/account/articles", ctrl.MyArticles, authz.Require(authz.PermCmsArticleRead))
-	g.GET("/account/articles/new", ctrl.MyNewArticle, authz.Require(authz.PermCmsArticleCreate))
-	g.POST("/account/articles", ctrl.MySaveArticle, authz.Require(authz.PermCmsArticleCreate))
-	g.GET("/account/articles/:id/edit", ctrl.MyEditArticle, authz.Require(authz.PermCmsArticleUpdate))
-	g.POST("/account/articles/:id", ctrl.MyUpdateArticle, authz.Require(authz.PermCmsArticleUpdate))
-	g.POST("/account/articles/:id/transition", ctrl.MyTransitionArticle, authz.Require(authz.PermCmsArticleUpdate))
-	g.POST("/account/articles/:id/delete", ctrl.MyDeleteArticle, authz.Require(authz.PermCmsArticleDelete))
 	// 切换租户只要求「是目标租户的成员」，成员关系本身就是授权；默认租户同理。
 	// The tenant switch requires only membership of the target tenant, which is itself the
 	// authorization; the same holds for the default-tenant choice.
@@ -426,81 +391,6 @@ func registerProtected(a *app.App, ctrl *controller.Controller, store *repositor
 	// 实时消息通道：WebSocket 推送与单条快捷回复共用同一条连接。
 	// The realtime message channel: WebSocket pushes and the quick reply share one connection.
 	g.GET("/ws/messages", ctrl.MessageSocket(), authz.Require(authz.PermMessageRead))
-
-	// 内容管理后台：读取、写入、发布、审核、分类、标签、媒体、评论与设置各自对应注册表里的一条能力。
-	// The CMS back office: reading, writing, publishing, review, categories, tags, media, comments and settings each map
-	// onto one capability of the registry.
-	g.GET("/mgr/cms", ctrl.CMSDashboard, authz.Require(authz.PermCmsArticleRead))
-	g.GET("/mgr/cms/articles", ctrl.CMSArticles, authz.Require(authz.PermCmsArticleRead))
-	g.GET("/mgr/cms/articles/new", ctrl.CMSNewArticle, authz.Require(authz.PermCmsArticleCreate))
-	g.POST("/mgr/cms/articles", ctrl.CMSSaveArticle, authz.Require(authz.PermCmsArticleCreate))
-	g.GET("/mgr/cms/articles/:id/edit", ctrl.CMSEditArticle, authz.Require(authz.PermCmsArticleUpdate))
-	g.POST("/mgr/cms/articles/:id", ctrl.CMSUpdateArticle, authz.Require(authz.PermCmsArticleUpdate))
-	// 状态转换按动作在服务层复核 publish/review：路由只要求「可编辑」，因此作者能提交审核，审核者能通过或驳回。
-	// The transition re-checks publish/review in the service: the route only requires "may edit", so an author can submit
-	// and a reviewer can approve or reject.
-	g.POST("/mgr/cms/articles/:id/transition", ctrl.CMSTransitionArticle, authz.Require(authz.PermCmsArticleUpdate))
-	g.POST("/mgr/cms/articles/:id/delete", ctrl.CMSDeleteArticle, authz.Require(authz.PermCmsArticleDelete))
-	g.GET("/mgr/cms/articles/:id/revisions", ctrl.CMSRevisions, authz.Require(authz.PermCmsArticleRead))
-	g.POST("/mgr/cms/articles/:id/revisions/:rev/restore", ctrl.CMSRestoreRevision, authz.Require(authz.PermCmsArticleUpdate))
-
-	g.GET("/mgr/cms/categories", ctrl.CMSCategories, authz.Require(authz.PermCmsCategoryRead))
-	g.GET("/mgr/cms/categories/new", ctrl.CMSNewCategory, authz.Require(authz.PermCmsCategoryManage))
-	g.GET("/mgr/cms/categories/:id/edit", ctrl.CMSEditCategory, authz.Require(authz.PermCmsCategoryManage))
-	g.POST("/mgr/cms/categories", ctrl.CMSSaveCategory, authz.Require(authz.PermCmsCategoryManage))
-	g.POST("/mgr/cms/categories/:id", ctrl.CMSUpdateCategory, authz.Require(authz.PermCmsCategoryManage))
-	g.POST("/mgr/cms/categories/:id/delete", ctrl.CMSDeleteCategory, authz.Require(authz.PermCmsCategoryManage))
-
-	g.GET("/mgr/cms/tags", ctrl.CMSTags, authz.Require(authz.PermCmsTagRead))
-	g.GET("/mgr/cms/tags/new", ctrl.CMSNewTag, authz.Require(authz.PermCmsTagManage))
-	g.GET("/mgr/cms/tags/:id/edit", ctrl.CMSEditTag, authz.Require(authz.PermCmsTagManage))
-	g.POST("/mgr/cms/tags", ctrl.CMSSaveTag, authz.Require(authz.PermCmsTagManage))
-	g.POST("/mgr/cms/tags/:id", ctrl.CMSUpdateTag, authz.Require(authz.PermCmsTagManage))
-	g.POST("/mgr/cms/tags/:id/delete", ctrl.CMSDeleteTag, authz.Require(authz.PermCmsTagManage))
-
-	g.GET("/mgr/cms/media", ctrl.CMSMedia, authz.Require(authz.PermCmsMediaRead))
-	g.POST("/mgr/cms/media", ctrl.CMSUploadMedia, authz.Require(authz.PermCmsMediaUpload))
-	g.POST("/mgr/cms/media/upload", ctrl.CMSUploadMediaAPI, authz.Require(authz.PermCmsMediaUpload))
-	g.GET("/mgr/cms/media/:id/file", ctrl.CMSMediaFile, authz.Require(authz.PermCmsMediaRead))
-	g.POST("/mgr/cms/media/:id/delete", ctrl.CMSDeleteMedia, authz.Require(authz.PermCmsMediaDelete))
-
-	g.GET("/mgr/cms/comments", ctrl.CMSComments, authz.Require(authz.PermCmsCommentRead))
-	g.POST("/mgr/cms/comments/:id/moderate", ctrl.CMSModerateComment, authz.Require(authz.PermCmsCommentModerate))
-	g.POST("/mgr/cms/comments/:id/delete", ctrl.CMSDeleteComment, authz.Require(authz.PermCmsCommentDelete))
-
-	g.GET("/mgr/cms/settings", ctrl.CMSSettings, authz.Require(authz.PermCmsSiteRead))
-	g.POST("/mgr/cms/settings", ctrl.CMSSaveSettings, authz.Require(authz.PermCmsSiteManage))
-	g.GET("/mgr/cms/audit", ctrl.CMSAudit, authz.Require(authz.PermCmsArticleRead))
-
-
-	// 内容管理 JSON API：与 HTML 共用同一个领域服务。
-	// The CMS JSON API: it shares the very same domain service as the HTML pages.
-	g.GET("/api/v1/cms/dashboard", ctrl.APICMSDashboard, authz.Require(authz.PermCmsArticleRead))
-	g.GET("/api/v1/cms/articles", ctrl.APICMSArticles, authz.Require(authz.PermCmsArticleRead))
-	g.POST("/api/v1/cms/articles", ctrl.APICMSCreateArticle, authz.Require(authz.PermCmsArticleCreate))
-	g.GET("/api/v1/cms/articles/:id", ctrl.APICMSArticle, authz.Require(authz.PermCmsArticleRead))
-	g.POST("/api/v1/cms/articles/:id", ctrl.APICMSUpdateArticle, authz.Require(authz.PermCmsArticleUpdate))
-	g.POST("/api/v1/cms/articles/:id/transition", ctrl.APICMSTransitionArticle, authz.Require(authz.PermCmsArticleUpdate))
-	g.POST("/api/v1/cms/articles/:id/delete", ctrl.APICMSDeleteArticle, authz.Require(authz.PermCmsArticleDelete))
-	g.GET("/api/v1/cms/articles/:id/revisions", ctrl.APICMSRevisions, authz.Require(authz.PermCmsArticleRead))
-	g.POST("/api/v1/cms/articles/:id/revisions/:rev/restore", ctrl.APICMSRestoreRevision, authz.Require(authz.PermCmsArticleUpdate))
-	g.GET("/api/v1/cms/categories", ctrl.APICMSCategories, authz.Require(authz.PermCmsCategoryRead))
-	g.POST("/api/v1/cms/categories", ctrl.APICMSCreateCategory, authz.Require(authz.PermCmsCategoryManage))
-	g.POST("/api/v1/cms/categories/:id", ctrl.APICMSUpdateCategory, authz.Require(authz.PermCmsCategoryManage))
-	g.POST("/api/v1/cms/categories/:id/delete", ctrl.APICMSDeleteCategory, authz.Require(authz.PermCmsCategoryManage))
-	g.GET("/api/v1/cms/tags", ctrl.APICMSTags, authz.Require(authz.PermCmsTagRead))
-	g.POST("/api/v1/cms/tags", ctrl.APICMSCreateTag, authz.Require(authz.PermCmsTagManage))
-	g.POST("/api/v1/cms/tags/:id", ctrl.APICMSUpdateTag, authz.Require(authz.PermCmsTagManage))
-	g.POST("/api/v1/cms/tags/:id/delete", ctrl.APICMSDeleteTag, authz.Require(authz.PermCmsTagManage))
-	g.GET("/api/v1/cms/media", ctrl.APICMSMedia, authz.Require(authz.PermCmsMediaRead))
-	g.POST("/api/v1/cms/media", ctrl.APICMSUploadMedia, authz.Require(authz.PermCmsMediaUpload))
-	g.POST("/api/v1/cms/media/:id/delete", ctrl.APICMSDeleteMedia, authz.Require(authz.PermCmsMediaDelete))
-	g.GET("/api/v1/cms/comments", ctrl.APICMSComments, authz.Require(authz.PermCmsCommentRead))
-	g.POST("/api/v1/cms/comments/:id/moderate", ctrl.APICMSModerateComment, authz.Require(authz.PermCmsCommentModerate))
-	g.POST("/api/v1/cms/comments/:id/delete", ctrl.APICMSDeleteComment, authz.Require(authz.PermCmsCommentDelete))
-	g.GET("/api/v1/cms/settings", ctrl.APICMSSettings, authz.Require(authz.PermCmsSiteRead))
-	g.POST("/api/v1/cms/settings", ctrl.APICMSSaveSettings, authz.Require(authz.PermCmsSiteManage))
-	g.GET("/api/v1/cms/audit", ctrl.APICMSAudit, authz.Require(authz.PermCmsArticleRead))
 
 	// 租户：读与建分别对应注册表的 tenant:read 与 tenant:create，因为租户是其它一切数据的边界。
 	// Tenants: reading and creating map onto the registry's tenant:read and tenant:create, because tenants are the
@@ -634,7 +524,6 @@ func registerOpenAPI(a *app.App) {
 	opts.TypeAnnotations = source.Types
 
 	doc := openapi.FromRouterWithAnnotations(a.Router(), openAPIInfo(), opts, source.Annotations, report)
-	registerCMSModels(doc)
 	// 受保护端点统一标注 @Security BearerAuth，方案本身在这里声明，客户端据此生成 Authorization 头。
 	// Protected endpoints are annotated with @Security BearerAuth; the scheme is declared here so clients can build the
 	// Authorization header from the document.
@@ -661,42 +550,6 @@ func registerOpenAPI(a *app.App) {
 		logx.Int("orphan", len(report.Orphan)),
 		logx.Int("incomplete", len(report.Incomplete)),
 	)
-}
-
-// registerCMSModels adds component schemas for the CMS domain types referenced by handler annotations. |
-// registerCMSModels 为 CMS 注解引用的领域类型补充组件 Schema。
-//
-// 注解解析器只扫描本项目的 internal 目录，而 CMS 的领域类型位于框架模块中，因此注解里的
-// cms.Article 一类引用不会被自动注册；这里用反射补上，文档校验才不会报告无法解析的引用。
-// The annotation parser only scans this project's internal directory while the CMS domain types live in the framework
-// module, so references such as cms.Article are not registered automatically; reflection fills them in here and the
-// document validator no longer reports unresolved references.
-func registerCMSModels(doc *openapi.Document) {
-	if doc == nil {
-		return
-	}
-	if doc.Components.Schemas == nil {
-		doc.Components.Schemas = map[string]*openapi.Schema{}
-	}
-	b := openapi.NewBuilder(openapi.Info{})
-	for _, item := range []struct {
-		name  string
-		value any
-	}{
-		{"cms.Article", cms.Article{}},
-		{"cms.ArticleView", cms.ArticleView{}},
-		{"cms.Category", cms.Category{}},
-		{"cms.Tag", cms.Tag{}},
-		{"cms.Media", cms.Media{}},
-		{"cms.Comment", cms.Comment{}},
-		{"cms.Settings", cms.Settings{}},
-		{"cms.Counts", cms.Counts{}},
-	} {
-		b.RegisterSchema(item.name, item.value)
-	}
-	for name, schema := range b.Build().Components.Schemas {
-		doc.Components.Schemas[name] = schema
-	}
 }
 
 // openAPIInfo 返回文档元信息，取值全部来自 internal/meta，避免文档与代码漂移。

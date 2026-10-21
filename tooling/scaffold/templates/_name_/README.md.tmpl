@@ -30,10 +30,9 @@ Go {{ .GoVersion }} + Htmx {{ .HtmxVersion }} + Tailwind CSS {{ .TailwindVersion
 
 ## 门户与后台
 
-- **路由**：`/` 是匿名可达的公开内容门户（头条、最新发布与一级/二级分类），`/blog` 提供公开列表、分类、
-  标签与全文检索；登录后的个人中心与写作中心是 `/account`、`/account/articles` 与
-  `/account/articles/new`、`/account/articles/:id/edit`，另有 `/messages`、`/friends`、`/realtime`。
-  后台管理全部在 `/mgr/**`（概览、用户、租户、角色、权限、消息治理、消息目录、CMS、指标与接口文档）。
+- **路由**：`/` 按登录状态分流——匿名访客去 `/login`，已登录用户去 `/messages`（消息中心不可用时去
+  `/account`）；登录后的个人中心另有 `/friends`、`/account` 与 `/realtime`。
+  后台管理全部在 `/mgr/**`（概览、用户、租户、角色、权限、消息治理、消息目录、指标与接口文档）。
   门户默认只有普通用户能力，管理端点各自挂注册表里的管理能力。
 - **模板**：门户模板只放 `{{ .AssetRoot }}/templates/portal/**`，后台只放 `{{ .AssetRoot }}/templates/mgr/**`；
   两棵树各有自己的布局与片段，模板名以 `portal/`、`mgr/` 前缀区分，禁止跨树 include。
@@ -76,36 +75,6 @@ environment variables map onto it). A single node delivers realtime events in-pr
 choosing the redis integration when the project is generated (plus asynq for durable retries), configures Redis Pub/Sub
 and optional asynq retries, and must give every replica a unique `message.node_id`. A project generated without those
 integrations compiles the local bus only, so adding a redis section afterwards has no effect.
-
-## 内容管理与发布
-
-项目内含一套租户级 CMS，随项目生成即可用（需要真实数据库；`--db none` 的项目会显式报告不可用）：
-
-- **无限级分类**：`/mgr/cms/categories` 支持任意深度的分类树、移动整棵子树与隐藏；禁止环与非空删除。
-- **文章与单页**：`/mgr/cms/articles` 支持草稿、待审、发布、定时、下线、归档与恢复；正文为 Markdown，
-  服务端 goldmark 渲染并净化，原始 HTML 与危险链接被移除。每次正文变更自动写入修订，可回滚。
-- **标签与媒体**：一个文章多个标签；`/mgr/cms/media` 上传图片、PDF、视频与音频，MIME 由服务端嗅探，
-  编辑器工具栏的图片按钮直接上传并插入地址。
-- **评论审核**：`/mgr/cms/comments` 通过、拒绝、标记垃圾或删除；公开文章支持登录用户的评论与两级回复。
-- **公开站点**：`/` 提供匿名公开门户（头条、最新发布与一级/二级分类），`/blog` 提供文章列表、分类、标签、
-  全文检索、文章、单页、RSS 2.0 与站点地图；匿名访问的租户由 `cms.public_tenant` 决定（留空使用种子租户），
-  也可用 `X-Tenant`/子域名指定。
-- **门户写作中心**：普通成员在 `/account/articles` 创建、编辑、提交审核、撤回、退役、恢复与删除自己的文章；
-  门户不提供发布或审核，管理员在 `/mgr/cms/articles?status=pending` 审核通过后文章才公开。
-- **JSON API**：`/api/v1/cms/...` 与后台共用同一套领域服务。
-- **权限**：20 项 `cms-*:*` 能力；成员可写自己的文章、上传媒体与发表评论，发布/审核/分类/标签/
-  媒体删除/站点设置各由独立能力控制。
-
-相关配置在 `configs/config.yaml` 的 `cms` 段：`media_dir`、`page_size`、`max_media_size`、
-`max_revisions`、`public_tenant`、`allowed_types`；环境变量统一为 `YD_CMS_*`。
-
-The generated project ships a tenant-scoped CMS: an unlimited-depth category tree, articles and standalone pages with
-draft/review/publish/schedule/archive workflows, Markdown rendered and sanitised server-side, revisions, tags, a media
-library with server-side MIME sniffing, moderated two-level comments, a public site with search, RSS and a sitemap, and
-a JSON API. It needs a real database; a project generated with `--db none` reports the CMS as unavailable. Anonymous
-public pages use `cms.public_tenant` (the seeded tenant when empty), while `X-Tenant` or a subdomain can select another
-tenant. Configure `cms.media_dir`, `page_size`, `max_media_size`, `max_revisions`, `public_tenant` and `allowed_types`
-under the `cms` section (`YD_CMS_*` environment variables map onto it).
 
 ## 目录结构
 

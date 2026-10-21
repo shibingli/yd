@@ -58,39 +58,6 @@
     </form>
   </section>
 
-  {{- if and .CMSAvailable (can .Perm.CmsArticleRead) }}
-  {{/* 写作中心摘要：个人中心直接给出四种状态的数量与最近文章，完整列表在 /account/articles。 |
-       Writing-centre summary: the personal centre shows the four status counters and the latest articles; the full list
-       lives at /account/articles. */}}
-  <section class="yd-card yd-section" aria-labelledby="yd-account-articles">
-    <div class="yd-section__header">
-      <h2 class="yd-section__title" id="yd-account-articles">{{ tr "cms.my.title" }}</h2>
-      <a class="yd-link" href="/account/articles">{{ tr "cms.my.all" }}</a>
-    </div>
-    <div class="yd-cards">
-      <a class="yd-card" href="/account/articles?status=draft"><p class="yd-hint">{{ tr "cms.my.draft" }}</p><p class="yd-list__primary">{{ .MyArticleCounts.Draft }}</p></a>
-      <a class="yd-card" href="/account/articles?status=pending"><p class="yd-hint">{{ tr "cms.my.pending" }}</p><p class="yd-list__primary">{{ .MyArticleCounts.Pending }}</p></a>
-      <a class="yd-card" href="/account/articles?status=published"><p class="yd-hint">{{ tr "cms.my.published" }}</p><p class="yd-list__primary">{{ .MyArticleCounts.Published }}</p></a>
-      <a class="yd-card" href="/account/articles?status=archived"><p class="yd-hint">{{ tr "cms.my.archived" }}</p><p class="yd-list__primary">{{ .MyArticleCounts.Archived }}</p></a>
-    </div>
-    {{- if and .CMSAvailable (can .Perm.CmsArticleCreate) }}
-    <div class="yd-form__actions">
-      <a class="yd-btn yd-btn--primary" href="/account/articles/new">{{ tr "cms.my.new" }}</a>
-    </div>
-    {{- end }}
-    {{- with .MyArticles }}
-    <ul class="yd-list">
-      {{- range . }}
-      <li class="yd-list__item">
-        <a class="yd-link yd-list__primary" href="/account/articles/{{ .ID }}/edit">{{ .Title }}</a>
-        <span class="yd-badge {{ if .IsPublished }}yd-badge--success{{ else if .IsPending }}yd-badge--warn{{ else if .IsArchived }}yd-badge--muted{{ else }}yd-badge--info{{ end }}">{{ tr .StatusKey }}</span>
-      </li>
-      {{- end }}
-    </ul>
-    {{- end }}
-  </section>
-  {{- end }}
-
   <div class="yd-grid yd-grid--2">
     <section class="yd-card yd-section" aria-labelledby="yd-account-identity">
       <h2 class="yd-section__title" id="yd-account-identity">{{ tr "page.account.identity" }}</h2>

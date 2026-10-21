@@ -13,9 +13,7 @@
   Before sign-in only the sign-in function remains: no rail, no top-bar navigation, no footer, no tenant or
   credential copy; the language and theme switches sit in the top-right corner.
 */}}
-{{ if .PublicSite -}}
-{{ template "portal/layouts/public_shell.html" . }}
-{{- else if .SignedIn -}}
+{{ if .SignedIn -}}
 <a class="yd-skip-link" href="#yd-workspace">{{ tr "ui.skip" }}</a>
 
 {{ template "portal/partials/sidebar" . }}

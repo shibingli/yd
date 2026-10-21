@@ -140,26 +140,6 @@ message:
   #   - application/pdf
   #   - text/plain
 
-# 内容管理与发布：分类、文章、标签、修订、媒体、评论与公开站点。
-# Content management and publishing: categories, articles, tags, revisions, media, comments and the public site.
-#
-# public_tenant 是匿名访问 /blog 时落入的租户标识（slug）：单站点部署通常就是种子租户；
-# 多租户公开站点用子域名或 X-Tenant 指定租户，此时该键只作为回退值。
-# public_tenant is the tenant slug anonymous /blog requests fall into: a single-site deployment normally uses the
-# seeded tenant; a multi-tenant public site selects the tenant by subdomain or X-Tenant and this key is only the fallback.
-cms:
-  media_dir: data/cms-media   # 本地媒体目录 | local media directory
-  page_size: 20               # 管理列表默认页长 | management list page length
-  max_media_size: 33554432    # 单文件上限（字节，32 MiB） | per-file ceiling in bytes (32 MiB)
-  max_revisions: 20           # 每篇文章保留的修订数 | revisions kept per article
-  public_tenant: ""           # 匿名公开站点回退租户；留空使用种子租户 | anonymous public-tenant fallback; empty uses the seeded tenant
-  # allowed_types:            # optional media MIME allow list; empty uses the framework default | 可选媒体 MIME 白名单；留空使用框架默认值
-  #   - image/png
-  #   - image/jpeg
-  #   - image/webp
-  #   - application/pdf
-  #   - video/mp4
-
 # 系统服务：yd service <install|uninstall|start|stop|restart|status> 与入口的 -service <动作> 都读这一段。
 # 服务名缺省回退到 app.name，显示名回退到服务名，描述回退到显示名；全部键都可由 YD_SERVICE_* 覆盖。
 # 改动这一段之后要重新安装服务（yd service install）才会写进服务管理器。

@@ -862,35 +862,6 @@
     color: var(--color-content-muted);
   }
 
-  /* Front-page hero: one prominent story above the latest grid and the category blocks. | 首页头条：位于最新列表与分类区块之上的重点文章。 */
-  .yd-hero {
-    display: flex;
-    flex-direction: column;
-    gap: 0.75rem;
-  }
-
-  .yd-hero__title {
-    font-size: 1.5rem;
-    line-height: 1.3;
-  }
-
-  .yd-hero__summary {
-    margin: 0;
-    max-width: 60rem;
-  }
-
-  /* Category block navigation: second-level categories wrap as inline links. | 分类区块导航：二级分类以行内链接换行排列。 */
-  .yd-news__subnav {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 0.5rem;
-  }
-
-  /* One headline row inside a category block; its summary wraps below the title. | 分类区块中的一条标题行：摘要换行显示在标题下方。 */
-  .yd-news__item {
-    flex-wrap: wrap;
-  }
-
   /* Destructive section: the border carries the danger tint on top of the card border. | 危险区块：在卡片边框之上叠加 danger 淡色。 */
   .yd-section--danger {
     border-color: color-mix(in oklab, var(--color-danger) 45%, var(--color-border-subtle));
