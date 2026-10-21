@@ -53,8 +53,12 @@ const (
 // 模板名：与 web/templates 下的路径一一对应，渲染引擎按该名称查找。
 // Template names: they match the paths under web/templates one to one, which is how the render engine looks them up.
 const (
-	// TplPortalHome is the portal home fragment. | TplPortalHome 是门户首页片段。
-	TplPortalHome = "portal/pages/home.html"
+	// TplPublicHome is the anonymous-capable public portal home fragment. | TplPublicHome 是匿名可达的公开门户首页片段。
+	TplPublicHome = "portal/pages/home.html"
+	// TplMyArticles is the member's own-article list. | TplMyArticles 是成员自己的文章列表。
+	TplMyArticles = "portal/pages/my_articles.html"
+	// TplMyArticleEdit is the portal article editor. | TplMyArticleEdit 是门户文章编辑器。
+	TplMyArticleEdit = "portal/pages/my_article_edit.html"
 	// TplManagementHome is the management overview fragment. | TplManagementHome 是管理概览片段。
 	TplManagementHome = "mgr/pages/home.html"
 	// TplLogin is the sign-in fragment, the only page an anonymous visitor ever sees. | TplLogin 是登录页片段；未登录用户唯一能看到的页面。

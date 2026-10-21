@@ -149,13 +149,17 @@ CMS 的规则在框架域包 `{{ .YdModule }}/cms`（不依赖 GORM 与 HTTP）�
    父级不得是自身或后代，非空分类不得删除。
 3. **发布状态机**：`draft → pending → published → archived`；发布/定时/下线/归档/恢复要求
    `cms-article:publish`，通过/驳回要求 `cms-article:review`；作者边界由 `cms.SaveArticle` /
-   `cms.DeleteArticle` 强制，前端显隐不是安全边界。
+   `cms.DeleteArticle` 强制，前端显隐不是安全边界。普通成员在门户
+   `/account/articles` 只能提交、撤回、退役、恢复与删除自己的文章；**门户不得提供发布或审核**，
+   管理员在 `/mgr/cms/articles` 审核通过后文章才公开。
 4. **富文本**：Markdown 源 + 服务端 goldmark 安全渲染；原始 HTML 与危险链接必须移除；模板只输出
    `model.CMSArticle.Body` / `model.CMSComment.Body`。编辑器是本地 EasyMDE，图片经
    `data-yd-editor-upload="/mgr/cms/media/upload"` 上传。
 5. **媒体**：MIME 由服务端嗅探，白名单不含 SVG/HTML/脚本；键为 `tenantID/mediaID`，不含原始文件名。
-6. **公开站点**：`/blog` 的匿名租户取 `cms.public_tenant`（留空用种子租户）；静态段先于
+6. **公开站点**：`/` 是匿名可达的公开门户（头条、最新发布与一级/二级分类区块），`/blog` 提供列表、
+   分类、标签与全文检索；匿名租户取 `cms.public_tenant`（留空用种子租户），静态段先于
    `/blog/:slug` 登记；公开列表只返回已发布、公开且 `publish_at` 已到期的文章。
+   搜索支持 `q`、`category`、`tag` 组合条件，分页链接必须保留这些查询参数。
 7. **数据表**：`yd_cms_*` 由 `cmsgorm.Migrate` 建出；索引以 `tenant_id` 打头。改表结构时同步迁移与测试。
 
 ## 7. 提交纪律（强制）

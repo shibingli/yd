@@ -86,6 +86,12 @@
        data-yd-nav="mgr-cms-articles"{{ if hasPrefix .Path "/mgr/cms/articles" }} aria-current="page"{{ end }}>
       <span class="yd-nav__label">{{ tr "nav.cms_articles" }}</span>
     </a>
+    {{- if can .Perm.CmsArticleReview }}
+    <a class="yd-nav__link" href="/mgr/cms/articles?status=pending" hx-get="/mgr/cms/articles?status=pending" hx-target="#yd-shell" hx-swap="innerMorph" hx-push-url="true"
+       data-yd-nav="mgr-cms-review">
+      <span class="yd-nav__label">{{ tr "nav.cms_review" }}</span>
+    </a>
+    {{- end }}
     {{- end }}
     {{- if can .Perm.CmsCategoryRead }}
     <a class="yd-nav__link" href="/mgr/cms/categories" hx-get="/mgr/cms/categories" hx-target="#yd-shell" hx-swap="innerMorph" hx-push-url="true"

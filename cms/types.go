@@ -64,6 +64,9 @@ const (
 	ActionApprove ArticleAction = "approve"
 	// ActionReject returns a pending article to its author as a draft. | ActionReject 把待审文章退回作者成为草稿。
 	ActionReject ArticleAction = "reject"
+	// ActionWithdraw lets an author take a pending article back to draft before review finishes. |
+	// ActionWithdraw 让作者在审核结束前把待审文章撤回为草稿。
+	ActionWithdraw ArticleAction = "withdraw"
 	// ActionPublish publishes immediately or schedules a future PublishAt. | ActionPublish 立即发布或按未来的 PublishAt 定时发布。
 	ActionPublish ArticleAction = "publish"
 	// ActionUnpublish returns a published article to its author as a draft. | ActionUnpublish 把已发布文章退回作者成为草稿。

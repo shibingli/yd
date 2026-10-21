@@ -28,6 +28,8 @@ import (
 // @Produce html
 // @Param page query int false "page | 页码"
 // @Param q query string false "keyword | 关键字"
+// @Param category query string false "category slug | 分类别名"
+// @Param tag query string false "tag slug | 标签别名"
 // @Success 200 {object} map[string]any "article list page | 文章列表页"
 // @Failure 404 {string} string "category or tenant not found | 分类或租户不存在"
 // @Router /blog [get]
@@ -114,8 +116,11 @@ func (c *Controller) BlogTagPage(ctx *router.Ctx) {
 // @Tags cms-public
 // @Produce html
 // @Param q query string false "keyword | 关键字"
+// @Param category query string false "category slug | 分类别名"
+// @Param tag query string false "tag slug | 标签别名"
 // @Param page query int false "page | 页码"
 // @Success 200 {object} map[string]any "search results | 搜索结果"
+// @Failure 404 {string} string "category not found | 分类不存在"
 // @Router /blog/search [get]
 func (c *Controller) BlogSearch(ctx *router.Ctx) {
 	c.blogList(ctx)
@@ -167,34 +172,58 @@ func (c *Controller) blogList(ctx *router.Ctx) {
 		"Keyword":    filter.Keyword,
 		"Site":       settings,
 		"Page":       pageNo,
-		"Empty":      true,
-		"Categories": []cms.CategoryOption{},
+		"Empty":          true,
+		"Categories":     []cms.CategoryOption{},
+		"Tags":           []cms.Tag{},
+		"CategoryFilter": "",
+		"TagFilter":      "",
 	}
-	if slug := strings.TrimSpace(ctx.Param("slug")); slug != "" {
-		switch {
-		case strings.Contains(ctx.Path(), "/blog/category/"):
-			category, lookupErr := c.cms.CategoryBySlug(ctx.Request.Context(), tenantID, slug)
-			if lookupErr != nil || !category.Visible {
-				c.failPublic(ctx, http.StatusNotFound, cms.ErrCategoryNotFound.Error())
-				return
-			}
-			ids, lookupErr := c.cms.CategorySubtreeIDs(ctx.Request.Context(), tenantID, category.ID)
-			if lookupErr != nil {
-				c.failServicePublic(ctx, lookupErr)
-				return
-			}
-			filter.CategoryIDs = ids
-			extra["CurrentCategory"] = category
-		case strings.Contains(ctx.Path(), "/blog/tag/"):
-			tag, lookupErr := c.cms.TagBySlug(ctx.Request.Context(), tenantID, slug)
-			if lookupErr != nil {
-				c.failServicePublic(ctx, lookupErr)
-				return
-			}
-			filter.TagID = tag.ID
-			extra["CurrentTag"] = tag
+
+	// 路径里的分类/标签优先级最高；搜索页则从查询串读取同名条件。两者都只接受可见分类，
+	// 隐藏分类与不存在的 slug 一律 404，避免通过筛选条件探测未公开的分类。 |
+	// A category/tag in the path wins; the search page reads the same conditions from the query string. Both accept
+	// visible categories only, and hidden or missing slugs answer 404 so a filter cannot probe hidden categories.
+	categorySlug := ""
+	if strings.Contains(ctx.Path(), "/blog/category/") {
+		categorySlug = strings.TrimSpace(ctx.Param("slug"))
+	}
+	if categorySlug == "" {
+		categorySlug = strings.TrimSpace(ctx.Query("category"))
+	}
+	if categorySlug != "" {
+		category, lookupErr := c.cms.CategoryBySlug(ctx.Request.Context(), tenantID, categorySlug)
+		if lookupErr != nil || !category.Visible {
+			c.failPublic(ctx, http.StatusNotFound, cms.ErrCategoryNotFound.Error())
+			return
 		}
+		ids, lookupErr := c.cms.CategorySubtreeIDs(ctx.Request.Context(), tenantID, category.ID)
+		if lookupErr != nil {
+			c.failServicePublic(ctx, lookupErr)
+			return
+		}
+		filter.CategoryIDs = ids
+		extra["CurrentCategory"] = category
+		extra["CategoryFilter"] = category.Slug
 	}
+
+	tagSlug := ""
+	if strings.Contains(ctx.Path(), "/blog/tag/") {
+		tagSlug = strings.TrimSpace(ctx.Param("slug"))
+	}
+	if tagSlug == "" {
+		tagSlug = strings.TrimSpace(ctx.Query("tag"))
+	}
+	if tagSlug != "" {
+		tag, lookupErr := c.cms.TagBySlug(ctx.Request.Context(), tenantID, tagSlug)
+		if lookupErr != nil {
+			c.failServicePublic(ctx, lookupErr)
+			return
+		}
+		filter.TagID = tag.ID
+		extra["CurrentTag"] = tag
+		extra["TagFilter"] = tag.Slug
+	}
+
 	page, err := c.cms.Articles(ctx.Request.Context(), tenantID, filter)
 	if err != nil {
 		c.failServicePublic(ctx, err)
@@ -212,6 +241,9 @@ func (c *Controller) blogList(ctx *router.Ctx) {
 		}
 	}
 	extra["Categories"] = visible
+	if tags, tagErr := c.cms.Tags(ctx.Request.Context(), tenantID, ""); tagErr == nil {
+		extra["Tags"] = tags
+	}
 	data := c.cmsPublicData(ctx, tenantID, c.tr(c.lang(ctx), "cms.public.title"), extra)
 	c.render(ctx, http.StatusOK, TplCMSPublicList, data)
 }

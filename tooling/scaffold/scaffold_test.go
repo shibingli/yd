@@ -77,6 +77,8 @@ var requiredFiles = []string{
 	"internal/controller/message_view.go",
 	"internal/controller/metrics_stream.go",
 	"internal/controller/middleware_metrics.go",
+	"internal/controller/portal_cms.go",
+	"internal/controller/portal_home.go",
 	"internal/controller/realtime.go",
 	"internal/controller/role_controller.go",
 	"internal/controller/tenant_controller.go",
@@ -178,6 +180,8 @@ var requiredFiles = []string{
 	"web/templates/portal/pages/home.html",
 	"web/templates/portal/pages/login.html",
 	"web/templates/portal/pages/messages.html",
+	"web/templates/portal/pages/my_article_edit.html",
+	"web/templates/portal/pages/my_articles.html",
 	"web/templates/portal/pages/realtime.html",
 	"web/templates/portal/partials/flash.html",
 	"web/templates/portal/partials/friends/remark.html",
@@ -2195,27 +2199,35 @@ func TestGeneratedAppSupportsAuth(t *testing.T) {
 	t.Run("未登录被挡在受保护端点之外", func(t *testing.T) {
 		anon := newProbeClient(t, httpTimeout)
 
-		// 普通浏览请求：303 到登录页，而不是把 / 的内容直接吐出来。
-		// A plain browsing request: a 303 to the sign-in page instead of the content of /.
+		// 根路由是公开内容门户：匿名访客得到 200 的整页，页面里没有任何用户数据。
+		// The root route is the public content portal: an anonymous visitor gets a full 200 page with no user data in it.
 		resp, body := getText(t, anon, base+"/", nil)
-		if resp.StatusCode != http.StatusSeeOther {
-			t.Fatalf("未登录 GET / 状态码 = %d, 期望 303\n%s", resp.StatusCode, body)
+		if resp.StatusCode != http.StatusOK {
+			t.Fatalf("未登录 GET / 状态码 = %d, 期望 200\n%s", resp.StatusCode, body)
 		}
-		if loc := resp.Header.Get("Location"); loc != "/login" {
-			t.Errorf("未登录 GET / 的 Location = %q, 期望 /login", loc)
+		if !strings.Contains(body, "<html") {
+			t.Errorf("未登录 GET / 应是完整的公开门户页面:\n%s", body)
 		}
 		assertNoUserData(t, "未登录 GET /", body)
 
-		// htmx 与 API 客户端拿到 401 片段：把它们丢到登录整页上毫无帮助。
-		// htmx and API clients get the 401 fragment: dropping them on a whole sign-in page helps nobody.
+		// htmx 请求同样拿到公开片段，而不是登录重定向。
+		// An htmx request gets the public fragment as well, not a sign-in redirect.
 		respHX, bodyHX := getText(t, anon, base+"/", map[string]string{"HX-Request": "true"})
-		if respHX.StatusCode != http.StatusUnauthorized {
-			t.Fatalf("未登录 HX-Request GET / 状态码 = %d, 期望 401\n%s", respHX.StatusCode, bodyHX)
+		if respHX.StatusCode != http.StatusOK {
+			t.Fatalf("未登录 HX-Request GET / 状态码 = %d, 期望 200\n%s", respHX.StatusCode, bodyHX)
 		}
 		if strings.Contains(bodyHX, "<html") {
-			t.Errorf("未登录的 401 应是错误片段而不是整页:\n%s", bodyHX)
+			t.Errorf("未登录的 htmx 首页应是片段而不是整页:\n%s", bodyHX)
 		}
 		assertNoUserData(t, "未登录 HX-Request GET /", bodyHX)
+
+		// 个人中心仍然是受保护端点：匿名请求被送到登录页。
+		// The personal centre remains protected: an anonymous request is sent to sign-in.
+		respAccount, bodyAccount := getText(t, anon, base+"/account", nil)
+		if respAccount.StatusCode != http.StatusSeeOther || respAccount.Header.Get("Location") != "/login" {
+			t.Errorf("未登录 GET /account 状态码 = %d, Location = %q, 期望 303 /login\n%s",
+				respAccount.StatusCode, respAccount.Header.Get("Location"), bodyAccount)
+		}
 
 		// 用户列表对匿名请求同样只有 401，一行用户都不给。
 		// The user list answers an anonymous request with the same 401 and not one row.

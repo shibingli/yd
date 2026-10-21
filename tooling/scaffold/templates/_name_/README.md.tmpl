@@ -30,7 +30,9 @@ Go {{ .GoVersion }} + Htmx {{ .HtmxVersion }} + Tailwind CSS {{ .TailwindVersion
 
 ## 门户与后台
 
-- **路由**：门户是 `/`（个人门户）、`/blog`（公开内容站）、`/messages`、`/friends`、`/account`、`/realtime`；
+- **路由**：`/` 是匿名可达的公开内容门户（头条、最新发布与一级/二级分类），`/blog` 提供公开列表、分类、
+  标签与全文检索；登录后的个人中心与写作中心是 `/account`、`/account/articles` 与
+  `/account/articles/new`、`/account/articles/:id/edit`，另有 `/messages`、`/friends`、`/realtime`。
   后台管理全部在 `/mgr/**`（概览、用户、租户、角色、权限、消息治理、消息目录、CMS、指标与接口文档）。
   门户默认只有普通用户能力，管理端点各自挂注册表里的管理能力。
 - **模板**：门户模板只放 `{{ .AssetRoot }}/templates/portal/**`，后台只放 `{{ .AssetRoot }}/templates/mgr/**`；
@@ -85,8 +87,11 @@ integrations compiles the local bus only, so adding a redis section afterwards h
 - **标签与媒体**：一个文章多个标签；`/mgr/cms/media` 上传图片、PDF、视频与音频，MIME 由服务端嗅探，
   编辑器工具栏的图片按钮直接上传并插入地址。
 - **评论审核**：`/mgr/cms/comments` 通过、拒绝、标记垃圾或删除；公开文章支持登录用户的评论与两级回复。
-- **公开站点**：`/blog` 提供文章列表、分类、标签、搜索、文章、单页、RSS 2.0 与站点地图；
-  匿名访问的租户由 `cms.public_tenant` 决定（留空使用种子租户），也可用 `X-Tenant`/子域名指定。
+- **公开站点**：`/` 提供匿名公开门户（头条、最新发布与一级/二级分类），`/blog` 提供文章列表、分类、标签、
+  全文检索、文章、单页、RSS 2.0 与站点地图；匿名访问的租户由 `cms.public_tenant` 决定（留空使用种子租户），
+  也可用 `X-Tenant`/子域名指定。
+- **门户写作中心**：普通成员在 `/account/articles` 创建、编辑、提交审核、撤回、退役、恢复与删除自己的文章；
+  门户不提供发布或审核，管理员在 `/mgr/cms/articles?status=pending` 审核通过后文章才公开。
 - **JSON API**：`/api/v1/cms/...` 与后台共用同一套领域服务。
 - **权限**：20 项 `cms-*:*` 能力；成员可写自己的文章、上传媒体与发表评论，发布/审核/分类/标签/
   媒体删除/站点设置各由独立能力控制。

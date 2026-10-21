@@ -725,6 +725,35 @@ func TestTransitionRules(t *testing.T) {
 	}
 }
 
+func TestAuthorLifecycleActions(t *testing.T) {
+	f := newFixture(t)
+	article := saveArticle(t, f, member(), "Author Lifecycle", "body")
+	if _, err := f.svc.TransitionArticle(f.ctx, member(), article.ID, cms.ActionSubmit, nil); err != nil {
+		t.Fatalf("author submit: %v", err)
+	}
+	if _, err := f.svc.TransitionArticle(f.ctx, member(), article.ID, cms.ActionWithdraw, nil); err != nil {
+		t.Fatalf("author withdraw: %v", err)
+	}
+	if _, err := f.svc.TransitionArticle(f.ctx, member(), article.ID, cms.ActionWithdraw, nil); !errors.Is(err, cms.ErrArticleTransition) {
+		t.Fatalf("withdraw draft error = %v, want ErrArticleTransition", err)
+	}
+	if _, err := f.svc.TransitionArticle(f.ctx, member(), article.ID, cms.ActionSubmit, nil); err != nil {
+		t.Fatalf("author resubmit: %v", err)
+	}
+	if _, err := f.svc.TransitionArticle(f.ctx, admin(), article.ID, cms.ActionApprove, nil); err != nil {
+		t.Fatalf("reviewer approve: %v", err)
+	}
+	if _, err := f.svc.TransitionArticle(f.ctx, member(), article.ID, cms.ActionArchive, nil); err != nil {
+		t.Fatalf("author archive published: %v", err)
+	}
+	if _, err := f.svc.TransitionArticle(f.ctx, member(), article.ID, cms.ActionRestore, nil); err != nil {
+		t.Fatalf("author restore: %v", err)
+	}
+	if _, err := f.svc.TransitionArticle(f.ctx, member(), article.ID, cms.ActionPublish, nil); !errors.Is(err, cms.ErrForbidden) {
+		t.Fatalf("author publish error = %v, want ErrForbidden", err)
+	}
+}
+
 func TestSearchTermCeiling(t *testing.T) {
 	f := newFixture(t)
 	_, err := f.svc.Articles(f.ctx, tenantA, cms.ArticleFilter{Keyword: "a b c d e f g"})

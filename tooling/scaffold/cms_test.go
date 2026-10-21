@@ -58,6 +58,207 @@ type probeCMSArticlePage struct {
 // TestGeneratedAppCMS 端到端验证生成项目的 CMS：无限级分类、文章状态机、公开站点、搜索、RSS、媒体、
 // 评论审核、修订与站点设置。 | TestGeneratedAppCMS runs the generated project's CMS end to end: the unlimited category
 // tree, the article state machine, the public site, search, RSS, media, comment moderation, revisions and site settings.
+func TestGeneratedAppPortalAuthoring(t *testing.T) {
+	if testing.Short() {
+		t.Skip("短模式跳过真实服务验证 | skipped in short mode")
+	}
+
+	_, base := startProbeAppDBWith(t, "yd-portal-probe", scaffold.DBSQLite, nil)
+	admin := newProbeClient(t, httpTimeout)
+	adminToken := signIn(t, admin, base, probeTenant, probeAdmin, probeAdminPassword)
+	createProbeUser(t, admin, base, adminToken, "writer", "member", "writer@example.com")
+	writer := newProbeClient(t, httpTimeout)
+	writerToken := signIn(t, writer, base, probeTenant, "writer", probeUserPassword)
+	anon := newProbeClient(t, httpTimeout)
+
+	// 根路由默认是匿名可达的内容门户，而不是登录页或后台首页。 |
+	// The root route is an anonymously reachable content portal by default, not the sign-in page or the back office.
+	resp, body := probeGet(t, anon, base+"/", "")
+	requireProbeStatus(t, resp, body, http.StatusOK, "匿名打开根路由")
+	for _, want := range []string{`data-yd-page="portal-home"`, `href="/login"`, `href="/blog"`} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("公开门户首页缺少 %q:\n%s", want, body)
+		}
+	}
+	if strings.Contains(body, `id="yd-sidebar"`) || strings.Contains(body, "Writer Name") {
+		t.Fatalf("匿名访客看到了登录后的外壳或用户数据:\n%s", body)
+	}
+
+	// 个人中心与写作中心对普通成员可达。
+	// The personal centre and writing centre are reachable for an ordinary member.
+	resp, body = probeGet(t, writer, base+"/account", writerToken)
+	requireProbeStatus(t, resp, body, http.StatusOK, "成员打开个人中心")
+	for _, want := range []string{`action="/account/profile"`, `href="/account/articles"`} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("个人中心缺少 %q:\n%s", want, body)
+		}
+	}
+	resp, body = probeGet(t, writer, base+"/account/articles/new", writerToken)
+	requireProbeStatus(t, resp, body, http.StatusOK, "成员打开编辑器")
+	if !strings.Contains(body, `action="/account/articles"`) || !strings.Contains(body, "data-yd-editor") {
+		t.Fatalf("门户编辑器缺少创建表单或富文本编辑器:\n%s", body)
+	}
+	if !strings.Contains(body, `data-yd-editor-upload="/account/media/upload"`) {
+		t.Fatalf("门户编辑器仍指向上传后台端点:\n%s", body)
+	}
+	resp, body = probePostFile(t, writer, base+"/account/media/upload", writerToken, "portal.png", probePNG(t))
+	requireProbeStatus(t, resp, body, http.StatusOK, "门户编辑器上传图片")
+	if !strings.Contains(body, `/blog/media/`) {
+		t.Fatalf("门户上传响应缺少媒体地址:\n%s", body)
+	}
+
+	// 资料编辑只改显示名与邮箱；重新读取页面后立即生效。
+	// Profile editing changes only the display name and e-mail, and the next read reflects it.
+	resp, body = probePostForm(t, writer, base+"/account/profile", writerToken, url.Values{
+		"display_name": {"Writer Name"},
+		"email":        {"writer@example.com"},
+	})
+	requireProbeStatus(t, resp, body, http.StatusSeeOther, "成员修改个人资料")
+	if loc := resp.Header.Get("Location"); loc != "/account" {
+		t.Fatalf("修改资料后的 Location = %q, 期望 /account", loc)
+	}
+	resp, body = probeGet(t, writer, base+"/account", writerToken)
+	requireProbeStatus(t, resp, body, http.StatusOK, "重新读取个人中心")
+	if !strings.Contains(body, "Writer Name") {
+		t.Fatalf("个人中心没有显示新的显示名:\n%s", body)
+	}
+
+	// 建立一二级分类，后续文章挂在二级分类下；分类页必须包含子树。 |
+	// Create a first/second-level pair and attach the article to the second level; the category page must include the
+	// subtree.
+	resp, body = probePostJSON(t, admin, base+"/api/v1/cms/categories", adminToken, map[string]any{
+		"name": "News", "slug": "news", "visible": true,
+	})
+	requireProbeStatus(t, resp, body, http.StatusCreated, "创建顶级分类")
+	root := decodeProbeJSON[probeCMSCategory](t, body)
+	resp, body = probePostJSON(t, admin, base+"/api/v1/cms/categories", adminToken, map[string]any{
+		"name": "World", "slug": "world", "parent_id": root.ID, "visible": true,
+	})
+	requireProbeStatus(t, resp, body, http.StatusCreated, "创建二级分类")
+	child := decodeProbeJSON[probeCMSCategory](t, body)
+
+	// 普通成员通过门户创建草稿：此时公开门户还看不到它。 |
+	// The member creates a draft through the portal; the public portal cannot see it yet.
+	resp, body = probePostForm(t, writer, base+"/account/articles", writerToken, url.Values{
+		"title":         {"Portal Story"},
+		"body_markdown": {"# Portal Story\n\nA story written in the portal."},
+		"category_id":   {child.ID},
+		"kind":          {"post"},
+		"visibility":    {"public"},
+		"allow_comment": {"on"},
+	})
+	requireProbeStatus(t, resp, body, http.StatusSeeOther, "成员创建门户文章")
+	editPath := resp.Header.Get("Location")
+	if !strings.HasPrefix(editPath, "/account/articles/") || !strings.HasSuffix(editPath, "/edit") {
+		t.Fatalf("创建后的 Location = %q, 期望 /account/articles/<id>/edit", editPath)
+	}
+	articleID := strings.TrimSuffix(strings.TrimPrefix(editPath, "/account/articles/"), "/edit")
+	articlePath := "/account/articles/" + articleID
+	resp, body = probeGet(t, anon, base+"/", "")
+	requireProbeStatus(t, resp, body, http.StatusOK, "草稿状态下读取公开门户")
+	if strings.Contains(body, "Portal Story") {
+		t.Fatalf("草稿在审核发布前出现在公开门户:\n%s", body)
+	}
+	resp, body = probeGet(t, writer, base+"/account/articles", writerToken)
+	requireProbeStatus(t, resp, body, http.StatusOK, "成员读取我的文章")
+	if !strings.Contains(body, "Portal Story") {
+		t.Fatalf("我的文章列表缺少刚创建的草稿:\n%s", body)
+	}
+
+	// 作者可以更新自己的草稿，更新后仍是草稿；他人打开或写入同一文章一律 404，不泄露存在性。 |
+	// The author can update the draft and it stays a draft; another member opening or writing the same article always gets
+	// 404, so the portal never reveals that the draft exists.
+	resp, body = probePostForm(t, writer, base+articlePath, writerToken, url.Values{
+		"title":         {"Portal Story Updated"},
+		"body_markdown": {"# Portal Story Updated\n\nThe edited body stays a draft."},
+		"category_id":   {child.ID},
+		"kind":          {"post"},
+		"visibility":    {"public"},
+		"allow_comment": {"on"},
+	})
+	requireProbeStatus(t, resp, body, http.StatusSeeOther, "作者更新自己的草稿")
+	createProbeUser(t, admin, base, adminToken, "other", "member", "other@example.com")
+	other := newProbeClient(t, httpTimeout)
+	otherToken := signIn(t, other, base, probeTenant, "other", probeUserPassword)
+	resp, body = probeGet(t, other, base+editPath, otherToken)
+	requireProbeStatus(t, resp, body, http.StatusNotFound, "他人打开我的文章编辑器")
+	resp, body = probePostForm(t, other, base+articlePath, otherToken, url.Values{
+		"title": {"Stolen"}, "body_markdown": {"stolen"},
+	})
+	requireProbeStatus(t, resp, body, http.StatusNotFound, "他人更新我的文章")
+
+	// 作者只能提交审核，不能从门户直接发布。
+	// The author can submit for review but cannot publish directly from the portal.
+	resp, body = probePostForm(t, writer, base+articlePath+"/transition", writerToken, url.Values{"action": {"submit"}})
+	requireProbeStatus(t, resp, body, http.StatusSeeOther, "成员提交审核")
+	resp, body = probePostForm(t, writer, base+articlePath+"/transition", writerToken, url.Values{"action": {"publish"}})
+	requireProbeStatus(t, resp, body, http.StatusUnprocessableEntity, "成员从门户直接发布")
+	resp, body = probeGet(t, anon, base+"/", "")
+	requireProbeStatus(t, resp, body, http.StatusOK, "待审状态下读取公开门户")
+	if strings.Contains(body, "Portal Story") {
+		t.Fatalf("待审文章在审核通过前出现在公开门户:\n%s", body)
+	}
+
+	// 管理员在后台看到待审队列并通过审核，随后公开站点与分类页才出现文章。 |
+	// The administrator sees the pending queue and approves it; only then do the public site and category page show it.
+	resp, body = probeGet(t, admin, base+"/mgr/cms/articles?status=pending", adminToken)
+	requireProbeStatus(t, resp, body, http.StatusOK, "管理员读取待审队列")
+	if !strings.Contains(body, "Portal Story") {
+		t.Fatalf("后台待审队列缺少文章:\n%s", body)
+	}
+	resp, body = probePostJSON(t, admin, base+"/api/v1/cms/articles/"+articleID+"/transition", adminToken, map[string]any{"action": "approve"})
+	requireProbeStatus(t, resp, body, http.StatusOK, "管理员审核通过")
+	resp, body = probeGet(t, anon, base+"/", "")
+	requireProbeStatus(t, resp, body, http.StatusOK, "发布后读取公开门户")
+	if !strings.Contains(body, "Portal Story") {
+		t.Fatalf("审核通过后公开门户仍缺少文章:\n%s", body)
+	}
+	sectionStart := strings.Index(body, `id="yd-portal-section-news"`)
+	if sectionStart < 0 {
+		t.Fatalf("公开门户缺少一级分类区块 News:\n%s", body)
+	}
+	sectionEnd := strings.Index(body[sectionStart:], "</section>")
+	if sectionEnd < 0 || !strings.Contains(body[sectionStart:sectionStart+sectionEnd], "Portal Story") {
+		t.Fatalf("一级分类区块没有包含二级分类下的已发布文章:\n%s", body[sectionStart:])
+	}
+	resp, body = probeGet(t, anon, base+"/blog/category/world", "")
+	requireProbeStatus(t, resp, body, http.StatusOK, "二级分类页")
+	if !strings.Contains(body, "Portal Story") {
+		t.Fatalf("二级分类页缺少文章:\n%s", body)
+	}
+	resp, body = probeGet(t, anon, base+"/blog/search?q=Portal&category=news", "")
+	requireProbeStatus(t, resp, body, http.StatusOK, "按分类条件搜索")
+	if !strings.Contains(body, "Portal Story") {
+		t.Fatalf("组合条件搜索缺少文章:\n%s", body)
+	}
+	resp, body = probeGet(t, anon, base+"/blog/search?q=Portal&category=missing", "")
+	requireProbeStatus(t, resp, body, http.StatusNotFound, "不存在分类的搜索")
+
+	// 作者可以退役、恢复、撤回自己的文章，但不能发布；删除后列表不再出现。 |
+	// The author can archive, restore and withdraw their article but never publish it; after deletion the list no longer
+	// carries it.
+	resp, body = probePostForm(t, writer, base+articlePath+"/transition", writerToken, url.Values{"action": {"archive"}})
+	requireProbeStatus(t, resp, body, http.StatusSeeOther, "作者退役已发布文章")
+	resp, body = probeGet(t, anon, base+"/", "")
+	requireProbeStatus(t, resp, body, http.StatusOK, "退役后读取公开门户")
+	if strings.Contains(body, "Portal Story") {
+		t.Fatalf("退役后的文章仍出现在公开门户:\n%s", body)
+	}
+	resp, body = probePostForm(t, writer, base+articlePath+"/transition", writerToken, url.Values{"action": {"restore"}})
+	requireProbeStatus(t, resp, body, http.StatusSeeOther, "作者恢复文章")
+	resp, body = probePostForm(t, writer, base+articlePath+"/transition", writerToken, url.Values{"action": {"submit"}})
+	requireProbeStatus(t, resp, body, http.StatusSeeOther, "作者重新提交审核")
+	resp, body = probePostForm(t, writer, base+articlePath+"/transition", writerToken, url.Values{"action": {"withdraw"}})
+	requireProbeStatus(t, resp, body, http.StatusSeeOther, "作者撤回审核")
+	resp, body = probePostForm(t, writer, base+articlePath+"/delete", writerToken, url.Values{})
+	requireProbeStatus(t, resp, body, http.StatusSeeOther, "作者删除自己的文章")
+	resp, body = probeGet(t, writer, base+"/account/articles", writerToken)
+	requireProbeStatus(t, resp, body, http.StatusOK, "删除后读取我的文章")
+	if strings.Contains(body, "Portal Story") {
+		t.Fatalf("删除后我的文章列表仍包含文章:\n%s", body)
+	}
+}
+
 func TestGeneratedAppCMS(t *testing.T) {
 	if testing.Short() {
 		t.Skip("短模式跳过真实服务验证 | skipped in short mode")
@@ -159,13 +360,16 @@ func TestGeneratedAppCMS(t *testing.T) {
 		}
 	}
 
-	// 普通内容作者从门户进入后台：入口指向其真正能打开的 CMS 文章页，概览本身仍然 403。
-	// A content author enters the back office from the portal: the entry points at the CMS article page it can
-	// actually open, while the overview itself still answers 403.
+	// 普通内容作者从门户进入写作中心：入口留在门户侧，门户不再把成员送进后台；概览本身仍然 403。
+	// A content author enters the writing centre from the portal: the entry stays in the portal and the portal no longer
+	// sends a member into the back office; the overview itself still answers 403.
 	resp, body = probeGet(t, carol, base+"/", carolToken)
 	requireProbeStatus(t, resp, body, http.StatusOK, "成员打开门户首页")
-	if !strings.Contains(body, `href="/mgr/cms/articles"`) {
-		t.Fatalf("成员门户缺少内容管理入口:\n%s", body)
+	if !strings.Contains(body, `href="/account/articles"`) {
+		t.Fatalf("成员门户缺少写作中心入口:\n%s", body)
+	}
+	if strings.Contains(body, `href="/mgr`) {
+		t.Fatalf("普通成员的门户不应出现任何后台入口:\n%s", body)
 	}
 	resp, body = probeGet(t, carol, base+"/mgr", carolToken)
 	requireProbeStatus(t, resp, body, http.StatusForbidden, "成员打开管理概览")
@@ -333,8 +537,11 @@ func TestGeneratedAppCMS(t *testing.T) {
 	if !strings.Contains(body, `action="/blog/`+article.Slug+`/comments"`) {
 		t.Fatalf("已登录读者的公开文章缺少评论表单:\n%s", body)
 	}
-	if !strings.Contains(body, `href="/mgr/cms/articles"`) {
-		t.Fatalf("已登录读者的公开外壳缺少内容管理入口:\n%s", body)
+	if !strings.Contains(body, `href="/account/articles"`) {
+		t.Fatalf("已登录读者的公开外壳缺少写作中心入口:\n%s", body)
+	}
+	if strings.Contains(body, `href="/mgr`) {
+		t.Fatalf("普通成员的公开外壳不应出现任何后台入口:\n%s", body)
 	}
 	resp, body = probeGet(t, public, base+"/blog/"+article.Slug, "")
 	requireProbeStatus(t, resp, body, http.StatusOK, "匿名读者打开公开文章")

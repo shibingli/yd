@@ -43,8 +43,20 @@
       {{ template "portal/partials/messages/sidebar_friend_requests" . }}
     </a>
     {{- end }}
+    {{- if and .CMSAvailable (can .Perm.CmsArticleRead) }}
+    <a class="yd-nav__link" href="/account/articles" hx-get="/account/articles" hx-target="#yd-shell" hx-swap="innerMorph" hx-push-url="true"
+       data-yd-nav="my-articles"{{ if and (hasPrefix .Path "/account/articles") (ne .Path "/account/articles/new") }} aria-current="page"{{ end }}>
+      <span class="yd-nav__label">{{ tr "cms.my.title" }}</span>
+    </a>
+    {{- end }}
+    {{- if and .CMSAvailable (can .Perm.CmsArticleCreate) }}
+    <a class="yd-nav__link" href="/account/articles/new" hx-get="/account/articles/new" hx-target="#yd-shell" hx-swap="innerMorph" hx-push-url="true"
+       data-yd-nav="my-article-new"{{ if eq .Path "/account/articles/new" }} aria-current="page"{{ end }}>
+      <span class="yd-nav__label">{{ tr "cms.my.new" }}</span>
+    </a>
+    {{- end }}
     <a class="yd-nav__link" href="/account" hx-get="/account" hx-target="#yd-shell" hx-swap="innerMorph" hx-push-url="true"
-       data-yd-nav="account"{{ if hasPrefix .Path "/account" }} aria-current="page"{{ end }}>
+       data-yd-nav="account"{{ if and (hasPrefix .Path "/account") (not (hasPrefix .Path "/account/articles")) }} aria-current="page"{{ end }}>
       <span class="yd-nav__label">{{ tr "nav.account" }}</span>
     </a>
     <a class="yd-nav__link" href="/realtime" hx-get="/realtime" hx-target="#yd-shell" hx-swap="innerMorph" hx-push-url="true"
@@ -65,17 +77,20 @@
       {{- $mgrHref = "/mgr/messages" -}}
     {{- else if can .Perm.MessageTypeRead -}}
       {{- $mgrHref = "/mgr/message-settings" -}}
-    {{- else if can .Perm.CmsArticleRead -}}
-      {{- if .CMSReadAll -}}{{- $mgrHref = "/mgr/cms" -}}{{- else -}}{{- $mgrHref = "/mgr/cms/articles" -}}{{- end -}}
-    {{- else if can .Perm.CmsCategoryRead -}}
+    {{- else if and (can .Perm.CmsArticleRead) (not (can .Perm.CmsArticleCreate)) -}}
+      {{/* 没有创作能力的只读角色（如审计员）保留后台入口；普通成员拥有创作能力，写作中心在门户侧，不再跳进后台。 |
+           Read-only roles without authoring (the auditor) keep a back-office entry; ordinary members have the create
+           capability, so their writing centre lives in the portal and no longer jumps into the back office. */}}
+      {{- $mgrHref = "/mgr/cms/articles" -}}
+    {{- else if can .Perm.CmsCategoryManage -}}
       {{- $mgrHref = "/mgr/cms/categories" -}}
-    {{- else if can .Perm.CmsTagRead -}}
+    {{- else if can .Perm.CmsTagManage -}}
       {{- $mgrHref = "/mgr/cms/tags" -}}
-    {{- else if can .Perm.CmsMediaRead -}}
+    {{- else if can .Perm.CmsMediaDelete -}}
       {{- $mgrHref = "/mgr/cms/media" -}}
-    {{- else if can .Perm.CmsCommentRead -}}
+    {{- else if can .Perm.CmsCommentModerate -}}
       {{- $mgrHref = "/mgr/cms/comments" -}}
-    {{- else if can .Perm.CmsSiteRead -}}
+    {{- else if can .Perm.CmsSiteManage -}}
       {{- $mgrHref = "/mgr/cms/settings" -}}
     {{- end -}}
     {{- if $mgrHref }}

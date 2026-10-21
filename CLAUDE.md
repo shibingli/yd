@@ -876,16 +876,23 @@ CMS 由框架域包 `cms` + `cms/gormstore` 与脚手架接线组成，是生成
 - **前端**：后台沿用 `#yd-shell`、右侧抽屉、`details.yd-menu` 与 `data-yd-confirm`；文章编辑器使用本地
   EasyMDE，图片经 `data-yd-editor-upload="/mgr/cms/media/upload"` 上传后插入；公开站点由
   `portal/layouts/public_shell.html` 承载，只在 `.PublicSite` 为真时由 `portal/layouts/shell.html` 引入。
+- **门户写作中心**：普通成员在 `/account/articles` 管理自己的文章，`/account/articles/new` 与
+  `/account/articles/:id/edit` 提供门户编辑器；作者可提交审核、撤回、退役、恢复与删除，
+  **不得**在门户直接发布或审核；发布必须由 `/mgr/cms` 的管理员完成。服务端在每次写操作前复核作者身份，
+  他人的文章一律按 `cms.ErrArticleNotFound` 处理。根路由 `/` 与 `/blog` 都是匿名可达的公开内容门户，
+  首页展示头条、最新发布与按一级/二级分类组织的内容区块，搜索支持关键字、分类与标签组合条件。
 - **文档**：`docs/cms.md` 是能力、配置、路由、发布流程与安全边界的唯一入口。
 
 ## 25. 门户与后台隔离（强制）
 
 前端门户与后端管理是两套彼此隔离的界面与权限面，任何新页面都必须先确定归属，不得混用。
 
-- **路由**：门户为 `/`、`/blog`、`/messages`、`/friends`、`/account`、`/realtime` 与登录/健康检查等公开端点；
+- **路由**：门户为 `/`、`/blog`、`/messages`、`/friends`、`/account`、`/account/articles`、
+  `/account/articles/new`、`/account/articles/:id/edit`、`/realtime` 与登录/健康检查等公开端点；
+  **`/` 是匿名可达的公开内容门户**，登录不是浏览前提；`/account/**` 才是受保护的个人中心与写作中心。
   后台管理全部落在 `/mgr/**`（`/mgr` 概览、`/mgr/users`、`/mgr/tenants`、`/mgr/roles`、`/mgr/permissions`、
   `/mgr/messages`、`/mgr/message-settings`、`/mgr/cms/**`、`/mgr/metrics`、`/mgr/docs`）。
-  门户默认只提供普通用户能力（自己的消息、好友、账号与公开内容），管理端点各自挂管理能力守卫；
+  门户默认只提供普通用户能力（自己的消息、好友、账号、公开内容与自己的文章），管理端点各自挂管理能力守卫；
   `/mgr` 概览要求 `user:read`，其余按注册表逐条守卫。
 - **模板隔离**：门户模板只放 `web/templates/portal/**`，后台模板只放 `web/templates/mgr/**`；
   两棵树各自持有 `layouts/`、`partials/` 与 `icon`/`flash`/`shell-switches`/`sidebar`/`pager`，

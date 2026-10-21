@@ -90,9 +90,10 @@
       并给每个副本唯一的 `message.node_id`，未生成 Redis 集成的项目只编译进程内总线，事后补配置不生效。
 - [ ] **内容管理**：所有 `yd_cms_*` 查询以 `tenant_id` 为第一条件；分类是无限级物化路径，移动时整棵子树
       在同一事务内重写，禁止环与非空删除；发布/定时/下线/归档/恢复要求 `cms-article:publish`，
-      通过/驳回要求 `cms-article:review`，作者边界由服务端强制；富文本只输出服务端 goldmark 净化后的 HTML；
-      媒体 MIME 由服务端嗅探、白名单不含 SVG/HTML/脚本、键不含原始文件名；公开站点匿名租户取
-      `cms.public_tenant`，静态段先于 `/blog/:slug` 登记。详见框架 `docs/cms.md`。
+      通过/驳回要求 `cms-article:review`，作者边界由服务端强制；门户 `/account/articles` 只允许作者
+      提交、撤回、退役、恢复与删除，发布与审核必须在 `/mgr/cms` 完成；富文本只输出服务端 goldmark
+      净化后的 HTML；媒体 MIME 由服务端嗅探、白名单不含 SVG/HTML/脚本、键不含原始文件名；`/` 与 `/blog`
+      均匿名可达，公开站点匿名租户取 `cms.public_tenant`，静态段先于 `/blog/:slug` 登记。详见框架 `docs/cms.md`。
 - [ ] **国密合规**：敏感数据加解密必须走 `guomi`（SM2/SM3/SM4），口令存储用 SM3 + 盐 + 迭代，禁止 MD5/SHA1。
 - [ ] **传输加密**：前端敏感字段提交必须声明式触发 SM2 前置加密（`data-yd-encrypt="sm2"`）。
 - [ ] **注入面**：SQL 只允许参数化查询；模板输出默认走 `html/template` 转义。

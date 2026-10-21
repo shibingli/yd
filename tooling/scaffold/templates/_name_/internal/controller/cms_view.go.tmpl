@@ -205,7 +205,7 @@ func (c *Controller) cmsAvailable(ctx *router.Ctx) bool {
 	}
 	// 公开站点用公开外壳渲染 503，后台与管理页用各自的外壳。 |
 	// The public site renders its 503 inside the public shell; the back office uses its own shell.
-	if strings.HasPrefix(ctx.Path(), "/blog") {
+	if ctx.Path() == "/" || strings.HasPrefix(ctx.Path(), "/blog") {
 		c.failPublic(ctx, 503, service.ErrCMSUnavailable.Error())
 	} else {
 		c.fail(ctx, 503, service.ErrCMSUnavailable.Error())
@@ -216,7 +216,7 @@ func (c *Controller) cmsAvailable(ctx *router.Ctx) bool {
 // cmsEnsure creates the tenant's default category and settings once. | cmsEnsure 一次性创建租户的默认分类与设置。
 func (c *Controller) cmsEnsure(ctx *router.Ctx, tenantID string) bool {
 	if err := c.cms.EnsureTenant(ctx.Request.Context(), tenantID); err != nil {
-		if strings.HasPrefix(ctx.Path(), "/blog") {
+		if ctx.Path() == "/" || strings.HasPrefix(ctx.Path(), "/blog") {
 			c.failServicePublic(ctx, err)
 		} else {
 			c.failService(ctx, err)

@@ -28,6 +28,69 @@
   </div>
   {{ end }}
 
+  {{/* 个人资料：只改显示名与邮箱，登录名、角色、状态、口令与 sec_key 都不在这张表单里。 |
+       Profile: only the display name and e-mail are editable; the sign-in name, roles, status, password and sec_key are
+       never part of this form. */}}
+  <section class="yd-card yd-section" aria-labelledby="yd-account-profile">
+    <h2 class="yd-section__title" id="yd-account-profile">{{ tr "page.account.profile" }}</h2>
+    <p class="yd-section__hint">{{ tr "page.account.profile_hint" }}</p>
+    <form class="yd-form" method="post" action="/account/profile" hx-post="/account/profile"
+          hx-target="#yd-workspace" hx-swap="innerMorph" hx-push-url="false"
+          hx-status:400="target:#yd-errors swap:innerHTML"
+          hx-status:401="target:#yd-errors swap:innerHTML"
+          hx-status:422="target:#yd-errors swap:innerHTML"
+          hx-disabled-elt="find button[type='submit']"
+          data-yd-confirm="{{ tr "confirm.update_profile" }}">
+      <div class="yd-form__row">
+        <div class="yd-form__field">
+          <label class="yd-form__label" for="yd-account-display">{{ tr "field.display_name" }}</label>
+          <input class="yd-input" id="yd-account-display" name="display_name" type="text" required maxlength="120"
+                 value="{{ .User.Display }}" title="{{ tr "account.profile_invalid" }}">
+        </div>
+        <div class="yd-form__field">
+          <label class="yd-form__label" for="yd-account-email">{{ tr "field.email" }}</label>
+          <input class="yd-input" id="yd-account-email" name="email" type="email" maxlength="320" value="{{ .User.Email }}">
+        </div>
+      </div>
+      <div class="yd-form__actions">
+        <button type="submit" class="yd-btn yd-btn--primary">{{ tr "ui.save" }}</button>
+      </div>
+    </form>
+  </section>
+
+  {{- if and .CMSAvailable (can .Perm.CmsArticleRead) }}
+  {{/* 写作中心摘要：个人中心直接给出四种状态的数量与最近文章，完整列表在 /account/articles。 |
+       Writing-centre summary: the personal centre shows the four status counters and the latest articles; the full list
+       lives at /account/articles. */}}
+  <section class="yd-card yd-section" aria-labelledby="yd-account-articles">
+    <div class="yd-section__header">
+      <h2 class="yd-section__title" id="yd-account-articles">{{ tr "cms.my.title" }}</h2>
+      <a class="yd-link" href="/account/articles">{{ tr "cms.my.all" }}</a>
+    </div>
+    <div class="yd-cards">
+      <a class="yd-card" href="/account/articles?status=draft"><p class="yd-hint">{{ tr "cms.my.draft" }}</p><p class="yd-list__primary">{{ .MyArticleCounts.Draft }}</p></a>
+      <a class="yd-card" href="/account/articles?status=pending"><p class="yd-hint">{{ tr "cms.my.pending" }}</p><p class="yd-list__primary">{{ .MyArticleCounts.Pending }}</p></a>
+      <a class="yd-card" href="/account/articles?status=published"><p class="yd-hint">{{ tr "cms.my.published" }}</p><p class="yd-list__primary">{{ .MyArticleCounts.Published }}</p></a>
+      <a class="yd-card" href="/account/articles?status=archived"><p class="yd-hint">{{ tr "cms.my.archived" }}</p><p class="yd-list__primary">{{ .MyArticleCounts.Archived }}</p></a>
+    </div>
+    {{- if and .CMSAvailable (can .Perm.CmsArticleCreate) }}
+    <div class="yd-form__actions">
+      <a class="yd-btn yd-btn--primary" href="/account/articles/new">{{ tr "cms.my.new" }}</a>
+    </div>
+    {{- end }}
+    {{- with .MyArticles }}
+    <ul class="yd-list">
+      {{- range . }}
+      <li class="yd-list__item">
+        <a class="yd-link yd-list__primary" href="/account/articles/{{ .ID }}/edit">{{ .Title }}</a>
+        <span class="yd-badge {{ if .IsPublished }}yd-badge--success{{ else if .IsPending }}yd-badge--warn{{ else if .IsArchived }}yd-badge--muted{{ else }}yd-badge--info{{ end }}">{{ tr .StatusKey }}</span>
+      </li>
+      {{- end }}
+    </ul>
+    {{- end }}
+  </section>
+  {{- end }}
+
   <div class="yd-grid yd-grid--2">
     <section class="yd-card yd-section" aria-labelledby="yd-account-identity">
       <h2 class="yd-section__title" id="yd-account-identity">{{ tr "page.account.identity" }}</h2>

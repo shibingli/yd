@@ -308,6 +308,17 @@ func (s *Service) TransitionArticle(ctx context.Context, actor Actor, id string,
 			return Article{}, ErrArticleTransition
 		}
 		updated.Status = ArticleDraft
+	case ActionWithdraw:
+		// 作者可以撤回自己的待审文章，管理员也可以代为撤回；其它人仍被拒绝。
+		// The author may withdraw their own pending article and an administrator may withdraw it for them; everyone else
+		// is still refused.
+		if !author && !actor.Manage {
+			return Article{}, ErrForbidden
+		}
+		if article.Status != ArticlePending {
+			return Article{}, ErrArticleTransition
+		}
+		updated.Status = ArticleDraft
 	case ActionPublish:
 		if !actor.Publish && !actor.Manage {
 			return Article{}, ErrForbidden
@@ -332,7 +343,10 @@ func (s *Service) TransitionArticle(ctx context.Context, actor Actor, id string,
 		updated.Status = ArticleDraft
 		updated.PublishAt = nil
 	case ActionArchive:
-		if !actor.Publish && !actor.Manage {
+		// An author may retire their own article, including a published one, and an administrator may retire any article;
+		// archiving publishes nothing and therefore needs no publish capability. | 作者可以退役自己的文章（包括已发布文章），
+		// 管理员可退役任意文章；退役不会发布任何内容，因此不需要发布能力。
+		if !author && !actor.Publish && !actor.Manage {
 			return Article{}, ErrForbidden
 		}
 		if article.Status == ArticleArchived {
@@ -341,7 +355,10 @@ func (s *Service) TransitionArticle(ctx context.Context, actor Actor, id string,
 		updated.Status = ArticleArchived
 		updated.PublishAt = nil
 	case ActionRestore:
-		if !actor.Publish && !actor.Manage {
+		// 恢复只是把文章退回草稿，作者与管理员都可以执行；重新发布仍要经过审核或发布能力。
+		// Restore only returns the article to draft, so the author and an administrator may both perform it; publishing
+		// again still requires review or the publish capability.
+		if !author && !actor.Publish && !actor.Manage {
 			return Article{}, ErrForbidden
 		}
 		if article.Status != ArticleArchived {

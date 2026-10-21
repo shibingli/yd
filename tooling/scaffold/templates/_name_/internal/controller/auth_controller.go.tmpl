@@ -5,12 +5,16 @@ package controller
 
 import (
 	"net/http"
+	"strings"
 	"time"
 
 	"{{ .Module }}/internal/meta"
 	"{{ .Module }}/internal/middleware"
+	"{{ .Module }}/internal/model"
 	"{{ .Module }}/internal/service"
+	"{{ .YdModule }}/cms"
 	"{{ .YdModule }}/security/auth"
+	"{{ .YdModule }}/security/authz"
 	"{{ .YdModule }}/core/logx"
 	"{{ .YdModule }}/http/router"
 )
@@ -266,10 +270,66 @@ func (c *Controller) Account(ctx *router.Ctx) {
 		c.fail(ctx, http.StatusUnauthorized, msgUnauthorized)
 		return
 	}
-	c.render(ctx, http.StatusOK, TplAccount, c.view(ctx, "账号 | Account", map[string]any{
-		"Roles":       user.Roles,
-		"Permissions": c.auth.Permissions(user),
-	}))
+	extra := map[string]any{
+		"Roles":           user.Roles,
+		"Permissions":     c.auth.Permissions(user),
+		"MyArticles":      []model.CMSArticle{},
+		"MyArticleCounts": myArticleCounts{},
+	}
+	if c.CMSAvailable() && authz.Can(ctx.Request.Context(), authz.PermCmsArticleRead) {
+		if tenantID, ok := c.tenantID(ctx); ok {
+			if !c.cmsEnsure(ctx, tenantID) {
+				return
+			}
+			actor := c.cmsActor(ctx)
+			if page, err := c.cms.Articles(ctx.Request.Context(), tenantID, cms.ArticleFilter{
+				AuthorID: user.ID, Page: 1, PageSize: 5,
+			}); err == nil {
+				extra["MyArticles"] = cmsArticleRows(page.Items, actor)
+			}
+			extra["MyArticleCounts"] = c.myArticleCounts(ctx, tenantID, user.ID)
+		}
+	}
+	c.render(ctx, http.StatusOK, TplAccount, c.view(ctx, "账号 | Account", extra))
+}
+
+// UpdateProfile updates the signed-in user's display name and e-mail. | UpdateProfile 更新当前用户的显示名与邮箱。
+//
+// @Summary Update my profile | 修改个人资料
+// @Description Updates only the display name and e-mail of the signed-in user. Roles, status, password and sec_key are
+// @Description never read from this form; they keep going through the dedicated administrative or security endpoints. |
+// @Description 只更新当前用户的显示名与邮箱。角色、状态、口令与 sec_key 从不取自本表单；它们仍走各自的管理或安全端点。
+// @Tags account
+// @Accept x-www-form-urlencoded
+// @Produce html
+// @Param display_name formData string true "display name | 显示名"
+// @Param email formData string false "e-mail | 邮箱"
+// @Success 303 {object} string "redirect to the account page | 重定向到账号页"
+// @Failure 401 {object} string "no session | 无有效会话"
+// @Failure 422 {string} string "validation failed | 校验失败"
+// @Security BearerAuth
+// @Router /account/profile [post]
+func (c *Controller) UpdateProfile(ctx *router.Ctx) {
+	user, ok := auth.CurrentUser(ctx)
+	if !ok || user == nil {
+		c.fail(ctx, http.StatusUnauthorized, msgUnauthorized)
+		return
+	}
+	tenantID, ok := c.tenantID(ctx)
+	if !ok {
+		return
+	}
+	display := strings.TrimSpace(ctx.FormValue("display_name"))
+	email := strings.TrimSpace(ctx.FormValue("email"))
+	if display == "" || len(display) > 120 || len(email) > 320 {
+		c.fail(ctx, http.StatusUnprocessableEntity, c.tr(c.lang(ctx), "account.profile_invalid"))
+		return
+	}
+	if err := c.auth.UpdateProfile(ctx.Request.Context(), tenantID, user.ID, display, email); err != nil {
+		c.failService(ctx, err)
+		return
+	}
+	c.redirect(ctx, "/account")
 }
 
 // ChangePassword 修改当前账号的口令：校验旧口令、设置新口令并轮换 sec_key。

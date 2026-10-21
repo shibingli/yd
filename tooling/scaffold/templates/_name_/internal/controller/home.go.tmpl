@@ -14,9 +14,7 @@ import (
 	"strconv"
 
 	"{{ .Module }}/internal/model"
-	"{{ .YdModule }}/cms"
 	"{{ .YdModule }}/core/errx"
-	"{{ .YdModule }}/messaging"
 	"{{ .YdModule }}/security/guomi"
 	"{{ .YdModule }}/core/logx"
 	"{{ .YdModule }}/http/router"
@@ -29,57 +27,6 @@ const placeholderSize = 96
 // recentLimit 是首页展示的最近用户条数：首页是概览而不是清单，完整名单在 /mgr/users。
 // recentLimit caps the recent users shown on the home page: the home page is an overview, not a list, and the full roster lives at /mgr/users.
 const recentLimit = 5
-
-// PortalHome renders the member portal landing page. | PortalHome 渲染成员门户首页。
-//
-// @Summary Portal home | 门户首页
-// @Description Renders portal/pages/home.html: the identity card, the member quick entries and the latest public
-// @Description articles. It never carries management counters or back-office links. |
-// @Description 渲染 portal/pages/home.html：身份卡、成员快捷入口与最新公开文章；绝不包含管理计数或后台链接。
-// @Tags portal
-// @Produce html
-// @Success 200 {object} string "portal home or fragment | 门户首页整页或片段"
-// @Failure 401 {object} string "no session | 无有效会话"
-// @Security BearerAuth
-// @Router / [get]
-func (c *Controller) PortalHome(ctx *router.Ctx) {
-	tenantID, ok := c.tenantID(ctx)
-	if !ok {
-		return
-	}
-	actor := c.cmsActor(ctx)
-	data := map[string]any{
-		"Unread":       messaging.UnreadSummary{},
-		"Articles":     []model.CMSArticle{},
-		"Categories":   []cms.CategoryOption{},
-		"CMSAvailable": c.CMSAvailable(),
-	}
-	if c.MessagesAvailable() {
-		if summary, err := c.messages.Unread(ctx.Request.Context(), c.messageActor(ctx)); err == nil {
-			data["Unread"] = summary
-		}
-	}
-	if c.CMSAvailable() {
-		if settings, err := c.cms.Settings(ctx.Request.Context(), tenantID); err == nil {
-			data["Site"] = settings
-		}
-		if page, err := c.cms.Articles(ctx.Request.Context(), tenantID, cms.ArticleFilter{
-			Kind: cms.KindPost, PublicOnly: true, Page: 1, PageSize: 4,
-		}); err == nil {
-			data["Articles"] = cmsArticleRows(page.Items, actor)
-		}
-		if options, err := c.cms.PublicCategoryOptions(ctx.Request.Context(), tenantID); err == nil {
-			visible := make([]cms.CategoryOption, 0, len(options))
-			for _, option := range options {
-				if option.Visible {
-					visible = append(visible, option)
-				}
-			}
-			data["Categories"] = visible
-		}
-	}
-	c.render(ctx, http.StatusOK, TplPortalHome, c.view(ctx, "门户首页 | Portal", data))
-}
 
 // ManagementHome renders the back-office overview. | ManagementHome 渲染管理后台概览。
 //

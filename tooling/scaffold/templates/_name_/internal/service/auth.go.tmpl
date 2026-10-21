@@ -169,6 +169,18 @@ func (s *AuthService) SwitchTenant(ctx context.Context, userID, tenantID string)
 	return &auth.LoginResult{Token: token, ExpiresAt: expiresAt, User: u}, nil
 }
 
+// UpdateProfile 只更新当前用户的显示名与邮箱；登录名、角色与状态保持库中取值。
+// UpdateProfile updates only the signed-in user's display name and e-mail; the sign-in name, roles and status keep their
+// stored values.
+func (s *AuthService) UpdateProfile(ctx context.Context, tenantID, userID, displayName, email string) error {
+	return s.store.Auth().UpdateUser(ctx, tenantID, &auth.User{
+		ID:          userID,
+		TenantID:    tenantID,
+		DisplayName: displayName,
+		Email:       email,
+	})
+}
+
 // ChangePassword 校验当前口令后设置新口令；auth 包会同时轮换 sec_key，让旧令牌立即失效。
 // ChangePassword verifies the current password and then sets the new one; the auth package also rotates the sec_key, so every old token dies at once.
 func (s *AuthService) ChangePassword(ctx context.Context, tenantID, userID string, in ChangePasswordInput) error {

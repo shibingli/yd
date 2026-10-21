@@ -273,8 +273,10 @@ CMS 由框架域包 `cms` + `cms/gormstore` 与脚手架接线组成，是生成
 
 ## 25. 门户与后台隔离（强制）
 
-- **路由**：门户为 `/`、`/blog`、`/messages`、`/friends`、`/account`、`/realtime`；后台管理全部落在 `/mgr/**`。
-  门户默认只有普通用户能力，管理端点按注册表逐条挂管理能力守卫。
+- **路由**：门户为 `/`、`/blog`、`/messages`、`/friends`、`/account`、`/account/articles`、
+  `/account/articles/new`、`/account/articles/:id/edit`、`/realtime`；`/` 是匿名可达的公开内容门户，
+  登录不是浏览前提；后台管理全部落在 `/mgr/**`。门户默认只有普通用户能力（含自己的文章写作中心），
+  管理端点按注册表逐条挂管理能力守卫。
 - **模板隔离**：门户只放 `web/templates/portal/**`，后台只放 `web/templates/mgr/**`；两棵树各有自己的
   `layouts/`、`partials/` 与 `icon`/`flash`/`shell-switches`/`sidebar`/`pager`，禁止跨树 include。
 - **布局选择**：视图数据经 `render.LayoutKey` 指定 `LayoutPortal` 或 `LayoutMgr`；`#yd-shell` 交换按路径选择

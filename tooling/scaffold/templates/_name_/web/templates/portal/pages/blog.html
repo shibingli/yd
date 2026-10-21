@@ -3,7 +3,7 @@
   pages/blog.html — the public content list: site articles, category, tag and search results share this page.
 
   数据契约 | Data contract: .Articles（[]model.CMSArticle）、.Site、.CurrentCategory、.CurrentTag、.Keyword、
-  .Total、.Empty、.Pager、.Categories。
+  .CategoryFilter、.TagFilter、.Total、.Empty、.Pager、.Categories、.Tags、.PublicNav。
 */}}
 <section class="yd-page" data-yd-page="blog" aria-labelledby="yd-blog-title">
   <header class="yd-page__header">
@@ -21,9 +21,36 @@
       </p>
     </div>
     <div class="yd-page__actions">
+      {{- if and .SignedIn (can .Perm.CmsArticleCreate) }}
+      <a class="yd-btn yd-btn--primary yd-btn--sm" href="/account/articles/new">{{ tr "cms.my.new" }}</a>
+      {{- end }}
       <a class="yd-btn yd-btn--ghost yd-btn--sm" href="/blog">{{ tr "cms.public.all_posts" }}</a>
     </div>
   </header>
+
+  {{/* 相关条件检索：关键字、分类与标签可以组合；提交后仍落在 /blog/search，服务端一律只查公开文章。 |
+       Condition-based search: keyword, category and tag combine; the form still targets /blog/search and the server always
+       searches public articles only. */}}
+  <form class="yd-filters" role="search" method="get" action="/blog/search"
+        hx-get="/blog/search" hx-target="#yd-workspace" hx-swap="innerMorph" hx-push-url="true">
+    <input type="hidden" name="q" value="{{ .Keyword }}">
+    <label class="sr-only" for="yd-blog-category-filter">{{ tr "cms.public.filter_category" }}</label>
+    <select class="yd-select" id="yd-blog-category-filter" name="category">
+      <option value="">{{ tr "cms.public.all_categories" }}</option>
+      {{- range .Categories }}
+      <option value="{{ .Slug }}"{{ if eq .Slug $.CategoryFilter }} selected{{ end }}>{{ .Name }}</option>
+      {{- end }}
+    </select>
+    <label class="sr-only" for="yd-blog-tag-filter">{{ tr "cms.public.filter_tag" }}</label>
+    <select class="yd-select" id="yd-blog-tag-filter" name="tag">
+      <option value="">{{ tr "cms.public.all_tags" }}</option>
+      {{- range .Tags }}
+      <option value="{{ .Slug }}"{{ if eq .Slug $.TagFilter }} selected{{ end }}>{{ .Name }}</option>
+      {{- end }}
+    </select>
+    <button type="submit" class="yd-btn yd-btn--primary">{{ tr "cms.public.filter_apply" }}</button>
+    <a class="yd-btn yd-btn--ghost" href="/blog">{{ tr "cms.public.filter_reset" }}</a>
+  </form>
 
   {{- with .Articles }}
   <div class="yd-cards">
@@ -32,7 +59,7 @@
       <h2 class="yd-section__title"><a class="yd-link" href="/blog/{{ .Slug }}">{{ .Title }}</a></h2>
       <p class="yd-hint">
         {{ .AuthorName }} · {{ humanTime .CreatedAt }} · {{ tr "cms.field.views" }} {{ .ViewCount }}
-        {{- with .CategoryName }} · {{ . }}{{ end }}
+        {{- if .CategoryName }} · <a class="yd-link" href="/blog/category/{{ .CategorySlug }}">{{ .CategoryName }}</a>{{ end }}
       </p>
       {{- with .Summary }}<p>{{ . }}</p>{{ end }}
       {{- with .Tags }}
@@ -49,12 +76,22 @@
   {{- end }}
   {{ template "portal/partials/pager" . }}
 
-  {{- with .Categories }}
+  {{- with .PublicNav }}
   <section class="yd-card yd-section">
     <h2 class="yd-section__title">{{ tr "cms.public.categories" }}</h2>
     <ul class="yd-list">
       {{- range . }}
-      <li class="yd-list__item"><a class="yd-link" href="/blog/category/{{ .Slug }}">{{ .Name }}</a> <span class="yd-hint">{{ .ArticleCount }}</span></li>
+      <li class="yd-list__item">
+        <a class="yd-link" href="/blog/category/{{ .Category.Slug }}">{{ .Category.Name }}</a>
+        <span class="yd-hint">{{ .ArticleCount }}</span>
+        {{- with .Children }}
+        <ul class="yd-list">
+          {{- range . }}
+          <li class="yd-list__item"><a class="yd-link" href="/blog/category/{{ .Category.Slug }}">{{ .Category.Name }}</a> <span class="yd-hint">{{ .ArticleCount }}</span></li>
+          {{- end }}
+        </ul>
+        {{- end }}
+      </li>
       {{- end }}
     </ul>
   </section>

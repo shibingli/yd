@@ -173,6 +173,10 @@ func registerPublic(a *app.App, ctrl *controller.Controller) {
 		),
 	)
 
+	// 根路由是公开内容门户：匿名访客先看到已发布的公开内容，登录只是可选动作。 |
+	// The root route is the public content portal: an anonymous visitor sees published public content first, and signing
+	// in is optional.
+	g.GET("/", ctrl.PortalHome)
 	g.GET(LoginPath, ctrl.LoginPage)
 	g.POST(LoginPath, ctrl.Login)
 	// 登出是幂等的清理动作，刻意公开：cookie 里那枚令牌早已失效时，仍然要能把它扔掉。
@@ -276,16 +280,31 @@ func registerProtected(a *app.App, ctrl *controller.Controller, store *repositor
 		),
 	)
 
-	// 会话即可访问：个人落地页、账号自助、租户切换与实时演示。
-	// Session-only: the personal landing page, self-service account actions, the tenant switch and the realtime demo.
-	g.GET("/", ctrl.PortalHome)
+	// 会话即可访问：个人中心、账号自助、租户切换与实时演示。根路由属于公开门户，不在这里登记。 |
+	// Session-only: the personal centre, self-service account actions, the tenant switch and the realtime demo. The root
+	// route belongs to the public portal and is not registered here.
 	g.GET("/mgr", ctrl.ManagementHome, authz.Require(authz.PermUserRead))
 	g.GET("/mgr/metrics", ctrl.Metrics, authz.Require(authz.PermUserRead))
 	g.GET("/mgr/metrics/middleware", ctrl.MiddlewareMetrics, authz.Require(authz.PermUserRead))
 	g.GET("/realtime", ctrl.Page)
 	g.GET("/account", ctrl.Account)
+	g.POST("/account/profile", ctrl.UpdateProfile)
 	g.POST("/account/password", ctrl.ChangePassword)
 	g.POST("/account/sec-key", ctrl.RotateSecKey)
+
+	// 门户写作中心：普通成员在这里管理自己的文章。作者边界由领域服务复核，路由守卫只负责
+	// 「是否具备这类自助能力」。管理员审核仍在 /mgr/cms。 |
+	// The portal writing centre: ordinary members manage their own articles here. The domain service enforces the author
+	// boundary; the route guard only answers whether the self-service capability exists. Administrator review stays under
+	// /mgr/cms.
+	g.POST("/account/media/upload", ctrl.MyMediaUpload, authz.Require(authz.PermCmsMediaUpload))
+	g.GET("/account/articles", ctrl.MyArticles, authz.Require(authz.PermCmsArticleRead))
+	g.GET("/account/articles/new", ctrl.MyNewArticle, authz.Require(authz.PermCmsArticleCreate))
+	g.POST("/account/articles", ctrl.MySaveArticle, authz.Require(authz.PermCmsArticleCreate))
+	g.GET("/account/articles/:id/edit", ctrl.MyEditArticle, authz.Require(authz.PermCmsArticleUpdate))
+	g.POST("/account/articles/:id", ctrl.MyUpdateArticle, authz.Require(authz.PermCmsArticleUpdate))
+	g.POST("/account/articles/:id/transition", ctrl.MyTransitionArticle, authz.Require(authz.PermCmsArticleUpdate))
+	g.POST("/account/articles/:id/delete", ctrl.MyDeleteArticle, authz.Require(authz.PermCmsArticleDelete))
 	// 切换租户只要求「是目标租户的成员」，成员关系本身就是授权；默认租户同理。
 	// The tenant switch requires only membership of the target tenant, which is itself the
 	// authorization; the same holds for the default-tenant choice.
@@ -644,8 +663,8 @@ func registerOpenAPI(a *app.App) {
 	)
 }
 
-// registerCMSModels 为 CMS 注解引用的领域类型补充组件 Schema。 | registerCMSModels adds component schemas for the CMS
-// domain types referenced by handler annotations.
+// registerCMSModels adds component schemas for the CMS domain types referenced by handler annotations. |
+// registerCMSModels 为 CMS 注解引用的领域类型补充组件 Schema。
 //
 // 注解解析器只扫描本项目的 internal 目录，而 CMS 的领域类型位于框架模块中，因此注解里的
 // cms.Article 一类引用不会被自动注册；这里用反射补上，文档校验才不会报告无法解析的引用。

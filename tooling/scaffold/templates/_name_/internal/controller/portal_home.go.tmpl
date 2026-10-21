@@ -1,0 +1,175 @@
+// 本文件是公开门户首页：匿名访客先看到已发布内容，登录后同一页面多出个人入口。
+// This file holds the public portal home: anonymous visitors see published content first, and the same page gains the
+// personal entries after sign-in.
+
+package controller
+
+import (
+	"net/http"
+	"strings"
+
+	"{{ .Module }}/internal/model"
+	"{{ .YdModule }}/cms"
+	"{{ .YdModule }}/core/logx"
+	"{{ .YdModule }}/http/router"
+)
+
+// publicSection is one top-level category block on the portal home. | publicSection 是门户首页的一个顶级分类区块。
+type publicSection struct {
+	// Node is the top-level category with its children. | Node 是顶级分类及其子分类。
+	Node cms.CategoryNode
+	// Articles are the latest public articles in this subtree. | Articles 是该子树下最新的公开文章。
+	Articles []model.CMSArticle
+}
+
+const (
+	// publicHomeArticleLimit is how many public articles the home page considers for the hero, latest list and
+	// category sections. One query feeds all three. | publicHomeArticleLimit 是首页为头条、最新列表与分类区块
+	// 考虑的文章上限；一次查询同时供给三者。
+	publicHomeArticleLimit = 80
+	// publicHomeLatestLimit caps the "latest" grid. | publicHomeLatestLimit 限制「最新发布」网格的条数。
+	publicHomeLatestLimit = 12
+	// publicHomeSectionLimit caps how many top-level categories get a block. | publicHomeSectionLimit 限制首页展示的顶级分类数。
+	publicHomeSectionLimit = 8
+	// publicHomeSectionArticles caps the articles shown in one category block. | publicHomeSectionArticles 限制单个分类区块的文章数。
+	publicHomeSectionArticles = 5
+)
+
+// PortalHome renders the public content portal at the site root. | PortalHome 渲染站点根部的公开内容门户。
+//
+// @Summary Public portal home | 公开门户首页
+// @Description Renders the anonymous content portal: the headline story, the latest published articles and one block
+// @Description per top-level category with its second-level categories. Anonymous visitors browse without signing in;
+// @Description a signed-in visitor additionally sees the personal-centre entries. | 渲染匿名内容门户：头条、最新公开文章，
+// @Description 以及每个顶级分类（含二级分类）的区块。匿名访客无需登录即可浏览；已登录访客额外看到个人中心入口。
+// @Tags cms-public
+// @Produce html
+// @Success 200 {object} map[string]any "public home page | 公开首页"
+// @Router / [get]
+func (c *Controller) PortalHome(ctx *router.Ctx) {
+	title := c.tr(c.lang(ctx), "cms.public.home_title")
+	extra := map[string]any{
+		"Articles":  []model.CMSArticle{},
+		"Latest":    []model.CMSArticle{},
+		"Sections":  []publicSection{},
+		"Keyword":   "",
+		"Empty":     true,
+		"Hero":      nil,
+		"Site":      cms.Settings{},
+		"PublicNav": []cms.CategoryNode{},
+	}
+	if c.CMSAvailable() {
+		tenantID, err := c.cmsPublicTenant(ctx)
+		if err == nil {
+			if !c.cmsEnsure(ctx, tenantID) {
+				return
+			}
+			if settings, settingsErr := c.cms.Settings(ctx.Request.Context(), tenantID); settingsErr == nil {
+				extra["Site"] = settings
+			} else {
+				c.log.Warn("public portal settings unavailable | 公开门户设置不可用", logx.Err(settingsErr))
+			}
+			tree, treeErr := c.cms.CategoryTree(ctx.Request.Context(), tenantID, false)
+			if treeErr != nil {
+				c.log.Warn("public portal categories unavailable | 公开门户分类不可用", logx.Err(treeErr))
+			}
+			extra["PublicNav"] = tree
+			page, pageErr := c.cms.Articles(ctx.Request.Context(), tenantID, cms.ArticleFilter{
+				Kind:       cms.KindPost,
+				PublicOnly: true,
+				Page:       1,
+				PageSize:   publicHomeArticleLimit,
+			})
+			if pageErr != nil {
+				c.log.Warn("public portal articles unavailable | 公开门户文章不可用", logx.Err(pageErr))
+			} else {
+				rows := cmsArticleRows(page.Items, c.cmsActor(ctx))
+				extra["Articles"] = rows
+				extra["Empty"] = len(rows) == 0
+				extra["Hero"], extra["Latest"] = splitPublicHomeRows(rows)
+				extra["Sections"] = publicHomeSections(tree, rows)
+			}
+			data := c.cmsPublicData(ctx, tenantID, title, extra)
+			c.render(ctx, http.StatusOK, TplPublicHome, data)
+			return
+		}
+		if err != nil {
+			// 公开租户解析失败时仍渲染一个空门户：根路由永远可达，错误留给日志而不是把访客挡在门外。
+			// A failed public-tenant lookup still renders an empty portal: the root stays reachable and the error goes to
+			// the log instead of turning the visitor away.
+			c.log.Warn("public portal tenant unavailable | 公开门户租户不可用", logx.Err(err))
+		}
+	}
+
+	// CMS 不可用（例如未配置数据库）时也渲染公开外壳与空状态，而不是退回登录页或管理错误页。
+	// When the CMS is unavailable (for example with no database) the public shell still renders with an empty state
+	// instead of falling back to the sign-in page or a management error page.
+	data := c.view(ctx, title, extra)
+	data["CMSAvailable"] = false
+	data["PublicSite"] = true
+	c.render(ctx, http.StatusOK, TplPublicHome, data)
+}
+
+// splitPublicHomeRows chooses the hero article and the latest list from the public rows. | splitPublicHomeRows 从公开
+// 文章中选择头条并生成最新列表。
+func splitPublicHomeRows(rows []model.CMSArticle) (any, []model.CMSArticle) {
+	if len(rows) == 0 {
+		return nil, []model.CMSArticle{}
+	}
+	hero := rows[0]
+	for _, row := range rows {
+		if row.Pinned {
+			hero = row
+			break
+		}
+	}
+	if !hero.Pinned {
+		for _, row := range rows {
+			if row.Featured {
+				hero = row
+				break
+			}
+		}
+	}
+	latest := make([]model.CMSArticle, 0, publicHomeLatestLimit)
+	for _, row := range rows {
+		if row.ID == hero.ID {
+			continue
+		}
+		latest = append(latest, row)
+		if len(latest) == publicHomeLatestLimit {
+			break
+		}
+	}
+	return hero, latest
+}
+
+// publicHomeSections groups the latest public rows under their top-level categories. | publicHomeSections 把最新公开
+// 文章按顶级分类分组。
+func publicHomeSections(tree []cms.CategoryNode, rows []model.CMSArticle) []publicSection {
+	sections := make([]publicSection, 0, min(len(tree), publicHomeSectionLimit))
+	for _, node := range tree {
+		// Category.Path includes the leading slash (`/cat_root/child/`), so the prefix must include it too;
+		// without the slash the root category matches nothing and every home section looks empty. |
+		// 分类路径带前导斜杠（`/cat_root/child/`），前缀必须同样带上；否则顶级分类匹配不到任何文章，
+		// 首页所有分类区块都会显示为空。
+		prefix := "/" + node.Category.ID + "/"
+		articles := make([]model.CMSArticle, 0, publicHomeSectionArticles)
+		for _, row := range rows {
+			if row.CategoryPath != "" && strings.HasPrefix(row.CategoryPath, prefix) {
+				articles = append(articles, row)
+				if len(articles) == publicHomeSectionArticles {
+					break
+				}
+			}
+		}
+		if len(articles) == 0 && len(node.Children) == 0 {
+			continue
+		}
+		sections = append(sections, publicSection{Node: node, Articles: articles})
+		if len(sections) == publicHomeSectionLimit {
+			break
+		}
+	}
+	return sections
+}

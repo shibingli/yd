@@ -1,0 +1,146 @@
+{{/*
+  portal/pages/my_articles.html —— 门户写作中心的我的文章列表。
+  portal/pages/my_articles.html — the portal writing centre's own-article list.
+
+  数据契约 | Data contract: .Articles（[]model.CMSArticle）、.Counts（myArticleCounts）、.Keyword、.Status、
+  .Category、.Categories、.Pager、.Total、.Empty。
+*/}}
+<section class="yd-page" data-yd-page="my-articles" aria-labelledby="yd-my-articles-title">
+  <header class="yd-page__header">
+    <div>
+      <h1 class="yd-page__title" id="yd-my-articles-title">{{ tr "cms.my.title" }}</h1>
+      <p class="yd-page__subtitle">{{ tr "cms.my.subtitle" }}</p>
+    </div>
+    <div class="yd-page__actions">
+      {{- if can $.Perm.CmsArticleCreate }}
+      <a class="yd-btn yd-btn--primary" href="/account/articles/new">{{ tr "cms.my.new" }}</a>
+      {{- end }}
+      <a class="yd-btn yd-btn--ghost" href="/account">{{ tr "nav.my_profile" }}</a>
+    </div>
+  </header>
+
+  <div class="yd-cards">
+    <a class="yd-card" href="/account/articles?status=draft">
+      <p class="yd-hint">{{ tr "cms.my.draft" }}</p>
+      <p class="yd-list__primary">{{ .Counts.Draft }}</p>
+    </a>
+    <a class="yd-card" href="/account/articles?status=pending">
+      <p class="yd-hint">{{ tr "cms.my.pending" }}</p>
+      <p class="yd-list__primary">{{ .Counts.Pending }}</p>
+    </a>
+    <a class="yd-card" href="/account/articles?status=published">
+      <p class="yd-hint">{{ tr "cms.my.published" }}</p>
+      <p class="yd-list__primary">{{ .Counts.Published }}</p>
+    </a>
+    <a class="yd-card" href="/account/articles?status=archived">
+      <p class="yd-hint">{{ tr "cms.my.archived" }}</p>
+      <p class="yd-list__primary">{{ .Counts.Archived }}</p>
+    </a>
+  </div>
+
+  <form class="yd-filters" role="search" method="get" action="/account/articles"
+        hx-get="/account/articles" hx-target="#yd-workspace" hx-swap="innerMorph" hx-push-url="true">
+    <label class="sr-only" for="yd-my-status">{{ tr "field.status" }}</label>
+    <select class="yd-select" id="yd-my-status" name="status">
+      <option value="">{{ tr "ui.all" }}</option>
+      <option value="draft"{{ if eq .Status "draft" }} selected{{ end }}>{{ tr "cms.status.draft" }}</option>
+      <option value="pending"{{ if eq .Status "pending" }} selected{{ end }}>{{ tr "cms.status.pending" }}</option>
+      <option value="published"{{ if eq .Status "published" }} selected{{ end }}>{{ tr "cms.status.published" }}</option>
+      <option value="archived"{{ if eq .Status "archived" }} selected{{ end }}>{{ tr "cms.status.archived" }}</option>
+    </select>
+    <label class="sr-only" for="yd-my-category">{{ tr "cms.field.category" }}</label>
+    <select class="yd-select" id="yd-my-category" name="category">
+      <option value="">{{ tr "cms.filter.all_category" }}</option>
+      {{- range .Categories }}
+      <option value="{{ .ID }}"{{ if eq .ID $.Category }} selected{{ end }}>{{ .Name }}</option>
+      {{- end }}
+    </select>
+    <label class="sr-only" for="yd-my-keyword">{{ tr "cms.my.search" }}</label>
+    <input class="yd-input" id="yd-my-keyword" name="q" type="search" value="{{ .Keyword }}"
+           placeholder="{{ tr "cms.my.search_placeholder" }}">
+    <button type="submit" class="yd-btn yd-btn--primary">{{ tr "cms.public.filter_apply" }}</button>
+    <a class="yd-btn yd-btn--ghost" href="/account/articles">{{ tr "cms.public.filter_reset" }}</a>
+  </form>
+
+  {{- with .Articles }}
+  <div class="yd-cards">
+    {{- range . }}
+    <article class="yd-card" data-yd-article="{{ .ID }}">
+      <div>
+        <p class="yd-list__primary">
+          {{- if can $.Perm.CmsArticleUpdate }}
+          <a class="yd-link" href="/account/articles/{{ .ID }}/edit">{{ .Title }}</a>
+          {{- else }}
+          {{ .Title }}
+          {{- end }}
+        </p>
+        <p class="yd-hint">
+          <span class="yd-badge {{ if .IsPublished }}yd-badge--success{{ else if .IsPending }}yd-badge--warn{{ else if .IsArchived }}yd-badge--muted{{ else }}yd-badge--info{{ end }}">{{ tr .StatusKey }}</span>
+          {{- if .CategoryName }} · {{ .CategoryName }}{{ end }}
+          · {{ humanTime .UpdatedAt }} · {{ tr "cms.field.views" }} {{ .ViewCount }}
+        </p>
+      </div>
+      <div class="yd-form__actions">
+        {{- if can $.Perm.CmsArticleUpdate }}
+        <a class="yd-btn yd-btn--ghost yd-btn--sm" href="/account/articles/{{ .ID }}/edit">{{ tr "ui.edit" }}</a>
+        {{- end }}
+        {{- if .IsPublished }}
+        <a class="yd-btn yd-btn--ghost yd-btn--sm" href="/blog/{{ .Slug }}" target="_blank" rel="noopener noreferrer">{{ tr "cms.my.view" }}</a>
+        {{- end }}
+        {{- if .IsDraft }}
+        {{- if can $.Perm.CmsArticleUpdate }}
+        <form method="post" action="/account/articles/{{ .ID }}/transition" hx-post="/account/articles/{{ .ID }}/transition"
+              hx-target="#yd-workspace" hx-swap="innerMorph" hx-push-url="false"
+              data-yd-confirm="{{ tr "cms.confirm.submit" }}">
+          <input type="hidden" name="action" value="submit">
+          <button type="submit" class="yd-btn yd-btn--primary yd-btn--sm">{{ tr "cms.action.submit" }}</button>
+        </form>
+        {{- end }}
+        {{- end }}
+        {{- if .IsPending }}
+        {{- if can $.Perm.CmsArticleUpdate }}
+        <form method="post" action="/account/articles/{{ .ID }}/transition" hx-post="/account/articles/{{ .ID }}/transition"
+              hx-target="#yd-workspace" hx-swap="innerMorph" hx-push-url="false"
+              data-yd-confirm="{{ tr "cms.confirm.withdraw" }}">
+          <input type="hidden" name="action" value="withdraw">
+          <button type="submit" class="yd-btn yd-btn--ghost yd-btn--sm">{{ tr "cms.action.withdraw" }}</button>
+        </form>
+        {{- end }}
+        {{- end }}
+        {{- if .IsPublished }}
+        {{- if can $.Perm.CmsArticleUpdate }}
+        <form method="post" action="/account/articles/{{ .ID }}/transition" hx-post="/account/articles/{{ .ID }}/transition"
+              hx-target="#yd-workspace" hx-swap="innerMorph" hx-push-url="false"
+              data-yd-confirm="{{ tr "cms.confirm.archive" }}">
+          <input type="hidden" name="action" value="archive">
+          <button type="submit" class="yd-btn yd-btn--ghost yd-btn--sm">{{ tr "cms.action.archive" }}</button>
+        </form>
+        {{- end }}
+        {{- end }}
+        {{- if .IsArchived }}
+        {{- if can $.Perm.CmsArticleUpdate }}
+        <form method="post" action="/account/articles/{{ .ID }}/transition" hx-post="/account/articles/{{ .ID }}/transition"
+              hx-target="#yd-workspace" hx-swap="innerMorph" hx-push-url="false"
+              data-yd-confirm="{{ tr "cms.confirm.restore_article" }}">
+          <input type="hidden" name="action" value="restore">
+          <button type="submit" class="yd-btn yd-btn--ghost yd-btn--sm">{{ tr "cms.action.restore" }}</button>
+        </form>
+        {{- end }}
+        {{- end }}
+        {{- if can $.Perm.CmsArticleDelete }}
+        <form method="post" action="/account/articles/{{ .ID }}/delete" hx-post="/account/articles/{{ .ID }}/delete"
+              hx-target="#yd-workspace" hx-swap="innerMorph" hx-push-url="false"
+              data-yd-confirm="{{ tr "cms.confirm.delete_article" }}">
+          <button type="submit" class="yd-btn yd-btn--danger yd-btn--sm">{{ tr "ui.delete" }}</button>
+        </form>
+        {{- end }}
+      </div>
+    </article>
+    {{- end }}
+  </div>
+  {{- else }}
+  <p class="yd-hint">{{ tr "cms.my.empty" }}</p>
+  {{- end }}
+
+  {{ template "portal/partials/pager" . }}
+</section>

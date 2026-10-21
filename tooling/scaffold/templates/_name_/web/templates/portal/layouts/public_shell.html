@@ -1,15 +1,19 @@
 {{/*
-  layouts/public_shell.html —— 公开内容站点的外壳：站点头部、分类导航、搜索、语言/主题切换、内容区与页脚。
-  layouts/public_shell.html — the public content site's shell: site header, category navigation, search, language/theme
-  switches, the content region and the footer.
+  layouts/public_shell.html —— 公开内容站点的外壳：站点头部、一二级分类导航、搜索、语言/主题切换、内容区与页脚。
+  layouts/public_shell.html — the public content site's shell: site header, first/second-level category navigation,
+  search, language/theme switches, the content region and the footer.
 
   它只在 .PublicSite 为真时由 layouts/shell.html 引入，因此管理端的外壳与公开站点互不污染。
   It is included by layouts/shell.html only when .PublicSite is true, so the management shell and the public site never
   contaminate each other.
 
-  数据契约 | Data contract: .Site（站点设置）、.PublicNav（可见的顶级分类树）、.SignedIn、
-  .Lang，以及 authz.Data 注入的 .Authz/.Perm/.Role/.AuthzJSON。
-  .Site (site settings), .PublicNav (visible top-level category tree), .SignedIn, .Lang, plus the
+  匿名访客看得到分类、搜索与登录入口；登录后同一位置换成个人中心、写作中心与（仅管理角色可见的）后台入口。
+  Anonymous visitors see categories, search and a sign-in entry; after sign-in the same place carries the personal
+  centre, the writing centre and — only for management roles — the back-office entry.
+
+  数据契约 | Data contract: .Site（站点设置）、.PublicNav（可见的顶级分类树）、.SignedIn、.Keyword、.Lang，
+  以及 authz.Data 注入的 .Authz/.Perm/.Role/.AuthzJSON。
+  .Site (site settings), .PublicNav (visible top-level category tree), .SignedIn, .Keyword, .Lang, plus the
   .Authz/.Perm/.Role/.AuthzJSON envelope injected by authz.Data.
 */}}
 {{- define "portal/layouts/public_shell.html" -}}
@@ -17,32 +21,114 @@
 <div class="yd-main">
   <header class="yd-topbar" role="banner">
     <div class="yd-topbar__left">
-      <a class="yd-brand" href="/blog">
+      <a class="yd-brand" href="/">
         <span class="yd-brand__mark" aria-hidden="true">yd</span>
-        <span class="yd-brand__name">{{ with .Site }}{{ .SiteName }}{{ else }}{{ .Name }}{{ end }}</span>
+        <span class="yd-brand__name">{{ with .Site.SiteName }}{{ . }}{{ else }}{{ .Name }}{{ end }}</span>
       </a>
     </div>
     <nav class="yd-topbar__right" aria-label="{{ tr "cms.public.nav" }}">
       {{ template "portal/partials/shell-switches" . }}
-      {{- with .PublicNav }}
-      {{- range . }}
-      <a class="yd-btn yd-btn--ghost yd-btn--sm" href="/blog/category/{{ .Category.Slug }}">{{ .Category.Name }}</a>
-      {{- end }}
-      {{- end }}
       {{- if .Site.RSSEnabled }}
       <a class="yd-btn yd-btn--ghost yd-btn--sm" href="/blog/rss.xml" target="_blank" rel="noopener noreferrer">RSS</a>
       {{- end }}
       {{- if .SignedIn }}
-      {{- $backstage := "/mgr" -}}
-      {{- if not (can .Perm.UserRead) -}}
-        {{- if can .Perm.CmsArticleRead -}}{{- $backstage = "/mgr/cms/articles" -}}{{- else if can .Perm.MessageManage -}}{{- $backstage = "/mgr/messages" -}}{{- end -}}
-      {{- end }}
-      <a class="yd-btn yd-btn--primary yd-btn--sm" href="{{ $backstage }}">{{ tr "cms.public.backstage" }}</a>
+      {{/* 登录后的公开页用户菜单：个人中心、我的文章、写文章与退出。后台入口只对真正持有管理能力的角色出现，
+           普通成员不会看到一个点进去就是 403 的链接。 | The signed-in public-page user menu: personal centre, my
+           articles, write and sign out. The back-office entry appears only for accounts that really hold a management
+           capability, so an ordinary member never sees a link that would answer 403. */}}
+      <details class="yd-menu" data-yd-menu>
+        <summary class="yd-btn yd-btn--ghost yd-btn--sm">
+          <span class="yd-user__avatar"><span class="yd-avatar yd-avatar--sm" aria-hidden="true">{{ .User.Initial }}</span></span>
+          <span>{{ .User.Display }}</span>
+          <span aria-hidden="true">▾</span>
+        </summary>
+        <div class="yd-menu__panel" role="menu" aria-label="{{ tr "nav.user_menu" }}">
+          <a class="yd-menu__item" role="menuitem" href="/account">
+            {{ template "portal/partials/icon" "lucide-user-round" }}<span>{{ tr "nav.my_profile" }}</span>
+          </a>
+          {{- if and .CMSAvailable (can .Perm.CmsArticleRead) }}
+          <a class="yd-menu__item" role="menuitem" href="/account/articles">
+            {{ template "portal/partials/icon" "lucide-file-text" }}<span>{{ tr "cms.my.title" }}</span>
+          </a>
+          {{- end }}
+          {{- if and .CMSAvailable (can .Perm.CmsArticleCreate) }}
+          <a class="yd-menu__item" role="menuitem" href="/account/articles/new">
+            {{ template "portal/partials/icon" "lucide-pen-line" }}<span>{{ tr "cms.my.new" }}</span>
+          </a>
+          {{- end }}
+          {{/* 入口必须指向持有者真正能打开的第一页：/mgr 概览要求 user:read，只有 CMS 审核/分类/媒体等
+               能力的角色不能直接落在 /mgr，否则点进去就是 403。普通成员（只有创作能力）不显示后台入口。 |
+               The entry must point at the first page its holder can actually open: the /mgr overview requires user:read,
+               so a CMS review/category/media role cannot land on /mgr. An ordinary member (create only) gets no back-office
+               entry at all. */}}
+          {{- $backstage := "" -}}
+          {{- if or (can .Perm.UserRead) (can .Perm.RoleRead) (can .Perm.TenantRead) (can .Perm.PermissionRead) -}}
+            {{- $backstage = "/mgr" -}}
+          {{- else if can .Perm.MessageManage -}}
+            {{- $backstage = "/mgr/messages" -}}
+          {{- else if can .Perm.MessageTypeRead -}}
+            {{- $backstage = "/mgr/message-settings" -}}
+          {{- else if and (can .Perm.CmsArticleRead) (not (can .Perm.CmsArticleCreate)) -}}
+            {{- $backstage = "/mgr/cms/articles" -}}
+          {{- else if or (can .Perm.CmsArticlePublish) (can .Perm.CmsArticleReview) (can .Perm.CmsArticleManage) -}}
+            {{- $backstage = "/mgr/cms/articles" -}}
+          {{- else if can .Perm.CmsCategoryManage -}}
+            {{- $backstage = "/mgr/cms/categories" -}}
+          {{- else if can .Perm.CmsTagManage -}}
+            {{- $backstage = "/mgr/cms/tags" -}}
+          {{- else if can .Perm.CmsMediaDelete -}}
+            {{- $backstage = "/mgr/cms/media" -}}
+          {{- else if can .Perm.CmsCommentModerate -}}
+            {{- $backstage = "/mgr/cms/comments" -}}
+          {{- else if can .Perm.CmsSiteManage -}}
+            {{- $backstage = "/mgr/cms/settings" -}}
+          {{- end -}}
+          {{- if $backstage }}
+          <a class="yd-menu__item" role="menuitem" href="{{ $backstage }}">
+            {{ template "portal/partials/icon" "lucide-settings" }}<span>{{ tr "nav.management" }}</span>
+          </a>
+          {{- end }}
+          <form method="post" action="/logout" hx-post="/logout" hx-target="#yd-workspace" hx-swap="innerMorph"
+                data-yd-confirm="{{ tr "confirm.logout" }}">
+            <button type="submit" class="yd-menu__item yd-menu__item--row">
+              {{ template "portal/partials/icon" "lucide-log-out" }}<span>{{ tr "ui.sign_out" }}</span>
+            </button>
+          </form>
+        </div>
+      </details>
       {{- else }}
       <a class="yd-btn yd-btn--primary yd-btn--sm" href="/login">{{ tr "ui.sign_in" }}</a>
       {{- end }}
     </nav>
   </header>
+
+  {{/* 一二级分类导航：顶级分类是链接；有子分类的顶级分类同时是一个下拉面板。 |
+       First/second-level category navigation: a top-level category is a link, and one with children is also a dropdown
+       panel. */}}
+  <nav class="yd-filters" aria-label="{{ tr "cms.public.categories" }}">
+    <a class="yd-btn yd-btn--ghost yd-btn--sm" href="/">{{ tr "cms.public.home_title" }}</a>
+    <a class="yd-btn yd-btn--ghost yd-btn--sm" href="/blog">{{ tr "cms.public.all_posts" }}</a>
+    {{- with .PublicNav }}
+    {{- range . }}
+    {{- if .Children }}
+    <details class="yd-menu" data-yd-menu>
+      <summary class="yd-btn yd-btn--ghost yd-btn--sm">
+        <span>{{ .Category.Name }}</span><span aria-hidden="true">▾</span>
+      </summary>
+      <div class="yd-menu__panel">
+        <a class="yd-menu__item" href="/blog/category/{{ .Category.Slug }}">{{ tr "cms.public.more" }} · {{ .Category.Name }}</a>
+        {{- range .Children }}
+        <a class="yd-menu__item" href="/blog/category/{{ .Category.Slug }}">{{ .Category.Name }}</a>
+        {{- end }}
+      </div>
+    </details>
+    {{- else }}
+    <a class="yd-btn yd-btn--ghost yd-btn--sm" href="/blog/category/{{ .Category.Slug }}">{{ .Category.Name }}</a>
+    {{- end }}
+    {{- end }}
+    {{- end }}
+  </nav>
+
   <form class="yd-filters" role="search" method="get" action="/blog/search"
         hx-get="/blog/search" hx-target="#yd-workspace" hx-swap="innerMorph" hx-push-url="true">
     <label class="sr-only" for="yd-blog-search">{{ tr "cms.public.search_label" }}</label>

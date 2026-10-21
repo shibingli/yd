@@ -12,9 +12,13 @@
 - **修订历史**：正文或标题变更前自动快照；可恢复；每篇保留最近 N 版。
 - **媒体库**：服务端嗅探 MIME、白名单、大小上限、不透明存储键；文章编辑器内直接上传图片。
 - **评论**：登录用户发表、两级回复、审核状态（待审/通过/拒绝/垃圾/删除）、全站评论开关。
-- **公开站点**：`/blog` 列表、分类、标签、搜索、文章、单页、RSS 2.0、站点地图与媒体；
-  门户首页 `/` 只提供普通用户功能，后台管理全部落在 `/mgr/**`；公开分类只统计已发布、公开且到期的文章，
-  隐藏分类连同整棵子树一起隐藏。
+- **公开站点**：`/` 是匿名可达的公开内容门户，展示头条、最新发布与按一级/二级分类组织的内容区块；
+  `/blog` 提供列表、分类、标签、搜索、文章、单页、RSS 2.0、站点地图与媒体。搜索支持关键字、分类与标签
+  组合条件；公开分类只统计已发布、公开且到期的文章，隐藏分类连同整棵子树一起隐藏。
+- **门户写作中心**：普通成员在 `/account/articles` 管理自己的文章；`/account/articles/new` 与
+  `/account/articles/:id/edit` 提供门户编辑器。作者可以创建、编辑、提交审核、撤回、退役、恢复与删除；
+  **门户不提供发布与审核**，必须由 `/mgr/cms` 的管理员审核通过后才能公开。
+- **个人中心**：`/account` 同时提供显示名/邮箱修改、写作中心统计、口令修改、sec_key 轮换与租户设置。
 - **管理后台**：`/mgr/cms/**` 下的概览、文章、分类、标签、媒体、评论、站点设置与审计。
 - **JSON API**：`/api/v1/cms/...` 与 HTML 共用同一个领域服务；后台 JSON API 与管理页面同在 `/mgr/**` 体系之外，
 但共享同一套权限守卫。
@@ -159,11 +163,12 @@ draft ──submit──> pending ──approve──> published
 
 | 路径 | 说明 |
 |---|---|
+| `GET /` | 匿名公开门户：头条、最新发布与一级/二级分类区块 |
 | `GET /blog` | 文章列表 |
 | `GET /blog/page/:page` | 分页 |
 | `GET /blog/category/:slug`、`/blog/category/:slug/page/:page` | 分类（含后代） |
 | `GET /blog/tag/:slug`、`/blog/tag/:slug/page/:page` | 标签 |
-| `GET /blog/search?q=` | 搜索 |
+| `GET /blog/search?q=&category=&tag=` | 全文检索；三个条件可组合 |
 | `GET /blog/:slug` | 文章 |
 | `GET /blog/p/:slug` | 独立单页 |
 | `POST /blog/:slug/comments` | 发表评论（登录） |
@@ -172,6 +177,23 @@ draft ──submit──> pending ──approve──> published
 | `GET /blog/media/:id` | 公开媒体 |
 
 静态段先于 `/blog/:slug` 登记，因此 `rss.xml`、`sitemap.xml`、`media` 与 `p` 不会被当成文章别名。
+
+### 门户写作中心
+
+| 路径 | 说明 |
+|---|---|
+| `GET /account/articles` | 我的文章（草稿/待审/已发布/已归档筛选） |
+| `GET /account/articles/new` | 门户编辑器 |
+| `POST /account/articles` | 创建草稿 |
+| `GET /account/articles/:id/edit` | 编辑自己的文章 |
+| `POST /account/articles/:id` | 更新自己的文章 |
+| `POST /account/articles/:id/transition` | `submit` / `withdraw` / `archive` / `restore` |
+| `POST /account/articles/:id/delete` | 软删除自己的文章 |
+| `POST /account/media/upload` | 门户编辑器图片上传（与后台共用领域服务与 MIME 白名单） |
+| `POST /account/profile` | 修改显示名与邮箱 |
+
+作者边界由领域服务与控制器双重校验：他人的文章一律按 `cms.ErrArticleNotFound` 处理，不泄露存在性。
+`approve`、`reject` 与 `publish` 不在门户提供，仍由 `/mgr/cms/articles` 的管理员执行。
 
 ### JSON API
 
@@ -203,10 +225,15 @@ draft ──submit──> pending ──approve──> published
 
 - 管理端沿用生成项目的外观：`#yd-shell`、右侧抽屉、`details.yd-menu`、全局确认框。
 - 文章编辑器使用 EasyMDE（本地 vendored）；工具栏的图片按钮通过 `data-yd-editor-upload`
-  上传到 `/mgr/cms/media/upload` 并插入地址。
+  上传并插入地址：管理端使用 `/mgr/cms/media/upload`，门户编辑器使用 `/account/media/upload`，
+  两者共用同一领域服务与 MIME 白名单。
 - 媒体库提供复制地址按钮；复制结果通过应用已有的 `yd:toast` 事件反馈。
-- 公开页按可选会话渲染：已登录读者看到评论表单与后台入口，匿名读者只看到登录入口；提交评论还要求
-  登录用户是公开租户（`cms.public_tenant` 或请求头/子域名指明的租户）的成员，并与页面使用同一个租户。
+- 公开页按可选会话渲染：匿名访客直接阅读 `/` 与 `/blog`，已登录读者额外看到评论表单、个人中心与写作中心入口；
+  只有真正持有管理能力的账号才看到后台入口。提交评论还要求登录用户是公开租户
+  （`cms.public_tenant` 或请求头/子域名指明的租户）的成员，并与页面使用同一个租户。
+- 公开外壳的分类导航按一级/二级分类展开；文章页与列表页共享同一套搜索与筛选条件，分页链接保留查询串。
+- 门户写作中心使用 `portal/pages/my_articles.html` 与 `portal/pages/my_article_edit.html`，
+  不与管理端模板共用；编辑器保存后仍是草稿，提交审核后由管理员在后台决定是否发布。
 - 公开评论列表只展示父评论同样可见的回复，避免父评论被隐藏或删除后出现孤立回复；墓碑行仍保留在库中供管理端审计。
 - 公开站点由 `portal/layouts/public_shell.html` 承载：站点头部、分类导航、搜索、语言/主题切换与页脚；
   它只在 `.PublicSite` 为真时由 `layouts/shell.html` 引入。
