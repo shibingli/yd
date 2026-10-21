@@ -543,6 +543,16 @@ func TestGeneratedAppCMS(t *testing.T) {
 	if strings.Contains(body, `href="/mgr`) {
 		t.Fatalf("普通成员的公开外壳不应出现任何后台入口:\n%s", body)
 	}
+	// 公开外壳里的退出同样要经过统一确认框：缺少 #yd-confirm 时 askConfirm 无处可开，
+	// 退出表单会绕过确认或静默失败。 |
+	// Sign-out in the public shell must also pass through the shared confirmation dialog: without #yd-confirm,
+	// askConfirm has nowhere to open and the form either skips confirmation or fails silently.
+	if strings.Count(body, `id="yd-confirm"`) != 1 {
+		t.Fatalf("已登录的公开外壳必须恰好有一个统一确认对话框:\n%s", body)
+	}
+	if !strings.Contains(body, `action="/logout"`) || !strings.Contains(body, `data-yd-confirm=`) {
+		t.Fatalf("已登录的公开外壳缺少带确认的退出表单:\n%s", body)
+	}
 	resp, body = probeGet(t, public, base+"/blog/"+article.Slug, "")
 	requireProbeStatus(t, resp, body, http.StatusOK, "匿名读者打开公开文章")
 	if strings.Contains(body, `action="/blog/`+article.Slug+`/comments"`) {

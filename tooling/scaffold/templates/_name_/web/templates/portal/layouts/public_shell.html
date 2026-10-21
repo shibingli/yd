@@ -147,4 +147,22 @@
     {{- end }}
   </footer>
 </div>
+
+{{/* 公开外壳同样需要全局确认对话框：登录后的用户菜单里有退出、资料与写作动作，
+     而 layouts/shell.html 的确认框只在侧栏外壳分支渲染。缺少这个节点时 askConfirm 找不到
+     #yd-confirm，退出表单会静默失败或绕过确认。 |
+     The public shell needs the global confirmation dialog as well: its signed-in user menu carries sign-out,
+     profile and writing actions, while the dialog in layouts/shell.html is rendered only in the rail branch.
+     Without this node askConfirm cannot find #yd-confirm and the sign-out form silently fails or skips the
+     confirmation. */}}
+<dialog id="yd-confirm" class="yd-dialog yd-confirm" aria-labelledby="yd-confirm-title">
+  <form method="dialog" class="yd-dialog__panel">
+    <h2 class="yd-dialog__title" id="yd-confirm-title">{{ tr "confirm.title" }}</h2>
+    <p class="yd-dialog__text" data-yd-confirm-text></p>
+    <div class="yd-dialog__actions">
+      <button value="cancel" class="yd-btn yd-btn--ghost">{{ tr "ui.cancel" }}</button>
+      <button value="confirm" class="yd-btn yd-btn--primary yd-btn--danger">{{ tr "ui.confirm" }}</button>
+    </div>
+  </form>
+</dialog>
 {{- end -}}
