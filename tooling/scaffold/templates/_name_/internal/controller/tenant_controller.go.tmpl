@@ -17,10 +17,10 @@ import (
 // Tenants renders the tenant list together with the creation form.
 //
 // @Summary Tenant list | 租户列表
-// @Description Renders pages/tenants.html with every tenant the platform knows about. The list is platform-wide by
+// @Description Renders mgr/pages/tenants.html with every tenant the platform knows about. The list is platform-wide by
 // @Description design: tenants are the boundary of everything else, so the capability guarding this page is the rarest
 // @Description one in the catalogue and the operation is annotated with BearerAuth like every other business endpoint.
-// @Description 渲染 pages/tenants.html，列出平台上的全部租户。列表按设计是平台级的：租户是其它一切数据的边界，因此看守本页的
+// @Description 渲染 mgr/pages/tenants.html，列出平台上的全部租户。列表按设计是平台级的：租户是其它一切数据的边界，因此看守本页的
 // @Description 能力是全目录里最稀缺的一项；与其它业务端点一样，本操作标注 BearerAuth。
 // @Tags tenants
 // @Accept html
@@ -31,7 +31,7 @@ import (
 // @Failure 401 {object} string "no session | 无有效会话"
 // @Failure 403 {object} string "missing tenant:read | 缺少 tenant:read"
 // @Security BearerAuth
-// @Router /tenants [get]
+// @Router /mgr/tenants [get]
 func (c *Controller) Tenants(ctx *router.Ctx) {
 	c.tenantsPage(ctx, http.StatusOK, field(ctx, FieldKeyword), "")
 }
@@ -48,7 +48,7 @@ func (c *Controller) Tenants(ctx *router.Ctx) {
 // @Failure 401 {object} string "no session | 无有效会话"
 // @Failure 403 {object} string "missing tenant:create | 缺少 tenant:create"
 // @Security BearerAuth
-// @Router /tenants/new [get]
+// @Router /mgr/tenants/new [get]
 func (c *Controller) NewTenantForm(ctx *router.Ctx) {
 	c.render(ctx, http.StatusOK, TplTenantCreateDrawer, c.view(ctx, "新建租户 | Create tenant", nil))
 }
@@ -73,7 +73,7 @@ func (c *Controller) NewTenantForm(ctx *router.Ctx) {
 // @Failure 409 {object} string "slug already taken | 标识已被占用"
 // @Failure 422 {object} string "validation failure | 校验失败"
 // @Security BearerAuth
-// @Router /tenants [post]
+// @Router /mgr/tenants [post]
 func (c *Controller) CreateTenant(ctx *router.Ctx) {
 	slug := field(ctx, FieldSlug)
 	name := field(ctx, FieldName)

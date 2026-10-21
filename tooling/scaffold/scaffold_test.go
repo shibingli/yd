@@ -62,6 +62,10 @@ var requiredFiles = []string{
 	"docs/developer_guidelines.md",
 	"go.mod",
 	"internal/controller/auth_controller.go",
+	"internal/controller/cms_admin.go",
+	"internal/controller/cms_api.go",
+	"internal/controller/cms_public.go",
+	"internal/controller/cms_view.go",
 	"internal/controller/controller.go",
 	"internal/controller/friend_controller.go",
 	"internal/controller/home.go",
@@ -82,6 +86,7 @@ var requiredFiles = []string{
 	"internal/middleware/security.go",
 	"internal/middleware/session.go",
 	"internal/middleware/tenant.go",
+	"internal/model/cms.go",
 	"internal/model/permission.go",
 	"internal/model/role.go",
 	"internal/model/tenant.go",
@@ -92,6 +97,7 @@ var requiredFiles = []string{
 	"internal/repository/user_repo.go",
 	"internal/router/router.go",
 	"internal/service/auth.go",
+	"internal/service/cms.go",
 	"internal/service/message.go",
 	"internal/service/message_bus.go",
 	"internal/service/metrics.go",
@@ -106,84 +112,119 @@ var requiredFiles = []string{
 	"web/static/css/app.css",
 	"web/static/css/components.css",
 	"web/static/js/yd-app.js",
-	"web/templates/layouts/base.html",
-	"web/templates/layouts/shell.html",
-	"web/templates/pages/account.html",
-	"web/templates/pages/error.html",
-	"web/templates/pages/friends.html",
-	"web/templates/pages/home.html",
-	"web/templates/pages/login.html",
-	"web/templates/pages/message_audit.html",
-	"web/templates/pages/message_settings.html",
-	"web/templates/pages/messages.html",
-	"web/templates/pages/permissions.html",
-	"web/templates/pages/realtime.html",
-	"web/templates/pages/roles.html",
-	"web/templates/pages/tenants.html",
-	"web/templates/pages/users.html",
-	"web/templates/partials/flash.html",
-	"web/templates/partials/friends/remark.html",
-	"web/templates/partials/friends/request.html",
-	"web/templates/partials/friends/search.html",
-	"web/templates/partials/friends/summary.html",
-	"web/templates/partials/home/live_metrics.html",
-	"web/templates/partials/home/metrics.html",
-	"web/templates/partials/home/metrics_fragment.html",
-	"web/templates/partials/home/middleware.html",
-	"web/templates/partials/home/middleware_fragment.html",
-	"web/templates/partials/icon.html",
-	"web/templates/partials/login.html",
-	"web/templates/partials/message_settings/body.html",
-	"web/templates/partials/message_settings/tag_form.html",
-	"web/templates/partials/message_settings/type_form.html",
-	"web/templates/partials/messages/attachment_chip.html",
-	"web/templates/partials/messages/audit.html",
-	"web/templates/partials/messages/compose.html",
-	"web/templates/partials/messages/composer.html",
-	"web/templates/partials/messages/contacts.html",
-	"web/templates/partials/messages/conversations.html",
-	"web/templates/partials/messages/group_settings.html",
-	"web/templates/partials/messages/history.html",
-	"web/templates/partials/messages/i18n_keys.html",
-	"web/templates/partials/messages/message.html",
-	"web/templates/partials/messages/notice.html",
-	"web/templates/partials/messages/pin.html",
-	"web/templates/partials/messages/search.html",
-	"web/templates/partials/messages/thread.html",
-	"web/templates/partials/messages/unread_badge.html",
-	"web/templates/partials/messages/unread_menu_badge.html",
-	"web/templates/partials/roles/drawer.html",
-	"web/templates/partials/roles/edit_drawer.html",
-	"web/templates/partials/roles/form.html",
-	"web/templates/partials/roles/list.html",
-	"web/templates/partials/shell-switches.html",
-	"web/templates/partials/sidebar.html",
-	"web/templates/partials/tenants/drawer.html",
-	"web/templates/partials/tenants/form.html",
-	"web/templates/partials/tenants/list.html",
-	"web/templates/partials/users/create_drawer.html",
-	"web/templates/partials/users/edit_drawer.html",
-	"web/templates/partials/users/form.html",
-	"web/templates/partials/users/list.html",
-	"web/templates/partials/users/row.html",
+	"web/templates/mgr/layouts/base.html",
+	"web/templates/mgr/layouts/shell.html",
+	"web/templates/mgr/pages/cms_article_edit.html",
+	"web/templates/mgr/pages/cms_articles.html",
+	"web/templates/mgr/pages/cms_audit.html",
+	"web/templates/mgr/pages/cms_categories.html",
+	"web/templates/mgr/pages/cms_comments.html",
+	"web/templates/mgr/pages/cms_dashboard.html",
+	"web/templates/mgr/pages/cms_media.html",
+	"web/templates/mgr/pages/cms_settings.html",
+	"web/templates/mgr/pages/cms_tags.html",
+	"web/templates/mgr/pages/error.html",
+	"web/templates/mgr/pages/home.html",
+	"web/templates/mgr/pages/message_admin.html",
+	"web/templates/mgr/pages/message_settings.html",
+	"web/templates/mgr/pages/permissions.html",
+	"web/templates/mgr/pages/roles.html",
+	"web/templates/mgr/pages/tenants.html",
+	"web/templates/mgr/pages/users.html",
+	"web/templates/mgr/partials/cms/article_table.html",
+	"web/templates/mgr/partials/cms/category_form.html",
+	"web/templates/mgr/partials/cms/category_node.html",
+	"web/templates/mgr/partials/cms/i18n_keys.html",
+	"web/templates/mgr/partials/cms/revisions.html",
+	"web/templates/mgr/partials/cms/tag_form.html",
+	"web/templates/mgr/partials/cms/transition_form.html",
+	"web/templates/mgr/partials/flash.html",
+	"web/templates/mgr/partials/home/live_metrics.html",
+	"web/templates/mgr/partials/home/metrics.html",
+	"web/templates/mgr/partials/home/metrics_fragment.html",
+	"web/templates/mgr/partials/home/middleware.html",
+	"web/templates/mgr/partials/home/middleware_fragment.html",
+	"web/templates/mgr/partials/icon.html",
+	"web/templates/mgr/partials/message_settings/body.html",
+	"web/templates/mgr/partials/message_settings/tag_form.html",
+	"web/templates/mgr/partials/message_settings/type_form.html",
+	"web/templates/mgr/partials/messages/audit.html",
+	"web/templates/mgr/partials/messages/message.html",
+	"web/templates/mgr/partials/messages/pin.html",
+	"web/templates/mgr/partials/pager.html",
+	"web/templates/mgr/partials/roles/drawer.html",
+	"web/templates/mgr/partials/roles/edit_drawer.html",
+	"web/templates/mgr/partials/roles/form.html",
+	"web/templates/mgr/partials/roles/list.html",
+	"web/templates/mgr/partials/shell-switches.html",
+	"web/templates/mgr/partials/sidebar.html",
+	"web/templates/mgr/partials/tenants/drawer.html",
+	"web/templates/mgr/partials/tenants/form.html",
+	"web/templates/mgr/partials/tenants/list.html",
+	"web/templates/mgr/partials/users/create_drawer.html",
+	"web/templates/mgr/partials/users/edit_drawer.html",
+	"web/templates/mgr/partials/users/form.html",
+	"web/templates/mgr/partials/users/list.html",
+	"web/templates/mgr/partials/users/row.html",
+	"web/templates/portal/layouts/base.html",
+	"web/templates/portal/layouts/public_shell.html",
+	"web/templates/portal/layouts/shell.html",
+	"web/templates/portal/pages/account.html",
+	"web/templates/portal/pages/blog.html",
+	"web/templates/portal/pages/blog_article.html",
+	"web/templates/portal/pages/blog_page.html",
+	"web/templates/portal/pages/error.html",
+	"web/templates/portal/pages/friends.html",
+	"web/templates/portal/pages/home.html",
+	"web/templates/portal/pages/login.html",
+	"web/templates/portal/pages/messages.html",
+	"web/templates/portal/pages/realtime.html",
+	"web/templates/portal/partials/flash.html",
+	"web/templates/portal/partials/friends/remark.html",
+	"web/templates/portal/partials/friends/request.html",
+	"web/templates/portal/partials/friends/search.html",
+	"web/templates/portal/partials/friends/summary.html",
+	"web/templates/portal/partials/icon.html",
+	"web/templates/portal/partials/login.html",
+	"web/templates/portal/partials/messages/attachment_chip.html",
+	"web/templates/portal/partials/messages/compose.html",
+	"web/templates/portal/partials/messages/composer.html",
+	"web/templates/portal/partials/messages/contacts.html",
+	"web/templates/portal/partials/messages/conversations.html",
+	"web/templates/portal/partials/messages/group_settings.html",
+	"web/templates/portal/partials/messages/history.html",
+	"web/templates/portal/partials/messages/i18n_keys.html",
+	"web/templates/portal/partials/messages/message.html",
+	"web/templates/portal/partials/messages/notice.html",
+	"web/templates/portal/partials/messages/search.html",
+	"web/templates/portal/partials/messages/sidebar_badges.html",
+	"web/templates/portal/partials/messages/thread.html",
+	"web/templates/portal/partials/messages/unread_badge.html",
+	"web/templates/portal/partials/messages/unread_menu_badge.html",
+	"web/templates/portal/partials/pager.html",
+	"web/templates/portal/partials/shell-switches.html",
+	"web/templates/portal/partials/sidebar.html",
 }
 
 // specGitignore 是需求基线 §二.3 的 .gitignore 模板逐字内容（已去掉提示行），
-// 外加两处**有意偏离**：
+// 外加三处**有意偏离**：
 //   - 基线未忽略 `.yd/`，而 `yd tools install` 会把 betteralign、ko 等外部工具二进制装进
 //     项目内的 `.yd/tools/`，不忽略就会出现在 `git status` 里，甚至被误提交；
 //     该偏离已记入 docs/superpowers/plans/2026-10-17-yd-tool-installation.md 的差异说明。
 //   - 基线未忽略本地库文件，而 `yd new --db sqlite` 的示例 DSN 默认把库落在 `data/`，
 //     WAL 模式还会生成 `-wal` / `-shm` 边车文件；它们属于本机运行数据，绝不入库。
+//   - 基线未忽略运行期上传目录（消息附件与 CMS 媒体），它们同样是本机运行数据。
 //
 // specGitignore is the verbatim .gitignore template of the baseline §二.3 (the advisory line has
-// been dropped), plus two deliberate deviations:
+// been dropped), plus three deliberate deviations:
 //   - the baseline does not ignore `.yd/`, yet `yd tools install` puts betteralign, ko and friends
 //     into the project-local `.yd/tools/`, where they would show up in `git status` and could be
 //     committed by accident (recorded in the tool-installation plan's difference note);
 //   - the baseline does not ignore local database files, yet the SQLite sample DSN of
 //     `yd new --db sqlite` lands the database in `data/`, and WAL mode adds the -wal / -shm
 //     sidecars; they are machine-local runtime data and never belong in version control.
+//   - the baseline does not ignore runtime upload directories (message attachments and CMS media),
+//     which are likewise machine-local runtime data.
 const specGitignore = "bin/\n" +
 	"dist/\n" +
 	"*.exe\n" +
@@ -206,6 +247,9 @@ const specGitignore = "bin/\n" +
 	"node_modules/\n" +
 	"# Project-local optional tool binaries installed by `yd tools install` | 由 `yd tools install` 安装到项目内的可选工具二进制\n" +
 	".yd/\n" +
+	"# Runtime uploads (message attachments and CMS media) | 运行期上传（消息附件与 CMS 媒体）\n" +
+	"data/attachments/\n" +
+	"data/cms-media/\n" +
 	"# Local database files (the default landing spot of yd new --db sqlite, WAL sidecars included) | 本地数据库文件（yd new --db sqlite 的默认落点，含 WAL 边车文件）\n" +
 	"data/*.db\n" +
 	"data/*.db-wal\n" +
@@ -482,7 +526,7 @@ func TestGenerateFeaturesReflectedInConfigAndRoutes(t *testing.T) {
 func TestGeneratedRealtimeWrapsWSSendControls(t *testing.T) {
 	pr, _ := generateMem(t, scaffold.DefaultOptions("realtime-app"))
 
-	page := pr.read("web/templates/pages/realtime.html")
+	page := pr.read("web/templates/portal/pages/realtime.html")
 	connectAt := strings.Index(page, `hx-ws:connect="/ws"`)
 	composerAt := strings.Index(page, `class="yd-composer" data-yd-ws-composer`)
 	sendAt := strings.Index(page, `hx-ws:send="true"`)
@@ -596,6 +640,79 @@ func TestGeneratedPersistenceFollowsDatabaseChoice(t *testing.T) {
 	}
 }
 
+// TestGeneratedPortalAndManagementTreesAreIsolated pins the portal/back-office split: the two template trees never
+// include each other, the management endpoints live under /mgr and /api/v1 while member endpoints live under
+// /api/portal/v1, and the controller selects the layout from view data. | TestGeneratedPortalAndManagementTreesAreIsolated
+// 固定门户与后台的隔离：两棵模板树互不 include，管理端点在 /mgr 与 /api/v1 下，成员端点在 /api/portal/v1 下，
+// 控制器按视图数据选择布局。
+func TestGeneratedPortalAndManagementTreesAreIsolated(t *testing.T) {
+	pr, _ := generateMem(t, scaffold.DefaultOptions("split-app"))
+
+	// 模板树隔离：门户不得引用 mgr 树的片段，后台不得引用 portal 树的片段。
+	// Template isolation: neither tree may include a fragment from the other.
+	for _, rel := range requiredFiles {
+		switch {
+		case strings.HasPrefix(rel, "web/templates/portal/"):
+			if body := pr.read(rel); strings.Contains(body, `"mgr/`) || strings.Contains(body, `"mgr/partials/`) {
+				t.Errorf("%s 引用了后台模板树 | %s includes the management tree", rel, rel)
+			}
+		case strings.HasPrefix(rel, "web/templates/mgr/"):
+			if body := pr.read(rel); strings.Contains(body, `"portal/`) || strings.Contains(body, `"portal/partials/`) {
+				t.Errorf("%s 引用了门户模板树 | %s includes the portal tree", rel, rel)
+			}
+		}
+	}
+	for _, stale := range []string{
+		"web/templates/layouts/base.html",
+		"web/templates/pages/home.html",
+		"web/templates/partials/sidebar.html",
+	} {
+		if pr.exists(stale) {
+			t.Errorf("旧模板路径仍然存在: %s | legacy template path still exists: %s", stale, stale)
+		}
+	}
+
+	// 布局选择：控制器用 render.LayoutKey 与两套布局/外壳常量，门户与后台因此不会共用外壳。
+	// Layout selection: the controller uses render.LayoutKey and two layout/shell constant sets, so the two sides never
+	// share a shell.
+	ctrl := pr.read("internal/controller/controller.go")
+	for _, want := range []string{
+		"render.LayoutKey",
+		"LayoutPortal",
+		"LayoutMgr",
+		"ShellPortal",
+		"ShellMgr",
+	} {
+		if !strings.Contains(ctrl, want) {
+			t.Errorf("controller.go 缺少 %q | controller.go is missing %q", want, want)
+		}
+	}
+
+	// 路由隔离：管理页面与管理 API 在 /mgr 与 /api/v1，成员 API 在 /api/portal/v1。
+	// Route isolation: management pages and APIs live under /mgr and /api/v1, member APIs under /api/portal/v1.
+	router := pr.read("internal/router/router.go")
+	for _, want := range []string{
+		`g.GET("/mgr", ctrl.ManagementHome`,
+		`g.GET("/mgr/users"`,
+		`g.GET("/mgr/cms"`,
+		`g.GET("/api/portal/v1/messages"`,
+		`g.GET("/api/v1/cms/articles"`,
+	} {
+		if !strings.Contains(router, want) {
+			t.Errorf("router.go 缺少隔离后的路由 %q | router.go is missing %q", want, want)
+		}
+	}
+	for _, unwanted := range []string{
+		`g.GET("/users"`,
+		`g.GET("/messages/admin"`,
+		`g.GET("/api/v1/messages/conversations"`,
+	} {
+		if strings.Contains(router, unwanted) {
+			t.Errorf("router.go 仍暴露旧路由 %q | router.go still exposes %q", unwanted, unwanted)
+		}
+	}
+}
+
 // TestGeneratedProjectWiresAuthzRegistry 断言生成的项目真的接上了框架的授权注册表：路由挂 authz.Middleware 并用
 // authz.Require(authz.PermXxx) 守卫每一段写路径、控制器把 authz.Data 注入视图数据、模板按数据键与常量名两种写法判定，
 // 而种子数据的角色与能力一律取自注册表——因此 `yd authz check` 在生成物上零错误。
@@ -641,11 +758,11 @@ func TestGeneratedProjectWiresAuthzRegistry(t *testing.T) {
 	// 模板：两个可照抄的范例——声明式属性与条件判定各一，两者都读注册表派生的键。
 	// Templates: the two copyable examples — one declarative attribute and one condition — both reading keys derived from
 	// the registry.
-	form := pr.read("web/templates/partials/users/form.html")
+	form := pr.read("web/templates/mgr/partials/users/form.html")
 	if want := `data-yd-perm="{{ ` + authz.PermSelector + authz.DataKey(authz.PermUserCreate) + ` }}"`; !strings.Contains(form, want) {
 		t.Errorf("users/form.html 的提交按钮缺少 %q", want)
 	}
-	sidebar := pr.read("web/templates/partials/sidebar.html")
+	sidebar := pr.read("web/templates/mgr/partials/sidebar.html")
 	if want := `can "` + authz.ConstantName(authz.PermUserRead) + `"`; !strings.Contains(sidebar, want) {
 		t.Errorf("sidebar.html 缺少常量名写法 %q", want)
 	}
@@ -1269,7 +1386,12 @@ const (
 	// assemble its templates and bind the port.
 	startupTimeout = 30 * time.Second
 	// httpTimeout bounds one ordinary request. | httpTimeout 是单条普通请求的上限。
-	httpTimeout = 10 * time.Second
+	// httpTimeout is the probe timeout. The first HTML render in a generated project runs with
+	// render.Dev=true and therefore compiles the whole template tree; on a cold Windows filesystem that
+	// can approach ten seconds, so the timeout leaves headroom for the compile instead of failing a
+	// healthy app. | httpTimeout 是探针超时。生成项目首次 HTML 渲染运行在 render.Dev=true 下，
+	// 需要编译整棵模板树；在冷启动的 Windows 文件系统上接近十秒，因此留出编译余量，避免误判健康的应用。
+	httpTimeout = 20 * time.Second
 	// sseTimeout 是等待一帧 SSE 推送的上限（推送间隔 5 秒，留足心跳与调度余量）。
 	// sseTimeout bounds the wait for one SSE frame (the push interval is five seconds, leaving room for heartbeats and scheduling).
 	sseTimeout = 20 * time.Second
@@ -1324,17 +1446,32 @@ func TestGeneratedAppServesFrameworkFeatures(t *testing.T) {
 			t.Fatalf("GET / 状态码 = %d, 期望 200\n%s", resp.StatusCode, body)
 		}
 		for _, want := range []string{
-			"<html", `id="yd-workspace"`, "/static/css/yd.css",
-			`id="yd-live-metrics"`, `hx-ws:connect="/ws/metrics"`, `id="yd-middleware-metrics"`,
+			"<html", `id="yd-workspace"`, "/static/css/yd.css", `data-yd-page="portal-home"`,
 		} {
 			if !strings.Contains(body, want) {
 				t.Errorf("GET / 缺少 %q:\n%s", want, body)
 			}
 		}
-		for _, unwanted := range []string{`hx-get="/metrics"`, `hx-get="/metrics/middleware"`} {
-			if strings.Contains(body, unwanted) {
-				t.Errorf("GET / 仍使用指标轮询 %q:\n%s", unwanted, body)
+		if strings.Contains(body, `hx-ws:connect="/mgr/ws/metrics"`) {
+			t.Errorf("GET / 门户首页不得建立管理指标连接:\n%s", body)
+		}
+
+		// 管理概览在 /mgr：指标卡片仍由同一条 WebSocket 供给，且不再走 HTTP 轮询。
+		// The management overview lives at /mgr: its metric cards still share one WebSocket and no HTTP polling remains.
+		resp, body = getText(t, client, base+"/mgr", nil)
+		if resp.StatusCode != http.StatusOK {
+			t.Fatalf("GET /mgr 状态码 = %d, 期望 200\n%s", resp.StatusCode, body)
+		}
+		for _, want := range []string{
+			`data-yd-page="home"`,
+			`id="yd-live-metrics"`, `hx-ws:connect="/mgr/ws/metrics"`, `id="yd-middleware-metrics"`,
+		} {
+			if !strings.Contains(body, want) {
+				t.Errorf("GET /mgr 缺少 %q:\n%s", want, body)
 			}
+		}
+		if strings.Contains(body, `hx-trigger="every`) {
+			t.Errorf("GET /mgr 仍使用定时轮询，指标必须由 WebSocket 推送:\n%s", body)
 		}
 	})
 
@@ -1342,7 +1479,7 @@ func TestGeneratedAppServesFrameworkFeatures(t *testing.T) {
 		ctx, cancel := context.WithTimeout(context.Background(), sseTimeout)
 		defer cancel()
 
-		conn, err := ws.Dial(ctx, "ws"+strings.TrimPrefix(base, "http")+"/ws/metrics", ws.DialOptions{
+		conn, err := ws.Dial(ctx, "ws"+strings.TrimPrefix(base, "http")+"/mgr/ws/metrics", ws.DialOptions{
 			Subprotocols: []string{"htmx"},
 			Headers:      http.Header{"Authorization": []string{"Bearer " + token}},
 		})
@@ -1400,7 +1537,7 @@ func TestGeneratedAppServesFrameworkFeatures(t *testing.T) {
 	})
 
 	t.Run("系统资源片段", func(t *testing.T) {
-		resp, body := getText(t, client, base+"/metrics", nil)
+		resp, body := getText(t, client, base+"/mgr/metrics", nil)
 		if resp.StatusCode != http.StatusOK {
 			t.Fatalf("GET /metrics 状态码 = %d, 期望 200\n%s", resp.StatusCode, body)
 		}
@@ -1422,7 +1559,7 @@ func TestGeneratedAppServesFrameworkFeatures(t *testing.T) {
 	})
 
 	t.Run("中间件运行时", func(t *testing.T) {
-		resp, body := getText(t, client, base+"/metrics/middleware", nil)
+		resp, body := getText(t, client, base+"/mgr/metrics/middleware", nil)
 		if resp.StatusCode != http.StatusOK {
 			t.Fatalf("GET /metrics/middleware 状态码 = %d, 期望 200\n%s", resp.StatusCode, body)
 		}
@@ -1445,20 +1582,20 @@ func TestGeneratedAppServesFrameworkFeatures(t *testing.T) {
 	})
 
 	t.Run("htmx 局部请求只返回片段", func(t *testing.T) {
-		resp, body := getText(t, client, base+"/", map[string]string{"HX-Request": "true"})
+		resp, body := getText(t, client, base+"/mgr", map[string]string{"HX-Request": "true"})
 		if resp.StatusCode != http.StatusOK {
-			t.Fatalf("HX-Request GET / 状态码 = %d, 期望 200\n%s", resp.StatusCode, body)
+			t.Fatalf("HX-Request GET /mgr 状态码 = %d, 期望 200\n%s", resp.StatusCode, body)
 		}
 		if strings.Contains(body, "<html") {
 			t.Errorf("HX-Request 请求不应返回整页 HTML:\n%s", body)
 		}
 		if !strings.Contains(body, `data-yd-page="home"`) {
-			t.Errorf("HX-Request 响应不是首页片段:\n%s", body)
+			t.Errorf("HX-Request 响应不是管理概览片段:\n%s", body)
 		}
 	})
 
 	t.Run("OpenAPI 文档与自包含 /docs", func(t *testing.T) {
-		resp, doc := getText(t, client, base+"/openapi.json", nil)
+		resp, doc := getText(t, client, base+"/api/v1/openapi.json", nil)
 		if resp.StatusCode != http.StatusOK {
 			t.Fatalf("GET /openapi.json 状态码 = %d, 期望 200", resp.StatusCode)
 		}
@@ -1466,7 +1603,12 @@ func TestGeneratedAppServesFrameworkFeatures(t *testing.T) {
 			`"3.0`,
 			`"/avatar/{id}.jpg"`,
 			`"/report/{id}-xx.png"`,
-			`"/users"`,
+			`"/mgr/users"`,
+			`"/mgr/cms/articles"`,
+			`"/mgr/messages"`,
+			`"/mgr/metrics"`,
+			`"/api/portal/v1/messages"`,
+			`"/api/v1/cms/articles"`,
 			`"/events"`,
 			`"/ws"`,
 			`"/login"`,
@@ -1482,10 +1624,27 @@ func TestGeneratedAppServesFrameworkFeatures(t *testing.T) {
 				t.Errorf("GET /openapi.json 缺少 %q:\n%s", want, doc)
 			}
 		}
+		// 注解里的路径必须与隔离后的路由一致：后台管理只剩 /mgr 与 /api/v1，成员 API 只在 /api/portal/v1。
+		// The annotation paths must match the split routes: management only under /mgr and /api/v1, member APIs only
+		// under /api/portal/v1.
+		for _, unwanted := range []string{
+			`"/cms/articles":`,
+			`"/users":`,
+			`"/messages/admin":`,
+			`"/message-settings":`,
+			`"/api/v1/messages/conversations":`,
+			`"/ws/metrics":`,
+			`"/docs":`,
+			`"/openapi.json":`,
+		} {
+			if strings.Contains(doc, unwanted) {
+				t.Errorf("GET /openapi.json 仍含旧路径 %q:\n%s", unwanted, doc)
+			}
+		}
 
 		assertAnnotatedOperations(t, doc)
 
-		respDocs, docs := getText(t, client, base+"/docs", nil)
+		respDocs, docs := getText(t, client, base+"/mgr/docs", nil)
 		if respDocs.StatusCode != http.StatusOK {
 			t.Fatalf("GET /docs 状态码 = %d, 期望 200", respDocs.StatusCode)
 		}
@@ -1670,7 +1829,7 @@ func TestGeneratedAppServesFrameworkFeatures(t *testing.T) {
 		// only and never a whole page. The sign-in name and the address are checked before any password is decrypted,
 		// which is why these two cases may post plain form fields.
 		hx := map[string]string{"HX-Request": "true"}
-		resp, body := postForm(t, client, base+"/users", map[string]string{"username": "", "email": "nobody@example.com"}, hx)
+		resp, body := postForm(t, client, base+"/mgr/users", map[string]string{"username": "", "email": "nobody@example.com"}, hx)
 		if resp.StatusCode != http.StatusUnprocessableEntity {
 			t.Fatalf("空登录名 POST /users 状态码 = %d, 期望 422\n%s", resp.StatusCode, body)
 		}
@@ -1686,7 +1845,7 @@ func TestGeneratedAppServesFrameworkFeatures(t *testing.T) {
 		// 校验失败（普通表单提交）：同样是 422，但由布局包裹成整页——浏览器禁用脚本后仍要能读到错误。
 		// A validation failure on a plain form post: the same 422, wrapped in the layout as a whole page, because a
 		// browser with scripting disabled still has to be able to read the error.
-		respPlain, bodyPlain := postForm(t, client, base+"/users", map[string]string{"username": "", "email": "nobody@example.com"}, nil)
+		respPlain, bodyPlain := postForm(t, client, base+"/mgr/users", map[string]string{"username": "", "email": "nobody@example.com"}, nil)
 		if respPlain.StatusCode != http.StatusUnprocessableEntity {
 			t.Fatalf("非 htmx 的空登录名 POST /users 状态码 = %d, 期望 422\n%s", respPlain.StatusCode, bodyPlain)
 		}
@@ -1699,7 +1858,7 @@ func TestGeneratedAppServesFrameworkFeatures(t *testing.T) {
 		// 邮箱非法同样是 422，但文案不同：状态码由哨兵映射，文案来自哨兵本身。
 		// A malformed e-mail is a 422 too, with different copy: the status comes from the sentinel mapping and the copy
 		// from the sentinel itself.
-		respBad, bodyBad := postForm(t, client, base+"/users", map[string]string{"username": "Alice", "email": "not-an-email"}, hx)
+		respBad, bodyBad := postForm(t, client, base+"/mgr/users", map[string]string{"username": "Alice", "email": "not-an-email"}, hx)
 		if respBad.StatusCode != http.StatusUnprocessableEntity {
 			t.Fatalf("非法邮箱 POST /users 状态码 = %d, 期望 422\n%s", respBad.StatusCode, bodyBad)
 		}
@@ -1712,7 +1871,7 @@ func TestGeneratedAppServesFrameworkFeatures(t *testing.T) {
 		// Success: 200 plus the refreshed list fragment plus the yd:toast event carried by HX-Trigger. The password must
 		// arrive as SM2 ciphertext with the sm2 marker header: the server refuses any plaintext password path, and this is
 		// the second decryption entry point next to sign-in.
-		respOK, bodyOK := postFormValues(t, client, base+"/users", url.Values{
+		respOK, bodyOK := postFormValues(t, client, base+"/mgr/users", url.Values{
 			"username":     {"alice"},
 			"email":        {"alice@example.com"},
 			"display_name": {"Alice"},
@@ -1732,11 +1891,11 @@ func TestGeneratedAppServesFrameworkFeatures(t *testing.T) {
 		// 列表与关键字筛选都返回片段（HX-Request），无匹配时是 200 + 空状态而不是 404。
 		// Both the list and its keyword filter answer with fragments (HX-Request), and a filter without a match is a 200
 		// plus the empty state rather than a 404.
-		respList, list := getText(t, client, base+"/users?q=alice", map[string]string{"HX-Request": "true"})
+		respList, list := getText(t, client, base+"/mgr/users?q=alice", map[string]string{"HX-Request": "true"})
 		if respList.StatusCode != http.StatusOK || !strings.Contains(list, "alice@example.com") {
 			t.Errorf("GET /users?q=alice 未命中新用户（状态码 %d）:\n%s", respList.StatusCode, list)
 		}
-		respMiss, miss := getText(t, client, base+"/users?q=nobody-here", map[string]string{"HX-Request": "true"})
+		respMiss, miss := getText(t, client, base+"/mgr/users?q=nobody-here", map[string]string{"HX-Request": "true"})
 		if respMiss.StatusCode != http.StatusOK {
 			t.Errorf("无匹配的筛选状态码 = %d, 期望 200（内容为空状态）", respMiss.StatusCode)
 		}
@@ -1767,9 +1926,9 @@ func TestGeneratedAppServesFrameworkFeatures(t *testing.T) {
 			t.Errorf("不可用页面缺少说明文案:\n%s", page)
 		}
 
-		resp, body := getText(t, client, base+"/api/v1/messages", nil)
+		resp, body := getText(t, client, base+"/api/portal/v1/messages", nil)
 		if resp.StatusCode != http.StatusServiceUnavailable {
-			t.Fatalf("GET /api/v1/messages 状态码 = %d, 期望 503\n%s", resp.StatusCode, body)
+			t.Fatalf("GET /api/portal/v1/messages 状态码 = %d, 期望 503\n%s", resp.StatusCode, body)
 		}
 		if !strings.Contains(body, "message centre is unavailable") {
 			t.Errorf("不可用 API 缺少说明文案:\n%s", body)
@@ -2060,7 +2219,7 @@ func TestGeneratedAppSupportsAuth(t *testing.T) {
 
 		// 用户列表对匿名请求同样只有 401，一行用户都不给。
 		// The user list answers an anonymous request with the same 401 and not one row.
-		respUsers, users := getText(t, anon, base+"/users", map[string]string{"HX-Request": "true"})
+		respUsers, users := getText(t, anon, base+"/mgr/users", map[string]string{"HX-Request": "true"})
 		if respUsers.StatusCode != http.StatusUnauthorized {
 			t.Fatalf("未登录 GET /users 状态码 = %d, 期望 401\n%s", respUsers.StatusCode, users)
 		}
@@ -2159,14 +2318,14 @@ func TestGeneratedAppSupportsAuth(t *testing.T) {
 		if strings.Contains(body, "<html") {
 			t.Errorf("HX-Request 请求不应返回整页 HTML:\n%s", body)
 		}
-		if !strings.Contains(body, `data-yd-page="home"`) {
-			t.Errorf("已登录的 HX-Request 响应不是首页片段:\n%s", body)
+		if !strings.Contains(body, `data-yd-page="portal-home"`) {
+			t.Errorf("已登录的 HX-Request 响应不是门户首页片段:\n%s", body)
 		}
 
 		// API 形态：显式 Authorization、没有 cookie，走的是同一条校验路径。
 		// The API shape: an explicit Authorization with no cookie, verified along the very same path.
 		api := newProbeClient(t, httpTimeout)
-		respAPI, bodyAPI := getText(t, api, base+"/users", map[string]string{
+		respAPI, bodyAPI := getText(t, api, base+"/mgr/users", map[string]string{
 			"HX-Request":    "true",
 			"Authorization": "Bearer " + token,
 		})
@@ -2189,7 +2348,7 @@ func TestGeneratedAppSupportsAuth(t *testing.T) {
 
 		// 种子只创建 default 租户，因此这里先以管理员身份建出第二个租户，再拿它做提权目标。
 		// The seed creates only the default tenant, so create a second one as the administrator and use it as the escalation target.
-		respNew, newBody := postForm(t, browser, base+"/tenants", map[string]string{
+		respNew, newBody := postForm(t, browser, base+"/mgr/tenants", map[string]string{
 			"slug": probeOtherTenant,
 			"name": "Other tenant",
 		}, map[string]string{"HX-Request": "true"})
@@ -2200,7 +2359,7 @@ func TestGeneratedAppSupportsAuth(t *testing.T) {
 		// default 的令牌 + 另一个租户的请求头：令牌声明优先，请求头一旦指向别的租户就是提权，一律 403。
 		// The default token with the other tenant's header: the token's claim wins and a header naming another tenant is
 		// escalation, refused with 403.
-		resp, body := getText(t, browser, base+"/users", map[string]string{
+		resp, body := getText(t, browser, base+"/mgr/users", map[string]string{
 			"HX-Request": "true",
 			"X-Tenant":   probeOtherTenant,
 		})
@@ -2215,7 +2374,7 @@ func TestGeneratedAppSupportsAuth(t *testing.T) {
 		// 同一枚令牌用 API 形态（显式请求头）提权，结果必须一模一样。
 		// The same token escalating in the API shape (an explicit header) has to end exactly the same way.
 		api := newProbeClient(t, httpTimeout)
-		respAPI, bodyAPI := getText(t, api, base+"/users", map[string]string{
+		respAPI, bodyAPI := getText(t, api, base+"/mgr/users", map[string]string{
 			"HX-Request":    "true",
 			"Authorization": "Bearer " + token,
 			"X-Tenant":      probeOtherTenant,
@@ -2228,7 +2387,7 @@ func TestGeneratedAppSupportsAuth(t *testing.T) {
 		// 反向确认：同一枚令牌指向自己的租户时数据照常返回，因此上面的 403 说的是「租户对不上」而不是「令牌坏了」。
 		// The reverse check: the same token naming its own tenant returns data as usual, so the 403 above says "the tenant
 		// does not match" and not "the token is broken".
-		respOwn, own := getText(t, browser, base+"/users", map[string]string{
+		respOwn, own := getText(t, browser, base+"/mgr/users", map[string]string{
 			"HX-Request": "true",
 			"X-Tenant":   probeTenant,
 		})
@@ -2299,7 +2458,7 @@ func TestGeneratedAppSupportsAuth(t *testing.T) {
 		// The user-list fragment: the submit button's attribute carries the token the server resolved while the template
 		// spells a constant name or a data key, so the attribute can never silently hold the wrong spelling and match no
 		// capability at all.
-		respUsers, usersPage := getText(t, browser, base+"/users", map[string]string{"HX-Request": "true"})
+		respUsers, usersPage := getText(t, browser, base+"/mgr/users", map[string]string{"HX-Request": "true"})
 		if respUsers.StatusCode != http.StatusOK {
 			t.Fatalf("the signed-in HX-Request GET /users answered %d, want 200 | 已登录 HX-Request GET /users 状态码 = %d, 期望 200\n%s",
 				respUsers.StatusCode, respUsers.StatusCode, usersPage)
@@ -2327,11 +2486,35 @@ func TestGeneratedAppSupportsAuth(t *testing.T) {
 		// member: the token itself is valid (the session-only home page answers 200) while the user list needs user:read → 403.
 		member := newProbeClient(t, httpTimeout)
 		signIn(t, member, base, probeTenant, "probe-member", probeUserPassword)
-		respHome, home := getText(t, member, base+"/", hx)
+		respHome, home := getText(t, member, base+"/", nil)
 		if respHome.StatusCode != http.StatusOK {
 			t.Fatalf("member 访问首页状态码 = %d, 期望 200（令牌有效）\n%s", respHome.StatusCode, home)
 		}
-		respMember, memberBody := getText(t, member, base+"/users", hx)
+		// 门户默认只有普通用户功能：没有管理能力时连管理入口都不应渲染，管理概览本身也必须 403。
+		// The portal defaults to ordinary-user features: without a management capability the entry is not rendered at all,
+		// and the management overview itself must answer 403.
+		if strings.Contains(home, `href="/mgr"`) || strings.Contains(home, `data-yd-nav="mgr-`) {
+			t.Errorf("member 的门户首页渲染了管理入口:\n%s", home)
+		}
+		respMgr, mgrBody := getText(t, member, base+"/mgr", hx)
+		if respMgr.StatusCode != http.StatusForbidden {
+			t.Fatalf("member GET /mgr 状态码 = %d, 期望 403\n%s", respMgr.StatusCode, mgrBody)
+		}
+
+		// 管理员的门户页只多出一个管理入口，页面本身仍是门户片段而不是后台外壳。
+		// The administrator's portal page gains exactly one management entry while remaining a portal fragment, not the
+		// back-office shell.
+		respAdminHome, adminHome := getText(t, admin, base+"/", nil)
+		if respAdminHome.StatusCode != http.StatusOK {
+			t.Fatalf("管理员访问门户首页状态码 = %d, 期望 200\n%s", respAdminHome.StatusCode, adminHome)
+		}
+		if !strings.Contains(adminHome, `href="/mgr"`) {
+			t.Errorf("管理员的门户首页缺少管理入口:\n%s", adminHome)
+		}
+		if !strings.Contains(adminHome, `data-yd-page="portal-home"`) {
+			t.Errorf("管理员 GET / 不再是门户片段:\n%s", adminHome)
+		}
+		respMember, memberBody := getText(t, member, base+"/mgr/users", hx)
 		if respMember.StatusCode != http.StatusForbidden {
 			t.Fatalf("member GET /users 状态码 = %d, 期望 403\n%s", respMember.StatusCode, memberBody)
 		}
@@ -2345,11 +2528,11 @@ func TestGeneratedAppSupportsAuth(t *testing.T) {
 		// (creating a tenant is a 403).
 		auditor := newProbeClient(t, httpTimeout)
 		signIn(t, auditor, base, probeTenant, "probe-auditor", probeUserPassword)
-		respAud, audBody := getText(t, auditor, base+"/users", hx)
+		respAud, audBody := getText(t, auditor, base+"/mgr/users", hx)
 		if respAud.StatusCode != http.StatusOK || !strings.Contains(audBody, "probe-auditor@example.com") {
 			t.Fatalf("auditor GET /users 状态码 = %d, 期望 200 且能看到自己\n%s", respAud.StatusCode, audBody)
 		}
-		respWrite, writeBody := postForm(t, auditor, base+"/tenants", map[string]string{
+		respWrite, writeBody := postForm(t, auditor, base+"/mgr/tenants", map[string]string{
 			"name": "Escalation probe",
 			"slug": "escalation-probe",
 		}, hx)
@@ -2362,7 +2545,7 @@ func TestGeneratedAppSupportsAuth(t *testing.T) {
 
 		// 越权写入确实没有发生：管理员再读一次租户列表，那个标识不在里面。
 		// The refused write really did not happen: the administrator reads the tenant list once more and that key is not in it.
-		respTenants, tenants := getText(t, admin, base+"/tenants", hx)
+		respTenants, tenants := getText(t, admin, base+"/mgr/tenants", hx)
 		if respTenants.StatusCode != http.StatusOK {
 			t.Fatalf("管理员 GET /tenants 状态码 = %d, 期望 200\n%s", respTenants.StatusCode, tenants)
 		}
@@ -2715,7 +2898,7 @@ func sessionToken(t *testing.T, client *http.Client, base string) string {
 func createProbeUser(t *testing.T, client *http.Client, base, token, username, role, email string) {
 	t.Helper()
 
-	resp, body := postFormValues(t, client, base+"/users", url.Values{
+	resp, body := postFormValues(t, client, base+"/mgr/users", url.Values{
 		"username":     {username},
 		"email":        {email},
 		"display_name": {username},
@@ -3033,7 +3216,7 @@ func TestGenerateWiresStaticFSToRenderer(t *testing.T) {
 		`{{ asset "/static/css/yd.css" }}`,
 		`{{ asset "/static/js/yd-app.js" }}`,
 	} {
-		if !strings.Contains(pr.read("web/templates/layouts/base.html"), want) {
+		if !strings.Contains(pr.read("web/templates/portal/layouts/base.html"), want) {
 			t.Errorf("生成的 base.html 未通过 asset 解析 %q", want)
 		}
 	}
@@ -3069,7 +3252,7 @@ func TestGeneratePinsTheRunningYdVersion(t *testing.T) {
 func TestGenerateThemeBootAndAutoTokens(t *testing.T) {
 	pr, _ := generateMem(t, scaffold.DefaultOptions("theme-app"))
 
-	base := pr.read("web/templates/layouts/base.html")
+	base := pr.read("web/templates/portal/layouts/base.html")
 	if !strings.Contains(base, `data-theme="auto"`) {
 		t.Error("generated base.html must default to data-theme=auto | 生成的 base.html 必须默认 data-theme=auto")
 	}
@@ -3110,7 +3293,7 @@ func TestGenerateThemeBootAndAutoTokens(t *testing.T) {
 func TestGenerateIconsUseTheBundledSprite(t *testing.T) {
 	pr, _ := generateMem(t, scaffold.DefaultOptions("icon-app"))
 
-	partial := pr.read("web/templates/partials/icon.html")
+	partial := pr.read("web/templates/portal/partials/icon.html")
 	for _, want := range []string{
 		`asset "/static/img/icons.svg"`,
 		`data-yd-icon="{{ . }}"`,
@@ -3125,14 +3308,14 @@ func TestGenerateIconsUseTheBundledSprite(t *testing.T) {
 		file string
 		icon string
 	}{
-		{"web/templates/partials/login.html", "lucide-log-in"},
-		{"web/templates/layouts/shell.html", "lucide-log-out"},
-		{"web/templates/partials/shell-switches.html", "lucide-languages"},
-		{"web/templates/partials/shell-switches.html", "lucide-sun"},
-		{"web/templates/partials/shell-switches.html", "lucide-moon"},
-		{"web/templates/partials/shell-switches.html", "lucide-monitor"},
+		{"web/templates/portal/partials/login.html", "lucide-log-in"},
+		{"web/templates/portal/layouts/shell.html", "lucide-log-out"},
+		{"web/templates/portal/partials/shell-switches.html", "lucide-languages"},
+		{"web/templates/portal/partials/shell-switches.html", "lucide-sun"},
+		{"web/templates/portal/partials/shell-switches.html", "lucide-moon"},
+		{"web/templates/portal/partials/shell-switches.html", "lucide-monitor"},
 	} {
-		needle := `template "partials/icon" "` + want.icon + `"`
+		needle := `template "portal/partials/icon" "` + want.icon + `"`
 		if !strings.Contains(pr.read(want.file), needle) {
 			t.Errorf("%s is missing %s | %s 缺少 %s", want.file, needle, want.file, needle)
 		}
@@ -3146,7 +3329,7 @@ func TestGenerateIconsUseTheBundledSprite(t *testing.T) {
 func TestGenerateLanguageToggle(t *testing.T) {
 	pr, _ := generateMem(t, scaffold.DefaultOptions("lang-app"))
 
-	switches := pr.read("web/templates/partials/shell-switches.html")
+	switches := pr.read("web/templates/portal/partials/shell-switches.html")
 	if got := strings.Count(switches, "data-yd-lang-toggle"); got != 1 {
 		t.Errorf("shell-switches.html has %d language toggles, want 1 | shell-switches.html 有 %d 个语言按钮，应为 1", got, got)
 	}
@@ -3201,25 +3384,25 @@ func TestGenerateRealtimeRecoveryHooks(t *testing.T) {
 		}
 	}
 
-	base := pr.read("web/templates/layouts/base.html")
+	base := pr.read("web/templates/portal/layouts/base.html")
 	for _, want := range []string{"data-yd-connecting", "data-yd-recovered", "data-yd-offline"} {
 		if !strings.Contains(base, want) {
 			t.Errorf("generated base.html is missing %q | 生成的 base.html 缺少 %q", want, want)
 		}
 	}
 
-	flash := pr.read("web/templates/partials/flash.html")
+	flash := pr.read("web/templates/portal/partials/flash.html")
 	for _, want := range []string{"data-yd-connection-text", "data-yd-connection-attempt", "data-yd-reconnect"} {
 		if !strings.Contains(flash, want) {
 			t.Errorf("generated flash.html is missing %q | 生成的 flash.html 缺少 %q", want, want)
 		}
 	}
 
-	home := pr.read("web/templates/pages/home.html")
-	if !strings.Contains(home, `hx-ws:connect="/ws/metrics"`) {
+	home := pr.read("web/templates/mgr/pages/home.html")
+	if !strings.Contains(home, `hx-ws:connect="/mgr/ws/metrics"`) {
 		t.Error("the home metrics cards must share one WebSocket connection | 首页指标卡片必须共用一条 WebSocket 连接")
 	}
-	if strings.Contains(home, `data-yd-resync="/metrics"`) {
+	if strings.Contains(home, `data-yd-resync="/mgr/metrics"`) {
 		t.Error("the home clock must not resync metrics over HTTP after a reconnect | 首页时钟不得在重连后用 HTTP 重同步指标")
 	}
 
@@ -3240,13 +3423,13 @@ func TestGenerateRealtimeRecoveryHooks(t *testing.T) {
 func TestSidebarOmitsHealthMenuItem(t *testing.T) {
 	pr, _ := generateMem(t, scaffold.DefaultOptions("nav-app"))
 
-	sidebar := pr.read("web/templates/partials/sidebar.html")
+	sidebar := pr.read("web/templates/mgr/partials/sidebar.html")
 	for _, unwanted := range []string{`href="/healthz"`, `data-yd-nav="health"`, `nav.health`} {
 		if strings.Contains(sidebar, unwanted) {
 			t.Errorf("sidebar still carries the health menu item (%q) | 侧栏仍包含健康检查菜单项（%q）", unwanted, unwanted)
 		}
 	}
-	for _, want := range []string{`href="/docs"`, `href="/openapi.json"`} {
+	for _, want := range []string{`href="/mgr/docs"`, `href="/api/v1/openapi.json"`} {
 		if !strings.Contains(sidebar, want) {
 			t.Errorf("sidebar must keep %q in the API group | 侧栏接口组必须保留 %q", want, want)
 		}
@@ -3267,18 +3450,18 @@ func TestSidebarOmitsHealthMenuItem(t *testing.T) {
 func TestSeedPasswordNoticeAppearsOnceOnHome(t *testing.T) {
 	pr, _ := generateMem(t, scaffold.DefaultOptions("notice-app"))
 
-	shell := pr.read("web/templates/layouts/shell.html")
+	shell := pr.read("web/templates/portal/layouts/shell.html")
 	for _, unwanted := range []string{"SeedNotice", "data-yd-seed-password"} {
 		if strings.Contains(shell, unwanted) {
 			t.Errorf("shell.html still renders the seed-password banner (%q) | shell.html 仍渲染种子口令横幅（%q）", unwanted, unwanted)
 		}
 	}
 
-	home := pr.read("web/templates/pages/home.html")
+	home := pr.read("web/templates/mgr/pages/home.html")
 	if got := strings.Count(home, "{{ .SeedNotice }}"); got != 1 {
 		t.Errorf("home.html must carry exactly one notice, got %d | home.html 必须恰好包含一条提示，实际为 %d", got, got)
 	}
-	account := pr.read("web/templates/pages/account.html")
+	account := pr.read("web/templates/portal/pages/account.html")
 	if !strings.Contains(account, "{{ .SeedNotice }}") {
 		t.Error("account.html must keep its own password notice | account.html 必须保留自己的改密提示")
 	}
@@ -3293,10 +3476,10 @@ func TestSeedPasswordNoticeAppearsOnceOnHome(t *testing.T) {
 func TestHomeShowsMiddlewareRuntime(t *testing.T) {
 	pr, _ := generateMem(t, scaffold.DefaultOptions("middleware-app"))
 
-	home := pr.read("web/templates/pages/home.html")
+	home := pr.read("web/templates/mgr/pages/home.html")
 	for _, want := range []string{
 		`id="yd-live-metrics"`,
-		`hx-ws:connect="/ws/metrics"`,
+		`hx-ws:connect="/mgr/ws/metrics"`,
 		`hx-target="this"`,
 		`hx-swap="innerMorph"`,
 		`partials/home/live-metrics`,
@@ -3306,16 +3489,16 @@ func TestHomeShowsMiddlewareRuntime(t *testing.T) {
 		}
 	}
 	for _, unwanted := range []string{
-		`hx-get="/metrics"`,
-		`hx-get="/metrics/middleware"`,
+		`hx-get="/mgr/metrics"`,
+		`hx-get="/mgr/metrics/middleware"`,
 		`hx-trigger="every 5s"`,
-		`data-yd-resync="/metrics"`,
+		`data-yd-resync="/mgr/metrics"`,
 	} {
 		if strings.Contains(home, unwanted) {
 			t.Errorf("home.html 仍保留轮询/HTTP 重同步 %q | home.html still keeps polling or HTTP resync %q", unwanted, unwanted)
 		}
 	}
-	live := pr.read("web/templates/partials/home/live_metrics.html")
+	live := pr.read("web/templates/mgr/partials/home/live_metrics.html")
 	for _, want := range []string{
 		`partials/home/live-metrics`,
 		`id="yd-metrics"`,
@@ -3327,13 +3510,13 @@ func TestHomeShowsMiddlewareRuntime(t *testing.T) {
 			t.Errorf("live_metrics.html 缺少 %q | live_metrics.html is missing %q", want, want)
 		}
 	}
-	fragment := pr.read("web/templates/partials/home/middleware_fragment.html")
+	fragment := pr.read("web/templates/mgr/partials/home/middleware_fragment.html")
 	if !strings.Contains(fragment, `partials/home/middleware-panel`) {
 		t.Error("middleware_fragment.html 未渲染共享面板 | middleware_fragment.html does not render the shared panel")
 	}
 
 	routerSrc := pr.read("internal/router/router.go")
-	for _, want := range []string{`"/metrics/middleware"`, `"/ws/metrics"`, "ctrl.MetricsSocket()"} {
+	for _, want := range []string{`"/mgr/metrics/middleware"`, `"/mgr/ws/metrics"`, "ctrl.MetricsSocket()"} {
 		if !strings.Contains(routerSrc, want) {
 			t.Errorf("受保护路由缺少 %q | the protected routes lack %q", want, want)
 		}
@@ -3413,10 +3596,10 @@ func TestGenerateResponsiveShellHooks(t *testing.T) {
 		file string
 		text string
 	}{
-		{"web/templates/layouts/shell.html", "data-yd-sidebar-open"},
-		{"web/templates/layouts/shell.html", "data-yd-sidebar-backdrop"},
-		{"web/templates/partials/sidebar.html", `id="yd-sidebar"`},
-		{"web/templates/layouts/base.html", "yd-shell--app"},
+		{"web/templates/portal/layouts/shell.html", "data-yd-sidebar-open"},
+		{"web/templates/portal/layouts/shell.html", "data-yd-sidebar-backdrop"},
+		{"web/templates/portal/partials/sidebar.html", `id="yd-sidebar"`},
+		{"web/templates/portal/layouts/base.html", "yd-shell--app"},
 		{"web/static/js/yd-app.js", "function setRailOpen"},
 		{"web/static/js/yd-app.js", "function swapReplacedRail(root)"},
 		{"web/static/css/components.css", "max-width: 63.999rem"},
@@ -3436,7 +3619,7 @@ func TestGenerateResponsiveShellHooks(t *testing.T) {
 func TestGeneratedDrawerErrorsStayInsideDrawer(t *testing.T) {
 	pr, _ := generateMem(t, scaffold.DefaultOptions("drawer-errors-app"))
 
-	shell := pr.read("web/templates/layouts/shell.html")
+	shell := pr.read("web/templates/portal/layouts/shell.html")
 	for _, want := range []string{`id="yd-drawer-errors"`, "yd-errors--drawer"} {
 		if !strings.Contains(shell, want) {
 			t.Errorf("shell.html 缺少抽屉错误槽位 %q", want)
@@ -3444,18 +3627,18 @@ func TestGeneratedDrawerErrorsStayInsideDrawer(t *testing.T) {
 	}
 
 	drawerForms := []string{
-		"web/templates/partials/users/form.html",
-		"web/templates/partials/users/edit_drawer.html",
-		"web/templates/partials/tenants/form.html",
-		"web/templates/partials/roles/form.html",
-		"web/templates/partials/roles/edit_drawer.html",
-		"web/templates/partials/friends/request.html",
-		"web/templates/partials/friends/remark.html",
-		"web/templates/partials/messages/compose.html",
-		"web/templates/partials/messages/group_settings.html",
-		"web/templates/partials/messages/pin.html",
-		"web/templates/partials/message_settings/type_form.html",
-		"web/templates/partials/message_settings/tag_form.html",
+		"web/templates/mgr/partials/users/form.html",
+		"web/templates/mgr/partials/users/edit_drawer.html",
+		"web/templates/mgr/partials/tenants/form.html",
+		"web/templates/mgr/partials/roles/form.html",
+		"web/templates/mgr/partials/roles/edit_drawer.html",
+		"web/templates/portal/partials/friends/request.html",
+		"web/templates/portal/partials/friends/remark.html",
+		"web/templates/portal/partials/messages/compose.html",
+		"web/templates/portal/partials/messages/group_settings.html",
+		"web/templates/mgr/partials/messages/pin.html",
+		"web/templates/mgr/partials/message_settings/type_form.html",
+		"web/templates/mgr/partials/message_settings/tag_form.html",
 	}
 	for _, rel := range drawerForms {
 		if strings.Contains(pr.read(rel), "target:#yd-errors") {
@@ -3463,9 +3646,9 @@ func TestGeneratedDrawerErrorsStayInsideDrawer(t *testing.T) {
 		}
 	}
 	for _, rel := range []string{
-		"web/templates/partials/users/form.html",
-		"web/templates/partials/tenants/form.html",
-		"web/templates/partials/roles/form.html",
+		"web/templates/mgr/partials/users/form.html",
+		"web/templates/mgr/partials/tenants/form.html",
+		"web/templates/mgr/partials/roles/form.html",
 	} {
 		if !strings.Contains(pr.read(rel), "target:#yd-drawer-errors") {
 			t.Errorf("%s 未把校验错误指向抽屉内槽位", rel)
@@ -3481,7 +3664,7 @@ func TestGeneratedDrawerErrorsStayInsideDrawer(t *testing.T) {
 func TestGeneratedMessageCentreUsesInlineNewConversationPanel(t *testing.T) {
 	pr, _ := generateMem(t, scaffold.DefaultOptions("message-contacts-app"))
 
-	messages := pr.read("web/templates/pages/messages.html")
+	messages := pr.read("web/templates/portal/pages/messages.html")
 	for _, want := range []string{
 		`data-yd-msg-tab="conversations"`,
 		`data-yd-msg-tab="contacts"`,
@@ -3498,7 +3681,7 @@ func TestGeneratedMessageCentreUsesInlineNewConversationPanel(t *testing.T) {
 		t.Error("messages.html 仍从抽屉打开新建会话 | messages.html still opens the create drawer")
 	}
 
-	contacts := pr.read("web/templates/partials/messages/contacts.html")
+	contacts := pr.read("web/templates/portal/partials/messages/contacts.html")
 	for _, want := range []string{
 		`action="/messages/groups"`,
 		`name="group_members"`,
@@ -3513,7 +3696,7 @@ func TestGeneratedMessageCentreUsesInlineNewConversationPanel(t *testing.T) {
 		}
 	}
 
-	shell := pr.read("web/templates/layouts/shell.html")
+	shell := pr.read("web/templates/portal/layouts/shell.html")
 	for _, want := range []string{
 		`data-yd-user-menu`,
 		`href="/messages?folder=unread"`,
@@ -3529,7 +3712,7 @@ func TestGeneratedMessageCentreUsesInlineNewConversationPanel(t *testing.T) {
 			t.Errorf("shell.html 缺少 %q", want)
 		}
 	}
-	if !strings.Contains(pr.read("web/templates/partials/messages/unread_menu_badge.html"), `id="yd-unread-menu-badge"`) {
+	if !strings.Contains(pr.read("web/templates/portal/partials/messages/unread_menu_badge.html"), `id="yd-unread-menu-badge"`) {
 		t.Error("unread_menu_badge.html lacks its own count id | unread_menu_badge.html 缺少独立计数 id")
 	}
 	// 未读角标必须排在用户名之后、菜单箭头之前，不能盖在头像角上。
@@ -3552,7 +3735,7 @@ func TestGeneratedMessageCentreUsesInlineNewConversationPanel(t *testing.T) {
 		}
 	}
 
-	if sidebar := pr.read("web/templates/partials/sidebar.html"); strings.Contains(sidebar, `partials/messages/unread_badge`) {
+	if sidebar := pr.read("web/templates/portal/partials/sidebar.html"); strings.Contains(sidebar, `partials/messages/unread_badge`) {
 		t.Error("sidebar.html 仍渲染未读徽标，应与右上角用户名徽标重复 | sidebar.html still renders a second unread badge")
 	}
 

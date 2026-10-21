@@ -52,6 +52,77 @@ func usernameHandler(t *testing.T) router.HandlerFunc {
 	}
 }
 
+// TestMiddlewareOptional lets public pages decorate themselves when a session exists, while a
+// protected route behind the same optional middleware still refuses anonymous requests. |
+// TestMiddlewareOptional 让公开页面在有会话时装饰自身，而同一可选中间件之后的受保护路由仍拒绝匿名请求。
+func TestMiddlewareOptional(t *testing.T) {
+	f := newFixture(t)
+	r := router.New()
+	r.Use(Middleware(MiddlewareOptions{Issuer: f.issuer, Optional: true}))
+	r.GET("/public", func(c *router.Ctx) {
+		u, ok := CurrentUser(c)
+		if !ok {
+			_ = c.String(http.StatusOK, "anonymous")
+			return
+		}
+		_ = c.String(http.StatusOK, u.Username)
+	})
+	r.GET("/protected", usernameHandler(t), RequirePermission("user:read"))
+
+	rec := do(t, r, http.MethodGet, "/public", nil)
+	if rec.Code != http.StatusOK || rec.Body.String() != "anonymous" {
+		t.Fatalf("optional without a token = %d %q, want 200 anonymous", rec.Code, rec.Body.String())
+	}
+	rec = do(t, r, http.MethodGet, "/public", bearer("not-a-token"))
+	if rec.Code != http.StatusOK || rec.Body.String() != "anonymous" {
+		t.Fatalf("optional with a broken token = %d %q, want 200 anonymous", rec.Code, rec.Body.String())
+	}
+	token := mustIssue(t, f, f.member)
+	rec = do(t, r, http.MethodGet, "/public", bearer(token))
+	if rec.Code != http.StatusOK || rec.Body.String() != f.member.Username {
+		t.Fatalf("optional with a session = %d %q, want 200 %q", rec.Code, rec.Body.String(), f.member.Username)
+	}
+	rec = do(t, r, http.MethodGet, "/protected", nil)
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("protected behind optional middleware want 401, got %d", rec.Code)
+	}
+}
+
+// TestRequireAnyPermission covers the OR rule: one matching capability admits, none refuses, an
+// empty rule refuses, and a missing session is still an authentication failure. |
+// TestRequireAnyPermission 覆盖「或」规则：命中任一能力即放行，全不命中拒绝，空规则拒绝，
+// 缺少会话仍属于认证失败。
+func TestRequireAnyPermission(t *testing.T) {
+	f := newFixture(t)
+	r := router.New()
+	r.Use(Middleware(MiddlewareOptions{Issuer: f.issuer}))
+	r.GET("/any", usernameHandler(t), RequireAnyPermission("user:write", "user:read"))
+	r.GET("/none", usernameHandler(t), RequireAnyPermission())
+	r.GET("/empty", usernameHandler(t), RequireAnyPermission(""))
+
+	memberToken := mustIssue(t, f, f.member)
+	adminToken := mustIssue(t, f, f.admin)
+	strangerToken := mustIssue(t, f, f.stranger)
+	if rec := do(t, r, http.MethodGet, "/any", bearer(memberToken)); rec.Code != http.StatusOK {
+		t.Fatalf("member holding one of the capabilities want 200, got %d", rec.Code)
+	}
+	if rec := do(t, r, http.MethodGet, "/any", bearer(adminToken)); rec.Code != http.StatusOK {
+		t.Fatalf("admin holding one of the capabilities want 200, got %d", rec.Code)
+	}
+	if rec := do(t, r, http.MethodGet, "/any", bearer(strangerToken)); rec.Code != http.StatusForbidden {
+		t.Fatalf("user holding none of the capabilities want 403, got %d", rec.Code)
+	}
+	if rec := do(t, r, http.MethodGet, "/any", nil); rec.Code != http.StatusUnauthorized {
+		t.Fatalf("missing session want 401, got %d", rec.Code)
+	}
+	if rec := do(t, r, http.MethodGet, "/none", bearer(adminToken)); rec.Code != http.StatusForbidden {
+		t.Fatalf("empty OR rule want 403, got %d", rec.Code)
+	}
+	if rec := do(t, r, http.MethodGet, "/empty", bearer(adminToken)); rec.Code != http.StatusForbidden {
+		t.Fatalf("empty permission want 403, got %d", rec.Code)
+	}
+}
+
 // TestRequirePermissionReturns403 covers the 401/403/200 trio of a missing permission plus the response body. | TestRequirePermissionReturns403 覆盖缺失权限时的 401/403/200 三态与响应正文。
 func TestRequirePermissionReturns403(t *testing.T) {
 	f := newFixture(t)

@@ -1,6 +1,9 @@
 package auth
 
-import "context"
+import (
+	"context"
+	"time"
+)
 
 // Store is the persistence boundary of the auth package. | Store 是 auth 包的持久化边界。
 //
@@ -38,8 +41,16 @@ type Store interface {
 	GetUserByName(ctx context.Context, username string) (*User, error)
 	// ListUsers returns every member of the tenant ordered by creation time, or ErrNotFound when the tenant is unknown. | ListUsers 按创建时间返回该租户的全部成员；租户未知时返回 ErrNotFound。
 	ListUsers(ctx context.Context, tenantID string) ([]*User, error)
-	// UpdateUser replaces the stored user's profile and its roles inside tenantID, which must already hold a membership; otherwise ErrNotFound. | UpdateUser 覆盖已存在用户的资料及其在 tenantID 内的角色；该租户没有成员关系时返回 ErrNotFound。
+	// UpdateUser replaces the stored user's profile and its roles inside tenantID, which must already hold a membership; otherwise ErrNotFound. Credential and lifecycle columns are owned by the dedicated setters below. | UpdateUser 覆盖已存在用户的资料及其在 tenantID 内的角色；该租户没有成员关系时返回 ErrNotFound。凭据与生命周期列由下面的专用方法维护。
 	UpdateUser(ctx context.Context, tenantID string, u *User) error
+	// SetUserStatus changes only the lifecycle status. | SetUserStatus 只修改生命周期状态。
+	SetUserStatus(ctx context.Context, tenantID, userID string, status Status, updatedAt time.Time) error
+	// SetUserCredentials changes only the password hash and the sealed sec_key atomically. |
+	// SetUserCredentials 原子地只修改口令散列与封装的 sec_key。
+	SetUserCredentials(ctx context.Context, tenantID, userID, passwordHash string, encryptedSecKey []byte, updatedAt time.Time) error
+	// SetUserSecKey changes only the sealed sec_key, leaving the password untouched. |
+	// SetUserSecKey 只修改封装的 sec_key，不改口令。
+	SetUserSecKey(ctx context.Context, tenantID, userID string, encryptedSecKey []byte, updatedAt time.Time) error
 
 	// GetUserByID returns the user by global id regardless of the tenant, or ErrNotFound. | GetUserByID 按全局 ID 返回用户（不区分租户），不存在时返回 ErrNotFound。
 	GetUserByID(ctx context.Context, userID string) (*User, error)

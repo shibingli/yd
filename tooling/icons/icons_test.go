@@ -39,16 +39,21 @@ func TestScanCollectsOnlyPartialCalls(t *testing.T) {
 	writeTestFile(t, fsys, "web/templates/pages/b.html", `{{- template "partials/icon" "lucide-log-in" -}}`)
 	writeTestFile(t, fsys, "tooling/scaffold/templates/_name_/web/templates/pages/c.html", `{{template "partials/icon" "lucide-languages"}}`)
 	writeTestFile(t, fsys, "web/templates/pages/d.html", `<svg><use href="#i-lucide-sun"></use></svg>`)
+	writeTestFile(t, fsys, "web/templates/portal/pages/e.html", `{{ template "portal/partials/icon" "lucide-sun" }}`)
+	writeTestFile(t, fsys, "web/templates/mgr/pages/f.html", `{{template "mgr/partials/icon" "lucide-mail"}}`)
 
 	refs, err := Scan(fsys, []string{"web/templates", "tooling/scaffold/templates/_name_/web/templates"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(refs) != 2 {
-		t.Fatalf("refs = %[1]v, want 2 | 引用为 %[1]v，期望 2 个", refs)
+	if len(refs) != 4 {
+		t.Fatalf("refs = %[1]v, want 4 | 引用为 %[1]v，期望 4 个", refs)
 	}
-	if refs[0].Name != "lucide-languages" || refs[1].Name != "lucide-log-in" {
-		t.Fatalf("refs = %[1]v, want sorted languages, log-in | 引用为 %[1]v，期望按序为 languages、log-in", refs)
+	want := []string{"lucide-languages", "lucide-log-in", "lucide-mail", "lucide-sun"}
+	for i, name := range want {
+		if refs[i].Name != name {
+			t.Fatalf("refs = %[1]v, want %[2]v | 引用为 %[1]v，期望 %[2]v", refs, want)
+		}
 	}
 	if len(refs[1].Files) != 2 {
 		t.Errorf("log-in files = %[1]v, want two templates | log-in 文件为 %[1]v，期望两个模板", refs[1].Files)

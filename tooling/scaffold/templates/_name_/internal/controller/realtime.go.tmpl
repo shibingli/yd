@@ -31,11 +31,11 @@ const (
 // Page renders the realtime demo page: a full-page request gets the layout-wrapped page and an htmx request the fragment.
 //
 // @Summary Realtime demo page | 实时推送演示页
-// @Description Renders pages/realtime.html, which subscribes to the SSE endpoint through hx-sse:connect (htmx 4 swaps
+// @Description Renders portal/pages/realtime.html, which subscribes to the SSE endpoint through hx-sse:connect (htmx 4 swaps
 // @Description unnamed messages automatically) and to the WebSocket endpoint through the htmx WebSocket extension. Both
 // @Description channels push the same server-rendered clock fragment, so one target element is fed twice and a broken
 // @Description channel is visible at a glance.
-// @Description 渲染 pages/realtime.html：页面通过 hx-sse:connect 订阅 SSE 端点（htmx 4 自动交换无名消息），并通过 htmx 的
+// @Description 渲染 portal/pages/realtime.html：页面通过 hx-sse:connect 订阅 SSE 端点（htmx 4 自动交换无名消息），并通过 htmx 的
 // @Description WebSocket 扩展订阅 WebSocket 端点。两条通道推送的是同一份服务端渲染的时钟片段，因此同一个目标元素被两路刷新，
 // @Description 坏掉的通道一眼可见。
 // @Tags pages

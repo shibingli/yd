@@ -1,0 +1,24 @@
+{{/*
+  partials/flash.html —— 全局提示容器：服务端事件与 SSE 连接状态都显示在这里。
+  partials/flash.html — the global notice container: server-sent events and the SSE connection state show up here.
+
+  服务端通过 HX-Trigger 下发 yd:toast 事件（见 internal/meta 的 ToastEvent 常量），
+  web/static/js/yd-app.js 订阅该事件并把条目追加进 #yd-flash，因此控制器不需要拼装任何提示 HTML。
+  The server fires a yd:toast event through HX-Trigger (see the ToastEvent constant in internal/meta) and
+  web/static/js/yd-app.js subscribes to it and appends an item to #yd-flash, so controllers assemble no notice HTML.
+
+  重新连接按钮对 SSE 流有用：连接掉线时 #yd-connection 出现，用户可一键重开局部刷新。
+  The reconnect button helps with the SSE stream: when it drops, #yd-connection appears and one click re-opens the
+  partial refresh.
+*/}}
+{{- define "mgr/partials/flash" -}}
+<div id="yd-flash" class="yd-flash" role="status" aria-live="polite" aria-label="通知 | Notifications">
+  {{/* 连接状态条：默认隐藏，由 yd-app.js 在 htmx:sse:* 与 htmx:ws:* 事件上切换。
+       Connection banner: hidden by default and toggled by yd-app.js on the htmx:sse:* and htmx:ws:* events. */}}
+  <div id="yd-connection" class="yd-flash__item yd-flash__item--warn" role="status" hidden data-yd-connection>
+    <span class="yd-flash__text" data-yd-connection-text>{{ tr "realtime.disconnected" }}</span>
+    <span class="yd-badge yd-badge--muted" data-yd-connection-attempt hidden></span>
+    <button type="button" class="yd-btn yd-btn--ghost yd-btn--sm" data-yd-reconnect>{{ tr "ui.retry" }}</button>
+  </div>
+</div>
+{{- end -}}

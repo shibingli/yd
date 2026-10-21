@@ -1,0 +1,1105 @@
+// 本文件是内容管理后台的 HTTP 编排：页面、片段、抽屉与写操作。
+// This file is the CMS back office's HTTP orchestration: pages, fragments, drawers and write operations.
+
+package controller
+
+import (
+	"errors"
+	"io"
+	"net/http"
+	"strconv"
+	"strings"
+
+	"{{ .Module }}/internal/model"
+	"{{ .YdModule }}/cms"
+	"{{ .YdModule }}/core/logx"
+	"{{ .YdModule }}/http/router"
+)
+
+// CMSDashboard renders the management overview. | CMSDashboard 渲染管理概览。
+//
+// @Summary CMS overview | CMS 概览
+// @Description Shows article status, categories, tags, media and pending comments. | 展示文章状态、分类、标签、媒体与待审评论的聚合。
+// @Tags cms
+// @Produce html
+// @Success 200 {object} map[string]any "overview page | 概览页"
+// @Success 303 {string} string "members without the tenant-wide view are redirected to the article list | 无全租户视图的成员被重定向到文章列表"
+// @Failure 503 {string} string "CMS unavailable | 内容管理不可用"
+// @Security BearerAuth
+// @Router /mgr/cms [get]
+func (c *Controller) CMSDashboard(ctx *router.Ctx) {
+	tenantID, ok := c.tenantID(ctx)
+	if !ok || !c.cmsAvailable(ctx) || !c.cmsEnsure(ctx, tenantID) {
+		return
+	}
+	if !c.cmsReadAll(ctx) {
+		c.redirect(ctx, "/mgr/cms/articles")
+		return
+	}
+	actor := c.cmsActor(ctx)
+	counts, err := c.cms.Dashboard(ctx.Request.Context(), tenantID)
+	if err != nil {
+		c.failService(ctx, err)
+		return
+	}
+	categories, err := c.cms.CategoryOptions(ctx.Request.Context(), tenantID, "")
+	if err != nil {
+		c.failService(ctx, err)
+		return
+	}
+	tags, err := c.cms.Tags(ctx.Request.Context(), tenantID, "")
+	if err != nil {
+		c.failService(ctx, err)
+		return
+	}
+	data := c.cmsPageData(ctx, c.tr(c.lang(ctx), "cms.title.dashboard"), map[string]any{
+		"Stats":      counts,
+		"Articles":   cmsArticleRows(counts.Recent, actor),
+		"Comments":   model.NewCMSComments(counts.RecentComments, actor.ID, actor.Moderate),
+		"Categories": categories,
+		"Tags":       tags,
+	})
+	c.render(ctx, http.StatusOK, TplCMSDashboard, data)
+}
+
+// CMSArticles renders the article management page and its htmx fragments. | CMSArticles 渲染文章管理页及其 htmx 片段。
+//
+// @Summary Article management | 文章管理
+// @Description Filters articles by keyword, status, kind, category and tag; htmx requests receive the same fragment. | 按关键字、状态、类型、分类与标签筛选文章；htmx 请求返回同一片段。
+// @Tags cms
+// @Produce html
+// @Param q query string false "keyword | 关键字"
+// @Param status query string false "status | 状态"
+// @Param kind query string false "kind | 类型"
+// @Param category query string false "category id | 分类 ID"
+// @Param tag query string false "tag id | 标签 ID"
+// @Param page query int false "page | 页码"
+// @Success 200 {object} map[string]any "article list | 文章列表"
+// @Failure 503 {string} string "CMS unavailable | 内容管理不可用"
+// @Security BearerAuth
+// @Router /mgr/cms/articles [get]
+func (c *Controller) CMSArticles(ctx *router.Ctx) {
+	tenantID, ok := c.tenantID(ctx)
+	if !ok || !c.cmsAvailable(ctx) || !c.cmsEnsure(ctx, tenantID) {
+		return
+	}
+	actor := c.cmsActor(ctx)
+	filter := cmsArticleFilter(ctx)
+	filter.PageSize = c.cms.Options().PageSize
+	if !c.cmsReadAll(ctx) {
+		filter.AuthorID = actor.ID
+	}
+	page, err := c.cms.Articles(ctx.Request.Context(), tenantID, filter)
+	if err != nil {
+		c.failService(ctx, err)
+		return
+	}
+	categories, err := c.cms.CategoryOptions(ctx.Request.Context(), tenantID, "")
+	if err != nil {
+		c.failService(ctx, err)
+		return
+	}
+	tags, err := c.cms.Tags(ctx.Request.Context(), tenantID, "")
+	if err != nil {
+		c.failService(ctx, err)
+		return
+	}
+	data := c.cmsPageData(ctx, c.tr(c.lang(ctx), "cms.title.articles"), map[string]any{
+		"Articles":   cmsArticleRows(page.Items, actor),
+		"Total":      page.Total,
+		"Page":       page.Page,
+		"TotalPages": page.TotalPages,
+		"Empty":      len(page.Items) == 0,
+		"Keyword":    filter.Keyword,
+		"Status":     string(filter.Status),
+		"Kind":       string(filter.Kind),
+		"Category":   filter.CategoryID,
+		"Tag":        filter.TagID,
+		"Categories": categories,
+		"Tags":       tags,
+		"Pager":      newCMSPager(cmsPageBase(ctx), page.Page, page.TotalPages),
+	})
+	c.render(ctx, http.StatusOK, TplCMSArticles, data)
+}
+
+// CMSNewArticle renders an empty editor. | CMSNewArticle 渲染空白编辑器。
+//
+// @Summary New article | 新建文章
+// @Description Returns the article/page editor. | 返回文章/单页编辑器。
+// @Tags cms
+// @Produce html
+// @Success 200 {object} map[string]any "editor | 编辑器"
+// @Security BearerAuth
+// @Router /mgr/cms/articles/new [get]
+func (c *Controller) CMSNewArticle(ctx *router.Ctx) {
+	tenantID, ok := c.tenantID(ctx)
+	if !ok || !c.cmsAvailable(ctx) || !c.cmsEnsure(ctx, tenantID) {
+		return
+	}
+	blank := cms.ArticleView{}
+	blank.AllowComment = true
+	blank.Visibility = cms.VisibilityPublic
+	blank.Kind = cms.KindPost
+	data, ok := c.cmsEditorData(ctx, tenantID, blank, "create", "/mgr/cms/articles")
+	if !ok {
+		return
+	}
+	c.render(ctx, http.StatusOK, TplCMSArticleEdit, data)
+}
+
+// CMSEditArticle renders the editor for one article. | CMSEditArticle 渲染一篇文章的编辑器。
+//
+// @Summary Edit article | 编辑文章
+// @Description Returns the editor with current content and revision history. | 返回带当前内容与修订历史的编辑器。
+// @Tags cms
+// @Produce html
+// @Param id path string true "article id | 文章 ID"
+// @Success 200 {object} map[string]any "editor | 编辑器"
+// @Failure 404 {string} string "article not found | 文章不存在"
+// @Security BearerAuth
+// @Router /mgr/cms/articles/{id}/edit [get]
+func (c *Controller) CMSEditArticle(ctx *router.Ctx) {
+	tenantID, ok := c.tenantID(ctx)
+	if !ok || !c.cmsAvailable(ctx) || !c.cmsEnsure(ctx, tenantID) {
+		return
+	}
+	article, err := c.cms.Article(ctx.Request.Context(), tenantID, ctx.Param("id"), false)
+	if err != nil {
+		c.failService(ctx, err)
+		return
+	}
+	if !c.cmsReadAll(ctx) && article.AuthorID != c.cmsActor(ctx).ID {
+		c.failService(ctx, cms.ErrArticleNotFound)
+		return
+	}
+	data, ok := c.cmsEditorData(ctx, tenantID, article, "edit", "/mgr/cms/articles/"+article.ID)
+	if !ok {
+		return
+	}
+	c.render(ctx, http.StatusOK, TplCMSArticleEdit, data)
+}
+
+// cmsEditorData assembles the editor view. | cmsEditorData 装配编辑器视图。
+func (c *Controller) cmsEditorData(ctx *router.Ctx, tenantID string, article cms.ArticleView, mode, action string) (map[string]any, bool) {
+	categories, err := c.cms.CategoryOptions(ctx.Request.Context(), tenantID, "")
+	if err != nil {
+		c.failService(ctx, err)
+		return nil, false
+	}
+	tags, err := c.cms.Tags(ctx.Request.Context(), tenantID, "")
+	if err != nil {
+		c.failService(ctx, err)
+		return nil, false
+	}
+	revisions, _ := c.cms.Revisions(ctx.Request.Context(), tenantID, article.ID)
+	actor := c.cmsActor(ctx)
+	rows := model.NewCMSArticles([]cms.ArticleView{article}, actor.ID, actor.Manage, actor.Publish, actor.Review)
+	row := model.CMSArticle{}
+	if len(rows) > 0 {
+		row = rows[0]
+	}
+	data := c.cmsPageData(ctx, c.tr(c.lang(ctx), "cms.title.editor"), map[string]any{
+		"Article":      row,
+		"Categories":   categories,
+		"Tags":         tags,
+		"SelectedTags": cmsTagsFor(article.Tags),
+		"Revisions":    revisions,
+		"Mode":         mode,
+		"Action":       action,
+		"CanPublish":   actor.Publish || actor.Manage,
+		"CanSubmit":    row.CanSubmit,
+		"CanReview":    actor.Review || actor.Manage,
+		"CanDelete":    article.AuthorID == actor.ID || actor.Manage,
+		"PageStyles":   cmsEditorStyles,
+		"PageScripts":  cmsEditorScripts,
+	})
+	return data, true
+}
+
+// CMSSaveArticle creates an article. | CMSSaveArticle 创建文章。
+//
+// @Summary Create article | 创建文章
+// @Description Creates a draft article or page. | 新建草稿文章或单页。
+// @Tags cms
+// @Accept x-www-form-urlencoded
+// @Produce html
+// @Param title formData string true "title | 标题"
+// @Param body_markdown formData string true "Markdown body | Markdown 正文"
+// @Success 200 {object} map[string]any "editor | 编辑器"
+// @Success 303 {object} string "redirect after success (non-htmx requests) | 成功后重定向（非 htmx 请求）"
+// @Failure 422 {string} string "validation failed | 校验失败"
+// @Security BearerAuth
+// @Router /mgr/cms/articles [post]
+func (c *Controller) CMSSaveArticle(ctx *router.Ctx) {
+	c.saveCMSArticle(ctx)
+}
+
+// CMSUpdateArticle updates an article and snapshots its previous body. | CMSUpdateArticle 更新文章并快照旧正文。
+//
+// @Summary Update article | 更新文章
+// @Description Updates an article or page; the previous body becomes a revision. | 更新文章或单页；旧正文进入修订历史。
+// @Tags cms
+// @Accept x-www-form-urlencoded
+// @Produce html
+// @Param id path string true "article id | 文章 ID"
+// @Param title formData string true "title | 标题"
+// @Param body_markdown formData string true "Markdown body | Markdown 正文"
+// @Success 200 {object} map[string]any "editor | 编辑器"
+// @Success 303 {object} string "redirect after success (non-htmx requests) | 成功后重定向（非 htmx 请求）"
+// @Failure 422 {string} string "validation failed | 校验失败"
+// @Security BearerAuth
+// @Router /mgr/cms/articles/{id} [post]
+func (c *Controller) CMSUpdateArticle(ctx *router.Ctx) {
+	c.saveCMSArticle(ctx)
+}
+
+// saveCMSArticle is the shared create/update implementation. | saveCMSArticle 是创建/更新的共同实现。
+func (c *Controller) saveCMSArticle(ctx *router.Ctx) {
+	tenantID, ok := c.tenantID(ctx)
+	if !ok || !c.cmsAvailable(ctx) || !c.cmsEnsure(ctx, tenantID) {
+		return
+	}
+	actor := c.cmsActor(ctx)
+	input := cmsArticleInput(ctx)
+	article, err := c.cms.SaveArticle(ctx.Request.Context(), actor, input)
+	if err != nil {
+		c.failService(ctx, err)
+		return
+	}
+	c.log.Info("CMS article saved | CMS 文章已保存", logx.Str("tenant", tenantID), logx.Str("article", article.ID))
+	c.redirect(ctx, "/mgr/cms/articles/"+article.ID+"/edit")
+}
+
+// CMSTransitionArticle applies one editorial action. | CMSTransitionArticle 应用一次编辑动作。
+//
+// @Summary Article transition | 文章状态转换
+// @Description Submit, approve, reject, publish, schedule, unpublish, archive and restore. | 提交审核、通过、驳回、发布、定时、下线、归档与恢复。
+// @Tags cms
+// @Accept x-www-form-urlencoded
+// @Produce html
+// @Param id path string true "article id | 文章 ID"
+// @Param action formData string true "action | 动作"
+// @Param publish_at formData string false "scheduled publish time | 定时发布时间"
+// @Success 200 {object} map[string]any "editor | 编辑器"
+// @Success 303 {object} string "redirect after success (non-htmx requests) | 成功后重定向（非 htmx 请求）"
+// @Failure 403 {string} string "forbidden | 无权限"
+// @Failure 409 {string} string "transition refused | 状态不允许"
+// @Security BearerAuth
+// @Router /mgr/cms/articles/{id}/transition [post]
+func (c *Controller) CMSTransitionArticle(ctx *router.Ctx) {
+	tenantID, ok := c.tenantID(ctx)
+	if !ok || !c.cmsAvailable(ctx) || !c.cmsEnsure(ctx, tenantID) {
+		return
+	}
+	action, at, err := cmsTransition(ctx)
+	if err != nil {
+		c.failService(ctx, err)
+		return
+	}
+	article, err := c.cms.TransitionArticle(ctx.Request.Context(), c.cmsActor(ctx), ctx.Param("id"), action, at)
+	if err != nil {
+		c.failService(ctx, err)
+		return
+	}
+	c.toast(ctx, c.tr(c.lang(ctx), "cms.notice.transition"))
+	c.redirect(ctx, "/mgr/cms/articles/"+article.ID+"/edit")
+}
+
+// CMSDeleteArticle soft-deletes one article. | CMSDeleteArticle 软删除一篇文章。
+//
+// @Summary Delete article | 删除文章
+// @Description Soft-deletes the article and releases its slug. | 软删除文章并释放其别名。
+// @Tags cms
+// @Produce html
+// @Param id path string true "article id | 文章 ID"
+// @Success 200 {object} map[string]any "article list | 文章列表"
+// @Failure 403 {string} string "forbidden | 无权限"
+// @Security BearerAuth
+// @Router /mgr/cms/articles/{id}/delete [post]
+func (c *Controller) CMSDeleteArticle(ctx *router.Ctx) {
+	tenantID, ok := c.tenantID(ctx)
+	if !ok || !c.cmsAvailable(ctx) || !c.cmsEnsure(ctx, tenantID) {
+		return
+	}
+	if err := c.cms.DeleteArticle(ctx.Request.Context(), c.cmsActor(ctx), ctx.Param("id")); err != nil {
+		c.failService(ctx, err)
+		return
+	}
+	c.toast(ctx, c.tr(c.lang(ctx), "cms.notice.deleted"))
+	c.redirect(ctx, "/mgr/cms/articles")
+}
+
+// CMSRevisions renders the revision drawer fragment. | CMSRevisions 渲染修订抽屉片段。
+//
+// @Summary Article revisions | 文章修订
+// @Description Returns the article revision history fragment. | 返回文章的修订历史片段。
+// @Tags cms
+// @Produce html
+// @Param id path string true "article id | 文章 ID"
+// @Success 200 {object} map[string]any "revision list | 修订列表"
+// @Security BearerAuth
+// @Router /mgr/cms/articles/{id}/revisions [get]
+func (c *Controller) CMSRevisions(ctx *router.Ctx) {
+	tenantID, ok := c.tenantID(ctx)
+	if !ok || !c.cmsAvailable(ctx) {
+		return
+	}
+	article, err := c.cms.Article(ctx.Request.Context(), tenantID, ctx.Param("id"), false)
+	if err != nil {
+		c.failService(ctx, err)
+		return
+	}
+	if !c.cmsReadAll(ctx) && article.AuthorID != c.cmsActor(ctx).ID {
+		c.failService(ctx, cms.ErrArticleNotFound)
+		return
+	}
+	revisions, err := c.cms.Revisions(ctx.Request.Context(), tenantID, ctx.Param("id"))
+	if err != nil {
+		c.failService(ctx, err)
+		return
+	}
+	c.render(ctx, http.StatusOK, "mgr/partials/cms/revisions.html", c.cmsPageData(ctx, c.tr(c.lang(ctx), "cms.title.revisions"), map[string]any{
+		"ArticleID": ctx.Param("id"),
+		"Revisions": revisions,
+	}))
+}
+
+// CMSRestoreRevision restores one revision. | CMSRestoreRevision 恢复一份修订。
+//
+// @Summary Restore revision | 恢复修订
+// @Description Restores the body to a revision and snapshots the current body first. | 把文章正文恢复到指定修订，并将当前正文保存为新的修订。
+// @Tags cms
+// @Produce html
+// @Param id path string true "article id | 文章 ID"
+// @Param rev path string true "revision id | 修订 ID"
+// @Success 200 {object} map[string]any "editor | 编辑器"
+// @Security BearerAuth
+// @Router /mgr/cms/articles/{id}/revisions/{rev}/restore [post]
+func (c *Controller) CMSRestoreRevision(ctx *router.Ctx) {
+	tenantID, ok := c.tenantID(ctx)
+	if !ok || !c.cmsAvailable(ctx) || !c.cmsEnsure(ctx, tenantID) {
+		return
+	}
+	if _, err := c.cms.RestoreRevision(ctx.Request.Context(), c.cmsActor(ctx), ctx.Param("id"), ctx.Param("rev")); err != nil {
+		c.failService(ctx, err)
+		return
+	}
+	c.toast(ctx, c.tr(c.lang(ctx), "cms.notice.restored"))
+	c.redirect(ctx, "/mgr/cms/articles/"+ctx.Param("id")+"/edit")
+}
+
+// CMSCategories renders the category tree. | CMSCategories 渲染分类树。
+//
+// @Summary Category management | 分类管理
+// @Description Shows the unlimited-depth category tree and its actions. | 展示无限级分类树与操作入口。
+// @Tags cms
+// @Produce html
+// @Success 200 {object} map[string]any "category page | 分类页"
+// @Security BearerAuth
+// @Router /mgr/cms/categories [get]
+func (c *Controller) CMSCategories(ctx *router.Ctx) {
+	tenantID, ok := c.tenantID(ctx)
+	if !ok || !c.cmsAvailable(ctx) || !c.cmsEnsure(ctx, tenantID) {
+		return
+	}
+	tree, err := c.cms.CategoryTree(ctx.Request.Context(), tenantID, true)
+	if err != nil {
+		c.failService(ctx, err)
+		return
+	}
+	options, err := c.cms.CategoryOptions(ctx.Request.Context(), tenantID, "")
+	if err != nil {
+		c.failService(ctx, err)
+		return
+	}
+	c.render(ctx, http.StatusOK, TplCMSCategories, c.cmsPageData(ctx, c.tr(c.lang(ctx), "cms.title.categories"), map[string]any{
+		"Tree":    tree,
+		"Options": options,
+	}))
+}
+
+// CMSNewCategory renders the create drawer. | CMSNewCategory 渲染新建抽屉。
+//
+// @Summary New category | 新建分类
+// @Description Returns the category form fragment. | 返回分类表单片段。
+// @Tags cms
+// @Produce html
+// @Success 200 {object} map[string]any "category form | 分类表单"
+// @Security BearerAuth
+// @Router /mgr/cms/categories/new [get]
+func (c *Controller) CMSNewCategory(ctx *router.Ctx) {
+	tenantID, ok := c.tenantID(ctx)
+	if !ok || !c.cmsAvailable(ctx) {
+		return
+	}
+	options, err := c.cms.CategoryOptions(ctx.Request.Context(), tenantID, "")
+	if err != nil {
+		c.failService(ctx, err)
+		return
+	}
+	c.render(ctx, http.StatusOK, "mgr/partials/cms/category_form.html", map[string]any{
+		"Category": cms.Category{Visible: true},
+		"Options":  options,
+		"Mode":     "create",
+		"Action":   "/mgr/cms/categories",
+	})
+}
+
+// CMSEditCategory renders the edit drawer. | CMSEditCategory 渲染编辑抽屉。
+//
+// @Summary Edit category | 编辑分类
+// @Description Returns the category form with parent selection. | 返回带父级选择的分类表单片段。
+// @Tags cms
+// @Produce html
+// @Param id path string true "category id | 分类 ID"
+// @Success 200 {object} map[string]any "category form | 分类表单"
+// @Security BearerAuth
+// @Router /mgr/cms/categories/{id}/edit [get]
+func (c *Controller) CMSEditCategory(ctx *router.Ctx) {
+	tenantID, ok := c.tenantID(ctx)
+	if !ok || !c.cmsAvailable(ctx) {
+		return
+	}
+	category, err := c.cms.Category(ctx.Request.Context(), tenantID, ctx.Param("id"))
+	if err != nil {
+		c.failService(ctx, err)
+		return
+	}
+	options, err := c.cms.CategoryOptions(ctx.Request.Context(), tenantID, category.ID)
+	if err != nil {
+		c.failService(ctx, err)
+		return
+	}
+	c.render(ctx, http.StatusOK, "mgr/partials/cms/category_form.html", map[string]any{
+		"Category": category,
+		"Options":  options,
+		"Mode":     "edit",
+		"Action":   "/mgr/cms/categories/" + category.ID,
+	})
+}
+
+// CMSSaveCategory creates a category. | CMSSaveCategory 创建分类。
+//
+// @Summary Create category | 创建分类
+// @Description Creates a category under an optional parent. | 在可选父分类下新建分类。
+// @Tags cms
+// @Accept x-www-form-urlencoded
+// @Produce html
+// @Param name formData string true "name | 名称"
+// @Param slug formData string false "slug | 别名"
+// @Param parent_id formData string false "parent | 父分类"
+// @Success 200 {object} map[string]any "category page | 分类页"
+// @Success 303 {object} string "redirect after success (non-htmx requests) | 成功后重定向（非 htmx 请求）"
+// @Failure 409 {string} string "slug already in use | 别名已被占用"
+// @Security BearerAuth
+// @Router /mgr/cms/categories [post]
+func (c *Controller) CMSSaveCategory(ctx *router.Ctx) {
+	c.saveCMSCategory(ctx, false)
+}
+
+// CMSUpdateCategory updates a category and moves its subtree. | CMSUpdateCategory 更新分类并移动其子树。
+//
+// @Summary Update category | 更新分类
+// @Description Updates a category, including moving its whole subtree. | 更新分类（含移动整棵子树）。
+// @Tags cms
+// @Accept x-www-form-urlencoded
+// @Produce html
+// @Param id path string true "category id | 分类 ID"
+// @Param name formData string true "name | 名称"
+// @Param slug formData string false "slug | 别名"
+// @Param parent_id formData string false "parent | 父分类"
+// @Success 200 {object} map[string]any "category page | 分类页"
+// @Success 303 {object} string "redirect after success (non-htmx requests) | 成功后重定向（非 htmx 请求）"
+// @Failure 409 {string} string "not empty or cycle | 分类非空或形成环"
+// @Security BearerAuth
+// @Router /mgr/cms/categories/{id} [post]
+func (c *Controller) CMSUpdateCategory(ctx *router.Ctx) {
+	c.saveCMSCategory(ctx, true)
+}
+
+// saveCMSCategory is the shared category create/update implementation. | saveCMSCategory 是分类创建/更新的共同实现。
+func (c *Controller) saveCMSCategory(ctx *router.Ctx, update bool) {
+	tenantID, ok := c.tenantID(ctx)
+	if !ok || !c.cmsAvailable(ctx) || !c.cmsEnsure(ctx, tenantID) {
+		return
+	}
+	input := cms.CategoryInput{
+		Name:        ctx.FormValue("name"),
+		Slug:        ctx.FormValue("slug"),
+		Description: ctx.FormValue("description"),
+		ParentID:    ctx.FormValue("parent_id"),
+		Visible:     cmsChecked(ctx, "visible"),
+	}
+	sortOrder, _ := strconv.Atoi(strings.TrimSpace(ctx.FormValue("sort_order")))
+	input.SortOrder = sortOrder
+	var err error
+	if update {
+		_, err = c.cms.UpdateCategory(ctx.Request.Context(), c.cmsActor(ctx), ctx.Param("id"), input)
+	} else {
+		_, err = c.cms.CreateCategory(ctx.Request.Context(), c.cmsActor(ctx), input)
+	}
+	if err != nil {
+		c.failService(ctx, err)
+		return
+	}
+	c.toast(ctx, c.tr(c.lang(ctx), "cms.notice.saved"))
+	c.redirect(ctx, "/mgr/cms/categories")
+}
+
+// CMSDeleteCategory removes an empty category. | CMSDeleteCategory 删除空分类。
+//
+// @Summary Delete category | 删除分类
+// @Description Deletes only categories without children or articles. | 仅删除没有子分类与文章的分类。
+// @Tags cms
+// @Produce html
+// @Param id path string true "category id | 分类 ID"
+// @Success 200 {object} map[string]any "category page | 分类页"
+// @Failure 409 {string} string "category not empty | 分类非空"
+// @Security BearerAuth
+// @Router /mgr/cms/categories/{id}/delete [post]
+func (c *Controller) CMSDeleteCategory(ctx *router.Ctx) {
+	tenantID, ok := c.tenantID(ctx)
+	if !ok || !c.cmsAvailable(ctx) || !c.cmsEnsure(ctx, tenantID) {
+		return
+	}
+	if err := c.cms.DeleteCategory(ctx.Request.Context(), c.cmsActor(ctx), ctx.Param("id")); err != nil {
+		c.failService(ctx, err)
+		return
+	}
+	c.toast(ctx, c.tr(c.lang(ctx), "cms.notice.deleted"))
+	c.redirect(ctx, "/mgr/cms/categories")
+}
+
+// CMSTags renders the tag management page. | CMSTags 渲染标签管理页。
+//
+// @Summary Tag management | 标签管理
+// @Description Lists tags and filters them by keyword. | 列出标签并按关键字过滤。
+// @Tags cms
+// @Produce html
+// @Param q query string false "keyword | 关键字"
+// @Success 200 {object} map[string]any "tag page | 标签页"
+// @Security BearerAuth
+// @Router /mgr/cms/tags [get]
+func (c *Controller) CMSTags(ctx *router.Ctx) {
+	tenantID, ok := c.tenantID(ctx)
+	if !ok || !c.cmsAvailable(ctx) || !c.cmsEnsure(ctx, tenantID) {
+		return
+	}
+	keyword := strings.TrimSpace(ctx.Query("q"))
+	tags, err := c.cms.Tags(ctx.Request.Context(), tenantID, keyword)
+	if err != nil {
+		c.failService(ctx, err)
+		return
+	}
+	c.render(ctx, http.StatusOK, TplCMSTags, c.cmsPageData(ctx, c.tr(c.lang(ctx), "cms.title.tags"), map[string]any{
+		"Tags":    tags,
+		"Keyword": keyword,
+		"Empty":   len(tags) == 0,
+	}))
+}
+
+// CMSNewTag renders the tag create drawer. | CMSNewTag 渲染标签新建抽屉。
+//
+// @Summary New tag | 新建标签
+// @Description Returns the tag form fragment. | 返回标签表单片段。
+// @Tags cms
+// @Produce html
+// @Success 200 {object} map[string]any "tag form | 标签表单"
+// @Security BearerAuth
+// @Router /mgr/cms/tags/new [get]
+func (c *Controller) CMSNewTag(ctx *router.Ctx) {
+	c.render(ctx, http.StatusOK, "mgr/partials/cms/tag_form.html", map[string]any{
+		"Tag":    cms.Tag{},
+		"Mode":   "create",
+		"Action": "/mgr/cms/tags",
+	})
+}
+
+// CMSEditTag renders the tag edit drawer. | CMSEditTag 渲染标签编辑抽屉。
+//
+// @Summary Edit tag | 编辑标签
+// @Description Returns the tag form fragment. | 返回标签表单片段。
+// @Tags cms
+// @Produce html
+// @Param id path string true "tag id | 标签 ID"
+// @Success 200 {object} map[string]any "tag form | 标签表单"
+// @Security BearerAuth
+// @Router /mgr/cms/tags/{id}/edit [get]
+func (c *Controller) CMSEditTag(ctx *router.Ctx) {
+	tenantID, ok := c.tenantID(ctx)
+	if !ok || !c.cmsAvailable(ctx) {
+		return
+	}
+	tags, err := c.cms.Tags(ctx.Request.Context(), tenantID, "")
+	if err != nil {
+		c.failService(ctx, err)
+		return
+	}
+	var found cms.Tag
+	for _, tag := range tags {
+		if tag.ID == ctx.Param("id") {
+			found = tag
+			break
+		}
+	}
+	if found.ID == "" {
+		c.failService(ctx, cms.ErrTagNotFound)
+		return
+	}
+	c.render(ctx, http.StatusOK, "mgr/partials/cms/tag_form.html", map[string]any{
+		"Tag":    found,
+		"Mode":   "edit",
+		"Action": "/mgr/cms/tags/" + found.ID,
+	})
+}
+
+// CMSSaveTag creates a tag. | CMSSaveTag 创建标签。
+//
+// @Summary Create tag | 创建标签
+// @Description Creates a tag. | 新建标签。
+// @Tags cms
+// @Accept x-www-form-urlencoded
+// @Produce html
+// @Param name formData string true "name | 名称"
+// @Success 200 {object} map[string]any "tag page | 标签页"
+// @Success 303 {object} string "redirect after success (non-htmx requests) | 成功后重定向（非 htmx 请求）"
+// @Security BearerAuth
+// @Router /mgr/cms/tags [post]
+func (c *Controller) CMSSaveTag(ctx *router.Ctx) {
+	c.saveCMSTag(ctx, false)
+}
+
+// CMSUpdateTag updates a tag. | CMSUpdateTag 更新标签。
+//
+// @Summary Update tag | 更新标签
+// @Description Updates a tag's name and slug. | 更新标签名称与别名。
+// @Tags cms
+// @Accept x-www-form-urlencoded
+// @Produce html
+// @Param id path string true "tag id | 标签 ID"
+// @Param name formData string true "name | 名称"
+// @Success 200 {object} map[string]any "tag page | 标签页"
+// @Success 303 {object} string "redirect after success (non-htmx requests) | 成功后重定向（非 htmx 请求）"
+// @Security BearerAuth
+// @Router /mgr/cms/tags/{id} [post]
+func (c *Controller) CMSUpdateTag(ctx *router.Ctx) {
+	c.saveCMSTag(ctx, true)
+}
+
+// saveCMSTag is the shared tag create/update implementation. | saveCMSTag 是标签创建/更新的共同实现。
+func (c *Controller) saveCMSTag(ctx *router.Ctx, update bool) {
+	tenantID, ok := c.tenantID(ctx)
+	if !ok || !c.cmsAvailable(ctx) || !c.cmsEnsure(ctx, tenantID) {
+		return
+	}
+	input := cms.TagInput{Name: ctx.FormValue("name"), Slug: ctx.FormValue("slug")}
+	var err error
+	if update {
+		_, err = c.cms.UpdateTag(ctx.Request.Context(), c.cmsActor(ctx), ctx.Param("id"), input)
+	} else {
+		_, err = c.cms.CreateTag(ctx.Request.Context(), c.cmsActor(ctx), input)
+	}
+	if err != nil {
+		c.failService(ctx, err)
+		return
+	}
+	c.toast(ctx, c.tr(c.lang(ctx), "cms.notice.saved"))
+	c.redirect(ctx, "/mgr/cms/tags")
+}
+
+// CMSDeleteTag removes an unused tag. | CMSDeleteTag 删除未使用的标签。
+//
+// @Summary Delete tag | 删除标签
+// @Description Deletes only tags no article uses. | 仅删除没有文章使用的标签。
+// @Tags cms
+// @Produce html
+// @Param id path string true "tag id | 标签 ID"
+// @Success 200 {object} map[string]any "tag page | 标签页"
+// @Security BearerAuth
+// @Router /mgr/cms/tags/{id}/delete [post]
+func (c *Controller) CMSDeleteTag(ctx *router.Ctx) {
+	tenantID, ok := c.tenantID(ctx)
+	if !ok || !c.cmsAvailable(ctx) || !c.cmsEnsure(ctx, tenantID) {
+		return
+	}
+	if err := c.cms.DeleteTag(ctx.Request.Context(), c.cmsActor(ctx), ctx.Param("id")); err != nil {
+		c.failService(ctx, err)
+		return
+	}
+	c.toast(ctx, c.tr(c.lang(ctx), "cms.notice.deleted"))
+	c.redirect(ctx, "/mgr/cms/tags")
+}
+
+// CMSMedia renders the media library. | CMSMedia 渲染媒体库。
+//
+// @Summary Media library | 媒体库
+// @Description Lists media and filters them by keyword. | 列出媒体并按关键字过滤。
+// @Tags cms
+// @Produce html
+// @Param q query string false "keyword | 关键字"
+// @Param page query int false "page | 页码"
+// @Success 200 {object} map[string]any "media page | 媒体页"
+// @Security BearerAuth
+// @Router /mgr/cms/media [get]
+func (c *Controller) CMSMedia(ctx *router.Ctx) {
+	tenantID, ok := c.tenantID(ctx)
+	if !ok || !c.cmsAvailable(ctx) || !c.cmsEnsure(ctx, tenantID) {
+		return
+	}
+	pageNo, _ := strconv.Atoi(ctx.Query("page"))
+	keyword := strings.TrimSpace(ctx.Query("q"))
+	page, err := c.cms.Medias(ctx.Request.Context(), tenantID, cms.MediaFilter{Keyword: keyword, Page: pageNo, PageSize: c.cms.Options().PageSize})
+	if err != nil {
+		c.failService(ctx, err)
+		return
+	}
+	c.render(ctx, http.StatusOK, TplCMSMedia, c.cmsPageData(ctx, c.tr(c.lang(ctx), "cms.title.media"), map[string]any{
+		"Media":       model.NewCMSMedia(page.Items),
+		"Total":       page.Total,
+		"Keyword":     keyword,
+		"Empty":       len(page.Items) == 0,
+		"Pager":       newCMSPager(cmsPageBase(ctx), page.Page, page.TotalPages),
+		"PageScripts": []string{"/static/js/yd-cms.js"},
+	}))
+}
+
+// CMSUploadMedia stores one uploaded file from the media page. | CMSUploadMedia 从媒体页保存一次上传。
+//
+// @Summary Upload media | 上传媒体
+// @Description Sniffs the MIME type and enforces the size ceiling; returns to the library. | 服务端嗅探 MIME 并限制大小；成功后回到媒体库。
+// @Tags cms
+// @Accept multipart/form-data
+// @Produce html
+// @Param file formData file true "file | 文件"
+// @Param alt formData string false "alt text | 替代文本"
+// @Success 200 {object} map[string]any "media page | 媒体页"
+// @Success 303 {object} string "redirect after success (non-htmx requests) | 成功后重定向（非 htmx 请求）"
+// @Failure 413 {string} string "too large | 文件过大"
+// @Failure 415 {string} string "type not allowed | 类型不允许"
+// @Security BearerAuth
+// @Router /mgr/cms/media [post]
+func (c *Controller) CMSUploadMedia(ctx *router.Ctx) {
+	tenantID, ok := c.tenantID(ctx)
+	if !ok || !c.cmsAvailable(ctx) || !c.cmsEnsure(ctx, tenantID) {
+		return
+	}
+	media, err := c.readCMSUpload(ctx)
+	if err != nil {
+		c.failService(ctx, err)
+		return
+	}
+	created, err := c.cms.UploadMedia(ctx.Request.Context(), c.cmsActor(ctx), media)
+	if err != nil {
+		c.failService(ctx, err)
+		return
+	}
+	c.toast(ctx, c.tr(c.lang(ctx), "cms.notice.uploaded"))
+	c.redirect(ctx, "/mgr/cms/media")
+	_ = created
+}
+
+// CMSUploadMediaAPI answers the editor's image upload with JSON. | CMSUploadMediaAPI 用 JSON 回应编辑器的图片上传。
+//
+// @Summary Editor image upload | 编辑器图片上传
+// @Description Returns the new media's public URL for the Markdown editor. | 返回新媒体的公开地址，供 Markdown 编辑器插入。
+// @Tags cms
+// @Accept multipart/form-data
+// @Produce json
+// @Param file formData file true "file | 文件"
+// @Success 200 {object} map[string]any "media URL | 媒体地址"
+// @Failure 413 {string} string "too large | 文件过大"
+// @Failure 415 {string} string "type not allowed | 类型不允许"
+// @Security BearerAuth
+// @Router /mgr/cms/media/upload [post]
+func (c *Controller) CMSUploadMediaAPI(ctx *router.Ctx) {
+	tenantID, ok := c.tenantID(ctx)
+	if !ok || !c.cmsAvailable(ctx) || !c.cmsEnsure(ctx, tenantID) {
+		return
+	}
+	input, err := c.readCMSUpload(ctx)
+	if err != nil {
+		status, message := statusFor(err)
+		_ = ctx.JSON(status, map[string]any{"error": message})
+		return
+	}
+	media, err := c.cms.UploadMedia(ctx.Request.Context(), c.cmsActor(ctx), input)
+	if err != nil {
+		status, message := statusFor(err)
+		_ = ctx.JSON(status, map[string]any{"error": message})
+		return
+	}
+	_ = ctx.JSON(http.StatusOK, map[string]any{"url": "/blog/media/" + media.ID, "id": media.ID, "name": media.OriginalName})
+}
+
+// readCMSUpload reads one multipart file within the configured ceiling. | readCMSUpload 在配置上限内读取一个 multipart 文件。
+func (c *Controller) readCMSUpload(ctx *router.Ctx) (cms.MediaInput, error) {
+	// ctx.FormFile 由路由器统一施加 MaxBodySize；直接调用 Request.FormFile 会绕过请求体上限，
+	// 让一个超大 multipart 在解析阶段就吃掉内存或磁盘。 |
+	// ctx.FormFile applies the router's MaxBodySize; calling Request.FormFile directly would bypass the request-body
+	// limit and let one oversized multipart body consume memory or disk during parsing.
+	file, header, err := ctx.FormFile("file")
+	if err != nil {
+		if errors.Is(err, router.ErrBodyTooLarge) {
+			return cms.MediaInput{}, err
+		}
+		return cms.MediaInput{}, cms.ErrInvalidInput
+	}
+	defer func() { _ = file.Close() }()
+	limit := c.cms.Options().MaxMediaSize
+	if limit <= 0 {
+		limit = 32 << 20
+	}
+	data, err := io.ReadAll(io.LimitReader(file, limit+1))
+	if err != nil {
+		return cms.MediaInput{}, cms.ErrInvalidInput
+	}
+	if int64(len(data)) > limit {
+		return cms.MediaInput{}, cms.ErrMediaTooLarge
+	}
+	return cms.MediaInput{
+		OriginalName: header.Filename,
+		ContentType:  header.Header.Get("Content-Type"),
+		Alt:          ctx.FormValue("alt"),
+		Data:         data,
+	}, nil
+}
+
+// CMSMediaFile serves one media file inside the active tenant for the management preview. |
+// CMSMediaFile 为管理预览提供当前租户内的一份媒体文件。
+//
+// @Summary Media preview | 媒体预览
+// @Description Serves the media bytes inside the active tenant; missing and cross-tenant ids answer 404. | 提供当前租户内的媒体字节；不存在与跨租户 ID 都返回 404。
+// @Tags cms
+// @Produce application/octet-stream
+// @Param id path string true "media id | 媒体 ID"
+// @Success 200 {string} binary "file | 文件"
+// @Failure 404 {string} string "media not found | 媒体不存在"
+// @Security BearerAuth
+// @Router /mgr/cms/media/{id}/file [get]
+func (c *Controller) CMSMediaFile(ctx *router.Ctx) {
+	tenantID, ok := c.tenantID(ctx)
+	if !ok || !c.cmsAvailable(ctx) {
+		return
+	}
+	media, data, err := c.cms.ReadMedia(ctx.Request.Context(), tenantID, ctx.Param("id"))
+	if err != nil {
+		status, message := statusFor(err)
+		_ = ctx.String(status, message)
+		return
+	}
+	writeCMSMedia(ctx, media, data, "private, max-age=3600")
+}
+
+// CMSDeleteMedia removes one media file. | CMSDeleteMedia 删除一份媒体文件。
+//
+// @Summary Delete media | 删除媒体
+// @Description Deletes the media record and its file. | 删除媒体记录与文件。
+// @Tags cms
+// @Produce html
+// @Param id path string true "media id | 媒体 ID"
+// @Success 200 {object} map[string]any "media page | 媒体页"
+// @Security BearerAuth
+// @Router /mgr/cms/media/{id}/delete [post]
+func (c *Controller) CMSDeleteMedia(ctx *router.Ctx) {
+	tenantID, ok := c.tenantID(ctx)
+	if !ok || !c.cmsAvailable(ctx) || !c.cmsEnsure(ctx, tenantID) {
+		return
+	}
+	if err := c.cms.DeleteMedia(ctx.Request.Context(), c.cmsActor(ctx), ctx.Param("id")); err != nil {
+		c.failService(ctx, err)
+		return
+	}
+	c.toast(ctx, c.tr(c.lang(ctx), "cms.notice.deleted"))
+	c.redirect(ctx, "/mgr/cms/media")
+}
+
+// CMSComments renders the moderation page. | CMSComments 渲染审核页。
+//
+// @Summary Comment moderation | 评论审核
+// @Description Filters comments by status and keyword. | 按状态与关键字筛选评论。
+// @Tags cms
+// @Produce html
+// @Param status query string false "status | 状态"
+// @Param q query string false "keyword | 关键字"
+// @Param page query int false "page | 页码"
+// @Success 200 {object} map[string]any "comment page | 评论页"
+// @Security BearerAuth
+// @Router /mgr/cms/comments [get]
+func (c *Controller) CMSComments(ctx *router.Ctx) {
+	tenantID, ok := c.tenantID(ctx)
+	if !ok || !c.cmsAvailable(ctx) || !c.cmsEnsure(ctx, tenantID) {
+		return
+	}
+	actor := c.cmsActor(ctx)
+	filter := cmsCommentFilter(ctx)
+	filter.PageSize = c.cms.Options().PageSize
+	if !c.cmsReadAll(ctx) {
+		filter.AuthorID = actor.ID
+	}
+	page, err := c.cms.Comments(ctx.Request.Context(), tenantID, filter)
+	if err != nil {
+		c.failService(ctx, err)
+		return
+	}
+	c.render(ctx, http.StatusOK, TplCMSComments, c.cmsPageData(ctx, c.tr(c.lang(ctx), "cms.title.comments"), map[string]any{
+		"Comments": model.NewCMSComments(page.Items, actor.ID, actor.Moderate),
+		"Total":    page.Total,
+		"Status":   string(filter.Status),
+		"Keyword":  filter.Keyword,
+		"Empty":    len(page.Items) == 0,
+		"Pager":    newCMSPager(cmsPageBase(ctx), page.Page, page.TotalPages),
+	}))
+}
+
+// CMSModerateComment changes a comment's moderation state. | CMSModerateComment 改变评论审核状态。
+//
+// @Summary Moderate comment | 审核评论
+// @Description Approves, rejects or marks a comment as spam. | 通过、拒绝或标记垃圾评论。
+// @Tags cms
+// @Accept x-www-form-urlencoded
+// @Produce html
+// @Param id path string true "comment id | 评论 ID"
+// @Param status formData string true "target status | 目标状态"
+// @Success 200 {object} map[string]any "comment page | 评论页"
+// @Success 303 {object} string "redirect after success (non-htmx requests) | 成功后重定向（非 htmx 请求）"
+// @Security BearerAuth
+// @Router /mgr/cms/comments/{id}/moderate [post]
+func (c *Controller) CMSModerateComment(ctx *router.Ctx) {
+	tenantID, ok := c.tenantID(ctx)
+	if !ok || !c.cmsAvailable(ctx) || !c.cmsEnsure(ctx, tenantID) {
+		return
+	}
+	status := cms.CommentStatus(strings.TrimSpace(ctx.FormValue("status")))
+	if _, err := c.cms.ModerateComment(ctx.Request.Context(), c.cmsActor(ctx), ctx.Param("id"), status); err != nil {
+		c.failService(ctx, err)
+		return
+	}
+	c.toast(ctx, c.tr(c.lang(ctx), "cms.notice.moderated"))
+	c.redirect(ctx, "/mgr/cms/comments")
+}
+
+// CMSDeleteComment soft-deletes one comment. | CMSDeleteComment 软删除一条评论。
+//
+// @Summary Delete comment | 删除评论
+// @Description The author, the article author or a moderator may delete a comment. | 作者、文章作者或审核者可以删除评论。
+// @Tags cms
+// @Produce html
+// @Param id path string true "comment id | 评论 ID"
+// @Success 200 {object} map[string]any "comment page | 评论页"
+// @Security BearerAuth
+// @Router /mgr/cms/comments/{id}/delete [post]
+func (c *Controller) CMSDeleteComment(ctx *router.Ctx) {
+	tenantID, ok := c.tenantID(ctx)
+	if !ok || !c.cmsAvailable(ctx) || !c.cmsEnsure(ctx, tenantID) {
+		return
+	}
+	if err := c.cms.DeleteComment(ctx.Request.Context(), c.cmsActor(ctx), ctx.Param("id")); err != nil {
+		c.failService(ctx, err)
+		return
+	}
+	c.toast(ctx, c.tr(c.lang(ctx), "cms.notice.deleted"))
+	c.redirect(ctx, "/mgr/cms/comments")
+}
+
+// CMSSettings renders the site settings page. | CMSSettings 渲染站点设置页。
+//
+// @Summary Site settings | 站点设置
+// @Description Returns the public site's name, description, paging and comment switches. | 返回公开站点的名称、描述、分页与评论开关。
+// @Tags cms
+// @Produce html
+// @Success 200 {object} map[string]any "settings page | 设置页"
+// @Security BearerAuth
+// @Router /mgr/cms/settings [get]
+func (c *Controller) CMSSettings(ctx *router.Ctx) {
+	tenantID, ok := c.tenantID(ctx)
+	if !ok || !c.cmsAvailable(ctx) || !c.cmsEnsure(ctx, tenantID) {
+		return
+	}
+	settings, err := c.cms.Settings(ctx.Request.Context(), tenantID)
+	if err != nil {
+		c.failService(ctx, err)
+		return
+	}
+	c.render(ctx, http.StatusOK, TplCMSSettings, c.cmsPageData(ctx, c.tr(c.lang(ctx), "cms.title.settings"), map[string]any{
+		"Settings": settings,
+	}))
+}
+
+// CMSSaveSettings updates the site settings. | CMSSaveSettings 更新站点设置。
+//
+// @Summary Save site settings | 保存站点设置
+// @Description Changes the site name, description, paging and moderation switches. | 修改站点名称、描述、分页与评论审核开关。
+// @Tags cms
+// @Accept x-www-form-urlencoded
+// @Produce html
+// @Param site_name formData string true "site name | 站点名称"
+// @Param posts_per_page formData int false "posts per page | 每页文章数"
+// @Success 200 {object} map[string]any "settings page | 设置页"
+// @Success 303 {object} string "redirect after success (non-htmx requests) | 成功后重定向（非 htmx 请求）"
+// @Security BearerAuth
+// @Router /mgr/cms/settings [post]
+func (c *Controller) CMSSaveSettings(ctx *router.Ctx) {
+	tenantID, ok := c.tenantID(ctx)
+	if !ok || !c.cmsAvailable(ctx) || !c.cmsEnsure(ctx, tenantID) {
+		return
+	}
+	pageSize, _ := strconv.Atoi(strings.TrimSpace(ctx.FormValue("posts_per_page")))
+	input := cms.SettingsInput{
+		SiteName:          ctx.FormValue("site_name"),
+		SiteDescription:   ctx.FormValue("site_description"),
+		SiteKeywords:      ctx.FormValue("site_keywords"),
+		FooterText:        ctx.FormValue("footer_text"),
+		PostsPerPage:      pageSize,
+		CommentsEnabled:   cmsChecked(ctx, "comments_enabled"),
+		CommentModeration: cmsChecked(ctx, "comment_moderation"),
+		RSSEnabled:        cmsChecked(ctx, "rss_enabled"),
+	}
+	if _, err := c.cms.SaveSettings(ctx.Request.Context(), c.cmsActor(ctx), input); err != nil {
+		c.failService(ctx, err)
+		return
+	}
+	c.toast(ctx, c.tr(c.lang(ctx), "cms.notice.saved"))
+	c.redirect(ctx, "/mgr/cms/settings")
+}
+
+// CMSAudit renders the audit trail. | CMSAudit 渲染审计轨迹。
+//
+// @Summary Content audit | 内容审计
+// @Description Filters management audit entries by target and action. | 按目标与动作筛选管理审计记录。
+// @Tags cms
+// @Produce html
+// @Param target query string false "target id | 目标 ID"
+// @Param action query string false "action | 动作"
+// @Param page query int false "page | 页码"
+// @Success 200 {object} map[string]any "audit page | 审计页"
+// @Security BearerAuth
+// @Router /mgr/cms/audit [get]
+func (c *Controller) CMSAudit(ctx *router.Ctx) {
+	tenantID, ok := c.tenantID(ctx)
+	if !ok || !c.cmsAvailable(ctx) {
+		return
+	}
+	if !c.cmsReadAll(ctx) {
+		c.failService(ctx, cms.ErrForbidden)
+		return
+	}
+	pageNo, _ := strconv.Atoi(ctx.Query("page"))
+	filter := cms.AuditFilter{
+		TargetID: strings.TrimSpace(ctx.Query("target")),
+		Action:   strings.TrimSpace(ctx.Query("action")),
+		Page:     pageNo,
+	}
+	filter.PageSize = c.cms.Options().PageSize
+	page, err := c.cms.Audit(ctx.Request.Context(), tenantID, filter)
+	if err != nil {
+		c.failService(ctx, err)
+		return
+	}
+	c.render(ctx, http.StatusOK, TplCMSAudit, c.cmsPageData(ctx, c.tr(c.lang(ctx), "cms.title.audit"), map[string]any{
+		"Entries": page.Items,
+		"Total":   page.Total,
+		"Target":  filter.TargetID,
+		"Empty":   len(page.Items) == 0,
+		"Pager":   newCMSPager(cmsPageBase(ctx), page.Page, page.TotalPages),
+	}))
+}

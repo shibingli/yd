@@ -3,6 +3,7 @@ package gen_test
 import (
 	"context"
 	"errors"
+	"fmt"
 	"go/format"
 	"html/template"
 	"os"
@@ -140,9 +141,14 @@ func TestGenerateProducesFormattedGoCode(t *testing.T) {
 				t.Errorf("%s 不能被 go/format 解析: %v\n---\n%s", p, err, content)
 			}
 		case strings.HasSuffix(p, ".html"):
-			if _, err := template.New(filepath.ToSlash(p)).Parse(content); err != nil {
+			parsed, err := template.New(filepath.ToSlash(p)).
+				Funcs(template.FuncMap{"pathEscape": func(value any) string {
+					return fmt.Sprint(value)
+				}}).Parse(content)
+			if err != nil {
 				t.Errorf("%s 不能被 html/template 解析: %v\n---\n%s", p, err, content)
 			}
+			_ = parsed
 		}
 	}
 
@@ -169,6 +175,18 @@ func TestGenerateProducesFormattedGoCode(t *testing.T) {
 		} {
 			if !strings.Contains(model, want) {
 				t.Errorf("模型文件缺少片段 %q:\n%s", want, model)
+			}
+		}
+	})
+
+	t.Run("搜索转义", func(t *testing.T) {
+		repo := readFile(t, fsys, "internal/repository/post_repo.go")
+		for _, want := range []string{
+			`LIKE ? ESCAPE '!'`,
+			`strings.NewReplacer("!", "!!", "%", "!%", "_", "!_")`,
+		} {
+			if !strings.Contains(repo, want) {
+				t.Errorf("生成仓库缺少 LIKE 转义片段 %q:\n%s", want, repo)
 			}
 		}
 	})
@@ -405,12 +423,40 @@ func TestGenerateStopsOnCancelledContext(t *testing.T) {
 	}
 }
 
+// TestGenerateRejectsUnsupportedPrimaryKey verifies floats and []byte cannot be route keys. |
+// TestGenerateRejectsUnsupportedPrimaryKey 验证浮点与 []byte 不能作为路由主键。
+func TestGenerateRejectsUnsupportedPrimaryKey(t *testing.T) {
+	for _, goType := range []string{"float64", "[]byte"} {
+		m := sampleModel()
+		m.Fields[0].GoType = goType
+		if _, err := gen.Generate(context.Background(), m, sampleOptions(), afs.NewMem()); !errors.Is(err, gen.ErrBadModel) {
+			t.Errorf("primary key %s error = %v, want ErrBadModel", goType, err)
+		}
+	}
+}
+
+// TestGenerateRejectsUnquotedIdentifiers verifies uppercase and reserved column names are refused
+// because the generated SQL does not quote identifiers. | TestGenerateRejectsUnquotedIdentifiers
+// 验证大写与保留字列名被拒绝，因为生成 SQL 不对标识符加引号。
+func TestGenerateRejectsUnquotedIdentifiers(t *testing.T) {
+	for _, column := range []string{"Title", "select", "order"} {
+		m := sampleModel()
+		m.Fields[1].Column = column
+		if _, err := gen.Generate(context.Background(), m, sampleOptions(), afs.NewMem()); !errors.Is(err, gen.ErrBadModel) {
+			t.Errorf("column %q error = %v, want ErrBadModel", column, err)
+		}
+	}
+}
+
 // TestGenerateRejectsEmptyModel 验证空模型被拒绝。
 // TestGenerateRejectsEmptyModel verifies an empty model is rejected.
 func TestGenerateRejectsEmptyModel(t *testing.T) {
 	_, err := gen.Generate(context.Background(), &gen.Model{Name: "Empty"}, gen.Options{}, afs.NewMem())
 	if !errors.Is(err, gen.ErrNoFields) {
 		t.Errorf("错误 = %v，期望 ErrNoFields", err)
+	}
+	if _, err := gen.Generate(context.Background(), nil, gen.Options{}, afs.NewMem()); !errors.Is(err, gen.ErrBadModel) {
+		t.Errorf("nil model error = %v, want ErrBadModel", err)
 	}
 }
 

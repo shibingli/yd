@@ -1,0 +1,16 @@
+{{/*
+  partials/messages/sidebar_badges.html —— 侧栏未读与好友申请角标。
+  partials/messages/sidebar_badges.html — the sidebar unread and friend-request badges.
+
+  两个角标始终存在于 DOM 中（计数为零时 hidden），WebSocket 因此可以按稳定的 id 做 outerHTML 交换；
+  只在有未读时才渲染节点会让推送找不到目标。 |
+  Both badges always exist in the DOM (hidden when the count is zero) so the WebSocket can swap them by a stable id;
+  rendering a node only when unread would leave the push without a target.
+*/}}
+{{- define "portal/partials/messages/sidebar_unread" -}}
+<span id="yd-sidebar-unread" class="yd-badge yd-badge--warn"{{ if eq .Unread.Total 0 }} hidden{{ end }}>{{ .Unread.Total }}</span>
+{{- end -}}
+{{- define "portal/partials/messages/sidebar_friend_requests" -}}
+<span id="yd-sidebar-friend-requests" class="yd-badge yd-badge--warn"{{ if eq .Unread.FriendRequests 0 }} hidden{{ end }}>{{ .Unread.FriendRequests }}</span>
+{{- end -}}
+{{ template "portal/partials/messages/sidebar_unread" . }}{{ template "portal/partials/messages/sidebar_friend_requests" . }}

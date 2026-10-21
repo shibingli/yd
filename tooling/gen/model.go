@@ -74,20 +74,40 @@ type Field struct {
 // packages yd gen writes to. A generated module with one of these names would redeclare them.
 // | reservedModuleNames 列出生成脚手架在 yd gen 写入的包中已经定义的类型名。用这些名字生成模块
 // 会重复声明它们。
-// validDBIdent reports whether s is a plain SQL identifier (letters, digits and underscores,
-// not starting with a digit). | validDBIdent 报告 s 是否为普通 SQL 标识符（字母、数字与下划线，
-// 且不以数字开头）。
+// validDBIdent reports whether s is a lowercase plain SQL identifier that is safe to interpolate
+// into generated SQL. Uppercase and reserved words are rejected because the generated statements do
+// not quote identifiers. | validDBIdent 报告 s 是否为可安全写入生成 SQL 的小写普通标识符。
+// 生成语句不对标识符加引号，因此大写与保留字一律拒绝。
 func validDBIdent(s string) bool {
 	if s == "" {
 		return false
 	}
 	for i, r := range s {
-		if r == '_' || 'a' <= r && r <= 'z' || 'A' <= r && r <= 'Z' || i > 0 && '0' <= r && r <= '9' {
+		if r == '_' || 'a' <= r && r <= 'z' || i > 0 && '0' <= r && r <= '9' {
 			continue
 		}
 		return false
 	}
-	return true
+	return !sqlReservedWords[s]
+}
+
+// sqlReservedWords lists identifiers that cannot be interpolated unquoted into portable SQL. |
+// sqlReservedWords 列出无法不加引号写入可移植 SQL 的标识符。
+var sqlReservedWords = map[string]bool{
+	"all": true, "alter": true, "and": true, "as": true, "authorization": true, "between": true,
+	"by": true, "case": true, "check": true, "column": true, "constraint": true, "create": true,
+	"cross": true, "current_date": true, "current_time": true, "current_timestamp": true,
+	"default": true, "delete": true, "distinct": true, "drop": true, "else": true, "end": true,
+	"exists": true, "false": true, "fetch": true, "for": true, "foreign": true, "from": true,
+	"full": true, "group": true, "having": true, "in": true, "index": true, "inner": true,
+	"insert": true, "interval": true, "into": true, "is": true, "join": true, "key": true,
+	"lateral": true, "left": true, "like": true, "limit": true, "locked": true, "natural": true,
+	"not": true, "nowait": true, "null": true, "offset": true, "on": true, "only": true, "or": true,
+	"order": true, "outer": true, "over": true, "partition": true, "primary": true, "references": true,
+	"returning": true, "right": true, "select": true, "set": true, "share": true, "skip": true,
+	"table": true, "then": true, "true": true, "union": true, "unique": true, "update": true,
+	"user": true, "using": true, "values": true, "when": true, "where": true, "window": true,
+	"with": true,
 }
 
 // validDBTable accepts an optionally schema-qualified table name whose every segment is a plain
@@ -233,6 +253,22 @@ func (f Field) IsNumber() bool {
 		return false
 	}
 }
+
+// IsInteger reports whether the field is an integer kind. | IsInteger 报告字段是否为整数类型。
+func (f Field) IsInteger() bool {
+	switch f.GoType {
+	case "int", "int8", "int16", "int32", "int64",
+		"uint", "uint8", "uint16", "uint32", "uint64":
+		return true
+	default:
+		return false
+	}
+}
+
+// IsPrimaryKeyType reports whether a path parameter can carry the type. Strings and integers can be
+// parsed back from the route; floats and []byte cannot. | IsPrimaryKeyType 报告路径参数能否承载该类型。
+// 字符串与整数可以从路由还原；浮点与 []byte 不能。
+func (f Field) IsPrimaryKeyType() bool { return f.GoType == "string" || f.IsInteger() }
 
 // IsUnsigned 报告数值字段是否为无符号类型。
 // IsUnsigned reports whether the numeric field is unsigned.
@@ -598,9 +634,9 @@ func (m *Model) prepare() error {
 			Comment: "Primary key | 主键",
 		}}, m.Fields...)
 	}
-	if pk := m.PrimaryKey(); pk != nil && !pk.IsString() && !pk.IsNumber() {
-		// 路由只能携带字符串或整数主键，其它类型无法从路径参数还原。
-		// Routes can only carry string or integer keys; any other type cannot be rebuilt from a path parameter.
+	if pk := m.PrimaryKey(); pk != nil && !pk.IsPrimaryKeyType() {
+		// Routes can only carry string or integer keys; floats and []byte cannot be rebuilt from a path parameter. |
+		// 路由只能携带字符串或整数主键；浮点与 []byte 无法从路径参数还原。
 		return errx.Detail(ErrBadModel, "primary key %s must be a string or integer type | 主键 %s 必须是字符串或整数类型", pk.Column, pk.Column)
 	}
 	if m.Module == "" {

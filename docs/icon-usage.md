@@ -9,7 +9,7 @@
 tooling/icons/data/lucide.json       固定版本的 Iconify JSON（仅构建期输入，不进入应用二进制）
         │
         │  yd icons sync
-        │  扫描模板中的 {{template "partials/icon" "…"}} 调用
+        │  扫描模板中的 {{template "<树>/partials/icon" "…"}} 调用（树前缀可省略）
         ▼
 web/static/img/icons.svg             只包含实际引用图标的 SVG sprite（go:embed 打包）
         │
@@ -29,7 +29,7 @@ web/static/img/icons.min.svg         生产环境压缩产物（生产模板自�
 - **无 Node.js**：图标生成由 Go 工具 `yd icons` 完成，Tailwind v4 仍由 standalone 二进制编译。
 - **无运行时网络**：sprite 随 `go:embed` 进入二进制，sprite 内是 `<symbol>`，没有 Iconify API、
   没有 CDN、没有按图标发起的网络请求。
-- **按需体积**：生成器只把模板实际引用的图标写进 sprite。当前 6 个按钮图标约 1.7 KB；
+- **按需体积**：生成器只把模板实际引用的图标写进 sprite。框架与脚手架模板合计约 24 个图标、约 7 KB；
   未引用的图标不会进入前端产物。
 - **CSP 友好**：sprite 与页面同源；图标通过 `<use>` 引用，不依赖内联脚本或 data URI。
 - **htmx 友好**：`<svg><use>` 是普通 DOM，htmx 的 morph/局部交换不会破坏它。
@@ -44,7 +44,8 @@ web/static/img/icons.min.svg         生产环境压缩产物（生产模板自�
 | `web/static/img/icons.svg` | 生成并提交入库的按需 sprite |
 | `web/static/img/icons.min.svg` | `yd assets minify` 产出的生产压缩 sprite |
 | `web/templates/partials/icon.html` | 框架模板使用的图标片段 |
-| `tooling/scaffold/templates/_name_/web/templates/partials/icon.html` | 生成项目使用的同一片段 |
+| `tooling/scaffold/templates/_name_/web/templates/portal/partials/icon.html` | 生成项目门户树使用的片段 |
+| `tooling/scaffold/templates/_name_/web/templates/mgr/partials/icon.html` | 生成项目后台树使用的片段 |
 
 生成项目不需要自己维护图标数据：框架 `web.Static()` 会把框架的 `static/` 合并到项目静态树中，
 `sprite` 由框架层兜底提供。项目也可以运行 `yd icons sync` 生成自己的 sprite，项目层的同名文件会覆盖框架层。
@@ -95,7 +96,12 @@ yd assets minify --check
 
 ```html
 {{template "partials/icon" "lucide-log-in"}}
+{{template "portal/partials/icon" "lucide-log-in"}}
+{{template "mgr/partials/icon" "lucide-log-in"}}
 ```
+
+框架示例模板用无前缀形式；生成项目的门户与后台两棵树分别用 `portal/` 与 `mgr/` 前缀，
+扫描器接受任意一层树前缀，因此三种写法都会进入 sprite。
 
 参数是 **`<图标集前缀>-<图标名>`** 的完整引用，不带 `i-` 前缀，也不带 `#`。
 片段会渲染为：
@@ -111,7 +117,7 @@ yd assets minify --check
 - 图标是装饰性的，默认 `aria-hidden="true"`；如果图标是唯一语义，请给按钮或链接提供
   `aria-label` / 可见文本。
 - 不要在模板里拼动态图标名（如 `"lucide-" + .Name`）：生成器只扫描静态的
-  `{{template "partials/icon" "…"}}` 调用。
+  `{{template "<树>/partials/icon" "…"}}` 调用。
 - 不要直接引用 `#i-…` 或内联 SVG；否则 `yd icons check` 不会把该图标纳入 sprite。
 - 图标颜色继承 `currentColor`，因此主题切换、链接色与按钮禁用态都会自动跟随。
 
@@ -159,7 +165,7 @@ yd assets minify --check
 
 新增图标时，先在模板中加入片段调用，再运行 `yd icons sync`。生成器会自动把它加入 sprite。
 
-OpenAPI 查看器（`/docs`）的 `#theme-toggle` 也复用 `lucide-sun` / `lucide-moon` /
+OpenAPI 查看器（`/mgr/docs`）的 `#theme-toggle` 也复用 `lucide-sun` / `lucide-moon` /
 `lucide-monitor` 三枚图标，由 `data-theme-choice` 经 CSS 选出；脚本只更新
 `#theme-label` 的文字，**不得**对按钮设置 `textContent`，否则会把三个图标节点一起清掉。
 

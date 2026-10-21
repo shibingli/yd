@@ -2,10 +2,12 @@ package gormstore
 
 import (
 	"context"
+	"errors"
 	"time"
 
 	"github.com/shibingli/yd/messaging"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 // CreateFriendRequest inserts one directed request. | CreateFriendRequest 插入一条有向申请。
@@ -36,17 +38,24 @@ func (s *Store) FriendRequestBetween(ctx context.Context, tenantID, requesterID,
 	return req, nil
 }
 
-// UpdateFriendRequest advances the state machine. | UpdateFriendRequest 推进状态机。
-func (s *Store) UpdateFriendRequest(ctx context.Context, req messaging.FriendRequest) error {
+// UpdateFriendRequest advances the state machine, guarded by the expected current state. |
+// UpdateFriendRequest 推进状态机，并以期望的当前状态作为并发前置条件。
+func (s *Store) UpdateFriendRequest(ctx context.Context, req messaging.FriendRequest, expected messaging.FriendRequestStatus) error {
 	result := s.dbc(ctx).Model(&messaging.FriendRequest{}).
-		Where("tenant_id = ? AND id = ?", req.TenantID, req.ID).
+		Where("tenant_id = ? AND id = ? AND status = ?", req.TenantID, req.ID, expected).
 		Updates(map[string]any{
 			"status":       req.Status,
 			"message":      req.Message,
 			"created_at":   req.CreatedAt,
 			"responded_at": req.RespondedAt,
 		})
-	return queryError(result.Error)
+	if result.Error != nil {
+		return queryError(result.Error)
+	}
+	if result.RowsAffected == 0 {
+		return messaging.ErrRequestClosed
+	}
+	return nil
 }
 
 // AcceptFriendRequest accepts a request and creates the friendship atomically. | AcceptFriendRequest 原子地接受申请并创建好友关系。
@@ -100,13 +109,29 @@ func (s *Store) CreateFriendship(ctx context.Context, f messaging.Friendship) er
 	return nil
 }
 
-// DeleteFriendship removes the canonical pair. | DeleteFriendship 删除规范化好友对。
+// DeleteFriendship removes the canonical pair and both owners' notes for it. Notes are private
+// rows keyed by the pair, so leaving them behind would make an old remark resurface on a later
+// re-friend and would leave a relation row with no friendship. |
+// DeleteFriendship 删除规范化好友对及双方对它的备注。备注是以好友对为键的私有行，留下它们会让旧备注在
+// 以后重新加好友时重新出现，也会留下一条没有好友关系的关联行。
 func (s *Store) DeleteFriendship(ctx context.Context, tenantID, userA, userB string) error {
 	low, high := orderedPair(userA, userB)
-	result := s.dbc(ctx).
-		Where("tenant_id = ? AND user_low_id = ? AND user_high_id = ?", tenantID, low, high).
-		Delete(&messaging.Friendship{})
-	return rowsError(result)
+	return queryError(s.dbc(ctx).Transaction(func(tx *gorm.DB) error {
+		result := tx.
+			Where("tenant_id = ? AND user_low_id = ? AND user_high_id = ?", tenantID, low, high).
+			Delete(&messaging.Friendship{})
+		if err := rowsError(result); err != nil {
+			return err
+		}
+		return deleteFriendNotes(tx, tenantID, userA, userB)
+	}))
+}
+
+// deleteFriendNotes removes both directions of the private remarks for one pair. |
+// deleteFriendNotes 删除一对用户两个方向的私有备注。
+func deleteFriendNotes(tx *gorm.DB, tenantID, userA, userB string) error {
+	return tx.Where("tenant_id = ? AND ((owner_id = ? AND friend_id = ?) OR (owner_id = ? AND friend_id = ?))",
+		tenantID, userA, userB, userB, userA).Delete(&messaging.FriendNote{}).Error
 }
 
 // GetFriendship reads the canonical pair. | GetFriendship 读取规范化好友对。
@@ -144,25 +169,36 @@ func (s *Store) GetFriendNote(ctx context.Context, tenantID, ownerID, friendID s
 	return note, nil
 }
 
-// SetFriendNote upserts one remark. | SetFriendNote upsert 一条备注。
+// SetFriendNote upserts one remark. The friendship row is locked for the whole write, so a
+// concurrent unfriend/block either removes the note after it is written or makes this write fail,
+// never leaving a note for a friendship that no longer exists. |
+// SetFriendNote upsert 一条备注。整个写入期间锁定好友关系行，因此并发解除好友/拉黑要么在备注写入后
+// 清理它，要么让本次写入失败，绝不会给已不存在的好友关系留下备注。
 func (s *Store) SetFriendNote(ctx context.Context, note messaging.FriendNote) error {
-	if err := s.dbc(ctx).Clauses(onConflictDoNothing()).Create(&note).Error; err != nil {
-		return createError(err)
-	}
-	if note.Remark == "" {
-		if err := s.dbc(ctx).
-			Where("tenant_id = ? AND owner_id = ? AND friend_id = ?", note.TenantID, note.OwnerID, note.FriendID).
-			Delete(&messaging.FriendNote{}).Error; err != nil {
-			return queryError(err)
+	return queryError(s.dbc(ctx).Transaction(func(tx *gorm.DB) error {
+		low, high := orderedPair(note.OwnerID, note.FriendID)
+		var friendship messaging.Friendship
+		err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
+			Where("tenant_id = ? AND user_low_id = ? AND user_high_id = ?", note.TenantID, low, high).
+			Take(&friendship).Error
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return messaging.ErrNotFound
 		}
-		return nil
-	}
-	if err := s.dbc(ctx).Model(&messaging.FriendNote{}).
-		Where("tenant_id = ? AND owner_id = ? AND friend_id = ?", note.TenantID, note.OwnerID, note.FriendID).
-		Updates(map[string]any{"remark": note.Remark, "updated_at": note.UpdatedAt}).Error; err != nil {
-		return queryError(err)
-	}
-	return nil
+		if err != nil {
+			return err
+		}
+		if err := tx.Clauses(onConflictDoNothing()).Create(&note).Error; err != nil {
+			return createError(err)
+		}
+		if note.Remark == "" {
+			return tx.
+				Where("tenant_id = ? AND owner_id = ? AND friend_id = ?", note.TenantID, note.OwnerID, note.FriendID).
+				Delete(&messaging.FriendNote{}).Error
+		}
+		return tx.Model(&messaging.FriendNote{}).
+			Where("tenant_id = ? AND owner_id = ? AND friend_id = ?", note.TenantID, note.OwnerID, note.FriendID).
+			Updates(map[string]any{"remark": note.Remark, "updated_at": note.UpdatedAt}).Error
+	}))
 }
 
 // CreateBlock stores one direction of a block. | CreateBlock 保存拉黑关系的一个方向。
@@ -184,6 +220,9 @@ func (s *Store) BlockUser(ctx context.Context, b messaging.Block) error {
 		if err := tx.
 			Where("tenant_id = ? AND user_low_id = ? AND user_high_id = ?", b.TenantID, low, high).
 			Delete(&messaging.Friendship{}).Error; err != nil {
+			return queryError(err)
+		}
+		if err := deleteFriendNotes(tx, b.TenantID, b.BlockerID, b.BlockedID); err != nil {
 			return queryError(err)
 		}
 		now := b.CreatedAt

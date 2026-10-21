@@ -1,0 +1,22 @@
+{{/*
+  partials/cms/i18n_keys.html —— Go 侧动态使用的语言目录键清单。
+  partials/cms/i18n_keys.html — the catalogue keys used dynamically from Go.
+
+  这些键由控制器在模板执行之外选取（页面标题、提示与错误文案），模板里没有字面量调用；
+  本文件把它们集中登记一次，让静态目录检查看到它们。本文件不产出正文。
+  These keys are selected by the controller outside template execution (page titles, notices and error copy) and have
+  no literal template call. This file registers them once so the static catalogue check sees them. It renders no body.
+
+  动态键 | Dynamic keys:
+  {{ tr "cms.title.editor" }}
+  {{ tr "cms.title.revisions" }}
+  {{ tr "cms.notice.saved" }}
+  {{ tr "cms.notice.deleted" }}
+  {{ tr "cms.notice.transition" }}
+  {{ tr "cms.notice.restored" }}
+  {{ tr "cms.notice.uploaded" }}
+  {{ tr "cms.notice.moderated" }}
+  {{ tr "cms.notice.comment_submitted" }}
+  {{ tr "cms.error.unavailable" }}
+  {{ tr "cms.error.internal" }}
+*/}}

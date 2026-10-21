@@ -1,0 +1,71 @@
+{{/*
+  partials/roles/list.html —— 角色清单与空状态（由 pages/roles.html 引用）。
+  partials/roles/list.html — the role list and its empty state (referenced by pages/roles.html).
+
+  数据契约 | Data contract: .Roles（[]model.Role）、.Empty，以及 authz.Data 注入的 .Perm——能力开关按
+  can $.Perm.RoleUpdate 出现（对应 POST /roles/{id}/permissions），删除按钮按 can $.Perm.RoleDelete 出现
+  （对应 POST /roles/{id}/delete），两者各自与服务端守卫是同一个标识。
+  .Roles ([]model.Role) and .Empty, plus the .Perm map injected by authz.Data: the capability switches appear under
+  can $.Perm.RoleUpdate (POST /roles/{id}/permissions) and the delete button under can $.Perm.RoleDelete
+  (POST /roles/{id}/delete), each matching the very token its route is guarded by.
+  非内置角色才出现删除按钮，服务端对内置角色一律以 409 拒绝（internal/service.ErrBuiltinRoleProtected）：
+  页面少一个按钮只是少一次误点，边界仍然在服务端。
+  Only a non-built-in role gets a delete button, and the server refuses every built-in one with a 409
+  (internal/service.ErrBuiltinRoleProtected): a missing button saves one stray click while the boundary stays server-side.
+
+  权限以标识本身展示（user:read 这样的字符串），因为这一页回答的是「这个角色到底被授予了什么」；
+  对照表在权限矩阵页，那里每一行都带中英说明。
+  Capabilities are shown as the tokens themselves (strings such as user:read) because this page answers "what exactly is
+  this role granted"; the matrix page is where each row carries its bilingual description.
+*/}}
+{{- define "mgr/partials/roles/list" -}}
+{{ with .Roles }}
+<div class="yd-cards yd-cards--roles" data-yd-roles>
+  {{/* 外层把角色存进 $role：内层遍历能力目录时 . 会变成一条权限，届时只有具名变量还指着这一行角色。 */}}
+  {{/* The outer loop captures the role in $role: the inner loop over the capability catalogue turns the dot into one
+       permission, and only a named variable still points at this row's role. */}}
+  {{ range $role := . }}
+  <article class="yd-card yd-role" id="yd-role-{{ $role.ID }}">
+    <header class="yd-section__header">
+      <h3 class="yd-section__title">{{ $role.Name }}</h3>
+      {{/* .Builtin 直接调用 model.Role.Builtin()：模板方法调用不需要额外的函数表条目。 */}}
+      {{/* .Builtin calls model.Role.Builtin() directly: calling a method needs no extra function-map entry. */}}
+      {{ if $role.Builtin }}<span class="yd-badge yd-badge--muted">{{ tr "role.builtin" }}</span>{{ end }}
+    </header>
+    <p class="yd-hint">{{ $role.Description }}</p>
+    <p class="yd-role__permissions">
+      {{ range $role.Permissions }}<span class="yd-badge yd-badge--info">{{ . }}</span>{{ else }}<span class="yd-hint">{{ tr "role.no_permission" }}</span>{{ end }}
+    </p>
+
+    {{- if or (can $.Perm.RoleManage) (can $.Perm.RoleDelete) }}
+    {{/* 列表操作统一收进下拉菜单：编辑打开抽屉，删除仍需一次确认。权限勾选也搬进抽屉，
+         列表因此只回答「这个角色被授予了什么」，不再同时承担编辑。 */}}
+    {{/* List actions live in one dropdown: edit opens the drawer and delete still asks for confirmation.
+         Capability checkboxes move into the drawer as well, so the list answers "what is this role granted"
+         and no longer doubles as an editor. */}}
+    <details class="yd-menu" data-yd-menu>
+      <summary class="yd-btn yd-btn--ghost yd-btn--sm">{{ tr "ui.actions" }}</summary>
+      <div class="yd-menu__panel" role="menu">
+        {{- if can $.Perm.RoleManage }}
+        <button type="button" class="yd-menu__item" role="menuitem" data-yd-drawer-open
+                hx-get="/mgr/roles/{{ $role.ID }}/edit" hx-target="#yd-drawer-body" hx-swap="innerHTML">{{ tr "ui.edit" }}</button>
+        {{- end }}
+        {{- if can $.Perm.RoleDelete }}
+        <form method="post" action="/mgr/roles/{{ $role.ID }}/delete"
+              hx-post="/mgr/roles/{{ $role.ID }}/delete"
+              hx-status:409="target:#yd-errors swap:innerHTML"
+              hx-status:404="target:#yd-errors swap:innerHTML"
+              data-yd-confirm="{{ tr "confirm.delete_role" }}">
+          <button type="submit" class="yd-menu__item yd-menu__item--danger" role="menuitem" {{ if $role.Builtin }}disabled{{ end }}>{{ tr "ui.delete" }}</button>
+        </form>
+        {{- end }}
+      </div>
+    </details>
+    {{- end }}
+  </article>
+  {{ end }}
+</div>
+{{ else }}
+<p class="yd-hint">{{ tr "role.empty" }}</p>
+{{ end }}
+{{- end -}}

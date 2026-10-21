@@ -1,0 +1,107 @@
+{{/*
+  partials/messages/audit.html —— 管理员治理与审计页面正文。
+  partials/messages/audit.html — the body of the administrator moderation and audit pages.
+
+  AdminMode 展示全租户消息与最近审计；AuditMode 展示可按动作与消息过滤的完整审计表。
+  两种模式共用本文件，因此页面标题、筛选栏与表格样式不会各写一份。
+  AdminMode shows every tenant message plus recent audit entries; AuditMode shows the full audit table filtered by action
+  and message. Both modes share this file, so the title, filter bar and table styling exist once.
+*/}}
+{{- define "mgr/partials/messages/audit" -}}
+{{- if .AuditMode }}
+<section class="yd-page" data-yd-page="message-audit" aria-labelledby="yd-audit-title">
+  <header class="yd-page__header">
+    <div>
+      <h1 class="yd-page__title" id="yd-audit-title">{{ tr "page.message_audit.title" }}</h1>
+      <p class="yd-page__subtitle">{{ tr "page.message_audit.subtitle" }}</p>
+    </div>
+    <a class="yd-btn yd-btn--ghost" href="/mgr/messages" hx-get="/mgr/messages" hx-target="#yd-workspace" hx-swap="innerMorph" hx-push-url="true">{{ tr "message.admin.back" }}</a>
+  </header>
+  <form class="yd-filters" method="get" action="/mgr/messages/audit"
+        hx-get="/mgr/messages/audit" hx-target="#yd-workspace" hx-swap="innerMorph" hx-push-url="true"
+        hx-trigger="input changed delay:300ms from:#yd-audit-action, input changed delay:300ms from:#yd-audit-message, submit">
+    <input class="yd-input" id="yd-audit-action" name="action" type="search" value="{{ .Filter.Action }}" placeholder="{{ tr "message.admin.action_filter" }}">
+    <input class="yd-input" id="yd-audit-message" name="message_id" type="search" value="{{ .Filter.MessageID }}" placeholder="{{ tr "message.admin.message_filter" }}">
+    <button type="submit" class="yd-btn">{{ tr "ui.search" }}</button>
+  </form>
+  {{ template "mgr/partials/messages/audit_table" . }}
+</section>
+{{- else }}
+<section class="yd-page" data-yd-page="message-admin" aria-labelledby="yd-admin-title">
+  <header class="yd-page__header">
+    <div>
+      <h1 class="yd-page__title" id="yd-admin-title">{{ tr "page.message_admin.title" }}</h1>
+      <p class="yd-page__subtitle">{{ tr "page.message_admin.subtitle" }}</p>
+    </div>
+    <div class="yd-page__actions">
+      {{- if .CanSystem }}
+      <button type="button" class="yd-btn yd-btn--primary" data-yd-drawer-open
+              hx-get="/mgr/messages/system/new" hx-target="#yd-drawer-body" hx-swap="innerHTML">{{ tr "message.announce_title" }}</button>
+      {{- end }}
+      <a class="yd-btn yd-btn--ghost" href="/mgr/messages/audit" hx-get="/mgr/messages/audit" hx-target="#yd-workspace" hx-swap="innerMorph" hx-push-url="true">{{ tr "message.admin.audit_link" }}</a>
+    </div>
+  </header>
+  <form class="yd-filters" method="get" action="/mgr/messages"
+        hx-get="/mgr/messages" hx-target="#yd-workspace" hx-swap="innerMorph" hx-push-url="true"
+        hx-trigger="input changed delay:300ms from:#yd-admin-q, change from:#yd-admin-folder, submit">
+    <input class="yd-input" id="yd-admin-q" name="q" type="search" value="{{ .Filters.Query }}" placeholder="{{ tr "message.search_placeholder" }}">
+    <select class="yd-select" id="yd-admin-folder" name="folder" aria-label="{{ tr "message.folder_label" }}">
+      <option value="all"{{ if eq .Filters.Folder "all" }} selected{{ end }}>{{ tr "message.folder.all" }}</option>
+      <option value="sent"{{ if eq .Filters.Folder "sent" }} selected{{ end }}>{{ tr "message.folder.sent" }}</option>
+      <option value="system"{{ if eq .Filters.Folder "system" }} selected{{ end }}>{{ tr "message.folder.system" }}</option>
+      <option value="pinned"{{ if eq .Filters.Folder "pinned" }} selected{{ end }}>{{ tr "message.folder.pinned" }}</option>
+    </select>
+    <button type="submit" class="yd-btn">{{ tr "ui.search" }}</button>
+  </form>
+  <section class="yd-card yd-section" aria-labelledby="yd-admin-results">
+    <header class="yd-section__header">
+      <h2 class="yd-section__title" id="yd-admin-results">{{ tr "message.admin.results" }}</h2>
+      <span class="yd-badge yd-badge--muted">{{ tr "message.result_count" .Total }}</span>
+    </header>
+    {{- if .Results }}
+    <div class="yd-msg-thread__body yd-msg-admin-list">
+      {{- range .Results }}{{ template "mgr/partials/messages/message" . }}{{ end }}
+    </div>
+    {{- else }}
+    <p class="yd-hint">{{ tr "message.no_results" }}</p>
+    {{- end }}
+  </section>
+  <section class="yd-card yd-section" aria-labelledby="yd-admin-audit">
+    <header class="yd-section__header">
+      <h2 class="yd-section__title" id="yd-admin-audit">{{ tr "message.admin.recent_audit" }}</h2>
+      <span class="yd-badge yd-badge--muted">{{ .AuditTotal }}</span>
+    </header>
+    {{ template "mgr/partials/messages/audit_table" . }}
+  </section>
+</section>
+{{- end }}
+{{- end -}}
+
+{{- define "mgr/partials/messages/audit_table" -}}
+<div class="yd-table__wrap">
+  <table class="yd-table">
+    <thead class="yd-table__head"><tr>
+      <th class="yd-table__th" scope="col">{{ tr "message.admin.time" }}</th>
+      <th class="yd-table__th" scope="col">{{ tr "message.admin.action" }}</th>
+      <th class="yd-table__th" scope="col">{{ tr "message.admin.actor" }}</th>
+      <th class="yd-table__th" scope="col">{{ tr "message.admin.message" }}</th>
+      <th class="yd-table__th" scope="col">{{ tr "message.admin.detail" }}</th>
+    </tr></thead>
+    <tbody class="yd-table__body">
+      {{- range .Audit }}
+      <tr class="yd-table__row">
+        <td class="yd-table__td yd-table__td--muted">{{ .When }}</td>
+        <td class="yd-table__td"><code class="yd-code">{{ .Action }}</code></td>
+        <td class="yd-table__td"><code class="yd-code">{{ .ActorID }}</code></td>
+        <td class="yd-table__td"><code class="yd-code">{{ .MessageID }}</code></td>
+        <td class="yd-table__td yd-table__td--muted"><code class="yd-code">{{ .Detail }}</code></td>
+      </tr>
+      {{- else }}
+      <tr class="yd-table__row yd-table__row--empty"><td class="yd-table__td" colspan="5">{{ tr "message.admin.no_audit" }}</td></tr>
+      {{- end }}
+    </tbody>
+  </table>
+</div>
+{{- end -}}
+
+{{ template "mgr/partials/messages/audit" . }}

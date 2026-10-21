@@ -7,6 +7,7 @@ import (
 	"github.com/shibingli/yd/core/errx"
 	"github.com/shibingli/yd/messaging"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 // EnsureTypes inserts missing built-in types, leaving existing rows untouched. | EnsureTypes 插入缺失的内置类型，不触碰已有行。
@@ -81,13 +82,29 @@ func (s *Store) UpdateType(ctx context.Context, t messaging.MessageType) error {
 			"archived_at": t.ArchivedAt,
 			"updated_at":  t.UpdatedAt,
 		})
-	return queryError(result.Error)
+	return s.updateExisting(ctx, result, &messaging.MessageType{}, "tenant_id = ? AND type_key = ?", t.TenantID, t.Key)
 }
 
-// DeleteType removes an unused type. | DeleteType 删除未使用的类型。
+// DeleteType removes an unused type. The row lock and the in-transaction usage check close the race
+// between the service's count and the delete. | DeleteType 删除未使用的类型。行锁与事务内使用计数消除了
+// 服务层计数与删除之间的竞态。
 func (s *Store) DeleteType(ctx context.Context, tenantID, key string) error {
-	result := s.dbc(ctx).Where("tenant_id = ? AND type_key = ?", tenantID, key).Delete(&messaging.MessageType{})
-	return rowsError(result)
+	return queryError(s.dbc(ctx).Transaction(func(tx *gorm.DB) error {
+		var row messaging.MessageType
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
+			Where("tenant_id = ? AND type_key = ?", tenantID, key).Take(&row).Error; err != nil {
+			return err
+		}
+		var used int64
+		if err := tx.Model(&messaging.Message{}).
+			Where("tenant_id = ? AND type_key = ?", tenantID, key).Count(&used).Error; err != nil {
+			return err
+		}
+		if used > 0 {
+			return messaging.ErrTypeInUse
+		}
+		return rowsError(tx.Where("tenant_id = ? AND type_key = ?", tenantID, key).Delete(&messaging.MessageType{}))
+	}))
 }
 
 // CountMessagesOfType returns how many messages use a type. | CountMessagesOfType 返回使用某类型的消息数。
@@ -149,13 +166,34 @@ func (s *Store) UpdateTag(ctx context.Context, t messaging.Tag) error {
 			"archived_at": t.ArchivedAt,
 			"updated_at":  t.UpdatedAt,
 		})
-	return queryError(result.Error)
+	return s.updateExisting(ctx, result, &messaging.Tag{}, "tenant_id = ? AND id = ?", t.TenantID, t.ID)
 }
 
-// DeleteTag removes an unused group or label. | DeleteTag 删除未使用的分组或标签。
+// DeleteTag removes an unused group or label. The row lock and the in-transaction usage check close
+// the race between the service's count and the delete; stale links are removed in the same
+// transaction so no association row outlives its tag. | DeleteTag 删除未使用的分组或标签。行锁与事务内
+// 使用计数消除了服务层计数与删除之间的竞态；陈旧连接也在同一事务内删除，关联行不会比标签活得更久。
 func (s *Store) DeleteTag(ctx context.Context, tenantID, id string) error {
-	result := s.dbc(ctx).Where("tenant_id = ? AND id = ?", tenantID, id).Delete(&messaging.Tag{})
-	return rowsError(result)
+	return queryError(s.dbc(ctx).Transaction(func(tx *gorm.DB) error {
+		var row messaging.Tag
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
+			Where("tenant_id = ? AND id = ?", tenantID, id).Take(&row).Error; err != nil {
+			return err
+		}
+		var used int64
+		if err := tx.Model(&messaging.MessageTag{}).
+			Where("tenant_id = ? AND tag_id = ?", tenantID, id).Count(&used).Error; err != nil {
+			return err
+		}
+		if used > 0 {
+			return messaging.ErrTypeInUse
+		}
+		if err := tx.Where("tenant_id = ? AND tag_id = ?", tenantID, id).
+			Delete(&messaging.MessageTag{}).Error; err != nil {
+			return err
+		}
+		return rowsError(tx.Where("tenant_id = ? AND id = ?", tenantID, id).Delete(&messaging.Tag{}))
+	}))
 }
 
 // CountMessagesOfTag returns how many messages carry a tag. | CountMessagesOfTag 返回携带某标签的消息数。

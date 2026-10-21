@@ -1,0 +1,49 @@
+{{/*
+  partials/cms/category_form.html —— 分类新建/编辑抽屉表单。
+  partials/cms/category_form.html — the category create/edit drawer form.
+
+  数据契约 | Data contract: .Category（cms.Category）、.Options（[]cms.CategoryOption，已排除自身子树）、
+  .Mode（create|edit）、.Action。
+*/}}
+<form class="yd-form" method="post" action="{{ .Action }}" hx-post="{{ .Action }}"
+      hx-target="#yd-workspace" hx-swap="innerMorph" hx-push-url="false"
+      hx-status:400="target:#yd-drawer-errors swap:innerHTML"
+      hx-status:409="target:#yd-drawer-errors swap:innerHTML"
+      hx-status:403="target:#yd-drawer-errors swap:innerHTML"
+      hx-status:404="target:#yd-drawer-errors swap:innerHTML"
+      hx-status:422="target:#yd-drawer-errors swap:innerHTML"
+      data-yd-confirm="{{ tr "cms.confirm.save" }}">
+  <div class="yd-form__field">
+    <label class="yd-form__label" for="yd-cms-cat-name">{{ tr "field.name" }}</label>
+    <input class="yd-input" id="yd-cms-cat-name" name="name" type="text" required maxlength="160" value="{{ .Category.Name }}">
+  </div>
+  <div class="yd-form__field">
+    <label class="yd-form__label" for="yd-cms-cat-slug">{{ tr "field.slug" }}</label>
+    <input class="yd-input" id="yd-cms-cat-slug" name="slug" type="text" maxlength="120" value="{{ .Category.Slug }}">
+  </div>
+  <div class="yd-form__field">
+    <label class="yd-form__label" for="yd-cms-cat-description">{{ tr "field.description" }}</label>
+    <textarea class="yd-input" id="yd-cms-cat-description" name="description" rows="2">{{ .Category.Description }}</textarea>
+  </div>
+  <div class="yd-form__field">
+    <label class="yd-form__label" for="yd-cms-cat-parent">{{ tr "cms.field.parent" }}</label>
+    <select class="yd-select" id="yd-cms-cat-parent" name="parent_id">
+      <option value="">{{ tr "cms.category.root" }}</option>
+      {{- range .Options }}
+      <option value="{{ .ID }}"{{ if eq $.Category.ParentID .ID }} selected{{ end }}>{{ .Name }}</option>
+      {{- end }}
+    </select>
+    <span class="yd-hint">{{ tr "cms.category.move_hint" }}</span>
+  </div>
+  <div class="yd-form__field">
+    <label class="yd-form__label" for="yd-cms-cat-sort">{{ tr "cms.field.sort_order" }}</label>
+    <input class="yd-input" id="yd-cms-cat-sort" name="sort_order" type="number" value="{{ .Category.SortOrder }}">
+  </div>
+  <label class="yd-check">
+    <input class="yd-check__input" type="checkbox" name="visible" value="on"{{ if .Category.Visible }} checked{{ end }}>
+    <span class="yd-check__label">{{ tr "cms.field.visible" }}</span>
+  </label>
+  <div class="yd-form__actions">
+    <button type="submit" class="yd-btn yd-btn--primary">{{ tr "ui.save" }}</button>
+  </div>
+</form>

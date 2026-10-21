@@ -57,7 +57,7 @@
       侧栏页脚只显示版本；favicon 指向同源 `/static/img/yd-icon.svg`，不得使用 CDN 或 `data:,`。
 - [ ] **静态引用**：模板中的 `/static/...` 一律写成 `{{ "{{ asset \"/static/...\" }}" }}`；
       production 下解析 `*.min.js` / `yd.min.css`，开发期使用源码，禁止裸写 `/static/...`。
-- [ ] **图标**：只使用 `{{ "{{template \"partials/icon\" \"lucide-…\"}}" }}`；`yd icons sync` 生成按需
+- [ ] **图标**：只使用 `{{ "{{template \"portal/partials/icon\" \"lucide-…\"}}" }}（后台用 \"mgr/partials/icon\"）`；`yd icons sync` 生成按需
       sprite，`yd icons check` 校验漂移；禁止内联 SVG、Iconify 运行时与 CDN；`minify` 同时处理 SVG。
 - [ ] **Tailwind v4**：项目样式必须经 `@theme` 语义令牌与 `@layer components` 定义，
       可复用工具类用 `@apply`，颜色不得在令牌块之外写字面量；`@source` 要覆盖 `static/js/yd-*.js`，
@@ -77,10 +77,10 @@
 - [ ] **会话顺序**：`middleware.Promote` → `auth.Middleware` → `authz.Middleware` → `middleware.Tenant` 的顺序不可调换，
       租户中间件必须拿到已校验的身份，权限中间件必须拿到已校验的用户。
 - [ ] **统一指标抽象**：系统资源与中间件运行时都只经 `runtime/metricsx.Provider` 读取；
-      `/metrics` 取 `Provider.Snapshot().System`，首页两张卡片共用一次快照，控制器不得直连 `MetricsService`。
+      `/mgr/metrics` 取 `Provider.Snapshot().System`，首页两张卡片共用一次快照，控制器不得直连 `MetricsService`。
 - [ ] **中间件可观测**：所有中间件经 `application.UseObserved(descriptor, mw)` 装配，名称/i18n 键/作用域
       登记在 `internal/middleware/observability.go`；状态为 `registered → active → stopped`，关闭后计数保留；
-      请求指标只用原子操作，panic 只由最内层观察者计数并重抛；首页只经一条 `/ws/metrics` 每 5 秒接收
+      请求指标只用原子操作，panic 只由最内层观察者计数并重抛；管理概览只经一条 `/mgr/ws/metrics` 每 5 秒接收
       系统资源与中间件两块片段，不得再写 HTTP 轮询或重同步。详见框架 `docs/middleware-metrics.md`。
 - [ ] **站内消息中心**：所有查询以 `tenant_id` 为第一条件；普通用户只能编辑/撤回自己的消息，
       系统公告与置顶分别要求 `message:system` / `message:manage`；撤回是软墓碑（正文保留供审计，非管理员不可见），
@@ -88,6 +88,11 @@
       消息中心使用即时通讯布局（左会话、右上历史、右下内联撰写），日常发送不弹确认，公告与破坏性动作保留确认，
       实时刷新只重取历史片段、不得清掉撰写区草稿；跨节点投递要求生成项目时选择 `redis`（持久重试再选 `asynq`）
       并给每个副本唯一的 `message.node_id`，未生成 Redis 集成的项目只编译进程内总线，事后补配置不生效。
+- [ ] **内容管理**：所有 `yd_cms_*` 查询以 `tenant_id` 为第一条件；分类是无限级物化路径，移动时整棵子树
+      在同一事务内重写，禁止环与非空删除；发布/定时/下线/归档/恢复要求 `cms-article:publish`，
+      通过/驳回要求 `cms-article:review`，作者边界由服务端强制；富文本只输出服务端 goldmark 净化后的 HTML；
+      媒体 MIME 由服务端嗅探、白名单不含 SVG/HTML/脚本、键不含原始文件名；公开站点匿名租户取
+      `cms.public_tenant`，静态段先于 `/blog/:slug` 登记。详见框架 `docs/cms.md`。
 - [ ] **国密合规**：敏感数据加解密必须走 `guomi`（SM2/SM3/SM4），口令存储用 SM3 + 盐 + 迭代，禁止 MD5/SHA1。
 - [ ] **传输加密**：前端敏感字段提交必须声明式触发 SM2 前置加密（`data-yd-encrypt="sm2"`）。
 - [ ] **注入面**：SQL 只允许参数化查询；模板输出默认走 `html/template` 转义。
@@ -137,3 +142,13 @@
 - 首登改密提醒（`meta.SeedPasswordNotice`）在首页身份卡、账号页与 README 中共用同一句，不得各写一份；外壳不重复它。
 - 新增包须在包文档注释中说明其职责边界与不做什么。
 - 生成的代码变更须能通过 `yd gen` 幂等重放（重复执行不产生 diff）。
+
+## 6. 数据关系与完整性（强制）
+
+- **只允许主键与索引**：禁止 `FOREIGN KEY`/`REFERENCES`、GORM `constraint:`/`foreignKey:`/`references:`
+  标签与任何会生成外键的关联字段；SQLite 不开启 `foreign_keys`。
+- **只存标识**：关系字段保存对方主键，不保存 ORM 关联对象；存在性、租户归属与状态由 service 校验。
+- **人工清理**：删除时要么拒绝仍有引用，要么在同一事务中按显式顺序删除从属行；不得依赖数据库级联。
+- **校验与写入同事务**：写入事务内对引用目标加共享锁（MySQL `FOR SHARE`），多 ID 去重排序后加锁；
+  删除目标时加更新锁并在同一事务复查引用，软删除留下的悬空引用同事务清空。
+- **新增关联表必须提供**：写入校验、删除/软删除路径、跨租户测试与守卫测试。

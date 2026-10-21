@@ -167,6 +167,19 @@ func Open(o Options, l *logx.Logger) (*gorm.DB, error) {
 		NamingStrategy:         DefaultNamingStrategy(), // Framework hard rule: every table and every derived index carries the yd_ prefix (see naming.go) | 框架硬规则：每张表与每个派生索引都带 yd_ 前缀（见 naming.go）
 		PrepareStmt:            true,                    // Framework hard rule: the prepared statement cache is on by default | 框架硬规则：预编译语句缓存默认开启
 		SkipDefaultTransaction: o.SkipDefaultTransaction,
+		// Relations are maintained by application code (see CLAUDE.md §26); AutoMigrate must never emit a
+		// foreign key even if a model accidentally declares an association. |
+		// 关联由应用代码维护（见 CLAUDE.md §26）；即使模型误声明了关联，AutoMigrate 也绝不生成外键。
+		DisableForeignKeyConstraintWhenMigrating: true,
+		// TranslateError turns driver-specific unique/foreign-key failures into gorm.ErrDuplicatedKey and
+		// gorm.ErrForeignKeyViolated, so callers classify them with errors.Is instead of matching message text. |
+		// TranslateError 把驱动特有的唯一键/外键失败翻译为 gorm.ErrDuplicatedKey 与 gorm.ErrForeignKeyViolated，
+		// 调用方因此用 errors.Is 判定，而不是匹配错误文案。
+		TranslateError: true,
+		// GORM's default clock is local time; the framework stores UTC so every dialect and every
+		// consumer sees one timeline. | GORM 默认使用本地时钟；框架统一存 UTC，使每种方言与每个消费者
+		// 看到同一条时间线。
+		NowFunc: func() time.Time { return time.Now().UTC() },
 	}
 	db, err := openDatabaseFunc(dialector, cfg)
 	// 只有错误码说明「目标库不存在」且开关开启时才建库；其余失败一律走原路径。

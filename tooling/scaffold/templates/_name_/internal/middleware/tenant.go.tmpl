@@ -11,9 +11,9 @@ import (
 	"strings"
 
 	"{{ .Module }}/internal/meta"
-	"{{ .YdModule }}/security/auth"
 	"{{ .YdModule }}/core/errx"
 	"{{ .YdModule }}/http/router"
+	"{{ .YdModule }}/security/auth"
 )
 
 // Tenant resolution sentinels: the controllers map them onto 400 and 403. | 租户解析哨兵：控制器把它们映射为 400 与 403。
@@ -51,6 +51,13 @@ type TenantOptions struct {
 	Required bool
 	// Subdomain allows the subdomain form (acme.example.com) to name the tenant. | Subdomain 为 true 时允许用子域名（acme.example.com）指明租户。
 	Subdomain bool
+	// IgnoreToken resolves the request's own tenant first and never substitutes the token tenant. |
+	// IgnoreToken 优先解析请求自身指明的租户，绝不用令牌租户代替它。
+	//
+	// Public content uses it so a signed-in reader sees the public tenant (or the tenant named by a header or
+	// subdomain) rather than whichever tenant their session is currently active in. |
+	// 公开内容用它，让已登录读者看到公开租户（或请求头/子域名指明的租户），而不是其会话当前的活动租户。
+	IgnoreToken bool
 }
 
 // withDefaults fills the empty fields with the documented defaults. | withDefaults 用约定取值填充空字段。
@@ -90,22 +97,24 @@ func Tenant(o TenantOptions) router.Middleware {
 		}
 
 		// The token wins: once it hits, any other tenant is an escalation attempt. | 令牌优先：命中它之后，任何「另一个租户」的说法都是越权。
-		if user, ok := auth.CurrentUser(c); ok && user != nil {
-			if named != "" {
-				namedID, err := o.resolve(c, named)
-				if err != nil {
-					handle(c, err)
-					return
+		if !o.IgnoreToken {
+			if user, ok := auth.CurrentUser(c); ok && user != nil {
+				if named != "" {
+					namedID, err := o.resolve(c, named)
+					if err != nil {
+						handle(c, err)
+						return
+					}
+					if namedID != user.TenantID {
+						handle(c, errx.Detail(ErrTenantMismatch, "token tenant=%s requested=%s", user.TenantID, named))
+						return
+					}
 				}
-				if namedID != user.TenantID {
-					handle(c, errx.Detail(ErrTenantMismatch, "token tenant=%s requested=%s", user.TenantID, named))
-					return
-				}
+				c.Set(TenantIDKey, user.TenantID)
+				c.Set(TenantSlugKey, named)
+				c.Next()
+				return
 			}
-			c.Set(TenantIDKey, user.TenantID)
-			c.Set(TenantSlugKey, named)
-			c.Next()
-			return
 		}
 
 		if named == "" {

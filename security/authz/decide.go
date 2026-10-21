@@ -251,6 +251,27 @@ func Require(perm string) router.Middleware {
 	return auth.RequirePermission(auth.Permission(token))
 }
 
+// RequireAny guards a route with an OR of capabilities. Every reference is resolved at wiring time;
+// one unknown reference makes the route refuse every request, for the same reason Require does. |
+// RequireAny 用能力的「或」守卫路由。每个引用都在装配期解析；只要有一个未知引用，路由就拒绝所有请求，
+// 理由与 Require 相同。
+func RequireAny(perms ...string) router.Middleware {
+	tokens := make([]auth.Permission, 0, len(perms))
+	for _, perm := range perms {
+		token, err := ResolvePermission(perm)
+		if err != nil {
+			logx.Default().Warn("authz: a route is guarded by an unregistered permission, every request is refused | authz：某路由守着未注册的权限，所有请求都会被拒绝",
+				logx.Str("permission", perm))
+			return func(c *router.Ctx) {
+				c.Abort()
+				_ = c.JSON(http.StatusForbidden, map[string]string{"error": "forbidden | 禁止访问"})
+			}
+		}
+		tokens = append(tokens, auth.Permission(token))
+	}
+	return auth.RequireAnyPermission(tokens...)
+}
+
 // Allow takes the decision of one handler in a single line. | Allow 用一行完成处理器内的判定。
 //
 //	if err := authz.Allow(c, authz.PermUserUpdate); err != nil {

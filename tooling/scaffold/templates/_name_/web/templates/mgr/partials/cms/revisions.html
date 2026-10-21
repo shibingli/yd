@@ -1,0 +1,26 @@
+{{/*
+  partials/cms/revisions.html —— 修订抽屉：版本、编辑人、时间、说明与恢复按钮。
+  partials/cms/revisions.html — the revision drawer: version, editor, time, note and the restore button.
+  数据契约 | Data contract: .ArticleID、.Revisions（[]cms.Revision）。
+*/}}
+<div class="yd-drawer__section">
+  <h2 class="yd-drawer__head">{{ tr "cms.article.revisions" }}</h2>
+  {{- with .Revisions }}
+  <ul class="yd-list">
+    {{- range . }}
+    <li class="yd-list__item">
+      <p class="yd-list__primary">#{{ .Version }} · {{ .Title }}</p>
+      <p class="yd-hint">{{ .EditorName }} · {{ humanTime .CreatedAt }}{{ with .Note }} · {{ . }}{{ end }}</p>
+      <form method="post" action="/mgr/cms/articles/{{ $.ArticleID }}/revisions/{{ .ID }}/restore"
+            hx-post="/mgr/cms/articles/{{ $.ArticleID }}/revisions/{{ .ID }}/restore"
+            hx-target="#yd-workspace" hx-swap="innerMorph" hx-push-url="false"
+            data-yd-confirm="{{ tr "cms.confirm.restore" }}" hx-status:400="target:#yd-errors swap:innerHTML" hx-status:403="target:#yd-errors swap:innerHTML" hx-status:404="target:#yd-errors swap:innerHTML" hx-status:409="target:#yd-errors swap:innerHTML" hx-status:413="target:#yd-errors swap:innerHTML" hx-status:415="target:#yd-errors swap:innerHTML" hx-status:422="target:#yd-errors swap:innerHTML">
+        <button type="submit" class="yd-btn yd-btn--ghost yd-btn--sm">{{ tr "cms.action.restore_revision" }}</button>
+      </form>
+    </li>
+    {{- end }}
+  </ul>
+  {{- else }}
+  <p class="yd-hint">{{ tr "cms.article.no_revisions" }}</p>
+  {{- end }}
+</div>

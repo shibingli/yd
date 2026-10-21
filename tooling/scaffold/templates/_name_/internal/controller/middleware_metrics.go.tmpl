@@ -80,7 +80,8 @@ type middlewareCounter struct {
 }
 
 // MiddlewareMetrics 返回首页中间件运行时片段，由首页每 5 秒轮询刷新一次。
-// MiddlewareMetrics returns the middleware runtime fragment, polled by the home page every five seconds.
+// MiddlewareMetrics returns the middleware runtime fragment for direct requests and the no-script fallback; the
+// management overview receives the same fragment over /mgr/ws/metrics.
 //
 // @Summary Middleware runtime fragment | 中间件运行时片段
 // @Description Renders one row per observed middleware from runtime/metricsx: lifecycle state, request, in-flight,
@@ -96,7 +97,7 @@ type middlewareCounter struct {
 // @Success 200 {object} string "middleware runtime fragment | 中间件运行时片段"
 // @Failure 401 {object} string "no session | 无有效会话"
 // @Security BearerAuth
-// @Router /metrics/middleware [get]
+// @Router /mgr/metrics/middleware [get]
 func (c *Controller) MiddlewareMetrics(ctx *router.Ctx) {
 	c.render(ctx, http.StatusOK, TplMiddlewareMetrics, c.view(ctx, "中间件运行时 | Middleware runtime", map[string]any{
 		"Middleware": c.middlewareRows(c.provider.Snapshot().Middleware),

@@ -1,0 +1,58 @@
+{{/*
+  pages/cms_articles.html —— 文章管理：筛选、列表与新建入口。
+  pages/cms_articles.html — article management: filters, the list and the create entry.
+
+  数据契约 | Data contract: .Articles（[]model.CMSArticle）、.Total、.Keyword、.Status、.Kind、.Category、.Tag、
+  .Categories（[]cms.CategoryOption）、.Tags（[]cms.Tag）、.Empty、.Pager，以及 authz.Data 注入的 .Perm。
+*/}}
+<section class="yd-page" data-yd-page="cms-articles" aria-labelledby="yd-cms-articles-title">
+  <header class="yd-page__header">
+    <div>
+      <h1 class="yd-page__title" id="yd-cms-articles-title">{{ tr "cms.title.articles" }}</h1>
+      <p class="yd-page__subtitle">{{ tr "cms.articles.subtitle" .Total }}</p>
+    </div>
+    <div class="yd-page__actions">
+      {{- if can .Perm.CmsArticleCreate }}
+      <a class="yd-btn yd-btn--primary" href="/mgr/cms/articles/new">{{ tr "cms.article.new" }}</a>
+      {{- end }}
+    </div>
+  </header>
+
+  <form class="yd-filters" role="search" method="get" action="/mgr/cms/articles"
+        hx-get="/mgr/cms/articles" hx-target="#yd-workspace" hx-swap="innerMorph" hx-push-url="true"
+        hx-trigger="submit, change from:select, input changed delay:300ms from:#yd-cms-search">
+    <label class="sr-only" for="yd-cms-search">{{ tr "cms.filter.search_label" }}</label>
+    <input class="yd-input" id="yd-cms-search" name="q" type="search" autocomplete="off"
+           value="{{ .Keyword }}" placeholder="{{ tr "cms.filter.search_placeholder" }}">
+    <select class="yd-select yd-select--sm" name="status" aria-label="{{ tr "field.status" }}">
+      <option value="">{{ tr "cms.filter.all_status" }}</option>
+      <option value="draft"{{ if eq .Status "draft" }} selected{{ end }}>{{ tr "cms.status.draft" }}</option>
+      <option value="pending"{{ if eq .Status "pending" }} selected{{ end }}>{{ tr "cms.status.pending" }}</option>
+      <option value="published"{{ if eq .Status "published" }} selected{{ end }}>{{ tr "cms.status.published" }}</option>
+      <option value="archived"{{ if eq .Status "archived" }} selected{{ end }}>{{ tr "cms.status.archived" }}</option>
+    </select>
+    <select class="yd-select yd-select--sm" name="kind" aria-label="{{ tr "cms.field.kind" }}">
+      <option value="">{{ tr "cms.filter.all_kind" }}</option>
+      <option value="post"{{ if eq .Kind "post" }} selected{{ end }}>{{ tr "cms.kind.post" }}</option>
+      <option value="page"{{ if eq .Kind "page" }} selected{{ end }}>{{ tr "cms.kind.page" }}</option>
+    </select>
+    <select class="yd-select yd-select--sm" name="category" aria-label="{{ tr "cms.field.category" }}">
+      <option value="">{{ tr "cms.filter.all_category" }}</option>
+      {{- range .Categories }}
+      <option value="{{ .ID }}"{{ if eq $.Category .ID }} selected{{ end }}>{{ .Name }}</option>
+      {{- end }}
+    </select>
+    <select class="yd-select yd-select--sm" name="tag" aria-label="{{ tr "cms.field.tags" }}">
+      <option value="">{{ tr "cms.filter.all_tag" }}</option>
+      {{- range .Tags }}
+      <option value="{{ .ID }}"{{ if eq $.Tag .ID }} selected{{ end }}>{{ .Name }}</option>
+      {{- end }}
+    </select>
+    <button type="submit" class="yd-btn yd-btn--ghost">{{ tr "ui.search" }}</button>
+  </form>
+
+  <section class="yd-card yd-section">
+    {{ template "mgr/partials/cms/article_table" . }}
+  </section>
+  {{ template "mgr/partials/pager" . }}
+</section>

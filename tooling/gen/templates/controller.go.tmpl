@@ -5,6 +5,7 @@ package controller
 import (
 	"errors"
 	"net/http"
+	"net/url"
 	"strconv"
 <% if .CtrlStrings %>	"strings"
 <% end %><% if .FormTime %>	"time"
@@ -395,9 +396,9 @@ func (ctl *<%.Name%>Controller) Edit(c *router.Ctx) {
 	data := <%.Name%>FormData{
 		Item:    item,
 		Heading: "编辑 | Edit",
-		Action:  "<%.Route%>/" + key,
+		Action:  "<%.Route%>/" + url.PathEscape(key),
 		Method:  "put",
-		Target:  "#<%.Snake%>-" + key,
+		Target:  "#<%.Snake%>-" + item.DOMID(),
 		Swap:    "outerHTML",
 	}
 	if err := c.HTML(http.StatusOK, "<%.Snake%>/form.html", data); err != nil {

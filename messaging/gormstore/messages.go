@@ -2,21 +2,31 @@ package gormstore
 
 import (
 	"context"
+	"errors"
+	"sort"
 	"strings"
 	"time"
 
 	"github.com/shibingli/yd/core/errx"
 	"github.com/shibingli/yd/messaging"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 // CreateMessage inserts a message with its tags and attachments atomically. | CreateMessage 原子地插入消息及其标签与附件。
 func (s *Store) CreateMessage(ctx context.Context, msg messaging.Message, tagIDs, attachmentIDs []string) error {
 	return s.dbc(ctx).Transaction(func(tx *gorm.DB) error {
+		if err := lockMessageTypeTx(tx, msg.TenantID, msg.TypeKey); err != nil {
+			return err
+		}
+		ids, err := lockMessageTagsTx(tx, msg.TenantID, tagIDs)
+		if err != nil {
+			return err
+		}
 		if err := tx.Create(&msg).Error; err != nil {
 			return createError(err)
 		}
-		for _, tagID := range tagIDs {
+		for _, tagID := range ids {
 			link := messaging.MessageTag{ID: newRowID("mtg_"), TenantID: msg.TenantID, MessageID: msg.ID, TagID: tagID}
 			if err := tx.Clauses(onConflictDoNothing()).Create(&link).Error; err != nil {
 				return createError(err)
@@ -62,8 +72,15 @@ func (s *Store) GetMessage(ctx context.Context, tenantID, id string) (messaging.
 // UpdateMessage replaces the editable fields and the tag set. | UpdateMessage 覆盖可编辑字段与标签集合。
 func (s *Store) UpdateMessage(ctx context.Context, msg messaging.Message, tagIDs []string) error {
 	return s.dbc(ctx).Transaction(func(tx *gorm.DB) error {
+		if err := lockMessageTypeTx(tx, msg.TenantID, msg.TypeKey); err != nil {
+			return err
+		}
+		ids, err := lockMessageTagsTx(tx, msg.TenantID, tagIDs)
+		if err != nil {
+			return err
+		}
 		result := tx.Model(&messaging.Message{}).
-			Where("tenant_id = ? AND id = ?", msg.TenantID, msg.ID).
+			Where("tenant_id = ? AND id = ? AND status <> ?", msg.TenantID, msg.ID, messaging.StatusRecalled).
 			Updates(map[string]any{
 				"type_key":      msg.TypeKey,
 				"type_name":     msg.TypeName,
@@ -80,11 +97,14 @@ func (s *Store) UpdateMessage(ctx context.Context, msg messaging.Message, tagIDs
 		if result.Error != nil {
 			return queryError(result.Error)
 		}
+		if result.RowsAffected == 0 {
+			return messaging.ErrRecalled
+		}
 		if err := tx.Where("tenant_id = ? AND message_id = ?", msg.TenantID, msg.ID).
 			Delete(&messaging.MessageTag{}).Error; err != nil {
 			return queryError(err)
 		}
-		for _, tagID := range tagIDs {
+		for _, tagID := range ids {
 			link := messaging.MessageTag{ID: newRowID("mtg_"), TenantID: msg.TenantID, MessageID: msg.ID, TagID: tagID}
 			if err := tx.Clauses(onConflictDoNothing()).Create(&link).Error; err != nil {
 				return createError(err)
@@ -241,7 +261,7 @@ func (s *Store) ListPinned(ctx context.Context, tenantID, userID string, now tim
 func (s *Store) RecallMessage(ctx context.Context, msg messaging.Message, audit messaging.AuditEntry) error {
 	return s.dbc(ctx).Transaction(func(tx *gorm.DB) error {
 		result := tx.Model(&messaging.Message{}).
-			Where("tenant_id = ? AND id = ?", msg.TenantID, msg.ID).
+			Where("tenant_id = ? AND id = ? AND status <> ?", msg.TenantID, msg.ID, messaging.StatusRecalled).
 			Updates(map[string]any{
 				"status":        msg.Status,
 				"recalled_at":   msg.RecalledAt,
@@ -251,6 +271,12 @@ func (s *Store) RecallMessage(ctx context.Context, msg messaging.Message, audit 
 			})
 		if result.Error != nil {
 			return queryError(result.Error)
+		}
+		if result.RowsAffected == 0 {
+			// A concurrent recall already wrote the tombstone; the caller treats this as idempotent
+			// and must not emit a second event or audit row. |
+			// 并发撤回已经写入墓碑；调用方按幂等处理，不得再发第二次事件或审计行。
+			return messaging.ErrRecalled
 		}
 		if err := tx.Create(&audit).Error; err != nil {
 			return createError(err)
@@ -263,7 +289,7 @@ func (s *Store) RecallMessage(ctx context.Context, msg messaging.Message, audit 
 func (s *Store) SetPin(ctx context.Context, msg messaging.Message, audit messaging.AuditEntry) error {
 	return s.dbc(ctx).Transaction(func(tx *gorm.DB) error {
 		result := tx.Model(&messaging.Message{}).
-			Where("tenant_id = ? AND id = ?", msg.TenantID, msg.ID).
+			Where("tenant_id = ? AND id = ? AND status <> ?", msg.TenantID, msg.ID, messaging.StatusRecalled).
 			Updates(map[string]any{
 				"pinned":       msg.Pinned,
 				"pin_start_at": msg.PinStartAt,
@@ -273,6 +299,9 @@ func (s *Store) SetPin(ctx context.Context, msg messaging.Message, audit messagi
 			})
 		if result.Error != nil {
 			return queryError(result.Error)
+		}
+		if result.RowsAffected == 0 {
+			return messaging.ErrRecalled
 		}
 		if err := tx.Create(&audit).Error; err != nil {
 			return createError(err)
@@ -353,4 +382,62 @@ func (r tagRow) tag() messaging.Tag {
 		NameEN:     r.NameEN,
 		Tone:       r.Tone,
 	}
+}
+
+// lockMessageTypeTx locks the referenced type row and reports an unknown type. The shared lock
+// serialises message writes against a concurrent type deletion. | lockMessageTypeTx 锁定被引用的类型行
+// 并报告未知类型。共享锁让消息写入与并发的类型删除互斥。
+func lockMessageTypeTx(tx *gorm.DB, tenantID, key string) error {
+	key = strings.TrimSpace(key)
+	if key == "" {
+		return nil
+	}
+	var row messaging.MessageType
+	err := tx.Clauses(clause.Locking{Strength: "SHARE"}).Select("id").
+		Where("tenant_id = ? AND type_key = ?", tenantID, key).Take(&row).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return messaging.ErrTypeUnknown
+	}
+	if err != nil {
+		return queryError(err)
+	}
+	return nil
+}
+
+// lockMessageTagsTx locks the referenced tag rows and reports an unknown tag. Ids are ordered so
+// concurrent writers acquire the same locks in the same sequence. | lockMessageTagsTx 锁定被引用的标签行
+// 并报告未知标签。ID 会排序，使并发写入者以相同顺序获取锁。
+func lockMessageTagsTx(tx *gorm.DB, tenantID string, tagIDs []string) ([]string, error) {
+	ids := uniqueSortedIDs(tagIDs)
+	if len(ids) == 0 {
+		return nil, nil
+	}
+	var rows []messaging.Tag
+	if err := tx.Clauses(clause.Locking{Strength: "SHARE"}).Select("id").
+		Where("tenant_id = ? AND id IN ?", tenantID, ids).Order("id ASC").Find(&rows).Error; err != nil {
+		return nil, queryError(err)
+	}
+	if len(rows) != len(ids) {
+		return nil, messaging.ErrTagUnknown
+	}
+	return ids, nil
+}
+
+// uniqueSortedIDs trims, deduplicates and orders ids. | uniqueSortedIDs 裁剪、去重并排序 ID。
+func uniqueSortedIDs(ids []string) []string {
+	seen := make(map[string]struct{}, len(ids))
+	out := make([]string, 0, len(ids))
+	for _, id := range ids {
+		id = strings.TrimSpace(id)
+		if id == "" {
+			continue
+		}
+		if _, ok := seen[id]; ok {
+			continue
+		}
+		seen[id] = struct{}{}
+		out = append(out, id)
+	}
+	sort.Strings(out)
+	return out
 }

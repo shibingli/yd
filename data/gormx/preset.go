@@ -60,10 +60,12 @@ var postgresPresetParams = []dsnParam{
 // sqlitePresetParams lists the SQLite defaults in append order. | sqlitePresetParams 按追加顺序列出 SQLite 的预置参数。
 //
 // Each _pragma value runs one PRAGMA per connection: journal_mode(WAL) with synchronous(NORMAL) is
-// the durability/concurrency pair, busy_timeout(5000) makes a writer wait for the lock instead of
-// failing at once, and foreign_keys(1) rejects dangling references. | 每个 _pragma 取值都会在每条连接上
+// the durability/concurrency pair, and busy_timeout(5000) makes a writer wait for the lock instead of
+// failing at once. Foreign-key enforcement is deliberately not enabled: the framework declares no
+// foreign keys and maintains every relation in application code. | 每个 _pragma 取值都会在每条连接上
 // 执行一次 PRAGMA：journal_mode(WAL) 与 synchronous(NORMAL) 是持久性/并发的一对，
-// busy_timeout(5000) 让写者等待锁而不是立即失败，foreign_keys(1) 拒绝悬空引用。
+// busy_timeout(5000) 让写者等待锁而不是立即失败。这里刻意不开启外键强制：框架不声明任何外键，
+// 所有关系都由应用代码维护。
 //
 // Character set needs no key: SQLite stores text as UTF-8 and its API is UTF-8 native. | 字符集无需加键：
 // SQLite 以 UTF-8 存储文本，其接口本身就是 UTF-8。
@@ -92,7 +94,6 @@ var postgresPresetParams = []dsnParam{
 // 保留 _loc 是为了让各 SQLite 驱动拿到同样的预置形态。
 var sqlitePresetParams = []dsnParam{
 	{key: "_loc", value: "UTC"},                          // Time zone, for drivers that read it. | 时区，供识别该键的驱动使用。
-	{key: sqliteKeyPragma, value: "foreign_keys(1)"},     // Nullability: reject dangling foreign keys. | 空值：拒绝悬空外键。
 	{key: sqliteKeyPragma, value: "journal_mode(WAL)"},   // Concurrency: write-ahead logging. | 并发：预写式日志。
 	{key: sqliteKeyPragma, value: "synchronous(NORMAL)"}, // Durability paired with WAL. | 与 WAL 配对的持久性级别。
 	{key: sqliteKeyPragma, value: "busy_timeout(5000)"},  // Wait up to 5s for a locked database. | 数据库被锁时最多等待 5 秒。

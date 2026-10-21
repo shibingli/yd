@@ -52,6 +52,12 @@ var builtinGrants = []Grant{
 			PermPermissionRead, PermPermissionManage,
 			PermMessageRead, PermMessageSend, PermMessageUpdate, PermMessageDelete,
 			PermMessageSystem, PermMessageManage, PermMessageTypeRead, PermMessageTypeManage,
+			PermCmsArticleRead, PermCmsArticleCreate, PermCmsArticleUpdate, PermCmsArticleDelete,
+			PermCmsArticlePublish, PermCmsArticleReview, PermCmsArticleManage,
+			PermCmsCategoryRead, PermCmsCategoryManage, PermCmsTagRead, PermCmsTagManage,
+			PermCmsMediaRead, PermCmsMediaUpload, PermCmsMediaDelete,
+			PermCmsCommentRead, PermCmsCommentCreate, PermCmsCommentModerate, PermCmsCommentDelete,
+			PermCmsSiteRead, PermCmsSiteManage,
 		},
 	},
 	{
@@ -81,12 +87,18 @@ var builtinGrants = []Grant{
 			PermPermissionRead,
 			PermMessageRead, PermMessageSend, PermMessageUpdate, PermMessageDelete,
 			PermMessageSystem, PermMessageManage, PermMessageTypeRead, PermMessageTypeManage,
+			PermCmsArticleRead, PermCmsArticleCreate, PermCmsArticleUpdate, PermCmsArticleDelete,
+			PermCmsArticlePublish, PermCmsArticleReview, PermCmsArticleManage,
+			PermCmsCategoryRead, PermCmsCategoryManage, PermCmsTagRead, PermCmsTagManage,
+			PermCmsMediaRead, PermCmsMediaUpload, PermCmsMediaDelete,
+			PermCmsCommentRead, PermCmsCommentCreate, PermCmsCommentModerate, PermCmsCommentDelete,
+			PermCmsSiteRead, PermCmsSiteManage,
 		},
 	},
 	{
-		// The auditor reads every resource and changes none: the four ":read" capabilities are the whole
+		// The auditor reads every resource and changes none: every ":read" capability is the whole
 		// grant, and a capability is added to it only when reading it is what the capability means. |
-		// 审计员可读全部资源、不改动任何一项：四项 ":read" 能力就是全部授权，
+		// 审计员可读全部资源、不改动任何一项：全部 ":read" 能力就是授权，
 		// 只有「读取」正是该能力含义时才会被加进来。
 		//
 		// The list is written out even though it currently equals "every registered capability ending in
@@ -97,23 +109,28 @@ var builtinGrants = []Grant{
 		Permissions: []string{
 			PermTenantRead, PermUserRead, PermRoleRead, PermPermissionRead,
 			PermMessageRead, PermMessageTypeRead,
+			PermCmsArticleRead, PermCmsCategoryRead, PermCmsTagRead,
+			PermCmsMediaRead, PermCmsCommentRead, PermCmsSiteRead,
 		},
 	},
 	{
-		// The member holds exactly the message-centre capabilities whose scope is the author
-		// themselves. | 普通成员恰好持有那些作用域就是作者本人的消息中心能力。
+		// The member holds exactly the self-service capabilities whose scope is the author
+		// themselves. | 普通成员恰好持有那些作用域就是作者本人的自助能力。
 		//
-		// This is the one deliberate exception to "the member grants nothing": message:update and
-		// message:delete are not tenant-wide grants, because the messaging service refuses a message
-		// the actor did not send and refuses a recall after the configured window. message:read and
-		// message:send similarly operate on conversations the actor belongs to and on accepted
-		// friendships only. Every other capability stays withheld, because it really is tenant-wide. |
-		// 这是「成员不授予任何能力」的唯一一处刻意例外：message:update 与 message:delete 不是租户级授权，
-		// 因为消息服务会拒绝主体没有发送过的消息，也会拒绝超出配置窗口的撤回。message:read 与 message:send
-		// 同样只作用于主体所属的会话与已接受的好友关系。其余能力仍然不授予，因为它们确实是租户级的。
+		// This is the deliberate exception to "the member grants nothing": message:update/delete and
+		// the CMS article update/delete capabilities are not tenant-wide grants, because the services
+		// refuse rows the actor did not author. message:read/send operate on conversations the actor
+		// belongs to; CMS media upload and comment create/delete are likewise scoped to the actor.
+		// Every other capability stays withheld, because it really is tenant-wide. |
+		// 这是「成员不授予任何能力」的刻意例外：message:update/delete 与 CMS 文章更新/删除不是租户级授权，
+		// 因为服务会拒绝主体没有编写的记录。message:read/send 只作用于主体所属的会话；CMS 媒体上传与
+		// 评论创建/删除同样以主体为界。其余能力仍然不授予，因为它们确实是租户级的。
 		Role: RoleMember,
 		Permissions: []string{
 			PermMessageRead, PermMessageSend, PermMessageUpdate, PermMessageDelete,
+			PermCmsArticleRead, PermCmsArticleCreate, PermCmsArticleUpdate, PermCmsArticleDelete,
+			PermCmsMediaUpload,
+			PermCmsCommentRead, PermCmsCommentCreate, PermCmsCommentDelete,
 		},
 	},
 }

@@ -6,7 +6,7 @@ yd 采用「全栈单体（Modern Monolith）」模式：**后端直接返回 HT
 
 | 规则 | 说明 |
 |---|---|
-| **端点返回 HTML 片段，不是 JSON** | 除显式标注为 API 的端点（`/api/**`、`/openapi.json`）外，所有控制器必须返回 HTML 片段。 |
+| **端点返回 HTML 片段，不是 JSON** | 除显式标注为 API 的端点（`/api/**`、`/api/v1/openapi.json`）外，所有控制器必须返回 HTML 片段。 |
 | **区分整页与片段** | 通过请求头 `HX-Request: true` 判定。整页请求返回布局 + 内容；htmx 请求只返回内容片段（`app.Render` 自动选择）。 |
 | **校验失败返回 422** | 表单校验失败返回 `422` + 错误片段，模板中用 `hx-status:422="target:#errors"` 声明式接管。 |
 | **重定向走 Htmx 头** | 局部跳转用 `HX-Location`，整页跳转用 `HX-Redirect`，禁止在片段响应里塞 `<meta refresh>`。 |
@@ -317,7 +317,7 @@ betteralign -apply ./...     # 等价于 yd align --apply
 - 路由模式支持**混合分段**：`/avatar/:id.jpg`、`/report/:id-xx.png` 合法，参数名不得重复。
 - 控制器只做编排；业务逻辑放 `internal/service`，数据访问放 `internal/repository`。
 - 一切外部输入必须限长并校验；错误统一经 `middleware.Recover` + `app.Render` 输出用户可读的 HTML 错误片段（`pages/error.html`）。
-- 新增端点后必须重新生成 `openapi.json`（`yd build` 自动完成）并确认 `/docs` 可见。
+- 新增端点后必须重新生成 `openapi.json`（`yd build` 自动完成）并确认 `/mgr/docs` 可见。
 
 ## 15. 优雅退出契约（长连接）
 
@@ -508,3 +508,22 @@ Windows 走 SCM、Linux 走 systemd、macOS 走 launchd。禁止为单个平台�
   「装好了却不生效」比「装失败」难查得多。
 - **语法检查**：有解释器就真跑（`bash -n`、PowerShell 解析器）；没有就 `t.Skipf` 写明原因并汇总
   「执行 N、跳过 M」，**跳过不等于通过**。
+
+## 23. 数据关系与完整性契约
+
+**除主键与索引外，不依赖任何数据库级关系约束。** 关联的存在性、租户归属与清理顺序由应用代码保证：
+关系字段只存对方主键，不存 ORM 关联对象；禁止 `FOREIGN KEY` / `REFERENCES`、GORM
+`constraint:` / `foreignKey:` / `references:` / `many2many:` / `polymorphic:` 标签与任何会隐式生成外键的关联字段；
+SQLite 不开启 `foreign_keys`，其它方言也不得用触发器或约束代替。
+
+- **写入校验**：创建/更新引用前确认目标存在、属于同一租户且状态允许；跨租户与不存在都返回 Not Found。
+  校验与写入必须在同一事务内完成：对目标行加共享锁（MySQL `FOR SHARE`；SQLite 自动忽略），
+  多个 ID 去重排序后按序加锁；没有外键时这是阻止悬空关联的唯一手段。
+- **删除人工处理**：要么拒绝仍有引用的删除（`ErrXInUse` / `ErrXNotEmpty`），要么在同一事务内按显式顺序
+  清理从属行；删除目标时加更新锁并复查引用。软删除记录留下的引用（软删除文章的 `category_id` 与
+  `article_tags`、成员关系里的角色名）必须在目标删除的同一事务内清空或摘除。
+- **索引不是关系**：索引只服务查询性能与唯一性，不承担引用完整性；鉴权、消息与 CMS 的索引仍以
+  `tenant_id` 打头。
+- **新增关联表时必须补齐**：写入校验、删除/软删除路径、跨租户测试与守卫测试。常驻守卫包括
+  `repotest.TestNoForeignKeyDefinitions`（Go 标签、SQL 字面量、模板与 `.sql` 文件）、
+  CMS/消息/鉴权模型的 GORM Schema 关系断言，以及 MySQL 集成测试对 `information_schema` 的外键断言。

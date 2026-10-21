@@ -43,7 +43,7 @@ func TestDialectorForAppliesPresetDSN(t *testing.T) {
 			name:   "sqlite",
 			driver: DriverSQLite,
 			dsn:    "data/yd.db",
-			want: "data/yd.db?_loc=UTC&_pragma=foreign_keys%281%29" +
+			want: "data/yd.db?_loc=UTC" +
 				"&_pragma=journal_mode%28WAL%29&_pragma=synchronous%28NORMAL%29&_pragma=busy_timeout%285000%29",
 		},
 		{
@@ -51,7 +51,7 @@ func TestDialectorForAppliesPresetDSN(t *testing.T) {
 			name:   "empty-driver-means-sqlite",
 			driver: "",
 			dsn:    "data/yd.db",
-			want: "data/yd.db?_loc=UTC&_pragma=foreign_keys%281%29" +
+			want: "data/yd.db?_loc=UTC" +
 				"&_pragma=journal_mode%28WAL%29&_pragma=synchronous%28NORMAL%29&_pragma=busy_timeout%285000%29",
 		},
 		{
@@ -60,7 +60,7 @@ func TestDialectorForAppliesPresetDSN(t *testing.T) {
 			driver: DriverSQLite,
 			dsn:    "file:data/yd.db?_pragma=busy_timeout(10000)&_pragma=journal_mode(WAL)&_txlock=immediate",
 			want: "file:data/yd.db?_pragma=busy_timeout(10000)&_pragma=journal_mode(WAL)&_txlock=immediate" +
-				"&_loc=UTC&_pragma=foreign_keys%281%29&_pragma=synchronous%28NORMAL%29",
+				"&_loc=UTC&_pragma=synchronous%28NORMAL%29",
 		},
 	}
 

@@ -2,10 +2,13 @@ package gormstore
 
 import (
 	"context"
+	"errors"
+	"sort"
 	"strings"
 	"time"
 
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 
 	"github.com/shibingli/yd/core/errx"
 	"github.com/shibingli/yd/core/logx"
@@ -51,6 +54,28 @@ func (s *Store) CreateUser(ctx context.Context, u *auth.User) error {
 		if !known {
 			// A user outside a known tenant is unreachable, so the write is refused. | 不属于已知租户的用户不可达，因此拒绝写入。
 			return auth.ErrNotFound
+		}
+		defaultIsMember := row.DefaultTenantID == row.TenantID
+		for _, tenantID := range u.TenantIDs {
+			if tenantID == "" || tenantID == row.TenantID {
+				continue
+			}
+			known, err := existsTenant(tx, tenantID)
+			if err != nil {
+				return err
+			}
+			if !known {
+				return auth.ErrNotFound
+			}
+			if tenantID == row.DefaultTenantID {
+				defaultIsMember = true
+			}
+		}
+		if !defaultIsMember {
+			return auth.ErrNotFound
+		}
+		if err := lockRoleNames(tx, row.TenantID, u.Roles); err != nil {
+			return err
 		}
 		dup, err := countRows(tx, &userRow{}, "id = ?", row.ID)
 		if err != nil {
@@ -196,7 +221,16 @@ func defaultTenantOf(row *userRow) string {
 // userView materialises one user in tenantID and loads its memberships. | userView 在 tenantID 中构造用户并载入其全部成员关系。
 func (s *Store) userView(tx *gorm.DB, row *userRow, tenantID string) (*auth.User, error) {
 	var membership userTenantRow
-	if err := tx.Where("user_id = ? AND tenant_id = ?", row.ID, tenantID).First(&membership).Error; err != nil {
+	err := tx.Where("user_id = ? AND tenant_id = ?", row.ID, tenantID).First(&membership).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) && tenantID == defaultTenantOf(row) && tenantID != row.TenantID {
+		// A corrupt default membership must not lock the account out; fall back to the home tenant,
+		// matching the memory store until an explicit SetDefaultTenant repairs the choice. |
+		// 损坏的默认成员关系不得把账号锁在门外；回退到身份租户，与内存实现一致，直到显式
+		// SetDefaultTenant 修正。
+		tenantID = row.TenantID
+		err = tx.Where("user_id = ? AND tenant_id = ?", row.ID, tenantID).First(&membership).Error
+	}
+	if err != nil {
 		return nil, notFound(err)
 	}
 	roles, err := membershipFromRow(&membership)
@@ -331,11 +365,20 @@ func (s *Store) UpdateUser(ctx context.Context, tenantID string, u *auth.User) e
 	defer cancel()
 	return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		var stored userRow
-		if err := tx.Where("id = ?", u.ID).First(&stored).Error; err != nil {
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("id = ?", u.ID).First(&stored).Error; err != nil {
 			return notFound(err)
 		}
+		// Lock role rows before the membership row. DeleteRole takes the same order (role, then
+		// membership), so a role deleted between a service-level validation and this write is seen
+		// here instead of being resurrected into the membership JSON. |
+		// 先锁角色行再锁成员关系行。DeleteRole 采用相同顺序（角色，再成员关系），因此在服务层校验与本次
+		// 写入之间被删除的角色会在这里被发现，而不会被重新写回成员关系的 JSON。
+		if err := lockRoleNames(tx, tenantID, u.Roles); err != nil {
+			return err
+		}
 		var membership userTenantRow
-		if err := tx.Where("user_id = ? AND tenant_id = ?", u.ID, tenantID).First(&membership).Error; err != nil {
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
+			Where("user_id = ? AND tenant_id = ?", u.ID, tenantID).First(&membership).Error; err != nil {
 			return notFound(err)
 		}
 		row, err := userToRow(u)
@@ -357,14 +400,11 @@ func (s *Store) UpdateUser(ctx context.Context, tenantID string, u *auth.User) e
 			}
 		}
 		err = tx.Model(&userRow{}).Where("id = ?", row.ID).Updates(map[string]any{
-			"username":          row.Username,
-			"username_key":      row.UsernameKey,
-			"email":             row.Email,
-			"display_name":      row.DisplayName,
-			"password_hash":     row.PasswordHash,
-			"status":            row.Status,
-			"encrypted_sec_key": row.EncryptedSecKey,
-			"updated_at":        row.UpdatedAt,
+			"username":     row.Username,
+			"username_key": row.UsernameKey,
+			"email":        row.Email,
+			"display_name": row.DisplayName,
+			"updated_at":   row.UpdatedAt,
 		}).Error
 		if err != nil {
 			if isDuplicate(err) {
@@ -381,6 +421,59 @@ func (s *Store) UpdateUser(ctx context.Context, tenantID string, u *auth.User) e
 		return tx.Model(&userTenantRow{}).
 			Where("user_id = ? AND tenant_id = ?", u.ID, tenantID).
 			Updates(map[string]any{"roles": encoded, "updated_at": row.UpdatedAt}).Error
+	})
+}
+
+// SetUserStatus changes only the lifecycle status of one tenant member. |
+// SetUserStatus 只修改某个租户成员的生命周期状态。
+func (s *Store) SetUserStatus(ctx context.Context, tenantID, userID string, status auth.Status, updatedAt time.Time) error {
+	return s.setUserColumns(ctx, tenantID, userID, map[string]any{
+		"status":     string(status),
+		"updated_at": updatedAt,
+	})
+}
+
+// SetUserCredentials changes the password hash and the sealed sec_key in one statement. |
+// SetUserCredentials 用一条语句修改口令散列与封装的 sec_key。
+func (s *Store) SetUserCredentials(ctx context.Context, tenantID, userID, passwordHash string, encryptedSecKey []byte, updatedAt time.Time) error {
+	return s.setUserColumns(ctx, tenantID, userID, map[string]any{
+		"password_hash":     passwordHash,
+		"encrypted_sec_key": encryptedSecKey,
+		"updated_at":        updatedAt,
+	})
+}
+
+// SetUserSecKey changes only the sealed sec_key. | SetUserSecKey 只修改封装的 sec_key。
+func (s *Store) SetUserSecKey(ctx context.Context, tenantID, userID string, encryptedSecKey []byte, updatedAt time.Time) error {
+	return s.setUserColumns(ctx, tenantID, userID, map[string]any{
+		"encrypted_sec_key": encryptedSecKey,
+		"updated_at":        updatedAt,
+	})
+}
+
+// setUserColumns locks the user and its membership, then updates only the named columns. |
+// setUserColumns 锁定用户与成员关系后只更新指定列。
+func (s *Store) setUserColumns(ctx context.Context, tenantID, userID string, columns map[string]any) error {
+	if strings.TrimSpace(tenantID) == "" {
+		return auth.ErrTenantRequired
+	}
+	if strings.TrimSpace(userID) == "" {
+		return auth.ErrNotFound
+	}
+	ctx, cancel := s.scoped(ctx)
+	defer cancel()
+	return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		var user userRow
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
+			Where("id = ?", userID).First(&user).Error; err != nil {
+			return notFound(err)
+		}
+		var membership userTenantRow
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
+			Where("user_id = ? AND tenant_id = ?", userID, tenantID).First(&membership).Error; err != nil {
+			return notFound(err)
+		}
+		return tx.Model(&userRow{}).Where("id = ?", userID).Updates(columns).Error
 	})
 }
 
@@ -438,7 +531,7 @@ func (s *Store) AddUserTenant(ctx context.Context, userID, tenantID string, role
 	defer cancel()
 	return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		var user userRow
-		if err := tx.Where("id = ?", userID).First(&user).Error; err != nil {
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("id = ?", userID).First(&user).Error; err != nil {
 			return notFound(err)
 		}
 		known, err := existsTenant(tx, tenantID)
@@ -448,12 +541,16 @@ func (s *Store) AddUserTenant(ctx context.Context, userID, tenantID string, role
 		if !known {
 			return auth.ErrNotFound
 		}
+		if err := lockRoleNames(tx, tenantID, roles); err != nil {
+			return err
+		}
 		encoded, err := encodeRoles(roles)
 		if err != nil {
 			return err
 		}
 		var membership userTenantRow
-		err = tx.Where("user_id = ? AND tenant_id = ?", userID, tenantID).First(&membership).Error
+		err = tx.Clauses(clause.Locking{Strength: "UPDATE"}).
+			Where("user_id = ? AND tenant_id = ?", userID, tenantID).First(&membership).Error
 		switch {
 		case err == nil:
 			return tx.Model(&userTenantRow{}).
@@ -486,11 +583,12 @@ func (s *Store) RemoveUserTenant(ctx context.Context, userID, tenantID string) e
 	defer cancel()
 	return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		var user userRow
-		if err := tx.Where("id = ?", userID).First(&user).Error; err != nil {
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("id = ?", userID).First(&user).Error; err != nil {
 			return notFound(err)
 		}
 		var membership userTenantRow
-		if err := tx.Where("user_id = ? AND tenant_id = ?", userID, tenantID).First(&membership).Error; err != nil {
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
+			Where("user_id = ? AND tenant_id = ?", userID, tenantID).First(&membership).Error; err != nil {
 			return notFound(err)
 		}
 		if tenantID == user.TenantID || membership.IsDefault || user.DefaultTenantID == tenantID {
@@ -509,12 +607,21 @@ func (s *Store) SetDefaultTenant(ctx context.Context, userID, tenantID string) e
 	defer cancel()
 	return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		var user userRow
-		if err := tx.Where("id = ?", userID).First(&user).Error; err != nil {
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("id = ?", userID).First(&user).Error; err != nil {
 			return notFound(err)
 		}
 		var membership userTenantRow
-		if err := tx.Where("user_id = ? AND tenant_id = ?", userID, tenantID).First(&membership).Error; err != nil {
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
+			Where("user_id = ? AND tenant_id = ?", userID, tenantID).First(&membership).Error; err != nil {
 			return notFound(err)
+		}
+		// Lock every membership of the user before clearing the flags, so a concurrent membership
+		// removal cannot leave default_tenant_id pointing at a row that no longer exists. |
+		// 清空标记前锁定该用户的全部成员关系，避免并发移除成员关系后 default_tenant_id 指向已不存在的行。
+		var memberships []userTenantRow
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
+			Where("user_id = ?", userID).Order("tenant_id ASC").Find(&memberships).Error; err != nil {
+			return err
 		}
 		if defaultTenantOf(&user) == tenantID && membership.IsDefault {
 			return nil
@@ -531,6 +638,40 @@ func (s *Store) SetDefaultTenant(ctx context.Context, userID, tenantID string) e
 		return tx.Model(&userRow{}).Where("id = ?", userID).
 			Updates(map[string]any{"default_tenant_id": tenantID, "updated_at": now}).Error
 	})
+}
+
+// lockRoleNames locks every named role of the tenant in a stable order and reports an unknown name.
+// The shared locks serialise role assignment with DeleteRole; sorting prevents two writers with
+// different role sets from deadlocking. | lockRoleNames 按稳定顺序锁定租户内的每个命名角色，并报告未知角色。
+// 共享锁让角色分配与 DeleteRole 互斥；排序避免两个写入者因角色集合不同而死锁。
+func lockRoleNames(tx *gorm.DB, tenantID string, names []string) error {
+	seen := make(map[string]struct{}, len(names))
+	unique := make([]string, 0, len(names))
+	for _, name := range names {
+		name = strings.TrimSpace(name)
+		if name == "" {
+			continue
+		}
+		if _, ok := seen[name]; ok {
+			continue
+		}
+		seen[name] = struct{}{}
+		unique = append(unique, name)
+	}
+	if len(unique) == 0 {
+		return nil
+	}
+	sort.Strings(unique)
+	var rows []roleRow
+	if err := tx.Clauses(clause.Locking{Strength: "SHARE"}).Select("name").
+		Where("tenant_id = ? AND name IN ?", tenantID, unique).
+		Order("name ASC").Find(&rows).Error; err != nil {
+		return err
+	}
+	if len(rows) != len(unique) {
+		return auth.ErrNotFound
+	}
+	return nil
 }
 
 // isNotFound reports whether err is GORM's record-not-found sentinel. | isNotFound 报告 err 是否为 GORM 的记录不存在哨兵。

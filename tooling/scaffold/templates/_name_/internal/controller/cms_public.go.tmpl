@@ -1,0 +1,708 @@
+// 本文件是公开内容站点的 HTTP 编排：列表、分类、标签、搜索、文章、单页、评论、媒体与订阅源。
+// This file is the public content site's HTTP orchestration: lists, categories, tags, search, articles, pages,
+// comments, media and feeds.
+
+package controller
+
+import (
+	"encoding/xml"
+	"net/http"
+	"strconv"
+	"strings"
+	"time"
+
+	"{{ .Module }}/internal/model"
+	"{{ .YdModule }}/cms"
+	"{{ .YdModule }}/core/logx"
+	"{{ .YdModule }}/http/router"
+	"{{ .YdModule }}/security/auth"
+	"{{ .YdModule }}/security/authz"
+)
+
+// Blog renders the public article list, including category, tag, search and paged variants. |
+// Blog 渲染公开文章列表，含分类、标签、搜索与分页变体。
+//
+// @Summary Public article list | 公开文章列表
+// @Description Shows published public articles, filterable by category, tag and keyword. | 展示已发布公开文章，可按分类、标签、关键字筛选。
+// @Tags cms-public
+// @Produce html
+// @Param page query int false "page | 页码"
+// @Param q query string false "keyword | 关键字"
+// @Success 200 {object} map[string]any "article list page | 文章列表页"
+// @Failure 404 {string} string "category or tenant not found | 分类或租户不存在"
+// @Router /blog [get]
+func (c *Controller) Blog(ctx *router.Ctx) {
+	c.blogList(ctx)
+}
+
+// BlogPage renders a numbered public list page. | BlogPage 渲染带页码的公开列表页。
+//
+// @Summary Public article page | 公开文章分页
+// @Description Same as the list page, with the page number in the path. | 与列表页相同，页码来自路径。
+// @Tags cms-public
+// @Produce html
+// @Param page path int true "page | 页码"
+// @Success 200 {object} map[string]any "article list page | 文章列表页"
+// @Router /blog/page/{page} [get]
+func (c *Controller) BlogPage(ctx *router.Ctx) {
+	c.blogList(ctx)
+}
+
+// BlogCategory renders a category listing including every descendant category. |
+// BlogCategory 渲染包含全部后代分类的分类列表。
+//
+// @Summary Category articles | 分类文章
+// @Description Shows public articles in a category and its descendants. | 展示一个分类及其后代下的公开文章。
+// @Tags cms-public
+// @Produce html
+// @Param slug path string true "category slug | 分类别名"
+// @Param page query int false "page | 页码"
+// @Success 200 {object} map[string]any "category page | 分类页"
+// @Failure 404 {string} string "category not found | 分类不存在"
+// @Router /blog/category/{slug} [get]
+func (c *Controller) BlogCategory(ctx *router.Ctx) {
+	c.blogList(ctx)
+}
+
+// BlogCategoryPage renders a paged category listing. | BlogCategoryPage 渲染带页码的分类列表。
+//
+// @Summary Paged category articles | 分类文章分页
+// @Description Same as the category page, with the page number in the path. | 与分类页相同，页码来自路径。
+// @Tags cms-public
+// @Produce html
+// @Param slug path string true "category slug | 分类别名"
+// @Param page path int true "page | 页码"
+// @Success 200 {object} map[string]any "category page | 分类页"
+// @Router /blog/category/{slug}/page/{page} [get]
+func (c *Controller) BlogCategoryPage(ctx *router.Ctx) {
+	c.blogList(ctx)
+}
+
+// BlogTag renders a tag listing. | BlogTag 渲染标签列表。
+//
+// @Summary Tag articles | 标签文章
+// @Description Shows public articles carrying the tag. | 展示带指定标签的公开文章。
+// @Tags cms-public
+// @Produce html
+// @Param slug path string true "tag slug | 标签别名"
+// @Param page query int false "page | 页码"
+// @Success 200 {object} map[string]any "tag page | 标签页"
+// @Failure 404 {string} string "tag not found | 标签不存在"
+// @Router /blog/tag/{slug} [get]
+func (c *Controller) BlogTag(ctx *router.Ctx) {
+	c.blogList(ctx)
+}
+
+// BlogTagPage renders a paged tag listing. | BlogTagPage 渲染带页码的标签列表。
+//
+// @Summary Paged tag articles | 标签文章分页
+// @Description Same as the tag page, with the page number in the path. | 与标签页相同，页码来自路径。
+// @Tags cms-public
+// @Produce html
+// @Param slug path string true "tag slug | 标签别名"
+// @Param page path int true "page | 页码"
+// @Success 200 {object} map[string]any "tag page | 标签页"
+// @Router /blog/tag/{slug}/page/{page} [get]
+func (c *Controller) BlogTagPage(ctx *router.Ctx) {
+	c.blogList(ctx)
+}
+
+// BlogSearch renders the keyword search result. | BlogSearch 渲染关键字搜索结果。
+//
+// @Summary Content search | 内容搜索
+// @Description Searches public articles by title, body and tags. | 按标题、正文与标签搜索公开文章。
+// @Tags cms-public
+// @Produce html
+// @Param q query string false "keyword | 关键字"
+// @Param page query int false "page | 页码"
+// @Success 200 {object} map[string]any "search results | 搜索结果"
+// @Router /blog/search [get]
+func (c *Controller) BlogSearch(ctx *router.Ctx) {
+	c.blogList(ctx)
+}
+
+// blogList is the shared implementation of every public list route. | blogList 是全部公开列表路由的共同实现。
+func (c *Controller) blogList(ctx *router.Ctx) {
+	if !c.cmsAvailable(ctx) {
+		return
+	}
+	tenantID, err := c.cmsPublicTenant(ctx)
+	if err != nil {
+		status, message := statusFor(err)
+		c.failPublic(ctx, status, message)
+		return
+	}
+	if !c.cmsEnsure(ctx, tenantID) {
+		return
+	}
+	settings, err := c.cms.Settings(ctx.Request.Context(), tenantID)
+	if err != nil {
+		c.failServicePublic(ctx, err)
+		return
+	}
+	pageSize := settings.PostsPerPage
+	if pageSize <= 0 {
+		pageSize = 10
+	}
+	pageNo := 0
+	// The pager emits ?page=N even when the current route carries /page/N; prefer the query value so
+	// Next/Prev advance instead of re-reading the frozen path segment. |
+	// 分页器在当前路由带 /page/N 时仍输出 ?page=N；优先读取查询参数，使下一页/上一页真正推进，
+	// 而不是反复读取固定的路径段。
+	if value := ctx.Query("page"); value != "" {
+		pageNo, _ = strconv.Atoi(value)
+	}
+	if pageNo == 0 {
+		pageNo, _ = strconv.Atoi(ctx.Param("page"))
+	}
+	filter := cms.ArticleFilter{
+		Keyword:    strings.TrimSpace(ctx.Query("q")),
+		Kind:       cms.KindPost,
+		PublicOnly: true,
+		Page:       pageNo,
+		PageSize:   pageSize,
+	}
+	extra := map[string]any{
+		"Articles":   []model.CMSArticle{},
+		"Keyword":    filter.Keyword,
+		"Site":       settings,
+		"Page":       pageNo,
+		"Empty":      true,
+		"Categories": []cms.CategoryOption{},
+	}
+	if slug := strings.TrimSpace(ctx.Param("slug")); slug != "" {
+		switch {
+		case strings.Contains(ctx.Path(), "/blog/category/"):
+			category, lookupErr := c.cms.CategoryBySlug(ctx.Request.Context(), tenantID, slug)
+			if lookupErr != nil || !category.Visible {
+				c.failPublic(ctx, http.StatusNotFound, cms.ErrCategoryNotFound.Error())
+				return
+			}
+			ids, lookupErr := c.cms.CategorySubtreeIDs(ctx.Request.Context(), tenantID, category.ID)
+			if lookupErr != nil {
+				c.failServicePublic(ctx, lookupErr)
+				return
+			}
+			filter.CategoryIDs = ids
+			extra["CurrentCategory"] = category
+		case strings.Contains(ctx.Path(), "/blog/tag/"):
+			tag, lookupErr := c.cms.TagBySlug(ctx.Request.Context(), tenantID, slug)
+			if lookupErr != nil {
+				c.failServicePublic(ctx, lookupErr)
+				return
+			}
+			filter.TagID = tag.ID
+			extra["CurrentTag"] = tag
+		}
+	}
+	page, err := c.cms.Articles(ctx.Request.Context(), tenantID, filter)
+	if err != nil {
+		c.failServicePublic(ctx, err)
+		return
+	}
+	extra["Articles"] = cmsArticleRows(page.Items, c.cmsActor(ctx))
+	extra["Total"] = page.Total
+	extra["Empty"] = len(page.Items) == 0
+	extra["Pager"] = newCMSPager(cmsPageBase(ctx), page.Page, page.TotalPages)
+	options, _ := c.cms.PublicCategoryOptions(ctx.Request.Context(), tenantID)
+	visible := make([]cms.CategoryOption, 0, len(options))
+	for _, option := range options {
+		if option.Visible {
+			visible = append(visible, option)
+		}
+	}
+	extra["Categories"] = visible
+	data := c.cmsPublicData(ctx, tenantID, c.tr(c.lang(ctx), "cms.public.title"), extra)
+	c.render(ctx, http.StatusOK, TplCMSPublicList, data)
+}
+
+// BlogArticle renders one public article. | BlogArticle 渲染一篇公开文章。
+//
+// @Summary Public article | 公开文章
+// @Description Shows a published public article, related articles and approved comments. | 展示已发布公开文章、相关文章与已通过评论。
+// @Tags cms-public
+// @Produce html
+// @Param slug path string true "article slug | 文章别名"
+// @Success 200 {object} map[string]any "article page | 文章页"
+// @Failure 404 {string} string "article missing or not public | 文章不存在或未公开"
+// @Router /blog/{slug} [get]
+func (c *Controller) BlogArticle(ctx *router.Ctx) {
+	c.blogArticle(ctx, false)
+}
+
+// BlogStandalonePage renders one public standalone page. | BlogStandalonePage 渲染一个公开独立单页。
+//
+// @Summary Public page | 公开单页
+// @Description Shows public content published as a page. | 展示以 page 类型发布的公开内容。
+// @Tags cms-public
+// @Produce html
+// @Param slug path string true "page slug | 单页别名"
+// @Success 200 {object} map[string]any "page | 单页"
+// @Failure 404 {string} string "page missing | 单页不存在"
+// @Router /blog/p/{slug} [get]
+func (c *Controller) BlogStandalonePage(ctx *router.Ctx) {
+	c.blogArticle(ctx, true)
+}
+
+// blogArticle is the shared implementation of article and page rendering. | blogArticle 是文章与单页渲染的共同实现。
+func (c *Controller) blogArticle(ctx *router.Ctx, pageOnly bool) {
+	if !c.cmsAvailable(ctx) {
+		return
+	}
+	tenantID, err := c.cmsPublicTenant(ctx)
+	if err != nil {
+		status, message := statusFor(err)
+		c.failPublic(ctx, status, message)
+		return
+	}
+	if !c.cmsEnsure(ctx, tenantID) {
+		return
+	}
+	article, err := c.cms.Article(ctx.Request.Context(), tenantID, ctx.Param("slug"), true)
+	if err != nil {
+		c.failServicePublic(ctx, err)
+		return
+	}
+	if pageOnly && article.Kind != cms.KindPage {
+		c.failPublic(ctx, http.StatusNotFound, cms.ErrArticleNotFound.Error())
+		return
+	}
+	if !pageOnly && article.Kind == cms.KindPage {
+		c.failPublic(ctx, http.StatusNotFound, cms.ErrArticleNotFound.Error())
+		return
+	}
+	settings, err := c.cms.Settings(ctx.Request.Context(), tenantID)
+	if err != nil {
+		c.failServicePublic(ctx, err)
+		return
+	}
+	if !pageOnly {
+		if viewErr := c.cms.IncrementView(ctx.Request.Context(), tenantID, article.ID); viewErr != nil {
+			c.log.Debug("CMS view counter failed | CMS 浏览量计数失败", logx.Err(viewErr))
+		}
+	}
+	comments, _ := c.cms.Comments(ctx.Request.Context(), tenantID, cms.CommentFilter{
+		ArticleID: article.ID, PublicOnly: true, Page: 1, PageSize: 50,
+	})
+	related, _ := c.cms.RelatedArticles(ctx.Request.Context(), tenantID, article.ID, 5)
+	canComment := c.cmsCanInTenant(ctx, tenantID, authz.PermCmsCommentCreate) &&
+		settings.CommentsEnabled && article.AllowComment && article.Kind == cms.KindPost
+	rows := cmsArticleRows([]cms.ArticleView{article}, c.cmsActor(ctx))
+	current := model.CMSArticle{}
+	if len(rows) > 0 {
+		current = rows[0]
+	}
+	title := article.Title
+	if strings.TrimSpace(article.SEOTitle) != "" {
+		title = article.SEOTitle
+	}
+	data := c.cmsPublicData(ctx, tenantID, title, map[string]any{
+		"Article":    current,
+		"Comments":   model.NewCMSComments(comments.Items, c.cmsActor(ctx).ID, false),
+		"Related":    cmsArticleRows(related, c.cmsActor(ctx)),
+		"CanComment": canComment,
+		"Site":       settings,
+	})
+	data["OGType"] = "article"
+	if description := strings.TrimSpace(article.SEODescription); description != "" {
+		data["MetaDescription"] = description
+	} else if summary := strings.TrimSpace(article.Summary); summary != "" {
+		data["MetaDescription"] = summary
+	}
+	if keywords := strings.TrimSpace(article.SEOKeywords); keywords != "" {
+		data["MetaKeywords"] = keywords
+	}
+	if canonical := strings.TrimSpace(article.CanonicalURL); canonical != "" {
+		data["CanonicalURL"] = canonical
+	} else if article.Kind == cms.KindPage {
+		data["CanonicalURL"] = cmsAbsoluteURL(ctx, "/blog/p/"+article.Slug)
+	} else {
+		data["CanonicalURL"] = cmsAbsoluteURL(ctx, "/blog/"+article.Slug)
+	}
+	template := TplCMSPublicArticle
+	if pageOnly || article.Kind == cms.KindPage {
+		template = TplCMSPublicPage
+	}
+	c.render(ctx, http.StatusOK, template, data)
+}
+
+// BlogComment stores one comment from the public article page. | BlogComment 保存公开文章页的一条评论。
+//
+// @Summary Post comment | 发表评论
+// @Description A signed-in user comments on a public article; moderation settings decide the initial state. | 登录用户在公开文章下发表评论；审核设置决定初始状态。
+// @Tags cms-public
+// @Accept x-www-form-urlencoded
+// @Produce html
+// @Param slug path string true "article slug | 文章别名"
+// @Param body formData string true "comment body | 评论正文"
+// @Param parent_id formData string false "parent comment | 父评论"
+// @Success 200 {object} map[string]any "article page | 文章页"
+// @Success 303 {object} string "redirect after success (non-htmx requests) | 成功后重定向（非 htmx 请求）"
+// @Failure 422 {string} string "validation failed | 校验失败"
+// @Security BearerAuth
+// @Router /blog/{slug}/comments [post]
+func (c *Controller) BlogComment(ctx *router.Ctx) {
+	if !c.cmsAvailable(ctx) {
+		return
+	}
+	tenantID, err := c.cmsPublicTenant(ctx)
+	if err != nil {
+		status, message := statusFor(err)
+		c.failPublic(ctx, status, message)
+		return
+	}
+	if !c.cmsEnsure(ctx, tenantID) {
+		return
+	}
+	if _, ok := auth.CurrentUser(ctx); !ok {
+		c.failPublic(ctx, http.StatusUnauthorized, msgUnauthorized)
+		return
+	}
+	if !c.cmsCanInTenant(ctx, tenantID, authz.PermCmsCommentCreate) {
+		c.failPublic(ctx, http.StatusForbidden, msgForbidden)
+		return
+	}
+	article, err := c.cms.Article(ctx.Request.Context(), tenantID, ctx.Param("slug"), true)
+	if err != nil {
+		c.failServicePublic(ctx, err)
+		return
+	}
+	actor := c.cmsActor(ctx)
+	actor.TenantID = tenantID
+	if _, err := c.cms.PostComment(ctx.Request.Context(), actor, cms.CommentInput{
+		ArticleID: article.ID,
+		ParentID:  ctx.FormValue("parent_id"),
+		Body:      ctx.FormValue("body"),
+	}); err != nil {
+		c.failServicePublic(ctx, err)
+		return
+	}
+	c.toast(ctx, c.tr(c.lang(ctx), "cms.notice.comment_submitted"))
+	c.redirect(ctx, "/blog/"+article.Slug+"#comments")
+}
+
+// BlogMedia serves one public media file. | BlogMedia 提供一个公开媒体文件。
+//
+// @Summary Public media | 公开媒体
+// @Description Serves uploaded media; cross-tenant and missing ids both answer 404. | 提供已上传媒体；跨租户与不存在的 ID 都返回 404。
+// @Tags cms-public
+// @Produce application/octet-stream
+// @Param id path string true "media id | 媒体 ID"
+// @Success 200 {file} file "file | 文件"
+// @Failure 404 {string} string "media not found | 媒体不存在"
+// @Router /blog/media/{id} [get]
+func (c *Controller) BlogMedia(ctx *router.Ctx) {
+	if c.cms == nil || !c.cms.Available() {
+		_ = ctx.String(http.StatusServiceUnavailable, cms.ErrUnavailable.Error())
+		return
+	}
+	tenantID, err := c.cmsPublicTenant(ctx)
+	if err != nil {
+		_ = ctx.String(http.StatusNotFound, "media not found | 媒体不存在")
+		return
+	}
+	media, data, err := c.cms.ReadMedia(ctx.Request.Context(), tenantID, ctx.Param("id"))
+	if err != nil {
+		// A missing record/object is 404; a storage outage must stay 503 so a CDN or monitor does not
+		// cache the failure as "the media was deleted". |
+		// 记录或对象缺失是 404；存储故障必须保持 503，避免 CDN 或监控把它缓存成「媒体已删除」。
+		status, message := statusFor(err)
+		_ = ctx.String(status, message)
+		return
+	}
+	writeCMSMedia(ctx, media, data, "public, max-age=86400")
+}
+
+// writeCMSMedia writes one media payload with the shared headers. The cache policy differs between
+// the public site and the authenticated preview, because only the former is safe to share. |
+// writeCMSMedia 用共享响应头写出一个媒体载荷。公开站点与鉴权预览的缓存策略不同：
+// 只有前者可以安全共享。
+func writeCMSMedia(ctx *router.Ctx, media cms.Media, data []byte, cache string) {
+	disposition := "attachment"
+	if strings.HasPrefix(media.ContentType, "image/") || strings.HasPrefix(media.ContentType, "video/") || strings.HasPrefix(media.ContentType, "audio/") {
+		disposition = "inline"
+	}
+	ctx.Writer.Header().Set("Content-Type", media.ContentType)
+	ctx.Writer.Header().Set("Content-Length", strconv.Itoa(len(data)))
+	ctx.Writer.Header().Set("Content-Disposition", disposition+"; filename=\"media\"")
+	ctx.Writer.Header().Set("Cache-Control", cache)
+	ctx.Writer.Header().Set("X-Content-Type-Options", "nosniff")
+	ctx.Writer.WriteHeader(http.StatusOK)
+	_, _ = ctx.Writer.Write(data)
+}
+
+// BlogRSS renders the public RSS 2.0 feed. | BlogRSS 渲染公开 RSS 2.0 订阅源。
+//
+// @Summary RSS feed | RSS 订阅
+// @Description Emits an RSS 2.0 document of recently published public articles. | 输出最近发布公开文章的 RSS 2.0 文档。
+// @Tags cms-public
+// @Produce application/rss+xml
+// @Success 200 {string} string "RSS document | RSS 文档"
+// @Failure 404 {string} string "feed disabled | 订阅源已关闭"
+// @Router /blog/rss.xml [get]
+func (c *Controller) BlogRSS(ctx *router.Ctx) {
+	if !c.CMSAvailable() {
+		_ = ctx.String(http.StatusServiceUnavailable, cms.ErrUnavailable.Error())
+		return
+	}
+	tenantID, err := c.cmsPublicTenant(ctx)
+	if err != nil {
+		_ = ctx.String(http.StatusNotFound, "feed not found | 订阅源不存在")
+		return
+	}
+	settings, err := c.cms.Settings(ctx.Request.Context(), tenantID)
+	if err != nil {
+		c.failFeed(ctx, err)
+		return
+	}
+	if !settings.RSSEnabled {
+		_ = ctx.String(http.StatusNotFound, "feed not found | 订阅源不存在")
+		return
+	}
+	page, err := c.cms.Articles(ctx.Request.Context(), tenantID, cms.ArticleFilter{
+		Kind: cms.KindPost, PublicOnly: true, Page: 1, PageSize: 50,
+	})
+	if err != nil {
+		c.failFeed(ctx, err)
+		return
+	}
+	channel := cmsRSSChannel{
+		Title:       settings.SiteName,
+		Link:        cmsAbsoluteURL(ctx, "/blog"),
+		Description: settings.SiteDescription,
+		Language:    c.lang(ctx),
+	}
+	for _, article := range page.Items {
+		channel.Items = append(channel.Items, cmsRSSItem{
+			Title:       article.Title,
+			Link:        cmsAbsoluteURL(ctx, "/blog/"+article.Slug),
+			GUID:        cmsAbsoluteURL(ctx, "/blog/"+article.Slug),
+			PubDate:     cmsPublishedAt(article.Article).Format(time.RFC1123Z),
+			Description: cmsFeedDescription(article.Article),
+		})
+	}
+	payload, err := xml.Marshal(cmsRSS{Version: "2.0", Channel: channel})
+	if err != nil {
+		c.failFeed(ctx, err)
+		return
+	}
+	ctx.Writer.Header().Set("Content-Type", "application/rss+xml; charset=utf-8")
+	_, _ = ctx.Writer.Write([]byte(xml.Header))
+	_, _ = ctx.Writer.Write(payload)
+}
+
+// BlogSitemap renders the public sitemap. | BlogSitemap 渲染公开站点地图。
+//
+// @Summary Sitemap | 站点地图
+// @Description Emits an XML sitemap of posts, pages and categories. | 输出文章、单页与分类的 XML 站点地图。
+// @Tags cms-public
+// @Produce application/xml
+// @Success 200 {string} string "sitemap | 站点地图"
+// @Router /blog/sitemap.xml [get]
+func (c *Controller) BlogSitemap(ctx *router.Ctx) {
+	if !c.CMSAvailable() {
+		_ = ctx.String(http.StatusServiceUnavailable, cms.ErrUnavailable.Error())
+		return
+	}
+	tenantID, err := c.cmsPublicTenant(ctx)
+	if err != nil {
+		_ = ctx.String(http.StatusNotFound, "sitemap not found | 站点地图不存在")
+		return
+	}
+	posts, err := c.cmsAllArticles(ctx, tenantID, cms.KindPost)
+	if err != nil {
+		c.failFeed(ctx, err)
+		return
+	}
+	pages, err := c.cmsAllArticles(ctx, tenantID, cms.KindPage)
+	if err != nil {
+		c.failFeed(ctx, err)
+		return
+	}
+	set := cmsURLSet{
+		XMLNS: "http://www.sitemaps.org/schemas/sitemap/0.9",
+		URLs:  []cmsSitemapURL{},
+	}
+	set.URLs = append(set.URLs, cmsSitemapURL{Loc: cmsAbsoluteURL(ctx, "/blog")})
+	for _, article := range posts {
+		set.URLs = append(set.URLs, cmsSitemapURL{
+			Loc:     cmsAbsoluteURL(ctx, "/blog/"+article.Slug),
+			LastMod: article.UpdatedAt.UTC().Format(time.RFC3339),
+		})
+	}
+	for _, page := range pages {
+		set.URLs = append(set.URLs, cmsSitemapURL{
+			Loc:     cmsAbsoluteURL(ctx, "/blog/p/"+page.Slug),
+			LastMod: page.UpdatedAt.UTC().Format(time.RFC3339),
+		})
+	}
+	options, err := c.cms.PublicCategoryOptions(ctx.Request.Context(), tenantID)
+	if err != nil {
+		c.failFeed(ctx, err)
+		return
+	}
+	for _, category := range options {
+		if !category.Visible {
+			continue
+		}
+		set.URLs = append(set.URLs, cmsSitemapURL{Loc: cmsAbsoluteURL(ctx, "/blog/category/"+category.Slug)})
+	}
+	payload, err := xml.MarshalIndent(set, "", "  ")
+	if err != nil {
+		c.failFeed(ctx, err)
+		return
+	}
+	ctx.Writer.Header().Set("Content-Type", "application/xml; charset=utf-8")
+	_, _ = ctx.Writer.Write([]byte(xml.Header))
+	_, _ = ctx.Writer.Write(payload)
+}
+
+// cmsRSS is the RSS document envelope. | cmsRSS 是 RSS 文档信封。
+type cmsRSS struct {
+	// XMLName is the rss element. | XMLName 是 rss 元素。
+	XMLName xml.Name `xml:"rss"`
+	// Version is the RSS version. | Version 是 RSS 版本。
+	Version string `xml:"version,attr"`
+	// Channel is the feed channel. | Channel 是订阅频道。
+	Channel cmsRSSChannel `xml:"channel"`
+}
+
+// cmsRSSChannel is one RSS channel. | cmsRSSChannel 是一个 RSS 频道。
+type cmsRSSChannel struct {
+	// Title is the site title. | Title 是站点标题。
+	Title string `xml:"title"`
+	// Link is the site link. | Link 是站点链接。
+	Link string `xml:"link"`
+	// Description is the site description. | Description 是站点描述。
+	Description string `xml:"description"`
+	// Language is the content language. | Language 是内容语言。
+	Language string `xml:"language"`
+	// Items are the feed entries. | Items 是订阅条目。
+	Items []cmsRSSItem `xml:"item"`
+}
+
+// cmsRSSItem is one RSS entry. | cmsRSSItem 是一个 RSS 条目。
+type cmsRSSItem struct {
+	// Title is the article title. | Title 是文章标题。
+	Title string `xml:"title"`
+	// Link is the article URL. | Link 是文章 URL。
+	Link string `xml:"link"`
+	// GUID is the stable article identifier. | GUID 是稳定的文章标识。
+	GUID string `xml:"guid"`
+	// PubDate is the publication time in RFC 1123. | PubDate 是 RFC 1123 格式的发布时间。
+	PubDate string `xml:"pubDate"`
+	// Description is the feed summary. | Description 是订阅摘要。
+	Description string `xml:"description"`
+}
+
+// cmsURLSet is the sitemap envelope. | cmsURLSet 是站点地图信封。
+type cmsURLSet struct {
+	// XMLName is the urlset element. | XMLName 是 urlset 元素。
+	XMLName xml.Name `xml:"urlset"`
+	// XMLNS is the sitemap namespace. | XMLNS 是站点地图命名空间。
+	XMLNS string `xml:"xmlns,attr"`
+	// URLs are the listed addresses. | URLs 是列出的地址。
+	URLs []cmsSitemapURL `xml:"url"`
+}
+
+// cmsSitemapURL is one sitemap entry. | cmsSitemapURL 是一个站点地图条目。
+type cmsSitemapURL struct {
+	// Loc is the absolute address. | Loc 是绝对地址。
+	Loc string `xml:"loc"`
+	// LastMod is the optional last modification time. | LastMod 是可选最后修改时间。
+	LastMod string `xml:"lastmod,omitempty"`
+}
+
+// cmsAbsoluteURL builds an absolute URL from the request host. | cmsAbsoluteURL 从请求主机构造绝对 URL。
+func cmsAbsoluteURL(ctx *router.Ctx, path string) string {
+	scheme := "http"
+	if ctx.Request.TLS != nil {
+		scheme = "https"
+	}
+	if forwarded := strings.TrimSpace(ctx.Request.Header.Get("X-Forwarded-Proto")); forwarded == "https" || forwarded == "http" {
+		scheme = forwarded
+	}
+	return scheme + "://" + ctx.Request.Host + path
+}
+
+// cmsAllArticles walks every public page for a sitemap. | cmsAllArticles 为站点地图遍历全部公开分页。
+func (c *Controller) cmsAllArticles(ctx *router.Ctx, tenantID string, kind cms.ArticleKind) ([]cms.ArticleView, error) {
+	out := make([]cms.ArticleView, 0)
+	for pageNo := 1; ; pageNo++ {
+		page, err := c.cms.Articles(ctx.Request.Context(), tenantID, cms.ArticleFilter{
+			Kind: kind, PublicOnly: true, Page: pageNo, PageSize: 100,
+		})
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, page.Items...)
+		if len(page.Items) == 0 || pageNo >= page.TotalPages || page.TotalPages == 0 {
+			return out, nil
+		}
+	}
+}
+
+// cmsPublishedAt returns the effective publication time. | cmsPublishedAt 返回有效发布时间。
+func cmsPublishedAt(article cms.Article) time.Time {
+	if article.PublishAt != nil {
+		return article.PublishAt.UTC()
+	}
+	return article.CreatedAt.UTC()
+}
+
+// cmsFeedDescription returns a bounded plain-text summary. | cmsFeedDescription 返回有界的纯文本摘要。
+func cmsFeedDescription(article cms.Article) string {
+	text := strings.TrimSpace(article.Summary)
+	if text == "" {
+		text = strings.TrimSpace(article.BodyText)
+	}
+	runes := []rune(text)
+	if len(runes) > 400 {
+		text = string(runes[:400])
+	}
+	return text
+}
+
+// failPublic renders an error with the public shell so a missing article or category still looks like
+// the public site instead of the sign-in or portal shell. |
+// failPublic 用公开站点外壳渲染错误，因此缺失的文章或分类仍然显示为公开站点，而不是登录页或门户外壳。
+func (c *Controller) failPublic(ctx *router.Ctx, status int, messages ...string) {
+	list := make([]map[string]any, 0, len(messages))
+	for _, message := range messages {
+		list = append(list, map[string]any{"Text": message})
+	}
+	c.render(ctx, status, TplError, c.view(ctx, "请求未通过校验 | Request failed validation", map[string]any{
+		"Status":     status,
+		"Errors":     list,
+		"PublicSite": true,
+	}))
+}
+
+// failServicePublic maps a service error onto a status and the public error page. |
+// failServicePublic 把业务错误映射为状态码与公开错误页。
+func (c *Controller) failServicePublic(ctx *router.Ctx, err error) {
+	if err == nil {
+		return
+	}
+	status, message := statusFor(err)
+	c.failPublic(ctx, status, message)
+}
+
+// failFeed writes a machine-readable endpoint's failure as plain text instead of the portal HTML
+// error page. A feed reader cannot use an HTML body, and embedding htmx markup in a feed is worse
+// than a short status line. | failFeed 把机器读取端点的失败写成纯文本，而不是门户 HTML 错误页。
+// 订阅器无法使用 HTML 正文，把 htmx 片段塞进订阅源比一行状态文本更糟。
+func (c *Controller) failFeed(ctx *router.Ctx, err error) {
+	if err == nil {
+		return
+	}
+	status, message := statusFor(err)
+	if status >= http.StatusInternalServerError {
+		c.log.Error("feed request failed | 订阅源请求失败",
+			logx.Err(err), logx.Str("path", ctx.Path()), logx.Str("method", ctx.Method()))
+	} else {
+		c.log.Warn("feed request refused | 订阅源请求被拒绝",
+			logx.Err(err), logx.Str("path", ctx.Path()), logx.Str("method", ctx.Method()))
+	}
+	_ = ctx.String(status, message)
+}

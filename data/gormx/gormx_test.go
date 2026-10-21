@@ -80,6 +80,9 @@ func TestOpenSQLiteWithPrepareStmtEnabled(t *testing.T) {
 	if !db.Config.PrepareStmt {
 		t.Fatalf("db.Config.PrepareStmt = false，期望框架默认开启")
 	}
+	if !db.Config.DisableForeignKeyConstraintWhenMigrating {
+		t.Fatalf("db.Config.DisableForeignKeyConstraintWhenMigrating = false，期望框架禁止迁移期外键")
+	}
 
 	ps, ok := db.ConnPool.(*gorm.PreparedStmtDB)
 	if !ok {

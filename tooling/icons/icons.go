@@ -2,10 +2,10 @@
 // 把固定版本的 Iconify JSON 图标集转换成一个按需子集的 SVG sprite。
 //
 // The set file is build-time input only: it is embedded in the yd CLI, never copied into an
-// application binary. Only the icons referenced through {{template "partials/icon" "…"}} are emitted
+// application binary. Only the icons referenced through {{template "<tree>/partials/icon" "…"}} are emitted
 // into web/static/img/icons.svg, so the runtime payload stays proportional to actual usage. | 图标集文件
 // 只是构建期输入：它内嵌在 yd CLI 中，绝不会复制进应用二进制。只有经
-// {{template "partials/icon" "…"}} 引用的图标才会写入 web/static/img/icons.svg，运行时体积因此与实际用量成正比。
+// {{template "<tree>/partials/icon" "…"}} 引用的图标才会写入 web/static/img/icons.svg，运行时体积因此与实际用量成正比。
 package icons
 
 import (
@@ -143,9 +143,10 @@ type Result struct {
 //go:embed data/lucide.json
 var lucideJSON []byte
 
-// scanPattern finds {{template "partials/icon" "lucide-user"}} calls, including the whitespace
-// trimming forms. | scanPattern 匹配 {{template "partials/icon" "lucide-user"}} 调用，包括空白裁剪形式。
-var scanPattern = regexpx.MustCompile(`\{\{-?\s*template\s+"partials/icon"\s+"([^"]+)"\s*-?\}\}`)
+// scanPattern finds {{template "<tree>/partials/icon" "lucide-user"}} calls, including the whitespace
+// trimming forms and the optional tree prefix (portal/ or mgr/). | scanPattern 匹配
+// {{template "<tree>/partials/icon" "lucide-user"}} 调用，包括空白裁剪形式与可选的树前缀（portal/ 或 mgr/）。
+var scanPattern = regexpx.MustCompile(`\{\{-?\s*template\s+"(?:[A-Za-z0-9_-]+/)*partials/icon"\s+"([^"]+)"\s*-?\}\}`)
 
 // sourceVersionPattern matches the upstream version comment in the vendored JSON, so a replaced
 // file without its metadata update fails loudly. | sourceVersionPattern 匹配随包 JSON 里的上游版本注释，

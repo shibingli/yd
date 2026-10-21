@@ -1,0 +1,98 @@
+{{/*
+  partials/messages/composer.html —— 会话底部的内联撰写区。
+  partials/messages/composer.html — the inline composer at the bottom of a conversation.
+
+  普通消息直接发到 /messages；公告频道只有 message:system 能发，发到 /mgr/messages/system 并保留一次确认。
+  附件上传是独立表单：它只把标签追加进主表单的附件列表，隐藏字段因此仍随主表单提交；标签自带移除按钮。
+  An ordinary message posts to /messages; the announcement channel accepts only message:system and posts to
+  /mgr/messages/system with one confirmation. The attachment upload is a separate form: it only appends a chip to the main
+  form's attachment list, so the hidden field still travels with the main form; the chip carries its own remove button.
+
+  数据契约 | Data contract: .ActiveConversation、.Catalog、.CanSend、.CanSystem、.Lang。
+*/}}
+{{- define "portal/partials/messages/composer" -}}
+{{- $system := .ActiveConversation.IsSystem -}}
+{{- $canPost := false -}}
+{{- if $system -}}{{- $canPost = .CanSystem -}}{{- else -}}{{- $canPost = .CanSend -}}{{- end -}}
+{{- $action := "/messages" -}}
+{{- $defaultType := "normal" -}}
+{{- if $system -}}{{- $action = "/mgr/messages/system" -}}{{- $defaultType = "announcement" -}}{{- end -}}
+<div class="yd-msg-composer" id="yd-msg-composer">
+  {{- if $canPost }}
+  <form id="yd-msg-composer-form" class="yd-msg-composer__form" method="post" action="{{ $action }}"
+        hx-post="{{ $action }}" hx-target="#yd-workspace" hx-swap="innerMorph"
+        hx-status:422="target:#yd-msg-composer-errors swap:innerHTML"
+        data-yd-default-type="{{ $defaultType }}"
+        autocomplete="off"{{ if $system }} data-yd-confirm="{{ tr "confirm.send_message" }}"{{ end }}>
+    {{- if not $system }}
+    <input type="hidden" name="conversation_id" value="{{ .ActiveConversation.ID }}">
+    {{- end }}
+    <div class="yd-msg-composer__top">
+      <select class="yd-select yd-msg-composer__type" id="yd-msg-composer-type" name="type_key"
+              aria-label="{{ tr "message.type" }}">
+        {{- range .Catalog.Types }}
+        <option value="{{ .Key }}"{{ if eq .Key $defaultType }} selected{{ end }}>{{ .Label }}</option>
+        {{- end }}
+      </select>
+      <label class="sr-only" for="yd-msg-composer-title">{{ tr "message.title" }}</label>
+      <input class="yd-input yd-msg-composer__title" id="yd-msg-composer-title" name="title" type="text"
+             maxlength="160" placeholder="{{ tr "message.title_placeholder" }}">
+    </div>
+
+    <div class="yd-editor yd-editor--compact" data-yd-editor data-yd-editor-compact data-lang="{{ .Lang }}">
+      <textarea class="yd-editor__fallback" id="yd-msg-composer-body" name="body_markdown" rows="3"
+                aria-label="{{ tr "message.quick_label" }}"
+                placeholder="{{ tr "message.quick_placeholder" }}"></textarea>
+    </div>
+
+    <div id="yd-msg-composer-errors" class="yd-msg-composer__errors" role="alert" aria-live="assertive"></div>
+    <div id="yd-msg-composer-attachments" class="yd-attachments yd-msg-composer__attachments"></div>
+
+    <details class="yd-msg-composer__more">
+      <summary>{{ tr "message.more" }}</summary>
+      <div class="yd-msg-composer__more-body">
+        <div class="yd-field">
+          <span class="yd-label">{{ tr "message.groups" }}</span>
+          <div class="yd-checks">
+            {{- range .Catalog.Groups }}
+            <label class="yd-check"><input type="checkbox" name="group_ids" value="{{ .ID }}"> {{ .Label }}</label>
+            {{- else }}<p class="yd-hint">{{ tr "message.no_groups" }}</p>{{ end }}
+          </div>
+        </div>
+        <div class="yd-field">
+          <span class="yd-label">{{ tr "message.tags" }}</span>
+          <div class="yd-checks">
+            {{- range .Catalog.Tags }}
+            <label class="yd-check"><input type="checkbox" name="tag_ids" value="{{ .ID }}"> #{{ .Label }}</label>
+            {{- else }}<p class="yd-hint">{{ tr "message.no_tags" }}</p>{{ end }}
+          </div>
+        </div>
+      </div>
+    </details>
+  </form>
+
+  <div class="yd-msg-composer__bar">
+    {{- if or (not $system) .CanSend }}
+    <form class="yd-msg-composer__upload" method="post" action="/messages/attachments"
+          hx-post="/messages/attachments" hx-target="#yd-msg-composer-attachments" hx-swap="beforeend"
+          hx-encoding="multipart/form-data" hx-status:422="target:#yd-msg-composer-errors swap:innerHTML">
+      <label class="yd-btn yd-btn--ghost yd-btn--sm" for="yd-msg-composer-file">
+        {{ template "portal/partials/icon" "lucide-paperclip" }}{{ tr "message.add_attachment" }}
+      </label>
+      <input class="sr-only" id="yd-msg-composer-file" name="file" type="file">
+      <button type="submit" class="yd-btn yd-btn--ghost yd-btn--sm">{{ tr "message.upload" }}</button>
+    </form>
+    {{- end }}
+    <span class="yd-hint yd-msg-composer__hint">{{ tr "message.send_hint" }}</span>
+    <button type="submit" form="yd-msg-composer-form" class="yd-btn yd-btn--primary yd-msg-composer__send">
+      {{ template "portal/partials/icon" "lucide-send" }}{{ tr "ui.send" }}
+    </button>
+  </div>
+  {{- else }}
+  <p class="yd-hint yd-msg-composer__readonly">
+    {{- if $system }}{{ tr "message.system_channel_hint" }}{{ else }}{{ tr "message.read_only" }}{{ end -}}
+  </p>
+  {{- end }}
+</div>
+{{- end -}}
+{{ template "portal/partials/messages/composer" . }}

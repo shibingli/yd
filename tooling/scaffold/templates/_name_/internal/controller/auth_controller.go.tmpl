@@ -42,10 +42,10 @@ func (c *Controller) Pubkey(ctx *router.Ctx) {
 // LoginPage renders the sign-in page.
 //
 // @Summary Sign-in page | 登录页
-// @Description Renders pages/login.html: the tenant key field, the user name and the password field that
+// @Description Renders portal/pages/login.html: the tenant key field, the user name and the password field that
 // @Description yd-guomi-htmx.js encrypts with SM2 before the form is submitted. A visitor who already holds a valid
 // @Description session is redirected to the workspace instead.
-// @Description 渲染 pages/login.html：租户标识、用户名字段，以及由 yd-guomi-htmx.js 在提交前用 SM2 加密的口令字段；
+// @Description 渲染 portal/pages/login.html：租户标识、用户名字段，以及由 yd-guomi-htmx.js 在提交前用 SM2 加密的口令字段；
 // @Description 已持有有效会话的访问者会被直接送回工作区。
 // @Tags auth
 // @Accept html
@@ -247,10 +247,10 @@ func (c *Controller) SetOwnDefaultTenant(ctx *router.Ctx) {
 // Account renders the self-service page: the current identity, the full capability set, the password change and the sec_key rotation.
 //
 // @Summary Account page | 账号页
-// @Description Renders pages/account.html for the signed-in user: identity, tenant, roles, capabilities and the two
+// @Description Renders portal/pages/account.html for the signed-in user: identity, tenant, roles, capabilities and the two
 // @Description self-service forms. The page also carries the mandatory first-sign-in password notice whenever the
 // @Description account still uses the seeded password.
-// @Description 为已登录用户渲染 pages/account.html：身份、租户、角色、权限，以及两个自助表单；只要账号仍在用种子口令，
+// @Description 为已登录用户渲染 portal/pages/account.html：身份、租户、角色、权限，以及两个自助表单；只要账号仍在用种子口令，
 // @Description 页面还会展示「首登必改口令」的提示。
 // @Tags account
 // @Accept html

@@ -1,0 +1,56 @@
+{{/*
+  partials/friends/request.html —— 添加好友抽屉。
+  partials/friends/request.html — the add-friend drawer.
+
+  招呼语可以留空；目标用户 ID 由服务端解析为资料，页面不信任客户端传来的展示名。
+  抽屉同时复核当前关系：只有 none 才渲染申请表单；已是好友、自己、待处理申请或拉黑关系只显示关系说明，
+  因此直接打开链接或使用过期的检索结果也无法走到申请表单。
+  The greeting may be empty; the server resolves the target id into a profile, so the page never trusts a client-supplied
+  display name. The drawer also re-checks the relation: only none renders the request form; an existing friend, the
+  actor itself, a pending request or a blocked pair show the relation and a close action instead, so a direct link or a
+  stale search row can never reach the form either.
+
+  数据契约 | Data contract: .Target .Name .Initial .CanRequest .Relation .RelationLabel。
+*/}}
+{{- define "portal/partials/friends/request" -}}
+<div class="yd-drawer__head">
+  <h2 class="yd-section__title">{{ if .CanRequest }}{{ tr "friend.request_title" }}{{ else }}{{ tr "friend.request_unavailable_title" }}{{ end }}</h2>
+  <p class="yd-section__hint">
+    {{- if .CanRequest }}{{ tr "friend.request_hint" }}
+    {{- else if eq .Relation "self" }}{{ tr "friend.cannot_add_self" }}
+    {{- else }}{{ tr "friend.request_unavailable" }}
+    {{- end }}
+  </p>
+</div>
+<div class="yd-friend yd-friend--target">
+  <span class="yd-avatar" aria-hidden="true">{{ .Initial }}</span>
+  <div class="yd-friend__main">
+    <strong>{{ .Name }}</strong>
+    <p class="yd-hint">{{ .Target.Username }}{{ with .Target.Email }} · {{ . }}{{ end }}</p>
+  </div>
+  {{- if not .CanRequest }}<span class="yd-badge yd-badge--muted">{{ .RelationLabel }}</span>{{ end }}
+</div>
+{{- if .CanRequest }}
+<form class="yd-form" method="post" action="/friends/requests"
+      hx-post="/friends/requests" hx-target="#yd-friends-panel" hx-swap="outerMorph"
+      hx-status:409="target:#yd-drawer-errors swap:innerHTML"
+      hx-status:422="target:#yd-drawer-errors swap:innerHTML"
+      data-yd-confirm="{{ tr "confirm.send_friend" }}">
+  <input type="hidden" name="friend_id" value="{{ .Target.ID }}">
+  <div class="yd-field">
+    <label class="yd-label" for="yd-friend-message">{{ tr "friend.greeting" }}</label>
+    <input class="yd-input" id="yd-friend-message" name="message" type="text" maxlength="255"
+           placeholder="{{ tr "friend.greeting_placeholder" }}">
+  </div>
+  <div class="yd-form__actions">
+    <button type="button" class="yd-btn yd-btn--ghost" data-yd-drawer-close>{{ tr "ui.cancel" }}</button>
+    <button type="submit" class="yd-btn yd-btn--primary">{{ tr "friend.send_request" }}</button>
+  </div>
+</form>
+{{- else }}
+<div class="yd-form__actions">
+  <button type="button" class="yd-btn yd-btn--ghost" data-yd-drawer-close>{{ tr "ui.close" }}</button>
+</div>
+{{- end }}
+{{- end -}}
+{{ template "portal/partials/friends/request" . }}

@@ -20,6 +20,9 @@ logs/
 node_modules/
 # Project-local optional tool binaries installed by `yd tools install` | 由 `yd tools install` 安装到项目内的可选工具二进制
 .yd/
+# Runtime uploads (message attachments and CMS media) | 运行期上传（消息附件与 CMS 媒体）
+data/attachments/
+data/cms-media/
 # Local database files (the default landing spot of yd new --db sqlite, WAL sidecars included) | 本地数据库文件（yd new --db sqlite 的默认落点，含 WAL 边车文件）
 data/*.db
 data/*.db-wal

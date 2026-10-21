@@ -34,9 +34,9 @@ import (
 // middleware and by tests.
 const (
 	// OpenAPIPath is the endpoint serving the OpenAPI JSON document, matching the framework default. | OpenAPIPath 是 OpenAPI JSON 文档的端点，与框架默认值一致。
-	OpenAPIPath = "/openapi.json"
+	OpenAPIPath = "/api/v1/openapi.json"
 	// DocsPath is the endpoint serving the built-in documentation viewer, matching the framework default. | DocsPath 是内置文档查看器的端点，与框架默认值一致。
-	DocsPath = "/docs"
+	DocsPath = "/mgr/docs"
 	// StaticPrefix is the static asset prefix, matching the mount point of app.Default. | StaticPrefix 是静态资源前缀，与 app.Default 的挂载点一致。
 	StaticPrefix = "/static"
 	// AnnotationDir is the source directory holding the OpenAPI annotations. | AnnotationDir 是存放 OpenAPI 注解的源码目录。
@@ -144,13 +144,33 @@ func registerPublic(a *app.App, ctrl *controller.Controller) {
 	// 同一个租户中间件也挂在受保护组上：注册表按 Name 合并，因此两个分组共享一份计数。
 	// The same tenant middleware is mounted on the protected group too: the registry merges by Name, so both
 	// groups share one set of counters.
-	g := a.Group("", a.MiddlewareMetrics().Wrap(
-		middleware.MetricsDescriptor("tenant"),
-		middleware.Tenant(middleware.TenantOptions{
-			Resolver:     ctrl.ResolveTenant,
-			ErrorHandler: ctrl.Deny,
-		}),
-	))
+	// The public group resolves an optional session: a missing or invalid token continues anonymously, so public
+	// pages can render the comment form and the backstage entry from the sign-in state without blocking anonymous
+	// readers at the login page. | 公开组只做「可选会话」：没有令牌或令牌失效时以匿名继续，公开页面因此可以按
+	// 登录状态渲染评论表单与「返回后台」入口，而不会把匿名读者挡在登录页。
+	g := a.Group("",
+		a.MiddlewareMetrics().Wrap(
+			middleware.MetricsDescriptor("promote"),
+			middleware.Promote(middleware.SessionOptions{}),
+		),
+		a.MiddlewareMetrics().Wrap(
+			middleware.MetricsDescriptor("auth"),
+			auth.Middleware(auth.MiddlewareOptions{Issuer: ctrl.Issuer(), ErrorHandler: ctrl.Deny, Optional: true}),
+		),
+		a.MiddlewareMetrics().Wrap(
+			middleware.MetricsDescriptor("authz"),
+			authz.Middleware(ctrl.Auth()),
+		),
+		a.MiddlewareMetrics().Wrap(
+			middleware.MetricsDescriptor("tenant"),
+			middleware.Tenant(middleware.TenantOptions{
+				Resolver:     ctrl.ResolveTenant,
+				ErrorHandler: ctrl.Deny,
+				Subdomain:    true,
+				IgnoreToken:  true,
+			}),
+		),
+	)
 
 	g.GET(LoginPath, ctrl.LoginPage)
 	g.POST(LoginPath, ctrl.Login)
@@ -159,6 +179,26 @@ func registerPublic(a *app.App, ctrl *controller.Controller) {
 	g.POST("/logout", ctrl.Logout)
 	g.GET("/healthz", ctrl.Health)
 	g.GET("/guomi/pubkey", ctrl.Pubkey)
+
+	// 公开内容站点：匿名可读；租户由请求头/子域名或 cms.public_tenant 决定。
+	// The public content site: anonymously readable; the tenant comes from the header/subdomain or cms.public_tenant.
+	// 静态段必须先于 /blog/:slug 登记，否则 rss.xml、media 与 p 都会被当成文章别名。
+	// Static segments are registered before /blog/:slug, otherwise rss.xml, media and p become article slugs.
+	g.GET("/blog", ctrl.Blog)
+	g.GET("/blog/page/:page", ctrl.BlogPage)
+	g.GET("/blog/search", ctrl.BlogSearch)
+	g.GET("/blog/category/:slug", ctrl.BlogCategory)
+	g.GET("/blog/category/:slug/page/:page", ctrl.BlogCategoryPage)
+	g.GET("/blog/tag/:slug", ctrl.BlogTag)
+	g.GET("/blog/tag/:slug/page/:page", ctrl.BlogTagPage)
+	g.GET("/blog/rss.xml", ctrl.BlogRSS)
+	g.GET("/blog/sitemap.xml", ctrl.BlogSitemap)
+	g.GET("/blog/media/:id", ctrl.BlogMedia)
+	g.GET("/blog/p/:slug", ctrl.BlogStandalonePage)
+	g.GET("/blog/:slug", ctrl.BlogArticle)
+	// 评论写入与读取使用同一个公开租户；处理器自行校验登录与会话成员关系。 |
+	// Comment writes use the same public tenant as reads; the handler verifies the session and membership itself.
+	g.POST("/blog/:slug/comments", ctrl.BlogComment)
 }
 
 // registerProtected 登记需要有效会话的业务端点，并按能力逐条挂上权限守卫。
@@ -237,9 +277,10 @@ func registerProtected(a *app.App, ctrl *controller.Controller, store *repositor
 
 	// 会话即可访问：个人落地页、账号自助、租户切换与实时演示。
 	// Session-only: the personal landing page, self-service account actions, the tenant switch and the realtime demo.
-	g.GET("/", ctrl.Index)
-	g.GET("/metrics", ctrl.Metrics)
-	g.GET("/metrics/middleware", ctrl.MiddlewareMetrics)
+	g.GET("/", ctrl.PortalHome)
+	g.GET("/mgr", ctrl.ManagementHome, authz.Require(authz.PermUserRead))
+	g.GET("/mgr/metrics", ctrl.Metrics, authz.Require(authz.PermUserRead))
+	g.GET("/mgr/metrics/middleware", ctrl.MiddlewareMetrics, authz.Require(authz.PermUserRead))
 	g.GET("/realtime", ctrl.Page)
 	g.GET("/account", ctrl.Account)
 	g.POST("/account/password", ctrl.ChangePassword)
@@ -259,7 +300,7 @@ func registerProtected(a *app.App, ctrl *controller.Controller, store *repositor
 	// The realtime channels: SSE and WebSocket share one publisher.
 	g.GET("/events", ctrl.Stream(broker))
 	g.GET("/ws", ctrl.Socket(ticker))
-	g.GET("/ws/metrics", ctrl.MetricsSocket())
+	g.GET("/mgr/ws/metrics", ctrl.MetricsSocket(), authz.Require(authz.PermUserRead))
 
 	// 站内消息中心：读、发、改、撤、置顶、类型目录与审计各自对应注册表里的一条能力。
 	// The in-app message centre: reading, sending, editing, recalling, pinning, the type catalogue and the audit trail
@@ -269,23 +310,26 @@ func registerProtected(a *app.App, ctrl *controller.Controller, store *repositor
 	g.GET("/messages/conversations", ctrl.MessageConversations, authz.Require(authz.PermMessageRead))
 	g.GET("/messages/direct/:id", ctrl.OpenDirectConversation, authz.Require(authz.PermMessageSend))
 	g.POST("/messages", ctrl.SendMessage, authz.Require(authz.PermMessageSend))
-	g.GET("/messages/system/new", ctrl.NewSystemDrawer, authz.Require(authz.PermMessageSystem))
-	g.POST("/messages/system", ctrl.SendSystemMessage, authz.Require(authz.PermMessageSystem))
-	g.GET("/messages/admin", ctrl.MessageAdmin, authz.Require(authz.PermMessageManage))
-	g.GET("/messages/admin/audit", ctrl.MessageAudit, authz.Require(authz.PermMessageManage))
+	g.GET("/mgr/messages/system/new", ctrl.NewSystemDrawer, authz.Require(authz.PermMessageSystem))
+	g.POST("/mgr/messages/system", ctrl.SendSystemMessage, authz.Require(authz.PermMessageSystem))
+	g.GET("/mgr/messages", ctrl.MessageAdmin, authz.Require(authz.PermMessageManage))
+	g.GET("/mgr/messages/audit", ctrl.MessageAudit, authz.Require(authz.PermMessageManage))
 	g.POST("/messages/attachments", ctrl.UploadMessageAttachment, authz.Require(authz.PermMessageSend))
 	g.GET("/messages/attachments/:id", ctrl.DownloadMessageAttachment, authz.Require(authz.PermMessageRead))
 	g.GET("/messages/:id", ctrl.MessageThread, authz.Require(authz.PermMessageRead))
 	g.GET("/messages/:id/thread", ctrl.MessageThreadFragment, authz.Require(authz.PermMessageRead))
 	g.GET("/messages/:id/history", ctrl.MessageThreadHistory, authz.Require(authz.PermMessageRead))
-	g.GET("/messages/:id/edit", ctrl.EditMessageDrawer, authz.Require(authz.PermMessageUpdate))
-	g.POST("/messages/:id", ctrl.UpdateMessage, authz.Require(authz.PermMessageUpdate))
-	g.POST("/messages/:id/recall", ctrl.RecallMessage, authz.Require(authz.PermMessageDelete))
-	g.POST("/messages/:id/revoke", ctrl.RevokeSystemMessage, authz.Require(authz.PermMessageSystem))
+	g.GET("/messages/:id/edit", ctrl.EditMessageDrawer, authz.RequireAny(authz.PermMessageUpdate, authz.PermMessageManage))
+	g.POST("/messages/:id", ctrl.UpdateMessage, authz.RequireAny(authz.PermMessageUpdate, authz.PermMessageManage))
+	g.POST("/messages/:id/recall", ctrl.RecallMessage, authz.RequireAny(authz.PermMessageDelete, authz.PermMessageManage))
+	g.POST("/mgr/messages/:id/revoke", ctrl.RevokeSystemMessage, authz.Require(authz.PermMessageSystem))
 	g.POST("/messages/:id/read", ctrl.MarkMessageRead, authz.Require(authz.PermMessageRead))
-	g.POST("/messages/:id/pin", ctrl.PinMessage, authz.Require(authz.PermMessageManage))
-	g.POST("/messages/:id/unpin", ctrl.UnpinMessage, authz.Require(authz.PermMessageManage))
-	g.GET("/messages/:id/pin", ctrl.PinMessageDrawer, authz.Require(authz.PermMessageManage))
+	g.POST("/mgr/messages/:id/pin", ctrl.PinMessage, authz.Require(authz.PermMessageManage))
+	g.POST("/mgr/messages/:id/unpin", ctrl.UnpinMessage, authz.Require(authz.PermMessageManage))
+	g.GET("/mgr/messages/:id/pin", ctrl.PinMessageDrawer, authz.Require(authz.PermMessageManage))
+	g.GET("/mgr/messages/:id/edit", ctrl.MessageAdminEditDrawer, authz.Require(authz.PermMessageManage))
+	g.POST("/mgr/messages/:id", ctrl.MessageAdminUpdate, authz.Require(authz.PermMessageManage))
+	g.POST("/mgr/messages/:id/recall", ctrl.MessageAdminRecall, authz.Require(authz.PermMessageManage))
 	g.POST("/messages/groups", ctrl.CreateMessageGroup, authz.Require(authz.PermMessageSend))
 	g.GET("/messages/groups/:id/settings", ctrl.MessageGroupDrawer, authz.Require(authz.PermMessageSend))
 	g.POST("/messages/groups/:id/members", ctrl.ChangeMessageGroupMember, authz.Require(authz.PermMessageSend))
@@ -311,47 +355,47 @@ func registerProtected(a *app.App, ctrl *controller.Controller, store *repositor
 
 	// 消息类型、分组与标签：读目录与生命周期管理分开。
 	// Message types, groups and labels: reading the catalogue is separate from its lifecycle.
-	g.GET("/message-settings", ctrl.MessageSettings, authz.Require(authz.PermMessageTypeRead))
-	g.GET("/message-settings/body", ctrl.MessageSettingsBody, authz.Require(authz.PermMessageTypeRead))
-	g.GET("/message-settings/types/new", ctrl.NewMessageTypeDrawer, authz.Require(authz.PermMessageTypeManage))
-	g.GET("/message-settings/types/:key/edit", ctrl.EditMessageTypeDrawer, authz.Require(authz.PermMessageTypeManage))
-	g.POST("/message-settings/types", ctrl.SaveMessageType, authz.Require(authz.PermMessageTypeManage))
-	g.POST("/message-settings/types/:key/archive", ctrl.ArchiveMessageType, authz.Require(authz.PermMessageTypeManage))
-	g.POST("/message-settings/types/:key/restore", ctrl.RestoreMessageType, authz.Require(authz.PermMessageTypeManage))
-	g.POST("/message-settings/types/:key/delete", ctrl.DeleteMessageType, authz.Require(authz.PermMessageTypeManage))
-	g.GET("/message-settings/tags/new", ctrl.NewMessageTagDrawer, authz.Require(authz.PermMessageTypeManage))
-	g.GET("/message-settings/tags/:id/edit", ctrl.EditMessageTagDrawer, authz.Require(authz.PermMessageTypeManage))
-	g.POST("/message-settings/tags", ctrl.SaveMessageTag, authz.Require(authz.PermMessageTypeManage))
-	g.POST("/message-settings/tags/:id/archive", ctrl.ArchiveMessageTag, authz.Require(authz.PermMessageTypeManage))
-	g.POST("/message-settings/tags/:id/restore", ctrl.RestoreMessageTag, authz.Require(authz.PermMessageTypeManage))
-	g.POST("/message-settings/tags/:id/delete", ctrl.DeleteMessageTag, authz.Require(authz.PermMessageTypeManage))
+	g.GET("/mgr/message-settings", ctrl.MessageSettings, authz.Require(authz.PermMessageTypeRead))
+	g.GET("/mgr/message-settings/body", ctrl.MessageSettingsBody, authz.Require(authz.PermMessageTypeRead))
+	g.GET("/mgr/message-settings/types/new", ctrl.NewMessageTypeDrawer, authz.Require(authz.PermMessageTypeManage))
+	g.GET("/mgr/message-settings/types/:key/edit", ctrl.EditMessageTypeDrawer, authz.Require(authz.PermMessageTypeManage))
+	g.POST("/mgr/message-settings/types", ctrl.SaveMessageType, authz.Require(authz.PermMessageTypeManage))
+	g.POST("/mgr/message-settings/types/:key/archive", ctrl.ArchiveMessageType, authz.Require(authz.PermMessageTypeManage))
+	g.POST("/mgr/message-settings/types/:key/restore", ctrl.RestoreMessageType, authz.Require(authz.PermMessageTypeManage))
+	g.POST("/mgr/message-settings/types/:key/delete", ctrl.DeleteMessageType, authz.Require(authz.PermMessageTypeManage))
+	g.GET("/mgr/message-settings/tags/new", ctrl.NewMessageTagDrawer, authz.Require(authz.PermMessageTypeManage))
+	g.GET("/mgr/message-settings/tags/:id/edit", ctrl.EditMessageTagDrawer, authz.Require(authz.PermMessageTypeManage))
+	g.POST("/mgr/message-settings/tags", ctrl.SaveMessageTag, authz.Require(authz.PermMessageTypeManage))
+	g.POST("/mgr/message-settings/tags/:id/archive", ctrl.ArchiveMessageTag, authz.Require(authz.PermMessageTypeManage))
+	g.POST("/mgr/message-settings/tags/:id/restore", ctrl.RestoreMessageTag, authz.Require(authz.PermMessageTypeManage))
+	g.POST("/mgr/message-settings/tags/:id/delete", ctrl.DeleteMessageTag, authz.Require(authz.PermMessageTypeManage))
 
 	// JSON API：与 HTML 共用同一套 service，供离线客户端与脚本读取。
 	// The JSON API: it shares the very same service as the HTML pages, for offline clients and scripts.
-	g.GET("/api/v1/messages/conversations", ctrl.APIConversations, authz.Require(authz.PermMessageRead))
-	g.GET("/api/v1/messages/conversations/:id", ctrl.APIConversation, authz.Require(authz.PermMessageRead))
-	g.GET("/api/v1/messages", ctrl.APIMessages, authz.Require(authz.PermMessageRead))
-	g.GET("/api/v1/messages/:id", ctrl.APIMessage, authz.Require(authz.PermMessageRead))
-	g.POST("/api/v1/messages", ctrl.APISendMessage, authz.Require(authz.PermMessageSend))
+	g.GET("/api/portal/v1/messages/conversations", ctrl.APIConversations, authz.Require(authz.PermMessageRead))
+	g.GET("/api/portal/v1/messages/conversations/:id", ctrl.APIConversation, authz.Require(authz.PermMessageRead))
+	g.GET("/api/portal/v1/messages", ctrl.APIMessages, authz.Require(authz.PermMessageRead))
+	g.GET("/api/portal/v1/messages/:id", ctrl.APIMessage, authz.Require(authz.PermMessageRead))
+	g.POST("/api/portal/v1/messages", ctrl.APISendMessage, authz.Require(authz.PermMessageSend))
 	g.POST("/api/v1/messages/system", ctrl.APISendSystem, authz.Require(authz.PermMessageSystem))
-	g.POST("/api/v1/messages/:id", ctrl.APIUpdateMessage, authz.Require(authz.PermMessageUpdate))
-	g.POST("/api/v1/messages/:id/recall", ctrl.APIRecallMessage, authz.Require(authz.PermMessageDelete))
+	g.POST("/api/portal/v1/messages/:id", ctrl.APIUpdateMessage, authz.Require(authz.PermMessageUpdate))
+	g.POST("/api/portal/v1/messages/:id/recall", ctrl.APIRecallMessage, authz.Require(authz.PermMessageDelete))
 	g.POST("/api/v1/messages/:id/revoke", ctrl.APIRevokeSystemMessage, authz.Require(authz.PermMessageSystem))
-	g.POST("/api/v1/messages/:id/read", ctrl.APIMarkRead, authz.Require(authz.PermMessageRead))
+	g.POST("/api/portal/v1/messages/:id/read", ctrl.APIMarkRead, authz.Require(authz.PermMessageRead))
 	g.POST("/api/v1/messages/:id/pin", ctrl.APIPinMessage, authz.Require(authz.PermMessageManage))
 	g.POST("/api/v1/messages/:id/unpin", ctrl.APIUnpinMessage, authz.Require(authz.PermMessageManage))
-	g.POST("/api/v1/messages/attachments", ctrl.APIUploadAttachment, authz.Require(authz.PermMessageSend))
-	g.GET("/api/v1/messages/attachments/:id", ctrl.APIDownloadAttachment, authz.Require(authz.PermMessageRead))
-	g.GET("/api/v1/friends", ctrl.APIFriends, authz.Require(authz.PermMessageRead))
-	g.GET("/api/v1/friends/search", ctrl.APIFriendSearch, authz.Require(authz.PermMessageRead))
-	g.POST("/api/v1/friends/requests", ctrl.APISendFriendRequest, authz.Require(authz.PermMessageRead))
-	g.POST("/api/v1/friends/requests/:id/accept", ctrl.APIAcceptFriendRequest, authz.Require(authz.PermMessageRead))
-	g.POST("/api/v1/friends/requests/:id/reject", ctrl.APIRejectFriendRequest, authz.Require(authz.PermMessageRead))
-	g.POST("/api/v1/friends/requests/:id/cancel", ctrl.APICancelFriendRequest, authz.Require(authz.PermMessageRead))
-	g.POST("/api/v1/friends/:id/remove", ctrl.APIRemoveFriend, authz.Require(authz.PermMessageRead))
-	g.POST("/api/v1/friends/:id/block", ctrl.APIBlockFriend, authz.Require(authz.PermMessageRead))
-	g.POST("/api/v1/friends/:id/unblock", ctrl.APIUnblockFriend, authz.Require(authz.PermMessageRead))
-	g.POST("/api/v1/friends/:id/remark", ctrl.APISetFriendRemark, authz.Require(authz.PermMessageRead))
+	g.POST("/api/portal/v1/messages/attachments", ctrl.APIUploadAttachment, authz.Require(authz.PermMessageSend))
+	g.GET("/api/portal/v1/messages/attachments/:id", ctrl.APIDownloadAttachment, authz.Require(authz.PermMessageRead))
+	g.GET("/api/portal/v1/friends", ctrl.APIFriends, authz.Require(authz.PermMessageRead))
+	g.GET("/api/portal/v1/friends/search", ctrl.APIFriendSearch, authz.Require(authz.PermMessageRead))
+	g.POST("/api/portal/v1/friends/requests", ctrl.APISendFriendRequest, authz.Require(authz.PermMessageRead))
+	g.POST("/api/portal/v1/friends/requests/:id/accept", ctrl.APIAcceptFriendRequest, authz.Require(authz.PermMessageRead))
+	g.POST("/api/portal/v1/friends/requests/:id/reject", ctrl.APIRejectFriendRequest, authz.Require(authz.PermMessageRead))
+	g.POST("/api/portal/v1/friends/requests/:id/cancel", ctrl.APICancelFriendRequest, authz.Require(authz.PermMessageRead))
+	g.POST("/api/portal/v1/friends/:id/remove", ctrl.APIRemoveFriend, authz.Require(authz.PermMessageRead))
+	g.POST("/api/portal/v1/friends/:id/block", ctrl.APIBlockFriend, authz.Require(authz.PermMessageRead))
+	g.POST("/api/portal/v1/friends/:id/unblock", ctrl.APIUnblockFriend, authz.Require(authz.PermMessageRead))
+	g.POST("/api/portal/v1/friends/:id/remark", ctrl.APISetFriendRemark, authz.Require(authz.PermMessageRead))
 	g.GET("/api/v1/message-types", ctrl.APIMessageTypes, authz.Require(authz.PermMessageTypeRead))
 	g.POST("/api/v1/message-types", ctrl.APISaveMessageType, authz.Require(authz.PermMessageTypeManage))
 	g.POST("/api/v1/message-types/:key/archive", ctrl.APIArchiveMessageType, authz.Require(authz.PermMessageTypeManage))
@@ -363,39 +407,114 @@ func registerProtected(a *app.App, ctrl *controller.Controller, store *repositor
 	// The realtime message channel: WebSocket pushes and the quick reply share one connection.
 	g.GET("/ws/messages", ctrl.MessageSocket(), authz.Require(authz.PermMessageRead))
 
+	// 内容管理后台：读取、写入、发布、审核、分类、标签、媒体、评论与设置各自对应注册表里的一条能力。
+	// The CMS back office: reading, writing, publishing, review, categories, tags, media, comments and settings each map
+	// onto one capability of the registry.
+	g.GET("/mgr/cms", ctrl.CMSDashboard, authz.Require(authz.PermCmsArticleRead))
+	g.GET("/mgr/cms/articles", ctrl.CMSArticles, authz.Require(authz.PermCmsArticleRead))
+	g.GET("/mgr/cms/articles/new", ctrl.CMSNewArticle, authz.Require(authz.PermCmsArticleCreate))
+	g.POST("/mgr/cms/articles", ctrl.CMSSaveArticle, authz.Require(authz.PermCmsArticleCreate))
+	g.GET("/mgr/cms/articles/:id/edit", ctrl.CMSEditArticle, authz.Require(authz.PermCmsArticleUpdate))
+	g.POST("/mgr/cms/articles/:id", ctrl.CMSUpdateArticle, authz.Require(authz.PermCmsArticleUpdate))
+	// 状态转换按动作在服务层复核 publish/review：路由只要求「可编辑」，因此作者能提交审核，审核者能通过或驳回。
+	// The transition re-checks publish/review in the service: the route only requires "may edit", so an author can submit
+	// and a reviewer can approve or reject.
+	g.POST("/mgr/cms/articles/:id/transition", ctrl.CMSTransitionArticle, authz.Require(authz.PermCmsArticleUpdate))
+	g.POST("/mgr/cms/articles/:id/delete", ctrl.CMSDeleteArticle, authz.Require(authz.PermCmsArticleDelete))
+	g.GET("/mgr/cms/articles/:id/revisions", ctrl.CMSRevisions, authz.Require(authz.PermCmsArticleRead))
+	g.POST("/mgr/cms/articles/:id/revisions/:rev/restore", ctrl.CMSRestoreRevision, authz.Require(authz.PermCmsArticleUpdate))
+
+	g.GET("/mgr/cms/categories", ctrl.CMSCategories, authz.Require(authz.PermCmsCategoryRead))
+	g.GET("/mgr/cms/categories/new", ctrl.CMSNewCategory, authz.Require(authz.PermCmsCategoryManage))
+	g.GET("/mgr/cms/categories/:id/edit", ctrl.CMSEditCategory, authz.Require(authz.PermCmsCategoryManage))
+	g.POST("/mgr/cms/categories", ctrl.CMSSaveCategory, authz.Require(authz.PermCmsCategoryManage))
+	g.POST("/mgr/cms/categories/:id", ctrl.CMSUpdateCategory, authz.Require(authz.PermCmsCategoryManage))
+	g.POST("/mgr/cms/categories/:id/delete", ctrl.CMSDeleteCategory, authz.Require(authz.PermCmsCategoryManage))
+
+	g.GET("/mgr/cms/tags", ctrl.CMSTags, authz.Require(authz.PermCmsTagRead))
+	g.GET("/mgr/cms/tags/new", ctrl.CMSNewTag, authz.Require(authz.PermCmsTagManage))
+	g.GET("/mgr/cms/tags/:id/edit", ctrl.CMSEditTag, authz.Require(authz.PermCmsTagManage))
+	g.POST("/mgr/cms/tags", ctrl.CMSSaveTag, authz.Require(authz.PermCmsTagManage))
+	g.POST("/mgr/cms/tags/:id", ctrl.CMSUpdateTag, authz.Require(authz.PermCmsTagManage))
+	g.POST("/mgr/cms/tags/:id/delete", ctrl.CMSDeleteTag, authz.Require(authz.PermCmsTagManage))
+
+	g.GET("/mgr/cms/media", ctrl.CMSMedia, authz.Require(authz.PermCmsMediaRead))
+	g.POST("/mgr/cms/media", ctrl.CMSUploadMedia, authz.Require(authz.PermCmsMediaUpload))
+	g.POST("/mgr/cms/media/upload", ctrl.CMSUploadMediaAPI, authz.Require(authz.PermCmsMediaUpload))
+	g.GET("/mgr/cms/media/:id/file", ctrl.CMSMediaFile, authz.Require(authz.PermCmsMediaRead))
+	g.POST("/mgr/cms/media/:id/delete", ctrl.CMSDeleteMedia, authz.Require(authz.PermCmsMediaDelete))
+
+	g.GET("/mgr/cms/comments", ctrl.CMSComments, authz.Require(authz.PermCmsCommentRead))
+	g.POST("/mgr/cms/comments/:id/moderate", ctrl.CMSModerateComment, authz.Require(authz.PermCmsCommentModerate))
+	g.POST("/mgr/cms/comments/:id/delete", ctrl.CMSDeleteComment, authz.Require(authz.PermCmsCommentDelete))
+
+	g.GET("/mgr/cms/settings", ctrl.CMSSettings, authz.Require(authz.PermCmsSiteRead))
+	g.POST("/mgr/cms/settings", ctrl.CMSSaveSettings, authz.Require(authz.PermCmsSiteManage))
+	g.GET("/mgr/cms/audit", ctrl.CMSAudit, authz.Require(authz.PermCmsArticleRead))
+
+
+	// 内容管理 JSON API：与 HTML 共用同一个领域服务。
+	// The CMS JSON API: it shares the very same domain service as the HTML pages.
+	g.GET("/api/v1/cms/dashboard", ctrl.APICMSDashboard, authz.Require(authz.PermCmsArticleRead))
+	g.GET("/api/v1/cms/articles", ctrl.APICMSArticles, authz.Require(authz.PermCmsArticleRead))
+	g.POST("/api/v1/cms/articles", ctrl.APICMSCreateArticle, authz.Require(authz.PermCmsArticleCreate))
+	g.GET("/api/v1/cms/articles/:id", ctrl.APICMSArticle, authz.Require(authz.PermCmsArticleRead))
+	g.POST("/api/v1/cms/articles/:id", ctrl.APICMSUpdateArticle, authz.Require(authz.PermCmsArticleUpdate))
+	g.POST("/api/v1/cms/articles/:id/transition", ctrl.APICMSTransitionArticle, authz.Require(authz.PermCmsArticleUpdate))
+	g.POST("/api/v1/cms/articles/:id/delete", ctrl.APICMSDeleteArticle, authz.Require(authz.PermCmsArticleDelete))
+	g.GET("/api/v1/cms/articles/:id/revisions", ctrl.APICMSRevisions, authz.Require(authz.PermCmsArticleRead))
+	g.POST("/api/v1/cms/articles/:id/revisions/:rev/restore", ctrl.APICMSRestoreRevision, authz.Require(authz.PermCmsArticleUpdate))
+	g.GET("/api/v1/cms/categories", ctrl.APICMSCategories, authz.Require(authz.PermCmsCategoryRead))
+	g.POST("/api/v1/cms/categories", ctrl.APICMSCreateCategory, authz.Require(authz.PermCmsCategoryManage))
+	g.POST("/api/v1/cms/categories/:id", ctrl.APICMSUpdateCategory, authz.Require(authz.PermCmsCategoryManage))
+	g.POST("/api/v1/cms/categories/:id/delete", ctrl.APICMSDeleteCategory, authz.Require(authz.PermCmsCategoryManage))
+	g.GET("/api/v1/cms/tags", ctrl.APICMSTags, authz.Require(authz.PermCmsTagRead))
+	g.POST("/api/v1/cms/tags", ctrl.APICMSCreateTag, authz.Require(authz.PermCmsTagManage))
+	g.POST("/api/v1/cms/tags/:id", ctrl.APICMSUpdateTag, authz.Require(authz.PermCmsTagManage))
+	g.POST("/api/v1/cms/tags/:id/delete", ctrl.APICMSDeleteTag, authz.Require(authz.PermCmsTagManage))
+	g.GET("/api/v1/cms/media", ctrl.APICMSMedia, authz.Require(authz.PermCmsMediaRead))
+	g.POST("/api/v1/cms/media", ctrl.APICMSUploadMedia, authz.Require(authz.PermCmsMediaUpload))
+	g.POST("/api/v1/cms/media/:id/delete", ctrl.APICMSDeleteMedia, authz.Require(authz.PermCmsMediaDelete))
+	g.GET("/api/v1/cms/comments", ctrl.APICMSComments, authz.Require(authz.PermCmsCommentRead))
+	g.POST("/api/v1/cms/comments/:id/moderate", ctrl.APICMSModerateComment, authz.Require(authz.PermCmsCommentModerate))
+	g.POST("/api/v1/cms/comments/:id/delete", ctrl.APICMSDeleteComment, authz.Require(authz.PermCmsCommentDelete))
+	g.GET("/api/v1/cms/settings", ctrl.APICMSSettings, authz.Require(authz.PermCmsSiteRead))
+	g.POST("/api/v1/cms/settings", ctrl.APICMSSaveSettings, authz.Require(authz.PermCmsSiteManage))
+	g.GET("/api/v1/cms/audit", ctrl.APICMSAudit, authz.Require(authz.PermCmsArticleRead))
+
 	// 租户：读与建分别对应注册表的 tenant:read 与 tenant:create，因为租户是其它一切数据的边界。
 	// Tenants: reading and creating map onto the registry's tenant:read and tenant:create, because tenants are the
 	// boundary of everything else.
-	g.GET("/tenants", ctrl.Tenants, authz.Require(authz.PermTenantRead))
-	g.GET("/tenants/new", ctrl.NewTenantForm, authz.Require(authz.PermTenantCreate))
-	g.POST("/tenants", ctrl.CreateTenant, authz.Require(authz.PermTenantCreate))
+	g.GET("/mgr/tenants", ctrl.Tenants, authz.Require(authz.PermTenantRead))
+	g.GET("/mgr/tenants/new", ctrl.NewTenantForm, authz.Require(authz.PermTenantCreate))
+	g.POST("/mgr/tenants", ctrl.CreateTenant, authz.Require(authz.PermTenantCreate))
 
 	// 用户：读数与改数分属不同能力，因此「能看」与「能动」在种子数据里就是两件事，且每一次调用都带着上下文里的租户 ID。
 	// Users: reading and changing are separate capabilities, so "may look" and "may touch" are two different things in the
 	// seeded data as well, and every call carries the tenant id from the context.
-	g.GET("/users", ctrl.Users, authz.Require(authz.PermUserRead))
-	g.GET("/users/new", ctrl.NewUserForm, authz.Require(authz.PermUserCreate))
-	g.POST("/users", ctrl.CreateUser, authz.Require(authz.PermUserCreate))
-	g.GET("/users/:id/edit", ctrl.EditUserForm, authz.Require(authz.PermUserUpdate))
-	g.POST("/users/:id/tenants", ctrl.SetUserTenants, authz.Require(authz.PermUserUpdate))
-	g.POST("/users/:id", ctrl.UpdateUser, authz.Require(authz.PermUserUpdate))
-	g.POST("/users/:id/roles", ctrl.SetUserRoles, authz.Require(authz.PermUserUpdate))
-	g.POST("/users/:id/status", ctrl.SetUserStatus, authz.Require(authz.PermUserUpdate))
-	g.POST("/users/:id/password", ctrl.SetUserPassword, authz.Require(authz.PermUserUpdate))
-	g.POST("/users/:id/sec-key", ctrl.RotateUserSecKey, authz.Require(authz.PermUserUpdate))
+	g.GET("/mgr/users", ctrl.Users, authz.Require(authz.PermUserRead))
+	g.GET("/mgr/users/new", ctrl.NewUserForm, authz.Require(authz.PermUserCreate))
+	g.POST("/mgr/users", ctrl.CreateUser, authz.Require(authz.PermUserCreate))
+	g.GET("/mgr/users/:id/edit", ctrl.EditUserForm, authz.Require(authz.PermUserUpdate))
+	g.POST("/mgr/users/:id/tenants", ctrl.SetUserTenants, authz.Require(authz.PermUserUpdate))
+	g.POST("/mgr/users/:id", ctrl.UpdateUser, authz.Require(authz.PermUserUpdate))
+	g.POST("/mgr/users/:id/roles", ctrl.SetUserRoles, authz.Require(authz.PermUserUpdate))
+	g.POST("/mgr/users/:id/status", ctrl.SetUserStatus, authz.Require(authz.PermUserUpdate))
+	g.POST("/mgr/users/:id/password", ctrl.SetUserPassword, authz.Require(authz.PermUserUpdate))
+	g.POST("/mgr/users/:id/sec-key", ctrl.RotateUserSecKey, authz.Require(authz.PermUserUpdate))
 
 	// 角色与权限矩阵：矩阵的每一格改的是角色的能力绑定（role:update），因此与「改角色」同门槛，
 	// 而建角色（role:manage）与删角色（role:delete）各按寿命周期的能力分开。
 	// Roles and the permission matrix: every cell changes a role's capability bindings (role:update) and therefore shares
 	// the threshold with "change a role", while creating one (role:manage) and deleting one (role:delete) follow the
 	// lifecycle capabilities separately.
-	g.GET("/roles", ctrl.Roles, authz.Require(authz.PermRoleRead))
-	g.GET("/roles/new", ctrl.NewRoleForm, authz.Require(authz.PermRoleManage))
-	g.GET("/roles/:id/edit", ctrl.EditRoleForm, authz.Require(authz.PermRoleManage))
-	g.POST("/roles", ctrl.SaveRole, authz.Require(authz.PermRoleManage))
-	g.POST("/roles/:id/permissions", ctrl.ToggleRolePermission, authz.Require(authz.PermRoleUpdate))
-	g.POST("/roles/:id/delete", ctrl.DeleteRole, authz.Require(authz.PermRoleDelete))
-	g.GET("/permissions", ctrl.Permissions, authz.Require(authz.PermPermissionRead))
+	g.GET("/mgr/roles", ctrl.Roles, authz.Require(authz.PermRoleRead))
+	g.GET("/mgr/roles/new", ctrl.NewRoleForm, authz.Require(authz.PermRoleManage))
+	g.GET("/mgr/roles/:id/edit", ctrl.EditRoleForm, authz.Require(authz.PermRoleManage))
+	g.POST("/mgr/roles", ctrl.SaveRole, authz.Require(authz.PermRoleManage))
+	g.POST("/mgr/roles/:id/permissions", ctrl.ToggleRolePermission, authz.Require(authz.PermRoleUpdate))
+	g.POST("/mgr/roles/:id/delete", ctrl.DeleteRole, authz.Require(authz.PermRoleDelete))
+	g.GET("/mgr/permissions", ctrl.Permissions, authz.Require(authz.PermPermissionRead))
 
 	// Generated CRUD modules join the same protected chain, so they inherit authentication,
 	// authorization and tenant resolution rather than exposing an unguarded route. | 生成的 CRUD 模块

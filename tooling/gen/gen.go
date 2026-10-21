@@ -170,6 +170,9 @@ func Generate(ctx context.Context, m *Model, o Options, fs afero.Fs) (*Result, e
 	if err := ctx.Err(); err != nil {
 		return res, errx.Wrap(err, ErrCancelled)
 	}
+	if m == nil {
+		return res, errx.Detail(ErrBadModel, "model is required | 模型不能为空")
+	}
 
 	// Only a scaffold target already defines User/Role/Tenant/Permission services, repositories
 	// and model types; generating the same module name there would redeclare them and leave a

@@ -373,6 +373,6 @@ func gormModelFields() []Field {
 		fieldFromTags("ID", "int64", `gorm:"column:id;primaryKey" json:"id"`),
 		fieldFromTags("CreatedAt", typeTime, `gorm:"column:created_at" json:"created_at"`),
 		fieldFromTags("UpdatedAt", typeTime, `gorm:"column:updated_at" json:"updated_at"`),
-		fieldFromTags("DeletedAt", typeTime, `gorm:"column:deleted_at;index" json:"deleted_at"`),
+		fieldFromTags("DeletedAt", "gorm.DeletedAt", `gorm:"column:deleted_at;index" json:"deleted_at"`),
 	}
 }

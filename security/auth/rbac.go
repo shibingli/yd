@@ -281,9 +281,10 @@ func (s *Service) ListRoles(ctx context.Context, tenantID string) ([]*Role, erro
 
 // DeleteRole removes a role and strips its name from every user of the tenant. | DeleteRole 删除角色，并从该租户的所有用户上摘掉该角色名。
 //
-// Leaving a dangling name on a user would be safe — it grants nothing — but it
-// would also be invisible debt, so the cleanup happens here instead. | 把悬空角色名留在用户上虽然安全
-// （不授予任何权限），却是一笔看不见的债，因此在这里直接清理。
+// The detach happens inside the store together with the role row. Re-listing users here would be a
+// stale read-modify-write that can overwrite a concurrent grant, and the store already owns the
+// membership rows. | 摘除与角色行在存储层同一事务内完成。这里重新列出用户属于过期的「读-改-写」，
+// 可能覆盖并发授予的权限；成员关系本来也由存储层负责。
 func (s *Service) DeleteRole(ctx context.Context, tenantID, roleID string) error {
 	if strings.TrimSpace(tenantID) == "" {
 		return ErrTenantRequired
@@ -291,29 +292,13 @@ func (s *Service) DeleteRole(ctx context.Context, tenantID, roleID string) error
 	if strings.TrimSpace(roleID) == "" {
 		return errx.Detail(ErrNotFound, "empty role id | 角色 ID 为空")
 	}
-	role, err := s.store.GetRole(ctx, tenantID, roleID)
-	if err != nil {
+	if _, err := s.store.GetRole(ctx, tenantID, roleID); err != nil {
 		return err
 	}
 	if err := s.store.DeleteRole(ctx, tenantID, roleID); err != nil {
 		return err
 	}
 	s.roles.invalidate(tenantID)
-	users, err := s.store.ListUsers(ctx, tenantID)
-	if err != nil {
-		return err
-	}
-	for _, u := range users {
-		names, changed := withoutRole(u.Roles, role.Name)
-		if !changed {
-			continue
-		}
-		u.Roles = names
-		u.UpdatedAt = s.now()
-		if err := s.store.UpdateUser(ctx, tenantID, u); err != nil {
-			return err
-		}
-	}
 	return nil
 }
 
@@ -339,9 +324,11 @@ func (s *Service) SetUserRoles(ctx context.Context, tenantID, userID string, rol
 	return s.store.UpdateUser(ctx, tenantID, u)
 }
 
-// RolesOf returns the role names of a user as a sorted copy. | RolesOf 以排序后的副本返回用户的角色名。
+// RolesOf returns the role names of a user as a sorted copy. A disabled user exposes none, matching
+// PermissionsOf and keeping the frontend envelope fail-closed. | RolesOf 以排序后的副本返回用户的角色名。
+// 被禁用的用户不暴露任何角色，与 PermissionsOf 一致，并让前端载荷失败关闭。
 func (s *Service) RolesOf(u *User) []string {
-	if u == nil || len(u.Roles) == 0 {
+	if u == nil || u.Status != StatusActive || len(u.Roles) == 0 {
 		return nil
 	}
 	out := append([]string(nil), u.Roles...)
@@ -444,29 +431,6 @@ func permissionNames(perms []Permission) []string {
 		out = append(out, string(p))
 	}
 	return out
-}
-
-// withoutRole returns names without the given role and reports whether it changed. | withoutRole 返回去掉指定角色后的名字，并报告是否发生了改动。
-func withoutRole(names []string, role string) ([]string, bool) {
-	if role == "" || len(names) == 0 {
-		return names, false
-	}
-	out := make([]string, 0, len(names))
-	changed := false
-	for _, name := range names {
-		if name == role {
-			changed = true
-			continue
-		}
-		out = append(out, name)
-	}
-	if !changed {
-		return names, false
-	}
-	if len(out) == 0 {
-		return nil, true
-	}
-	return out, true
 }
 
 // cloneRole returns a deep copy of r, or nil when r is nil. | cloneRole 返回 r 的深拷贝，r 为空时返回 nil。

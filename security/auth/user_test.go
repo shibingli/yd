@@ -154,12 +154,9 @@ func TestSecKeyIsBoundToItsOwningRecord(t *testing.T) {
 	f := newFixture(t)
 	member, err := f.store.GetUser(testCtx, f.tenantA.ID, f.member.ID)
 	requireNoError(t, err, "GetUser(member)")
-	admin, err := f.store.GetUser(testCtx, f.tenantA.ID, f.admin.ID)
-	requireNoError(t, err, "GetUser(admin)")
 
 	// Move the ciphertext of one user onto another record. | 把一个用户的密文搬到另一个用户的记录上。
-	admin.EncryptedSecKey = member.EncryptedSecKey
-	requireNoError(t, f.store.UpdateUser(testCtx, f.tenantA.ID, admin), "UpdateUser(moved blob)")
+	requireNoError(t, f.store.SetUserSecKey(testCtx, f.tenantA.ID, f.admin.ID, member.EncryptedSecKey, f.clock.Now()), "SetUserSecKey(moved blob)")
 	moved, err := f.store.GetUser(testCtx, f.tenantA.ID, f.admin.ID)
 	requireNoError(t, err, "GetUser(moved)")
 	if _, err := f.svc.SecKey(testCtx, moved); !errors.Is(err, ErrSecKeyMissing) {
@@ -167,9 +164,8 @@ func TestSecKeyIsBoundToItsOwningRecord(t *testing.T) {
 	}
 
 	// A truncated blob and a missing blob are refused as well. | 被截断与缺失的密文同样被拒绝。
-	truncated := *moved
-	truncated.EncryptedSecKey = member.EncryptedSecKey[:guomi.SM4GCMNonceSize+2]
-	requireNoError(t, f.store.UpdateUser(testCtx, f.tenantA.ID, &truncated), "UpdateUser(truncated blob)")
+	truncated := member.EncryptedSecKey[:guomi.SM4GCMNonceSize+2]
+	requireNoError(t, f.store.SetUserSecKey(testCtx, f.tenantA.ID, f.admin.ID, truncated, f.clock.Now()), "SetUserSecKey(truncated blob)")
 	stored, err := f.store.GetUser(testCtx, f.tenantA.ID, f.admin.ID)
 	requireNoError(t, err, "GetUser(truncated)")
 	if _, err := f.svc.SecKey(testCtx, stored); !errors.Is(err, ErrSecKeyMissing) {
@@ -400,6 +396,25 @@ func TestSetPasswordRotatesTheSecKey(t *testing.T) {
 	}
 	if err := f.svc.SetPassword(testCtx, f.tenantA.ID, "us_missing", newPassword); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("SetPassword(unknown user) want ErrNotFound, got %v | SetPassword(未知用户) 期望 ErrNotFound，实际 %v", err, err)
+	}
+}
+
+// TestUpdateUserCannotResurrectStatus proves a stale profile snapshot cannot re-enable a disabled
+// account; status is owned by SetStatus. | TestUpdateUserCannotResurrectStatus 证明过期资料快照无法
+// 重新启用被停用的账号；状态由 SetStatus 独占维护。
+func TestUpdateUserCannotResurrectStatus(t *testing.T) {
+	f := newFixture(t)
+	before, err := f.store.GetUser(testCtx, f.tenantA.ID, f.member.ID)
+	requireNoError(t, err, "GetUser")
+	requireNoError(t, f.svc.DisableUser(testCtx, f.tenantA.ID, f.member.ID), "DisableUser")
+	payload := *before
+	payload.Status = StatusActive
+	payload.Username = "member-renamed"
+	requireNoError(t, f.svc.UpdateUser(testCtx, f.tenantA.ID, &payload), "UpdateUser")
+	after, err := f.store.GetUser(testCtx, f.tenantA.ID, f.member.ID)
+	requireNoError(t, err, "GetUser(after)")
+	if after.Status != StatusDisabled {
+		t.Fatalf("a stale profile update re-enabled the account: %q", after.Status)
 	}
 }
 

@@ -1,0 +1,76 @@
+{{/*
+  portal/pages/home.html —— 门户首页：身份卡、常用入口与最新公开文章。
+  portal/pages/home.html — the portal home: identity card, common entries and the latest public articles.
+
+  数据契约 | Data contract: .User .Tenant .Tenants .SeedPassword .SeedNotice .Unread .Site .Articles
+  .Categories .CMSAvailable，加上 authz.Data 注入的 .Authz/.Perm/.Role/.AuthzJSON。
+*/}}
+<section class="yd-page" data-yd-page="portal-home" aria-labelledby="yd-portal-title">
+  <header class="yd-page__header">
+    <div>
+      <h1 class="yd-page__title" id="yd-portal-title">{{ tr "page.portal.title" }}</h1>
+      <p class="yd-page__subtitle">{{ tr "page.portal.subtitle" }}</p>
+    </div>
+    <div class="yd-page__actions">
+      <a class="yd-btn yd-btn--primary" href="/blog">{{ tr "nav.blog" }}</a>
+      <a class="yd-btn yd-btn--ghost" href="/account">{{ tr "nav.account" }}</a>
+    </div>
+  </header>
+
+  <div class="yd-grid yd-grid--2">
+    <section class="yd-card yd-section" aria-labelledby="yd-portal-identity">
+      <h2 class="yd-section__title" id="yd-portal-identity">{{ tr "page.home.identity" }}</h2>
+      <dl class="yd-dl">
+        <dt class="yd-meta__key">{{ tr "field.user" }}</dt><dd class="yd-meta__value">{{ .User.Display }}</dd>
+        <dt class="yd-meta__key">{{ tr "field.tenant" }}</dt><dd class="yd-meta__value">{{ with .Tenant }}{{ .Display }}{{ end }}</dd>
+      </dl>
+      {{- if .SeedPassword }}
+      <p class="yd-banner yd-banner--warn">{{ .SeedNotice }}</p>
+      {{- end }}
+    </section>
+
+    <section class="yd-card yd-section" aria-labelledby="yd-portal-quick">
+      <h2 class="yd-section__title" id="yd-portal-quick">{{ tr "page.portal.quick" }}</h2>
+      <div class="yd-cards">
+        {{- if and .MessageAvailable (can .Perm.MessageRead) }}
+        <a class="yd-card" href="/messages" hx-get="/messages" hx-target="#yd-shell" hx-swap="innerMorph" hx-push-url="true">
+          <p class="yd-list__primary">{{ tr "nav.messages" }}</p>
+          <p class="yd-hint">{{ tr "page.portal.unread" .Unread.Total }}</p>
+        </a>
+        <a class="yd-card" href="/friends" hx-get="/friends" hx-target="#yd-shell" hx-swap="innerMorph" hx-push-url="true">
+          <p class="yd-list__primary">{{ tr "nav.friends" }}</p>
+          <p class="yd-hint">{{ tr "page.portal.requests" .Unread.FriendRequests }}</p>
+        </a>
+        {{- end }}
+        <a class="yd-card" href="/account" hx-get="/account" hx-target="#yd-shell" hx-swap="innerMorph" hx-push-url="true">
+          <p class="yd-list__primary">{{ tr "nav.account" }}</p>
+          <p class="yd-hint">{{ tr "page.portal.account_hint" }}</p>
+        </a>
+      </div>
+    </section>
+  </div>
+
+  {{- if .CMSAvailable }}
+  <section class="yd-card yd-section" aria-labelledby="yd-portal-posts">
+    <div class="yd-section__header">
+      <h2 class="yd-section__title" id="yd-portal-posts">{{ tr "page.portal.latest_posts" }}</h2>
+      <a class="yd-link" href="/blog">{{ tr "page.portal.all_posts" }}</a>
+    </div>
+    {{- with .Articles }}
+    <div class="yd-cards">
+      {{- range . }}
+      <article class="yd-card">
+        <h3 class="yd-list__primary"><a class="yd-link" href="/blog/{{ .Slug }}">{{ .Title }}</a></h3>
+        <p class="yd-hint">{{ .AuthorName }} · {{ humanTime .CreatedAt }}</p>
+        {{- with .Summary }}<p>{{ . }}</p>{{ end }}
+      </article>
+      {{- end }}
+    </div>
+    {{- else }}
+    <p class="yd-hint">{{ tr "cms.public.empty" }}</p>
+    {{- end }}
+  </section>
+  {{- else }}
+  <p class="yd-hint">{{ tr "cms.error.unavailable" }}</p>
+  {{- end }}
+</section>

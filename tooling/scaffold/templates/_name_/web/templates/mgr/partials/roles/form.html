@@ -1,0 +1,52 @@
+{{/*
+  partials/roles/form.html —— 新建（或按名称覆盖）角色表单（由 pages/roles.html 引用）。
+  partials/roles/form.html — the create (or overwrite-by-name) role form (referenced by pages/roles.html).
+
+  服务端按名字建或改：同一个名字再来一次就是覆盖，因此管理员不必先想清楚「这是新建还是修改」——
+  他不知道的正是服务端要去查的，让页面去猜只会多一条会走偏的分支。
+  The server creates or overwrites by name: the same name submitted twice is an overwrite, so an administrator never has
+  to decide up front whether this is an insert or an update — what they cannot know is exactly what the server looks up,
+  and letting the page guess would only add one more branch that can go wrong.
+
+  权限勾选项来自 model.Permissions() 的目录而不是数据库：目录是编译期常量，页面因此永远列得全，也不会列出不存在的标识。
+  The capability checkboxes come from the model.Permissions() catalogue rather than from the database: the catalogue is a
+  compile-time constant, so the page always lists all of them and can never offer a token that does not exist.
+
+  数据契约 | Data contract: .Catalogue（[]model.PermissionInfo，含 .Key .Module .Label）。
+*/}}
+{{- define "mgr/partials/roles/form" -}}
+<form class="yd-form" method="post" action="/mgr/roles"
+      hx-post="/mgr/roles" hx-target="#yd-workspace" hx-swap="innerMorph"
+      hx-status:422="target:#yd-drawer-errors swap:innerHTML"
+      hx-disabled-elt="find button[type='submit']"
+      data-yd-confirm="{{ tr "confirm.create_role" }}"
+      novalidate>
+  <div class="yd-form__field">
+    <label class="yd-form__label" for="yd-role-name">{{ tr "field.role_name" }}</label>
+    <input class="yd-input" id="yd-role-name" name="name" type="text"
+           autocomplete="off" required maxlength="32" placeholder="support">
+    <span class="yd-hint">{{ tr "page.roles.name_hint" }}</span>
+  </div>
+  <div class="yd-form__field">
+    <label class="yd-form__label" for="yd-role-description">{{ tr "field.description" }}</label>
+    <input class="yd-input" id="yd-role-description" name="description" type="text"
+           autocomplete="off" maxlength="128" placeholder="{{ tr "page.roles.description_placeholder" }}">
+  </div>
+
+  <fieldset class="yd-form__fieldset">
+    <legend class="yd-form__label">{{ tr "field.permissions" }}</legend>
+    {{ range .Catalogue }}
+    <label class="yd-check" for="yd-role-perm-{{ .Key }}">
+      <input class="yd-check__input" id="yd-role-perm-{{ .Key }}" type="checkbox"
+             name="permission" value="{{ .Key }}">
+      <span class="yd-check__label"><code class="yd-code">{{ .Key }}</code> {{ .Label }}</span>
+      <span class="yd-hint">{{ .Module }}</span>
+    </label>
+    {{ end }}
+  </fieldset>
+
+  <div class="yd-form__actions">
+    <button type="submit" class="yd-btn yd-btn--primary">{{ tr "ui.save" }}</button>
+  </div>
+</form>
+{{- end -}}

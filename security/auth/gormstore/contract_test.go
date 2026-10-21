@@ -102,6 +102,9 @@ func TestNoCallerSliceIsRetainedOrShared(t *testing.T) {
 	}
 	roles := []string{"reader"}
 	key := []byte("sealed-key")
+	if err := store.UpsertRole(ctx, &auth.Role{ID: "rl_reader", TenantID: "tn_a", Name: "reader"}); err != nil {
+		t.Fatalf("UpsertRole() = %v, want nil | UpsertRole() = %v，期望 nil", err, err)
+	}
 	if err := store.CreateUser(ctx, &auth.User{
 		ID: "us_a", TenantID: "tn_a", Username: "Alice",
 		Status: auth.StatusActive, Roles: roles, EncryptedSecKey: key,
@@ -255,6 +258,9 @@ func contractScenario() []contractStep {
 		}},
 		{"create-user-no-id", func(s auth.Store) string {
 			return describeError(s.CreateUser(context.Background(), user("", tenantA, "Alice", nil, at)))
+		}},
+		{"create-role-reader", func(s auth.Store) string {
+			return describeError(s.UpsertRole(context.Background(), role("rl_reader", tenantA, "reader", nil)))
 		}},
 		{"create-user", func(s auth.Store) string {
 			err := s.CreateUser(context.Background(), user(userA, tenantA, "Alice", []string{"reader"}, at))

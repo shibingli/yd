@@ -2,6 +2,7 @@ package messaging
 
 import (
 	"context"
+	"errors"
 	"sort"
 	"strings"
 	"time"
@@ -159,7 +160,7 @@ func (s *Service) createMessage(ctx context.Context, actor Actor, conv Conversat
 		tagIDs = append(tagIDs, tag.ID)
 	}
 	if err := s.store.CreateMessage(ctx, msg, tagIDs, attachmentIDs); err != nil {
-		return MessageView{}, errx.Wrap(err, ErrUnavailable)
+		return MessageView{}, messageWriteError(err)
 	}
 	labels, groups := splitTags(tags)
 	audience := memberIDsOf(members)
@@ -193,10 +194,15 @@ func (s *Service) Edit(ctx context.Context, actor Actor, messageID string, in Ed
 		return MessageView{}, err
 	}
 	now := s.options.Now()
+	// System content belongs to message:system even for an actor with message:manage. |
+	// 系统内容属于 message:system，即使主体持有 message:manage 也不例外。
+	if msg.Origin == OriginSystem && !actor.System {
+		return MessageView{}, ErrSystemOnly
+	}
+	if msg.Recalled() {
+		return MessageView{}, ErrRecalled
+	}
 	if !actor.Manage {
-		if msg.Origin == OriginSystem {
-			return MessageView{}, ErrSystemOnly
-		}
 		if msg.SenderID != actor.ID {
 			return MessageView{}, ErrNotSender
 		}
@@ -245,7 +251,7 @@ func (s *Service) Edit(ctx context.Context, actor Actor, messageID string, in Ed
 		tagIDs = append(tagIDs, tag.ID)
 	}
 	if err := s.store.UpdateMessage(ctx, msg, tagIDs); err != nil {
-		return MessageView{}, errx.Wrap(err, ErrUnavailable)
+		return MessageView{}, messageWriteError(err)
 	}
 	if actor.Manage {
 		s.recordAudit(ctx, AuditEntry{
@@ -284,7 +290,7 @@ func (s *Service) Recall(ctx context.Context, actor Actor, messageID, reason str
 		return nil
 	}
 	now := s.options.Now()
-	if msg.Origin == OriginSystem && !actor.System && !actor.Manage {
+	if msg.Origin == OriginSystem && !actor.System {
 		return ErrSystemOnly
 	}
 	if !actor.Manage {
@@ -318,6 +324,9 @@ func (s *Service) Recall(ctx context.Context, actor Actor, messageID, reason str
 		}),
 	}
 	if err := s.store.RecallMessage(ctx, msg, audit); err != nil {
+		if errors.Is(err, ErrRecalled) {
+			return nil
+		}
 		return errx.Wrap(err, ErrUnavailable)
 	}
 	s.emit(ctx, Event{Type: EventMessageRecalled, TenantID: actor.TenantID, ConversationID: conv.ID, MessageID: msg.ID, ActorID: actor.ID, Audience: memberIDsOf(members)})
@@ -605,6 +614,22 @@ func (s *Service) resolveTags(ctx context.Context, actor Actor, groupIDs, tagIDs
 		out = append(out, tag)
 	}
 	return out, nil
+}
+
+// messageWriteError preserves the business sentinels of a concurrent tag/type deletion; wrapping
+// them only as ErrUnavailable would turn a 422 into a misleading 503. |
+// messageWriteError 保留并发删除标签/类型时的业务哨兵；只包装为 ErrUnavailable 会把 422 误报成 503。
+func messageWriteError(err error) error {
+	switch {
+	case errors.Is(err, ErrTagUnknown):
+		return ErrTagUnknown
+	case errors.Is(err, ErrTypeUnknown):
+		return ErrTypeUnknown
+	case errors.Is(err, ErrRecalled):
+		return ErrRecalled
+	default:
+		return errx.Wrap(err, ErrUnavailable)
+	}
 }
 
 // pendingAttachments validates the upload ids and returns the pending rows. | pendingAttachments 校验上传 ID 并返回待挂载记录。

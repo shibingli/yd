@@ -25,15 +25,15 @@ const (
 // NewSystemDrawer renders the announcement composer. | NewSystemDrawer 渲染公告撰写器。
 //
 // @Summary Announcement drawer | 公告抽屉
-// @Description Renders the composer for an administrator announcement; the form posts to POST /messages/system.
-// @Description 渲染管理员公告撰写器；表单提交到 POST /messages/system。
+// @Description Renders the composer for an administrator announcement; the form posts to POST /mgr/messages/system.
+// @Description 渲染管理员公告撰写器；表单提交到 POST /mgr/messages/system。
 // @Tags messages
 // @Accept html
 // @Produce html
 // @Success 200 {object} string "drawer fragment | 抽屉片段"
 // @Failure 403 {object} string "missing message:system | 缺少 message:system"
 // @Security BearerAuth
-// @Router /messages/system/new [get]
+// @Router /mgr/messages/system/new [get]
 func (c *Controller) NewSystemDrawer(ctx *router.Ctx) {
 	if !c.MessagesAvailable() {
 		c.messageUnavailable(ctx)
@@ -72,7 +72,7 @@ func (c *Controller) NewSystemDrawer(ctx *router.Ctx) {
 // @Success 200 {object} string "refreshed moderation page | 刷新后的治理页面"
 // @Failure 403 {object} string "missing message:system | 缺少 message:system"
 // @Security BearerAuth
-// @Router /messages/system [post]
+// @Router /mgr/messages/system [post]
 func (c *Controller) SendSystemMessage(ctx *router.Ctx) {
 	if !c.MessagesAvailable() {
 		c.messageUnavailable(ctx)
@@ -88,6 +88,10 @@ func (c *Controller) SendSystemMessage(ctx *router.Ctx) {
 	})
 	if err != nil {
 		c.failService(ctx, err)
+		return
+	}
+	if messageAdminOrigin(ctx) {
+		c.renderAdminPage(ctx, "公告已发布 | announcement published")
 		return
 	}
 	c.renderMessagePageByID(ctx, message.ConversationID, "公告已发布 | announcement published")

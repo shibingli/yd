@@ -368,6 +368,34 @@ func TestHtmxRequestRendersPartial(t *testing.T) {
 	})
 }
 
+// TestRenderSelectsLayoutFromData pins the per-request layout key: a portal and a management
+// area can share one engine while each page wraps itself in its own skeleton. |
+// TestRenderSelectsLayoutFromData 钉住单次渲染的布局键：门户与管理区共用一个引擎，
+// 但每个页面可以用自己的骨架包裹。
+func TestRenderSelectsLayoutFromData(t *testing.T) {
+	a := newTestApp(t, map[string]string{
+		"templates/layouts/base.html": "BASE[{{.Content}}]",
+		"templates/layouts/alt.html":  "ALT[{{.Content}}]",
+		"templates/pages/demo.html":   "PAGE",
+	})
+	a.GET("/demo", func(c *router.Ctx) {
+		data := map[string]any{render.LayoutKey: "layouts/alt.html"}
+		if err := a.Render(c, http.StatusOK, "pages/demo.html", data); err != nil {
+			t.Errorf("Render 失败: %v", err)
+		}
+	})
+
+	rec := doRequest(t, a, http.MethodGet, "/demo", nil)
+	if got := rec.Body.String(); got != "ALT[PAGE]" {
+		t.Errorf("整页正文 = %q, 期望 %q", got, "ALT[PAGE]")
+	}
+
+	rec = doRequest(t, a, http.MethodGet, "/demo", map[string]string{"HX-Request": "true"})
+	if got := rec.Body.String(); got != "PAGE" {
+		t.Errorf("片段正文 = %q, 期望 %q", got, "PAGE")
+	}
+}
+
 func TestRenderAppliesStatusAndReportsMissingTemplates(t *testing.T) {
 	a := newTestApp(t, map[string]string{"templates/layouts/base.html": testLayout})
 	a.GET("/teapot", renderHandler(t, a, http.StatusTeapot, "layouts/base.html", testData()))

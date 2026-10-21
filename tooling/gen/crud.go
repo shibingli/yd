@@ -94,6 +94,9 @@ type tmplView struct {
 	// UsesTime 报告模型层是否需要导入 time 包。
 	// UsesTime reports whether the model layer needs to import the time package.
 	UsesTime bool
+	// UsesGorm reports whether the model layer needs gorm.DeletedAt. |
+	// UsesGorm 报告模型层是否需要导入 gorm.DeletedAt。
+	UsesGorm bool
 	// FormTime 报告表单是否需要时间类型，服务层与控制器层据此导入 time 包。
 	// FormTime reports whether the form carries a time type; the service and controller layers import the time package accordingly.
 	FormTime bool
@@ -156,6 +159,12 @@ func isTimestampField(f Field) bool {
 	default:
 		return false
 	}
+}
+
+// isDeletedAtField reports whether the field is GORM's soft-delete marker. |
+// isDeletedAtField 报告字段是否为 GORM 的软删除标记。
+func isDeletedAtField(f Field) bool {
+	return f.Column == "deleted_at" || f.GoName == "DeletedAt" || f.GoType == "gorm.DeletedAt"
 }
 
 // newView 把模型与选项归一为渲染视图，并补写缺省值。
@@ -251,7 +260,10 @@ func newView(m *Model, o Options) (*tmplView, error) {
 		if f.GoType == typeTime {
 			v.UsesTime = true
 		}
-		if isTimestampField(f) || f.GoType == "[]byte" {
+		if f.GoType == "gorm.DeletedAt" {
+			v.UsesGorm = true
+		}
+		if isTimestampField(f) || isDeletedAtField(f) || f.GoType == "[]byte" {
 			continue
 		}
 		// The tenant column is an internal boundary, never a user-editable form or list column.
@@ -294,7 +306,7 @@ func newView(m *Model, o Options) (*tmplView, error) {
 		conds := make([]string, 0, len(v.SearchColumns))
 		args := make([]string, 0, len(v.SearchColumns))
 		for _, col := range v.SearchColumns {
-			conds = append(conds, col+" LIKE ?")
+			conds = append(conds, col+" LIKE ? ESCAPE '!'")
 			args = append(args, "like")
 		}
 		v.SearchWhere = strings.Join(conds, " OR ")

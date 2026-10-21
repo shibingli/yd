@@ -15,7 +15,8 @@
 - **检索**：标题、正文、发送人、类型、分组/标签的混合检索；所有查询以租户为边界。
 - **即时通讯界面**：左侧会话列表、右上历史消息、右下内联撰写区；后台治理与目录设置保持列表式管理页。
 - **实时**：`/ws/messages` 推送消息、好友、撤回与置顶事件；客户端也可经同一条连接发送快捷消息。
-- **JSON API**：`/api/v1/messages/...` 与 `/api/v1/friends/...` 提供离线/脚本访问。
+- **JSON API**：成员侧 `/api/portal/v1/messages/...` 与 `/api/portal/v1/friends/...`，
+  治理侧（公告、撤回、置顶与目录）`/api/v1/...`；两者提供离线/脚本访问。
 - **单/多节点**：单节点用进程内 Hub；多节点用 Redis Pub/Sub，失败广播进入 asynq 持久重试。
 
 ## 2. 包与分层
@@ -133,24 +134,28 @@ asynq:
 | `GET /messages/:id/thread` | 完整线程片段 |
 | `GET /messages/:id/history` | 仅历史消息片段（实时刷新用，不重建撰写区） |
 | `GET /messages/:id/edit` | 编辑消息抽屉 |
-| `GET /messages/system/new` | 系统公告抽屉 |
+| `GET /mgr/messages/system/new` | 系统公告抽屉 |
 | `GET /messages/groups/:id/settings` | 群设置抽屉 |
-| `GET /messages/:id/pin` | 置顶窗口抽屉 |
+| `GET /mgr/messages/:id/pin` | 置顶窗口抽屉 |
+| `GET /mgr/messages/:id/edit` | 管理端编辑抽屉 |
+| `POST /mgr/messages/:id` | 管理端保存编辑并刷新治理列表 |
+| `POST /mgr/messages/:id/recall` | 管理端撤回并刷新治理列表 |
 | `GET /friends` | 好友页 |
-| `GET /message-settings` | 消息类型/分组/标签设置 |
-| `GET /messages/admin` | 管理员治理 |
-| `GET /messages/admin/audit` | 审计 |
+| `GET /mgr/message-settings` | 消息类型/分组/标签设置 |
+| `GET /mgr/messages` | 管理员治理 |
+| `GET /mgr/messages/audit` | 审计 |
 
 ### JSON API
 
-- `GET /api/v1/messages`、`GET /api/v1/messages/:id`
-- `POST /api/v1/messages`、`POST /api/v1/messages/system`
-- `POST /api/v1/messages/:id`（编辑）、`/:id/recall`、`/:id/revoke`、`/:id/read`、`/:id/pin`、`/:id/unpin`
+- `GET /api/portal/v1/messages`、`GET /api/portal/v1/messages/:id`
+- `POST /api/portal/v1/messages`、`POST /api/v1/messages/system`
+- `POST /api/portal/v1/messages/:id`（编辑）、`/:id/recall`、`/:id/read`；
+  `POST /api/v1/messages/:id/revoke|pin|unpin`（治理）
 - `GET/POST /api/v1/message-types`、`/api/v1/message-tags`
-- `GET /api/v1/friends`、`GET /api/v1/friends/search`
-- `POST /api/v1/friends/requests`、`/:id/accept|reject|cancel`
-- `POST /api/v1/friends/:id/remove|block|unblock|remark`
-- `POST /api/v1/messages/attachments`、`GET /api/v1/messages/attachments/:id`
+- `GET /api/portal/v1/friends`、`GET /api/portal/v1/friends/search`
+- `POST /api/portal/v1/friends/requests`、`/:id/accept|reject|cancel`
+- `POST /api/portal/v1/friends/:id/remove|block|unblock|remark`
+- `POST /api/portal/v1/messages/attachments`、`GET /api/portal/v1/messages/attachments/:id`
 
 请求与响应使用框架 `jsonx`，错误为 `{"error":"..."}`；状态码由哨兵映射（404/403/409/413/415/422/503）。
 
@@ -195,7 +200,7 @@ asynq:
 
 消息中心是**即时通讯布局**，不是后台列表页：左侧固定为会话栏（「会话 / 联系人」双页签，含检索/置顶入口），
 右侧上方是当前会话的历史消息，右侧下方是内联撰写区；滚动只发生在会话栏与历史区内部。
-后台治理（`/messages/admin`、`/message-settings`）保持列表式管理页，两者职责不混。
+后台治理（`/mgr/messages`、`/mgr/message-settings`）保持列表式管理页，两者职责不混。
 
 - 新建会话：在「联系人」页签内就地完成，不打开抽屉、对话框或第二层页面。点好友整行直接创建/打开单聊；
   勾选至少两位好友后，底部出现群名与「创建群聊」，提交 `/messages/groups`。搜索按姓名与登录名过滤，
@@ -203,7 +208,7 @@ asynq:
 - 编辑器：EasyMDE 2.20（Markdown + 预览 + 全屏/并排），本地 vendored；关闭 `autoDownloadFontAwesome`，
   图标由本地 Font Awesome 4.7 提供；无 CDN。内联撰写区使用紧凑工具栏（`data-yd-editor-compact`），
   完整编辑器仍用于编辑消息与系统公告的抽屉。
-- 发送：日常消息直接在内联撰写区提交 `/messages`，**不弹确认**；公告频道提交 `/messages/system`，
+- 发送：日常消息直接在内联撰写区提交 `/messages`，**不弹确认**；公告频道提交 `/mgr/messages/system`，
   保留一次 `data-yd-confirm`。`Ctrl/Cmd+Enter` 发送，普通回车在 EasyMDE 中仍用于换行。
 - 抽屉：编辑消息、置顶窗口与群设置继续走右侧抽屉；撤回/撤销/退出/解散/好友变更全部走
   `data-yd-confirm`。

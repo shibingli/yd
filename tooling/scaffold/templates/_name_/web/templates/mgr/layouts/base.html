@@ -1,0 +1,174 @@
+{{/*
+  mgr/layouts/base.html —— 全站骨架：<head>、左侧导航、顶栏、工作区与脚本装载顺序。
+  mgr/layouts/base.html — the site skeleton: <head>, the left navigation, the top bar, the workspace and the script order.
+
+  与框架示例布局的区别：本文件不是 {{define}} 片段，而是被渲染的整页。
+  app.Render 先渲染控制器给出的片段，再把片段 HTML 通过 .Content 注入这里。
+  Unlike the framework's sample layout this file is not a {{define}} fragment but the rendered page itself:
+  app.Render renders the fragment chosen by the controller first and injects that HTML here through .Content.
+
+  数据契约（控制器 internal/controller 的 view() 提供） | Data contract (provided by view() in internal/controller):
+    .Title            页面标题，可空 | page title, may be empty
+    .Name .Module .Description .Version                 项目元信息 | project metadata
+    .GoVersion .HtmxVersion .TailwindVersion            技术栈版本 | stack versions
+    .Features        启用的特性清单 | enabled feature list
+    .Scripts         所选 htmx 扩展的本地脚本路径 | local script paths of the selected htmx extensions
+    .Path            当前请求路径，用于导航高亮 | current request path, used to highlight the active nav item
+    .Lang            当前语言标签 | the negotiated language tag
+    .PublicKey       SM2 公钥（十六进制），供登录表单预取 | SM2 public key in hex, prefetched by the sign-in form
+    .SeedNotice      首登必改口令的提示文案 | the mandatory first-sign-in password notice
+    .User .Tenant .SignedIn .SeedPassword               当前身份 | the current identity
+    .Authz .Perm .Role                                 authz.Data(subject) 注入的三个取值：判定主体本身、
+                                                       「能力名 → 标识」与「角色名 → 名字」两张表。
+                                                       导航项与按钮的显隐一律写成 can .Perm.XxxYyy（读的正是 .Perm），
+                                                       页面里不再存在 .CanXxx 这样的布尔值。
+    .Authz .Perm .Role                                 the three values authz.Data(subject) injects: the authority itself
+                                                       plus the two name maps "capability name -> token" and "role name ->
+                                                       name". Every nav item and button is gated by can .Perm.XxxYyy (which
+                                                       reads .Perm); no .CanXxx boolean exists anywhere any more.
+    .Content         控制器渲染好的片段 HTML（template.HTML） | the fragment HTML rendered by the controller (template.HTML)
+    .AuthzJSON       权限信封（可选）：控制器经 authz.Data(subject) 提供的、服务端已序列化好的 JSON 字符串。
+                     缺省时本文件不注入该元素，yd-authz.js 因而一个能力都不授予（失败关闭）。
+    .AuthzJSON       the authority envelope (optional): the JSON string already serialized server-side and handed over by
+                     the controller through authz.Data(subject). Without it this file injects no payload element at all
+                     and yd-authz.js therefore grants nothing (fail closed).
+
+  接入权限（两处，各一行，本项目两处都已接好） | Wiring the authority (two places, one line each; both are already wired in this project):
+    1. router：authz.Middleware(ctrl.Auth())  —— 把当前请求的主体放进 context（internal/router）；
+    2. view()：主体取自 context，缺失时由当前用户现构造一个，再并入 authz.Data(subject)（internal/controller）。
+    之后模板可写 {{ if can "PermUserRead" }}…{{ end }} 与 data-yd-perm="{{ .Perm.UserRead }}"，
+    浏览器侧可写 yd.can(yd.PERM.USER_READ)；未接入时这些判断一律为假，
+    页面因此不会出现「看起来有权限、服务端却拒绝」的假象。
+    1. router: authz.Middleware(ctrl.Auth()) puts the subject of the current request into the context (internal/router);
+    2. view(): the subject comes from that context and is built from the current user when absent, then authz.Data(subject)
+       is merged into the render data (internal/controller).
+    Templates may then write {{ if can "PermUserRead" }}…{{ end }} and data-yd-perm="{{ .Perm.UserRead }}", and scripts may
+    write yd.can(yd.PERM.USER_READ). Before the wiring, every one of those answers is false, so a page can never look as
+    though it had a capability the server would refuse.
+
+  硬规则 | Hard rules:
+    1. 脚本与样式一律使用本地 /static/... 路径，禁止 http:// 与 CDN；
+       yd build 会把静态资源整体嵌入二进制，公网引用会直接导致离线运行失败。
+    1. Scripts and styles always use local /static/... paths; http:// and CDNs are forbidden because yd build embeds
+       every static asset into the binary and a public reference would break offline execution.
+    2. /static/css/yd.css 由 Tailwind 阶段产出：优先取本项目的编译产物，缺失时由框架的同名资产兜底，
+       因此它在首次生成后即可用，无需先跑前端构建。
+    2. /static/css/yd.css comes from the Tailwind stage: this project's compiled artefact wins and the framework's
+       identically named asset fills the gap, so it works right after generation with no front-end build.
+       项目的 web/static/css/app.css 是 Tailwind 源文件（含 @import "tailwindcss"），不能直接引入浏览器。
+       This project's web/static/css/app.css is a Tailwind source file (it carries @import "tailwindcss") and must not
+       be linked into the browser as-is.
+    3. 只使用 app.css / components.css 的语义化类（yd-*）与 Tailwind 工具类，不写字面色值。
+    3. Only the semantic yd-* classes of app.css and components.css and Tailwind utilities are used; no literal colour values.
+    4. 文案一律经 tr 取词（web/i18n/*.yaml），页面里不写字面文案；缺少目录时 tr 原样回显键名，
+       页面结构因此仍然完整。
+    4. Every string is looked up through tr (web/i18n/*.yaml) and no literal copy is written into a page; without a
+       catalogue tr echoes the key itself, so the page structure stays intact either way.
+    5. 主题与语言切换都不刷新整页：语言链接是 htmx 局部导航（只换 #yd-workspace），主题按钮只改
+       <html data-theme>；yd-app.js 把两者的选择分别记在 cookie 与 localStorage 里。
+    5. Neither the theme nor the language switch reloads the whole page: the language links are htmx partial
+       navigations (they swap #yd-workspace only) and the theme button only rewrites <html data-theme>; yd-app.js
+       remembers the two choices in a cookie and in localStorage respectively.
+    6. 前端权限判定不是安全边界：data-yd-perm 与 yd.can() 只让页面不提供「服务端本来就会拒绝」的操作。
+       拿到页面的人依旧可以直接调用隐藏按钮背后的端点，因此每条受保护路由都必须自带服务端守卫
+       （authz.Require / authz.Allow）；只隐藏按钮而不守卫路由，是本文件拦不住的缺陷。
+    6. A front-end permission check is not a security boundary: data-yd-perm and yd.can() only keep the page from
+       offering an action the server would refuse. Whoever receives the page can still call the endpoint behind a hidden
+       button directly, so every protected route carries its own server-side guard (authz.Require / authz.Allow); hiding a
+       button without guarding its route is the defect this file cannot prevent.
+*/}}<!doctype html>
+<html lang="{{ .Lang }}" data-theme="auto">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light dark">
+  <meta name="description" content="{{ with .MetaDescription }}{{ . }}{{ else }}{{ .Description }}{{ end }}">
+  {{- with .MetaKeywords }}
+  <meta name="keywords" content="{{ . }}">
+  {{- end }}
+  {{- with .CanonicalURL }}
+  <link rel="canonical" href="{{ . }}">
+  {{- end }}
+  <meta property="og:title" content="{{ with .Title }}{{ . }}{{ else }}{{ .Name }}{{ end }}">
+  <meta property="og:description" content="{{ with .MetaDescription }}{{ . }}{{ else }}{{ .Description }}{{ end }}">
+  <meta property="og:type" content="{{ with .OGType }}{{ . }}{{ else }}website{{ end }}">
+  {{- with .CanonicalURL }}
+  <meta property="og:url" content="{{ . }}">
+  {{- end }}
+  <title>{{ with .Title }}{{ . }} · {{ end }}{{ .Name }}</title>
+  {{/* 首屏主题：在样式表之前同步解析 auth/system，避免系统深色下先画出一帧浅色。
+       服务端按 cookie 预渲染；localStorage/cookie 由 yd-app.js 写入。 */}}
+  {{/* First-paint theme: resolve auto/system synchronously before the stylesheet, so a system-dark
+       visitor never sees a light frame first. The server seeds it from the cookie; yd-app.js persists it. */}}
+  <script src="{{ asset "/static/js/yd-theme-boot.js" }}"></script>
+  <link rel="stylesheet" href="{{ asset "/static/css/yd.css" }}">
+  {{- range .PageStyles }}
+  <link rel="stylesheet" href="{{ asset . }}">
+  {{- end }}
+  {{/* 图标是同源静态资源：yd build 会把它连同全部前端资产嵌入二进制，运行时零外部请求。
+       The icon is a same-origin static asset: yd build embeds it with every front-end asset, so runtime makes no
+       external request. */}}
+  <link rel="icon" type="image/svg+xml" href="{{ asset "/static/img/yd-icon.svg" }}">
+  {{/* 权限信封：只有控制器经 authz.Data(subject) 提供时才注入，缺省时整段不出现，
+       yd-authz.js 因而一个能力都不授予（失败关闭）——宁可不显示按钮，也不显示一个服务端会拒绝的按钮。
+       注入的 JSON 必须是 template.JS：html/template 把 <script type="application/json"> 当作 JavaScript 容器，
+       其它类型会被编码成带引号的 JSON 字符串。id 必须与 authz.AuthzScriptID 一致，yd-authz.js 正是按它取载荷。
+       The authority envelope is injected only when the controller supplies it through authz.Data(subject); without it the
+       element is absent entirely and yd-authz.js therefore grants nothing (fail closed) — better to offer no button than
+       one the server would refuse. The JSON must be template.JS: html/template treats
+       <script type="application/json"> as a JavaScript container and would encode any other type into a quoted JSON
+       string. The id must equal authz.AuthzScriptID, which is what yd-authz.js reads the payload by. */}}
+  {{ with .AuthzJSON }}<script id="yd-authz" type="application/json">{{ . }}</script>
+  {{ end }}
+</head>
+<body class="bg-surface text-content antialiased"
+      hx-target:inherited="#yd-workspace"
+      hx-swap:inherited="innerMorph"
+      hx-push-url:inherited="false"
+      data-yd-connecting="{{ tr "realtime.connecting" }}"
+      data-yd-connected="{{ tr "realtime.connected" }}"
+      data-yd-disconnected="{{ tr "realtime.disconnected" }}"
+      data-yd-idle="{{ tr "realtime.idle" }}"
+      data-yd-reconnecting="{{ tr "realtime.disconnected" }}"
+      data-yd-failed="{{ tr "realtime.failed" }}"
+      data-yd-offline="{{ tr "realtime.offline" }}"
+      data-yd-recovered="{{ tr "realtime.recovered" }}"
+      data-yd-close="{{ tr "ui.close" }}"
+      data-yd-network-error="{{ tr "ui.network_error" }}">
+{{/* #yd-shell 同时是 flex 容器：侧栏与主列必须是它的直接子元素，否则主列会从 x=0 起排并落到侧栏下面。
+     #yd-shell is also the flex container: the rail and the main column must be its direct children,
+     otherwise the main column starts at x=0 and slides underneath the rail. */}}
+{{/* 登录后的外壳同时承载消息中心的实时连接：外壳在导航时被替换，连接因此随导航重连，
+     租户切换后新连接必然带着新令牌，不会把上一个租户的事件推给当前页面。
+     The signed-in shell also owns the message-centre realtime connection: the shell is replaced on navigation, so the
+     connection reconnects with the navigation, and after a tenant switch the new connection necessarily carries the new
+     token instead of pushing the previous tenant's events into the page. */}}
+<div id="yd-shell" class="yd-shell yd-shell--app">
+  {{ template "mgr/layouts/shell.html" . }}
+</div>
+
+{{/* 脚本顺序（唯一允许的顺序）：htmx 核心 → 所选扩展 → 国密加解密 → 权限守卫 → 本项目脚本。
+     全部带 defer：既保持执行顺序，又不阻塞首屏渲染。
+     yd-authz.js 排在 yd-app.js 之前：它在启动时读取上面注入的载荷，并在每次 htmx 交换后重新绑定
+     data-yd-perm/data-yd-role 守卫，因此之后运行的业务脚本可以直接使用 yd.can。
+     主题与语言的选择都在 yd-app.js 里落地，因此这里不需要任何内联脚本——CSP 只允许 'self'，
+     内联脚本本来也会被浏览器直接拒绝。
+     Script order (the only allowed order): htmx core → selected extensions → guomi crypto → the authority guard →
+     this project's script. All carry defer: the order is preserved and first paint is never blocked. yd-authz.js is
+     placed ahead of yd-app.js because it reads the injected payload at start and re-binds the data-yd-perm /
+     data-yd-role guards after every htmx swap, so application scripts that run later can use yd.can straight away.
+     Theme and language choices are applied in yd-app.js, so no inline script is needed here — the CSP allows 'self'
+     only, and an inline script would be rejected by the browser anyway. */}}
+<script src="{{ asset "/static/js/vendor/htmx.min.js" }}" defer></script>
+{{- range .Scripts }}
+<script src="{{ asset . }}" defer></script>
+{{- end }}
+<script src="{{ asset "/static/js/yd-guomi.js" }}" defer></script>
+<script src="{{ asset "/static/js/yd-guomi-htmx.js" }}" defer></script>
+<script src="{{ asset "/static/js/yd-authz.js" }}" defer></script>
+<script src="{{ asset "/static/js/yd-app.js" }}" defer></script>
+{{- range .PageScripts }}
+<script src="{{ asset . }}" defer></script>
+{{- end }}
+</body>
+</html>

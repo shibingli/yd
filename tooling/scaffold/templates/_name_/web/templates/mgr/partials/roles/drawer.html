@@ -1,0 +1,11 @@
+{{/*
+  partials/roles/drawer.html —— 新建角色抽屉的内容（由 GET /roles/new 渲染）。
+  partials/roles/drawer.html — the content of the role creation drawer (rendered by GET /roles/new).
+
+  数据契约 | Data contract: .Catalogue（[]model.PermissionInfo）。
+*/}}
+<div class="yd-drawer__head">
+  <h2 class="yd-section__title">{{ tr "page.roles.create" }}</h2>
+  <p class="yd-section__hint">{{ tr "page.roles.create_hint" }}</p>
+</div>
+{{ template "mgr/partials/roles/form" . }}

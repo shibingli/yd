@@ -28,6 +28,15 @@ Go {{ .GoVersion }} + Htmx {{ .HtmxVersion }} + Tailwind CSS {{ .TailwindVersion
 | tailwind | {{ .Tailwind }} |
 | htmx 扩展 | {{ range $i, $e := .HtmxExts }}{{ if $i }}, {{ end }}{{ $e }}{{ end }} |
 
+## 门户与后台
+
+- **路由**：门户是 `/`（个人门户）、`/blog`（公开内容站）、`/messages`、`/friends`、`/account`、`/realtime`；
+  后台管理全部在 `/mgr/**`（概览、用户、租户、角色、权限、消息治理、消息目录、CMS、指标与接口文档）。
+  门户默认只有普通用户能力，管理端点各自挂注册表里的管理能力。
+- **模板**：门户模板只放 `{{ .AssetRoot }}/templates/portal/**`，后台只放 `{{ .AssetRoot }}/templates/mgr/**`；
+  两棵树各有自己的布局与片段，模板名以 `portal/`、`mgr/` 前缀区分，禁止跨树 include。
+- **API**：成员 API 在 `/api/portal/v1/**`，管理 API 在 `/api/v1/**`；OpenAPI JSON 为 `/api/v1/openapi.json`。
+
 ## 站内消息中心
 
 项目内含一套租户级消息中心，随项目生成即可用（需要真实数据库；`--db none` 的项目会显式报告不可用）：
@@ -38,13 +47,13 @@ Go {{ .GoVersion }} + Htmx {{ .HtmxVersion }} + Tailwind CSS {{ .TailwindVersion
   新建会话、编辑、置顶与群设置走右侧抽屉；消息治理与目录设置仍是列表式后台管理页。
 - **系统公告**：只有 `message:system` 能发布；撤销保留审计原文，普通成员只看到墓碑。
   置顶只作用于系统公告，支持立即或未来开始与可选结束时间。
-- **消息治理**：`/messages/admin` 与 `/messages/admin/audit` 提供全租户治理与审计；
-  `/message-settings` 维护消息类型、分组与标签（内置 announcement / normal / system / finance / marketing）。
+- **消息治理**：`/mgr/messages` 与 `/mgr/messages/audit` 提供全租户治理与审计；
+  `/mgr/message-settings` 维护消息类型、分组与标签（内置 announcement / normal / system / finance / marketing）。
 - **富文本**：Markdown 源由服务端 goldmark 渲染并净化（原始 HTML 与危险链接被移除），
   编辑器为本地 vendored 的 EasyMDE 2.20，无 CDN、无 Node 构建。
 - **附件**：先上传后挂载，内容类型由字节嗅探、大小与 MIME 白名单由服务端强制；下载按消息可见性鉴权。
-- **实时与离线**：`/ws/messages` 推送消息、好友、撤回与置顶事件；`/api/v1/messages/...` 与
-  `/api/v1/friends/...` 提供等价的 JSON API（含 `/:id/revoke` 系统公告撤销）。
+- **实时与离线**：`/ws/messages` 推送消息、好友、撤回与置顶事件；成员 API 在
+  `/api/portal/v1/messages/...` 与 `/api/portal/v1/friends/...`，管理 API（公告撤销、置顶与目录）在 `/api/v1/...`。
 
 相关配置在 `configs/config.yaml` 的 `message` 段：`recall_window`、`edit_window`、`max_attachments`、
 `max_attachment_size`、`max_group_members`、`page_size`、`attachment_dir`、`pending_ttl`、`node_id`、
@@ -65,6 +74,33 @@ environment variables map onto it). A single node delivers realtime events in-pr
 choosing the redis integration when the project is generated (plus asynq for durable retries), configures Redis Pub/Sub
 and optional asynq retries, and must give every replica a unique `message.node_id`. A project generated without those
 integrations compiles the local bus only, so adding a redis section afterwards has no effect.
+
+## 内容管理与发布
+
+项目内含一套租户级 CMS，随项目生成即可用（需要真实数据库；`--db none` 的项目会显式报告不可用）：
+
+- **无限级分类**：`/mgr/cms/categories` 支持任意深度的分类树、移动整棵子树与隐藏；禁止环与非空删除。
+- **文章与单页**：`/mgr/cms/articles` 支持草稿、待审、发布、定时、下线、归档与恢复；正文为 Markdown，
+  服务端 goldmark 渲染并净化，原始 HTML 与危险链接被移除。每次正文变更自动写入修订，可回滚。
+- **标签与媒体**：一个文章多个标签；`/mgr/cms/media` 上传图片、PDF、视频与音频，MIME 由服务端嗅探，
+  编辑器工具栏的图片按钮直接上传并插入地址。
+- **评论审核**：`/mgr/cms/comments` 通过、拒绝、标记垃圾或删除；公开文章支持登录用户的评论与两级回复。
+- **公开站点**：`/blog` 提供文章列表、分类、标签、搜索、文章、单页、RSS 2.0 与站点地图；
+  匿名访问的租户由 `cms.public_tenant` 决定（留空使用种子租户），也可用 `X-Tenant`/子域名指定。
+- **JSON API**：`/api/v1/cms/...` 与后台共用同一套领域服务。
+- **权限**：20 项 `cms-*:*` 能力；成员可写自己的文章、上传媒体与发表评论，发布/审核/分类/标签/
+  媒体删除/站点设置各由独立能力控制。
+
+相关配置在 `configs/config.yaml` 的 `cms` 段：`media_dir`、`page_size`、`max_media_size`、
+`max_revisions`、`public_tenant`、`allowed_types`；环境变量统一为 `YD_CMS_*`。
+
+The generated project ships a tenant-scoped CMS: an unlimited-depth category tree, articles and standalone pages with
+draft/review/publish/schedule/archive workflows, Markdown rendered and sanitised server-side, revisions, tags, a media
+library with server-side MIME sniffing, moderated two-level comments, a public site with search, RSS and a sitemap, and
+a JSON API. It needs a real database; a project generated with `--db none` reports the CMS as unavailable. Anonymous
+public pages use `cms.public_tenant` (the seeded tenant when empty), while `X-Tenant` or a subdomain can select another
+tenant. Configure `cms.media_dir`, `page_size`, `max_media_size`, `max_revisions`, `public_tenant` and `allowed_types`
+under the `cms` section (`YD_CMS_*` environment variables map onto it).
 
 ## 目录结构
 
@@ -424,8 +460,8 @@ yd tools install tailwindcss
   两份目录的键集合必须严格一致，少一个键页面上就会显示出键名。
 - **主题**：右上角按钮在浅色 / 深色 / 跟随系统之间循环，结果记在 `localStorage` 并由 `<html data-theme>` 承载，
   样式只引用语义变量，因此深色模式不需要第二套样式表。
-- **语言切换**：切换语言只换入 `#yd-workspace`，不刷新整页；选择同时写入 `yd_lang` cookie，后续表单提交沿用同一语言。
-- **接口文档**：`/openapi.json` 与自包含的 `/docs`；新增端点后按 `docs/developer_guidelines.md` §9.2 补注解即可被收录。
+- **语言切换**：切换语言只换入 `#yd-shell`，不刷新整页；选择同时写入 `yd_lang` cookie，后续表单提交沿用同一语言。
+- **接口文档**：`/api/v1/openapi.json` 与自包含的 `/mgr/docs`；新增端点后按 `docs/developer_guidelines.md` §9.2 补注解即可被收录。
 
 ## 团队约定
 

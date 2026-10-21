@@ -1,0 +1,176 @@
+{{/*
+  layouts/shell.html —— 外壳：登录后是侧栏 + 顶栏 + 工作区，登录前只有登录卡片与语言/主题切换。
+  layouts/shell.html — the shell: the rail, top bar and workspace after sign-in, and only the sign-in card with the
+  language/theme switches before it.
+
+  本文件由 layouts/base.html 包裹一次（整页请求），也由控制器在 hx-target="#yd-shell" 的局部导航中单独渲染。
+  因此这里只写 #yd-shell 的内部内容，绝不出现 <html>、<head> 或 <body>。
+  This file is wrapped once by layouts/base.html for a whole-page request and is also rendered alone by the
+  controller for a partial navigation whose target is #yd-shell. It therefore contains only the inside of
+  #yd-shell and never <html>, <head> or <body>.
+
+  登录前只保留登录功能：没有侧栏、没有顶栏导航、没有页脚、没有租户与凭据说明；语言与主题切换固定在右上角。
+  Before sign-in only the sign-in function remains: no rail, no top-bar navigation, no footer, no tenant or
+  credential copy; the language and theme switches sit in the top-right corner.
+*/}}
+{{ if .PublicSite -}}
+{{ template "portal/layouts/public_shell.html" . }}
+{{- else if .SignedIn -}}
+<a class="yd-skip-link" href="#yd-workspace">{{ tr "ui.skip" }}</a>
+
+{{ template "portal/partials/sidebar" . }}
+<div class="yd-sidebar-backdrop" data-yd-sidebar-backdrop aria-hidden="true"></div>
+
+<div class="yd-main">
+  {{/* 顶栏左侧只放当前页面标题：产品名与版本已经在侧栏的品牌区与页脚出现，重复一次只会挤占空间。
+       The top bar's left side carries the current page title only: the product name and version already
+       appear in the rail's brand block and footer, and a second copy would only crowd the bar. */}}
+  <header class="yd-topbar" role="banner">
+    {{/* 抽屉式侧栏开关，仅在 64rem 断点以下显示。 | Off-canvas rail trigger, shown only below the 64rem breakpoint. */}}
+    <button type="button" class="yd-icon-btn yd-topbar__menu" data-yd-sidebar-open
+            aria-controls="yd-sidebar" aria-expanded="false"
+            data-yd-i18n-attr="aria-label:nav.open_menu" aria-label="{{ tr "nav.open_menu" }}">
+      <span aria-hidden="true">☰</span>
+    </button>
+    <div class="yd-topbar__left">
+      <p class="yd-topbar__title">{{ .Title }}</p>
+    </div>
+    <nav class="yd-topbar__right" aria-label="{{ tr "ui.utility_links" }}">
+      {{ template "portal/partials/shell-switches" . }}
+
+      {{/* 租户下拉：只列成员租户，当前租户被选中，默认租户带标记。切换是一次 POST，服务端会再次校验成员关系。
+           The tenant dropdown lists memberships only, selects the active one and marks the default. A switch is
+           one POST and the server verifies the membership again. */}}
+      {{- $activeTenant := "" }}{{ with .Tenant }}{{ $activeTenant = .ID }}{{ end }}
+      {{- with .Tenants }}
+      {{/* 租户切换与列表操作共用同一种下拉面板：原生 select 的选项由操作系统绘制，和站内控件永远对不上。
+           每个条目是一个 submit 按钮，name/value 直接带上目标租户；确认框会保留提交者，值因此不会丢。
+           The tenant switch reuses the list-action dropdown: native select options are painted by the operating
+           system and never match the site's controls. Each entry is a submit button carrying the target tenant in
+           name/value, and the confirmation dialog preserves the submitter so the value is never lost. */}}
+      <details class="yd-menu yd-tenant" data-yd-menu>
+        <summary class="yd-btn yd-btn--ghost yd-btn--sm yd-tenant__trigger">
+          <span class="yd-tenant__label">{{ tr "tenant.current" }}</span>
+          <span class="yd-tenant__current">{{ with $.Tenant }}{{ .Display }}{{ end }}</span>
+          <span class="yd-tenant__caret" aria-hidden="true">▾</span>
+        </summary>
+        <div class="yd-menu__panel yd-tenant__panel">
+          <p class="yd-tenant__heading">{{ tr "tenant.switch" }}</p>
+          <form method="post" action="/tenant/switch"
+                hx-post="/tenant/switch" hx-target="#yd-workspace"
+                data-yd-confirm="{{ tr "confirm.switch_tenant" }}"
+                hx-disabled-elt="find button[type='submit']">
+            {{- range . }}
+            <button type="submit" name="tenant" value="{{ .ID }}"
+                    class="yd-menu__item yd-menu__item--row{{ if eq .ID $activeTenant }} yd-menu__item--active{{ end }}">
+              {{- if eq .ID $.DefaultTenantID }}<span class="yd-badge yd-badge--info">{{ tr "tenant.default" }}</span>{{ end }}
+              <span class="yd-tenant__name">{{ .Display }}</span>
+              {{- if eq .ID $activeTenant }}<span class="yd-tenant__check" aria-hidden="true">✓</span>{{ end }}
+            </button>
+            {{- end }}
+          </form>
+        </div>
+      </details>
+      {{- end }}
+
+      {{/* 用户名本身就是用户菜单：头像角标显示未读消息数，菜单只放「未读消息」与「我的资料」两项；
+           退出登录仍是右侧独立按钮，菜单保持两项，不把退出混进导航。
+           The user name is the user menu: the avatar corner carries the unread count, and the menu holds exactly
+           "unread messages" and "my profile"; sign-out stays a separate button so the menu keeps two entries. */}}
+      <details class="yd-user yd-menu" data-yd-user-menu data-yd-menu>
+        <summary class="yd-user__trigger" aria-haspopup="menu">
+          <span class="yd-user__avatar">
+            <span class="yd-avatar yd-avatar--sm" aria-hidden="true">{{ .User.Initial }}</span>
+          </span>
+          <span class="yd-user__name">{{ .User.Display }}</span>
+          {{- if and .MessageAvailable (can .Perm.MessageRead) }}
+          {{ template "portal/partials/messages/unread_badge" . }}
+          {{- end }}
+          <span class="yd-user-menu__caret" aria-hidden="true">▾</span>
+        </summary>
+        <div class="yd-user__menu yd-menu__panel" role="menu" aria-label="{{ tr "nav.user_menu" }}">
+          {{- if and .MessageAvailable (can .Perm.MessageRead) }}
+          <a class="yd-menu__item yd-user-menu__item yd-user-menu__item--unread" role="menuitem"
+             href="/messages?folder=unread" hx-get="/messages?folder=unread" hx-target="#yd-shell"
+             hx-swap="innerMorph" hx-push-url="true">
+            {{ template "portal/partials/icon" "lucide-mail" }}<span class="yd-user-menu__label">{{ tr "nav.unread_messages" }}</span>
+            {{ template "portal/partials/messages/unread_menu_badge" . }}
+          </a>
+          {{- end }}
+          <a class="yd-menu__item yd-user-menu__item" role="menuitem" href="/account"
+             hx-get="/account" hx-target="#yd-shell" hx-swap="innerMorph" hx-push-url="true">
+            {{ template "portal/partials/icon" "lucide-user-round" }}<span class="yd-user-menu__label">{{ tr "nav.my_profile" }}</span>
+          </a>
+        </div>
+      </details>
+      <form method="post" action="/logout" hx-post="/logout" hx-target="#yd-workspace" hx-swap="innerMorph"
+            data-yd-confirm="{{ tr "confirm.logout" }}">
+        <button type="submit" class="yd-btn yd-btn--ghost yd-btn--sm" data-yd-signout>
+          {{ template "portal/partials/icon" "lucide-log-out" }}
+          <span>{{ tr "ui.sign_out" }}</span>
+        </button>
+      </form>
+    </nav>
+  </header>
+
+  {{/* 实时通知区：WebSocket 推送的好友、撤回与置顶事件落到这里；它与 #yd-errors 分开，
+       因为通知是信息性消息，错误槽位只承载失败。 | The realtime notice area: WebSocket-pushed friend, recall and pin
+       events land here. It is separate from #yd-errors because notices are informational while the error slot carries
+       failures only. */}}
+  <div id="yd-message-notices" class="yd-message-notices" role="status" aria-live="polite"></div>
+
+  {{/* 首登改密提示不放在外壳里：首页身份卡与账号页已经就地给出，外壳再重复一次会让每个页面
+       顶部都多出一条横幅，概览页甚至会同时出现两条。 | The first-sign-in password notice does not live in the
+       shell: the home identity card and the account page already carry it in context, and repeating it in the
+       shell adds a banner above every page — the overview would show two at once. */}}
+  <div id="yd-errors" class="yd-errors" role="alert" aria-live="assertive" data-yd-errors-outlet></div>
+
+  <main id="yd-workspace" class="yd-workspace" tabindex="-1" data-yd-workspace>{{ .Content }}</main>
+
+  {{ template "portal/partials/flash" . }}
+
+  <footer class="yd-footer">
+    <p>{{ tr "app.tagline" }} · {{ .Module }}</p>
+  </footer>
+</div>
+
+{{/* 全局确认对话框：所有 data-yd-confirm 的点击与提交都先经过这里，文案由模板经 tr 提供，脚本里没有文案。
+     The global confirmation dialog: every click and submit carrying data-yd-confirm passes through here; the copy
+     comes from the template through tr, so the script holds none. */}}
+<dialog id="yd-confirm" class="yd-dialog yd-confirm" aria-labelledby="yd-confirm-title">
+  <form method="dialog" class="yd-dialog__panel">
+    <h2 class="yd-dialog__title" id="yd-confirm-title">{{ tr "confirm.title" }}</h2>
+    <p class="yd-dialog__text" data-yd-confirm-text></p>
+    <div class="yd-dialog__actions">
+      <button value="cancel" class="yd-btn yd-btn--ghost">{{ tr "ui.cancel" }}</button>
+      <button value="confirm" class="yd-btn yd-btn--primary yd-btn--danger">{{ tr "ui.confirm" }}</button>
+    </div>
+  </form>
+</dialog>
+
+{{/* 右侧抽屉：新增与编辑都从工作区里的按钮按需取片段到这里，页面本身不预先渲染一堆隐藏表单。
+     The right-hand drawer: creation and editing fetch their fragment into here on demand, so a page never
+     pre-renders a stack of hidden forms. */}}
+<dialog id="yd-drawer" class="yd-dialog yd-drawer" aria-label="{{ tr "ui.edit" }}">
+  <div class="yd-dialog__panel yd-drawer__panel">
+    <button type="button" class="yd-icon-btn yd-drawer__close" data-yd-drawer-close
+            aria-label="{{ tr "ui.close" }}">×</button>
+    {{/* 抽屉内的错误槽位：抽屉是顶层模态，页面上的 #yd-errors 会被 ::backdrop 盖住，因此抽屉表单的
+         校验失败必须落在抽屉内部。yd-app.js 在打开与关闭抽屉时清空它。 |
+         The in-drawer error slot: the drawer is a top-layer modal, so the page-level #yd-errors sits behind
+         ::backdrop; validation failures from drawer forms must land inside the drawer. yd-app.js clears it when the
+         drawer opens or closes. */}}
+    <div id="yd-drawer-errors" class="yd-errors yd-errors--drawer" role="alert" aria-live="assertive"
+         data-yd-errors-outlet></div>
+    <div id="yd-drawer-body" class="yd-drawer__body"></div>
+  </div>
+</dialog>
+{{- else -}}
+{{/* 登录前的外壳：只保留语言/主题切换与登录卡片。 | The anonymous shell: only the switches and the sign-in card. */}}
+<div class="yd-auth-shell">
+  <div class="yd-auth-shell__actions">
+    {{ template "portal/partials/shell-switches" . }}
+  </div>
+  <main id="yd-workspace" class="yd-workspace yd-workspace--auth" tabindex="-1" data-yd-workspace>{{ .Content }}</main>
+</div>
+{{- end -}}

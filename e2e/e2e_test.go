@@ -185,7 +185,7 @@ func TestScaffoldBuildRun(t *testing.T) {
 		}
 
 		// An htmx request to a protected endpoint must not answer 200 while signed out. | 受保护端点的 htmx 请求在未登录时不得返回 200。
-		partial := httpGet(t, "http://"+addr+"/users", map[string]string{"HX-Request": "true"})
+		partial := httpGet(t, "http://"+addr+"/mgr/users", map[string]string{"HX-Request": "true"})
 		if partial.status == http.StatusOK {
 			t.Errorf("未登录的 htmx 请求不应成功: 状态=%d 前 120 字节=%q", partial.status, head(partial.body, 120))
 		}
@@ -195,17 +195,17 @@ func TestScaffoldBuildRun(t *testing.T) {
 		addr, stop := startApp(t, filepath.Join(project))
 		defer stop()
 
-		doc := httpGet(t, "http://"+addr+"/openapi.json", nil)
+		doc := httpGet(t, "http://"+addr+"/api/v1/openapi.json", nil)
 		if doc.status != http.StatusOK {
-			t.Fatalf("openapi.json 状态 = %d", doc.status)
+			t.Fatalf("/api/v1/openapi.json 状态 = %d", doc.status)
 		}
 		if !strings.Contains(doc.body, `"3.0`) {
 			t.Errorf("OpenAPI 版本字段缺失: %q", head(doc.body, 200))
 		}
 
-		viewer := httpGet(t, "http://"+addr+"/docs", nil)
+		viewer := httpGet(t, "http://"+addr+"/mgr/docs", nil)
 		if viewer.status != http.StatusOK {
-			t.Fatalf("/docs 状态 = %d", viewer.status)
+			t.Fatalf("/mgr/docs 状态 = %d", viewer.status)
 		}
 		if regexpx.MustCompile(`(src|href)="http`).MatchString(viewer.body) {
 			t.Error("the /docs viewer references an external CDN (a zero-CDN violation) | /docs 查看器引用了外部 CDN（违反零 CDN 约束）")
@@ -332,7 +332,7 @@ func TestAuthDataSurvivesRestart(t *testing.T) {
 	signIn(t, client2, base2, seedTenant, seedAdmin, seedAdminPassword)
 
 	t.Run("租户重启后仍在", func(t *testing.T) {
-		fragment := hxGet(t, client2, base2+"/tenants")
+		fragment := hxGet(t, client2, base2+"/mgr/tenants")
 		for _, want := range []string{probeTenantSlug, probeTenantName} {
 			if !strings.Contains(fragment, want) {
 				t.Errorf("重启后的租户列表缺少 %q:\n%s", want, fragment)
@@ -341,14 +341,14 @@ func TestAuthDataSurvivesRestart(t *testing.T) {
 	})
 
 	t.Run("角色重启后仍在", func(t *testing.T) {
-		fragment := hxGet(t, client2, base2+"/roles")
+		fragment := hxGet(t, client2, base2+"/mgr/roles")
 		if !strings.Contains(fragment, probeRoleName) {
 			t.Errorf("重启后的角色列表缺少 %q:\n%s", probeRoleName, fragment)
 		}
 	})
 
 	t.Run("用户重启后仍在且仍能登录", func(t *testing.T) {
-		fragment := hxGet(t, client2, base2+"/users")
+		fragment := hxGet(t, client2, base2+"/mgr/users")
 		if !strings.Contains(fragment, probeUserEmail) {
 			t.Errorf("重启后的用户列表缺少 %q:\n%s", probeUserEmail, fragment)
 		}
@@ -460,10 +460,9 @@ func TestSeedWritesDefaultAuthDataOnce(t *testing.T) {
 	t.Logf("种子管理员 %s@%s 登录成功，会话令牌长度 %d", seedAdmin, seedTenant, len(token))
 
 	t.Run("种子管理员带着注册表里的全部能力", func(t *testing.T) {
-		// owner 拿的是注册表里的全部 16 项能力，因此四个受守卫的页面都必须对它开着（200 而不是 403）。
-		// The owner holds every one of the registry's sixteen capabilities, so all four guarded pages must open for it
-		// (a 200 rather than a 403).
-		for _, path := range []string{"/tenants", "/users", "/roles", "/permissions"} {
+		// owner holds every registered capability, so all four guarded pages must open for it (200, not 403). |
+		// owner 拿的是注册表里的全部能力，因此四个受守卫的页面都必须对它开着（200 而不是 403）。
+		for _, path := range []string{"/mgr/tenants", "/mgr/users", "/mgr/roles", "/mgr/permissions"} {
 			if fragment := hxGet(t, client, base+path); len(fragment) == 0 {
 				t.Errorf("GET %s 返回了空片段", path)
 			}
@@ -471,13 +470,13 @@ func TestSeedWritesDefaultAuthDataOnce(t *testing.T) {
 		// 反证：页面上的能力确实来自注册表——4 个内置角色与 16 项能力都出现在管理员读到的片段里。
 		// The other direction: the capabilities on the pages really come from the registry — all four built-in roles and
 		// all sixteen capabilities appear in what the administrator reads.
-		roles := hxGet(t, client, base+"/roles")
+		roles := hxGet(t, client, base+"/mgr/roles")
 		for _, role := range authz.Roles() {
 			if !strings.Contains(roles, role.Name) {
 				t.Errorf("角色页缺少内置角色 %q", role.Name)
 			}
 		}
-		matrix := hxGet(t, client, base+"/permissions")
+		matrix := hxGet(t, client, base+"/mgr/permissions")
 		for _, perm := range authz.Permissions() {
 			if !strings.Contains(matrix, perm.Name) {
 				t.Errorf("权限矩阵页缺少能力 %q", perm.Name)
@@ -517,7 +516,7 @@ func TestSeedWritesDefaultAuthDataOnce(t *testing.T) {
 	if token := signIn(t, client2, base2, seedTenant, seedAdmin, seedAdminPassword); token == "" {
 		t.Error("the seeded administrator failed to sign in after the restart | 重启后种子管理员登录失败")
 	}
-	if fragment := hxGet(t, client2, base2+"/roles"); !strings.Contains(fragment, authz.RoleOwner) {
+	if fragment := hxGet(t, client2, base2+"/mgr/roles"); !strings.Contains(fragment, authz.RoleOwner) {
 		t.Errorf("重启后的角色页缺少所有者角色 %q", authz.RoleOwner)
 	}
 	stop2()
@@ -1211,8 +1210,8 @@ func hxGet(t *testing.T, client *http.Client, target string) string {
 func createTenant(t *testing.T, client *http.Client, base, slug, name string) {
 	t.Helper()
 
-	post(t, client, base+"/tenants", url.Values{"slug": {slug}, "name": {name}})
-	if fragment := hxGet(t, client, base+"/tenants"); !strings.Contains(fragment, slug) {
+	post(t, client, base+"/mgr/tenants", url.Values{"slug": {slug}, "name": {name}})
+	if fragment := hxGet(t, client, base+"/mgr/tenants"); !strings.Contains(fragment, slug) {
 		t.Fatalf("建租户后列表里没有 %q:\n%s", slug, fragment)
 	}
 }
@@ -1222,12 +1221,12 @@ func createTenant(t *testing.T, client *http.Client, base, slug, name string) {
 func createRole(t *testing.T, client *http.Client, base, name string) {
 	t.Helper()
 
-	post(t, client, base+"/roles", url.Values{
+	post(t, client, base+"/mgr/roles", url.Values{
 		"name":        {name},
 		"description": {"created by the persistence probe | 由持久化探针创建"},
 		"permission":  {"user:read"},
 	})
-	if fragment := hxGet(t, client, base+"/roles"); !strings.Contains(fragment, name) {
+	if fragment := hxGet(t, client, base+"/mgr/roles"); !strings.Contains(fragment, name) {
 		t.Fatalf("建角色后列表里没有 %q:\n%s", name, fragment)
 	}
 }
@@ -1237,14 +1236,14 @@ func createRole(t *testing.T, client *http.Client, base, name string) {
 func createUser(t *testing.T, client *http.Client, base, username, email, role string) {
 	t.Helper()
 
-	post(t, client, base+"/users", url.Values{
+	post(t, client, base+"/mgr/users", url.Values{
 		"username":     {username},
 		"email":        {email},
 		"display_name": {username},
 		"password":     {sm2Cipher(t, client, base, probeUserPassword)},
 		"roles":        {role},
 	})
-	if fragment := hxGet(t, client, base+"/users"); !strings.Contains(fragment, email) {
+	if fragment := hxGet(t, client, base+"/mgr/users"); !strings.Contains(fragment, email) {
 		t.Fatalf("建账号后列表里没有 %q:\n%s", email, fragment)
 	}
 }

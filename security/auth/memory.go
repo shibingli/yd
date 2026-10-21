@@ -183,6 +183,24 @@ func (m *memoryStore) CreateUser(_ context.Context, u *User) error {
 	if _, ok := m.tenants[stored.DefaultTenantID]; !ok {
 		return ErrNotFound
 	}
+	defaultIsMember := stored.DefaultTenantID == u.TenantID
+	for _, tenantID := range u.TenantIDs {
+		if tenantID == "" || tenantID == u.TenantID {
+			continue
+		}
+		if _, ok := m.tenants[tenantID]; !ok {
+			return ErrNotFound
+		}
+		if tenantID == stored.DefaultTenantID {
+			defaultIsMember = true
+		}
+	}
+	if !defaultIsMember {
+		return ErrNotFound
+	}
+	if err := m.requireRolesLocked(u.TenantID, u.Roles); err != nil {
+		return err
+	}
 
 	m.users[u.ID] = stored
 	m.usernames[key] = u.ID
@@ -190,9 +208,6 @@ func (m *memoryStore) CreateUser(_ context.Context, u *User) error {
 	for _, tenantID := range u.TenantIDs {
 		if tenantID == "" || tenantID == u.TenantID {
 			continue
-		}
-		if _, ok := m.tenants[tenantID]; !ok {
-			return ErrNotFound
 		}
 		if _, exists := m.members[tenantID][u.ID]; exists {
 			continue
@@ -366,6 +381,9 @@ func (m *memoryStore) UpdateUser(_ context.Context, tenantID string, u *User) er
 	if _, ok := m.members[tenantID][u.ID]; !ok {
 		return ErrNotFound
 	}
+	if err := m.requireRolesLocked(tenantID, u.Roles); err != nil {
+		return err
+	}
 	oldKey := usernameKey(stored.Username)
 	if oldKey != key {
 		if holder, dup := m.usernames[key]; dup && holder != u.ID {
@@ -379,11 +397,88 @@ func (m *memoryStore) UpdateUser(_ context.Context, tenantID string, u *User) er
 	updated.TenantID = stored.TenantID
 	updated.HomeTenantID = stored.TenantID
 	updated.DefaultTenantID = stored.DefaultTenantID
+	updated.Status = stored.Status
+	updated.PasswordHash = stored.PasswordHash
+	updated.EncryptedSecKey = append([]byte(nil), stored.EncryptedSecKey...)
 	updated.TenantIDs = nil
 	updated.Roles = nil
 	m.users[u.ID] = updated
 	entry := m.members[tenantID][u.ID]
 	entry.roles = append([]string(nil), u.Roles...)
+	return nil
+}
+
+// SetUserStatus changes only the user's lifecycle status. | SetUserStatus 只修改用户的生命周期状态。
+func (m *memoryStore) SetUserStatus(_ context.Context, tenantID, userID string, status Status, updatedAt time.Time) error {
+	if strings.TrimSpace(tenantID) == "" {
+		return ErrTenantRequired
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	stored, ok := m.users[userID]
+	if !ok {
+		return ErrNotFound
+	}
+	if _, ok := m.members[tenantID][userID]; !ok {
+		return ErrNotFound
+	}
+	stored.Status = status
+	stored.UpdatedAt = updatedAt
+	return nil
+}
+
+// SetUserCredentials changes the password hash and the sealed sec_key atomically. |
+// SetUserCredentials 原子地修改口令散列与封装的 sec_key。
+func (m *memoryStore) SetUserCredentials(_ context.Context, tenantID, userID, passwordHash string, encryptedSecKey []byte, updatedAt time.Time) error {
+	if strings.TrimSpace(tenantID) == "" {
+		return ErrTenantRequired
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	stored, ok := m.users[userID]
+	if !ok {
+		return ErrNotFound
+	}
+	if _, ok := m.members[tenantID][userID]; !ok {
+		return ErrNotFound
+	}
+	stored.PasswordHash = passwordHash
+	stored.EncryptedSecKey = append([]byte(nil), encryptedSecKey...)
+	stored.UpdatedAt = updatedAt
+	return nil
+}
+
+// SetUserSecKey changes only the sealed sec_key. | SetUserSecKey 只修改封装的 sec_key。
+func (m *memoryStore) SetUserSecKey(_ context.Context, tenantID, userID string, encryptedSecKey []byte, updatedAt time.Time) error {
+	if strings.TrimSpace(tenantID) == "" {
+		return ErrTenantRequired
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	stored, ok := m.users[userID]
+	if !ok {
+		return ErrNotFound
+	}
+	if _, ok := m.members[tenantID][userID]; !ok {
+		return ErrNotFound
+	}
+	stored.EncryptedSecKey = append([]byte(nil), encryptedSecKey...)
+	stored.UpdatedAt = updatedAt
+	return nil
+}
+
+// requireRolesLocked reports whether every named role exists in the tenant. |
+// requireRolesLocked 报告每个命名角色是否都存在于该租户。
+func (m *memoryStore) requireRolesLocked(tenantID string, names []string) error {
+	for _, name := range names {
+		name = strings.TrimSpace(name)
+		if name == "" {
+			continue
+		}
+		if _, ok := m.roleNames[tenantID][name]; !ok {
+			return ErrNotFound
+		}
+	}
 	return nil
 }
 
@@ -418,6 +513,9 @@ func (m *memoryStore) AddUserTenant(_ context.Context, userID, tenantID string, 
 	}
 	if _, ok := m.tenants[tenantID]; !ok {
 		return ErrNotFound
+	}
+	if err := m.requireRolesLocked(tenantID, roles); err != nil {
+		return err
 	}
 	if entry, ok := m.members[tenantID][userID]; ok {
 		entry.roles = append([]string(nil), roles...)
@@ -498,16 +596,10 @@ func (m *memoryStore) UpsertRole(_ context.Context, r *Role) error {
 		byName = make(map[string]string)
 		m.roleNames[r.TenantID] = byName
 	}
-	// A rename must release the old name; otherwise the old name keeps resolving to this id and
-	// users carrying it keep the role's permissions (fail-open) after the rename. | 改名必须释放旧名字；
-	// 否则旧名字仍解析到该 ID，携带旧名字的用户在改名后继续拥有该角色的权限（失败开放）。
-	if existing := byID[r.ID]; existing != nil && existing.Name != name {
-		if holder, ok := byName[existing.Name]; ok && holder == r.ID {
-			delete(byName, existing.Name)
-		}
-	}
+	// Same name, different id: the stored id wins, so a rename cannot fork a role. The losing
+	// role keeps its old name mapping untouched. | 同名不同 ID：以库中 ID 为准，避免重命名把角色分裂成两个；
+	// 落败的角色保留原有名称映射，不会被变成无名角色。
 	if holder, dup := byName[name]; dup && holder != r.ID {
-		// Same name, different id: the stored id wins, so a rename cannot fork a role. | 同名不同 ID：以库中 ID 为准，避免重命名把角色分裂成两个。
 		replaced := byID[holder]
 		updated := cloneRole(r)
 		updated.ID = holder
@@ -515,7 +607,16 @@ func (m *memoryStore) UpsertRole(_ context.Context, r *Role) error {
 			updated.TenantID = replaced.TenantID
 		}
 		byID[holder] = updated
+		byName[name] = holder
 		return nil
+	}
+	// A rename must release the old name; otherwise the old name keeps resolving to this id and
+	// users carrying it keep the role's permissions (fail-open) after the rename. | 改名必须释放旧名字；
+	// 否则旧名字仍解析到该 ID，携带旧名字的用户在改名后继续拥有该角色的权限（失败开放）。
+	if existing := byID[r.ID]; existing != nil && existing.Name != name {
+		if holder, ok := byName[existing.Name]; ok && holder == r.ID {
+			delete(byName, existing.Name)
+		}
 	}
 	byID[r.ID] = cloneRole(r)
 	byName[name] = r.ID
@@ -578,6 +679,17 @@ func (m *memoryStore) DeleteRole(_ context.Context, tenantID, roleID string) err
 	delete(byID, roleID)
 	if holder, ok := m.roleNames[tenantID][r.Name]; ok && holder == roleID {
 		delete(m.roleNames[tenantID], r.Name)
+	}
+	// Role names live in the membership records, so detaching them here keeps the delete atomic with
+	// the role row. | 角色名保存在成员关系里，在这里一并摘除才能让删除与角色行保持原子。
+	for _, entry := range m.members[tenantID] {
+		kept := entry.roles[:0]
+		for _, name := range entry.roles {
+			if name != r.Name {
+				kept = append(kept, name)
+			}
+		}
+		entry.roles = kept
 	}
 	return nil
 }

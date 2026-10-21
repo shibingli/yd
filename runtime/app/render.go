@@ -106,12 +106,13 @@ func (a *App) Render(c *router.Ctx, status int, name string, data any) error {
 	if err := a.renderer.Render(&page, name, data); err != nil {
 		return err
 	}
-	if a.layout == "" {
+	layout := layoutName(data, a.layout)
+	if layout == "" {
 		return a.writeHTML(c, status, page.Bytes())
 	}
 
 	var full bytes.Buffer
-	if err := a.renderer.Render(&full, a.layout, layoutData(data, page.String())); err != nil {
+	if err := a.renderer.Render(&full, layout, layoutData(data, page.String())); err != nil {
 		// No layout in this application: serve the bare template. The built-in
 		// engine reports the render package's sentinel, while a renderer
 		// injected through WithRenderer may report the facade's own. | 应用没有布局：
@@ -161,7 +162,8 @@ func (a *App) renderWholeAppend(c *router.Ctx, status int, name string, data any
 	if err != nil {
 		return err
 	}
-	if a.layout == "" {
+	layout := layoutName(data, a.layout)
+	if layout == "" {
 		return a.writeHTML(c, status, page[start:])
 	}
 	// The layout appends after the fragment in the same buffer; only the newly
@@ -170,7 +172,7 @@ func (a *App) renderWholeAppend(c *router.Ctx, status int, name string, data any
 	// | 布局在同一缓冲中追加到片段之后，只写出新增区域。片段转为 template.HTML 数据键
 	// 需要一次字符串转换，这是布局契约本身决定的。
 	layoutStart := len(page)
-	full, err := ar.RenderAppend(page, a.layout, layoutData(data, string(page[start:])))
+	full, err := ar.RenderAppend(page, layout, layoutData(data, string(page[start:])))
 	if br != nil {
 		holder.B = full
 	}
@@ -276,6 +278,17 @@ func withTranslator(data any, t render.Translator) any {
 	}
 	out[render.TranslatorKey] = t
 	return out
+}
+
+// layoutName returns the per-render layout, or fallback when the caller supplies none. |
+// layoutName 返回单次渲染的布局；调用方未提供时返回 fallback。
+func layoutName(data any, fallback string) string {
+	if m, ok := data.(map[string]any); ok {
+		if name, ok := m[render.LayoutKey].(string); ok && strings.TrimSpace(name) != "" {
+			return name
+		}
+	}
+	return fallback
 }
 
 // layoutData builds the data handed to the layout. | layoutData 构造交给布局的数据。

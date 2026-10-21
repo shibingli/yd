@@ -24,10 +24,10 @@ import (
 // Users renders this tenant's user list, including the creation form and one edit form per row.
 //
 // @Summary User list | 用户列表
-// @Description Renders pages/users.html for the tenant of the token. The keyword filters sign-in name, e-mail and display
+// @Description Renders mgr/pages/users.html for the tenant of the token. The keyword filters sign-in name, e-mail and display
 // @Description name. Rows carry the inline edit form, the role checkboxes, the password reset, the enable/disable switch
 // @Description and the sec_key rotation, so one page covers the whole lifecycle without a second navigation level.
-// @Description 为令牌所属租户渲染 pages/users.html；关键字过滤登录名、邮箱与展示名。每行内含编辑表单、角色勾选、口令重置、
+// @Description 为令牌所属租户渲染 mgr/pages/users.html；关键字过滤登录名、邮箱与展示名。每行内含编辑表单、角色勾选、口令重置、
 // @Description 启用/停用开关与 sec_key 轮换，因此一个页面就覆盖了整个生命周期，无需第二层导航。
 // @Tags users
 // @Accept html
@@ -40,7 +40,7 @@ import (
 // @Failure 401 {object} string "no session | 无有效会话"
 // @Failure 403 {object} string "missing user:read, or another tenant | 缺少 user:read，或另一个租户"
 // @Security BearerAuth
-// @Router /users [get]
+// @Router /mgr/users [get]
 func (c *Controller) Users(ctx *router.Ctx) {
 	c.usersPage(ctx, http.StatusOK, field(ctx, FieldKeyword), "")
 }
@@ -69,7 +69,7 @@ func (c *Controller) Users(ctx *router.Ctx) {
 // @Failure 409 {object} string "the sign-in name is taken | 登录名已被占用"
 // @Failure 422 {object} string "validation failure | 校验失败"
 // @Security BearerAuth
-// @Router /users [post]
+// @Router /mgr/users [post]
 func (c *Controller) CreateUser(ctx *router.Ctx) {
 	tenantID, ok := c.tenantID(ctx)
 	if !ok {
@@ -116,7 +116,7 @@ func (c *Controller) CreateUser(ctx *router.Ctx) {
 // @Failure 404 {object} string "no such user in this tenant | 本租户内没有该用户"
 // @Failure 422 {object} string "validation failure | 校验失败"
 // @Security BearerAuth
-// @Router /users/{id} [post]
+// @Router /mgr/users/{id} [post]
 func (c *Controller) UpdateUser(ctx *router.Ctx) {
 	tenantID, ok := c.tenantID(ctx)
 	if !ok {
@@ -163,7 +163,7 @@ func (c *Controller) UpdateUser(ctx *router.Ctx) {
 // @Failure 404 {object} string "no such user in this tenant | 本租户内没有该用户"
 // @Failure 422 {object} string "unknown role | 未知角色"
 // @Security BearerAuth
-// @Router /users/{id}/roles [post]
+// @Router /mgr/users/{id}/roles [post]
 func (c *Controller) SetUserRoles(ctx *router.Ctx) {
 	tenantID, ok := c.tenantID(ctx)
 	if !ok {
@@ -230,7 +230,7 @@ func (c *Controller) SetUserRoles(ctx *router.Ctx) {
 // @Failure 404 {object} string "no such user in this tenant | 本租户内没有该用户"
 // @Failure 409 {object} string "refusing to disable your own account | 拒绝停用自己的账号"
 // @Security BearerAuth
-// @Router /users/{id}/status [post]
+// @Router /mgr/users/{id}/status [post]
 func (c *Controller) SetUserStatus(ctx *router.Ctx) {
 	tenantID, ok := c.tenantID(ctx)
 	if !ok {
@@ -284,7 +284,7 @@ func (c *Controller) SetUserStatus(ctx *router.Ctx) {
 // @Failure 403 {object} string "missing user:update | 缺少 user:update"
 // @Failure 404 {object} string "no such user in this tenant | 本租户内没有该用户"
 // @Security BearerAuth
-// @Router /users/{id}/password [post]
+// @Router /mgr/users/{id}/password [post]
 func (c *Controller) SetUserPassword(ctx *router.Ctx) {
 	tenantID, ok := c.tenantID(ctx)
 	if !ok {
@@ -326,7 +326,7 @@ func (c *Controller) SetUserPassword(ctx *router.Ctx) {
 // @Failure 403 {object} string "missing user:update | 缺少 user:update"
 // @Failure 404 {object} string "no such user in this tenant | 本租户内没有该用户"
 // @Security BearerAuth
-// @Router /users/{id}/sec-key [post]
+// @Router /mgr/users/{id}/sec-key [post]
 func (c *Controller) RotateUserSecKey(ctx *router.Ctx) {
 	tenantID, ok := c.tenantID(ctx)
 	if !ok {
@@ -362,7 +362,7 @@ func (c *Controller) RotateUserSecKey(ctx *router.Ctx) {
 // @Failure 401 {object} string "no session | 无有效会话"
 // @Failure 403 {object} string "missing user:create | 缺少 user:create"
 // @Security BearerAuth
-// @Router /users/new [get]
+// @Router /mgr/users/new [get]
 func (c *Controller) NewUserForm(ctx *router.Ctx) {
 	tenantID, ok := c.tenantID(ctx)
 	if !ok {
@@ -396,7 +396,7 @@ func (c *Controller) NewUserForm(ctx *router.Ctx) {
 // @Failure 403 {object} string "missing user:update | 缺少 user:update"
 // @Failure 404 {object} string "no such user in this tenant | 本租户内没有该用户"
 // @Security BearerAuth
-// @Router /users/{id}/edit [get]
+// @Router /mgr/users/{id}/edit [get]
 func (c *Controller) EditUserForm(ctx *router.Ctx) {
 	tenantID, ok := c.tenantID(ctx)
 	if !ok {
@@ -449,7 +449,7 @@ func (c *Controller) EditUserForm(ctx *router.Ctx) {
 // @Failure 409 {object} string "the home or default membership cannot be removed | 身份租户或默认租户不可移除"
 // @Failure 422 {object} string "no tenant selected, or the default is outside the selection | 未选择租户，或默认租户不在选择内"
 // @Security BearerAuth
-// @Router /users/{id}/tenants [post]
+// @Router /mgr/users/{id}/tenants [post]
 func (c *Controller) SetUserTenants(ctx *router.Ctx) {
 	tenantID, ok := c.tenantID(ctx)
 	if !ok {

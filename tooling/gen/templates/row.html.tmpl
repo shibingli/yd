@@ -4,11 +4,11 @@
      Row fragment: the data context is one model.<Name>. The list uses it to build the tbody,
      and the detail and update handlers return the very same fragment, so htmx can swap the
      response straight into a table row. */%>
-<tr class="yd-row" id="<% .Snake %>-{{ .<%.Primary.GoName%> }}">
+<tr class="yd-row" id="<% .Snake %>-{{ .DOMID }}">
 <% range .ListFields %><% if .IsTime %>  <td class="yd-cell">{{ if .<%.GoName%>.IsZero }}-{{ else }}{{ .<%.GoName%>.Format "<%.TimeLayout%>" }}{{ end }}</td>
 <% else %>  <td class="yd-cell">{{ .<%.GoName%> }}</td>
 <% end %><% end %>  <td class="yd-cell yd-row-actions">
-    <button class="yd-btn" type="button" hx-get="<% .Route %>/{{ .<%.Primary.GoName%> }}/edit" hx-target="#<% .Snake %>-form" hx-swap="innerHTML">编辑 | Edit</button>
-    <button class="yd-btn yd-btn-danger" type="button" hx-delete="<% .Route %>/{{ .<%.Primary.GoName%> }}" hx-target="#<% .Snake %>-{{ .<%.Primary.GoName%> }}" hx-swap="delete" hx-confirm="删除这条<% .Name %>记录？| Delete this <% .Snake %> record?">删除 | Delete</button>
+    <button class="yd-btn" type="button" hx-get="<% .Route %>/{{ printf "%v" .<%.Primary.GoName%> | pathEscape }}/edit" hx-target="#<% .Snake %>-form" hx-swap="innerHTML">编辑 | Edit</button>
+    <button class="yd-btn yd-btn-danger" type="button" hx-delete="<% .Route %>/{{ printf "%v" .<%.Primary.GoName%> | pathEscape }}" hx-target="closest tr" hx-swap="delete" hx-confirm="删除这条<% .Name %>记录？| Delete this <% .Snake %> record?">删除 | Delete</button>
   </td>
 </tr>

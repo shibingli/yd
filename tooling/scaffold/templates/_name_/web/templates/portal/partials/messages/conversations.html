@@ -1,0 +1,39 @@
+{{/*
+  partials/messages/conversations.html —— 会话列表。
+  partials/messages/conversations.html — the conversation list.
+
+  列表由服务端渲染，WebSocket 事件到达后 yd-message.js 重新取本片段并以 innerMorph 换入，
+  因此未读数、最后一条消息与顺序一起更新，而不需要前端再算一遍。
+  The list is server-rendered; after a WebSocket event yd-message.js refetches this fragment and morphs it in, so unread
+  counts, the last message and the order all update together without the front end recomputing anything.
+
+  数据契约 | Data contract: .Conversations（[]conversationView）、.ActiveID。
+*/}}
+{{- define "portal/partials/messages/conversations" -}}
+<div id="yd-conversation-list" class="yd-msg-conversations" data-yd-conversation-list>
+  {{- range .Conversations }}
+  <a class="yd-msg-conv{{ if .Active }} yd-msg-conv--active{{ end }}" href="/messages/{{ .ID }}"
+     hx-get="/messages/{{ .ID }}" hx-target="#yd-workspace" hx-swap="innerMorph" hx-push-url="true"
+     data-yd-conversation-id="{{ .ID }}"{{ if .Active }} aria-current="page"{{ end }}>
+    <span class="yd-avatar yd-avatar--sm" aria-hidden="true">{{ .Initial }}</span>
+    <span class="yd-msg-conv__main">
+      <span class="yd-msg-conv__title">
+        {{- if .IsSystem }}{{ template "portal/partials/icon" "lucide-megaphone" }}{{ end -}}
+        {{ .Title }}
+        {{- if .IsGroup }} <span class="yd-badge yd-badge--muted">{{ len .Members }}</span>{{ end }}
+      </span>
+      <span class="yd-msg-conv__preview">
+        {{- if .LastRecalled }}{{ tr "message.recalled_short" }}{{ else }}{{ .LastPreview }}{{ end -}}
+      </span>
+    </span>
+    <span class="yd-msg-conv__meta">
+      {{- if .LastWhen }}<span class="yd-msg-conv__time">{{ .LastWhen }}</span>{{ end }}
+      {{- if gt .Unread 0 }}<span class="yd-badge yd-badge--danger">{{ .Unread }}</span>{{ end }}
+    </span>
+  </a>
+  {{- else }}
+  <p class="yd-hint">{{ tr "message.no_conversations" }}</p>
+  {{- end }}
+</div>
+{{- end -}}
+{{ template "portal/partials/messages/conversations" . }}

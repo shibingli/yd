@@ -36,6 +36,11 @@ var (
 	ErrRecallExpired = errx.New("the recall window has expired | 撤回窗口已过期")
 	// ErrEditExpired reports an edit outside the configured window. | ErrEditExpired 表示编辑超出配置窗口。
 	ErrEditExpired = errx.New("the edit window has expired | 编辑窗口已过期")
+	// ErrRecalled reports a write to a recalled message tombstone. | ErrRecalled 表示写入已撤回的消息墓碑。
+	ErrRecalled = errx.New("the message has been recalled | 消息已撤回")
+	// ErrRequestClosed reports a friend request transition that lost a concurrent race. |
+	// ErrRequestClosed 表示好友申请状态转换输给了并发操作。
+	ErrRequestClosed = errx.New("the friend request is no longer pending | 好友申请已不在待处理状态")
 	// ErrNotSender reports a mutation of a message sent by somebody else. | ErrNotSender 表示变更他人发送的消息。
 	ErrNotSender = errx.New("only the sender may change this message | 只有发送者可以变更该消息")
 	// ErrNotMember reports an operation on a conversation the actor does not belong to. | ErrNotMember 表示操作不属于自己的会话。

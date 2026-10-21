@@ -14,7 +14,9 @@ import (
 	"strconv"
 
 	"{{ .Module }}/internal/model"
+	"{{ .YdModule }}/cms"
 	"{{ .YdModule }}/core/errx"
+	"{{ .YdModule }}/messaging"
 	"{{ .YdModule }}/security/guomi"
 	"{{ .YdModule }}/core/logx"
 	"{{ .YdModule }}/http/router"
@@ -24,32 +26,77 @@ import (
 // placeholderSize is the placeholder's edge length in pixels. | placeholderSize 是占位图的边长（像素）。
 const placeholderSize = 96
 
-// recentLimit 是首页展示的最近用户条数：首页是概览而不是清单，完整名单在 /users。
-// recentLimit caps the recent users shown on the home page: the home page is an overview, not a list, and the full roster lives at /users.
+// recentLimit 是首页展示的最近用户条数：首页是概览而不是清单，完整名单在 /mgr/users。
+// recentLimit caps the recent users shown on the home page: the home page is an overview, not a list, and the full roster lives at /mgr/users.
 const recentLimit = 5
 
-// Index 首页：整页请求返回布局包裹的页面，htmx 请求只返回内容片段。
-// Index serves the home page: a full-page request gets the layout-wrapped page while an htmx request gets only the content fragment.
+// PortalHome renders the member portal landing page. | PortalHome 渲染成员门户首页。
 //
-// @Summary Home page | 首页
-// @Description Renders pages/home.html for the tenant of the token: the counters, the recent users of that tenant and the
-// @Description SSE clock. The numbers come from tenant-scoped reads, so two tenants watching the same deployment never
-// @Description see each other's rows. Without HX-Request the fragment is wrapped in layouts/base.html, with HX-Request:
-// @Description true only the fragment is returned, which is how htmx performs a partial navigation.
-// @Description 为令牌所属租户渲染 pages/home.html：计数器、该租户的最近用户与 SSE 时钟。数字来自按租户过滤的读取，因此观察同一份
-// @Description 部署的两个租户永远看不到对方的记录。不带 HX-Request 时片段由 layouts/base.html 包裹，带 HX-Request: true 时只返回
-// @Description 片段，这正是 htmx 局部导航所依赖的语义。
-// @Tags pages
-// @Accept html
+// @Summary Portal home | 门户首页
+// @Description Renders portal/pages/home.html: the identity card, the member quick entries and the latest public
+// @Description articles. It never carries management counters or back-office links. |
+// @Description 渲染 portal/pages/home.html：身份卡、成员快捷入口与最新公开文章；绝不包含管理计数或后台链接。
+// @Tags portal
 // @Produce html
-// @Param HX-Request header string false "htmx partial request | htmx 局部请求标记"
-// @Success 200 {object} string "home page or fragment | 首页整页或片段"
+// @Success 200 {object} string "portal home or fragment | 门户首页整页或片段"
+// @Failure 401 {object} string "no session | 无有效会话"
+// @Security BearerAuth
+// @Router / [get]
+func (c *Controller) PortalHome(ctx *router.Ctx) {
+	tenantID, ok := c.tenantID(ctx)
+	if !ok {
+		return
+	}
+	actor := c.cmsActor(ctx)
+	data := map[string]any{
+		"Unread":       messaging.UnreadSummary{},
+		"Articles":     []model.CMSArticle{},
+		"Categories":   []cms.CategoryOption{},
+		"CMSAvailable": c.CMSAvailable(),
+	}
+	if c.MessagesAvailable() {
+		if summary, err := c.messages.Unread(ctx.Request.Context(), c.messageActor(ctx)); err == nil {
+			data["Unread"] = summary
+		}
+	}
+	if c.CMSAvailable() {
+		if settings, err := c.cms.Settings(ctx.Request.Context(), tenantID); err == nil {
+			data["Site"] = settings
+		}
+		if page, err := c.cms.Articles(ctx.Request.Context(), tenantID, cms.ArticleFilter{
+			Kind: cms.KindPost, PublicOnly: true, Page: 1, PageSize: 4,
+		}); err == nil {
+			data["Articles"] = cmsArticleRows(page.Items, actor)
+		}
+		if options, err := c.cms.PublicCategoryOptions(ctx.Request.Context(), tenantID); err == nil {
+			visible := make([]cms.CategoryOption, 0, len(options))
+			for _, option := range options {
+				if option.Visible {
+					visible = append(visible, option)
+				}
+			}
+			data["Categories"] = visible
+		}
+	}
+	c.render(ctx, http.StatusOK, TplPortalHome, c.view(ctx, "门户首页 | Portal", data))
+}
+
+// ManagementHome renders the back-office overview. | ManagementHome 渲染管理后台概览。
+//
+// @Summary Management overview | 管理概览
+// @Description Renders mgr/pages/home.html for the tenant of the token: the counters, the recent users of that tenant
+// @Description and the system gauges. It is reachable only under /mgr and never appears in the portal. |
+// @Description 为令牌所属租户渲染 mgr/pages/home.html：计数器、该租户的最近用户与系统仪表盘。
+// @Description 它只在 /mgr 下可达，绝不出现在门户中。
+// @Tags mgr
+// @Produce html
+// @Success 200 {object} string "overview page or fragment | 概览整页或片段"
 // @Failure 400 {object} string "no tenant in context | 上下文没有租户"
 // @Failure 401 {object} string "no session | 无有效会话"
 // @Failure 500 {object} string "render failure fragment | 渲染失败片段"
 // @Security BearerAuth
-// @Router / [get]
-func (c *Controller) Index(ctx *router.Ctx) {
+// @Router /mgr [get]
+func (c *Controller) ManagementHome(ctx *router.Ctx) {
 	tenantID, ok := c.tenantID(ctx)
 	if !ok {
 		return
@@ -69,7 +116,7 @@ func (c *Controller) Index(ctx *router.Ctx) {
 	// One provider snapshot feeds both cards, so the gauges and the middleware table describe the same
 	// instant. | 一次 provider 快照同时供给两张卡片，因此仪表盘与中间件表描述的是同一时刻。
 	snapshot := c.provider.Snapshot()
-	c.render(ctx, http.StatusOK, TplHome, c.view(ctx, "概览 | Overview", map[string]any{
+	c.render(ctx, http.StatusOK, TplManagementHome, c.view(ctx, "概览 | Overview", map[string]any{
 		"Users":      head(users, recentLimit),
 		"UserCount":  len(users),
 		"RoleCount":  len(roles),
@@ -79,8 +126,9 @@ func (c *Controller) Index(ctx *router.Ctx) {
 	}))
 }
 
-// Metrics 返回首页仪表盘的指标片段，由首页每 5 秒轮询刷新一次。
-// Metrics returns the dashboard metrics fragment, polled by the home page every five seconds.
+// Metrics 返回管理概览的系统指标片段；实时刷新由 /mgr/ws/metrics 推送，此端点仅用于直连与无脚本回退。
+// Metrics returns the management overview system fragment; live updates arrive over /mgr/ws/metrics and this endpoint
+// only serves direct requests and the no-script fallback.
 //
 // @Summary Resource metrics fragment | 资源指标片段
 // @Description Renders the gauge grid for the host CPU and memory plus this process's CPU and memory. The fragment is
@@ -96,7 +144,7 @@ func (c *Controller) Index(ctx *router.Ctx) {
 // @Success 200 {object} string "metrics fragment | 指标片段"
 // @Failure 401 {object} string "no session | 无有效会话"
 // @Security BearerAuth
-// @Router /metrics [get]
+// @Router /mgr/metrics [get]
 func (c *Controller) Metrics(ctx *router.Ctx) {
 	// The system gauges come from the same provider as the middleware table; the display is unchanged,
 	// but the handler no longer knows about the concrete sampler. | 系统仪表盘与中间件表来自同一个 provider；

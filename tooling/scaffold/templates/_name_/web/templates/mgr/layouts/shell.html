@@ -1,0 +1,111 @@
+{{/*
+  mgr/layouts/shell.html —— 管理后台外壳：侧栏、顶栏、工作区、确认框与右侧抽屉。
+  mgr/layouts/shell.html — the management back-office shell: rail, top bar, workspace, confirmation dialog and drawer.
+
+  本文件只写 #yd-shell 的内部内容，绝不出现 <html>、<head> 或 <body>；它只服务受保护的管理页面，
+  因此没有匿名分支，也不建立消息中心的 WebSocket 连接——管理端不重复门户的实时通道。
+  This file contains only the inside of #yd-shell and never <html>, <head> or <body>. It serves protected
+  management pages only, so it has no anonymous branch and opens no message-centre WebSocket: the back office never
+  duplicates the portal's realtime channel.
+*/}}
+<a class="yd-skip-link" href="#yd-workspace">{{ tr "ui.skip" }}</a>
+
+{{ template "mgr/partials/sidebar" . }}
+<div class="yd-sidebar-backdrop" data-yd-sidebar-backdrop aria-hidden="true"></div>
+
+<div class="yd-main">
+  <header class="yd-topbar" role="banner">
+    <button type="button" class="yd-icon-btn yd-topbar__menu" data-yd-sidebar-open
+            aria-controls="yd-sidebar" aria-expanded="false"
+            data-yd-i18n-attr="aria-label:nav.open_menu" aria-label="{{ tr "nav.open_menu" }}">
+      <span aria-hidden="true">☰</span>
+    </button>
+    <div class="yd-topbar__left">
+      <p class="yd-topbar__title">{{ .Title }}</p>
+    </div>
+    <nav class="yd-topbar__right" aria-label="{{ tr "ui.utility_links" }}">
+      {{ template "mgr/partials/shell-switches" . }}
+
+      {{- $activeTenant := "" }}{{ with .Tenant }}{{ $activeTenant = .ID }}{{ end }}
+      {{- with .Tenants }}
+      <details class="yd-menu yd-tenant" data-yd-menu>
+        <summary class="yd-btn yd-btn--ghost yd-btn--sm yd-tenant__trigger">
+          <span class="yd-tenant__label">{{ tr "tenant.current" }}</span>
+          <span class="yd-tenant__current">{{ with $.Tenant }}{{ .Display }}{{ end }}</span>
+          <span class="yd-tenant__caret" aria-hidden="true">▾</span>
+        </summary>
+        <div class="yd-menu__panel yd-tenant__panel">
+          <p class="yd-tenant__heading">{{ tr "tenant.switch" }}</p>
+          <form method="post" action="/tenant/switch"
+                hx-post="/tenant/switch" hx-target="#yd-workspace"
+                data-yd-confirm="{{ tr "confirm.switch_tenant" }}"
+                hx-disabled-elt="find button[type='submit']">
+            {{- range . }}
+            <button type="submit" name="tenant" value="{{ .ID }}"
+                    class="yd-menu__item yd-menu__item--row{{ if eq .ID $activeTenant }} yd-menu__item--active{{ end }}">
+              {{- if eq .ID $.DefaultTenantID }}<span class="yd-badge yd-badge--info">{{ tr "tenant.default" }}</span>{{ end }}
+              <span class="yd-tenant__name">{{ .Display }}</span>
+              {{- if eq .ID $activeTenant }}<span class="yd-tenant__check" aria-hidden="true">✓</span>{{ end }}
+            </button>
+            {{- end }}
+          </form>
+        </div>
+      </details>
+      {{- end }}
+
+      <details class="yd-user yd-menu" data-yd-user-menu data-yd-menu>
+        <summary class="yd-user__trigger" aria-haspopup="menu">
+          <span class="yd-user__avatar">
+            <span class="yd-avatar yd-avatar--sm" aria-hidden="true">{{ .User.Initial }}</span>
+          </span>
+          <span class="yd-user__name">{{ .User.Display }}</span>
+          <span class="yd-user-menu__caret" aria-hidden="true">▾</span>
+        </summary>
+        <div class="yd-user__menu yd-menu__panel" role="menu" aria-label="{{ tr "nav.user_menu" }}">
+          <a class="yd-menu__item yd-user-menu__item" role="menuitem" href="/account"
+             hx-get="/account" hx-target="#yd-workspace" hx-swap="innerMorph" hx-push-url="true">
+            {{ template "mgr/partials/icon" "lucide-user-round" }}<span class="yd-user-menu__label">{{ tr "nav.my_profile" }}</span>
+          </a>
+          <a class="yd-menu__item yd-user-menu__item" role="menuitem" href="/">
+            {{ template "mgr/partials/icon" "lucide-house" }}<span class="yd-user-menu__label">{{ tr "nav.back_to_portal" }}</span>
+          </a>
+        </div>
+      </details>
+      <form method="post" action="/logout" hx-post="/logout" hx-target="#yd-workspace" hx-swap="innerMorph"
+            data-yd-confirm="{{ tr "confirm.logout" }}">
+        <button type="submit" class="yd-btn yd-btn--ghost yd-btn--sm" data-yd-signout>
+          {{ template "mgr/partials/icon" "lucide-log-out" }}
+          <span>{{ tr "ui.sign_out" }}</span>
+        </button>
+      </form>
+    </nav>
+  </header>
+
+  <div id="yd-errors" class="yd-errors" role="alert" aria-live="assertive" data-yd-errors-outlet></div>
+  <main id="yd-workspace" class="yd-workspace" tabindex="-1" data-yd-workspace>{{ .Content }}</main>
+  {{ template "mgr/partials/flash" . }}
+  <footer class="yd-footer">
+    <p>{{ tr "app.tagline" }} · {{ .Module }}</p>
+  </footer>
+</div>
+
+<dialog id="yd-confirm" class="yd-dialog yd-confirm" aria-labelledby="yd-confirm-title">
+  <form method="dialog" class="yd-dialog__panel">
+    <h2 class="yd-dialog__title" id="yd-confirm-title">{{ tr "confirm.title" }}</h2>
+    <p class="yd-dialog__text" data-yd-confirm-text></p>
+    <div class="yd-dialog__actions">
+      <button value="cancel" class="yd-btn yd-btn--ghost">{{ tr "ui.cancel" }}</button>
+      <button value="confirm" class="yd-btn yd-btn--primary yd-btn--danger">{{ tr "ui.confirm" }}</button>
+    </div>
+  </form>
+</dialog>
+
+<dialog id="yd-drawer" class="yd-dialog yd-drawer" aria-label="{{ tr "ui.edit" }}">
+  <div class="yd-dialog__panel yd-drawer__panel">
+    <button type="button" class="yd-icon-btn yd-drawer__close" data-yd-drawer-close
+            aria-label="{{ tr "ui.close" }}">×</button>
+    <div id="yd-drawer-errors" class="yd-errors yd-errors--drawer" role="alert" aria-live="assertive"
+         data-yd-errors-outlet></div>
+    <div id="yd-drawer-body" class="yd-drawer__body"></div>
+  </div>
+</dialog>

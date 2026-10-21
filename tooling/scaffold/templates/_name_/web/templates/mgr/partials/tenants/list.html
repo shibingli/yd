@@ -1,0 +1,55 @@
+{{/*
+  partials/tenants/list.html —— 租户表格与空状态（由 pages/tenants.html 引用）。
+  partials/tenants/list.html — the tenant table and its empty state (referenced by pages/tenants.html).
+
+  数据契约 | Data contract: .Rows（[]tenantRow，每行含 .Tenant 与 .Current）、.Empty、.Keyword。
+  行里带的 Current 标记是这一页唯一的业务判断：当前请求所属的租户被单独标出来，运维点进去之前先知道自己站在哪里。
+  The Current flag carried by each row is this page's only business judgement: the tenant this very request belongs to is
+  marked out so that an operator knows where they stand before clicking anything.
+*/}}
+{{- define "mgr/partials/tenants/list" -}}
+<div class="yd-table__wrap" data-yd-table>
+  <table class="yd-table" aria-label="{{ tr "page.tenants.title" }}">
+    <caption class="sr-only">{{ tr "page.tenants.title" }}</caption>
+    <thead class="yd-table__head">
+      <tr>
+        <th class="yd-table__th" scope="col">{{ tr "field.slug" }}</th>
+        <th class="yd-table__th" scope="col">{{ tr "field.name" }}</th>
+        <th class="yd-table__th" scope="col">{{ tr "field.status" }}</th>
+        <th class="yd-table__th" scope="col">{{ tr "field.created" }}</th>
+      </tr>
+    </thead>
+    <tbody id="yd-tenant-rows" class="yd-table__body" hx-swap="outerMorph">
+      {{ with .Rows }}
+      {{ range . }}
+      <tr class="yd-table__row" id="yd-tenant-{{ .Tenant.ID }}">
+        <td class="yd-table__td">
+          <span class="yd-avatar yd-avatar--sm" aria-hidden="true">{{ .Tenant.Initial }}</span>
+          <code class="yd-code">{{ .Tenant.Slug }}</code>
+        </td>
+        <td class="yd-table__td">
+          <span class="yd-table__primary">{{ .Tenant.Name }}</span>
+          {{/* 当前租户标记：它读的是请求上下文里的租户，而不是页面上的某个下拉框。 */}}
+          {{ if .Current }}<span class="yd-badge yd-badge--info">{{ tr "tenant.current" }}</span>{{ end }}
+        </td>
+        <td class="yd-table__td">
+          {{ if .Tenant.Active }}
+          <span class="yd-badge yd-badge--success">{{ tr "status.active" }}</span>
+          {{ else }}
+          <span class="yd-badge yd-badge--warn">{{ tr "status.disabled" }}</span>
+          {{ end }}
+        </td>
+        <td class="yd-table__td yd-table__td--muted">{{ .Tenant.CreatedAt.Format "2006-01-02 15:04" }}</td>
+      </tr>
+      {{ end }}
+      {{ else }}
+      <tr class="yd-table__row yd-table__row--empty">
+        <td class="yd-table__td" colspan="4">
+          {{ if $.Empty }}{{ tr "tenant.no_match" }}{{ else }}{{ tr "tenant.empty" }}{{ end }}
+        </td>
+      </tr>
+      {{ end }}
+    </tbody>
+  </table>
+</div>
+{{- end -}}

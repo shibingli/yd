@@ -10,11 +10,11 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"{{ .Module }}/internal/middleware"
+	"{{ .YdModule }}/http/router"
 	"{{ .YdModule }}/messaging"
 	"{{ .YdModule }}/security/auth"
 	"{{ .YdModule }}/security/authz"
-	"{{ .Module }}/internal/middleware"
-	"{{ .YdModule }}/http/router"
 )
 
 // 消息页面使用的静态资产：编辑器与实时脚本只在这些页面加载，避免拖慢其它工作区。
@@ -216,7 +216,7 @@ func (c *Controller) messageViewOf(actor messaging.Actor, msg messaging.MessageV
 	withinRecall := now.Sub(msg.CreatedAt) <= c.messages.Options().RecallWindow
 	view.CanEdit = sent && (actor.Manage || (view.Mine && !systemOrigin && withinEdit))
 	view.CanRecall = sent && !systemOrigin && (actor.Manage || (view.Mine && withinRecall))
-	view.CanRevoke = sent && systemOrigin && (actor.System || actor.Manage)
+	view.CanRevoke = sent && systemOrigin && actor.System
 	view.CanPin = sent && systemOrigin && actor.Manage
 	return view
 }

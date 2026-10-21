@@ -112,6 +112,27 @@ func rowsError(result *gorm.DB) error {
 	return nil
 }
 
+// updateExisting accepts a no-op update as success but reports a missing row. MySQL reports zero
+// affected rows for unchanged values, so existence is checked explicitly. |
+// updateExisting 把原样更新视为成功，但记录确实消失时报告未找到。MySQL 对未变化的值报告零影响行，
+// 因此需要显式确认存在性。
+func (s *Store) updateExisting(ctx context.Context, result *gorm.DB, model any, query string, args ...any) error {
+	if result.Error != nil {
+		return queryError(result.Error)
+	}
+	if result.RowsAffected > 0 {
+		return nil
+	}
+	var count int64
+	if err := s.dbc(ctx).Model(model).Where(query, args...).Count(&count).Error; err != nil {
+		return queryError(err)
+	}
+	if count == 0 {
+		return errx.Detail(messaging.ErrNotFound, "row does not exist | 记录不存在")
+	}
+	return nil
+}
+
 // inChunks is kept small enough for every dialect's parameter ceiling. | inChunks 保持足够小，适配各数据库的参数上限。
 const inChunks = 200
 
@@ -131,9 +152,12 @@ func chunks(ids []string) [][]string {
 	return out
 }
 
-// likePattern escapes LIKE metacharacters and wraps the term in wildcards. | likePattern 转义 LIKE 元字符并在词两侧加通配符。
+// likePattern escapes LIKE metacharacters and wraps the term in wildcards. The escape character is
+// "!" to match every query's ESCAPE '!' clause; escaping with a backslash silently misses literal
+// percent/underscore terms. | likePattern 转义 LIKE 元字符并在词两侧加通配符。转义符使用 "!"，
+// 与所有查询的 ESCAPE '!' 一致；用反斜杠转义会让含字面 %/_ 的检索静默失配。
 func likePattern(term string) string {
-	replacer := strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`)
+	replacer := strings.NewReplacer("!", "!!", "%", "!%", "_", "!_")
 	return "%" + strings.ToLower(replacer.Replace(strings.TrimSpace(term))) + "%"
 }
 

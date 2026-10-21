@@ -137,6 +137,27 @@
    `message.node_id`。未生成 Redis 集成的项目只编译本地总线，事后补配置不生效。
 7. **数据表**：`yd_msg_*` 由 `messaginggorm.Migrate` 建出；索引以 `tenant_id` 打头。改表结构时同步迁移与测试。
 
+## 6.2 内容管理与发布（强制）
+
+CMS 的规则在框架域包 `{{ .YdModule }}/cms`（不依赖 GORM 与 HTTP），持久化在
+`{{ .YdModule }}/cms/gormstore`；本项目的装配与展示在 `internal/service/cms.go`、
+`internal/controller/cms_admin.go`、`cms_public.go`、`cms_api.go`、`cms_view.go`。
+详细说明见框架仓库的 `docs/cms.md`。修改时遵守以下边界：
+
+1. **租户硬边界**：所有 `yd_cms_*` 查询以 `tenant_id` 为第一条件；跨租户与不存在一律 404，不泄露存在性。
+2. **无限级分类**：物化路径 `path` 含自身并以 `/` 结尾；移动分类由服务层计算、Store 事务重写整棵子树；
+   父级不得是自身或后代，非空分类不得删除。
+3. **发布状态机**：`draft → pending → published → archived`；发布/定时/下线/归档/恢复要求
+   `cms-article:publish`，通过/驳回要求 `cms-article:review`；作者边界由 `cms.SaveArticle` /
+   `cms.DeleteArticle` 强制，前端显隐不是安全边界。
+4. **富文本**：Markdown 源 + 服务端 goldmark 安全渲染；原始 HTML 与危险链接必须移除；模板只输出
+   `model.CMSArticle.Body` / `model.CMSComment.Body`。编辑器是本地 EasyMDE，图片经
+   `data-yd-editor-upload="/mgr/cms/media/upload"` 上传。
+5. **媒体**：MIME 由服务端嗅探，白名单不含 SVG/HTML/脚本；键为 `tenantID/mediaID`，不含原始文件名。
+6. **公开站点**：`/blog` 的匿名租户取 `cms.public_tenant`（留空用种子租户）；静态段先于
+   `/blog/:slug` 登记；公开列表只返回已发布、公开且 `publish_at` 已到期的文章。
+7. **数据表**：`yd_cms_*` 由 `cmsgorm.Migrate` 建出；索引以 `tenant_id` 打头。改表结构时同步迁移与测试。
+
 ## 7. 提交纪律（强制）
 
 **一律禁止在提交信息、作者、署名、脚注、PR 描述、分支名、代码注释与文档中出现任何 Claude / Anthropic / AI 助手相关内容**
@@ -191,28 +212,28 @@ yd gen module|crud   # 低代码生成（DB Schema 或 Go Struct）
   登录前外壳只保留登录卡片（含离线 SVG 品牌区 `/static/img/yd-icon.svg`）与右上角的语言/主题切换。
   favicon 同样指向该同源图标，禁止 `data:,` 空图标或外链；侧栏页脚只显示版本，不列中间件与组件。
 - 接口组（接口文档、OpenAPI JSON）一律 `target="_blank" rel="noopener noreferrer"` 新标签页打开，
-  页面内的 `/docs`、`/openapi.json` 链接同样处理；它们不能换进工作区。
+  页面内的 `/mgr/docs`、`/api/v1/openapi.json` 链接同样处理；它们不能换进工作区。
 - 新增/编辑一律用右侧抽屉（`#yd-drawer` + `data-yd-drawer-open` + `hx-get` 片段）；
   列表操作用下拉菜单（`details.yd-menu`），顶栏租户切换复用同一套面板与条目样式（不用原生 select）；
   所有变更动作必须带 `data-yd-confirm` 并经过全局确认对话框；多按钮表单确认后必须把
   `event.submitter` 传回 `requestSubmit`，否则按钮的 `name`/`value` 会丢失。
-- 图标一律写成 `{{ "{{template \"partials/icon\" \"lucide-…\"}}" }}`：框架 sprite 由 `yd icons sync`
+- 图标一律写成 `{{ "{{template \"portal/partials/icon\" \"lucide-…\"}}" }}（后台用 \"mgr/partials/icon\"）`：框架 sprite 由 `yd icons sync`
   按模板引用生成，项目自定义图标同样运行该命令；禁止内联 SVG、Iconify 运行时与 CDN。
   `yd assets minify` 同时压缩 `.js` 与 `.svg`，生产模板经 `asset` 助手解析 `.min.svg`。
-- 首页系统资源与中间件运行时共用一条 WebSocket `/ws/metrics`：服务端每 5 秒把一个
+- 首页系统资源与中间件运行时共用一条 WebSocket `/mgr/ws/metrics`：服务端每 5 秒把一个
   `<hx-partial hx-target="#yd-live-metrics" hx-swap="innerMorph">` 推给每条连接，首帧在握手后立即写出；
-  不得再为这两块内容写 HTTP 定时轮询或 HTTP 重同步。`GET /metrics` 与 `/metrics/middleware`
+  不得再为这两块内容写 HTTP 定时轮询或 HTTP 重同步。`GET /mgr/metrics` 与 `/mgr/metrics/middleware`
   仅作为可直接取用的服务端片段保留。仪表盘用纯 SVG 展示宿主机与进程的 CPU/内存，
   指标来自 `core/sysinfo` 与 `runtime/metrics`，平台不支持时显示「不可用」，不得编造数字。
 - 系统资源与中间件运行时统一经 `runtime/metricsx.Provider` 读取：首页两张卡片共用一次
   `Provider.Snapshot()`，控制器不得直连 `MetricsService`。
-- 中间件运行时数据来自 `runtime/metricsx`，由 `/ws/metrics` 推送。所有中间件必须经
+- 中间件运行时数据来自 `runtime/metricsx`，由 `/mgr/ws/metrics` 推送。所有中间件必须经
   `application.UseObserved(descriptor, mw)` 装配，描述符集中登记在 `internal/middleware/observability.go`；
   自定义中间件可复用 `middleware.MetricsDescriptor("name")` 的 custom 回退，并用
   `Entry.Incr/Add/SetGauge` 发布业务计数。状态为 `registered → active → stopped`，关闭后计数保留；
   请求路径只用原子操作，panic 只由最内层观察者计数并重抛。详见框架 `docs/middleware-metrics.md`。
 - htmx 4 只交换匿名 SSE 消息：`Broker.PublishHTML` 发送无名 `data:` 消息，命名事件仅用于旁路通知；
-  OpenAPI 查看器脚本必须是同源外链，内联脚本会被 CSP 拦截并让 `/docs` 空白。
+  OpenAPI 查看器脚本必须是同源外链，内联脚本会被 CSP 拦截并让 `/mgr/docs` 空白。
 - 重连交给 hx-sse / hx-ws 的指数退避（SSE 自动回传 `Last-Event-ID`，WS 断线期间排队并在重开后 flush）；
   `#yd-connection` 是唯一横幅，显示连接中 / 重连中（#N）/ 已失败 / 离线，全部恢复后隐藏并给出 3 秒成功提示。
   恢复时按 `data-yd-resync` 重取片段并派发 `yd:realtime:recovered`；导航与 `htmx:after:swap` 必须清理
@@ -266,3 +287,24 @@ yd gen module|crud   # 低代码生成（DB Schema 或 Go Struct）
    依赖克制是硬约束，打包工具一律走外部 CLI。
 5. **产物形态不变**：无论走哪条路径，镜像里都必须是一个 `CGO_ENABLED=0` 静态链接的二进制
    （交叉编译护栏见 AGENTS.md），前端资产已由 `go:embed` 嵌入，镜像内不需要任何运行时依赖。
+
+## 数据关系与完整性（强制）
+
+**除主键与索引外，所有数据关联都由本项目的应用代码维护，不得使用数据库级关系约束。**
+数据库只负责行与索引；关系的存在性、租户归属与清理顺序由 service/repository 显式保证。
+
+1. **禁止外键**：不得声明 `FOREIGN KEY` / `REFERENCES`，不得使用 GORM 的
+   `constraint:`、`foreignKey:`、`references:` 标签或任何会隐式生成外键的关联字段；
+   `AutoMigrate` 产出的表必须没有外键，SQLite 不开启 `foreign_keys`，其它方言也不得用触发器代替。
+2. **只存标识**：关系字段只保存对方主键（`category_id`、`article_id`、`tag_id`、`user_id`、
+   `conversation_id` 等），不保存 ORM 关联对象；读取时按租户查询后装饰成视图。
+3. **写入校验**：创建或更新引用前确认目标存在、属于同一租户且状态允许；目标不存在与跨租户
+   都返回 Not Found，不泄露存在性。
+4. **删除人工处理**：删除主记录前要么拒绝仍有引用的删除，要么在**同一事务**中按显式顺序清理
+   从属行；不得依赖数据库级联。软删除保留的从属行在读取路径继续按可见性过滤。
+   校验与写入也必须在同一事务：对引用目标加共享锁（MySQL `FOR SHARE`；SQLite 忽略），
+   多个 ID 去重排序后加锁；删除目标时加更新锁并复查引用，悬空引用在同一事务内清空。
+5. **索引不是关系**：索引只用于性能与唯一性；鉴权、消息与 CMS 的索引仍以 `tenant_id` 打头。
+6. **新增关联表时必须补齐**：写入校验、删除/软删除路径、跨租户测试与守卫测试；
+   `repotest` 会扫描 Go 结构标签/SQL 字面量，CMS 的 MySQL 集成测试会检查 `information_schema` 中
+   没有任何外键。

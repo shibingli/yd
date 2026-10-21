@@ -1,0 +1,137 @@
+// 本文件把内容管理领域的展示视图适配为模板与 JSON 使用的模型。
+// This file adapts the CMS domain views into the models consumed by templates and JSON.
+
+package model
+
+import (
+	"html/template"
+
+	"{{ .YdModule }}/cms"
+)
+
+// CMSArticle decorates an article with the actions its reader may perform. The booleans are computed from
+// the authz registry and ownership rules; they only hide buttons, while every route re-checks the capability
+// and the domain service re-checks ownership. | CMSArticle 用读者可执行的动作装饰文章。布尔值由 authz 注册表
+// 与所有权规则计算；它们只隐藏按钮，每条路由仍会复核能力，领域服务仍会复核所有权。
+type CMSArticle struct {
+	// ArticleView is the domain view. | ArticleView 是领域视图。
+	cms.ArticleView
+	// CanEdit reports whether the editor should offer an edit action. | CanEdit 表示编辑器是否应提供编辑动作。
+	CanEdit bool
+	// CanDelete reports whether the editor should offer a delete action. | CanDelete 表示编辑器是否应提供删除动作。
+	CanDelete bool
+	// CanPublish reports whether the editor should offer publish actions. | CanPublish 表示编辑器是否应提供发布动作。
+	CanPublish bool
+	// CanReview reports whether the editor should offer review actions. | CanReview 表示编辑器是否应提供审核动作。
+	CanReview bool
+	// CanSubmit reports whether the author may submit a draft for review. | CanSubmit 表示作者是否可以把草稿提交审核。
+	CanSubmit bool
+}
+
+// StatusKey returns the i18n key of the editorial state. | StatusKey 返回编辑状态的语言目录键。
+func (a CMSArticle) StatusKey() string { return "cms.status." + string(a.Status) }
+
+// KindKey returns the i18n key of the content kind. | KindKey 返回内容类型的语言目录键。
+func (a CMSArticle) KindKey() string { return "cms.kind." + string(a.Kind) }
+
+// VisibilityKey returns the i18n key of the visibility. | VisibilityKey 返回可见性的语言目录键。
+func (a CMSArticle) VisibilityKey() string { return "cms.visibility." + string(a.Visibility) }
+
+// Body returns the server-sanitised HTML snapshot as trusted template HTML. |
+// Body 把服务端净化后的 HTML 快照作为可信模板 HTML 返回。
+func (a CMSArticle) Body() template.HTML { return template.HTML(a.Article.BodyHTML) }
+
+// IsDraft reports the draft state. | IsDraft 报告草稿状态。
+func (a CMSArticle) IsDraft() bool { return a.Status == cms.ArticleDraft }
+
+// IsPending reports the pending-review state. | IsPending 报告待审状态。
+func (a CMSArticle) IsPending() bool { return a.Status == cms.ArticlePending }
+
+// IsPublished reports the published state. | IsPublished 报告已发布状态。
+func (a CMSArticle) IsPublished() bool { return a.Status == cms.ArticlePublished }
+
+// IsArchived reports the archived state. | IsArchived 报告已归档状态。
+func (a CMSArticle) IsArchived() bool { return a.Status == cms.ArticleArchived }
+
+// IsPage reports the standalone-page kind. | IsPage 报告独立单页类型。
+func (a CMSArticle) IsPage() bool { return a.Kind == cms.KindPage }
+
+// IsPrivate reports the private visibility. | IsPrivate 报告私有可见性。
+func (a CMSArticle) IsPrivate() bool { return a.Visibility == cms.VisibilityPrivate }
+
+// CMSComment decorates a comment for the management list. | CMSComment 为管理列表装饰评论。
+type CMSComment struct {
+	// CommentView is the domain view. | CommentView 是领域视图。
+	cms.CommentView
+	// CanModerate reports whether the reader holds the moderation capability. | CanModerate 表示读者是否持有审核能力。
+	CanModerate bool
+	// CanDelete reports whether the reader may delete this comment. | CanDelete 表示读者是否可以删除该评论。
+	CanDelete bool
+}
+
+// StatusKey returns the i18n key of the comment state. | StatusKey 返回评论状态的语言目录键。
+func (c CMSComment) StatusKey() string { return "cms.comment." + string(c.Status) }
+
+// Body returns the sanitised comment HTML as trusted template HTML. | Body 把净化后的评论 HTML 作为可信模板 HTML 返回。
+func (c CMSComment) Body() template.HTML { return template.HTML(c.Comment.BodyHTML) }
+
+// IsApproved reports the approved state. | IsApproved 报告已通过状态。
+func (c CMSComment) IsApproved() bool { return c.Status == cms.CommentApproved }
+
+// IsPending reports the pending state. | IsPending 报告待审状态。
+func (c CMSComment) IsPending() bool { return c.Status == cms.CommentPending }
+
+// CMSMedia decorates a media row with its public and back-office addresses. | CMSMedia 用公开与后台地址装饰媒体行。
+type CMSMedia struct {
+	// Media is the domain record. | Media 是领域记录。
+	cms.Media
+	// URL is the public media address used in articles. | URL 是文章中使用的公开媒体地址。
+	URL string
+	// AdminURL is the tenant-scoped preview address used by the management page. |
+	// AdminURL 是管理页使用的租户内预览地址。
+	AdminURL string
+}
+
+// NewCMSArticles converts domain views into decorated rows. | NewCMSArticles 把领域视图转成装饰行。
+func NewCMSArticles(items []cms.ArticleView, actorID string, manage, publish, review bool) []CMSArticle {
+	out := make([]CMSArticle, 0, len(items))
+	for _, item := range items {
+		author := item.AuthorID == actorID
+		out = append(out, CMSArticle{
+			ArticleView: item,
+			CanEdit:     (author || manage) && (item.Status != cms.ArticleArchived || manage),
+			CanDelete:   author || manage,
+			CanPublish:  publish || manage,
+			CanReview:   review || manage,
+			CanSubmit:   (author || manage) && item.Status == cms.ArticleDraft,
+		})
+	}
+	return out
+}
+
+// NewCMSComments converts domain views into decorated rows. | NewCMSComments 把领域视图转成装饰行。
+func NewCMSComments(items []cms.CommentView, actorID string, moderate bool) []CMSComment {
+	out := make([]CMSComment, 0, len(items))
+	for _, item := range items {
+		deleted := item.Status == cms.CommentDeleted
+		out = append(out, CMSComment{
+			CommentView: item,
+			CanModerate: moderate && !deleted,
+			CanDelete:   !deleted && (moderate || item.AuthorID == actorID),
+		})
+	}
+	return out
+}
+
+// NewCMSMedia converts domain records into decorated rows. | NewCMSMedia 把领域记录转成装饰行。
+func NewCMSMedia(items []cms.Media) []CMSMedia {
+	out := make([]CMSMedia, 0, len(items))
+	for _, item := range items {
+		out = append(out, CMSMedia{
+			Media:    item,
+			URL:      "/blog/media/" + item.ID,
+			AdminURL: "/mgr/cms/media/" + item.ID + "/file",
+		})
+	}
+	return out
+}

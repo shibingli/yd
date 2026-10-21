@@ -118,7 +118,7 @@ type APITagRequest struct {
 // @Produce json
 // @Success 200 {object} string "conversation list | 会话列表"
 // @Security BearerAuth
-// @Router /api/v1/messages/conversations [get]
+// @Router /api/portal/v1/messages/conversations [get]
 func (c *Controller) APIConversations(ctx *router.Ctx) {
 	if !c.apiAvailable(ctx) {
 		return
@@ -142,7 +142,7 @@ func (c *Controller) APIConversations(ctx *router.Ctx) {
 // @Param id path string true "conversation id | 会话 ID"
 // @Success 200 {object} string "conversation and messages | 会话与消息"
 // @Security BearerAuth
-// @Router /api/v1/messages/conversations/{id} [get]
+// @Router /api/portal/v1/messages/conversations/{id} [get]
 func (c *Controller) APIConversation(ctx *router.Ctx) {
 	if !c.apiAvailable(ctx) {
 		return
@@ -171,7 +171,7 @@ func (c *Controller) APIConversation(ctx *router.Ctx) {
 // @Param page query int false "1-based page | 从 1 开始的页码"
 // @Success 200 {object} string "message page | 消息页"
 // @Security BearerAuth
-// @Router /api/v1/messages [get]
+// @Router /api/portal/v1/messages [get]
 func (c *Controller) APIMessages(ctx *router.Ctx) {
 	if !c.apiAvailable(ctx) {
 		return
@@ -203,7 +203,7 @@ func (c *Controller) APIMessages(ctx *router.Ctx) {
 // @Param id path string true "message id | 消息 ID"
 // @Success 200 {object} string "message | 消息"
 // @Security BearerAuth
-// @Router /api/v1/messages/{id} [get]
+// @Router /api/portal/v1/messages/{id} [get]
 func (c *Controller) APIMessage(ctx *router.Ctx) {
 	if !c.apiAvailable(ctx) {
 		return
@@ -227,7 +227,7 @@ func (c *Controller) APIMessage(ctx *router.Ctx) {
 // @Param body body APISendRequest true "send payload | 发送载荷"
 // @Success 201 {object} string "created message | 已创建消息"
 // @Security BearerAuth
-// @Router /api/v1/messages [post]
+// @Router /api/portal/v1/messages [post]
 func (c *Controller) APISendMessage(ctx *router.Ctx) {
 	if !c.apiAvailable(ctx) {
 		return
@@ -338,7 +338,7 @@ func (c *Controller) APISendSystem(ctx *router.Ctx) {
 // @Param body body APIEditRequest true "edit payload | 编辑载荷"
 // @Success 200 {object} string "updated message | 已更新消息"
 // @Security BearerAuth
-// @Router /api/v1/messages/{id} [post]
+// @Router /api/portal/v1/messages/{id} [post]
 func (c *Controller) APIUpdateMessage(ctx *router.Ctx) {
 	if !c.apiAvailable(ctx) {
 		return
@@ -372,7 +372,7 @@ func (c *Controller) APIUpdateMessage(ctx *router.Ctx) {
 // @Param id path string true "message id | 消息 ID"
 // @Success 204 {string} string "no content | 无内容"
 // @Security BearerAuth
-// @Router /api/v1/messages/{id}/recall [post]
+// @Router /api/portal/v1/messages/{id}/recall [post]
 func (c *Controller) APIRecallMessage(ctx *router.Ctx) {
 	if !c.apiAvailable(ctx) {
 		return
@@ -423,7 +423,7 @@ func (c *Controller) APIRevokeSystemMessage(ctx *router.Ctx) {
 // @Param id path string true "conversation id | 会话 ID"
 // @Success 204 {string} string "no content | 无内容"
 // @Security BearerAuth
-// @Router /api/v1/messages/{id}/read [post]
+// @Router /api/portal/v1/messages/{id}/read [post]
 func (c *Controller) APIMarkRead(ctx *router.Ctx) {
 	if !c.apiAvailable(ctx) {
 		return
@@ -513,7 +513,7 @@ func (c *Controller) APIUnpinMessage(ctx *router.Ctx) {
 // @Param file formData file true "attachment | 附件"
 // @Success 201 {object} string "attachment record | 附件记录"
 // @Security BearerAuth
-// @Router /api/v1/messages/attachments [post]
+// @Router /api/portal/v1/messages/attachments [post]
 func (c *Controller) APIUploadAttachment(ctx *router.Ctx) {
 	if !c.apiAvailable(ctx) {
 		return
@@ -542,7 +542,7 @@ func (c *Controller) APIUploadAttachment(ctx *router.Ctx) {
 // @Param id path string true "attachment id | 附件 ID"
 // @Success 200 {file} file "attachment bytes | 附件字节"
 // @Security BearerAuth
-// @Router /api/v1/messages/attachments/{id} [get]
+// @Router /api/portal/v1/messages/attachments/{id} [get]
 func (c *Controller) APIDownloadAttachment(ctx *router.Ctx) {
 	c.DownloadMessageAttachment(ctx)
 }
@@ -556,7 +556,7 @@ func (c *Controller) APIDownloadAttachment(ctx *router.Ctx) {
 // @Produce json
 // @Success 200 {object} string "friend summary | 好友汇总"
 // @Security BearerAuth
-// @Router /api/v1/friends [get]
+// @Router /api/portal/v1/friends [get]
 func (c *Controller) APIFriends(ctx *router.Ctx) {
 	if !c.apiAvailable(ctx) {
 		return
@@ -579,7 +579,7 @@ func (c *Controller) APIFriends(ctx *router.Ctx) {
 // @Param q query string false "keyword | 关键字"
 // @Success 200 {object} string "candidate list | 候选列表"
 // @Security BearerAuth
-// @Router /api/v1/friends/search [get]
+// @Router /api/portal/v1/friends/search [get]
 func (c *Controller) APIFriendSearch(ctx *router.Ctx) {
 	if !c.apiAvailable(ctx) {
 		return
@@ -603,7 +603,7 @@ func (c *Controller) APIFriendSearch(ctx *router.Ctx) {
 // @Param body body APIFriendRequest true "request payload | 申请载荷"
 // @Success 201 {object} string "created request | 已创建申请"
 // @Security BearerAuth
-// @Router /api/v1/friends/requests [post]
+// @Router /api/portal/v1/friends/requests [post]
 func (c *Controller) APISendFriendRequest(ctx *router.Ctx) {
 	if !c.apiAvailable(ctx) {
 		return
@@ -631,7 +631,7 @@ func (c *Controller) APISendFriendRequest(ctx *router.Ctx) {
 // @Param id path string true "request id | 申请 ID"
 // @Success 204 {string} string "no content | 无内容"
 // @Security BearerAuth
-// @Router /api/v1/friends/requests/{id}/accept [post]
+// @Router /api/portal/v1/friends/requests/{id}/accept [post]
 func (c *Controller) APIAcceptFriendRequest(ctx *router.Ctx) {
 	c.apiRespondFriend(ctx, true)
 }
@@ -646,7 +646,7 @@ func (c *Controller) APIAcceptFriendRequest(ctx *router.Ctx) {
 // @Param id path string true "request id | 申请 ID"
 // @Success 204 {string} string "no content | 无内容"
 // @Security BearerAuth
-// @Router /api/v1/friends/requests/{id}/reject [post]
+// @Router /api/portal/v1/friends/requests/{id}/reject [post]
 func (c *Controller) APIRejectFriendRequest(ctx *router.Ctx) {
 	c.apiRespondFriend(ctx, false)
 }
@@ -675,7 +675,7 @@ func (c *Controller) apiRespondFriend(ctx *router.Ctx, accept bool) {
 // @Param id path string true "request id | 申请 ID"
 // @Success 204 {string} string "no content | 无内容"
 // @Security BearerAuth
-// @Router /api/v1/friends/requests/{id}/cancel [post]
+// @Router /api/portal/v1/friends/requests/{id}/cancel [post]
 func (c *Controller) APICancelFriendRequest(ctx *router.Ctx) {
 	if !c.apiAvailable(ctx) {
 		return
@@ -698,7 +698,7 @@ func (c *Controller) APICancelFriendRequest(ctx *router.Ctx) {
 // @Param id path string true "friend user id | 好友用户 ID"
 // @Success 204 {string} string "no content | 无内容"
 // @Security BearerAuth
-// @Router /api/v1/friends/{id}/remove [post]
+// @Router /api/portal/v1/friends/{id}/remove [post]
 func (c *Controller) APIRemoveFriend(ctx *router.Ctx) {
 	c.apiFriendAction(ctx, func(actor messaging.Actor, id string) error {
 		return c.messages.RemoveFriend(ctx.Request.Context(), actor, id)
@@ -715,7 +715,7 @@ func (c *Controller) APIRemoveFriend(ctx *router.Ctx) {
 // @Param id path string true "target user id | 目标用户 ID"
 // @Success 204 {string} string "no content | 无内容"
 // @Security BearerAuth
-// @Router /api/v1/friends/{id}/block [post]
+// @Router /api/portal/v1/friends/{id}/block [post]
 func (c *Controller) APIBlockFriend(ctx *router.Ctx) {
 	c.apiFriendAction(ctx, func(actor messaging.Actor, id string) error {
 		return c.messages.BlockUser(ctx.Request.Context(), actor, id)
@@ -732,7 +732,7 @@ func (c *Controller) APIBlockFriend(ctx *router.Ctx) {
 // @Param id path string true "target user id | 目标用户 ID"
 // @Success 204 {string} string "no content | 无内容"
 // @Security BearerAuth
-// @Router /api/v1/friends/{id}/unblock [post]
+// @Router /api/portal/v1/friends/{id}/unblock [post]
 func (c *Controller) APIUnblockFriend(ctx *router.Ctx) {
 	c.apiFriendAction(ctx, func(actor messaging.Actor, id string) error {
 		return c.messages.UnblockUser(ctx.Request.Context(), actor, id)
@@ -765,7 +765,7 @@ func (c *Controller) apiFriendAction(ctx *router.Ctx, action func(messaging.Acto
 // @Param body body APIFriendRequest true "remark payload | 备注载荷"
 // @Success 204 {string} string "no content | 无内容"
 // @Security BearerAuth
-// @Router /api/v1/friends/{id}/remark [post]
+// @Router /api/portal/v1/friends/{id}/remark [post]
 func (c *Controller) APISetFriendRemark(ctx *router.Ctx) {
 	if !c.apiAvailable(ctx) {
 		return

@@ -71,7 +71,7 @@ func TestPresetDSNAddsEveryDefaultParam(t *testing.T) {
 			"&sql_mode=%27STRICT_TRANS_TABLES%2CNO_ZERO_DATE%2CNO_ZERO_IN_DATE%2CERROR_FOR_DIVISION_BY_ZERO%27" +
 			"&charset=utf8mb4&collation=utf8mb4_unicode_ci"
 		sqlitePragmaTail = "_loc=UTC" +
-			"&_pragma=foreign_keys%281%29&_pragma=journal_mode%28WAL%29" +
+			"&_pragma=journal_mode%28WAL%29" +
 			"&_pragma=synchronous%28NORMAL%29&_pragma=busy_timeout%285000%29"
 	)
 
@@ -141,7 +141,6 @@ func TestPresetDSNAddsEveryDefaultParam(t *testing.T) {
 			want:   "data/yd.db?" + sqlitePragmaTail,
 			query: []presetWant{
 				{key: "_loc", value: "UTC"},
-				{key: "_pragma", value: "foreign_keys(1)"},
 				{key: "_pragma", value: "journal_mode(WAL)"},
 				{key: "_pragma", value: "synchronous(NORMAL)"},
 				{key: "_pragma", value: "busy_timeout(5000)"},
@@ -154,7 +153,6 @@ func TestPresetDSNAddsEveryDefaultParam(t *testing.T) {
 			want:   "file::memory:?cache=shared&" + sqlitePragmaTail,
 			query: []presetWant{
 				{key: "_loc", value: "UTC"},
-				{key: "_pragma", value: "foreign_keys(1)"},
 				{key: "_pragma", value: "journal_mode(WAL)"},
 				{key: "_pragma", value: "synchronous(NORMAL)"},
 				{key: "_pragma", value: "busy_timeout(5000)"},
@@ -293,7 +291,7 @@ func TestPresetDSNKeepsExplicitParameters(t *testing.T) {
 			driver: gormx.DriverSQLite,
 			dsn:    "data/yd.db?_pragma=journal_mode(DELETE)",
 			want: "data/yd.db?_pragma=journal_mode(DELETE)&_loc=UTC" +
-				"&_pragma=foreign_keys%281%29&_pragma=synchronous%28NORMAL%29&_pragma=busy_timeout%285000%29",
+				"&_pragma=synchronous%28NORMAL%29&_pragma=busy_timeout%285000%29",
 			absent:    []string{"journal_mode%28WAL%29"},
 			keyCounts: map[string]int{"journal_mode": 1},
 		},
@@ -303,7 +301,7 @@ func TestPresetDSNKeepsExplicitParameters(t *testing.T) {
 			driver: gormx.DriverSQLite,
 			dsn:    "data/yd.db?_pragma=journal_mode%3DDELETE",
 			want: "data/yd.db?_pragma=journal_mode%3DDELETE&_loc=UTC" +
-				"&_pragma=foreign_keys%281%29&_pragma=synchronous%28NORMAL%29&_pragma=busy_timeout%285000%29",
+				"&_pragma=synchronous%28NORMAL%29&_pragma=busy_timeout%285000%29",
 			absent:    []string{"journal_mode%28WAL%29"},
 			keyCounts: map[string]int{"journal_mode": 1},
 		},
@@ -311,7 +309,7 @@ func TestPresetDSNKeepsExplicitParameters(t *testing.T) {
 			name:   "sqlite-explicit-loc",
 			driver: gormx.DriverSQLite,
 			dsn:    "data/yd.db?_loc=Asia/Shanghai",
-			want: "data/yd.db?_loc=Asia/Shanghai&_pragma=foreign_keys%281%29" +
+			want: "data/yd.db?_loc=Asia/Shanghai" +
 				"&_pragma=journal_mode%28WAL%29&_pragma=synchronous%28NORMAL%29&_pragma=busy_timeout%285000%29",
 			absent:    []string{"_loc=UTC"},
 			keyCounts: map[string]int{"_loc=": 1},
@@ -323,7 +321,7 @@ func TestPresetDSNKeepsExplicitParameters(t *testing.T) {
 			driver: gormx.DriverSQLite,
 			dsn:    "data/yd.db?_txlock=immediate",
 			want: "data/yd.db?_txlock=immediate&_loc=UTC" +
-				"&_pragma=foreign_keys%281%29&_pragma=journal_mode%28WAL%29" +
+				"&_pragma=journal_mode%28WAL%29" +
 				"&_pragma=synchronous%28NORMAL%29&_pragma=busy_timeout%285000%29",
 			absent:    []string{"_time_format="},
 			keyCounts: map[string]int{"_txlock=": 1},
@@ -333,7 +331,7 @@ func TestPresetDSNKeepsExplicitParameters(t *testing.T) {
 			name:   "sqlite-caller-time-format-left-alone",
 			driver: gormx.DriverSQLite,
 			dsn:    "data/yd.db?_time_format=sqlite",
-			want: "data/yd.db?_time_format=sqlite&_loc=UTC&_pragma=foreign_keys%281%29" +
+			want: "data/yd.db?_time_format=sqlite&_loc=UTC" +
 				"&_pragma=journal_mode%28WAL%29&_pragma=synchronous%28NORMAL%29&_pragma=busy_timeout%285000%29",
 			keyCounts: map[string]int{"_time_format=": 1},
 		},
@@ -356,7 +354,6 @@ func TestPresetDSNKeepsExplicitParameters(t *testing.T) {
 		gormx.DriverSQLite: {
 			{key: "_loc", value: "_loc=UTC"},
 			{key: "journal_mode", value: "journal_mode%28WAL%29"},
-			{key: "foreign_keys", value: "foreign_keys%281%29"},
 			{key: "synchronous", value: "synchronous%28NORMAL%29"},
 			{key: "busy_timeout", value: "busy_timeout%285000%29"},
 		},
@@ -589,10 +586,10 @@ func TestPresetDSNLeavesEmptyAndUnknownAlone(t *testing.T) {
 }
 
 // TestOpenAppliesPresetDSNToSQLite 证明 Open 确实走了预置：连接串里一个参数都没写，
-// 每条连接上却已经有了 foreign_keys / journal_mode / synchronous / busy_timeout。
+// 每条连接上却已经有了 journal_mode / synchronous / busy_timeout；外键强制保持驱动默认的关闭状态。
 //
-// 这四个 pragma 都是可观测的落地证据：文件库的 journal_mode 默认是 delete、
-// synchronous 默认是 full、foreign_keys 默认是 0，只有预置真的执行了才会是下面这些取值。
+// 三个 pragma 都是可观测的落地证据：文件库的 journal_mode 默认是 delete、synchronous 默认是 full，
+// 只有预置真的执行了才会是下面这些取值。foreign_keys 不在预置中：框架不声明外键，关系全部由应用代码维护。
 func TestOpenAppliesPresetDSNToSQLite(t *testing.T) {
 	dsn := filepath.Join(t.TempDir(), "preset.db")
 	db := openPresetDB(t, dsn)
@@ -600,7 +597,6 @@ func TestOpenAppliesPresetDSNToSQLite(t *testing.T) {
 	want := map[string]string{
 		"journal_mode": "wal",
 		"synchronous":  "1",
-		"foreign_keys": "1",
 		"busy_timeout": "5000",
 	}
 	for pragma, wantValue := range want {
@@ -670,8 +666,10 @@ func TestPresetDSNRealSQLiteFileURI(t *testing.T) {
 	if got != "alice" {
 		t.Fatalf("读回 %q，期望 alice", got)
 	}
-	if v := pragmaText(t, db, "foreign_keys"); v != "1" {
-		t.Fatalf("file: URI 形态下 PRAGMA foreign_keys = %q，期望 1", v)
+	// 外键强制必须保持关闭：框架不使用数据库键维护关系。 |
+	// Foreign-key enforcement must stay off: the framework never maintains relations with database keys.
+	if v := pragmaText(t, db, "foreign_keys"); v != "0" {
+		t.Fatalf("file: URI 形态下 PRAGMA foreign_keys = %q，期望 0", v)
 	}
 }
 

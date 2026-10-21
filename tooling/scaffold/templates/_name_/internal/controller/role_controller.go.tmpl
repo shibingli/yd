@@ -20,9 +20,9 @@ import (
 // Roles renders the role list together with the creation form.
 //
 // @Summary Role list | 角色列表
-// @Description Renders pages/roles.html: every role of the tenant with its capabilities and its built-in marker. Built-in
+// @Description Renders mgr/pages/roles.html: every role of the tenant with its capabilities and its built-in marker. Built-in
 // @Description roles can be edited — a tenant may extend auditor, say — but never deleted.
-// @Description 渲染 pages/roles.html：列出本租户的每个角色及其权限与内置标记。内置角色可以编辑（例如给 auditor 增权），但不可删除。
+// @Description 渲染 mgr/pages/roles.html：列出本租户的每个角色及其权限与内置标记。内置角色可以编辑（例如给 auditor 增权），但不可删除。
 // @Tags roles
 // @Accept html
 // @Produce html
@@ -31,7 +31,7 @@ import (
 // @Failure 401 {object} string "no session | 无有效会话"
 // @Failure 403 {object} string "missing role:read | 缺少 role:read"
 // @Security BearerAuth
-// @Router /roles [get]
+// @Router /mgr/roles [get]
 func (c *Controller) Roles(ctx *router.Ctx) {
 	c.rolesPage(ctx, http.StatusOK, "")
 }
@@ -48,7 +48,7 @@ func (c *Controller) Roles(ctx *router.Ctx) {
 // @Failure 401 {object} string "no session | 无有效会话"
 // @Failure 403 {object} string "missing role:manage | 缺少 role:manage"
 // @Security BearerAuth
-// @Router /roles/new [get]
+// @Router /mgr/roles/new [get]
 func (c *Controller) NewRoleForm(ctx *router.Ctx) {
 	tenantID, ok := c.tenantID(ctx)
 	if !ok {
@@ -81,7 +81,7 @@ func (c *Controller) NewRoleForm(ctx *router.Ctx) {
 // @Failure 403 {object} string "missing role:manage | 缺少 role:manage"
 // @Failure 404 {object} string "no such role in this tenant | 本租户内没有该角色"
 // @Security BearerAuth
-// @Router /roles/{id}/edit [get]
+// @Router /mgr/roles/{id}/edit [get]
 func (c *Controller) EditRoleForm(ctx *router.Ctx) {
 	tenantID, ok := c.tenantID(ctx)
 	if !ok {
@@ -142,7 +142,7 @@ type permissionOption struct {
 // @Failure 403 {object} string "missing role:manage | 缺少 role:manage"
 // @Failure 422 {object} string "unknown capability or empty name | 未知能力或名称为空"
 // @Security BearerAuth
-// @Router /roles [post]
+// @Router /mgr/roles [post]
 func (c *Controller) SaveRole(ctx *router.Ctx) {
 	tenantID, ok := c.tenantID(ctx)
 	if !ok {
@@ -194,7 +194,7 @@ func (c *Controller) SaveRole(ctx *router.Ctx) {
 // @Failure 404 {object} string "no such role in this tenant | 本租户内没有该角色"
 // @Failure 422 {object} string "unknown capability | 未知能力"
 // @Security BearerAuth
-// @Router /roles/{id}/permissions [post]
+// @Router /mgr/roles/{id}/permissions [post]
 func (c *Controller) ToggleRolePermission(ctx *router.Ctx) {
 	tenantID, ok := c.tenantID(ctx)
 	if !ok {
@@ -248,7 +248,7 @@ func (c *Controller) ToggleRolePermission(ctx *router.Ctx) {
 // @Failure 404 {object} string "no such role in this tenant | 本租户内没有该角色"
 // @Failure 409 {object} string "built-in roles are protected | 内置角色受保护"
 // @Security BearerAuth
-// @Router /roles/{id}/delete [post]
+// @Router /mgr/roles/{id}/delete [post]
 func (c *Controller) DeleteRole(ctx *router.Ctx) {
 	tenantID, ok := c.tenantID(ctx)
 	if !ok {
@@ -282,10 +282,10 @@ func (c *Controller) DeleteRole(ctx *router.Ctx) {
 // Permissions renders the permission matrix: rows are capabilities, columns are roles and a cell is a tick box.
 //
 // @Summary Permission matrix | 权限矩阵
-// @Description Renders pages/permissions.html from two axes the service guarantees: the capability catalogue in its fixed
+// @Description Renders mgr/pages/permissions.html from two axes the service guarantees: the capability catalogue in its fixed
 // @Description order and this tenant's roles. The matrix is the same data the navbar gates on, so what an operator sees
 // @Description here is exactly what RequirePermission enforces at the router.
-// @Description 用服务层保证的两条轴渲染 pages/permissions.html：固定顺序的能力目录，以及本租户的角色。矩阵与导航栏的显隐判定同源，
+// @Description 用服务层保证的两条轴渲染 mgr/pages/permissions.html：固定顺序的能力目录，以及本租户的角色。矩阵与导航栏的显隐判定同源，
 // @Description 因此这里看到的，就是路由上 RequirePermission 真正执行的那一套。
 // @Tags permissions
 // @Accept html
@@ -295,7 +295,7 @@ func (c *Controller) DeleteRole(ctx *router.Ctx) {
 // @Failure 401 {object} string "no session | 无有效会话"
 // @Failure 403 {object} string "missing permission:read | 缺少 permission:read"
 // @Security BearerAuth
-// @Router /permissions [get]
+// @Router /mgr/permissions [get]
 func (c *Controller) Permissions(ctx *router.Ctx) {
 	tenantID, ok := c.tenantID(ctx)
 	if !ok {

@@ -57,7 +57,7 @@ func (r *<%.Name%>Repo) List(ctx context.Context, tenantID string, page, size in
 
 	query := r.db.WithContext(ctx).Model(&model.<%.Name%>{}).Where("tenant_id = ?", tenantID)
 <% if .HasSearch %>	if keyword = strings.TrimSpace(keyword); keyword != "" {
-		like := "%" + keyword + "%"
+		like := "%" + strings.NewReplacer("!", "!!", "%", "!%", "_", "!_").Replace(keyword) + "%"
 		query = query.Where("<%.SearchWhere%>", <%.SearchArgs%>)
 	}
 <% end %>	if err := query.Session(&gorm.Session{}).Count(&total).Error; err != nil {

@@ -7,6 +7,7 @@ package controller
 import (
 	"mime"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 	"time"
@@ -87,23 +88,23 @@ type messagePage struct {
 // data flattens the page into the render map. | data 把页面摊平进渲染数据。
 func (p messagePage) data() map[string]any {
 	return map[string]any{
-		"Filters":           p.Filters,
-		"Conversations":     p.Conversations,
-		"Pinned":            p.Pinned,
-		"Catalog":           p.Catalog,
-		"Friends":           p.Friends,
-		"Results":           p.Results,
-		"Total":             p.Total,
-		"SearchMode":        p.SearchMode,
+		"Filters":            p.Filters,
+		"Conversations":      p.Conversations,
+		"Pinned":             p.Pinned,
+		"Catalog":            p.Catalog,
+		"Friends":            p.Friends,
+		"Results":            p.Results,
+		"Total":              p.Total,
+		"SearchMode":         p.SearchMode,
 		"ActiveConversation": p.Active,
-		"Thread":            p.Thread,
-		"CanSend":           p.CanSend,
-		"CanManage":         p.CanManage,
-		"CanSystem":         p.CanSystem,
-		"CanTypeManage":     p.CanTypeManage,
-		"ActorID":           p.UserID,
-		"PageStyles":        messagePageStyles,
-		"PageScripts":       messagePageScripts,
+		"Thread":             p.Thread,
+		"CanSend":            p.CanSend,
+		"CanManage":          p.CanManage,
+		"CanSystem":          p.CanSystem,
+		"CanTypeManage":      p.CanTypeManage,
+		"ActorID":            p.UserID,
+		"PageStyles":         messagePageStyles,
+		"PageScripts":        messagePageScripts,
 	}
 }
 
@@ -485,7 +486,7 @@ func (c *Controller) UpdateMessage(ctx *router.Ctx) {
 		logx.Str("conversation", message.ConversationID),
 		logx.Str("message", message.ID),
 	)
-	c.renderMessagePageByID(ctx, message.ConversationID, "消息已更新 | message updated")
+	c.refreshMessageView(ctx, message.ConversationID, "消息已更新 | message updated")
 }
 
 // RecallMessage recalls the actor's own message inside the recall window. | RecallMessage 在撤回窗口内撤回主体自己的消息。
@@ -514,7 +515,7 @@ func (c *Controller) RecallMessage(ctx *router.Ctx) {
 		c.failService(ctx, err)
 		return
 	}
-	c.renderMessagePageByID(ctx, field(ctx, FieldConversation), "消息已撤回 | message recalled")
+	c.refreshMessageView(ctx, field(ctx, FieldConversation), "消息已撤回 | message recalled")
 }
 
 // RevokeSystemMessage revokes an announcement while keeping its history. | RevokeSystemMessage 撤销公告并保留其历史。
@@ -530,7 +531,7 @@ func (c *Controller) RecallMessage(ctx *router.Ctx) {
 // @Success 200 {object} string "refreshed moderation page | 刷新后的治理页面"
 // @Failure 403 {object} string "missing message:system | 缺少 message:system"
 // @Security BearerAuth
-// @Router /messages/{id}/revoke [post]
+// @Router /mgr/messages/{id}/revoke [post]
 func (c *Controller) RevokeSystemMessage(ctx *router.Ctx) {
 	if !c.MessagesAvailable() {
 		c.messageUnavailable(ctx)
@@ -541,9 +542,11 @@ func (c *Controller) RevokeSystemMessage(ctx *router.Ctx) {
 		c.failService(ctx, err)
 		return
 	}
-	if conversationID := field(ctx, FieldConversation); conversationID != "" {
-		c.renderMessagePageByID(ctx, conversationID, "公告已撤销，历史记录已保留 | announcement revoked, history retained")
-		return
+	if !messageAdminOrigin(ctx) {
+		if conversationID := field(ctx, FieldConversation); conversationID != "" {
+			c.renderMessagePageByID(ctx, conversationID, "公告已撤销，历史记录已保留 | announcement revoked, history retained")
+			return
+		}
 	}
 	c.renderAdminPage(ctx, "公告已撤销，历史记录已保留 | announcement revoked, history retained")
 }
@@ -584,7 +587,7 @@ func (c *Controller) MarkMessageRead(ctx *router.Ctx) {
 // @Param id path string true "message id | 消息 ID"
 // @Success 200 {object} string "drawer fragment | 抽屉片段"
 // @Security BearerAuth
-// @Router /messages/{id}/pin [get]
+// @Router /mgr/messages/{id}/pin [get]
 func (c *Controller) PinMessageDrawer(ctx *router.Ctx) {
 	if !c.MessagesAvailable() {
 		c.messageUnavailable(ctx)
@@ -622,7 +625,7 @@ func (c *Controller) PinMessageDrawer(ctx *router.Ctx) {
 // @Failure 403 {object} string "missing message:manage | 缺少 message:manage"
 // @Failure 422 {object} string "invalid pin window | 非法的置顶窗口"
 // @Security BearerAuth
-// @Router /messages/{id}/pin [post]
+// @Router /mgr/messages/{id}/pin [post]
 func (c *Controller) PinMessage(ctx *router.Ctx) {
 	if !c.MessagesAvailable() {
 		c.messageUnavailable(ctx)
@@ -642,9 +645,11 @@ func (c *Controller) PinMessage(ctx *router.Ctx) {
 		c.failService(ctx, err)
 		return
 	}
-	if conversationID := field(ctx, FieldConversation); conversationID != "" {
-		c.renderMessagePageByID(ctx, conversationID, "公告已置顶 | announcement pinned")
-		return
+	if !messageAdminOrigin(ctx) {
+		if conversationID := field(ctx, FieldConversation); conversationID != "" {
+			c.renderMessagePageByID(ctx, conversationID, "公告已置顶 | announcement pinned")
+			return
+		}
 	}
 	c.renderAdminPage(ctx, "公告已置顶 | announcement pinned")
 }
@@ -660,7 +665,7 @@ func (c *Controller) PinMessage(ctx *router.Ctx) {
 // @Param id path string true "message id | 消息 ID"
 // @Success 200 {object} string "refreshed moderation page | 刷新后的治理页面"
 // @Security BearerAuth
-// @Router /messages/{id}/unpin [post]
+// @Router /mgr/messages/{id}/unpin [post]
 func (c *Controller) UnpinMessage(ctx *router.Ctx) {
 	if !c.MessagesAvailable() {
 		c.messageUnavailable(ctx)
@@ -670,9 +675,11 @@ func (c *Controller) UnpinMessage(ctx *router.Ctx) {
 		c.failService(ctx, err)
 		return
 	}
-	if conversationID := field(ctx, FieldConversation); conversationID != "" {
-		c.renderMessagePageByID(ctx, conversationID, "已取消置顶 | announcement unpinned")
-		return
+	if !messageAdminOrigin(ctx) {
+		if conversationID := field(ctx, FieldConversation); conversationID != "" {
+			c.renderMessagePageByID(ctx, conversationID, "已取消置顶 | announcement unpinned")
+			return
+		}
 	}
 	c.renderAdminPage(ctx, "已取消置顶 | announcement unpinned")
 }
@@ -779,6 +786,39 @@ func (c *Controller) renderMessagePageByID(ctx *router.Ctx, conversationID, noti
 		return
 	}
 	c.renderMessagePage(ctx, http.StatusOK, page, "消息中心 | Messages", notice)
+}
+
+// messageAdminOrigin reports whether the mutation came from the management area. The current page
+// travels in HX-Current-URL for htmx requests and in Referer for plain form posts, so a management
+// action refreshes the moderation list while a portal action refreshes the conversation. |
+// messageAdminOrigin 报告变更是否来自管理区。htmx 请求的当前页面在 HX-Current-URL，普通表单在 Referer，
+// 因此管理动作刷新治理列表，门户动作刷新会话。
+func messageAdminOrigin(ctx *router.Ctx) bool {
+	current := strings.TrimSpace(ctx.Header("HX-Current-URL"))
+	if current == "" {
+		current = strings.TrimSpace(ctx.Header("Referer"))
+	}
+	if current == "" {
+		return false
+	}
+	parsed, err := url.Parse(current)
+	if err != nil {
+		return false
+	}
+	return strings.HasPrefix(parsed.Path, "/mgr/") || parsed.Path == "/mgr"
+}
+
+// refreshMessageView re-renders the page that issued the mutation: the management area refreshes the
+// moderation list, while the portal refreshes the conversation. Sharing one handler keeps the service
+// call identical; only the destination differs. |
+// refreshMessageView 重新渲染发起变更的页面：管理区刷新治理列表，门户刷新会话。共用处理器让服务调用
+// 保持一致，只有落点不同。
+func (c *Controller) refreshMessageView(ctx *router.Ctx, conversationID, notice string) {
+	if strings.HasPrefix(ctx.Path(), "/mgr/") {
+		c.renderAdminPage(ctx, notice)
+		return
+	}
+	c.renderMessagePageByID(ctx, conversationID, notice)
 }
 
 // renderMessagePage renders the page with an optional toast. | renderMessagePage 渲染页面并可附带提示。

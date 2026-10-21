@@ -338,20 +338,21 @@ func goTypeForDB(dbType string) string {
 		base = strings.TrimSpace(base[:i])
 	}
 
-	switch {
-	case base == "":
+	base = strings.ToUpper(base)
+
+	switch base {
+	case "":
 		return "string"
-	case strings.Contains(base, "INT"), strings.Contains(base, "SERIAL"):
+	case "INT", "INTEGER", "BIGINT", "SMALLINT", "TINYINT", "MEDIUMINT",
+		"SERIAL", "BIGSERIAL", "SMALLSERIAL", "INT2", "INT4", "INT8":
 		return "int64"
-	case strings.Contains(base, "BOOL"):
+	case "BOOL", "BOOLEAN":
 		return "bool"
-	case strings.Contains(base, "FLOAT"), strings.Contains(base, "DOUBLE"),
-		strings.Contains(base, "REAL"), strings.Contains(base, "NUMERIC"),
-		strings.Contains(base, "DECIMAL"), strings.Contains(base, "MONEY"):
+	case "FLOAT", "FLOAT4", "FLOAT8", "REAL", "DOUBLE", "NUMERIC", "DECIMAL", "MONEY":
 		return "float64"
-	case strings.Contains(base, "DATE"), strings.Contains(base, "TIME"):
+	case "DATE", "DATETIME", "TIMESTAMP", "TIMESTAMPTZ", "TIME", "TIMETZ":
 		return typeTime
-	case strings.Contains(base, "BLOB"), strings.Contains(base, "BINARY"), strings.Contains(base, "BYTEA"):
+	case "BLOB", "TINYBLOB", "MEDIUMBLOB", "LONGBLOB", "BINARY", "VARBINARY", "BYTEA":
 		return "[]byte"
 	default:
 		return "string"

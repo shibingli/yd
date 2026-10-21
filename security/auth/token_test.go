@@ -220,10 +220,7 @@ func TestDisabledUserTokenIsRejected(t *testing.T) {
 		t.Fatalf("Parse of a disabled user want ErrTokenInvalid, got %v | 被禁用用户的 Parse 期望 ErrTokenInvalid，实际 %v", err, err)
 	}
 	// Re-enabling the user revives the very same token, proving the key was intact. | 重新启用后同一个令牌恢复可用，说明密钥本身完好。
-	u, err := f.svc.GetUser(testCtx, f.tenantA.ID, f.member.ID)
-	requireNoError(t, err, "GetUser")
-	u.Status = StatusActive
-	requireNoError(t, f.svc.UpdateUser(testCtx, f.tenantA.ID, u), "UpdateUser(reactivate)")
+	requireNoError(t, f.svc.SetStatus(testCtx, f.tenantA.ID, f.member.ID, StatusActive), "SetStatus(reactivate)")
 	if _, err := f.issuer.Verify(testCtx, token); err != nil {
 		t.Fatalf("the token must work again after re-enabling: %v | 重新启用后令牌必须再次可用：%v", err, err)
 	}

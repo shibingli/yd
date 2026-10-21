@@ -30,13 +30,70 @@ import (
 // @Success 200 {object} string "moderation page or fragment | 治理页面或片段"
 // @Failure 403 {object} string "missing message:manage | 缺少 message:manage"
 // @Security BearerAuth
-// @Router /messages/admin [get]
+// @Router /mgr/messages [get]
 func (c *Controller) MessageAdmin(ctx *router.Ctx) {
 	if !c.MessagesAvailable() {
 		c.messageUnavailable(ctx)
 		return
 	}
 	c.renderAdminPage(ctx, "")
+}
+
+// MessageAdminEditDrawer opens the edit drawer from the management list. | MessageAdminEditDrawer 从治理列表打开编辑抽屉。
+//
+// @Summary Edit message drawer | 编辑消息抽屉
+// @Description Returns the composer drawer for one message; message:manage may edit outside the recall window. |
+// @Description 返回单条消息的撰写抽屉；message:manage 可以在编辑窗口之外修改。
+// @Tags messages
+// @Produce html
+// @Param id path string true "message id | 消息 ID"
+// @Success 200 {object} string "drawer fragment | 抽屉片段"
+// @Failure 403 {object} string "missing message:manage | 缺少 message:manage"
+// @Failure 409 {object} string "edit window expired | 编辑窗口已过"
+// @Security BearerAuth
+// @Router /mgr/messages/{id}/edit [get]
+func (c *Controller) MessageAdminEditDrawer(ctx *router.Ctx) {
+	c.EditMessageDrawer(ctx)
+}
+
+// MessageAdminUpdate applies an edit from the management list. | MessageAdminUpdate 从治理列表应用一次编辑。
+//
+// @Summary Update message | 更新消息
+// @Description Applies the edit and refreshes the moderation list instead of navigating to the portal. |
+// @Description 应用编辑并刷新治理列表，而不是跳转到门户。
+// @Tags messages
+// @Accept x-www-form-urlencoded
+// @Produce html
+// @Param id path string true "message id | 消息 ID"
+// @Param type_key formData string false "message type key | 消息类型键"
+// @Param title formData string false "title | 标题"
+// @Param body_markdown formData string false "Markdown body | Markdown 正文"
+// @Param tag_ids formData []string false "tag ids | 标签 ID"
+// @Param group_ids formData []string false "group ids | 分组 ID"
+// @Success 200 {object} string "refreshed moderation page | 刷新后的治理页面"
+// @Failure 403 {object} string "missing message:manage | 缺少 message:manage"
+// @Security BearerAuth
+// @Router /mgr/messages/{id} [post]
+func (c *Controller) MessageAdminUpdate(ctx *router.Ctx) {
+	c.UpdateMessage(ctx)
+}
+
+// MessageAdminRecall recalls a message from the management list. | MessageAdminRecall 从治理列表撤回消息。
+//
+// @Summary Recall message | 撤回消息
+// @Description Recalls the message and keeps its body in the audit trail; the moderation list is refreshed. |
+// @Description 撤回消息并把正文保留在审计记录中；随后刷新治理列表。
+// @Tags messages
+// @Accept x-www-form-urlencoded
+// @Produce html
+// @Param id path string true "message id | 消息 ID"
+// @Param reason formData string false "recall reason | 撤回原因"
+// @Success 200 {object} string "refreshed moderation page | 刷新后的治理页面"
+// @Failure 403 {object} string "missing message:manage | 缺少 message:manage"
+// @Security BearerAuth
+// @Router /mgr/messages/{id}/recall [post]
+func (c *Controller) MessageAdminRecall(ctx *router.Ctx) {
+	c.RecallMessage(ctx)
 }
 
 // MessageAudit renders the audit page. | MessageAudit 渲染审计页面。
@@ -53,7 +110,7 @@ func (c *Controller) MessageAdmin(ctx *router.Ctx) {
 // @Success 200 {object} string "audit page or fragment | 审计页面或片段"
 // @Failure 403 {object} string "missing message:manage | 缺少 message:manage"
 // @Security BearerAuth
-// @Router /messages/admin/audit [get]
+// @Router /mgr/messages/audit [get]
 func (c *Controller) MessageAudit(ctx *router.Ctx) {
 	if !c.MessagesAvailable() {
 		c.messageUnavailable(ctx)
@@ -147,7 +204,7 @@ func (c *Controller) renderAuditPage(ctx *router.Ctx, notice string) {
 // @Success 200 {object} string "settings page or fragment | 设置页面或片段"
 // @Failure 403 {object} string "missing message-type:read | 缺少 message-type:read"
 // @Security BearerAuth
-// @Router /message-settings [get]
+// @Router /mgr/message-settings [get]
 func (c *Controller) MessageSettings(ctx *router.Ctx) {
 	if !c.MessagesAvailable() {
 		c.messageUnavailable(ctx)
@@ -171,7 +228,7 @@ func (c *Controller) MessageSettings(ctx *router.Ctx) {
 // @Produce html
 // @Success 200 {object} string "settings fragment | 设置片段"
 // @Security BearerAuth
-// @Router /message-settings/body [get]
+// @Router /mgr/message-settings/body [get]
 func (c *Controller) MessageSettingsBody(ctx *router.Ctx) {
 	if !c.MessagesAvailable() {
 		return
@@ -218,7 +275,7 @@ func (c *Controller) settingsData(ctx *router.Ctx) (map[string]any, error) {
 // @Produce html
 // @Success 200 {object} string "drawer fragment | 抽屉片段"
 // @Security BearerAuth
-// @Router /message-settings/types/new [get]
+// @Router /mgr/message-settings/types/new [get]
 func (c *Controller) NewMessageTypeDrawer(ctx *router.Ctx) {
 	if !c.MessagesAvailable() {
 		c.messageUnavailable(ctx)
@@ -240,7 +297,7 @@ func (c *Controller) NewMessageTypeDrawer(ctx *router.Ctx) {
 // @Param key path string true "type key | 类型键"
 // @Success 200 {object} string "drawer fragment | 抽屉片段"
 // @Security BearerAuth
-// @Router /message-settings/types/{key}/edit [get]
+// @Router /mgr/message-settings/types/{key}/edit [get]
 func (c *Controller) EditMessageTypeDrawer(ctx *router.Ctx) {
 	if !c.MessagesAvailable() {
 		c.messageUnavailable(ctx)
@@ -282,7 +339,7 @@ func (c *Controller) EditMessageTypeDrawer(ctx *router.Ctx) {
 // @Param tone formData string false "neutral|info|success|warn|danger | 语义色"
 // @Success 200 {object} string "refreshed settings fragment | 刷新后的设置片段"
 // @Security BearerAuth
-// @Router /message-settings/types [post]
+// @Router /mgr/message-settings/types [post]
 func (c *Controller) SaveMessageType(ctx *router.Ctx) {
 	if !c.MessagesAvailable() {
 		c.messageUnavailable(ctx)
@@ -342,7 +399,7 @@ func (c *Controller) messagesTypeExists(ctx *router.Ctx, key string) bool {
 // @Param key path string true "type key | 类型键"
 // @Success 200 {object} string "refreshed settings fragment | 刷新后的设置片段"
 // @Security BearerAuth
-// @Router /message-settings/types/{key}/archive [post]
+// @Router /mgr/message-settings/types/{key}/archive [post]
 func (c *Controller) ArchiveMessageType(ctx *router.Ctx) {
 	c.setTypeArchived(ctx, true, "类型已归档 | type archived")
 }
@@ -358,7 +415,7 @@ func (c *Controller) ArchiveMessageType(ctx *router.Ctx) {
 // @Param key path string true "type key | 类型键"
 // @Success 200 {object} string "refreshed settings fragment | 刷新后的设置片段"
 // @Security BearerAuth
-// @Router /message-settings/types/{key}/restore [post]
+// @Router /mgr/message-settings/types/{key}/restore [post]
 func (c *Controller) RestoreMessageType(ctx *router.Ctx) {
 	c.setTypeArchived(ctx, false, "类型已恢复 | type restored")
 }
@@ -393,7 +450,7 @@ func (c *Controller) setTypeArchived(ctx *router.Ctx, archived bool, notice stri
 // @Param key path string true "type key | 类型键"
 // @Success 200 {object} string "refreshed settings fragment | 刷新后的设置片段"
 // @Security BearerAuth
-// @Router /message-settings/types/{key}/delete [post]
+// @Router /mgr/message-settings/types/{key}/delete [post]
 func (c *Controller) DeleteMessageType(ctx *router.Ctx) {
 	if !c.MessagesAvailable() {
 		c.messageUnavailable(ctx)
@@ -423,7 +480,7 @@ func (c *Controller) DeleteMessageType(ctx *router.Ctx) {
 // @Param kind query string false "group|tag | 分组或标签"
 // @Success 200 {object} string "drawer fragment | 抽屉片段"
 // @Security BearerAuth
-// @Router /message-settings/tags/new [get]
+// @Router /mgr/message-settings/tags/new [get]
 func (c *Controller) NewMessageTagDrawer(ctx *router.Ctx) {
 	if !c.MessagesAvailable() {
 		c.messageUnavailable(ctx)
@@ -451,7 +508,7 @@ func (c *Controller) NewMessageTagDrawer(ctx *router.Ctx) {
 // @Param id path string true "tag id | 标签 ID"
 // @Success 200 {object} string "drawer fragment | 抽屉片段"
 // @Security BearerAuth
-// @Router /message-settings/tags/{id}/edit [get]
+// @Router /mgr/message-settings/tags/{id}/edit [get]
 func (c *Controller) EditMessageTagDrawer(ctx *router.Ctx) {
 	if !c.MessagesAvailable() {
 		c.messageUnavailable(ctx)
@@ -498,7 +555,7 @@ func (c *Controller) EditMessageTagDrawer(ctx *router.Ctx) {
 // @Param tone formData string false "semantic tone | 语义色"
 // @Success 200 {object} string "refreshed settings fragment | 刷新后的设置片段"
 // @Security BearerAuth
-// @Router /message-settings/tags [post]
+// @Router /mgr/message-settings/tags [post]
 func (c *Controller) SaveMessageTag(ctx *router.Ctx) {
 	if !c.MessagesAvailable() {
 		c.messageUnavailable(ctx)
@@ -543,7 +600,7 @@ func (c *Controller) SaveMessageTag(ctx *router.Ctx) {
 // @Param id path string true "tag id | 标签 ID"
 // @Success 200 {object} string "refreshed settings fragment | 刷新后的设置片段"
 // @Security BearerAuth
-// @Router /message-settings/tags/{id}/archive [post]
+// @Router /mgr/message-settings/tags/{id}/archive [post]
 func (c *Controller) ArchiveMessageTag(ctx *router.Ctx) {
 	c.setTagArchived(ctx, true, "分组/标签已归档 | group/label archived")
 }
@@ -559,7 +616,7 @@ func (c *Controller) ArchiveMessageTag(ctx *router.Ctx) {
 // @Param id path string true "tag id | 标签 ID"
 // @Success 200 {object} string "refreshed settings fragment | 刷新后的设置片段"
 // @Security BearerAuth
-// @Router /message-settings/tags/{id}/restore [post]
+// @Router /mgr/message-settings/tags/{id}/restore [post]
 func (c *Controller) RestoreMessageTag(ctx *router.Ctx) {
 	c.setTagArchived(ctx, false, "分组/标签已恢复 | group/label restored")
 }
@@ -594,7 +651,7 @@ func (c *Controller) setTagArchived(ctx *router.Ctx, archived bool, notice strin
 // @Param id path string true "tag id | 标签 ID"
 // @Success 200 {object} string "refreshed settings fragment | 刷新后的设置片段"
 // @Security BearerAuth
-// @Router /message-settings/tags/{id}/delete [post]
+// @Router /mgr/message-settings/tags/{id}/delete [post]
 func (c *Controller) DeleteMessageTag(ctx *router.Ctx) {
 	if !c.MessagesAvailable() {
 		c.messageUnavailable(ctx)

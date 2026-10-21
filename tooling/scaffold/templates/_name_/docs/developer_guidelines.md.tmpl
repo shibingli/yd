@@ -6,9 +6,9 @@
 
 | 规则 | 说明 |
 |---|---|
-| **端点返回 HTML 片段，不是 JSON** | 除显式标注为 API 的端点（`/api/**`、`/openapi.json`）外，所有控制器必须返回 HTML 片段。 |
+| **端点返回 HTML 片段，不是 JSON** | 除显式标注为 API 的端点（`/api/**`、`/api/v1/openapi.json`）外，所有控制器必须返回 HTML 片段。 |
 | **区分整页与片段** | 通过请求头 `HX-Request: true` 判定。整页请求返回布局 + 内容；htmx 请求只返回内容片段。 |
-| **校验失败返回 422** | 表单校验失败返回 `422` + 错误片段（`pages/error.html`），模板中用 `hx-status:422="target:#yd-errors"` 声明式接管。 |
+| **校验失败返回 422** | 表单校验失败返回 `422` + 错误片段（`portal/pages/error.html` 或 `mgr/pages/error.html`），模板中用 `hx-status:422="target:#yd-errors"` 声明式接管。 |
 | **重定向走 Htmx 头** | 局部跳转用 `HX-Location`，整页跳转用 `HX-Redirect`，禁止在片段响应里塞 `<meta refresh>`。 |
 | **多区域更新** | 需要同时更新多个区域时输出多个带 `hx-swap-oob` 的片段，或统一换入 `#yd-workspace`。 |
 | **未登录的两种答复** | 普通浏览请求（不带 `HX-Request`）被送到登录页：`303 → /login`；htmx 请求与带 `Authorization` 的 API 客户端得到 `401` 片段。同一个拒绝由 `Controller.Deny` 统一渲染，因此「被拒绝」只有一种页面表现。 |
@@ -18,13 +18,14 @@
 
 ```
 {{ .AssetRoot }}/templates/
-├── layouts/     # 整页骨架（base.html）
-├── partials/    # 可复用片段（sidebar、users/list、users/row、tenants/form、roles/list、login、flash）
-└── pages/       # 业务页面（login、home、users、tenants、roles、permissions、account、realtime、error）
+├── portal/      # 门户：layouts/、partials/、pages/（home、messages、friends、account、realtime、blog、login、error）
+└── mgr/         # 后台：layouts/、partials/、pages/（home、users、tenants、roles、permissions、messages、message_settings、cms_*、error）
 ```
 
-- 片段命名：`<资源>/<动作>.html`，例如 `users/list.html`、`users/row.html`、`users/form.html`；片段首行用
-  `{{ "{{- define \"partials/<资源>/<动作>\" -}}" }}` 命名，页面用 `{{ "{{ template \"partials/users/list\" . }}" }}` 引入（数据契约写在文件头的注释里）。
+- 片段命名：门户放 `portal/partials/<资源>/<动作>.html`，后台放 `mgr/partials/<资源>/<动作>.html`，例如
+  `mgr/partials/users/list.html`、`portal/partials/messages/history.html`；片段首行用
+  `{{ "{{- define \"mgr/partials/<资源>/<动作>\" -}}" }}` 命名，页面用
+  `{{ "{{ template \"mgr/partials/users/list\" . }}" }}` 引入（数据契约写在文件头的注释里）。两棵树禁止互相 include。
 - 禁止在模板中书写内联样式表；样式一律来自 Tailwind v4 语义化类（`bg-surface`、`text-content`、`border-border-subtle`、`bg-brand-600` …）。
 - 模板中的静态资源引用一律写成 `{{ "{{ asset \"/static/...\" }}" }}`：production 下自动解析 `*.min.js` / `yd.min.css` 并追加内容哈希，开发期使用源码；禁止裸写 `/static/...`。
 - 禁止硬编码颜色字面量（`#1d4ed8` 之类）；需要新色值请在 `{{ .AssetRoot }}/static/css/app.css` 的 `@theme` 中新增语义变量。
@@ -32,7 +33,7 @@
   `{{ "{{ tr \"page.users.subtitle\" .Total }}" }}`）。两份目录的键集合必须严格一致：少一个键，页面上出现的就是键名本身。
 - 需要「某权限是否可见」这类判断时，由控制器把布尔值算好放进页面数据（`Can*`），模板只读结果：
   模板函数表刻意不提供「切片是否包含」之类的助手，否则授权规则会以第二种实现散落到视图层。
-- 图标只经 `{{ "{{template \"partials/icon\" \"lucide-…\"}}" }}` 引用：框架 sprite 随静态树合并提供，
+- 图标只经 `{{ "{{template \"portal/partials/icon\" \"lucide-…\"}}" }}`（后台用 `mgr/partials/icon`）引用：框架 sprite 随静态树合并提供，
   项目自定义图标运行 `yd icons sync` 生成自己的 `web/static/img/icons.svg`；禁止内联 SVG、Iconify 运行时与 CDN。
   `yd assets minify` 同时产出 `.min.svg`，生产模板由 `asset` 助手解析。
 - 主题切换是纯客户端行为（`{{ .AssetRoot }}/static/js/yd-app.js`）：`<html data-theme="light|dark|auto">` 承载主题。
@@ -87,7 +88,7 @@ cookie 里的令牌          验签 / 有效期 /         以令牌的 tid 声�
   只在**匿名**请求里用于定位租户；登录表单不再带租户字段，服务端按全局登录名认证并落入用户的默认租户。
   用户可隶属多个租户（`yd_auth_user_tenants`），切换租户必须校验成员关系并重新签发令牌；
   带令牌的请求一旦与令牌声明不一致，立即 403。
-- **能力守卫挂在路由上**：`g.GET("/users", ctrl.Users, authz.Require(authz.PermUserRead))`。
+- **能力守卫挂在路由上**：`g.GET("/mgr/users", ctrl.Users, authz.Require(authz.PermUserRead))`。
   `authz.Require` 是 `auth.RequirePermission` 的注册表包装（把四种写法解析成注册过的标识），因此守卫一律引常量，
   写 `auth.RequirePermission("user:read")` 那样的字面量既不必要，也会被 `yd authz check` 点名。
   处理器内部不再重复判权；页面上「显示还是隐藏」由模板辅助函数 `can` 读注册表判定（`can .Perm.XxxYyy`）。
@@ -117,7 +118,7 @@ cookie 里的令牌          验签 / 有效期 /         以令牌的 tid 声�
 - 错误一律在包级用 `errx.New` 声明哨兵，禁止 `fmt.Errorf`；判定只用 `errors.Is` / `errors.As`。
 - 日志一律走 `logx`，文案中英同步。
 - 新增端点后，先在 `internal/controller` 写好带完整注解的处理器（§9.2），再在 `internal/router` 的 `registerProtected`
-  里挂上能力守卫；`yd build` 会自动带上文档，`/docs` 应能立刻看到它。
+  里挂上能力守卫；`yd build` 会自动带上文档，`/mgr/docs` 应能立刻看到它。
 
 ## 9. 接口文档与注解
 
@@ -129,7 +130,7 @@ cookie 里的令牌          验签 / 有效期 /         以令牌的 tid 声�
   没有摘要、没有参数、没有响应示例的空操作，等于把文档的可用性交还给读者去猜。
 - 注解解析失败**不是**致命错误：生产镜像常常不含源码，此时文档退化为路由树推导的骨架并打印 `missing` / `incomplete`
   计数。启动日志里这三个数字（`matched` / `missing` / `orphan` / `incomplete`）就是覆盖率报表，出现非零值即视为需要补注解。
-- 文档端点 `/openapi.json` 与查看器 `/docs` 与其它端点一同由门面提供；查看器必须完全自包含（不得引用任何绝对 URL），
+- 文档端点 `/api/v1/openapi.json` 与查看器 `/mgr/docs` 与其它端点一同由门面提供；查看器必须完全自包含（不得引用任何绝对 URL），
   否则内网或离线环境会挂住整页。
 
 ### 9.2 注解格式
@@ -163,12 +164,12 @@ func (c *Controller) Health(ctx *router.Ctx) { /* ... */ }
 - `@ID` 声明唯一的 `operationId`，同一次文档里不得重复；`@Deprecated` 标记操作已废弃（也用于字段级
   类型注解，处理器注释块只要还有 `@Router` / `@Summary` 就会被正确归入处理器方言）。
 - `@Header` 的形状是 `状态码 {类型} 响应头名 "说明"`，状态码写 `all` 表示所有响应都带该头；
-  例如 `@Header 201 {string} Location "资源地址"`。
+  例如 `@Header 409 {string} Location "当前版本"`。
 - `@Security BearerAuth` 只写在受保护端点上，代表 `Authorization: Bearer <token>`；公开端点（登录、登出、健康检查、公钥）不写。
   需要作用域时写成 `@Security OAuth2 read:users write:users`；同一行用 `&&` 表示同时满足多个方案，
   用 `||` 表示任选其一。所有引用的方案都必须先在文档的 `components.securitySchemes` 中声明
   （脚手架已声明 `BearerAuth`）。
-- 路径写**路由模式**（含参数，如 `/users/:id/roles`），与处理器实际挂载的位置一致；写错不会报错，只会成为一个孤儿注解。
+- 路径写**路由模式**（含参数，如 `/mgr/users/:id/roles`），与处理器实际挂载的位置一致；写错不会报错，只会成为一个孤儿注解。
 - 状态码与实现一致：校验失败 `422`、未登录 `401`、越权 `404`（见 §1 的「越权一律 404」）、未知路由 `404`。
 
 ## 10. 注释与日志文案（强制）
@@ -193,3 +194,16 @@ log.Info("server started | 服务器已启动", logx.Str("addr", addr))
   ```
 
 - 提交信息、作者、PR 描述、代码注释中**严禁出现任何 Claude / Anthropic / AI 助手相关内容**。
+
+## 11. 数据关系与完整性
+
+除主键与索引外，本项目不依赖任何数据库级关系约束。所有关联由 service/repository 显式维护：
+
+- 关系字段只保存对方主键，不保存 ORM 关联对象；禁止 `FOREIGN KEY` / `REFERENCES`、
+  GORM `constraint:` / `foreignKey:` / `references:` 标签与任何会生成外键的关联字段。
+- 创建/更新引用前校验目标存在、属于同一租户且状态允许；跨租户与不存在都返回 Not Found。
+- 删除前要么拒绝仍有引用的删除，要么在同一事务中按显式顺序清理从属行；不得依赖数据库级联。
+- 校验与写入必须同事务：对引用目标加共享锁（MySQL `FOR SHARE`；SQLite 忽略），多个 ID 排序后加锁；
+  删除目标时加更新锁并复查引用，软删除留下的悬空引用在同一事务内清空。
+- 索引只服务查询与唯一性，不承担引用完整性；鉴权、消息与 CMS 的索引仍以 `tenant_id` 打头。
+- 新增关联表时必须同时提供写入校验、删除/软删除路径、跨租户测试与守卫测试。

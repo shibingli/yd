@@ -1,0 +1,37 @@
+{{/*
+  partials/shell-switches.html —— 语言与主题切换：登录前与登录后共用的唯一一组控件。
+  partials/shell-switches.html — the language and theme switches: the only such controls, shared before and after sign-in.
+
+  语言切换是单一按钮：按钮显示当前语言，点击以 hx-get 取回整块外壳（目标 #yd-shell），
+  而不是只换工作区：侧栏的分组标题与当前项的高亮也随之更新。无脚本时 href 指向另一种语言。
+  主题按钮只改 <html data-theme>，页面结构不动。
+  The language switch is a single button: it shows the active language and fetches the whole shell (target
+  #yd-shell) on click rather than the workspace alone, so the sidebar captions and the active item follow the
+  switch as well. Without JavaScript the href points at the other language. The theme button only rewrites
+  <html data-theme> and never rebuilds the page.
+
+  数据契约 | Data contract: .Path .Lang。
+*/}}
+{{- define "portal/partials/shell-switches" -}}
+{{- $next := "en" }}{{ if eq .Lang "en" }}{{ $next = "zh-CN" }}{{ end -}}
+<a class="yd-btn yd-btn--ghost yd-btn--sm yd-lang-toggle" href="{{ .Path }}?lang={{ $next }}"
+   data-yd-lang-toggle data-yd-lang-next="{{ $next }}"
+   hx-get="{{ .Path }}?lang={{ $next }}" hx-target="#yd-shell" hx-swap="innerMorph" hx-push-url="true"
+   aria-label="{{ tr "ui.language" }}" title="{{ tr "ui.language" }}">
+  {{ template "portal/partials/icon" "lucide-languages" }}
+  <span class="yd-lang__state" data-yd-lang-state="zh-CN">{{ tr "lang.zh-cn" }}</span>
+  <span class="yd-lang__state" data-yd-lang-state="en">{{ tr "lang.en" }}</span>
+</a>
+
+{{/* 三态主题：三个标签各自可见与否完全由 CSS 决定，脚本里没有一句文案。 */}}
+{{/* Three-state theme: CSS alone decides which label is visible, so the script holds no copy. */}}
+<button type="button" class="yd-btn yd-btn--ghost yd-btn--sm yd-theme-toggle" data-yd-theme-toggle
+        aria-label="{{ tr "ui.theme" }}" title="{{ tr "ui.theme" }}">
+  <span class="yd-theme__glyph" data-yd-theme-glyph="light">{{ template "portal/partials/icon" "lucide-sun" }}</span>
+  <span class="yd-theme__glyph" data-yd-theme-glyph="dark">{{ template "portal/partials/icon" "lucide-moon" }}</span>
+  <span class="yd-theme__glyph" data-yd-theme-glyph="system">{{ template "portal/partials/icon" "lucide-monitor" }}</span>
+  <span class="yd-theme__state" data-yd-theme-state="light">{{ tr "ui.theme_light" }}</span>
+  <span class="yd-theme__state" data-yd-theme-state="dark">{{ tr "ui.theme_dark" }}</span>
+  <span class="yd-theme__state" data-yd-theme-state="auto">{{ tr "ui.theme_auto" }}</span>
+</button>
+{{- end -}}

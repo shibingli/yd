@@ -1,0 +1,86 @@
+{{/*
+  pages/blog_article.html —— 公开文章页：正文、标签、相关文章与评论。
+  pages/blog_article.html — the public article page: body, tags, related articles and comments.
+
+  数据契约 | Data contract: .Article（model.CMSArticle）、.Comments（[]model.CMSComment）、.Related、
+  .CanComment、.Site，以及公开外壳使用的 .PublicNav。
+*/}}
+<article class="yd-page" data-yd-page="blog-article" aria-labelledby="yd-blog-article-title">
+  <header class="yd-page__header">
+    <div>
+      <h1 class="yd-page__title" id="yd-blog-article-title">{{ .Article.Title }}</h1>
+      <p class="yd-page__subtitle">
+        {{ .Article.AuthorName }} · {{ humanTime .Article.CreatedAt }} · {{ tr "cms.field.views" }} {{ .Article.ViewCount }}
+        {{- with .Article.CategoryName }} · <a class="yd-link" href="/blog/category/{{ $.Article.CategorySlug }}">{{ . }}</a>{{ end }}
+      </p>
+    </div>
+  </header>
+  {{- with .Article.CoverURL }}
+  <p><img class="w-full h-auto rounded" src="{{ . }}" alt="{{ $.Article.Title }}"></p>
+  {{- end }}
+  <section class="yd-card yd-section yd-prose">{{ .Article.Body }}</section>
+  {{- with .Article.Tags }}
+  <p class="yd-hint">
+    {{- range . }}<a class="yd-link" href="/blog/tag/{{ .Slug }}">#{{ .Name }}</a> {{ end -}}
+  </p>
+  {{- end }}
+
+  {{- with .Related }}
+  <section class="yd-card yd-section">
+    <h2 class="yd-section__title">{{ tr "cms.public.related" }}</h2>
+    <ul class="yd-list">
+      {{- range . }}
+      <li class="yd-list__item"><a class="yd-link" href="/blog/{{ .Slug }}">{{ .Title }}</a></li>
+      {{- end }}
+    </ul>
+  </section>
+  {{- end }}
+
+  <section class="yd-card yd-section" id="comments" aria-labelledby="yd-blog-comments-title">
+    <h2 class="yd-section__title" id="yd-blog-comments-title">{{ tr "cms.public.comments" }}</h2>
+    {{- with .Comments }}
+    <ul class="yd-list">
+      {{- range . }}
+      <li class="yd-list__item">
+        <p class="yd-list__primary">{{ .AuthorName }} · {{ humanTime .CreatedAt }}</p>
+        <div class="yd-prose">{{ .Body }}</div>
+        {{- if and $.CanComment (lt .Depth 1) }}
+        <form class="yd-form yd-form--inline" method="post" action="/blog/{{ $.Article.Slug }}/comments"
+              hx-post="/blog/{{ $.Article.Slug }}/comments" hx-target="#yd-errors" hx-swap="innerHTML"
+              hx-status:401="target:#yd-errors swap:innerHTML" hx-status:403="target:#yd-errors swap:innerHTML"
+              hx-status:404="target:#yd-errors swap:innerHTML" hx-status:409="target:#yd-errors swap:innerHTML"
+              hx-status:422="target:#yd-errors swap:innerHTML" hx-status:503="target:#yd-errors swap:innerHTML">
+          <input type="hidden" name="parent_id" value="{{ .ID }}">
+          <label class="sr-only" for="yd-blog-reply-{{ .ID }}">{{ tr "cms.public.comment_placeholder" }}</label>
+          <input class="yd-input" id="yd-blog-reply-{{ .ID }}" name="body" type="text" maxlength="8192"
+                 placeholder="{{ tr "cms.public.reply_placeholder" }}">
+          <button type="submit" class="yd-btn yd-btn--ghost yd-btn--sm">{{ tr "cms.public.reply" }}</button>
+        </form>
+        {{- end }}
+      </li>
+      {{- end }}
+    </ul>
+    {{- else }}
+    <p class="yd-hint">{{ tr "cms.public.no_comments" }}</p>
+    {{- end }}
+
+    {{- if .CanComment }}
+    <form class="yd-form" method="post" action="/blog/{{ .Article.Slug }}/comments"
+          hx-post="/blog/{{ .Article.Slug }}/comments" hx-target="#yd-errors" hx-swap="innerHTML"
+          hx-status:401="target:#yd-errors swap:innerHTML" hx-status:403="target:#yd-errors swap:innerHTML"
+          hx-status:404="target:#yd-errors swap:innerHTML" hx-status:409="target:#yd-errors swap:innerHTML"
+          hx-status:422="target:#yd-errors swap:innerHTML" hx-status:503="target:#yd-errors swap:innerHTML">
+      <div class="yd-form__field">
+        <label class="yd-form__label" for="yd-blog-comment">{{ tr "cms.public.comment" }}</label>
+        <textarea class="yd-input" id="yd-blog-comment" name="body" rows="4" required maxlength="8192"
+                  placeholder="{{ tr "cms.public.comment_placeholder" }}"></textarea>
+      </div>
+      <div class="yd-form__actions">
+        <button type="submit" class="yd-btn yd-btn--primary">{{ tr "cms.public.comment_submit" }}</button>
+      </div>
+    </form>
+    {{- else if not .SignedIn }}
+    <p class="yd-hint"><a class="yd-link" href="/login">{{ tr "cms.public.comment_login" }}</a></p>
+    {{- end }}
+  </section>
+</article>

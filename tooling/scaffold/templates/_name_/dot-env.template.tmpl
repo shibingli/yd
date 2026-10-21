@@ -82,6 +82,16 @@ YD_MESSAGE_PENDING_TTL=24h
 # Must be unique per replica; empty derives from hostname and pid. | 多副本部署必须唯一；留空按主机名与进程号生成。
 # YD_MESSAGE_NODE_ID=node-1
 
+# 内容管理与发布：媒体目录、列表页长、媒体上限、修订保留数与匿名公开租户。
+# Content management: media directory, page length, media ceiling, retained revisions and the anonymous public tenant.
+YD_CMS_MEDIA_DIR=data/cms-media
+YD_CMS_PAGE_SIZE=20
+YD_CMS_MAX_MEDIA_SIZE=33554432
+YD_CMS_MAX_REVISIONS=20
+# Empty uses the seeded tenant; multi-tenant public sites normally select one by subdomain or X-Tenant.
+# 留空使用种子租户；多租户公开站点通常通过子域名或 X-Tenant 指定。
+# YD_CMS_PUBLIC_TENANT=default
+
 # 国密（仅开发环境使用测试向量，生产环境必须走密钥管理服务）
 # Guomi crypto (development uses test vectors only; production must use a key management service)
 YD_GUOMI_SM2_PRIVATE_KEY=

@@ -62,7 +62,7 @@ ok  github.com/shibingli/yd/e2e  26.829s
 3. 生成项目 `go build ./...` 通过
 4. **整页与 htmx 片段语义**：普通请求返回含 `<html` 的整页；带 `HX-Request: true`
    返回不含 `<html` 的片段
-5. **OpenAPI 3.0**：`/openapi.json` 含 `"3.0`；`/docs` 查看器可访问且**不含任何外部 CDN 引用**
+5. **OpenAPI 3.0**：`/api/v1/openapi.json` 含 `"3.0`；`/mgr/docs` 查看器可访问且**不含任何外部 CDN 引用**
 6. **静态资产本地可用**：`/static/js/vendor/htmx.min.js` 与 `/static/css/yd.css` 均可取到
 
 `TestCrossCompile` 校验三平台真实产物的文件头（linux 产物必须是 ELF）。
@@ -912,7 +912,24 @@ goccy/go-json v0.11.2、json-iterator v1.1.12、cristalhq/base64 v0.1.2、segmen
 
 ### 3.17.5 查看器完整渲染
 
-`/docs` 现在渲染：文档概览、服务器与变量、标签、全局安全、安全方案及 OAuth 流程、Webhook、
+### CMS MySQL 集成验证
+
+```bash
+YD_TEST_MYSQL_DSN='user:pass@tcp(host:3306)/db?parseTime=True'   go test ./cms/gormstore -run TestMySQLSchemaAndArticleBehaviours -v
+```
+
+测试会创建一个临时库并在结束时删除；它验证 MySQL 的 `MEDIUMTEXT` 正文列、已移除的超长分类路径索引、
+唯一键的 `errors.Is` 分类、未变化更新的零影响行语义、大小写不敏感标签检索与 100 KiB 正文往返，
+并查询 `information_schema.KEY_COLUMN_USAGE` 断言迁移出的表**没有任何外键**（关系全部由应用代码维护）。
+未设置 `YD_TEST_MYSQL_DSN` 时该用例跳过。
+
+关系完整性另有两组常驻守卫：`repotest.TestNoForeignKeyDefinitions` 扫描 Go 结构标签、SQL 字面量、
+模板与 `.sql` 文件；`repotest.TestModelsHaveNoDatabaseRelationships` 与
+`security/auth/gormstore.TestAuthModelsHaveNoDatabaseRelationships` 用 GORM Schema 解析断言
+CMS、消息与鉴权模型都推断不出任何关联。删除路径的清理（软删除文章的分类/标签引用、删除角色时
+从成员 JSON 摘除角色名）由对应包的测试覆盖。
+
+`/mgr/docs` 现在渲染：文档概览、服务器与变量、标签、全局安全、安全方案及 OAuth 流程、Webhook、
 组件计数；操作级参数（含 path 级共享参数合并）、请求体、响应、响应头、链接、回调、扩展；
 Schema 的 `$ref`、类型数组、`allOf`/`oneOf`/`anyOf`/`not`、`prefixItems`/`contains`、
 `if/then/else`、`additionalProperties`/`unevaluated*`、约束、枚举、示例、discriminator/xml 等。

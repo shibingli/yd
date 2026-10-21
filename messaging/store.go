@@ -47,8 +47,9 @@ type Store interface {
 	GetFriendRequest(ctx context.Context, tenantID, id string) (FriendRequest, error)
 	// FriendRequestBetween reads the directed request in one direction. | FriendRequestBetween 读取某一方向上的申请。
 	FriendRequestBetween(ctx context.Context, tenantID, requesterID, addresseeID string) (FriendRequest, error)
-	// UpdateFriendRequest advances the state machine. | UpdateFriendRequest 推进状态机。
-	UpdateFriendRequest(ctx context.Context, req FriendRequest) error
+	// UpdateFriendRequest advances the state machine, guarded by the expected current status. |
+	// UpdateFriendRequest 推进状态机，并以期望的当前状态作为并发前置条件。
+	UpdateFriendRequest(ctx context.Context, req FriendRequest, expected FriendRequestStatus) error
 	// AcceptFriendRequest accepts a request and creates its friendship atomically. | AcceptFriendRequest 原子地接受申请并创建好友关系。
 	AcceptFriendRequest(ctx context.Context, req FriendRequest, friendship Friendship) error
 	// ListFriendRequests lists one direction of requests for a user. | ListFriendRequests 列出某个用户某一方向的申请。

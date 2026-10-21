@@ -21,117 +21,141 @@ import (
 	"{{ .Module }}/internal/model"
 	"{{ .Module }}/internal/repository"
 	"{{ .Module }}/internal/service"
-	"{{ .YdModule }}/runtime/app"
-	"{{ .YdModule }}/security/auth"
-	"{{ .YdModule }}/security/authz"
+	"{{ .YdModule }}/cms"
 	"{{ .YdModule }}/core/errx"
+	"{{ .YdModule }}/core/logx"
 	"{{ .YdModule }}/http/htmx"
 	"{{ .YdModule }}/http/i18n"
-	"{{ .YdModule }}/core/logx"
 	"{{ .YdModule }}/http/render"
 	"{{ .YdModule }}/http/router"
 	"{{ .YdModule }}/messaging"
 	"{{ .YdModule }}/messaging/realtime"
+	"{{ .YdModule }}/runtime/app"
 	"{{ .YdModule }}/runtime/metricsx"
+	"{{ .YdModule }}/security/auth"
+	"{{ .YdModule }}/security/authz"
+)
+
+// 布局与外壳名：门户与管理后台各自使用独立的骨架，页面模板树也互不引用。
+// Layout and shell names: the portal and the back office each use their own skeleton, and their page trees never
+// include each other.
+const (
+	// LayoutPortal is the portal whole-page layout. | LayoutPortal 是门户整页布局。
+	LayoutPortal = "portal/layouts/base.html"
+	// LayoutMgr is the management whole-page layout. | LayoutMgr 是管理端整页布局。
+	LayoutMgr = "mgr/layouts/base.html"
+	// ShellPortal is the portal shell. | ShellPortal 是门户外壳。
+	ShellPortal = "portal/layouts/shell.html"
+	// ShellMgr is the management shell. | ShellMgr 是管理端外壳。
+	ShellMgr = "mgr/layouts/shell.html"
 )
 
 // 模板名：与 web/templates 下的路径一一对应，渲染引擎按该名称查找。
 // Template names: they match the paths under web/templates one to one, which is how the render engine looks them up.
 const (
-	// TplHome is the home fragment (the content region of full-page requests as well). | TplHome 是首页片段（也是整页请求的内容区）。
-	TplHome = "pages/home.html"
+	// TplPortalHome is the portal home fragment. | TplPortalHome 是门户首页片段。
+	TplPortalHome = "portal/pages/home.html"
+	// TplManagementHome is the management overview fragment. | TplManagementHome 是管理概览片段。
+	TplManagementHome = "mgr/pages/home.html"
 	// TplLogin is the sign-in fragment, the only page an anonymous visitor ever sees. | TplLogin 是登录页片段；未登录用户唯一能看到的页面。
-	TplLogin = "pages/login.html"
+	TplLogin = "portal/pages/login.html"
 	// TplUsers is the user management fragment. | TplUsers 是用户管理片段。
-	TplUsers = "pages/users.html"
+	TplUsers = "mgr/pages/users.html"
 	// TplTenants is the tenant management fragment. | TplTenants 是租户管理片段。
-	TplTenants = "pages/tenants.html"
+	TplTenants = "mgr/pages/tenants.html"
 	// TplRoles is the role management fragment. | TplRoles 是角色管理片段。
-	TplRoles = "pages/roles.html"
+	TplRoles = "mgr/pages/roles.html"
 	// TplPermissions is the permission matrix fragment. | TplPermissions 是权限矩阵片段。
-	TplPermissions = "pages/permissions.html"
+	TplPermissions = "mgr/pages/permissions.html"
 	// TplAccount is the self-service account fragment (password change and sec_key rotation). | TplAccount 是账号自助片段（改密与 sec_key 轮换）。
-	TplAccount = "pages/account.html"
+	TplAccount = "portal/pages/account.html"
 	// TplRealtime is the realtime demo fragment. | TplRealtime 是实时推送演示片段。
-	TplRealtime = "pages/realtime.html"
-	// TplError is the validation failure fragment swapped in by the front end's hx-status:422. | TplError 是校验失败片段，由前端的 hx-status:422 声明式换入。
-	TplError = "pages/error.html"
+	TplRealtime = "portal/pages/realtime.html"
+	// TplError is the portal validation failure fragment. | TplError 是门户校验失败片段。
+	TplError = "portal/pages/error.html"
+	// TplMgrError is the management validation failure fragment. | TplMgrError 是管理端校验失败片段。
+	TplMgrError = "mgr/pages/error.html"
 	// TplUserCreateDrawer is the user creation drawer fragment. | TplUserCreateDrawer 是新建用户抽屉片段。
-	TplUserCreateDrawer = "partials/users/create_drawer.html"
+	TplUserCreateDrawer = "mgr/partials/users/create_drawer.html"
 	// TplUserEditDrawer is the user edit drawer fragment. | TplUserEditDrawer 是编辑用户抽屉片段。
-	TplUserEditDrawer = "partials/users/edit_drawer.html"
+	TplUserEditDrawer = "mgr/partials/users/edit_drawer.html"
 	// TplTenantCreateDrawer is the tenant creation drawer fragment. | TplTenantCreateDrawer 是新建租户抽屉片段。
-	TplTenantCreateDrawer = "partials/tenants/drawer.html"
+	TplTenantCreateDrawer = "mgr/partials/tenants/drawer.html"
 	// TplRoleCreateDrawer is the role creation drawer fragment. | TplRoleCreateDrawer 是新建角色抽屉片段。
-	TplRoleCreateDrawer = "partials/roles/drawer.html"
+	TplRoleCreateDrawer = "mgr/partials/roles/drawer.html"
 	// TplRoleEditDrawer is the role edit drawer fragment. | TplRoleEditDrawer 是编辑角色抽屉片段。
-	TplRoleEditDrawer = "partials/roles/edit_drawer.html"
-	// TplMetrics is the dashboard metrics fragment polled by the home page. | TplMetrics 是首页轮询的仪表盘指标片段。
-	TplMetrics = "partials/home/metrics_fragment.html"
-	// TplMiddlewareMetrics is the middleware runtime fragment polled by the home page. | TplMiddlewareMetrics
+	TplRoleEditDrawer = "mgr/partials/roles/edit_drawer.html"
+	// TplMetrics is the dashboard metrics fragment served for direct requests and the no-script fallback; live updates
+	// arrive over the management WebSocket. | TplMetrics 是为直连与无脚本回退提供的仪表盘指标片段，实时更新走管理端 WebSocket。
+	TplMetrics = "mgr/partials/home/metrics_fragment.html"
+	// TplMiddlewareMetrics is the middleware runtime fragment served for direct requests and the no-script fallback. | TplMiddlewareMetrics
 	// 是首页轮询的中间件运行时片段。
-	TplMiddlewareMetrics = "partials/home/middleware_fragment.html"
+	TplMiddlewareMetrics = "mgr/partials/home/middleware_fragment.html"
 	// TplLiveMetrics is the unified system-resource and middleware-runtime panel pushed over WebSocket. | TplLiveMetrics
 	// 是经 WebSocket 推送的系统资源与中间件运行时统一面板。
-	TplLiveMetrics = "partials/home/live_metrics.html"
+	TplLiveMetrics = "mgr/partials/home/live_metrics.html"
 	// TplMessages is the message-centre page. | TplMessages 是消息中心页面。
-	TplMessages = "pages/messages.html"
+	TplMessages = "portal/pages/messages.html"
 	// TplMessageThread is the conversation thread fragment. | TplMessageThread 是会话线程片段。
-	TplMessageThread = "partials/messages/thread.html"
+	TplMessageThread = "portal/partials/messages/thread.html"
 	// TplMessageHistory is the message list alone, refreshed over WebSocket without rebuilding the composer. |
 	// TplMessageHistory 是只含消息列表的片段，经 WebSocket 刷新时不会重建撰写区。
-	TplMessageHistory = "partials/messages/history.html"
+	TplMessageHistory = "portal/partials/messages/history.html"
 	// TplMessageConversations is the conversation list fragment. | TplMessageConversations 是会话列表片段。
-	TplMessageConversations = "partials/messages/conversations.html"
+	TplMessageConversations = "portal/partials/messages/conversations.html"
 	// TplMessageSearch is the mixed search result list. | TplMessageSearch 是混合检索结果列表。
-	TplMessageSearch = "partials/messages/search.html"
+	TplMessageSearch = "portal/partials/messages/search.html"
 	// TplMessageCompose is the create/edit message drawer. | TplMessageCompose 是新建/编辑消息抽屉。
-	TplMessageCompose = "partials/messages/compose.html"
+	TplMessageCompose = "portal/partials/messages/compose.html"
+	// TplSidebarUnread is the sidebar unread badge. | TplSidebarUnread 是侧栏未读角标。
+	TplSidebarUnread = "portal/partials/messages/sidebar_unread"
+	// TplSidebarFriendRequests is the sidebar friend-request badge. | TplSidebarFriendRequests 是侧栏好友申请角标。
+	TplSidebarFriendRequests = "portal/partials/messages/sidebar_friend_requests"
 	// TplMessagePin is the pin-window drawer. | TplMessagePin 是置顶窗口抽屉。
-	TplMessagePin = "partials/messages/pin.html"
+	TplMessagePin = "mgr/partials/messages/pin.html"
 	// TplMessageGroupDrawer is the group settings drawer. | TplMessageGroupDrawer 是群设置抽屉。
-	TplMessageGroupDrawer = "partials/messages/group_settings.html"
+	TplMessageGroupDrawer = "portal/partials/messages/group_settings.html"
 	// TplFriends is the friend-management page. | TplFriends 是好友管理页面。
-	TplFriends = "pages/friends.html"
+	TplFriends = "portal/pages/friends.html"
 	// TplFriendSummary is the friend page fragment. | TplFriendSummary 是好友页片段。
-	TplFriendSummary = "partials/friends/summary.html"
+	TplFriendSummary = "portal/partials/friends/summary.html"
 	// TplFriendSearch is the friend search result list. | TplFriendSearch 是好友检索结果列表。
-	TplFriendSearch = "partials/friends/search.html"
+	TplFriendSearch = "portal/partials/friends/search.html"
 	// TplFriendRemark is the remark drawer. | TplFriendRemark 是备注抽屉。
-	TplFriendRemark = "partials/friends/remark.html"
+	TplFriendRemark = "portal/partials/friends/remark.html"
 	// TplFriendRequestDrawer is the add-friend drawer. | TplFriendRequestDrawer 是添加好友抽屉。
-	TplFriendRequestDrawer = "partials/friends/request.html"
+	TplFriendRequestDrawer = "portal/partials/friends/request.html"
 	// TplMessageSettings is the type/group/tag settings page. | TplMessageSettings 是类型/分组/标签设置页。
-	TplMessageSettings = "pages/message_settings.html"
+	TplMessageSettings = "mgr/pages/message_settings.html"
 	// TplMessageSettingsBody is the settings page fragment. | TplMessageSettingsBody 是设置页片段。
-	TplMessageSettingsBody = "partials/message_settings/body.html"
+	TplMessageSettingsBody = "mgr/partials/message_settings/body.html"
 	// TplMessageTypeDrawer is the type create/edit drawer. | TplMessageTypeDrawer 是类型新建/编辑抽屉。
-	TplMessageTypeDrawer = "partials/message_settings/type_form.html"
+	TplMessageTypeDrawer = "mgr/partials/message_settings/type_form.html"
 	// TplMessageTagDrawer is the group/tag create/edit drawer. | TplMessageTagDrawer 是分组/标签新建/编辑抽屉。
-	TplMessageTagDrawer = "partials/message_settings/tag_form.html"
+	TplMessageTagDrawer = "mgr/partials/message_settings/tag_form.html"
 	// TplMessageAudit is the administrator moderation and audit page. | TplMessageAudit 是管理员治理与审计页面。
-	TplMessageAudit = "pages/message_audit.html"
+	TplMessageAudit = "mgr/pages/message_admin.html"
 	// TplMessageAuditBody is the administrator moderation page fragment. | TplMessageAuditBody 是管理员治理页面片段。
-	TplMessageAuditBody = "partials/messages/audit.html"
+	TplMessageAuditBody = "mgr/partials/messages/audit.html"
 	// TplMessageNotice is the realtime notice fragment pushed into the shell. | TplMessageNotice 是推送到外壳的实时通知片段。
-	TplMessageNotice = "partials/messages/notice.html"
+	TplMessageNotice = "portal/partials/messages/notice.html"
 	// TplUnreadBadge is the shell unread badge fragment. | TplUnreadBadge 是外壳未读徽标片段。
-	TplUnreadBadge = "partials/messages/unread_badge.html"
+	TplUnreadBadge = "portal/partials/messages/unread_badge.html"
 	// TplUnreadMenuBadge is the unread count of the user-menu row. | TplUnreadMenuBadge 是用户菜单未读行的计数徽标。
-	TplUnreadMenuBadge = "partials/messages/unread_menu_badge.html"
+	TplUnreadMenuBadge = "portal/partials/messages/unread_menu_badge.html"
 	// TplMessageAttachment is one uploaded attachment chip. | TplMessageAttachment 是一个已上传附件标签。
-	TplMessageAttachment = "partials/messages/attachment_chip.html"
+	TplMessageAttachment = "portal/partials/messages/attachment_chip.html"
 )
 
 // 列表片段名：增删改之后返回的就是它们，因此 htmx 只换工作区、不重载整页。
 // Fragment names of the lists: every mutation answers with one of them, so htmx swaps the workspace instead of reloading the page.
 const (
 	// TplUsersList is the user list fragment. | TplUsersList 是用户列表片段。
-	TplUsersList = "partials/users/list.html"
+	TplUsersList = "mgr/partials/users/list.html"
 	// TplTenantsList is the tenant list fragment. | TplTenantsList 是租户列表片段。
-	TplTenantsList = "partials/tenants/list.html"
+	TplTenantsList = "mgr/partials/tenants/list.html"
 	// TplRolesList is the role list fragment. | TplRolesList 是角色列表片段。
-	TplRolesList = "partials/roles/list.html"
+	TplRolesList = "mgr/partials/roles/list.html"
 )
 
 // 对外路径常量：模板、控制器与路由引用同一份取值，前端脚本取公钥时也不会写错地址。
@@ -285,6 +309,10 @@ type Controller struct {
 	messageErr error
 	// hub fans message events out to WebSocket subscribers. | hub 把消息事件分发给 WebSocket 订阅者。
 	hub *realtime.Hub
+	// cms is the content-management facade; nil-capable when the project has no database. | cms 是内容管理门面；项目没有数据库时可为空。
+	cms *service.CMSService
+	// cmsErr records why the CMS is unavailable, shown on its pages. | cmsErr 记录 CMS 不可用的原因，并在其页面上展示。
+	cmsErr error
 	// i18n is the catalogue bundle, used to translate outside a template execution (conversation
 	// titles, pushed notices). | i18n 是语言目录包，用于在模板执行之外翻译（会话标题、推送通知）。
 	i18n *i18n.Bundle
@@ -333,6 +361,13 @@ func New(a *app.App, store *repository.Store, log *logx.Logger) (*Controller, er
 		}
 		log.Warn("message centre is disabled | 消息中心已禁用", logx.Err(messageErr))
 	}
+	cmsSvc, cmsErr := service.NewCMSService(store, a.Config(), log)
+	if cmsErr != nil {
+		if !errors.Is(cmsErr, service.ErrCMSUnavailable) {
+			return nil, cmsErr
+		}
+		log.Warn("content management is disabled | 内容管理已禁用", logx.Err(cmsErr))
+	}
 	return &Controller{
 		app:        a,
 		store:      store,
@@ -344,9 +379,16 @@ func New(a *app.App, store *repository.Store, log *logx.Logger) (*Controller, er
 		messages:   messages,
 		messageErr: messageErr,
 		hub:        hub,
+		cms:        cmsSvc,
+		cmsErr:     cmsErr,
 		i18n:       bundle,
 		log:        log,
 	}, nil
+}
+
+// CMSAvailable reports whether the CMS can serve requests. | CMSAvailable 报告内容管理能否服务请求。
+func (c *Controller) CMSAvailable() bool {
+	return c != nil && c.cms != nil && c.cms.Available()
 }
 
 // MessageHub returns the realtime hub shared by the controller and its WebSocket endpoint. |
@@ -497,6 +539,14 @@ func (c *Controller) ResolveTenant(ctx context.Context, key string) (string, err
 // (which send Authorization and do not parse HTML) keep getting the 401 fragment.
 func (c *Controller) Deny(ctx *router.Ctx, err error) {
 	status, message := statusFor(err)
+	if isAPIPath(ctx.Path()) {
+		// API 客户端不会跟随登录页，也不解析 HTML；拒绝必须以同一种 JSON 形态到达。 |
+		// API clients neither follow the sign-in page nor parse HTML; the refusal must arrive as JSON.
+		c.log.Warn("middleware refused the API request | 中间件拒绝了 API 请求",
+			logx.Err(err), logx.Str("path", ctx.Path()), logx.Str("method", ctx.Method()), logx.Int("status", status))
+		c.failJSON(ctx, status, message)
+		return
+	}
 	if status == http.StatusUnauthorized && !htmx.IsRequest(ctx.Request) {
 		c.clearSession(ctx)
 		c.redirect(ctx, "/login")
@@ -529,22 +579,22 @@ func (c *Controller) Deny(ctx *router.Ctx, err error) {
 // {{ "{{ if .User }}" }} behave as written in the templates.
 func (c *Controller) view(ctx *router.Ctx, title string, extra map[string]any) map[string]any {
 	data := map[string]any{
-		"Title":           title,
-		"Name":            meta.Name,
-		"Module":          meta.Module,
-		"Description":     meta.Description,
-		"Version":         meta.Version,
-		"GoVersion":       meta.GoVersion,
-		"HtmxVersion":     meta.HtmxVersion,
-		"TailwindVersion": meta.TailwindVersion,
-		"Features":        meta.Features,
-		"Scripts":         meta.HtmxExtScripts,
-		"Path":            ctx.Path(),
-		"PublicKey":       c.PublicKey(),
-		"KeyEndpoint":     PubkeyPath,
-		"Lang":            c.lang(ctx),
-		"TenantHeader":    meta.TenantHeader,
-		"SeedNotice":      meta.SeedPasswordNotice,
+		"Title":            title,
+		"Name":             meta.Name,
+		"Module":           meta.Module,
+		"Description":      meta.Description,
+		"Version":          meta.Version,
+		"GoVersion":        meta.GoVersion,
+		"HtmxVersion":      meta.HtmxVersion,
+		"TailwindVersion":  meta.TailwindVersion,
+		"Features":         meta.Features,
+		"Scripts":          meta.HtmxExtScripts,
+		"Path":             ctx.Path(),
+		"PublicKey":        c.PublicKey(),
+		"KeyEndpoint":      PubkeyPath,
+		"Lang":             c.lang(ctx),
+		"TenantHeader":     meta.TenantHeader,
+		"SeedNotice":       meta.SeedPasswordNotice,
 		"User":             nil,
 		"Tenant":           nil,
 		"Tenants":          []model.Tenant{},
@@ -557,7 +607,14 @@ func (c *Controller) view(ctx *router.Ctx, title string, extra map[string]any) m
 		"Unread":           messaging.UnreadSummary{},
 		"MessageAvailable": c.MessagesAvailable(),
 		"MessageError":     "",
+		"CMSAvailable":     c.CMSAvailable(),
+		"CMSReadAll":       false,
 	}
+	layout, shell, portal := c.layoutForPath(ctx.Path())
+	data[render.LayoutKey] = layout
+	data["Shell"] = shell
+	data["Portal"] = portal
+	data["Mgr"] = !portal
 	for k, v := range extra {
 		data[k] = v
 	}
@@ -606,6 +663,7 @@ func (c *Controller) view(ctx *router.Ctx, title string, extra map[string]any) m
 	// struct to a template would make every page recompute them.
 	data["User"] = model.UserFromAuth(user)
 	data["SignedIn"] = true
+	data["CMSReadAll"] = c.CMSAvailable() && c.cmsReadAll(ctx)
 	data["DefaultTenantID"] = user.DefaultTenantID
 	data["Permissions"] = c.auth.Permissions(user)
 	data["SeedPassword"] = c.auth.SeedPasswordUnchanged(user)
@@ -695,6 +753,16 @@ func formValues(ctx *router.Ctx, name string) []string {
 	return out
 }
 
+// layoutForPath selects the portal or management skeleton from the request path. The split is a
+// single decision, so a page cannot accidentally render inside the other area's shell. |
+// layoutForPath 按请求路径选择门户或管理骨架。这个决定只有一处，页面因此不会误用另一侧的布局。
+func (c *Controller) layoutForPath(path string) (layout, shell string, portal bool) {
+	if strings.HasPrefix(path, "/mgr") || strings.HasPrefix(path, "/api/v1") {
+		return LayoutMgr, ShellMgr, false
+	}
+	return LayoutPortal, ShellPortal, true
+}
+
 // render 渲染片段或整页：app.Render 依据 HX-Request 与 HX-Request-Type 自动选择「只片段」还是「布局包裹片段」。
 // render renders a fragment or a whole page: app.Render picks "fragment only" or "layout-wrapped fragment" from HX-Request and HX-Request-Type.
 //
@@ -755,7 +823,11 @@ func (c *Controller) renderShell(ctx *router.Ctx, status int, name string, data 
 		shellData[k] = v
 	}
 	shellData["Content"] = template.HTML(page.String()) //nolint:gosec // trusted: rendered from a template | 可信：由模板渲染
-	if err := c.app.Render(ctx, status, "layouts/shell.html", shellData); err != nil {
+	shellName := ShellPortal
+	if name, ok := data["Shell"].(string); ok && strings.TrimSpace(name) != "" {
+		shellName = name
+	}
+	if err := c.app.Render(ctx, status, shellName, shellData); err != nil {
 		c.log.Error("shell render failed | 外壳渲染失败",
 			logx.Err(err),
 			logx.Str("path", ctx.Path()),
@@ -769,22 +841,45 @@ func (c *Controller) toast(ctx *router.Ctx, message string) {
 	htmx.TriggerFromCtx(ctx, htmx.Event{Name: meta.ToastEvent, Detail: message})
 }
 
-// fail 输出错误片段：状态码 + pages/error.html。
-// fail writes the error fragment: the status code plus pages/error.html.
+// fail 输出错误片段：状态码 + portal/pages/error.html。
+// fail writes the error fragment: the status code plus portal/pages/error.html.
 //
 // htmx 侧由表单上的 hx-status:422="target:#yd-errors swap:innerHTML" 声明式接管，
 // 因此这里既不需要额外的响应头，也不需要前端为失败路径写命令式代码。
 // The htmx side takes it over declaratively through hx-status:422="target:#yd-errors swap:innerHTML" on the form, so
 // neither an extra response header nor imperative front-end code for the failure path is needed.
 func (c *Controller) fail(ctx *router.Ctx, status int, messages ...string) {
+	if isAPIPath(ctx.Path()) {
+		message := msgInternal
+		if len(messages) > 0 {
+			message = messages[0]
+		}
+		c.failJSON(ctx, status, message)
+		return
+	}
 	list := make([]map[string]any, 0, len(messages))
 	for _, m := range messages {
 		list = append(list, map[string]any{"Text": m})
 	}
-	c.render(ctx, status, TplError, c.view(ctx, "请求未通过校验 | Request failed validation", map[string]any{
+	templateName := TplError
+	if strings.HasPrefix(ctx.Path(), "/mgr") || strings.HasPrefix(ctx.Path(), "/api/v1") {
+		templateName = TplMgrError
+	}
+	c.render(ctx, status, templateName, c.view(ctx, "请求未通过校验 | Request failed validation", map[string]any{
 		"Status": status,
 		"Errors": list,
 	}))
+}
+
+// failJSON writes the one error shape every API consumer sees. | failJSON 输出所有 API 消费者看到的统一错误形态。
+func (c *Controller) failJSON(ctx *router.Ctx, status int, message string) {
+	_ = ctx.JSON(status, map[string]any{"error": message})
+}
+
+// isAPIPath reports whether a path belongs to the machine-readable API surface. |
+// isAPIPath 报告路径是否属于机器读取的 API 面。
+func isAPIPath(path string) bool {
+	return strings.HasPrefix(path, "/api/")
 }
 
 // failService 把业务哨兵映射为状态码与文案，并输出错误片段。
@@ -901,6 +996,7 @@ func statusFor(err error) (int, string) {
 	case errors.Is(err, service.ErrSelfOperation), errors.Is(err, service.ErrBuiltinRoleProtected), errors.Is(err, auth.ErrConflict),
 		errors.Is(err, messaging.ErrRecallExpired), errors.Is(err, messaging.ErrEditExpired),
 		errors.Is(err, messaging.ErrDuplicateRequest), errors.Is(err, messaging.ErrConversationClosed),
+		errors.Is(err, messaging.ErrRequestClosed), errors.Is(err, messaging.ErrRecalled),
 		errors.Is(err, messaging.ErrTypeProtected), errors.Is(err, messaging.ErrTypeInUse):
 		return http.StatusConflict, err.Error()
 	case errors.Is(err, messaging.ErrAttachmentTooLarge):
@@ -913,6 +1009,33 @@ func statusFor(err error) (int, string) {
 		errors.Is(err, messaging.ErrTypeUnknown), errors.Is(err, messaging.ErrTagUnknown),
 		errors.Is(err, messaging.ErrPinWindowInvalid), errors.Is(err, messaging.ErrTooManyMembers),
 		errors.Is(err, messaging.ErrTooManyAttachments), errors.Is(err, messaging.ErrSearchTooBroad):
+		return http.StatusUnprocessableEntity, err.Error()
+	case errors.Is(err, cms.ErrNotFound), errors.Is(err, cms.ErrCategoryNotFound),
+		errors.Is(err, cms.ErrArticleNotFound), errors.Is(err, cms.ErrTagNotFound),
+		errors.Is(err, cms.ErrMediaNotFound), errors.Is(err, cms.ErrCommentNotFound),
+		errors.Is(err, cms.ErrRevisionNotFound):
+		// 跨租户与不存在共用 404：调用方无法探测另一个租户是否持有该资源。 |
+		// Cross-tenant and missing share 404, so a caller cannot probe whether another tenant holds the resource.
+		return http.StatusNotFound, err.Error()
+	case errors.Is(err, cms.ErrForbidden), errors.Is(err, cms.ErrNotAuthor),
+		errors.Is(err, cms.ErrNotCommentAuthor):
+		return http.StatusForbidden, msgForbidden
+	case errors.Is(err, cms.ErrCategoryNotEmpty), errors.Is(err, cms.ErrCategoryCycle),
+		errors.Is(err, cms.ErrArticleTransition), errors.Is(err, cms.ErrArticleNotEditable),
+		errors.Is(err, cms.ErrArticleConflict), errors.Is(err, cms.ErrCategoryConflict),
+		errors.Is(err, cms.ErrCommentsClosed), errors.Is(err, cms.ErrCategorySlugTaken),
+		errors.Is(err, cms.ErrArticleSlugTaken), errors.Is(err, cms.ErrTagSlugTaken),
+		errors.Is(err, cms.ErrTagInUse):
+		return http.StatusConflict, err.Error()
+	case errors.Is(err, cms.ErrMediaTooLarge), errors.Is(err, router.ErrBodyTooLarge):
+		return http.StatusRequestEntityTooLarge, err.Error()
+	case errors.Is(err, cms.ErrMediaType):
+		return http.StatusUnsupportedMediaType, err.Error()
+	case errors.Is(err, cms.ErrUnavailable), errors.Is(err, service.ErrCMSUnavailable):
+		return http.StatusServiceUnavailable, err.Error()
+	case errors.Is(err, cms.ErrInvalidInput), errors.Is(err, cms.ErrCategoryParent),
+		errors.Is(err, cms.ErrArticleNotPublic), errors.Is(err, cms.ErrCommentParent),
+		errors.Is(err, cms.ErrTooManyTags), errors.Is(err, cms.ErrSearchTooBroad):
 		return http.StatusUnprocessableEntity, err.Error()
 	default:
 		return http.StatusInternalServerError, msgInternal

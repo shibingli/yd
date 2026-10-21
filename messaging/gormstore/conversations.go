@@ -95,7 +95,7 @@ func (s *Store) UpdateConversation(ctx context.Context, conv messaging.Conversat
 			"status":     conv.Status,
 			"updated_at": conv.UpdatedAt,
 		})
-	return queryError(result.Error)
+	return s.updateExisting(ctx, result, &messaging.Conversation{}, "tenant_id = ? AND id = ?", conv.TenantID, conv.ID)
 }
 
 // AddMember inserts a membership; an existing membership is left untouched. | AddMember 插入成员关系；已存在时保持原样。

@@ -4,8 +4,10 @@ import (
 	"context"
 	"errors"
 	"strings"
+	"time"
 
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 
 	"github.com/shibingli/yd/core/errx"
 	"github.com/shibingli/yd/core/logx"
@@ -81,7 +83,8 @@ func (s *Store) upsertRole(ctx context.Context, tenantID, roleID, name, descript
 		}
 		id := roleID
 		var holder roleRow
-		err = tx.Where("tenant_id = ? AND name = ?", tenantID, name).First(&holder).Error
+		err = tx.Clauses(clause.Locking{Strength: "UPDATE"}).
+			Where("tenant_id = ? AND name = ?", tenantID, name).First(&holder).Error
 		switch {
 		case err == nil:
 			if holder.ID != roleID {
@@ -96,7 +99,8 @@ func (s *Store) upsertRole(ctx context.Context, tenantID, roleID, name, descript
 			return err
 		}
 		var existing roleRow
-		err = tx.Where("tenant_id = ? AND id = ?", tenantID, id).First(&existing).Error
+		err = tx.Clauses(clause.Locking{Strength: "UPDATE"}).
+			Where("tenant_id = ? AND id = ?", tenantID, id).First(&existing).Error
 		switch {
 		case err == nil:
 			// The name is the tenant's unique role key, so an update that clashes on it
@@ -219,14 +223,57 @@ func (s *Store) DeleteRole(ctx context.Context, tenantID, roleID string) error {
 	defer cancel()
 	return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		var row roleRow
-		if err := tx.Where("tenant_id = ? AND id = ?", tenantID, roleID).First(&row).Error; err != nil {
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
+			Where("tenant_id = ? AND id = ?", tenantID, roleID).First(&row).Error; err != nil {
 			return notFound(err)
 		}
 		if err := tx.Where("tenant_id = ? AND role_id = ?", tenantID, roleID).Delete(&rolePermissionRow{}).Error; err != nil {
 			return err
 		}
+		// Memberships store role names as JSON rather than rows, so the name has to be detached here
+		// in the same transaction; otherwise a failure after the delete would leave invisible debt. |
+		// 成员关系用 JSON 而非行保存角色名，因此必须在这里的同一事务内摘掉该名字；否则删除后的失败会留下
+		// 看不见的债务。
+		if err := detachRoleName(tx, tenantID, row.Name); err != nil {
+			return err
+		}
 		return tx.Where("tenant_id = ? AND id = ?", tenantID, roleID).Delete(&roleRow{}).Error
 	})
+}
+
+// detachRoleName removes one role name from every membership of the tenant. |
+// detachRoleName 从租户的每条成员关系中移除一个角色名。
+func detachRoleName(tx *gorm.DB, tenantID, name string) error {
+	var memberships []userTenantRow
+	if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
+		Where("tenant_id = ?", tenantID).Order("user_id ASC").Find(&memberships).Error; err != nil {
+		return err
+	}
+	for i := range memberships {
+		roles, err := membershipFromRow(&memberships[i])
+		if err != nil {
+			return err
+		}
+		kept := make([]string, 0, len(roles))
+		for _, role := range roles {
+			if role != name {
+				kept = append(kept, role)
+			}
+		}
+		if len(kept) == len(roles) {
+			continue
+		}
+		encoded, err := encodeRoles(kept)
+		if err != nil {
+			return err
+		}
+		if err := tx.Model(&userTenantRow{}).
+			Where("tenant_id = ? AND user_id = ?", tenantID, memberships[i].UserID).
+			Updates(map[string]any{"roles": encoded, "updated_at": time.Now().UTC()}).Error; err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // readPermissions returns the sorted permission set of one role. | readPermissions 返回某个角色排序后的权限集合。

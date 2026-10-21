@@ -1,0 +1,12 @@
+{{/*
+  partials/users/create_drawer.html —— 新建用户抽屉的内容（由 GET /users/new 渲染，换入 #yd-drawer-body）。
+  partials/users/create_drawer.html — the content of the user creation drawer (rendered by GET /users/new into
+  #yd-drawer-body).
+
+  数据契约 | Data contract: .RoleList .KeyEndpoint .Perm。
+*/}}
+<div class="yd-drawer__head">
+  <h2 class="yd-section__title">{{ tr "page.users.create" }}</h2>
+  <p class="yd-section__hint">{{ tr "page.users.create_hint" }}</p>
+</div>
+{{ template "mgr/partials/users/form" . }}

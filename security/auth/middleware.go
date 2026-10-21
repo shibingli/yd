@@ -38,6 +38,13 @@ type MiddlewareOptions struct {
 	TokenLookup string
 	// CtxKey is the router context key holding the *User; empty selects DefaultCtxKey. | CtxKey 是保存 *User 的路由上下文键；为空时取 DefaultCtxKey。
 	CtxKey string
+	// Optional lets anonymous and invalid-token requests continue without a user instead of denying them. |
+	// Optional 让匿名与无效令牌请求以「无用户」继续，而不是拒绝它们。
+	//
+	// It exists for public pages that only decorate the view when a session is present. It must never be used on
+	// protected routes: there a missing user is the whole point of the check. |
+	// 它用于「有会话就装饰视图」的公开页面；绝不能用于受保护路由——那里的检查正是要求用户存在。
+	Optional bool
 }
 
 // Middleware verifies the bearer token of a request and stores the authenticated
@@ -82,11 +89,19 @@ func Middleware(o MiddlewareOptions) router.Middleware {
 		}
 		raw, ok := lookup(c)
 		if !ok {
+			if o.Optional {
+				c.Next()
+				return
+			}
 			deny(c, handle, errx.Detail(ErrTokenInvalid, "request carries no token | 请求未携带令牌"))
 			return
 		}
 		u, err := issuer.Verify(c.Request.Context(), raw)
 		if err != nil {
+			if o.Optional {
+				c.Next()
+				return
+			}
 			deny(c, handle, err)
 			return
 		}
@@ -140,6 +155,36 @@ func RequirePermission(p Permission) router.Middleware {
 			return
 		}
 		c.Next()
+	}
+}
+
+// RequireAnyPermission returns a middleware that admits a user holding at least one of perms. |
+// RequireAnyPermission 返回只放行持有 perms 中至少一项能力的用户的中间件。
+//
+// It exists for routes whose handler already implements an OR rule (a manager may act through the same
+// endpoint as the owner), so the route guard and the view flags can agree without encoding a second
+// copy of the rule. An empty list refuses every request instead of allowing them. |
+// 它用于处理器本身已实现「或」规则的路由（管理员可以走与属主相同的端点），让路由守卫与视图标志
+// 使用同一条规则，而不是各写一份。空列表拒绝所有请求，而不是放行。
+func RequireAnyPermission(perms ...Permission) router.Middleware {
+	return func(c *router.Ctx) {
+		u, ok := CurrentUser(c)
+		if !ok {
+			deny(c, currentHandler(c), errx.Detail(ErrTokenInvalid, "no authenticated user in the context | 上下文中没有已认证用户"))
+			return
+		}
+		svc, ok := currentService(c)
+		if !ok {
+			deny(c, currentHandler(c), errx.Detail(ErrTokenInvalid, "no auth service in the context | 上下文中没有 auth 服务"))
+			return
+		}
+		for _, p := range perms {
+			if svc.HasPermission(u, p) {
+				c.Next()
+				return
+			}
+		}
+		deny(c, currentHandler(c), errx.Detail(ErrForbidden, "missing every permission in %v | 缺少 %v 中的全部权限", perms, perms))
 	}
 }
 

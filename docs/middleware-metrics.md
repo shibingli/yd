@@ -1,6 +1,6 @@
 # 系统资源与中间件运行时指标
 
-`runtime/metricsx` 是系统资源与中间件运行时的**唯一抽象层**。首页的“系统资源”卡片与“中间件运行时”
+`runtime/metricsx` 是系统资源与中间件运行时的**唯一抽象层**。管理概览的“系统资源”卡片与“中间件运行时”
 卡片都只依赖这一层，因此新增指标来源、替换采样器或加入自定义中间件，都不需要改模板或 HTTP 处理器。
 
 ## 1. 抽象接口
@@ -124,18 +124,18 @@ entry.SetGauge("entries", int64(size))
 ```
 
 - `Incr` / `Add` / `SetGauge` 并发安全；可以按事件调用，但**不要**在每个请求上无意义地重复调用；
-- 值会出现在 `/metrics/middleware` 的同一行里，计数器按名称排序显示；
+- 值会出现在 `/mgr/metrics/middleware` 的同一行里，计数器按名称排序显示；
 - 若要接入完全独立的来源（例如数据库连接池），实现 `MiddlewareSource` 并传给
   `metricsx.NewCollector(system, source)` 即可，控制器只认 `Provider`。
 
 ## 6. HTTP 与前端
 
-- `GET /metrics`：系统资源片段。控制器只读取 `Provider.Snapshot().System`，不再直连
+- `GET /mgr/metrics`：系统资源片段。控制器只读取 `Provider.Snapshot().System`，不再直连
   `MetricsService`；片段结构与仪表盘显示保持不变。
-- `GET /metrics/middleware`：中间件运行时片段；
+- `GET /mgr/metrics/middleware`：中间件运行时片段；
 - 两个端点都在受保护分组内，需要有效会话；它们保留为可直接取用的服务端片段（直连、调试与无脚本回退），
   首页不再请求它们；
-- 首页只建立**一条** WebSocket `/ws/metrics`：服务端每 5 秒把两块内容合并渲染成一个
+- 管理概览只建立**一条** WebSocket `/mgr/ws/metrics`：服务端每 5 秒把两块内容合并渲染成一个
   `<hx-partial hx-target="#yd-live-metrics" hx-swap="innerMorph">` 信封推给每条连接，首帧在握手后立即写出。
   连接失败由 hx-ws 扩展按指数退避重连，重连成功后服务端立即补一帧，**不得**另写轮询或 HTTP 重同步；
 - 推送端点只写不回显：入站消息一律忽略，回显会替换整块指标面板；

@@ -64,6 +64,13 @@ import (
 	"github.com/shibingli/yd/core/logx"
 )
 
+// LayoutKey is the data key that selects the whole-page layout for one render. The app facade
+// falls back to its configured default layout when the key is absent or empty, so a portal and a
+// management area can share one template engine while each wraps its pages in its own skeleton. |
+// LayoutKey 是为单次渲染选择整页布局的数据键。键缺失或为空时，应用门面回退到配置的默认布局，
+// 因此门户与管理区可以共用一个模板引擎，同时各自用自己的骨架包裹页面。
+const LayoutKey = "Layout"
+
 // isEscapeError reports whether err came from html/template's context computation. | isEscapeError
 // 报告 err 是否来自 html/template 的上下文计算。
 //

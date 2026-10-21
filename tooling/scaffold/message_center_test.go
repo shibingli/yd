@@ -6,6 +6,7 @@ import (
 	"database/sql"
 	"mime/multipart"
 	"net/http"
+	"net/url"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -257,7 +258,7 @@ func TestGeneratedAppMessageCentre(t *testing.T) {
 	)
 
 	t.Run("好友生命周期", func(t *testing.T) {
-		resp, body := probeGet(t, bob, base+"/api/v1/friends/search?q="+probeAdmin, bobToken)
+		resp, body := probeGet(t, bob, base+"/api/portal/v1/friends/search?q="+probeAdmin, bobToken)
 		requireProbeStatus(t, resp, body, http.StatusOK, "检索管理员")
 		candidates := decodeProbeJSON[probeCandidates](t, body)
 		for _, candidate := range candidates.Candidates {
@@ -273,10 +274,10 @@ func TestGeneratedAppMessageCentre(t *testing.T) {
 		// 普通用户先打开一次会话列表：公告频道按需懒加入，之后管理员发布的系统公告才能被该用户检索到。
 		// The plain user opens the conversation list once: the announcement channel joins lazily, after which an
 		// administrator announcement is visible to that user.
-		resp, body = probeGet(t, bob, base+"/api/v1/messages/conversations", bobToken)
+		resp, body = probeGet(t, bob, base+"/api/portal/v1/messages/conversations", bobToken)
 		requireProbeStatus(t, resp, body, http.StatusOK, "打开会话列表")
 
-		resp, body = probePostJSON(t, bob, base+"/api/v1/friends/requests", bobToken, map[string]any{
+		resp, body = probePostJSON(t, bob, base+"/api/portal/v1/friends/requests", bobToken, map[string]any{
 			"friend_id": adminID,
 			"message":   probeFriendMessage,
 		})
@@ -287,7 +288,7 @@ func TestGeneratedAppMessageCentre(t *testing.T) {
 		}
 		bobID = request.RequesterID
 
-		resp, body = probeGet(t, admin, base+"/api/v1/friends", adminToken)
+		resp, body = probeGet(t, admin, base+"/api/portal/v1/friends", adminToken)
 		requireProbeStatus(t, resp, body, http.StatusOK, "读取好友汇总")
 		summary := decodeProbeJSON[probeFriendSummary](t, body)
 		incoming := false
@@ -301,10 +302,10 @@ func TestGeneratedAppMessageCentre(t *testing.T) {
 			t.Fatalf("管理员的好友汇总里没有待处理申请 %s: %s", request.ID, body)
 		}
 
-		resp, body = probePostJSON(t, admin, base+"/api/v1/friends/requests/"+request.ID+"/accept", adminToken, map[string]any{})
+		resp, body = probePostJSON(t, admin, base+"/api/portal/v1/friends/requests/"+request.ID+"/accept", adminToken, map[string]any{})
 		requireProbeStatus(t, resp, body, http.StatusNoContent, "接受好友申请")
 
-		resp, body = probeGet(t, bob, base+"/api/v1/friends", bobToken)
+		resp, body = probeGet(t, bob, base+"/api/portal/v1/friends", bobToken)
 		requireProbeStatus(t, resp, body, http.StatusOK, "读取好友列表")
 		summary = decodeProbeJSON[probeFriendSummary](t, body)
 		friends := false
@@ -320,7 +321,7 @@ func TestGeneratedAppMessageCentre(t *testing.T) {
 
 		// 检索自己不应返回自己；已是好友的候选关系必须标记为 friend。
 		// A search for oneself must not return oneself; an accepted friend must be reported with the friend relation.
-		resp, body = probeGet(t, admin, base+"/api/v1/friends/search?q="+probeAdmin, adminToken)
+		resp, body = probeGet(t, admin, base+"/api/portal/v1/friends/search?q="+probeAdmin, adminToken)
 		requireProbeStatus(t, resp, body, http.StatusOK, "检索自己")
 		selfCandidates := decodeProbeJSON[probeCandidates](t, body)
 		for _, candidate := range selfCandidates.Candidates {
@@ -329,7 +330,7 @@ func TestGeneratedAppMessageCentre(t *testing.T) {
 			}
 		}
 
-		resp, body = probeGet(t, admin, base+"/api/v1/friends/search?q=bob", adminToken)
+		resp, body = probeGet(t, admin, base+"/api/portal/v1/friends/search?q=bob", adminToken)
 		requireProbeStatus(t, resp, body, http.StatusOK, "检索已是好友的候选")
 		bobCandidates := decodeProbeJSON[probeCandidates](t, body)
 		foundBob := false
@@ -374,7 +375,7 @@ func TestGeneratedAppMessageCentre(t *testing.T) {
 	defer func() { _ = socket.CloseNow() }()
 
 	t.Run("单聊与实时推送", func(t *testing.T) {
-		resp, body := probePostJSON(t, bob, base+"/api/v1/messages", bobToken, map[string]any{
+		resp, body := probePostJSON(t, bob, base+"/api/portal/v1/messages", bobToken, map[string]any{
 			"recipient_id":  adminID,
 			"type_key":      "normal",
 			"title":         probeSearchTitle,
@@ -429,7 +430,7 @@ func TestGeneratedAppMessageCentre(t *testing.T) {
 	t.Run("群发", func(t *testing.T) {
 		// 两个以上收件人走群会话；成员必须都是发起人的好友，服务端逐人校验。
 		// Two or more recipients take the group path; every member must be a friend of the sender, checked server-side.
-		resp, body := probePostJSON(t, bob, base+"/api/v1/messages", bobToken, map[string]any{
+		resp, body := probePostJSON(t, bob, base+"/api/portal/v1/messages", bobToken, map[string]any{
 			"group_title":   "Probe group",
 			"group_members": []string{adminID, bobID},
 			"body_markdown": "hello group",
@@ -440,7 +441,7 @@ func TestGeneratedAppMessageCentre(t *testing.T) {
 			t.Fatalf("群发响应不是群会话: %s", body)
 		}
 
-		resp, body = probeGet(t, admin, base+"/api/v1/messages/conversations", adminToken)
+		resp, body = probeGet(t, admin, base+"/api/portal/v1/messages/conversations", adminToken)
 		requireProbeStatus(t, resp, body, http.StatusOK, "群发后读取管理员会话列表")
 		list := decodeProbeJSON[probeConversations](t, body)
 		found := false
@@ -456,7 +457,7 @@ func TestGeneratedAppMessageCentre(t *testing.T) {
 	})
 
 	t.Run("未读与已读水位", func(t *testing.T) {
-		resp, body := probeGet(t, admin, base+"/api/v1/messages/conversations", adminToken)
+		resp, body := probeGet(t, admin, base+"/api/portal/v1/messages/conversations", adminToken)
 		requireProbeStatus(t, resp, body, http.StatusOK, "读取管理员会话列表")
 		list := decodeProbeJSON[probeConversations](t, body)
 		found := false
@@ -473,7 +474,7 @@ func TestGeneratedAppMessageCentre(t *testing.T) {
 			t.Fatalf("管理员会话列表里没有刚建立的单聊 %s: %s", conversation, body)
 		}
 
-		resp, body = probePostJSON(t, admin, base+"/api/v1/messages/"+conversation+"/read", adminToken, map[string]any{})
+		resp, body = probePostJSON(t, admin, base+"/api/portal/v1/messages/"+conversation+"/read", adminToken, map[string]any{})
 		requireProbeStatus(t, resp, body, http.StatusNoContent, "标记会话已读")
 
 		// 读者本人也必须收到已读事件；事件到达后 deliverMessageEvent 会立即推送刷新后的角标帧。
@@ -494,7 +495,7 @@ func TestGeneratedAppMessageCentre(t *testing.T) {
 			}
 		}
 
-		resp, body = probeGet(t, admin, base+"/api/v1/messages/conversations", adminToken)
+		resp, body = probeGet(t, admin, base+"/api/portal/v1/messages/conversations", adminToken)
 		requireProbeStatus(t, resp, body, http.StatusOK, "读取已读后的会话列表")
 		list = decodeProbeJSON[probeConversations](t, body)
 		for _, item := range list.Conversations {
@@ -506,7 +507,7 @@ func TestGeneratedAppMessageCentre(t *testing.T) {
 		// 发送者看到的已读人数由对方的已读水位推导：这正是「不维护每消息回执表」仍能回答已读状态的方式。
 		// The sender's read count is derived from the peer's watermark: that is how read state stays answerable without a
 		// per-message receipt table.
-		resp, body = probeGet(t, bob, base+"/api/v1/messages/"+firstMessage, bobToken)
+		resp, body = probeGet(t, bob, base+"/api/portal/v1/messages/"+firstMessage, bobToken)
 		requireProbeStatus(t, resp, body, http.StatusOK, "作者读取已读回执")
 		receipt := decodeProbeJSON[probeMessage](t, body)
 		if receipt.RecipientCount != 1 || receipt.ReadCount != 1 {
@@ -534,7 +535,7 @@ func TestGeneratedAppMessageCentre(t *testing.T) {
 		}
 		deadline := time.Now().Add(sseTimeout)
 		for {
-			resp, body := probeGet(t, admin, base+"/api/v1/messages?q=quick+reply", adminToken)
+			resp, body := probeGet(t, admin, base+"/api/portal/v1/messages?q=quick+reply", adminToken)
 			if resp.StatusCode == http.StatusOK {
 				if page := decodeProbeJSON[probeMessagePage](t, body); page.Total > 0 {
 					return
@@ -544,6 +545,40 @@ func TestGeneratedAppMessageCentre(t *testing.T) {
 				t.Fatalf("WebSocket 快捷发送未落库: %s", body)
 			}
 			time.Sleep(50 * time.Millisecond)
+		}
+	})
+
+	t.Run("只读账号不能经 WebSocket 发送", func(t *testing.T) {
+		// 聊天通道只要求 message:read 即可建立；写入能力必须在处理入站 send 时单独校验，
+		// 否则审计员可以绕过 HTTP 路由上的 message:send 守卫。
+		// The socket only requires message:read to connect; the write capability has to be checked separately when an
+		// inbound send arrives, otherwise an auditor can bypass the message:send guard on the HTTP route.
+		createProbeUser(t, admin, base, adminToken, "ws-auditor", "auditor", "ws-auditor@example.com")
+		auditor := newProbeClient(t, httpTimeout)
+		auditorToken := signIn(t, auditor, base, probeTenant, "ws-auditor", probeUserPassword)
+		auditorSocket := dialMessageSocket(t, base, auditorToken)
+		defer func() { _ = auditorSocket.CloseNow() }()
+
+		const probeBody = "auditor must not write through websocket"
+		raw, err := jsonx.Marshal(map[string]any{
+			"action":          "send",
+			"conversation_id": conversation,
+			"body":            probeBody,
+		})
+		if err != nil {
+			t.Fatalf("序列化 auditor 发送失败: %v", err)
+		}
+		if err := auditorSocket.SetWriteDeadline(time.Now().Add(sseTimeout)); err != nil {
+			t.Fatalf("设置写超时失败: %v", err)
+		}
+		if err := auditorSocket.WriteMessage(ws.TextMessage, raw); err != nil {
+			t.Fatalf("auditor WebSocket 写入失败: %v", err)
+		}
+		time.Sleep(200 * time.Millisecond)
+		resp, body := probeGet(t, admin, base+"/api/portal/v1/messages?q="+url.QueryEscape(probeBody), adminToken)
+		requireProbeStatus(t, resp, body, http.StatusOK, "检索 auditor 尝试发送的消息")
+		if page := decodeProbeJSON[probeMessagePage](t, body); page.Total != 0 {
+			t.Fatalf("只读账号经 WebSocket 写入成功: %s", body)
 		}
 	})
 
@@ -559,7 +594,7 @@ func TestGeneratedAppMessageCentre(t *testing.T) {
 			"组合":  "q=" + probeMessageToken + "&type_key=normal&sender=" + bobID,
 		}
 		for name, query := range queries {
-			resp, body := probeGet(t, admin, base+"/api/v1/messages?"+query, adminToken)
+			resp, body := probeGet(t, admin, base+"/api/portal/v1/messages?"+query, adminToken)
 			requireProbeStatus(t, resp, body, http.StatusOK, "混合检索·"+name)
 			page := decodeProbeJSON[probeMessagePage](t, body)
 			if page.Total < 1 || !hasProbeMessage(page, firstMessage) {
@@ -570,7 +605,7 @@ func TestGeneratedAppMessageCentre(t *testing.T) {
 		// 不存在的词不得命中：检索按空白分词后逐词 AND，不是「有任意一个词就算」。
 		// A term that does not exist must not match: the query is tokenised and every term is ANDed, rather than any one
 		// of them sufficing.
-		resp, body := probeGet(t, admin, base+"/api/v1/messages?q="+probeMessageToken+"+no-such-term", adminToken)
+		resp, body := probeGet(t, admin, base+"/api/portal/v1/messages?q="+probeMessageToken+"+no-such-term", adminToken)
 		requireProbeStatus(t, resp, body, http.StatusOK, "混合检索·无命中")
 		page := decodeProbeJSON[probeMessagePage](t, body)
 		if page.Total != 0 {
@@ -579,7 +614,7 @@ func TestGeneratedAppMessageCentre(t *testing.T) {
 	})
 
 	t.Run("编辑与撤回", func(t *testing.T) {
-		resp, body := probePostJSON(t, bob, base+"/api/v1/messages/"+firstMessage, bobToken, map[string]any{
+		resp, body := probePostJSON(t, bob, base+"/api/portal/v1/messages/"+firstMessage, bobToken, map[string]any{
 			"type_key":      "normal",
 			"title":         probeSearchTitle,
 			"body_markdown": "Edited **" + probeMessageToken + "**",
@@ -593,28 +628,28 @@ func TestGeneratedAppMessageCentre(t *testing.T) {
 		// 管理员先发一条单聊消息，bob 既不是作者也没有管理能力，编辑与撤回都必须被拒绝。
 		// The administrator sends a direct message first; bob is neither the author nor a moderator, so both editing and
 		// recalling it have to be refused.
-		resp, body = probePostJSON(t, admin, base+"/api/v1/messages", adminToken, map[string]any{
+		resp, body = probePostJSON(t, admin, base+"/api/portal/v1/messages", adminToken, map[string]any{
 			"recipient_id":  bobID,
 			"body_markdown": "administrator direct message",
 		})
 		requireProbeStatus(t, resp, body, http.StatusCreated, "管理员发送单聊消息")
 		adminMessage = decodeProbeJSON[probeMessage](t, body).ID
 
-		resp, body = probePostJSON(t, bob, base+"/api/v1/messages/"+adminMessage, bobToken, map[string]any{
+		resp, body = probePostJSON(t, bob, base+"/api/portal/v1/messages/"+adminMessage, bobToken, map[string]any{
 			"body_markdown": "bob must not edit this",
 		})
 		requireProbeStatus(t, resp, body, http.StatusForbidden, "非作者编辑消息")
 
-		resp, body = probePostJSON(t, bob, base+"/api/v1/messages/"+adminMessage+"/recall", bobToken, map[string]any{})
+		resp, body = probePostJSON(t, bob, base+"/api/portal/v1/messages/"+adminMessage+"/recall", bobToken, map[string]any{})
 		requireProbeStatus(t, resp, body, http.StatusForbidden, "非作者撤回消息")
 
 		// 管理员撤回 bob 的消息：作者本人已读过的副本也只是墓碑，正文与附件不再下发。
 		// The administrator recalls bob's message: the author's copy becomes a tombstone too, and neither the body nor
 		// the attachments are handed out any more.
-		resp, body = probePostJSON(t, admin, base+"/api/v1/messages/"+firstMessage+"/recall", adminToken, map[string]any{})
+		resp, body = probePostJSON(t, admin, base+"/api/portal/v1/messages/"+firstMessage+"/recall", adminToken, map[string]any{})
 		requireProbeStatus(t, resp, body, http.StatusNoContent, "管理员撤回消息")
 
-		resp, body = probeGet(t, bob, base+"/api/v1/messages/"+firstMessage, bobToken)
+		resp, body = probeGet(t, bob, base+"/api/portal/v1/messages/"+firstMessage, bobToken)
 		requireProbeStatus(t, resp, body, http.StatusOK, "作者读取撤回消息")
 		recalled := decodeProbeJSON[probeMessage](t, body)
 		if recalled.Status != "recalled" {
@@ -626,7 +661,7 @@ func TestGeneratedAppMessageCentre(t *testing.T) {
 
 		// 审计副本保留在管理员视图里：撤回是软墓碑，不是物理删除。
 		// The audit copy stays visible to the administrator: recall is a soft tombstone, not a physical delete.
-		resp, body = probeGet(t, admin, base+"/api/v1/messages/"+firstMessage, adminToken)
+		resp, body = probeGet(t, admin, base+"/api/portal/v1/messages/"+firstMessage, adminToken)
 		requireProbeStatus(t, resp, body, http.StatusOK, "管理员读取撤回消息")
 		audited := decodeProbeJSON[probeMessage](t, body)
 		if !strings.Contains(audited.BodyMarkdown, "Edited") {
@@ -664,7 +699,7 @@ func TestGeneratedAppMessageCentre(t *testing.T) {
 		resp, body = probePostJSON(t, bob, base+"/api/v1/messages/"+announcement+"/pin", bobToken, map[string]any{})
 		requireProbeStatus(t, resp, body, http.StatusForbidden, "普通成员置顶公告")
 
-		resp, body = probeGet(t, admin, base+"/api/v1/messages?folder=pinned", adminToken)
+		resp, body = probeGet(t, admin, base+"/api/portal/v1/messages?folder=pinned", adminToken)
 		requireProbeStatus(t, resp, body, http.StatusOK, "管理员读取置顶公告")
 		pinned := decodeProbeJSON[probeMessagePage](t, body)
 		found := false
@@ -678,7 +713,7 @@ func TestGeneratedAppMessageCentre(t *testing.T) {
 			t.Fatalf("置顶列表里没有公告 %s: %s", announcement, body)
 		}
 
-		resp, body = probeGet(t, bob, base+"/api/v1/messages?folder=pinned", bobToken)
+		resp, body = probeGet(t, bob, base+"/api/portal/v1/messages?folder=pinned", bobToken)
 		requireProbeStatus(t, resp, body, http.StatusOK, "普通成员读取置顶公告")
 		pinned = decodeProbeJSON[probeMessagePage](t, body)
 		if !hasProbeMessage(pinned, announcement) {
@@ -688,7 +723,7 @@ func TestGeneratedAppMessageCentre(t *testing.T) {
 		resp, body = probePostJSON(t, admin, base+"/api/v1/messages/"+announcement+"/unpin", adminToken, map[string]any{})
 		requireProbeStatus(t, resp, body, http.StatusNoContent, "取消置顶")
 
-		resp, body = probeGet(t, admin, base+"/api/v1/messages?folder=pinned", adminToken)
+		resp, body = probeGet(t, admin, base+"/api/portal/v1/messages?folder=pinned", adminToken)
 		requireProbeStatus(t, resp, body, http.StatusOK, "取消置顶后读取置顶列表")
 		pinned = decodeProbeJSON[probeMessagePage](t, body)
 		if hasProbeMessage(pinned, announcement) {
@@ -701,14 +736,14 @@ func TestGeneratedAppMessageCentre(t *testing.T) {
 		resp, body = probePostJSON(t, admin, base+"/api/v1/messages/"+announcement+"/revoke", adminToken, map[string]any{})
 		requireProbeStatus(t, resp, body, http.StatusNoContent, "撤销系统公告")
 
-		resp, body = probeGet(t, bob, base+"/api/v1/messages/"+announcement, bobToken)
+		resp, body = probeGet(t, bob, base+"/api/portal/v1/messages/"+announcement, bobToken)
 		requireProbeStatus(t, resp, body, http.StatusOK, "普通成员读取已撤销公告")
 		revoked := decodeProbeJSON[probeMessage](t, body)
 		if revoked.Status != "recalled" || revoked.BodyMarkdown != "" {
 			t.Errorf("已撤销公告对普通成员应为空墓碑: %s", body)
 		}
 
-		resp, body = probeGet(t, admin, base+"/api/v1/messages/"+announcement, adminToken)
+		resp, body = probeGet(t, admin, base+"/api/portal/v1/messages/"+announcement, adminToken)
 		requireProbeStatus(t, resp, body, http.StatusOK, "管理员读取已撤销公告")
 		revoked = decodeProbeJSON[probeMessage](t, body)
 		if !strings.Contains(revoked.BodyMarkdown, "System") {
@@ -753,7 +788,7 @@ func TestGeneratedAppMessageCentre(t *testing.T) {
 		requireProbeStatus(t, resp, body, http.StatusOK, "管理员创建标签")
 		label := decodeProbeJSON[probeTag](t, body)
 
-		resp, body = probePostJSON(t, bob, base+"/api/v1/messages", bobToken, map[string]any{
+		resp, body = probePostJSON(t, bob, base+"/api/portal/v1/messages", bobToken, map[string]any{
 			"recipient_id":  adminID,
 			"type_key":      "probe-type",
 			"body_markdown": "typed and tagged",
@@ -769,14 +804,14 @@ func TestGeneratedAppMessageCentre(t *testing.T) {
 			t.Errorf("消息未带上分组与标签: %s", body)
 		}
 
-		resp, body = probeGet(t, admin, base+"/api/v1/messages?type_key=probe-type", adminToken)
+		resp, body = probeGet(t, admin, base+"/api/portal/v1/messages?type_key=probe-type", adminToken)
 		requireProbeStatus(t, resp, body, http.StatusOK, "按类型检索")
 		page := decodeProbeJSON[probeMessagePage](t, body)
 		if !hasProbeMessage(page, tagged.ID) {
 			t.Errorf("按类型检索未命中消息 %s: %s", tagged.ID, body)
 		}
 
-		resp, body = probeGet(t, admin, base+"/api/v1/messages?tag="+group.ID, adminToken)
+		resp, body = probeGet(t, admin, base+"/api/portal/v1/messages?tag="+group.ID, adminToken)
 		requireProbeStatus(t, resp, body, http.StatusOK, "按分组检索")
 		page = decodeProbeJSON[probeMessagePage](t, body)
 		if !hasProbeMessage(page, tagged.ID) {
@@ -786,7 +821,7 @@ func TestGeneratedAppMessageCentre(t *testing.T) {
 		resp, body = probePostJSON(t, admin, base+"/api/v1/message-types/probe-type/archive", adminToken, map[string]any{})
 		requireProbeStatus(t, resp, body, http.StatusNoContent, "归档类型")
 
-		resp, body = probePostJSON(t, bob, base+"/api/v1/messages", bobToken, map[string]any{
+		resp, body = probePostJSON(t, bob, base+"/api/portal/v1/messages", bobToken, map[string]any{
 			"recipient_id":  adminID,
 			"type_key":      "probe-type",
 			"body_markdown": "archived type must not be usable",
@@ -795,7 +830,7 @@ func TestGeneratedAppMessageCentre(t *testing.T) {
 	})
 
 	t.Run("附件", func(t *testing.T) {
-		resp, body := probePostFile(t, bob, base+"/api/v1/messages/attachments", bobToken, "probe.txt", []byte(probeAttachmentText))
+		resp, body := probePostFile(t, bob, base+"/api/portal/v1/messages/attachments", bobToken, "probe.txt", []byte(probeAttachmentText))
 		requireProbeStatus(t, resp, body, http.StatusCreated, "上传附件")
 		attachment := decodeProbeJSON[probeAttachment](t, body)
 		if attachment.ID == "" || attachment.Status != "pending" || attachment.ContentType != "text/plain" {
@@ -804,10 +839,10 @@ func TestGeneratedAppMessageCentre(t *testing.T) {
 
 		// 客户端声明的类型不作数：字节嗅探决定内容类型，HTML 不在白名单里。
 		// The client-declared type does not count: bytes decide the content type, and HTML is not on the allow list.
-		resp, body = probePostFile(t, bob, base+"/api/v1/messages/attachments", bobToken, "probe.html", []byte("<html><body>unsafe</body></html>"))
+		resp, body = probePostFile(t, bob, base+"/api/portal/v1/messages/attachments", bobToken, "probe.html", []byte("<html><body>unsafe</body></html>"))
 		requireProbeStatus(t, resp, body, http.StatusUnsupportedMediaType, "上传 HTML 附件")
 
-		resp, body = probePostJSON(t, bob, base+"/api/v1/messages", bobToken, map[string]any{
+		resp, body = probePostJSON(t, bob, base+"/api/portal/v1/messages", bobToken, map[string]any{
 			"recipient_id":   adminID,
 			"body_markdown":  "message with attachment",
 			"attachment_ids": []string{attachment.ID},
@@ -818,7 +853,7 @@ func TestGeneratedAppMessageCentre(t *testing.T) {
 			t.Fatalf("消息未挂载附件: %s", body)
 		}
 
-		resp, body = probeGet(t, admin, base+"/api/v1/messages/attachments/"+attachment.ID, adminToken)
+		resp, body = probeGet(t, admin, base+"/api/portal/v1/messages/attachments/"+attachment.ID, adminToken)
 		requireProbeStatus(t, resp, body, http.StatusOK, "下载附件")
 		if body != probeAttachmentText {
 			t.Errorf("附件内容 = %q, 期望 %q", body, probeAttachmentText)
@@ -846,6 +881,8 @@ func TestGeneratedAppMessageCentre(t *testing.T) {
 			`data-yd-user-menu`,
 			`id="yd-unread-badge"`,
 			`id="yd-unread-menu-badge"`,
+			`id="yd-sidebar-unread"`,
+			`id="yd-sidebar-friend-requests"`,
 			`yd-user-menu__item--unread`,
 			`href="/messages?folder=unread"`,
 			`href="/account"`,
@@ -863,7 +900,7 @@ func TestGeneratedAppMessageCentre(t *testing.T) {
 		if !strings.Contains(body, `data-yd-nav="messages" aria-current="page"`) {
 			t.Errorf("消息中心页未高亮消息菜单:\n%s", body)
 		}
-		if strings.Contains(body, `data-yd-nav="message-admin" aria-current="page"`) {
+		if strings.Contains(body, `data-yd-nav="mgr-messages" aria-current="page"`) {
 			t.Errorf("消息中心页同时高亮了消息治理菜单:\n%s", body)
 		}
 
@@ -897,13 +934,13 @@ func TestGeneratedAppMessageCentre(t *testing.T) {
 		// The announcement channel uses the same inline composer but posts to the administrator endpoint.
 		resp, body = probeGet(t, admin, base+"/messages/"+systemRoom, adminToken)
 		requireProbeStatus(t, resp, body, http.StatusOK, "打开公告频道")
-		if !strings.Contains(body, `action="/messages/system"`) {
+		if !strings.Contains(body, `action="/mgr/messages/system"`) {
 			t.Errorf("公告频道缺少公告撰写表单:\n%s", body)
 		}
 
-		resp, body = probeGet(t, admin, base+"/messages/admin", adminToken)
+		resp, body = probeGet(t, admin, base+"/mgr/messages", adminToken)
 		requireProbeStatus(t, resp, body, http.StatusOK, "打开消息治理")
-		if !strings.Contains(body, `data-yd-nav="message-admin" aria-current="page"`) {
+		if !strings.Contains(body, `data-yd-nav="mgr-messages" aria-current="page"`) {
 			t.Errorf("消息治理页未高亮治理菜单:\n%s", body)
 		}
 		if strings.Contains(body, `data-yd-nav="messages" aria-current="page"`) {
@@ -932,7 +969,7 @@ func TestGeneratedAppReconcilesBuiltinRoleGrants(t *testing.T) {
 	projDir, base, stop := startProbeAppDBWithStop(t, name, scaffold.DBSQLite, nil)
 	admin := newProbeClient(t, httpTimeout)
 	token := signIn(t, admin, base, probeTenant, probeAdmin, probeAdminPassword)
-	resp, body := probeGet(t, admin, base+"/api/v1/messages", token)
+	resp, body := probeGet(t, admin, base+"/api/portal/v1/messages", token)
 	requireProbeStatus(t, resp, body, http.StatusOK, "初始消息中心")
 	stop()
 
@@ -965,7 +1002,7 @@ func TestGeneratedAppReconcilesBuiltinRoleGrants(t *testing.T) {
 	defer restartedStop()
 	restarted := newProbeClient(t, httpTimeout)
 	restartedToken := signIn(t, restarted, restartedBase, probeTenant, probeAdmin, probeAdminPassword)
-	resp, body = probeGet(t, restarted, restartedBase+"/api/v1/messages", restartedToken)
+	resp, body = probeGet(t, restarted, restartedBase+"/api/portal/v1/messages", restartedToken)
 	requireProbeStatus(t, resp, body, http.StatusOK, "补齐内置角色能力后的消息中心")
 
 	// 四个内置角色都应重新拿到各自的消息能力。

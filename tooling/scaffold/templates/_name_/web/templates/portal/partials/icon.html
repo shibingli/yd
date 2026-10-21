@@ -1,0 +1,16 @@
+{{/*
+  partials/icon.html —— 从按需 SVG sprite 中引用一个图标。
+  partials/icon.html — references one icon from the on-demand SVG sprite.
+
+  参数是一个完整引用名，例如 "lucide-log-in"。生成器只扫描这种调用形式
+  （{{template "portal/partials/icon" "…"}}），因此只有真正用到的图标会进入
+  web/static/img/icons.svg。图标是装饰性的：默认可被辅助技术忽略，尺寸由 .yd-icon
+  与 Tailwind 的 size-* / text-* 工具类控制，颜色继承 currentColor。
+  The argument is a full reference such as "lucide-log-in". The generator scans only this call form
+  ({{template "portal/partials/icon" "…"}}), so only icons actually used reach web/static/img/icons.svg.
+  Icons are decorative: assistive technology ignores them by default, .yd-icon plus Tailwind's
+  size-* / text-* utilities control size, and colour inherits from currentColor.
+*/}}
+{{- define "portal/partials/icon" -}}
+<svg class="yd-icon" data-yd-icon="{{ . }}" aria-hidden="true" focusable="false"><use href="{{ asset "/static/img/icons.svg" }}#i-{{ . }}"></use></svg>
+{{- end -}}

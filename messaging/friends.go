@@ -2,11 +2,21 @@ package messaging
 
 import (
 	"context"
+	"errors"
 	"sort"
 	"strings"
 
 	"github.com/shibingli/yd/core/errx"
 )
+
+// friendRequestWriteError preserves a lost compare-and-set as a 409 instead of a store outage. |
+// friendRequestWriteError 把输掉的比较并交换保留为 409，而不是存储故障。
+func friendRequestWriteError(err error) error {
+	if errors.Is(err, ErrRequestClosed) {
+		return ErrRequestClosed
+	}
+	return errx.Wrap(err, ErrUnavailable)
+}
 
 // FriendSummary returns the whole friend page: accepted friends, both request directions and
 // blocks. | FriendSummary 返回完整好友页数据：已接受好友、两个方向的申请与拉黑。
@@ -162,12 +172,13 @@ func (s *Service) SendFriendRequest(ctx context.Context, actor Actor, targetID, 
 		if existing.Status == FriendPending {
 			return FriendRequest{}, ErrDuplicateRequest
 		}
+		expectedStatus := existing.Status
 		existing.Status = FriendPending
 		existing.Message = message
 		existing.CreatedAt = now
 		existing.RespondedAt = nil
-		if err := s.store.UpdateFriendRequest(ctx, existing); err != nil {
-			return FriendRequest{}, errx.Wrap(err, ErrUnavailable)
+		if err := s.store.UpdateFriendRequest(ctx, existing, expectedStatus); err != nil {
+			return FriendRequest{}, friendRequestWriteError(err)
 		}
 		return s.friendRequestAfterWrite(ctx, actor, existing, targetID)
 	case isNotFound(err):
@@ -222,9 +233,10 @@ func (s *Service) RespondFriendRequest(ctx context.Context, actor Actor, request
 	now := s.options.Now()
 	req.RespondedAt = &now
 	if !accept {
+		expectedStatus := req.Status
 		req.Status = FriendRejected
-		if err := s.store.UpdateFriendRequest(ctx, req); err != nil {
-			return errx.Wrap(err, ErrUnavailable)
+		if err := s.store.UpdateFriendRequest(ctx, req, expectedStatus); err != nil {
+			return friendRequestWriteError(err)
 		}
 		s.emit(ctx, Event{Type: EventFriendRejected, TenantID: actor.TenantID, ActorID: actor.ID, Audience: []string{req.RequesterID}})
 		return nil
@@ -266,10 +278,11 @@ func (s *Service) CancelFriendRequest(ctx context.Context, actor Actor, requestI
 		return errx.Detail(ErrInvalidInput, "request is not pending | 申请不在待处理状态")
 	}
 	now := s.options.Now()
+	expectedStatus := req.Status
 	req.Status = FriendCancelled
 	req.RespondedAt = &now
-	if err := s.store.UpdateFriendRequest(ctx, req); err != nil {
-		return errx.Wrap(err, ErrUnavailable)
+	if err := s.store.UpdateFriendRequest(ctx, req, expectedStatus); err != nil {
+		return friendRequestWriteError(err)
 	}
 	s.emit(ctx, Event{Type: EventFriendRejected, TenantID: actor.TenantID, ActorID: actor.ID, Audience: []string{req.AddresseeID}})
 	return nil
@@ -345,7 +358,7 @@ func (s *Service) SetFriendRemark(ctx context.Context, actor Actor, friendID, re
 		Remark:    truncate(strings.TrimSpace(remark), 128),
 	}
 	if err := s.store.SetFriendNote(ctx, note); err != nil {
-		return errx.Wrap(err, ErrUnavailable)
+		return mapStoreError(err, ErrNotFriend)
 	}
 	return nil
 }

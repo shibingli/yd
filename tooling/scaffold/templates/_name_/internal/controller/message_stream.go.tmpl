@@ -17,6 +17,7 @@ import (
 	"{{ .YdModule }}/http/ws"
 	"{{ .YdModule }}/messaging"
 	"{{ .YdModule }}/messaging/realtime"
+	"{{ .YdModule }}/security/authz"
 )
 
 // Write timeout and action names of the message WebSocket. | 消息 WebSocket 的写入超时与动作名。
@@ -61,6 +62,7 @@ func (c *Controller) MessageSocket() router.HandlerFunc {
 		}
 		actor := c.messageActor(ctx)
 		lang := c.lang(ctx)
+		canSend := authz.Can(ctx.Request.Context(), authz.PermMessageSend)
 		var unsubscribe func()
 		handler := ws.HtmxHandler(ws.HtmxOptions{
 			Subprotocols: []string{"htmx"},
@@ -77,7 +79,7 @@ func (c *Controller) MessageSocket() router.HandlerFunc {
 				c.pushUnreadBadge(conn, actor, lang)
 			},
 			OnMessage: func(conn *ws.Conn, msg ws.HtmxMessage) {
-				c.handleMessageSocketInput(conn, actor, lang, msg)
+				c.handleMessageSocketInput(conn, actor, lang, canSend, msg)
 			},
 			OnClose: func(*ws.Conn, error) {
 				if unsubscribe != nil {
@@ -90,7 +92,7 @@ func (c *Controller) MessageSocket() router.HandlerFunc {
 }
 
 // handleMessageSocketInput handles one inbound htmx message. | handleMessageSocketInput 处理一条入站 htmx 消息。
-func (c *Controller) handleMessageSocketInput(conn *ws.Conn, actor messaging.Actor, lang string, msg ws.HtmxMessage) {
+func (c *Controller) handleMessageSocketInput(conn *ws.Conn, actor messaging.Actor, lang string, canSend bool, msg ws.HtmxMessage) {
 	action := valueString(msg.Values[FieldAction])
 	switch action {
 	case messageActionPing:
@@ -104,6 +106,10 @@ func (c *Controller) handleMessageSocketInput(conn *ws.Conn, actor messaging.Act
 			c.pushSocketNotice(conn, lang, "message.notice.failed")
 		}
 	case messageActionSend:
+		if !canSend {
+			c.pushSocketNotice(conn, lang, "message.notice.forbidden")
+			return
+		}
 		conversationID := valueString(msg.Values[FieldConversation])
 		if conversationID == "" {
 			conversationID = valueString(msg.Values["conversation"])
@@ -188,6 +194,8 @@ func (c *Controller) pushUnreadBadge(conn *ws.Conn, actor messaging.Actor, lang 
 	}{
 		{TplUnreadBadge, "#yd-unread-badge"},
 		{TplUnreadMenuBadge, "#yd-unread-menu-badge"},
+		{TplSidebarUnread, "#yd-sidebar-unread"},
+		{TplSidebarFriendRequests, "#yd-sidebar-friend-requests"},
 	} {
 		var buf bytes.Buffer
 		if err := c.app.Renderer().Render(&buf, badge.template, data); err != nil {

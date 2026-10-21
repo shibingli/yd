@@ -90,6 +90,9 @@ func TestModelFromSourceReadsStructTags(t *testing.T) {
 	if m.Field("created_at") == nil || m.Field("updated_at") == nil || m.Field("deleted_at") == nil {
 		t.Errorf("gorm.Model 的时间戳列未展开: %+v", m.Fields)
 	}
+	if deleted := m.Field("deleted_at"); deleted == nil || deleted.GoType != "gorm.DeletedAt" {
+		t.Errorf("deleted_at must stay gorm.DeletedAt for soft-delete semantics: %+v", deleted)
+	}
 
 	title := m.Field("title")
 	if title == nil {

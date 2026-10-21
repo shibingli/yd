@@ -433,7 +433,8 @@ yd icons check       # 校验图标 sprite 是否漂移（CI 可用）
   与预置冲突的值**——旧模板里的 `loc=Local` 正是这样把 UTC 默认架空的，已改为由预置补齐。
 - **预置是幂等的**：对同一连接串重复施加不产生重复参数。
 - **默认时区是 UTC**（`loc=UTC` / `time_zone='+00:00'` / `TimeZone=UTC`），与框架日志一律输出 UTC 一致；
-  需要本地时间的使用方在自己的 DSN 里显式写 `loc=Local` 覆盖。
+  GORM 的 `NowFunc` 同样固定为 UTC，避免自动时间戳把本地墙钟写进库；需要本地时间的使用方在自己的 DSN 里
+  显式写 `loc=Local` 覆盖。
 - **预置表只有一份**：脚手架经 `gormx.PresetDSN` 生成示例 DSN，**不得**抄一份参数表到 `scaffold`。
 
 ### 16.1 SQLite：两个参数一存一亡
@@ -651,7 +652,7 @@ yd versions sync               # 仅重新生成 version_generated.go
 - **图标必须离线**：favicon 指向同源静态资产 `/static/img/yd-icon.svg`（框架 `web/static/img/yd-icon.svg`，
   随二进制嵌入），禁止 `data:,` 空图标、CDN 或外链；登录卡片品牌区复用同一图标。
 - **侧栏页脚只显示版本**：中间件与组件清单属于构建细节，不再出现在导航里。
-- **接口组一律新标签页打开**：接口文档与 OpenAPI JSON（以及页面内的 `/docs`、`/openapi.json` 链接）
+- **接口组一律新标签页打开**：接口文档与 OpenAPI JSON（以及页面内的 `/mgr/docs`、`/api/v1/openapi.json` 链接）
   都带 `target="_blank" rel="noopener noreferrer"`；它们是整页/机器响应，不能换进工作区。
 
 ### 22.2 抽屉、确认与列表操作
@@ -686,12 +687,12 @@ yd versions sync               # 仅重新生成 version_generated.go
 - **第三方 CSS 的覆盖必须放在层外**：EasyMDE 等 vendor CSS 是无层的；写在 `@layer components` 里的规则
   永远输给它，即使选择器更具体。覆盖规则要无层、并用容器类提高特异性（如 `.yd-editor .EasyMDEContainer .CodeMirror`）。
 
-### 22.4 首页资源仪表盘
+### 22.4 管理概览资源仪表盘
 
-- 首页通过**一条** WebSocket（`hx-ws:connect="/ws/metrics"`）接收系统资源与中间件运行时两块片段：
+- 管理概览（`/mgr`）通过**一条** WebSocket（`hx-ws:connect="/mgr/ws/metrics"`）接收系统资源与中间件运行时两块片段：
   服务端每 5 秒把一个 `<hx-partial hx-target="#yd-live-metrics" hx-swap="innerMorph">` 信封推给每条连接，
-  页面不得再为这两块内容建立 HTTP 定时轮询。`GET /metrics` 与 `GET /metrics/middleware` 仅保留为
-  可直接取用的服务端片段（直连、调试与无脚本回退），首页不再请求它们。
+  页面不得再为这两块内容建立 HTTP 定时轮询。`GET /mgr/metrics` 与 `GET /mgr/metrics/middleware` 仅保留为
+  可直接取用的服务端片段（直连、调试与无脚本回退），管理概览不再请求它们。
   仪表盘展示宿主机 CPU 核心数/利用率、总内存/利用率与当前进程 CPU/内存，是纯服务端渲染的 SVG
   （`pathLength="100"` + `stroke-dasharray`），不得引入图表库或内联脚本。
 - 指标来自 `core/sysinfo`（`CPUSnapshot` / `MemoryTotal` / `MemoryAvailable`，Windows 走
@@ -729,7 +730,7 @@ yd versions sync               # 仅重新生成 version_generated.go
   （SSE abort 当前流、WS 无状态码关闭并以 1005 触发重连——浏览器客户端只允许 1000 与 3000-4999），
   只有连接对象已不存在时才回退整页重载。
 - **查看器脚本必须同源外链**：CSP 是 `script-src 'self'`，内联脚本会被浏览器拦截，
-  表现为 `/docs` 页面空白。查看器脚本固定在 `web/static/js/yd-openapi-viewer.js`，
+  表现为 `/mgr/docs` 页面空白。查看器脚本固定在 `web/static/js/yd-openapi-viewer.js`，
   由 `openapi.Options.ViewerScript` 指向（当前 `?v=5` 用于绕过旧缓存），禁止内联脚本与 CDN。
 - **查看器交互**：左侧导航按第一个 `tag` 分组（`doc.tags` 顺序优先，随后是未声明的 tag，
   最后是 webhooks、数据模型与安全方案）；操作详情提供**同源在线测试**——服务器、鉴权头、
@@ -790,7 +791,7 @@ yd versions sync               # 仅重新生成 version_generated.go
 
 - **唯一抽象层**：`runtime/metricsx` 定义 `SystemSource` / `MiddlewareSource` / `Provider` / `Collector`。
   系统仪表盘与中间件卡片都只读取 `Provider`，控制器不得直连 `MetricsService` 或另算指标；
-  首页一次 `Provider.Snapshot()` 同时供给两张卡片，`/metrics` 使用其中的 `System` 部分，显示契约不变。
+  管理概览一次 `Provider.Snapshot()` 同时供给两张卡片，`/mgr/metrics` 使用其中的 `System` 部分，显示契约不变。
 - **内建中间件开箱即观测**：`app.Default` 经 `UseObserved` 登记 `recover` / `request-id` / `access-log` /
   `compress` / `cors` / `i18n`；生成项目另加 `security` 与路由组的 `promote` / `auth` / `authz` / `tenant`。
   任何中间件都必须用 `application.UseObserved(descriptor, mw)` 装配；只调用 `Use` 会让它从卡片上消失。
@@ -805,8 +806,8 @@ yd versions sync               # 仅重新生成 version_generated.go
 - **热路径约束**：自动指标只用原子操作，不取锁、不做反射、不分配直方图。`Entry.Incr/Add/SetGauge`
   的自定义计数会取一把小锁，应按事件调用，不得无意义地每请求重复调用。
 - **同名合并**：同一 `Name` 只占一行，计数合并；同时挂在公开组与受保护组的 `tenant` 因此不会被拆成两行。
-- **端点与前端**：`GET /metrics` 与 `GET /metrics/middleware` 仍返回可直接取用的片段，二者都在受保护分组内；
-  首页则只建立**一条** WebSocket `/ws/metrics`，由服务端每 5 秒推送两块内容合并后的一个信封到
+- **端点与前端**：`GET /mgr/metrics` 与 `GET /mgr/metrics/middleware` 仍返回可直接取用的片段，二者都在受保护分组内；
+  管理概览则只建立**一条** WebSocket `/mgr/ws/metrics`，由服务端每 5 秒推送两块内容合并后的一个信封到
   `#yd-live-metrics`（`innerMorph`）。连接建立后立即推首帧，失败由 hx-ws 扩展退避重连，重连成功即恢复数据，
   **不得**再为指标另写轮询或 HTTP 重同步。推送端点只写不回显，入站内容一律忽略。
 - **i18n**：所有表头、状态、作用域与内建中间件名称都来自 `metrics.middleware.*` 键，
@@ -824,7 +825,7 @@ yd versions sync               # 仅重新生成 version_generated.go
   不得返回任何数据，也不得用 403 暴露资源是否存在。
 - **好友规则**：单聊必须已接受好友且双方未拉黑；群发成员必须都是发起人的好友；拉黑同时删除好友关系并关闭申请。
 - **系统消息**：只有 `message:system` 可发布/撤销；撤销是软撤回，正文保留在库中，审计记录保留标题与 Markdown 正文；
-  HTML 的 `/messages/:id/revoke` 与 JSON API 的 `/api/v1/messages/:id/revoke` 共用同一条路径；
+  HTML 的 `/mgr/messages/:id/revoke` 与 JSON API 的 `/api/v1/messages/:id/revoke` 共用同一条路径；
   置顶只有 `message:manage`，且只允许系统来源消息与可选时间段。
 - **撤回窗口**：普通用户受 `message.recall_window`（配置）限制且只能撤回本人消息；管理员不受窗口限制。
   正文对无 `message:manage` 的读者不可见，墓碑仍占位。
@@ -846,3 +847,90 @@ yd versions sync               # 仅重新生成 version_generated.go
   实时刷新只重取 `/messages/:id/history`，不得重建撰写区或清掉草稿。
 - **检索**：`search_text` 便携式分词 `LIKE`（`!` 转义）；替换为外部 FTS 时只改 Store 实现，不改领域规则与页面。
 - **文档**：`docs/message-center.md` 是能力、配置、API、WebSocket 协议与多节点部署的唯一入口。
+
+## 24. 内容管理与发布（强制）
+
+CMS 由框架域包 `cms` + `cms/gormstore` 与脚手架接线组成，是生成项目的**核心模块**（无生成期开关），
+使用说明见 `docs/cms.md`。以下约束不可绕过：
+
+- **租户硬边界**：9 张 `yd_cms_*` 表全部以 `tenant_id` 为第一条件；跨租户与不存在一律返回
+  `cms.ErrNotFound`/具体资源哨兵，不得用 403 暴露资源是否存在。
+- **无限级分类**：邻接表 + 物化路径（`path` 含自身、以 `/` 结尾）；移动分类必须在事务内重写整棵子树的
+  `path` 与 `depth`；父级不得是自身或后代；有子分类或文章的分类不得删除。公开分类页按子树过滤。
+- **发布状态机**：`draft → pending → published → archived`；提交审核、通过/驳回、发布、定时、下线、
+  归档与恢复分别对应 `cms-article:publish` / `cms-article:review`；作者只能编辑/删除自己的文章，
+  `cms-article:manage` 才能越过作者边界。定时发布以 `publish_at` 为准，到期前公开列表、RSS 与站点地图不可见。
+- **修订**：正文或标题变更前写入不可变快照，恢复时先把当前正文快照为新修订；每篇保留
+  `cms.max_revisions` 个版本。删除是软删除，别名改写为 `slug-deleted-id`，旧地址可复用。
+- **富文本**：Markdown 源 + 服务端 goldmark（GFM/脚注）渲染；未启用 `WithUnsafe`，原始 HTML 与危险链接
+  必须被移除；模板只能输出 `model.CMSArticle.Body` / `model.CMSComment.Body` 这类服务端净化结果。
+- **媒体**：MIME 以服务端 `http.DetectContentType` 为准；白名单不得包含 SVG/HTML/脚本；存储键只能是
+  `tenantID/mediaID`，不得包含原始文件名；读取必须按租户鉴权，跨租户返回 404。
+- **评论**：登录用户发表、两级回复；`cms.comments_enabled` 与文章 `allow_comment` 同时为真才接受；
+  审核状态为待审/通过/拒绝/垃圾/删除；删除是墓碑，正文清空但保留回复结构。
+- **公开站点**：`/blog` 列表、分类、标签、搜索、文章、单页、RSS 与站点地图；匿名租户取
+  `cms.public_tenant`（留空用种子租户），请求已指定租户时以请求为准。静态段必须先于 `/blog/:slug` 登记。
+- **权限**：新增能力只在 `security/authz` 注册；读取能力统一以 `:read` 结尾，保证审计员只读不变量；
+  `member` 只持有文章/评论自助与媒体上传，服务端仍强制作者身份；没有审核/发布/管理能力且不是审计员的成员
+  只能看到自己的文章与评论，概览与审计对成员返回 403；前端 `data-yd-perm`/`yd.can` 不是安全边界。
+- **前端**：后台沿用 `#yd-shell`、右侧抽屉、`details.yd-menu` 与 `data-yd-confirm`；文章编辑器使用本地
+  EasyMDE，图片经 `data-yd-editor-upload="/mgr/cms/media/upload"` 上传后插入；公开站点由
+  `portal/layouts/public_shell.html` 承载，只在 `.PublicSite` 为真时由 `portal/layouts/shell.html` 引入。
+- **文档**：`docs/cms.md` 是能力、配置、路由、发布流程与安全边界的唯一入口。
+
+## 25. 门户与后台隔离（强制）
+
+前端门户与后端管理是两套彼此隔离的界面与权限面，任何新页面都必须先确定归属，不得混用。
+
+- **路由**：门户为 `/`、`/blog`、`/messages`、`/friends`、`/account`、`/realtime` 与登录/健康检查等公开端点；
+  后台管理全部落在 `/mgr/**`（`/mgr` 概览、`/mgr/users`、`/mgr/tenants`、`/mgr/roles`、`/mgr/permissions`、
+  `/mgr/messages`、`/mgr/message-settings`、`/mgr/cms/**`、`/mgr/metrics`、`/mgr/docs`）。
+  门户默认只提供普通用户能力（自己的消息、好友、账号与公开内容），管理端点各自挂管理能力守卫；
+  `/mgr` 概览要求 `user:read`，其余按注册表逐条守卫。
+- **模板隔离**：门户模板只放 `web/templates/portal/**`，后台模板只放 `web/templates/mgr/**`；
+  两棵树各自持有 `layouts/`、`partials/` 与 `icon`/`flash`/`shell-switches`/`sidebar`/`pager`，
+  **禁止跨树 include**。模板名以 `portal/` 与 `mgr/` 前缀区分，避免同名模板互相覆盖；
+  删除或重命名模板时必须同步删除另一棵树里同名的旧文件。
+- **布局选择**：视图数据通过 `render.LayoutKey`（`"Layout"`）指定布局；门户用 `LayoutPortal`
+  （`portal/layouts/base.html`），后台用 `LayoutMgr`（`mgr/layouts/base.html`）；
+  `#yd-shell` 局部交换按路径经 `layoutForPath` 选择 `ShellPortal` 或 `ShellMgr`。
+  新增控制器必须显式给出布局，不得依赖默认值猜测。
+- **API 隔离**：成员 API 统一在 `/api/portal/v1/**`，后台管理 API 统一在 `/api/v1/**`；
+  OpenAPI JSON 为 `/api/v1/openapi.json`，查看器为 `/mgr/docs`，指标推送为 `/mgr/ws/metrics`。
+  门户页面上的管理动作（系统公告、置顶、撤销等）必须提交到对应的 `/mgr/**` 端点，不得留在门户命名空间。
+- **测试**：新增路由或页面时，同时在 `tooling/scaffold` 的 e2e 里断言门户与管理两套入口；
+  模板隔离由 `requiredFiles` 清单与模板路径断言共同守卫，缺失或串树都视为未完成。
+
+## 26. 数据关系与完整性（强制）
+
+**除主键与索引外，一切数据关联都由应用代码维护，不允许使用任何数据库级关系约束。**
+这样做的目的是跨 SQLite / MySQL / PostgreSQL 的一致行为、可预测的迁移，以及不依赖数据库特性的
+清理与审计路径；数据库只负责存行与查行。
+
+- **禁止外键**：不得声明 `FOREIGN KEY` / `REFERENCES`，不得使用 GORM 的
+  `constraint:`、`foreignKey:`、`references:`、`many2many:`、`polymorphic:` 标签或会隐式生成外键的关联字段；
+  `AutoMigrate` 产出的表不得包含任何外键。SQLite 连接预置**不开启** `foreign_keys`，
+  MySQL/PostgreSQL 也不得以触发器或约束代替外键。
+- **只存标识**：关系字段只保存对方的主键（如 `category_id`、`article_id`、`tag_id`、`user_id`、
+  `conversation_id`），不保存 ORM 关联对象；关联对象由服务层按租户查询后装饰成视图。
+- **写入时校验**：创建/更新引用前必须确认目标存在、属于同一 `tenant_id` 且状态允许；
+  目标不存在或跨租户一律返回该资源的 `ErrNotFound`，不泄露存在性。
+- **删除时人工处理**：删除主记录前，要么拒绝仍有引用（返回 `ErrXInUse`/`ErrXNotEmpty`），
+  要么在**同一事务**中按显式顺序清理从属行；不得依赖数据库级联。软删除保留的关联行
+  （文章标签、修订、评论、审计）必须在读取路径继续按可见性过滤。
+- **校验与写入同事务**：引用校验不能先查后用；创建/更新在写入事务内对目标行加共享锁
+  （MySQL `FOR SHARE`；SQLite 自动忽略），多个 ID 先去重并排序后加锁，避免死锁；
+  删除目标行时加更新锁并在同一事务内复查引用，杜绝「计数通过后又被插入」的悬空关联。
+  目标被删除时，软删除记录留下的引用（如软删除文章的 `category_id`、`article_tags`）
+  必须在同一事务内清空或删除。
+- **索引不是关系**：索引只用于查询性能与唯一性，不得把索引误当作引用完整性；
+  所有鉴权与 CMS/消息表索引仍以 `tenant_id` 打头。
+- **必须维护的关联表**（新增关联表时同样处理）：
+  `yd_auth_user_tenants` 与 `yd_auth_role_permissions`（成员/角色清理）、
+  `yd_msg_members` / `yd_msg_messages` / `yd_msg_attachments` / `yd_msg_friend_*` /
+  `yd_msg_message_tags`（会话、成员、附件、关系与标签）、
+  `yd_cms_article_tags` / `yd_cms_revisions` / `yd_cms_comments` / `yd_cms_audit`
+  （文章标签、修订、评论与审计）。
+- **守卫**：`repotest` 的 `TestNoForeignKeyDefinitions` 扫描 Go 结构标签、SQL 字符串、模板与
+  `.sql` 文件；CMS/消息/鉴权模型的 GORM Schema 断言不得解析出关联关系；
+  `cms/gormstore` 的 MySQL 集成测试查询 `information_schema`，断言生成的表没有任何外键。

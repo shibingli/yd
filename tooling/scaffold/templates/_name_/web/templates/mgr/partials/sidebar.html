@@ -1,0 +1,144 @@
+{{/*
+  mgr/partials/sidebar.html —— 管理后台侧栏：概览、访问控制、消息治理、内容管理与接口文档。
+  mgr/partials/sidebar.html — the back-office rail: overview, access control, message moderation, content management and
+  API documentation.
+
+  管理后台与门户完全隔离：这里的入口只出现在 /mgr/**，门户侧栏不引用本文件，本文件也不引用门户侧栏。
+  The back office is isolated from the portal: these entries exist only under /mgr/**, the portal rail never includes
+  this file, and this file never includes the portal rail.
+
+  数据契约 | Data contract: .Path、.Name、.Version、.CMSAvailable、.CMSReadAll，以及 authz.Data 注入的 .Perm。
+*/}}
+{{- define "mgr/partials/sidebar" -}}
+<aside id="yd-sidebar" class="yd-sidebar" data-yd-sidebar aria-label="{{ tr "nav.main" }}">
+  <div class="yd-sidebar__brand">
+    <a class="yd-brand" href="/mgr" hx-get="/mgr" hx-target="#yd-shell" hx-swap="innerMorph" hx-push-url="true">
+      <span class="yd-brand__mark" aria-hidden="true">yd</span>
+      <span class="yd-brand__name">{{ .Name }}</span>
+    </a>
+  </div>
+
+  <nav class="yd-nav" aria-label="{{ tr "nav.site" }}">
+    <p class="yd-nav__section">{{ tr "nav.group.overview" }}</p>
+    <a class="yd-nav__link" href="/mgr" hx-get="/mgr" hx-target="#yd-shell" hx-swap="innerMorph" hx-push-url="true"
+       data-yd-nav="mgr-home"{{ if eq .Path "/mgr" }} aria-current="page"{{ end }}>
+      <span class="yd-nav__label">{{ tr "nav.mgr_home" }}</span>
+    </a>
+    <a class="yd-nav__link" href="/mgr/metrics" hx-get="/mgr/metrics" hx-target="#yd-shell" hx-swap="innerMorph" hx-push-url="true"
+       data-yd-nav="mgr-metrics"{{ if hasPrefix .Path "/mgr/metrics" }} aria-current="page"{{ end }}>
+      <span class="yd-nav__label">{{ tr "nav.metrics" }}</span>
+    </a>
+
+    {{- if or (can "PermUserRead") (can .Perm.TenantRead) (can .Perm.RoleRead) (can .Perm.PermissionRead) }}
+    <p class="yd-nav__section">{{ tr "nav.group.access" }}</p>
+    {{- end }}
+    {{- if can .Perm.TenantRead }}
+    <a class="yd-nav__link" href="/mgr/tenants" hx-get="/mgr/tenants" hx-target="#yd-shell" hx-swap="innerMorph" hx-push-url="true"
+       data-yd-nav="mgr-tenants"{{ if hasPrefix .Path "/mgr/tenants" }} aria-current="page"{{ end }}>
+      <span class="yd-nav__label">{{ tr "nav.tenants" }}</span>
+    </a>
+    {{- end }}
+    {{- if can .Perm.UserRead }}
+    <a class="yd-nav__link" href="/mgr/users" hx-get="/mgr/users" hx-target="#yd-shell" hx-swap="innerMorph" hx-push-url="true"
+       data-yd-nav="mgr-users"{{ if hasPrefix .Path "/mgr/users" }} aria-current="page"{{ end }}>
+      <span class="yd-nav__label">{{ tr "nav.users" }}</span>
+    </a>
+    {{- end }}
+    {{- if can .Perm.RoleRead }}
+    <a class="yd-nav__link" href="/mgr/roles" hx-get="/mgr/roles" hx-target="#yd-shell" hx-swap="innerMorph" hx-push-url="true"
+       data-yd-nav="mgr-roles"{{ if hasPrefix .Path "/mgr/roles" }} aria-current="page"{{ end }}>
+      <span class="yd-nav__label">{{ tr "nav.roles" }}</span>
+    </a>
+    {{- end }}
+    {{- if can .Perm.PermissionRead }}
+    <a class="yd-nav__link" href="/mgr/permissions" hx-get="/mgr/permissions" hx-target="#yd-shell" hx-swap="innerMorph" hx-push-url="true"
+       data-yd-nav="mgr-permissions"{{ if hasPrefix .Path "/mgr/permissions" }} aria-current="page"{{ end }}>
+      <span class="yd-nav__label">{{ tr "nav.permissions" }}</span>
+    </a>
+    {{- end }}
+
+    {{- if or (can .Perm.MessageManage) (can .Perm.MessageTypeRead) }}
+    <p class="yd-nav__section">{{ tr "nav.group.messages" }}</p>
+    {{- end }}
+    {{- if can .Perm.MessageManage }}
+    <a class="yd-nav__link" href="/mgr/messages" hx-get="/mgr/messages" hx-target="#yd-shell" hx-swap="innerMorph" hx-push-url="true"
+       data-yd-nav="mgr-messages"{{ if hasPrefix .Path "/mgr/messages" }} aria-current="page"{{ end }}>
+      <span class="yd-nav__label">{{ tr "nav.message_admin" }}</span>
+    </a>
+    {{- end }}
+    {{- if can .Perm.MessageTypeRead }}
+    <a class="yd-nav__link" href="/mgr/message-settings" hx-get="/mgr/message-settings" hx-target="#yd-shell" hx-swap="innerMorph" hx-push-url="true"
+       data-yd-nav="mgr-message-settings"{{ if hasPrefix .Path "/mgr/message-settings" }} aria-current="page"{{ end }}>
+      <span class="yd-nav__label">{{ tr "nav.message_settings" }}</span>
+    </a>
+    {{- end }}
+
+    {{- if and .CMSAvailable (or (can .Perm.CmsArticleRead) (can .Perm.CmsCategoryRead) (can .Perm.CmsTagRead) (can .Perm.CmsMediaRead) (can .Perm.CmsCommentRead) (can .Perm.CmsSiteRead)) }}
+    <p class="yd-nav__section">{{ tr "nav.group.content" }}</p>
+    {{- if can .Perm.CmsArticleRead }}
+    {{- if .CMSReadAll }}
+    <a class="yd-nav__link" href="/mgr/cms" hx-get="/mgr/cms" hx-target="#yd-shell" hx-swap="innerMorph" hx-push-url="true"
+       data-yd-nav="mgr-cms"{{ if eq .Path "/mgr/cms" }} aria-current="page"{{ end }}>
+      <span class="yd-nav__label">{{ tr "nav.cms" }}</span>
+    </a>
+    {{- end }}
+    <a class="yd-nav__link" href="/mgr/cms/articles" hx-get="/mgr/cms/articles" hx-target="#yd-shell" hx-swap="innerMorph" hx-push-url="true"
+       data-yd-nav="mgr-cms-articles"{{ if hasPrefix .Path "/mgr/cms/articles" }} aria-current="page"{{ end }}>
+      <span class="yd-nav__label">{{ tr "nav.cms_articles" }}</span>
+    </a>
+    {{- end }}
+    {{- if can .Perm.CmsCategoryRead }}
+    <a class="yd-nav__link" href="/mgr/cms/categories" hx-get="/mgr/cms/categories" hx-target="#yd-shell" hx-swap="innerMorph" hx-push-url="true"
+       data-yd-nav="mgr-cms-categories"{{ if hasPrefix .Path "/mgr/cms/categories" }} aria-current="page"{{ end }}>
+      <span class="yd-nav__label">{{ tr "nav.cms_categories" }}</span>
+    </a>
+    {{- end }}
+    {{- if can .Perm.CmsTagRead }}
+    <a class="yd-nav__link" href="/mgr/cms/tags" hx-get="/mgr/cms/tags" hx-target="#yd-shell" hx-swap="innerMorph" hx-push-url="true"
+       data-yd-nav="mgr-cms-tags"{{ if hasPrefix .Path "/mgr/cms/tags" }} aria-current="page"{{ end }}>
+      <span class="yd-nav__label">{{ tr "nav.cms_tags" }}</span>
+    </a>
+    {{- end }}
+    {{- if can .Perm.CmsMediaRead }}
+    <a class="yd-nav__link" href="/mgr/cms/media" hx-get="/mgr/cms/media" hx-target="#yd-shell" hx-swap="innerMorph" hx-push-url="true"
+       data-yd-nav="mgr-cms-media"{{ if hasPrefix .Path "/mgr/cms/media" }} aria-current="page"{{ end }}>
+      <span class="yd-nav__label">{{ tr "nav.cms_media" }}</span>
+    </a>
+    {{- end }}
+    {{- if can .Perm.CmsCommentRead }}
+    <a class="yd-nav__link" href="/mgr/cms/comments" hx-get="/mgr/cms/comments" hx-target="#yd-shell" hx-swap="innerMorph" hx-push-url="true"
+       data-yd-nav="mgr-cms-comments"{{ if hasPrefix .Path "/mgr/cms/comments" }} aria-current="page"{{ end }}>
+      <span class="yd-nav__label">{{ tr "nav.cms_comments" }}</span>
+    </a>
+    {{- end }}
+    {{- if can .Perm.CmsSiteRead }}
+    <a class="yd-nav__link" href="/mgr/cms/settings" hx-get="/mgr/cms/settings" hx-target="#yd-shell" hx-swap="innerMorph" hx-push-url="true"
+       data-yd-nav="mgr-cms-settings"{{ if hasPrefix .Path "/mgr/cms/settings" }} aria-current="page"{{ end }}>
+      <span class="yd-nav__label">{{ tr "nav.cms_settings" }}</span>
+    </a>
+    {{- end }}
+    {{- if .CMSReadAll }}
+    <a class="yd-nav__link" href="/mgr/cms/audit" hx-get="/mgr/cms/audit" hx-target="#yd-shell" hx-swap="innerMorph" hx-push-url="true"
+       data-yd-nav="mgr-cms-audit"{{ if hasPrefix .Path "/mgr/cms/audit" }} aria-current="page"{{ end }}>
+      <span class="yd-nav__label">{{ tr "nav.cms_audit" }}</span>
+    </a>
+    {{- end }}
+    {{- end }}
+
+    <p class="yd-nav__section">{{ tr "nav.group.api" }}</p>
+    <a class="yd-nav__link" href="/mgr/docs" target="_blank" rel="noopener noreferrer" data-yd-nav="mgr-docs">
+      <span class="yd-nav__label">{{ tr "nav.docs" }}</span>
+    </a>
+    <a class="yd-nav__link" href="/api/v1/openapi.json" target="_blank" rel="noopener noreferrer" data-yd-nav="mgr-openapi">
+      <span class="yd-nav__label">OpenAPI 3.0 JSON</span>
+    </a>
+    <a class="yd-nav__link" href="/" data-yd-nav="portal">
+      <span class="yd-nav__label">{{ tr "nav.back_to_portal" }}</span>
+    </a>
+  </nav>
+
+  <div class="yd-sidebar__footer">
+    <p class="yd-hint">{{ tr "nav.version" }} {{ .Version }}</p>
+  </div>
+</aside>
+{{- end -}}

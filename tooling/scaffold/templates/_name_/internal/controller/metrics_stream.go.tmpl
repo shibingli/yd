@@ -17,8 +17,8 @@ import (
 	"{{ .YdModule }}/http/ws"
 )
 
-// 指标推送契约：目标选择器与替换策略必须与 pages/home.html 的连接元素保持一致。
-// The metrics push contract: the target selector and swap strategy must match the connection element in pages/home.html.
+// 指标推送契约：目标选择器与替换策略必须与 mgr/pages/home.html 的连接元素保持一致。
+// The metrics push contract: the target selector and swap strategy must match the connection element in mgr/pages/home.html.
 const (
 	// metricsLiveTarget is the wrapper holding both metric cards. | metricsLiveTarget 是同时承载两张指标卡片的容器。
 	metricsLiveTarget = "#yd-live-metrics"
@@ -62,7 +62,7 @@ var ErrMetricsRender = errx.New("controller: metrics panel render failed | contr
 // @Failure 400 {object} string "upgrade failure written by the framework | 框架写出的升级失败响应"
 // @Failure 401 {object} string "no session | 无有效会话"
 // @Security BearerAuth
-// @Router /ws/metrics [get]
+// @Router /mgr/ws/metrics [get]
 func (c *Controller) MetricsSocket() router.HandlerFunc {
 	return func(ctx *router.Ctx) {
 		translator := i18n.FromContext(ctx)

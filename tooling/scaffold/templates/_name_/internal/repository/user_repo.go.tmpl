@@ -76,9 +76,6 @@ func (r *UserRepo) Update(ctx context.Context, tenantID string, u model.User) er
 	record.Username = u.Username
 	record.Email = u.Email
 	record.DisplayName = u.DisplayName
-	if u.Status != "" {
-		record.Status = u.Status
-	}
 	return r.store.Auth().UpdateUser(ctx, tenantID, record)
 }
 
@@ -97,12 +94,7 @@ func (r *UserRepo) SetPassword(ctx context.Context, tenantID, userID, password s
 // SetStatus 切换用户的启用状态；停用会让该用户的令牌在下一次请求立即失效。
 // SetStatus flips the user's lifecycle state; disabling kills that user's token on the very next request.
 func (r *UserRepo) SetStatus(ctx context.Context, tenantID, userID string, status model.Status) error {
-	record, err := r.store.Auth().GetUser(ctx, tenantID, userID)
-	if err != nil {
-		return err
-	}
-	record.Status = status
-	return r.store.Auth().UpdateUser(ctx, tenantID, record)
+	return r.store.Auth().SetStatus(ctx, tenantID, userID, auth.Status(status))
 }
 
 // RotateSecKey rotates the sec_key: every old token dies and the password stays. | RotateSecKey 轮换 sec_key：旧令牌全部失效，口令不变。

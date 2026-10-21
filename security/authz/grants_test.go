@@ -204,31 +204,39 @@ func TestBuiltinGrantsAuditorIsReadOnly(t *testing.T) {
 	}
 }
 
-// TestBuiltinGrantsMemberHoldsOnlyMessageSelfService pins the one deliberate non-empty member
-// grant. | TestBuiltinGrantsMemberHoldsOnlyMessageSelfService 钉住成员唯一一处刻意的非空授权。
+// TestBuiltinGrantsMemberHoldsOnlySelfService pins the deliberate non-empty member grant. |
+// TestBuiltinGrantsMemberHoldsOnlySelfService 钉住成员刻意保留的非空授权。
 //
 // Every other capability is tenant-wide, so granting one would let an ordinary account reach its
-// colleagues' data. The four message capabilities are different: the messaging service scopes them
-// to conversations the member belongs to and to messages the member actually sent, which is why
-// they are the only entries here and why this list must stay closed. | 其余能力都是租户级的，
-// 授予任何一项都会让普通账号碰到同事的数据。四项消息能力不同：消息服务把它们限定在成员所属的会话
-// 与成员真正发送过的消息上，这正是它们是这里唯一条目、且这份清单必须保持封闭的原因。
-func TestBuiltinGrantsMemberHoldsOnlyMessageSelfService(t *testing.T) {
+// colleagues' data. The message and CMS capabilities listed here are different: their services
+// scope them to the member's own conversations, messages, articles, uploads and comments, which is
+// why they are the only entries here and why this list must stay closed. | 其余能力都是租户级的，
+// 授予任何一项都会让普通账号碰到同事的数据。这里列出的消息与 CMS 能力不同：对应服务把它们限定在
+// 成员自己的会话、消息、文章、上传与评论上，这正是它们是唯一条目、且这份清单必须保持封闭的原因。
+func TestBuiltinGrantsMemberHoldsOnlySelfService(t *testing.T) {
 	g, ok := authz.GrantOf(authz.RoleMember)
 	if !ok {
 		t.Fatalf("GrantOf(%q) reports no grant | GrantOf(%q) 报告没有授权", authz.RoleMember, authz.RoleMember)
 	}
 	want := map[string]bool{
-		authz.PermMessageRead:   true,
-		authz.PermMessageSend:   true,
-		authz.PermMessageUpdate: true,
-		authz.PermMessageDelete: true,
+		authz.PermMessageRead:      true,
+		authz.PermMessageSend:      true,
+		authz.PermMessageUpdate:    true,
+		authz.PermMessageDelete:    true,
+		authz.PermCmsArticleRead:   true,
+		authz.PermCmsArticleCreate: true,
+		authz.PermCmsArticleUpdate: true,
+		authz.PermCmsArticleDelete: true,
+		authz.PermCmsMediaUpload:   true,
+		authz.PermCmsCommentRead:   true,
+		authz.PermCmsCommentCreate: true,
+		authz.PermCmsCommentDelete: true,
 	}
 	held := make(map[string]bool, len(g.Permissions))
 	for _, token := range g.Permissions {
 		held[token] = true
 		if !want[token] {
-			t.Errorf("the member holds %q, which is outside the self-service message scope | 成员持有 %q，超出了消息自助范围", token, token)
+			t.Errorf("the member holds %q, which is outside the self-service scope | 成员持有 %q，超出了自助范围", token, token)
 		}
 	}
 	for token := range want {

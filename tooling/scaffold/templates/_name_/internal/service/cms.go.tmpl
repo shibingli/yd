@@ -1,0 +1,132 @@
+// 本文件装配内容管理系统：领域规则来自框架 cms 包，这里只负责配置、媒体目录与公开租户的接线。
+// This file wires the content management system: the rules live in the framework cms package, while this file only
+// connects configuration, the media directory and the public tenant.
+
+package service
+
+import (
+	"strings"
+
+	"{{ .Module }}/internal/repository"
+	"{{ .YdModule }}/cms"
+	"{{ .YdModule }}/cms/filestore"
+	"{{ .YdModule }}/cms/markdown"
+	"{{ .YdModule }}/core/config"
+	"{{ .YdModule }}/core/errx"
+	"{{ .YdModule }}/core/logx"
+)
+
+// CMS 配置键：与 configs/config.yaml 的 cms 段一一对应，YD_CMS_* 自动映射。
+// CMS configuration keys: they match the cms section of configs/config.yaml and YD_CMS_* maps onto them.
+const (
+	// configCMSMediaDir is the local media directory. | configCMSMediaDir 是本地媒体目录。
+	configCMSMediaDir = "cms.media_dir"
+	// configCMSPageSize is the management list page length. | configCMSPageSize 是管理列表页长。
+	configCMSPageSize = "cms.page_size"
+	// configCMSMaxMediaSize is the per-file byte ceiling. | configCMSMaxMediaSize 是单文件字节上限。
+	configCMSMaxMediaSize = "cms.max_media_size"
+	// configCMSAllowedTypes is the optional media MIME allow list. | configCMSAllowedTypes 是可选媒体 MIME 白名单。
+	configCMSAllowedTypes = "cms.allowed_types"
+	// configCMSMaxRevisions is the revisions kept per article. | configCMSMaxRevisions 是每篇文章保留的修订数。
+	configCMSMaxRevisions = "cms.max_revisions"
+	// configCMSPublicTenant is the tenant slug served by anonymous public pages. | configCMSPublicTenant 是匿名公开页面服务的租户标识。
+	configCMSPublicTenant = "cms.public_tenant"
+	// defaultCMSMediaDir is the media directory when none is configured. | defaultCMSMediaDir 是未配置时的媒体目录。
+	defaultCMSMediaDir = "data/cms-media"
+)
+
+// ErrCMSUnavailable reports a CMS without a usable store. | ErrCMSUnavailable 表示 CMS 没有可用存储。
+var ErrCMSUnavailable = errx.New("CMS is unavailable | 内容管理不可用")
+
+// CMSService is the project-facing facade of the CMS domain. | CMSService 是 CMS 领域对项目侧的门面。
+type CMSService struct {
+	// Service is the embedded domain service; nil means the CMS is unavailable. | Service 是内嵌的领域服务；nil 表示 CMS 不可用。
+	*cms.Service
+	// publicTenant is the tenant slug anonymous public pages fall back to. | publicTenant 是匿名公开页面回退的租户标识。
+	publicTenant string
+	// mediaDir is the directory holding uploaded media. | mediaDir 是保存上传媒体的目录。
+	mediaDir string
+	// log records storage degradation. | log 记录存储降级。
+	log *logx.Logger
+}
+
+// NewCMSService assembles the CMS over the project's store and configuration. |
+// NewCMSService 在项目存储与配置之上装配 CMS。
+func NewCMSService(store *repository.Store, cfg *config.Config, log *logx.Logger) (*CMSService, error) {
+	if log == nil {
+		log = logx.Default()
+	}
+	publicTenant := "default"
+	if store != nil {
+		publicTenant = store.SeedTenant()
+	}
+	if cfg != nil {
+		if value := strings.TrimSpace(cfg.GetString(configCMSPublicTenant)); value != "" {
+			publicTenant = value
+		}
+	}
+	facade := &CMSService{publicTenant: publicTenant, mediaDir: defaultCMSMediaDir, log: log}
+	if cfg != nil {
+		if value := strings.TrimSpace(cfg.GetString(configCMSMediaDir)); value != "" {
+			facade.mediaDir = value
+		}
+	}
+	if store == nil || !store.CMSAvailable() {
+		reason := cms.ErrUnavailable
+		if store != nil && store.CMSError() != nil {
+			reason = store.CMSError()
+		}
+		return facade, errx.Wrap(reason, ErrCMSUnavailable)
+	}
+
+	options := cms.DefaultOptions()
+	if cfg != nil {
+		if value := cfg.GetInt(configCMSPageSize); value > 0 {
+			options.PageSize = value
+		}
+		if value := cfg.GetInt64(configCMSMaxMediaSize); value > 0 {
+			options.MaxMediaSize = value
+		}
+		if value := cfg.GetInt(configCMSMaxRevisions); value > 0 {
+			options.MaxRevisions = value
+		}
+		if value := cfg.GetStringSlice(configCMSAllowedTypes); len(value) > 0 {
+			options.AllowedMediaTypes = value
+		}
+	}
+	var blobs cms.BlobStore
+	fileStore, err := filestore.New(facade.mediaDir)
+	if err != nil {
+		log.Warn("media storage is unavailable, uploads are disabled | 媒体存储不可用，上传已禁用",
+			logx.Err(err),
+			logx.Str("dir", facade.mediaDir),
+		)
+	} else {
+		blobs = fileStore
+	}
+	svc, err := cms.New(store.CMSStore(), markdown.New(), blobs, log, options)
+	if err != nil {
+		return facade, errx.Wrap(err, ErrCMSUnavailable)
+	}
+	facade.Service = svc
+	return facade, nil
+}
+
+// Available reports whether the CMS can serve requests. | Available 报告 CMS 能否服务请求。
+func (m *CMSService) Available() bool { return m != nil && m.Service != nil }
+
+// PublicTenant returns the tenant slug anonymous public pages fall back to. | PublicTenant 返回匿名公开页面回退的租户标识。
+func (m *CMSService) PublicTenant() string {
+	if m == nil {
+		return ""
+	}
+	return m.publicTenant
+}
+
+// MediaDir returns the media directory. | MediaDir 返回媒体目录。
+func (m *CMSService) MediaDir() string {
+	if m == nil {
+		return ""
+	}
+	return m.mediaDir
+}

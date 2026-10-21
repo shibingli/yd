@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"html"
 	"html/template"
+	"net/url"
 	"sort"
 	"strings"
 	"sync"
@@ -45,26 +46,27 @@ func Funcs(fsys afero.Fs) template.FuncMap { return funcsFor(fsys, nil, false) }
 func funcsFor(fsys, assetFS afero.Fs, production bool) template.FuncMap {
 	cache := &assetCache{seen: map[string]string{}}
 	return template.FuncMap{
-		"tr":        tr,
-		"can":       can,
-		"hasRole":   hasRole,
-		"perm":      perm,
-		"role":      role,
-		"dict":      dict,
-		"list":      list,
-		"default":   dfault,
-		"contains":  strings.Contains,
-		"hasPrefix": strings.HasPrefix,
-		"hasSuffix": strings.HasSuffix,
-		"lower":     strings.ToLower,
-		"upper":     strings.ToUpper,
-		"trim":      strings.TrimSpace,
-		"join":      strings.Join,
-		"json":      toJSON,
-		"humanSize": humanSize,
-		"humanTime": humanTime,
-		"hx":        htmxAttrs,
-		"asset":     cache.assetFunc(fsys, assetFS, production),
+		"tr":         tr,
+		"can":        can,
+		"hasRole":    hasRole,
+		"perm":       perm,
+		"role":       role,
+		"dict":       dict,
+		"list":       list,
+		"default":    dfault,
+		"contains":   strings.Contains,
+		"hasPrefix":  strings.HasPrefix,
+		"hasSuffix":  strings.HasSuffix,
+		"lower":      strings.ToLower,
+		"upper":      strings.ToUpper,
+		"trim":       strings.TrimSpace,
+		"join":       strings.Join,
+		"json":       toJSON,
+		"pathEscape": url.PathEscape,
+		"humanSize":  humanSize,
+		"humanTime":  humanTime,
+		"hx":         htmxAttrs,
+		"asset":      cache.assetFunc(fsys, assetFS, production),
 	}
 }
 

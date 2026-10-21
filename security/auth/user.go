@@ -167,13 +167,14 @@ func (s *Service) ListUsers(ctx context.Context, tenantID string) ([]*User, erro
 // UpdateUser replaces the mutable fields of an existing user. | UpdateUser 覆盖既有用户的可变字段。
 //
 // Username, Email, DisplayName, Status and Roles are taken from u; PasswordHash,
-// EncryptedSecKey, TenantID and CreatedAt are kept from the stored record, so a
-// caller can never overwrite a hash or a sec_key by accident or by a crafted
-// payload. An empty Username or Status keeps the stored value, and a nil Roles
-// keeps the stored role list, while an empty non-nil Roles clears it. | Username、
-// Email、DisplayName、Status 与 Roles 取自 u；PasswordHash、EncryptedSecKey、TenantID 与 CreatedAt
-// 一律沿用库中记录，调用方无法凭借意外或构造的载荷覆盖散列与 sec_key。Username 或 Status 为空时保留库中取值，
-// Roles 为 nil 时保留库中角色列表，非 nil 的空切片则表示清空。
+// EncryptedSecKey, Status, TenantID and CreatedAt are kept from the stored record, so a
+// caller can never overwrite a hash, a sec_key or a lifecycle state by accident or by a crafted
+// payload. An empty Username keeps the stored value, and a nil Roles keeps the stored role list,
+// while an empty non-nil Roles clears it. Status changes go through SetStatus/DisableUser. |
+// Username、Email、DisplayName 与 Roles 取自 u；Status、PasswordHash、EncryptedSecKey、TenantID 与
+// CreatedAt 一律沿用库中记录，调用方无法凭借意外或构造的载荷覆盖状态、散列与 sec_key。
+// Username 为空时保留库中取值，Roles 为 nil 时保留库中角色列表，非 nil 的空切片表示清空。
+// 状态变更走 SetStatus/DisableUser。
 //
 // A tenant mismatch or an unknown tenant, user or role is reported as ErrNotFound. | 租户不匹配，或租户、用户、角色未知时，返回 ErrNotFound。
 func (s *Service) UpdateUser(ctx context.Context, tenantID string, u *User) error {
@@ -195,14 +196,9 @@ func (s *Service) UpdateUser(ctx context.Context, tenantID string, u *User) erro
 	if username == "" {
 		username = stored.Username
 	}
-	status := u.Status
-	if status == "" {
-		status = stored.Status
-	}
 	stored.Username = username
 	stored.Email = strings.TrimSpace(u.Email)
 	stored.DisplayName = strings.TrimSpace(u.DisplayName)
-	stored.Status = status
 	if u.Roles != nil {
 		roles, err := s.resolveRoles(ctx, tenantID, u.Roles)
 		if err != nil {
@@ -220,13 +216,17 @@ func (s *Service) UpdateUser(ctx context.Context, tenantID string, u *User) erro
 // KeyFunc and Verify refuse a user that is not active. | 已经流出的令牌会立即失效：KeyFunc 与 Verify
 // 都会拒绝非激活用户。
 func (s *Service) DisableUser(ctx context.Context, tenantID, userID string) error {
-	u, err := s.store.GetUser(ctx, tenantID, userID)
-	if err != nil {
-		return err
+	return s.SetStatus(ctx, tenantID, userID, StatusDisabled)
+}
+
+// SetStatus changes only a user's lifecycle state. It never rewrites profile, password or key
+// columns, so a concurrent profile edit cannot resurrect an old status. |
+// SetStatus 只修改用户的生命周期状态，绝不重写资料、口令或密钥列，因此并发的资料编辑无法复活旧状态。
+func (s *Service) SetStatus(ctx context.Context, tenantID, userID string, status Status) error {
+	if status != StatusActive && status != StatusDisabled {
+		return errx.Detail(ErrInvalidInput, "unknown user status %[1]q | 未知的用户状态 %[1]q", status)
 	}
-	u.Status = StatusDisabled
-	u.UpdatedAt = s.now()
-	return s.store.UpdateUser(ctx, tenantID, u)
+	return s.store.SetUserStatus(ctx, tenantID, userID, status, s.now())
 }
 
 // SetPassword replaces the password hash and rotates the sec_key in one step. | SetPassword 一步完成口令散列替换与 sec_key 轮换。
@@ -254,10 +254,7 @@ func (s *Service) SetPassword(ctx context.Context, tenantID, userID, password st
 	if err != nil {
 		return err
 	}
-	u.PasswordHash = hash
-	u.EncryptedSecKey = sealed
-	u.UpdatedAt = s.now()
-	return s.store.UpdateUser(ctx, tenantID, u)
+	return s.store.SetUserCredentials(ctx, tenantID, userID, hash, sealed, s.now())
 }
 
 // Authenticate verifies a password and returns the user. | Authenticate 校验口令并返回用户。
@@ -350,9 +347,7 @@ func (s *Service) RotateSecKey(ctx context.Context, tenantID, userID string) err
 	if err != nil {
 		return err
 	}
-	u.EncryptedSecKey = sealed
-	u.UpdatedAt = s.now()
-	return s.store.UpdateUser(ctx, tenantID, u)
+	return s.store.SetUserSecKey(ctx, tenantID, userID, sealed, s.now())
 }
 
 // resolveRoles validates that every listed role exists inside the tenant and

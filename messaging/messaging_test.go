@@ -249,6 +249,11 @@ func TestFriendLifecycle(t *testing.T) {
 	if err := f.svc.RespondFriendRequest(ctx, bob, req.ID, true); err != nil {
 		t.Fatalf("accept: %v", err)
 	}
+	staleRequest := req
+	staleRequest.Status = messaging.FriendCancelled
+	if err := f.store.UpdateFriendRequest(ctx, staleRequest, messaging.FriendPending); !errors.Is(err, messaging.ErrRequestClosed) {
+		t.Fatalf("stale request transition error = %v, want ErrRequestClosed", err)
+	}
 	if ok, err := f.svc.IsFriend(ctx, tenantID, alice.ID, bob.ID); err != nil || !ok {
 		t.Fatalf("friend = %v err = %v", ok, err)
 	}
@@ -279,6 +284,9 @@ func TestFriendLifecycle(t *testing.T) {
 	if ok, _ := f.svc.IsFriend(ctx, tenantID, alice.ID, bob.ID); ok {
 		t.Fatal("friendship survived removal")
 	}
+	if err := f.svc.SetFriendRemark(ctx, alice, bob.ID, "stale"); !errors.Is(err, messaging.ErrNotFriend) {
+		t.Fatalf("remark after unfriend error = %v, want ErrNotFriend", err)
+	}
 
 	req, err = f.svc.SendFriendRequest(ctx, alice, bob.ID, "again")
 	if err != nil {
@@ -287,11 +295,30 @@ func TestFriendLifecycle(t *testing.T) {
 	if err := f.svc.RespondFriendRequest(ctx, bob, req.ID, true); err != nil {
 		t.Fatalf("re-accept: %v", err)
 	}
+	summary, err = f.svc.FriendSummary(ctx, alice)
+	if err != nil {
+		t.Fatalf("summary after re-friend: %v", err)
+	}
+	if len(summary.Friends) != 1 || summary.Friends[0].Remark != "" {
+		t.Fatalf("a removed friendship kept its remark: %+v", summary)
+	}
+	if err := f.svc.SetFriendRemark(ctx, alice, bob.ID, "Bobby again"); err != nil {
+		t.Fatalf("remark after re-friend: %v", err)
+	}
 	if err := f.svc.BlockUser(ctx, bob, alice.ID); err != nil {
 		t.Fatalf("block: %v", err)
 	}
 	if ok, _ := f.svc.IsFriend(ctx, tenantID, alice.ID, bob.ID); ok {
 		t.Fatal("friendship survived a block")
+	}
+	var notes int64
+	if err := f.db.Model(&messaging.FriendNote{}).
+		Where("tenant_id = ? AND ((owner_id = ? AND friend_id = ?) OR (owner_id = ? AND friend_id = ?))",
+			tenantID, alice.ID, bob.ID, bob.ID, alice.ID).Count(&notes).Error; err != nil {
+		t.Fatalf("count notes: %v", err)
+	}
+	if notes != 0 {
+		t.Fatalf("friend notes after block = %d, want 0", notes)
 	}
 	if _, err := f.svc.SendFriendRequest(ctx, alice, bob.ID, ""); !errors.Is(err, messaging.ErrBlocked) {
 		t.Fatalf("blocked request err = %v", err)
@@ -432,6 +459,24 @@ func TestSystemMessagesPinAndTypes(t *testing.T) {
 	if view.Origin != messaging.OriginSystem {
 		t.Fatalf("origin = %q", view.Origin)
 	}
+	manageOnly := actor("us_manage", "Manage")
+	manageOnly.Manage = true
+	extra, err := f.svc.SendSystem(ctx, root, messaging.SendInput{Title: "Recall Me", Markdown: "tombstone"})
+	if err != nil {
+		t.Fatalf("second system send: %v", err)
+	}
+	if err := f.svc.Recall(ctx, manageOnly, extra.ID, ""); !errors.Is(err, messaging.ErrSystemOnly) {
+		t.Fatalf("manage-only system recall error = %v, want ErrSystemOnly", err)
+	}
+	if _, err := f.svc.Edit(ctx, manageOnly, extra.ID, messaging.EditInput{Title: "hijack"}); !errors.Is(err, messaging.ErrSystemOnly) {
+		t.Fatalf("manage-only system edit error = %v, want ErrSystemOnly", err)
+	}
+	if err := f.svc.Recall(ctx, root, extra.ID, "maintenance done"); err != nil {
+		t.Fatalf("system recall: %v", err)
+	}
+	if _, err := f.svc.Edit(ctx, root, extra.ID, messaging.EditInput{Title: "resurrect"}); !errors.Is(err, messaging.ErrRecalled) {
+		t.Fatalf("recalled edit error = %v, want ErrRecalled", err)
+	}
 	// Alice joins the announcement channel through the unread summary. | Alice 通过未读汇总加入公告频道。
 	if _, err := f.svc.Unread(ctx, alice); err != nil {
 		t.Fatalf("unread: %v", err)
@@ -564,5 +609,66 @@ func TestAttachments(t *testing.T) {
 	}
 	if _, err := f.svc.UploadAttachment(ctx, alice, "page.html", 10, bytes.NewReader([]byte("<html></html>"))); !errors.Is(err, messaging.ErrAttachmentType) {
 		t.Fatalf("html upload err = %v", err)
+	}
+}
+
+// TestStoreRejectsMissingOrInUseRelations proves that link tables never outlive the rows they point
+// at: an unknown tag is rejected before any write, and deleting an in-use tag or type is refused
+// inside the same transaction as the delete. | TestStoreRejectsMissingOrInUseRelations 证明连接表不会
+// 比其指向的行活得更久：未知标签在写入前被拒绝，删除使用中的标签或类型会在与删除相同的事务内被拒绝。
+func TestStoreRejectsMissingOrInUseRelations(t *testing.T) {
+	f := newFixture(t)
+	ctx := context.Background()
+	alice, bob := actor("us_alice", "Alice"), actor("us_bob", "Bob")
+	conv := befriend(t, f, alice, bob)
+	sent, err := f.svc.Send(ctx, alice, messaging.SendInput{ConversationID: conv.ID, Markdown: "hello"})
+	if err != nil {
+		t.Fatalf("send: %v", err)
+	}
+	if err := f.store.UpdateMessage(ctx, sent.Message, []string{"tg_missing"}); !errors.Is(err, messaging.ErrTagUnknown) {
+		t.Fatalf("update with missing tag error = %v, want ErrTagUnknown", err)
+	}
+	var links int64
+	if err := f.db.Table("yd_msg_message_tags").Where("tenant_id = ? AND message_id = ?", tenantID, sent.ID).
+		Count(&links).Error; err != nil {
+		t.Fatalf("count links: %v", err)
+	}
+	if links != 0 {
+		t.Fatalf("message tag links = %d, want 0", links)
+	}
+
+	tag, err := f.svc.CreateTag(ctx, admin(), messaging.TagLabel, messaging.TagInput{
+		Key: "audit", Name: "审计", NameEN: "Audit", Tone: messaging.ToneInfo,
+	})
+	if err != nil {
+		t.Fatalf("create tag: %v", err)
+	}
+	if err := f.db.Create(&messaging.MessageTag{
+		ID: "mtg_stale", TenantID: tenantID, MessageID: sent.ID, TagID: tag.ID,
+	}).Error; err != nil {
+		t.Fatalf("seed link: %v", err)
+	}
+	if err := f.store.DeleteTag(ctx, tenantID, tag.ID); !errors.Is(err, messaging.ErrTypeInUse) {
+		t.Fatalf("delete in-use tag error = %v, want ErrTypeInUse", err)
+	}
+	if err := f.db.Where("tenant_id = ? AND tag_id = ?", tenantID, tag.ID).
+		Delete(&messaging.MessageTag{}).Error; err != nil {
+		t.Fatalf("clear link: %v", err)
+	}
+	if err := f.store.DeleteTag(ctx, tenantID, tag.ID); err != nil {
+		t.Fatalf("delete unused tag: %v", err)
+	}
+
+	custom, err := f.svc.CreateType(ctx, admin(), messaging.TypeInput{
+		Key: "notice", Name: "通知", NameEN: "Notice", Tone: messaging.ToneInfo,
+	})
+	if err != nil {
+		t.Fatalf("create type: %v", err)
+	}
+	if _, err := f.svc.Send(ctx, alice, messaging.SendInput{ConversationID: conv.ID, Markdown: "typed", TypeKey: custom.Key}); err != nil {
+		t.Fatalf("send typed: %v", err)
+	}
+	if err := f.store.DeleteType(ctx, tenantID, custom.Key); !errors.Is(err, messaging.ErrTypeInUse) {
+		t.Fatalf("delete in-use type error = %v, want ErrTypeInUse", err)
 	}
 }
