@@ -57,11 +57,16 @@ type shard struct {
 	maxEntry         int
 	entryLimit       int
 	maxSlots         int
-	mu               sync.RWMutex
 	mask             uint32
 	padFrom          uint32
 	padTo            uint32
 	hasPad           bool
+	// Keep the hot read-only fields off the lock's cache line. Readers constantly load mask;
+	// sharing that line with the RWMutex atomics makes every lock update invalidate it.
+	// | 把热只读字段与锁的缓存行分开。读者频繁读取 mask；与 RWMutex 原子状态共线会让每次
+	// 锁更新都使该行失效。
+	_  [64]byte
+	mu sync.RWMutex
 }
 
 // slot is one open-addressed index cell; it contains no pointers. | slot 是一个开放寻址索引单元，不含指针。

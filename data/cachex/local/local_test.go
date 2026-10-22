@@ -604,3 +604,45 @@ func TestLargeValueChurnReusesSidecar(t *testing.T) {
 		t.Fatal("large entry after Clear mismatch | Clear 后大值读取不符")
 	}
 }
+
+func TestConcurrentLargeValues(t *testing.T) {
+	c := newTestCache(t, Options{MaxCost: 256 << 10, MaxEntrySize: 4 << 10, Shards: 4})
+	value := bytes.Repeat([]byte("L"), 1024)
+	const workers = 8
+	const ops = 1500
+	var wg sync.WaitGroup
+	wg.Add(workers)
+	for w := 0; w < workers; w++ {
+		go func(w int) {
+			defer wg.Done()
+			buf := make([]byte, 0, 2048)
+			for i := 0; i < ops; i++ {
+				key := fmt.Sprintf("k:%d:%d", w, i%64)
+				switch i % 5 {
+				case 0, 1:
+					_ = c.Set(key, value, time.Duration(i%5)*time.Millisecond)
+				case 2:
+					_, _ = c.Get(key)
+				case 3:
+					buf, _ = c.GetAppend(buf[:0], key)
+				case 4:
+					if i%2 == 0 {
+						c.Delete(key)
+					} else {
+						_, _ = c.View(key, func([]byte) error { return nil })
+					}
+				}
+			}
+		}(w)
+	}
+	wg.Wait()
+	if st := c.Stats(); st.Hits+st.Misses == 0 {
+		t.Fatal("no lookups recorded | 没有记录任何查询")
+	}
+	if err := c.Set("final", value, 0); err != nil {
+		t.Fatalf("Set final: %v | 最终写入失败", err)
+	}
+	if got, ok := c.Get("final"); !ok || !bytes.Equal(got, value) {
+		t.Fatal("final large value mismatch | 并发后大值读取不符")
+	}
+}

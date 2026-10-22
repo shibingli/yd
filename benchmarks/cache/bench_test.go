@@ -726,6 +726,44 @@ func BenchmarkSetTTL(b *testing.B) {
 	}
 }
 
+// TestHitRatioLargeValue runs the same cold/hot trace with 1 KiB values, exercising the
+// large-value sidecar and the entry-capacity path. | TestHitRatioLargeValue 用 1 KiB 值运行同一
+// 冷热轨迹，覆盖大值侧车与按条目数限制的容量路径。
+func TestHitRatioLargeValue(t *testing.T) {
+	for _, mode := range []string{"get", "getappend", "view"} {
+		s := hitRatioSetup()
+		s.valueSize = 1024
+		c, err := newYDLocal(mode)(s)
+		if err != nil {
+			t.Fatalf("%s: %v | 构造失败", mode, err)
+		}
+		value := bytes.Repeat([]byte("x"), 1024)
+		rng := rand.New(rand.NewPCG(1, 2))
+		hits, misses := 0, 0
+		for i := 0; i < hitRatioAccesses; i++ {
+			var id int
+			if rng.IntN(100) < 70 {
+				id = rng.IntN(hotKeys)
+			} else {
+				id = rng.IntN(len(s.keys))
+			}
+			if c.get(id) > 0 {
+				hits++
+				continue
+			}
+			misses++
+			c.set(id, value)
+		}
+		c.wait()
+		c.close()
+		ratio := 100 * float64(hits) / float64(hits+misses)
+		t.Logf("%-20s 1K hit=%6.2f%% (%d/%d) | 1K 命中率", mode, ratio, hits, hits+misses)
+		if ratio < 70 {
+			t.Fatalf("%s 1K hit ratio %.2f%% is below 70%% | 1K 命中率过低", mode, ratio)
+		}
+	}
+}
+
 // TestHitRatio runs a deterministic hot/cold trace against a 5k-entry capacity. | TestHitRatio 在 5k 容量下运行确定性的冷热轨迹。
 //
 // The ratio is a policy metric, not a latency metric; go-cache is excluded because it has no | 该比例是策略指标而非延迟指标；go-cache 因没有容量上限而不参与。

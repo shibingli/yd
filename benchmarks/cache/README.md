@@ -49,6 +49,7 @@ This module compares the yd L1 cache (`data/cachex/local`) with mainstream Go ca
 8. **草图降耗**：TinyLFU 计数从四次 `mix64` 改为一次混合 + 四个旋转窗口；主草图只记录 Set 插入，读取走采样草图，`TryLock` 争用时丢弃样本而不阻塞读者。
 9. **自适应槽表**：初始槽位按 `MaxEntrySize` 估算，负载达到 3/4 时翻倍并重哈希，上限为 `2 × entryLimit`。1 KiB 值的槽表由每分片约 128 KiB 降到约 8 KiB，显著降低随机槽位访问的缓存/TLB 压力。
 10. **大值侧车**：≥512 B 的条目在分片内保存 48 B 指针自由侧车（hash、TTL、偏移、长度、16 B 键前缀）。≤16 B 的键直接在侧车中精确比较，1 KiB 查找不再触碰按 1 KiB 间隔散布的环形头部；更长的键回退到完整字节比较。小值不使用侧车，64 B 路径内存不变。
+11. **锁缓存行隔离**：热只读字段 `mask` 与 `sync.RWMutex` 之间保留 64 B 填充，避免锁原子状态更新反复使读者频繁读取的缓存行失效；并行 View/GetAppend 聚焦轮次约 36 ns。
 
 效果（本轮轮转三遍中位数）：1 KiB 零拷贝 View **85.4 ns**、Get **400.0 ns**、GetAppend **209.6 ns**；64 B View **99.0 ns**、GetAppend **118.6 ns**、Get **122.5 ns**；并行 Get/GetAppend/View **45.5/36.7/37.4 ns**；命中率 **73.09%**。1 KiB View 较侧车前的约 192 ns 下降约 55%；64 B 路径未使用侧车，命中率与内存结构不变。宿主机采集时有 30%–50% 背景负载，绝对值高于空闲状态；请以同一张表内的相对关系为准。
 
@@ -213,7 +214,7 @@ This module compares the yd L1 cache (`data/cachex/local`) with mainstream Go ca
 
 ## 4. 结论 | Takeaways
 
-- **命中率**：`yd-local-get` / `yd-local-getappend` / `yd-local-view` 均为 **73.09%**，高于 Ristretto/Theine/ttlcache/LRU 的 72.59%–72.61%；轨迹的理论上限约 72.7%，yd 已在该容量下达到上限。BigCache 的 80.02% 来自 2 MB 上限下更大的有效条目容量，不可直接横比。
+- **命中率**：64 B 轨迹下 `yd-local-get` / `yd-local-getappend` / `yd-local-view` 均为 **73.09%**，高于 Ristretto/Theine/ttlcache/LRU 的 72.59%–72.61%；另用 1 KiB 值运行同一轨迹（`TestHitRatioLargeValue`）得到 **72.56%–72.59%**，同样处于该容量轨迹的理论上限附近。BigCache 的 80.02% 来自 2 MB 上限下更大的有效条目容量，不可直接横比。
 - **1 KiB 零拷贝读（本轮最大提升）**：`yd-local-view` **85.4 ns**，快于 FreeCache `GetFn`（139.6）、Ristretto（123.4）、ttlcache（111.5）与 Theine（217.2）。大值侧车让 ≤16 B 的键在 48 B 侧车记录内完成精确比较，不再读取 1 KiB 间隔的环形头部。
 - **1 KiB 复制/追加读**：Get **400.0 ns** 快于 FreeCache `Get`（425.9）与 BigCache（437.6）；GetAppend **209.6 ns** 慢于 FreeCache `GetFn`（139.6，不拷贝），但快于 FreeCache 的复制 `Get`。Ristretto（123.4）与 ttlcache（111.5）返回缓存内引用，不参与防御性拷贝比较。
 - **64 B 读**：View **99.0 ns**、Get **122.5 ns**、GetAppend **118.6 ns**。View 快于 FreeCache `GetFn`（108.5）、Ristretto（132.2）与 ttlcache（107.8）；Get 快于 FreeCache（154.0）与 Ristretto，稍慢于 ttlcache（107.8）；GetAppend 快于 Ristretto，与 FreeCache `GetFn` 接近。
