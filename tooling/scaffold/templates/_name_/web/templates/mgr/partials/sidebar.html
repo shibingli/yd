@@ -23,11 +23,6 @@
        data-yd-nav="mgr-home"{{ if eq .Path "/mgr" }} aria-current="page"{{ end }}>
       <span class="yd-nav__label">{{ tr "nav.mgr_home" }}</span>
     </a>
-    <a class="yd-nav__link" href="/mgr/metrics" hx-get="/mgr/metrics" hx-target="#yd-shell" hx-swap="innerMorph" hx-push-url="true"
-       data-yd-nav="mgr-metrics"{{ if hasPrefix .Path "/mgr/metrics" }} aria-current="page"{{ end }}>
-      <span class="yd-nav__label">{{ tr "nav.metrics" }}</span>
-    </a>
-
     {{- if or (can "PermUserRead") (can .Perm.TenantRead) (can .Perm.RoleRead) (can .Perm.PermissionRead) }}
     <p class="yd-nav__section">{{ tr "nav.group.access" }}</p>
     {{- end }}

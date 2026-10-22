@@ -3405,9 +3405,14 @@ func TestSidebarOmitsHealthMenuItem(t *testing.T) {
 	pr, _ := generateMem(t, scaffold.DefaultOptions("nav-app"))
 
 	sidebar := pr.read("web/templates/mgr/partials/sidebar.html")
-	for _, unwanted := range []string{`href="/healthz"`, `data-yd-nav="health"`, `nav.health`} {
+	for _, unwanted := range []string{
+		`href="/healthz"`, `data-yd-nav="health"`, `nav.health`,
+		// The overview already renders system resources, so a separate metrics entry only duplicates it. |
+		// 管理概览已经展示系统资源，单独的系统指标入口只会重复。
+		`href="/mgr/metrics"`, `data-yd-nav="mgr-metrics"`, `nav.metrics`,
+	} {
 		if strings.Contains(sidebar, unwanted) {
-			t.Errorf("sidebar still carries the health menu item (%q) | 侧栏仍包含健康检查菜单项（%q）", unwanted, unwanted)
+			t.Errorf("sidebar still carries the utility menu item (%q) | 侧栏仍包含工具菜单项（%q）", unwanted, unwanted)
 		}
 	}
 	for _, want := range []string{`href="/mgr/docs"`, `href="/api/v1/openapi.json"`} {
@@ -3417,8 +3422,11 @@ func TestSidebarOmitsHealthMenuItem(t *testing.T) {
 	}
 
 	for _, file := range []string{"web/i18n/zh-CN.yaml", "web/i18n/en.yaml"} {
-		if strings.Contains(pr.read(file), "health:") {
-			t.Errorf("%s still defines the unused nav.health key | %s 仍定义未使用的 nav.health 键", file, file)
+		body := pr.read(file)
+		for _, unwanted := range []string{"health:", "\n  metrics:"} {
+			if strings.Contains(body, unwanted) {
+				t.Errorf("%s still defines the unused nav key %q | %s 仍定义未使用的导航键 %q", file, unwanted, file, unwanted)
+			}
 		}
 	}
 }
