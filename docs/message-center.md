@@ -157,7 +157,7 @@ asynq:
 - `POST /api/portal/v1/friends/:id/remove|block|unblock|remark`
 - `POST /api/portal/v1/messages/attachments`、`GET /api/portal/v1/messages/attachments/:id`
 
-请求与响应使用框架 `jsonx`，错误为 `{"error":"..."}`；状态码由哨兵映射（404/403/409/413/415/422/503）。
+请求与响应使用框架 `json`，错误为 `{"error":"..."}`；状态码由哨兵映射（404/403/409/413/415/422/503）。
 
 ### WebSocket 协议
 

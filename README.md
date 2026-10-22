@@ -80,6 +80,11 @@ yd tools install tailwindcss  # 下载 Tailwind standalone 二进制到 .yd/tool
 > 非交互场景用 `--install-tools`；`--yes` 只建项目、不触网。
 > 工具**一律可选**，缺失只影响对应能力，不会让 `yd build` / `yd dev` / `go test` 失败。
 
+## 文档
+
+- **[yd 使用手册](docs/yd-usage.md)** —— 命令参考、配置、鉴权与多租户、缓存、消息中心、部署与完整示例
+- [二级缓存](docs/cache.md) · [消息中心](docs/message-center.md) · [中间件指标](docs/middleware-metrics.md) · [图标](docs/icon-usage.md) · [渲染引擎](docs/render-usage.md) · [验收记录](docs/verification.md)
+
 ## 架构一览
 
 ```

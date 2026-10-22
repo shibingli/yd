@@ -3,6 +3,12 @@
 本文件记录 **yd** 框架与脚手架在 Windows / Go 1.27.2 下的真实验收结果：
 每条都是实际执行过的命令与其真实输出，未做修饰。
 
+> 迁移说明（2026-10-22）：可复用组件已拆分到 `github.com/shibingli/ydx`。文中旧包名已按新命名更新：
+> `errx`→`errs`、`jsonx`→`json`、`b64x`→`base64`、`logx`→`log`、`gormx`→`gorm`、
+> `cachex`→`cache`、`redisx`→`redis`、`asynqx`→`asynq`、`ws`→`websocket`。
+> 历史命令中的旧路径（如 `./http/ws/`）与当时的基准数据保留原始口径；当前用法以
+> [`docs/yd-usage.md`](yd-usage.md) 为准。
+
 > 复现环境：Go 1.27.2 windows/amd64，`CGO_ENABLED=0`（`-race` 用
 > `CGO_ENABLED=1 CC=clang`，本机无 gcc）。所有命令均在仓库根目录执行。
 
@@ -24,9 +30,9 @@
 
 `repotest` 把这些约束固化为可执行测试，违反即构建失败：
 
-- 禁止 `encoding/json` / `encoding/base64`（一律走 `jsonx` / `b64x`）
-- 禁止标准库 `log` 与 `fmt.Print*` 作为日志（一律走 `logx`）
-- 禁止 `fmt.Errorf`（一律用 `errx` 声明式哨兵）
+- 禁止 `encoding/json` / `encoding/base64`（一律走 `ydx/json` / `ydx/base64`）
+- 禁止标准库 `log` 与 `fmt.Print*` 作为日志（一律走 `ydx/log`）
+- 禁止 `fmt.Errorf`（一律用 `ydx/errs` 声明式哨兵）
 - 注释与日志文案逐行中英同步（`English | 中文`）
 - 提交署名口径与环境变量前缀 `YD_`
 
@@ -73,7 +79,7 @@ ok  github.com/shibingli/yd/e2e  26.829s
 |---|---|
 | 路由 | 单段混合捕获 `/:id.jpg`、`/:id-xx.png`、`/:y-:m-:d.html` 全部命中且确定；静态/参数/通配路径 `AllocsPerRun == 0`；匹配内核用记忆化回溯，病态输入快速终止 |
 | 配置 | 「未显式传入的命令行参数不得覆盖环境变量」用变异测试反证（改成恒真后类型断言用例失败） |
-| 编解码 | `jsonx` 三种后端（sonic / go-json / stdlib）符号集一致且输出与 `encoding/json` 逐字节对齐；`b64x` 与标准库 0..256 长度逐一对拍 |
+| 编解码 | `json` 三种后端（sonic / go-json / stdlib）符号集一致且输出与 `encoding/json` 逐字节对齐；`base64` 与标准库 0..256 长度逐一对拍 |
 | 日志 | 稳态 `0 allocs/op`；禁用级别 17ns/op |
 | WebSocket | RFC 6455 官方向量与掩码示例、1002/1007/1009 关闭码；RFC 7692 permessage-deflate 与 `coder/websocket` 双向对拍；RFC 7936 子协议大小写敏感；RFC 9220 HTTP/3 extended CONNECT 往返；RFC 8441 HTTP/2/H2C 往返（`-tags http2legacy`）；H2 处理器生命周期与 `WriteTimeout` 清除 |
 | 国密 | SM3 的 GB/T 向量与 OpenSSL 独立复核；SM2 与 Go 端**固定 k 下密文逐字节相同**（前端 JS ↔ 后端互操作） |
@@ -249,7 +255,7 @@ go test ./repotest/                  ok
 | 前端判定 | 从真实 HTTP 响应解析 `<script id="yd-authz">`：匿名时 `granted` 为空（失败关闭），owner 登录后与注册表 24 项完全一致 |
 | Shell 补全 | 四种脚本从命令注册表生成；bash `bash -n` 通过并真 source 注册成功、PowerShell 解析器通过；zsh/csh 无解释器 → **打印原因跳过并汇总「执行 2、跳过 2」**；rc 文件未给 `--append-rc` 时 sha256 不变、给了则先备份且幂等（标记行计数 1） |
 | 自动建库 | 18 个子用例按错误码判定（1049 / 3D000 触发，1045 / 42501 / 42P04 / 连接拒绝不触发）；标识符转义含注入用例；开关关闭时零建库语句；本机无 MySQL/PG 服务，建库链路为**注入验证**，已如实标注 |
-| DSN 预置 | 三种驱动逐参数断言；12 条「显式优先」用例；真实 SQLite 往返（原始文本含 `+00:00`）；`gormx.Open` 确实走预置 |
+| DSN 预置 | 三种驱动逐参数断言；12 条「显式优先」用例；真实 SQLite 往返（原始文本含 `+00:00`）；`gorm.Open` 确实走预置 |
 | 工具安装 | 注册表四条，`betteralign`/`ko` 的提示**复用解析器常量**（同一常量非副本）；安装落 `<项目>/.yd/tools`（绝对 GOBIN）；`--yes` 期间注入执行器调用 0 次 |
 
 ### 3.7.3 本轮的三个真实缺陷
@@ -272,9 +278,9 @@ go test ./repotest/                  ok
 
 ## 3.8 正则统一与依赖版本同步（第六轮需求）
 
-### 3.8.1 正则统一到 core/regexpx（双引擎）
+### 3.8.1 正则统一到 ydx/regexpx（双引擎）
 
-全仓（含测试）的正则改经 `core/regexpx`。包装层内部持有两个引擎，按模式自动选择：
+全仓（含测试）的正则改经 `ydx/regexpx`。包装层内部持有两个引擎，按模式自动选择：
 
 | 模式 | 引擎 | 性质 |
 |---|---|---|
@@ -306,7 +312,7 @@ regexp2 + 超时；调用方仍然只经包装层。修复后 race 下该测试�
 确实需要这些构造时才付出该代价，普通模式仍走标准库的线性引擎（上述标准库列即为实际路径）。
 
 守卫：`TestRegexStaysBehindWrapper` 禁止包装层之外的任何 `import "regexp"` 与
-`import "github.com/dlclark/regexp2"`；包装层内部允许同时导入两者。变异验证：往 `core/tmpprobe`
+`import "github.com/dlclark/regexp2"`；包装层内部允许同时导入两者。变异验证：往 `ydx/regexpx/tmpprobe`
 放入 `import "regexp"` 后守卫立即失败，删除后恢复通过。
 
 ### 3.8.2 依赖升级（go get -u all）
@@ -454,7 +460,7 @@ Windows / i9-10980HK、`-benchtime=300ms`。
 ### 3.10.3 Htmx：响应头组装
 
 - 单事件且无负载时直接返回事件名，不再为「过滤空事件名」分配副本；
-  多事件 JSON 的事件名走「纯 ASCII 零分配」快路径，其余输入仍交给 `jsonx.Marshal`，
+  多事件 JSON 的事件名走「纯 ASCII 零分配」快路径，其余输入仍交给 `json.Marshal`，
   因此任何输入的线上字节与旧实现完全一致。
 - 多事件：**1377 → 918 ns，16 → 9 allocs**；单事件约 **110 ns**，剩余分配来自可变参数切片
   与 `Header.Set` 的 `[]string`。
@@ -517,7 +523,7 @@ CGO_ENABLED=1 CC=clang go test -race ./...    44 个包 ok，退出码 0
 
 ## 3.12 日志编码热路径（第十轮）
 
-本节优化 `core/logx` 的 JSON/console 编码。基准在 Windows / i9-10980HK 上以
+本节优化 `ydx/log` 的 JSON/console 编码。基准在 Windows / i9-10980HK 上以
 `-benchtime=1s -count=3` 取中位；优化前后的代码分别来自工作区与 HEAD，测量方式完全一致。
 
 ### 3.12.1 时间戳与定宽数字
@@ -571,7 +577,7 @@ CGO_ENABLED=1 CC=clang go test -race ./...    44 个包 ok，退出码 0
 
 ### 3.13.1 JWT：补齐每请求验签基准
 
-`security/jwt` 之前没有任何基准，本轮新增 `bench_test.go`，覆盖登录期签发、
+`ydx/jwt` 之前没有任何基准，本轮新增 `bench_test.go`，覆盖登录期签发、
 每请求对称/非对称验签与并发验签。每轮都启用推荐的校验项（算法白名单、签发者、
 受众、必须含 `exp`）。基准取 Windows / i9-10980HK、`-benchtime=1s -count=5` 中位：
 
@@ -632,7 +638,7 @@ CGO_ENABLED=1 CC=clang go test -race ./...    44 个包 ok，退出码 0
 
 ## 3.14 日志并发吞吐（第十三轮）
 
-本轮针对 Go 1.27.2 与 Linux 特性优化 `core/logx` 的多协程吞吐。基准为 Windows /
+本轮针对 Go 1.27.2 与 Linux 特性优化 `ydx/log` 的多协程吞吐。基准为 Windows /
 i9-10980HK、`-benchtime=1s -count=5` 中位、5 个混合字段；同一方法可用于 Linux。
 在 Linux 上，Go 1.27 的 `GOMAXPROCS` 已感知 cgroup CPU 配额，异步环数量直接跟随它。
 
@@ -656,7 +662,7 @@ i9-10980HK、`-benchtime=1s -count=5` 中位、5 个混合字段；同一方法�
   承受写入进行中的 `Sync` 调用。
 - 新增 `TestConcurrentWritesKeepRecordsWhole`：8 协程 × 250 条，经互斥保护的 Writer
   写出后逐行解析，验证没有交错或截断。
-- Git 风格的对照（同机、6 字段、`io.Discard`）：logx 免锁模式约 47 ns/op，zerolog
+- Git 风格的对照（同机、6 字段、`io.Discard`）：log 免锁模式约 47 ns/op，zerolog
   约 89 ns/op，zap 约 384 ns/op（并带 1 次 385 B 分配）。
 
 ### 3.14.3 异步引擎：按 P 分片
@@ -685,7 +691,7 @@ CGO_ENABLED=1 CC=clang go test -race ./...    44 个包 ok，退出码 0
 
 ## 3.15 国密与编解码热路径（第十四轮）
 
-本轮针对 Go 1.27.2 优化 `security/guomi` 与 `core/b64x`，并在 Windows 与
+本轮针对 Go 1.27.2 优化 `security/guomi` 与 `ydx/base64`，并在 Windows 与
 WSL Ubuntu-24.04（同为 Go 1.27.2）上分别测量；所有实现保持纯 Go、无 cgo。
 
 ### 3.15.1 SM3 / HMAC / PBKDF2
@@ -725,7 +731,7 @@ WSL Ubuntu-24.04（同为 Go 1.27.2）上分别测量；所有实现保持纯 Go
 | 1 KiB | **498 ns** | 835 ns | **367 ns** | 781 ns |
 | 64 KiB | **31 µs** | 53 µs | **23.7 µs** | 49 µs |
 
-因此 amd64 的 b64x 后端改为：**Encode / Decode / AppendDecode 直接使用 SIMD 编解码器**
+因此 amd64 的 base64 后端改为：**Encode / Decode / AppendDecode 直接使用 SIMD 编解码器**
 （无中转、无额外拷贝）；`DecodeString` 仍走 `encoding/base64`（实测其分配式字符串入口更快）。
 含 CR/LF 的输入先尝试 SIMD，失败且确实含换行时回退标准库（标准库忽略换行），
 因此合法且无换行的输入不会为扫描付出代价。
@@ -745,7 +751,7 @@ WSL Ubuntu-24.04（同为 Go 1.27.2）上分别测量；所有实现保持纯 Go
 cristalhq/base64；loong64 或 `b64x_std` 回退标准库。
 amd64 实测（Windows，i9-10980HK，`-benchmem -benchtime=150ms`，混合后端）：
 
-| 操作 | 尺寸 | b64x（混合） | stdlib | 倍数 |
+| 操作 | 尺寸 | base64（混合） | stdlib | 倍数 |
 |---|---:|---:|---:|---:|
 | Encode | 16 B | 15.2 ns | 16.4 ns | 1.1× |
 | Encode | 1 KiB | 87.6 ns / 11.7 GB/s | 830 ns / 1.2 GB/s | 9.5× |
@@ -763,14 +769,14 @@ amd64 实测（Windows，i9-10980HK，`-benchmem -benchtime=150ms`，混合后�
   阈值取 `encodeSwitchBytes = 32`、`decodeSwitchBytes = 32`（按解码后尺寸）。
 - `AppendEncode`/`AppendDecode` 小输入走 cristalhq，大输入走 cloudwego 的
   `EncodeUnsafe`/`DecodeUnsafe`，均保持 0 allocs；`DecodeUnsafe` 可能写至 `DecodedLen`
-  之后几个字节，`b64x` 在容量中预留 4 字节余量，且不把余量暴露给调用方。
+  之后几个字节，`base64` 在容量中预留 4 字节余量，且不把余量暴露给调用方。
 - 非 amd64 的 cristalhq 后端保留「含 CR/LF 的输入回退标准库」的语义；`b64x_std` 与
   loong64 使用标准库。
 
 ### 3.15.4 JSON 编解码对照
 
-新增 `core/jsonx` 基准（与 `encoding/json` 对拍，测试文件允许把标准库当预言机）：
-单个对象 Marshal 313 → **640 ns**（jsonx 快约 2×），64 个对象 7.2 → 30.8 µs；
+新增 `ydx/json` 基准（与 `encoding/json` 对拍，测试文件允许把标准库当预言机）：
+单个对象 Marshal 313 → **640 ns**（json 快约 2×），64 个对象 7.2 → 30.8 µs；
 反序列化 64 个对象 39.5 → 71.3 µs。自适应层已明显快于标准库，本轮无需改动。
 
 ### 3.15.5 Linux 对照
@@ -778,7 +784,7 @@ amd64 实测（Windows，i9-10980HK，`-benchmem -benchtime=150ms`，混合后�
 同一组基准在 WSL Ubuntu-24.04 / Go 1.27.2 上运行，相对排序与 Windows 一致：
 SM3(64 B) 1027 ns / 6 allocs；PBKDF2(1000 次) 2.03 ms / 6012 allocs；
 SM4-CBC(256 B) 3.0 µs / 8 allocs；复用 GCM(256 B) 6.04 µs / 6 allocs；
-b64x 编码 1 KiB 2.49 GB/s；解码 16 B 27.9 ns、64 KiB 57.7 µs，均 0 allocs。
+base64 编码 1 KiB 2.49 GB/s；解码 16 B 27.9 ns、64 KiB 57.7 µs，均 0 allocs。
 国密实现仍为纯 Go（gmsm），`crypto/rand` 在 Linux 上走 `getrandom`。
 
 ### 3.15.6 门禁
@@ -792,7 +798,7 @@ go test ./...                                 44 个包 ok，退出码 0
 CGO_ENABLED=1 CC=clang go test -race ./...    44 个包 ok，退出码 0
 ```
 
-## 3.16 编解码生态横评（jsonx / b64x 与其它实现）
+## 3.16 编解码生态横评（json / base64 与其它实现）
 
 横评工程位于 `.scratch/codecbench`（临时模块，不入主仓），对照库版本：sonic v1.15.4、
 goccy/go-json v0.11.2、json-iterator v1.1.12、cristalhq/base64 v0.1.2、segmentio/asm v1.2.1。
@@ -800,13 +806,13 @@ goccy/go-json v0.11.2、json-iterator v1.1.12、cristalhq/base64 v0.1.2、segmen
 
 ### 3.16.1 JSON 序列化（ns/op，Windows，5 次中位）
 
-| 载荷 | jsonx | sonic-std | sonic-fastest | go-json | stdlib | jsoniter |
+| 载荷 | json | sonic-std | sonic-fastest | go-json | stdlib | jsoniter |
 |---|---:|---:|---:|---:|---:|---:|
 | 1 对象 | 321 | 327 | **215** | 216 | 637 | 314 |
 | 64 对象 | 7.3 µs | 7.4 µs | **7.0 µs** | 9.1 µs | 28.5 µs | 14.5 µs |
 | 4096 对象 | 478 µs | 477 µs | **442 µs** | 639 µs | 1852 µs | 981 µs |
 
-- `jsonx` 与 `sonic.ConfigStd` 完全同档（派发开销 ≈ 0）：两者都保证与 `encoding/json`
+- `json` 与 `sonic.ConfigStd` 完全同档（派发开销 ≈ 0）：两者都保证与 `encoding/json`
   一致的 HTML 转义与 map 键排序。
 - `sonic.ConfigFastest` 快 15–35%，但输出不保证标准库语义（HTML 转义/键序），不能作为
   默认后端；`go-json` 与之同档且分配更少（1 vs 2）。
@@ -814,19 +820,19 @@ goccy/go-json v0.11.2、json-iterator v1.1.12、cristalhq/base64 v0.1.2、segmen
 
 ### 3.16.2 JSON 反序列化（ns/op）
 
-| 载荷 | jsonx | sonic-std | sonic-fastest | go-json | stdlib | jsoniter |
+| 载荷 | json | sonic-std | sonic-fastest | go-json | stdlib | jsoniter |
 |---|---:|---:|---:|---:|---:|---:|
 | 1 对象 | 791 | 835 | 765 | **658** | 1400 | 674 |
 | 256 对象 | 131 µs | 156 µs | 132 µs | **80.5 µs** | 270 µs | 142 µs |
 
 **发现**：对大数组反序列化，`go-json` 比 sonic ConfigStd 快约 **1.6×**，且分配数约为其 1/6
-（259 vs 1547）。这提示 `jsonx` 未来可评估「sonic 序列化 + go-json 反序列化」的分工；
+（259 vs 1547）。这提示 `json` 未来可评估「sonic 序列化 + go-json 反序列化」的分工；
 但两者错误类型与 `any` 解码细节不同，会影响 `ErrSyntax`/`ErrTypeMismatch` 的映射，
 属于语义变更，本轮未采纳。
 
 ### 3.16.3 Base64（ns/op，Windows；64 KiB 以 µs 计）
 
-| 操作 | 尺寸 | b64x | stdlib | cristalhq | segmentio/asm |
+| 操作 | 尺寸 | base64 | stdlib | cristalhq | segmentio/asm |
 |---|---|---:|---:|---:|---:|
 | 编码 | 16 B | 16.8 | 17.3 | **13.5** | 18.0 |
 | 编码 | 1 KiB | 425 | 781 | 368 | **84** |
@@ -835,11 +841,11 @@ goccy/go-json v0.11.2、json-iterator v1.1.12、cristalhq/base64 v0.1.2、segmen
 | 解码 | 1 KiB | 497 | 835 | 498 | **112** |
 | 解码 | 64 KiB | 30.2 µs | 53.1 µs | 31.0 µs | **5.7 µs** |
 
-- 小尺寸（≤ 256 B）：cristalhq（旧 b64x 切片后端）最快；segmentio/asm 的 SIMD 在极小输入上有固定开销。
+- 小尺寸（≤ 256 B）：cristalhq（旧 base64 切片后端）最快；segmentio/asm 的 SIMD 在极小输入上有固定开销。
 - 1 KiB 以上：`segmentio/asm` 快 4–9×（64 KiB 编码/解码约 12.6/10.3 GB/s），
   是当前生态里最快的实现；但它是一个额外的汇编依赖（仅 amd64/arm64），
   引入需按「依赖克制」单独评估，本轮未替换。
-- **注意**：上表是切换前的 b64x 数据。本轮之后 amd64 统一走 cloudwego/base64x，
+- **注意**：上表是切换前的 base64 数据。本轮之后 amd64 统一走 cloudwego/base64x，
   其 64 KiB 编码/解码约 12.3/8.4 GB/s（见 §3.15.3.1），已接近 segmentio/asm；
   非 amd64 走 cristalhq/base64。
 
@@ -847,10 +853,10 @@ goccy/go-json v0.11.2、json-iterator v1.1.12、cristalhq/base64 v0.1.2、segmen
 
 | 场景 | 结果 |
 |---|---|
-| JSON 序列化 64 对象 | jsonx 7.45 µs ≈ sonic-std 7.51 µs，stdlib 27.9 µs |
-| JSON 反序列化 256 对象 | jsonx 138 µs，go-json 80.2 µs，stdlib 287 µs |
-| Base64 编码 64 KiB | b64x 26.1 µs（2.51 GB/s），stdlib 54.1 µs，segmentio 5.2 µs |
-| Base64 解码 64 KiB | b64x 36.3 µs（1.80 GB/s），stdlib 60.3 µs，segmentio 6.4 µs |
+| JSON 序列化 64 对象 | json 7.45 µs ≈ sonic-std 7.51 µs，stdlib 27.9 µs |
+| JSON 反序列化 256 对象 | json 138 µs，go-json 80.2 µs，stdlib 287 µs |
+| Base64 编码 64 KiB | base64 26.1 µs（2.51 GB/s），stdlib 54.1 µs，segmentio 5.2 µs |
+| Base64 解码 64 KiB | base64 36.3 µs（1.80 GB/s），stdlib 60.3 µs，segmentio 6.4 µs |
 
 相对排序与 Windows 完全一致；差异来自 WSL 调度与 CPU 频率。
 
@@ -1175,7 +1181,7 @@ lz4 10.3 / 18.6。
 
 ### 3.20.1 设计
 
-`http/render` 从「每次渲染调用 html/template」改为「加载期编译、渲染期执行不可变程序」：
+`ydx/render` 从「每次渲染调用 html/template」改为「加载期编译、渲染期执行不可变程序」：
 
 - **前端复用标准库**：html/template 继续负责解析与上下文转义；它把每个动态动作重写为
   `_html_template_*` 转义器后的解析树，由本仓编译器读取。语法与安全语义因此与标准库
@@ -1244,7 +1250,7 @@ gofmt -l .                                    零输出
 go build ./...                                通过
 go vet ./...                                  零输出
 go test ./...                                 全部包 ok
-CGO_ENABLED=1 CC=clang go test ./... -race    http/render、runtime/app、web 通过
+CGO_ENABLED=1 CC=clang go test ./... -race    ydx/render、runtime/app、web 通过
 ```
 
 ## 4. 已知限制与未覆盖项

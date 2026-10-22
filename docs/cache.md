@@ -1,4 +1,4 @@
-# 二级缓存 cachex | Two-Level Cache cachex
+# 二级缓存 cache | Two-Level Cache cache
 
 `ydx/cache` 是 yd 的二级缓存组件：一级缓存是进程内环形字节缓存，二级缓存是 Redis（可选）。它面向 Controller 与 Service 的读多写少场景，提供泛型 API、TTL、CRUD 事件订阅、零拷贝读取与 GORM 插件。
 
@@ -35,14 +35,14 @@ ydx/cache/gormcache    GORM 插件
 ### 3.1 仅本地缓存 | Local-only
 
 ```go
-mgr, err := cachex.NewManager(
-    cachex.WithLocalOptions(local.Options{MaxCost: 128 << 20}),
-    cachex.WithLogger(log),
+mgr, err := cache.NewManager(
+    cache.WithLocalOptions(local.Options{MaxCost: 128 << 20}),
+    cache.WithLogger(log),
 )
 if err != nil { return err }
 defer mgr.Close()
 
-users, err := cachex.New[User](mgr, "users", cachex.WithTTL(5*time.Minute))
+users, err := cache.New[User](mgr, "users", cache.WithTTL(5*time.Minute))
 if err != nil { return err }
 
 _ = users.Set(ctx, "u:1", User{ID: 1, Name: "ada"})
@@ -52,17 +52,17 @@ u, ok, err := users.Get(ctx, "u:1")
 ### 3.2 接入 Redis | With Redis
 
 ```go
-cli, err := redisx.Open(redisx.OptionsFromConfig(cfg))
+cli, err := redis.Open(redis.OptionsFromConfig(cfg))
 if err != nil { return err }
-defer redisx.Close(cli)
+defer redis.Close(cli)
 
-remote, err := cachex.NewRedisRemote(cli, cachex.RedisOptionsFromConfig(cfg))
+remote, err := cache.NewRedisRemote(cli, cache.RedisOptionsFromConfig(cfg))
 if err != nil { return err }
 
-mgr, err := cachex.NewManager(
-    cachex.WithOptions(cachex.OptionsFromConfig(cfg)), // 先应用整组配置（会重置 Remote）
-    cachex.WithRemote(remote),                         // 再挂载 L2
-    cachex.WithLogger(log),
+mgr, err := cache.NewManager(
+    cache.WithOptions(cache.OptionsFromConfig(cfg)), // 先应用整组配置（会重置 Remote）
+    cache.WithRemote(remote),                         // 再挂载 L2
+    cache.WithLogger(log),
 )
 if err != nil { return err }
 defer mgr.Close()
@@ -70,21 +70,21 @@ defer mgr.Close()
 a.Set(app.ServiceCache, mgr) // io.Closer 会被 app 自动关闭
 ```
 
-`*cachex.Manager` 实现 `Close() error`，因此 `a.Set(app.ServiceCache, mgr)` 会自动登记优雅退出钩子；`Remote.Close` 只停止订阅，不关闭调用方拥有的 Redis 客户端。
+`*cache.Manager` 实现 `Close() error`，因此 `a.Set(app.ServiceCache, mgr)` 会自动登记优雅退出钩子；`Remote.Close` 只停止订阅，不关闭调用方拥有的 Redis 客户端。
 
 ### 3.3 读透与负缓存 | Read-through and negative caching
 
 ```go
-users, _ := cachex.New[User](mgr, "users",
-    cachex.WithTTL(5*time.Minute),
-    cachex.WithNegativeTTL(30*time.Second),
-    cachex.WithJitter(15*time.Second),
+users, _ := cache.New[User](mgr, "users",
+    cache.WithTTL(5*time.Minute),
+    cache.WithNegativeTTL(30*time.Second),
+    cache.WithJitter(15*time.Second),
 )
 
 u, err := users.GetOrLoad(ctx, "u:1", func(ctx context.Context) (User, error) {
     row, err := repo.FindUser(ctx, 1)
     if errors.Is(err, sql.ErrNoRows) {
-        return User{}, cachex.ErrNotFound // 写入负缓存，后续请求不再穿透
+        return User{}, cache.ErrNotFound // 写入负缓存，后续请求不再穿透
     }
     return row, err
 })
@@ -122,12 +122,12 @@ found, err := users.ViewFresh(ctx, "u:1", func(u User) error { return use(u) })
 ### 3.6 事件订阅 | Events
 
 ```go
-unsub, err := users.Subscribe(func(ev cachex.Event) {
+unsub, err := users.Subscribe(func(ev cache.Event) {
     switch ev.Op {
-    case cachex.OpSet, cachex.OpDelete:
-        log.Info("cache changed | 缓存变化", logx.Strs("keys", ev.Keys))
-    case cachex.OpClear:
-        log.Info("cache cleared | 缓存清理", logx.Str("ns", ev.Namespace))
+    case cache.OpSet, cache.OpDelete:
+        log.Info("cache changed | 缓存变化", log.Strs("keys", ev.Keys))
+    case cache.OpClear:
+        log.Info("cache cleared | 缓存清理", log.Str("ns", ev.Namespace))
     }
 })
 defer unsub()
@@ -308,7 +308,7 @@ Node C L1 ─┘
 ## 7. GORM 插件 | GORM Plugin
 
 ```go
-mgr, _ := cachex.NewManager(cachex.WithRemote(remote), cachex.WithOptions(cachex.OptionsFromConfig(cfg)))
+mgr, _ := cache.NewManager(cache.WithRemote(remote), cache.WithOptions(cache.OptionsFromConfig(cfg)))
 plugin, err := gormcache.New(gormcache.Options{
     Manager: mgr,
     Namespace: "gorm",
@@ -381,7 +381,7 @@ cache:
     health_interval: 30s
 ```
 
-环境变量沿用 `YD_` 前缀：`YD_CACHE_LEASE`、`YD_CACHE_REDIS_CHANNEL` 等。`cachex.OptionsFromConfig` 与 `cachex.RedisOptionsFromConfig` 读取这些键。
+环境变量沿用 `YD_` 前缀：`YD_CACHE_LEASE`、`YD_CACHE_REDIS_CHANNEL` 等。`cache.OptionsFromConfig` 与 `cache.RedisOptionsFromConfig` 读取这些键。
 
 ## 9. 性能与基准 | Performance
 
@@ -401,7 +401,7 @@ cache:
 | `BenchmarkGet`（返回副本） | ~132 | 1（返回值） |
 | `BenchmarkSet`（同值重复写） | ~111 | 0（缓存本身；基准键格式化另计） |
 
-`View`/`GetAppend` 是零分配读路径；`Get` 的分配仅来自返回值副本。`cachex.Raw` 在 `namespace:key` 拼接与事件发布上还有少量短期分配，这是跨层 API 的代价，L1 核心保持零分配。两级命中（L1）不会触达 Redis；L2 访问是一次 `GET + PTTL` 流水线往返。与主流库的横向对比、命中率轨迹与优化记录见 [`benchmarks/cache/README.md`](../benchmarks/cache/README.md)。
+`View`/`GetAppend` 是零分配读路径；`Get` 的分配仅来自返回值副本。`cache.Raw` 在 `namespace:key` 拼接与事件发布上还有少量短期分配，这是跨层 API 的代价，L1 核心保持零分配。两级命中（L1）不会触达 Redis；L2 访问是一次 `GET + PTTL` 流水线往返。与主流库的横向对比、命中率轨迹与优化记录见 [`benchmarks/cache/README.md`](../benchmarks/cache/README.md)。
 
 ## 10. 限制与检查清单 | Limits and Checklist
 
