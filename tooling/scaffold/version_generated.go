@@ -15,7 +15,7 @@ const HtmxVersion = "4.0.0"
 // YdxVersion is the single version shared by the ydx requirements. | YdxVersion 是 ydx 依赖共用的唯一版本。
 //
 // Source: the ydx requirements in go.mod. | 来源：go.mod 中的 ydx 依赖。
-const YdxVersion = "v0.1.0"
+const YdxVersion = "v0.1.1"
 
 // YdxModules lists the ydx modules required by the framework. | YdxModules 列出框架依赖的 ydx 模块。
 //
