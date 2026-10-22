@@ -93,6 +93,7 @@ var requiredFiles = []string{
 	"internal/repository/user_repo.go",
 	"internal/router/router.go",
 	"internal/service/auth.go",
+	"internal/service/cache.go",
 	"internal/service/message.go",
 	"internal/service/message_bus.go",
 	"internal/service/metrics.go",

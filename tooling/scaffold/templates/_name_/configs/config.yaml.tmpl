@@ -80,6 +80,33 @@ redis:
   db: 0
   pool_size: 100
 
+# Two-level cache: local L1 ring plus Redis L2; degrades to local-only when Redis is unreachable. | 二级缓存：L1 本地环形缓存 + L2 Redis；Redis 不可达时自动降级为仅本地。
+cache:
+  prefix: "yd:cache:"     # Redis key prefix | Redis 键前缀
+  lease: 30s              # L1 revalidation lease | L1 重新确认租约
+  load_timeout: 30s       # shared loader ceiling | 共享加载上限
+  event_buffer: 256       # subscriber queue | 订阅队列
+  fail_open: true         # keep reads working when Redis is down | Redis 故障时读继续可用
+  tombstone_ttl: 1h       # delete marker lifetime | 删除标记存活时间
+  max_cost: 67108864      # 64 MiB; 0 = derive from memory | 64 MiB；0 = 由内存推导
+  shards: 0               # 0 = derive from GOMAXPROCS | 0 = 由 GOMAXPROCS 推导
+  max_entry_size: 0       # 0 = derive from shard size | 0 = 由分片大小推导
+  cleanup_interval: 1s    # background TTL sampler | 后台 TTL 采样
+  sample_size: 256        # entries per shard per sweep | 每分片每轮检查条目数
+  redis:
+    prefix: ""            # empty = redis.key_prefix + cache.prefix | 空 = redis.key_prefix + cache.prefix
+    channel: ""           # empty = prefix + events | 空 = prefix + events
+    subscribe_buffer: 64
+    health_interval: 30s
+{{- if ne .DB "none" }}
+  gorm:
+    enabled: false        # opt-in query caching | 查询缓存需显式开启
+    namespace: gorm
+    ttl: 30s
+    tables: []            # empty = every table | 空 = 所有表
+    ignore_tables: []
+{{- end }}
+
 asynq:
   queues: "critical:3,default:2,low:1"   # 队列与权重 | queues and weights
   concurrency: 10                        # 并发消费者数 | concurrent consumers

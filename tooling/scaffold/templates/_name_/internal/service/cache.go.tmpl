@@ -1,0 +1,74 @@
+// 本文件装配进程级二级缓存：Redis 可达时启用远端并通过 Pub/Sub 同步 L1，不可达时明确降级为仅本地。
+// This file wires the process-wide two-level cache: the remote is enabled when Redis is reachable and L1 is
+// synchronized through Pub/Sub; an unreachable Redis degrades explicitly to local-only.
+
+package service
+
+import (
+	"context"
+	"errors"
+	"time"
+
+	"{{ .YdModule }}/core/config"
+	"{{ .YdModule }}/core/errx"
+	"{{ .YdModule }}/core/logx"
+	"{{ .YdModule }}/data/cachex"
+	"{{ .YdModule }}/data/redisx"
+)
+
+// ErrCache reports a cache assembly failure that is not a Redis outage. | ErrCache 表示不是 Redis 故障的缓存装配失败。
+var ErrCache = errx.New("service: cache unavailable | service：缓存不可用")
+
+// NewCache builds the process-wide cache and its close function.
+// NewCache 构造进程级缓存及其关闭函数。
+//
+// Redis 可达时使用远端；不可达、探活失败或远端装配失败时只建本地缓存并告警。缓存永远不是启动的硬依赖。
+// When Redis is reachable the remote is used; an unreachable server, a failed probe or a failed remote assembly falls
+// back to the local cache with a warning. The cache is never a hard startup dependency.
+func NewCache(cfg *config.Config, log *logx.Logger) (*cachex.Manager, func() error, error) {
+	if log == nil {
+		log = logx.Default()
+	}
+	opts := cachex.OptionsFromConfig(cfg)
+	redisClient, err := redisx.Open(redisx.OptionsFromConfig(cfg))
+	if err != nil {
+		log.Warn("cache redis is configured but unavailable, using the local cache only | 已配置 Redis 但不可用，仅使用本地缓存",
+			logx.Err(err),
+		)
+	} else {
+		healthCtx, cancel := context.WithTimeout(context.Background(), time.Second)
+		healthErr := redisx.Health(healthCtx, redisClient)
+		cancel()
+		if healthErr == nil {
+			remote, remoteErr := cachex.NewRedisRemote(redisClient, cachex.RedisOptionsFromConfig(cfg))
+			if remoteErr == nil {
+				mgr, mgrErr := cachex.NewManager(
+					cachex.WithOptions(opts),
+					cachex.WithRemote(remote),
+					cachex.WithLogger(log),
+				)
+				if mgrErr == nil {
+					return mgr, func() error {
+						return errors.Join(mgr.Close(), redisx.Close(redisClient))
+					}, nil
+				}
+				remoteErr = mgrErr
+			}
+			log.Warn("cache remote is unavailable, using the local cache only | 缓存远端不可用，仅使用本地缓存",
+				logx.Err(remoteErr),
+			)
+		} else {
+			log.Warn("cache redis health check failed, using the local cache only | 缓存 Redis 健康检查失败，仅使用本地缓存",
+				logx.Err(healthErr),
+			)
+		}
+		if closeErr := redisx.Close(redisClient); closeErr != nil {
+			log.Warn("cache redis client close failed | 缓存 Redis 客户端关闭失败", logx.Err(closeErr))
+		}
+	}
+	mgr, mgrErr := cachex.NewManager(cachex.WithOptions(opts), cachex.WithLogger(log))
+	if mgrErr != nil {
+		return nil, nil, errx.Wrap(mgrErr, ErrCache)
+	}
+	return mgr, mgr.Close, nil
+}

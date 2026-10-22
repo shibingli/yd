@@ -215,6 +215,18 @@ func (s *Store) MessageAvailable() bool { return s.msg != nil }
 // DB returns the database handle used by generated repositories, or nil when the project runs on
 // the in-memory fallback. | DB 返回生成仓储使用的数据库句柄；项目运行在内存降级实现上时返回 nil。
 func (s *Store) DB() any { return s.db }
+{{ if ne .DB "none" -}}
+
+// GormDB exposes the underlying *gorm.DB for plugins, or nil on the in-memory fallback.
+// | GormDB 暴露底层 *gorm.DB 供插件使用；内存降级时返回 nil。
+func (s *Store) GormDB() *gorm.DB {
+	if s.db == nil {
+		return nil
+	}
+	db, _ := s.db.(*gorm.DB)
+	return db
+}
+{{- end }}
 
 {{ if ne .DB "none" -}}
 // openMessageStore migrates and opens the message-centre tables on the same pool the auth store uses. |

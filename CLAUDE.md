@@ -902,3 +902,36 @@ yd versions sync               # 仅重新生成 version_generated.go
   `yd_msg_message_tags`（会话、成员、附件、关系与标签）。
 - **守卫**：`repotest` 的 `TestNoForeignKeyDefinitions` 扫描 Go 结构标签、SQL 字符串、模板与
   `.sql` 文件；消息与鉴权模型的 GORM Schema 断言不得解析出关联关系。
+
+## 26. 二级缓存 cachex（强制）
+
+`data/cachex` 是框架唯一的通用二级缓存组件，使用说明见 `docs/cache.md`。任何业务缓存都应经它实现，
+不得在 Controller/Service 里另造 local cache + Redis 的两套失效逻辑。
+
+- **包结构**：`data/cachex`（Manager/Raw/Cache[T]/Codec/事件/Redis Remote）、`data/cachex/local`（L1 环形缓存）、
+  `data/cachex/gormcache`（GORM 插件）。只在装配点创建一个 `Manager`，按命名空间开 `Raw`/`Cache[T]`；
+  同一 Manager 内命名空间唯一，不得包含 `:` 或控制字符。
+- **一致性**：写路径固定为「L2 写入并取版本 → L1 写入/删除 → 发布事件」。读透回填必须使用 CAS
+  （`Remote.StoreIf` + 未命中时观察到的版本），慢 loader 不得覆盖并发写入；L1 条目 TTL 上限为 `lease`，
+  Pub/Sub 丢消息时陈旧窗口由租约兜底，订阅重连必须清空 L1 并派发 `OpResync`；需要绕过 L1 时用 `GetFresh`/`ViewFresh`。
+  多机同步走应用层 Pub/Sub + 租约 + 重连清空 L1：`NodeID`、`cache.prefix` 与频道在同一部署内必须唯一；
+  不得用 keyspace notifications 替代（它是节点本地事件，且默认关闭）。
+- **失败策略**：`FailOpen` 默认 true（L2 读失败按未命中继续 loader，回填失败返回已加载值并告警）；
+  L2 写失败必须返回错误，不得只更新 L1；设为 false 时读写错误都上报。
+- **GC 与零拷贝**：L1 条目必须存放在预分配 `[]byte` 环形区域，索引/草图/TTL 结构只允许指针自由数组；
+  不得为每个缓存条目创建长寿命 Go 对象。`View` 在分片读锁内直接暴露环形字节，回调不得保留/修改字节、
+  不得回调同一缓存；`Get`/`GetAppend` 返回副本或写入调用方缓冲区。
+- **淘汰与 TTL**：W-TinyLFU 准入（Count-Min Sketch + CLOCK 访问位保护）与惰性 TTL 是既定策略；
+  过期条目绝不能从读取路径返回，后台采样清扫只负责回收。
+- **远端**：Redis 载荷必须带 `YD` 信封头与版本；`Store`/`StoreIf`/`Remove` 必须是单键 Lua，保证
+  Redis Cluster 不触发 CROSSSLOT；删除/负缓存写 tombstone，事件 JSON 必须校验操作类型、键数量与长度。
+  Redis 客户端由调用方拥有，`Remote.Close` 只停止订阅。
+- **GORM**：`gormcache.Plugin` 只缓存 `gorm:query` 的 SELECT；查询键必须包含表名、整体纪元、表代际、
+  目标类型、SQL 与全部绑定变量；写回调推进表代际并广播。事务内查询（`ConnPool` 实现 `gorm.TxCommitter`）
+  不得缓存；Raw SQL、手工预构建 SQL、JOIN、`FOR UPDATE`、Preload 与 `*sql.Rows` 必须跳过。显式事务的写失效
+  早于提交，文档已说明；需要严格语义时在提交后调用 `Plugin.Invalidate`。
+- **配置**：`cache.*` 默认值在 `core/config/defaults.go`，经 `cachex.OptionsFromConfig` /
+  `cachex.RedisOptionsFromConfig` / `gormcache.OptionsFromConfig` 读取；GORM 插件由
+  `cache.gorm.enabled` 显式开启（默认关闭）。装配时用 `app.ServiceCache` 注册 Manager。
+- **禁止**：直接 `import "encoding/json"`/`"encoding/base64"`、直接 `panic`、`fmt.Errorf`、新增第三方缓存库、
+  在热路径用反射、在事件里携带值或敏感键名、绕过 `Manager` 自行实现跨节点失效。

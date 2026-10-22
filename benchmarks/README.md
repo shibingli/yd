@@ -14,6 +14,7 @@ x86_64 单核/多核的完整指标（含全部对比库、CPU 与峰值 RSS）�
 | [`jwt/`](jwt/README.md) | JWT 签发、验签与高并发吞吐 | golang-jwt/jwt v5、cristalhq/jwt v5、kataras/jwt |
 | [`crypto/`](crypto/README.md) | 国密 SM2/SM3/SM4 与常密基线 | emmansun/gmsm、tjfoc/gmsm、标准库（SHA-256/AES-GCM/ChaCha20-Poly1305/ECDSA/Ed25519） |
 | [`compress/`](compress/README.md) | 压缩吞吐与压缩率 | gzip、zstd、brotli、snappy、lz4 |
+| [`cache/`](cache/README.md) | 二级缓存 L1 吞吐、并行、TTL 与命中率 | Ristretto、FreeCache、Theine、BigCache、go-cache、ttlcache、golang-lru |
 | [`logx/`](logx/README.md) | 结构化日志 | zap、zerolog、slog、logrus |
 | [`template/`](template/README.md) | 模板引擎兼容性与渲染性能 | html/template、text/template、Jet、Pongo2、Liquid、Raymond、Mustache、quicktemplate、templ |
 
@@ -59,6 +60,7 @@ done
 - **jwt**：HS256 验签 743.3 ns / 2 allocs，领先 cristal（2,134 / 19）2.87×、kataras（2,284 / 19）3.07×、golang-jwt（3,348 / 50）4.50×；并发复用 38.26 ns / 0 allocs（26.1 M ops/s），领先 cristal 13.8×；ES256 39.7 µs / 21 allocs 全部第一；`SignJSON` 531.5 ns、结构体 617.4 ns，快于 cristal 的结构体路径 1,030 ns。
 - **crypto**：后端由 tjfoc/gmsm v1.4.1 切换到 emmansun/gmsm v0.45.0。SM3 4 KiB 12,506→7,360 ns（1.70×）；HMAC-SM3 1,765→729 ns（2.42×，0 allocs）；PBKDF2 939,609→283,344 ns（3.32×）；SM4-GCM 4 KiB seal 45,290→5,409 ns（8.37×，757.3 MB/s）；SM2 签名 131,572→14,364 ns（9.16×）、验签 687,942→34,392 ns（20.0×）、加密 715,805→35,969 ns（19.9×）、解密 554,528→29,024 ns（19.1×）。SM2 签名/验签快于 ECDSA P-256；SM3/SM4 无 SHA-NI/AES-NI 对应指令，仍慢于 SHA-256/AES-GCM。
 - **compress**：zstd/fastest text 压缩 8.04 GB/s、压缩率 0.002，zstd 解压 13.67 GB/s；snappy text 压缩 13.57 GB/s 但压缩率 0.049；klauspost gzip 约标准库 gzip 的 3.7 倍吞吐，压缩率相同；brotli/q9 json 压缩率最好（0.021）但吞吐与内存成本最高。
+- **cache**（Windows 本机口径，详见 [`cache/README.md`](cache/README.md)）：64 B 零拷贝读 `yd-local-view` 101.0 ns / 0 alloc，与 FreeCache `GetFn`（106.2 ns）、Ristretto（123.5 ns）同一量级；1 KiB 下 FreeCache/Ristretto 更快（133.8/122.0 ns vs 251.8 ns）。`yd-local` Set 为 221.4 ns（64 B）/ 405.1 ns（1 KiB）、0 alloc，FreeCache 更快；并行读 `yd-local-view` 36.8 ns / 1.74 GB/s，与 Ristretto 持平，Theine 28.8 ns 最快。5k 容量/50k 键冷热轨迹命中率 70.2–71.0%，与 LRU 类 72.6% 基本持平；BigCache 80% 因 2 MB 内存上限下有效容量更大，不可直接横比。
 - **logx**：dynamic Info 111.7 ns/op、零分配，略快于 zerolog（112.9 ns）；prebound Info 为 103.1 ns，**慢于 zerolog 的 94.9 ns 约 8.6%**；禁用路径 prebound 为 1.8 ns、零分配，与 logrus 并列最快，dynamic 为 7.9 ns（slog 5.1 ns 更快）。
 - **template**：编译式 yd-render 在 100 行页面上为 41.7 µs/**0 allocs**（单核中位数），比 html/template（1,055.9 µs/7,142）快 **25.3×**，比 text/template 快 5.9×，比 Jet 快 4.0×，比 templ 快 3.4×；代码生成式 quicktemplate 在 `io.Discard` 口径下为 27.0 µs/0 allocs（快 1.54×），但把输出物化到真实缓冲后为 39.0 µs vs 40.7 µs（**1.04×，基本持平**）——差距主要来自流式写出与仅转义 5 个 HTML 字符，而非解释执行。上下文转义矩阵中只有 html/template、yd-render 与 templ 同时拦截 `javascript:` URL，其余引擎仅做 HTML 转义。
 

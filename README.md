@@ -141,9 +141,11 @@ runtime/       进程与运行时
   lifecycle/   关闭信号与长连接钩子
   app/         应用门面（路由/渲染/服务容器/优雅退出）
   service/     系统服务安装与运行（SCM/systemd/launchd）
-data/          gormx（PrepareStmt + 慢查询打点）· redisx（泛型缓存装饰器）· asynqx（加权队列）
+data/          gormx（PrepareStmt + 慢查询打点）· redisx（Redis 连接与泛型装饰器）· cachex（二级缓存 + GORM 插件）· asynqx（加权队列）
 web/           内嵌前端资产（templates/ · static/ · assets.lock.json）
 ```
+
+缓存的一致性模型、零拷贝读取与 GORM 插件用法见 [`docs/cache.md`](docs/cache.md)。
 
 ### WebSocket 标准与传输
 

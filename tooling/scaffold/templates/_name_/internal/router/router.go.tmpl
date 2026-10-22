@@ -19,6 +19,9 @@ import (
 	"{{ .Module }}/internal/repository"
 	"{{ .Module }}/internal/service"
 	"{{ .YdModule }}/core/afs"
+{{- if ne .DB "none" }}
+	"{{ .YdModule }}/data/cachex/gormcache"
+{{- end }}
 	"{{ .YdModule }}/runtime/app"
 	"{{ .YdModule }}/security/auth"
 	"{{ .YdModule }}/security/authz"
@@ -67,6 +70,8 @@ var (
 	ErrSeed = errx.New("router: default seed failed | router：默认数据写入失败")
 	// ErrTicker reports a failed realtime publisher start. | ErrTicker 表示实时推送器启动失败。
 	ErrTicker = errx.New("router: realtime publisher failed to start | router：实时推送启动失败")
+	// ErrCache reports a failed cache assembly. | ErrCache 表示缓存装配失败。
+	ErrCache = errx.New("router: cache assembly failed | router：缓存装配失败")
 )
 
 // Register 把全部端点登记到应用门面上。
@@ -98,6 +103,29 @@ func Register(a *app.App) error {
 		return errx.Wrap(err, ErrAuth)
 	}
 	a.OnShutdown(func(context.Context) error { return store.Close() })
+
+	// 二级缓存与控制器共享同一份配置：Redis 可达时启用远端，否则只建本地缓存；缓存故障绝不阻塞启动。
+	// The two-level cache reads the same configuration as the controllers: Redis enables the remote, otherwise only
+	// the local cache is built; a cache outage never blocks startup.
+	cacheMgr, closeCache, err := service.NewCache(a.Config(), a.Logger())
+	if err != nil {
+		return errx.Wrap(err, ErrCache)
+	}
+	a.Set(app.ServiceCache, cacheMgr)
+	a.OnShutdown(func(context.Context) error { return closeCache() })
+{{- if ne .DB "none" }}
+	if gormDB := store.GormDB(); gormDB != nil && gormcache.EnabledFromConfig(a.Config()) {
+		cachePlugin, pluginErr := gormcache.New(gormcache.OptionsFromConfig(a.Config(), cacheMgr))
+		if pluginErr != nil {
+			a.Logger().Warn("gorm cache plugin is disabled | GORM 缓存插件已禁用", logx.Err(pluginErr))
+		} else if useErr := gormDB.Use(cachePlugin); useErr != nil {
+			a.Logger().Warn("gorm cache plugin failed to install | GORM 缓存插件安装失败", logx.Err(useErr))
+			_ = cachePlugin.Close()
+		} else {
+			a.OnShutdown(func(context.Context) error { return cachePlugin.Close() })
+		}
+	}
+{{- end }}
 
 	// 默认数据只在租户表为空时创建，而且没有配置种子口令时不会创建任何账号；既有租户每次启动只补齐内置角色
 	// 缺失的能力绑定（只增不减），因此升级后新增的能力立即可用。
@@ -601,8 +629,11 @@ func parseSource(a *app.App) *openapi.Source {
 // implementation arrives with the feature, so an enabled-but-unimplemented feature leaves a visible gap instead of
 // silently doing nothing.
 func registerFeatures(a *app.App) {
-	// TODO(redis) 在此注册 Redis 缓存装饰器与失效钩子（cache.Decorator），并复用框架的 redisx 客户端。
-	// TODO(redis) Register the Redis cache decorator and its invalidation hooks (cache.Decorator) here, reusing the framework's redisx client.
+	// 二级缓存已在 Register 中装配并注册为 app.ServiceCache：Redis 远端由 data/redisx 打开，Redis 不可达时自动降级为本地缓存。
+	// 控制器与服务通过 a.Get(app.ServiceCache) 取用，此处留给其它 Redis 装饰器或自定义失效钩子。
+	// The two-level cache is assembled in Register and registered as app.ServiceCache: the redis remote is opened through
+	// data/redisx and degrades to local-only when redis is unreachable. Controllers and services reach it through
+	// a.Get(app.ServiceCache); use this point for other redis decorators or custom invalidation hooks.
 	_ = a
 
 	// TODO(asynq) 在此注册 Asynq 任务处理器（task.Handler）与队列权重，处理器内部只调用 internal/service。

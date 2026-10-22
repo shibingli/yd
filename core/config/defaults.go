@@ -52,4 +52,28 @@ func Defaults(c *Config) {
 	// i18n and tailwind. | i18n 与 tailwind。
 	v.SetDefault("i18n.default_lang", "zh-CN")
 	v.SetDefault("tailwind.enabled", true)
+
+	// cache: two-level cache defaults. A zero byte budget or shard count means "derive from | cache：二级缓存默认值。字节预算或分片数为零表示
+	// the runtime environment"; the GORM plugin is opt-in. | 「由运行时环境推导」；GORM 插件默认关闭。
+	v.SetDefault("cache.prefix", "yd:cache:")
+	v.SetDefault("cache.lease", 30*time.Second)
+	v.SetDefault("cache.load_timeout", 30*time.Second)
+	v.SetDefault("cache.event_buffer", 256)
+	v.SetDefault("cache.fail_open", true)
+	v.SetDefault("cache.tombstone_ttl", time.Hour)
+	v.SetDefault("cache.max_cost", int64(0))
+	v.SetDefault("cache.shards", 0)
+	v.SetDefault("cache.max_entry_size", 0)
+	v.SetDefault("cache.cleanup_interval", time.Second)
+	v.SetDefault("cache.sample_size", 256)
+	v.SetDefault("cache.redis.prefix", "")
+	v.SetDefault("cache.redis.channel", "")
+	v.SetDefault("cache.redis.tombstone_ttl", time.Duration(0))
+	v.SetDefault("cache.redis.subscribe_buffer", 64)
+	v.SetDefault("cache.redis.health_interval", 30*time.Second)
+	v.SetDefault("cache.gorm.enabled", false)
+	v.SetDefault("cache.gorm.namespace", "gorm")
+	v.SetDefault("cache.gorm.ttl", 30*time.Second)
+	v.SetDefault("cache.gorm.tables", []string(nil))
+	v.SetDefault("cache.gorm.ignore_tables", []string(nil))
 }

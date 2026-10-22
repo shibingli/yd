@@ -28,6 +28,8 @@ const (
 	ServiceRedis = "redis"
 	// ServiceAsynq is the task queue client registered by the data layer. | ServiceAsynq 是数据层注册的任务队列客户端。
 	ServiceAsynq = "asynq"
+	// ServiceCache is the two-level cache manager registered by the data layer. | ServiceCache 是数据层注册的二级缓存管理器。
+	ServiceCache = "cache"
 	// ServiceI18n is the message catalog bundle registered by Default. | ServiceI18n 是 Default 注册的语言目录包。
 	ServiceI18n = "i18n"
 )

@@ -277,3 +277,22 @@
 - **索引只服务查询与唯一性**，不得当作引用完整性；鉴权与消息的索引仍以 `tenant_id` 打头。
 - 新增关联表必须同时提供：写入校验、删除/软删除路径、跨租户测试与守卫测试。
 - 守卫：`TestNoForeignKeyDefinitions`（Go 标签、SQL 字符串、模板与 `.sql`）、GORM Schema 关系断言。
+
+## 26. 二级缓存 cachex（强制）
+
+- `data/cachex` 是唯一通用二级缓存；使用说明见 `docs/cache.md`。一个进程只建一个 `Manager`，按命名空间
+  开 `Raw`/`Cache[T]`；同 Manager 内命名空间唯一，不得含 `:` 或控制字符。
+- 写路径固定「L2 → L1 → 事件」；读透回填必须 CAS（`Remote.StoreIf` + 未命中版本）；L1 TTL 上限为 `lease`，
+  订阅重连清空 L1 并派发 `OpResync`；严格读用 `GetFresh`/`ViewFresh` 绕过 L1。`FailOpen` 默认 true；L2 写失败必须返回错误。
+  多机同步依赖应用层 Pub/Sub + 租约 + 重连清空 L1；`NodeID`、`cache.prefix` 与频道必须唯一，
+  不得用节点本地的 keyspace notifications 替代。
+- L1 条目只存放在预分配 `[]byte` 环形区域，索引/草图/TTL 结构为指针自由数组；不得为每个条目创建长寿命
+  Go 对象。`View` 回调不得保留/修改字节或回调同一缓存。
+- Redis 载荷必须带 `YD` 信封头与版本；`Store`/`StoreIf`/`Remove` 必须是单键 Lua（Cluster 安全）；
+  删除/负缓存写 tombstone；事件只含键名与命名空间，不含值。
+- GORM 插件只缓存 `gorm:query`；查询键必须含表名、纪元、表代际、目标类型、SQL 与全部绑定变量；事务内查询、
+  Raw SQL、`FOR UPDATE`、Preload、`*sql.Rows` 必须跳过；显式事务严格语义用 `Plugin.Invalidate`。
+- 配置经 `cache.*` 与 `cachex.OptionsFromConfig`/`RedisOptionsFromConfig`/`gormcache.OptionsFromConfig`；
+  GORM 插件默认关闭，由 `cache.gorm.enabled` 开启；Manager 注册为 `app.ServiceCache`。
+- 禁止新增第三方缓存库、直接 `encoding/json`/`encoding/base64`、直接 `panic`、`fmt.Errorf`、
+  热路径反射，以及绕过 Manager 自建跨节点失效。
