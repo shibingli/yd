@@ -279,14 +279,14 @@ Node C L1 ─┘
 - **大值侧车**：≥512 B 的条目在分片内保存 48 B 指针自由侧车记录；≤16 B 的键直接在侧车中精确比较，
   查找不再读取 1 KiB 间隔的环形头部。侧车只服务大值，64 B 等小值路径不增加内存；
   TTL 双写、驱逐/删除归还索引，命中判定与全键比较规则不变。1 KiB 的 View/Get/GetAppend
-  在本轮轮转中位数为约 85/400/210 ns，其中 View 较侧车前的约 192 ns 下降约 55%。
+  在本轮轮转中位数为约 90/439/198 ns，其中 View 较侧车前的约 192 ns 下降约 53%。
 - **命中路径单次解码**：`find` 直接返回已解码 `entry`，并预计算值的起始偏移；Get/View/Delete 不再二次读取头部。
 - **惰性时钟**：只有条目带 TTL 时才调用 `time.Now`；无 TTL 的读路径省掉一次时钟读取。
 - **同尺寸原地更新 + 幂等短路**：值相同且不超过 256 B 时只刷新过期时间，值不同原地覆盖；只有尺寸变化才删除+追加。
   不产生死版本、不改动槽位、不触发 `makeRoom`，也不让环形缓冲区被更新垃圾填满。
 - **合并写入**：`keyLen+valLen` 与 `valLen+flags` 各用一次 64 位写完成，头部读写各减少一次内存操作。
 - **读锁 + 锁外采样**：Get/GetAppend/View 统一使用分片读锁完成复制或视图，释放后再采样访问位与访问草图；
-  读取路径不再获取写锁，16 线程并行读为约 45.5 ns（Get）、36.7 ns（GetAppend）与 37.4 ns（View）。
+  读取路径不再获取写锁，16 线程并行读为约 45.6 ns（Get）、37.4 ns（GetAppend）与 35.4 ns（View）。
 - **草图降耗**：TinyLFU 计数从四次 `mix64` 改为一次混合 + 四个旋转窗口；主草图在 Set 新增键时更新，
   读取按 1/8 采样访问草图并以 8 倍权重累计，`TryLock` 避免并行读者串行化。
 - **无锁访问位**：每 64 字节一位的原子位图由读取按 1/8 采样设置，使读者无需写锁也能参与 CLOCK 保护。
@@ -396,10 +396,10 @@ go test ./data/cachex -run '^$' -bench . -benchmem
 
 | 基准 | ns/op | 分配 |
 |---|---|---|
-| `BenchmarkGetAppend` | ~119 | 0 |
-| `BenchmarkView` | ~99 | 0 |
-| `BenchmarkGet`（返回副本） | ~123 | 1（返回值） |
-| `BenchmarkSet`（同值重复写） | ~107 | 0（缓存本身；基准键格式化另计） |
+| `BenchmarkGetAppend` | ~120 | 0 |
+| `BenchmarkView` | ~103 | 0 |
+| `BenchmarkGet`（返回副本） | ~132 | 1（返回值） |
+| `BenchmarkSet`（同值重复写） | ~111 | 0（缓存本身；基准键格式化另计） |
 
 `View`/`GetAppend` 是零分配读路径；`Get` 的分配仅来自返回值副本。`cachex.Raw` 在 `namespace:key` 拼接与事件发布上还有少量短期分配，这是跨层 API 的代价，L1 核心保持零分配。两级命中（L1）不会触达 Redis；L2 访问是一次 `GET + PTTL` 流水线往返。与主流库的横向对比、命中率轨迹与优化记录见 [`benchmarks/cache/README.md`](../benchmarks/cache/README.md)。
 
