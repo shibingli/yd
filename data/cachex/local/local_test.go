@@ -469,3 +469,25 @@ func TestLargeIdenticalOverwriteCopies(t *testing.T) {
 		t.Fatalf("large overwrite changed the value | 大值覆盖后值发生变化")
 	}
 }
+
+func TestSlotTableGrowsForSmallValues(t *testing.T) {
+	// A large MaxEntrySize makes the initial slot table small; many small values must grow it
+	// instead of failing inserts. | 较大的 MaxEntrySize 会让初始槽表偏小；大量小值必须触发扩容，
+	// 而不是插入失败。
+	c := newTestCache(t, Options{MaxCost: 256 << 10, MaxEntrySize: 64 << 10, Shards: 1})
+	const n = 2000
+	value := bytes.Repeat([]byte("v"), 32)
+	for i := 0; i < n; i++ {
+		if err := c.Set(fmt.Sprintf("k:%05d", i), value, 0); err != nil {
+			t.Fatalf("Set %d: %v | 写入失败", i, err)
+		}
+	}
+	for i := 0; i < n; i++ {
+		if got, ok := c.Get(fmt.Sprintf("k:%05d", i)); !ok || !bytes.Equal(got, value) {
+			t.Fatalf("Get %d missing or changed | 扩容后键缺失或值改变", i)
+		}
+	}
+	if st := c.Stats(); st.Rejected != 0 {
+		t.Fatalf("Rejected = %d, want 0 | 扩容路径不应拒绝写入", st.Rejected)
+	}
+}

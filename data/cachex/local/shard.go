@@ -50,6 +50,7 @@ type shard struct {
 	tombstones       int
 	maxEntry         int
 	entryLimit       int
+	maxSlots         int
 	mu               sync.RWMutex
 	mask             uint32
 	padFrom          uint32
@@ -125,7 +126,24 @@ func newShard(size, maxEntry int) *shard {
 	if entryLimit < 64 {
 		entryLimit = 64
 	}
-	slotsLen := nextPowerOfTwo(entryLimit * 2)
+	maxSlots := nextPowerOfTwo(entryLimit * 2)
+	// Size the initial table from the largest entry the caller allows. Caches with large
+	// values then avoid a mostly empty multi-megabyte slot table; if the cache actually holds
+	// smaller entries, the table grows on demand. | 初始槽表按调用方允许的最大条目估算。
+	// 大值缓存因此不会分配一张几乎全空的多兆字节槽表；若实际存放更小的条目，槽表会按需增长。
+	initialEntries := entryLimit
+	if maxEntry > 0 {
+		if byEntry := size/maxEntry + 1; byEntry < initialEntries {
+			initialEntries = byEntry
+		}
+	}
+	slotsLen := nextPowerOfTwo(initialEntries)
+	if slotsLen < 64 {
+		slotsLen = 64
+	}
+	if slotsLen > maxSlots {
+		slotsLen = maxSlots
+	}
 	sketchWidth := nextPowerOfTwo(entryLimit)
 	if sketchWidth < 64 {
 		sketchWidth = 64
@@ -145,6 +163,7 @@ func newShard(size, maxEntry int) *shard {
 		sketchMask:   uint64(sketchWidth - 1),
 		maxEntry:     maxEntry,
 		entryLimit:   entryLimit,
+		maxSlots:     maxSlots,
 	}
 	return s
 }
@@ -364,7 +383,29 @@ func (s *shard) removeSlot(hash uint64, off uint32) {
 
 // rebuildSlots drops tombstones and reinserts every live entry. | rebuildSlots 丢弃墓碑并重新插入所有存活条目。
 func (s *shard) rebuildSlots() {
-	clear(s.slots)
+	s.rehashSlots(len(s.slots))
+}
+
+// growSlots doubles the slot table up to maxSlots and rehashes every live entry. The caller
+// must hold s.mu. | growSlots 把槽表翻倍（不超过 maxSlots）并重哈希全部存活条目。调用方必须持有 s.mu。
+func (s *shard) growSlots() bool {
+	if len(s.slots) >= s.maxSlots {
+		return false
+	}
+	n := len(s.slots) * 2
+	if n > s.maxSlots {
+		n = s.maxSlots
+	}
+	return s.rehashSlots(n)
+}
+
+// rehashSlots allocates a table of n slots and reinserts every live entry. | rehashSlots 分配 n 个槽位并重新插入所有存活条目。
+func (s *shard) rehashSlots(n int) bool {
+	if n < 64 {
+		n = 64
+	}
+	s.slots = make([]slot, n)
+	s.mask = uint32(n - 1)
 	s.tombstones = 0
 	pos := s.tail
 	for pos != s.head {
@@ -375,15 +416,16 @@ func (s *shard) rebuildSlots() {
 		}
 		e, ok := s.readEntry(p)
 		if !ok {
-			return
+			return false
 		}
 		if e.flags&flagDead == 0 {
 			if !s.insertSlot(uint32(e.hash), e.off) {
-				return
+				return false
 			}
 		}
 		pos += uint64(e.size)
 	}
+	return true
 }
 
 // touchSketch increments the four counters of one sketch and ages it when needed. | touchSketch 递增一个草图的四个计数器，并在需要时老化。

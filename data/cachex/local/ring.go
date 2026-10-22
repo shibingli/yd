@@ -267,6 +267,12 @@ func (s *shard) set(hash uint64, key string, value []byte, expireAt int64) error
 				return nil
 			}
 		}
+		// Grow before the table gets crowded; the initial table may be small when the caller
+		// allows large values but mostly stores small ones. | 在槽表变拥挤前扩容；调用方允许大值、
+		// 实际多为小值时，初始槽表可能较小。
+		if s.entries+1 >= int64(len(s.slots))*3/4 {
+			s.growSlots()
+		}
 	}
 	off, ok := s.appendEntry(hash, key, value, expireAt)
 	if !ok {
