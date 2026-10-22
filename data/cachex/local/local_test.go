@@ -491,3 +491,116 @@ func TestSlotTableGrowsForSmallValues(t *testing.T) {
 		t.Fatalf("Rejected = %d, want 0 | 扩容路径不应拒绝写入", st.Rejected)
 	}
 }
+
+func TestLargeValueSidecar(t *testing.T) {
+	c := newTestCache(t, Options{MaxCost: 64 << 10, MaxEntrySize: 4 << 10, Shards: 1})
+	key := "key:000001"
+	value := bytes.Repeat([]byte("L"), 1024)
+	if err := c.Set(key, value, 0); err != nil {
+		t.Fatalf("Set: %v | 写入失败", err)
+	}
+	h := hashString(c.seed, key)
+	sh := c.shards[0]
+	sh.mu.RLock()
+	e, ok := sh.find(h, key)
+	sh.mu.RUnlock()
+	if !ok || e.flags&flagMeta == 0 || int(e.metaID) >= len(sh.meta) {
+		t.Fatalf("large entry did not use sidecar: ok=%v flags=%d id=%d | 大值未走侧车", ok, e.flags, e.metaID)
+	}
+	if got, ok := c.Get(key); !ok || !bytes.Equal(got, value) {
+		t.Fatalf("Get large = %d,%v | 大值读取不符", len(got), ok)
+	}
+	buf := make([]byte, 0, 2048)
+	if got, ok := c.GetAppend(buf, key); !ok || !bytes.Equal(got, value) {
+		t.Fatalf("GetAppend large = %d,%v | 大值追读不符", len(got), ok)
+	}
+	if found, err := c.View(key, func(v []byte) error {
+		if !bytes.Equal(v, value) {
+			return fmt.Errorf("view mismatch")
+		}
+		return nil
+	}); err != nil || !found {
+		t.Fatalf("View large = %v,%v | 大值视图失败", found, err)
+	}
+
+	// Same-size overwrite updates the sidecar and the ring value.
+	newValue := bytes.Repeat([]byte("M"), 1024)
+	if err := c.Set(key, newValue, 0); err != nil {
+		t.Fatalf("overwrite: %v | 覆盖失败", err)
+	}
+	if got, ok := c.Get(key); !ok || !bytes.Equal(got, newValue) {
+		t.Fatalf("overwrite large = %d,%v | 大值覆盖不符", len(got), ok)
+	}
+
+	// Long keys (>16 bytes) must fall back to the full key comparison.
+	longA := "long-key-prefix-0000000000000001"
+	longB := "long-key-prefix-0000000000000002"
+	if err := c.Set(longA, value, 0); err != nil {
+		t.Fatalf("Set longA: %v | 长键写入失败", err)
+	}
+	if err := c.Set(longB, newValue, 0); err != nil {
+		t.Fatalf("Set longB: %v | 长键写入失败", err)
+	}
+	if got, ok := c.Get(longA); !ok || !bytes.Equal(got, value) {
+		t.Fatal("long key A mismatch | 长键 A 读取不符")
+	}
+	if got, ok := c.Get(longB); !ok || !bytes.Equal(got, newValue) {
+		t.Fatal("long key B mismatch | 长键 B 读取不符")
+	}
+
+	// TTL is mirrored into the sidecar.
+	if err := c.Set(key, value, 10*time.Millisecond); err != nil {
+		t.Fatalf("TTL Set: %v | TTL 写入失败", err)
+	}
+	time.Sleep(20 * time.Millisecond)
+	if _, ok := c.Get(key); ok {
+		t.Fatal("expired large entry returned | 过期大值被返回")
+	}
+	c.Sweep()
+	if _, ok := c.Get(key); ok {
+		t.Fatal("expired large entry survived Sweep | 过期大值在清扫后仍存在")
+	}
+
+	if !c.Delete(longA) {
+		t.Fatal("Delete longA reported false | 删除长键失败")
+	}
+	if _, ok := c.Get(longA); ok {
+		t.Fatal("deleted large entry still present | 删除后大值仍存在")
+	}
+}
+
+func TestLargeValueChurnReusesSidecar(t *testing.T) {
+	c := newTestCache(t, Options{MaxCost: 32 << 10, MaxEntrySize: 2048, Shards: 1})
+	value := bytes.Repeat([]byte("x"), 1024)
+	for i := 0; i < 2000; i++ {
+		key := fmt.Sprintf("k:%05d", i)
+		if err := c.Set(key, value, 0); err != nil {
+			t.Fatalf("Set %d: %v | 写入失败", i, err)
+		}
+		if i%7 == 0 {
+			if _, ok := c.Get(key); !ok {
+				t.Fatalf("Get %d missing | 键缺失", i)
+			}
+		}
+		if i%3 == 0 {
+			c.Delete(key)
+		}
+	}
+	sh := c.shards[0]
+	sh.mu.RLock()
+	live, metas, free := sh.entries, len(sh.meta), len(sh.freeMetaIDs)
+	sh.mu.RUnlock()
+	if live < 0 || int64(metas-free) != live {
+		t.Fatalf("sidecar accounting: live=%d metas=%d free=%d | 侧车记账异常", live, metas, free)
+	}
+	c.Clear()
+	if _, ok := c.Get("k:01999"); ok {
+		t.Fatal("Clear left a large entry | Clear 后大值仍存在")
+	}
+	if err := c.Set("after-clear", value, 0); err != nil {
+		t.Fatalf("Set after Clear: %v | Clear 后写入失败", err)
+	}
+	if got, ok := c.Get("after-clear"); !ok || !bytes.Equal(got, value) {
+		t.Fatal("large entry after Clear mismatch | Clear 后大值读取不符")
+	}
+}

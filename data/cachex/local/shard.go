@@ -18,10 +18,14 @@ const (
 	hdrKeyLen       = 16 // uint32
 	hdrValLen       = 20 // uint32
 	hdrFlags        = 24 // uint32
+	hdrMetaID       = 28 // uint32, sidecar index for large values | 大值侧车索引
 )
 
 // Entry flags. | 条目标志。
-const flagDead uint32 = 1 << iota
+const (
+	flagDead uint32 = 1 << iota
+	flagMeta
+)
 
 // Slot offsets use +2 encoding so 0 means empty and 1 means tombstone. | 槽位偏移采用 +2 编码，0 表示空、1 表示墓碑。
 const (
@@ -37,6 +41,8 @@ type shard struct {
 	sketch           []uint64
 	sampleSketch     []uint64
 	access           []atomic.Uint64
+	meta             []entryMeta
+	freeMetaIDs      []uint32
 	stats            shardStats
 	sampleSketchMu   sync.Mutex
 	head             uint64
@@ -118,6 +124,7 @@ type entry struct {
 	flags    uint32
 	size     uint32
 	valStart uint32
+	metaID   uint32
 }
 
 // newShard allocates one ring. | newShard 分配一个环形缓冲区。
@@ -195,12 +202,14 @@ func (s *shard) readEntry(off uint32) (entry, bool) {
 		return entry{}, false
 	}
 	lens := binary.LittleEndian.Uint64(s.buf[off+hdrKeyLen:])
+	flags := binary.LittleEndian.Uint64(s.buf[off+hdrFlags:])
 	e := entry{
 		expireAt: int64(binary.LittleEndian.Uint64(s.buf[off+hdrExpireAt:])),
 		hash:     binary.LittleEndian.Uint64(s.buf[off+hdrHash:]),
 		keyLen:   uint32(lens),
 		valLen:   uint32(lens >> 32),
-		flags:    binary.LittleEndian.Uint32(s.buf[off+hdrFlags:]),
+		flags:    uint32(flags),
+		metaID:   uint32(flags >> 32),
 		off:      off,
 	}
 	total := uint64(entryHeaderSize) + uint64(e.keyLen) + uint64(e.valLen)
@@ -279,7 +288,7 @@ func (s *shard) writeEntry(off uint32, hash uint64, key string, val []byte, expi
 	binary.LittleEndian.PutUint64(s.buf[off+hdrExpireAt:], uint64(expireAt))
 	binary.LittleEndian.PutUint64(s.buf[off+hdrHash:], hash)
 	binary.LittleEndian.PutUint64(s.buf[off+hdrKeyLen:], uint64(len(key))|uint64(len(val))<<32)
-	binary.LittleEndian.PutUint32(s.buf[off+hdrFlags:], 0)
+	binary.LittleEndian.PutUint64(s.buf[off+hdrFlags:], 0)
 	start := int(off) + entryHeaderSize
 	copy(s.buf[start:], key)
 	copy(s.buf[start+len(key):], val)
@@ -292,6 +301,9 @@ func (s *shard) writeEntry(off uint32, hash uint64, key string, val []byte, expi
 // 一份死版本，使稳态覆盖写不会把环形缓冲区填满垃圾。
 func (s *shard) overwriteEntry(e entry, val []byte, expireAt int64) {
 	binary.LittleEndian.PutUint64(s.buf[e.off+hdrExpireAt:], uint64(expireAt))
+	if e.flags&flagMeta != 0 {
+		s.meta[e.metaID].expireAt = expireAt
+	}
 	// The size is unchanged, so keyLen, valLen and flags stay valid; only the expiry and the
 	// value bytes need writing. | 尺寸未变，keyLen、valLen 与标志仍然有效，只需写过期时间和值字节。
 	copy(s.buf[e.valStart:e.valStart+e.valLen], val)
@@ -315,8 +327,12 @@ func (s *shard) find(hash uint64, key string) (entry, bool) {
 			return entry{}, false
 		}
 		if sl.off != slotTombstoneOffset && sl.hash == h32 {
-			off := sl.off - slotOffsetBias
-			if e, ok := s.readEntry(off); ok && e.flags&flagDead == 0 && e.hash == hash &&
+			token := sl.off - slotOffsetBias
+			if token&slotMetaFlag != 0 {
+				if e, ok := s.metaEntry(token&^slotMetaFlag, hash, key); ok {
+					return e, true
+				}
+			} else if e, ok := s.readEntry(token); ok && e.flags&flagDead == 0 && e.hash == hash &&
 				e.keyLen == uint32(len(key)) && equalStringBytes(s.key(e), key) {
 				return e, true
 			}
@@ -327,7 +343,7 @@ func (s *shard) find(hash uint64, key string) (entry, bool) {
 }
 
 // insertSlot inserts one index cell without rebuilding. | insertSlot 插入一个索引单元，不做重建。
-func (s *shard) insertSlot(h32 uint32, off uint32) bool {
+func (s *shard) insertSlot(h32 uint32, token uint32) bool {
 	i := h32 & s.mask
 	firstTomb := int32(-1)
 	for probes := 0; probes < len(s.slots); probes++ {
@@ -339,14 +355,14 @@ func (s *shard) insertSlot(h32 uint32, off uint32) bool {
 				target = uint32(firstTomb)
 				s.tombstones--
 			}
-			s.slots[target] = slot{hash: h32, off: off + slotOffsetBias}
+			s.slots[target] = slot{hash: h32, off: token + slotOffsetBias}
 			return true
 		case slotTombstoneOffset:
 			if firstTomb < 0 {
 				firstTomb = int32(i)
 			}
 		default:
-			if sl.hash == h32 && sl.off == off+slotOffsetBias {
+			if sl.hash == h32 && sl.off == token+slotOffsetBias {
 				return true
 			}
 		}
@@ -354,14 +370,14 @@ func (s *shard) insertSlot(h32 uint32, off uint32) bool {
 	}
 	if firstTomb >= 0 {
 		s.tombstones--
-		s.slots[firstTomb] = slot{hash: h32, off: off + slotOffsetBias}
+		s.slots[firstTomb] = slot{hash: h32, off: token + slotOffsetBias}
 		return true
 	}
 	return false
 }
 
 // removeSlot removes the cell pointing at off. | removeSlot 移除指向 off 的索引单元。
-func (s *shard) removeSlot(hash uint64, off uint32) {
+func (s *shard) removeSlot(hash uint64, token uint32) {
 	h32 := uint32(hash)
 	i := h32 & s.mask
 	for probes := 0; probes < len(s.slots); probes++ {
@@ -369,7 +385,7 @@ func (s *shard) removeSlot(hash uint64, off uint32) {
 		if sl.off == slotEmptyOffset {
 			return
 		}
-		if sl.off != slotTombstoneOffset && sl.hash == h32 && sl.off == off+slotOffsetBias {
+		if sl.off != slotTombstoneOffset && sl.hash == h32 && sl.off == token+slotOffsetBias {
 			s.slots[i].off = slotTombstoneOffset
 			s.tombstones++
 			if s.tombstones > len(s.slots)/4 {
@@ -419,7 +435,7 @@ func (s *shard) rehashSlots(n int) bool {
 			return false
 		}
 		if e.flags&flagDead == 0 {
-			if !s.insertSlot(uint32(e.hash), e.off) {
+			if !s.insertSlot(uint32(e.hash), slotToken(e)) {
 				return false
 			}
 		}

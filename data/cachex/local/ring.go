@@ -117,7 +117,14 @@ func (s *shard) evictOne() {
 	if e.expireAt != 0 && e.expireAt <= time.Now().UnixNano() {
 		s.stats.expired.Add(1)
 	}
-	s.removeSlot(e.hash, e.off)
+	// Mark dead before removeSlot: removeSlot may rebuild the table, and the rebuild must not
+	// reinsert the record that is being evicted. | 在 removeSlot 前标记死亡：removeSlot 可能
+	// 触发槽表重建，重建不能把正在驱逐的记录重新插回去。
+	s.setFlag(e, flagDead)
+	s.removeSlot(e.hash, slotToken(e))
+	if e.flags&flagMeta != 0 {
+		s.freeMeta(e.metaID)
+	}
 	s.used -= int64(e.size)
 	s.entries--
 	s.stats.evictions.Add(1)
@@ -133,7 +140,10 @@ func (s *shard) removeEntry(e entry) {
 // removeEntryAt optionally advances the tail after removal. | removeEntryAt 在移除后可选地推进尾部。
 func (s *shard) removeEntryAt(e entry, advance bool) {
 	s.setFlag(e, flagDead)
-	s.removeSlot(e.hash, e.off)
+	s.removeSlot(e.hash, slotToken(e))
+	if e.flags&flagMeta != 0 {
+		s.freeMeta(e.metaID)
+	}
 	s.used -= int64(e.size)
 	s.entries--
 	if advance && s.phys(s.tail) == e.off {
@@ -151,6 +161,8 @@ func (s *shard) resetRing() {
 	s.sampleSketchAdds = 0
 	s.sampleSketchMu.Unlock()
 	s.resetAccess()
+	s.meta = s.meta[:0]
+	s.freeMetaIDs = s.freeMetaIDs[:0]
 	s.head, s.tail, s.sweepPos = 0, 0, 0
 	s.used, s.entries, s.tombstones = 0, 0, 0
 	s.hasPad = false
@@ -248,6 +260,9 @@ func (s *shard) set(hash uint64, key string, value []byte, expireAt int64) error
 			// 大值直接覆盖，因为比较成本与拷贝相当。
 			if len(value) <= identicalCheckLimit && bytes.Equal(s.value(e), value) {
 				binary.LittleEndian.PutUint64(s.buf[e.off+hdrExpireAt:], uint64(expireAt))
+				if e.flags&flagMeta != 0 {
+					s.meta[e.metaID].expireAt = expireAt
+				}
 				s.stats.identical.Add(1)
 			} else {
 				// Same-size updates stay in place: no dead version, no slot churn. | 同尺寸更新原地完成：不产生死版本，也不改动槽位。
@@ -280,7 +295,14 @@ func (s *shard) set(hash uint64, key string, value []byte, expireAt int64) error
 		s.stats.rejected.Add(1)
 		return nil
 	}
-	if !s.insertSlot(uint32(hash), off) {
+	token := off
+	if len(value) >= largeValueThreshold {
+		id := s.allocMeta()
+		binary.LittleEndian.PutUint64(s.buf[off+hdrFlags:], uint64(flagMeta)|uint64(id)<<32)
+		s.fillMeta(id, hash, off, key, len(value), expireAt)
+		token = id | slotMetaFlag
+	}
+	if !s.insertSlot(uint32(hash), token) {
 		if e, ok := s.readEntry(off); ok {
 			s.removeEntry(e)
 		}
@@ -380,6 +402,8 @@ func (s *shard) clear() {
 	s.sampleSketchAdds = 0
 	s.sampleSketchMu.Unlock()
 	s.resetAccess()
+	s.meta = s.meta[:0]
+	s.freeMetaIDs = s.freeMetaIDs[:0]
 	s.head, s.tail, s.sweepPos = 0, 0, 0
 	s.used, s.entries, s.tombstones = 0, 0, 0
 	s.hasPad = false
