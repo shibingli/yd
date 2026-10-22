@@ -104,6 +104,13 @@ type benchCache interface {
 	close()
 }
 
+// parallelReader lets an adapter use one caller-owned buffer per benchmark goroutine,
+// avoiding shared mutable state in the parallel read benchmark. | parallelReader 让适配器
+// 为每个基准协程使用各自的调用方缓冲区，避免并行读基准共享可变状态。
+type parallelReader interface {
+	getParallel(id int, buf []byte) (int, []byte)
+}
+
 // impl is one implementation under comparison. | impl 是参与对比的一个实现。
 type impl struct {
 	name          string
@@ -186,6 +193,14 @@ func (y *ydLocal) get(id int) int {
 		}
 		return len(v)
 	}
+}
+
+func (y *ydLocal) getParallel(id int, buf []byte) (int, []byte) {
+	if y.mode != "getappend" {
+		return y.get(id), buf
+	}
+	buf, _ = y.c.GetAppend(buf[:0], y.keys[id])
+	return len(buf), buf
 }
 
 func (y *ydLocal) set(id int, value []byte) { _ = y.c.Set(y.keys[id], value, y.ttl) }
@@ -530,14 +545,22 @@ func BenchmarkGetParallel(b *testing.B) {
 			}
 			defer c.close()
 			preload(b, c, s)
+			pr, _ := c.(parallelReader)
 			b.ReportAllocs()
 			b.SetBytes(64)
 			b.ResetTimer()
 			var seq atomic.Uint64
 			b.RunParallel(func(pb *testing.PB) {
+				var buf []byte
 				i := int(seq.Add(1)) * 7919 % len(s.keys)
 				for pb.Next() {
-					benchSinkAtomic.Add(int64(c.get(i)))
+					if pr != nil {
+						var n int
+						n, buf = pr.getParallel(i, buf)
+						benchSinkAtomic.Add(int64(n))
+					} else {
+						benchSinkAtomic.Add(int64(c.get(i)))
+					}
 					i++
 					if i >= len(s.keys) {
 						i = 0

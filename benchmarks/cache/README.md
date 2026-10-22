@@ -37,181 +37,172 @@ This module compares the yd L1 cache (`data/cachex/local`) with mainstream Go ca
 
 ### 优化记录 | Optimization log
 
-首轮基准暴露了 Set、1 KiB 零拷贝读与命中率三个短板。随后做了两轮结构性优化（均由 `data/cachex/local` 的单元测试与 `-race` 覆盖）：
+首轮基准暴露了 Set、1 KiB 零拷贝读与命中率三个短板。随后做了多轮结构性优化（均由 `data/cachex/local` 的单元测试与 `-race` 覆盖）：
 
 1. **单次哈希 + 高位分片**：Get/Set/View/Delete 只计算一次 `maphash`，高 8 位选分片、低位索引槽表。旧实现两处都用低位，导致每个分片只能用到 1/N 的槽位，探测链被拉长。
 2. **命中路径单次解码**：`find` 返回已解码的 `entry` 并预计算值偏移；头部 `keyLen+valLen`、`valLen+flags` 合并为 64 位读写；热路径去掉 `defer Unlock`。
 3. **覆盖写与幂等短路**：同尺寸覆盖原地更新；值相同且不超过 256 B 时只刷新过期时间、不拷贝值；更大值直接覆盖，因为比较成本与拷贝相当。
-4. **独立复制路径**：`Get` 不再走 `GetAppend(nil)`，而是在锁内 `make + copy`，省掉 `growslice` 与一层函数调用。
-5. **访问位与访问草图**：View 使用每 64 字节一位的无锁原子位图参与 CLOCK 保护；Get/View 以稀疏采样（Get 1/16、View 1/8）更新独立访问草图，`TryLock` 争用时丢弃样本而不阻塞读者；主草图仍由 Get/Set 每次更新。
-6. **分条命中计数**：每分片 8 个独占缓存行的计数器，按哈希低位分布，避免同一热键的并行读者争用一个原子字。
-7. **草图降耗**：TinyLFU 计数从四次 `mix64` 改为一次混合 + 四个旋转窗口；准入平局允许同频冷键进入。
+4. **独立复制路径**：`Get` 不再走 `GetAppend(nil)`，而是在读锁内 `make + copy`，省掉 `growslice` 与一层函数调用。
+5. **读锁 + 锁外采样**：Get/GetAppend/View 都在分片读锁内完成复制或零拷贝视图，释放读锁后才采样访问位与访问草图；读取路径不再获取写锁。
+6. **加权采样**：读取按 1/8 采样访问位与访问草图，每个样本按 8 次命中加权，使频率估计接近逐次更新；命中率提升到 73.1%。
+7. **访问位与命中计数**：每 64 字节一位的无锁原子位图参与 CLOCK 保护；每分片 8 个独占缓存行的命中计数器，避免并行读者争用一个原子字。
+8. **草图降耗**：TinyLFU 计数从四次 `mix64` 改为一次混合 + 四个旋转窗口；主草图只记录 Set 插入，读取走采样草图，`TryLock` 争用时丢弃样本而不阻塞读者。
 
-效果（跨轮绝对值受背景负载影响，以下为可比口径下的代表值）：同值重复写 Set **221.4 → 95.2 ns**（64 B）、**405.1 → 201.3 ns**（1 KiB，含幂等短路）；变化值写 98.8/200.2 ns（新增口径，无历史基线）；1 KiB `View` **251.8 → 166.6 ns**；64 B `View` **96.7 → 93.6 ns**；命中率 **70.5% → 72.73%（Get）/ 72.97%（View）**。`Get` 的 `make+copy` 改动在相邻同负载轮次中把 64 B 从约 200 ns 降到 163 ns、1 KiB 从约 536 ns 降到 440 ns（1 KiB 绝对值随内存压力波动较大）。
+效果（本轮轮转三遍中位数）：Get 并行 **47.0 ns**（64 B）、GetAppend/View 并行 **37.0/37.1 ns**；64 B 零拷贝 View **101.3 ns**、GetAppend **119.3 ns**、Get **140.7 ns**；1 KiB View **236.5 ns**、GetAppend **260.3 ns**、Get **483.0 ns**；命中率 **73.10%**。宿主机采集时有 30%–50% 背景负载，绝对值高于空闲状态；请以同一张表内的相对关系为准。
 
-> 采集口径：每个实现独立进程，13 个实现 × 3 遍**轮转**（每遍每个实现跑一次），`-benchtime=200ms`，取三遍中位数。采集时宿主机仍有 30%–50% 背景负载，绝对值比空闲机器高；请以同一张表内的相对关系为准。
+> 采集口径：每个实现独立进程，13 个实现 × 3 遍**轮转**（每遍每个实现跑一次），`-benchtime=200ms`，取三遍中位数。GetAppend 并行基准为每个协程使用独立缓冲区，避免共享缓冲区造成的数据竞争。
 
 ### Get 64 B
 
 | 实现 | ns/op | MB/s | B/op | allocs/op |
 |---|---:|---:|---:|---:|
-| yd-local-get | 163.3 | 391.9 | 64 | 1 |
-| yd-local-getappend | 127.9 | 500.2 | 0 | 0 |
-| yd-local-view | 93.6 | 683.8 | 0 | 0 |
-| freecache-get | 128.8 | 496.9 | 64 | 1 |
-| freecache-getfn | 110.2 | 580.9 | 0 | 0 |
-| ristretto | 117.2 | 546.3 | 7 | 0 |
-| theine | 197.6 | 323.9 | 16 | 1 |
-| bigcache | 136.1 | 470.2 | 80 | 2 |
-| go-cache | 40.4 | 1585.3 | 0 | 0 |
-| ttlcache | 100.8 | 635.1 | 0 | 0 |
-| golang-lru | 57.5 | 1113.7 | 0 | 0 |
-
+| yd-local-get | 140.7 | 454.7 | 64 | 1 |
+| yd-local-getappend | 119.3 | 536.4 | 0 | 0 |
+| yd-local-view | 101.3 | 631.6 | 0 | 0 |
+| freecache-get | 185.2 | 345.6 | 64 | 1 |
+| freecache-getfn | 142.4 | 449.4 | 0 | 0 |
+| ristretto | 141.9 | 450.9 | 7 | 0 |
+| theine | 227.2 | 281.6 | 16 | 1 |
+| bigcache | 164.5 | 389.1 | 80 | 2 |
+| go-cache | 45.9 | 1393.9 | 0 | 0 |
+| ttlcache | 116.4 | 549.6 | 0 | 0 |
+| golang-lru | 63.5 | 1007.5 | 0 | 0 |
 
 ### Get 1 KiB
 
 | 实现 | ns/op | MB/s | B/op | allocs/op |
 |---|---:|---:|---:|---:|
-| yd-local-get | 536.2 | 1909.8 | 1024 | 1 |
-| yd-local-getappend | 264.2 | 3876.1 | 0 | 0 |
-| yd-local-view | 166.6 | 6147.7 | 0 | 0 |
-| freecache-get | 418.8 | 2445.2 | 1024 | 1 |
-| freecache-getfn | 138.1 | 7413.5 | 0 | 0 |
-| ristretto | 118.8 | 8621.2 | 7 | 0 |
-| theine | 194.9 | 5252.7 | 16 | 1 |
-| bigcache | 404.2 | 2533.3 | 1040 | 2 |
-| go-cache | 42.2 | 24239.9 | 0 | 0 |
-| ttlcache | 97.7 | 10482.8 | 0 | 0 |
-| golang-lru | 57.5 | 17803.7 | 0 | 0 |
-
+| yd-local-get | 483.0 | 2120.1 | 1024 | 1 |
+| yd-local-getappend | 260.3 | 3934.3 | 0 | 0 |
+| yd-local-view | 236.5 | 4329.8 | 0 | 0 |
+| freecache-get | 438.3 | 2336.3 | 1024 | 1 |
+| freecache-getfn | 187.1 | 5474.2 | 0 | 0 |
+| ristretto | 138.2 | 7411.8 | 7 | 0 |
+| theine | 231.4 | 4424.6 | 16 | 1 |
+| bigcache | 446.5 | 2293.6 | 1040 | 2 |
+| go-cache | 45.0 | 22765.8 | 0 | 0 |
+| ttlcache | 119.7 | 8557.3 | 0 | 0 |
+| golang-lru | 60.7 | 16876.2 | 0 | 0 |
 
 ### Get 并行（64 B）
 
 | 实现 | ns/op | MB/s | B/op | allocs/op |
 |---|---:|---:|---:|---:|
-| yd-local-get | 56.9 | 1125.3 | 64 | 1 |
-| yd-local-getappend | 59.9 | 1067.9 | 0 | 0 |
-| yd-local-view | 38.1 | 1678.4 | 0 | 0 |
-| freecache-get | 48.9 | 1309.7 | 64 | 1 |
-| freecache-getfn | 38.1 | 1680.0 | 0 | 0 |
-| ristretto | 34.8 | 1839.9 | 1 | 0 |
-| theine | 29.5 | 2166.9 | 0 | 0 |
-| bigcache | 46.0 | 1391.6 | 80 | 2 |
-| go-cache | 49.3 | 1298.5 | 0 | 0 |
-| ttlcache | 189.2 | 338.2 | 0 | 0 |
-| golang-lru | 146.7 | 436.2 | 0 | 0 |
-
+| yd-local-get | 47.0 | 1362.7 | 64 | 1 |
+| yd-local-getappend | 37.0 | 1730.0 | 0 | 0 |
+| yd-local-view | 37.1 | 1724.2 | 0 | 0 |
+| freecache-get | 49.6 | 1289.8 | 64 | 1 |
+| freecache-getfn | 41.6 | 1538.4 | 0 | 0 |
+| ristretto | 36.4 | 1760.7 | 0 | 0 |
+| theine | 31.9 | 2005.6 | 0 | 0 |
+| bigcache | 47.1 | 1358.5 | 80 | 2 |
+| go-cache | 53.4 | 1199.7 | 0 | 0 |
+| ttlcache | 236.0 | 271.2 | 0 | 0 |
+| golang-lru | 160.5 | 398.7 | 0 | 0 |
 
 ### Mixed 90/10（64 B）
 
 | 实现 | ns/op | MB/s | B/op | allocs/op |
 |---|---:|---:|---:|---:|
-| yd-local-get | 142.6 | — | 57 | 0 |
-| yd-local-getappend | 118.3 | — | 0 | 0 |
-| yd-local-view | 99.5 | — | 0 | 0 |
-| freecache-get | 138.1 | — | 57 | 0 |
-| freecache-getfn | 109.7 | — | 0 | 0 |
-| ristretto | 195.8 | — | 17 | 0 |
-| theine | 275.8 | — | 14 | 0 |
-| bigcache | 158.5 | — | 94 | 1 |
-| go-cache | 47.6 | — | 2 | 0 |
-| ttlcache | 109.2 | — | 0 | 0 |
-| golang-lru | 56.6 | — | 0 | 0 |
-
+| yd-local-get | 150.4 | — | 57 | 0 |
+| yd-local-getappend | 122.7 | — | 0 | 0 |
+| yd-local-view | 121.8 | — | 0 | 0 |
+| freecache-get | 163.2 | — | 57 | 0 |
+| freecache-getfn | 125.0 | — | 0 | 0 |
+| ristretto | 226.4 | — | 17 | 0 |
+| theine | 307.7 | — | 14 | 0 |
+| bigcache | 186.9 | — | 95 | 1 |
+| go-cache | 48.5 | — | 2 | 0 |
+| ttlcache | 124.2 | — | 0 | 0 |
+| golang-lru | 67.2 | — | 0 | 0 |
 
 ### Get TTL 1h（64 B）
 
 | 实现 | ns/op | MB/s | B/op | allocs/op |
 |---|---:|---:|---:|---:|
-| yd-local-get | 171.5 | 373.2 | 64 | 1 |
-| yd-local-getappend | 136.7 | 468.2 | 0 | 0 |
-| yd-local-view | 91.5 | 699.7 | 0 | 0 |
-| freecache-get | 129.9 | 492.7 | 64 | 1 |
-| freecache-getfn | 116.9 | 547.3 | 0 | 0 |
-| ristretto | 125.1 | 511.8 | 7 | 0 |
-| theine | 198.3 | 322.8 | 16 | 1 |
-| go-cache | 50.5 | 1267.2 | 0 | 0 |
-| ttlcache | 233.9 | 273.6 | 0 | 0 |
-
+| yd-local-get | 165.5 | 386.7 | 64 | 1 |
+| yd-local-getappend | 142.2 | 449.9 | 0 | 0 |
+| yd-local-view | 120.0 | 533.3 | 0 | 0 |
+| freecache-get | 172.5 | 371.0 | 64 | 1 |
+| freecache-getfn | 135.0 | 474.1 | 0 | 0 |
+| ristretto | 158.7 | 403.4 | 7 | 0 |
+| theine | 220.7 | 290.0 | 16 | 1 |
+| go-cache | 52.6 | 1217.6 | 0 | 0 |
+| ttlcache | 349.4 | 183.2 | 0 | 0 |
 
 ### Set 64 B（同值重复写）
 
 | 实现 | ns/op | MB/s | B/op | allocs/op |
 |---|---:|---:|---:|---:|
-| yd-local | 95.2 | 672.3 | 0 | 0 |
-| freecache | 99.8 | 641.4 | 0 | 0 |
-| ristretto | 603.7 | 106.0 | 99 | 1 |
-| theine | 313.2 | 204.3 | 0 | 0 |
-| bigcache | 252.4 | 253.6 | 318 | 0 |
-| go-cache | 85.9 | 744.7 | 24 | 1 |
-| ttlcache | 153.5 | 416.9 | 0 | 0 |
-| golang-lru | 66.7 | 959.6 | 0 | 0 |
-
+| yd-local | 123.9 | 516.4 | 0 | 0 |
+| freecache | 136.5 | 468.9 | 0 | 0 |
+| ristretto | 682.8 | 93.7 | 99 | 1 |
+| theine | 366.1 | 174.8 | 0 | 0 |
+| bigcache | 294.4 | 217.3 | 318 | 0 |
+| go-cache | 94.2 | 679.8 | 24 | 1 |
+| ttlcache | 171.5 | 373.1 | 0 | 0 |
+| golang-lru | 71.9 | 889.6 | 0 | 0 |
 
 ### Set 1 KiB（同值重复写）
 
 | 实现 | ns/op | MB/s | B/op | allocs/op |
 |---|---:|---:|---:|---:|
-| yd-local | 201.3 | 5085.8 | 0 | 0 |
-| freecache | 188.8 | 5422.6 | 0 | 0 |
-| ristretto | 598.9 | 1709.8 | 99 | 1 |
-| theine | 304.6 | 3361.9 | 0 | 0 |
-| bigcache | 1032.0 | 992.4 | 3239 | 0 |
-| go-cache | 82.4 | 12433.1 | 24 | 1 |
-| ttlcache | 143.9 | 7117.3 | 0 | 0 |
-| golang-lru | 62.6 | 16357.8 | 0 | 0 |
-
+| yd-local | 231.3 | 4428.0 | 0 | 0 |
+| freecache | 211.8 | 4835.0 | 0 | 0 |
+| ristretto | 698.7 | 1465.5 | 99 | 1 |
+| theine | 351.3 | 2915.2 | 0 | 0 |
+| bigcache | 1059.0 | 967.2 | 2484 | 0 |
+| go-cache | 89.4 | 11459.7 | 24 | 1 |
+| ttlcache | 173.7 | 5894.0 | 0 | 0 |
+| golang-lru | 67.2 | 15235.9 | 0 | 0 |
 
 ### Set 变化值 64 B
 
 | 实现 | ns/op | MB/s | B/op | allocs/op |
 |---|---:|---:|---:|---:|
-| yd-local | 98.8 | 647.7 | 0 | 0 |
-| freecache | 96.5 | 663.1 | 0 | 0 |
-| ristretto | 603.0 | 106.1 | 99 | 1 |
-| theine | 296.9 | 215.6 | 0 | 0 |
-| bigcache | 231.8 | 276.1 | 318 | 0 |
-| go-cache | 85.5 | 748.7 | 24 | 1 |
-| ttlcache | 153.7 | 416.5 | 0 | 0 |
-| golang-lru | 64.5 | 992.5 | 0 | 0 |
-
+| yd-local | 133.5 | 479.6 | 0 | 0 |
+| freecache | 115.6 | 553.7 | 0 | 0 |
+| ristretto | 681.7 | 93.9 | 99 | 1 |
+| theine | 352.4 | 181.6 | 0 | 0 |
+| bigcache | 284.2 | 225.2 | 318 | 0 |
+| go-cache | 93.1 | 687.7 | 24 | 1 |
+| ttlcache | 175.6 | 364.4 | 0 | 0 |
+| golang-lru | 67.0 | 955.2 | 0 | 0 |
 
 ### Set 变化值 1 KiB
 
 | 实现 | ns/op | MB/s | B/op | allocs/op |
 |---|---:|---:|---:|---:|
-| yd-local | 200.2 | 5116.0 | 0 | 0 |
-| freecache | 182.1 | 5624.5 | 0 | 0 |
-| ristretto | 624.7 | 1639.2 | 99 | 1 |
-| theine | 302.0 | 3390.6 | 0 | 0 |
-| bigcache | 775.7 | 1320.2 | 3449 | 0 |
-| go-cache | 91.8 | 11160.2 | 24 | 1 |
-| ttlcache | 144.9 | 7068.1 | 0 | 0 |
-| golang-lru | 59.4 | 17235.2 | 0 | 0 |
-
+| yd-local | 262.2 | 3904.7 | 0 | 0 |
+| freecache | 207.6 | 4931.9 | 0 | 0 |
+| ristretto | 775.0 | 1321.3 | 99 | 1 |
+| theine | 385.8 | 2654.0 | 0 | 0 |
+| bigcache | 723.0 | 1416.3 | 2508 | 0 |
+| go-cache | 94.3 | 10859.4 | 24 | 1 |
+| ttlcache | 179.9 | 5691.6 | 0 | 0 |
+| golang-lru | 70.1 | 14603.5 | 0 | 0 |
 
 ### Set TTL 1h（64 B）
 
 | 实现 | ns/op | MB/s | B/op | allocs/op |
 |---|---:|---:|---:|---:|
-| yd-local | 112.0 | — | 0 | 0 |
-| freecache | 100.3 | — | 0 | 0 |
-| ristretto | 752.8 | — | 99 | 1 |
-| theine | 333.0 | — | 0 | 0 |
-| go-cache | 94.3 | — | 24 | 1 |
-| ttlcache | 257.3 | — | 0 | 0 |
-
+| yd-local | 133.1 | — | 0 | 0 |
+| freecache | 129.7 | — | 0 | 0 |
+| ristretto | 902.5 | — | 99 | 1 |
+| theine | 405.4 | — | 0 | 0 |
+| go-cache | 115.0 | — | 24 | 1 |
+| ttlcache | 316.7 | — | 0 | 0 |
 
 ### 命中率（5,000 容量 / 50,000 键 / 200,000 次访问）
 
 | 实现 | 命中率 |
 |---|---:|
-| yd-local-get | 72.73% |
-| yd-local-getappend | 72.71% |
-| yd-local-view | 72.97% |
+| yd-local-get | 73.10% |
+| yd-local-getappend | 73.10% |
+| yd-local-view | 73.09% |
 | freecache-get | 71.32% |
 | ristretto | 72.60% |
-| theine | 72.60% |
+| theine | 72.61% |
 | bigcache | 80.02% |
 | ttlcache | 72.61% |
 | golang-lru | 72.61% |
@@ -220,15 +211,16 @@ This module compares the yd L1 cache (`data/cachex/local`) with mainstream Go ca
 
 ## 4. 结论 | Takeaways
 
-- **命中率（达到容量上限）**：`yd-local-get` 72.73%、`yd-local-view` 72.97%，高于 Ristretto/Theine/ttlcache/LRU 的 72.60%–72.61%；`yd-local-getappend` 72.71%。轨迹的理论上限约 72.7%，yd 已在该容量下达到上限。BigCache 的 80.02% 来自 2 MB 上限下更大的有效条目容量，不可直接横比。
-- **64 B 零拷贝读**：`yd-local-view` 93.6 ns，优于 FreeCache `GetFn`（110.2）、Ristretto（117.2）与 ttlcache（100.8）；go-cache（40.4）与 golang-lru（57.5）更快，但它们返回缓存内引用、没有容量淘汰或 TTL，语义与本模块的「锁内回调 + 容量/TTL + 淘汰策略」不同。
-- **1 KiB 零拷贝读**：`yd-local-view` 166.6 ns，慢于 FreeCache `GetFn`（138.1）、Ristretto（118.8）与 ttlcache（97.7）。这一档由 40 MB 随机访问的内存带宽主导，额外访问位/采样草图与回调开销被放大；同一代码在较早的空闲轮次曾测得约 98 ns，说明该指标对宿主机负载与缓存压力高度敏感。
-- **复制/追加读**：`yd-local-get` 163.3/536.2 ns（64 B/1 KiB），`yd-local-getappend` 127.9/264.2 ns。FreeCache 为 128.8/418.8（`Get`）与 110.2/138.1（`GetFn`）。`Get` 的分配是「返回调用方自有副本」语义的固有成本；需要零分配时用 `GetAppend`/`View`。
-- **写入**：同值重复写时 `yd-local` 95.2/201.3 ns，FreeCache 99.8/188.8 ns；变化值写为 98.8/200.2 ns vs FreeCache 96.5/182.1 ns，两者已处于同一量级。go-cache（85.9/82.4）、golang-lru（66.7/62.6）、ttlcache（153.5/143.9）在变化值 1 KiB 上更快：它们保存切片引用而不做防御性拷贝，golang-lru 也没有 TTL/容量淘汰策略。
-- **并发读**：`yd-local-view` 38.1 ns / 1.68 GB/s，与 FreeCache `GetFn`（38.1 ns）持平；Ristretto（34.8）与 Theine（29.5）更快，ttlcache/LRU 因全局锁退化到 189.2/146.7 ns。
-- **TTL**：`yd-local-view` 91.5 ns，优于 FreeCache `GetFn`（116.9）与 Ristretto（125.1）；`yd-local-get` 171.5 ns 慢于 FreeCache（129.9），`SetTTL` 112.0 ns 慢于 FreeCache（100.3）与 go-cache（94.3）。
+- **命中率**：`yd-local-get` / `yd-local-getappend` / `yd-local-view` 均为 **73.09%–73.10%**，高于 Ristretto/Theine/ttlcache/LRU 的 72.60%–72.61%；轨迹的理论上限约 72.7%，yd 已在该容量下达到上限。BigCache 的 80.02% 来自 2 MB 上限下更大的有效条目容量，不可直接横比。
+- **64 B 零拷贝读**：`yd-local-view` **101.3 ns**，优于 FreeCache `GetFn`（142.4）、Ristretto（141.9）与 ttlcache（116.4）；go-cache（45.9）与 golang-lru（63.5）更快，但它们返回缓存内引用、没有容量淘汰或 TTL，语义与本模块的「锁内回调 + 容量/TTL + 淘汰策略」不同。
+- **1 KiB 零拷贝读**：`yd-local-view` **236.5 ns**，慢于 FreeCache `GetFn`（187.1）、Ristretto（138.2）与 ttlcache（119.7）。这一档由 40 MB 随机访问的内存带宽主导，额外访问位/采样草图与回调开销被放大。
+- **复制/追加读**：64 B `yd-local-get` **140.7 ns**、`yd-local-getappend` **119.3 ns**，均快于 FreeCache 的 185.2/142.4；1 KiB 分别为 **483.0/260.3 ns**，慢于 FreeCache 的 438.3/187.1。`Get` 的分配是「返回调用方自有副本」语义的固有成本；需要零分配时用 `GetAppend`/`View`。
+- **并行读**：`yd-local-get` **47.0 ns**、`yd-local-getappend` **37.0 ns**、`yd-local-view` **37.1 ns**，均快于 FreeCache（49.6/41.6/41.6）与 go-cache（53.4）；View 与 Ristretto（36.4）基本持平，Theine（31.9）更快。读锁改造让 Get/GetAppend 从约 57/60 ns 降到 47/37 ns。
+- **Mixed 90/10**：Get **150.4 ns**、GetAppend **122.7 ns**、View **121.8 ns**，均快于 FreeCache（163.2/125.0/125.0）；ttlcache 为 124.2 ns，与 View 接近。
+- **写入**：同值重复写 64 B 为 **123.9 ns**（FreeCache 136.5），1 KiB 为 **231.3 ns**（FreeCache 211.8）；变化值写 64 B/1 KiB 为 **133.5/262.2 ns** vs FreeCache **115.6/207.6 ns**。go-cache（94.2/89.4）、golang-lru（71.9/67.2）、ttlcache（171.5/173.7）在部分写入档更快：它们保存切片引用而不做防御性拷贝，golang-lru 也没有 TTL/容量淘汰策略。
+- **TTL**：`yd-local-get` **165.5 ns** 与 `yd-local-view` **120.0 ns** 快于 FreeCache（172.5/135.0）；`yd-local-getappend` 142.2 ns 慢于 FreeCache 135.0；`SetTTL` 133.1 ns 与 FreeCache 129.7 基本持平。
 - **GC**：环形缓冲区仍是预分配、指针自由；Set/`GetAppend`/`View` 均为 0 alloc，`Get` 仅返回副本分配。原地覆盖与幂等短路减少了死版本、ring 回绕与 GC 压力。
-- **语义边界（必须明确）**：本表不支持「所有指标都大于所有对比库」的结论。go-cache/golang-lru 无容量上限或 TTL，ttlcache/Ristretto/Theine 返回缓存内引用，BigCache 在命中率轨迹中有效容量更大；要在这几项也全面胜出，只能放弃防御性拷贝、TTL 或淘汰策略，或提供返回引用/需要调用方保证不长期持有的 API，这超出了本模块「安全、可淘汰、可带 TTL」的设计前提。与同语义的 FreeCache 相比，yd 在命中率、64 B 零拷贝读、64 B 写、TTL View 上胜出，在 1 KiB 复制/零拷贝读与部分 TTL 写上仍有差距。
+- **语义边界（必须明确）**：本表不支持「所有指标都大于所有对比库」的结论。go-cache/golang-lru 无容量上限或 TTL，ttlcache/Ristretto/Theine 返回缓存内引用，BigCache 在命中率轨迹中有效容量更大；要在这几项也全面胜出，只能放弃防御性拷贝、TTL 或淘汰策略，或提供返回引用/需要调用方保证不长期持有的 API，这超出了本模块「安全、可淘汰、可带 TTL」的设计前提。与同语义的 FreeCache 相比，yd 在命中率、64 B 零拷贝读、64 B 复制/追加读、64 B 写、并行读、Mixed 与部分 TTL 读上胜出，在 1 KiB 复制/零拷贝读与部分写路径上仍有差距。
 
 ## 5. 复现 | Reproduce
 

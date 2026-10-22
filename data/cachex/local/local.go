@@ -77,7 +77,7 @@ type Stats struct {
 	Deletes uint64
 	// Evictions is the number of live entries evicted to make room. | Evictions 是为腾空间而驱逐的存活条目数。
 	Evictions uint64
-	// Expired is the number of entries found expired. | Expired 是发现已过期的条目数。
+	// Expired is the number of expired-entry observations (reads and sweeps). | Expired 是观察到条目过期的次数（读取与清扫合计）。
 	Expired uint64
 	// Rejected is the number of inserts rejected by TinyLFU admission. | Rejected 是被 TinyLFU 准入拒绝的插入次数。
 	Rejected uint64
@@ -214,9 +214,9 @@ func (c *Cache) GetAppend(dst []byte, key string) ([]byte, bool) {
 //
 // The view aliases the ring: fn must not retain it, mutate it, or call back into this | 该视图与环形缓冲区共享底层数组：fn 不得保留或修改它，也不得回调本缓存。
 // cache. The shard's read lock is held while fn runs, so writers to the same shard wait; | fn 执行期间持有分片读锁，因此同分片的写者会等待；
-// multiple readers proceed concurrently. fn sees no expired entry. View samples a lock-free | 多个读者可并发执行。fn 不会看到已过期条目。View 会采样无锁访问位
-// access bit and the access sketch, so it influences eviction without taking the | 与访问草图，因此无需获取写锁也能参与淘汰决策；
-// write lock; Get/GetAppend update frequency on every hit. | Get/GetAppend 在每次命中时更新频率。
+// multiple readers proceed concurrently. fn sees no expired entry. Get/GetAppend/View all | 多个读者可并发执行。fn 不会看到已过期条目。Get/GetAppend/View 都在
+// copy or view under the read lock and sample the access bit and sketch after releasing it, | 读锁内完成拷贝或视图，并在释放读锁后采样访问位与访问草图，
+// so reads never take the write lock. | 因此读取路径无需获取写锁。
 func (c *Cache) View(key string, fn func(value []byte) error) (bool, error) {
 	if fn == nil {
 		return false, errx.Detail(ErrInvalidOptions, "nil view function | 视图函数为 nil")

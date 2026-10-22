@@ -166,52 +166,46 @@ func expired(e entry, now int64) bool {
 	return e.expireAt != 0 && e.expireAt <= now
 }
 
-// getAppend copies one value into dst while updating recency and the sketch. | getAppend 把值复制进 dst，同时更新访问位与草图。
+// getAppend copies one value into dst under the read lock; policy is sampled after unlock. | getAppend 在读锁内把值复制进 dst，解锁后再采样策略。
 func (s *shard) getAppend(hash uint64, key string, dst []byte) ([]byte, bool) {
-	s.mu.Lock()
+	s.mu.RLock()
 	e, ok := s.find(hash, key)
 	if !ok {
-		s.mu.Unlock()
+		s.mu.RUnlock()
 		s.stats.misses.Add(1)
 		return dst, false
 	}
 	if e.expireAt != 0 && e.expireAt <= time.Now().UnixNano() {
+		s.mu.RUnlock()
 		s.stats.expired.Add(1)
-		s.removeEntry(e)
-		s.mu.Unlock()
 		s.stats.misses.Add(1)
 		return dst, false
 	}
-	s.setFlag(e, flagAccessed)
-	s.touch(hash)
 	dst = append(dst, s.value(e)...)
-	s.mu.Unlock()
-	s.recordGetHit(hash)
+	s.mu.RUnlock()
+	s.recordReadHit(hash, e.off)
 	return dst, true
 }
 
-// get returns an owned copy of one value. | get 返回一个归调用方所有的值副本。
+// get returns an owned copy of one value under the read lock; policy is sampled after unlock. | get 在读锁内返回一个归调用方所有的值副本，解锁后再采样策略。
 func (s *shard) get(hash uint64, key string) ([]byte, bool) {
-	s.mu.Lock()
+	s.mu.RLock()
 	e, ok := s.find(hash, key)
 	if !ok {
-		s.mu.Unlock()
+		s.mu.RUnlock()
 		s.stats.misses.Add(1)
 		return nil, false
 	}
 	if e.expireAt != 0 && e.expireAt <= time.Now().UnixNano() {
+		s.mu.RUnlock()
 		s.stats.expired.Add(1)
-		s.removeEntry(e)
-		s.mu.Unlock()
 		s.stats.misses.Add(1)
 		return nil, false
 	}
-	s.setFlag(e, flagAccessed)
-	s.touch(hash)
 	out := make([]byte, e.valLen)
 	copy(out, s.value(e))
-	s.mu.Unlock()
-	s.recordGetHit(hash)
+	s.mu.RUnlock()
+	s.recordReadHit(hash, e.off)
 	return out, true
 }
 
@@ -231,7 +225,7 @@ func (s *shard) view(hash uint64, key string, fn func([]byte) error) (bool, erro
 	}
 	err := fn(s.value(e))
 	s.mu.RUnlock()
-	s.recordViewHit(hash, e.off)
+	s.recordReadHit(hash, e.off)
 	if err != nil {
 		return true, err
 	}
@@ -307,11 +301,11 @@ func (s *shard) admit(hash uint64) bool {
 	victimFreq := s.estimate(e.hash)
 	candidateFreq := s.estimate(hash)
 	// Equal frequencies admit the candidate: cold churn stays LRU-like while the frequency
-	// sketch still protects genuinely hot victims. A View hit sets the lock-free access bit
-	// but not the header flag, so admission consults both. | 频率相等时接纳候选：冷键轮换接近
-	// LRU，同时频率草图仍保护真正的热受害者。View 命中只设置无锁访问位而不设置头部标志，
-	// 因此准入同时检查两者。
-	if (e.flags&flagAccessed != 0 || s.accessed(e.off)) && candidateFreq < victimFreq {
+	// sketch still protects genuinely hot victims. Reads set the lock-free access bit, so
+	// admission protects entries hit at least once since insertion. | 频率相等时接纳候选：
+	// 冷键轮换接近 LRU，同时频率草图仍保护真正的热受害者。读取会设置无锁访问位，
+	// 因此准入保护自插入以来至少被命中一次的条目。
+	if s.accessed(e.off) && candidateFreq < victimFreq {
 		return false
 	}
 	return true

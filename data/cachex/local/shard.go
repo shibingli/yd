@@ -21,10 +21,7 @@ const (
 )
 
 // Entry flags. | 条目标志。
-const (
-	flagDead uint32 = 1 << iota
-	flagAccessed
-)
+const flagDead uint32 = 1 << iota
 
 // Slot offsets use +2 encoding so 0 means empty and 1 means tombstone. | 槽位偏移采用 +2 编码，0 表示空、1 表示墓碑。
 const (
@@ -75,16 +72,13 @@ type paddedCounter struct {
 // hitStripes is the number of read-side hit counters per shard. | hitStripes 是每分片读侧命中计数器数量。
 const hitStripes = 8
 
-// Sample masks control how often a read feeds the access sketch (one in mask+1). Get updates
-// the main sketch on every hit and samples the access sketch sparsely; View updates no main
-// sketch, so it samples the access bit and sketch more often.
+// readSampleMask controls how often a read hit feeds the access bit and access sketch
+// (one in mask+1). Reads copy under the shard read lock, so policy updates are sampled after
+// the lock is released instead of taking the write lock on every hit.
 //
-// 采样掩码控制读取进入访问草图的间隔（每 mask+1 次一次）。Get 每次命中都会更新主草图，
-// 只稀疏采样访问草图；View 不更新主草图，因此更频繁地采样访问位与访问草图。
-const (
-	viewSampleMask = 7
-	getSampleMask  = 15
-)
+// readSampleMask 控制读取命中进入访问位与访问草图的间隔（每 mask+1 次一次）。读取在分片
+// 读锁内完成拷贝，因此策略更新在锁外采样，无需每次命中都获取写锁。
+const readSampleMask = 7
 
 // shardStats holds per-shard counters; each shard owns its own cache lines. | shardStats 保存每分片计数器，各分片独占自己的缓存行。
 type shardStats struct {
@@ -229,11 +223,14 @@ func (s *shard) accessed(off uint32) bool {
 	return s.access[block>>6].Load()&(uint64(1)<<(block&63)) != 0
 }
 
-// clearAccess forgets access bits for the blocks covered by [off, off+n). | clearAccess 清除 [off, off+n) 覆盖块的访问位。
+// clearAccess forgets access bits for the blocks covered by [off, off+n), except the first
+// block: it may also contain the start of the previous live record, whose access bit must
+// survive. | clearAccess 清除 [off, off+n) 覆盖块的访问位，但保留首块：首块可能同时包含
+// 前一条存活记录的起点，其访问位必须保留。
 func (s *shard) clearAccess(off, n uint32) {
 	first := off >> 6
 	last := (off + n - 1) >> 6
-	for block := first; block <= last; {
+	for block := first + 1; block <= last; {
 		word := block >> 6
 		start := block & 63
 		end := uint32(63)
@@ -285,12 +282,6 @@ func (s *shard) overwriteEntry(e entry, val []byte, expireAt int64) {
 func (s *shard) setFlag(e entry, flag uint32) {
 	cur := binary.LittleEndian.Uint32(s.buf[e.off+hdrFlags:])
 	binary.LittleEndian.PutUint32(s.buf[e.off+hdrFlags:], cur|flag)
-}
-
-// clearFlag clears one flag bit of e. | clearFlag 清除 e 的一个标志位。
-func (s *shard) clearFlag(e entry, flag uint32) {
-	cur := binary.LittleEndian.Uint32(s.buf[e.off+hdrFlags:])
-	binary.LittleEndian.PutUint32(s.buf[e.off+hdrFlags:], cur&^flag)
 }
 
 // find returns the decoded entry of key. | find 返回 key 对应的已解码条目。
@@ -396,7 +387,7 @@ func (s *shard) rebuildSlots() {
 }
 
 // touchSketch increments the four counters of one sketch and ages it when needed. | touchSketch 递增一个草图的四个计数器，并在需要时老化。
-func (s *shard) touchSketch(sketch []uint64, adds *uint64, hash uint64) {
+func (s *shard) touchSketch(sketch []uint64, adds *uint64, hash uint64, weight uint64) {
 	*adds++
 	if *adds >= s.sketchMask*10+10 {
 		for i := range sketch {
@@ -414,37 +405,35 @@ func (s *shard) touchSketch(sketch []uint64, adds *uint64, hash uint64) {
 		shift := (idx & 15) * 4
 		v := (sketch[word] >> shift) & 0xf
 		if v < 15 {
-			sketch[word] += 1 << shift
+			next := v + weight
+			if next > 15 {
+				next = 15
+			}
+			sketch[word] += (next - v) << shift
 		}
 	}
 }
 
-// touch records a Get/Set access in the main sketch; the caller holds s.mu. | touch 在主草图记录 Get/Set 访问；调用方持有 s.mu。
+// touch records a Set insertion in the main sketch; the caller holds s.mu. | touch 在主草图记录 Set 插入；调用方持有 s.mu。
 func (s *shard) touch(hash uint64) {
-	s.touchSketch(s.sketch, &s.sketchAdds, hash)
+	s.touchSketch(s.sketch, &s.sketchAdds, hash, 1)
 }
 
 // touchSample records a sampled read access in the access sketch; the caller holds sampleSketchMu. | touchSample 在访问草图记录采样读取；调用方持有 sampleSketchMu。
 func (s *shard) touchSample(hash uint64) {
-	s.touchSketch(s.sampleSketch, &s.sampleSketchAdds, hash)
+	// One in eight reads is sampled, so each sample carries eight hits of weight; this keeps
+	// the estimate comparable to an every-hit sketch without paying the lock on every hit.
+	// | 每八次读取采样一次，因此每个样本按八次命中加权；这样估计值接近逐次更新的草图，
+	// 又不必每次命中都付锁的开销。
+	s.touchSketch(s.sampleSketch, &s.sampleSketchAdds, hash, 8)
 }
 
-// recordGetHit counts one Get hit and samples the access sketch. | recordGetHit 统计一次 Get 命中并采样访问草图。
-func (s *shard) recordGetHit(hash uint64) {
-	if s.stats.addHit(hash)&getSampleMask != 0 {
-		return
-	}
-	if s.sampleSketchMu.TryLock() {
-		s.touchSample(hash)
-		s.sampleSketchMu.Unlock()
-	}
-}
-
-// recordViewHit counts one View hit and samples both the access bit and the access sketch.
-// Sampling the bit avoids an extra bitset load on every large-value view. | recordViewHit 统计
-// 一次 View 命中，并采样访问位与访问草图。采样访问位可避免每次大值 View 都多读一次位图。
-func (s *shard) recordViewHit(hash uint64, off uint32) {
-	if s.stats.addHit(hash)&viewSampleMask != 0 {
+// recordReadHit counts one Get/GetAppend/View hit and samples the access bit and sketch.
+// Sampling avoids a bitset write on every large-value read and keeps readers off the write
+// lock. | recordReadHit 统计一次 Get/GetAppend/View 命中，并采样访问位与访问草图。采样避免
+// 每次大值读取都写位图，也让读者不必获取写锁。
+func (s *shard) recordReadHit(hash uint64, off uint32) {
+	if s.stats.addHit(hash)&readSampleMask != 0 {
 		return
 	}
 	s.markAccess(off)
