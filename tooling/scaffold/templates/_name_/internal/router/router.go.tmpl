@@ -28,7 +28,8 @@ import (
 	"{{ .YdxModule }}/errs"
 	"{{ .YdxModule }}/log"
 	"{{ .YdxModule }}/openapi"
-	ydrouter "{{ .YdxModule }}/router"
+	"{{ .YdxModule }}/openapi/ydrouter"
+	approuter "{{ .YdxModule }}/router"
 	"{{ .YdxModule }}/sse"
 )
 
@@ -243,11 +244,11 @@ func registerPublic(a *app.App, ctrl *controller.Controller) {
 // is reachable without editing this file by hand. | generatedMounts 由 yd gen 生成文件的 init 填充。
 // 每个挂载函数接收装配完成的受保护分组（鉴权 + 授权 + 租户）与存储，使生成模块无需手工编辑本文件
 // 即可被访问。
-var generatedMounts []func(*ydrouter.Group, *repository.Store)
+var generatedMounts []func(*approuter.Group, *repository.Store)
 
 // registerGeneratedMount appends one generated module's mount function. | registerGeneratedMount
 // 追加一个生成模块的挂载函数。
-func registerGeneratedMount(fn func(*ydrouter.Group, *repository.Store)) {
+func registerGeneratedMount(fn func(*approuter.Group, *repository.Store)) {
 	if fn != nil {
 		generatedMounts = append(generatedMounts, fn)
 	}
@@ -255,7 +256,7 @@ func registerGeneratedMount(fn func(*ydrouter.Group, *repository.Store)) {
 
 // mountGenerated runs every generated mount inside the protected group. | mountGenerated 在受保护分组中
 // 执行全部生成模块的挂载函数。
-func mountGenerated(g *ydrouter.Group, store *repository.Store) {
+func mountGenerated(g *approuter.Group, store *repository.Store) {
 	for _, fn := range generatedMounts {
 		fn(g, store)
 	}
@@ -544,8 +545,8 @@ func startMessageRuntime(a *app.App, ctrl *controller.Controller) {
 // A failed annotation parse is not fatal: production images usually ship no source, the document then degrades to the
 // skeleton derived from the route tree, the endpoints keep working and the warning reports the lost coverage.
 func registerOpenAPI(a *app.App) {
-	// 查看器脚本内嵌在 ydx/openapi 中，由同一个处理器在 AssetsPath 下提供。
-	// The viewer script is embedded in ydx/openapi and served by the same handler under AssetsPath.
+	// 页面、样式、图标与脚本隔离在 ydx/openapi/pages 下，由同一个处理器在 AssetsPath 下提供。
+	// The page, stylesheet, icons and script live under ydx/openapi/pages and are served by the same handler under AssetsPath.
 	// 静态文件挂载不是 API 操作，不计入 OpenAPI 缺失注解统计。
 	// A static file mount is not an API operation, so it is excluded from missing-annotation coverage.
 	opts := openapi.Options{
@@ -561,7 +562,7 @@ func registerOpenAPI(a *app.App) {
 	// Both dialects come from the same scan, so the source tree is walked and parsed only once.
 	opts.TypeAnnotations = source.Types
 
-	doc := openapi.FromRouterWithAnnotations(a.Router(), openAPIInfo(), opts, source.Annotations, report)
+	doc := ydrouter.FromRouterWithAnnotations(a.Router(), openAPIInfo(), opts, source.Annotations, report)
 	// 受保护端点统一标注 @Security BearerAuth，方案本身在这里声明，客户端据此生成 Authorization 头。
 	// Protected endpoints are annotated with @Security BearerAuth; the scheme is declared here so clients can build the
 	// Authorization header from the document.
@@ -576,7 +577,7 @@ func registerOpenAPI(a *app.App) {
 			log.Err(err),
 		)
 	}
-	handler := openapi.Handler(doc, opts)
+	handler := ydrouter.Handler(doc, opts)
 	a.GET(opts.Path, handler)
 	a.GET(opts.DocsPath, handler)
 	a.GET(opts.AssetsPath+"*filepath", handler)

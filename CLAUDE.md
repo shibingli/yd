@@ -47,9 +47,11 @@
 
 - **依赖形态**：`go.mod` 直接引用 `github.com/shibingli/ydx/<module> vX.Y.Z`；**禁止**本地
   `replace`。开发期联调只能在两个仓库之外临时使用 `go.work`，不得提交。
-- **模块清单**（30 个）：`errs`、`sysinfo`、`buffpool`、`protocol`、`base64`、`json`、`afs`、
+- **模块清单**（31 个）：`errs`、`sysinfo`、`buffpool`、`protocol`、`base64`、`json`、`afs`、
   `config`、`log`、`regexpx`、`router`、`gorm`、`redis`、`asynq`、`cache`、`sse`、`websocket`、
-  `render`、`i18n`、`openapi`、`jwt`、`middleware` 及 8 个 `middleware/*` 插件。
+  `render`、`i18n`、`openapi`、`openapi/ydrouter`、`jwt`、`middleware` 及 8 个 `middleware/*` 插件。
+- **OpenAPI 分层**：`openapi` 核心不依赖任何路由器，只接受 `openapi.Route` 并提供标准
+  `net/http` 处理器；`ydx/router` 项目经 `openapi/ydrouter` 的 `FromRouter` / `Handler` 接入。
 - **包标识符已同步改名**：`errs`、`json`、`base64`、`log`、`buffpool`、`gorm`、`cache`、
   `redis`、`asynq`、`websocket`；yd 源码中不得再出现 `errx.`、`jsonx.`、`b64x.`、`logx.`、
   `gormx.`、`cachex.`、`redisx.`、`asynqx.`、`ws.` 等旧前缀。
@@ -753,10 +755,11 @@ yd versions sync               # 仅重新生成 version_generated.go
   （SSE abort 当前流、WS 无状态码关闭并以 1005 触发重连——浏览器客户端只允许 1000 与 3000-4999），
   只有连接对象已不存在时才回退整页重载。
 - **查看器脚本必须同源外链**：CSP 是 `script-src 'self'`，内联脚本会被浏览器拦截，
-  表现为 `/mgr/docs` 页面空白。脚本内嵌在 `ydx/openapi` 模块中，由 `openapi.Handler` /
-  `openapi.HTTPHandler` 在 `Options.AssetsPath`（默认 `/openapi/assets/`）下提供；
-  `Options.ViewerScript` 可覆盖为自有静态管线 URL。生成路由必须同时注册
-  `opts.AssetsPath+"*filepath"`，禁止内联脚本与 CDN。
+  表现为 `/mgr/docs` 页面空白。前端资源与 Go 代码隔离在 `openapi/pages/{page,assets}`，随模块
+  经 `go:embed` 发布；脚本、样式表与图标由 `openapi.HTTPHandler` 在 `Options.AssetsPath`
+  （默认 `/openapi/assets/`）下提供，YD 路由项目经 `ydrouter.Handler` 适配。
+  `Options.ViewerScript` / `ViewerCSS` / `ViewerIcons` 可覆盖为自有静态管线 URL。生成路由必须同时
+  注册 `opts.AssetsPath+"*filepath"`，禁止内联脚本与 CDN。
 - **查看器交互**：左侧导航按第一个 `tag` 分组（`doc.tags` 顺序优先，随后是未声明的 tag，
   最后是 webhooks、数据模型与安全方案）；操作详情提供**同源在线测试**——服务器、鉴权头、
   path/query/header 参数与 JSON 请求体，响应显示状态、耗时、响应头与正文。测试请求只允许

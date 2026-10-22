@@ -133,8 +133,9 @@
       不得另写重连定时器；`#yd-connection` 是唯一横幅（连接中 / 重连中 #N / 已失败 / 离线），
       全部恢复后隐藏并给出 3 秒恢复提示；恢复时按 `data-yd-resync` 重取片段并派发 `yd:realtime:recovered`；
       导航与 `htmx:after:swap` 必须清理定时器、提示节点与旧通道状态。
-- [ ] **OpenAPI 查看器**：脚本内嵌在 `ydx/openapi` 模块中，由 `openapi.Handler` 在
-      `Options.AssetsPath`（默认 `/openapi/assets/`）下提供；生成路由必须注册该资源路由。
+- [ ] **OpenAPI 查看器**：页面、样式、图标与脚本隔离在 `openapi/pages/{page,assets}` 并随
+      `ydx/openapi` 经 `go:embed` 发布；YD 路由项目用 `openapi/ydrouter` 的 `Handler` 挂载，
+      资源由 `Options.AssetsPath`（默认 `/openapi/assets/`）提供，生成路由必须注册该资源路由。
       禁止内联脚本与 CDN，否则 CSP 会拦截并让 `/mgr/docs` 空白。
 - [ ] **管理概览资源仪表盘**：系统资源与中间件共用一条 `/mgr/ws/metrics` 推送，纯 SVG 仪表盘、主题令牌着色；
       宿主机 CPU/内存来自 `ydx/sysinfo`，进程 CPU/内存来自 `runtime/metrics`；

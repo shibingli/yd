@@ -217,6 +217,7 @@ var scaffoldYdxModules = []string{
 	"github.com/shibingli/ydx/middleware/reqlog",
 	"github.com/shibingli/ydx/middleware/requestid",
 	"github.com/shibingli/ydx/openapi",
+	"github.com/shibingli/ydx/openapi/ydrouter",
 	"github.com/shibingli/ydx/protocol",
 	"github.com/shibingli/ydx/redis",
 	"github.com/shibingli/ydx/regexpx",

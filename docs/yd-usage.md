@@ -888,23 +888,43 @@ application.UseObserved(desc, func(c *router.Ctx) {
 
 ### 10.4 OpenAPI 文档与独立资源
 
-OpenAPI 能力位于 `ydx/openapi`。查看器脚本内嵌在该模块中，默认由处理器在
-`/openapi/assets/` 下提供，因此不需要框架静态文件系统，也不依赖 CDN。
+OpenAPI 能力拆成两个模块：
 
-生成项目会自动挂载三个端点：
+- `ydx/openapi` —— 文档模型、注解解析与标准 `net/http` 处理器，**不依赖任何路由器**；
+- `ydx/openapi/ydrouter` —— `ydx/router` 适配层，把路由树转换为 `openapi.Route` 并提供
+  `router.HandlerFunc`。
+
+所有前端资源与 Go 代码隔离在 `openapi/pages/` 下，并随模块经 `go:embed` 发布：
 
 ```text
-GET /api/v1/openapi.json              JSON 文档
-GET /mgr/docs                         查看器页面
-GET /openapi/assets/yd-openapi-viewer.js  查看器脚本
+openapi/pages/page/index.html              页面模板（ViewerHTML）
+openapi/pages/assets/index.css             样式表（ViewerCSS）
+openapi/pages/assets/icons.svg             图标 sprite（ViewerIcons）
+openapi/pages/assets/yd-openapi-viewer.js  查看器脚本（ViewerScript）
 ```
 
-使用标准 `net/http` 时，把同一个处理器挂载到三个路径即可：
+生成项目自动挂载三个端点，资源由同一个处理器在 `AssetsPath` 下提供：
+
+```text
+GET /api/v1/openapi.json                          JSON 文档
+GET /mgr/docs                                     查看器页面
+GET /openapi/assets/yd-openapi-viewer.js          查看器脚本
+GET /openapi/assets/index.css                     查看器样式表
+GET /openapi/assets/icons.svg                     查看器图标 sprite
+```
+
+使用标准 `net/http` 时，先构造 `openapi.Route` 列表（路由模式需已转换为
+`/users/{id}` 形式），再把同一个处理器挂载到三个路径：
 
 ```go
 import "github.com/shibingli/ydx/openapi"
 
-doc := openapi.FromRouter(muxRouter, openapi.Info{Title: "Demo", Version: "1.0.0"}, openapi.Options{})
+routes := []openapi.Route{
+    {Method: "GET", Path: "/users/{id}", Params: []openapi.Parameter{
+        {Name: "id", In: "path", Required: true, Schema: &openapi.Schema{Type: "string"}},
+    }},
+}
+doc := openapi.FromRoutes(routes, openapi.Info{Title: "Demo", Version: "1.0.0"}, openapi.Options{})
 h := openapi.HTTPHandler(doc, openapi.Options{})
 
 mux := http.NewServeMux()
@@ -913,30 +933,55 @@ mux.Handle("/docs", h)
 mux.Handle("/openapi/assets/", h)
 ```
 
+使用 `ydx/router` 时改用适配层，模式中的 `:id`、`*filepath` 与单段混合模式会自动转换：
+
+```go
+import (
+    "github.com/shibingli/ydx/openapi"
+    "github.com/shibingli/ydx/openapi/ydrouter"
+)
+
+opts := openapi.Options{
+    Path:       "/api/v1/openapi.json",
+    DocsPath:   "/mgr/docs",
+    AssetsPath: openapi.DefaultAssetsPath,
+}
+doc := ydrouter.FromRouterWithAnnotations(r, openapi.Info{Title: "Demo", Version: "1.0.0"},
+    opts, annots, &openapi.Report{})
+h := ydrouter.Handler(doc, opts)
+r.GET(opts.Path, h)
+r.GET(opts.DocsPath, h)
+r.GET(opts.AssetsPath+"*filepath", h)
+```
+
 自定义资源前缀：
 
 ```go
 opts := openapi.Options{AssetsPath: "/assets/openapi/"}
 h := openapi.HTTPHandler(doc, opts)
-// 查看器页面会自动引用 /assets/openapi/yd-openapi-viewer.js
+// 查看器页面会自动引用 /assets/openapi/ 下的脚本、样式与图标
 ```
 
-如果使用自有静态管线（例如把页面与脚本交给前端构建、对象存储或私有静态服务），
-`ViewerPage` 返回完整 HTML 页面，`ViewerScript` 返回脚本字节，两者可直接写入磁盘：
+如果使用自有静态管线（例如把页面与资源交给前端构建、对象存储或私有静态服务），
+`ViewerPage` 返回完整 HTML 页面，另外四个导出函数返回各资源字节：
 
 ```go
 page, err := openapi.ViewerPage(doc, openapi.Options{
     ViewerScript: "./yd-openapi-viewer.js",
+    ViewerCSS:    "./index.css",
+    ViewerIcons:  "./icons.svg",
 })
 if err != nil {
     return err
 }
 _ = os.WriteFile("public/docs/index.html", page, 0o644)
 _ = os.WriteFile("public/docs/yd-openapi-viewer.js", openapi.ViewerScript(), 0o644)
+_ = os.WriteFile("public/docs/index.css", openapi.ViewerCSS(), 0o644)
+_ = os.WriteFile("public/docs/icons.svg", openapi.ViewerIcons(), 0o644)
 ```
 
-这样页面与脚本完全不依赖 yd 运行时，任何静态文件服务器（包括原生 `http.FileServer`）
-都能独立托管；需要换路径时只改 `Options.ViewerScript`。
+这样页面与资源完全不依赖 yd 运行时，任何静态文件服务器（包括原生 `http.FileServer`）
+都能独立托管；需要换路径时改对应的 `Options.ViewerScript` / `ViewerCSS` / `ViewerIcons`。
 
 **同源要求**：查看器脚本必须是同源外链；CSP 为 `script-src 'self'`，内联脚本会被浏览器
 拦截并让 `/mgr/docs` 空白。`Options.Blocked` 可同时关闭 JSON、页面与资源端点。
@@ -1251,7 +1296,7 @@ yd service install --name taskapp
 | 生产环境拒绝初始化种子 | 非 development 未配置 `YD_SEED_ADMIN_PASSWORD`；注入强口令后重启 |
 | 登录 404 / 403 | 用户不存在与跨租户同形返回 404；检查租户成员关系与能力注册表 |
 | Redis 不可达 | 消息总线降级为单节点并告警；`cache.fail_open` 默认 true；生产建议部署 Redis |
-| `/mgr/docs` 空白 | CSP 拦截内联脚本；查看器脚本由 `ydx/openapi` 在 `/openapi/assets/yd-openapi-viewer.js` 提供，生成路由必须注册 `opts.AssetsPath+"*filepath"`；禁止内联脚本与 CDN |
+| `/mgr/docs` 空白 | CSP 拦截内联脚本；页面、样式、图标与脚本由 `ydx/openapi` 在 `opts.AssetsPath` 下提供（YD 路由经 `ydrouter.Handler` 挂载），生成路由必须注册 `opts.AssetsPath+"*filepath"`；禁止内联脚本与 CDN |
 | SSE 一直显示「连接中」 | 确认服务端发送的是匿名 `data:` 消息，而不是命名事件 |
 | WebSocket 发送无反应 | 发送控件必须位于 `hx-ws:connect` 元素内部；检查 `hx-ws:send` 的 `closest()` |
 | Windows 上 `go test -race` 失败 | 需要 cgo 与 C 工具链；使用 WSL/Linux 或安装 MinGW-w64 |
