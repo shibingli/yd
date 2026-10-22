@@ -210,6 +210,17 @@ func TestScaffoldBuildRun(t *testing.T) {
 		if regexpx.MustCompile(`(src|href)="http`).MatchString(viewer.body) {
 			t.Error("the /docs viewer references an external CDN (a zero-CDN violation) | /docs 查看器引用了外部 CDN（违反零 CDN 约束）")
 		}
+		if !strings.Contains(viewer.body, "/openapi/assets/yd-openapi-viewer.js") {
+			t.Error("the viewer does not load the embedded viewer script | 查看器未加载内嵌查看器脚本")
+		}
+
+		script := httpGet(t, "http://"+addr+"/openapi/assets/yd-openapi-viewer.js", nil)
+		if script.status != http.StatusOK {
+			t.Fatalf("viewer script status = %d, want 200 | 查看器脚本状态 = %d，期望 200", script.status, script.status)
+		}
+		if ct := script.header.Get("Content-Type"); !strings.Contains(ct, "javascript") {
+			t.Errorf("viewer script content-type = %q | 查看器脚本 Content-Type = %q", ct, ct)
+		}
 	})
 
 	t.Run("静态资产本地可用", func(t *testing.T) {

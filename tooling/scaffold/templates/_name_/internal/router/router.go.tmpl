@@ -27,7 +27,7 @@ import (
 	"{{ .YdModule }}/security/authz"
 	"{{ .YdxModule }}/errs"
 	"{{ .YdxModule }}/log"
-	"{{ .YdModule }}/http/openapi"
+	"{{ .YdxModule }}/openapi"
 	ydrouter "{{ .YdxModule }}/router"
 	"{{ .YdxModule }}/sse"
 )
@@ -544,11 +544,14 @@ func startMessageRuntime(a *app.App, ctrl *controller.Controller) {
 // A failed annotation parse is not fatal: production images usually ship no source, the document then degrades to the
 // skeleton derived from the route tree, the endpoints keep working and the warning reports the lost coverage.
 func registerOpenAPI(a *app.App) {
+	// 查看器脚本内嵌在 ydx/openapi 中，由同一个处理器在 AssetsPath 下提供。
+	// The viewer script is embedded in ydx/openapi and served by the same handler under AssetsPath.
 	// 静态文件挂载不是 API 操作，不计入 OpenAPI 缺失注解统计。
 	// A static file mount is not an API operation, so it is excluded from missing-annotation coverage.
 	opts := openapi.Options{
 		Path:         OpenAPIPath,
 		DocsPath:     DocsPath,
+		AssetsPath:   openapi.DefaultAssetsPath,
 		Title:        meta.Name + " API",
 		SkipPrefixes: []string{StaticPrefix + "/"},
 	}
@@ -576,6 +579,7 @@ func registerOpenAPI(a *app.App) {
 	handler := openapi.Handler(doc, opts)
 	a.GET(opts.Path, handler)
 	a.GET(opts.DocsPath, handler)
+	a.GET(opts.AssetsPath+"*filepath", handler)
 
 	a.Logger().Info("openapi document ready | OpenAPI 文档已生成",
 		log.Str("path", opts.Path),

@@ -44,11 +44,11 @@ import (
 	"github.com/spf13/afero"
 
 	"github.com/shibingli/yd/core/envx"
-	"github.com/shibingli/yd/http/i18n"
 	"github.com/shibingli/yd/runtime/metricsx"
 	"github.com/shibingli/yd/runtime/server"
 	"github.com/shibingli/ydx/config"
 	"github.com/shibingli/ydx/errs"
+	"github.com/shibingli/ydx/i18n"
 	ydlog "github.com/shibingli/ydx/log"
 	"github.com/shibingli/ydx/middleware"
 	"github.com/shibingli/ydx/router"

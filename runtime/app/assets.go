@@ -8,10 +8,10 @@ import (
 	"github.com/spf13/afero"
 
 	"github.com/shibingli/yd/core/envx"
-	"github.com/shibingli/yd/http/i18n"
 	"github.com/shibingli/ydx/afs"
 	"github.com/shibingli/ydx/config"
 	"github.com/shibingli/ydx/errs"
+	"github.com/shibingli/ydx/i18n"
 )
 
 // defaultAssets carries the asset tree the facade ships with. | defaultAssets 承载门面随附的资产树。

@@ -11,9 +11,9 @@ import (
 	"github.com/spf13/afero"
 
 	"github.com/shibingli/yd/http/htmx"
-	"github.com/shibingli/yd/http/i18n"
 	"github.com/shibingli/ydx/buffpool"
 	"github.com/shibingli/ydx/errs"
+	"github.com/shibingli/ydx/i18n"
 	"github.com/shibingli/ydx/render"
 	"github.com/shibingli/ydx/router"
 )
