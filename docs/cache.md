@@ -1,8 +1,8 @@
 # 二级缓存 cachex | Two-Level Cache cachex
 
-`data/cachex` 是 yd 的二级缓存组件：一级缓存是进程内环形字节缓存，二级缓存是 Redis（可选）。它面向 Controller 与 Service 的读多写少场景，提供泛型 API、TTL、CRUD 事件订阅、零拷贝读取与 GORM 插件。
+`ydx/cache` 是 yd 的二级缓存组件：一级缓存是进程内环形字节缓存，二级缓存是 Redis（可选）。它面向 Controller 与 Service 的读多写少场景，提供泛型 API、TTL、CRUD 事件订阅、零拷贝读取与 GORM 插件。
 
-`data/cachex` is the yd two-level cache: a process-local ring cache in front of an optional Redis tier. It targets read-heavy Controller/Service workloads and provides typed APIs, TTL, CRUD event subscriptions, zero-copy reads and a GORM plugin.
+`ydx/cache` is the yd two-level cache: a process-local ring cache in front of an optional Redis tier. It targets read-heavy Controller/Service workloads and provides typed APIs, TTL, CRUD event subscriptions, zero-copy reads and a GORM plugin.
 
 ## 1. 能力一览 | Capabilities
 
@@ -21,9 +21,9 @@
 ## 2. 包与分层 | Packages
 
 ```
-data/cachex              Manager、Raw、Cache[T]、Codec、事件、Redis Remote、配置映射
-data/cachex/local        L1 环形缓存（可独立使用）
-data/cachex/gormcache    GORM 插件
+ydx/cache              Manager、Raw、Cache[T]、Codec、事件、Redis Remote、配置映射
+ydx/cache/local        L1 环形缓存（可独立使用）
+ydx/cache/gormcache    GORM 插件
 ```
 
 - `Manager` 持有一个共享 L1、一个可选 `Remote` 与事件总线。一个进程通常只建一个。
@@ -388,8 +388,8 @@ cache:
 本地包内置基准：
 
 ```bash
-go test ./data/cachex/local -run '^$' -bench . -benchmem
-go test ./data/cachex -run '^$' -bench . -benchmem
+(cd ../ydx/cache/local && go test -run '^$' -bench . -benchmem)
+(cd ../ydx/cache && go test -run '^$' -bench . -benchmem)
 ```
 
 参考结果（Windows 11 / i9-10980HK，Go 1.27.2，单进程；采集时宿主有背景负载，绝对值仅作量级参考）：

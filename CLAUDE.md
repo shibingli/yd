@@ -23,7 +23,7 @@
 - 命令行：pflag v1.0.10（POSIX 风格，替代标准库 `flag`）
 - JSON：**自研默认** —— amd64 默认自研原生后端，非 x86_64 回退 go-json；构建标签 `jsonx_std` 可强制标准库；主模块不依赖 sonic/jsoniter
 - Base64：**自研默认** —— amd64 默认自研 SIMD/标量内核（`GOEXPERIMENT=simd` 时按 VBMI2/VBMI → AVX-512 → AVX2 分发）；非 amd64 回退 `cristalhq/base64`；loong64 或 `b64x_std` 标签回退 `encoding/base64`；主模块不依赖 cloudwego/base64x
-- 并行与分配：工作协程数、分块大小与缓冲上限一律由 `core/sysinfo` 在运行时读取 GOMAXPROCS 与 cgroup/主机内存后自动决定，**不得**要求调用方传核心数或内存容量
+- 并行与分配：工作协程数、分块大小与缓冲上限一律由 `ydx/sysinfo` 在运行时读取 GOMAXPROCS 与 cgroup/主机内存后自动决定，**不得**要求调用方传核心数或内存容量
 - 数据：GORM v1.31（默认 `PrepareStmt: true`）、go-redis v9（单机/哨兵/集群）、asynq v0.26（Redis 驱动分布式队列）
 - 网络：HTTP/1.1 + H2C + HTTP/3(QUIC, quic-go) + 内置 ACME 自动签发续期
 - 安全：国密 SM2/SM3/SM4（**纯 Go**，gmsm），严禁 cgo 与非 Go 原生组件
@@ -36,6 +36,29 @@
 - 资产一律 `go:embed` 打包进二进制，**严禁**运行时从公网 CDN 动态引入
 - Alpine.js 3.17 + htmx 内建 morph（Idiomorph 算法）实现精细化 DOM 差量更新
 - 前端国密沙箱：纯 JS 的 SM2/SM3/SM4，用于表单传输前置加密与静态资源完整性校验
+
+### 2.1 ydx 组件依赖（强制）
+
+组件源码已经迁到独立仓库 **https://github.com/shibingli/ydx**，yd 主仓只通过版本号依赖，
+不再保留 `core/errx`、`core/jsonx`、`core/b64x`、`core/logx`、`core/bufpool`、`core/afs`、
+`core/sysinfo`、`core/regexpx`、`core/config`、`data/gormx`、`data/cachex`、`data/redisx`、
+`data/asynqx`、`http/sse`、`http/ws`、`http/render`、`http/router`、`http/protocol`、
+`security/jwt` 与旧的 `middleware` 包。
+
+- **依赖形态**：`go.mod` 直接引用 `github.com/shibingli/ydx/<module> vX.Y.Z`；**禁止**本地
+  `replace`。开发期联调只能在两个仓库之外临时使用 `go.work`，不得提交。
+- **模块清单**（28 个）：`errs`、`sysinfo`、`buffpool`、`protocol`、`base64`、`json`、`afs`、
+  `config`、`log`、`regexpx`、`router`、`gorm`、`redis`、`asynq`、`cache`、`sse`、`websocket`、
+  `render`、`jwt`、`middleware` 及 8 个 `middleware/*` 插件。
+- **包标识符已同步改名**：`errs`、`json`、`base64`、`log`、`buffpool`、`gorm`、`cache`、
+  `redis`、`asynq`、`websocket`；yd 源码中不得再出现 `errx.`、`jsonx.`、`b64x.`、`logx.`、
+  `gormx.`、`cachex.`、`redisx.`、`asynqx.`、`ws.` 等旧前缀。
+- **基准位置**：组件基准统一在 ydx 的 `benchmarks/*` 独立模块；yd 只保留框架级/对比基准，
+  不得把基准重新塞回组件模块。
+- **修改顺序**：任何组件修改必须先在 ydx 仓库完成测试、打子目录标签（如 `cache/v0.1.1`）
+  并推送，然后在 yd 升级版本号；禁止在 yd 内直接改 `go mod cache` 或复制一份组件源码。
+- **命名规则**：ydx 中目录名 = 模块路径末段 = 包名，且每个实现包有同名 `<package>.go`
+  主文件；公开路径不含 `internal`。yd 侧新增引用时必须沿用这些名字。
 
 ## 3. 分层与优先级（不可违反）
 
@@ -53,10 +76,10 @@
 
 1. **包结构**：一个文件一个职责；文件超过约 600 行或承担两类职责即拆分。
 2. **错误处理（强制）**：
-   - **所有错误必须在包级用 `errors` 声明为哨兵**：`var ErrBadPattern = errx.New("invalid pattern | 非法的路由模式")`
-     （`errx` 即 `github.com/shibingli/yd/core/errx`，是对 `errors` 的声明式薄封装）；
-   - **默认禁止 `fmt.Errorf`**。需要附加格式化细节时用 `errx.Detail(ErrX, "%q ...", v)`；
-     需要保留底层错误时用 `errx.Wrap(err, ErrX)` 或 `errx.WrapDetail(err, ErrX, fmt, args...)`；
+   - **所有错误必须在包级用 `errors` 声明为哨兵**：`var ErrBadPattern = errs.New("invalid pattern | 非法的路由模式")`
+     （`errs` 即 `github.com/shibingli/ydx/errs`，是对 `errors` 的声明式薄封装）；
+   - **默认禁止 `fmt.Errorf`**。需要附加格式化细节时用 `errs.Detail(ErrX, "%q ...", v)`；
+     需要保留底层错误时用 `errs.Wrap(err, ErrX)` 或 `errs.WrapDetail(err, ErrX, fmt, args...)`；
    - 错误文案必须**中英同步**：`English | 中文`（与注释、日志文案同一规则）；
    - 双语格式串若两侧都要动词，**必须使用显式参数索引**（`%[1]d`），否则 `go vet`
      会因参数个数不匹配报警；语义不同则拆哨兵，不要硬凑一行；
@@ -68,8 +91,8 @@
      **登记**到所属对象，由 `Router.Validate()` / `cli.Execute()` 在启动时一次性返回错误；
      运行期取不到资源（如 `app.MustGet`）改为返回 `(值, error)`。
      守卫 `TestNoDirectPanic` 强制这一点（变异验证过）。
-   - 唯一例外：`errx` 包自身内部实现需要 `fmt.Sprintf` 拼接文案。
-   - 自检：`grep -rn 'fmt\.Errorf' --include=*.go . | grep -v '^./core/errx/'` 必须无命中。
+   - 唯一例外：`errs` 包自身内部实现需要 `fmt.Sprintf` 拼接文案。
+   - 自检：`grep -rn 'fmt\.Errorf' --include=*.go .` 必须无命中（`ydx/errs` 内部的实现不属于本仓）。
 3. **文档注释（强制）**：所有导出符号必须有以符号名开头的 Go doc 注释。
 3.1 **中英文同步（注释与日志文案）**：所有注释（包文档、导出符号 doc、行内注释）
    **以及所有日志文案**，必须**中英文同步**，以半角竖线 `|` 分割，
@@ -83,7 +106,7 @@
    - **两种形态，按位置选**：
      1. **行末注释**（跟在代码后面）与**所有运行时输出**——异常输出、提示、结果响应、
         日志文案、CLI 打印——**必须写在同一行**，用 ` | ` 分隔：
-        `l.Info("server started | 服务器已启动", logx.Str("addr", addr))`；
+        `l.Info("server started | 服务器已启动", log.Str("addr", addr))`；
      2. **方法与多行注释**（函数/类型的 doc 注释、独立成块的注释）**允许换行分隔**：
         英文段落在前、中文段落在后，不强制逐行成对。这种形态便于写长段落，
         但**整块必须两种语言都有**——只有中文的整块注释同样违规。
@@ -91,12 +114,12 @@
    - 分隔符一律是 ` | `（两侧各一个半角空格）；`。| English` 这种缺空格的写法不合规。
    - 豁免：`//go:build` 等编译指令、`// Code generated ... DO NOT EDIT.` 生成标记、
      注释内的代码示例/树状图/接口签名块、URL 与纯符号行。
-3.1.1 **日志一律使用自研 `logx`（强制）**：
+3.1.1 **日志一律使用自研 `log`（强制）**：
    - 全仓禁止 `import "log"`（标准库）、禁止 `fmt.Print*` 作为日志输出、
      禁止引入 zap/zerolog/logrus 等第三方日志库；
-   - 统一使用 `github.com/shibingli/yd/core/logx`（`logx.New` / `Default()` 及其 `Debug/Info/Warn/Error/Fatal`）；
+   - 统一使用 `github.com/shibingli/ydx/log`（`log.New` / `Default()` 及其 `Debug/Info/Warn/Error/Fatal`）；
    - **唯一例外**：`server` 包为满足 `http.Server.ErrorLog`（要求 `*log.Logger`）而写的
-     适配器，其输出必须转发进 `logx`；
+     适配器，其输出必须转发进 `log`；
    - 自检：`grep -rn '"log"' --include=*.go . | grep -v '^./runtime/server/'` 必须无命中。
 3.2 **OpenAPI 注释必须完整**：所有对外 HTTP 处理器必须在其 doc 注释中给出**完整**的
    OpenAPI 3.0 注解块（缺项视为未完成），字段齐全：
@@ -124,11 +147,11 @@
    `@Name`/`@Schema`/`@Example`，由 `openapi.ParseTypeAnnotations` 解析、`Builder.AddTypeAnnotations` 合并。
 4. **热路径禁止反射**：HTTP 请求处理、序列化、日志、JWT 校验路径不得使用 `reflect`；反射仅允许出现在启动期装配、代码生成与 OpenAPI Schema 构建中。
 4.1 **JSON 与 Base64 必须走框架封装层**（强制）：
-   - 任何 JSON 编解码一律使用 `github.com/shibingli/yd/core/jsonx`（`Marshal`/`Unmarshal`/`NewEncoder`/`NewDecoder`/`Valid`），
+   - 任何 JSON 编解码一律使用 `github.com/shibingli/ydx/json`（`Marshal`/`Unmarshal`/`NewEncoder`/`NewDecoder`/`Valid`），
      **禁止**直接 `import "encoding/json"`；
-   - 任何 Base64 编解码一律使用 `github.com/shibingli/yd/core/b64x`（`StdEncoding`/`URLEncoding`/`RawStdEncoding`/`RawURLEncoding`
+   - 任何 Base64 编解码一律使用 `github.com/shibingli/ydx/base64`（`StdEncoding`/`URLEncoding`/`RawStdEncoding`/`RawURLEncoding`
      及其 `Encode`/`Decode`/`AppendEncode`/`AppendDecode`），**禁止**直接 `import "encoding/base64"`；
-   - 唯一例外：第三方库（如 gmsm）自身实现内部的编解码，以及 `logx` 为满足零拷贝而手写的
+   - 唯一例外：第三方库（如 gmsm）自身实现内部的编解码，以及 `log` 为满足零拷贝而手写的
      JSON 字节拼装（它不得引入 `encoding/json`）。
    - 自检命令：`grep -rn '"encoding/json"\|"encoding/base64"' --include=*.go .` 必须无命中
      （`repotest` 的守卫测试会自动检查）。
@@ -139,7 +162,7 @@
 9. **格式**：`gofmt`/`go vet ./...` 必须零告警；导入分组为标准库 / 第三方 / 本项目。
 10. **提交信息**：见下方「提交纪律」，中文 Conventional Commits，署名口径唯一。
 11. **正则表达式（强制）**：
-   - 全仓正则统一经 `github.com/shibingli/yd/core/regexpx`；**禁止**在包装层之外直接
+   - 全仓正则统一经 `github.com/shibingli/ydx/regexpx`；**禁止**在包装层之外直接
      `import "regexp"` 或 `import "github.com/dlclark/regexp2"`；
    - 编译只用 `regexpx.MustCompile` / `regexpx.Compile`，匹配只用其 `Match*` / `Find*` / `Replace*` 方法；
    - **包装层按模式选引擎**：标准库能编译的模式走 **RE2 线性引擎**（不回溯、热路径零分配、无需超时）；
@@ -153,8 +176,8 @@
    - `...Index` 系列返回**字节**下标（包装层已完成符文→字节换算）；禁止把 regexp2 的符文下标直接当字节用；
    - 测试代码同样适用本规则（守卫测试也需要稳定的正则语义）；
    - 自检（只匹配独立成行的导入语句，避免命中守卫里的字符串字面量）：
-     `grep -rnE '^\s*"(regexp|github\.com/dlclark/regexp2)"\s*$' --include=*.go . | grep -v '^./core/regexpx/'`
-     必须无命中；守卫 `TestRegexStaysBehindWrapper` 自动检查。
+     `grep -rnE '^\s*"(regexp|github\.com/dlclark/regexp2)"\s*$' --include=*.go .`
+     必须无命中（包装层在 `ydx/regexpx` 仓库内）；守卫 `TestRegexStaysBehindWrapper` 自动检查。
 
 ## 5. AI 助手行为约束
 
@@ -182,7 +205,7 @@ Co-Authored-By: Eric Shi <shibingli@sina.com>
 ```
 
 - **类型**：`feat` `fix` `refactor` `perf` `test` `docs` `chore` `build` `ci` `style`
-- **范围**：受影响的包名，如 `router`、`logx`、`config`、`ws`、`cli`、`web`
+- **范围**：受影响的包名，如 `router`、`log`、`config`、`ws`、`cli`、`web`
 - **简述**：中文，动词开头，不超过 50 字，句末不加句号
 - **署名**：**凡本仓提交，一律使用 `Co-Authored-By: Eric Shi <shibingli@sina.com>`**，
   不得使用其他署名口径，也不得省略
@@ -284,7 +307,7 @@ yd icons check       # 校验图标 sprite 是否漂移（CI 可用）
 6. 逆序执行 `app.OnShutdown` 钩子（释放 DB / Redis / 队列等）；
 7. 全部错误以 `errors.Join` 聚合返回，超时步骤**记为错误但绝不阻断后续步骤**。
 
-- **长连接必须注册**：WebSocket 传 `ws.Options.Tracker`（退出时发 **1001 going away** 关闭帧再关套接字），
+- **长连接必须注册**：WebSocket 传 `websocket.Options.Tracker`（退出时发 **1001 going away** 关闭帧再关套接字），
   SSE 传 `sse.Options.Tracker`（默认停止心跳、写最终注释帧并 flush、再关 `Broker`），
   其它自增长连接用 `app.Lifecycle().Add(name, fn)` 登记；`lifecycle.Registry` 并发安全、`Shutdown` 幂等、
   钩子 panic 被恢复（`ErrHookPanic`）、内建 `ErrHookFailed` / `ErrShutdownTimeout`；
@@ -427,7 +450,7 @@ yd icons check       # 校验图标 sprite 是否漂移（CI 可用）
 ## 16. 连接串预置与无 CGO（强制）
 
 **所有数据库连接串都要预置时区、时间配置、空值严格性与默认字符集**，不得依赖使用方逐个写对。
-入口只有一个：`gormx.PresetDSN(driver, dsn)`，由 `dialectorFor` 在建立连接时统一施加。
+入口只有一个：`gorm.PresetDSN(driver, dsn)`，由 `dialectorFor` 在建立连接时统一施加。
 
 - **显式参数优先**：使用方在自己的 DSN 里写了的键一律保留，预置只补缺。因此**脚手架生成的 DSN 不得写死
   与预置冲突的值**——旧模板里的 `loc=Local` 正是这样把 UTC 默认架空的，已改为由预置补齐。
@@ -435,7 +458,7 @@ yd icons check       # 校验图标 sprite 是否漂移（CI 可用）
 - **默认时区是 UTC**（`loc=UTC` / `time_zone='+00:00'` / `TimeZone=UTC`），与框架日志一律输出 UTC 一致；
   GORM 的 `NowFunc` 同样固定为 UTC，避免自动时间戳把本地墙钟写进库；需要本地时间的使用方在自己的 DSN 里
   显式写 `loc=Local` 覆盖。
-- **预置表只有一份**：脚手架经 `gormx.PresetDSN` 生成示例 DSN，**不得**抄一份参数表到 `scaffold`。
+- **预置表只有一份**：脚手架经 `gorm.PresetDSN` 生成示例 DSN，**不得**抄一份参数表到 `scaffold`。
 
 ### 16.1 SQLite：两个参数一存一亡
 
@@ -445,11 +468,11 @@ yd icons check       # 校验图标 sprite 是否漂移（CI 可用）
   其后的 `_txlock` 分支永远走不到，`_txlock=immediate` 因此**静默失效**。而 `_time_format` 在该驱动上
   是**彻底的空操作**（其唯一取值 `"sqlite"` 就是未设置时的默认格式），等于用一个空操作换掉了并发写。
   实测：8 并发写，带该键 5/8 以 `SQLITE_BUSY_SNAPSHOT` 失败，去掉后 0/8。
-  `data/gormx` 有注释与行为级断言固化这条约束。
+  `ydx/gorm` 有注释与行为级断言固化这条约束。
 
 ### 16.2 目标库不存在时自动建库
 
-连接账号**权限足够**、但目标库**尚未创建**时，`gormx.Open` 会自动建库并重试一次原连接
+连接账号**权限足够**、但目标库**尚未创建**时，`gorm.Open` 会自动建库并重试一次原连接
 （配置键 `db.create_database`，**默认开启**）。
 
 - **判定用错误码，不用字符串匹配**：MySQL `ER_BAD_DB_ERROR`(1049)、PostgreSQL `SQLSTATE 3D000`，
@@ -695,7 +718,7 @@ yd versions sync               # 仅重新生成 version_generated.go
   可直接取用的服务端片段（直连、调试与无脚本回退），管理概览不再请求它们。
   仪表盘展示宿主机 CPU 核心数/利用率、总内存/利用率与当前进程 CPU/内存，是纯服务端渲染的 SVG
   （`pathLength="100"` + `stroke-dasharray`），不得引入图表库或内联脚本。
-- 指标来自 `core/sysinfo`（`CPUSnapshot` / `MemoryTotal` / `MemoryAvailable`，Windows 走
+- 指标来自 `ydx/sysinfo`（`CPUSnapshot` / `MemoryTotal` / `MemoryAvailable`，Windows 走
   `GetSystemTimes` / `GlobalMemoryStatusEx`）与 `runtime/metrics`；平台不提供时显示「不可用」，
   **不得编造数字**。首次采样允许约 150ms 的窗口等待，之后只做一次快照。
 
@@ -708,7 +731,7 @@ yd versions sync               # 仅重新生成 version_generated.go
   `hx-ws:connect`；把输入框/按钮放在连接元素之外会报 “No WebSocket connection found”，消息根本不会发出。
   连接元素还必须给出 `hx-target` / `hx-swap`，回显与主动推送都依赖它们。
 - **htmx 4 的 WS 信封与旧版不同**：上行是扁平 JSON（表单字段为顶层键，请求头在 `headers`），下行只交换
-  `content`。`ws.HtmxMessage` 同时接受扁平与旧的 `HEADERS`/`BODY` 形态，把唯一值或 `message` 字段解为
+  `content`。`websocket.HtmxMessage` 同时接受扁平与旧的 `HEADERS`/`BODY` 形态，把唯一值或 `message` 字段解为
   `Body`，默认回显以 `{"content":"…"}` 应答；`hx-partial` 原样文本由 htmx 核心改写为 `template[type=partial]`。
 - **回车发送不得用 `hx-trigger` 过滤器**：`keyup[key=='Enter']` 由 htmx 用 `new Function` 编译，
   会被 CSP 的 `script-src 'self'` 拦截；由 `yd-app.js` 的普通监听器点击同一个发送按钮。
@@ -903,13 +926,13 @@ yd versions sync               # 仅重新生成 version_generated.go
 - **守卫**：`repotest` 的 `TestNoForeignKeyDefinitions` 扫描 Go 结构标签、SQL 字符串、模板与
   `.sql` 文件；消息与鉴权模型的 GORM Schema 断言不得解析出关联关系。
 
-## 26. 二级缓存 cachex（强制）
+## 26. 二级缓存 cache（强制）
 
-`data/cachex` 是框架唯一的通用二级缓存组件，使用说明见 `docs/cache.md`。任何业务缓存都应经它实现，
+`ydx/cache` 是框架唯一的通用二级缓存组件，使用说明见 `docs/cache.md`。任何业务缓存都应经它实现，
 不得在 Controller/Service 里另造 local cache + Redis 的两套失效逻辑。
 
-- **包结构**：`data/cachex`（Manager/Raw/Cache[T]/Codec/事件/Redis Remote）、`data/cachex/local`（L1 环形缓存）、
-  `data/cachex/gormcache`（GORM 插件）。只在装配点创建一个 `Manager`，按命名空间开 `Raw`/`Cache[T]`；
+- **包结构**：`ydx/cache`（Manager/Raw/Cache[T]/Codec/事件/Redis Remote）、`ydx/cache/local`（L1 环形缓存）、
+  `ydx/cache/gormcache`（GORM 插件）。只在装配点创建一个 `Manager`，按命名空间开 `Raw`/`Cache[T]`；
   同一 Manager 内命名空间唯一，不得包含 `:` 或控制字符。
 - **一致性**：写路径固定为「L2 写入并取版本 → L1 写入/删除 → 发布事件」。读透回填必须使用 CAS
   （`Remote.StoreIf` + 未命中时观察到的版本），慢 loader 不得覆盖并发写入；L1 条目 TTL 上限为 `lease`，
@@ -930,8 +953,8 @@ yd versions sync               # 仅重新生成 version_generated.go
   目标类型、SQL 与全部绑定变量；写回调推进表代际并广播。事务内查询（`ConnPool` 实现 `gorm.TxCommitter`）
   不得缓存；Raw SQL、手工预构建 SQL、JOIN、`FOR UPDATE`、Preload 与 `*sql.Rows` 必须跳过。显式事务的写失效
   早于提交，文档已说明；需要严格语义时在提交后调用 `Plugin.Invalidate`。
-- **配置**：`cache.*` 默认值在 `core/config/defaults.go`，经 `cachex.OptionsFromConfig` /
-  `cachex.RedisOptionsFromConfig` / `gormcache.OptionsFromConfig` 读取；GORM 插件由
+- **配置**：`cache.*` 默认值在 `ydx/config/defaults.go`，经 `cache.OptionsFromConfig` /
+  `cache.RedisOptionsFromConfig` / `gormcache.OptionsFromConfig` 读取；GORM 插件由
   `cache.gorm.enabled` 显式开启（默认关闭）。装配时用 `app.ServiceCache` 注册 Manager。
 - **禁止**：直接 `import "encoding/json"`/`"encoding/base64"`、直接 `panic`、`fmt.Errorf`、新增第三方缓存库、
   在热路径用反射、在事件里携带值或敏感键名、绕过 `Manager` 自行实现跨节点失效。

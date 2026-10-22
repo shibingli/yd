@@ -1,12 +1,12 @@
 # JWT 签发与验签性能基准
 
-本目录是一个**独立 Go 模块**，测量 `security/jwt` 的签发、验签与高并发吞吐，并与主流高性能 JWT 社区库在同一平台、同一份 claims 与同一份 token 字节上对比。独立模块避免把对比库带进主模块的 `go.mod`。
+本目录是一个**独立 Go 模块**，测量 `ydx/jwt` 的签发、验签与高并发吞吐，并与主流高性能 JWT 社区库在同一平台、同一份 claims 与同一份 token 字节上对比。独立模块避免把对比库带进主模块的 `go.mod`。
 
 ## 对比实现
 
 | 标签 | 实现 | 说明 |
 |---|---|---|
-| `our` | `security/jwt` | 免反射：头部/载荷手写扫描，不构造 `map[string]any`；单次预分配数据缓冲；池化 HMAC；`Token.Release` 零分配复用路径 |
+| `our` | `ydx/jwt` | 免反射：头部/载荷手写扫描，不构造 `map[string]any`；单次预分配数据缓冲；池化 HMAC；`Token.Release` 零分配复用路径 |
 | `golang-jwt` | `github.com/golang-jwt/jwt/v5 v5.3.1` | 生态最广的 JWT 库，`MapClaims` + 函数式校验选项 |
 | `cristal` | `github.com/cristalhq/jwt/v5 v5.4.0` | 以低分配为目标的高性能库，结构体 claims |
 | `kataras` | `github.com/kataras/jwt v0.3.0` | 高吞吐 JWT 库，自带 claims 校验与自定义 claims |

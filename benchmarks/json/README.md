@@ -1,6 +1,6 @@
 # JSON 编解码性能基准
 
-独立 Go 模块，对比自适应 `core/jsonx` 与标准库及主流 Go JSON 库。
+独立 Go 模块，对比自适应 `ydx/json` 与标准库及主流 Go JSON 库。
 
 ## 后端选择
 
@@ -97,7 +97,7 @@ done
 
 - 解码嵌套深度上限 10000；超深、截断输入返回 `ErrSyntax`，不 panic、不无限递归；编码侧同样有深度上限，循环指针返回错误。
 - 非法 UTF-8 解码替换为 U+FFFD、编码输出 U+FFFD 字节，与当前 Go 标准库一致；代理项逐个替换。
-- `core/jsonx/jsonx_native_compat_test.go` 提供与 `encoding/json` 的差分表驱动测试、每个截断前缀对比、深层嵌套/循环指针安全测试，以及 `FuzzNativeUnmarshal` / `FuzzNativeMarshalRoundTrip`。
+- `ydx/json/jsonx_native_compat_test.go` 提供与 `encoding/json` 的差分表驱动测试、每个截断前缀对比、深层嵌套/循环指针安全测试，以及 `FuzzNativeUnmarshal` / `FuzzNativeMarshalRoundTrip`。
 - 字段名大小写匹配使用精确映射 + `strings.EqualFold`；嵌入字段与同名冲突完全按标准库规则解析；解码端 `jsonx_native_fields_test.go` 提供逐字节差分。
 - `omitzero` 与 `omitempty` 可同时使用，自定义 `IsZero` 优先于 `reflect.Value.IsZero`；测试见 `jsonx_native_omitzero_test.go`。
 - 编解码两端支持 `,string`：bool/整数/无符号/浮点/字符串/json.Number 与单层指针；`null`、空串、非法转义、类型不匹配均有差分覆盖。Go 1.27 的 `encoding/json` 由 v2 兼容层实现，自定义 `Unmarshaler`/`TextUnmarshaler` 优先于 `,string`，浮点接受 `NaN`/`Inf`/十六进制，`json.Number` 只接受合法 JSON 数字文本——本后端逐项对齐。

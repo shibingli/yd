@@ -1,6 +1,6 @@
 # Base64 编解码性能基准
 
-独立 Go 模块，对比自适应 `core/b64x` 与标准库、cloudwego/base64x、cristalhq/base64。
+独立 Go 模块，对比自适应 `ydx/base64` 与标准库、cloudwego/base64x、cristalhq/base64。
 
 ## 后端选择
 
@@ -22,7 +22,7 @@ cd benchmarks/base64
 go test -run '^$' -bench . -benchmem -benchtime=1s -count=5
 
 # 公平采样：每个实现独立进程，轮转顺序
-for c in stdlib cloudwego/base64x cristalhq/base64 yd-b64x; do
+for c in stdlib cloudwego/base64x cristalhq/base64 yd-base64; do
   YD_BENCH_ONLY=$c GOEXPERIMENT=simd go test -run '^$' -bench . -benchmem \
     -benchtime=1s -count=5
 done
@@ -42,7 +42,7 @@ done
 
 ### Encode
 
-| 载荷 | stdlib | cloudwego/base64x | cristalhq/base64 | **yd-b64x** |
+| 载荷 | stdlib | cloudwego/base64x | cristalhq/base64 | **yd-base64** |
 |---|---:|---:|---:|---:|
 | 32 B | 14.48 ns | 7.47 ns | 9.58 ns | **5.76 ns** |
 | 1 KiB | 2.4 | 23.3 | 5.2 | **34.8** |
@@ -51,7 +51,7 @@ done
 
 ### Decode
 
-| 载荷 | stdlib | cloudwego/base64x | cristalhq/base64 | **yd-b64x** |
+| 载荷 | stdlib | cloudwego/base64x | cristalhq/base64 | **yd-base64** |
 |---|---:|---:|---:|---:|
 | 32 B | 20.17 ns | 11.60 ns | 12.43 ns | **8.43 ns** |
 | 1 KiB | 2.3 | 17.1 | 3.7 | **28.4** |
@@ -98,12 +98,12 @@ API 不接收核心数：运行时读取当前 GOMAXPROCS，并按输入大小�
 对全部内核做同进程汇编检查：
 
 ```bash
-GOEXPERIMENT=simd go test -c -o /tmp/b64x.test ./core/b64x
+GOEXPERIMENT=simd go test -c -o /tmp/base64.test ./ydx/base64
 for fn in encodeSIMD encodeFirst24AVX2 encodeFirstAVX2 encode32AVX2 \
           encodeBlocksAVX2 encodeTailAVX2 \
           encodeSIMD512 encodeSIMD512Blocks encodeSIMD512VBMI \
           decodeSIMD decodeTailAVX2 decodeSIMD512 decodeSIMD512VBMI2; do
-  go tool objdump -s "github.com/shibingli/yd/core/b64x.$fn" /tmp/b64x.test \
+  go tool objdump -s "github.com/shibingli/ydx/base64.$fn" /tmp/base64.test \
     | grep -cE 'VMOV[^ ]* +[XYZ][0-9]+, .*\(SP\)|VMOV[^ ]* +.*\(SP\), [XYZ][0-9]+'
 done
 ```

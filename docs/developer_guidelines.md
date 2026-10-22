@@ -39,7 +39,7 @@ web/templates/
 
 | 需求 | 实现方式 | 是否需额外文件 |
 |---|---|---|
-| WebSocket 双向通信 | `dist/ext/hx-ws.min.js`（注册名 `ws`） | 是 |
+| WebSocket 双向通信 | `dist/ext/hx-websocket.min.js`（注册名 `ws`） | 是 |
 | SSE 单向实时流 | `dist/ext/hx-sse.min.js`（注册名 `sse`） | 是 |
 | 多阶段加载 / 骨架屏 | `dist/ext/hx-preload.min.js` + `hx-pending`（扩展）/ `hx-indicator`（内建） | 是 |
 | DOM 差量更新（Idiomorph） | **内建** `hx-swap="innerMorph\|outerMorph\|outerSync"`（htmx 4 已内建 idiomorph 算法）；需要独立调用时用 `vendor/idiomorph.min.js` 的 `Idiomorph` 全局 | 否（可选） |
@@ -93,7 +93,7 @@ web/templates/
 以半角竖线 `|` 分割，**英文在前、中文在后**，竖线两侧各留一个空格：
 
 ```go
-l.Info("server started | 服务器已启动", logx.Str("addr", addr)) // 日志文案同样中英同步 | log messages follow the same rule
+l.Info("server started | 服务器已启动", log.Str("addr", addr)) // 日志文案同样中英同步 | log messages follow the same rule
 ```
 
 ```go
@@ -108,12 +108,12 @@ var maxControlPayload = 125 // RFC 6455 §5.5 | RFC 6455 §5.5 规定
 
 `yd build` 与测试守卫会同时检查注释与日志文案，未同步者视为未完成。
 
-### 9.1.1 日志统一使用 logx
+### 9.1.1 日志统一使用 log
 
 - 全仓**禁止** `import "log"`、禁止 `fmt.Print*` 当日志、禁止 zap/zerolog/logrus 等第三方日志库。
-- 统一使用 `github.com/shibingli/yd/core/logx`，字段用 `logx.Str/Int/Dur/Err` 等强类型构造函数。
+- 统一使用 `github.com/shibingli/ydx/log`，字段用 `log.Str/Int/Dur/Err` 等强类型构造函数。
 - **唯一例外**：`server` 包为 `http.Server.ErrorLog` 必须提供 `*log.Logger` 而写的适配器，
-  其输出必须转发给 `logx`。
+  其输出必须转发给 `log`。
 - 自检：`grep -rn '"log"' --include=*.go . | grep -v '^./runtime/server/'` 无命中；
   `grep -rn 'fmt.Print' --include=*.go .` 无命中。
 
@@ -221,31 +221,31 @@ var DefaultQuery = UserQuery{Field: "id"}
 
 ```go
 // ErrBadPattern 表示路由模式语法非法。 | ErrBadPattern reports an invalid route pattern.
-var ErrBadPattern = errx.New("invalid pattern | 非法的路由模式")
+var ErrBadPattern = errs.New("invalid pattern | 非法的路由模式")
 ```
 
 ### 10.2 默认禁止 fmt.Errorf
 
 | 场景 | 允许的写法 | 禁止的写法 |
 |---|---|---|
-| 附加格式化细节 | `errx.Detail(ErrBadPattern, "%q must start with /", p)` | ~~`fmt.Errorf("%w: %q ...", ErrBadPattern, p)`~~ |
-| 保留底层错误 | `errx.Wrap(err, ErrReadBody)` | ~~`fmt.Errorf("read body: %w", err)`~~ |
-| 两者都要 | `errx.WrapDetail(err, ErrQuery, "table=%s", t)` | ~~`fmt.Errorf("%w: table=%s: %v", ...)`~~ |
+| 附加格式化细节 | `errs.Detail(ErrBadPattern, "%q must start with /", p)` | ~~`fmt.Errorf("%w: %q ...", ErrBadPattern, p)`~~ |
+| 保留底层错误 | `errs.Wrap(err, ErrReadBody)` | ~~`fmt.Errorf("read body: %w", err)`~~ |
+| 两者都要 | `errs.WrapDetail(err, ErrQuery, "table=%s", t)` | ~~`fmt.Errorf("%w: table=%s: %v", ...)`~~ |
 
 判定一律 `errors.Is` / `errors.As`；禁止比较错误字符串。
-唯一例外：`errx` 包自身内部实现。
+唯一例外：`errs` 包自身内部实现。
 
-### 10.3 errx 双语格式串的 printf 陷阱
+### 10.3 errs 双语格式串的 printf 陷阱
 
-`errx.Detail` / `errx.WrapDetail` 的格式串若把同一个动词中英各写一遍，`go vet` 的
+`errs.Detail` / `errs.WrapDetail` 的格式串若把同一个动词中英各写一遍，`go vet` 的
 printf 检查会因参数个数不匹配而报警。正确做法是使用**显式参数索引**：
 
 ```go
 // 错误写法：vet 报 "format %d reads arg #3, but call has 2 args"
-errx.Detail(ErrLen, "C3 length %d, want %d | C3 长度 %d，期望 %d", got, want, got, want)
+errs.Detail(ErrLen, "C3 length %d, want %d | C3 长度 %d，期望 %d", got, want, got, want)
 
 // 正确写法：显式索引复用同一个参数
-errx.Detail(ErrLen, "C3 length %[1]d, want %[2]d | C3 长度 %[1]d，期望 %[2]d", got, want)
+errs.Detail(ErrLen, "C3 length %[1]d, want %[2]d | C3 长度 %[1]d，期望 %[2]d", got, want)
 ```
 
 若两侧语义不同（不是简单重复），应拆成两个哨兵或只在一侧带格式细节。
@@ -253,8 +253,8 @@ errx.Detail(ErrLen, "C3 length %[1]d, want %[2]d | C3 长度 %[1]d，期望 %[2]
 ### 10.4 自检
 
 ```bash
-grep -rn 'fmt\.Errorf' --include=*.go . | grep -v '^./core/errx/'   # 必须无命中
-grep -rn 'errors\.New' --include=*.go . | grep -v '^./core/errx/'   # 允许，但优先用 errx.New 统一风格
+grep -rn 'fmt\.Errorf' --include=*.go . | grep -v '^./ydx/errs/'   # 必须无命中
+grep -rn 'errors\.New' --include=*.go . | grep -v '^./ydx/errs/'   # 允许，但优先用 errs.New 统一风格
 ```
 
 ## 11. 多租户与鉴权契约
@@ -323,10 +323,10 @@ betteralign -apply ./...     # 等价于 yd align --apply
 
 后端退出时必须**主动终止长连接**，否则进程会一直挂到宽限期结束或被强杀。框架提供三处接入点：
 
-- **WebSocket**：给 `ws.Options.Tracker` 传 `ws.NewConnSet()`（或任何满足 `ws.Tracker` 的实现）。
-  退出流程调用 `CloseAll(ws.CloseGoingAway, "...")`：连接先发 **1001（going away）** 关闭帧、再关套接字；
+- **WebSocket**：给 `websocket.Options.Tracker` 传 `websocket.NewConnSet()`（或任何满足 `websocket.Tracker` 的实现）。
+  退出流程调用 `CloseAll(websocket.CloseGoingAway, "...")`：连接先发 **1001（going away）** 关闭帧、再关套接字；
   连接在 `Close` / `CloseNow` 以及任何终止性读错误处自行取消登记，追踪表不会泄漏条目。
-  `ws.Tracker` 故意声明在 `ws` 包内，`ws` 不反向依赖 `lifecycle`。
+  `websocket.Tracker` 故意声明在 `ws` 包内，`ws` 不反向依赖 `lifecycle`。
   在 HTTP/2 与 HTTP/3 上，WebSocket 绑定在请求流上：处理器**必须阻塞到连接结束**，返回即结束流；
   Tracker 的关闭帧也必须在处理器仍存活时写出。HTTP/1.1 的 hijack 连接不受此限制。
   On HTTP/2 and HTTP/3 the WebSocket is bound to the request stream: the handler must stay alive
@@ -477,9 +477,9 @@ Windows 走 SCM、Linux 走 systemd、macOS 走 launchd。禁止为单个平台�
 
 ## 20. 连接串与构建形态契约
 
-- **连接串预置**：`gormx.PresetDSN(driver, dsn)` 是唯一入口，由 `dialectorFor` 统一施加；
+- **连接串预置**：`gorm.PresetDSN(driver, dsn)` 是唯一入口，由 `dialectorFor` 统一施加；
   补齐时区（默认 UTC）、时间配置、空值严格性、默认字符集。**显式参数优先**，预置只补缺且幂等。
-- **预置表只有一份**：脚手架经 `gormx.PresetDSN` 生成示例 DSN，不得抄写参数表。
+- **预置表只有一份**：脚手架经 `gorm.PresetDSN` 生成示例 DSN，不得抄写参数表。
   在脚手架里写死与预置冲突的值（如 `loc=Local`）会让默认被架空——这是踩过的坑。
 - **SQLite 的两个参数一存一亡**：必须保留 `_txlock=immediate`，**绝不**加入 `_time_format`
   （后者会让驱动跳过前者的解析并使其静默失效，而它自身是空操作）。见治理文档 §16.1。

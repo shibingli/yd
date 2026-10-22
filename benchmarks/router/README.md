@@ -1,6 +1,6 @@
 # Router 静动态路由性能基准
 
-本目录是一个**独立 Go 模块**，用于对比 `http/router` 与主流 Go 路由器的静态/动态路由性能，并测量 WebSocket 握手路径上的 router 开销。
+本目录是一个**独立 Go 模块**，用于对比 `ydx/router` 与主流 Go 路由器的静态/动态路由性能，并测量 WebSocket 握手路径上的 router 开销。
 
 ## 运行方式
 

@@ -1,6 +1,6 @@
 # 日志性能基准
 
-独立 Go 模块，对比零拷贝、零反射的 `core/logx` 与 zap、zerolog、slog、logrus。所有日志器都写入 `io.Discard`，输出 JSON，级别为 Info，记录包含 `method`、`status`、`ok` 三个字段。
+独立 Go 模块，对比零拷贝、零反射的 `ydx/log` 与 zap、zerolog、slog、logrus。所有日志器都写入 `io.Discard`，输出 JSON，级别为 Info，记录包含 `method`、`status`、`ok` 三个字段。
 
 ## 运行
 
