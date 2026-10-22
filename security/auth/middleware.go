@@ -220,9 +220,9 @@ func deny(c *router.Ctx, handle func(*router.Ctx, error), err error) {
 // internal detail beyond the classification. | 正文即哨兵文案，本身中英同步，除分类外不携带任何内部细节。
 func defaultErrorHandler(c *router.Ctx, err error) {
 	status := statusFor(err)
-	// Log the wrapped error server-side, but never echo it: errx keeps the underlying driver text
+	// Log the wrapped error server-side, but never echo it: errs keeps the underlying driver text
 	// on the chain, so err.Error() can disclose a DB host, path or account state to an
-	// unauthenticated caller. | 在服务端记录完整错误，但绝不回显：errx 会把底层驱动文案保留在
+	// unauthenticated caller. | 在服务端记录完整错误，但绝不回显：errs 会把底层驱动文案保留在
 	// 错误链上，err.Error() 可能向未认证调用方泄露数据库主机、路径或账号状态。
 	log.Default().Warn("auth: request rejected | auth：请求被拒绝",
 		log.Int("status", status), log.Err(err))

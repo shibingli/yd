@@ -102,8 +102,8 @@ func TestEnvelopeJSMarshal(t *testing.T) {
 		t.Fatalf("the payload is not valid JSON: %s | 载荷不是合法 JSON：%s", raw, raw)
 	}
 	// A script element ends at the first "</script", so an unescaped "<" in a capability name would
-	// end the payload early; jsonx escapes it. | 脚本元素在第一个 "</script" 处结束，
-	// 因此能力名里未转义的 "<" 会提前结束载荷；jsonx 会转义它。
+	// end the payload early; ydx/json escapes it. | 脚本元素在第一个 "</script" 处结束，
+	// 因此能力名里未转义的 "<" 会提前结束载荷；ydx/json 会转义它。
 	if got := indexOfScriptEnd(raw); got >= 0 {
 		t.Errorf("the payload carries a literal </script at %d | 载荷在第 %d 字节处带有字面量 </script", got, got)
 	}

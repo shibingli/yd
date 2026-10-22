@@ -10,8 +10,8 @@
 //     build/docker/assets) and only receives an Env; | 它不实现任何业务行为：每个子命令各占一个文件
 //     （new/dev/gen/build/docker/assets），只接收一个 Env；
 //   - it does NOT print diagnostics itself: user-visible output goes to Env.Out, diagnostics go through
-//     logx, and a returned error is rendered by the caller (cmd/yd) with a non-zero exit code. | 它自身
-//     不打印诊断：用户可见输出走 Env.Out，诊断日志走 logx，返回的错误由调用方（cmd/yd）渲染并以非零码退出。
+//     ydx/log, and a returned error is rendered by the caller (cmd/yd) with a non-zero exit code. | 它自身
+//     不打印诊断：用户可见输出走 Env.Out，诊断日志走 ydx/log，返回的错误由调用方（cmd/yd）渲染并以非零码退出。
 //
 // Dispatch is POSIX style: `yd <command> [flags] [args]`. Global flags may stand before or after the
 // command name, `--help/-h` is resolved per command, and an unknown command lists the available ones
@@ -274,7 +274,7 @@ func applyGlobalFlags(cfg *config.Config, fs *pflag.FlagSet) {
 	}
 }
 
-// configureLogger points the global logx logger at the CLI's diagnostic stream. | configureLogger 把全局 logx 日志器指向 CLI 的诊断流。
+// configureLogger points the global ydx/log logger at the CLI's diagnostic stream. | configureLogger 把全局 ydx/log 日志器指向 CLI 的诊断流。
 func configureLogger(env *Env, cfg *config.Config) {
 	lvl, err := log.ParseLevel(cfg.GetString(keyLogLevel))
 	if err != nil {

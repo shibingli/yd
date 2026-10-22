@@ -142,9 +142,9 @@ func (i *TokenIssuer) KeyFunc(header jwt.Header) (any, error) {
 	defer cancel()
 	u, err := i.svc.store.GetUser(lookupCtx, tenantID, header.Kid)
 	if err != nil {
-		// Never wrap the store error: errx preserves ErrNotFound on the chain, and the middleware
+		// Never wrap the store error: errs preserves ErrNotFound on the chain, and the middleware
 		// would then answer 404 for a nonexistent user and 401 for an existing one, turning an
-		// unauthenticated token into an account-existence oracle. | 绝不包装存储错误：errx 会把
+		// unauthenticated token into an account-existence oracle. | 绝不包装存储错误：errs 会把
 		// ErrNotFound 保留在错误链上，中间件随后对不存在的用户回 404、对存在的用户回 401，
 		// 使一枚未认证的令牌变成账号存在性探针。
 		return nil, errs.Detail(ErrTokenInvalid, "token key lookup failed | 令牌密钥查询失败")

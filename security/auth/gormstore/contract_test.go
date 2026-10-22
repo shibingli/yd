@@ -541,8 +541,8 @@ func listSnapshot[T any](items []*T, render func(*T) string) string {
 	return "[" + strings.Join(parts, ",") + "]"
 }
 
-// marshalView renders a projection through jsonx, which is what the rest of the
-// repository serialises with. | marshalView 通过 jsonx 渲染投影，与仓库其余部分使用的序列化层一致。
+// marshalView renders a projection through ydx/json, which is what the rest of the
+// repository serialises with. | marshalView 通过 ydx/json 渲染投影，与仓库其余部分使用的序列化层一致。
 func marshalView(v any) string {
 	raw, err := json.Marshal(v)
 	if err != nil {

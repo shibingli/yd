@@ -3,7 +3,7 @@
 // controllers only assemble data.
 //
 // Three hard rules: | 三条硬性约定：
-//   - every business error is a package-level sentinel (errx) judged through errors.Is; no caller parses a message and fmt.Errorf is never used; | 业务错误一律是包级哨兵（errx），调用方用 errors.Is 判定，绝不解析文案，也绝不用 fmt.Errorf；
+//   - every business error is a package-level sentinel (errs) judged through errors.Is; no caller parses a message and fmt.Errorf is never used; | 业务错误一律是包级哨兵（errs），调用方用 errors.Is 判定，绝不解析文案，也绝不用 fmt.Errorf；
 //   - multi-tenancy is a hard boundary: every method takes a tenantID first and the repository checks it again; | 多租户是硬边界：每个方法的第一个业务参数都是 tenantID，仓储层再校验一次；
 //   - a password only enters this layer as SM2 ciphertext: it is decrypted, handed straight to the auth package for hashing and never kept in a struct field. | 口令只以 SM2 密文进入本层：解密后立刻交给 auth 包散列，明文不落任何结构体字段。
 package service
@@ -16,7 +16,7 @@ import (
 	"{{ .YdModule }}/security/auth"
 	"{{ .YdxModule }}/errs"
 	"{{ .YdModule }}/security/guomi"
-	logx "{{ .YdxModule }}/log"
+	ydlog "{{ .YdxModule }}/log"
 )
 
 // Business sentinels: the controllers map them onto status codes and copy through errors.Is. | 业务哨兵错误：控制器用 errors.Is 把它们映射为状态码与文案。
@@ -75,7 +75,7 @@ type AuthService struct {
 	// pub is the hexadecimal public key handed to the browser. | pub 是公钥的十六进制形式，公开给浏览器。
 	pub string
 	// log records failed sign-ins and key rotations. | log 记录登录失败与密钥轮换。
-	log *logx.Logger
+	log *ydlog.Logger
 }
 
 // NewAuthService 装配鉴权服务：进程启动时生成一对 SM2 密钥。
@@ -86,12 +86,12 @@ type AuthService struct {
 // The key pair lives as long as the process: the browser refetches the public key whenever it opens the sign-in page,
 // so a restart never wedges a client; a deployment that needs a stable key loads it from a KMS or the configuration and
 // builds it here instead.
-func NewAuthService(store *repository.Store, log *logx.Logger) (*AuthService, error) {
+func NewAuthService(store *repository.Store, log *ydlog.Logger) (*AuthService, error) {
 	if store == nil || store.Auth() == nil || store.Issuer() == nil {
 		return nil, ErrAuthUnavailable
 	}
 	if log == nil {
-		log = logx.Default()
+		log = ydlog.Default()
 	}
 
 	priv, err := guomi.GenerateKey()
@@ -132,17 +132,17 @@ func (s *AuthService) Login(ctx context.Context, in LoginInput) (*auth.LoginResu
 		// Recorded for audit only, with neither the password nor its hash; the tenant and the sign-in name are enough
 		// to locate a failed attempt.
 		s.log.Warn("sign-in refused | 登录被拒绝",
-			logx.Str("tenant", in.TenantID),
-			logx.Str("username", in.Username),
-			logx.Err(err),
+			ydlog.Str("tenant", in.TenantID),
+			ydlog.Str("username", in.Username),
+			ydlog.Err(err),
 		)
 		return nil, errs.Wrap(err, ErrCredentials)
 	}
 
 	s.log.Info("sign-in succeeded | 登录成功",
-		logx.Str("tenant", result.User.TenantID),
-		logx.Str("user", result.User.ID),
-		logx.Str("username", result.User.Username),
+		ydlog.Str("tenant", result.User.TenantID),
+		ydlog.Str("user", result.User.ID),
+		ydlog.Str("username", result.User.Username),
 	)
 	return result, nil
 }
@@ -163,8 +163,8 @@ func (s *AuthService) SwitchTenant(ctx context.Context, userID, tenantID string)
 		return nil, errs.Wrap(err, ErrCredentials)
 	}
 	s.log.Info("tenant switched | 已切换租户",
-		logx.Str("tenant", u.TenantID),
-		logx.Str("user", u.ID),
+		ydlog.Str("tenant", u.TenantID),
+		ydlog.Str("user", u.ID),
 	)
 	return &auth.LoginResult{Token: token, ExpiresAt: expiresAt, User: u}, nil
 }
@@ -217,8 +217,8 @@ func (s *AuthService) ChangePassword(ctx context.Context, tenantID, userID strin
 	}
 
 	s.log.Info("password changed and the sec_key rotated | 口令已修改并轮换了 sec_key",
-		logx.Str("tenant", tenantID),
-		logx.Str("user", userID),
+		ydlog.Str("tenant", tenantID),
+		ydlog.Str("user", userID),
 	)
 	return nil
 }
@@ -229,7 +229,7 @@ func (s *AuthService) RotateSecKey(ctx context.Context, tenantID, userID string)
 	if err := s.users.RotateSecKey(ctx, tenantID, userID); err != nil {
 		return err
 	}
-	s.log.Info("sec_key rotated | 已轮换 sec_key", logx.Str("tenant", tenantID), logx.Str("user", userID))
+	s.log.Info("sec_key rotated | 已轮换 sec_key", ydlog.Str("tenant", tenantID), ydlog.Str("user", userID))
 	return nil
 }
 

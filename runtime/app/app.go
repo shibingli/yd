@@ -170,8 +170,8 @@ func WithFS(fsys afero.Fs) Option { return func(a *App) { a.fs = fsys } }
 func WithStaticFS(fsys afero.Fs) Option { return func(a *App) { a.staticFS = fsys } }
 
 // WithLogger injects the logger shared by the app and the HTTP server;
-// without it the logx global default is used. | WithLogger 注入应用与 HTTP
-// 服务器共用的日志器；未提供时使用 logx 的全局默认值。
+// without it the ydx/log global default is used. | WithLogger 注入应用与 HTTP
+// 服务器共用的日志器；未提供时使用 ydx/log 的全局默认值。
 func WithLogger(l *ydlog.Logger) Option { return func(a *App) { a.log = l } }
 
 // WithConfigDir sets the directory New reads the configuration from

@@ -19,8 +19,8 @@ import (
 // 这也意味着中英文案的调整不会破坏调用方。
 var ErrUnknownField = errs.New("unknown field | 未知字段")
 
-// Example_errxSentinel demonstrates declared errors with extra context. | Example_errxSentinel 演示带上下文的声明式错误。
-func Example_errxSentinel() {
+// Example_errsSentinel demonstrates declared errors with extra context. | Example_errsSentinel 演示带上下文的声明式错误。
+func Example_errsSentinel() {
 	err := errs.Detail(ErrUnknownField, "field %q", "nickname")
 
 	fmt.Println(errors.Is(err, ErrUnknownField))

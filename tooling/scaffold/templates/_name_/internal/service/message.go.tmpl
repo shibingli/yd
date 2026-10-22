@@ -12,7 +12,7 @@ import (
 	"{{ .Module }}/internal/repository"
 	"{{ .YdxModule }}/config"
 	"{{ .YdxModule }}/errs"
-	logx "{{ .YdxModule }}/log"
+	ydlog "{{ .YdxModule }}/log"
 	"{{ .YdModule }}/messaging"
 	"{{ .YdModule }}/messaging/authdirectory"
 	"{{ .YdModule }}/messaging/filestore"
@@ -55,7 +55,7 @@ type MessageService struct {
 	// hub fans realtime events out to WebSocket subscribers. | hub 把实时事件分发给 WebSocket 订阅者。
 	hub *realtime.Hub
 	// log records janitor failures. | log 记录清理任务失败。
-	log *logx.Logger
+	log *ydlog.Logger
 }
 
 // NewMessageService assembles the message centre over the project's store and configuration. |
@@ -64,9 +64,9 @@ type MessageService struct {
 // The realtime hub is created even when the store is unavailable, so the controller always has one
 // object to pass to its WebSocket endpoint; the endpoint itself refuses when the service is nil. |
 // 即使存储不可用也会创建实时 Hub，使控制器总有一个对象可交给 WebSocket 端点；服务为 nil 时端点自行拒绝。
-func NewMessageService(store *repository.Store, hub *realtime.Hub, cfg *config.Config, log *logx.Logger) (*MessageService, error) {
+func NewMessageService(store *repository.Store, hub *realtime.Hub, cfg *config.Config, log *ydlog.Logger) (*MessageService, error) {
 	if log == nil {
-		log = logx.Default()
+		log = ydlog.Default()
 	}
 	if hub == nil {
 		hub = realtime.New(log)
@@ -123,8 +123,8 @@ func NewMessageService(store *repository.Store, hub *realtime.Hub, cfg *config.C
 	fileStore, err := filestore.New(attachmentDir)
 	if err != nil {
 		log.Warn("attachment storage is unavailable, uploads are disabled | 附件存储不可用，上传已禁用",
-			logx.Err(err),
-			logx.Str("dir", attachmentDir),
+			ydlog.Err(err),
+			ydlog.Str("dir", attachmentDir),
 		)
 	} else {
 		blobs = fileStore
@@ -167,11 +167,11 @@ func (m *MessageService) StartJanitor(ctx context.Context) {
 			case <-ticker.C:
 				removed, err := m.CleanupPending(ctx, time.Now().UTC().Add(-ttl))
 				if err != nil {
-					m.log.Warn("pending attachment cleanup failed | 待挂载附件清理失败", logx.Err(err))
+					m.log.Warn("pending attachment cleanup failed | 待挂载附件清理失败", ydlog.Err(err))
 					continue
 				}
 				if removed > 0 {
-					m.log.Info("pending attachments cleaned up | 待挂载附件已清理", logx.Int("count", removed))
+					m.log.Info("pending attachments cleaned up | 待挂载附件已清理", ydlog.Int("count", removed))
 				}
 			}
 		}

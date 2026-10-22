@@ -225,17 +225,35 @@ var scaffoldYdxModules = []string{
 	"github.com/shibingli/ydx/websocket",
 }
 
+// localReplaceVersion is the zero pseudo-version `yd new --local-replace` writes into a generated go.mod. |
+// localReplaceVersion 是 `yd new --local-replace` 写入生成 go.mod 的零伪版本。
+//
+// It carries no meaning: the replace directive decides which code is used. Treating it as a real version
+// makes a project that only imports part of ydx look like a version conflict after `go build -mod=mod`. |
+// 它没有实际含义：使用哪份代码由 replace 指令决定。把它当成真实版本，会让只 import 部分 ydx 模块的项目
+// 在 `go build -mod=mod` 之后看起来像版本冲突。
+const localReplaceVersion = "v0.0.0-00010101000000-000000000000"
+
 // ydxInventory extracts the single ydx version and the module paths from the requirements. |
 // ydxInventory 从依赖中提取唯一的 ydx 版本与模块路径。
 func ydxInventory(modules []Module) (string, []string, error) {
 	var version string
 	firstPath := ""
+	observed := false
 	paths := make(map[string]bool, len(scaffoldYdxModules)+len(modules))
 	for _, modulePath := range scaffoldYdxModules {
 		paths[modulePath] = true
 	}
 	for _, m := range modules {
 		if m.Path != "github.com/shibingli/ydx" && !strings.HasPrefix(m.Path, "github.com/shibingli/ydx/") {
+			continue
+		}
+		observed = true
+		if !strings.Contains(m.Path, "/benchmarks/") && m.Path != "github.com/shibingli/ydx/benchmarks" {
+			paths[m.Path] = true
+		}
+		// A local-replace placeholder says nothing about the shared version. | local-replace 占位版本不参与共享版本判定。
+		if m.Version == localReplaceVersion {
 			continue
 		}
 		if version == "" {
@@ -245,11 +263,8 @@ func ydxInventory(modules []Module) (string, []string, error) {
 			return "", nil, errs.Detail(ErrYdxVersionConflict, "%[1]s=%[2]s, %[3]s=%[4]s | %[1]s=%[2]s，%[3]s=%[4]s",
 				firstPath, version, m.Path, m.Version)
 		}
-		if !strings.Contains(m.Path, "/benchmarks/") && m.Path != "github.com/shibingli/ydx/benchmarks" {
-			paths[m.Path] = true
-		}
 	}
-	if version == "" {
+	if !observed {
 		return "", nil, nil
 	}
 	out := make([]string, 0, len(paths))

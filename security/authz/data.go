@@ -89,7 +89,7 @@ func NewEnvelope(s *Subject) Envelope {
 // template.JS，因为 html/template 把 <script type="application/json"> 当作 JavaScript 容器：
 // 其它类型会被再序列化一次，变成带引号的 JSON *字符串*。
 //
-// jsonx escapes the HTML-significant characters, so the body is safe inside a script element. | jsonx
+// ydx/json escapes the HTML-significant characters, so the body is safe inside a script element. | ydx/json
 // 会转义 HTML 敏感字符，因此正文在脚本元素内是安全的。
 func (e Envelope) JS() template.JS {
 	b, err := json.Marshal(e)
@@ -226,7 +226,7 @@ func decisionKey(env Envelope) string {
 
 // authority adapts a possibly anonymous subject to the render helpers. | authority 把可能为匿名的主体适配给模板辅助函数。
 //
-// The logx warnings live here and not in Subject: a template reference is a hand-written name that
+// The ydx/log warnings live here and not in Subject: a template reference is a hand-written name that
 // `yd authz check` is expected to have verified, while a Go reference is checked by the compiler
 // against the constants - so warning once per rendered page is the right volume for the first case
 // and pure noise for the second. | 日志告警放在这里而不是 Subject 里：模板里的引用是手写的名字，

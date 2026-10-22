@@ -590,18 +590,18 @@ func (s *Server) buildTLSConfig() (*tls.Config, error) {
 	}
 }
 
-// loggerConfig adapts logx to the stdlib http.Server error logger. | loggerConfig 把 logx 适配为标准库 http.Server 的错误日志器。
+// loggerConfig adapts ydx/log to the stdlib http.Server error logger. | loggerConfig 把 ydx/log 适配为标准库 http.Server 的错误日志器。
 func (s *Server) loggerConfig() *log.Logger {
 	if s.logger == nil {
 		return nil
 	}
-	return log.New(logxWriter{s.logger}, "", 0)
+	return log.New(ydlogWriter{s.logger}, "", 0)
 }
 
-// logxWriter forwards stdlib server errors into ydlog. | logxWriter 把标准库服务器错误转发给 logx。
-type logxWriter struct{ l *ydlog.Logger }
+// ydlogWriter forwards stdlib server errors into ydlog. | ydlogWriter 把标准库服务器错误转发给 ydx/log。
+type ydlogWriter struct{ l *ydlog.Logger }
 
-func (w logxWriter) Write(p []byte) (int, error) {
+func (w ydlogWriter) Write(p []byte) (int, error) {
 	msg := string(p)
 	if len(msg) > 0 && msg[len(msg)-1] == '\n' {
 		msg = msg[:len(msg)-1]

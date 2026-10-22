@@ -184,7 +184,7 @@ until the variable is set. The clear text never reaches a log.
   索引随表一起建好（库内唯一租户标识、全局唯一登录名、租户内唯一角色名、成员关系唯一、角色权限唯一等）。`internal/model` 只描述渲染用的视图类型，不拥有 DDL。
 - **SQLite 默认落点**：`configs/config.yaml` 的 `db.dsn` 指向 `data/{{ .Name }}.db`（相对进程工作目录），WAL 边车文件 `-wal` / `-shm` 与库文件一起被 `.gitignore` 忽略。
   驱动不会自建目录，因此 `data/` 随项目一起生成（`data/.gitkeep`）；**生产环境请把 `db.dsn` 写成绝对路径**，并确保目录已存在。
-- **连接池与时长**：`db.maxconn`、`db.maxidle`、`db.slow_threshold` 与框架的 `data/gormx` 同源；单条鉴权语句的上限是 `auth.gorm.query_timeout`（`0` 表示不额外设限）。
+- **连接池与时长**：`db.maxconn`、`db.maxidle`、`db.slow_threshold` 与框架的 `ydx/gorm` 同源；单条鉴权语句的上限是 `auth.gorm.query_timeout`（`0` 表示不额外设限）。
 - **退出时收尾**：进程退出由 `app.OnShutdown` 钩子（路由里注册的 `store.Close()`）关闭连接池。
 
 **连不上库不会挡住启动**：打开连接池或迁移失败时，`repository.Open` 退回内存实现并打印一条明确的告警（提示数据不持久），
@@ -436,6 +436,6 @@ yd tools install tailwindcss
 
 ## 团队约定
 
-- 注释与日志文案逐行中英同步（`English | 中文`）；错误用 `errx` 声明哨兵；日志走 `logx`；JSON/Base64 走 `jsonx`/`b64x`。
+- 注释与日志文案逐行中英同步（`English | 中文`）；错误用 `errs` 声明哨兵；日志走 `ydlog`；JSON/Base64 走 `json`/`base64`。
 - 提交信息使用中文 Conventional Commits，署名固定 `Co-Authored-By: Eric Shi <shibingli@sina.com>`。
 - 详见 `CLAUDE.md`、`AGENTS.md` 与 `docs/developer_guidelines.md`。

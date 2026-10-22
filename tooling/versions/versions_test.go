@@ -132,6 +132,57 @@ func TestYdxVersionConflict(t *testing.T) {
 	}
 }
 
+// TestLoadIgnoresLocalReplacePlaceholders accepts the pseudo-version `yd new --local-replace` writes. |
+// TestLoadIgnoresLocalReplacePlaceholders 接受 `yd new --local-replace` 写出的占位伪版本。
+//
+// A local-replace project starts with every ydx requirement at the zero pseudo-version. A later
+// `go build -mod=mod` may resolve only the imported ones to the real tagged version, leaving the project
+// with a mix of `v0.1.0` and placeholders. That mixture says nothing about a real version conflict: the
+// replace directives decide the code, and the tagged requirement is the only meaningful version. |
+// local-replace 项目初始时全部 ydx 依赖都是零伪版本；随后 `go build -mod=mod` 只会把实际 import 的模块
+// 解析成真实标签版本，于是项目里同时存在 `v0.1.0` 与占位版本。这种混合并不代表真实的版本冲突：代码由
+// replace 决定，真实标签版本才是唯一有意义的版本。
+func TestLoadIgnoresLocalReplacePlaceholders(t *testing.T) {
+	fsys := afero.NewMemMapFs()
+	mod := strings.Replace(testGoMod, "github.com/shibingli/ydx/log v0.1.0",
+		"github.com/shibingli/ydx/log v0.0.0-00010101000000-000000000000", 1)
+	writeFile(t, fsys, GoModPath, mod)
+	writeFile(t, fsys, assets.DefaultManifestPath, testManifest)
+	inv, err := Load(fsys, ".")
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if inv.YdxVersion != "v0.1.0" {
+		t.Errorf("YdxVersion = %q, want v0.1.0（占位版本应被忽略）", inv.YdxVersion)
+	}
+	if len(inv.YdxModules) != len(scaffoldYdxModules) {
+		t.Errorf("YdxModules = %d, want %d", len(inv.YdxModules), len(scaffoldYdxModules))
+	}
+}
+
+// TestLoadAllPlaceholdersHasNoYdxVersion keeps a pure local-replace project valid. |
+// TestLoadAllPlaceholdersHasNoYdxVersion 让纯 local-replace 项目保持合法。
+//
+// With no tagged requirement at all there is no real version to pin; returning an empty version keeps
+// `yd versions check` usable in a project that has only local replacements. | 完全没有标签版本时没有可锁定
+// 的真实版本；返回空版本可让只有本地 replace 的项目继续使用 `yd versions check`。
+func TestLoadAllPlaceholdersHasNoYdxVersion(t *testing.T) {
+	fsys := afero.NewMemMapFs()
+	mod := testGoMod
+	for _, path := range []string{"github.com/shibingli/ydx/errs", "github.com/shibingli/ydx/log"} {
+		mod = strings.Replace(mod, path+" v0.1.0", path+" v0.0.0-00010101000000-000000000000", 1)
+	}
+	writeFile(t, fsys, GoModPath, mod)
+	writeFile(t, fsys, assets.DefaultManifestPath, testManifest)
+	inv, err := Load(fsys, ".")
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if inv.YdxVersion != "" {
+		t.Errorf("YdxVersion = %q, want empty", inv.YdxVersion)
+	}
+}
+
 // TestGenerateSyncCheckRoundTrip pins the generated content and the drift detection. | TestGenerateSyncCheckRoundTrip 钉住生成内容与漂移检测。
 func TestGenerateSyncCheckRoundTrip(t *testing.T) {
 	fsys := newFixture(t)

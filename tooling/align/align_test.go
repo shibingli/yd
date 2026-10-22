@@ -256,8 +256,8 @@ func TestOptionsArgsAssembly(t *testing.T) {
 			[]string{"-test=false", "-exclude_dirs", "vendor,testdata", "./..."}},
 		{"排除文件 | excluded files", Options{ExcludeDirs: []string{"a,b"}, ExcludeFiles: []string{"gen.go"}},
 			[]string{"-test=false", "-exclude_dirs", "a,b", "-exclude_files", "gen.go", "./..."}},
-		{"自定义目标 | custom targets", Options{Targets: []string{"./core/version/...", " ./core/errx/... "}},
-			[]string{"-test=false", "./core/version/...", "./core/errx/..."}},
+		{"自定义目标 | custom targets", Options{Targets: []string{"./core/version/...", " ./security/authz/... "}},
+			[]string{"-test=false", "./core/version/...", "./security/authz/..."}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -274,7 +274,7 @@ func TestRunParsesDiagnostics(t *testing.T) {
 	bin := writeFakeTool(t, dir, []string{
 		`E:\repo\config\config.go:76:14: struct with 104 pointer bytes could be 96 (lowers GC scan-work estimate)`,
 		`E:\repo\router\pattern.go:77:14: 8 bytes saved: struct of size 96 could be 88`,
-		`E:\repo\logx\log.go:48:14: 8 bytes saved: struct of size 88 could be 80`,
+		`E:\repo\ydx/log\log.go:48:14: 8 bytes saved: struct of size 88 could be 80`,
 		`auth\rbac.go:168:16: cannot use permissionsFrom(r.Permissions) (value of type []Permission) as []string value in struct literal`,
 		`betteralign: analysis skipped due to errors in package`,
 	}, exitDiagnostics)

@@ -22,7 +22,7 @@ import (
 	"{{ .Module }}/internal/repository"
 	"{{ .Module }}/internal/service"
 	"{{ .YdxModule }}/errs"
-	logx "{{ .YdxModule }}/log"
+	ydlog "{{ .YdxModule }}/log"
 	"{{ .YdModule }}/http/htmx"
 	"{{ .YdModule }}/http/i18n"
 	"{{ .YdxModule }}/render"
@@ -310,7 +310,7 @@ type Controller struct {
 	// titles, pushed notices). | i18n 是语言目录包，用于在模板执行之外翻译（会话标题、推送通知）。
 	i18n *i18n.Bundle
 	// log records assembly and business events. | log 记录装配与业务事件。
-	log *logx.Logger
+	log *ydlog.Logger
 }
 
 // New 装配控制器：业务服务在这里一次性构造，彼此共享同一个 Store 与同一个 AuthService。
@@ -321,12 +321,12 @@ type Controller struct {
 // Sharing one AuthService is mandatory: exactly one SM2 key pair may exist, because sign-in, user creation and password
 // changes all have to decrypt with the very same private key — two key pairs would silently mismatch the public key the
 // browser fetched.
-func New(a *app.App, store *repository.Store, log *logx.Logger) (*Controller, error) {
+func New(a *app.App, store *repository.Store, log *ydlog.Logger) (*Controller, error) {
 	if a == nil || store == nil {
 		return nil, service.ErrAuthUnavailable
 	}
 	if log == nil {
-		log = logx.Default()
+		log = ydlog.Default()
 	}
 
 	authSvc, err := service.NewAuthService(store, log)
@@ -337,7 +337,7 @@ func New(a *app.App, store *repository.Store, log *logx.Logger) (*Controller, er
 	hub, closeMessageBus, busErr := service.NewMessageBus(a.Config(), log)
 	if busErr != nil {
 		log.Warn("message bus is unavailable, falling back to in-process delivery | 消息总线不可用，回退到进程内投递",
-			logx.Err(busErr),
+			ydlog.Err(busErr),
 		)
 		hub = realtime.New(log)
 		closeMessageBus = func() error { return nil }
@@ -352,7 +352,7 @@ func New(a *app.App, store *repository.Store, log *logx.Logger) (*Controller, er
 		if !errors.Is(messageErr, service.ErrMessageUnavailable) {
 			return nil, messageErr
 		}
-		log.Warn("message centre is disabled | 消息中心已禁用", logx.Err(messageErr))
+		log.Warn("message centre is disabled | 消息中心已禁用", ydlog.Err(messageErr))
 	}
 	return &Controller{
 		app:        a,
@@ -522,7 +522,7 @@ func (c *Controller) Deny(ctx *router.Ctx, err error) {
 		// API 客户端不会跟随登录页，也不解析 HTML；拒绝必须以同一种 JSON 形态到达。 |
 		// API clients neither follow the sign-in page nor parse HTML; the refusal must arrive as JSON.
 		c.log.Warn("middleware refused the API request | 中间件拒绝了 API 请求",
-			logx.Err(err), logx.Str("path", ctx.Path()), logx.Str("method", ctx.Method()), logx.Int("status", status))
+			ydlog.Err(err), ydlog.Str("path", ctx.Path()), ydlog.Str("method", ctx.Method()), ydlog.Int("status", status))
 		c.failJSON(ctx, status, message)
 		return
 	}
@@ -532,10 +532,10 @@ func (c *Controller) Deny(ctx *router.Ctx, err error) {
 		return
 	}
 	c.log.Warn("middleware refused the request | 中间件拒绝了请求",
-		logx.Err(err),
-		logx.Str("path", ctx.Path()),
-		logx.Str("method", ctx.Method()),
-		logx.Int("status", status),
+		ydlog.Err(err),
+		ydlog.Str("path", ctx.Path()),
+		ydlog.Str("method", ctx.Method()),
+		ydlog.Int("status", status),
 	)
 	c.fail(ctx, status, message)
 }
@@ -650,7 +650,7 @@ func (c *Controller) view(ctx *router.Ctx, title string, extra map[string]any) m
 	if members, err := c.users.Tenants(ctx.Request.Context(), user.ID); err == nil {
 		data["Tenants"] = members
 	} else {
-		c.log.Warn("tenant memberships unavailable | 租户成员关系不可用", logx.Err(err), logx.Str("user", user.ID))
+		c.log.Warn("tenant memberships unavailable | 租户成员关系不可用", ydlog.Err(err), ydlog.Str("user", user.ID))
 	}
 
 	// 模板不再需要「能不能写用户」这类布尔值：判断改由 can/hasRole 与 .Perm 数据键完成，
@@ -673,7 +673,7 @@ func (c *Controller) view(ctx *router.Ctx, title string, extra map[string]any) m
 		if summary, err := c.messages.Unread(ctx.Request.Context(), c.messageActor(ctx)); err == nil {
 			data["Unread"] = summary
 		} else {
-			c.log.Debug("unread summary unavailable | 未读汇总不可用", logx.Err(err))
+			c.log.Debug("unread summary unavailable | 未读汇总不可用", ydlog.Err(err))
 		}
 	}
 	if c.messageErr != nil {
@@ -754,9 +754,9 @@ func (c *Controller) render(ctx *router.Ctx, status int, name string, data map[s
 	}
 	if err := c.app.Render(ctx, status, name, data); err != nil {
 		c.log.Error("render failed | 渲染失败",
-			logx.Err(err),
-			logx.Str("template", name),
-			logx.Str("path", ctx.Path()),
+			ydlog.Err(err),
+			ydlog.Str("template", name),
+			ydlog.Str("path", ctx.Path()),
 		)
 	}
 }
@@ -787,9 +787,9 @@ func (c *Controller) renderShell(ctx *router.Ctx, status int, name string, data 
 	var page bytes.Buffer
 	if err := c.app.Renderer().Render(&page, name, pageData); err != nil {
 		c.log.Error("shell fragment render failed | 外壳片段渲染失败",
-			logx.Err(err),
-			logx.Str("template", name),
-			logx.Str("path", ctx.Path()),
+			ydlog.Err(err),
+			ydlog.Str("template", name),
+			ydlog.Str("path", ctx.Path()),
 		)
 		return
 	}
@@ -805,8 +805,8 @@ func (c *Controller) renderShell(ctx *router.Ctx, status int, name string, data 
 	}
 	if err := c.app.Render(ctx, status, shellName, shellData); err != nil {
 		c.log.Error("shell render failed | 外壳渲染失败",
-			logx.Err(err),
-			logx.Str("path", ctx.Path()),
+			ydlog.Err(err),
+			ydlog.Str("path", ctx.Path()),
 		)
 	}
 }
@@ -868,16 +868,16 @@ func (c *Controller) failService(ctx *router.Ctx, err error) {
 	if status >= http.StatusInternalServerError {
 		// A 500 must leave the full error chain for the access log and for alerting. | 500 必须留下完整错误链，供中间件的访问日志与告警消费。
 		c.log.Error("request failed | 请求失败",
-			logx.Err(err),
-			logx.Str("path", ctx.Path()),
-			logx.Str("method", ctx.Method()),
+			ydlog.Err(err),
+			ydlog.Str("path", ctx.Path()),
+			ydlog.Str("method", ctx.Method()),
 		)
 	} else {
 		// A 4xx leaves one line: an escalation attempt or a validation failure is a business event, not an incident. | 4xx 只记一行：越权与校验失败是业务事件，不是故障。
 		c.log.Warn("request refused | 请求被拒绝",
-			logx.Err(err),
-			logx.Str("path", ctx.Path()),
-			logx.Str("method", ctx.Method()),
+			ydlog.Err(err),
+			ydlog.Str("path", ctx.Path()),
+			ydlog.Str("method", ctx.Method()),
 		)
 	}
 	c.fail(ctx, status, message)
@@ -889,12 +889,12 @@ func (c *Controller) redirect(ctx *router.Ctx, target string) {
 	if htmx.IsRequest(ctx.Request) {
 		htmx.Redirect(ctx.Writer, target)
 		if err := ctx.String(http.StatusOK, ""); err != nil {
-			c.log.Warn("redirect write failed | 重定向写出失败", logx.Err(err))
+			c.log.Warn("redirect write failed | 重定向写出失败", ydlog.Err(err))
 		}
 		return
 	}
 	if err := ctx.Redirect(http.StatusSeeOther, target); err != nil {
-		c.log.Warn("redirect write failed | 重定向写出失败", logx.Err(err))
+		c.log.Warn("redirect write failed | 重定向写出失败", ydlog.Err(err))
 	}
 }
 

@@ -2,10 +2,10 @@
 // This file is the system-metrics service of the home dashboard: host CPU and memory plus the current process's
 // CPU and memory.
 //
-// 指标全部来自标准库与框架的 core/sysinfo：不引入 gopsutil 之类的新依赖，也不需要 cgo。
+// 指标全部来自标准库与框架的 {{ .YdxModule }}/sysinfo：不引入 gopsutil 之类的新依赖，也不需要 cgo。
 // 宿主机 CPU 用两次累计快照的差值计算，进程 CPU 用 runtime/metrics 的累计 CPU 秒数计算；
 // 第一次采样会短暂等待约 150ms 以取得一个有意义的窗口，之后每次轮询都只做一次快照。
-// Every value comes from the standard library and the framework's core/sysinfo: no gopsutil-like dependency and no
+// Every value comes from the standard library and the framework's {{ .YdxModule }}/sysinfo: no gopsutil-like dependency and no
 // cgo. Host CPU is the difference between two cumulative snapshots, and process CPU is the cumulative CPU seconds
 // reported by runtime/metrics. The first sample waits about 150ms so that it has a meaningful window; later polls
 // only take one snapshot.

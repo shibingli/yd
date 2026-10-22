@@ -194,8 +194,8 @@ func trimManifest(m *assets.Manifest, exts []string) *assets.Manifest {
 	return &trimmed
 }
 
-// marshalIndent 用 jsonx 输出两空格缩进的 JSON，并补上结尾换行。
-// marshalIndent writes two-space indented JSON through jsonx and appends a trailing newline.
+// marshalIndent 用 ydx/json 输出两空格缩进的 JSON，并补上结尾换行。
+// marshalIndent writes two-space indented JSON through ydx/json and appends a trailing newline.
 func marshalIndent(v any) ([]byte, error) {
 	data, err := json.MarshalIndent(v, "", "  ")
 	if err != nil {

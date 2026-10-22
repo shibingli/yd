@@ -10,10 +10,10 @@
 // and hand-written files without the generated marker are never overwritten unless
 // Options.Force is set. Every generated .go artifact is formatted with go/format.
 //
-// 全仓约束同样作用于生成出来的代码：注释与日志文案中英同步、日志走 logx、
-// 错误在包级用 errx 声明哨兵、控制器以 HTML 片段（而非 JSON）响应。
+// 全仓约束同样作用于生成出来的代码：注释与日志文案中英同步、日志走 ydx/log、
+// 错误在包级用 errs 声明哨兵、控制器以 HTML 片段（而非 JSON）响应。
 // The repository-wide rules also apply to the generated code: bilingual comments
-// and log messages, logging through logx, package-level errx sentinels, and
+// and log messages, logging through ydx/log, package-level errs sentinels, and
 // controllers answering with HTML fragments instead of JSON.
 package gen
 

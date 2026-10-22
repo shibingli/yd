@@ -183,7 +183,7 @@ type PasswordOptions struct {
 //
 //	sm3pbkdf2$<iter>$<saltB64>$<hashB64>
 //
-// Here <iter> is the decimal iteration count and <saltB64> and <hashB64> are the salt and the 32-byte digest in b64x standard Base64. | 其中 <iter> 为十进制迭代次数，<saltB64> 与 <hashB64> 为 b64x 标准 Base64 编码的盐与 32 字节摘要。
+// Here <iter> is the decimal iteration count and <saltB64> and <hashB64> are the salt and the 32-byte digest in base64 standard Base64. | 其中 <iter> 为十进制迭代次数，<saltB64> 与 <hashB64> 为 base64 标准 Base64 编码的盐与 32 字节摘要。
 // The salt comes from crypto/rand, so hashing the same password twice gives different results. | 盐由 crypto/rand 生成，因此同一口令每次散列结果不同。
 //
 // The only possible errors are a failed random read and out-of-range parameters. | 返回的错误仅可能来自随机数读取失败或参数越界。

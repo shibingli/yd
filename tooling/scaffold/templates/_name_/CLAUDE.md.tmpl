@@ -34,7 +34,7 @@
 - Htmx **{{ .HtmxVersion }}** 作为前端事件总线；Tailwind CSS **{{ .TailwindVersion }}** 作为样式标准（`@theme` 语义化变量，默认蓝色系）
 - 不依赖 Node.js 编译管道：Tailwind 编译由 `yd` 脚手架静默驱动
 - 前端资产一律 `go:embed` 打包进二进制，**严禁**运行时从公网 CDN 动态引入
-- 框架能力（`{{ .YdModule }}`）：`logx` 零拷贝日志、`errx` 声明式哨兵错误、`jsonx`/`b64x` 硬件自适应编解码、`router`/`htmx`/`sse`/`ws`/`jwt`/`guomi` 等中间件与插件
+- 框架能力（`{{ .YdModule }}` 与 `{{ .YdxModule }}`）：`ydlog` 零拷贝日志（`{{ .YdxModule }}/log`）、`errs` 声明式哨兵错误、`json`/`base64` 硬件自适应编解码、`router`/`htmx`/`sse`/`ws`/`jwt`/`guomi` 等中间件与插件
 - 鉴权能力（`{{ .YdModule }}/security/auth`）：租户、用户、角色、能力与令牌签发器；本项目在 `internal/repository` 里装配它，在 `internal/model` 里声明能力常量与展示文案
 
 ## 4. 配置与环境变量
@@ -58,14 +58,14 @@
    ```
 
    豁免：`//go:build` 编译指令、`// Code generated ... DO NOT EDIT.` 生成标记、注释内的代码示例/目录树/URL。
-2. **错误一律声明为哨兵（errx）**：包级 `var ErrX = errs.New("english | 中文")`；
+2. **错误一律声明为哨兵（errs）**：包级 `var ErrX = errs.New("english | 中文")`；
    **禁止 `fmt.Errorf`**，附加细节用 `errs.Detail`，保留底层错误用 `errs.Wrap` / `errs.WrapDetail`；
    判定只用 `errors.Is` / `errors.As`。
-   自检：`grep -rn 'fmt\.Errorf' --include=*.go . | grep -v '^./core/errx/'` 必须无命中。
-3. **日志一律走 logx**：禁止标准库 `log`、禁止 `fmt.Print*` 当日志、禁止 zap/zerolog/logrus。
+   自检：`grep -rn 'fmt\.Errorf' --include=*.go .` 必须无命中。
+3. **日志一律走 ydlog**：禁止标准库 `log`、禁止 `fmt.Print*` 当日志、禁止 zap/zerolog/logrus。
    ```go
-   	logger := log.New(log.Options{Service: "{{ .Name }}"})
-   	logger.Warn("slow query | 慢查询", log.Dur("elapsed", d), log.Str("sql", sql))
+       logger := ydlog.New(ydlog.Options{Service: "{{ .Name }}"})
+       logger.Warn("slow query | 慢查询", ydlog.Dur("elapsed", d), ydlog.Str("sql", sql))
    ```
 4. **JSON / Base64 一律走封装层**：`{{ .YdxModule }}/json`（`Marshal`/`Unmarshal`/`NewEncoder`/`NewDecoder`/`Valid`）
    与 `{{ .YdxModule }}/base64`（`StdEncoding`/`URLEncoding`/…）；**禁止**直接 `import "encoding/json"` 或 `"encoding/base64"`。
@@ -203,7 +203,7 @@ yd gen module|crud   # 低代码生成（DB Schema 或 Go Struct）
   `<hx-partial hx-target="#yd-live-metrics" hx-swap="innerMorph">` 推给每条连接，首帧在握手后立即写出；
   不得再为这两块内容写 HTTP 定时轮询或 HTTP 重同步。`GET /mgr/metrics` 与 `/mgr/metrics/middleware`
   仅作为可直接取用的服务端片段保留。仪表盘用纯 SVG 展示宿主机与进程的 CPU/内存，
-  指标来自 `core/sysinfo` 与 `runtime/metrics`，平台不支持时显示「不可用」，不得编造数字。
+  指标来自 `{{ .YdxModule }}/sysinfo` 与 `runtime/metrics`，平台不支持时显示「不可用」，不得编造数字。
 - 系统资源与中间件运行时统一经 `runtime/metricsx.Provider` 读取：首页两张卡片共用一次
   `Provider.Snapshot()`，控制器不得直连 `MetricsService`。
 - 中间件运行时数据来自 `runtime/metricsx`，由 `/mgr/ws/metrics` 推送。所有中间件必须经

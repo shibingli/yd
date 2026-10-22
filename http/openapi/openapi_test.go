@@ -9,6 +9,7 @@ import (
 
 	"github.com/shibingli/ydx/json"
 	"github.com/shibingli/ydx/router"
+	"github.com/spf13/afero"
 	"go.yaml.in/yaml/v3"
 )
 
@@ -121,6 +122,43 @@ func TestFromRouterConvertsPatternParams(t *testing.T) {
 	}
 	if !p.Required {
 		t.Errorf("path param must be required | 路径参数必须必填")
+	}
+}
+
+// TestFromRouterSkipsCoverageForConfiguredPrefixes 验证 SkipPrefixes 中的路由不计入 missing。
+// TestFromRouterSkipsCoverageForConfiguredPrefixes verifies routes under SkipPrefixes never count as missing.
+//
+// 静态文件挂载不是 API 操作；把它算进缺失覆盖率会让每个生成项目启动时都报告 missing=1。文档里仍保留
+// 该路径（它确实是可访问的端点），只是覆盖统计不再要求它有注解。| A static file mount is not an API
+// operation; counting it as missing makes every generated project report missing=1 at startup. The path stays
+// in the document (it really is reachable); only coverage reporting stops requiring an annotation.
+func TestFromRouterSkipsCoverageForConfiguredPrefixes(t *testing.T) {
+	r := router.New()
+	r.GET("/api/users", noopHandler)
+	r.StaticFS("/static", afero.NewMemMapFs())
+
+	report := &Report{}
+	doc := FromRouterWithAnnotations(r,
+		Info{Title: "Demo", Version: "1.0.0"},
+		Options{SkipPrefixes: []string{"/static/"}},
+		nil, report)
+
+	for _, key := range report.Missing {
+		if strings.HasPrefix(key, "GET /static/") {
+			t.Errorf("静态路由不应计入 missing: %v", report.Missing)
+		}
+	}
+	foundAPI := false
+	for _, key := range report.Missing {
+		if key == "GET /api/users" {
+			foundAPI = true
+		}
+	}
+	if !foundAPI {
+		t.Errorf("普通 API 路由仍应计入 missing: %v", report.Missing)
+	}
+	if _, ok := doc.Paths["/static/{filepath}"]; !ok {
+		t.Errorf("静态路径仍应保留在文档中: %v", doc.Paths)
 	}
 }
 

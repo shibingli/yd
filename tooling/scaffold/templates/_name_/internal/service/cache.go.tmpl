@@ -11,7 +11,7 @@ import (
 
 	"{{ .YdxModule }}/config"
 	"{{ .YdxModule }}/errs"
-	logx "{{ .YdxModule }}/log"
+	ydlog "{{ .YdxModule }}/log"
 	"{{ .YdxModule }}/cache"
 	"{{ .YdxModule }}/redis"
 )
@@ -25,15 +25,15 @@ var ErrCache = errs.New("service: cache unavailable | service：缓存不可用"
 // Redis 可达时使用远端；不可达、探活失败或远端装配失败时只建本地缓存并告警。缓存永远不是启动的硬依赖。
 // When Redis is reachable the remote is used; an unreachable server, a failed probe or a failed remote assembly falls
 // back to the local cache with a warning. The cache is never a hard startup dependency.
-func NewCache(cfg *config.Config, log *logx.Logger) (*cache.Manager, func() error, error) {
+func NewCache(cfg *config.Config, log *ydlog.Logger) (*cache.Manager, func() error, error) {
 	if log == nil {
-		log = logx.Default()
+		log = ydlog.Default()
 	}
 	opts := cache.OptionsFromConfig(cfg)
 	redisClient, err := redis.Open(redis.OptionsFromConfig(cfg))
 	if err != nil {
 		log.Warn("cache redis is configured but unavailable, using the local cache only | 已配置 Redis 但不可用，仅使用本地缓存",
-			logx.Err(err),
+			ydlog.Err(err),
 		)
 	} else {
 		healthCtx, cancel := context.WithTimeout(context.Background(), time.Second)
@@ -55,15 +55,15 @@ func NewCache(cfg *config.Config, log *logx.Logger) (*cache.Manager, func() erro
 				remoteErr = mgrErr
 			}
 			log.Warn("cache remote is unavailable, using the local cache only | 缓存远端不可用，仅使用本地缓存",
-				logx.Err(remoteErr),
+				ydlog.Err(remoteErr),
 			)
 		} else {
 			log.Warn("cache redis health check failed, using the local cache only | 缓存 Redis 健康检查失败，仅使用本地缓存",
-				logx.Err(healthErr),
+				ydlog.Err(healthErr),
 			)
 		}
 		if closeErr := redis.Close(redisClient); closeErr != nil {
-			log.Warn("cache redis client close failed | 缓存 Redis 客户端关闭失败", logx.Err(closeErr))
+			log.Warn("cache redis client close failed | 缓存 Redis 客户端关闭失败", ydlog.Err(closeErr))
 		}
 	}
 	mgr, mgrErr := cache.NewManager(cache.WithOptions(opts), cache.WithLogger(log))

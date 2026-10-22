@@ -10,7 +10,7 @@
 //   - This package pins the raw C1C3C2 byte layout and handles the empty plaintext that the upstream primitive rejects. | 本包严格定义原始 C1C3C2 字节布局，并处理上游原语拒绝的空明文。
 //   - SM2 signing and verification follow GB/T 32918.2 through gmsm, using the default user ID "1234567812345678". | SM2 签名/验签按 GB/T 32918.2 使用 gmsm 实现，用户标识为默认值 "1234567812345678"。
 //   - SM4 modes (CBC, GCM and ECB) build on crypto/cipher over the SM4 block cipher, using the cipher's own accelerated CBC/ECB paths when it provides them. | SM4 的工作模式（CBC/GCM/ECB）基于标准库 crypto/cipher 组合；底层密码提供加速 CBC/ECB 路径时优先使用。
-//   - Base64 encoding goes through the framework wrapper github.com/shibingli/yd/core/b64x. | Base64 编解码统一走框架自封装层 github.com/shibingli/yd/core/b64x。
+//   - Base64 encoding goes through the framework wrapper github.com/shibingli/yd/ydx/base64. | Base64 编解码统一走框架自封装层 github.com/shibingli/yd/ydx/base64。
 //
 // Standards | 标准依据：
 //

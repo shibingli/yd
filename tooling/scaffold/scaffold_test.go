@@ -107,6 +107,7 @@ var requiredFiles = []string{
 	"web/i18n/zh-CN.yaml",
 	"web/static/css/app.css",
 	"web/static/css/components.css",
+	"web/static/img/icons.svg",
 	"web/static/js/yd-app.js",
 	"web/templates/mgr/layouts/base.html",
 	"web/templates/mgr/layouts/shell.html",
@@ -589,10 +590,10 @@ func TestGeneratedPersistenceFollowsDatabaseChoice(t *testing.T) {
 			t.Errorf("选了数据库的 config.yaml 缺少 %q", want)
 		}
 	}
-	// gormx 读的是 db.maxconn：写成基线文档里的 db.max_conn 就是一个永远不会生效的死键。
-	// gormx reads db.maxconn: the db.max_conn spelling from the baseline document is a dead key that never takes effect.
+	// ydx/gorm 读的是 db.maxconn：写成基线文档里的 db.max_conn 就是一个永远不会生效的死键。
+	// ydx/gorm reads db.maxconn: the db.max_conn spelling from the baseline document is a dead key that never takes effect.
 	if strings.Contains(cfgDB, "max_conn") {
-		t.Error("config.yaml still spells the key gormx never reads as db.max_conn (it must be db.maxconn) | config.yaml 仍写着 gormx 不读的 db.max_conn（应为 db.maxconn）")
+		t.Error("config.yaml still spells the key ydx/gorm never reads as db.max_conn (it must be db.maxconn) | config.yaml 仍写着 ydx/gorm 不读的 db.max_conn（应为 db.maxconn）")
 	}
 
 	plain := scaffold.DefaultOptions("memory-app")
@@ -611,7 +612,7 @@ func TestGeneratedPersistenceFollowsDatabaseChoice(t *testing.T) {
 	}
 
 	storeNone := prNone.read("internal/repository/store.go")
-	for _, unwanted := range []string{"gormstore", "gormx"} {
+	for _, unwanted := range []string{"gormstore", "github.com/shibingli/ydx/gorm"} {
 		if strings.Contains(storeNone, unwanted) {
 			t.Errorf("未选数据库的 store.go 不应出现 %q", unwanted)
 		}
@@ -944,6 +945,9 @@ func TestLocalReplaceAddsGoModReplace(t *testing.T) {
 // lexer reads the leading "//" as a comment and drops the replacement target. | TestLocalReplaceUNCIsQuoted
 // 证明 UNC 形态的替换路径会加引号：不加引号时 modfile 词法器把开头的 "//" 当作注释，替换目标会被丢掉。
 func TestLocalReplaceUNCIsQuoted(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("UNC paths are Windows-only | UNC 路径仅适用于 Windows")
+	}
 	o := scaffold.DefaultOptions("unc-app")
 	o.LocalReplace = "//server/share/yd"
 	pr, _ := generateMem(t, o)
@@ -1129,11 +1133,11 @@ func TestGeneratedGovernanceDocsStateConstraints(t *testing.T) {
 		"github.com/yun-dev/gov-app",
 		"Co-Authored-By: Eric Shi <shibingli@sina.com>",
 		"中英文同步",
-		"errx",
+		"errs",
 		"fmt.Errorf",
-		"logx",
-		"jsonx",
-		"b64x",
+		"ydlog",
+		"json",
+		"base64",
 		"YD_",
 		// Stack versions (the template bolds them; the mandated version literals are checked verbatim). | 技术栈版本（模板以粗体书写，逐字校验需求规定的版本号）。
 		"Go **1.27.2**",

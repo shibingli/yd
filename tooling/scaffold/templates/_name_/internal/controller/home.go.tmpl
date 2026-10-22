@@ -80,10 +80,10 @@ func (c *Controller) ManagementHome(ctx *router.Ctx) {
 // @Summary Resource metrics fragment | 资源指标片段
 // @Description Renders the gauge grid for the host CPU and memory plus this process's CPU and memory. The fragment is
 // @Description swapped into #yd-metrics with innerMorph, so the gauges update without rebuilding the page. Values come
-// @Description from core/sysinfo and runtime/metrics; a platform that exposes no host CPU or memory times reports the
+// @Description from {{ .YdxModule }}/sysinfo and runtime/metrics; a platform that exposes no host CPU or memory times reports the
 // @Description corresponding gauge as unavailable instead of inventing a number.
 // @Description 渲染宿主机 CPU/内存与本进程 CPU/内存的仪表盘网格。片段以 innerMorph 换入 #yd-metrics，因此仪表盘就地刷新、
-// @Description 不重建页面。取值来自 core/sysinfo 与 runtime/metrics；平台不提供宿主 CPU 或内存时，对应仪表盘显示「不可用」，
+// @Description 不重建页面。取值来自 {{ .YdxModule }}/sysinfo 与 runtime/metrics；平台不提供宿主 CPU 或内存时，对应仪表盘显示「不可用」，
 // @Description 绝不编造数字。
 // @Tags pages
 // @Accept html

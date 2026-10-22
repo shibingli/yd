@@ -255,7 +255,7 @@ func TestAlignForwardsFlags(t *testing.T) {
 		"--exclude-dir", "vendor,testdata",
 		"--bin=C:/tools/betteralign.exe",
 		"--max-passes=4",
-		"./core/version/...", "./core/errx/...",
+		"./core/version/...", "./security/authz/...",
 	)
 
 	o, tool := alignOptions(env, fs)
@@ -269,7 +269,7 @@ func TestAlignForwardsFlags(t *testing.T) {
 	if got := strings.Join(o.ExcludeDirs, "|"); got != "generated|vendor,testdata" {
 		t.Errorf("ExcludeDirs = %q，期望两次 --exclude-dir 都被保留 | want both occurrences", got)
 	}
-	if got := strings.Join(o.Targets, " "); got != "./core/version/... ./core/errx/..." {
+	if got := strings.Join(o.Targets, " "); got != "./core/version/... ./security/authz/..." {
 		t.Errorf("Targets = %q，期望位置参数原样透传 | want the positional patterns", got)
 	}
 	if o.Dir != dir {

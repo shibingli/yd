@@ -15,7 +15,7 @@ import (
 
 	"{{ .YdxModule }}/config"
 	"{{ .YdxModule }}/json"
-	logx "{{ .YdxModule }}/log"
+	ydlog "{{ .YdxModule }}/log"
 	"{{ .YdxModule }}/asynq"
 	"{{ .YdxModule }}/redis"
 	"{{ .YdModule }}/messaging"
@@ -38,14 +38,14 @@ const messageEventTask = "yd:message:event"
 // startup: the local hub keeps working and the failure is logged. |
 // 每个生成项目都内建 Redis 与 asynq：实时事件经 Redis Pub/Sub 跨节点广播，写入失败会入队，并由处理该任务的任一节点
 // 重发。Redis 连接失败绝不阻塞启动：本地 Hub 继续工作，失败只记录日志。
-func NewMessageBus(cfg *config.Config, log *logx.Logger) (*realtime.Hub, func() error, error) {
+func NewMessageBus(cfg *config.Config, log *ydlog.Logger) (*realtime.Hub, func() error, error) {
 	if log == nil {
-		log = logx.Default()
+		log = ydlog.Default()
 	}
 	redisClient, err := redis.Open(redis.OptionsFromConfig(cfg))
 	if err != nil {
 		log.Warn("redis is configured but unavailable, message delivery stays local | 已配置 redis 但不可用，消息投递保持本地",
-			logx.Err(err),
+			ydlog.Err(err),
 		)
 		return realtime.New(log), func() error { return nil }, nil
 	}
@@ -58,14 +58,14 @@ func NewMessageBus(cfg *config.Config, log *logx.Logger) (*realtime.Hub, func() 
 	if healthErr != nil {
 		_ = redis.Close(redisClient)
 		log.Warn("redis health check failed, message delivery stays local | Redis 健康检查失败，消息投递保持本地",
-			logx.Err(healthErr),
+			ydlog.Err(healthErr),
 		)
 		return realtime.New(log), func() error { return nil }, nil
 	}
 	bus, err := realtime.NewRedisBus(redisClient, realtime.DefaultRedisChannel, log)
 	if err != nil {
 		_ = redis.Close(redisClient)
-		log.Warn("message bus is unavailable, delivery stays local | 消息总线不可用，投递保持本地", logx.Err(err))
+		log.Warn("message bus is unavailable, delivery stays local | 消息总线不可用，投递保持本地", ydlog.Err(err))
 		return realtime.New(log), func() error { return nil }, nil
 	}
 	nodeID := nodeIdentity(cfg)
@@ -87,7 +87,7 @@ func NewMessageBus(cfg *config.Config, log *logx.Logger) (*realtime.Hub, func() 
 		return bus.Publish(ctx, event)
 	})
 	if regErr := registry.Err(); regErr != nil {
-		log.Warn("message retry task registry is invalid | 消息重试任务注册表非法", logx.Err(regErr))
+		log.Warn("message retry task registry is invalid | 消息重试任务注册表非法", ydlog.Err(regErr))
 	} else {
 		options := asynq.OptionsFromConfig(cfg)
 		redisOpt := asynqio.RedisClientOpt{
@@ -100,11 +100,11 @@ func NewMessageBus(cfg *config.Config, log *logx.Logger) (*realtime.Hub, func() 
 		}
 		client, clientErr := asynq.NewClient(redisOpt, options)
 		if clientErr != nil {
-			log.Warn("message retry client is unavailable | 消息重试客户端不可用", logx.Err(clientErr))
+			log.Warn("message retry client is unavailable | 消息重试客户端不可用", ydlog.Err(clientErr))
 		} else {
 			server := asynq.NewServer(registry, redisOpt, options, log)
 			if startErr := server.Start(); startErr != nil {
-				log.Warn("message retry worker is unavailable | 消息重试工作器不可用", logx.Err(startErr))
+				log.Warn("message retry worker is unavailable | 消息重试工作器不可用", ydlog.Err(startErr))
 				_ = client.Close()
 			} else {
 				taskCli = client
@@ -115,9 +115,9 @@ func NewMessageBus(cfg *config.Config, log *logx.Logger) (*realtime.Hub, func() 
 	}
 	hub := realtime.NewDistributed(log, bus, retry, nodeID)
 	log.Info("message bus is ready | 消息总线已就绪",
-		logx.Str("node", nodeID),
-		logx.Str("channel", realtime.DefaultRedisChannel),
-		logx.Bool("durable_retry", retry != nil),
+		ydlog.Str("node", nodeID),
+		ydlog.Str("channel", realtime.DefaultRedisChannel),
+		ydlog.Bool("durable_retry", retry != nil),
 	)
 	return hub, func() error {
 		hub.Close()
@@ -126,7 +126,7 @@ func NewMessageBus(cfg *config.Config, log *logx.Logger) (*realtime.Hub, func() 
 		}
 		if taskCli != nil {
 			if closeErr := taskCli.Close(); closeErr != nil {
-				log.Warn("message retry client close failed | 消息重试客户端关闭失败", logx.Err(closeErr))
+				log.Warn("message retry client close failed | 消息重试客户端关闭失败", ydlog.Err(closeErr))
 			}
 		}
 		return redis.Close(redisClient)

@@ -381,7 +381,7 @@ func ResolveAndRun(ctx context.Context, tool ToolOptions, o Options, log *ydlog.
 	return Run(ctx, o, log)
 }
 
-// diagnosticRe matches one betteralign diagnostic, e.g. "http/router/pattern.go:77:14: 8 bytes saved: struct of size 96 could be 88". | diagnosticRe 匹配一条 betteralign 诊断，例如 "http/router/pattern.go:77:14: 8 bytes saved: struct of size 96 could be 88"。
+// diagnosticRe matches one betteralign diagnostic, e.g. "ydx/router/pattern.go:77:14: 8 bytes saved: struct of size 96 could be 88". | diagnosticRe 匹配一条 betteralign 诊断，例如 "ydx/router/pattern.go:77:14: 8 bytes saved: struct of size 96 could be 88"。
 //
 // Both diagnostic families are covered - the struct-size one and the pointer-bytes one - and the pattern is anchored on the analyzer's own wording, so that a compiler error mentioning a struct literal is never miscounted. | 两类诊断都被覆盖——体积类与指针字节类——且模式锚定在分析器自身的措辞上，因此提及 struct literal 的编译错误绝不会被误计。
 var diagnosticRe = regexpx.MustCompile(`\.go:\d+:\d+: (?:\d+ bytes saved: )?struct (?:of size \d+ could be \d+|with \d+ pointer bytes could be \d+)`)

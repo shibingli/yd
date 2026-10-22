@@ -8,7 +8,7 @@
 // Three layers are provided: | 本包提供三层能力：
 //
 //   - the document model (Document, PathItem, Operation, ...) which is only ever
-//     serialized through jsonx; | 文档模型（Document、PathItem、Operation 等），只经 jsonx 序列化；
+//     serialized through ydx/json; | 文档模型（Document、PathItem、Operation 等），只经 ydx/json 序列化；
 //   - Builder, which assembles documents by hand and derives JSON Schemas from Go
 //     structs by reflection (build time only, never on the request path); | Builder，
 //     用于手工装配文档，并通过反射从 Go 结构体推导 JSON Schema（仅构建期，不进请求热路径）；
@@ -638,6 +638,12 @@ type Options struct {
 	// is nil, FromRouterWithAnnotations parses them from these directories. | SourceDirs 列出
 	// 存放类型注解的源码目录；TypeAnnotations 为 nil 时由 FromRouterWithAnnotations 从这些目录解析。
 	SourceDirs []string
+	// SkipPrefixes lists route path prefixes excluded from coverage reporting. The routes remain in
+	// the document; only Report.Missing ignores them. A prefix without a trailing slash matches the
+	// exact path and its children, so "/static" covers "/static" and "/static/...". | SkipPrefixes
+	// 列出不计入覆盖率统计的路由前缀。路由仍保留在文档中，只有 Report.Missing 忽略它们。不带结尾斜杠的
+	// 前缀匹配该路径本身及其子路径，因此 "/static" 覆盖 "/static" 与 "/static/..."。
+	SkipPrefixes []string
 	// Blocked disables both endpoints, which is how production switches docs off. | Blocked 关闭两个端点，生产环境据此下线文档。
 	Blocked bool
 }

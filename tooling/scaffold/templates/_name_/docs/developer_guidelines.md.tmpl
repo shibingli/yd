@@ -116,7 +116,7 @@ cookie 里的令牌          验签 / 有效期 /         以令牌的 tid 声�
   `auth` 服务并守住「跨租户即 `ErrNotFound`」这条契约，`model` 只声明模型、能力常量与展示文案。
 - 一切外部输入必须限长并校验；错误统一经 `internal/middleware` 的恢复中间件与错误片段输出。
 - 错误一律在包级用 `errs.New` 声明哨兵，禁止 `fmt.Errorf`；判定只用 `errors.Is` / `errors.As`。
-- 日志一律走 `logx`，文案中英同步。
+- 日志一律走 `ydlog`，文案中英同步。
 - 新增端点后，先在 `internal/controller` 写好带完整注解的处理器（§9.2），再在 `internal/router` 的 `registerProtected`
   里挂上能力守卫；`yd build` 会自动带上文档，`/mgr/docs` 应能立刻看到它。
 

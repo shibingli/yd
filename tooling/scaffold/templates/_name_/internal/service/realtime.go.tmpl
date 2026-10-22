@@ -10,7 +10,7 @@ import (
 	"time"
 
 	"{{ .YdxModule }}/errs"
-	logx "{{ .YdxModule }}/log"
+	ydlog "{{ .YdxModule }}/log"
 	"{{ .YdxModule }}/sse"
 )
 
@@ -165,13 +165,13 @@ func (t *Ticker) render(now time.Time) string {
 
 // LogStart 记录一次启动日志，供装配期调用，避免调用方自行拼装字段。
 // LogStart records one startup log line for the assembly path, so callers do not assemble fields themselves.
-func (t *Ticker) LogStart(log *logx.Logger, subscribers int) {
+func (t *Ticker) LogStart(log *ydlog.Logger, subscribers int) {
 	if log == nil {
 		return
 	}
 	log.Info("realtime publisher started | 实时推送已启动",
-		logx.Str("topic", EventsTopic),
-		logx.Dur("interval", t.interval),
-		logx.Int("subscribers", subscribers),
+		ydlog.Str("topic", EventsTopic),
+		ydlog.Dur("interval", t.interval),
+		ydlog.Int("subscribers", subscribers),
 	)
 }

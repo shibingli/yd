@@ -7,9 +7,9 @@
 //   - the auth package itself stays free of any ORM (a repository guard enforces it);
 //     this subpackage is the one place where GORM is allowed to appear. | auth 包自身保持零 ORM 依赖
 //     （仓库守卫会强制这一点），GORM 只允许出现在本子包。
-//   - New accepts an already opened *gorm.DB (see data/gormx) and never opens a
+//   - New accepts an already opened *gorm.DB (see ydx/gorm) and never opens a
 //     connection; Migrate builds the tables and every index. | New 接受已经打开的 *gorm.DB
-//     （见 data/gormx），自身绝不打开连接；Migrate 负责建表与建全部索引。
+//     （见 ydx/gorm），自身绝不打开连接；Migrate 负责建表与建全部索引。
 //   - the contract is the one of auth.Store, aligned line by line with the memory
 //     implementation: every tenant-scoped method writes its tenantID into the SQL
 //     WHERE clause, while the global lookup and membership methods use the globally
@@ -30,8 +30,8 @@
 //
 // Table names and index names are written out in full, prefix included: GORM takes an explicit TableName() and an
 // explicit index tag verbatim and never runs them through the naming strategy, so the yd_ prefix has to be typed
-// here as it is in data/gormx. | 表名与索引名一律写全，含前缀：GORM 对显式的 TableName() 与显式的索引标签
-// 直接采用其返回值、绝不经过命名策略，因此 yd_ 前缀在这里必须像在 data/gormx 里那样手写出来。
+// here as it is in ydx/gorm. | 表名与索引名一律写全，含前缀：GORM 对显式的 TableName() 与显式的索引标签
+// 直接采用其返回值、绝不经过命名策略，因此 yd_ 前缀在这里必须像在 ydx/gorm 里那样手写出来。
 //
 // The tables carry the yd_auth_ prefix because the framework owns their DDL: the yd_ prefix marks the framework's
 // namespace, so a generated project's own users or roles table can never collide with yd_auth_users or
@@ -137,8 +137,8 @@ func OptionsFromConfig(c *config.Config) Options {
 	}
 	return Options{
 		QueryTimeout: c.Duration(configQueryTimeout),
-		// The logger does not come from configuration: the entry point assembles it once and injects it, exactly as in data/gormx.
-		// 日志器不来自配置：它由入口装配一次并注入（与 data/gormx 同一口径）。
+		// The logger does not come from configuration: the entry point assembles it once and injects it, exactly as in ydx/gorm.
+		// 日志器不来自配置：它由入口装配一次并注入（与 ydx/gorm 同一口径）。
 	}
 }
 
@@ -279,10 +279,10 @@ func notFound(err error) error {
 
 // duplicateMarkers are the driver messages that mean "unique constraint violation". | duplicateMarkers 是表示「唯一约束冲突」的驱动报文。
 //
-// gormx opens connections without TranslateError, so GORM's own ErrDuplicatedKey is
+// ydx/gorm opens connections without TranslateError, so GORM's own ErrDuplicatedKey is
 // only reachable when the caller enabled the translation; the textual markers cover
 // the three supported dialects either way. Detecting a duplicate is the adapter's
-// job — the caller of this package still decides with errors.Is(auth.ErrConflict). | gormx 打开连接时未开启
+// job — the caller of this package still decides with errors.Is(auth.ErrConflict). | ydx/gorm 打开连接时未开启
 // TranslateError，因此只有调用方自行开启翻译时 GORM 自身的 ErrDuplicatedKey 才可达；下面这些文本标记在三种方言上都能兜底。
 // 「识别重复」是本适配器的职责，本包的调用方仍然一律用 errors.Is(auth.ErrConflict) 判定。
 var duplicateMarkers = []string{

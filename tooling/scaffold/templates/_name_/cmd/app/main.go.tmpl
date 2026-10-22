@@ -39,7 +39,7 @@ import (
 	"{{ .YdModule }}/runtime/app"
 	"{{ .YdxModule }}/errs"
 	"{{ .YdModule }}/http/i18n"
-	logx "{{ .YdxModule }}/log"
+	ydlog "{{ .YdxModule }}/log"
 	ydmw "{{ .YdxModule }}/middleware"
 	"{{ .YdModule }}/runtime/service"
 )
@@ -64,8 +64,8 @@ var (
 func main() {
 	// 日志先于一切装配：任何一步失败都必须留下可检索的记录，且日志器本身不会失败。
 	// The logger comes first: a failure anywhere downstream must leave a searchable record, and the logger itself cannot fail.
-	log := logx.New(logx.Options{Service: meta.Name, Caller: true})
-	logx.SetDefault(log)
+	log := ydlog.New(ydlog.Options{Service: meta.Name, Caller: true})
+	ydlog.SetDefault(log)
 
 	// 退出信号经 context 传递：SIGINT/SIGTERM 触发优雅退出，在途请求被等待收尾。
 	// Shutdown signals travel through the context: SIGINT/SIGTERM triggers a graceful exit that drains in-flight requests.
@@ -74,20 +74,20 @@ func main() {
 
 	application, err := assemble(log)
 	if err != nil {
-		log.Error("application assembly failed | 应用装配失败", logx.Err(err))
+		log.Error("application assembly failed | 应用装配失败", ydlog.Err(err))
 		os.Exit(1)
 	}
 
 	log.Info("application assembled | 应用已装配",
-		logx.Str("name", meta.Name),
-		logx.Str("module", meta.Module),
-		logx.Str("version", meta.Version),
-		logx.Str("env", meta.Env()),
-		logx.Strs("features", meta.Features),
+		ydlog.Str("name", meta.Name),
+		ydlog.Str("module", meta.Module),
+		ydlog.Str("version", meta.Version),
+		ydlog.Str("env", meta.Env()),
+		ydlog.Strs("features", meta.Features),
 	)
 
 	if err := runApplication(ctx, application, log); err != nil {
-		log.Error("application stopped with an error | 应用异常退出", logx.Err(err))
+		log.Error("application stopped with an error | 应用异常退出", ydlog.Err(err))
 		os.Exit(1)
 	}
 	log.Info("application stopped | 应用已停止")
@@ -95,7 +95,7 @@ func main() {
 
 // runApplication 按参数与终端探测选择运行模式，并等待本次运行收尾。
 // runApplication selects the run mode from the arguments and the terminal probe, then waits for that run to finish.
-func runApplication(ctx context.Context, application *app.App, log *logx.Logger) error {
+func runApplication(ctx context.Context, application *app.App, log *ydlog.Logger) error {
 	action, given := service.IsServiceArg(os.Args[1:])
 	opts := serviceOptions(application)
 
@@ -110,8 +110,8 @@ func runApplication(ctx context.Context, application *app.App, log *logx.Logger)
 			return errs.WrapDetail(err, ErrService, "action=%s", action)
 		}
 		log.Info("service action finished | 服务动作已完成",
-			logx.Str("action", string(action)),
-			logx.Str("result", result),
+			ydlog.Str("action", string(action)),
+			ydlog.Str("result", result),
 		)
 		return nil
 	}
@@ -122,7 +122,7 @@ func runApplication(ctx context.Context, application *app.App, log *logx.Logger)
 	// -service run. A stop during hosting only cancels runCtx: app.Run finishes its own shutdown after the
 	// cancellation, and the process never calls os.Exit.
 	if given || !service.Interactive() {
-		log.Info("running under the service manager | 正在服务管理器下运行", logx.Str("service", opts.Name))
+		log.Info("running under the service manager | 正在服务管理器下运行", ydlog.Str("service", opts.Name))
 		return service.Run(opts, func(runCtx context.Context) error {
 			return application.Run(runCtx)
 		})
@@ -160,7 +160,7 @@ func serviceOptions(application *app.App) service.Options {
 //
 // 返回的错误一律可 errors.Is 判定到包级哨兵，调用方无须解析文案。
 // Every returned error satisfies errors.Is against a package-level sentinel, so callers never parse messages.
-func assemble(log *logx.Logger) (*app.App, error) {
+func assemble(log *ydlog.Logger) (*app.App, error) {
 	static, err := web.Static()
 	if err != nil {
 		return nil, errs.WrapDetail(err, ErrStatic, "root=%s", meta.AssetRoot)
@@ -216,7 +216,7 @@ func assemble(log *logx.Logger) (*app.App, error) {
 // 缺失时回退到 internal/meta 的常量，保证两条路径给出同一个值。
 // The default language prefers the i18n.default_lang configuration key (whether that section reaches configs/config.yaml
 // is decided by the scaffold's language switch) and falls back to the internal/meta constant so both paths agree.
-func registerI18n(application *app.App, log *logx.Logger) error {
+func registerI18n(application *app.App, log *ydlog.Logger) error {
 	defaultLang := strings.TrimSpace(application.Config().GetString("i18n.default_lang"))
 	if defaultLang == "" {
 		defaultLang = meta.DefaultLang
@@ -230,8 +230,8 @@ func registerI18n(application *app.App, log *logx.Logger) error {
 	application.Set(app.ServiceI18n, bundle)
 	application.UseObserved(middleware.MetricsDescriptor("i18n"), i18n.Middleware(bundle, i18n.Options{}))
 	log.Info("i18n catalogues loaded | 语言目录已加载",
-		logx.Str("default", bundle.DefaultLang()),
-		logx.Strs("langs", bundle.Langs()),
+		ydlog.Str("default", bundle.DefaultLang()),
+		ydlog.Strs("langs", bundle.Langs()),
 	)
 	return nil
 }

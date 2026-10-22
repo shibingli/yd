@@ -3,6 +3,7 @@ package scaffold
 import (
 	"bytes"
 	"embed"
+	"go/format"
 	"os"
 	"path"
 	"path/filepath"
@@ -11,6 +12,7 @@ import (
 	"strings"
 	"text/template"
 
+	"github.com/shibingli/yd/tooling/icons"
 	"github.com/shibingli/ydx/afs"
 	"github.com/shibingli/ydx/errs"
 	"github.com/shibingli/ydx/gorm"
@@ -274,11 +276,11 @@ func Extensions() []string { return append([]string(nil), extNames...) }
 //
 //   - SQLite 的 `_txlock=immediate` 让写事务在**开始**时就取得写锁。先读后写的延迟事务会被并发提交顶掉快照，
 //     随后以 SQLITE_BUSY_SNAPSHOT 失败，而这是任何 busy timeout 都无法化解的——存储层的预检正是「先读后写」。
-//     预置表刻意不含它，也正是为了让驱动不去跳过它的解析（见 gormx 的说明）。
+//     预置表刻意不含它，也正是为了让驱动不去跳过它的解析（见 ydx/gorm 的说明）。
 //     SQLite's `_txlock=immediate` takes the write lock when a write transaction *begins*. A deferred transaction that
 //     reads first and writes later loses its snapshot to a concurrent commit and then fails with SQLITE_BUSY_SNAPSHOT,
 //     which no busy timeout can resolve — and the storage layer's pre-checks read before they write. The preset table
-//     deliberately omits it, and deliberately omits the key that would make the driver skip parsing it (see gormx).
+//     deliberately omits it, and deliberately omits the key that would make the driver skip parsing it (see ydx/gorm).
 func dsnFor(db, name string) string {
 	switch db {
 	case DBSQLite:
@@ -367,7 +369,15 @@ func plan(o Options) ([]plannedFile, error) {
 		if err != nil {
 			return err
 		}
-		files = append(files, plannedFile{path: outputPath(p, o.Name), content: rendered})
+		out := outputPath(p, o.Name)
+		if strings.HasSuffix(out, ".go") {
+			formatted, formatErr := format.Source(rendered)
+			if formatErr != nil {
+				return errs.WrapDetail(formatErr, ErrFormat, "path=%[1]s | 路径=%[1]s", out)
+			}
+			rendered = formatted
+		}
+		files = append(files, plannedFile{path: out, content: rendered})
 		return nil
 	})
 	if err != nil {
@@ -384,8 +394,63 @@ func plan(o Options) ([]plannedFile, error) {
 	}
 	files = append(files, extras...)
 
+	sprite, err := iconSprite(o.Name, files)
+	if err != nil {
+		return nil, err
+	}
+	files = append(files, plannedFile{
+		path:    projectPrefix(o.Name) + path.Join("web", "static", "img", "icons.svg"),
+		content: sprite,
+	})
+
 	sortFiles(files)
 	return files, nil
+}
+
+// iconSprite builds the project-local icon sprite from the rendered templates. | iconSprite 依据渲染后的模板构建项目本地图标 sprite。
+//
+// The project must pass `yd icons check` right after generation, and the sprite must be derived from the
+// templates that were actually rendered (conditional templates are excluded) rather than from the whole
+// embedded template tree. A MemFS holding only the planned templates gives exactly that view, and keeps
+// generation atomic: the sprite is just one more planned file, written with the rest. | 生成项目必须开箱通过
+// `yd icons check`；sprite 必须来自实际渲染出的模板（被条件排除的模板不参与），而不是整棵内嵌模板树。
+// 只装入计划文件的 MemFS 正好提供这个视图，同时保持生成原子性：sprite 只是又一个与其他文件一起写入的计划文件。
+func iconSprite(name string, files []plannedFile) ([]byte, error) {
+	prefix := projectPrefix(name) + "web/templates/"
+	fsys := afs.NewMem()
+	found := false
+	for _, f := range files {
+		if !strings.HasPrefix(f.path, prefix) {
+			continue
+		}
+		rel := strings.TrimPrefix(f.path, projectPrefix(name))
+		if dir := path.Dir(rel); dir != "." {
+			if err := fsys.MkdirAll(dir, 0o755); err != nil {
+				return nil, errs.WrapDetail(err, ErrIconSprite, "mkdir=%[1]s | 目录=%[1]s", dir)
+			}
+		}
+		if err := afero.WriteFile(fsys, rel, f.content, 0o644); err != nil {
+			return nil, errs.WrapDetail(err, ErrIconSprite, "path=%[1]s | 路径=%[1]s", rel)
+		}
+		found = true
+	}
+	if !found {
+		return nil, errs.Detail(ErrIconSprite, "no web/templates planned | 没有计划写入 web/templates")
+	}
+
+	refs, err := icons.Scan(fsys, []string{"web/templates"})
+	if err != nil {
+		return nil, errs.Wrap(err, ErrIconSprite)
+	}
+	set, err := icons.Lucide()
+	if err != nil {
+		return nil, errs.Wrap(err, ErrIconSprite)
+	}
+	sprite, err := icons.Build(set, refs)
+	if err != nil {
+		return nil, errs.Wrap(err, ErrIconSprite)
+	}
+	return sprite, nil
 }
 
 // render renders one template with text/template. | render 用 text/template 渲染单个模板。

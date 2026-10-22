@@ -73,12 +73,13 @@ func init() {
 			"resolver looks, so nothing has to be added to PATH.\n" +
 			"报告本机可用的可选外部工具，并把缺失的那些安装到项目内的 " + tools.LocalToolDir + " 目录——那是每个解析器\n" +
 			"最先查看的位置，因此无需改动 PATH。\n" +
-			"The four tools are betteralign, ko, tailwindcss and docker; betteralign, ko and tailwindcss can be\n" +
-			"installed automatically (tailwindcss downloads a release binary and honours http.proxy and\n" +
-			"tailwind.url), while docker is only reported. Only `yd tools install` ever touches the network.\n" +
-			"四个工具是 betteralign、ko、tailwindcss 与 docker；betteralign、ko 与 tailwindcss 可以自动安装\n" +
-			"（tailwindcss 下载发布二进制，并遵循 http.proxy 与 tailwind.url），docker 只做报告。只有\n" +
-			"`yd tools install` 会接触网络。\n" +
+			"The five tools are betteralign, ko, tailwindcss, minify and docker; betteralign, ko, tailwindcss\n" +
+			"and minify can be installed automatically (tailwindcss downloads a release binary and honours\n" +
+			"http.proxy and tailwind.url), while docker is only reported. Only `yd tools install` ever touches\n" +
+			"the network.\n" +
+			"五个工具是 betteralign、ko、tailwindcss、minify 与 docker；betteralign、ko、tailwindcss 与 minify\n" +
+			"可以自动安装（tailwindcss 下载发布二进制，并遵循 http.proxy 与 tailwind.url），docker 只做报告。\n" +
+			"只有 `yd tools install` 会接触网络。\n" +
 			"check never fails a build: a missing optional tool is a hint, not an error.\n" +
 			"check 绝不让构建失败：可选工具缺失是提示，不是错误。",
 		Usage:       toolsUsageLine,

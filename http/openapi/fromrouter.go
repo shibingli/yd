@@ -75,7 +75,11 @@ func FromRouterWithAnnotations(r *router.Router, info Info, o Options, annots ma
 			matched = append(matched, key)
 		} else {
 			op = mergePathParams(op, params)
-			missing = append(missing, key)
+			// Static mounts and other non-API prefixes stay in the document but do not count as
+			// missing annotations. | 静态挂载等非 API 前缀保留在文档中，但不计入缺失注解。
+			if !skipsCoverage(path, o.SkipPrefixes) {
+				missing = append(missing, key)
+			}
 		}
 		b.add(key, path, route.Method, op, params)
 	}
@@ -104,6 +108,34 @@ func FromRouterWithAnnotations(r *router.Router, info Info, o Options, annots ma
 		}
 	}
 	return b.Build()
+}
+
+// skipsCoverage reports whether path belongs to one of the configured non-API prefixes. | skipsCoverage
+// 报告 path 是否属于某个配置的非 API 前缀。
+//
+// Matching is literal and boundary-aware: a prefix without a trailing slash covers the exact path and
+// its children, so "/static" does not swallow "/static-file". | 匹配是字面量且带边界判断的：不带结尾
+// 斜杠的前缀覆盖该路径本身及其子路径，因此 "/static" 不会误吞 "/static-file"。
+func skipsCoverage(path string, prefixes []string) bool {
+	for _, prefix := range prefixes {
+		prefix = strings.TrimSpace(prefix)
+		if prefix == "" {
+			continue
+		}
+		if !strings.HasPrefix(prefix, "/") {
+			prefix = "/" + prefix
+		}
+		if strings.HasSuffix(prefix, "/") {
+			if strings.HasPrefix(path, prefix) {
+				return true
+			}
+			continue
+		}
+		if path == prefix || strings.HasPrefix(path, prefix+"/") {
+			return true
+		}
+	}
+	return false
 }
 
 // resolveTypeAnnotations returns the type annotations to merge: the ones the caller provided

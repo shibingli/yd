@@ -63,8 +63,8 @@ func run(args []string, stdout, stderr io.Writer, stdin *os.File) int {
 		return exitOK
 	}
 
-	// Diagnostics go through logx, which Execute has already pointed at the CLI's stderr stream. | 诊断
-	// 信息经 logx 输出，Execute 已把日志器指向 CLI 的标准错误流。
+	// Diagnostics go through ydx/log, which Execute has already pointed at the CLI's stderr stream. | 诊断
+	// 信息经 ydx/log 输出，Execute 已把日志器指向 CLI 的标准错误流。
 	log.Default().Error("yd: command failed | yd：命令执行失败", log.Err(err))
 	if isUsageError(err) {
 		return exitUsage

@@ -163,6 +163,10 @@ var (
 	ErrTemplateRead = errs.New("read template failed | 读取模板失败")
 	// ErrTemplateRender reports a failed template render. | ErrTemplateRender 表示模板渲染失败。
 	ErrTemplateRender = errs.New("render template failed | 渲染模板失败")
+	// ErrFormat reports a generated Go file that cannot be formatted. | ErrFormat 表示生成的 Go 文件无法格式化。
+	ErrFormat = errs.New("format generated Go source failed | 格式化生成的 Go 源码失败")
+	// ErrIconSprite reports a failed icon sprite build for the generated project. | ErrIconSprite 表示生成项目的图标 sprite 构建失败。
+	ErrIconSprite = errs.New("build generated project icon sprite failed | 构建生成项目图标 sprite 失败")
 	// ErrWriteFile reports a failed write to a target file. | ErrWriteFile 表示写入目标文件失败。
 	ErrWriteFile = errs.New("write target file failed | 写入目标文件失败")
 	// ErrInputRead reports a failed read of interactive input. | ErrInputRead 表示读取交互输入失败。

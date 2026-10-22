@@ -76,7 +76,7 @@ type Env struct {
 	FS afero.Fs
 	// Out receives user-visible output (tables, reports, prompts). | Out 接收用户可见输出（表格、报告、提示）。
 	Out io.Writer
-	// Err receives diagnostics that are not routed through logx. | Err 接收未经 logx 的诊断信息。
+	// Err receives diagnostics that are not routed through ydx/log. | Err 接收未经 ydx/log 的诊断信息。
 	Err io.Writer
 	// In is the interactive input stream. | In 是交互输入流。
 	In io.Reader

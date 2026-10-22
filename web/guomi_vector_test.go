@@ -544,7 +544,7 @@ func verifyJSVectors(t *testing.T, raw []byte, requireHtmx bool) {
 		}
 	}
 
-	// The htmx hook ships the raw ciphertext as standard Base64, decoded here through base64. | htmx 钩子以标准 Base64 传输原始密文，这里用 b64x 解码。
+	// The htmx hook ships the raw ciphertext as standard Base64, decoded here through base64. | htmx 钩子以标准 Base64 传输原始密文，这里用 base64 解码。
 	if requireHtmx && len(vectors.HtmxTransport) == 0 {
 		t.Fatalf("%v: htmxTransport is empty | htmxTransport 为空", errVectorMismatch)
 	}
