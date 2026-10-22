@@ -34,7 +34,8 @@
   --color-surface-muted: #f8fafc;
   --color-content: #0f172a;
   --color-content-muted: #64748b;
-  --color-border-subtle: #e2e8f0;
+  --color-border: #94a3b8;
+  --color-border-subtle: #cbd5e1;
   --color-danger: #dc2626;
 
   /* Status colours of badges, flashes and KPI trends. | 徽标、闪现消息与 KPI 趋势所用的状态色。 */
@@ -69,7 +70,8 @@
   --color-surface-muted: #f8fafc;
   --color-content: #0f172a;
   --color-content-muted: #64748b;
-  --color-border-subtle: #e2e8f0;
+  --color-border: #94a3b8;
+  --color-border-subtle: #cbd5e1;
   --color-danger: #dc2626;
   --color-success: #16a34a;
   --color-warning: #d97706;
@@ -84,7 +86,8 @@
   --color-surface-muted: #111c2f;
   --color-content: #e6edf7;
   --color-content-muted: #94a3b8;
-  --color-border-subtle: #1e293b;
+  --color-border: #475569;
+  --color-border-subtle: #334155;
   --color-danger: #f87171;
   --color-success: #4ade80;
   --color-warning: #fbbf24;
@@ -509,7 +512,7 @@
     justify-content: center;
     gap: 0.375rem;
     padding: 0.5rem 0.875rem;
-    border: 1px solid var(--color-border-subtle);
+    border: 1px solid var(--color-border);
     border-radius: 0.5rem;
     background-color: var(--color-surface);
     color: var(--color-content);
@@ -1256,7 +1259,7 @@
   /* Text control used by fields, filters, search and the WebSocket composer. | 文本框：字段、筛选、搜索与 WebSocket 输入区使用。 */
   .yd-input {
     padding: 0.5rem 0.75rem;
-    border: 1px solid var(--color-border-subtle);
+    border: 1px solid var(--color-border);
     border-radius: 0.5rem;
     background-color: var(--color-surface);
     color: var(--color-content);
@@ -1272,7 +1275,7 @@
   /* Native select sharing the skin of the input. | 与输入框共用外观的原生下拉框。 */
   .yd-select {
     padding: 0.5rem 0.75rem;
-    border: 1px solid var(--color-border-subtle);
+    border: 1px solid var(--color-border);
     border-radius: 0.5rem;
     background-color: var(--color-surface);
     color: var(--color-content);
@@ -1379,7 +1382,7 @@
     align-items: center;
     gap: 0.125rem;
     padding: 0.125rem;
-    border: 1px solid var(--color-border-subtle);
+    border: 1px solid var(--color-border);
     border-radius: 999px;
     background-color: var(--color-surface-muted);
   }
@@ -1415,7 +1418,7 @@
   /* Active language, kept in sync by yd-i18n.js through aria-pressed and data-yd-lang-active. | 当前语言，由 yd-i18n.js 经 aria-pressed 与 data-yd-lang-active 维护。 */
   .yd-lang__btn[aria-pressed="true"],
   .yd-lang__btn[data-yd-lang-active="true"] {
-    border-color: var(--color-border-subtle);
+    border-color: var(--color-border);
     background-color: var(--color-surface);
     color: var(--color-content);
     font-weight: 600;
@@ -1426,7 +1429,7 @@
      单一语言按钮：一个按钮显示当前语言，样式与主题按钮一致。哪个标签可见完全由 <html lang>
      决定，脚本因此不需要改写文案。 */
   .yd-lang-toggle {
-    border-color: var(--color-border-subtle);
+    border-color: var(--color-border);
     background-color: var(--color-surface);
     color: var(--color-content);
   }
@@ -2065,7 +2068,7 @@
 
   /* Theme toggle: a solid, high-contrast control in both themes. | 主题切换：两套主题下都保持实心高对比。 */
   .yd-theme-toggle {
-    border-color: var(--color-border-subtle);
+    border-color: var(--color-border);
     background-color: var(--color-surface);
     color: var(--color-content);
   }
