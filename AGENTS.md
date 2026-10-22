@@ -15,7 +15,7 @@
 
 **允许直接修改**
 
-- 源码目录：`core/envx/`、`core/version/`、`http/htmx/`、`http/i18n/`、`http/openapi/`、`security/{auth,authz,guomi}/`、`runtime/**`、`messaging/**`、`tooling/**`、`web/**`、`benchmarks/**`、`repotest/**`
+- 源码目录：`core/envx/`、`core/version/`、`http/htmx/`、`security/{auth,authz,guomi}/`、`runtime/**`、`messaging/**`、`tooling/**`、`web/**`、`benchmarks/**`、`repotest/**`
 - 测试与文档：`*_test.go`、`testdata/**`、`docs/**`（除需求基线）
 - 组件仓库：`D:\developer\go_code\ydx`（独立 Git 仓库）；组件修改必须在该仓库完成测试、打标签并推送，再回 yd 升级版本号。
 
@@ -133,7 +133,8 @@
       不得另写重连定时器；`#yd-connection` 是唯一横幅（连接中 / 重连中 #N / 已失败 / 离线），
       全部恢复后隐藏并给出 3 秒恢复提示；恢复时按 `data-yd-resync` 重取片段并派发 `yd:realtime:recovered`；
       导航与 `htmx:after:swap` 必须清理定时器、提示节点与旧通道状态。
-- [ ] **OpenAPI 查看器**：脚本必须是同源外链（`/static/js/yd-openapi-viewer.js`），
+- [ ] **OpenAPI 查看器**：脚本内嵌在 `ydx/openapi` 模块中，由 `openapi.Handler` 在
+      `Options.AssetsPath`（默认 `/openapi/assets/`）下提供；生成路由必须注册该资源路由。
       禁止内联脚本与 CDN，否则 CSP 会拦截并让 `/mgr/docs` 空白。
 - [ ] **管理概览资源仪表盘**：系统资源与中间件共用一条 `/mgr/ws/metrics` 推送，纯 SVG 仪表盘、主题令牌着色；
       宿主机 CPU/内存来自 `ydx/sysinfo`，进程 CPU/内存来自 `runtime/metrics`；

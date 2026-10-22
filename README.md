@@ -122,14 +122,12 @@ yd dev --port 7070          # 命令行最高优先级
 ```
 # 可复用组件位于独立仓库 github.com/shibingli/ydx，按版本依赖：
 #   errs sysinfo buffpool protocol base64 json afs config log regexpx router
-#   gorm redis asynq cache sse websocket render jwt middleware + middleware/* 插件
+#   gorm redis asynq cache sse websocket render i18n openapi jwt middleware + middleware/* 插件
 core/
   envx/        环境名归一化（development/dev、production/prod）
   version/     版本信息（-ldflags 注入）
 http/          HTTP 与前端交付
   htmx/        Htmx 4 服务端辅助（HX-* 响应头 · hx-partial · OOB）
-  i18n/        YAML/TOML/JSON 目录 + Accept-Language q 值协商
-  openapi/     OpenAPI 3.0 文档（源码注解解析 + 路由树合并 + 零 CDN 查看器）
 security/      安全与鉴权
   guomi/       国密 SM2/SM3/SM4（纯 Go，emmansun/gmsm 维护版后端；SM2 KDF 与 C1C3C2 按 GB/T 32918.4 实现）
   auth/        租户/用户/角色/能力领域模型（gormstore 子包负责落库）

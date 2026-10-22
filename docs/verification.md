@@ -864,7 +864,7 @@ goccy/go-json v0.11.2、json-iterator v1.1.12、cristalhq/base64 v0.1.2、segmen
 
 ### 3.17.1 对象覆盖
 
-`http/openapi` 的文档模型现已覆盖 OpenAPI 3.0.3 的全部核心对象；3.1.1 的新增对象与字段通过
+`ydx/openapi` 的文档模型现已覆盖 OpenAPI 3.0.3 的全部核心对象；3.1.1 的新增对象与字段通过
 `LatestSpecVersion` 显式启用。原有类型与字段保持不变，新增项全部带 `omitempty`：
 
 | 对象 | 本轮补齐 |

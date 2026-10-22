@@ -41,7 +41,7 @@
 //   - [github.com/shibingli/ydx/router] radix router with mixed segment capture. | 支持段内混合捕获的基数树路由。
 //   - [github.com/shibingli/ydx/render], [github.com/shibingli/yd/http/htmx] html/template engine and Htmx 4 helpers. | 模板引擎与 Htmx 4 服务端辅助。
 //   - [github.com/shibingli/ydx/middleware] recovery, request id, access log, CORS, rate limiting, compression. | 基础中间件与压缩协商。
-//   - [github.com/shibingli/yd/http/i18n], [github.com/shibingli/yd/http/openapi] localisation and 3.0 documents. | 国际化与 OpenAPI 3.0 文档。
+//   - [github.com/shibingli/ydx/i18n], [github.com/shibingli/ydx/openapi] localisation and 3.0/3.1 documents with a self-contained viewer. | 国际化与带自包含查看器的 OpenAPI 3.0/3.1 文档。
 //   - [github.com/shibingli/yd/runtime/server], [github.com/shibingli/yd/runtime/grpcx] HTTP/1.1 + H2C + HTTP/3 + ACME, and a gRPC dual channel. | 混合协议服务器与 gRPC 双通道。
 //
 // Realtime and security | 实时与安全:
