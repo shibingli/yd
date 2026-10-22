@@ -5,7 +5,7 @@ import (
 	"strconv"
 	"testing"
 
-	"github.com/shibingli/yd/core/jsonx"
+	"github.com/shibingli/ydx/json"
 )
 
 // floatPtr returns a pointer to v. | floatPtr 返回指向 v 的指针。
@@ -143,7 +143,7 @@ func TestExtensionsRoundTrip(t *testing.T) {
 		t.Fatalf("JSON: %v", err)
 	}
 	var tree map[string]any
-	if err := jsonx.Unmarshal(raw, &tree); err != nil {
+	if err := json.Unmarshal(raw, &tree); err != nil {
 		t.Fatalf("unmarshal JSON: %v", err)
 	}
 	want := []struct {
@@ -189,7 +189,7 @@ func TestExtensionsRoundTrip(t *testing.T) {
 	}
 
 	var back Document
-	if err := jsonx.Unmarshal(raw, &back); err != nil {
+	if err := json.Unmarshal(raw, &back); err != nil {
 		t.Fatalf("unmarshal document: %v", err)
 	}
 	if back.Extensions["x-root"] != true || back.Info.Extensions["x-info"] != "yes" {
@@ -250,12 +250,12 @@ func TestSchemaDialectRoundTrip(t *testing.T) {
 		ExclusiveMinimumValue: floatPtr(1.5),
 		ExclusiveMaximumValue: floatPtr(9.5),
 	}
-	raw, err := jsonx.Marshal(v31)
+	raw, err := json.Marshal(v31)
 	if err != nil {
 		t.Fatalf("marshal 3.1 schema: %v", err)
 	}
 	var tree map[string]any
-	if err := jsonx.Unmarshal(raw, &tree); err != nil {
+	if err := json.Unmarshal(raw, &tree); err != nil {
 		t.Fatalf("unmarshal 3.1 schema: %v", err)
 	}
 	types, ok := tree["type"].([]any)
@@ -266,7 +266,7 @@ func TestSchemaDialectRoundTrip(t *testing.T) {
 		t.Errorf("exclusive bounds = %v/%v | 3.1 数值开界丢失", tree["exclusiveMinimum"], tree["exclusiveMaximum"])
 	}
 	var back Schema
-	if err := jsonx.Unmarshal(raw, &back); err != nil {
+	if err := json.Unmarshal(raw, &back); err != nil {
 		t.Fatalf("unmarshal 3.1 schema back: %v", err)
 	}
 	if len(back.Types) != 2 || back.Types[1] != "null" {
@@ -277,19 +277,19 @@ func TestSchemaDialectRoundTrip(t *testing.T) {
 	}
 
 	v30 := &Schema{Type: "number", ExclusiveMinimum: true, ExclusiveMaximum: true}
-	raw, err = jsonx.Marshal(v30)
+	raw, err = json.Marshal(v30)
 	if err != nil {
 		t.Fatalf("marshal 3.0 schema: %v", err)
 	}
 	tree = map[string]any{}
-	if err := jsonx.Unmarshal(raw, &tree); err != nil {
+	if err := json.Unmarshal(raw, &tree); err != nil {
 		t.Fatalf("unmarshal 3.0 schema: %v", err)
 	}
 	if tree["exclusiveMinimum"] != true || tree["exclusiveMaximum"] != true {
 		t.Errorf("3.0 exclusive bounds = %v/%v | 3.0 布尔开界丢失", tree["exclusiveMinimum"], tree["exclusiveMaximum"])
 	}
 	back = Schema{}
-	if err := jsonx.Unmarshal(raw, &back); err != nil {
+	if err := json.Unmarshal(raw, &back); err != nil {
 		t.Fatalf("unmarshal 3.0 schema back: %v", err)
 	}
 	if !back.ExclusiveMinimum || back.ExclusiveMinimumValue != nil {

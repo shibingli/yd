@@ -14,7 +14,7 @@ import (
 	"sync/atomic"
 	"testing"
 
-	"github.com/shibingli/yd/core/logx"
+	"github.com/shibingli/ydx/log"
 )
 
 // The go install targets are quoted here on purpose: the assertions pin the registry, so a target
@@ -559,8 +559,8 @@ func envCount(env []string, key string) int {
 }
 
 // quietLogger discards every record so the assertions stay readable. | quietLogger 丢弃所有记录，使断言保持可读。
-func quietLogger() *logx.Logger {
-	return logx.New(logx.Options{Writer: io.Discard})
+func quietLogger() *log.Logger {
+	return log.New(log.Options{Writer: io.Discard})
 }
 
 // TestInstallEnvIsolatesGoCaches proves go install cannot write into the user's global Go caches,

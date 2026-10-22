@@ -8,8 +8,8 @@ import (
 
 	"github.com/spf13/afero"
 
-	"github.com/shibingli/yd/core/errx"
-	"github.com/shibingli/yd/core/sysinfo"
+	"github.com/shibingli/ydx/errs"
+	"github.com/shibingli/ydx/sysinfo"
 )
 
 // Source is the combined result of one source scan. | Source 是一次源码扫描的合并结果。
@@ -118,7 +118,7 @@ type fileScan struct {
 func scanSourceFile(fsys afero.Fs, path string, wantHandlers, wantTypes bool) fileScan {
 	src, err := afero.ReadFile(fsys, path)
 	if err != nil {
-		return fileScan{err: errx.WrapDetail(err, ErrRead, "%q", path)}
+		return fileScan{err: errs.WrapDetail(err, ErrRead, "%q", path)}
 	}
 	var out fileScan
 	if wantHandlers && bytes.Contains(src, []byte("@")) {
@@ -132,7 +132,7 @@ func scanSourceFile(fsys afero.Fs, path string, wantHandlers, wantTypes bool) fi
 		fset := token.NewFileSet()
 		file, err := parser.ParseFile(fset, path, src, parser.ParseComments|parser.SkipObjectResolution)
 		if err != nil {
-			return fileScan{err: errx.WrapDetail(err, ErrTypeParse, "%q", path)}
+			return fileScan{err: errs.WrapDetail(err, ErrTypeParse, "%q", path)}
 		}
 		types := newTypeAnnotations()
 		types.collectFile(fset, file)

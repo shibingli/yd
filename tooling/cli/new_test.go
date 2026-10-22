@@ -81,7 +81,7 @@ func TestNewCommandGeneratesProject(t *testing.T) {
 		}
 	}
 	bus := readMemFile(t, te.env.FS, "demo/internal/service/message_bus.go")
-	for _, want := range []string{"redisx.Open", "asynqx.NewClient"} {
+	for _, want := range []string{"redis.Open", "asynq.NewClient"} {
 		if !strings.Contains(bus, want) {
 			t.Errorf("message_bus.go 缺少 %q:\n%s", want, bus)
 		}

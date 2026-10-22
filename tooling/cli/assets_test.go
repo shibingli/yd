@@ -12,11 +12,11 @@ import (
 	"sync/atomic"
 	"testing"
 
-	"github.com/shibingli/yd/core/afs"
-	"github.com/shibingli/yd/core/config"
-	"github.com/shibingli/yd/core/logx"
 	"github.com/shibingli/yd/tooling/assets"
 	"github.com/shibingli/yd/tooling/build"
+	"github.com/shibingli/ydx/afs"
+	"github.com/shibingli/ydx/config"
+	"github.com/shibingli/ydx/log"
 	"github.com/spf13/afero"
 	"github.com/spf13/pflag"
 )
@@ -348,8 +348,8 @@ func TestAssetsUpdateOptionsReadsProxy(t *testing.T) {
 // 注入两个压缩阶段并记录调用。
 func useAssetsMinify(
 	t *testing.T,
-	js func(context.Context, string, build.MinifyOptions, *logx.Logger) (build.MinifyResult, error),
-	css func(context.Context, string, build.TailwindOptions, *logx.Logger) (int64, error),
+	js func(context.Context, string, build.MinifyOptions, *log.Logger) (build.MinifyResult, error),
+	css func(context.Context, string, build.TailwindOptions, *log.Logger) (int64, error),
 	resolve func(string, string) (string, error),
 ) {
 	t.Helper()
@@ -368,12 +368,12 @@ func TestAssetsMinifyWritesJSAndCSS(t *testing.T) {
 	var gotJS build.MinifyOptions
 	var gotCSS build.TailwindOptions
 	useAssetsMinify(t,
-		func(_ context.Context, _ string, o build.MinifyOptions, _ *logx.Logger) (build.MinifyResult, error) {
+		func(_ context.Context, _ string, o build.MinifyOptions, _ *log.Logger) (build.MinifyResult, error) {
 			jsCalls++
 			gotJS = o
 			return build.MinifyResult{Files: 2, Bytes: 32}, nil
 		},
-		func(_ context.Context, _ string, o build.TailwindOptions, _ *logx.Logger) (int64, error) {
+		func(_ context.Context, _ string, o build.TailwindOptions, _ *log.Logger) (int64, error) {
 			cssCalls++
 			gotCSS = o
 			return 16, nil
@@ -404,13 +404,13 @@ func TestAssetsMinifyWritesJSAndCSS(t *testing.T) {
 // ErrAssetDrift. | TestAssetsMinifyCheckFailsOnDrift 固定 --check：内容不匹配返回 ErrAssetDrift。
 func TestAssetsMinifyCheckFailsOnDrift(t *testing.T) {
 	useAssetsMinify(t,
-		func(_ context.Context, _ string, o build.MinifyOptions, _ *logx.Logger) (build.MinifyResult, error) {
+		func(_ context.Context, _ string, o build.MinifyOptions, _ *log.Logger) (build.MinifyResult, error) {
 			if !o.CheckOnly {
 				t.Error("--check must call with CheckOnly | --check 必须以 CheckOnly 调用")
 			}
 			return build.MinifyResult{Mismatched: []string{"web/static/js/app.js"}}, nil
 		},
-		func(_ context.Context, _ string, o build.TailwindOptions, _ *logx.Logger) (int64, error) {
+		func(_ context.Context, _ string, o build.TailwindOptions, _ *log.Logger) (int64, error) {
 			_ = os.WriteFile(o.MinOutput, []byte("css"), 0o644)
 			return 3, nil
 		},
@@ -429,10 +429,10 @@ func TestAssetsMinifyCheckFailsOnDrift(t *testing.T) {
 // 固定严格的校验模式：工具缺失绝不能报告成功。
 func TestAssetsMinifyCheckFailsWhenToolMissing(t *testing.T) {
 	useAssetsMinify(t,
-		func(context.Context, string, build.MinifyOptions, *logx.Logger) (build.MinifyResult, error) {
+		func(context.Context, string, build.MinifyOptions, *log.Logger) (build.MinifyResult, error) {
 			return build.MinifyResult{}, build.ErrMinifyNotFound
 		},
-		func(context.Context, string, build.TailwindOptions, *logx.Logger) (int64, error) {
+		func(context.Context, string, build.TailwindOptions, *log.Logger) (int64, error) {
 			t.Error("a missing JS tool must stop before CSS | JS 工具缺失时不应继续到 CSS")
 			return 0, nil
 		},
@@ -452,10 +452,10 @@ func TestAssetsMinifyCheckFailsWhenToolMissing(t *testing.T) {
 func TestAssetsMinifySkipsMissingToolWithoutCheck(t *testing.T) {
 	cssCalls := 0
 	useAssetsMinify(t,
-		func(context.Context, string, build.MinifyOptions, *logx.Logger) (build.MinifyResult, error) {
+		func(context.Context, string, build.MinifyOptions, *log.Logger) (build.MinifyResult, error) {
 			return build.MinifyResult{}, build.ErrMinifyNotFound
 		},
-		func(context.Context, string, build.TailwindOptions, *logx.Logger) (int64, error) {
+		func(context.Context, string, build.TailwindOptions, *log.Logger) (int64, error) {
 			cssCalls++
 			return 0, nil
 		},
@@ -491,10 +491,10 @@ func TestAssetsMinifyCheckFailsWhenCSSInputMissingButCommittedExists(t *testing.
 		t.Fatalf("写入 yd.min.css 失败: %v", err)
 	}
 	useAssetsMinify(t,
-		func(context.Context, string, build.MinifyOptions, *logx.Logger) (build.MinifyResult, error) {
+		func(context.Context, string, build.MinifyOptions, *log.Logger) (build.MinifyResult, error) {
 			return build.MinifyResult{}, nil
 		},
-		func(context.Context, string, build.TailwindOptions, *logx.Logger) (int64, error) {
+		func(context.Context, string, build.TailwindOptions, *log.Logger) (int64, error) {
 			return 0, build.ErrTailwindInput
 		},
 		func(string, string) (string, error) { return "/fake/tailwindcss", nil },
@@ -515,10 +515,10 @@ func TestAssetsMinifyHonoursRoot(t *testing.T) {
 	root := filepath.Join(dir, "assets-root")
 	var gotCSS build.TailwindOptions
 	useAssetsMinify(t,
-		func(context.Context, string, build.MinifyOptions, *logx.Logger) (build.MinifyResult, error) {
+		func(context.Context, string, build.MinifyOptions, *log.Logger) (build.MinifyResult, error) {
 			return build.MinifyResult{}, nil
 		},
-		func(_ context.Context, _ string, o build.TailwindOptions, _ *logx.Logger) (int64, error) {
+		func(_ context.Context, _ string, o build.TailwindOptions, _ *log.Logger) (int64, error) {
 			gotCSS = o
 			return 0, nil
 		},

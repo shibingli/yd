@@ -16,10 +16,10 @@ import (
 	"strings"
 	"text/tabwriter"
 
-	"github.com/shibingli/yd/core/errx"
-	"github.com/shibingli/yd/core/logx"
 	"github.com/shibingli/yd/tooling/assets"
 	"github.com/shibingli/yd/tooling/build"
+	"github.com/shibingli/ydx/errs"
+	ydlog "github.com/shibingli/ydx/log"
 	"github.com/spf13/pflag"
 )
 
@@ -151,7 +151,7 @@ func runAssets(ctx context.Context, env *Env) error {
 	default:
 		fmt.Fprintf(env.Err, "yd assets: unknown subcommand %q | yd assets：未知子命令 %q\n", sub, sub)
 		printAssetsUsage(env.Err)
-		return errx.Detail(ErrUnknownCommand, "yd assets %s", sub)
+		return errs.Detail(ErrUnknownCommand, "yd assets %s", sub)
 	}
 }
 
@@ -171,7 +171,7 @@ func runAssetsList(env *Env, fs *pflag.FlagSet) error {
 			a.Name, dash(a.Version), formatSize(a.Size), dash(a.Kind), shortDigest(a.SHA256), a.Path)
 	}
 	if err := w.Flush(); err != nil {
-		return errx.Wrap(err, ErrOutputFailed)
+		return errs.Wrap(err, ErrOutputFailed)
 	}
 	fmt.Fprintf(env.Out, "\n%s: %d\n", manifestPath, len(m.Assets))
 	return nil
@@ -242,7 +242,7 @@ func runAssetsAdd(ctx context.Context, env *Env, fs *pflag.FlagSet, args []strin
 	if url == "" || path == "" {
 		fmt.Fprintf(env.Err, "yd assets add: --url and --path are required | yd assets add：--url 与 --path 为必填\n")
 		printAssetsUsage(env.Err)
-		return errx.Detail(ErrFlagParse, "yd assets add %s", args[0])
+		return errs.Detail(ErrFlagParse, "yd assets add %s", args[0])
 	}
 
 	manifestPath, root := assetsPaths(env, fs)
@@ -288,7 +288,7 @@ func runAssetsMinify(ctx context.Context, env *Env, fs *pflag.FlagSet) error {
 		if check {
 			return jsErr
 		}
-		log.Warn("asset minify skipped | 跳过资产压缩", logx.Err(jsErr))
+		log.Warn("asset minify skipped | 跳过资产压缩", ydlog.Err(jsErr))
 	case jsErr != nil:
 		return jsErr
 	}
@@ -299,7 +299,7 @@ func runAssetsMinify(ctx context.Context, env *Env, fs *pflag.FlagSet) error {
 	}
 	drift := cssDrift || len(jsRes.Mismatched) > 0 || len(jsRes.Missing) > 0 || len(jsRes.Stale) > 0
 	if check && drift {
-		return errx.Detail(ErrAssetDrift,
+		return errs.Detail(ErrAssetDrift,
 			"run `yd assets minify` to regenerate | 运行 `yd assets minify` 重新生成")
 	}
 
@@ -324,13 +324,13 @@ func runAssetsMinify(ctx context.Context, env *Env, fs *pflag.FlagSet) error {
 // runAssetsMinifyCSS produces or verifies yd.min.css through Tailwind's own
 // --minify pass. It reports drift only in check mode. | runAssetsMinifyCSS 通过
 // Tailwind 自己的 --minify 产出或校验 yd.min.css；只有校验模式会报告漂移。
-func runAssetsMinifyCSS(ctx context.Context, env *Env, staticRoot string, check bool, log *logx.Logger) (bool, error) {
+func runAssetsMinifyCSS(ctx context.Context, env *Env, staticRoot string, check bool, log *ydlog.Logger) (bool, error) {
 	bin, err := assetsResolveTailwindBin(env.WorkDir, configString(env, keyDevTailwindBin))
 	if err != nil {
 		if check {
 			return false, err
 		}
-		log.Warn("css minify skipped | 跳过 CSS 压缩", logx.Err(err))
+		log.Warn("css minify skipped | 跳过 CSS 压缩", ydlog.Err(err))
 		return false, nil
 	}
 
@@ -363,7 +363,7 @@ func runAssetsMinifyCSS(ctx context.Context, env *Env, staticRoot string, check 
 					return true, nil
 				}
 			}
-			log.Warn("css minify skipped | 跳过 CSS 压缩", logx.Err(err))
+			log.Warn("css minify skipped | 跳过 CSS 压缩", ydlog.Err(err))
 			return false, nil
 		}
 		return false, err

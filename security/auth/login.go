@@ -5,9 +5,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/shibingli/yd/core/b64x"
-	"github.com/shibingli/yd/core/errx"
 	"github.com/shibingli/yd/security/guomi"
+	"github.com/shibingli/ydx/base64"
+	"github.com/shibingli/ydx/errs"
 )
 
 // LoginResult is the outcome of a successful sign-in. | LoginResult 是一次成功登录的结果。
@@ -33,7 +33,7 @@ type LoginResult struct {
 // 在这里同样不可区分；令牌则用刚刚通过认证的那个用户的 sec_key 签发。
 func (s *Service) Login(ctx context.Context, tenantID, username, password string, issuer *TokenIssuer) (*LoginResult, error) {
 	if issuer == nil {
-		return nil, errx.Detail(ErrTokenInvalid, "no token issuer configured | 未配置令牌签发器")
+		return nil, errs.Detail(ErrTokenInvalid, "no token issuer configured | 未配置令牌签发器")
 	}
 	u, err := s.Authenticate(ctx, tenantID, username, password)
 	if err != nil {
@@ -61,15 +61,15 @@ func (s *Service) Login(ctx context.Context, tenantID, username, password string
 // 调用方无需区分两者即可回答 400 或 401。
 func DecryptLoginPayload(ciphertext []byte, priv *guomi.PrivateKey) (string, error) {
 	if priv == nil {
-		return "", errx.Detail(ErrInvalidCredentials, "no SM2 private key | 缺少 SM2 私钥")
+		return "", errs.Detail(ErrInvalidCredentials, "no SM2 private key | 缺少 SM2 私钥")
 	}
 	raw, ok := decodeLoginCiphertext(ciphertext)
 	if !ok {
-		return "", errx.Detail(ErrInvalidCredentials, "payload is neither Base64 nor an SM2 ciphertext | 载荷既不是 Base64 也不是 SM2 密文")
+		return "", errs.Detail(ErrInvalidCredentials, "payload is neither Base64 nor an SM2 ciphertext | 载荷既不是 Base64 也不是 SM2 密文")
 	}
 	plain, err := guomi.DecryptRaw(priv, raw)
 	if err != nil {
-		return "", errx.Wrap(err, ErrInvalidCredentials)
+		return "", errs.Wrap(err, ErrInvalidCredentials)
 	}
 	defer zeroBytes(plain)
 	return string(plain), nil
@@ -92,7 +92,7 @@ func decodeLoginCiphertext(ciphertext []byte) ([]byte, bool) {
 		return nil, false
 	}
 	if trimmed := trimASCIISpace(ciphertext); len(trimmed) != 0 && len(trimmed)%4 == 0 && isBase64Alphabet(trimmed) {
-		decoded, err := b64x.StdEncoding.DecodeString(string(trimmed))
+		decoded, err := base64.StdEncoding.DecodeString(string(trimmed))
 		if err != nil {
 			return nil, false
 		}

@@ -8,9 +8,9 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/shibingli/yd/core/errx"
-	"github.com/shibingli/yd/core/jsonx"
 	"github.com/shibingli/yd/tooling/assets"
+	yderrs "github.com/shibingli/ydx/errs"
+	"github.com/shibingli/ydx/json"
 )
 
 // npmRegistryBase is the metadata endpoint used to resolve the latest release of one package. | npmRegistryBase 是解析单个包最新版本所用的元数据端点。
@@ -18,7 +18,7 @@ const npmRegistryBase = "https://registry.npmjs.org/"
 
 var (
 	// ErrRegistry is returned when the npm registry cannot be queried or answers without a version. | ErrRegistry 表示 npm 仓库无法查询或应答中没有版本。
-	ErrRegistry = errx.New("query npm registry failed | 查询 npm 仓库失败")
+	ErrRegistry = yderrs.New("query npm registry failed | 查询 npm 仓库失败")
 )
 
 // Doer performs one HTTP request; *http.Client satisfies it. | Doer 执行一次 HTTP 请求；*http.Client 满足它。
@@ -76,26 +76,26 @@ func ParseNPMURL(raw string) (pkg, version string, ok bool) {
 // current 的版本。大版本升级仍然是对锁文件的一次显式修改。
 func ResolveLatest(ctx context.Context, client Doer, pkg, current string) (string, error) {
 	if client == nil {
-		return "", errx.Detail(ErrRegistry, "nil http client | HTTP 客户端为 nil")
+		return "", yderrs.Detail(ErrRegistry, "nil http client | HTTP 客户端为 nil")
 	}
 	cur, ok := parseSemver(current)
 	if !ok {
-		return "", errx.Detail(ErrRegistry, "package %[1]q: invalid current version %[2]q | 包 %[1]q：非法的当前版本 %[2]q", pkg, current)
+		return "", yderrs.Detail(ErrRegistry, "package %[1]q: invalid current version %[2]q | 包 %[1]q：非法的当前版本 %[2]q", pkg, current)
 	}
 	endpoint := npmRegistryBase + strings.ReplaceAll(pkg, "/", "%2F")
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
 	if err != nil {
-		return "", errx.WrapDetail(err, ErrRegistry, "package %[1]q | 包 %[1]q", pkg)
+		return "", yderrs.WrapDetail(err, ErrRegistry, "package %[1]q | 包 %[1]q", pkg)
 	}
 	// The abbreviated document carries dist-tags and the version list without tarball metadata. | 精简文档包含 dist-tags 与版本列表，但不含 tarball 元数据。
 	req.Header.Set("Accept", "application/vnd.npm.install-v1+json")
 	resp, err := client.Do(req)
 	if err != nil {
-		return "", errx.WrapDetail(err, ErrRegistry, "package %[1]q | 包 %[1]q", pkg)
+		return "", yderrs.WrapDetail(err, ErrRegistry, "package %[1]q | 包 %[1]q", pkg)
 	}
 	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
-		return "", errx.Detail(ErrRegistry, "package %[1]q: HTTP %[2]d | 包 %[1]q：HTTP 状态 %[2]d", pkg, resp.StatusCode)
+		return "", yderrs.Detail(ErrRegistry, "package %[1]q: HTTP %[2]d | 包 %[1]q：HTTP 状态 %[2]d", pkg, resp.StatusCode)
 	}
 	var body struct {
 		DistTags map[string]string   `json:"dist-tags"`
@@ -104,8 +104,8 @@ func ResolveLatest(ctx context.Context, client Doer, pkg, current string) (strin
 	// Cap the registry response: a broken or hostile registry must not be able to make the tool
 	// buffer an arbitrarily large metadata document. | 限制 registry 响应体积：损坏或恶意的 registry
 	// 不得让工具缓冲任意大的元数据文档。
-	if err := jsonx.NewDecoder(io.LimitReader(resp.Body, 8<<20)).Decode(&body); err != nil {
-		return "", errx.WrapDetail(err, ErrRegistry, "package %[1]q | 包 %[1]q", pkg)
+	if err := json.NewDecoder(io.LimitReader(resp.Body, 8<<20)).Decode(&body); err != nil {
+		return "", yderrs.WrapDetail(err, ErrRegistry, "package %[1]q | 包 %[1]q", pkg)
 	}
 	best := current
 	bestSV := cur
@@ -201,7 +201,7 @@ func cmpInt(a, b int) int {
 // 资产会带原因报告而不是被猜测；同一个 npm 包即使被多个资产共用也只查询一次（htmx 扩展正是如此）。
 func PlanAssetUpgrades(ctx context.Context, client Doer, inv *Inventory) ([]AssetUpgrade, error) {
 	if inv == nil {
-		return nil, errx.Detail(ErrRegistry, "nil inventory | 版本清单为 nil")
+		return nil, yderrs.Detail(ErrRegistry, "nil inventory | 版本清单为 nil")
 	}
 	latest := make(map[string]string)
 	var errs []error

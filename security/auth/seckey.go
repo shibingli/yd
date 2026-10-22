@@ -1,8 +1,8 @@
 package auth
 
 import (
-	"github.com/shibingli/yd/core/errx"
 	"github.com/shibingli/yd/security/guomi"
+	"github.com/shibingli/ydx/errs"
 )
 
 // secKeyAADSep separates the tenant id from the user id inside the additional
@@ -24,7 +24,7 @@ func sealSecKey(masterKey [guomi.SM4KeySize]byte, tenantID, userID string, secKe
 	sealed, err := guomi.SealGCM(masterKey[:], nonce, secKey, secKeyAAD(tenantID, userID))
 	if err != nil {
 		// Unreachable with a 16-byte key and a 12-byte nonce; kept for honesty. | 在 16 字节密钥与 12 字节 nonce 下不可达，保留以如实上报。
-		return nil, errx.Wrap(err, guomi.ErrCipherCreate)
+		return nil, errs.Wrap(err, guomi.ErrCipherCreate)
 	}
 	out := make([]byte, 0, len(nonce)+len(sealed))
 	out = append(out, nonce...)
@@ -38,13 +38,13 @@ func sealSecKey(masterKey [guomi.SM4KeySize]byte, tenantID, userID string, secKe
 // 主密钥不匹配，或密文被搬到其它租户/用户上时，返回包装了 ErrSecKeyMissing 的错误，且不返回任何密钥。
 func openSecKey(masterKey [guomi.SM4KeySize]byte, tenantID, userID string, sealed []byte) ([]byte, error) {
 	if len(sealed) <= guomi.SM4GCMNonceSize {
-		return nil, errx.Detail(ErrSecKeyMissing, "sealed sec_key is truncated | 封装的 sec_key 被截断")
+		return nil, errs.Detail(ErrSecKeyMissing, "sealed sec_key is truncated | 封装的 sec_key 被截断")
 	}
 	nonce := sealed[:guomi.SM4GCMNonceSize]
 	body := sealed[guomi.SM4GCMNonceSize:]
 	secKey, err := guomi.OpenGCM(masterKey[:], nonce, body, secKeyAAD(tenantID, userID))
 	if err != nil {
-		return nil, errx.Wrap(err, ErrSecKeyMissing)
+		return nil, errs.Wrap(err, ErrSecKeyMissing)
 	}
 	return secKey, nil
 }

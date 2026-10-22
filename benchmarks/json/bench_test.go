@@ -15,7 +15,7 @@ import (
 	gojson "github.com/goccy/go-json"
 	jsoniter "github.com/json-iterator/go"
 
-	"github.com/shibingli/yd/core/jsonx"
+	ydjson "github.com/shibingli/ydx/json"
 )
 
 // benchSink keeps results observable. | benchSink 让结果保持可观测。
@@ -70,7 +70,7 @@ var codecs = []codec{
 	{name: "go-json", marshal: gojson.Marshal, unmarshal: gojson.Unmarshal},
 	{name: "sonic-std", marshal: sonic.ConfigStd.Marshal, unmarshal: sonic.ConfigStd.Unmarshal},
 	{name: "jsoniter-compat", marshal: jsoniterAPI.Marshal, unmarshal: jsoniterAPI.Unmarshal},
-	{name: "yd-jsonx", marshal: jsonx.Marshal, unmarshal: jsonx.Unmarshal},
+	{name: "yd-jsonx", marshal: ydjson.Marshal, unmarshal: ydjson.Unmarshal},
 }
 
 // dataset is one record count with its pre-encoded payload. | dataset 是一种记录数量及其预编码载荷。

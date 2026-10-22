@@ -7,8 +7,8 @@ import (
 	"errors"
 <% if .RepoStrings %>	"strings"
 
-<% end %>	"github.com/shibingli/yd/core/errx"
-	"github.com/shibingli/yd/core/logx"
+<% end %>	"github.com/shibingli/ydx/errs"
+	"github.com/shibingli/ydx/log"
 	"gorm.io/gorm"
 
 	"<%.PkgModel%>"
@@ -19,13 +19,13 @@ import (
 var (
 	// Err<%.Name%>NilDB 表示创建仓储时未提供数据库句柄。
 	// Err<%.Name%>NilDB reports a missing database handle when the repository is created.
-	Err<%.Name%>NilDB = errx.New("<%.Snake%> repository: nil database handle | <%.Snake%> 仓储：数据库句柄为空")
+	Err<%.Name%>NilDB = errs.New("<%.Snake%> repository: nil database handle | <%.Snake%> 仓储：数据库句柄为空")
 	// Err<%.Name%>NotFound 表示<%.Module%>记录不存在。
 	// Err<%.Name%>NotFound reports a missing <%.Snake%> record.
-	Err<%.Name%>NotFound = errx.New("<%.Snake%> not found | <%.Snake%> 记录不存在")
+	Err<%.Name%>NotFound = errs.New("<%.Snake%> not found | <%.Snake%> 记录不存在")
 	// Err<%.Name%>DB 表示<%.Module%>仓储的数据库操作失败。
 	// Err<%.Name%>DB reports a failed database operation in the <%.Snake%> repository.
-	Err<%.Name%>DB = errx.New("<%.Snake%> repository operation failed | <%.Snake%> 仓储操作失败")
+	Err<%.Name%>DB = errs.New("<%.Snake%> repository operation failed | <%.Snake%> 仓储操作失败")
 )
 
 // <%.Name%>Repo 是表 <%.Table%> 的数据访问对象，直接使用注入的 GORM 句柄。
@@ -40,7 +40,7 @@ func New<%.Name%>Repo(db *gorm.DB) (*<%.Name%>Repo, error) {
 	if db == nil {
 		return nil, Err<%.Name%>NilDB
 	}
-	logx.Default().Info("<%.Snake%> repository ready | <%.Snake%> 仓储已就绪", logx.Str("table", model.<%.Name%>{}.TableName()))
+	log.Default().Info("<%.Snake%> repository ready | <%.Snake%> 仓储已就绪", log.Str("table", model.<%.Name%>{}.TableName()))
 	return &<%.Name%>Repo{db: db}, nil
 }
 
@@ -61,7 +61,7 @@ func (r *<%.Name%>Repo) List(ctx context.Context, tenantID string, page, size in
 		query = query.Where("<%.SearchWhere%>", <%.SearchArgs%>)
 	}
 <% end %>	if err := query.Session(&gorm.Session{}).Count(&total).Error; err != nil {
-		return nil, 0, errx.WrapDetail(err, Err<%.Name%>DB, "table=<%.Table%> op=count")
+		return nil, 0, errs.WrapDetail(err, Err<%.Name%>DB, "table=<%.Table%> op=count")
 	}
 
 	offset := (page - 1) * size
@@ -69,7 +69,7 @@ func (r *<%.Name%>Repo) List(ctx context.Context, tenantID string, page, size in
 		offset = 0
 	}
 	if err := query.Order("<%.Primary.Column%> ASC").Limit(size).Offset(offset).Find(&items).Error; err != nil {
-		return nil, 0, errx.WrapDetail(err, Err<%.Name%>DB, "table=<%.Table%> op=list offset=%d", offset)
+		return nil, 0, errs.WrapDetail(err, Err<%.Name%>DB, "table=<%.Table%> op=list offset=%d", offset)
 	}
 	return items, total, nil
 }
@@ -80,9 +80,9 @@ func (r *<%.Name%>Repo) Find(ctx context.Context, tenantID string, id <%.Primary
 	var item model.<%.Name%>
 	if err := r.db.WithContext(ctx).Where("tenant_id = ? AND <%.Primary.Column%> = ?", tenantID, id).First(&item).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return nil, errx.Wrap(err, Err<%.Name%>NotFound)
+			return nil, errs.Wrap(err, Err<%.Name%>NotFound)
 		}
-		return nil, errx.WrapDetail(err, Err<%.Name%>DB, "table=<%.Table%> op=find <%.Primary.Column%>=%v", id)
+		return nil, errs.WrapDetail(err, Err<%.Name%>DB, "table=<%.Table%> op=find <%.Primary.Column%>=%v", id)
 	}
 	return &item, nil
 }
@@ -92,7 +92,7 @@ func (r *<%.Name%>Repo) Find(ctx context.Context, tenantID string, id <%.Primary
 func (r *<%.Name%>Repo) Create(ctx context.Context, tenantID string, item *model.<%.Name%>) error {
 	item.TenantID = tenantID
 	if err := r.db.WithContext(ctx).Create(item).Error; err != nil {
-		return errx.WrapDetail(err, Err<%.Name%>DB, "table=<%.Table%> op=create")
+		return errs.WrapDetail(err, Err<%.Name%>DB, "table=<%.Table%> op=create")
 	}
 	return nil
 }
@@ -103,7 +103,7 @@ func (r *<%.Name%>Repo) Update(ctx context.Context, tenantID string, item *model
 	item.TenantID = tenantID
 	result := r.db.WithContext(ctx).Model(item).Where("tenant_id = ?", tenantID).Select("*").Omit("<%.Primary.Column%>", "tenant_id").Updates(item)
 	if result.Error != nil {
-		return errx.WrapDetail(result.Error, Err<%.Name%>DB, "table=<%.Table%> op=update <%.Primary.Column%>=%v", item.<%.Primary.GoName%>)
+		return errs.WrapDetail(result.Error, Err<%.Name%>DB, "table=<%.Table%> op=update <%.Primary.Column%>=%v", item.<%.Primary.GoName%>)
 	}
 	if result.RowsAffected == 0 {
 		// MySQL 在写入值与库中完全一致时同样报告 0 行，因此再确认一次记录是否存在。
@@ -120,10 +120,10 @@ func (r *<%.Name%>Repo) Update(ctx context.Context, tenantID string, item *model
 func (r *<%.Name%>Repo) Delete(ctx context.Context, tenantID string, id <%.Primary.GoType%>) error {
 	result := r.db.WithContext(ctx).Where("tenant_id = ? AND <%.Primary.Column%> = ?", tenantID, id).Delete(&model.<%.Name%>{})
 	if result.Error != nil {
-		return errx.WrapDetail(result.Error, Err<%.Name%>DB, "table=<%.Table%> op=delete <%.Primary.Column%>=%v", id)
+		return errs.WrapDetail(result.Error, Err<%.Name%>DB, "table=<%.Table%> op=delete <%.Primary.Column%>=%v", id)
 	}
 	if result.RowsAffected == 0 {
-		return errx.Detail(Err<%.Name%>NotFound, "table=<%.Table%> <%.Primary.Column%>=%v", id)
+		return errs.Detail(Err<%.Name%>NotFound, "table=<%.Table%> <%.Primary.Column%>=%v", id)
 	}
 	return nil
 }

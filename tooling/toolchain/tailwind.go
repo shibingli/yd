@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/shibingli/yd/core/errx"
+	"github.com/shibingli/ydx/errs"
 )
 
 // EnvTailwindBin is the environment variable holding the tailwindcss path. | EnvTailwindBin 是保存 tailwindcss 路径的环境变量。
@@ -75,7 +75,7 @@ func ResolveTailwind(o ToolOptions) (string, error) {
 	if p, err := lookup("tailwindcss"); err == nil && p != "" {
 		return p, nil
 	}
-	return "", errx.Detail(ErrToolNotFound, "checked %[1]s, %[2]s, %[3]s, %[4]s and PATH | 已检查 %[1]s、%[2]s、%[3]s、%[4]s 及 PATH", "Bin", "ConfigBin", "EnvBin", "local install")
+	return "", errs.Detail(ErrToolNotFound, "checked %[1]s, %[2]s, %[3]s, %[4]s and PATH | 已检查 %[1]s、%[2]s、%[3]s、%[4]s 及 PATH", "Bin", "ConfigBin", "EnvBin", "local install")
 }
 
 // resolveCandidate turns one configured value into an existing executable. | resolveCandidate 把一个配置取值变成真实存在的可执行文件。
@@ -155,7 +155,7 @@ type BuildResult struct {
 // The output directory is created when missing, and a non-zero exit status or a missing output file wraps ErrBuildFailed together with the tool's tail output. | 输出目录缺失时会被创建；退出码非零或产物缺失时，会把工具的末尾输出一并包装进 ErrBuildFailed。
 func BuildCSS(ctx context.Context, bin string, o CSSOptions) (*BuildResult, error) {
 	if strings.TrimSpace(bin) == "" {
-		return nil, errx.Detail(ErrToolNotFound, "empty tailwindcss binary path | tailwindcss 二进制定位为空")
+		return nil, errs.Detail(ErrToolNotFound, "empty tailwindcss binary path | tailwindcss 二进制定位为空")
 	}
 	in := o.Input
 	if in == "" {
@@ -167,7 +167,7 @@ func BuildCSS(ctx context.Context, bin string, o CSSOptions) (*BuildResult, erro
 	}
 	if dir := filepath.Dir(out); dir != "" && dir != "." {
 		if err := os.MkdirAll(dir, 0o755); err != nil {
-			return nil, errx.WrapDetail(err, ErrBuildFailed, "create output dir %s | 创建输出目录 %s", dir, dir)
+			return nil, errs.WrapDetail(err, ErrBuildFailed, "create output dir %s | 创建输出目录 %s", dir, dir)
 		}
 	}
 
@@ -182,15 +182,15 @@ func BuildCSS(ctx context.Context, bin string, o CSSOptions) (*BuildResult, erro
 	elapsed := time.Since(start)
 	if err != nil {
 		if ctxErr := ctx.Err(); ctxErr != nil {
-			return nil, errx.WrapDetail(ctxErr, ErrBuildFailed, "tailwindcss cancelled | tailwindcss 被取消：%v", err)
+			return nil, errs.WrapDetail(ctxErr, ErrBuildFailed, "tailwindcss cancelled | tailwindcss 被取消：%v", err)
 		}
-		return nil, errx.WrapDetail(err, ErrBuildFailed, "tailwindcss %s | tailwindcss 执行失败：%s",
+		return nil, errs.WrapDetail(err, ErrBuildFailed, "tailwindcss %s | tailwindcss 执行失败：%s",
 			err.Error(), truncateOutput(outBuf.String(), 2048))
 	}
 
 	info, statErr := os.Stat(out)
 	if statErr != nil {
-		return nil, errx.WrapDetail(statErr, ErrBuildFailed, "missing output %s | 缺少产物 %s：%s",
+		return nil, errs.WrapDetail(statErr, ErrBuildFailed, "missing output %s | 缺少产物 %s：%s",
 			out, out, truncateOutput(outBuf.String(), 2048))
 	}
 	return &BuildResult{CSSPath: filepath.Clean(out), Bytes: int(info.Size()), Duration: elapsed}, nil

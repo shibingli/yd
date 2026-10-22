@@ -10,7 +10,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/shibingli/yd/core/regexpx"
+	"github.com/shibingli/ydx/regexpx"
 )
 
 // skippedDirs 是不参与源码守卫扫描的目录。
@@ -126,31 +126,28 @@ func scanTemplateFiles(t *testing.T, root string) []goFile {
 	return files
 }
 
-// TestNoDirectEncodingImports 强制 JSON / Base64 编解码统一走 jsonx / b64x。
-// TestNoDirectEncodingImports enforces that JSON/Base64 always go through jsonx/b64x.
+// TestNoDirectEncodingImports 强制 JSON / Base64 编解码统一走 json / base64。
+// TestNoDirectEncodingImports enforces that JSON/Base64 always go through json/base64.
 //
 // 生产代码中禁止 import "encoding/json" 与 "encoding/base64"；唯一例外是
-// 封装层自身（core/jsonx/、core/b64x/）。测试文件允许把标准库当作独立对照实现（测试预言机）。
+// yd 源码中不再有封装层。测试文件允许把标准库当作独立对照实现（测试预言机）。
 // Production code must not import "encoding/json" or "encoding/base64"; the only
-// exemptions are the wrapper packages themselves (core/jsonx/, core/b64x/). Test files may
+// yd source has no wrappers left. Test files may
 // use the standard library as an independent oracle.
 func TestNoDirectEncodingImports(t *testing.T) {
 	rules := []struct {
 		importPath string
-		allowedDir string
 		hint       string
 	}{
-		{`"encoding/json"`, "core/jsonx/", "请改用 github.com/shibingli/yd/core/jsonx（Marshal/Unmarshal/NewEncoder/NewDecoder/Valid）"},
-		{`"encoding/base64"`, "core/b64x/", "请改用 github.com/shibingli/yd/core/b64x（StdEncoding/URLEncoding/… 及其 Encode/Decode/AppendEncode/AppendDecode）"},
+		{`"encoding/json"`, "请改用 github.com/shibingli/ydx/json（Marshal/Unmarshal/NewEncoder/NewDecoder/Valid）"},
+		{`"encoding/base64"`, "请改用 github.com/shibingli/ydx/base64（StdEncoding/URLEncoding/… 及其 Encode/Decode/AppendEncode/AppendDecode）"},
 	}
 
 	for _, f := range scanGoFiles(t, repoRoot(t)) {
 		if f.isTest {
 			continue
 		}
-		if strings.HasPrefix(f.rel, rules[0].allowedDir) || strings.HasPrefix(f.rel, rules[1].allowedDir) {
-			continue
-		}
+
 		for _, r := range rules {
 			if !strings.Contains(f.src, r.importPath) {
 				continue
@@ -176,20 +173,20 @@ func hasImport(lines []string, quoted string) bool {
 	return false
 }
 
-// TestNoStdlibLogOrPrintfLogging 强制所有日志走自研 logx。
-// TestNoStdlibLogOrPrintfLogging enforces that every log goes through logx.
+// TestNoStdlibLogOrPrintfLogging 强制所有日志走自研 log。
+// TestNoStdlibLogOrPrintfLogging enforces that every log goes through log.
 //
 // 例外：server 包为了满足 http.Server.ErrorLog（要求 *log.Logger）而写的适配器，
-// 其输出必须转发进 logx。
+// 其输出必须转发进 log。
 // Exception: the server package adapts http.Server.ErrorLog (which demands a
-// *log.Logger); that adapter must forward into logx.
+// *log.Logger); that adapter must forward into log.
 func TestNoStdlibLogOrPrintfLogging(t *testing.T) {
 	for _, f := range scanGoFiles(t, repoRoot(t)) {
 		if f.isTest || strings.HasPrefix(f.rel, "runtime/server/") {
 			continue
 		}
 		if hasImport(f.lines, `"log"`) {
-			t.Errorf("%s 直接 import 了标准库 log；日志必须统一使用 github.com/shibingli/yd/core/logx", f.rel)
+			t.Errorf("%s 直接 import 了标准库 log；日志必须统一使用 github.com/shibingli/ydx/log", f.rel)
 		}
 		for i, l := range f.lines {
 			trimmed := strings.TrimSpace(l)
@@ -198,19 +195,19 @@ func TestNoStdlibLogOrPrintfLogging(t *testing.T) {
 			}
 			if strings.Contains(l, "fmt.Print(") || strings.Contains(l, "fmt.Printf(") ||
 				strings.Contains(l, "fmt.Println(") || strings.Contains(l, "fmt.Fprint(") {
-				t.Errorf("%s:%d 使用 fmt.Print* 作为输出；请改用 logx", f.rel, i+1)
+				t.Errorf("%s:%d 使用 fmt.Print* 作为输出；请改用 log", f.rel, i+1)
 			}
 		}
 	}
 }
 
-// logCallRe 匹配 logx 的级别方法调用及其首个字符串字面量。
-// logCallRe matches logx level calls together with their first literal.
+// logCallRe 匹配 log 的级别方法调用及其首个字符串字面量。
+// logCallRe matches log level calls together with their first literal.
 var logCallRe = regexpx.MustCompile(`\.(?:Debug|Info|Warn|Error|Fatal)\(\s*"([^"\\]*)"`)
 
-// testingCallRe 匹配 testing 包的断言方法；它们的名字与 logx 级别方法重合，
+// testingCallRe 匹配 testing 包的断言方法；它们的名字与 log 级别方法重合，
 // 必须排除，否则会把测试断言文案误判为日志文案。
-// testingCallRe matches testing assertion helpers; their names collide with logx
+// testingCallRe matches testing assertion helpers; their names collide with log
 // level methods and must be excluded, otherwise assertions are misread as logs.
 var testingCallRe = regexpx.MustCompile(`\b(?:t|b|tb|ft|st|env)\.(?:Fatal|Fatalf|Error|Errorf)\(`)
 
@@ -223,9 +220,9 @@ func TestLogMessagesAreBilingual(t *testing.T) {
 		}
 		if f.isTest {
 			// 该规则针对出厂代码；测试里的日志字符串多为编码器夹具，
-			// 例如 logx 自身测试需要构造极短的消息来断言输出形状。
+			// 例如 log 自身测试需要构造极短的消息来断言输出形状。
 			// This rule targets shipped code; log strings in tests are mostly encoder
-			// fixtures (logx's own tests need very short messages to assert output shape).
+			// fixtures (log's own tests need very short messages to assert output shape).
 			continue
 		}
 		for i, l := range f.lines {
@@ -250,23 +247,23 @@ func TestLogMessagesAreBilingual(t *testing.T) {
 	}
 }
 
-// TestNoFmtErrorfOutsideErrx 强制错误统一声明为哨兵。
-// TestNoFmtErrorfOutsideErrx enforces that errors are declared as sentinels.
+// TestNoFmtErrorfOutsideErrs 强制错误统一声明为哨兵。
+// TestNoFmtErrorfOutsideErrs enforces that errors are declared as sentinels.
 //
-// 默认禁止 fmt.Errorf：附加细节用 errx.Detail，保留底层错误用 errx.Wrap /
-// errx.WrapDetail。唯一例外是 errx 包自身的实现。
-// fmt.Errorf is forbidden by default: use errx.Detail for extra context and
-// errx.Wrap / errx.WrapDetail to keep the underlying error. The only exemption
-// is the errx package implementation itself.
-func TestNoFmtErrorfOutsideErrx(t *testing.T) {
+// 默认禁止 fmt.Errorf：附加细节用 errs.Detail，保留底层错误用 errs.Wrap /
+// errs.WrapDetail。唯一例外是 errs 包自身的实现。
+// fmt.Errorf is forbidden by default: use errs.Detail for extra context and
+// errs.Wrap / errs.WrapDetail to keep the underlying error. The only exemption
+// is the errs package implementation itself.
+func TestNoFmtErrorfOutsideErrs(t *testing.T) {
 	for _, f := range scanGoFiles(t, repoRoot(t)) {
-		if f.isTest || strings.HasPrefix(f.rel, "core/errx/") || strings.HasPrefix(f.rel, "repotest/") {
+		if f.isTest || strings.HasPrefix(f.rel, "repotest/") {
 			continue
 		}
 		for i, l := range f.lines {
 			if strings.Contains(l, "fmt.Errorf(") {
-				t.Errorf("%s:%d 使用了 fmt.Errorf；请改为 errx.Detail/errx.Wrap/errx.WrapDetail，"+
-					"并把哨兵错误在包级用 errx.New 声明", f.rel, i+1)
+				t.Errorf("%s:%d 使用了 fmt.Errorf；请改为 errs.Detail/errs.Wrap/errs.WrapDetail，"+
+					"并把哨兵错误在包级用 errs.New 声明", f.rel, i+1)
 			}
 		}
 	}
@@ -279,13 +276,13 @@ func TestGovernanceStatesNewConstraints(t *testing.T) {
 	checks := map[string][]string{
 		"CLAUDE.md": {
 			"Co-Authored-By: Eric Shi <shibingli@sina.com>", // 提交署名口径 | commit signature
-			"YD_",           // 环境变量前缀 | env prefix
-			"logx",          // 日志统一走自研 | logging via logx
-			"中英文同步",         // 注释与日志文案双语 | bilingual comments and logs
-			"禁止在提交信息",       // 提交纪律 | commit discipline
-			"OpenAPI",       // OpenAPI 注解要求 | OpenAPI annotations
-			"jsonx", "b64x", // 编解码统一封装层 | codec wrappers
-			"errx", "fmt.Errorf", // 错误声明式哨兵 | declared sentinel errors
+			"YD_",                    // 环境变量前缀 | env prefix
+			"ydx/log",                // 日志统一走自研 | logging via ydx/log
+			"中英文同步",                  // 注释与日志文案双语 | bilingual comments and logs
+			"禁止在提交信息",                // 提交纪律 | commit discipline
+			"OpenAPI",                // OpenAPI 注解要求 | OpenAPI annotations
+			"ydx/json", "ydx/base64", // 编解码统一封装层 | codec wrappers
+			"ydx/errs", "fmt.Errorf", // 错误声明式哨兵 | declared sentinel errors
 			"sec_key",                 // 每用户 JWT 密钥 | per-user JWT key
 			"多租户",                     // 租户硬边界 | tenant boundary
 			"betteralign",             // 内存对齐要求 | memory alignment
@@ -307,8 +304,8 @@ func TestGovernanceStatesNewConstraints(t *testing.T) {
 		"AGENTS.md": {
 			"Co-Authored-By: Eric Shi <shibingli@sina.com>",
 			"Test-and-Fix",
-			"logx",
-			"jsonx", "b64x",
+			"ydx/log",
+			"ydx/json", "ydx/base64",
 			"OpenAPI",
 			"claude", // 必须出现"禁止 claude 相关内容"的约束 | must state the prohibition
 			"优雅退出",
@@ -322,7 +319,7 @@ func TestGovernanceStatesNewConstraints(t *testing.T) {
 		"docs/developer_guidelines.md": {
 			"YD_",
 			"Co-Authored-By: Eric Shi <shibingli@sina.com>",
-			"logx",
+			"ydx/log",
 			"OpenAPI",
 			"sec_key",
 			"betteralign",
@@ -349,30 +346,6 @@ func TestEnvTemplateUsesYDPrefix(t *testing.T) {
 	}
 	if !strings.Contains(content, "YD_SERVER_PORT") || !strings.Contains(content, "YD_DB_MAXCONN") {
 		t.Error(".env.template 未使用 YD_ 前缀示例")
-	}
-}
-
-// TestLongLivedPackagesDoNotImportLifecycle 强制长连接包与关闭编排之间的依赖方向。
-// TestLongLivedPackagesDoNotImportLifecycle enforces the dependency direction between the long-lived connection packages and the shutdown orchestrator.
-//
-// ws 与 sse 只声明自己的最小「关闭信号」接口，由 app 侧注入实现；若它们反向 import
-// lifecycle，依赖图会成环，且这两个包将无法脱离关闭编排单独复用。
-// ws and sse declare their own minimal "shutdown signal" interface, implemented on the app side;
-// importing lifecycle back would create a cycle and make both packages unusable without the
-// orchestrator.
-func TestLongLivedPackagesDoNotImportLifecycle(t *testing.T) {
-	const lifecyclePath = "github.com/shibingli/yd/runtime/lifecycle"
-	for _, f := range scanGoFiles(t, repoRoot(t)) {
-		if f.isTest {
-			continue
-		}
-		if !strings.HasPrefix(f.rel, "http/ws/") && !strings.HasPrefix(f.rel, "http/sse/") {
-			continue
-		}
-		if hasImport(f.lines, `"`+lifecyclePath+`"`) {
-			t.Errorf("%s 反向 import 了 %s；长连接包只应声明自己的最小关闭信号接口，"+
-				"由 app 侧注入实现，避免依赖成环", f.rel, lifecyclePath)
-		}
 	}
 }
 
@@ -711,7 +684,7 @@ func TestStringLiteralReStaysUsable(t *testing.T) {
 // program's error output, prompts or result responses, and the pre-existing
 // TestLogMessagesAreBilingual exempts test files the same way. Tightening it is a change of policy,
 // not of implementation, so it needs a decision first.
-var outputCallRe = regexpx.MustCompile(`(?:errx\.(?:New|Detail|Wrap|WrapDetail)\(|\.(?:Debug|Info|Warn|Error|Fatal)\(\s*"|Fprint(?:f|ln)?\()`)
+var outputCallRe = regexpx.MustCompile(`(?:errs\.(?:New|Detail|Wrap|WrapDetail)\(|\.(?:Debug|Info|Warn|Error|Fatal)\(\s*"|Fprint(?:f|ln)?\()`)
 
 // TestBilingualCoverage 强制「每一处注释与运行时文案都不得只有一种语言」。
 // TestBilingualCoverage enforces that no comment or runtime string carries only one language.

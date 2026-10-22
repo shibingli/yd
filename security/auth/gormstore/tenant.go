@@ -5,9 +5,9 @@ import (
 
 	"gorm.io/gorm"
 
-	"github.com/shibingli/yd/core/errx"
-	"github.com/shibingli/yd/core/logx"
 	"github.com/shibingli/yd/security/auth"
+	"github.com/shibingli/ydx/errs"
+	"github.com/shibingli/ydx/log"
 )
 
 // CreateTenant stores a new tenant. | CreateTenant 存入新租户。
@@ -24,11 +24,11 @@ import (
 // 而真正拒绝并发重复写入的是 yd_idx_auth_tenants_slug。
 func (s *Store) CreateTenant(ctx context.Context, t *auth.Tenant) error {
 	if t == nil || t.ID == "" {
-		return errx.Detail(auth.ErrInvalidInput, "tenant requires an id | 租户必须带 ID")
+		return errs.Detail(auth.ErrInvalidInput, "tenant requires an id | 租户必须带 ID")
 	}
 	row := tenantToRow(t)
 	if row.SlugKey == "" {
-		return errx.Detail(auth.ErrInvalidInput, "tenant requires a slug | 租户必须带 Slug")
+		return errs.Detail(auth.ErrInvalidInput, "tenant requires a slug | 租户必须带 Slug")
 	}
 	ctx, cancel := s.scoped(ctx)
 	defer cancel()
@@ -38,20 +38,20 @@ func (s *Store) CreateTenant(ctx context.Context, t *auth.Tenant) error {
 			return err
 		}
 		if taken > 0 {
-			return errx.Detail(auth.ErrConflict, "tenant id %[1]q already exists | 租户 ID %[1]q 已存在", row.ID)
+			return errs.Detail(auth.ErrConflict, "tenant id %[1]q already exists | 租户 ID %[1]q 已存在", row.ID)
 		}
 		taken, err = countRows(tx, &tenantRow{}, "slug_key = ?", row.SlugKey)
 		if err != nil {
 			return err
 		}
 		if taken > 0 {
-			return errx.Detail(auth.ErrConflict, "tenant slug %[1]q already exists | 租户 Slug %[1]q 已存在", row.SlugKey)
+			return errs.Detail(auth.ErrConflict, "tenant slug %[1]q already exists | 租户 Slug %[1]q 已存在", row.SlugKey)
 		}
 		if err := tx.Create(&row).Error; err != nil {
 			if isDuplicate(err) {
 				s.log.Debug("the unique index rejected a duplicate tenant | 唯一索引拒绝了重复租户",
-					logx.Str("tenant_id", row.ID))
-				return errx.WrapDetail(err, auth.ErrConflict, "tenant id or slug already exists | 租户 ID 或 Slug 已存在")
+					log.Str("tenant_id", row.ID))
+				return errs.WrapDetail(err, auth.ErrConflict, "tenant id or slug already exists | 租户 ID 或 Slug 已存在")
 			}
 			return err
 		}

@@ -6,7 +6,7 @@ import (
 	"sync"
 	"text/template"
 
-	"github.com/shibingli/yd/core/errx"
+	"github.com/shibingli/ydx/errs"
 )
 
 // artifactTemplates 内嵌全部生成物模板。
@@ -41,7 +41,7 @@ var loadTemplates = sync.OnceValues(func() (*template.Template, error) {
 		Delims(leftDelim, rightDelim).
 		ParseFS(artifactTemplates, templatePrefix+"*.tmpl")
 	if err != nil {
-		return nil, errx.WrapDetail(err, ErrRender, "parse embedded templates | 解析内嵌模板失败")
+		return nil, errs.WrapDetail(err, ErrRender, "parse embedded templates | 解析内嵌模板失败")
 	}
 	return t, nil
 })
@@ -59,7 +59,7 @@ func renderTemplate(name string, data any) ([]byte, error) {
 	}
 	var buf bytes.Buffer
 	if err := t.ExecuteTemplate(&buf, name, data); err != nil {
-		return nil, errx.WrapDetail(err, ErrRender, "template=%[1]s | 模板=%[1]s", name)
+		return nil, errs.WrapDetail(err, ErrRender, "template=%[1]s | 模板=%[1]s", name)
 	}
 	return buf.Bytes(), nil
 }

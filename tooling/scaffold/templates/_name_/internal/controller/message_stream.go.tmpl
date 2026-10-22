@@ -10,11 +10,11 @@ import (
 	"strconv"
 	"time"
 
-	"{{ .YdModule }}/core/jsonx"
-	"{{ .YdModule }}/core/logx"
-	"{{ .YdModule }}/http/render"
-	"{{ .YdModule }}/http/router"
-	"{{ .YdModule }}/http/ws"
+	"{{ .YdxModule }}/json"
+	"{{ .YdxModule }}/log"
+	"{{ .YdxModule }}/render"
+	"{{ .YdxModule }}/router"
+	"{{ .YdxModule }}/websocket"
 	"{{ .YdModule }}/messaging"
 	"{{ .YdModule }}/messaging/realtime"
 	"{{ .YdModule }}/security/authz"
@@ -64,9 +64,9 @@ func (c *Controller) MessageSocket() router.HandlerFunc {
 		lang := c.lang(ctx)
 		canSend := authz.Can(ctx.Request.Context(), authz.PermMessageSend)
 		var unsubscribe func()
-		handler := ws.HtmxHandler(ws.HtmxOptions{
+		handler := websocket.HtmxHandler(websocket.HtmxOptions{
 			Subprotocols: []string{"htmx"},
-			OnOpen: func(conn *ws.Conn) {
+			OnOpen: func(conn *websocket.Conn) {
 				unsubscribe = c.hub.Subscribe(realtime.Subscription{
 					TenantID:       actor.TenantID,
 					UserID:         actor.ID,
@@ -78,10 +78,10 @@ func (c *Controller) MessageSocket() router.HandlerFunc {
 				})
 				c.pushUnreadBadge(conn, actor, lang)
 			},
-			OnMessage: func(conn *ws.Conn, msg ws.HtmxMessage) {
+			OnMessage: func(conn *websocket.Conn, msg websocket.HtmxMessage) {
 				c.handleMessageSocketInput(conn, actor, lang, canSend, msg)
 			},
-			OnClose: func(*ws.Conn, error) {
+			OnClose: func(*websocket.Conn, error) {
 				if unsubscribe != nil {
 					unsubscribe()
 				}
@@ -92,7 +92,7 @@ func (c *Controller) MessageSocket() router.HandlerFunc {
 }
 
 // handleMessageSocketInput handles one inbound htmx message. | handleMessageSocketInput 处理一条入站 htmx 消息。
-func (c *Controller) handleMessageSocketInput(conn *ws.Conn, actor messaging.Actor, lang string, canSend bool, msg ws.HtmxMessage) {
+func (c *Controller) handleMessageSocketInput(conn *websocket.Conn, actor messaging.Actor, lang string, canSend bool, msg websocket.HtmxMessage) {
 	action := valueString(msg.Values[FieldAction])
 	switch action {
 	case messageActionPing:
@@ -122,7 +122,7 @@ func (c *Controller) handleMessageSocketInput(conn *ws.Conn, actor messaging.Act
 			ConversationID: conversationID,
 			Markdown:       body,
 		}); err != nil {
-			c.log.Warn("quick send over WebSocket failed | WebSocket 快捷发送失败", logx.Err(err), logx.Str("conversation", conversationID))
+			c.log.Warn("quick send over WebSocket failed | WebSocket 快捷发送失败", log.Err(err), log.Str("conversation", conversationID))
 			c.pushSocketNotice(conn, lang, "message.notice.failed")
 		}
 	default:
@@ -133,7 +133,7 @@ func (c *Controller) handleMessageSocketInput(conn *ws.Conn, actor messaging.Act
 
 // deliverMessageEvent pushes one event, the refreshed badge and an optional notice to one connection. |
 // deliverMessageEvent 向一条连接推送事件、刷新后的徽标与可选通知。
-func (c *Controller) deliverMessageEvent(conn *ws.Conn, actor messaging.Actor, lang string, event messaging.Event) {
+func (c *Controller) deliverMessageEvent(conn *websocket.Conn, actor messaging.Actor, lang string, event messaging.Event) {
 	payload := map[string]any{
 		"yd_event":        event.Type,
 		"conversation_id": event.ConversationID,
@@ -141,9 +141,9 @@ func (c *Controller) deliverMessageEvent(conn *ws.Conn, actor messaging.Actor, l
 		"actor_id":        event.ActorID,
 		"at":              event.At.UTC().Format(time.RFC3339),
 	}
-	if data, err := jsonx.Marshal(payload); err == nil {
+	if data, err := json.Marshal(payload); err == nil {
 		if err := conn.SetWriteDeadline(time.Now().Add(messageSocketWriteTimeout)); err == nil {
-			if err := conn.WriteMessage(ws.TextMessage, data); err != nil {
+			if err := conn.WriteMessage(websocket.TextMessage, data); err != nil {
 				_ = conn.CloseNow()
 				return
 			}
@@ -172,7 +172,7 @@ func (c *Controller) deliverMessageEvent(conn *ws.Conn, actor messaging.Actor, l
 // "unread messages" row of the user menu. They carry separate ids because both live inside the shell at once. |
 // pushUnreadBadge 渲染并推送当前未读徽标：用户名右侧的角标与用户菜单「未读消息」行的计数。两者同时存在于外壳中，
 // 因此使用各自的 id。
-func (c *Controller) pushUnreadBadge(conn *ws.Conn, actor messaging.Actor, lang string) {
+func (c *Controller) pushUnreadBadge(conn *websocket.Conn, actor messaging.Actor, lang string) {
 	if c.app.Renderer() == nil {
 		return
 	}
@@ -199,7 +199,7 @@ func (c *Controller) pushUnreadBadge(conn *ws.Conn, actor messaging.Actor, lang 
 	} {
 		var buf bytes.Buffer
 		if err := c.app.Renderer().Render(&buf, badge.template, data); err != nil {
-			c.log.Debug("unread badge render failed | 未读徽标渲染失败", logx.Str("template", badge.template), logx.Err(err))
+			c.log.Debug("unread badge render failed | 未读徽标渲染失败", log.Str("template", badge.template), log.Err(err))
 			return
 		}
 		if err := conn.WriteHtmxFragment(badge.target, "outerHTML", buf.String()); err != nil {
@@ -210,7 +210,7 @@ func (c *Controller) pushUnreadBadge(conn *ws.Conn, actor messaging.Actor, lang 
 }
 
 // pushSocketNotice pushes one localised notice into the shell notice area. | pushSocketNotice 把一条本地化通知推送到外壳通知区。
-func (c *Controller) pushSocketNotice(conn *ws.Conn, lang, key string) {
+func (c *Controller) pushSocketNotice(conn *websocket.Conn, lang, key string) {
 	if c.app.Renderer() == nil {
 		return
 	}
@@ -245,7 +245,7 @@ func valueString(value any) string {
 	case float64:
 		return strconv.FormatFloat(v, 'f', -1, 64)
 	default:
-		data, err := jsonx.Marshal(v)
+		data, err := json.Marshal(v)
 		if err != nil {
 			return ""
 		}

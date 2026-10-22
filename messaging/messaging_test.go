@@ -10,11 +10,11 @@ import (
 	"time"
 
 	"github.com/glebarez/sqlite"
-	"github.com/shibingli/yd/core/logx"
 	"github.com/shibingli/yd/messaging"
 	"github.com/shibingli/yd/messaging/filestore"
 	"github.com/shibingli/yd/messaging/gormstore"
 	"github.com/shibingli/yd/messaging/markdown"
+	"github.com/shibingli/ydx/log"
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
 )
@@ -179,7 +179,7 @@ func newFixture(t *testing.T) *fixture {
 		"us_carol": {ID: "us_carol", Username: "carol", DisplayName: "Carol", Active: true},
 		"us_admin": {ID: "us_admin", Username: "admin", DisplayName: "Admin", Active: true},
 	}}
-	svc, err := messaging.New(store, dir, markdown.New(), blobs, note, logx.Default(), messaging.Options{
+	svc, err := messaging.New(store, dir, markdown.New(), blobs, note, log.Default(), messaging.Options{
 		Now:               clock.Now,
 		RecallWindow:      5 * time.Minute,
 		EditWindow:        5 * time.Minute,

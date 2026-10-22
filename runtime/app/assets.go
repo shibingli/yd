@@ -7,11 +7,11 @@ import (
 
 	"github.com/spf13/afero"
 
-	"github.com/shibingli/yd/core/afs"
-	"github.com/shibingli/yd/core/config"
 	"github.com/shibingli/yd/core/envx"
-	"github.com/shibingli/yd/core/errx"
 	"github.com/shibingli/yd/http/i18n"
+	"github.com/shibingli/ydx/afs"
+	"github.com/shibingli/ydx/config"
+	"github.com/shibingli/ydx/errs"
 )
 
 // defaultAssets carries the asset tree the facade ships with. | defaultAssets 承载门面随附的资产树。
@@ -52,7 +52,7 @@ const (
 func defaultAssetsFS() (afero.Fs, error) {
 	sub, err := fs.Sub(defaultAssets, assetsDirName)
 	if err != nil {
-		return nil, errx.WrapDetail(err, ErrAssetsDir, "%q", assetsDirName)
+		return nil, errs.WrapDetail(err, ErrAssetsDir, "%q", assetsDirName)
 	}
 	return afs.NewEmbed(sub), nil
 }
@@ -83,7 +83,7 @@ func assetDir(fsys afero.Fs, dir string) (afero.Fs, error) {
 		if errors.Is(err, fs.ErrNotExist) {
 			return afs.NewMem(), nil
 		}
-		return nil, errx.WrapDetail(err, ErrAssetsDir, "%q", dir)
+		return nil, errs.WrapDetail(err, ErrAssetsDir, "%q", dir)
 	}
 	return afs.NewEmbed(sub), nil
 }
@@ -108,7 +108,7 @@ func (a *App) i18nBundle() (*i18n.Bundle, error) {
 
 	bundle, err := i18n.New(langFS, assetsRoot, lang)
 	if err != nil {
-		return nil, errx.Wrap(err, ErrI18n)
+		return nil, errs.Wrap(err, ErrI18n)
 	}
 	return bundle, nil
 }

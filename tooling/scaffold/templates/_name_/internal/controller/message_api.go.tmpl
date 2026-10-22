@@ -8,8 +8,8 @@ import (
 	"net/http"
 	"time"
 
-	"{{ .YdModule }}/core/logx"
-	"{{ .YdModule }}/http/router"
+	"{{ .YdxModule }}/log"
+	"{{ .YdxModule }}/router"
 	"{{ .YdModule }}/messaging"
 )
 
@@ -382,7 +382,7 @@ func (c *Controller) APIRecallMessage(ctx *router.Ctx) {
 		return
 	}
 	if err := ctx.NoContent(http.StatusNoContent); err != nil {
-		c.log.Warn("api recall response failed | API 撤回响应失败", logx.Err(err))
+		c.log.Warn("api recall response failed | API 撤回响应失败", log.Err(err))
 	}
 }
 
@@ -409,7 +409,7 @@ func (c *Controller) APIRevokeSystemMessage(ctx *router.Ctx) {
 		return
 	}
 	if err := ctx.NoContent(http.StatusNoContent); err != nil {
-		c.log.Warn("api revoke response failed | API 撤销响应失败", logx.Err(err))
+		c.log.Warn("api revoke response failed | API 撤销响应失败", log.Err(err))
 	}
 }
 
@@ -433,7 +433,7 @@ func (c *Controller) APIMarkRead(ctx *router.Ctx) {
 		return
 	}
 	if err := ctx.NoContent(http.StatusNoContent); err != nil {
-		c.log.Warn("api read response failed | API 已读响应失败", logx.Err(err))
+		c.log.Warn("api read response failed | API 已读响应失败", log.Err(err))
 	}
 }
 
@@ -474,7 +474,7 @@ func (c *Controller) APIPinMessage(ctx *router.Ctx) {
 		return
 	}
 	if err := ctx.NoContent(http.StatusNoContent); err != nil {
-		c.log.Warn("api pin response failed | API 置顶响应失败", logx.Err(err))
+		c.log.Warn("api pin response failed | API 置顶响应失败", log.Err(err))
 	}
 }
 
@@ -498,7 +498,7 @@ func (c *Controller) APIUnpinMessage(ctx *router.Ctx) {
 		return
 	}
 	if err := ctx.NoContent(http.StatusNoContent); err != nil {
-		c.log.Warn("api unpin response failed | API 取消置顶响应失败", logx.Err(err))
+		c.log.Warn("api unpin response failed | API 取消置顶响应失败", log.Err(err))
 	}
 }
 
@@ -661,7 +661,7 @@ func (c *Controller) apiRespondFriend(ctx *router.Ctx, accept bool) {
 		return
 	}
 	if err := ctx.NoContent(http.StatusNoContent); err != nil {
-		c.log.Warn("api friend response failed | API 好友响应失败", logx.Err(err))
+		c.log.Warn("api friend response failed | API 好友响应失败", log.Err(err))
 	}
 }
 
@@ -685,7 +685,7 @@ func (c *Controller) APICancelFriendRequest(ctx *router.Ctx) {
 		return
 	}
 	if err := ctx.NoContent(http.StatusNoContent); err != nil {
-		c.log.Warn("api cancel response failed | API 取消响应失败", logx.Err(err))
+		c.log.Warn("api cancel response failed | API 取消响应失败", log.Err(err))
 	}
 }
 
@@ -749,7 +749,7 @@ func (c *Controller) apiFriendAction(ctx *router.Ctx, action func(messaging.Acto
 		return
 	}
 	if err := ctx.NoContent(http.StatusNoContent); err != nil {
-		c.log.Warn("api friend action response failed | API 好友动作响应失败", logx.Err(err))
+		c.log.Warn("api friend action response failed | API 好友动作响应失败", log.Err(err))
 	}
 }
 
@@ -780,7 +780,7 @@ func (c *Controller) APISetFriendRemark(ctx *router.Ctx) {
 		return
 	}
 	if err := ctx.NoContent(http.StatusNoContent); err != nil {
-		c.log.Warn("api remark response failed | API 备注响应失败", logx.Err(err))
+		c.log.Warn("api remark response failed | API 备注响应失败", log.Err(err))
 	}
 }
 
@@ -866,7 +866,7 @@ func (c *Controller) APIArchiveMessageType(ctx *router.Ctx) {
 		return
 	}
 	if err := ctx.NoContent(http.StatusNoContent); err != nil {
-		c.log.Warn("api type archive response failed | API 类型归档响应失败", logx.Err(err))
+		c.log.Warn("api type archive response failed | API 类型归档响应失败", log.Err(err))
 	}
 }
 
@@ -957,7 +957,7 @@ func (c *Controller) APIArchiveMessageTag(ctx *router.Ctx) {
 		return
 	}
 	if err := ctx.NoContent(http.StatusNoContent); err != nil {
-		c.log.Warn("api tag archive response failed | API 标签归档响应失败", logx.Err(err))
+		c.log.Warn("api tag archive response failed | API 标签归档响应失败", log.Err(err))
 	}
 }
 
@@ -976,7 +976,7 @@ func (c *Controller) apiAvailable(ctx *router.Ctx) bool {
 func (c *Controller) apiFail(ctx *router.Ctx, err error) {
 	status, message := statusFor(err)
 	if status == http.StatusInternalServerError {
-		c.log.Error("message API request failed | 消息 API 请求失败", logx.Err(err), logx.Str("path", ctx.Path()))
+		c.log.Error("message API request failed | 消息 API 请求失败", log.Err(err), log.Str("path", ctx.Path()))
 		message = msgInternal
 	}
 	_ = ctx.JSON(status, map[string]any{"error": message})

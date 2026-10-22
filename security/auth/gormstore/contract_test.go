@@ -7,8 +7,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/shibingli/yd/core/jsonx"
 	"github.com/shibingli/yd/security/auth"
+	"github.com/shibingli/ydx/json"
 )
 
 // TestContractMatchesTheMemoryStore runs one scenario against the map-backed
@@ -544,7 +544,7 @@ func listSnapshot[T any](items []*T, render func(*T) string) string {
 // marshalView renders a projection through jsonx, which is what the rest of the
 // repository serialises with. | marshalView 通过 jsonx 渲染投影，与仓库其余部分使用的序列化层一致。
 func marshalView(v any) string {
-	raw, err := jsonx.Marshal(v)
+	raw, err := json.Marshal(v)
 	if err != nil {
 		return "marshal-error"
 	}

@@ -6,7 +6,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/shibingli/yd/core/errx"
+	"github.com/shibingli/ydx/errs"
 )
 
 // DefaultPackage is the import path built when Options.Packages is empty. | DefaultPackage 是 Options.Packages 为空时构建的导入路径。
@@ -111,13 +111,13 @@ func (o Options) packages() []string {
 // "all or specific platforms should be used" 拒绝的组合。
 func (o Options) validate() error {
 	if strings.TrimSpace(o.Repository) == "" && !o.Local {
-		return errx.Detail(ErrNoRepository,
+		return errs.Detail(ErrNoRepository,
 			"set --repo (or ko.repository / KO_DOCKER_REPO), or pass --local | 请用 --repo 指定仓库（或配置 ko.repository / KO_DOCKER_REPO），或改用 --local")
 	}
 	if platforms := o.platforms(); len(platforms) > 1 {
 		for _, platform := range platforms {
 			if platform == platformAll {
-				return errx.Detail(ErrInvalidOptions,
+				return errs.Detail(ErrInvalidOptions,
 					"%q cannot be combined with specific platforms | %q 不能与具体平台混用", platformAll, platformAll)
 			}
 		}

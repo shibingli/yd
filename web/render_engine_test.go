@@ -27,7 +27,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/shibingli/yd/http/render"
+	"github.com/shibingli/ydx/render"
 )
 
 // engineWorkspaceID is the shell marker every chrome page must carry, and the one the
@@ -136,5 +136,25 @@ func TestFrameworkTemplatesRenderThroughEngine(t *testing.T) {
 	plain := renderThroughEngine(t, engine, "pages/dashboard.html", templateData())
 	if !strings.Contains(plain, `data-yd-i18n="dashboard.title">dashboard.title</h1>`) {
 		t.Error("未注入译者时 {{ tr }} 必须回退为键本身 | without a translator {{ tr }} must fall back to the key")
+	}
+}
+
+// TestFrameworkTemplatesUseTheCompiledEngine guards the fast executor: every framework template
+// loaded from web.FS() must run through the compiled program, never the html/template fallback. |
+// TestFrameworkTemplatesUseTheCompiledEngine 守卫快速执行器：从 web.FS() 加载的每个框架模板都必须
+// 走编译后的执行器，绝不能回退到 html/template。
+func TestFrameworkTemplatesUseTheCompiledEngine(t *testing.T) {
+	engine, err := render.New(FS(), render.Options{})
+	if err != nil {
+		t.Fatalf("render.New(web.FS()) 失败: %v | render.New(web.FS()) failed: %v", err, err)
+	}
+	names := engine.Names()
+	if len(names) == 0 {
+		t.Fatal("模板集合为空，无法验证执行器 | the template set is empty")
+	}
+	for _, name := range names {
+		if engine.UsesFallback(name) {
+			t.Errorf("%s 回退到了 html/template 执行器 | %s fell back to the html/template executor", name, name)
+		}
 	}
 }

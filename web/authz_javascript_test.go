@@ -25,16 +25,16 @@ import (
 
 	"github.com/spf13/afero"
 
-	"github.com/shibingli/yd/core/errx"
 	"github.com/shibingli/yd/security/authz"
+	"github.com/shibingli/ydx/errs"
 )
 
 var (
 	// errAuthzJSScriptMissing reports a missing JavaScript test entry point. | errAuthzJSScriptMissing 表示缺少 JS 测试入口。
-	errAuthzJSScriptMissing = errx.New("web: the javascript authz test script is missing | web：缺少 JS 权限测试脚本")
+	errAuthzJSScriptMissing = errs.New("web: the javascript authz test script is missing | web：缺少 JS 权限测试脚本")
 
 	// errAuthzJSRunFailed reports a failing Node run. | errAuthzJSRunFailed 表示 Node 运行失败。
-	errAuthzJSRunFailed = errx.New("web: the javascript authz test suite failed | web：JS 权限测试套件执行失败")
+	errAuthzJSRunFailed = errs.New("web: the javascript authz test suite failed | web：JS 权限测试套件执行失败")
 )
 
 const (

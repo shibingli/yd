@@ -12,11 +12,11 @@ import (
 
 	"github.com/spf13/afero"
 
-	"github.com/shibingli/yd/core/afs"
 	"github.com/shibingli/yd/http/i18n"
-	"github.com/shibingli/yd/http/render"
-	"github.com/shibingli/yd/http/router"
-	"github.com/shibingli/yd/middleware"
+	"github.com/shibingli/ydx/afs"
+	"github.com/shibingli/ydx/middleware"
+	"github.com/shibingli/ydx/render"
+	"github.com/shibingli/ydx/router"
 )
 
 // newTemplateFS writes the given files into a fresh in-memory asset filesystem

@@ -6,8 +6,8 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"github.com/shibingli/yd/core/errx"
 	"github.com/shibingli/yd/security/guomi"
+	"github.com/shibingli/ydx/errs"
 )
 
 // User is a global identity that may belong to several tenants. | User 是可以隶属多个租户的全局身份。
@@ -89,7 +89,7 @@ func (s *Service) CreateUser(ctx context.Context, tenantID string, in CreateUser
 	}
 	username := strings.TrimSpace(in.Username)
 	if username == "" {
-		return nil, errx.Detail(ErrInvalidInput, "username must not be empty | 用户名不得为空")
+		return nil, errs.Detail(ErrInvalidInput, "username must not be empty | 用户名不得为空")
 	}
 	if err := validatePassword(in.Password); err != nil {
 		return nil, err
@@ -150,7 +150,7 @@ func (s *Service) GetUser(ctx context.Context, tenantID, userID string) (*User, 
 		return nil, ErrTenantRequired
 	}
 	if strings.TrimSpace(userID) == "" {
-		return nil, errx.Detail(ErrNotFound, "empty user id | 用户 ID 为空")
+		return nil, errs.Detail(ErrNotFound, "empty user id | 用户 ID 为空")
 	}
 	return s.store.GetUser(ctx, tenantID, userID)
 }
@@ -182,7 +182,7 @@ func (s *Service) UpdateUser(ctx context.Context, tenantID string, u *User) erro
 		return ErrTenantRequired
 	}
 	if u == nil || strings.TrimSpace(u.ID) == "" {
-		return errx.Detail(ErrNotFound, "empty user id | 用户 ID 为空")
+		return errs.Detail(ErrNotFound, "empty user id | 用户 ID 为空")
 	}
 	if u.TenantID != "" && u.TenantID != tenantID {
 		// A payload naming another tenant is treated as a missing resource. | 载荷指向其它租户时按资源不存在处理。
@@ -224,7 +224,7 @@ func (s *Service) DisableUser(ctx context.Context, tenantID, userID string) erro
 // SetStatus 只修改用户的生命周期状态，绝不重写资料、口令或密钥列，因此并发的资料编辑无法复活旧状态。
 func (s *Service) SetStatus(ctx context.Context, tenantID, userID string, status Status) error {
 	if status != StatusActive && status != StatusDisabled {
-		return errx.Detail(ErrInvalidInput, "unknown user status %[1]q | 未知的用户状态 %[1]q", status)
+		return errs.Detail(ErrInvalidInput, "unknown user status %[1]q | 未知的用户状态 %[1]q", status)
 	}
 	return s.store.SetUserStatus(ctx, tenantID, userID, status, s.now())
 }
@@ -287,7 +287,7 @@ func (s *Service) Authenticate(ctx context.Context, tenantID, username, password
 	}
 	matched, verifyErr := guomi.VerifyPassword(u.PasswordHash, password)
 	if verifyErr != nil {
-		return nil, errx.Wrap(verifyErr, ErrInvalidCredentials)
+		return nil, errs.Wrap(verifyErr, ErrInvalidCredentials)
 	}
 	if !matched {
 		return nil, ErrInvalidCredentials
@@ -306,7 +306,7 @@ func (s *Service) Authenticate(ctx context.Context, tenantID, username, password
 // 因此被复制到其它记录上的密钥无法解开，而不会被接受。
 func (s *Service) SecKey(_ context.Context, u *User) ([]byte, error) {
 	if u == nil || len(u.EncryptedSecKey) == 0 {
-		return nil, errx.Detail(ErrSecKeyMissing, "user has no encrypted sec_key | 用户没有加密的 sec_key")
+		return nil, errs.Detail(ErrSecKeyMissing, "user has no encrypted sec_key | 用户没有加密的 sec_key")
 	}
 	// The key is sealed with the immutable identity tenant, never with the tenant the
 	// request happens to act in: switching tenants must not make the key unreadable.
@@ -374,7 +374,7 @@ func (s *Service) resolveRoles(ctx context.Context, tenantID string, names []str
 			return nil, err
 		}
 		if !known {
-			return nil, errx.Detail(ErrNotFound, "unknown role %q | 角色 %q 不存在", name, name)
+			return nil, errs.Detail(ErrNotFound, "unknown role %q | 角色 %q 不存在", name, name)
 		}
 		seen[name] = struct{}{}
 		out = append(out, name)
@@ -388,7 +388,7 @@ func (s *Service) resolveRoles(ctx context.Context, tenantID string, names []str
 // validatePassword enforces the strength policy shared by every entry point. | validatePassword 实施所有入口共用的强度策略。
 func validatePassword(password string) error {
 	if utf8.RuneCountInString(password) < MinPasswordLen {
-		return errx.Detail(ErrWeakPassword, "password must be at least %[1]d characters | 口令至少需要 %[1]d 个字符", MinPasswordLen)
+		return errs.Detail(ErrWeakPassword, "password must be at least %[1]d characters | 口令至少需要 %[1]d 个字符", MinPasswordLen)
 	}
 	return nil
 }

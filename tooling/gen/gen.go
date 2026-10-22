@@ -29,10 +29,10 @@ import (
 
 	"github.com/spf13/afero"
 
-	"github.com/shibingli/yd/core/afs"
-	"github.com/shibingli/yd/core/errx"
-	"github.com/shibingli/yd/core/logx"
-	"github.com/shibingli/yd/core/regexpx"
+	"github.com/shibingli/ydx/afs"
+	"github.com/shibingli/ydx/errs"
+	"github.com/shibingli/ydx/log"
+	"github.com/shibingli/ydx/regexpx"
 )
 
 // FrameworkModule 是 yd 框架自身的模块路径，用作生成代码引用框架包时的默认导入前缀。
@@ -55,46 +55,46 @@ const (
 var (
 	// ErrNoFields 表示模型没有任何字段，无法生成模块。
 	// ErrNoFields reports a model without any field, which cannot become a module.
-	ErrNoFields = errx.New("model has no fields | 模型没有任何字段")
+	ErrNoFields = errs.New("model has no fields | 模型没有任何字段")
 	// ErrBadModel 表示模型定义不合法（名称、主键或类型不可用）。
 	// ErrBadModel reports an invalid model definition (unusable name, primary key or type).
-	ErrBadModel = errx.New("invalid model definition | 模型定义不合法")
+	ErrBadModel = errs.New("invalid model definition | 模型定义不合法")
 	// ErrUnsupportedValue 表示输入既不是结构体也不是结构体指针。
 	// ErrUnsupportedValue reports an input that is neither a struct nor a pointer to one.
-	ErrUnsupportedValue = errx.New("unsupported value, a struct or struct pointer is required | 不支持的输入，需要结构体或结构体指针")
+	ErrUnsupportedValue = errs.New("unsupported value, a struct or struct pointer is required | 不支持的输入，需要结构体或结构体指针")
 	// ErrBadFieldSpec 表示字段描述串格式非法。
 	// ErrBadFieldSpec reports a malformed field specification.
-	ErrBadFieldSpec = errx.New("invalid field spec | 字段描述格式非法")
+	ErrBadFieldSpec = errs.New("invalid field spec | 字段描述格式非法")
 	// ErrUnknownType 表示字段描述串使用了未知类型。
 	// ErrUnknownType reports an unknown type in a field specification.
-	ErrUnknownType = errx.New("unknown field type | 未知的字段类型")
+	ErrUnknownType = errs.New("unknown field type | 未知的字段类型")
 	// ErrTableNotFound 表示表不存在或没有可读的列。
 	// ErrTableNotFound reports a missing table or a table without readable columns.
-	ErrTableNotFound = errx.New("table not found | 表不存在")
+	ErrTableNotFound = errs.New("table not found | 表不存在")
 	// ErrTypeNotFound 表示源码里没有找到指定的结构体类型。
 	// ErrTypeNotFound reports that the named struct type is absent from the source.
-	ErrTypeNotFound = errx.New("struct type not found | 未找到结构体类型")
+	ErrTypeNotFound = errs.New("struct type not found | 未找到结构体类型")
 	// ErrNilDB 表示没有传入数据库句柄。
 	// ErrNilDB reports a missing database handle.
-	ErrNilDB = errx.New("nil database handle | 数据库句柄为空")
+	ErrNilDB = errs.New("nil database handle | 数据库句柄为空")
 	// ErrNilFS 表示没有传入文件系统。
 	// ErrNilFS reports a missing filesystem.
-	ErrNilFS = errx.New("nil filesystem | 文件系统为空")
+	ErrNilFS = errs.New("nil filesystem | 文件系统为空")
 	// ErrReadFile 表示读取既有文件失败。
 	// ErrReadFile reports a failed read of an existing file.
-	ErrReadFile = errx.New("read file failed | 读取文件失败")
+	ErrReadFile = errs.New("read file failed | 读取文件失败")
 	// ErrWriteFile 表示写入生成物失败。
 	// ErrWriteFile reports a failed write of a generated artifact.
-	ErrWriteFile = errx.New("write file failed | 写入文件失败")
+	ErrWriteFile = errs.New("write file failed | 写入文件失败")
 	// ErrRender 表示渲染模板失败。
 	// ErrRender reports a failed template render.
-	ErrRender = errx.New("render template failed | 渲染模板失败")
+	ErrRender = errs.New("render template failed | 渲染模板失败")
 	// ErrFormat 表示生成物无法通过 go/format 解析。
 	// ErrFormat reports generated source that go/format cannot parse.
-	ErrFormat = errx.New("format generated source failed | 生成源码格式化失败")
+	ErrFormat = errs.New("format generated source failed | 生成源码格式化失败")
 	// ErrCancelled 表示调用方取消了生成过程。
 	// ErrCancelled reports a generation run cancelled by the caller.
-	ErrCancelled = errx.New("generation cancelled | 生成过程被取消")
+	ErrCancelled = errs.New("generation cancelled | 生成过程被取消")
 )
 
 // Options 控制一次生成：输出位置、导入前缀与写入策略。
@@ -168,10 +168,10 @@ func Generate(ctx context.Context, m *Model, o Options, fs afero.Fs) (*Result, e
 		return res, ErrNilFS
 	}
 	if err := ctx.Err(); err != nil {
-		return res, errx.Wrap(err, ErrCancelled)
+		return res, errs.Wrap(err, ErrCancelled)
 	}
 	if m == nil {
-		return res, errx.Detail(ErrBadModel, "model is required | 模型不能为空")
+		return res, errs.Detail(ErrBadModel, "model is required | 模型不能为空")
 	}
 
 	// Only a scaffold target already defines User/Role/Tenant/Permission services, repositories
@@ -181,7 +181,7 @@ func Generate(ctx context.Context, m *Model, o Options, fs afero.Fs) (*Result, e
 	// 同名模块会重复声明并留下无法编译的项目。普通目录没有这些名字，因此不施加该限制。
 	if reservedModuleNames[strings.ToLower(m.GoName)] &&
 		afs.Exists(fs, o.fullPath(path.Join("internal", "meta", "meta.go"))) {
-		return res, errx.Detail(ErrBadModel, "model name %[1]q collides with a scaffold-defined type; choose another name | 模型名 %[1]q 与脚手架已定义的类型冲突，请换一个名称", m.GoName)
+		return res, errs.Detail(ErrBadModel, "model name %[1]q collides with a scaffold-defined type; choose another name | 模型名 %[1]q 与脚手架已定义的类型冲突，请换一个名称", m.GoName)
 	}
 	v, err := newView(m, o)
 	if err != nil {
@@ -195,7 +195,7 @@ func Generate(ctx context.Context, m *Model, o Options, fs afero.Fs) (*Result, e
 
 	for _, art := range arts {
 		if err := ctx.Err(); err != nil {
-			return res, errx.Wrap(err, ErrCancelled)
+			return res, errs.Wrap(err, ErrCancelled)
 		}
 		if err := applyArtifact(fs, o, art, res); err != nil {
 			return res, err
@@ -210,7 +210,7 @@ func applyArtifact(fs afero.Fs, o Options, art artifact, res *Result) error {
 	full := o.fullPath(art.rel)
 	old, exists, err := readIfExists(fs, full)
 	if err != nil {
-		return errx.WrapDetail(err, ErrReadFile, "path=%[1]s | 路径=%[1]s", art.rel)
+		return errs.WrapDetail(err, ErrReadFile, "path=%[1]s | 路径=%[1]s", art.rel)
 	}
 
 	if exists {
@@ -219,24 +219,24 @@ func applyArtifact(fs afero.Fs, o Options, art artifact, res *Result) error {
 			return nil
 		}
 		if !art.merge && !o.Force && !hasGeneratedMarker(old) {
-			logx.Default().Warn("skipped a hand-written file without the generator marker | 跳过了没有生成标记的手写文件",
-				logx.Str("path", art.rel))
+			log.Default().Warn("skipped a hand-written file without the generator marker | 跳过了没有生成标记的手写文件",
+				log.Str("path", art.rel))
 			res.Skipped = append(res.Skipped, art.rel)
 			return nil
 		}
 	}
 
 	if o.DryRun {
-		logx.Default().Info("dry run: file would be written | 试运行：将写入文件",
-			logx.Str("path", art.rel), logx.Str("diff", diffSummary(old, art.content)))
+		log.Default().Info("dry run: file would be written | 试运行：将写入文件",
+			log.Str("path", art.rel), log.Str("diff", diffSummary(old, art.content)))
 		res.Written = append(res.Written, art.rel)
 		return nil
 	}
 
 	if _, err := afs.WriteFileIfChanged(fs, full, art.content); err != nil {
-		return errx.WrapDetail(err, ErrWriteFile, "path=%[1]s | 路径=%[1]s", art.rel)
+		return errs.WrapDetail(err, ErrWriteFile, "path=%[1]s | 路径=%[1]s", art.rel)
 	}
-	logx.Default().Info("generated file written | 已写入生成文件", logx.Str("path", art.rel))
+	log.Default().Info("generated file written | 已写入生成文件", log.Str("path", art.rel))
 	res.Written = append(res.Written, art.rel)
 	return nil
 }
@@ -319,7 +319,7 @@ var registeredModuleRe = regexpx.MustCompile(`Register([A-Za-z0-9_]+)Routes\(g, 
 func mergeRoutesGen(fs afero.Fs, o Options, v *tmplView) ([]byte, error) {
 	old, exists, err := readIfExists(fs, o.fullPath(routesGenPath))
 	if err != nil {
-		return nil, errx.WrapDetail(err, ErrReadFile, "path=%[1]s | 路径=%[1]s", routesGenPath)
+		return nil, errs.WrapDetail(err, ErrReadFile, "path=%[1]s | 路径=%[1]s", routesGenPath)
 	}
 
 	rv := &routesGenView{tmplView: v, Modules: []moduleRef{{Name: v.Name, Snake: v.Snake}}}
@@ -407,7 +407,7 @@ func upsertMarkerBlock(src, block string) string {
 func formatSource(rel string, src []byte) ([]byte, error) {
 	out, err := format.Source(src)
 	if err != nil {
-		return nil, errx.WrapDetail(err, ErrFormat, "path=%[1]s | 路径=%[1]s", rel)
+		return nil, errs.WrapDetail(err, ErrFormat, "path=%[1]s | 路径=%[1]s", rel)
 	}
 	return out, nil
 }

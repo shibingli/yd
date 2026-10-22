@@ -8,8 +8,8 @@ import (
 	"os/exec"
 
 	"github.com/kardianos/service"
-	"github.com/shibingli/yd/core/errx"
 	"github.com/shibingli/yd/runtime/server"
+	"github.com/shibingli/ydx/errs"
 )
 
 // platformReexec restarts the binary as a child with the merged environment.
@@ -25,7 +25,7 @@ func platformReexec(env []string) error {
 	}
 	exe, err := os.Executable()
 	if err != nil {
-		return errx.WrapDetail(err, ErrReexecFailed, "resolve executable | 解析可执行文件")
+		return errs.WrapDetail(err, ErrReexecFailed, "resolve executable | 解析可执行文件")
 	}
 	cmd := exec.Command(exe, os.Args[1:]...)
 	cmd.Env = env
@@ -37,7 +37,7 @@ func platformReexec(env []string) error {
 		if errors.As(err, &exitErr) {
 			os.Exit(exitErr.ExitCode())
 		}
-		return errx.WrapDetail(err, ErrReexecFailed, "run child process | 运行子进程")
+		return errs.WrapDetail(err, ErrReexecFailed, "run child process | 运行子进程")
 	}
 	os.Exit(0)
 	return nil

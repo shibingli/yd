@@ -8,10 +8,10 @@ package tools
 import (
 	"strings"
 
-	"github.com/shibingli/yd/core/errx"
 	"github.com/shibingli/yd/tooling/align"
 	"github.com/shibingli/yd/tooling/build"
 	"github.com/shibingli/yd/tooling/ko"
+	"github.com/shibingli/ydx/errs"
 )
 
 // The registry names, which are also the file names of the project-local copies under .yd/tools. | 注册表名称，同时也是 .yd/tools 下项目内副本的文件名。
@@ -120,7 +120,7 @@ func Lookup(name string) (Tool, error) {
 			return t, nil
 		}
 	}
-	return Tool{}, errx.Detail(ErrUnknownTool, "%q; available tools | 可用工具: %s", name, strings.Join(names(), ", "))
+	return Tool{}, errs.Detail(ErrUnknownTool, "%q; available tools | 可用工具: %s", name, strings.Join(names(), ", "))
 }
 
 // names returns the registry names in probe order. | names 按探测顺序返回注册表名称。

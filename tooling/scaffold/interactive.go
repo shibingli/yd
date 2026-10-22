@@ -6,7 +6,7 @@ import (
 	"io"
 	"strings"
 
-	"github.com/shibingli/yd/core/errx"
+	"github.com/shibingli/ydx/errs"
 )
 
 // Fixed prompt and parsing copy for the interview (bilingual line by line). | 交互提示与解析用到的固定文案（逐条中英同步）。
@@ -32,7 +32,7 @@ const (
 )
 
 // ErrAnswerInvalid reports an unparsable interactive answer. | ErrAnswerInvalid 表示交互回答无法解析。
-var ErrAnswerInvalid = errx.New("invalid answer | 回答无法解析")
+var ErrAnswerInvalid = errs.New("invalid answer | 回答无法解析")
 
 // Interactive asks for the missing options one by one and returns the completed Options. | Interactive 逐项询问缺失的选项并返回补齐后的 Options。
 //
@@ -52,7 +52,7 @@ func Interactive(in io.Reader, out io.Writer, base Options, isTTY bool) (Options
 			return def, nil
 		}
 		if _, err := io.WriteString(out, prompt+" ["+def+"]: "); err != nil {
-			return "", errx.Wrap(err, ErrInputRead)
+			return "", errs.Wrap(err, ErrInputRead)
 		}
 
 		line, err := reader.ReadString('\n')
@@ -60,7 +60,7 @@ func Interactive(in io.Reader, out io.Writer, base Options, isTTY bool) (Options
 			if errors.Is(err, io.EOF) {
 				exhausted = true
 			} else {
-				return "", errx.Wrap(err, ErrInputRead)
+				return "", errs.Wrap(err, ErrInputRead)
 			}
 		}
 		if answer := strings.TrimSpace(line); answer != "" {
@@ -91,7 +91,7 @@ func Interactive(in io.Reader, out io.Writer, base Options, isTTY bool) (Options
 		return base, err
 	}
 	if !containsString(dbValues(), db) {
-		return base, errx.Detail(ErrDBUnsupported, "%[1]q (want: %[2]s) | %[1]q（期望: %[2]s）", db, strings.Join(dbValues(), ", "))
+		return base, errs.Detail(ErrDBUnsupported, "%[1]q (want: %[2]s) | %[1]q（期望: %[2]s）", db, strings.Join(dbValues(), ", "))
 	}
 	base.DB = db
 
@@ -111,7 +111,7 @@ func Interactive(in io.Reader, out io.Writer, base Options, isTTY bool) (Options
 		}
 		parsed, err := parseYesNo(answer)
 		if err != nil {
-			return base, errx.WrapDetail(err, ErrAnswerInvalid, "prompt=%[1]s | 提示=%[1]s", toggle.prompt)
+			return base, errs.WrapDetail(err, ErrAnswerInvalid, "prompt=%[1]s | 提示=%[1]s", toggle.prompt)
 		}
 		*toggle.value = parsed
 	}
@@ -150,7 +150,7 @@ func ParseExtensions(s string) ([]string, error) {
 			continue
 		}
 		if !containsString(extNames, ext) {
-			return nil, errx.Detail(ErrHtmxExtUnknown, "%[1]q (want: %[2]s) | %[1]q（期望: %[2]s）", ext, strings.Join(extNames, ", "))
+			return nil, errs.Detail(ErrHtmxExtUnknown, "%[1]q (want: %[2]s) | %[1]q（期望: %[2]s）", ext, strings.Join(extNames, ", "))
 		}
 		exts = append(exts, ext)
 	}
@@ -192,7 +192,7 @@ func parseYesNo(s string) (bool, error) {
 	case "n", "no", "false", "0", "off", "否":
 		return false, nil
 	default:
-		return false, errx.Detail(ErrAnswerInvalid, "%[1]q (want y/n) | %[1]q（期望 y/n）", s)
+		return false, errs.Detail(ErrAnswerInvalid, "%[1]q (want y/n) | %[1]q（期望 y/n）", s)
 	}
 }
 

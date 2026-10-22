@@ -14,7 +14,7 @@ import (
 	"github.com/labstack/echo/v4"
 	"github.com/valyala/fasthttp"
 
-	ydrouter "github.com/shibingli/yd/http/router"
+	ydrouter "github.com/shibingli/ydx/router"
 )
 
 // benchSelected reports whether name passes the YD_BENCH_ONLY filter. Set it to

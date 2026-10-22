@@ -43,43 +43,43 @@ import (
 
 	"github.com/spf13/afero"
 
-	"github.com/shibingli/yd/core/config"
 	"github.com/shibingli/yd/core/envx"
-	"github.com/shibingli/yd/core/errx"
-	"github.com/shibingli/yd/core/logx"
 	"github.com/shibingli/yd/http/i18n"
-	"github.com/shibingli/yd/http/router"
-	"github.com/shibingli/yd/middleware"
 	"github.com/shibingli/yd/runtime/metricsx"
 	"github.com/shibingli/yd/runtime/server"
+	"github.com/shibingli/ydx/config"
+	"github.com/shibingli/ydx/errs"
+	ydlog "github.com/shibingli/ydx/log"
+	"github.com/shibingli/ydx/middleware"
+	"github.com/shibingli/ydx/router"
 )
 
 // Sentinel errors, declared once at package level. | 哨兵错误，在包级声明一次。
 var (
 	// ErrNilFS indicates a nil asset filesystem. | ErrNilFS 表示资产文件系统为 nil。
-	ErrNilFS = errx.New("app: nil asset filesystem | app：资产文件系统为 nil")
+	ErrNilFS = errs.New("app: nil asset filesystem | app：资产文件系统为 nil")
 	// ErrNilContext indicates Render received a nil request context. | ErrNilContext 表示 Render 收到 nil 请求上下文。
-	ErrNilContext = errx.New("app: nil router context | app：路由上下文为 nil")
+	ErrNilContext = errs.New("app: nil router context | app：路由上下文为 nil")
 	// ErrTemplateName indicates an empty template name. | ErrTemplateName 表示模板名为空。
-	ErrTemplateName = errx.New("app: empty template name | app：模板名为空")
+	ErrTemplateName = errs.New("app: empty template name | app：模板名为空")
 	// ErrNoRenderer indicates that no template renderer has been injected. | ErrNoRenderer 表示未注入模板渲染器。
-	ErrNoRenderer = errx.New("app: no template renderer | app：未注入模板渲染器")
+	ErrNoRenderer = errs.New("app: no template renderer | app：未注入模板渲染器")
 	// ErrTemplateNotFound indicates that the named template does not exist. | ErrTemplateNotFound 表示指定名称的模板不存在。
-	ErrTemplateNotFound = errx.New("app: template not found | app：模板不存在")
+	ErrTemplateNotFound = errs.New("app: template not found | app：模板不存在")
 	// ErrTemplateParse indicates that a template could not be loaded or parsed. | ErrTemplateParse 表示模板加载或解析失败。
-	ErrTemplateParse = errx.New("app: template parse failed | app：模板解析失败")
+	ErrTemplateParse = errs.New("app: template parse failed | app：模板解析失败")
 	// ErrTemplateExec indicates that a template failed while executing. | ErrTemplateExec 表示模板执行失败。
-	ErrTemplateExec = errx.New("app: template execution failed | app：模板执行失败")
+	ErrTemplateExec = errs.New("app: template execution failed | app：模板执行失败")
 	// ErrAssetsDir indicates that an asset subtree could not be resolved. | ErrAssetsDir 表示资产子树无法解析。
-	ErrAssetsDir = errx.New("app: cannot resolve asset directory | app：无法解析资产目录")
+	ErrAssetsDir = errs.New("app: cannot resolve asset directory | app：无法解析资产目录")
 	// ErrConfigLoad indicates that the layered configuration could not be loaded. | ErrConfigLoad 表示分层配置加载失败。
-	ErrConfigLoad = errx.New("app: config load failed | app：配置加载失败")
+	ErrConfigLoad = errs.New("app: config load failed | app：配置加载失败")
 	// ErrI18n indicates that the message catalogs could not be loaded. | ErrI18n 表示语言目录加载失败。
-	ErrI18n = errx.New("app: i18n catalog load failed | app：语言目录加载失败")
+	ErrI18n = errs.New("app: i18n catalog load failed | app：语言目录加载失败")
 	// ErrServiceMissing indicates that a service key is not registered. | ErrServiceMissing 表示服务键未注册。
-	ErrServiceMissing = errx.New("app: service not registered | app：服务未注册")
+	ErrServiceMissing = errs.New("app: service not registered | app：服务未注册")
 	// ErrShutdown indicates that a shutdown hook failed. | ErrShutdown 表示关闭钩子执行失败。
-	ErrShutdown = errx.New("app: shutdown hook failed | app：关闭钩子执行失败")
+	ErrShutdown = errs.New("app: shutdown hook failed | app：关闭钩子执行失败")
 )
 
 // Conventions and defaults of the facade. | 门面的约定与默认值。
@@ -120,7 +120,7 @@ type App struct {
 	closeErr error
 
 	cfg      *config.Config
-	log      *logx.Logger
+	log      *ydlog.Logger
 	router   *router.Router
 	server   *server.Server
 	services map[string]any
@@ -172,7 +172,7 @@ func WithStaticFS(fsys afero.Fs) Option { return func(a *App) { a.staticFS = fsy
 // WithLogger injects the logger shared by the app and the HTTP server;
 // without it the logx global default is used. | WithLogger 注入应用与 HTTP
 // 服务器共用的日志器；未提供时使用 logx 的全局默认值。
-func WithLogger(l *logx.Logger) Option { return func(a *App) { a.log = l } }
+func WithLogger(l *ydlog.Logger) Option { return func(a *App) { a.log = l } }
 
 // WithConfigDir sets the directory New reads the configuration from
 // (default "."). | WithConfigDir 设置 New 读取配置的目录（默认 "."）。
@@ -214,7 +214,7 @@ func New(opts ...Option) (*App, error) {
 
 	a := &App{
 		fs:        builtinFS,
-		log:       logx.Default(),
+		log:       ydlog.Default(),
 		layout:    DefaultLayout,
 		configDir: defaultConfigDir,
 		services:  make(map[string]any),
@@ -238,13 +238,13 @@ func New(opts ...Option) (*App, error) {
 		a.staticFS = static
 	}
 	if a.log == nil {
-		a.log = logx.Default()
+		a.log = ydlog.Default()
 	}
 
 	if a.cfg == nil {
 		cfg, err := config.Load(config.Options{Name: configName, ConfigDir: a.configDir})
 		if err != nil {
-			return nil, errx.WrapDetail(err, ErrConfigLoad, "dir=%[1]q | 目录=%[1]q", a.configDir)
+			return nil, errs.WrapDetail(err, ErrConfigLoad, "dir=%[1]q | 目录=%[1]q", a.configDir)
 		}
 		a.cfg = cfg
 	}
@@ -302,7 +302,7 @@ func Default() (*App, error) {
 	bundle, err := a.i18nBundle()
 	if err != nil {
 		a.log.Warn("i18n catalogs unavailable, middleware skipped | 语言目录不可用，已跳过 i18n 中间件",
-			logx.Err(err))
+			ydlog.Err(err))
 	} else {
 		a.Set(ServiceI18n, bundle)
 		a.UseObserved(metricsx.Descriptor{Name: "i18n", Title: "i18n | 多语言", Scope: metricsx.ScopeGlobal}, i18n.Middleware(bundle, i18n.Options{}))
@@ -310,7 +310,7 @@ func Default() (*App, error) {
 
 	a.router.StaticFS(staticURLPrefix, a.staticFS)
 
-	a.log.Info("app assembled | 应用已装配", logx.Str("env", a.env()))
+	a.log.Info("app assembled | 应用已装配", ydlog.Str("env", a.env()))
 	return a, nil
 }
 
@@ -320,7 +320,7 @@ func Default() (*App, error) {
 func (a *App) Config() *config.Config { return a.cfg }
 
 // Logger returns the application logger. | Logger 返回应用日志器。
-func (a *App) Logger() *logx.Logger { return a.log }
+func (a *App) Logger() *ydlog.Logger { return a.log }
 
 // FS returns the asset filesystem (templates/, static/, langs/). | FS 返回资产文件系统。
 func (a *App) FS() afero.Fs { return a.fs }
@@ -412,8 +412,8 @@ func (a *App) Run(ctx context.Context) error {
 		return err
 	}
 	a.log.Info("application starting | 应用启动中",
-		logx.Str("addr", a.server.Addr()),
-		logx.Str("env", a.env()),
+		ydlog.Str("addr", a.server.Addr()),
+		ydlog.Str("env", a.env()),
 	)
 	// Mark every registered middleware active before the first request arrives, so the dashboard
 	// distinguishes "wired but never started" from "running but idle". | 在首个请求到达前把全部已注册
@@ -422,7 +422,7 @@ func (a *App) Run(ctx context.Context) error {
 
 	runErr := a.server.Run(ctx)
 	if runErr != nil {
-		a.log.Error("http server stopped with an error | HTTP 服务器异常退出", logx.Err(runErr))
+		a.log.Error("http server stopped with an error | HTTP 服务器异常退出", ydlog.Err(runErr))
 	}
 
 	// Shutdown runs on a fresh context: the caller's ctx is already done. | 关闭使用全新的上下文：调用方的 ctx 此时已结束。

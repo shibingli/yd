@@ -5,7 +5,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/shibingli/yd/core/jsonx"
+	"github.com/shibingli/ydx/json"
 )
 
 // TypeCoverage summarizes how type annotations covered the schemas of a builder. | TypeCoverage
@@ -262,7 +262,7 @@ func exampleValue(raw string) any {
 		return text
 	}
 	var value any
-	if err := jsonx.Unmarshal([]byte(text), &value); err != nil {
+	if err := json.Unmarshal([]byte(text), &value); err != nil {
 		return text
 	}
 	return value

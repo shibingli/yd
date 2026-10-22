@@ -22,10 +22,10 @@ import (
 	"testing"
 	"text/template/parse"
 
-	"github.com/shibingli/yd/core/afs"
-	"github.com/shibingli/yd/core/regexpx"
 	"github.com/shibingli/yd/security/authz"
 	"github.com/shibingli/yd/web"
+	"github.com/shibingli/ydx/afs"
+	"github.com/shibingli/ydx/regexpx"
 )
 
 // parseFuncs is the minimal function map the templates need to parse; the values are never

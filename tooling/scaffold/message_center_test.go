@@ -14,9 +14,9 @@ import (
 	"time"
 
 	_ "github.com/glebarez/sqlite"
-	"github.com/shibingli/yd/core/jsonx"
-	"github.com/shibingli/yd/http/ws"
 	"github.com/shibingli/yd/tooling/scaffold"
+	"github.com/shibingli/ydx/json"
+	"github.com/shibingli/ydx/websocket"
 )
 
 // 消息中心端到端探针使用的载荷与断言常量。
@@ -143,7 +143,7 @@ func probeGet(t *testing.T, client *http.Client, target, token string) (*http.Re
 func probePostJSON(t *testing.T, client *http.Client, target, token string, payload any) (*http.Response, string) {
 	t.Helper()
 
-	body, err := jsonx.Marshal(payload)
+	body, err := json.Marshal(payload)
 	if err != nil {
 		t.Fatalf("序列化请求载荷失败: %v", err)
 	}
@@ -186,7 +186,7 @@ func decodeProbeJSON[T any](t *testing.T, body string) T {
 	t.Helper()
 
 	var value T
-	if err := jsonx.Unmarshal([]byte(body), &value); err != nil {
+	if err := json.Unmarshal([]byte(body), &value); err != nil {
 		t.Fatalf("解析 JSON 响应失败: %v\n%s", err, body)
 	}
 	return value
@@ -414,7 +414,7 @@ func TestGeneratedAppMessageCentre(t *testing.T) {
 				YdEvent   string `json:"yd_event"`
 				MessageID string `json:"message_id"`
 			}
-			if jsonx.Unmarshal(frame, &event) != nil {
+			if json.Unmarshal(frame, &event) != nil {
 				continue
 			}
 			if event.YdEvent == "message.created" && event.MessageID == sent.ID {
@@ -519,7 +519,7 @@ func TestGeneratedAppMessageCentre(t *testing.T) {
 		// 同一条连接也可以上行快捷发送；服务端不回显入站内容，消息落库后经 API 与事件可见。
 		// The same connection also carries an inbound quick reply; the server never echoes inbound content, and the
 		// message becomes visible through the API and the event stream once stored.
-		raw, err := jsonx.Marshal(map[string]any{
+		raw, err := json.Marshal(map[string]any{
 			"action":          "send",
 			"conversation_id": conversation,
 			"body":            "quick reply over websocket",
@@ -530,7 +530,7 @@ func TestGeneratedAppMessageCentre(t *testing.T) {
 		if err := socket.SetWriteDeadline(time.Now().Add(sseTimeout)); err != nil {
 			t.Fatalf("设置写超时失败: %v", err)
 		}
-		if err := socket.WriteMessage(ws.TextMessage, raw); err != nil {
+		if err := socket.WriteMessage(websocket.TextMessage, raw); err != nil {
 			t.Fatalf("WebSocket 快捷发送失败: %v", err)
 		}
 		deadline := time.Now().Add(sseTimeout)
@@ -560,7 +560,7 @@ func TestGeneratedAppMessageCentre(t *testing.T) {
 		defer func() { _ = auditorSocket.CloseNow() }()
 
 		const probeBody = "auditor must not write through websocket"
-		raw, err := jsonx.Marshal(map[string]any{
+		raw, err := json.Marshal(map[string]any{
 			"action":          "send",
 			"conversation_id": conversation,
 			"body":            probeBody,
@@ -571,7 +571,7 @@ func TestGeneratedAppMessageCentre(t *testing.T) {
 		if err := auditorSocket.SetWriteDeadline(time.Now().Add(sseTimeout)); err != nil {
 			t.Fatalf("设置写超时失败: %v", err)
 		}
-		if err := auditorSocket.WriteMessage(ws.TextMessage, raw); err != nil {
+		if err := auditorSocket.WriteMessage(websocket.TextMessage, raw); err != nil {
 			t.Fatalf("auditor WebSocket 写入失败: %v", err)
 		}
 		time.Sleep(200 * time.Millisecond)
@@ -1044,12 +1044,12 @@ GROUP BY r.name`)
 // dialMessageSocket 建立消息 WebSocket 并读掉两个初始未读徽标（用户名角标与用户菜单计数），返回已订阅的连接。
 // dialMessageSocket opens the message WebSocket, consumes both initial unread badges (the user-name corner and the
 // user-menu count) and returns the subscribed connection.
-func dialMessageSocket(t *testing.T, base, token string) *ws.Conn {
+func dialMessageSocket(t *testing.T, base, token string) *websocket.Conn {
 	t.Helper()
 
 	ctx, cancel := context.WithTimeout(context.Background(), sseTimeout)
 	defer cancel()
-	conn, err := ws.Dial(ctx, "ws"+strings.TrimPrefix(base, "http")+"/ws/messages", ws.DialOptions{
+	conn, err := websocket.Dial(ctx, "ws"+strings.TrimPrefix(base, "http")+"/ws/messages", websocket.DialOptions{
 		Subprotocols: []string{"htmx"},
 		Headers:      http.Header{"Authorization": []string{"Bearer " + token}},
 	})

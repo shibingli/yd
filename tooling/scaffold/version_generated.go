@@ -11,3 +11,42 @@ const GoVersion = "1.27.2"
 //
 // Source: the asset manifest entry named "htmx". | 来源：资产清单中名为 "htmx" 的条目。
 const HtmxVersion = "4.0.0"
+
+// YdxVersion is the single version shared by the ydx requirements. | YdxVersion 是 ydx 依赖共用的唯一版本。
+//
+// Source: the ydx requirements in go.mod. | 来源：go.mod 中的 ydx 依赖。
+const YdxVersion = "v0.1.0"
+
+// YdxModules lists the ydx modules required by the framework. | YdxModules 列出框架依赖的 ydx 模块。
+//
+// Source: the ydx requirements in go.mod, sorted by path. | 来源：go.mod 中的 ydx 依赖，按路径排序。
+var YdxModules = []string{
+	"github.com/shibingli/ydx/afs",
+	"github.com/shibingli/ydx/asynq",
+	"github.com/shibingli/ydx/base64",
+	"github.com/shibingli/ydx/buffpool",
+	"github.com/shibingli/ydx/cache",
+	"github.com/shibingli/ydx/config",
+	"github.com/shibingli/ydx/errs",
+	"github.com/shibingli/ydx/gorm",
+	"github.com/shibingli/ydx/json",
+	"github.com/shibingli/ydx/jwt",
+	"github.com/shibingli/ydx/log",
+	"github.com/shibingli/ydx/middleware",
+	"github.com/shibingli/ydx/middleware/accesslog",
+	"github.com/shibingli/ydx/middleware/asyncafter",
+	"github.com/shibingli/ydx/middleware/compress",
+	"github.com/shibingli/ydx/middleware/cors",
+	"github.com/shibingli/ydx/middleware/ratelimit",
+	"github.com/shibingli/ydx/middleware/recovery",
+	"github.com/shibingli/ydx/middleware/reqlog",
+	"github.com/shibingli/ydx/middleware/requestid",
+	"github.com/shibingli/ydx/protocol",
+	"github.com/shibingli/ydx/redis",
+	"github.com/shibingli/ydx/regexpx",
+	"github.com/shibingli/ydx/render",
+	"github.com/shibingli/ydx/router",
+	"github.com/shibingli/ydx/sse",
+	"github.com/shibingli/ydx/sysinfo",
+	"github.com/shibingli/ydx/websocket",
+}

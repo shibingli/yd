@@ -9,17 +9,17 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/shibingli/yd/core/afs"
-	"github.com/shibingli/yd/core/errx"
+	"github.com/shibingli/ydx/afs"
+	"github.com/shibingli/ydx/errs"
 	"github.com/spf13/afero"
 )
 
 // Source scanning errors, declared once at package level. | 源码扫描错误，在包级声明一次。
 var (
 	// ErrScan means the annotation directories could not be traversed. | ErrScan 表示注解目录无法遍历。
-	ErrScan = errx.New("openapi: failed to scan annotation sources | openapi：注解源码扫描失败")
+	ErrScan = errs.New("openapi: failed to scan annotation sources | openapi：注解源码扫描失败")
 	// ErrRead means an annotation source file could not be read. | ErrRead 表示注解源文件无法读取。
-	ErrRead = errx.New("openapi: failed to read annotation source | openapi：注解源文件读取失败")
+	ErrRead = errs.New("openapi: failed to read annotation source | openapi：注解源文件读取失败")
 )
 
 // Annotation is the parsed form of one handler annotation block. | Annotation 是单个处理器注解块的解析结果。
@@ -673,7 +673,7 @@ func annotationFiles(fsys afero.Fs, dirs []string) ([]string, error) {
 			return nil
 		})
 		if err != nil {
-			return nil, errx.WrapDetail(err, ErrScan, "walk %[1]q | 遍历 %[1]q", dir)
+			return nil, errs.WrapDetail(err, ErrScan, "walk %[1]q | 遍历 %[1]q", dir)
 		}
 	}
 	sort.Strings(files)

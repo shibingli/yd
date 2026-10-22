@@ -1,6 +1,6 @@
 # 自研 HTML 模板引擎使用说明
 
-`http/render` 是 yd 的默认 HTML 模板引擎。它保留 `html/template` 作为**解析器与上下文转义器**，
+`ydx/render` 是 yd 的默认 HTML 模板引擎。它保留 `html/template` 作为**解析器与上下文转义器**，
 在执行阶段换成加载期编译出的不可变节点图，因此在语法、内置函数与安全语义与标准库一致的前提下，
 把渲染热路径的反射装配、模板克隆与中间字符串分配降到最低。
 
@@ -69,9 +69,9 @@ import (
     "embed"
     "net/http"
 
-    "github.com/shibingli/yd/core/afs"
-    "github.com/shibingli/yd/core/logx"
-    "github.com/shibingli/yd/http/render"
+    "github.com/shibingli/ydx/afs"
+    "github.com/shibingli/ydx/log"
+    "github.com/shibingli/ydx/render"
 )
 
 //go:embed templates
@@ -83,7 +83,7 @@ func main() {
     })
     if err != nil {
         // 启动期装配失败：记录后终止。 | Assembly failure at startup: log and stop.
-        logx.Default().Fatal("load templates failed | 加载模板失败", logx.Err(err))
+        log.Default().Fatal("load templates failed | 加载模板失败", log.Err(err))
     }
 
     http.HandleFunc("/users", func(w http.ResponseWriter, r *http.Request) {
@@ -607,11 +607,11 @@ for k, v := range authz.Data(subject) {
 
 ### 10.3 其它约束
 
-- `json` 使用 `core/jsonx` 编码，默认转义 HTML 敏感字符（`<`、`>`、`&` 等），
+- `json` 使用 `ydx/json` 编码，默认转义 HTML 敏感字符（`<`、`>`、`&` 等），
   可安全嵌入 `<script>`；不要再用 `template.HTML` 包一层。
 - `hx` 自行转义所有值并校验属性名（见 6.2），不要手工拼接 `hx-*` 属性。
 - 模板中禁止引入公网 CDN 脚本/样式；资产必须经 `go:embed` 与 `/static/...` 提供。
-- 不要输出未转义的错误详情、SQL、堆栈或密钥；日志走 `logx` 且同样遵守脱敏要求。
+- 不要输出未转义的错误详情、SQL、堆栈或密钥；日志走 `log` 且同样遵守脱敏要求。
 
 ---
 
@@ -724,7 +724,7 @@ a.Use(
 
 ## 14. 错误处理
 
-所有错误均为哨兵（`errx`），调用方用 `errors.Is` / `errors.As` 判定，禁止字符串匹配：
+所有错误均为哨兵（`errs`），调用方用 `errors.Is` / `errors.As` 判定，禁止字符串匹配：
 
 | 哨兵 | 含义 |
 |---|---|
@@ -754,7 +754,7 @@ if err != nil {
     case errors.Is(err, render.ErrTemplateNotFound):
         http.NotFound(w, r)
     case errors.Is(err, render.ErrParseTemplate):
-        log.Error("template broken | 模板损坏", logx.Err(err))
+        log.Error("template broken | 模板损坏", log.Err(err))
         http.Error(w, "template error", http.StatusInternalServerError)
     default:
         http.Error(w, "render error", http.StatusInternalServerError)

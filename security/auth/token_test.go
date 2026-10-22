@@ -7,7 +7,7 @@ import (
 	"time"
 
 	"github.com/shibingli/yd/security/guomi"
-	"github.com/shibingli/yd/security/jwt"
+	"github.com/shibingli/ydx/jwt"
 )
 
 // TestTokenSignedWithOneUsersKeyFailsWithAnother 断言令牌只被它原本签发的那个用户的密钥接受。

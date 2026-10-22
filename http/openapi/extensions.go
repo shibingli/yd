@@ -5,18 +5,18 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/shibingli/yd/core/errx"
-	"github.com/shibingli/yd/core/jsonx"
+	"github.com/shibingli/ydx/errs"
+	"github.com/shibingli/ydx/json"
 )
 
 // ErrInvalidExtension reports an extension member that cannot be emitted or decoded. | ErrInvalidExtension
 // 表示无法输出或解码的扩展成员。
-var ErrInvalidExtension = errx.New("openapi: invalid specification extension | openapi：非法的规范扩展")
+var ErrInvalidExtension = errs.New("openapi: invalid specification extension | openapi：非法的规范扩展")
 
 // marshalWithExtensions serializes base and appends its specification extensions. | marshalWithExtensions
 // 序列化 base 并附加其规范扩展。
 func marshalWithExtensions(base any, extensions map[string]any) ([]byte, error) {
-	raw, err := jsonx.Marshal(base)
+	raw, err := json.Marshal(base)
 	if err != nil {
 		return nil, err
 	}
@@ -36,7 +36,7 @@ func mergeExtensions(raw []byte, extensions map[string]any) ([]byte, error) {
 	keys := make([]string, 0, len(extensions))
 	for key := range extensions {
 		if !strings.HasPrefix(key, "x-") {
-			return nil, errx.Detail(ErrInvalidExtension,
+			return nil, errs.Detail(ErrInvalidExtension,
 				"extension name %q must start with x- | 扩展名 %q 必须以 x- 开头", key, key)
 		}
 		keys = append(keys, key)
@@ -45,7 +45,7 @@ func mergeExtensions(raw []byte, extensions map[string]any) ([]byte, error) {
 
 	body := bytes.TrimSpace(raw)
 	if len(body) < 2 || body[0] != '{' || body[len(body)-1] != '}' {
-		return nil, errx.Detail(ErrInvalidExtension, "extension target is not a JSON object | 扩展目标不是 JSON 对象")
+		return nil, errs.Detail(ErrInvalidExtension, "extension target is not a JSON object | 扩展目标不是 JSON 对象")
 	}
 	inner := bytes.TrimSpace(body[1 : len(body)-1])
 
@@ -60,13 +60,13 @@ func mergeExtensions(raw []byte, extensions map[string]any) ([]byte, error) {
 		if wrote {
 			buf.WriteByte(',')
 		}
-		keyJSON, err := jsonx.Marshal(key)
+		keyJSON, err := json.Marshal(key)
 		if err != nil {
-			return nil, errx.Wrap(err, ErrInvalidExtension)
+			return nil, errs.Wrap(err, ErrInvalidExtension)
 		}
-		valueJSON, err := jsonx.Marshal(extensions[key])
+		valueJSON, err := json.Marshal(extensions[key])
 		if err != nil {
-			return nil, errx.WrapDetail(err, ErrInvalidExtension, "extension %q | 扩展 %q", key, key)
+			return nil, errs.WrapDetail(err, ErrInvalidExtension, "extension %q | 扩展 %q", key, key)
 		}
 		buf.Write(keyJSON)
 		buf.WriteByte(':')
@@ -84,8 +84,8 @@ func extractExtensions(data []byte) (map[string]any, error) {
 		return nil, nil
 	}
 	var raw map[string]any
-	if err := jsonx.Unmarshal(data, &raw); err != nil {
-		return nil, errx.Wrap(err, ErrDecode)
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return nil, errs.Wrap(err, ErrDecode)
 	}
 	var out map[string]any
 	for key, value := range raw {
@@ -125,7 +125,7 @@ func (v Document) MarshalJSON() ([]byte, error) {
 // UnmarshalJSON implements json.Unmarshaler. | UnmarshalJSON 实现 json.Unmarshaler。
 func (v *Document) UnmarshalJSON(data []byte) error {
 	type alias Document
-	if err := jsonx.Unmarshal(data, (*alias)(v)); err != nil {
+	if err := json.Unmarshal(data, (*alias)(v)); err != nil {
 		return err
 	}
 	ext, err := extractExtensions(data)
@@ -145,7 +145,7 @@ func (v Contact) MarshalJSON() ([]byte, error) {
 // UnmarshalJSON implements json.Unmarshaler. | UnmarshalJSON 实现 json.Unmarshaler。
 func (v *Contact) UnmarshalJSON(data []byte) error {
 	type alias Contact
-	if err := jsonx.Unmarshal(data, (*alias)(v)); err != nil {
+	if err := json.Unmarshal(data, (*alias)(v)); err != nil {
 		return err
 	}
 	ext, err := extractExtensions(data)
@@ -165,7 +165,7 @@ func (v License) MarshalJSON() ([]byte, error) {
 // UnmarshalJSON implements json.Unmarshaler. | UnmarshalJSON 实现 json.Unmarshaler。
 func (v *License) UnmarshalJSON(data []byte) error {
 	type alias License
-	if err := jsonx.Unmarshal(data, (*alias)(v)); err != nil {
+	if err := json.Unmarshal(data, (*alias)(v)); err != nil {
 		return err
 	}
 	ext, err := extractExtensions(data)
@@ -185,7 +185,7 @@ func (v Server) MarshalJSON() ([]byte, error) {
 // UnmarshalJSON implements json.Unmarshaler. | UnmarshalJSON 实现 json.Unmarshaler。
 func (v *Server) UnmarshalJSON(data []byte) error {
 	type alias Server
-	if err := jsonx.Unmarshal(data, (*alias)(v)); err != nil {
+	if err := json.Unmarshal(data, (*alias)(v)); err != nil {
 		return err
 	}
 	ext, err := extractExtensions(data)
@@ -205,7 +205,7 @@ func (v ServerVariable) MarshalJSON() ([]byte, error) {
 // UnmarshalJSON implements json.Unmarshaler. | UnmarshalJSON 实现 json.Unmarshaler。
 func (v *ServerVariable) UnmarshalJSON(data []byte) error {
 	type alias ServerVariable
-	if err := jsonx.Unmarshal(data, (*alias)(v)); err != nil {
+	if err := json.Unmarshal(data, (*alias)(v)); err != nil {
 		return err
 	}
 	ext, err := extractExtensions(data)
@@ -225,7 +225,7 @@ func (v Tag) MarshalJSON() ([]byte, error) {
 // UnmarshalJSON implements json.Unmarshaler. | UnmarshalJSON 实现 json.Unmarshaler。
 func (v *Tag) UnmarshalJSON(data []byte) error {
 	type alias Tag
-	if err := jsonx.Unmarshal(data, (*alias)(v)); err != nil {
+	if err := json.Unmarshal(data, (*alias)(v)); err != nil {
 		return err
 	}
 	ext, err := extractExtensions(data)
@@ -245,7 +245,7 @@ func (v ExternalDocs) MarshalJSON() ([]byte, error) {
 // UnmarshalJSON implements json.Unmarshaler. | UnmarshalJSON 实现 json.Unmarshaler。
 func (v *ExternalDocs) UnmarshalJSON(data []byte) error {
 	type alias ExternalDocs
-	if err := jsonx.Unmarshal(data, (*alias)(v)); err != nil {
+	if err := json.Unmarshal(data, (*alias)(v)); err != nil {
 		return err
 	}
 	ext, err := extractExtensions(data)
@@ -265,7 +265,7 @@ func (v SecurityScheme) MarshalJSON() ([]byte, error) {
 // UnmarshalJSON implements json.Unmarshaler. | UnmarshalJSON 实现 json.Unmarshaler。
 func (v *SecurityScheme) UnmarshalJSON(data []byte) error {
 	type alias SecurityScheme
-	if err := jsonx.Unmarshal(data, (*alias)(v)); err != nil {
+	if err := json.Unmarshal(data, (*alias)(v)); err != nil {
 		return err
 	}
 	ext, err := extractExtensions(data)
@@ -285,7 +285,7 @@ func (v OAuthFlows) MarshalJSON() ([]byte, error) {
 // UnmarshalJSON implements json.Unmarshaler. | UnmarshalJSON 实现 json.Unmarshaler。
 func (v *OAuthFlows) UnmarshalJSON(data []byte) error {
 	type alias OAuthFlows
-	if err := jsonx.Unmarshal(data, (*alias)(v)); err != nil {
+	if err := json.Unmarshal(data, (*alias)(v)); err != nil {
 		return err
 	}
 	ext, err := extractExtensions(data)
@@ -305,7 +305,7 @@ func (v OAuthFlow) MarshalJSON() ([]byte, error) {
 // UnmarshalJSON implements json.Unmarshaler. | UnmarshalJSON 实现 json.Unmarshaler。
 func (v *OAuthFlow) UnmarshalJSON(data []byte) error {
 	type alias OAuthFlow
-	if err := jsonx.Unmarshal(data, (*alias)(v)); err != nil {
+	if err := json.Unmarshal(data, (*alias)(v)); err != nil {
 		return err
 	}
 	ext, err := extractExtensions(data)
@@ -325,7 +325,7 @@ func (v PathItem) MarshalJSON() ([]byte, error) {
 // UnmarshalJSON implements json.Unmarshaler. | UnmarshalJSON 实现 json.Unmarshaler。
 func (v *PathItem) UnmarshalJSON(data []byte) error {
 	type alias PathItem
-	if err := jsonx.Unmarshal(data, (*alias)(v)); err != nil {
+	if err := json.Unmarshal(data, (*alias)(v)); err != nil {
 		return err
 	}
 	ext, err := extractExtensions(data)
@@ -345,7 +345,7 @@ func (v Operation) MarshalJSON() ([]byte, error) {
 // UnmarshalJSON implements json.Unmarshaler. | UnmarshalJSON 实现 json.Unmarshaler。
 func (v *Operation) UnmarshalJSON(data []byte) error {
 	type alias Operation
-	if err := jsonx.Unmarshal(data, (*alias)(v)); err != nil {
+	if err := json.Unmarshal(data, (*alias)(v)); err != nil {
 		return err
 	}
 	ext, err := extractExtensions(data)
@@ -365,7 +365,7 @@ func (v Example) MarshalJSON() ([]byte, error) {
 // UnmarshalJSON implements json.Unmarshaler. | UnmarshalJSON 实现 json.Unmarshaler。
 func (v *Example) UnmarshalJSON(data []byte) error {
 	type alias Example
-	if err := jsonx.Unmarshal(data, (*alias)(v)); err != nil {
+	if err := json.Unmarshal(data, (*alias)(v)); err != nil {
 		return err
 	}
 	ext, err := extractExtensions(data)
@@ -385,7 +385,7 @@ func (v Parameter) MarshalJSON() ([]byte, error) {
 // UnmarshalJSON implements json.Unmarshaler. | UnmarshalJSON 实现 json.Unmarshaler。
 func (v *Parameter) UnmarshalJSON(data []byte) error {
 	type alias Parameter
-	if err := jsonx.Unmarshal(data, (*alias)(v)); err != nil {
+	if err := json.Unmarshal(data, (*alias)(v)); err != nil {
 		return err
 	}
 	ext, err := extractExtensions(data)
@@ -405,7 +405,7 @@ func (v Header) MarshalJSON() ([]byte, error) {
 // UnmarshalJSON implements json.Unmarshaler. | UnmarshalJSON 实现 json.Unmarshaler。
 func (v *Header) UnmarshalJSON(data []byte) error {
 	type alias Header
-	if err := jsonx.Unmarshal(data, (*alias)(v)); err != nil {
+	if err := json.Unmarshal(data, (*alias)(v)); err != nil {
 		return err
 	}
 	ext, err := extractExtensions(data)
@@ -425,7 +425,7 @@ func (v Response) MarshalJSON() ([]byte, error) {
 // UnmarshalJSON implements json.Unmarshaler. | UnmarshalJSON 实现 json.Unmarshaler。
 func (v *Response) UnmarshalJSON(data []byte) error {
 	type alias Response
-	if err := jsonx.Unmarshal(data, (*alias)(v)); err != nil {
+	if err := json.Unmarshal(data, (*alias)(v)); err != nil {
 		return err
 	}
 	ext, err := extractExtensions(data)
@@ -445,7 +445,7 @@ func (v MediaType) MarshalJSON() ([]byte, error) {
 // UnmarshalJSON implements json.Unmarshaler. | UnmarshalJSON 实现 json.Unmarshaler。
 func (v *MediaType) UnmarshalJSON(data []byte) error {
 	type alias MediaType
-	if err := jsonx.Unmarshal(data, (*alias)(v)); err != nil {
+	if err := json.Unmarshal(data, (*alias)(v)); err != nil {
 		return err
 	}
 	ext, err := extractExtensions(data)
@@ -465,7 +465,7 @@ func (v Encoding) MarshalJSON() ([]byte, error) {
 // UnmarshalJSON implements json.Unmarshaler. | UnmarshalJSON 实现 json.Unmarshaler。
 func (v *Encoding) UnmarshalJSON(data []byte) error {
 	type alias Encoding
-	if err := jsonx.Unmarshal(data, (*alias)(v)); err != nil {
+	if err := json.Unmarshal(data, (*alias)(v)); err != nil {
 		return err
 	}
 	ext, err := extractExtensions(data)
@@ -485,7 +485,7 @@ func (v Link) MarshalJSON() ([]byte, error) {
 // UnmarshalJSON implements json.Unmarshaler. | UnmarshalJSON 实现 json.Unmarshaler。
 func (v *Link) UnmarshalJSON(data []byte) error {
 	type alias Link
-	if err := jsonx.Unmarshal(data, (*alias)(v)); err != nil {
+	if err := json.Unmarshal(data, (*alias)(v)); err != nil {
 		return err
 	}
 	ext, err := extractExtensions(data)
@@ -505,7 +505,7 @@ func (v RequestBody) MarshalJSON() ([]byte, error) {
 // UnmarshalJSON implements json.Unmarshaler. | UnmarshalJSON 实现 json.Unmarshaler。
 func (v *RequestBody) UnmarshalJSON(data []byte) error {
 	type alias RequestBody
-	if err := jsonx.Unmarshal(data, (*alias)(v)); err != nil {
+	if err := json.Unmarshal(data, (*alias)(v)); err != nil {
 		return err
 	}
 	ext, err := extractExtensions(data)
@@ -525,7 +525,7 @@ func (v Components) MarshalJSON() ([]byte, error) {
 // UnmarshalJSON implements json.Unmarshaler. | UnmarshalJSON 实现 json.Unmarshaler。
 func (v *Components) UnmarshalJSON(data []byte) error {
 	type alias Components
-	if err := jsonx.Unmarshal(data, (*alias)(v)); err != nil {
+	if err := json.Unmarshal(data, (*alias)(v)); err != nil {
 		return err
 	}
 	ext, err := extractExtensions(data)
@@ -545,7 +545,7 @@ func (v Discriminator) MarshalJSON() ([]byte, error) {
 // UnmarshalJSON implements json.Unmarshaler. | UnmarshalJSON 实现 json.Unmarshaler。
 func (v *Discriminator) UnmarshalJSON(data []byte) error {
 	type alias Discriminator
-	if err := jsonx.Unmarshal(data, (*alias)(v)); err != nil {
+	if err := json.Unmarshal(data, (*alias)(v)); err != nil {
 		return err
 	}
 	ext, err := extractExtensions(data)
@@ -565,7 +565,7 @@ func (v XML) MarshalJSON() ([]byte, error) {
 // UnmarshalJSON implements json.Unmarshaler. | UnmarshalJSON 实现 json.Unmarshaler。
 func (v *XML) UnmarshalJSON(data []byte) error {
 	type alias XML
-	if err := jsonx.Unmarshal(data, (*alias)(v)); err != nil {
+	if err := json.Unmarshal(data, (*alias)(v)); err != nil {
 		return err
 	}
 	ext, err := extractExtensions(data)
@@ -579,7 +579,7 @@ func (v *XML) UnmarshalJSON(data []byte) error {
 // UnmarshalJSON implements json.Unmarshaler for Info. | UnmarshalJSON 实现 Info 的 json.Unmarshaler。
 func (i *Info) UnmarshalJSON(data []byte) error {
 	type alias Info
-	if err := jsonx.Unmarshal(data, (*alias)(i)); err != nil {
+	if err := json.Unmarshal(data, (*alias)(i)); err != nil {
 		return err
 	}
 	ext, err := extractExtensions(data)
@@ -601,7 +601,7 @@ func (s *Schema) UnmarshalJSON(data []byte) error {
 		ExclusiveMinimum any `json:"exclusiveMinimum,omitempty"`
 		ExclusiveMaximum any `json:"exclusiveMaximum,omitempty"`
 	}{alias: (*alias)(s)}
-	if err := jsonx.Unmarshal(data, &aux); err != nil {
+	if err := json.Unmarshal(data, &aux); err != nil {
 		return err
 	}
 	s.Type = ""
@@ -615,13 +615,13 @@ func (s *Schema) UnmarshalJSON(data []byte) error {
 		for _, item := range value {
 			name, ok := item.(string)
 			if !ok {
-				return errx.Detail(ErrDecode, "schema type array must contain strings | Schema 类型数组只能包含字符串")
+				return errs.Detail(ErrDecode, "schema type array must contain strings | Schema 类型数组只能包含字符串")
 			}
 			types = append(types, name)
 		}
 		s.Types = types
 	default:
-		return errx.Detail(ErrDecode, "schema type must be a string or an array | Schema 类型必须是字符串或数组")
+		return errs.Detail(ErrDecode, "schema type must be a string or an array | Schema 类型必须是字符串或数组")
 	}
 	var err error
 	if s.ExclusiveMinimum, s.ExclusiveMinimumValue, err = decodeExclusiveBound(aux.ExclusiveMinimum); err != nil {
@@ -649,6 +649,6 @@ func decodeExclusiveBound(value any) (bool, *float64, error) {
 	case float64:
 		return false, &v, nil
 	default:
-		return false, nil, errx.Detail(ErrDecode, "exclusive bound must be a boolean or a number | 开界必须是布尔值或数字")
+		return false, nil, errs.Detail(ErrDecode, "exclusive bound must be a boolean or a number | 开界必须是布尔值或数字")
 	}
 }

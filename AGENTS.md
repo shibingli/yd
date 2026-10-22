@@ -4,18 +4,20 @@
 
 ## 0. 核心自研库与运行环境
 
-- **JSON**：amd64 默认使用自研 `core/jsonx` 原生后端；非 amd64 默认回退 `github.com/goccy/go-json`；`jsonx_std` 构建标签可切换标准库。主模块不再依赖 sonic/jsoniter。
-- **Base64**：amd64 默认使用自研 `core/b64x` 内核（`GOEXPERIMENT=simd` 时按 VBMI2/VBMI → 基础 AVX-512 → AVX2 运行时选择，否则纯 Go 标量）；非 amd64 默认回退 `github.com/cristalhq/base64`；`loong64` 或 `b64x_std` 切换标准库。主模块不再依赖 cloudwego/base64x。
-- **环境自适应**：并行度、分块大小、缓冲与池上限一律由 `core/sysinfo` 在运行时读取 GOMAXPROCS、逻辑 CPU 数与 cgroup/主机内存后决定；库 API 不接收核心数或内存容量参数。
-- **基准报告**：`benchmarks/x86_64-single-multi-core.md` 给出单核/多核、全部对比库、CPU 与峰值 RSS；模块级说明见 `benchmarks/{json,base64}/README.md`。
+- **JSON**：amd64 默认使用自研 `ydx/json` 原生后端；非 amd64 默认回退 `github.com/goccy/go-json`；`jsonx_std` 构建标签可切换标准库。主模块不再依赖 sonic/jsoniter。
+- **Base64**：amd64 默认使用自研 `ydx/base64` 内核（`GOEXPERIMENT=simd` 时按 VBMI2/VBMI → 基础 AVX-512 → AVX2 运行时选择，否则纯 Go 标量）；非 amd64 默认回退 `github.com/cristalhq/base64`；`loong64` 或 `b64x_std` 切换标准库。主模块不再依赖 cloudwego/base64x。
+- **环境自适应**：并行度、分块大小、缓冲与池上限一律由 `ydx/sysinfo` 在运行时读取 GOMAXPROCS、逻辑 CPU 数与 cgroup/主机内存后决定；库 API 不接收核心数或内存容量参数。
+- **基准报告**：`benchmarks/x86_64-single-multi-core.md` 给出单核/多核、全部对比库、CPU 与峰值 RSS；模块级说明见 `benchmarks/{json,base64}/README.md`。组件基准已迁到 `ydx/benchmarks/*`，组件源码修改应优先在 ydx 仓库验证。
+- **组件依赖**：`errs/json/base64/log/buffpool/afs/config/sysinfo/regexpx/router/gorm/redis/asynq/cache/sse/websocket/render/jwt` 与中间件插件均由 `github.com/shibingli/ydx/*` 提供；yd 只按版本号引用，禁止本地 replace 或复制源码。
 - SIMD 相关构建与测试使用 `GOEXPERIMENT=simd`；Go 1.27.2+ 若已默认启用可省略。
 
 ## 1. 修改权限边界
 
 **允许直接修改**
 
-- 源码目录：`core/**`（`afs/`、`b64x/`、`config/`、`errx/`、`jsonx/`、`logx/`、`version/`）、`http/**`（`router/`、`render/`、`htmx/`、`sse/`、`ws/`、`openapi/`、`i18n/`）、`middleware/`、`security/**`（`guomi/`、`jwt/`、`auth/`、`authz/`）、`runtime/**`（`app/`、`server/`、`grpcx/`、`lifecycle/`、`service/`）、`data/**`、`tooling/**`（`scaffold/`、`gen/`、`build/`、`docker/`、`assets/`、`toolchain/`、`align/`、`tools/`、`ko/`、`completion/`、`cli/`）、`web/**`
+- 源码目录：`core/envx/`、`core/version/`、`http/htmx/`、`http/i18n/`、`http/openapi/`、`security/{auth,authz,guomi}/`、`runtime/**`、`messaging/**`、`tooling/**`、`web/**`、`benchmarks/**`、`repotest/**`
 - 测试与文档：`*_test.go`、`testdata/**`、`docs/**`（除需求基线）
+- 组件仓库：`D:\developer\go_code\ydx`（独立 Git 仓库）；组件修改必须在该仓库完成测试、打标签并推送，再回 yd 升级版本号。
 
 **禁止修改**
 
@@ -68,7 +70,7 @@
 - [ ] **依赖白名单**：新增依赖须为活跃维护的纯 Go 库，且无已知高危 CVE；不得引入运行时 CDN。
 - [ ] **注入面**：SQL 只允许通过 GORM 参数化查询；模板输出默认走 `html/template` 转义，使用 `template.HTML` 必须写明可信来源。
 - [ ] **客户端地址**：按 IP 限流、审计或风控必须用 `KeyRemoteIP(trusted)` / `Ctx.ClientIP(trusted)`，不得用无条件信任代理头的 `RealIP()`；`TrustedProxies` 为空时只看对端地址。
-- [ ] **正则安全**：所有正则必须经 `core/regexpx`，禁止直接 `import "regexp"` 或 `"github.com/dlclark/regexp2"`；包装层对 RE2 兼容模式走标准库线性引擎，只有 .NET 构造走 regexp2 + 强制超时，不得关闭超时；批量扫描不得掉到 regexp2 路径（大文件上是二次复杂度）。
+- [ ] **正则安全**：所有正则必须经 `ydx/regexpx`，禁止直接 `import "regexp"` 或 `"github.com/dlclark/regexp2"`；包装层对 RE2 兼容模式走标准库线性引擎，只有 .NET 构造走 regexp2 + 强制超时，不得关闭超时；批量扫描不得掉到 regexp2 路径（大文件上是二次复杂度）。
 - [ ] **版本同步**：改动 `go.mod` 或 `web/assets.lock.json` 后必须运行 `yd versions sync`；提交里必须同时包含 `tooling/scaffold/version_generated.go` 的更新，且 `yd versions check` 通过。
 - [ ] **请求边界**：外部输入必须限长（WebSocket `MaxMessageSize`、请求体 `MaxBytesReader`），并设置读写超时。
 - [ ] **htmx 4 实时通道**：`hx-ws:send` 必须位于 `hx-ws:connect` 元素内部（扩展用 `closest()` 向上找连接，
@@ -78,16 +80,16 @@
       **例外**：CONNECT（含 RFC 8441/9220 Extended CONNECT）的正文是隧道或 WebSocket 字节流，
       不套 `MaxBytesReader`；处理器在 HTTP/2/3 下必须阻塞到连接结束。
 - [ ] **JSON/Base64 统一走封装层**：全仓禁止 `import "encoding/json"` 与 `import "encoding/base64"`，
-      一律使用 `github.com/shibingli/yd/core/jsonx` 与 `github.com/shibingli/yd/core/b64x`。
+      一律使用 `github.com/shibingli/ydx/json` 与 `github.com/shibingli/ydx/base64`。
       自检：`grep -rn '"encoding/json"\|"encoding/base64"' --include=*.go .` 无命中。
 - [ ] **中英文同步（注释 + 日志文案）**：所有注释与所有日志文案逐行采用
       `English | 中文`（竖线分割，英文在前、中文在后）。豁免：编译指令、生成标记、注释内代码示例/树状图/URL。
-- [ ] **日志统一走 logx**：全仓禁止 `import "log"`（`server` 包的 `http.Server.ErrorLog`
-      适配器除外，且其输出必须转发进 logx），禁止 `fmt.Print*` 当日志，禁止第三方日志库。
-- [ ] **错误统一声明为哨兵**：包级 `var ErrX = errx.New("english | 中文")`；**禁止 `fmt.Errorf`**
-      （改用 `errx.Detail` / `errx.Wrap` / `errx.WrapDetail`）；错误文案中英同步；
+- [ ] **日志统一走 ydx/log（包名 `log`）**：全仓禁止 `import "log"`（`server` 包的 `http.Server.ErrorLog`
+      适配器除外，且其输出必须转发进 log），禁止 `fmt.Print*` 当日志，禁止第三方日志库。
+- [ ] **错误统一声明为哨兵**：包级 `var ErrX = errs.New("english | 中文")`；**禁止 `fmt.Errorf`**
+      （改用 `errs.Detail` / `errs.Wrap` / `errs.WrapDetail`）；错误文案中英同步；
       判定只用 `errors.Is` / `errors.As`。
-      自检：`grep -rn 'fmt\.Errorf' --include=*.go . | grep -v '^./core/errx/'` 无命中。
+      自检：`grep -rn 'fmt\.Errorf' --include=*.go .` 无命中（`ydx/errs` 内部实现不属于本仓）。
 - [ ] **多租户隔离**：任何按 ID 读写实体的路径都必须校验 `TenantID`；跨租户访问返回 403/404
       且不泄露资源存在性。
 - [ ] **用户是全局身份**：登录名全局唯一；一个用户可隶属多个租户（`yd_auth_user_tenants`），
@@ -134,13 +136,13 @@
 - [ ] **OpenAPI 查看器**：脚本必须是同源外链（`/static/js/yd-openapi-viewer.js`），
       禁止内联脚本与 CDN，否则 CSP 会拦截并让 `/mgr/docs` 空白。
 - [ ] **管理概览资源仪表盘**：系统资源与中间件共用一条 `/mgr/ws/metrics` 推送，纯 SVG 仪表盘、主题令牌着色；
-      宿主机 CPU/内存来自 `core/sysinfo`，进程 CPU/内存来自 `runtime/metrics`；
+      宿主机 CPU/内存来自 `ydx/sysinfo`，进程 CPU/内存来自 `runtime/metrics`；
       平台不支持时显示「不可用」，不得编造数字。
 - [ ] **OpenAPI 注释完整**：对外 HTTP 处理器的 doc 注释必须含完整注解块
       （`@Summary/@Description/@Tags/@Accept/@Produce/@Param/@Success/@Failure/@Security/@Router`），缺项即未完成。
 - [ ] **优雅退出**：关停顺序固定为「长连接钩子 → HTTP/3 关闭 → HTTP 排空 → 强制关闭残留 hijack 连接 →
       gRPC 优雅停止 → 逆序 `OnShutdown` 钩子」，任何入口不得打乱；**长连接必须登记**
-      （WebSocket 传 `ws.Options.Tracker` 并发 1001 关闭帧、SSE 传 `sse.Options.Tracker`，
+      （WebSocket 传 `websocket.Options.Tracker` 并发 1001 关闭帧、SSE 传 `sse.Options.Tracker`，
       其它用 `app.Lifecycle().Add`），处理器必须监听关闭信号而不是只等对端断开；
       宽限期只有 `server.Options.ShutdownTimeout` 一处；**禁止**在关闭路径上 `os.Exit` / `log.Fatal`。
       自检：新增长连接时补一条「挂着连接仍能在宽限期内退出」的测试。
@@ -154,7 +156,7 @@
       未配置数据库时的兜底且必须有明确告警；`auth` 域包保持零 ORM 依赖；每个按 ID 读写的方法都必须把
       `tenant_id` 写进 WHERE，跨租户返回 `auth.ErrNotFound`（**绝不** `ErrForbidden`）；
       新增此类方法时**必须同时给出以 `tenant_id` 打头的联合索引**并断言它被建出来。
-- [ ] **连接串预置**：所有数据库连接串经 `gormx.PresetDSN` 补齐时区/时间/空值/字符集；显式参数优先，
+- [ ] **连接串预置**：所有数据库连接串经 `gorm.PresetDSN` 补齐时区/时间/空值/字符集；显式参数优先，
       因此**不得在脚手架里写死与预置冲突的值**；默认时区 UTC。SQLite **必须**保留 `_txlock=immediate`，
       **绝不**加入 `_time_format`（它会让驱动跳过 `_txlock` 解析并使其静默失效），见治理文档 §16.1。
 - [ ] **默认无 CGO**：`yd build` 固定 `CGO_ENABLED=0` 且优先于进程环境；SQLite 必须是纯 Go 实现
@@ -278,9 +280,9 @@
 - 新增关联表必须同时提供：写入校验、删除/软删除路径、跨租户测试与守卫测试。
 - 守卫：`TestNoForeignKeyDefinitions`（Go 标签、SQL 字符串、模板与 `.sql`）、GORM Schema 关系断言。
 
-## 26. 二级缓存 cachex（强制）
+## 26. 二级缓存 cache（强制）
 
-- `data/cachex` 是唯一通用二级缓存；使用说明见 `docs/cache.md`。一个进程只建一个 `Manager`，按命名空间
+- `ydx/cache` 是唯一通用二级缓存；使用说明见 `docs/cache.md`。一个进程只建一个 `Manager`，按命名空间
   开 `Raw`/`Cache[T]`；同 Manager 内命名空间唯一，不得含 `:` 或控制字符。
 - 写路径固定「L2 → L1 → 事件」；读透回填必须 CAS（`Remote.StoreIf` + 未命中版本）；L1 TTL 上限为 `lease`，
   订阅重连清空 L1 并派发 `OpResync`；严格读用 `GetFresh`/`ViewFresh` 绕过 L1。`FailOpen` 默认 true；L2 写失败必须返回错误。
@@ -292,7 +294,7 @@
   删除/负缓存写 tombstone；事件只含键名与命名空间，不含值。
 - GORM 插件只缓存 `gorm:query`；查询键必须含表名、纪元、表代际、目标类型、SQL 与全部绑定变量；事务内查询、
   Raw SQL、`FOR UPDATE`、Preload、`*sql.Rows` 必须跳过；显式事务严格语义用 `Plugin.Invalidate`。
-- 配置经 `cache.*` 与 `cachex.OptionsFromConfig`/`RedisOptionsFromConfig`/`gormcache.OptionsFromConfig`；
+- 配置经 `cache.*` 与 `cache.OptionsFromConfig`/`RedisOptionsFromConfig`/`gormcache.OptionsFromConfig`；
   GORM 插件默认关闭，由 `cache.gorm.enabled` 开启；Manager 注册为 `app.ServiceCache`。
 - 禁止新增第三方缓存库、直接 `encoding/json`/`encoding/base64`、直接 `panic`、`fmt.Errorf`、
   热路径反射，以及绕过 Manager 自建跨节点失效。

@@ -3,11 +3,11 @@ package grpcx
 import (
 	"context"
 
-	"github.com/shibingli/yd/core/errx"
+	"github.com/shibingli/ydx/errs"
 )
 
 // ErrShutdownTimeout reports a gRPC graceful stop that did not finish within the deadline, so the server was force-stopped. | ErrShutdownTimeout 表示 gRPC 优雅停止未在期限内完成，服务端已被强制停止。
-var ErrShutdownTimeout = errx.New("grpcx: graceful stop did not finish before the deadline | grpcx：宽限期内未能完成优雅停止")
+var ErrShutdownTimeout = errs.New("grpcx: graceful stop did not finish before the deadline | grpcx：宽限期内未能完成优雅停止")
 
 // GracefulServer is the minimal view of a gRPC server the shutdown needs. | GracefulServer 是退出流程所需的 gRPC 服务端最小视图。
 //
@@ -59,5 +59,5 @@ func Shutdown(ctx context.Context, srv GracefulServer) error {
 	// same mutex; calling Stop synchronously blocks past the deadline when a handler ignores
 	// cancellation. Detach it and return the timeout so the shutdown sequence finishes on time.
 	go srv.Stop()
-	return errx.WrapDetail(ctx.Err(), ErrShutdownTimeout, "force stop after %[1]v | 超过 %[1]v 后强制停止", ctx.Err())
+	return errs.WrapDetail(ctx.Err(), ErrShutdownTimeout, "force stop after %[1]v | 超过 %[1]v 后强制停止", ctx.Err())
 }

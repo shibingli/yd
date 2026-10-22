@@ -12,7 +12,7 @@ import (
 	"bytes"
 	"strings"
 
-	"github.com/shibingli/yd/core/errx"
+	"github.com/shibingli/ydx/errs"
 	"github.com/yuin/goldmark"
 	"github.com/yuin/goldmark/ast"
 	"github.com/yuin/goldmark/extension"
@@ -20,7 +20,7 @@ import (
 )
 
 // ErrRender reports a failed Markdown render. | ErrRender 表示 Markdown 渲染失败。
-var ErrRender = errx.New("markdown render failed | Markdown 渲染失败")
+var ErrRender = errs.New("markdown render failed | Markdown 渲染失败")
 
 // Renderer is the goldmark-backed implementation of messaging.Renderer. | Renderer 是 messaging.Renderer 的 goldmark 实现。
 type Renderer struct {
@@ -45,7 +45,7 @@ func (r *Renderer) Render(source string) (string, string, error) {
 	raw := []byte(source)
 	var buf bytes.Buffer
 	if err := r.engine.Convert(raw, &buf); err != nil {
-		return "", "", errx.Wrap(err, ErrRender)
+		return "", "", errs.Wrap(err, ErrRender)
 	}
 	return buf.String(), plainText(r.engine, raw), nil
 }

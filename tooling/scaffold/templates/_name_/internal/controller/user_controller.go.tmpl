@@ -16,8 +16,8 @@ import (
 	"{{ .Module }}/internal/service"
 	"{{ .YdModule }}/security/auth"
 	"{{ .YdModule }}/security/authz"
-	"{{ .YdModule }}/core/logx"
-	"{{ .YdModule }}/http/router"
+	"{{ .YdxModule }}/log"
+	"{{ .YdxModule }}/router"
 )
 
 // Users 渲染本租户的用户列表（含新建表单与每行的编辑表单）。
@@ -89,8 +89,8 @@ func (c *Controller) CreateUser(ctx *router.Ctx) {
 		return
 	}
 	c.log.Info("user created | 用户已创建",
-		logx.Str("tenant", tenantID),
-		logx.Str("user", created.ID),
+		log.Str("tenant", tenantID),
+		log.Str("user", created.ID),
 	)
 	c.usersPage(ctx, http.StatusOK, "", "用户已创建 | user created")
 }
@@ -138,8 +138,8 @@ func (c *Controller) UpdateUser(ctx *router.Ctx) {
 		return
 	}
 	c.log.Info("user updated | 用户已更新",
-		logx.Str("tenant", tenantID),
-		logx.Str("user", updated.ID),
+		log.Str("tenant", tenantID),
+		log.Str("user", updated.ID),
 	)
 	c.usersPage(ctx, http.StatusOK, "", "用户已更新 | user updated")
 }
@@ -203,9 +203,9 @@ func (c *Controller) SetUserRoles(ctx *router.Ctx) {
 		return
 	}
 	c.log.Info("roles assigned | 角色已分配",
-		logx.Str("tenant", tenantID),
-		logx.Str("user", userID),
-		logx.Strs("roles", roles),
+		log.Str("tenant", tenantID),
+		log.Str("user", userID),
+		log.Strs("roles", roles),
 	)
 	c.usersPage(ctx, http.StatusOK, "", "角色已分配 | roles assigned")
 }
@@ -256,9 +256,9 @@ func (c *Controller) SetUserStatus(ctx *router.Ctx) {
 		return
 	}
 	c.log.Info("user status changed | 用户状态已变更",
-		logx.Str("tenant", tenantID),
-		logx.Str("user", userID),
-		logx.Str("status", field(ctx, FieldStatus)),
+		log.Str("tenant", tenantID),
+		log.Str("user", userID),
+		log.Str("status", field(ctx, FieldStatus)),
 	)
 	c.usersPage(ctx, http.StatusOK, "", message)
 }
@@ -301,9 +301,9 @@ func (c *Controller) SetUserPassword(ctx *router.Ctx) {
 		return
 	}
 	c.log.Info("password reset by an administrator | 管理员重置了口令",
-		logx.Str("tenant", tenantID),
-		logx.Str("user", userID),
-		logx.Str("actor", currentUserID(ctx)),
+		log.Str("tenant", tenantID),
+		log.Str("user", userID),
+		log.Str("actor", currentUserID(ctx)),
 	)
 	c.usersPage(ctx, http.StatusOK, "", "口令已重置，该用户的旧令牌已失效 | password reset, the user's old tokens are gone")
 }
@@ -343,9 +343,9 @@ func (c *Controller) RotateUserSecKey(ctx *router.Ctx) {
 		return
 	}
 	c.log.Info("sec_key rotated by an administrator | 管理员轮换了 sec_key",
-		logx.Str("tenant", tenantID),
-		logx.Str("user", userID),
-		logx.Str("actor", currentUserID(ctx)),
+		log.Str("tenant", tenantID),
+		log.Str("user", userID),
+		log.Str("actor", currentUserID(ctx)),
 	)
 	c.usersPage(ctx, http.StatusOK, "", "sec_key 已轮换，该用户的旧令牌已失效 | sec_key rotated, the user's old tokens are gone")
 }
@@ -466,8 +466,8 @@ func (c *Controller) SetUserTenants(ctx *router.Ctx) {
 		return
 	}
 	c.log.Info("user memberships updated | 用户成员租户已更新",
-		logx.Str("tenant", tenantID),
-		logx.Str("user", userID),
+		log.Str("tenant", tenantID),
+		log.Str("user", userID),
 	)
 	c.usersPage(ctx, http.StatusOK, "", "成员租户已更新 | memberships updated")
 }

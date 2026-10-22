@@ -115,23 +115,17 @@ yd dev --port 7070          # 命令行最高优先级
 ### 框架库
 
 ```
-core/          与领域无关的基础原语
-  config/      分层配置引擎（viper + pflag + .env，前缀 YD_）
-  afs/         afero 抽象文件系统门面（OS / MemFS / go:embed）
-  jsonx/ b64x/ 硬件自适应 JSON / Base64（amd64 默认自研；非 amd64 分别回退 go-json / cristalhq；`jsonx_std` / `b64x_std` 可切标准库；并行度与缓冲上限由 sysinfo 自动感知 GOMAXPROCS 与内存）
-  logx/        零拷贝结构化日志（sync.Pool 字节缓冲直写 io.Writer）
-  errx/        声明式哨兵错误原语（禁止 fmt.Errorf 的统一替代）
+# 可复用组件位于独立仓库 github.com/shibingli/ydx，按版本依赖：
+#   errs sysinfo buffpool protocol base64 json afs config log regexpx router
+#   gorm redis asynq cache sse websocket render jwt middleware + middleware/* 插件
+core/
+  envx/        环境名归一化（development/dev、production/prod）
   version/     版本信息（-ldflags 注入）
 http/          HTTP 与前端交付
-  router/      自研基数树路由（混合参数后缀捕获 · HEAD/OPTIONS 语义 · 流式上传 · Range/ETag 下载）
-  render/      编译式 HTML 模板引擎（html/template 语法与上下文转义 · 布局 · 缓冲池 · Dev 热重载 · asset/dict/json/hx）
   htmx/        Htmx 4 服务端辅助（HX-* 响应头 · hx-partial · OOB）
-  sse/ ws/     W3C 事件流广播 · WebSocket RFC 6455/7692/7936/8441/9220（自研握手与帧编解码）
   i18n/        YAML/TOML/JSON 目录 + Accept-Language q 值协商
   openapi/     OpenAPI 3.0 文档（源码注解解析 + 路由树合并 + 零 CDN 查看器）
-middleware/    Recover · RequestID · AccessLog · CORS · RateLimit · gzip/br/zstd 协商
 security/      安全与鉴权
-  jwt/         免反射 JWT（claims 扫描零分配，拒绝 alg:none 与算法混淆）
   guomi/       国密 SM2/SM3/SM4（纯 Go，emmansun/gmsm 维护版后端；SM2 KDF 与 C1C3C2 按 GB/T 32918.4 实现）
   auth/        租户/用户/角色/能力领域模型（gormstore 子包负责落库）
   authz/       角色与权限注册表、静态校验
@@ -141,8 +135,11 @@ runtime/       进程与运行时
   lifecycle/   关闭信号与长连接钩子
   app/         应用门面（路由/渲染/服务容器/优雅退出）
   service/     系统服务安装与运行（SCM/systemd/launchd）
-data/          gormx（PrepareStmt + 慢查询打点）· redisx（Redis 连接与泛型装饰器）· cachex（二级缓存 + GORM 插件）· asynqx（加权队列）
+messaging/     站内消息中心（消息、好友、附件、实时广播）
+tooling/       脚手架、生成器、构建、镜像、资产、诊断与 CLI
 web/           内嵌前端资产（templates/ · static/ · assets.lock.json）
+benchmarks/    框架级与第三方对比基准（组件基准在 ydx/benchmarks）
+repotest/      仓库守卫
 ```
 
 缓存的一致性模型、零拷贝读取与 GORM 插件用法见 [`docs/cache.md`](docs/cache.md)。

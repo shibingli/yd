@@ -3,8 +3,8 @@
 package router
 
 import (
-	"github.com/shibingli/yd/core/logx"
-	"github.com/shibingli/yd/http/router"
+	"github.com/shibingli/ydx/log"
+	"github.com/shibingli/ydx/router"
 	"gorm.io/gorm"
 
 	"<%.PkgController%>"
@@ -22,8 +22,8 @@ func init() {
 	registerGeneratedMount(func(g *router.Group, store *repository.Store) {
 		db, _ := store.DB().(*gorm.DB)
 		if db == nil {
-			logx.Default().Warn("generated module has no database handle, routes are not mounted | 生成模块没有数据库句柄，路由未挂载",
-				logx.Str("module", "<%.Snake%>"))
+			log.Default().Warn("generated module has no database handle, routes are not mounted | 生成模块没有数据库句柄，路由未挂载",
+				log.Str("module", "<%.Snake%>"))
 			return
 		}
 		// The scaffold migrates the auth tables at startup; a generated module owns its own table
@@ -31,14 +31,14 @@ func init() {
 		// | 脚手架在启动时迁移鉴权表；生成模块拥有自己的表，也必须这样做，否则第一次查询就会
 		// 以 "no such table" 失败。
 		if err := db.AutoMigrate(&model.<%.Name%>{}); err != nil {
-			logx.Default().Error("generated module migration failed | 生成模块迁移失败",
-				logx.Str("module", "<%.Snake%>"), logx.Err(err))
+			log.Default().Error("generated module migration failed | 生成模块迁移失败",
+				log.Str("module", "<%.Snake%>"), log.Err(err))
 			return
 		}
 		repo, err := repository.New<%.Name%>Repo(db)
 		if err != nil {
-			logx.Default().Error("generated module repository assembly failed | 生成模块仓储装配失败",
-				logx.Str("module", "<%.Snake%>"), logx.Err(err))
+			log.Default().Error("generated module repository assembly failed | 生成模块仓储装配失败",
+				log.Str("module", "<%.Snake%>"), log.Err(err))
 			return
 		}
 		Register<%.Name%>Routes(g, controller.New<%.Name%>Controller(service.New<%.Name%>Service(repo)))

@@ -242,6 +242,7 @@ Tailwind 的 `text-*` 工具类。
 ```bash
 yd icons check
 yd assets minify --check
-go test ./tooling/icons/ ./tooling/build/ ./http/render/ ./web/
+go test ./tooling/icons/ ./tooling/build/ ./web/
+go test github.com/shibingli/ydx/render
 go build ./... && go vet ./... && go test ./... -race
 ```

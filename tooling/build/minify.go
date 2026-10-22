@@ -16,9 +16,9 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/shibingli/yd/core/errx"
-	"github.com/shibingli/yd/core/jsonx"
-	"github.com/shibingli/yd/core/logx"
+	"github.com/shibingli/ydx/errs"
+	"github.com/shibingli/ydx/json"
+	ydlog "github.com/shibingli/ydx/log"
 )
 
 // The asset minification stage's constants. | 资产压缩阶段的常量。
@@ -36,9 +36,9 @@ const (
 // Sentinel errors of the asset minification stage. | 资产压缩阶段的哨兵错误。
 var (
 	// ErrMinifyNotFound indicates that no minify executable could be located. | ErrMinifyNotFound 表示未能定位到 minify 可执行文件。
-	ErrMinifyNotFound = errx.New("build: minify executable not found | build：未找到 minify 可执行文件")
+	ErrMinifyNotFound = errs.New("build: minify executable not found | build：未找到 minify 可执行文件")
 	// ErrMinify indicates that the minify process failed or produced nothing. | ErrMinify 表示 minify 进程失败或未产出结果。
-	ErrMinify = errx.New("build: asset minification failed | build：资产压缩失败")
+	ErrMinify = errs.New("build: asset minification failed | build：资产压缩失败")
 )
 
 // MinifyOptions configures the JavaScript minification stage. | MinifyOptions 配置 JavaScript 压缩阶段。
@@ -111,7 +111,7 @@ func ResolveMinifyBinWith(dir, bin string, lookup func(string) (string, error)) 
 	if found, err := lookup("minify"); err == nil && found != "" {
 		return found, nil
 	}
-	return "", errx.Detail(ErrMinifyNotFound,
+	return "", errs.Detail(ErrMinifyNotFound,
 		"tried --minify-bin, $%s, %s and PATH | 已尝试 --minify-bin、$%s、%s 与 PATH",
 		minifyEnvBin, localToolsDir, minifyEnvBin, localToolsDir)
 }
@@ -124,7 +124,7 @@ func resolveMinifyCandidate(dir, bin string, lookup func(string) (string, error)
 	if !strings.ContainsRune(bin, filepath.Separator) && !strings.Contains(bin, "/") {
 		found, err := lookup(bin)
 		if err != nil || found == "" {
-			return "", errx.WrapDetail(err, ErrMinifyNotFound, "%s | %s", bin, bin)
+			return "", errs.WrapDetail(err, ErrMinifyNotFound, "%s | %s", bin, bin)
 		}
 		return found, nil
 	}
@@ -135,7 +135,7 @@ func resolveMinifyCandidate(dir, bin string, lookup func(string) (string, error)
 	path = absoluteBin(path)
 	info, err := os.Stat(path)
 	if err != nil || info.IsDir() {
-		return "", errx.Detail(ErrMinifyNotFound, "%s is not an executable file | %s 不是可执行文件", path, path)
+		return "", errs.Detail(ErrMinifyNotFound, "%s is not an executable file | %s 不是可执行文件", path, path)
 	}
 	return path, nil
 }
@@ -145,22 +145,22 @@ func resolveMinifyCandidate(dir, bin string, lookup func(string) (string, error)
 // ErrMinifyNotFound, which the CLI turns into a warning. | BuildMinify 对 Root 下的
 // 每个 .js 源码运行 minify CLI 并返回结果。Root 缺失是无操作；可执行文件缺失返回
 // ErrMinifyNotFound，由 CLI 转为告警。
-func BuildMinify(ctx context.Context, dir string, o MinifyOptions, log *logx.Logger) (MinifyResult, error) {
+func BuildMinify(ctx context.Context, dir string, o MinifyOptions, log *ydlog.Logger) (MinifyResult, error) {
 	return buildMinifyWith(ctx, dir, o, log, exec.CommandContext)
 }
 
 // buildMinifyWith is BuildMinify with an injectable command constructor. | buildMinifyWith
 // 是接受可注入命令构造器的 BuildMinify。
-func buildMinifyWith(ctx context.Context, dir string, o MinifyOptions, log *logx.Logger, run ExecCommandFunc) (MinifyResult, error) {
+func buildMinifyWith(ctx context.Context, dir string, o MinifyOptions, log *ydlog.Logger, run ExecCommandFunc) (MinifyResult, error) {
 	if log == nil {
-		log = logx.Default()
+		log = ydlog.Default()
 	}
 	// Normalize the project directory up front: the binary, inputs and outputs are all
 	// absolute afterwards, so cmd.Dir cannot double-apply a relative path. | 先归一化项目目录：
 	// 二进制、输入与产物随后都是绝对路径，cmd.Dir 不会把相对路径二次拼接。
 	absDir, err := filepath.Abs(dir)
 	if err != nil {
-		return MinifyResult{}, errx.WrapDetail(err, ErrMinify, "cannot resolve %q | 无法解析 %q", dir, dir)
+		return MinifyResult{}, errs.WrapDetail(err, ErrMinify, "cannot resolve %q | 无法解析 %q", dir, dir)
 	}
 	dir = absDir
 	root := resolvePath(dir, orDefault(o.Root, DefaultMinifyRoot))
@@ -184,7 +184,7 @@ func buildMinifyWith(ctx context.Context, dir string, o MinifyOptions, log *logx
 
 	files, err := minifySources(root)
 	if err != nil {
-		return MinifyResult{}, errx.WrapDetail(err, ErrMinify, "walk %[1]s | 遍历 %[1]s", root)
+		return MinifyResult{}, errs.WrapDetail(err, ErrMinify, "walk %[1]s | 遍历 %[1]s", root)
 	}
 
 	// In check mode the tool must be resolvable even when the tree has no sources:
@@ -231,9 +231,9 @@ func buildMinifyWith(ctx context.Context, dir string, o MinifyOptions, log *logx
 		}
 		res.Bytes += size
 		log.Debug("asset minified | 资产已压缩",
-			logx.Str("input", rel),
-			logx.Str("output", outRel),
-			logx.Int64("bytes", size),
+			ydlog.Str("input", rel),
+			ydlog.Str("output", outRel),
+			ydlog.Int64("bytes", size),
 		)
 	}
 	writeMinifyManifest(dir, generated, log)
@@ -316,11 +316,11 @@ func writeMinified(ctx context.Context, run ExecCommandFunc, dir, bin, input, ou
 	var buf bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &buf, &buf
 	if err := cmd.Run(); err != nil {
-		return 0, errx.WrapDetail(err, ErrMinify, "%s | %s: %s", input, input, strings.TrimSpace(buf.String()))
+		return 0, errs.WrapDetail(err, ErrMinify, "%s | %s: %s", input, input, strings.TrimSpace(buf.String()))
 	}
 	info, err := os.Stat(out)
 	if err != nil || info.IsDir() || info.Size() == 0 {
-		return 0, errx.Detail(ErrMinify, "minify produced no output at %s | minify 未在 %s 产出结果", out, out)
+		return 0, errs.Detail(ErrMinify, "minify produced no output at %s | minify 未在 %s 产出结果", out, out)
 	}
 	return info.Size(), nil
 }
@@ -334,7 +334,7 @@ func checkMinified(ctx context.Context, run ExecCommandFunc, dir, bin, input, ou
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &stdout, &stderr
 	if err := cmd.Run(); err != nil {
-		return errx.WrapDetail(err, ErrMinify, "%s | %s: %s", input, input, strings.TrimSpace(stderr.String()))
+		return errs.WrapDetail(err, ErrMinify, "%s | %s: %s", input, input, strings.TrimSpace(stderr.String()))
 	}
 	res.Bytes += int64(stdout.Len())
 	want, err := os.ReadFile(out)
@@ -343,7 +343,7 @@ func checkMinified(ctx context.Context, run ExecCommandFunc, dir, bin, input, ou
 		return nil
 	}
 	if err != nil {
-		return errx.WrapDetail(err, ErrMinify, "%s | %s", out, out)
+		return errs.WrapDetail(err, ErrMinify, "%s | %s", out, out)
 	}
 	if !bytes.Equal(want, stdout.Bytes()) {
 		res.Mismatched = append(res.Mismatched, rel)
@@ -380,7 +380,7 @@ func readMinifyManifest(dir string) []string {
 		return nil
 	}
 	var m minifyManifest
-	if err := jsonx.Unmarshal(data, &m); err != nil {
+	if err := json.Unmarshal(data, &m); err != nil {
 		return nil
 	}
 	return m.Outputs
@@ -389,20 +389,20 @@ func readMinifyManifest(dir string) []string {
 // writeMinifyManifest records the generated outputs; failures are warnings
 // because the manifest only narrows future cleanup. | writeMinifyManifest 记录生成的
 // 产物；失败只告警，因为清单只用于收窄后续清理的范围。
-func writeMinifyManifest(dir string, outputs []string, log *logx.Logger) {
+func writeMinifyManifest(dir string, outputs []string, log *ydlog.Logger) {
 	path := minifyManifestPath(dir)
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		log.Warn("cannot create the minify manifest directory | 无法创建压缩清单目录", logx.Err(err))
+		log.Warn("cannot create the minify manifest directory | 无法创建压缩清单目录", ydlog.Err(err))
 		return
 	}
-	data, err := jsonx.MarshalIndent(minifyManifest{Outputs: outputs}, "", "  ")
+	data, err := json.MarshalIndent(minifyManifest{Outputs: outputs}, "", "  ")
 	if err != nil {
-		log.Warn("cannot encode the minify manifest | 无法编码压缩清单", logx.Err(err))
+		log.Warn("cannot encode the minify manifest | 无法编码压缩清单", ydlog.Err(err))
 		return
 	}
 	data = append(data, '\n')
 	if err := os.WriteFile(path, data, 0o644); err != nil {
-		log.Warn("cannot write the minify manifest | 无法写入压缩清单", logx.Err(err))
+		log.Warn("cannot write the minify manifest | 无法写入压缩清单", ydlog.Err(err))
 	}
 }
 
@@ -424,7 +424,7 @@ func ownedOutput(root, dir, rel string) (string, bool) {
 // cleanGeneratedMinified removes only manifest-tracked outputs whose source
 // disappeared, so a hand-vendored chart.min.js is never deleted. | cleanGeneratedMinified
 // 只删除清单中源文件已消失的产物，因此手工 vendor 的 chart.min.js 绝不会被删除。
-func cleanGeneratedMinified(root, dir string, outputs []string, log *logx.Logger) []string {
+func cleanGeneratedMinified(root, dir string, outputs []string, log *ydlog.Logger) []string {
 	kept := make([]string, 0, len(outputs))
 	for _, rel := range outputs {
 		abs, ok := ownedOutput(root, dir, rel)
@@ -442,10 +442,10 @@ func cleanGeneratedMinified(root, dir string, outputs []string, log *logx.Logger
 		}
 		if err := os.Remove(abs); err != nil && !errors.Is(err, os.ErrNotExist) {
 			log.Warn("cannot remove stale minified asset | 无法删除陈旧的压缩资产",
-				logx.Str("path", cleanRel), logx.Err(err))
+				ydlog.Str("path", cleanRel), ydlog.Err(err))
 			continue
 		}
-		log.Warn("removed stale minified asset | 已删除陈旧的压缩资产", logx.Str("path", cleanRel))
+		log.Warn("removed stale minified asset | 已删除陈旧的压缩资产", ydlog.Str("path", cleanRel))
 	}
 	return kept
 }

@@ -6,7 +6,7 @@ import (
 
 	"github.com/spf13/afero"
 
-	"github.com/shibingli/yd/core/afs"
+	"github.com/shibingli/ydx/afs"
 )
 
 // writeSource writes one fixture file into the memory filesystem. | writeSource 把单个测试文件写入

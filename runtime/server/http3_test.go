@@ -13,11 +13,11 @@ import (
 	"time"
 
 	"github.com/quic-go/quic-go/http3"
-	"github.com/shibingli/yd/core/errx"
+	"github.com/shibingli/ydx/errs"
 )
 
 // errSimulatedBind stands in for the platform refusing a UDP bind. | errSimulatedBind 代替平台拒绝 UDP 绑定的错误。
-var errSimulatedBind = errx.New("server test: simulated UDP bind failure | server 测试：模拟 UDP 绑定失败")
+var errSimulatedBind = errs.New("server test: simulated UDP bind failure | server 测试：模拟 UDP 绑定失败")
 
 // h3Get performs one real HTTP/3 request. | h3Get 发起一次真实 HTTP/3 请求。
 func h3Get(t *testing.T, addr string) (string, error) {

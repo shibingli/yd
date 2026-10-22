@@ -6,7 +6,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/shibingli/yd/core/errx"
+	"github.com/shibingli/ydx/errs"
 )
 
 // friendRequestWriteError preserves a lost compare-and-set as a 409 instead of a store outage. |
@@ -15,7 +15,7 @@ func friendRequestWriteError(err error) error {
 	if errors.Is(err, ErrRequestClosed) {
 		return ErrRequestClosed
 	}
-	return errx.Wrap(err, ErrUnavailable)
+	return errs.Wrap(err, ErrUnavailable)
 }
 
 // FriendSummary returns the whole friend page: accepted friends, both request directions and
@@ -26,7 +26,7 @@ func (s *Service) FriendSummary(ctx context.Context, actor Actor) (FriendSummary
 	}
 	friendships, err := s.store.ListFriendships(ctx, actor.TenantID, actor.ID)
 	if err != nil {
-		return FriendSummary{}, errx.Wrap(err, ErrUnavailable)
+		return FriendSummary{}, errs.Wrap(err, ErrUnavailable)
 	}
 
 	ids := make([]string, 0, len(friendships))
@@ -39,7 +39,7 @@ func (s *Service) FriendSummary(ctx context.Context, actor Actor) (FriendSummary
 	}
 	profiles, err := s.directory.Profiles(ctx, actor.TenantID, ids)
 	if err != nil {
-		return FriendSummary{}, errx.Wrap(err, ErrUnavailable)
+		return FriendSummary{}, errs.Wrap(err, ErrUnavailable)
 	}
 
 	summary := FriendSummary{Friends: make([]FriendView, 0, len(friendships))}
@@ -56,7 +56,7 @@ func (s *Service) FriendSummary(ctx context.Context, actor Actor) (FriendSummary
 		if note, err := s.store.GetFriendNote(ctx, actor.TenantID, actor.ID, friendID); err == nil {
 			view.Remark = note.Remark
 		} else if !isNotFound(err) {
-			return FriendSummary{}, errx.Wrap(err, ErrUnavailable)
+			return FriendSummary{}, errs.Wrap(err, ErrUnavailable)
 		}
 		summary.Friends = append(summary.Friends, view)
 	}
@@ -66,11 +66,11 @@ func (s *Service) FriendSummary(ctx context.Context, actor Actor) (FriendSummary
 
 	incoming, err := s.store.ListFriendRequests(ctx, actor.TenantID, actor.ID, true, FriendPending)
 	if err != nil {
-		return FriendSummary{}, errx.Wrap(err, ErrUnavailable)
+		return FriendSummary{}, errs.Wrap(err, ErrUnavailable)
 	}
 	outgoing, err := s.store.ListFriendRequests(ctx, actor.TenantID, actor.ID, false, FriendPending)
 	if err != nil {
-		return FriendSummary{}, errx.Wrap(err, ErrUnavailable)
+		return FriendSummary{}, errs.Wrap(err, ErrUnavailable)
 	}
 	summary.Incoming, err = s.requestViews(ctx, actor, incoming, true)
 	if err != nil {
@@ -83,7 +83,7 @@ func (s *Service) FriendSummary(ctx context.Context, actor Actor) (FriendSummary
 
 	blocks, err := s.store.ListBlocks(ctx, actor.TenantID, actor.ID)
 	if err != nil {
-		return FriendSummary{}, errx.Wrap(err, ErrUnavailable)
+		return FriendSummary{}, errs.Wrap(err, ErrUnavailable)
 	}
 	blockedIDs := make([]string, 0, len(blocks))
 	for _, b := range blocks {
@@ -91,7 +91,7 @@ func (s *Service) FriendSummary(ctx context.Context, actor Actor) (FriendSummary
 	}
 	blocked, err := s.directory.Profiles(ctx, actor.TenantID, blockedIDs)
 	if err != nil {
-		return FriendSummary{}, errx.Wrap(err, ErrUnavailable)
+		return FriendSummary{}, errs.Wrap(err, ErrUnavailable)
 	}
 	summary.Blocked = make([]Profile, 0, len(blockedIDs))
 	for _, id := range blockedIDs {
@@ -113,7 +113,7 @@ func (s *Service) requestViews(ctx context.Context, actor Actor, list []FriendRe
 	}
 	profiles, err := s.directory.Profiles(ctx, actor.TenantID, ids)
 	if err != nil {
-		return nil, errx.Wrap(err, ErrUnavailable)
+		return nil, errs.Wrap(err, ErrUnavailable)
 	}
 	out := make([]FriendRequestView, 0, len(list))
 	for _, req := range list {
@@ -145,23 +145,23 @@ func (s *Service) SendFriendRequest(ctx context.Context, actor Actor, targetID, 
 	}
 	blocked, err := s.store.EitherBlocked(ctx, actor.TenantID, actor.ID, targetID)
 	if err != nil {
-		return FriendRequest{}, errx.Wrap(err, ErrUnavailable)
+		return FriendRequest{}, errs.Wrap(err, ErrUnavailable)
 	}
 	if blocked {
 		return FriendRequest{}, ErrBlocked
 	}
 	if _, err := s.store.GetFriendship(ctx, actor.TenantID, actor.ID, targetID); err == nil {
-		return FriendRequest{}, errx.Detail(ErrDuplicateRequest, "already friends | 已经是好友")
+		return FriendRequest{}, errs.Detail(ErrDuplicateRequest, "already friends | 已经是好友")
 	} else if !isNotFound(err) {
-		return FriendRequest{}, errx.Wrap(err, ErrUnavailable)
+		return FriendRequest{}, errs.Wrap(err, ErrUnavailable)
 	}
 
 	reverse, err := s.store.FriendRequestBetween(ctx, actor.TenantID, targetID, actor.ID)
 	if err == nil && reverse.Status == FriendPending {
-		return FriendRequest{}, errx.Detail(ErrDuplicateRequest, "the other side already sent a request | 对方已发来申请")
+		return FriendRequest{}, errs.Detail(ErrDuplicateRequest, "the other side already sent a request | 对方已发来申请")
 	}
 	if err != nil && !isNotFound(err) {
-		return FriendRequest{}, errx.Wrap(err, ErrUnavailable)
+		return FriendRequest{}, errs.Wrap(err, ErrUnavailable)
 	}
 
 	message = truncate(strings.TrimSpace(message), 255)
@@ -196,11 +196,11 @@ func (s *Service) SendFriendRequest(ctx context.Context, actor Actor, targetID, 
 			Status:      FriendPending,
 		}
 		if err := s.store.CreateFriendRequest(ctx, req); err != nil {
-			return FriendRequest{}, errx.Wrap(err, ErrUnavailable)
+			return FriendRequest{}, errs.Wrap(err, ErrUnavailable)
 		}
 		return s.friendRequestAfterWrite(ctx, actor, req, targetID)
 	default:
-		return FriendRequest{}, errx.Wrap(err, ErrUnavailable)
+		return FriendRequest{}, errs.Wrap(err, ErrUnavailable)
 	}
 }
 
@@ -228,7 +228,7 @@ func (s *Service) RespondFriendRequest(ctx context.Context, actor Actor, request
 		return ErrForbidden
 	}
 	if req.Status != FriendPending {
-		return errx.Detail(ErrInvalidInput, "request is not pending | 申请不在待处理状态")
+		return errs.Detail(ErrInvalidInput, "request is not pending | 申请不在待处理状态")
 	}
 	now := s.options.Now()
 	req.RespondedAt = &now
@@ -256,7 +256,7 @@ func (s *Service) RespondFriendRequest(ctx context.Context, actor Actor, request
 		UserHighID: high,
 	}
 	if err := s.store.AcceptFriendRequest(ctx, req, friendship); err != nil {
-		return errx.Wrap(err, ErrUnavailable)
+		return errs.Wrap(err, ErrUnavailable)
 	}
 	s.emit(ctx, Event{Type: EventFriendAccepted, TenantID: actor.TenantID, ActorID: actor.ID, Audience: []string{req.RequesterID}})
 	return nil
@@ -275,7 +275,7 @@ func (s *Service) CancelFriendRequest(ctx context.Context, actor Actor, requestI
 		return ErrForbidden
 	}
 	if req.Status != FriendPending {
-		return errx.Detail(ErrInvalidInput, "request is not pending | 申请不在待处理状态")
+		return errs.Detail(ErrInvalidInput, "request is not pending | 申请不在待处理状态")
 	}
 	now := s.options.Now()
 	expectedStatus := req.Status
@@ -324,7 +324,7 @@ func (s *Service) BlockUser(ctx context.Context, actor Actor, targetID string) e
 		BlockedID: targetID,
 	}
 	if err := s.store.BlockUser(ctx, block); err != nil {
-		return errx.Wrap(err, ErrUnavailable)
+		return errs.Wrap(err, ErrUnavailable)
 	}
 	s.emit(ctx, Event{Type: EventFriendBlocked, TenantID: actor.TenantID, ActorID: actor.ID, Audience: []string{targetID}})
 	return nil
@@ -369,7 +369,7 @@ func (s *Service) IsFriend(ctx context.Context, tenantID, userA, userB string) (
 		if isNotFound(err) {
 			return false, nil
 		}
-		return false, errx.Wrap(err, ErrUnavailable)
+		return false, errs.Wrap(err, ErrUnavailable)
 	}
 	return true, nil
 }
@@ -381,7 +381,7 @@ func (s *Service) requireFriend(ctx context.Context, tenantID, userA, userB stri
 	}
 	blocked, err := s.store.EitherBlocked(ctx, tenantID, userA, userB)
 	if err != nil {
-		return errx.Wrap(err, ErrUnavailable)
+		return errs.Wrap(err, ErrUnavailable)
 	}
 	if blocked {
 		return ErrBlocked
@@ -400,7 +400,7 @@ func (s *Service) requireFriend(ctx context.Context, tenantID, userA, userB stri
 func (s *Service) requireActiveUser(ctx context.Context, tenantID, userID string) (Profile, error) {
 	profiles, err := s.directory.Profiles(ctx, tenantID, []string{userID})
 	if err != nil {
-		return Profile{}, errx.Wrap(err, ErrUnavailable)
+		return Profile{}, errs.Wrap(err, ErrUnavailable)
 	}
 	profile, ok := profiles[userID]
 	if !ok || !profile.Active {

@@ -6,9 +6,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/shibingli/yd/http/router"
-	"github.com/shibingli/yd/middleware"
 	"github.com/shibingli/yd/runtime/metricsx"
+	"github.com/shibingli/ydx/middleware"
+	"github.com/shibingli/ydx/router"
 )
 
 // serve runs one request through r and returns the recorder. | serve 通过 r 执行一次请求并返回记录器。

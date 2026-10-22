@@ -5,7 +5,7 @@ package ko
 import (
 	"strings"
 
-	"github.com/shibingli/yd/core/config"
+	"github.com/shibingli/ydx/config"
 )
 
 // Configuration keys of the ko section. | ko 段的配置键。

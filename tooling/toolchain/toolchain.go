@@ -11,25 +11,25 @@ import (
 	"runtime"
 	"sync"
 
-	"github.com/shibingli/yd/core/errx"
+	"github.com/shibingli/ydx/errs"
 )
 
 // Declared sentinels of the package. | 本包声明的哨兵错误。
 var (
 	// ErrToolNotFound reports that the tailwindcss executable could not be resolved. | ErrToolNotFound 表示未能解析到 tailwindcss 可执行文件。
-	ErrToolNotFound = errx.New("toolchain: tailwindcss binary not found | toolchain: 未找到 tailwindcss 可执行文件")
+	ErrToolNotFound = errs.New("toolchain: tailwindcss binary not found | toolchain: 未找到 tailwindcss 可执行文件")
 	// ErrBuildFailed reports that an external build command failed or produced no output. | ErrBuildFailed 表示外部构建命令执行失败或未产出文件。
-	ErrBuildFailed = errx.New("toolchain: build command failed | toolchain: 构建命令执行失败")
+	ErrBuildFailed = errs.New("toolchain: build command failed | toolchain: 构建命令执行失败")
 	// ErrNoWatchRoot reports that no directory of the watch roots could be watched. | ErrNoWatchRoot 表示监听根目录中没有任何一个可以被监听。
-	ErrNoWatchRoot = errx.New("toolchain: no watchable root directory | toolchain: 没有可监听的根目录")
+	ErrNoWatchRoot = errs.New("toolchain: no watchable root directory | toolchain: 没有可监听的根目录")
 	// ErrWatchFailed reports a failure while registering or tearing down a watch. | ErrWatchFailed 表示注册或拆除监听时失败。
-	ErrWatchFailed = errx.New("toolchain: file watch failed | toolchain: 文件监听失败")
+	ErrWatchFailed = errs.New("toolchain: file watch failed | toolchain: 文件监听失败")
 	// ErrProjectDir reports that the project directory of a dev session does not exist. | ErrProjectDir 表示开发会话的项目目录不存在。
-	ErrProjectDir = errx.New("toolchain: project directory does not exist | toolchain: 项目目录不存在")
+	ErrProjectDir = errs.New("toolchain: project directory does not exist | toolchain: 项目目录不存在")
 	// ErrChildStart reports that the dev child process could not be started. | ErrChildStart 表示开发子进程启动失败。
-	ErrChildStart = errx.New("toolchain: cannot start child process | toolchain: 无法启动子进程")
+	ErrChildStart = errs.New("toolchain: cannot start child process | toolchain: 无法启动子进程")
 	// ErrDevRunning reports that a DevRunner is already running. | ErrDevRunning 表示 DevRunner 已在运行中。
-	ErrDevRunning = errx.New("toolchain: dev runner already running | toolchain: 开发运行器已在运行中")
+	ErrDevRunning = errs.New("toolchain: dev runner already running | toolchain: 开发运行器已在运行中")
 )
 
 // ExecCommand is the process factory used by the whole package; tests replace it to observe argv without spawning anything. | ExecCommand 是全包使用的进程工厂；测试替换它以观察 argv 而无需真正启动进程。

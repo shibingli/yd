@@ -13,9 +13,9 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"{{ .YdModule }}/core/errx"
-	"{{ .YdModule }}/core/logx"
-	"{{ .YdModule }}/http/router"
+	"{{ .YdxModule }}/errs"
+	"{{ .YdxModule }}/log"
+	"{{ .YdxModule }}/router"
 	"{{ .YdModule }}/messaging"
 	"{{ .YdModule }}/security/authz"
 )
@@ -409,9 +409,9 @@ func (c *Controller) SendMessage(ctx *router.Ctx) {
 		return
 	}
 	c.log.Info("message sent | 消息已发送",
-		logx.Str("tenant", actor.TenantID),
-		logx.Str("conversation", message.ConversationID),
-		logx.Str("message", message.ID),
+		log.Str("tenant", actor.TenantID),
+		log.Str("conversation", message.ConversationID),
+		log.Str("message", message.ID),
 	)
 	c.renderMessagePageByID(ctx, message.ConversationID, "消息已发送 | message sent")
 }
@@ -424,7 +424,7 @@ func (c *Controller) resolveConversation(ctx *router.Ctx, actor messaging.Actor)
 	recipients := formValues(ctx, fieldRecipients)
 	switch len(recipients) {
 	case 0:
-		return "", errx.Detail(messaging.ErrInvalidInput, "choose a conversation or a friend | 请选择会话或好友")
+		return "", errs.Detail(messaging.ErrInvalidInput, "choose a conversation or a friend | 请选择会话或好友")
 	case 1:
 		conv, err := c.messages.DirectConversation(ctx.Request.Context(), actor, recipients[0])
 		if err != nil {
@@ -482,9 +482,9 @@ func (c *Controller) UpdateMessage(ctx *router.Ctx) {
 		return
 	}
 	c.log.Info("message edited | 消息已编辑",
-		logx.Str("tenant", actor.TenantID),
-		logx.Str("conversation", message.ConversationID),
-		logx.Str("message", message.ID),
+		log.Str("tenant", actor.TenantID),
+		log.Str("conversation", message.ConversationID),
+		log.Str("message", message.ID),
 	)
 	c.refreshMessageView(ctx, message.ConversationID, "消息已更新 | message updated")
 }
@@ -572,7 +572,7 @@ func (c *Controller) MarkMessageRead(ctx *router.Ctx) {
 		return
 	}
 	if err := ctx.NoContent(http.StatusNoContent); err != nil {
-		c.log.Warn("mark-read response failed | 标记已读响应失败", logx.Err(err))
+		c.log.Warn("mark-read response failed | 标记已读响应失败", log.Err(err))
 	}
 }
 
@@ -711,7 +711,7 @@ func (c *Controller) UploadMessageAttachment(ctx *router.Ctx) {
 	}
 	defer func() {
 		if closeErr := file.Close(); closeErr != nil {
-			c.log.Debug("attachment stream close failed | 附件流关闭失败", logx.Err(closeErr))
+			c.log.Debug("attachment stream close failed | 附件流关闭失败", log.Err(closeErr))
 		}
 	}()
 	attachment, err := c.messages.UploadAttachment(ctx.Request.Context(), c.messageActor(ctx), header.Filename, header.Size, file)
@@ -758,7 +758,7 @@ func (c *Controller) DownloadMessageAttachment(ctx *router.Ctx) {
 	ctx.SetHeader("Content-Disposition", disposition)
 	ctx.SetHeader("X-Content-Type-Options", "nosniff")
 	if err := ctx.Blob(http.StatusOK, attachment.ContentType, data); err != nil {
-		c.log.Warn("attachment write failed | 附件写出失败", logx.Err(err))
+		c.log.Warn("attachment write failed | 附件写出失败", log.Err(err))
 	}
 }
 
@@ -1001,5 +1001,5 @@ func parsePinTime(value string) (*time.Time, error) {
 			return &parsed, nil
 		}
 	}
-	return nil, errx.Detail(messaging.ErrPinWindowInvalid, "value=%[1]q | 取值=%[1]q", value)
+	return nil, errs.Detail(messaging.ErrPinWindowInvalid, "value=%[1]q | 取值=%[1]q", value)
 }

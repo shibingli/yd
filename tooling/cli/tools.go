@@ -13,10 +13,10 @@ import (
 	"io"
 	"strings"
 
-	"github.com/shibingli/yd/core/errx"
 	"github.com/shibingli/yd/tooling/build"
 	"github.com/shibingli/yd/tooling/ko"
 	"github.com/shibingli/yd/tooling/tools"
+	"github.com/shibingli/ydx/errs"
 	"github.com/spf13/pflag"
 )
 
@@ -142,14 +142,14 @@ func toolsRequest(fs *pflag.FlagSet) (string, []string, error) {
 	switch action {
 	case toolsActionCheck:
 		if len(args) > 1 {
-			return "", nil, errx.Detail(ErrNoCommand,
+			return "", nil, errs.Detail(ErrNoCommand,
 				"%s (check takes no argument, got %q | check 不接受参数，收到 %q)", toolsUsageLine, args[1], args[1])
 		}
 		return toolsActionCheck, nil, nil
 	case toolsActionInstall:
 		return toolsActionInstall, args[1:], nil
 	default:
-		return "", nil, errx.Detail(ErrUnknownCommand,
+		return "", nil, errs.Detail(ErrUnknownCommand,
 			"%q (actions | 动作: %s, %s)", args[0], toolsActionCheck, toolsActionInstall)
 	}
 }

@@ -10,7 +10,7 @@ import (
 	"testing"
 
 	"github.com/kardianos/service"
-	"github.com/shibingli/yd/core/config"
+	"github.com/shibingli/ydx/config"
 	"github.com/spf13/afero"
 )
 

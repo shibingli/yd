@@ -8,7 +8,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/shibingli/yd/core/errx"
+	"github.com/shibingli/ydx/errs"
 	"github.com/spf13/afero"
 )
 
@@ -16,7 +16,7 @@ import (
 var (
 	// ErrTypeParse means a scanned file is not valid Go and therefore cannot yield type
 	// annotations. | ErrTypeParse 表示被扫描的文件不是合法 Go 代码，无法产出类型注解。
-	ErrTypeParse = errx.New("openapi: failed to parse type annotation source | openapi：类型注解源文件解析失败")
+	ErrTypeParse = errs.New("openapi: failed to parse type annotation source | openapi：类型注解源文件解析失败")
 )
 
 // typeOnlyDirectives are the directives that only the type dialect understands: a comment

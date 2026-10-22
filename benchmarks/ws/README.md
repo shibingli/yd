@@ -1,6 +1,6 @@
 # WebSocket 性能与兼容性基准
 
-本目录是一个**独立 Go 模块**，用于测量 `http/ws` 的性能，并与主流 WebSocket 库做兼容性互操作验证。独立模块避免把 coder、gorilla、gobwas、gws 四个基准依赖带进主模块的 `go.mod`。
+本目录是一个**独立 Go 模块**，用于测量 `ydx/websocket` 的性能，并与主流 WebSocket 库做兼容性互操作验证。独立模块避免把 coder、gorilla、gobwas、gws 四个基准依赖带进主模块的 `go.mod`。
 
 ## 运行方式
 

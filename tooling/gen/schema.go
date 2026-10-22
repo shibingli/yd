@@ -6,7 +6,7 @@ import (
 
 	"gorm.io/gorm"
 
-	"github.com/shibingli/yd/core/errx"
+	"github.com/shibingli/ydx/errs"
 )
 
 // 字段描述串支持的类型标记；左侧是用户输入，右侧是生成的 Go 类型与默认控件。
@@ -58,7 +58,7 @@ func ParseFields(spec string) ([]Field, error) {
 		if !strings.Contains(seg, ":") {
 			// A modifier continuing the previous field. | 续写上一字段的修饰符。
 			if len(fields) == 0 {
-				return nil, errx.Detail(ErrBadFieldSpec, "modifier %q has no field to attach to | 修饰符 %q 没有可归属的字段", seg, seg)
+				return nil, errs.Detail(ErrBadFieldSpec, "modifier %q has no field to attach to | 修饰符 %q 没有可归属的字段", seg, seg)
 			}
 			applySpecModifier(&fields[len(fields)-1], seg)
 			continue
@@ -69,15 +69,15 @@ func ParseFields(spec string) ([]Field, error) {
 		typeName, modifiers, _ := strings.Cut(rest, ":")
 		typeName = strings.TrimSpace(typeName)
 		if name == "" {
-			return nil, errx.Detail(ErrBadFieldSpec, "missing field name in %q | %q 缺少字段名", seg, seg)
+			return nil, errs.Detail(ErrBadFieldSpec, "missing field name in %q | %q 缺少字段名", seg, seg)
 		}
 		if typeName == "" {
-			return nil, errx.Detail(ErrBadFieldSpec, "missing field type in %q | %q 缺少字段类型", seg, seg)
+			return nil, errs.Detail(ErrBadFieldSpec, "missing field type in %q | %q 缺少字段类型", seg, seg)
 		}
 
 		mapped, ok := specTypes[strings.ToLower(typeName)]
 		if !ok {
-			return nil, errx.Detail(ErrUnknownType, "unknown type %q for field %s | 字段 %s 的类型 %q 未知",
+			return nil, errs.Detail(ErrUnknownType, "unknown type %q for field %s | 字段 %s 的类型 %q 未知",
 				typeName, name, name, typeName)
 		}
 
@@ -176,7 +176,7 @@ func applySpecModifier(f *Field, mod string) {
 func ModelFromFields(name string, fields []Field, o ModelOptions) (*Model, error) {
 	name = strings.TrimSpace(name)
 	if name == "" {
-		return nil, errx.Detail(ErrBadModel, "empty model name | 模型名为空")
+		return nil, errs.Detail(ErrBadModel, "empty model name | 模型名为空")
 	}
 	if len(fields) == 0 {
 		return nil, ErrNoFields
@@ -234,7 +234,7 @@ func ModelFromTable(ctx context.Context, db *gorm.DB, table string, o TableOptio
 	}
 	table = strings.TrimSpace(table)
 	if table == "" {
-		return nil, errx.Detail(ErrTableNotFound, "empty table name | 表名为空")
+		return nil, errs.Detail(ErrTableNotFound, "empty table name | 表名为空")
 	}
 	if ctx == nil {
 		ctx = context.Background()
@@ -242,10 +242,10 @@ func ModelFromTable(ctx context.Context, db *gorm.DB, table string, o TableOptio
 
 	columns, err := db.WithContext(ctx).Migrator().ColumnTypes(table)
 	if err != nil {
-		return nil, errx.WrapDetail(err, ErrTableNotFound, "table=%[1]s | 表=%[1]s", table)
+		return nil, errs.WrapDetail(err, ErrTableNotFound, "table=%[1]s | 表=%[1]s", table)
 	}
 	if len(columns) == 0 {
-		return nil, errx.Detail(ErrTableNotFound, "table=%[1]s | 表=%[1]s", table)
+		return nil, errs.Detail(ErrTableNotFound, "table=%[1]s | 表=%[1]s", table)
 	}
 
 	ignored := make(map[string]bool, len(o.Ignore))
@@ -308,7 +308,7 @@ func ModelFromTable(ctx context.Context, db *gorm.DB, table string, o TableOptio
 		fields = append(fields, f)
 	}
 	if len(fields) == 0 {
-		return nil, errx.Detail(ErrTableNotFound, "table=%s has no readable column | 表 %s 没有可读的列", table, table)
+		return nil, errs.Detail(ErrTableNotFound, "table=%s has no readable column | 表 %s 没有可读的列", table, table)
 	}
 
 	name := strings.TrimSpace(o.Name)

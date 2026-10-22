@@ -41,21 +41,21 @@ import (
 	"context"
 	"os/exec"
 
-	"github.com/shibingli/yd/core/errx"
-	"github.com/shibingli/yd/core/logx"
+	"github.com/shibingli/ydx/errs"
+	ydlog "github.com/shibingli/ydx/log"
 )
 
 // Declared sentinels of the package. | 本包声明的哨兵错误。
 var (
 	// ErrUnknownTool reports a name that is not in the registry. | ErrUnknownTool 表示名称不在注册表中。
-	ErrUnknownTool = errx.New("tools: unknown tool | tools：未知工具")
+	ErrUnknownTool = errs.New("tools: unknown tool | tools：未知工具")
 	// ErrNoGoToolchain reports that no go command is on PATH, so nothing can be installed. | ErrNoGoToolchain 表示 PATH 上没有 go 命令，因此无法安装任何工具。
-	ErrNoGoToolchain = errx.New("tools: go toolchain not found | tools：未找到 Go 工具链")
+	ErrNoGoToolchain = errs.New("tools: go toolchain not found | tools：未找到 Go 工具链")
 	// ErrNotInstallable reports an entry that cannot be installed with go install. | ErrNotInstallable 表示该条目无法用 go install 安装。
-	ErrNotInstallable = errx.New("tools: tool cannot be installed automatically | tools：该工具无法自动安装")
+	ErrNotInstallable = errs.New("tools: tool cannot be installed automatically | tools：该工具无法自动安装")
 	// ErrInstallFailed reports a failed installation: either go install itself failed, or the
 	// verification that follows it could not resolve the tool. | ErrInstallFailed 表示安装失败：或 go install 本身失败，或随后的验证无法解析到该工具。
-	ErrInstallFailed = errx.New("tools: installation failed | tools：安装失败")
+	ErrInstallFailed = errs.New("tools: installation failed | tools：安装失败")
 )
 
 // LocalToolDir is the project-local drop-in directory shared by every resolver, relative to the
@@ -181,11 +181,11 @@ func tailHead(s string, limit int) string {
 
 // loggerOr returns log, or the default logger when it is nil, so no code path has to nil-check. | loggerOr
 // 返回 log，为 nil 时返回默认日志器，使任何代码路径都不必判空。
-func loggerOr(log *logx.Logger) *logx.Logger {
+func loggerOr(log *ydlog.Logger) *ydlog.Logger {
 	if log != nil {
 		return log
 	}
-	return logx.Default()
+	return ydlog.Default()
 }
 
 // contextOr returns ctx, or a background context when it is nil. | contextOr 返回 ctx，为 nil 时返回后台上下文。

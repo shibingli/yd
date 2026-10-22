@@ -54,21 +54,21 @@
 
    ```go
    // List returns the newest users first. | List 按最新优先返回用户列表。
-   log.Info("server started | 服务器已启动", logx.Str("addr", addr))
+   log.Info("server started | 服务器已启动", log.Str("addr", addr))
    ```
 
    豁免：`//go:build` 编译指令、`// Code generated ... DO NOT EDIT.` 生成标记、注释内的代码示例/目录树/URL。
-2. **错误一律声明为哨兵（errx）**：包级 `var ErrX = errx.New("english | 中文")`；
-   **禁止 `fmt.Errorf`**，附加细节用 `errx.Detail`，保留底层错误用 `errx.Wrap` / `errx.WrapDetail`；
+2. **错误一律声明为哨兵（errx）**：包级 `var ErrX = errs.New("english | 中文")`；
+   **禁止 `fmt.Errorf`**，附加细节用 `errs.Detail`，保留底层错误用 `errs.Wrap` / `errs.WrapDetail`；
    判定只用 `errors.Is` / `errors.As`。
    自检：`grep -rn 'fmt\.Errorf' --include=*.go . | grep -v '^./core/errx/'` 必须无命中。
 3. **日志一律走 logx**：禁止标准库 `log`、禁止 `fmt.Print*` 当日志、禁止 zap/zerolog/logrus。
    ```go
-   log := logx.New(logx.Options{Service: "{{ .Name }}"})
-   log.Warn("slow query | 慢查询", logx.Dur("elapsed", d), logx.Str("sql", sql))
+   	logger := log.New(log.Options{Service: "{{ .Name }}"})
+   	logger.Warn("slow query | 慢查询", log.Dur("elapsed", d), log.Str("sql", sql))
    ```
-4. **JSON / Base64 一律走封装层**：`{{ .YdModule }}/core/jsonx`（`Marshal`/`Unmarshal`/`NewEncoder`/`NewDecoder`/`Valid`）
-   与 `{{ .YdModule }}/core/b64x`（`StdEncoding`/`URLEncoding`/…）；**禁止**直接 `import "encoding/json"` 或 `"encoding/base64"`。
+4. **JSON / Base64 一律走封装层**：`{{ .YdxModule }}/json`（`Marshal`/`Unmarshal`/`NewEncoder`/`NewDecoder`/`Valid`）
+   与 `{{ .YdxModule }}/base64`（`StdEncoding`/`URLEncoding`/…）；**禁止**直接 `import "encoding/json"` 或 `"encoding/base64"`。
    自检：`grep -rn '"encoding/json"\|"encoding/base64"' --include=*.go .` 必须无命中。
 5. **安全**：口令哈希走 `guomi`（SM3 + 盐 + 迭代），比较必须常量时间；敏感字段传输前置 SM2 加密（`data-yd-encrypt="sm2"`）；
    严禁在源码、模板、测试夹具中硬编码密钥、口令、Token。

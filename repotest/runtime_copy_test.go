@@ -8,21 +8,21 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/shibingli/yd/core/regexpx"
+	"github.com/shibingli/ydx/regexpx"
 )
 
 // 本文件是 CLAUDE.md §3.1 的**英中对称**守卫：既有的 checkBilingualCoverage 只抓
 // 「有中文但没有 `|`」，抓不到反方向的「只有英文」。这里按 AST 的参数位置取文案，
-// 不再靠行内正则猜测，因此既能识别多行调用，也不会把 `logx.Str("addr", v)` 的字段名
+// 不再靠行内正则猜测，因此既能识别多行调用，也不会把 `log.Str("addr", v)` 的字段名
 // 误当成文案。
 // This file is the **English-Chinese symmetry** guard for CLAUDE.md §3.1: the existing
 // checkBilingualCoverage only catches "Chinese without a `|`", never the opposite "English only".
 // It takes copy by AST argument position instead of guessing with a line regex, so it sees
-// multi-line calls and never mistakes a `logx.Str("addr", v)` field name for copy.
+// multi-line calls and never mistakes a `log.Str("addr", v)` field name for copy.
 
 const (
-	// runtimeCopyErrxPath 是 errx 的导入路径。| runtimeCopyErrxPath is the errx import path.
-	runtimeCopyErrxPath = "github.com/shibingli/yd/core/errx"
+	// runtimeCopyErrsPath 是 errs 的导入路径。| runtimeCopyErrsPath is the errs import path.
+	runtimeCopyErrsPath = "github.com/shibingli/ydx/errs"
 	// runtimeCopyFmtPath 是 fmt 的导入路径。| runtimeCopyFmtPath is the fmt import path.
 	runtimeCopyFmtPath = "fmt"
 	// runtimeCopyHTTPPath 是 net/http 的导入路径。| runtimeCopyHTTPPath is the net/http import path.
@@ -123,7 +123,7 @@ func runtimeCopyArgIndex(call *ast.CallExpr, aliases map[string]string) (int, bo
 	switch {
 	case pkgPath == runtimeCopyHTTPPath && sel.Sel.Name == "Error":
 		return 1, true // http.Error(w, msg, code) | http.Error(w, 文案, 状态码)
-	case pkgPath == runtimeCopyErrxPath:
+	case pkgPath == runtimeCopyErrsPath:
 		switch sel.Sel.Name {
 		case "New":
 			return 0, true
@@ -139,7 +139,7 @@ func runtimeCopyArgIndex(call *ast.CallExpr, aliases map[string]string) (int, bo
 		return 1, true // c.String(code, msg) | c.String(状态码, 文案)
 	case sel.Sel.Name == "Debug" || sel.Sel.Name == "Info" || sel.Sel.Name == "Warn" ||
 		sel.Sel.Name == "Error" || sel.Sel.Name == "Fatal":
-		return 0, true // logx level calls | logx 各级日志
+		return 0, true // log level calls | log 各级日志
 	}
 	return 0, false
 }

@@ -4,9 +4,9 @@ import (
 	"html/template"
 	"testing"
 
-	"github.com/shibingli/yd/core/jsonx"
-	"github.com/shibingli/yd/http/render"
 	"github.com/shibingli/yd/security/authz"
+	"github.com/shibingli/ydx/json"
+	"github.com/shibingli/ydx/render"
 )
 
 // TestPermMapMatchesTheRegistry 要求模板数据键与注册表逐条对应。
@@ -98,7 +98,7 @@ func TestEnvelopeCarriesNamesAndHoldings(t *testing.T) {
 func TestEnvelopeJSMarshal(t *testing.T) {
 	f := newFixture(t)
 	raw := string(authz.NewEnvelope(authz.NewSubject(f.svc, f.reader)).JS())
-	if !jsonx.Valid([]byte(raw)) {
+	if !json.Valid([]byte(raw)) {
 		t.Fatalf("the payload is not valid JSON: %s | 载荷不是合法 JSON：%s", raw, raw)
 	}
 	// A script element ends at the first "</script", so an unescaped "<" in a capability name would
@@ -109,7 +109,7 @@ func TestEnvelopeJSMarshal(t *testing.T) {
 	}
 
 	var env authz.Envelope
-	if err := jsonx.Unmarshal([]byte(raw), &env); err != nil {
+	if err := json.Unmarshal([]byte(raw), &env); err != nil {
 		t.Fatalf("Unmarshal failed: %v", err)
 	}
 	// Every key of both maps must be the JS key of the token it maps to: the script reads
@@ -166,7 +166,7 @@ func TestDataCarriesTheFourEntries(t *testing.T) {
 	if !ok {
 		t.Fatalf("data[AuthzJSON] is %[1]T, want template.JS | data[AuthzJSON] 为 %[1]T，期望 template.JS", data["AuthzJSON"])
 	}
-	if !jsonx.Valid([]byte(payload)) {
+	if !json.Valid([]byte(payload)) {
 		t.Errorf("the inline payload is not valid JSON: %s", payload)
 	}
 

@@ -13,8 +13,8 @@ import (
 	"gorm.io/gorm"
 	gormlogger "gorm.io/gorm/logger"
 
-	"github.com/shibingli/yd/data/gormx"
 	"github.com/shibingli/yd/security/auth"
+	ydgorm "github.com/shibingli/ydx/gorm"
 )
 
 const (
@@ -69,15 +69,15 @@ func sqliteDSN(path string) string {
 // openDB opens a SQLite database at path without migrating it. | openDB 打开 path 处的 SQLite 数据库，不做迁移。
 func openDB(t *testing.T, path string) *gorm.DB {
 	t.Helper()
-	db, err := gormx.Open(gormx.Options{
-		Driver:   gormx.DriverSQLite,
+	db, err := ydgorm.Open(ydgorm.Options{
+		Driver:   ydgorm.DriverSQLite,
 		DSN:      sqliteDSN(path),
 		LogLevel: "silent",
 	}, nil)
 	if err != nil {
-		t.Fatalf("gormx.Open() = %v, want nil | gormx.Open() = %v，期望 nil", err, err)
+		t.Fatalf("ydgorm.Open() = %v, want nil | ydgorm.Open() = %v，期望 nil", err, err)
 	}
-	t.Cleanup(func() { _ = gormx.Close(db) })
+	t.Cleanup(func() { _ = ydgorm.Close(db) })
 	return db
 }
 

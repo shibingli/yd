@@ -7,7 +7,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/shibingli/yd/http/router"
+	"github.com/shibingli/ydx/router"
 )
 
 // Handler returns the router handler serving the JSON document and the built-in

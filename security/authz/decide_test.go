@@ -9,9 +9,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/shibingli/yd/http/router"
 	"github.com/shibingli/yd/security/auth"
 	"github.com/shibingli/yd/security/authz"
+	"github.com/shibingli/ydx/router"
 )
 
 // fixture is one tenant with one reader holding user:read and one bare member holding nothing. | fixture

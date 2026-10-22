@@ -12,8 +12,8 @@ import (
 
 	"{{ .Module }}/internal/model"
 	"{{ .YdModule }}/security/auth"
-	"{{ .YdModule }}/core/logx"
-	"{{ .YdModule }}/http/router"
+	"{{ .YdxModule }}/log"
+	"{{ .YdxModule }}/router"
 )
 
 // Roles 渲染角色列表与新建表单。
@@ -168,9 +168,9 @@ func (c *Controller) SaveRole(ctx *router.Ctx) {
 		return
 	}
 	c.log.Info("role saved | 角色已保存",
-		logx.Str("tenant", tenantID),
-		logx.Str("role", saved.Name),
-		logx.Int("permissions", len(saved.Permissions)),
+		log.Str("tenant", tenantID),
+		log.Str("role", saved.Name),
+		log.Int("permissions", len(saved.Permissions)),
 	)
 	c.rolesPage(ctx, http.StatusOK, "角色已保存 | role saved")
 }
@@ -223,10 +223,10 @@ func (c *Controller) ToggleRolePermission(ctx *router.Ctx) {
 		return
 	}
 	c.log.Info("capability toggled | 权限已切换",
-		logx.Str("tenant", tenantID),
-		logx.Str("role", role.Name),
-		logx.Str("permission", string(permission)),
-		logx.Bool("granted", granted),
+		log.Str("tenant", tenantID),
+		log.Str("role", role.Name),
+		log.Str("permission", string(permission)),
+		log.Bool("granted", granted),
 	)
 	c.rolesPage(ctx, http.StatusOK, "权限已更新 | permission updated")
 }
@@ -272,8 +272,8 @@ func (c *Controller) DeleteRole(ctx *router.Ctx) {
 		return
 	}
 	c.log.Info("role deleted | 角色已删除",
-		logx.Str("tenant", tenantID),
-		logx.Str("role", roleID),
+		log.Str("tenant", tenantID),
+		log.Str("role", roleID),
 	)
 	c.rolesPage(ctx, http.StatusOK, "角色已删除 | role deleted")
 }

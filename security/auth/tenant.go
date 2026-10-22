@@ -5,7 +5,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/shibingli/yd/core/errx"
+	"github.com/shibingli/ydx/errs"
 )
 
 // Tenant is one isolated workspace. | Tenant 是一个相互隔离的工作空间。
@@ -34,7 +34,7 @@ func (s *Service) CreateTenant(ctx context.Context, slug, name string) (*Tenant,
 	slug = strings.TrimSpace(slug)
 	name = strings.TrimSpace(name)
 	if slug == "" || name == "" {
-		return nil, errx.Detail(ErrTenantRequired, "slug and name must not be empty | slug 与 name 不得为空")
+		return nil, errs.Detail(ErrTenantRequired, "slug and name must not be empty | slug 与 name 不得为空")
 	}
 	id, err := newID(tenantIDPrefix)
 	if err != nil {

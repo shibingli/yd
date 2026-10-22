@@ -47,8 +47,8 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/shibingli/yd/core/errx"
-	"github.com/shibingli/yd/core/regexpx"
+	"github.com/shibingli/ydx/errs"
+	"github.com/shibingli/ydx/regexpx"
 )
 
 // Permission is one capability token of the registry. | Permission 是注册表中的一条能力标识。
@@ -120,11 +120,11 @@ func Register(p Permission) error {
 	global.mu.Lock()
 	defer global.mu.Unlock()
 	if _, dup := global.perms[p.Name]; dup {
-		return errx.Detail(ErrDuplicatePermission, "name=%[1]q | 名称=%[1]q", p.Name)
+		return errs.Detail(ErrDuplicatePermission, "name=%[1]q | 名称=%[1]q", p.Name)
 	}
 	for _, existing := range global.perms {
 		if collision := permissionKeyCollision(existing, p); collision != "" {
-			return errx.Detail(ErrDuplicatePermission, "name=%[1]q collides with %[2]q on %[3]s | 名称 %[1]q 与 %[2]q 在 %[3]s 上冲突",
+			return errs.Detail(ErrDuplicatePermission, "name=%[1]q collides with %[2]q on %[3]s | 名称 %[1]q 与 %[2]q 在 %[3]s 上冲突",
 				p.Name, existing.Name, collision)
 		}
 	}
@@ -162,7 +162,7 @@ func RegisterRole(r Role) error {
 	global.mu.Lock()
 	defer global.mu.Unlock()
 	if _, dup := global.roles[r.Name]; dup {
-		return errx.Detail(ErrDuplicateRole, "name=%[1]q | 名称=%[1]q", r.Name)
+		return errs.Detail(ErrDuplicateRole, "name=%[1]q | 名称=%[1]q", r.Name)
 	}
 	global.roles[r.Name] = r
 	return nil
@@ -209,14 +209,14 @@ func RegisterAll(perms []Permission, roles []Role) error {
 		}
 		for _, key := range []string{ConstantName(p.Name), DataKey(p.Name), JSKey(p.Name)} {
 			if other, dup := seenKeys[key]; dup && other != p.Name {
-				return errx.Detail(ErrDuplicatePermission, "name=%[1]q collides with %[2]q on key %[3]q | 名称 %[1]q 与 %[2]q 在键 %[3]q 上冲突",
+				return errs.Detail(ErrDuplicatePermission, "name=%[1]q collides with %[2]q on key %[3]q | 名称 %[1]q 与 %[2]q 在键 %[3]q 上冲突",
 					p.Name, other, key)
 			}
 			seenKeys[key] = p.Name
 		}
 		for _, existing := range global.perms {
 			if collision := permissionKeyCollision(existing, p); collision != "" {
-				return errx.Detail(ErrDuplicatePermission, "name=%[1]q collides with %[2]q on %[3]s | 名称 %[1]q 与 %[2]q 在 %[3]s 上冲突",
+				return errs.Detail(ErrDuplicatePermission, "name=%[1]q collides with %[2]q on %[3]s | 名称 %[1]q 与 %[2]q 在 %[3]s 上冲突",
 					p.Name, existing.Name, collision)
 			}
 		}
@@ -246,7 +246,7 @@ func Lookup(name string) (Permission, error) {
 	defer global.mu.RUnlock()
 	p, ok := global.perms[name]
 	if !ok {
-		return Permission{}, errx.Detail(ErrUnknownPermission, "name=%[1]q | 名称=%[1]q", name)
+		return Permission{}, errs.Detail(ErrUnknownPermission, "name=%[1]q | 名称=%[1]q", name)
 	}
 	return p, nil
 }
@@ -257,7 +257,7 @@ func LookupRole(name string) (Role, error) {
 	defer global.mu.RUnlock()
 	r, ok := global.roles[name]
 	if !ok {
-		return Role{}, errx.Detail(ErrUnknownRole, "name=%[1]q | 名称=%[1]q", name)
+		return Role{}, errs.Detail(ErrUnknownRole, "name=%[1]q | 名称=%[1]q", name)
 	}
 	return r, nil
 }
@@ -336,10 +336,10 @@ func sortPermissions(perms []Permission) {
 // normalizePermission validates one capability and fills in its group. | normalizePermission 校验一条能力并补全其分组。
 func normalizePermission(p Permission) (Permission, error) {
 	if !IsPermissionName(p.Name) {
-		return Permission{}, errx.Detail(ErrInvalidPermission, "name=%[1]q | 名称=%[1]q", p.Name)
+		return Permission{}, errs.Detail(ErrInvalidPermission, "name=%[1]q | 名称=%[1]q", p.Name)
 	}
 	if strings.TrimSpace(p.Description) == "" {
-		return Permission{}, errx.Detail(ErrInvalidPermission, "name=%[1]q has no description | 名称 %[1]q 没有描述", p.Name)
+		return Permission{}, errs.Detail(ErrInvalidPermission, "name=%[1]q has no description | 名称 %[1]q 没有描述", p.Name)
 	}
 	return withDerivedGroup(p), nil
 }
@@ -358,10 +358,10 @@ func withDerivedGroup(p Permission) Permission {
 // validateRole rejects a role name outside the declared shape. | validateRole 拒绝不符合声明形态的角色名。
 func validateRole(r Role) error {
 	if !IsRoleName(r.Name) {
-		return errx.Detail(ErrInvalidRole, "name=%[1]q | 名称=%[1]q", r.Name)
+		return errs.Detail(ErrInvalidRole, "name=%[1]q | 名称=%[1]q", r.Name)
 	}
 	if strings.TrimSpace(r.Description) == "" {
-		return errx.Detail(ErrInvalidRole, "name=%[1]q has no description | 名称 %[1]q 没有描述", r.Name)
+		return errs.Detail(ErrInvalidRole, "name=%[1]q has no description | 名称 %[1]q 没有描述", r.Name)
 	}
 	return nil
 }

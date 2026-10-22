@@ -4,9 +4,9 @@ import (
 	"os"
 	"strings"
 
-	"github.com/shibingli/yd/core/errx"
-	"github.com/shibingli/yd/http/protocol"
 	"github.com/shibingli/yd/runtime/server"
+	"github.com/shibingli/ydx/errs"
+	"github.com/shibingli/ydx/protocol"
 )
 
 // bootstrapEnv prevents an endless re-exec loop. | bootstrapEnv 防止无限重启循环。
@@ -14,7 +14,7 @@ const bootstrapEnv = "YD_HTTP2XCONNECT_BOOTSTRAPPED"
 
 // ErrReexecFailed reports that the process could not be restarted with the
 // merged GODEBUG value. | ErrReexecFailed 表示无法带合并后的 GODEBUG 值重新启动进程。
-var ErrReexecFailed = errx.New("app: failed to re-exec with GODEBUG | app：带 GODEBUG 重新执行失败")
+var ErrReexecFailed = errs.New("app: failed to re-exec with GODEBUG | app：带 GODEBUG 重新执行失败")
 
 // reexecFunc is the process-replacement function; tests inject a fake. | reexecFunc 是进程替换函数；测试可注入假实现。
 var reexecFunc = platformReexec

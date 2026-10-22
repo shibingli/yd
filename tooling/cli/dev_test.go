@@ -12,8 +12,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/shibingli/yd/core/config"
 	"github.com/shibingli/yd/tooling/toolchain"
+	"github.com/shibingli/ydx/config"
 	"github.com/spf13/afero"
 	"github.com/spf13/pflag"
 )

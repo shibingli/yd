@@ -9,7 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/shibingli/yd/core/errx"
+	"github.com/shibingli/ydx/errs"
 )
 
 // Detection sources, i.e. the signal a detection rests on. | 探测依据，即某次探测所依赖的信号。
@@ -89,7 +89,7 @@ func Detect(goos string, getenv func(string) string) (Detection, error) {
 			return Detection{Shell: sh, Source: SourceShellEnv, Probe: probe}, nil
 		}
 		if !isWindows(goos) {
-			return Detection{}, errx.Detail(ErrShellUndetected,
+			return Detection{}, errs.Detail(ErrShellUndetected,
 				"%s=%q (pass --shell %s | 请用 --shell %s)", shellEnvName, probe, shellNames(), shellNames())
 		}
 	}
@@ -99,7 +99,7 @@ func Detect(goos string, getenv func(string) string) (Detection, error) {
 		}
 		return Detection{Shell: PowerShell, Source: SourcePlatform, Probe: probe}, nil
 	}
-	return Detection{}, errx.Detail(ErrShellUndetected,
+	return Detection{}, errs.Detail(ErrShellUndetected,
 		"%s is not set (pass --shell %s | %s 未设置，请用 --shell %s)",
 		shellEnvName, shellNames(), shellEnvName, shellNames())
 }

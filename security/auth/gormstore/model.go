@@ -3,9 +3,9 @@ package gormstore
 import (
 	"time"
 
-	"github.com/shibingli/yd/core/errx"
-	"github.com/shibingli/yd/core/jsonx"
 	"github.com/shibingli/yd/security/auth"
+	"github.com/shibingli/ydx/errs"
+	"github.com/shibingli/ydx/json"
 )
 
 // ErrCorruptRow reports a stored row this package cannot decode. | ErrCorruptRow 表示本包无法解码的库中行。
@@ -13,7 +13,7 @@ import (
 // It means the database was written by something other than this adapter (or was
 // truncated by hand), which is why it is a distinct sentinel and not ErrNotFound. | 它意味着库中的
 // 行不是本适配器写入的（或被人手工截断），因此它是独立哨兵，而不是 ErrNotFound。
-var ErrCorruptRow = errx.New("gormstore: stored row is malformed | gormstore：库中行数据已损坏")
+var ErrCorruptRow = errs.New("gormstore: stored row is malformed | gormstore：库中行数据已损坏")
 
 // Column widths. | 列宽。
 //
@@ -305,9 +305,9 @@ func encodeRoles(roles []string) (string, error) {
 	if len(roles) == 0 {
 		return "", nil
 	}
-	raw, err := jsonx.Marshal(roles)
+	raw, err := json.Marshal(roles)
 	if err != nil {
-		return "", errx.Wrap(err, ErrCorruptRow)
+		return "", errs.Wrap(err, ErrCorruptRow)
 	}
 	return string(raw), nil
 }
@@ -318,8 +318,8 @@ func decodeRoles(raw string) ([]string, error) {
 		return nil, nil
 	}
 	var roles []string
-	if err := jsonx.Unmarshal([]byte(raw), &roles); err != nil {
-		return nil, errx.WrapDetail(err, ErrCorruptRow, "roles column is not valid JSON | roles 列不是合法 JSON")
+	if err := json.Unmarshal([]byte(raw), &roles); err != nil {
+		return nil, errs.WrapDetail(err, ErrCorruptRow, "roles column is not valid JSON | roles 列不是合法 JSON")
 	}
 	if len(roles) == 0 {
 		return nil, nil

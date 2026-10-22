@@ -7,9 +7,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/shibingli/yd/core/afs"
-	"github.com/shibingli/yd/core/regexpx"
 	"github.com/shibingli/yd/web"
+	"github.com/shibingli/ydx/afs"
+	"github.com/shibingli/ydx/regexpx"
 )
 
 // Stylesheet paths inside the embedded tree. | 内嵌目录树中的样式文件路径。

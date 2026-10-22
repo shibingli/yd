@@ -14,21 +14,21 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/shibingli/yd/core/errx"
+	"github.com/shibingli/ydx/errs"
 )
 
 // Sentinel errors of the local store. | 本地存储的哨兵错误。
 var (
 	// ErrRootInvalid reports an empty or unusable root directory. | ErrRootInvalid 表示根目录为空或不可用。
-	ErrRootInvalid = errx.New("attachment root is invalid | 附件根目录非法")
+	ErrRootInvalid = errs.New("attachment root is invalid | 附件根目录非法")
 	// ErrKeyInvalid reports a key outside the safe segment alphabet. | ErrKeyInvalid 表示键包含不安全的段。
-	ErrKeyInvalid = errx.New("attachment key is invalid | 附件键非法")
+	ErrKeyInvalid = errs.New("attachment key is invalid | 附件键非法")
 	// ErrWrite reports a failed write. | ErrWrite 表示写入失败。
-	ErrWrite = errx.New("attachment write failed | 附件写入失败")
+	ErrWrite = errs.New("attachment write failed | 附件写入失败")
 	// ErrRead reports a failed read. | ErrRead 表示读取失败。
-	ErrRead = errx.New("attachment read failed | 附件读取失败")
+	ErrRead = errs.New("attachment read failed | 附件读取失败")
 	// ErrDelete reports a failed delete. | ErrDelete 表示删除失败。
-	ErrDelete = errx.New("attachment delete failed | 附件删除失败")
+	ErrDelete = errs.New("attachment delete failed | 附件删除失败")
 )
 
 // Store is a root-directory-backed blob store. | Store 是根目录支撑的字节存储。
@@ -45,10 +45,10 @@ func New(root string) (*Store, error) {
 	}
 	abs, err := filepath.Abs(root)
 	if err != nil {
-		return nil, errx.Wrap(err, ErrRootInvalid)
+		return nil, errs.Wrap(err, ErrRootInvalid)
 	}
 	if err := os.MkdirAll(abs, 0o750); err != nil {
-		return nil, errx.Wrap(err, ErrRootInvalid)
+		return nil, errs.Wrap(err, ErrRootInvalid)
 	}
 	return &Store{root: abs}, nil
 }
@@ -63,10 +63,10 @@ func (s *Store) Put(_ context.Context, key string, data []byte) error {
 		return err
 	}
 	if err := os.MkdirAll(filepath.Dir(target), 0o750); err != nil {
-		return errx.Wrap(err, ErrWrite)
+		return errs.Wrap(err, ErrWrite)
 	}
 	if err := os.WriteFile(target, data, 0o600); err != nil {
-		return errx.Wrap(err, ErrWrite)
+		return errs.Wrap(err, ErrWrite)
 	}
 	return nil
 }
@@ -80,9 +80,9 @@ func (s *Store) Get(_ context.Context, key string) ([]byte, error) {
 	data, err := os.ReadFile(target)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
-			return nil, errx.Wrap(err, ErrRead)
+			return nil, errs.Wrap(err, ErrRead)
 		}
-		return nil, errx.Wrap(err, ErrRead)
+		return nil, errs.Wrap(err, ErrRead)
 	}
 	return data, nil
 }
@@ -94,7 +94,7 @@ func (s *Store) Delete(_ context.Context, key string) error {
 		return err
 	}
 	if err := os.Remove(target); err != nil && !errors.Is(err, os.ErrNotExist) {
-		return errx.Wrap(err, ErrDelete)
+		return errs.Wrap(err, ErrDelete)
 	}
 	return nil
 }

@@ -12,7 +12,7 @@ import (
 	"sync/atomic"
 	"testing"
 
-	"github.com/shibingli/yd/core/afs"
+	"github.com/shibingli/ydx/afs"
 	"github.com/spf13/afero"
 )
 

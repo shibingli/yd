@@ -12,7 +12,7 @@ import (
 	"testing"
 
 	"github.com/kardianos/service"
-	"github.com/shibingli/yd/core/errx"
+	"github.com/shibingli/ydx/errs"
 )
 
 // fakeHandle records the service manager calls made on it. | fakeHandle 记录在它身上发生的服务管理器调用。
@@ -227,7 +227,7 @@ func TestControlMapsServiceErrors(t *testing.T) {
 // TestControlReportsBuildFailure 断言构建句柄失败时 Control 原样返回该错误（含平台不支持）。
 // TestControlReportsBuildFailure asserts Control returns a failed handle build as-is (including an unsupported platform).
 func TestControlReportsBuildFailure(t *testing.T) {
-	useHandle(t, nil, errx.Wrap(service.ErrNoServiceSystemDetected, ErrUnsupportedPlatform))
+	useHandle(t, nil, errs.Wrap(service.ErrNoServiceSystemDetected, ErrUnsupportedPlatform))
 
 	_, err := Control(Options{Name: "shop-service"}, ActionInstall)
 	if !errors.Is(err, ErrUnsupportedPlatform) {

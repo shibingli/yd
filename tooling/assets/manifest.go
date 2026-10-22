@@ -34,9 +34,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/shibingli/yd/core/afs"
-	"github.com/shibingli/yd/core/errx"
-	"github.com/shibingli/yd/core/jsonx"
+	"github.com/shibingli/ydx/afs"
+	"github.com/shibingli/ydx/errs"
+	"github.com/shibingli/ydx/json"
 	"github.com/spf13/afero"
 )
 
@@ -45,27 +45,27 @@ import (
 // errors.Is 分支而不是比较字符串。
 var (
 	// ErrManifestNotFound reports a manifest path that does not hold a file. | ErrManifestNotFound 表示清单路径上不存在文件。
-	ErrManifestNotFound = errx.New("assets: manifest not found | assets：未找到资产清单")
+	ErrManifestNotFound = errs.New("assets: manifest not found | assets：未找到资产清单")
 	// ErrManifestInvalid reports a manifest that cannot be parsed or written. | ErrManifestInvalid 表示清单无法解析或写入。
-	ErrManifestInvalid = errx.New("assets: invalid manifest | assets：资产清单非法")
+	ErrManifestInvalid = errs.New("assets: invalid manifest | assets：资产清单非法")
 	// ErrManifestVersion reports a manifest written by a newer version of yd. | ErrManifestVersion 表示清单由更新版本的 yd 写入。
-	ErrManifestVersion = errx.New("assets: unsupported manifest version | assets：不支持的资产清单版本")
+	ErrManifestVersion = errs.New("assets: unsupported manifest version | assets：不支持的资产清单版本")
 	// ErrInvalidAsset reports an asset entry with an empty name or an unusable path. | ErrInvalidAsset 表示资产条目缺少名字或路径不可用。
-	ErrInvalidAsset = errx.New("assets: invalid asset entry | assets：非法的资产条目")
+	ErrInvalidAsset = errs.New("assets: invalid asset entry | assets：非法的资产条目")
 	// ErrChecksumMismatch reports downloaded or on-disk content that does not match the lock. | ErrChecksumMismatch 表示下载内容或本地内容与锁定值不匹配。
-	ErrChecksumMismatch = errx.New("assets: checksum mismatch | assets：校验和不匹配")
+	ErrChecksumMismatch = errs.New("assets: checksum mismatch | assets：校验和不匹配")
 	// ErrOffline reports a network access attempt while offline mode is on. | ErrOffline 表示在离线模式下尝试访问网络。
-	ErrOffline = errx.New("assets: offline mode forbids network access | assets：离线模式禁止网络访问")
+	ErrOffline = errs.New("assets: offline mode forbids network access | assets：离线模式禁止网络访问")
 	// ErrOfflineMissing reports a missing local file in offline mode. | ErrOfflineMissing 表示离线模式下本地文件缺失。
-	ErrOfflineMissing = errx.New("assets: file missing in offline mode | assets：离线模式下文件缺失")
+	ErrOfflineMissing = errs.New("assets: file missing in offline mode | assets：离线模式下文件缺失")
 	// ErrDownloadFailed reports that every candidate source failed. | ErrDownloadFailed 表示所有候选源均失败。
-	ErrDownloadFailed = errx.New("assets: download failed | assets：下载失败")
+	ErrDownloadFailed = errs.New("assets: download failed | assets：下载失败")
 	// ErrAssetTooLarge reports a body beyond the in-memory size limit. | ErrAssetTooLarge 表示内容超过内存体积上限。
-	ErrAssetTooLarge = errx.New("assets: asset exceeds the size limit | assets：资产超过体积上限")
+	ErrAssetTooLarge = errs.New("assets: asset exceeds the size limit | assets：资产超过体积上限")
 	// ErrNilManifest reports a nil manifest handed to Verify. | ErrNilManifest 表示传给 Verify 的清单为空。
-	ErrNilManifest = errx.New("assets: nil manifest | assets：资产清单为空")
+	ErrNilManifest = errs.New("assets: nil manifest | assets：资产清单为空")
 	// ErrVerifyFailed reports at least one missing or mismatching asset. | ErrVerifyFailed 表示至少有一项资产缺失或校验和不符。
-	ErrVerifyFailed = errx.New("assets: verification failed | assets：资产校验未通过")
+	ErrVerifyFailed = errs.New("assets: verification failed | assets：资产校验未通过")
 )
 
 // Manifest and update defaults, used when the caller leaves the corresponding field empty. | 清单与更新默认值，在调用方相应字段留空时使用。
@@ -157,32 +157,32 @@ type Manifest struct {
 // 初始化一份空清单。
 func LoadManifest(fsys afero.Fs, path string) (*Manifest, error) {
 	if fsys == nil {
-		return nil, errx.Detail(ErrManifestInvalid, "nil file system | 文件系统为 nil")
+		return nil, errs.Detail(ErrManifestInvalid, "nil file system | 文件系统为 nil")
 	}
 	data, err := afero.ReadFile(fsys, path)
 	if err != nil {
 		if errors.Is(err, fs.ErrNotExist) {
-			return nil, errx.WrapDetail(err, ErrManifestNotFound, "%s", path)
+			return nil, errs.WrapDetail(err, ErrManifestNotFound, "%s", path)
 		}
-		return nil, errx.WrapDetail(err, ErrManifestInvalid, "%s", path)
+		return nil, errs.WrapDetail(err, ErrManifestInvalid, "%s", path)
 	}
 
 	var m Manifest
-	if err := jsonx.Unmarshal(data, &m); err != nil {
-		return nil, errx.WrapDetail(err, ErrManifestInvalid, "%s", path)
+	if err := json.Unmarshal(data, &m); err != nil {
+		return nil, errs.WrapDetail(err, ErrManifestInvalid, "%s", path)
 	}
 	if m.Version == 0 {
 		m.Version = CurrentManifestVersion
 	}
 	if m.Version > CurrentManifestVersion {
-		return nil, errx.Detail(ErrManifestVersion, "%s: %d > %d", path, m.Version, CurrentManifestVersion)
+		return nil, errs.Detail(ErrManifestVersion, "%s: %d > %d", path, m.Version, CurrentManifestVersion)
 	}
 	// Validate on load, not only on save: the lock file may be hand-edited, and Update/Verify would
 	// otherwise trust a "../" path and write or read outside the asset root before Save ever runs.
 	// | 在加载时校验而不只在保存时校验：锁文件可能被手工编辑，否则 Update/Verify 会信任 "../"
 	// 路径，在 Save 运行之前就写出或读取到资产根之外。
 	if err := Validate(m.Assets); err != nil {
-		return nil, errx.WrapDetail(err, ErrManifestInvalid, "%s", path)
+		return nil, errs.WrapDetail(err, ErrManifestInvalid, "%s", path)
 	}
 	return &m, nil
 }
@@ -204,14 +204,14 @@ func (m *Manifest) Save(fsys afero.Fs, path string) error {
 	m.GeneratedAt = time.Now().UTC()
 	sortAssets(m.Assets)
 
-	data, err := jsonx.MarshalIndent(m, "", "  ")
+	data, err := json.MarshalIndent(m, "", "  ")
 	if err != nil {
-		return errx.WrapDetail(err, ErrManifestInvalid, "%s", path)
+		return errs.WrapDetail(err, ErrManifestInvalid, "%s", path)
 	}
 	data = append(data, '\n')
 
 	if _, err := afs.WriteFileIfChanged(fsys, path, data); err != nil {
-		return errx.WrapDetail(err, ErrManifestInvalid, "%s", path)
+		return errs.WrapDetail(err, ErrManifestInvalid, "%s", path)
 	}
 	return nil
 }
@@ -254,13 +254,13 @@ func Validate(assets []Asset) error {
 	for i := range assets {
 		a := assets[i]
 		if strings.TrimSpace(a.Name) == "" {
-			return errx.Detail(ErrInvalidAsset, "asset #%[1]d is missing name | asset #%[1]d 缺少 name", i)
+			return errs.Detail(ErrInvalidAsset, "asset #%[1]d is missing name | asset #%[1]d 缺少 name", i)
 		}
 		if _, err := NormalizePath(a.Path); err != nil {
-			return errx.WrapDetail(err, ErrInvalidAsset, "%s", a.Name)
+			return errs.WrapDetail(err, ErrInvalidAsset, "%s", a.Name)
 		}
 		if a.SHA256 != "" && !isHexDigest(a.SHA256) {
-			return errx.Detail(ErrInvalidAsset, "the sha256 of %[1]s is not 64 hexadecimal digits | %[1]s 的 sha256 不是 64 位十六进制", a.Name)
+			return errs.Detail(ErrInvalidAsset, "the sha256 of %[1]s is not 64 hexadecimal digits | %[1]s 的 sha256 不是 64 位十六进制", a.Name)
 		}
 	}
 	return nil
@@ -273,7 +273,7 @@ func Validate(assets []Asset) error {
 // 段都会被拒绝：资产路径来自可能被手工编辑的锁文件，绝不能逃逸出写入根。
 func NormalizePath(p string) (string, error) {
 	if strings.TrimSpace(p) == "" {
-		return "", errx.Detail(ErrInvalidAsset, "path is empty | path 为空")
+		return "", errs.Detail(ErrInvalidAsset, "path is empty | path 为空")
 	}
 	// Treat a backslash as a separator on every platform, not just Windows: the manifest is
 	// checked into the repository and must resolve to the same relative path on Linux and
@@ -283,11 +283,11 @@ func NormalizePath(p string) (string, error) {
 	// `a\..\b` 当成普通文件名、在 Windows 上却清理成 `b`，同一份锁文件就会描述两棵不同的目录树。
 	slashed := strings.ReplaceAll(p, "\\", "/")
 	if strings.HasPrefix(slashed, "/") || hasDrivePrefix(slashed) || filepath.IsAbs(p) || filepath.VolumeName(p) != "" {
-		return "", errx.Detail(ErrInvalidAsset, "path %[1]q is not a relative path | path %[1]q 不是相对路径", p)
+		return "", errs.Detail(ErrInvalidAsset, "path %[1]q is not a relative path | path %[1]q 不是相对路径", p)
 	}
 	cleaned := path.Clean(slashed)
 	if cleaned == "." || cleaned == ".." || strings.HasPrefix(cleaned, "../") {
-		return "", errx.Detail(ErrInvalidAsset, "path %[1]q escapes the write root | path %[1]q 逃逸出写入根", p)
+		return "", errs.Detail(ErrInvalidAsset, "path %[1]q escapes the write root | path %[1]q 逃逸出写入根", p)
 	}
 	return cleaned, nil
 }

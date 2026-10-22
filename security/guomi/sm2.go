@@ -10,31 +10,31 @@ import (
 
 	esm2 "github.com/emmansun/gmsm/sm2"
 
-	"github.com/shibingli/yd/core/errx"
+	"github.com/shibingli/ydx/errs"
 )
 
 var (
 	// ErrInvalidPrivateKey reports a nil, out-of-range or malformed SM2 private key. | ErrInvalidPrivateKey 表示 SM2 私钥为空、标量越界或编码非法。
-	ErrInvalidPrivateKey = errx.New("guomi: invalid SM2 private key | guomi：非法的 SM2 私钥")
+	ErrInvalidPrivateKey = errs.New("guomi: invalid SM2 private key | guomi：非法的 SM2 私钥")
 
 	// ErrInvalidPublicKey reports a nil, off-curve or malformed SM2 public key. | ErrInvalidPublicKey 表示 SM2 公钥为空、坐标不在曲线上或编码非法。
-	ErrInvalidPublicKey = errx.New("guomi: invalid SM2 public key | guomi：非法的 SM2 公钥")
+	ErrInvalidPublicKey = errs.New("guomi: invalid SM2 public key | guomi：非法的 SM2 公钥")
 
 	// ErrInvalidSignature reports an SM2 signature that cannot be decoded. | ErrInvalidSignature 表示 SM2 签名编码非法（如非法十六进制）。
-	ErrInvalidSignature = errx.New("guomi: invalid SM2 signature | guomi：非法的 SM2 签名")
+	ErrInvalidSignature = errs.New("guomi: invalid SM2 signature | guomi：非法的 SM2 签名")
 
 	// ErrDecrypt reports a failed SM2 decryption. | ErrDecrypt 表示 SM2 解密失败。
 	// It covers C3 verification failures and all-zero key derivation output. | 涵盖 C3 校验不通过与密钥派生结果全为零两种情况。
-	ErrDecrypt = errx.New("guomi: SM2 decryption failed | guomi：SM2 解密失败")
+	ErrDecrypt = errs.New("guomi: SM2 decryption failed | guomi：SM2 解密失败")
 
 	// ErrSign reports a failed SM2 signature generation. | ErrSign 表示 SM2 签名生成失败。
-	ErrSign = errx.New("guomi: SM2 signing failed | guomi：SM2 签名失败")
+	ErrSign = errs.New("guomi: SM2 signing failed | guomi：SM2 签名失败")
 
 	// ErrEncrypt reports a failed SM2 encryption. | ErrEncrypt 表示 SM2 加密失败。
-	ErrEncrypt = errx.New("guomi: SM2 encryption failed | guomi：SM2 加密失败")
+	ErrEncrypt = errs.New("guomi: SM2 encryption failed | guomi：SM2 加密失败")
 
 	// ErrSM2ASN1 reports a failed ASN.1 (DER) encoding of SM2 material. | ErrSM2ASN1 表示 SM2 数据的 ASN.1（DER）编码失败。
-	ErrSM2ASN1 = errx.New("guomi: SM2 ASN.1 encoding failed | guomi：SM2 ASN.1 编码失败")
+	ErrSM2ASN1 = errs.New("guomi: SM2 ASN.1 encoding failed | guomi：SM2 ASN.1 编码失败")
 )
 
 // PrivateKey is an SM2 private key, a thin wrapper around gmsm's *sm2.PrivateKey. | PrivateKey 是 SM2 私钥，薄封装 gmsm 的 *sm2.PrivateKey。
@@ -120,7 +120,7 @@ func Encrypt(pub *PublicKey, data []byte) ([]byte, error) {
 		CipherText:  raw[2*SM2CoordinateSize+SM3Size:],
 	})
 	if err != nil {
-		return nil, errx.Wrap(err, ErrSM2ASN1)
+		return nil, errs.Wrap(err, ErrSM2ASN1)
 	}
 	return der, nil
 }
@@ -158,10 +158,10 @@ func EncryptRaw(pub *PublicKey, data []byte) ([]byte, error) {
 	// 因此去掉该字节。
 	ct, err := esm2.Encrypt(rand.Reader, p, data, plainC1C3C2Encrypter)
 	if err != nil {
-		return nil, errx.Wrap(err, ErrEncrypt)
+		return nil, errs.Wrap(err, ErrEncrypt)
 	}
 	if len(ct) != 1+2*SM2CoordinateSize+SM3Size+len(data) || ct[0] != 0x04 {
-		return nil, errx.Detail(ErrEncrypt, "unexpected ciphertext layout (%[1]d bytes, marker 0x%[2]02x) | 密文布局异常（%[1]d 字节，标识 0x%[2]02x）", len(ct), firstByte(ct))
+		return nil, errs.Detail(ErrEncrypt, "unexpected ciphertext layout (%[1]d bytes, marker 0x%[2]02x) | 密文布局异常（%[1]d 字节，标识 0x%[2]02x）", len(ct), firstByte(ct))
 	}
 	return ct[1:], nil
 }
@@ -202,21 +202,21 @@ func Decrypt(priv *PrivateKey, ciphertext []byte) ([]byte, error) {
 	}
 	var c sm2CipherASN1
 	if _, err := asn1.Unmarshal(ciphertext, &c); err != nil {
-		return nil, errx.WrapDetail(err, ErrInvalidCiphertext, "ASN.1 parse failed | ASN.1 解析失败")
+		return nil, errs.WrapDetail(err, ErrInvalidCiphertext, "ASN.1 parse failed | ASN.1 解析失败")
 	}
 	if c.XCoordinate == nil || c.YCoordinate == nil {
-		return nil, errx.Detail(ErrInvalidCiphertext, "C1 coordinates are missing from the ASN.1 structure | ASN.1 中缺少 C1 坐标")
+		return nil, errs.Detail(ErrInvalidCiphertext, "C1 coordinates are missing from the ASN.1 structure | ASN.1 中缺少 C1 坐标")
 	}
 	x, ok := coordBytes(c.XCoordinate)
 	if !ok {
-		return nil, errx.Detail(ErrInvalidCiphertext, "C1 X coordinate is too long | C1 的 X 坐标超长")
+		return nil, errs.Detail(ErrInvalidCiphertext, "C1 X coordinate is too long | C1 的 X 坐标超长")
 	}
 	y, ok := coordBytes(c.YCoordinate)
 	if !ok {
-		return nil, errx.Detail(ErrInvalidCiphertext, "C1 Y coordinate is too long | C1 的 Y 坐标超长")
+		return nil, errs.Detail(ErrInvalidCiphertext, "C1 Y coordinate is too long | C1 的 Y 坐标超长")
 	}
 	if len(c.Hash) != SM3Size {
-		return nil, errx.Detail(ErrInvalidCiphertext, "C3 length %[1]d, want %[2]d | C3 长度 %[1]d，期望 %[2]d", len(c.Hash), SM3Size)
+		return nil, errs.Detail(ErrInvalidCiphertext, "C3 length %[1]d, want %[2]d | C3 长度 %[1]d，期望 %[2]d", len(c.Hash), SM3Size)
 	}
 
 	raw := make([]byte, 0, 2*SM2CoordinateSize+SM3Size+len(c.CipherText))
@@ -239,7 +239,7 @@ func DecryptRaw(priv *PrivateKey, ciphertext []byte) ([]byte, error) {
 	}
 	const minLen = 2*SM2CoordinateSize + SM3Size
 	if len(ciphertext) < minLen {
-		return nil, errx.Detail(ErrInvalidCiphertext, "length %[1]d is below the minimum %[2]d | 长度 %[1]d 小于最小长度 %[2]d", len(ciphertext), minLen)
+		return nil, errs.Detail(ErrInvalidCiphertext, "length %[1]d is below the minimum %[2]d | 长度 %[1]d 小于最小长度 %[2]d", len(ciphertext), minLen)
 	}
 
 	// C1 must be a point on the curve. Checking it here keeps off-curve ciphertext
@@ -250,7 +250,7 @@ func DecryptRaw(priv *PrivateKey, ciphertext []byte) ([]byte, error) {
 	prefixed[0] = 0x04
 	copy(prefixed[1:], ciphertext)
 	if _, err := esm2.ParseUncompressedPublicKey(prefixed[:1+2*SM2CoordinateSize]); err != nil {
-		return nil, errx.WrapDetail(err, ErrInvalidCiphertext, "C1 is not on the SM2 curve | C1 不在 SM2 曲线上")
+		return nil, errs.WrapDetail(err, ErrInvalidCiphertext, "C1 is not on the SM2 curve | C1 不在 SM2 曲线上")
 	}
 
 	c3 := ciphertext[2*SM2CoordinateSize : minLen]
@@ -261,7 +261,7 @@ func DecryptRaw(priv *PrivateKey, ciphertext []byte) ([]byte, error) {
 
 	plaintext, err := k.Decrypt(rand.Reader, prefixed, plainC1C3C2Decrypter)
 	if err != nil {
-		return nil, errx.WrapDetail(err, ErrDecrypt, "C3 verification failed | C3 校验失败")
+		return nil, errs.WrapDetail(err, ErrDecrypt, "C3 verification failed | C3 校验失败")
 	}
 	return plaintext, nil
 }
@@ -276,7 +276,7 @@ func decryptRawEmpty(k *esm2.PrivateKey, c1, c3 []byte) ([]byte, error) {
 	y1 := new(big.Int).SetBytes(c1[SM2CoordinateSize:])
 	x2, y2 := curve.ScalarMult(x1, y1, k.D.Bytes())
 	if subtle.ConstantTimeCompare(sm3C3(pad32(x2), nil, pad32(y2)), c3) != 1 {
-		return nil, errx.Detail(ErrDecrypt, "C3 verification failed | C3 校验失败")
+		return nil, errs.Detail(ErrDecrypt, "C3 verification failed | C3 校验失败")
 	}
 	return []byte{}, nil
 }
@@ -299,17 +299,17 @@ func Sign(priv *PrivateKey, data []byte) ([]byte, error) {
 		// 仍将其摘要定义为 SM3(ZA)。这里先算出该摘要，再按「已散列」值签名。
 		digest, err := esm2.CalculateSM2Hash(&k.PublicKey, nil, nil)
 		if err != nil {
-			return nil, errx.WrapDetail(err, ErrSign, "SM2 hash of the empty message failed | 空消息的 SM2 摘要计算失败")
+			return nil, errs.WrapDetail(err, ErrSign, "SM2 hash of the empty message failed | 空消息的 SM2 摘要计算失败")
 		}
 		sig, err := esm2.SignASN1(rand.Reader, k, digest, nil)
 		if err != nil {
-			return nil, errx.Wrap(err, ErrSign)
+			return nil, errs.Wrap(err, ErrSign)
 		}
 		return sig, nil
 	}
 	sig, err := k.SignWithSM2(rand.Reader, nil, data)
 	if err != nil {
-		return nil, errx.Wrap(err, ErrSign)
+		return nil, errs.Wrap(err, ErrSign)
 	}
 	return sig, nil
 }
@@ -340,7 +340,7 @@ func SignHex(priv *PrivateKey, data []byte) (string, error) {
 func VerifyHex(pub *PublicKey, data []byte, sigHex string) (bool, error) {
 	sig, err := hex.DecodeString(sigHex)
 	if err != nil {
-		return false, errx.WrapDetail(err, ErrInvalidSignature, "signature is not valid hexadecimal | 签名不是合法十六进制")
+		return false, errs.WrapDetail(err, ErrInvalidSignature, "signature is not valid hexadecimal | 签名不是合法十六进制")
 	}
 	return Verify(pub, data, sig)
 }
@@ -358,10 +358,10 @@ type sm2CipherASN1 struct {
 func validPublic(pub *PublicKey) (*ecdsa.PublicKey, error) {
 	p := pub.Raw()
 	if p == nil || p.Curve == nil || p.X == nil || p.Y == nil {
-		return nil, errx.Detail(ErrInvalidPublicKey, "public key is nil | 公钥为空")
+		return nil, errs.Detail(ErrInvalidPublicKey, "public key is nil | 公钥为空")
 	}
 	if !p.Curve.IsOnCurve(p.X, p.Y) {
-		return nil, errx.Detail(ErrInvalidPublicKey, "public key is not on the SM2 curve | 公钥不在 SM2 曲线上")
+		return nil, errs.Detail(ErrInvalidPublicKey, "public key is not on the SM2 curve | 公钥不在 SM2 曲线上")
 	}
 	return p, nil
 }
@@ -370,11 +370,11 @@ func validPublic(pub *PublicKey) (*ecdsa.PublicKey, error) {
 func validPrivate(priv *PrivateKey) (*esm2.PrivateKey, error) {
 	k := priv.Raw()
 	if k == nil || k.Curve == nil || k.D == nil {
-		return nil, errx.Detail(ErrInvalidPrivateKey, "private key is nil | 私钥为空")
+		return nil, errs.Detail(ErrInvalidPrivateKey, "private key is nil | 私钥为空")
 	}
 	n := k.Curve.Params().N
 	if k.D.Sign() <= 0 || k.D.Cmp(n) >= 0 {
-		return nil, errx.Detail(ErrInvalidPrivateKey, "scalar D is out of range | 标量 D 越界")
+		return nil, errs.Detail(ErrInvalidPrivateKey, "scalar D is out of range | 标量 D 越界")
 	}
 	return k, nil
 }
@@ -384,7 +384,7 @@ func randScalar(n *big.Int) (*big.Int, error) {
 	buf := make([]byte, (n.BitLen()+7)/8)
 	for {
 		if _, err := rand.Read(buf); err != nil {
-			return nil, errx.Wrap(err, ErrRandomSource)
+			return nil, errs.Wrap(err, ErrRandomSource)
 		}
 		k := new(big.Int).SetBytes(buf)
 		if k.Sign() > 0 && k.Cmp(n) < 0 {

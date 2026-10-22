@@ -9,8 +9,8 @@ import (
 	"testing"
 	"time"
 
-	ydrouter "github.com/shibingli/yd/http/router"
-	ourws "github.com/shibingli/yd/http/ws"
+	ydrouter "github.com/shibingli/ydx/router"
+	ourws "github.com/shibingli/ydx/websocket"
 )
 
 // benchConn discards writes and reports EOF on reads. | benchConn 丢弃写入并在读取时返回 EOF。

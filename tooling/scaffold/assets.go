@@ -5,10 +5,10 @@ import (
 
 	"github.com/spf13/afero"
 
-	"github.com/shibingli/yd/core/errx"
-	"github.com/shibingli/yd/core/jsonx"
 	"github.com/shibingli/yd/tooling/assets"
 	"github.com/shibingli/yd/web"
+	"github.com/shibingli/ydx/errs"
+	"github.com/shibingli/ydx/json"
 )
 
 // projectMeta 是写入 .yd.json 的工程元信息，供 yd dev / yd build / yd assets 读取。
@@ -93,7 +93,7 @@ var extAsset = map[string]string{
 func frameworkManifest() (*assets.Manifest, error) {
 	m, err := assets.LoadManifest(web.FS(), frameworkManifestName)
 	if err != nil {
-		return nil, errx.WrapDetail(err, ErrTemplateRead, "path=web/%[1]s | 路径=web/%[1]s", frameworkManifestName)
+		return nil, errs.WrapDetail(err, ErrTemplateRead, "path=web/%[1]s | 路径=web/%[1]s", frameworkManifestName)
 	}
 	return m, nil
 }
@@ -156,7 +156,7 @@ func generatedDocs(o Options, v view, m *assets.Manifest) ([]plannedFile, error)
 func frameworkComponentsCSS() ([]byte, error) {
 	data, err := afero.ReadFile(web.FS(), "static/css/components.css")
 	if err != nil {
-		return nil, errx.WrapDetail(err, ErrTemplateRead, "path=web/static/css/components.css | 路径=web/static/css/components.css")
+		return nil, errs.WrapDetail(err, ErrTemplateRead, "path=web/static/css/components.css | 路径=web/static/css/components.css")
 	}
 	return data, nil
 }
@@ -197,9 +197,9 @@ func trimManifest(m *assets.Manifest, exts []string) *assets.Manifest {
 // marshalIndent 用 jsonx 输出两空格缩进的 JSON，并补上结尾换行。
 // marshalIndent writes two-space indented JSON through jsonx and appends a trailing newline.
 func marshalIndent(v any) ([]byte, error) {
-	data, err := jsonx.MarshalIndent(v, "", "  ")
+	data, err := json.MarshalIndent(v, "", "  ")
 	if err != nil {
-		return nil, errx.Wrap(err, ErrTemplateRender)
+		return nil, errs.Wrap(err, ErrTemplateRender)
 	}
 	return append(data, '\n'), nil
 }

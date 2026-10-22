@@ -10,10 +10,10 @@ import (
 <% if .CtrlStrings %>	"strings"
 <% end %><% if .FormTime %>	"time"
 <% end %>
-	"github.com/shibingli/yd/core/errx"
+	"github.com/shibingli/ydx/errs"
 	"github.com/shibingli/yd/http/htmx"
-	"github.com/shibingli/yd/core/logx"
-	"github.com/shibingli/yd/http/router"
+	"github.com/shibingli/ydx/log"
+	"github.com/shibingli/ydx/router"
 
 	"<%.PkgModel%>"
 	"<%.PkgService%>"
@@ -24,10 +24,10 @@ import (
 var (
 	// Err<%.Name%>BadRequest 表示路径或查询参数不合法。
 	// Err<%.Name%>BadRequest reports an illegal path or query parameter.
-	Err<%.Name%>BadRequest = errx.New("invalid <%.Snake%> request parameters | <%.Snake%> 请求参数不合法")
+	Err<%.Name%>BadRequest = errs.New("invalid <%.Snake%> request parameters | <%.Snake%> 请求参数不合法")
 	// Err<%.Name%>BadForm 表示提交的表单无法解析为入参。
 	// Err<%.Name%>BadForm reports a submitted form that cannot be parsed into a payload.
-	Err<%.Name%>BadForm = errx.New("invalid <%.Snake%> form values | <%.Snake%> 表单取值不合法")
+	Err<%.Name%>BadForm = errs.New("invalid <%.Snake%> form values | <%.Snake%> 表单取值不合法")
 )
 
 // 分页缺省值：与 service 层的归一化区间保持一致，避免两处口径打架。
@@ -114,7 +114,7 @@ type <%.Name%>Controller struct {
 // New<%.Name%>Controller 创建 <%.Name%>Controller。
 // New<%.Name%>Controller creates a <%.Name%>Controller.
 func New<%.Name%>Controller(svc *service.<%.Name%>Service) *<%.Name%>Controller {
-	logx.Default().Info("<%.Snake%> controller ready | <%.Snake%> 控制器已就绪", logx.Str("route", "<%.Route%>"))
+	log.Default().Info("<%.Snake%> controller ready | <%.Snake%> 控制器已就绪", log.Str("route", "<%.Route%>"))
 	return &<%.Name%>Controller{svc: svc}
 }
 
@@ -124,7 +124,7 @@ func New<%.Name%>Controller(svc *service.<%.Name%>Service) *<%.Name%>Controller 
 // status 为 5xx 时对外只给一句通用文案，具体错误留在日志里。
 // For a 5xx status the response carries a generic sentence only, while the detail stays in the log.
 func (ctl *<%.Name%>Controller) fail(c *router.Ctx, status int, target, msg string, err error) {
-	logx.Default().Error(msg, logx.Err(err), logx.Int("status", status))
+	log.Default().Error(msg, log.Err(err), log.Int("status", status))
 	// 错误片段只替换提示槽，不覆盖被编辑的那一行。
 	// The error fragment replaces the hint slot only and never the row being edited.
 	htmx.Retarget(c.Writer, target)
@@ -135,7 +135,7 @@ func (ctl *<%.Name%>Controller) fail(c *router.Ctx, status int, target, msg stri
 		text = "<%.Snake%> request failed | <%.Snake%> 请求处理失败"
 	}
 	if writeErr := c.HTMLString(status, string(htmx.ErrorFragment(text))); writeErr != nil {
-		logx.Default().Error("<%.Snake%> error fragment failed | <%.Snake%> 错误片段写出失败", logx.Err(writeErr))
+		log.Default().Error("<%.Snake%> error fragment failed | <%.Snake%> 错误片段写出失败", log.Err(writeErr))
 	}
 }
 
@@ -171,7 +171,7 @@ func parse<%.Name%>Page(c *router.Ctx) (int, int) {
 <% if .Primary.IsString %>func parse<%.Name%>ID(c *router.Ctx) (string, error) {
 	raw := c.Param("id")
 	if raw == "" {
-		return "", errx.Detail(Err<%.Name%>BadRequest, "missing <%.Primary.Column%> | 缺少 <%.Primary.Column%>")
+		return "", errs.Detail(Err<%.Name%>BadRequest, "missing <%.Primary.Column%> | 缺少 <%.Primary.Column%>")
 	}
 	return raw, nil
 }
@@ -179,7 +179,7 @@ func parse<%.Name%>Page(c *router.Ctx) (int, int) {
 	raw := c.Param("id")
 	n, err := strconv.<%.Primary.Scalar.Func%>(raw<%.Primary.Scalar.Args%>)
 	if err != nil || <%.Primary.Scalar.Guard%> {
-		return <%.Primary.Scalar.Zero%>, errx.Detail(Err<%.Name%>BadRequest, "invalid <%.Primary.Column%>: %q | <%.Primary.Column%> 不合法：%q", raw, raw)
+		return <%.Primary.Scalar.Zero%>, errs.Detail(Err<%.Name%>BadRequest, "invalid <%.Primary.Column%>: %q | <%.Primary.Column%> 不合法：%q", raw, raw)
 	}
 	return <%.Primary.Scalar.CastExpr "n"%>, nil
 }
@@ -195,19 +195,19 @@ func bind<%.Name%>Input(c *router.Ctx) (service.<%.Name%>Input, error) {
 		// A file field records the uploaded file name only; persisting the bytes stays with the business.
 		in.<%.GoName%> = header.Filename
 	} else if !errors.Is(err, http.ErrMissingFile) && !errors.Is(err, http.ErrNotMultipart) {
-		return in, errx.Detail(Err<% $.Name %>BadForm, "<%.Column%> upload failed | <%.Column%> 上传失败")
+		return in, errs.Detail(Err<% $.Name %>BadForm, "<%.Column%> upload failed | <%.Column%> 上传失败")
 	}
 <% else if .IsTime %>	if raw := strings.TrimSpace(c.FormValue("<%.Column%>")); raw != "" {
 		v, err := time.Parse("<%.TimeLayout%>", raw)
 		if err != nil {
-			return in, errx.Detail(Err<% $.Name %>BadForm, "<%.Column%> must be a time value | <%.Column%> 必须为时间")
+			return in, errs.Detail(Err<% $.Name %>BadForm, "<%.Column%> must be a time value | <%.Column%> 必须为时间")
 		}
 		in.<%.GoName%> = v
 	}
 <% else if .IsNumber %>	if raw := strings.TrimSpace(c.FormValue("<%.Column%>")); raw != "" {
 		n, err := strconv.<%.Scalar.Func%>(raw<%.Scalar.Args%>)
 		if err != nil {
-			return in, errx.Detail(Err<% $.Name %>BadForm, "<%.Column%> must be a number | <%.Column%> 必须为数字")
+			return in, errs.Detail(Err<% $.Name %>BadForm, "<%.Column%> must be a number | <%.Column%> 必须为数字")
 		}
 		in.<%.GoName%> = <%.Scalar.CastExpr "n"%>
 	}
@@ -255,7 +255,7 @@ func (ctl *<%.Name%>Controller) List(c *router.Ctx) {
 <% if .HasSearch %>		Query:    keyword,
 <% end %>	}
 	if err := c.HTML(http.StatusOK, "<%.Snake%>/list.html", data); err != nil {
-		logx.Default().Error("<%.Snake%> list render failed | <%.Snake%> 列表渲染失败", logx.Err(err))
+		log.Default().Error("<%.Snake%> list render failed | <%.Snake%> 列表渲染失败", log.Err(err))
 	}
 }
 
@@ -281,7 +281,7 @@ func (ctl *<%.Name%>Controller) New(c *router.Ctx) {
 		Swap:    "afterbegin",
 	}
 	if err := c.HTML(http.StatusOK, "<%.Snake%>/form.html", data); err != nil {
-		logx.Default().Error("<%.Snake%> form render failed | <%.Snake%> 表单渲染失败", logx.Err(err))
+		log.Default().Error("<%.Snake%> form render failed | <%.Snake%> 表单渲染失败", log.Err(err))
 	}
 }
 
@@ -322,7 +322,7 @@ func (ctl *<%.Name%>Controller) Create(c *router.Ctx) {
 
 	htmx.TriggerFromCtx(c, htmx.Event{Name: "<%.Event%>", Detail: map[string]any{"id": item.<%.Primary.GoName%>}})
 	if err := c.HTML(http.StatusCreated, "<%.Snake%>/row.html", item); err != nil {
-		logx.Default().Error("<%.Snake%> row render failed | <%.Snake%> 行片段渲染失败", logx.Err(err))
+		log.Default().Error("<%.Snake%> row render failed | <%.Snake%> 行片段渲染失败", log.Err(err))
 	}
 }
 
@@ -357,7 +357,7 @@ func (ctl *<%.Name%>Controller) Show(c *router.Ctx) {
 		return
 	}
 	if err := c.HTML(http.StatusOK, "<%.Snake%>/row.html", item); err != nil {
-		logx.Default().Error("<%.Snake%> row render failed | <%.Snake%> 行片段渲染失败", logx.Err(err))
+		log.Default().Error("<%.Snake%> row render failed | <%.Snake%> 行片段渲染失败", log.Err(err))
 	}
 }
 
@@ -402,7 +402,7 @@ func (ctl *<%.Name%>Controller) Edit(c *router.Ctx) {
 		Swap:    "outerHTML",
 	}
 	if err := c.HTML(http.StatusOK, "<%.Snake%>/form.html", data); err != nil {
-		logx.Default().Error("<%.Snake%> form render failed | <%.Snake%> 表单渲染失败", logx.Err(err))
+		log.Default().Error("<%.Snake%> form render failed | <%.Snake%> 表单渲染失败", log.Err(err))
 	}
 }
 
@@ -454,7 +454,7 @@ func (ctl *<%.Name%>Controller) Update(c *router.Ctx) {
 
 	htmx.TriggerFromCtx(c, htmx.Event{Name: "<%.Event%>", Detail: map[string]any{"id": item.<%.Primary.GoName%>}})
 	if err := c.HTML(http.StatusOK, "<%.Snake%>/row.html", item); err != nil {
-		logx.Default().Error("<%.Snake%> row render failed | <%.Snake%> 行片段渲染失败", logx.Err(err))
+		log.Default().Error("<%.Snake%> row render failed | <%.Snake%> 行片段渲染失败", log.Err(err))
 	}
 }
 
@@ -496,6 +496,6 @@ func (ctl *<%.Name%>Controller) Delete(c *router.Ctx) {
 	// 204 会被 htmx 跳过交换，因此返回 200 与空正文，由 hx-swap="delete" 移除该行。
 	// A 204 makes htmx skip the swap, so an empty 200 body is returned and hx-swap="delete" removes the row.
 	if err := c.HTMLString(http.StatusOK, ""); err != nil {
-		logx.Default().Error("<%.Snake%> delete response failed | <%.Snake%> 删除响应写出失败", logx.Err(err))
+		log.Default().Error("<%.Snake%> delete response failed | <%.Snake%> 删除响应写出失败", log.Err(err))
 	}
 }

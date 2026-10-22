@@ -9,18 +9,18 @@ import (
 	"runtime"
 	"strings"
 
-	"github.com/shibingli/yd/core/errx"
-	"github.com/shibingli/yd/core/logx"
+	"github.com/shibingli/ydx/errs"
+	ydlog "github.com/shibingli/ydx/log"
 )
 
 // Sentinel errors of the asset stage. | 资产阶段的哨兵错误。
 var (
 	// ErrTailwindNotFound indicates that no tailwindcss executable could be located. | ErrTailwindNotFound 表示未能定位到 tailwindcss 可执行文件。
-	ErrTailwindNotFound = errx.New("build: tailwindcss executable not found | build：未找到 tailwindcss 可执行文件")
+	ErrTailwindNotFound = errs.New("build: tailwindcss executable not found | build：未找到 tailwindcss 可执行文件")
 	// ErrTailwindInput indicates that the Tailwind input stylesheet does not exist. | ErrTailwindInput 表示 Tailwind 输入样式表不存在。
-	ErrTailwindInput = errx.New("build: tailwind input stylesheet missing | build：缺少 Tailwind 输入样式表")
+	ErrTailwindInput = errs.New("build: tailwind input stylesheet missing | build：缺少 Tailwind 输入样式表")
 	// ErrTailwind indicates that the tailwindcss process failed or produced nothing. | ErrTailwind 表示 tailwindcss 进程失败或未产出结果。
-	ErrTailwind = errx.New("build: tailwind compilation failed | build：Tailwind 编译失败")
+	ErrTailwind = errs.New("build: tailwind compilation failed | build：Tailwind 编译失败")
 )
 
 const (
@@ -126,7 +126,7 @@ func ResolveTailwindBin(dir, bin string) (string, error) {
 	if found, err := exec.LookPath("tailwindcss"); err == nil {
 		return found, nil
 	}
-	return "", errx.Detail(ErrTailwindNotFound,
+	return "", errs.Detail(ErrTailwindNotFound,
 		"tried --tailwind-bin, $%s, %s and PATH | 已尝试 --tailwind-bin、$%s、%s 与 PATH", tailwindEnvBin, localToolsDir, tailwindEnvBin, localToolsDir)
 }
 
@@ -137,7 +137,7 @@ func resolveBin(dir, bin string) (string, error) {
 	if !strings.ContainsRune(bin, filepath.Separator) && !strings.Contains(bin, "/") {
 		found, err := exec.LookPath(bin)
 		if err != nil {
-			return "", errx.WrapDetail(err, ErrTailwindNotFound, "%s | %s", bin, bin)
+			return "", errs.WrapDetail(err, ErrTailwindNotFound, "%s | %s", bin, bin)
 		}
 		return found, nil
 	}
@@ -148,7 +148,7 @@ func resolveBin(dir, bin string) (string, error) {
 	path = absoluteBin(path)
 	info, err := os.Stat(path)
 	if err != nil || info.IsDir() {
-		return "", errx.Detail(ErrTailwindNotFound, "%s is not an executable file | %s 不是可执行文件", path, path)
+		return "", errs.Detail(ErrTailwindNotFound, "%s is not an executable file | %s 不是可执行文件", path, path)
 	}
 	return path, nil
 }
@@ -169,7 +169,7 @@ func absoluteBin(path string) string {
 // yields ErrTailwindNotFound and a failing process yields ErrTailwind. | BuildTailwind
 // 运行 tailwindcss standalone 二进制并返回产出样式表的字节数。输入、输出与二进制位置都会套用默认值；
 // 输入样式表缺失返回 ErrTailwindInput，二进制缺失返回 ErrTailwindNotFound，进程失败返回 ErrTailwind。
-func BuildTailwind(ctx context.Context, dir string, o TailwindOptions, log *logx.Logger) (int64, error) {
+func BuildTailwind(ctx context.Context, dir string, o TailwindOptions, log *ydlog.Logger) (int64, error) {
 	return buildTailwindWith(ctx, dir, o, log, exec.CommandContext)
 }
 
@@ -177,18 +177,18 @@ func BuildTailwind(ctx context.Context, dir string, o TailwindOptions, log *logx
 // by Build so that Options.ExecCommand also drives the asset stage and tests can
 // fake tailwindcss everywhere. | buildTailwindWith 是接受可注入命令构造器的 BuildTailwind，
 // Build 借此让 Options.ExecCommand 同样驱动资产阶段，测试可在任意平台伪造 tailwindcss。
-func buildTailwindWith(ctx context.Context, dir string, o TailwindOptions, log *logx.Logger, run ExecCommandFunc) (int64, error) {
+func buildTailwindWith(ctx context.Context, dir string, o TailwindOptions, log *ydlog.Logger, run ExecCommandFunc) (int64, error) {
 	// Normalize the project directory up front: the binary, input and outputs are then all
 	// absolute, so cmd.Dir cannot double-apply a relative path. | 先归一化项目目录：二进制、输入与产物
 	// 随后都是绝对路径，cmd.Dir 不会把相对路径二次拼接。
 	absDir, err := filepath.Abs(dir)
 	if err != nil {
-		return 0, errx.WrapDetail(err, ErrInvalidOptions, "cannot resolve %q | 无法解析 %q", dir, dir)
+		return 0, errs.WrapDetail(err, ErrInvalidOptions, "cannot resolve %q | 无法解析 %q", dir, dir)
 	}
 	dir = absDir
 	input := inputPath(dir, o)
 	if info, err := os.Stat(input); err != nil || info.IsDir() {
-		return 0, errx.Detail(ErrTailwindInput, "%s is missing | %s 不存在", input, input)
+		return 0, errs.Detail(ErrTailwindInput, "%s is missing | %s 不存在", input, input)
 	}
 	bin, err := ResolveTailwindBin(dir, o.Bin)
 	if err != nil {
@@ -217,7 +217,7 @@ func buildTailwindWith(ctx context.Context, dir string, o TailwindOptions, log *
 // runTailwind executes one tailwindcss pass and returns the produced size.
 // minify selects the --minify flag; the caller decides which output path it writes. | runTailwind
 // 执行一遍 tailwindcss 并返回产物字节数；minify 选择 --minify，输出路径由调用方决定。
-func runTailwind(ctx context.Context, run ExecCommandFunc, dir, bin, input, output string, minify bool, log *logx.Logger) (int64, error) {
+func runTailwind(ctx context.Context, run ExecCommandFunc, dir, bin, input, output string, minify bool, log *ydlog.Logger) (int64, error) {
 	args := []string{"-i", input, "-o", output}
 	if minify {
 		args = append(args, "--minify")
@@ -227,18 +227,18 @@ func runTailwind(ctx context.Context, run ExecCommandFunc, dir, bin, input, outp
 	var buf bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &buf, &buf
 	if err := cmd.Run(); err != nil {
-		return 0, errx.WrapDetail(err, ErrTailwind, "%s | %s: %s", bin, bin, strings.TrimSpace(buf.String()))
+		return 0, errs.WrapDetail(err, ErrTailwind, "%s | %s: %s", bin, bin, strings.TrimSpace(buf.String()))
 	}
 	info, err := os.Stat(output)
 	if err != nil || info.IsDir() || info.Size() == 0 {
-		return 0, errx.Detail(ErrTailwind, "tailwindcss produced no stylesheet at %s | tailwindcss 未在 %s 产出样式表", output, output)
+		return 0, errs.Detail(ErrTailwind, "tailwindcss produced no stylesheet at %s | tailwindcss 未在 %s 产出样式表", output, output)
 	}
 	log.Info("tailwind stylesheet built | Tailwind 样式表已构建",
-		logx.Str("bin", bin),
-		logx.Str("input", input),
-		logx.Str("output", output),
-		logx.Bool("minify", minify),
-		logx.Int64("bytes", info.Size()),
+		ydlog.Str("bin", bin),
+		ydlog.Str("input", input),
+		ydlog.Str("output", output),
+		ydlog.Bool("minify", minify),
+		ydlog.Int64("bytes", info.Size()),
 	)
 	return info.Size(), nil
 }

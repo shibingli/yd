@@ -497,8 +497,8 @@
 
     elements = document.querySelectorAll("[hx-ws\\:connect]");
     for (var j = 0; j < elements.length; j++) {
-      var ws = elements[j]._htmx && elements[j]._htmx.ws && elements[j]._htmx.ws.connection;
-      if (!ws || !ws.socket) {
+      var ws = elements[j]._htmx && elements[j]._htmx.ws && elements[j]._htmx.websocket.connection;
+      if (!ws || !websocket.socket) {
         continue;
       }
       retried = true;
@@ -506,7 +506,7 @@
         /* 不传状态码：浏览器在这里只允许 1000 与 3000-4999，而无状态码的关闭会以 1005 上报，
            扩展正是据此重连。 | No status code: browsers only allow 1000 and 3000-4999 here, and a bare
            close surfaces as 1005, which the extension reconnects on. */
-        ws.socket.close();
+        websocket.socket.close();
       } catch (error) {
         /* a socket already leaving has nothing left to retry | 已在关闭的套接字无需再重试 */
       }

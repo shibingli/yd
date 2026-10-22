@@ -11,13 +11,13 @@ import (
 	"strings"
 	"time"
 
-	"github.com/hibiken/asynq"
+	asynqio "github.com/hibiken/asynq"
 
-	"{{ .YdModule }}/core/config"
-	"{{ .YdModule }}/core/jsonx"
-	"{{ .YdModule }}/core/logx"
-	"{{ .YdModule }}/data/asynqx"
-	"{{ .YdModule }}/data/redisx"
+	"{{ .YdxModule }}/config"
+	"{{ .YdxModule }}/json"
+	logx "{{ .YdxModule }}/log"
+	"{{ .YdxModule }}/asynq"
+	"{{ .YdxModule }}/redis"
 	"{{ .YdModule }}/messaging"
 	"{{ .YdModule }}/messaging/realtime"
 )
@@ -42,7 +42,7 @@ func NewMessageBus(cfg *config.Config, log *logx.Logger) (*realtime.Hub, func() 
 	if log == nil {
 		log = logx.Default()
 	}
-	redisClient, err := redisx.Open(redisx.OptionsFromConfig(cfg))
+	redisClient, err := redis.Open(redis.OptionsFromConfig(cfg))
 	if err != nil {
 		log.Warn("redis is configured but unavailable, message delivery stays local | 已配置 redis 但不可用，消息投递保持本地",
 			logx.Err(err),
@@ -53,10 +53,10 @@ func NewMessageBus(cfg *config.Config, log *logx.Logger) (*realtime.Hub, func() 
 	// A bounded probe at startup: an unreachable Redis degrades explicitly to single-node instead of letting the
 	// subscription goroutine retry and flood the log every second.
 	healthCtx, healthCancel := context.WithTimeout(context.Background(), 2*time.Second)
-	healthErr := redisx.Health(healthCtx, redisClient)
+	healthErr := redis.Health(healthCtx, redisClient)
 	healthCancel()
 	if healthErr != nil {
-		_ = redisx.Close(redisClient)
+		_ = redis.Close(redisClient)
 		log.Warn("redis health check failed, message delivery stays local | Redis 健康检查失败，消息投递保持本地",
 			logx.Err(healthErr),
 		)
@@ -64,24 +64,24 @@ func NewMessageBus(cfg *config.Config, log *logx.Logger) (*realtime.Hub, func() 
 	}
 	bus, err := realtime.NewRedisBus(redisClient, realtime.DefaultRedisChannel, log)
 	if err != nil {
-		_ = redisx.Close(redisClient)
+		_ = redis.Close(redisClient)
 		log.Warn("message bus is unavailable, delivery stays local | 消息总线不可用，投递保持本地", logx.Err(err))
 		return realtime.New(log), func() error { return nil }, nil
 	}
 	nodeID := nodeIdentity(cfg)
 	var (
 		retry   realtime.RetryQueue
-		taskSrv *asynqx.Server
-		taskCli *asynqx.Client
+		taskSrv *asynq.Server
+		taskCli *asynq.Client
 	)
-	registry := asynqx.NewRegistry()
-	registry.Register(messageEventTask, func(ctx context.Context, payload asynqx.Payload) error {
-		raw, marshalErr := jsonx.Marshal(payload)
+	registry := asynq.NewRegistry()
+	registry.Register(messageEventTask, func(ctx context.Context, payload asynq.Payload) error {
+		raw, marshalErr := json.Marshal(payload)
 		if marshalErr != nil {
 			return marshalErr
 		}
 		var event messaging.Event
-		if unmarshalErr := jsonx.Unmarshal(raw, &event); unmarshalErr != nil {
+		if unmarshalErr := json.Unmarshal(raw, &event); unmarshalErr != nil {
 			return unmarshalErr
 		}
 		return bus.Publish(ctx, event)
@@ -89,8 +89,8 @@ func NewMessageBus(cfg *config.Config, log *logx.Logger) (*realtime.Hub, func() 
 	if regErr := registry.Err(); regErr != nil {
 		log.Warn("message retry task registry is invalid | 消息重试任务注册表非法", logx.Err(regErr))
 	} else {
-		options := asynqx.OptionsFromConfig(cfg)
-		redisOpt := asynq.RedisClientOpt{
+		options := asynq.OptionsFromConfig(cfg)
+		redisOpt := asynqio.RedisClientOpt{
 			Addr:     strings.TrimSpace(cfg.GetString("redis.addr")),
 			Password: cfg.GetString("redis.password"),
 			DB:       cfg.GetInt("redis.db"),
@@ -98,11 +98,11 @@ func NewMessageBus(cfg *config.Config, log *logx.Logger) (*realtime.Hub, func() 
 		if options.RedisAddr == "" {
 			options.RedisAddr = redisOpt.Addr
 		}
-		client, clientErr := asynqx.NewClient(redisOpt, options)
+		client, clientErr := asynq.NewClient(redisOpt, options)
 		if clientErr != nil {
 			log.Warn("message retry client is unavailable | 消息重试客户端不可用", logx.Err(clientErr))
 		} else {
-			server := asynqx.NewServer(registry, redisOpt, options, log)
+			server := asynq.NewServer(registry, redisOpt, options, log)
 			if startErr := server.Start(); startErr != nil {
 				log.Warn("message retry worker is unavailable | 消息重试工作器不可用", logx.Err(startErr))
 				_ = client.Close()
@@ -129,7 +129,7 @@ func NewMessageBus(cfg *config.Config, log *logx.Logger) (*realtime.Hub, func() 
 				log.Warn("message retry client close failed | 消息重试客户端关闭失败", logx.Err(closeErr))
 			}
 		}
-		return redisx.Close(redisClient)
+		return redis.Close(redisClient)
 	}, nil
 }
 
@@ -151,7 +151,7 @@ func nodeIdentity(cfg *config.Config) string {
 // asynqRetryQueue republishes failed broadcasts through the task queue. | asynqRetryQueue 通过任务队列重发失败的广播。
 type asynqRetryQueue struct {
 	// client enqueues the durable task. | client 入队持久任务。
-	client *asynqx.Client
+	client *asynq.Client
 }
 
 // Enqueue stores one event for a later republish. | Enqueue 保存一条事件供稍后重发。

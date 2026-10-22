@@ -3,11 +3,11 @@ package build
 import (
 	"strings"
 
-	"github.com/shibingli/yd/core/errx"
+	"github.com/shibingli/ydx/errs"
 )
 
 // ErrInvalidTarget indicates that a target string is not a known GOOS/GOARCH pair. | ErrInvalidTarget 表示目标字符串不是已知的 GOOS/GOARCH 组合。
-var ErrInvalidTarget = errx.New("build: invalid build target | build：非法的构建目标")
+var ErrInvalidTarget = errs.New("build: invalid build target | build：非法的构建目标")
 
 // Target is one GOOS/GOARCH pair to build for. | Target 是一个待构建的 GOOS/GOARCH 组合。
 type Target struct {
@@ -58,13 +58,13 @@ func ParseTargets(s string) ([]Target, error) {
 		}
 		goos, goarch, ok := strings.Cut(entry, "/")
 		if !ok || goos == "" || goarch == "" || strings.Contains(goarch, "/") {
-			return nil, errx.Detail(ErrInvalidTarget, "%q is not a GOOS/GOARCH pair | %q 不是 GOOS/GOARCH 组合", strings.TrimSpace(raw), strings.TrimSpace(raw))
+			return nil, errs.Detail(ErrInvalidTarget, "%q is not a GOOS/GOARCH pair | %q 不是 GOOS/GOARCH 组合", strings.TrimSpace(raw), strings.TrimSpace(raw))
 		}
 		if !knownGOOS[goos] {
-			return nil, errx.Detail(ErrInvalidTarget, "unknown GOOS %q | 未知的 GOOS %q", goos, goos)
+			return nil, errs.Detail(ErrInvalidTarget, "unknown GOOS %q | 未知的 GOOS %q", goos, goos)
 		}
 		if !knownGOARCH[goarch] {
-			return nil, errx.Detail(ErrInvalidTarget, "unknown GOARCH %q | 未知的 GOARCH %q", goarch, goarch)
+			return nil, errs.Detail(ErrInvalidTarget, "unknown GOARCH %q | 未知的 GOARCH %q", goarch, goarch)
 		}
 		if seen[entry] {
 			continue
@@ -73,7 +73,7 @@ func ParseTargets(s string) ([]Target, error) {
 		targets = append(targets, Target{GOOS: goos, GOARCH: goarch})
 	}
 	if len(targets) == 0 {
-		return nil, errx.Detail(ErrInvalidTarget, "no target given | 未提供任何目标平台")
+		return nil, errs.Detail(ErrInvalidTarget, "no target given | 未提供任何目标平台")
 	}
 	return targets, nil
 }

@@ -1,14 +1,14 @@
 // Package middleware 只放本项目特有的跨切面逻辑；通用中间件（Recover、RequestID、AccessLog、Compress、CORS、RateLimit）
-// 一律直接使用框架的 {{ .YdModule }}/middleware，不在这里重复实现。
+// 一律直接使用框架的 {{ .YdxModule }}/middleware，不在这里重复实现。
 // Package middleware holds only the cross-cutting logic specific to this project; the general middleware (Recover,
-// RequestID, AccessLog, Compress, CORS, RateLimit) comes straight from the framework's {{ .YdModule }}/middleware
+// RequestID, AccessLog, Compress, CORS, RateLimit) comes straight from the framework's {{ .YdxModule }}/middleware
 // and is not reimplemented here.
 package middleware
 
 import (
 	"strconv"
 
-	"{{ .YdModule }}/http/router"
+	"{{ .YdxModule }}/router"
 )
 
 // 安全响应头的取值：集中声明一次，测试与运维核查都读这里。

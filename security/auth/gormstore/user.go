@@ -10,9 +10,9 @@ import (
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 
-	"github.com/shibingli/yd/core/errx"
-	"github.com/shibingli/yd/core/logx"
 	"github.com/shibingli/yd/security/auth"
+	"github.com/shibingli/ydx/errs"
+	"github.com/shibingli/ydx/log"
 )
 
 // CreateUser stores a new global user together with its memberships. | CreateUser 存入新的全局用户及其成员关系。
@@ -32,13 +32,13 @@ import (
 // 规则唯一刻意的例外，也正是无租户登录得以无歧义的原因。
 func (s *Store) CreateUser(ctx context.Context, u *auth.User) error {
 	if u == nil || u.ID == "" {
-		return errx.Detail(auth.ErrInvalidInput, "user requires an id | 用户必须带 ID")
+		return errs.Detail(auth.ErrInvalidInput, "user requires an id | 用户必须带 ID")
 	}
 	if strings.TrimSpace(u.TenantID) == "" {
 		return auth.ErrTenantRequired
 	}
 	if strings.TrimSpace(u.Username) == "" {
-		return errx.Detail(auth.ErrInvalidInput, "user requires a username | 用户必须带用户名")
+		return errs.Detail(auth.ErrInvalidInput, "user requires a username | 用户必须带用户名")
 	}
 	row, err := userToRow(u)
 	if err != nil {
@@ -82,20 +82,20 @@ func (s *Store) CreateUser(ctx context.Context, u *auth.User) error {
 			return err
 		}
 		if dup > 0 {
-			return errx.Detail(auth.ErrConflict, "user id %[1]q already exists | 用户 ID %[1]q 已存在", row.ID)
+			return errs.Detail(auth.ErrConflict, "user id %[1]q already exists | 用户 ID %[1]q 已存在", row.ID)
 		}
 		dup, err = countRows(tx, &userRow{}, "username_key = ?", row.UsernameKey)
 		if err != nil {
 			return err
 		}
 		if dup > 0 {
-			return errx.Detail(auth.ErrConflict, "username %[1]q already exists | 用户名 %[1]q 已存在", row.Username)
+			return errs.Detail(auth.ErrConflict, "username %[1]q already exists | 用户名 %[1]q 已存在", row.Username)
 		}
 		if err := tx.Create(&row).Error; err != nil {
 			if isDuplicate(err) {
 				s.log.Debug("the unique index rejected a duplicate user | 唯一索引拒绝了重复用户",
-					logx.Str("user_id", row.ID))
-				return errx.WrapDetail(err, auth.ErrConflict, "user id or username already exists | 用户 ID 或用户名已存在")
+					log.Str("user_id", row.ID))
+				return errs.WrapDetail(err, auth.ErrConflict, "user id or username already exists | 用户 ID 或用户名已存在")
 			}
 			return err
 		}
@@ -129,7 +129,7 @@ func createMembership(tx *gorm.DB, userID, tenantID string, roles []string, isDe
 	}
 	if err := tx.Create(&row).Error; err != nil {
 		if isDuplicate(err) {
-			return errx.WrapDetail(err, auth.ErrConflict, "the user already belongs to that tenant | 用户已属于该租户")
+			return errs.WrapDetail(err, auth.ErrConflict, "the user already belongs to that tenant | 用户已属于该租户")
 		}
 		return err
 	}
@@ -356,7 +356,7 @@ func (s *Store) UpdateUser(ctx context.Context, tenantID string, u *auth.User) e
 		return auth.ErrTenantRequired
 	}
 	if u == nil || u.ID == "" {
-		return errx.Detail(auth.ErrInvalidInput, "user requires an id | 用户必须带 ID")
+		return errs.Detail(auth.ErrInvalidInput, "user requires an id | 用户必须带 ID")
 	}
 	if u.TenantID != "" && u.TenantID != tenantID {
 		return auth.ErrNotFound
@@ -396,7 +396,7 @@ func (s *Store) UpdateUser(ctx context.Context, tenantID string, u *auth.User) e
 				return err
 			}
 			if dup > 0 {
-				return errx.Detail(auth.ErrConflict, "username %[1]q already exists | 用户名 %[1]q 已存在", row.Username)
+				return errs.Detail(auth.ErrConflict, "username %[1]q already exists | 用户名 %[1]q 已存在", row.Username)
 			}
 		}
 		err = tx.Model(&userRow{}).Where("id = ?", row.ID).Updates(map[string]any{
@@ -409,8 +409,8 @@ func (s *Store) UpdateUser(ctx context.Context, tenantID string, u *auth.User) e
 		if err != nil {
 			if isDuplicate(err) {
 				s.log.Debug("the unique index rejected a username change | 唯一索引拒绝了用户名变更",
-					logx.Str("user_id", row.ID))
-				return errx.WrapDetail(err, auth.ErrConflict, "username %[1]q already exists | 用户名 %[1]q 已存在", row.Username)
+					log.Str("user_id", row.ID))
+				return errs.WrapDetail(err, auth.ErrConflict, "username %[1]q already exists | 用户名 %[1]q 已存在", row.Username)
 			}
 			return err
 		}
@@ -566,7 +566,7 @@ func (s *Store) AddUserTenant(ctx context.Context, userID, tenantID string, role
 		row.IsDefault = user.DefaultTenantID == tenantID
 		if err := tx.Create(&row).Error; err != nil {
 			if isDuplicate(err) {
-				return errx.Wrap(err, auth.ErrConflict)
+				return errs.Wrap(err, auth.ErrConflict)
 			}
 			return err
 		}
@@ -592,7 +592,7 @@ func (s *Store) RemoveUserTenant(ctx context.Context, userID, tenantID string) e
 			return notFound(err)
 		}
 		if tenantID == user.TenantID || membership.IsDefault || user.DefaultTenantID == tenantID {
-			return errx.Detail(auth.ErrConflict, "the home and default tenants cannot be removed | 身份租户与默认租户不可移除")
+			return errs.Detail(auth.ErrConflict, "the home and default tenants cannot be removed | 身份租户与默认租户不可移除")
 		}
 		return tx.Where("user_id = ? AND tenant_id = ?", userID, tenantID).Delete(&userTenantRow{}).Error
 	})

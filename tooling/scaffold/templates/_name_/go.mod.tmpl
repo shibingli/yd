@@ -3,17 +3,32 @@ module {{ .Module }}
 go {{ .GoVersion }}
 {{- if .LocalReplace }}
 
-require {{ .YdModule }} v0.0.0-00010101000000-000000000000
+require (
+	{{ .YdModule }} v0.0.0-00010101000000-000000000000
+{{- range .YdxModules }}
+	{{ . }} v0.0.0-00010101000000-000000000000
+{{- end }}
+)
 
 replace {{ .YdModule }} => {{ .LocalReplaceQuoted }}
+{{- range .YdxReplaces }}
+replace {{ .Module }} => {{ .PathQuoted }}
+{{- end }}
 {{- else if .YdVersion }}
 
-// Pinned to the yd version that generated this project, so the framework packages
-// this project imports always exist. Upgrade with `yd versions upgrade`. | 锁定到生成
-// 本项目的 yd 版本，确保项目导入的框架包一定存在；升级请用 `yd versions upgrade`。
-require {{ .YdModule }} {{ .YdVersion }}
+// Pinned to the versions that generated this project, so every framework package this project
+// imports always exists. Upgrade with `yd versions upgrade`. | 锁定到生成本项目的版本，确保项目导入的
+// 每个框架包一定存在；升级请用 `yd versions upgrade`。
+require (
+	{{ .YdModule }} {{ .YdVersion }}
+{{- range .YdxModules }}
+	{{ . }} {{ $.YdxVersion }}
+{{- end }}
+)
 {{- else }}
 
-// The framework dependency github.com/shibingli/yd is pulled in by go mod tidy once the module is published. | 框架依赖 github.com/shibingli/yd 在模块发布后由 go mod tidy 引入。
+// The framework dependencies github.com/shibingli/yd and github.com/shibingli/ydx are pulled in
+// by go mod tidy once the modules are published. | 框架依赖 github.com/shibingli/yd 与
+// github.com/shibingli/ydx 在模块发布后由 go mod tidy 引入。
 // During development, point yd new at a local framework checkout with its --local-replace argument. | 开发期可用 yd new 的 --local-replace 参数指向本地框架仓库。
 {{- end }}

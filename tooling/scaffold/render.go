@@ -5,15 +5,16 @@ import (
 	"embed"
 	"os"
 	"path"
+	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
 	"text/template"
 
-	"github.com/shibingli/yd/core/afs"
-	"github.com/shibingli/yd/core/errx"
-	"github.com/shibingli/yd/core/regexpx"
-	"github.com/shibingli/yd/data/gormx"
+	"github.com/shibingli/ydx/afs"
+	"github.com/shibingli/ydx/errs"
+	"github.com/shibingli/ydx/gorm"
+	"github.com/shibingli/ydx/regexpx"
 	"github.com/spf13/afero"
 )
 
@@ -78,6 +79,12 @@ type view struct {
 	AssetRoot          string
 	// YdVersion pins the framework module in the generated go.mod; empty means none. | YdVersion 在生成的 go.mod 中锁定框架模块；为空表示不锁定。
 	YdVersion string
+	// YdxVersion pins every ydx module in the generated go.mod. | YdxVersion 在生成的 go.mod 中锁定全部 ydx 模块。
+	YdxVersion string
+	// YdxModules lists the ydx modules required by the generated project. | YdxModules 列出生成项目依赖的 ydx 模块。
+	YdxModules []string
+	// YdxReplaces lists the local ydx replacements used in development. | YdxReplaces 列出开发期使用的 ydx 本地替换。
+	YdxReplaces []ydxReplace
 
 	// versions and framework constants | 版本与框架常量
 	GoVersion       string
@@ -85,6 +92,7 @@ type view struct {
 	HtmxVersion     string
 	TailwindVersion string
 	YdModule        string
+	YdxModule       string
 
 	// derived fields | 派生字段
 	DBDSN    string
@@ -129,6 +137,9 @@ func newView(o Options) view {
 		}(),
 		AssetRoot:       AssetRoot,
 		YdVersion:       o.YdVersion,
+		YdxVersion:      YdxVersion,
+		YdxModules:      YdxModules,
+		YdxReplaces:     ydxReplaces(o.LocalReplace),
 		GRPC:            o.GRPC,
 		Auth:            true,
 		I18n:            o.I18n,
@@ -139,10 +150,42 @@ func newView(o Options) view {
 		HtmxVersion:     HtmxVersion,
 		TailwindVersion: TailwindVersion,
 		YdModule:        YdModule,
+		YdxModule:       YdxModule,
 		DBDSN:           dsnFor(o.DB, o.Name),
 		Features:        featuresOf(o),
 		HtmxExtScripts:  extScripts(o.HtmxExts),
 	}
+}
+
+// ydxReplace is one local ydx replacement in a generated go.mod. | ydxReplace 是生成 go.mod 中的一条 ydx 本地替换。
+type ydxReplace struct {
+	// Module is the ydx module path. | Module 是 ydx 模块路径。
+	Module string
+	// PathQuoted is the local filesystem path as a safe go.mod token. | PathQuoted 是作为安全 go.mod 记号的本地路径。
+	PathQuoted string
+}
+
+// ydxReplaces derives the sibling ydx checkout from the local yd checkout. | ydxReplaces 从本地 yd 检出推导同级的 ydx 检出。
+func ydxReplaces(localReplace string) []ydxReplace {
+	if localReplace == "" || len(YdxModules) == 0 {
+		return nil
+	}
+	root := filepath.ToSlash(filepath.Join(filepath.Dir(localReplace), "ydx"))
+	out := make([]ydxReplace, 0, len(YdxModules))
+	for _, module := range YdxModules {
+		relative := strings.TrimPrefix(module, YdxModule+"/")
+		out = append(out, ydxReplace{Module: module, PathQuoted: quoteModPath(root + "/" + relative)})
+	}
+	return out
+}
+
+// quoteModPath quotes a path only when the go.mod lexer would misread it. | quoteModPath 仅在 go.mod
+// 词法器会误读路径时加引号。
+func quoteModPath(value string) string {
+	if strings.ContainsAny(value, " \t\"'`") || strings.Contains(value, "//") || strings.Contains(value, "/*") {
+		return strconv.Quote(value)
+	}
+	return value
 }
 
 // featuresOf 汇总已选特性，供模板与启动日志共用（与 internal/router 的 Features 变量同源）。
@@ -221,11 +264,11 @@ func Extensions() []string { return append([]string(nil), extNames...) }
 
 // dsnFor builds a sample DSN per driver (the address and credentials only fit local development). | dsnFor 依据数据库驱动生成示例 DSN（仅地址与凭据是本地开发用的默认值）。
 //
-// 时区、时间配置、空值严格性与默认字符集**不在这里写死**，而是交给 gormx.PresetDSN 补齐——
+// 时区、时间配置、空值严格性与默认字符集**不在这里写死**，而是交给 gorm.PresetDSN 补齐——
 // 预置表只有一份（框架那份），生成的配置里看到的就是连接时真正生效的形态。
 // 显式写出的参数优先于预置值，因此这里只保留**必须由本层决定**的那一个：
 // The time zone, time format, null strictness and default character set are not spelled out here: they come from
-// gormx.PresetDSN, so the preset table exists exactly once (the framework's) and the generated configuration shows the
+// gorm.PresetDSN, so the preset table exists exactly once (the framework's) and the generated configuration shows the
 // very parameters that will take effect. Explicit parameters win over preset values, so the only one kept here is the
 // one this layer has to decide:
 //
@@ -239,11 +282,11 @@ func Extensions() []string { return append([]string(nil), extNames...) }
 func dsnFor(db, name string) string {
 	switch db {
 	case DBSQLite:
-		return gormx.PresetDSN(DBSQLite, "file:data/"+name+".db?_txlock=immediate")
+		return gorm.PresetDSN(DBSQLite, "file:data/"+name+".db?_txlock=immediate")
 	case DBMySQL:
-		return gormx.PresetDSN(DBMySQL, "root:root@tcp(127.0.0.1:3306)/"+name)
+		return gorm.PresetDSN(DBMySQL, "root:root@tcp(127.0.0.1:3306)/"+name)
 	case DBPostgres:
-		return gormx.PresetDSN(DBPostgres, "host=127.0.0.1 user=postgres password=postgres dbname="+name+" port=5432 sslmode=disable")
+		return gorm.PresetDSN(DBPostgres, "host=127.0.0.1 user=postgres password=postgres dbname="+name+" port=5432 sslmode=disable")
 	default:
 		return ""
 	}
@@ -292,7 +335,7 @@ func plan(o Options) ([]plannedFile, error) {
 	src := afs.NewEmbed(templateFS)
 	err := afs.Walk(src, templateRoot, func(p string, info os.FileInfo, err error) error {
 		if err != nil {
-			return errx.WrapDetail(err, ErrTemplateRead, "path=%[1]s | 路径=%[1]s", p)
+			return errs.WrapDetail(err, ErrTemplateRead, "path=%[1]s | 路径=%[1]s", p)
 		}
 		if info.IsDir() {
 			return nil
@@ -300,7 +343,7 @@ func plan(o Options) ([]plannedFile, error) {
 
 		data, err := afero.ReadFile(src, p)
 		if err != nil {
-			return errx.WrapDetail(err, ErrTemplateRead, "path=%[1]s | 路径=%[1]s", p)
+			return errs.WrapDetail(err, ErrTemplateRead, "path=%[1]s | 路径=%[1]s", p)
 		}
 
 		rel := strings.TrimPrefix(p, templateRoot+"/")
@@ -349,12 +392,12 @@ func plan(o Options) ([]plannedFile, error) {
 func render(data []byte, name string, v view) ([]byte, error) {
 	tmpl, err := template.New(name).Parse(string(data))
 	if err != nil {
-		return nil, errx.WrapDetail(err, ErrTemplateRender, "path=%[1]s | 路径=%[1]s", name)
+		return nil, errs.WrapDetail(err, ErrTemplateRender, "path=%[1]s | 路径=%[1]s", name)
 	}
 
 	var buf bytes.Buffer
 	if err := tmpl.Execute(&buf, v); err != nil {
-		return nil, errx.WrapDetail(err, ErrTemplateRender, "path=%[1]s | 路径=%[1]s", name)
+		return nil, errs.WrapDetail(err, ErrTemplateRender, "path=%[1]s | 路径=%[1]s", name)
 	}
 	return buf.Bytes(), nil
 }

@@ -4,10 +4,10 @@ import (
 	"context"
 	"net/http"
 
-	"github.com/shibingli/yd/core/errx"
-	"github.com/shibingli/yd/core/logx"
-	"github.com/shibingli/yd/http/router"
 	"github.com/shibingli/yd/security/auth"
+	"github.com/shibingli/ydx/errs"
+	"github.com/shibingli/ydx/log"
+	"github.com/shibingli/ydx/router"
 )
 
 // CtxKey is the router context key holding the *Subject of the request. | CtxKey 是保存本次请求判定主体的路由上下文键。
@@ -233,8 +233,8 @@ func (s *Subject) canToken(token string) bool {
 func Require(perm string) router.Middleware {
 	token, err := ResolvePermission(perm)
 	if err != nil {
-		logx.Default().Warn("authz: a route is guarded by an unregistered permission, every request is refused | authz：某路由守着未注册的权限，所有请求都会被拒绝",
-			logx.Str("permission", perm))
+		log.Default().Warn("authz: a route is guarded by an unregistered permission, every request is refused | authz：某路由守着未注册的权限，所有请求都会被拒绝",
+			log.Str("permission", perm))
 		// Deny unconditionally. Falling back to the raw token would make a typo an allow-list
 		// entry: the auth store accepts arbitrary permission strings, so any role that happens to
 		// contain the misspelled name would open the route. | 无条件拒绝。退回原始标识会让拼写
@@ -242,8 +242,8 @@ func Require(perm string) router.Middleware {
 		// 打开这条路由。
 		unregistered := perm
 		return func(c *router.Ctx) {
-			logx.Default().Warn("authz: refused a request guarded by an unregistered permission | authz：拒绝了守着未注册权限的请求",
-				logx.Str("permission", unregistered))
+			log.Default().Warn("authz: refused a request guarded by an unregistered permission | authz：拒绝了守着未注册权限的请求",
+				log.Str("permission", unregistered))
 			c.Abort()
 			_ = c.JSON(http.StatusForbidden, map[string]string{"error": "forbidden | 禁止访问"})
 		}
@@ -260,8 +260,8 @@ func RequireAny(perms ...string) router.Middleware {
 	for _, perm := range perms {
 		token, err := ResolvePermission(perm)
 		if err != nil {
-			logx.Default().Warn("authz: a route is guarded by an unregistered permission, every request is refused | authz：某路由守着未注册的权限，所有请求都会被拒绝",
-				logx.Str("permission", perm))
+			log.Default().Warn("authz: a route is guarded by an unregistered permission, every request is refused | authz：某路由守着未注册的权限，所有请求都会被拒绝",
+				log.Str("permission", perm))
 			return func(c *router.Ctx) {
 				c.Abort()
 				_ = c.JSON(http.StatusForbidden, map[string]string{"error": "forbidden | 禁止访问"})
@@ -300,12 +300,12 @@ func Allow(c *router.Ctx, perm string) error {
 			return nil
 		}
 	}
-	err := errx.Detail(ErrForbidden, "missing permission %[1]q | 缺少权限 %[1]q", perm)
+	err := errs.Detail(ErrForbidden, "missing permission %[1]q | 缺少权限 %[1]q", perm)
 	if c != nil {
 		c.Abort()
 		if !c.Written() {
 			if werr := c.JSON(http.StatusForbidden, map[string]string{"error": err.Error()}); werr != nil {
-				logx.Default().Warn("authz: failed to write the refusal | authz：写出拒绝响应失败", logx.Err(werr))
+				log.Default().Warn("authz: failed to write the refusal | authz：写出拒绝响应失败", log.Err(werr))
 			}
 		}
 	}

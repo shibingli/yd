@@ -6,11 +6,11 @@ import (
 	"errors"
 	"strings"
 
-	"github.com/shibingli/yd/core/errx"
 	"github.com/shibingli/yd/tooling/align"
 	"github.com/shibingli/yd/tooling/build"
 	"github.com/shibingli/yd/tooling/ko"
 	"github.com/shibingli/yd/tooling/toolchain"
+	"github.com/shibingli/ydx/errs"
 )
 
 // errDockerNotFound reports that no PATH directory provides the docker executable. | errDockerNotFound 表示没有任何 PATH 目录提供 docker 可执行文件。
@@ -19,13 +19,13 @@ import (
 // resolver sentinels play: it is what turns a lookup failure into "missing" rather than
 // "unexpected". | docker 没有自己的解析包，因此该哨兵放在这里，承担与三个解析器哨兵相同的角色：
 // 它把查找失败判成「缺失」而不是「意外」。
-var errDockerNotFound = errx.New("tools: docker is not on PATH | tools：docker 不在 PATH 上")
+var errDockerNotFound = errs.New("tools: docker is not on PATH | tools：docker 不在 PATH 上")
 
 // errEmptyPath reports a resolver that claimed success without naming an executable. | errEmptyPath 表示解析器声称成功却没有给出可执行文件。
 //
 // It is an unexpected failure, not a miss: the two are kept apart so a broken resolution chain is
 // never silently reported as "just install it". | 它属于意外失败而非缺失：两者必须分开，否则损坏的解析链会被静默报成「装上就好」。
-var errEmptyPath = errx.New("tools: resolver returned an empty path | tools：解析器返回了空路径")
+var errEmptyPath = errs.New("tools: resolver returned an empty path | tools：解析器返回了空路径")
 
 // installEntryHint is the uniform entry point appended to every hint block. | installEntryHint 是追加到每个提示块末尾的统一入口。
 //
@@ -113,14 +113,14 @@ var resolveTool = func(t Tool, o Options) (string, error) {
 		path, err := o.PathLookup(t.Name)
 		if err != nil {
 			// Keep the lookup error on the chain so the injected sentinel decides the verdict. | 把查找错误留在错误链上，由注入的哨兵决定结论。
-			return "", errx.Wrap(err, errDockerNotFound)
+			return "", errs.Wrap(err, errDockerNotFound)
 		}
 		if strings.TrimSpace(path) == "" {
-			return "", errx.Detail(errDockerNotFound, "lookup returned no path | 查找未返回路径")
+			return "", errs.Detail(errDockerNotFound, "lookup returned no path | 查找未返回路径")
 		}
 		return path, nil
 	}
-	return "", errx.Detail(ErrUnknownTool, "%q has no resolver | %q 没有解析器", t.Name, t.Name)
+	return "", errs.Detail(ErrUnknownTool, "%q has no resolver | %q 没有解析器", t.Name, t.Name)
 }
 
 // notFoundSentinel returns the sentinel the resolver of t reports when the tool is absent. | notFoundSentinel 返回 t 的解析器在工具缺失时报告的哨兵。
@@ -173,7 +173,7 @@ func probe(t Tool, o Options) Status {
 	case err == nil && strings.TrimSpace(path) != "":
 		st.Path, st.Found = path, true
 	case err == nil:
-		st.Err = errx.Detail(errEmptyPath, "%[1]s resolved without a path | %[1]s 解析结果没有路径", t.Name)
+		st.Err = errs.Detail(errEmptyPath, "%[1]s resolved without a path | %[1]s 解析结果没有路径", t.Name)
 	case isNotFound(t, err):
 		// The expected outcome for an optional tool: it stays empty, Err stays nil. | 可选工具的预期结果：保持为空，Err 也为 nil。
 	default:

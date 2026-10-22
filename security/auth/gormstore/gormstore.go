@@ -62,18 +62,18 @@ import (
 
 	"gorm.io/gorm"
 
-	"github.com/shibingli/yd/core/config"
-	"github.com/shibingli/yd/core/errx"
-	"github.com/shibingli/yd/core/logx"
 	"github.com/shibingli/yd/security/auth"
+	"github.com/shibingli/ydx/config"
+	"github.com/shibingli/ydx/errs"
+	ydlog "github.com/shibingli/ydx/log"
 )
 
 // Package-level sentinels; callers decide with errors.Is. | 包级哨兵错误，调用方一律用 errors.Is 判定。
 var (
 	// ErrNilDB reports a nil *gorm.DB handed to New or Migrate. | ErrNilDB 表示传给 New 或 Migrate 的 *gorm.DB 为空。
-	ErrNilDB = errx.New("gormstore: nil *gorm.DB | gormstore：*gorm.DB 为空")
+	ErrNilDB = errs.New("gormstore: nil *gorm.DB | gormstore：*gorm.DB 为空")
 	// ErrMigrateFailed reports a failed table or index migration. | ErrMigrateFailed 表示建表或建索引失败。
-	ErrMigrateFailed = errx.New("gormstore: migrate failed | gormstore：迁移失败")
+	ErrMigrateFailed = errs.New("gormstore: migrate failed | gormstore：迁移失败")
 )
 
 // Table names of the four tables this package owns. | 本包拥有的四张表的表名。
@@ -114,8 +114,8 @@ const configQueryTimeout = "auth.gorm.query_timeout"
 
 // Options configures a Store. | Options 配置 Store。
 type Options struct {
-	// Log receives adapter diagnostics; a nil value selects logx.Default(). | Log 接收适配器诊断；为空时使用 logx.Default()。
-	Log *logx.Logger
+	// Log receives adapter diagnostics; a nil value selects ydlog.Default(). | Log 接收适配器诊断；为空时使用 ydlog.Default()。
+	Log *ydlog.Logger
 	// QueryTimeout bounds a single statement; <= 0 leaves the caller's context as it is. | QueryTimeout 限制单条语句的耗时；<= 0 时保持调用方上下文原样。
 	//
 	// A store that talks to a real database must not let a stuck connection hang a
@@ -150,7 +150,7 @@ type Store struct {
 	// db is the connection pool opened by the caller. | db 是调用方打开的连接池。
 	db *gorm.DB
 	// log receives adapter diagnostics. | log 接收适配器诊断。
-	log *logx.Logger
+	log *ydlog.Logger
 	// queryTimeout bounds a single statement, 0 meaning "no extra bound". | queryTimeout 限制单条语句耗时，0 表示不额外设限。
 	queryTimeout time.Duration
 }
@@ -171,7 +171,7 @@ func New(db *gorm.DB, o Options) (*Store, error) {
 	}
 	log := o.Log
 	if log == nil {
-		log = logx.Default()
+		log = ydlog.Default()
 	}
 	return &Store{db: db, log: log, queryTimeout: o.QueryTimeout}, nil
 }
@@ -193,9 +193,9 @@ func Migrate(ctx context.Context, db *gorm.DB) error {
 		&roleRow{},
 		&rolePermissionRow{},
 	); err != nil {
-		return errx.Wrap(err, ErrMigrateFailed)
+		return errs.Wrap(err, ErrMigrateFailed)
 	}
-	return errx.Wrap(backfillMemberships(db.WithContext(ctx)), ErrMigrateFailed)
+	return errs.Wrap(backfillMemberships(db.WithContext(ctx)), ErrMigrateFailed)
 }
 
 // backfillMemberships upgrades a database written before memberships existed. | backfillMemberships 升级成员关系出现之前写入的数据库。

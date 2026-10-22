@@ -9,10 +9,10 @@ import (
 
 	"github.com/spf13/afero"
 
-	"github.com/shibingli/yd/core/afs"
-	"github.com/shibingli/yd/core/regexpx"
 	"github.com/shibingli/yd/tooling/scaffold"
 	"github.com/shibingli/yd/web"
+	"github.com/shibingli/ydx/afs"
+	"github.com/shibingli/ydx/regexpx"
 )
 
 // Guards that keep the generated markup and the generated stylesheets in agreement. | 保证生成项目的标记与样式表彼此一致的守卫。

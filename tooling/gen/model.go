@@ -5,7 +5,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/shibingli/yd/core/errx"
+	"github.com/shibingli/ydx/errs"
 )
 
 // typeTime 是时间字段在生成代码中的 Go 类型名。
@@ -560,7 +560,7 @@ func (m *Model) prepare() error {
 		m.GoName = exportedName(m.Table)
 	}
 	if !validGoIdent(m.GoName) {
-		return errx.Detail(ErrBadModel, "model name %q is not a legal Go identifier | 模型名 %q 不是合法的 Go 标识符", m.GoName, m.GoName)
+		return errs.Detail(ErrBadModel, "model name %q is not a legal Go identifier | 模型名 %q 不是合法的 Go 标识符", m.GoName, m.GoName)
 	}
 	if m.Name == "" || exportedName(m.Name) != m.Name {
 		// 模板把 Name 直接嵌进生成的标识符（Err<Name>BadRequest 之类），
@@ -574,7 +574,7 @@ func (m *Model) prepare() error {
 		m.Table = pluralize(snakeCase(m.Name))
 	}
 	if !validDBTable(m.Table) {
-		return errx.Detail(ErrBadModel, "table name %[1]q contains characters that cannot be embedded in generated SQL/Go | 表名 %[1]q 含无法嵌入生成 SQL/Go 的字符", m.Table)
+		return errs.Detail(ErrBadModel, "table name %[1]q contains characters that cannot be embedded in generated SQL/Go | 表名 %[1]q 含无法嵌入生成 SQL/Go 的字符", m.Table)
 	}
 
 	for i := range m.Fields {
@@ -592,7 +592,7 @@ func (m *Model) prepare() error {
 			f.GoName = exportedName(f.Column)
 		}
 		if !validGoIdent(f.GoName) {
-			return errx.Detail(ErrBadModel, "field %q of %s is not a legal Go identifier | %s 的字段名 %q 不是合法的 Go 标识符",
+			return errs.Detail(ErrBadModel, "field %q of %s is not a legal Go identifier | %s 的字段名 %q 不是合法的 Go 标识符",
 				f.GoName, m.GoName, m.GoName, f.GoName)
 		}
 		if f.GoType == "" {
@@ -609,10 +609,10 @@ func (m *Model) prepare() error {
 		// identifier-shaped values are accepted. | Column 与 JSONName 会原样写入生成的 Go 字符串、
 		// SQL 与结构体标签。引号、反引号或控制字符会破坏文件（或注入代码），因此只接受标识符形态。
 		if !validDBIdent(f.Column) {
-			return errx.Detail(ErrBadModel, "column %q of %s is not a legal SQL identifier | %s 的列名 %q 不是合法的 SQL 标识符", f.Column, m.GoName, m.GoName, f.Column)
+			return errs.Detail(ErrBadModel, "column %q of %s is not a legal SQL identifier | %s 的列名 %q 不是合法的 SQL 标识符", f.Column, m.GoName, m.GoName, f.Column)
 		}
 		if !f.JSONExcluded && !validJSONKey(f.JSONName) {
-			return errx.Detail(ErrBadModel, "json name %q of %s is not embeddable in a struct tag | %s 的 JSON 名 %q 无法嵌入结构体标签", f.JSONName, m.GoName, m.GoName, f.JSONName)
+			return errs.Detail(ErrBadModel, "json name %q of %s is not embeddable in a struct tag | %s 的 JSON 名 %q 无法嵌入结构体标签", f.JSONName, m.GoName, m.GoName, f.JSONName)
 		}
 		if f.Label == "" {
 			f.Label = f.GoName
@@ -637,7 +637,7 @@ func (m *Model) prepare() error {
 	if pk := m.PrimaryKey(); pk != nil && !pk.IsPrimaryKeyType() {
 		// Routes can only carry string or integer keys; floats and []byte cannot be rebuilt from a path parameter. |
 		// 路由只能携带字符串或整数主键；浮点与 []byte 无法从路径参数还原。
-		return errx.Detail(ErrBadModel, "primary key %s must be a string or integer type | 主键 %s 必须是字符串或整数类型", pk.Column, pk.Column)
+		return errs.Detail(ErrBadModel, "primary key %s must be a string or integer type | 主键 %s 必须是字符串或整数类型", pk.Column, pk.Column)
 	}
 	if m.Module == "" {
 		m.Module = m.Name

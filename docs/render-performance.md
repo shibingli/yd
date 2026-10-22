@@ -1,6 +1,6 @@
 # render 性能瓶颈分析与编译式引擎设计
 
-本文记录 `http/render` 从「直接执行 html/template」迁移到「加载期编译、渲染期执行
+本文记录 `ydx/render` 从「直接执行 html/template」迁移到「加载期编译、渲染期执行
 不可变程序」的完整分析、实现与验证。基准数值取自 Windows / i9-10980HK / Go 1.27.2；
 跨机比较请以相对关系为准。面向业务开发的接入与模板写法见
 [`render-usage.md`](render-usage.md)。
@@ -224,7 +224,7 @@ URL 协议过滤与规范化带来的必要成本。
 
 ## 5. 兼容性与安全
 
-- `http/render/compat_test.go` 用同一模板、同一数据分别交给 html/template 与编译引擎，
+- `ydx/render/compat_test.go` 用同一模板、同一数据分别交给 html/template 与编译引擎，
   **逐字节比较输出**；覆盖 HTML/属性/URL/JS/CSS/注释上下文、`define`/`template`/`block`、
   条件、循环、变量、内置函数、方法、nil/缺失键与错误路径。
 - 转义函数与 html/template 的替换表/过滤器逐项对齐；`template.HTML`、`template.URL`
@@ -238,11 +238,11 @@ URL 协议过滤与规范化带来的必要成本。
 
 ```bash
 # 微基准与差分测试
-go test ./http/render -run '^$' -bench BenchmarkRender -benchmem -count 3
-go test ./http/render -run 'TestDifferential' -count 1
+(cd ../ydx/render && go test -run '^$' -bench BenchmarkRender -benchmem -count 3)
+(cd ../ydx/render && go test -run 'TestDifferential' -count 1)
 
 # 框架页面
-go test ./http/render -run '^$' -bench BenchmarkFrameworkPage -benchmem -count 3
+cd benchmarks/template && go test -run '^$' -bench BenchmarkFrameworkPage -benchmem -count 3
 
 # 横向对比
 cd benchmarks/template && go test ./...

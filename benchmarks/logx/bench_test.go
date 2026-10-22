@@ -12,7 +12,7 @@ import (
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 
-	"github.com/shibingli/yd/core/logx"
+	"github.com/shibingli/ydx/log"
 )
 
 // benchSelected reports whether name passes the YD_BENCH_ONLY filter. Set it to
@@ -58,24 +58,24 @@ func newLoggers() []loggerCase {
 	logrusLogger := logrus.New()
 	logrusLogger.SetOutput(io.Discard)
 	logrusLogger.SetFormatter(&logrus.JSONFormatter{})
-	logxLogger := logx.New(logx.Options{Writer: io.Discard, Level: logx.InfoLevel})
+	logxLogger := log.New(log.Options{Writer: io.Discard, Level: log.InfoLevel})
 
 	zapBound := zl.With(zap.String("method", "GET"), zap.Int("status", 200), zap.Bool("ok", true))
 	zerologBound := zerologLogger.With().Str("method", "GET").Int("status", 200).Bool("ok", true).Logger()
 	slogBound := slogLogger.With("method", "GET", "status", 200, "ok", true)
 	logrusBound := logrusLogger.WithFields(logrus.Fields{"method": "GET", "status": 200, "ok": true})
-	logxBound := logxLogger.With(logx.Str("method", "GET"), logx.Int("status", 200), logx.Bool("ok", true))
+	logxBound := logxLogger.With(log.Str("method", "GET"), log.Int("status", 200), log.Bool("ok", true))
 
 	return []loggerCase{
 		{
 			name: "yd-logx",
 			info: func() {
 				logxLogger.Info("request completed",
-					logx.Str("method", "GET"), logx.Int("status", 200), logx.Bool("ok", true))
+					log.Str("method", "GET"), log.Int("status", 200), log.Bool("ok", true))
 			},
 			debug: func() {
 				logxLogger.Debug("request completed",
-					logx.Str("method", "GET"), logx.Int("status", 200), logx.Bool("ok", true))
+					log.Str("method", "GET"), log.Int("status", 200), log.Bool("ok", true))
 			},
 			infoBound:  func() { logxBound.Info("request completed") },
 			debugBound: func() { logxBound.Debug("request completed") },

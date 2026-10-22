@@ -16,54 +16,54 @@ import (
 	"github.com/quic-go/quic-go/http3"
 	"golang.org/x/crypto/acme"
 
-	"github.com/shibingli/yd/core/errx"
-	"github.com/shibingli/yd/core/logx"
-	"github.com/shibingli/yd/http/protocol"
 	"github.com/shibingli/yd/runtime/lifecycle"
+	yderrs "github.com/shibingli/ydx/errs"
+	ydlog "github.com/shibingli/ydx/log"
+	"github.com/shibingli/ydx/protocol"
 )
 
 // Sentinel errors of this package, all testable with errors.Is. | 本包的哨兵错误，均可通过 errors.Is 判定。
 var (
 	// ErrNoHandler is returned when Start is called without a handler. | ErrNoHandler 表示未提供处理器就调用 Start。
-	ErrNoHandler = errx.New("server: no handler configured | server：未设置 Handler")
+	ErrNoHandler = yderrs.New("server: no handler configured | server：未设置 Handler")
 
 	// ErrAlreadyStarted is returned by a second Start call. | ErrAlreadyStarted 表示重复调用 Start。
-	ErrAlreadyStarted = errx.New("server: server already started | server：服务器已启动")
+	ErrAlreadyStarted = yderrs.New("server: server already started | server：服务器已启动")
 
 	// ErrListen reports a TCP listener that could not be bound. | ErrListen 表示 TCP 监听绑定失败。
-	ErrListen = errx.New("server: failed to listen | server：监听失败")
+	ErrListen = yderrs.New("server: failed to listen | server：监听失败")
 
 	// ErrHTTP3RequiresTLS reports HTTP/3 enabled without any TLS configuration (QUIC mandates TLS 1.3). | ErrHTTP3RequiresTLS 表示启用 HTTP/3 却没有 TLS 配置（QUIC 强制 TLS 1.3）。
-	ErrHTTP3RequiresTLS = errx.New("server: HTTP/3 requires a TLS configuration (QUIC mandates TLS 1.3) | server：启用 HTTP/3 需要 TLS 配置（QUIC 强制 TLS 1.3）")
+	ErrHTTP3RequiresTLS = yderrs.New("server: HTTP/3 requires a TLS configuration (QUIC mandates TLS 1.3) | server：启用 HTTP/3 需要 TLS 配置（QUIC 强制 TLS 1.3）")
 
 	// ErrHTTPServerExited reports the TCP (HTTP/1.1 + h2c) server stopping unexpectedly. | ErrHTTPServerExited 表示 TCP（HTTP/1.1 + h2c）服务异常退出。
-	ErrHTTPServerExited = errx.New("server: HTTP server exited | server：HTTP 服务退出")
+	ErrHTTPServerExited = yderrs.New("server: HTTP server exited | server：HTTP 服务退出")
 
 	// ErrHTTP3ServerExited reports the HTTP/3 server stopping unexpectedly. | ErrHTTP3ServerExited 表示 HTTP/3 服务异常退出。
-	ErrHTTP3ServerExited = errx.New("server: HTTP/3 server exited | server：HTTP/3 服务退出")
+	ErrHTTP3ServerExited = yderrs.New("server: HTTP/3 server exited | server：HTTP/3 服务退出")
 
 	// ErrHTTP3Listen reports a QUIC (UDP) socket that could not be bound. | ErrHTTP3Listen 表示 QUIC（UDP）套接字绑定失败。
-	ErrHTTP3Listen = errx.New("server: cannot bind the HTTP/3 UDP socket | server：无法绑定 HTTP/3 的 UDP 套接字")
+	ErrHTTP3Listen = yderrs.New("server: cannot bind the HTTP/3 UDP socket | server：无法绑定 HTTP/3 的 UDP 套接字")
 
 	// ErrHTTP3Close reports a QUIC (UDP) socket that could not be closed. | ErrHTTP3Close 表示 QUIC（UDP）套接字关闭失败。
-	ErrHTTP3Close = errx.New("server: cannot close the HTTP/3 UDP socket | server：无法关闭 HTTP/3 的 UDP 套接字")
+	ErrHTTP3Close = yderrs.New("server: cannot close the HTTP/3 UDP socket | server：无法关闭 HTTP/3 的 UDP 套接字")
 
 	// ErrTLSFilesMissing reports TLS enabled without cert_file and key_file. | ErrTLSFilesMissing 表示启用 TLS 却缺少 cert_file 与 key_file。
-	ErrTLSFilesMissing = errx.New("server: enabling TLS requires cert_file and key_file | server：启用 TLS 必须提供 cert_file 与 key_file")
+	ErrTLSFilesMissing = yderrs.New("server: enabling TLS requires cert_file and key_file | server：启用 TLS 必须提供 cert_file 与 key_file")
 
 	// ErrCertLoadFailed reports a certificate pair that could not be loaded. | ErrCertLoadFailed 表示证书对加载失败。
-	ErrCertLoadFailed = errx.New("server: failed to load the certificate | server：加载证书失败")
+	ErrCertLoadFailed = yderrs.New("server: failed to load the certificate | server：加载证书失败")
 
 	// ErrGracefulShutdown reports that in-flight requests did not drain within the grace period. | ErrGracefulShutdown 表示宽限期内仍有进行中的请求未排空。
-	ErrGracefulShutdown = errx.New("server: graceful shutdown did not finish before the deadline | server：宽限期内未能完成优雅退出")
+	ErrGracefulShutdown = yderrs.New("server: graceful shutdown did not finish before the deadline | server：宽限期内未能完成优雅退出")
 
 	// ErrHTTP2ExtendedConnectRequired reports that server.http2.extended_connect is on
 	// but the process started without GODEBUG=http2xconnect=1. | ErrHTTP2ExtendedConnectRequired
 	// 表示 server.http2.extended_connect 已开启，但进程启动时没有 GODEBUG=http2xconnect=1。
-	ErrHTTP2ExtendedConnectRequired = errx.New("server: server.http2.extended_connect is enabled but GODEBUG lacks http2xconnect=1; start the process with GODEBUG=http2xconnect=1 (yd dev, yd service install and yd docker configure it automatically; Windows services must be installed through yd service) | server：已启用 server.http2.extended_connect，但 GODEBUG 缺少 http2xconnect=1；请以 GODEBUG=http2xconnect=1 启动进程（yd dev、yd service install 与 yd docker 会自动配置；Windows 服务必须经 yd service 安装）")
+	ErrHTTP2ExtendedConnectRequired = yderrs.New("server: server.http2.extended_connect is enabled but GODEBUG lacks http2xconnect=1; start the process with GODEBUG=http2xconnect=1 (yd dev, yd service install and yd docker configure it automatically; Windows services must be installed through yd service) | server：已启用 server.http2.extended_connect，但 GODEBUG 缺少 http2xconnect=1；请以 GODEBUG=http2xconnect=1 启动进程（yd dev、yd service install 与 yd docker 会自动配置；Windows 服务必须经 yd service 安装）")
 
 	// ErrShutdownHook reports a failure in a registered lifecycle shutdown hook. | ErrShutdownHook 表示已注册的生命周期关闭钩子执行失败。
-	ErrShutdownHook = errx.New("server: shutdown hook failed | server：关闭钩子执行失败")
+	ErrShutdownHook = yderrs.New("server: shutdown hook failed | server：关闭钩子执行失败")
 )
 
 // Server multiplexes HTTP/1.1, h2c and HTTP/3 over one handler. | Server 在同一处理器上复用 HTTP/1.1、h2c 与 HTTP/3。
@@ -77,7 +77,7 @@ type Server struct {
 	ln        net.Listener
 	h3Conn    net.PacketConn
 	firstErr  error
-	logger    *logx.Logger
+	logger    *ydlog.Logger
 	httpSrv   *http.Server
 	h3Srv     *http3.Server
 	acme      *acmeManager
@@ -120,7 +120,7 @@ func New(o Options) *Server {
 	o = o.normalize()
 	l := o.Logger
 	if l == nil {
-		l = logx.Default()
+		l = ydlog.Default()
 	}
 	return &Server{
 		opts:      o,
@@ -205,7 +205,7 @@ func (s *Server) Start() error {
 
 	ln, err := net.Listen("tcp", s.opts.addr())
 	if err != nil {
-		return errx.WrapDetail(err, ErrListen, "addr %s | 地址 %s", s.opts.addr(), s.opts.addr())
+		return yderrs.WrapDetail(err, ErrListen, "addr %s | 地址 %s", s.opts.addr(), s.opts.addr())
 	}
 	s.ln = ln
 	s.tcpPort = ln.Addr().(*net.TCPAddr).Port
@@ -277,7 +277,7 @@ func (s *Server) Start() error {
 			err = s.httpSrv.Serve(ln)
 		}
 		if err != nil && !errors.Is(err, http.ErrServerClosed) {
-			s.reportErr(errx.Wrap(err, ErrHTTPServerExited))
+			s.reportErr(yderrs.Wrap(err, ErrHTTPServerExited))
 		}
 	}()
 
@@ -287,7 +287,7 @@ func (s *Server) Start() error {
 		conn := s.h3Conn
 		go func() {
 			if err := s.h3Srv.Serve(conn); err != nil && !errors.Is(err, http.ErrServerClosed) {
-				s.reportErr(errx.Wrap(err, ErrHTTP3ServerExited))
+				s.reportErr(yderrs.Wrap(err, ErrHTTP3ServerExited))
 			}
 		}()
 	}
@@ -298,10 +298,10 @@ func (s *Server) Start() error {
 		h3Addr = s.h3PublicAddr()
 	}
 	s.logger.Info("server started | 服务器已启动",
-		logx.Str("addr", ln.Addr().String()),
-		logx.Str("http3", h3Addr),
-		logx.Bool("h2c", s.opts.H2C && !s.tlsActive()),
-		logx.Bool("tls", s.tlsActive()),
+		ydlog.Str("addr", ln.Addr().String()),
+		ydlog.Str("http3", h3Addr),
+		ydlog.Bool("h2c", s.opts.H2C && !s.tlsActive()),
+		ydlog.Bool("tls", s.tlsActive()),
 	)
 	return nil
 }
@@ -322,7 +322,7 @@ func (s *Server) reportErr(err error) {
 	select {
 	case s.serveErr <- err:
 	default:
-		s.logger.Error("server error channel is full | 服务器错误通道已满", logx.Err(err))
+		s.logger.Error("server error channel is full | 服务器错误通道已满", ydlog.Err(err))
 	}
 	s.doneOnce.Do(func() { close(s.done) })
 }
@@ -414,17 +414,17 @@ func (s *Server) Shutdown(ctx context.Context) error {
 		}
 		if h3Conn != nil {
 			if err := h3Conn.Close(); err != nil {
-				errs = append(errs, errx.Wrap(err, ErrHTTP3Close))
+				errs = append(errs, yderrs.Wrap(err, ErrHTTP3Close))
 			}
 		}
 		if h3 != nil {
 			select {
 			case err := <-closeDone:
 				if err != nil {
-					errs = append(errs, errx.Wrap(err, ErrHTTP3Close))
+					errs = append(errs, yderrs.Wrap(err, ErrHTTP3Close))
 				}
 			case <-ctx.Done():
-				errs = append(errs, errx.WrapDetail(ctx.Err(), ErrHTTP3Close, "HTTP/3 close did not finish before the deadline | HTTP/3 关闭未在期限内完成"))
+				errs = append(errs, yderrs.WrapDetail(ctx.Err(), ErrHTTP3Close, "HTTP/3 close did not finish before the deadline | HTTP/3 关闭未在期限内完成"))
 			}
 		}
 	}
@@ -432,7 +432,7 @@ func (s *Server) Shutdown(ctx context.Context) error {
 	// ③ Drain in-flight ordinary requests; hijacked connections are outside http.Server's tracking. | ③ 排空进行中的普通请求；hijack 出去的连接不在 http.Server 的追踪范围内。
 	if hs != nil {
 		if err := hs.Shutdown(ctx); err != nil {
-			errs = append(errs, errx.Wrap(err, ErrGracefulShutdown))
+			errs = append(errs, yderrs.Wrap(err, ErrGracefulShutdown))
 		}
 	}
 
@@ -447,7 +447,7 @@ func (s *Server) Shutdown(ctx context.Context) error {
 
 	// ⑤ Aggregate the hook errors with those of the steps above. | ⑤ 汇总钩子与以上各步的错误。
 	if err := <-hooks; err != nil {
-		errs = append(errs, errx.Wrap(err, ErrShutdownHook))
+		errs = append(errs, yderrs.Wrap(err, ErrShutdownHook))
 	}
 
 	s.mu.Lock()
@@ -564,7 +564,7 @@ func (s *Server) buildTLSConfig() (*tls.Config, error) {
 		}
 		cert, err := tls.LoadX509KeyPair(s.opts.TLS.CertFile, s.opts.TLS.KeyFile)
 		if err != nil {
-			return nil, errx.Wrap(err, ErrCertLoadFailed)
+			return nil, yderrs.Wrap(err, ErrCertLoadFailed)
 		}
 		return &tls.Config{
 			Certificates: []tls.Certificate{cert},
@@ -598,14 +598,14 @@ func (s *Server) loggerConfig() *log.Logger {
 	return log.New(logxWriter{s.logger}, "", 0)
 }
 
-// logxWriter forwards stdlib server errors into logx. | logxWriter 把标准库服务器错误转发给 logx。
-type logxWriter struct{ l *logx.Logger }
+// logxWriter forwards stdlib server errors into ydlog. | logxWriter 把标准库服务器错误转发给 logx。
+type logxWriter struct{ l *ydlog.Logger }
 
 func (w logxWriter) Write(p []byte) (int, error) {
 	msg := string(p)
 	if len(msg) > 0 && msg[len(msg)-1] == '\n' {
 		msg = msg[:len(msg)-1]
 	}
-	w.l.Warn("http server message | HTTP 服务器消息", logx.Str("msg", msg))
+	w.l.Warn("http server message | HTTP 服务器消息", ydlog.Str("msg", msg))
 	return len(p), nil
 }

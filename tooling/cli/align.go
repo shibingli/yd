@@ -8,9 +8,9 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/shibingli/yd/core/errx"
-	"github.com/shibingli/yd/core/logx"
 	"github.com/shibingli/yd/tooling/align"
+	"github.com/shibingli/ydx/errs"
+	"github.com/shibingli/ydx/log"
 	"github.com/spf13/pflag"
 )
 
@@ -32,7 +32,7 @@ const (
 )
 
 // errAlignMaxPasses rejects a negative pass limit, which would otherwise be silently read as "use the default". | errAlignMaxPasses 拒绝负数的遍数上限——否则它会被静默当成「使用默认值」。
-var errAlignMaxPasses = errx.New("align: --max-passes must not be negative | align：--max-passes 不能为负数")
+var errAlignMaxPasses = errs.New("align: --max-passes must not be negative | align：--max-passes 不能为负数")
 
 // keyAlignBin is the configured betteralign path, ranked below --bin. | keyAlignBin 是配置的 betteralign 路径，优先级低于 --bin。
 const keyAlignBin = "align.bin"
@@ -76,7 +76,7 @@ func runAlign(ctx context.Context, env *Env) error {
 		printAlignHint(env, errAlignMaxPasses)
 		return errAlignMaxPasses
 	}
-	rep, err := align.ResolveAndRun(ctx, tool, o, logx.Default())
+	rep, err := align.ResolveAndRun(ctx, tool, o, log.Default())
 	if rep != nil {
 		printAlignReport(env, o, rep)
 	}

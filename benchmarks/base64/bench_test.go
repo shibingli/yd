@@ -12,7 +12,7 @@ import (
 	cwb64 "github.com/cloudwego/base64x"
 	crb64 "github.com/cristalhq/base64"
 
-	"github.com/shibingli/yd/core/b64x"
+	ydbase64 "github.com/shibingli/ydx/base64"
 )
 
 // benchSink keeps results observable. | benchSink 让结果保持可观测。
@@ -75,10 +75,10 @@ var codecs = []codec{
 	},
 	{
 		name:   "yd-b64x",
-		encode: b64x.StdEncoding.Encode,
-		decode: b64x.StdEncoding.Decode,
-		encLen: b64x.StdEncoding.EncodedLen,
-		decLen: b64x.StdEncoding.DecodedLen,
+		encode: ydbase64.StdEncoding.Encode,
+		decode: ydbase64.StdEncoding.Decode,
+		encLen: ydbase64.StdEncoding.EncodedLen,
+		decLen: ydbase64.StdEncoding.DecodedLen,
 	},
 }
 
@@ -188,12 +188,12 @@ func BenchmarkEncodeAutoParallel(b *testing.B) {
 	for _, size := range []int{1 << 20, 8 << 20} {
 		src := payload(size)
 		b.Run(fmt.Sprintf("%d/yd-b64x-auto", size), func(b *testing.B) {
-			dst := make([]byte, b64x.StdEncoding.EncodedLen(len(src)))
+			dst := make([]byte, ydbase64.StdEncoding.EncodedLen(len(src)))
 			b.SetBytes(int64(len(src)))
 			b.ReportAllocs()
 			b.ResetTimer()
 			for i := 0; i < b.N; i++ {
-				b64x.StdEncoding.EncodeParallel(dst, src)
+				ydbase64.StdEncoding.EncodeParallel(dst, src)
 			}
 			benchSink += len(dst)
 		})
@@ -209,15 +209,15 @@ func BenchmarkDecodeAutoParallel(b *testing.B) {
 	}
 	for _, size := range []int{1 << 20, 8 << 20} {
 		src := payload(size)
-		encoded := make([]byte, b64x.StdEncoding.EncodedLen(len(src)))
-		b64x.StdEncoding.Encode(encoded, src)
+		encoded := make([]byte, ydbase64.StdEncoding.EncodedLen(len(src)))
+		ydbase64.StdEncoding.Encode(encoded, src)
 		b.Run(fmt.Sprintf("%d/yd-b64x-auto", size), func(b *testing.B) {
-			dst := make([]byte, b64x.StdEncoding.DecodedLen(len(encoded)))
+			dst := make([]byte, ydbase64.StdEncoding.DecodedLen(len(encoded)))
 			b.SetBytes(int64(len(src)))
 			b.ReportAllocs()
 			b.ResetTimer()
 			for i := 0; i < b.N; i++ {
-				n, err := b64x.StdEncoding.DecodeParallel(dst, encoded)
+				n, err := ydbase64.StdEncoding.DecodeParallel(dst, encoded)
 				if err != nil {
 					b.Fatalf("decode: %v | 解码失败", err)
 				}

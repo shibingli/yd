@@ -16,9 +16,9 @@ import (
 	"runtime"
 	"strings"
 
-	"github.com/shibingli/yd/core/errx"
 	"github.com/shibingli/yd/tooling/completion"
 	"github.com/shibingli/yd/tooling/tools"
+	"github.com/shibingli/ydx/errs"
 	"github.com/spf13/pflag"
 )
 
@@ -225,7 +225,7 @@ func printCompletionScript(env *Env, sh completion.Shell) error {
 		return completionHint(env, err)
 	}
 	if _, err := io.WriteString(env.Out, script); err != nil {
-		return errx.Wrap(err, ErrOutputFailed)
+		return errs.Wrap(err, ErrOutputFailed)
 	}
 	return nil
 }
@@ -444,7 +444,7 @@ func printCompletionResult(w io.Writer, res completion.Result) {
 func completionUsageError(env *Env, detail string) error {
 	fmt.Fprintf(env.Err, "yd completion: %s\n", detail)
 	printCompletionUsage(env.Err)
-	return errx.Detail(ErrNoCommand, "%s", completionUsageLine)
+	return errs.Detail(ErrNoCommand, "%s", completionUsageLine)
 }
 
 // printCompletionUsage writes the usage block of the completion command. | printCompletionUsage 写出 completion

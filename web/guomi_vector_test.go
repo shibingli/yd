@@ -41,32 +41,32 @@ import (
 
 	esm2 "github.com/emmansun/gmsm/sm2"
 
-	"github.com/shibingli/yd/core/b64x"
-	"github.com/shibingli/yd/core/errx"
-	"github.com/shibingli/yd/core/jsonx"
 	"github.com/shibingli/yd/security/guomi"
+	"github.com/shibingli/ydx/base64"
+	"github.com/shibingli/ydx/errs"
+	"github.com/shibingli/ydx/json"
 )
 
 var (
 	// errNodeScriptMissing reports a missing JavaScript test entry point. | errNodeScriptMissing 表示缺少 JS 测试入口。
-	errNodeScriptMissing = errx.New("web: the javascript guomi test script is missing | web：缺少 JS 国密测试脚本")
+	errNodeScriptMissing = errs.New("web: the javascript guomi test script is missing | web：缺少 JS 国密测试脚本")
 
 	// errNodeRunFailed reports a failing Node run. | errNodeRunFailed 表示 Node 运行失败。
-	errNodeRunFailed = errx.New("web: the javascript guomi test suite failed | web：JS 国密测试套件执行失败")
+	errNodeRunFailed = errs.New("web: the javascript guomi test suite failed | web：JS 国密测试套件执行失败")
 
 	// errVectorIO reports a failed vector file read or write. | errVectorIO 表示向量文件读写失败。
-	errVectorIO = errx.New("web: guomi vector file i/o failed | web：国密向量文件读写失败")
+	errVectorIO = errs.New("web: guomi vector file i/o failed | web：国密向量文件读写失败")
 
 	// errVectorDecode reports a malformed vector file. | errVectorDecode 表示向量文件格式非法。
-	errVectorDecode = errx.New("web: guomi vector file is not valid JSON | web：国密向量文件不是合法 JSON")
+	errVectorDecode = errs.New("web: guomi vector file is not valid JSON | web：国密向量文件不是合法 JSON")
 
 	// errVectorMismatch reports a Go/JS divergence detected while verifying JS vectors. | errVectorMismatch 表示校验 JS 向量时发现两侧不一致。
-	errVectorMismatch = errx.New("web: javascript vector rejected by the go implementation | web：JS 向量未被 Go 实现接受")
+	errVectorMismatch = errs.New("web: javascript vector rejected by the go implementation | web：JS 向量未被 Go 实现接受")
 
 	// errVectorStale reports a checked-in fixture that no longer matches the regenerated vectors,
 	// or one that still carries a randomiser drawn from crypto/rand. | errVectorStale 表示签入夹具
 	// 与重新生成的向量不一致，或仍带有取自 crypto/rand 的随机数。
-	errVectorStale = errx.New("web: the checked-in guomi vector fixture is not reproducible | web：签入的国密向量夹具不可复现")
+	errVectorStale = errs.New("web: the checked-in guomi vector fixture is not reproducible | web：签入的国密向量夹具不可复现")
 )
 
 // Fixed material for the cross-language vectors. | 跨语言向量使用的固定材料。
@@ -267,7 +267,7 @@ type htmxTransportVector struct {
 	// Name identifies the vector. | Name 标识该向量。
 	Name string `json:"name"`
 
-	// FieldBase64 is the standard Base64 of the raw C1C3C2 ciphertext, matching b64x.StdEncoding. | FieldBase64 是原始 C1C3C2 密文的标准 Base64，与 b64x.StdEncoding 一致。
+	// FieldBase64 is the standard Base64 of the raw C1C3C2 ciphertext, matching base64.StdEncoding. | FieldBase64 是原始 C1C3C2 密文的标准 Base64，与 base64.StdEncoding 一致。
 	FieldBase64 string `json:"fieldBase64"`
 
 	// PlainHex is the plaintext the field carried before encryption. | PlainHex 是字段加密前的明文。
@@ -439,7 +439,7 @@ func verifyJSVectors(t *testing.T, raw []byte, requireHtmx bool) {
 	t.Helper()
 
 	var vectors jsVectorFile
-	if err := jsonx.Unmarshal(raw, &vectors); err != nil {
+	if err := json.Unmarshal(raw, &vectors); err != nil {
 		t.Fatalf("%v: %v", errVectorDecode, err)
 	}
 	if vectors.GeneratedBy != "js" {
@@ -544,12 +544,12 @@ func verifyJSVectors(t *testing.T, raw []byte, requireHtmx bool) {
 		}
 	}
 
-	// The htmx hook ships the raw ciphertext as standard Base64, decoded here through b64x. | htmx 钩子以标准 Base64 传输原始密文，这里用 b64x 解码。
+	// The htmx hook ships the raw ciphertext as standard Base64, decoded here through base64. | htmx 钩子以标准 Base64 传输原始密文，这里用 b64x 解码。
 	if requireHtmx && len(vectors.HtmxTransport) == 0 {
 		t.Fatalf("%v: htmxTransport is empty | htmxTransport 为空", errVectorMismatch)
 	}
 	for _, vector := range vectors.HtmxTransport {
-		ciphertext, err := b64x.StdEncoding.DecodeString(vector.FieldBase64)
+		ciphertext, err := base64.StdEncoding.DecodeString(vector.FieldBase64)
 		if err != nil {
 			t.Fatalf("%v: htmx %s base64 | htmx %s 的 base64: %v", errVectorMismatch, vector.Name, vector.Name, err)
 		}
@@ -627,7 +627,7 @@ func writeVectorFile(t *testing.T, path string, vectors guomiVectorFile) {
 func marshalVectors(t *testing.T, vectors guomiVectorFile) []byte {
 	t.Helper()
 
-	raw, err := jsonx.MarshalIndent(vectors, "", "  ")
+	raw, err := json.MarshalIndent(vectors, "", "  ")
 	if err != nil {
 		t.Fatalf("%v: %v", errVectorIO, err)
 	}
@@ -672,7 +672,7 @@ func assertFixtureHasFixedRandomisers(t *testing.T, path string) {
 		t.Fatalf("%v: %s: %v", errVectorIO, path, err)
 	}
 	var vectors fixtureVectors
-	if err := jsonx.Unmarshal(raw, &vectors); err != nil {
+	if err := json.Unmarshal(raw, &vectors); err != nil {
 		t.Fatalf("%v: %s: %v", errVectorDecode, path, err)
 	}
 	for _, vector := range vectors.SM2.Encryptions {
@@ -1103,7 +1103,7 @@ func runNodeTest(t *testing.T, env []string) ([]byte, error) {
 	cmd.Env = append(os.Environ(), env...)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
-		return out, errx.WrapDetail(err, errNodeRunFailed, "node %s exited with an error | node %s 以错误退出", script, script)
+		return out, errs.WrapDetail(err, errNodeRunFailed, "node %s exited with an error | node %s 以错误退出", script, script)
 	}
 	return out, nil
 }

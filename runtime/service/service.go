@@ -31,27 +31,27 @@ import (
 	"strings"
 
 	"github.com/kardianos/service"
-	"github.com/shibingli/yd/core/config"
-	"github.com/shibingli/yd/core/errx"
-	"github.com/shibingli/yd/http/protocol"
+	"github.com/shibingli/ydx/config"
+	"github.com/shibingli/ydx/errs"
+	"github.com/shibingli/ydx/protocol"
 )
 
 // Sentinel errors of the service package, always matched with errors.Is. | service 包的哨兵错误，一律用 errors.Is 判定。
 var (
 	// ErrUnsupportedPlatform reports a platform without a usable service manager. | ErrUnsupportedPlatform 表示当前平台没有可用的服务管理器。
-	ErrUnsupportedPlatform = errx.New("service: no supported service manager on this platform | service：当前平台没有受支持的服务管理器")
+	ErrUnsupportedPlatform = errs.New("service: no supported service manager on this platform | service：当前平台没有受支持的服务管理器")
 	// ErrNotInstalled reports an action against a service that is not installed. | ErrNotInstalled 表示对未安装的服务执行了动作。
-	ErrNotInstalled = errx.New("service: the service is not installed | service：服务尚未安装")
+	ErrNotInstalled = errs.New("service: the service is not installed | service：服务尚未安装")
 	// ErrPermissionDenied reports an action denied for lack of administrator or root rights. | ErrPermissionDenied 表示因缺少管理员或 root 权限而被拒绝。
-	ErrPermissionDenied = errx.New("service: administrator or root rights are required | service：需要管理员或 root 权限")
+	ErrPermissionDenied = errs.New("service: administrator or root rights are required | service：需要管理员或 root 权限")
 	// ErrUnknownAction reports an action word outside the supported set. | ErrUnknownAction 表示动作词不在支持集合内。
-	ErrUnknownAction = errx.New("service: unknown service action | service：未知的服务动作")
+	ErrUnknownAction = errs.New("service: unknown service action | service：未知的服务动作")
 	// ErrActionFailed reports a service manager action that failed for another reason. | ErrActionFailed 表示服务管理器动作因其它原因失败。
-	ErrActionFailed = errx.New("service: service action failed | service：服务动作执行失败")
+	ErrActionFailed = errs.New("service: service action failed | service：服务动作执行失败")
 	// ErrStopTimeout reports a run function still running when the stop grace period expired. | ErrStopTimeout 表示停止宽限期到期时 run 函数仍未返回。
-	ErrStopTimeout = errx.New("service: stop grace period expired | service：停止宽限期已到期")
+	ErrStopTimeout = errs.New("service: stop grace period expired | service：停止宽限期已到期")
 	// ErrNilRun reports a nil run function handed to Run. | ErrNilRun 表示传给 Run 的 run 函数为空。
-	ErrNilRun = errx.New("service: nil run function | service：run 函数为空")
+	ErrNilRun = errs.New("service: nil run function | service：run 函数为空")
 )
 
 // Configuration keys read by OptionsFromConfig; they mirror the `service` section of

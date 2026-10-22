@@ -42,33 +42,33 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/shibingli/yd/core/errx"
+	"github.com/shibingli/ydx/errs"
 )
 
 // Declared sentinels of the package. | 本包声明的哨兵错误。
 var (
 	// ErrUnknownShell reports a shell name that is not one of the four supported ones. | ErrUnknownShell
 	// 表示 shell 名不是受支持的四者之一。
-	ErrUnknownShell = errx.New("completion: unsupported shell | completion：不支持的 shell")
+	ErrUnknownShell = errs.New("completion: unsupported shell | completion：不支持的 shell")
 	// ErrShellUndetected reports that the shell could not be deduced from the environment. | ErrShellUndetected
 	// 表示无法从环境推断出 shell。
-	ErrShellUndetected = errx.New("completion: cannot tell which shell is in use | completion：无法判断当前使用的是哪个 shell")
+	ErrShellUndetected = errs.New("completion: cannot tell which shell is in use | completion：无法判断当前使用的是哪个 shell")
 	// ErrInvalidRegistry reports a registry view that cannot produce a usable script. | ErrInvalidRegistry
 	// 表示注册表视图无法产出可用的脚本。
-	ErrInvalidRegistry = errx.New("completion: invalid command registry | completion：非法的命令注册表")
+	ErrInvalidRegistry = errs.New("completion: invalid command registry | completion：非法的命令注册表")
 	// ErrNoHomeDir reports that no home directory could be resolved for the default install location. | ErrNoHomeDir
 	// 表示无法解析主目录，因此拿不到默认安装位置。
-	ErrNoHomeDir = errx.New("completion: home directory is unknown | completion：主目录未知")
+	ErrNoHomeDir = errs.New("completion: home directory is unknown | completion：主目录未知")
 	// ErrWriteScript reports a failure while writing the generated script. | ErrWriteScript 表示写入生成的脚本失败。
-	ErrWriteScript = errx.New("completion: failed to write the completion script | completion：写入补全脚本失败")
+	ErrWriteScript = errs.New("completion: failed to write the completion script | completion：写入补全脚本失败")
 	// ErrReadStartup reports a failure while reading the shell startup file. | ErrReadStartup 表示读取 shell 启动文件失败。
-	ErrReadStartup = errx.New("completion: failed to read the startup file | completion：读取启动文件失败")
+	ErrReadStartup = errs.New("completion: failed to read the startup file | completion：读取启动文件失败")
 	// ErrWriteStartup reports a failure while appending to the shell startup file. | ErrWriteStartup
 	// 表示追加 shell 启动文件失败。
-	ErrWriteStartup = errx.New("completion: failed to update the startup file | completion：更新启动文件失败")
+	ErrWriteStartup = errs.New("completion: failed to update the startup file | completion：更新启动文件失败")
 	// ErrWriteBackup reports a failure while backing the startup file up before changing it. | ErrWriteBackup
 	// 表示在改动启动文件之前备份失败。
-	ErrWriteBackup = errx.New("completion: failed to back up the startup file | completion：备份启动文件失败")
+	ErrWriteBackup = errs.New("completion: failed to back up the startup file | completion：备份启动文件失败")
 )
 
 // shellEnvName is the environment variable that names the login shell. | shellEnvName 是标明登录 shell 的环境变量名。
@@ -147,7 +147,7 @@ func ParseShell(name string) (Shell, error) {
 	case string(PowerShell), "pwsh":
 		return PowerShell, nil
 	default:
-		return "", errx.Detail(ErrUnknownShell, "%q (want | 需要: %s)", name, shellNames())
+		return "", errs.Detail(ErrUnknownShell, "%q (want | 需要: %s)", name, shellNames())
 	}
 }
 
@@ -359,7 +359,7 @@ func Generate(sh Shell, reg Registry) (string, error) {
 	case PowerShell:
 		return generatePowerShell(v), nil
 	default:
-		return "", errx.Detail(ErrUnknownShell, "%q (want | 需要: %s)", string(sh), shellNames())
+		return "", errs.Detail(ErrUnknownShell, "%q (want | 需要: %s)", string(sh), shellNames())
 	}
 }
 
@@ -387,10 +387,10 @@ type view struct {
 // 一份什么都不补全的脚本比一个错误更糟，因为它看起来装好了，却只在无声地做错事。
 func (r Registry) view() (view, error) {
 	if strings.TrimSpace(r.Program) == "" {
-		return view{}, errx.Detail(ErrInvalidRegistry, "empty program name | 程序名为空")
+		return view{}, errs.Detail(ErrInvalidRegistry, "empty program name | 程序名为空")
 	}
 	if len(r.Commands) == 0 {
-		return view{}, errx.Detail(ErrInvalidRegistry, "no commands | 没有命令")
+		return view{}, errs.Detail(ErrInvalidRegistry, "no commands | 没有命令")
 	}
 	v := view{
 		program:  r.Program,
@@ -403,11 +403,11 @@ func (r Registry) view() (view, error) {
 	}
 	for _, c := range r.Commands {
 		if strings.TrimSpace(c.Name) == "" {
-			return view{}, errx.Detail(ErrInvalidRegistry, "empty command name | 命令名为空")
+			return view{}, errs.Detail(ErrInvalidRegistry, "empty command name | 命令名为空")
 		}
 		for i, p := range c.Positionals {
 			if p.Variadic && i != len(c.Positionals)-1 {
-				return view{}, errx.Detail(ErrInvalidRegistry,
+				return view{}, errs.Detail(ErrInvalidRegistry,
 					"%[1]q: variadic positional %[2]q must be last | %[1]q：可变位置参数 %[2]q 必须位于最后",
 					c.Name, p.Name)
 			}

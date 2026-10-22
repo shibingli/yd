@@ -11,8 +11,8 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/shibingli/yd/core/errx"
-	"github.com/shibingli/yd/core/logx"
+	yderrs "github.com/shibingli/ydx/errs"
+	ydlog "github.com/shibingli/ydx/log"
 )
 
 // goToolchainHint tells the user how to obtain Go itself, since nothing can be installed without
@@ -50,7 +50,7 @@ const versionLimit = 120
 //
 // Installing is the only step here that touches the network; Check, Missing and Hints stay offline. | 安装是本包唯一触网的步骤；
 // Check、Missing 与 Hints 始终保持离线。
-func Install(ctx context.Context, dir string, names []string, log *logx.Logger) (*Report, error) {
+func Install(ctx context.Context, dir string, names []string, log *ydlog.Logger) (*Report, error) {
 	return InstallWith(ctx, Options{Dir: dir}, names, log)
 }
 
@@ -62,7 +62,7 @@ func Install(ctx context.Context, dir string, names []string, log *logx.Logger) 
 // tools are all configured needs no Go toolchain at all. | 决定「已就绪」的探测与 CheckWith 完全相同，
 // 因此经 align.bin、ko.binary 或 tailwind.bin 配置的工具不会被重复安装，工具都已配置好的机器也完全不需要
 // Go 工具链。
-func InstallWith(ctx context.Context, o Options, names []string, log *logx.Logger) (*Report, error) {
+func InstallWith(ctx context.Context, o Options, names []string, log *ydlog.Logger) (*Report, error) {
 	o = o.normalized()
 	if len(names) == 0 {
 		return installPlan(ctx, o, installableTools(), log)
@@ -91,7 +91,7 @@ func InstallWith(ctx context.Context, o Options, names []string, log *logx.Logge
 // appear in Hints with their retrieval route. | 它是 `yd new` 与不带参数的 `yd tools install` 的入口。
 // 计划只包含 Go 可安装工具：docker 没有自动安装路径，tailwindcss 要下载较大的发布二进制，因此仅在显式
 // 点名时获取（`yd tools install tailwindcss`）。两者都会在 Hints 中给出获取途径。
-func InstallAll(ctx context.Context, dir string, log *logx.Logger) (*Report, error) {
+func InstallAll(ctx context.Context, dir string, log *ydlog.Logger) (*Report, error) {
 	return InstallWith(ctx, Options{Dir: dir}, nil, log)
 }
 
@@ -107,7 +107,7 @@ func installableTools() []Tool {
 }
 
 // installPlan probes the plan, installs what is missing, and verifies the result. | installPlan 探测计划、安装缺失项，并验证结果。
-func installPlan(ctx context.Context, o Options, plan []Tool, log *logx.Logger) (*Report, error) {
+func installPlan(ctx context.Context, o Options, plan []Tool, log *ydlog.Logger) (*Report, error) {
 	ctx = contextOr(ctx)
 	log = loggerOr(log)
 	root := o.Dir
@@ -118,18 +118,18 @@ func installPlan(ctx context.Context, o Options, plan []Tool, log *logx.Logger) 
 		st := probe(t, o)
 		switch {
 		case st.Found:
-			log.Debug("tool already available | 工具已就绪", logx.Str("tool", t.Name), logx.Str("path", st.Path))
+			log.Debug("tool already available | 工具已就绪", ydlog.Str("tool", t.Name), ydlog.Str("path", st.Path))
 			report.Skipped = append(report.Skipped, st)
 		case st.Err != nil:
 			report.Failed = append(report.Failed, Failure{
 				Name: t.Name,
-				Err: errx.WrapDetail(st.Err, ErrInstallFailed,
+				Err: yderrs.WrapDetail(st.Err, ErrInstallFailed,
 					"cannot resolve %[1]s before installing it | 安装前无法解析 %[1]s", t.Name),
 			})
 		case t.GoInstall == "" && t.Name != toolTailwindcss:
 			report.Failed = append(report.Failed, Failure{
 				Name: t.Name,
-				Err: errx.Detail(ErrNotInstallable,
+				Err: yderrs.Detail(ErrNotInstallable,
 					"%[1]s must be installed by hand | %[1]s 需要手动安装: %[2]s", t.Name, t.InstallHint),
 			})
 		default:
@@ -161,17 +161,17 @@ func installPlan(ctx context.Context, o Options, plan []Tool, log *logx.Logger) 
 		if goErr != nil {
 			// The hint already says both what is missing and where to get it, so the detail does not
 			// restate it. | 提示本身已经说明了缺什么与去哪里获取，因此细节不再重复。
-			return nil, errx.WrapDetail(goErr, ErrNoGoToolchain, "%[1]s", goToolchainHint)
+			return nil, yderrs.WrapDetail(goErr, ErrNoGoToolchain, "%[1]s", goToolchainHint)
 		}
 	}
 
 	toolDirAbs, err := filepath.Abs(filepath.Join(root, filepath.FromSlash(LocalToolDir)))
 	if err != nil {
-		return nil, errx.WrapDetail(err, ErrInstallFailed,
+		return nil, yderrs.WrapDetail(err, ErrInstallFailed,
 			"cannot resolve the tool directory under %[1]q | 无法解析 %[1]q 下的工具目录", root)
 	}
 	if err := os.MkdirAll(toolDirAbs, 0o755); err != nil {
-		return nil, errx.WrapDetail(err, ErrInstallFailed, "cannot create %[1]q | 无法创建 %[1]q", toolDirAbs)
+		return nil, yderrs.WrapDetail(err, ErrInstallFailed, "cannot create %[1]q | 无法创建 %[1]q", toolDirAbs)
 	}
 
 	env := installEnv(toolDirAbs)
@@ -182,28 +182,28 @@ func installPlan(ctx context.Context, o Options, plan []Tool, log *logx.Logger) 
 			// GoInstall 目标的条目已在上方记为 ErrNotInstallable。
 			st, err := installTailwind(ctx, o, t, log)
 			if err != nil {
-				log.Error("tailwindcss download failed | tailwindcss 下载失败", logx.Str("error", err.Error()))
-				report.Failed = append(report.Failed, Failure{Name: t.Name, Err: errx.Wrap(err, ErrInstallFailed)})
+				log.Error("tailwindcss download failed | tailwindcss 下载失败", ydlog.Str("error", err.Error()))
+				report.Failed = append(report.Failed, Failure{Name: t.Name, Err: yderrs.Wrap(err, ErrInstallFailed)})
 				continue
 			}
 			report.Installed = append(report.Installed, st)
 			log.Info("tool installed | 工具已安装",
-				logx.Str("tool", t.Name), logx.Str("path", st.Path), logx.Str("version", st.Version))
+				ydlog.Str("tool", t.Name), ydlog.Str("path", st.Path), ydlog.Str("version", st.Version))
 			continue
 		}
-		log.Info("installing tool | 正在安装工具", logx.Str("tool", t.Name), logx.Str("target", t.GoInstall))
+		log.Info("installing tool | 正在安装工具", ydlog.Str("tool", t.Name), ydlog.Str("target", t.GoInstall))
 		out, err := execCommand()(ctx, goBin, []string{"install", t.GoInstall}, root, env)
 		if err != nil {
-			log.Error("tool installation failed | 工具安装失败", logx.Str("tool", t.Name), logx.Str("error", err.Error()))
+			log.Error("tool installation failed | 工具安装失败", ydlog.Str("tool", t.Name), ydlog.Str("error", err.Error()))
 			report.Failed = append(report.Failed, Failure{Name: t.Name, Err: installFailure(t, err, out)})
 			continue
 		}
 		st := probe(t, o)
 		if !st.Found {
-			log.Error("installed tool is still not resolvable | 已安装的工具仍无法解析", logx.Str("tool", t.Name))
+			log.Error("installed tool is still not resolvable | 已安装的工具仍无法解析", ydlog.Str("tool", t.Name))
 			report.Failed = append(report.Failed, Failure{
 				Name: t.Name,
-				Err: errx.Detail(ErrInstallFailed,
+				Err: yderrs.Detail(ErrInstallFailed,
 					"go install %[1]s succeeded but %[2]s is still not resolvable | go install %[1]s 成功，但仍无法解析 %[2]s",
 					t.GoInstall, t.Name),
 			})
@@ -212,7 +212,7 @@ func installPlan(ctx context.Context, o Options, plan []Tool, log *logx.Logger) 
 		st.Version = queryVersion(ctx, log, st.Path, t)
 		report.Installed = append(report.Installed, st)
 		log.Info("tool installed | 工具已安装",
-			logx.Str("tool", t.Name), logx.Str("path", st.Path), logx.Str("version", st.Version))
+			ydlog.Str("tool", t.Name), ydlog.Str("path", st.Path), ydlog.Str("version", st.Version))
 	}
 
 	return report, failedError(report)
@@ -315,10 +315,10 @@ func installEnv(toolDirAbs string) []string {
 func installFailure(t Tool, err error, output []byte) error {
 	detail := strings.TrimSpace(tailHead(string(output), installOutputLimit))
 	if detail == "" {
-		return errx.WrapDetail(err, ErrInstallFailed,
+		return yderrs.WrapDetail(err, ErrInstallFailed,
 			"go install %[1]s failed | go install %[1]s 失败", t.GoInstall)
 	}
-	return errx.WrapDetail(err, ErrInstallFailed,
+	return yderrs.WrapDetail(err, ErrInstallFailed,
 		"go install %[1]s failed | go install %[1]s 失败: %[2]s", t.GoInstall, detail)
 }
 
@@ -327,13 +327,13 @@ func installFailure(t Tool, err error, output []byte) error {
 // It is best effort: a tool that fails, prints nothing or answers nonsense leaves Version empty and
 // never turns a successful installation into a failure. | 它尽力而为：工具执行失败、没有输出或回答无法辨认时
 // Version 留空，绝不把一次成功的安装变成失败。
-func queryVersion(ctx context.Context, log *logx.Logger, path string, t Tool) string {
+func queryVersion(ctx context.Context, log *ydlog.Logger, path string, t Tool) string {
 	if len(t.VersionArgs) == 0 || strings.TrimSpace(path) == "" {
 		return ""
 	}
 	out, err := execCommand()(ctx, path, append([]string(nil), t.VersionArgs...), "", nil)
 	if err != nil {
-		log.Debug("tool version query failed | 工具版本查询失败", logx.Str("tool", t.Name), logx.Str("error", err.Error()))
+		log.Debug("tool version query failed | 工具版本查询失败", ydlog.Str("tool", t.Name), ydlog.Str("error", err.Error()))
 		return ""
 	}
 	v := firstLine(string(out))

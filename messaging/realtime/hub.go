@@ -14,8 +14,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/shibingli/yd/core/logx"
 	"github.com/shibingli/yd/messaging"
+	ydlog "github.com/shibingli/ydx/log"
 )
 
 // Subscription is one live connection's interest. | Subscription 是一条活连接的订阅。
@@ -40,7 +40,7 @@ type Hub struct {
 	// retry is the durable fallback for a failed broadcast; may be nil. | retry 是广播失败时的持久回退；可为 nil。
 	retry RetryQueue
 	// log records delivery panics and bus failures. | log 记录投递 panic 与总线故障。
-	log *logx.Logger
+	log *ydlog.Logger
 	// subs maps a subscription token to its description. | subs 把订阅令牌映射到描述。
 	subs map[uint64]Subscription
 	// cancel stops the bus subscription. | cancel 停止总线订阅。
@@ -60,15 +60,15 @@ type Hub struct {
 }
 
 // New constructs a single-node hub. | New 构造单节点 Hub。
-func New(log *logx.Logger) *Hub { return NewDistributed(log, nil, nil, "") }
+func New(log *ydlog.Logger) *Hub { return NewDistributed(log, nil, nil, "") }
 
 // NewDistributed constructs a hub with optional cross-node delivery. | NewDistributed 构造带可选跨节点投递的 Hub。
 //
 // A nil bus keeps the hub local; a nil retry queue only means a failed broadcast is logged. |
 // bus 为 nil 时保持本地；retry 为 nil 只表示广播失败仅记录日志。
-func NewDistributed(log *logx.Logger, bus Bus, retry RetryQueue, nodeID string) *Hub {
+func NewDistributed(log *ydlog.Logger, bus Bus, retry RetryQueue, nodeID string) *Hub {
 	if log == nil {
-		log = logx.Default()
+		log = ydlog.Default()
 	}
 	return &Hub{bus: bus, retry: retry, log: log, nodeID: nodeID, subs: make(map[uint64]Subscription)}
 }
@@ -97,7 +97,7 @@ func (h *Hub) Start(ctx context.Context) {
 	})
 	if err != nil {
 		h.log.Warn("message bus subscription failed, continuing with local delivery | 消息总线订阅失败，继续本地投递",
-			logx.Err(err),
+			ydlog.Err(err),
 		)
 		return
 	}
@@ -144,13 +144,13 @@ func (h *Hub) Publish(ctx context.Context, event messaging.Event) error {
 	}
 	if err := h.bus.Publish(ctx, event); err != nil {
 		h.log.Warn("message broadcast failed | 消息广播失败",
-			logx.Err(err),
-			logx.Str("event", event.Type),
-			logx.Str("tenant", event.TenantID),
+			ydlog.Err(err),
+			ydlog.Str("event", event.Type),
+			ydlog.Str("tenant", event.TenantID),
 		)
 		if h.retry != nil {
 			if retryErr := h.retry.Enqueue(ctx, event); retryErr != nil {
-				h.log.Warn("message broadcast retry enqueue failed | 消息广播重试入队失败", logx.Err(retryErr))
+				h.log.Warn("message broadcast retry enqueue failed | 消息广播重试入队失败", ydlog.Err(retryErr))
 			}
 		}
 	}
@@ -197,8 +197,8 @@ func (h *Hub) deliver(sub Subscription, event messaging.Event) {
 	defer func() {
 		if recovered := recover(); recovered != nil {
 			h.log.Error("message subscriber panicked | 消息订阅者发生 panic",
-				logx.Any("panic", recovered),
-				logx.Str("event", event.Type),
+				ydlog.Any("panic", recovered),
+				ydlog.Str("event", event.Type),
 			)
 		}
 	}()
@@ -240,7 +240,7 @@ func (h *Hub) Close() {
 	}
 	if bus != nil {
 		if err := bus.Close(); err != nil {
-			h.log.Warn("message bus close failed | 消息总线关闭失败", logx.Err(err))
+			h.log.Warn("message bus close failed | 消息总线关闭失败", ydlog.Err(err))
 		}
 	}
 }

@@ -7,19 +7,19 @@ import (
 	"net/url"
 	"strings"
 
-	"github.com/shibingli/yd/core/errx"
-	"github.com/shibingli/yd/core/jsonx"
+	"github.com/shibingli/ydx/errs"
+	"github.com/shibingli/ydx/json"
 )
 
 // Response errors, declared once at package level. | 响应错误，在包级声明一次。
 var (
 	// ErrBadStatus indicates the HTTP status code given to Error is outside the legal 100-999 range. | ErrBadStatus 表示传给 Error 的 HTTP 状态码不在合法的 100-999 区间。
-	ErrBadStatus = errx.New("htmx: invalid HTTP status code | htmx：非法的 HTTP 状态码")
+	ErrBadStatus = errs.New("htmx: invalid HTTP status code | htmx：非法的 HTTP 状态码")
 	// ErrWriteFragment indicates the error fragment could not be written to the response. | ErrWriteFragment 表示无法把错误片段写入响应。
-	ErrWriteFragment = errx.New("htmx: failed to write error fragment | htmx：写出错误片段失败")
+	ErrWriteFragment = errs.New("htmx: failed to write error fragment | htmx：写出错误片段失败")
 	// ErrUnsafeRedirect indicates a target that could execute script or inject a header. | ErrUnsafeRedirect
 	// 表示目标地址可能执行脚本或注入响应头。
-	ErrUnsafeRedirect = errx.New("htmx: unsafe redirect target | htmx：不安全的跳转地址")
+	ErrUnsafeRedirect = errs.New("htmx: unsafe redirect target | htmx：不安全的跳转地址")
 )
 
 // Htmx 4 response header names. | Htmx 4 响应头名称。
@@ -55,10 +55,10 @@ type Event struct {
 // JSON objects cannot carry duplicate keys: duplicate event names are merged into one key in first
 // appearance order and the last payload wins, so every event fires exactly once instead of the
 // earlier ones being silently dropped by JSON.parse. Plain ASCII keys are written without
-// allocating; every other key and every value goes through jsonx.Marshal, and a payload that cannot
+// allocating; every other key and every value goes through json.Marshal, and a payload that cannot
 // be encoded degrades to null. | JSON 对象不能有重复键：同名事件按首次出现顺序合并为一个键，
 // 后出现的负载胜出，因此每个事件恰好触发一次，而不是较早的事件被 JSON.parse 静默丢弃。纯 ASCII
-// 键名零分配写出；其余键名与全部值经 jsonx.Marshal 编码；无法编码的负载退化为 null。
+// 键名零分配写出；其余键名与全部值经 json.Marshal 编码；无法编码的负载退化为 null。
 func triggerHeaderValue(events []Event) (string, bool) {
 	// The common case - one event without a payload - needs no slice and no JSON at all. | 最常见的情形
 	// ——单个不含负载的事件——不需要切片，也不需要 JSON。
@@ -93,7 +93,7 @@ func triggerHeaderValue(events []Event) (string, bool) {
 		}
 		appendJSONString(&buf, name)
 		buf.WriteByte(':')
-		detail, err := jsonx.Marshal(details[name])
+		detail, err := json.Marshal(details[name])
 		if err != nil {
 			detail = []byte("null")
 		}
@@ -104,14 +104,14 @@ func triggerHeaderValue(events []Event) (string, bool) {
 }
 
 // appendJSONString writes a JSON string literal, taking a no-allocation path for printable ASCII
-// names that need no escaping; anything else goes through jsonx.Marshal, so the bytes stay
+// names that need no escaping; anything else goes through json.Marshal, so the bytes stay
 // identical to the slow path for every input. | appendJSONString 写出 JSON 字符串字面量：无需转义的
-// 可打印 ASCII 名称走零分配路径；其余输入交给 jsonx.Marshal，因此任何输入的字节都与慢路径完全一致。
+// 可打印 ASCII 名称走零分配路径；其余输入交给 json.Marshal，因此任何输入的字节都与慢路径完全一致。
 func appendJSONString(buf *bytes.Buffer, s string) {
 	for i := 0; i < len(s); i++ {
 		c := s[i]
 		if c < 0x20 || c >= 0x7f || c == '"' || c == '\\' || c == '<' || c == '>' || c == '&' {
-			enc, err := jsonx.Marshal(s)
+			enc, err := json.Marshal(s)
 			if err != nil {
 				buf.WriteString(`""`) // unreachable for a string | 字符串不可达
 				return
@@ -244,7 +244,7 @@ func LocationHeader(w http.ResponseWriter, loc Location) {
 		w.Header().Set(headerLocation, loc.Path)
 		return
 	}
-	buf, err := jsonx.Marshal(loc)
+	buf, err := json.Marshal(loc)
 	if err != nil {
 		if loc.Path != "" {
 			w.Header().Set(headerLocation, loc.Path)
@@ -273,12 +273,12 @@ func Reselect(w http.ResponseWriter, selector string) { w.Header().Set(headerRes
 // otherwise an error is returned and nothing is written. | 否则返回错误且不写出任何内容。
 func Error(w http.ResponseWriter, status int, msg string) error {
 	if status < 100 || status > 999 {
-		return errx.Detail(ErrBadStatus, "status %[1]d is out of range | 状态码 %[1]d 超出合法区间", status)
+		return errs.Detail(ErrBadStatus, "status %[1]d is out of range | 状态码 %[1]d 超出合法区间", status)
 	}
 	w.Header().Set(headerContentType, contentTypeHTML)
 	w.WriteHeader(status)
 	if _, err := io.WriteString(w, string(ErrorFragment(msg))); err != nil {
-		return errx.Wrap(err, ErrWriteFragment)
+		return errs.Wrap(err, ErrWriteFragment)
 	}
 	return nil
 }

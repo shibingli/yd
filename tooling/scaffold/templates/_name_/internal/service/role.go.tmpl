@@ -9,19 +9,19 @@ import (
 
 	"{{ .Module }}/internal/model"
 	"{{ .Module }}/internal/repository"
-	"{{ .YdModule }}/core/errx"
+	"{{ .YdxModule }}/errs"
 )
 
 // Role business sentinels. | 角色业务哨兵。
 var (
 	// ErrRoleNameRequired reports an empty role name. | ErrRoleNameRequired 表示角色名为空。
-	ErrRoleNameRequired = errx.New("role name is required | 角色名称不能为空")
+	ErrRoleNameRequired = errs.New("role name is required | 角色名称不能为空")
 	// ErrPermissionUnknown reports a capability token outside the catalogue. | ErrPermissionUnknown 表示提交了权限目录之外的能力标识。
-	ErrPermissionUnknown = errx.New("unknown permission | 未知的权限标识")
+	ErrPermissionUnknown = errs.New("unknown permission | 未知的权限标识")
 	// ErrBuiltinRoleProtected reports an attempt to delete a built-in role. | ErrBuiltinRoleProtected 表示试图删除内置角色。
-	ErrBuiltinRoleProtected = errx.New("built-in roles cannot be deleted | 内置角色不允许删除")
+	ErrBuiltinRoleProtected = errs.New("built-in roles cannot be deleted | 内置角色不允许删除")
 	// ErrRoleNotFound reports a role this tenant does not hold. | ErrRoleNotFound 表示本租户内没有该角色。
-	ErrRoleNotFound = errx.New("role not found | 角色不存在")
+	ErrRoleNotFound = errs.New("role not found | 角色不存在")
 )
 
 // Length bounds of a role name. | 角色名的长度边界。
@@ -128,7 +128,7 @@ func (s *RoleService) normalisePermissions(perms []model.Permission) ([]model.Pe
 	selected := make(map[model.Permission]struct{}, len(perms))
 	for _, p := range perms {
 		if !model.ValidPermission(p) {
-			return nil, errx.Detail(ErrPermissionUnknown, "permission=%s", p)
+			return nil, errs.Detail(ErrPermissionUnknown, "permission=%s", p)
 		}
 		selected[p] = struct{}{}
 	}

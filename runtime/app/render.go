@@ -10,12 +10,12 @@ import (
 
 	"github.com/spf13/afero"
 
-	"github.com/shibingli/yd/core/bufpool"
-	"github.com/shibingli/yd/core/errx"
 	"github.com/shibingli/yd/http/htmx"
 	"github.com/shibingli/yd/http/i18n"
-	"github.com/shibingli/yd/http/render"
-	"github.com/shibingli/yd/http/router"
+	"github.com/shibingli/ydx/buffpool"
+	"github.com/shibingli/ydx/errs"
+	"github.com/shibingli/ydx/render"
+	"github.com/shibingli/ydx/router"
 )
 
 // newRenderer builds the facade's default renderer over the asset filesystem.
@@ -81,7 +81,7 @@ func (a *App) Render(c *router.Ctx, status int, name string, data any) error {
 		return ErrNilContext
 	}
 	if strings.TrimSpace(name) == "" {
-		return errx.Detail(ErrTemplateName, "%q", name)
+		return errs.Detail(ErrTemplateName, "%q", name)
 	}
 	if a.renderer == nil {
 		return ErrNoRenderer
@@ -143,13 +143,13 @@ type bufferRenderer interface {
 func (a *App) renderWholeAppend(c *router.Ctx, status int, name string, data any, ar appendRenderer) error {
 	var br bufferRenderer
 	var holder *render.Buffer
-	buf := bufpool.Get(0)
+	buf := buffpool.Get(0)
 	if b, ok := a.renderer.(bufferRenderer); ok {
 		br = b
 		holder = br.AcquireBuffer(0)
 		buf = holder.B
 	} else {
-		defer bufpool.Put(buf)
+		defer buffpool.Put(buf)
 	}
 	if br != nil {
 		defer func() { br.ReleaseBuffer(holder) }()
@@ -190,13 +190,13 @@ func (a *App) renderFragment(c *router.Ctx, status int, name string, data any) e
 	if ar, ok := a.renderer.(appendRenderer); ok {
 		var br bufferRenderer
 		var holder *render.Buffer
-		buf := bufpool.Get(0)
+		buf := buffpool.Get(0)
 		if b, ok := a.renderer.(bufferRenderer); ok {
 			br = b
 			holder = br.AcquireBuffer(0)
 			buf = holder.B
 		} else {
-			defer bufpool.Put(buf)
+			defer buffpool.Put(buf)
 		}
 		if br != nil {
 			defer func() { br.ReleaseBuffer(holder) }()

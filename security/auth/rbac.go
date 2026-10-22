@@ -7,8 +7,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/shibingli/yd/core/errx"
-	"github.com/shibingli/yd/core/logx"
+	"github.com/shibingli/ydx/errs"
+	"github.com/shibingli/ydx/log"
 )
 
 // defaultRoleCacheTTL bounds how long a replica may serve a stale role table. Mutations in this
@@ -209,7 +209,7 @@ func (s *Service) UpsertRole(ctx context.Context, tenantID string, r *Role) (*Ro
 		return nil, ErrTenantRequired
 	}
 	if r == nil || strings.TrimSpace(r.Name) == "" {
-		return nil, errx.Detail(ErrInvalidInput, "role name must not be empty | 角色名不得为空")
+		return nil, errs.Detail(ErrInvalidInput, "role name must not be empty | 角色名不得为空")
 	}
 	if r.TenantID != "" && r.TenantID != tenantID {
 		return nil, ErrNotFound
@@ -290,7 +290,7 @@ func (s *Service) DeleteRole(ctx context.Context, tenantID, roleID string) error
 		return ErrTenantRequired
 	}
 	if strings.TrimSpace(roleID) == "" {
-		return errx.Detail(ErrNotFound, "empty role id | 角色 ID 为空")
+		return errs.Detail(ErrNotFound, "empty role id | 角色 ID 为空")
 	}
 	if _, err := s.store.GetRole(ctx, tenantID, roleID); err != nil {
 		return err
@@ -392,7 +392,7 @@ func (s *Service) loadRoles(tenantID string) {
 	if err := s.roles.ensure(context.Background(), tenantID); err != nil {
 		// Fail closed: a role table that cannot be read grants nothing. | 失败关闭：读不到角色表就不授予任何权限。
 		s.log.Warn("auth: role table unreadable, no permission is granted | auth：角色表不可读，不授予任何权限",
-			logx.Err(err))
+			log.Err(err))
 	}
 }
 

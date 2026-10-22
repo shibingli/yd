@@ -4,12 +4,12 @@ import (
 	"errors"
 	"strings"
 
-	"github.com/shibingli/yd/core/errx"
+	"github.com/shibingli/ydx/errs"
 )
 
 // ErrInvalidDocument reports a document that violates the OpenAPI 3.0 or 3.1 specification. | ErrInvalidDocument
 // 表示文档违反 OpenAPI 3.0 或 3.1 规范。
-var ErrInvalidDocument = errx.New("openapi: invalid document | openapi：非法的文档")
+var ErrInvalidDocument = errs.New("openapi: invalid document | openapi：非法的文档")
 
 // Validate checks the document against the structural rules of OpenAPI 3.0 and 3.1 and returns
 // every problem it finds, joined with errors.Join; errors.Is(err, ErrInvalidDocument) matches
@@ -32,12 +32,12 @@ var ErrInvalidDocument = errx.New("openapi: invalid document | openapi：非法�
 // 隐藏它。
 func (d *Document) Validate() error {
 	if d == nil {
-		return errx.Detail(ErrInvalidDocument, "document is nil | 文档为 nil")
+		return errs.Detail(ErrInvalidDocument, "document is nil | 文档为 nil")
 	}
 	doc := d.normalized()
 	var problems []error
 	add := func(format string, args ...any) {
-		problems = append(problems, errx.Detail(ErrInvalidDocument, format, args...))
+		problems = append(problems, errs.Detail(ErrInvalidDocument, format, args...))
 	}
 
 	if strings.TrimSpace(doc.Info.Title) == "" {

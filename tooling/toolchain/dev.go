@@ -12,10 +12,10 @@ import (
 	"sync"
 	"time"
 
-	"github.com/shibingli/yd/core/errx"
-	"github.com/shibingli/yd/core/jsonx"
-	"github.com/shibingli/yd/core/logx"
-	"github.com/shibingli/yd/http/sse"
+	"github.com/shibingli/ydx/errs"
+	"github.com/shibingli/ydx/json"
+	ydlog "github.com/shibingli/ydx/log"
+	"github.com/shibingli/ydx/sse"
 )
 
 // DevReloadPath is the dev-only SSE endpoint that pushes browser reload events. | DevReloadPath 是仅开发模式注册的 SSE 端点，用于推送浏览器刷新事件。
@@ -60,8 +60,8 @@ type ReloadEvent struct {
 type DevOptions struct {
 	// Out receives the child stdout and stderr; nil means os.Stdout. | Out 接收子进程 stdout 与 stderr；nil 表示 os.Stdout。
 	Out io.Writer
-	// Log is the logger; nil means logx.Default(). | Log 是日志器；nil 表示 logx.Default()。
-	Log *logx.Logger
+	// Log is the logger; nil means ydlog.Default(). | Log 是日志器；nil 表示 ydlog.Default()。
+	Log *ydlog.Logger
 	// Build compiles the application; nil means the built-in go build. | Build 编译应用；nil 表示内置的 go build。
 	Build BuildFunc
 	// Command creates the child process; nil means ExecCommand. | Command 创建子进程；nil 表示 ExecCommand。
@@ -123,7 +123,7 @@ const (
 // The child process is reaped on every exit path of Run, including panics, so a failed or interrupted dev session never leaves an orphan behind. | 无论 Run 以哪条路径退出（包括 panic），子进程都会被回收，因此失败或中断的开发会话不会留下孤儿进程。
 type DevRunner struct {
 	out io.Writer
-	log *logx.Logger
+	log *ydlog.Logger
 	hub *sse.Broker
 
 	done     chan struct{}
@@ -153,10 +153,10 @@ func NewDevRunner(o DevOptions) (*DevRunner, error) {
 	}
 	info, statErr := os.Stat(abs)
 	if statErr != nil {
-		return nil, errx.WrapDetail(statErr, ErrProjectDir, "dir %s | 目录 %s", abs, abs)
+		return nil, errs.WrapDetail(statErr, ErrProjectDir, "dir %s | 目录 %s", abs, abs)
 	}
 	if !info.IsDir() {
-		return nil, errx.Detail(ErrProjectDir, "%s is not a directory | %s 不是目录", abs, abs)
+		return nil, errs.Detail(ErrProjectDir, "%s is not a directory | %s 不是目录", abs, abs)
 	}
 	o.Dir = abs
 	if o.Debounce <= 0 {
@@ -172,7 +172,7 @@ func NewDevRunner(o DevOptions) (*DevRunner, error) {
 		o.Roots = []string{abs}
 	}
 	if o.Log == nil {
-		o.Log = logx.Default()
+		o.Log = ydlog.Default()
 	}
 	if o.Out == nil {
 		o.Out = os.Stdout
@@ -198,7 +198,7 @@ func NewDevRunner(o DevOptions) (*DevRunner, error) {
 // Every exit path reaps the child: a normal return, an error return and a panic all pass through the deferred stopChild, which signals the child, kills it after the grace period and waits for its reaper. | 每条退出路径都会回收子进程：普通返回、错误返回与 panic 都会经过延迟的 stopChild——它先发信号，超宽限期后强杀，并等待回收 goroutine 收尸。
 func (r *DevRunner) Run(ctx context.Context) error {
 	if !r.begin() {
-		return errx.Detail(ErrDevRunning, "Run called while already running | Run 在运行中被重复调用")
+		return errs.Detail(ErrDevRunning, "Run called while already running | Run 在运行中被重复调用")
 	}
 	// Defers run last-in-first-out: the child is stopped first, the running flag is released after. | 延迟调用后进先出：先停子进程，再释放运行标记。
 	defer r.finish()
@@ -216,7 +216,7 @@ func (r *DevRunner) Run(ctx context.Context) error {
 	}
 
 	if r.opts.NoWatch {
-		r.log.Info("dev: file watching disabled | dev: 已关闭文件监听", logx.Str("dir", r.opts.Dir))
+		r.log.Info("dev: file watching disabled | dev: 已关闭文件监听", ydlog.Str("dir", r.opts.Dir))
 		<-ctx.Done()
 		return nil
 	}
@@ -231,7 +231,7 @@ func (r *DevRunner) Run(ctx context.Context) error {
 		r.setWatcher(nil)
 	}()
 	r.log.Info("dev: watching for changes | dev: 已开始监听文件变更",
-		logx.Int("dirs", w.WatchCount()), logx.Strs("roots", r.opts.Roots))
+		ydlog.Int("dirs", w.WatchCount()), ydlog.Strs("roots", r.opts.Roots))
 
 	for {
 		select {
@@ -339,13 +339,13 @@ func (r *DevRunner) build(ctx context.Context) (string, error) {
 	start := time.Now()
 	bin, err := r.opts.Build(ctx, r.opts)
 	if err != nil {
-		r.log.Error("dev: build failed, keeping the previous binary | dev: 构建失败，继续使用上一次的二进制", logx.Err(err))
+		r.log.Error("dev: build failed, keeping the previous binary | dev: 构建失败，继续使用上一次的二进制", ydlog.Err(err))
 		return "", err
 	}
 	r.mu.Lock()
 	r.bin = bin
 	r.mu.Unlock()
-	r.log.Info("dev: build finished | dev: 构建完成", logx.Str("bin", bin), logx.Dur("elapsed", time.Since(start)))
+	r.log.Info("dev: build finished | dev: 构建完成", ydlog.Str("bin", bin), ydlog.Dur("elapsed", time.Since(start)))
 	return bin, nil
 }
 
@@ -358,7 +358,7 @@ func (r *DevRunner) buildCSS(ctx context.Context) {
 			LocalDir:  r.opts.Dir,
 		})
 		if err != nil {
-			r.log.Warn("dev: tailwindcss not found, skipping the CSS build | dev: 未找到 tailwindcss，跳过 CSS 构建", logx.Err(err))
+			r.log.Warn("dev: tailwindcss not found, skipping the CSS build | dev: 未找到 tailwindcss，跳过 CSS 构建", ydlog.Err(err))
 			return
 		}
 		bin = resolved
@@ -368,11 +368,11 @@ func (r *DevRunner) buildCSS(ctx context.Context) {
 		Output: r.absPath(r.opts.TailwindOutput),
 	})
 	if err != nil {
-		r.log.Error("dev: CSS build failed | dev: CSS 构建失败", logx.Err(err))
+		r.log.Error("dev: CSS build failed | dev: CSS 构建失败", ydlog.Err(err))
 		return
 	}
 	r.log.Info("dev: CSS rebuilt | dev: CSS 已重建",
-		logx.Str("path", res.CSSPath), logx.Int("bytes", res.Bytes), logx.Dur("elapsed", res.Duration))
+		ydlog.Str("path", res.CSSPath), ydlog.Int("bytes", res.Bytes), ydlog.Dur("elapsed", res.Duration))
 }
 
 // absPath resolves a project-relative path against the project root. | absPath 把项目相对路径解析到项目根目录。
@@ -411,27 +411,27 @@ func (r *DevRunner) handle(ctx context.Context, ev Event) {
 	switch classify(rel) {
 	case kindGo:
 		r.log.Info("dev: go change detected, rebuilding | dev: 检测到 Go 变更，重新编译",
-			logx.Str("path", rel), logx.Str("op", ev.Op))
+			ydlog.Str("path", rel), ydlog.Str("op", ev.Op))
 		if err := r.restart(ctx, true); err != nil {
 			return
 		}
 		r.broadcast(kindGo, rel, ev.Op)
 	case kindConfig:
 		r.log.Info("dev: config change detected, restarting | dev: 检测到配置变更，重启子进程",
-			logx.Str("path", rel), logx.Str("op", ev.Op))
+			ydlog.Str("path", rel), ydlog.Str("op", ev.Op))
 		if err := r.restart(ctx, false); err != nil {
 			return
 		}
 		r.broadcast(kindConfig, rel, ev.Op)
 	case kindWeb:
 		r.log.Info("dev: web asset change detected | dev: 检测到 Web 资源变更",
-			logx.Str("path", rel), logx.Str("op", ev.Op))
+			ydlog.Str("path", rel), ydlog.Str("op", ev.Op))
 		if !r.opts.NoTailwind {
 			r.buildCSS(ctx)
 		}
 		r.broadcast(kindWeb, rel, ev.Op)
 	default:
-		r.log.Debug("dev: ignoring change | dev: 忽略该变更", logx.Str("path", rel))
+		r.log.Debug("dev: ignoring change | dev: 忽略该变更", ydlog.Str("path", rel))
 	}
 }
 
@@ -440,9 +440,9 @@ func (r *DevRunner) broadcast(kind changeKind, p, op string) {
 	if r.opts.NoReload {
 		return
 	}
-	payload, err := jsonx.Marshal(ReloadEvent{Path: p, Op: op, Kind: string(kind), At: time.Now()})
+	payload, err := json.Marshal(ReloadEvent{Path: p, Op: op, Kind: string(kind), At: time.Now()})
 	if err != nil {
-		r.log.Warn("dev: cannot encode the reload event | dev: 无法编码刷新事件", logx.Err(err))
+		r.log.Warn("dev: cannot encode the reload event | dev: 无法编码刷新事件", ydlog.Err(err))
 		return
 	}
 	r.hub.Publish(devTopic, sse.Event{Name: ReloadEventName, Data: payload})
@@ -498,7 +498,7 @@ func (r *DevRunner) serveReload(w http.ResponseWriter, req *http.Request) {
 				return
 			}
 			if err := sw.WriteEvent(ev); err != nil {
-				r.log.Debug("dev: reload stream closed | dev: 刷新流已关闭", logx.Err(err))
+				r.log.Debug("dev: reload stream closed | dev: 刷新流已关闭", ydlog.Err(err))
 				return
 			}
 		}
@@ -528,7 +528,7 @@ func defaultBuild(ctx context.Context, o DevOptions) (string, error) {
 	}
 	out := filepath.Join(o.Dir, "bin", ".dev-app"+exeSuffix())
 	if err := os.MkdirAll(filepath.Dir(out), 0o755); err != nil {
-		return "", errx.WrapDetail(err, ErrBuildFailed, "create %s | 创建 %s", filepath.Dir(out), filepath.Dir(out))
+		return "", errs.WrapDetail(err, ErrBuildFailed, "create %s | 创建 %s", filepath.Dir(out), filepath.Dir(out))
 	}
 	var buf tailBuffer
 	cmd := newCommand(ctx, "go", devBuildArgs(o.Dir, out, pkg)...)
@@ -536,7 +536,7 @@ func defaultBuild(ctx context.Context, o DevOptions) (string, error) {
 	cmd.Stdout = &buf
 	cmd.Stderr = &buf
 	if err := cmd.Run(); err != nil {
-		return "", errx.WrapDetail(err, ErrBuildFailed, "go build %[1]s failed | 编译 %[1]s 失败: %[2]s",
+		return "", errs.WrapDetail(err, ErrBuildFailed, "go build %[1]s failed | 编译 %[1]s 失败: %[2]s",
 			pkg, truncateOutput(buf.String(), 2048))
 	}
 	return out, nil

@@ -15,10 +15,10 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/shibingli/yd/core/errx"
-	"github.com/shibingli/yd/core/logx"
 	"github.com/shibingli/yd/tooling/scaffold"
 	"github.com/shibingli/yd/tooling/tools"
+	"github.com/shibingli/ydx/errs"
+	"github.com/shibingli/ydx/log"
 	"github.com/spf13/afero"
 	"github.com/spf13/pflag"
 )
@@ -119,7 +119,7 @@ func runNew(ctx context.Context, env *Env) error {
 		}
 	}
 
-	res, err := scaffold.Generate(ctx, opts, newTargetFS(env), logx.Default())
+	res, err := scaffold.Generate(ctx, opts, newTargetFS(env), log.Default())
 	if err != nil {
 		return err
 	}
@@ -161,7 +161,7 @@ func newToolStep(ctx context.Context, env *Env, fs *pflag.FlagSet, name string) 
 	}
 	if err != nil {
 		commandLogger(env).Warn("tool installation failed; the project is unaffected | 工具安装失败，项目不受影响",
-			logx.Str("error", err.Error()))
+			log.Str("error", err.Error()))
 	}
 }
 
@@ -176,7 +176,7 @@ func newInstallToolsEnabled(env *Env, fs *pflag.FlagSet) bool {
 	answer, err := Confirm(env, "现在就安装缺失的工具吗？| Install the missing tools now?", true)
 	if err != nil {
 		commandLogger(env).Warn("cannot read the install answer; keeping the hints only | 无法读取安装选择，只保留提示",
-			logx.Str("error", err.Error()))
+			log.Str("error", err.Error()))
 		return false
 	}
 	return answer
@@ -191,20 +191,20 @@ func newProjectName(env *Env, fs *pflag.FlagSet) (string, error) {
 	switch args := fs.Args(); len(args) {
 	case 0:
 		if !newPromptsEnabled(env, fs) {
-			return "", errx.Detail(ErrNoCommand, "%s (give a project name | 请给出项目名)", newUsageLine)
+			return "", errs.Detail(ErrNoCommand, "%s (give a project name | 请给出项目名)", newUsageLine)
 		}
 		name, err := Prompt(env, "项目名 | Project name", "")
 		if err != nil {
 			return "", err
 		}
 		if strings.TrimSpace(name) == "" {
-			return "", errx.Detail(ErrNoCommand, "%s (give a project name | 请给出项目名)", newUsageLine)
+			return "", errs.Detail(ErrNoCommand, "%s (give a project name | 请给出项目名)", newUsageLine)
 		}
 		return strings.TrimSpace(name), nil
 	case 1:
 		return strings.TrimSpace(args[0]), nil
 	default:
-		return "", errx.Detail(ErrNoCommand, "%s (accepts one project name, got %d | 只接受一个项目名，收到 %d 个)", newUsageLine, len(args), len(args))
+		return "", errs.Detail(ErrNoCommand, "%s (accepts one project name, got %d | 只接受一个项目名，收到 %d 个)", newUsageLine, len(args), len(args))
 	}
 }
 

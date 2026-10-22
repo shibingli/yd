@@ -18,22 +18,22 @@ import (
 
 	"github.com/spf13/afero"
 
-	"github.com/shibingli/yd/core/afs"
-	"github.com/shibingli/yd/core/config"
-	"github.com/shibingli/yd/core/logx"
-	"github.com/shibingli/yd/http/render"
-	"github.com/shibingli/yd/http/router"
 	"github.com/shibingli/yd/runtime/server"
+	"github.com/shibingli/ydx/afs"
+	"github.com/shibingli/ydx/config"
+	"github.com/shibingli/ydx/log"
+	"github.com/shibingli/ydx/render"
+	"github.com/shibingli/ydx/router"
 )
 
 // TestMain silences the global logger so that the middleware chain wired by
 // Default never pollutes the test output. | TestMain 静默全局日志器，避免 Default
 // 装配的中间件链污染测试输出。
 func TestMain(m *testing.M) {
-	previous := logx.Default()
-	logx.SetDefault(logx.New(logx.Options{Writer: io.Discard}))
+	previous := log.Default()
+	log.SetDefault(log.New(log.Options{Writer: io.Discard}))
 	code := m.Run()
-	logx.SetDefault(previous)
+	log.SetDefault(previous)
 	os.Exit(code)
 }
 
@@ -68,7 +68,7 @@ func newTestApp(t *testing.T, files map[string]string, opts ...Option) *App {
 	base := []Option{
 		WithFS(fsys),
 		WithConfig(cfg),
-		WithLogger(logx.New(logx.Options{Writer: io.Discard})),
+		WithLogger(log.New(log.Options{Writer: io.Discard})),
 	}
 	a, err := New(append(base, opts...)...)
 	if err != nil {
@@ -210,7 +210,7 @@ func TestNewAppliesOptions(t *testing.T) {
 	if err != nil {
 		t.Fatalf("加载配置失败: %v", err)
 	}
-	logger := logx.New(logx.Options{Writer: io.Discard})
+	logger := log.New(log.Options{Writer: io.Discard})
 
 	a, err := New(
 		WithFS(fsys),
@@ -254,7 +254,7 @@ func TestWithConfigDirReadsTheConfigFile(t *testing.T) {
 		t.Fatalf("写入配置文件失败: %v", err)
 	}
 
-	a, err := New(WithConfigDir(dir), WithFS(afs.NewMem()), WithLogger(logx.New(logx.Options{Writer: io.Discard})))
+	a, err := New(WithConfigDir(dir), WithFS(afs.NewMem()), WithLogger(log.New(log.Options{Writer: io.Discard})))
 	if err != nil {
 		t.Fatalf("New 失败: %v", err)
 	}
@@ -649,7 +649,7 @@ func TestWithStaticFSServesAssetHelperTheMergedTree(t *testing.T) {
 		WithFS(fsys),
 		WithStaticFS(staticFS),
 		WithConfig(cfg),
-		WithLogger(logx.New(logx.Options{Writer: io.Discard})),
+		WithLogger(log.New(log.Options{Writer: io.Discard})),
 	)
 	if err != nil {
 		t.Fatalf("New 失败: %v", err)

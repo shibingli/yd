@@ -4,13 +4,13 @@ import (
 	"context"
 	"errors"
 
-	"github.com/shibingli/yd/core/errx"
-	"github.com/shibingli/yd/core/logx"
 	"github.com/shibingli/yd/runtime/lifecycle"
+	yderrs "github.com/shibingli/ydx/errs"
+	"github.com/shibingli/ydx/log"
 )
 
 // ErrGRPCShutdown indicates that a gRPC server did not stop gracefully within the deadline. | ErrGRPCShutdown 表示 gRPC 服务端未在期限内优雅停止。
-var ErrGRPCShutdown = errx.New("app: gRPC graceful stop did not finish before the deadline | app：gRPC 宽限期内未能完成优雅停止")
+var ErrGRPCShutdown = yderrs.New("app: gRPC graceful stop did not finish before the deadline | app：gRPC 宽限期内未能完成优雅停止")
 
 // GRPCServer is the minimal view of a gRPC server the shutdown needs. | GRPCServer 是退出流程所需的 gRPC 服务端最小视图。
 //
@@ -77,20 +77,20 @@ func (a *App) Shutdown(ctx context.Context) error {
 	registry := a.server.Lifecycle()
 	owned := !registry.ShuttingDown()
 	if err := registry.Shutdown(ctx); err != nil && owned {
-		a.log.Error("long-lived connections failed to close | 长连接关闭失败", logx.Err(err))
+		a.log.Error("long-lived connections failed to close | 长连接关闭失败", log.Err(err))
 		errs = append(errs, err)
 	}
 
 	// ② 再排空 HTTP：停止接入、等待进行中的请求、强制关闭存活的 hijack 连接。
 	// ② Then drain HTTP: stop accepting, wait for in-flight requests and force-close surviving hijacked connections.
 	if err := a.server.Shutdown(ctx); err != nil {
-		a.log.Error("http server failed to stop gracefully | HTTP 服务器未能优雅停止", logx.Err(err))
+		a.log.Error("http server failed to stop gracefully | HTTP 服务器未能优雅停止", log.Err(err))
 		errs = append(errs, err)
 	}
 
 	// ③ gRPC and HTTP are independent; the order is fixed to keep failures diagnosable. | ③ gRPC 与 HTTP 各自独立，顺序固定以便诊断。
 	if err := a.shutdownGRPC(ctx); err != nil {
-		a.log.Error("gRPC server failed to stop gracefully | gRPC 服务器未能优雅停止", logx.Err(err))
+		a.log.Error("gRPC server failed to stop gracefully | gRPC 服务器未能优雅停止", log.Err(err))
 		errs = append(errs, err)
 	}
 
@@ -139,5 +139,5 @@ func (a *App) stopGRPC(ctx context.Context) error {
 	// 处理器无视取消时，同步调用 Stop 会越过期限一直阻塞。因此把它放到后台并返回超时：
 	// 目标是让退出流程按时完成，而不是保证不配合的处理器一定返回。
 	go a.grpc.Stop()
-	return errx.WrapDetail(ctx.Err(), ErrGRPCShutdown, "force stop after %[1]v | 超过 %[1]v 后强制停止", ctx.Err())
+	return yderrs.WrapDetail(ctx.Err(), ErrGRPCShutdown, "force stop after %[1]v | 超过 %[1]v 后强制停止", ctx.Err())
 }

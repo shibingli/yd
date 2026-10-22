@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/shibingli/yd/core/jsonx"
+	"github.com/shibingli/ydx/json"
 )
 
 // TestViewerScriptIslandStaysValid proves that hostile strings survive the JSON island and
@@ -44,11 +44,11 @@ func TestViewerScriptIslandStaysValid(t *testing.T) {
 		t.Fatal("unterminated data island | 数据岛未闭合")
 	}
 	island := body[start : start+end]
-	if !jsonx.Valid([]byte(island)) {
+	if !json.Valid([]byte(island)) {
 		t.Fatalf("data island is not valid JSON | 数据岛不是合法 JSON")
 	}
 	var decoded Document
-	if err := jsonx.Unmarshal([]byte(island), &decoded); err != nil {
+	if err := json.Unmarshal([]byte(island), &decoded); err != nil {
 		t.Fatalf("decode data island: %v", err)
 	}
 	if decoded.Info.Description != hostile {

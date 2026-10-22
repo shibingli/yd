@@ -10,8 +10,8 @@ import (
 
 	"gorm.io/gorm"
 
-	"github.com/shibingli/yd/data/gormx"
 	"github.com/shibingli/yd/security/auth"
+	ydgorm "github.com/shibingli/ydx/gorm"
 )
 
 // TestRoundTripSurvivesReopen is the headline proof of this package: the very
@@ -58,7 +58,7 @@ func TestRoundTripSurvivesReopen(t *testing.T) {
 	}
 
 	// The process "exits" here: the pool is closed and nothing of it is reused. | 进程在此「退出」：连接池关闭，其后不再复用任何东西。
-	if err := gormx.Close(first.db); err != nil {
+	if err := ydgorm.Close(first.db); err != nil {
 		t.Fatalf("Close() = %v, want nil | Close() = %v，期望 nil", err, err)
 	}
 
@@ -211,8 +211,8 @@ type assembled struct {
 // assemble opens path, migrates it and returns the store. | assemble 打开 path、完成迁移并返回 store。
 func assemble(t *testing.T, path string) (*assembled, error) {
 	t.Helper()
-	db, err := gormx.Open(gormx.Options{
-		Driver:   gormx.DriverSQLite,
+	db, err := ydgorm.Open(ydgorm.Options{
+		Driver:   ydgorm.DriverSQLite,
 		DSN:      sqliteDSN(path),
 		LogLevel: "silent",
 	}, nil)
@@ -222,7 +222,7 @@ func assemble(t *testing.T, path string) (*assembled, error) {
 	if err := Migrate(context.Background(), db); err != nil {
 		return nil, err
 	}
-	t.Cleanup(func() { _ = gormx.Close(db) })
+	t.Cleanup(func() { _ = ydgorm.Close(db) })
 	store, err := New(db, Options{QueryTimeout: time.Minute})
 	if err != nil {
 		return nil, err

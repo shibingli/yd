@@ -5,10 +5,10 @@ import (
 	"time"
 
 	"github.com/redis/go-redis/v9"
-	"github.com/shibingli/yd/core/errx"
-	"github.com/shibingli/yd/core/jsonx"
-	"github.com/shibingli/yd/core/logx"
 	"github.com/shibingli/yd/messaging"
+	"github.com/shibingli/ydx/errs"
+	"github.com/shibingli/ydx/json"
+	ydlog "github.com/shibingli/ydx/log"
 )
 
 // DefaultRedisChannel is the pub/sub channel shared by every node of one deployment. |
@@ -18,9 +18,9 @@ const DefaultRedisChannel = "yd:message:events"
 // Sentinel errors of the distributed bus. | 分布式总线的哨兵错误。
 var (
 	// ErrBusPublish reports a failed broadcast. | ErrBusPublish 表示广播失败。
-	ErrBusPublish = errx.New("realtime bus publish failed | 实时总线发布失败")
+	ErrBusPublish = errs.New("realtime bus publish failed | 实时总线发布失败")
 	// ErrBusSubscribe reports a failed subscription. | ErrBusSubscribe 表示订阅失败。
-	ErrBusSubscribe = errx.New("realtime bus subscribe failed | 实时总线订阅失败")
+	ErrBusSubscribe = errs.New("realtime bus subscribe failed | 实时总线订阅失败")
 )
 
 // Bus broadcasts events between nodes. The in-process Hub is complete without one; a Bus only
@@ -49,13 +49,13 @@ type RedisBus struct {
 	// client is the shared Redis client. | client 是共享 Redis 客户端。
 	client redis.UniversalClient
 	// log records reconnect attempts. | log 记录重连尝试。
-	log *logx.Logger
+	log *ydlog.Logger
 	// channel is the pub/sub channel. | channel 是发布/订阅频道。
 	channel string
 }
 
 // NewRedisBus returns a Redis-backed bus. | NewRedisBus 返回基于 Redis 的总线。
-func NewRedisBus(client redis.UniversalClient, channel string, log *logx.Logger) (*RedisBus, error) {
+func NewRedisBus(client redis.UniversalClient, channel string, log *ydlog.Logger) (*RedisBus, error) {
 	if client == nil {
 		return nil, ErrBusSubscribe
 	}
@@ -63,19 +63,19 @@ func NewRedisBus(client redis.UniversalClient, channel string, log *logx.Logger)
 		channel = DefaultRedisChannel
 	}
 	if log == nil {
-		log = logx.Default()
+		log = ydlog.Default()
 	}
 	return &RedisBus{client: client, channel: channel, log: log}, nil
 }
 
 // Publish broadcasts one event as JSON. | Publish 以 JSON 广播一条事件。
 func (b *RedisBus) Publish(ctx context.Context, event messaging.Event) error {
-	data, err := jsonx.Marshal(event)
+	data, err := json.Marshal(event)
 	if err != nil {
-		return errx.Wrap(err, ErrBusPublish)
+		return errs.Wrap(err, ErrBusPublish)
 	}
 	if err := b.client.Publish(ctx, b.channel, data).Err(); err != nil {
-		return errx.Wrap(err, ErrBusPublish)
+		return errs.Wrap(err, ErrBusPublish)
 	}
 	return nil
 }
@@ -97,8 +97,8 @@ func (b *RedisBus) Subscribe(ctx context.Context, handler func(messaging.Event))
 					return
 				}
 				b.log.Warn("message bus subscription interrupted, retrying | 消息总线订阅中断，正在重试",
-					logx.Err(err),
-					logx.Str("channel", b.channel),
+					ydlog.Err(err),
+					ydlog.Str("channel", b.channel),
 				)
 				select {
 				case <-runCtx.Done():
@@ -108,8 +108,8 @@ func (b *RedisBus) Subscribe(ctx context.Context, handler func(messaging.Event))
 				}
 			}
 			var event messaging.Event
-			if err := jsonx.Unmarshal([]byte(message.Payload), &event); err != nil {
-				b.log.Warn("message bus payload is invalid | 消息总线载荷非法", logx.Err(err))
+			if err := json.Unmarshal([]byte(message.Payload), &event); err != nil {
+				b.log.Warn("message bus payload is invalid | 消息总线载荷非法", ydlog.Err(err))
 				continue
 			}
 			handler(event)

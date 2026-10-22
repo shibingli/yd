@@ -43,10 +43,10 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/shibingli/yd/core/b64x"
-	"github.com/shibingli/yd/core/errx"
-	"github.com/shibingli/yd/core/logx"
 	"github.com/shibingli/yd/security/guomi"
+	"github.com/shibingli/ydx/base64"
+	"github.com/shibingli/ydx/errs"
+	ydlog "github.com/shibingli/ydx/log"
 )
 
 // Status is the lifecycle state shared by tenants and users. | Status 是租户与用户共用的生命周期状态。
@@ -129,7 +129,7 @@ type Service struct {
 	// store is the persistence boundary. | store 是持久化边界。
 	store Store
 	// log receives the master-key warning. | log 接收主密钥告警。
-	log *logx.Logger
+	log *ydlog.Logger
 	// now is the clock used for CreatedAt and UpdatedAt. | now 是用于 CreatedAt 与 UpdatedAt 的时钟。
 	now func() time.Time
 	// roles caches role permissions for the RBAC hot path. | roles 缓存角色权限，服务于 RBAC 热路径。
@@ -163,12 +163,12 @@ func NewService(store Store, o Options) (*Service, error) {
 		// 但用它封装的 sec_key 会随进程一起失效。
 		generated, err := guomi.RandomKey()
 		if err != nil {
-			return nil, errx.Wrap(err, guomi.ErrRandomSource)
+			return nil, errs.Wrap(err, guomi.ErrRandomSource)
 		}
 		master = generated
-		logx.Default().Warn("auth: no master key configured, using a temporary one, development only | auth：未配置主密钥，正在使用临时主密钥，仅限开发环境")
+		ydlog.Default().Warn("auth: no master key configured, using a temporary one, development only | auth：未配置主密钥，正在使用临时主密钥，仅限开发环境")
 	} else if len(master) < MinMasterKeyLen {
-		return nil, errx.Detail(ErrMasterKeyRequired, "master key length %[1]d is below the minimum %[2]d | 主密钥长度 %[1]d 小于最小长度 %[2]d", len(master), MinMasterKeyLen)
+		return nil, errs.Detail(ErrMasterKeyRequired, "master key length %[1]d is below the minimum %[2]d | 主密钥长度 %[1]d 小于最小长度 %[2]d", len(master), MinMasterKeyLen)
 	}
 
 	secKeyLen := o.SecKeyLen
@@ -176,8 +176,8 @@ func NewService(store Store, o Options) (*Service, error) {
 	case secKeyLen <= 0:
 		secKeyLen = DefaultSecKeyLen
 	case secKeyLen < MinSecKeyLen:
-		logx.Default().Warn("auth: sec_key length raised to the minimum | auth：sec_key 长度已提升至下限",
-			logx.Int("requested", secKeyLen), logx.Int("minimum", MinSecKeyLen))
+		ydlog.Default().Warn("auth: sec_key length raised to the minimum | auth：sec_key 长度已提升至下限",
+			ydlog.Int("requested", secKeyLen), ydlog.Int("minimum", MinSecKeyLen))
 		secKeyLen = MinSecKeyLen
 	}
 
@@ -188,7 +188,7 @@ func NewService(store Store, o Options) (*Service, error) {
 
 	s := &Service{
 		store:      store,
-		log:        logx.Default(),
+		log:        ydlog.Default(),
 		now:        now,
 		roles:      newRoleCache(store, now),
 		dummyHash:  dummyPasswordHash(o.Iterations),
@@ -217,24 +217,24 @@ func dummyPasswordHash(iterations int) string {
 	digest := make([]byte, guomi.SM3Size)
 	return guomi.PasswordPrefix + "$" +
 		strconv.Itoa(iterations) + "$" +
-		b64x.StdEncoding.EncodeToString(salt) + "$" +
-		b64x.StdEncoding.EncodeToString(digest)
+		base64.StdEncoding.EncodeToString(salt) + "$" +
+		base64.StdEncoding.EncodeToString(digest)
 }
 
 // newID returns a random identifier carrying the given prefix. | newID 返回带指定前缀的随机标识符。
 func newID(prefix string) (string, error) {
 	var raw [idBytes]byte
 	if _, err := rand.Read(raw[:]); err != nil {
-		return "", errx.Wrap(err, guomi.ErrRandomSource)
+		return "", errs.Wrap(err, guomi.ErrRandomSource)
 	}
-	return prefix + b64x.RawURLEncoding.EncodeToString(raw[:]), nil
+	return prefix + base64.RawURLEncoding.EncodeToString(raw[:]), nil
 }
 
 // randomBytes returns n cryptographically secure random bytes. | randomBytes 返回 n 个密码学安全的随机字节。
 func randomBytes(n int) ([]byte, error) {
 	out := make([]byte, n)
 	if _, err := rand.Read(out); err != nil {
-		return nil, errx.Wrap(err, guomi.ErrRandomSource)
+		return nil, errs.Wrap(err, guomi.ErrRandomSource)
 	}
 	return out, nil
 }

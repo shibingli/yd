@@ -5,9 +5,9 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/shibingli/yd/core/jsonx"
-	"github.com/shibingli/yd/core/logx"
-	"github.com/shibingli/yd/http/render"
+	"github.com/shibingli/ydx/json"
+	"github.com/shibingli/ydx/log"
+	"github.com/shibingli/ydx/render"
 )
 
 // AuthzScriptID is the id of the inline JSON payload of the front end. | AuthzScriptID 是前端内联 JSON 载荷的 id。
@@ -92,13 +92,13 @@ func NewEnvelope(s *Subject) Envelope {
 // jsonx escapes the HTML-significant characters, so the body is safe inside a script element. | jsonx
 // 会转义 HTML 敏感字符，因此正文在脚本元素内是安全的。
 func (e Envelope) JS() template.JS {
-	b, err := jsonx.Marshal(e)
+	b, err := json.Marshal(e)
 	if err != nil {
 		// The shape is maps and slices of strings, so this is unreachable in practice; an empty
 		// payload is still the safe answer because the front end then denies everything.
 		// 该结构只含字符串的映射与切片，因此实际不可达；即便发生，空载荷仍是安全答案，因为前端会全部拒绝。
-		logx.Default().Warn("authz: cannot serialize the front-end payload, denying everything | authz：无法序列化前端载荷，将全部拒绝",
-			logx.Err(err))
+		log.Default().Warn("authz: cannot serialize the front-end payload, denying everything | authz：无法序列化前端载荷，将全部拒绝",
+			log.Err(err))
 		return template.JS("{}")
 	}
 	return template.JS(b)
@@ -286,8 +286,8 @@ func (a authority) DecisionKey() string { return a.key }
 func (a authority) Perm(ref string) string {
 	token, err := ResolvePermission(ref)
 	if err != nil {
-		logx.Default().Warn("authz: a template references an unregistered permission | authz：模板引用了未注册的权限",
-			logx.Str("permission", ref))
+		log.Default().Warn("authz: a template references an unregistered permission | authz：模板引用了未注册的权限",
+			log.Str("permission", ref))
 		return ""
 	}
 	return token
@@ -297,8 +297,8 @@ func (a authority) Perm(ref string) string {
 func (a authority) Role(ref string) string {
 	name, err := ResolveRole(ref)
 	if err != nil {
-		logx.Default().Warn("authz: a template references an unregistered role | authz：模板引用了未注册的角色",
-			logx.Str("role", ref))
+		log.Default().Warn("authz: a template references an unregistered role | authz：模板引用了未注册的角色",
+			log.Str("role", ref))
 		return ""
 	}
 	return name
