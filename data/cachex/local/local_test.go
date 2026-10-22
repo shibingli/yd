@@ -1,6 +1,7 @@
 package local
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 	"sync"
@@ -269,7 +270,10 @@ func TestRingWrap(t *testing.T) {
 		}
 	}
 	// Phase two: a fresh batch that comfortably fits must be readable and intact after
-	// all the wrapping. | 第二阶段：一整批放得下的新键在多次回绕后必须完整可读。
+	// all the wrapping. Clear first so TinyLFU admission cannot reject cold newcomers.
+	// | 第二阶段：一整批放得下的新键在多次回绕后必须完整可读。先清空，避免 TinyLFU
+	// 拒绝冷启动条目。
+	c.Clear()
 	for i := 0; i < 40; i++ {
 		key := fmt.Sprintf("final:%02d", i)
 		value := []byte(fmt.Sprintf("value-%02d-%s", i, string(make([]byte, i%23))))
@@ -340,5 +344,128 @@ func TestInvalidOptions(t *testing.T) {
 	}
 	if _, err := New(Options{MaxCost: 64 << 10, MaxEntrySize: 1 << 20}); !errors.Is(err, ErrInvalidOptions) {
 		t.Fatalf("oversized entry limit error = %v | 过大条目上限错误不符", err)
+	}
+}
+
+func TestInPlaceOverwrite(t *testing.T) {
+	c := newTestCache(t, Options{MaxCost: 64 << 10, MaxEntrySize: 4 << 10, Shards: 1})
+	oldValue := bytes.Repeat([]byte("a"), 64)
+	newValue := bytes.Repeat([]byte("b"), 64)
+	if err := c.Set("k", oldValue, 0); err != nil {
+		t.Fatalf("Set: %v | 写入失败", err)
+	}
+	cost, entries := c.Cost(), c.Len()
+	if err := c.Set("k", newValue, 0); err != nil {
+		t.Fatalf("overwrite: %v | 覆盖写失败", err)
+	}
+	got, ok := c.Get("k")
+	if !ok || !bytes.Equal(got, newValue) {
+		t.Fatalf("overwrite Get = %q,%v | 覆盖写读取不符", got, ok)
+	}
+	if c.Cost() != cost || c.Len() != entries {
+		t.Fatalf("same-size overwrite changed Cost (%d->%d) or Len (%d->%d) | 同尺寸覆盖改变了开销或条目数",
+			cost, c.Cost(), entries, c.Len())
+	}
+
+	// A different size must fall back to remove+append. | 不同尺寸必须回退到删除+追加。
+	bigger := bytes.Repeat([]byte("c"), 128)
+	if err := c.Set("k", bigger, 0); err != nil {
+		t.Fatalf("resize: %v | 改变尺寸写入失败", err)
+	}
+	if got, ok := c.Get("k"); !ok || !bytes.Equal(got, bigger) {
+		t.Fatalf("resize Get = %q,%v | 改变尺寸后读取不符", got, ok)
+	}
+
+	// Same-size overwrite must replace the TTL as well. | 同尺寸覆盖也必须替换 TTL。
+	if err := c.Set("k", newValue, 10*time.Millisecond); err != nil {
+		t.Fatalf("ttl overwrite: %v | TTL 覆盖失败", err)
+	}
+	time.Sleep(20 * time.Millisecond)
+	if _, ok := c.Get("k"); ok {
+		t.Fatal("updated TTL did not expire the entry | 更新后的 TTL 未使条目过期")
+	}
+	if err := c.Set("k", newValue, 0); err != nil {
+		t.Fatalf("permanent overwrite: %v | 永久覆盖失败", err)
+	}
+	time.Sleep(5 * time.Millisecond)
+	if _, ok := c.Get("k"); !ok {
+		t.Fatal("ttl=0 overwrite did not persist | ttl=0 覆盖后条目未持久")
+	}
+}
+
+func TestIdenticalOverwriteShortCircuit(t *testing.T) {
+	c := newTestCache(t, Options{MaxCost: 64 << 10, MaxEntrySize: 4 << 10, Shards: 1})
+	value := bytes.Repeat([]byte("v"), 256)
+	if err := c.Set("k", value, 0); err != nil {
+		t.Fatalf("Set: %v | 写入失败", err)
+	}
+	cost, entries := c.Cost(), c.Len()
+	for i := 0; i < 100; i++ {
+		if err := c.Set("k", value, 0); err != nil {
+			t.Fatalf("Set %d: %v | 重复写入失败", i, err)
+		}
+	}
+	st := c.Stats()
+	if st.Identical != 100 {
+		t.Fatalf("Identical = %d, want 100 | 幂等写入计数不符", st.Identical)
+	}
+	if c.Cost() != cost || c.Len() != entries {
+		t.Fatalf("identical Set changed Cost (%d->%d) or Len (%d->%d) | 幂等写入改变了开销或条目数",
+			cost, c.Cost(), entries, c.Len())
+	}
+	if got, ok := c.Get("k"); !ok || !bytes.Equal(got, value) {
+		t.Fatalf("value changed after identical Set | 幂等写入后值发生变化")
+	}
+}
+
+func TestViewProtectsHotEntry(t *testing.T) {
+	c := newTestCache(t, Options{MaxCost: 16 << 10, MaxEntrySize: 512, Shards: 1})
+	if err := c.Set("hot", []byte("hot-value"), 0); err != nil {
+		t.Fatalf("Set: %v | 写入失败", err)
+	}
+	for i := 0; i < 128; i++ {
+		if found, err := c.View("hot", func([]byte) error { return nil }); err != nil || !found {
+			t.Fatalf("View %d = %v,%v | 热键视图失败", i, found, err)
+		}
+	}
+	value := make([]byte, 128)
+	for i := 0; i < 2000; i++ {
+		if err := c.Set(fmt.Sprintf("cold:%05d", i), value, 0); err != nil {
+			t.Fatalf("Set cold: %v | 写入冷键失败", err)
+		}
+	}
+	if _, ok := c.Get("hot"); !ok {
+		t.Fatal("cold flood evicted a hot View key | 冷键洪泛驱逐了 View 热键")
+	}
+}
+
+func TestHitCountersSumStripes(t *testing.T) {
+	c := newTestCache(t, Options{})
+	if err := c.Set("k", []byte("v"), 0); err != nil {
+		t.Fatalf("Set: %v | 写入失败", err)
+	}
+	for i := 0; i < 100; i++ {
+		c.Get("k")
+		c.View("k", func([]byte) error { return nil })
+	}
+	if got := c.Stats().Hits; got != 200 {
+		t.Fatalf("Hits = %d, want 200 | 命中计数不符", got)
+	}
+}
+
+func TestLargeIdenticalOverwriteCopies(t *testing.T) {
+	c := newTestCache(t, Options{MaxCost: 64 << 10, MaxEntrySize: 4 << 10, Shards: 1})
+	value := bytes.Repeat([]byte("v"), 1024)
+	if err := c.Set("k", value, 0); err != nil {
+		t.Fatalf("Set: %v | 写入失败", err)
+	}
+	if err := c.Set("k", value, 0); err != nil {
+		t.Fatalf("Set: %v | 重复写入失败", err)
+	}
+	if got := c.Stats().Identical; got != 0 {
+		t.Fatalf("large identical Set counted as skipped: %d | 大值幂等写入不应计入跳过拷贝", got)
+	}
+	if got, ok := c.Get("k"); !ok || !bytes.Equal(got, value) {
+		t.Fatalf("large overwrite changed the value | 大值覆盖后值发生变化")
 	}
 }

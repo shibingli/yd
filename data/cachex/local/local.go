@@ -81,6 +81,8 @@ type Stats struct {
 	Expired uint64
 	// Rejected is the number of inserts rejected by TinyLFU admission. | Rejected 是被 TinyLFU 准入拒绝的插入次数。
 	Rejected uint64
+	// Identical is the number of same-size Set calls that skipped the value copy. | Identical 是同尺寸且值相同、跳过值拷贝的 Set 次数。
+	Identical uint64
 	// Entries is the current number of live entries. | Entries 是当前存活条目数。
 	Entries int64
 	// Cost is the current live byte cost. | Cost 是当前存活字节开销。
@@ -190,7 +192,11 @@ func New(o Options) (*Cache, error) {
 // It reports false for a missing or expired entry. The returned slice is owned by the | 条目缺失或已过期时返回 false。返回的切片归调用方所有，
 // caller and never aliases the ring. | 与环形缓冲区不共享底层数组。
 func (c *Cache) Get(key string) ([]byte, bool) {
-	return c.GetAppend(nil, key)
+	if c.closed.Load() {
+		return nil, false
+	}
+	hash := hashString(c.seed, key)
+	return c.shardForHash(hash).get(hash, key)
 }
 
 // GetAppend appends a copy of the value stored under key to dst. | GetAppend 把 key 对应值的副本追加到 dst。
@@ -200,17 +206,17 @@ func (c *Cache) GetAppend(dst []byte, key string) ([]byte, bool) {
 	if c.closed.Load() {
 		return dst, false
 	}
-	sh := c.shardFor(key)
-	return sh.getAppend(dst, key)
+	hash := hashString(c.seed, key)
+	return c.shardForHash(hash).getAppend(hash, key, dst)
 }
 
 // View calls fn with a zero-copy view of the value stored under key. | View 以零拷贝视图把 key 对应值交给 fn。
 //
 // The view aliases the ring: fn must not retain it, mutate it, or call back into this | 该视图与环形缓冲区共享底层数组：fn 不得保留或修改它，也不得回调本缓存。
 // cache. The shard's read lock is held while fn runs, so writers to the same shard wait; | fn 执行期间持有分片读锁，因此同分片的写者会等待；
-// multiple readers proceed concurrently. fn sees no expired entry. View does not update the | 多个读者可并发执行。fn 不会看到已过期条目。View 不更新
-// access bit or frequency sketch, so a read-only View workload does not influence eviction; | 访问位与频率草图，因此纯 View 负载不参与淘汰决策；
-// use Get/GetAppend when recency matters. | 需要影响淘汰时请用 Get/GetAppend。
+// multiple readers proceed concurrently. fn sees no expired entry. View samples a lock-free | 多个读者可并发执行。fn 不会看到已过期条目。View 会采样无锁访问位
+// access bit and the access sketch, so it influences eviction without taking the | 与访问草图，因此无需获取写锁也能参与淘汰决策；
+// write lock; Get/GetAppend update frequency on every hit. | Get/GetAppend 在每次命中时更新频率。
 func (c *Cache) View(key string, fn func(value []byte) error) (bool, error) {
 	if fn == nil {
 		return false, errx.Detail(ErrInvalidOptions, "nil view function | 视图函数为 nil")
@@ -218,8 +224,8 @@ func (c *Cache) View(key string, fn func(value []byte) error) (bool, error) {
 	if c.closed.Load() {
 		return false, ErrClosed
 	}
-	sh := c.shardFor(key)
-	return sh.view(key, fn)
+	hash := hashString(c.seed, key)
+	return c.shardForHash(hash).view(hash, key, fn)
 }
 
 // Set stores a copy of value under key with the given ttl. | Set 以给定 ttl 把 value 的副本存到 key 下。
@@ -240,8 +246,8 @@ func (c *Cache) Set(key string, value []byte, ttl time.Duration) error {
 	if ttl > 0 {
 		expireAt = time.Now().Add(ttl).UnixNano()
 	}
-	sh := c.shardFor(key)
-	return sh.set(key, value, expireAt)
+	hash := hashString(c.seed, key)
+	return c.shardForHash(hash).set(hash, key, value, expireAt)
 }
 
 // Delete removes key and reports whether an entry was actually removed. | Delete 移除 key，并报告是否确实移除了条目。
@@ -249,8 +255,8 @@ func (c *Cache) Delete(key string) bool {
 	if c.closed.Load() {
 		return false
 	}
-	sh := c.shardFor(key)
-	return sh.delete(key)
+	hash := hashString(c.seed, key)
+	return c.shardForHash(hash).delete(hash, key)
 }
 
 // DeletePrefix removes every entry whose key starts with prefix and returns the count. | DeletePrefix 移除所有以 prefix 开头的条目并返回数量。
@@ -302,13 +308,14 @@ func (c *Cache) Capacity() int64 { return c.capacity }
 func (c *Cache) Stats() Stats {
 	out := Stats{Capacity: c.capacity, Shards: len(c.shards)}
 	for _, sh := range c.shards {
-		out.Hits += sh.stats.hits.Load()
+		out.Hits += sh.stats.loadHits()
 		out.Misses += sh.stats.misses.Load()
 		out.Sets += sh.stats.sets.Load()
 		out.Deletes += sh.stats.deletes.Load()
 		out.Evictions += sh.stats.evictions.Load()
 		out.Expired += sh.stats.expired.Load()
 		out.Rejected += sh.stats.rejected.Load()
+		out.Identical += sh.stats.identical.Load()
 		out.Entries += sh.liveEntries()
 		out.Cost += sh.liveCost()
 	}
@@ -358,11 +365,14 @@ func (c *Cache) janitor() {
 	}
 }
 
-// shardFor maps a key to a shard. | shardFor 把键映射到分片。
-func (c *Cache) shardFor(key string) *shard {
-	// The shard count is a power of two, so the hash's low bits select a shard. | 分片数是 2 的幂，因此用哈希低位选片。
-	h := hashString(c.seed, key)
-	return c.shards[h&uint64(len(c.shards)-1)]
+// shardForHash maps a precomputed hash to a shard. | shardForHash 把预计算哈希映射到分片。
+//
+// Sharding uses the high bits so the low bits stay free to index the shard's slot table.
+// Using the low bits for both would confine each shard to 1/N of its slots and turn every
+// lookup into a long probe chain. | 分片使用高位，把低位留给分片槽表索引。若两处都用低位，
+// 每个分片只会用到 1/N 的槽位，所有查找都会退化成超长探测链。
+func (c *Cache) shardForHash(hash uint64) *shard {
+	return c.shards[(hash>>32)&uint64(len(c.shards)-1)]
 }
 
 // defaultMaxCost derives the byte budget from the memory visible to the process. | defaultMaxCost 由进程可见内存推导字节预算。

@@ -584,6 +584,46 @@ func BenchmarkSet(b *testing.B) {
 	}
 }
 
+// BenchmarkSetChanging writes a different value every iteration, measuring the path where
+// the cache cannot short-circuit an idempotent update. | BenchmarkSetChanging 每次写入不同的值，
+// 度量无法短路幂等更新的真实覆盖写路径。
+func BenchmarkSetChanging(b *testing.B) {
+	for _, size := range []int{64, 1024} {
+		b.Run(fmt.Sprintf("%dB", size), func(b *testing.B) {
+			for _, im := range writeImpls {
+				if !benchSelected(im.name) {
+					continue
+				}
+				b.Run(im.name, func(b *testing.B) {
+					s := basicSetup(size)
+					c, err := im.new(s)
+					if err != nil {
+						b.Fatalf("%s: %v | 构造失败", im.name, err)
+					}
+					defer c.close()
+					preload(b, c, s)
+					value := bytes.Repeat([]byte("y"), size)
+					b.ReportAllocs()
+					b.SetBytes(int64(size))
+					b.ResetTimer()
+					i := 0
+					for b.Loop() {
+						value[0] = byte(i)
+						value[1] = byte(i >> 8)
+						c.set(i%len(s.keys), value)
+						if i&63 == 0 {
+							c.wait()
+						}
+						i++
+					}
+					b.StopTimer()
+					c.wait()
+				})
+			}
+		})
+	}
+}
+
 // BenchmarkMixed measures a 90% read / 10% write workload. | BenchmarkMixed 度量 90% 读 / 10% 写工作负载。
 func BenchmarkMixed(b *testing.B) {
 	for _, im := range impls {

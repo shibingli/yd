@@ -1,10 +1,13 @@
 package local
 
 import (
+	"bytes"
 	"encoding/binary"
 	"hash/maphash"
+	"math/bits"
 	"sync"
 	"sync/atomic"
+	"unsafe"
 )
 
 // Entry header layout. Every field is little endian and pointer free. | 条目头布局。所有字段小端且不含指针。
@@ -30,31 +33,31 @@ const (
 	slotOffsetBias      uint32 = 2
 )
 
-// golden is the 64-bit golden-ratio constant used to derive independent sketch rows. | golden 是用于派生独立草图行的 64 位黄金比例常数。
-const golden = 0x9e3779b97f4a7c15
-
 // shard is one independently locked ring. | shard 是一个独立加锁的环形缓冲区。
 type shard struct {
-	buf        []byte
-	slots      []slot
-	sketch     []uint64
-	stats      shardStats
-	seed       maphash.Seed
-	head       uint64
-	tail       uint64
-	sweepPos   uint64
-	used       int64
-	entries    int64
-	sketchMask uint64
-	sketchAdds uint64
-	tombstones int
-	maxEntry   int
-	entryLimit int
-	mu         sync.RWMutex
-	mask       uint32
-	padFrom    uint32
-	padTo      uint32
-	hasPad     bool
+	buf              []byte
+	slots            []slot
+	sketch           []uint64
+	sampleSketch     []uint64
+	access           []atomic.Uint64
+	stats            shardStats
+	sampleSketchMu   sync.Mutex
+	head             uint64
+	tail             uint64
+	sweepPos         uint64
+	used             int64
+	entries          int64
+	sketchMask       uint64
+	sketchAdds       uint64
+	sampleSketchAdds uint64
+	tombstones       int
+	maxEntry         int
+	entryLimit       int
+	mu               sync.RWMutex
+	mask             uint32
+	padFrom          uint32
+	padTo            uint32
+	hasPad           bool
 }
 
 // slot is one open-addressed index cell; it contains no pointers. | slot 是一个开放寻址索引单元，不含指针。
@@ -63,15 +66,51 @@ type slot struct {
 	off  uint32
 }
 
+// paddedCounter keeps one atomic counter on its own cache line. | paddedCounter 让一个原子计数器独占缓存行。
+type paddedCounter struct {
+	v atomic.Uint64
+	_ [56]byte
+}
+
+// hitStripes is the number of read-side hit counters per shard. | hitStripes 是每分片读侧命中计数器数量。
+const hitStripes = 8
+
+// Sample masks control how often a read feeds the access sketch (one in mask+1). Get updates
+// the main sketch on every hit and samples the access sketch sparsely; View updates no main
+// sketch, so it samples the access bit and sketch more often.
+//
+// 采样掩码控制读取进入访问草图的间隔（每 mask+1 次一次）。Get 每次命中都会更新主草图，
+// 只稀疏采样访问草图；View 不更新主草图，因此更频繁地采样访问位与访问草图。
+const (
+	viewSampleMask = 7
+	getSampleMask  = 15
+)
+
 // shardStats holds per-shard counters; each shard owns its own cache lines. | shardStats 保存每分片计数器，各分片独占自己的缓存行。
 type shardStats struct {
-	hits      atomic.Uint64
+	// hits is striped so parallel readers on one hot key do not serialize on a single word. | hits 采用分条计数，使同一热键的并行读者不会在同一个字上串行。
+	hits      [hitStripes]paddedCounter
 	misses    atomic.Uint64
 	sets      atomic.Uint64
 	deletes   atomic.Uint64
 	evictions atomic.Uint64
 	expired   atomic.Uint64
 	rejected  atomic.Uint64
+	identical atomic.Uint64
+}
+
+// addHit records one hit and returns that stripe's new count. | addHit 记录一次命中并返回该分条的新计数。
+func (s *shardStats) addHit(hash uint64) uint64 {
+	return s.hits[hash&(hitStripes-1)].v.Add(1)
+}
+
+// loadHits sums all hit stripes. | loadHits 汇总所有命中分条。
+func (s *shardStats) loadHits() uint64 {
+	var n uint64
+	for i := range s.hits {
+		n += s.hits[i].v.Load()
+	}
+	return n
 }
 
 // entry is a validated view of one ring record. | entry 是一个经过校验的环形记录视图。
@@ -83,6 +122,7 @@ type entry struct {
 	valLen   uint32
 	flags    uint32
 	size     uint32
+	valStart uint32
 }
 
 // newShard allocates one ring. | newShard 分配一个环形缓冲区。
@@ -97,21 +137,26 @@ func newShard(size, maxEntry int) *shard {
 		sketchWidth = 64
 	}
 	words := sketchWidth / 16
+	accessWords := (size + 64*64 - 1) / (64 * 64)
+	if accessWords < 1 {
+		accessWords = 1
+	}
 	s := &shard{
-		seed:       maphash.MakeSeed(),
-		buf:        make([]byte, size),
-		slots:      make([]slot, slotsLen),
-		sketch:     make([]uint64, 4*words),
-		mask:       uint32(slotsLen - 1),
-		sketchMask: uint64(sketchWidth - 1),
-		maxEntry:   maxEntry,
-		entryLimit: entryLimit,
+		buf:          make([]byte, size),
+		slots:        make([]slot, slotsLen),
+		sketch:       make([]uint64, 4*words),
+		sampleSketch: make([]uint64, 4*words),
+		access:       make([]atomic.Uint64, accessWords),
+		mask:         uint32(slotsLen - 1),
+		sketchMask:   uint64(sketchWidth - 1),
+		maxEntry:     maxEntry,
+		entryLimit:   entryLimit,
 	}
 	return s
 }
 
-// hashString returns the seeded 64-bit hash of key. maphash seeds are randomized per | hashString 返回 key 的带种子 64 位哈希。maphash 种子按分片随机化，
-// shard, which makes hash-flooding attacks against the ring impractical. | 使针对环形缓冲区的哈希洪泛攻击难以奏效。
+// hashString returns the seeded 64-bit hash of key. The seed is randomized once per cache, | hashString 返回 key 的带种子 64 位哈希。种子按缓存随机化一次，
+// which makes hash-flooding attacks against the ring impractical. | 使针对环形缓冲区的哈希洪泛攻击难以奏效。
 func hashString(seed maphash.Seed, key string) uint64 {
 	return maphash.String(seed, key)
 }
@@ -136,19 +181,21 @@ func (s *shard) readEntry(off uint32) (entry, bool) {
 	if int(off)+entryHeaderSize > len(s.buf) {
 		return entry{}, false
 	}
+	lens := binary.LittleEndian.Uint64(s.buf[off+hdrKeyLen:])
 	e := entry{
 		expireAt: int64(binary.LittleEndian.Uint64(s.buf[off+hdrExpireAt:])),
 		hash:     binary.LittleEndian.Uint64(s.buf[off+hdrHash:]),
-		keyLen:   binary.LittleEndian.Uint32(s.buf[off+hdrKeyLen:]),
-		valLen:   binary.LittleEndian.Uint32(s.buf[off+hdrValLen:]),
+		keyLen:   uint32(lens),
+		valLen:   uint32(lens >> 32),
 		flags:    binary.LittleEndian.Uint32(s.buf[off+hdrFlags:]),
 		off:      off,
 	}
 	total := uint64(entryHeaderSize) + uint64(e.keyLen) + uint64(e.valLen)
-	if total > uint64(len(s.buf)) || uint64(off)+total > uint64(len(s.buf)) {
+	if uint64(off)+total > uint64(len(s.buf)) {
 		return entry{}, false
 	}
 	e.size = uint32(total)
+	e.valStart = off + entryHeaderSize + e.keyLen
 	return e, true
 }
 
@@ -160,20 +207,78 @@ func (s *shard) key(e entry) []byte {
 
 // value returns a view of the entry value. | value 返回条目值的视图。
 func (s *shard) value(e entry) []byte {
-	start := int(e.off) + entryHeaderSize + int(e.keyLen)
-	return s.buf[start : start+int(e.valLen)]
+	return s.buf[e.valStart : e.valStart+e.valLen]
+}
+
+// markAccess records a hit for the 64-byte block containing off. | markAccess 记录 off 所在 64 字节块的一次命中。
+//
+// The bit is set atomically so View can update recency while holding only the shard read
+// lock. | 该位以原子方式设置，使 View 只持分片读锁时也能更新访问记录。
+func (s *shard) markAccess(off uint32) {
+	block := off >> 6
+	word := block >> 6
+	bit := uint64(1) << (block & 63)
+	if s.access[word].Load()&bit == 0 {
+		s.access[word].Or(bit)
+	}
+}
+
+// accessed reports whether the block containing off was hit since it was reused. | accessed 报告 off 所在块自复用以来是否被命中过。
+func (s *shard) accessed(off uint32) bool {
+	block := off >> 6
+	return s.access[block>>6].Load()&(uint64(1)<<(block&63)) != 0
+}
+
+// clearAccess forgets access bits for the blocks covered by [off, off+n). | clearAccess 清除 [off, off+n) 覆盖块的访问位。
+func (s *shard) clearAccess(off, n uint32) {
+	first := off >> 6
+	last := (off + n - 1) >> 6
+	for block := first; block <= last; {
+		word := block >> 6
+		start := block & 63
+		end := uint32(63)
+		if word == last>>6 {
+			end = last & 63
+		}
+		mask := ^uint64(0) << start
+		if end < 63 {
+			mask &= (uint64(1) << (end + 1)) - 1
+		}
+		if s.access[word].Load()&mask != 0 {
+			s.access[word].And(^mask)
+		}
+		block = (word + 1) << 6
+	}
+}
+
+// resetAccess clears every access bit. | resetAccess 清空全部访问位。
+func (s *shard) resetAccess() {
+	for i := range s.access {
+		s.access[i].Store(0)
+	}
 }
 
 // writeEntry writes one record at off; the caller guarantees off+n <= len(buf). | writeEntry 在 off 处写一条记录；调用方保证 off+n <= len(buf)。
 func (s *shard) writeEntry(off uint32, hash uint64, key string, val []byte, expireAt int64) {
 	binary.LittleEndian.PutUint64(s.buf[off+hdrExpireAt:], uint64(expireAt))
 	binary.LittleEndian.PutUint64(s.buf[off+hdrHash:], hash)
-	binary.LittleEndian.PutUint32(s.buf[off+hdrKeyLen:], uint32(len(key)))
-	binary.LittleEndian.PutUint32(s.buf[off+hdrValLen:], uint32(len(val)))
+	binary.LittleEndian.PutUint64(s.buf[off+hdrKeyLen:], uint64(len(key))|uint64(len(val))<<32)
 	binary.LittleEndian.PutUint32(s.buf[off+hdrFlags:], 0)
 	start := int(off) + entryHeaderSize
 	copy(s.buf[start:], key)
 	copy(s.buf[start+len(key):], val)
+}
+
+// overwriteEntry replaces the value of a same-size live record in place. | overwriteEntry 原地替换同尺寸存活记录的值。
+//
+// Keeping the record at its offset avoids appending a dead version on every update, so a
+// steady-state overwrite workload does not fill the ring with garbage. | 保留原偏移可避免每次更新都追加
+// 一份死版本，使稳态覆盖写不会把环形缓冲区填满垃圾。
+func (s *shard) overwriteEntry(e entry, val []byte, expireAt int64) {
+	binary.LittleEndian.PutUint64(s.buf[e.off+hdrExpireAt:], uint64(expireAt))
+	// The size is unchanged, so keyLen, valLen and flags stay valid; only the expiry and the
+	// value bytes need writing. | 尺寸未变，keyLen、valLen 与标志仍然有效，只需写过期时间和值字节。
+	copy(s.buf[e.valStart:e.valStart+e.valLen], val)
 }
 
 // setFlag updates the flag word of e. | setFlag 更新 e 的标志字。
@@ -188,25 +293,27 @@ func (s *shard) clearFlag(e entry, flag uint32) {
 	binary.LittleEndian.PutUint32(s.buf[e.off+hdrFlags:], cur&^flag)
 }
 
-// find returns the ring offset of key. | find 返回 key 的环形偏移。
-func (s *shard) find(hash uint64, key string) (uint32, bool) {
+// find returns the decoded entry of key. | find 返回 key 对应的已解码条目。
+//
+// Returning the entry avoids a second header decode in every hit path. | 返回条目使每条命中路径省去第二次头部解码。
+func (s *shard) find(hash uint64, key string) (entry, bool) {
 	h32 := uint32(hash)
 	i := h32 & s.mask
 	for probes := 0; probes < len(s.slots); probes++ {
 		sl := s.slots[i]
 		if sl.off == slotEmptyOffset {
-			return 0, false
+			return entry{}, false
 		}
 		if sl.off != slotTombstoneOffset && sl.hash == h32 {
 			off := sl.off - slotOffsetBias
-			if e, ok := s.readEntry(off); ok && e.hash == hash && e.keyLen == uint32(len(key)) &&
-				equalStringBytes(s.key(e), key) {
-				return off, true
+			if e, ok := s.readEntry(off); ok && e.flags&flagDead == 0 && e.hash == hash &&
+				e.keyLen == uint32(len(key)) && equalStringBytes(s.key(e), key) {
+				return e, true
 			}
 		}
 		i = (i + 1) & s.mask
 	}
-	return 0, false
+	return entry{}, false
 }
 
 // insertSlot inserts one index cell without rebuilding. | insertSlot 插入一个索引单元，不做重建。
@@ -288,37 +395,101 @@ func (s *shard) rebuildSlots() {
 	}
 }
 
-// touch increments the four sketch counters for hash and ages the sketch when needed. | touch 递增 hash 的四个草图计数器，并在需要时老化草图。
-func (s *shard) touch(hash uint64) {
-	s.sketchAdds++
-	if s.sketchAdds >= s.sketchMask*10+10 {
-		for i := range s.sketch {
-			s.sketch[i] >>= 1
+// touchSketch increments the four counters of one sketch and ages it when needed. | touchSketch 递增一个草图的四个计数器，并在需要时老化。
+func (s *shard) touchSketch(sketch []uint64, adds *uint64, hash uint64) {
+	*adds++
+	if *adds >= s.sketchMask*10+10 {
+		for i := range sketch {
+			sketch[i] >>= 1
 		}
-		s.sketchAdds /= 2
+		*adds /= 2
 	}
-	words := uint64(len(s.sketch) / 4)
+	// One mix plus four rotated windows is enough for independent rows and avoids four mix64 calls.
+	// | 一次混合加四个旋转窗口即可得到足够的行独立性，避免四次 mix64 调用。
+	h := mix64(hash)
+	words := uint64(len(sketch) / 4)
 	for row := uint64(0); row < 4; row++ {
-		idx := mix64(hash+row*golden) & s.sketchMask
+		idx := bits.RotateLeft64(h, int(row*17)) & s.sketchMask
 		word := row*words + idx>>4
 		shift := (idx & 15) * 4
-		v := (s.sketch[word] >> shift) & 0xf
+		v := (sketch[word] >> shift) & 0xf
 		if v < 15 {
-			s.sketch[word] += 1 << shift
+			sketch[word] += 1 << shift
 		}
 	}
 }
 
-// estimate returns the minimum sketch counter for hash. | estimate 返回 hash 的最小草图计数。
-func (s *shard) estimate(hash uint64) uint8 {
+// touch records a Get/Set access in the main sketch; the caller holds s.mu. | touch 在主草图记录 Get/Set 访问；调用方持有 s.mu。
+func (s *shard) touch(hash uint64) {
+	s.touchSketch(s.sketch, &s.sketchAdds, hash)
+}
+
+// touchSample records a sampled read access in the access sketch; the caller holds sampleSketchMu. | touchSample 在访问草图记录采样读取；调用方持有 sampleSketchMu。
+func (s *shard) touchSample(hash uint64) {
+	s.touchSketch(s.sampleSketch, &s.sampleSketchAdds, hash)
+}
+
+// recordGetHit counts one Get hit and samples the access sketch. | recordGetHit 统计一次 Get 命中并采样访问草图。
+func (s *shard) recordGetHit(hash uint64) {
+	if s.stats.addHit(hash)&getSampleMask != 0 {
+		return
+	}
+	if s.sampleSketchMu.TryLock() {
+		s.touchSample(hash)
+		s.sampleSketchMu.Unlock()
+	}
+}
+
+// recordViewHit counts one View hit and samples both the access bit and the access sketch.
+// Sampling the bit avoids an extra bitset load on every large-value view. | recordViewHit 统计
+// 一次 View 命中，并采样访问位与访问草图。采样访问位可避免每次大值 View 都多读一次位图。
+func (s *shard) recordViewHit(hash uint64, off uint32) {
+	if s.stats.addHit(hash)&viewSampleMask != 0 {
+		return
+	}
+	s.markAccess(off)
+	if s.sampleSketchMu.TryLock() {
+		s.touchSample(hash)
+		s.sampleSketchMu.Unlock()
+	}
+}
+
+// estimateSketch returns the minimum counter of one sketch for hash. | estimateSketch 返回 hash 在一个草图上的最小计数。
+func (s *shard) estimateSketch(sketch []uint64, hash uint64) uint8 {
 	var min uint64 = 15
-	words := uint64(len(s.sketch) / 4)
+	h := mix64(hash)
+	words := uint64(len(sketch) / 4)
 	for row := uint64(0); row < 4; row++ {
-		idx := mix64(hash+row*golden) & s.sketchMask
-		v := (s.sketch[row*words+idx>>4] >> ((idx & 15) * 4)) & 0xf
+		idx := bits.RotateLeft64(h, int(row*17)) & s.sketchMask
+		v := (sketch[row*words+idx>>4] >> ((idx & 15) * 4)) & 0xf
 		if v < min {
 			min = v
 		}
 	}
 	return uint8(min)
+}
+
+// estimate returns the larger of the admission and sampled-read frequency estimates. | estimate 返回准入与采样读取两个频率估计中的较大值。
+func (s *shard) estimate(hash uint64) uint8 {
+	base := s.estimateSketch(s.sketch, hash)
+	s.sampleSketchMu.Lock()
+	view := s.estimateSketch(s.sampleSketch, hash)
+	s.sampleSketchMu.Unlock()
+	if view > base {
+		return view
+	}
+	return base
+}
+
+// equalStringBytes compares a byte slice with a string without allocating. | equalStringBytes 在不分配的情况下比较字节切片与字符串。
+func equalStringBytes(b []byte, s string) bool {
+	if len(b) != len(s) {
+		return false
+	}
+	// Reinterpreting the immutable string as a read-only byte slice lets bytes.Equal use the
+	// SIMD-backed memequal instead of a byte loop.
+	//
+	// 把不可变字符串视为只读字节切片，使 bytes.Equal 能使用 SIMD 加速的 memequal，
+	// 而不是逐字节循环。
+	return bytes.Equal(b, unsafe.Slice(unsafe.StringData(s), len(s)))
 }

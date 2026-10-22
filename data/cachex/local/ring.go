@@ -2,6 +2,7 @@ package local
 
 import (
 	"bytes"
+	"encoding/binary"
 	"time"
 )
 
@@ -144,10 +145,21 @@ func (s *shard) removeEntryAt(e entry, advance bool) {
 func (s *shard) resetRing() {
 	clear(s.slots)
 	clear(s.sketch)
+	s.sketchAdds = 0
+	s.sampleSketchMu.Lock()
+	clear(s.sampleSketch)
+	s.sampleSketchAdds = 0
+	s.sampleSketchMu.Unlock()
+	s.resetAccess()
 	s.head, s.tail, s.sweepPos = 0, 0, 0
-	s.used, s.entries, s.tombstones, s.sketchAdds = 0, 0, 0, 0
+	s.used, s.entries, s.tombstones = 0, 0, 0
 	s.hasPad = false
 }
+
+// identicalCheckLimit bounds the idempotent-write comparison; larger values are copied
+// directly because the comparison would cost about the same. | identicalCheckLimit 限制幂等
+// 写入的比较范围；更大的值直接覆盖，因为比较成本与拷贝相当。
+const identicalCheckLimit = 256
 
 // expired reports whether e is past its expiry. | expired 报告 e 是否已过期。
 func expired(e entry, now int64) bool {
@@ -155,85 +167,116 @@ func expired(e entry, now int64) bool {
 }
 
 // getAppend copies one value into dst while updating recency and the sketch. | getAppend 把值复制进 dst，同时更新访问位与草图。
-func (s *shard) getAppend(dst []byte, key string) ([]byte, bool) {
-	hash := hashString(s.seed, key)
-	now := time.Now().UnixNano()
+func (s *shard) getAppend(hash uint64, key string, dst []byte) ([]byte, bool) {
 	s.mu.Lock()
-	defer s.mu.Unlock()
-	off, ok := s.find(hash, key)
+	e, ok := s.find(hash, key)
 	if !ok {
+		s.mu.Unlock()
 		s.stats.misses.Add(1)
 		return dst, false
 	}
-	e, ok := s.readEntry(off)
-	if !ok {
-		s.rebuildSlots()
-		s.stats.misses.Add(1)
-		return dst, false
-	}
-	if expired(e, now) {
+	if e.expireAt != 0 && e.expireAt <= time.Now().UnixNano() {
 		s.stats.expired.Add(1)
 		s.removeEntry(e)
+		s.mu.Unlock()
 		s.stats.misses.Add(1)
 		return dst, false
 	}
 	s.setFlag(e, flagAccessed)
 	s.touch(hash)
 	dst = append(dst, s.value(e)...)
-	s.stats.hits.Add(1)
+	s.mu.Unlock()
+	s.recordGetHit(hash)
 	return dst, true
 }
 
-// view calls fn with a zero-copy value view while holding the shard read lock. | view 在持有分片读锁时以零拷贝视图调用 fn。
-func (s *shard) view(key string, fn func([]byte) error) (bool, error) {
-	hash := hashString(s.seed, key)
-	now := time.Now().UnixNano()
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	off, ok := s.find(hash, key)
+// get returns an owned copy of one value. | get 返回一个归调用方所有的值副本。
+func (s *shard) get(hash uint64, key string) ([]byte, bool) {
+	s.mu.Lock()
+	e, ok := s.find(hash, key)
 	if !ok {
+		s.mu.Unlock()
+		s.stats.misses.Add(1)
+		return nil, false
+	}
+	if e.expireAt != 0 && e.expireAt <= time.Now().UnixNano() {
+		s.stats.expired.Add(1)
+		s.removeEntry(e)
+		s.mu.Unlock()
+		s.stats.misses.Add(1)
+		return nil, false
+	}
+	s.setFlag(e, flagAccessed)
+	s.touch(hash)
+	out := make([]byte, e.valLen)
+	copy(out, s.value(e))
+	s.mu.Unlock()
+	s.recordGetHit(hash)
+	return out, true
+}
+
+// view calls fn with a zero-copy value view while holding the shard read lock. | view 在持有分片读锁时以零拷贝视图调用 fn。
+func (s *shard) view(hash uint64, key string, fn func([]byte) error) (bool, error) {
+	s.mu.RLock()
+	e, ok := s.find(hash, key)
+	if !ok {
+		s.mu.RUnlock()
 		s.stats.misses.Add(1)
 		return false, nil
 	}
-	e, ok := s.readEntry(off)
-	if !ok || expired(e, now) {
+	if e.expireAt != 0 && e.expireAt <= time.Now().UnixNano() {
+		s.mu.RUnlock()
 		s.stats.misses.Add(1)
 		return false, nil
 	}
-	s.stats.hits.Add(1)
-	if err := fn(s.value(e)); err != nil {
+	err := fn(s.value(e))
+	s.mu.RUnlock()
+	s.recordViewHit(hash, e.off)
+	if err != nil {
 		return true, err
 	}
 	return true, nil
 }
 
 // set writes or replaces one entry. | set 写入或替换一个条目。
-func (s *shard) set(key string, value []byte, expireAt int64) error {
-	hash := hashString(s.seed, key)
+func (s *shard) set(hash uint64, key string, value []byte, expireAt int64) error {
 	size := entryHeaderSize + len(key) + len(value)
 	if size > s.maxEntry {
 		return ErrEntryTooLarge
 	}
 	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.touch(hash)
-	replaced := false
-	if off, ok := s.find(hash, key); ok {
-		if e, ok := s.readEntry(off); ok {
-			s.removeEntry(e)
-			replaced = true
-		} else {
-			s.rebuildSlots()
-		}
-	}
-	if !replaced && (int64(size)+s.used > int64(len(s.buf)) || s.entries+1 > int64(s.entryLimit)) {
-		if !s.admit(hash) {
-			s.stats.rejected.Add(1)
+	if e, exists := s.find(hash, key); exists {
+		if size == int(e.size) {
+			// Identical values skip the copy and only refresh the expiry. This is common for
+			// idempotent writes and makes repeated Set calls nearly free. Large values are
+			// overwritten directly because comparing them costs about as much as copying.
+			// | 值相同时跳过拷贝，只刷新过期时间。这在幂等写入中很常见，使重复 Set 几乎无成本。
+			// 大值直接覆盖，因为比较成本与拷贝相当。
+			if len(value) <= identicalCheckLimit && bytes.Equal(s.value(e), value) {
+				binary.LittleEndian.PutUint64(s.buf[e.off+hdrExpireAt:], uint64(expireAt))
+				s.stats.identical.Add(1)
+			} else {
+				// Same-size updates stay in place: no dead version, no slot churn. | 同尺寸更新原地完成：不产生死版本，也不改动槽位。
+				s.overwriteEntry(e, value, expireAt)
+			}
+			s.mu.Unlock()
+			s.stats.sets.Add(1)
 			return nil
+		}
+		s.removeEntry(e)
+	} else {
+		s.touch(hash)
+		if int64(size)+s.used > int64(len(s.buf)) || s.entries+1 > int64(s.entryLimit) {
+			if !s.admit(hash) {
+				s.mu.Unlock()
+				s.stats.rejected.Add(1)
+				return nil
+			}
 		}
 	}
 	off, ok := s.appendEntry(hash, key, value, expireAt)
 	if !ok {
+		s.mu.Unlock()
 		s.stats.rejected.Add(1)
 		return nil
 	}
@@ -242,9 +285,11 @@ func (s *shard) set(key string, value []byte, expireAt int64) error {
 			s.removeEntry(e)
 		}
 		s.rebuildSlots()
+		s.mu.Unlock()
 		s.stats.rejected.Add(1)
 		return nil
 	}
+	s.mu.Unlock()
 	s.stats.sets.Add(1)
 	return nil
 }
@@ -261,33 +306,33 @@ func (s *shard) admit(hash uint64) bool {
 	}
 	victimFreq := s.estimate(e.hash)
 	candidateFreq := s.estimate(hash)
-	if e.flags&flagAccessed != 0 && candidateFreq <= victimFreq {
+	// Equal frequencies admit the candidate: cold churn stays LRU-like while the frequency
+	// sketch still protects genuinely hot victims. A View hit sets the lock-free access bit
+	// but not the header flag, so admission consults both. | 频率相等时接纳候选：冷键轮换接近
+	// LRU，同时频率草图仍保护真正的热受害者。View 命中只设置无锁访问位而不设置头部标志，
+	// 因此准入同时检查两者。
+	if (e.flags&flagAccessed != 0 || s.accessed(e.off)) && candidateFreq < victimFreq {
 		return false
 	}
 	return true
 }
 
 // delete removes one key. | delete 移除一个键。
-func (s *shard) delete(key string) bool {
-	hash := hashString(s.seed, key)
-	now := time.Now().UnixNano()
+func (s *shard) delete(hash uint64, key string) bool {
 	s.mu.Lock()
-	defer s.mu.Unlock()
-	off, ok := s.find(hash, key)
+	e, ok := s.find(hash, key)
 	if !ok {
+		s.mu.Unlock()
 		return false
 	}
-	e, ok := s.readEntry(off)
-	if !ok {
-		s.rebuildSlots()
-		return false
-	}
-	if expired(e, now) {
+	if e.expireAt != 0 && e.expireAt <= time.Now().UnixNano() {
 		s.stats.expired.Add(1)
 		s.removeEntry(e)
+		s.mu.Unlock()
 		return false
 	}
 	s.removeEntry(e)
+	s.mu.Unlock()
 	s.stats.deletes.Add(1)
 	return true
 }
@@ -329,8 +374,14 @@ func (s *shard) clear() {
 	defer s.mu.Unlock()
 	clear(s.slots)
 	clear(s.sketch)
+	s.sketchAdds = 0
+	s.sampleSketchMu.Lock()
+	clear(s.sampleSketch)
+	s.sampleSketchAdds = 0
+	s.sampleSketchMu.Unlock()
+	s.resetAccess()
 	s.head, s.tail, s.sweepPos = 0, 0, 0
-	s.used, s.entries, s.tombstones, s.sketchAdds = 0, 0, 0, 0
+	s.used, s.entries, s.tombstones = 0, 0, 0
 	s.hasPad = false
 }
 
@@ -385,17 +436,4 @@ func (s *shard) liveCost() int64 {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return s.used
-}
-
-// equalStringBytes compares a byte slice with a string without allocating. | equalStringBytes 在不分配的情况下比较字节切片与字符串。
-func equalStringBytes(b []byte, s string) bool {
-	if len(b) != len(s) {
-		return false
-	}
-	for i := range b {
-		if b[i] != s[i] {
-			return false
-		}
-	}
-	return true
 }
