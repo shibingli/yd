@@ -4,7 +4,7 @@ import (
 	"context"
 	"strings"
 
-	"github.com/shibingli/yd/core/errx"
+	"github.com/shibingli/ydx/errs"
 )
 
 // ListUserTenants returns every tenant the user belongs to, ordered by creation time.
@@ -15,7 +15,7 @@ import (
 // 成员关系是唯一的闸门：不在结果里的租户永远无法被激活。
 func (s *Service) ListUserTenants(ctx context.Context, userID string) ([]*Tenant, error) {
 	if strings.TrimSpace(userID) == "" {
-		return nil, errx.Detail(ErrNotFound, "empty user id | 用户 ID 为空")
+		return nil, errs.Detail(ErrNotFound, "empty user id | 用户 ID 为空")
 	}
 	return s.store.ListUserTenants(ctx, userID)
 }
@@ -66,7 +66,7 @@ func (s *Service) SetDefaultTenant(ctx context.Context, userID, tenantID string)
 // 旧令牌在自身租户内仍然有效，直到过期。
 func (s *Service) SwitchTenant(ctx context.Context, userID, tenantID string) (*User, error) {
 	if strings.TrimSpace(userID) == "" {
-		return nil, errx.Detail(ErrNotFound, "empty user id | 用户 ID 为空")
+		return nil, errs.Detail(ErrNotFound, "empty user id | 用户 ID 为空")
 	}
 	if strings.TrimSpace(tenantID) == "" {
 		return nil, ErrTenantRequired

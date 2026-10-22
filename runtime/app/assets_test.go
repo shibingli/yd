@@ -3,7 +3,7 @@ package app
 import (
 	"testing"
 
-	"github.com/shibingli/yd/core/config"
+	"github.com/shibingli/ydx/config"
 )
 
 // TestIsDevelopmentRecognisesShortProductionAlias pins the runtime-mode

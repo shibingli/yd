@@ -11,8 +11,8 @@ import (
 
 	"github.com/spf13/pflag"
 
-	"github.com/shibingli/yd/core/errx"
 	"github.com/shibingli/yd/tooling/icons"
+	"github.com/shibingli/ydx/errs"
 )
 
 // iconsCommandName is the command word of the icon command. | iconsCommandName 是图标命令的命令词。
@@ -119,11 +119,11 @@ func iconsRequest(fs *pflag.FlagSet) (string, error) {
 	args := fs.Args()
 	action := strings.ToLower(strings.TrimSpace(args[0]))
 	if action != iconsActionSync && action != iconsActionCheck {
-		return "", errx.Detail(ErrUnknownCommand,
+		return "", errs.Detail(ErrUnknownCommand,
 			"%q (actions | 动作: %s, %s)", args[0], iconsActionSync, iconsActionCheck)
 	}
 	if len(args) > 1 {
-		return "", errx.Detail(ErrNoCommand,
+		return "", errs.Detail(ErrNoCommand,
 			"%s (%s takes no argument, got %q | %s 不接受参数，收到 %q)",
 			iconsUsageLine, action, args[1], action, args[1])
 	}
@@ -144,7 +144,7 @@ func iconsRoots(env *Env) ([]string, error) {
 			roots = append(roots, resolveUserPath(env.WorkDir, part))
 		}
 		if len(roots) == 0 {
-			return nil, errx.Detail(icons.ErrScan, "no template roots | 没有模板根")
+			return nil, errs.Detail(icons.ErrScan, "no template roots | 没有模板根")
 		}
 		return roots, nil
 	}
@@ -162,7 +162,7 @@ func iconsRoots(env *Env) ([]string, error) {
 		}
 	}
 	if len(roots) == 0 {
-		return nil, errx.Detail(icons.ErrScan,
+		return nil, errs.Detail(icons.ErrScan,
 			"no templates under web/templates | web/templates 下没有模板")
 	}
 	return roots, nil

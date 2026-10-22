@@ -19,9 +19,9 @@ import (
 	"github.com/spf13/afero"
 	"github.com/spf13/pflag"
 
-	"github.com/shibingli/yd/core/afs"
-	"github.com/shibingli/yd/core/config"
 	"github.com/shibingli/yd/tooling/ko"
+	"github.com/shibingli/ydx/afs"
+	"github.com/shibingli/ydx/config"
 )
 
 // cliKoDigest is the sha256 digest carried by the canned ko output. | cliKoDigest 是预置 ko 输出携带的 sha256 摘要。

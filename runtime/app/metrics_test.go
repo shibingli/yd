@@ -6,8 +6,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/shibingli/yd/http/router"
 	"github.com/shibingli/yd/runtime/metricsx"
+	"github.com/shibingli/ydx/router"
 )
 
 // TestDefaultObservesBuiltInMiddleware proves the framework's default chain is instrumented out of

@@ -26,16 +26,16 @@ import (
 	"strings"
 	"time"
 
-	"github.com/shibingli/yd/core/errx"
-	"github.com/shibingli/yd/core/logx"
+	"github.com/shibingli/ydx/errs"
+	ydlog "github.com/shibingli/ydx/log"
 )
 
 // Sentinel errors of the packaging pipeline. | 打包流水线的哨兵错误。
 var (
 	// ErrInvalidOptions indicates that the options could not be normalized, e.g. a build directory that cannot be resolved. | ErrInvalidOptions 表示选项无法归一化，例如构建目录无法解析。
-	ErrInvalidOptions = errx.New("build: invalid build options | build：非法的构建选项")
+	ErrInvalidOptions = errs.New("build: invalid build options | build：非法的构建选项")
 	// ErrCompile indicates that `go build` failed for one target. | ErrCompile 表示某个目标平台的 `go build` 失败。
-	ErrCompile = errx.New("build: go build failed | build：go build 执行失败")
+	ErrCompile = errs.New("build: go build failed | build：go build 执行失败")
 )
 
 // ExecCommandFunc constructs an external command; it mirrors exec.CommandContext so
@@ -136,7 +136,7 @@ func (o Options) withDefaults() (Options, error) {
 	}
 	dir, err := filepath.Abs(o.Dir)
 	if err != nil {
-		return o, errx.WrapDetail(err, ErrInvalidOptions, "cannot resolve build dir %q | 无法解析构建目录 %q", o.Dir, o.Dir)
+		return o, errs.WrapDetail(err, ErrInvalidOptions, "cannot resolve build dir %q | 无法解析构建目录 %q", o.Dir, o.Dir)
 	}
 	o.Dir = dir
 	if o.Name == "" {
@@ -296,9 +296,9 @@ func mergeEnv(base []string, overrides ...[]string) []string {
 // (2) 可选的 JavaScript 压缩阶段，(3) 通过 ldflags 注入版本信息，(4) 以 CGO_ENABLED=0 执行
 // `go build`（Offline 时附带 -mod=vendor），(5) 校验魔数、大小与存在性。任一步失败都会中止运行，
 // 编译器输出随返回的错误一并带出。
-func Build(ctx context.Context, o Options, log *logx.Logger) (*Report, error) {
+func Build(ctx context.Context, o Options, log *ydlog.Logger) (*Report, error) {
 	if log == nil {
-		log = logx.Default()
+		log = ydlog.Default()
 	}
 	o, err := o.withDefaults()
 	if err != nil {
@@ -313,8 +313,8 @@ func Build(ctx context.Context, o Options, log *logx.Logger) (*Report, error) {
 			return nil, err
 		}
 		log.Info("tailwind stage finished | Tailwind 阶段已完成",
-			logx.Int64("bytes", size),
-			logx.Str("output", outputPath(o.Dir, o.Tailwind)),
+			ydlog.Int64("bytes", size),
+			ydlog.Str("output", outputPath(o.Dir, o.Tailwind)),
 		)
 	}
 
@@ -324,8 +324,8 @@ func Build(ctx context.Context, o Options, log *logx.Logger) (*Report, error) {
 			return nil, err
 		}
 		log.Info("minify stage finished | 资产压缩阶段已完成",
-			logx.Int("files", res.Files),
-			logx.Int64("bytes", res.Bytes),
+			ydlog.Int("files", res.Files),
+			ydlog.Int64("bytes", res.Bytes),
 		)
 	}
 
@@ -333,7 +333,7 @@ func Build(ctx context.Context, o Options, log *logx.Logger) (*Report, error) {
 	for _, target := range o.Targets {
 		out := o.outputFor(target)
 		if err := os.MkdirAll(filepath.Dir(out), 0o755); err != nil {
-			return nil, errx.WrapDetail(err, ErrInvalidOptions, "cannot create %s | 无法创建 %s", filepath.Dir(out), filepath.Dir(out))
+			return nil, errs.WrapDetail(err, ErrInvalidOptions, "cannot create %s | 无法创建 %s", filepath.Dir(out), filepath.Dir(out))
 		}
 
 		start := time.Now()
@@ -348,7 +348,7 @@ func Build(ctx context.Context, o Options, log *logx.Logger) (*Report, error) {
 		var buf bytes.Buffer
 		cmd.Stdout, cmd.Stderr = &buf, &buf
 		if err := cmd.Run(); err != nil {
-			return nil, errx.WrapDetail(err, ErrCompile, "go build %[1]s failed | 编译 %[1]s 失败: %[2]s", target, strings.TrimSpace(buf.String()))
+			return nil, errs.WrapDetail(err, ErrCompile, "go build %[1]s failed | 编译 %[1]s 失败: %[2]s", target, strings.TrimSpace(buf.String()))
 		}
 
 		artifact, err := verifyArtifact(out, target, time.Since(start))
@@ -357,10 +357,10 @@ func Build(ctx context.Context, o Options, log *logx.Logger) (*Report, error) {
 		}
 		report.Artifacts = append(report.Artifacts, *artifact)
 		log.Info("artifact built | 产物已生成",
-			logx.Str("target", target.String()),
-			logx.Str("path", artifact.Path),
-			logx.Int64("bytes", artifact.Bytes),
-			logx.Dur("duration", artifact.Duration),
+			ydlog.Str("target", target.String()),
+			ydlog.Str("path", artifact.Path),
+			ydlog.Int64("bytes", artifact.Bytes),
+			ydlog.Dur("duration", artifact.Duration),
 		)
 	}
 	return report, nil
@@ -369,7 +369,7 @@ func Build(ctx context.Context, o Options, log *logx.Logger) (*Report, error) {
 // buildTailwind runs the asset stage through the injected hook when present and
 // through the built-in implementation otherwise. | buildTailwind 优先通过注入的钩子执行资产阶段，
 // 无钩子时使用内置实现。
-func (o Options) buildTailwind(ctx context.Context, log *logx.Logger) (int64, error) {
+func (o Options) buildTailwind(ctx context.Context, log *ydlog.Logger) (int64, error) {
 	if o.TailwindFunc != nil {
 		return o.TailwindFunc(ctx, o.Dir, o.Tailwind)
 	}
@@ -379,7 +379,7 @@ func (o Options) buildTailwind(ctx context.Context, log *logx.Logger) (int64, er
 // runMinify runs the JavaScript minification stage through the injected hook
 // when present and through the built-in implementation otherwise. | runMinify
 // 优先通过注入的钩子执行 JavaScript 压缩阶段，无钩子时使用内置实现。
-func (o Options) runMinify(ctx context.Context, log *logx.Logger) (MinifyResult, error) {
+func (o Options) runMinify(ctx context.Context, log *ydlog.Logger) (MinifyResult, error) {
 	if o.MinifyFunc != nil {
 		return o.MinifyFunc(ctx, o.Dir, o.Minify)
 	}

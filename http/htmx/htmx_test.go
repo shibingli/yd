@@ -10,7 +10,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/shibingli/yd/http/router"
+	"github.com/shibingli/ydx/router"
 )
 
 // reqWithHeaders builds a test request carrying the given headers. | reqWithHeaders 构造一个带指定请求头的测试请求。

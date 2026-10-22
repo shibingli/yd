@@ -22,8 +22,8 @@ import (
 
 	"github.com/spf13/afero"
 
-	"github.com/shibingli/yd/core/errx"
 	"github.com/shibingli/yd/tooling/assets"
+	"github.com/shibingli/ydx/errs"
 )
 
 const (
@@ -37,13 +37,15 @@ const (
 
 var (
 	// ErrGoMod is returned when go.mod cannot be read. | ErrGoMod 表示 go.mod 无法读取。
-	ErrGoMod = errx.New("read go.mod failed | 读取 go.mod 失败")
+	ErrGoMod = errs.New("read go.mod failed | 读取 go.mod 失败")
 	// ErrGoModInvalid is returned when go.mod lacks the module or go directive. | ErrGoModInvalid 表示 go.mod 缺少 module 或 go 指令。
-	ErrGoModInvalid = errx.New("go.mod is missing the module or go directive | go.mod 缺少 module 或 go 指令")
+	ErrGoModInvalid = errs.New("go.mod is missing the module or go directive | go.mod 缺少 module 或 go 指令")
 	// ErrNoHtmxAsset is returned when the asset manifest has no htmx entry. | ErrNoHtmxAsset 表示资产清单缺少 htmx 条目。
-	ErrNoHtmxAsset = errx.New("asset manifest has no htmx entry | 资产清单缺少 htmx 条目")
+	ErrNoHtmxAsset = errs.New("asset manifest has no htmx entry | 资产清单缺少 htmx 条目")
 	// ErrGeneratedDrift is returned when the generated scaffold versions differ from the sources. | ErrGeneratedDrift 表示生成的脚手架版本与真源不一致。
-	ErrGeneratedDrift = errx.New("scaffold versions differ from the source of truth | 脚手架版本与版本真源不一致")
+	ErrGeneratedDrift = errs.New("scaffold versions differ from the source of truth | 脚手架版本与版本真源不一致")
+	// ErrYdxVersionConflict is returned when the ydx requirements do not share one version. | ErrYdxVersionConflict 表示 ydx 依赖没有共用同一版本。
+	ErrYdxVersionConflict = errs.New("ydx modules require different versions | ydx 模块版本不一致")
 )
 
 // Module is one module requirement of go.mod. | Module 是 go.mod 的一条模块依赖。
@@ -62,6 +64,10 @@ type Inventory struct {
 	GoDirective string
 	// HtmxVersion is the version of the asset named "htmx". | HtmxVersion 是名为 htmx 的资产版本。
 	HtmxVersion string
+	// YdxVersion is the single version shared by every ydx requirement; empty when none. | YdxVersion 是所有 ydx 依赖共用的版本；没有 ydx 依赖时为空。
+	YdxVersion string
+	// YdxModules are the ydx module paths required by the framework, sorted by path. | YdxModules 是框架要求的 ydx 模块路径，按路径排序。
+	YdxModules []string
 	// Modules are the direct requirements, sorted by path. | Modules 是直接依赖，按路径排序。
 	Modules []Module
 	// Assets is the locked asset list, sorted by name. | Assets 是锁定的资产列表，按名字排序。
@@ -141,19 +147,19 @@ func HasScaffold(fsys afero.Fs, dir string) bool {
 // 既适用于框架仓库，也适用于生成的项目。
 func Load(fsys afero.Fs, dir string) (*Inventory, error) {
 	if fsys == nil {
-		return nil, errx.Detail(ErrGoMod, "nil file system | 文件系统为 nil")
+		return nil, errs.Detail(ErrGoMod, "nil file system | 文件系统为 nil")
 	}
 	modPath := filepath.Join(dir, GoModPath)
 	data, err := afero.ReadFile(fsys, modPath)
 	if err != nil {
-		return nil, errx.WrapDetail(err, ErrGoMod, "path %[1]q | 路径 %[1]q", modPath)
+		return nil, errs.WrapDetail(err, ErrGoMod, "path %[1]q | 路径 %[1]q", modPath)
 	}
-	modulePath, goDirective, modules, err := parseGoMod(string(data))
+	modulePath, goDirective, modules, allModules, err := parseGoMod(string(data))
 	if err != nil {
-		return nil, errx.WrapDetail(err, ErrGoMod, "path %[1]q | 路径 %[1]q", modPath)
+		return nil, errs.WrapDetail(err, ErrGoMod, "path %[1]q | 路径 %[1]q", modPath)
 	}
 	if !validGoDirective(goDirective) {
-		return nil, errx.Detail(ErrGoModInvalid, "go directive %[1]q is not a version | go 指令 %[1]q 不是合法版本", goDirective)
+		return nil, errs.Detail(ErrGoModInvalid, "go directive %[1]q is not a version | go 指令 %[1]q 不是合法版本", goDirective)
 	}
 	manifestPath := filepath.Join(dir, filepath.FromSlash(assets.DefaultManifestPath))
 	m, err := assets.LoadManifest(fsys, manifestPath)
@@ -162,10 +168,14 @@ func Load(fsys afero.Fs, dir string) (*Inventory, error) {
 	}
 	htmx, ok := m.Find("htmx")
 	if !ok || htmx.Version == "" {
-		return nil, errx.Detail(ErrNoHtmxAsset, "path %[1]q | 路径 %[1]q", manifestPath)
+		return nil, errs.Detail(ErrNoHtmxAsset, "path %[1]q | 路径 %[1]q", manifestPath)
 	}
 	if !validVersionToken(htmx.Version) {
-		return nil, errx.Detail(ErrNoHtmxAsset, "htmx version %[1]q is not a version token | htmx 版本 %[1]q 不是合法版本记号", htmx.Version)
+		return nil, errs.Detail(ErrNoHtmxAsset, "htmx version %[1]q is not a version token | htmx 版本 %[1]q 不是合法版本记号", htmx.Version)
+	}
+	ydxVersion, ydxModules, err := ydxInventory(allModules)
+	if err != nil {
+		return nil, err
 	}
 	return &Inventory{
 		ModulePath:  modulePath,
@@ -173,7 +183,81 @@ func Load(fsys afero.Fs, dir string) (*Inventory, error) {
 		Modules:     modules,
 		Assets:      m.Assets,
 		HtmxVersion: htmx.Version,
+		YdxVersion:  ydxVersion,
+		YdxModules:  ydxModules,
 	}, nil
+}
+
+// scaffoldYdxModules is every ydx module a generated project may import. It is kept here rather
+// than derived only from go.mod because the framework itself does not import every module (for
+// example cache is wired by generated projects, not by yd), while the generated go.mod must still
+// pin all of them. | scaffoldYdxModules 是生成项目可能导入的全部 ydx 模块。它保存在这里而不是只从
+// go.mod 推导，是因为框架本身并不导入每个模块（例如 cache 由生成项目接线，yd 不导入），而生成的
+// go.mod 仍必须锁定全部模块。
+var scaffoldYdxModules = []string{
+	"github.com/shibingli/ydx/afs",
+	"github.com/shibingli/ydx/asynq",
+	"github.com/shibingli/ydx/base64",
+	"github.com/shibingli/ydx/buffpool",
+	"github.com/shibingli/ydx/cache",
+	"github.com/shibingli/ydx/config",
+	"github.com/shibingli/ydx/errs",
+	"github.com/shibingli/ydx/gorm",
+	"github.com/shibingli/ydx/json",
+	"github.com/shibingli/ydx/jwt",
+	"github.com/shibingli/ydx/log",
+	"github.com/shibingli/ydx/middleware",
+	"github.com/shibingli/ydx/middleware/accesslog",
+	"github.com/shibingli/ydx/middleware/asyncafter",
+	"github.com/shibingli/ydx/middleware/compress",
+	"github.com/shibingli/ydx/middleware/cors",
+	"github.com/shibingli/ydx/middleware/ratelimit",
+	"github.com/shibingli/ydx/middleware/recovery",
+	"github.com/shibingli/ydx/middleware/reqlog",
+	"github.com/shibingli/ydx/middleware/requestid",
+	"github.com/shibingli/ydx/protocol",
+	"github.com/shibingli/ydx/redis",
+	"github.com/shibingli/ydx/regexpx",
+	"github.com/shibingli/ydx/render",
+	"github.com/shibingli/ydx/router",
+	"github.com/shibingli/ydx/sse",
+	"github.com/shibingli/ydx/sysinfo",
+	"github.com/shibingli/ydx/websocket",
+}
+
+// ydxInventory extracts the single ydx version and the module paths from the requirements. |
+// ydxInventory 从依赖中提取唯一的 ydx 版本与模块路径。
+func ydxInventory(modules []Module) (string, []string, error) {
+	var version string
+	firstPath := ""
+	paths := make(map[string]bool, len(scaffoldYdxModules)+len(modules))
+	for _, modulePath := range scaffoldYdxModules {
+		paths[modulePath] = true
+	}
+	for _, m := range modules {
+		if m.Path != "github.com/shibingli/ydx" && !strings.HasPrefix(m.Path, "github.com/shibingli/ydx/") {
+			continue
+		}
+		if version == "" {
+			version = m.Version
+			firstPath = m.Path
+		} else if m.Version != version {
+			return "", nil, errs.Detail(ErrYdxVersionConflict, "%[1]s=%[2]s, %[3]s=%[4]s | %[1]s=%[2]s，%[3]s=%[4]s",
+				firstPath, version, m.Path, m.Version)
+		}
+		if !strings.Contains(m.Path, "/benchmarks/") && m.Path != "github.com/shibingli/ydx/benchmarks" {
+			paths[m.Path] = true
+		}
+	}
+	if version == "" {
+		return "", nil, nil
+	}
+	out := make([]string, 0, len(paths))
+	for modulePath := range paths {
+		out = append(out, modulePath)
+	}
+	sort.Strings(out)
+	return version, out, nil
 }
 
 // parseGoMod extracts the module path, the go directive and the direct requirements. | parseGoMod 提取模块路径、go 指令与直接依赖。
@@ -183,7 +267,7 @@ func Load(fsys afero.Fs, dir string) (*Inventory, error) {
 // (replace, exclude, retract, toolchain) carries nothing this inventory needs. | 解析器刻意保持
 // 精简：识别 module/go/单行 require/require 块，忽略注释，并丢弃带 // indirect 标记的条目。
 // 完整的 go.mod 语法（replace、exclude、retract、toolchain）不承载本清单需要的任何信息。
-func parseGoMod(src string) (modulePath, goDirective string, modules []Module, err error) {
+func parseGoMod(src string) (modulePath, goDirective string, modules, allModules []Module, err error) {
 	inBlock := false
 	for _, raw := range strings.Split(src, "\n") {
 		line := strings.TrimSpace(raw)
@@ -195,8 +279,11 @@ func parseGoMod(src string) (modulePath, goDirective string, modules []Module, e
 				inBlock = false
 				continue
 			}
-			if m, ok := parseRequire(line); ok {
-				modules = append(modules, m)
+			if m, ok, indirect := parseRequire(line); ok {
+				allModules = append(allModules, m)
+				if !indirect {
+					modules = append(modules, m)
+				}
 			}
 			continue
 		}
@@ -208,31 +295,35 @@ func parseGoMod(src string) (modulePath, goDirective string, modules []Module, e
 		case line == "require (":
 			inBlock = true
 		case strings.HasPrefix(line, "require "):
-			if m, ok := parseRequire(strings.TrimPrefix(line, "require ")); ok {
-				modules = append(modules, m)
+			if m, ok, indirect := parseRequire(strings.TrimPrefix(line, "require ")); ok {
+				allModules = append(allModules, m)
+				if !indirect {
+					modules = append(modules, m)
+				}
 			}
 		}
 	}
 	if modulePath == "" || goDirective == "" || inBlock {
-		return "", "", nil, ErrGoModInvalid
+		return "", "", nil, nil, ErrGoModInvalid
 	}
 	sort.Slice(modules, func(i, j int) bool { return modules[i].Path < modules[j].Path })
-	return modulePath, goDirective, modules, nil
+	sort.Slice(allModules, func(i, j int) bool { return allModules[i].Path < allModules[j].Path })
+	return modulePath, goDirective, modules, allModules, nil
 }
 
-// parseRequire parses one "<path> <version>" require entry, skipping indirect ones. | parseRequire 解析一条 “<路径> <版本>” 依赖，跳过间接依赖。
-func parseRequire(line string) (Module, bool) {
+// parseRequire parses one "<path> <version>" require entry and reports whether it is indirect. |
+// parseRequire 解析一条 “<路径> <版本>” 依赖，并报告是否为间接依赖。
+func parseRequire(line string) (Module, bool, bool) {
+	indirect := false
 	if idx := strings.Index(line, "//"); idx >= 0 {
-		if strings.Contains(line[idx:], "indirect") {
-			return Module{}, false
-		}
+		indirect = strings.Contains(line[idx:], "indirect")
 		line = strings.TrimSpace(line[:idx])
 	}
 	fields := strings.Fields(line)
 	if len(fields) < 2 {
-		return Module{}, false
+		return Module{}, false, false
 	}
-	return Module{Path: fields[0], Version: fields[1]}, true
+	return Module{Path: fields[0], Version: fields[1]}, true, indirect
 }
 
 // Generate renders the scaffold's generated version file. | Generate 渲染脚手架的版本生成文件。
@@ -249,6 +340,18 @@ func Generate(inv *Inventory) []byte {
 	b.WriteString("// HtmxVersion is the version of the htmx asset in web/assets.lock.json. | HtmxVersion 是 web/assets.lock.json 中 htmx 资产的版本。\n")
 	b.WriteString("//\n// Source: the asset manifest entry named \"htmx\". | 来源：资产清单中名为 \"htmx\" 的条目。\n")
 	b.WriteString("const HtmxVersion = " + strconv.Quote(inv.HtmxVersion) + "\n")
+	if inv.YdxVersion != "" {
+		b.WriteString("\n// YdxVersion is the single version shared by the ydx requirements. | YdxVersion 是 ydx 依赖共用的唯一版本。\n")
+		b.WriteString("//\n// Source: the ydx requirements in go.mod. | 来源：go.mod 中的 ydx 依赖。\n")
+		b.WriteString("const YdxVersion = " + strconv.Quote(inv.YdxVersion) + "\n")
+		b.WriteString("\n// YdxModules lists the ydx modules required by the framework. | YdxModules 列出框架依赖的 ydx 模块。\n")
+		b.WriteString("//\n// Source: the ydx requirements in go.mod, sorted by path. | 来源：go.mod 中的 ydx 依赖，按路径排序。\n")
+		b.WriteString("var YdxModules = []string{\n")
+		for _, modulePath := range inv.YdxModules {
+			b.WriteString("\t" + strconv.Quote(modulePath) + ",\n")
+		}
+		b.WriteString("}\n")
+	}
 	return []byte(b.String())
 }
 
@@ -260,10 +363,10 @@ func Sync(fsys afero.Fs, dir string) (string, error) {
 	}
 	path := filepath.Join(dir, filepath.FromSlash(GeneratedPath))
 	if err := fsys.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		return "", errx.WrapDetail(err, ErrGoMod, "path %[1]q | 路径 %[1]q", path)
+		return "", errs.WrapDetail(err, ErrGoMod, "path %[1]q | 路径 %[1]q", path)
 	}
 	if err := afero.WriteFile(fsys, path, Generate(inv), 0o644); err != nil {
-		return "", errx.WrapDetail(err, ErrGoMod, "path %[1]q | 路径 %[1]q", path)
+		return "", errs.WrapDetail(err, ErrGoMod, "path %[1]q | 路径 %[1]q", path)
 	}
 	return filepath.ToSlash(path), nil
 }
@@ -282,12 +385,12 @@ func Check(fsys afero.Fs, dir string) error {
 	got, err := afero.ReadFile(fsys, path)
 	if err != nil {
 		if errors.Is(err, fs.ErrNotExist) {
-			return errx.Detail(ErrGeneratedDrift, "missing %[1]q | 缺少 %[1]q", path)
+			return errs.Detail(ErrGeneratedDrift, "missing %[1]q | 缺少 %[1]q", path)
 		}
-		return errx.WrapDetail(err, ErrGeneratedDrift, "path %[1]q | 路径 %[1]q", path)
+		return errs.WrapDetail(err, ErrGeneratedDrift, "path %[1]q | 路径 %[1]q", path)
 	}
 	if string(got) != string(Generate(inv)) {
-		return errx.Detail(ErrGeneratedDrift, "path %[1]q | 路径 %[1]q", path)
+		return errs.Detail(ErrGeneratedDrift, "path %[1]q | 路径 %[1]q", path)
 	}
 	return nil
 }

@@ -11,9 +11,9 @@ import (
 
 	"github.com/spf13/afero"
 
-	"github.com/shibingli/yd/core/afs"
-	"github.com/shibingli/yd/core/errx"
-	"github.com/shibingli/yd/core/regexpx"
+	"github.com/shibingli/ydx/afs"
+	"github.com/shibingli/ydx/errs"
+	"github.com/shibingli/ydx/regexpx"
 )
 
 // This file is the executable half of "one single source of truth": the registry above says what
@@ -455,13 +455,13 @@ func collectSources(fsys afero.Fs, root string, skip, exts []string) ([]sourceFi
 		}
 		b, err := afero.ReadFile(fsys, p)
 		if err != nil {
-			return errx.WrapDetail(err, ErrReadSource, "path=%[1]s | 路径=%[1]s", rel)
+			return errs.WrapDetail(err, ErrReadSource, "path=%[1]s | 路径=%[1]s", rel)
 		}
 		files = append(files, newSourceFile(rel, string(b), kind))
 		return nil
 	})
 	if err != nil {
-		return nil, errx.WrapDetail(err, ErrScanDir, "dir=%[1]s | 目录=%[1]s", root)
+		return nil, errs.WrapDetail(err, ErrScanDir, "dir=%[1]s | 目录=%[1]s", root)
 	}
 	sort.Slice(files, func(i, j int) bool { return files[i].rel < files[j].rel })
 	return files, nil

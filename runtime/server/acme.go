@@ -9,19 +9,19 @@ import (
 
 	"golang.org/x/crypto/acme/autocert"
 
-	"github.com/shibingli/yd/core/errx"
+	"github.com/shibingli/ydx/errs"
 )
 
 // Sentinel errors of the ACME manager, all testable with errors.Is. | ACME 管理器的哨兵错误，均可通过 errors.Is 判定。
 var (
 	// ErrACMEDomainsRequired reports ACME enabled without any domain. | ErrACMEDomainsRequired 表示启用 ACME 却没有配置任何域名。
-	ErrACMEDomainsRequired = errx.New("server: enabling ACME requires at least one domain | server：启用 ACME 必须配置至少一个域名")
+	ErrACMEDomainsRequired = errs.New("server: enabling ACME requires at least one domain | server：启用 ACME 必须配置至少一个域名")
 
 	// ErrACMEHostMissing reports an empty host handed to the non-strict host policy. | ErrACMEHostMissing 表示非严格主机策略收到空主机名。
-	ErrACMEHostMissing = errx.New("acme: missing server name | acme：缺少服务器名")
+	ErrACMEHostMissing = errs.New("acme: missing server name | acme：缺少服务器名")
 
 	// ErrACMEUninitialized reports a nil or uninitialized ACME manager. | ErrACMEUninitialized 表示 ACME 管理器为 nil 或未初始化。
-	ErrACMEUninitialized = errx.New("server: ACME is not initialized | server：ACME 未初始化")
+	ErrACMEUninitialized = errs.New("server: ACME is not initialized | server：ACME 未初始化")
 )
 
 // acmeChallengePrefix is the well-known path served by the ACME HTTP-01 challenge. | acmeChallengePrefix 是 ACME HTTP-01 质询使用的 well-known 路径。

@@ -8,8 +8,8 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/shibingli/yd/core/jsonx"
-	"github.com/shibingli/yd/http/router"
+	"github.com/shibingli/ydx/json"
+	"github.com/shibingli/ydx/router"
 )
 
 // decodeDoc marshals the document and decodes it back into a generic map. | decodeDoc 序列化文档
@@ -21,7 +21,7 @@ func decodeDoc(t *testing.T, doc *Document) map[string]any {
 		t.Fatalf("JSON: %v", err)
 	}
 	var out map[string]any
-	if err := jsonx.Unmarshal(raw, &out); err != nil {
+	if err := json.Unmarshal(raw, &out); err != nil {
 		t.Fatalf("unmarshal: %v", err)
 	}
 	return out
@@ -247,12 +247,12 @@ func TestDocumentCoversOpenAPIObjects(t *testing.T) {
 }
 
 func TestSchemaEmitsTypeArray(t *testing.T) {
-	raw, err := jsonx.Marshal(&Schema{Types: []string{"string", "null"}, Description: "nullable | 可空"})
+	raw, err := json.Marshal(&Schema{Types: []string{"string", "null"}, Description: "nullable | 可空"})
 	if err != nil {
 		t.Fatalf("marshal: %v", err)
 	}
 	var got map[string]any
-	if err := jsonx.Unmarshal(raw, &got); err != nil {
+	if err := json.Unmarshal(raw, &got); err != nil {
 		t.Fatalf("unmarshal: %v", err)
 	}
 	types, ok := got["type"].([]any)
@@ -260,11 +260,11 @@ func TestSchemaEmitsTypeArray(t *testing.T) {
 		t.Fatalf("type = %v, want [string null] | type 应为 [string null]", got["type"])
 	}
 
-	raw, err = jsonx.Marshal(&Schema{Type: "string"})
+	raw, err = json.Marshal(&Schema{Type: "string"})
 	if err != nil {
 		t.Fatalf("marshal scalar: %v", err)
 	}
-	if err := jsonx.Unmarshal(raw, &got); err != nil {
+	if err := json.Unmarshal(raw, &got); err != nil {
 		t.Fatalf("unmarshal scalar: %v", err)
 	}
 	if got["type"] != "string" {
@@ -282,12 +282,12 @@ func TestSchemaEmitsTypeArray(t *testing.T) {
 		UnevaluatedProperties: false,
 		ContentEncoding:       "base64",
 	}
-	raw, err = jsonx.Marshal(rich)
+	raw, err = json.Marshal(rich)
 	if err != nil {
 		t.Fatalf("marshal rich: %v", err)
 	}
 	got = map[string]any{}
-	if err := jsonx.Unmarshal(raw, &got); err != nil {
+	if err := json.Unmarshal(raw, &got); err != nil {
 		t.Fatalf("unmarshal rich: %v", err)
 	}
 	for _, key := range []string{"$id", "$defs", "prefixItems", "if", "then", "else", "contentEncoding"} {

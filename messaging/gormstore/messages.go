@@ -7,8 +7,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/shibingli/yd/core/errx"
 	"github.com/shibingli/yd/messaging"
+	"github.com/shibingli/ydx/errs"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 )
@@ -41,7 +41,7 @@ func (s *Store) CreateMessage(ctx context.Context, msg messaging.Message, tagIDs
 				return queryError(result.Error)
 			}
 			if int(result.RowsAffected) != len(attachmentIDs) {
-				return errx.Detail(messaging.ErrAttachmentNotFound,
+				return errs.Detail(messaging.ErrAttachmentNotFound,
 					"expected=%[1]d actual=%[2]d | 期望=%[1]d 实际=%[2]d", len(attachmentIDs), result.RowsAffected)
 			}
 		}

@@ -8,8 +8,8 @@ import (
 	"net/http"
 	"strings"
 
-	"{{ .YdModule }}/core/logx"
-	"{{ .YdModule }}/http/router"
+	"{{ .YdxModule }}/log"
+	"{{ .YdxModule }}/router"
 	"{{ .YdModule }}/messaging"
 )
 
@@ -482,6 +482,6 @@ func (c *Controller) renderFriendSummaryWithNotice(ctx *router.Ctx, notice strin
 		return
 	}
 	c.toast(ctx, notice)
-	c.log.Debug("friend action finished | 好友动作完成", logx.Str("actor", actor.ID))
+	c.log.Debug("friend action finished | 好友动作完成", log.Str("actor", actor.ID))
 	c.render(ctx, http.StatusOK, TplFriendSummary, c.friendPageData(ctx, summary))
 }

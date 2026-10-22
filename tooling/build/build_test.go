@@ -15,7 +15,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/shibingli/yd/core/logx"
+	"github.com/shibingli/ydx/log"
 )
 
 // ---------------------------------------------------------------- Test helpers | 测试辅助
@@ -150,8 +150,8 @@ func fakeGoBuildWith(pick func(path string) []byte) *fakeExec {
 }
 
 // testLogger returns a Logger that discards output, keeping test logs clean. | testLogger 返回丢弃输出的 Logger，保持测试输出干净。
-func testLogger() *logx.Logger {
-	return logx.New(logx.Options{Writer: io.Discard, Level: logx.DebugLevel})
+func testLogger() *log.Logger {
+	return log.New(log.Options{Writer: io.Discard, Level: log.DebugLevel})
 }
 
 // writeFile writes a fixture file, creating parent directories as needed. | writeFile 写入夹具文件，必要时创建父目录。

@@ -14,10 +14,10 @@ import (
 	"strconv"
 
 	"{{ .Module }}/internal/model"
-	"{{ .YdModule }}/core/errx"
+	"{{ .YdxModule }}/errs"
 	"{{ .YdModule }}/security/guomi"
-	"{{ .YdModule }}/core/logx"
-	"{{ .YdModule }}/http/router"
+	"{{ .YdxModule }}/log"
+	"{{ .YdxModule }}/router"
 	"{{ .YdModule }}/runtime/metricsx"
 )
 
@@ -199,7 +199,7 @@ func formatBytes(n uint64) string {
 func (c *Controller) Health(ctx *router.Ctx) {
 	ctx.SetHeader("Cache-Control", "no-store")
 	if err := ctx.String(http.StatusOK, "ok"); err != nil {
-		c.log.Warn("health probe write failed | 健康检查写出失败", logx.Err(err))
+		c.log.Warn("health probe write failed | 健康检查写出失败", log.Err(err))
 	}
 }
 
@@ -256,7 +256,7 @@ func (c *Controller) Report(ctx *router.Ctx) {
 func (c *Controller) writePNG(ctx *router.Ctx, seed string) {
 	data, err := placeholderPNG(seed)
 	if err != nil {
-		c.log.Error("placeholder encode failed | 占位图编码失败", logx.Err(err), logx.Str("seed", seed))
+		c.log.Error("placeholder encode failed | 占位图编码失败", log.Err(err), log.Str("seed", seed))
 		c.fail(ctx, http.StatusInternalServerError, msgInternal)
 		return
 	}
@@ -265,7 +265,7 @@ func (c *Controller) writePNG(ctx *router.Ctx, seed string) {
 	// The placeholder is fully determined by its seed, so browsers and reverse proxies may cache it for long.
 	ctx.SetHeader("Cache-Control", "public, max-age=300")
 	if err := ctx.Blob(http.StatusOK, "image/png", data); err != nil {
-		c.log.Warn("placeholder write failed | 占位图写出失败", logx.Err(err), logx.Str("seed", seed))
+		c.log.Warn("placeholder write failed | 占位图写出失败", log.Err(err), log.Str("seed", seed))
 	}
 }
 
@@ -303,7 +303,7 @@ func placeholderPNG(seed string) ([]byte, error) {
 
 	var buf bytes.Buffer
 	if err := png.Encode(&buf, img); err != nil {
-		return nil, errx.Wrap(err, ErrPlaceholder)
+		return nil, errs.Wrap(err, ErrPlaceholder)
 	}
 	return buf.Bytes(), nil
 }

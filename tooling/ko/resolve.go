@@ -9,7 +9,7 @@ import (
 	"runtime"
 	"strings"
 
-	"github.com/shibingli/yd/core/errx"
+	"github.com/shibingli/ydx/errs"
 )
 
 // DefaultBinary is the command name looked up on PATH when nothing else yields a ko executable. | DefaultBinary
@@ -76,7 +76,7 @@ func Resolve(o Options) (string, error) {
 	if p, err := lookup(DefaultBinary); err == nil && p != "" {
 		return p, nil
 	}
-	return "", errx.Detail(ErrBinaryNotFound,
+	return "", errs.Detail(ErrBinaryNotFound,
 		"checked Binary, %[2]s, %[3]s and PATH; install it with %[1]q or drop the binary into %[3]s | 已检查 Binary、%[2]s、%[3]s 与 PATH；可用 %[1]q 安装，或把二进制放入 %[3]s",
 		InstallHint, EnvBinary, LocalToolDir)
 }

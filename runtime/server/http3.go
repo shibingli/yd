@@ -4,8 +4,8 @@ import (
 	"net"
 	"strconv"
 
-	"github.com/shibingli/yd/core/errx"
-	"github.com/shibingli/yd/core/logx"
+	"github.com/shibingli/ydx/errs"
+	"github.com/shibingli/ydx/log"
 )
 
 // listenUDPFunc binds a UDP socket from a "host:port" address; it is a variable so tests can drive
@@ -48,18 +48,18 @@ func (s *Server) bindHTTP3() (net.PacketConn, int, error) {
 	conn, err := listenUDPFunc("udp", s.opts.h3Addr(port))
 	if err != nil {
 		if explicit != 0 {
-			return nil, 0, errx.WrapDetail(err, ErrHTTP3Listen, "port %d | 端口 %d", port, port)
+			return nil, 0, errs.WrapDetail(err, ErrHTTP3Listen, "port %d | 端口 %d", port, port)
 		}
 		// Auto mode: fall back to an OS-assigned UDP port. | 自动模式：退回让操作系统分配 UDP 端口。
 		fallback, ferr := listenUDPFunc("udp", s.opts.h3Addr(0))
 		if ferr != nil {
-			return nil, 0, errx.WrapDetail(ferr, ErrHTTP3Listen, "tcp port %d | TCP 端口 %d", port, port)
+			return nil, 0, errs.WrapDetail(ferr, ErrHTTP3Listen, "tcp port %d | TCP 端口 %d", port, port)
 		}
 		bound := fallback.LocalAddr().(*net.UDPAddr).Port
 		s.logger.Warn("HTTP/3 could not reuse the TCP port, falling back to an OS-assigned UDP port | HTTP/3 无法复用 TCP 端口，回退到操作系统分配的 UDP 端口",
-			logx.Int("tcp_port", port),
-			logx.Int("udp_port", bound),
-			logx.Str("reason", err.Error()),
+			log.Int("tcp_port", port),
+			log.Int("udp_port", bound),
+			log.Str("reason", err.Error()),
 		)
 		return fallback, bound, nil
 	}

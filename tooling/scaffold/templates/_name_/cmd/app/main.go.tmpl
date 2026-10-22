@@ -37,10 +37,10 @@ import (
 	"{{ .Module }}/internal/router"
 	"{{ .Module }}/web"
 	"{{ .YdModule }}/runtime/app"
-	"{{ .YdModule }}/core/errx"
+	"{{ .YdxModule }}/errs"
 	"{{ .YdModule }}/http/i18n"
-	"{{ .YdModule }}/core/logx"
-	ydmw "{{ .YdModule }}/middleware"
+	logx "{{ .YdxModule }}/log"
+	ydmw "{{ .YdxModule }}/middleware"
 	"{{ .YdModule }}/runtime/service"
 )
 
@@ -48,14 +48,14 @@ import (
 // Startup sentinels: any failing step of the assembly chain roots in one of them, so logs and the exit code stay uniform.
 var (
 	// ErrAssemble reports a facade assembly failure (assets, configuration or renderer). | ErrAssemble 表示应用门面装配失败（资产、配置或渲染器任一步出错）。
-	ErrAssemble = errx.New("application assembly failed | 应用装配失败")
+	ErrAssemble = errs.New("application assembly failed | 应用装配失败")
 	// ErrStatic reports an unusable static asset filesystem. | ErrStatic 表示静态资产文件系统不可用。
-	ErrStatic = errx.New("static assets unavailable | 静态资产不可用")
+	ErrStatic = errs.New("static assets unavailable | 静态资产不可用")
 	// ErrI18n reports a failed message catalogue load. | ErrI18n 表示语言目录加载失败。
-	ErrI18n = errx.New("message catalogues unavailable | 语言目录不可用")
+	ErrI18n = errs.New("message catalogues unavailable | 语言目录不可用")
 	// ErrService 表示服务管理器动作失败（安装、卸载、启动、停止、重启或状态查询）。
 	// ErrService reports a failed service manager action (install, uninstall, start, stop, restart or a status query).
-	ErrService = errx.New("service action failed | 服务动作失败")
+	ErrService = errs.New("service action failed | 服务动作失败")
 )
 
 // main 是进程入口：构造日志与退出上下文，装配成功后按前台或服务模式运行。
@@ -107,7 +107,7 @@ func runApplication(ctx context.Context, application *app.App, log *logx.Logger)
 	if given && action != service.ActionRun {
 		result, err := service.Control(opts, action)
 		if err != nil {
-			return errx.WrapDetail(err, ErrService, "action=%s", action)
+			return errs.WrapDetail(err, ErrService, "action=%s", action)
 		}
 		log.Info("service action finished | 服务动作已完成",
 			logx.Str("action", string(action)),
@@ -163,7 +163,7 @@ func serviceOptions(application *app.App) service.Options {
 func assemble(log *logx.Logger) (*app.App, error) {
 	static, err := web.Static()
 	if err != nil {
-		return nil, errx.WrapDetail(err, ErrStatic, "root=%s", meta.AssetRoot)
+		return nil, errs.WrapDetail(err, ErrStatic, "root=%s", meta.AssetRoot)
 	}
 
 	application, err := app.New(
@@ -173,7 +173,7 @@ func assemble(log *logx.Logger) (*app.App, error) {
 		app.WithConfigDir(meta.ConfigDir),
 	)
 	if err != nil {
-		return nil, errx.Wrap(err, ErrAssemble)
+		return nil, errs.Wrap(err, ErrAssemble)
 	}
 
 	// 中间件顺序与 app.Default 保持一致（恢复 → 请求 ID → 访问日志 → 压缩 → CORS），
@@ -224,7 +224,7 @@ func registerI18n(application *app.App, log *logx.Logger) error {
 
 	bundle, err := i18n.New(web.I18n(), ".", defaultLang)
 	if err != nil {
-		return errx.WrapDetail(err, ErrI18n, "default_lang=%s", defaultLang)
+		return errs.WrapDetail(err, ErrI18n, "default_lang=%s", defaultLang)
 	}
 
 	application.Set(app.ServiceI18n, bundle)

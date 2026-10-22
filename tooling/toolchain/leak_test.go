@@ -15,7 +15,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/shibingli/yd/core/errx"
+	"github.com/shibingli/ydx/errs"
 )
 
 // guardSettle bounds how long the system side may lag behind the code side, and how long a reported exit may take to arrive. | guardSettle 限定系统侧允许落后代码侧的时间，以及上报退出允许的延迟。
@@ -139,7 +139,7 @@ func scenarioCancelAfterFailedRebuild(t *testing.T, dir string, h *devHarness) (
 	var calls atomic.Int32
 	build := func(context.Context, DevOptions) (string, error) {
 		if calls.Add(1) > 1 {
-			return "", errx.Detail(ErrBuildFailed, "stub rebuild failure | 打桩的重新编译失败")
+			return "", errs.Detail(ErrBuildFailed, "stub rebuild failure | 打桩的重新编译失败")
 		}
 		return "fake-app", nil
 	}

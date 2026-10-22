@@ -5,8 +5,8 @@ package cli
 import (
 	"context"
 
-	"github.com/shibingli/yd/core/logx"
 	"github.com/shibingli/yd/tooling/toolchain"
+	"github.com/shibingli/ydx/log"
 	"github.com/spf13/pflag"
 )
 
@@ -99,7 +99,7 @@ func devOptions(env *Env, fs *pflag.FlagSet) toolchain.DevOptions {
 		NoReload:             flagBool(fs, flagDevNoReload),
 		Debounce:             debounce,
 		AppArgs:              fs.Args(),
-		Log:                  logx.Default(),
+		Log:                  log.Default(),
 		Out:                  env.Out,
 		HTTP2ExtendedConnect: env.Cfg != nil && env.Cfg.GetBool(keyDevHTTP2ExtendedConnect),
 	}
@@ -131,21 +131,21 @@ func configString(env *Env, key string) string {
 // printDevSession 通过命令日志器记录会话摘要，使 `yd dev` 与系统其余部分输出同一套结构化日志；
 // 格式跟随 log.format（默认 JSON）。
 func printDevSession(env *Env, o toolchain.DevOptions, r *toolchain.DevRunner) {
-	fields := []logx.Field{
-		logx.Str("dir", o.Dir),
-		logx.Bool("watch", !o.NoWatch),
-		logx.Bool("tailwind", !o.NoTailwind),
-		logx.Bool("reload", r.ReloadEnabled()),
+	fields := []log.Field{
+		log.Str("dir", o.Dir),
+		log.Bool("watch", !o.NoWatch),
+		log.Bool("tailwind", !o.NoTailwind),
+		log.Bool("reload", r.ReloadEnabled()),
 	}
 	if r.ReloadEnabled() {
-		fields = append(fields, logx.Str("reload_path", toolchain.DevReloadPath))
+		fields = append(fields, log.Str("reload_path", toolchain.DevReloadPath))
 	}
 	if o.Port > 0 {
-		fields = append(fields, logx.Int("port", o.Port))
+		fields = append(fields, log.Int("port", o.Port))
 	}
 	if len(o.AppArgs) > 0 {
-		fields = append(fields, logx.Strs("app_args", o.AppArgs))
+		fields = append(fields, log.Strs("app_args", o.AppArgs))
 	}
-	fields = append(fields, logx.Str("stop", "ctrl+c"))
+	fields = append(fields, log.Str("stop", "ctrl+c"))
 	commandLogger(env).Info("yd dev session | yd dev 会话", fields...)
 }

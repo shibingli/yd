@@ -15,10 +15,10 @@ import (
 	"os/signal"
 	"syscall"
 
-	"github.com/shibingli/yd/core/afs"
-	"github.com/shibingli/yd/core/logx"
 	"github.com/shibingli/yd/core/version"
 	"github.com/shibingli/yd/tooling/cli"
+	"github.com/shibingli/ydx/afs"
+	"github.com/shibingli/ydx/log"
 )
 
 // Process exit codes. | 进程退出码。
@@ -65,7 +65,7 @@ func run(args []string, stdout, stderr io.Writer, stdin *os.File) int {
 
 	// Diagnostics go through logx, which Execute has already pointed at the CLI's stderr stream. | 诊断
 	// 信息经 logx 输出，Execute 已把日志器指向 CLI 的标准错误流。
-	logx.Default().Error("yd: command failed | yd：命令执行失败", logx.Err(err))
+	log.Default().Error("yd: command failed | yd：命令执行失败", log.Err(err))
 	if isUsageError(err) {
 		return exitUsage
 	}
@@ -100,8 +100,8 @@ func isTerminal(f *os.File) bool {
 func workDir() string {
 	wd, err := os.Getwd()
 	if err != nil || wd == "" {
-		logx.Default().Warn("yd: working directory unavailable, falling back to \".\" | yd：无法获取工作目录，回退到 \".\"",
-			logx.Err(err))
+		log.Default().Warn("yd: working directory unavailable, falling back to \".\" | yd：无法获取工作目录，回退到 \".\"",
+			log.Err(err))
 		return "."
 	}
 	return wd

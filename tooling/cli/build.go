@@ -13,10 +13,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/shibingli/yd/core/errx"
-	"github.com/shibingli/yd/core/logx"
 	"github.com/shibingli/yd/core/version"
 	"github.com/shibingli/yd/tooling/build"
+	"github.com/shibingli/ydx/errs"
+	ydlog "github.com/shibingli/ydx/log"
 	"github.com/spf13/pflag"
 )
 
@@ -149,7 +149,7 @@ func runBuild(ctx context.Context, env *Env) error {
 // straight from github.com/shibingli/yd/core/version, so a binary built by yd records which yd built it. |
 // buildOptions 依据已解析的标志组装 build 包选项。版本三元组直接取自 github.com/shibingli/yd/core/version，
 // 因此由 yd 构建出的二进制会记录构建它的 yd 版本。
-func buildOptions(env *Env, fs *pflag.FlagSet, log *logx.Logger) (build.Options, error) {
+func buildOptions(env *Env, fs *pflag.FlagSet, log *ydlog.Logger) (build.Options, error) {
 	targets, err := buildTargets(fs)
 	if err != nil {
 		return build.Options{}, err
@@ -195,7 +195,7 @@ func buildTargets(fs *pflag.FlagSet) ([]build.Target, error) {
 	spec := strings.TrimSpace(flagString(fs, flagBuildTargets))
 	switch {
 	case flagBool(fs, flagBuildAll) && spec != "":
-		return nil, errx.Detail(ErrFlagParse, "--all and --targets are mutually exclusive | --all 与 --targets 互斥")
+		return nil, errs.Detail(ErrFlagParse, "--all and --targets are mutually exclusive | --all 与 --targets 互斥")
 	case flagBool(fs, flagBuildAll):
 		spec = buildAllTargets
 	case spec != "":
@@ -259,14 +259,14 @@ func buildMinifyBin(env *Env, fs *pflag.FlagSet) string {
 // valid and the asset helper falls back to the source paths. | buildMinifyStage 返回 build 命令注入的
 // 资产钩子。缺少 minify 二进制不算构建失败：该阶段会以告警跳过，因为编译出的二进制依然有效，
 // 且 asset 助手会回退到源码路径。
-func buildMinifyStage(log *logx.Logger) build.MinifyFunc {
+func buildMinifyStage(log *ydlog.Logger) build.MinifyFunc {
 	if buildMinifyFunc != nil {
 		return buildMinifyFunc
 	}
 	return func(ctx context.Context, dir string, o build.MinifyOptions) (build.MinifyResult, error) {
 		res, err := buildMinifyCall(ctx, dir, o, log)
 		if errors.Is(err, build.ErrMinifyNotFound) {
-			log.Warn("minify stage skipped | 跳过资产压缩阶段", logx.Err(err))
+			log.Warn("minify stage skipped | 跳过资产压缩阶段", ydlog.Err(err))
 			return build.MinifyResult{}, nil
 		}
 		return res, err
@@ -278,7 +278,7 @@ func buildMinifyStage(log *logx.Logger) build.MinifyFunc {
 // stage is skipped with a warning, because the compiled binary is still perfectly valid. | buildTailwindStage
 // 返回 build 命令注入的样式表钩子。项目没有 Tailwind 样式表、或机器上没有 tailwindcss 二进制都不算构建失败：
 // 该阶段会以告警跳过，因为编译出的二进制依然完全有效。
-func buildTailwindStage(log *logx.Logger) build.TailwindFunc {
+func buildTailwindStage(log *ydlog.Logger) build.TailwindFunc {
 	if buildTailwindFunc != nil {
 		return buildTailwindFunc
 	}
@@ -288,7 +288,7 @@ func buildTailwindStage(log *logx.Logger) build.TailwindFunc {
 		case err == nil:
 			return size, nil
 		case errors.Is(err, build.ErrTailwindInput), errors.Is(err, build.ErrTailwindNotFound):
-			log.Warn("tailwind stage skipped | 跳过 Tailwind 阶段", logx.Err(err))
+			log.Warn("tailwind stage skipped | 跳过 Tailwind 阶段", ydlog.Err(err))
 			return 0, nil
 		default:
 			return 0, err
@@ -309,18 +309,18 @@ func printBuildReport(env *Env, report *build.Report) {
 
 // commandLogger returns the logger a command records diagnostics through. The level and format are
 // read from env.Cfg (log.level / log.format), i.e. the same keys Execute already maps onto the
-// default logger; an env without configuration falls back to logx.Default(). | commandLogger 返回命令记录
+// default logger; an env without configuration falls back to ydlog.Default(). | commandLogger 返回命令记录
 // 诊断所用的日志器。级别与格式取自 env.Cfg（log.level / log.format），即 Execute 已经映射到默认日志器上的同
-// 一批键；环境未携带配置时回退为 logx.Default()。
-func commandLogger(env *Env) *logx.Logger {
+// 一批键；环境未携带配置时回退为 ydlog.Default()。
+func commandLogger(env *Env) *ydlog.Logger {
 	if env == nil || env.Cfg == nil {
-		return logx.Default()
+		return ydlog.Default()
 	}
-	lvl, err := logx.ParseLevel(env.Cfg.GetString(keyLogLevel))
+	lvl, err := ydlog.ParseLevel(env.Cfg.GetString(keyLogLevel))
 	if err != nil {
-		return logx.Default()
+		return ydlog.Default()
 	}
-	return logx.New(logx.Options{
+	return ydlog.New(ydlog.Options{
 		Writer:  env.Err,
 		Level:   lvl,
 		Format:  env.Cfg.GetString(keyLogFormat),

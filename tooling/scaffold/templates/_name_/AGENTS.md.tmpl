@@ -95,7 +95,7 @@
 - [ ] **JSON/Base64 统一走封装层**：一律 `jsonx` 与 `b64x`，禁止 `import "encoding/json"` 与 `"encoding/base64"`。
 - [ ] **中英文同步（注释 + 日志文案）**：逐行 `English | 中文`（竖线分割，英文在前、中文在后）。
 - [ ] **日志统一走 logx**：禁止标准库 `log`、禁止 `fmt.Print*` 当日志、禁止第三方日志库。
-- [ ] **错误统一声明为哨兵**：包级 `var ErrX = errx.New("english | 中文")`；禁止 `fmt.Errorf`；判定只用 `errors.Is` / `errors.As`。
+- [ ] **错误统一声明为哨兵**：包级 `var ErrX = errs.New("english | 中文")`；禁止 `fmt.Errorf`；判定只用 `errors.Is` / `errors.As`。
 - [ ] **文案双语**：面向用户的文案写进 `{{ .AssetRoot }}/i18n/{zh-CN,en}.yaml`（两份键集合严格一致，逐键核对），
       模板只写 `tr "键名"`；CSP 只允许 `script-src 'self'`，因此禁止内联脚本与内联样式。
 - [ ] **环境变量前缀**：一律 `YD_`，下划线自动转多级嵌套（`YD_SERVER_PORT` → `server.port`）。

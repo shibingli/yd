@@ -13,8 +13,8 @@ import (
 
 	"github.com/spf13/pflag"
 
-	"github.com/shibingli/yd/core/errx"
 	"github.com/shibingli/yd/security/authz"
+	"github.com/shibingli/ydx/errs"
 )
 
 // authzCommandName is the command word of the permission command. | authzCommandName 是权限命令的命令词。
@@ -40,7 +40,7 @@ const authzUsageLine = "yd authz check [--dir DIR]\n" +
 // It is a sentinel so that CI can tell "the tree has a misspelled capability" from "the scan could
 // not run", which are two very different mornings. | 它是哨兵，让 CI 能区分「树里有写错的能力」与
 // 「扫描根本没跑起来」——那是两个完全不同的早晨。
-var ErrAuthzFailed = errx.New("permission check failed | 权限校验未通过")
+var ErrAuthzFailed = errs.New("permission check failed | 权限校验未通过")
 
 // authzFlags keeps the authz command's flag set, installed by registerAuthzFlags. | authzFlags 保存 authz
 // 命令的标志集，由 registerAuthzFlags 安装。
@@ -109,18 +109,18 @@ func authzRequest(fs *pflag.FlagSet) (string, error) {
 	switch action {
 	case authzActionCheck:
 		if len(args) > 1 {
-			return "", errx.Detail(ErrNoCommand,
+			return "", errs.Detail(ErrNoCommand,
 				"%s (check takes no argument, got %q | check 不接受参数，收到 %q)", authzUsageLine, args[1], args[1])
 		}
 		return authzActionCheck, nil
 	case authzActionList:
 		if len(args) > 1 {
-			return "", errx.Detail(ErrNoCommand,
+			return "", errs.Detail(ErrNoCommand,
 				"%s (list takes no argument, got %q | list 不接受参数，收到 %q)", authzUsageLine, args[1], args[1])
 		}
 		return authzActionList, nil
 	default:
-		return "", errx.Detail(ErrUnknownCommand,
+		return "", errs.Detail(ErrUnknownCommand,
 			"%q (actions | 动作: %s, %s)", args[0], authzActionCheck, authzActionList)
 	}
 }
@@ -140,7 +140,7 @@ func runAuthzCheck(env *Env) error {
 		return err
 	}
 	if !rep.OK() {
-		return errx.Detail(ErrAuthzFailed,
+		return errs.Detail(ErrAuthzFailed,
 			"%[1]d error(s) under %[2]s | %[2]s 下有 %[1]d 个错误", rep.Errors(), dir)
 	}
 	return nil

@@ -12,10 +12,10 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/shibingli/yd/core/errx"
-	"github.com/shibingli/yd/core/logx"
-	"github.com/shibingli/yd/data/gormx"
 	"github.com/shibingli/yd/tooling/gen"
+	"github.com/shibingli/ydx/errs"
+	"github.com/shibingli/ydx/gorm"
+	"github.com/shibingli/ydx/log"
 	"github.com/spf13/afero"
 	"github.com/spf13/pflag"
 )
@@ -111,7 +111,7 @@ func runGen(ctx context.Context, env *Env) error {
 	default:
 		fmt.Fprintf(env.Err, "yd gen: unknown subcommand %q | yd gen：未知子命令 %q\n", kind, kind)
 		printGenUsage(env.Err)
-		return errx.Detail(ErrUnknownCommand, "yd gen %s", kind)
+		return errs.Detail(ErrUnknownCommand, "yd gen %s", kind)
 	}
 }
 
@@ -127,7 +127,7 @@ func runGenModule(ctx context.Context, env *Env, fs *pflag.FlagSet, args []strin
 	if strings.TrimSpace(spec) == "" {
 		fmt.Fprintf(env.Err, "yd gen module: --fields is required | yd gen module：--fields 为必填\n")
 		printGenUsage(env.Err)
-		return errx.Detail(ErrFlagParse, "yd gen module %s", args[0])
+		return errs.Detail(ErrFlagParse, "yd gen module %s", args[0])
 	}
 
 	fields, err := gen.ParseFields(spec)
@@ -163,11 +163,11 @@ func runGenCrud(ctx context.Context, env *Env, fs *pflag.FlagSet, args []string)
 	case given == 0:
 		fmt.Fprintf(env.Err, "yd gen crud: one of --fields, --table or --struct is required | yd gen crud：--fields、--table 与 --struct 必须给出其一\n")
 		printGenUsage(env.Err)
-		return errx.Detail(ErrFlagParse, "yd gen crud %s", args[0])
+		return errs.Detail(ErrFlagParse, "yd gen crud %s", args[0])
 	case given > 1:
 		fmt.Fprintf(env.Err, "yd gen crud: --fields, --table and --struct are mutually exclusive | yd gen crud：--fields、--table 与 --struct 互斥\n")
 		printGenUsage(env.Err)
-		return errx.Detail(ErrFlagParse, "yd gen crud %s", args[0])
+		return errs.Detail(ErrFlagParse, "yd gen crud %s", args[0])
 	}
 
 	model, err := crudModel(ctx, env, fs, args[0], spec, table, source)
@@ -197,7 +197,7 @@ func crudModel(ctx context.Context, env *Env, fs *pflag.FlagSet, name, spec, tab
 		if !ok {
 			fmt.Fprintf(env.Err, "yd gen crud: --struct must be shaped like pkg.Type | yd gen crud：--struct 的取值必须形如 pkg.Type\n")
 			printGenUsage(env.Err)
-			return nil, errx.Detail(ErrFlagParse, "yd gen crud %s --struct %s", name, source)
+			return nil, errs.Detail(ErrFlagParse, "yd gen crud %s --struct %s", name, source)
 		}
 		return gen.ModelFromSource(env.FS, joinWorkDir(env.WorkDir, dir), typeName, gen.StructOptions{
 			Name:   name,
@@ -210,16 +210,16 @@ func crudModel(ctx context.Context, env *Env, fs *pflag.FlagSet, name, spec, tab
 	if strings.TrimSpace(dsn) == "" {
 		fmt.Fprintf(env.Err, "yd gen crud: --dsn is required with --table | yd gen crud：使用 --table 时必须提供 --dsn\n")
 		printGenUsage(env.Err)
-		return nil, errx.Detail(ErrFlagParse, "yd gen crud %s --table %s", name, table)
+		return nil, errs.Detail(ErrFlagParse, "yd gen crud %s --table %s", name, table)
 	}
 
-	db, err := gormx.Open(gormx.Options{Driver: flagString(fs, flagGenDriver), DSN: dsn}, nil)
+	db, err := gorm.Open(gorm.Options{Driver: flagString(fs, flagGenDriver), DSN: dsn}, nil)
 	if err != nil {
 		return nil, err
 	}
 	defer func() {
-		if cerr := gormx.Close(db); cerr != nil {
-			logx.Default().Warn("yd gen crud: closing the database failed | yd gen crud：关闭数据库失败", logx.Err(cerr))
+		if cerr := gorm.Close(db); cerr != nil {
+			log.Default().Warn("yd gen crud: closing the database failed | yd gen crud：关闭数据库失败", log.Err(cerr))
 		}
 	}()
 
@@ -281,14 +281,14 @@ func packagePath(env *Env, fs *pflag.FlagSet) string {
 	gomod := joinWorkDir(env.WorkDir, "go.mod")
 	data, err := afero.ReadFile(env.FS, gomod)
 	if err != nil {
-		logx.Default().Warn("yd gen: go.mod unreadable, falling back to the framework import prefix | yd gen：go.mod 不可读，回退到框架导入前缀",
-			logx.Str("path", gomod), logx.Err(err))
+		log.Default().Warn("yd gen: go.mod unreadable, falling back to the framework import prefix | yd gen：go.mod 不可读，回退到框架导入前缀",
+			log.Str("path", gomod), log.Err(err))
 		return ""
 	}
 	pkg := modulePathOf(string(data))
 	if pkg == "" {
-		logx.Default().Warn("yd gen: go.mod carries no module path, falling back to the framework import prefix | yd gen：go.mod 没有模块路径，回退到框架导入前缀",
-			logx.Str("path", gomod))
+		log.Default().Warn("yd gen: go.mod carries no module path, falling back to the framework import prefix | yd gen：go.mod 没有模块路径，回退到框架导入前缀",
+			log.Str("path", gomod))
 	}
 	return pkg
 }

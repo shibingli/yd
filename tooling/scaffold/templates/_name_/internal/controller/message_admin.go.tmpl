@@ -7,8 +7,8 @@ import (
 	"net/http"
 	"strings"
 
-	"{{ .YdModule }}/core/logx"
-	"{{ .YdModule }}/http/router"
+	"{{ .YdxModule }}/log"
+	"{{ .YdxModule }}/router"
 	"{{ .YdModule }}/messaging"
 	"{{ .YdModule }}/security/authz"
 )
@@ -696,9 +696,9 @@ func pageQuery(ctx *router.Ctx) int {
 func (c *Controller) logAdminAction(ctx *router.Ctx, action string, messageID string) {
 	actor := c.messageActor(ctx)
 	c.log.Info("message administration action | 消息管理动作",
-		logx.Str("action", action),
-		logx.Str("tenant", actor.TenantID),
-		logx.Str("actor", actor.ID),
-		logx.Str("message", messageID),
+		log.Str("action", action),
+		log.Str("tenant", actor.TenantID),
+		log.Str("actor", actor.ID),
+		log.Str("message", messageID),
 	)
 }

@@ -10,9 +10,9 @@ import (
 	"time"
 
 	"{{ .Module }}/internal/repository"
-	"{{ .YdModule }}/core/config"
-	"{{ .YdModule }}/core/errx"
-	"{{ .YdModule }}/core/logx"
+	"{{ .YdxModule }}/config"
+	"{{ .YdxModule }}/errs"
+	logx "{{ .YdxModule }}/log"
 	"{{ .YdModule }}/messaging"
 	"{{ .YdModule }}/messaging/authdirectory"
 	"{{ .YdModule }}/messaging/filestore"
@@ -46,7 +46,7 @@ const (
 )
 
 // ErrMessageUnavailable reports a message centre without a usable store. | ErrMessageUnavailable 表示消息中心没有可用存储。
-var ErrMessageUnavailable = errx.New("message centre is unavailable | 消息中心不可用")
+var ErrMessageUnavailable = errs.New("message centre is unavailable | 消息中心不可用")
 
 // MessageService is the project-facing facade of the messaging domain. | MessageService 是消息领域对项目侧的门面。
 type MessageService struct {
@@ -76,11 +76,11 @@ func NewMessageService(store *repository.Store, hub *realtime.Hub, cfg *config.C
 		if store != nil && store.MessageError() != nil {
 			reason = store.MessageError()
 		}
-		return &MessageService{hub: hub, log: log}, errx.Wrap(reason, ErrMessageUnavailable)
+		return &MessageService{hub: hub, log: log}, errs.Wrap(reason, ErrMessageUnavailable)
 	}
 	directory, err := authdirectory.New(store.Auth())
 	if err != nil {
-		return &MessageService{hub: hub, log: log}, errx.Wrap(err, ErrMessageUnavailable)
+		return &MessageService{hub: hub, log: log}, errs.Wrap(err, ErrMessageUnavailable)
 	}
 
 	options := messaging.DefaultOptions()
@@ -132,7 +132,7 @@ func NewMessageService(store *repository.Store, hub *realtime.Hub, cfg *config.C
 
 	svc, err := messaging.New(store.MessageStore(), directory, markdown.New(), blobs, hub, log, options)
 	if err != nil {
-		return &MessageService{hub: hub, log: log}, errx.Wrap(err, ErrMessageUnavailable)
+		return &MessageService{hub: hub, log: log}, errs.Wrap(err, ErrMessageUnavailable)
 	}
 	return &MessageService{Service: svc, hub: hub, log: log}, nil
 }

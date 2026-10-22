@@ -11,9 +11,9 @@ import (
 
 	"github.com/spf13/afero"
 
-	"github.com/shibingli/yd/core/afs"
-	"github.com/shibingli/yd/core/jsonx"
-	"github.com/shibingli/yd/http/router"
+	"github.com/shibingli/ydx/afs"
+	"github.com/shibingli/ydx/json"
+	"github.com/shibingli/ydx/router"
 )
 
 // fixtureDir is the catalog directory used by every fixture filesystem. | fixtureDir 是所有夹具文件系统使用的语言目录。
@@ -564,9 +564,9 @@ func TestCatalogForFrontend(t *testing.T) {
 	}
 
 	// The catalog is meant for frontend JSON injection. | 该目录用于前端注入 JSON。
-	buf, err := jsonx.Marshal(b.Catalog("en"))
+	buf, err := json.Marshal(b.Catalog("en"))
 	if err != nil {
-		t.Fatalf("jsonx.Marshal 失败: %v", err)
+		t.Fatalf("json.Marshal 失败: %v", err)
 	}
 	if !strings.Contains(string(buf), "Yun Dev") {
 		t.Fatalf("序列化结果缺少 title: %s", buf)

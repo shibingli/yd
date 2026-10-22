@@ -11,7 +11,7 @@ import (
 
 	"github.com/fsnotify/fsnotify"
 
-	"github.com/shibingli/yd/core/errx"
+	"github.com/shibingli/ydx/errs"
 )
 
 // DefaultDebounce is the default window used to coalesce file events. | DefaultDebounce 是文件事件的默认抖动合并窗口。
@@ -131,7 +131,7 @@ func NewWatcher(o WatchOptions) (*Watcher, error) {
 
 	fsw, err := fsnotify.NewWatcher()
 	if err != nil {
-		return nil, errx.WrapDetail(err, ErrWatchFailed, "create watcher | 创建监听器")
+		return nil, errs.WrapDetail(err, ErrWatchFailed, "create watcher | 创建监听器")
 	}
 	w.fsw = fsw
 	w.timer = time.NewTimer(debounce)
@@ -159,7 +159,7 @@ func NewWatcher(o WatchOptions) (*Watcher, error) {
 	}
 	if watched == 0 {
 		_ = fsw.Close()
-		return nil, errx.Detail(ErrNoWatchRoot, "roots %v | 根目录 %v", o.Roots, o.Roots)
+		return nil, errs.Detail(ErrNoWatchRoot, "roots %v | 根目录 %v", o.Roots, o.Roots)
 	}
 
 	w.wg.Add(1)
@@ -250,7 +250,7 @@ func (w *Watcher) addDir(dir string) error {
 		return nil
 	}
 	if err := w.fsw.Add(dir); err != nil {
-		return errx.WrapDetail(err, ErrWatchFailed, "watch %s | 监听 %s", dir, dir)
+		return errs.WrapDetail(err, ErrWatchFailed, "watch %s | 监听 %s", dir, dir)
 	}
 	w.mu.Lock()
 	w.dirs[dir] = struct{}{}

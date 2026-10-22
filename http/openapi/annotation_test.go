@@ -5,14 +5,14 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/shibingli/yd/http/router"
+	"github.com/shibingli/ydx/router"
 	"github.com/spf13/afero"
 )
 
 // annotatedSource is a fake handler file written into a memory file system. | annotatedSource 是写入内存文件系统的假处理器源码。
 const annotatedSource = `package api
 
-import "github.com/shibingli/yd/http/router"
+import "github.com/shibingli/ydx/router"
 
 // GetUser returns one user as an HTML fragment. | GetUser 以 HTML 片段返回单个用户。
 //

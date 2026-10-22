@@ -10,7 +10,7 @@ import (
 
 	esm2 "github.com/emmansun/gmsm/sm2"
 
-	"github.com/shibingli/yd/core/errx"
+	"github.com/shibingli/ydx/errs"
 )
 
 // Object identifiers related to national cryptography. | 国密相关对象标识符（OID）。
@@ -56,7 +56,7 @@ type subjectPublicKeyInfo struct {
 func GenerateKey() (*PrivateKey, error) {
 	raw, err := esm2.GenerateKey(rand.Reader)
 	if err != nil {
-		return nil, errx.Wrap(err, ErrRandomSource)
+		return nil, errs.Wrap(err, ErrRandomSource)
 	}
 	return &PrivateKey{raw: raw}, nil
 }
@@ -67,15 +67,15 @@ func GenerateKey() (*PrivateKey, error) {
 func MarshalPrivateKeyPEM(priv *PrivateKey) ([]byte, error) {
 	raw := priv.Raw()
 	if raw == nil || raw.D == nil || raw.Curve == nil {
-		return nil, errx.Detail(ErrInvalidPrivateKey, "private key is nil | 私钥为空")
+		return nil, errs.Detail(ErrInvalidPrivateKey, "private key is nil | 私钥为空")
 	}
 	n := raw.Curve.Params().N
 	if raw.D.Sign() <= 0 || raw.D.Cmp(n) >= 0 {
-		return nil, errx.Detail(ErrInvalidPrivateKey, "scalar D is out of range | 标量 D 越界")
+		return nil, errs.Detail(ErrInvalidPrivateKey, "scalar D is out of range | 标量 D 越界")
 	}
 	pubBytes, ok := pointBytes(raw.X, raw.Y)
 	if !ok {
-		return nil, errx.Detail(ErrInvalidPrivateKey, "invalid public key coordinates | 公钥坐标非法")
+		return nil, errs.Detail(ErrInvalidPrivateKey, "invalid public key coordinates | 公钥坐标非法")
 	}
 
 	sec1, err := asn1.Marshal(ecPrivateKey{
@@ -85,7 +85,7 @@ func MarshalPrivateKeyPEM(priv *PrivateKey) ([]byte, error) {
 		PublicKey:     asn1.BitString{Bytes: pubBytes, BitLength: 8 * len(pubBytes)},
 	})
 	if err != nil {
-		return nil, errx.WrapDetail(err, ErrInvalidPrivateKey, "ECPrivateKey DER encoding failed | ECPrivateKey 的 DER 编码失败")
+		return nil, errs.WrapDetail(err, ErrInvalidPrivateKey, "ECPrivateKey DER encoding failed | ECPrivateKey 的 DER 编码失败")
 	}
 	der, err := asn1.Marshal(pkcs8PrivateKey{
 		Version:    0,
@@ -93,7 +93,7 @@ func MarshalPrivateKeyPEM(priv *PrivateKey) ([]byte, error) {
 		PrivateKey: sec1,
 	})
 	if err != nil {
-		return nil, errx.WrapDetail(err, ErrInvalidPrivateKey, "PKCS#8 DER encoding failed | PKCS#8 的 DER 编码失败")
+		return nil, errs.WrapDetail(err, ErrInvalidPrivateKey, "PKCS#8 DER encoding failed | PKCS#8 的 DER 编码失败")
 	}
 	return pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: der}), nil
 }
@@ -107,14 +107,14 @@ func MarshalPublicKeyPEM(pub *PublicKey) ([]byte, error) {
 	}
 	point, ok := pointBytes(p.X, p.Y)
 	if !ok {
-		return nil, errx.Detail(ErrInvalidPublicKey, "invalid public key coordinates | 公钥坐标非法")
+		return nil, errs.Detail(ErrInvalidPublicKey, "invalid public key coordinates | 公钥坐标非法")
 	}
 	der, err := asn1.Marshal(subjectPublicKeyInfo{
 		Algorithm: algorithmIdentifier{Algorithm: oidECPublicKey, Parameters: oidSM2Curve},
 		PublicKey: asn1.BitString{Bytes: point, BitLength: 8 * len(point)},
 	})
 	if err != nil {
-		return nil, errx.WrapDetail(err, ErrInvalidPublicKey, "SubjectPublicKeyInfo DER encoding failed | SubjectPublicKeyInfo 的 DER 编码失败")
+		return nil, errs.WrapDetail(err, ErrInvalidPublicKey, "SubjectPublicKeyInfo DER encoding failed | SubjectPublicKeyInfo 的 DER 编码失败")
 	}
 	return pem.EncodeToMemory(&pem.Block{Type: "PUBLIC KEY", Bytes: der}), nil
 }
@@ -126,7 +126,7 @@ func MarshalPublicKeyPEM(pub *PublicKey) ([]byte, error) {
 func ParsePrivateKeyPEM(pemBytes []byte) (*PrivateKey, error) {
 	block, _ := pem.Decode(pemBytes)
 	if block == nil {
-		return nil, errx.Detail(ErrInvalidPrivateKey, "PEM decoding failed | PEM 解码失败")
+		return nil, errs.Detail(ErrInvalidPrivateKey, "PEM decoding failed | PEM 解码失败")
 	}
 
 	var inner []byte
@@ -134,24 +134,24 @@ func ParsePrivateKeyPEM(pemBytes []byte) (*PrivateKey, error) {
 	case "PRIVATE KEY":
 		var info pkcs8PrivateKey
 		if _, err := asn1.Unmarshal(block.Bytes, &info); err != nil {
-			return nil, errx.WrapDetail(err, ErrInvalidPrivateKey, "PKCS#8 parsing failed | PKCS#8 解析失败")
+			return nil, errs.WrapDetail(err, ErrInvalidPrivateKey, "PKCS#8 parsing failed | PKCS#8 解析失败")
 		}
 		if !info.Algorithm.Algorithm.Equal(oidSM2Curve) {
-			return nil, errx.Detail(ErrInvalidPrivateKey, "algorithm OID %[1]v is not SM2(%[2]v) | 算法 OID %[1]v 不是 SM2(%[2]v)", info.Algorithm.Algorithm, oidSM2Curve)
+			return nil, errs.Detail(ErrInvalidPrivateKey, "algorithm OID %[1]v is not SM2(%[2]v) | 算法 OID %[1]v 不是 SM2(%[2]v)", info.Algorithm.Algorithm, oidSM2Curve)
 		}
 		inner = info.PrivateKey
 	case "EC PRIVATE KEY":
 		inner = block.Bytes
 	default:
-		return nil, errx.Detail(ErrInvalidPrivateKey, "unsupported PEM type %[1]q | 不支持的 PEM 类型 %[1]q", block.Type)
+		return nil, errs.Detail(ErrInvalidPrivateKey, "unsupported PEM type %[1]q | 不支持的 PEM 类型 %[1]q", block.Type)
 	}
 
 	var sec1 ecPrivateKey
 	if _, err := asn1.Unmarshal(inner, &sec1); err != nil {
-		return nil, errx.WrapDetail(err, ErrInvalidPrivateKey, "ECPrivateKey parsing failed | ECPrivateKey 解析失败")
+		return nil, errs.WrapDetail(err, ErrInvalidPrivateKey, "ECPrivateKey parsing failed | ECPrivateKey 解析失败")
 	}
 	if len(sec1.NamedCurveOID) > 0 && !sec1.NamedCurveOID.Equal(oidSM2Curve) {
-		return nil, errx.Detail(ErrInvalidPrivateKey, "curve OID %[1]v is not SM2(%[2]v) | 曲线 OID %[1]v 不是 SM2(%[2]v)", sec1.NamedCurveOID, oidSM2Curve)
+		return nil, errs.Detail(ErrInvalidPrivateKey, "curve OID %[1]v is not SM2(%[2]v) | 曲线 OID %[1]v 不是 SM2(%[2]v)", sec1.NamedCurveOID, oidSM2Curve)
 	}
 	return privateKeyFromScalar(sec1.PrivateKey)
 }
@@ -163,21 +163,21 @@ func ParsePrivateKeyPEM(pemBytes []byte) (*PrivateKey, error) {
 func ParsePublicKeyPEM(pemBytes []byte) (*PublicKey, error) {
 	block, _ := pem.Decode(pemBytes)
 	if block == nil {
-		return nil, errx.Detail(ErrInvalidPublicKey, "PEM decoding failed | PEM 解码失败")
+		return nil, errs.Detail(ErrInvalidPublicKey, "PEM decoding failed | PEM 解码失败")
 	}
 	if block.Type != "PUBLIC KEY" {
-		return nil, errx.Detail(ErrInvalidPublicKey, "unsupported PEM type %[1]q | 不支持的 PEM 类型 %[1]q", block.Type)
+		return nil, errs.Detail(ErrInvalidPublicKey, "unsupported PEM type %[1]q | 不支持的 PEM 类型 %[1]q", block.Type)
 	}
 	var spki subjectPublicKeyInfo
 	if _, err := asn1.Unmarshal(block.Bytes, &spki); err != nil {
-		return nil, errx.WrapDetail(err, ErrInvalidPublicKey, "SubjectPublicKeyInfo parsing failed | SubjectPublicKeyInfo 解析失败")
+		return nil, errs.WrapDetail(err, ErrInvalidPublicKey, "SubjectPublicKeyInfo parsing failed | SubjectPublicKeyInfo 解析失败")
 	}
 	if !spki.Algorithm.Algorithm.Equal(oidECPublicKey) {
-		return nil, errx.Detail(ErrInvalidPublicKey, "algorithm OID %[1]v is not id-ecPublicKey | 算法 OID %[1]v 不是 id-ecPublicKey", spki.Algorithm.Algorithm)
+		return nil, errs.Detail(ErrInvalidPublicKey, "algorithm OID %[1]v is not id-ecPublicKey | 算法 OID %[1]v 不是 id-ecPublicKey", spki.Algorithm.Algorithm)
 	}
 	point := spki.PublicKey.Bytes
 	if len(point) != 1+2*SM2CoordinateSize || point[0] != 0x04 || spki.PublicKey.BitLength != 8*len(point) {
-		return nil, errx.Detail(ErrInvalidPublicKey, "invalid public key point encoding (%[1]d bytes, %[2]d bits) | 公钥点编码非法（%[1]d 字节，%[2]d 位）", len(point), spki.PublicKey.BitLength)
+		return nil, errs.Detail(ErrInvalidPublicKey, "invalid public key point encoding (%[1]d bytes, %[2]d bits) | 公钥点编码非法（%[1]d 字节，%[2]d 位）", len(point), spki.PublicKey.BitLength)
 	}
 	return publicKeyFromBytes(point[1:])
 }
@@ -190,11 +190,11 @@ func PrivateKeyFromHex(s string) (*PrivateKey, error) {
 	clean := strings.TrimSpace(s)
 	clean = strings.TrimPrefix(strings.TrimPrefix(clean, "0x"), "0X")
 	if len(clean) != 2*SM2CoordinateSize {
-		return nil, errx.Detail(ErrInvalidPrivateKey, "hex length %[1]d, want %[2]d | 十六进制长度 %[1]d，期望 %[2]d", len(clean), 2*SM2CoordinateSize)
+		return nil, errs.Detail(ErrInvalidPrivateKey, "hex length %[1]d, want %[2]d | 十六进制长度 %[1]d，期望 %[2]d", len(clean), 2*SM2CoordinateSize)
 	}
 	scalar, err := hex.DecodeString(clean)
 	if err != nil {
-		return nil, errx.Wrap(err, ErrInvalidPrivateKey)
+		return nil, errs.Wrap(err, ErrInvalidPrivateKey)
 	}
 	return privateKeyFromScalar(scalar)
 }
@@ -208,17 +208,17 @@ func PublicKeyFromHex(s string) (*PublicKey, error) {
 	clean = strings.TrimPrefix(strings.TrimPrefix(clean, "0x"), "0X")
 	raw, err := hex.DecodeString(clean)
 	if err != nil {
-		return nil, errx.Wrap(err, ErrInvalidPublicKey)
+		return nil, errs.Wrap(err, ErrInvalidPublicKey)
 	}
 	switch len(raw) {
 	case 1 + 2*SM2CoordinateSize:
 		if raw[0] != 0x04 {
-			return nil, errx.Detail(ErrInvalidPublicKey, "invalid uncompressed point marker 0x%[1]02x | 未压缩点标识 0x%[1]02x 非法", raw[0])
+			return nil, errs.Detail(ErrInvalidPublicKey, "invalid uncompressed point marker 0x%[1]02x | 未压缩点标识 0x%[1]02x 非法", raw[0])
 		}
 		raw = raw[1:]
 	case 2 * SM2CoordinateSize:
 	default:
-		return nil, errx.Detail(ErrInvalidPublicKey, "invalid hex length %[1]d (want 64 or 65 bytes) | 十六进制长度 %[1]d 非法（需要 64 或 65 字节）", len(raw))
+		return nil, errs.Detail(ErrInvalidPublicKey, "invalid hex length %[1]d (want 64 or 65 bytes) | 十六进制长度 %[1]d 非法（需要 64 或 65 字节）", len(raw))
 	}
 	return publicKeyFromBytes(raw)
 }
@@ -243,16 +243,16 @@ func PublicKeyToHex(pub *PublicKey) string {
 // privateKeyFromScalar builds a private key from a 1 to 32 byte big-endian scalar and derives its public key. | privateKeyFromScalar 由 1~32 字节的大端标量构造私钥，并推导出公钥。
 func privateKeyFromScalar(scalar []byte) (*PrivateKey, error) {
 	if len(scalar) == 0 || len(scalar) > SM2CoordinateSize {
-		return nil, errx.Detail(ErrInvalidPrivateKey, "invalid scalar length %[1]d | 标量长度 %[1]d 非法", len(scalar))
+		return nil, errs.Detail(ErrInvalidPrivateKey, "invalid scalar length %[1]d | 标量长度 %[1]d 非法", len(scalar))
 	}
 	curve := esm2.P256()
 	d := new(big.Int).SetBytes(scalar)
 	if d.Sign() <= 0 || d.Cmp(curve.Params().N) >= 0 {
-		return nil, errx.Detail(ErrInvalidPrivateKey, "scalar D is out of range | 标量 D 越界")
+		return nil, errs.Detail(ErrInvalidPrivateKey, "scalar D is out of range | 标量 D 越界")
 	}
 	raw, err := esm2.NewPrivateKeyFromInt(d)
 	if err != nil {
-		return nil, errx.WrapDetail(err, ErrInvalidPrivateKey, "private scalar rejected by gmsm | 私钥标量被 gmsm 拒绝")
+		return nil, errs.WrapDetail(err, ErrInvalidPrivateKey, "private scalar rejected by gmsm | 私钥标量被 gmsm 拒绝")
 	}
 	return &PrivateKey{raw: raw}, nil
 }
@@ -264,7 +264,7 @@ func publicKeyFromBytes(xy []byte) (*PublicKey, error) {
 	point = append(point, xy...)
 	raw, err := esm2.ParseUncompressedPublicKey(point)
 	if err != nil {
-		return nil, errx.WrapDetail(err, ErrInvalidPublicKey, "point is not on the SM2 curve | 点不在 SM2 曲线上")
+		return nil, errs.WrapDetail(err, ErrInvalidPublicKey, "point is not on the SM2 curve | 点不在 SM2 曲线上")
 	}
 	return &PublicKey{raw: raw}, nil
 }

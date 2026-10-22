@@ -15,8 +15,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/shibingli/yd/core/errx"
-	"github.com/shibingli/yd/core/logx"
+	"github.com/shibingli/ydx/errs"
+	ydlog "github.com/shibingli/ydx/log"
 )
 
 const (
@@ -55,7 +55,7 @@ func tailwindAssetName(goos, goarch string) (string, error) {
 	case "windows/arm64":
 		return "tailwindcss-windows-arm64.exe", nil
 	default:
-		return "", errx.Detail(ErrNotInstallable,
+		return "", errs.Detail(ErrNotInstallable,
 			"tailwindcss has no standalone build for %[1]s/%[2]s | tailwindcss 没有 %[1]s/%[2]s 的 standalone 构建",
 			goos, goarch)
 	}
@@ -80,11 +80,11 @@ func tailwindClient(proxy string) (*http.Client, error) {
 	}
 	u, err := url.Parse(strings.TrimSpace(proxy))
 	if err != nil || u.Scheme == "" || u.Host == "" {
-		return nil, errx.Detail(ErrInstallFailed, "invalid proxy URL | 非法的代理 URL")
+		return nil, errs.Detail(ErrInstallFailed, "invalid proxy URL | 非法的代理 URL")
 	}
 	base, ok := http.DefaultTransport.(*http.Transport)
 	if !ok {
-		return nil, errx.Detail(ErrInstallFailed, "default HTTP transport is not *http.Transport | 默认 HTTP 传输层不是 *http.Transport")
+		return nil, errs.Detail(ErrInstallFailed, "default HTTP transport is not *http.Transport | 默认 HTTP 传输层不是 *http.Transport")
 	}
 	transport := base.Clone()
 	transport.Proxy = http.ProxyURL(u)
@@ -119,25 +119,25 @@ func DownloadTailwind(ctx context.Context, dir string, o Options) (string, error
 	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, assetURL, nil)
 	if err != nil {
-		return "", errx.WrapDetail(err, ErrInstallFailed, "request %s | 请求 %s", assetURL, assetURL)
+		return "", errs.WrapDetail(err, ErrInstallFailed, "request %s | 请求 %s", assetURL, assetURL)
 	}
 	req.Header.Set("User-Agent", "yd")
 	resp, err := client.Do(req)
 	if err != nil {
-		return "", errx.WrapDetail(err, ErrInstallFailed, "download %s failed | 下载 %s 失败", assetURL, assetURL)
+		return "", errs.WrapDetail(err, ErrInstallFailed, "download %s failed | 下载 %s 失败", assetURL, assetURL)
 	}
 	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
-		return "", errx.Detail(ErrInstallFailed, "download %[1]s: HTTP %[2]d | 下载 %[1]s：HTTP %[2]d",
+		return "", errs.Detail(ErrInstallFailed, "download %[1]s: HTTP %[2]d | 下载 %[1]s：HTTP %[2]d",
 			assetURL, resp.StatusCode)
 	}
 
 	if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
-		return "", errx.WrapDetail(err, ErrInstallFailed, "create %s | 创建 %s", filepath.Dir(target), filepath.Dir(target))
+		return "", errs.WrapDetail(err, ErrInstallFailed, "create %s | 创建 %s", filepath.Dir(target), filepath.Dir(target))
 	}
 	tmp, err := os.CreateTemp(filepath.Dir(target), ".tailwindcss-*")
 	if err != nil {
-		return "", errx.WrapDetail(err, ErrInstallFailed, "create temporary file | 创建临时文件")
+		return "", errs.WrapDetail(err, ErrInstallFailed, "create temporary file | 创建临时文件")
 	}
 	tmpName := tmp.Name()
 	cleanup := true
@@ -149,25 +149,25 @@ func DownloadTailwind(ctx context.Context, dir string, o Options) (string, error
 	written, err := io.Copy(tmp, io.LimitReader(resp.Body, tailwindDownloadLimit+1))
 	if err != nil {
 		_ = tmp.Close()
-		return "", errx.WrapDetail(err, ErrInstallFailed, "write %s | 写入 %s", tmpName, tmpName)
+		return "", errs.WrapDetail(err, ErrInstallFailed, "write %s | 写入 %s", tmpName, tmpName)
 	}
 	if written == 0 {
 		_ = tmp.Close()
-		return "", errx.Detail(ErrInstallFailed, "tailwindcss download is empty | tailwindcss 下载内容为空")
+		return "", errs.Detail(ErrInstallFailed, "tailwindcss download is empty | tailwindcss 下载内容为空")
 	}
 	if written > tailwindDownloadLimit {
 		_ = tmp.Close()
-		return "", errx.Detail(ErrInstallFailed, "tailwindcss download exceeds %d bytes | tailwindcss 下载超过 %d 字节",
+		return "", errs.Detail(ErrInstallFailed, "tailwindcss download exceeds %d bytes | tailwindcss 下载超过 %d 字节",
 			tailwindDownloadLimit, tailwindDownloadLimit)
 	}
 	if err := tmp.Close(); err != nil {
-		return "", errx.WrapDetail(err, ErrInstallFailed, "close %s | 关闭 %s", tmpName, tmpName)
+		return "", errs.WrapDetail(err, ErrInstallFailed, "close %s | 关闭 %s", tmpName, tmpName)
 	}
 	if err := os.Chmod(tmpName, 0o755); err != nil {
-		return "", errx.WrapDetail(err, ErrInstallFailed, "chmod %s | 修改 %s 权限", tmpName, tmpName)
+		return "", errs.WrapDetail(err, ErrInstallFailed, "chmod %s | 修改 %s 权限", tmpName, tmpName)
 	}
 	if err := os.Rename(tmpName, target); err != nil {
-		return "", errx.WrapDetail(err, ErrInstallFailed, "install %s | 安装 %s", target, target)
+		return "", errs.WrapDetail(err, ErrInstallFailed, "install %s | 安装 %s", target, target)
 	}
 	cleanup = false
 	return target, nil
@@ -183,15 +183,15 @@ func tailwindExeSuffix() string {
 
 // installTailwind downloads the compiler and verifies that the resolver now finds it. | installTailwind
 // 下载编译器并验证解析器现在能找到它。
-func installTailwind(ctx context.Context, o Options, t Tool, log *logx.Logger) (Status, error) {
+func installTailwind(ctx context.Context, o Options, t Tool, log *ydlog.Logger) (Status, error) {
 	path, err := DownloadTailwind(ctx, o.Dir, o)
 	if err != nil {
 		return Status{}, err
 	}
-	log.Info("tailwindcss downloaded | tailwindcss 已下载", logx.Str("path", path))
+	log.Info("tailwindcss downloaded | tailwindcss 已下载", ydlog.Str("path", path))
 	st := probe(t, o)
 	if !st.Found {
-		return st, errx.Detail(ErrInstallFailed,
+		return st, errs.Detail(ErrInstallFailed,
 			"downloaded %[1]s but it is still not resolvable | 已下载 %[1]s，但仍无法解析", path)
 	}
 	st.Version = queryVersion(ctx, log, st.Path, t)

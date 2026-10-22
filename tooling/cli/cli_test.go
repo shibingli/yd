@@ -10,7 +10,7 @@ import (
 	"sync/atomic"
 	"testing"
 
-	"github.com/shibingli/yd/core/logx"
+	"github.com/shibingli/ydx/log"
 	"github.com/spf13/afero"
 	"github.com/spf13/pflag"
 )
@@ -218,7 +218,7 @@ func TestGlobalFlagsBindToConfig(t *testing.T) {
 	if err := Execute(context.Background(), []string{"--verbose", probe}, te.env); err != nil {
 		t.Fatalf("Execute 失败: %v", err)
 	}
-	if !logx.Default().Enabled(logx.DebugLevel) {
+	if !log.Default().Enabled(log.DebugLevel) {
 		t.Error("DebugLevel should be enabled after --verbose | --verbose 之后 DebugLevel 应当被启用")
 	}
 

@@ -20,9 +20,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/shibingli/yd/core/errx"
-	"github.com/shibingli/yd/core/logx"
-	"github.com/shibingli/yd/core/regexpx"
+	"github.com/shibingli/ydx/errs"
+	ydlog "github.com/shibingli/ydx/log"
+	"github.com/shibingli/ydx/regexpx"
 )
 
 // EnvToolBin is the environment variable holding the betteralign path. | EnvToolBin 是保存 betteralign 路径的环境变量。
@@ -61,11 +61,11 @@ const (
 // Declared sentinels of the package. | 本包声明的哨兵错误。
 var (
 	// ErrToolNotFound reports that no source yielded a betteralign executable. | ErrToolNotFound 表示所有来源都未能给出 betteralign 可执行文件。
-	ErrToolNotFound = errx.New("align: betteralign binary not found | align：未找到 betteralign 可执行文件")
+	ErrToolNotFound = errs.New("align: betteralign binary not found | align：未找到 betteralign 可执行文件")
 	// ErrRunFailed reports that the analyzer could not be started, or failed for a reason other than reporting diagnostics. | ErrRunFailed 表示分析器无法启动，或因「报告诊断」之外的原因失败。
-	ErrRunFailed = errx.New("align: betteralign run failed | align：betteralign 执行失败")
+	ErrRunFailed = errs.New("align: betteralign run failed | align：betteralign 执行失败")
 	// ErrToolTooOld reports an analyzer built with a Go version older than the analyzed module's, which cannot type-check it. | ErrToolTooOld 表示分析器的 Go 版本低于被分析模块，无法对其做类型检查。
-	ErrToolTooOld = errx.New("align: betteralign is older than the module's Go version | align：betteralign 版本低于模块的 Go 版本")
+	ErrToolTooOld = errs.New("align: betteralign is older than the module's Go version | align：betteralign 版本低于模块的 Go 版本")
 )
 
 // PathLookup resolves a bare command name on PATH. | PathLookup 在 PATH 上解析裸命令名。
@@ -128,7 +128,7 @@ func Resolve(o ToolOptions) (string, error) {
 	if p, err := lookup(toolName); err == nil && p != "" {
 		return p, nil
 	}
-	return "", errx.Detail(ErrToolNotFound,
+	return "", errs.Detail(ErrToolNotFound,
 		"checked Bin, ConfigBin, EnvBin, %[2]s and PATH; install it with %[1]q or drop the binary into %[2]s | 已检查 Bin、ConfigBin、EnvBin、%[2]s 与 PATH；可用 %[1]q 安装，或把二进制放入 %[2]s",
 		InstallHint, LocalToolDir)
 }
@@ -246,7 +246,7 @@ type Report struct {
 // A missing binary yields ErrToolNotFound (carrying the installation hint), a binary older than the module's Go version yields ErrToolTooOld, and any other failure is wrapped in ErrRunFailed together with the tool's output. | 二进制缺失返回 ErrToolNotFound（带安装提示），二进制低于模块的 Go 版本返回 ErrToolTooOld，其它失败连同工具输出包装进 ErrRunFailed。
 // The exit code singlechecker uses for "diagnostics reported" counts as a successful run. | singlechecker 表示「已报告诊断」的退出码按成功处理。
 // With Apply the analyzer is run repeatedly until it converges, because one pass does not always reach a fixed point. | 开启 Apply 时会反复执行分析器直到收敛，因为单遍并不总能到达不动点。
-func Run(ctx context.Context, o Options, log *logx.Logger) (*Report, error) {
+func Run(ctx context.Context, o Options, log *ydlog.Logger) (*Report, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -267,7 +267,7 @@ func Run(ctx context.Context, o Options, log *logx.Logger) (*Report, error) {
 // runApplyLoop applies the analyzer until it converges, hits the pass limit, or fails. | runApplyLoop 反复应用分析器，直到收敛、触及遍数上限或失败。
 //
 // The stop rules are, in order: a pass with zero diagnostics (aligned), a pass whose diagnostics did not shrink (no further progress), and the pass limit. Only the pass limit leaves Converged false, and that case is logged as a warning because raising MaxPasses would keep improving the layout. | 结束规则依次为：某遍诊断为零（已对齐）、某遍诊断未再减少（已无进展）、以及触及遍数上限。只有触及上限会让 Converged 为 false，该情形会记录告警，因为提高 MaxPasses 仍能继续改善布局。
-func runApplyLoop(ctx context.Context, bin string, o Options, log *logx.Logger) (*Report, error) {
+func runApplyLoop(ctx context.Context, bin string, o Options, log *ydlog.Logger) (*Report, error) {
 	limit := o.MaxPasses
 	if limit <= 0 {
 		limit = DefaultMaxPasses
@@ -294,7 +294,7 @@ func runApplyLoop(ctx context.Context, bin string, o Options, log *logx.Logger) 
 	total.Output = buf.String()
 	if !total.Converged && log != nil {
 		log.Warn("align: diagnostics are still shrinking at the pass limit | align：达到遍数上限时诊断数仍在下降",
-			logx.Int("passes", total.Passes), logx.Int("diagnostics", total.Diagnostics), logx.Int("max_passes", limit))
+			ydlog.Int("passes", total.Passes), ydlog.Int("diagnostics", total.Diagnostics), ydlog.Int("max_passes", limit))
 	}
 	return total, nil
 }
@@ -322,11 +322,11 @@ func appendPassOutput(buf *strings.Builder, pass int, text string) {
 }
 
 // runOnce executes exactly one analyzer pass. | runOnce 执行恰好一遍分析。
-func runOnce(ctx context.Context, bin string, o Options, log *logx.Logger) (*Report, error) {
+func runOnce(ctx context.Context, bin string, o Options, log *ydlog.Logger) (*Report, error) {
 	args := o.Args()
 	if log != nil {
 		log.Debug("align: running betteralign | align：正在运行 betteralign",
-			logx.Str("bin", bin), logx.Strs("args", args))
+			ydlog.Str("bin", bin), ydlog.Strs("args", args))
 	}
 	factory := o.ExecCommand
 	if factory == nil {
@@ -354,25 +354,25 @@ func runOnce(ctx context.Context, bin string, o Options, log *logx.Logger) (*Rep
 		return rep, nil
 	}
 	if ctxErr := ctx.Err(); ctxErr != nil {
-		return rep, errx.WrapDetail(ctxErr, ErrRunFailed, "betteralign cancelled | betteralign 被取消：%v", err)
+		return rep, errs.WrapDetail(ctxErr, ErrRunFailed, "betteralign cancelled | betteralign 被取消：%v", err)
 	}
 	// Exit code 3 means "diagnostics found": the analysis itself succeeded. | 退出码 3 表示「发现了诊断」：分析本身是成功的。
 	var exitErr *exec.ExitError
 	if errors.As(err, &exitErr) && exitErr.ExitCode() == exitDiagnostics {
 		if log != nil {
-			log.Debug("align: diagnostics reported | align：已报告诊断", logx.Int("diagnostics", rep.Diagnostics))
+			log.Debug("align: diagnostics reported | align：已报告诊断", ydlog.Int("diagnostics", rep.Diagnostics))
 		}
 		return rep, nil
 	}
 	if tooOldRe.MatchString(rep.Output) {
-		return rep, errx.WrapDetail(err, ErrToolTooOld, "reinstall it with %[1]q | 请用 %[1]q 重新安装", InstallHint)
+		return rep, errs.WrapDetail(err, ErrToolTooOld, "reinstall it with %[1]q | 请用 %[1]q 重新安装", InstallHint)
 	}
-	return rep, errx.WrapDetail(err, ErrRunFailed, "betteralign %s | betteralign 执行失败：%s",
+	return rep, errs.WrapDetail(err, ErrRunFailed, "betteralign %s | betteralign 执行失败：%s",
 		err.Error(), rep.Output)
 }
 
 // ResolveAndRun resolves the analyzer through tool and then runs one analysis. | ResolveAndRun 先用 tool 解析分析器，再执行一次分析。
-func ResolveAndRun(ctx context.Context, tool ToolOptions, o Options, log *logx.Logger) (*Report, error) {
+func ResolveAndRun(ctx context.Context, tool ToolOptions, o Options, log *ydlog.Logger) (*Report, error) {
 	bin, err := Resolve(tool)
 	if err != nil {
 		return nil, err

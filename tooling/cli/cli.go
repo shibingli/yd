@@ -29,10 +29,10 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/shibingli/yd/core/config"
-	"github.com/shibingli/yd/core/errx"
-	"github.com/shibingli/yd/core/logx"
 	"github.com/shibingli/yd/core/version"
+	"github.com/shibingli/ydx/config"
+	"github.com/shibingli/ydx/errs"
+	"github.com/shibingli/ydx/log"
 	"github.com/spf13/afero"
 	"github.com/spf13/pflag"
 )
@@ -41,31 +41,31 @@ import (
 // 只声明一次，使所有失败路径都能用 errors.Is 判定。
 var (
 	// ErrUnknownCommand reports a command name that is not in the registry. | ErrUnknownCommand 表示命令名不在注册表中。
-	ErrUnknownCommand = errx.New("cli: unknown command | cli：未知命令")
+	ErrUnknownCommand = errs.New("cli: unknown command | cli：未知命令")
 	// ErrNoCommand reports a missing command or a missing required positional argument. | ErrNoCommand 表示缺少命令或缺少必需的定位参数。
-	ErrNoCommand = errx.New("cli: no command given | cli：未提供命令")
+	ErrNoCommand = errs.New("cli: no command given | cli：未提供命令")
 	// ErrNotImplemented reports a subcommand whose implementation lands in a later task. | ErrNotImplemented 表示该子命令的实现将在后续任务交付。
-	ErrNotImplemented = errx.New("cli: command not implemented yet | cli：命令尚未实现")
+	ErrNotImplemented = errs.New("cli: command not implemented yet | cli：命令尚未实现")
 	// ErrNilEnv reports a nil *Env handed to Execute or to an interactive helper. | ErrNilEnv 表示传给 Execute 或交互辅助的 *Env 为空。
-	ErrNilEnv = errx.New("cli: nil environment | cli：环境为空")
+	ErrNilEnv = errs.New("cli: nil environment | cli：环境为空")
 	// ErrFlagParse reports a command line that pflag could not parse. | ErrFlagParse 表示 pflag 无法解析的命令行。
-	ErrFlagParse = errx.New("cli: flag parsing failed | cli：标志解析失败")
+	ErrFlagParse = errs.New("cli: flag parsing failed | cli：标志解析失败")
 	// ErrConfigLoad reports a failure while loading the layered configuration. | ErrConfigLoad 表示加载分层配置失败。
-	ErrConfigLoad = errx.New("cli: failed to load configuration | cli：加载配置失败")
+	ErrConfigLoad = errs.New("cli: failed to load configuration | cli：加载配置失败")
 	// ErrInputFailed reports a failure while reading interactive input. | ErrInputFailed 表示读取交互输入失败。
-	ErrInputFailed = errx.New("cli: failed to read input | cli：读取输入失败")
+	ErrInputFailed = errs.New("cli: failed to read input | cli：读取输入失败")
 	// ErrEmptyOptions reports an empty option list handed to Choose. | ErrEmptyOptions 表示传给 Choose 的选项列表为空。
-	ErrEmptyOptions = errx.New("cli: no options to choose from | cli：无可选项")
+	ErrEmptyOptions = errs.New("cli: no options to choose from | cli：无可选项")
 	// ErrOutputFailed reports a failure while writing command output. | ErrOutputFailed 表示写出命令输出失败。
-	ErrOutputFailed = errx.New("cli: failed to write output | cli：写出输出失败")
+	ErrOutputFailed = errs.New("cli: failed to write output | cli：写出输出失败")
 	// ErrAssetDrift reports committed minified assets that no longer match their sources. | ErrAssetDrift 表示已提交的压缩资产与源码不再一致。
-	ErrAssetDrift = errx.New("cli: committed minified asset is out of date | cli：已提交的压缩资产已过期")
+	ErrAssetDrift = errs.New("cli: committed minified asset is out of date | cli：已提交的压缩资产已过期")
 	// ErrEmptyCommandName reports a command registered without a name. | ErrEmptyCommandName 表示注册的命令名为空。
-	ErrEmptyCommandName = errx.New("cli: empty command name | cli：命令名为空")
+	ErrEmptyCommandName = errs.New("cli: empty command name | cli：命令名为空")
 	// ErrDuplicateCommand reports a command name registered twice. | ErrDuplicateCommand 表示命令名重复注册。
-	ErrDuplicateCommand = errx.New("cli: duplicated command | cli：命令重复注册")
+	ErrDuplicateCommand = errs.New("cli: duplicated command | cli：命令重复注册")
 	// ErrNilRun reports a command registered without a Run function. | ErrNilRun 表示注册的命令缺少 Run 函数。
-	ErrNilRun = errx.New("cli: nil Run for command | cli：命令的 Run 为空")
+	ErrNilRun = errs.New("cli: nil Run for command | cli：命令的 Run 为空")
 )
 
 // Execute parses args, loads the layered configuration and runs the matching command. | Execute 解析 args、
@@ -115,7 +115,7 @@ func Execute(ctx context.Context, args []string, env *Env) error {
 		if errors.Is(err, pflag.ErrHelp) {
 			return nil // The help text is already on its way out. | 帮助文本已经写出
 		}
-		return errx.Wrap(err, ErrFlagParse)
+		return errs.Wrap(err, ErrFlagParse)
 	}
 	if flagChanged(root, flagVersion) {
 		printVersion(env)
@@ -130,7 +130,7 @@ func Execute(ctx context.Context, args []string, env *Env) error {
 	cmd, ok := findCommand(rest[0])
 	if !ok {
 		printUnknownCommand(env, rest[0])
-		return errx.Detail(ErrUnknownCommand, "%q", rest[0])
+		return errs.Detail(ErrUnknownCommand, "%q", rest[0])
 	}
 
 	// Phase 2: re-parse the whole line with the command's own flag set, then drop the command token
@@ -141,7 +141,7 @@ func Execute(ctx context.Context, args []string, env *Env) error {
 		if errors.Is(err, pflag.ErrHelp) {
 			return nil
 		}
-		return errx.Wrap(err, ErrFlagParse)
+		return errs.Wrap(err, ErrFlagParse)
 	}
 	// Global flags are registered on the command's flag set too, so "--version" placed after the
 	// command name parses successfully; without this check the command would run instead. | 全局标志
@@ -225,7 +225,7 @@ func loadConfig(env *Env, fs *pflag.FlagSet) (*config.Config, error) {
 		FS:         env.FS,
 	})
 	if err != nil {
-		return nil, errx.Wrap(err, ErrConfigLoad)
+		return nil, errs.Wrap(err, ErrConfigLoad)
 	}
 	return cfg, nil
 }
@@ -276,13 +276,13 @@ func applyGlobalFlags(cfg *config.Config, fs *pflag.FlagSet) {
 
 // configureLogger points the global logx logger at the CLI's diagnostic stream. | configureLogger 把全局 logx 日志器指向 CLI 的诊断流。
 func configureLogger(env *Env, cfg *config.Config) {
-	lvl, err := logx.ParseLevel(cfg.GetString(keyLogLevel))
+	lvl, err := log.ParseLevel(cfg.GetString(keyLogLevel))
 	if err != nil {
-		logx.Default().Warn("cli: unrecognized log level, falling back to info | cli：无法识别的日志级别，回退到 info",
-			logx.Str("level", cfg.GetString(keyLogLevel)))
-		lvl = logx.InfoLevel
+		log.Default().Warn("cli: unrecognized log level, falling back to info | cli：无法识别的日志级别，回退到 info",
+			log.Str("level", cfg.GetString(keyLogLevel)))
+		lvl = log.InfoLevel
 	}
-	logx.SetDefault(logx.New(logx.Options{
+	log.SetDefault(log.New(log.Options{
 		Writer:  env.Err,
 		Level:   lvl,
 		Format:  cfg.GetString("log.format"),
@@ -406,11 +406,11 @@ func Register(c Command) {
 	registryMu.Lock()
 	defer registryMu.Unlock()
 	if _, dup := registry[c.Name]; dup {
-		recordRegistryErrorLocked(errx.Detail(ErrDuplicateCommand, "%q", c.Name))
+		recordRegistryErrorLocked(errs.Detail(ErrDuplicateCommand, "%q", c.Name))
 		return
 	}
 	if c.Run == nil {
-		recordRegistryErrorLocked(errx.Detail(ErrNilRun, "%q", c.Name))
+		recordRegistryErrorLocked(errs.Detail(ErrNilRun, "%q", c.Name))
 		return
 	}
 	registry[c.Name] = c
@@ -477,6 +477,6 @@ var placeholderNames []string
 func notImplemented(name string) func(context.Context, *Env) error {
 	placeholderNames = append(placeholderNames, name)
 	return func(context.Context, *Env) error {
-		return errx.Detail(ErrNotImplemented, "yd %s", name)
+		return errs.Detail(ErrNotImplemented, "yd %s", name)
 	}
 }

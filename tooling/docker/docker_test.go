@@ -14,8 +14,8 @@ import (
 
 	"github.com/spf13/afero"
 
-	"github.com/shibingli/yd/core/afs"
-	"github.com/shibingli/yd/core/logx"
+	"github.com/shibingli/ydx/afs"
+	"github.com/shibingli/ydx/log"
 )
 
 // ---------------------------------------------------------------- Test helpers | 测试辅助
@@ -159,8 +159,8 @@ func newFakeDocker() *fakeExec {
 }
 
 // testLogger returns a Logger that discards output, keeping test logs clean. | testLogger 返回丢弃输出的 Logger，保持测试输出干净。
-func testLogger() *logx.Logger {
-	return logx.New(logx.Options{Writer: io.Discard, Level: logx.DebugLevel})
+func testLogger() *log.Logger {
+	return log.New(log.Options{Writer: io.Discard, Level: log.DebugLevel})
 }
 
 // ---------------------------------------------------------------- Builtin template | 内置模板
@@ -492,7 +492,7 @@ func TestBuildImagePrepareAssetsHook(t *testing.T) {
 		Dir:        t.TempDir(),
 		Tag:        "app:v1",
 		WithAssets: true,
-		PrepareAssets: func(_ context.Context, dir string, _ *logx.Logger) error {
+		PrepareAssets: func(_ context.Context, dir string, _ *log.Logger) error {
 			hookCalls++
 			hookDir = dir
 			order = append(order, "assets")
@@ -517,7 +517,7 @@ func TestBuildImagePrepareAssetsHook(t *testing.T) {
 	_, err = BuildImage(context.Background(), Options{
 		Dir:           t.TempDir(),
 		WithAssets:    true,
-		PrepareAssets: func(context.Context, string, *logx.Logger) error { return hookErr },
+		PrepareAssets: func(context.Context, string, *log.Logger) error { return hookErr },
 		ExecCommand:   fake.exec,
 	}, afs.NewMem(), testLogger())
 	if !errors.Is(err, hookErr) {
@@ -530,7 +530,7 @@ func TestBuildImageWithoutAssetsSkipsPreparation(t *testing.T) {
 	called := false
 	_, err := BuildImage(context.Background(), Options{
 		Dir: t.TempDir(),
-		PrepareAssets: func(context.Context, string, *logx.Logger) error {
+		PrepareAssets: func(context.Context, string, *log.Logger) error {
 			called = true
 			return nil
 		},

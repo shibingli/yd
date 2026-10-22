@@ -6,7 +6,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/shibingli/yd/core/errx"
+	"github.com/shibingli/ydx/errs"
 )
 
 // Conversations returns the conversation list of the actor with unread counts and last messages. |
@@ -23,11 +23,11 @@ func (s *Service) Conversations(ctx context.Context, actor Actor) ([]Conversatio
 	}
 	list, err := s.store.ListConversations(ctx, actor.TenantID, actor.ID)
 	if err != nil {
-		return nil, errx.Wrap(err, ErrUnavailable)
+		return nil, errs.Wrap(err, ErrUnavailable)
 	}
 	unread, err := s.store.ConversationUnread(ctx, actor.TenantID, actor.ID)
 	if err != nil {
-		return nil, errx.Wrap(err, ErrUnavailable)
+		return nil, errs.Wrap(err, ErrUnavailable)
 	}
 	ids := make([]string, 0, len(list))
 	for _, conv := range list {
@@ -35,14 +35,14 @@ func (s *Service) Conversations(ctx context.Context, actor Actor) ([]Conversatio
 	}
 	last, err := s.store.LastMessages(ctx, actor.TenantID, ids)
 	if err != nil {
-		return nil, errx.Wrap(err, ErrUnavailable)
+		return nil, errs.Wrap(err, ErrUnavailable)
 	}
 
 	out := make([]ConversationView, 0, len(list))
 	for _, conv := range list {
 		members, err := s.store.ListMembers(ctx, actor.TenantID, conv.ID)
 		if err != nil {
-			return nil, errx.Wrap(err, ErrUnavailable)
+			return nil, errs.Wrap(err, ErrUnavailable)
 		}
 		memberIDs := make([]string, 0, len(members))
 		for _, member := range members {
@@ -50,7 +50,7 @@ func (s *Service) Conversations(ctx context.Context, actor Actor) ([]Conversatio
 		}
 		profiles, err := s.directory.Profiles(ctx, actor.TenantID, memberIDs)
 		if err != nil {
-			return nil, errx.Wrap(err, ErrUnavailable)
+			return nil, errs.Wrap(err, ErrUnavailable)
 		}
 		view := ConversationView{Conversation: conv, Unread: unread[conv.ID]}
 		for _, id := range memberIDs {
@@ -100,7 +100,7 @@ func (s *Service) Conversation(ctx context.Context, actor Actor, conversationID 
 	}
 	members, err := s.store.ListMembers(ctx, actor.TenantID, conv.ID)
 	if err != nil {
-		return ConversationView{}, nil, errx.Wrap(err, ErrUnavailable)
+		return ConversationView{}, nil, errs.Wrap(err, ErrUnavailable)
 	}
 	if !containsMember(members, actor.ID) && !actor.Manage {
 		return ConversationView{}, nil, ErrNotFound
@@ -116,12 +116,12 @@ func (s *Service) Conversation(ctx context.Context, actor Actor, conversationID 
 	if containsMember(members, actor.ID) {
 		unreadBefore, err := s.store.ConversationUnread(ctx, actor.TenantID, actor.ID)
 		if err != nil {
-			return ConversationView{}, nil, errx.Wrap(err, ErrUnavailable)
+			return ConversationView{}, nil, errs.Wrap(err, ErrUnavailable)
 		}
 		if unreadBefore[conv.ID] > 0 {
 			now := s.options.Now()
 			if err := s.store.AdvanceRead(ctx, actor.TenantID, conv.ID, actor.ID, now); err != nil {
-				return ConversationView{}, nil, errx.Wrap(err, ErrUnavailable)
+				return ConversationView{}, nil, errs.Wrap(err, ErrUnavailable)
 			}
 			for _, member := range members {
 				if member.UserID == actor.ID {
@@ -144,7 +144,7 @@ func (s *Service) Conversation(ctx context.Context, actor Actor, conversationID 
 	// 剥掉正文。
 	messages, _, err := s.store.ListMessagesByConversation(ctx, actor.TenantID, conv.ID, 1, page, true)
 	if err != nil {
-		return ConversationView{}, nil, errx.Wrap(err, ErrUnavailable)
+		return ConversationView{}, nil, errs.Wrap(err, ErrUnavailable)
 	}
 	views, err := s.messageViews(ctx, actor, messages, members, true)
 	if err != nil {
@@ -157,7 +157,7 @@ func (s *Service) Conversation(ctx context.Context, actor Actor, conversationID 
 	}
 	profiles, err := s.directory.Profiles(ctx, actor.TenantID, memberIDs)
 	if err != nil {
-		return ConversationView{}, nil, errx.Wrap(err, ErrUnavailable)
+		return ConversationView{}, nil, errs.Wrap(err, ErrUnavailable)
 	}
 	view := ConversationView{Conversation: conv}
 	for _, id := range memberIDs {
@@ -171,7 +171,7 @@ func (s *Service) Conversation(ctx context.Context, actor Actor, conversationID 
 	}
 	unread, err := s.store.ConversationUnread(ctx, actor.TenantID, actor.ID)
 	if err != nil {
-		return ConversationView{}, nil, errx.Wrap(err, ErrUnavailable)
+		return ConversationView{}, nil, errs.Wrap(err, ErrUnavailable)
 	}
 	view.Unread = unread[conv.ID]
 	if len(views) > 0 {
@@ -197,7 +197,7 @@ func (s *Service) DirectConversation(ctx context.Context, actor Actor, friendID 
 		}
 		return conv, nil
 	} else if !isNotFound(err) {
-		return Conversation{}, errx.Wrap(err, ErrUnavailable)
+		return Conversation{}, errs.Wrap(err, ErrUnavailable)
 	}
 	now := s.options.Now()
 	id, err := s.options.NewID("cv_")
@@ -227,7 +227,7 @@ func (s *Service) DirectConversation(ctx context.Context, actor Actor, friendID 
 		if existing, getErr := s.store.GetDirectConversation(ctx, actor.TenantID, actor.ID, friendID); getErr == nil {
 			return existing, nil
 		}
-		return Conversation{}, errx.Wrap(err, ErrUnavailable)
+		return Conversation{}, errs.Wrap(err, ErrUnavailable)
 	}
 	s.emit(ctx, Event{Type: EventConversationChanged, TenantID: actor.TenantID, ConversationID: id, ActorID: actor.ID, Audience: []string{friendID}})
 	return conv, nil
@@ -279,7 +279,7 @@ func (s *Service) CreateGroup(ctx context.Context, actor Actor, title string, me
 		members = append(members, Member{JoinedAt: now, ID: mustID(s, "mb_"), TenantID: actor.TenantID, ConversationID: id, UserID: memberID, Role: MemberPlain})
 	}
 	if err := s.store.CreateConversation(ctx, conv, members); err != nil {
-		return Conversation{}, errx.Wrap(err, ErrUnavailable)
+		return Conversation{}, errs.Wrap(err, ErrUnavailable)
 	}
 	s.emit(ctx, Event{Type: EventConversationChanged, TenantID: actor.TenantID, ConversationID: id, ActorID: actor.ID, Audience: memberIDs, Detail: map[string]string{"action": "created"}})
 	return conv, nil
@@ -300,7 +300,7 @@ func (s *Service) AddGroupMember(ctx context.Context, actor Actor, conversationI
 	}
 	members, err := s.store.ListMembers(ctx, actor.TenantID, conv.ID)
 	if err != nil {
-		return errx.Wrap(err, ErrUnavailable)
+		return errs.Wrap(err, ErrUnavailable)
 	}
 	if containsMember(members, memberID) {
 		return nil
@@ -317,7 +317,7 @@ func (s *Service) AddGroupMember(ctx context.Context, actor Actor, conversationI
 		Role:           MemberPlain,
 	}
 	if err := s.store.AddMember(ctx, member); err != nil {
-		return errx.Wrap(err, ErrUnavailable)
+		return errs.Wrap(err, ErrUnavailable)
 	}
 	s.emit(ctx, Event{Type: EventConversationChanged, TenantID: actor.TenantID, ConversationID: conv.ID, ActorID: actor.ID, Audience: memberIDsOf(members), Detail: map[string]string{"action": "member_added"}})
 	return nil
@@ -351,7 +351,7 @@ func (s *Service) LeaveGroup(ctx context.Context, actor Actor, conversationID st
 		return err
 	}
 	if member.Role == MemberOwner {
-		return errx.Detail(ErrForbidden, "the owner must dissolve the group | 群主必须解散群")
+		return errs.Detail(ErrForbidden, "the owner must dissolve the group | 群主必须解散群")
 	}
 	if err := s.store.RemoveMember(ctx, actor.TenantID, conv.ID, actor.ID); err != nil {
 		return mapStoreError(err, ErrNotFound)
@@ -378,7 +378,7 @@ func (s *Service) RenameGroup(ctx context.Context, actor Actor, conversationID, 
 	conv.Title = title
 	conv.UpdatedAt = now
 	if err := s.store.UpdateConversation(ctx, conv); err != nil {
-		return errx.Wrap(err, ErrUnavailable)
+		return errs.Wrap(err, ErrUnavailable)
 	}
 	members, _ := s.store.ListMembers(ctx, actor.TenantID, conv.ID)
 	s.emit(ctx, Event{Type: EventConversationChanged, TenantID: actor.TenantID, ConversationID: conv.ID, ActorID: actor.ID, Audience: memberIDsOf(members), Detail: map[string]string{"action": "renamed"}})
@@ -398,7 +398,7 @@ func (s *Service) DissolveGroup(ctx context.Context, actor Actor, conversationID
 	conv.Status = ConversationDissolved
 	conv.UpdatedAt = s.options.Now()
 	if err := s.store.UpdateConversation(ctx, conv); err != nil {
-		return errx.Wrap(err, ErrUnavailable)
+		return errs.Wrap(err, ErrUnavailable)
 	}
 	s.emit(ctx, Event{Type: EventConversationChanged, TenantID: actor.TenantID, ConversationID: conv.ID, ActorID: actor.ID, Audience: memberIDsOf(members), Detail: map[string]string{"action": "dissolved"}})
 	return nil
@@ -437,21 +437,21 @@ func (s *Service) MarkRead(ctx context.Context, actor Actor, conversationID stri
 	}
 	members, err := s.store.ListMembers(ctx, actor.TenantID, strings.TrimSpace(conversationID))
 	if err != nil {
-		return errx.Wrap(err, ErrUnavailable)
+		return errs.Wrap(err, ErrUnavailable)
 	}
 	if !containsMember(members, actor.ID) {
 		return ErrNotFound
 	}
 	unread, err := s.store.ConversationUnread(ctx, actor.TenantID, actor.ID)
 	if err != nil {
-		return errx.Wrap(err, ErrUnavailable)
+		return errs.Wrap(err, ErrUnavailable)
 	}
 	if unread[conversationID] == 0 {
 		return nil
 	}
 	now := s.options.Now()
 	if err := s.store.AdvanceRead(ctx, actor.TenantID, conversationID, actor.ID, now); err != nil {
-		return errx.Wrap(err, ErrUnavailable)
+		return errs.Wrap(err, ErrUnavailable)
 	}
 	// 与打开会话一致：读者本人也在受众里，自己的 WebSocket 才能立即刷新未读角标。
 	// As with opening a conversation, the reader is part of the audience so their own WebSocket refreshes the badge
@@ -470,7 +470,7 @@ func (s *Service) PinnedMessages(ctx context.Context, actor Actor) ([]MessageVie
 	}
 	messages, err := s.store.ListPinned(ctx, actor.TenantID, actor.ID, s.options.Now())
 	if err != nil {
-		return nil, errx.Wrap(err, ErrUnavailable)
+		return nil, errs.Wrap(err, ErrUnavailable)
 	}
 	return s.messageViews(ctx, actor, messages, nil, false)
 }
@@ -479,7 +479,7 @@ func (s *Service) PinnedMessages(ctx context.Context, actor Actor) ([]MessageVie
 func (s *Service) ensureSystemConversation(ctx context.Context, actor Actor) (Conversation, error) {
 	conv, err := s.store.GetSystemConversation(ctx, actor.TenantID)
 	if err != nil && !isNotFound(err) {
-		return Conversation{}, errx.Wrap(err, ErrUnavailable)
+		return Conversation{}, errs.Wrap(err, ErrUnavailable)
 	}
 	if isNotFound(err) {
 		now := s.options.Now()
@@ -498,14 +498,14 @@ func (s *Service) ensureSystemConversation(ctx context.Context, actor Actor) (Co
 		if createErr := s.store.CreateConversation(ctx, conv, []Member{member}); createErr != nil {
 			existing, getErr := s.store.GetSystemConversation(ctx, actor.TenantID)
 			if getErr != nil {
-				return Conversation{}, errx.Wrap(createErr, ErrUnavailable)
+				return Conversation{}, errs.Wrap(createErr, ErrUnavailable)
 			}
 			conv = existing
 		}
 	}
 	if _, err := s.store.GetMember(ctx, actor.TenantID, conv.ID, actor.ID); err != nil {
 		if !isNotFound(err) {
-			return Conversation{}, errx.Wrap(err, ErrUnavailable)
+			return Conversation{}, errs.Wrap(err, ErrUnavailable)
 		}
 		member := Member{
 			JoinedAt:       s.options.Now(),
@@ -516,7 +516,7 @@ func (s *Service) ensureSystemConversation(ctx context.Context, actor Actor) (Co
 			Role:           MemberPlain,
 		}
 		if err := s.store.AddMember(ctx, member); err != nil {
-			return Conversation{}, errx.Wrap(err, ErrUnavailable)
+			return Conversation{}, errs.Wrap(err, ErrUnavailable)
 		}
 	}
 	return conv, nil

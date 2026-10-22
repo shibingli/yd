@@ -12,7 +12,7 @@ import (
 	"time"
 
 	"github.com/kardianos/service"
-	"github.com/shibingli/yd/core/errx"
+	"github.com/shibingli/ydx/errs"
 )
 
 // serviceFlag is the argument name carrying a service action, following the kardianos convention
@@ -36,7 +36,7 @@ const startupProbe = 100 * time.Millisecond
 
 // ErrStartupFailed reports a hosted application that exited before the service finished starting.
 // | ErrStartupFailed 表示被托管应用在服务完成启动之前就退出了。
-var ErrStartupFailed = errx.New("service: the hosted application exited during startup | service：被托管应用在启动期间退出")
+var ErrStartupFailed = errs.New("service: the hosted application exited during startup | service：被托管应用在启动期间退出")
 
 // stopGrace is the effective bound used by Run. It is a variable so tests can shorten the wait.
 // | stopGrace 是 Run 实际使用的等待上限；声明为变量以便测试缩短等待。
@@ -149,9 +149,9 @@ func (p *runProgram) Start(service.Service) error {
 	select {
 	case <-p.done:
 		if err := p.runError(); err != nil {
-			return errx.Wrap(err, ErrStartupFailed)
+			return errs.Wrap(err, ErrStartupFailed)
 		}
-		return errx.Detail(ErrStartupFailed, "run returned without serving | run 未提供服务即返回")
+		return errs.Detail(ErrStartupFailed, "run returned without serving | run 未提供服务即返回")
 	case <-timer.C:
 		return nil
 	}
@@ -181,7 +181,7 @@ func (p *runProgram) Stop(service.Service) error {
 	case <-p.done:
 		return p.runError()
 	case <-timer.C:
-		return errx.Detail(ErrStopTimeout, "grace=%[1]s | 宽限期=%[1]s", grace)
+		return errs.Detail(ErrStopTimeout, "grace=%[1]s | 宽限期=%[1]s", grace)
 	}
 }
 

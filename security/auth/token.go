@@ -5,8 +5,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/shibingli/yd/core/errx"
-	"github.com/shibingli/yd/security/jwt"
+	"github.com/shibingli/ydx/errs"
+	"github.com/shibingli/ydx/jwt"
 )
 
 // keyLookupTimeout bounds the pre-signature store lookup. KeyFunc carries no request context, so
@@ -77,7 +77,7 @@ func NewTokenIssuer(svc *Service, o TokenOptions) (*TokenIssuer, error) {
 // A user that is not active is refused with ErrUserDisabled. | 用户非激活时以 ErrUserDisabled 拒绝。
 func (i *TokenIssuer) Issue(ctx context.Context, u *User) (string, time.Time, error) {
 	if u == nil || u.ID == "" {
-		return "", time.Time{}, errx.Detail(ErrTokenInvalid, "cannot issue a token without a user | 缺少用户，无法签发令牌")
+		return "", time.Time{}, errs.Detail(ErrTokenInvalid, "cannot issue a token without a user | 缺少用户，无法签发令牌")
 	}
 	if u.TenantID == "" {
 		return "", time.Time{}, ErrTenantRequired
@@ -110,7 +110,7 @@ func (i *TokenIssuer) Issue(ctx context.Context, u *User) (string, time.Time, er
 		Header: map[string]string{tenantKey: u.TenantID},
 	})
 	if err != nil {
-		return "", time.Time{}, errx.Wrap(err, ErrTokenInvalid)
+		return "", time.Time{}, errs.Wrap(err, ErrTokenInvalid)
 	}
 	return token, expiresAt, nil
 }
@@ -132,11 +132,11 @@ func (i *TokenIssuer) Issue(ctx context.Context, u *User) (string, time.Time, er
 // 用户不存在、租户未知或用户非激活则以 ErrTokenInvalid 或 ErrUserDisabled 上报。
 func (i *TokenIssuer) KeyFunc(header jwt.Header) (any, error) {
 	if header.Kid == "" {
-		return nil, errx.Detail(ErrTokenInvalid, "token has no kid | 令牌缺少 kid")
+		return nil, errs.Detail(ErrTokenInvalid, "token has no kid | 令牌缺少 kid")
 	}
 	tenantID := header.Extra[tenantKey]
 	if tenantID == "" {
-		return nil, errx.Detail(ErrTokenInvalid, "token has no %[1]s header | 令牌缺少 %[1]s 头部", tenantKey)
+		return nil, errs.Detail(ErrTokenInvalid, "token has no %[1]s header | 令牌缺少 %[1]s 头部", tenantKey)
 	}
 	lookupCtx, cancel := context.WithTimeout(context.Background(), keyLookupTimeout)
 	defer cancel()
@@ -147,16 +147,16 @@ func (i *TokenIssuer) KeyFunc(header jwt.Header) (any, error) {
 		// unauthenticated token into an account-existence oracle. | 绝不包装存储错误：errx 会把
 		// ErrNotFound 保留在错误链上，中间件随后对不存在的用户回 404、对存在的用户回 401，
 		// 使一枚未认证的令牌变成账号存在性探针。
-		return nil, errx.Detail(ErrTokenInvalid, "token key lookup failed | 令牌密钥查询失败")
+		return nil, errs.Detail(ErrTokenInvalid, "token key lookup failed | 令牌密钥查询失败")
 	}
 	if u.Status != StatusActive {
 		// Disabled and unknown users must look the same to an unauthenticated caller. | 对未认证
 		// 调用方而言，被禁用与不存在必须表现一致。
-		return nil, errx.Detail(ErrTokenInvalid, "token key lookup failed | 令牌密钥查询失败")
+		return nil, errs.Detail(ErrTokenInvalid, "token key lookup failed | 令牌密钥查询失败")
 	}
 	secKey, err := i.svc.SecKey(lookupCtx, u)
 	if err != nil {
-		return nil, errx.Detail(ErrTokenInvalid, "token key lookup failed | 令牌密钥查询失败")
+		return nil, errs.Detail(ErrTokenInvalid, "token key lookup failed | 令牌密钥查询失败")
 	}
 	// The buffer becomes the HMAC key, so it is not wiped here. | 该缓冲区会成为 HMAC 密钥，因此此处不清零。
 	return secKey, nil
@@ -177,11 +177,11 @@ func (i *TokenIssuer) KeyFunc(header jwt.Header) (any, error) {
 func (i *TokenIssuer) Verify(ctx context.Context, token string) (*User, error) {
 	token = strings.TrimSpace(token)
 	if token == "" {
-		return nil, errx.Detail(ErrTokenInvalid, "empty token | 令牌为空")
+		return nil, errs.Detail(ErrTokenInvalid, "empty token | 令牌为空")
 	}
 	tok, err := jwt.Parse(token, i.KeyFunc, i.parseOptions())
 	if err != nil {
-		return nil, errx.Wrap(err, ErrTokenInvalid)
+		return nil, errs.Wrap(err, ErrTokenInvalid)
 	}
 	// The token does not escape Verify, so its pool storage can be reused as soon as
 	// this call returns; this keeps the per-request JWT path allocation-free. | 该 token
@@ -190,23 +190,23 @@ func (i *TokenIssuer) Verify(ctx context.Context, token string) (*User, error) {
 	userID := tok.Claims.Subject()
 	tenantID, _ := tok.Claims.Get(tenantKey)
 	if userID == "" || tenantID == "" {
-		return nil, errx.Detail(ErrTokenInvalid, "token lacks sub or %[1]s | 令牌缺少 sub 或 %[1]s", tenantKey)
+		return nil, errs.Detail(ErrTokenInvalid, "token lacks sub or %[1]s | 令牌缺少 sub 或 %[1]s", tenantKey)
 	}
 	// The key that verified the signature must belong to the very user and tenant
 	// the payload names; otherwise a token could be signed by one user's key while
 	// claiming to be another. | 验签所用的密钥必须属于载荷所指的那个用户与租户；
 	// 否则一个用户可以用自己的密钥签出「冒充他人」的令牌。
 	if userID != tok.Header.Kid || tenantID != tok.Header.Extra[tenantKey] {
-		return nil, errx.Detail(ErrTokenInvalid, "sub and %[1]s do not match the signing kid | sub 与 %[1]s 同签发用的 kid 不一致", tenantKey)
+		return nil, errs.Detail(ErrTokenInvalid, "sub and %[1]s do not match the signing kid | sub 与 %[1]s 同签发用的 kid 不一致", tenantKey)
 	}
 	u, err := i.svc.store.GetUser(ctx, tenantID, userID)
 	if err != nil {
 		// As in KeyFunc, do not preserve ErrNotFound: the caller only learns "invalid token".
 		// | 与 KeyFunc 一样，不保留 ErrNotFound：调用方只能得到「令牌无效」。
-		return nil, errx.Detail(ErrTokenInvalid, "user lookup failed | 用户查询失败")
+		return nil, errs.Detail(ErrTokenInvalid, "user lookup failed | 用户查询失败")
 	}
 	if u.Status != StatusActive {
-		return nil, errx.Detail(ErrTokenInvalid, "user is not active | 用户未激活")
+		return nil, errs.Detail(ErrTokenInvalid, "user is not active | 用户未激活")
 	}
 	return u, nil
 }

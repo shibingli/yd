@@ -10,8 +10,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/shibingli/yd/core/errx"
-	"github.com/shibingli/yd/core/logx"
+	"github.com/shibingli/ydx/errs"
+	"github.com/shibingli/ydx/log"
 )
 
 // UploadAttachment stores one pending file and returns its record. | UploadAttachment 保存一个待挂载文件并返回记录。
@@ -25,7 +25,7 @@ func (s *Service) UploadAttachment(ctx context.Context, actor Actor, name string
 		return Attachment{}, ErrInvalidInput
 	}
 	if s.blobs == nil {
-		return Attachment{}, errx.Detail(ErrUnavailable, "attachment storage is not configured | 未配置附件存储")
+		return Attachment{}, errs.Detail(ErrUnavailable, "attachment storage is not configured | 未配置附件存储")
 	}
 	if declaredSize > s.options.MaxAttachmentSize {
 		return Attachment{}, ErrAttachmentTooLarge
@@ -33,7 +33,7 @@ func (s *Service) UploadAttachment(ctx context.Context, actor Actor, name string
 	limited := io.LimitReader(r, s.options.MaxAttachmentSize+1)
 	data, err := io.ReadAll(limited)
 	if err != nil {
-		return Attachment{}, errx.Wrap(err, ErrInvalidInput)
+		return Attachment{}, errs.Wrap(err, ErrInvalidInput)
 	}
 	if int64(len(data)) > s.options.MaxAttachmentSize {
 		return Attachment{}, ErrAttachmentTooLarge
@@ -43,14 +43,14 @@ func (s *Service) UploadAttachment(ctx context.Context, actor Actor, name string
 	}
 	contentType := normalizeContentType(http.DetectContentType(data))
 	if !s.allowedContentType(contentType) {
-		return Attachment{}, errx.Detail(ErrAttachmentType, "type=%[1]q | 类型=%[1]q", contentType)
+		return Attachment{}, errs.Detail(ErrAttachmentType, "type=%[1]q | 类型=%[1]q", contentType)
 	}
 	name = safeFileName(name)
 	digest := sha256.Sum256(data)
 	id := mustID(s, "att_")
 	key := attachmentKey(actor.TenantID, id)
 	if err := s.blobs.Put(ctx, key, data); err != nil {
-		return Attachment{}, errx.Wrap(err, ErrUnavailable)
+		return Attachment{}, errs.Wrap(err, ErrUnavailable)
 	}
 	attachment := Attachment{
 		CreatedAt:    s.options.Now(),
@@ -66,7 +66,7 @@ func (s *Service) UploadAttachment(ctx context.Context, actor Actor, name string
 	}
 	if err := s.store.CreateAttachment(ctx, attachment); err != nil {
 		_ = s.blobs.Delete(ctx, key)
-		return Attachment{}, errx.Wrap(err, ErrUnavailable)
+		return Attachment{}, errs.Wrap(err, ErrUnavailable)
 	}
 	return attachment, nil
 }
@@ -89,7 +89,7 @@ func (s *Service) DownloadAttachment(ctx context.Context, actor Actor, id string
 	}
 	data, err := s.blobs.Get(ctx, attachment.StoredKey)
 	if err != nil {
-		return Attachment{}, nil, errx.Wrap(err, ErrAttachmentNotFound)
+		return Attachment{}, nil, errs.Wrap(err, ErrAttachmentNotFound)
 	}
 	return attachment, data, nil
 }
@@ -108,7 +108,7 @@ func (s *Service) authorizeAttachment(ctx context.Context, actor Actor, attachme
 	}
 	members, err := s.store.ListMembers(ctx, actor.TenantID, msg.ConversationID)
 	if err != nil {
-		return errx.Wrap(err, ErrUnavailable)
+		return errs.Wrap(err, ErrUnavailable)
 	}
 	if !containsMember(members, actor.ID) && !actor.Manage {
 		return ErrAttachmentNotFound
@@ -126,7 +126,7 @@ func (s *Service) CleanupPending(ctx context.Context, before time.Time) (int, er
 	}
 	stale, err := s.store.CleanupPending(ctx, before)
 	if err != nil {
-		return 0, errx.Wrap(err, ErrUnavailable)
+		return 0, errs.Wrap(err, ErrUnavailable)
 	}
 	for _, attachment := range stale {
 		s.logCleanupFailure(s.blobs.Delete(ctx, attachment.StoredKey), attachment.StoredKey)
@@ -178,6 +178,6 @@ func attachmentKey(tenantID, attachmentID string) string {
 // logCleanupFailure records a blob deletion failure during janitor runs. | logCleanupFailure 记录清理任务中的字节删除失败。
 func (s *Service) logCleanupFailure(err error, key string) {
 	if err != nil {
-		s.log.Warn("attachment blob cleanup failed | 附件字节清理失败", logx.Err(err), logx.Str("key", key))
+		s.log.Warn("attachment blob cleanup failed | 附件字节清理失败", log.Err(err), log.Str("key", key))
 	}
 }

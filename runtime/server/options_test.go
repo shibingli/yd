@@ -3,8 +3,8 @@ package server
 import (
 	"testing"
 
-	"github.com/shibingli/yd/core/afs"
-	"github.com/shibingli/yd/core/config"
+	"github.com/shibingli/ydx/afs"
+	"github.com/shibingli/ydx/config"
 	"github.com/spf13/afero"
 )
 

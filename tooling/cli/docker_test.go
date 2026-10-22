@@ -15,10 +15,10 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/shibingli/yd/core/config"
-	"github.com/shibingli/yd/core/logx"
 	"github.com/shibingli/yd/core/version"
 	"github.com/shibingli/yd/tooling/docker"
+	"github.com/shibingli/ydx/config"
+	"github.com/shibingli/ydx/log"
 	"github.com/spf13/afero"
 	"github.com/spf13/pflag"
 )
@@ -72,7 +72,7 @@ func useDockerAssets(t *testing.T) *int {
 	t.Helper()
 	calls := new(int)
 	old := dockerPrepareAssets
-	dockerPrepareAssets = func(context.Context, string, *logx.Logger) error {
+	dockerPrepareAssets = func(context.Context, string, *log.Logger) error {
 		*calls = *calls + 1
 		return nil
 	}

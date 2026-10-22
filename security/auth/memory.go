@@ -7,7 +7,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/shibingli/yd/core/errx"
+	"github.com/shibingli/ydx/errs"
 )
 
 // membership is one user's participation in one tenant: the roles granted there
@@ -93,19 +93,19 @@ func newMemoryStore() *memoryStore {
 // CreateTenant stores a new tenant. | CreateTenant 存入新租户。
 func (m *memoryStore) CreateTenant(_ context.Context, t *Tenant) error {
 	if t == nil || t.ID == "" {
-		return errx.Detail(ErrInvalidInput, "tenant requires an id | 租户必须带 ID")
+		return errs.Detail(ErrInvalidInput, "tenant requires an id | 租户必须带 ID")
 	}
 	slug := strings.ToLower(strings.TrimSpace(t.Slug))
 	if slug == "" {
-		return errx.Detail(ErrInvalidInput, "tenant requires a slug | 租户必须带 Slug")
+		return errs.Detail(ErrInvalidInput, "tenant requires a slug | 租户必须带 Slug")
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if _, dup := m.tenants[t.ID]; dup {
-		return errx.Detail(ErrConflict, "tenant id %q already exists | 租户 ID %q 已存在", t.ID, t.ID)
+		return errs.Detail(ErrConflict, "tenant id %q already exists | 租户 ID %q 已存在", t.ID, t.ID)
 	}
 	if _, dup := m.slugs[slug]; dup {
-		return errx.Detail(ErrConflict, "tenant slug %q already exists | 租户 Slug %q 已存在", slug, slug)
+		return errs.Detail(ErrConflict, "tenant slug %q already exists | 租户 Slug %q 已存在", slug, slug)
 	}
 	m.tenants[t.ID] = cloneTenant(t)
 	m.slugs[slug] = t.ID
@@ -150,13 +150,13 @@ func (m *memoryStore) ListTenants(_ context.Context) ([]*Tenant, error) {
 // 登录名全局唯一，因此两个租户不再能持有同一个登录名。
 func (m *memoryStore) CreateUser(_ context.Context, u *User) error {
 	if u == nil || u.ID == "" {
-		return errx.Detail(ErrInvalidInput, "user requires an id | 用户必须带 ID")
+		return errs.Detail(ErrInvalidInput, "user requires an id | 用户必须带 ID")
 	}
 	if strings.TrimSpace(u.TenantID) == "" {
 		return ErrTenantRequired
 	}
 	if strings.TrimSpace(u.Username) == "" {
-		return errx.Detail(ErrInvalidInput, "user requires a username | 用户必须带用户名")
+		return errs.Detail(ErrInvalidInput, "user requires a username | 用户必须带用户名")
 	}
 	key := usernameKey(u.Username)
 	stored := cloneUser(u)
@@ -175,10 +175,10 @@ func (m *memoryStore) CreateUser(_ context.Context, u *User) error {
 		return ErrNotFound
 	}
 	if _, dup := m.users[u.ID]; dup {
-		return errx.Detail(ErrConflict, "user id %q already exists | 用户 ID %q 已存在", u.ID, u.ID)
+		return errs.Detail(ErrConflict, "user id %q already exists | 用户 ID %q 已存在", u.ID, u.ID)
 	}
 	if _, dup := m.usernames[key]; dup {
-		return errx.Detail(ErrConflict, "username %q already exists | 用户名 %q 已存在", u.Username, u.Username)
+		return errs.Detail(ErrConflict, "username %q already exists | 用户名 %q 已存在", u.Username, u.Username)
 	}
 	if _, ok := m.tenants[stored.DefaultTenantID]; !ok {
 		return ErrNotFound
@@ -366,7 +366,7 @@ func (m *memoryStore) UpdateUser(_ context.Context, tenantID string, u *User) er
 		return ErrTenantRequired
 	}
 	if u == nil || u.ID == "" {
-		return errx.Detail(ErrInvalidInput, "user requires an id | 用户必须带 ID")
+		return errs.Detail(ErrInvalidInput, "user requires an id | 用户必须带 ID")
 	}
 	if u.TenantID != "" && u.TenantID != tenantID {
 		return ErrNotFound
@@ -387,7 +387,7 @@ func (m *memoryStore) UpdateUser(_ context.Context, tenantID string, u *User) er
 	oldKey := usernameKey(stored.Username)
 	if oldKey != key {
 		if holder, dup := m.usernames[key]; dup && holder != u.ID {
-			return errx.Detail(ErrConflict, "username %q already exists | 用户名 %q 已存在", u.Username, u.Username)
+			return errs.Detail(ErrConflict, "username %q already exists | 用户名 %q 已存在", u.Username, u.Username)
 		}
 		delete(m.usernames, oldKey)
 		m.usernames[key] = u.ID
@@ -539,7 +539,7 @@ func (m *memoryStore) RemoveUserTenant(_ context.Context, userID, tenantID strin
 		return ErrNotFound
 	}
 	if tenantID == stored.TenantID || entry.defaultTenant || stored.DefaultTenantID == tenantID {
-		return errx.Detail(ErrConflict, "the home and default tenants cannot be removed | 身份租户与默认租户不可移除")
+		return errs.Detail(ErrConflict, "the home and default tenants cannot be removed | 身份租户与默认租户不可移除")
 	}
 	delete(m.members[tenantID], userID)
 	delete(m.userMembers[userID], tenantID)
@@ -575,7 +575,7 @@ func (m *memoryStore) SetDefaultTenant(_ context.Context, userID, tenantID strin
 // filed under. | 落库的角色始终带有生成的 ID 与所在租户的 ID。
 func (m *memoryStore) UpsertRole(_ context.Context, r *Role) error {
 	if r == nil || r.ID == "" || strings.TrimSpace(r.Name) == "" {
-		return errx.Detail(ErrInvalidInput, "role requires an id and a name | 角色必须带 ID 与名称")
+		return errs.Detail(ErrInvalidInput, "role requires an id and a name | 角色必须带 ID 与名称")
 	}
 	if strings.TrimSpace(r.TenantID) == "" {
 		return ErrTenantRequired

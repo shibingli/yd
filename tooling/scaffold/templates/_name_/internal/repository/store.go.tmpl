@@ -68,23 +68,23 @@ import (
 	"{{ .YdModule }}/security/auth/gormstore"
 {{- end }}
 	"{{ .YdModule }}/security/authz"
-	"{{ .YdModule }}/core/config"
+	"{{ .YdxModule }}/config"
 	"{{ .YdModule }}/core/envx"
 {{- if ne .DB "none" }}
-	"{{ .YdModule }}/data/gormx"
+	ydgorm "{{ .YdxModule }}/gorm"
 	"gorm.io/gorm"
 {{- end }}
-	"{{ .YdModule }}/core/errx"
+	"{{ .YdxModule }}/errs"
 	"{{ .YdModule }}/security/guomi"
-	"{{ .YdModule }}/core/logx"
+	logx "{{ .YdxModule }}/log"
 )
 
 // Storage sentinels: assembly and seeding failures are both reachable through errors.Is. | 存储层哨兵错误：装配与种子数据失败都能用 errors.Is 判定。
 var (
 	// ErrOpen reports a failed auth service or token issuer assembly. | ErrOpen 表示鉴权服务或令牌签发器装配失败。
-	ErrOpen = errx.New("repository: auth store assembly failed | repository：鉴权存储装配失败")
+	ErrOpen = errs.New("repository: auth store assembly failed | repository：鉴权存储装配失败")
 	// ErrSeed reports a failed default seed write. | ErrSeed 表示默认数据写入失败。
-	ErrSeed = errx.New("repository: default seed failed | repository：默认数据写入失败")
+	ErrSeed = errs.New("repository: default seed failed | repository：默认数据写入失败")
 )
 
 {{ if ne .DB "none" -}}
@@ -101,7 +101,7 @@ const (
 // errTenantMissing reports a slug that matches no tenant; it roots in auth.ErrNotFound, so callers learn "not found" and
 // nothing about whether some other tenant exists. | errTenantMissing 表示按标识找不到租户；它以 auth.ErrNotFound 为根因，
 // 因此上层既能看到「没找到」，也拿不到「另一个租户是否存在」的额外信息。
-var errTenantMissing = errx.Detail(auth.ErrNotFound, "no tenant matches that slug | 没有与该标识匹配的租户")
+var errTenantMissing = errs.Detail(auth.ErrNotFound, "no tenant matches that slug | 没有与该标识匹配的租户")
 
 // Options configures a Store. | Options 配置 Store。
 type Options struct {
@@ -183,13 +183,13 @@ func Open(o Options) (*Store, error) {
 	svc, err := auth.NewService(raw, auth.Options{MasterKey: o.MasterKey})
 	if err != nil {
 		closeRelease(release)
-		return nil, errx.Wrap(err, ErrOpen)
+		return nil, errs.Wrap(err, ErrOpen)
 	}
 
 	issuer, err := auth.NewTokenIssuer(svc, auth.TokenOptions{Issuer: o.Issuer, TTL: o.TTL})
 	if err != nil {
 		closeRelease(release)
-		return nil, errx.Wrap(err, ErrOpen)
+		return nil, errs.Wrap(err, ErrOpen)
 	}
 	msgStore, msgErr := openMessageStore(db, log)
 	if msgErr != nil {
@@ -238,20 +238,20 @@ func (s *Store) GormDB() *gorm.DB {
 // MessageError 上报，绝不因此拒绝启动。
 func openMessageStore(db any, log *logx.Logger) (messaging.Store, error) {
 	if db == nil {
-		return nil, errx.Detail(messaging.ErrUnavailable, "no database | 没有数据库")
+		return nil, errs.Detail(messaging.ErrUnavailable, "no database | 没有数据库")
 	}
 	gdb, ok := db.(*gorm.DB)
 	if !ok {
-		return nil, errx.Detail(messaging.ErrUnavailable, "unexpected database handle | 非预期的数据库句柄")
+		return nil, errs.Detail(messaging.ErrUnavailable, "unexpected database handle | 非预期的数据库句柄")
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), migrateTimeout)
 	defer cancel()
 	if err := messaginggorm.Migrate(ctx, gdb); err != nil {
-		return nil, errx.Wrap(err, messaging.ErrUnavailable)
+		return nil, errs.Wrap(err, messaging.ErrUnavailable)
 	}
 	store, err := messaginggorm.New(gdb)
 	if err != nil {
-		return nil, errx.Wrap(err, messaging.ErrUnavailable)
+		return nil, errs.Wrap(err, messaging.ErrUnavailable)
 	}
 	log.Info("message centre tables are ready | 消息中心数据表已就绪")
 	return store, nil
@@ -260,7 +260,7 @@ func openMessageStore(db any, log *logx.Logger) (messaging.Store, error) {
 // openMessageStore reports the message centre as unavailable in a project generated without a database. |
 // openMessageStore 在未选择数据库的生成项目里报告消息中心不可用。
 func openMessageStore(_ any, _ *logx.Logger) (messaging.Store, error) {
-	return nil, errx.Detail(messaging.ErrUnavailable, "the project was generated without a database | 项目生成时未选择数据库")
+	return nil, errs.Detail(messaging.ErrUnavailable, "the project was generated without a database | 项目生成时未选择数据库")
 }
 {{ end -}}
 
@@ -284,8 +284,8 @@ func openRaw(o Options, log *logx.Logger) (auth.Store, any, func() error) {
 
 	// DSN 绝不写进日志：它可能带着数据库口令（mysql / postgres 的 DSN 就是如此）。
 	// The DSN never reaches the log: it may carry a database password, as it does for mysql and postgres.
-	opts := gormx.OptionsFromConfig(o.Config)
-	db, err := gormx.Open(opts, log)
+	opts := ydgorm.OptionsFromConfig(o.Config)
+	db, err := ydgorm.Open(opts, log)
 	if err != nil {
 		return degradeToMemory(log, err), nil, nil
 	}
@@ -295,13 +295,13 @@ func openRaw(o Options, log *logx.Logger) (auth.Store, any, func() error) {
 	ctx, cancel := context.WithTimeout(context.Background(), migrateTimeout)
 	defer cancel()
 	if err := gormstore.Migrate(ctx, db); err != nil {
-		_ = gormx.Close(db)
+		_ = ydgorm.Close(db)
 		return degradeToMemory(log, err), nil, nil
 	}
 
 	store, err := gormstore.New(db, gormstore.OptionsFromConfig(o.Config))
 	if err != nil {
-		_ = gormx.Close(db)
+		_ = ydgorm.Close(db)
 		return degradeToMemory(log, err), nil, nil
 	}
 
@@ -309,7 +309,7 @@ func openRaw(o Options, log *logx.Logger) (auth.Store, any, func() error) {
 		logx.Str("driver", driverName(opts.Driver)),
 		logx.Strs("tables", authTables),
 	)
-	return store, db, func() error { return gormx.Close(db) }
+	return store, db, func() error { return ydgorm.Close(db) }
 }
 
 // configuredDSN returns the trimmed data source name, or "" when no database is configured.
@@ -328,7 +328,7 @@ func driverName(driver string) string {
 	if trimmed := strings.TrimSpace(driver); trimmed != "" {
 		return trimmed
 	}
-	return gormx.DriverSQLite
+	return ydgorm.DriverSQLite
 }
 
 // degradeToMemory 把「数据库不可用」变成「内存实现 + 告警」：应用照常起来，鉴权照常可用，代价只是数据不持久。
@@ -468,7 +468,7 @@ func (s *Store) seedSpecs() []seedSpec {
 func (s *Store) Seed(ctx context.Context) error {
 	tenants, err := s.svc.ListTenants(ctx)
 	if err != nil {
-		return errx.Wrap(err, ErrSeed)
+		return errs.Wrap(err, ErrSeed)
 	}
 	roles := NewRoleRepo(s)
 	if len(tenants) > 0 {
@@ -479,7 +479,7 @@ func (s *Store) Seed(ctx context.Context) error {
 		for _, tenant := range tenants {
 			count, err := roles.Reconcile(ctx, tenant.ID)
 			if err != nil {
-				return errx.Wrap(err, ErrSeed)
+				return errs.Wrap(err, ErrSeed)
 			}
 			added += count
 		}
@@ -514,7 +514,7 @@ func (s *Store) Seed(ctx context.Context) error {
 				)
 				return nil
 			}
-			return errx.Wrap(err, ErrSeed)
+			return errs.Wrap(err, ErrSeed)
 		}
 	}
 

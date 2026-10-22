@@ -12,16 +12,16 @@ import (
 
 	"github.com/spf13/afero"
 
-	"github.com/shibingli/yd/core/afs"
-	"github.com/shibingli/yd/core/errx"
+	"github.com/shibingli/ydx/afs"
+	"github.com/shibingli/ydx/errs"
 )
 
 // Template sentinel errors. | 模板相关哨兵错误。
 var (
 	// ErrReadDockerfile indicates that neither the project file nor the builtin template could be read. | ErrReadDockerfile 表示项目文件与内置模板都无法读取。
-	ErrReadDockerfile = errx.New("docker: failed to read Dockerfile | docker：读取 Dockerfile 失败")
+	ErrReadDockerfile = errs.New("docker: failed to read Dockerfile | docker：读取 Dockerfile 失败")
 	// ErrMaterializeDockerfile indicates that the builtin template could not be written to a temporary file for the docker CLI. | ErrMaterializeDockerfile 表示无法把内置模板落盘为临时文件供 docker CLI 读取。
-	ErrMaterializeDockerfile = errx.New("docker: failed to materialize Dockerfile | docker：无法落盘 Dockerfile")
+	ErrMaterializeDockerfile = errs.New("docker: failed to materialize Dockerfile | docker：无法落盘 Dockerfile")
 )
 
 const (
@@ -60,7 +60,7 @@ func builtinDockerfileFor(fs afero.Fs, version string) ([]byte, error) {
 	}
 	data, err := afero.ReadFile(fs, BuiltinDockerfilePath)
 	if err != nil {
-		return nil, errx.WrapDetail(err, ErrReadDockerfile, "%s | %s", BuiltinDockerfilePath, BuiltinDockerfilePath)
+		return nil, errs.WrapDetail(err, ErrReadDockerfile, "%s | %s", BuiltinDockerfilePath, BuiltinDockerfilePath)
 	}
 	return bytes.ReplaceAll(data, []byte(goMajorMinorPlaceholder), []byte(version)), nil
 }
@@ -175,7 +175,7 @@ func ResolveDockerfile(fs afero.Fs, dir, file string) (*Dockerfile, error) {
 	case errors.Is(err, os.ErrNotExist):
 		// No project Dockerfile: fall through to the builtin template. | 项目内没有 Dockerfile：回退到内置模板。
 	default:
-		return nil, errx.WrapDetail(err, ErrReadDockerfile, "%s | %s", project, project)
+		return nil, errs.WrapDetail(err, ErrReadDockerfile, "%s | %s", project, project)
 	}
 
 	// Use the project's own go directive when it exists; the embedded template alone cannot know
@@ -204,17 +204,17 @@ func materialize(project string, data []byte, fromProject bool) (*Dockerfile, er
 func materializeTemp(data []byte, fromProject bool) (*Dockerfile, error) {
 	f, err := os.CreateTemp("", "yd-dockerfile-*")
 	if err != nil {
-		return nil, errx.WrapDetail(err, ErrMaterializeDockerfile, "cannot create temp file | 无法创建临时文件")
+		return nil, errs.WrapDetail(err, ErrMaterializeDockerfile, "cannot create temp file | 无法创建临时文件")
 	}
 	name := f.Name()
 	if _, err := f.Write(data); err != nil {
 		_ = f.Close()
 		_ = os.Remove(name)
-		return nil, errx.WrapDetail(err, ErrMaterializeDockerfile, "%s | %s", name, name)
+		return nil, errs.WrapDetail(err, ErrMaterializeDockerfile, "%s | %s", name, name)
 	}
 	if err := f.Close(); err != nil {
 		_ = os.Remove(name)
-		return nil, errx.WrapDetail(err, ErrMaterializeDockerfile, "%s | %s", name, name)
+		return nil, errs.WrapDetail(err, ErrMaterializeDockerfile, "%s | %s", name, name)
 	}
 	return &Dockerfile{Path: name, Content: data, FromProject: fromProject, Temporary: true}, nil
 }

@@ -11,17 +11,17 @@ import (
 	"strings"
 
 	"{{ .Module }}/internal/meta"
-	"{{ .YdModule }}/core/errx"
-	"{{ .YdModule }}/http/router"
+	"{{ .YdxModule }}/errs"
+	"{{ .YdxModule }}/router"
 	"{{ .YdModule }}/security/auth"
 )
 
 // Tenant resolution sentinels: the controllers map them onto 400 and 403. | 租户解析哨兵：控制器把它们映射为 400 与 403。
 var (
 	// ErrTenantRequired reports a request that names no tenant (no token, no header and no subdomain). | ErrTenantRequired 表示请求没有指明租户（既无令牌，也无请求头，也无子域名）。
-	ErrTenantRequired = errx.New("the request does not name a tenant | 请求未指明租户")
+	ErrTenantRequired = errs.New("the request does not name a tenant | 请求未指明租户")
 	// ErrTenantMismatch reports a header naming a tenant other than the token's: that is privilege escalation and is refused outright. | ErrTenantMismatch 表示请求头指明的租户与令牌所属租户不一致：这是越权，一律拒绝。
-	ErrTenantMismatch = errx.New("the named tenant does not match the tenant of the token | 请求指明的租户与令牌所属租户不一致")
+	ErrTenantMismatch = errs.New("the named tenant does not match the tenant of the token | 请求指明的租户与令牌所属租户不一致")
 )
 
 // Context keys: the tenant id and the tenant slug. | 上下文键：租户 ID 与租户标识。
@@ -106,7 +106,7 @@ func Tenant(o TenantOptions) router.Middleware {
 						return
 					}
 					if namedID != user.TenantID {
-						handle(c, errx.Detail(ErrTenantMismatch, "token tenant=%s requested=%s", user.TenantID, named))
+						handle(c, errs.Detail(ErrTenantMismatch, "token tenant=%s requested=%s", user.TenantID, named))
 						return
 					}
 				}

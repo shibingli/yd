@@ -14,7 +14,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/shibingli/yd/core/logx"
+	ydlog "github.com/shibingli/ydx/log"
 )
 
 // writeFakeTool writes a fake analyzer into dir: it echoes its argv, prints lines and exits with code. | writeFakeTool 往 dir 写一个假分析器：回显 argv、打印 lines 并以 code 退出。
@@ -143,8 +143,8 @@ func writeFile(t *testing.T, path, content string) {
 }
 
 // testLogger returns a logger whose output is discarded, so a run never pollutes the test log. | testLogger 返回输出被丢弃的日志器，使运行不会污染测试日志。
-func testLogger() *logx.Logger {
-	return logx.New(logx.Options{Writer: io.Discard, Level: logx.DebugLevel, Format: "console"})
+func testLogger() *ydlog.Logger {
+	return ydlog.New(ydlog.Options{Writer: io.Discard, Level: ydlog.DebugLevel, Format: "console"})
 }
 
 // repoRoot walks up from this test file to the repository root. | repoRoot 从本测试文件向上回溯到仓库根目录。
@@ -274,7 +274,7 @@ func TestRunParsesDiagnostics(t *testing.T) {
 	bin := writeFakeTool(t, dir, []string{
 		`E:\repo\config\config.go:76:14: struct with 104 pointer bytes could be 96 (lowers GC scan-work estimate)`,
 		`E:\repo\router\pattern.go:77:14: 8 bytes saved: struct of size 96 could be 88`,
-		`E:\repo\logx\logx.go:48:14: 8 bytes saved: struct of size 88 could be 80`,
+		`E:\repo\logx\log.go:48:14: 8 bytes saved: struct of size 88 could be 80`,
 		`auth\rbac.go:168:16: cannot use permissionsFrom(r.Permissions) (value of type []Permission) as []string value in struct literal`,
 		`betteralign: analysis skipped due to errors in package`,
 	}, exitDiagnostics)
@@ -451,7 +451,7 @@ func TestApplyIteratesToFixpoint(t *testing.T) {
 		dir := t.TempDir()
 		bin := writeIteratingTool(t, dir, []int{5, 4, 3, 2, 1})
 		var logs bytes.Buffer
-		log := logx.New(logx.Options{Writer: &logs, Level: logx.DebugLevel, Format: "console"})
+		log := ydlog.New(ydlog.Options{Writer: &logs, Level: ydlog.DebugLevel, Format: "console"})
 
 		rep, err := Run(context.Background(), Options{Bin: bin, Dir: dir, Apply: true, MaxPasses: 3}, log)
 		if err != nil {

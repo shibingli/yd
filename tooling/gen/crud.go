@@ -3,7 +3,7 @@ package gen
 import (
 	"strings"
 
-	"github.com/shibingli/yd/core/errx"
+	"github.com/shibingli/ydx/errs"
 )
 
 // tmplView 是渲染一个模块全部生成物时共享的视图数据。
@@ -187,7 +187,7 @@ func newView(m *Model, o Options) (*tmplView, error) {
 	// there resolves to a device instead of a path, so it is refused on every platform. | 蛇形名会
 	// 用作文件名与模板目录；Windows 上的设备名会解析为设备而不是路径，因此在所有平台都拒绝。
 	if windowsDeviceName(snake) {
-		return nil, errx.Detail(ErrBadModel, "model %[1]q generates the Windows device name %[2]q; choose another name | 模型 %[1]q 会生成 Windows 设备名 %[2]q，请换一个名称", name, snake)
+		return nil, errs.Detail(ErrBadModel, "model %[1]q generates the Windows device name %[2]q; choose another name | 模型 %[1]q 会生成 Windows 设备名 %[2]q，请换一个名称", name, snake)
 	}
 	module := strings.TrimSpace(o.Module)
 	if module == "" {
@@ -248,7 +248,7 @@ func newView(m *Model, o Options) (*tmplView, error) {
 			continue
 		}
 		if f.GoType != "string" {
-			return nil, errx.Detail(ErrBadModel, "column tenant_id of %s must be a string | %s 的 tenant_id 列必须是字符串", m.GoName, m.GoName)
+			return nil, errs.Detail(ErrBadModel, "column tenant_id of %s must be a string | %s 的 tenant_id 列必须是字符串", m.GoName, m.GoName)
 		}
 		f.GoName = "TenantID"
 		f.JSONName = "tenant_id"

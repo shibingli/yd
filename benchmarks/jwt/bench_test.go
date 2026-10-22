@@ -11,8 +11,8 @@ import (
 
 	stdjwt "github.com/golang-jwt/jwt/v5"
 
-	"github.com/shibingli/yd/core/jsonx"
-	ourjwt "github.com/shibingli/yd/security/jwt"
+	"github.com/shibingli/ydx/json"
+	ourjwt "github.com/shibingli/ydx/jwt"
 )
 
 // selected reports whether name passes the YD_BENCH_ONLY filter. Running each
@@ -153,7 +153,7 @@ func BenchmarkSign(b *testing.B) {
 				benchStringSink = token
 			}
 		})
-		payload, err := jsonx.Marshal(structClaims)
+		payload, err := json.Marshal(structClaims)
 		if err != nil {
 			b.Fatalf("Marshal claims failed | 序列化声明失败: %v", err)
 		}

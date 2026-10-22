@@ -21,7 +21,7 @@ import (
 	liquidrender "github.com/osteele/liquid/render"
 	"github.com/spf13/afero"
 
-	ydrender "github.com/shibingli/yd/http/render"
+	ydrender "github.com/shibingli/ydx/render"
 )
 
 //go:embed templates/page.html templates/page.jet templates/page.pongo2 templates/page.liquid templates/page.hbs templates/page.mustache

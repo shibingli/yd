@@ -10,7 +10,7 @@ import (
 	cristal "github.com/cristalhq/jwt/v5"
 	kjwt "github.com/kataras/jwt"
 
-	ourjwt "github.com/shibingli/yd/security/jwt"
+	ourjwt "github.com/shibingli/ydx/jwt"
 )
 
 // cristalHS builds the cristalhq signer, verifier and registered claims for

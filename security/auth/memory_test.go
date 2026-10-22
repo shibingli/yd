@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/shibingli/yd/http/router"
+	"github.com/shibingli/ydx/router"
 )
 
 // TestCrossTenantAccessIsDenied 要求跨租户的每一次读写都以 ErrNotFound 拒绝，且绝不返回数据。

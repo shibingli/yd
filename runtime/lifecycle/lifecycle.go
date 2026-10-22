@@ -34,19 +34,19 @@ import (
 	"sync"
 	"sync/atomic"
 
-	"github.com/shibingli/yd/core/errx"
+	yderrs "github.com/shibingli/ydx/errs"
 )
 
 // Sentinel errors of this package, all testable with errors.Is. | 本包的哨兵错误，均可通过 errors.Is 判定。
 var (
 	// ErrHookFailed reports a shutdown hook that returned an error. | ErrHookFailed 表示关闭钩子返回了错误。
-	ErrHookFailed = errx.New("lifecycle: shutdown hook failed | lifecycle：关闭钩子执行失败")
+	ErrHookFailed = yderrs.New("lifecycle: shutdown hook failed | lifecycle：关闭钩子执行失败")
 
 	// ErrHookPanic reports a shutdown hook that panicked; the panic was recovered. | ErrHookPanic 表示关闭钩子发生 panic；该 panic 已被恢复。
-	ErrHookPanic = errx.New("lifecycle: shutdown hook panicked | lifecycle：关闭钩子发生 panic")
+	ErrHookPanic = yderrs.New("lifecycle: shutdown hook panicked | lifecycle：关闭钩子发生 panic")
 
 	// ErrShutdownTimeout reports that the context expired before every hook finished. | ErrShutdownTimeout 表示 ctx 到期时仍有钩子未完成。
-	ErrShutdownTimeout = errx.New("lifecycle: shutdown deadline exceeded | lifecycle：关闭超过截止时间")
+	ErrShutdownTimeout = yderrs.New("lifecycle: shutdown deadline exceeded | lifecycle：关闭超过截止时间")
 )
 
 // ShutdownFunc is one shutdown task. | ShutdownFunc 是一项关闭任务。
@@ -212,7 +212,7 @@ func (r *Registry) Shutdown(ctx context.Context) error {
 		case <-finished:
 			return r.Err()
 		case <-ctx.Done():
-			return errx.WrapDetail(ctx.Err(), ErrShutdownTimeout,
+			return yderrs.WrapDetail(ctx.Err(), ErrShutdownTimeout,
 				"waiting for the shutdown in progress | 等待进行中的关闭")
 		}
 	}
@@ -243,7 +243,7 @@ func (r *Registry) Shutdown(ctx context.Context) error {
 
 		if err := ctx.Err(); err != nil {
 			// Grace period over: start no new hook, only record the skip, so Shutdown returns on time. | 宽限期已到：不再启动新钩子，只记录跳过，保证 Shutdown 及时返回。
-			errs = append(errs, errx.WrapDetail(err, ErrShutdownTimeout,
+			errs = append(errs, yderrs.WrapDetail(err, ErrShutdownTimeout,
 				"hook %[1]q skipped | 钩子 %[1]q 被跳过", h.name))
 			continue
 		}
@@ -265,7 +265,7 @@ func (r *Registry) runHook(ctx context.Context, h *hook) error {
 		defer func() {
 			if p := recover(); p != nil {
 				// A hook panic must be recovered inside the goroutine or it takes the process down. | 单条钩子的 panic 必须在协程内恢复，否则会终结整个进程。
-				result <- errx.Detail(ErrHookPanic, "hook %[1]q: %[2]v | 钩子 %[1]q：%[2]v", h.name, p)
+				result <- yderrs.Detail(ErrHookPanic, "hook %[1]q: %[2]v | 钩子 %[1]q：%[2]v", h.name, p)
 			}
 		}()
 		result <- h.fn(ctx)
@@ -274,10 +274,10 @@ func (r *Registry) runHook(ctx context.Context, h *hook) error {
 	select {
 	case err := <-result:
 		if err != nil {
-			return errx.WrapDetail(err, ErrHookFailed, "hook=%[1]q | 钩子=%[1]q", h.name)
+			return yderrs.WrapDetail(err, ErrHookFailed, "hook=%[1]q | 钩子=%[1]q", h.name)
 		}
 		return nil
 	case <-ctx.Done():
-		return errx.WrapDetail(ctx.Err(), ErrShutdownTimeout, "hook=%[1]q | 钩子=%[1]q", h.name)
+		return yderrs.WrapDetail(ctx.Err(), ErrShutdownTimeout, "hook=%[1]q | 钩子=%[1]q", h.name)
 	}
 }

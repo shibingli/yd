@@ -11,10 +11,10 @@ import (
 	"time"
 
 	"{{ .Module }}/internal/service"
-	"{{ .YdModule }}/core/logx"
-	"{{ .YdModule }}/http/router"
-	"{{ .YdModule }}/http/sse"
-	"{{ .YdModule }}/http/ws"
+	"{{ .YdxModule }}/log"
+	"{{ .YdxModule }}/router"
+	"{{ .YdxModule }}/sse"
+	"{{ .YdxModule }}/websocket"
 )
 
 // 推送端点的时间参数：心跳与重连间隔是前端体验参数，与推送间隔分开配置。
@@ -58,9 +58,9 @@ func (c *Controller) Page(ctx *router.Ctx) {
 // Stream 构造 SSE 端点处理器：按 EventsTopic 订阅并持续把服务端渲染的片段写给客户端。
 // Stream builds the SSE endpoint handler: it subscribes to EventsTopic and keeps writing server-rendered fragments.
 //
-// 工厂函数本身即处理器的注册处，因此 OpenAPI 注解块写在这里（与 ws.HtmxHandler 的约定一致）。
+// 工厂函数本身即处理器的注册处，因此 OpenAPI 注解块写在这里（与 websocket.HtmxHandler 的约定一致）。
 // The factory is the registration site of the handler, so the OpenAPI annotation block lives here (the same convention
-// as ws.HtmxHandler).
+// as websocket.HtmxHandler).
 //
 // @Summary Event stream (SSE) | 事件流（SSE）
 // @Description Opens a text/event-stream subscribed to the yd.events topic. Clock frames arrive as unnamed htmx partial
@@ -94,11 +94,11 @@ func (c *Controller) Stream(broker *sse.Broker) router.HandlerFunc {
 // Socket builds the WebSocket endpoint handler: the echo behaviour is built in and the clock fragment is pushed
 // periodically on top of it.
 //
-// 回显由 OnMessage 完成：htmx 4 把表单字段作为顶层键发送（没有 BODY 字段），ws.HtmxMessage 已把唯一值或约定的
+// 回显由 OnMessage 完成：htmx 4 把表单字段作为顶层键发送（没有 BODY 字段），websocket.HtmxMessage 已把唯一值或约定的
 // message 字段解为 Body；这里再做 HTML 转义后追加到日志。主动推送则由 OnOpen 启动的协程完成：写失败即代表对端已断开，
 // 协程立即返回，不需要额外的生命周期管理。
 // The echo is handled by OnMessage: htmx 4 sends form fields as top-level keys (there is no BODY field), and
-// ws.HtmxMessage resolves the single value or the conventional message field into Body; the handler escapes it and
+// websocket.HtmxMessage resolves the single value or the conventional message field into Body; the handler escapes it and
 // appends it to the log. The push is performed by the goroutine started in OnOpen: a write error means the peer is gone,
 // so the goroutine returns at once and needs no further lifecycle management.
 //
@@ -119,20 +119,20 @@ func (c *Controller) Stream(broker *sse.Broker) router.HandlerFunc {
 // @Security BearerAuth
 // @Router /ws [get]
 func (c *Controller) Socket(ticker *service.Ticker) router.HandlerFunc {
-	return ws.HtmxHandler(ws.HtmxOptions{
+	return websocket.HtmxHandler(websocket.HtmxOptions{
 		// 子协议与 htmx 的 WebSocket 扩展一致；不声明它，浏览器可能拒绝握手。
 		// The subprotocol matches the htmx WebSocket extension; without it the browser may refuse the handshake.
 		Subprotocols: []string{"htmx"},
-		OnOpen: func(conn *ws.Conn) {
+		OnOpen: func(conn *websocket.Conn) {
 			go c.pushClock(conn, ticker)
 		},
-		OnMessage: func(conn *ws.Conn, msg ws.HtmxMessage) {
+		OnMessage: func(conn *websocket.Conn, msg websocket.HtmxMessage) {
 			c.echoMessage(conn, msg)
 		},
-		OnClose: func(conn *ws.Conn, err error) {
+		OnClose: func(conn *websocket.Conn, err error) {
 			c.app.Logger().Debug("websocket closed | WebSocket 已关闭",
-				logx.Str("remote", remoteAddr(conn)),
-				logx.Err(err),
+				log.Str("remote", remoteAddr(conn)),
+				log.Err(err),
 			)
 		},
 	})
@@ -144,20 +144,20 @@ func (c *Controller) Socket(ticker *service.Ticker) router.HandlerFunc {
 // 回显内容是用户输入，必须 HTML 转义：htmx 会把片段内容交换进页面，未转义的输入会被当作标记执行。
 // The echoed content is user input and must be HTML-escaped: htmx swaps the fragment into the page, so
 // unescaped input would be executed as markup.
-func (c *Controller) echoMessage(conn *ws.Conn, msg ws.HtmxMessage) {
+func (c *Controller) echoMessage(conn *websocket.Conn, msg websocket.HtmxMessage) {
 	text := strings.TrimSpace(msg.Body)
 	if text == "" {
 		return
 	}
 	fragment := `<p class="yd-stream__item">` + html.EscapeString(text) + `</p>`
 	if err := conn.WriteHtmxFragment(service.EchoTarget, service.EchoSwap, fragment); err != nil {
-		c.app.Logger().Debug("websocket echo failed | WebSocket 回显失败", logx.Err(err))
+		c.app.Logger().Debug("websocket echo failed | WebSocket 回显失败", log.Err(err))
 	}
 }
 
 // pushClock 按推送节拍向单条连接写时钟片段，直到写出失败（对端已断开）为止。
 // pushClock writes clock frames to one connection on the push cadence until a write fails (the peer is gone).
-func (c *Controller) pushClock(conn *ws.Conn, ticker *service.Ticker) {
+func (c *Controller) pushClock(conn *websocket.Conn, ticker *service.Ticker) {
 	interval := ticker.Interval()
 	clock := time.NewTicker(interval)
 	defer clock.Stop()
@@ -177,7 +177,7 @@ func (c *Controller) pushClock(conn *ws.Conn, ticker *service.Ticker) {
 
 // remoteAddr 安全地取出对端地址，连接已被回收时返回空串。
 // remoteAddr safely reads the peer address and returns an empty string once the connection has been recycled.
-func remoteAddr(conn *ws.Conn) string {
+func remoteAddr(conn *websocket.Conn) string {
 	if conn == nil || conn.RemoteAddr() == nil {
 		return ""
 	}

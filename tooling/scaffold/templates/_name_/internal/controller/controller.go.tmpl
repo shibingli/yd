@@ -21,12 +21,12 @@ import (
 	"{{ .Module }}/internal/model"
 	"{{ .Module }}/internal/repository"
 	"{{ .Module }}/internal/service"
-	"{{ .YdModule }}/core/errx"
-	"{{ .YdModule }}/core/logx"
+	"{{ .YdxModule }}/errs"
+	logx "{{ .YdxModule }}/log"
 	"{{ .YdModule }}/http/htmx"
 	"{{ .YdModule }}/http/i18n"
-	"{{ .YdModule }}/http/render"
-	"{{ .YdModule }}/http/router"
+	"{{ .YdxModule }}/render"
+	"{{ .YdxModule }}/router"
 	"{{ .YdModule }}/messaging"
 	"{{ .YdModule }}/messaging/realtime"
 	"{{ .YdModule }}/runtime/app"
@@ -279,7 +279,7 @@ const (
 )
 
 // ErrPlaceholder reports a failed placeholder image encoding (practically only possible when memory is exhausted). | ErrPlaceholder 表示占位图编码失败（几乎只可能因为内存耗尽）。
-var ErrPlaceholder = errx.New("controller: placeholder image encoding failed | controller：占位图编码失败")
+var ErrPlaceholder = errs.New("controller: placeholder image encoding failed | controller：占位图编码失败")
 
 // Controller 持有应用门面与业务服务：门面负责渲染与配置，服务负责规则。
 // Controller holds the application facade and the business services: the facade renders and configures, the services own the rules.

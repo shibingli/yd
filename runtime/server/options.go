@@ -6,8 +6,8 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/shibingli/yd/core/config"
-	"github.com/shibingli/yd/core/logx"
+	"github.com/shibingli/ydx/config"
+	"github.com/shibingli/ydx/log"
 )
 
 // TLSConfig holds the certificate source for HTTPS. | TLSConfig 描述 HTTPS 的证书来源。
@@ -50,7 +50,7 @@ type Options struct {
 	// Handler serves every request (usually the router). | Handler 处理全部请求（通常是路由）。
 	Handler http.Handler
 	// Logger records lifecycle events. | Logger 记录生命周期事件。
-	Logger *logx.Logger
+	Logger *log.Logger
 	// Host is the bind address; empty means all interfaces. | Host 为绑定地址，空表示全部网卡。
 	Host string
 

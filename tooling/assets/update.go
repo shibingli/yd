@@ -16,8 +16,8 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/shibingli/yd/core/afs"
-	"github.com/shibingli/yd/core/errx"
+	"github.com/shibingli/ydx/afs"
+	yderrs "github.com/shibingli/ydx/errs"
 	"github.com/spf13/afero"
 )
 
@@ -143,11 +143,11 @@ func newHTTPClient(proxy string) (*http.Client, error) {
 	}
 	u, err := url.Parse(proxy)
 	if err != nil || u.Scheme == "" || u.Host == "" {
-		return nil, errx.Detail(ErrDownloadFailed, "invalid proxy URL | 非法的代理 URL")
+		return nil, yderrs.Detail(ErrDownloadFailed, "invalid proxy URL | 非法的代理 URL")
 	}
 	base, ok := http.DefaultTransport.(*http.Transport)
 	if !ok {
-		return nil, errx.Detail(ErrDownloadFailed, "default HTTP transport is not *http.Transport | 默认 HTTP 传输层不是 *http.Transport")
+		return nil, yderrs.Detail(ErrDownloadFailed, "default HTTP transport is not *http.Transport | 默认 HTTP 传输层不是 *http.Transport")
 	}
 	transport := base.Clone()
 	transport.Proxy = http.ProxyURL(u)
@@ -188,7 +188,7 @@ func Update(ctx context.Context, o UpdateOptions) (*UpdateReport, error) {
 		return nil, err
 	}
 	if err := ctx.Err(); err != nil {
-		return nil, errx.Wrap(err, ErrDownloadFailed)
+		return nil, yderrs.Wrap(err, ErrDownloadFailed)
 	}
 
 	m, err := LoadManifest(o.FS, o.ManifestPath)
@@ -269,11 +269,11 @@ func (o UpdateOptions) apply(ctx context.Context, a Asset, sources []string, wri
 	if o.Offline {
 		switch {
 		case !exists:
-			res.state, res.err = stateFailed, errx.Detail(ErrOfflineMissing, "%s", local)
+			res.state, res.err = stateFailed, yderrs.Detail(ErrOfflineMissing, "%s", local)
 		case a.SHA256 == "":
-			res.state, res.err = stateFailed, errx.Detail(ErrChecksumMismatch, "%[1]s: not locked, offline mode cannot check it | %[1]s: 未锁定，离线模式无法核对", a.Name)
+			res.state, res.err = stateFailed, yderrs.Detail(ErrChecksumMismatch, "%[1]s: not locked, offline mode cannot check it | %[1]s: 未锁定，离线模式无法核对", a.Name)
 		case sha256Hex(existing) != a.SHA256:
-			res.state, res.err = stateFailed, errx.Detail(ErrChecksumMismatch, "%s", local)
+			res.state, res.err = stateFailed, yderrs.Detail(ErrChecksumMismatch, "%s", local)
 		default:
 			res.state = stateUnchanged
 		}
@@ -282,7 +282,7 @@ func (o UpdateOptions) apply(ctx context.Context, a Asset, sources []string, wri
 
 	candidates := candidatesFor(a, sources)
 	if len(candidates) == 0 {
-		res.state, res.err = stateFailed, errx.Detail(ErrDownloadFailed, "%[1]s: no download source available | %[1]s: 没有可用的下载源", a.Name)
+		res.state, res.err = stateFailed, yderrs.Detail(ErrDownloadFailed, "%[1]s: no download source available | %[1]s: 没有可用的下载源", a.Name)
 		return res
 	}
 
@@ -301,7 +301,7 @@ func (o UpdateOptions) apply(ctx context.Context, a Asset, sources []string, wri
 	// caller explicitly asked for a re-lock. | 锁定是权威：不匹配说明上游已变动，除非调用方明确要求
 	// 重新锁定，否则一律视为失败。
 	if a.SHA256 != "" && sum != a.SHA256 && !o.Force {
-		res.state, res.err = stateFailed, errx.Detail(ErrChecksumMismatch, "%[1]s: locked %[2]s, downloaded %[3]s | %[1]s: 锁定 %[2]s，下载 %[3]s", a.Name, a.SHA256, sum)
+		res.state, res.err = stateFailed, yderrs.Detail(ErrChecksumMismatch, "%[1]s: locked %[2]s, downloaded %[3]s | %[1]s: 锁定 %[2]s，下载 %[3]s", a.Name, a.SHA256, sum)
 		return res
 	}
 
@@ -340,7 +340,7 @@ func Add(ctx context.Context, o UpdateOptions, a Asset) (Asset, error) {
 		return Asset{}, err
 	}
 	if strings.TrimSpace(a.Name) == "" {
-		return Asset{}, errx.Detail(ErrInvalidAsset, "name is missing | 缺少 name")
+		return Asset{}, yderrs.Detail(ErrInvalidAsset, "name is missing | 缺少 name")
 	}
 	path, err := NormalizePath(a.Path)
 	if err != nil {
@@ -351,10 +351,10 @@ func Add(ctx context.Context, o UpdateOptions, a Asset) (Asset, error) {
 		a.Kind = KindFromPath(a.Path)
 	}
 	if o.Offline {
-		return Asset{}, errx.Detail(ErrOffline, "yd assets add %s", a.Name)
+		return Asset{}, yderrs.Detail(ErrOffline, "yd assets add %s", a.Name)
 	}
 	if err := ctx.Err(); err != nil {
-		return Asset{}, errx.Wrap(err, ErrDownloadFailed)
+		return Asset{}, yderrs.Wrap(err, ErrDownloadFailed)
 	}
 
 	m, err := LoadManifest(o.FS, o.ManifestPath)
@@ -372,7 +372,7 @@ func Add(ctx context.Context, o UpdateOptions, a Asset) (Asset, error) {
 
 	candidates := candidatesFor(a, sources)
 	if len(candidates) == 0 {
-		return Asset{}, errx.Detail(ErrDownloadFailed, "%[1]s: no download source available | %[1]s: 没有可用的下载源", a.Name)
+		return Asset{}, yderrs.Detail(ErrDownloadFailed, "%[1]s: no download source available | %[1]s: 没有可用的下载源", a.Name)
 	}
 	data, err := fetch(ctx, o.HTTPClient, candidates)
 	if err != nil {
@@ -539,20 +539,20 @@ func fetch(ctx context.Context, client *http.Client, candidates []string) ([]byt
 func fetchOne(ctx context.Context, client *http.Client, u string) ([]byte, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
 	if err != nil {
-		return nil, errx.WrapDetail(err, ErrDownloadFailed, "%s", u)
+		return nil, yderrs.WrapDetail(err, ErrDownloadFailed, "%s", u)
 	}
 	resp, err := client.Do(req)
 	if err != nil {
-		return nil, errx.WrapDetail(err, ErrDownloadFailed, "%s", u)
+		return nil, yderrs.WrapDetail(err, ErrDownloadFailed, "%s", u)
 	}
 	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode < 200 || resp.StatusCode > 299 {
-		return nil, errx.Detail(ErrDownloadFailed, "%[1]s: HTTP %[2]d | %[1]s：HTTP 状态 %[2]d", u, resp.StatusCode)
+		return nil, yderrs.Detail(ErrDownloadFailed, "%[1]s: HTTP %[2]d | %[1]s：HTTP 状态 %[2]d", u, resp.StatusCode)
 	}
 	data, err := readLimited(resp.Body, maxAssetSize)
 	if err != nil {
-		return nil, errx.WrapDetail(err, ErrDownloadFailed, "%s", u)
+		return nil, yderrs.WrapDetail(err, ErrDownloadFailed, "%s", u)
 	}
 	return data, nil
 }
@@ -565,7 +565,7 @@ func readLimited(r io.Reader, limit int64) ([]byte, error) {
 		return nil, err
 	}
 	if n > limit {
-		return nil, errx.Detail(ErrAssetTooLarge, "%d > %d", n, limit)
+		return nil, yderrs.Detail(ErrAssetTooLarge, "%d > %d", n, limit)
 	}
 	return buf.Bytes(), nil
 }
@@ -596,7 +596,7 @@ func (t *OfflineTransport) RoundTrip(req *http.Request) (*http.Response, error) 
 	if req != nil && req.URL != nil {
 		target = req.URL.Redacted()
 	}
-	return nil, errx.Detail(ErrOffline, "%s", target)
+	return nil, yderrs.Detail(ErrOffline, "%s", target)
 }
 
 // Calls reports how many requests reached the tripwire; it must stay 0 offline. | Calls 报告到达拦截器的请求数；离线时必须保持为 0。

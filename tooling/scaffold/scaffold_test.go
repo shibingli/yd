@@ -20,15 +20,15 @@ import (
 	"testing"
 	"time"
 
-	"github.com/shibingli/yd/core/afs"
-	"github.com/shibingli/yd/core/b64x"
-	"github.com/shibingli/yd/core/jsonx"
-	"github.com/shibingli/yd/core/regexpx"
-	"github.com/shibingli/yd/http/ws"
 	"github.com/shibingli/yd/security/authz"
 	"github.com/shibingli/yd/security/guomi"
 	"github.com/shibingli/yd/tooling/assets"
 	"github.com/shibingli/yd/tooling/scaffold"
+	"github.com/shibingli/ydx/afs"
+	"github.com/shibingli/ydx/base64"
+	"github.com/shibingli/ydx/json"
+	"github.com/shibingli/ydx/regexpx"
+	"github.com/shibingli/ydx/websocket"
 	"github.com/spf13/afero"
 	"go.yaml.in/yaml/v3"
 )
@@ -391,7 +391,7 @@ func TestGenerateHiddenFilesNotLostOnMemFS(t *testing.T) {
 		Features  map[string]any `json:"features"`
 		AssetRoot string         `json:"assetRoot"`
 	}
-	if err := jsonx.Unmarshal([]byte(pr.read(".yd.json")), &meta); err != nil {
+	if err := json.Unmarshal([]byte(pr.read(".yd.json")), &meta); err != nil {
 		t.Fatalf(".yd.json 不是合法 JSON: %v", err)
 	}
 	if meta.Name != "hidden-app" || meta.Module != "github.com/yun-dev/hidden-app" {
@@ -496,7 +496,7 @@ func TestGenerateAlwaysIntegratesRedisAndAsynq(t *testing.T) {
 		}
 	}
 	bus := prPlain.read("internal/service/message_bus.go")
-	for _, want := range []string{"redisx.Open", "asynqx.NewClient"} {
+	for _, want := range []string{"redis.Open", "asynq.NewClient"} {
 		if !strings.Contains(bus, want) {
 			t.Errorf("消息总线应始终装配 %q:\n%s", want, bus)
 		}
@@ -556,7 +556,7 @@ func TestGeneratedPersistenceFollowsDatabaseChoice(t *testing.T) {
 	// auth/gormstore and this project merely assembles it.
 	ormImports := []string{
 		`"github.com/shibingli/yd/security/auth/gormstore"`,
-		`"github.com/shibingli/yd/data/gormx"`,
+		`"github.com/shibingli/ydx/gorm"`,
 		`"gorm.io/gorm"`,
 	}
 
@@ -567,7 +567,7 @@ func TestGeneratedPersistenceFollowsDatabaseChoice(t *testing.T) {
 	store := prDB.read("internal/repository/store.go")
 	for _, want := range []string{
 		`"github.com/shibingli/yd/security/auth/gormstore"`,
-		`"github.com/shibingli/yd/data/gormx"`,
+		`"github.com/shibingli/ydx/gorm"`,
 		"gormstore.Migrate(ctx, db)",
 		"gormstore.New(db, gormstore.OptionsFromConfig(o.Config))",
 		"auth data is stored in the database",
@@ -813,9 +813,9 @@ func TestGenerateMainGoIsMinimalCompilableSkeleton(t *testing.T) {
 	main := pr.read("cmd/app/main.go")
 	for _, want := range []string{
 		`"` + scaffold.YdModule + `/runtime/app"`,
-		`"` + scaffold.YdModule + `/core/errx"`,
-		`"` + scaffold.YdModule + `/core/logx"`,
-		`"` + scaffold.YdModule + `/middleware"`,
+		`"` + scaffold.YdxModule + `/errs"`,
+		`"` + scaffold.YdxModule + `/log"`,
+		`"` + scaffold.YdxModule + `/middleware"`,
 		"signal.NotifyContext",
 		// 门面装配：本项目资产经 app.WithFS 交给渲染器与 /static，而不是退回框架内嵌资产。
 		// Facade assembly: this project's assets reach the renderer and /static through app.WithFS instead of falling back
@@ -926,11 +926,17 @@ func TestLocalReplaceAddsGoModReplace(t *testing.T) {
 	pr, _ := generateMem(t, o)
 
 	gomod := pr.read("go.mod")
-	if !strings.Contains(gomod, "require github.com/shibingli/yd") {
+	if !strings.Contains(gomod, scaffold.YdModule+" v0.0.0") {
 		t.Errorf("go.mod 缺少框架 require:\n%s", gomod)
 	}
 	if !strings.Contains(gomod, "replace github.com/shibingli/yd => /srv/yd") {
 		t.Errorf("go.mod 缺少 replace 指向本地仓库:\n%s", gomod)
+	}
+	if !strings.Contains(gomod, scaffold.YdxModule+"/errs v0.0.0") {
+		t.Errorf("go.mod 缺少 ydx require:\n%s", gomod)
+	}
+	if !strings.Contains(gomod, "replace "+scaffold.YdxModule+"/errs => /srv/ydx/errs") {
+		t.Errorf("go.mod 缺少 ydx replace 指向同级仓库:\n%s", gomod)
 	}
 }
 
@@ -946,6 +952,10 @@ func TestLocalReplaceUNCIsQuoted(t *testing.T) {
 	want := `replace github.com/shibingli/yd => "//server/share/yd"`
 	if !strings.Contains(gomod, want) {
 		t.Errorf("go.mod 未引用 UNC 路径:\n got:\n%s\nwant substring: %s", gomod, want)
+	}
+	wantYdx := `replace ` + scaffold.YdxModule + `/errs => "//server/share/ydx/errs"`
+	if !strings.Contains(gomod, wantYdx) {
+		t.Errorf("go.mod 未引用 ydx 的 UNC 路径:\n got:\n%s\nwant substring: %s", gomod, wantYdx)
 	}
 }
 
@@ -1152,7 +1162,7 @@ func TestGeneratedGovernanceDocsStateConstraints(t *testing.T) {
 
 	agents := pr.read("AGENTS.md")
 	for _, want := range []string{
-		"Test-and-Fix", "logx", "jsonx", "b64x", "errx", "YD_", "Co-Authored-By: Eric Shi <shibingli@sina.com>",
+		"Test-and-Fix", "log", "json", "base64", "errs", "YD_", "Co-Authored-By: Eric Shi <shibingli@sina.com>",
 		// 安全清单里的鉴权条目：租户隔离、能力守卫、会话顺序、文案双语。
 		// The authentication items of the security checklist: tenant isolation, capability guards, session order and bilingual copy.
 		"auth.RequirePermission",
@@ -1378,7 +1388,7 @@ func TestGeneratedAppServesFrameworkFeatures(t *testing.T) {
 		ctx, cancel := context.WithTimeout(context.Background(), sseTimeout)
 		defer cancel()
 
-		conn, err := ws.Dial(ctx, "ws"+strings.TrimPrefix(base, "http")+"/mgr/ws/metrics", ws.DialOptions{
+		conn, err := websocket.Dial(ctx, "ws"+strings.TrimPrefix(base, "http")+"/mgr/ws/metrics", websocket.DialOptions{
 			Subprotocols: []string{"htmx"},
 			Headers:      http.Header{"Authorization": []string{"Bearer " + token}},
 		})
@@ -1397,7 +1407,7 @@ func TestGeneratedAppServesFrameworkFeatures(t *testing.T) {
 		if err != nil {
 			t.Fatalf("读取指标推送失败: %v", err)
 		}
-		if op != ws.TextMessage {
+		if op != websocket.TextMessage {
 			t.Fatalf("指标推送帧类型 = %v, 期望文本帧", op)
 		}
 		for _, want := range []string{
@@ -1425,7 +1435,7 @@ func TestGeneratedAppServesFrameworkFeatures(t *testing.T) {
 		if err != nil {
 			t.Fatalf("读取第二帧指标推送失败: %v", err)
 		}
-		if op != ws.TextMessage {
+		if op != websocket.TextMessage {
 			t.Fatalf("第二帧类型 = %v, 期望文本帧", op)
 		}
 		for _, want := range []string{`id="yd-metrics"`, `id="yd-middleware-metrics"`} {
@@ -1667,7 +1677,7 @@ func TestGeneratedAppServesFrameworkFeatures(t *testing.T) {
 		// The handshake uses the framework's own client: the same subprotocol a browser asks for, with the
 		// Sec-WebSocket-Accept response verified. The upgrade request has to carry the token too, otherwise the auth
 		// middleware stops it at 401.
-		conn, err := ws.Dial(ctx, "ws"+strings.TrimPrefix(base, "http")+"/ws", ws.DialOptions{
+		conn, err := websocket.Dial(ctx, "ws"+strings.TrimPrefix(base, "http")+"/ws", websocket.DialOptions{
 			Subprotocols: []string{"htmx"},
 			Headers:      http.Header{"Authorization": []string{"Bearer " + token}},
 		})
@@ -1685,7 +1695,7 @@ func TestGeneratedAppServesFrameworkFeatures(t *testing.T) {
 		if err != nil {
 			t.Fatalf("读取服务端推送失败: %v", err)
 		}
-		if op != ws.TextMessage {
+		if op != websocket.TextMessage {
 			t.Fatalf("推送帧类型 = %v, 期望文本帧", op)
 		}
 		for _, want := range []string{"<hx-partial", `hx-target="#yd-clock"`} {
@@ -1697,7 +1707,7 @@ func TestGeneratedAppServesFrameworkFeatures(t *testing.T) {
 		// htmx 信封的 BODY 由默认回显实现原样送回；推送与回显可能交错，因此循环读到回显为止。
 		// The envelope BODY is echoed verbatim by the default implementation; pushes and echoes can interleave, so the
 		// loop reads until the echo shows up.
-		if err := conn.WriteMessage(ws.TextMessage, []byte(`{"BODY":"ping"}`)); err != nil {
+		if err := conn.WriteMessage(websocket.TextMessage, []byte(`{"BODY":"ping"}`)); err != nil {
 			t.Fatalf("写出 htmx 信封失败: %v", err)
 		}
 		echoed := false
@@ -2060,7 +2070,7 @@ func authzEnvelopeOf(t *testing.T, where, page string) authz.Envelope {
 		t.Fatalf("%s: the authority payload element is never closed | %s：权限信封元素没有闭合", where, where)
 	}
 	var env authz.Envelope
-	if err := jsonx.Unmarshal([]byte(rest[:end]), &env); err != nil {
+	if err := json.Unmarshal([]byte(rest[:end]), &env); err != nil {
 		t.Fatalf("%s: the authority payload is not valid JSON (%v) | %s：权限信封不是合法 JSON（%v）", where, err, where, err)
 	}
 	return env
@@ -2784,7 +2794,7 @@ func sm2Cipher(t *testing.T, client *http.Client, base, plain string) string {
 	if err != nil {
 		t.Fatalf("SM2 加密失败: %v", err)
 	}
-	return b64x.StdEncoding.EncodeToString(cipher)
+	return base64.StdEncoding.EncodeToString(cipher)
 }
 
 // signIn 用默认凭据（或任意账号）完成一次登录，返回会话令牌。
@@ -3047,7 +3057,7 @@ func assertAnnotatedOperations(t *testing.T, doc string) {
 			Tags    []string `json:"tags"`
 		} `json:"paths"`
 	}
-	if err := jsonx.Unmarshal([]byte(doc), &parsed); err != nil {
+	if err := json.Unmarshal([]byte(doc), &parsed); err != nil {
 		t.Fatalf("解析 /openapi.json 失败: %v\n%s", err, doc)
 	}
 
@@ -3193,15 +3203,21 @@ func TestGeneratePinsTheRunningYdVersion(t *testing.T) {
 	o := scaffold.DefaultOptions("pinned-app")
 	o.YdVersion = pinned
 	pr, _ := generateMem(t, o)
-	if got := pr.read("go.mod"); !strings.Contains(got, "require "+scaffold.YdModule+" "+pinned) {
+	if got := pr.read("go.mod"); !strings.Contains(got, scaffold.YdModule+" "+pinned) {
 		t.Errorf("go.mod 未锁定框架版本 %q:\n%s", pinned, got)
+	}
+	if got := pr.read("go.mod"); !strings.Contains(got, scaffold.YdxModule+"/errs "+scaffold.YdxVersion) {
+		t.Errorf("go.mod 未锁定 ydx 版本 %q:\n%s", scaffold.YdxVersion, got)
 	}
 
 	unpinned := scaffold.DefaultOptions("unpinned-app")
 	unpinned.YdVersion = ""
 	pr, _ = generateMem(t, unpinned)
-	if got := pr.read("go.mod"); strings.Contains(got, "require "+scaffold.YdModule) {
-		t.Errorf("版本未知时不应写入 require:\n%s", got)
+	if got := pr.read("go.mod"); strings.Contains(got, scaffold.YdModule+" v") {
+		t.Errorf("版本未知时不应写入框架 require:\n%s", got)
+	}
+	if got := pr.read("go.mod"); strings.Contains(got, scaffold.YdxModule+"/errs v") {
+		t.Errorf("版本未知时不应写入 ydx require:\n%s", got)
 	}
 }
 

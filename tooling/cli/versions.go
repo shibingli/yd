@@ -14,9 +14,9 @@ import (
 
 	"github.com/spf13/pflag"
 
-	"github.com/shibingli/yd/core/errx"
 	"github.com/shibingli/yd/tooling/assets"
 	"github.com/shibingli/yd/tooling/versions"
+	"github.com/shibingli/ydx/errs"
 )
 
 // versionsCommandName is the command word of the version synchronization command. | versionsCommandName 是版本同步命令的命令词。
@@ -49,11 +49,11 @@ const (
 
 var (
 	// ErrVersionsCommand reports a failed external go command. | ErrVersionsCommand 表示外部 go 命令执行失败。
-	ErrVersionsCommand = errx.New("run go command failed | 执行 go 命令失败")
+	ErrVersionsCommand = errs.New("run go command failed | 执行 go 命令失败")
 	// ErrVersionsNothing reports an upgrade with both halves disabled. | ErrVersionsNothing 表示升级的两个部分都被关闭。
-	ErrVersionsNothing = errx.New("nothing to upgrade | 没有可升级项")
+	ErrVersionsNothing = errs.New("nothing to upgrade | 没有可升级项")
 	// ErrNoScaffold reports sync outside the framework repository. | ErrNoScaffold 表示在框架仓库之外运行 sync。
-	ErrNoScaffold = errx.New("no tooling/scaffold directory; sync only applies to the framework repository | 没有 tooling/scaffold 目录；sync 仅适用于框架仓库")
+	ErrNoScaffold = errs.New("no tooling/scaffold directory; sync only applies to the framework repository | 没有 tooling/scaffold 目录；sync 仅适用于框架仓库")
 )
 
 // versionsFlags keeps the versions command's flag set. | versionsFlags 保存 versions 命令的标志集。
@@ -68,7 +68,7 @@ var versionsRunGo = func(ctx context.Context, dir string, out io.Writer, args ..
 	cmd.Stdout = out
 	cmd.Stderr = out
 	if err := cmd.Run(); err != nil {
-		return errx.WrapDetail(err, ErrVersionsCommand, "go %[1]s | go %[1]s", strings.Join(args, " "))
+		return errs.WrapDetail(err, ErrVersionsCommand, "go %[1]s | go %[1]s", strings.Join(args, " "))
 	}
 	return nil
 }
@@ -96,11 +96,11 @@ func versionsClient(env *Env) (*http.Client, error) {
 	}
 	u, err := url.Parse(proxy)
 	if err != nil || u.Scheme == "" || u.Host == "" {
-		return nil, errx.Detail(ErrConfigLoad, "invalid http.proxy | 非法的 http.proxy")
+		return nil, errs.Detail(ErrConfigLoad, "invalid http.proxy | 非法的 http.proxy")
 	}
 	base, ok := http.DefaultTransport.(*http.Transport)
 	if !ok {
-		return nil, errx.Detail(ErrConfigLoad, "default HTTP transport is not *http.Transport | 默认 HTTP 传输层不是 *http.Transport")
+		return nil, errs.Detail(ErrConfigLoad, "default HTTP transport is not *http.Transport | 默认 HTTP 传输层不是 *http.Transport")
 	}
 	transport := base.Clone()
 	transport.Proxy = http.ProxyURL(u)
@@ -158,7 +158,7 @@ func runVersions(ctx context.Context, env *Env) error {
 	default:
 		fmt.Fprintf(env.Err, "yd versions: unknown subcommand %q | yd versions：未知子命令 %q\n", sub, sub)
 		fmt.Fprintf(env.Err, "usage | 用法: %s\n", versionsUsageLine)
-		return errx.Detail(ErrUnknownCommand, "yd versions %s", sub)
+		return errs.Detail(ErrUnknownCommand, "yd versions %s", sub)
 	}
 }
 
@@ -199,7 +199,7 @@ func runVersionsCheck(env *Env) error {
 func runVersionsSync(env *Env) error {
 	dir := versionsDir(env, versionsFlags)
 	if !versions.HasScaffold(env.FS, dir) {
-		return errx.Detail(ErrNoScaffold, "dir %[1]q | 目录 %[1]q", dir)
+		return errs.Detail(ErrNoScaffold, "dir %[1]q | 目录 %[1]q", dir)
 	}
 	path, err := versions.Sync(env.FS, dir)
 	if err != nil {
@@ -222,7 +222,7 @@ func runVersionsUpgrade(ctx context.Context, env *Env) error {
 	upgradeAssets, _ := fs.GetBool(flagVersionsAssets)
 
 	if !upgradeGo && !upgradeAssets {
-		return errx.Detail(ErrVersionsNothing, "pass --go or --assets | 请传 --go 或 --assets")
+		return errs.Detail(ErrVersionsNothing, "pass --go or --assets | 请传 --go 或 --assets")
 	}
 
 	if upgradeGo {

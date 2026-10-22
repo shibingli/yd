@@ -9,12 +9,12 @@ import (
 	"sync"
 	"time"
 
-	"{{ .YdModule }}/core/errx"
-	"{{ .YdModule }}/core/logx"
+	"{{ .YdxModule }}/errs"
+	"{{ .YdxModule }}/log"
 	"{{ .YdModule }}/http/i18n"
-	"{{ .YdModule }}/http/render"
-	"{{ .YdModule }}/http/router"
-	"{{ .YdModule }}/http/ws"
+	"{{ .YdxModule }}/render"
+	"{{ .YdxModule }}/router"
+	"{{ .YdxModule }}/websocket"
 )
 
 // 指标推送契约：目标选择器与替换策略必须与 mgr/pages/home.html 的连接元素保持一致。
@@ -33,7 +33,7 @@ const (
 )
 
 // ErrMetricsRender reports a failed render of the unified metrics panel. | ErrMetricsRender 表示统一指标面板渲染失败。
-var ErrMetricsRender = errx.New("controller: metrics panel render failed | controller：指标面板渲染失败")
+var ErrMetricsRender = errs.New("controller: metrics panel render failed | controller：指标面板渲染失败")
 
 // MetricsSocket 构造指标推送端点：同一条 WebSocket 连接每 5 秒收到系统资源与中间件运行时两段片段。
 // MetricsSocket builds the metrics push endpoint: one WebSocket connection receives both the system-resource and
@@ -68,17 +68,17 @@ func (c *Controller) MetricsSocket() router.HandlerFunc {
 		translator := i18n.FromContext(ctx)
 		done := make(chan struct{})
 		var once sync.Once
-		handler := ws.HtmxHandler(ws.HtmxOptions{
+		handler := websocket.HtmxHandler(websocket.HtmxOptions{
 			// 子协议与 htmx 的 WebSocket 扩展一致；不声明它，浏览器可能拒绝握手。
 			// The subprotocol matches the htmx WebSocket extension; without it the browser may refuse the handshake.
 			Subprotocols: []string{"htmx"},
-			OnOpen: func(conn *ws.Conn) {
+			OnOpen: func(conn *websocket.Conn) {
 				go c.pushMetrics(conn, translator, done)
 			},
 			// 纯接收端点：入站消息被忽略，绝不回显（回显会替换掉整块指标面板）。
 			// A receive-only endpoint: inbound messages are ignored and never echoed (an echo would replace the metrics panel).
-			OnMessage: func(*ws.Conn, ws.HtmxMessage) {},
-			OnClose: func(*ws.Conn, error) {
+			OnMessage: func(*websocket.Conn, websocket.HtmxMessage) {},
+			OnClose: func(*websocket.Conn, error) {
 				once.Do(func() { close(done) })
 			},
 		})
@@ -88,14 +88,14 @@ func (c *Controller) MetricsSocket() router.HandlerFunc {
 
 // pushMetrics 立即推一帧，随后按节拍推送，直到连接关闭或写出失败。
 // pushMetrics pushes one immediate frame and then keeps pushing on the cadence until the connection closes or a write fails.
-func (c *Controller) pushMetrics(conn *ws.Conn, translator *i18n.Translator, done <-chan struct{}) {
+func (c *Controller) pushMetrics(conn *websocket.Conn, translator *i18n.Translator, done <-chan struct{}) {
 	ticker := time.NewTicker(metricsPushInterval)
 	defer ticker.Stop()
 
 	send := func() bool {
 		fragment, err := c.renderLiveMetrics(translator)
 		if err != nil {
-			c.log.Warn("metrics panel render failed | 指标面板渲染失败", logx.Err(err))
+			c.log.Warn("metrics panel render failed | 指标面板渲染失败", log.Err(err))
 			return true
 		}
 		// 写超时防止停滞的客户端永久占用推送协程；超时后连接被关闭，读循环随之退出。
@@ -151,7 +151,7 @@ func (c *Controller) renderLiveMetrics(translator *i18n.Translator) (string, err
 
 	var buf bytes.Buffer
 	if err := renderer.Render(&buf, TplLiveMetrics, data); err != nil {
-		return "", errx.Wrap(err, ErrMetricsRender)
+		return "", errs.Wrap(err, ErrMetricsRender)
 	}
 	return buf.String(), nil
 }

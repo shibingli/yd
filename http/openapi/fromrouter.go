@@ -7,8 +7,8 @@ import (
 
 	"github.com/spf13/afero"
 
-	"github.com/shibingli/yd/core/logx"
-	"github.com/shibingli/yd/http/router"
+	"github.com/shibingli/ydx/log"
+	"github.com/shibingli/ydx/router"
 )
 
 // FromRouter derives a document from the routes registered on r. | FromRouter 依据 r 上已注册的路由推导文档。
@@ -120,8 +120,8 @@ func resolveTypeAnnotations(o Options) *TypeAnnotations {
 	}
 	types, err := ParseTypeAnnotations(afero.NewOsFs(), o.SourceDirs)
 	if err != nil {
-		logx.Default().Warn("openapi: type annotations not merged | openapi：类型注解未合并",
-			logx.Strs("dirs", o.SourceDirs), logx.Err(err))
+		log.Default().Warn("openapi: type annotations not merged | openapi：类型注解未合并",
+			log.Strs("dirs", o.SourceDirs), log.Err(err))
 		return nil
 	}
 	return types

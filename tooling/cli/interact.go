@@ -8,7 +8,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/shibingli/yd/core/errx"
+	"github.com/shibingli/ydx/errs"
 )
 
 // Prompt asks one question and returns the typed answer, or def when the answer is empty. | Prompt 提出一个问题并返回用户输入的答案，答案为空时返回 def。
@@ -115,7 +115,7 @@ func readAnswer(env *Env, question, def string) (string, error) {
 
 	line, err := bufio.NewReader(env.In).ReadString('\n')
 	if err != nil && !errors.Is(err, io.EOF) {
-		return "", errx.Wrap(err, ErrInputFailed)
+		return "", errs.Wrap(err, ErrInputFailed)
 	}
 	return strings.TrimSpace(line), nil
 }

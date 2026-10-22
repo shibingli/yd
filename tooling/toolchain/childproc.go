@@ -12,9 +12,9 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/shibingli/yd/core/errx"
-	"github.com/shibingli/yd/core/logx"
-	"github.com/shibingli/yd/http/protocol"
+	"github.com/shibingli/ydx/errs"
+	"github.com/shibingli/ydx/log"
+	"github.com/shibingli/ydx/protocol"
 )
 
 // childGracePeriod is how long a child may take to exit before it is killed, and how long a forced kill may take to be reaped. | childGracePeriod 是子进程被强杀前允许的退出时间，也是强杀后被收尸的等待上限。
@@ -91,7 +91,7 @@ func (r *DevRunner) startChild(ctx context.Context, bin string) error {
 	if err := cmd.Start(); err != nil {
 		proc.err = err
 		r.forgetChild(proc)
-		return errx.WrapDetail(err, ErrChildStart, "exec %s | 启动 %s", bin, bin)
+		return errs.WrapDetail(err, ErrChildStart, "exec %s | 启动 %s", bin, bin)
 	}
 	// Take the PID before starting the reaper: cmd must not be touched afterwards, or it would race with Wait. | PID 必须在启动回收 goroutine 之前取出：此后不再触碰 cmd，避免与 Wait 竞争。
 	pid := cmd.Process.Pid
@@ -102,7 +102,7 @@ func (r *DevRunner) startChild(ctx context.Context, bin string) error {
 	// Start the reaper first: even if a later step panics, the child is still reaped by Wait. | 先起回收 goroutine：即使其后任何一步 panic，子进程也一定被 Wait 收尸。
 	go r.waitChild(proc, pid)
 	r.log.Info("dev: child started | dev: 子进程已启动",
-		logx.Str("bin", bin), logx.Int("pid", pid), logx.Int("port", r.opts.Port))
+		log.Str("bin", bin), log.Int("pid", pid), log.Int("port", r.opts.Port))
 	return nil
 }
 
@@ -176,10 +176,10 @@ func (r *DevRunner) waitChild(p *childProc, pid int) {
 		r.opts.OnChildExit(pid, err)
 	}
 	if err != nil {
-		r.log.Debug("dev: child exited | dev: 子进程已退出", logx.Int("pid", pid), logx.Err(err))
+		r.log.Debug("dev: child exited | dev: 子进程已退出", log.Int("pid", pid), log.Err(err))
 		return
 	}
-	r.log.Info("dev: child exited cleanly | dev: 子进程正常退出", logx.Int("pid", pid))
+	r.log.Info("dev: child exited cleanly | dev: 子进程正常退出", log.Int("pid", pid))
 }
 
 // stopChild terminates the running child, politely first and forcibly after the grace period. | stopChild 终止运行中的子进程：先请求优雅退出，超过宽限期后强制结束。
@@ -205,11 +205,11 @@ func (r *DevRunner) stopChild() {
 		if !childReaped(p.done, childGracePeriod) {
 			// Still not reaped within the grace period: record the fact in the log, never return silently. | 宽限期内仍未被收尸：把事实写进日志，绝不静默返回。
 			r.log.Error("dev: child survived SIGTERM and Kill, it may leak | dev: 子进程在 SIGTERM 与 Kill 之后仍然存活，可能泄漏",
-				logx.Int("pid", p.pid), logx.Bool("alive", ProcessAlive(p.pid)))
+				log.Int("pid", p.pid), log.Bool("alive", ProcessAlive(p.pid)))
 			return
 		}
 	}
-	r.log.Info("dev: child stopped | dev: 子进程已停止", logx.Int("pid", p.pid))
+	r.log.Info("dev: child stopped | dev: 子进程已停止", log.Int("pid", p.pid))
 }
 
 // childReaped reports whether done was closed within d, that is whether the child was reaped in time. | childReaped 判断 done 是否在 d 内被关闭，即子进程是否及时被收尸。

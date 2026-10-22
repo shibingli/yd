@@ -16,7 +16,7 @@ import (
 
 	"github.com/spf13/afero"
 
-	"github.com/shibingli/yd/core/errx"
+	"github.com/shibingli/ydx/errs"
 )
 
 // gormModelName 是 gorm.Model 的限定名；内嵌它等价于内嵌主键与两个时间戳列。
@@ -43,7 +43,7 @@ func ModelFromSource(fs afero.Fs, path, typeName string, o StructOptions) (*Mode
 	}
 	typeName = strings.TrimSpace(typeName)
 	if typeName == "" {
-		return nil, errx.Detail(ErrBadModel, "empty struct name | 结构体名为空")
+		return nil, errs.Detail(ErrBadModel, "empty struct name | 结构体名为空")
 	}
 
 	pkg, err := loadSourcePackage(fs, path)
@@ -51,10 +51,10 @@ func ModelFromSource(fs afero.Fs, path, typeName string, o StructOptions) (*Mode
 		return nil, err
 	}
 	if pkg.types[typeName] == nil {
-		return nil, errx.Detail(ErrTypeNotFound, "type=%[1]s path=%[2]s | 类型=%[1]s 路径=%[2]s", typeName, path)
+		return nil, errs.Detail(ErrTypeNotFound, "type=%[1]s path=%[2]s | 类型=%[1]s 路径=%[2]s", typeName, path)
 	}
 	if _, ok := pkg.types[typeName].(*ast.StructType); !ok {
-		return nil, errx.Detail(ErrTypeNotFound, "type=%s is not a struct | %s 不是结构体类型", typeName, typeName)
+		return nil, errs.Detail(ErrTypeNotFound, "type=%s is not a struct | %s 不是结构体类型", typeName, typeName)
 	}
 
 	fields, err := pkg.collectFields(typeName, map[string]bool{typeName: true}, nil)
@@ -102,7 +102,7 @@ type sourcePackage struct {
 func loadSourcePackage(fs afero.Fs, path string) (*sourcePackage, error) {
 	path = filepath.ToSlash(strings.TrimSpace(path))
 	if path == "" {
-		return nil, errx.Detail(ErrBadModel, "empty source path | 源码路径为空")
+		return nil, errs.Detail(ErrBadModel, "empty source path | 源码路径为空")
 	}
 
 	names, err := sourceFiles(fs, path)
@@ -115,19 +115,19 @@ func loadSourcePackage(fs afero.Fs, path string) (*sourcePackage, error) {
 	for _, name := range names {
 		src, err := afero.ReadFile(fs, name)
 		if err != nil {
-			return nil, errx.WrapDetail(err, ErrReadFile, "path=%[1]s | 路径=%[1]s", name)
+			return nil, errs.WrapDetail(err, ErrReadFile, "path=%[1]s | 路径=%[1]s", name)
 		}
 		// 解析失败说明源码本身不合法，属于调用方的输入问题而非生成器故障。
 		// A parse failure means the source itself is invalid, which is the caller's input problem rather than a generator fault.
 		f, err := parser.ParseFile(fset, name, src, parser.ParseComments)
 		if err != nil {
-			return nil, errx.WrapDetail(err, ErrBadModel, "path=%[1]s | 路径=%[1]s", name)
+			return nil, errs.WrapDetail(err, ErrBadModel, "path=%[1]s | 路径=%[1]s", name)
 		}
 		pkg.files = append(pkg.files, f)
 		pkg.declare(f)
 	}
 	if len(pkg.types) == 0 {
-		return nil, errx.Detail(ErrTypeNotFound, "no Go type found in %s | %s 下没有找到任何 Go 类型", path, path)
+		return nil, errs.Detail(ErrTypeNotFound, "no Go type found in %s | %s 下没有找到任何 Go 类型", path, path)
 	}
 	return pkg, nil
 }
@@ -137,7 +137,7 @@ func loadSourcePackage(fs afero.Fs, path string) (*sourcePackage, error) {
 func sourceFiles(fs afero.Fs, path string) ([]string, error) {
 	info, err := fs.Stat(path)
 	if err != nil {
-		return nil, errx.WrapDetail(err, ErrReadFile, "path=%[1]s | 路径=%[1]s", path)
+		return nil, errs.WrapDetail(err, ErrReadFile, "path=%[1]s | 路径=%[1]s", path)
 	}
 	if !info.IsDir() {
 		return []string{path}, nil
@@ -145,7 +145,7 @@ func sourceFiles(fs afero.Fs, path string) ([]string, error) {
 
 	entries, err := afero.ReadDir(fs, path)
 	if err != nil {
-		return nil, errx.WrapDetail(err, ErrReadFile, "path=%[1]s | 路径=%[1]s", path)
+		return nil, errs.WrapDetail(err, ErrReadFile, "path=%[1]s | 路径=%[1]s", path)
 	}
 	names := make([]string, 0, len(entries))
 	for _, e := range entries {
@@ -156,7 +156,7 @@ func sourceFiles(fs afero.Fs, path string) ([]string, error) {
 		names = append(names, pathpkg.Join(path, name))
 	}
 	if len(names) == 0 {
-		return nil, errx.Detail(ErrTypeNotFound, "no Go source file in %s | %s 下没有 Go 源码文件", path, path)
+		return nil, errs.Detail(ErrTypeNotFound, "no Go source file in %s | %s 下没有 Go 源码文件", path, path)
 	}
 	// 目录内容的顺序由文件系统决定，排序后解析结果与文件系统无关。
 	// Directory order is up to the file system, so sorting keeps the parse result file-system independent.
@@ -190,7 +190,7 @@ func (p *sourcePackage) declare(f *ast.File) {
 func (p *sourcePackage) collectFields(typeName string, seen map[string]bool, out []Field) ([]Field, error) {
 	st, ok := p.types[typeName].(*ast.StructType)
 	if !ok {
-		return nil, errx.Detail(ErrBadModel, "type=%s is not a struct | %s 不是结构体类型", typeName, typeName)
+		return nil, errs.Detail(ErrBadModel, "type=%s is not a struct | %s 不是结构体类型", typeName, typeName)
 	}
 
 	for _, f := range st.Fields.List {

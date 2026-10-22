@@ -7,8 +7,8 @@ package assets
 import (
 	"errors"
 
-	"github.com/shibingli/yd/core/afs"
-	"github.com/shibingli/yd/core/errx"
+	"github.com/shibingli/ydx/afs"
+	yderrs "github.com/shibingli/ydx/errs"
 	"github.com/spf13/afero"
 )
 
@@ -44,7 +44,7 @@ func Verify(fsys afero.Fs, m *Manifest, root string) (*VerifyReport, error) {
 	// loads through LoadManifest already passed this check. | 手工构造的 Manifest 不得让 Verify
 	// 指向资产根之外；经 LoadManifest 加载的调用方已经通过这项检查。
 	if err := Validate(m.Assets); err != nil {
-		return nil, errx.Wrap(err, ErrManifestInvalid)
+		return nil, yderrs.Wrap(err, ErrManifestInvalid)
 	}
 
 	rep := &VerifyReport{}
@@ -55,24 +55,24 @@ func Verify(fsys afero.Fs, m *Manifest, root string) (*VerifyReport, error) {
 
 		if !afs.Exists(fsys, local) {
 			rep.Missing = append(rep.Missing, a.Name)
-			errs = append(errs, errx.Detail(ErrVerifyFailed, "%[1]s: %[2]s is missing | %[1]s: %[2]s 缺失", a.Name, local))
+			errs = append(errs, yderrs.Detail(ErrVerifyFailed, "%[1]s: %[2]s is missing | %[1]s: %[2]s 缺失", a.Name, local))
 			continue
 		}
 		if a.SHA256 == "" {
 			rep.Mismatch = append(rep.Mismatch, a.Name)
-			errs = append(errs, errx.Detail(ErrVerifyFailed, "%[1]s: no locked checksum | %[1]s: 未锁定校验和", a.Name))
+			errs = append(errs, yderrs.Detail(ErrVerifyFailed, "%[1]s: no locked checksum | %[1]s: 未锁定校验和", a.Name))
 			continue
 		}
 
 		sum, err := afs.Sha256File(fsys, local)
 		if err != nil {
 			rep.Mismatch = append(rep.Mismatch, a.Name)
-			errs = append(errs, errx.WrapDetail(err, ErrVerifyFailed, "%s", a.Name))
+			errs = append(errs, yderrs.WrapDetail(err, ErrVerifyFailed, "%s", a.Name))
 			continue
 		}
 		if sum != a.SHA256 {
 			rep.Mismatch = append(rep.Mismatch, a.Name)
-			errs = append(errs, errx.Detail(ErrVerifyFailed, "%[1]s: locked %[2]s, actual %[3]s | %[1]s: 锁定 %[2]s，实际 %[3]s", a.Name, a.SHA256, sum))
+			errs = append(errs, yderrs.Detail(ErrVerifyFailed, "%[1]s: locked %[2]s, actual %[3]s | %[1]s: 锁定 %[2]s，实际 %[3]s", a.Name, a.SHA256, sum))
 			continue
 		}
 		rep.OK = append(rep.OK, a.Name)

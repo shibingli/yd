@@ -11,8 +11,8 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/shibingli/yd/core/regexpx"
 	"github.com/shibingli/yd/messaging"
+	"github.com/shibingli/ydx/regexpx"
 	"gorm.io/gorm/schema"
 )
 

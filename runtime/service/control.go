@@ -10,7 +10,7 @@ import (
 	"io/fs"
 
 	"github.com/kardianos/service"
-	"github.com/shibingli/yd/core/errx"
+	"github.com/shibingli/ydx/errs"
 )
 
 // Action is one service manager action. | Action 是一个服务管理器动作。
@@ -81,7 +81,7 @@ var newControlHandle = func(o Options) (controlHandle, error) {
 // ErrUnsupportedPlatform、ErrNotInstalled、ErrPermissionDenied、ErrUnknownAction 或 ErrActionFailed 之一。
 func Control(o Options, a Action) (string, error) {
 	if !isControlAction(a) {
-		return "", errx.Detail(ErrUnknownAction, "%q", string(a))
+		return "", errs.Detail(ErrUnknownAction, "%q", string(a))
 	}
 
 	handle, err := newControlHandle(o)
@@ -123,7 +123,7 @@ func Control(o Options, a Action) (string, error) {
 		return StatusText(status), nil
 	default:
 		// Unreachable: isControlAction has already rejected every other action. | 不可达：其它动作已被 isControlAction 拒绝。
-		return "", errx.Detail(ErrUnknownAction, "%q", string(a))
+		return "", errs.Detail(ErrUnknownAction, "%q", string(a))
 	}
 }
 
@@ -162,14 +162,14 @@ func platformError(err error) error {
 	case err == nil:
 		return nil
 	case errors.Is(err, service.ErrNoServiceSystemDetected):
-		return errx.Wrap(err, ErrUnsupportedPlatform)
+		return errs.Wrap(err, ErrUnsupportedPlatform)
 	case errors.Is(err, service.ErrNameFieldRequired):
 		// configFor always fills a name, so reaching this branch means the kardianos package changed
 		// its contract: report it as a plain action failure instead of guessing. | configFor 始终会补齐名字，
 		// 走到这一分支说明 kardianos 改变了约定：按普通动作失败上报，不做猜测。
-		return errx.Wrap(err, ErrActionFailed)
+		return errs.Wrap(err, ErrActionFailed)
 	default:
-		return errx.Wrap(err, ErrActionFailed)
+		return errs.Wrap(err, ErrActionFailed)
 	}
 }
 
@@ -182,19 +182,19 @@ func actionError(err error, a Action) error {
 	case err == nil:
 		return nil
 	case errors.Is(err, service.ErrNotInstalled):
-		return errx.Wrap(err, ErrNotInstalled)
+		return errs.Wrap(err, ErrNotInstalled)
 	case errors.Is(err, service.ErrNoServiceSystemDetected):
-		return errx.Wrap(err, ErrUnsupportedPlatform)
+		return errs.Wrap(err, ErrUnsupportedPlatform)
 	case errors.Is(err, fs.ErrPermission):
 		// Windows maps ERROR_ACCESS_DENIED onto fs.ErrPermission, and a POSIX helper that lost its
 		// privileges reports the same sentinel. | Windows 把 ERROR_ACCESS_DENIED 映射为 fs.ErrPermission，
 		// 失去特权的 POSIX 助手程序也会报告同一个哨兵。
-		return errx.Wrap(err, ErrPermissionDenied)
+		return errs.Wrap(err, ErrPermissionDenied)
 	case needsElevation(a):
-		return errx.WrapDetail(err, ErrActionFailed,
+		return errs.WrapDetail(err, ErrActionFailed,
 			"action=%s (administrator or root rights may be required) | 动作=%s（可能需要管理员或 root 权限）", a, a)
 	default:
-		return errx.WrapDetail(err, ErrActionFailed, "action=%[1]s | 动作=%[1]s", a)
+		return errs.WrapDetail(err, ErrActionFailed, "action=%[1]s | 动作=%[1]s", a)
 	}
 }
 

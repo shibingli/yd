@@ -5,8 +5,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/shibingli/yd/core/b64x"
 	"github.com/shibingli/yd/security/guomi"
+	"github.com/shibingli/ydx/base64"
 )
 
 // TestLoginIssuesATokenOnlyForTheRightPassword covers both the success and the failure end of the whole login path. | TestLoginIssuesATokenOnlyForTheRightPassword 覆盖完整登录链路的成功与失败两端。
@@ -74,7 +74,7 @@ func TestDecryptLoginPayloadRoundTrip(t *testing.T) {
 	requireNoError(t, err, "EncryptRaw")
 
 	// The browser sends standard Base64 of the raw C1C3C2 blob. | 浏览器提交的是原始 C1C3C2 数据块的标准 Base64。
-	encoded := b64x.StdEncoding.EncodeToString(ciphertext)
+	encoded := base64.StdEncoding.EncodeToString(ciphertext)
 	plain, err := DecryptLoginPayload([]byte(encoded), priv)
 	requireNoError(t, err, "DecryptLoginPayload(base64)")
 	if plain != testPassword {

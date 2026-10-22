@@ -21,9 +21,9 @@ import (
 
 	"github.com/spf13/afero"
 
-	"github.com/shibingli/yd/core/errx"
-	"github.com/shibingli/yd/core/jsonx"
-	"github.com/shibingli/yd/core/regexpx"
+	"github.com/shibingli/ydx/errs"
+	"github.com/shibingli/ydx/json"
+	"github.com/shibingli/ydx/regexpx"
 )
 
 // Lucide is the icon set shipped with the framework. | Lucide 是框架随包提供的图标集。
@@ -53,15 +53,15 @@ const (
 // Sentinel errors of the icon pipeline. | 图标流水线的哨兵错误。
 var (
 	// ErrScan reports that a template tree could not be scanned. | ErrScan 表示模板树无法扫描。
-	ErrScan = errx.New("icons: template scan failed | 图标：模板扫描失败")
+	ErrScan = errs.New("icons: template scan failed | 图标：模板扫描失败")
 	// ErrUnknownIcon reports a reference the bundled set does not define. | ErrUnknownIcon 表示随包图标集没有该引用。
-	ErrUnknownIcon = errx.New("icons: unknown icon | 图标：未知图标")
+	ErrUnknownIcon = errs.New("icons: unknown icon | 图标：未知图标")
 	// ErrSource reports a malformed vendored icon set. | ErrSource 表示随包图标集格式错误。
-	ErrSource = errx.New("icons: invalid icon source | 图标：图标源无效")
+	ErrSource = errs.New("icons: invalid icon source | 图标：图标源无效")
 	// ErrSprite reports that a symbol could not be rendered safely. | ErrSprite 表示无法安全渲染某个符号。
-	ErrSprite = errx.New("icons: sprite build failed | 图标：sprite 构建失败")
+	ErrSprite = errs.New("icons: sprite build failed | 图标：sprite 构建失败")
 	// ErrDrift reports that the committed sprite no longer matches templates or the icon set. | ErrDrift 表示已提交的 sprite 与模板或图标集不再一致。
-	ErrDrift = errx.New("icons: sprite is out of date, run `yd icons sync` | 图标：sprite 已漂移，请运行 `yd icons sync`")
+	ErrDrift = errs.New("icons: sprite is out of date, run `yd icons sync` | 图标：sprite 已漂移，请运行 `yd icons sync`")
 )
 
 // Icon is one Iconify icon record. | Icon 是一条 Iconify 图标记录。
@@ -156,14 +156,14 @@ var sourceVersionPattern = regexpx.MustCompile(`"lastModified"\s*:`)
 // Lucide returns the embedded Lucide set. | Lucide 返回内嵌的 Lucide 图标集。
 func Lucide() (*Set, error) {
 	var set Set
-	if err := jsonx.Unmarshal(lucideJSON, &set); err != nil {
-		return nil, errx.WrapDetail(err, ErrSource, "lucide.json | lucide.json 解析失败")
+	if err := json.Unmarshal(lucideJSON, &set); err != nil {
+		return nil, errs.WrapDetail(err, ErrSource, "lucide.json | lucide.json 解析失败")
 	}
 	if set.Prefix != LucidePrefix {
-		return nil, errx.Detail(ErrSource, "prefix %q, want %q | 前缀为 %q，期望 %q", set.Prefix, LucidePrefix, set.Prefix, LucidePrefix)
+		return nil, errs.Detail(ErrSource, "prefix %q, want %q | 前缀为 %q，期望 %q", set.Prefix, LucidePrefix, set.Prefix, LucidePrefix)
 	}
 	if len(set.Icons) == 0 {
-		return nil, errx.Detail(ErrSource, "lucide.json has no icons | lucide.json 没有图标")
+		return nil, errs.Detail(ErrSource, "lucide.json has no icons | lucide.json 没有图标")
 	}
 	return &set, nil
 }
@@ -173,11 +173,11 @@ func Lucide() (*Set, error) {
 func VerifyLucideSource() error {
 	sum := sha256.Sum256(lucideJSON)
 	if got := hex.EncodeToString(sum[:]); got != lucideSHA256 {
-		return errx.Detail(ErrSource,
+		return errs.Detail(ErrSource,
 			"lucide.json sha256 %s, want %s | lucide.json 的 sha256 为 %s，期望 %s", got, lucideSHA256, got, lucideSHA256)
 	}
 	if !sourceVersionPattern.MatchString(string(lucideJSON)) {
-		return errx.Detail(ErrSource, "lucide.json lost its lastModified metadata | lucide.json 丢失了 lastModified 元数据")
+		return errs.Detail(ErrSource, "lucide.json lost its lastModified metadata | lucide.json 丢失了 lastModified 元数据")
 	}
 	return nil
 }
@@ -185,24 +185,24 @@ func VerifyLucideSource() error {
 // Scan collects the icon references under the given template roots. | Scan 收集给定模板根下的图标引用。
 func Scan(fsys afero.Fs, roots []string) ([]Reference, error) {
 	if fsys == nil {
-		return nil, errx.Detail(ErrScan, "nil file system | 文件系统为空")
+		return nil, errs.Detail(ErrScan, "nil file system | 文件系统为空")
 	}
 	if len(roots) == 0 {
-		return nil, errx.Detail(ErrScan, "no template roots | 没有模板根")
+		return nil, errs.Detail(ErrScan, "no template roots | 没有模板根")
 	}
 
 	seen := make(map[string]map[string]struct{})
 	for _, root := range roots {
 		root = filepath.Clean(strings.TrimSpace(root))
 		if root == "." || root == "" {
-			return nil, errx.Detail(ErrScan, "invalid template root %q | 非法的模板根 %q", root, root)
+			return nil, errs.Detail(ErrScan, "invalid template root %q | 非法的模板根 %q", root, root)
 		}
 		info, err := fsys.Stat(root)
 		if err != nil {
-			return nil, errx.WrapDetail(err, ErrScan, "stat %s | 读取 %s", root, root)
+			return nil, errs.WrapDetail(err, ErrScan, "stat %s | 读取 %s", root, root)
 		}
 		if !info.IsDir() {
-			return nil, errx.Detail(ErrScan, "%s is not a directory | %s 不是目录", root, root)
+			return nil, errs.Detail(ErrScan, "%s is not a directory | %s 不是目录", root, root)
 		}
 		err = afero.Walk(fsys, root, func(file string, fileInfo os.FileInfo, walkErr error) error {
 			if walkErr != nil {
@@ -235,7 +235,7 @@ func Scan(fsys afero.Fs, roots []string) ([]Reference, error) {
 			return nil
 		})
 		if err != nil {
-			return nil, errx.WrapDetail(err, ErrScan, "walk %s | 遍历 %s", root, root)
+			return nil, errs.WrapDetail(err, ErrScan, "walk %s | 遍历 %s", root, root)
 		}
 	}
 
@@ -255,7 +255,7 @@ func Scan(fsys afero.Fs, roots []string) ([]Reference, error) {
 // Build renders the sprite for the given references. | Build 为给定引用渲染 sprite。
 func Build(set *Set, refs []Reference) ([]byte, error) {
 	if set == nil {
-		return nil, errx.Detail(ErrSprite, "nil icon set | 图标集为空")
+		return nil, errs.Detail(ErrSprite, "nil icon set | 图标集为空")
 	}
 	names := make([]string, 0, len(refs))
 	seen := make(map[string]struct{}, len(refs))
@@ -276,17 +276,17 @@ func Build(set *Set, refs []Reference) ([]byte, error) {
 	for _, name := range names {
 		prefix, iconName, ok := splitReference(name)
 		if !ok {
-			return nil, errx.Detail(ErrUnknownIcon, "%q is not <prefix>-<name> | %q 不是 <prefix>-<name> 形式", name, name)
+			return nil, errs.Detail(ErrUnknownIcon, "%q is not <prefix>-<name> | %q 不是 <prefix>-<name> 形式", name, name)
 		}
 		if prefix != set.Prefix {
-			return nil, errx.Detail(ErrUnknownIcon, "unknown icon set %q in %q | %q 中的图标集 %q 未知", prefix, name, name, prefix)
+			return nil, errs.Detail(ErrUnknownIcon, "unknown icon set %q in %q | %q 中的图标集 %q 未知", prefix, name, name, prefix)
 		}
 		icon, width, height, left, top, err := resolve(set, iconName, 0)
 		if err != nil {
-			return nil, errx.WrapDetail(err, ErrUnknownIcon, "%s | %s", name, name)
+			return nil, errs.WrapDetail(err, ErrUnknownIcon, "%s | %s", name, name)
 		}
 		if err := validateBody(icon.Body); err != nil {
-			return nil, errx.WrapDetail(err, ErrSprite, "%s | %s", name, name)
+			return nil, errs.WrapDetail(err, ErrSprite, "%s | %s", name, name)
 		}
 		buf.WriteString(`  <symbol id="i-`)
 		buf.WriteString(name)
@@ -320,11 +320,11 @@ func Sync(opts Options) (Result, error) {
 	output = filepath.Clean(output)
 	if dir := filepath.Dir(output); dir != "." && dir != string(filepath.Separator) {
 		if err := opts.FS.MkdirAll(dir, 0o755); err != nil {
-			return Result{}, errx.WrapDetail(err, ErrSprite, "mkdir %s | 创建目录 %s", dir, dir)
+			return Result{}, errs.WrapDetail(err, ErrSprite, "mkdir %s | 创建目录 %s", dir, dir)
 		}
 	}
 	if err := afero.WriteFile(opts.FS, output, data, 0o644); err != nil {
-		return Result{}, errx.WrapDetail(err, ErrSprite, "write %s | 写入 %s", output, output)
+		return Result{}, errs.WrapDetail(err, ErrSprite, "write %s | 写入 %s", output, output)
 	}
 	res.Bytes = len(data)
 	return res, nil
@@ -343,10 +343,10 @@ func Check(opts Options) (Result, error) {
 	output = filepath.Clean(output)
 	committed, err := afero.ReadFile(opts.FS, output)
 	if err != nil {
-		return res, errx.WrapDetail(err, ErrDrift, "read %s | 读取 %s", output, output)
+		return res, errs.WrapDetail(err, ErrDrift, "read %s | 读取 %s", output, output)
 	}
 	if !bytes.Equal(committed, data) {
-		return res, errx.Detail(ErrDrift, "%s differs from %d referenced icons | %s 与 %d 个引用图标不一致", output, len(res.Names), output, len(res.Names))
+		return res, errs.Detail(ErrDrift, "%s differs from %d referenced icons | %s 与 %d 个引用图标不一致", output, len(res.Names), output, len(res.Names))
 	}
 	res.Bytes = len(data)
 	return res, nil
@@ -354,7 +354,7 @@ func Check(opts Options) (Result, error) {
 
 func render(opts Options) ([]byte, Result, error) {
 	if opts.FS == nil {
-		return nil, Result{}, errx.Detail(ErrScan, "nil file system | 文件系统为空")
+		return nil, Result{}, errs.Detail(ErrScan, "nil file system | 文件系统为空")
 	}
 	set, err := Lucide()
 	if err != nil {
@@ -395,7 +395,7 @@ func splitReference(name string) (string, string, bool) {
 
 func resolve(set *Set, name string, depth int) (Icon, float64, float64, float64, float64, error) {
 	if depth > 8 {
-		return Icon{}, 0, 0, 0, 0, errx.Detail(ErrSource, "alias cycle at %q | 别名在 %q 处成环", name, name)
+		return Icon{}, 0, 0, 0, 0, errs.Detail(ErrSource, "alias cycle at %q | 别名在 %q 处成环", name, name)
 	}
 	if icon, ok := set.Icons[name]; ok {
 		width := icon.Width
@@ -416,10 +416,10 @@ func resolve(set *Set, name string, depth int) (Icon, float64, float64, float64,
 	}
 	alias, ok := set.Aliases[name]
 	if !ok {
-		return Icon{}, 0, 0, 0, 0, errx.Detail(ErrUnknownIcon, "no icon or alias named %q | 没有名为 %q 的图标或别名", name, name)
+		return Icon{}, 0, 0, 0, 0, errs.Detail(ErrUnknownIcon, "no icon or alias named %q | 没有名为 %q 的图标或别名", name, name)
 	}
 	if alias.Rotate != 0 || alias.HFlip || alias.VFlip {
-		return Icon{}, 0, 0, 0, 0, errx.Detail(ErrSource, "alias %q uses an unsupported transform | 别名 %q 使用了不受支持的变换", name, name)
+		return Icon{}, 0, 0, 0, 0, errs.Detail(ErrSource, "alias %q uses an unsupported transform | 别名 %q 使用了不受支持的变换", name, name)
 	}
 	icon, width, height, left, top, err := resolve(set, alias.Parent, depth+1)
 	if err != nil {
@@ -442,12 +442,12 @@ func resolve(set *Set, name string, depth int) (Icon, float64, float64, float64,
 
 func validateBody(body string) error {
 	if strings.TrimSpace(body) == "" {
-		return errx.Detail(ErrSprite, "empty icon body | 图标体为空")
+		return errs.Detail(ErrSprite, "empty icon body | 图标体为空")
 	}
 	lower := strings.ToLower(body)
 	for _, forbidden := range []string{"<script", "</script", "<foreignobject", "javascript:", "</symbol"} {
 		if strings.Contains(lower, forbidden) {
-			return errx.Detail(ErrSprite, "icon body contains %q | 图标体包含 %q", forbidden, forbidden)
+			return errs.Detail(ErrSprite, "icon body contains %q | 图标体包含 %q", forbidden, forbidden)
 		}
 	}
 	return nil

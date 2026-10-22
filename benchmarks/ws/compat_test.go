@@ -17,7 +17,7 @@ import (
 	"github.com/gobwas/ws"
 	"github.com/gorilla/websocket"
 	"github.com/lxzan/gws"
-	ourws "github.com/shibingli/yd/http/ws"
+	ourws "github.com/shibingli/ydx/websocket"
 )
 
 type compatCase struct {

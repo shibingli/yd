@@ -34,20 +34,20 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/shibingli/yd/core/errx"
-	"github.com/shibingli/yd/core/logx"
+	"github.com/shibingli/ydx/errs"
+	ydlog "github.com/shibingli/ydx/log"
 )
 
 // Build sentinel errors. | 构建相关哨兵错误。
 var (
 	// ErrBinaryNotFound indicates that no source yielded a ko executable. | ErrBinaryNotFound 表示所有来源都未能给出 ko 可执行文件。
-	ErrBinaryNotFound = errx.New("ko: ko binary not found | ko：未找到 ko 可执行文件")
+	ErrBinaryNotFound = errs.New("ko: ko binary not found | ko：未找到 ko 可执行文件")
 	// ErrNoRepository indicates that neither the options nor --local supplied an image repository. | ErrNoRepository 表示选项与 --local 都没有给出镜像仓库。
-	ErrNoRepository = errx.New("ko: no image repository configured | ko：未配置镜像仓库")
+	ErrNoRepository = errs.New("ko: no image repository configured | ko：未配置镜像仓库")
 	// ErrBuildFailed indicates that the ko build exited with an error. | ErrBuildFailed 表示 ko 构建以错误退出。
-	ErrBuildFailed = errx.New("ko: image build failed | ko：镜像构建失败")
+	ErrBuildFailed = errs.New("ko: image build failed | ko：镜像构建失败")
 	// ErrInvalidOptions indicates an option combination ko itself would refuse. | ErrInvalidOptions 表示 ko 自身会拒绝的选项组合。
-	ErrInvalidOptions = errx.New("ko: invalid options | ko：非法的选项")
+	ErrInvalidOptions = errs.New("ko: invalid options | ko：非法的选项")
 )
 
 // The environment variables ko reads the two non-flag settings from. | ko 从中读取两项非标志设置的环境变量。
@@ -189,9 +189,9 @@ func (o Options) withDefaults() Options {
 // common cause of a --local failure. | 一旦真正启动过 ko，返回的 Result 就不会是 nil，调用方始终可以
 // 展示日志；非法选项组合返回 ErrInvalidOptions，无法解析的可执行文件返回 ErrBinaryNotFound，其余失败包装进
 // ErrBuildFailed——例外是 Local 下本地守护进程不可达的情形，它会在细节里被明确点出，因为这是 --local 失败最常见的原因。
-func BuildImage(ctx context.Context, o Options, log *logx.Logger) (*Result, error) {
+func BuildImage(ctx context.Context, o Options, log *ydlog.Logger) (*Result, error) {
 	if log == nil {
-		log = logx.Default()
+		log = ydlog.Default()
 	}
 	if ctx == nil {
 		ctx = context.Background()
@@ -207,27 +207,27 @@ func BuildImage(ctx context.Context, o Options, log *logx.Logger) (*Result, erro
 
 	args := o.Args()
 	log.Debug("ko: running | ko：正在执行",
-		logx.Str("bin", bin), logx.Strs("args", args), logx.Str("dir", o.WorkingDir))
+		ydlog.Str("bin", bin), ydlog.Strs("args", args), ydlog.Str("dir", o.WorkingDir))
 
 	out, runErr := o.exec()(ctx, bin, args, o.WorkingDir, o.environ())
 	logs := splitLines(string(out))
 	for _, line := range logs {
-		log.Debug("ko: output | ko：输出", logx.Str("line", line))
+		log.Debug("ko: output | ko：输出", ydlog.Str("line", line))
 	}
 
 	result := newResult(logs)
 	if runErr != nil {
 		if ctxErr := ctx.Err(); ctxErr != nil {
-			return result, errx.WrapDetail(ctxErr, ErrBuildFailed, "ko build cancelled | ko 构建被取消：%v", runErr)
+			return result, errs.WrapDetail(ctxErr, ErrBuildFailed, "ko build cancelled | ko 构建被取消：%v", runErr)
 		}
 		return result, buildFailure(o, runErr, logs)
 	}
 
 	log.Info("ko: image built | ko：镜像已构建",
-		logx.Str("reference", result.Reference),
-		logx.Str("digest", result.Digest),
-		logx.Int("images", len(result.Images)),
-		logx.Int("log_lines", len(logs)))
+		ydlog.Str("reference", result.Reference),
+		ydlog.Str("digest", result.Digest),
+		ydlog.Int("images", len(result.Images)),
+		ydlog.Int("log_lines", len(logs)))
 	return result, nil
 }
 
@@ -235,11 +235,11 @@ func BuildImage(ctx context.Context, o Options, log *logx.Logger) (*Result, erro
 // 把失败的运行转换为指出最可能原因哨兵错误。
 func buildFailure(o Options, runErr error, logs []string) error {
 	if o.Local && isDaemonUnavailable(logs) {
-		return errx.WrapDetail(runErr, ErrBuildFailed,
+		return errs.WrapDetail(runErr, ErrBuildFailed,
 			"local docker daemon unreachable; start docker or drop --local | 本地 docker 守护进程不可达；请启动 docker 或去掉 --local：%s",
 			lastLine(logs))
 	}
-	return errx.WrapDetail(runErr, ErrBuildFailed, "%s: %s | %s：%s",
+	return errs.WrapDetail(runErr, ErrBuildFailed, "%s: %s | %s：%s",
 		DefaultBinary, lastLine(logs), DefaultBinary, lastLine(logs))
 }
 

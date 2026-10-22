@@ -19,10 +19,10 @@ import (
 	"testing"
 
 	kservice "github.com/kardianos/service"
-	"github.com/shibingli/yd/core/errx"
-	"github.com/shibingli/yd/core/logx"
 	"github.com/shibingli/yd/runtime/service"
 	"github.com/shibingli/yd/tooling/build"
+	"github.com/shibingli/ydx/errs"
+	"github.com/shibingli/ydx/log"
 	"github.com/spf13/afero"
 	"github.com/spf13/pflag"
 )
@@ -71,7 +71,7 @@ func useServiceBuild(t *testing.T, artifact string) *build.Options {
 	t.Helper()
 	seen := &build.Options{}
 	old := serviceBuildFunc
-	serviceBuildFunc = func(_ context.Context, o build.Options, _ *logx.Logger) (string, error) {
+	serviceBuildFunc = func(_ context.Context, o build.Options, _ *log.Logger) (string, error) {
 		*seen = o
 		return artifact, nil
 	}
@@ -449,7 +449,7 @@ func TestServiceBuildFailureCarriesAHint(t *testing.T) {
 	rec := useServiceControl(t)
 	failure := errors.New("go build: exit status 1")
 	old := serviceBuildFunc
-	serviceBuildFunc = func(context.Context, build.Options, *logx.Logger) (string, error) { return "", failure }
+	serviceBuildFunc = func(context.Context, build.Options, *log.Logger) (string, error) { return "", failure }
 	t.Cleanup(func() { serviceBuildFunc = old })
 
 	err := runServiceCommand(t, te, "install")
@@ -497,7 +497,7 @@ func TestServiceOnlyInstallResolvesTheBinary(t *testing.T) {
 	rec := useServiceControl(t)
 	built := 0
 	old := serviceBuildFunc
-	serviceBuildFunc = func(context.Context, build.Options, *logx.Logger) (string, error) {
+	serviceBuildFunc = func(context.Context, build.Options, *log.Logger) (string, error) {
 		built++
 		return "artifact", nil
 	}
@@ -521,7 +521,7 @@ func TestServiceOnlyInstallResolvesTheBinary(t *testing.T) {
 func TestServiceUnsupportedPlatformHint(t *testing.T) {
 	te, _ := newServiceProject(t)
 	rec := useServiceControl(t)
-	rec.err = errx.Wrap(kservice.ErrNoServiceSystemDetected, service.ErrUnsupportedPlatform)
+	rec.err = errs.Wrap(kservice.ErrNoServiceSystemDetected, service.ErrUnsupportedPlatform)
 
 	err := runServiceCommand(t, te, "status")
 	if !errors.Is(err, service.ErrUnsupportedPlatform) {

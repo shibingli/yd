@@ -12,8 +12,8 @@ import (
 
 	esm3 "github.com/emmansun/gmsm/sm3"
 
-	"github.com/shibingli/yd/core/b64x"
-	"github.com/shibingli/yd/core/errx"
+	"github.com/shibingli/ydx/base64"
+	"github.com/shibingli/ydx/errs"
 )
 
 const (
@@ -36,10 +36,10 @@ const (
 
 var (
 	// ErrInvalidPasswordHash reports an encoded hash that is not a valid sm3pbkdf2$<iter>$<saltB64>$<hashB64> string. | ErrInvalidPasswordHash 表示口令散列编码串不是合法的 sm3pbkdf2$<iter>$<saltB64>$<hashB64> 格式。
-	ErrInvalidPasswordHash = errx.New("guomi: invalid password hash encoding | guomi：非法的口令散列编码")
+	ErrInvalidPasswordHash = errs.New("guomi: invalid password hash encoding | guomi：非法的口令散列编码")
 
 	// ErrPasswordOptions reports password hashing options outside the supported range. | ErrPasswordOptions 表示口令散列参数超出支持范围。
-	ErrPasswordOptions = errx.New("guomi: invalid password hashing options | guomi：非法的口令散列参数")
+	ErrPasswordOptions = errs.New("guomi: invalid password hashing options | guomi：非法的口令散列参数")
 )
 
 // Sum computes the SM3 digest of data per GB/T 32905-2016 and returns the fixed 32-byte array. | Sum 计算 data 的 SM3 摘要（GB/T 32905-2016），返回定长 32 字节数组。
@@ -193,31 +193,31 @@ func HashPassword(password string, o PasswordOptions) (string, error) {
 		saltLen = DefaultSaltLen
 	}
 	if saltLen > maxPasswordSaltLen {
-		return "", errx.Detail(ErrPasswordOptions, "salt length %[1]d exceeds the limit %[2]d | 盐长度 %[1]d 超出上限 %[2]d", saltLen, maxPasswordSaltLen)
+		return "", errs.Detail(ErrPasswordOptions, "salt length %[1]d exceeds the limit %[2]d | 盐长度 %[1]d 超出上限 %[2]d", saltLen, maxPasswordSaltLen)
 	}
 	iter := o.Iterations
 	if iter <= 0 {
 		iter = DefaultIterations
 	}
 	if iter > maxPasswordIterations {
-		return "", errx.Detail(ErrPasswordOptions, "iteration count %[1]d exceeds the limit %[2]d | 迭代次数 %[1]d 超出上限 %[2]d", iter, maxPasswordIterations)
+		return "", errs.Detail(ErrPasswordOptions, "iteration count %[1]d exceeds the limit %[2]d | 迭代次数 %[1]d 超出上限 %[2]d", iter, maxPasswordIterations)
 	}
 
 	salt := make([]byte, saltLen)
 	if _, err := rand.Read(salt); err != nil {
-		return "", errx.Wrap(err, ErrRandomSource)
+		return "", errs.Wrap(err, ErrRandomSource)
 	}
 	sum := PBKDF2([]byte(password), salt, iter, SM3Size)
 
 	var b strings.Builder
-	b.Grow(len(PasswordPrefix) + 8 + b64x.StdEncoding.EncodedLen(saltLen) + b64x.StdEncoding.EncodedLen(SM3Size) + 3)
+	b.Grow(len(PasswordPrefix) + 8 + base64.StdEncoding.EncodedLen(saltLen) + base64.StdEncoding.EncodedLen(SM3Size) + 3)
 	b.WriteString(PasswordPrefix)
 	b.WriteByte('$')
 	b.WriteString(strconv.Itoa(iter))
 	b.WriteByte('$')
-	b.WriteString(b64x.StdEncoding.EncodeToString(salt))
+	b.WriteString(base64.StdEncoding.EncodeToString(salt))
 	b.WriteByte('$')
-	b.WriteString(b64x.StdEncoding.EncodeToString(sum))
+	b.WriteString(base64.StdEncoding.EncodeToString(sum))
 	return b.String(), nil
 }
 
@@ -229,25 +229,25 @@ func HashPassword(password string, o PasswordOptions) (string, error) {
 func VerifyPassword(encoded, password string) (bool, error) {
 	parts := strings.Split(encoded, "$")
 	if len(parts) != 4 || parts[0] != PasswordPrefix {
-		return false, errx.Detail(ErrInvalidPasswordHash, "bad prefix or field count | 前缀或分段非法")
+		return false, errs.Detail(ErrInvalidPasswordHash, "bad prefix or field count | 前缀或分段非法")
 	}
 	iter, err := strconv.Atoi(parts[1])
 	if err != nil || iter < 1 || iter > maxPasswordIterations {
-		return false, errx.Detail(ErrInvalidPasswordHash, "invalid iteration count %[1]q | 迭代次数 %[1]q 非法", parts[1])
+		return false, errs.Detail(ErrInvalidPasswordHash, "invalid iteration count %[1]q | 迭代次数 %[1]q 非法", parts[1])
 	}
-	salt, err := b64x.StdEncoding.DecodeString(parts[2])
+	salt, err := base64.StdEncoding.DecodeString(parts[2])
 	if err != nil {
-		return false, errx.WrapDetail(err, ErrInvalidPasswordHash, "salt is not valid Base64 | 盐不是合法 Base64")
+		return false, errs.WrapDetail(err, ErrInvalidPasswordHash, "salt is not valid Base64 | 盐不是合法 Base64")
 	}
 	if len(salt) == 0 || len(salt) > maxPasswordSaltLen {
-		return false, errx.Detail(ErrInvalidPasswordHash, "invalid salt length %[1]d | 盐长度 %[1]d 非法", len(salt))
+		return false, errs.Detail(ErrInvalidPasswordHash, "invalid salt length %[1]d | 盐长度 %[1]d 非法", len(salt))
 	}
-	want, err := b64x.StdEncoding.DecodeString(parts[3])
+	want, err := base64.StdEncoding.DecodeString(parts[3])
 	if err != nil {
-		return false, errx.WrapDetail(err, ErrInvalidPasswordHash, "digest is not valid Base64 | 摘要不是合法 Base64")
+		return false, errs.WrapDetail(err, ErrInvalidPasswordHash, "digest is not valid Base64 | 摘要不是合法 Base64")
 	}
 	if len(want) != SM3Size {
-		return false, errx.Detail(ErrInvalidPasswordHash, "digest length %[1]d, want %[2]d | 摘要长度 %[1]d，期望 %[2]d", len(want), SM3Size)
+		return false, errs.Detail(ErrInvalidPasswordHash, "digest length %[1]d, want %[2]d | 摘要长度 %[1]d，期望 %[2]d", len(want), SM3Size)
 	}
 
 	got := PBKDF2([]byte(password), salt, iter, len(want))

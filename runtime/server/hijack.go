@@ -7,16 +7,16 @@ import (
 	"net/http"
 	"sync"
 
-	"github.com/shibingli/yd/core/errx"
+	yderrs "github.com/shibingli/ydx/errs"
 )
 
 // Sentinel errors of the hijack tracking. | hijack 追踪的哨兵错误。
 var (
 	// ErrHijackUnsupported reports a hijack attempt on a writer that cannot hijack; HTTP/2 and HTTP/3 have no such notion. | ErrHijackUnsupported 表示在不支持 hijack 的写入器上尝试劫持；HTTP/2 与 HTTP/3 没有该语义。
-	ErrHijackUnsupported = errx.New("server: response writer does not support hijacking | server：响应写入器不支持 hijack")
+	ErrHijackUnsupported = yderrs.New("server: response writer does not support hijacking | server：响应写入器不支持 hijack")
 
 	// ErrForceCloseHijacked reports a hijacked connection that could not be force-closed during shutdown. | ErrForceCloseHijacked 表示退出时未能强制关闭已 hijack 的连接。
-	ErrForceCloseHijacked = errx.New("server: failed to force-close a hijacked connection | server：强制关闭已 hijack 的连接失败")
+	ErrForceCloseHijacked = yderrs.New("server: failed to force-close a hijacked connection | server：强制关闭已 hijack 的连接失败")
 )
 
 // hijackWriter registers hijacked connections with the server so that Shutdown can force-close them. | hijackWriter 把被 hijack 的连接登记到服务器，使 Shutdown 能强制关闭它们。
@@ -174,7 +174,7 @@ func (s *Server) closeHijacked() []error {
 			remote = addr.String()
 		}
 		if err := tc.Close(); err != nil {
-			errs = append(errs, errx.WrapDetail(err, ErrForceCloseHijacked, "remote=%[1]q | 远端=%[1]q", remote))
+			errs = append(errs, yderrs.WrapDetail(err, ErrForceCloseHijacked, "remote=%[1]q | 远端=%[1]q", remote))
 		}
 	}
 	return errs

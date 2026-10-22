@@ -27,11 +27,11 @@ import (
 	"runtime"
 	"strings"
 
-	"github.com/shibingli/yd/core/errx"
-	"github.com/shibingli/yd/core/logx"
 	"github.com/shibingli/yd/core/version"
 	"github.com/shibingli/yd/runtime/service"
 	"github.com/shibingli/yd/tooling/build"
+	"github.com/shibingli/ydx/errs"
+	ydlog "github.com/shibingli/ydx/log"
 	"github.com/spf13/pflag"
 )
 
@@ -89,10 +89,10 @@ var serviceControlFunc func(o service.Options, a service.Action) (string, error)
 // serviceBuildFunc compiles the artifact when it is missing; nil means the build package's own
 // pipeline. It is a variable so tests never compile anything for real. | serviceBuildFunc 在产物缺失时编译产物；
 // nil 表示使用 build 包自身的流水线。它被声明为变量，使测试永不执行真实编译。
-var serviceBuildFunc func(ctx context.Context, o build.Options, log *logx.Logger) (string, error)
+var serviceBuildFunc func(ctx context.Context, o build.Options, log *ydlog.Logger) (string, error)
 
 // ErrServiceBinary reports a service executable that could not be resolved or produced. | ErrServiceBinary 表示无法解析或产出服务程序。
-var ErrServiceBinary = errx.New("cli: cannot resolve the service executable | cli：无法解析服务程序")
+var ErrServiceBinary = errs.New("cli: cannot resolve the service executable | cli：无法解析服务程序")
 
 func init() {
 	Register(Command{
@@ -146,7 +146,7 @@ func runService(ctx context.Context, env *Env) error {
 	action, ok := serviceAction(strings.ToLower(strings.TrimSpace(args[0])))
 	if !ok {
 		printServiceUnknownAction(env, args[0])
-		return errx.Detail(service.ErrUnknownAction, "%q", args[0])
+		return errs.Detail(service.ErrUnknownAction, "%q", args[0])
 	}
 
 	opts, err := serviceOptions(ctx, env, fs, action)
@@ -315,7 +315,7 @@ func serviceBinary(ctx context.Context, env *Env, fs *pflag.FlagSet, action serv
 	if given := strings.TrimSpace(flagString(fs, flagServiceBinary)); given != "" {
 		path := serviceResolvePath(env, given)
 		if !serviceIsFile(env, path) {
-			return "", errx.Detail(ErrServiceBinary, "%[1]q does not exist | %[1]q 不存在", path)
+			return "", errs.Detail(ErrServiceBinary, "%[1]q does not exist | %[1]q 不存在", path)
 		}
 		return path, nil
 	}
@@ -389,11 +389,11 @@ func serviceBuildArtifact(ctx context.Context, env *Env, dir, project string) (s
 	}
 	artifact, err := buildFn(ctx, opts, log)
 	if err != nil {
-		return "", errx.WrapDetail(err, ErrServiceBinary,
+		return "", errs.WrapDetail(err, ErrServiceBinary,
 			"cannot build %[1]s; run `yd build` first or pass --binary PATH | 无法构建 %[1]s；请先运行 `yd build` 或传入 --binary PATH", project)
 	}
 	if artifact == "" {
-		return "", errx.Detail(ErrServiceBinary,
+		return "", errs.Detail(ErrServiceBinary,
 			"the build of %[1]s produced no artifact | %[1]s 的构建未产出任何产物", project)
 	}
 	return artifact, nil
@@ -402,7 +402,7 @@ func serviceBuildArtifact(ctx context.Context, env *Env, dir, project string) (s
 // serviceBuildOptions assembles the one-shot build of the service artifact. The entry is the
 // conventional cmd/app main package of a scaffolded project, falling back to the module root. | serviceBuildOptions
 // 组装服务程序的一次性构建。构建入口是脚手架项目约定的 cmd/app 主包，否则回退为模块根。
-func serviceBuildOptions(env *Env, dir, project string, log *logx.Logger) build.Options {
+func serviceBuildOptions(env *Env, dir, project string, log *ydlog.Logger) build.Options {
 	return build.Options{
 		Dir:          dir,
 		Name:         project,
@@ -431,13 +431,13 @@ func projectEntry(env *Env, dir string) string {
 }
 
 // serviceDefaultBuild runs the build package and returns the first artifact. | serviceDefaultBuild 运行 build 包并返回第一个产物。
-func serviceDefaultBuild(ctx context.Context, o build.Options, log *logx.Logger) (string, error) {
+func serviceDefaultBuild(ctx context.Context, o build.Options, log *ydlog.Logger) (string, error) {
 	report, err := build.Build(ctx, o, log)
 	if err != nil {
 		return "", err
 	}
 	if report == nil || len(report.Artifacts) == 0 {
-		return "", errx.Detail(ErrServiceBinary, "the build produced no artifact | 构建未产出任何产物")
+		return "", errs.Detail(ErrServiceBinary, "the build produced no artifact | 构建未产出任何产物")
 	}
 	return report.Artifacts[0].Path, nil
 }

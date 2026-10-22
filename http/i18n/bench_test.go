@@ -6,7 +6,7 @@ import (
 
 	"github.com/spf13/afero"
 
-	"github.com/shibingli/yd/core/afs"
+	"github.com/shibingli/ydx/afs"
 )
 
 // benchI18nSink keeps the benchmark result observable. | benchI18nSink 保持基准结果可观测。

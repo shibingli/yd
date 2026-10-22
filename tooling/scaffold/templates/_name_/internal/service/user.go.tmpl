@@ -10,25 +10,25 @@ import (
 	"{{ .Module }}/internal/model"
 	"{{ .Module }}/internal/repository"
 	"{{ .YdModule }}/security/auth"
-	"{{ .YdModule }}/core/errx"
+	"{{ .YdxModule }}/errs"
 )
 
 // User business sentinels: the 422 branch of the controllers is decided by them. | 用户业务哨兵：控制器的 422 分支按它们判定。
 var (
 	// ErrUserNameRequired reports an empty sign-in name. | ErrUserNameRequired 表示登录名为空。
-	ErrUserNameRequired = errx.New("user name is required | 用户名称不能为空")
+	ErrUserNameRequired = errs.New("user name is required | 用户名称不能为空")
 	// ErrUserEmailInvalid reports a malformed e-mail address. | ErrUserEmailInvalid 表示邮箱格式不正确。
-	ErrUserEmailInvalid = errx.New("invalid e-mail address | 邮箱格式不正确")
+	ErrUserEmailInvalid = errs.New("invalid e-mail address | 邮箱格式不正确")
 	// ErrUserPasswordWeak reports a password that is too weak. | ErrUserPasswordWeak 表示口令强度不足。
-	ErrUserPasswordWeak = errx.New("the password must be at least 8 characters long | 口令至少需要 8 位")
+	ErrUserPasswordWeak = errs.New("the password must be at least 8 characters long | 口令至少需要 8 位")
 	// ErrUserNotFound reports a user that this tenant does not hold (a user of another tenant reports the same, so nothing can be probed). | ErrUserNotFound 表示本租户内没有该用户（其它租户的用户同样报它，避免探测）。
-	ErrUserNotFound = errx.New("user not found | 用户不存在")
+	ErrUserNotFound = errs.New("user not found | 用户不存在")
 	// ErrRoleUnknown reports an assignment of a role name that does not exist. | ErrRoleUnknown 表示分配了不存在的角色名。
-	ErrRoleUnknown = errx.New("unknown role | 角色不存在")
+	ErrRoleUnknown = errs.New("unknown role | 角色不存在")
 	// ErrSelfOperation reports a dangerous operation on one's own account (disabling oneself, for instance). | ErrSelfOperation 表示对自己执行了危险操作（如停用自己）。
-	ErrSelfOperation = errx.New("you cannot disable your own account | 不能停用自己的账号")
+	ErrSelfOperation = errs.New("you cannot disable your own account | 不能停用自己的账号")
 	// ErrTenantSelection reports an empty membership set or a default tenant outside it. | ErrTenantSelection 表示成员租户为空，或默认租户不在其中。
-	ErrTenantSelection = errx.New("select at least one tenant and pick the default tenant among them | 至少选择一个租户，并把默认租户选在其中")
+	ErrTenantSelection = errs.New("select at least one tenant and pick the default tenant among them | 至少选择一个租户，并把默认租户选在其中")
 )
 
 // Length bounds for the e-mail address and the password. | 邮箱与口令的长度边界。

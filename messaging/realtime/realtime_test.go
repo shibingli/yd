@@ -9,9 +9,9 @@ import (
 
 	"github.com/alicebob/miniredis/v2"
 	"github.com/redis/go-redis/v9"
-	"github.com/shibingli/yd/core/logx"
 	"github.com/shibingli/yd/messaging"
 	"github.com/shibingli/yd/messaging/realtime"
+	ydlog "github.com/shibingli/ydx/log"
 )
 
 // newRedisClient returns a client against a disposable miniredis. | newRedisClient 返回指向一次性 miniredis 的客户端。
@@ -38,7 +38,7 @@ func waitEvent(t *testing.T, ch <-chan messaging.Event) messaging.Event {
 // TestDistributedHubCrossesNodes 证明一次发布恰好到达另一节点上的订阅者一次。
 func TestDistributedHubCrossesNodes(t *testing.T) {
 	server := miniredis.RunT(t)
-	log := logx.Default()
+	log := ydlog.Default()
 	bus1, err := realtime.NewRedisBus(newRedisClient(t, server.Addr()), "yd:test:events", log)
 	if err != nil {
 		t.Fatalf("bus1: %v", err)
@@ -126,7 +126,7 @@ func (r *recordingRetry) count() int {
 // TestFailedBroadcastGoesToRetryQueue proves local delivery survives a bus failure and the event is queued. |
 // TestFailedBroadcastGoesToRetryQueue 证明总线故障时本地投递仍然成功，且事件进入重试队列。
 func TestFailedBroadcastGoesToRetryQueue(t *testing.T) {
-	log := logx.Default()
+	log := ydlog.Default()
 	retry := &recordingRetry{}
 	hub := realtime.NewDistributed(log, failingBus{}, retry, "node-1")
 	defer hub.Close()
@@ -153,7 +153,7 @@ func TestFailedBroadcastGoesToRetryQueue(t *testing.T) {
 // TestAudienceAndTenantFiltering proves a subscriber only receives its own events. |
 // TestAudienceAndTenantFiltering 证明订阅者只收到自己的事件。
 func TestAudienceAndTenantFiltering(t *testing.T) {
-	hub := realtime.New(logx.Default())
+	hub := realtime.New(ydlog.Default())
 	defer hub.Close()
 	received := make(chan messaging.Event, 2)
 	hub.Subscribe(realtime.Subscription{TenantID: "tn_1", UserID: "us_1", Deliver: func(event messaging.Event) { received <- event }})

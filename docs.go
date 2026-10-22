@@ -30,28 +30,28 @@
 //
 // Foundation | 基础层:
 //
-//   - [github.com/shibingli/yd/core/config] layered configuration (flags > env > file > defaults). | 分层配置（参数 > 环境变量 > 文件 > 默认值）。
-//   - [github.com/shibingli/yd/core/afs] afero filesystem facade over OS, memory and embed backends. | afero 文件系统门面（OS / 内存 / embed）。
-//   - [github.com/shibingli/yd/core/jsonx], [github.com/shibingli/yd/core/b64x] hardware-adaptive codecs. | 硬件自适应编解码层。
-//   - [github.com/shibingli/yd/core/logx] zero-copy structured logging. | 零拷贝结构化日志。
-//   - [github.com/shibingli/yd/core/errx] declared sentinel errors. | 声明式哨兵错误。
+//   - [github.com/shibingli/ydx/config] layered configuration (flags > env > file > defaults). | 分层配置（参数 > 环境变量 > 文件 > 默认值）。
+//   - [github.com/shibingli/ydx/afs] afero filesystem facade over OS, memory and embed backends. | afero 文件系统门面（OS / 内存 / embed）。
+//   - [github.com/shibingli/ydx/json], [github.com/shibingli/ydx/base64] hardware-adaptive codecs. | 硬件自适应编解码层。
+//   - [github.com/shibingli/ydx/log] zero-copy structured logging. | 零拷贝结构化日志。
+//   - [github.com/shibingli/ydx/errs] declared sentinel errors. | 声明式哨兵错误。
 //
 // HTTP layer | HTTP 层:
 //
-//   - [github.com/shibingli/yd/http/router] radix router with mixed segment capture. | 支持段内混合捕获的基数树路由。
-//   - [github.com/shibingli/yd/http/render], [github.com/shibingli/yd/http/htmx] html/template engine and Htmx 4 helpers. | 模板引擎与 Htmx 4 服务端辅助。
-//   - [github.com/shibingli/yd/middleware] recovery, request id, access log, CORS, rate limiting, compression. | 基础中间件与压缩协商。
+//   - [github.com/shibingli/ydx/router] radix router with mixed segment capture. | 支持段内混合捕获的基数树路由。
+//   - [github.com/shibingli/ydx/render], [github.com/shibingli/yd/http/htmx] html/template engine and Htmx 4 helpers. | 模板引擎与 Htmx 4 服务端辅助。
+//   - [github.com/shibingli/ydx/middleware] recovery, request id, access log, CORS, rate limiting, compression. | 基础中间件与压缩协商。
 //   - [github.com/shibingli/yd/http/i18n], [github.com/shibingli/yd/http/openapi] localisation and 3.0 documents. | 国际化与 OpenAPI 3.0 文档。
 //   - [github.com/shibingli/yd/runtime/server], [github.com/shibingli/yd/runtime/grpcx] HTTP/1.1 + H2C + HTTP/3 + ACME, and a gRPC dual channel. | 混合协议服务器与 gRPC 双通道。
 //
 // Realtime and security | 实时与安全:
 //
-//   - [github.com/shibingli/yd/http/sse], [github.com/shibingli/yd/http/ws] server-sent events and RFC 6455 WebSockets. | 事件流与 WebSocket。
-//   - [github.com/shibingli/yd/security/jwt], [github.com/shibingli/yd/security/guomi] reflection-free JWTs and SM2/SM3/SM4. | 免反射 JWT 与国密套件。
+//   - [github.com/shibingli/ydx/sse], [github.com/shibingli/ydx/websocket] server-sent events and RFC 6455 WebSockets. | 事件流与 WebSocket。
+//   - [github.com/shibingli/ydx/jwt], [github.com/shibingli/yd/security/guomi] reflection-free JWTs and SM2/SM3/SM4. | 免反射 JWT 与国密套件。
 //
 // Data | 数据层:
 //
-//   - [github.com/shibingli/yd/data/gormx], [github.com/shibingli/yd/data/redisx], [github.com/shibingli/yd/data/asynqx] GORM, Redis and asynq. | GORM / Redis / asynq 插件。
+//   - [github.com/shibingli/ydx/gorm], [github.com/shibingli/ydx/redis], [github.com/shibingli/ydx/asynq] GORM, Redis and asynq. | GORM / Redis / asynq 插件。
 //
 // Application and tooling | 应用与工具链:
 //

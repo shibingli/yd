@@ -8,8 +8,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/shibingli/yd/core/errx"
-	"github.com/shibingli/yd/core/logx"
+	"github.com/shibingli/ydx/errs"
+	ydlog "github.com/shibingli/ydx/log"
 )
 
 // Actor is the authenticated principal a service call acts as. The capability booleans are filled
@@ -162,7 +162,7 @@ type Service struct {
 	// notifier delivers realtime events; nil drops them. | notifier 投递实时事件；nil 表示丢弃。
 	notifier Notifier
 	// log records delivery and cleanup problems. | log 记录投递与清理问题。
-	log *logx.Logger
+	log *ydlog.Logger
 	// options holds the normalized limits. | options 保存规范化后的限制。
 	options Options
 }
@@ -170,12 +170,12 @@ type Service struct {
 // New constructs a service. Store, Directory and Renderer are mandatory; BlobStore and Notifier
 // are optional, and a missing one degrades exactly the feature that needs it. | New 构造服务。
 // Store、Directory 与 Renderer 必填；BlobStore 与 Notifier 可选，缺失时只降级依赖它的能力。
-func New(store Store, directory Directory, renderer Renderer, blobs BlobStore, notifier Notifier, log *logx.Logger, options Options) (*Service, error) {
+func New(store Store, directory Directory, renderer Renderer, blobs BlobStore, notifier Notifier, log *ydlog.Logger, options Options) (*Service, error) {
 	if store == nil || directory == nil || renderer == nil {
-		return nil, errx.Detail(ErrUnavailable, "store, directory and renderer are required | store、directory 与 renderer 为必填")
+		return nil, errs.Detail(ErrUnavailable, "store, directory and renderer are required | store、directory 与 renderer 为必填")
 	}
 	if log == nil {
-		log = logx.Default()
+		log = ydlog.Default()
 	}
 	return &Service{
 		store:     store,
@@ -207,7 +207,7 @@ func (s *Service) EnsureTenant(ctx context.Context, tenantID string) error {
 		types[i].UpdatedAt = now
 	}
 	if err := s.store.EnsureTypes(ctx, tenantID, types); err != nil {
-		return errx.Wrap(err, ErrUnavailable)
+		return errs.Wrap(err, ErrUnavailable)
 	}
 	return nil
 }
@@ -227,7 +227,7 @@ func (s *Service) Unread(ctx context.Context, actor Actor) (UnreadSummary, error
 	}
 	counts, err := s.store.ConversationUnread(ctx, actor.TenantID, actor.ID)
 	if err != nil {
-		return UnreadSummary{}, errx.Wrap(err, ErrUnavailable)
+		return UnreadSummary{}, errs.Wrap(err, ErrUnavailable)
 	}
 	summary := UnreadSummary{System: counts[system.ID]}
 	for _, count := range counts {
@@ -235,7 +235,7 @@ func (s *Service) Unread(ctx context.Context, actor Actor) (UnreadSummary, error
 	}
 	pending, err := s.store.CountPendingFriendRequests(ctx, actor.TenantID, actor.ID)
 	if err != nil {
-		return UnreadSummary{}, errx.Wrap(err, ErrUnavailable)
+		return UnreadSummary{}, errs.Wrap(err, ErrUnavailable)
 	}
 	summary.FriendRequests = pending
 	return summary, nil
@@ -253,7 +253,7 @@ func (s *Service) SearchUsers(ctx context.Context, actor Actor, keyword string) 
 	}
 	profiles, err := s.directory.Search(ctx, actor.TenantID, keyword, actor.ID, 20)
 	if err != nil {
-		return nil, errx.Wrap(err, ErrUnavailable)
+		return nil, errs.Wrap(err, ErrUnavailable)
 	}
 	out := make([]FriendCandidate, 0, len(profiles))
 	for _, profile := range profiles {
@@ -296,28 +296,28 @@ func (s *Service) FriendRelation(ctx context.Context, actor Actor, otherID strin
 // relationWith classifies the current relation between the actor and another user. | relationWith 分类当前主体与另一用户的关系。
 func (s *Service) relationWith(ctx context.Context, actor Actor, otherID string) (string, error) {
 	if blocked, err := s.store.EitherBlocked(ctx, actor.TenantID, actor.ID, otherID); err != nil {
-		return "", errx.Wrap(err, ErrUnavailable)
+		return "", errs.Wrap(err, ErrUnavailable)
 	} else if blocked {
 		return RelationBlocked, nil
 	}
 	if _, err := s.store.GetFriendship(ctx, actor.TenantID, actor.ID, otherID); err == nil {
 		return RelationFriend, nil
 	} else if !isNotFound(err) {
-		return "", errx.Wrap(err, ErrUnavailable)
+		return "", errs.Wrap(err, ErrUnavailable)
 	}
 	incoming, err := s.store.FriendRequestBetween(ctx, actor.TenantID, otherID, actor.ID)
 	if err == nil && incoming.Status == FriendPending {
 		return RelationIncoming, nil
 	}
 	if err != nil && !isNotFound(err) {
-		return "", errx.Wrap(err, ErrUnavailable)
+		return "", errs.Wrap(err, ErrUnavailable)
 	}
 	outgoing, err := s.store.FriendRequestBetween(ctx, actor.TenantID, actor.ID, otherID)
 	if err == nil && outgoing.Status == FriendPending {
 		return RelationOutgoing, nil
 	}
 	if err != nil && !isNotFound(err) {
-		return "", errx.Wrap(err, ErrUnavailable)
+		return "", errs.Wrap(err, ErrUnavailable)
 	}
 	return RelationNone, nil
 }
@@ -332,10 +332,10 @@ func (s *Service) emit(ctx context.Context, event Event) {
 	}
 	if err := s.notifier.Publish(ctx, event); err != nil {
 		s.log.Warn("message event delivery failed | 消息事件投递失败",
-			logx.Err(err),
-			logx.Str("event", event.Type),
-			logx.Str("tenant", event.TenantID),
-			logx.Str("conversation", event.ConversationID),
+			ydlog.Err(err),
+			ydlog.Str("event", event.Type),
+			ydlog.Str("tenant", event.TenantID),
+			ydlog.Str("conversation", event.ConversationID),
 		)
 	}
 }
@@ -344,7 +344,7 @@ func (s *Service) emit(ctx context.Context, event Event) {
 func newID(prefix string) (string, error) {
 	var raw [12]byte
 	if _, err := rand.Read(raw[:]); err != nil {
-		return "", errx.Wrap(err, ErrUnavailable)
+		return "", errs.Wrap(err, ErrUnavailable)
 	}
 	return prefix + hex.EncodeToString(raw[:]), nil
 }

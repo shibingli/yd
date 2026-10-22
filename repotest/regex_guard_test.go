@@ -8,8 +8,8 @@ import (
 	"testing"
 )
 
-// TestRegexStaysBehindWrapper 强制全仓正则只经 core/regexpx，禁止直接使用标准库 regexp 或 regexp2。
-// TestRegexStaysBehindWrapper enforces that every regular expression goes through core/regexpx and
+// TestRegexStaysBehindWrapper 强制全仓正则只经 ydx/regexpx，禁止直接使用标准库 regexp 或 regexp2。
+// TestRegexStaysBehindWrapper enforces that every regular expression goes through ydx/regexpx and
 // that neither the standard library regexp nor regexp2 is imported directly.
 //
 // 统一的理由不是语法糖，而是三件只有包装层能保证的事：双引擎选择（能走 RE2 的模式走标准库线性引擎，
@@ -27,7 +27,7 @@ import (
 // The wrapper is the only place allowed to import either engine: the standard library provides the
 // fast path and regexp2 provides the compatibility path.
 func TestRegexStaysBehindWrapper(t *testing.T) {
-	const wrapperDir = "core/regexpx/"
+	const wrapperDir = ""
 	for _, f := range scanGoFiles(t, repoRoot(t)) {
 		fset := token.NewFileSet()
 		parsed, err := parser.ParseFile(fset, f.absPath, f.src, parser.ImportsOnly)
@@ -39,11 +39,11 @@ func TestRegexStaysBehindWrapper(t *testing.T) {
 			if err != nil {
 				continue
 			}
-			if strings.HasPrefix(f.rel, wrapperDir) {
-				continue // 包装层同时持有两个引擎 | the wrapper owns both engines
+			if wrapperDir != "" && strings.HasPrefix(f.rel, wrapperDir) {
+				continue
 			}
 			if p == "regexp" || p == "github.com/dlclark/regexp2" {
-				t.Errorf("%s 直接导入了 %q；正则必须经 github.com/shibingli/yd/core/regexpx"+
+				t.Errorf("%s 直接导入了 %q；正则必须经 github.com/shibingli/yd/ydx/regexpx"+
 					"（见 CLAUDE.md「正则表达式」一节）", f.rel, p)
 			}
 		}

@@ -11,10 +11,10 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/shibingli/yd/core/jsonx"
-	"github.com/shibingli/yd/core/logx"
 	"github.com/shibingli/yd/core/version"
 	"github.com/shibingli/yd/tooling/docker"
+	"github.com/shibingli/ydx/json"
+	ydlog "github.com/shibingli/ydx/log"
 	"github.com/spf13/afero"
 	"github.com/spf13/pflag"
 )
@@ -67,7 +67,7 @@ var dockerExecCommand docker.ExecCommandFunc
 // dockerPrepareAssets overrides the asset stage run before `docker build`; nil means the docker
 // package's built-in Tailwind refresh, which --no-assets turns off. | dockerPrepareAssets 覆盖
 // `docker build` 之前运行的资产阶段；nil 表示 docker 包内置的 Tailwind 刷新，--no-assets 会关闭它。
-var dockerPrepareAssets func(ctx context.Context, dir string, log *logx.Logger) error
+var dockerPrepareAssets func(ctx context.Context, dir string, log *ydlog.Logger) error
 
 // dockerProjectMeta is the subset of .yd.json the docker command reads. | dockerProjectMeta 是 docker
 // 命令读取的 .yd.json 子集。
@@ -183,7 +183,7 @@ func projectMetaName(env *Env, dir string) string {
 		return ""
 	}
 	var meta dockerProjectMeta
-	if err := jsonx.Unmarshal(data, &meta); err != nil {
+	if err := json.Unmarshal(data, &meta); err != nil {
 		return ""
 	}
 	name := strings.TrimSpace(meta.Name)

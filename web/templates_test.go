@@ -28,9 +28,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/shibingli/yd/core/jsonx"
-	"github.com/shibingli/yd/core/regexpx"
 	"github.com/shibingli/yd/security/authz"
+	"github.com/shibingli/ydx/json"
+	"github.com/shibingli/ydx/regexpx"
 )
 
 // templateGrants is what the fixture subject holds, keyed by tokens of the real registry so a
@@ -837,7 +837,7 @@ func TestI18nCatalogInjectedIntoLayout(t *testing.T) {
 			"zh-CN": map[string]any{"app": map[string]any{"name": "yd"}},
 		},
 	}
-	raw, err := jsonx.Marshal(envelope)
+	raw, err := json.Marshal(envelope)
 	if err != nil {
 		t.Fatalf("marshal envelope: %v", err)
 	}
@@ -869,7 +869,7 @@ func TestI18nCatalogInjectedIntoLayout(t *testing.T) {
 		Fallback string                    `json:"fallback"`
 		Catalogs map[string]map[string]any `json:"catalogs"`
 	}
-	if err := jsonx.Unmarshal([]byte(match[1]), &decoded); err != nil {
+	if err := json.Unmarshal([]byte(match[1]), &decoded); err != nil {
 		t.Fatalf("the injected catalog is not valid JSON (%v): %s | 注入的目录不是合法 JSON（%v）：%s", err, match[1], err, match[1])
 	}
 	if decoded.Lang != "en" || decoded.Fallback != "zh-CN" {
@@ -897,7 +897,7 @@ func TestI18nCatalogInjectedIntoLayout(t *testing.T) {
 		t.Errorf("template.HTML was not JSON encoded, the data contract note must be updated: %s | template.HTML 未被 JSON 编码，需更新数据契约说明：%s", wrapped[1], wrapped[1])
 	}
 	var unwrapped string
-	if err := jsonx.Unmarshal([]byte(strings.TrimSpace(wrapped[1])), &unwrapped); err != nil {
+	if err := json.Unmarshal([]byte(strings.TrimSpace(wrapped[1])), &unwrapped); err != nil {
 		t.Fatalf("the quoted catalog is not a JSON string: %v | 带引号的目录不是 JSON 字符串：%v", err, err)
 	}
 	if unwrapped != string(raw) {
@@ -953,7 +953,7 @@ func TestAuthzPayloadInjectedIntoLayout(t *testing.T) {
 		}
 
 		var payload authzPayload
-		if err := jsonx.Unmarshal([]byte(body), &payload); err != nil {
+		if err := json.Unmarshal([]byte(body), &payload); err != nil {
 			t.Fatalf("%s: the injected payload is not valid JSON (%v): %s | %s：注入的载荷不是合法 JSON（%v）：%s", page, err, body, page, err, body)
 		}
 		key := authz.JSKey(authz.PermUserCreate)

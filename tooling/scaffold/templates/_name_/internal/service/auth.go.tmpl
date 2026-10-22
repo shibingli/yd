@@ -14,25 +14,25 @@ import (
 	"{{ .Module }}/internal/model"
 	"{{ .Module }}/internal/repository"
 	"{{ .YdModule }}/security/auth"
-	"{{ .YdModule }}/core/errx"
+	"{{ .YdxModule }}/errs"
 	"{{ .YdModule }}/security/guomi"
-	"{{ .YdModule }}/core/logx"
+	logx "{{ .YdxModule }}/log"
 )
 
 // Business sentinels: the controllers map them onto status codes and copy through errors.Is. | 业务哨兵错误：控制器用 errors.Is 把它们映射为状态码与文案。
 var (
 	// ErrCredentials reports a wrong sign-in name or password (the two are indistinguishable, so user existence cannot be probed). | ErrCredentials 表示登录名或口令不正确（两者不可区分，避免探测用户是否存在）。
-	ErrCredentials = errx.New("invalid username or password | 用户名或口令不正确")
+	ErrCredentials = errs.New("invalid username or password | 用户名或口令不正确")
 	// ErrCipherRequired reports a password that did not arrive as SM2 ciphertext; the plaintext path is refused outright. | ErrCipherRequired 表示口令没有以 SM2 密文提交：明文链路一律拒绝。
-	ErrCipherRequired = errx.New("the password must be submitted as an SM2 ciphertext | 口令必须以 SM2 密文提交")
+	ErrCipherRequired = errs.New("the password must be submitted as an SM2 ciphertext | 口令必须以 SM2 密文提交")
 	// ErrCipherInvalid reports an undecryptable SM2 payload, usually because the client cached an old public key. | ErrCipherInvalid 表示 SM2 密文无法解密，通常因为客户端缓存了旧公钥。
-	ErrCipherInvalid = errx.New("the SM2 payload cannot be decrypted | SM2 密文无法解密")
+	ErrCipherInvalid = errs.New("the SM2 payload cannot be decrypted | SM2 密文无法解密")
 	// ErrCipherKeyMissing reports a failed server-side SM2 key pair assembly. | ErrCipherKeyMissing 表示服务端 SM2 密钥对装配失败。
-	ErrCipherKeyMissing = errx.New("the SM2 key pair is unavailable | SM2 密钥对不可用")
+	ErrCipherKeyMissing = errs.New("the SM2 key pair is unavailable | SM2 密钥对不可用")
 	// ErrAuthUnavailable reports a missing auth store or token issuer. | ErrAuthUnavailable 表示鉴权存储或令牌签发器缺失。
-	ErrAuthUnavailable = errx.New("the auth store is unavailable | 鉴权存储不可用")
+	ErrAuthUnavailable = errs.New("the auth store is unavailable | 鉴权存储不可用")
 	// ErrPasswordMismatch reports two new passwords that do not match. | ErrPasswordMismatch 表示两次输入的新口令不一致。
-	ErrPasswordMismatch = errx.New("the two passwords do not match | 两次输入的口令不一致")
+	ErrPasswordMismatch = errs.New("the two passwords do not match | 两次输入的口令不一致")
 )
 
 // LoginInput 是一次登录请求的全部输入；Password 是 SM2 密文（原始字节或标准 Base64）。
@@ -96,7 +96,7 @@ func NewAuthService(store *repository.Store, log *logx.Logger) (*AuthService, er
 
 	priv, err := guomi.GenerateKey()
 	if err != nil {
-		return nil, errx.Wrap(err, ErrCipherKeyMissing)
+		return nil, errs.Wrap(err, ErrCipherKeyMissing)
 	}
 	return &AuthService{store: store, users: repository.NewUserRepo(store), priv: priv, pub: priv.Public().Hex(), log: log}, nil
 }
@@ -136,7 +136,7 @@ func (s *AuthService) Login(ctx context.Context, in LoginInput) (*auth.LoginResu
 			logx.Str("username", in.Username),
 			logx.Err(err),
 		)
-		return nil, errx.Wrap(err, ErrCredentials)
+		return nil, errs.Wrap(err, ErrCredentials)
 	}
 
 	s.log.Info("sign-in succeeded | 登录成功",
@@ -160,7 +160,7 @@ func (s *AuthService) SwitchTenant(ctx context.Context, userID, tenantID string)
 	}
 	token, expiresAt, err := s.store.Issuer().Issue(ctx, u)
 	if err != nil {
-		return nil, errx.Wrap(err, ErrCredentials)
+		return nil, errs.Wrap(err, ErrCredentials)
 	}
 	s.log.Info("tenant switched | 已切换租户",
 		logx.Str("tenant", u.TenantID),
@@ -249,7 +249,7 @@ func (s *AuthService) decrypt(payload []byte, scheme string) (string, error) {
 
 	password, err := auth.DecryptLoginPayload(payload, s.priv)
 	if err != nil {
-		return "", errx.Wrap(err, ErrCipherInvalid)
+		return "", errs.Wrap(err, ErrCipherInvalid)
 	}
 	return password, nil
 }

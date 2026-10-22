@@ -7,8 +7,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/shibingli/yd/core/jsonx"
-	"github.com/shibingli/yd/http/router"
+	"github.com/shibingli/ydx/json"
+	"github.com/shibingli/ydx/router"
 	"go.yaml.in/yaml/v3"
 )
 
@@ -180,7 +180,7 @@ func TestJSONHasOpenAPIVersion(t *testing.T) {
 		t.Fatalf("JSON: %v", err)
 	}
 	var got map[string]any
-	if err := jsonx.Unmarshal(raw, &got); err != nil {
+	if err := json.Unmarshal(raw, &got); err != nil {
 		t.Fatalf("unmarshal: %v", err)
 	}
 	if got["openapi"] != "3.0.3" {
@@ -196,7 +196,7 @@ func TestJSONHasOpenAPIVersion(t *testing.T) {
 		t.Fatalf("zero value JSON: %v", err)
 	}
 	var zero map[string]any
-	if err := jsonx.Unmarshal(raw, &zero); err != nil {
+	if err := json.Unmarshal(raw, &zero); err != nil {
 		t.Fatalf("unmarshal zero: %v", err)
 	}
 	if zero["openapi"] != "3.0.3" {
@@ -326,8 +326,8 @@ func TestYAMLValid(t *testing.T) {
 		t.Fatalf("JSON: %v", err)
 	}
 	var fromJSON any
-	if err := jsonx.Unmarshal(jraw, &fromJSON); err != nil {
-		t.Fatalf("jsonx.Unmarshal: %v", err)
+	if err := json.Unmarshal(jraw, &fromJSON); err != nil {
+		t.Fatalf("json.Unmarshal: %v", err)
 	}
 
 	if !reflect.DeepEqual(normalizeNumbers(fromYAML), fromJSON) {
@@ -356,7 +356,7 @@ func TestHandlerServesDocAndViewer(t *testing.T) {
 			t.Errorf("doc content-type = %q | 文档 Content-Type 不正确", ct)
 		}
 		var got map[string]any
-		if err := jsonx.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+		if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
 			t.Fatalf("unmarshal served doc: %v", err)
 		}
 		if got["openapi"] != "3.0.3" {

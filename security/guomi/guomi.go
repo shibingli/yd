@@ -27,7 +27,7 @@
 //	sealed, err := guomi.SealGCM(key, nonce, msg, aad) // SM4-GCM sealed box | SM4-GCM 加密并认证
 package guomi
 
-import "github.com/shibingli/yd/core/errx"
+import "github.com/shibingli/ydx/errs"
 
 // Fixed algorithm-related lengths in bytes. | 算法相关的固定长度常量（单位：字节）。
 const (
@@ -59,10 +59,10 @@ const (
 var (
 	// ErrInvalidCiphertext reports a ciphertext whose length or structure is invalid. | ErrInvalidCiphertext 表示密文长度或结构非法。
 	// It covers raw and ASN.1 SM2 ciphertext as well as SM4 CBC and ECB ciphertext. | 涵盖 SM2 原始/ASN.1 密文与 SM4 CBC/ECB 密文。
-	ErrInvalidCiphertext = errx.New("guomi: invalid ciphertext | guomi：非法的密文")
+	ErrInvalidCiphertext = errs.New("guomi: invalid ciphertext | guomi：非法的密文")
 
 	// ErrRandomSource reports a failure while reading cryptographically secure randomness. | ErrRandomSource 表示读取密码学安全随机数失败。
-	ErrRandomSource = errx.New("guomi: failed to read random source | guomi：读取随机源失败")
+	ErrRandomSource = errs.New("guomi: failed to read random source | guomi：读取随机源失败")
 )
 
 // CipherSuiteInfo describes the algorithms, modes and implementation sources in use. | CipherSuiteInfo 返回当前加密套件的算法、工作模式与实现来源描述。

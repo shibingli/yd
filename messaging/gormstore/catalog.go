@@ -4,8 +4,8 @@ import (
 	"context"
 	"errors"
 
-	"github.com/shibingli/yd/core/errx"
 	"github.com/shibingli/yd/messaging"
+	"github.com/shibingli/ydx/errs"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 )
@@ -211,7 +211,7 @@ func (s *Store) CountMessagesOfTag(ctx context.Context, tenantID, id string) (in
 func (s *Store) typeByKey(ctx context.Context, tenantID, key string) (messaging.MessageType, error) {
 	var t messaging.MessageType
 	if err := s.dbc(ctx).Where("tenant_id = ? AND type_key = ?", tenantID, key).First(&t).Error; err != nil {
-		return messaging.MessageType{}, errx.Wrap(err, messaging.ErrNotFound)
+		return messaging.MessageType{}, errs.Wrap(err, messaging.ErrNotFound)
 	}
 	return t, nil
 }

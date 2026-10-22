@@ -18,10 +18,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/shibingli/yd/core/afs"
-	"github.com/shibingli/yd/core/jsonx"
-	"github.com/shibingli/yd/core/regexpx"
 	"github.com/shibingli/yd/web"
+	"github.com/shibingli/ydx/afs"
+	"github.com/shibingli/ydx/json"
+	"github.com/shibingli/ydx/regexpx"
 	"github.com/spf13/afero"
 )
 
@@ -78,7 +78,7 @@ func loadLock(t *testing.T) lockManifest {
 	t.Helper()
 	var m lockManifest
 	data := readEmbedded(t, web.FS(), lockFilePath)
-	if err := jsonx.Unmarshal(data, &m); err != nil {
+	if err := json.Unmarshal(data, &m); err != nil {
 		t.Fatalf("parsing %s failed: %v | 解析 %s 失败: %v", lockFilePath, err, lockFilePath, err)
 	}
 	return m

@@ -23,17 +23,17 @@ import (
 
 	"github.com/spf13/afero"
 
-	"github.com/shibingli/yd/core/errx"
-	"github.com/shibingli/yd/core/logx"
 	"github.com/shibingli/yd/tooling/build"
+	"github.com/shibingli/ydx/errs"
+	ydlog "github.com/shibingli/ydx/log"
 )
 
 // Build sentinel errors. | 构建相关哨兵错误。
 var (
 	// ErrDaemonUnavailable indicates that the docker daemon is not reachable. | ErrDaemonUnavailable 表示 docker 守护进程不可达。
-	ErrDaemonUnavailable = errx.New("docker: daemon unavailable | docker：守护进程不可用")
+	ErrDaemonUnavailable = errs.New("docker: daemon unavailable | docker：守护进程不可用")
 	// ErrBuildFailed indicates that `docker build` exited with an error. | ErrBuildFailed 表示 `docker build` 以错误退出。
-	ErrBuildFailed = errx.New("docker: image build failed | docker：镜像构建失败")
+	ErrBuildFailed = errs.New("docker: image build failed | docker：镜像构建失败")
 )
 
 // DefaultDockerBin is the docker CLI looked up on PATH when Options.DockerBin is empty. | DefaultDockerBin 是 Options.DockerBin 为空时在 PATH 上查找的 docker CLI。
@@ -60,7 +60,7 @@ type Options struct {
 	// PrepareAssets overrides the asset stage; nil means build.BuildTailwind, which
 	// is silently skipped when the project has no Tailwind stylesheet. | PrepareAssets 覆盖资产阶段；
 	// 为 nil 表示使用 build.BuildTailwind，项目没有 Tailwind 样式表时会静默跳过。
-	PrepareAssets func(ctx context.Context, dir string, log *logx.Logger) error
+	PrepareAssets func(ctx context.Context, dir string, log *ydlog.Logger) error
 	// ExecCommand overrides the external command constructor; nil means exec.CommandContext. | ExecCommand 覆盖外部命令构造器；为 nil 表示 exec.CommandContext。
 	ExecCommand ExecCommandFunc
 	// Dir is the project directory and the docker build context; empty means the current directory. | Dir 是项目目录与 docker 构建上下文；为空表示当前目录。
@@ -168,9 +168,9 @@ func sortedBuildArgs(buildArgs map[string]string) []string {
 // 优先于内置模板。守护进程会被预先探活：探活失败，或构建过程中暴露守护进程故障，都返回
 // ErrDaemonUnavailable；其余失败返回 ErrBuildFailed。一旦真正发起过构建，返回的 Result 就不会是 nil，
 // 调用方始终可以展示日志。
-func BuildImage(ctx context.Context, o Options, fs afero.Fs, log *logx.Logger) (*Result, error) {
+func BuildImage(ctx context.Context, o Options, fs afero.Fs, log *ydlog.Logger) (*Result, error) {
 	if log == nil {
-		log = logx.Default()
+		log = ydlog.Default()
 	}
 	o = o.withDefaults()
 	run := o.execCommand()
@@ -181,8 +181,8 @@ func BuildImage(ctx context.Context, o Options, fs afero.Fs, log *logx.Logger) (
 	}
 	defer dockerfile.Cleanup()
 	log.Debug("dockerfile resolved | 已解析 Dockerfile",
-		logx.Str("path", dockerfile.Path),
-		logx.Bool("from_project", dockerfile.FromProject),
+		ydlog.Str("path", dockerfile.Path),
+		ydlog.Bool("from_project", dockerfile.FromProject),
 	)
 
 	if o.WithAssets {
@@ -195,7 +195,7 @@ func BuildImage(ctx context.Context, o Options, fs afero.Fs, log *logx.Logger) (
 	if err != nil {
 		return nil, err
 	}
-	log.Debug("docker daemon reachable | docker 守护进程可达", logx.Str("server_version", server))
+	log.Debug("docker daemon reachable | docker 守护进程可达", ydlog.Str("server_version", server))
 
 	cmd := run(ctx, o.DockerBin, o.buildArgs(dockerfile.Path)...)
 	cmd.Dir = o.Dir
@@ -205,19 +205,19 @@ func BuildImage(ctx context.Context, o Options, fs afero.Fs, log *logx.Logger) (
 
 	logs := splitLines(buf.String())
 	for _, line := range logs {
-		log.Debug("docker output | docker 输出", logx.Str("line", line))
+		log.Debug("docker output | docker 输出", ydlog.Str("line", line))
 	}
 	result := &Result{ImageID: ParseImageID(logs), Tag: o.Tag, Logs: logs}
 	if runErr != nil {
 		if isDaemonUnavailable(logs) {
-			return result, errx.WrapDetail(runErr, ErrDaemonUnavailable, "%s | %s", o.DockerBin, o.DockerBin)
+			return result, errs.WrapDetail(runErr, ErrDaemonUnavailable, "%s | %s", o.DockerBin, o.DockerBin)
 		}
-		return result, errx.WrapDetail(runErr, ErrBuildFailed, "%s | %s: %s", o.DockerBin, o.DockerBin, lastLine(logs))
+		return result, errs.WrapDetail(runErr, ErrBuildFailed, "%s | %s: %s", o.DockerBin, o.DockerBin, lastLine(logs))
 	}
 
-	fields := []logx.Field{logx.Str("image_id", result.ImageID), logx.Str("tag", result.Tag), logx.Int("log_lines", len(logs))}
+	fields := []ydlog.Field{ydlog.Str("image_id", result.ImageID), ydlog.Str("tag", result.Tag), ydlog.Int("log_lines", len(logs))}
 	if size := parseImageSize(logs); size != "" {
-		fields = append(fields, logx.Str("size", size))
+		fields = append(fields, ydlog.Str("size", size))
 	}
 	log.Info("image built | 镜像已构建", fields...)
 	return result, nil
@@ -228,17 +228,17 @@ func BuildImage(ctx context.Context, o Options, fs afero.Fs, log *logx.Logger) (
 // A project without Tailwind is not an error: the stage is skipped with a warning,
 // because the image build itself is still perfectly valid. | 项目没有 Tailwind 不算错误：该阶段会以告警
 // 跳过，因为镜像构建本身依然完全有效。
-func (o Options) prepareAssets(ctx context.Context, log *logx.Logger) error {
+func (o Options) prepareAssets(ctx context.Context, log *ydlog.Logger) error {
 	if o.PrepareAssets != nil {
 		return o.PrepareAssets(ctx, o.Dir, log)
 	}
 	size, err := build.BuildTailwind(ctx, o.Dir, build.TailwindOptions{Enabled: true, Minify: true}, log)
 	switch {
 	case err == nil:
-		log.Info("embedded assets refreshed | 内嵌资产已刷新", logx.Int64("bytes", size))
+		log.Info("embedded assets refreshed | 内嵌资产已刷新", ydlog.Int64("bytes", size))
 		return nil
 	case errors.Is(err, build.ErrTailwindNotFound), errors.Is(err, build.ErrTailwindInput):
-		log.Warn("tailwind stage skipped | 跳过 Tailwind 阶段", logx.Err(err))
+		log.Warn("tailwind stage skipped | 跳过 Tailwind 阶段", ydlog.Err(err))
 		return nil
 	default:
 		return err
@@ -252,7 +252,7 @@ func (o Options) serverVersion(ctx context.Context, run ExecCommandFunc) (string
 	var buf bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &buf, &buf
 	if err := cmd.Run(); err != nil {
-		return "", errx.WrapDetail(err, ErrDaemonUnavailable,
+		return "", errs.WrapDetail(err, ErrDaemonUnavailable,
 			"%s version failed | %s version 执行失败: %s", o.DockerBin, o.DockerBin, strings.TrimSpace(buf.String()))
 	}
 	return strings.TrimSpace(buf.String()), nil

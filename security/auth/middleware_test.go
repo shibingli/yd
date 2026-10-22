@@ -7,15 +7,15 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/shibingli/yd/core/errx"
-	"github.com/shibingli/yd/http/router"
+	"github.com/shibingli/ydx/errs"
+	"github.com/shibingli/ydx/router"
 )
 
 // errForbiddenWrapped returns an ErrForbidden that carries extra detail, which is
 // how RequirePermission reports a denial. | errForbiddenWrapped 返回携带额外细节的 ErrForbidden，
 // 这正是 RequirePermission 上报拒绝的方式。
 func errForbiddenWrapped() error {
-	return errx.Detail(ErrForbidden, "missing permission %[1]q | 缺少权限 %[1]q", "user:write")
+	return errs.Detail(ErrForbidden, "missing permission %[1]q | 缺少权限 %[1]q", "user:write")
 }
 
 // do sends one request through r and returns the recorded response. | do 通过 r 发送一次请求并返回记录到的响应。

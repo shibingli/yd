@@ -12,13 +12,13 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/shibingli/yd/core/errx"
 	"github.com/shibingli/yd/messaging"
 	"github.com/shibingli/yd/security/auth"
+	"github.com/shibingli/ydx/errs"
 )
 
 // ErrDirectory reports an unusable auth service. | ErrDirectory 表示鉴权服务不可用。
-var ErrDirectory = errx.New("user directory failed | 用户目录查询失败")
+var ErrDirectory = errs.New("user directory failed | 用户目录查询失败")
 
 // Directory implements messaging.Directory over an auth service. | Directory 基于鉴权服务实现 messaging.Directory。
 type Directory struct {
@@ -42,7 +42,7 @@ func (d *Directory) Search(ctx context.Context, tenantID, keyword, excludeID str
 	}
 	users, err := d.auth.ListUsers(ctx, tenantID)
 	if err != nil {
-		return nil, errx.Wrap(err, ErrDirectory)
+		return nil, errs.Wrap(err, ErrDirectory)
 	}
 	keyword = strings.ToLower(strings.TrimSpace(keyword))
 	if limit <= 0 {
@@ -84,7 +84,7 @@ func (d *Directory) Profiles(ctx context.Context, tenantID string, ids []string)
 	}
 	users, err := d.auth.ListUsers(ctx, tenantID)
 	if err != nil {
-		return nil, errx.Wrap(err, ErrDirectory)
+		return nil, errs.Wrap(err, ErrDirectory)
 	}
 	out := make(map[string]messaging.Profile, len(wanted))
 	for _, user := range users {

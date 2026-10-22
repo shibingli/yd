@@ -1,8 +1,8 @@
 package scaffold
 
 import (
-	"github.com/shibingli/yd/core/errx"
 	"github.com/shibingli/yd/core/version"
+	"github.com/shibingli/ydx/errs"
 )
 
 // Options describes every input of one project generation. | Options 描述一次项目生成的全部输入。
@@ -135,6 +135,8 @@ const (
 	TailwindVersion = "v4"
 	// YdModule is the module path of the framework itself. | YdModule 是框架自身的模块路径。
 	YdModule = "github.com/shibingli/yd"
+	// YdxModule is the module path prefix of the reusable component repository. | YdxModule 是可复用组件仓库的模块路径前缀。
+	YdxModule = "github.com/shibingli/ydx"
 	// AssetRoot is the front-end asset root written into .yd.json. | AssetRoot 是生成项目的前端资产根目录，写入 .yd.json。
 	AssetRoot = "web"
 )
@@ -142,27 +144,27 @@ const (
 // Sentinel errors of the generation pipeline, always matched with errors.Is. | 生成过程中的哨兵错误，一律用 errors.Is 判定。
 var (
 	// ErrNameRequired reports an empty project name. | ErrNameRequired 表示项目名为空。
-	ErrNameRequired = errx.New("project name is required | 项目名不能为空")
+	ErrNameRequired = errs.New("project name is required | 项目名不能为空")
 	// ErrNameInvalid reports a project name with illegal characters. | ErrNameInvalid 表示项目名含非法字符。
-	ErrNameInvalid = errx.New("invalid project name | 非法的项目名")
+	ErrNameInvalid = errs.New("invalid project name | 非法的项目名")
 	// ErrModuleInvalid reports an invalid module path. | ErrModuleInvalid 表示模块路径非法。
-	ErrModuleInvalid = errx.New("invalid module path | 非法的模块路径")
+	ErrModuleInvalid = errs.New("invalid module path | 非法的模块路径")
 	// ErrDBUnsupported reports a database driver outside the supported list. | ErrDBUnsupported 表示数据库驱动不在支持列表内。
-	ErrDBUnsupported = errx.New("unsupported database driver | 不支持的数据库驱动")
+	ErrDBUnsupported = errs.New("unsupported database driver | 不支持的数据库驱动")
 	// ErrLicenseUnsupported reports a license outside the supported list. | ErrLicenseUnsupported 表示协议不在支持列表内。
-	ErrLicenseUnsupported = errx.New("unsupported license | 不支持的协议")
+	ErrLicenseUnsupported = errs.New("unsupported license | 不支持的协议")
 	// ErrHtmxExtUnknown reports an unknown Htmx extension name. | ErrHtmxExtUnknown 表示 Htmx 扩展名未知。
-	ErrHtmxExtUnknown = errx.New("unknown htmx extension | 未知的 Htmx 扩展")
+	ErrHtmxExtUnknown = errs.New("unknown htmx extension | 未知的 Htmx 扩展")
 	// ErrConflict reports existing target files with different content. | ErrConflict 表示目标文件已存在且内容不同。
-	ErrConflict = errx.New("target file exists with different content | 目标文件已存在且内容不同")
+	ErrConflict = errs.New("target file exists with different content | 目标文件已存在且内容不同")
 	// ErrCanceled reports a cancelled generation run. | ErrCanceled 表示生成过程被取消。
-	ErrCanceled = errx.New("generation canceled | 生成已被取消")
+	ErrCanceled = errs.New("generation canceled | 生成已被取消")
 	// ErrTemplateRead reports a failed read of an embedded template. | ErrTemplateRead 表示读取内嵌模板失败。
-	ErrTemplateRead = errx.New("read template failed | 读取模板失败")
+	ErrTemplateRead = errs.New("read template failed | 读取模板失败")
 	// ErrTemplateRender reports a failed template render. | ErrTemplateRender 表示模板渲染失败。
-	ErrTemplateRender = errx.New("render template failed | 渲染模板失败")
+	ErrTemplateRender = errs.New("render template failed | 渲染模板失败")
 	// ErrWriteFile reports a failed write to a target file. | ErrWriteFile 表示写入目标文件失败。
-	ErrWriteFile = errx.New("write target file failed | 写入目标文件失败")
+	ErrWriteFile = errs.New("write target file failed | 写入目标文件失败")
 	// ErrInputRead reports a failed read of interactive input. | ErrInputRead 表示读取交互输入失败。
-	ErrInputRead = errx.New("read interactive input failed | 读取交互输入失败")
+	ErrInputRead = errs.New("read interactive input failed | 读取交互输入失败")
 )

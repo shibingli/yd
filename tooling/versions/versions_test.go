@@ -20,6 +20,8 @@ go 1.27.2
 
 require (
 	github.com/shibingli/yd v1.2.3
+	github.com/shibingli/ydx/errs v0.1.0
+	github.com/shibingli/ydx/log v0.1.0
 	github.com/spf13/viper v1.21.0 // indirect
 	github.com/klauspost/compress v1.20.3
 )
@@ -96,7 +98,19 @@ func TestLoadDerivesScaffoldVersions(t *testing.T) {
 	if inv.HtmxVersion != "4.0.0" {
 		t.Errorf("HtmxVersion = %q", inv.HtmxVersion)
 	}
-	want := []string{"github.com/klauspost/compress", "github.com/shibingli/yd", "golang.org/x/sync"}
+	if inv.YdxVersion != "v0.1.0" {
+		t.Errorf("YdxVersion = %q", inv.YdxVersion)
+	}
+	if len(inv.YdxModules) != len(scaffoldYdxModules) {
+		t.Errorf("YdxModules = %d, want %d", len(inv.YdxModules), len(scaffoldYdxModules))
+	}
+	joinedYdx := strings.Join(inv.YdxModules, ",")
+	for _, modulePath := range []string{"github.com/shibingli/ydx/cache", "github.com/shibingli/ydx/errs", "github.com/shibingli/ydx/log"} {
+		if !strings.Contains(joinedYdx, modulePath) {
+			t.Errorf("YdxModules missing %q: %v", modulePath, inv.YdxModules)
+		}
+	}
+	want := []string{"github.com/klauspost/compress", "github.com/shibingli/yd", "github.com/shibingli/ydx/errs", "github.com/shibingli/ydx/log", "golang.org/x/sync"}
 	if len(inv.Modules) != len(want) {
 		t.Fatalf("Modules = %+v, want %v", inv.Modules, want)
 	}
@@ -104,6 +118,17 @@ func TestLoadDerivesScaffoldVersions(t *testing.T) {
 		if inv.Modules[i].Path != want[i] {
 			t.Errorf("Modules[%d] = %q, want %q", i, inv.Modules[i].Path, want[i])
 		}
+	}
+}
+
+// TestYdxVersionConflict rejects ydx modules pinned to different versions. | TestYdxVersionConflict 拒绝版本不一致的 ydx 模块。
+func TestYdxVersionConflict(t *testing.T) {
+	fsys := afero.NewMemMapFs()
+	mod := strings.Replace(testGoMod, "github.com/shibingli/ydx/log v0.1.0", "github.com/shibingli/ydx/log v0.1.1", 1)
+	writeFile(t, fsys, GoModPath, mod)
+	writeFile(t, fsys, assets.DefaultManifestPath, testManifest)
+	if _, err := Load(fsys, "."); !errors.Is(err, ErrYdxVersionConflict) {
+		t.Fatalf("Load = %v, want ErrYdxVersionConflict", err)
 	}
 }
 
@@ -130,6 +155,9 @@ func TestGenerateSyncCheckRoundTrip(t *testing.T) {
 		"package scaffold",
 		`const GoVersion = "1.27.2"`,
 		`const HtmxVersion = "4.0.0"`,
+		`const YdxVersion = "v0.1.0"`,
+		`"github.com/shibingli/ydx/errs"`,
+		`"github.com/shibingli/ydx/log"`,
 	} {
 		if !strings.Contains(text, want) {
 			t.Errorf("generated file missing %q:\n%s", want, text)
@@ -147,13 +175,13 @@ func TestGenerateSyncCheckRoundTrip(t *testing.T) {
 
 // TestParseGoModInvalid rejects a module file without the mandatory directives. | TestParseGoModInvalid 拒绝缺少必需指令的模块文件。
 func TestParseGoModInvalid(t *testing.T) {
-	if _, _, _, err := parseGoMod("module x\n"); !errors.Is(err, ErrGoModInvalid) {
+	if _, _, _, _, err := parseGoMod("module x\n"); !errors.Is(err, ErrGoModInvalid) {
 		t.Fatalf("err = %v, want ErrGoModInvalid", err)
 	}
-	if _, _, _, err := parseGoMod("go 1.27.2\n"); !errors.Is(err, ErrGoModInvalid) {
+	if _, _, _, _, err := parseGoMod("go 1.27.2\n"); !errors.Is(err, ErrGoModInvalid) {
 		t.Fatalf("err = %v, want ErrGoModInvalid", err)
 	}
-	if _, _, _, err := parseGoMod("module x\ngo 1.27.2\nrequire (\n"); !errors.Is(err, ErrGoModInvalid) {
+	if _, _, _, _, err := parseGoMod("module x\ngo 1.27.2\nrequire (\n"); !errors.Is(err, ErrGoModInvalid) {
 		t.Fatalf("unclosed require block: err = %v, want ErrGoModInvalid", err)
 	}
 }

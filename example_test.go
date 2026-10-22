@@ -6,9 +6,9 @@ import (
 	"net/http"
 	"net/http/httptest"
 
-	"github.com/shibingli/yd/core/errx"
-	"github.com/shibingli/yd/http/router"
 	"github.com/shibingli/yd/security/guomi"
+	"github.com/shibingli/ydx/errs"
+	"github.com/shibingli/ydx/router"
 )
 
 // ErrUnknownField is a declared sentinel error. | ErrUnknownField 是一个已声明的哨兵错误。
@@ -17,11 +17,11 @@ import (
 // matching their text — which also means the bilingual wording may change
 // without breaking callers. | 错误在每个包中声明一次，并用 errors.Is 比较而非匹配文案；
 // 这也意味着中英文案的调整不会破坏调用方。
-var ErrUnknownField = errx.New("unknown field | 未知字段")
+var ErrUnknownField = errs.New("unknown field | 未知字段")
 
 // Example_errxSentinel demonstrates declared errors with extra context. | Example_errxSentinel 演示带上下文的声明式错误。
 func Example_errxSentinel() {
-	err := errx.Detail(ErrUnknownField, "field %q", "nickname")
+	err := errs.Detail(ErrUnknownField, "field %q", "nickname")
 
 	fmt.Println(errors.Is(err, ErrUnknownField))
 	fmt.Println(err)

@@ -14,9 +14,9 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/shibingli/yd/core/afs"
-	"github.com/shibingli/yd/core/errx"
-	"github.com/shibingli/yd/core/logx"
+	"github.com/shibingli/ydx/afs"
+	"github.com/shibingli/ydx/errs"
+	ydlog "github.com/shibingli/ydx/log"
 	"github.com/spf13/afero"
 )
 
@@ -42,9 +42,9 @@ type Result struct {
 //   - Existing but different files without o.Force return an error (detectable via errors.Is(ErrConflict)) listing every conflicting path. | 已存在但内容不同且未开启 o.Force 时返回错误（errors.Is 判定 ErrConflict），错误文案列出全部冲突路径；
 //   - A cancelled ctx returns ErrCanceled wrapping ctx.Err(). | ctx 被取消时返回包装了 ctx.Err() 的 ErrCanceled；
 //   - No logging happens when log is nil. | log 为 nil 时不输出日志。
-func Generate(ctx context.Context, o Options, fs afero.Fs, log *logx.Logger) (*Result, error) {
+func Generate(ctx context.Context, o Options, fs afero.Fs, log *ydlog.Logger) (*Result, error) {
 	if err := ctx.Err(); err != nil {
-		return nil, errx.Wrap(err, ErrCanceled)
+		return nil, errs.Wrap(err, ErrCanceled)
 	}
 
 	normalized, err := normalize(o)
@@ -53,9 +53,9 @@ func Generate(ctx context.Context, o Options, fs afero.Fs, log *logx.Logger) (*R
 	}
 	if log != nil {
 		log.Info("generating project | 正在生成项目",
-			logx.Str("name", normalized.Name),
-			logx.Str("module", normalized.Module),
-			logx.Strs("features", featuresOf(normalized)),
+			ydlog.Str("name", normalized.Name),
+			ydlog.Str("module", normalized.Module),
+			ydlog.Strs("features", featuresOf(normalized)),
 		)
 	}
 
@@ -69,19 +69,19 @@ func Generate(ctx context.Context, o Options, fs afero.Fs, log *logx.Logger) (*R
 		return nil, err
 	}
 	if len(conflicts) > 0 && !normalized.Force {
-		return nil, errx.Detail(ErrConflict,
+		return nil, errs.Detail(ErrConflict,
 			"rerun with --force to overwrite | 可加 --force 覆盖: %s", strings.Join(conflicts, ", "))
 	}
 
 	result := &Result{ModulePath: normalized.Module}
 	for _, f := range planned {
 		if err := ctx.Err(); err != nil {
-			return nil, errx.Wrap(err, ErrCanceled)
+			return nil, errs.Wrap(err, ErrCanceled)
 		}
 
 		written, err := afs.WriteFileIfChanged(fs, f.path, f.content)
 		if err != nil {
-			return nil, errx.WrapDetail(err, ErrWriteFile, "path=%[1]s | 路径=%[1]s", f.path)
+			return nil, errs.WrapDetail(err, ErrWriteFile, "path=%[1]s | 路径=%[1]s", f.path)
 		}
 		if written {
 			result.Files = append(result.Files, f.path)
@@ -92,9 +92,9 @@ func Generate(ctx context.Context, o Options, fs afero.Fs, log *logx.Logger) (*R
 
 	if log != nil {
 		log.Info("project generated | 项目已生成",
-			logx.Str("name", normalized.Name),
-			logx.Int("files", len(result.Files)),
-			logx.Int("skipped", len(result.Skipped)),
+			ydlog.Str("name", normalized.Name),
+			ydlog.Int("files", len(result.Files)),
+			ydlog.Int("skipped", len(result.Skipped)),
 		)
 	}
 	return result, nil
@@ -129,7 +129,7 @@ func normalize(o Options) (Options, error) {
 		return Options{}, ErrNameRequired
 	}
 	if !namePattern.MatchString(o.Name) {
-		return Options{}, errx.Detail(ErrNameInvalid, "%[1]q (want: a letter first, then letters, digits, `._-`) | %[1]q（要求：首字符为字母，其后仅限字母、数字、`._-`）", o.Name)
+		return Options{}, errs.Detail(ErrNameInvalid, "%[1]q (want: a letter first, then letters, digits, `._-`) | %[1]q（要求：首字符为字母，其后仅限字母、数字、`._-`）", o.Name)
 	}
 	// The name becomes a directory, so it must also be a legal path segment on Windows: a trailing
 	// dot is stripped by Win32 and a device name (CON, NUL, COM1, ...) addresses a device instead
@@ -138,10 +138,10 @@ func normalize(o Options) (Options, error) {
 	// 设备名（CON、NUL、COM1 等）指向设备而不是目录。在所有平台拒绝这些名称，使 Linux 上创建的项目
 	// 能在 Windows 上检出。
 	if strings.HasSuffix(o.Name, ".") {
-		return Options{}, errx.Detail(ErrNameInvalid, "%[1]q must not end with a dot (Windows strips it) | %[1]q 不得以点结尾（Windows 会去掉它）", o.Name)
+		return Options{}, errs.Detail(ErrNameInvalid, "%[1]q must not end with a dot (Windows strips it) | %[1]q 不得以点结尾（Windows 会去掉它）", o.Name)
 	}
 	if windowsDeviceName(o.Name) {
-		return Options{}, errx.Detail(ErrNameInvalid, "%[1]q is a reserved device name on Windows | %[1]q 是 Windows 的保留设备名", o.Name)
+		return Options{}, errs.Detail(ErrNameInvalid, "%[1]q is a reserved device name on Windows | %[1]q 是 Windows 的保留设备名", o.Name)
 	}
 
 	o.Module = strings.TrimSpace(o.Module)
@@ -149,7 +149,7 @@ func normalize(o Options) (Options, error) {
 		o.Module = defaultModule(o.Name)
 	}
 	if !modulePattern.MatchString(o.Module) {
-		return Options{}, errx.Detail(ErrModuleInvalid, "%[1]q (want: host/org/project) | %[1]q（期望: host/org/project）", o.Module)
+		return Options{}, errs.Detail(ErrModuleInvalid, "%[1]q (want: host/org/project) | %[1]q（期望: host/org/project）", o.Module)
 	}
 
 	o.DB = strings.TrimSpace(o.DB)
@@ -157,7 +157,7 @@ func normalize(o Options) (Options, error) {
 		o.DB = DBDefault
 	}
 	if !containsString(dbValues(), o.DB) {
-		return Options{}, errx.Detail(ErrDBUnsupported, "%[1]q (want: %[2]s) | %[1]q（期望: %[2]s）", o.DB, strings.Join(dbValues(), ", "))
+		return Options{}, errs.Detail(ErrDBUnsupported, "%[1]q (want: %[2]s) | %[1]q（期望: %[2]s）", o.DB, strings.Join(dbValues(), ", "))
 	}
 
 	o.License = strings.TrimSpace(o.License)
@@ -165,7 +165,7 @@ func normalize(o Options) (Options, error) {
 		o.License = LicenseApache2
 	}
 	if o.License != LicenseApache2 {
-		return Options{}, errx.Detail(ErrLicenseUnsupported, "%[1]q (want: %[2]s) | %[1]q（期望: %[2]s）", o.License, LicenseApache2)
+		return Options{}, errs.Detail(ErrLicenseUnsupported, "%[1]q (want: %[2]s) | %[1]q（期望: %[2]s）", o.License, LicenseApache2)
 	}
 
 	exts, err := ParseExtensions(strings.Join(o.HtmxExts, ","))
@@ -177,7 +177,7 @@ func normalize(o Options) (Options, error) {
 	o.LocalReplace = filepath.ToSlash(strings.TrimSpace(o.LocalReplace))
 	for _, r := range o.LocalReplace {
 		if r < 0x20 || r == 0x7f {
-			return Options{}, errx.Detail(ErrNameInvalid, "local replace path contains a control character | 本地替换路径包含控制字符")
+			return Options{}, errs.Detail(ErrNameInvalid, "local replace path contains a control character | 本地替换路径包含控制字符")
 		}
 	}
 
@@ -198,7 +198,7 @@ func detectConflicts(fs afero.Fs, planned []plannedFile) ([]string, error) {
 		}
 		old, err := afero.ReadFile(fs, f.path)
 		if err != nil {
-			return nil, errx.WrapDetail(err, ErrTemplateRead, "path=%[1]s | 路径=%[1]s", f.path)
+			return nil, errs.WrapDetail(err, ErrTemplateRead, "path=%[1]s | 路径=%[1]s", f.path)
 		}
 		if !bytes.Equal(old, f.content) {
 			conflicts = append(conflicts, f.path)

@@ -9,8 +9,8 @@ import (
 
 	"{{ .Module }}/internal/middleware"
 	"{{ .Module }}/internal/model"
-	"{{ .YdModule }}/core/logx"
-	"{{ .YdModule }}/http/router"
+	"{{ .YdxModule }}/log"
+	"{{ .YdxModule }}/router"
 )
 
 // Tenants 渲染租户列表与新建表单。
@@ -84,8 +84,8 @@ func (c *Controller) CreateTenant(ctx *router.Ctx) {
 		return
 	}
 	c.log.Info("tenant created | 租户已创建",
-		logx.Str("slug", tenant.Slug),
-		logx.Str("tenant", tenant.ID),
+		log.Str("slug", tenant.Slug),
+		log.Str("tenant", tenant.ID),
 	)
 	c.tenantsPage(ctx, http.StatusOK, "", "租户已创建 | tenant created")
 }

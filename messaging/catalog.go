@@ -4,8 +4,8 @@ import (
 	"context"
 	"strings"
 
-	"github.com/shibingli/yd/core/errx"
-	"github.com/shibingli/yd/core/regexpx"
+	"github.com/shibingli/ydx/errs"
+	"github.com/shibingli/ydx/regexpx"
 )
 
 // catalogKeyRe constrains type, group and tag keys: a stable lower-case slug. | catalogKeyRe 约束类型、分组与标签键：
@@ -75,15 +75,15 @@ func (s *Service) Catalog(ctx context.Context, actor Actor) (Catalog, error) {
 	}
 	types, err := s.store.ListTypes(ctx, actor.TenantID, false)
 	if err != nil {
-		return Catalog{}, errx.Wrap(err, ErrUnavailable)
+		return Catalog{}, errs.Wrap(err, ErrUnavailable)
 	}
 	groups, err := s.store.ListTags(ctx, actor.TenantID, TagGroup, false)
 	if err != nil {
-		return Catalog{}, errx.Wrap(err, ErrUnavailable)
+		return Catalog{}, errs.Wrap(err, ErrUnavailable)
 	}
 	tags, err := s.store.ListTags(ctx, actor.TenantID, TagLabel, false)
 	if err != nil {
-		return Catalog{}, errx.Wrap(err, ErrUnavailable)
+		return Catalog{}, errs.Wrap(err, ErrUnavailable)
 	}
 	return Catalog{Types: types, Groups: groups, Tags: tags}, nil
 }
@@ -102,7 +102,7 @@ func (s *Service) ListTypes(ctx context.Context, actor Actor, includeArchived bo
 	}
 	types, err := s.store.ListTypes(ctx, actor.TenantID, includeArchived)
 	if err != nil {
-		return nil, errx.Wrap(err, ErrUnavailable)
+		return nil, errs.Wrap(err, ErrUnavailable)
 	}
 	return types, nil
 }
@@ -126,7 +126,7 @@ func (s *Service) CreateType(ctx context.Context, actor Actor, in TypeInput) (Me
 	}
 	key := strings.ToLower(strings.TrimSpace(in.Key))
 	if !catalogKeyRe.MatchString(key) {
-		return MessageType{}, errx.Detail(ErrInvalidInput, "key=%[1]q | 键=%[1]q", key)
+		return MessageType{}, errs.Detail(ErrInvalidInput, "key=%[1]q | 键=%[1]q", key)
 	}
 	name, nameEN, tone, err := normalizeCatalogCopy(in)
 	if err != nil {
@@ -148,7 +148,7 @@ func (s *Service) CreateType(ctx context.Context, actor Actor, in TypeInput) (Me
 		Tone:      tone,
 	}
 	if err := s.store.CreateType(ctx, t); err != nil {
-		return MessageType{}, errx.Wrap(err, ErrUnavailable)
+		return MessageType{}, errs.Wrap(err, ErrUnavailable)
 	}
 	s.emit(ctx, Event{Type: EventConversationChanged, TenantID: actor.TenantID, ActorID: actor.ID, Detail: map[string]string{"catalog": "type", "key": key}})
 	return t, nil
@@ -172,7 +172,7 @@ func (s *Service) UpdateType(ctx context.Context, actor Actor, key string, in Ty
 	current.Tone = tone
 	current.UpdatedAt = s.options.Now()
 	if err := s.store.UpdateType(ctx, current); err != nil {
-		return MessageType{}, errx.Wrap(err, ErrUnavailable)
+		return MessageType{}, errs.Wrap(err, ErrUnavailable)
 	}
 	s.emit(ctx, Event{Type: EventConversationChanged, TenantID: actor.TenantID, ActorID: actor.ID, Detail: map[string]string{"catalog": "type", "key": current.Key}})
 	return current, nil
@@ -199,7 +199,7 @@ func (s *Service) SetTypeArchived(ctx context.Context, actor Actor, key string, 
 		current.ArchivedAt = nil
 	}
 	if err := s.store.UpdateType(ctx, current); err != nil {
-		return errx.Wrap(err, ErrUnavailable)
+		return errs.Wrap(err, ErrUnavailable)
 	}
 	s.emit(ctx, Event{Type: EventConversationChanged, TenantID: actor.TenantID, ActorID: actor.ID, Detail: map[string]string{"catalog": "type", "key": current.Key}})
 	return nil
@@ -219,13 +219,13 @@ func (s *Service) DeleteType(ctx context.Context, actor Actor, key string) error
 	}
 	used, err := s.store.CountMessagesOfType(ctx, actor.TenantID, current.Key)
 	if err != nil {
-		return errx.Wrap(err, ErrUnavailable)
+		return errs.Wrap(err, ErrUnavailable)
 	}
 	if used > 0 {
 		return ErrTypeInUse
 	}
 	if err := s.store.DeleteType(ctx, actor.TenantID, current.Key); err != nil {
-		return errx.Wrap(err, ErrUnavailable)
+		return errs.Wrap(err, ErrUnavailable)
 	}
 	s.emit(ctx, Event{Type: EventConversationChanged, TenantID: actor.TenantID, ActorID: actor.ID, Detail: map[string]string{"catalog": "type", "key": current.Key}})
 	return nil
@@ -244,7 +244,7 @@ func (s *Service) ListTags(ctx context.Context, actor Actor, kind TagKind, inclu
 	}
 	tags, err := s.store.ListTags(ctx, actor.TenantID, kind, includeArchived)
 	if err != nil {
-		return nil, errx.Wrap(err, ErrUnavailable)
+		return nil, errs.Wrap(err, ErrUnavailable)
 	}
 	return tags, nil
 }
@@ -271,7 +271,7 @@ func (s *Service) CreateTag(ctx context.Context, actor Actor, kind TagKind, in T
 	}
 	key := strings.ToLower(strings.TrimSpace(in.Key))
 	if !catalogKeyRe.MatchString(key) {
-		return Tag{}, errx.Detail(ErrInvalidInput, "key=%[1]q | 键=%[1]q", key)
+		return Tag{}, errs.Detail(ErrInvalidInput, "key=%[1]q | 键=%[1]q", key)
 	}
 	name, nameEN, tone, err := normalizeCatalogCopy(TypeInput{Name: in.Name, NameEN: in.NameEN, Tone: in.Tone})
 	if err != nil {
@@ -294,7 +294,7 @@ func (s *Service) CreateTag(ctx context.Context, actor Actor, kind TagKind, in T
 		Tone:      tone,
 	}
 	if err := s.store.CreateTag(ctx, t); err != nil {
-		return Tag{}, errx.Wrap(err, ErrUnavailable)
+		return Tag{}, errs.Wrap(err, ErrUnavailable)
 	}
 	s.emit(ctx, Event{Type: EventConversationChanged, TenantID: actor.TenantID, ActorID: actor.ID, Detail: map[string]string{"catalog": string(kind), "key": key}})
 	return t, nil
@@ -307,7 +307,7 @@ func (s *Service) UpdateTag(ctx context.Context, actor Actor, id string, in TagI
 	}
 	tags, err := s.store.GetTags(ctx, actor.TenantID, []string{id})
 	if err != nil {
-		return Tag{}, errx.Wrap(err, ErrUnavailable)
+		return Tag{}, errs.Wrap(err, ErrUnavailable)
 	}
 	if len(tags) == 0 {
 		return Tag{}, ErrTagUnknown
@@ -322,7 +322,7 @@ func (s *Service) UpdateTag(ctx context.Context, actor Actor, id string, in TagI
 	current.Tone = tone
 	current.UpdatedAt = s.options.Now()
 	if err := s.store.UpdateTag(ctx, current); err != nil {
-		return Tag{}, errx.Wrap(err, ErrUnavailable)
+		return Tag{}, errs.Wrap(err, ErrUnavailable)
 	}
 	s.emit(ctx, Event{Type: EventConversationChanged, TenantID: actor.TenantID, ActorID: actor.ID, Detail: map[string]string{"catalog": string(current.Kind), "key": current.Key}})
 	return current, nil
@@ -335,7 +335,7 @@ func (s *Service) SetTagArchived(ctx context.Context, actor Actor, id string, ar
 	}
 	tags, err := s.store.GetTags(ctx, actor.TenantID, []string{id})
 	if err != nil {
-		return errx.Wrap(err, ErrUnavailable)
+		return errs.Wrap(err, ErrUnavailable)
 	}
 	if len(tags) == 0 {
 		return ErrTagUnknown
@@ -349,7 +349,7 @@ func (s *Service) SetTagArchived(ctx context.Context, actor Actor, id string, ar
 		current.ArchivedAt = nil
 	}
 	if err := s.store.UpdateTag(ctx, current); err != nil {
-		return errx.Wrap(err, ErrUnavailable)
+		return errs.Wrap(err, ErrUnavailable)
 	}
 	s.emit(ctx, Event{Type: EventConversationChanged, TenantID: actor.TenantID, ActorID: actor.ID, Detail: map[string]string{"catalog": string(current.Kind), "key": current.Key}})
 	return nil
@@ -362,20 +362,20 @@ func (s *Service) DeleteTag(ctx context.Context, actor Actor, id string) error {
 	}
 	tags, err := s.store.GetTags(ctx, actor.TenantID, []string{id})
 	if err != nil {
-		return errx.Wrap(err, ErrUnavailable)
+		return errs.Wrap(err, ErrUnavailable)
 	}
 	if len(tags) == 0 {
 		return ErrTagUnknown
 	}
 	used, err := s.store.CountMessagesOfTag(ctx, actor.TenantID, id)
 	if err != nil {
-		return errx.Wrap(err, ErrUnavailable)
+		return errs.Wrap(err, ErrUnavailable)
 	}
 	if used > 0 {
 		return ErrTypeInUse
 	}
 	if err := s.store.DeleteTag(ctx, actor.TenantID, id); err != nil {
-		return errx.Wrap(err, ErrUnavailable)
+		return errs.Wrap(err, ErrUnavailable)
 	}
 	s.emit(ctx, Event{Type: EventConversationChanged, TenantID: actor.TenantID, ActorID: actor.ID, Detail: map[string]string{"catalog": string(tags[0].Kind), "key": tags[0].Key}})
 	return nil
@@ -408,5 +408,5 @@ func mapStoreError(err error, sentinel error) error {
 	if isNotFound(err) {
 		return sentinel
 	}
-	return errx.Wrap(err, ErrUnavailable)
+	return errs.Wrap(err, ErrUnavailable)
 }

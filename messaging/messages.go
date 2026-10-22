@@ -7,9 +7,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/shibingli/yd/core/errx"
-	"github.com/shibingli/yd/core/jsonx"
-	"github.com/shibingli/yd/core/logx"
+	"github.com/shibingli/ydx/errs"
+	"github.com/shibingli/ydx/json"
+	"github.com/shibingli/ydx/log"
 )
 
 // SendInput is the payload of a new message. | SendInput 是一条新消息的载荷。
@@ -61,7 +61,7 @@ func (s *Service) Send(ctx context.Context, actor Actor, in SendInput) (MessageV
 	}
 	members, err := s.store.ListMembers(ctx, actor.TenantID, conv.ID)
 	if err != nil {
-		return MessageView{}, errx.Wrap(err, ErrUnavailable)
+		return MessageView{}, errs.Wrap(err, ErrUnavailable)
 	}
 	if !containsMember(members, actor.ID) {
 		return MessageView{}, ErrNotFound
@@ -98,7 +98,7 @@ func (s *Service) SendSystem(ctx context.Context, actor Actor, in SendInput) (Me
 	}
 	members, err := s.store.ListMembers(ctx, actor.TenantID, conv.ID)
 	if err != nil {
-		return MessageView{}, errx.Wrap(err, ErrUnavailable)
+		return MessageView{}, errs.Wrap(err, ErrUnavailable)
 	}
 	return s.createMessage(ctx, actor, conv, members, in, OriginSystem)
 }
@@ -127,7 +127,7 @@ func (s *Service) createMessage(ctx context.Context, actor Actor, conv Conversat
 	}
 	html, text, err := s.renderer.Render(markdown)
 	if err != nil {
-		return MessageView{}, errx.Wrap(err, ErrInvalidInput)
+		return MessageView{}, errs.Wrap(err, ErrInvalidInput)
 	}
 
 	now := s.options.Now()
@@ -221,7 +221,7 @@ func (s *Service) Edit(ctx context.Context, actor Actor, messageID string, in Ed
 	}
 	existing, err := s.store.MessageAttachments(ctx, actor.TenantID, []string{msg.ID})
 	if err != nil {
-		return MessageView{}, errx.Wrap(err, ErrUnavailable)
+		return MessageView{}, errs.Wrap(err, ErrUnavailable)
 	}
 	if title == "" && markdown == "" && len(existing[msg.ID]) == 0 {
 		return MessageView{}, ErrInvalidInput
@@ -232,7 +232,7 @@ func (s *Service) Edit(ctx context.Context, actor Actor, messageID string, in Ed
 	}
 	html, text, err := s.renderer.Render(markdown)
 	if err != nil {
-		return MessageView{}, errx.Wrap(err, ErrInvalidInput)
+		return MessageView{}, errs.Wrap(err, ErrInvalidInput)
 	}
 	editedAt := now
 	msg.EditedAt = &editedAt
@@ -327,7 +327,7 @@ func (s *Service) Recall(ctx context.Context, actor Actor, messageID, reason str
 		if errors.Is(err, ErrRecalled) {
 			return nil
 		}
-		return errx.Wrap(err, ErrUnavailable)
+		return errs.Wrap(err, ErrUnavailable)
 	}
 	s.emit(ctx, Event{Type: EventMessageRecalled, TenantID: actor.TenantID, ConversationID: conv.ID, MessageID: msg.ID, ActorID: actor.ID, Audience: memberIDsOf(members)})
 	return nil
@@ -374,7 +374,7 @@ func (s *Service) Pin(ctx context.Context, actor Actor, messageID string, start,
 		Detail:         auditDetail(map[string]string{"start": formatTimePtr(start), "end": formatTimePtr(end)}),
 	}
 	if err := s.store.SetPin(ctx, msg, audit); err != nil {
-		return errx.Wrap(err, ErrUnavailable)
+		return errs.Wrap(err, ErrUnavailable)
 	}
 	s.emit(ctx, Event{Type: EventMessagePinned, TenantID: actor.TenantID, ConversationID: conv.ID, MessageID: msg.ID, ActorID: actor.ID, Audience: memberIDsOf(members)})
 	return nil
@@ -408,7 +408,7 @@ func (s *Service) Unpin(ctx context.Context, actor Actor, messageID string) erro
 		ConversationID: conv.ID,
 	}
 	if err := s.store.SetPin(ctx, msg, audit); err != nil {
-		return errx.Wrap(err, ErrUnavailable)
+		return errs.Wrap(err, ErrUnavailable)
 	}
 	s.emit(ctx, Event{Type: EventMessagePinned, TenantID: actor.TenantID, ConversationID: conv.ID, MessageID: msg.ID, ActorID: actor.ID, Audience: memberIDsOf(members)})
 	return nil
@@ -425,7 +425,7 @@ func (s *Service) Messages(ctx context.Context, actor Actor, filter MessageFilte
 	}
 	list, total, err := s.store.ListMessages(ctx, actor.TenantID, actor.ID, filter, actor.Manage)
 	if err != nil {
-		return PageResult{}, errx.Wrap(err, ErrUnavailable)
+		return PageResult{}, errs.Wrap(err, ErrUnavailable)
 	}
 	views, err := s.messageViews(ctx, actor, list, nil, false)
 	if err != nil {
@@ -466,7 +466,7 @@ func (s *Service) messageForChange(ctx context.Context, actor Actor, messageID s
 	}
 	members, err := s.store.ListMembers(ctx, actor.TenantID, conv.ID)
 	if err != nil {
-		return Message{}, Conversation{}, nil, errx.Wrap(err, ErrUnavailable)
+		return Message{}, Conversation{}, nil, errs.Wrap(err, ErrUnavailable)
 	}
 	if !containsMember(members, actor.ID) && !actor.Manage {
 		return Message{}, Conversation{}, nil, ErrNotFound
@@ -488,11 +488,11 @@ func (s *Service) messageViews(ctx context.Context, actor Actor, messages []Mess
 	}
 	attachments, err := s.store.MessageAttachments(ctx, actor.TenantID, ids)
 	if err != nil {
-		return nil, errx.Wrap(err, ErrUnavailable)
+		return nil, errs.Wrap(err, ErrUnavailable)
 	}
 	tags, err := s.store.MessageTags(ctx, actor.TenantID, ids)
 	if err != nil {
-		return nil, errx.Wrap(err, ErrUnavailable)
+		return nil, errs.Wrap(err, ErrUnavailable)
 	}
 	conversations := make(map[string]Conversation, len(conversationIDs))
 	for _, id := range conversationIDs {
@@ -596,7 +596,7 @@ func (s *Service) resolveTags(ctx context.Context, actor Actor, groupIDs, tagIDs
 	}
 	tags, err := s.store.GetTags(ctx, actor.TenantID, ids)
 	if err != nil {
-		return nil, errx.Wrap(err, ErrUnavailable)
+		return nil, errs.Wrap(err, ErrUnavailable)
 	}
 	byID := make(map[string]Tag, len(tags))
 	for _, tag := range tags {
@@ -628,7 +628,7 @@ func messageWriteError(err error) error {
 	case errors.Is(err, ErrRecalled):
 		return ErrRecalled
 	default:
-		return errx.Wrap(err, ErrUnavailable)
+		return errs.Wrap(err, ErrUnavailable)
 	}
 }
 
@@ -703,7 +703,7 @@ func auditDetail(values map[string]string) string {
 	if len(values) == 0 {
 		return ""
 	}
-	data, err := jsonx.Marshal(values)
+	data, err := json.Marshal(values)
 	if err != nil {
 		return ""
 	}
@@ -717,7 +717,7 @@ func (s *Service) recordAudit(ctx context.Context, entry AuditEntry) {
 		entry.ID = mustID(s, "au_")
 	}
 	if err := s.store.AddAudit(ctx, entry); err != nil {
-		s.log.Warn("message audit write failed | 消息审计写入失败", logx.Err(err), logx.Str("action", entry.Action))
+		s.log.Warn("message audit write failed | 消息审计写入失败", log.Err(err), log.Str("action", entry.Action))
 	}
 }
 
@@ -737,7 +737,7 @@ func (s *Service) Audit(ctx context.Context, actor Actor, filter AuditFilter) ([
 	}
 	list, total, err := s.store.ListAudit(ctx, actor.TenantID, filter)
 	if err != nil {
-		return nil, 0, errx.Wrap(err, ErrUnavailable)
+		return nil, 0, errs.Wrap(err, ErrUnavailable)
 	}
 	return list, total, nil
 }

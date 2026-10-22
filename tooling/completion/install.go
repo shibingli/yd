@@ -12,7 +12,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/shibingli/yd/core/errx"
+	"github.com/shibingli/ydx/errs"
 	"github.com/spf13/afero"
 )
 
@@ -195,7 +195,7 @@ func resolveHome(req Request, getenv func(string) string) (string, error) {
 	if home, err := os.UserHomeDir(); err == nil && strings.TrimSpace(home) != "" {
 		return absoluteForGOOS(home, req.GOOS), nil
 	}
-	return "", errx.Detail(ErrNoHomeDir, "set HOME (or USERPROFILE on Windows) | 请设置 HOME（Windows 上为 USERPROFILE）")
+	return "", errs.Detail(ErrNoHomeDir, "set HOME (or USERPROFILE on Windows) | 请设置 HOME（Windows 上为 USERPROFILE）")
 }
 
 // absoluteForGOOS turns a home or --dir value into an absolute path for the target platform. |
@@ -284,7 +284,7 @@ func Install(req Request) (Result, error) {
 	}
 	if dir := filepath.Dir(plan.ScriptPath); dir != "" && dir != "." {
 		if err := fsys.MkdirAll(dir, 0o755); err != nil {
-			return Result{}, errx.WrapDetail(err, ErrWriteScript, "%s", dir)
+			return Result{}, errs.WrapDetail(err, ErrWriteScript, "%s", dir)
 		}
 	}
 	data := []byte(script)
@@ -295,7 +295,7 @@ func Install(req Request) (Result, error) {
 		data = append([]byte(powerShellBOM), data...)
 	}
 	if err := afero.WriteFile(fsys, plan.ScriptPath, data, 0o644); err != nil {
-		return Result{}, errx.WrapDetail(err, ErrWriteScript, "%s", plan.ScriptPath)
+		return Result{}, errs.WrapDetail(err, ErrWriteScript, "%s", plan.ScriptPath)
 	}
 
 	res := Result{Plan: plan, Bytes: len(data)}
@@ -363,11 +363,11 @@ func writeStartup(fsys afero.Fs, plan Plan) (backup string, change startupChange
 
 	if dir := filepath.Dir(plan.RCFile); dir != "" && dir != "." {
 		if err := fsys.MkdirAll(dir, 0o755); err != nil {
-			return "", startupUnchanged, errx.WrapDetail(err, ErrWriteStartup, "%s", dir)
+			return "", startupUnchanged, errs.WrapDetail(err, ErrWriteStartup, "%s", dir)
 		}
 	}
 	if err := afero.WriteFile(fsys, plan.RCFile, updated, 0o644); err != nil {
-		return "", startupUnchanged, errx.WrapDetail(err, ErrWriteStartup, "%s", plan.RCFile)
+		return "", startupUnchanged, errs.WrapDetail(err, ErrWriteStartup, "%s", plan.RCFile)
 	}
 	if found {
 		return backup, startupUpdated, nil
@@ -442,7 +442,7 @@ func readStartup(fsys afero.Fs, path string) ([]byte, error) {
 	case errors.Is(err, fs.ErrNotExist), errors.Is(err, os.ErrNotExist):
 		return nil, nil
 	default:
-		return nil, errx.WrapDetail(err, ErrReadStartup, "%s", path)
+		return nil, errs.WrapDetail(err, ErrReadStartup, "%s", path)
 	}
 }
 
@@ -478,9 +478,9 @@ func writeBackup(fsys afero.Fs, path string, original []byte) (string, error) {
 			continue
 		}
 		if err := afero.WriteFile(fsys, candidate, original, 0o644); err != nil {
-			return "", errx.WrapDetail(err, ErrWriteBackup, "%s", candidate)
+			return "", errs.WrapDetail(err, ErrWriteBackup, "%s", candidate)
 		}
 		return candidate, nil
 	}
-	return "", errx.Detail(ErrWriteBackup, "%s (limit | 上限 %d)", path, BackupLimit)
+	return "", errs.Detail(ErrWriteBackup, "%s (limit | 上限 %d)", path, BackupLimit)
 }

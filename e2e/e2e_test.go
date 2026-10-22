@@ -34,11 +34,11 @@ import (
 	// The test process reads the generated project's SQLite database directly: the driver is the pure-Go SQLite the GORM
 	// dialect depends on, and importing it performs the registration.
 	_ "github.com/glebarez/sqlite"
-	"github.com/shibingli/yd/core/b64x"
-	"github.com/shibingli/yd/core/jsonx"
-	"github.com/shibingli/yd/core/regexpx"
 	"github.com/shibingli/yd/security/authz"
 	"github.com/shibingli/yd/security/guomi"
+	"github.com/shibingli/ydx/base64"
+	"github.com/shibingli/ydx/json"
+	"github.com/shibingli/ydx/regexpx"
 )
 
 // repoRoot returns the repository root directory. | repoRoot 返回仓库根目录。
@@ -727,7 +727,7 @@ func assertSeedAccounts(t *testing.T, dbFile string) {
 		t.Logf("种子账号 %s @ %s 的绑定角色列 = %s", username, tenant, roles)
 
 		var bound []string
-		if err := jsonx.Unmarshal([]byte(roles), &bound); err != nil {
+		if err := json.Unmarshal([]byte(roles), &bound); err != nil {
 			t.Errorf("账号 %s 的 roles 列不是 JSON 文本: %v（%q）", username, err, roles)
 			continue
 		}
@@ -1152,7 +1152,7 @@ func sm2Cipher(t *testing.T, client *http.Client, base, plain string) string {
 	if err != nil {
 		t.Fatalf("SM2 加密失败: %v", err)
 	}
-	return b64x.StdEncoding.EncodeToString(cipher)
+	return base64.StdEncoding.EncodeToString(cipher)
 }
 
 // signIn 用给定凭据完成一次登录并返回会话令牌；口令按前端的方式加密，登录接口不接受任何明文口令。

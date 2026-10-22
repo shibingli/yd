@@ -18,10 +18,10 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/shibingli/yd/core/config"
-	"github.com/shibingli/yd/core/logx"
 	"github.com/shibingli/yd/core/version"
 	"github.com/shibingli/yd/tooling/build"
+	"github.com/shibingli/ydx/config"
+	"github.com/shibingli/ydx/log"
 	"github.com/spf13/afero"
 	"github.com/spf13/pflag"
 )
@@ -741,7 +741,7 @@ func TestBuildMinifyMissingToolWarnsAndContinues(t *testing.T) {
 		return 0, nil
 	})
 	oldCall := buildMinifyCall
-	buildMinifyCall = func(_ context.Context, _ string, _ build.MinifyOptions, _ *logx.Logger) (build.MinifyResult, error) {
+	buildMinifyCall = func(_ context.Context, _ string, _ build.MinifyOptions, _ *log.Logger) (build.MinifyResult, error) {
 		return build.MinifyResult{}, build.ErrMinifyNotFound
 	}
 	t.Cleanup(func() { buildMinifyCall = oldCall })

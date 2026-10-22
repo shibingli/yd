@@ -5,9 +5,9 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/shibingli/yd/core/errx"
-	"github.com/shibingli/yd/core/logx"
-	"github.com/shibingli/yd/http/router"
+	"github.com/shibingli/ydx/errs"
+	"github.com/shibingli/ydx/log"
+	"github.com/shibingli/ydx/router"
 )
 
 // DefaultCtxKey is the router context key holding the authenticated *User. | DefaultCtxKey 是保存已认证 *User 的路由上下文键。
@@ -84,7 +84,7 @@ func Middleware(o MiddlewareOptions) router.Middleware {
 			return
 		}
 		if issuer == nil {
-			deny(c, handle, errx.Detail(ErrTokenInvalid, "middleware has no token issuer | 中间件未配置令牌签发器"))
+			deny(c, handle, errs.Detail(ErrTokenInvalid, "middleware has no token issuer | 中间件未配置令牌签发器"))
 			return
 		}
 		raw, ok := lookup(c)
@@ -93,7 +93,7 @@ func Middleware(o MiddlewareOptions) router.Middleware {
 				c.Next()
 				return
 			}
-			deny(c, handle, errx.Detail(ErrTokenInvalid, "request carries no token | 请求未携带令牌"))
+			deny(c, handle, errs.Detail(ErrTokenInvalid, "request carries no token | 请求未携带令牌"))
 			return
 		}
 		u, err := issuer.Verify(c.Request.Context(), raw)
@@ -142,16 +142,16 @@ func RequirePermission(p Permission) router.Middleware {
 	return func(c *router.Ctx) {
 		u, ok := CurrentUser(c)
 		if !ok {
-			deny(c, currentHandler(c), errx.Detail(ErrTokenInvalid, "no authenticated user in the context | 上下文中没有已认证用户"))
+			deny(c, currentHandler(c), errs.Detail(ErrTokenInvalid, "no authenticated user in the context | 上下文中没有已认证用户"))
 			return
 		}
 		svc, ok := currentService(c)
 		if !ok {
-			deny(c, currentHandler(c), errx.Detail(ErrTokenInvalid, "no auth service in the context | 上下文中没有 auth 服务"))
+			deny(c, currentHandler(c), errs.Detail(ErrTokenInvalid, "no auth service in the context | 上下文中没有 auth 服务"))
 			return
 		}
 		if !svc.HasPermission(u, p) {
-			deny(c, currentHandler(c), errx.Detail(ErrForbidden, "missing permission %[1]q | 缺少权限 %[1]q", string(p)))
+			deny(c, currentHandler(c), errs.Detail(ErrForbidden, "missing permission %[1]q | 缺少权限 %[1]q", string(p)))
 			return
 		}
 		c.Next()
@@ -170,12 +170,12 @@ func RequireAnyPermission(perms ...Permission) router.Middleware {
 	return func(c *router.Ctx) {
 		u, ok := CurrentUser(c)
 		if !ok {
-			deny(c, currentHandler(c), errx.Detail(ErrTokenInvalid, "no authenticated user in the context | 上下文中没有已认证用户"))
+			deny(c, currentHandler(c), errs.Detail(ErrTokenInvalid, "no authenticated user in the context | 上下文中没有已认证用户"))
 			return
 		}
 		svc, ok := currentService(c)
 		if !ok {
-			deny(c, currentHandler(c), errx.Detail(ErrTokenInvalid, "no auth service in the context | 上下文中没有 auth 服务"))
+			deny(c, currentHandler(c), errs.Detail(ErrTokenInvalid, "no auth service in the context | 上下文中没有 auth 服务"))
 			return
 		}
 		for _, p := range perms {
@@ -184,7 +184,7 @@ func RequireAnyPermission(perms ...Permission) router.Middleware {
 				return
 			}
 		}
-		deny(c, currentHandler(c), errx.Detail(ErrForbidden, "missing every permission in %v | 缺少 %v 中的全部权限", perms, perms))
+		deny(c, currentHandler(c), errs.Detail(ErrForbidden, "missing every permission in %v | 缺少 %v 中的全部权限", perms, perms))
 	}
 }
 
@@ -224,10 +224,10 @@ func defaultErrorHandler(c *router.Ctx, err error) {
 	// on the chain, so err.Error() can disclose a DB host, path or account state to an
 	// unauthenticated caller. | 在服务端记录完整错误，但绝不回显：errx 会把底层驱动文案保留在
 	// 错误链上，err.Error() 可能向未认证调用方泄露数据库主机、路径或账号状态。
-	logx.Default().Warn("auth: request rejected | auth：请求被拒绝",
-		logx.Int("status", status), logx.Err(err))
+	log.Default().Warn("auth: request rejected | auth：请求被拒绝",
+		log.Int("status", status), log.Err(err))
 	if writeErr := c.JSON(status, map[string]string{"error": authErrorMessage(status)}); writeErr != nil {
-		logx.Default().Warn("auth: failed to write the error response | auth：写出错误响应失败", logx.Err(writeErr))
+		log.Default().Warn("auth: failed to write the error response | auth：写出错误响应失败", log.Err(writeErr))
 	}
 }
 
@@ -290,17 +290,17 @@ func parseTokenLookup(spec string) (func(*router.Ctx) (string, bool), error) {
 			name, prefix = rest[:i], rest[i+1:]
 		}
 		if name == "" {
-			return nil, errx.Detail(ErrInvalidInput, "empty header name | 头部名称为空")
+			return nil, errs.Detail(ErrInvalidInput, "empty header name | 头部名称为空")
 		}
 		return func(c *router.Ctx) (string, bool) { return headerToken(c.Header(name), prefix) }, nil
 	case "query":
 		if rest == "" {
-			return nil, errx.Detail(ErrInvalidInput, "empty query name | 查询参数名为空")
+			return nil, errs.Detail(ErrInvalidInput, "empty query name | 查询参数名为空")
 		}
 		return func(c *router.Ctx) (string, bool) { return nonEmptyToken(c.Query(rest)) }, nil
 	case "cookie":
 		if rest == "" {
-			return nil, errx.Detail(ErrInvalidInput, "empty cookie name | Cookie 名为空")
+			return nil, errs.Detail(ErrInvalidInput, "empty cookie name | Cookie 名为空")
 		}
 		return func(c *router.Ctx) (string, bool) { return nonEmptyToken(c.Cookie(rest)) }, nil
 	}

@@ -18,18 +18,18 @@ import (
 	"{{ .Module }}/internal/middleware"
 	"{{ .Module }}/internal/repository"
 	"{{ .Module }}/internal/service"
-	"{{ .YdModule }}/core/afs"
+	"{{ .YdxModule }}/afs"
 {{- if ne .DB "none" }}
-	"{{ .YdModule }}/data/cachex/gormcache"
+	"{{ .YdxModule }}/cache/gormcache"
 {{- end }}
 	"{{ .YdModule }}/runtime/app"
 	"{{ .YdModule }}/security/auth"
 	"{{ .YdModule }}/security/authz"
-	"{{ .YdModule }}/core/errx"
-	"{{ .YdModule }}/core/logx"
+	"{{ .YdxModule }}/errs"
+	"{{ .YdxModule }}/log"
 	"{{ .YdModule }}/http/openapi"
-	ydrouter "{{ .YdModule }}/http/router"
-	"{{ .YdModule }}/http/sse"
+	ydrouter "{{ .YdxModule }}/router"
+	"{{ .YdxModule }}/sse"
 )
 
 // 对外契约常量：路径与静态前缀在这里声明一次，文档、中间件与测试都引用它们。
@@ -63,15 +63,15 @@ const (
 // Assembly sentinels: every error returned by Register satisfies errors.Is against one of them.
 var (
 	// ErrNilApp reports a nil facade. | ErrNilApp 表示传入的门面为空。
-	ErrNilApp = errx.New("router: nil application facade | router：应用门面为空")
+	ErrNilApp = errs.New("router: nil application facade | router：应用门面为空")
 	// ErrAuth reports a failed auth store, master key or token issuer assembly. | ErrAuth 表示鉴权存储、主密钥或令牌签发器装配失败。
-	ErrAuth = errx.New("router: authentication service unavailable | router：鉴权服务装配失败")
+	ErrAuth = errs.New("router: authentication service unavailable | router：鉴权服务装配失败")
 	// ErrSeed reports a failed default seed write. | ErrSeed 表示默认数据写入失败。
-	ErrSeed = errx.New("router: default seed failed | router：默认数据写入失败")
+	ErrSeed = errs.New("router: default seed failed | router：默认数据写入失败")
 	// ErrTicker reports a failed realtime publisher start. | ErrTicker 表示实时推送器启动失败。
-	ErrTicker = errx.New("router: realtime publisher failed to start | router：实时推送启动失败")
+	ErrTicker = errs.New("router: realtime publisher failed to start | router：实时推送启动失败")
 	// ErrCache reports a failed cache assembly. | ErrCache 表示缓存装配失败。
-	ErrCache = errx.New("router: cache assembly failed | router：缓存装配失败")
+	ErrCache = errs.New("router: cache assembly failed | router：缓存装配失败")
 )
 
 // Register 把全部端点登记到应用门面上。
@@ -90,7 +90,7 @@ func Register(a *app.App) error {
 	// only ever come from the same issuer and the same sec_key.
 	key, err := masterKey(a)
 	if err != nil {
-		return errx.Wrap(err, ErrAuth)
+		return errs.Wrap(err, ErrAuth)
 	}
 	store, err := repository.Open(repository.Options{
 		Config:    a.Config(),
@@ -100,7 +100,7 @@ func Register(a *app.App) error {
 		TTL:       tokenTTL(a),
 	})
 	if err != nil {
-		return errx.Wrap(err, ErrAuth)
+		return errs.Wrap(err, ErrAuth)
 	}
 	a.OnShutdown(func(context.Context) error { return store.Close() })
 
@@ -109,7 +109,7 @@ func Register(a *app.App) error {
 	// the local cache is built; a cache outage never blocks startup.
 	cacheMgr, closeCache, err := service.NewCache(a.Config(), a.Logger())
 	if err != nil {
-		return errx.Wrap(err, ErrCache)
+		return errs.Wrap(err, ErrCache)
 	}
 	a.Set(app.ServiceCache, cacheMgr)
 	a.OnShutdown(func(context.Context) error { return closeCache() })
@@ -117,9 +117,9 @@ func Register(a *app.App) error {
 	if gormDB := store.GormDB(); gormDB != nil && gormcache.EnabledFromConfig(a.Config()) {
 		cachePlugin, pluginErr := gormcache.New(gormcache.OptionsFromConfig(a.Config(), cacheMgr))
 		if pluginErr != nil {
-			a.Logger().Warn("gorm cache plugin is disabled | GORM 缓存插件已禁用", logx.Err(pluginErr))
+			a.Logger().Warn("gorm cache plugin is disabled | GORM 缓存插件已禁用", log.Err(pluginErr))
 		} else if useErr := gormDB.Use(cachePlugin); useErr != nil {
-			a.Logger().Warn("gorm cache plugin failed to install | GORM 缓存插件安装失败", logx.Err(useErr))
+			a.Logger().Warn("gorm cache plugin failed to install | GORM 缓存插件安装失败", log.Err(useErr))
 			_ = cachePlugin.Close()
 		} else {
 			a.OnShutdown(func(context.Context) error { return cachePlugin.Close() })
@@ -133,12 +133,12 @@ func Register(a *app.App) error {
 	// password; an existing tenant only gets its missing built-in capabilities reconciled on each start (add-only), so a
 	// capability introduced by an upgrade is usable immediately.
 	if err := store.Seed(context.Background()); err != nil {
-		return errx.Wrap(err, ErrSeed)
+		return errs.Wrap(err, ErrSeed)
 	}
 
 	ctrl, err := controller.New(a, store, a.Logger())
 	if err != nil {
-		return errx.Wrap(err, ErrAuth)
+		return errs.Wrap(err, ErrAuth)
 	}
 
 	// 事件广播器与推送器由路由层持有：它们是端点的基础设施，不是业务状态。
@@ -480,8 +480,8 @@ func masterKey(a *app.App) ([]byte, error) {
 	// 用户的令牌，因此这里拒绝启动，而不是只打一条告警。
 	if !strings.EqualFold(meta.Env(), meta.EnvDevelopment) {
 		a.Logger().Error("auth.master_key is unset outside development, refusing to start: inject YD_AUTH_MASTER_KEY | 非开发环境未配置 auth.master_key，拒绝启动：请注入 YD_AUTH_MASTER_KEY",
-			logx.Str("env", meta.Env()))
-		return nil, errx.Detail(ErrAuth, "auth.master_key is required outside development | 非开发环境必须配置 auth.master_key")
+			log.Str("env", meta.Env()))
+		return nil, errs.Detail(ErrAuth, "auth.master_key is required outside development | 非开发环境必须配置 auth.master_key")
 	}
 	a.Logger().Warn("auth.master_key is unset, the scaffold's development key is in use: inject YD_AUTH_MASTER_KEY in production | 未配置 auth.master_key，正在使用脚手架内置的开发密钥：生产环境请注入 YD_AUTH_MASTER_KEY")
 	return []byte(meta.DevMasterKey), nil
@@ -507,7 +507,7 @@ func startTicker(a *app.App, ticker *service.Ticker, broker *sse.Broker) error {
 	ctx, cancel := context.WithCancel(context.Background())
 	if err := ticker.Start(ctx); err != nil {
 		cancel()
-		return errx.Wrap(err, ErrTicker)
+		return errs.Wrap(err, ErrTicker)
 	}
 
 	a.OnShutdown(func(context.Context) error {
@@ -563,7 +563,7 @@ func registerOpenAPI(a *app.App) {
 	})
 	if err := doc.Validate(); err != nil {
 		a.Logger().Warn("openapi document is not fully compliant, serving it anyway | OpenAPI 文档未完全符合规范，仍照常提供",
-			logx.Err(err),
+			log.Err(err),
 		)
 	}
 	handler := openapi.Handler(doc, opts)
@@ -571,12 +571,12 @@ func registerOpenAPI(a *app.App) {
 	a.GET(opts.DocsPath, handler)
 
 	a.Logger().Info("openapi document ready | OpenAPI 文档已生成",
-		logx.Str("path", opts.Path),
-		logx.Str("docs", opts.DocsPath),
-		logx.Int("matched", len(report.Matched)),
-		logx.Int("missing", len(report.Missing)),
-		logx.Int("orphan", len(report.Orphan)),
-		logx.Int("incomplete", len(report.Incomplete)),
+		log.Str("path", opts.Path),
+		log.Str("docs", opts.DocsPath),
+		log.Int("matched", len(report.Matched)),
+		log.Int("missing", len(report.Missing)),
+		log.Int("orphan", len(report.Orphan)),
+		log.Int("incomplete", len(report.Incomplete)),
 	)
 }
 
@@ -612,8 +612,8 @@ func parseSource(a *app.App) *openapi.Source {
 	source, err := openapi.ParseSource(afs.NewOS(""), []string{AnnotationDir})
 	if err != nil {
 		a.Logger().Warn("openapi annotations unavailable, derived from the route tree instead | OpenAPI 注解不可用，改由路由树推导",
-			logx.Err(err),
-			logx.Str("dir", AnnotationDir),
+			log.Err(err),
+			log.Str("dir", AnnotationDir),
 		)
 		return &openapi.Source{}
 	}
@@ -629,10 +629,10 @@ func parseSource(a *app.App) *openapi.Source {
 // implementation arrives with the feature, so an enabled-but-unimplemented feature leaves a visible gap instead of
 // silently doing nothing.
 func registerFeatures(a *app.App) {
-	// 二级缓存已在 Register 中装配并注册为 app.ServiceCache：Redis 远端由 data/redisx 打开，Redis 不可达时自动降级为本地缓存。
+	// 二级缓存已在 Register 中装配并注册为 app.ServiceCache：Redis 远端由 ydx/redis 打开，Redis 不可达时自动降级为本地缓存。
 	// 控制器与服务通过 a.Get(app.ServiceCache) 取用，此处留给其它 Redis 装饰器或自定义失效钩子。
 	// The two-level cache is assembled in Register and registered as app.ServiceCache: the redis remote is opened through
-	// data/redisx and degrades to local-only when redis is unreachable. Controllers and services reach it through
+	// ydx/redis and degrades to local-only when redis is unreachable. Controllers and services reach it through
 	// a.Get(app.ServiceCache); use this point for other redis decorators or custom invalidation hooks.
 	_ = a
 

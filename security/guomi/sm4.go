@@ -6,7 +6,7 @@ import (
 
 	esm4 "github.com/emmansun/gmsm/sm4"
 
-	"github.com/shibingli/yd/core/errx"
+	"github.com/shibingli/ydx/errs"
 )
 
 // maxGCMNonceSize is the longest nonce SealGCM and OpenGCM accept. | maxGCMNonceSize 是 SealGCM/OpenGCM 允许的最大 nonce 长度。
@@ -14,22 +14,22 @@ const maxGCMNonceSize = 64
 
 var (
 	// ErrInvalidKeyLength reports an SM4 key whose length is not 16 bytes. | ErrInvalidKeyLength 表示 SM4 密钥长度不是 16 字节。
-	ErrInvalidKeyLength = errx.New("guomi: SM4 key length must be 16 bytes | guomi：SM4 密钥长度必须为 16 字节")
+	ErrInvalidKeyLength = errs.New("guomi: SM4 key length must be 16 bytes | guomi：SM4 密钥长度必须为 16 字节")
 
 	// ErrInvalidIVLength reports an SM4-CBC IV whose length is not 16 bytes. | ErrInvalidIVLength 表示 SM4-CBC 的 IV 长度不是 16 字节。
-	ErrInvalidIVLength = errx.New("guomi: SM4 IV length must be 16 bytes | guomi：SM4 IV 长度必须为 16 字节")
+	ErrInvalidIVLength = errs.New("guomi: SM4 IV length must be 16 bytes | guomi：SM4 IV 长度必须为 16 字节")
 
 	// ErrInvalidNonceLength reports an SM4-GCM nonce that is empty or longer than 64 bytes. | ErrInvalidNonceLength 表示 SM4-GCM 的 nonce 为空或超过 64 字节。
-	ErrInvalidNonceLength = errx.New("guomi: invalid SM4-GCM nonce length | guomi：SM4-GCM nonce 长度非法")
+	ErrInvalidNonceLength = errs.New("guomi: invalid SM4-GCM nonce length | guomi：SM4-GCM nonce 长度非法")
 
 	// ErrInvalidPadding reports PKCS#7 padding that does not decode, caused by tampering or a wrong key. | ErrInvalidPadding 表示解密后的 PKCS#7 填充不合法（密文被篡改或密钥错误）。
-	ErrInvalidPadding = errx.New("guomi: invalid PKCS#7 padding | guomi：PKCS#7 填充非法")
+	ErrInvalidPadding = errs.New("guomi: invalid PKCS#7 padding | guomi：PKCS#7 填充非法")
 
 	// ErrGCMAuth reports a failed SM4-GCM authentication check. | ErrGCMAuth 表示 SM4-GCM 认证校验失败。
-	ErrGCMAuth = errx.New("guomi: SM4-GCM authentication failed | guomi：SM4-GCM 认证失败")
+	ErrGCMAuth = errs.New("guomi: SM4-GCM authentication failed | guomi：SM4-GCM 认证失败")
 
 	// ErrCipherCreate reports a failure while constructing an SM4 cipher or a mode over it. | ErrCipherCreate 表示构造 SM4 分组密码或其工作模式失败。
-	ErrCipherCreate = errx.New("guomi: failed to create SM4 cipher or mode | guomi：创建 SM4 分组密码或工作模式失败")
+	ErrCipherCreate = errs.New("guomi: failed to create SM4 cipher or mode | guomi：创建 SM4 分组密码或工作模式失败")
 )
 
 // NewCipher creates an SM4 block cipher per GB/T 32907-2016 from a 16-byte key. | NewCipher 使用 16 字节密钥创建 SM4 分组密码（GB/T 32907-2016）。
@@ -38,11 +38,11 @@ var (
 // A key length other than 16 bytes returns an error wrapping ErrInvalidKeyLength. | 密钥长度不等于 16 字节时返回包装了 ErrInvalidKeyLength 的错误。
 func NewCipher(key []byte) (cipher.Block, error) {
 	if len(key) != SM4KeySize {
-		return nil, errx.Detail(ErrInvalidKeyLength, "got %[1]d bytes | 实际 %[1]d 字节", len(key))
+		return nil, errs.Detail(ErrInvalidKeyLength, "got %[1]d bytes | 实际 %[1]d 字节", len(key))
 	}
 	block, err := esm4.NewCipher(key)
 	if err != nil {
-		return nil, errx.Wrap(err, ErrCipherCreate)
+		return nil, errs.Wrap(err, ErrCipherCreate)
 	}
 	return block, nil
 }
@@ -57,7 +57,7 @@ func EncryptCBC(key, iv, plaintext []byte) ([]byte, error) {
 		return nil, err
 	}
 	if len(iv) != SM4IVSize {
-		return nil, errx.Detail(ErrInvalidIVLength, "got %[1]d bytes | 实际 %[1]d 字节", len(iv))
+		return nil, errs.Detail(ErrInvalidIVLength, "got %[1]d bytes | 实际 %[1]d 字节", len(iv))
 	}
 
 	// Pad straight into the output buffer and encrypt in place: cipher.BlockMode and
@@ -79,10 +79,10 @@ func DecryptCBC(key, iv, ciphertext []byte) ([]byte, error) {
 		return nil, err
 	}
 	if len(iv) != SM4IVSize {
-		return nil, errx.Detail(ErrInvalidIVLength, "got %[1]d bytes | 实际 %[1]d 字节", len(iv))
+		return nil, errs.Detail(ErrInvalidIVLength, "got %[1]d bytes | 实际 %[1]d 字节", len(iv))
 	}
 	if len(ciphertext) == 0 || len(ciphertext)%SM4BlockSize != 0 {
-		return nil, errx.Detail(ErrInvalidCiphertext, "CBC ciphertext length %[1]d is not a positive multiple of %[2]d | CBC 密文长度 %[1]d 不是 %[2]d 的正整数倍", len(ciphertext), SM4BlockSize)
+		return nil, errs.Detail(ErrInvalidCiphertext, "CBC ciphertext length %[1]d is not a positive multiple of %[2]d | CBC 密文长度 %[1]d 不是 %[2]d 的正整数倍", len(ciphertext), SM4BlockSize)
 	}
 
 	out := make([]byte, len(ciphertext))
@@ -115,7 +115,7 @@ func OpenGCM(key, nonce, ciphertext, aad []byte) ([]byte, error) {
 	}
 	plaintext, err := aead.Open(nil, nonce, ciphertext, aad)
 	if err != nil {
-		return nil, errx.Wrap(err, ErrGCMAuth)
+		return nil, errs.Wrap(err, ErrGCMAuth)
 	}
 	return plaintext, nil
 }
@@ -135,7 +135,7 @@ func NewGCM(key []byte) (cipher.AEAD, error) {
 	}
 	aead, err := cipher.NewGCM(block)
 	if err != nil {
-		return nil, errx.Wrap(err, ErrCipherCreate)
+		return nil, errs.Wrap(err, ErrCipherCreate)
 	}
 	return aead, nil
 }
@@ -143,7 +143,7 @@ func NewGCM(key []byte) (cipher.AEAD, error) {
 // newGCM builds the SM4-GCM AEAD and validates the key and nonce lengths. | newGCM 构造 SM4-GCM AEAD，并做密钥与 nonce 长度校验。
 func newGCM(key, nonce []byte) (cipher.AEAD, error) {
 	if len(nonce) == 0 || len(nonce) > maxGCMNonceSize {
-		return nil, errx.Detail(ErrInvalidNonceLength, "got %[1]d bytes (recommended %[2]d, allowed 1..%[3]d) | 实际 %[1]d 字节（推荐 %[2]d 字节，允许 1~%[3]d）",
+		return nil, errs.Detail(ErrInvalidNonceLength, "got %[1]d bytes (recommended %[2]d, allowed 1..%[3]d) | 实际 %[1]d 字节（推荐 %[2]d 字节，允许 1~%[3]d）",
 			len(nonce), SM4GCMNonceSize, maxGCMNonceSize)
 	}
 	if len(nonce) == SM4GCMNonceSize {
@@ -156,7 +156,7 @@ func newGCM(key, nonce []byte) (cipher.AEAD, error) {
 	// A non-12-byte nonce uses the standard library constructor with a custom nonce size, deprecated but stable in semantics. | 非 12 字节 nonce：使用标准库提供的可定制 nonce 长度构造器（deprecated 但语义稳定）。
 	aead, err := cipher.NewGCMWithNonceSize(block, len(nonce))
 	if err != nil {
-		return nil, errx.Wrap(err, ErrCipherCreate)
+		return nil, errs.Wrap(err, ErrCipherCreate)
 	}
 	return aead, nil
 }
@@ -184,7 +184,7 @@ func DecryptECB(key, ciphertext []byte) ([]byte, error) {
 		return nil, err
 	}
 	if len(ciphertext) == 0 || len(ciphertext)%SM4BlockSize != 0 {
-		return nil, errx.Detail(ErrInvalidCiphertext, "ECB ciphertext length %[1]d is not a positive multiple of %[2]d | ECB 密文长度 %[1]d 不是 %[2]d 的正整数倍", len(ciphertext), SM4BlockSize)
+		return nil, errs.Detail(ErrInvalidCiphertext, "ECB ciphertext length %[1]d is not a positive multiple of %[2]d | ECB 密文长度 %[1]d 不是 %[2]d 的正整数倍", len(ciphertext), SM4BlockSize)
 	}
 	out := make([]byte, len(ciphertext))
 	cryptECB(block, out, ciphertext, false)
@@ -242,7 +242,7 @@ func newCBCDecrypter(block cipher.Block, iv []byte) cipher.BlockMode {
 func RandomKey() ([]byte, error) {
 	key := make([]byte, SM4KeySize)
 	if _, err := rand.Read(key); err != nil {
-		return nil, errx.Wrap(err, ErrRandomSource)
+		return nil, errs.Wrap(err, ErrRandomSource)
 	}
 	return key, nil
 }
@@ -252,7 +252,7 @@ func RandomKey() ([]byte, error) {
 func RandomIV() ([]byte, error) {
 	iv := make([]byte, SM4IVSize)
 	if _, err := rand.Read(iv); err != nil {
-		return nil, errx.Wrap(err, ErrRandomSource)
+		return nil, errs.Wrap(err, ErrRandomSource)
 	}
 	return iv, nil
 }
@@ -272,15 +272,15 @@ func pkcs7PadInto(dst, src []byte, blockSize int) []byte {
 func pkcs7Unpad(src []byte, blockSize int) ([]byte, error) {
 	n := len(src)
 	if n == 0 || n%blockSize != 0 {
-		return nil, errx.Detail(ErrInvalidPadding, "length %[1]d is not a positive multiple of %[2]d | 长度 %[1]d 不是 %[2]d 的正整数倍", n, blockSize)
+		return nil, errs.Detail(ErrInvalidPadding, "length %[1]d is not a positive multiple of %[2]d | 长度 %[1]d 不是 %[2]d 的正整数倍", n, blockSize)
 	}
 	pad := int(src[n-1])
 	if pad == 0 || pad > blockSize || pad > n {
-		return nil, errx.Detail(ErrInvalidPadding, "invalid padding byte 0x%[1]02x | 填充字节 0x%[1]02x 非法", src[n-1])
+		return nil, errs.Detail(ErrInvalidPadding, "invalid padding byte 0x%[1]02x | 填充字节 0x%[1]02x 非法", src[n-1])
 	}
 	for _, b := range src[n-pad:] {
 		if int(b) != pad {
-			return nil, errx.Detail(ErrInvalidPadding, "padding contents do not match the padding byte | 填充内容与填充字节不一致")
+			return nil, errs.Detail(ErrInvalidPadding, "padding contents do not match the padding byte | 填充内容与填充字节不一致")
 		}
 	}
 	return src[:n-pad], nil

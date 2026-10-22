@@ -6,8 +6,8 @@ import (
 	"io"
 	"time"
 
-	"github.com/shibingli/yd/core/errx"
-	"github.com/shibingli/yd/core/logx"
+	yderrs "github.com/shibingli/ydx/errs"
+	"github.com/shibingli/ydx/log"
 )
 
 // hookDrainWindow is how long an already-expired shutdown budget waits for a hook that is about
@@ -83,7 +83,7 @@ func (a *App) Get(name string) (any, bool) {
 func (a *App) MustGet(name string) (any, error) {
 	v, ok := a.Get(name)
 	if !ok {
-		return nil, errx.Detail(ErrServiceMissing, "%q", name)
+		return nil, yderrs.Detail(ErrServiceMissing, "%q", name)
 	}
 	return v, nil
 }
@@ -169,8 +169,8 @@ func (a *App) runShutdownHooks(ctx context.Context) error {
 		case err := <-done:
 			if err != nil {
 				a.log.Error("shutdown hook failed | 关闭钩子执行失败",
-					logx.Str("hook", hook.name), logx.Err(err))
-				errs = append(errs, errx.WrapDetail(err, ErrShutdown, "hook=%[1]q | 钩子=%[1]q", hook.name))
+					log.Str("hook", hook.name), log.Err(err))
+				errs = append(errs, yderrs.WrapDetail(err, ErrShutdown, "hook=%[1]q | 钩子=%[1]q", hook.name))
 			}
 		case <-ctx.Done():
 			// The budget may already be exhausted when this hook starts (an earlier stage used
@@ -182,13 +182,13 @@ func (a *App) runShutdownHooks(ctx context.Context) error {
 			case err := <-done:
 				if err != nil {
 					a.log.Error("shutdown hook failed | 关闭钩子执行失败",
-						logx.Str("hook", hook.name), logx.Err(err))
-					errs = append(errs, errx.WrapDetail(err, ErrShutdown, "hook=%[1]q | 钩子=%[1]q", hook.name))
+						log.Str("hook", hook.name), log.Err(err))
+					errs = append(errs, yderrs.WrapDetail(err, ErrShutdown, "hook=%[1]q | 钩子=%[1]q", hook.name))
 				}
 			case <-time.After(hookDrainWindow):
 				a.log.Error("shutdown hook did not finish before the deadline | 关闭钩子未在期限内完成",
-					logx.Str("hook", hook.name), logx.Err(ctx.Err()))
-				errs = append(errs, errx.WrapDetail(ctx.Err(), ErrShutdown, "hook=%[1]q timed out | 钩子=%[1]q 超时", hook.name))
+					log.Str("hook", hook.name), log.Err(ctx.Err()))
+				errs = append(errs, yderrs.WrapDetail(ctx.Err(), ErrShutdown, "hook=%[1]q timed out | 钩子=%[1]q 超时", hook.name))
 			}
 		}
 	}

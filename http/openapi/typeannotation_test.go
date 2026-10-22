@@ -8,8 +8,8 @@ import (
 
 	"github.com/spf13/afero"
 
-	"github.com/shibingli/yd/core/jsonx"
-	"github.com/shibingli/yd/http/router"
+	"github.com/shibingli/ydx/json"
+	"github.com/shibingli/ydx/router"
 )
 
 // typeAnnotatedSource is the struct, const block and variable annotation fixture. It also
@@ -137,7 +137,7 @@ type TestdataType struct {
 // 把 @Example 行绑定到 @Param、@Success 与 @Failure。
 const exampleAnnotatedSource = `package api
 
-import "github.com/shibingli/yd/http/router"
+import "github.com/shibingli/ydx/router"
 
 // GetUser returns one user. | GetUser 返回单个用户。
 //
@@ -524,7 +524,7 @@ func TestAnnotationExamplesAppearInDocument(t *testing.T) {
 	}
 
 	var decoded any
-	if err := jsonx.Unmarshal(raw, &decoded); err != nil {
+	if err := json.Unmarshal(raw, &decoded); err != nil {
 		t.Fatalf("unmarshal: %v | 反序列化失败", err)
 	}
 	params, _ := jsonAt(t, decoded, "paths", "/users/{id}", "get", "parameters").([]any)

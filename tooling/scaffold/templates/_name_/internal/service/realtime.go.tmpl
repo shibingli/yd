@@ -9,9 +9,9 @@ import (
 	"strconv"
 	"time"
 
-	"{{ .YdModule }}/core/errx"
-	"{{ .YdModule }}/core/logx"
-	"{{ .YdModule }}/http/sse"
+	"{{ .YdxModule }}/errs"
+	logx "{{ .YdxModule }}/log"
+	"{{ .YdxModule }}/sse"
 )
 
 // 实时推送的公开契约：主题名、目标选择器与替换策略由端点与前端模板共用，写在一处避免漂移。
@@ -35,7 +35,7 @@ const (
 )
 
 // ErrTickerRunning reports a second start on the same instance. | ErrTickerRunning 表示同一实例被重复启动。
-var ErrTickerRunning = errx.New("ticker already running | 时钟已在运行")
+var ErrTickerRunning = errs.New("ticker already running | 时钟已在运行")
 
 // Ticker 周期性把时钟片段推送给 EventsTopic 的订阅者。
 // Ticker periodically pushes a clock fragment to the subscribers of EventsTopic.

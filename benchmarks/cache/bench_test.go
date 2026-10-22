@@ -20,7 +20,7 @@ import (
 	ttlcache "github.com/jellydator/ttlcache/v3"
 	gocache "github.com/patrickmn/go-cache"
 
-	"github.com/shibingli/yd/data/cachex/local"
+	"github.com/shibingli/ydx/cache/local"
 )
 
 // Benchmark dimensions. | 基准维度。

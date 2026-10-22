@@ -16,7 +16,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/shibingli/yd/core/logx"
+	"github.com/shibingli/ydx/log"
 )
 
 // The helper child identifies itself through these two environment variables and appends a start marker to a file. | 辅助子进程通过这两个环境变量识别自己，并把启动标记写进文件。
@@ -70,8 +70,8 @@ func (s *syncBuffer) String() string {
 }
 
 // testLogger returns a debug-level logger writing to io.Discard so that test output stays clean. | testLogger 返回写往 io.Discard 的调试级日志器，避免污染测试输出。
-func testLogger() *logx.Logger {
-	return logx.New(logx.Options{Writer: io.Discard, Level: logx.DebugLevel})
+func testLogger() *log.Logger {
+	return log.New(log.Options{Writer: io.Discard, Level: log.DebugLevel})
 }
 
 // devHarness collects the child process behaviour observed during one dev session. | devHarness 汇总一次开发会话中被观测到的子进程行为。

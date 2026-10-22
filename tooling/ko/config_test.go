@@ -8,8 +8,8 @@ import (
 
 	"github.com/spf13/afero"
 
-	"github.com/shibingli/yd/core/afs"
-	"github.com/shibingli/yd/core/config"
+	"github.com/shibingli/ydx/afs"
+	"github.com/shibingli/ydx/config"
 )
 
 // loadKoConfig builds a config instance from an in-memory YAML fixture. | loadKoConfig 从内存 YAML 夹具构建配置实例。

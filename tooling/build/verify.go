@@ -6,15 +6,15 @@ import (
 	"os"
 	"time"
 
-	"github.com/shibingli/yd/core/errx"
+	"github.com/shibingli/ydx/errs"
 )
 
 // Sentinel errors of the verification stage. | 校验阶段的哨兵错误。
 var (
 	// ErrArtifactMissing indicates that the expected artifact does not exist or is empty. | ErrArtifactMissing 表示预期产物不存在或为空。
-	ErrArtifactMissing = errx.New("build: artifact missing after build | build：构建后未找到产物")
+	ErrArtifactMissing = errs.New("build: artifact missing after build | build：构建后未找到产物")
 	// ErrArtifactFormat indicates that the artifact magic does not match the target platform. | ErrArtifactFormat 表示产物魔数与目标平台不符。
-	ErrArtifactFormat = errx.New("build: artifact format mismatch | build：产物格式与目标平台不符")
+	ErrArtifactFormat = errs.New("build: artifact format mismatch | build：产物格式与目标平台不符")
 )
 
 // Executable magics recognised by the verifier. | 校验器能识别的可执行文件魔数。
@@ -86,17 +86,17 @@ func matchesFormat(head []byte, format string) bool {
 func verifyArtifact(path string, target Target, d time.Duration) (*Artifact, error) {
 	info, err := os.Stat(path)
 	if err != nil {
-		return nil, errx.WrapDetail(err, ErrArtifactMissing, "%s | %s", path, path)
+		return nil, errs.WrapDetail(err, ErrArtifactMissing, "%s | %s", path, path)
 	}
 	if info.IsDir() || info.Size() == 0 {
-		return nil, errx.Detail(ErrArtifactMissing, "%s is empty | %s 为空文件", path, path)
+		return nil, errs.Detail(ErrArtifactMissing, "%s is empty | %s 为空文件", path, path)
 	}
 	head, err := readHeader(path, 4)
 	if err != nil {
-		return nil, errx.WrapDetail(err, ErrArtifactMissing, "%s | %s", path, path)
+		return nil, errs.WrapDetail(err, ErrArtifactMissing, "%s | %s", path, path)
 	}
 	if format := executableFormatOf(target.GOOS); !matchesFormat(head, format) {
-		return nil, errx.Detail(ErrArtifactFormat,
+		return nil, errs.Detail(ErrArtifactFormat,
 			"artifact %s is not a %s executable for %s (magic % x) | 产物 %s 不是 %s 平台（%s）的可执行文件（魔数 % x）",
 			path, format, target, head, path, target, format, head)
 	}

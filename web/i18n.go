@@ -18,9 +18,9 @@ import (
 	"embed"
 	"io/fs"
 
-	"github.com/shibingli/yd/core/afs"
-	"github.com/shibingli/yd/core/errx"
 	"github.com/shibingli/yd/http/i18n"
+	"github.com/shibingli/ydx/afs"
+	"github.com/shibingli/ydx/errs"
 )
 
 // Catalogue layout and language tags. | 语言目录布局与语言标签。
@@ -41,7 +41,7 @@ const (
 )
 
 // ErrCatalogs reports an embedded catalogue tree that could not be loaded. | ErrCatalogs 表示内嵌语言目录树加载失败。
-var ErrCatalogs = errx.New("web: failed to load the embedded message catalogues | web：加载内嵌消息目录失败")
+var ErrCatalogs = errs.New("web: failed to load the embedded message catalogues | web：加载内嵌消息目录失败")
 
 // catalogs holds the built-in catalogue files; the "all:" prefix keeps dot-prefixed placeholders in.
 // catalogs 保存内置语言目录文件；"all:" 前缀保证点号开头的占位文件也被打包。
@@ -85,7 +85,7 @@ func Catalogs() afs.FS {
 func Bundle() (*i18n.Bundle, error) {
 	bundle, err := i18n.New(Catalogs(), CatalogsRoot, DefaultLang)
 	if err != nil {
-		return nil, errx.Wrap(err, ErrCatalogs)
+		return nil, errs.Wrap(err, ErrCatalogs)
 	}
 	return bundle, nil
 }

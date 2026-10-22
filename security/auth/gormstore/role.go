@@ -9,9 +9,9 @@ import (
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 
-	"github.com/shibingli/yd/core/errx"
-	"github.com/shibingli/yd/core/logx"
 	"github.com/shibingli/yd/security/auth"
+	"github.com/shibingli/ydx/errs"
+	"github.com/shibingli/ydx/log"
 )
 
 // roleUpsertAttempts bounds the upsert retries. | roleUpsertAttempts 限定 upsert 的重试次数。
@@ -41,7 +41,7 @@ const roleUpsertAttempts = 2
 // 因此永远不会观察到只带一半能力的角色。
 func (s *Store) UpsertRole(ctx context.Context, r *auth.Role) error {
 	if r == nil || r.ID == "" || strings.TrimSpace(r.Name) == "" {
-		return errx.Detail(auth.ErrInvalidInput, "role requires an id and a name | 角色必须带 ID 与名称")
+		return errs.Detail(auth.ErrInvalidInput, "role requires an id and a name | 角色必须带 ID 与名称")
 	}
 	if strings.TrimSpace(r.TenantID) == "" {
 		return auth.ErrTenantRequired
@@ -60,8 +60,8 @@ func (s *Store) UpsertRole(ctx context.Context, r *auth.Role) error {
 			// Two writers aimed at the same new role: report the conflict instead of
 			// silently overwriting the winner. | 两个写入者瞄准同一新角色：报冲突，而不是静默覆盖胜出者。
 			s.log.Warn("the unique index kept losing the role upsert | 唯一索引在角色 upsert 上持续竞争失败",
-				logx.Str("tenant_id", r.TenantID), logx.Str("role_id", r.ID))
-			return errx.WrapDetail(err, auth.ErrConflict, "the role was modified concurrently | 角色被并发修改")
+				log.Str("tenant_id", r.TenantID), log.Str("role_id", r.ID))
+			return errs.WrapDetail(err, auth.ErrConflict, "the role was modified concurrently | 角色被并发修改")
 		}
 	}
 }
@@ -333,7 +333,7 @@ func replacePermissions(tx *gorm.DB, tenantID, roleID string, perms []string) er
 	}
 	if err := tx.Create(&rows).Error; err != nil {
 		if isDuplicate(err) {
-			return errx.WrapDetail(err, auth.ErrConflict, "the role permissions changed concurrently | 角色权限被并发修改")
+			return errs.WrapDetail(err, auth.ErrConflict, "the role permissions changed concurrently | 角色权限被并发修改")
 		}
 		return err
 	}

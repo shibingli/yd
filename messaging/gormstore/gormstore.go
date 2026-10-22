@@ -14,8 +14,8 @@ import (
 	"errors"
 	"strings"
 
-	"github.com/shibingli/yd/core/errx"
 	"github.com/shibingli/yd/messaging"
+	"github.com/shibingli/ydx/errs"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 )
@@ -23,9 +23,9 @@ import (
 // Sentinel errors of the store. | 存储层的哨兵错误。
 var (
 	// ErrMigrate reports a failed schema migration. | ErrMigrate 表示模式迁移失败。
-	ErrMigrate = errx.New("message schema migration failed | 消息数据表迁移失败")
+	ErrMigrate = errs.New("message schema migration failed | 消息数据表迁移失败")
 	// ErrQuery reports a failed statement. | ErrQuery 表示语句执行失败。
-	ErrQuery = errx.New("message statement failed | 消息语句执行失败")
+	ErrQuery = errs.New("message statement failed | 消息语句执行失败")
 )
 
 // Store implements messaging.Store over GORM. | Store 基于 GORM 实现 messaging.Store。
@@ -62,7 +62,7 @@ func Migrate(ctx context.Context, db *gorm.DB) error {
 		&messaging.AuditEntry{},
 	}
 	if err := db.WithContext(ctx).AutoMigrate(models...); err != nil {
-		return errx.Wrap(err, ErrMigrate)
+		return errs.Wrap(err, ErrMigrate)
 	}
 	return nil
 }
@@ -73,7 +73,7 @@ func (s *Store) dbc(ctx context.Context) *gorm.DB { return s.db.WithContext(ctx)
 // notFound maps gorm.ErrRecordNotFound onto messaging.ErrNotFound. | notFound 把 gorm.ErrRecordNotFound 映射为 messaging.ErrNotFound。
 func notFound(err error) error {
 	if errors.Is(err, gorm.ErrRecordNotFound) {
-		return errx.Wrap(err, messaging.ErrNotFound)
+		return errs.Wrap(err, messaging.ErrNotFound)
 	}
 	return nil
 }
@@ -86,7 +86,7 @@ func queryError(err error) error {
 	if mapped := notFound(err); mapped != nil {
 		return mapped
 	}
-	return errx.Wrap(err, ErrQuery)
+	return errs.Wrap(err, ErrQuery)
 }
 
 // createError maps a statement error, preserving not-found and recognising duplicate keys. |
@@ -98,7 +98,7 @@ func createError(err error) error {
 	if mapped := notFound(err); mapped != nil {
 		return mapped
 	}
-	return errx.Wrap(err, ErrQuery)
+	return errs.Wrap(err, ErrQuery)
 }
 
 // rowsError turns a zero affected-row delete into not-found. | rowsError 把零影响行删除转成未找到。
@@ -107,7 +107,7 @@ func rowsError(result *gorm.DB) error {
 		return queryError(result.Error)
 	}
 	if result.RowsAffected == 0 {
-		return errx.Detail(messaging.ErrNotFound, "row does not exist | 记录不存在")
+		return errs.Detail(messaging.ErrNotFound, "row does not exist | 记录不存在")
 	}
 	return nil
 }
@@ -128,7 +128,7 @@ func (s *Store) updateExisting(ctx context.Context, result *gorm.DB, model any, 
 		return queryError(err)
 	}
 	if count == 0 {
-		return errx.Detail(messaging.ErrNotFound, "row does not exist | 记录不存在")
+		return errs.Detail(messaging.ErrNotFound, "row does not exist | 记录不存在")
 	}
 	return nil
 }

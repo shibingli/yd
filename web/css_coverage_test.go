@@ -7,9 +7,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/shibingli/yd/core/afs"
-	"github.com/shibingli/yd/core/regexpx"
 	"github.com/shibingli/yd/web"
+	"github.com/shibingli/ydx/afs"
+	"github.com/shibingli/ydx/regexpx"
 )
 
 // Guard tests for the component layer: the markup and the stylesheet must agree. | 组件层的守卫测试：标记与样式表必须一致。
