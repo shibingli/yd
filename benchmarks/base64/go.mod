@@ -5,7 +5,7 @@ go 1.27.2
 require (
 	github.com/cloudwego/base64x v0.1.7
 	github.com/cristalhq/base64 v0.1.2
-	github.com/shibingli/ydx/base64 v0.1.8
+	github.com/shibingli/ydx/base64 v0.1.9
 )
 
 require (
