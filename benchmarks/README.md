@@ -11,6 +11,7 @@ x86_64 单核/多核的完整指标（含全部对比库、CPU 与峰值 RSS）�
 | [`router/`](router/README.md) | 静态/动态路由与握手开销 | 标准库 ServeMux、gin、chi、echo、httprouter、fiber |
 | [`json/`](json/README.md) | JSON 编解码 | 标准库、go-json、sonic、jsoniter |
 | [`base64/`](base64/README.md) | Base64 编解码 | 标准库、cloudwego/base64x、cristalhq/base64 |
+| `ydx/benchmarks/regexpx`（ydx 仓） | 正则匹配、查找与批量扫描 | 标准库 regexp、grafana/regexp、regexp2、go-re2 |
 | [`jwt/`](jwt/README.md) | JWT 签发、验签与高并发吞吐 | golang-jwt/jwt v5、cristalhq/jwt v5、kataras/jwt |
 | [`crypto/`](crypto/README.md) | 国密 SM2/SM3/SM4 与常密基线 | emmansun/gmsm、tjfoc/gmsm、标准库（SHA-256/AES-GCM/ChaCha20-Poly1305/ECDSA/Ed25519） |
 | [`compress/`](compress/README.md) | 压缩吞吐与压缩率 | gzip、zstd、brotli、snappy、lz4 |
@@ -27,7 +28,7 @@ x86_64 单核/多核的完整指标（含全部对比库、CPU 与峰值 RSS）�
 - CPU governor `performance`，AVX-512F/BW/CD/DQ/VL + VBMI/VBMI2/VNNI/BF16；
 - 每个实现单独进程运行、轮转顺序、多轮中位数；
 - 每个模块的 `YD_BENCH_ONLY` 环境变量用于选择单一实现，避免同进程 codec 顺序与 GC 偏差；
-- 库本身不接收核心数/内存参数：`core/sysinfo` 在运行时读取 GOMAXPROCS 与 cgroup/主机内存，自动决定并行度与缓冲上限；单核/多核测量只通过 `GOMAXPROCS` 模拟环境。
+- 库本身不接收核心数/内存参数：`ydx/sysinfo` 在运行时读取 GOMAXPROCS 与 cgroup/主机内存，自动决定并行度与缓冲上限；单核/多核测量只通过 `GOMAXPROCS` 模拟环境。
 
 CPU 利用率与峰值 RSS 使用 Linux `/usr/bin/time -v`，对每个实现单独进程测量 3 轮取中位数。CPU% 是进程平均占用，多线程/RunParallel 场景可远高于 100%；RSS 是进程峰值常驻内存，包含 Go 运行时、测试二进制与夹具。具体计时参数见各模块 README。
 
@@ -53,10 +54,11 @@ done
 
 ## 关键结论（详见各模块 README，全部实现均在同一张表中）
 
-- **ws**：顺序回显在 32 B/256 B/1 KiB/4 KiB/64 KiB 五档均为最低延迟（4,043 / 4,177 / 4,255 / 5,205 / 16,776 ns；64 KiB 3,906 MB/s），唯一全程 `0 B/op、0 allocs/op`；并发 1 KiB 下 yd 预读模式最快（**1,455 ns、703.76 MB/s、0 allocs/op**），比 gws（2,069 ns、494.81 MB/s、2 allocs）快约 29.7%，同步模式为 2,309 ns / 443.55 MB/s；新增 `WriteBatch`/`WriteMessageBuffered`/`Flush` 批量写 API，流水线回显（1 KiB × 8）由 277.70 提升到 **1,366.11 MB/s（4.92×，零分配）**；读写缓冲与单条消息上限由 `core/sysinfo` 按 GOMAXPROCS 与内存自动调优。兼容性 18/18。
+- **ws**：顺序回显在 32 B/256 B/1 KiB/4 KiB/64 KiB 五档均为最低延迟（4,043 / 4,177 / 4,255 / 5,205 / 16,776 ns；64 KiB 3,906 MB/s），唯一全程 `0 B/op、0 allocs/op`；并发 1 KiB 下 yd 预读模式最快（**1,455 ns、703.76 MB/s、0 allocs/op**），比 gws（2,069 ns、494.81 MB/s、2 allocs）快约 29.7%，同步模式为 2,309 ns / 443.55 MB/s；新增 `WriteBatch`/`WriteMessageBuffered`/`Flush` 批量写 API，流水线回显（1 KiB × 8）由 277.70 提升到 **1,366.11 MB/s（4.92×，零分配）**；读写缓冲与单条消息上限由 `ydx/sysinfo` 按 GOMAXPROCS 与内存自动调优。兼容性 18/18。
 - **router**：param/deep/wildcard/miss 四类最快（1.1–1.6 ns），五类路径零分配；静态路径 httprouter 最快（0.9 vs yd 1.1 ns）；WebSocket 握手经 router 增加约 15 ns（4.2%）。
-- **json**：amd64 默认已是自研后端。单核 Marshal 在 n=1/100/1000 全部第一（比 go-json 快约 14.9%/28.0%/28.8%）；Unmarshal 在 n=100/n=1000 快约 6.8%/1.9%，n=1 慢约 4.8%。多核 Marshal 在 2–16 核领先（16 核 10,416 MB/s），32 核 10,704 vs 10,806 MB/s 基本持平；Unmarshal 8–32 核领先（32 核 6,045 vs 3,109 MB/s），CPU 1,948% vs 2,459%、RSS 91.9 vs 132.4 MiB。嵌入字段支配规则、omitzero、解码 `,string`、深度上限 10000、Unicode/自定义接口兼容与差分/fuzz 全部通过。
-- **base64**：amd64 默认已是自研内核。单核 32 B–1 MiB 编码/解码全部第一（32 B 5.76/8.43 ns，64 KiB 45.6/33.5 GB/s）；并发调用 1–32 核全部第一（16 核 535.4/409.1 GB/s），16 核后接近内存带宽上限。`EncodeParallel`/`DecodeParallel` 不接收核心数，按 GOMAXPROCS 与输入大小自动选择；8 MiB 编码在 16 核达 160.1 GB/s。三套内核零向量寄存器溢出；全长度+大长度差分、越界哨兵、race 通过。
+- **json**（2026-10-23 重测，`ydx/json v0.1.8`）：amd64 默认已是自研后端。单核 Marshal 在 n=1/100/1000 全部第一（比 go-json 快约 8.3%/20.7%/20.6%）；Unmarshal 在 n=100/n=1000 快约 9.4%/5.9%，n=1 慢约 10.0%，B/op 降到 195,462。多核 Marshal 在 1–32 核全部领先（32 核 12,022 vs 10,462 MB/s，+14.9%）；Unmarshal 32 核 5,846 vs 4,372 MB/s（+33.7%），CPU 1,779% vs 2,444%、RSS 66.3 vs 126.4 MiB。嵌入字段支配规则、omitzero、解码 `,string`、深度上限 10000、Unicode/自定义接口兼容与差分/fuzz 全部通过。
+- **base64**（2026-10-23 重测，`ydx/base64 v0.1.7`，`GOEXPERIMENT=simd`）：amd64 默认已是自研内核。单核 1 KiB/64 KiB/1 MiB 编码与解码全部第一（64 KiB 62.5/28.0 GB/s，1 MiB 54.9/26.8 GB/s）；**32 B 编码/解码为 10.20/14.18 ns，落后 cloudwego（7.47/11.44）与 cristalhq（9.57/12.74）**，小载荷直达路径需后续优化。并发调用 1–32 核全部第一（16 核 623.9/341.1 GB/s，32 核 633.9/366.5 GB/s）。`EncodeParallel`/`DecodeParallel` 不接收核心数，按 GOMAXPROCS 与输入大小自动选择；8 MiB 编码在 16 核达 171.6 GB/s。三套内核零向量寄存器溢出；全长度+大长度差分、越界哨兵、race 通过。
+- **regexpx**（组件基准在 ydx 仓；amd64 与 arm64 均为一等支持，各自使用 SIMD 预过滤）：自研引擎在 32 个场景全部最快。本机 AVX2 上 `MatchString/literal` 33.1 ns（stdlib 466 ns），AVX-512 主机 10.8 ns（stdlib 222 ns）；`FindAll/email` 311 µs（stdlib 12.4 ms、go-re2 1.66 ms）。详见 `ydx/benchmarks/regexpx/README.md`；主模块不再依赖 `regexp2`。
 - **jwt**：HS256 验签 743.3 ns / 2 allocs，领先 cristal（2,134 / 19）2.87×、kataras（2,284 / 19）3.07×、golang-jwt（3,348 / 50）4.50×；并发复用 38.26 ns / 0 allocs（26.1 M ops/s），领先 cristal 13.8×；ES256 39.7 µs / 21 allocs 全部第一；`SignJSON` 531.5 ns、结构体 617.4 ns，快于 cristal 的结构体路径 1,030 ns。
 - **crypto**：后端由 tjfoc/gmsm v1.4.1 切换到 emmansun/gmsm v0.45.0。SM3 4 KiB 12,506→7,360 ns（1.70×）；HMAC-SM3 1,765→729 ns（2.42×，0 allocs）；PBKDF2 939,609→283,344 ns（3.32×）；SM4-GCM 4 KiB seal 45,290→5,409 ns（8.37×，757.3 MB/s）；SM2 签名 131,572→14,364 ns（9.16×）、验签 687,942→34,392 ns（20.0×）、加密 715,805→35,969 ns（19.9×）、解密 554,528→29,024 ns（19.1×）。SM2 签名/验签快于 ECDSA P-256；SM3/SM4 无 SHA-NI/AES-NI 对应指令，仍慢于 SHA-256/AES-GCM。
 - **compress**：zstd/fastest text 压缩 8.04 GB/s、压缩率 0.002，zstd 解压 13.67 GB/s；snappy text 压缩 13.57 GB/s 但压缩率 0.049；klauspost gzip 约标准库 gzip 的 3.7 倍吞吐，压缩率相同；brotli/q9 json 压缩率最好（0.021）但吞吐与内存成本最高。

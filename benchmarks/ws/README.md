@@ -134,7 +134,7 @@ x86_64 基准平台实测，1 KiB × 8 条一批，5 轮中位数：
 - **分配**：yd 是唯一在五档全部保持 `0 B/op、0 allocs/op` 的实现；coder 在 ≤1 KiB 也是零分配，但 4 KiB/64 KiB 为 2 B/2 allocs；gws 为 32 B/2 allocs（64 KiB 约 38 B/2）；gobwas 64 B/4；gorilla 112–114 B/4–6。
 - **并发**：yd 预读模式最快（**1,455 ns/op、703.76 MB/s、0 allocs/op**），比 gws（2,069 ns/op、494.81 MB/s）快约 29.7%；同步模式（2,309 ns/op、443.55 MB/s）仍快于 gorilla/gobwas/coder，但落后 gws。同步模式的绝对 CPU（1,209%）与 RSS（16.9 MiB）最低；预读模式 RSS 18.2 MiB，低于 gws 的 20.1 MiB。
 - **流水线**：批量写 API 在 1 KiB × 8 流水线回显上把吞吐从 277.70 MB/s 提升到 **1,366.11 MB/s（4.92×）**，且全程零分配。
-- **自动调优**：读写缓冲与单条消息上限由 `core/sysinfo` 按 GOMAXPROCS 与内存上限推导（4–64 KiB、1–32 MiB），显式配置始终优先；客户端掩码键按 16 个一批从 CSPRNG 取用。
+- **自动调优**：读写缓冲与单条消息上限由 `ydx/sysinfo` 按 GOMAXPROCS 与内存上限推导（4–64 KiB、1–32 MiB），显式配置始终优先；客户端掩码键按 16 个一批从 CSPRNG 取用。
 - 所有数值均为原始中位数；延迟对 CPU 频率、温度和后台负载敏感，跨进程波动可达约 15%，跨机比较请以同一平台的相对关系为准。
 
 ### 开发机（Windows 11 amd64）交叉复测

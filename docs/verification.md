@@ -280,6 +280,13 @@ go test ./repotest/                  ok
 
 ### 3.8.1 正则统一到 ydx/regexpx（双引擎）
 
+> **更新（2026-10-23）**：`ydx/regexpx` v0.1.5 已改为自研引擎（Pike VM 线性路径 + 回溯 VM），
+> 不再依赖 `regexp` 或 `regexp2`。下面「标准库 / regexp2」的引擎对照与性能数据只记录当时那一轮的
+> 验证结论，现行设计以 `CLAUDE.md` §4.11 为准。
+> **Update (2026-10-23)**: ydx/regexpx v0.1.5 ships self-developed engines (a linear Pike VM and a
+> backtracking VM) and no longer depends on `regexp` or `regexp2`. The engine comparison and numbers
+> below record that earlier round only; the current rules live in `CLAUDE.md` §4.11.
+
 全仓（含测试）的正则改经 `ydx/regexpx`。包装层内部持有两个引擎，按模式自动选择：
 
 | 模式 | 引擎 | 性质 |
@@ -744,6 +751,13 @@ WSL Ubuntu-24.04（同为 Go 1.27.2）上分别测量；所有实现保持纯 Go
 - 降级后端（非 amd64 或 `b64x_std`）本来就是标准库，语义一致。
 
 ### 3.15.3.1 Base64 后端重排（cloudwego / cristalhq / std）
+
+> **更新（2026-10-23）**：后续版本已移除 `cloudwego/base64x` 与 `cristalhq/base64`，所有架构
+> 统一使用 `ydx/base64` 自研内核（amd64 SIMD/标量、arm64 NEON、其它纯 Go 标量）。以下记录的是
+> 当时按尺寸分流的历史验证结果，现行设计以 `CLAUDE.md` §2 与 `benchmarks/base64/README.md` 为准。
+> **Update (2026-10-23)**: later versions removed cloudwego/base64x and cristalhq/base64; every
+> architecture now uses the self-developed ydx/base64 kernel (amd64 SIMD/scalar, arm64 NEON,
+> pure-Go scalar elsewhere). The content below records that earlier size-split design only.
 
 本轮把 amd64 后端从 cristalhq/base64 切换为**按尺寸分流的混合后端**：小于实测交叉点
 （32 B）的输入使用 cristalhq（SIMD 启动开销更低），其余使用 **cloudwego/base64x**

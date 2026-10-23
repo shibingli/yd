@@ -11,6 +11,12 @@ github.com/klauspost/cpuid/v2 v2.4.1 h1:I9KxadAkvo+QjtcEE2f2tyfEvmIla/T0m+14PrZN
 github.com/klauspost/cpuid/v2 v2.4.1/go.mod h1:19jmZ9mjzoF//ddRSUsv0zfBTJWh3QJh9FNxZTMrGxU=
 github.com/pmezard/go-difflib v1.0.0 h1:4DBwDE0NGyQoBHbLQYPwSUPoCMWR5BEzIk/f1lZbAQM=
 github.com/pmezard/go-difflib v1.0.0/go.mod h1:iKH77koFhYxTK1pcRnkKkqfTogsbg7gZNVY4sRDYZ/4=
+github.com/shibingli/ydx/base64 v0.1.7 h1:Qb5qb+RYPxNJXinwwhfIoPfcQcRnIHVd1hpufbCz37Q=
+github.com/shibingli/ydx/base64 v0.1.7/go.mod h1:hJ016VoCrHqb5oyfdnyWcyiEpEm1iMPpslblhiukKjg=
+github.com/shibingli/ydx/errs v0.1.3 h1:LkoQ8tRKo/7GqomJNOzOLYn7W/RLNquhRyz9STAtBNQ=
+github.com/shibingli/ydx/errs v0.1.3/go.mod h1:TxxdX2XnyvkyoEPtwKjxZFythqeJIYZabjw8S+Mllso=
+github.com/shibingli/ydx/sysinfo v0.1.3 h1:y18JBQ3ei8LyiSHCiVbnm9PahicjwcGYU11feeZ1l2Y=
+github.com/shibingli/ydx/sysinfo v0.1.3/go.mod h1:dEfiIuKCfPVJKvJtd4wDwHAxJ3Bsl+zncnS3WZo4/rE=
 github.com/stretchr/objx v0.1.0/go.mod h1:HFkY916IF+rwdDfMAkV7OtwuqBVzrE8GR6GFx+wExME=
 github.com/stretchr/objx v0.4.0/go.mod h1:YvHI0jy2hoMjB+UWwv71VJQ9isScKT/TqJzVSSt89Yw=
 github.com/stretchr/objx v0.5.0/go.mod h1:Yh+to48EsGEfYuaHDzXPcE3xhTkx73EhmCGUpEOglKo=

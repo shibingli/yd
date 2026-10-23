@@ -6,8 +6,6 @@ github.com/bytedance/sonic/loader v0.5.2 h1:0QtP1gevc1OZ6/H8Lb9BRZiCXd1Ftjd3OKuj
 github.com/bytedance/sonic/loader v0.5.2/go.mod h1:AR4NYCk5DdzZizZ5djGqQ92eEhCCcdf5x77udYiSJRo=
 github.com/cloudwego/base64x v0.1.7 h1:NppS+Fgzg5ovhn4NkUXaDT3x9jldgH5ToMCqzBSi2zI=
 github.com/cloudwego/base64x v0.1.7/go.mod h1:Cu1PV9zfrSf7ET2tIbWbbEy7jO7HHJ13q4X2SQ8aWYg=
-github.com/cristalhq/base64 v0.1.2 h1:edsefYyYDiac7Ytdh2xdaiiSSJzcI2f0yIkdGEf1qY0=
-github.com/cristalhq/base64 v0.1.2/go.mod h1:sy4+2Hale2KbtSqkzpdMeYTP/IrB+HCvxVHWsh2VSYk=
 github.com/davecgh/go-spew v1.1.0/go.mod h1:J7Y8YcW2NihsgmVo/mv3lAwl/skON4iLHjSsI+c5H38=
 github.com/davecgh/go-spew v1.1.1 h1:vj9j/u1bqnvCEfJOwUhtlOARqs3+rkHYY13jYWTU97c=
 github.com/davecgh/go-spew v1.1.1/go.mod h1:J7Y8YcW2NihsgmVo/mv3lAwl/skON4iLHjSsI+c5H38=
@@ -24,6 +22,14 @@ github.com/modern-go/reflect2 v1.0.2 h1:xBagoLtFs94CBntxluKeaWgTMpvLxC4ur3nMaC9G
 github.com/modern-go/reflect2 v1.0.2/go.mod h1:yWuevngMOJpCy52FWWMvUC8ws7m/LJsjYzDa0/r8luk=
 github.com/pmezard/go-difflib v1.0.0 h1:4DBwDE0NGyQoBHbLQYPwSUPoCMWR5BEzIk/f1lZbAQM=
 github.com/pmezard/go-difflib v1.0.0/go.mod h1:iKH77koFhYxTK1pcRnkKkqfTogsbg7gZNVY4sRDYZ/4=
+github.com/shibingli/ydx/base64 v0.1.7 h1:Qb5qb+RYPxNJXinwwhfIoPfcQcRnIHVd1hpufbCz37Q=
+github.com/shibingli/ydx/base64 v0.1.7/go.mod h1:hJ016VoCrHqb5oyfdnyWcyiEpEm1iMPpslblhiukKjg=
+github.com/shibingli/ydx/errs v0.1.3 h1:LkoQ8tRKo/7GqomJNOzOLYn7W/RLNquhRyz9STAtBNQ=
+github.com/shibingli/ydx/errs v0.1.3/go.mod h1:TxxdX2XnyvkyoEPtwKjxZFythqeJIYZabjw8S+Mllso=
+github.com/shibingli/ydx/json v0.1.8 h1:xG14RvprjVilREmFKqIBKRamyQw/34J7C6aSbJAgX6w=
+github.com/shibingli/ydx/json v0.1.8/go.mod h1:uWrAWW+JBXTIvoSvurdvCZxVTI0w5hL53g08Ys1/PDk=
+github.com/shibingli/ydx/sysinfo v0.1.3 h1:y18JBQ3ei8LyiSHCiVbnm9PahicjwcGYU11feeZ1l2Y=
+github.com/shibingli/ydx/sysinfo v0.1.3/go.mod h1:dEfiIuKCfPVJKvJtd4wDwHAxJ3Bsl+zncnS3WZo4/rE=
 github.com/stretchr/objx v0.1.0/go.mod h1:HFkY916IF+rwdDfMAkV7OtwuqBVzrE8GR6GFx+wExME=
 github.com/stretchr/objx v0.4.0/go.mod h1:YvHI0jy2hoMjB+UWwv71VJQ9isScKT/TqJzVSSt89Yw=
 github.com/stretchr/objx v0.5.0/go.mod h1:Yh+to48EsGEfYuaHDzXPcE3xhTkx73EhmCGUpEOglKo=
