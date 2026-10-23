@@ -634,6 +634,52 @@ func TestGeneratedPersistenceFollowsDatabaseChoice(t *testing.T) {
 	}
 }
 
+// TestGeneratedProjectEnablesGormCacheByDefault asserts that every project with a database gets
+// the two-level cache and its GORM plugin enabled by default, while the auth tables stay
+// uncached so disabling a user or rotating a sec_key still takes effect immediately. |
+// TestGeneratedProjectEnablesGormCacheByDefault 断言每个带数据库的项目默认开启二级缓存及其
+// GORM 插件，同时把鉴权表排除在缓存之外，使禁用用户或轮换 sec_key 仍然立即生效。
+func TestGeneratedProjectEnablesGormCacheByDefault(t *testing.T) {
+	withDB := scaffold.DefaultOptions("cached-app")
+	withDB.DB = scaffold.DBSQLite
+	pr, _ := generateMem(t, withDB)
+
+	// The template is checked out with CRLF on Windows, so normalise before matching a block. |
+	// 模板在 Windows 上以 CRLF 检出，匹配整块前先归一化换行。
+	cfg := strings.ReplaceAll(pr.read("configs/config.yaml"), "\r\n", "\n")
+	for _, want := range []string{
+		"  gorm:\n    enabled: true",
+		"ignore_tables:",
+		"- yd_auth_tenants",
+		"- yd_auth_users",
+		"- yd_auth_user_tenants",
+		"- yd_auth_roles",
+		"- yd_auth_role_permissions",
+		"- yd_msg_messages",
+		"- yd_msg_conversations",
+	} {
+		if !strings.Contains(cfg, want) {
+			t.Errorf("configs/config.yaml 缺少 %q:\n%s", want, cfg)
+		}
+	}
+
+	// The plugin only installs when the configuration enables it. | 只有配置开启时插件才会安装。
+	router := pr.read("internal/router/router.go")
+	for _, want := range []string{"gormcache.EnabledFromConfig", "gormcache.New", "gormDB.Use(cachePlugin)"} {
+		if !strings.Contains(router, want) {
+			t.Errorf("internal/router/router.go 缺少 %q:\n%s", want, router)
+		}
+	}
+
+	// Without a database there is no GORM plugin to configure. | 未选数据库时没有可配置的 GORM 插件。
+	plain := scaffold.DefaultOptions("uncached-app")
+	plain.DB = scaffold.DBNone
+	prPlain, _ := generateMem(t, plain)
+	if cfg := prPlain.read("configs/config.yaml"); strings.Contains(cfg, "ignore_tables:") {
+		t.Errorf("未选数据库的 config.yaml 不应出现 GORM 缓存配置:\n%s", cfg)
+	}
+}
+
 // TestGeneratedPortalAndManagementTreesAreIsolated pins the portal/back-office split: the two template trees never
 // include each other, the management endpoints live under /mgr and /api/v1 while member endpoints live under
 // /api/portal/v1, and the controller selects the layout from view data. | TestGeneratedPortalAndManagementTreesAreIsolated
@@ -3210,8 +3256,18 @@ func TestGeneratePinsTheRunningYdVersion(t *testing.T) {
 	if got := pr.read("go.mod"); !strings.Contains(got, scaffold.YdModule+" "+pinned) {
 		t.Errorf("go.mod 未锁定框架版本 %q:\n%s", pinned, got)
 	}
-	if got := pr.read("go.mod"); !strings.Contains(got, scaffold.YdxModule+"/errs "+scaffold.YdxVersion) {
-		t.Errorf("go.mod 未锁定 ydx 版本 %q:\n%s", scaffold.YdxVersion, got)
+	errsVersion := scaffold.YdxVersions[scaffold.YdxModule+"/errs"]
+	if errsVersion == "" {
+		t.Fatal("生成的 YdxVersions 缺少 errs 的版本 | generated YdxVersions is missing the errs version")
+	}
+	if got := pr.read("go.mod"); !strings.Contains(got, scaffold.YdxModule+"/errs "+errsVersion) {
+		t.Errorf("go.mod 未锁定 ydx/errs 版本 %q:\n%s", errsVersion, got)
+	}
+	// The framework does not import cache, so the generated project cannot pin a version it does
+	// not know; go mod tidy resolves it when the project imports it. | 框架本身不依赖 cache，
+	// 生成项目无法锁定一个它不知道的版本，改由 go mod tidy 在项目实际导入时解析。
+	if got := pr.read("go.mod"); strings.Contains(got, scaffold.YdxModule+"/cache ") {
+		t.Errorf("go.mod 不应锁定框架未依赖的 ydx/cache:\n%s", got)
 	}
 
 	unpinned := scaffold.DefaultOptions("unpinned-app")

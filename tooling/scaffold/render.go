@@ -81,8 +81,10 @@ type view struct {
 	AssetRoot          string
 	// YdVersion pins the framework module in the generated go.mod; empty means none. | YdVersion 在生成的 go.mod 中锁定框架模块；为空表示不锁定。
 	YdVersion string
-	// YdxVersion pins every ydx module in the generated go.mod. | YdxVersion 在生成的 go.mod 中锁定全部 ydx 模块。
-	YdxVersion string
+	// YdxVersions pins each ydx module at its own tag in the generated go.mod; modules absent
+	// from the map are left to go mod tidy. | YdxVersions 在生成的 go.mod 中按各自标签锁定 ydx
+	// 模块；映射中缺失的模块交给 go mod tidy 解析。
+	YdxVersions map[string]string
 	// YdxModules lists the ydx modules required by the generated project. | YdxModules 列出生成项目依赖的 ydx 模块。
 	YdxModules []string
 	// YdxReplaces lists the local ydx replacements used in development. | YdxReplaces 列出开发期使用的 ydx 本地替换。
@@ -139,7 +141,7 @@ func newView(o Options) view {
 		}(),
 		AssetRoot:       AssetRoot,
 		YdVersion:       o.YdVersion,
-		YdxVersion:      YdxVersion,
+		YdxVersions:     YdxVersions,
 		YdxModules:      YdxModules,
 		YdxReplaces:     ydxReplaces(o.LocalReplace),
 		GRPC:            o.GRPC,

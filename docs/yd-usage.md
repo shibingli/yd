@@ -1102,19 +1102,20 @@ middleware/ratelimit/v0.1.0
 ...
 ```
 
-不需要额外的 registry。**所有 ydx 模块必须使用同一个版本**：
-脚手架 `version_generated.go` 只有一个 `YdxVersion`，`yd versions` 会在版本不一致时
-以 `ErrYdxVersionConflict` 失败。
+不需要额外的 registry。**每个模块按自己的子目录标签独立发布，版本可以不同**：
+脚手架 `version_generated.go` 的 `YdxVersions` 按模块记录真实版本。框架本身未依赖、
+但生成项目会导入的模块（`cache`、`redis`、`asynq`、`openapi` 等）不写版本，
+由生成项目首次构建时的 `go mod tidy` 解析。
 
 ### 13.2 升级流程
 
 ```bash
-# 1. 在 ydx 仓库完成修改，给所有模块打同一版本标签并推送
-git tag afs/v0.2.0 cache/v0.2.0 ... && git push --tags
+# 1. 在 ydx 仓库完成修改，给有改动的模块打各自的新标签并推送
+git tag afs/v0.2.0 middleware/v0.2.0 ... && git push --tags
 
-# 2. 在 yd 仓库升级依赖并重新生成脚手架常量
+# 2. 在 yd 仓库按模块升级依赖并重新生成脚手架常量
 cd /path/to/yd
-go get github.com/shibingli/ydx/afs@v0.2.0 ...
+go get github.com/shibingli/ydx/afs@v0.2.0 github.com/shibingli/ydx/middleware@v0.2.0 ...
 go mod tidy
 yd versions sync
 
@@ -1141,7 +1142,7 @@ go build ./... && go vet ./... && go test ./... -race
 |---|---|
 | Go 版本与 Go 模块依赖 | 仓库根 `go.mod` |
 | 前端资产版本 | `web/assets.lock.json` |
-| 脚手架 `GoVersion` / `HtmxVersion` / `YdxVersion` | `tooling/scaffold/version_generated.go`（生成文件，禁止手改） |
+| 脚手架 `GoVersion` / `HtmxVersion` / `YdxVersions` | `tooling/scaffold/version_generated.go`（生成文件，禁止手改） |
 
 ```bash
 yd versions check   # 离线校验生成文件与真源一致

@@ -4,8 +4,8 @@
 
 ## 0. 核心自研库与运行环境
 
-- **JSON**：amd64 默认使用自研 `ydx/json` 原生后端；非 amd64 默认回退 `github.com/goccy/go-json`；`jsonx_std` 构建标签可切换标准库。主模块不再依赖 sonic/jsoniter。
-- **Base64**：amd64 默认使用自研 `ydx/base64` 内核（`GOEXPERIMENT=simd` 时按 VBMI2/VBMI → 基础 AVX-512 → AVX2 运行时选择，否则纯 Go 标量）；非 amd64 默认回退 `github.com/cristalhq/base64`；`loong64` 或 `b64x_std` 切换标准库。主模块不再依赖 cloudwego/base64x。
+- **JSON**：amd64 与 arm64 均为正式支持架构，默认使用自研 `ydx/json` 原生后端（各自选择 SSE2/AVX2/AVX-512BW 或 NEON 内核），其它架构走同一套自研标量路径；`jsonx_std` 构建标签可切换标准库。主模块不再依赖 sonic/jsoniter/goccy。
+- **Base64**：amd64 与 arm64 均为正式支持架构，默认使用自研 `ydx/base64` 内核（amd64 在 `GOEXPERIMENT=simd` 下按 VBMI2/VBMI → 基础 AVX-512 → AVX2 选择，arm64 手写 NEON），其它架构走纯 Go 标量；`b64x_std` 标签切换标准库。主模块不再依赖 cloudwego/base64x/cristalhq。
 - **环境自适应**：并行度、分块大小、缓冲与池上限一律由 `ydx/sysinfo` 在运行时读取 GOMAXPROCS、逻辑 CPU 数与 cgroup/主机内存后决定；库 API 不接收核心数或内存容量参数。
 - **基准报告**：`benchmarks/x86_64-single-multi-core.md` 给出单核/多核、全部对比库、CPU 与峰值 RSS；模块级说明见 `benchmarks/{json,base64}/README.md`。组件基准已迁到 `ydx/benchmarks/*`，组件源码修改应优先在 ydx 仓库验证。
 - **组件依赖**：`errs/json/base64/log/buffpool/afs/config/sysinfo/regexpx/router/gorm/redis/asynq/cache/sse/websocket/render/jwt` 与中间件插件均由 `github.com/shibingli/ydx/*` 提供；yd 只按版本号引用，禁止本地 replace 或复制源码。
@@ -70,7 +70,7 @@
 - [ ] **依赖白名单**：新增依赖须为活跃维护的纯 Go 库，且无已知高危 CVE；不得引入运行时 CDN。
 - [ ] **注入面**：SQL 只允许通过 GORM 参数化查询；模板输出默认走 `html/template` 转义，使用 `template.HTML` 必须写明可信来源。
 - [ ] **客户端地址**：按 IP 限流、审计或风控必须用 `KeyRemoteIP(trusted)` / `Ctx.ClientIP(trusted)`，不得用无条件信任代理头的 `RealIP()`；`TrustedProxies` 为空时只看对端地址。
-- [ ] **正则安全**：所有正则必须经 `ydx/regexpx`，禁止直接 `import "regexp"` 或 `"github.com/dlclark/regexp2"`；包装层对 RE2 兼容模式走标准库线性引擎，只有 .NET 构造走 regexp2 + 强制超时，不得关闭超时；批量扫描不得掉到 regexp2 路径（大文件上是二次复杂度）。
+- [ ] **正则安全**：所有正则必须经 `ydx/regexpx`，禁止直接 `import "regexp"`、`"github.com/dlclark/regexp2"` 或任何其它正则引擎；不含环视/反向引用的模式走自研 Pike VM 线性引擎，需要 .NET 构造的模式走自研回溯 VM + 强制超时，不得关闭超时；批量扫描不得引入 .NET 构造而掉到回溯路径。
 - [ ] **版本同步**：改动 `go.mod` 或 `web/assets.lock.json` 后必须运行 `yd versions sync`；提交里必须同时包含 `tooling/scaffold/version_generated.go` 的更新，且 `yd versions check` 通过。
 - [ ] **请求边界**：外部输入必须限长（WebSocket `MaxMessageSize`、请求体 `MaxBytesReader`），并设置读写超时。
 - [ ] **htmx 4 实时通道**：`hx-ws:send` 必须位于 `hx-ws:connect` 元素内部（扩展用 `closest()` 向上找连接，
@@ -79,9 +79,11 @@
       `htmx:ws:error` 也可能只是发送失败，连接状态只响应 `htmx:ws:close` 等真正的断开事件。
       **例外**：CONNECT（含 RFC 8441/9220 Extended CONNECT）的正文是隧道或 WebSocket 字节流，
       不套 `MaxBytesReader`；处理器在 HTTP/2/3 下必须阻塞到连接结束。
-- [ ] **JSON/Base64 统一走封装层**：全仓禁止 `import "encoding/json"` 与 `import "encoding/base64"`，
-      一律使用 `github.com/shibingli/ydx/json` 与 `github.com/shibingli/ydx/base64`。
-      自检：`grep -rn '"encoding/json"\|"encoding/base64"' --include=*.go .` 无命中。
+- [ ] **JSON/Base64 统一走封装层**：**不允许直接使用标准库编解码**。全仓禁止
+      `import "encoding/json"`、`"encoding/json/v2"`、`"encoding/json/jsontext"` 与
+      `import "encoding/base64"`，一律使用 `github.com/shibingli/ydx/json` 与
+      `github.com/shibingli/ydx/base64`。
+      自检：`grep -rnE '"encoding/(json|json/v2|json/jsontext|base64)"' --include=*.go .` 无命中。
 - [ ] **中英文同步（注释 + 日志文案）**：所有注释与所有日志文案逐行采用
       `English | 中文`（竖线分割，英文在前、中文在后）。豁免：编译指令、生成标记、注释内代码示例/树状图/URL。
 - [ ] **日志统一走 ydx/log（包名 `log`）**：全仓禁止 `import "log"`（`server` 包的 `http.Server.ErrorLog`
@@ -297,6 +299,8 @@
 - GORM 插件只缓存 `gorm:query`；查询键必须含表名、纪元、表代际、目标类型、SQL 与全部绑定变量；事务内查询、
   Raw SQL、`FOR UPDATE`、Preload、`*sql.Rows` 必须跳过；显式事务严格语义用 `Plugin.Invalidate`。
 - 配置经 `cache.*` 与 `cache.OptionsFromConfig`/`RedisOptionsFromConfig`/`gormcache.OptionsFromConfig`；
-  GORM 插件默认关闭，由 `cache.gorm.enabled` 开启；Manager 注册为 `app.ServiceCache`。
+  GORM 插件由 `cache.gorm.enabled` 控制，脚手架默认开启并把 `yd_auth_*` 与 `yd_msg_*` 列入
+  `ignore_tables`：前者保住禁用用户与轮换 `sec_key` 的即时失效，后者因显式事务在提交前失效
+  而暂不缓存；Manager 注册为 `app.ServiceCache`。
 - 禁止新增第三方缓存库、直接 `encoding/json`/`encoding/base64`、直接 `panic`、`fmt.Errorf`、
   热路径反射，以及绕过 Manager 自建跨节点失效。

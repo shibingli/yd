@@ -68,8 +68,9 @@
        logger.Warn("slow query | 慢查询", ydlog.Dur("elapsed", d), ydlog.Str("sql", sql))
    ```
 4. **JSON / Base64 一律走封装层**：`{{ .YdxModule }}/json`（`Marshal`/`Unmarshal`/`NewEncoder`/`NewDecoder`/`Valid`）
-   与 `{{ .YdxModule }}/base64`（`StdEncoding`/`URLEncoding`/…）；**禁止**直接 `import "encoding/json"` 或 `"encoding/base64"`。
-   自检：`grep -rn '"encoding/json"\|"encoding/base64"' --include=*.go .` 必须无命中。
+   与 `{{ .YdxModule }}/base64`（`StdEncoding`/`URLEncoding`/…）。**红线：不允许直接使用标准库编解码**，
+   **禁止**直接 `import "encoding/json"`、`"encoding/json/v2"`、`"encoding/json/jsontext"` 或 `"encoding/base64"`。
+   自检：`grep -rnE '"encoding/(json|json/v2|json/jsontext|base64)"' --include=*.go .` 必须无命中。
 5. **安全**：口令哈希走 `guomi`（SM3 + 盐 + 迭代），比较必须常量时间；敏感字段传输前置 SM2 加密（`data-yd-encrypt="sm2"`）；
    严禁在源码、模板、测试夹具中硬编码密钥、口令、Token。
 6. **格式与测试**：`gofmt`、`go vet ./...` 零告警；测试表驱动、涉及并发必须 `-race` 通过；新增包须在包文档注释说明职责边界。

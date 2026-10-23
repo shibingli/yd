@@ -100,11 +100,36 @@ cache:
     health_interval: 30s
 {{- if ne .DB "none" }}
   gorm:
-    enabled: false        # opt-in query caching | 查询缓存需显式开启
+    enabled: true         # cache SELECT queries by default | 默认缓存 SELECT 查询
     namespace: gorm
     ttl: 30s
-    tables: []            # empty = every table | 空 = 所有表
-    ignore_tables: []
+    tables: []            # empty = every table not listed in ignore_tables | 空 = 未列入 ignore_tables 的所有表
+    # 鉴权表不缓存：禁用用户、删除用户或轮换 sec_key 必须立即经存储生效，而不是等缓存租约到期。
+    # The auth tables stay uncached: disabling or deleting a user and rotating a sec_key must take
+    # effect through the store immediately instead of waiting for a cache lease to expire.
+    ignore_tables:
+      - yd_auth_tenants
+      - yd_auth_users
+      - yd_auth_user_tenants
+      - yd_auth_roles
+      - yd_auth_role_permissions
+      # 消息相关表的写操作都在显式事务里，而 GORM 插件在提交前就推进表代际：事务期间的读会把
+      # 旧结果缓存到新代际，TTL 内不再恢复。等 ydx 提供提交后失效再放开这些表。
+      # The message tables are written inside explicit transactions, and the GORM plugin bumps the
+      # table generation before commit: a read during the transaction caches stale data under the
+      # new generation until the TTL expires. They stay excluded until ydx invalidates after commit.
+      - yd_msg_types
+      - yd_msg_tags
+      - yd_msg_conversations
+      - yd_msg_members
+      - yd_msg_messages
+      - yd_msg_message_tags
+      - yd_msg_attachments
+      - yd_msg_friend_requests
+      - yd_msg_friendships
+      - yd_msg_friend_notes
+      - yd_msg_blocks
+      - yd_msg_audit
 {{- end }}
 
 asynq:

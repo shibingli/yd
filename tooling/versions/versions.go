@@ -14,6 +14,7 @@ package versions
 
 import (
 	"errors"
+	"go/format"
 	"io/fs"
 	"path/filepath"
 	"sort"
@@ -44,8 +45,6 @@ var (
 	ErrNoHtmxAsset = errs.New("asset manifest has no htmx entry | 资产清单缺少 htmx 条目")
 	// ErrGeneratedDrift is returned when the generated scaffold versions differ from the sources. | ErrGeneratedDrift 表示生成的脚手架版本与真源不一致。
 	ErrGeneratedDrift = errs.New("scaffold versions differ from the source of truth | 脚手架版本与版本真源不一致")
-	// ErrYdxVersionConflict is returned when the ydx requirements do not share one version. | ErrYdxVersionConflict 表示 ydx 依赖没有共用同一版本。
-	ErrYdxVersionConflict = errs.New("ydx modules require different versions | ydx 模块版本不一致")
 )
 
 // Module is one module requirement of go.mod. | Module 是 go.mod 的一条模块依赖。
@@ -64,8 +63,9 @@ type Inventory struct {
 	GoDirective string
 	// HtmxVersion is the version of the asset named "htmx". | HtmxVersion 是名为 htmx 的资产版本。
 	HtmxVersion string
-	// YdxVersion is the single version shared by every ydx requirement; empty when none. | YdxVersion 是所有 ydx 依赖共用的版本；没有 ydx 依赖时为空。
-	YdxVersion string
+	// YdxVersions maps each ydx module required by the framework to its own tag; empty when none.
+	// | YdxVersions 把框架依赖的每个 ydx 模块映射到它自己的标签版本；没有 ydx 依赖时为空。
+	YdxVersions map[string]string
 	// YdxModules are the ydx module paths required by the framework, sorted by path. | YdxModules 是框架要求的 ydx 模块路径，按路径排序。
 	YdxModules []string
 	// Modules are the direct requirements, sorted by path. | Modules 是直接依赖，按路径排序。
@@ -173,17 +173,14 @@ func Load(fsys afero.Fs, dir string) (*Inventory, error) {
 	if !validVersionToken(htmx.Version) {
 		return nil, errs.Detail(ErrNoHtmxAsset, "htmx version %[1]q is not a version token | htmx 版本 %[1]q 不是合法版本记号", htmx.Version)
 	}
-	ydxVersion, ydxModules, err := ydxInventory(allModules)
-	if err != nil {
-		return nil, err
-	}
+	ydxVersions, ydxModules := ydxInventory(allModules)
 	return &Inventory{
 		ModulePath:  modulePath,
 		GoDirective: goDirective,
 		Modules:     modules,
 		Assets:      m.Assets,
 		HtmxVersion: htmx.Version,
-		YdxVersion:  ydxVersion,
+		YdxVersions: ydxVersions,
 		YdxModules:  ydxModules,
 	}, nil
 }
@@ -237,11 +234,15 @@ var scaffoldYdxModules = []string{
 // 在 `go build -mod=mod` 之后看起来像版本冲突。
 const localReplaceVersion = "v0.0.0-00010101000000-000000000000"
 
-// ydxInventory extracts the single ydx version and the module paths from the requirements. |
-// ydxInventory 从依赖中提取唯一的 ydx 版本与模块路径。
-func ydxInventory(modules []Module) (string, []string, error) {
-	var version string
-	firstPath := ""
+// ydxInventory extracts the per-module ydx versions and the module paths from the requirements. |
+// ydxInventory 从依赖中提取每个 ydx 模块的版本与模块路径。
+//
+// Every ydx component is an independent module released under its own subdirectory tag, so the
+// versions legitimately differ. Recording one version per module is the only invariant that
+// survives an upgrade of a single component. | ydx 的每个组件都是独立模块、按各自的子目录标签发布，
+// 版本本来就可能不同。按模块记录版本是唯一能在单个组件升级后依然成立的不变量。
+func ydxInventory(modules []Module) (map[string]string, []string) {
+	versions := make(map[string]string)
 	observed := false
 	paths := make(map[string]bool, len(scaffoldYdxModules)+len(modules))
 	for _, modulePath := range scaffoldYdxModules {
@@ -252,30 +253,26 @@ func ydxInventory(modules []Module) (string, []string, error) {
 			continue
 		}
 		observed = true
-		if !strings.Contains(m.Path, "/benchmarks/") && m.Path != "github.com/shibingli/ydx/benchmarks" {
+		isBenchmark := strings.Contains(m.Path, "/benchmarks/") || m.Path == "github.com/shibingli/ydx/benchmarks"
+		if !isBenchmark {
 			paths[m.Path] = true
 		}
-		// A local-replace placeholder says nothing about the shared version. | local-replace 占位版本不参与共享版本判定。
-		if m.Version == localReplaceVersion {
+		// Benchmark modules never reach a generated project, and a local-replace placeholder says
+		// nothing about the real version. | 基准模块不会进入生成项目；local-replace 占位版本不代表真实版本。
+		if isBenchmark || m.Version == localReplaceVersion {
 			continue
 		}
-		if version == "" {
-			version = m.Version
-			firstPath = m.Path
-		} else if m.Version != version {
-			return "", nil, errs.Detail(ErrYdxVersionConflict, "%[1]s=%[2]s, %[3]s=%[4]s | %[1]s=%[2]s，%[3]s=%[4]s",
-				firstPath, version, m.Path, m.Version)
-		}
+		versions[m.Path] = m.Version
 	}
 	if !observed {
-		return "", nil, nil
+		return nil, nil
 	}
 	out := make([]string, 0, len(paths))
 	for modulePath := range paths {
 		out = append(out, modulePath)
 	}
 	sort.Strings(out)
-	return version, out, nil
+	return versions, out
 }
 
 // parseGoMod extracts the module path, the go directive and the direct requirements. | parseGoMod 提取模块路径、go 指令与直接依赖。
@@ -358,17 +355,36 @@ func Generate(inv *Inventory) []byte {
 	b.WriteString("// HtmxVersion is the version of the htmx asset in web/assets.lock.json. | HtmxVersion 是 web/assets.lock.json 中 htmx 资产的版本。\n")
 	b.WriteString("//\n// Source: the asset manifest entry named \"htmx\". | 来源：资产清单中名为 \"htmx\" 的条目。\n")
 	b.WriteString("const HtmxVersion = " + strconv.Quote(inv.HtmxVersion) + "\n")
-	if inv.YdxVersion != "" {
-		b.WriteString("\n// YdxVersion is the single version shared by the ydx requirements. | YdxVersion 是 ydx 依赖共用的唯一版本。\n")
-		b.WriteString("//\n// Source: the ydx requirements in go.mod. | 来源：go.mod 中的 ydx 依赖。\n")
-		b.WriteString("const YdxVersion = " + strconv.Quote(inv.YdxVersion) + "\n")
-		b.WriteString("\n// YdxModules lists the ydx modules required by the framework. | YdxModules 列出框架依赖的 ydx 模块。\n")
+	if len(inv.YdxVersions) > 0 {
+		b.WriteString("\n// YdxVersions maps each ydx module required by the framework to its own tag version. | YdxVersions 把框架依赖的每个 ydx 模块映射到它自己的标签版本。\n")
 		b.WriteString("//\n// Source: the ydx requirements in go.mod, sorted by path. | 来源：go.mod 中的 ydx 依赖，按路径排序。\n")
+		b.WriteString("var YdxVersions = map[string]string{\n")
+		paths := make([]string, 0, len(inv.YdxVersions))
+		for modulePath := range inv.YdxVersions {
+			paths = append(paths, modulePath)
+		}
+		sort.Strings(paths)
+		for _, modulePath := range paths {
+			b.WriteString("\t" + strconv.Quote(modulePath) + ": " + strconv.Quote(inv.YdxVersions[modulePath]) + ",\n")
+		}
+		b.WriteString("}\n")
+	}
+	if len(inv.YdxModules) > 0 {
+		b.WriteString("\n// YdxModules lists the ydx modules a generated project may import. | YdxModules 列出生成项目可能导入的 ydx 模块。\n")
+		b.WriteString("//\n// Source: the ydx requirements in go.mod, plus the scaffold-only modules. | 来源：go.mod 中的 ydx 依赖，加上仅脚手架使用的模块。\n")
 		b.WriteString("var YdxModules = []string{\n")
 		for _, modulePath := range inv.YdxModules {
 			b.WriteString("\t" + strconv.Quote(modulePath) + ",\n")
 		}
 		b.WriteString("}\n")
+	}
+	// Run the canonical formatter so a gofmt hook cannot make Check report drift on a file Sync
+	// just wrote. The builder only emits valid Go, so a formatting failure is unreachable; falling
+	// back to the raw text keeps Generate infallible. | 走一遍标准格式化，使 gofmt 钩子不会让
+	// Check 对 Sync 刚写出的文件误报漂移。builder 只产出合法 Go，格式化失败不可达；回退原文
+	// 使 Generate 保持无错误返回。
+	if formatted, err := format.Source([]byte(b.String())); err == nil {
+		return formatted
 	}
 	return []byte(b.String())
 }

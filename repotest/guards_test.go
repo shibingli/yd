@@ -140,6 +140,8 @@ func TestNoDirectEncodingImports(t *testing.T) {
 		hint       string
 	}{
 		{`"encoding/json"`, "请改用 github.com/shibingli/ydx/json（Marshal/Unmarshal/NewEncoder/NewDecoder/Valid）"},
+		{`"encoding/json/v2"`, "请改用 github.com/shibingli/ydx/json；标准库 v2 同样不允许直接使用"},
+		{`"encoding/json/jsontext"`, "请改用 github.com/shibingli/ydx/json；标准库 jsontext 同样不允许直接使用"},
 		{`"encoding/base64"`, "请改用 github.com/shibingli/ydx/base64（StdEncoding/URLEncoding/… 及其 Encode/Decode/AppendEncode/AppendDecode）"},
 	}
 
