@@ -17,13 +17,13 @@ const HtmxVersion = "4.0.0"
 // Source: the ydx requirements in go.mod, sorted by path. | 来源：go.mod 中的 ydx 依赖，按路径排序。
 var YdxVersions = map[string]string{
 	"github.com/shibingli/ydx/afs":                   "v0.1.4",
-	"github.com/shibingli/ydx/base64":                "v0.1.7",
+	"github.com/shibingli/ydx/base64":                "v0.1.8",
 	"github.com/shibingli/ydx/buffpool":              "v0.1.3",
 	"github.com/shibingli/ydx/config":                "v0.1.4",
 	"github.com/shibingli/ydx/errs":                  "v0.1.3",
 	"github.com/shibingli/ydx/gorm":                  "v0.1.7",
 	"github.com/shibingli/ydx/i18n":                  "v0.1.7",
-	"github.com/shibingli/ydx/json":                  "v0.1.8",
+	"github.com/shibingli/ydx/json":                  "v0.1.9",
 	"github.com/shibingli/ydx/jwt":                   "v0.1.7",
 	"github.com/shibingli/ydx/log":                   "v0.1.7",
 	"github.com/shibingli/ydx/middleware":            "v0.1.9",

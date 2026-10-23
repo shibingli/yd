@@ -22,12 +22,12 @@ github.com/modern-go/reflect2 v1.0.2 h1:xBagoLtFs94CBntxluKeaWgTMpvLxC4ur3nMaC9G
 github.com/modern-go/reflect2 v1.0.2/go.mod h1:yWuevngMOJpCy52FWWMvUC8ws7m/LJsjYzDa0/r8luk=
 github.com/pmezard/go-difflib v1.0.0 h1:4DBwDE0NGyQoBHbLQYPwSUPoCMWR5BEzIk/f1lZbAQM=
 github.com/pmezard/go-difflib v1.0.0/go.mod h1:iKH77koFhYxTK1pcRnkKkqfTogsbg7gZNVY4sRDYZ/4=
-github.com/shibingli/ydx/base64 v0.1.7 h1:Qb5qb+RYPxNJXinwwhfIoPfcQcRnIHVd1hpufbCz37Q=
-github.com/shibingli/ydx/base64 v0.1.7/go.mod h1:hJ016VoCrHqb5oyfdnyWcyiEpEm1iMPpslblhiukKjg=
+github.com/shibingli/ydx/base64 v0.1.8 h1:rOFUXNoHxTbjDuAA5oOTwYIT+rE4hEbaJVIiv+bz+QE=
+github.com/shibingli/ydx/base64 v0.1.8/go.mod h1:hJ016VoCrHqb5oyfdnyWcyiEpEm1iMPpslblhiukKjg=
 github.com/shibingli/ydx/errs v0.1.3 h1:LkoQ8tRKo/7GqomJNOzOLYn7W/RLNquhRyz9STAtBNQ=
 github.com/shibingli/ydx/errs v0.1.3/go.mod h1:TxxdX2XnyvkyoEPtwKjxZFythqeJIYZabjw8S+Mllso=
-github.com/shibingli/ydx/json v0.1.8 h1:xG14RvprjVilREmFKqIBKRamyQw/34J7C6aSbJAgX6w=
-github.com/shibingli/ydx/json v0.1.8/go.mod h1:uWrAWW+JBXTIvoSvurdvCZxVTI0w5hL53g08Ys1/PDk=
+github.com/shibingli/ydx/json v0.1.9 h1:fsnRbYhoAT5BrofAwnpWNwkuKwueKgYkRg57Su3qQME=
+github.com/shibingli/ydx/json v0.1.9/go.mod h1:Cb2HM7RiIYlb5qzOGa2PyEExG+P2E9Mi9QP3uNZggSQ=
 github.com/shibingli/ydx/sysinfo v0.1.3 h1:y18JBQ3ei8LyiSHCiVbnm9PahicjwcGYU11feeZ1l2Y=
 github.com/shibingli/ydx/sysinfo v0.1.3/go.mod h1:dEfiIuKCfPVJKvJtd4wDwHAxJ3Bsl+zncnS3WZo4/rE=
 github.com/stretchr/objx v0.1.0/go.mod h1:HFkY916IF+rwdDfMAkV7OtwuqBVzrE8GR6GFx+wExME=
