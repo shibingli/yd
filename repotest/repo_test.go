@@ -93,7 +93,7 @@ func TestGovernanceFiles(t *testing.T) {
 	t.Run("CLAUDE.md 含技术栈/仓库/协议/归属/风格", func(t *testing.T) {
 		md := readRepoFile(t, root, "CLAUDE.md")
 		for _, want := range []string{
-			"Apache-2.0", "YunDev", "go 1.27.2", "https://github.com/shibingli/yd",
+			"Apache-2.0", "YunDev", "go 1.27.3", "https://github.com/shibingli/yd",
 			"Htmx", "Tailwind", "代码风格",
 		} {
 			if !strings.Contains(md, want) {
@@ -125,7 +125,7 @@ func TestModuleIdentity(t *testing.T) {
 	if !strings.Contains(gomod, "module github.com/shibingli/yd") {
 		t.Error("go.mod 模块路径必须为 github.com/shibingli/yd")
 	}
-	if !strings.Contains(gomod, "go 1.27.2") {
-		t.Error("go.mod 必须声明 go 1.27.2（需求规定的版本底线）")
+	if !strings.Contains(gomod, "go 1.27.3") {
+		t.Error("go.mod 必须声明 go 1.27.3（需求规定的版本底线）")
 	}
 }
