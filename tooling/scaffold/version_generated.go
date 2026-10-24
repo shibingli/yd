@@ -36,13 +36,15 @@ var YdxVersions = map[string]string{
 	"github.com/shibingli/ydx/middleware/recovery":   "v0.1.12",
 	"github.com/shibingli/ydx/middleware/reqlog":     "v0.1.12",
 	"github.com/shibingli/ydx/middleware/requestid":  "v0.1.12",
-	"github.com/shibingli/ydx/protocol":              "v0.1.4",
+	"github.com/shibingli/ydx/protocol":              "v0.1.5",
+	"github.com/shibingli/ydx/realtime":              "v0.1.3",
 	"github.com/shibingli/ydx/regexpx":               "v0.1.7",
 	"github.com/shibingli/ydx/render":                "v0.1.10",
-	"github.com/shibingli/ydx/router":                "v0.1.10",
+	"github.com/shibingli/ydx/router":                "v0.1.11",
 	"github.com/shibingli/ydx/sse":                   "v0.1.10",
 	"github.com/shibingli/ydx/sysinfo":               "v0.1.4",
 	"github.com/shibingli/ydx/websocket":             "v0.1.12",
+	"github.com/shibingli/ydx/webtransport":          "v0.1.0",
 }
 
 // YdxModules lists the ydx modules a generated project may import. | YdxModules 列出生成项目可能导入的 ydx 模块。
@@ -74,6 +76,7 @@ var YdxModules = []string{
 	"github.com/shibingli/ydx/openapi",
 	"github.com/shibingli/ydx/openapi/ydrouter",
 	"github.com/shibingli/ydx/protocol",
+	"github.com/shibingli/ydx/realtime",
 	"github.com/shibingli/ydx/redis",
 	"github.com/shibingli/ydx/regexpx",
 	"github.com/shibingli/ydx/render",
@@ -81,4 +84,5 @@ var YdxModules = []string{
 	"github.com/shibingli/ydx/sse",
 	"github.com/shibingli/ydx/sysinfo",
 	"github.com/shibingli/ydx/websocket",
+	"github.com/shibingli/ydx/webtransport",
 }

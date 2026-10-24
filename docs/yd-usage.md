@@ -6,7 +6,7 @@
 本手册面向使用 `yd` 创建、开发、测试与部署项目的开发者。框架内部的约束与实现细节见
 [`CLAUDE.md`](../CLAUDE.md) 与 [`docs/verification.md`](verification.md)。
 
-> 适用版本：yd v1.4.0+（Go 1.27.3+）。命令、配置与示例均以仓库当前实现为准；
+> 适用版本：yd v1.5.0+（Go 1.27.3+）。命令、配置与示例均以仓库当前实现为准；
 > 组件实现位于 [`github.com/shibingli/ydx`](https://github.com/shibingli/ydx)。
 
 ## 文档地图
@@ -17,6 +17,8 @@
 | [`docs/cache.md`](cache.md) | 二级缓存 `ydx/cache` 的一致性模型与 API |
 | [`docs/gorm-dialects.md`](gorm-dialects.md) | GORM 四方言（MySQL / PostgreSQL / SQLite / 达梦 DM8）的配置、能力矩阵与跨方言表达式 |
 | [`docs/message-center.md`](message-center.md) | 站内消息中心的配置、API、WebSocket 协议与多节点部署 |
+| [`docs/realtime-transports.md`](realtime-transports.md) | WebSocket / WebTransport / SSE 的选型、单机与多机、安全、背压与兼容性矩阵 |
+| [`docs/redis-asynq.md`](redis-asynq.md) | Redis 直接命令 / Redis Pub/Sub / asynq 的分区规则、可靠性边界与运维要点 |
 | [`docs/middleware-metrics.md`](middleware-metrics.md) | 中间件运行时指标与自定义指标 |
 | [`docs/icon-usage.md`](icon-usage.md) | 离线图标 sprite 的生成、校验与故障排查 |
 | [`docs/render-usage.md`](render-usage.md) | 模板渲染引擎用法 |
@@ -211,8 +213,11 @@ server:
   port: 8080
   h2c: true
   http2:
-    extended_connect: false   # RFC 8441；为 true 时 yd dev / yd service install / yd docker 自动注入 GODEBUG
-  http3: false
+    extended_connect: true    # RFC 8441；为 true 时 yd dev / yd service install / yd docker 自动注入 GODEBUG
+  http3:
+    enabled: false            # HTTP/3 (QUIC)
+    port: 0                   # 0 表示复用 TCP 端口
+    webtransport: false       # HTTP/3 上的 WebTransport（需 TLS）
   read_timeout: 15s
   write_timeout: 30s
 
@@ -220,6 +225,13 @@ log:
   level: info                 # debug | info | warn | error
   format: json                # json | console
   caller: true
+
+realtime:
+  node_id: ""                 # 多机必须唯一；空值按主机名、进程号与启动时间生成
+  queue_size: 256             # 每个订阅者的有界队列
+  max_message_bytes: 1048576  # 单条消息上限
+  slow_policy: drop           # drop | close
+  channel_prefix: "yd:rt:"    # Redis 频道命名空间，同一部署内唯一
 
 seed:
   tenant: default
@@ -834,6 +846,13 @@ yd icons check
 
 ### 9.3 实时推送
 
+- **传输矩阵**：WebSocket（HTTP/1.1、HTTP/2 RFC 8441、HTTP/3 RFC 9220）、
+  WebTransport（HTTP/3）与 SSE 共用消息中枢 `ydx/realtime`；单机在进程内扇出，
+  多机经 Redis Pub/Sub 跨节点广播。选型、单机/多机部署、安全、背压与兼容性矩阵见
+  [`docs/realtime-transports.md`](realtime-transports.md)；
+- **可靠性边界**：Pub/Sub 至多一次；失败广播可经 `realtime.Options.Retry` + `PublishRemote`
+  交给 asynq 补发。什么时候用直接 Redis、Pub/Sub、asynq 的分区见
+  [`docs/redis-asynq.md`](redis-asynq.md)；
 - **SSE**：`Broker.PublishHTML` 发送匿名 `data:` 消息；命名事件只用于旁路通知；
 - **WebSocket**：上行扁平 JSON，下行只交换 `content`；发送控件必须在
   `hx-ws:connect` 元素内部；回车发送由 `yd-app.js` 点击发送按钮，不用

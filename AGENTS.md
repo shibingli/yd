@@ -306,3 +306,18 @@
   而暂不缓存；Manager 注册为 `app.ServiceCache`。
 - 禁止新增第三方缓存库、直接 `encoding/json`/`encoding/base64`、直接 `panic`、`fmt.Errorf`、
   热路径反射，以及绕过 Manager 自建跨节点失效。
+- [ ] **实时传输**：WebSocket / WebTransport / SSE 一律经 `ydx/realtime` 中枢（禁止自建广播、去重或
+      跨节点扩散逻辑）；单机用无 Backend 的 Hub，多机用 `RedisBackend`，同一部署的 `node_id` 与
+      `channel_prefix` 唯一；Pub/Sub 是**至多一次**，需要必达/重放时用持久队列或业务游标，不得声称
+      恰好一次；订阅前必须经 `Authorize`，消息大小与主题字符集在分配前校验，WebSocket/WebTransport
+      保留同源 Origin 校验；每订阅者有界队列 + `drop|close` 慢消费者策略，发布方永不阻塞；
+      三类长连接分别用 `websocket.ConnSet` / `sse.WriterSet` / `webtransport.SessionSet` 登记并在退出时先关闭。
+      浏览器 WebSocket 只有 HTTP/1.1 与 HTTP/2（Safari 回退 H1），HTTP/3 双向用 WebTransport；
+      客户端按 `web/static/js/yd-realtime.js` 的阶梯降级，不得再写第二套重连逻辑。
+      说明见 `docs/realtime-transports.md`。
+- [ ] **Redis / Pub/Sub / asynq 分区**：实时扇出用 Pub/Sub；共享状态、去重、在线、游标、计数、
+      锁、限流用直接 Redis 命令（键必须带 TTL 且可重建，多键原子用 Lua）；失败补发、离线通知、
+      重活、定时任务用 asynq。禁止把 asynq 当广播总线（一个任务只被一个消费者处理），禁止把
+      Pub/Sub 当可靠队列（断线即丢）；失败广播经 `realtime.Options.Retry` + `Hub.PublishRemote`
+      补发且不得重复本地扇出；事件在数据库事务提交后发布，严格不丢时由业务加 outbox。
+      说明见 `docs/redis-asynq.md`。

@@ -457,8 +457,14 @@ func TestGenerateAlwaysIntegratesRedisAndAsynq(t *testing.T) {
 	pr, _ := generateMem(t, o)
 
 	cfg := pr.read("configs/config.yaml")
-	if !strings.Contains(cfg, "extended_connect: false") {
-		t.Errorf("config.yaml 缺少 server.http2.extended_connect 示例:\n%s", cfg)
+	for _, want := range []string{
+		"extended_connect: true",
+		"enabled: false      # 开启 HTTP/3",
+		"webtransport: false",
+	} {
+		if !strings.Contains(cfg, want) {
+			t.Errorf("config.yaml 缺少 %q:\n%s", want, cfg)
+		}
 	}
 	for _, want := range []string{"postgres", "redis:", "asynq:", "grpc:", "i18n:"} {
 		if !strings.Contains(cfg, want) {
@@ -2736,6 +2742,41 @@ func startProbeAppWith(t *testing.T, name string, edit func(projDir string)) (st
 	return startProbeAppDBWith(t, name, scaffold.DBNone, edit)
 }
 
+// tempProbeDir creates the probe directory and removes it with retries. Windows keeps a
+// just-exited executable image locked for a short while, and t.TempDir's single-shot
+// RemoveAll turns that transient lock into a spurious test failure. The helper reports
+// how long the release took, so a real leak stays visible instead of being hidden. |
+// tempProbeDir 创建探针目录并在结束时带重试删除。Windows 会在进程刚退出后短暂锁定可执行映像，
+// t.TempDir 的一次性 RemoveAll 会把这种短暂锁定误报为测试失败。辅助函数记录释放耗时，真正的
+// 泄漏仍然可见而不是被掩盖。
+func tempProbeDir(t *testing.T) string {
+	t.Helper()
+
+	dir, err := os.MkdirTemp("", "yd-probe-*")
+	if err != nil {
+		t.Fatalf("创建临时目录失败: %v", err)
+	}
+	t.Cleanup(func() {
+		start := time.Now()
+		deadline := start.Add(15 * time.Second)
+		for {
+			removeErr := os.RemoveAll(dir)
+			if removeErr == nil {
+				if waited := time.Since(start); waited > 200*time.Millisecond {
+					t.Logf("临时目录在 %s 后释放: %s", waited.Round(100*time.Millisecond), dir)
+				}
+				return
+			}
+			if time.Now().After(deadline) {
+				t.Logf("临时目录清理失败（可能是外部程序仍持有文件）: %v", removeErr)
+				return
+			}
+			time.Sleep(100 * time.Millisecond)
+		}
+	})
+	return dir
+}
+
 // startProbeAppDBWith 与 startProbeAppWith 相同，但由调用方选择数据库驱动；消息中心的持久化与种子数据需要真实数据库。
 // startProbeAppDBWith is startProbeAppWith with the database driver chosen by the caller; the message centre's
 // persistence and seed data need a real database.
@@ -2758,7 +2799,7 @@ func startProbeAppDBWithStop(t *testing.T, name, db string, edit func(projDir st
 		t.Skipf("未找到 go 工具链，跳过端到端验证: %v", err)
 	}
 
-	dir := t.TempDir()
+	dir := tempProbeDir(t)
 	o := scaffold.DefaultOptions(name)
 	// 与端到端验证无关的依赖一律不引入：模板、路由与鉴权链路都不需要数据库。
 	// Anything unrelated to the end-to-end checks is left out: templates, routes and the authentication chain need no database.

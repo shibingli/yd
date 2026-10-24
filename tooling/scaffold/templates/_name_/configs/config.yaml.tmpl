@@ -10,14 +10,34 @@ server:
   port: 8080          # 监听端口 | listening port
   h2c: true           # 开启 HTTP/2 Cleartext | enable HTTP/2 Cleartext
   http2:
-    # 强制 RFC 8441（WebSocket over HTTP/2）；需要进程以 GODEBUG=http2xconnect=1 启动。
-    # yd dev / yd service install / yd docker 会在该值为 true 时自动配置。
-    # Force RFC 8441 (WebSocket over HTTP/2); the process must start with GODEBUG=http2xconnect=1.
-    # yd dev, yd service install and yd docker configure it automatically when true.
-    extended_connect: false
-  http3: false        # 开启 HTTP/3 (QUIC) | enable HTTP/3 (QUIC)
+    # 强制 RFC 8441（WebSocket over HTTP/2）：Chrome/Edge 与 Firefox 会在服务端通告后
+    # 走 HTTP/2；Safari 自动回退 HTTP/1.1。为 true 时 yd dev / yd service install /
+    # yd docker 自动注入 GODEBUG=http2xconnect=1，裸二进制由 app.Run 重启进程注入。
+    # Force RFC 8441 (WebSocket over HTTP/2): Chrome/Edge and Firefox use it once the
+    # server advertises it; Safari falls back to HTTP/1.1. When true, yd dev,
+    # yd service install and yd docker inject GODEBUG=http2xconnect=1; a bare binary
+    # re-execs itself from app.Run.
+    extended_connect: true
+  http3:
+    enabled: false      # 开启 HTTP/3 (QUIC) | enable HTTP/3 (QUIC)
+    port: 0             # UDP 端口，0 表示与 TCP 端口相同 | UDP port, 0 reuses the TCP port
+    # WebTransport 与 HTTP/3 共用同一条 QUIC 监听（需要 TLS）；浏览器侧 Chrome/Edge/
+    # Firefox/Safari 26.4+ 已进入 Baseline，是 HTTP/3 上双向实时通道的推荐方案。
+    # WebTransport shares the HTTP/3 QUIC listener (TLS required); it is the recommended
+    # bidirectional channel over HTTP/3 and is Baseline in Chrome/Edge, Firefox and
+    # Safari 26.4+.
+    webtransport: false
   read_timeout: 15s   # 读超时 | read timeout
   write_timeout: 30s  # 写超时 | write timeout
+
+# 实时通道（WebSocket / WebTransport / SSE）的共享中枢。
+# Shared hub of the realtime transports (WebSocket / WebTransport / SSE).
+realtime:
+  node_id: ""                # 多机部署必须唯一；留空按主机名、进程号与启动时间生成 | unique per node; empty derives one
+  queue_size: 256            # 每个订阅者的有界队列 | bounded queue per subscriber
+  max_message_bytes: 1048576 # 单条消息上限 | one message limit
+  slow_policy: drop          # drop | close：队列满时丢弃或关闭该订阅 | drop or close on a full queue
+  channel_prefix: "yd:rt:"   # Redis 频道前缀；同一部署内唯一 | Redis channel namespace, unique per deployment
 
 log:
   level: info         # debug | info | warn | error

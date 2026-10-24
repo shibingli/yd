@@ -52,6 +52,7 @@ import (
 	ydlog "github.com/shibingli/ydx/log"
 	"github.com/shibingli/ydx/middleware"
 	"github.com/shibingli/ydx/router"
+	"github.com/shibingli/ydx/webtransport"
 )
 
 // Sentinel errors, declared once at package level. | 哨兵错误，在包级声明一次。
@@ -347,6 +348,20 @@ func (a *App) UseObserved(d metricsx.Descriptor, mw router.Middleware) {
 
 // Server returns the HTTP server; it is built but not started until Run. | Server 返回 HTTP 服务器；它已构建，但直到 Run 才启动。
 func (a *App) Server() *server.Server { return a.server }
+
+// WebTransport returns the HTTP/3 WebTransport server, or nil when
+// server.http3.webtransport is off. | WebTransport 返回 HTTP/3 WebTransport 服务器；
+// server.http3.webtransport 关闭时为 nil。
+//
+// The server exists only after Start, so a route handler must call this at
+// request time rather than capture the value during wiring. | 该服务器只在 Start 之后
+// 存在，因此路由处理器必须在请求时调用本方法，而不是在装配期捕获返回值。
+func (a *App) WebTransport() *webtransport.Server {
+	if a.server == nil {
+		return nil
+	}
+	return a.server.WebTransport()
+}
 
 // Renderer returns the template renderer in use. | Renderer 返回当前使用的模板渲染器。
 func (a *App) Renderer() router.Renderer { return a.renderer }

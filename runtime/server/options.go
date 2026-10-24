@@ -28,6 +28,10 @@ type HTTP3Config struct {
 	Enabled bool
 	// Port is the UDP port; 0 means "same as the TCP port". | Port 为 UDP 端口，0 表示与 TCP 端口相同。
 	Port int
+	// WebTransport enables WebTransport sessions on the same QUIC listener. It
+	// requires Enabled and a TLS certificate. | WebTransport 在同一条 QUIC 监听上
+	// 启用 WebTransport 会话；要求 Enabled 为真且已配置 TLS 证书。
+	WebTransport bool
 }
 
 // ACMEConfig describes automatic certificate issuance. | ACMEConfig 描述自动证书签发配置。
@@ -109,9 +113,21 @@ func OptionsFromConfig(c *config.Config) Options {
 		CertFile: c.GetString("server.tls.cert_file"),
 		KeyFile:  c.GetString("server.tls.key_file"),
 	}
+	// HTTP/3 may be written either as the object form (enabled/port/webtransport)
+	// or as the legacy boolean scalar `server.http3: true`; the object wins when
+	// present, and the scalar keeps old configurations working. | HTTP/3 既可以写成
+	// 对象形式（enabled/port/webtransport），也可以写成旧的布尔标量
+	// `server.http3: true`；对象存在时优先，标量让旧配置继续可用。
+	h3Enabled := c.GetBool("server.http3.enabled")
+	if !c.IsSet("server.http3.enabled") {
+		if raw, ok := c.Get("server.http3").(bool); ok {
+			h3Enabled = raw
+		}
+	}
 	o.HTTP3 = HTTP3Config{
-		Enabled: c.GetBool("server.http3.enabled"),
-		Port:    c.GetInt("server.http3.port"),
+		Enabled:      h3Enabled,
+		Port:         c.GetInt("server.http3.port"),
+		WebTransport: c.GetBool("server.http3.webtransport"),
 	}
 	o.ACME = ACMEConfig{
 		Enabled:          c.GetBool("server.acme.enabled"),

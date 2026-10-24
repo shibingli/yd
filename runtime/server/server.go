@@ -20,6 +20,7 @@ import (
 	yderrs "github.com/shibingli/ydx/errs"
 	ydlog "github.com/shibingli/ydx/log"
 	"github.com/shibingli/ydx/protocol"
+	"github.com/shibingli/ydx/webtransport"
 )
 
 // Sentinel errors of this package, all testable with errors.Is. | 本包的哨兵错误，均可通过 errors.Is 判定。
@@ -41,6 +42,15 @@ var (
 
 	// ErrHTTP3ServerExited reports the HTTP/3 server stopping unexpectedly. | ErrHTTP3ServerExited 表示 HTTP/3 服务异常退出。
 	ErrHTTP3ServerExited = yderrs.New("server: HTTP/3 server exited | server：HTTP/3 服务退出")
+
+	// ErrWebTransportRequiresHTTP3 reports WebTransport enabled without the HTTP/3
+	// listener it rides on. | ErrWebTransportRequiresHTTP3 表示在没有其承载者 HTTP/3
+	// 监听的情况下启用了 WebTransport。
+	ErrWebTransportRequiresHTTP3 = yderrs.New("server: HTTP/3 WebTransport requires server.http3.enabled and a TLS configuration | server：HTTP/3 WebTransport 需要 server.http3.enabled 与 TLS 配置")
+
+	// ErrWebTransportInit reports a WebTransport server that could not be built. |
+	// ErrWebTransportInit 表示 WebTransport 服务器构建失败。
+	ErrWebTransportInit = yderrs.New("server: failed to initialize WebTransport | server：初始化 WebTransport 失败")
 
 	// ErrHTTP3Listen reports a QUIC (UDP) socket that could not be bound. | ErrHTTP3Listen 表示 QUIC（UDP）套接字绑定失败。
 	ErrHTTP3Listen = yderrs.New("server: cannot bind the HTTP/3 UDP socket | server：无法绑定 HTTP/3 的 UDP 套接字")
@@ -80,6 +90,7 @@ type Server struct {
 	logger    *ydlog.Logger
 	httpSrv   *http.Server
 	h3Srv     *http3.Server
+	wtSrv     *webtransport.Server
 	acme      *acmeManager
 	lifecycle *lifecycle.Registry
 
@@ -173,6 +184,18 @@ func (s *Server) AltSvc() string {
 	return s.altSvc
 }
 
+// WebTransport returns the WebTransport server; nil when
+// server.http3.webtransport is off. | WebTransport 返回 WebTransport 服务器；
+// server.http3.webtransport 关闭时为 nil。
+//
+// Handlers call Upgrade on it for their WebTransport endpoint. | 处理器在自己的
+// WebTransport 端点上调用它的 Upgrade。
+func (s *Server) WebTransport() *webtransport.Server {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.wtSrv
+}
+
 // Start binds the listeners and serves in background goroutines. | Start 绑定监听并在后台协程中提供服务。
 //
 // It returns as soon as the listeners are bound, so binding errors surface
@@ -201,6 +224,12 @@ func (s *Server) Start() error {
 	// 服务器只能校验，无法补设。显式要求时必须失败关闭。
 	if s.opts.ForceHTTP2ExtendedConnect && (tlsConf != nil || s.opts.H2C) && !protocol.H2ExtendedConnectEnabled() {
 		return ErrHTTP2ExtendedConnectRequired
+	}
+	// WebTransport rides on the HTTP/3 listener; asking for it without one can
+	// never work, so fail before binding any socket. | WebTransport 依附于 HTTP/3
+	// 监听；没有它就不可能工作，因此在绑定任何套接字之前失败关闭。
+	if s.opts.HTTP3.WebTransport && !s.opts.HTTP3.Enabled {
+		return ErrWebTransportRequiresHTTP3
 	}
 
 	ln, err := net.Listen("tcp", s.opts.addr())
@@ -243,6 +272,23 @@ func (s *Server) Start() error {
 	if s.h3Srv != nil {
 		s.h3Srv.Handler = handler
 	}
+	// WebTransport shares the HTTP/3 server: the library adds its settings, turns
+	// on datagrams, and from here on the UDP listener is served by the
+	// WebTransport server, which forwards ordinary HTTP/3 requests to the handler. |
+	// WebTransport 复用 HTTP/3 服务器：库会追加自己的设置、开启数据报，此后 UDP 监听
+	// 由 WebTransport 服务器服务，普通 HTTP/3 请求仍转发给处理器。
+	if s.h3Srv != nil && s.opts.HTTP3.WebTransport {
+		set := webtransport.NewSessionSet()
+		wt, werr := webtransport.NewWithH3(s.h3Srv, webtransport.Options{Tracker: set})
+		if werr != nil {
+			_ = ln.Close()
+			if s.h3Conn != nil {
+				_ = s.h3Conn.Close()
+			}
+			return yderrs.Wrap(werr, ErrWebTransportInit)
+		}
+		s.wtSrv = wt
+	}
 
 	s.httpSrv = &http.Server{
 		Handler:           handler,
@@ -281,12 +327,22 @@ func (s *Server) Start() error {
 		}
 	}()
 
-	// UDP 侧：套接字已在 Start 返回前绑定，这里只负责服务它。| UDP side: the socket was already
-	// bound before Start returned, so this only serves it.
+	// UDP 侧：套接字已在 Start 返回前绑定，这里只负责服务它。WebTransport 服务器
+	// 接管同一条 QUIC 监听时，普通 HTTP/3 请求由它转发给同一个处理器。
+	// | UDP side: the socket was already bound before Start returned, so this only serves it.
+	// When the WebTransport server owns the QUIC listener it forwards ordinary HTTP/3
+	// requests to the same handler.
 	if s.h3Srv != nil {
 		conn := s.h3Conn
+		wt := s.wtSrv
 		go func() {
-			if err := s.h3Srv.Serve(conn); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			var err error
+			if wt != nil {
+				err = wt.Serve(conn)
+			} else {
+				err = s.h3Srv.Serve(conn)
+			}
+			if err != nil && !errors.Is(err, http.ErrServerClosed) {
 				s.reportErr(yderrs.Wrap(err, ErrHTTP3ServerExited))
 			}
 		}()
@@ -374,6 +430,7 @@ func (s *Server) Shutdown(ctx context.Context) error {
 	}
 	h3 := s.h3Srv
 	h3Conn := s.h3Conn
+	wt := s.wtSrv
 	hs := s.httpSrv
 	s.mu.Unlock()
 
@@ -398,35 +455,58 @@ func (s *Server) Shutdown(ctx context.Context) error {
 
 	// ② HTTP/3 无法排空，直接关闭。http3.Server.Close 只关闭它自己创建的监听器，
 	// 而这里的套接字由 Start 绑定后交给 Serve，因此必须自行关闭，否则 UDP 端口会一直占着。
-	// | ② HTTP/3 cannot drain, so it is closed outright. http3.Server.Close only closes listeners it
-	// created itself, and this socket was bound by Start and handed to Serve, so it has to be closed
-	// here or the UDP port stays occupied.
+	// WebTransport 服务器接管监听时由它关闭：它先终止全部会话（长连接先收尾）、再关闭对应的
+	// QUIC 连接并发送 CONNECTION_CLOSE，因此在它返回之前不能关闭 UDP 套接字，否则关闭帧发不出去。
+	// | ② HTTP/3 cannot drain, so it is closed outright. http3.Server.Close only
+	// closes listeners it created itself, and this socket was bound by Start and handed to Serve,
+	// so it has to be closed here or the UDP port stays occupied. When the WebTransport server owns
+	// the listener it closes instead: it terminates every session first (long-lived connections
+	// wind down first), then closes the QUIC connections and sends CONNECTION_CLOSE, so the UDP
+	// socket must stay open until it returns or the close frames are dropped.
 	// h3.Close waits for every HTTP/3 stream handler to return, so call it in the background and
-	// bound the wait by the same grace period. Closing the packet connection first unblocks
-	// handlers that are blocked on I/O. | h3.Close 会等待每个 HTTP/3 流处理器返回，因此放到后台调用，
-	// 并用同一个宽限期限定等待；先关闭数据包连接可解除阻塞在 I/O 上的处理器。
-	if h3 != nil || h3Conn != nil {
-		closeDone := make(chan error, 1)
-		if h3 != nil {
-			go func() { closeDone <- h3.Close() }()
-		} else {
-			close(closeDone)
-		}
-		if h3Conn != nil {
-			if err := h3Conn.Close(); err != nil {
+	// bound the wait by the same grace period. Closing the packet connection unblocks handlers that
+	// are blocked on I/O; for WebTransport that happens only if the grace period expires. |
+	// h3.Close 会等待每个 HTTP/3 流处理器返回，因此放到后台调用，并用同一个宽限期限定等待；
+	// 关闭数据包连接可解除阻塞在 I/O 上的处理器——对 WebTransport 而言，只在宽限期耗尽时才这样做。
+	if wt != nil || h3 != nil || h3Conn != nil {
+		connClosed := h3Conn == nil
+		closeConn := func() {
+			if connClosed || h3Conn == nil {
+				connClosed = true
+				return
+			}
+			connClosed = true
+			if err := h3Conn.Close(); err != nil && !errors.Is(err, net.ErrClosed) {
 				errs = append(errs, yderrs.Wrap(err, ErrHTTP3Close))
 			}
 		}
-		if h3 != nil {
+		closeDone := make(chan error, 1)
+		switch {
+		case wt != nil:
+			go func() { closeDone <- wt.Close() }()
+		case h3 != nil:
+			go func() { closeDone <- h3.Close() }()
+		default:
+			close(closeDone)
+		}
+		if wt == nil {
+			// Ordinary HTTP/3 has no sessions to close gracefully; releasing the
+			// socket first unblocks handlers blocked on I/O. | 普通 HTTP/3 没有需要优雅
+			// 关闭的会话，先释放套接字可解除阻塞在 I/O 上的处理器。
+			closeConn()
+		}
+		if wt != nil || h3 != nil {
 			select {
 			case err := <-closeDone:
 				if err != nil {
 					errs = append(errs, yderrs.Wrap(err, ErrHTTP3Close))
 				}
 			case <-ctx.Done():
+				closeConn()
 				errs = append(errs, yderrs.WrapDetail(ctx.Err(), ErrHTTP3Close, "HTTP/3 close did not finish before the deadline | HTTP/3 关闭未在期限内完成"))
 			}
 		}
+		closeConn()
 	}
 
 	// ③ Drain in-flight ordinary requests; hijacked connections are outside http.Server's tracking. | ③ 排空进行中的普通请求；hijack 出去的连接不在 http.Server 的追踪范围内。

@@ -136,7 +136,12 @@
 6. **实时与多节点**：`#yd-shell` 持有唯一的 `/ws/messages` 连接；事件只带 ID 与元数据，接收方按权限重取。
    生成项目默认内建 `redis`（Pub/Sub）与 `asynq`（持久重试）；Redis 不可达时告警并退回进程内 Hub，
    多副本部署必须给每个副本唯一的 `message.node_id`。
-7. **数据表**：`yd_msg_*` 由 `messaginggorm.Migrate` 建出；索引以 `tenant_id` 打头。改表结构时同步迁移与测试。
+7. **Redis / Pub/Sub / asynq 分区**：实时扇出用 Pub/Sub；共享状态、去重、在线、游标、计数、锁、
+   限流用直接 Redis 命令（键必须带 TTL 且可重建，多键原子用 Lua）；失败补发、离线通知、重活、
+   定时任务用 asynq。禁止把 asynq 当广播总线、把 Pub/Sub 当可靠队列；事件在事务提交后发布，
+   严格不丢时由业务加 outbox。完整判定见
+   <https://github.com/shibingli/yd/blob/main/docs/redis-asynq.md>。
+8. **数据表**：`yd_msg_*` 由 `messaginggorm.Migrate` 建出；索引以 `tenant_id` 打头。改表结构时同步迁移与测试。
 
 ## 7. 提交纪律（强制）
 

@@ -83,7 +83,7 @@ yd tools install tailwindcss  # 下载 Tailwind standalone 二进制到 .yd/tool
 ## 文档
 
 - **[yd 使用手册](docs/yd-usage.md)** —— 命令参考、配置、鉴权与多租户、缓存、消息中心、部署与完整示例
-- [二级缓存](docs/cache.md) · [GORM 方言](docs/gorm-dialects.md) · [消息中心](docs/message-center.md) · [中间件指标](docs/middleware-metrics.md) · [图标](docs/icon-usage.md) · [渲染引擎](docs/render-usage.md) · [验收记录](docs/verification.md)
+- [二级缓存](docs/cache.md) · [GORM 方言](docs/gorm-dialects.md) · [实时传输](docs/realtime-transports.md) · [Redis/asynq 分区](docs/redis-asynq.md) · [消息中心](docs/message-center.md) · [中间件指标](docs/middleware-metrics.md) · [图标](docs/icon-usage.md) · [渲染引擎](docs/render-usage.md) · [验收记录](docs/verification.md)
 
 ## 架构一览
 
@@ -145,15 +145,17 @@ repotest/      仓库守卫
 
 缓存的一致性模型、零拷贝读取与 GORM 插件用法见 [`docs/cache.md`](docs/cache.md)。
 
-### WebSocket 标准与传输
+### WebSocket / WebTransport / SSE 标准与传输
 
 | RFC | 能力 | 前提 |
 |---|---|---|
 | 6455 | 核心协议：握手、帧、掩码、分片、控制帧、关闭码 | 无 |
 | 7692 | permessage-deflate（两端显式开启） | `ws.Options.EnableCompression` / `DialOptions.EnableWriteCompression` |
 | 7936 | 子协议名大小写敏感 | 无 |
-| 8441 | WebSocket over HTTP/2（含 h2c） | 服务端进程需 `GODEBUG=http2xconnect=1`；H2 客户端需 `-tags http2legacy`（Go 1.27 的 x/net/http2 包装了 http.Transport） |
-| 9220 | WebSocket over HTTP/3 | 无需额外环境变量 |
+| 8441 | WebSocket over HTTP/2（含 h2c） | 服务端 `server.http2.extended_connect: true`（自动注入 `GODEBUG=http2xconnect=1`）；Chrome/Edge 与 Firefox 支持，Safari 回退 HTTP/1.1 |
+| 9220 | WebSocket over HTTP/3 | 无需额外环境变量；浏览器尚无生产实现，自有客户端可用 |
+| WebTransport | HTTP/3 会话（RFC 9297）：双向多流与数据报 | `server.http3.enabled` + `server.http3.webtransport: true`；浏览器 Baseline 2026（Safari 26.4+） |
+| SSE | 服务端推送，所有 HTTP 版本 | 无；自动回传 `Last-Event-ID` |
 
 ```bash
 # 强制 RFC 8441：yd dev / yd service install / yd docker 会自动写入 GODEBUG=http2xconnect=1
@@ -164,6 +166,8 @@ YD_SERVER_HTTP2_EXTENDED_CONNECT=true
 Windows 控制台通过子进程重启完成配置；Windows 服务必须经 `yd service` 安装。
 HTTP/2 与 HTTP/3 的处理器必须阻塞到连接结束——返回即结束流；HTTP/1.1 的 hijack 连接不受此限制。
 路由无需额外注册 CONNECT：Extended CONNECT 会自动回退到同一 GET 路由。
+单机与多机（Redis Pub/Sub）的统一消息中枢、三种传输的适配器、安全/背压/兼容性矩阵见
+[`docs/realtime-transports.md`](docs/realtime-transports.md)。
 
 ### 脚手架能力
 

@@ -47,10 +47,10 @@
 
 - **依赖形态**：`go.mod` 直接引用 `github.com/shibingli/ydx/<module> vX.Y.Z`；**禁止**本地
   `replace`。开发期联调只能在两个仓库之外临时使用 `go.work`，不得提交。
-- **模块清单**（32 个）：`errs`、`sysinfo`、`buffpool`、`protocol`、`base64`、`json`、`afs`、
+- **模块清单**（34 个）：`errs`、`sysinfo`、`buffpool`、`protocol`、`base64`、`json`、`afs`、
   `config`、`log`、`regexpx`、`router`、`gorm`、`redis`、`asynq`、`cache`、`sse`、`websocket`、
-  `render`、`i18n`、`openapi`、`openapi/ydrouter`、`jwt`、`guomi`、`middleware` 及 8 个
-  `middleware/*` 插件。
+  `webtransport`、`realtime`、`render`、`i18n`、`openapi`、`openapi/ydrouter`、`jwt`、`guomi`、
+  `middleware` 及 8 个 `middleware/*` 插件。
 - **OpenAPI 分层**：`openapi` 核心不依赖任何路由器，只接受 `openapi.Route` 并提供标准
   `net/http` 处理器；`ydx/router` 项目经 `openapi/ydrouter` 的 `FromRouter` / `Handler` 接入。
 - **包标识符已同步改名**：`errs`、`json`、`base64`、`log`、`buffpool`、`gorm`、`cache`、
@@ -973,3 +973,44 @@ yd versions sync               # 仅重新生成 version_generated.go
   在插件支持提交后失效之前不得缓存。装配时用 `app.ServiceCache` 注册 Manager。
 - **禁止**：直接 `import "encoding/json"`/`"encoding/base64"`、直接 `panic`、`fmt.Errorf`、新增第三方缓存库、
   在热路径用反射、在事件里携带值或敏感键名、绕过 `Manager` 自行实现跨节点失效。
+
+## 27. 实时传输与多机广播（强制）
+
+WebSocket、WebTransport 与 SSE 共用 `ydx/realtime` 中枢；使用说明见
+`docs/realtime-transports.md`（唯一入口）。以下约束不可绕过：
+
+- **统一中枢**：业务不得自建广播、去重或跨节点扩散逻辑。单机用 `realtime.NewHub`（无
+  Backend，进程内扇出）；多机用 `hub.Use(realtime.NewRedisBackend(client, opts))`。
+  `realtime.node_id` 与 `realtime.channel_prefix` 在同一部署内必须唯一。
+- **投递语义**：Redis Pub/Sub 为**至多一次**，节点按消息 id（`<node_id>:<seq>`）过滤自己的回声；
+  每订阅者按发布顺序投递。需要重放/必达时由业务保存游标或改用 `ydx/asynq` 持久队列，
+  不得在 Hub 内伪造「恰好一次」。
+- **安全边界**：传输层 TLS 强制（HTTP/3 与 WebTransport 只运行在 TLS 1.3 上）；WebSocket 与
+  WebTransport 必须保留同源 `Origin` 校验（自定义 `CheckOrigin` 需显式论证）；订阅前经
+  `realtime.Options.Authorize` 判定；`max_message_bytes` 在分配前拒绝超限消息；主题只允许
+  `[A-Za-z0-9._:/-]` 且 ≤128 字节；渲染片段由服务端转义，**前端判定不是安全边界**。
+- **稳定性与背压**：每个订阅者有 `queue_size` 有界队列，满时按 `slow_policy` 处理
+  （`drop` 丢弃并计数，`close` 关闭订阅让对端重连）；发布方永不阻塞。慢消费者只影响自己。
+- **长连接必须登记**：WebSocket 用 `websocket.ConnSet`、SSE 用 `sse.WriterSet`、WebTransport 用
+  `webtransport.SessionSet`；`app.Shutdown` 先关闭长连接再排空 HTTP。WebTransport 会话关闭
+  必须先发会话关闭帧、再关 QUIC 连接、最后释放 UDP 套接字。
+- **兼容性事实**：浏览器 WebSocket 仅 HTTP/1.1 与 HTTP/2（RFC 8441，需服务端通告，Safari 回退
+  HTTP/1.1）；HTTP/3 的 WebSocket（RFC 9220）无浏览器生产实现，HTTP/3 双向通道用
+  WebTransport（Baseline 2026）；SSE 在所有 HTTP 版本可用。客户端按
+  「WebTransport → WebSocket → SSE」阶梯降级（`web/static/js/yd-realtime.js`），
+  不得再写第二套重连或探测逻辑。
+- **Redis / Pub/Sub / asynq 分区**（强制，详见 `docs/redis-asynq.md`）：
+  - **实时扇出走 Redis Pub/Sub**；**共享状态、去重、在线、游标、计数、锁、限流走直接 Redis 命令**
+    （多键原子用 Lua，键必须带 TTL 且可重建）；**失败补发、离线通知、重活与定时任务走 asynq**；
+  - **禁止把 asynq 当广播总线**：任务队列是「一个任务一个消费者」，要广播就为每节点建任务，
+    扇出成本随节点数线性增长且延迟不可控；**禁止把 Pub/Sub 当可靠队列**：断线即丢、无确认；
+  - **失败广播只能经 `realtime.Options.Retry` + `Hub.PublishRemote` 补发**，worker 不得再次本地扇出；
+    通用 Hub 未配置 `RetryQueue` 时按至多一次处理，不得声称必达；
+  - **数据库事务提交后才发布事件**；需要严格不丢时由业务加 outbox，不得把「提交后直接发布」
+    包装成恰好一次。
+- **配置**：`server.http2.extended_connect`、`server.http3.{enabled,port,webtransport}`、
+  `realtime.{node_id,queue_size,max_message_bytes,slow_policy,channel_prefix}`；
+  代码与模板都不得硬编码这些取值。
+- **测试**：`runtime/server/realtime_matrix_test.go` 覆盖 H1/H3 WebSocket、WebTransport、SSE、
+  跨源拒绝、hub 四传输扇出与优雅退出；`ydx/realtime` 覆盖单机、慢消费者、授权与 Redis 双节点。
+  修改任一传输或中枢时必须保持这些用例通过（`-race`）。
