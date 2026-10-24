@@ -163,6 +163,8 @@
 - [ ] **连接串预置**：所有数据库连接串经 `gorm.PresetDSN` 补齐时区/时间/空值/字符集；显式参数优先，
       因此**不得在脚手架里写死与预置冲突的值**；默认时区 UTC。SQLite **必须**保留 `_txlock=immediate`，
       **绝不**加入 `_time_format`（它会让驱动跳过 `_txlock` 解析并使其静默失效），见治理文档 §16.1。
+      达梦（`dm` / `dameng`）只预置 `timeZone=0`（分钟偏移），schema 是命名空间而非可按连接切换的库，
+      因此不参与自动建库，也没有字符集预置键。
 - [ ] **默认无 CGO**：`yd build` 固定 `CGO_ENABLED=0` 且优先于进程环境；SQLite 必须是纯 Go 实现
       （`github.com/glebarez/sqlite`），**禁止**引入 `mattn/go-sqlite3` 等 cgo 驱动；
       源码中不得出现 `import "C"`。
