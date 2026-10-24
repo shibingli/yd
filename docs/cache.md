@@ -392,7 +392,7 @@ cache:
 (cd ../ydx/cache && go test -run '^$' -bench . -benchmem)
 ```
 
-参考结果（Windows 11 / i9-10980HK，Go 1.27.2，单进程；采集时宿主有背景负载，绝对值仅作量级参考）：
+参考结果（Windows 11 / i9-10980HK，Go 1.27.3，单进程；采集时宿主有背景负载，绝对值仅作量级参考）：
 
 | 基准 | ns/op | 分配 |
 |---|---|---|
@@ -401,7 +401,7 @@ cache:
 | `BenchmarkGet`（返回副本） | ~132 | 1（返回值） |
 | `BenchmarkSet`（同值重复写） | ~111 | 0（缓存本身；基准键格式化另计） |
 
-`View`/`GetAppend` 是零分配读路径；`Get` 的分配仅来自返回值副本。`cache.Raw` 在 `namespace:key` 拼接与事件发布上还有少量短期分配，这是跨层 API 的代价，L1 核心保持零分配。两级命中（L1）不会触达 Redis；L2 访问是一次 `GET + PTTL` 流水线往返。与主流库的横向对比、命中率轨迹与优化记录见 [`benchmarks/cache/README.md`](../benchmarks/cache/README.md)。
+`View`/`GetAppend` 是零分配读路径；`Get` 的分配仅来自返回值副本。`cache.Raw` 在 `namespace:key` 拼接与事件发布上还有少量短期分配，这是跨层 API 的代价，L1 核心保持零分配。两级命中（L1）不会触达 Redis；L2 访问是一次 `GET + PTTL` 流水线往返。与主流库的横向对比、命中率轨迹与优化记录见 [`benchmarks/cache/README.md`](https://github.com/shibingli/ydx/tree/main/benchmarks/cache/README.md)。
 
 ## 10. 限制与检查清单 | Limits and Checklist
 

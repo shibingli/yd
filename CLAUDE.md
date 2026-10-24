@@ -17,7 +17,7 @@
 
 **后端**
 
-- Go **1.27.2**（go.mod `go 1.27.2`），充分利用泛型优化、低延迟 GC、PGO 与标准库结构体增强
+- Go **1.27.3**（go.mod `go 1.27.3`），充分利用泛型优化、低延迟 GC、PGO 与标准库结构体增强
 - 配置：viper v1.21（多格式 TOML/YAML/YAML v3/JSON + 动态监听）
 - 文件系统：afero v1.15（OsFs / MemFs 无缝切换的 Mockable FS）
 - 命令行：pflag v1.0.10（POSIX 风格，替代标准库 `flag`）
@@ -55,8 +55,9 @@
 - **包标识符已同步改名**：`errs`、`json`、`base64`、`log`、`buffpool`、`gorm`、`cache`、
   `redis`、`asynq`、`websocket`；yd 源码中不得再出现 `errx.`、`jsonx.`、`b64x.`、`logx.`、
   `gormx.`、`cachex.`、`redisx.`、`asynqx.`、`ws.` 等旧前缀。
-- **基准位置**：组件基准统一在 ydx 的 `benchmarks/*` 独立模块；yd 只保留框架级/对比基准，
-  不得把基准重新塞回组件模块。
+- **基准位置**：**所有基准统一在 ydx 的 `benchmarks/*` 独立模块**；yd 仓库不保留
+  `benchmarks/` 目录，也不得在组件模块内新增基准。yd 的文档只引用 ydx 的最终测试结果
+  （`https://github.com/shibingli/ydx/tree/main/benchmarks`）。
 - **修改顺序**：任何组件修改必须先在 ydx 仓库完成测试、打子目录标签（如 `cache/v0.1.1`）
   并推送，然后在 yd 升级版本号；禁止在 yd 内直接改 `go mod cache` 或复制一份组件源码。
 - **命名规则**：ydx 中目录名 = 模块路径末段 = 包名，且每个实现包有同名 `<package>.go`

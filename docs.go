@@ -104,7 +104,7 @@ const (
 	// EnvPrefix is the prefix every environment variable uses. | EnvPrefix 是所有环境变量使用的前缀。
 	EnvPrefix = "YD_"
 	// GoVersion is the minimum Go toolchain this module requires. | GoVersion 是本模块要求的最低 Go 工具链版本。
-	GoVersion = "1.27.2"
+	GoVersion = "1.27.3"
 	// HtmxVersion is the Htmx release embedded in the binary. | HtmxVersion 是内嵌进二进制的 Htmx 版本。
 	HtmxVersion = "4.0.0"
 	// TailwindVersion is the Tailwind CSS release used to build the stylesheet. | TailwindVersion 是构建样式表所用的 Tailwind CSS 版本。

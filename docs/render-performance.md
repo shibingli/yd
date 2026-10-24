@@ -1,7 +1,7 @@
 # render 性能瓶颈分析与编译式引擎设计
 
 本文记录 `ydx/render` 从「直接执行 html/template」迁移到「加载期编译、渲染期执行
-不可变程序」的完整分析、实现与验证。基准数值取自 Windows / i9-10980HK / Go 1.27.2；
+不可变程序」的完整分析、实现与验证。基准数值取自 Windows / i9-10980HK / Go 1.27.3；
 跨机比较请以相对关系为准。面向业务开发的接入与模板写法见
 [`render-usage.md`](render-usage.md)。
 
@@ -182,24 +182,25 @@
 
 ### 4.3 横向对比
 
-100 行列表页、单核中位数（完整表格见
-[`benchmarks/template/README.md`](../benchmarks/template/README.md)）：
+100 行列表页、Linux 参考主机（Zen 5，Go 1.27.3，`GOMAXPROCS=32`，`-count=5`、
+`-benchtime=500ms`，中位数；完整表格见
+[`benchmarks/template/README.md`](https://github.com/shibingli/ydx/tree/main/benchmarks/template/README.md)）：
 
 | 引擎 | ns/op | allocs/op | 上下文感知转义 |
 |---|---:|---:|---:|
-| quicktemplate | 27,036 | 0 | ❌ |
-| **yd-render** | **41,748** | **0** | ✅ |
-| templ | 140,378 | 1,823 | ✅ |
-| Jet | 165,985 | 6 | ❌ |
-| text/template | 247,408 | 811 | ❌ |
-| Mustache | 375,931 | 5,633 | ❌ |
-| Pongo2 | 377,589 | 3,759 | ❌ |
-| Liquid | 453,718 | 6,753 | ❌ |
-| html/template | 1,055,921 | 7,142 | ✅ |
-| Raymond | 1,548,407 | 10,551 | ❌ |
+| quicktemplate | 15,147 | 0 | ❌ |
+| **yd-render** | **18,326** | **0** | ✅ |
+| templ | 58,521 | 1,823 | ✅ |
+| Jet | 67,480 | 6 | ❌ |
+| text/template | 103,015 | 811 | ❌ |
+| Pongo2 | 141,310 | 3,759 | ❌ |
+| Mustache | 159,716 | 5,633 | ❌ |
+| Liquid | 189,450 | 6,753 | ❌ |
+| html/template | 472,690 | 7,142 | ✅ |
+| Raymond | 909,216 | 10,561 | ❌ |
 
-- 比 html/template 快 **25.3×**，比 text/template 快 **5.9×**；
-- 比 Jet 快 **4.0×**，比 templ 快 **3.4×**；
+- 比 html/template 快 **25.8×**，比 text/template 快 **5.6×**；
+- 比 Jet 快 **3.7×**，比 templ 快 **3.2×**；
 - 只有 html/template、yd-render、templ 同时具备文本/属性转义与 `javascript:` URL 拦截。
 
 ### 4.4 输出物化后的真实差距
@@ -211,16 +212,17 @@ quicktemplate/templ 可以把片段直接交给 `io.Discard`，不物化任何�
 
 | 引擎 | 物化 page100（ns/op） | 相对 yd-render |
 |---|---:|---:|
-| quicktemplate | 38,961 | 0.96× |
-| **yd-render** | **40,729** | **1.00×** |
-| templ | 141,924 | 3.49× |
-| Jet | 174,533 | 4.29× |
-| text/template | 244,277 | 6.00× |
-| html/template | 1,089,349 | 26.75× |
+| **yd-render** | **18,777** | **1.00×** |
+| quicktemplate | 21,458 | 1.14× |
+| templ | 57,568 | 3.07× |
+| Jet | 71,476 | 3.81× |
+| text/template | 107,100 | 5.70× |
+| html/template | 473,245 | 25.20× |
+| Raymond | 810,739 | 43.18× |
 
-结论：**物化输出后 yd-render 与 quicktemplate 基本持平（1.04×）**。`io.Discard` 下
-1.54× 的差距主要来自输出物化方式，而非执行模型；剩余约 4% 是完整上下文转义、
-URL 协议过滤与规范化带来的必要成本。
+结论：**物化输出后 yd-render 反超 quicktemplate 约 13%**。`io.Discard` 下 quicktemplate
+快约 21% 的差距主要来自输出物化方式（它逐段直写、不物化），而非执行模型；yd-render
+的剩余成本是完整上下文转义、URL 协议过滤与规范化带来的必要开销。
 
 ## 5. 兼容性与安全
 
@@ -242,10 +244,10 @@ URL 协议过滤与规范化带来的必要成本。
 (cd ../ydx/render && go test -run 'TestDifferential' -count 1)
 
 # 框架页面
-cd benchmarks/template && go test -run '^$' -bench BenchmarkFrameworkPage -benchmem -count 3
+cd ydx/benchmarks/template && go test ./...
+go test -run '^$' -bench 'BenchmarkEngines$' -benchmem -benchtime=1s -count=5
 
 # 横向对比
-cd benchmarks/template && go test ./...
 go test -run '^$' -bench BenchmarkEngines -benchmem -benchtime=1s -count=5
 GOMAXPROCS=1 go test -run '^$' -bench BenchmarkEngines -benchmem -benchtime=1s -count=5
 ```

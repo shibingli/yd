@@ -769,7 +769,7 @@ if err != nil {
 
 ## 15. 性能参考
 
-Windows / i9-10980HK / Go 1.27.2，100 行列表页，单核中位数（`-benchtime=2s`，3–5 遍）：
+Windows / i9-10980HK / Go 1.27.3，100 行列表页，单核中位数（`-benchtime=2s`，3–5 遍）：
 
 | 引擎 | ns/op | allocs/op |
 |---|---:|---:|
@@ -785,7 +785,7 @@ Windows / i9-10980HK / Go 1.27.2，100 行列表页，单核中位数（`-bencht
 - 上表把输出写到 `io.Discard`；把页面物化到真实缓冲后，yd-render 为 **40.7 µs**，
   quicktemplate 为 **39.0 µs**，两者基本持平（1.04×）。
 
-完整对比、转义矩阵与复现命令见 [`benchmarks/template/README.md`](../benchmarks/template/README.md)，
+完整对比、转义矩阵与复现命令见 [`benchmarks/template/README.md`](https://github.com/shibingli/ydx/tree/main/benchmarks/template/README.md)，
 瓶颈分析与设计见 [`render-performance.md`](render-performance.md)。
 
 ---

@@ -141,7 +141,6 @@ runtime/       进程与运行时
 messaging/     站内消息中心（消息、好友、附件、实时广播）
 tooling/       脚手架、生成器、构建、镜像、资产、诊断与 CLI
 web/           内嵌前端资产（templates/ · static/ · assets.lock.json）
-benchmarks/    框架级与第三方对比基准（组件基准在 ydx/benchmarks）
 repotest/      仓库守卫
 ```
 
@@ -189,25 +188,41 @@ repotest/      仓库治理守卫（治理文件与规范的可执行断言）
 
 ## 性能与兼容性指标
 
-完整基准位于 [`benchmarks/`](benchmarks/README.md)，x86_64 单核/多核专项报告见 [`benchmarks/x86_64-single-multi-core.md`](benchmarks/x86_64-single-multi-core.md)，每个类别是一个独立 Go 模块，自带 `go.mod`/`go.sum` 与 README，不会把对比库带进主模块依赖。主表统一在 **x86_64 基准平台**（AMD Ryzen AI MAX+ 395，16 核 32 线程，30 GiB，Ubuntu 26.04，Go 1.27.2，AVX-512 VBMI2）上采集；每个实现独立进程、轮转顺序、多轮中位数，并给出 CPU 利用率与峰值 RSS。所有参测开源实现都保留在同一张表中，包括 yd 落后的项目。
+所有基准已统一到 ydx 仓的 [`benchmarks/`](https://github.com/shibingli/ydx/tree/main/benchmarks)
+（15 个独立 Go 模块）；yd 仓不再保留 `benchmarks/` 目录。主表在 **x86_64 参考主机**
+（AMD Ryzen AI MAX+ 395，16 核 32 线程，30 GiB，Ubuntu 26.04.1，Go 1.27.3，AVX-512
+VBMI2）上以 `GOMAXPROCS=32`、`-count=5`、`-benchtime=500ms` 采集中位数；arm64 与旧指令集
+x86_64 的冒烟结果、低效指标的优化前后对比与公平性说明见
+[`optimization-report.md`](https://github.com/shibingli/ydx/tree/main/benchmarks/optimization-report.md)。
 
-| 类别 | 基准模块 | 核心结论（x86_64 主表；模板引擎为 Windows 开发机口径） |
+| 类别 | 基准模块 | 核心结论（同一轮同机中位数；详表见模块 README） |
 |---|---|---|
-| WebSocket | [`benchmarks/ws`](benchmarks/ws/README.md) | 与 coder/gorilla/gobwas/gws 兼容性 18/18；顺序回显 32 B–64 KiB 五档延迟最低（64 KiB 16,776 ns / 3,906 MB/s），唯一全程 `0 B/op、0 allocs/op`；并发 1 KiB 下预读模式 1,455 ns / 703.76 MB/s / 0 allocs，领先 gws（2,069 ns / 494.81 MB/s / 2 allocs）约 29.7%，同步模式 2,309 ns / 443.55 MB/s 且 CPU/RSS 最低；批量写 API 让 1 KiB × 8 流水线回显达到 1,366.11 MB/s（4.92×） |
-| Router | [`benchmarks/router`](benchmarks/router/README.md) | param/deep/wildcard/miss 最快（1.1–1.6 ns），五类路径零分配；静态路径 httprouter 0.9 ns、yd 1.1 ns；WebSocket 握手经 router 增加约 15 ns（4.2%） |
-| JSON | [`benchmarks/json`](benchmarks/json/README.md) | 2026-10-23 重测（`ydx/json v0.1.10`）。单核 Marshal n=1/100/1000 全部第一（快 go-json 8.3%/20.7%/20.6%）；Unmarshal n=100/n=1000 快 15.4%/9.9%，n=1 慢 11%（单记录对链接布局敏感）；长小数非舍入缩放路径使单个长小数记录 220.7→209.5 ns（-5.1%）。多核 Marshal 1–32 核领先（32 核 12,022 vs 10,462 MB/s，+14.9%）；Unmarshal 32 核 6,336 vs 4,409 MB/s（+43.7%），RSS 71.0 vs 119.0 MiB。嵌入字段支配规则、omitzero、解码 `,string`、深度上限 10000、Unicode/自定义接口兼容与差分/fuzz 通过 |
-| Base64 | [`benchmarks/base64`](benchmarks/base64/README.md) | 2026-10-23 第三轮（`ydx/base64 v0.1.9`）。单核 32 B/1 KiB/64 KiB/1 MiB 编码/解码全部第一（64 KiB 62.5/28.0 GB/s）；**32 B 编码/解码 5.68/10.51 ns**，双双超过 cloudwego（7.59/11.87）与 cristalhq（9.77/12.63），编码快约 25%、解码快约 11%。并发调用 1–32 核全部第一（16 核 623.9/341.1 GB/s，32 核 633.9/366.5 GB/s）；`EncodeParallel`/`DecodeParallel` 零核心参数、按 GOMAXPROCS 与输入大小自动并行（8 MiB 编码 16 核 171.6 GB/s）。三套内核零向量寄存器溢出，全长度+大长度差分、越界哨兵与 race 通过 |
-| 正则 | [`ydx/benchmarks/regexpx`](https://github.com/shibingli/ydx/tree/main/benchmarks/regexpx) | 自研引擎（Pike VM + 回溯 VM）在 32 个场景全部最快；本机 AVX2 `MatchString/literal` 33.1 ns（stdlib 466 ns），AVX-512 主机 10.8 ns（stdlib 222 ns）；`FindAll/email` 311 µs（stdlib 12.4 ms、go-re2 1.66 ms）。主模块不再依赖 regexp2 |
-| JWT | [`benchmarks/jwt`](benchmarks/jwt/README.md) | HS256 验签 743.3 ns / 2 allocs，领先 cristal 2.87×、kataras 3.07×、golang-jwt 4.50×；并发复用 38.26 ns / 0 allocs（26.1 M ops/s），领先 cristal 13.8×；ES256 39.7 µs / 21 allocs 全部第一；`SignJSON` 531.5 ns / 结构体 617.4 ns，快于 cristal 结构体路径 1,030 ns；算法白名单、常量时间比较、验签后再校验声明 |
-| 国密/常密 | [`benchmarks/crypto`](benchmarks/crypto/README.md) | 后端切换到 emmansun/gmsm v0.45.0：SM3 4 KiB 12.51→7.36 µs（1.70×）；HMAC-SM3 1.77→0.73 µs（2.42×，0 allocs）；PBKDF2 939.6→283.3 µs（3.32×）；SM4-GCM 4 KiB 45.29→5.41 µs（8.37×，757.3 MB/s）；SM2 签名 131.6→14.36 µs（9.16×）、验签 687.9→34.39 µs（20.0×）、加密 715.8→35.97 µs（19.9×）、解密 554.5→29.02 µs（19.1×）；SM2 签名/验签快于 ECDSA P-256 |
-| 压缩 | [`benchmarks/compress`](benchmarks/compress/README.md) | zstd/fastest text 压缩 8.04 GB/s、压缩率 0.002，zstd 解压 13.67 GB/s；snappy text 压缩 13.57 GB/s 但压缩率 0.049；klauspost gzip 约为标准库 gzip 的 3.7 倍吞吐，压缩率相同；brotli/q9 json 压缩率 0.021 但吞吐/内存成本最高 |
-| 日志 | [`benchmarks/logx`](benchmarks/logx/README.md) | 2026-10-23 第三轮（`ydx/log v0.1.8`）：dynamic Info **95.7 ns/op**、零分配，比 zerolog（116.2 ns）快约 18%；prebound Info **90.8 ns**，快于 zerolog 96.8 ns 约 6.2%；禁用路径 prebound **1.62 ns**、零分配，快于 logrus（1.79 ns）、slog（4.25 ns），dynamic 6.30 ns（slog 5.11 ns 仍略快） |
-| 模板引擎 | [`benchmarks/template`](benchmarks/template/README.md) | 编译式 yd-render 在 100 行列表页上为 41.7 µs / **0 allocs**（单核中位数），比 html/template（1,055.9 µs / 7,142 allocs）快 **25.3×**、text/template 快 5.9×、Jet 快 4.0×、templ 快 3.4×；代码生成式 quicktemplate 在 `io.Discard` 口径下为 27.0 µs / 0 allocs（快 1.54×），但输出物化到真实缓冲后两者为 39.0 µs vs 40.7 µs（**1.04×，基本持平**）。框架真实页面 dashboard 5.1 µs / 2 allocs（标准库约 82.8 µs / 769，**16.2×**）。转义矩阵中只有 html/template、yd-render、templ 同时拦截 `javascript:` URL |
+| WebSocket | [`benchmarks/websocket`](https://github.com/shibingli/ydx/tree/main/benchmarks/websocket) | 32 B 回显 4.07 µs（gorilla 4.26 / gobwas 4.34 / coder 5.59 / gws 6.46）、64 KiB 回显 16.59 µs（gorilla 18.58 / gws 18.25）；64×1 KiB 批量写 14.06 µs（coder 73.7 / gorilla 124.3）；并发回显 readahead 变体 1.41 µs 领先全部实现；gobwas/gws 与兼容性测试已并入 |
+| Router | [`benchmarks/router`](https://github.com/shibingli/ydx/tree/main/benchmarks/router) | 静态路由经 `GETRaw` 8.40 ns（httprouter 12.86）；参数 18.9 ns（httprouter 29.0）、通配 18.9 ns（gin 25.6 / httprouter 28.1）、未命中 25.8 ns（gin 28.1） |
+| JSON | [`benchmarks/json`](https://github.com/shibingli/ydx/tree/main/benchmarks/json) | 5 字段载荷：Marshal 单对象 60.9 ns（goccy 89.8 / sonic 87.1），64 对象 2.59 µs（goccy 4.23 / sonic 2.99）；Unmarshal 单对象 119.1 ns（goccy 125.9），64 对象 6.51 µs（goccy 6.87）；1024 对象 101.5 µs（goccy 110.7）。7 字段/长小数/`time.Time` 载荷：n=1000 Marshal 89.7 µs（go-json 116.2）、Unmarshal 174.3 µs（195.2）；n=1 Unmarshal 250.9 ns 与 go-json 247.5 ns 相差在噪声内 |
+| Base64 | [`benchmarks/base64`](https://github.com/shibingli/ydx/tree/main/benchmarks/base64) | 32 B 编码 5.58 ns（cristalhq 9.57 / stdlib 14.38）、解码 10.47 ns（12.93 / 19.92）；1 KiB/64 KiB/1 MiB 编码与解码全部第一，1 MiB 编码 55.5 GB/s、解码 27.1 GB/s。cloudwego/base64x 的 JIT 在 Go 1.27.3 上崩溃，已从默认套件移除并记录 |
+| 正则 | [`benchmarks/regexpx`](https://github.com/shibingli/ydx/tree/main/benchmarks/regexpx) | 匹配/查找/批量扫描全部最快：`FindAll/email` 94.98 µs（stdlib 5.679 ms、go-re2 732.3 µs），`FindAll/date` 110.8 µs（go-re2 705.5 µs）。简单模式编译仍慢于标准库（启动期一次性成本） |
+| JWT | [`benchmarks/jwt`](https://github.com/shibingli/ydx/tree/main/benchmarks/jwt) | HS256 签发 1.257 µs（map 声明；类型化结构体 535 ns，cristalhq 同形态 1.061 µs），jwx 2.237 / golang-jwt 2.544；ES256 签发 19.81 µs（jwx 20.70 / golang-jwt 21.08）；HS256 验签 782.6 ns（golang-jwt 3.17 µs、jwx 4.73 µs）；并发验签 145.8 ns（1.117 µs）；cristalhq/kataras 对比已并入 |
+| 国密/常密 | [`benchmarks/crypto`](https://github.com/shibingli/ydx/tree/main/benchmarks/crypto) | yd 的 `security/guomi` 委托的维护版 gmsm 在 SM2/SM3/SM4 同算法族内全面领先旧版 tjfoc；SM2 签名/验签快于 ECDSA P-256。SM3/SM4 无 SHA-NI/AES-NI 对应指令，绝对吞吐仍低于硬件加速的 SHA-256/AES-GCM |
+| 压缩 | [`benchmarks/compress`](https://github.com/shibingli/ydx/tree/main/benchmarks/compress) | zstd/fastest、klauspost gzip、snappy、brotli、lz4 的吞吐/压缩率同表对比；yd 的 HTTP/WebSocket 选择 klauspost gzip/zstd；与 gzhttp 在 16 KiB 用例上持平（5.27 µs 对 5.21 µs） |
+| 日志 | [`benchmarks/log`](https://github.com/shibingli/ydx/tree/main/benchmarks/log) | 5 字段 Info 134.1 ns（zerolog 168.6）、8 字段 206.1 ns（228.0）、并发写入 8.08 ns（10.53）、prebound 86.6 ns（zerolog 96.2）；禁用 dynamic 9.87 ns 仍略慢于 zerolog 7.33 ns（字段由调用方构造） |
+| 中间件 | [`benchmarks/middleware`](https://github.com/shibingli/ydx/tree/main/benchmarks/middleware) | CORS 36.7 ns（rs/cors 53.2）、恢复 7.85 ns（chi 8.62）、请求 ID 170.2 ns（chi 275.0）；16 KiB gzip 5.268 µs 与 gzhttp 5.213 µs 持平；限流 136.5 ns，x/time/rate 59.92 ns（全局、不写头）、补头后 127.8 ns、按 IP 分桶后 139.0 ns，见下方口径说明 |
+| 缓存 | [`benchmarks/cache`](https://github.com/shibingli/ydx/tree/main/benchmarks/cache) | L1 Set 49.07 ns，领先 freecache（75.5）/bigcache（95.8）；防御性副本 Get 45.0 ns（bigcache 43.1 ns，差异在噪声内），零拷贝 `GetAppend` 38.3 ns、`View` 36.5 ns；`sync.Map`/ristretto 返回引用，不能与副本路径直接横比。TTL、Mixed、命中率轨迹与 theine/ttlcache/golang-lru 对比已并入 |
+| Render | [`benchmarks/render`](https://github.com/shibingli/ydx/tree/main/benchmarks/render) | 带绑定 258.2 ns，html/template 3.473 µs、text/template 2.208 µs |
+| 模板引擎 | [`benchmarks/template`](https://github.com/shibingli/ydx/tree/main/benchmarks/template) | yd-render 100 行页面物化 18.78 µs/0 allocs（quicktemplate 21.46 µs），流式 `io.Discard` 18.33 µs（quicktemplate 15.15 µs，编译期生成代码直写）；html/template 473.2 µs；转义矩阵只有 html/template、yd-render、templ 同时拦截 `javascript:` URL |
+| 缓冲池 | [`benchmarks/buffpool`](https://github.com/shibingli/ydx/tree/main/benchmarks/buffpool) | 1 KiB Get/Put 9.3 ns / 4 KiB 9.9 ns（bytebufferpool 9.4 / 9.5，差 3–4% 在噪声内）；并发 0.58 ns 对 bytebufferpool 30.36 ns；裸 `sync.Pool` 7.1–7.3 ns（无尺寸分级，口径不同） |
 
-汇总口径、测试环境与完整表格见 [`benchmarks/README.md`](benchmarks/README.md)。模板引擎的使用说明见 [`docs/render-usage.md`](docs/render-usage.md)，瓶颈分析与设计见 [`docs/render-performance.md`](docs/render-performance.md)。CPU/内存利用率由 Linux `/usr/bin/time -v` 对每个实现单独进程测量；基准数值对机器负载、温度与电源策略敏感，跨进程独立运行的波动可达约 15%。
+**口径说明**：限流基准中的 x/time/rate 默认变体使用单个全局 limiter 且不写 `X-RateLimit-*` 头，
+ydx 默认按 IP 分桶并写 3 个响应头；基准另给出补头（127.8 ns）与按 IP 分桶（139.0 ns）两个
+同口径变体，ydx 的 136.5 ns 在该口径下领先 1.8%（噪声内视为持平）。缓存 `Get` 返回调用方
+拥有的副本，而 `sync.Map`/ristretto/go-cache/golang-lru 返回缓存内引用；带 TTL 的缓存读写
+还要支付本机约 43 ns 的 `time.Now()`。缓冲池的 `sync.Pool` 基线为每个尺寸预建一个池，
+不含尺寸分级；SSE 的手写基线不做 CR/LF 规整、不加锁、不 flush。以上差异已在
+[`optimization-report.md`](https://github.com/shibingli/ydx/tree/main/benchmarks/optimization-report.md)
+中逐项说明，报告中保留原始数字，不以删除对比项或放宽语义的方式制造“全胜”。
 
 ```bash
-cd benchmarks/<模块>
+cd ydx/benchmarks/<模块>
 go test ./...                         # 正确性/兼容性/夹具校验
 go test -run '^$' -bench . -benchmem  # 同进程快速检查
 ```

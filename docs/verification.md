@@ -1,6 +1,6 @@
 # 验收记录（verification）
 
-本文件记录 **yd** 框架与脚手架在 Windows / Go 1.27.2 下的真实验收结果：
+本文件记录 **yd** 框架与脚手架在 Windows / Go 1.27.3 下的真实验收结果：
 每条都是实际执行过的命令与其真实输出，未做修饰。
 
 > 迁移说明（2026-10-22）：可复用组件已拆分到 `github.com/shibingli/ydx`。文中旧包名已按新命名更新：
@@ -9,7 +9,7 @@
 > 历史命令中的旧路径（如 `./http/ws/`）与当时的基准数据保留原始口径；当前用法以
 > [`docs/yd-usage.md`](yd-usage.md) 为准。
 
-> 复现环境：Go 1.27.2 windows/amd64，`CGO_ENABLED=0`（`-race` 用
+> 复现环境：Go 1.27.3 windows/amd64，`CGO_ENABLED=0`（`-race` 用
 > `CGO_ENABLED=1 CC=clang`，本机无 gcc）。所有命令均在仓库根目录执行。
 
 ## 1. 质量门禁
@@ -102,7 +102,7 @@ $ go test -race ./...
 RACE_OK                   # 全部包通过，零竞态
 ```
 
-环境：`go1.27.2 linux/amd64` + `gcc 13.3.0`（原生 `-race`，无需 clang 变通）。
+环境：`go1.27.3 linux/amd64` + `gcc 13.3.0`（原生 `-race`，无需 clang 变通）。
 构建期已实测：`go build ./...` 在 Linux 上通过。
 
 ## 3.2 多租户鉴权与内存对齐（第二轮需求）
@@ -301,7 +301,7 @@ go test ./repotest/                  ok
 修复方式是双引擎：RE2 兼容模式走标准库快路径（恢复线性时间与零分配），只有 .NET 构造走
 regexp2 + 超时；调用方仍然只经包装层。修复后 race 下该测试约 0.25 秒通过。
 
-**性能对照**（Windows 11 / i9-10980HK / Go 1.27.2 / 16 逻辑核；`-benchtime=200x -count=5` 中位数，
+**性能对照**（Windows 11 / i9-10980HK / Go 1.27.3 / 16 逻辑核；`-benchtime=200x -count=5` 中位数，
 比较的是两引擎本身，不是最终包装层的快路径）：
 
 | 用例 | 标准库 ns/op | regexp2 ns/op | allocs（标准库 / regexp2） |
@@ -645,7 +645,7 @@ CGO_ENABLED=1 CC=clang go test -race ./...    44 个包 ok，退出码 0
 
 ## 3.14 日志并发吞吐（第十三轮）
 
-本轮针对 Go 1.27.2 与 Linux 特性优化 `ydx/log` 的多协程吞吐。基准为 Windows /
+本轮针对 Go 1.27.3 与 Linux 特性优化 `ydx/log` 的多协程吞吐。基准为 Windows /
 i9-10980HK、`-benchtime=1s -count=5` 中位、5 个混合字段；同一方法可用于 Linux。
 在 Linux 上，Go 1.27 的 `GOMAXPROCS` 已感知 cgroup CPU 配额，异步环数量直接跟随它。
 
@@ -698,8 +698,8 @@ CGO_ENABLED=1 CC=clang go test -race ./...    44 个包 ok，退出码 0
 
 ## 3.15 国密与编解码热路径（第十四轮）
 
-本轮针对 Go 1.27.2 优化 `security/guomi` 与 `ydx/base64`，并在 Windows 与
-WSL Ubuntu-24.04（同为 Go 1.27.2）上分别测量；所有实现保持纯 Go、无 cgo。
+本轮针对 Go 1.27.3 优化 `security/guomi` 与 `ydx/base64`，并在 Windows 与
+WSL Ubuntu-24.04（同为 Go 1.27.3）上分别测量；所有实现保持纯 Go、无 cgo。
 
 ### 3.15.1 SM3 / HMAC / PBKDF2
 
@@ -754,7 +754,7 @@ WSL Ubuntu-24.04（同为 Go 1.27.2）上分别测量；所有实现保持纯 Go
 
 > **更新（2026-10-23）**：后续版本已移除 `cloudwego/base64x` 与 `cristalhq/base64`，所有架构
 > 统一使用 `ydx/base64` 自研内核（amd64 SIMD/标量、arm64 NEON、其它纯 Go 标量）。以下记录的是
-> 当时按尺寸分流的历史验证结果，现行设计以 `CLAUDE.md` §2 与 `benchmarks/base64/README.md` 为准。
+> 当时按尺寸分流的历史验证结果，现行设计以 `CLAUDE.md` §2 与 ydx 仓的 `benchmarks/base64/README.md` 为准。
 > **Update (2026-10-23)**: later versions removed cloudwego/base64x and cristalhq/base64; every
 > architecture now uses the self-developed ydx/base64 kernel (amd64 SIMD/scalar, arm64 NEON,
 > pure-Go scalar elsewhere). The content below records that earlier size-split design only.
@@ -795,7 +795,7 @@ amd64 实测（Windows，i9-10980HK，`-benchmem -benchtime=150ms`，混合后�
 
 ### 3.15.5 Linux 对照
 
-同一组基准在 WSL Ubuntu-24.04 / Go 1.27.2 上运行，相对排序与 Windows 一致：
+同一组基准在 WSL Ubuntu-24.04 / Go 1.27.3 上运行，相对排序与 Windows 一致：
 SM3(64 B) 1027 ns / 6 allocs；PBKDF2(1000 次) 2.03 ms / 6012 allocs；
 SM4-CBC(256 B) 3.0 µs / 8 allocs；复用 GCM(256 B) 6.04 µs / 6 allocs；
 base64 编码 1 KiB 2.49 GB/s；解码 16 B 27.9 ns、64 KiB 57.7 µs，均 0 allocs。
@@ -980,7 +980,7 @@ operationId 唯一、安全方案已声明且类型字段齐全、组件 Schema 
 
 ### 3.18.1 方法
 
-- 环境：Windows 11，i9-10980HK，Go 1.27.2，`-cpu 16`。
+- 环境：Windows 11，i9-10980HK，Go 1.27.3，`-cpu 16`。
 - 对照：yd、Gin v1.12.0、Echo v4.16.0、chi v5.5.0、httprouter v1.3.0、Fiber v3.6.1。
 - 进程内路由基准：无中间件，处理器只写 204；每个 goroutine 复用一个请求与响应写入器，
   路径分别为静态 `/static/ping`、参数 `/users/42`、深层 `/users/42/posts`、
@@ -991,7 +991,7 @@ operationId 唯一、安全方案已声明且类型字段齐全、组件 Schema 
 
 ### 3.18.2 吞吐（ns/op；全部 0 allocs/op）
 
-Windows 11，i9-10980HK，Go 1.27.2，`-cpu 16`：
+Windows 11，i9-10980HK，Go 1.27.3，`-cpu 16`：
 
 | 场景 | yd | Gin | Echo | httprouter | Fiber | chi |
 |---|---:|---:|---:|---:|---:|---:|
@@ -1112,7 +1112,7 @@ Windows 11，i9-10980HK，Go 1.27.2，`-cpu 16`：
 
 ### 3.19.1 方法
 
-- 环境：Windows 11，i9-10980HK，Go 1.27.2。
+- 环境：Windows 11，i9-10980HK，Go 1.27.3。
 - 载荷：64 KiB 高度可重复文本、约 93 KiB JSON、64 KiB 确定性随机字节。
 - 流式压缩/解压，编码器与解码器复用 `Reset`，压缩目标为 `io.Discard`；数值为
   `ns/op` 与按原文计算的吞吐。
@@ -1230,8 +1230,8 @@ lz4 10.3 / 18.6。
 
 ### 3.20.4 横向基准
 
-独立模块 `benchmarks/template`（10 个引擎、同数据同语义）结果见
-[`benchmarks/template/README.md`](../benchmarks/template/README.md)。100 行页面单核中位数：
+ydx 仓的独立模块 `benchmarks/template`（10 个引擎、同数据同语义）结果见
+[`benchmarks/template/README.md`](https://github.com/shibingli/ydx/tree/main/benchmarks/template/README.md)。100 行页面单核中位数：
 
 | 引擎 | ns/op | allocs/op |
 |---|---:|---:|
