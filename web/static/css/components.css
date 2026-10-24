@@ -209,7 +209,7 @@
     position: fixed;
     inset: 0 0 auto;
     z-index: 90;
-    height: 2px;
+    height: 4px;
     overflow: hidden;
     pointer-events: none;
     background-color: transparent;

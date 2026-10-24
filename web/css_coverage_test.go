@@ -309,7 +309,7 @@ func TestProgressBarFollowsTheTheme(t *testing.T) {
 	css := string(readEmbedded(t, web.FS(), componentsCSSPath))
 
 	root := cssBlock(t, css, ".yd-progress")
-	for _, want := range []string{"position: fixed", "pointer-events: none", "opacity: 0"} {
+	for _, want := range []string{"position: fixed", "pointer-events: none", "opacity: 0", "height: 4px"} {
 		if !strings.Contains(root, want) {
 			t.Errorf(".yd-progress lacks %q | .yd-progress 缺少 %q", want, want)
 		}
