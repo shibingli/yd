@@ -201,13 +201,13 @@ in-memory implementation with an explicit "data is not persistent" warning, and 
 
 本项目生成时未选择数据库（`yd new --db none`）：租户、用户、角色与权限都存在框架的内存实现里，功能一样齐全，
 但进程一重启数据就没了 —— `repository.Open` 会在启动时如实告警这一点。
-想持久化，就在 `configs/config.yaml` 里补一段 `db`（`driver` / `dsn`），并用 `yd new --db sqlite`（或 mysql / postgres）重新生成项目：
+想持久化，就在 `configs/config.yaml` 里补一段 `db`（`driver` / `dsn`），并用 `yd new --db sqlite`（或 mysql / postgres / dm）重新生成项目：
 上层代码一行都不用改，因为 `Open` 是唯一的装配点。
 
 This project was generated without a database (`yd new --db none`): tenants, users, roles and permissions live in the
 framework's in-memory implementation and everything is gone at the next restart, which startup states explicitly. To make it
 persistent, add a `db` section (`driver` / `dsn`) to `configs/config.yaml` and regenerate the project with a database
-selected (`yd new --db sqlite`, or mysql / postgres): nothing above the storage layer changes, because `Open` is the single
+selected (`yd new --db sqlite`, or mysql / postgres / dm): nothing above the storage layer changes, because `Open` is the single
 assembly point.
 {{- end }}
 

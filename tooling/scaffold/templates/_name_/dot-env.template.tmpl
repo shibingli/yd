@@ -22,8 +22,8 @@ YD_LOG_LEVEL=info
 YD_LOG_FORMAT=json
 {{- if ne .DB "none" }}
 
-# 数据库：mysql | postgres | sqlite
-# Database: mysql | postgres | sqlite
+# 数据库：mysql | postgres | sqlite | dm
+# Database: mysql | postgres | sqlite | dm
 # The DSN is quoted: the SQLite sample carries an &, which `source .env` would read as a background operator.
 # DSN 带引号：SQLite 的示例串里有 &，不加引号时 `source .env` 会把它当后台执行符。
 # In production use an absolute path (a relative one resolves against the process working directory) and make sure the

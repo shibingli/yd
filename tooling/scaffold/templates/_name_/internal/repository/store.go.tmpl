@@ -39,9 +39,9 @@
 // 内存实现里：功能齐全，但进程重启后全部消失，Open 会在启动时如实告警这一点。
 //
 // To make it persistent, add a db section (driver / dsn) to configs/config.yaml and regenerate this project with a
-// database selected (`yd new --db sqlite`, or mysql / postgres): the upper layers stay exactly as they are, because Open
+// database selected (`yd new --db sqlite`, or mysql / postgres / dm): the upper layers stay exactly as they are, because Open
 // is the single assembly point. | 想持久化，就在 configs/config.yaml 里补一段 db（driver / dsn），并用
-// `yd new --db sqlite`（或 mysql / postgres）重新生成项目：上层代码一行都不用改，因为 Open 是唯一的装配点。
+// `yd new --db sqlite`（或 mysql / postgres / dm）重新生成项目：上层代码一行都不用改，因为 Open 是唯一的装配点。
 //
 // Default data is written once and only once, and never with a password nobody configured: Seed fills the in-memory store
 // with the default tenant, the built-in roles of the authz registry together with their capability bindings, and its
@@ -282,8 +282,8 @@ func openRaw(o Options, log *ydlog.Logger) (auth.Store, any, func() error) {
 		return auth.NewMemoryStore(), nil, nil
 	}
 
-	// DSN 绝不写进日志：它可能带着数据库口令（mysql / postgres 的 DSN 就是如此）。
-	// The DSN never reaches the log: it may carry a database password, as it does for mysql and postgres.
+	// DSN 绝不写进日志：它可能带着数据库口令（mysql / postgres / dm 的 DSN 就是如此）。
+	// The DSN never reaches the log: it may carry a database password, as it does for mysql, postgres and dm.
 	opts := ydgorm.OptionsFromConfig(o.Config)
 	db, err := ydgorm.Open(opts, log)
 	if err != nil {
