@@ -465,6 +465,7 @@ yd icons check       # 校验图标 sprite 是否漂移（CI 可用）
 - **达梦（DM8）**：驱动名 `dm`（别名 `dameng`），方言由 `github.com/godoes/gorm-dameng` 提供；
   `PresetDSN` 只补 `timeZone=0`（相对 UTC 的分钟偏移）。DM 没有按连接切换的数据库（schema 只是
   命名空间），空值严格性与字符集随实例/库创建固定，因此不参与自动建库，也没有字符集预置键。
+- 四种方言的配置、能力矩阵与跨方言表达式用法见 `docs/gorm-dialects.md`（使用说明的唯一入口）。
 - **预置表只有一份**：脚手架经 `gorm.PresetDSN` 生成示例 DSN，**不得**抄一份参数表到 `scaffold`。
 
 ### 16.1 SQLite：两个参数一存一亡

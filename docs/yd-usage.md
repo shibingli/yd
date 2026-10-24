@@ -15,6 +15,7 @@
 |---|---|
 | [`README.md`](../README.md) | 项目概览、快速开始、性能指标 |
 | [`docs/cache.md`](cache.md) | 二级缓存 `ydx/cache` 的一致性模型与 API |
+| [`docs/gorm-dialects.md`](gorm-dialects.md) | GORM 四方言（MySQL / PostgreSQL / SQLite / 达梦 DM8）的配置、能力矩阵与跨方言表达式 |
 | [`docs/message-center.md`](message-center.md) | 站内消息中心的配置、API、WebSocket 协议与多节点部署 |
 | [`docs/middleware-metrics.md`](middleware-metrics.md) | 中间件运行时指标与自定义指标 |
 | [`docs/icon-usage.md`](icon-usage.md) | 离线图标 sprite 的生成、校验与故障排查 |
@@ -279,6 +280,9 @@ service:
 由实例侧预建，需要时在 DSN 里追加 `?schema=NAME`。运行时可用
 `gorm.DialectOf(db)` 取得方言能力，并用 `gorm.Upsert` / `JSONExtract` / `ILike` /
 `Concat` / `Random` / `LockClause` 构造跨方言表达式，不必按驱动名分支。
+
+四种方言的完整用法（预置参数、能力矩阵、各库注意事项、迁移与排错）见
+[`docs/gorm-dialects.md`](gorm-dialects.md)。
 
 ### 4.3 `.env`
 
