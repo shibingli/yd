@@ -16,6 +16,9 @@
 <html lang="{{.Lang}}" data-theme="{{.Theme}}">
 {{template "base.head" .}}
 <body class="yd-error bg-surface text-content antialiased">
+<div id="yd-progress" class="yd-progress" data-yd-progress role="progressbar" aria-hidden="true">
+  <div class="yd-progress__bar"></div>
+</div>
 <main class="yd-error__main">
   <div class="yd-error__card yd-card">
     <p class="yd-error__status" data-yd-error-status>{{with .Error}}{{.Status}}{{else}}500{{end}}</p>

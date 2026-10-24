@@ -200,32 +200,34 @@
     outline-offset: 2px;
   }
 
-  /* htmx request bar pinned to the top edge of the header. | 贴住顶栏上沿的 htmx 请求条。 */
+  /* Global request bar pinned to the top edge of the viewport. | 贴住视口顶沿的全局请求进度条。
+     The track stays invisible; only the inner bar paints, and it takes its colour from the
+     theme accent, so switching [data-theme] recolours it without any JavaScript. |
+     轨道本身不可见，只有内层条绘制；颜色取自主题强调色，因此切换 [data-theme] 时无需
+     任何 JavaScript 就会换色。 */
   .yd-progress {
-    position: absolute;
+    position: fixed;
     inset: 0 0 auto;
+    z-index: 90;
     height: 2px;
     overflow: hidden;
+    pointer-events: none;
     background-color: transparent;
+    opacity: 0;
+    transition: opacity 200ms ease;
   }
 
-  .yd-progress::after {
-    content: "";
-    display: block;
-    width: 40%;
+  .yd-progress--active {
+    opacity: 1;
+  }
+
+  .yd-progress__bar {
+    width: 100%;
     height: 100%;
-    background-color: var(--color-brand-500);
-    animation: yd-progress-slide 1.1s ease-in-out infinite;
-  }
-
-  @keyframes yd-progress-slide {
-    from {
-      transform: translateX(-100%);
-    }
-
-    to {
-      transform: translateX(350%);
-    }
+    background-color: var(--color-accent);
+    transform: scaleX(0);
+    transform-origin: left center;
+    transition: transform 180ms ease;
   }
 
   /* ---------------------------------------------------------------- sidebar | 侧边栏 */
@@ -1960,11 +1962,12 @@
   /* Honour the reduced motion preference: the sweep, the request bar and the dialog entry are decorative. | 尊重「减少动态效果」偏好：扫光、请求条与对话框入场都只是装饰。 */
   @media (prefers-reduced-motion: reduce) {
     .yd-skeleton,
-    .yd-progress::after,
     .yd-modal__panel {
       animation: none;
     }
 
+    .yd-progress,
+    .yd-progress__bar,
     .yd-sidebar,
     .yd-skip-link,
     .yd-nav__link,

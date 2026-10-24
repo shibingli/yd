@@ -31,8 +31,14 @@
 <body class="yd-shell yd-shell--app bg-surface text-content antialiased"
       hx-target:inherited="#yd-workspace"
       hx-swap:inherited="innerMorph"
-      hx-push-url:inherited="true"
-      hx-indicator:inherited="#yd-progress">
+      hx-push-url:inherited="true">
+{{/* 全局请求进度条放在 body 直属位置：顶栏是层叠上下文（定位元素 + z-index），固定定位的进度条
+     若放在顶栏内部，移动端侧栏（z-index 70）会把它盖住。 | The global request bar sits directly under
+     <body>: the top bar is a positioned stacking context (z-index), so a fixed bar nested inside it would
+     be covered by the mobile rail (z-index 70). */}}
+<div id="yd-progress" class="yd-progress" data-yd-progress role="progressbar" aria-hidden="true">
+  <div class="yd-progress__bar"></div>
+</div>
 <a class="yd-skip-link" href="#yd-workspace" data-yd-i18n="a11y.skip_to_content">{{tr "a11y.skip_to_content"}}</a>
 {{template "partials/sidebar" .}}
 <div class="yd-sidebar-backdrop" data-yd-sidebar-backdrop aria-hidden="true"></div>

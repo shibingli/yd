@@ -30,6 +30,9 @@
 <html lang="{{.Lang}}" data-theme="{{.Theme}}">
 {{template "base.head" .}}
 <body class="yd-auth bg-surface text-content antialiased">
+<div id="yd-progress" class="yd-progress" data-yd-progress role="progressbar" aria-hidden="true">
+  <div class="yd-progress__bar"></div>
+</div>
 <main class="yd-auth__main">
   <div id="yd-login-card" class="yd-auth__card yd-card">
     <div class="yd-auth__brand">

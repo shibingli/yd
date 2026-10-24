@@ -135,6 +135,13 @@
       data-yd-recovered="{{ tr "realtime.recovered" }}"
       data-yd-close="{{ tr "ui.close" }}"
       data-yd-network-error="{{ tr "ui.network_error" }}">
+{{/* 全局请求进度条：固定在视口顶沿，位于 #yd-shell 之外，因此外壳被局部替换时进度不会丢失，
+     颜色取自主题强调色令牌，明暗主题切换无需额外脚本。 | Global request bar: fixed to the top edge of the
+     viewport and placed outside #yd-shell so a shell swap never loses it; its colour comes from the
+     theme accent token, so light/dark switching needs no extra script. */}}
+<div id="yd-progress" class="yd-progress" data-yd-progress role="progressbar" aria-hidden="true">
+  <div class="yd-progress__bar"></div>
+</div>
 {{/* #yd-shell 同时是 flex 容器：侧栏与主列必须是它的直接子元素，否则主列会从 x=0 起排并落到侧栏下面。
      #yd-shell is also the flex container: the rail and the main column must be its direct children,
      otherwise the main column starts at x=0 and slides underneath the rail. */}}
@@ -147,14 +154,14 @@
   {{ template "mgr/layouts/shell.html" . }}
 </div>
 
-{{/* 脚本顺序（唯一允许的顺序）：htmx 核心 → 所选扩展 → 国密加解密 → 权限守卫 → 本项目脚本。
+{{/* 脚本顺序（唯一允许的顺序）：htmx 核心 → 所选扩展 → 国密加解密 → 权限守卫 → 进度条 → 本项目脚本。
      全部带 defer：既保持执行顺序，又不阻塞首屏渲染。
      yd-authz.js 排在 yd-app.js 之前：它在启动时读取上面注入的载荷，并在每次 htmx 交换后重新绑定
      data-yd-perm/data-yd-role 守卫，因此之后运行的业务脚本可以直接使用 yd.can。
      主题与语言的选择都在 yd-app.js 里落地，因此这里不需要任何内联脚本——CSP 只允许 'self'，
      内联脚本本来也会被浏览器直接拒绝。
      Script order (the only allowed order): htmx core → selected extensions → guomi crypto → the authority guard →
-     this project's script. All carry defer: the order is preserved and first paint is never blocked. yd-authz.js is
+     the progress bar → this project's script. All carry defer: the order is preserved and first paint is never blocked. yd-authz.js is
      placed ahead of yd-app.js because it reads the injected payload at start and re-binds the data-yd-perm /
      data-yd-role guards after every htmx swap, so application scripts that run later can use yd.can straight away.
      Theme and language choices are applied in yd-app.js, so no inline script is needed here — the CSP allows 'self'
@@ -166,6 +173,7 @@
 <script src="{{ asset "/static/js/yd-guomi.js" }}" defer></script>
 <script src="{{ asset "/static/js/yd-guomi-htmx.js" }}" defer></script>
 <script src="{{ asset "/static/js/yd-authz.js" }}" defer></script>
+<script src="{{ asset "/static/js/yd-progress.js" }}" defer></script>
 <script src="{{ asset "/static/js/yd-app.js" }}" defer></script>
 {{- range .PageScripts }}
 <script src="{{ asset . }}" defer></script>

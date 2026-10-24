@@ -114,6 +114,7 @@ var scriptsInOrder = []string{
 	"/static/js/yd-guomi-htmx.js",
 	"/static/js/yd-i18n.js",
 	"/static/js/yd-authz.js",
+	"/static/js/yd-progress.js",
 	"/static/js/yd-app.js",
 }
 
@@ -483,15 +484,15 @@ func TestDashboardLayoutHasSidebarTopbarWorkspace(t *testing.T) {
 	for _, page := range chromePages {
 		html := execute(t, tmpl, page)
 		checks := map[string]string{
-			"central workspace":     `<main id="yd-workspace"`,
-			"left navigation":       `class="yd-sidebar"`,
-			"top bar":               `class="yd-topbar"`,
-			"target inheritance":    `hx-target:inherited="#yd-workspace"`,
-			"swap inheritance":      `hx-swap:inherited="innerMorph"`,
-			"url inheritance":       `hx-push-url:inherited="true"`,
-			"boost inheritance":     `hx-boost:inherited="true"`,
-			"indicator inheritance": `hx-indicator:inherited="#yd-progress"`,
-			"nav links":             `data-yd-nav=`,
+			"central workspace":  `<main id="yd-workspace"`,
+			"left navigation":    `class="yd-sidebar"`,
+			"top bar":            `class="yd-topbar"`,
+			"target inheritance": `hx-target:inherited="#yd-workspace"`,
+			"swap inheritance":   `hx-swap:inherited="innerMorph"`,
+			"url inheritance":    `hx-push-url:inherited="true"`,
+			"boost inheritance":  `hx-boost:inherited="true"`,
+			"progress bar":       `id="yd-progress"`,
+			"nav links":          `data-yd-nav=`,
 		}
 		for label, needle := range checks {
 			if !strings.Contains(html, needle) {
@@ -1074,6 +1075,41 @@ func TestRealtimeBannerLifecycleHooks(t *testing.T) {
 	} {
 		if !strings.Contains(flash, want) {
 			t.Errorf("flash.html is missing %q | flash.html 缺少 %q", want, want)
+		}
+	}
+}
+
+// TestGlobalProgressBarCoversEveryPage pins the feedback contract: every rendered page carries the
+// same fixed bar and loads the same controller, so a slow htmx request or a full-page navigation is
+// visible everywhere instead of only inside the dashboard shell.
+// TestGlobalProgressBarCoversEveryPage 固定反馈契约：每个渲染出来的页面都带有同一条固定进度条并加载同一个控制器，
+// 因此慢请求与整页导航在任何页面都可见，而不只限于管理后台外壳。
+func TestGlobalProgressBarCoversEveryPage(t *testing.T) {
+	tmpl := loadTemplates(t)
+	pages := append(append([]string{}, chromePages...), standalonePages...)
+
+	for _, page := range pages {
+		html := execute(t, tmpl, page)
+		for _, needle := range []string{
+			`id="yd-progress"`,
+			`class="yd-progress"`,
+			`class="yd-progress__bar"`,
+			`data-yd-progress`,
+			`src="/static/js/yd-progress.js"`,
+		} {
+			if !strings.Contains(html, needle) {
+				t.Errorf("%s: missing %s | %s 缺少 %s", page, needle, page, needle)
+			}
+		}
+		if strings.Contains(html, `hx-indicator:inherited="#yd-progress"`) {
+			t.Errorf("%s still delegates the bar to htmx's rotating indicator | %s 仍在把进度条交给 htmx 的循环指示器", page, page)
+		}
+		// The bar must stay outside the top bar's stacking context, or the mobile rail covers it.
+		// 进度条必须位于顶栏的层叠上下文之外，否则移动端侧栏会把它盖住。
+		progressAt := strings.Index(html, `id="yd-progress"`)
+		topbarAt := strings.Index(html, `class="yd-topbar"`)
+		if topbarAt >= 0 && progressAt > topbarAt {
+			t.Errorf("%s renders #yd-progress after the top bar, inside its stacking context | %s 把 #yd-progress 渲染在顶栏之后，落进了它的层叠上下文", page, page)
 		}
 	}
 }

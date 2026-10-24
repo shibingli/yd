@@ -686,6 +686,10 @@ yd versions sync               # 仅重新生成 version_generated.go
 - **侧栏页脚只显示版本**：中间件与组件清单属于构建细节，不再出现在导航里。
 - **接口组一律新标签页打开**：接口文档与 OpenAPI JSON（以及页面内的 `/mgr/docs`、`/api/v1/openapi.json` 链接）
   都带 `target="_blank" rel="noopener noreferrer"`；它们是整页/机器响应，不能换进工作区。
+- **全局请求进度条**：`yd-progress.js` 驱动 `#yd-progress`（固定于视口顶沿），监听
+  `htmx:before:request` / `htmx:finally:request` 与整页导航；颜色只取 `--color-accent`，明暗主题自动跟随。
+  元素必须渲染在 `#yd-shell` 与顶栏之外（顶栏是层叠上下文，移动端侧栏会盖住它），
+  `yd-progress.js` 必须排在 `yd-app.js` 之前；禁止再引入第二套进度指示器。
 
 ### 22.2 抽屉、确认与列表操作
 

@@ -8,10 +8,10 @@
     .Langs        []{"zh-CN", "en"} the catalogs the server actually loaded | 服务端实际加载的语言标签
     .Lang         the active language | 当前语言
 
-  #yd-progress is the shared htmx indicator: the layout inherits it with hx-indicator:inherited,
-  and .htmx-indicator plus .htmx-request come from the htmx runtime and app.css.
-  #yd-progress 是共享的 htmx 指示器：布局通过 hx-indicator:inherited 继承，
-  .htmx-indicator 与 .htmx-request 由 htmx 运行时与 app.css 提供。
+  #yd-progress lives in the dashboard <body>, not here: the top bar is a positioned stacking
+  context (z-index), and a fixed child inside it would sit below the mobile rail.
+  #yd-progress 位于 dashboard 的 <body> 而不是本文件：顶栏是层叠上下文（定位元素 + z-index），
+  放在其中的固定定位子元素会落到移动端侧栏下面。
 
   The language buttons are handled by yd-i18n.js ([data-yd-lang]) and the theme button by
   yd-app.js ([data-yd-theme-toggle]); the user menu is Alpine, which needs no build step.
@@ -21,8 +21,6 @@
 
 {{- define "partials/topbar" -}}
 <header id="yd-topbar" class="yd-topbar" data-yd-i18n-attr="aria-label:topbar.region" aria-label="{{tr "topbar.region"}}">
-  <div id="yd-progress" class="yd-progress htmx-indicator" role="progressbar" aria-hidden="true"></div>
-
   {{/* Off-canvas rail trigger, shown only below the 64rem breakpoint. | 抽屉式侧栏开关，仅在 64rem 断点以下显示。 */}}
   <button type="button" class="yd-icon-btn yd-topbar__menu" data-yd-sidebar-open
           aria-controls="yd-sidebar" aria-expanded="false"

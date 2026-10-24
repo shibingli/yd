@@ -297,3 +297,69 @@ func TestNoHardcodedColorsInAppCSS(t *testing.T) {
 	t.Logf("colour literals in %s: %d inside the token blocks, %d outside | %s 中的颜色字面量：令牌块内 %d 处，令牌块外 %d 处",
 		componentsCSSPath, inside, outside, componentsCSSPath, inside, outside)
 }
+
+// TestProgressBarFollowsTheTheme keeps the request bar readable in both themes. | TestProgressBarFollowsTheTheme 保证请求进度条在明暗两套主题下都清晰可读。
+//
+// The bar must not name a colour of its own: [data-theme] rewrites --color-accent, so one token
+// makes it blue on the light surface and light blue on the dark one. Pinning the token here is the
+// only way to catch a future edit that swaps it for a literal and silently loses dark-mode contrast.
+// 进度条不得自带颜色：[data-theme] 会重写 --color-accent，同一个令牌在浅色表面上呈蓝色、
+// 在深色表面上呈浅蓝色。在这里钉住该令牌，是发现「日后改成字面值、静默丢失暗色对比度」的唯一方式。
+func TestProgressBarFollowsTheTheme(t *testing.T) {
+	css := string(readEmbedded(t, web.FS(), componentsCSSPath))
+
+	root := cssBlock(t, css, ".yd-progress")
+	for _, want := range []string{"position: fixed", "pointer-events: none", "opacity: 0"} {
+		if !strings.Contains(root, want) {
+			t.Errorf(".yd-progress lacks %q | .yd-progress 缺少 %q", want, want)
+		}
+	}
+	if strings.Contains(root, "background-color: var(--color-") {
+		t.Error(".yd-progress is the invisible track and must not paint a surface | .yd-progress 是不可见的轨道，不得绘制表面")
+	}
+
+	bar := cssBlock(t, css, ".yd-progress__bar")
+	if !strings.Contains(bar, "background-color: var(--color-accent)") {
+		t.Error(".yd-progress__bar must take its colour from --color-accent so it follows light and dark | .yd-progress__bar 必须取自 --color-accent，才能跟随明暗主题")
+	}
+	if !strings.Contains(bar, "transform: scaleX(0)") || !strings.Contains(bar, "transform-origin: left center") {
+		t.Error(".yd-progress__bar must grow from the left with scaleX | .yd-progress__bar 必须用 scaleX 从左向右生长")
+	}
+
+	active := cssBlock(t, css, ".yd-progress--active")
+	if !strings.Contains(active, "opacity: 1") {
+		t.Error(".yd-progress--active must reveal the bar | .yd-progress--active 必须显示进度条")
+	}
+
+	reduced := cssBlock(t, css, "@media (prefers-reduced-motion: reduce)")
+	for _, want := range []string{".yd-progress", ".yd-progress__bar", "transition: none"} {
+		if !strings.Contains(reduced, want) {
+			t.Errorf("the reduced-motion block lacks %q | 减少动态效果块缺少 %q", want, want)
+		}
+	}
+
+	// The dark theme must actually move the accent token, otherwise the bar keeps the light
+	// colour and disappears against the dark surface. | 暗色主题必须真的改写强调色令牌，否则进度条
+	// 仍是浅色主题的颜色，在深色表面上会看不见。
+	valueOf := func(block, name string) string {
+		idx := strings.Index(block, name+":")
+		if idx < 0 {
+			return ""
+		}
+		rest := block[idx+len(name)+1:]
+		end := strings.Index(rest, ";")
+		if end < 0 {
+			return ""
+		}
+		return strings.TrimSpace(rest[:end])
+	}
+	lightAccent := valueOf(cssBlock(t, css, ":root"), "--color-accent")
+	darkAccent := valueOf(cssBlock(t, css, `[data-theme="dark"]`), "--color-accent")
+	if lightAccent == "" || darkAccent == "" {
+		t.Fatalf("--color-accent is missing from the light or dark token block (light=%q dark=%q) | 明色或暗色令牌块缺少 --color-accent（light=%q dark=%q）",
+			lightAccent, darkAccent, lightAccent, darkAccent)
+	}
+	if lightAccent == darkAccent {
+		t.Errorf("--color-accent is %q in both themes, so the bar cannot follow the switch | 两套主题的 --color-accent 都是 %q，进度条无法跟随切换", lightAccent, lightAccent)
+	}
+}

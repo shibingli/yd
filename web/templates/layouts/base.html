@@ -83,7 +83,7 @@
 {{- end -}}
 
 {{- define "base.scripts" -}}
-{{/* Single allowed order: htmx core, hx-* extensions, Alpine, compat, guomi, i18n, authz, app. | 唯一允许的顺序：htmx 核心、hx-* 扩展、Alpine、兼容层、国密、i18n、权限、应用。 */}}
+{{/* Single allowed order: htmx core, hx-* extensions, Alpine, compat, guomi, i18n, authz, progress, app. | 唯一允许的顺序：htmx 核心、hx-* 扩展、Alpine、兼容层、国密、i18n、权限、进度条、应用。 */}}
 {{/* csp and the two htmx 2 compatibility layers are locked in the manifest but deliberately not loaded: csp needs a nonce policy, and the compat layers would undo the 4.x semantics this UI is built on. | csp 与两个 htmx 2 兼容层已锁定在资产清单中，但刻意不加载：csp 需要 nonce 策略，兼容层会抵消本 UI 所基于的 4.x 语义。 */}}
 {{/* defer keeps the order while never blocking rendering. | defer 保证顺序且不阻塞渲染。 */}}
 <script src="{{ asset "/static/js/vendor/htmx.min.js" }}" defer></script>
@@ -111,5 +111,7 @@
      位于 yd-i18n.js 之后、yd-app.js 之前加载：它在启动时读取注入的载荷，并在每次 htmx 交换后重新绑定
      守卫，因此之后运行的业务脚本可以直接使用 yd.can。 */}}
 <script src="{{ asset "/static/js/yd-authz.js" }}" defer></script>
+{{/* Ahead of yd-app.js: it binds the rendered bar at load time, so requests fired during boot still animate it. | 位于 yd-app.js 之前：它在加载时就绑定已渲染的进度条，引导期间的请求同样会有动画。 */}}
+<script src="{{ asset "/static/js/yd-progress.js" }}" defer></script>
 <script src="{{ asset "/static/js/yd-app.js" }}" defer></script>
 {{- end -}}
