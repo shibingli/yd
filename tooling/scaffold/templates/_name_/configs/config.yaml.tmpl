@@ -6,6 +6,23 @@
 # 环境变量前缀 YD_，下划线映射多级嵌套：YD_SERVER_PORT -> server.port
 # Environment variables use the YD_ prefix, underscores map onto nested keys: YD_SERVER_PORT -> server.port
 
+# 节点身份：跨重启、硬件更换、虚机/容器迁移保持稳定的唯一标识。
+# Node identity: a stable unique identifier across restarts, hardware replacement and VM/container migration.
+#
+# 优先级：node.id（显式）> node.id_file（持久文件）> 平台种子（首次创建时写入文件）。
+# 多副本生产环境应显式设置 node.id，或把 node.id_file 放到每实例独立的持久卷上；
+# 容器重建会丢失临时文件系统上的身份。require_persistent 为 true 时，无法持久化会拒绝启动。
+# Precedence: node.id (explicit) > node.id_file (persistent file) > platform seed (written to the file on first use).
+# Multi-replica production should set node.id explicitly or put node.id_file on a per-instance durable volume;
+# a recreated container loses an identity on its temporary filesystem. With require_persistent=true, an
+# identity that cannot be persisted fails startup instead of silently changing.
+node:
+  id: ""                     # 显式身份；留空自动解析 | explicit identity; empty resolves automatically
+  id_file: "data/node-id"    # 相对进程工作目录；每实例独立 | relative to the working directory; per instance
+  require_persistent: false  # true：拒绝临时身份/存储 | true rejects an ephemeral identity or storage
+  allow_shared_seed: false   # true：容器可用宿主种子（仅单容器主机） | allow host seeds in containers (single-container hosts only)
+  salt: ""                   # 推导盐；不是密钥，不要写入日志 | derivation salt; not a secret, never log it
+
 server:
   port: 8080          # 监听端口 | listening port
   h2c: true           # 开启 HTTP/2 Cleartext | enable HTTP/2 Cleartext
@@ -33,7 +50,7 @@ server:
 # 实时通道（WebSocket / WebTransport / SSE）的共享中枢。
 # Shared hub of the realtime transports (WebSocket / WebTransport / SSE).
 realtime:
-  node_id: ""                # 多机部署必须唯一；留空按主机名、进程号与启动时间生成 | unique per node; empty derives one
+  node_id: ""                # 留空回退 node.id 与身份文件 | empty falls back to node.id, then the identity file
   queue_size: 256            # 每个订阅者的有界队列 | bounded queue per subscriber
   max_message_bytes: 1048576 # 单条消息上限 | one message limit
   slow_policy: drop          # drop | close：队列满时丢弃或关闭该订阅 | drop or close on a full queue
@@ -182,11 +199,11 @@ tailwind:
 #
 # Redis 与 asynq 随每个生成项目内建：实时事件经 Redis Pub/Sub 跨节点广播，广播失败的写入进入 asynq
 # 持久重试队列。Redis 不可达时会告警并退回进程内总线，单节点开发无需先启动 Redis。
-# 多副本部署请为每个副本设置唯一的 message.node_id（或 YD_MESSAGE_NODE_ID），留空时按主机名与进程号生成。
+# 多副本部署请为每个副本设置唯一的 node.id（或 YD_NODE_ID）；message.node_id 是兼容别名，留空时使用 node 身份。
 # Redis and asynq ship with every generated project: realtime events broadcast across nodes through Redis Pub/Sub, and a
 # failed broadcast enters the durable asynq retry queue. An unreachable Redis warns and falls back to the in-process bus,
-# so single-node development needs no Redis running. In a multi-replica deployment give each replica a unique
-# message.node_id (or YD_MESSAGE_NODE_ID); an empty value is derived from the hostname and process id.
+# so single-node development needs no Redis running. In a multi-replica deployment give each replica a unique node.id
+# (or YD_NODE_ID); message.node_id is a compatibility alias that defaults to the node identity.
 message:
   recall_window: 5m          # 普通用户撤回窗口 | recall window for a regular author
   edit_window: 5m            # 普通用户编辑窗口 | edit window for a regular author
@@ -196,7 +213,7 @@ message:
   page_size: 20              # 列表默认页长 | default page length
   attachment_dir: data/attachments  # 本地附件目录（相对进程工作目录） | local attachment directory (relative to the process working directory)
   pending_ttl: 24h           # 未挂载上传的保留时长 | how long an unattached upload survives
-  node_id: ""                # node identity; empty derives from hostname and pid | 多副本节点标识；留空按主机名与进程号生成
+  node_id: ""                # 兼容别名；留空使用 node.id | compatibility alias; empty uses node.id
   # allowed_types:           # optional attachment MIME allow list; empty uses the framework default | 可选附件 MIME 白名单；留空使用框架默认值
   #   - image/png
   #   - image/jpeg

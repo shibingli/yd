@@ -213,6 +213,7 @@ var scaffoldYdxModules = []string{
 	"github.com/shibingli/ydx/middleware/recovery",
 	"github.com/shibingli/ydx/middleware/reqlog",
 	"github.com/shibingli/ydx/middleware/requestid",
+	"github.com/shibingli/ydx/nodeid",
 	"github.com/shibingli/ydx/openapi",
 	"github.com/shibingli/ydx/openapi/ydrouter",
 	"github.com/shibingli/ydx/protocol",

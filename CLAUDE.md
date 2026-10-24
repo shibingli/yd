@@ -47,7 +47,7 @@
 
 - **依赖形态**：`go.mod` 直接引用 `github.com/shibingli/ydx/<module> vX.Y.Z`；**禁止**本地
   `replace`。开发期联调只能在两个仓库之外临时使用 `go.work`，不得提交。
-- **模块清单**（34 个）：`errs`、`sysinfo`、`buffpool`、`protocol`、`base64`、`json`、`afs`、
+- **模块清单**（35 个）：`errs`、`sysinfo`、`buffpool`、`protocol`、`nodeid`、`base64`、`json`、`afs`、
   `config`、`log`、`regexpx`、`router`、`gorm`、`redis`、`asynq`、`cache`、`sse`、`websocket`、
   `webtransport`、`realtime`、`render`、`i18n`、`openapi`、`openapi/ydrouter`、`jwt`、`guomi`、
   `middleware` 及 8 个 `middleware/*` 插件。
@@ -872,7 +872,7 @@ yd versions sync               # 仅重新生成 version_generated.go
   模板只能输出净化后的 `BodyHTML`。
 - **附件**：MIME 由服务端嗅探，白名单不含 HTML/SVG/脚本；存储键不得包含原始文件名；下载必须按消息可见性鉴权。
 - **实时**：`yd new` 生成的项目默认内建 `redis`（Pub/Sub 广播）与 `asynq`（持久重试），两者不是可选开关；
-  Redis 不可达时明确降级为单节点并告警，不得阻塞启动。`message.node_id` 多副本唯一。
+  Redis 不可达时明确降级为单节点并告警，不得阻塞启动。多副本的 `node.id` 必须唯一，`message.node_id` 是兼容别名。
 - **前端**：消息中心是即时通讯布局——左侧会话列表、右上方历史消息、右下方内联撰写区；后台治理与目录设置
   保持列表式管理页。日常消息在内联撰写区直接发送，不弹确认；公告频道、撤回、撤销、退出、解散、置顶与好友变更
   仍走 `data-yd-confirm`。新建会话在左侧「联系人」页签内完成：点好友整行开单聊、勾选多位好友建群，
@@ -1014,3 +1014,31 @@ WebSocket、WebTransport 与 SSE 共用 `ydx/realtime` 中枢；使用说明见
 - **测试**：`runtime/server/realtime_matrix_test.go` 覆盖 H1/H3 WebSocket、WebTransport、SSE、
   跨源拒绝、hub 四传输扇出与优雅退出；`ydx/realtime` 覆盖单机、慢消费者、授权与 Redis 双节点。
   修改任一传输或中枢时必须保持这些用例通过（`-race`）。
+
+## 28. 节点身份（强制）
+
+`ydx/nodeid` 是节点身份的唯一解析入口，使用说明见 `docs/node-identity.md`。
+节点身份**不是**每次启动从硬件重新计算的指纹，而是**首次签发、长期保存**的标识：
+
+- **优先级固定**：`node.id`（显式）> `node.id_file`（持久文件）> 平台种子（首次创建时写入文件）
+  > 随机 128 位。文件一旦创建即为权威，**运行期不得重新推导**；修改主机名、IP、主板、
+  machine-id 或 `node.salt` 都不得改变既有身份。
+- **应用接线**：`app.New` 解析并暴露 `App.NodeID()` / `App.NodeIdentity()`；生产创建身份文件，
+  测试只读。`node.require_persistent=true` 时身份无法持久化**拒绝启动**；显式 `node.id` 非法
+  同样拒绝启动。`realtime` 与消息总线的空 `NodeID` 回退到该身份文件，不得再用主机名+进程号。
+- **平台种子**：Linux machine-id 与 DMI UUID/序列号、Windows `MachineGuid`、macOS
+  `IOPlatformUUID`。种子只用于首次创建；原始硬件标识不得出现在日志、消息 id 或指标中。
+- **容器默认禁止宿主种子**：容器共享宿主 machine-id 与 SMBIOS，`allow_shared_seed` 只允许在
+  「一台主机一个容器」时开启。容器身份稳定**仅当** `node.id_file` 位于每实例独立的持久卷；
+  否则唯一但不稳定，必须由 `require_persistent` 拒绝或由运维接受。
+- **唯一性**：128 位 id 的哈希碰撞可忽略；真正的重复来自磁盘/卷克隆。多副本必须显式
+  `node.id` 或每实例独立文件；可能被克隆时配置 `nodeid.Claimer`（部署级租约 + 续期 + 失败关闭）。
+  不得把「哈希不同」当作唯一性保证。
+- **安全边界**：节点 ID **不是凭据**，只用于消息 id、Redis 键与指标标签，不得用于鉴权或信任
+  判断。id 只允许 `[A-Za-z0-9._-]`、≤64 字节（冒号被消息 id 保留）；身份文件 `0600`、目录
+  `0700`、原子创建；`node.salt` 不是密钥，不得写入日志。
+- **禁止**：把身份文件放在容器临时层却声称稳定；多副本共享同一个 `id_file` 或数据卷；
+  在运行期重新生成身份；用 `hostname`、IP、MAC、容器 ID 或 Pod UID 代替持久身份；
+  用节点 ID 做鉴权；在容器内默认使用宿主种子。
+- **测试**：`ydx/nodeid` 覆盖优先级、损坏即失败、并发创建、容器种子策略、Claimer 与平台
+  种子解析；`runtime/app` 覆盖配置身份接线。修改身份逻辑必须保持 `-race` 通过。

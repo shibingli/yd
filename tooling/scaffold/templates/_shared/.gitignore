@@ -22,6 +22,9 @@ node_modules/
 .yd/
 # Runtime uploads (message attachments) | 运行期上传（消息附件）
 data/attachments/
+# Node identity is per-instance runtime state; committing or sharing it duplicates the node | 节点身份是每实例运行期状态，入库或共享会造成节点重复
+data/node-id
+data/.node-id-*
 # Local database files (the default landing spot of yd new --db sqlite, WAL sidecars included) | 本地数据库文件（yd new --db sqlite 的默认落点，含 WAL 边车文件）
 data/*.db
 data/*.db-wal

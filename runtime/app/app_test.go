@@ -22,6 +22,7 @@ import (
 	"github.com/shibingli/ydx/afs"
 	"github.com/shibingli/ydx/config"
 	"github.com/shibingli/ydx/log"
+	"github.com/shibingli/ydx/nodeid"
 	"github.com/shibingli/ydx/render"
 	"github.com/shibingli/ydx/router"
 )
@@ -675,5 +676,19 @@ func TestNewDefaultsStaticFSToTheAssetSubtree(t *testing.T) {
 	rec := doRequest(t, a, http.MethodGet, "/", nil)
 	if body := rec.Body.String(); !strings.Contains(body, "/static/js/app.js?v=") {
 		t.Errorf("默认 staticFS 未解析到源码资源: %q", body)
+	}
+}
+
+// TestNodeIdentityFromConfig proves the app exposes the configured node id and
+// its provenance. | TestNodeIdentityFromConfig 证明应用暴露配置的节点 id 及其来源。
+func TestNodeIdentityFromConfig(t *testing.T) {
+	t.Setenv("YD_NODE_ID", "test-node")
+	a := newTestApp(t, nil)
+	if got := a.NodeID(); got != "test-node" {
+		t.Fatalf("NodeID = %q, want test-node", got)
+	}
+	identity := a.NodeIdentity()
+	if identity.Source != nodeid.SourceConfig || !identity.Stable || !identity.Persistent {
+		t.Fatalf("identity = %+v", identity)
 	}
 }

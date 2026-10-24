@@ -334,7 +334,7 @@ func New(a *app.App, store *repository.Store, log *ydlog.Logger) (*Controller, e
 		return nil, err
 	}
 	metricsSvc := service.NewMetricsService()
-	hub, closeMessageBus, busErr := service.NewMessageBus(a.Config(), log)
+	hub, closeMessageBus, busErr := service.NewMessageBus(a.Config(), log, a.NodeID())
 	if busErr != nil {
 		log.Warn("message bus is unavailable, falling back to in-process delivery | 消息总线不可用，回退到进程内投递",
 			ydlog.Err(busErr),

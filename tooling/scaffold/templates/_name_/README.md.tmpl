@@ -59,19 +59,25 @@ Go {{ .GoVersion }} + Htmx {{ .HtmxVersion }} + Tailwind CSS {{ .TailwindVersion
 相关配置在 `configs/config.yaml` 的 `message` 段：`recall_window`、`edit_window`、`max_attachments`、
 `max_attachment_size`、`max_group_members`、`page_size`、`attachment_dir`、`pending_ttl`、`node_id`、
 `allowed_types`；环境变量统一为 `YD_MESSAGE_*`（例如 `YD_MESSAGE_RECALL_WINDOW=10m`）。
+节点身份在 `node` 段配置：`id`（显式身份）、`id_file`（默认 `data/node-id`）、`require_persistent`、
+`allow_shared_seed` 与 `salt`；`message.node_id` 是兼容别名，留空时使用 `node.id`。
 
 生成项目默认内建 `redis`（Pub/Sub 频道 `yd:message:events`）与 `asynq`（失败广播进入
 `yd:message:event` 持久重试）。单节点无需 Redis，不可达时应用会明确告警并退回进程内投递，启动不受影响；
-多副本部署必须给每个副本唯一的 `message.node_id`。
+多副本部署必须给每个副本唯一的 `node.id`（`message.node_id` 是兼容别名）；容器部署要把 `data/node-id`
+放在每实例独立的持久卷上，否则容器重建后身份会变。
 
 The generated project ships a tenant-scoped message centre: the friend lifecycle, direct and group chats, administrator
 announcements with audit-preserving revocation and time-window pinning, mixed full-text search, message types, groups and
 tags, attachments, a locally vendored EasyMDE Markdown editor, a JSON API and a WebSocket push channel. It needs a real
 database; a project generated with `--db none` reports the centre as unavailable instead of pretending to work. Configure
 `message.recall_window`, `edit_window`, attachment limits and `node_id` under the `message` section (`YD_MESSAGE_*`
-environment variables map onto it). Every generated project wires Redis Pub/Sub and asynq durable retries. A single node
+environment variables map onto it). Node identity lives under the `node` section: `id` (explicit identity), `id_file`
+(default `data/node-id`), `require_persistent`, `allow_shared_seed` and `salt`; `message.node_id` is a compatibility
+alias that defaults to `node.id`. Every generated project wires Redis Pub/Sub and asynq durable retries. A single node
 needs no Redis: an unreachable server warns and falls back to in-process delivery without blocking startup. A multi-node
-deployment must give every replica a unique `message.node_id`.
+deployment must give every replica a unique `node.id` (or the alias); put `data/node-id` on a per-instance durable
+volume in containers, otherwise a recreated container gets a new identity.
 
 ## 目录结构
 

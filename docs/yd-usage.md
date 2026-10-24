@@ -6,7 +6,7 @@
 本手册面向使用 `yd` 创建、开发、测试与部署项目的开发者。框架内部的约束与实现细节见
 [`CLAUDE.md`](../CLAUDE.md) 与 [`docs/verification.md`](verification.md)。
 
-> 适用版本：yd v1.5.0+（Go 1.27.3+）。命令、配置与示例均以仓库当前实现为准；
+> 适用版本：yd v1.6.0+（Go 1.27.3+）。命令、配置与示例均以仓库当前实现为准；
 > 组件实现位于 [`github.com/shibingli/ydx`](https://github.com/shibingli/ydx)。
 
 ## 文档地图
@@ -18,6 +18,7 @@
 | [`docs/gorm-dialects.md`](gorm-dialects.md) | GORM 四方言（MySQL / PostgreSQL / SQLite / 达梦 DM8）的配置、能力矩阵与跨方言表达式 |
 | [`docs/message-center.md`](message-center.md) | 站内消息中心的配置、API、WebSocket 协议与多节点部署 |
 | [`docs/realtime-transports.md`](realtime-transports.md) | WebSocket / WebTransport / SSE 的选型、单机与多机、安全、背压与兼容性矩阵 |
+| [`docs/node-identity.md`](node-identity.md) | 节点身份的来源、稳定性边界、安全、性能与唯一性，以及物理机/虚机/容器/Kubernetes 部署方式 |
 | [`docs/redis-asynq.md`](redis-asynq.md) | Redis 直接命令 / Redis Pub/Sub / asynq 的分区规则、可靠性边界与运维要点 |
 | [`docs/middleware-metrics.md`](middleware-metrics.md) | 中间件运行时指标与自定义指标 |
 | [`docs/icon-usage.md`](icon-usage.md) | 离线图标 sprite 的生成、校验与故障排查 |
@@ -209,6 +210,13 @@ app:
   name: myapp
   env: development
 
+node:
+  id: ""                     # 显式身份；多副本生产建议设置
+  id_file: data/node-id      # 持久身份文件；容器必须挂到每实例独立卷
+  require_persistent: false  # true：身份无法持久化时拒绝启动
+  allow_shared_seed: false   # 容器内允许宿主种子（仅单容器主机）
+  salt: ""                   # 推导盐；不是密钥
+
 server:
   port: 8080
   h2c: true
@@ -227,7 +235,7 @@ log:
   caller: true
 
 realtime:
-  node_id: ""                 # 多机必须唯一；空值按主机名、进程号与启动时间生成
+  node_id: ""                 # 留空回退 node.id 与身份文件
   queue_size: 256             # 每个订阅者的有界队列
   max_message_bytes: 1048576  # 单条消息上限
   slow_policy: drop           # drop | close
@@ -272,7 +280,7 @@ message:
   max_attachments: 10
   max_attachment_size: 20971520
   max_group_members: 50
-  node_id: ""                 # 多副本必须唯一；留空按主机名与进程号生成
+  node_id: ""                 # 兼容别名；留空使用 node.id 与持久身份文件
 
 service:
   name: myapp
@@ -1348,7 +1356,7 @@ yd service install --name taskapp
 | `YD_AUTH_TOKEN_TTL` | `auth.token_ttl` | 令牌有效期 |
 | `YD_SEED_TENANT` / `YD_SEED_USERNAME` | `seed.tenant` / `seed.username` | 种子租户/账号 |
 | `YD_SEED_ADMIN_PASSWORD` | `seed.admin_password` | 种子口令（生产必填） |
-| `YD_MESSAGE_NODE_ID` | `message.node_id` | 多副本唯一节点标识 |
+| `YD_MESSAGE_NODE_ID` | `message.node_id` | 兼容别名；留空使用 `node.id` 与身份文件 |
 | `YD_SERVICE_*` | `service.*` | 服务名称、参数、环境变量等 |
 | `YD_KO_*` | `ko.*` | ko 仓库、标签、平台等 |
 | `YD_HTTP_PROXY` | `http.proxy` | yd 自身下载使用的代理 |

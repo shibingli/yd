@@ -27,6 +27,8 @@ import (
 	"github.com/shibingli/ydx/base64"
 	"github.com/shibingli/ydx/guomi"
 	"github.com/shibingli/ydx/json"
+	"github.com/shibingli/ydx/nodeid"
+	"github.com/shibingli/ydx/protocol"
 	"github.com/shibingli/ydx/regexpx"
 	"github.com/shibingli/ydx/websocket"
 	"github.com/spf13/afero"
@@ -181,7 +183,7 @@ var requiredFiles = []string{
 }
 
 // specGitignore 是需求基线 §二.3 的 .gitignore 模板逐字内容（已去掉提示行），
-// 外加三处**有意偏离**：
+// 外加四处**有意偏离**：
 //   - 基线未忽略 `.yd/`，而 `yd tools install` 会把 betteralign、ko 等外部工具二进制装进
 //     项目内的 `.yd/tools/`，不忽略就会出现在 `git status` 里，甚至被误提交；
 //     该偏离已记入 docs/superpowers/plans/2026-10-17-yd-tool-installation.md 的差异说明。
@@ -190,7 +192,7 @@ var requiredFiles = []string{
 //   - 基线未忽略运行期上传目录（消息附件），它们同样是本机运行数据。
 //
 // specGitignore is the verbatim .gitignore template of the baseline §二.3 (the advisory line has
-// been dropped), plus three deliberate deviations:
+// been dropped), plus four deliberate deviations:
 //   - the baseline does not ignore `.yd/`, yet `yd tools install` puts betteralign, ko and friends
 //     into the project-local `.yd/tools/`, where they would show up in `git status` and could be
 //     committed by accident (recorded in the tool-installation plan's difference note);
@@ -198,7 +200,9 @@ var requiredFiles = []string{
 //     `yd new --db sqlite` lands the database in `data/`, and WAL mode adds the -wal / -shm
 //     sidecars; they are machine-local runtime data and never belong in version control.
 //   - the baseline does not ignore the runtime upload directory (message attachments), which is
-//     likewise machine-local runtime data.
+//     likewise machine-local runtime data;
+//   - the baseline does not ignore the per-instance node identity file, which must never be
+//     committed or shared between deployments.
 const specGitignore = "bin/\n" +
 	"dist/\n" +
 	"*.exe\n" +
@@ -223,6 +227,9 @@ const specGitignore = "bin/\n" +
 	".yd/\n" +
 	"# Runtime uploads (message attachments) | 运行期上传（消息附件）\n" +
 	"data/attachments/\n" +
+	"# Node identity is per-instance runtime state; committing or sharing it duplicates the node | 节点身份是每实例运行期状态，入库或共享会造成节点重复\n" +
+	"data/node-id\n" +
+	"data/.node-id-*\n" +
 	"# Local database files (the default landing spot of yd new --db sqlite, WAL sidecars included) | 本地数据库文件（yd new --db sqlite 的默认落点，含 WAL 边车文件）\n" +
 	"data/*.db\n" +
 	"data/*.db-wal\n" +
@@ -461,9 +468,18 @@ func TestGenerateAlwaysIntegratesRedisAndAsynq(t *testing.T) {
 		"extended_connect: true",
 		"enabled: false      # 开启 HTTP/3",
 		"webtransport: false",
+		"node:",
+		"id_file: \"data/node-id\"",
+		"require_persistent: false",
 	} {
 		if !strings.Contains(cfg, want) {
 			t.Errorf("config.yaml 缺少 %q:\n%s", want, cfg)
+		}
+	}
+	busSource := pr.read("internal/service/message_bus.go")
+	for _, want := range []string{"nodeid.OptionsFromConfig", "nodeid.Resolve", "message.node_id"} {
+		if !strings.Contains(busSource, want) {
+			t.Errorf("message_bus.go 缺少 %q", want)
 		}
 	}
 	for _, want := range []string{"postgres", "redis:", "asynq:", "grpc:", "i18n:"} {
@@ -1375,7 +1391,13 @@ func TestGeneratedAppServesFrameworkFeatures(t *testing.T) {
 		t.Skip("短模式跳过真实服务验证 | skipped in short mode")
 	}
 
-	_, base := startProbeApp(t, "yd-serve-probe")
+	projDir, base := startProbeApp(t, "yd-serve-probe")
+	identityFile := filepath.Join(projDir, "data", "node-id")
+	if raw, err := os.ReadFile(identityFile); err != nil {
+		t.Errorf("生成的应用没有持久化节点身份: %v", err)
+	} else if err := nodeid.Validate(strings.TrimSpace(string(raw))); err != nil {
+		t.Errorf("生成的应用写入了非法节点身份 %q: %v", raw, err)
+	}
 
 	// /users 落在受保护组里，/ 在公开组按登录状态分流；探针先登录，以便后续受保护端点带着那枚 cookie
 	// （中间件 Promote 会把它提升为 Authorization，浏览器与 API 客户端因此走同一条校验路径）。
@@ -2997,14 +3019,44 @@ func startGeneratedApp(t *testing.T, bin, dir string) string {
 // The port is injected through YD_SERVER_PORT (mapped onto server.port), so no resident service on the developer machine
 // can collide; the startup output is collected and printed when the readiness wait times out, which keeps debugging free
 // of manual reproduction.
+// withoutEnv returns env without the named variables (case-insensitive). Probe
+// applications must not inherit a developer's node identity or identity file. |
+// withoutEnv 返回移除指定变量（大小写不敏感）后的环境。探针应用不得继承开发者的节点身份或
+// 身份文件。
+func withoutEnv(env []string, keys ...string) []string {
+	out := make([]string, 0, len(env))
+	for _, entry := range env {
+		name, _, ok := strings.Cut(entry, "=")
+		skip := false
+		if ok {
+			for _, key := range keys {
+				if strings.EqualFold(name, key) {
+					skip = true
+					break
+				}
+			}
+		}
+		if !skip {
+			out = append(out, entry)
+		}
+	}
+	return out
+}
+
 func startGeneratedAppWithStop(t *testing.T, bin, dir string) (string, func()) {
 	t.Helper()
 
 	port := freePort(t)
 	cmd := exec.Command(bin)
 	cmd.Dir = dir
-	cmd.Env = append(os.Environ(),
+	// The probe sets GODEBUG itself so the generated app handles RFC 8441 without
+	// re-executing; a re-exec would leave the server as a grandchild that survives
+	// a test cleanup on Windows. | 探针自行设置 GODEBUG，使生成的应用无需重启进程即可
+	// 处理 RFC 8441；重启会让服务器变成孙进程，在 Windows 上测试清理后仍会存活。
+	cmd.Env = append(withoutEnv(os.Environ(), "YD_NODE_ID", "YD_NODE_ID_FILE", "YD_NODE_REQUIRE_PERSISTENT",
+		"YD_NODE_ALLOW_SHARED_SEED", "YD_NODE_SALT", "YD_MESSAGE_NODE_ID", "GODEBUG"),
 		"GOWORK=off",
+		"GODEBUG="+protocol.MergeGODEBUG(os.Getenv("GODEBUG"), "http2xconnect=1"),
 		// 探针只从本机回环访问：绑定 127.0.0.1 既不依赖通配地址的绑定权限，也不会把端口暴露到局域网。
 		// The probe only ever reaches the app over the loopback interface: binding 127.0.0.1 needs no wildcard-bind
 		// permission and never exposes the port to the local network.
@@ -3024,7 +3076,15 @@ func startGeneratedAppWithStop(t *testing.T, bin, dir string) (string, func()) {
 			return
 		}
 		stopped = true
-		_ = cmd.Process.Kill()
+		if runtime.GOOS == "windows" {
+			// The app may re-exec itself to inject GODEBUG; kill the process tree,
+			// not just the launcher, or the server child survives the test. |
+			// 应用可能为注入 GODEBUG 重启自身；必须杀掉整棵进程树而不是只杀启动器，否则
+			// 服务器子进程会在测试结束后继续存活。
+			_ = exec.Command("taskkill", "/T", "/F", "/PID", strconv.Itoa(cmd.Process.Pid)).Run()
+		} else {
+			_ = cmd.Process.Kill()
+		}
 		_, _ = cmd.Process.Wait()
 	}
 

@@ -6,8 +6,6 @@ package service
 
 import (
 	"context"
-	"os"
-	"strconv"
 	"strings"
 	"time"
 
@@ -16,29 +14,32 @@ import (
 	"{{ .YdxModule }}/config"
 	"{{ .YdxModule }}/json"
 	ydlog "{{ .YdxModule }}/log"
+	"{{ .YdxModule }}/nodeid"
 	"{{ .YdxModule }}/asynq"
 	"{{ .YdxModule }}/redis"
 	"{{ .YdModule }}/messaging"
 	"{{ .YdModule }}/messaging/realtime"
 )
 
-// 消息总线配置键：node_id 让运维在多副本部署中固定节点标识；留空时按主机名与进程号生成。
-// Message bus configuration key: node_id lets operations pin a node identity in a multi-replica deployment; when empty
-// it is derived from the hostname and process id.
+// 消息总线配置键：message.node_id 是多副本节点标识的兼容覆盖项；留空时使用 node.id 与持久身份文件。
+// Message bus configuration key: message.node_id is a compatibility override for the multi-replica node identity;
+// when empty the node.id setting and the persistent identity file apply.
 const configMessageNodeID = "message.node_id"
 
 // messageEventTask is the durable broadcast task type. | messageEventTask 是持久广播任务类型。
 const messageEventTask = "yd:message:event"
 
-// NewMessageBus assembles the realtime hub.
-// NewMessageBus 装配实时 Hub。
+// NewMessageBus assembles the realtime hub. nodeID comes from app.NodeID(), so
+// the bus and the application share one identity and one Claimer lease. |
+// NewMessageBus 装配实时 Hub。nodeID 来自 app.NodeID()，使总线与应用共享同一个身份与
+// Claimer 租约。
 //
 // Every generated project carries Redis and asynq: realtime events broadcast across nodes through Redis Pub/Sub, and a
 // failed write is enqueued and republished by whichever node processes the task. A failed Redis connection never blocks
 // startup: the local hub keeps working and the failure is logged. |
 // 每个生成项目都内建 Redis 与 asynq：实时事件经 Redis Pub/Sub 跨节点广播，写入失败会入队，并由处理该任务的任一节点
 // 重发。Redis 连接失败绝不阻塞启动：本地 Hub 继续工作，失败只记录日志。
-func NewMessageBus(cfg *config.Config, log *ydlog.Logger) (*realtime.Hub, func() error, error) {
+func NewMessageBus(cfg *config.Config, log *ydlog.Logger, nodeID string) (*realtime.Hub, func() error, error) {
 	if log == nil {
 		log = ydlog.Default()
 	}
@@ -68,7 +69,7 @@ func NewMessageBus(cfg *config.Config, log *ydlog.Logger) (*realtime.Hub, func()
 		log.Warn("message bus is unavailable, delivery stays local | 消息总线不可用，投递保持本地", ydlog.Err(err))
 		return realtime.New(log), func() error { return nil }, nil
 	}
-	nodeID := nodeIdentity(cfg)
+	nodeID = resolveNodeIdentity(cfg, log, nodeID)
 	var (
 		retry   realtime.RetryQueue
 		taskSrv *asynq.Server
@@ -133,19 +134,42 @@ func NewMessageBus(cfg *config.Config, log *ydlog.Logger) (*realtime.Hub, func()
 	}, nil
 }
 
-// nodeIdentity returns the configured node id or a stable per-process fallback. | nodeIdentity 返回配置的节点 ID，
-// 缺失时返回按进程推导的稳定回退值。
-func nodeIdentity(cfg *config.Config) string {
+// resolveNodeIdentity resolves the stable node id. The application already
+// resolved it at startup, so the normal path just reuses that value; a direct
+// caller without one falls back to message.node_id, node.id, the identity file
+// and the platform seed in that order. | resolveNodeIdentity 解析稳定的节点 ID。应用
+// 已在启动时解析过，正常路径直接复用；没有该值的直接调用方依次回退到 message.node_id、
+// node.id、身份文件与平台种子。
+func resolveNodeIdentity(cfg *config.Config, log *ydlog.Logger, nodeID string) string {
+	if value := strings.TrimSpace(nodeID); value != "" {
+		return value
+	}
+	options := nodeid.OptionsFromConfig(cfg)
 	if cfg != nil {
-		if value := strings.TrimSpace(cfg.GetString(configMessageNodeID)); value != "" {
-			return value
+		if override := strings.TrimSpace(cfg.GetString(configMessageNodeID)); override != "" {
+			options.ConfigID = override
 		}
 	}
-	host, err := os.Hostname()
-	if err != nil || strings.TrimSpace(host) == "" {
-		host = "node"
+	options.Create = true
+	identity, err := nodeid.Resolve(context.Background(), options)
+	if err != nil {
+		fallback := nodeid.Ephemeral()
+		log.Warn("node identity unavailable, using an ephemeral id | 节点身份不可用，使用临时 ID",
+			ydlog.Err(err),
+			ydlog.Str("node", fallback.ID),
+		)
+		return fallback.ID
 	}
-	return host + "-" + strconv.Itoa(os.Getpid())
+	if identity.Warning != "" {
+		log.Warn(identity.Warning, ydlog.Str("node", identity.ID))
+	}
+	log.Info("node identity | 节点身份",
+		ydlog.Str("node", identity.ID),
+		ydlog.Str("source", string(identity.Source)),
+		ydlog.Str("environment", string(identity.Environment)),
+		ydlog.Bool("persistent", identity.Persistent),
+	)
+	return identity.ID
 }
 
 // asynqRetryQueue republishes failed broadcasts through the task queue. | asynqRetryQueue 通过任务队列重发失败的广播。

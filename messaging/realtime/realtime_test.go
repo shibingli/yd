@@ -177,3 +177,24 @@ func TestAudienceAndTenantFiltering(t *testing.T) {
 	case <-time.After(250 * time.Millisecond):
 	}
 }
+
+// TestHubResolvesNodeIdentity proves an empty node id is resolved through nodeid
+// instead of stamping events with an empty origin. | TestHubResolvesNodeIdentity
+// 证明空节点 id 会经 nodeid 解析，而不是用空 Origin 标记事件。
+func TestHubResolvesNodeIdentity(t *testing.T) {
+	t.Setenv("YD_NODE_ID", "hub-node")
+	hub := realtime.New(ydlog.Default())
+	defer hub.Close()
+
+	ch := make(chan messaging.Event, 1)
+	unsubscribe := hub.Subscribe(realtime.Subscription{Deliver: func(event messaging.Event) { ch <- event }})
+	defer unsubscribe()
+
+	if err := hub.Publish(context.Background(), messaging.Event{Type: "identity", TenantID: "tn_1"}); err != nil {
+		t.Fatalf("Publish: %v", err)
+	}
+	event := waitEvent(t, ch)
+	if event.Origin != "hub-node" {
+		t.Fatalf("Origin = %q, want hub-node", event.Origin)
+	}
+}

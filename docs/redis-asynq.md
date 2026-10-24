@@ -198,7 +198,7 @@ outbox 表；这是业务选择，不是框架默认。
 
 | 配置 | 作用 | 建议 |
 |---|---|---|
-| `realtime.node_id` | 多副本唯一标识 | 显式配置；滚动发布也不要复用 |
+| `realtime.node_id` | 多副本唯一标识 | 留空回退 `node.id` 与持久身份文件；滚动发布也不要复用 |
 | `realtime.channel_prefix` | Pub/Sub 命名空间 | 每个环境唯一 |
 | `realtime.queue_size` / `slow_policy` | 订阅端背压 | 实时页面用 `drop`；状态同步类用 `close` 触发重连补拉 |
 | `realtime.max_message_bytes` | 单条上限 | 默认 1MiB；大对象改发引用 |
@@ -207,7 +207,7 @@ outbox 表；这是业务选择，不是框架默认。
 | `asynq.strict_priority` | 严格优先级 | 有实时补发队列时开启 |
 | `asynq.shutdown_timeout` | 关停预算 | 小于整体优雅退出预算 |
 | `cache.lease` | L1 租约 | 权衡一致性与回源压力 |
-| `message.node_id` | 消息中心节点标识 | 与 `realtime.node_id` 保持同一取值 |
+| `message.node_id` | 消息中心兼容别名 | 留空使用 `node.id` 与持久身份文件 |
 
 运维要点：
 
@@ -253,7 +253,7 @@ registry.Register(broadcastTask, func(ctx context.Context, payload asynq.Payload
 })
 
 hub := realtime.NewHub(realtime.Options{
-	NodeID: cfg.GetString("realtime.node_id"),
+	NodeID: cfg.GetString("node.id"),
 	Retry:  &retryQueue{cli: client},
 })
 hub.Use(realtime.NewRedisBackend(rdb, realtime.RedisOptionsFromConfig(cfg)))

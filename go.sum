@@ -98,8 +98,8 @@ github.com/shibingli/ydx/base64 v0.1.11 h1:fiCuT/98vW3GuZqWEHdgHjMYEsbHPaGcfbBIZ
 github.com/shibingli/ydx/base64 v0.1.11/go.mod h1:PaROcW7ashuUWtpu30D3TfA28lDCBop8D39ZrHuK/eE=
 github.com/shibingli/ydx/buffpool v0.1.4 h1:aQpZ8Rzs6Qt6/H/lW4st3I74mdAqJkzoyAVVBGgVj0k=
 github.com/shibingli/ydx/buffpool v0.1.4/go.mod h1:1PYC8bCUvgsvXzeFHDVo2wqy62bNYps+c1yZGCK4o/Y=
-github.com/shibingli/ydx/config v0.1.6 h1:yhw3T/g9In0cUrmem8DU6prOoqSUNTtB0j46kJJermU=
-github.com/shibingli/ydx/config v0.1.6/go.mod h1:FCQCjq65sOQA7UBTuZTvv20GWDUwEJXtLB7oRpTXiTE=
+github.com/shibingli/ydx/config v0.1.7 h1:Y2FPEbzA2/bYQzZAG9JbBLyOea8tJIS1loYcPthgPzQ=
+github.com/shibingli/ydx/config v0.1.7/go.mod h1:FCQCjq65sOQA7UBTuZTvv20GWDUwEJXtLB7oRpTXiTE=
 github.com/shibingli/ydx/errs v0.1.4 h1:/hexB5eDFA/wWhRof5yxWEVeVlHn1P7IZmys9U4h1iA=
 github.com/shibingli/ydx/errs v0.1.4/go.mod h1:N6GNQq5eustT11WTdXOip9bXcIwrFd4c9UWG0gIDuwU=
 github.com/shibingli/ydx/gorm v0.1.13 h1:6YBJ+l+g1Rpez+3sqcSXfk8hj3S197ZeoBuFdq4IMuI=
@@ -132,10 +132,12 @@ github.com/shibingli/ydx/middleware/reqlog v0.1.12 h1:P8yruT+dGgN0uG9fohxLv0CwU3
 github.com/shibingli/ydx/middleware/reqlog v0.1.12/go.mod h1:ieAdMK5/GzCTXjTmBGndg5Nn97B86vRDkgeGv+FQxK4=
 github.com/shibingli/ydx/middleware/requestid v0.1.12 h1:vIOSKu7y/uJIAXrkfZRojCSny99eRIAtpTUeqPIdcK4=
 github.com/shibingli/ydx/middleware/requestid v0.1.12/go.mod h1:5X/MJkpoas2rUZERegzFKgKjM3UAlTGwePqntnAGDzY=
+github.com/shibingli/ydx/nodeid v0.1.4 h1:b1jie1cCaS38TX5jPV20xGIfY4PKdVXzn0mbT5fHWtE=
+github.com/shibingli/ydx/nodeid v0.1.4/go.mod h1:B6po4MAdrvcfKR7xJGf9lhvJaTykdjISGHHDnJ29YBo=
 github.com/shibingli/ydx/protocol v0.1.5 h1:+rXZJY3eb5lsArppW0H0T1TLCVO9qCVxJ9juOPvnvyI=
 github.com/shibingli/ydx/protocol v0.1.5/go.mod h1:eKLAtgDa8Cf4Sg0eMYzf4srW8SW7+T3ceTGV73E1nZ0=
-github.com/shibingli/ydx/realtime v0.1.3 h1:k8NVH1S6YYn8n2GlKYExLs4URSY9mL3vj+QcV/omWa8=
-github.com/shibingli/ydx/realtime v0.1.3/go.mod h1:dv8YXcRIlFa/crsruVhN1QROjLrZdnTctD8HLVny0nA=
+github.com/shibingli/ydx/realtime v0.1.7 h1:wnt3SZfQbOeq4NeV6Nb/HSQHpMFWMrjy+7IfI8DKofE=
+github.com/shibingli/ydx/realtime v0.1.7/go.mod h1:dmpV3UM6AblNKSmljgVs0NqzccGVrTK8FNdEm3qM5eA=
 github.com/shibingli/ydx/regexpx v0.1.7 h1:pLEH/b8iaIooTIfb8c5YTpaJ3imsWUzbji5eGi4SRfA=
 github.com/shibingli/ydx/regexpx v0.1.7/go.mod h1:oC3q0ssHYf1m92iRnRNpl3rsXfLnwLMtLwiZsoftnDw=
 github.com/shibingli/ydx/render v0.1.10 h1:aeyMPoWwrKb9QjXhh4nLe/xamfhY9NldriMpAmbpb8k=

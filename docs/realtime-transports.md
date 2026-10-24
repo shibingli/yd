@@ -44,7 +44,7 @@ server:
     webtransport: true         # 与 HTTP/3 共用监听
 
 realtime:
-  node_id: ""                  # 多机必须唯一；空值自动生成
+  node_id: ""                  # 多机必须唯一；留空回退 node.id 与身份文件
   queue_size: 256              # 每个订阅者的有界队列
   max_message_bytes: 1048576   # 单条消息上限
   slow_policy: drop            # drop | close
@@ -84,6 +84,8 @@ defer hub.Close()
 - 每个节点把消息发布到 `channel_prefix + topic`；只订阅本地存在订阅者的主题；
 - 消息 id 形如 `<node_id>:<seq>`；节点收到自己发布的消息会丢弃（本地已直接投递），
   正常情况下订阅者恰好收到一次；启用持久补发后重试可能造成重复，消费端按 id 幂等；
+- `seq` 在进程内单调递增，**重启后从 0 开始**；需要跨重启连续的 SSE `Last-Event-ID` 游标时，
+  业务端点应把启动纪元（例如进程启动时间）纳入游标或自行去重，不能只依赖 `<node_id>:<seq>`；
 - **至多一次**：Redis Pub/Sub 不持久，发布瞬间断开的节点在重连后不会补收；
   需要重放的业务应在自己的持久存储中保存游标，或改用持久队列（如 `ydx/asynq`）；
 - 重连由 go-redis 自动完成，但重连窗口内的消息会丢失；SSE 客户端可用
@@ -95,8 +97,8 @@ defer hub.Close()
 
 ### 3.3 部署检查清单
 
-- [ ] 每个实例的 `realtime.node_id` 唯一（留空时由主机名+进程号+启动时间推导，滚动发布
-      仍建议显式配置）；
+- [ ] 每个实例的 `realtime.node_id` 唯一；留空时回退 `node.id` 与持久身份文件，
+      多副本仍建议显式配置（见 [节点身份](node-identity.md)）；
 - [ ] 同一部署的 `realtime.channel_prefix` 唯一，避免与其它环境串台；
 - [ ] Redis 可达；断连期间消息丢失（见上），关键业务需持久化、业务层补拉，或配置
       `RetryQueue` 持久补发；

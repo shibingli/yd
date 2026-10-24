@@ -135,7 +135,12 @@
    列表操作用 `details.yd-menu`；实时刷新只重取 `/messages/:id/history`，不重建撰写区、不清掉草稿，也不整页跳转。
 6. **实时与多节点**：`#yd-shell` 持有唯一的 `/ws/messages` 连接；事件只带 ID 与元数据，接收方按权限重取。
    生成项目默认内建 `redis`（Pub/Sub）与 `asynq`（持久重试）；Redis 不可达时告警并退回进程内 Hub，
-   多副本部署必须给每个副本唯一的 `message.node_id`。
+   多副本部署必须给每个副本唯一的 `node.id`（`message.node_id` 是兼容别名）。
+   **节点身份（强制）**：身份优先级为 `node.id` > `node.id_file` > 平台种子；文件一旦创建即为权威，
+   不得在运行期重新推导。生成项目默认把身份写在 `data/node-id`，容器部署必须把该路径放到每实例独立的
+   持久卷，否则容器重建后身份会变；生产多副本建议显式设置 `node.id`。`node.require_persistent=true`
+   时无法持久化会拒绝启动。节点 ID 不是凭据，不得用于鉴权或信任判断。完整判定见
+   <https://github.com/shibingli/yd/blob/main/docs/node-identity.md>。
 7. **Redis / Pub/Sub / asynq 分区**：实时扇出用 Pub/Sub；共享状态、去重、在线、游标、计数、锁、
    限流用直接 Redis 命令（键必须带 TTL 且可重建，多键原子用 Lua）；失败补发、离线通知、重活、
    定时任务用 asynq。禁止把 asynq 当广播总线、把 Pub/Sub 当可靠队列；事件在事务提交后发布，

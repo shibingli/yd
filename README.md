@@ -83,7 +83,7 @@ yd tools install tailwindcss  # 下载 Tailwind standalone 二进制到 .yd/tool
 ## 文档
 
 - **[yd 使用手册](docs/yd-usage.md)** —— 命令参考、配置、鉴权与多租户、缓存、消息中心、部署与完整示例
-- [二级缓存](docs/cache.md) · [GORM 方言](docs/gorm-dialects.md) · [实时传输](docs/realtime-transports.md) · [Redis/asynq 分区](docs/redis-asynq.md) · [消息中心](docs/message-center.md) · [中间件指标](docs/middleware-metrics.md) · [图标](docs/icon-usage.md) · [渲染引擎](docs/render-usage.md) · [验收记录](docs/verification.md)
+- [二级缓存](docs/cache.md) · [GORM 方言](docs/gorm-dialects.md) · [实时传输](docs/realtime-transports.md) · [节点身份](docs/node-identity.md) · [Redis/asynq 分区](docs/redis-asynq.md) · [消息中心](docs/message-center.md) · [中间件指标](docs/middleware-metrics.md) · [图标](docs/icon-usage.md) · [渲染引擎](docs/render-usage.md) · [验收记录](docs/verification.md)
 
 ## 架构一览
 
@@ -163,7 +163,8 @@ YD_SERVER_HTTP2_EXTENDED_CONNECT=true
 ```
 
 服务端配置 `server.http2.extended_connect: true` 时，裸二进制在 POSIX 上通过 `syscall.Exec`、
-Windows 控制台通过子进程重启完成配置；Windows 服务必须经 `yd service` 安装。
+Windows 控制台通过子进程重启完成配置；Windows 服务必须经 `yd service` 安装。控制台模式下请用
+Ctrl+C 优雅结束，强制杀死父进程不会自动结束子进程（服务模式由 SCM 托管，不受此影响）。
 HTTP/2 与 HTTP/3 的处理器必须阻塞到连接结束——返回即结束流；HTTP/1.1 的 hijack 连接不受此限制。
 路由无需额外注册 CONNECT：Extended CONNECT 会自动回退到同一 GET 路由。
 单机与多机（Redis Pub/Sub）的统一消息中枢、三种传输的适配器、安全/背压/兼容性矩阵见

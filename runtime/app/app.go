@@ -51,6 +51,7 @@ import (
 	"github.com/shibingli/ydx/i18n"
 	ydlog "github.com/shibingli/ydx/log"
 	"github.com/shibingli/ydx/middleware"
+	"github.com/shibingli/ydx/nodeid"
 	"github.com/shibingli/ydx/router"
 	"github.com/shibingli/ydx/webtransport"
 )
@@ -75,6 +76,10 @@ var (
 	ErrAssetsDir = errs.New("app: cannot resolve asset directory | app：无法解析资产目录")
 	// ErrConfigLoad indicates that the layered configuration could not be loaded. | ErrConfigLoad 表示分层配置加载失败。
 	ErrConfigLoad = errs.New("app: config load failed | app：配置加载失败")
+	// ErrNodeIdentity indicates that the configured node identity is invalid or
+	// cannot be made durable when node.require_persistent is set. | ErrNodeIdentity 表示
+	// 配置的节点身份非法，或 node.require_persistent 开启时无法持久化。
+	ErrNodeIdentity = errs.New("app: node identity failed | app：节点身份解析失败")
 	// ErrI18n indicates that the message catalogs could not be loaded. | ErrI18n 表示语言目录加载失败。
 	ErrI18n = errs.New("app: i18n catalog load failed | app：语言目录加载失败")
 	// ErrServiceMissing indicates that a service key is not registered. | ErrServiceMissing 表示服务键未注册。
@@ -120,11 +125,12 @@ type App struct {
 
 	closeErr error
 
-	cfg      *config.Config
-	log      *ydlog.Logger
-	router   *router.Router
-	server   *server.Server
-	services map[string]any
+	cfg          *config.Config
+	nodeIdentity nodeid.Identity
+	log          *ydlog.Logger
+	router       *router.Router
+	server       *server.Server
+	services     map[string]any
 	// metrics observes middleware runtime behaviour and publishes it to dashboards. | metrics 观察中间件
 	// 运行时行为，并发布给仪表盘。
 	metrics *metricsx.Registry
@@ -250,6 +256,29 @@ func New(opts ...Option) (*App, error) {
 		a.cfg = cfg
 	}
 
+	identity, identityErr := nodeid.Resolve(context.Background(), a.nodeOptions())
+	if identityErr != nil {
+		// An explicit node.id is a configuration error, and so is any failure when
+		// durability is required; neither may silently fall back to a random id. |
+		// 显式 node.id 出错属于配置错误；要求持久化时任何失败也同样；两者都不得静默退回随机 id。
+		if nodeid.OptionsFromConfig(a.cfg).ConfigID != "" || a.cfg.GetBool("node.require_persistent") {
+			return nil, errs.Wrap(identityErr, ErrNodeIdentity)
+		}
+		identity = nodeid.Ephemeral()
+		a.log.Warn("node identity is ephemeral | 节点身份是临时身份", ydlog.Err(identityErr))
+	}
+	a.nodeIdentity = identity
+	if identity.Warning != "" {
+		a.log.Warn(identity.Warning, ydlog.Str("node", identity.ID))
+	}
+	a.log.Info("node identity resolved | 节点身份已解析",
+		ydlog.Str("node", identity.ID),
+		ydlog.Str("source", string(identity.Source)),
+		ydlog.Str("environment", string(identity.Environment)),
+		ydlog.Bool("persistent", identity.Persistent),
+		ydlog.Bool("stable", identity.Stable),
+	)
+
 	a.router = router.New()
 
 	if a.renderer == nil {
@@ -348,6 +377,26 @@ func (a *App) UseObserved(d metricsx.Descriptor, mw router.Middleware) {
 
 // Server returns the HTTP server; it is built but not started until Run. | Server 返回 HTTP 服务器；它已构建，但直到 Run 才启动。
 func (a *App) Server() *server.Server { return a.server }
+
+// NodeID returns the stable node identity resolved at construction. It is safe
+// to use as a message id, Redis key segment and metric label. | NodeID 返回构造时解析出的
+// 稳定节点身份，可安全用于消息 id、Redis 键片段与指标标签。
+func (a *App) NodeID() string { return a.nodeIdentity.ID }
+
+// NodeIdentity returns the resolved identity together with its source,
+// environment, durability and stability flags. | NodeIdentity 返回解析出的身份及其来源、环境、
+// 持久性与稳定性标记。
+func (a *App) NodeIdentity() nodeid.Identity { return a.nodeIdentity }
+
+// nodeOptions maps the node section and decides whether a missing identity file
+// may be created. Tests are read-only so a test run never writes into the
+// developer's configuration directory. | nodeOptions 映射 node 段并决定是否允许创建缺失的
+// 身份文件。测试保持只读，避免测试运行写入开发者的配置目录。
+func (a *App) nodeOptions() nodeid.Options {
+	options := nodeid.OptionsFromConfig(a.cfg)
+	options.Create = !isTestProcess()
+	return options
+}
 
 // WebTransport returns the HTTP/3 WebTransport server, or nil when
 // server.http3.webtransport is off. | WebTransport 返回 HTTP/3 WebTransport 服务器；

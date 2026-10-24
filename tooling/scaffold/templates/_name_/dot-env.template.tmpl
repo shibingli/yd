@@ -18,6 +18,16 @@ YD_SERVER_HTTP3_ENABLED=false
 # a bare binary re-executes itself at startup, while Windows services must be installed through yd service.
 YD_SERVER_HTTP2_EXTENDED_CONNECT=false
 
+# 节点身份：跨重启、硬件更换、虚机/容器迁移保持稳定；多副本必须唯一。
+# 留空时按 node.id > node.id_file > 平台种子解析；容器重建后身份会变，除非 id_file 位于持久卷。
+# Node identity: stable across restarts, hardware replacement and VM/container migration; unique per replica.
+# Empty resolves node.id > node.id_file > platform seed. A recreated container changes identity unless id_file
+# lives on a durable volume.
+# YD_NODE_ID=
+# YD_NODE_ID_FILE=data/node-id
+# YD_NODE_REQUIRE_PERSISTENT=false
+# YD_NODE_SALT=
+
 YD_LOG_LEVEL=info
 YD_LOG_FORMAT=json
 {{- if ne .DB "none" }}
@@ -75,7 +85,7 @@ YD_MESSAGE_MAX_GROUP_MEMBERS=50
 YD_MESSAGE_PAGE_SIZE=20
 YD_MESSAGE_ATTACHMENT_DIR=data/attachments
 YD_MESSAGE_PENDING_TTL=24h
-# Must be unique per replica; empty derives from hostname and pid. | 多副本部署必须唯一；留空按主机名与进程号生成。
+# Compatibility alias; empty uses node.id and the persistent identity file. | 兼容别名；留空使用 node.id 与持久身份文件。
 # YD_MESSAGE_NODE_ID=node-1
 
 # 国密（仅开发环境使用测试向量，生产环境必须走密钥管理服务）

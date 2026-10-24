@@ -11,11 +11,13 @@ package realtime
 import (
 	"context"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
 	"github.com/shibingli/yd/messaging"
 	ydlog "github.com/shibingli/ydx/log"
+	"github.com/shibingli/ydx/nodeid"
 )
 
 // Subscription is one live connection's interest. | Subscription 是一条活连接的订阅。
@@ -45,7 +47,8 @@ type Hub struct {
 	subs map[uint64]Subscription
 	// cancel stops the bus subscription. | cancel 停止总线订阅。
 	cancel func()
-	// nodeID identifies this process in the bus; empty in a single-node deployment. | nodeID 在总线中标识本进程；单节点部署为空。
+	// nodeID identifies this process in the bus; empty resolves through nodeid. |
+	// nodeID 在总线中标识本进程；为空时经 nodeid 解析。
 	nodeID string
 	// mu guards subs, next, closed and started. | mu 保护 subs、next、closed 与 started。
 	mu sync.RWMutex
@@ -64,11 +67,21 @@ func New(log *ydlog.Logger) *Hub { return NewDistributed(log, nil, nil, "") }
 
 // NewDistributed constructs a hub with optional cross-node delivery. | NewDistributed 构造带可选跨节点投递的 Hub。
 //
-// A nil bus keeps the hub local; a nil retry queue only means a failed broadcast is logged. |
-// bus 为 nil 时保持本地；retry 为 nil 只表示广播失败仅记录日志。
+// A nil bus keeps the hub local; a nil retry queue only means a failed broadcast is logged.
+// An empty nodeID is resolved through nodeid (persisted identity first, random per-process
+// otherwise), so a hub never stamps events with an empty origin. |
+// bus 为 nil 时保持本地；retry 为 nil 只表示广播失败仅记录日志。空 nodeID 经 nodeid 解析
+// （先持久身份，否则随机每进程 id），因此 Hub 绝不会用空 Origin 标记事件。
 func NewDistributed(log *ydlog.Logger, bus Bus, retry RetryQueue, nodeID string) *Hub {
 	if log == nil {
 		log = ydlog.Default()
+	}
+	if strings.TrimSpace(nodeID) == "" {
+		if identity, err := nodeid.Resolve(context.Background(), nodeid.Options{}); err == nil {
+			nodeID = identity.ID
+		} else {
+			nodeID = nodeid.Ephemeral().ID
+		}
 	}
 	return &Hub{bus: bus, retry: retry, log: log, nodeID: nodeID, subs: make(map[uint64]Subscription)}
 }
