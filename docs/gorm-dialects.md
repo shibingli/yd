@@ -4,7 +4,7 @@
 驱动选择、连接串预置、自动建库与跨方言 SQL 都由框架收敛。本文是这套能力的使用入口，
 覆盖配置、方言能力矩阵、跨方言表达式、各方言实践、迁移与排错。
 
-> 适用版本：`ydx/gorm` v0.1.12+。组件源码与 API 见
+> 适用版本：`ydx/gorm` v0.1.13+。组件源码与 API 见
 > [`github.com/shibingli/ydx/gorm`](https://github.com/shibingli/ydx/tree/main/gorm)。
 
 ## 1. 支持的方言

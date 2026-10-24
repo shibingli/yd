@@ -6,7 +6,7 @@
 本手册面向使用 `yd` 创建、开发、测试与部署项目的开发者。框架内部的约束与实现细节见
 [`CLAUDE.md`](../CLAUDE.md) 与 [`docs/verification.md`](verification.md)。
 
-> 适用版本：yd v1.x（Go 1.27.3+）。命令、配置与示例均以仓库当前实现为准；
+> 适用版本：yd v1.4.0+（Go 1.27.3+）。命令、配置与示例均以仓库当前实现为准；
 > 组件实现位于 [`github.com/shibingli/ydx`](https://github.com/shibingli/ydx)。
 
 ## 文档地图
