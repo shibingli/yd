@@ -24,7 +24,7 @@
 - JSON：**自研默认** —— amd64 与 arm64 均为正式支持架构，默认使用自研原生后端（各自选择 SSE2/AVX2/AVX-512BW 或 NEON 内核），其它架构走同一套自研标量路径；`jsonx_std` 可强制标准库；主模块不依赖 sonic/jsoniter/goccy
 - Base64：**自研默认** —— amd64 与 arm64 均为正式支持架构，默认使用自研内核（amd64 在 `GOEXPERIMENT=simd` 下按 VBMI2/VBMI → AVX-512 → AVX2 分发，arm64 NEON），其它架构走纯 Go 标量；`b64x_std` 标签回退 `encoding/base64`；主模块不依赖 cloudwego/base64x/cristalhq
 - 并行与分配：工作协程数、分块大小与缓冲上限一律由 `ydx/sysinfo` 在运行时读取 GOMAXPROCS 与 cgroup/主机内存后自动决定，**不得**要求调用方传核心数或内存容量
-- 数据：GORM v1.31（默认 `PrepareStmt: true`）、go-redis v9（单机/哨兵/集群）、asynq v0.26（Redis 驱动分布式队列）
+- 数据：GORM v1.31（默认 `PrepareStmt: true`；支持 MySQL / PostgreSQL / SQLite / 达梦 DM8）、go-redis v9（单机/哨兵/集群）、asynq v0.26（Redis 驱动分布式队列）
 - 网络：HTTP/1.1 + H2C + HTTP/3(QUIC, quic-go) + 内置 ACME 自动签发续期
 - 安全：国密 SM2/SM3/SM4（**纯 Go**，gmsm），严禁 cgo 与非 Go 原生组件
 - 日志：自研零拷贝日志（`sync.Pool` 字节缓冲直写 `io.Writer`，热路径零反射）
@@ -459,9 +459,12 @@ yd icons check       # 校验图标 sprite 是否漂移（CI 可用）
 - **显式参数优先**：使用方在自己的 DSN 里写了的键一律保留，预置只补缺。因此**脚手架生成的 DSN 不得写死
   与预置冲突的值**——旧模板里的 `loc=Local` 正是这样把 UTC 默认架空的，已改为由预置补齐。
 - **预置是幂等的**：对同一连接串重复施加不产生重复参数。
-- **默认时区是 UTC**（`loc=UTC` / `time_zone='+00:00'` / `TimeZone=UTC`），与框架日志一律输出 UTC 一致；
-  GORM 的 `NowFunc` 同样固定为 UTC，避免自动时间戳把本地墙钟写进库；需要本地时间的使用方在自己的 DSN 里
-  显式写 `loc=Local` 覆盖。
+- **默认时区是 UTC**（`loc=UTC` / `time_zone='+00:00'` / `TimeZone=UTC` / DM `timeZone=0`），
+  与框架日志一律输出 UTC 一致；GORM 的 `NowFunc` 同样固定为 UTC，避免自动时间戳把本地墙钟写进库；
+  需要本地时间的使用方在自己的 DSN 里显式覆盖。
+- **达梦（DM8）**：驱动名 `dm`（别名 `dameng`），方言由 `github.com/godoes/gorm-dameng` 提供；
+  `PresetDSN` 只补 `timeZone=0`（相对 UTC 的分钟偏移）。DM 没有按连接切换的数据库（schema 只是
+  命名空间），空值严格性与字符集随实例/库创建固定，因此不参与自动建库，也没有字符集预置键。
 - **预置表只有一份**：脚手架经 `gorm.PresetDSN` 生成示例 DSN，**不得**抄一份参数表到 `scaffold`。
 
 ### 16.1 SQLite：两个参数一存一亡
@@ -480,7 +483,8 @@ yd icons check       # 校验图标 sprite 是否漂移（CI 可用）
 （配置键 `db.create_database`，**默认开启**）。
 
 - **判定用错误码，不用字符串匹配**：MySQL `ER_BAD_DB_ERROR`(1049)、PostgreSQL `SQLSTATE 3D000`，
-  经 `errors.As` 判定；其余错误一律不触发。SQLite 不参与（文件由驱动创建）。
+  经 `errors.As` 判定；其余错误一律不触发。SQLite 不参与（文件由驱动创建）；
+  达梦不参与（DM 的连接串没有「数据库」这一层，schema 只是命名空间，由实例侧预建）。
 - **建库语句必须带预置的字符集与排序规则**，否则会建出一个与 §16 预置不符的库，
   把字符集默认值架空。字符集取值**读预置表**，不得另抄字面量。
 - **库名是外部输入**，必须按 SQL 自身的定界规则转义（MySQL 反引号成对、PostgreSQL 双引号成对）。

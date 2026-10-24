@@ -21,11 +21,11 @@ import (
 	"time"
 
 	"github.com/shibingli/yd/security/authz"
-	"github.com/shibingli/ydx/guomi"
 	"github.com/shibingli/yd/tooling/assets"
 	"github.com/shibingli/yd/tooling/scaffold"
 	"github.com/shibingli/ydx/afs"
 	"github.com/shibingli/ydx/base64"
+	"github.com/shibingli/ydx/guomi"
 	"github.com/shibingli/ydx/json"
 	"github.com/shibingli/ydx/regexpx"
 	"github.com/shibingli/ydx/websocket"
@@ -3803,5 +3803,24 @@ func TestGeneratedMessageCentreUsesInlineNewConversationPanel(t *testing.T) {
 		if _, ok := en[key]; !ok {
 			t.Errorf("en.yaml 缺少 %q", key)
 		}
+	}
+}
+
+// TestGenerateDamengDSN asserts that the Dameng option emits the dm driver and a DSN that carries
+// the framework's UTC preset, so the generated project connects with the same time semantics as the
+// other dialects. | TestGenerateDamengDSN 断言达梦选项生成 dm 驱动与带框架 UTC 预置的连接串，
+// 使生成项目与其它方言具备相同的时区语义。
+func TestGenerateDamengDSN(t *testing.T) {
+	o := scaffold.DefaultOptions("dm-app")
+	o.DB = scaffold.DBDM
+	pr, _ := generateMem(t, o)
+
+	cfg := pr.read("configs/config.yaml")
+	if !strings.Contains(cfg, "driver: dm") {
+		t.Errorf("config.yaml 缺少 dm 驱动:\n%s", cfg)
+	}
+	wantDSN := `dm://SYSDBA:SYSDBA@127.0.0.1:5236?timeZone=0`
+	if !strings.Contains(cfg, wantDSN) {
+		t.Errorf("config.yaml 的达梦连接串缺少 %q:\n%s", wantDSN, cfg)
 	}
 }

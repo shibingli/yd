@@ -66,7 +66,7 @@ auth:
 
 # Database: tenants, users, roles and permissions live here, so the data survives a restart. | 数据库：租户、用户、角色与权限都存在这里，重启后数据仍在。
 db:
-  driver: {{ .DB }}   # mysql | postgres | sqlite
+  driver: {{ .DB }}   # mysql | postgres | sqlite | dm
   dsn: "{{ .DBDSN }}"
   maxconn: 100        # ceiling of the connection pool | 连接池上限
   maxidle: 10         # idle connections kept in the pool | 池中保留的空闲连接数

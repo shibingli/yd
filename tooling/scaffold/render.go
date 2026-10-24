@@ -291,6 +291,12 @@ func dsnFor(db, name string) string {
 		return gorm.PresetDSN(DBMySQL, "root:root@tcp(127.0.0.1:3306)/"+name)
 	case DBPostgres:
 		return gorm.PresetDSN(DBPostgres, "host=127.0.0.1 user=postgres password=postgres dbname="+name+" port=5432 sslmode=disable")
+	case DBDM:
+		// DM connects to the instance and selects a schema (default: the user's own). The sample
+		// therefore names no schema; a DBA creates the project schema and the caller adds
+		// ?schema=NAME. | DM 连接的是实例，schema 只是命名空间（默认取用户自身的模式）。示例
+		// 因此不点名 schema；项目模式由 DBA 创建，调用方按需追加 ?schema=NAME。
+		return gorm.PresetDSN(DBDM, "dm://SYSDBA:SYSDBA@127.0.0.1:5236")
 	default:
 		return ""
 	}

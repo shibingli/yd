@@ -21,7 +21,7 @@ var YdxVersions = map[string]string{
 	"github.com/shibingli/ydx/buffpool":              "v0.1.4",
 	"github.com/shibingli/ydx/config":                "v0.1.5",
 	"github.com/shibingli/ydx/errs":                  "v0.1.4",
-	"github.com/shibingli/ydx/gorm":                  "v0.1.9",
+	"github.com/shibingli/ydx/gorm":                  "v0.1.12",
 	"github.com/shibingli/ydx/guomi":                 "v0.1.0",
 	"github.com/shibingli/ydx/i18n":                  "v0.1.9",
 	"github.com/shibingli/ydx/json":                  "v0.1.12",

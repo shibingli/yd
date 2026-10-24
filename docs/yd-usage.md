@@ -232,7 +232,7 @@ auth:
     query_timeout: 0
 
 db:
-  driver: sqlite              # sqlite | mysql | postgres
+  driver: sqlite              # sqlite | mysql | postgres | dm
   dsn: "file:data/myapp.db?_txlock=immediate&_loc=UTC"
   maxconn: 100
   maxidle: 10
@@ -274,6 +274,12 @@ service:
 > SQLite 必须保留 `_txlock=immediate`，**不要**加入 `_time_format`（会让该参数静默失效）。
 > 需要本地时区时在 DSN 中显式写 `loc=Local`。
 
+`db.driver` 支持 `sqlite` / `mysql` / `postgres` / `dm`（达梦 DM8）。达梦的示例 DSN 形如
+`dm://SYSDBA:SYSDBA@127.0.0.1:5236`，预置层会补 `timeZone=0`（UTC）；schema 只是命名空间，
+由实例侧预建，需要时在 DSN 里追加 `?schema=NAME`。运行时可用
+`gorm.DialectOf(db)` 取得方言能力，并用 `gorm.Upsert` / `JSONExtract` / `ILike` /
+`Concat` / `Random` / `LockClause` 构造跨方言表达式，不必按驱动名分支。
+
 ### 4.3 `.env`
 
 ```bash
@@ -313,7 +319,7 @@ yd new <项目名> [flags]
 | 标志 | 说明 |
 |---|---|
 | `--module` | Go 模块路径，默认 `github.com/yun-dev/<name>` |
-| `--db` | `sqlite` / `mysql` / `postgres` / `none` |
+| `--db` | `sqlite` / `mysql` / `postgres` / `dm` / `none` |
 | `--grpc` | 开启 gRPC 双通道 |
 | `--i18n` | 开启国际化 |
 | `--tailwind` | 接入 Tailwind CSS v4 |
@@ -363,7 +369,7 @@ yd gen <module|crud> <名称> [flags]
 | `--table` | 表名（crud 的数据来源，或其它模式的表名覆盖） |
 | `--struct` | 既有结构体：`internal/model.Post` |
 | `--dsn` | crud 读取表结构所用的数据库连接串 |
-| `--driver` | `sqlite` / `mysql` / `postgres` |
+| `--driver` | `sqlite` / `mysql` / `postgres` / `dm` |
 | `--module` | `@Tags` 业务模块名 |
 | `--package` | 目标项目的 Go 模块路径 |
 | `--dir` | 输出目录 |

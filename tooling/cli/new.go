@@ -61,7 +61,7 @@ var newFlags *pflag.FlagSet
 
 // dbChoices lists the database drivers offered by the interview, in presentation order. | dbChoices 按展示顺序列出问答提供的数据
 // 库驱动。
-var dbChoices = []string{scaffold.DBMySQL, scaffold.DBPostgres, scaffold.DBSQLite, scaffold.DBNone}
+var dbChoices = []string{scaffold.DBMySQL, scaffold.DBPostgres, scaffold.DBSQLite, scaffold.DBDM, scaffold.DBNone}
 
 func init() {
 	Register(Command{
@@ -89,7 +89,7 @@ func init() {
 // registerNewFlags declares the new command's flags. | registerNewFlags 声明 new 命令的标志。
 func registerNewFlags(fs *pflag.FlagSet) {
 	fs.String(flagNewModule, "", "module path, defaults to github.com/yun-dev/<name> | 模块路径，默认为 github.com/yun-dev/<name>")
-	fs.String(flagNewDB, "", "database driver: mysql/postgres/sqlite/none | 数据库驱动：mysql/postgres/sqlite/none")
+	fs.String(flagNewDB, "", "database driver: mysql/postgres/sqlite/dm/none | 数据库驱动：mysql/postgres/sqlite/dm/none")
 	fs.Bool(flagNewGRPC, false, "enable the gRPC dual channel | 开启 gRPC 双通道")
 	fs.Bool(flagNewI18n, false, "enable i18n | 开启国际化")
 	fs.Bool(flagNewTailwind, false, "wire in Tailwind CSS v4 | 接入 Tailwind CSS v4")

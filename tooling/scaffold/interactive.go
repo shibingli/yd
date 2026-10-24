@@ -16,7 +16,7 @@ const (
 	// promptModule asks for the module path. | promptModule 询问模块路径。
 	promptModule = "模块路径 | Module path"
 	// promptDB asks for the database driver. | promptDB 询问数据库驱动。
-	promptDB = "数据库 (mysql/postgres/sqlite/none) | Database (mysql/postgres/sqlite/none)"
+	promptDB = "数据库 (mysql/postgres/sqlite/dm/none) | Database (mysql/postgres/sqlite/dm/none)"
 	// promptGRPC asks whether gRPC is wanted. | promptGRPC 询问是否开启 gRPC。
 	promptGRPC = "启用 gRPC 双通道 (y/n) | Enable gRPC dual channel (y/n)"
 	// promptI18n asks whether i18n is wanted. | promptI18n 询问是否开启国际化。
@@ -173,7 +173,7 @@ func withDefaults(o Options) Options {
 
 // dbValues returns the supported drivers in a fixed order for hints and tests. | dbValues 返回支持的数据库驱动取值（固定顺序，便于提示与测试）。
 func dbValues() []string {
-	return []string{DBMySQL, DBPostgres, DBSQLite, DBNone}
+	return []string{DBMySQL, DBPostgres, DBSQLite, DBDM, DBNone}
 }
 
 // yesNo renders a boolean switch as the y/n hint. | yesNo 把布尔开关渲染为提示用的 y/n。

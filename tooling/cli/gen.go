@@ -83,7 +83,7 @@ func registerGenFlags(fs *pflag.FlagSet) {
 	fs.String(flagGenFields, "", "field spec: name:type[:modifier,...] (module/crud) | 字段描述串：名称:类型[:修饰符,...]（module/crud）")
 	fs.String(flagGenTable, "", "table name: the source table in crud, an override elsewhere | 表名：crud 下作为数据来源，其它模式下覆盖推导出的表名")
 	fs.String(flagGenDSN, "", "database DSN of the table (crud) | 表所在数据库的连接串（crud）")
-	fs.String(flagGenDriver, "sqlite", "database driver: sqlite/mysql/postgres (crud) | 数据库驱动（crud）")
+	fs.String(flagGenDriver, "sqlite", "database driver: sqlite/mysql/postgres/dm (crud) | 数据库驱动（crud）")
 	fs.String(flagGenStruct, "", "existing struct: pkg.Type (crud) | 既有结构体：pkg.Type（crud）")
 	fs.String(flagGenModule, "", "business module name used as @Tags | 业务模块名，用作 @Tags")
 	fs.String(flagGenPackage, "", "Go module path of the target project | 目标工程的 Go 模块路径")

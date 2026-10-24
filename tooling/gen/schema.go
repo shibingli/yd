@@ -329,6 +329,13 @@ func ModelFromTable(ctx context.Context, db *gorm.DB, table string, o TableOptio
 
 // goTypeForDB 把数据库类型名映射到 Go 类型名。
 // goTypeForDB maps a database type name onto a Go type name.
+//
+// 除 MySQL / PostgreSQL / SQLite 的类型名外，也接受达梦 DM8 的别名：NUMBER 归入精确数值（与
+// NUMERIC/DECIMAL 同义），RAW / LONGVARBINARY / IMAGE 归入字节序列；VARCHAR2、NVARCHAR2、
+// CLOB 等与 VARCHAR、CLOB 同义，落进默认的字符串分支。
+// Besides MySQL / PostgreSQL / SQLite names it accepts the Dameng DM8 aliases: NUMBER joins
+// the exact numeric types (the same type as NUMERIC/DECIMAL), and RAW / LONGVARBINARY / IMAGE
+// join the byte sequences; VARCHAR2, NVARCHAR2 and CLOB fall into the default string branch.
 func goTypeForDB(dbType string) string {
 	base := dbType
 	if i := strings.IndexByte(base, '('); i >= 0 {
@@ -348,11 +355,12 @@ func goTypeForDB(dbType string) string {
 		return "int64"
 	case "BOOL", "BOOLEAN":
 		return "bool"
-	case "FLOAT", "FLOAT4", "FLOAT8", "REAL", "DOUBLE", "NUMERIC", "DECIMAL", "MONEY":
+	case "FLOAT", "FLOAT4", "FLOAT8", "REAL", "DOUBLE", "NUMERIC", "DECIMAL", "MONEY", "NUMBER":
 		return "float64"
 	case "DATE", "DATETIME", "TIMESTAMP", "TIMESTAMPTZ", "TIME", "TIMETZ":
 		return typeTime
-	case "BLOB", "TINYBLOB", "MEDIUMBLOB", "LONGBLOB", "BINARY", "VARBINARY", "BYTEA":
+	case "BLOB", "TINYBLOB", "MEDIUMBLOB", "LONGBLOB", "BINARY", "VARBINARY", "BYTEA",
+		"RAW", "LONGVARBINARY", "IMAGE":
 		return "[]byte"
 	default:
 		return "string"

@@ -70,6 +70,8 @@ const (
 	DBMySQL = "mysql"
 	// DBPostgres is the PostgreSQL driver. | DBPostgres 表示 PostgreSQL 驱动。
 	DBPostgres = "postgres"
+	// DBDM is the Dameng DM8 driver. | DBDM 表示达梦 DM8 驱动。
+	DBDM = "dm"
 )
 
 // Supported Htmx 4 extension registration names, covering the complete extension set shipped in

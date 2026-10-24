@@ -29,8 +29,12 @@ github.com/go-sql-driver/mysql v1.10.1 h1:arlSnNLq6a5yxGxV7qg9lF4j0C+KwD6NbQyKr9
 github.com/go-sql-driver/mysql v1.10.1/go.mod h1:M+cqaI7+xxXGG9swrdeUIoPG3Y3KCkF0pZej+SK+nWk=
 github.com/go-viper/mapstructure/v2 v2.5.0 h1:vM5IJoUAy3d7zRSVtIwQgBj7BiWtMPfmPEgAXnvj1Ro=
 github.com/go-viper/mapstructure/v2 v2.5.0/go.mod h1:oJDH3BJKyqBA2TXFhDsKDGDTlndYOZ6rGS0BRZIxGhM=
+github.com/godoes/gorm-dameng v0.7.2 h1:REw2sMyN2z/hfYEJqV1VbiCIl+zwyzIdRWFQYqQ4xrQ=
+github.com/godoes/gorm-dameng v0.7.2/go.mod h1:KP1qenBY+T4ZYwcRhM5VNWd33z2w7Mb5gIQw8X6pBeo=
 github.com/golang/protobuf v1.5.4 h1:i7eJL8qZTpSEXOPTxNKhASYpMn+8e5Q6AdndVa1dWek=
 github.com/golang/protobuf v1.5.4/go.mod h1:lnTiLA8Wa4RWRcIUkrtSVa5nRhsEGBg48fD6rSs7xps=
+github.com/golang/snappy v1.0.0 h1:Oy607GVXHs7RtbggtPBnr2RmDArIsAefDwvrdWvRhGs=
+github.com/golang/snappy v1.0.0/go.mod h1:/XxbfmMg8lxefKM7IXC3fBNl/7bRcc72aCRzEWrmP2Q=
 github.com/google/go-cmp v0.7.0 h1:wk8382ETsv4JYUZwIsn6YpYiWiBsYLSJiTsyBybVuN8=
 github.com/google/go-cmp v0.7.0/go.mod h1:pXiqmnSA92OHEEa9HXL2W4E7lf9JzCmGVUdgjX3N/iU=
 github.com/google/pprof v0.0.0-20261016150608-1facf8f91b50 h1:PlNWJRxu5APSV0pWqfIsZ0qt9OOGHSWfZQ4zvx+WgWs=
@@ -94,8 +98,8 @@ github.com/shibingli/ydx/config v0.1.5 h1:ENvXbLosG0FlAwLgDnGQ6nGzsIaAZ3WCYEoXrK
 github.com/shibingli/ydx/config v0.1.5/go.mod h1:WFnQwQIxRqkinll78+p225KUXisPnbZiEuS1ogUaPAc=
 github.com/shibingli/ydx/errs v0.1.4 h1:/hexB5eDFA/wWhRof5yxWEVeVlHn1P7IZmys9U4h1iA=
 github.com/shibingli/ydx/errs v0.1.4/go.mod h1:N6GNQq5eustT11WTdXOip9bXcIwrFd4c9UWG0gIDuwU=
-github.com/shibingli/ydx/gorm v0.1.9 h1:F4w/GD2boH3J+dqppJc2eA8eR8APodbdMGSpWVR30P0=
-github.com/shibingli/ydx/gorm v0.1.9/go.mod h1:ChqaJwhY4TKOqyXLlidniijxYVpBGQkKir5MulCr6KA=
+github.com/shibingli/ydx/gorm v0.1.12 h1:YpFlJaajY3cjSP74ZyjFHqURsFCsrwnxhKhbEAWlu2k=
+github.com/shibingli/ydx/gorm v0.1.12/go.mod h1:7Hzj5w/5fdv9lrj/sREn/+KB/MWSMgbJZ2IDny/TGZU=
 github.com/shibingli/ydx/guomi v0.1.0 h1:qbxJNH88hver5R+VaA/ju+vctNFV9cS93KcDXsWwpp8=
 github.com/shibingli/ydx/guomi v0.1.0/go.mod h1:hI83nN+6ZMlPsKBPr+rCBJpJDyh6P2rNHtbL1Q8O1bg=
 github.com/shibingli/ydx/i18n v0.1.9 h1:r52unGfjpjjaM6ukmZ6Hmiqvft237BMuLe1dkom8skQ=
