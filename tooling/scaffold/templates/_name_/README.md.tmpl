@@ -62,6 +62,9 @@ Go {{ .GoVersion }} + Htmx {{ .HtmxVersion }} + Tailwind CSS {{ .TailwindVersion
 节点身份在 `node` 段配置：`id`（显式身份）、`id_file`（默认 `data/node-id`）、`require_persistent`、
 `allow_shared_seed` 与 `salt`；`message.node_id` 是兼容别名，留空时使用 `node.id`。
 
+GORM 查询缓存默认开启并按安全等级分流：`yd_auth_users` 永不缓存（即时撤销），成员/角色/权限/租户走
+`cache.gorm.sensitive_tables` 的独立命名空间与短 TTL；`/login`、`/account`、`/tenant`、`/mgr` 与
+`/api/v1` 等高安全路由在鉴权前挂 `CacheBypass`，整个请求不读缓存。
 生成项目默认内建 `redis`（Pub/Sub 频道 `yd:message:events`）与 `asynq`（失败广播进入
 `yd:message:event` 持久重试）。单节点无需 Redis，不可达时应用会明确告警并退回进程内投递，启动不受影响；
 多副本部署必须给每个副本唯一的 `node.id`（`message.node_id` 是兼容别名）；容器部署要把 `data/node-id`

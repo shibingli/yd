@@ -73,7 +73,7 @@ func (s *Store) UpsertRole(ctx context.Context, r *auth.Role) error {
 // 此时没有写入任何内容，由调用方重试。
 func (s *Store) upsertRole(ctx context.Context, tenantID, roleID, name, description string, perms []string) (bool, error) {
 	raced := false
-	err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	err := s.transaction(ctx, []string{tableRoles, tableRolePermissions}, func(tx *gorm.DB) error {
 		known, err := existsTenant(tx, tenantID)
 		if err != nil {
 			return err
@@ -221,7 +221,7 @@ func (s *Store) DeleteRole(ctx context.Context, tenantID, roleID string) error {
 	}
 	ctx, cancel := s.scoped(ctx)
 	defer cancel()
-	return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	return s.transaction(ctx, []string{tableRolePermissions, tableUserTenants, tableRoles}, func(tx *gorm.DB) error {
 		var row roleRow
 		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
 			Where("tenant_id = ? AND id = ?", tenantID, roleID).First(&row).Error; err != nil {

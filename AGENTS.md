@@ -299,11 +299,15 @@
 - Redis 载荷必须带 `YD` 信封头与版本；`Store`/`StoreIf`/`Remove` 必须是单键 Lua（Cluster 安全）；
   删除/负缓存写 tombstone；事件只含键名与命名空间，不含值。
 - GORM 插件只缓存 `gorm:query`；查询键必须含表名、纪元、表代际、目标类型、SQL 与全部绑定变量；事务内查询、
-  Raw SQL、`FOR UPDATE`、Preload、`*sql.Rows` 必须跳过；显式事务严格语义用 `Plugin.Invalidate`。
+  Raw SQL、`FOR UPDATE`、Preload、`*sql.Rows` 必须跳过。
+- **GORM 安全分级**：普通表用普通命名空间；`sensitive_tables` 用独立命名空间 + 短 TTL；
+  `ignore_tables` 永不缓存；高安全/涉密请求用 `middleware.CacheBypass`（必须在鉴权中间件之前）
+  跳过全部读取。**`yd_auth_users` 必须留在 `ignore_tables`**（口令散列、`sec_key`、状态不可缓存，
+  否则禁用/轮换不能立即生效）；成员/角色/权限/租户进 `sensitive_tables`。显式事务必须
+  `cache.WithDeferredInvalidation` + 提交后 `Invalidate`，auth gormstore 已经由 `SetInvalidator` 内建。
 - 配置经 `cache.*` 与 `cache.OptionsFromConfig`/`RedisOptionsFromConfig`/`gormcache.OptionsFromConfig`；
-  GORM 插件由 `cache.gorm.enabled` 控制，脚手架默认开启并把 `yd_auth_*` 与 `yd_msg_*` 列入
-  `ignore_tables`：前者保住禁用用户与轮换 `sec_key` 的即时失效，后者因显式事务在提交前失效
-  而暂不缓存；Manager 注册为 `app.ServiceCache`。
+  GORM 插件由 `cache.gorm.enabled` 控制，脚手架默认开启；`yd_msg_*` 作为常规数据正常缓存，消息存储
+  与鉴权存储都在提交后显式失效；Manager 注册为 `app.ServiceCache`。
 - 禁止新增第三方缓存库、直接 `encoding/json`/`encoding/base64`、直接 `panic`、`fmt.Errorf`、
   热路径反射，以及绕过 Manager 自建跨节点失效。
 - [ ] **实时传输**：WebSocket / WebTransport / SSE 一律经 `ydx/realtime` 中枢（禁止自建广播、去重或

@@ -226,6 +226,31 @@ func (s *Store) GormDB() *gorm.DB {
 	db, _ := s.db.(*gorm.DB)
 	return db
 }
+
+// SetCacheInvalidator attaches a post-commit invalidator to the auth store when the
+// backing implementation supports it. The GORM store defers write invalidation
+// until after commit, so a concurrent read cannot cache stale auth rows under the
+// new table generation. | SetCacheInvalidator 在底层实现支持时把提交后失效器绑定到鉴权
+// 存储。GORM 存储把写入失效推迟到提交后，避免并发读把陈旧鉴权行缓存到新表代际下。
+func (s *Store) SetCacheInvalidator(inv interface{ Invalidate(context.Context, ...string) error }) {
+	setter, ok := s.raw.(interface{ SetInvalidator(gormstore.Invalidator) })
+	if !ok {
+		return
+	}
+	setter.SetInvalidator(inv)
+}
+
+// SetMessageCacheInvalidator attaches the post-commit invalidator to the message
+// store when it supports it. Message writes use explicit transactions too, so they
+// follow the same deferred-invalidation pattern. | SetMessageCacheInvalidator 在消息存储
+// 支持时绑定提交后失效器。消息写入同样使用显式事务，因此遵循相同的延迟失效模式。
+func (s *Store) SetMessageCacheInvalidator(inv interface{ Invalidate(context.Context, ...string) error }) {
+	setter, ok := s.msg.(interface{ SetInvalidator(messaginggorm.Invalidator) })
+	if !ok {
+		return
+	}
+	setter.SetInvalidator(inv)
+}
 {{- end }}
 
 {{ if ne .DB "none" -}}

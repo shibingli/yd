@@ -89,7 +89,7 @@ func (s *Store) UpdateType(ctx context.Context, t messaging.MessageType) error {
 // between the service's count and the delete. | DeleteType 删除未使用的类型。行锁与事务内使用计数消除了
 // 服务层计数与删除之间的竞态。
 func (s *Store) DeleteType(ctx context.Context, tenantID, key string) error {
-	return queryError(s.dbc(ctx).Transaction(func(tx *gorm.DB) error {
+	return queryError(s.transaction(ctx, []string{"yd_msg_types"}, func(tx *gorm.DB) error {
 		var row messaging.MessageType
 		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
 			Where("tenant_id = ? AND type_key = ?", tenantID, key).Take(&row).Error; err != nil {
@@ -174,7 +174,7 @@ func (s *Store) UpdateTag(ctx context.Context, t messaging.Tag) error {
 // transaction so no association row outlives its tag. | DeleteTag 删除未使用的分组或标签。行锁与事务内
 // 使用计数消除了服务层计数与删除之间的竞态；陈旧连接也在同一事务内删除，关联行不会比标签活得更久。
 func (s *Store) DeleteTag(ctx context.Context, tenantID, id string) error {
-	return queryError(s.dbc(ctx).Transaction(func(tx *gorm.DB) error {
+	return queryError(s.transaction(ctx, []string{"yd_msg_message_tags", "yd_msg_tags"}, func(tx *gorm.DB) error {
 		var row messaging.Tag
 		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
 			Where("tenant_id = ? AND id = ?", tenantID, id).Take(&row).Error; err != nil {

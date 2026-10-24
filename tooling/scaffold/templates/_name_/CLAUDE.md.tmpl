@@ -146,7 +146,14 @@
    定时任务用 asynq。禁止把 asynq 当广播总线、把 Pub/Sub 当可靠队列；事件在事务提交后发布，
    严格不丢时由业务加 outbox。完整判定见
    <https://github.com/shibingli/yd/blob/main/docs/redis-asynq.md>。
-8. **数据表**：`yd_msg_*` 由 `messaginggorm.Migrate` 建出；索引以 `tenant_id` 打头。改表结构时同步迁移与测试。
+8. **GORM 缓存安全分级（强制）**：`yd_auth_users` 永不缓存（口令散列、`sec_key` 密文与状态必须读库，
+   否则禁用/轮换不能立即生效）；`yd_auth_user_tenants` / `yd_auth_roles` / `yd_auth_role_permissions` /
+   `yd_auth_tenants` 进入 `cache.gorm.sensitive_tables`（独立命名空间 + 5s TTL + 提交后失效）。
+   高安全/涉密路由（`/login`、`/logout`、`/account/**`、`/tenant/**`、`/mgr/**`、`/api/v1/**` 与
+   `/api/portal/v1/account/**`）必须在鉴权中间件**之前**挂 `middleware.CacheBypass`，整个请求跳过缓存读取。
+   消息表属于常规数据，正常缓存；消息存储与鉴权存储都已在事务提交后显式失效。显式事务必须用
+   `cache.WithDeferredInvalidation` + 提交后 `SetInvalidator` 失效，不得让写回调在提交前推进代际。
+9. **数据表**：`yd_msg_*` 由 `messaginggorm.Migrate` 建出；索引以 `tenant_id` 打头。改表结构时同步迁移与测试。
 
 ## 7. 提交纪律（强制）
 

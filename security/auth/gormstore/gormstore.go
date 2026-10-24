@@ -58,6 +58,7 @@ import (
 	"context"
 	"errors"
 	"strings"
+	"sync"
 	"time"
 
 	"gorm.io/gorm"
@@ -147,12 +148,17 @@ func OptionsFromConfig(c *config.Config) Options {
 // It is safe for concurrent use: *gorm.DB is, and the adapter keeps no mutable
 // state of its own. | 它并发安全：*gorm.DB 本身如此，而适配器不持有任何可变状态。
 type Store struct {
+	// invalidator invalidates the GORM query cache after commits; nil disables it. |
+	// invalidator 在提交后使 GORM 查询缓存失效；nil 表示禁用。
+	invalidator Invalidator
 	// db is the connection pool opened by the caller. | db 是调用方打开的连接池。
 	db *gorm.DB
 	// log receives adapter diagnostics. | log 接收适配器诊断。
 	log *ydlog.Logger
 	// queryTimeout bounds a single statement, 0 meaning "no extra bound". | queryTimeout 限制单条语句耗时，0 表示不额外设限。
 	queryTimeout time.Duration
+	// invalidatorMu guards the late-bound invalidator. | invalidatorMu 保护后置绑定的失效器。
+	invalidatorMu sync.RWMutex
 }
 
 // The compiler pins the contract: every method of auth.Store is implemented below. | 编译期固定契约：auth.Store 的每个方法都在下面实现。

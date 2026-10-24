@@ -13,7 +13,8 @@ require (
 	github.com/shibingli/ydx/afs v0.1.6
 	github.com/shibingli/ydx/base64 v0.1.11
 	github.com/shibingli/ydx/buffpool v0.1.4
-	github.com/shibingli/ydx/config v0.1.7
+	github.com/shibingli/ydx/cache v0.1.17
+	github.com/shibingli/ydx/config v0.1.8
 	github.com/shibingli/ydx/errs v0.1.4
 	github.com/shibingli/ydx/gorm v0.1.13
 	github.com/shibingli/ydx/guomi v0.1.1
@@ -21,7 +22,7 @@ require (
 	github.com/shibingli/ydx/json v0.1.13
 	github.com/shibingli/ydx/jwt v0.1.10
 	github.com/shibingli/ydx/log v0.1.10
-	github.com/shibingli/ydx/middleware v0.1.12
+	github.com/shibingli/ydx/middleware v0.1.13
 	github.com/shibingli/ydx/nodeid v0.1.4
 	github.com/shibingli/ydx/protocol v0.1.5
 	github.com/shibingli/ydx/realtime v0.1.7
@@ -59,7 +60,6 @@ require (
 	github.com/jinzhu/inflection v1.0.0 // indirect
 	github.com/jinzhu/now v1.1.5 // indirect
 	github.com/klauspost/compress v1.20.3 // indirect
-	github.com/klauspost/cpuid/v2 v2.4.1 // indirect
 	github.com/mattn/go-isatty v0.0.24 // indirect
 	github.com/ncruces/go-strftime v1.1.0 // indirect
 	github.com/pelletier/go-toml/v2 v2.4.3 // indirect

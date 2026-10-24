@@ -33,7 +33,7 @@ func (s *Store) GetAttachment(ctx context.Context, tenantID, id string) (messagi
 // 之间挂载某一行，删除该行的字节会让一条仍然可见的消息失去文件。
 func (s *Store) CleanupPending(ctx context.Context, before time.Time) ([]messaging.Attachment, error) {
 	var stale []messaging.Attachment
-	err := s.dbc(ctx).Transaction(func(tx *gorm.DB) error {
+	err := s.transaction(ctx, []string{"yd_msg_attachments"}, func(tx *gorm.DB) error {
 		// Lock the candidates so a message cannot bind them until this transaction commits. |
 		// 锁定候选行，使消息在事务提交前无法挂载它们。
 		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).

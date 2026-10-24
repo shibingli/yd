@@ -81,6 +81,7 @@ var requiredFiles = []string{
 	"internal/controller/tenant_controller.go",
 	"internal/controller/user_controller.go",
 	"internal/meta/meta.go",
+	"internal/middleware/cache.go",
 	"internal/middleware/observability.go",
 	"internal/middleware/security.go",
 	"internal/middleware/session.go",
@@ -471,6 +472,9 @@ func TestGenerateAlwaysIntegratesRedisAndAsynq(t *testing.T) {
 		"node:",
 		"id_file: \"data/node-id\"",
 		"require_persistent: false",
+		"sensitive_tables:",
+		"yd_auth_user_tenants",
+		"sensitive_ttl: 5s",
 	} {
 		if !strings.Contains(cfg, want) {
 			t.Errorf("config.yaml 缺少 %q:\n%s", want, cfg)
@@ -479,7 +483,19 @@ func TestGenerateAlwaysIntegratesRedisAndAsynq(t *testing.T) {
 	busSource := pr.read("internal/service/message_bus.go")
 	for _, want := range []string{"nodeid.OptionsFromConfig", "nodeid.Resolve", "message.node_id"} {
 		if !strings.Contains(busSource, want) {
-			t.Errorf("message_bus.go 缺少 %q", want)
+			t.Errorf("message_bus.go is missing %q | message_bus.go 缺少 %q", want, want)
+		}
+	}
+	routerSource := pr.read("internal/router/router.go")
+	for _, want := range []string{"CacheBypass", "sensitivePath", "SetCacheInvalidator", "SetMessageCacheInvalidator"} {
+		if !strings.Contains(routerSource, want) {
+			t.Errorf("router.go is missing %q | router.go 缺少 %q", want, want)
+		}
+	}
+	repositorySource := pr.read("internal/repository/store.go")
+	for _, want := range []string{"SetCacheInvalidator", "SetMessageCacheInvalidator"} {
+		if !strings.Contains(repositorySource, want) {
+			t.Errorf("repository/store.go is missing %q | repository/store.go 缺少 %q", want, want)
 		}
 	}
 	for _, want := range []string{"postgres", "redis:", "asynq:", "grpc:", "i18n:"} {
@@ -672,17 +688,22 @@ func TestGeneratedProjectEnablesGormCacheByDefault(t *testing.T) {
 	for _, want := range []string{
 		"  gorm:\n    enabled: true",
 		"ignore_tables:",
-		"- yd_auth_tenants",
 		"- yd_auth_users",
+		"sensitive_tables:",
+		"- yd_auth_tenants",
 		"- yd_auth_user_tenants",
 		"- yd_auth_roles",
 		"- yd_auth_role_permissions",
-		"- yd_msg_messages",
-		"- yd_msg_conversations",
+		"sensitive_ttl: 5s",
 	} {
 		if !strings.Contains(cfg, want) {
-			t.Errorf("configs/config.yaml 缺少 %q:\n%s", want, cfg)
+			t.Errorf("configs/config.yaml is missing %q | configs/config.yaml 缺少 %q", want, want)
 		}
+	}
+	// Message tables are regular data now; they must not be excluded from the cache. |
+	// 消息表现在是常规数据，不得再排除在缓存之外。
+	if strings.Contains(cfg, "- yd_msg_messages") || strings.Contains(cfg, "- yd_msg_conversations") {
+		t.Error("message tables must stay cached | 消息表必须保持缓存")
 	}
 
 	// The plugin only installs when the configuration enables it. | 只有配置开启时插件才会安装。
@@ -3364,11 +3385,15 @@ func TestGeneratePinsTheRunningYdVersion(t *testing.T) {
 	if got := pr.read("go.mod"); !strings.Contains(got, scaffold.YdxModule+"/errs "+errsVersion) {
 		t.Errorf("go.mod 未锁定 ydx/errs 版本 %q:\n%s", errsVersion, got)
 	}
-	// The framework does not import cache, so the generated project cannot pin a version it does
-	// not know; go mod tidy resolves it when the project imports it. | 框架本身不依赖 cache，
-	// 生成项目无法锁定一个它不知道的版本，改由 go mod tidy 在项目实际导入时解析。
-	if got := pr.read("go.mod"); strings.Contains(got, scaffold.YdxModule+"/cache ") {
-		t.Errorf("go.mod 不应锁定框架未依赖的 ydx/cache:\n%s", got)
+	// The auth store imports cache for post-commit invalidation, so the framework now knows its
+	// version and every generated project must pin it like any other framework dependency. |
+	// 鉴权存储为提交后失效导入了 cache，框架因此知道它的版本，生成项目必须像其它框架依赖一样锁定。
+	cacheVersion := scaffold.YdxVersions[scaffold.YdxModule+"/cache"]
+	if cacheVersion == "" {
+		t.Fatal("生成的 YdxVersions 缺少 cache 的版本 | generated YdxVersions is missing the cache version")
+	}
+	if got := pr.read("go.mod"); !strings.Contains(got, scaffold.YdxModule+"/cache "+cacheVersion) {
+		t.Errorf("go.mod 未锁定 ydx/cache 版本 %q", cacheVersion)
 	}
 
 	unpinned := scaffold.DefaultOptions("unpinned-app")

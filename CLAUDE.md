@@ -963,14 +963,17 @@ yd versions sync               # 仅重新生成 version_generated.go
   Redis 客户端由调用方拥有，`Remote.Close` 只停止订阅。
 - **GORM**：`gormcache.Plugin` 只缓存 `gorm:query` 的 SELECT；查询键必须包含表名、整体纪元、表代际、
   目标类型、SQL 与全部绑定变量；写回调推进表代际并广播。事务内查询（`ConnPool` 实现 `gorm.TxCommitter`）
-  不得缓存；Raw SQL、手工预构建 SQL、JOIN、`FOR UPDATE`、Preload 与 `*sql.Rows` 必须跳过。显式事务的写失效
-  早于提交，文档已说明；需要严格语义时在提交后调用 `Plugin.Invalidate`。
+  不得缓存；Raw SQL、手工预构建 SQL、JOIN、`FOR UPDATE`、Preload 与 `*sql.Rows` 必须跳过。
+- **GORM 安全分级（强制）**：普通表走普通命名空间；`sensitive_tables` 走独立命名空间与短 TTL；
+  `ignore_tables` 永不缓存；高安全/涉密请求经 `middleware.CacheBypass`（必须挂在鉴权中间件之前）
+  跳过全部读取，写入仍失效。**`yd_auth_users` 必须留在 `ignore_tables`**：口令散列、`sec_key` 密文
+  与状态不得进入缓存，禁用/删除用户与轮换 `sec_key` 才能立即生效；成员关系、角色、权限与租户进入
+  `sensitive_tables`。显式事务必须用 `cache.WithDeferredInvalidation` + 提交后 `Invalidate`，不得让
+  写回调在提交前推进代际；`security/auth/gormstore` 经 `Store.SetInvalidator` 已内建该模式。
 - **配置**：`cache.*` 默认值在 `ydx/config/defaults.go`，经 `cache.OptionsFromConfig` /
   `cache.RedisOptionsFromConfig` / `gormcache.OptionsFromConfig` 读取；GORM 插件由
-  `cache.gorm.enabled` 控制，脚手架默认开启（`true`）并默认把 `yd_auth_*` 与 `yd_msg_*`
-  列入 `ignore_tables`：前者保证禁用用户、删除用户与轮换 `sec_key` 的即时失效不被缓存延迟；
-  后者的写入都在显式事务里，而插件在提交前就推进代际，事务期间的读会把旧结果缓存到新代际，
-  在插件支持提交后失效之前不得缓存。装配时用 `app.ServiceCache` 注册 Manager。
+  `cache.gorm.enabled` 控制，脚手架默认开启（`true`）；`yd_msg_*` 作为常规数据正常缓存，消息存储与
+  鉴权存储都在事务提交后显式失效，鉴权分级见上一条。装配时用 `app.ServiceCache` 注册 Manager。
 - **禁止**：直接 `import "encoding/json"`/`"encoding/base64"`、直接 `panic`、`fmt.Errorf`、新增第三方缓存库、
   在热路径用反射、在事件里携带值或敏感键名、绕过 `Manager` 自行实现跨节点失效。
 

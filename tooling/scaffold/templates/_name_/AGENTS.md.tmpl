@@ -92,6 +92,9 @@
       生成项目默认写入 `data/node-id`；容器必须把该路径挂到每实例独立持久卷，否则重建后身份会变。
       生产多副本建议显式 `node.id`；`node.require_persistent=true` 时无法持久化必须拒绝启动。
       节点 ID 只用于消息 id、Redis 键与指标标签，**不是凭据**，不得用于鉴权或信任判断。
+- [ ] **GORM 缓存安全分级**：`yd_auth_users` 永不缓存；成员/角色/权限/租户进
+      `cache.gorm.sensitive_tables`；高安全/涉密路由在鉴权前挂 `middleware.CacheBypass`；
+      显式事务用 `cache.WithDeferredInvalidation` + 提交后 `SetInvalidator` 失效。
 - [ ] **国密合规**：敏感数据加解密必须走 `guomi`（SM2/SM3/SM4），口令存储用 SM3 + 盐 + 迭代，禁止 MD5/SHA1。
 - [ ] **传输加密**：前端敏感字段提交必须声明式触发 SM2 前置加密（`data-yd-encrypt="sm2"`）。
 - [ ] **注入面**：SQL 只允许参数化查询；模板输出默认走 `html/template` 转义。

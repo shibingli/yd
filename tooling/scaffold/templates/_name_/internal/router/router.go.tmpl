@@ -10,6 +10,8 @@ package router
 
 import (
 	"context"
+	"net/http"
+	pathpkg "path"
 	"strings"
 	"time"
 
@@ -123,6 +125,8 @@ func Register(a *app.App) error {
 			a.Logger().Warn("gorm cache plugin failed to install | GORM 缓存插件安装失败", log.Err(useErr))
 			_ = cachePlugin.Close()
 		} else {
+			store.SetCacheInvalidator(cachePlugin)
+			store.SetMessageCacheInvalidator(cachePlugin)
 			a.OnShutdown(func(context.Context) error { return cachePlugin.Close() })
 		}
 	}
@@ -169,6 +173,34 @@ func Register(a *app.App) error {
 // The public group still runs the tenant middleware with Required false: the sign-in page has to know which tenant
 // acme.example.com names in order to pre-fill the field, while Required false keeps a request that names no tenant
 // renderable.
+// sensitivePath reports whether path belongs to the high-security or classified
+// surface: authentication, account self-service, tenant switching, administration.
+// These requests bypass every GORM cache read; ordinary portal traffic stays cached. |
+// sensitivePath 报告路径是否属于高安全或涉密面：认证、账号自助、租户切换与管理后台。这些请求
+// 跳过全部 GORM 缓存读取；普通门户流量仍走缓存。
+func sensitivePath(rawPath string) bool {
+	// Clean first: "/x/../mgr/users" must not slip past the prefix checks while the
+	// router still dispatches it to /mgr/users. | 先清理路径："/x/../mgr/users" 不能绕过前缀
+	// 判定，而路由器仍把它分派到 /mgr/users。
+	path := pathpkg.Clean("/" + rawPath)
+	switch {
+	case path == LoginPath, path == "/logout":
+		return true
+	case path == "/account", strings.HasPrefix(path, "/account/"):
+		return true
+	case strings.HasPrefix(path, "/tenant/"):
+		return true
+	case path == "/mgr", strings.HasPrefix(path, "/mgr/"):
+		return true
+	case strings.HasPrefix(path, "/api/v1/"):
+		return true
+	case path == "/api/portal/v1/account", strings.HasPrefix(path, "/api/portal/v1/account/"):
+		return true
+	default:
+		return false
+	}
+}
+
 func registerPublic(a *app.App, ctrl *controller.Controller) {
 	// 同一个租户中间件也挂在受保护组上：注册表按 Name 合并，因此两个分组共享一份计数。
 	// The same tenant middleware is mounted on the protected group too: the registry merges by Name, so both
@@ -178,6 +210,10 @@ func registerPublic(a *app.App, ctrl *controller.Controller) {
 	// page. | 公开组只做「可选会话」：没有令牌或令牌失效时以匿名继续，根路由因此可以把已登录用户送到消息中心，
 	// 而不会把匿名访客挡在登录页。
 	g := a.Group("",
+		a.MiddlewareMetrics().Wrap(
+			middleware.MetricsDescriptor("cache-bypass"),
+			middleware.CacheBypass(func(r *http.Request) bool { return sensitivePath(r.URL.Path) }),
+		),
 		a.MiddlewareMetrics().Wrap(
 			middleware.MetricsDescriptor("promote"),
 			middleware.Promote(middleware.SessionOptions{}),
@@ -264,6 +300,10 @@ func mountGenerated(g *approuter.Group, store *repository.Store) {
 
 func registerProtected(a *app.App, ctrl *controller.Controller, store *repository.Store, broker *sse.Broker, ticker *service.Ticker) {
 	g := a.Group("",
+		a.MiddlewareMetrics().Wrap(
+			middleware.MetricsDescriptor("cache-bypass"),
+			middleware.CacheBypass(func(r *http.Request) bool { return sensitivePath(r.URL.Path) }),
+		),
 		a.MiddlewareMetrics().Wrap(
 			middleware.MetricsDescriptor("promote"),
 			middleware.Promote(middleware.SessionOptions{}),

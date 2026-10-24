@@ -32,7 +32,7 @@ func (s *Store) CreateTenant(ctx context.Context, t *auth.Tenant) error {
 	}
 	ctx, cancel := s.scoped(ctx)
 	defer cancel()
-	return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	return s.transaction(ctx, []string{tableTenants}, func(tx *gorm.DB) error {
 		taken, err := countRows(tx, &tenantRow{}, "id = ?", row.ID)
 		if err != nil {
 			return err

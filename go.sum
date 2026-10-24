@@ -98,8 +98,10 @@ github.com/shibingli/ydx/base64 v0.1.11 h1:fiCuT/98vW3GuZqWEHdgHjMYEsbHPaGcfbBIZ
 github.com/shibingli/ydx/base64 v0.1.11/go.mod h1:PaROcW7ashuUWtpu30D3TfA28lDCBop8D39ZrHuK/eE=
 github.com/shibingli/ydx/buffpool v0.1.4 h1:aQpZ8Rzs6Qt6/H/lW4st3I74mdAqJkzoyAVVBGgVj0k=
 github.com/shibingli/ydx/buffpool v0.1.4/go.mod h1:1PYC8bCUvgsvXzeFHDVo2wqy62bNYps+c1yZGCK4o/Y=
-github.com/shibingli/ydx/config v0.1.7 h1:Y2FPEbzA2/bYQzZAG9JbBLyOea8tJIS1loYcPthgPzQ=
-github.com/shibingli/ydx/config v0.1.7/go.mod h1:FCQCjq65sOQA7UBTuZTvv20GWDUwEJXtLB7oRpTXiTE=
+github.com/shibingli/ydx/cache v0.1.17 h1:ibah/W7KJcl3LGEfzTlsV9mJPNdCMZBIcp+p/1co6do=
+github.com/shibingli/ydx/cache v0.1.17/go.mod h1:3t/v+ebyGMVPtr8IdExLs5IHBDY9qUjKlJeByHgTYds=
+github.com/shibingli/ydx/config v0.1.8 h1:vGgqju8UqN3Fq/mIwbN0JYCQJnMz8JrxTF2TJC8oZAQ=
+github.com/shibingli/ydx/config v0.1.8/go.mod h1:FCQCjq65sOQA7UBTuZTvv20GWDUwEJXtLB7oRpTXiTE=
 github.com/shibingli/ydx/errs v0.1.4 h1:/hexB5eDFA/wWhRof5yxWEVeVlHn1P7IZmys9U4h1iA=
 github.com/shibingli/ydx/errs v0.1.4/go.mod h1:N6GNQq5eustT11WTdXOip9bXcIwrFd4c9UWG0gIDuwU=
 github.com/shibingli/ydx/gorm v0.1.13 h1:6YBJ+l+g1Rpez+3sqcSXfk8hj3S197ZeoBuFdq4IMuI=
@@ -114,8 +116,8 @@ github.com/shibingli/ydx/jwt v0.1.10 h1:CPNRyRfrISL4AVCo6C2cdvAlnl5KdO4yD+xJk4CH
 github.com/shibingli/ydx/jwt v0.1.10/go.mod h1:wyGoi1TC5pZp0B+bs7P7SYSoFH6sqO2rxPTP0+VWL9Q=
 github.com/shibingli/ydx/log v0.1.10 h1:jdEB1DyVe8amLo8tobWHEJLKATV7ERyt1jNqBms/ckc=
 github.com/shibingli/ydx/log v0.1.10/go.mod h1:k5al0ce1xXvrDaHzd099JrA21uc0K0MD3dJnbnl2wSU=
-github.com/shibingli/ydx/middleware v0.1.12 h1:oyqnfZJ4JQAzH95tQ5U0RJhUQdJSh0tvaklJqTGZJXA=
-github.com/shibingli/ydx/middleware v0.1.12/go.mod h1:Jfcu2Y8wolOznewzeSDUTCU6j79Nm4zaIOReEHb/frM=
+github.com/shibingli/ydx/middleware v0.1.13 h1:9FUe6bc0/kueNxRCwlipyi309Yg5lh0PY0FEg3o8woo=
+github.com/shibingli/ydx/middleware v0.1.13/go.mod h1:D47yNElO78RYXZiyPRZGFO1XxwvldXM5zkYvfnuO+BM=
 github.com/shibingli/ydx/middleware/accesslog v0.1.12 h1:1wbXY7M0iry/6i6ttUof9F3rgfizW62clHPmnDHwdMk=
 github.com/shibingli/ydx/middleware/accesslog v0.1.12/go.mod h1:OppA+B9p1cwcy+cEPOei1/Qe7xX/2EU60broDy1JoaY=
 github.com/shibingli/ydx/middleware/asyncafter v0.1.12 h1:Ipo90MMAR4lNXuqUNpcKQgSyKPoIYVhIJUdEpHPUI7k=

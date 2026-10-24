@@ -60,7 +60,7 @@ func (s *Store) UpdateFriendRequest(ctx context.Context, req messaging.FriendReq
 
 // AcceptFriendRequest accepts a request and creates the friendship atomically. | AcceptFriendRequest 原子地接受申请并创建好友关系。
 func (s *Store) AcceptFriendRequest(ctx context.Context, req messaging.FriendRequest, friendship messaging.Friendship) error {
-	return s.dbc(ctx).Transaction(func(tx *gorm.DB) error {
+	return s.transaction(ctx, []string{"yd_msg_friend_requests", "yd_msg_friendships"}, func(tx *gorm.DB) error {
 		result := tx.Model(&messaging.FriendRequest{}).
 			Where("tenant_id = ? AND id = ? AND status = ?", req.TenantID, req.ID, messaging.FriendPending).
 			Updates(map[string]any{"status": req.Status, "responded_at": req.RespondedAt})
@@ -116,7 +116,7 @@ func (s *Store) CreateFriendship(ctx context.Context, f messaging.Friendship) er
 // 以后重新加好友时重新出现，也会留下一条没有好友关系的关联行。
 func (s *Store) DeleteFriendship(ctx context.Context, tenantID, userA, userB string) error {
 	low, high := orderedPair(userA, userB)
-	return queryError(s.dbc(ctx).Transaction(func(tx *gorm.DB) error {
+	return queryError(s.transaction(ctx, []string{"yd_msg_friendships", "yd_msg_friend_notes"}, func(tx *gorm.DB) error {
 		result := tx.
 			Where("tenant_id = ? AND user_low_id = ? AND user_high_id = ?", tenantID, low, high).
 			Delete(&messaging.Friendship{})
@@ -175,7 +175,7 @@ func (s *Store) GetFriendNote(ctx context.Context, tenantID, ownerID, friendID s
 // SetFriendNote upsert 一条备注。整个写入期间锁定好友关系行，因此并发解除好友/拉黑要么在备注写入后
 // 清理它，要么让本次写入失败，绝不会给已不存在的好友关系留下备注。
 func (s *Store) SetFriendNote(ctx context.Context, note messaging.FriendNote) error {
-	return queryError(s.dbc(ctx).Transaction(func(tx *gorm.DB) error {
+	return queryError(s.transaction(ctx, []string{"yd_msg_friend_notes"}, func(tx *gorm.DB) error {
 		low, high := orderedPair(note.OwnerID, note.FriendID)
 		var friendship messaging.Friendship
 		err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
@@ -212,7 +212,7 @@ func (s *Store) CreateBlock(ctx context.Context, b messaging.Block) error {
 // BlockUser stores the block, removes the friendship and closes pending requests atomically. |
 // BlockUser 原子地保存拉黑、删除好友关系并关闭待处理申请。
 func (s *Store) BlockUser(ctx context.Context, b messaging.Block) error {
-	return s.dbc(ctx).Transaction(func(tx *gorm.DB) error {
+	return s.transaction(ctx, []string{"yd_msg_blocks", "yd_msg_friendships", "yd_msg_friend_notes", "yd_msg_friend_requests"}, func(tx *gorm.DB) error {
 		if err := tx.Clauses(onConflictDoNothing()).Create(&b).Error; err != nil {
 			return createError(err)
 		}

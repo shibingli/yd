@@ -1,0 +1,18 @@
+// 本文件把请求级缓存旁路暴露给本项目的路由装配。
+// This file exposes the request-level cache bypass to this project's router assembly.
+
+package middleware
+
+import (
+	"net/http"
+
+	"github.com/shibingli/ydx/router"
+	ydmiddleware "{{ .YdxModule }}/middleware"
+)
+
+// CacheBypass marks matching requests so GORM cache reads are skipped for the
+// whole request. It must be installed before the authentication middleware. |
+// CacheBypass 标记匹配的请求，使整个请求跳过 GORM 缓存读取。它必须安装在鉴权中间件之前。
+func CacheBypass(match func(*http.Request) bool) router.Middleware {
+	return ydmiddleware.CacheBypass(match)
+}

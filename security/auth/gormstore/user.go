@@ -46,7 +46,7 @@ func (s *Store) CreateUser(ctx context.Context, u *auth.User) error {
 	}
 	ctx, cancel := s.scoped(ctx)
 	defer cancel()
-	return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	return s.transaction(ctx, []string{tableUsers, tableUserTenants}, func(tx *gorm.DB) error {
 		known, err := existsTenant(tx, row.TenantID)
 		if err != nil {
 			return err
@@ -363,7 +363,7 @@ func (s *Store) UpdateUser(ctx context.Context, tenantID string, u *auth.User) e
 	}
 	ctx, cancel := s.scoped(ctx)
 	defer cancel()
-	return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	return s.transaction(ctx, []string{tableUsers, tableUserTenants}, func(tx *gorm.DB) error {
 		var stored userRow
 		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("id = ?", u.ID).First(&stored).Error; err != nil {
 			return notFound(err)
@@ -462,7 +462,7 @@ func (s *Store) setUserColumns(ctx context.Context, tenantID, userID string, col
 	}
 	ctx, cancel := s.scoped(ctx)
 	defer cancel()
-	return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	return s.transaction(ctx, []string{tableUsers}, func(tx *gorm.DB) error {
 		var user userRow
 		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
 			Where("id = ?", userID).First(&user).Error; err != nil {
@@ -529,7 +529,7 @@ func (s *Store) AddUserTenant(ctx context.Context, userID, tenantID string, role
 	}
 	ctx, cancel := s.scoped(ctx)
 	defer cancel()
-	return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	return s.transaction(ctx, []string{tableUserTenants}, func(tx *gorm.DB) error {
 		var user userRow
 		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("id = ?", userID).First(&user).Error; err != nil {
 			return notFound(err)
@@ -581,7 +581,7 @@ func (s *Store) RemoveUserTenant(ctx context.Context, userID, tenantID string) e
 	}
 	ctx, cancel := s.scoped(ctx)
 	defer cancel()
-	return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	return s.transaction(ctx, []string{tableUserTenants}, func(tx *gorm.DB) error {
 		var user userRow
 		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("id = ?", userID).First(&user).Error; err != nil {
 			return notFound(err)
@@ -605,7 +605,7 @@ func (s *Store) SetDefaultTenant(ctx context.Context, userID, tenantID string) e
 	}
 	ctx, cancel := s.scoped(ctx)
 	defer cancel()
-	return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	return s.transaction(ctx, []string{tableUserTenants, tableUsers}, func(tx *gorm.DB) error {
 		var user userRow
 		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("id = ?", userID).First(&user).Error; err != nil {
 			return notFound(err)

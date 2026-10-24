@@ -13,9 +13,11 @@ import (
 	"encoding/hex"
 	"errors"
 	"strings"
+	"sync"
 
 	"github.com/shibingli/yd/messaging"
 	"github.com/shibingli/ydx/errs"
+	ydlog "github.com/shibingli/ydx/log"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 )
@@ -30,8 +32,15 @@ var (
 
 // Store implements messaging.Store over GORM. | Store 基于 GORM 实现 messaging.Store。
 type Store struct {
+	// invalidator invalidates the GORM query cache after commits; nil disables it. |
+	// invalidator 在提交后使 GORM 查询缓存失效；nil 表示禁用。
+	invalidator Invalidator
 	// db is the shared connection pool. | db 是共享连接池。
 	db *gorm.DB
+	// log records post-commit invalidation failures. | log 记录提交后失效失败。
+	log *ydlog.Logger
+	// invalidatorMu guards the late-bound invalidator. | invalidatorMu 保护后置绑定的失效器。
+	invalidatorMu sync.RWMutex
 }
 
 // New returns a store over db. | New 返回基于 db 的存储。
@@ -39,7 +48,7 @@ func New(db *gorm.DB) (*Store, error) {
 	if db == nil {
 		return nil, ErrQuery
 	}
-	return &Store{db: db}, nil
+	return &Store{db: db, log: ydlog.Default()}, nil
 }
 
 // Migrate creates or updates every message table. | Migrate 创建或更新全部消息表。

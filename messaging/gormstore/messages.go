@@ -15,7 +15,7 @@ import (
 
 // CreateMessage inserts a message with its tags and attachments atomically. | CreateMessage 原子地插入消息及其标签与附件。
 func (s *Store) CreateMessage(ctx context.Context, msg messaging.Message, tagIDs, attachmentIDs []string) error {
-	return s.dbc(ctx).Transaction(func(tx *gorm.DB) error {
+	return s.transaction(ctx, []string{"yd_msg_messages", "yd_msg_message_tags", "yd_msg_attachments", "yd_msg_conversations", "yd_msg_members"}, func(tx *gorm.DB) error {
 		if err := lockMessageTypeTx(tx, msg.TenantID, msg.TypeKey); err != nil {
 			return err
 		}
@@ -71,7 +71,7 @@ func (s *Store) GetMessage(ctx context.Context, tenantID, id string) (messaging.
 
 // UpdateMessage replaces the editable fields and the tag set. | UpdateMessage 覆盖可编辑字段与标签集合。
 func (s *Store) UpdateMessage(ctx context.Context, msg messaging.Message, tagIDs []string) error {
-	return s.dbc(ctx).Transaction(func(tx *gorm.DB) error {
+	return s.transaction(ctx, []string{"yd_msg_messages", "yd_msg_message_tags"}, func(tx *gorm.DB) error {
 		if err := lockMessageTypeTx(tx, msg.TenantID, msg.TypeKey); err != nil {
 			return err
 		}
@@ -259,7 +259,7 @@ func (s *Store) ListPinned(ctx context.Context, tenantID, userID string, now tim
 
 // RecallMessage advances a message to the tombstone state with its audit entry. | RecallMessage 把消息推进到墓碑状态并写入审计。
 func (s *Store) RecallMessage(ctx context.Context, msg messaging.Message, audit messaging.AuditEntry) error {
-	return s.dbc(ctx).Transaction(func(tx *gorm.DB) error {
+	return s.transaction(ctx, []string{"yd_msg_messages", "yd_msg_audit"}, func(tx *gorm.DB) error {
 		result := tx.Model(&messaging.Message{}).
 			Where("tenant_id = ? AND id = ? AND status <> ?", msg.TenantID, msg.ID, messaging.StatusRecalled).
 			Updates(map[string]any{
@@ -287,7 +287,7 @@ func (s *Store) RecallMessage(ctx context.Context, msg messaging.Message, audit 
 
 // SetPin replaces the pin fields with its audit entry. | SetPin 覆盖置顶字段并写入审计。
 func (s *Store) SetPin(ctx context.Context, msg messaging.Message, audit messaging.AuditEntry) error {
-	return s.dbc(ctx).Transaction(func(tx *gorm.DB) error {
+	return s.transaction(ctx, []string{"yd_msg_messages", "yd_msg_audit"}, func(tx *gorm.DB) error {
 		result := tx.Model(&messaging.Message{}).
 			Where("tenant_id = ? AND id = ? AND status <> ?", msg.TenantID, msg.ID, messaging.StatusRecalled).
 			Updates(map[string]any{

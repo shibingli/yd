@@ -10,7 +10,7 @@ import (
 
 // CreateConversation inserts a conversation and its members atomically. | CreateConversation 原子地插入会话与成员。
 func (s *Store) CreateConversation(ctx context.Context, conv messaging.Conversation, members []messaging.Member) error {
-	return s.dbc(ctx).Transaction(func(tx *gorm.DB) error {
+	return s.transaction(ctx, []string{"yd_msg_conversations", "yd_msg_members"}, func(tx *gorm.DB) error {
 		if err := tx.Create(&conv).Error; err != nil {
 			return createError(err)
 		}

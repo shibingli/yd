@@ -230,7 +230,7 @@ Node C L1 ─┘
 2. `lease` 与 `health_interval` 已按“可接受陈旧度 vs Redis 读量”调过。
 3. 集群模式下确认 `PUBLISH`/`SUBSCRIBE` 跨节点可达。
 4. 演练一次 Redis 重启/故障切换：写失败、读降级、重连后 L1 清空并恢复。
-5. 所有节点启用同一 `cache.gorm.namespace`，并确认写后其他节点的查询已失效。
+5. 所有节点启用同一 `cache.gorm.namespace` 与 `sensitive_namespace`，并确认写后其他节点的查询已失效。
 6. 监控 `Invalidations`/`EventsDropped`/`RemoteErrors`/`CASLost`，异常时优先检查订阅与租约。
 
 ## 5. L1 设计 | L1 Design
@@ -313,7 +313,9 @@ plugin, err := gormcache.New(gormcache.Options{
     Manager: mgr,
     Namespace: "gorm",
     TTL: 30 * time.Second,
-    IgnoreTables: []string{"yd_msg_messages"},
+    IgnoreTables: []string{"yd_auth_users"},
+    SensitiveTables: []string{"yd_auth_user_tenants", "yd_auth_roles"},
+    SensitiveTTL: 5 * time.Second,
 })
 if err != nil { return err }
 if err := db.Use(plugin); err != nil { return err }
@@ -330,21 +332,71 @@ defer plugin.Close()
 - 代际随事件广播；其他实例至少推进一格且不低于事件版本，旧查询键自然不可达（本地领先时也不会继续命中旧键）。
 - 事务内查询不缓存（`Statement.ConnPool` 实现 `gorm.TxCommitter`），避免把未提交数据放进共享缓存。
 - Raw SQL（`db.Raw`）、手工预构建 SQL、JOIN、`FOR UPDATE`、Preload、`*sql.Rows` 目标均跳过（JOIN 读取的表不在键的代际里，跳过可避免关联表写入后的陈旧结果）。
-- 表过滤：`Tables` 白名单，`IgnoreTables` 黑名单；`gorm:query` 之外的回调不受影响。
+- 表过滤：`Tables` 白名单，`IgnoreTables` 黑名单；被忽略的表既不读缓存也不写缓存。
+- 表分级：`SensitiveTables` 使用独立命名空间与 `SensitiveTTL`；普通表使用 `Namespace`/`TTL`。
+  两类键互不共享，敏感数据不会混入普通查询结果。
+- 请求旁路：`cache.WithBypass(ctx)`（路由层 `middleware.CacheBypass`）让本次请求跳过所有读取；
+  写入仍然生效。
 
 ### 7.2 显式事务 | Explicit transactions
 
-GORM 没有“外事务提交后”钩子。写回调在显式事务中会在语句结束时推进代际（早于 `tx.Commit()`），这比完全不失效安全，但存在“提交前读者回填旧值”的窗口，由租约/TTL 兜底。需要严格语义时：
+GORM 没有“外事务提交后”钩子。写回调在显式事务中会在语句结束时推进代际（早于 `tx.Commit()`），
+存在“提交前读者回填旧值”的窗口。`gormcache` 提供延迟失效标记：把事务上下文包裹为
+`cache.WithDeferredInvalidation(ctx)`，写回调不再推进代际；事务提交成功后由调用方显式失效：
 
 ```go
-err := db.Transaction(func(tx *gorm.DB) error { ... })
+txCtx := cache.WithDeferredInvalidation(ctx)
+err := db.WithContext(txCtx).Transaction(func(tx *gorm.DB) error { ... })
 if err != nil { return err }
-return plugin.Invalidate(ctx, "users") // 提交后手动失效
+return plugin.Invalidate(ctx, "users", "user_tenants") // 提交后失效
 ```
 
-绕过 GORM 的写入同样使用 `Invalidate`。
+`security/auth/gormstore` 已内建这一模式：`Store.transaction` 自动加延迟标记，提交后经
+`Store.SetInvalidator(plugin)` 绑定的失效器推进表的代际（提交失败或回滚时不失效）。绕过 GORM 的
+写入同样使用 `Invalidate`。
 
-### 7.3 配置 | Configuration
+### 7.3 安全分级 | Security classes
+
+GORM 缓存按**数据敏感度**和**接口敏感度**两层分离：
+
+| 类别 | 配置 | 行为 |
+|---|---|---|
+| 普通数据 | 默认 | 普通命名空间、正常 TTL、L1+L2 |
+| 敏感数据 | `sensitive_tables` | 独立命名空间、短 TTL（默认 10s，脚手架 5s）、提交后失效 |
+| 凭据数据 | `ignore_tables` | 永不缓存，始终读库 |
+| 高安全/涉密接口 | `middleware.CacheBypass` | 整个请求跳过读取；写入仍失效 |
+
+脚手架生成项目的默认策略：
+
+- `yd_auth_users` 在 `ignore_tables`：它含口令散列、`sec_key` 密文与状态，令牌校验必须读库，
+  禁用/删除用户与轮换 `sec_key` 立即生效；
+- `yd_auth_user_tenants`、`yd_auth_roles`、`yd_auth_role_permissions`、`yd_auth_tenants` 在
+  `sensitive_tables`：成员关系与角色可缓存，但写入提交后失效，且 TTL 只有 5 秒；
+- 禁用/删除用户与轮换 `sec_key` 只触及 `yd_auth_users`（永不缓存），因此立即生效；角色与成员
+  关系变更在**其它节点**的最坏陈旧窗口是 `sensitive_ttl`（脚手架 5 秒），高安全接口用
+  `CacheBypass` 可做到零窗口；
+- `yd_msg_*` 属于常规数据，正常缓存；`messaging/gormstore` 与 `security/auth/gormstore` 都在
+  显式事务提交后调用 `SetInvalidator` 失效，不会在提交前推进代际；
+- `/login`、`/logout`、`/account/**`、`/tenant/**`、`/mgr/**`、`/api/v1/**` 与
+  `/api/portal/v1/account/**` 在路由链最前面挂 `CacheBypass`，任何 GORM 读取都不经过缓存；
+- 普通门户页面（消息、好友等）仍走缓存。
+
+`CacheBypass` 必须挂在鉴权中间件**之前**：鉴权中间件会读取用户与成员关系，挂在后面就来不及了。
+正常路径的鉴权成员关系可以命中敏感缓存；高安全路径的鉴权查询直接读库。
+
+旁路标记对**业务缓存**同样生效：`Raw` 的 `Get`/`View`/`GetFresh` 在旁路上下文直接未命中，
+`GetOrLoad` 走 loader 但**不回填** L1/L2。因此高安全接口既不会读到旧值，也不会把自己的
+未缓存结果写进共享缓存。
+
+若消息内容本身也属于涉密数据，把 `yd_msg_*` 移入 `sensitive_tables`，或把门户消息/好友路径
+加入 `sensitivePath` 的判定；默认把消息视为常规业务数据。
+
+命名空间是**逻辑隔离**（键、TTL 与失效事件互不混用），默认仍共享同一个 Redis。若合规要求
+物理隔离，应为涉密仓储单独打开 `*gorm.DB`、独立的 `cache.Manager` 与 Redis 实例，并在该连接上
+安装自己的 `gormcache.Plugin`；同一个 `*gorm.DB` 不要安装两个插件（第二次安装返回
+`ErrAlreadyInitialized`）。
+
+### 7.4 配置 | Configuration
 
 ```yaml
 cache:
@@ -353,10 +405,14 @@ cache:
     namespace: gorm
     ttl: 30s
     tables: []
-    ignore_tables: ["audit_logs"]
+    ignore_tables: ["yd_auth_users", "audit_logs"]
+    sensitive_tables: ["yd_auth_user_tenants", "yd_auth_roles", "yd_auth_role_permissions", "yd_auth_tenants"]
+    sensitive_namespace: "gorm.sensitive"  # 必须与 namespace 不同
+    sensitive_ttl: 5s
 ```
 
-`gormcache.EnabledFromConfig(cfg)` 与 `gormcache.OptionsFromConfig(cfg, mgr)` 负责映射。
+`gormcache.EnabledFromConfig(cfg)` 与 `gormcache.OptionsFromConfig(cfg, mgr)` 负责映射。敏感命名空间
+不能包含 `:`（缓存命名空间规则），默认由 `namespace + ".sensitive"` 派生。
 
 ## 8. 配置 | Configuration
 
@@ -373,6 +429,14 @@ cache:
   max_entry_size: 0    # 0 = 自动推导
   cleanup_interval: 1s
   sample_size: 256
+  gorm:
+    enabled: true
+    namespace: gorm
+    ttl: 30s
+    ignore_tables: ["yd_auth_users"]
+    sensitive_tables: ["yd_auth_user_tenants", "yd_auth_roles", "yd_auth_role_permissions", "yd_auth_tenants"]
+    sensitive_namespace: "gorm.sensitive"
+    sensitive_ttl: 5s
   redis:
     prefix: ""         # 空 = redis.key_prefix + cache.prefix
     channel: ""        # 空 = prefix + events
@@ -411,7 +475,7 @@ cache:
 - **L1 只存能放进分片的值**：超大值会被 L1 拒绝但可进入 L2；`Stats.Local.Rejected` 可观测。
 - **GORM 不跟踪绕过 GORM 的写入**：请调用 `Invalidate` 或依赖 TTL/租约。
 - **非确定性 SQL**：`NOW()`、`RAND()` 等函数的结果会被冻结到 TTL；这类查询请用 `IgnoreTables` 排除或缩短 TTL。
-- **显式事务**：写失效早于提交（见 7.2）。
+- **显式事务**：未使用 `cache.WithDeferredInvalidation` 时写失效早于提交（见 7.2）；鉴权与消息存储已使用提交后失效。
 - **新增命名空间**：在 `Manager` 内唯一，不得包含 `:` 或控制字符。
 - **发布事件**：事件只含键名与命名空间，不含值；不要把敏感数据放进键名。
 - **关闭顺序**：先 `plugin.Close()`/`Cache.Close()`，再 `Manager.Close()`；`Manager` 可重复关闭。

@@ -6,7 +6,7 @@
 本手册面向使用 `yd` 创建、开发、测试与部署项目的开发者。框架内部的约束与实现细节见
 [`CLAUDE.md`](../CLAUDE.md) 与 [`docs/verification.md`](verification.md)。
 
-> 适用版本：yd v1.6.0+（Go 1.27.3+）。命令、配置与示例均以仓库当前实现为准；
+> 适用版本：yd v1.7.0+（Go 1.27.3+）。命令、配置与示例均以仓库当前实现为准；
 > 组件实现位于 [`github.com/shibingli/ydx`](https://github.com/shibingli/ydx)。
 
 ## 文档地图
@@ -272,7 +272,17 @@ cache:
   fail_open: true
   max_cost: 67108864
   gorm:
-    enabled: false
+    enabled: true               # 全局缓存 SELECT
+    namespace: gorm
+    ttl: 30s
+    ignore_tables: [yd_auth_users]   # 凭据/状态永不缓存
+    sensitive_tables:               # 鉴权成员/角色/权限/租户：独立命名空间 + 短 TTL
+      - yd_auth_tenants
+      - yd_auth_user_tenants
+      - yd_auth_roles
+      - yd_auth_role_permissions
+    sensitive_namespace: gorm.sensitive
+    sensitive_ttl: 5s
 
 message:
   recall_window: 5m
