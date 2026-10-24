@@ -104,6 +104,8 @@ github.com/shibingli/ydx/config v0.1.8 h1:vGgqju8UqN3Fq/mIwbN0JYCQJnMz8JrxTF2TJC
 github.com/shibingli/ydx/config v0.1.8/go.mod h1:FCQCjq65sOQA7UBTuZTvv20GWDUwEJXtLB7oRpTXiTE=
 github.com/shibingli/ydx/errs v0.1.4 h1:/hexB5eDFA/wWhRof5yxWEVeVlHn1P7IZmys9U4h1iA=
 github.com/shibingli/ydx/errs v0.1.4/go.mod h1:N6GNQq5eustT11WTdXOip9bXcIwrFd4c9UWG0gIDuwU=
+github.com/shibingli/ydx/gc v0.1.0 h1:tt0XSYyVZxQGvXg0pUEatzRKx5QGd07trai1xcEXgS0=
+github.com/shibingli/ydx/gc v0.1.0/go.mod h1:6VtP3sENPuO4bvWMwRp0O5VObQWOgkgd0RtuZJS/qJg=
 github.com/shibingli/ydx/gorm v0.1.13 h1:6YBJ+l+g1Rpez+3sqcSXfk8hj3S197ZeoBuFdq4IMuI=
 github.com/shibingli/ydx/gorm v0.1.13/go.mod h1:uQtcqr2NJmiKMyx6grM6XeCesYZE9rpwNARQ3XCC5ug=
 github.com/shibingli/ydx/guomi v0.1.1 h1:loTkvTFuY4kqA/K1+1ZP5VQGTroGYNtmqFC9luWhC/U=

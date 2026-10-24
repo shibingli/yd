@@ -19,6 +19,7 @@
 | [`docs/message-center.md`](message-center.md) | 站内消息中心的配置、API、WebSocket 协议与多节点部署 |
 | [`docs/realtime-transports.md`](realtime-transports.md) | WebSocket / WebTransport / SSE 的选型、单机与多机、安全、背压与兼容性矩阵 |
 | [`docs/node-identity.md`](node-identity.md) | 节点身份的来源、稳定性边界、安全、性能与唯一性，以及物理机/虚机/容器/Kubernetes 部署方式 |
+| [`docs/runtime-gc.md`](runtime-gc.md) | 运行时 GC 调度 `ydx/gc` 的策略预设、繁忙跳过、内存压力强制执行、安全边界与观测 |
 | [`docs/redis-asynq.md`](redis-asynq.md) | Redis 直接命令 / Redis Pub/Sub / asynq 的分区规则、可靠性边界与运维要点 |
 | [`docs/middleware-metrics.md`](middleware-metrics.md) | 中间件运行时指标与自定义指标 |
 | [`docs/icon-usage.md`](icon-usage.md) | 离线图标 sprite 的生成、校验与故障排查 |

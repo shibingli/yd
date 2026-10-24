@@ -246,6 +246,9 @@ func TestRegistryTracksInFlightRequests(t *testing.T) {
 	if len(snaps) != 1 || snaps[0].InFlight != 1 {
 		t.Fatalf("in-flight = %+v, 期望 1 | in-flight = %+v, want 1", snaps, snaps)
 	}
+	if got := reg.InFlight(); got != 1 {
+		t.Fatalf("Registry.InFlight() = %d, 期望 1 | Registry.InFlight() = %d, want 1", got, got)
+	}
 	close(release)
 	select {
 	case <-done:
@@ -264,6 +267,9 @@ func TestRegistryTracksInFlightRequests(t *testing.T) {
 			t.Fatalf("in-flight 未归零: %+v | in-flight did not settle: %+v", snaps, snaps)
 		}
 		time.Sleep(time.Millisecond)
+	}
+	if got := reg.InFlight(); got != 0 {
+		t.Fatalf("Registry.InFlight() after completion = %d, 期望 0 | Registry.InFlight() after completion = %d, want 0", got, got)
 	}
 }
 

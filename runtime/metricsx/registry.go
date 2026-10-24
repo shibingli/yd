@@ -264,6 +264,27 @@ func (r *Registry) Shutdown(context.Context) error {
 	return nil
 }
 
+// InFlight returns the sum of in-flight invocations across every observed entry. A request
+// passes through several observed middlewares, so one request can be counted more than
+// once; treat the value as an activity signal for quiet-period decisions, not as an exact
+// request count. | InFlight 返回全部已观察条目的在途调用数之和。一个请求会经过多个已观察
+// 中间件，因此可能被多次计入；应把它当作判断空闲期的活动信号，而不是精确请求数。
+func (r *Registry) InFlight() uint64 {
+	if r == nil {
+		return 0
+	}
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	total := uint64(0)
+	for _, entry := range r.order {
+		if n := entry.inFlight.Load(); n > 0 {
+			total += uint64(n)
+		}
+	}
+	return total
+}
+
 // MiddlewareSnapshot returns every entry in registration order. | MiddlewareSnapshot 按注册顺序返回全部条目。
 func (r *Registry) MiddlewareSnapshot() []MiddlewareSnapshot {
 	if r == nil {

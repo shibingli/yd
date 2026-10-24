@@ -48,6 +48,7 @@ import (
 	"github.com/shibingli/yd/runtime/server"
 	"github.com/shibingli/ydx/config"
 	"github.com/shibingli/ydx/errs"
+	"github.com/shibingli/ydx/gc"
 	"github.com/shibingli/ydx/i18n"
 	ydlog "github.com/shibingli/ydx/log"
 	"github.com/shibingli/ydx/middleware"
@@ -84,6 +85,9 @@ var (
 	ErrI18n = errs.New("app: i18n catalog load failed | app：语言目录加载失败")
 	// ErrServiceMissing indicates that a service key is not registered. | ErrServiceMissing 表示服务键未注册。
 	ErrServiceMissing = errs.New("app: service not registered | app：服务未注册")
+	// ErrRuntimeGC indicates that the runtime GC scheduler rejected its configuration. | ErrRuntimeGC
+	// 表示运行时 GC 调度器拒绝了配置。
+	ErrRuntimeGC = errs.New("app: runtime gc scheduler failed | app：运行时 GC 调度器装配失败")
 	// ErrShutdown indicates that a shutdown hook failed. | ErrShutdown 表示关闭钩子执行失败。
 	ErrShutdown = errs.New("app: shutdown hook failed | app：关闭钩子执行失败")
 )
@@ -134,6 +138,9 @@ type App struct {
 	// metrics observes middleware runtime behaviour and publishes it to dashboards. | metrics 观察中间件
 	// 运行时行为，并发布给仪表盘。
 	metrics *metricsx.Registry
+	// runtimeGC schedules garbage collection in quiet periods; it is always non-nil after New. | runtimeGC
+	// 在空闲时段调度垃圾回收；New 之后它始终非 nil。
+	runtimeGC *gc.Scheduler
 
 	closeDone chan struct{}
 
@@ -256,6 +263,30 @@ func New(opts ...Option) (*App, error) {
 		a.cfg = cfg
 	}
 
+	// Resolve the GC policy before serving: an invalid strategy or threshold is a
+	// configuration error and must fail startup instead of silently disabling collection.
+	// | 在提供服务前解析 GC 策略：非法的策略或阈值属于配置错误，必须让启动失败，而不是静默关闭回收。
+	gcOptions, err := gc.OptionsFromConfig(a.cfg)
+	if err != nil {
+		return nil, errs.Wrap(err, ErrRuntimeGC)
+	}
+	gcOptions.Logger = a.log
+	// Optional request-activity gate: when gc.max_inflight is positive, any request passing
+	// through the observed middleware chain defers collection until the chain is quiet again.
+	// | 可选的请求活动门：gc.max_inflight 为正时，只要有请求经过已观察中间件链，回收就推迟到
+	// 链再次安静为止。
+	if maxInflight := a.cfg.GetInt("gc.max_inflight"); maxInflight < 0 {
+		return nil, errs.Detail(ErrRuntimeGC, "gc.max_inflight=%d must not be negative | gc.max_inflight=%d 不得为负数", maxInflight, maxInflight)
+	} else if maxInflight > 0 {
+		limit := uint64(maxInflight)
+		gcOptions.Busy = func() bool { return a.metrics.InFlight() >= limit }
+	}
+	runtimeGC, err := gc.New(gcOptions)
+	if err != nil {
+		return nil, errs.Wrap(err, ErrRuntimeGC)
+	}
+	a.runtimeGC = runtimeGC
+
 	identity, identityErr := nodeid.Resolve(context.Background(), a.nodeOptions())
 	if identityErr != nil {
 		// An explicit node.id is a configuration error, and so is any failure when
@@ -302,6 +333,10 @@ func New(opts ...Option) (*App, error) {
 	// keeping every counter readable after shutdown. | 注册表属于应用生命周期：停止时记录最终状态，
 	// 同时让全部计数在关闭后仍可读取。
 	a.OnShutdown(func(ctx context.Context) error { return a.metrics.Shutdown(ctx) })
+	// The runtime GC loop is part of the same lifecycle; it stops before the metrics registry
+	// because hooks run in reverse registration order. | 运行时 GC 循环属于同一生命周期；由于钩子
+	// 按注册逆序执行，它会在指标注册表之前停止。
+	a.OnShutdown(func(ctx context.Context) error { return a.runtimeGC.Stop(ctx) })
 
 	return a, nil
 }
@@ -351,6 +386,12 @@ func (a *App) Config() *config.Config { return a.cfg }
 
 // Logger returns the application logger. | Logger 返回应用日志器。
 func (a *App) Logger() *ydlog.Logger { return a.log }
+
+// RuntimeGC returns the runtime garbage-collection scheduler. It is always non-nil after
+// New; use its Stats for observability and RunOnce for an operator-triggered collection.
+// | RuntimeGC 返回运行时垃圾回收调度器。New 之后它始终非 nil；用 Stats 观测，用 RunOnce
+// 执行运维触发的一次性回收。
+func (a *App) RuntimeGC() *gc.Scheduler { return a.runtimeGC }
 
 // FS returns the asset filesystem (templates/, static/, langs/). | FS 返回资产文件系统。
 func (a *App) FS() afero.Fs { return a.fs }
@@ -483,6 +524,10 @@ func (a *App) Run(ctx context.Context) error {
 	// distinguishes "wired but never started" from "running but idle". | 在首个请求到达前把全部已注册
 	// 中间件标为 active，使仪表盘能区分「已装配但从未启动」与「运行中但空闲」。
 	a.metrics.Start()
+	// Start the GC loop before serving; its first deadline is one interval away, so startup
+	// itself is never delayed by a collection. | 在提供服务前启动 GC 循环；首个期限在一个间隔之后，
+	// 因此启动本身绝不会被回收拖慢。
+	a.runtimeGC.Start()
 
 	runErr := a.server.Run(ctx)
 	if runErr != nil {

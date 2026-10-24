@@ -1049,3 +1049,26 @@ WebSocket、WebTransport 与 SSE 共用 `ydx/realtime` 中枢；使用说明见
   用节点 ID 做鉴权；在容器内默认使用宿主种子。
 - **测试**：`ydx/nodeid` 覆盖优先级、损坏即失败、并发创建、容器种子策略、Claimer 与平台
   种子解析；`runtime/app` 覆盖配置身份接线。修改身份逻辑必须保持 `-race` 通过。
+
+## 29. 运行时 GC 调度（强制）
+
+`ydx/gc` 是框架唯一的定时回收入口，使用说明见 `docs/runtime-gc.md`。
+
+- **只决定时机，不改运行时调参**：不得用它修改 `GOGC`、`debug.SetMemoryLimit`；Go 自带 GC 照常运行。
+- **默认装配**：`app.New` 解析 `gc.*` 并构造调度器，非法配置以 `app.ErrRuntimeGC` 拒绝启动；
+  `app.Run` 启动、`app.Shutdown` 通过生命周期钩子停止。业务代码不得自行 `go` 一个定时器调用
+  `runtime.GC` / `debug.FreeOSMemory`。
+- **策略优先级**：内存压力 > 堆下限 > 繁忙门 > 空闲窗口。内存压力强制回收是「无人值守」的安全阀，
+  不得删除；繁忙门默认取进程 CPU 利用率，`gc.max_inflight` 可追加在途请求门。
+- **性能红线**：采样只用 `runtime/metrics`，禁止 `runtime.ReadMemStats`（会停止世界）；空闲期间
+  每个 `interval` 只唤醒一次，不得改成高频轮询；每次回收必须串行，禁止并发回收。
+- **安全红线**：`Load` / `Busy` 回调与回收路径的 panic 必须被 recover 并计数，不得让后台协程的
+  panic 终止进程；探针 panic 或连续无读数按**失败关闭**（视为繁忙）处理，不得在未知状态下于
+  高峰触发回收。`Stop` 取消并等待协程退出，超时返回 `gc.ErrStopTimeout`。
+- **观测**：每次回收写一条 INFO 日志（回收前后堆、归还量、GC 轮数、耗时、是否强制）；推迟只在
+  进入繁忙时写 DEBUG；恢复的 panic 最多每分钟一条 ERROR。`App.RuntimeGC().Stats()` 是只读快照，
+  不得在请求热路径调用。
+- **手动执行**：`App.RuntimeGC().RunOnce(ctx)` 绕过负载/空闲/堆下限门，但与定时回收串行；
+  它面向运维与调试，不得放进 HTTP 请求热路径。
+- **禁止**：在业务代码里直接调用 `debug.FreeOSMemory` / `runtime.GC`；在繁忙门里做阻塞操作或
+  调用 `Stop` / `Stats`；把回收间隔设为零或改成热轮询；用其它缓存/队列组件代替本调度器。

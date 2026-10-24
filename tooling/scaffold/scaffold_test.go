@@ -472,6 +472,8 @@ func TestGenerateAlwaysIntegratesRedisAndAsynq(t *testing.T) {
 		"node:",
 		"id_file: \"data/node-id\"",
 		"require_persistent: false",
+		"gc:",
+		"strategy: balanced",
 		"sensitive_tables:",
 		"yd_auth_user_tenants",
 		"sensitive_ttl: 5s",

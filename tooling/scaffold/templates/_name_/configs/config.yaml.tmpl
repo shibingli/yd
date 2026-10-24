@@ -56,6 +56,32 @@ realtime:
   slow_policy: drop          # drop | close：队列满时丢弃或关闭该订阅 | drop or close on a full queue
   channel_prefix: "yd:rt:"   # Redis 频道前缀；同一部署内唯一 | Redis channel namespace, unique per deployment
 
+# Runtime GC scheduling: collects during low-load windows and returns free memory to the OS;
+# busy periods are skipped automatically. | 运行时 GC 调度：在低负载窗口触发回收，并把空闲内存
+# 归还操作系统；繁忙时自动跳过。
+#
+# Presets (strategy) | 策略预设：
+#   gentle     soft GC every ~30m, strictly idle only | 约 30 分钟一次软回收，只在严格空闲时执行
+#   balanced   release GC every ~10m, the default | 约 10 分钟一次释放式回收（默认）
+#   aggressive release GC every ~2m, tolerant of load | 约 2 分钟一次释放式回收，对负载更宽容
+#   off        no background scheduling; manual RunOnce still works | 关闭后台调度（手动执行 App.RuntimeGC().RunOnce 仍可用）
+# Individual keys override the preset; omitted keys keep the preset value. | 单项键覆盖预设；未写出的键继续使用预设值。
+gc:
+  strategy: balanced
+  # enabled: true              # false disables background scheduling | false 关闭后台调度
+  # mode: release              # soft = runtime.GC; release = debug.FreeOSMemory | release 归还内存给操作系统
+  # interval: 10m
+  # max_interval: 1h           # adaptive backoff ceiling | 自适应退避上限
+  # sample_interval: 5s        # sampling while waiting for quiet | 等待空闲窗口时的采样间隔
+  # quiet_window: 30s          # sustained quiet before collecting | 连续低于阈值的时长
+  # load_threshold: 30         # process CPU utilisation percent; 0 disables | 进程 CPU 利用率百分比；0 关闭
+  # min_heap: 33554432         # 32 MiB heap floor; 0 disables | 32 MiB 堆下限；0 关闭
+  # pressure_ratio: 0.85       # force at this fraction of the memory ceiling; 0 disables | 达到内存上限该比例时强制回收；0 关闭
+  # jitter: 0.1                # interval jitter across replicas | 间隔抖动，避免多副本同时回收
+  # adaptive: true             # grow the interval when little is reclaimed | 回收量很小时自动增大间隔
+  # max_defer: 0               # force after this long busy; 0 = never | 繁忙超过此时长后强制执行；0 = 不强制
+  # max_inflight: 0            # treat this many in-flight calls as busy; 0 disables | 在途中间件调用达到此值视为繁忙；0 关闭
+
 log:
   level: info         # debug | info | warn | error
   format: json        # json | console
