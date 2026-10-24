@@ -47,7 +47,7 @@
 // Realtime and security | 实时与安全:
 //
 //   - [github.com/shibingli/ydx/sse], [github.com/shibingli/ydx/websocket] server-sent events and RFC 6455 WebSockets. | 事件流与 WebSocket。
-//   - [github.com/shibingli/ydx/jwt], [github.com/shibingli/yd/security/guomi] reflection-free JWTs and SM2/SM3/SM4. | 免反射 JWT 与国密套件。
+//   - [github.com/shibingli/ydx/jwt], [github.com/shibingli/ydx/guomi] reflection-free JWTs and SM2/SM3/SM4. | 免反射 JWT 与国密套件。
 //
 // Data | 数据层:
 //

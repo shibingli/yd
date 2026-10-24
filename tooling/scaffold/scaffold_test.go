@@ -21,7 +21,7 @@ import (
 	"time"
 
 	"github.com/shibingli/yd/security/authz"
-	"github.com/shibingli/yd/security/guomi"
+	"github.com/shibingli/ydx/guomi"
 	"github.com/shibingli/yd/tooling/assets"
 	"github.com/shibingli/yd/tooling/scaffold"
 	"github.com/shibingli/ydx/afs"

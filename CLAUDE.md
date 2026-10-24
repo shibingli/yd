@@ -47,9 +47,10 @@
 
 - **依赖形态**：`go.mod` 直接引用 `github.com/shibingli/ydx/<module> vX.Y.Z`；**禁止**本地
   `replace`。开发期联调只能在两个仓库之外临时使用 `go.work`，不得提交。
-- **模块清单**（31 个）：`errs`、`sysinfo`、`buffpool`、`protocol`、`base64`、`json`、`afs`、
+- **模块清单**（32 个）：`errs`、`sysinfo`、`buffpool`、`protocol`、`base64`、`json`、`afs`、
   `config`、`log`、`regexpx`、`router`、`gorm`、`redis`、`asynq`、`cache`、`sse`、`websocket`、
-  `render`、`i18n`、`openapi`、`openapi/ydrouter`、`jwt`、`middleware` 及 8 个 `middleware/*` 插件。
+  `render`、`i18n`、`openapi`、`openapi/ydrouter`、`jwt`、`guomi`、`middleware` 及 8 个
+  `middleware/*` 插件。
 - **OpenAPI 分层**：`openapi` 核心不依赖任何路由器，只接受 `openapi.Route` 并提供标准
   `net/http` 处理器；`ydx/router` 项目经 `openapi/ydrouter` 的 `FromRouter` / `Handler` 接入。
 - **包标识符已同步改名**：`errs`、`json`、`base64`、`log`、`buffpool`、`gorm`、`cache`、

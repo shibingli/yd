@@ -35,7 +35,7 @@ import (
 	// dialect depends on, and importing it performs the registration.
 	_ "github.com/glebarez/sqlite"
 	"github.com/shibingli/yd/security/authz"
-	"github.com/shibingli/yd/security/guomi"
+	"github.com/shibingli/ydx/guomi"
 	"github.com/shibingli/ydx/base64"
 	"github.com/shibingli/ydx/json"
 	"github.com/shibingli/ydx/regexpx"

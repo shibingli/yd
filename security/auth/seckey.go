@@ -1,7 +1,7 @@
 package auth
 
 import (
-	"github.com/shibingli/yd/security/guomi"
+	"github.com/shibingli/ydx/guomi"
 	"github.com/shibingli/ydx/errs"
 )
 

@@ -698,7 +698,7 @@ CGO_ENABLED=1 CC=clang go test -race ./...    44 个包 ok，退出码 0
 
 ## 3.15 国密与编解码热路径（第十四轮）
 
-本轮针对 Go 1.27.3 优化 `security/guomi` 与 `ydx/base64`，并在 Windows 与
+本轮针对 Go 1.27.3 优化 `ydx/guomi` 与 `ydx/base64`，并在 Windows 与
 WSL Ubuntu-24.04（同为 Go 1.27.3）上分别测量；所有实现保持纯 Go、无 cgo。
 
 ### 3.15.1 SM3 / HMAC / PBKDF2

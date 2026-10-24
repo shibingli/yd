@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/shibingli/yd/security/guomi"
+	"github.com/shibingli/ydx/guomi"
 )
 
 // sortedNames returns names sorted and joined with commas, so that a comparison

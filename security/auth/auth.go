@@ -43,7 +43,7 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/shibingli/yd/security/guomi"
+	"github.com/shibingli/ydx/guomi"
 	"github.com/shibingli/ydx/base64"
 	"github.com/shibingli/ydx/errs"
 	ydlog "github.com/shibingli/ydx/log"

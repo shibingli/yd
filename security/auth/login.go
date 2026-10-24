@@ -5,7 +5,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/shibingli/yd/security/guomi"
+	"github.com/shibingli/ydx/guomi"
 	"github.com/shibingli/ydx/base64"
 	"github.com/shibingli/ydx/errs"
 )

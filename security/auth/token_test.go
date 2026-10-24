@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/shibingli/yd/security/guomi"
+	"github.com/shibingli/ydx/guomi"
 	"github.com/shibingli/ydx/jwt"
 )
 

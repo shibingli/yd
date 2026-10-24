@@ -8,14 +8,14 @@
 - **Base64**：amd64 与 arm64 均为正式支持架构，默认使用自研 `ydx/base64` 内核（amd64 在 `GOEXPERIMENT=simd` 下按 VBMI2/VBMI → 基础 AVX-512 → AVX2 选择，arm64 手写 NEON），其它架构走纯 Go 标量；`b64x_std` 标签切换标准库。主模块不再依赖 cloudwego/base64x/cristalhq。
 - **环境自适应**：并行度、分块大小、缓冲与池上限一律由 `ydx/sysinfo` 在运行时读取 GOMAXPROCS、逻辑 CPU 数与 cgroup/主机内存后决定；库 API 不接收核心数或内存容量参数。
 - **基准报告**：所有基准统一在 `ydx/benchmarks/*`；单核/多核、全部对比库、CPU 与峰值 RSS 以 ydx 仓的 `benchmarks/README.md` 与各模块 README 为准。yd 仓库不保留 `benchmarks/` 目录。
-- **组件依赖**：`errs/json/base64/log/buffpool/afs/config/sysinfo/regexpx/router/gorm/redis/asynq/cache/sse/websocket/render/jwt` 与中间件插件均由 `github.com/shibingli/ydx/*` 提供；yd 只按版本号引用，禁止本地 replace 或复制源码。
+- **组件依赖**：`errs/json/base64/log/buffpool/afs/config/sysinfo/regexpx/router/gorm/redis/asynq/cache/sse/websocket/render/jwt/guomi` 与中间件插件均由 `github.com/shibingli/ydx/*` 提供；yd 只按版本号引用，禁止本地 replace 或复制源码。
 - SIMD 相关构建与测试使用 `GOEXPERIMENT=simd`；Go 1.27.3+ 若已默认启用可省略。
 
 ## 1. 修改权限边界
 
 **允许直接修改**
 
-- 源码目录：`core/envx/`、`core/version/`、`http/htmx/`、`security/{auth,authz,guomi}/`、`runtime/**`、`messaging/**`、`tooling/**`、`web/**`、`repotest/**`
+- 源码目录：`core/envx/`、`core/version/`、`http/htmx/`、`security/{auth,authz}/`、`runtime/**`、`messaging/**`、`tooling/**`、`web/**`、`repotest/**`
 - 测试与文档：`*_test.go`、`testdata/**`、`docs/**`（除需求基线）
 - 组件仓库：`D:\developer\go_code\ydx`（独立 Git 仓库）；组件修改必须在该仓库完成测试、打标签并推送，再回 yd 升级版本号。
 

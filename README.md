@@ -122,14 +122,13 @@ yd dev --port 7070          # 命令行最高优先级
 ```
 # 可复用组件位于独立仓库 github.com/shibingli/ydx，按版本依赖：
 #   errs sysinfo buffpool protocol base64 json afs config log regexpx router
-#   gorm redis asynq cache sse websocket render i18n openapi jwt middleware + middleware/* 插件
+#   gorm redis asynq cache sse websocket render i18n openapi jwt guomi middleware + middleware/* 插件
 core/
   envx/        环境名归一化（development/dev、production/prod）
   version/     版本信息（-ldflags 注入）
 http/          HTTP 与前端交付
   htmx/        Htmx 4 服务端辅助（HX-* 响应头 · hx-partial · OOB）
 security/      安全与鉴权
-  guomi/       国密 SM2/SM3/SM4（纯 Go，emmansun/gmsm 维护版后端；SM2 KDF 与 C1C3C2 按 GB/T 32918.4 实现）
   auth/        租户/用户/角色/能力领域模型（gormstore 子包负责落库）
   authz/       角色与权限注册表、静态校验
 runtime/       进程与运行时
@@ -189,7 +188,7 @@ repotest/      仓库治理守卫（治理文件与规范的可执行断言）
 ## 性能与兼容性指标
 
 所有基准已统一到 ydx 仓的 [`benchmarks/`](https://github.com/shibingli/ydx/tree/main/benchmarks)
-（15 个独立 Go 模块）；yd 仓不再保留 `benchmarks/` 目录。主表在 **x86_64 参考主机**
+（14 个独立 Go 模块）；yd 仓不再保留 `benchmarks/` 目录。主表在 **x86_64 参考主机**
 （AMD Ryzen AI MAX+ 395，16 核 32 线程，30 GiB，Ubuntu 26.04.1，Go 1.27.3，AVX-512
 VBMI2）上以 `GOMAXPROCS=32`、`-count=5`、`-benchtime=500ms` 采集中位数；arm64 与旧指令集
 x86_64 的冒烟结果、低效指标的优化前后对比与公平性说明见
@@ -199,17 +198,16 @@ x86_64 的冒烟结果、低效指标的优化前后对比与公平性说明见
 |---|---|---|
 | WebSocket | [`benchmarks/websocket`](https://github.com/shibingli/ydx/tree/main/benchmarks/websocket) | 32 B 回显 4.07 µs（gorilla 4.26 / gobwas 4.34 / coder 5.59 / gws 6.46）、64 KiB 回显 16.59 µs（gorilla 18.58 / gws 18.25）；64×1 KiB 批量写 14.06 µs（coder 73.7 / gorilla 124.3）；并发回显 readahead 变体 1.41 µs 领先全部实现；gobwas/gws 与兼容性测试已并入 |
 | Router | [`benchmarks/router`](https://github.com/shibingli/ydx/tree/main/benchmarks/router) | 静态路由经 `GETRaw` 8.40 ns（httprouter 12.86）；参数 18.9 ns（httprouter 29.0）、通配 18.9 ns（gin 25.6 / httprouter 28.1）、未命中 25.8 ns（gin 28.1） |
-| JSON | [`benchmarks/json`](https://github.com/shibingli/ydx/tree/main/benchmarks/json) | 5 字段载荷：Marshal 单对象 60.9 ns（goccy 89.8 / sonic 87.1），64 对象 2.59 µs（goccy 4.23 / sonic 2.99）；Unmarshal 单对象 119.1 ns（goccy 125.9），64 对象 6.51 µs（goccy 6.87）；1024 对象 101.5 µs（goccy 110.7）。7 字段/长小数/`time.Time` 载荷：n=1000 Marshal 89.7 µs（go-json 116.2）、Unmarshal 174.3 µs（195.2）；n=1 Unmarshal 250.9 ns 与 go-json 247.5 ns 相差在噪声内 |
+| JSON | [`benchmarks/json`](https://github.com/shibingli/ydx/tree/main/benchmarks/json) | 5 字段载荷：Marshal 单对象 60.9 ns（goccy 89.8 / sonic 87.1），64 对象 2.59 µs（goccy 4.23 / sonic 2.99）；Unmarshal 单对象 119.1 ns（goccy 125.9），64 对象 6.51 µs（goccy 6.87）；1024 对象 101.5 µs（goccy 110.7）。7 字段/长小数/`time.Time` 载荷：n=1000 Marshal 89.7 µs（go-json 116.2）、Unmarshal 174.3 µs（195.2）；n=1 Unmarshal 214.2 ns，领先 go-json（245.6 ns）约 12.8% |
 | Base64 | [`benchmarks/base64`](https://github.com/shibingli/ydx/tree/main/benchmarks/base64) | 32 B 编码 5.58 ns（cristalhq 9.57 / stdlib 14.38）、解码 10.47 ns（12.93 / 19.92）；1 KiB/64 KiB/1 MiB 编码与解码全部第一，1 MiB 编码 55.5 GB/s、解码 27.1 GB/s。cloudwego/base64x 的 JIT 在 Go 1.27.3 上崩溃，已从默认套件移除并记录 |
 | 正则 | [`benchmarks/regexpx`](https://github.com/shibingli/ydx/tree/main/benchmarks/regexpx) | 匹配/查找/批量扫描全部最快：`FindAll/email` 94.98 µs（stdlib 5.679 ms、go-re2 732.3 µs），`FindAll/date` 110.8 µs（go-re2 705.5 µs）。简单模式编译仍慢于标准库（启动期一次性成本） |
 | JWT | [`benchmarks/jwt`](https://github.com/shibingli/ydx/tree/main/benchmarks/jwt) | HS256 签发 1.257 µs（map 声明；类型化结构体 535 ns，cristalhq 同形态 1.061 µs），jwx 2.237 / golang-jwt 2.544；ES256 签发 19.81 µs（jwx 20.70 / golang-jwt 21.08）；HS256 验签 782.6 ns（golang-jwt 3.17 µs、jwx 4.73 µs）；并发验签 145.8 ns（1.117 µs）；cristalhq/kataras 对比已并入 |
-| 国密/常密 | [`benchmarks/crypto`](https://github.com/shibingli/ydx/tree/main/benchmarks/crypto) | yd 的 `security/guomi` 委托的维护版 gmsm 在 SM2/SM3/SM4 同算法族内全面领先旧版 tjfoc；SM2 签名/验签快于 ECDSA P-256。SM3/SM4 无 SHA-NI/AES-NI 对应指令，绝对吞吐仍低于硬件加速的 SHA-256/AES-GCM |
+| 国密/常密 | [`benchmarks/crypto`](https://github.com/shibingli/ydx/tree/main/benchmarks/crypto) | yd 使用的 `ydx/guomi` 委托的维护版 gmsm 在 SM2/SM3/SM4 同算法族内全面领先旧版 tjfoc；SM2 签名/验签快于 ECDSA P-256。SM3/SM4 无 SHA-NI/AES-NI 对应指令，绝对吞吐仍低于硬件加速的 SHA-256/AES-GCM |
 | 压缩 | [`benchmarks/compress`](https://github.com/shibingli/ydx/tree/main/benchmarks/compress) | zstd/fastest、klauspost gzip、snappy、brotli、lz4 的吞吐/压缩率同表对比；yd 的 HTTP/WebSocket 选择 klauspost gzip/zstd；与 gzhttp 在 16 KiB 用例上持平（5.27 µs 对 5.21 µs） |
 | 日志 | [`benchmarks/log`](https://github.com/shibingli/ydx/tree/main/benchmarks/log) | 5 字段 Info 134.1 ns（zerolog 168.6）、8 字段 206.1 ns（228.0）、并发写入 8.08 ns（10.53）、prebound 86.6 ns（zerolog 96.2）；禁用 dynamic 9.87 ns 仍略慢于 zerolog 7.33 ns（字段由调用方构造） |
 | 中间件 | [`benchmarks/middleware`](https://github.com/shibingli/ydx/tree/main/benchmarks/middleware) | CORS 36.7 ns（rs/cors 53.2）、恢复 7.85 ns（chi 8.62）、请求 ID 170.2 ns（chi 275.0）；16 KiB gzip 5.268 µs 与 gzhttp 5.213 µs 持平；限流 136.5 ns，x/time/rate 59.92 ns（全局、不写头）、补头后 127.8 ns、按 IP 分桶后 139.0 ns，见下方口径说明 |
 | 缓存 | [`benchmarks/cache`](https://github.com/shibingli/ydx/tree/main/benchmarks/cache) | L1 Set 49.07 ns，领先 freecache（75.5）/bigcache（95.8）；防御性副本 Get 45.0 ns（bigcache 43.1 ns，差异在噪声内），零拷贝 `GetAppend` 38.3 ns、`View` 36.5 ns；`sync.Map`/ristretto 返回引用，不能与副本路径直接横比。TTL、Mixed、命中率轨迹与 theine/ttlcache/golang-lru 对比已并入 |
-| Render | [`benchmarks/render`](https://github.com/shibingli/ydx/tree/main/benchmarks/render) | 带绑定 258.2 ns，html/template 3.473 µs、text/template 2.208 µs |
-| 模板引擎 | [`benchmarks/template`](https://github.com/shibingli/ydx/tree/main/benchmarks/template) | yd-render 100 行页面物化 18.78 µs/0 allocs（quicktemplate 21.46 µs），流式 `io.Discard` 18.33 µs（quicktemplate 15.15 µs，编译期生成代码直写）；html/template 473.2 µs；转义矩阵只有 html/template、yd-render、templ 同时拦截 `javascript:` URL |
+| 模板引擎 | [`benchmarks/template`](https://github.com/shibingli/ydx/tree/main/benchmarks/template) | yd-render 100 行页面物化 18.78 µs/0 allocs（quicktemplate 21.46 µs），流式 `io.Discard` 18.33 µs（quicktemplate 15.15 µs，编译期生成代码直写）；绑定渲染微基准 253.7 ns（html/template 3.43 µs、text/template 2.12 µs）；html/template 473.2 µs；转义矩阵只有 html/template、yd-render、templ 同时拦截 `javascript:` URL |
 | 缓冲池 | [`benchmarks/buffpool`](https://github.com/shibingli/ydx/tree/main/benchmarks/buffpool) | 1 KiB Get/Put 9.3 ns / 4 KiB 9.9 ns（bytebufferpool 9.4 / 9.5，差 3–4% 在噪声内）；并发 0.58 ns 对 bytebufferpool 30.36 ns；裸 `sync.Pool` 7.1–7.3 ns（无尺寸分级，口径不同） |
 
 **口径说明**：限流基准中的 x/time/rate 默认变体使用单个全局 limiter 且不写 `X-RateLimit-*` 头，
