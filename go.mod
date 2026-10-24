@@ -45,7 +45,7 @@ require (
 	filippo.io/edwards25519 v1.2.0 // indirect
 	github.com/andybalholm/brotli v1.2.7 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
-	github.com/dunglas/httpsfv v1.1.1 // indirect
+	github.com/dunglas/httpsfv v1.1.2 // indirect
 	github.com/dustin/go-humanize v1.1.0 // indirect
 	github.com/glebarez/go-sqlite v1.23.0 // indirect
 	github.com/go-sql-driver/mysql v1.10.1 // indirect
