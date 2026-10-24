@@ -1,0 +1,211 @@
+# Release workflow: build the standalone yd CLI for Linux and Windows on amd64 and
+# arm64, package the binaries, and attach them to the GitHub Release of a vX.Y.Z tag.
+# | 发布工作流：为 vX.Y.Z 标签构建 Linux/Windows、amd64/arm64 的独立 yd CLI，
+# 打包并附加到对应的 GitHub Release。
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Existing tag to build and publish (vX.Y.Z) | 要构建并发布的已有标签（vX.Y.Z）'
+        required: true
+        type: string
+
+run-name: Release ${{ github.event.inputs.tag || github.ref_name }}
+
+# Never cancel an in-flight release: a half-uploaded release is worse than a duplicate run.
+# | 绝不取消进行中的发布：上传到一半的 Release 比重复运行更糟。
+concurrency:
+  group: release-${{ github.repository }}-${{ github.event.inputs.tag || github.ref_name }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  TAG: ${{ github.event.inputs.tag || github.ref_name }}
+
+jobs:
+  check:
+    name: Validate tag
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      ok: ${{ steps.check.outputs.ok }}
+    steps:
+      - id: check
+        # Only strict vX.Y.Z tags publish binaries; every other tag is ignored.
+        # | 只有严格的 vX.Y.Z 标签才发布二进制，其它标签直接忽略。
+        run: |
+          set -euo pipefail
+          if [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "ok=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "ok=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::Skipping $TAG: expected vX.Y.Z | 跳过 $TAG：期望 vX.Y.Z"
+          fi
+
+  verify:
+    name: Build and vet the tagged commit
+    needs: check
+    if: needs.check.outputs.ok == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      CGO_ENABLED: "0"
+      GOWORK: "off"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.tag || github.ref }}
+          fetch-depth: 0
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Build and vet
+        # Compile the whole module and run vet before spending time on four cross builds.
+        # | 在四次交叉构建之前先编译整个模块并运行 vet。
+        run: |
+          set -euo pipefail
+          go build ./...
+          go vet ./...
+
+  build:
+    name: Build ${{ matrix.goos }}/${{ matrix.goarch }}
+    needs: [check, verify]
+    if: needs.check.outputs.ok == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        goos: [linux, windows]
+        goarch: [amd64, arm64]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.tag || github.ref }}
+          fetch-depth: 0
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Build and package
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          CGO_ENABLED: "0"
+          GOWORK: "off"
+        run: |
+          set -euo pipefail
+          commit="$(git rev-parse HEAD)"
+          build_date="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          ext=""
+          if [ "$GOOS" = "windows" ]; then ext=".exe"; fi
+
+          pkg="yd_${TAG}_${GOOS}_${GOARCH}"
+          mkdir -p "dist" "build/${GOOS}_${GOARCH}" "stage/${pkg}"
+
+          # The same version triple is injected into core/version as the framework's
+          # own build command does. | 与框架自身的构建命令一致，把版本三元组注入 core/version。
+          go build -trimpath \
+            -ldflags "-s -w -X github.com/shibingli/yd/core/version.Version=${TAG} -X github.com/shibingli/yd/core/version.Commit=${commit} -X github.com/shibingli/yd/core/version.Date=${build_date}" \
+            -o "build/${GOOS}_${GOARCH}/yd${ext}" ./cmd/yd
+
+          cp "build/${GOOS}_${GOARCH}/yd${ext}" "stage/${pkg}/"
+          cp LICENSE "stage/${pkg}/"
+
+          if [ "$GOOS" = "linux" ] && [ "$GOARCH" = "amd64" ]; then
+            # Run the native artifact once to prove the injected version is real.
+            # | 在本机原生架构上运行一次，确认版本注入确实生效。
+            "./build/${GOOS}_${GOARCH}/yd" --version | grep -F "${TAG}"
+          fi
+
+          if [ "$GOOS" = "windows" ]; then
+            (cd stage && zip -qr "../dist/${pkg}.zip" "${pkg}")
+          else
+            tar -czf "dist/${pkg}.tar.gz" -C stage "${pkg}"
+          fi
+      - uses: actions/upload-artifact@v4
+        with:
+          name: yd-${{ matrix.goos }}-${{ matrix.goarch }}
+          path: |
+            dist/*.tar.gz
+            dist/*.zip
+          if-no-files-found: error
+          retention-days: 7
+
+  release:
+    name: Publish GitHub Release
+    needs: [check, build]
+    if: needs.check.outputs.ok == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+      - name: Generate checksums
+        run: |
+          set -euo pipefail
+          cd dist
+          sha256sum *.tar.gz *.zip | sort -k2 > checksums.txt
+          cat checksums.txt
+      - name: Create or update the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          cat > release-notes.md <<'EOF'
+          ## 下载
+
+          | 平台 | 架构 | 文件 |
+          |---|---|---|
+          | Linux | amd64 | `yd_@@TAG@@_linux_amd64.tar.gz` |
+          | Linux | arm64 | `yd_@@TAG@@_linux_arm64.tar.gz` |
+          | Windows | amd64 | `yd_@@TAG@@_windows_amd64.zip` |
+          | Windows | arm64 | `yd_@@TAG@@_windows_arm64.zip` |
+
+          ## 安装
+
+          Linux（按实际架构替换文件名）：
+
+          ```bash
+          tar -xzf yd_@@TAG@@_linux_amd64.tar.gz
+          sudo install yd_@@TAG@@_linux_amd64/yd /usr/local/bin/yd
+          yd --version
+          ```
+
+          Windows：解压 zip，把 `yd.exe` 放入 `PATH`，然后执行 `yd --version`。
+
+          ## 校验
+
+          ```bash
+          sha256sum -c checksums.txt
+          ```
+
+          > 二进制为 CGO_ENABLED=0 的静态链接版本，内置全部前端资产。
+          EOF
+          sed -i "s/@@TAG@@/${TAG}/g" release-notes.md
+
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            # The release page may already exist (for example after a manual note pass);
+            # only its assets are refreshed. | Release 页面可能已存在（例如已人工补充说明），
+            # 此时只刷新资产。
+            gh release upload "$TAG" dist/*.tar.gz dist/*.zip dist/checksums.txt --clobber
+          else
+            gh release create "$TAG" dist/*.tar.gz dist/*.zip dist/checksums.txt \
+              --verify-tag \
+              --title "$TAG" \
+              --notes "$(cat release-notes.md)" \
+              --generate-notes
+          fi

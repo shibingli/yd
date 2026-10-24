@@ -26,6 +26,8 @@ YD 深度融合 **Go 1.27+ / Htmx 4.0 / Tailwind v4**，消除传统前后端分
 
 ## 快速开始
 
+预编译二进制（Linux / Windows，amd64 / arm64）见 [Releases](https://github.com/shibingli/yd/releases)；从源码安装：
+
 ```bash
 # 安装 CLI
 go install github.com/shibingli/yd/cmd/yd@latest
@@ -83,7 +85,7 @@ yd tools install tailwindcss  # 下载 Tailwind standalone 二进制到 .yd/tool
 ## 文档
 
 - **[yd 使用手册](docs/yd-usage.md)** —— 命令参考、配置、鉴权与多租户、缓存、消息中心、部署与完整示例
-- [二级缓存](docs/cache.md) · [GORM 方言](docs/gorm-dialects.md) · [实时传输](docs/realtime-transports.md) · [节点身份](docs/node-identity.md) · [运行时 GC](docs/runtime-gc.md) · [Redis/asynq 分区](docs/redis-asynq.md) · [消息中心](docs/message-center.md) · [中间件指标](docs/middleware-metrics.md) · [图标](docs/icon-usage.md) · [渲染引擎](docs/render-usage.md) · [验收记录](docs/verification.md)
+- [二级缓存](docs/cache.md) · [GORM 方言](docs/gorm-dialects.md) · [实时传输](docs/realtime-transports.md) · [节点身份](docs/node-identity.md) · [运行时 GC](docs/runtime-gc.md) · [Redis/asynq 分区](docs/redis-asynq.md) · [消息中心](docs/message-center.md) · [中间件指标](docs/middleware-metrics.md) · [图标](docs/icon-usage.md) · [渲染引擎](docs/render-usage.md) · [发布与二进制](docs/releasing.md) · [验收记录](docs/verification.md)
 
 ## 架构一览
 
