@@ -1,6 +1,6 @@
 module github.com/shibingli/yd
 
-go 1.27.2
+go 1.27.3
 
 require (
 	github.com/alicebob/miniredis/v2 v2.40.0
@@ -38,7 +38,7 @@ require (
 
 require (
 	filippo.io/edwards25519 v1.2.0 // indirect
-	github.com/andybalholm/brotli v1.2.6 // indirect
+	github.com/andybalholm/brotli v1.2.7 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
 	github.com/dustin/go-humanize v1.1.0 // indirect
 	github.com/glebarez/go-sqlite v1.23.0 // indirect

@@ -247,7 +247,7 @@ func TestDevRunsChildAndStopsOnCancel(t *testing.T) {
 		t.Skip("短模式跳过真实编译 | skipped in short mode")
 	}
 	dir := t.TempDir()
-	devWriteFile(t, filepath.Join(dir, "go.mod"), "module devapp\n\ngo 1.27.2\n")
+	devWriteFile(t, filepath.Join(dir, "go.mod"), "module devapp\n\ngo 1.27.3\n")
 	devWriteFile(t, filepath.Join(dir, "main.go"),
 		"package main\n\nimport (\n\t\"fmt\"\n\t\"time\"\n)\n\n"+
 			"func main() {\n\tfmt.Println(\"dev-app-ready\")\n\ttime.Sleep(time.Minute)\n}\n")

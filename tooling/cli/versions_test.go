@@ -17,7 +17,7 @@ import (
 // versionsGoMod is the go.mod fixture of the versions command tests. | versionsGoMod 是 versions 命令测试的 go.mod 夹具。
 const versionsGoMod = `module github.com/yun-dev/demo
 
-go 1.27.2
+go 1.27.3
 
 require github.com/shibingli/yd v1.2.3
 `
@@ -120,7 +120,7 @@ func TestVersionsSyncThenCheck(t *testing.T) {
 		t.Fatalf("check: %v", err)
 	}
 	out := te.out.String()
-	for _, want := range []string{"1.27.2", "4.0.0", "up to date | 已同步"} {
+	for _, want := range []string{"1.27.3", "4.0.0", "up to date | 已同步"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("check output missing %q:\n%s", want, out)
 		}

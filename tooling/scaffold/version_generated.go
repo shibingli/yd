@@ -5,7 +5,7 @@ package scaffold
 // GoVersion is the Go directive of the framework module. | GoVersion 是框架模块的 go 指令。
 //
 // Source: go.mod. | 来源：go.mod。
-const GoVersion = "1.27.2"
+const GoVersion = "1.27.3"
 
 // HtmxVersion is the version of the htmx asset in web/assets.lock.json. | HtmxVersion 是 web/assets.lock.json 中 htmx 资产的版本。
 //

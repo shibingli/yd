@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-10-20T07:09:24.5053226Z",
+  "generated_at": "2026-10-24T02:17:57.2018466Z",
   "sources": [
     "https://cdn.jsdelivr.net/npm/{pkg}@{ver}/{file}",
     "https://unpkg.com/{pkg}@{ver}/{file}"
@@ -7,31 +7,31 @@
   "assets": [
     {
       "name": "alpinejs",
-      "version": "3.17.4",
-      "url": "https://cdn.jsdelivr.net/npm/alpinejs@3.17.4/dist/cdn.min.js",
+      "version": "3.17.5",
+      "url": "https://cdn.jsdelivr.net/npm/alpinejs@3.17.5/dist/cdn.min.js",
       "path": "static/js/vendor/alpine.min.js",
-      "sha256": "232519394c6c8fdba6f362b1d9da16106db513cdbf899011f00daab4051df31c",
+      "sha256": "b4036e9e9ac22fa6f6ae1ba292e015e1f3e9c85d0d79e73e4c8eb9bb139b522e",
       "license": "MIT",
       "kind": "js",
-      "size": 55891,
+      "size": 55935,
       "required": true
     },
     {
       "name": "easymde",
-      "version": "2.20.0",
-      "url": "https://cdn.jsdelivr.net/npm/easymde@2.20.0/dist/easymde.min.js",
+      "version": "2.21.0",
+      "url": "https://cdn.jsdelivr.net/npm/easymde@2.21.0/dist/easymde.min.js",
       "path": "static/js/vendor/easymde.min.js",
-      "sha256": "d684d83b1a2ed08b664e6e140984dbb2c26d7e6198a6537fcae3355e85cd47ba",
+      "sha256": "2c06bddfd0c89176db08ccf9d42e2beaa9b4f1a4ff8fb2ec0bf1bed25ce08e05",
       "license": "MIT",
       "kind": "js",
-      "size": 326778
+      "size": 327475
     },
     {
       "name": "easymde-css",
-      "version": "2.20.0",
-      "url": "https://cdn.jsdelivr.net/npm/easymde@2.20.0/dist/easymde.min.css",
+      "version": "2.21.0",
+      "url": "https://cdn.jsdelivr.net/npm/easymde@2.21.0/dist/easymde.min.css",
       "path": "static/js/vendor/easymde.min.css",
-      "sha256": "e7a7feebd8e4a193c03f87dea9f782d40c0e50baa8b8b93cc552f92aa51a61c0",
+      "sha256": "6eee36340432776d682e7372ec4a7eb29be4fdb3ffada32c0bfa5e31a5ef34a2",
       "license": "MIT",
       "kind": "css",
       "size": 12923

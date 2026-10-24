@@ -59,7 +59,7 @@ type Module struct {
 type Inventory struct {
 	// ModulePath is the module path declared by go.mod. | ModulePath 是 go.mod 声明的模块路径。
 	ModulePath string
-	// GoDirective is the go directive, for example "1.27.2". | GoDirective 是 go 指令，例如 "1.27.2"。
+	// GoDirective is the go directive, for example "1.27.3". | GoDirective 是 go 指令，例如 "1.27.3"。
 	GoDirective string
 	// HtmxVersion is the version of the asset named "htmx". | HtmxVersion 是名为 htmx 的资产版本。
 	HtmxVersion string
