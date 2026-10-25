@@ -3830,15 +3830,15 @@ func TestGenerateLanguageToggle(t *testing.T) {
 	if strings.Contains(switches, "yd-switch__item") {
 		t.Error("shell-switches.html still renders the old two-link switcher | shell-switches.html 仍渲染旧的双链接切换")
 	}
-	for _, want := range []string{`data-yd-lang-next="`, `hx-target="#yd-shell"`, `href="{{ .Path }}?lang=`} {
+	for _, want := range []string{`data-yd-lang-next="`, `hx-target="#yd-shell"`, `hx-swap="innerHTML"`, `href="{{ .Path }}?lang=`} {
 		if !strings.Contains(switches, want) {
 			t.Errorf("shell-switches.html is missing %q | shell-switches.html 缺少 %q", want, want)
 		}
 	}
 
 	app := pr.read("web/static/js/yd-app.js")
-	if !strings.Contains(app, "data-yd-lang-toggle") || !strings.Contains(app, "rememberLang(") {
-		t.Error("generated yd-app.js does not remember the language chosen through the toggle | 生成的 yd-app.js 没有记住按钮选择的语言")
+	if !strings.Contains(app, "data-yd-lang-toggle") || !strings.Contains(app, "rememberLang(toggle.getAttribute(\"data-yd-lang-next\"))") {
+		t.Error("generated yd-app.js does not remember the language chosen through the toggle in the capture phase | 生成的 yd-app.js 没有在捕获阶段记住按钮选择的语言")
 	}
 	if !strings.Contains(app, `setAttribute("lang", lang)`) {
 		t.Error("generated yd-app.js does not sync <html lang> after a shell-only language swap | 生成的 yd-app.js 在外壳语言交换后没有同步 <html lang>")

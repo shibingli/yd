@@ -52,7 +52,7 @@ type ReloadEvent struct {
 	Path string `json:"path"`
 	// Op is the merged change operation. | Op 是合并后的变更操作。
 	Op string `json:"op"`
-	// Kind is the change classification: go, config or web. | Kind 是变更分类：go、config 或 web。
+	// Kind is the change classification: go, config, template or web. | Kind 是变更分类：go、config、template 或 web。
 	Kind string `json:"kind"`
 }
 
@@ -113,7 +113,12 @@ const (
 	kindGo changeKind = "go"
 	// kindConfig marks configuration files: restart only. | kindConfig 表示配置文件：仅重启。
 	kindConfig changeKind = "config"
-	// kindWeb marks templates, styles and static assets: rebuild CSS and push a reload. | kindWeb 表示模板、样式与静态资源：重建 CSS 并推送刷新。
+	// kindTemplate marks HTML template files: restart the child so the cached renderer recompiles
+	// the tree once, then push a browser reload. | kindTemplate 表示 HTML 模板：重启子进程，让缓存
+	// 渲染器重新编译一次模板树，再推送浏览器刷新。
+	kindTemplate changeKind = "template"
+	// kindWeb marks styles and static assets: rebuild CSS and push a reload. | kindWeb 表示样式与
+	// 静态资源：重建 CSS 并推送刷新。
 	kindWeb changeKind = "web"
 )
 
@@ -423,6 +428,13 @@ func (r *DevRunner) handle(ctx context.Context, ev Event) {
 			return
 		}
 		r.broadcast(kindConfig, rel, ev.Op)
+	case kindTemplate:
+		r.log.Info("dev: template change detected, restarting | dev: 检测到模板变更，重启子进程",
+			ydlog.Str("path", rel), ydlog.Str("op", ev.Op))
+		if err := r.restart(ctx, false); err != nil {
+			return
+		}
+		r.broadcast(kindTemplate, rel, ev.Op)
 	case kindWeb:
 		r.log.Info("dev: web asset change detected | dev: 检测到 Web 资源变更",
 			ydlog.Str("path", rel), ydlog.Str("op", ev.Op))
@@ -552,13 +564,17 @@ func classify(rel string) changeKind {
 		return kindGo
 	case strings.HasPrefix(slash, "configs/"), base == ".env", strings.HasPrefix(base, ".env."):
 		return kindConfig
-	case strings.HasPrefix(slash, "web/templates/"), strings.HasPrefix(slash, "web/static/"):
+	case strings.HasPrefix(slash, "web/templates/"):
+		return kindTemplate
+	case strings.HasPrefix(slash, "web/static/"):
 		return kindWeb
 	}
 	switch ext {
 	case ".toml", ".yaml", ".yml", ".json":
 		return kindConfig
-	case ".css", ".html", ".htm", ".tmpl", ".tpl", ".js", ".mjs", ".svg":
+	case ".html", ".htm", ".tmpl", ".tpl":
+		return kindTemplate
+	case ".css", ".js", ".mjs", ".svg":
 		return kindWeb
 	}
 	return kindNone

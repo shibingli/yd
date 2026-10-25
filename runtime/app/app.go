@@ -313,7 +313,11 @@ func New(opts ...Option) (*App, error) {
 	a.router = router.New()
 
 	if a.renderer == nil {
-		engine, err := newRenderer(a.fs, a.staticFS, isDevelopment(a.cfg))
+		// Templates are cached in every environment; `yd dev` restarts the child
+		// when a template file changes, so hot reload does not require compiling
+		// the whole tree on every request. | 所有环境都缓存模板；模板文件变化时由
+		// `yd dev` 重启子进程，热重载因此不需要在每个请求上编译整棵模板树。
+		engine, err := newCachedRenderer(a.fs, a.staticFS, !isDevelopment(a.cfg))
 		if err != nil {
 			return nil, err
 		}

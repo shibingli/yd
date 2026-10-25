@@ -95,6 +95,26 @@ func TestDefaultRendererCachesUnlessDev(t *testing.T) {
 	}
 }
 
+func TestCachedRendererCachesInDevelopment(t *testing.T) {
+	fsys := newTemplateFS(t, map[string]string{"templates/one.html": "<p>one</p>"})
+	r, err := newCachedRenderer(fsys, nil, false)
+	if err != nil {
+		t.Fatalf("构建缓存渲染器失败: %v", err)
+	}
+	if got := renderString(t, r, "one.html", nil); got != "<p>one</p>" {
+		t.Fatalf("首次输出 = %q", got)
+	}
+	if err := afero.WriteFile(fsys, "templates/one.html", []byte("<p>two</p>"), 0o644); err != nil {
+		t.Fatalf("改写模板失败: %v", err)
+	}
+	if got := renderString(t, r, "one.html", nil); got != "<p>one</p>" {
+		t.Errorf("缓存输出 = %q, 期望仍为旧内容", got)
+	}
+	if opts := r.Options(); opts.Dev || opts.Production {
+		t.Errorf("缓存渲染器的 Dev/Production = %v/%v, 期望 false/false", opts.Dev, opts.Production)
+	}
+}
+
 func TestDefaultRendererWithoutTemplates(t *testing.T) {
 	// A filesystem without a templates directory: the renderer still builds,
 	// and rendering reports the missing template. | 没有模板目录的文件系统：

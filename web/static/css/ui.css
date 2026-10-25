@@ -505,10 +505,12 @@
   .yd-toggle__track::after {
     content: "";
     position: absolute;
-    top: 0.125rem;
-    left: 0.125rem;
-    width: 1rem;
-    height: 1rem;
+    /* One-pixel inset on every side keeps the thumb visually attached to the track instead of
+       floating inside a loose ring. | 四周各留 1px，使滑块紧贴轨道而不是悬在一圈松动的缝隙里。 */
+    top: 0.0625rem;
+    left: 0.0625rem;
+    width: 1.125rem;
+    height: 1.125rem;
     border-radius: 999px;
     background-color: var(--color-surface);
     box-shadow: 0 1px 2px color-mix(in oklab, var(--color-content) 25%, transparent);

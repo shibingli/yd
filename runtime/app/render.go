@@ -31,11 +31,27 @@ import (
 // | 模板是可选的：不附带模板的应用仍可启动，此时渲染器把每个名字都报告为缺失，
 // 而不是让装配失败。
 func newRenderer(fsys, staticFS afero.Fs, dev bool) (*render.Engine, error) {
+	return buildRenderer(fsys, staticFS, !dev, dev)
+}
+
+// newCachedRenderer builds the renderer used by the application facade: templates are compiled once
+// and reused for every request, while the asset helper keeps the development/production distinction.
+// `yd dev` restarts the child when a template changes, so hot reload survives without paying the full
+// template compile on every request. | newCachedRenderer 构建门面使用的渲染器：模板只编译一次并在
+// 每个请求间复用，asset 助手仍区分开发与生产。模板改动由 `yd dev` 重启子进程生效，热重载因此不必
+// 为每个请求支付整棵模板树的编译成本。
+func newCachedRenderer(fsys, staticFS afero.Fs, production bool) (*render.Engine, error) {
+	return buildRenderer(fsys, staticFS, production, false)
+}
+
+// buildRenderer creates a render engine with independent cache and asset-resolution switches. |
+// buildRenderer 用彼此独立的缓存开关与资产解析开关创建渲染引擎。
+func buildRenderer(fsys, staticFS afero.Fs, production, hotReload bool) (*render.Engine, error) {
 	opts := render.Options{
 		Root:       assetsTemplatesDir,
-		Dev:        dev,
+		Dev:        hotReload,
 		AssetFS:    staticFS,
-		Production: !dev,
+		Production: production,
 	}
 	engine, err := render.New(fsys, opts)
 	if err == nil {

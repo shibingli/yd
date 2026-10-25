@@ -468,6 +468,41 @@ func TestPasswordHidesNativeReveal(t *testing.T) {
 	}
 }
 
+// TestToggleUsesDedicatedWrapper pins the switch's own wrapper: the check-row pill border must not
+// wrap a toggle, or the track sits inside an extra border with visible gaps. |
+// TestToggleUsesDedicatedWrapper 固定开关专用外层：复选框的胶囊边框不得包住开关，否则轨道会落在
+// 一道额外边框里并留下可见缝隙。
+func TestToggleUsesDedicatedWrapper(t *testing.T) {
+	markup := string(readEmbedded(t, web.FS(), "templates/components/form.html"))
+	start := strings.Index(markup, `define "components.form.toggle"`)
+	if start < 0 {
+		t.Fatal("components.form.toggle is missing | 缺少 components.form.toggle")
+	}
+	end := strings.Index(markup[start:], "{{- end -}}")
+	if end < 0 {
+		t.Fatal("components.form.toggle has no end marker | components.form.toggle 缺少结束标记")
+	}
+	block := markup[start : start+end]
+	if !strings.Contains(block, `class="yd-toggle"`) {
+		t.Error("the switch must use its dedicated yd-toggle wrapper | 开关必须使用专用 yd-toggle 外层")
+	}
+	if strings.Contains(block, `class="yd-check"`) {
+		t.Error("the switch must not reuse the pill-styled check row | 开关不得复用带胶囊边框的复选框行")
+	}
+}
+
+// TestEditorToolbarHoverFollowsTheme pins readable hover/active states on the runtime toolbar. |
+// TestEditorToolbarHoverFollowsTheme 固定运行时工具栏清晰的悬停/激活状态。
+func TestEditorToolbarHoverFollowsTheme(t *testing.T) {
+	css := string(readEmbedded(t, web.FS(), componentsCSSPath))
+	hover := cssBlock(t, css, ".yd-editor .EasyMDEContainer .editor-toolbar button.yd-editor-tool:hover")
+	for _, want := range []string{"var(--color-accent-soft)", "var(--color-accent)", "var(--color-content)"} {
+		if !strings.Contains(hover, want) {
+			t.Errorf("editor toolbar hover is missing %q | 编辑器工具栏悬停样式缺少 %q", want, want)
+		}
+	}
+}
+
 // TestModalDialogsStayCentered pins the automatic margins that Tailwind Preflight erases. | TestModalDialogsStayCentered
 // 锁定会被 Tailwind Preflight 抹掉的自动外边距。
 //

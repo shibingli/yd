@@ -3,12 +3,14 @@
   partials/shell-switches.html — the language and theme switches: the only such controls, shared before and after sign-in.
 
   语言切换是单一按钮：按钮显示当前语言，点击以 hx-get 取回整块外壳（目标 #yd-shell），
-  而不是只换工作区：侧栏的分组标题与当前项的高亮也随之更新。无脚本时 href 指向另一种语言。
-  主题按钮只改 <html data-theme>，页面结构不动。
+  而不是只换工作区：侧栏的分组标题与当前项的高亮也随之更新。整块外壳用 innerHTML 替换而不是
+  morph：切换后每个 Alpine 组件都获得全新的作用域，不会留下引用旧 x-data 的表达式。无脚本时
+  href 指向另一种语言。主题按钮只改 <html data-theme>，页面结构不动。
   The language switch is a single button: it shows the active language and fetches the whole shell (target
   #yd-shell) on click rather than the workspace alone, so the sidebar captions and the active item follow the
-  switch as well. Without JavaScript the href points at the other language. The theme button only rewrites
-  <html data-theme> and never rebuilds the page.
+  switch as well. The shell is replaced with innerHTML rather than morphed: every Alpine component then gets a
+  fresh scope instead of an expression still bound to the old x-data. Without JavaScript the href points at
+  the other language. The theme button only rewrites <html data-theme> and never rebuilds the page.
 
   数据契约 | Data contract: .Path .Lang。
 */}}
@@ -16,7 +18,7 @@
 {{- $next := "en" }}{{ if eq .Lang "en" }}{{ $next = "zh-CN" }}{{ end -}}
 <a class="yd-btn yd-btn--ghost yd-btn--sm yd-lang-toggle" href="{{ .Path }}?lang={{ $next }}"
    data-yd-lang-toggle data-yd-lang-next="{{ $next }}"
-   hx-get="{{ .Path }}?lang={{ $next }}" hx-target="#yd-shell" hx-swap="innerMorph" hx-push-url="true"
+   hx-get="{{ .Path }}?lang={{ $next }}" hx-target="#yd-shell" hx-swap="innerHTML" hx-push-url="true"
    aria-label="{{ tr "ui.language" }}" title="{{ tr "ui.language" }}">
   {{ template "partials/icon" "lucide-languages" }}
   <span class="yd-lang__state" data-yd-lang-state="zh-CN">{{ tr "lang.zh-cn" }}</span>

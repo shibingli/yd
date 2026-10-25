@@ -4661,6 +4661,32 @@
   height: 1rem;
 }
 
+/* EasyMDE's vendor rules paint button hover with a near-white background and a grey border. In the
+   dark theme that leaves a light glyph on a light patch. Buttons therefore use the same semantic
+   accent-soft surface as the rest of the kit, in both themes. | EasyMDE 的 vendor 规则给按钮悬停
+   画上近白背景与灰色边框，在暗色主题下会变成浅底浅字。按钮因此统一使用语义 accent-soft 表面，
+   明暗两套主题都清晰。 */
+.yd-editor .EasyMDEContainer .editor-toolbar button.yd-editor-tool {
+  color: var(--color-content);
+}
+
+.yd-editor .EasyMDEContainer .editor-toolbar button.yd-editor-tool:hover {
+  background-color: var(--color-accent-soft);
+  border-color: var(--color-accent);
+  color: var(--color-content);
+}
+
+.yd-editor .EasyMDEContainer .editor-toolbar button.yd-editor-tool.active {
+  background-color: var(--color-accent-soft);
+  border-color: var(--color-accent);
+  color: var(--color-content);
+}
+
+.yd-editor .EasyMDEContainer .editor-toolbar button.yd-editor-tool:focus-visible {
+  outline: 2px solid var(--color-focus-ring);
+  outline-offset: 2px;
+}
+
 .yd-editor .EasyMDEContainer .CodeMirror-gutters,
 .yd-editor .EasyMDEContainer .CodeMirror-gutter-filler,
 .yd-editor .EasyMDEContainer .CodeMirror-scrollbar-filler {

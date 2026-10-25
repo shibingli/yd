@@ -187,7 +187,7 @@
 {{/* components.form.toggle renders a native checkbox as a switch. Dict keys | dict 的键:
        ID, Name, Value, LabelKey, Label, HintKey, Hint, Checked, Disabled */}}
 {{- define "components.form.toggle" -}}
-<label class="yd-check" for="{{.ID}}">
+<label class="yd-toggle" for="{{.ID}}">
   <input class="yd-toggle__input" type="checkbox" role="switch" id="{{.ID}}" name="{{.Name}}" value="{{.Value}}"{{if .Checked}} checked{{end}}{{if .Disabled}} disabled{{end}}>
   <span class="yd-toggle__track" aria-hidden="true"></span>
   <span class="yd-check__body">

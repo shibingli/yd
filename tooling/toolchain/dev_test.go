@@ -331,6 +331,31 @@ func TestDevRestartsChildOnGoChange(t *testing.T) {
 	}
 }
 
+func TestDevRestartsChildOnTemplateChange(t *testing.T) {
+	dir := t.TempDir()
+	h := newDevHarness(t, dir)
+	out := &syncBuffer{}
+	r := h.newRunner(t, out, nil)
+	s := startDevRun(t, r)
+
+	waitFor(t, 10*time.Second, "首次启动子进程 | the first child start", func() bool { return r.Starts() == 1 })
+	waitFor(t, 10*time.Second, "子进程启动标记 | the child start marker", func() bool { return markerHas(h.marker, "start") })
+	firstPID := waitChildPID(t, r)
+
+	// A template edit restarts the child so the cached renderer compiles the new tree once,
+	// instead of paying that compile on every request. | 模板修改会重启子进程，让缓存渲染器重新
+	// 编译一次新模板树，而不是在每个请求上重复编译。
+	writeFile(t, filepath.Join(dir, "web", "templates", "home.html"), "<p>home</p>")
+	waitFor(t, 15*time.Second, "模板变更后重启子进程 | the restarted child after a template edit", func() bool { return r.Starts() == 2 })
+	waitFor(t, 15*time.Second, "重启计数 | the restart counter", func() bool { return r.Restarts() == 1 })
+	waitFor(t, 15*time.Second, "旧子进程被回收 | the previous child being reaped", func() bool { return h.hasExited(firstPID) })
+
+	if err := s.stop(t); err != nil {
+		t.Fatalf("Run 返回错误 | Run: %v", err)
+	}
+	waitFor(t, 15*time.Second, "退出时终止全部子进程 | every child being terminated on shutdown", func() bool { return h.exitCount() == 2 })
+}
+
 // startedPID returns the PID of the i-th launched child, or -1 when out of range. | startedPID 返回第 i 次启动的子进程 PID，越界返回 -1。
 func startedPID(cmds []*exec.Cmd, i int) int {
 	if i < 0 || i >= len(cmds) || cmds[i].Process == nil {

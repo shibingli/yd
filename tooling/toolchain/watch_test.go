@@ -300,7 +300,7 @@ func TestClassifyChanges(t *testing.T) {
 		{"configs/app.toml", kindConfig},
 		{".env", kindConfig},
 		{"config.yaml", kindConfig},
-		{"web/templates/index.html", kindWeb},
+		{"web/templates/index.html", kindTemplate},
 		{"web/static/css/app.css", kindWeb},
 		{"web/static/js/app.js", kindWeb},
 		{"README.md", kindNone},

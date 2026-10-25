@@ -713,6 +713,27 @@
     send.click();
   });
 
+  /* 语言选择必须在 htmx 或浏览器处理点击之前写入 cookie：捕获阶段先记录，后续导航才不会回落到旧语言。
+     事件在捕获阶段触发，htmx 在冒泡阶段发出的请求因此读取到新 cookie；无脚本的 href 导航也在同一步完成持久化。
+     The language choice must reach the cookie before htmx or the browser handles the click: recording it in the
+     capture phase keeps later navigations from falling back to the old language. The htmx request fires in the
+     bubble phase and therefore sees the new cookie; the no-script href navigation is persisted at the same step. */
+  document.addEventListener("click", function (event) {
+    var target = event.target;
+    if (!target || !target.closest) {
+      return;
+    }
+    var toggle = target.closest("[data-yd-lang-toggle]");
+    if (toggle) {
+      rememberLang(toggle.getAttribute("data-yd-lang-next"));
+      return;
+    }
+    var link = target.closest("[data-yd-lang]");
+    if (link) {
+      rememberLang(link.getAttribute("data-yd-lang"));
+    }
+  }, true);
+
   /* 事件委托：提示条是运行期生成的，逐个绑定会在每次换入后失效。 | Event delegation: notices are created at runtime, so per-element listeners would go stale after every swap. */
   document.addEventListener("click", function (event) {
     var target = event.target;
@@ -749,25 +770,6 @@
     if (target.closest("[data-yd-theme-toggle]")) {
       event.preventDefault();
       cycleTheme();
-      return;
-    }
-
-    /* 语言链接：记下选择后直接放行——htmx 会把 ?lang= 请求的结果换进工作区，
-       而没有 htmx 时同一个 href 就是一次普通导航，两条路径共用一份标记。
-       A language link: the choice is recorded and the event is let through — htmx swaps the result of the ?lang=
-       request into the workspace while the very same href is an ordinary navigation without htmx, so one set of markup
-       serves both paths. */
-    /* 单一语言按钮：记下目标语言后放行，htmx 或普通 href 都会重取整块外壳。
-       The single language toggle: remember the target language and let the click through; htmx or the plain href
-       refetches the whole shell either way. */
-    var langToggle = target.closest("[data-yd-lang-toggle]");
-    if (langToggle) {
-      rememberLang(langToggle.getAttribute("data-yd-lang-next"));
-      return;
-    }
-    var langLink = target.closest("[data-yd-lang]");
-    if (langLink) {
-      rememberLang(langLink.getAttribute("data-yd-lang"));
       return;
     }
 

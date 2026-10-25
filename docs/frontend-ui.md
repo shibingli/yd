@@ -1001,6 +1001,8 @@ if (!ydCN.phone(input.value)) {
 | 组件内固定文案 | 组件模板内一律 `data-yd-i18n` + `tr`，默认键在框架与脚手架两份目录中预置 |
 
 语言切换是**局部刷新**：htmx 重取 `#yd-shell`，侧栏、顶栏与工作区一起跟随；不要整页跳转。
+语言按钮使用 `hx-swap="innerHTML"` 而不是 morph：整块外壳重新插入后，每个 Alpine 组件都会获得
+全新的作用域，不会留下绑定到旧 `x-data` 的表达式；其余工作区刷新仍使用 `innerMorph` 以保留输入状态。
 `data-yd-i18n` 与 `data-yd-i18n-attr` 让脚本能在不重新请求的情况下改写文案，两者应同时存在。
 
 > **键即可渲染**：表单与中国控件在只提供 `LabelKey`/`HintKey`/`ErrorKey` 时也会从目录取出可见文案

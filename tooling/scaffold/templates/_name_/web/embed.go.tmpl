@@ -49,11 +49,13 @@ var embedded embed.FS
 // Assets 返回交给 app.WithFS 的资产文件系统，templates/、static/ 与 i18n/ 位于其根下。
 // Assets returns the asset filesystem handed to app.WithFS, with templates/, static/ and i18n/ at its root.
 //
-// 开发期（app.env 非 production）以磁盘上的资产目录覆盖内嵌副本，模板与样式的改动无需重新编译即可生效；
-// 生产期直接使用内嵌副本，二进制可脱离源码树运行（scratch 镜像里没有 web/ 目录）。
-// In development (app.env is not production) the on-disk asset directory shadows the embedded copy, so template and
-// style edits take effect without recompiling; in production the embedded copy is used, letting the binary run
-// without its source tree (a scratch image ships no web/ directory).
+// 开发期（app.env 非 production）以磁盘上的资产目录覆盖内嵌副本：静态资源即时生效，模板由 `yd dev`
+// 在文件变化时重启进程后生效，渲染器因此可以缓存模板树而不必每个请求重新编译；生产期直接使用内嵌副本，
+// 二进制可脱离源码树运行（scratch 镜像里没有 web/ 目录）。
+// In development (app.env is not production) the on-disk asset directory shadows the embedded copy: static assets
+// apply immediately, while templates apply after `yd dev` restarts the process on a file change, which lets the
+// renderer cache the template tree instead of recompiling it on every request. In production the embedded copy is
+// used, letting the binary run without its source tree (a scratch image ships no web/ directory).
 func Assets() afs.FS {
 	if !meta.IsDevelopment() {
 		return afs.NewEmbed(embedded)
