@@ -284,9 +284,14 @@ yd gen module|crud   # 低代码生成（DB Schema 或 Go Struct）
 1. **分工**：需要定制构建步骤（装系统包、拷额外文件）就走 `yd docker` 与仓库根目录的 `Dockerfile`；
    标准的「单二进制 + 空镜像」交付走 `yd ko`，它不需要 Dockerfile，也不要求本机装 docker。
 2. **命令行唯一**：`yd ko [--repo R] [--tags a,b] [--platforms linux/amd64,linux/arm64] [--base-image X]
-   [--package ./cmd/app] [--local] [--push] [--binary PATH] [--dir DIR]`；配置键 `ko.binary` / `ko.repository` /
-   `ko.tags` / `ko.platforms` / `ko.base_image` / `ko.packages` / `ko.local` / `ko.push`（`YD_KO_*` 环境变量生效），
-   优先级仍是「命令行 > 环境变量 > 配置文件 > 缺省值」。注意 ko 自己的标志是单数 `--platform`，`--platforms` 是本命令的标志名。
+   [--package ./cmd/app] [--local] [--push] [--no-config] [--binary PATH] [--dir DIR]`；配置键 `ko.binary` /
+   `ko.repository` / `ko.tags` / `ko.platforms` / `ko.base_image` / `ko.packages` / `ko.local` / `ko.push`
+   （`YD_KO_*` 环境变量生效），优先级仍是「命令行 > 环境变量 > 配置文件 > 缺省值」。注意 ko 自己的标志是单数
+   `--platform`，`--platforms` 是本命令的标志名。
+2.1 **配置文件默认打包**：`yd ko` 在构建前把 `configs/config.yaml` 暂存到本地包的 `kodata/configs/`，构建结束
+   （含失败）立即清理；ko 将该目录放进镜像的 `KO_DATA_PATH`，应用经 `meta.ConfigDirPath` 自动采用。
+   `yd docker` 默认把同一文件复制到 `/configs` 并设置 `YD_CONFIG_DIR=/configs`，同时创建 `/data`。
+   两条路径都只打包基线文件，**绝不打包 `config.local.yaml`**（可能含密钥）；`--no-config` 关闭打包。
 3. **ko 是可选外部工具**：二进制按 `--binary` → `YD_KO_BIN` → `<项目>/.yd/tools/ko[.exe]` → `PATH` 解析；
    找不到时只让 `yd ko` 返回哨兵并打印安装提示（`go install github.com/google/ko@latest`），
    **不得**因此让 `yd build` / `yd dev` / `go test` / CI 失败，也不得在代码里 panic。

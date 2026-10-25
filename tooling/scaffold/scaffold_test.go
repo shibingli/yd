@@ -1034,6 +1034,10 @@ func TestGenerateDockerfileUsesScratchMultiStage(t *testing.T) {
 		"CGO_ENABLED=0",
 		"ca-certificates",
 		"zoneinfo",
+		"ARG YD_INCLUDE_CONFIG=true",
+		"ENV YD_CONFIG_DIR=/configs",
+		"COPY --from=builder /out/configs /configs",
+		"COPY --from=builder /out/data /data",
 		`ENTRYPOINT ["/app"]`,
 	} {
 		if !strings.Contains(df, want) {

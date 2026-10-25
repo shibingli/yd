@@ -10,6 +10,8 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/shibingli/yd/core/envx"
+	"github.com/shibingli/yd/tooling/build"
 	"github.com/shibingli/yd/tooling/ko"
 	"github.com/spf13/pflag"
 )
@@ -43,11 +45,14 @@ const (
 	// flagKoDir overrides the directory ko runs in, i.e. the build root. | flagKoDir 覆盖 ko 运行所在目录，
 	// 即构建根目录。
 	flagKoDir = "dir"
+	// flagKoNoConfig suppresses packaging configs/config.yaml into the image. | flagKoNoConfig 关闭把
+	// configs/config.yaml 打包进镜像。
+	flagKoNoConfig = "no-config"
 )
 
 // koUsageLine is the usage line of the ko command. | koUsageLine 是 ko 命令的用法行。
 const koUsageLine = "yd ko [--repo <registry>/<team>/<app>] [--tags v1.2.3,latest] [--platforms linux/amd64,linux/arm64] [--base-image IMG]\n" +
-	"      [--package ./cmd/app] [--local] [--push] [--binary PATH] [--dir DIR] [packages...]"
+	"      [--package ./cmd/app] [--local] [--push] [--no-config] [--binary PATH] [--dir DIR] [packages...]"
 
 // koFlags keeps the ko command's flag set, installed by registerKoFlags. | koFlags 保存 ko 命令的标志集，
 // 由 registerKoFlags 安装。
@@ -95,6 +100,7 @@ func registerKoFlags(fs *pflag.FlagSet) {
 	fs.Bool(flagKoPush, false, "push the image to the repository | 把镜像推送到仓库")
 	fs.String(flagKoBinary, "", "ko executable, skips the resolution chain | ko 可执行文件，跳过解析链")
 	fs.String(flagKoDir, "", "directory ko runs in, default the working directory | ko 运行所在目录，缺省为工作目录")
+	fs.Bool(flagKoNoConfig, false, "do not package configs/config.yaml into the image | 不把 configs/config.yaml 打包进镜像")
 	koFlags = fs
 }
 
@@ -106,6 +112,9 @@ func runKo(ctx context.Context, env *Env) error {
 	o := koOptions(env, koFlags)
 	printKoSession(env, o)
 	if msg := koHTTP2Warning(env); msg != "" {
+		commandLogger(env).Warn(msg)
+	}
+	if msg := koEnvironmentWarning(env); msg != "" {
 		commandLogger(env).Warn(msg)
 	}
 	result, err := ko.BuildImage(ctx, o, commandLogger(env))
@@ -130,6 +139,21 @@ func koHTTP2Warning(env *Env) string {
 		return ""
 	}
 	return "ko cannot inject environment variables; the Linux container binary re-executes itself with GODEBUG=http2xconnect=1, but non-Linux deployment manifests must set GODEBUG=http2xconnect=1 explicitly | ko 无法注入环境变量；Linux 容器内的二进制会自动以 GODEBUG=http2xconnect=1 重启，非 Linux 部署清单必须显式设置该变量"
+}
+
+// koEnvironmentWarning returns the production-environment hint, or "" when app.env is already production. |
+// koEnvironmentWarning 返回生产环境提示；app.env 已是 production 时返回空串。
+//
+// ko 没有注入环境变量的标志，而 development 会让镜像使用源码资产、跳过不可变缓存，并在未配置
+// seed.admin_password 时回退到文档化的开发口令，因此部署清单必须显式设置 YD_APP_ENV=production。 |
+// ko has no flag for injecting environment variables, while development makes the image use source assets, skip
+// the immutable cache, and fall back to the documented development seed password when seed.admin_password is
+// unset, so the deployment manifest must set YD_APP_ENV=production explicitly.
+func koEnvironmentWarning(env *Env) string {
+	if env == nil || env.Cfg == nil || envx.IsProduction(env.Cfg.GetString("app.env")) {
+		return ""
+	}
+	return "ko cannot inject environment variables; set YD_APP_ENV=production in the deployment manifest, otherwise the image runs in development with source assets and the documented seed password | ko 无法注入环境变量；请在部署清单中设置 YD_APP_ENV=production，否则镜像会以开发环境运行（源码资产与文档化种子口令）"
 }
 
 // koOptions assembles the ko package options from the parsed flags and the layered configuration. | koOptions
@@ -167,7 +191,14 @@ func koOptions(env *Env, fs *pflag.FlagSet) ko.Options {
 	if packages := koPackages(fs); len(packages) > 0 {
 		o.Packages = packages
 	}
+	o.SkipConfig = flagBool(fs, flagKoNoConfig)
 	o.Exec = koExecCommand
+	// 与 yd build / yd docker 同一套资产阶段：ko 直接编译源码树，若不先产出 yd.css 与 .min 同族文件，
+	// 干净检出会回退到框架样式表并发送未压缩脚本。 |
+	// The same asset stages as yd build / yd docker: ko compiles the source tree directly, so without producing
+	// yd.css and the .min siblings first a clean checkout falls back to the framework stylesheet and ships
+	// unminified scripts.
+	o.PrepareAssets = build.PrepareAssets
 	return o
 }
 
@@ -204,7 +235,17 @@ func printKoSession(env *Env, o ko.Options) {
 	fmt.Fprintf(env.Out, "tags | 标签: %s\n", koDash(strings.Join(o.Tags, ",")))
 	fmt.Fprintf(env.Out, "platforms | 平台: %s\n", koDash(strings.Join(o.Platforms, ",")))
 	fmt.Fprintf(env.Out, "base image | 基础镜像: %s\n", koDash(o.BaseImage))
+	fmt.Fprintf(env.Out, "config | 配置: %s\n", koConfigLabel(o))
 	fmt.Fprintf(env.Out, "mode | 模式: %s\n", koMode(o))
+}
+
+// koConfigLabel renders the configuration packaged into the image, or a dash when staging is off. | koConfigLabel
+// 渲染打包进镜像的配置；关闭暂存时显示短横线。
+func koConfigLabel(o ko.Options) string {
+	if o.SkipConfig {
+		return "-"
+	}
+	return ko.DefaultConfigDir + "/config.yaml"
 }
 
 // koSessionPackages renders the package list of the session summary, defaulting to the layout

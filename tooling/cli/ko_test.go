@@ -133,7 +133,7 @@ func TestKoCommandRegistered(t *testing.T) {
 	registerKoFlags(fs)
 	for _, name := range []string{
 		flagKoRepo, flagKoTags, flagKoPlatforms, flagKoBaseImage,
-		flagKoPackage, flagKoLocal, flagKoPush, flagKoBinary, flagKoDir,
+		flagKoPackage, flagKoLocal, flagKoPush, flagKoNoConfig, flagKoBinary, flagKoDir,
 	} {
 		if fs.Lookup(name) == nil {
 			t.Errorf("ko 命令缺少标志 --%s", name)
@@ -153,7 +153,8 @@ func TestKoCommandHelp(t *testing.T) {
 	for _, want := range []string{
 		"yd ko", "Usage",
 		"--" + flagKoRepo, "--" + flagKoTags, "--" + flagKoPlatforms, "--" + flagKoBaseImage,
-		"--" + flagKoPackage, "--" + flagKoLocal, "--" + flagKoPush, "--" + flagKoBinary, "--" + flagKoDir,
+		"--" + flagKoPackage, "--" + flagKoLocal, "--" + flagKoPush, "--" + flagKoNoConfig,
+		"--" + flagKoBinary, "--" + flagKoDir,
 	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("ko 帮助缺少 %q：\n%s", want, out)
@@ -244,6 +245,19 @@ ko:
 	}
 	if overridden.Repository != "registry.example.com/from-flag" {
 		t.Errorf("Repository = %q | Repository 得到 %q，期望标志取值", overridden.Repository, overridden.Repository)
+	}
+}
+
+// TestKoNoConfigMapsToSkipConfig pins the default (package configs/config.yaml) and the opt-out. |
+// TestKoNoConfigMapsToSkipConfig 固化默认（打包 configs/config.yaml）与显式关闭两种状态。
+func TestKoNoConfigMapsToSkipConfig(t *testing.T) {
+	te, _ := newKoTestEnv(t)
+
+	if koOptions(te.env, koParseFlags(t)).SkipConfig {
+		t.Error("默认必须打包配置文件 | configuration packaging must be on by default")
+	}
+	if !koOptions(te.env, koParseFlags(t, "--no-config")).SkipConfig {
+		t.Error("--no-config 必须关闭配置打包 | --no-config must disable configuration packaging")
 	}
 }
 
@@ -429,6 +443,32 @@ func TestKoDirFlagResolvesAgainstWorkDir(t *testing.T) {
 	}
 	if want := filepath.Join(dir, "cmd"); fake.calls[0].dir != want {
 		t.Errorf("ko 工作目录 = %q，期望 %q", fake.calls[0].dir, want)
+	}
+}
+
+// TestKoEnvironmentWarning pins the production-environment hint: an image built with app.env unset runs in
+// development unless the manifest injects YD_APP_ENV. | TestKoEnvironmentWarning 固定生产环境提示：
+// app.env 未设置时，除非部署清单注入 YD_APP_ENV，镜像会以开发环境运行。
+func TestKoEnvironmentWarning(t *testing.T) {
+	cfg, err := config.Load(config.Options{Name: "yd", ConfigDir: t.TempDir(), FS: afero.NewMemMapFs()})
+	if err != nil {
+		t.Fatalf("加载配置失败: %v", err)
+	}
+	msg := koEnvironmentWarning(&Env{Cfg: cfg})
+	if msg == "" || !strings.Contains(msg, "YD_APP_ENV=production") {
+		t.Fatalf("warning = %q, want YD_APP_ENV hint | warning = %q，期望包含 YD_APP_ENV 提示", msg, msg)
+	}
+
+	cfg.Set("app.env", "production")
+	if got := koEnvironmentWarning(&Env{Cfg: cfg}); got != "" {
+		t.Fatalf("production warning = %q, want empty | production 下 warning = %q，期望为空", got, got)
+	}
+	cfg.Set("app.env", "prod")
+	if got := koEnvironmentWarning(&Env{Cfg: cfg}); got != "" {
+		t.Fatalf("prod alias warning = %q, want empty | prod 别名下 warning = %q，期望为空", got, got)
+	}
+	if got := koEnvironmentWarning(&Env{}); got != "" {
+		t.Fatalf("warning without config = %q, want empty | 无配置时 warning = %q，期望为空", got, got)
 	}
 }
 

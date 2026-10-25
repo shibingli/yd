@@ -40,10 +40,13 @@ const (
 	flagDockerBin = "docker-bin"
 	// flagDockerNoAssets skips the embedded asset refresh. | flagDockerNoAssets 跳过内嵌资产刷新。
 	flagDockerNoAssets = "no-assets"
+	// flagDockerNoConfig leaves configs/config.yaml out of the image. | flagDockerNoConfig 不把
+	// configs/config.yaml 打进镜像。
+	flagDockerNoConfig = "no-config"
 )
 
 // dockerUsageLine is the usage line of the docker command. | dockerUsageLine 是 docker 命令的用法行。
-const dockerUsageLine = "yd docker [--tag <project>:<version>] [--platform linux/amd64] [flags]"
+const dockerUsageLine = "yd docker [--tag <project>:<version>] [--platform linux/amd64] [--no-config] [flags]"
 
 // dockerProjectMetaName is the metadata file `yd new` writes and the docker and service commands
 // read for the project name. | dockerProjectMetaName 是 `yd new` 写入、docker 与 service 命令用于读取
@@ -99,6 +102,7 @@ func registerDockerFlags(fs *pflag.FlagSet) {
 	fs.Bool(flagDockerPush, false, "push the image after a successful build | 构建成功后推送镜像")
 	fs.String(flagDockerBin, "", "docker CLI to invoke | 调用的 docker CLI")
 	fs.Bool(flagDockerNoAssets, false, "skip the embedded asset refresh | 跳过内嵌资产刷新")
+	fs.Bool(flagDockerNoConfig, false, "do not package configs/config.yaml into the image | 不把 configs/config.yaml 打包进镜像")
 	dockerFlags = fs
 }
 
@@ -129,13 +133,19 @@ func dockerOptions(env *Env, fs *pflag.FlagSet) docker.Options {
 		ExecCommand:   dockerExecCommand,
 	}
 	// The Dockerfile turns YD_GODEBUG into the runtime ENV; only pass it when the
-	// operator asked to force RFC 8441. | Dockerfile 把 YD_GODEBUG 写成运行时 ENV；
-	// 仅在使用方要求强制 RFC 8441 时传入。
+	// operator asked to force RFC 8441. YD_INCLUDE_CONFIG=false removes the baked
+	// baseline configuration, leaving the image driven purely by the environment. |
+	// Dockerfile 把 YD_GODEBUG 写成运行时 ENV，仅在使用方要求强制 RFC 8441 时传入；
+	// YD_INCLUDE_CONFIG=false 去掉内置基线配置，使镜像完全由环境变量驱动。
+	buildArgs := make(map[string]string, 2)
 	if env.Cfg != nil && env.Cfg.GetBool("server.http2.extended_connect") {
-		if o.BuildArgs == nil {
-			o.BuildArgs = make(map[string]string, 1)
-		}
-		o.BuildArgs["YD_GODEBUG"] = "http2xconnect=1"
+		buildArgs["YD_GODEBUG"] = "http2xconnect=1"
+	}
+	if flagBool(fs, flagDockerNoConfig) {
+		buildArgs["YD_INCLUDE_CONFIG"] = "false"
+	}
+	if len(buildArgs) > 0 {
+		o.BuildArgs = buildArgs
 	}
 	return o
 }

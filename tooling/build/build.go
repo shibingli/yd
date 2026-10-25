@@ -18,6 +18,7 @@ package build
 import (
 	"bytes"
 	"context"
+	"errors"
 	"os"
 	"os/exec"
 	"path"
@@ -284,6 +285,34 @@ func mergeEnv(base []string, overrides ...[]string) []string {
 		}
 	}
 	return merged
+}
+
+// PrepareAssets runs the packaging asset stages shared by `yd build`, `yd docker` and `yd ko`:
+// Tailwind first (it produces yd.css) and minify second (it produces the .min.js/.min.svg siblings).
+// A missing optional tool skips only its own stage with a warning; a real failure is returned. |
+// PrepareAssets 运行 `yd build`、`yd docker` 与 `yd ko` 共用的打包资产阶段：先 Tailwind（产出 yd.css），
+// 再 minify（产出 .min.js/.min.svg 同族文件）。缺少可选工具时只跳过对应阶段并告警，真实失败才返回。
+func PrepareAssets(ctx context.Context, dir string, log *ydlog.Logger) error {
+	if log == nil {
+		log = ydlog.Default()
+	}
+	size, err := BuildTailwind(ctx, dir, TailwindOptions{Enabled: true, Minify: true}, log)
+	switch {
+	case err == nil:
+		log.Info("tailwind stage finished | Tailwind 阶段已完成", ydlog.Int64("bytes", size))
+	case errors.Is(err, ErrTailwindNotFound), errors.Is(err, ErrTailwindInput):
+		log.Warn("tailwind stage skipped | 跳过 Tailwind 阶段", ydlog.Err(err))
+	default:
+		return err
+	}
+	if _, err := BuildMinify(ctx, dir, MinifyOptions{Enabled: true}, log); err != nil {
+		if errors.Is(err, ErrMinifyNotFound) {
+			log.Warn("minify stage skipped | 跳过压缩阶段", ydlog.Err(err))
+			return nil
+		}
+		return err
+	}
+	return nil
 }
 
 // Build compiles every requested target into a static single-file executable and

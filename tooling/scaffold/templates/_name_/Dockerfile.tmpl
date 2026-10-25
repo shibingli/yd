@@ -21,7 +21,25 @@ COPY . .
 # so this stage only has to produce a statically linked single-file executable.
 RUN CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags "-s -w" -o /out/app ./cmd/app
 
+# Configuration is packaged by default: only the baseline config.yaml is copied, never a config.local.yaml
+# that may hold secrets. Mount over it at runtime when needed; YD_* environment variables still win.
+# --no-config / --build-arg YD_INCLUDE_CONFIG=false produces an image driven purely by the environment.
+# 配置文件默认打进镜像：只复制基线 config.yaml，不复制可能含密钥的 config.local.yaml；
+# 运行时可用 -v 挂载覆盖，YD_* 环境变量仍具有最高优先级；--no-config 可生成完全由环境变量驱动的镜像。
+ARG YD_INCLUDE_CONFIG=true
+RUN mkdir -p /out/configs /out/data && \
+    if [ "$YD_INCLUDE_CONFIG" = "true" ] && [ -f configs/config.yaml ]; then \
+        cp configs/config.yaml /out/configs/config.yaml; \
+    fi
+
 FROM scratch
+
+# 生产镜像默认以 production 运行：asset 助手才会选用压缩产物、静态资源才能获得不可变缓存，
+# 种子口令也才不会回退到文档化的开发口令。运行时仍可用 -e YD_APP_ENV=development 覆盖。
+# The production image runs as production by default: only then does the asset helper select minified files,
+# static assets earn the immutable cache, and the seed password never falls back to the documented development
+# password. It can still be overridden at runtime with -e YD_APP_ENV=development.
+ENV YD_APP_ENV=production
 
 # RFC 8441: yd docker passes this build arg when server.http2.extended_connect is true.
 # RFC 8441：server.http2.extended_connect 为 true 时由 yd docker 传入该构建参数。
@@ -32,6 +50,12 @@ ENV GODEBUG=${YD_GODEBUG}
 # Time zone data and root certificates: the scratch image ships no runtime dependency, so they are copied explicitly.
 COPY --from=builder /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/
 COPY --from=builder /usr/share/zoneinfo /usr/share/zoneinfo
+
+# 配置与运行期数据目录：/configs 可挂载覆盖，/data 供 SQLite、节点身份与附件落盘。
+# Configuration and runtime data: /configs can be mounted over; /data holds SQLite, node identity and attachments.
+ENV YD_CONFIG_DIR=/configs
+COPY --from=builder /out/configs /configs
+COPY --from=builder /out/data /data
 
 COPY --from=builder /out/app /app
 

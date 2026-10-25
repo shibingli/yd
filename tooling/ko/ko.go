@@ -48,6 +48,9 @@ var (
 	ErrBuildFailed = errs.New("ko: image build failed | ko：镜像构建失败")
 	// ErrInvalidOptions indicates an option combination ko itself would refuse. | ErrInvalidOptions 表示 ko 自身会拒绝的选项组合。
 	ErrInvalidOptions = errs.New("ko: invalid options | ko：非法的选项")
+	// ErrConfigStage indicates that the baseline configuration could not be staged for the build. | ErrConfigStage
+	// 表示无法为构建暂存基线配置文件。
+	ErrConfigStage = errs.New("ko: config staging failed | ko：配置文件暂存失败")
 )
 
 // The environment variables ko reads the two non-flag settings from. | ko 从中读取两项非标志设置的环境变量。
@@ -89,6 +92,14 @@ type Options struct {
 	// KO_DOCKER_REPO / KO_DEFAULTBASEIMAGE values. | Env 保存附加环境变量，最后叠加，因此可以覆盖推导出的
 	// KO_DOCKER_REPO / KO_DEFAULTBASEIMAGE。
 	Env map[string]string
+	// PrepareAssets refreshes the embedded front-end assets before ko compiles the package. nil
+	// leaves the tree untouched; the CLI supplies the shared Tailwind+minify stage. | PrepareAssets
+	// 在 ko 编译前刷新内嵌前端资产；nil 表示不改动源码树，CLI 会注入共用的 Tailwind+压缩阶段。
+	PrepareAssets func(ctx context.Context, dir string, log *ydlog.Logger) error
+	// SkipConfig suppresses staging configs/config.yaml into each local package's kodata directory.
+	// false (the default) packages the baseline configuration into the image. | SkipConfig 关闭把
+	// configs/config.yaml 暂存进各本地包的 kodata 目录；false（默认）会把基线配置打包进镜像。
+	SkipConfig bool
 	// Binary is the explicit ko executable; empty falls back to the resolution chain. | Binary 是显式的
 	// ko 可执行文件；为空时回退到解析链。
 	Binary string
@@ -200,10 +211,26 @@ func BuildImage(ctx context.Context, o Options, log *ydlog.Logger) (*Result, err
 	if err := o.validate(); err != nil {
 		return nil, err
 	}
+	if o.PrepareAssets != nil {
+		if err := o.PrepareAssets(ctx, o.WorkingDir, log); err != nil {
+			return nil, errs.Wrap(err, ErrBuildFailed)
+		}
+	}
 	bin, err := Resolve(o)
 	if err != nil {
 		return nil, err
 	}
+
+	// 配置文件必须在 ko 编译前放进各包的 kodata 目录：ko 直接从源码树组装镜像，没有 Dockerfile
+	// 可以复制额外文件。暂存只在本进程存活期间存在，构建结束（含失败）后立即移除。
+	// The configuration must reach each package's kodata directory before ko compiles: ko assembles the image
+	// straight from the source tree, so there is no Dockerfile that could copy extra files. The staged copy
+	// lives only for this build and is removed as soon as it finishes, failure included.
+	staged, err := stageKodataConfig(o, log)
+	if err != nil {
+		return nil, err
+	}
+	defer staged.cleanup(log)
 
 	args := o.Args()
 	log.Debug("ko: running | ko：正在执行",

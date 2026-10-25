@@ -117,6 +117,8 @@
       **禁止**另行手写 `docker build` 参数或自拼 ko 命令；ko 是**可选外部工具**，缺失时只让 `yd ko` 返回哨兵并给出
       安装提示（`go install github.com/google/ko@latest`），不得导致 `yd build` / `yd dev` / `go test` 或 CI 失败，
       也不得把 ko 加进 `go.mod`；两条路径的产物都必须是 `CGO_ENABLED=0` 静态链接。
+      两条路径默认打包 `configs/config.yaml`（Dockerfile 走 `/configs` + `YD_CONFIG_DIR`，ko 走 `kodata` +
+      `KO_DATA_PATH`），只打包基线文件、绝不打包 `config.local.yaml`；`--no-config` 关闭打包。
 - [ ] **服务模式优雅退出**：被服务管理器托管时（无终端或 `-service run`）由 `service.Run` 驱动 `application.Run`，
       停止只取消 context 并等待它返回；入口与业务代码**禁止** `os.Exit`、`panic` 或自建后台进程来「停服务」，
       `-service install|uninstall|start|stop|restart|status` 这类控制动作只执行一次服务管理器调用、不得启动服务器。

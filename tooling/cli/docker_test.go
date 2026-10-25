@@ -156,7 +156,7 @@ func TestDockerCommandRegistered(t *testing.T) {
 	registerDockerFlags(fs)
 	for _, name := range []string{
 		flagDockerTag, flagDockerPlatform, flagDockerNoCache, flagDockerFile,
-		flagDockerTarget, flagDockerPush, flagDockerBin, flagDockerNoAssets,
+		flagDockerTarget, flagDockerPush, flagDockerBin, flagDockerNoAssets, flagDockerNoConfig,
 	} {
 		if fs.Lookup(name) == nil {
 			t.Errorf("docker 命令缺少标志 --%s", name)
@@ -175,7 +175,7 @@ func TestDockerCommandHelp(t *testing.T) {
 		"yd docker", "Usage",
 		"--" + flagDockerTag, "--" + flagDockerPlatform, "--" + flagDockerNoCache,
 		"--" + flagDockerFile, "--" + flagDockerTarget, "--" + flagDockerPush,
-		"--" + flagDockerBin, "--" + flagDockerNoAssets,
+		"--" + flagDockerBin, "--" + flagDockerNoAssets, "--" + flagDockerNoConfig,
 	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("docker 帮助缺少 %q：\n%s", want, out)
@@ -284,6 +284,20 @@ func TestDockerNoAssetsMapsToWithAssets(t *testing.T) {
 				t.Errorf("WithAssets = %v，期望 %v", o.WithAssets, tc.want)
 			}
 		})
+	}
+}
+
+// TestDockerNoConfigPassesBuildArg pins the default configuration package and the opt-out build argument. |
+// TestDockerNoConfigPassesBuildArg 固化默认打包配置与关闭时的构建参数。
+func TestDockerNoConfigPassesBuildArg(t *testing.T) {
+	o := dockerOptions(&Env{WorkDir: "."}, dockerParseFlags(t))
+	if _, ok := o.BuildArgs["YD_INCLUDE_CONFIG"]; ok {
+		t.Errorf("默认不得传入 YD_INCLUDE_CONFIG: %v | the default must not set YD_INCLUDE_CONFIG", o.BuildArgs)
+	}
+
+	o = dockerOptions(&Env{WorkDir: "."}, dockerParseFlags(t, "--no-config"))
+	if got := o.BuildArgs["YD_INCLUDE_CONFIG"]; got != "false" {
+		t.Errorf("YD_INCLUDE_CONFIG = %q，期望 false | YD_INCLUDE_CONFIG = %q, want false", got, got)
 	}
 }
 

@@ -15,7 +15,6 @@ package docker
 import (
 	"bytes"
 	"context"
-	"errors"
 	"os/exec"
 	"path/filepath"
 	"sort"
@@ -232,17 +231,13 @@ func (o Options) prepareAssets(ctx context.Context, log *ydlog.Logger) error {
 	if o.PrepareAssets != nil {
 		return o.PrepareAssets(ctx, o.Dir, log)
 	}
-	size, err := build.BuildTailwind(ctx, o.Dir, build.TailwindOptions{Enabled: true, Minify: true}, log)
-	switch {
-	case err == nil:
-		log.Info("embedded assets refreshed | 内嵌资产已刷新", ydlog.Int64("bytes", size))
-		return nil
-	case errors.Is(err, build.ErrTailwindNotFound), errors.Is(err, build.ErrTailwindInput):
-		log.Warn("tailwind stage skipped | 跳过 Tailwind 阶段", ydlog.Err(err))
-		return nil
-	default:
+	// 与 yd build 使用同一套资产阶段：只跑 Tailwind 会让镜像里的 JavaScript/SVG 仍是未压缩源码。 |
+	// The same asset stages as yd build: Tailwind alone would leave unminified JavaScript and SVG in the image.
+	if err := build.PrepareAssets(ctx, o.Dir, log); err != nil {
 		return err
 	}
+	log.Info("embedded assets refreshed | 内嵌资产已刷新")
+	return nil
 }
 
 // serverVersion probes the daemon and returns its version string. | serverVersion 探活守护进程并返回其版本字符串。
