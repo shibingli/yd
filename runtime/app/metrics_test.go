@@ -20,7 +20,7 @@ func TestDefaultObservesBuiltInMiddleware(t *testing.T) {
 	}
 
 	snaps := a.MiddlewareMetrics().MiddlewareSnapshot()
-	want := []string{"recover", "request-id", "access-log", "compress", "cors", "i18n"}
+	want := []string{"recover", "request-id", "access-log", "compress", "cors", "i18n", "static-cache"}
 	if len(snaps) != len(want) {
 		t.Fatalf("中间件条数 = %d, 期望 %d (%v) | middleware entries = %d, want %d (%v)",
 			len(snaps), len(want), want, len(snaps), len(want), want)

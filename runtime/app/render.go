@@ -105,6 +105,18 @@ func (a *App) Render(c *router.Ctx, status int, name string, data any) error {
 
 	data = withTranslator(data, translatorFor(c))
 
+	// One URL answers with a whole page or a fragment depending on the htmx headers, so a shared cache must key on
+	// them; authenticated HTML is not stored by a shared cache by default. A Cache-Control set by the controller wins.
+	// | 同一地址会因 htmx 请求头返回整页或片段，共享缓存必须按这些头分键；认证页面的 HTML
+	// 默认不落任何共享缓存。控制器显式设置 Cache-Control 时保留它的选择。
+	// Add rather than Set: the i18n middleware already wrote Vary for Accept-Language and the language cookie, and
+	// overwriting it would let a shared cache treat two languages as one response. | 用 Add 而不是 Set：
+	// i18n 中间件已经写入 Accept-Language/Cookie 的 Vary，覆盖它会让共享缓存把不同语言当成同一份响应。
+	c.Writer.Header().Add("Vary", "HX-Request, HX-Request-Type, HX-Target, Accept-Encoding")
+	if c.Writer.Header().Get("Cache-Control") == "" {
+		c.SetHeader("Cache-Control", "private, no-store")
+	}
+
 	if htmx.IsPartial(c.Request) {
 		return a.renderFragment(c, status, name, data)
 	}

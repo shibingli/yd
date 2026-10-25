@@ -287,6 +287,24 @@ func TestRenderWrapsNonMapDataForTranslator(t *testing.T) {
 	}
 }
 
+// TestRenderVariesOnHtmxAndStaysPrivate proves a rendered URL is keyed on the htmx headers and is not
+// shared-cacheable by default. | TestRenderVariesOnHtmxAndStaysPrivate 证明渲染地址按 htmx 请求头分键，
+// 且默认不进入共享缓存。
+func TestRenderVariesOnHtmxAndStaysPrivate(t *testing.T) {
+	a := newTestApp(t, map[string]string{
+		"templates/page.html": testPage,
+	})
+	a.GET("/", renderHandler(t, a, http.StatusOK, "page.html", testData()))
+
+	rec := doRequest(t, a, http.MethodGet, "/", nil)
+	if got := rec.Header().Get("Vary"); !strings.Contains(got, "HX-Request") || !strings.Contains(got, "HX-Target") {
+		t.Errorf("Vary = %q, want HX-Request and HX-Target | Vary = %q，期望包含 HX-Request 与 HX-Target", got, got)
+	}
+	if got := rec.Header().Get("Cache-Control"); got != "private, no-store" {
+		t.Errorf("Cache-Control = %q, want private, no-store | Cache-Control = %q，期望 private, no-store", got, got)
+	}
+}
+
 // TestRenderFlowsThroughCompressionMiddleware proves the compiled engine writes
 // through the normal Ctx writer, so the compression middleware sees the final
 // HTML for both whole pages and HX fragments. | TestRenderFlowsThroughCompressionMiddleware

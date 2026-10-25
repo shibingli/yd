@@ -377,6 +377,13 @@ func Default() (*App, error) {
 		a.UseObserved(metricsx.Descriptor{Name: "i18n", Title: "i18n | 多语言", Scope: metricsx.ScopeGlobal}, i18n.Middleware(bundle, i18n.Options{}))
 	}
 
+	// 静态缓存必须最后登记：i18n 会为自己的响应重写 Vary，先登记会让静态资源丢失
+	// Accept-Encoding。作为最内层全局中间件，它在路由处理器之前落头，且不改变压缩行为。 |
+	// The static cache registers last: i18n rewrites Vary for its own responses, so an earlier registration would
+	// make static assets lose Accept-Encoding. As the innermost global middleware it writes the headers right before
+	// the route handler and does not change compression behaviour.
+	a.UseObserved(StaticCacheDescriptor, a.StaticCache())
+
 	a.router.StaticFS(staticURLPrefix, a.staticFS)
 
 	a.log.Info("app assembled | 应用已装配", ydlog.Str("env", a.env()))
