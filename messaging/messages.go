@@ -494,15 +494,18 @@ func (s *Service) messageViews(ctx context.Context, actor Actor, messages []Mess
 	if err != nil {
 		return nil, errs.Wrap(err, ErrUnavailable)
 	}
-	conversations := make(map[string]Conversation, len(conversationIDs))
+	uniqueConversations := make([]string, 0, len(conversationIDs))
+	seenConversation := make(map[string]struct{}, len(conversationIDs))
 	for _, id := range conversationIDs {
-		if _, seen := conversations[id]; seen {
+		if _, seen := seenConversation[id]; seen {
 			continue
 		}
-		conv, err := s.store.GetConversation(ctx, actor.TenantID, id)
-		if err == nil {
-			conversations[id] = conv
-		}
+		seenConversation[id] = struct{}{}
+		uniqueConversations = append(uniqueConversations, id)
+	}
+	conversations, err := s.conversationsByID(ctx, actor.TenantID, uniqueConversations)
+	if err != nil {
+		return nil, errs.Wrap(err, ErrUnavailable)
 	}
 	out := make([]MessageView, 0, len(messages))
 	for _, msg := range messages {

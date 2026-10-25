@@ -18,31 +18,43 @@ func friendRequestWriteError(err error) error {
 	return errs.Wrap(err, ErrUnavailable)
 }
 
-// FriendSummary returns the whole friend page: accepted friends, both request directions and
-// blocks. | FriendSummary 返回完整好友页数据：已接受好友、两个方向的申请与拉黑。
-func (s *Service) FriendSummary(ctx context.Context, actor Actor) (FriendSummary, error) {
+// Friends returns only the accepted friends, sorted by display name. It is what the message centre's contact
+// picker needs, without the request lists and blocks the full summary also loads. |
+// Friends 只返回已接受的好友，按展示名排序。消息中心的联系人选择器只需要这一份，
+// 不必连带加载完整汇总里的申请列表与拉黑列表。
+func (s *Service) Friends(ctx context.Context, actor Actor) ([]FriendView, error) {
 	if !actor.valid() {
-		return FriendSummary{}, ErrInvalidInput
+		return nil, ErrInvalidInput
 	}
 	friendships, err := s.store.ListFriendships(ctx, actor.TenantID, actor.ID)
 	if err != nil {
-		return FriendSummary{}, errs.Wrap(err, ErrUnavailable)
+		return nil, errs.Wrap(err, ErrUnavailable)
 	}
 
 	ids := make([]string, 0, len(friendships))
+	// 备注一次批量取回：此前每位好友一次 GetFriendNote，好友越多页面越慢。
+	// Remarks load in one batch: the previous loop ran one GetFriendNote per friend, so the page slowed
+	// down with every accepted friendship.
+	friendIDs := make([]string, 0, len(friendships))
 	for _, f := range friendships {
 		if f.UserLowID == actor.ID {
 			ids = append(ids, f.UserHighID)
+			friendIDs = append(friendIDs, f.UserHighID)
 		} else {
 			ids = append(ids, f.UserLowID)
+			friendIDs = append(friendIDs, f.UserLowID)
 		}
 	}
 	profiles, err := s.directory.Profiles(ctx, actor.TenantID, ids)
 	if err != nil {
-		return FriendSummary{}, errs.Wrap(err, ErrUnavailable)
+		return nil, errs.Wrap(err, ErrUnavailable)
+	}
+	notes, err := s.friendNotes(ctx, actor.TenantID, actor.ID, friendIDs)
+	if err != nil {
+		return nil, errs.Wrap(err, ErrUnavailable)
 	}
 
-	summary := FriendSummary{Friends: make([]FriendView, 0, len(friendships))}
+	friends := make([]FriendView, 0, len(friendships))
 	for _, f := range friendships {
 		friendID := f.UserHighID
 		if f.UserLowID != actor.ID {
@@ -53,16 +65,25 @@ func (s *Service) FriendSummary(ctx context.Context, actor Actor) (FriendSummary
 			continue
 		}
 		view := FriendView{Profile: profile, Since: f.CreatedAt}
-		if note, err := s.store.GetFriendNote(ctx, actor.TenantID, actor.ID, friendID); err == nil {
+		if note, ok := notes[friendID]; ok {
 			view.Remark = note.Remark
-		} else if !isNotFound(err) {
-			return FriendSummary{}, errs.Wrap(err, ErrUnavailable)
 		}
-		summary.Friends = append(summary.Friends, view)
+		friends = append(friends, view)
 	}
-	sort.SliceStable(summary.Friends, func(i, j int) bool {
-		return strings.ToLower(summary.Friends[i].Display()) < strings.ToLower(summary.Friends[j].Display())
+	sort.SliceStable(friends, func(i, j int) bool {
+		return strings.ToLower(friends[i].Display()) < strings.ToLower(friends[j].Display())
 	})
+	return friends, nil
+}
+
+// FriendSummary returns the whole friend page: accepted friends, both request directions and
+// blocks. | FriendSummary 返回完整好友页数据：已接受好友、两个方向的申请与拉黑。
+func (s *Service) FriendSummary(ctx context.Context, actor Actor) (FriendSummary, error) {
+	friends, err := s.Friends(ctx, actor)
+	if err != nil {
+		return FriendSummary{}, err
+	}
+	summary := FriendSummary{Friends: friends}
 
 	incoming, err := s.store.ListFriendRequests(ctx, actor.TenantID, actor.ID, true, FriendPending)
 	if err != nil {

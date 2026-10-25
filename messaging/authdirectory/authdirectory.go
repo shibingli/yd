@@ -9,7 +9,6 @@ package authdirectory
 
 import (
 	"context"
-	"sort"
 	"strings"
 
 	"github.com/shibingli/yd/messaging"
@@ -40,30 +39,13 @@ func (d *Directory) Search(ctx context.Context, tenantID, keyword, excludeID str
 	if d == nil || d.auth == nil {
 		return nil, ErrDirectory
 	}
-	users, err := d.auth.ListUsers(ctx, tenantID)
+	users, err := d.auth.SearchUsers(ctx, tenantID, keyword, excludeID, limit)
 	if err != nil {
 		return nil, errs.Wrap(err, ErrDirectory)
 	}
-	keyword = strings.ToLower(strings.TrimSpace(keyword))
-	if limit <= 0 {
-		limit = 20
-	}
-	out := make([]messaging.Profile, 0, limit)
+	out := make([]messaging.Profile, 0, len(users))
 	for _, user := range users {
-		if user.ID == excludeID || user.Status != auth.StatusActive {
-			continue
-		}
-		profile := profileOf(user)
-		if keyword != "" && !matches(profile, keyword) {
-			continue
-		}
-		out = append(out, profile)
-	}
-	sort.SliceStable(out, func(i, j int) bool {
-		return strings.ToLower(out[i].Display()) < strings.ToLower(out[j].Display())
-	})
-	if len(out) > limit {
-		out = out[:limit]
+		out = append(out, profileOf(user))
 	}
 	return out, nil
 }
@@ -82,15 +64,16 @@ func (d *Directory) Profiles(ctx context.Context, tenantID string, ids []string)
 	if len(wanted) == 0 {
 		return map[string]messaging.Profile{}, nil
 	}
-	users, err := d.auth.ListUsers(ctx, tenantID)
+	wantedIDs := make([]string, 0, len(wanted))
+	for id := range wanted {
+		wantedIDs = append(wantedIDs, id)
+	}
+	users, err := d.auth.GetUsers(ctx, tenantID, wantedIDs)
 	if err != nil {
 		return nil, errs.Wrap(err, ErrDirectory)
 	}
-	out := make(map[string]messaging.Profile, len(wanted))
+	out := make(map[string]messaging.Profile, len(users))
 	for _, user := range users {
-		if _, ok := wanted[user.ID]; !ok {
-			continue
-		}
 		out[user.ID] = profileOf(user)
 	}
 	return out, nil
@@ -105,14 +88,4 @@ func profileOf(user *auth.User) messaging.Profile {
 		Email:       user.Email,
 		Active:      user.Status == auth.StatusActive,
 	}
-}
-
-// matches reports whether the keyword appears in a searchable field. | matches 报告关键字是否出现在可检索字段中。
-func matches(profile messaging.Profile, keyword string) bool {
-	for _, value := range []string{profile.Username, profile.DisplayName, profile.Email} {
-		if strings.Contains(strings.ToLower(value), keyword) {
-			return true
-		}
-	}
-	return false
 }

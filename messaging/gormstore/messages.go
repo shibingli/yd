@@ -182,6 +182,7 @@ WHERE mt.tenant_id = yd_msg_messages.tenant_id
 	}
 	var out []messaging.Message
 	if err := query.Select("yd_msg_messages.*").
+		Omit("SearchText").
 		Order("yd_msg_messages.created_at DESC").
 		Offset(offset).Limit(filter.PageSize).
 		Find(&out).Error; err != nil {
@@ -206,7 +207,10 @@ func (s *Store) ListMessagesByConversation(ctx context.Context, tenantID, conver
 		offset = 0
 	}
 	var out []messaging.Message
-	if err := query.Order("created_at DESC").Offset(offset).Limit(pageSize).Find(&out).Error; err != nil {
+	// search_text 只是检索用的正文副本：历史消息渲染不需要它，省掉可显著减小一页消息的传输量。
+	// search_text is only a copy of the body for search: history rendering never reads it, so omitting
+	// it shrinks one page of messages considerably.
+	if err := query.Omit("SearchText").Order("created_at DESC, id DESC").Offset(offset).Limit(pageSize).Find(&out).Error; err != nil {
 		return nil, 0, queryError(err)
 	}
 	// The caller renders a thread oldest-first; the page itself is the newest page. | 调用方按从旧到新渲染线程；
@@ -217,23 +221,82 @@ func (s *Store) ListMessagesByConversation(ctx context.Context, tenantID, conver
 	return out, int(total), nil
 }
 
-// LastMessages resolves the newest visible message per conversation. | LastMessages 解析每个会话最新的可见消息。
+// ListMessagesByConversationPage returns one page without counting the conversation. | ListMessagesByConversationPage 返回一页消息，但不统计会话总数。
+//
+// 线程视图只渲染最新一页，总数被调用方丢弃；此处省掉的 COUNT(*) 在长会话上是全表范围扫描。 |
+// The thread view renders only the newest page and discards the total; the omitted COUNT(*) is a range scan
+// proportional to the conversation length.
+func (s *Store) ListMessagesByConversationPage(ctx context.Context, tenantID, conversationID string, page, pageSize int, includeRecalled bool) ([]messaging.Message, error) {
+	query := s.dbc(ctx).Model(&messaging.Message{}).
+		Where("tenant_id = ? AND conversation_id = ?", tenantID, conversationID)
+	if !includeRecalled {
+		query = query.Where("status = ?", messaging.StatusSent)
+	}
+	offset := (page - 1) * pageSize
+	if offset < 0 {
+		offset = 0
+	}
+	var out []messaging.Message
+	if err := query.Omit("SearchText").Order("created_at DESC, id DESC").Offset(offset).Limit(pageSize).Find(&out).Error; err != nil {
+		return nil, queryError(err)
+	}
+	for left, right := 0, len(out)-1; left < right; left, right = left+1, right-1 {
+		out[left], out[right] = out[right], out[left]
+	}
+	return out, nil
+}
+
+// ListMessagesAfter returns the messages newer than one anchor, oldest first. |
+// ListMessagesAfter 返回晚于锚点消息的新消息，按从旧到新排列。
+//
+// 锚点查询限定在同一租户、同一会话内：来自其它会话或其它租户的 ID 与不存在没有区别，绝不泄露它是否存在。 |
+// The anchor lookup is scoped to the same tenant and conversation: an id from another conversation or tenant is
+// indistinguishable from a missing one, so its existence never leaks.
+func (s *Store) ListMessagesAfter(ctx context.Context, tenantID, conversationID, afterID string, limit int) ([]messaging.Message, error) {
+	if limit <= 0 {
+		limit = 50
+	}
+	var anchor messaging.Message
+	if err := s.dbc(ctx).
+		Where("tenant_id = ? AND conversation_id = ? AND id = ?", tenantID, conversationID, afterID).
+		First(&anchor).Error; err != nil {
+		return nil, queryError(err)
+	}
+	var out []messaging.Message
+	if err := s.dbc(ctx).
+		Where("tenant_id = ? AND conversation_id = ? AND (created_at > ? OR (created_at = ? AND id > ?))",
+			tenantID, conversationID, anchor.CreatedAt, anchor.CreatedAt, anchor.ID).
+		Omit("SearchText").
+		Order("created_at ASC, id ASC").
+		Limit(limit).
+		Find(&out).Error; err != nil {
+		return nil, queryError(err)
+	}
+	return out, nil
+}
+
+// LastMessages resolves the newest visible message per conversation in one query per batch. |
+// LastMessages 每个批次用一条查询解析每个会话最新的可见消息。
+//
+// The old implementation ran one query per conversation, making the list N+1; the window function takes the first
+// row per partition, reducing round trips to the batch count (normally one). | 旧实现为每个会话执行一次查询，
+// 会话列表因此是 N+1；窗口函数按会话分区取第一条，把往返次数降为批次数（通常就是 1）。
 func (s *Store) LastMessages(ctx context.Context, tenantID string, conversationIDs []string) (map[string]messaging.Message, error) {
 	out := make(map[string]messaging.Message, len(conversationIDs))
-	for _, id := range conversationIDs {
-		var msg messaging.Message
-		err := s.dbc(ctx).
-			Where("tenant_id = ? AND conversation_id = ?", tenantID, id).
-			Order("created_at DESC").
-			First(&msg).Error
-		if err == nil {
-			out[id] = msg
-			continue
+	for _, batch := range chunks(conversationIDs) {
+		ranked := s.dbc(ctx).Model(&messaging.Message{}).
+			Select("yd_msg_messages.*, ROW_NUMBER() OVER (PARTITION BY yd_msg_messages.conversation_id ORDER BY yd_msg_messages.created_at DESC, yd_msg_messages.id DESC) AS yd_rank").
+			Where("yd_msg_messages.tenant_id = ? AND yd_msg_messages.conversation_id IN ?", tenantID, batch)
+		var rows []messaging.Message
+		if err := s.dbc(ctx).
+			Table("(?) AS ranked", ranked).
+			Where("ranked.yd_rank = ?", 1).
+			Find(&rows).Error; err != nil {
+			return nil, queryError(err)
 		}
-		if mapped := notFound(err); mapped != nil {
-			continue
+		for _, row := range rows {
+			out[row.ConversationID] = row
 		}
-		return nil, queryError(err)
 	}
 	return out, nil
 }

@@ -2,7 +2,6 @@ package gormstore
 
 import (
 	"context"
-	"errors"
 
 	"github.com/shibingli/yd/messaging"
 	"github.com/shibingli/ydx/errs"
@@ -17,26 +16,47 @@ import (
 // tenant/key index. | 这里显式先查后建而不是用 FirstOrCreate：传入行已带全新主键，
 // FirstOrCreate 会把它一并作为查询条件，随后撞上 tenant/key 唯一索引。
 func (s *Store) EnsureTypes(ctx context.Context, tenantID string, types []messaging.MessageType) error {
+	if len(types) == 0 {
+		return nil
+	}
+	// Read the existing keys in one query and insert the missing ones in one batch: five built-in types would
+	// otherwise cost ten round trips on every entry point. | 一次查询取回已存在的键，再批量插入缺失项：
+	// 内置类型有五个，逐条探测加逐条插入会让每个入口多出十次往返。
+	keys := make([]string, 0, len(types))
 	for _, t := range types {
-		row := t
-		row.TenantID = tenantID
-		var existing messaging.MessageType
-		err := s.dbc(ctx).Where("tenant_id = ? AND type_key = ?", tenantID, row.Key).First(&existing).Error
-		if err == nil {
+		keys = append(keys, t.Key)
+	}
+	var existing []string
+	if err := s.dbc(ctx).Model(&messaging.MessageType{}).
+		Where("tenant_id = ? AND type_key IN ?", tenantID, keys).
+		Pluck("type_key", &existing).Error; err != nil {
+		return queryError(err)
+	}
+	have := make(map[string]struct{}, len(existing))
+	for _, key := range existing {
+		have[key] = struct{}{}
+	}
+	missing := make([]messaging.MessageType, 0, len(types))
+	for _, t := range types {
+		if _, ok := have[t.Key]; ok {
 			continue
 		}
-		if !errors.Is(err, gorm.ErrRecordNotFound) {
-			return queryError(err)
+		t.TenantID = tenantID
+		missing = append(missing, t)
+	}
+	if len(missing) == 0 {
+		return nil
+	}
+	if err := s.dbc(ctx).Clauses(onConflictDoNothing()).Create(&missing).Error; err != nil {
+		// A concurrent writer may have inserted the same built-in first; that is idempotence,
+		// not a failure. | 并发写入者可能已先插入同一个内置类型；那是幂等，不是故障。
+		var present []string
+		if lookupErr := s.dbc(ctx).Model(&messaging.MessageType{}).
+			Where("tenant_id = ? AND type_key IN ?", tenantID, keys).
+			Pluck("type_key", &present).Error; lookupErr == nil && len(present) == len(types) {
+			return nil
 		}
-		if createErr := s.dbc(ctx).Create(&row).Error; createErr != nil {
-			// A concurrent writer may have inserted the same built-in first; that is idempotence,
-			// not a failure. | 并发写入者可能已先插入同一个内置类型；那是幂等，不是故障。
-			var again messaging.MessageType
-			if lookupErr := s.dbc(ctx).Where("tenant_id = ? AND type_key = ?", tenantID, row.Key).First(&again).Error; lookupErr == nil {
-				continue
-			}
-			return createError(createErr)
-		}
+		return createError(err)
 	}
 	return nil
 }

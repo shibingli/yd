@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -401,6 +402,11 @@ func TestDirectMessageReadAndRecall(t *testing.T) {
 		t.Fatalf("view = %+v messages = %+v", view, messages)
 	}
 
+	// 时间戳是消息排序的第二判据之外的唯一时间依据；同一时钟刻度内的两条消息没有稳定先后，
+	// 因此这里显式推进时钟，让顺序由数据决定而不是由数据库返回顺序决定。 |
+	// The timestamp is the time basis of the order; two messages written at the same clock tick have no stable
+	// order, so advance the clock explicitly and let the data, not the database's return order, decide.
+	f.clock.Advance(time.Minute)
 	if _, err := f.svc.Send(ctx, bob, messaging.SendInput{ConversationID: conv.ID, Markdown: "reply"}); err != nil {
 		t.Fatalf("reply: %v", err)
 	}
@@ -438,6 +444,181 @@ func TestDirectMessageReadAndRecall(t *testing.T) {
 	}
 	if messages[0].BodyText != "" || messages[0].Status != messaging.StatusRecalled {
 		t.Fatalf("recalled message = %+v", messages[0])
+	}
+}
+
+// TestConversationListResolvesLastMessagesInBatch proves the batched window query picks the newest message per
+// conversation and that history pages no longer carry the search-text copy. |
+// TestConversationListResolvesLastMessagesInBatch 证明批量窗口查询为每个会话取到最新消息，
+// 且历史页不再携带检索正文副本。
+func TestConversationListResolvesLastMessagesInBatch(t *testing.T) {
+	f := newFixture(t)
+	ctx := context.Background()
+	alice := actor("us_alice", "Alice")
+	bob := actor("us_bob", "Bob")
+	carol := actor("us_carol", "Carol")
+	withBob := befriend(t, f, alice, bob)
+	withCarol := befriend(t, f, alice, carol)
+
+	f.clock.Advance(time.Minute)
+	if _, err := f.svc.Send(ctx, alice, messaging.SendInput{ConversationID: withBob.ID, Markdown: "bob first"}); err != nil {
+		t.Fatalf("send bob first: %v", err)
+	}
+	f.clock.Advance(time.Minute)
+	if _, err := f.svc.Send(ctx, alice, messaging.SendInput{ConversationID: withCarol.ID, Markdown: "carol only"}); err != nil {
+		t.Fatalf("send carol: %v", err)
+	}
+	f.clock.Advance(time.Minute)
+	if _, err := f.svc.Send(ctx, alice, messaging.SendInput{ConversationID: withBob.ID, Markdown: "bob newest"}); err != nil {
+		t.Fatalf("send bob newest: %v", err)
+	}
+
+	views, err := f.svc.Conversations(ctx, alice)
+	if err != nil {
+		t.Fatalf("conversations: %v", err)
+	}
+	found := make(map[string]string, len(views))
+	for _, view := range views {
+		if view.LastMessage != nil {
+			found[view.ID] = view.LastMessage.BodyText
+		}
+	}
+	if found[withBob.ID] != "bob newest" {
+		t.Errorf("bob conversation last message = %q, want %q | bob 会话最新消息 = %q，期望 %q", found[withBob.ID], "bob newest", found[withBob.ID], "bob newest")
+	}
+	if found[withCarol.ID] != "carol only" {
+		t.Errorf("carol conversation last message = %q, want %q | carol 会话最新消息 = %q，期望 %q", found[withCarol.ID], "carol only", found[withCarol.ID], "carol only")
+	}
+
+	_, messages, err := f.svc.Conversation(ctx, bob, withBob.ID)
+	if err != nil {
+		t.Fatalf("conversation: %v", err)
+	}
+	if len(messages) != 2 {
+		t.Fatalf("history has %d messages, want 2 | 历史消息 %d 条，期望 2", len(messages), len(messages))
+	}
+	for _, message := range messages {
+		if message.SearchText != "" {
+			t.Errorf("history message carries search_text %q | 历史消息携带了 search_text %q", message.SearchText, message.SearchText)
+		}
+	}
+}
+
+// countingLogger counts statements without printing them. | countingLogger 统计语句数量但不打印。
+type countingLogger struct {
+	logger.Interface
+	count int
+}
+
+// Trace counts one statement and delegates to the silent logger. | Trace 统计一条语句并交给静默日志器。
+func (c *countingLogger) Trace(ctx context.Context, begin time.Time, fc func() (string, int64), err error) {
+	c.count++
+	c.Interface.Trace(ctx, begin, fc, err)
+}
+
+// TestConversationListStatementCountStaysConstant is the regression guard for the N+1 removal: ten
+// conversations must not cost ten times the statements of one. | TestConversationListStatementCountStaysConstant
+// 是移除 N+1 的回归守卫：十个会话的语句数不得是单个会话的十倍。
+func TestConversationListStatementCountStaysConstant(t *testing.T) {
+	f := newFixture(t)
+	ctx := context.Background()
+	alice := actor("us_alice", "Alice")
+
+	nextID := 0
+	create := func(n int) {
+		t.Helper()
+		for i := 0; i < n; i++ {
+			id := "cv_batch_" + strconv.Itoa(nextID)
+			nextID++
+			now := f.clock.Now()
+			conv := messaging.Conversation{
+				ID: id, TenantID: tenantID, Kind: messaging.KindGroup, Title: "batch",
+				CreatedBy: alice.ID, Status: messaging.ConversationActive, CreatedAt: now, UpdatedAt: now,
+			}
+			if err := f.db.Create(&conv).Error; err != nil {
+				t.Fatalf("create conversation: %v", err)
+			}
+			member := messaging.Member{
+				ID: "mb_" + id, TenantID: tenantID, ConversationID: id,
+				UserID: alice.ID, Role: messaging.MemberOwner, JoinedAt: now,
+			}
+			if err := f.db.Create(&member).Error; err != nil {
+				t.Fatalf("create member: %v", err)
+			}
+		}
+	}
+
+	create(1)
+	counter := &countingLogger{Interface: logger.Default.LogMode(logger.Silent)}
+	f.db.Logger = counter
+	// Warm the tenant seed and the system conversation so the two measurements share one baseline. |
+	// 预热租户种子与公告频道，使两次测量共享同一基线。
+	if _, err := f.svc.Conversations(ctx, alice); err != nil {
+		t.Fatalf("warm conversations: %v", err)
+	}
+	counter.count = 0
+	if _, err := f.svc.Conversations(ctx, alice); err != nil {
+		t.Fatalf("one conversation: %v", err)
+	}
+	one := counter.count
+
+	create(9)
+	counter.count = 0
+	if _, err := f.svc.Conversations(ctx, alice); err != nil {
+		t.Fatalf("ten conversations: %v", err)
+	}
+	ten := counter.count
+	if ten > one+2 {
+		t.Errorf("statements grew with the conversation count: one=%d ten=%d | 语句数随会话数增长：单个=%d 十个=%d", one, ten, one, ten)
+	}
+}
+
+// TestConversationMessagesAfterReturnsOnlyTheTail proves the incremental refresh anchor is tenant- and
+// conversation-scoped. | TestConversationMessagesAfterReturnsOnlyTheTail 证明增量刷新的锚点被限制在租户与会话内。
+func TestConversationMessagesAfterReturnsOnlyTheTail(t *testing.T) {
+	f := newFixture(t)
+	ctx := context.Background()
+	alice := actor("us_alice", "Alice")
+	bob := actor("us_bob", "Bob")
+	carol := actor("us_carol", "Carol")
+	conv := befriend(t, f, alice, bob)
+	other := befriend(t, f, alice, carol)
+
+	send := func(target messaging.Conversation) messaging.MessageView {
+		t.Helper()
+		f.clock.Advance(time.Minute)
+		message, err := f.svc.Send(ctx, alice, messaging.SendInput{ConversationID: target.ID, Markdown: "message"})
+		if err != nil {
+			t.Fatalf("send: %v", err)
+		}
+		return message
+	}
+	first := send(conv)
+	send(conv)
+	last := send(conv)
+	outside := send(other)
+
+	tail, err := f.svc.ConversationMessagesAfter(ctx, bob, conv.ID, first.ID, 50)
+	if err != nil {
+		t.Fatalf("after first: %v", err)
+	}
+	if len(tail) != 2 {
+		t.Fatalf("tail has %d messages, want 2 | 增量结果 %d 条，期望 2", len(tail), len(tail))
+	}
+	if tail[len(tail)-1].ID != last.ID {
+		t.Errorf("tail ends with %s, want %s | 增量最后一条 = %s，期望 %s", tail[len(tail)-1].ID, last.ID, tail[len(tail)-1].ID, last.ID)
+	}
+
+	none, err := f.svc.ConversationMessagesAfter(ctx, bob, conv.ID, last.ID, 50)
+	if err != nil {
+		t.Fatalf("after last: %v", err)
+	}
+	if len(none) != 0 {
+		t.Errorf("after last returned %d messages, want 0 | 最后一条之后返回 %d 条，期望 0", len(none), len(none))
+	}
+
+	if _, err := f.svc.ConversationMessagesAfter(ctx, bob, conv.ID, outside.ID, 50); !errors.Is(err, messaging.ErrNotFound) {
+		t.Errorf("cross-conversation anchor err = %v, want ErrNotFound | 跨会话锚点错误 = %v，期望 ErrNotFound", err, err)
 	}
 }
 

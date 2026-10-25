@@ -75,6 +75,24 @@ func (s *Store) ListConversations(ctx context.Context, tenantID, userID string) 
 	return out, nil
 }
 
+// GetConversations resolves many conversations by id in one query per batch. |
+// GetConversations 每个批次用一条查询按 ID 解析多个会话。
+func (s *Store) GetConversations(ctx context.Context, tenantID string, ids []string) (map[string]messaging.Conversation, error) {
+	out := make(map[string]messaging.Conversation, len(ids))
+	for _, batch := range chunks(ids) {
+		var rows []messaging.Conversation
+		if err := s.dbc(ctx).
+			Where("tenant_id = ? AND id IN ?", tenantID, batch).
+			Find(&rows).Error; err != nil {
+			return nil, queryError(err)
+		}
+		for _, row := range rows {
+			out[row.ID] = row
+		}
+	}
+	return out, nil
+}
+
 // ListAllConversations lists every conversation of a tenant. | ListAllConversations 列出租户的全部会话。
 func (s *Store) ListAllConversations(ctx context.Context, tenantID string) ([]messaging.Conversation, error) {
 	var out []messaging.Conversation
@@ -133,6 +151,25 @@ func (s *Store) ListMembers(ctx context.Context, tenantID, conversationID string
 		Order("joined_at ASC").
 		Find(&out).Error; err != nil {
 		return nil, queryError(err)
+	}
+	return out, nil
+}
+
+// ListMembersByConversation resolves the members of many conversations in one query per batch. |
+// ListMembersByConversation 每个批次用一条查询解析多个会话的成员。
+func (s *Store) ListMembersByConversation(ctx context.Context, tenantID string, conversationIDs []string) (map[string][]messaging.Member, error) {
+	out := make(map[string][]messaging.Member, len(conversationIDs))
+	for _, batch := range chunks(conversationIDs) {
+		var rows []messaging.Member
+		if err := s.dbc(ctx).
+			Where("tenant_id = ? AND conversation_id IN ?", tenantID, batch).
+			Order("joined_at ASC").
+			Find(&rows).Error; err != nil {
+			return nil, queryError(err)
+		}
+		for _, row := range rows {
+			out[row.ConversationID] = append(out[row.ConversationID], row)
+		}
 	}
 	return out, nil
 }

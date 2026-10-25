@@ -158,6 +158,24 @@ func (s *Store) ListFriendships(ctx context.Context, tenantID, userID string) ([
 	return out, nil
 }
 
+// FriendNotes resolves the owner's remarks for many friends in one query per batch. |
+// FriendNotes 每个批次用一条查询解析所有者对多位好友的备注。
+func (s *Store) FriendNotes(ctx context.Context, tenantID, ownerID string, friendIDs []string) (map[string]messaging.FriendNote, error) {
+	out := make(map[string]messaging.FriendNote, len(friendIDs))
+	for _, batch := range chunks(friendIDs) {
+		var rows []messaging.FriendNote
+		if err := s.dbc(ctx).
+			Where("tenant_id = ? AND owner_id = ? AND friend_id IN ?", tenantID, ownerID, batch).
+			Find(&rows).Error; err != nil {
+			return nil, queryError(err)
+		}
+		for _, row := range rows {
+			out[row.FriendID] = row
+		}
+	}
+	return out, nil
+}
+
 // GetFriendNote reads the owner's remark for a friend. | GetFriendNote 读取所有者对好友的备注。
 func (s *Store) GetFriendNote(ctx context.Context, tenantID, ownerID, friendID string) (messaging.FriendNote, error) {
 	var note messaging.FriendNote

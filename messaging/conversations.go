@@ -37,29 +37,41 @@ func (s *Service) Conversations(ctx context.Context, actor Actor) ([]Conversatio
 	if err != nil {
 		return nil, errs.Wrap(err, ErrUnavailable)
 	}
+	// Members of every conversation load in one batch, and their profiles resolve in one directory call.
+	// The previous per-conversation loop turned one page into 2N+3 round trips. |
+	// 所有会话的成员一次批量加载，资料也一次解析；此前逐会话循环会把一次页面加载变成 2N+3 次往返。
+	membersByConversation, err := s.membersByConversation(ctx, actor.TenantID, ids)
+	if err != nil {
+		return nil, errs.Wrap(err, ErrUnavailable)
+	}
+	allMemberIDs := make([]string, 0, len(list))
+	seenMember := make(map[string]struct{}, len(list))
+	for _, members := range membersByConversation {
+		for _, member := range members {
+			if _, seen := seenMember[member.UserID]; seen {
+				continue
+			}
+			seenMember[member.UserID] = struct{}{}
+			allMemberIDs = append(allMemberIDs, member.UserID)
+		}
+	}
+	profiles, err := s.directory.Profiles(ctx, actor.TenantID, allMemberIDs)
+	if err != nil {
+		return nil, errs.Wrap(err, ErrUnavailable)
+	}
 
 	out := make([]ConversationView, 0, len(list))
 	for _, conv := range list {
-		members, err := s.store.ListMembers(ctx, actor.TenantID, conv.ID)
-		if err != nil {
-			return nil, errs.Wrap(err, ErrUnavailable)
-		}
-		memberIDs := make([]string, 0, len(members))
-		for _, member := range members {
-			memberIDs = append(memberIDs, member.UserID)
-		}
-		profiles, err := s.directory.Profiles(ctx, actor.TenantID, memberIDs)
-		if err != nil {
-			return nil, errs.Wrap(err, ErrUnavailable)
-		}
 		view := ConversationView{Conversation: conv, Unread: unread[conv.ID]}
-		for _, id := range memberIDs {
-			if profile, ok := profiles[id]; ok {
-				view.Members = append(view.Members, profile)
-				if conv.Kind == KindDirect && id != actor.ID {
-					peer := profile
-					view.Peer = &peer
-				}
+		for _, member := range membersByConversation[conv.ID] {
+			profile, ok := profiles[member.UserID]
+			if !ok {
+				continue
+			}
+			view.Members = append(view.Members, profile)
+			if conv.Kind == KindDirect && member.UserID != actor.ID {
+				peer := profile
+				view.Peer = &peer
 			}
 		}
 		if msg, ok := last[conv.ID]; ok {
@@ -85,25 +97,29 @@ func conversationTime(v ConversationView) time.Time {
 	return v.CreatedAt
 }
 
-// Conversation returns one conversation, its newest page of messages and marks it read. | Conversation 返回一个会话及其最新一页消息，并标记已读。
-func (s *Service) Conversation(ctx context.Context, actor Actor, conversationID string) (ConversationView, []MessageView, error) {
+// openConversation 解析会话与成员、校验成员关系，并在确有未读时推进水位；它同时服务完整会话视图
+// 与只需要消息体的历史刷新，避免两条路径各自实现一遍已读语义。
+// openConversation resolves the conversation and its members, checks membership and advances the watermark when
+// there really are unread messages. It serves both the full conversation view and the history refresh that only
+// needs message bodies, so neither path keeps a second copy of the read semantics.
+func (s *Service) openConversation(ctx context.Context, actor Actor, conversationID string) (Conversation, []Member, int, error) {
 	if !actor.valid() {
-		return ConversationView{}, nil, ErrInvalidInput
+		return Conversation{}, nil, 0, ErrInvalidInput
 	}
 	conversationID = strings.TrimSpace(conversationID)
 	if conversationID == "" {
-		return ConversationView{}, nil, ErrNotFound
+		return Conversation{}, nil, 0, ErrNotFound
 	}
 	conv, err := s.store.GetConversation(ctx, actor.TenantID, conversationID)
 	if err != nil {
-		return ConversationView{}, nil, mapStoreError(err, ErrNotFound)
+		return Conversation{}, nil, 0, mapStoreError(err, ErrNotFound)
 	}
 	members, err := s.store.ListMembers(ctx, actor.TenantID, conv.ID)
 	if err != nil {
-		return ConversationView{}, nil, errs.Wrap(err, ErrUnavailable)
+		return Conversation{}, nil, 0, errs.Wrap(err, ErrUnavailable)
 	}
 	if !containsMember(members, actor.ID) && !actor.Manage {
-		return ConversationView{}, nil, ErrNotFound
+		return Conversation{}, nil, 0, ErrNotFound
 	}
 
 	// 打开会话即推进已读水位；管理员旁路查看不推进，避免替成员“读掉”消息。
@@ -113,19 +129,26 @@ func (s *Service) Conversation(ctx context.Context, actor Actor, conversationID 
 	// messages read on a member's behalf. The watermark only moves and only emits when there really are unread
 	// messages: otherwise one refresh emits a read event, the peer's refresh emits the next one, and two clients
 	// ping-pong forever.
-	if containsMember(members, actor.ID) {
+	// 未读只读一次：打开会话后水位若推进，未读数直接归零，不再为视图重复执行一次聚合查询。
+	// Read the unread map once: when opening advances the watermark the count becomes zero, so the view
+	// never needs a second aggregate query.
+	member := containsMember(members, actor.ID)
+	unreadCount := 0
+	if member {
 		unreadBefore, err := s.store.ConversationUnread(ctx, actor.TenantID, actor.ID)
 		if err != nil {
-			return ConversationView{}, nil, errs.Wrap(err, ErrUnavailable)
+			return Conversation{}, nil, 0, errs.Wrap(err, ErrUnavailable)
 		}
-		if unreadBefore[conv.ID] > 0 {
+		unreadCount = unreadBefore[conv.ID]
+		if unreadCount > 0 {
 			now := s.options.Now()
 			if err := s.store.AdvanceRead(ctx, actor.TenantID, conv.ID, actor.ID, now); err != nil {
-				return ConversationView{}, nil, errs.Wrap(err, ErrUnavailable)
+				return Conversation{}, nil, 0, errs.Wrap(err, ErrUnavailable)
 			}
-			for _, member := range members {
-				if member.UserID == actor.ID {
-					member.LastReadAt = &now
+			unreadCount = 0
+			for i := range members {
+				if members[i].UserID == actor.ID {
+					members[i].LastReadAt = &now
 				}
 			}
 			// 受众包含读者本人：读者自己的 WebSocket 连接也要据此刷新未读角标，否则角标会一直停留在旧值。
@@ -133,6 +156,24 @@ func (s *Service) Conversation(ctx context.Context, actor Actor, conversationID 
 			// badge, otherwise the badge keeps the previous count until a page reload.
 			s.emit(ctx, Event{Type: EventMessageRead, TenantID: actor.TenantID, ConversationID: conv.ID, ActorID: actor.ID, Audience: memberIDsOf(members), Detail: map[string]string{"at": now.UTC().Format(time.RFC3339)}})
 		}
+	}
+	if !member {
+		// 管理员旁路查看：没有成员关系，因此没有上面那次水位查询可复用，需要单独取一次。
+		// A moderator viewing without membership has no watermark query to reuse, so read it here.
+		unread, err := s.store.ConversationUnread(ctx, actor.TenantID, actor.ID)
+		if err != nil {
+			return Conversation{}, nil, 0, errs.Wrap(err, ErrUnavailable)
+		}
+		unreadCount = unread[conv.ID]
+	}
+	return conv, members, unreadCount, nil
+}
+
+// Conversation returns one conversation, its newest page of messages and marks it read. | Conversation 返回一个会话及其最新一页消息，并标记已读。
+func (s *Service) Conversation(ctx context.Context, actor Actor, conversationID string) (ConversationView, []MessageView, error) {
+	conv, members, unreadCount, err := s.openConversation(ctx, actor, conversationID)
+	if err != nil {
+		return ConversationView{}, nil, err
 	}
 
 	page := s.options.PageSize
@@ -142,7 +183,7 @@ func (s *Service) Conversation(ctx context.Context, actor Actor, conversationID 
 	// A recalled message stays in the thread as a tombstone; the view layer strips its body for
 	// readers without moderation rights. | 撤回的消息以墓碑形式留在会话里；视图层会为无管理权的读者
 	// 剥掉正文。
-	messages, _, err := s.store.ListMessagesByConversation(ctx, actor.TenantID, conv.ID, 1, page, true)
+	messages, err := s.conversationMessages(ctx, actor.TenantID, conv.ID, 1, page, true)
 	if err != nil {
 		return ConversationView{}, nil, errs.Wrap(err, ErrUnavailable)
 	}
@@ -169,16 +210,84 @@ func (s *Service) Conversation(ctx context.Context, actor Actor, conversationID 
 			}
 		}
 	}
-	unread, err := s.store.ConversationUnread(ctx, actor.TenantID, actor.ID)
-	if err != nil {
-		return ConversationView{}, nil, errs.Wrap(err, ErrUnavailable)
-	}
-	view.Unread = unread[conv.ID]
+	view.Unread = unreadCount
 	if len(views) > 0 {
 		last := views[len(views)-1].Message
 		view.LastMessage = &last
 	}
 	return view, views, nil
+}
+
+// ConversationMessages returns the newest page of one conversation and advances the read watermark, but does not
+// resolve member profiles or build the conversation header. The history-refresh fragment renders only the messages,
+// so the peer/avatar lookups and the summary view would be discarded work. |
+// ConversationMessages 返回一个会话的最新一页消息并推进已读水位，但不解析成员资料、也不构造会话标题。
+// 历史刷新片段只渲染消息，成员头像与汇总视图在那里都是会被丢弃的工作。
+func (s *Service) ConversationMessages(ctx context.Context, actor Actor, conversationID string) ([]MessageView, error) {
+	conv, members, _, err := s.openConversation(ctx, actor, conversationID)
+	if err != nil {
+		return nil, err
+	}
+	page := s.options.PageSize
+	if page < 50 {
+		page = 50
+	}
+	messages, err := s.conversationMessages(ctx, actor.TenantID, conv.ID, 1, page, true)
+	if err != nil {
+		return nil, errs.Wrap(err, ErrUnavailable)
+	}
+	return s.messageViews(ctx, actor, messages, members, true)
+}
+
+// ConversationMessagesAfter returns the messages newer than one anchor, oldest first. It advances the read
+// watermark exactly like opening the conversation does, so a realtime append also clears the unread state. |
+// ConversationMessagesAfter 返回晚于锚点消息的新消息，按从旧到新排列。它像打开会话一样推进已读水位，
+// 因此实时追加也会同时清除未读状态。
+func (s *Service) ConversationMessagesAfter(ctx context.Context, actor Actor, conversationID, afterID string, limit int) ([]MessageView, error) {
+	if strings.TrimSpace(afterID) == "" {
+		return nil, ErrInvalidInput
+	}
+	conv, members, _, err := s.openConversation(ctx, actor, conversationID)
+	if err != nil {
+		return nil, err
+	}
+	if limit <= 0 {
+		limit = 50
+	}
+	var messages []Message
+	if lister, ok := s.store.(conversationMessageAfter); ok {
+		messages, err = lister.ListMessagesAfter(ctx, actor.TenantID, conv.ID, afterID, limit)
+		if err != nil {
+			return nil, err
+		}
+	} else {
+		// Without the incremental capability, read the newest page and look for the anchor; a missing anchor means
+		// the client is too far behind, and the caller falls back to a full render. | 存储层没有增量能力时退回
+		// 最新一页，并在其中寻找锚点；找不到锚点说明客户端落后太多，由调用方转为整段重取。
+		page := limit
+		if page < 50 {
+			page = 50
+		}
+		recent, err := s.conversationMessages(ctx, actor.TenantID, conv.ID, 1, page, true)
+		if err != nil {
+			return nil, errs.Wrap(err, ErrUnavailable)
+		}
+		index := -1
+		for i := range recent {
+			if recent[i].ID == afterID {
+				index = i
+				break
+			}
+		}
+		if index < 0 {
+			return nil, ErrNotFound
+		}
+		messages = recent[index+1:]
+		if len(messages) > limit {
+			messages = messages[:limit]
+		}
+	}
+	return s.messageViews(ctx, actor, messages, members, true)
 }
 
 // DirectConversation returns the canonical direct conversation with a friend, creating it once. |
