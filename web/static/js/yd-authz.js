@@ -332,9 +332,13 @@
     if (typeof el.setAttribute !== 'function') {
       return;
     }
-    if (el.getAttribute(STATE_ATTR) !== 'hidden') {
-      el.setAttribute(PREV_ATTR, el.style ? text(el.style.display) : '');
+    // 已经隐藏的节点不再写样式与属性：每次交换都会重新判定，重复写入只会制造无谓的样式失效。 |
+    // A node already hidden gets no further style or attribute writes: every swap re-evaluates, and repeated
+    // writes only cause pointless style invalidation.
+    if (el.getAttribute(STATE_ATTR) === 'hidden') {
+      return;
     }
+    el.setAttribute(PREV_ATTR, el.style ? text(el.style.display) : '');
     if (el.style) {
       el.style.display = 'none';
     }
@@ -360,6 +364,9 @@
   // 既保持版式稳定，也让屏幕阅读器知道该控件为何不可用。
   function disable(el) {
     if (typeof el.setAttribute !== 'function') {
+      return;
+    }
+    if (el.getAttribute(STATE_ATTR) === 'disabled') {
       return;
     }
     el.setAttribute('disabled', 'disabled');
@@ -419,6 +426,19 @@
   // onAfterSwap 处理 htmx:after:swap：htmx 刚插入的片段从未被判定过，因此在这里绑定。
   // 带外片段可能落在远离目标的位置，所以整篇文档也会被绑定——与 i18n 不同，这里没有签名要记，
   // 因为绑定是幂等的。
+  // badgeSwap reports a swap of one unread badge: those arrive four times per realtime event and can
+  // carry no out-of-band fragment, so binding the small root is enough.
+  // badgeSwap 报告一次未读角标交换：实时事件一次会推四个，它们不可能携带带外片段，绑定这个小根节点即可。
+  function badgeSwap(root) {
+    if (!root || !root.id) {
+      return false;
+    }
+    return root.id === 'yd-unread-badge' ||
+      root.id === 'yd-unread-menu-badge' ||
+      root.id === 'yd-sidebar-unread' ||
+      root.id === 'yd-sidebar-friend-requests';
+  }
+
   function onAfterSwap(event) {
     var detail = (event && event.detail) || {};
     var ctx = detail.ctx || {};
@@ -428,6 +448,9 @@
     }
     if (root) {
       bind(root);
+    }
+    if (badgeSwap(root)) {
+      return;
     }
     bind(doc());
   }

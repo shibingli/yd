@@ -233,8 +233,9 @@
     // theme changed. It is a plain DOM event, so no component holds a reference to another.
     // 通知拥有主题相关内部状态的组件（Markdown 编辑器）：解析后的主题已变化。它是普通 DOM 事件，
     // 因此组件之间不持有彼此的引用。
-    if (d && typeof d.dispatchEvent === 'function' && typeof win().CustomEvent === 'function') {
-      d.dispatchEvent(new win().CustomEvent('yd:theme', { detail: { theme: resolved, choice: choice } }));
+    var CustomEventCtor = win().CustomEvent;
+    if (d && typeof d.dispatchEvent === 'function' && typeof CustomEventCtor === 'function') {
+      d.dispatchEvent(new CustomEventCtor('yd:theme', { detail: { theme: resolved, choice: choice } }));
     }
     return resolved;
   }
@@ -321,12 +322,23 @@
     all('[data-yd-nav]').forEach(function (link) {
       var href = getAttr(link, 'href') || '';
       var active = !!href && href !== '/' && (path === href || path.indexOf(href + '/') === 0);
+      // 只在状态真的变化时写属性：每次交换都会重跑，无条件的增删只会制造无谓的样式失效。 |
+      // Only write when the state really changes: this runs after every swap, and unconditional add/remove
+      // would cause pointless style invalidation.
       if (active) {
-        link.setAttribute('data-active', 'true');
-        link.setAttribute('aria-current', 'page');
+        if (link.getAttribute('data-active') !== 'true') {
+          link.setAttribute('data-active', 'true');
+        }
+        if (link.getAttribute('aria-current') !== 'page') {
+          link.setAttribute('aria-current', 'page');
+        }
       } else {
-        link.removeAttribute('data-active');
-        link.removeAttribute('aria-current');
+        if (link.hasAttribute('data-active')) {
+          link.removeAttribute('data-active');
+        }
+        if (link.hasAttribute('aria-current')) {
+          link.removeAttribute('aria-current');
+        }
       }
     });
   }
@@ -1136,7 +1148,27 @@
       return;
     }
     var name = (document.body.getAttribute('data-yd-app-name') || '').trim();
-    document.title = name ? text + ' · ' + name : text;
+    var next = name ? text + ' · ' + name : text;
+    if (document.title !== next) {
+      document.title = next;
+    }
+  }
+
+  // quietSwapTarget reports whether a swap only replaced a badge or notice. Those swap four times
+  // per realtime event; none of them can change the URL, the rail or the stream owners, so running
+  // the shell-wide synchronisation for each one would multiply that work by four. |
+  // quietSwapTarget 报告一次交换是否只替换了角标或通知。实时事件一次会交换四次这样的节点，它们都不会
+  // 改变地址、侧栏或数据流持有者，因此为每一次执行外壳级同步等于把那份工作放大四倍。
+  function quietSwapTarget(root) {
+    if (!root || root.nodeType !== 1 || !root.id) {
+      return false;
+    }
+    return root.id === 'yd-unread-badge' ||
+      root.id === 'yd-unread-menu-badge' ||
+      root.id === 'yd-sidebar-unread' ||
+      root.id === 'yd-sidebar-friend-requests' ||
+      root.id === 'yd-message-notices' ||
+      root.id === 'yd-connection';
   }
 
   function onAfterSwap(event) {
@@ -1148,6 +1180,9 @@
     }
     formatCells(root);
     autoDismissFlashes(root);
+    if (quietSwapTarget(root)) {
+      return;
+    }
     syncActiveNav();
     syncDocumentTitle();
     // A swap may replace the elements that own the streams; recompute the aggregate and drop
@@ -1166,12 +1201,33 @@
     // A viewport that grows past the drawer breakpoint must close the overlay, otherwise the
     // body scroll lock would survive a rotation or a window resize. | 视口放大到抽屉断点以上时
     // 必须关闭覆盖层，否则旋转或缩放后页面滚动锁会残留。
+    // resize 在拖动窗口时可能每帧触发多次：合并到一帧，并且只在跨过断点时处理一次。 |
+    // resize can fire several times per frame while dragging: coalesce into one frame and only react when the
+    // breakpoint is crossed.
+    var resizeFrame = 0;
+    var wasDesktop = null;
     win().addEventListener('resize', function () {
-      var media = win().matchMedia;
-      if (typeof media === 'function' && media('(min-width: 64rem)').matches) {
-        applyMobileSidebar(false);
+      if (resizeFrame) {
+        return;
       }
+      var schedule = win().requestAnimationFrame || function (fn) { return win().setTimeout(fn, 16); };
+      resizeFrame = schedule(function () {
+        resizeFrame = 0;
+        var media = win().matchMedia;
+        if (typeof media !== 'function') {
+          return;
+        }
+        var desktop = media('(min-width: 64rem)').matches;
+        if (desktop && wasDesktop === false) {
+          applyMobileSidebar(false);
+        }
+        wasDesktop = desktop;
+      });
     });
+    var initialMedia = win().matchMedia;
+    if (typeof initialMedia === 'function') {
+      wasDesktop = initialMedia('(min-width: 64rem)').matches;
+    }
     onDocument('change', onChange);
     onDocument('keydown', onKeyDown);
     onDocument('htmx:after:swap', onAfterSwap);

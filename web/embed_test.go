@@ -375,3 +375,23 @@ func TestEmbeddedAssetIntegritySurvivesReleaseLayout(t *testing.T) {
 		}
 	}
 }
+
+// TestJavaScriptTestSuitesAreNotEmbedded keeps the node:test files out of the binary and off /static:
+// they are build-time tests, not application assets. | TestJavaScriptTestSuitesAreNotEmbedded 让 node:test
+// 文件既不进入二进制也不出现在 /static 下：它们是构建期测试，不是应用资产。
+func TestJavaScriptTestSuitesAreNotEmbedded(t *testing.T) {
+	fsys := web.FS()
+	for _, name := range []string{
+		"static/js/yd-app.test.mjs",
+		"static/js/yd-ui.test.mjs",
+		"static/js/yd-i18n.test.mjs",
+		"static/js/yd-authz.test.mjs",
+		"static/js/yd-guomi.test.mjs",
+		"static/js/yd-progress.test.mjs",
+		"static/js/yd-realtime.test.mjs",
+	} {
+		if afs.Exists(fsys, name) {
+			t.Errorf("%s must not be embedded or served | %s 不得被内嵌或对外提供", name, name)
+		}
+	}
+}

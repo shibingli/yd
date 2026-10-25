@@ -1655,23 +1655,35 @@
       init: function () {
         var self = this;
         this.count = parseInt(this.$el.getAttribute('data-count') || '0', 10) || 0;
+        this._ticking = false;
+        // 滚动事件可能每帧多次；合并到一帧再读布局，避免每个事件都触发一次强制回流。 |
+        // Scroll may fire several times per frame; coalesce into one rAF before reading layout, so each event
+        // does not force a separate reflow.
         this._onScroll = function () {
-          var track = self.$refs.track;
-          if (!track || !track.children || !track.children.length) {
+          if (self._ticking) {
             return;
           }
-          var best = 0;
-          var distance = Infinity;
-          var trackLeft = track.getBoundingClientRect().left;
-          for (var i = 0; i < track.children.length; i++) {
-            var childLeft = track.children[i].getBoundingClientRect().left - trackLeft + track.scrollLeft;
-            var delta = Math.abs(childLeft - track.scrollLeft);
-            if (delta < distance) {
-              distance = delta;
-              best = i;
+          self._ticking = true;
+          var view = (self.$root || self.$el).ownerDocument.defaultView;
+          view.requestAnimationFrame(function () {
+            self._ticking = false;
+            var track = self.$refs.track;
+            if (!track || !track.children || !track.children.length) {
+              return;
             }
-          }
-          self.active = best;
+            var best = 0;
+            var distance = Infinity;
+            var trackLeft = track.getBoundingClientRect().left;
+            for (var i = 0; i < track.children.length; i++) {
+              var childLeft = track.children[i].getBoundingClientRect().left - trackLeft + track.scrollLeft;
+              var delta = Math.abs(childLeft - track.scrollLeft);
+              if (delta < distance) {
+                distance = delta;
+                best = i;
+              }
+            }
+            self.active = best;
+          });
         };
         this._track = this.$refs.track;
         if (this._track) {
@@ -2911,8 +2923,32 @@
         var self = this;
         var doc = (this.$root || this.$el).ownerDocument;
         this.dragging = true;
+        this._ticking = false;
+        this._pending = null;
+        // pointermove 可达 120–1000 Hz；只保留最后一个位置，并在下一帧读一次矩形、写一次变量。 |
+        // pointermove can fire at 120-1000 Hz; keep only the latest position and read the rect once per frame
+        // before writing the variable once.
         this._move = function (event) {
-          self.move(event);
+          self._pending = event;
+          if (self._ticking) {
+            return;
+          }
+          self._ticking = true;
+          var view = doc.defaultView;
+          view.requestAnimationFrame(function () {
+            self._ticking = false;
+            var latest = self._pending;
+            self._pending = null;
+            if (!latest || !self.dragging) {
+              return;
+            }
+            var root = self.$root || self.$el;
+            var rect = root.getBoundingClientRect();
+            var ratio = self.orientation === 'vertical'
+              ? (rect.height ? (latest.clientY - rect.top) / rect.height : 0.5)
+              : (rect.width ? (latest.clientX - rect.left) / rect.width : 0.5);
+            self.set(ratio * 100);
+          });
         };
         this._up = function () {
           self.stop();
@@ -2923,6 +2959,7 @@
       stop: function () {
         var doc = (this.$root || this.$el).ownerDocument;
         this.dragging = false;
+        this._pending = null;
         if (this._move) {
           doc.removeEventListener('pointermove', this._move);
           this._move = null;
@@ -2934,17 +2971,6 @@
       },
       destroy: function () {
         this.stop();
-      },
-      move: function (event) {
-        if (!this.dragging) {
-          return;
-        }
-        var root = this.$root || this.$el;
-        var rect = root.getBoundingClientRect();
-        var ratio = this.orientation === 'vertical'
-          ? (rect.height ? (event.clientY - rect.top) / rect.height : 0.5)
-          : (rect.width ? (event.clientX - rect.left) / rect.width : 0.5);
-        this.set(ratio * 100);
       },
       nudge: function (delta) {
         this.set(this.split + delta);

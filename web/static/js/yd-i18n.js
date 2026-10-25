@@ -344,13 +344,43 @@
         pass.dateStyle = 'medium';
         pass.timeStyle = 'short';
       }
-      return new intl.DateTimeFormat(locale, pass).format(asDate(value));
+      return cachedFormatter(intl.DateTimeFormat, 'date', locale, pass).format(asDate(value));
     }
     if (options.currency) {
       pass.style = 'currency';
       pass.currency = options.currency;
     }
-    return new intl.NumberFormat(locale, pass).format(Number(value));
+    return cachedFormatter(intl.NumberFormat, 'number', locale, pass).format(Number(value));
+  }
+
+  // formatterCache keeps Intl formatters per locale and option set: constructing one costs tens of
+  // microseconds, while formatting a value costs about one. A table of formatted cells would
+  // otherwise construct a formatter per cell on every language switch.
+  // formatterCache 按语言与选项保存 Intl 格式化器：构造一次要几十微秒，而格式化一个值约一微秒。
+  // 否则一张带格式化的表格会在每次切换语言时逐格构造格式化器。
+  var formatterCache = typeof Map === 'function' ? new Map() : null;
+
+  function formatterKey(kind, locale, options) {
+    var names = Object.keys(options).sort();
+    var parts = [];
+    for (var i = 0; i < names.length; i++) {
+      parts.push(names[i] + '=' + String(options[names[i]]));
+    }
+    return kind + '\u0000' + (locale || '') + '\u0000' + parts.join('\u0001');
+  }
+
+  function cachedFormatter(Constructor, kind, locale, options) {
+    if (!formatterCache) {
+      return new Constructor(locale, options);
+    }
+    var key = formatterKey(kind, locale, options);
+    var existing = formatterCache.get(key);
+    if (existing) {
+      return existing;
+    }
+    var created = new Constructor(locale, options);
+    formatterCache.set(key, created);
+    return created;
   }
 
   // applyAttrSpec applies data-yd-i18n-attr="attr:key, attr2:key2".
@@ -468,10 +498,21 @@
 
   function readCookie(name) {
     var d = doc();
-    if (!d || typeof d.cookie !== 'string' || !d.cookie) {
+    if (!d) {
       return '';
     }
-    var parts = d.cookie.split(';');
+    var raw = '';
+    try {
+      raw = d.cookie || '';
+    } catch (err) {
+      // 不透明来源的文档读取 cookie 会抛 SecurityError，读取失败按无 cookie 处理。 |
+      // Reading cookies on an opaque-origin document throws SecurityError; a failed read means no cookie.
+      return '';
+    }
+    if (typeof raw !== 'string' || !raw) {
+      return '';
+    }
+    var parts = raw.split(';');
     for (var i = 0; i < parts.length; i++) {
       var pair = parts[i].trim();
       var eq = pair.indexOf('=');
@@ -549,6 +590,19 @@
   // out-of-band fragments and <hx-partial> blocks can land far away from the target.
   // swapRoot 取 htmx 刚交换的元素；同时也会扫描整篇文档，
   // 因为带外片段与 <hx-partial> 区块可能落在离目标很远的位置。
+  // badgeSwap reports a swap of one unread badge: those arrive four times per realtime event and can
+  // carry no out-of-band fragment, so binding the small root is enough.
+  // badgeSwap 报告一次未读角标交换：实时事件一次会推四个，它们不可能携带带外片段，绑定这个小根节点即可。
+  function badgeSwap(root) {
+    if (!root || !root.id) {
+      return false;
+    }
+    return root.id === 'yd-unread-badge' ||
+      root.id === 'yd-unread-menu-badge' ||
+      root.id === 'yd-sidebar-unread' ||
+      root.id === 'yd-sidebar-friend-requests';
+  }
+
   function onAfterSwap(event) {
     var detail = (event && event.detail) || {};
     var ctx = detail.ctx || {};
@@ -558,6 +612,9 @@
     }
     if (root) {
       bind(root);
+    }
+    if (badgeSwap(root)) {
+      return;
     }
     bind(doc());
   }

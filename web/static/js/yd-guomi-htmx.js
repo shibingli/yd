@@ -493,7 +493,15 @@
 
   // onLoad refreshes the prefetch cache whenever htmx swaps content in. | onLoad 在 htmx 换入内容后刷新预取缓存。
   function onLoad(evt) {
-    var scope = evt && evt.detail && evt.detail.elt ? evt.detail.elt : null;
+    // htmx 4 的 after:swap 只携带 detail.ctx，没有 elt；优先读 ctx.target，避免每次交换都扫描整篇文档。 |
+    // htmx 4's after:swap carries detail.ctx and no elt; read ctx.target first so a swap does not scan the whole
+    // document every time.
+    var detail = (evt && evt.detail) || {};
+    var ctx = detail.ctx || {};
+    var scope = ctx.target || detail.elt || detail.target || null;
+    if (scope && scope.nodeType !== 1) {
+      scope = null;
+    }
     prefetchPublicKeys(scope);
   }
 

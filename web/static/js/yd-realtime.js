@@ -97,6 +97,9 @@
   // 切分的块中解析帧。
   function FrameDecoder() {
     this.buffer = new Uint8Array(0);
+    /* 复用同一个解码器：每帧 new TextDecoder() 会重复分配内部状态。 |
+       Reuse one decoder: creating a TextDecoder per frame re-allocates its internal state. */
+    this.decoder = new TextDecoder();
   }
 
   // push appends one chunk and returns every complete frame it now holds. |
@@ -120,7 +123,7 @@
       if (n === 0) {
         continue; // heartbeat | 心跳
       }
-      frames.push(new TextDecoder().decode(this.buffer.subarray(offset, offset + n)));
+      frames.push(this.decoder.decode(this.buffer.subarray(offset, offset + n)));
       offset += n;
     }
     this.buffer = this.buffer.subarray(offset);
@@ -284,7 +287,15 @@
     for (var i = 0; i < frames.length; i++) {
       var html = frames[i];
       if (this.target && typeof window !== 'undefined' && window.htmx && typeof window.htmx.swap === 'function') {
-        window.htmx.swap(this.target, html, { swapStyle: this.swapStyle });
+        /* htmx 4 的 swap 只接受一个上下文对象（text/target/swap）；旧的 (target, html, spec) 形式
+           会以 TypeError 失败。 | htmx 4's swap takes one context object (text/target/swap); the old
+           (target, html, spec) form fails with a TypeError. */
+        var target = typeof this.target === 'string' ? document.querySelector(this.target) : this.target;
+        if (target) {
+          window.htmx.swap({ text: html, sourceElement: target, target: target, swap: this.swapStyle });
+        } else {
+          this.emit('yd:realtime:message', { html: html });
+        }
       } else {
         this.emit('yd:realtime:message', { html: html });
       }

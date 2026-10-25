@@ -126,6 +126,78 @@
     }
   }
 
+  /* EasyMDE 约 320 KB，是消息页最大的一件资产，而多数访问只阅读。包装元素经 data-yd-editor-vendor
+     声明同源地址，首次聚焦或抽屉打开时才加载；这段时间文本域仍可输入，升级后 EasyMDE 读取同一份内容。
+     EasyMDE is about 320 KB, the message page's largest asset, while most visits only read. The wrapper declares
+     its same-origin URL through data-yd-editor-vendor and the script loads on first focus or when a drawer opens;
+     the textarea stays editable meanwhile, and EasyMDE adopts the same content on upgrade. */
+  var vendorState = 0; // 0 idle, 1 loading, 2 settled (loaded or failed) | 空闲 / 加载中 / 已结算
+  var vendorWaiters = [];
+
+  /* vendorURL 从包装元素向上查找声明的地址。 | vendorURL walks up from the wrapper to the declared URL. */
+  function vendorURL(element) {
+    var scope = element;
+    while (scope && scope.nodeType === 1) {
+      var url = scope.getAttribute ? scope.getAttribute("data-yd-editor-vendor") : "";
+      if (url) {
+        return url;
+      }
+      scope = scope.parentElement;
+    }
+    return "";
+  }
+
+  /* flushVendor 在加载结算后运行所有等待者，并按当前脚本状态重新初始化页面。 |
+     flushVendor runs every waiter once the load settles and then re-initialises the page against the loaded script. */
+  function flushVendor() {
+    var waiters = vendorWaiters;
+    vendorWaiters = [];
+    for (var i = 0; i < waiters.length; i++) {
+      waiters[i]();
+    }
+    init(document);
+  }
+
+  /* loadVendor 幂等加载同源脚本：并发意图共享同一次请求。 | loadVendor loads the same-origin script idempotently:
+     concurrent intents share one request. */
+  function loadVendor(url, done) {
+    if (!url) {
+      return;
+    }
+    if (typeof window.EasyMDE === "function" || typeof window.EasyMDE === "object") {
+      done();
+      return;
+    }
+    if (vendorState === 1) {
+      vendorWaiters.push(done);
+      return;
+    }
+    if (vendorState === 2) {
+      return;
+    }
+    vendorState = 1;
+    vendorWaiters.push(done);
+    var script = document.createElement("script");
+    script.src = url;
+    script.async = false;
+    script.onload = function () {
+      vendorState = 2;
+      flushVendor();
+    };
+    script.onerror = function () {
+      vendorState = 2;
+      flushVendor();
+    };
+    document.head.appendChild(script);
+  }
+
+  /* eagerEditor 报告包装是否位于抽屉中：打开抽屉就是明确的撰写意图，可以立即加载编辑器。 |
+     eagerEditor reports whether the wrapper sits in the drawer: opening it is an explicit intent to compose, so the
+     editor loads at once. */
+  function eagerEditor(element) {
+    return !!(element && element.closest && element.closest("#yd-drawer-body"));
+  }
+
   /* initOne 升级一个编辑器；缺少脚本或 textarea 时保留回退输入框。 | initOne upgrades one editor; a missing script or textarea keeps the fallback input usable. */
   function initOne(element) {
     if (!element || element.getAttribute(READY) === "1") {
@@ -136,6 +208,11 @@
       return;
     }
     if (typeof window.EasyMDE !== "function" && typeof window.EasyMDE !== "object") {
+      if (eagerEditor(element)) {
+        loadVendor(vendorURL(element), function () {
+          initOne(element);
+        });
+      }
       return;
     }
 
@@ -198,12 +275,47 @@
 
   yd.messageEditor = {init: init, destroy: destroy};
 
+  /* 首次聚焦或点按编辑器时再加载 EasyMDE：阅读消息的访问不为撰写付费。 |
+     EasyMDE loads on first focus or pointer press: a read-only visit does not pay for the composer. */
+  ["focusin", "pointerdown"].forEach(function (name) {
+    document.addEventListener(name, function (event) {
+      var target = event.target;
+      var wrapper = target && target.closest ? target.closest("[data-yd-editor]") : null;
+      if (!wrapper || wrapper.getAttribute(READY) === "1") {
+        return;
+      }
+      if (typeof window.EasyMDE === "function" || typeof window.EasyMDE === "object") {
+        initOne(wrapper);
+        return;
+      }
+      loadVendor(vendorURL(wrapper), function () {
+        initOne(wrapper);
+      });
+    }, true);
+  });
+
   document.addEventListener("DOMContentLoaded", function () {
     init(document);
   });
+  /* 交换后只检查被替换的子树：实时事件推来的角标片段不包含编辑器，扫描整个文档对它们是纯开销。 |
+     Only the swapped subtree is checked after a swap: the badge fragments pushed by realtime events contain no
+     editor, and scanning the whole document for them is pure overhead. */
   ["htmx:after:swap", "htmx:afterSwap"].forEach(function (name) {
-    document.addEventListener(name, function () {
-      init(document);
+    document.addEventListener(name, function (event) {
+      var detail = (event && event.detail) || {};
+      var ctx = detail.ctx || {};
+      var target = ctx.target || detail.target;
+      if (!target || target.nodeType !== 1) {
+        init(document);
+        return;
+      }
+      if (target.matches && target.matches("[data-yd-editor]")) {
+        initOne(target);
+        return;
+      }
+      if (target.querySelector && target.querySelector("[data-yd-editor]")) {
+        init(target);
+      }
     });
   });
 

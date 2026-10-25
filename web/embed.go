@@ -23,7 +23,14 @@ import (
 
 // embedded holds the front-end tree; the "all:" prefix also matches dot-prefixed placeholder files such as templates/.gitkeep. | embedded 保存前端目录树；"all:" 前缀连 templates/.gitkeep 这类点号开头的占位文件一并匹配。
 //
-//go:embed all:static all:templates assets.lock.json
+// The JavaScript pattern is "*.js", which deliberately does not match the "*.test.mjs" suites:
+// tests must never be embedded or served from /static. CSS inputs stay embedded because the
+// scaffold copies them into generated projects and the coverage guards read them here. |
+// JavaScript 模式是 "*.js"，刻意不匹配 "*.test.mjs" 测试套件：测试既不能进入二进制，也不能从 /static 提供。
+// CSS 输入仍保留在内嵌树中，因为脚手架会把它们复制进生成项目，覆盖守卫也从这里读取。
+//
+//go:embed all:static/css all:static/img all:static/js/vendor
+//go:embed static/js/*.js assets.lock.json all:templates
 var embedded embed.FS
 
 // FS returns the embedded front-end tree as a read-only file system. | FS 以只读文件系统返回内嵌的前端目录树。

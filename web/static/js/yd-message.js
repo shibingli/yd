@@ -10,6 +10,14 @@
 
   var timers = {thread: null, conversations: null, friends: null};
   var refreshing = {thread: false, conversations: false};
+  /* pending 记录刷新锁被占用期间到达的最新一次请求：锁释放后补跑一次，事件不会因为落在 400ms
+     冷却窗口里而丢失。 | pending remembers the newest request that arrived while a refresh lock was held:
+     it runs once after the lock releases, so an event inside the 400ms cooldown is never lost. */
+  var pending = {thread: "", threadDelta: false, conversations: false};
+  /* readTimer 合并群聊中短时间内的多条已读回执：回执只改变自己消息上的读数，没有必要为每个人各重绘一次。 |
+     readTimer coalesces the read receipts a group produces within a short window: a receipt only changes the
+     counts on the user's own messages, so one redraw per member is unnecessary. */
+  var readTimer = null;
   /* lastConversation 记录上一次交换结束时会话 ID，用于只在切换到另一个会话或发送后滚到底部。 |
      lastConversation remembers the conversation id at the previous swap, so the history scrolls to the bottom only when
      another conversation is opened or after a send. */
@@ -17,6 +25,28 @@
   /* sending 在撰写区提交时置位；交换完成后据此把新消息滚入视野。 | sending is set when the composer submits, so the swap
      can bring the new message into view. */
   var sending = false;
+  /* lastSendAt 记录本标签页最近一次发送时刻：发送的 POST 响应已经渲染了新消息，随后回传的自身事件
+     若再触发一次历史刷新就是纯重复。 | lastSendAt records this tab's latest send: the POST response already
+     rendered the new message, so a self event arriving right after must not trigger a second history fetch. */
+  var lastSendAt = 0;
+  /* localUserID 缓存 body 上的当前用户 ID，用于区分「自己的事件」与「同账号其它标签页的事件」。 |
+     localUserID caches the current user id from body, distinguishing this user's events from this tab's own send. */
+  var localUserID = null;
+
+  function currentUserID() {
+    if (localUserID === null) {
+      localUserID = document.body ? (document.body.getAttribute("data-yd-user-id") || "") : "";
+    }
+    return localUserID;
+  }
+
+  /* hasOwnMessages 报告当前线程是否含自己的消息：读回执只渲染在这些消息上，别人的已读不影响其它气泡。 |
+     hasOwnMessages reports whether the open thread contains the user's own messages: read receipts render only on
+     those, so a peer's read never changes any other bubble. */
+  function hasOwnMessages() {
+    var body = threadBody();
+    return !!(body && body.querySelector(".yd-msg--mine"));
+  }
 
   /* debounce 按槽位去抖，避免线程与会话列表互相阻塞。 | debounce de-bounces per slot, so the thread and the conversation list never block each other. */
   function debounce(slot, fn) {
@@ -62,18 +92,55 @@
   /* refreshThread 重取当前会话的历史区；撰写区不参与交换，因此草稿与编辑器实例都会保留。 |
      refreshThread refetches the open conversation's history region; the composer is not swapped, so its draft and editor
      instance survive. */
-  function refreshThread(conversationID) {
-    if (!conversationID || !window.htmx || refreshing.thread) {
+  /* lastMessageID 返回历史区最后一条消息的 ID，作为增量追加的锚点。 |
+     lastMessageID returns the id of the last rendered message, the anchor of an incremental append. */
+  function lastMessageID() {
+    var body = threadBody();
+    if (!body || !body.querySelectorAll) {
+      return "";
+    }
+    var nodes = body.querySelectorAll("[data-yd-message-id]");
+    if (!nodes.length) {
+      return "";
+    }
+    return nodes[nodes.length - 1].getAttribute("data-yd-message-id") || "";
+  }
+
+  /* refreshThread 重取当前会话的历史区；delta 为真时只请求锚点之后的新消息并以 beforeend 追加，
+     一条新消息因此不再重绘五十条卡片。编辑、撤回、已读回执与锚点缺失仍走整段 innerMorph。
+     refreshThread refetches the open conversation's history; with delta it requests only messages after the
+     anchor and appends them with beforeend, so one new message no longer redraws fifty cards. Edits, recalls,
+     read receipts and a missing anchor still take the full innerMorph path. */
+  function refreshThread(conversationID, delta) {
+    if (!conversationID || !window.htmx) {
+      return;
+    }
+    if (refreshing.thread) {
+      // 队列里只要有一次「必须整段重取」的请求，补跑就不能退化成增量追加。 |
+      // If any queued request needs a full refresh, the trailing run must not degrade to an append.
+      pending.threadDelta = pending.thread === "" ? !!delta : (pending.threadDelta && !!delta);
+      pending.thread = conversationID;
       return;
     }
     if (activeConversation() !== conversationID) {
       return;
+    }
+    var after = delta ? lastMessageID() : "";
+    if (!after) {
+      delta = false;
     }
     refreshing.thread = true;
     var keepAtBottom = nearBottom();
     var done = function () {
       window.setTimeout(function () {
         refreshing.thread = false;
+        var queued = pending.thread;
+        var queuedDelta = pending.threadDelta;
+        pending.thread = "";
+        pending.threadDelta = false;
+        if (queued) {
+          refreshThread(queued, queuedDelta);
+        }
       }, 400);
     };
     var finish = function () {
@@ -82,10 +149,14 @@
       }
       done();
     };
+    var url = "/messages/" + encodeURIComponent(conversationID) + "/history";
+    if (delta) {
+      url += "?after=" + encodeURIComponent(after);
+    }
     try {
-      var result = window.htmx.ajax("GET", "/messages/" + encodeURIComponent(conversationID) + "/history", {
+      var result = window.htmx.ajax("GET", url, {
         target: "#yd-message-thread-body",
-        swap: "innerMorph"
+        swap: delta ? "beforeend" : "innerMorph"
       });
       if (result && typeof result.then === "function") {
         result.then(finish, done);
@@ -99,13 +170,21 @@
 
   /* refreshConversations 重取会话列表；活动会话 ID 用于保留高亮。 | refreshConversations refetches the list and keeps the active conversation highlighted. */
   function refreshConversations() {
-    if (!document.getElementById("yd-conversation-list") || !window.htmx || refreshing.conversations) {
+    if (!document.getElementById("yd-conversation-list") || !window.htmx) {
+      return;
+    }
+    if (refreshing.conversations) {
+      pending.conversations = true;
       return;
     }
     refreshing.conversations = true;
     var done = function () {
       window.setTimeout(function () {
         refreshing.conversations = false;
+        if (pending.conversations) {
+          pending.conversations = false;
+          refreshConversations();
+        }
       }, 400);
     };
     var query = activeConversation() ? "?active=" + encodeURIComponent(activeConversation()) : "";
@@ -172,11 +251,48 @@
     }
     var conversationID = payload.conversation_id || "";
     var kind = payload.yd_event;
+    var actorID = payload.actor_id || "";
+    var self = actorID !== "" && actorID === currentUserID();
+
+    /* 已读事件不改变会话预览与顺序：自己的已读由徽标帧更新，别人的已读只影响我自己的消息上的
+       回执。只有「对方读了、且当前线程确有我的消息」才需要重取历史；会话栏完全不动。
+       过去每个已读事件都会让群内每个客户端重取整段历史与会话栏，N 人群一条新消息即可放大成
+       N 次全量渲染。 |
+       A read event never changes a preview or the rail order: the reader's own badge is pushed separately, and a
+       peer's read only affects receipts on my own messages. Refetch history only when someone else read and the
+       open thread really contains my messages; the rail never moves. Previously every read event made every group
+       client refetch the whole history and rail, so one message in an N-member group multiplied into N full renders. */
+    if (kind === "message.read") {
+      if (!self && conversationID && activeConversation() === conversationID && hasOwnMessages()) {
+        if (readTimer) {
+          window.clearTimeout(readTimer);
+        }
+        readTimer = window.setTimeout(function () {
+          readTimer = null;
+          if (activeConversation() === conversationID && hasOwnMessages()) {
+            refreshThread(conversationID, false);
+          }
+        }, 800);
+      }
+      return;
+    }
+
+    /* 本标签页刚发送的消息已经由 POST 响应渲染；回传的自身 created 事件无需再刷一次。其它标签页
+       的 lastSendAt 为 0，仍会正常刷新。 |
+       A message just sent from this tab was already rendered by the POST response, so the echoed self created
+       event needs no second refresh. Other tabs keep lastSendAt at 0 and still refresh normally. */
+    if (kind === "message.created" && self && Date.now() - lastSendAt < 2500) {
+      return;
+    }
 
     if (kind.indexOf("message.") === 0 || kind === "conversation.changed") {
       if (conversationID && activeConversation() === conversationID) {
+        // 只有「新消息」可以增量追加；编辑、撤回、置顶与已读回执都可能改变已渲染的卡片。 |
+        // Only a new message can be appended; edits, recalls, pins and read receipts may change cards already
+        // on screen.
+        var appendable = kind === "message.created";
         debounce("thread", function () {
-          refreshThread(conversationID);
+          refreshThread(conversationID, appendable);
         });
       }
       debounce("conversations", refreshConversations);
@@ -193,16 +309,40 @@
   /* onSwap 在每次 htmx 交换后恢复滚动与编辑器；历史刷新只换消息区，撰写区因此不受影响。 |
      onSwap restores scrolling and the editor after every htmx swap; a history refresh swaps only the message region, so
      the composer is untouched. */
-  function onSwap() {
+  /* quietSwap 报告一次交换是否只替换了角标或通知。实时事件一次会推四个角标片段，每个片段都会触发
+     afterSwap；在这些交换上重扫编辑器与联系人列表纯属浪费，页面其它部分也没有变化。 |
+     quietSwap reports whether a swap only replaced a badge or a notice. One realtime event pushes four badge
+     fragments and each fires afterSwap; rescanning editors and contacts there is pure waste, and nothing else
+     on the page changed. */
+  function quietSwap(event) {
+    var detail = (event && event.detail) || {};
+    var ctx = detail.ctx || {};
+    var target = ctx.target || detail.target;
+    if (!target || target.nodeType !== 1) {
+      return false;
+    }
+    var id = target.id;
+    return id === "yd-unread-badge" ||
+      id === "yd-unread-menu-badge" ||
+      id === "yd-sidebar-unread" ||
+      id === "yd-sidebar-friend-requests" ||
+      id === "yd-message-notices" ||
+      id === "yd-connection";
+  }
+
+  function onSwap(event) {
+    if (quietSwap(event)) {
+      return;
+    }
     var id = activeConversation();
     if (id && (id !== lastConversation || sending)) {
       scrollThread();
     }
     sending = false;
     lastConversation = id;
-    if (yd.messageEditor) {
-      yd.messageEditor.init(document);
-    }
+    /* 编辑器初始化由 yd-message-editor.js 自己的 afterSwap 监听器负责；这里再扫一遍整个文档是重复工作。 |
+       The editor initialises itself from yd-message-editor.js's own afterSwap listener; scanning the whole document
+       again here duplicates that work. */
     syncContactSelection();
     filterContacts();
   }
@@ -308,6 +448,7 @@
       var elt = ctx.sourceElement || detail.elt;
       if (elt && elt.id === "yd-msg-composer-form") {
         sending = true;
+        lastSendAt = Date.now();
       }
     });
   });
