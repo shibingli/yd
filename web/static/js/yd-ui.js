@@ -534,6 +534,27 @@
   // 是本文件安装的注册表，也是 ydUI.components 列出的内容。
   var components = {};
 
+  // Editor instances live here, never on the reactive state: hx-alpine-compat serialises
+  // [x-data] state to JSON when it fills the history cache, and an EasyMDE instance carries
+  // circular references (its options point back at the wrapper). Keeping it off the component
+  // object makes the state JSON-safe without weakening the editor. | 编辑器实例保存在这里，
+  // 不放进响应式状态：填充历史缓存时 hx-alpine-compat 会把 [x-data] 状态序列化为 JSON，
+  // 而 EasyMDE 实例带有循环引用（其 options 指回包装元素）。把它移出组件对象即可让状态
+  // 可安全序列化，同时不削弱编辑器能力。
+  var editorInstances = new WeakMap();
+
+  function editorFor(component) {
+    return editorInstances.get(component) || null;
+  }
+
+  function rememberEditor(component, editor) {
+    if (editor) {
+      editorInstances.set(component, editor);
+    } else {
+      editorInstances.delete(component);
+    }
+  }
+
   // registerCopy: copy a literal, or the value/text of a target selector. | registerCopy：复制字面值，
   // 或目标选择器的 value/text。
   components.ydCopy = function () {
@@ -2658,12 +2679,15 @@
     }
   };
 
-  // editorLabel returns one localized toolbar label for the document language. | editorLabel 按文档语言
-  // 返回一条工具栏文案。
+  // editorLabel returns one localized toolbar label for the document language. EasyMDE appends a
+  // shortcut hint to the title ("Bold (Ctrl-B)"); strip it before the lookup so the label is found.
+  // editorLabel 按文档语言返回一条工具栏文案。EasyMDE 会在标题后附加快捷键提示（"Bold (Ctrl-B)"）；
+  // 查找前先去掉它，才能命中文案表。
   function editorLabel(doc, title) {
     var lang = (doc && doc.documentElement && doc.documentElement.lang) || 'en';
     var table = lang.toLowerCase().indexOf('zh') === 0 ? EDITOR_LABELS['zh-CN'] : EDITOR_LABELS.en;
-    return table[String(title || '').toLowerCase()] || '';
+    var key = String(title || '').replace(/\s*\([^)]*\)\s*$/, '').toLowerCase();
+    return table[key] || '';
   }
 
   // EDITOR_ICONS maps every EasyMDE toolbar action to the Lucide symbol rendered by the hidden
@@ -3205,10 +3229,10 @@
   // 初始化它，保留 textarea 作为表单字段，并在主题切换时重新应用暗色类。
   components.ydEditor = function () {
     return {
-      editor: null,
       init: function () {
         var root = this.$root || this.$el;
         var win = root.ownerDocument.defaultView;
+        var self = this;
         // Message pages load the dedicated yd-message-editor.js, which owns the localized toolbar
         // and compact layout. Initialising EasyMDE here as well would create two editors over one
         // textarea; defer to that owner and only keep the generic path for pages without it.
@@ -3229,7 +3253,6 @@
         // textarea that never upgrades. | 按文档顺序，页面脚本排在 Alpine 之后，首次 init 可能早于
         // EasyMDE 就绪。文档加载完成后再试一次，避免 textarea 永远不升级。
         if (!win.EasyMDE) {
-          var self = this;
           if (typeof win.addEventListener === 'function' && !this._waitingForEditor) {
             this._waitingForEditor = true;
             win.addEventListener('load', function () {
@@ -3240,8 +3263,9 @@
           return;
         }
         el.dataset.ydEditorReady = '1';
+        var editor = null;
         try {
-          this.editor = new win.EasyMDE({
+          editor = new win.EasyMDE({
             element: el,
             spellChecker: false,
             status: false,
@@ -3252,12 +3276,13 @@
             toolbar: ['bold', 'italic', 'heading', '|', 'quote', 'unordered-list', 'ordered-list', '|', 'link', 'image', 'code', 'table', '|', 'preview', 'side-by-side', 'fullscreen']
           });
         } catch (err) {
-          this.editor = null;
+          rememberEditor(this, null);
           return;
         }
+        rememberEditor(this, editor);
         this.syncTheme();
         this.localizeToolbar();
-        var self = this;
+        self = this;
         this._onTheme = function () {
           self.syncTheme();
         };
@@ -3275,9 +3300,10 @@
           }
           return;
         }
-        if (this.editor) {
-          this.editor.toTextArea();
-          this.editor = null;
+        var editor = editorFor(this);
+        if (editor) {
+          editor.toTextArea();
+          rememberEditor(this, null);
         }
         var el = (this.$root || this.$el).querySelector('textarea');
         if (el && el.dataset) {
@@ -3296,11 +3322,17 @@
           var raw = buttons[i].getAttribute('title') || buttons[i].getAttribute('aria-label') || '';
           var label = editorLabel(doc, raw);
           if (label) {
+            // Keep EasyMDE's shortcut hint after the translated name: "加粗 (Ctrl-B)". | 在译文后
+            // 保留 EasyMDE 的快捷键提示："加粗 (Ctrl-B)"。
+            var hint = /\s*(\([^)]*\))\s*$/.exec(raw);
+            if (hint) {
+              label += ' ' + hint[1];
+            }
             buttons[i].setAttribute('title', label);
             buttons[i].setAttribute('aria-label', label);
           }
         }
-        decorateEditorToolbar(this.editor, root);
+        decorateEditorToolbar(editorFor(this), root);
       }
     };
   };

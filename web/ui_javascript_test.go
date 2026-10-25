@@ -27,6 +27,8 @@ const (
 	uiJSTestScriptName = "web/static/js/yd-ui.test.mjs"
 	// uiJSAssetName is the shipped script, relative to the embedded tree root. | uiJSAssetName 是随包发布的脚本，相对于内嵌树根目录。
 	uiJSAssetName = "static/js/yd-ui.js"
+	// uiJSAssetMinName is the minified sibling production serves. | uiJSAssetMinName 是 production 提供的压缩同族文件。
+	uiJSAssetMinName = "static/js/yd-ui.min.js"
 )
 
 // TestUIJSSuite runs the node:test suite over the very file the browser receives. | TestUIJSSuite 对浏览器收到的那个文件运行 node:test 套件。
@@ -51,6 +53,54 @@ func TestUIJSSuite(t *testing.T) {
 		t.Fatalf("the javascript UI-kit suite failed: node %s: %v\n%s | JS UI 组件套件失败：node %s: %v\n%s", script, err, out, script, err, out)
 	}
 	t.Logf("node %s output | 输出:\n%s", script, out)
+}
+
+// TestEditorInstanceStateStaysOffAlpineState pins the history-cache contract: hx-alpine-compat
+// serialises every [x-data] scope to JSON before the shell is cached, so an EasyMDE instance on the
+// reactive state (its options point back at the wrapper) aborts the swap with "Converting circular
+// structure to JSON". The editor therefore lives in a module-level WeakMap, never on the component.
+// TestEditorInstanceStateStaysOffAlpineState 钉住历史缓存契约：hx-alpine-compat 在缓存外壳前会把
+// 每个 [x-data] 作用域序列化为 JSON，若把 EasyMDE 实例放进响应式状态（其 options 指回包装元素），
+// 换入会以 "Converting circular structure to JSON" 中断。因此编辑器保存在模块级 WeakMap，绝不放进组件。
+func TestEditorInstanceStateStaysOffAlpineState(t *testing.T) {
+	raw, err := afero.ReadFile(FS(), uiJSAssetName)
+	if err != nil {
+		t.Fatalf("reading embedded %s failed: %v | 读取内嵌的 %s 失败：%v", uiJSAssetName, err, uiJSAssetName, err)
+	}
+	source := string(raw)
+	if !strings.Contains(source, "var editorInstances = new WeakMap();") {
+		t.Fatalf("%s must keep editor instances in a WeakMap | %s 必须把编辑器实例保存在 WeakMap 中", uiJSAssetName, uiJSAssetName)
+	}
+	start := strings.Index(source, "components.ydEditor = function")
+	if start < 0 {
+		t.Fatalf("%s no longer defines components.ydEditor | %s 未定义 components.ydEditor", uiJSAssetName, uiJSAssetName)
+	}
+	rest := source[start:]
+	end := strings.Index(rest, "function register(Alpine)")
+	if end < 0 {
+		t.Fatalf("cannot delimit the ydEditor component in %s | 无法在 %s 中界定 ydEditor 组件", uiJSAssetName, uiJSAssetName)
+	}
+	block := rest[:end]
+	for _, forbidden := range []string{"editor: null", "this.editor"} {
+		if strings.Contains(block, forbidden) {
+			t.Errorf("ydEditor stores %q on the Alpine state; use rememberEditor/editorFor so history caching stays JSON-safe | ydEditor 把 %q 放进了 Alpine 状态；请使用 rememberEditor/editorFor，保证历史缓存可序列化", forbidden, forbidden)
+		}
+	}
+
+	// Production serves the minified sibling, so the same promise must hold there. Property
+	// names survive this minifier, which is what makes the two checks meaningful.
+	// production 提供压缩后的同族文件，因此同一承诺必须在压缩产物里也成立；该压缩器保留属性名，
+	// 这两项检查因此有效。
+	minified, err := afero.ReadFile(FS(), uiJSAssetMinName)
+	if err != nil {
+		t.Fatalf("reading embedded %s failed: %v | 读取内嵌的 %s 失败：%v", uiJSAssetMinName, err, uiJSAssetMinName, err)
+	}
+	if !strings.Contains(string(minified), "WeakMap") {
+		t.Errorf("%s lost the WeakMap editor registry | %s 丢失了 WeakMap 编辑器注册表", uiJSAssetMinName, uiJSAssetMinName)
+	}
+	if strings.Contains(string(minified), "this.editor") {
+		t.Errorf("%s stores the editor on Alpine state | %s 把编辑器放进了 Alpine 状态", uiJSAssetMinName, uiJSAssetMinName)
+	}
 }
 
 // TestUIJSAssetStaysCSPCompatible proves the shipped file can run under `script-src 'self'` and

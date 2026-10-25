@@ -1115,6 +1115,11 @@ WebSocket、WebTransport 与 SSE 共用 `ydx/realtime` 中枢；使用说明见
   因此只允许同源脚本；Alpine 表达式只使用 CSP 构建支持的子集（属性访问、比较、三元、赋值、方法调用），
   禁止箭头函数、解构、模板字符串、`console`/`document`/`JSON` 等全局对象、`x-html`、内联 `<script>`、
   `onclick=`、`new Function` / `eval` 与任何 CDN 引用。`TestUIJSAssetStaysCSPCompatible` 拦截资产层的违规。
+- **Alpine 状态必须可 JSON 序列化（强制）**：`hx-history-cache` 保存页面快照前会经 `hx-alpine-compat`
+  把每个 `[x-data]` 作用域交给 `JSON.stringify`。`x-data` 返回的对象只能包含原始值、普通数组/对象与函数；
+  EasyMDE 等第三方实例、DOM 节点与任何循环引用必须留在模块级 `WeakMap` 或 DOM 属性上
+  （参考 `editorInstances` / `editorFor` / `rememberEditor`）。循环引用会让历史快照抛错并中断整次换入，
+  表现为「点击语言没有任何反应」；`TestEditorInstanceStateStaysOffAlpineState` 拦截回归。
 - **渐进增强**：每个控件都渲染真实、带 `name` 的表单字段；Alpine 只在其外围做净化、校验与格式化。
   脚本加载失败或 htmx 交换之后，表单仍可提交。中国控件（手机号、身份证、银行卡、统一社会信用代码、
   人民币大写、省市区、日期范围、短信验证码）的初始值走 `data-*`，提交值保持机读形式。

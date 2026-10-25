@@ -829,6 +829,12 @@ Windows 显示缩放改变的是 CSS 像素与设备的比例，本质上与浏�
 所有组件经 `Alpine.data` 注册，模板写 `x-data="<name>"`。CSP 构建支持属性访问、比较、三元、赋值与方法调用；
 **不支持**箭头函数、解构、模板字符串、`console`/`document`/`JSON` 等全局对象。
 
+**状态必须可 JSON 序列化**：`hx-history-cache` 在保存页面快照前会把每个 `[x-data]` 作用域交给
+`hx-alpine-compat` 做 `JSON.stringify`。因此 `x-data` 返回的对象只能放原始值、普通数组/对象与函数；
+EasyMDE 等第三方实例、DOM 节点与任何带循环引用的对象必须留在模块级 `WeakMap` 或 DOM 属性上
+（参考 `editorInstances` / `editorFor` / `rememberEditor`）。循环引用会让历史快照抛错并中断整次换入，
+表现为「点击语言没有任何反应」。
+
 | 组件 | 作用 | 主要方法 / 状态 | 派发事件 |
 |---|---|---|---|
 | `ydCopy` | 复制文本 | `copy`、`copied`、`error` | `yd:copy` |
