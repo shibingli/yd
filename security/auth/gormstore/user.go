@@ -317,6 +317,318 @@ func (s *Store) ListUsers(ctx context.Context, tenantID string) ([]*auth.User, e
 	return out, nil
 }
 
+// GetUsers resolves a batch of users visible in tenantID in three statements. | GetUsers 用三条语句解析 tenantID 内可见的一批用户。
+//
+// SQL | SQL:
+//
+//	SELECT count(*) FROM yd_auth_tenants WHERE id = ?
+//	SELECT * FROM yd_auth_user_tenants WHERE tenant_id = ? AND user_id IN (...)
+//	SELECT * FROM yd_auth_users WHERE id IN (...)
+//	SELECT * FROM yd_auth_user_tenants WHERE user_id IN (...)
+//
+// 旧路径让调用方对每个 ID 各走一次 GetUser；批量版本把往返次数固定为四条，与 ID 数量无关。 |
+// The old path made callers run GetUser once per id; the batch version fixes the round trips at four regardless
+// of how many ids are requested.
+func (s *Store) GetUsers(ctx context.Context, tenantID string, ids []string) ([]*auth.User, error) {
+	if strings.TrimSpace(tenantID) == "" {
+		return nil, auth.ErrTenantRequired
+	}
+	if len(ids) == 0 {
+		return []*auth.User{}, nil
+	}
+	ctx, cancel := s.scoped(ctx)
+	defer cancel()
+	db := s.db.WithContext(ctx)
+	known, err := existsTenant(db, tenantID)
+	if err != nil {
+		return nil, err
+	}
+	if !known {
+		return nil, auth.ErrNotFound
+	}
+	var links []userTenantRow
+	if err := db.Where("tenant_id = ? AND user_id IN ?", tenantID, ids).
+		Order("created_at ASC, user_id ASC").Find(&links).Error; err != nil {
+		return nil, err
+	}
+	if len(links) == 0 {
+		return []*auth.User{}, nil
+	}
+	memberIDs := make([]string, 0, len(links))
+	for i := range links {
+		memberIDs = append(memberIDs, links[i].UserID)
+	}
+	var rows []userRow
+	if err := db.Where("id IN ?", memberIDs).
+		Order("created_at ASC, id ASC").Find(&rows).Error; err != nil {
+		return nil, err
+	}
+	memberships, err := loadMemberships(db, memberIDs)
+	if err != nil {
+		return nil, err
+	}
+	return usersForTenant(tenantID, rows, links, memberships)
+}
+
+// ListUsersPage returns one page of tenant members plus the filtered total. | ListUsersPage 返回租户成员的一页与过滤后的总数。
+//
+// SQL | SQL:
+//
+//	SELECT count(*) FROM yd_auth_users JOIN yd_auth_user_tenants ut ... WHERE ...
+//	SELECT yd_auth_users.* FROM yd_auth_users JOIN yd_auth_user_tenants ut ... WHERE ... LIMIT ? OFFSET ?
+//	SELECT * FROM yd_auth_user_tenants WHERE user_id IN (...)
+//
+// The keyword is pushed into the WHERE clause and the page into LIMIT/OFFSET: the previous list loaded every
+// member and filtered in Go. | 关键字下推到 WHERE，分页下推到 LIMIT/OFFSET：旧列表先载入全部成员再在 Go 里过滤。
+func (s *Store) ListUsersPage(ctx context.Context, tenantID, keyword string, limit, offset int) ([]*auth.User, int, error) {
+	if strings.TrimSpace(tenantID) == "" {
+		return nil, 0, auth.ErrTenantRequired
+	}
+	if limit <= 0 {
+		limit = 20
+	}
+	if offset < 0 {
+		offset = 0
+	}
+	ctx, cancel := s.scoped(ctx)
+	defer cancel()
+	db := s.db.WithContext(ctx)
+	known, err := existsTenant(db, tenantID)
+	if err != nil {
+		return nil, 0, err
+	}
+	if !known {
+		return nil, 0, auth.ErrNotFound
+	}
+	base := func() *gorm.DB {
+		query := db.Model(&userRow{}).
+			Joins("JOIN "+tableUserTenants+" ut ON ut.user_id = "+tableUsers+".id").
+			Where("ut.tenant_id = ?", tenantID)
+		if folded := strings.ToLower(strings.TrimSpace(keyword)); folded != "" {
+			pattern := "%" + sqlLikeEscape(folded) + "%"
+			query = query.Where(
+				"(LOWER("+tableUsers+".username_key) LIKE ? ESCAPE '!' OR LOWER("+tableUsers+".display_name) LIKE ? ESCAPE '!' OR LOWER("+tableUsers+".email) LIKE ? ESCAPE '!')",
+				pattern, pattern, pattern,
+			)
+		}
+		return query
+	}
+	var total int64
+	if err := base().Count(&total).Error; err != nil {
+		return nil, 0, err
+	}
+	var rows []userRow
+	if err := base().
+		Select(tableUsers + ".*").
+		Order(tableUsers + ".created_at DESC, " + tableUsers + ".id DESC").
+		Offset(offset).
+		Limit(limit).
+		Find(&rows).Error; err != nil {
+		return nil, 0, err
+	}
+	if len(rows) == 0 {
+		return []*auth.User{}, int(total), nil
+	}
+	ids := make([]string, 0, len(rows))
+	for i := range rows {
+		ids = append(ids, rows[i].ID)
+	}
+	memberships, err := loadMemberships(db, ids)
+	if err != nil {
+		return nil, 0, err
+	}
+	links := make([]userTenantRow, 0, len(rows))
+	for _, id := range ids {
+		for _, link := range memberships[id] {
+			if link.TenantID == tenantID {
+				links = append(links, link)
+				break
+			}
+		}
+	}
+	users, err := usersForTenant(tenantID, rows, links, memberships)
+	if err != nil {
+		return nil, 0, err
+	}
+	return users, int(total), nil
+}
+
+// CountUsers returns the number of members of one tenant in one COUNT query. |
+// CountUsers 用一条 COUNT 查询返回一个租户的成员数。
+func (s *Store) CountUsers(ctx context.Context, tenantID string) (int, error) {
+	if strings.TrimSpace(tenantID) == "" {
+		return 0, auth.ErrTenantRequired
+	}
+	ctx, cancel := s.scoped(ctx)
+	defer cancel()
+	db := s.db.WithContext(ctx)
+	known, err := existsTenant(db, tenantID)
+	if err != nil {
+		return 0, err
+	}
+	if !known {
+		return 0, auth.ErrNotFound
+	}
+	var count int64
+	if err := db.Model(&userTenantRow{}).Where("tenant_id = ?", tenantID).Count(&count).Error; err != nil {
+		return 0, err
+	}
+	return int(count), nil
+}
+
+// RecentUsers returns the newest members of one tenant without loading the roster. |
+// RecentUsers 返回一个租户最新的成员，不加载整份名册。
+func (s *Store) RecentUsers(ctx context.Context, tenantID string, limit int) ([]*auth.User, error) {
+	if strings.TrimSpace(tenantID) == "" {
+		return nil, auth.ErrTenantRequired
+	}
+	if limit <= 0 {
+		limit = 5
+	}
+	ctx, cancel := s.scoped(ctx)
+	defer cancel()
+	db := s.db.WithContext(ctx)
+	known, err := existsTenant(db, tenantID)
+	if err != nil {
+		return nil, err
+	}
+	if !known {
+		return nil, auth.ErrNotFound
+	}
+	var links []userTenantRow
+	if err := db.Where("tenant_id = ?", tenantID).
+		Order("created_at DESC, user_id DESC").
+		Limit(limit).
+		Find(&links).Error; err != nil {
+		return nil, err
+	}
+	if len(links) == 0 {
+		return []*auth.User{}, nil
+	}
+	ids := make([]string, 0, len(links))
+	for i := range links {
+		ids = append(ids, links[i].UserID)
+	}
+	var rows []userRow
+	if err := db.Where("id IN ?", ids).Order("created_at DESC, id DESC").Find(&rows).Error; err != nil {
+		return nil, err
+	}
+	memberships, err := loadMemberships(db, ids)
+	if err != nil {
+		return nil, err
+	}
+	return usersForTenant(tenantID, rows, links, memberships)
+}
+
+// SearchUsers returns active tenant members matching the keyword, ordered by display name. |
+// SearchUsers 返回匹配关键字的租户活跃成员，按展示名排序。
+//
+// SQL | SQL:
+//
+//	SELECT count(*) FROM yd_auth_tenants WHERE id = ?
+//	SELECT yd_auth_users.* FROM yd_auth_users JOIN yd_auth_user_tenants ut ... WHERE ... LIMIT ?
+//	SELECT * FROM yd_auth_user_tenants WHERE user_id IN (...)
+//
+// 关键字在 SQL 内过滤并带 LIMIT：旧实现先载入整张用户表再在内存里过滤排序。 |
+// The keyword is filtered in SQL and the limit applied there: the old implementation loaded the whole user table
+// before filtering and sorting in memory.
+func (s *Store) SearchUsers(ctx context.Context, tenantID, keyword, excludeID string, limit int) ([]*auth.User, error) {
+	if strings.TrimSpace(tenantID) == "" {
+		return nil, auth.ErrTenantRequired
+	}
+	if limit <= 0 {
+		limit = 20
+	}
+	ctx, cancel := s.scoped(ctx)
+	defer cancel()
+	db := s.db.WithContext(ctx)
+	known, err := existsTenant(db, tenantID)
+	if err != nil {
+		return nil, err
+	}
+	if !known {
+		return nil, auth.ErrNotFound
+	}
+	query := db.Model(&userRow{}).
+		Select(tableUsers+".*").
+		Joins("JOIN "+tableUserTenants+" ut ON ut.user_id = "+tableUsers+".id").
+		Where("ut.tenant_id = ? AND "+tableUsers+".status = ?", tenantID, string(auth.StatusActive))
+	if excludeID != "" {
+		query = query.Where(tableUsers+".id <> ?", excludeID)
+	}
+	if folded := strings.ToLower(strings.TrimSpace(keyword)); folded != "" {
+		pattern := "%" + sqlLikeEscape(folded) + "%"
+		query = query.Where(
+			"(LOWER("+tableUsers+".username_key) LIKE ? ESCAPE '!' OR LOWER("+tableUsers+".display_name) LIKE ? ESCAPE '!' OR LOWER("+tableUsers+".email) LIKE ? ESCAPE '!')",
+			pattern, pattern, pattern,
+		)
+	}
+	var rows []userRow
+	if err := query.
+		Order("LOWER(COALESCE(NULLIF(" + tableUsers + ".display_name, ''), " + tableUsers + ".username)) ASC, " + tableUsers + ".id ASC").
+		Limit(limit).
+		Find(&rows).Error; err != nil {
+		return nil, err
+	}
+	if len(rows) == 0 {
+		return []*auth.User{}, nil
+	}
+	ids := make([]string, 0, len(rows))
+	for i := range rows {
+		ids = append(ids, rows[i].ID)
+	}
+	memberships, err := loadMemberships(db, ids)
+	if err != nil {
+		return nil, err
+	}
+	links := make([]userTenantRow, 0, len(rows))
+	for _, id := range ids {
+		for _, link := range memberships[id] {
+			if link.TenantID == tenantID {
+				links = append(links, link)
+				break
+			}
+		}
+	}
+	return usersForTenant(tenantID, rows, links, memberships)
+}
+
+// usersForTenant converts rows into domain users carrying tenant roles and memberships. |
+// usersForTenant 把行转换成携带租户角色与成员关系的领域用户。
+func usersForTenant(tenantID string, rows []userRow, links []userTenantRow, memberships map[string][]userTenantRow) ([]*auth.User, error) {
+	rolesByUser := make(map[string][]string, len(links))
+	member := make(map[string]struct{}, len(links))
+	for i := range links {
+		roles, err := membershipFromRow(&links[i])
+		if err != nil {
+			return nil, err
+		}
+		rolesByUser[links[i].UserID] = roles
+		member[links[i].UserID] = struct{}{}
+	}
+	out := make([]*auth.User, 0, len(rows))
+	for i := range rows {
+		if _, ok := member[rows[i].ID]; !ok {
+			continue
+		}
+		user, err := userFromRow(&rows[i])
+		if err != nil {
+			return nil, err
+		}
+		user.TenantID = tenantID
+		user.Roles = rolesByUser[user.ID]
+		user.TenantIDs = membershipTenants(memberships[user.ID])
+		out = append(out, user)
+	}
+	return out, nil
+}
+
+// sqlLikeEscape escapes LIKE metacharacters with '!' as the escape character. | sqlLikeEscape 以 '!' 为转义符转义 LIKE 元字符。
+func sqlLikeEscape(value string) string {
+	replacer := strings.NewReplacer("!", "!!", "%", "!%", "_", "!_")
+	return replacer.Replace(value)
+}
+
 // loadMemberships loads every membership of the given users in one query. | loadMemberships 用一次查询载入给定用户的全部成员关系。
 func loadMemberships(tx *gorm.DB, userIDs []string) (map[string][]userTenantRow, error) {
 	out := make(map[string][]userTenantRow, len(userIDs))

@@ -187,6 +187,26 @@ func TestDataCarriesTheFourEntries(t *testing.T) {
 	}
 }
 
+// TestTemplateDataOmitsTheBrowserEnvelope pins the fragment path: the authority and both name maps
+// stay, the inline JSON envelope does not. | TestTemplateDataOmitsTheBrowserEnvelope 固定片段路径：
+// 判定主体与两张名字表保留，内联 JSON 信封不构建。
+func TestTemplateDataOmitsTheBrowserEnvelope(t *testing.T) {
+	f := newFixture(t)
+	data := authz.TemplateData(authz.NewSubject(f.svc, f.reader))
+	if _, ok := data[render.AuthzKey].(render.Authz); !ok {
+		t.Fatalf("%s is %[1]T, want render.Authz | %[1]s 为 %[1]T，期望 render.Authz", render.AuthzKey, data[render.AuthzKey])
+	}
+	if _, ok := data["Perm"].(map[string]string); !ok {
+		t.Errorf("data[Perm] = %#v", data["Perm"])
+	}
+	if _, ok := data["Role"].(map[string]string); !ok {
+		t.Errorf("data[Role] = %#v", data["Role"])
+	}
+	if _, exists := data["AuthzJSON"]; exists {
+		t.Errorf("fragment data must not build AuthzJSON | 片段数据不得构建 AuthzJSON")
+	}
+}
+
 // decisionFuncs wires the four helpers to one authority, the way render does for one execution.
 // decisionFuncs 把四个辅助函数接到同一个判定主体上，正是 render 为单次执行所做的接线。
 //

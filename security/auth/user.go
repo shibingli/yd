@@ -2,12 +2,14 @@ package auth
 
 import (
 	"context"
+	"errors"
+	"sort"
 	"strings"
 	"time"
 	"unicode/utf8"
 
-	"github.com/shibingli/ydx/guomi"
 	"github.com/shibingli/ydx/errs"
+	"github.com/shibingli/ydx/guomi"
 )
 
 // User is a global identity that may belong to several tenants. | User 是可以隶属多个租户的全局身份。
@@ -162,6 +164,215 @@ func (s *Service) ListUsers(ctx context.Context, tenantID string) ([]*User, erro
 		return nil, ErrTenantRequired
 	}
 	return s.store.ListUsers(ctx, tenantID)
+}
+
+// userBatchStore is the optional Store capability that resolves or searches users without loading the whole
+// tenant roster. | userBatchStore 是 Store 的可选能力：无需载入整个租户名册即可按 ID 解析或检索用户。
+type userBatchStore interface {
+	// GetUsers returns the users visible in tenantID for the given ids. | GetUsers 返回 tenantID 内给定 ID 可见的用户。
+	GetUsers(ctx context.Context, tenantID string, ids []string) ([]*User, error)
+	// SearchUsers returns active users whose name, sign-in name or e-mail contains the keyword. |
+	// SearchUsers 返回名称、登录名或邮箱包含关键字的活跃用户。
+	SearchUsers(ctx context.Context, tenantID, keyword, excludeID string, limit int) ([]*User, error)
+}
+
+// GetUsers resolves a batch of users visible in tenantID. Unknown ids and users of another tenant are omitted. |
+// GetUsers 批量解析 tenantID 内可见的用户；未知 ID 与其它租户的用户都被省略。
+//
+// Without the batch capability it falls back to GetUser per id: the result is identical, only with more round
+// trips. | 批量能力缺失时回退到逐个 GetUser：结果不变，只是多几次往返。
+func (s *Service) GetUsers(ctx context.Context, tenantID string, ids []string) ([]*User, error) {
+	if strings.TrimSpace(tenantID) == "" {
+		return nil, ErrTenantRequired
+	}
+	unique := make([]string, 0, len(ids))
+	seen := make(map[string]struct{}, len(ids))
+	for _, id := range ids {
+		id = strings.TrimSpace(id)
+		if id == "" {
+			continue
+		}
+		if _, dup := seen[id]; dup {
+			continue
+		}
+		seen[id] = struct{}{}
+		unique = append(unique, id)
+	}
+	if len(unique) == 0 {
+		return []*User{}, nil
+	}
+	if batch, ok := s.store.(userBatchStore); ok {
+		return batch.GetUsers(ctx, tenantID, unique)
+	}
+	out := make([]*User, 0, len(unique))
+	for _, id := range unique {
+		user, err := s.store.GetUser(ctx, tenantID, id)
+		if err == nil {
+			out = append(out, user)
+			continue
+		}
+		if errors.Is(err, ErrNotFound) {
+			continue
+		}
+		return nil, err
+	}
+	return out, nil
+}
+
+// userPageStore is the optional Store capability behind a paged admin list. |
+// userPageStore 是管理列表分页所依赖的可选 Store 能力。
+type userPageStore interface {
+	// ListUsersPage returns one page of tenant members matching the keyword, plus the filtered total. |
+	// ListUsersPage 返回匹配关键字的租户成员的一页，以及过滤后的总数。
+	ListUsersPage(ctx context.Context, tenantID, keyword string, limit, offset int) ([]*User, int, error)
+}
+
+// ListUsersPage returns one page of tenant members matching the keyword. The keyword is matched
+// case-insensitively against the sign-in name, display name and e-mail; the total is the filtered count,
+// not the page length. | ListUsersPage 返回匹配关键字的租户成员的一页。关键字对登录名、展示名与邮箱做
+// 不区分大小写的匹配；total 是过滤后的总数，而不是本页条数。
+func (s *Service) ListUsersPage(ctx context.Context, tenantID, keyword string, limit, offset int) ([]*User, int, error) {
+	if strings.TrimSpace(tenantID) == "" {
+		return nil, 0, ErrTenantRequired
+	}
+	if limit <= 0 {
+		limit = 20
+	}
+	if offset < 0 {
+		offset = 0
+	}
+	if paged, ok := s.store.(userPageStore); ok {
+		return paged.ListUsersPage(ctx, tenantID, keyword, limit, offset)
+	}
+	users, err := s.store.ListUsers(ctx, tenantID)
+	if err != nil {
+		return nil, 0, err
+	}
+	needle := strings.ToLower(strings.TrimSpace(keyword))
+	matched := make([]*User, 0, len(users))
+	for _, user := range users {
+		if needle != "" && !userMatches(user, needle) {
+			continue
+		}
+		matched = append(matched, user)
+	}
+	// ListUsers returns oldest first; the paged contract is newest first, matching the store implementation. |
+	// ListUsers 按从旧到新返回；分页契约是从新到旧，与存储层实现一致。
+	for left, right := 0, len(matched)-1; left < right; left, right = left+1, right-1 {
+		matched[left], matched[right] = matched[right], matched[left]
+	}
+	total := len(matched)
+	if offset >= total {
+		return []*User{}, total, nil
+	}
+	end := offset + limit
+	if end > total {
+		end = total
+	}
+	return matched[offset:end], total, nil
+}
+
+// userRecentStore is the optional Store capability behind a dashboard's count and recent-user strip. |
+// userRecentStore 是仪表盘计数与最近用户条带所依赖的可选 Store 能力。
+type userRecentStore interface {
+	// CountUsers returns the number of members of the tenant. | CountUsers 返回租户的成员数。
+	CountUsers(ctx context.Context, tenantID string) (int, error)
+	// RecentUsers returns the newest members of the tenant. | RecentUsers 返回租户最新的成员。
+	RecentUsers(ctx context.Context, tenantID string, limit int) ([]*User, error)
+}
+
+// CountUsers returns the number of members of the tenant. | CountUsers 返回租户的成员数。
+func (s *Service) CountUsers(ctx context.Context, tenantID string) (int, error) {
+	if strings.TrimSpace(tenantID) == "" {
+		return 0, ErrTenantRequired
+	}
+	if recent, ok := s.store.(userRecentStore); ok {
+		return recent.CountUsers(ctx, tenantID)
+	}
+	users, err := s.store.ListUsers(ctx, tenantID)
+	if err != nil {
+		return 0, err
+	}
+	return len(users), nil
+}
+
+// RecentUsers returns the newest members of the tenant, up to limit. | RecentUsers 返回租户最新的成员，最多 limit 个。
+func (s *Service) RecentUsers(ctx context.Context, tenantID string, limit int) ([]*User, error) {
+	if strings.TrimSpace(tenantID) == "" {
+		return nil, ErrTenantRequired
+	}
+	if limit <= 0 {
+		limit = 5
+	}
+	if recent, ok := s.store.(userRecentStore); ok {
+		return recent.RecentUsers(ctx, tenantID, limit)
+	}
+	users, err := s.store.ListUsers(ctx, tenantID)
+	if err != nil {
+		return nil, err
+	}
+	if len(users) > limit {
+		users = users[:limit]
+	}
+	return users, nil
+}
+
+// SearchUsers returns active users of the tenant matching the keyword, ordered by display name. |
+// SearchUsers 返回租户内匹配关键字的活跃用户，按展示名排序。
+//
+// 与 ListUsers 不同，这里把关键字与上限交给存储层过滤，避免为了二十条候选解码整张用户表。 |
+// Unlike ListUsers, the keyword and limit are handed to the store, so twenty candidates do not decode the whole
+// user table.
+func (s *Service) SearchUsers(ctx context.Context, tenantID, keyword, excludeID string, limit int) ([]*User, error) {
+	if strings.TrimSpace(tenantID) == "" {
+		return nil, ErrTenantRequired
+	}
+	if limit <= 0 {
+		limit = 20
+	}
+	if batch, ok := s.store.(userBatchStore); ok {
+		return batch.SearchUsers(ctx, tenantID, keyword, excludeID, limit)
+	}
+	users, err := s.store.ListUsers(ctx, tenantID)
+	if err != nil {
+		return nil, err
+	}
+	keyword = strings.ToLower(strings.TrimSpace(keyword))
+	out := make([]*User, 0, limit)
+	for _, user := range users {
+		if user.ID == excludeID || user.Status != StatusActive {
+			continue
+		}
+		if keyword != "" && !userMatches(user, keyword) {
+			continue
+		}
+		out = append(out, user)
+	}
+	sort.SliceStable(out, func(i, j int) bool {
+		return strings.ToLower(userDisplay(out[i])) < strings.ToLower(userDisplay(out[j]))
+	})
+	if len(out) > limit {
+		out = out[:limit]
+	}
+	return out, nil
+}
+
+// userMatches reports whether the keyword appears in a searchable field. | userMatches 报告关键字是否出现在可检索字段中。
+func userMatches(user *User, keyword string) bool {
+	for _, value := range []string{user.Username, user.DisplayName, user.Email} {
+		if strings.Contains(strings.ToLower(value), keyword) {
+			return true
+		}
+	}
+	return false
+}
+
+// userDisplay returns the display name, falling back to the sign-in name. | userDisplay 返回展示名，缺失时回退登录名。
+func userDisplay(user *User) string {
+	if strings.TrimSpace(user.DisplayName) != "" {
+		return user.DisplayName
+	}
+	return user.Username
 }
 
 // UpdateUser replaces the mutable fields of an existing user. | UpdateUser 覆盖既有用户的可变字段。

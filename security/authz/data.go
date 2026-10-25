@@ -171,6 +171,25 @@ func RoleJSMap() map[string]string {
 // 判定辅助函数由 render 包按次执行绑定，而该绑定是把数据当作 map[string]any 读取的。
 func Data(s *Subject) map[string]any {
 	env := NewEnvelope(s)
+	data := templateDataOf(env, s)
+	data["AuthzJSON"] = env.JS()
+	return data
+}
+
+// TemplateData returns the render data a fragment needs: the same authority and the two template
+// name maps as Data, without building the browser envelope. | TemplateData 返回片段所需的渲染数据：
+// 与 Data 相同的判定主体与两张模板名字表，但不构建浏览器信封。
+//
+// The envelope is only consumed by the document shell's <script id="yd-authz">, and serialising it on
+// every history/rail refresh is pure work: a fragment never renders the shell. | 信封只被文档外壳的
+// <script id="yd-authz"> 使用；每次历史/会话栏刷新都序列化它纯属浪费，因为片段从不渲染外壳。
+func TemplateData(s *Subject) map[string]any {
+	return templateDataOf(NewEnvelope(s), s)
+}
+
+// templateDataOf builds the shared template data from an envelope already in hand. |
+// templateDataOf 用已构建好的信封组装共享模板数据。
+func templateDataOf(env Envelope, s *Subject) map[string]any {
 	return map[string]any{
 		render.AuthzKey: authority{
 			subject: s,
@@ -178,9 +197,8 @@ func Data(s *Subject) map[string]any {
 			roles:   stringSet(env.Mine),
 			key:     decisionKey(env),
 		},
-		"Perm":      PermMap(),
-		"Role":      RoleMap(),
-		"AuthzJSON": env.JS(),
+		"Perm": PermMap(),
+		"Role": RoleMap(),
 	}
 }
 
