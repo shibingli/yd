@@ -87,9 +87,11 @@ htmx 核心
   → yd-app.js
 ```
 
-生成项目的生产壳由 `web.Bundle` 在启动时按上面的顺序把共享脚本拼成一份
-`/static/js/yd-bundle.js?v=<hash>`，因此只发一次请求；开发期或组装失败时回退为逐脚本标签，
-`PageScripts`（消息编辑器等）仍然单独加载。两种形态的执行顺序完全一致。
+生成项目的生产壳由 `web.InitBundles` 在启动时按上面的顺序把共享脚本拼成若干分块，
+地址形如 `/static/js/yd-bundle.js?part=N&v=<hash>`；默认每块不超过 **128 KiB**，可用
+`bundle.max_bytes`（`YD_BUNDLE_MAX_BYTES`）调整，过小或过大的取值会被收敛到安全区间。切分只发生在
+脚本边界，单个源文件本身超过上限时单独成块并在启动日志告警，绝不按任意字节切断压缩脚本。开发期或
+组装失败时回退为逐脚本标签，`PageScripts`（消息编辑器等）仍然单独加载。两种形态的执行顺序完全一致。
 
 **为什么 `yd-ui.js` 必须排在 Alpine 前面**：签入的是 Alpine 的 **CSP 构建**
 （`@alpinejs/csp`），它在脚本执行时**立即启动**，不会等待 `DOMContentLoaded`。组件注册表若排在它之后，

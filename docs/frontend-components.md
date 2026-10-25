@@ -48,7 +48,7 @@
 | Command | `components.navigation.command` | 全局命令面板（Ctrl/Cmd+K） |
 | ContextMenu | `components.navigation.context-menu` | 表格行、画布对象的右键菜单 |
 | Menubar | `components.navigation.menubar` | 桌面式多级菜单 |
-| Pagination | `components.navigation.pagination` | 服务端分页 |
+| Pagination | `components.navigation.pagination` | 服务端分页（页码 / 游标两态，可带页长选择） |
 | Tree | `components.navigation.tree` | 目录、权限树、组织架构 |
 | Menu | `components.navigation.menu` | 侧栏、设置导航 |
 | Tabbar | `components.navigation.tabbar` | 移动端底部导航 |
@@ -115,7 +115,8 @@
 | Code / Snippet | `components.display.code` | 代码块与复制 |
 | Accordion / Collapse | `components.display.accordion` | FAQ、分组表单 |
 | Countdown | `components.display.countdown` + `ydCountdown` | 截止时间、重发 |
-| Table | `components.data.table.open` / `.table.close` | 列表、批量操作 |
+| Table | `components.data.table`（一次性） / `.table.open` + `.table.close`（自定义行） | 列表、批量操作 |
+| Table empty | `components.data.table.empty` | 表头保留的空状态行 |
 | Table selection | `components.data.select-cell` + `ydTableSelect` | 可全选/半选的行选择 |
 | Sort header | `components.data.sort-header` | 可排序表头 |
 | Descriptions | `components.display.descriptions` | 详情键值对 |
@@ -161,6 +162,25 @@
 | Signature | `components.display.signature` + `ydSignature` | 手写签名，隐藏字段提交 |
 | Resizable | `components.display.resizable` + `ydResizable` | 可拖拽/方向键调整的双栏 |
 | Copy | `components.cn.copy` + `ydCopy` | 复制文本 |
+
+### 1.4.1 数据表格
+
+```html
+{{template "components.data.table" (dict
+  "ID" "yd-users-table" "CaptionKey" "ui.data_table"
+  "Columns" (list
+    (dict "LabelKey" "field.name")
+    (dict "LabelKey" "field.status")
+    (dict "LabelKey" "ui.actions" "Actions" true))
+  "Rows" .Rows
+  "Colspan" 3
+  "EmptyKey" "ui.no_results")}}
+```
+
+`Rows` 的每一项是 `{Cells, SelectValue, Selected, Attrs}`；每个 `Cells` 项可给 `Value`、`LabelKey` 或已渲染的
+`HTML`，并可用 `Numeric` / `Actions` / `Wrap` 控制对齐与换行。简单数据用这个一次性组件；需要行内表单等
+复杂行时，用 `components.data.table.open` + `components.data.table.close`（空表加
+`components.data.table.empty`），两者共用同一套表头、选择列与滚动外壳。
 
 ### 1.5 布局与浮层（Layout & Overlay）
 
@@ -467,11 +487,25 @@
 
 {{template "components.navigation.tree" (dict "Items" .Tree)}}
 
+{{/* 常规分页：页码窗口 + 页长选择；所有管理列表共用这一份组件。 */}}
 {{template "components.navigation.pagination" (dict
   "Label" (tr "nav.pagination") "LabelKey" "nav.pagination"
-  "Summary" .Summary "SummaryKey" "page.summary"
-  "PrevHref" .Prev "NextHref" .Next "Pages" .Pages)}}
+  "Summary" (tr "ui.page_summary" .Page .PageCount)
+  "PrevHref" .Prev "NextHref" .Next "Pages" .Pages
+  "ShowLabels" true
+  "SizeLabel" (tr "showcase.label.page_size") "SizeLabelKey" "showcase.label.page_size"
+  "SizeOptions" .SizeOptions)}}
+
+{{/* 键集 / 游标分页：Pages 为空，只提供前后游标链接，永远不执行 COUNT。 */}}
+{{template "components.navigation.pagination" (dict
+  "Label" (tr "nav.pagination") "LabelKey" "nav.pagination"
+  "Summary" (tr "ui.page_cursor_summary" .Size)
+  "PrevHref" .Prev "NextHref" .Next "ShowLabels" true)}}
 ```
+
+`Pages` 为空且给出 `PrevHref` / `NextHref` 时就是游标形态；`ShowLabels` 给上一页/下一页补充可见文字，
+`SizeOptions` 是 `{Label, Href, Current}` 的页长选项。两种形态都由同一个服务端组件渲染，链接是真实
+`href`，包一层 `hx-boost` 后只替换工作区，地址栏、无脚本访问与键盘操作都保持可用。
 
 树节点递归：`{Label, LabelKey, Href, Meta, MetaKey, Open, Icon, Children []Node}`。展开用原生 `<details>`。
 

@@ -467,6 +467,14 @@ yd build --offline --tags e2e
 构建固定注入 `CGO_ENABLED=0`；前端资产经 Tailwind `--minify` 与 `minify` 处理后被
 `go:embed` 打进二进制。产物是可直接放进 `scratch` 镜像的静态二进制。
 
+### 5.4.1 生产共享脚本分块
+
+生产页面不再逐脚本请求，也不再固定合成一个无上限的大文件：`web.InitBundles` 在启动时按外壳顺序把共享脚本
+切成若干块，默认每块不超过 **128 KiB**，配置键 `bundle.max_bytes`（`YD_BUNDLE_MAX_BYTES`）可调整。切分只发生在
+脚本边界；单个源文件本身超过上限时单独成块并在启动日志告警。每个分块的地址都带内容哈希
+（`/static/js/yd-bundle.js?part=N&v=<hash>`），静态缓存中间件因此可以下发一年 `immutable`。
+开发期或组装失败时回退为逐脚本标签，加载顺序与分块模式完全一致。
+
 ### 5.5 `yd docker`
 
 ```bash
@@ -1408,6 +1416,7 @@ yd service install --name taskapp
 |---|---|---|
 | `YD_APP_ENV` | `app.env` | `development`/`dev`、`production`/`prod` |
 | `YD_CONFIG_DIR` | —（配置目录） | 覆盖默认 `configs`；`yd docker` 镜像为 `/configs` |
+| `YD_BUNDLE_MAX_BYTES` | `bundle.max_bytes` | 生产共享脚本分块上限，默认 131072（128 KiB） |
 | `YD_SERVER_PORT` | `server.port` | HTTP 端口 |
 | `YD_DB_DRIVER` / `YD_DB_DSN` | `db.driver` / `db.dsn` | 数据库 |
 | `YD_DB_MAXCONN` | `db.maxconn` | 连接池上限 |

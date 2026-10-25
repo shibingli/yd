@@ -542,3 +542,25 @@ SQLite 不开启 `foreign_keys`，其它方言也不得用触发器或约束代�
 - **新增关联表时必须补齐**：写入校验、删除/软删除路径、跨租户测试与守卫测试。常驻守卫包括
   `repotest.TestNoForeignKeyDefinitions`（Go 标签、SQL 字面量、模板与 `.sql` 文件）与
   消息/鉴权模型的 GORM Schema 关系断言。
+
+## 24. 分页与数据表格契约
+
+- **两种分页策略，按数据形态选择**：管理表格要任意跳页，使用 `data/paging.OffsetPage`（COUNT +
+  LIMIT/OFFSET，可开关计数）；消息、审计等只追加的大列表使用 `data/paging.KeysetPage`
+  （游标 / keyset，不执行 COUNT，开销与页长成正比）。两种策略共用 `paging.Request` 与 `paging.Page[T]`，
+  渲染层不需要两套数据契约。
+- **方言差异留在数据层**：MySQL / PostgreSQL / SQLite 使用行值比较 `(sort, id) > (?, ?)`；DM8 使用等价的
+  OR 展开。排序列与决胜列只接受经校验的标识符，绝不拼接用户输入。未知方言**失败关闭**（`ErrDialect`）。
+- **游标是不透明值**：`paging.NewCursor` / `Encode` / `Decode` 保留排序值与决胜值的数据库类型；
+  `after` 与 `before` 互斥。前端不得解析游标，也不得自行构造。
+- **前端分页只有一个实现**：所有列表统一使用 `components.navigation.pagination`；页码模式传 `Pages`，
+  游标模式只传 `PrevHref` / `NextHref`。禁止在页面里另写 `<nav class="yd-pagination">`。
+  链接必须是真实 `href`，外层用 `hx-boost` 只替换工作区；`ShowLabels` 给上一页/下一页可见文字。
+- **数据表格只有一个外壳**：简单数据用 `components.data.table`（行/单元格/空态/分页插槽一次渲染）；
+  需要行内表单等复杂行时用 `.table.open` + `.table.close` + `.table.empty`，不要另写 `<table>`。
+  单元格支持文本、`LabelKey` 与已渲染 `HTML`；表格是原生 `<table>`，不引入虚拟化库或客户端数据镜像。
+- **原生 i18n 与主题**：新增组件只使用 `tr` / `data-yd-i18n`，固定文案不得硬编码；颜色只取语义令牌，
+  明暗主题由 `<html data-theme>` 与 `@theme` 变量驱动，不得写色值字面量。
+- **生产脚本分块**：`web.InitBundles` 按外壳顺序在脚本边界分块，默认每块 ≤128 KiB
+  （`bundle.max_bytes` / `YD_BUNDLE_MAX_BYTES`）；地址带 `part` 与内容哈希，静态缓存可长期缓存。
+  单个源文件超限时单独成块并在启动日志告警，**不得**按任意字节切断压缩脚本。
