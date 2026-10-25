@@ -4,6 +4,7 @@ package meta
 
 import (
 	"os"
+	"path/filepath"
 	"strings"
 
 	"{{ .YdModule }}/core/envx"
@@ -176,3 +177,36 @@ func IsProduction() bool { return envx.IsProduction(Env()) }
 
 // IsDevelopment reports whether the runtime environment is development. | IsDevelopment 报告当前是否为开发环境。
 func IsDevelopment() bool { return !IsProduction() }
+
+// The two environment variables that relocate the configuration directory. | 两个用于重定位配置目录的环境变量。
+const (
+	// ConfigDirEnvKey overrides ConfigDir, e.g. when a deployment mounts the files elsewhere. | ConfigDirEnvKey
+	// 覆盖 ConfigDir，例如部署把文件挂载到别处时使用。
+	ConfigDirEnvKey = EnvPrefix + "CONFIG_DIR"
+	// KoDataEnvKey is the directory ko injects into the image; its configs subdirectory is used when present. |
+	// KoDataEnvKey 是 ko 注入镜像的数据目录；其中存在 configs 子目录时优先使用它。
+	KoDataEnvKey = "KO_DATA_PATH"
+)
+
+// ConfigDirPath resolves the configuration directory read by the application. | ConfigDirPath 解析应用读取的配置目录。
+//
+// The precedence is fixed at YD_CONFIG_DIR > $KO_DATA_PATH/configs > ConfigDir: the explicit environment variable
+// always wins; an image built by ko has no Dockerfile that could copy files, so its configuration arrives through
+// ko's kodata directory and is used only when that directory actually exists; local development and the Dockerfile
+// image keep the default configs. The loader itself decides whether the directory exists, so a missing directory is
+// not an error here.
+// 优先级固定为 YD_CONFIG_DIR > $KO_DATA_PATH/configs > ConfigDir：显式环境变量永远最优先；ko 构建的镜像
+// 没有 Dockerfile 可复制文件，配置文件由 ko 的 kodata 目录注入，只有该目录真的存在时才采用；本地开发与
+// Dockerfile 镜像仍走默认的 configs。目录是否存在由配置加载器自行判断，这里不对缺失目录报错。
+func ConfigDirPath() string {
+	if dir := strings.TrimSpace(os.Getenv(ConfigDirEnvKey)); dir != "" {
+		return dir
+	}
+	if root := strings.TrimSpace(os.Getenv(KoDataEnvKey)); root != "" {
+		candidate := filepath.Join(root, ConfigDir)
+		if info, err := os.Stat(candidate); err == nil && info.IsDir() {
+			return candidate
+		}
+	}
+	return ConfigDir
+}

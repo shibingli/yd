@@ -6,6 +6,19 @@
 # 前缀 YD_，下划线自动映射为多级嵌套结构：YD_DB_MAXCONN -> db.maxconn
 # The YD_ prefix is mandatory; underscores map onto nested keys: YD_DB_MAXCONN -> db.maxconn
 
+# 运行环境：development（本地开发）| production（生产）。
+# Docker 镜像默认 production；ko 构建的镜像没有注入环境变量的标志，必须在部署清单中显式设置。
+# Runtime environment: development (local) | production.
+# Docker images default to production; images built by ko have no environment-injection flag, so the deployment
+# manifest must set it explicitly.
+YD_APP_ENV=development
+
+# 配置目录：默认 configs；Docker 镜像设为 /configs，ko 镜像从 KO_DATA_PATH/configs 解析。
+# 把配置挂载到别处时覆盖本项即可。
+# Configuration directory: configs by default; Docker images use /configs and ko images resolve
+# KO_DATA_PATH/configs. Override this when the files are mounted elsewhere.
+# YD_CONFIG_DIR=/configs
+
 YD_SERVER_PORT=8080
 YD_SERVER_H2C=true
 YD_SERVER_HTTP3_ENABLED=false

@@ -172,7 +172,10 @@ func assemble(log *ydlog.Logger) (*app.App, error) {
 		app.WithFS(web.Assets()),
 		app.WithStaticFS(static),
 		app.WithLogger(log),
-		app.WithConfigDir(meta.ConfigDir),
+		// 配置目录经 meta.ConfigDirPath 解析：YD_CONFIG_DIR 显式覆盖，ko 镜像读取 KO_DATA_PATH，其余走 configs。
+		// The configuration directory resolves through meta.ConfigDirPath: YD_CONFIG_DIR wins, ko images read
+		// KO_DATA_PATH, and everything else uses configs.
+		app.WithConfigDir(meta.ConfigDirPath()),
 	)
 	if err != nil {
 		return nil, errs.Wrap(err, ErrAssemble)
