@@ -18,27 +18,37 @@
 
   <div class="yd-form-slot" id="<% .Snake %>-form"></div>
 
-  <table class="yd-table" id="<% .Snake %>-table">
-    <thead>
-      <tr>
-<% range .ListFields %>        <th class="yd-th" scope="col"><%.SafeLabel%></th>
-<% end %>        <th class="yd-th" scope="col">操作 | Actions</th>
-      </tr>
-    </thead>
-    <tbody id="<% .Snake %>-rows">
-      {{ range .Items }}{{ template "<% .Snake %>/row.html" . }}{{ end }}
-    </tbody>
-  </table>
+  {{ template "components.data.table.open" (dict
+    "ID" "<% .Snake %>-table" "CaptionKey" "ui.data_table"
+    "BodyID" "<% .Snake %>-rows"
+    "Columns" (list
+<% range .ListFields %>      (dict "Label" "<%.SafeLabel%>")
+<% end %>      (dict "LabelKey" "ui.actions" "Actions" true))) }}
+    {{ if .Items }}
+    {{ range .Items }}{{ template "<% .Snake %>/row.html" . }}{{ end }}
+    {{ else }}
+    {{ template "components.data.table.empty" (dict "Colspan" <% .ListColspan %> "TitleKey" "ui.no_results") }}
+    {{ end }}
+  {{ template "components.data.table.close" (dict) }}
 
   <footer class="yd-module-footer">
-    <p class="yd-hint">共 {{ .Total }} 条，第 {{ .Page }} 页，每页 {{ .Size }} 条 | {{ .Total }} records, page {{ .Page }}, {{ .Size }} per page</p>
-    <nav class="yd-pagination">
-      {{ if .HasPrev }}
-      <a class="yd-btn" href="<% .Route %>?page={{ .PrevPage }}&amp;size={{ .Size }}{{ if .Query }}&amp;q={{ .Query | urlquery }}{{ end }}" hx-get="<% .Route %>?page={{ .PrevPage }}&amp;size={{ .Size }}{{ if .Query }}&amp;q={{ .Query | urlquery }}{{ end }}">上一页 | Prev</a>
+    <div hx-boost="true" hx-target="#<% .Snake %>-module" hx-swap="outerHTML" hx-push-url="true">
+      {{ if .CursorMode }}
+      {{ template "components.navigation.pagination" (dict
+        "LabelKey" "ui.pagination" "Summary" (tr "ui.page_cursor_summary" .Size)
+        "PrevHref" .PrevHref "NextHref" .NextHref "ShowLabels" true) }}
+      {{ else }}
+      {{ template "components.navigation.pagination" (dict
+        "LabelKey" "ui.pagination" "Summary" (tr "ui.page_summary" .Page .PageCount)
+        "PrevHref" .PrevHref "NextHref" .NextHref "Pages" .Pages "ShowLabels" true) }}
       {{ end }}
-      {{ if .HasNext }}
-      <a class="yd-btn" href="<% .Route %>?page={{ .NextPage }}&amp;size={{ .Size }}{{ if .Query }}&amp;q={{ .Query | urlquery }}{{ end }}" hx-get="<% .Route %>?page={{ .NextPage }}&amp;size={{ .Size }}{{ if .Query }}&amp;q={{ .Query | urlquery }}{{ end }}">下一页 | Next</a>
-      {{ end }}
-    </nav>
+      <div class="yd-cluster">
+        {{ if .CursorMode }}
+        <a class="yd-btn yd-btn--ghost yd-btn--sm" href="{{ .PageHref }}">{{ tr "ui.page_mode_pages" }}</a>
+        {{ else if .KeysetHref }}
+        <a class="yd-btn yd-btn--ghost yd-btn--sm" href="{{ .KeysetHref }}">{{ tr "ui.page_mode_keyset" }}</a>
+        {{ end }}
+      </div>
+    </div>
   </footer>
 </section>

@@ -80,6 +80,10 @@ type tmplView struct {
 	// Primary is the primary key field.
 	Primary Field
 
+	// ListColspan 是列表表头的列数，含末尾的操作列。
+	// ListColspan is the number of list columns, including the trailing actions column.
+	ListColspan int
+
 	// HasFile 报告表单是否含文件字段，决定表单是否需要 multipart 编码。
 	// HasFile reports whether the form carries a file field and therefore needs multipart encoding.
 	HasFile bool
@@ -319,5 +323,11 @@ func newView(m *Model, o Options) (*tmplView, error) {
 	if v.Primary.GoType == "" {
 		v.Primary.GoType = "int64"
 	}
+	// 操作列始终存在，空表的 colspan 因此比列表字段多一列。 |
+	// The actions column is always present, so an empty table spans one column more than the list fields.
+	v.ListColspan = len(v.ListFields) + 1
+	// 游标参数需要 TrimSpace，控制器因此总是导入 strings。 |
+	// Cursor parameters need TrimSpace, so the controller always imports strings.
+	v.CtrlStrings = true
 	return v, nil
 }

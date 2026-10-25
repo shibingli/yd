@@ -142,9 +142,14 @@ func TestGenerateProducesFormattedGoCode(t *testing.T) {
 			}
 		case strings.HasSuffix(p, ".html"):
 			parsed, err := template.New(filepath.ToSlash(p)).
-				Funcs(template.FuncMap{"pathEscape": func(value any) string {
-					return fmt.Sprint(value)
-				}}).Parse(content)
+				Funcs(template.FuncMap{
+					"pathEscape": func(value any) string { return fmt.Sprint(value) },
+					// 运行期渲染器提供的辅助函数：生成物可以引用它们，解析阶段只需有同名函数。 |
+					// The runtime renderer provides these helpers; generated artifacts may reference them and parsing only needs the names.
+					"dict": func(pairs ...any) (map[string]any, error) { return nil, nil },
+					"list": func(items ...any) []any { return items },
+					"tr":   func(key string, args ...any) string { return key },
+				}).Parse(content)
 			if err != nil {
 				t.Errorf("%s 不能被 html/template 解析: %v\n---\n%s", p, err, content)
 			}

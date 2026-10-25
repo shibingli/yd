@@ -10,6 +10,7 @@ import (
 <% if .CtrlStrings %>	"strings"
 <% end %><% if .FormTime %>	"time"
 <% end %>
+	"github.com/shibingli/yd/data/paging"
 	"github.com/shibingli/ydx/errs"
 	"github.com/shibingli/yd/http/htmx"
 	"github.com/shibingli/ydx/log"
@@ -47,8 +48,8 @@ type <%.Name%>Page struct {
 	// Items 是当前页的记录。
 	// Items holds the records of the current page.
 	Items []model.<%.Name%>
-	// Total 是符合条件的总条数。
-	// Total is the number of matching records.
+	// Total 是符合条件的总条数；游标分页未计数时为 -1。
+	// Total is the matching row count, or -1 when cursor paging did not count.
 	Total int64
 	// Page 是当前页码，从 1 开始。
 	// Page is the current page number, starting at 1.
@@ -56,18 +57,23 @@ type <%.Name%>Page struct {
 	// Size 是每页条数。
 	// Size is the page length.
 	Size int
-	// PrevPage 是上一页页码。
-	// PrevPage is the previous page number.
-	PrevPage int
-	// NextPage 是下一页页码。
-	// NextPage is the next page number.
-	NextPage int
-	// HasPrev 报告是否存在上一页。
-	// HasPrev reports whether a previous page exists.
-	HasPrev bool
-	// HasNext 报告是否存在下一页。
-	// HasNext reports whether a further page exists.
-	HasNext bool
+	// PageCount 是常规分页的总页数。
+	// PageCount is the number of pages in offset mode.
+	PageCount int
+	// Pages 是统一分页组件的页码窗口。
+	// Pages is the page window of the shared pagination component.
+	Pages []map[string]any
+	// PrevHref 与 NextHref 是统一分页组件的前后链接，常规与游标模式共用。
+	// PrevHref and NextHref are the previous/next links shared by offset and cursor modes.
+	PrevHref string
+	NextHref string
+	// KeysetHref 从常规分页切到键集分页；PageHref 从键集分页切回页码分页。
+	// KeysetHref switches offset paging to keyset; PageHref switches back to page numbers.
+	KeysetHref string
+	PageHref   string
+	// CursorMode 报告当前页是否由游标读取。
+	// CursorMode reports whether the current page was read by cursor.
+	CursorMode bool
 	// Query 是当前搜索关键词。
 	// Query is the active search keyword.
 	Query string
@@ -149,21 +155,66 @@ func (ctl *<%.Name%>Controller) failLoad(c *router.Ctx, err error) {
 	ctl.fail(c, status, "#<%.Snake%>-form-error", msg, err)
 }
 
-// parse<%.Name%>Page 读取页码与每页条数，越界时回落到缺省值。
-// parse<%.Name%>Page reads the page number and page size, falling back to the defaults when out of range.
-func parse<%.Name%>Page(c *router.Ctx) (int, int) {
-	page, err := strconv.Atoi(c.Query("page"))
+// parse<%.Name%>Page 读取页码、页长与游标；非法页码回落到第一页，页长由 service 归一化。
+// parse<%.Name%>Page reads page, size and cursors; an invalid page falls back to one and the service normalises the size.
+func parse<%.Name%>Page(c *router.Ctx) paging.Request {
+	page, err := strconv.Atoi(strings.TrimSpace(c.Query("page")))
 	if err != nil || page < 1 {
 		page = 1
 	}
-	size, err := strconv.Atoi(c.Query("size"))
+	size, err := strconv.Atoi(strings.TrimSpace(c.Query("size")))
 	if err != nil || size < 1 {
 		size = <%.Var%>DefaultPageSize
 	}
 	if size > <%.Var%>MaxPageSize {
 		size = <%.Var%>MaxPageSize
 	}
-	return page, size
+	return paging.Request{
+		Page:   page,
+		Size:   size,
+		After:  strings.TrimSpace(c.Query("after")),
+		Before: strings.TrimSpace(c.Query("before")),
+	}
+}
+
+// <%.Var%>PageHref 构造保留搜索词、页长与游标的列表地址；空参数不会出现在查询串里。
+// <%.Var%>PageHref builds a list URL that keeps the search term, page size and cursor; empty values are omitted.
+func <%.Var%>PageHref(page, size int, keyword, cursorKey, cursor string) string {
+	values := url.Values{}
+	if page > 1 {
+		values.Set("page", strconv.Itoa(page))
+	}
+	if size > 0 {
+		values.Set("size", strconv.Itoa(size))
+	}
+	if keyword != "" {
+		values.Set("q", keyword)
+	}
+	if cursorKey != "" && cursor != "" {
+		values.Set(cursorKey, cursor)
+	}
+	if len(values) == 0 {
+		return "<%.Route%>"
+	}
+	return "<%.Route%>?" + values.Encode()
+}
+
+// <%.Var%>PageLinks 把共享分页窗口转成模板数据；只有一页时返回 nil。
+// <%.Var%>PageLinks converts the shared pager window into template data; it returns nil for a single page.
+func <%.Var%>PageLinks(page, count int, href func(int) string) []map[string]any {
+	links := paging.Window(page, count, 1)
+	if len(links) == 0 {
+		return nil
+	}
+	out := make([]map[string]any, 0, len(links))
+	for _, link := range links {
+		if link.Ellipsis {
+			out = append(out, map[string]any{"Ellipsis": true})
+			continue
+		}
+		out = append(out, map[string]any{"Number": link.Number, "Href": href(link.Number), "Current": link.Current})
+	}
+	return out
 }
 
 // parse<%.Name%>ID 解析路径里的主键。
@@ -231,29 +282,56 @@ func bind<%.Name%>Input(c *router.Ctx) (service.<%.Name%>Input, error) {
 // @Failure 500 {string} string "storage failure | 存储失败"
 // @Router <%.Route%> [get]
 func (ctl *<%.Name%>Controller) List(c *router.Ctx) {
-	page, size := parse<%.Name%>Page(c)
+	req := parse<%.Name%>Page(c)
 <% if .HasSearch %>	keyword := strings.TrimSpace(c.Query("q"))
 <% end %>	tenantID, ok := generatedTenantID(c)
 	if !ok {
 		return
 	}
-	items, total, err := ctl.svc.List(c, tenantID, page, size<% if .HasSearch %>, keyword<% end %>)
+	result, err := ctl.svc.List(c, tenantID, req<% if .HasSearch %>, keyword<% end %>)
 	if err != nil {
 		ctl.fail(c, http.StatusInternalServerError, "#<%.Snake%>-module", "<%.Snake%> list failed | <%.Snake%> 列表加载失败", err)
 		return
 	}
 
 	data := <%.Name%>Page{
-		Items:    items,
-		Total:    total,
-		Page:     page,
-		Size:     size,
-		PrevPage: page - 1,
-		NextPage: page + 1,
-		HasPrev:  page > 1,
-		HasNext:  int64(page)*int64(size) < total,
-<% if .HasSearch %>		Query:    keyword,
+		Items:      result.Items,
+		Total:      result.Total,
+		Page:       result.Page,
+		Size:       result.Size,
+		CursorMode: req.CursorMode(),
+<% if .HasSearch %>		Query:      keyword,
 <% end %>	}
+	if req.CursorMode() {
+		if result.Before != "" {
+			data.PrevHref = <%.Var%>PageHref(0, result.Size, data.Query, "before", result.Before)
+		}
+		if result.After != "" {
+			data.NextHref = <%.Var%>PageHref(0, result.Size, data.Query, "after", result.After)
+		}
+		data.PageHref = <%.Var%>PageHref(1, result.Size, data.Query, "", "")
+	} else {
+		data.PageCount = paging.PageCount(result.Total, result.Size)
+		data.Pages = <%.Var%>PageLinks(result.Page, data.PageCount, func(n int) string {
+			return <%.Var%>PageHref(n, result.Size, data.Query, "", "")
+		})
+		if result.Page > 1 {
+			data.PrevHref = <%.Var%>PageHref(result.Page-1, result.Size, data.Query, "", "")
+		}
+		if result.Page < data.PageCount {
+			data.NextHref = <%.Var%>PageHref(result.Page+1, result.Size, data.Query, "", "")
+		}
+		// 常规分页的最后一页末尾同时也是键集分页的起点，切换后不再执行 COUNT。 |
+		// The last row of an offset page is also the keyset starting point, so switching modes stops counting.
+		if len(result.Items) > 0 {
+			last := result.Items[len(result.Items)-1]
+			if cursor, err := paging.NewCursor(last.<%.Primary.GoName%>, last.<%.Primary.GoName%>); err == nil {
+				if encoded, err := cursor.Encode(); err == nil {
+					data.KeysetHref = <%.Var%>PageHref(0, result.Size, data.Query, "after", encoded)
+				}
+			}
+		}
+	}
 	if err := c.HTML(http.StatusOK, "<%.Snake%>/list.html", data); err != nil {
 		log.Default().Error("<%.Snake%> list render failed | <%.Snake%> 列表渲染失败", log.Err(err))
 	}

@@ -8,6 +8,7 @@ import (
 <% if .ServiceStrings %>	"strings"
 <% end %><% if .FormTime %>	"time"
 <% end %>
+	"github.com/shibingli/yd/data/paging"
 	"github.com/shibingli/ydx/errs"
 	"github.com/shibingli/ydx/log"
 
@@ -89,24 +90,23 @@ func New<%.Name%>Service(repo *repository.<%.Name%>Repo) *<%.Name%>Service {
 	return &<%.Name%>Service{repo: repo}
 }
 
-// List 返回分页后的<%.Module%>列表与总条数，页码与每页条数会被归一化。
-// List returns one page of <%.Snake%> records together with the total count; the page and size values are normalised.
-func (s *<%.Name%>Service) List(ctx context.Context, tenantID string, page, size int<% if .HasSearch %>, keyword string<% end %>) ([]model.<%.Name%>, int64, error) {
-	if page < 1 {
-		page = 1
+// List 返回一页<%.Module%>记录与分页状态，页码、页长与游标会被归一化。
+// List returns one page of <%.Snake%> records with its pagination state; page, size and cursors are normalised.
+//
+// Offset paging needs the total to draw page numbers, so only a non-cursor request asks for COUNT;
+// a cursor request deliberately never counts, which is what keeps deep pages at a constant cost. |
+// 常规分页需要总条数才能画页码，因此只有非游标请求才要求 COUNT；游标请求刻意不计数，
+// 这正是深页仍保持常量开销的原因。
+func (s *<%.Name%>Service) List(ctx context.Context, tenantID string, req paging.Request<% if .HasSearch %>, keyword string<% end %>) (paging.Page[model.<%.Name%>], error) {
+	req = req.Normalize()
+	if !req.CursorMode() {
+		req.WithTotal = true
 	}
-	if size < 1 {
-		size = 20
-	}
-	if size > 100 {
-		size = 100
-	}
-
-	items, total, err := s.repo.List(ctx, tenantID, page, size<% if .HasSearch %>, keyword<% end %>)
+	page, err := s.repo.List(ctx, tenantID, req<% if .HasSearch %>, keyword<% end %>)
 	if err != nil {
-		return nil, 0, errs.WrapDetail(err, Err<%.Name%>Store, "op=list page=%d size=%d", page, size)
+		return paging.Page[model.<%.Name%>]{}, errs.WrapDetail(err, Err<%.Name%>Store, "op=list page=%d size=%d cursor=%v", req.Page, req.Size, req.CursorMode())
 	}
-	return items, total, nil
+	return page, nil
 }
 
 // Get 读取单条<%.Module%>记录，记录不存在时返回 Err<%.Name%>NotFound。

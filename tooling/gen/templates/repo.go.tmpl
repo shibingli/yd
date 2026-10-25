@@ -7,7 +7,8 @@ import (
 	"errors"
 <% if .RepoStrings %>	"strings"
 
-<% end %>	"github.com/shibingli/ydx/errs"
+<% end %>	"github.com/shibingli/yd/data/paging"
+	"github.com/shibingli/ydx/errs"
 	"github.com/shibingli/ydx/log"
 	"gorm.io/gorm"
 
@@ -44,34 +45,36 @@ func New<%.Name%>Repo(db *gorm.DB) (*<%.Name%>Repo, error) {
 	return &<%.Name%>Repo{db: db}, nil
 }
 
-// List 返回分页后的<%.Module%>列表与总条数。
-// List returns one page of <%.Snake%> records together with the total count.
+// List 返回一页<%.Module%>记录与分页状态。
+// List returns one page of <%.Snake%> records with its pagination state.
 //
-// page 从 1 开始，size 为每页条数<% if .HasSearch %>，keyword 非空时对<%.SearchWhere%>做模糊匹配<% end %>。
-// page starts at 1, size is the page length<% if .HasSearch %>, and a non-empty keyword is fuzzy-matched against <%.SearchWhere%><% end %>.
-func (r *<%.Name%>Repo) List(ctx context.Context, tenantID string, page, size int<% if .HasSearch %>, keyword string<% end %>) ([]model.<%.Name%>, int64, error) {
-	var (
-		items []model.<%.Name%>
-		total int64
-	)
-
+// req 不带游标时走常规分页（COUNT + LIMIT/OFFSET，可跳页）；带 after/before 时走键集分页，
+// 不执行 COUNT，开销只与本页长度相关。主键同时是排序键与决胜键，因此键集窗口是唯一确定的。
+// Without a cursor the request uses offset paging (COUNT + LIMIT/OFFSET, arbitrary page jumps); with
+// after/before it uses keyset paging without COUNT, so the cost depends only on the page length. The
+// primary key is both the sort column and the tie-breaker, making every keyset window deterministic.
+func (r *<%.Name%>Repo) List(ctx context.Context, tenantID string, req paging.Request<% if .HasSearch %>, keyword string<% end %>) (paging.Page[model.<%.Name%>], error) {
 	query := r.db.WithContext(ctx).Model(&model.<%.Name%>{}).Where("tenant_id = ?", tenantID)
 <% if .HasSearch %>	if keyword = strings.TrimSpace(keyword); keyword != "" {
 		like := "%" + strings.NewReplacer("!", "!!", "%", "!%", "_", "!_").Replace(keyword) + "%"
 		query = query.Where("<%.SearchWhere%>", <%.SearchArgs%>)
 	}
-<% end %>	if err := query.Session(&gorm.Session{}).Count(&total).Error; err != nil {
-		return nil, 0, errs.WrapDetail(err, Err<%.Name%>DB, "table=<%.Table%> op=count")
+<% end %>	if req.CursorMode() {
+		page, err := paging.KeysetPage[model.<%.Name%>](ctx, query,
+			paging.Keyset{Sort: "<%.Primary.Column%>", ID: "<%.Primary.Column%>"}, req,
+			func(item model.<%.Name%>) (paging.Cursor, error) {
+				return paging.NewCursor(item.<%.Primary.GoName%>, item.<%.Primary.GoName%>)
+			})
+		if err != nil {
+			return paging.Page[model.<%.Name%>]{}, errs.WrapDetail(err, Err<%.Name%>DB, "table=<%.Table%> op=list cursor")
+		}
+		return page, nil
 	}
-
-	offset := (page - 1) * size
-	if offset < 0 {
-		offset = 0
+	page, err := paging.OffsetPage[model.<%.Name%>](ctx, query.Order("<%.Primary.Column%> ASC"), req)
+	if err != nil {
+		return paging.Page[model.<%.Name%>]{}, errs.WrapDetail(err, Err<%.Name%>DB, "table=<%.Table%> op=list page=%d size=%d", req.Page, req.Size)
 	}
-	if err := query.Order("<%.Primary.Column%> ASC").Limit(size).Offset(offset).Find(&items).Error; err != nil {
-		return nil, 0, errs.WrapDetail(err, Err<%.Name%>DB, "table=<%.Table%> op=list offset=%d", offset)
-	}
-	return items, total, nil
+	return page, nil
 }
 
 // Find 按主键读取一条<%.Module%>记录；记录不存在时返回 Err<%.Name%>NotFound。
