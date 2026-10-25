@@ -137,7 +137,7 @@ asynq:
 | `GET /messages/list` | 检索结果片段 |
 | `GET /messages/conversations` | 会话列表片段 |
 | `GET /messages/:id/thread` | 完整线程片段 |
-| `GET /messages/:id/history` | 仅历史消息片段（实时刷新用，不重建撰写区） |
+| `GET /messages/:id/history` | 仅历史消息片段（实时刷新用，不重建撰写区；`?after=<message id>` 只返回更新的消息，供客户端 `beforeend` 追加；锚点失效或落后超过 50 条时返回整段并带 `HX-Reswap: innerMorph`） |
 | `GET /messages/:id/edit` | 编辑消息抽屉 |
 | `GET /mgr/messages/system/new` | 系统公告抽屉 |
 | `GET /messages/groups/:id/settings` | 群设置抽屉 |
@@ -222,7 +222,13 @@ asynq:
   菜单两项——「未读消息」进入 `/messages?folder=unread`，「我的资料」进入 `/account`。
   菜单只在账号具备 `message:read` 且消息中心可用时显示未读入口，退出登录仍是独立按钮。
 - 实时：`#yd-shell` 持有唯一 WebSocket 连接；导航或租户切换会重建外壳，连接随之重连并使用新令牌。
-  消息事件只重取 `/messages/:id/history` 并 `innerMorph` 进历史区，撰写区、草稿与附件标签因此不会被重建。
+  新消息事件只带 `?after=<最后一条消息 ID>` 重取 `/messages/:id/history`，并以 `beforeend` 追加进历史区；
+  编辑、撤回、置顶与已读回执仍走整段 `innerMorph`。撰写区、草稿与附件标签因此不会被重建。
+- 检索：检索框只换 `#yd-msg-main`，服务端按 `HX-Target` 只渲染结果片段；会话栏、置顶条与联系人面板不参与。
+  输入期间使用 `hx-replace-url`，不会为每个停顿写一条历史记录；清空检索时服务端以 `HX-Retarget` 退回工作区。
+- 编辑器：EasyMDE（约 320 KB）不再随消息页自动加载；`[data-yd-editor]` 上的
+  `data-yd-editor-vendor` 声明同源地址，首次聚焦或打开抽屉时由 `yd-message-editor.js` 加载，
+  期间 textarea 回退仍可输入。
 - 附件：内联撰写区的上传表单只把附件标签追加进主表单，隐藏字段随消息一起提交；抽屉内的上传承袭
   `data-yd-drawer-persist`，成功后不关闭抽屉。
 - 窄屏：会话列表与聊天区切换显示，聊天页头部提供返回会话列表的入口。

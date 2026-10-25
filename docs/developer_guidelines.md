@@ -406,10 +406,10 @@ Windows 走 SCM、Linux 走 systemd、macOS 走 launchd。禁止为单个平台�
 
 | 项 | 值 |
 |---|---|
-| 命令行 | `yd ko [--repo R] [--tags a,b] [--platforms linux/amd64,linux/arm64] [--base-image X] [--package ./cmd/app] [--local] [--push] [--binary PATH] [--dir DIR]` |
+| 命令行 | `yd ko [--repo R] [--tags a,b] [--platforms linux/amd64,linux/arm64] [--base-image X] [--package ./cmd/app] [--local] [--push] [--no-config] [--binary PATH] [--dir DIR]` |
 | 配置键 | `ko.binary` / `ko.repository` / `ko.tags` / `ko.platforms` / `ko.base_image` / `ko.packages` / `ko.local` / `ko.push`（`YD_KO_*` 自动映射） |
 | 二进制解析 | `--binary` → `YD_KO_BIN` → `<项目>/.yd/tools/ko[.exe]` → `PATH` |
-| 哨兵 | `ko.ErrBinaryNotFound` / `ko.ErrNoRepository` / `ko.ErrBuildFailed` / `ko.ErrInvalidOptions` |
+| 哨兵 | `ko.ErrBinaryNotFound` / `ko.ErrNoRepository` / `ko.ErrBuildFailed` / `ko.ErrInvalidOptions` / `ko.ErrConfigStage` |
 
 - **ko 是可选外部工具**：找不到二进制时返回 `ko.ErrBinaryNotFound` 并给出安装提示
   （`go install github.com/google/ko@latest`），**绝不 panic**；缺失只影响 `yd ko` 自身，
@@ -419,8 +419,15 @@ Windows 走 SCM、Linux 走 systemd、macOS 走 launchd。禁止为单个平台�
 - **标志落在 ko 侧的真实形态**：仓库经 `KO_DOCKER_REPO` 传给 ko，多平台走 ko 的 `--platform`（**单数**，
   `--platforms` 是本命令的标志名），基础镜像走 `KO_DEFAULTBASEIMAGE`，标签走 `--tags`；
   `--local` 对应 ko 的 `-L/--local`（装进本机 docker 守护进程，不出网），`--push` 对应 ko 的 `--push`。
+- **配置文件默认打包**：`yd docker` 把 `configs/config.yaml` 复制到 `/configs`，设置
+  `YD_CONFIG_DIR=/configs` 并创建 `/data`（SQLite、节点身份与附件）；`yd ko` 在构建前把同一文件暂存到每个本地包的
+  `kodata/configs/`，构建结束（含失败）立即清理，ko 将其放进镜像的 `KO_DATA_PATH`，应用经
+  `meta.ConfigDirPath` 解析。两条路径都只复制基线文件，**绝不复制 `config.local.yaml`**（可能含密钥）；
+  `--no-config` 关闭打包（`yd docker` 对应构建参数 `YD_INCLUDE_CONFIG=false`）。已有 `kodata` 配置优先且不被清理；
+  非本地包（导入路径或 `...` 模式）无法定位源码目录时跳过暂存。
 - **产物形态**：两条路径产出的都必须是 `CGO_ENABLED=0` 静态链接的二进制（交叉编译护栏见 AGENTS.md §2/§3），
-  前端资产由 `go:embed` 嵌入，镜像内无任何运行时依赖。
+  前端资产由 `go:embed` 嵌入；配置以基线文件形式随镜像提供，运行期可用挂载与 `YD_*` 环境变量覆盖，
+  镜像内无其它运行时依赖。
 - **离线/内网**：ko 只把源码编译成镜像层，需要网络的只有「拉基础镜像」与「推结果」两处——
   基础镜像先同步进内网 registry 再用 `--base-image`（或 `ko.base_image`）指向它；`--repo` 指向内网仓库并先登录
   （凭据留在 Docker 的凭据配置里，ko 复用）；完全不出网的本机验证用 `--local`。内网 registry 走标准 TLS 校验，

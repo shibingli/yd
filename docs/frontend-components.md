@@ -608,6 +608,9 @@
 ```
 
 页面需为编辑器引入 EasyMDE 的样式与脚本；未引入时 `textarea` 保留，表单仍可提交。
+消息中心默认把 EasyMDE 延迟到首次聚焦 `[data-yd-editor]` 或打开抽屉时再加载：包装元素用
+`data-yd-editor-vendor="{{ asset "/static/js/vendor/easymde.min.js" }}"` 声明地址，
+`yd-message-editor.js` 负责同源注入并在加载后升级全部编辑器；只读访问因此不必下载约 320 KB 的编辑器。
 工具栏图标由 `partials/editor-icons.html` 的隐藏 Lucide 调色板提供（`yd-ui.js` 在运行时克隆进按钮），
 不加载 EasyMDE 默认的 Font Awesome 图标字体，也不请求 CDN。
 

@@ -202,6 +202,10 @@ YD_MESSAGE_NODE_ID=node-1    # → message.node_id
 运行环境 `app.env` / `YD_APP_ENV` 接受 `development`/`dev`、`production`/`prod`，
 忽略大小写与首尾空白。**生产环境必须显式设置 `production`**，否则默认按开发环境处理。
 
+配置目录默认是进程工作目录下的 `configs`；`YD_CONFIG_DIR` 可把它指向别处。`yd docker` 构建的镜像
+固定设置 `YD_CONFIG_DIR=/configs`，`yd ko` 构建的镜像由 ko 注入 `KO_DATA_PATH`，应用会优先读取
+`$KO_DATA_PATH/configs`，两者都把 `configs/config.yaml` 的基线配置随镜像提供（详见 5.5 / 5.6）。
+
 ### 4.2 常用配置
 
 ```yaml
@@ -477,6 +481,7 @@ yd docker [--tag 镜像:版本] [--platform linux/amd64] [flags]
 | `--target` | 停在指定构建阶段 |
 | `--no-cache` | 禁用构建缓存 |
 | `--no-assets` | 跳过内嵌资产刷新 |
+| `--no-config` | 不把 `configs/config.yaml` 打进镜像（默认打包基线配置） |
 | `--push` | 构建成功后推送 |
 
 ```bash
@@ -484,11 +489,16 @@ yd docker --tag registry.example.com/team/myapp:v1.0.0
 yd docker --platform linux/arm64 --no-cache
 ```
 
+镜像默认把 `configs/config.yaml` 复制到 `/configs` 并设置 `YD_CONFIG_DIR=/configs`，同时创建可写的
+`/data`（SQLite、节点身份与附件）。运行时可用 `-v` 挂载覆盖配置，`YD_*` 环境变量仍具有最高优先级；
+`--no-config`（或直接构建时的 `--build-arg YD_INCLUDE_CONFIG=false`）生成完全由环境变量驱动的镜像。
+镜像不会复制 `config.local.yaml`，避免把本地密钥带进产物。
+
 ### 5.6 `yd ko`
 
 ```bash
 yd ko [--repo R] [--tags a,b] [--platforms ...] [--base-image X] \
-      [--package ./cmd/app] [--local] [--push] [--binary PATH] [--dir DIR] [packages...]
+      [--package ./cmd/app] [--local] [--push] [--no-config] [--binary PATH] [--dir DIR] [packages...]
 ```
 
 ```bash
@@ -499,6 +509,14 @@ yd ko --local            # 载入本地 Docker，不推送
 
 ko 是**可选外部工具**，不会成为 Go 依赖；缺失时只让 `yd ko` 返回安装提示。
 镜像的两个入口只有 `yd docker` 与 `yd ko`，不要手写 `docker build` 或自行拼 ko 参数。
+
+ko 没有注入环境变量的标志，因此 `yd ko` 在 `app.env` 不是 production 时会给出告警：部署清单必须显式设置
+`YD_APP_ENV=production`，否则镜像会使用源码资产、失去不可变缓存，并可能回退到文档化的开发种子口令。
+
+`yd ko` 默认把 `configs/config.yaml` 暂存到每个本地包的 `kodata/configs/` 后再构建，构建结束（含失败）即清理；
+ko 把该目录挂到镜像的 `KO_DATA_PATH`，生成项目据此解析配置目录并自动采用它。已有 `kodata/configs/config.yaml`
+时保留原文件不覆盖；`--no-config` 关闭暂存。非本地包（导入路径或 `...` 模式）无法定位源码目录，会跳过暂存；
+需要额外文件时直接在包旁维护 `kodata` 目录。
 
 ### 5.7 `yd service`
 
@@ -1389,6 +1407,7 @@ yd service install --name taskapp
 | 变量 | 映射键 | 说明 |
 |---|---|---|
 | `YD_APP_ENV` | `app.env` | `development`/`dev`、`production`/`prod` |
+| `YD_CONFIG_DIR` | —（配置目录） | 覆盖默认 `configs`；`yd docker` 镜像为 `/configs` |
 | `YD_SERVER_PORT` | `server.port` | HTTP 端口 |
 | `YD_DB_DRIVER` / `YD_DB_DSN` | `db.driver` / `db.dsn` | 数据库 |
 | `YD_DB_MAXCONN` | `db.maxconn` | 连接池上限 |
@@ -1401,6 +1420,9 @@ yd service install --name taskapp
 | `YD_SERVICE_*` | `service.*` | 服务名称、参数、环境变量等 |
 | `YD_KO_*` | `ko.*` | ko 仓库、标签、平台等 |
 | `YD_HTTP_PROXY` | `http.proxy` | yd 自身下载使用的代理 |
+
+`KO_DATA_PATH` 由 ko 在运行时注入，不是 `YD_` 前缀变量：生成的镜像从 `$KO_DATA_PATH/configs` 读取配置，
+本地运行与 `yd docker` 镜像使用 `configs` / `YD_CONFIG_DIR`。
 | `YD_TAILWIND_URL` | `tailwind.url` | Tailwind 二进制镜像 |
 | `YD_BETTERALIGN_BIN` | — | betteralign 路径 |
 | `YD_KO_BIN` | — | ko 路径 |

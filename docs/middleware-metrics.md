@@ -46,6 +46,7 @@ nil 来源会被忽略，因此没有系统采样器的项目仍然能展示中�
 | `compress` | global | 响应压缩 |
 | `cors` | global | 跨域 |
 | `i18n` | global | 多语言 |
+| `static-cache` | global | 静态资源缓存策略（最后登记，负责写最终 `Vary` 与 `Cache-Control`） |
 
 `yd new` 生成的项目在此基础上增加 `security`（安全响应头）以及受保护分组的
 `promote` / `auth` / `authz` / `tenant`。全部名称、i18n 键与作用域集中在
