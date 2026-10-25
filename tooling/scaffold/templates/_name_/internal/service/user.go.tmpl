@@ -110,6 +110,21 @@ func (s *UserService) List(ctx context.Context, tenantID, keyword string) ([]mod
 	return matched, nil
 }
 
+// ListPage returns one page of users and the filtered total. | ListPage 返回一页用户与过滤后的总数。
+func (s *UserService) ListPage(ctx context.Context, tenantID, keyword string, limit, offset int) ([]model.User, int, error) {
+	return s.users.ListPage(ctx, tenantID, keyword, limit, offset)
+}
+
+// Count returns the number of members of this tenant. | Count 返回本租户的成员数。
+func (s *UserService) Count(ctx context.Context, tenantID string) (int, error) {
+	return s.users.Count(ctx, tenantID)
+}
+
+// Recent returns the newest users of this tenant. | Recent 返回本租户最新的用户。
+func (s *UserService) Recent(ctx context.Context, tenantID string, limit int) ([]model.User, error) {
+	return s.users.Recent(ctx, tenantID, limit)
+}
+
 // Get returns one user of this tenant. | Get 返回本租户内的一个用户。
 func (s *UserService) Get(ctx context.Context, tenantID, userID string) (model.User, error) {
 	return s.users.Get(ctx, tenantID, userID)

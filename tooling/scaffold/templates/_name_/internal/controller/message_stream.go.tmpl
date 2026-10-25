@@ -8,6 +8,7 @@ import (
 	"bytes"
 	"context"
 	"strconv"
+	"sync"
 	"time"
 
 	"{{ .YdModule }}/messaging"
@@ -19,6 +20,12 @@ import (
 	"{{ .YdxModule }}/router"
 	"{{ .YdxModule }}/websocket"
 )
+
+// unreadSent 缓存每条连接上一次推送的未读汇总：计数没有变化时不再重渲染并写四帧。
+// unreadSent caches the last unread summary pushed per connection: when the counts did not change, the four
+// badge frames are neither rendered nor written. The key is the connection pointer and the entry is deleted on
+// close, so nothing leaks across connections. | 键是连接指针，连接关闭时删除，因此不会跨连接泄漏。
+var unreadSent sync.Map
 
 // Write timeout and action names of the message WebSocket. | 消息 WebSocket 的写入超时与动作名。
 const (
@@ -78,12 +85,14 @@ func (c *Controller) MessageSocket() router.HandlerFunc {
 						c.deliverMessageEvent(conn, actor, lang, event)
 					},
 				})
+				unreadSent.Delete(conn)
 				c.pushUnreadBadge(conn, actor, lang)
 			},
 			OnMessage: func(conn *websocket.Conn, msg websocket.HtmxMessage) {
 				c.handleMessageSocketInput(conn, actor, lang, canSend, msg)
 			},
-			OnClose: func(*websocket.Conn, error) {
+			OnClose: func(conn *websocket.Conn, _ error) {
+				unreadSent.Delete(conn)
 				if unsubscribe != nil {
 					unsubscribe()
 				}
@@ -151,7 +160,9 @@ func (c *Controller) deliverMessageEvent(conn *websocket.Conn, actor messaging.A
 			}
 		}
 	}
-	c.pushUnreadBadge(conn, actor, lang)
+	if unreadMayChange(event, actor) {
+		c.pushUnreadBadge(conn, actor, lang)
+	}
 	switch event.Type {
 	case messaging.EventFriendRequested:
 		c.pushSocketNotice(conn, lang, "message.notice.friend_requested")
@@ -170,6 +181,29 @@ func (c *Controller) deliverMessageEvent(conn *websocket.Conn, actor messaging.A
 	}
 }
 
+// unreadMayChange 报告一条事件是否可能改变该用户的未读角标：自己的发送不增加自己的未读，
+// 别人推进已读也不会改变自己的计数，召回与好友关系才会。其余事件只刷新页面片段，不重算未读。
+// 每次重算包含一次租户未读聚合与一次好友申请计数，事件扇出到 N 条连接时这一步会被放大 N 倍。
+// unreadMayChange reports whether an event can change this user's unread badges: the user's own send never increases
+// their unread, another member advancing a watermark does not change it, while a recall or a friend change can. All
+// other events only refresh page fragments. Each recomputation runs a tenant-wide unread aggregate and a pending
+// request count, and event fan-out multiplies that work by the number of connections.
+func unreadMayChange(event messaging.Event, actor messaging.Actor) bool {
+	switch event.Type {
+	case messaging.EventMessageCreated:
+		return event.ActorID != actor.ID
+	case messaging.EventMessageRead:
+		return event.ActorID == actor.ID
+	case messaging.EventMessageRecalled:
+		return true
+	case messaging.EventFriendRequested, messaging.EventFriendAccepted, messaging.EventFriendRejected,
+		messaging.EventFriendRemoved, messaging.EventFriendBlocked:
+		return true
+	default:
+		return false
+	}
+}
+
 // pushUnreadBadge renders and pushes the current unread badges: the one beside the user name and the count on the
 // "unread messages" row of the user menu. They carry separate ids because both live inside the shell at once. |
 // pushUnreadBadge 渲染并推送当前未读徽标：用户名右侧的角标与用户菜单「未读消息」行的计数。两者同时存在于外壳中，
@@ -181,6 +215,15 @@ func (c *Controller) pushUnreadBadge(conn *websocket.Conn, actor messaging.Actor
 	summary, err := c.messages.Unread(context.Background(), actor)
 	if err != nil {
 		return
+	}
+	// When the counts did not change there is no frame to redraw, so the render and the four writes are skipped.
+	// The first push and the first push after a reconnect are unaffected because the entry is deleted when the
+	// connection opens. | 计数没变就没有任何一帧需要重绘：跳过渲染与四次写入。首次推送与重连后的首次推送
+	// 不受影响，因为连接打开时缓存条目已被删除。
+	if last, ok := unreadSent.Load(conn); ok {
+		if previous, ok := last.(messaging.UnreadSummary); ok && previous == summary {
+			return
+		}
 	}
 	data := map[string]any{"Unread": summary}
 	if c.i18n != nil {
@@ -201,6 +244,7 @@ func (c *Controller) pushUnreadBadge(conn *websocket.Conn, actor messaging.Actor
 		c.log.Warn("unread badge frame count mismatch | 未读徽标帧数不匹配", log.Int("frames", len(parts)))
 		return
 	}
+	unreadSent.Store(conn, summary)
 	for i, target := range targets {
 		if err := conn.SetWriteDeadline(time.Now().Add(messageSocketWriteTimeout)); err != nil {
 			_ = conn.CloseNow()

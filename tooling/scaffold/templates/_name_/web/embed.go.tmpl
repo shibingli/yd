@@ -21,9 +21,16 @@
 package web
 
 import (
+	"bytes"
+	"crypto/sha256"
 	"embed"
+	"encoding/hex"
 	"os"
 	"path/filepath"
+	"strings"
+	"sync"
+
+	"github.com/spf13/afero"
 
 	"{{ .Module }}/internal/meta"
 	"{{ .YdxModule }}/afs"
@@ -101,6 +108,92 @@ func Static() (afs.FS, error) {
 	}
 	dev := afs.NewOS(filepath.Join(root, staticDir))
 	return afs.HideShadowedMin(afs.Overlay(merged, dev), dev), nil
+}
+
+// Bundle returns the shared scripts concatenated in shell order, together with their short content
+// hash. An empty result means the bundle could not be assembled and the shell must fall back to the
+// individual script tags. | Bundle 按外壳顺序拼接共享脚本并返回其短内容哈希。结果为空表示无法组装，
+// 外壳必须回退到逐脚本标签。
+func Bundle() ([]byte, string) {
+	bundleOnce.Do(loadBundle)
+	return bundleData, bundleHash
+}
+
+// BundleURL returns the production URL of the shared bundle, or "" when the shell should load the
+// individual scripts instead. Development deliberately keeps the individual files for debugging and
+// for immediate static edits; production reaps the single-request win. |
+// BundleURL 返回共享 bundle 的生产地址；返回空串时外壳应加载逐脚本标签。开发期刻意保留逐文件，
+// 便于调试与静态资源即时生效；生产期获得单次请求的收益。
+func BundleURL() string {
+	if !meta.IsProduction() {
+		return ""
+	}
+	data, hash := Bundle()
+	if len(data) == 0 || hash == "" {
+		return ""
+	}
+	return "/static/js/yd-bundle.js?v=" + hash
+}
+
+// bundleOnce, bundleData and bundleHash hold the one-time assembly result. |
+// bundleOnce、bundleData 与 bundleHash 保存一次组装的结果。
+var (
+	// bundleOnce makes the assembly run once per process. | bundleOnce 保证每个进程只组装一次。
+	bundleOnce sync.Once
+	// bundleData is the concatenated script body. | bundleData 是拼接后的脚本正文。
+	bundleData []byte
+	// bundleHash is the first four SHA-256 bytes in hex, matching the asset helper's version form. |
+	// bundleHash 是 SHA-256 前四字节的十六进制，与 asset 助手的版本形态一致。
+	bundleHash string
+)
+
+// loadBundle assembles bundleScripts from the merged static tree. Any missing or unsafe entry leaves
+// the bundle empty, which makes the shell fall back to the individual scripts rather than serving a
+// half bundle. | loadBundle 从合并静态树组装 bundleScripts。任一缺失或不安全条目都会让 bundle 保持为空，
+// 使外壳回退到逐脚本，而不是发出半份 bundle。
+func loadBundle() {
+	if len(bundleScripts) == 0 {
+		return
+	}
+	static, err := Static()
+	if err != nil {
+		return
+	}
+	production := meta.IsProduction()
+	var buf bytes.Buffer
+	for _, script := range bundleScripts {
+		if !strings.HasPrefix(script, "/static/") {
+			return
+		}
+		rel := strings.TrimPrefix(script, "/static/")
+		if strings.Contains(rel, "..") {
+			return
+		}
+		data, readErr := readBundleAsset(static, rel, production)
+		if readErr != nil {
+			return
+		}
+		if buf.Len() > 0 {
+			// 分号与换行同时存在，避免两个文件在 ASI 边界上粘连。 |
+			// The semicolon and newline together keep two files from meeting at an ASI boundary.
+			buf.WriteString("\n;\n")
+		}
+		buf.Write(data)
+	}
+	sum := sha256.Sum256(buf.Bytes())
+	bundleData = buf.Bytes()
+	bundleHash = hex.EncodeToString(sum[:4])
+}
+
+// readBundleAsset reads one script, preferring its .min.js sibling in production. |
+// readBundleAsset 读取一个脚本；生产环境优先使用 .min.js 同族文件。
+func readBundleAsset(static afs.FS, rel string, production bool) ([]byte, error) {
+	if production && strings.HasSuffix(rel, ".js") && !strings.HasSuffix(rel, ".min.js") {
+		if data, err := afero.ReadFile(static, strings.TrimSuffix(rel, ".js")+".min.js"); err == nil {
+			return data, nil
+		}
+	}
+	return afero.ReadFile(static, rel)
 }
 
 // I18n 返回语言目录子树，供 i18n.New 直接以该子树的根为目录根加载文案。

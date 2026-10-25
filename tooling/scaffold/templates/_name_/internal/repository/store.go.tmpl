@@ -159,6 +159,13 @@ type Store struct {
 	// seedPwOnce resolves the seed password once per process, so its warning appears once per start rather than once per
 	// render of the first-sign-in banner.
 	seedPwOnce sync.Once
+	// seedChecks caches whether a user still signs in with the seed password, keyed by user id and paired with
+	// the password hash. That check is a salted multi-round SM3 verification, and running it on every render costs
+	// the administrator milliseconds per fragment; a changed hash (a password change) invalidates the entry
+	// naturally. | seedChecks 缓存「该用户是否仍在使用种子口令」的判定，键为用户 ID，值为口令散列与结果的配对。
+	// 口令散列是 SM3 加盐多轮校验，每次渲染都执行会让管理员的每个片段请求多出数毫秒；散列变化（改密）
+	// 时缓存自然失效。
+	seedChecks sync.Map
 	// persistent records whether a database backs this store, for logs and diagnostics. | persistent 记录当前是否由数据库支撑，供日志与诊断使用。
 	persistent bool
 }
@@ -732,6 +739,28 @@ func (s *Store) SeedPasswordUnchanged(u *auth.User) bool {
 	if u == nil {
 		return false
 	}
+	if cached, ok := s.seedChecks.Load(u.ID); ok {
+		if entry, ok := cached.(seedCheck); ok && entry.hash == u.PasswordHash {
+			return entry.unchanged
+		}
+	}
+	unchanged := s.verifySeedPassword(u)
+	s.seedChecks.Store(u.ID, seedCheck{hash: u.PasswordHash, unchanged: unchanged})
+	return unchanged
+}
+
+// seedCheck is one cached seed-password result, reused while the hash matches. | seedCheck 是一条种子口令判定缓存：散列相同时复用结果。
+type seedCheck struct {
+	// hash is the password hash the result was computed from. | hash 是计算该结果时使用的口令散列。
+	hash string
+	// unchanged reports whether that hash still matches the seed password. | unchanged 报告该散列是否仍匹配种子口令。
+	unchanged bool
+}
+
+// verifySeedPassword 执行一次真正的 SM3 口令校验；它只由 SeedPasswordUnchanged 的缓存未命中路径调用。
+// verifySeedPassword performs the actual SM3 password verification; only the cache-miss path of
+// SeedPasswordUnchanged reaches it.
+func (s *Store) verifySeedPassword(u *auth.User) bool {
 	password, ok := s.seedPassword()
 	if !ok {
 		return false

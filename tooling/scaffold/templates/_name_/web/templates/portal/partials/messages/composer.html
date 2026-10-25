@@ -37,7 +37,8 @@
              maxlength="160" placeholder="{{ tr "message.title_placeholder" }}">
     </div>
 
-    <div class="yd-editor yd-editor--compact" data-yd-editor data-yd-editor-compact data-lang="{{ .Lang }}">
+    <div class="yd-editor yd-editor--compact" data-yd-editor data-yd-editor-compact data-lang="{{ .Lang }}"
+         data-yd-editor-vendor="{{ asset "/static/js/vendor/easymde.min.js" }}">
       <textarea class="yd-editor__fallback" id="yd-msg-composer-body" name="body_markdown" rows="3"
                 aria-label="{{ tr "message.quick_label" }}"
                 placeholder="{{ tr "message.quick_placeholder" }}"></textarea>

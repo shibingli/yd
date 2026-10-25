@@ -154,7 +154,7 @@ func (c *Controller) renderAdminPage(ctx *router.Ctx, notice string) {
 		CanTypeManage: authz.Can(ctx.Request.Context(), authz.PermMessageTypeManage),
 		UserID:        actor.ID,
 	}
-	data := c.view(ctx, "消息治理 | Message moderation", page.data())
+	data := c.pageView(ctx, "消息治理 | Message moderation", page.data())
 	data["AdminMode"] = true
 	data["Audit"] = auditViewsOf(audit)
 	data["AuditTotal"] = auditTotal
@@ -178,7 +178,7 @@ func (c *Controller) renderAuditPage(ctx *router.Ctx, notice string) {
 		c.failService(ctx, err)
 		return
 	}
-	data := c.view(ctx, "消息审计 | Message audit", map[string]any{
+	data := c.pageView(ctx, "消息审计 | Message audit", map[string]any{
 		"Audit":      auditViewsOf(audit),
 		"AuditTotal": total,
 		"AuditMode":  true,
@@ -258,7 +258,7 @@ func (c *Controller) settingsData(ctx *router.Ctx) (map[string]any, error) {
 	if err != nil {
 		return nil, err
 	}
-	return c.view(ctx, "消息目录 | Message catalogue", map[string]any{
+	return c.pageView(ctx, "消息目录 | Message catalogue", map[string]any{
 		"Types":         messageTypeViewsOf(types, lang),
 		"Groups":        tagViewsOf(groups, lang),
 		"Tags":          tagViewsOf(tags, lang),
@@ -281,7 +281,7 @@ func (c *Controller) NewMessageTypeDrawer(ctx *router.Ctx) {
 		c.messageUnavailable(ctx)
 		return
 	}
-	c.render(ctx, http.StatusOK, TplMessageTypeDrawer, c.view(ctx, "新建消息类型 | New message type", map[string]any{
+	c.render(ctx, http.StatusOK, TplMessageTypeDrawer, c.pageView(ctx, "新建消息类型 | New message type", map[string]any{
 		"Mode": "create",
 		"Item": messageTypeView{},
 	}))
@@ -319,7 +319,7 @@ func (c *Controller) EditMessageTypeDrawer(ctx *router.Ctx) {
 		c.failService(ctx, messaging.ErrTypeUnknown)
 		return
 	}
-	c.render(ctx, http.StatusOK, TplMessageTypeDrawer, c.view(ctx, "编辑消息类型 | Edit message type", map[string]any{
+	c.render(ctx, http.StatusOK, TplMessageTypeDrawer, c.pageView(ctx, "编辑消息类型 | Edit message type", map[string]any{
 		"Mode": "edit",
 		"Item": messageTypeViewsOf([]messaging.MessageType{*item}, c.lang(ctx))[0],
 	}))
@@ -490,7 +490,7 @@ func (c *Controller) NewMessageTagDrawer(ctx *router.Ctx) {
 	if kind != string(messaging.TagGroup) {
 		kind = string(messaging.TagLabel)
 	}
-	c.render(ctx, http.StatusOK, TplMessageTagDrawer, c.view(ctx, "新建分组/标签 | New group/tag", map[string]any{
+	c.render(ctx, http.StatusOK, TplMessageTagDrawer, c.pageView(ctx, "新建分组/标签 | New group/tag", map[string]any{
 		"Mode": "create",
 		"Kind": kind,
 		"Item": tagView{},
@@ -527,7 +527,7 @@ func (c *Controller) EditMessageTagDrawer(ctx *router.Ctx) {
 	for _, list := range [][]messaging.Tag{groupItems, labelItems} {
 		for _, item := range list {
 			if item.ID == ctx.Param("id") {
-				c.render(ctx, http.StatusOK, TplMessageTagDrawer, c.view(ctx, "编辑分组/标签 | Edit group/tag", map[string]any{
+				c.render(ctx, http.StatusOK, TplMessageTagDrawer, c.pageView(ctx, "编辑分组/标签 | Edit group/tag", map[string]any{
 					"Mode": "edit",
 					"Kind": string(item.Kind),
 					"Item": tagViewsOf([]messaging.Tag{item}, c.lang(ctx))[0],

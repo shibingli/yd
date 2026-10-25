@@ -17,7 +17,8 @@
     * 冲突：409（标识已被占用）走同一条路径。
     * conflict: 409 (the slug is taken) takes the same path.
 
-  数据契约 | Data contract: .Rows .Total .Keyword .Empty，加上 authz.Data 注入的 .Perm——新建表单按
+  数据契约 | Data contract: .Rows .Total .Keyword .Empty .Page .PageCount .Pages .PrevHref .NextHref，
+  加上 authz.Data 注入的 .Perm——新建表单按
   can .Perm.TenantCreate 出现，与 POST /tenants 的服务端守卫是同一个标识。
   .Rows .Total .Keyword .Empty, plus the .Perm map injected by authz.Data: the create form appears under
   can .Perm.TenantCreate, the same token POST /tenants is guarded by.
@@ -52,6 +53,15 @@
     <h2 class="sr-only" id="yd-tenants-table-title">{{ tr "page.tenants.table_title" }}</h2>
     {{ template "mgr/partials/tenants/list" . }}
   </section>
+
+  {{- if .Pages }}
+  <div class="yd-section" hx-boost="true" hx-target="#yd-workspace" hx-swap="innerMorph" hx-push-url="true">
+    {{ template "components.navigation.pagination" (dict
+      "Label" (tr "page.tenants.title")
+      "Summary" (tr "ui.page_summary" .Page .PageCount)
+      "PrevHref" .PrevHref "NextHref" .NextHref "Pages" .Pages) }}
+  </div>
+  {{- end }}
 
   <p class="yd-hint">{{ tr "page.tenants.create_hint" }}</p>
 </section>

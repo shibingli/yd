@@ -9,6 +9,7 @@ package controller
 
 import (
 	"net/http"
+	"strconv"
 
 	"{{ .Module }}/internal/model"
 	"{{ .YdModule }}/security/auth"
@@ -59,7 +60,7 @@ func (c *Controller) NewRoleForm(ctx *router.Ctx) {
 		c.failService(ctx, err)
 		return
 	}
-	c.render(ctx, http.StatusOK, TplRoleCreateDrawer, c.view(ctx, "新建角色 | Create role", map[string]any{
+	c.render(ctx, http.StatusOK, TplRoleCreateDrawer, c.pageView(ctx, "新建角色 | Create role", map[string]any{
 		"Catalogue": catalogue,
 	}))
 }
@@ -107,7 +108,7 @@ func (c *Controller) EditRoleForm(ctx *router.Ctx) {
 	// The key must not be "Role": authz.Data injects the role-name map under that very key and
 	// would overwrite the record. | 键名不能是 "Role"：authz.Data 会在同名键下注入角色名映射，
 	// 从而覆盖这条记录。
-	c.render(ctx, http.StatusOK, TplRoleEditDrawer, c.view(ctx, "编辑角色 | Edit role", map[string]any{
+	c.render(ctx, http.StatusOK, TplRoleEditDrawer, c.pageView(ctx, "编辑角色 | Edit role", map[string]any{
 		"Target":            role,
 		"PermissionOptions": options,
 	}))
@@ -308,7 +309,7 @@ func (c *Controller) Permissions(ctx *router.Ctx) {
 		return
 	}
 
-	c.render(ctx, http.StatusOK, TplPermissions, c.view(ctx, "权限矩阵 | Permission matrix", map[string]any{
+	c.render(ctx, http.StatusOK, TplPermissions, c.pageView(ctx, "权限矩阵 | Permission matrix", map[string]any{
 		"Roles":     roles,
 		"Catalogue": catalogue,
 	}))
@@ -327,13 +328,23 @@ func (c *Controller) rolesPage(ctx *router.Ctx, status int, message string) {
 		c.failService(ctx, err)
 		return
 	}
+	total := len(roles)
+	currentPage, pageCountValue, start, end := pageBounds(total, pageNumber(ctx), defaultPageSize)
+	pages, prevHref, nextHref := pageLinks(total, currentPage, defaultPageSize, func(n int) string {
+		return "/mgr/roles?page=" + strconv.Itoa(n)
+	})
 	if message != "" {
 		c.toast(ctx, message)
 	}
-	c.render(ctx, status, TplRoles, c.view(ctx, "角色管理 | Roles", map[string]any{
-		"Roles":     roles,
+	c.render(ctx, status, TplRoles, c.pageView(ctx, "角色管理 | Roles", map[string]any{
+		"Roles":     roles[start:end],
 		"Catalogue": catalogue,
-		"Total":     len(roles),
-		"Empty":     len(roles) == 0,
+		"Total":     total,
+		"Empty":     total == 0,
+		"Page":      currentPage,
+		"PageCount": pageCountValue,
+		"Pages":     pages,
+		"PrevHref":  prevHref,
+		"NextHref":  nextHref,
 	}))
 }

@@ -23,12 +23,13 @@
     * any other failure: the controller returns the same error fragment with the matching status code, so the semantics
       never diverge (403 for escalation, 404 for a foreign tenant, 409 for disabling yourself).
 
-  数据契约 | Data contract: .Cards .Total .Keyword .Empty .RoleList .Actor，加上 authz.Data 注入的
-  .Authz/.Perm/.Role/.AuthzJSON：行内表单按 can .Perm.UserUpdate 出现（与 POST /users/{id} 的守卫同源），
-  新建表单按 can .Perm.UserCreate 出现（与 POST /users 的守卫同源）。
-  .Cards .Total .Keyword .Empty .RoleList .Actor, plus the .Authz/.Perm/.Role/.AuthzJSON envelope injected by
-  authz.Data: the in-row forms appear under can .Perm.UserUpdate (the token POST /users/{id} is guarded by) and the create
-  form under can .Perm.UserCreate (the token POST /users is guarded by).
+  数据契约 | Data contract: .Cards .Total .Keyword .Empty .Actor .Page .PageCount .Pages .PrevHref .NextHref，
+  加上 authz.Data 注入的 .Authz/.Perm/.Role/.AuthzJSON：行内表单按 can .Perm.UserUpdate 出现
+  （与 POST /users/{id} 的守卫同源），新建表单按 can .Perm.UserCreate 出现（与 POST /users 的守卫同源）。
+  .Cards .Total .Keyword .Empty .Actor .Page .PageCount .Pages .PrevHref .NextHref, plus the
+  .Authz/.Perm/.Role/.AuthzJSON envelope injected by authz.Data: the in-row forms appear under
+  can .Perm.UserUpdate (the token POST /users/{id} is guarded by) and the create form under
+  can .Perm.UserCreate (the token POST /users is guarded by).
 
   写权限决定表单是否存在：没有 user:update 的审计员看到的是同一张表，只是行内不再有表单，新建表单也不出现；
   而且即便有人手改 DOM 把表单补回来，服务端那两条路由也各自挂着
@@ -72,6 +73,15 @@
     <h2 class="sr-only" id="yd-users-table-title">{{ tr "page.users.table_title" }}</h2>
     {{ template "mgr/partials/users/list" . }}
   </section>
+
+  {{- if .Pages }}
+  <div class="yd-section" hx-boost="true" hx-target="#yd-workspace" hx-swap="innerMorph" hx-push-url="true">
+    {{ template "components.navigation.pagination" (dict
+      "Label" (tr "page.users.title")
+      "Summary" (tr "ui.page_summary" .Page .PageCount)
+      "PrevHref" .PrevHref "NextHref" .NextHref "Pages" .Pages) }}
+  </div>
+  {{- end }}
 
   <p class="yd-hint">{{ tr "page.users.create_hint" }}</p>
 </section>

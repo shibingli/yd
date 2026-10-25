@@ -135,7 +135,7 @@ func (c *Controller) friendPageData(ctx *router.Ctx, summary messaging.FriendSum
 		name := profile.Display()
 		blocked = append(blocked, blockedRow{Profile: profile, Name: name, Initial: initialOf(name)})
 	}
-	return c.view(ctx, "好友 | Friends", map[string]any{
+	return c.pageView(ctx, "好友 | Friends", map[string]any{
 		"Friends":  friendViewsOf(summary.Friends),
 		"Incoming": incoming,
 		"Outgoing": outgoing,
@@ -179,7 +179,7 @@ func (c *Controller) FriendSearch(ctx *router.Ctx) {
 			CanRequest:    candidate.Relation == messaging.RelationNone,
 		})
 	}
-	data := c.view(ctx, "好友检索 | Friend search", map[string]any{
+	data := c.pageView(ctx, "好友检索 | Friend search", map[string]any{
 		"Candidates": views,
 		"Query":      query,
 	})
@@ -232,7 +232,7 @@ func (c *Controller) NewFriendRequestDrawer(ctx *router.Ctx) {
 		labelKey = relationKeys[messaging.RelationNone]
 	}
 	name := profile.Display()
-	c.render(ctx, http.StatusOK, TplFriendRequestDrawer, c.view(ctx, "添加好友 | Add friend", map[string]any{
+	c.render(ctx, http.StatusOK, TplFriendRequestDrawer, c.pageView(ctx, "添加好友 | Add friend", map[string]any{
 		"Target":        profile,
 		"Name":          name,
 		"Initial":       initialOf(name),
@@ -367,7 +367,7 @@ func (c *Controller) FriendRemarkDrawer(ctx *router.Ctx) {
 		if friend.Profile.ID != ctx.Param("id") {
 			continue
 		}
-		c.render(ctx, http.StatusOK, TplFriendRemark, c.view(ctx, "好友备注 | Friend remark", map[string]any{
+		c.render(ctx, http.StatusOK, TplFriendRemark, c.pageView(ctx, "好友备注 | Friend remark", map[string]any{
 			"Friend": friendViewsOf([]messaging.FriendView{friend})[0],
 		}))
 		return

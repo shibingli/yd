@@ -13,7 +13,6 @@
 package service
 
 import (
-	"runtime"
 	"runtime/metrics"
 	"sync"
 	"time"
@@ -33,6 +32,13 @@ var processCPUMetricNames = [...]string{
 	"/cpu/classes/total:cpu-seconds",
 	"/cpu/classes/idle:cpu-seconds",
 }
+
+// processMemoryMetricName 是进程从操作系统取得的内存总量，等价于 runtime.MemStats.Sys，但取自
+// runtime/metrics：后者只做一次轻量读取，不会像 ReadMemStats 那样停止世界。 |
+// processMemoryMetricName is the total memory the process obtained from the OS, the equivalent of
+// runtime.MemStats.Sys but read through runtime/metrics: the read is lightweight and never stops the world the way
+// ReadMemStats does.
+const processMemoryMetricName = "/memory/classes/total:bytes"
 
 // Metrics is one dashboard snapshot, defined once by the framework's metrics abstraction. | Metrics 是一次仪表盘快照，
 // 由框架的指标抽象统一定义。
@@ -61,11 +67,45 @@ type MetricsService struct {
 	procHave bool
 	// procMetricOK reports whether the runtime exposes the CPU class metrics. | procMetricOK 报告运行时是否提供 CPU 类别指标。
 	procMetricOK bool
+	// memoryMetricOK reports whether the runtime exposes the memory class metric. | memoryMetricOK 报告运行时是否提供内存类别指标。
+	memoryMetricOK bool
 }
 
 // NewMetricsService builds a sampler; the first Snapshot fills the baseline. | NewMetricsService 构造采样器；首次 Snapshot 填充基线。
 func NewMetricsService() *MetricsService {
-	return &MetricsService{procMetricOK: processCPUMetricsAvailable()}
+	return &MetricsService{
+		procMetricOK:   processCPUMetricsAvailable(),
+		memoryMetricOK: processMemoryMetricAvailable(),
+	}
+}
+
+// processMemoryMetricAvailable checks the memory metric against the runtime catalogue. |
+// processMemoryMetricAvailable 对照运行时目录检查内存指标是否存在。
+func processMemoryMetricAvailable() bool {
+	for _, description := range metrics.All() {
+		if description.Name == processMemoryMetricName {
+			return true
+		}
+	}
+	return false
+}
+
+// processMemoryBytes reads the process memory metric; false means the runtime does not expose it. |
+// processMemoryBytes 读取进程内存指标；false 表示运行时未提供该指标。
+func (s *MetricsService) processMemoryBytes() (uint64, bool) {
+	if !s.memoryMetricOK {
+		return 0, false
+	}
+	// 单个样本直接赋值，避免在 .tmpl 文件里写出 Go 的双花括号复合字面量（会被模板引擎当成动作）。 |
+	// The single sample is assigned in place: a Go composite literal with doubled braces inside a .tmpl file would
+	// be parsed as a template action.
+	samples := make([]metrics.Sample, 1)
+	samples[0].Name = processMemoryMetricName
+	metrics.Read(samples)
+	if samples[0].Value.Kind() != metrics.KindUint64 {
+		return 0, false
+	}
+	return samples[0].Value.Uint64(), true
 }
 
 // processCPUMetricsAvailable checks the names against the runtime's catalogue, so a future Go
@@ -172,11 +212,14 @@ func (s *MetricsService) Snapshot() Metrics {
 		s.procPrev, s.procAt, s.procHave = procNow, now, true
 	}
 
-	var stats runtime.MemStats
-	runtime.ReadMemStats(&stats)
-	out.ProcessMemory = stats.Sys
-	if out.MemoryTotal > 0 {
-		out.ProcessMemoryPercent = float64(stats.Sys) / float64(out.MemoryTotal) * 100
+	// runtime/metrics 读一次即可，不必像 MemStats 那样等下一次 GC 才更新，也不会暂停世界。 |
+	// One runtime/metrics read suffices: unlike MemStats it does not wait for the next GC cycle, and it never
+	// pauses the world.
+	if processMemory, ok := s.processMemoryBytes(); ok {
+		out.ProcessMemory = processMemory
+		if out.MemoryTotal > 0 {
+			out.ProcessMemoryPercent = float64(processMemory) / float64(out.MemoryTotal) * 100
+		}
 	}
 	return out
 }

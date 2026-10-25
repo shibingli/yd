@@ -10,6 +10,8 @@ package controller
 
 import (
 	"net/http"
+	"net/url"
+	"strconv"
 	"strings"
 
 	"{{ .Module }}/internal/model"
@@ -373,7 +375,7 @@ func (c *Controller) NewUserForm(ctx *router.Ctx) {
 		c.failService(ctx, err)
 		return
 	}
-	c.render(ctx, http.StatusOK, TplUserCreateDrawer, c.view(ctx, "新建用户 | Create user", map[string]any{
+	c.render(ctx, http.StatusOK, TplUserCreateDrawer, c.pageView(ctx, "新建用户 | Create user", map[string]any{
 		"RoleList":    roles,
 		"KeyEndpoint": PubkeyPath,
 	}))
@@ -418,7 +420,7 @@ func (c *Controller) EditUserForm(ctx *router.Ctx) {
 		return
 	}
 	tenantOptions := make([]map[string]any, 0)
-	data := c.view(ctx, "编辑用户 | Edit user", map[string]any{
+	data := c.pageView(ctx, "编辑用户 | Edit user", map[string]any{
 		"Target":       target,
 		"RoleOptions":  model.RoleOptions(roles, target.Roles),
 		"KeyEndpoint":  PubkeyPath,
@@ -496,8 +498,6 @@ func (c *Controller) SetUserTenants(ctx *router.Ctx) {
 type userCard struct {
 	// KeyEndpoint is the SM2 public-key URL used by the password-reset form's declarative encryption. | KeyEndpoint 是 SM2 公钥地址，供重置口令表单声明式加密使用。
 	KeyEndpoint string
-	// Roles holds the role options including their ticked state. | Roles 是角色的候选项（含勾选状态）。
-	Roles []model.RoleOption
 	// User is the user of this row. | User 是这一行用户。
 	User model.User
 	// CanWrite 表示当前访问者可以写用户，决定行内表单是否渲染。字段按内存对齐排序，布尔值收在末尾（与 model.RoleOption 同一约定）。
@@ -514,35 +514,60 @@ func (c *Controller) usersPage(ctx *router.Ctx, status int, keyword, message str
 		return
 	}
 
-	list, err := c.users.List(ctx.Request.Context(), tenantID, keyword)
+	page := pageNumber(ctx)
+	list, total, err := c.users.ListPage(ctx.Request.Context(), tenantID, keyword, defaultPageSize, (page-1)*defaultPageSize)
 	if err != nil {
 		c.failService(ctx, err)
 		return
 	}
-	roles, err := c.users.Roles(ctx.Request.Context(), tenantID)
-	if err != nil {
-		c.failService(ctx, err)
-		return
+	currentPage, pageCountValue, _, _ := pageBounds(total, page, defaultPageSize)
+	if currentPage != page {
+		// An out-of-range page refetches the last page instead of presenting an empty result. |
+		// 页码越界时重取最后一页，而不是把空页当成结果。
+		page = currentPage
+		list, total, err = c.users.ListPage(ctx.Request.Context(), tenantID, keyword, defaultPageSize, (page-1)*defaultPageSize)
+		if err != nil {
+			c.failService(ctx, err)
+			return
+		}
+		currentPage, pageCountValue, _, _ = pageBounds(total, page, defaultPageSize)
 	}
+	href := func(n int) string {
+		query := url.Values{}
+		if keyword != "" {
+			query.Set("q", keyword)
+		}
+		query.Set("page", strconv.Itoa(n))
+		return "/mgr/users?" + query.Encode()
+	}
+	pages, prevHref, nextHref := pageLinks(total, currentPage, defaultPageSize, href)
 
 	// 写权限来自请求主体本身（authz.Middleware 放进上下文的那一个），卡片只是把它转交给行模板，
 	// 因此授权规则仍然只有一处：注册表的判定，模板与行片段都只读结果。
 	// The write capability comes from the request's own subject (the one authz.Middleware put into the context) and the card
 	// merely hands it down to the row template, so the authorization rule still lives in exactly one place — the registry's
 	// decision — and both the page and the row fragment only read the result.
-	data := c.view(ctx, "用户管理 | Users", map[string]any{
-		"Total":    len(list),
-		"Keyword":  keyword,
-		"Empty":    len(list) == 0,
-		"RoleList": roles,
-		"Actor":    currentUserID(ctx),
+	//
+	// 列表不再查询角色、也不再为每个用户构造 RoleOptions：行模板读的是 user.Roles（字符串集合），
+	// 角色候选项只属于编辑抽屉，后者的数据在抽屉自己的处理器里组装。
+	// The list no longer queries roles or builds RoleOptions per user: the row template reads user.Roles (the string
+	// set), while the role candidates belong to the edit drawer and are assembled by that drawer's own handler.
+	data := c.pageView(ctx, "用户管理 | Users", map[string]any{
+		"Total":     total,
+		"Keyword":   keyword,
+		"Empty":     len(list) == 0,
+		"Actor":     currentUserID(ctx),
+		"Page":      currentPage,
+		"PageCount": pageCountValue,
+		"Pages":     pages,
+		"PrevHref":  prevHref,
+		"NextHref":  nextHref,
 	})
 	canWrite := authz.Can(ctx.Request.Context(), authz.PermUserUpdate)
 	cards := make([]userCard, 0, len(list))
 	for _, user := range list {
 		cards = append(cards, userCard{
 			User:        user,
-			Roles:       model.RoleOptions(roles, user.Roles),
 			CanWrite:    canWrite,
 			KeyEndpoint: PubkeyPath,
 		})

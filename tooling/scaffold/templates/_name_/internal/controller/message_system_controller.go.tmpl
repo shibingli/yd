@@ -44,7 +44,7 @@ func (c *Controller) NewSystemDrawer(ctx *router.Ctx) {
 		c.failService(ctx, err)
 		return
 	}
-	c.render(ctx, http.StatusOK, TplMessageCompose, c.view(ctx, "系统公告 | Announcement", map[string]any{
+	c.render(ctx, http.StatusOK, TplMessageCompose, c.pageView(ctx, "系统公告 | Announcement", map[string]any{
 		"Mode":        "system",
 		"Catalog":     catalog,
 		"DefaultType": messaging.TypeAnnouncement,
@@ -189,7 +189,7 @@ func (c *Controller) MessageGroupDrawer(ctx *router.Ctx) {
 			"Disabled": true,
 		})
 	}
-	c.render(ctx, http.StatusOK, TplMessageGroupDrawer, c.view(ctx, "群设置 | Group settings", map[string]any{
+	c.render(ctx, http.StatusOK, TplMessageGroupDrawer, c.pageView(ctx, "群设置 | Group settings", map[string]any{
 		"Conversation":     views[0],
 		"Candidates":       candidates,
 		"CandidateOptions": candidateOptions,

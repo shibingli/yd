@@ -99,7 +99,7 @@ type middlewareCounter struct {
 // @Security BearerAuth
 // @Router /mgr/metrics/middleware [get]
 func (c *Controller) MiddlewareMetrics(ctx *router.Ctx) {
-	c.render(ctx, http.StatusOK, TplMiddlewareMetrics, c.view(ctx, "中间件运行时 | Middleware runtime", map[string]any{
+	c.render(ctx, http.StatusOK, TplMiddlewareMetrics, c.pageView(ctx, "中间件运行时 | Middleware runtime", map[string]any{
 		"Middleware": c.middlewareRows(c.provider.Snapshot().Middleware),
 	}))
 }

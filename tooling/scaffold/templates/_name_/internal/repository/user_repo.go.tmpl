@@ -36,6 +36,32 @@ func (r *UserRepo) List(ctx context.Context, tenantID string) ([]model.User, err
 	return model.UsersFromAuth(list), nil
 }
 
+// ListPage 返回一页用户与过滤后的总数，关键字与分页都下推到存储层。
+// ListPage returns one page of users and the filtered total, with both the keyword and the paging pushed into the store.
+func (r *UserRepo) ListPage(ctx context.Context, tenantID, keyword string, limit, offset int) ([]model.User, int, error) {
+	list, total, err := r.store.Auth().ListUsersPage(ctx, tenantID, keyword, limit, offset)
+	if err != nil {
+		return nil, 0, err
+	}
+	return model.UsersFromAuth(list), total, nil
+}
+
+// Count 返回该租户的成员数，只执行一条 COUNT 查询而不加载用户行。
+// Count returns the member count of the tenant with one COUNT query instead of loading the user rows.
+func (r *UserRepo) Count(ctx context.Context, tenantID string) (int, error) {
+	return r.store.Auth().CountUsers(ctx, tenantID)
+}
+
+// Recent 返回该租户最新创建的至多 limit 个用户，供概览页的「最近用户」使用。
+// Recent returns at most limit of the tenant's newest users for the overview's recent-user strip.
+func (r *UserRepo) Recent(ctx context.Context, tenantID string, limit int) ([]model.User, error) {
+	list, err := r.store.Auth().RecentUsers(ctx, tenantID, limit)
+	if err != nil {
+		return nil, err
+	}
+	return model.UsersFromAuth(list), nil
+}
+
 // Get 返回该租户下的用户；用户在别的租户或不存在，都返回 auth.ErrNotFound。
 // Get returns the user of that tenant; a user of another tenant and a missing user both report auth.ErrNotFound.
 func (r *UserRepo) Get(ctx context.Context, tenantID, userID string) (model.User, error) {

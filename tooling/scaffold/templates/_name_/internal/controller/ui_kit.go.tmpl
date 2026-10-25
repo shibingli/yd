@@ -66,7 +66,7 @@ func (c *Controller) UIKit(ctx *router.Ctx) {
 		}
 	}
 
-	c.render(ctx, http.StatusOK, TplUIKit, c.view(ctx, "组件示例 | Component gallery", map[string]any{
+	c.render(ctx, http.StatusOK, TplUIKit, c.pageView(ctx, "组件示例 | Component gallery", map[string]any{
 		"ChartSVG":         template.HTML(svg), //nolint:gosec // chart.Line escapes every label and value | chart.Line 已转义全部标签与数值
 		"CalendarMonth":    monthLabel,
 		"CalendarWeekdays": weekdays,

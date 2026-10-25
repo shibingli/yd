@@ -5,6 +5,7 @@
 package controller
 
 import (
+	"errors"
 	"mime"
 	"net/http"
 	"net/url"
@@ -16,12 +17,24 @@ import (
 	"{{ .YdxModule }}/errs"
 	"{{ .YdxModule }}/log"
 	"{{ .YdxModule }}/router"
+	"{{ .YdModule }}/http/htmx"
 	"{{ .YdModule }}/messaging"
 	"{{ .YdModule }}/security/authz"
 )
 
 // Additional message form field: the recipient checkboxes. | 消息表单的附加字段：收件人多选。
 const fieldRecipients = "recipient_ids"
+
+// messageSearchTarget is the element id of the message centre's main pane. The search form uses it as its htmx
+// target, so the server renders only the result fragment and never reloads the rail, pinned strip or contacts
+// panel. | messageSearchTarget 是消息中心右侧主面板的元素 ID。检索表单以它为 htmx 目标：服务端据此只渲染
+// 结果片段，会话栏、置顶条与联系人面板都不重载。
+const messageSearchTarget = "yd-msg-main"
+
+// messageHistoryDeltaLimit 是一次增量历史响应的条数上限；超过它说明客户端落后太多，改回整段重取。
+// messageHistoryDeltaLimit caps one incremental history response; beyond it the client is too far behind and
+// the handler falls back to a full render.
+const messageHistoryDeltaLimit = 50
 
 // messageFilters is the parsed filter bar state. | messageFilters 是解析后的过滤栏状态。
 type messageFilters struct {
@@ -182,7 +195,31 @@ func (c *Controller) Messages(ctx *router.Ctx) {
 		c.messageUnavailable(ctx)
 		return
 	}
-	page, err := c.loadMessagePage(ctx, "", parseMessageFilters(ctx))
+	filters := parseMessageFilters(ctx)
+	// 检索表单只换 #yd-msg-main：结果片段直接落进主面板，会话栏与其它集合完全不参与本次渲染。
+	// 清空检索词时以 HX-Retarget 退回整块工作区，恢复线程或欢迎页；没有这一步，主面板会被结果片段占住。
+	// The search form swaps only #yd-msg-main: the result fragment lands in the main pane and the rail and the
+	// other collections take no part in this render. When the query is cleared, HX-Retarget falls back to the
+	// whole workspace so the thread or welcome panel comes back; without it the result fragment would stay put.
+	if htmx.IsRequest(ctx.Request) && strings.TrimSpace(htmx.Target(ctx.Request)) == messageSearchTarget {
+		if filters.Active {
+			page, err := c.loadSearchPage(ctx, filters)
+			if err != nil {
+				c.failService(ctx, err)
+				return
+			}
+			c.render(ctx, http.StatusOK, TplMessageSearch, c.pageView(ctx, "检索结果 | Search results", map[string]any{
+				"Filters":    page.Filters,
+				"Results":    page.Results,
+				"Total":      page.Total,
+				"SearchMode": true,
+			}))
+			return
+		}
+		ctx.SetHeader("HX-Retarget", "#yd-workspace")
+		ctx.SetHeader("HX-Reswap", "innerMorph")
+	}
+	page, err := c.loadMessagePage(ctx, "", filters)
 	if err != nil {
 		c.failService(ctx, err)
 		return
@@ -256,6 +293,7 @@ func (c *Controller) MessageThreadFragment(ctx *router.Ctx) {
 // @Accept html
 // @Produce html
 // @Param id path string true "conversation id | 会话 ID"
+// @Param after query string false "last rendered message id; returns only newer messages | 最后一条已渲染消息 ID，仅返回更新的消息"
 // @Success 200 {object} string "message history fragment | 消息历史片段"
 // @Failure 404 {object} string "conversation not found | 会话不存在"
 // @Security BearerAuth
@@ -265,12 +303,46 @@ func (c *Controller) MessageThreadHistory(ctx *router.Ctx) {
 		c.messageUnavailable(ctx)
 		return
 	}
-	data, err := c.threadData(ctx, ctx.Param("id"))
+	// 带 after 的请求是实时追加：只返回锚点之后的新消息，客户端用 beforeend 追加。
+	// 锚点失效或落后超过上限时退回整段历史，并要求 htmx 改用 innerMorph 替换，而不是继续追加。
+	// A request carrying after is a realtime append: return only the messages newer than the anchor and let the
+	// client append them with beforeend. An invalid anchor or a client too far behind falls back to the full
+	// history and asks htmx to replace with innerMorph instead of appending.
+	if afterID := strings.TrimSpace(ctx.Query("after")); afterID != "" {
+		data, appended, err := c.historyDeltaData(ctx, ctx.Param("id"), afterID)
+		if err == nil && appended {
+			c.render(ctx, http.StatusOK, TplMessageHistory, data)
+			return
+		}
+		if err != nil && !errors.Is(err, messaging.ErrNotFound) {
+			c.failService(ctx, err)
+			return
+		}
+		ctx.SetHeader("HX-Reswap", "innerMorph")
+	}
+	data, err := c.historyData(ctx, ctx.Param("id"))
 	if err != nil {
 		c.failService(ctx, err)
 		return
 	}
 	c.render(ctx, http.StatusOK, TplMessageHistory, data)
+}
+
+// historyDeltaData renders only the messages newer than afterID. appended is false when the client is too far
+// behind and the caller should render the full history instead. |
+// historyDeltaData 只渲染晚于 afterID 的新消息；appended 为 false 表示客户端落后太多，调用方应改为整段渲染。
+func (c *Controller) historyDeltaData(ctx *router.Ctx, conversationID, afterID string) (map[string]any, bool, error) {
+	actor := c.messageActor(ctx)
+	messages, err := c.messages.ConversationMessagesAfter(ctx.Request.Context(), actor, conversationID, afterID, messageHistoryDeltaLimit+1)
+	if err != nil {
+		return nil, false, err
+	}
+	if len(messages) > messageHistoryDeltaLimit {
+		return nil, false, nil
+	}
+	return c.pageView(ctx, "会话 | Conversation", map[string]any{
+		"Thread": c.messageViewsOf(actor, messages, c.lang(ctx), time.Now().UTC()),
+	}), true, nil
 }
 
 // MessageConversations renders the conversation list fragment. | MessageConversations 渲染会话列表片段。
@@ -286,16 +358,27 @@ func (c *Controller) MessageThreadHistory(ctx *router.Ctx) {
 // @Router /messages/conversations [get]
 func (c *Controller) MessageConversations(ctx *router.Ctx) {
 	if !c.MessagesAvailable() {
+		// 不能回一个空 200：htmx 会把空响应当成成功换入，会话栏因此被清空且没有任何解释。 |
+		// Never answer an empty 200: htmx would swap the empty response successfully, blanking the rail with no
+		// explanation.
+		c.fail(ctx, http.StatusServiceUnavailable, "message centre is unavailable | 消息中心不可用")
 		return
 	}
-	page, err := c.loadMessagePage(ctx, ctx.Query("active"), parseMessageFilters(ctx))
+	actor := c.messageActor(ctx)
+	activeID := ctx.Query("active")
+	conversations, err := c.messages.Conversations(ctx.Request.Context(), actor)
 	if err != nil {
 		c.failService(ctx, err)
 		return
 	}
-	data := c.view(ctx, "会话 | Conversations", map[string]any{
-		"Conversations": page.Conversations,
-		"ActiveID":      ctx.Query("active"),
+	// 这里只渲染会话列表：此前复用 loadMessagePage 会连带读取置顶条、目录与整份好友汇总，
+	// 而实时通道在每条消息后都会重取本片段，那份工作因此被放大成每事件十余次查询。
+	// Only the conversation list is rendered here: reusing loadMessagePage also loaded the pinned strip, the
+	// catalogue and the whole friend summary, and the realtime channel refetches this fragment after every
+	// message, so that work was multiplied into a dozen queries per event.
+	data := c.pageView(ctx, "会话 | Conversations", map[string]any{
+		"Conversations": c.conversationViewsOf(actor, conversations, c.lang(ctx), activeID),
+		"ActiveID":      activeID,
 	})
 	c.render(ctx, http.StatusOK, TplMessageConversations, data)
 }
@@ -321,18 +404,15 @@ func (c *Controller) MessageConversations(ctx *router.Ctx) {
 // @Router /messages/list [get]
 func (c *Controller) MessageList(ctx *router.Ctx) {
 	if !c.MessagesAvailable() {
+		c.fail(ctx, http.StatusServiceUnavailable, "message centre is unavailable | 消息中心不可用")
 		return
 	}
-	page, err := c.loadMessagePage(ctx, "", parseMessageFilters(ctx))
+	page, err := c.loadSearchPage(ctx, parseMessageFilters(ctx))
 	if err != nil {
 		c.failService(ctx, err)
 		return
 	}
-	data := c.view(ctx, "检索结果 | Search results", page.data())
-	data["Results"] = page.Results
-	data["Total"] = page.Total
-	data["Filters"] = page.Filters
-	c.render(ctx, http.StatusOK, TplMessageSearch, data)
+	c.render(ctx, http.StatusOK, TplMessageSearch, c.pageView(ctx, "检索结果 | Search results", page.data()))
 }
 
 // OpenDirectConversation opens the canonical direct conversation with one friend. | OpenDirectConversation 打开与一位好友的规范单聊。
@@ -397,7 +477,7 @@ func (c *Controller) EditMessageDrawer(ctx *router.Ctx) {
 		c.failService(ctx, err)
 		return
 	}
-	c.render(ctx, http.StatusOK, TplMessageCompose, c.view(ctx, "编辑消息 | Edit message", map[string]any{
+	c.render(ctx, http.StatusOK, TplMessageCompose, c.pageView(ctx, "编辑消息 | Edit message", map[string]any{
 		"Mode":        "edit",
 		"Catalog":     catalog,
 		"Message":     view,
@@ -650,7 +730,7 @@ func (c *Controller) PinMessageDrawer(ctx *router.Ctx) {
 		c.failService(ctx, messaging.ErrPinNotAllowed)
 		return
 	}
-	c.render(ctx, http.StatusOK, TplMessagePin, c.view(ctx, "置顶公告 | Pin announcement", map[string]any{
+	c.render(ctx, http.StatusOK, TplMessagePin, c.pageView(ctx, "置顶公告 | Pin announcement", map[string]any{
 		"Message": view,
 	}))
 }
@@ -765,7 +845,7 @@ func (c *Controller) UploadMessageAttachment(ctx *router.Ctx) {
 		c.failService(ctx, err)
 		return
 	}
-	c.render(ctx, http.StatusOK, TplMessageAttachment, c.view(ctx, "附件 | Attachment", map[string]any{
+	c.render(ctx, http.StatusOK, TplMessageAttachment, c.pageView(ctx, "附件 | Attachment", map[string]any{
 		"Attachment": messageAttachmentView{
 			Attachment: attachment,
 			SizeText:   sizeText(attachment.Size),
@@ -869,11 +949,35 @@ func (c *Controller) refreshMessageView(ctx *router.Ctx, conversationID, notice 
 
 // renderMessagePage renders the page with an optional toast. | renderMessagePage 渲染页面并可附带提示。
 func (c *Controller) renderMessagePage(ctx *router.Ctx, status int, page messagePage, title, notice string) {
-	data := c.view(ctx, title, page.data())
+	data := c.pageView(ctx, title, page.data())
 	if notice != "" {
 		c.toast(ctx, notice)
 	}
 	c.render(ctx, status, TplMessages, data)
+}
+
+// loadSearchPage 只执行检索本身：检索片段不需要会话列表、置顶条、撰写目录或好友汇总，
+// 因此按键触发的检索不再为这些集合付出查询与渲染成本。
+// loadSearchPage runs the search alone: the result fragment needs no conversation list, pinned strip, compose
+// catalogue or friend summary, so a keystroke-triggered search no longer pays for any of them.
+func (c *Controller) loadSearchPage(ctx *router.Ctx, filters messageFilters) (messagePage, error) {
+	page := messagePage{Filters: filters, SearchMode: true}
+	actor := c.messageActor(ctx)
+	result, err := c.messages.Messages(ctx.Request.Context(), actor, messaging.MessageFilter{
+		Query:    filters.Query,
+		TypeKey:  filters.TypeKey,
+		SenderID: filters.SenderID,
+		TagID:    filters.TagID,
+		Folder:   filters.Folder,
+		Page:     filters.Page,
+		PageSize: c.messages.Options().PageSize,
+	})
+	if err != nil {
+		return page, err
+	}
+	page.Results = c.messageViewsOf(actor, result.Messages, c.lang(ctx), time.Now().UTC())
+	page.Total = result.Total
+	return page, nil
 }
 
 // loadMessagePage assembles the conversation list, catalogue, pinned strip and optional thread/results. |
@@ -881,6 +985,7 @@ func (c *Controller) renderMessagePage(ctx *router.Ctx, status int, page message
 func (c *Controller) loadMessagePage(ctx *router.Ctx, activeID string, filters messageFilters) (messagePage, error) {
 	actor := c.messageActor(ctx)
 	lang := c.lang(ctx)
+	now := time.Now().UTC()
 	page := messagePage{
 		Filters:       filters,
 		CanSend:       authz.Can(ctx.Request.Context(), authz.PermMessageSend),
@@ -899,7 +1004,7 @@ func (c *Controller) loadMessagePage(ctx *router.Ctx, activeID string, filters m
 	if err != nil {
 		return page, err
 	}
-	page.Pinned = c.messageViewsOf(actor, pinned, lang, time.Now().UTC())
+	page.Pinned = c.messageViewsOf(actor, pinned, lang, now)
 
 	catalog, err := c.catalogData(ctx, actor)
 	if err != nil {
@@ -907,9 +1012,10 @@ func (c *Controller) loadMessagePage(ctx *router.Ctx, activeID string, filters m
 	}
 	page.Catalog = catalog
 
-	summary, err := c.messages.FriendSummary(ctx.Request.Context(), actor)
-	if err == nil {
-		page.Friends = friendViewsOf(summary.Friends)
+	// 联系人页签只需要已接受的好友；完整汇总里的申请与拉黑由好友页自己加载。
+	// The contacts tab needs accepted friends only; the full summary's requests and blocks belong to the friends page.
+	if friends, err := c.messages.Friends(ctx.Request.Context(), actor); err == nil {
+		page.Friends = friendViewsOf(friends)
 	}
 
 	if activeID != "" {
@@ -922,7 +1028,7 @@ func (c *Controller) loadMessagePage(ctx *router.Ctx, activeID string, filters m
 			active := views[0]
 			page.Active = &active
 		}
-		page.Thread = c.messageViewsOf(actor, messages, lang, time.Now().UTC())
+		page.Thread = c.messageViewsOf(actor, messages, lang, now)
 	}
 
 	if filters.Active {
@@ -938,7 +1044,7 @@ func (c *Controller) loadMessagePage(ctx *router.Ctx, activeID string, filters m
 		if err != nil {
 			return page, err
 		}
-		page.Results = c.messageViewsOf(actor, result.Messages, lang, time.Now().UTC())
+		page.Results = c.messageViewsOf(actor, result.Messages, lang, now)
 		page.Total = result.Total
 		page.SearchMode = true
 	}
@@ -962,7 +1068,7 @@ func (c *Controller) threadData(ctx *router.Ctx, conversationID string) (map[str
 	if err != nil {
 		return nil, err
 	}
-	data := c.view(ctx, "会话 | Conversation", map[string]any{
+	data := c.pageView(ctx, "会话 | Conversation", map[string]any{
 		"ActiveConversation": active,
 		"Thread":             c.messageViewsOf(actor, messages, lang, time.Now().UTC()),
 		"Catalog":            catalog,
@@ -972,6 +1078,22 @@ func (c *Controller) threadData(ctx *router.Ctx, conversationID string) (map[str
 		"ActorID":            actor.ID,
 	})
 	return data, nil
+}
+
+// historyData 只构造历史消息片段的数据：实时刷新不需要会话标题、撰写目录、能力标记或外壳数据，
+// 因此这里既不调用 threadData 的完整装配，也不触发 view 的外壳查询。
+// historyData builds only the data of the history fragment: a realtime refresh needs neither the conversation
+// header, the compose catalogue, the capability flags nor the shell data, so it never runs threadData's full
+// assembly or view's shell queries.
+func (c *Controller) historyData(ctx *router.Ctx, conversationID string) (map[string]any, error) {
+	actor := c.messageActor(ctx)
+	messages, err := c.messages.ConversationMessages(ctx.Request.Context(), actor, conversationID)
+	if err != nil {
+		return nil, err
+	}
+	return c.pageView(ctx, "会话 | Conversation", map[string]any{
+		"Thread": c.messageViewsOf(actor, messages, c.lang(ctx), time.Now().UTC()),
+	}), nil
 }
 
 // catalogData converts the active catalogue. | catalogData 转换生效目录。
@@ -989,7 +1111,7 @@ func (c *Controller) catalogData(ctx *router.Ctx, actor messaging.Actor) (catalo
 
 // messageUnavailable renders the message centre with its unavailable notice. | messageUnavailable 渲染带不可用提示的消息中心。
 func (c *Controller) messageUnavailable(ctx *router.Ctx) {
-	data := c.view(ctx, "消息中心 | Messages", map[string]any{"Unavailable": true})
+	data := c.pageView(ctx, "消息中心 | Messages", map[string]any{"Unavailable": true})
 	c.render(ctx, http.StatusServiceUnavailable, TplMessages, data)
 }
 

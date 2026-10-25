@@ -8,6 +8,7 @@ import (
 	"html/template"
 	"strings"
 	"time"
+	"unicode"
 	"unicode/utf8"
 
 	"{{ .Module }}/internal/middleware"
@@ -24,8 +25,14 @@ var (
 	messagePageStyles = []string{
 		"/static/js/vendor/easymde.min.css",
 	}
+	// EasyMDE 不再随页面自动加载：它是消息页最大的一件资产（约 320 KB），而多数访问只是阅读。
+	// 编辑器包装元素通过 data-yd-editor-vendor 声明地址，yd-message-editor.js 在首次聚焦或打开抽屉时
+	// 再同源加载；文本域在此期间保持可用，草稿不会丢。
+	// EasyMDE is no longer loaded with the page: it is the message page's largest asset (about 320 KB) and most
+	// visits only read. The editor wrapper declares its URL through data-yd-editor-vendor, and
+	// yd-message-editor.js loads it same-origin on first focus or when a drawer opens; the textarea stays usable
+	// meanwhile, so no draft is lost.
 	messagePageScripts = []string{
-		"/static/js/vendor/easymde.min.js",
 		"/static/js/yd-message-editor.js",
 		"/static/js/yd-message.js",
 	}
@@ -330,16 +337,51 @@ func initialOf(value string) string {
 }
 
 // previewOf collapses whitespace and truncates by runes. | previewOf 折叠空白并按符文截断。
+//
+// 一次扫描完成折叠与截断：旧实现先 Fields/Join 造一份中间字符串，再把它整体转成 []rune，
+// 一条几 KB 的消息因此会临时分配数万个字节，而摘要最多只要 limit 个符文。
+// One pass folds and truncates: the old implementation built an intermediate string with Fields/Join and then
+// converted the whole thing to []rune, so a multi-KB message allocated tens of KB for a teaser of at most limit runes.
 func previewOf(value string, limit int) string {
-	value = strings.Join(strings.Fields(value), " ")
-	if limit <= 0 {
-		return value
+	var b strings.Builder
+	if limit > 0 && len(value) > limit*4 {
+		b.Grow(limit*4 + 3)
+	} else {
+		b.Grow(len(value))
 	}
-	runes := []rune(value)
-	if len(runes) <= limit {
-		return value
+	written := 0
+	space := false
+	truncated := false
+	for _, r := range value {
+		if unicode.IsSpace(r) {
+			if written == 0 || space {
+				continue
+			}
+			if limit > 0 && written >= limit {
+				truncated = true
+				break
+			}
+			b.WriteByte(' ')
+			written++
+			space = true
+			continue
+		}
+		if limit > 0 && written >= limit {
+			truncated = true
+			break
+		}
+		b.WriteRune(r)
+		written++
+		space = false
 	}
-	return string(runes[:limit]) + "…"
+	out := b.String()
+	if space && len(out) > 0 {
+		out = strings.TrimRight(out, " ")
+	}
+	if truncated {
+		out += "…"
+	}
+	return out
 }
 
 // formatWhen renders a UTC timestamp in the page's fixed list format. | formatWhen 以列表固定格式渲染 UTC 时间戳。

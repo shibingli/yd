@@ -27,6 +27,7 @@ package main
 
 import (
 	"context"
+	"net/http"
 	"os"
 	"os/signal"
 	"strings"
@@ -41,6 +42,7 @@ import (
 	"{{ .YdxModule }}/i18n"
 	ydlog "{{ .YdxModule }}/log"
 	ydmw "{{ .YdxModule }}/middleware"
+	ydrouter "{{ .YdxModule }}/router"
 	"{{ .YdModule }}/runtime/service"
 )
 
@@ -178,8 +180,9 @@ func assemble(log *ydlog.Logger) (*app.App, error) {
 
 	// 中间件顺序与 app.Default 保持一致（恢复 → 请求 ID → 访问日志 → 压缩 → CORS），
 	// 其后追加本项目的补充中间件：顺序即执行顺序，安全头必须在最外层之外尽早生效。
-	// The middleware order matches app.Default (recover → request id → access log → compress → CORS) with this
-	// project's extras appended: the order is the execution order, and security headers should land as early as possible.
+	// The middleware order matches app.Default (recover → request id → access log → compress → CORS)
+	// with this project's extras appended: the order is the execution order, and security headers should land as early
+	// as possible; the static cache joins last so it can write the final Vary header.
 	// 每个内建中间件都经 UseObserved 同时登记运行时描述符：首页的中间件卡片因此开箱即有数据，
 	// 自定义中间件也可以走同一条路径加入，而不必修改框架。
 	// Every built-in middleware registers its runtime descriptor through UseObserved, so the home middleware card
@@ -190,6 +193,17 @@ func assemble(log *ydlog.Logger) (*app.App, error) {
 	application.UseObserved(middleware.MetricsDescriptor("compress"), ydmw.Compress(ydmw.CompressOptions{}))
 	application.UseObserved(middleware.MetricsDescriptor("cors"), ydmw.CORS(ydmw.CORSOptions{}))
 	application.UseObserved(middleware.MetricsDescriptor("security"), middleware.Security())
+
+	// 共享脚本 bundle 由 web 包在启动时按外壳顺序拼好；生产期页面只请求这一份，开发期与组装失败时
+	// 回退到逐脚本。先登记精确路由，静态通配路由随后兜底。
+	// The shared script bundle is assembled by the web package at startup in shell order; production pages
+	// request this single file, while development and any failed assembly fall back to the individual scripts.
+	// The exact route registers first and the static wildcard serves everything else.
+	if meta.IsProduction() {
+		if data, _ := web.Bundle(); len(data) > 0 {
+			application.GET("/static/js/yd-bundle.js", bundledScripts(data, log))
+		}
+	}
 
 	// 静态资源前缀与框架默认值一致；web.Static 已合并框架 vendor 脚本与本项目样式。
 	// The static prefix matches the framework default; web.Static has already merged the framework's vendored scripts with this project's styles.
@@ -202,10 +216,41 @@ func assemble(log *ydlog.Logger) (*app.App, error) {
 		return nil, err
 	}
 
+	// 静态缓存最后登记：i18n 会重写 Vary，先登记会让静态资源丢掉 Accept-Encoding；
+	// 作为最内层全局中间件，它在路由处理器之前落头，压缩仍由外层中间件完成。 |
+	// The static cache registers last: i18n rewrites Vary, so an earlier registration would make static assets
+	// lose Accept-Encoding. As the innermost global middleware it writes the headers right before the route
+	// handler; compression still happens in the outer middleware.
+	application.UseObserved(app.StaticCacheDescriptor, application.StaticCache())
+
 	if err := router.Register(application); err != nil {
 		return nil, err
 	}
 	return application, nil
+}
+
+// bundledScripts returns the handler that serves the shared script bundle assembled at startup. | bundledScripts 返回启动时拼好的共享脚本 bundle 的处理器。
+//
+// 响应内容已在 web.Bundle 里按外壳顺序拼接并做过哈希，这里只负责一次写出：显式声明 JavaScript 类型并禁止嗅探，
+// 缓存由静态缓存中间件按内容哈希给出一年的 immutable。写出失败（客户端提前断开）只记 Warn，不改变已发出的状态码。
+// The response is already concatenated in shell order and hashed by web.Bundle, so this only writes it once: it
+// declares the JavaScript type explicitly and forbids sniffing, while the static cache middleware grants a one-year
+// immutable cache keyed by the content hash. A write failure (the client disconnected early) is only logged as a
+// warning because the status line has already been sent.
+//
+// @Summary Shared script bundle | 共享脚本 bundle
+// @Description Returns every shared script in shell order in one production response; the URL carries a content hash and is cacheable long-term. | 生产期按外壳顺序一次返回全部共享脚本；地址带内容哈希，可长期缓存。
+// @Tags static
+// @Produce javascript
+// @Success 200 {string} string "concatenated scripts | 拼接后的脚本"
+// @Router /static/js/yd-bundle.js [get]
+func bundledScripts(data []byte, log *ydlog.Logger) ydrouter.HandlerFunc {
+	return func(c *ydrouter.Ctx) {
+		c.SetHeader("X-Content-Type-Options", "nosniff")
+		if err := c.Blob(http.StatusOK, "text/javascript; charset=utf-8", data); err != nil {
+			log.Warn("script bundle write failed | 脚本 bundle 写出失败", ydlog.Err(err))
+		}
+	}
 }
 
 // registerI18n loads the catalogues from the asset tree and mounts the locale middleware. | registerI18n 从资产树加载语言目录并挂上语言解析中间件。

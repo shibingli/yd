@@ -72,8 +72,13 @@
 
       <div id="yd-conversations-panel" class="yd-msg-panel" role="tabpanel" data-yd-msg-panel="conversations"
            {{ if .CanSend }}aria-labelledby="yd-tab-conversations"{{ else }}aria-label="{{ tr "message.conversations" }}"{{ end }}>
+        {{/* 检索只换右侧主面板：会话栏、置顶条与联系人面板不参与交换，服务端也不必为每次按键重载它们。
+             清空检索词时服务端以 HX-Retarget 退回整块工作区，恢复线程或欢迎页。
+             Search swaps the right-hand pane only: the rail, pinned strip and contacts panel are left untouched, and
+             the server no longer reloads them on every keystroke. When the query is cleared the server answers with
+             HX-Retarget so the whole workspace is restored, bringing back the thread or the welcome panel. */}}
         <form class="yd-msg-search" role="search" method="get" action="/messages"
-              hx-get="/messages" hx-target="#yd-workspace" hx-swap="innerMorph" hx-push-url="true"
+              hx-get="/messages" hx-target="#yd-msg-main" hx-swap="innerMorph" hx-replace-url="true"
               hx-trigger="input changed delay:350ms from:#yd-message-q, change from:#yd-message-folder, change from:#yd-message-type, change from:#yd-message-tag, submit">
           <div class="yd-msg-search__row">
             <label class="sr-only" for="yd-message-q">{{ tr "message.search_label" }}</label>
@@ -142,7 +147,7 @@
       {{- end }}
     </aside>
 
-    <section class="yd-msg-main" aria-label="{{ tr "page.messages.title" }}">
+    <section class="yd-msg-main" id="yd-msg-main" aria-label="{{ tr "page.messages.title" }}">
       {{- if .SearchMode }}
         {{ template "portal/partials/messages/search" . }}
       {{- else if .ActiveConversation }}

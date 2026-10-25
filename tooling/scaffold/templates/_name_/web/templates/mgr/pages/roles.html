@@ -16,7 +16,8 @@
     * 冲突：409（内置角色不可删除）走同一条路径。
     * conflict: 409 (a built-in role cannot be deleted) takes the same path.
 
-  数据契约 | Data contract: .Roles .Catalogue .Total .Empty，加上 authz.Data 注入的 .Perm——新建表单按
+  数据契约 | Data contract: .Roles .Catalogue .Total .Empty .Page .PageCount .Pages .PrevHref .NextHref，
+  加上 authz.Data 注入的 .Perm——新建表单按
   can .Perm.RoleManage 出现（POST /roles），去权限矩阵的入口按 can .Perm.RoleRead 出现（GET /roles 自身
   与 /permissions 各由 role:read 与 permission:read 守卫）。
   .Roles .Catalogue .Total .Empty, plus the .Perm map injected by authz.Data: the create form appears under
@@ -46,6 +47,15 @@
     <h2 class="sr-only" id="yd-roles-list-title">{{ tr "page.roles.table_title" }}</h2>
     {{ template "mgr/partials/roles/list" . }}
   </section>
+
+  {{- if .Pages }}
+  <div class="yd-section" hx-boost="true" hx-target="#yd-workspace" hx-swap="innerMorph" hx-push-url="true">
+    {{ template "components.navigation.pagination" (dict
+      "Label" (tr "page.roles.title")
+      "Summary" (tr "ui.page_summary" .Page .PageCount)
+      "PrevHref" .PrevHref "NextHref" .NextHref "Pages" .Pages) }}
+  </div>
+  {{- end }}
 
   <p class="yd-hint">{{ tr "page.roles.create_hint" }}</p>
 </section>

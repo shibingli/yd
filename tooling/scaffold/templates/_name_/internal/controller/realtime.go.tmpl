@@ -47,7 +47,7 @@ const (
 // @Security BearerAuth
 // @Router /realtime [get]
 func (c *Controller) Page(ctx *router.Ctx) {
-	c.render(ctx, http.StatusOK, TplRealtime, c.view(ctx, "实时推送 | Realtime", map[string]any{
+	c.render(ctx, http.StatusOK, TplRealtime, c.pageView(ctx, "实时推送 | Realtime", map[string]any{
 		"Topic":    service.EventsTopic,
 		"Target":   service.ClockTarget,
 		"Swap":     service.ClockSwap,

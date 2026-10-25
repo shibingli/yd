@@ -104,6 +104,9 @@ type view struct {
 
 	Features       []string
 	HtmxExtScripts []string
+	// BundleScripts is the ordered shared-script list baked into web/bundle_generated.go. |
+	// BundleScripts 是写入 web/bundle_generated.go 的共享脚本顺序。
+	BundleScripts []string
 
 	// feature switches | 特性开关
 	GRPC     bool
@@ -158,7 +161,26 @@ func newView(o Options) view {
 		DBDSN:           dsnFor(o.DB, o.Name),
 		Features:        featuresOf(o),
 		HtmxExtScripts:  extScripts(o.HtmxExts),
+		BundleScripts:   bundleScriptsFor(o.HtmxExts),
 	}
+}
+
+// bundleScriptsFor returns the shared scripts in the exact order base.html loads them. |
+// bundleScriptsFor 按 base.html 的装载顺序返回共享脚本。
+func bundleScriptsFor(exts []string) []string {
+	scripts := make([]string, 0, 4+len(exts)+8)
+	scripts = append(scripts, "/static/js/vendor/htmx.min.js")
+	scripts = append(scripts, extScripts(exts)...)
+	scripts = append(scripts,
+		"/static/js/yd-ui.js",
+		"/static/js/vendor/alpine.min.js",
+		"/static/js/yd-guomi.js",
+		"/static/js/yd-guomi-htmx.js",
+		"/static/js/yd-authz.js",
+		"/static/js/yd-progress.js",
+		"/static/js/yd-app.js",
+	)
+	return scripts
 }
 
 // ydxReplace is one local ydx replacement in a generated go.mod. | ydxReplace 是生成 go.mod 中的一条 ydx 本地替换。

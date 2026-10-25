@@ -14,6 +14,7 @@ import (
 	"errors"
 	"html/template"
 	"net/http"
+	"strconv"
 	"strings"
 
 	"{{ .Module }}/internal/meta"
@@ -21,6 +22,7 @@ import (
 	"{{ .Module }}/internal/model"
 	"{{ .Module }}/internal/repository"
 	"{{ .Module }}/internal/service"
+	"{{ .Module }}/web"
 	"{{ .YdxModule }}/errs"
 	ydlog "{{ .YdxModule }}/log"
 	"{{ .YdModule }}/http/htmx"
@@ -181,8 +183,8 @@ const (
 // 分页与列表上限：内存仓储一次返回全部记录，这里只作为渲染护栏。
 // Paging and list bounds: the in-memory store returns every record at once and this only guards the render.
 const (
-	// defaultPageSize caps the rows rendered on one screen. | defaultPageSize 是一屏展示的记录条数上限。
-	defaultPageSize = 200
+	// defaultPageSize is the number of rows on one admin list page. | defaultPageSize 是管理列表一页的行数。
+	defaultPageSize = 20
 	// maxFormFieldLen caps one form field so oversized input never reaches the business layer. | maxFormFieldLen 限制单个表单字段的长度，避免超长输入进入业务层。
 	maxFormFieldLen = 256
 )
@@ -312,6 +314,12 @@ type Controller struct {
 	i18n *i18n.Bundle
 	// log records assembly and business events. | log 记录装配与业务事件。
 	log *ydlog.Logger
+	// metricsCache 让同一条推送节拍内的多个指标连接共享一次快照与一次渲染。
+	// metricsCache lets the metrics connections of one push tick share a single snapshot and render.
+	metricsCache metricsFragmentCache
+	// bundleURL 是共享脚本 bundle 的地址；为空表示外壳回退到逐脚本标签。
+	// bundleURL is the shared script bundle URL; empty means the shell falls back to individual script tags.
+	bundleURL string
 }
 
 // New 装配控制器：业务服务在这里一次性构造，彼此共享同一个 Store 与同一个 AuthService。
@@ -368,6 +376,7 @@ func New(a *app.App, store *repository.Store, log *ydlog.Logger) (*Controller, e
 		hub:        hub,
 		i18n:       bundle,
 		log:        log,
+		bundleURL:  web.BundleURL(),
 	}, nil
 }
 
@@ -558,6 +567,25 @@ func (c *Controller) Deny(ctx *router.Ctx, err error) {
 // .User is a genuine nil when nobody is signed in rather than an interface holding a nil pointer, which is what makes
 // {{ "{{ if .User }}" }} behave as written in the templates.
 func (c *Controller) view(ctx *router.Ctx, title string, extra map[string]any) map[string]any {
+	return c.renderData(ctx, title, extra, true)
+}
+
+// pageView 为「可能返回片段」的处理器选择数据深度：htmx 工作区片段跳过只属于外壳的查询，整页请求与
+// 整块外壳请求仍拿到完整数据。
+// pageView chooses the data depth for handlers that may answer with a fragment: an htmx workspace fragment skips
+// the shell-only lookups, while a whole-page request and a shell swap still receive the full data.
+func (c *Controller) pageView(ctx *router.Ctx, title string, extra map[string]any) map[string]any {
+	return c.renderData(ctx, title, extra, !htmx.IsPartial(ctx.Request) || isShellTarget(ctx.Request))
+}
+
+// renderData 是 view 与 pageView 的共同实现。full 为 false 时省掉的四项都只服务外壳：
+// 重新读取用户、租户成员关系、当前租户记录与未读汇总；片段模板用不到它们，却会因此为每次局部刷新
+// 付出十余次查询（种子管理员的 SeedPassword 检查还包含一次口令散列校验）。
+// renderData is the shared implementation of view and pageView. With full false it omits the four
+// shell-only jobs: re-reading the user, the tenant memberships, the current tenant record and the unread summary.
+// Fragment templates never read them, yet every partial refresh would otherwise pay a dozen queries — and for the
+// seeded administrator the SeedPassword check adds a password-hash verification on top.
+func (c *Controller) renderData(ctx *router.Ctx, title string, extra map[string]any, full bool) map[string]any {
 	data := map[string]any{
 		"Title":            title,
 		"Name":             meta.Name,
@@ -569,6 +597,7 @@ func (c *Controller) view(ctx *router.Ctx, title string, extra map[string]any) m
 		"TailwindVersion":  meta.TailwindVersion,
 		"Features":         meta.Features,
 		"Scripts":          meta.HtmxExtScripts,
+		"BundleURL":        c.bundleURL,
 		"Path":             ctx.Path(),
 		"PublicKey":        c.PublicKey(),
 		"KeyEndpoint":      PubkeyPath,
@@ -606,7 +635,7 @@ func (c *Controller) view(ctx *router.Ctx, title string, extra map[string]any) m
 	// context was loaded when this request was verified. Re-reading the user for the active
 	// tenant before each render keeps the default marker and the top-right dropdown current;
 	// a failed read keeps the token view, so one store hiccup never fails the render.
-	if user != nil {
+	if full && user != nil {
 		if tenantID, ok := middleware.TenantID(ctx); ok {
 			if fresh, err := c.store.Auth().GetUser(ctx.Request.Context(), tenantID, user.ID); err == nil {
 				user = fresh
@@ -626,7 +655,14 @@ func (c *Controller) view(ctx *router.Ctx, title string, extra map[string]any) m
 	if !ok {
 		subject = authz.NewSubject(c.Auth(), user)
 	}
-	for k, v := range authz.Data(subject) {
+	// A fragment never renders the shell and therefore never uses the inline .AuthzJSON: take the authority and
+	// the two name maps only, skipping one JSON serialisation on every partial refresh. | 片段从不渲染外壳，
+	// 也就从不使用内联的 .AuthzJSON：只取判定主体与两张名字表，省掉每次局部刷新都要做的一次 JSON 序列化。
+	authzData := authz.TemplateData(subject)
+	if full {
+		authzData = authz.Data(subject)
+	}
+	for k, v := range authzData {
 		data[k] = v
 	}
 
@@ -643,15 +679,23 @@ func (c *Controller) view(ctx *router.Ctx, title string, extra map[string]any) m
 	data["SignedIn"] = true
 	data["DefaultTenantID"] = user.DefaultTenantID
 	data["Permissions"] = c.auth.Permissions(user)
-	data["SeedPassword"] = c.auth.SeedPasswordUnchanged(user)
 
-	// 右上角的租户下拉读的就是这份成员清单：只有成员租户才会出现在里面，切换服务端再校验一次。
-	// The top-right tenant dropdown reads exactly this membership list: only tenants the user
-	// belongs to appear, and the switch endpoint verifies the membership again server-side.
-	if members, err := c.users.Tenants(ctx.Request.Context(), user.ID); err == nil {
-		data["Tenants"] = members
-	} else {
-		c.log.Warn("tenant memberships unavailable | 租户成员关系不可用", ydlog.Err(err), ydlog.Str("user", user.ID))
+	// 以下四项只被整页外壳（侧栏、顶栏）与首页/账号页使用：片段模板不读它们，局部刷新因此不必付出
+	// 用户重读、租户列表、租户记录、未读汇总与种子口令校验的代价。
+	// The four blocks below serve only the whole-page shell (rail, top bar) and the home/account pages. Fragment
+	// templates never read them, so a partial refresh need not pay for the user re-read, tenant list, tenant
+	// record, unread summary or seed-password verification.
+	if full {
+		data["SeedPassword"] = c.auth.SeedPasswordUnchanged(user)
+
+		// 右上角的租户下拉读的就是这份成员清单：只有成员租户才会出现在里面，切换服务端再校验一次。
+		// The top-right tenant dropdown reads exactly this membership list: only tenants the user
+		// belongs to appear, and the switch endpoint verifies the membership again server-side.
+		if members, err := c.users.Tenants(ctx.Request.Context(), user.ID); err == nil {
+			data["Tenants"] = members
+		} else {
+			c.log.Warn("tenant memberships unavailable | 租户成员关系不可用", ydlog.Err(err), ydlog.Str("user", user.ID))
+		}
 	}
 
 	// 模板不再需要「能不能写用户」这类布尔值：判断改由 can/hasRole 与 .Perm 数据键完成，
@@ -662,15 +706,19 @@ func (c *Controller) view(ctx *router.Ctx, title string, extra map[string]any) m
 
 	if tenantID, ok := middleware.TenantID(ctx); ok {
 		data["TenantID"] = tenantID
-		if tenant, err := c.tenants.Get(ctx.Request.Context(), tenantID); err == nil {
-			data["Tenant"] = tenant
+		if full {
+			if tenant, err := c.tenants.Get(ctx.Request.Context(), tenantID); err == nil {
+				data["Tenant"] = tenant
+			}
 		}
 	}
 
-	// 未读徽标在每个登录页渲染：消息中心不可用时保持零值，且绝不因为它拖垮整页渲染。
-	// The unread badge is rendered on every signed-in page: when the centre is unavailable it stays zero, and it must
-	// never take the whole page down.
-	if c.MessagesAvailable() {
+	// 未读徽标在每个登录整页渲染：消息中心不可用时保持零值，且绝不因为它拖垮整页渲染。片段的角标由
+	// WebSocket 推送的 TplUnreadFrames 单独渲染，因此这里只在整页请求时查询。
+	// The unread badge renders on every signed-in whole page: when the centre is unavailable it stays zero, and it
+	// must never take the whole page down. Fragment badges are rendered separately from the WebSocket's
+	// TplUnreadFrames, so the summary is queried only for a whole-page request.
+	if full && c.MessagesAvailable() {
 		if summary, err := c.messages.Unread(ctx.Request.Context(), c.messageActor(ctx)); err == nil {
 			data["Unread"] = summary
 		} else {
@@ -681,6 +729,71 @@ func (c *Controller) view(ctx *router.Ctx, title string, extra map[string]any) m
 		data["MessageError"] = c.messageErr.Error()
 	}
 	return data
+}
+
+// pageNumber reads the 1-based page query and falls back to one when it is absent or invalid. | pageNumber 读取从 1 开始的页码，非法或缺失时回到第一页。
+func pageNumber(ctx *router.Ctx) int {
+	page, err := strconv.Atoi(strings.TrimSpace(ctx.Query("page")))
+	if err != nil || page < 1 {
+		return 1
+	}
+	return page
+}
+
+// pageBounds 把总行数、页码与页长归一化为页码、页数以及切片起止下标。 |
+// pageBounds normalises total, page and page size into the current page, page count and slice bounds.
+func pageBounds(total, page, pageSize int) (current, pages, start, end int) {
+	if pageSize <= 0 {
+		pageSize = defaultPageSize
+	}
+	pages = (total + pageSize - 1) / pageSize
+	if pages < 1 {
+		pages = 1
+	}
+	if page < 1 {
+		page = 1
+	}
+	if page > pages {
+		page = pages
+	}
+	start = (page - 1) * pageSize
+	end = start + pageSize
+	if end > total {
+		end = total
+	}
+	return page, pages, start, end
+}
+
+// pageLinks 构造分页窗口：首页、末页与当前页前后各一页，中间以省略号连接。
+// pageLinks builds the pager window: first, last and one page around the current page, with ellipses in between.
+func pageLinks(total, page, pageSize int, href func(int) string) (pages []map[string]any, prevHref, nextHref string) {
+	current, count, _, _ := pageBounds(total, page, pageSize)
+	if count <= 1 {
+		return nil, "", ""
+	}
+	if current > 1 {
+		prevHref = href(current - 1)
+	}
+	if current < count {
+		nextHref = href(current + 1)
+	}
+	numbers := make([]int, 0, 5)
+	for n := 1; n <= count; n++ {
+		if n == 1 || n == count || (n >= current-1 && n <= current+1) {
+			numbers = append(numbers, n)
+		}
+	}
+	for i, n := range numbers {
+		if i > 0 && n-numbers[i-1] > 1 {
+			pages = append(pages, map[string]any{"Ellipsis": true})
+		}
+		pages = append(pages, map[string]any{
+			"Number":  n,
+			"Href":    href(n),
+			"Current": n == current,
+		})
+	}
+	return pages, prevHref, nextHref
 }
 
 // lang 返回请求语言；i18n 未装配时回退到 meta.DefaultLang，页面 lang 属性因此永不为空。

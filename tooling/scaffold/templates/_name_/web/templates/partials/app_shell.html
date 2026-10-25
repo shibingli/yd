@@ -34,7 +34,12 @@
 
   <div id="yd-errors" class="yd-errors" role="alert" aria-live="assertive" data-yd-errors-outlet></div>
 
-  <main id="yd-workspace" class="yd-workspace" tabindex="-1" data-yd-workspace>{{ .Content }}</main>
+  {{/* hx-history-elt 让 hx-history-cache 只快照工作区：整页 body（含 50 条会话消息与外壳）不再写入
+       sessionStorage，前进/后退恢复的也正是随 htmx 变化的那一块。 |
+       hx-history-elt limits hx-history-cache snapshots to the workspace: the whole body (with a 50-message
+       thread and the shell) no longer goes into sessionStorage, and back/forward restores exactly the part
+       htmx changes. */}}
+  <main id="yd-workspace" class="yd-workspace" tabindex="-1" data-yd-workspace hx-history-elt>{{ .Content }}</main>
 
   {{ template "partials/flash" . }}
 

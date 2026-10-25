@@ -49,7 +49,16 @@ func (c *Controller) ManagementHome(ctx *router.Ctx) {
 		return
 	}
 
-	users, err := c.users.List(ctx.Request.Context(), tenantID, "")
+	// 概览只需要最近五条与一个计数：过去为这两项加载整份用户名册并转换全部行，
+	// 租户越大首页越慢。两个专用查询分别走 LIMIT 与 COUNT。
+	// The overview needs only the five newest rows and a count: it used to load the whole roster and convert every
+	// row for both, so the page slowed down with tenant size. Two dedicated queries now use LIMIT and COUNT.
+	users, err := c.users.Recent(ctx.Request.Context(), tenantID, recentLimit)
+	if err != nil {
+		c.failService(ctx, err)
+		return
+	}
+	userCount, err := c.users.Count(ctx.Request.Context(), tenantID)
 	if err != nil {
 		c.failService(ctx, err)
 		return
@@ -64,8 +73,8 @@ func (c *Controller) ManagementHome(ctx *router.Ctx) {
 	// instant. | 一次 provider 快照同时供给两张卡片，因此仪表盘与中间件表描述的是同一时刻。
 	snapshot := c.provider.Snapshot()
 	c.render(ctx, http.StatusOK, TplManagementHome, c.view(ctx, "概览 | Overview", map[string]any{
-		"Users":      head(users, recentLimit),
-		"UserCount":  len(users),
+		"Users":      users,
+		"UserCount":  userCount,
 		"RoleCount":  len(roles),
 		"Permission": len(model.PermissionKeys()),
 		"Gauges":     c.metricGauges(snapshot.System),
@@ -96,7 +105,7 @@ func (c *Controller) Metrics(ctx *router.Ctx) {
 	// The system gauges come from the same provider as the middleware table; the display is unchanged,
 	// but the handler no longer knows about the concrete sampler. | 系统仪表盘与中间件表来自同一个 provider；
 	// 显示不变，但处理器不再依赖具体采样器。
-	c.render(ctx, http.StatusOK, TplMetrics, c.view(ctx, "资源指标 | Metrics", map[string]any{
+	c.render(ctx, http.StatusOK, TplMetrics, c.pageView(ctx, "资源指标 | Metrics", map[string]any{
 		"Gauges": c.metricGauges(c.provider.Snapshot().System),
 	}))
 }
@@ -306,13 +315,4 @@ func placeholderPNG(seed string) ([]byte, error) {
 		return nil, errs.Wrap(err, ErrPlaceholder)
 	}
 	return buf.Bytes(), nil
-}
-
-// head 截取列表的前 n 条，列表更短时原样返回。
-// head returns the first n records of a list and the list itself when it is shorter.
-func head(list []model.User, n int) []model.User {
-	if n <= 0 || len(list) <= n {
-		return list
-	}
-	return list[:n]
 }

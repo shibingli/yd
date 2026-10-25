@@ -549,6 +549,26 @@
     refreshConnection();
   }
 
+  /* quietSwapTarget 报告一次交换是否只替换了未读角标。一条实时事件会推四个角标片段，每个片段都会
+     触发 afterSwap；角标既不改变地址、侧栏、页面资产，也不改变连接状态，外壳级同步因此可以跳过，
+     否则每事件要做四遍全文档扫描。 | quietSwapTarget reports whether a swap only replaced an unread badge.
+     One realtime event pushes four badge fragments and each fires afterSwap; a badge changes neither the URL, the
+     rail, the page assets nor the connection state, so the shell-wide synchronisation can be skipped. Otherwise one
+     event costs four whole-document scans. */
+  function quietSwapTarget(event) {
+    var detail = (event && event.detail) || {};
+    var ctx = detail.ctx || {};
+    var target = ctx.target || detail.target;
+    if (!target || target.nodeType !== 1) {
+      return false;
+    }
+    var id = target.id;
+    return id === "yd-unread-badge" ||
+      id === "yd-unread-menu-badge" ||
+      id === "yd-sidebar-unread" ||
+      id === "yd-sidebar-friend-requests";
+  }
+
   /* pruneRealtime 清掉已被交换移除的元素状态，再重绘聚合结果。 | pruneRealtime drops state for elements a swap
      removed, then repaints the aggregate. */
   function pruneRealtime() {
@@ -909,13 +929,24 @@
      event without content arrives here. This layer only re-dispatches it as a DOM event; yd-message.js on the message
      pages decides whether to refetch the thread or the conversation list, so the glue keeps no business logic. */
   ["htmx:after:swap", "htmx:afterSwap"].forEach(function (name) {
-    document.addEventListener(name, scheduleServerNotices);
+    document.addEventListener(name, function (event) {
+      if (!quietSwapTarget(event)) {
+        scheduleServerNotices();
+      }
+    });
   });
   scheduleServerNotices();
 
   document.addEventListener("htmx:ws:after:message:incoming", function (event) {
     var message = event.detail && event.detail.message;
     if (!message || typeof message.json !== "function") {
+      return;
+    }
+    /* 角标推送是 htmx 片段而不是 JSON：先看首字节，避免对每个片段都发起一次注定失败的 JSON 解析。
+       Badge pushes are htmx fragments, not JSON: checking the first byte avoids a JSON parse that is bound to fail
+       for every fragment. */
+    var raw = typeof message.data === "string" ? message.data.replace(/^\s+/, "") : "";
+    if (raw.charAt(0) !== "{") {
       return;
     }
     message.json().then(function (payload) {
@@ -960,7 +991,11 @@
   /* 换入新内容后把状态徽标恢复成追踪到的连接状态：新片段只带 idle 初值，直接照它显示会让在线用户看到「已断开」。
      After new content is swapped in the badge is brought back in line with the tracked connection state: a fresh
      fragment only carries the idle default and showing that verbatim would tell a connected user they are offline. */
-  document.addEventListener("htmx:after:swap", pruneRealtime);
+  document.addEventListener("htmx:after:swap", function (event) {
+    if (!quietSwapTarget(event)) {
+      pruneRealtime();
+    }
+  });
 
   /* 抽屉式侧栏：64rem 以下由顶栏按钮打开，遮罩、Esc 与导航点击关闭。
      Off-canvas rail: opened by the topbar button below 64rem, closed by the scrim, Escape or a nav click. */
@@ -1049,6 +1084,9 @@
 
   ["htmx:after:swap", "htmx:afterSwap"].forEach(function (name) {
     document.addEventListener(name, function (event) {
+      if (quietSwapTarget(event)) {
+        return;
+      }
       var detail = (event && event.detail) || {};
       var ctx = detail.ctx || {};
       var target = ctx.target || detail.target || null;
@@ -1180,16 +1218,13 @@
       return !document.querySelector('script[src="' + src + '"]');
     });
     if (!pending.length) {
-      if (yd.messageEditor) {
-        yd.messageEditor.init(document);
-      }
+      // 编辑器脚本自带 afterSwap 监听与加载时的初始化，这里不再重复扫描整个文档。 |
+      // The editor script owns both its afterSwap listener and its load-time initialisation, so this function
+      // no longer scans the whole document a second time.
       return;
     }
     function next(index) {
       if (index >= pending.length) {
-        if (yd.messageEditor) {
-          yd.messageEditor.init(document);
-        }
         return;
       }
       var script = document.createElement("script");
@@ -1202,9 +1237,17 @@
     }
     next(0);
   }
-  document.addEventListener("htmx:after:swap", function () { loadPageAssets(document); });
+  document.addEventListener("htmx:after:swap", function (event) {
+    if (!quietSwapTarget(event)) {
+      loadPageAssets(document);
+    }
+  });
   ["htmx:afterSwap"].forEach(function (name) {
-    document.addEventListener(name, function () { loadPageAssets(document); });
+    document.addEventListener(name, function (event) {
+      if (!quietSwapTarget(event)) {
+        loadPageAssets(document);
+      }
+    });
   });
   loadPageAssets(document);
 

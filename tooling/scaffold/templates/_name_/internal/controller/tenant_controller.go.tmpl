@@ -5,6 +5,8 @@ package controller
 
 import (
 	"net/http"
+	"net/url"
+	"strconv"
 	"strings"
 
 	"{{ .Module }}/internal/middleware"
@@ -50,7 +52,7 @@ func (c *Controller) Tenants(ctx *router.Ctx) {
 // @Security BearerAuth
 // @Router /mgr/tenants/new [get]
 func (c *Controller) NewTenantForm(ctx *router.Ctx) {
-	c.render(ctx, http.StatusOK, TplTenantCreateDrawer, c.view(ctx, "新建租户 | Create tenant", nil))
+	c.render(ctx, http.StatusOK, TplTenantCreateDrawer, c.pageView(ctx, "新建租户 | Create tenant", nil))
 }
 
 // CreateTenant 新建租户：slug 即 X-Tenant 请求头与子域名的取值，因此它与名称一起在业务层校验。
@@ -106,14 +108,29 @@ func (c *Controller) tenantsPage(ctx *router.Ctx, status int, keyword, message s
 		}
 		filtered = append(filtered, tenantRow{Tenant: tenant, Current: tenant.ID == currentTenantID(ctx)})
 	}
+	total := len(filtered)
+	currentPage, pageCountValue, start, end := pageBounds(total, pageNumber(ctx), defaultPageSize)
+	pages, prevHref, nextHref := pageLinks(total, currentPage, defaultPageSize, func(n int) string {
+		query := url.Values{}
+		if keyword != "" {
+			query.Set("q", keyword)
+		}
+		query.Set("page", strconv.Itoa(n))
+		return "/mgr/tenants?" + query.Encode()
+	})
 	if message != "" {
 		c.toast(ctx, message)
 	}
-	c.render(ctx, status, TplTenants, c.view(ctx, "租户管理 | Tenants", map[string]any{
-		"Rows":    filtered,
-		"Total":   len(filtered),
-		"Keyword": keyword,
-		"Empty":   len(filtered) == 0,
+	c.render(ctx, status, TplTenants, c.pageView(ctx, "租户管理 | Tenants", map[string]any{
+		"Rows":      filtered[start:end],
+		"Total":     total,
+		"Keyword":   keyword,
+		"Empty":     total == 0,
+		"Page":      currentPage,
+		"PageCount": pageCountValue,
+		"Pages":     pages,
+		"PrevHref":  prevHref,
+		"NextHref":  nextHref,
 	}))
 }
 

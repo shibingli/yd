@@ -139,6 +139,17 @@ func probeGet(t *testing.T, client *http.Client, target, token string) (*http.Re
 	return getText(t, client, target, probeAuthHeader(token))
 }
 
+// probeGetHX 发起带令牌与额外请求头的 GET（用于 htmx 片段）。 | probeGetHX performs an authorised GET with extra headers (for htmx fragments).
+func probeGetHX(t *testing.T, client *http.Client, target, token string, headers map[string]string) (*http.Response, string) {
+	t.Helper()
+
+	merged := probeAuthHeader(token)
+	for key, value := range headers {
+		merged[key] = value
+	}
+	return getText(t, client, target, merged)
+}
+
 // probePostJSON 以 JSON 载荷发起带令牌的 POST 请求。 | probePostJSON performs an authorised POST with a JSON payload.
 func probePostJSON(t *testing.T, client *http.Client, target, token string, payload any) (*http.Response, string) {
 	t.Helper()
@@ -934,6 +945,51 @@ func TestGeneratedAppMessageCentre(t *testing.T) {
 		}
 		if !strings.Contains(body, `data-yd-message-id`) {
 			t.Errorf("历史刷新片段缺少消息条目:\n%s", body)
+		}
+
+		// 增量刷新只返回锚点之后的新消息：锚点本身不得再次出现，更晚的消息必须在内。
+		// An incremental refresh returns only messages after the anchor: the anchor must not reappear and a newer
+		// message must be present.
+		resp, body = probeGet(t, admin, base+"/messages/"+conversation+"/history?after="+url.QueryEscape(firstMessage), adminToken)
+		requireProbeStatus(t, resp, body, http.StatusOK, "增量历史片段")
+		if strings.Contains(body, `data-yd-message-id="`+firstMessage+`"`) {
+			t.Errorf("增量历史重复了锚点消息 %s:\n%s", firstMessage, body)
+		}
+		if adminMessage != "" && !strings.Contains(body, `data-yd-message-id="`+adminMessage+`"`) {
+			t.Errorf("增量历史缺少锚点之后的消息 %s:\n%s", adminMessage, body)
+		}
+
+		// 失效锚点退回整段历史，并用 HX-Reswap 要求客户端替换而不是继续追加。
+		// An invalid anchor falls back to the full history and asks the client to replace instead of appending.
+		resp, body = probeGet(t, admin, base+"/messages/"+conversation+"/history?after=ms_missing", adminToken)
+		requireProbeStatus(t, resp, body, http.StatusOK, "失效锚点的历史片段")
+		if got := resp.Header.Get("HX-Reswap"); got != "innerMorph" {
+			t.Errorf("失效锚点的 HX-Reswap = %q, 期望 innerMorph", got)
+		}
+		if !strings.Contains(body, `data-yd-message-id="`+firstMessage+`"`) {
+			t.Errorf("失效锚点未退回整段历史:\n%s", body)
+		}
+
+		// 检索只换主面板：HX-Target 为 yd-msg-main 时服务端只渲染结果片段，会话栏与置顶条不参与本次响应。
+		// Search swaps only the main pane: when HX-Target is yd-msg-main the server renders the result fragment
+		// alone, and neither the conversation rail nor the pinned strip takes part in this response.
+		resp, body = probeGetHX(t, admin, base+"/messages?q="+url.QueryEscape(probeMessageToken), adminToken,
+			map[string]string{"HX-Request": "true", "HX-Target": "yd-msg-main"})
+		requireProbeStatus(t, resp, body, http.StatusOK, "检索片段")
+		if strings.Contains(body, `id="yd-conversation-list"`) {
+			t.Errorf("检索片段不应包含会话栏:\n%s", body)
+		}
+		if !strings.Contains(body, `id="yd-message-search-results"`) {
+			t.Errorf("检索片段缺少结果面板:\n%s", body)
+		}
+
+		// 清空检索词时用 HX-Retarget 退回工作区，线程或欢迎页由完整页面片段恢复。
+		// Clearing the query retargets the workspace, and the full page fragment restores the thread or welcome panel.
+		resp, body = probeGetHX(t, admin, base+"/messages?q=", adminToken,
+			map[string]string{"HX-Request": "true", "HX-Target": "yd-msg-main"})
+		requireProbeStatus(t, resp, body, http.StatusOK, "清空检索")
+		if got := resp.Header.Get("HX-Retarget"); got != "#yd-workspace" {
+			t.Errorf("清空检索的 HX-Retarget = %q, 期望 #yd-workspace", got)
 		}
 
 		// 公告频道使用同一套内联撰写区，但提交地址是管理员公告端点。

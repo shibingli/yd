@@ -35,6 +35,27 @@ const (
 // ErrMetricsRender reports a failed render of the unified metrics panel. | ErrMetricsRender 表示统一指标面板渲染失败。
 var ErrMetricsRender = errs.New("controller: metrics panel render failed | controller：指标面板渲染失败")
 
+// metricsFragmentCache 在同一个推送节拍内共享载荷：多个管理页连接不再各取一次快照、各渲染一次模板。
+// 缓存键是语言（目录不同则片段不同），有效期按五秒节拍对齐，因此陈旧上限不超过一个推送周期。
+// metricsFragmentCache shares one payload per push tick: several admin connections no longer each take a snapshot and
+// render the template. Entries are keyed by language (a different catalogue means a different fragment) and expire on
+// the five-second tick boundary, so staleness never exceeds one push interval.
+type metricsFragmentCache struct {
+	// mu serialises the check, snapshot and render, so a concurrent miss renders exactly once. | mu 串行化检查、快照与
+	// 渲染，使并发的未命中只渲染一次。
+	mu sync.Mutex
+	// frames holds the latest fragment per language. | frames 保存每种语言的最新片段。
+	frames map[string]metricsFrame
+}
+
+// metricsFrame is one cached metrics fragment and the tick it belongs to. | metricsFrame 是一份缓存的指标片段及其所属节拍。
+type metricsFrame struct {
+	// fragment is the rendered HTML. | fragment 是渲染后的 HTML。
+	fragment string
+	// bucket is the push-tick bucket (Unix seconds divided by the interval). | bucket 是推送节拍桶（Unix 秒除以周期）。
+	bucket int64
+}
+
 // MetricsSocket 构造指标推送端点：同一条 WebSocket 连接每 5 秒收到系统资源与中间件运行时两段片段。
 // MetricsSocket builds the metrics push endpoint: one WebSocket connection receives both the system-resource and
 // middleware-runtime fragments every five seconds.
@@ -93,7 +114,7 @@ func (c *Controller) pushMetrics(conn *websocket.Conn, translator *i18n.Translat
 	defer ticker.Stop()
 
 	send := func() bool {
-		fragment, err := c.renderLiveMetrics(translator)
+		fragment, err := c.renderLiveMetricsShared(translator)
 		if err != nil {
 			c.log.Warn("metrics panel render failed | 指标面板渲染失败", log.Err(err))
 			return true
@@ -130,6 +151,32 @@ func (c *Controller) pushMetrics(conn *websocket.Conn, translator *i18n.Translat
 			}
 		}
 	}
+}
+
+// renderLiveMetricsShared 返回本推送节拍的共享片段：同一语言在同一个五秒桶内只取一次快照、渲染一次。
+// 锁定范围覆盖快照与渲染，因此并发未命中也只会执行一次，而不是每个连接各执行一次。
+// renderLiveMetricsShared returns the fragment shared by this push tick: one language performs a single snapshot and
+// render per five-second bucket. The lock spans both, so concurrent misses execute once rather than once per connection.
+func (c *Controller) renderLiveMetricsShared(translator *i18n.Translator) (string, error) {
+	lang := ""
+	if translator != nil {
+		lang = translator.Lang()
+	}
+	bucket := time.Now().Unix() / int64(metricsPushInterval/time.Second)
+	c.metricsCache.mu.Lock()
+	defer c.metricsCache.mu.Unlock()
+	if frame, ok := c.metricsCache.frames[lang]; ok && frame.bucket == bucket {
+		return frame.fragment, nil
+	}
+	fragment, err := c.renderLiveMetrics(translator)
+	if err != nil {
+		return "", err
+	}
+	if c.metricsCache.frames == nil {
+		c.metricsCache.frames = make(map[string]metricsFrame, 2)
+	}
+	c.metricsCache.frames[lang] = metricsFrame{fragment: fragment, bucket: bucket}
+	return fragment, nil
 }
 
 // renderLiveMetrics 读取一次 Provider 快照并渲染两张卡片；系统资源与中间件因此描述同一时刻。

@@ -15,6 +15,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"slices"
+	"sort"
 	"strconv"
 	"strings"
 	"testing"
@@ -107,6 +108,7 @@ var requiredFiles = []string{
 	"internal/service/tenant.go",
 	"internal/service/user.go",
 	"web/assets.lock.json",
+	"web/bundle_generated.go",
 	"web/embed.go",
 	"web/i18n/en.yaml",
 	"web/i18n/zh-CN.yaml",
@@ -1873,6 +1875,15 @@ func TestGeneratedAppServesFrameworkFeatures(t *testing.T) {
 		if len(body) < 1000 || !strings.Contains(body, "htmx") {
 			t.Errorf("htmx.min.js 内容异常（长度 %d 字节）", len(body))
 		}
+		// 生成项目的中间件链必须自带静态缓存策略；开发期是 no-cache，并始终声明 Accept-Encoding。 |
+		// The generated middleware chain must carry the static cache policy; development revalidates and always
+		// declares Accept-Encoding.
+		if got := resp.Header.Get("Cache-Control"); got != "no-cache" {
+			t.Errorf("静态资源 Cache-Control = %q, 期望 no-cache", got)
+		}
+		if got := strings.Join(resp.Header.Values("Vary"), ","); !strings.Contains(got, "Accept-Encoding") {
+			t.Errorf("静态资源 Vary = %q, 期望包含 Accept-Encoding", got)
+		}
 	})
 
 	t.Run("SSE 推送时钟片段", func(t *testing.T) {
@@ -3262,6 +3273,17 @@ func withoutEnv(env []string, keys ...string) []string {
 func startGeneratedAppWithStop(t *testing.T, bin, dir string) (string, func()) {
 	t.Helper()
 
+	return startGeneratedAppWithStopEnv(t, bin, dir, nil)
+}
+
+// startGeneratedAppWithStopEnv is startGeneratedAppWithStop with extra environment variables; the
+// names of those variables are removed from the inherited environment first, so the explicit value
+// always wins even when the developer shell exported the same key. |
+// startGeneratedAppWithStopEnv 是带附加环境变量的 startGeneratedAppWithStop；附加变量会先从继承环境中移除，
+// 因此显式值总是优先，即使开发者的 shell 导出了同名变量。
+func startGeneratedAppWithStopEnv(t *testing.T, bin, dir string, extra map[string]string) (string, func()) {
+	t.Helper()
+
 	port := freePort(t)
 	cmd := exec.Command(bin)
 	cmd.Dir = dir
@@ -3269,8 +3291,15 @@ func startGeneratedAppWithStop(t *testing.T, bin, dir string) (string, func()) {
 	// re-executing; a re-exec would leave the server as a grandchild that survives
 	// a test cleanup on Windows. | 探针自行设置 GODEBUG，使生成的应用无需重启进程即可
 	// 处理 RFC 8441；重启会让服务器变成孙进程，在 Windows 上测试清理后仍会存活。
-	cmd.Env = append(withoutEnv(os.Environ(), "YD_NODE_ID", "YD_NODE_ID_FILE", "YD_NODE_REQUIRE_PERSISTENT",
-		"YD_NODE_ALLOW_SHARED_SEED", "YD_NODE_SALT", "YD_MESSAGE_NODE_ID", "GODEBUG"),
+	removed := []string{"YD_NODE_ID", "YD_NODE_ID_FILE", "YD_NODE_REQUIRE_PERSISTENT",
+		"YD_NODE_ALLOW_SHARED_SEED", "YD_NODE_SALT", "YD_MESSAGE_NODE_ID", "GODEBUG"}
+	extraEnv := make([]string, 0, len(extra))
+	for key, value := range extra {
+		removed = append(removed, key)
+		extraEnv = append(extraEnv, key+"="+value)
+	}
+	sort.Strings(extraEnv)
+	cmd.Env = append(append(withoutEnv(os.Environ(), removed...),
 		"GOWORK=off",
 		"GODEBUG="+protocol.MergeGODEBUG(os.Getenv("GODEBUG"), "http2xconnect=1"),
 		// 探针只从本机回环访问：绑定 127.0.0.1 既不依赖通配地址的绑定权限，也不会把端口暴露到局域网。
@@ -3279,7 +3308,7 @@ func startGeneratedAppWithStop(t *testing.T, bin, dir string) (string, func()) {
 		"YD_SERVER_HOST=127.0.0.1",
 		"YD_SERVER_PORT="+strconv.Itoa(port),
 		"YD_LOG_FORMAT=console",
-	)
+	), extraEnv...)
 	var logs bytes.Buffer
 	cmd.Stdout = &logs
 	cmd.Stderr = &logs
