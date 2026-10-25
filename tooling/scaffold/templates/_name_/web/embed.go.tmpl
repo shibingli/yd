@@ -27,6 +27,7 @@ import (
 	"encoding/hex"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 
@@ -110,79 +111,156 @@ func Static() (afs.FS, error) {
 	return afs.HideShadowedMin(afs.Overlay(merged, dev), dev), nil
 }
 
-// Bundle returns the shared scripts concatenated in shell order, together with their short content
-// hash. An empty result means the bundle could not be assembled and the shell must fall back to the
-// individual script tags. | Bundle 按外壳顺序拼接共享脚本并返回其短内容哈希。结果为空表示无法组装，
-// 外壳必须回退到逐脚本标签。
-func Bundle() ([]byte, string) {
-	bundleOnce.Do(loadBundle)
-	return bundleData, bundleHash
+// Bundle chunk limits. | bundle 分块限制。
+const (
+	// DefaultBundleMaxBytes is the 128 KiB ceiling per production bundle file. | DefaultBundleMaxBytes
+	// 是单个生产 bundle 文件 128 KiB 的上限。
+	DefaultBundleMaxBytes = 128 << 10
+	// MinBundleMaxBytes keeps a configured value from producing a flood of tiny requests. | MinBundleMaxBytes
+	// 防止配置值过小导致请求数量爆炸。
+	MinBundleMaxBytes = 16 << 10
+	// MaxBundleMaxBytes caps a configured value so one chunk still behaves like a static asset. | MaxBundleMaxBytes
+	// 限制配置上限，避免单块退化成不可缓存的大文件。
+	MaxBundleMaxBytes = 8 << 20
+)
+
+// bundlePath is the single same-origin route; the part query selects one chunk. | bundlePath 是同源路由，
+// part 查询参数选择具体分块。
+const bundlePath = "/static/js/yd-bundle.js"
+
+// BundlePart is one production script bundle file. | BundlePart 是一个生产脚本 bundle 文件。
+type BundlePart struct {
+	// Index is the 1-based part number used by the part query. | Index 是 part 查询使用的从 1 开始的分块序号。
+	Index int
+	// URL carries the part number and the content hash. | URL 携带分块序号与内容哈希。
+	URL string
+	// Data is the concatenated body written by the handler. | Data 是处理器写出的拼接正文。
+	Data []byte
+	// Oversized reports a single source file larger than the configured limit; it is served alone
+	// because splitting a minified script at an arbitrary byte would break its syntax. | Oversized
+	// 表示单个源文件超过配置上限；它单独成块，因为按任意字节切分压缩脚本会破坏语法。
+	Oversized bool
 }
 
-// BundleURL returns the production URL of the shared bundle, or "" when the shell should load the
-// individual scripts instead. Development deliberately keeps the individual files for debugging and
-// for immediate static edits; production reaps the single-request win. |
-// BundleURL 返回共享 bundle 的生产地址；返回空串时外壳应加载逐脚本标签。开发期刻意保留逐文件，
-// 便于调试与静态资源即时生效；生产期获得单次请求的收益。
-func BundleURL() string {
-	if !meta.IsProduction() {
-		return ""
-	}
-	data, hash := Bundle()
-	if len(data) == 0 || hash == "" {
-		return ""
-	}
-	return "/static/js/yd-bundle.js?v=" + hash
-}
-
-// bundleOnce, bundleData and bundleHash hold the one-time assembly result. |
-// bundleOnce、bundleData 与 bundleHash 保存一次组装的结果。
+// bundleOnce and bundleParts hold the one-time assembly result. | bundleOnce 与 bundleParts 保存一次组装结果。
 var (
 	// bundleOnce makes the assembly run once per process. | bundleOnce 保证每个进程只组装一次。
 	bundleOnce sync.Once
-	// bundleData is the concatenated script body. | bundleData 是拼接后的脚本正文。
-	bundleData []byte
-	// bundleHash is the first four SHA-256 bytes in hex, matching the asset helper's version form. |
-	// bundleHash 是 SHA-256 前四字节的十六进制，与 asset 助手的版本形态一致。
-	bundleHash string
+	// bundleParts is the ordered chunk list. | bundleParts 是分块后的有序清单。
+	bundleParts []BundlePart
 )
 
-// loadBundle assembles bundleScripts from the merged static tree. Any missing or unsafe entry leaves
-// the bundle empty, which makes the shell fall back to the individual scripts rather than serving a
-// half bundle. | loadBundle 从合并静态树组装 bundleScripts。任一缺失或不安全条目都会让 bundle 保持为空，
-// 使外壳回退到逐脚本，而不是发出半份 bundle。
-func loadBundle() {
+// InitBundles assembles the shared scripts once, splitting the ordered list at script boundaries so
+// no chunk exceeds maxBytes. maxBytes <= 0 selects 128 KiB; values outside the supported range are
+// clamped. The shell calls this before registering the routes, and the controller reads the same
+// cached result through BundleURLs. | InitBundles 组装一次共享脚本，在脚本边界切分，使每个块不超过
+// maxBytes。maxBytes <= 0 时取 128 KiB；超出区间的取值会被收敛。外壳在登记路由前调用它，控制器经
+// BundleURLs 读取同一份缓存结果。
+func InitBundles(maxBytes int) []BundlePart {
+	bundleOnce.Do(func() { bundleParts = loadBundles(clampBundleMaxBytes(maxBytes)) })
+	return bundleParts
+}
+
+// Bundles returns the assembled chunks; it is empty when InitBundles has not run or assembly failed. |
+// Bundles 返回已组装的分块；未调用 InitBundles 或组装失败时为空。
+func Bundles() []BundlePart { return bundleParts }
+
+// BundleURLs returns the chunk URLs in load order, or nil when the shell must fall back to the
+// individual script tags. Development deliberately keeps the individual files for debugging and
+// immediate static edits; production reaps the smaller, cacheable chunks. | BundleURLs 按装载顺序返回
+// 分块地址；返回 nil 时外壳必须回退到逐脚本标签。开发期刻意保留逐文件，便于调试与静态资源即时生效；
+// 生产期获得更小、可缓存的分块。
+func BundleURLs() []string {
+	if !meta.IsProduction() || len(bundleParts) == 0 {
+		return nil
+	}
+	urls := make([]string, 0, len(bundleParts))
+	for _, part := range bundleParts {
+		urls = append(urls, part.URL)
+	}
+	return urls
+}
+
+// clampBundleMaxBytes normalises the configured chunk ceiling. | clampBundleMaxBytes 归一化配置的分块上限。
+func clampBundleMaxBytes(maxBytes int) int {
+	switch {
+	case maxBytes <= 0:
+		return DefaultBundleMaxBytes
+	case maxBytes < MinBundleMaxBytes:
+		return MinBundleMaxBytes
+	case maxBytes > MaxBundleMaxBytes:
+		return MaxBundleMaxBytes
+	default:
+		return maxBytes
+	}
+}
+
+// loadBundles assembles bundleScripts from the merged static tree and splits them at script
+// boundaries. Any missing or unsafe entry leaves the result empty, so the shell falls back to the
+// individual scripts rather than serving a half bundle. | loadBundles 从合并静态树组装 bundleScripts，
+// 并在脚本边界切分。任一缺失或不安全条目都会让结果为空，使外壳回退到逐脚本，而不是发出半份 bundle。
+func loadBundles(maxBytes int) []BundlePart {
 	if len(bundleScripts) == 0 {
-		return
+		return nil
 	}
 	static, err := Static()
 	if err != nil {
-		return
+		return nil
 	}
 	production := meta.IsProduction()
-	var buf bytes.Buffer
+	parts := make([]BundlePart, 0, len(bundleScripts))
+	var current bytes.Buffer
+	// separator keeps two minified files from meeting at an ASI boundary. | separator 防止两个压缩文件在 ASI 边界粘连。
+	separator := []byte("\n;\n")
+	flush := func() {
+		if current.Len() == 0 {
+			return
+		}
+		data := append([]byte(nil), current.Bytes()...)
+		current.Reset()
+		parts = append(parts, newBundlePart(len(parts)+1, data, false))
+	}
 	for _, script := range bundleScripts {
 		if !strings.HasPrefix(script, "/static/") {
-			return
+			return nil
 		}
 		rel := strings.TrimPrefix(script, "/static/")
 		if strings.Contains(rel, "..") {
-			return
+			return nil
 		}
 		data, readErr := readBundleAsset(static, rel, production)
 		if readErr != nil {
-			return
+			return nil
 		}
-		if buf.Len() > 0 {
-			// 分号与换行同时存在，避免两个文件在 ASI 边界上粘连。 |
-			// The semicolon and newline together keep two files from meeting at an ASI boundary.
-			buf.WriteString("\n;\n")
+		if current.Len() > 0 && current.Len()+len(separator)+len(data) > maxBytes {
+			flush()
 		}
-		buf.Write(data)
+		if len(data) > maxBytes {
+			// 单个源文件无法在任意字节处安全切分：单独成块并标记，外壳会在启动日志中告警。 |
+			// A single source file cannot be split safely at an arbitrary byte: keep it alone and mark it so the
+			// shell can warn at startup.
+			flush()
+			parts = append(parts, newBundlePart(len(parts)+1, append([]byte(nil), data...), true))
+			continue
+		}
+		if current.Len() > 0 {
+			current.Write(separator)
+		}
+		current.Write(data)
 	}
-	sum := sha256.Sum256(buf.Bytes())
-	bundleData = buf.Bytes()
-	bundleHash = hex.EncodeToString(sum[:4])
+	flush()
+	return parts
+}
+
+// newBundlePart numbers one chunk and hashes its content. | newBundlePart 给分块编号并计算内容哈希。
+func newBundlePart(index int, data []byte, oversized bool) BundlePart {
+	sum := sha256.Sum256(data)
+	return BundlePart{
+		Index:     index,
+		URL:       bundlePath + "?part=" + strconv.Itoa(index) + "&v=" + hex.EncodeToString(sum[:4]),
+		Data:      data,
+		Oversized: oversized,
+	}
 }
 
 // readBundleAsset reads one script, preferring its .min.js sibling in production. |

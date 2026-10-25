@@ -217,6 +217,14 @@ tailwind:
   minify: true
 {{- end }}
 
+# 生产期共享脚本合并：每个 bundle 文件的上限（字节），默认 128 KiB。
+# `YD_BUNDLE_MAX_BYTES` 可覆盖；单个源文件本身超过上限时单独成块并在启动日志中告警。
+# Production shared-script bundling: the maximum bytes per bundle file, 128 KiB by default.
+# `YD_BUNDLE_MAX_BYTES` overrides it; a single source file larger than the limit becomes its own
+# chunk and is reported in the startup log.
+bundle:
+  max_bytes: 131072
+
 # 站内消息中心：撤回/编辑窗口、附件与群成员上限、以及多节点实时总线。
 # In-app message centre: recall/edit windows, attachment and group limits, and the multi-node realtime bus.
 #

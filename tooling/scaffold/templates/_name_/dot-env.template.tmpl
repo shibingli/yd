@@ -23,6 +23,10 @@ YD_SERVER_PORT=8080
 YD_SERVER_H2C=true
 YD_SERVER_HTTP3_ENABLED=false
 
+# 生产共享脚本分块上限（字节），默认 128 KiB；只影响生产 bundle 分块，不影响源码脚本。
+# Production shared-script chunk ceiling in bytes, 128 KiB by default; it only affects production bundles.
+# YD_BUNDLE_MAX_BYTES=131072
+
 # 强制 RFC 8441（WebSocket over HTTP/2）；需要 GODEBUG=http2xconnect=1。
 # yd dev / yd service / yd docker 会在为 true 时自动配置；
 # 裸二进制会在启动时自行重启，Windows 服务需经 yd service 安装。

@@ -95,30 +95,52 @@ func TestGeneratedAppServesScriptBundle(t *testing.T) {
 	if !strings.Contains(body, `<html lang="en"`) {
 		t.Errorf("KO_DATA_PATH 中的默认语言未生效，登录页不是英文:\n%s", body)
 	}
-	start := strings.Index(body, "/static/js/yd-bundle.js?v=")
-	if start < 0 {
-		t.Fatalf("生产页面没有引用共享 bundle:\n%s", body)
-	}
-	end := strings.Index(body[start:], `"`)
-	if end < 0 {
-		t.Fatalf("bundle 地址没有结束引号:\n%s", body)
-	}
-	bundlePath := body[start : start+end]
 	if strings.Contains(body, `/static/js/vendor/htmx.min.js`) {
 		t.Errorf("生产页面仍逐个引用 vendor 脚本:\n%s", body)
 	}
+	var bundlePaths []string
+	for offset := 0; ; {
+		index := strings.Index(body[offset:], "/static/js/yd-bundle.js?part=")
+		if index < 0 {
+			break
+		}
+		start := offset + index
+		end := strings.Index(body[start:], `"`)
+		if end < 0 {
+			t.Fatalf("bundle 地址没有结束引号:\n%s", body)
+		}
+		bundlePaths = append(bundlePaths, strings.ReplaceAll(body[start:start+end], "&amp;", "&"))
+		offset = start + end
+	}
+	if len(bundlePaths) == 0 {
+		t.Fatalf("生产页面没有引用共享 bundle 分块:\n%s", body)
+	}
 
-	resp, bundle := getText(t, client, base+bundlePath, nil)
-	if resp.StatusCode != http.StatusOK {
-		t.Fatalf("bundle 状态码 = %d, 期望 200\n%s", resp.StatusCode, bundle)
+	const maxBundleBytes = 128 << 10
+	var bundleText strings.Builder
+	totalBytes := 0
+	for index, bundlePath := range bundlePaths {
+		resp, bundle := getText(t, client, base+bundlePath, nil)
+		if resp.StatusCode != http.StatusOK {
+			t.Fatalf("bundle 分块 %d 状态码 = %d, 期望 200\n%s", index+1, resp.StatusCode, bundle)
+		}
+		if got := resp.Header.Get("Content-Type"); !strings.Contains(got, "javascript") {
+			t.Errorf("bundle 分块 %d Content-Type = %q, 期望 javascript", index+1, got)
+		}
+		if got := resp.Header.Get("Cache-Control"); !strings.Contains(got, "immutable") {
+			t.Errorf("bundle 分块 %d Cache-Control = %q, 期望 immutable", index+1, got)
+		}
+		if len(bundle) > maxBundleBytes {
+			t.Errorf("bundle 分块 %d = %d 字节，超过默认上限 %d", index+1, len(bundle), maxBundleBytes)
+		}
+		totalBytes += len(bundle)
+		bundleText.WriteString(bundle)
+		bundleText.WriteByte('\n')
 	}
-	if got := resp.Header.Get("Content-Type"); !strings.Contains(got, "javascript") {
-		t.Errorf("bundle Content-Type = %q, 期望 javascript", got)
+	if totalBytes > maxBundleBytes && len(bundlePaths) < 2 {
+		t.Errorf("bundle 总长 %d 超过上限却只有一个分块", totalBytes)
 	}
-	if got := resp.Header.Get("Cache-Control"); !strings.Contains(got, "immutable") {
-		t.Errorf("bundle Cache-Control = %q, 期望 immutable", got)
-	}
-	if !strings.Contains(bundle, "htmx") || !strings.Contains(bundle, "yd.ready") {
-		t.Errorf("bundle 缺少 htmx 或项目胶水层（长度 %d）", len(bundle))
+	if all := bundleText.String(); !strings.Contains(all, "htmx") || !strings.Contains(all, "yd.ready") {
+		t.Errorf("bundle 分块缺少 htmx 或项目胶水层（长度 %d）", len(all))
 	}
 }

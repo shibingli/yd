@@ -30,6 +30,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strconv"
 	"strings"
 	"syscall"
 
@@ -203,8 +204,15 @@ func assemble(log *ydlog.Logger) (*app.App, error) {
 	// request this single file, while development and any failed assembly fall back to the individual scripts.
 	// The exact route registers first and the static wildcard serves everything else.
 	if meta.IsProduction() {
-		if data, _ := web.Bundle(); len(data) > 0 {
-			application.GET("/static/js/yd-bundle.js", bundledScripts(data, log))
+		parts := web.InitBundles(application.Config().GetInt("bundle.max_bytes"))
+		if len(parts) > 0 {
+			for _, part := range parts {
+				if part.Oversized {
+					log.Warn("script bundle part exceeds the configured limit | 脚本 bundle 分块超过配置上限",
+						ydlog.Int("part", part.Index), ydlog.Int("bytes", len(part.Data)))
+				}
+			}
+			application.GET("/static/js/yd-bundle.js", bundledScripts(parts, log))
 		}
 	}
 
@@ -241,16 +249,25 @@ func assemble(log *ydlog.Logger) (*app.App, error) {
 // immutable cache keyed by the content hash. A write failure (the client disconnected early) is only logged as a
 // warning because the status line has already been sent.
 //
-// @Summary Shared script bundle | 共享脚本 bundle
-// @Description Returns every shared script in shell order in one production response; the URL carries a content hash and is cacheable long-term. | 生产期按外壳顺序一次返回全部共享脚本；地址带内容哈希，可长期缓存。
+// @Summary Shared script bundle part | 共享脚本 bundle 分块
+// @Description Returns one chunk of the shared scripts in shell order; part selects the chunk and v carries the content hash, so every chunk is cacheable long-term. | 按外壳顺序返回共享脚本的一个分块；part 选择分块，v 携带内容哈希，因此每个分块都可长期缓存。
 // @Tags static
 // @Produce javascript
+// @Param part query int true "1-based chunk number | 从 1 开始的分块序号"
 // @Success 200 {string} string "concatenated scripts | 拼接后的脚本"
+// @Failure 404 {string} string "unknown chunk | 分块不存在"
 // @Router /static/js/yd-bundle.js [get]
-func bundledScripts(data []byte, log *ydlog.Logger) ydrouter.HandlerFunc {
+func bundledScripts(parts []web.BundlePart, log *ydlog.Logger) ydrouter.HandlerFunc {
 	return func(c *ydrouter.Ctx) {
+		index, err := strconv.Atoi(c.Query("part"))
+		if err != nil || index < 1 || index > len(parts) {
+			if writeErr := c.String(http.StatusNotFound, "unknown bundle part\n"); writeErr != nil {
+				log.Warn("script bundle 404 write failed | 脚本 bundle 404 写出失败", ydlog.Err(writeErr))
+			}
+			return
+		}
 		c.SetHeader("X-Content-Type-Options", "nosniff")
-		if err := c.Blob(http.StatusOK, "text/javascript; charset=utf-8", data); err != nil {
+		if err := c.Blob(http.StatusOK, "text/javascript; charset=utf-8", parts[index-1].Data); err != nil {
 			log.Warn("script bundle write failed | 脚本 bundle 写出失败", ydlog.Err(err))
 		}
 	}

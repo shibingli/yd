@@ -317,9 +317,9 @@ type Controller struct {
 	// metricsCache 让同一条推送节拍内的多个指标连接共享一次快照与一次渲染。
 	// metricsCache lets the metrics connections of one push tick share a single snapshot and render.
 	metricsCache metricsFragmentCache
-	// bundleURL 是共享脚本 bundle 的地址；为空表示外壳回退到逐脚本标签。
-	// bundleURL is the shared script bundle URL; empty means the shell falls back to individual script tags.
-	bundleURL string
+	// bundleURLs 是共享脚本 bundle 的分块地址；为空表示外壳回退到逐脚本标签。
+	// bundleURLs are the shared script bundle chunk URLs; empty means the shell falls back to individual script tags.
+	bundleURLs []string
 }
 
 // New 装配控制器：业务服务在这里一次性构造，彼此共享同一个 Store 与同一个 AuthService。
@@ -376,7 +376,7 @@ func New(a *app.App, store *repository.Store, log *ydlog.Logger) (*Controller, e
 		hub:        hub,
 		i18n:       bundle,
 		log:        log,
-		bundleURL:  web.BundleURL(),
+		bundleURLs: web.BundleURLs(),
 	}, nil
 }
 
@@ -597,7 +597,7 @@ func (c *Controller) renderData(ctx *router.Ctx, title string, extra map[string]
 		"TailwindVersion":  meta.TailwindVersion,
 		"Features":         meta.Features,
 		"Scripts":          meta.HtmxExtScripts,
-		"BundleURL":        c.bundleURL,
+		"BundleURLs":       c.bundleURLs,
 		"Path":             ctx.Path(),
 		"PublicKey":        c.PublicKey(),
 		"KeyEndpoint":      PubkeyPath,
