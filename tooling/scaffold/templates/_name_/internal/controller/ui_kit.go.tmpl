@@ -1,0 +1,53 @@
+// 本文件提供门户「组件示例」页的处理器：页面本身只组合组件模板，处理器只负责注入一张服务端图表。
+// This file provides the handler of the portal component gallery: the page composes component templates, and the
+// handler only injects one server-rendered chart.
+
+package controller
+
+import (
+	"html/template"
+	"net/http"
+
+	"{{ .YdModule }}/http/chart"
+	"{{ .YdxModule }}/router"
+)
+
+// UIKit renders the component gallery. | UIKit 渲染组件示例页。
+//
+// 图表必须由服务端生成：页面不引入图表库，SVG 的颜色通过语义类继承主题。其余示例全部在模板里用
+// dict/list 组合，处理器不复制任何控件标记。
+// The chart is server-rendered: the page loads no chart library, and the SVG inherits the theme through semantic
+// classes. Every other sample is composed in the template with dict/list, so the handler copies no control markup.
+//
+// @Summary Component gallery | 组件示例页
+// @Description Renders every component of the UI kit on one page for the signed-in member. | 为一个已登录成员在一页内渲染组件层的全部控件。
+// @Tags pages
+// @Produce html
+// @Success 200 {object} string "component gallery | 组件示例"
+// @Failure 401 {string} string "no session | 无有效会话"
+// @Security BearerAuth
+// @Router /ui-kit [get]
+func (c *Controller) UIKit(ctx *router.Ctx) {
+	svg := chart.Line([]chart.Series{
+		{
+			Label: "requests",
+			Points: []chart.Point{
+				{Label: "Mon", Value: 120},
+				{Label: "Tue", Value: 168},
+				{Label: "Wed", Value: 145},
+				{Label: "Thu", Value: 210},
+				{Label: "Fri", Value: 248},
+			},
+		},
+	}, chart.Options{
+		Title:       "Requests | 请求量",
+		Description: "A server-rendered line chart | 服务端渲染的折线图",
+		ShowGrid:    true,
+		ShowAxis:    true,
+	})
+	c.render(ctx, http.StatusOK, TplUIKit, c.view(ctx, "组件示例 | Component gallery", map[string]any{
+		"ChartSVG":    template.HTML(svg), //nolint:gosec // chart.Line escapes every label and value | chart.Line 已转义全部标签与数值
+		"PageStyles":  messagePageStyles,
+		"PageScripts": []string{"/static/js/vendor/easymde.min.js"},
+	}))
+}

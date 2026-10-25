@@ -214,9 +214,15 @@ yd gen module|crud   # 低代码生成（DB Schema 或 Go Struct）
   列表操作用下拉菜单（`details.yd-menu`），顶栏租户切换复用同一套面板与条目样式（不用原生 select）；
   所有变更动作必须带 `data-yd-confirm` 并经过全局确认对话框；多按钮表单确认后必须把
   `event.submitter` 传回 `requestSubmit`，否则按钮的 `name`/`value` 会丢失。
-- 图标一律写成 `{{ "{{template \"portal/partials/icon\" \"lucide-…\"}}" }}（后台用 \"mgr/partials/icon\"）`：框架 sprite 由 `yd icons sync`
+- 图标一律写成 `{{ "{{template \"partials/icon\" \"lucide-…\"}}" }}`：框架 sprite 由 `yd icons sync`
   按模板引用生成，项目自定义图标同样运行该命令；禁止内联 SVG、Iconify 运行时与 CDN。
   `yd assets minify` 同时压缩 `.js` 与 `.svg`，生产模板经 `asset` 助手解析 `.min.svg`。
+- **门户与后台共用一套组件与外壳**：`{{ .AssetRoot }}/templates/components/**` 与
+  `{{ .AssetRoot }}/templates/partials/**` 只有一份，两个界面都调用它。整页骨架、应用外壳、顶栏、提示、
+  语言/主题、图标、侧栏品牌/页脚、消息卡片与未读角标都放在树根 `partials/**`；`portal/**` 与 `mgr/**`
+  只保留各自的布局入口、侧栏与页面，且互不 include。两侧差异由 `.Portal` / `.Mgr` 数据键选择，
+  不得为某一侧复制同名模板或外壳。
+  门户的 `/ui-kit`（`portal/pages/ui_kit.html`）是组件层活文档：新增组件必须同步加入该页。
 - 首页系统资源与中间件运行时共用一条 WebSocket `/mgr/ws/metrics`：服务端每 5 秒把一个
   `<hx-partial hx-target="#yd-live-metrics" hx-swap="innerMorph">` 推给每条连接，首帧在握手后立即写出；
   不得再为这两块内容写 HTTP 定时轮询或 HTTP 重同步。`GET /mgr/metrics` 与 `/mgr/metrics/middleware`

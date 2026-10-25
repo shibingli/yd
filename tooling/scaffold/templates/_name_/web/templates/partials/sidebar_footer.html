@@ -1,0 +1,11 @@
+{{/*
+  partials/sidebar_footer.html —— 侧栏页脚，门户与后台共用。
+  partials/sidebar_footer.html — the rail footer shared by the portal and the back office.
+
+  页脚只显示版本：中间件与组件清单属于构建细节，不进入导航。数据契约 | Data contract: .Version。
+*/}}
+{{- define "partials/sidebar_footer" -}}
+<div class="yd-sidebar__footer">
+  <p class="yd-hint">{{ tr "nav.version" }} {{ .Version }}</p>
+</div>
+{{- end -}}

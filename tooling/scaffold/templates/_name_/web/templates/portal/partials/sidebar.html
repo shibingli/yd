@@ -12,12 +12,7 @@
 */}}
 {{- define "portal/partials/sidebar" -}}
 <aside id="yd-sidebar" class="yd-sidebar" data-yd-sidebar aria-label="{{ tr "nav.main" }}">
-  <div class="yd-sidebar__brand">
-    <a class="yd-brand" href="/" hx-get="/" hx-target="#yd-shell" hx-swap="innerMorph" hx-push-url="true">
-      <span class="yd-brand__mark" aria-hidden="true">yd</span>
-      <span class="yd-brand__name">{{ .Name }}</span>
-    </a>
-  </div>
+  {{ template "partials/sidebar_brand" . }}
 
   <nav class="yd-nav" aria-label="{{ tr "nav.site" }}">
     <p class="yd-nav__section">{{ tr "nav.group.self" }}</p>
@@ -25,12 +20,12 @@
     <a class="yd-nav__link" href="/messages" hx-get="/messages" hx-target="#yd-shell" hx-swap="innerMorph" hx-push-url="true"
        data-yd-nav="messages"{{ if hasPrefix .Path "/messages" }} aria-current="page"{{ end }}>
       <span class="yd-nav__label">{{ tr "nav.messages" }}</span>
-      {{ template "portal/partials/messages/sidebar_unread" . }}
+      {{ template "partials/messages/sidebar_unread" . }}
     </a>
     <a class="yd-nav__link" href="/friends" hx-get="/friends" hx-target="#yd-shell" hx-swap="innerMorph" hx-push-url="true"
        data-yd-nav="friends"{{ if hasPrefix .Path "/friends" }} aria-current="page"{{ end }}>
       <span class="yd-nav__label">{{ tr "nav.friends" }}</span>
-      {{ template "portal/partials/messages/sidebar_friend_requests" . }}
+      {{ template "partials/messages/sidebar_friend_requests" . }}
     </a>
     {{- end }}
     <a class="yd-nav__link" href="/account" hx-get="/account" hx-target="#yd-shell" hx-swap="innerMorph" hx-push-url="true"
@@ -40,6 +35,11 @@
     <a class="yd-nav__link" href="/realtime" hx-get="/realtime" hx-target="#yd-shell" hx-swap="innerMorph" hx-push-url="true"
        data-yd-nav="realtime"{{ if hasPrefix .Path "/realtime" }} aria-current="page"{{ end }}>
       <span class="yd-nav__label">{{ tr "nav.realtime" }}</span>
+    </a>
+    <p class="yd-nav__section">{{ tr "nav.group.dev" }}</p>
+    <a class="yd-nav__link" href="/ui-kit" hx-get="/ui-kit" hx-target="#yd-shell" hx-swap="innerMorph" hx-push-url="true"
+       data-yd-nav="ui-kit"{{ if hasPrefix .Path "/ui-kit" }} aria-current="page"{{ end }}>
+      <span class="yd-nav__label">{{ tr "nav.ui_kit" }}</span>
     </a>
 
     {{/* 管理入口的目标必须落在持有者真正能打开的第一页：/mgr 概览要求 user:read，
@@ -63,8 +63,6 @@
     {{- end }}
   </nav>
 
-  <div class="yd-sidebar__footer">
-    <p class="yd-hint">{{ tr "nav.version" }} {{ .Version }}</p>
-  </div>
+  {{ template "partials/sidebar_footer" . }}
 </aside>
 {{- end -}}

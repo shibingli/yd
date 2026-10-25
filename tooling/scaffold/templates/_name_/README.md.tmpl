@@ -31,11 +31,14 @@ Go {{ .GoVersion }} + Htmx {{ .HtmxVersion }} + Tailwind CSS {{ .TailwindVersion
 ## 门户与后台
 
 - **路由**：`/` 按登录状态分流——匿名访客去 `/login`，已登录用户去 `/messages`（消息中心不可用时去
-  `/account`）；登录后的个人中心另有 `/friends`、`/account` 与 `/realtime`。
+  `/account`）；登录后的个人中心另有 `/friends`、`/account`、`/realtime` 与 `/ui-kit`（组件示例页）。
   后台管理全部在 `/mgr/**`（概览、用户、租户、角色、权限、消息治理、消息目录、指标与接口文档）。
   门户默认只有普通用户能力，管理端点各自挂注册表里的管理能力。
-- **模板**：门户模板只放 `{{ .AssetRoot }}/templates/portal/**`，后台只放 `{{ .AssetRoot }}/templates/mgr/**`；
-  两棵树各有自己的布局与片段，模板名以 `portal/`、`mgr/` 前缀区分，禁止跨树 include。
+- **模板**：门户页面只放 `{{ .AssetRoot }}/templates/portal/**`，后台页面只放
+  `{{ .AssetRoot }}/templates/mgr/**`；两棵树各自保留布局入口、侧栏与业务片段，模板名以 `portal/`、`mgr/`
+  前缀区分，禁止跨树 include。共享 UI 组件与外壳只有一份，放在树根 `templates/components/**` 与
+  `templates/partials/**`（骨架、应用外壳、顶栏、提示、语言/主题、图标、消息卡片等），
+  两侧的差异由 `.Portal` / `.Mgr` 数据键选择，不复制组件。
 - **API**：成员 API 在 `/api/portal/v1/**`，管理 API 在 `/api/v1/**`；OpenAPI JSON 为 `/api/v1/openapi.json`。
 
 ## 站内消息中心

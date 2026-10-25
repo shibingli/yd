@@ -78,14 +78,14 @@
        任何表单的 422 都写进它，且绝不产生重复 id。 */}}
   {{template "partials/form.errors" .}}
 
-  <form class="yd-filters" role="search" method="get" action="/users"
-        hx-get="/users" hx-target="#yd-users-table" hx-swap="outerMorph" hx-push-url="true"
-        hx-trigger="input changed delay:300ms from:#yd-users-search, submit">
-    <label class="sr-only" for="yd-users-search" data-yd-i18n="users.search">{{tr "users.search"}}</label>
-    <input class="yd-input" id="yd-users-search" name="q" type="search" autocomplete="off"
-           placeholder="{{tr "users.search_placeholder"}}" data-yd-i18n-attr="placeholder:users.search_placeholder">
-    <button type="submit" class="yd-btn yd-btn--ghost" data-yd-i18n="action.search">{{tr "action.search"}}</button>
-  </form>
+  {{template "components.form.search" (dict
+    "ID" "yd-users-search" "Action" "/users" "Get" "/users"
+    "Target" "#yd-users-table" "Swap" "outerMorph" "PushURL" true
+    "Trigger" "input changed delay:300ms from:#yd-users-search, submit"
+    "Name" "q"
+    "Label" (tr "users.search") "LabelKey" "users.search"
+    "Placeholder" (tr "users.search_placeholder") "PlaceholderKey" "users.search_placeholder"
+    "SubmitLabel" (tr "action.search") "SubmitKey" "action.search")}}
 
   <section class="yd-card yd-section" id="yd-users-table" aria-labelledby="yd-users-table-title">
     <h2 class="sr-only" id="yd-users-table-title" data-yd-i18n="users.table">{{tr "users.table"}}</h2>

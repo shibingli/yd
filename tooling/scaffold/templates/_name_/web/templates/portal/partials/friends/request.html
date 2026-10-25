@@ -37,15 +37,13 @@
       hx-status:422="target:#yd-drawer-errors swap:innerHTML"
       data-yd-confirm="{{ tr "confirm.send_friend" }}">
   <input type="hidden" name="friend_id" value="{{ .Target.ID }}">
-  <div class="yd-field">
-    <label class="yd-label" for="yd-friend-message">{{ tr "friend.greeting" }}</label>
-    <input class="yd-input" id="yd-friend-message" name="message" type="text" maxlength="255"
-           placeholder="{{ tr "friend.greeting_placeholder" }}">
-  </div>
-  <div class="yd-form__actions">
-    <button type="button" class="yd-btn yd-btn--ghost" data-yd-drawer-close>{{ tr "ui.cancel" }}</button>
-    <button type="submit" class="yd-btn yd-btn--primary">{{ tr "friend.send_request" }}</button>
-  </div>
+  {{template "components.form.field" (dict
+    "ID" "yd-friend-message" "Name" "message" "Type" "text" "MaxLength" 255
+    "Label" (tr "friend.greeting") "LabelKey" "friend.greeting"
+    "Placeholder" (tr "friend.greeting_placeholder") "PlaceholderKey" "friend.greeting_placeholder")}}
+  {{template "components.form.actions" (dict
+    "SubmitLabel" (tr "friend.send_request") "SubmitKey" "friend.send_request"
+    "CancelLabel" (tr "ui.cancel") "CancelKey" "ui.cancel")}}
 </form>
 {{- else }}
 <div class="yd-form__actions">

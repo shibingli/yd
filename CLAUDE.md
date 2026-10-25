@@ -31,7 +31,7 @@
 
 **前端**
 
-- Htmx **4.0.0** 作为事件总线，随包发布 **18 个官方扩展全部下载并锁定**（`ws/sse/preload/alpine/targets/head/upsert/pending/multipart/download/browser-indicator/history-cache/live/prompt/ptag/csp/compat/htmx-2-compat`）；框架 UI 加载其中 15 个安全扩展，`csp`（需 nonce 策略）与两个 htmx 2 兼容层只锁定、不默认加载，由 `yd new --htmx-ext` 显式选择；Tailwind CSS **v4** 作为样式标准（`@theme` 语义化变量，默认蓝色系）
+- Htmx **4.0.0** 作为事件总线，随包发布 **18 个官方扩展全部下载并锁定**（`ws/sse/preload/alpine/targets/head/upsert/pending/multipart/download/browser-indicator/history-cache/live/prompt/ptag/csp/compat/htmx-2-compat`）；框架 UI 加载其中 15 个安全扩展，`csp`（需 nonce 策略）与两个 htmx 2 兼容层只锁定、不默认加载，由 `yd new --htmx-ext` 显式选择；**Htmx、Tailwind CSS 与 Alpine.js 是基线技术栈，不是开关**：`yd new` 默认集成三者，`hx-alpine-compat` 恒开启，`--htmx-ext` 只追加额外扩展；Tailwind CSS **v4** 作为样式标准（`@theme` 语义化变量，默认蓝色系）
 - 不依赖 Node.js 编译管道：Tailwind 编译由 Go 脚手架工具静默驱动（standalone 二进制）
 - 资产一律 `go:embed` 打包进二进制，**严禁**运行时从公网 CDN 动态引入
 - Alpine.js 3.17 + htmx 内建 morph（Idiomorph 算法）实现精细化 DOM 差量更新
@@ -286,7 +286,7 @@ Co-Authored-By: Eric Shi <shibingli@sina.com>
 ## 10. 常用命令
 
 ```bash
-yd new <project>     # 初始化项目（交互式选择组件）
+yd new <project>     # 初始化项目（Htmx/Tailwind/Alpine 默认集成；交互式只选择数据库、i18n 与额外 Htmx 扩展）
 yd dev               # 热重载开发（Go 编译重启 + Tailwind 监听 + 模板局部刷新）
 yd gen module|crud   # 低代码生成（DB Schema 或 Go Struct → 路由/控制器/模板）
 yd build             # 跨平台静态打包（Tailwind 剪裁压缩 + go:embed + 单二进制）
@@ -782,7 +782,8 @@ yd versions sync               # 仅重新生成 version_generated.go
 
 - **开发期用源码，生产期用压缩版**：`yd dev` / `app.env != production` 时模板引用源码；
   `yd build` 在编译前执行压缩阶段，产物写在 `web/static` 旁边并由 `go:embed` 打进二进制。
-- **分工固定**：CSS 只由 Tailwind v4 的 `--minify` 产出 `yd.min.css`（`yd.css` 是 Tailwind 的编译产物，项目构建时同样带 `--minify`，供开发与回退）；
+- **分工固定**：CSS 只由 Tailwind v4 的 `--minify` 产出 `yd.min.css`；`yd assets minify` 同时把同一份压缩字节写回
+  `web/static/css/yd.css`（无 Tailwind 时的构建/开发回退），两者必须逐字节一致，**不得**再签入未压缩的 `yd.css`；
   JavaScript 与 SVG 只由可选工具 `minify`（tdewolff/minify）产出 `*.min.js` / `*.min.svg`。
   禁止用其它压缩器处理 CSS，也不得用 `minify` 处理 Tailwind 输入 `app.css` / `components.css`。
 - **模板必须走 `asset` 助手**：所有 `/static/...` 引用写成 `{{ asset "/static/..." }}`；
@@ -890,21 +891,33 @@ yd versions sync               # 仅重新生成 version_generated.go
 
 前端门户与后端管理是两套彼此隔离的界面与权限面，任何新页面都必须先确定归属，不得混用。
 
-- **路由**：门户为 `/`、`/messages`、`/friends`、`/account`、`/realtime` 与登录/健康检查等公开端点；
+- **路由**：门户为 `/`、`/messages`、`/friends`、`/account`、`/realtime`、`/ui-kit` 与登录/健康检查等公开端点；
   `/` 只按登录状态分流——匿名访客去 `/login`，已登录用户去 `/messages`（消息中心不可用时去 `/account`）。
   `/messages`、`/friends`、`/account` 才是受保护的个人中心。
   后台管理全部落在 `/mgr/**`（`/mgr` 概览、`/mgr/users`、`/mgr/tenants`、`/mgr/roles`、`/mgr/permissions`、
   `/mgr/messages`、`/mgr/message-settings`、`/mgr/metrics`、`/mgr/docs`）。
   门户默认只提供普通用户能力（自己的消息、好友与账号），管理端点各自挂管理能力守卫；
   `/mgr` 概览要求 `user:read`，其余按注册表逐条守卫。
-- **模板隔离**：门户模板只放 `web/templates/portal/**`，后台模板只放 `web/templates/mgr/**`；
-  两棵树各自持有 `layouts/`、`partials/` 与 `icon`/`flash`/`shell-switches`/`sidebar`，
-  **禁止跨树 include**。模板名以 `portal/` 与 `mgr/` 前缀区分，避免同名模板互相覆盖；
-  删除或重命名模板时必须同步删除另一棵树里同名的旧文件。
+- **模板隔离与共享组件**：门户与后台**共用同一套组件层**，但两棵页面树仍然隔离：
+  - 共享部分只有一份，放在树根：`web/templates/components/**`（全部 UI 组件）、
+    `partials/base.html`（整页骨架）、`partials/app_shell.html`（登录后应用外壳）、
+    `partials/topbar.html`、`partials/flash.html`、`partials/shell-switches.html`、
+    `partials/icon.html`、`partials/sidebar_brand.html` / `sidebar_footer.html`、
+    `partials/messages/**`（消息卡片、未读角标等）。门户与后台都调用它们，
+    **不得**在 `portal/**` 或 `mgr/**` 下另存一份同名副本。
+  - 角色相关部分留在各自的树：`portal/layouts/**`（含唯一匿名登录分支）、`portal/partials/**`
+    （门户侧栏与业务片段）、`portal/pages/**`；`mgr/layouts/**`、`mgr/partials/**`、`mgr/pages/**`。
+  - **禁止跨树 include**：`portal/**` 不得引用 `mgr/**`，`mgr/**` 不得引用 `portal/**`。
+    根级共享部件可以按 `.Portal` / `.Mgr` 选择对应侧栏；两侧差异一律用数据表达，不复制整块模板。
+  - 模板名以 `portal/` 与 `mgr/` 前缀区分；删除或重命名模板时必须同步清理另一棵树与共享目录里的旧文件。
 - **布局选择**：视图数据通过 `render.LayoutKey`（`"Layout"`）指定布局；门户用 `LayoutPortal`
-  （`portal/layouts/base.html`），后台用 `LayoutMgr`（`mgr/layouts/base.html`）；
-  `#yd-shell` 局部交换按路径经 `layoutForPath` 选择 `ShellPortal` 或 `ShellMgr`。
+  （`portal/layouts/base.html`），后台用 `LayoutMgr`（`mgr/layouts/base.html`），
+  两个入口都只调用 `partials/base`；`#yd-shell` 局部交换按路径经 `layoutForPath` 选择
+  `ShellPortal` 或 `ShellMgr`，两个外壳都只调用 `partials/app_shell`。
   新增控制器必须显式给出布局，不得依赖默认值猜测。
+- **消息卡片只有一张**：门户历史与后台治理共用 `partials/messages/message.html`，
+  卡片动作 URL 由 `.BasePath` 决定（`MessagePortalBase` / `MessageAdminBase`），
+  不得为两侧各写一份卡片模板。
 - **API 隔离**：成员 API 统一在 `/api/portal/v1/**`，后台管理 API 统一在 `/api/v1/**`；
   OpenAPI JSON 为 `/api/v1/openapi.json`，查看器为 `/mgr/docs`，指标推送为 `/mgr/ws/metrics`。
   门户页面上的管理动作（系统公告、置顶、撤销等）必须提交到对应的 `/mgr/**` 端点，不得留在门户命名空间。
@@ -1072,3 +1085,54 @@ WebSocket、WebTransport 与 SSE 共用 `ydx/realtime` 中枢；使用说明见
   它面向运维与调试，不得放进 HTTP 请求热路径。
 - **禁止**：在业务代码里直接调用 `debug.FreeOSMemory` / `runtime.GC`；在繁忙门里做阻塞操作或
   调用 `Stop` / `Stats`；把回收间隔设为零或改成热轮询；用其它缓存/队列组件代替本调度器。
+
+## 30. 前端 UI 组件层（强制）
+
+前端统一为 **Htmx 4 + Alpine 3.17.5（CSP 构建）+ Tailwind v4** 三层，组件层的唯一真源是
+`web/static/css/ui.css`、`web/static/js/yd-ui.js` 与 `web/templates/components/*.html`（`form`、`cn`、
+`layout`、`feedback`、`navigation`、`data`、`display`、`overlay`、`chart` 九个文件），以及生成项目树根
+`web/templates/partials/**` 的共享外壳（`base`、`app_shell`、`topbar`、`flash`、`shell-switches`、`icon`、
+侧栏品牌/页脚与 `messages/**`）。门户与管理控制台调用**同一套**组件与外壳，差异只由 `.Portal` / `.Mgr`
+数据键选择；**禁止**为某一侧另写同名组件或外壳副本。`yd new` 将样式与组件模板逐字节复制进生成项目，
+脚本经框架合并静态树兜底；**禁止**在生成项目或业务页面里另写一套同名组件。
+图表另由 `http/chart` 在服务端生成纯 SVG，不得引入图表库。完整使用手册见
+`docs/frontend-ui.md`（分层、主题、表单契约与排查）与 `docs/frontend-components.md`（组件全景、
+与 Naive UI / Shadcn UI / OpenTiny / Premium 的对照矩阵、逐组件参数与图表选型）。 门户的 `/ui-kit`（`portal/pages/ui_kit.html`）是组件层的活文档：新增组件必须同步加入该页，
+并由 `TestGeneratedUIKitShowsEveryComponent` 守卫。
+
+- **三层分工**：服务端状态（列表、记录、筛选、导航、变更、实时推送）归 **htmx**；页面内状态
+  （菜单开合、页签、输入格式化、本地校验、拖放、标签）归 **Alpine**；颜色、间距、断点与状态外观归
+  **Tailwind + 语义令牌**。三者不得互相镜像：Alpine 不复制服务端数据、不发 HTTP；htmx 不接管纯本地交互。
+- **脚本顺序固定**：`htmx 核心 → 所选 hx-* 扩展 → yd-ui.js → alpine.min.js → 国密 → 权限 → 进度条 → yd-app.js`。
+  签入的是 Alpine 的 **CSP 构建**（`@alpinejs/csp`），它在脚本执行时立即启动、不等待 `DOMContentLoaded`；
+  `yd-ui.js` 必须排在它之前并在 `alpine:init` 注册组件，否则页面上所有 `x-data` 都会以
+  `Undefined variable` 失败。该顺序由 `TestGeneratedUILoadsAlpineAndTheKitInOrder` 与
+  `TestScriptsLoadedInOrderAndLocally` 钉死。
+- **CSP 红线**：生成项目的策略是 `script-src 'self'`，不含 `unsafe-eval` / `unsafe-inline`。
+  因此只允许同源脚本；Alpine 表达式只使用 CSP 构建支持的子集（属性访问、比较、三元、赋值、方法调用），
+  禁止箭头函数、解构、模板字符串、`console`/`document`/`JSON` 等全局对象、`x-html`、内联 `<script>`、
+  `onclick=`、`new Function` / `eval` 与任何 CDN 引用。`TestUIJSAssetStaysCSPCompatible` 拦截资产层的违规。
+- **渐进增强**：每个控件都渲染真实、带 `name` 的表单字段；Alpine 只在其外围做净化、校验与格式化。
+  脚本加载失败或 htmx 交换之后，表单仍可提交。中国控件（手机号、身份证、银行卡、统一社会信用代码、
+  人民币大写、省市区、日期范围、短信验证码）的初始值走 `data-*`，提交值保持机读形式。
+- **主题与缩放**：颜色只来自 `@theme` / `:root` / `[data-theme="dark"]` 三个令牌块，`ui.css` 与模板内
+  不得出现颜色字面量（`TestNoHardcodedColorsInAppCSS`）。控件尺寸用 rem + `min-height`，页面留白用
+  `clamp()`，全高容器用 `100dvh`；默认流式适配 320px–2560px 宽屏与 125% / 150% 显示缩放。
+- **文案与可访问性（i18n 原生）**：组件同时接受 `LabelKey`/`HintKey`/`ErrorKey` 或渲染好的文案；
+  **只给键也必须在服务端渲染出可见文案**，并且所有组件内固定文案（校验提示、上传提示、日期预设、
+  分页、复制结果、编辑器工具栏）都必须走 `tr`。新增键必须同时写入 `web/i18n/{zh-CN,en}.yaml` 与
+  脚手架同名目录；`TestComponentsRenderFromI18nKeysOnly` 与 `TestGeneratedI18nCatalogueCoversEveryTrKey`
+  拦截缺键与只写死文案。标签必须 `for` 指向控件，错误用 `role="alert"` + `aria-invalid`，
+  装饰图标 `aria-hidden`，所有初始隐藏的 Alpine 节点带 `x-cloak`。
+- **中国控件的数据语义**：身份证 / 银行卡 / 信用代码只做格式与校验位判定，**不是身份或资信认证**；
+  敏感字段必须 `data-yd-encrypt="sm2"` + `data-yd-sensitive`，服务端独立校验并加密落库；金额在服务端用
+  整数分或定点数计算；省市区只提交行政区划代码，完整省市县数据由应用注入
+  `<script type="application/json">`，框架只内置 34 个省级行政区。
+- **图表只在服务端生成**：`http/chart` 输出纯 SVG 与语义类（`yd-chart__series--N`），模板只包
+  `components.chart`；不得引入图表库、客户端 JSON 数据岛或内联 `<script>`。空数据、`NaN`/`Inf`
+  与颜色字面量由 `http/chart/chart_test.go` 守卫，每个图形必须带 `<title>`。
+- **新增组件必须同批完成**：令牌（如需）→ `ui.css` 组件规则（无颜色字面量）→ 组件模板（双语契约注释）→
+  `Alpine.data` 行为（仅需时，CSP 安全）→ 中英文案键 → `components_test.go` 固定数据与 `yd-ui.test.mjs`
+  用例 → 本手册条目 → `yd assets minify` 产物。守卫测试见第 20 节清单，未覆盖的组件视为未完成。
+- **禁止**：引入第二套 UI 库或图标库；在业务页面手写输入框绕过字段契约；用 Alpine 维护服务端列表；
+  为纯 CSS 能表达的状态（开关、选中、禁用）编写脚本；在模板里写内联样式或色值。

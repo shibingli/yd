@@ -45,7 +45,8 @@ var runtimeCopyLatinWordRe = regexpx.MustCompile(`[A-Za-z]{3,}`)
 // 不检查的部分：
 //   - 以 `yd ` 开头的字面量——那是可直接复制执行的命令行或 `yd <cmd>:` 前缀，
 //     翻译它会得到一个不能执行的命令；
-//   - 不含三个连续字母的字面量——那是格式串或纯数据。
+//   - 不含三个连续字母的字面量——那是格式串或纯数据；
+//   - 以 `<` 开头的字面量——那是 SVG/HTML 标记模板，不是面向用户的文案。
 //
 // The rule is CLAUDE.md §3.1: error output, prompts and result responses must read
 // `English | 中文`, English first. Coverage matches the existing guard and checks **shipped code**
@@ -54,7 +55,8 @@ var runtimeCopyLatinWordRe = regexpx.MustCompile(`[A-Za-z]{3,}`)
 // Not checked:
 //   - literals starting with `yd `, which are runnable command lines or `yd <cmd>:` prefixes —
 //     translating them would produce a command the user cannot run;
-//   - literals without three consecutive letters, which are format strings or pure data.
+//   - literals without three consecutive letters, which are format strings or pure data;
+//   - literals starting with `<`, which are SVG/HTML markup templates rather than user-facing copy.
 func TestRuntimeCopyHasBothLanguages(t *testing.T) {
 	for _, f := range scanGoFiles(t, repoRoot(t)) {
 		if f.isTest {
@@ -179,6 +181,9 @@ func checkRuntimeCopy(t *testing.T, rel string, line int, msg string) {
 	}
 	if strings.HasPrefix(trimmed, "yd ") {
 		return // 可执行命令或 `yd <cmd>:` 前缀 | a runnable command or a `yd <cmd>:` prefix
+	}
+	if strings.HasPrefix(trimmed, "<") {
+		return // 标记模板（SVG/HTML），不是面向用户的文案 | a markup template (SVG/HTML), not user-facing copy
 	}
 	if left, right, ok := strings.Cut(trimmed, " | "); ok {
 		if cjkRe.MatchString(right) && !cjkRe.MatchString(left) {

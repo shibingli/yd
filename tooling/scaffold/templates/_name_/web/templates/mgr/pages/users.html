@@ -54,14 +54,14 @@
     </div>
   </header>
 
-  <form class="yd-filters" role="search" method="get" action="/mgr/users"
-        hx-get="/mgr/users" hx-target="#yd-workspace" hx-swap="innerMorph" hx-push-url="true"
-        hx-trigger="input changed delay:300ms from:#yd-users-search, submit">
-    <label class="sr-only" for="yd-users-search">{{ tr "page.users.search_label" }}</label>
-    <input class="yd-input" id="yd-users-search" name="q" type="search" autocomplete="off"
-           value="{{ .Keyword }}" placeholder="{{ tr "page.users.search_placeholder" }}">
-    <button type="submit" class="yd-btn yd-btn--ghost">{{ tr "ui.search" }}</button>
-  </form>
+  {{template "components.form.search" (dict
+    "ID" "yd-users-search" "Action" "/mgr/users" "Get" "/mgr/users"
+    "Target" "#yd-workspace" "Swap" "innerMorph" "PushURL" true
+    "Trigger" "input changed delay:300ms from:#yd-users-search, submit"
+    "Name" "q" "Value" .Keyword
+    "Label" (tr "page.users.search_label") "LabelKey" "page.users.search_label"
+    "Placeholder" (tr "page.users.search_placeholder") "PlaceholderKey" "page.users.search_placeholder"
+    "SubmitLabel" (tr "ui.search") "SubmitKey" "ui.search")}}
 
   {{/* 错误槽位不在这里：它是 layouts/base.html 上的全局 #yd-errors，位于工作区之外，
        因此工作区被 morph 掉时已显示的错误不会随之消失，也不会出现重复 id。

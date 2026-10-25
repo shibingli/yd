@@ -18,15 +18,19 @@ const (
 	appCSSPath = "static/css/app.css"
 	// componentsCSSPath is the admin component layer and design tokens imported by app.css. | componentsCSSPath 是 app.css 引入的管理端组件层与设计令牌。
 	componentsCSSPath = "static/css/components.css"
+	// uiCSSPath is the UI-kit layer imported after components.css. | uiCSSPath 是排在 components.css 之后的 UI 组件层。
+	uiCSSPath = "static/css/ui.css"
 	// builtCSSPath is the committed build artifact, present so the project builds without the Tailwind binary. | builtCSSPath 是签入仓库的构建产物，用于在没有 Tailwind 二进制时也能构建。
 	builtCSSPath = "static/css/yd.css"
 )
 
-// appSource returns the entry stylesheet together with the component layer it imports; together they are the
+// appSource returns the entry stylesheet together with the component layers it imports; together they are the
 // stylesheet the theme and component guards talk about. | appSource 返回入口样式表与它引入的组件层；两者合在一起才是主题与组件守卫所谈论的样式表。
 func appSource(t *testing.T) string {
 	t.Helper()
-	return string(readEmbedded(t, web.FS(), appCSSPath)) + "\n" + string(readEmbedded(t, web.FS(), componentsCSSPath))
+	return string(readEmbedded(t, web.FS(), appCSSPath)) + "\n" +
+		string(readEmbedded(t, web.FS(), componentsCSSPath)) + "\n" +
+		string(readEmbedded(t, web.FS(), uiCSSPath))
 }
 
 // minBuiltCSSBytes is the lower bound for a plausible compiled stylesheet; a smaller file means the build

@@ -1,0 +1,74 @@
+{{/*
+  partials/app_shell.html —— 登录后的应用外壳，门户与后台共用的唯一实现。
+  partials/app_shell.html — the signed-in application shell: the one implementation shared by the portal and the back office.
+
+  门户与后台过去各有一份外壳，确认框、抽屉、错误槽位、页脚与顶栏因此各写了一遍。现在只有这一份：
+  两份 layouts/shell.html 都调用它，角色相关的部分由 .Portal / .Mgr 选择侧栏，而不是复制整块 HTML。
+  The portal and the back office used to own a shell each, which meant the confirmation dialog, drawer, error
+  slots, footer and top bar were written twice. There is now one implementation: both layouts/shell.html call
+  it, and the role-specific part only chooses the rail through .Portal / .Mgr instead of copying the whole block.
+
+  数据契约 | Data contract: .Content .Title .User .Tenant .Tenants .DefaultTenantID .Portal .Mgr .Unread
+  .MessageAvailable .Perm .Module。
+*/}}
+{{- define "partials/app_shell" -}}
+<a class="yd-skip-link" href="#yd-workspace">{{ tr "ui.skip" }}</a>
+
+{{- if .Mgr }}
+{{ template "mgr/partials/sidebar" . }}
+{{- else }}
+{{ template "portal/partials/sidebar" . }}
+{{- end }}
+<div class="yd-sidebar-backdrop" data-yd-sidebar-backdrop aria-hidden="true"></div>
+
+<div class="yd-main">
+  {{ template "partials/topbar" . }}
+
+  {{- if .Portal }}
+  {{/* 实时通知区：WebSocket 推送的好友、撤回与置顶事件落到这里；它与 #yd-errors 分开，
+       因为通知是信息性消息，错误槽位只承载失败。 | The realtime notice area: WebSocket-pushed friend, recall and pin
+       events land here. It is separate from #yd-errors because notices are informational while the error slot carries
+       failures only. */}}
+  <div id="yd-message-notices" class="yd-message-notices" role="status" aria-live="polite"></div>
+  {{- end }}
+
+  <div id="yd-errors" class="yd-errors" role="alert" aria-live="assertive" data-yd-errors-outlet></div>
+
+  <main id="yd-workspace" class="yd-workspace" tabindex="-1" data-yd-workspace>{{ .Content }}</main>
+
+  {{ template "partials/flash" . }}
+
+  <footer class="yd-footer">
+    <p>{{ tr "app.tagline" }} · {{ .Module }}</p>
+  </footer>
+</div>
+
+{{/* 全局确认对话框：所有 data-yd-confirm 的点击与提交都先经过这里，文案由模板经 tr 提供，脚本里没有文案。
+     The global confirmation dialog: every click and submit carrying data-yd-confirm passes through here; the copy
+     comes from the template through tr, so the script holds none. */}}
+<dialog id="yd-confirm" class="yd-dialog yd-confirm" aria-labelledby="yd-confirm-title">
+  <form method="dialog" class="yd-dialog__panel">
+    <h2 class="yd-dialog__title" id="yd-confirm-title">{{ tr "confirm.title" }}</h2>
+    <p class="yd-dialog__text" data-yd-confirm-text></p>
+    <div class="yd-dialog__actions">
+      <button value="cancel" class="yd-btn yd-btn--ghost">{{ tr "ui.cancel" }}</button>
+      <button value="confirm" class="yd-btn yd-btn--primary yd-btn--danger">{{ tr "ui.confirm" }}</button>
+    </div>
+  </form>
+</dialog>
+
+{{/* 右侧抽屉：新增与编辑都从工作区里的按钮按需取片段到这里，页面本身不预先渲染一堆隐藏表单。
+     抽屉是顶层模态，页面上的 #yd-errors 会被 ::backdrop 盖住，因此校验失败必须落在抽屉内部。
+     The right-hand drawer: creation and editing fetch their fragment into here on demand, so a page never
+     pre-renders a stack of hidden forms. The drawer is a top-layer modal, so the page-level #yd-errors sits
+     behind ::backdrop; validation failures must land inside the drawer. */}}
+<dialog id="yd-drawer" class="yd-dialog yd-drawer" aria-label="{{ tr "ui.edit" }}">
+  <div class="yd-dialog__panel yd-drawer__panel">
+    <button type="button" class="yd-icon-btn yd-drawer__close" data-yd-drawer-close
+            aria-label="{{ tr "ui.close" }}">{{ template "partials/icon" "lucide-x" }}</button>
+    <div id="yd-drawer-errors" class="yd-errors yd-errors--drawer" role="alert" aria-live="assertive"
+         data-yd-errors-outlet></div>
+    <div id="yd-drawer-body" class="yd-drawer__body"></div>
+  </div>
+</dialog>
+{{- end -}}

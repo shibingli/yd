@@ -25,29 +25,25 @@
       hx-disabled-elt="find button[type='submit']"
       data-yd-confirm="{{ tr "confirm.create_role" }}" novalidate>
   <input type="hidden" name="name" value="{{ $role.Name }}">
-  <div class="yd-form__field">
-    <label class="yd-form__label" for="yd-role-edit-name">{{ tr "field.role_name" }}</label>
-    <input class="yd-input" id="yd-role-edit-name" type="text" value="{{ $role.Name }}" readonly>
-  </div>
-  <div class="yd-form__field">
-    <label class="yd-form__label" for="yd-role-edit-description">{{ tr "field.description" }}</label>
-    <input class="yd-input" id="yd-role-edit-description" name="description" type="text"
-           autocomplete="off" maxlength="128" value="{{ $role.Description }}">
-  </div>
+  {{template "components.form.field" (dict
+    "ID" "yd-role-edit-name" "Name" "" "Type" "text" "Value" $role.Name
+    "Label" (tr "field.role_name") "LabelKey" "field.role_name" "Readonly" true)}}
+  {{template "components.form.field" (dict
+    "ID" "yd-role-edit-description" "Name" "description" "Type" "text" "Value" $role.Description
+    "Label" (tr "field.description") "LabelKey" "field.description"
+    "Autocomplete" "off" "MaxLength" 128)}}
 
   <fieldset class="yd-form__fieldset">
     <legend class="yd-form__label">{{ tr "role.permissions" }}</legend>
     {{ range .PermissionOptions }}
-    <label class="yd-check" for="yd-role-edit-perm-{{ .Info.Key }}">
-      <input class="yd-check__input" id="yd-role-edit-perm-{{ .Info.Key }}" type="checkbox"
-             name="permission" value="{{ .Info.Key }}"{{ if .Granted }} checked{{ end }}>
-      <span class="yd-check__label"><code class="yd-code">{{ .Info.Key }}</code> {{ .Info.Label }}</span>
-      <span class="yd-hint">{{ .Info.Module }}</span>
-    </label>
+    {{template "components.form.check" (dict
+      "ID" (printf "yd-role-edit-perm-%s" .Info.Key) "Name" "permission" "Value" .Info.Key
+      "Label" (printf "%s — %s" .Info.Key .Info.Label)
+      "Hint" .Info.Module "Checked" .Granted "Block" true)}}
     {{ end }}
   </fieldset>
 
-  <div class="yd-form__actions">
-    <button type="submit" class="yd-btn yd-btn--primary">{{ tr "ui.save" }}</button>
-  </div>
+  {{template "components.form.actions" (dict
+    "SubmitLabel" (tr "ui.save") "SubmitKey" "ui.save"
+    "CancelLabel" (tr "ui.cancel") "CancelKey" "ui.cancel")}}
 </form>

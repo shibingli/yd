@@ -225,6 +225,13 @@
       write(THEME_KEY, choice);
       writeCookie(THEME_KEY, choice);
     }
+    // Tell components that own theme-dependent internals (the Markdown editor) that the resolved
+    // theme changed. It is a plain DOM event, so no component holds a reference to another.
+    // 通知拥有主题相关内部状态的组件（Markdown 编辑器）：解析后的主题已变化。它是普通 DOM 事件，
+    // 因此组件之间不持有彼此的引用。
+    if (d && typeof d.dispatchEvent === 'function' && typeof win().CustomEvent === 'function') {
+      d.dispatchEvent(new win().CustomEvent('yd:theme', { detail: { theme: resolved, choice: choice } }));
+    }
     return resolved;
   }
 
@@ -1110,6 +1117,24 @@
     return root.contains(aside);
   }
 
+  // syncDocumentTitle keeps the tab title in step with a shell-only navigation. A shell swap
+  // replaces the top bar but never reloads the document, so the browser would otherwise keep the
+  // previous page's title. The project name comes from a body data attribute, not from parsing the
+  // old title. | syncDocumentTitle 让标签页标题跟随只换外壳的导航。外壳交换只替换顶栏、不重载文档，
+  // 不处理的话浏览器会一直显示上一页标题。项目名取自 body 上的数据属性，而不是解析旧标题。
+  function syncDocumentTitle() {
+    var heading = document.querySelector('.yd-topbar__title');
+    if (!heading) {
+      return;
+    }
+    var text = (heading.textContent || '').trim();
+    if (!text) {
+      return;
+    }
+    var name = (document.body.getAttribute('data-yd-app-name') || '').trim();
+    document.title = name ? text + ' · ' + name : text;
+  }
+
   function onAfterSwap(event) {
     var detail = (event && event.detail) || {};
     var ctx = detail.ctx || {};
@@ -1120,6 +1145,7 @@
     formatCells(root);
     autoDismissFlashes(root);
     syncActiveNav();
+    syncDocumentTitle();
     // A swap may replace the elements that own the streams; recompute the aggregate and drop
     // stale states so a navigation never leaves an orphaned reconnect banner behind. | 交换可能替换
     // 承载数据流的元素；重算聚合状态并清掉旧状态，导航因此不会留下无主的重连横幅。

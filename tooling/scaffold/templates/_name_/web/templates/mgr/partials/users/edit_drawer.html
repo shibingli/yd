@@ -28,24 +28,21 @@
         hx-status:422="target:#yd-drawer-errors swap:innerHTML"
         hx-disabled-elt="find button[type='submit']"
         data-yd-confirm="{{ tr "confirm.update_user" }}" novalidate>
-    <div class="yd-form__field">
-      <label class="yd-form__label" for="yd-drawer-username">{{ tr "field.username" }}</label>
-      <input class="yd-input" id="yd-drawer-username" name="username" type="text"
-             required maxlength="64" value="{{ $target.Username }}">
-    </div>
-    <div class="yd-form__field">
-      <label class="yd-form__label" for="yd-drawer-display">{{ tr "field.display_name" }}</label>
-      <input class="yd-input" id="yd-drawer-display" name="display_name" type="text"
-             maxlength="64" value="{{ $target.DisplayName }}">
-    </div>
-    <div class="yd-form__field">
-      <label class="yd-form__label" for="yd-drawer-email">{{ tr "field.email" }}</label>
-      <input class="yd-input" id="yd-drawer-email" name="email" type="email"
-             maxlength="254" value="{{ $target.Email }}">
-    </div>
-    <div class="yd-form__actions">
-      <button type="submit" class="yd-btn yd-btn--primary">{{ tr "ui.save" }}</button>
-    </div>
+    {{template "components.form.field" (dict
+      "ID" "yd-drawer-username" "Name" "username" "Type" "text" "Value" $target.Username
+      "Label" (tr "field.username") "LabelKey" "field.username"
+      "Autocomplete" "off" "Required" true "MaxLength" 64)}}
+    {{template "components.form.field" (dict
+      "ID" "yd-drawer-display" "Name" "display_name" "Type" "text" "Value" $target.DisplayName
+      "Label" (tr "field.display_name") "LabelKey" "field.display_name"
+      "Autocomplete" "off" "MaxLength" 64)}}
+    {{template "components.form.field" (dict
+      "ID" "yd-drawer-email" "Name" "email" "Type" "email" "Value" $target.Email
+      "Label" (tr "field.email") "LabelKey" "field.email"
+      "Autocomplete" "off" "MaxLength" 254)}}
+    {{template "components.form.actions" (dict
+      "SubmitLabel" (tr "ui.save") "SubmitKey" "ui.save"
+      "CancelLabel" (tr "ui.cancel") "CancelKey" "ui.cancel")}}
   </form>
 </section>
 
@@ -59,17 +56,14 @@
     <fieldset class="yd-form__fieldset">
       <legend class="yd-form__label">{{ tr "field.roles" }}</legend>
       {{ range .RoleOptions }}
-      <label class="yd-check" for="yd-drawer-role-{{ .Name }}">
-        <input class="yd-check__input" id="yd-drawer-role-{{ .Name }}" type="checkbox"
-               name="roles" value="{{ .Name }}"{{ if .Selected }} checked{{ end }}>
-        <span class="yd-check__label">{{ .Name }}</span>
-        <span class="yd-hint">{{ .Description }}</span>
-      </label>
+      {{template "components.form.check" (dict
+        "ID" (printf "yd-drawer-role-%s" .Name) "Name" "roles" "Value" .Name
+        "Label" .Name "Hint" .Description "Checked" .Selected "Block" true)}}
       {{ end }}
     </fieldset>
-    <div class="yd-form__actions">
-      <button type="submit" class="yd-btn yd-btn--primary">{{ tr "ui.assign" }}</button>
-    </div>
+    {{template "components.form.actions" (dict
+      "SubmitLabel" (tr "ui.assign") "SubmitKey" "ui.assign"
+      "CancelLabel" (tr "ui.cancel") "CancelKey" "ui.cancel")}}
   </form>
 </section>
 
@@ -102,18 +96,18 @@
       </label>
       {{ end }}
     </fieldset>
-    <div class="yd-form__field">
-      <label class="yd-form__label" for="yd-drawer-default-tenant">{{ tr "tenant.default" }}</label>
+    <div class="yd-field" data-yd-field="default_tenant">
+      <label class="yd-field__label" for="yd-drawer-default-tenant">{{ tr "tenant.default" }}</label>
       <select class="yd-select" id="yd-drawer-default-tenant" name="default_tenant">
         {{ range .AllTenants }}
         <option value="{{ .ID }}"{{ if eq .ID $target.DefaultTenantID }} selected{{ end }}>{{ .Display }}</option>
         {{ end }}
       </select>
-      <span class="yd-hint">{{ tr "tenant.default_hint" }}</span>
+      <p class="yd-field__hint">{{ tr "tenant.default_hint" }}</p>
     </div>
-    <div class="yd-form__actions">
-      <button type="submit" class="yd-btn yd-btn--primary">{{ tr "ui.save" }}</button>
-    </div>
+    {{template "components.form.actions" (dict
+      "SubmitLabel" (tr "ui.save") "SubmitKey" "ui.save"
+      "CancelLabel" (tr "ui.cancel") "CancelKey" "ui.cancel")}}
   </form>
 </section>
 {{- end }}
@@ -127,14 +121,14 @@
         hx-status:422="target:#yd-drawer-errors swap:innerHTML"
         hx-disabled-elt="find button[type='submit']"
         data-yd-confirm="{{ tr "confirm.reset_password" }}" novalidate>
-    <div class="yd-form__field">
-      <label class="yd-form__label" for="yd-drawer-password-input">{{ tr "page.users.new_password" }}</label>
-      <input class="yd-input" id="yd-drawer-password-input" name="password" type="password"
-             autocomplete="new-password" required data-yd-sensitive>
-    </div>
-    <div class="yd-form__actions">
-      <button type="submit" class="yd-btn yd-btn--ghost">{{ tr "ui.reset_password" }}</button>
-    </div>
+    <input class="sr-only" type="text" name="username" autocomplete="username" value="{{ $target.Username }}" readonly tabindex="-1">
+    {{template "components.form.password" (dict
+      "ID" "yd-drawer-password-input" "Name" "password"
+      "Label" (tr "page.users.new_password") "LabelKey" "page.users.new_password"
+      "Autocomplete" "new-password" "Required" true "Sensitive" true)}}
+    {{template "components.form.actions" (dict
+      "SubmitLabel" (tr "ui.reset_password") "SubmitKey" "ui.reset_password"
+      "CancelLabel" (tr "ui.cancel") "CancelKey" "ui.cancel")}}
   </form>
 </section>
 

@@ -20,18 +20,15 @@
       hx-status:422="target:#yd-drawer-errors swap:innerHTML"
       data-yd-confirm="{{ tr "confirm.pin_message" }}">
   <input type="hidden" name="conversation_id" value="{{ .Message.ConversationID }}">
-  <div class="yd-field">
-    <label class="yd-label" for="yd-pin-start">{{ tr "message.pin_start" }}</label>
-    <input class="yd-input" id="yd-pin-start" name="pin_start" type="datetime-local">
-  </div>
-  <div class="yd-field">
-    <label class="yd-label" for="yd-pin-end">{{ tr "message.pin_end" }}</label>
-    <input class="yd-input" id="yd-pin-end" name="pin_end" type="datetime-local">
-  </div>
-  <div class="yd-form__actions">
-    <button type="button" class="yd-btn yd-btn--ghost" data-yd-drawer-close>{{ tr "ui.cancel" }}</button>
-    <button type="submit" class="yd-btn yd-btn--primary">{{ tr "message.pin" }}</button>
-  </div>
+  {{template "components.form.datetime" (dict
+    "ID" "yd-pin-start" "Name" "pin_start"
+    "Label" (tr "message.pin_start") "LabelKey" "message.pin_start")}}
+  {{template "components.form.datetime" (dict
+    "ID" "yd-pin-end" "Name" "pin_end"
+    "Label" (tr "message.pin_end") "LabelKey" "message.pin_end")}}
+  {{template "components.form.actions" (dict
+    "SubmitLabel" (tr "message.pin") "SubmitKey" "message.pin"
+    "CancelLabel" (tr "ui.cancel") "CancelKey" "ui.cancel")}}
 </form>
 {{- end -}}
 {{ template "mgr/partials/messages/pin" . }}

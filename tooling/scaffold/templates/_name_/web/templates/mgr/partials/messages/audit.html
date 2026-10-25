@@ -60,7 +60,7 @@
     </header>
     {{- if .Results }}
     <div class="yd-msg-thread__body yd-msg-admin-list">
-      {{- range .Results }}{{ template "mgr/partials/messages/message" . }}{{ end }}
+      {{- range .Results }}{{ template "partials/messages/message" . }}{{ end }}
     </div>
     {{- else }}
     <p class="yd-hint">{{ tr "message.no_results" }}</p>

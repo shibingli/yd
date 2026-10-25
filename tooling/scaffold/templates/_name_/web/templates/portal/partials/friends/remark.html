@@ -7,8 +7,8 @@
 */}}
 {{- define "portal/partials/friends/remark" -}}
 <div class="yd-drawer__head">
-  <h2 class="yd-section__title">{{ tr "friend.remark_title" }}</h2>
-  <p class="yd-section__hint">{{ tr "friend.remark_hint" }}</p>
+  <h2 class="yd-section__title" data-yd-i18n="friend.remark_title">{{ tr "friend.remark_title" }}</h2>
+  <p class="yd-section__hint" data-yd-i18n="friend.remark_hint">{{ tr "friend.remark_hint" }}</p>
 </div>
 <div class="yd-friend yd-friend--target">
   <span class="yd-avatar" aria-hidden="true">{{ .Friend.Initial }}</span>
@@ -22,14 +22,12 @@
       hx-status:409="target:#yd-drawer-errors swap:innerHTML"
       hx-status:422="target:#yd-drawer-errors swap:innerHTML"
       data-yd-confirm="{{ tr "confirm.save_remark" }}">
-  <div class="yd-field">
-    <label class="yd-label" for="yd-friend-remark">{{ tr "friend.remark" }}</label>
-    <input class="yd-input" id="yd-friend-remark" name="remark" type="text" maxlength="128" value="{{ .Friend.Remark }}">
-  </div>
-  <div class="yd-form__actions">
-    <button type="button" class="yd-btn yd-btn--ghost" data-yd-drawer-close>{{ tr "ui.cancel" }}</button>
-    <button type="submit" class="yd-btn yd-btn--primary">{{ tr "ui.save" }}</button>
-  </div>
+  {{template "components.form.field" (dict
+    "ID" "yd-friend-remark" "Name" "remark" "Type" "text" "Value" .Friend.Remark
+    "Label" (tr "friend.remark") "LabelKey" "friend.remark" "MaxLength" 128)}}
+  {{template "components.form.actions" (dict
+    "SubmitLabel" (tr "ui.save") "SubmitKey" "ui.save"
+    "CancelLabel" (tr "ui.cancel") "CancelKey" "ui.cancel")}}
 </form>
 {{- end -}}
 {{ template "portal/partials/friends/remark" . }}

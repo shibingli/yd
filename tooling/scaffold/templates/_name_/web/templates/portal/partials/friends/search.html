@@ -26,12 +26,12 @@
         {{- if .CanRequest }}
         <button type="button" class="yd-btn yd-btn--primary yd-btn--sm" data-yd-drawer-open
                 hx-get="/friends/new?friend_id={{ .Profile.ID }}" hx-target="#yd-drawer-body" hx-swap="innerHTML">
-          {{ template "portal/partials/icon" "lucide-user-plus" }}{{ tr "friend.add" }}
+          {{ template "partials/icon" "lucide-user-plus" }}{{ tr "friend.add" }}
         </button>
         {{- else if and (eq .Relation "friend") (can $.Perm.MessageSend) }}
         <a class="yd-btn yd-btn--ghost yd-btn--sm" href="/messages/direct/{{ .Profile.ID }}"
            hx-get="/messages/direct/{{ .Profile.ID }}" hx-target="#yd-workspace" hx-swap="innerMorph" hx-push-url="true">
-          {{ template "portal/partials/icon" "lucide-message-square" }}{{ tr "friend.message" }}
+          {{ template "partials/icon" "lucide-message-square" }}{{ tr "friend.message" }}
         </a>
         {{- end }}
       </li>

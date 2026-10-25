@@ -1041,9 +1041,11 @@ GROUP BY r.name`)
 	}
 }
 
-// dialMessageSocket 建立消息 WebSocket 并读掉两个初始未读徽标（用户名角标与用户菜单计数），返回已订阅的连接。
-// dialMessageSocket opens the message WebSocket, consumes both initial unread badges (the user-name corner and the
-// user-menu count) and returns the subscribed connection.
+// dialMessageSocket 建立消息 WebSocket 并读掉四个初始未读徽标（用户名角标、用户菜单计数、侧栏未读与好友申请），
+// 返回已订阅的连接。服务端每次推送四个目标，客户端必须全部读掉，否则后续断言会读到上一轮遗留的帧。
+// dialMessageSocket opens the message WebSocket, consumes all four initial unread frames (the user-name corner, the
+// user-menu count, the sidebar unread count and the friend-request count) and returns the subscribed connection. The
+// server pushes all four targets, and leaving some queued would make the next assertion read a stale frame.
 func dialMessageSocket(t *testing.T, base, token string) *websocket.Conn {
 	t.Helper()
 
@@ -1060,7 +1062,12 @@ func dialMessageSocket(t *testing.T, base, token string) *websocket.Conn {
 		_ = conn.CloseNow()
 		t.Fatalf("设置读超时失败: %v", err)
 	}
-	for _, target := range []string{`hx-target="#yd-unread-badge"`, `hx-target="#yd-unread-menu-badge"`} {
+	for _, target := range []string{
+		`hx-target="#yd-unread-badge"`,
+		`hx-target="#yd-unread-menu-badge"`,
+		`hx-target="#yd-sidebar-unread"`,
+		`hx-target="#yd-sidebar-friend-requests"`,
+	} {
 		_, frame, err := conn.ReadMessage()
 		if err != nil {
 			_ = conn.CloseNow()

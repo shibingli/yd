@@ -5,6 +5,9 @@
    关闭自动源探测：下面显式写出的 @source 是唯一扫描范围。否则 Tailwind 会遍历 tooling/，
    固定版本的 Iconify JSON 与生成文档里含有大量类名样式的词，既拖慢构建又让产物不确定。 */
 @import "./components.css";
+/* The UI kit layer comes after the admin component layer so its rules win on equal specificity. |
+   UI 组件层排在管理端组件层之后，使同等特异性下由它胜出。 */
+@import "./ui.css";
 
 /* Explicit Tailwind sources. | Tailwind 显式扫描源。                                                */
 /* @source paths are resolved relative to THIS stylesheet, so "../../templates" is web/templates. | @source 路径相对本样式文件解析，故 "../../templates" 即 web/templates。 */

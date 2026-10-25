@@ -1,0 +1,413 @@
+{{/*
+  pages/ui_kit.html —— 门户里的组件示例页：把组件层的全部控件摆在同一页。
+  pages/ui_kit.html — the portal's component gallery: every control of the UI kit on one page.
+
+  本页只组合 `web/templates/components/**` 里的组件模板，不手写输入框、按钮或图标；因此它同时是
+  「组件层还能不能覆盖日常页面」的活文档，也是新增组件时的回归入口。门户与后台共用同一套组件，
+  所以这里看到的每一个控件在后台页面里同样可用。
+  This page only composes the component templates under `web/templates/components/**`; it hand-writes no
+  input, button or icon. It is therefore both living documentation of whether the kit covers an ordinary
+  page and the regression entry point for a new component. The portal and the back office share the same
+  kit, so every control here is equally available in management pages.
+
+  数据契约 | Data contract: .ChartSVG（template.HTML，服务端经 http/chart 生成）。
+*/}}
+<section class="yd-page" data-yd-page="ui-kit" aria-labelledby="yd-ui-kit-title">
+  {{template "components.layout.page-header" (dict
+    "Title" (tr "nav.ui_kit") "TitleKey" "nav.ui_kit"
+    "Lead" (tr "showcase.lead") "LeadKey" "showcase.lead")}}
+
+  <div class="yd-grid yd-grid--gallery">
+    <section class="yd-card yd-section" aria-labelledby="yd-ui-kit-form">
+      <h2 class="yd-section__title" id="yd-ui-kit-form">{{tr "showcase.section.form"}}</h2>
+      <p class="yd-section__hint">{{tr "showcase.hint.form"}}</p>
+      <form class="yd-form" method="get" action="/ui-kit">
+        <div class="yd-form-grid">
+          {{template "components.form.field" (dict
+            "ID" "yd-kit-username" "Name" "username" "Value" "alice"
+            "Label" (tr "field.username") "LabelKey" "field.username"
+            "Hint" (tr "showcase.sample.hint") "HintKey" "showcase.sample.hint"
+            "Required" true "Autocomplete" "username")}}
+          {{template "components.form.field" (dict
+            "ID" "yd-kit-email" "Name" "email" "Type" "email" "Value" "alice@example.com"
+            "Label" (tr "field.email") "LabelKey" "field.email" "Autocomplete" "email")}}
+          {{template "components.form.password" (dict
+            "ID" "yd-kit-password" "Name" "password" "Value" ""
+            "Label" (tr "field.password") "LabelKey" "field.password"
+            "Hint" (tr "showcase.sample.hint") "HintKey" "showcase.sample.hint"
+            "Autocomplete" "new-password")}}
+          {{template "components.form.select" (dict
+            "ID" "yd-kit-status" "Name" "status"
+            "Label" (tr "field.status") "LabelKey" "field.status"
+            "Options" (list
+              (dict "Value" "active" "Key" "status.active" "Selected" true)
+              (dict "Value" "disabled" "Key" "status.disabled"))) }}
+          {{template "components.form.number" (dict
+            "ID" "yd-kit-number" "Name" "quota" "Value" 8 "Min" 1 "Max" 100 "Step" 1
+            "Label" (tr "showcase.label.quantity") "LabelKey" "showcase.label.quantity")}}
+          {{template "components.form.otp" (dict
+            "ID" "yd-kit-otp" "Name" "otp" "Length" 6 "Slots" (list 0 1 2 3 4 5)
+            "Label" (tr "showcase.label.otp") "LabelKey" "showcase.label.otp")}}
+          {{template "components.form.color" (dict
+            "ID" "yd-kit-color" "Name" "color" "Value" "#2563eb"
+            "Label" (tr "showcase.label.color") "LabelKey" "showcase.label.color")}}
+          {{template "components.form.combobox" (dict
+            "ID" "yd-kit-combobox" "Name" "choice" "Value" "alpha" "LabelValue" (tr "showcase.option.alpha")
+            "Label" (tr "showcase.label.combobox") "LabelKey" "showcase.label.combobox"
+            "Options" (list
+              (dict "Value" "alpha" "Label" (tr "showcase.option.alpha") "Key" "showcase.option.alpha")
+              (dict "Value" "beta" "Label" (tr "showcase.option.beta") "Key" "showcase.option.beta")
+              (dict "Value" "gamma" "Label" (tr "showcase.option.gamma") "Key" "showcase.option.gamma"))) }}
+          {{template "components.form.date" (dict
+            "ID" "yd-kit-date" "Name" "dated" "Value" "2026-10-25"
+            "Label" (tr "showcase.label.date") "LabelKey" "showcase.label.date")}}
+          {{template "components.form.time" (dict
+            "ID" "yd-kit-time" "Name" "timed" "Value" "09:30"
+            "Label" (tr "showcase.label.time") "LabelKey" "showcase.label.time")}}
+          {{template "components.form.datetime" (dict
+            "ID" "yd-kit-datetime" "Name" "datetimed" "Value" "2026-10-25T09:30"
+            "Label" (tr "showcase.label.datetime") "LabelKey" "showcase.label.datetime")}}
+        </div>
+
+        {{template "components.form.tags" (dict
+          "ID" "yd-kit-tags" "Name" "tags" "Value" "go,htmx,tailwind"
+          "Label" (tr "showcase.label.tags") "LabelKey" "showcase.label.tags"
+          "AddLabel" (tr "ui.create") "AddKey" "ui.create")}}
+
+        {{template "components.form.segmented" (dict
+          "Name" "density" "Label" (tr "showcase.label.segmented") "LabelKey" "showcase.label.segmented"
+          "Options" (list
+            (dict "Value" "compact" "Label" (tr "showcase.option.compact") "Key" "showcase.option.compact")
+            (dict "Value" "cozy" "Label" (tr "showcase.option.cozy") "Key" "showcase.option.cozy" "Checked" true)
+            (dict "Value" "roomy" "Label" (tr "showcase.option.roomy") "Key" "showcase.option.roomy"))) }}
+
+        <div class="yd-cluster">
+          {{template "components.form.check" (dict
+            "ID" "yd-kit-check" "Name" "notify" "Value" "1" "Checked" true
+            "Label" (tr "showcase.label.check") "LabelKey" "showcase.label.check" "Block" true)}}
+          {{template "components.form.radio" (dict
+            "ID" "yd-kit-radio" "Name" "scope" "Value" "self" "Checked" true
+            "Label" (tr "showcase.label.radio") "LabelKey" "showcase.label.radio" "Block" true)}}
+          {{template "components.form.toggle" (dict
+            "ID" "yd-kit-toggle" "Name" "enabled" "Value" "1" "Checked" true
+            "Label" (tr "showcase.label.toggle") "LabelKey" "showcase.label.toggle")}}
+        </div>
+
+        {{template "components.form.textarea" (dict
+          "ID" "yd-kit-textarea" "Name" "notes" "Rows" 3 "Value" (tr "showcase.sample.text")
+          "Label" (tr "showcase.label.textarea") "LabelKey" "showcase.label.textarea")}}
+
+        {{template "components.form.editor" (dict
+          "ID" "yd-kit-editor" "Name" "markdown" "Rows" 6 "Value" (tr "showcase.sample.code")
+          "Label" (tr "showcase.label.editor") "LabelKey" "showcase.label.editor"
+          "Hint" (tr "showcase.hint.editor") "HintKey" "showcase.hint.editor")}}
+
+        {{template "components.form.file" (dict
+          "ID" "yd-kit-file" "Name" "attachment"
+          "Label" (tr "showcase.label.file") "LabelKey" "showcase.label.file"
+          "Hint" (tr "showcase.sample.hint") "HintKey" "showcase.sample.hint")}}
+
+        {{template "components.form.actions" (dict
+          "SubmitLabel" (tr "ui.save") "SubmitKey" "ui.save"
+          "CancelLabel" (tr "ui.cancel") "CancelKey" "ui.cancel" "CancelHref" "#yd-ui-kit-form")}}
+      </form>
+
+      {{/* 搜索组件自带 <form>，不能嵌进上面的演示表单；HTML 会丢弃嵌套表单并把节点移出原位。
+           这里单独渲染，既保持合法结构，也演示真实页面里的搜索用法。 |
+           The search component ships its own <form> and must not be nested inside the demo form above; HTML
+           drops nested forms and moves their nodes out of place. Rendering it separately keeps the structure
+           valid and still demonstrates the real page-level search. */}}
+      {{template "components.form.search" (dict
+        "ID" "yd-kit-search" "Action" "/ui-kit" "Name" "q"
+        "Label" (tr "showcase.label.search") "LabelKey" "showcase.label.search"
+        "Placeholder" (tr "showcase.label.search") "PlaceholderKey" "showcase.label.search"
+        "SubmitLabel" (tr "ui.search") "SubmitKey" "ui.search")}}
+    </section>
+
+    <section class="yd-card yd-section" aria-labelledby="yd-ui-kit-cn">
+      <h2 class="yd-section__title" id="yd-ui-kit-cn">{{tr "showcase.section.cn"}}</h2>
+      <p class="yd-section__hint">{{tr "showcase.hint.cn"}}</p>
+      <div class="yd-form-grid">
+        {{template "components.cn.phone" (dict
+          "ID" "yd-kit-phone" "Name" "phone" "Value" "13800138000"
+          "Label" (tr "showcase.label.phone") "LabelKey" "showcase.label.phone")}}
+        {{template "components.cn.idcard" (dict
+          "ID" "yd-kit-idcard" "Name" "idcard"
+          "Label" (tr "showcase.label.idcard") "LabelKey" "showcase.label.idcard")}}
+        {{template "components.cn.bankcard" (dict
+          "ID" "yd-kit-bankcard" "Name" "bankcard"
+          "Label" (tr "showcase.label.bankcard") "LabelKey" "showcase.label.bankcard")}}
+        {{template "components.cn.creditcode" (dict
+          "ID" "yd-kit-credit" "Name" "credit_code"
+          "Label" (tr "showcase.label.creditcode") "LabelKey" "showcase.label.creditcode")}}
+        {{template "components.cn.amount" (dict
+          "ID" "yd-kit-amount" "Name" "amount" "Value" "1288.50"
+          "Label" (tr "showcase.label.amount") "LabelKey" "showcase.label.amount")}}
+        {{template "components.cn.region" (dict
+          "Label" (tr "showcase.label.region") "LabelKey" "showcase.label.region")}}
+        {{template "components.cn.daterange" (dict
+          "Label" (tr "showcase.label.daterange") "LabelKey" "showcase.label.daterange")}}
+        {{template "components.cn.sms" (dict
+          "ID" "yd-kit-sms" "Name" "sms_code"
+          "Label" (tr "showcase.label.sms") "LabelKey" "showcase.label.sms")}}
+      </div>
+      <div class="yd-cluster">
+        {{template "components.cn.copy" (dict
+          "Value" "yd-ui-kit" "Label" (tr "showcase.label.copy") "LabelKey" "showcase.label.copy")}}
+      </div>
+    </section>
+
+    <section class="yd-card yd-section" aria-labelledby="yd-ui-kit-feedback">
+      <h2 class="yd-section__title" id="yd-ui-kit-feedback">{{tr "showcase.section.feedback"}}</h2>
+      <p class="yd-section__hint">{{tr "showcase.hint.feedback"}}</p>
+      <div class="yd-stack">
+        {{template "components.feedback.alert" (dict
+          "Level" "info" "Title" (tr "showcase.section.feedback") "TitleKey" "showcase.section.feedback"
+          "Text" (tr "showcase.sample.text") "TextKey" "showcase.sample.text")}}
+        {{template "components.feedback.alert" (dict
+          "Level" "success" "Text" (tr "showcase.sample.success") "TextKey" "showcase.sample.success")}}
+        {{template "components.feedback.message" (dict
+          "Tone" "info" "Text" (tr "showcase.sample.text") "TextKey" "showcase.sample.text")}}
+        {{template "components.feedback.notification" (dict
+          "Tone" "info" "Title" (tr "showcase.section.feedback") "TitleKey" "showcase.section.feedback"
+          "Text" (tr "showcase.sample.text") "TextKey" "showcase.sample.text")}}
+        <div class="yd-cluster">
+          {{template "components.feedback.tag" (dict "Tone" "accent" "Label" (tr "showcase.option.alpha") "LabelKey" "showcase.option.alpha")}}
+          {{template "components.feedback.tag" (dict "Tone" "success" "Label" (tr "status.active") "LabelKey" "status.active")}}
+          {{template "components.feedback.tag" (dict "Tone" "warn" "Label" (tr "showcase.sample.warn") "LabelKey" "showcase.sample.warn")}}
+          {{template "components.feedback.tag" (dict "Tone" "danger" "Label" (tr "showcase.sample.error") "LabelKey" "showcase.sample.error")}}
+        </div>
+        <div class="yd-cluster">
+          {{template "components.feedback.spinner" (dict "Size" "sm" "Label" (tr "showcase.sample.loading") "LabelKey" "showcase.sample.loading")}}
+          {{template "components.feedback.spinner" (dict "Size" "lg" "Label" (tr "showcase.sample.loading") "LabelKey" "showcase.sample.loading")}}
+        </div>
+        {{template "components.feedback.skeleton" (dict "Label" (tr "showcase.sample.loading") "LabelKey" "showcase.sample.loading")}}
+        {{template "components.feedback.toast" (dict "Tone" "success" "Text" (tr "showcase.sample.success") "TextKey" "showcase.sample.success")}}
+        {{template "components.feedback.toast-region" (dict "ID" "yd-kit-toast-region")}}
+        {{template "components.feedback.popconfirm" (dict
+          "Message" (tr "showcase.sample.confirm") "Label" (tr "showcase.label.demo") "LabelKey" "showcase.label.demo")}}
+      </div>
+    </section>
+
+    <section class="yd-card yd-section" aria-labelledby="yd-ui-kit-display">
+      <h2 class="yd-section__title" id="yd-ui-kit-display">{{tr "showcase.section.display"}}</h2>
+      <p class="yd-section__hint">{{tr "showcase.hint.display"}}</p>
+      <div class="yd-stack">
+        {{template "components.display.accordion" (dict
+          "Items" (list
+            (dict "ID" "yd-kit-accordion-1" "Title" (tr "showcase.label.accordion") "TitleKey" "showcase.label.accordion" "Open" true "Body" (tr "showcase.sample.text"))
+            (dict "Title" (tr "showcase.sample.aside") "TitleKey" "showcase.sample.aside" "Body" (tr "showcase.sample.long")))) }}
+        {{template "components.display.aspect" (dict
+          "Ratio" "16x9" "Content" (tr "showcase.sample.aside") "Caption" (tr "showcase.sample.caption") "CaptionKey" "showcase.sample.caption")}}
+        <div class="yd-cluster">
+          {{template "components.data.avatar" (dict "Initials" "AS" "Label" (tr "showcase.sample.member") "LabelKey" "showcase.sample.member")}}
+          <p class="yd-field__hint">{{tr "showcase.label.avatar_group"}}</p>
+          {{template "components.display.avatar-group" (dict
+            "Items" (list
+              (dict "Initials" "AS" "Label" (tr "showcase.sample.member") "LabelKey" "showcase.sample.member")
+              (dict "Initials" "BK" "Label" (tr "showcase.sample.member") "LabelKey" "showcase.sample.member")
+              (dict "Initials" "CL" "Label" (tr "showcase.sample.member") "LabelKey" "showcase.sample.member"))
+            "More" 2)}}
+          {{template "components.display.badge" (dict "Tone" "success" "Label" (tr "status.active") "LabelKey" "status.active")}}
+          {{template "components.display.badge" (dict "Tone" "danger" "Count" 12 "Max" 99)}}
+          {{template "components.display.badge" (dict "Tone" "info" "Dot" true)}}
+        </div>
+        {{template "components.display.button-group" (dict
+          "Items" (list
+            (dict "Label" (tr "showcase.option.alpha") "LabelKey" "showcase.option.alpha" "Href" "#yd-kit-display" "Active" true)
+            (dict "Label" (tr "showcase.option.beta") "LabelKey" "showcase.option.beta" "Href" "#yd-kit-display"))) }}
+        {{template "components.display.carousel" (dict
+          "Label" (tr "showcase.label.carousel") "LabelKey" "showcase.label.carousel"
+          "Items" (list
+            (dict "ID" "yd-kit-slide-1" "Content" (tr "showcase.sample.slide_one") "Caption" (tr "showcase.sample.caption") "CaptionKey" "showcase.sample.caption")
+            (dict "ID" "yd-kit-slide-2" "Content" (tr "showcase.sample.slide_two") "Caption" (tr "showcase.sample.caption") "CaptionKey" "showcase.sample.caption"))) }}
+        {{template "components.display.code" (dict
+          "Language" "go" "Code" (tr "showcase.sample.code") "CopyValue" (tr "showcase.sample.code")
+          "Label" (tr "showcase.label.code") "LabelKey" "showcase.label.code")}}
+        {{template "components.display.descriptions" (dict
+          "Items" (list
+            (dict "Label" (tr "field.name") "LabelKey" "field.name" "Value" "yd")
+            (dict "Label" (tr "field.status") "LabelKey" "field.status" "Value" (tr "status.active") "ValueKey" "status.active"))) }}
+        {{template "components.display.ellipsis" (dict "Lines" 2 "Text" (tr "showcase.sample.long") "TextKey" "showcase.sample.long" "Title" (tr "showcase.sample.long"))}}
+        <p>{{template "components.display.gradient-text" (dict "Text" (tr "showcase.sample.accent") "TextKey" "showcase.sample.accent")}}</p>
+        <p>{{template "components.display.highlight" (dict "HTML" (tr "showcase.sample.highlight"))}}</p>
+        {{template "components.display.figure" (dict
+          "Src" (asset "/static/img/yd-icon.svg") "Alt" (tr "showcase.sample.caption") "AltKey" "showcase.sample.caption"
+          "Caption" (tr "showcase.sample.caption") "CaptionKey" "showcase.sample.caption" "Lazy" true)}}
+        {{template "components.display.list" (dict
+          "Items" (list
+            (dict "Title" (tr "showcase.sample.item_one") "TitleKey" "showcase.sample.item_one" "Text" (tr "showcase.sample.text") "TextKey" "showcase.sample.text")
+            (dict "Title" (tr "showcase.sample.item_two") "TitleKey" "showcase.sample.item_two" "Text" (tr "showcase.sample.text") "TextKey" "showcase.sample.text"))) }}
+        {{template "components.display.item" (dict
+          "Title" (tr "showcase.sample.item_one") "TitleKey" "showcase.sample.item_one"
+          "Text" (tr "showcase.sample.text") "TextKey" "showcase.sample.text"
+          "Meta" (tr "showcase.sample.meta") "MetaKey" "showcase.sample.meta")}}
+        {{template "components.display.marquee" (dict
+          "Items" (list (dict "Text" (tr "showcase.sample.notice") "TextKey" "showcase.sample.notice"))) }}
+        {{template "components.display.meter" (dict "Value" 72 "Max" 100 "Label" "72%" "Tone" "success")}}
+        {{template "components.display.rate" (dict
+          "ID" "yd-kit-rate" "Name" "rating" "Value" 4 "Stars" (list 5 4 3 2 1)
+          "Label" (tr "showcase.label.rating") "LabelKey" "showcase.label.rating")}}
+        <p class="yd-field__hint">{{tr "showcase.label.result"}}</p>
+        {{template "components.display.result" (dict
+          "Status" "success" "Title" (tr "showcase.sample.result_title") "TitleKey" "showcase.sample.result_title"
+          "Text" (tr "showcase.sample.result_text") "TextKey" "showcase.sample.result_text")}}
+        {{template "components.display.scroll-area" (dict
+          "Size" "sm" "Content" (tr "showcase.sample.long") "Label" (tr "showcase.sample.aside") "LabelKey" "showcase.sample.aside")}}
+        {{template "components.display.slider" (dict
+          "ID" "yd-kit-slider" "Name" "volume" "Value" 60
+          "Label" (tr "showcase.label.slider") "LabelKey" "showcase.label.slider")}}
+        <p class="yd-field__hint">{{tr "showcase.label.timeline"}}</p>
+        {{template "components.display.timeline" (dict
+          "Items" (list
+            (dict "Time" "09:00" "Title" (tr "showcase.sample.event_one") "TitleKey" "showcase.sample.event_one" "Text" (tr "showcase.sample.text") "TextKey" "showcase.sample.text" "State" "done")
+            (dict "Time" "10:30" "Title" (tr "showcase.sample.event_two") "TitleKey" "showcase.sample.event_two" "State" "current"))) }}
+        <p class="yd-field__hint">{{tr "showcase.label.watermark"}}</p>
+        {{template "components.display.watermark" (dict
+          "Text" (tr "showcase.sample.watermark") "Count" 16 "Content" (tr "showcase.sample.text") "TextKey" "showcase.sample.text")}}
+        <div class="yd-cluster">
+          {{template "components.display.kbd" (dict "Keys" (list "Ctrl" "K") "Label" (tr "showcase.label.command") "LabelKey" "showcase.label.command")}}
+          {{template "components.display.divider" (dict "Label" (tr "showcase.sample.caption") "LabelKey" "showcase.sample.caption")}}
+        </div>
+        {{template "components.display.prose" (dict "Content" (tr "showcase.sample.long"))}}
+        {{template "components.display.countdown" (dict "Seconds" 3600 "Label" (tr "showcase.label.countdown") "LabelKey" "showcase.label.countdown")}}
+        {{template "components.display.number" (dict
+          "Value" 12880 "Format" "currency" "Label" (tr "showcase.label.number") "LabelKey" "showcase.label.number")}}
+      </div>
+    </section>
+
+    <section class="yd-card yd-section" aria-labelledby="yd-ui-kit-navigation">
+      <h2 class="yd-section__title" id="yd-ui-kit-navigation">{{tr "showcase.section.navigation"}}</h2>
+      <p class="yd-section__hint">{{tr "showcase.hint.navigation"}}</p>
+      <div class="yd-stack">
+        {{template "components.navigation.breadcrumb" (dict
+          "Label" (tr "showcase.label.breadcrumb") "LabelKey" "showcase.label.breadcrumb"
+          "Items" (list
+            (dict "Label" (tr "nav.main") "LabelKey" "nav.main" "Href" "#yd-ui-kit-navigation")
+            (dict "Label" (tr "nav.ui_kit") "LabelKey" "nav.ui_kit" "Current" true))) }}
+        {{template "components.navigation.tabs" (dict
+          "Label" (tr "showcase.label.tabs") "LabelKey" "showcase.label.tabs"
+          "Items" (list
+            (dict "Label" (tr "showcase.option.alpha") "LabelKey" "showcase.option.alpha" "Href" "#yd-kit-display" "Active" true)
+            (dict "Label" (tr "showcase.option.beta") "LabelKey" "showcase.option.beta" "Href" "#yd-kit-cn"))) }}
+        {{template "components.navigation.steps" (dict
+          "Label" (tr "showcase.label.steps") "LabelKey" "showcase.label.steps"
+          "Items" (list
+            (dict "Index" 1 "Label" (tr "showcase.option.alpha") "LabelKey" "showcase.option.alpha" "State" "done")
+            (dict "Index" 2 "Label" (tr "showcase.option.beta") "LabelKey" "showcase.option.beta" "State" "current")
+            (dict "Index" 3 "Label" (tr "showcase.option.gamma") "LabelKey" "showcase.option.gamma"))) }}
+        <div class="yd-cluster">
+          {{template "components.navigation.dropdown" (dict
+            "ID" "yd-kit-dropdown" "Label" (tr "showcase.label.dropdown") "LabelKey" "showcase.label.dropdown"
+            "PanelLabel" (tr "showcase.label.dropdown") "PanelLabelKey" "showcase.label.dropdown"
+            "Items" (list
+              (dict "Label" (tr "showcase.option.alpha") "LabelKey" "showcase.option.alpha" "Href" "#yd-kit-display")
+              (dict "Label" (tr "showcase.option.beta") "LabelKey" "showcase.option.beta" "Href" "#yd-kit-cn"))) }}
+          {{template "components.navigation.fab" (dict "Href" "#yd-ui-kit-navigation" "Label" (tr "showcase.label.fab") "LabelKey" "showcase.label.fab" "Primary" true)}}
+          {{template "components.navigation.back-top" (dict)}}
+        </div>
+        {{template "components.navigation.anchor" (dict
+          "Label" (tr "showcase.label.anchor") "LabelKey" "showcase.label.anchor"
+          "Items" (list
+            (dict "Href" "#yd-ui-kit-form" "Label" (tr "showcase.section.form") "LabelKey" "showcase.section.form")
+            (dict "Href" "#yd-ui-kit-display" "Label" (tr "showcase.section.display") "LabelKey" "showcase.section.display"))) }}
+        {{template "components.navigation.affix" (dict "Content" (tr "showcase.sample.aside"))}}
+        {{template "components.navigation.command" (dict
+          "ID" "yd-kit-command" "TriggerLabel" (tr "showcase.label.command") "TriggerKey" "showcase.label.command"
+          "Placeholder" (tr "ui.search") "PlaceholderKey" "ui.search" "Shortcut" "k"
+          "Items" (list
+            (dict "Group" (tr "showcase.sample.group") "GroupKey" "showcase.sample.group" "Label" (tr "showcase.label.command") "LabelKey" "showcase.label.command" "Href" "#yd-kit-navigation")
+            (dict "Group" (tr "showcase.sample.group") "GroupKey" "showcase.sample.group" "Label" (tr "nav.account") "LabelKey" "nav.account" "Href" "/account"))) }}
+        {{template "components.navigation.context-menu" (dict
+          "Content" (tr "showcase.sample.context") "Items" (list
+            (dict "Label" (tr "showcase.option.alpha") "LabelKey" "showcase.option.alpha" "Href" "#yd-kit-display")
+            (dict "Label" (tr "ui.delete") "LabelKey" "ui.delete" "Href" "#yd-kit-display" "Danger" true))) }}
+        {{template "components.navigation.menubar" (dict
+          "Label" (tr "showcase.label.menubar") "LabelKey" "showcase.label.menubar"
+          "Items" (list
+            (dict "Label" (tr "showcase.menu.file") "LabelKey" "showcase.menu.file" "Items" (list
+              (dict "Label" (tr "showcase.option.alpha") "LabelKey" "showcase.option.alpha" "Href" "#yd-kit-display")))
+            (dict "Label" (tr "showcase.menu.edit") "LabelKey" "showcase.menu.edit" "Items" (list
+              (dict "Label" (tr "showcase.option.beta") "LabelKey" "showcase.option.beta" "Href" "#yd-kit-cn"))))) }}
+        {{template "components.navigation.menu" (dict
+          "Label" (tr "showcase.label.menu") "LabelKey" "showcase.label.menu"
+          "Items" (list
+            (dict "Section" (tr "showcase.sample.group") "SectionKey" "showcase.sample.group" "Items" (list
+              (dict "Label" (tr "showcase.option.alpha") "LabelKey" "showcase.option.alpha" "Href" "#yd-kit-display" "Active" true)
+              (dict "Label" (tr "showcase.option.beta") "LabelKey" "showcase.option.beta" "Href" "#yd-kit-cn"))))) }}
+        {{template "components.navigation.pagination" (dict
+          "Label" (tr "showcase.label.pagination") "LabelKey" "showcase.label.pagination"
+          "Summary" (tr "showcase.sample.summary") "SummaryKey" "showcase.sample.summary"
+          "PrevHref" "#yd-kit-navigation" "NextHref" "#yd-kit-navigation"
+          "Pages" (list
+            (dict "Number" 1 "Href" "#yd-kit-navigation" "Current" true)
+            (dict "Number" 2 "Href" "#yd-kit-navigation")
+            (dict "Ellipsis" true)
+            (dict "Number" 9 "Href" "#yd-kit-navigation"))) }}
+        {{template "components.navigation.tree" (dict
+          "Items" (list
+            (dict "Label" (tr "showcase.label.tree") "LabelKey" "showcase.label.tree" "Open" true "Children" (list
+              (dict "Label" (tr "showcase.option.alpha") "LabelKey" "showcase.option.alpha" "Href" "#yd-kit-display")
+              (dict "Label" (tr "showcase.option.beta") "LabelKey" "showcase.option.beta" "Href" "#yd-kit-cn"))))) }}
+      </div>
+    </section>
+
+    <section class="yd-card yd-section" aria-labelledby="yd-ui-kit-data">
+      <h2 class="yd-section__title" id="yd-ui-kit-data">{{tr "showcase.section.data"}}</h2>
+      <p class="yd-section__hint">{{tr "showcase.hint.data"}}</p>
+      <div class="yd-grid yd-grid--2">
+        {{template "components.data.stat" (dict "Label" (tr "showcase.label.stat") "LabelKey" "showcase.label.stat" "Value" "1,288" "Delta" "+12%" "Trend" "up" "Hint" (tr "showcase.sample.hint") "HintKey" "showcase.sample.hint")}}
+        {{template "components.data.kpi" (dict "Label" (tr "showcase.label.kpi") "LabelKey" "showcase.label.kpi" "Value" "98.4%" "Delta" "+0.8%" "Trend" "up")}}
+      </div>
+      {{template "components.data.table.open" (dict
+        "ID" "yd-kit-table" "Caption" (tr "showcase.label.table") "CaptionKey" "showcase.label.table"
+        "Columns" (list
+          (dict "Label" (tr "showcase.sample.table_name") "LabelKey" "showcase.sample.table_name")
+          (dict "Label" (tr "field.status") "LabelKey" "field.status")
+          (dict "Label" (tr "field.actions") "LabelKey" "field.actions" "Actions" true))) }}
+      <tr>
+        <td class="yd-table__td">{{template "components.data.sort-header" (dict "Label" (tr "showcase.sample.table_name") "LabelKey" "showcase.sample.table_name" "Href" "#yd-kit-data" "Active" true "Dir" "asc")}}</td>
+        <td class="yd-table__td">{{template "components.display.badge" (dict "Tone" "success" "Label" (tr "status.active") "LabelKey" "status.active")}}</td>
+        <td class="yd-table__td yd-table__td--actions">{{template "components.display.badge" (dict "Tone" "muted" "Label" (tr "showcase.sample.meta") "LabelKey" "showcase.sample.meta")}}</td>
+      </tr>
+      <tr>
+        <td class="yd-table__td">bob</td>
+        <td class="yd-table__td">{{template "components.display.badge" (dict "Tone" "muted" "Label" (tr "status.disabled") "LabelKey" "status.disabled")}}</td>
+        <td class="yd-table__td yd-table__td--actions">{{template "components.display.badge" (dict "Tone" "info" "Label" (tr "role.builtin") "LabelKey" "role.builtin")}}</td>
+      </tr>
+      {{template "components.data.table.close" (dict)}}
+      {{template "components.data.log" (dict
+        "Label" (tr "showcase.label.log") "LabelKey" "showcase.label.log"
+        "Lines" (list
+          (dict "Time" "09:00:01" "Level" "info" "Body" (tr "showcase.sample.log_info") "BodyKey" "showcase.sample.log_info")
+          (dict "Time" "09:00:02" "Level" "warn" "Body" (tr "showcase.sample.log_warn") "BodyKey" "showcase.sample.log_warn"))) }}
+    </section>
+
+    <section class="yd-card yd-section" aria-labelledby="yd-ui-kit-layout">
+      <h2 class="yd-section__title" id="yd-ui-kit-layout">{{tr "showcase.section.layout"}}</h2>
+      <p class="yd-section__hint">{{tr "showcase.hint.layout"}}</p>
+      {{template "components.layout.card.open" (dict "Title" (tr "showcase.sample.caption") "TitleKey" "showcase.sample.caption")}}
+      <p>{{tr "showcase.sample.text"}}</p>
+      {{template "components.layout.card.close" (dict)}}
+      {{template "components.layout.empty" (dict "Title" (tr "showcase.sample.empty") "TitleKey" "showcase.sample.empty" "Text" (tr "showcase.sample.hint") "TextKey" "showcase.sample.hint")}}
+      <button type="button" class="yd-btn yd-btn--primary" data-yd-modal-open="yd-kit-modal">{{tr "showcase.label.open_modal"}}</button>
+      {{template "components.overlay.modal.open" (dict
+        "ID" "yd-kit-modal" "Title" (tr "showcase.label.modal") "TitleKey" "showcase.label.modal"
+        "Description" (tr "showcase.sample.modal_body") "DescriptionKey" "showcase.sample.modal_body")}}
+      <p>{{tr "showcase.sample.modal_body"}}</p>
+      <div class="yd-cluster">
+        <button type="button" class="yd-btn yd-btn--ghost" data-yd-modal-close>{{tr "ui.close"}}</button>
+      </div>
+      {{template "components.overlay.modal.close" (dict)}}
+    </section>
+
+    <section class="yd-card yd-section" aria-labelledby="yd-ui-kit-chart">
+      <h2 class="yd-section__title" id="yd-ui-kit-chart">{{tr "showcase.section.chart"}}</h2>
+      <p class="yd-section__hint">{{tr "showcase.hint.chart"}}</p>
+      {{template "components.chart" (dict
+        "ID" "yd-kit-chart" "SVG" .ChartSVG
+        "Title" (tr "showcase.section.chart") "TitleKey" "showcase.section.chart"
+        "Caption" (tr "showcase.sample.caption") "CaptionKey" "showcase.sample.caption")}}
+    </section>
+  </div>
+</section>

@@ -663,7 +663,6 @@ func newInterviewPins() []string {
 		"--db", "none",
 		"--grpc=false",
 		"--i18n=false",
-		"--tailwind=false",
 		"--htmx-ext", "none",
 		"--license", "Apache-2.0",
 	}

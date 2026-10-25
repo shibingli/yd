@@ -20,19 +20,18 @@
       hx-disabled-elt="find button[type='submit']"
       data-yd-confirm="{{ tr "confirm.create_tenant" }}"
       novalidate>
-  <div class="yd-form__field">
-    <label class="yd-form__label" for="yd-tenant-slug">{{ tr "field.slug" }}</label>
-    <input class="yd-input" id="yd-tenant-slug" name="slug" type="text"
-           autocomplete="off" required maxlength="64" placeholder="my-tenant">
-    <span class="yd-hint">{{ tr "page.tenants.slug_hint" }}</span>
-  </div>
-  <div class="yd-form__field">
-    <label class="yd-form__label" for="yd-tenant-name">{{ tr "field.name" }}</label>
-    <input class="yd-input" id="yd-tenant-name" name="name" type="text"
-           autocomplete="off" required maxlength="64" placeholder="{{ tr "page.tenants.name_placeholder" }}">
-  </div>
-  <div class="yd-form__actions">
-    <button type="submit" class="yd-btn yd-btn--primary">{{ tr "ui.create" }}</button>
-  </div>
+  {{template "components.form.field" (dict
+    "ID" "yd-tenant-slug" "Name" "slug" "Type" "text"
+    "Label" (tr "field.slug") "LabelKey" "field.slug"
+    "Hint" (tr "page.tenants.slug_hint") "HintKey" "page.tenants.slug_hint"
+    "Placeholder" "my-tenant" "Autocomplete" "off" "Required" true "MaxLength" 64)}}
+  {{template "components.form.field" (dict
+    "ID" "yd-tenant-name" "Name" "name" "Type" "text"
+    "Label" (tr "field.name") "LabelKey" "field.name"
+    "Placeholder" (tr "page.tenants.name_placeholder") "PlaceholderKey" "page.tenants.name_placeholder"
+    "Autocomplete" "off" "Required" true "MaxLength" 64)}}
+  {{template "components.form.actions" (dict
+    "SubmitLabel" (tr "ui.create") "SubmitKey" "ui.create"
+    "CancelLabel" (tr "ui.cancel") "CancelKey" "ui.cancel")}}
 </form>
 {{- end -}}

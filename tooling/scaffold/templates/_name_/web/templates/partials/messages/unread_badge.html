@@ -12,7 +12,7 @@
 
   数据契约 | Data contract: .Unread（messaging.UnreadSummary）。
 */}}
-{{- define "portal/partials/messages/unread_badge" -}}
+{{- define "partials/messages/unread_badge" -}}
 <span id="yd-unread-badge" class="yd-badge{{ if gt .Unread.Total 0 }} yd-badge--danger yd-user__badge{{ end }}"{{ if eq .Unread.Total 0 }} hidden{{ end }}>{{ if gt .Unread.Total 99 }}99+{{ else }}{{ .Unread.Total }}{{ end }}</span>
 {{- end -}}
-{{ template "portal/partials/messages/unread_badge" . }}
+{{ template "partials/messages/unread_badge" . }}

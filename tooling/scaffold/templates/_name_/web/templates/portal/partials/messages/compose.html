@@ -39,8 +39,8 @@
       hx-status:409="target:#yd-drawer-errors swap:innerHTML"
       hx-status:422="target:#yd-drawer-errors swap:innerHTML"
       data-yd-confirm="{{ tr "confirm.send_message" }}">
-  <div class="yd-field">
-    <label class="yd-label" for="yd-compose-type">{{ tr "message.type" }}</label>
+  <div class="yd-field" data-yd-field="type_key">
+    <label class="yd-field__label" for="yd-compose-type">{{ tr "message.type" }}</label>
     <select class="yd-select" id="yd-compose-type" name="type_key">
       {{- range .Catalog.Types }}
       <option value="{{ .Key }}"{{ if eq .Key $.DefaultType }} selected{{ end }}>{{ .Label }}</option>
@@ -48,11 +48,11 @@
     </select>
   </div>
 
-  <div class="yd-field">
-    <label class="yd-label" for="yd-compose-title">{{ tr "message.title" }}</label>
-    <input class="yd-input" id="yd-compose-title" name="title" type="text" maxlength="160"
-           value="{{ .Message.Title }}" placeholder="{{ tr "message.title_placeholder" }}">
-  </div>
+  {{template "components.form.field" (dict
+    "ID" "yd-compose-title" "Name" "title" "Type" "text" "Value" .Message.Title
+    "Label" (tr "message.title") "LabelKey" "message.title"
+    "Placeholder" (tr "message.title_placeholder") "PlaceholderKey" "message.title_placeholder"
+    "MaxLength" 160)}}
 
   <div class="yd-field">
     <span class="yd-label">{{ tr "message.body" }}</span>
@@ -100,10 +100,11 @@
     {{- end }}
   </div>
 
-  <div class="yd-form__actions">
-    <button type="button" class="yd-btn yd-btn--ghost" data-yd-drawer-close>{{ tr "ui.cancel" }}</button>
-    <button type="submit" class="yd-btn yd-btn--primary">{{ if eq $mode "system" }}{{ tr "message.publish" }}{{ else if eq $mode "edit" }}{{ tr "ui.save" }}{{ else }}{{ tr "ui.send" }}{{ end }}</button>
-  </div>
+  {{- $submitLabel := tr "ui.send" -}}
+  {{- if eq $mode "system"}}{{- $submitLabel = tr "message.publish" -}}
+  {{- else if eq $mode "edit"}}{{- $submitLabel = tr "ui.save" -}}{{- end -}}
+  {{template "components.form.actions" (dict
+    "SubmitLabel" $submitLabel "CancelLabel" (tr "ui.cancel") "CancelKey" "ui.cancel")}}
 </form>
 
 {{- if ne $mode "edit" }}
@@ -111,9 +112,11 @@
       hx-post="/messages/attachments" hx-target="#yd-attachment-list" hx-swap="beforeend"
       hx-encoding="multipart/form-data" hx-status:422="target:#yd-drawer-errors swap:innerHTML"
       data-yd-drawer-persist>
-  <label class="yd-label" for="yd-attachment-file">{{ tr "message.add_attachment" }}</label>
-  <input class="yd-input" id="yd-attachment-file" name="file" type="file">
-  <button type="submit" class="yd-btn yd-btn--ghost yd-btn--sm">{{ template "portal/partials/icon" "lucide-paperclip" }}{{ tr "message.upload" }}</button>
+  <div class="yd-field" data-yd-field="file">
+    <label class="yd-field__label" for="yd-attachment-file">{{ tr "message.add_attachment" }}</label>
+    <input class="yd-input" id="yd-attachment-file" name="file" type="file">
+  </div>
+  <button type="submit" class="yd-btn yd-btn--ghost yd-btn--sm">{{ template "partials/icon" "lucide-paperclip" }}{{ tr "message.upload" }}</button>
 </form>
 {{- end }}
 {{- end -}}

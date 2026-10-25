@@ -51,14 +51,14 @@
 
   {{template "partials/form.errors" .}}
 
-  <form class="yd-filters" role="search" method="get" action="/roles"
-        hx-get="/roles" hx-target="#yd-roles-table" hx-swap="outerMorph" hx-push-url="true"
-        hx-trigger="input changed delay:300ms from:#yd-roles-search, submit">
-    <label class="sr-only" for="yd-roles-search" data-yd-i18n="roles.search">{{tr "roles.search"}}</label>
-    <input class="yd-input" id="yd-roles-search" name="q" type="search" autocomplete="off"
-           placeholder="{{tr "roles.search_placeholder"}}" data-yd-i18n-attr="placeholder:roles.search_placeholder">
-    <button type="submit" class="yd-btn yd-btn--ghost" data-yd-i18n="action.search">{{tr "action.search"}}</button>
-  </form>
+  {{template "components.form.search" (dict
+    "ID" "yd-roles-search" "Action" "/roles" "Get" "/roles"
+    "Target" "#yd-roles-table" "Swap" "outerMorph" "PushURL" true
+    "Trigger" "input changed delay:300ms from:#yd-roles-search, submit"
+    "Name" "q"
+    "Label" (tr "roles.search") "LabelKey" "roles.search"
+    "Placeholder" (tr "roles.search_placeholder") "PlaceholderKey" "roles.search_placeholder"
+    "SubmitLabel" (tr "action.search") "SubmitKey" "action.search")}}
 
   <section class="yd-card yd-section" id="yd-roles-table" aria-labelledby="yd-roles-table-title">
     <h2 class="sr-only" id="yd-roles-table-title" data-yd-i18n="roles.table">{{tr "roles.table"}}</h2>

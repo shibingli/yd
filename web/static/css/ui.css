@@ -1,0 +1,3596 @@
+/*
+  ui.css — the yd UI kit: one component layer for the whole stack.
+  ui.css — yd UI 组件层：整套技术栈共用的一层组件。
+
+  What this file owns | 本文件负责什么:
+    · layout primitives (container, stack, cluster, split, workbench, toolbar, form grid);
+    · form controls (field, input, textarea, select, check, radio, toggle, segmented, file);
+    · feedback (alert, empty, spinner, toast, tag, keyboard hint);
+    · navigation (tabs, steps, dropdown);
+    · data display (compact table cells, avatars, statistics);
+    · China-specific controls (phone, ID card, bank card, credit code, region, amount,
+      date range, SMS code).
+
+  What it does not own | 本文件不负责什么:
+    · behaviour — that is Alpine.js in yd-ui.js; htmx owns every server round trip;
+    · colours — every value below comes from the token blocks of components.css, so the
+      light/dark switch and any future rebrand reach these rules without an edit here;
+    · page composition — layouts still come from the shell and the templates.
+
+  Loading order | 装载顺序:
+    app.css imports components.css first and this file second, so a rule here wins over an
+    equally specific rule there. Both are compiled by Tailwind v4 into the single yd.css the
+    browser receives; this file is never linked on its own.
+
+  Responsive contract | 响应式契约:
+    Mobile first. Every primitive is fluid by default, never wider than its container, and
+    every control is sized in rem so browser zoom and OS display scaling (125% / 150%) both
+    move it with the root font instead of pinning it to device pixels.
+    移动优先。每个原语默认流式、绝不超出容器；控件一律以 rem 定尺寸，因此浏览器缩放与
+    系统显示缩放（125% / 150%）都会随根字号一起移动，而不是被钉死在设备像素上。
+*/
+
+/* ------------------------------------------------------------------------------------------------
+   Base additions | 基础补充
+   Only what the component layer needs: form controls inherit the page font, Alpine's cloak
+   attribute actually hides content before initialisation, and the browser zoom invariant keeps
+   text legible when the page is scaled.
+   ------------------------------------------------------------------------------------------------ */
+@layer base {
+  html {
+    -webkit-text-size-adjust: 100%;
+    text-size-adjust: 100%;
+  }
+
+  /* Controls never inherit a different font from the UA sheet; the kit sets its own sizes below. */
+  /* 控件绝不沿用浏览器默认字体；尺寸由下方组件规则统一决定。 */
+  :where(button, input, select, textarea) {
+    font: inherit;
+  }
+
+  /* Alpine's x-cloak removes the flash before the component initialises. | Alpine 的 x-cloak 在组件初始化前消除闪烁。 */
+  [x-cloak] {
+    display: none !important;
+  }
+}
+
+@layer components {
+  /* ================================================================================================
+     Layout primitives | 布局原语
+     ================================================================================================ */
+
+  /* Fluid page gutter: one rule for every screen, from a 320px phone to a 2560px monitor. | 流式页面留白：
+     一条规则覆盖 320px 手机到 2560px 显示器。 */
+  .yd-container {
+    width: 100%;
+    margin-inline: auto;
+    padding-inline: clamp(1rem, 2.2vw, 2.5rem);
+  }
+
+  /* Reading width only for prose; application surfaces stay fluid. | 仅正文使用阅读宽度；应用界面保持流式。 */
+  .yd-container--narrow {
+    max-width: 72rem;
+    margin-inline: auto;
+  }
+
+  /* Wide workbench: the content uses the whole viewport, but never loses its gutter. | 宽屏工作台：
+     内容占满视口，但始终保留页面留白。 */
+  .yd-container--wide {
+    max-width: 120rem;
+    margin-inline: auto;
+  }
+
+  .yd-stack {
+    @apply flex flex-col gap-4 min-w-0;
+  }
+
+  /* Gallery grid: one column on phones and tablets, two on wide screens. Used by the component
+     gallery so a long showcase never turns into four cramped columns. | 画廊栅格：手机与平板上单列，
+     宽屏两列；组件示例页因此不会挤成四列。 */
+  .yd-grid--gallery {
+    @apply grid-cols-1 xl:grid-cols-2;
+  }
+
+  .yd-stack--xs {
+    gap: 0.25rem;
+  }
+
+  .yd-stack--sm {
+    gap: 0.5rem;
+  }
+
+  .yd-stack--lg {
+    gap: 1.5rem;
+  }
+
+  .yd-cluster {
+    @apply flex flex-wrap items-center gap-3 min-w-0;
+  }
+
+  .yd-cluster--between {
+    justify-content: space-between;
+  }
+
+  /* Two-part workbench: a fixed reading rail and a fluid main column; below 64rem it stacks. | 两栏工作台：
+     固定阅读栏加流式主列；64rem 以下自动堆叠。 */
+  .yd-split {
+    display: grid;
+    gap: 1.5rem;
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  @media (min-width: 64rem) {
+    .yd-split {
+      grid-template-columns: minmax(0, 2fr) minmax(18rem, 1fr);
+    }
+
+    .yd-split--reverse {
+      grid-template-columns: minmax(18rem, 1fr) minmax(0, 2fr);
+    }
+  }
+
+  /* List + detail workbench (conversations, files, settings). | 列表加详情工作台（会话、文件、设置）。 */
+  .yd-workbench {
+    display: grid;
+    gap: 1.5rem;
+    grid-template-columns: minmax(0, 1fr);
+    align-items: start;
+  }
+
+  @media (min-width: 75rem) {
+    .yd-workbench {
+      grid-template-columns: minmax(18rem, 22rem) minmax(0, 1fr);
+    }
+  }
+
+  .yd-toolbar {
+    @apply flex flex-wrap items-center gap-2 min-w-0;
+  }
+
+  .yd-toolbar__group {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.5rem;
+    min-width: 0;
+  }
+
+  .yd-toolbar__spacer {
+    flex: 1 1 auto;
+  }
+
+  /* Form grid: one column on a phone, two on a tablet, three only when the dialog is wide. | 表单栅格：
+     手机一列、平板两列、只有宽对话框才三列。 */
+  .yd-form-grid {
+    display: grid;
+    gap: 1rem;
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  /* Grid children must be allowed to shrink below their min-content width; otherwise one long
+     toolbar or an unbroken code line widens the whole page. | 栅格子项必须能缩到最小内容宽度以下；
+     否则一条长工具栏或一行不换行的代码就会把整页撑宽。 */
+  .yd-grid > *,
+  .yd-form-grid > * {
+    min-width: 0;
+  }
+
+  /* EasyMDE can report a wide min-content because of its toolbar and CodeMirror; contain it. |
+     EasyMDE 的工具栏与 CodeMirror 会给出很宽的最小内容宽度，这里把它限制在容器内。 */
+  .yd-editor,
+  .yd-editor .EasyMDEContainer,
+  .yd-editor .CodeMirror,
+  .yd-editor .editor-toolbar {
+    min-width: 0;
+    max-width: 100%;
+  }
+
+  @media (min-width: 48rem) {
+    .yd-form-grid {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .yd-form-grid--3 {
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+
+    .yd-form-grid__full {
+      grid-column: 1 / -1;
+    }
+  }
+
+  /* Page header: title, lead and actions on one optical line; actions wrap below on narrow screens. | 页头：
+     标题、导语与操作在同一视觉行；窄屏时操作换行到下方。 */
+  .yd-page__header {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 1rem;
+  }
+
+  .yd-page__lead {
+    max-width: var(--content-measure);
+    margin: 0.25rem 0 0;
+    color: var(--color-content-muted);
+    font-size: 0.875rem;
+    line-height: 1.6;
+  }
+
+  .yd-section__body {
+    min-width: 0;
+  }
+
+  /* ================================================================================================
+     Fields and form controls | 字段与表单控件
+     One field contract: label above, control, optional hint, optional error. Every control below
+     shares the same height, radius, border and focus ring, so a form reads as one object.
+     ================================================================================================ */
+
+  .yd-field {
+    display: flex;
+    flex-direction: column;
+    gap: 0.375rem;
+    min-width: 0;
+  }
+
+  .yd-field--inline {
+    flex-direction: row;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.5rem;
+  }
+
+  .yd-field__label {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+    color: var(--color-content);
+    font-size: 0.8125rem;
+    font-weight: 600;
+    line-height: 1.4;
+  }
+
+  /* The required marker is text, not colour alone: it survives greyscale and screen readers. | 必填标记是文字
+     而不是单靠颜色：灰度与读屏都能保留语义。 */
+  .yd-field--required > .yd-field__label::after {
+    content: "*";
+    color: var(--color-danger);
+    font-weight: 600;
+  }
+
+  .yd-field__control {
+    position: relative;
+    display: flex;
+    align-items: center;
+    min-width: 0;
+  }
+
+  .yd-field__hint,
+  .yd-field__error {
+    margin: 0;
+    font-size: 0.8125rem;
+    line-height: 1.5;
+  }
+
+  .yd-field__hint {
+    color: var(--color-content-muted);
+  }
+
+  .yd-field__error {
+    display: none;
+    color: var(--color-danger);
+  }
+
+  .yd-field--invalid > .yd-field__error,
+  .yd-field[data-invalid="true"] > .yd-field__error {
+    display: block;
+  }
+
+  /* Input and textarea: the same skin, the same height token. | 输入框与文本域共用外观与高度令牌。 */
+  .yd-input,
+  .yd-textarea,
+  .yd-select {
+    width: 100%;
+    min-height: var(--control-height);
+    padding: 0.5rem 0.75rem;
+    border: 1px solid var(--color-field-border);
+    border-radius: var(--radius-control);
+    background-color: var(--color-field);
+    color: var(--color-content);
+    font: inherit;
+    font-size: 0.875rem;
+    line-height: 1.35;
+    transition: border-color 140ms var(--ease-standard), box-shadow 140ms var(--ease-standard),
+      background-color 140ms var(--ease-standard);
+  }
+
+  .yd-input::placeholder,
+  .yd-textarea::placeholder {
+    color: var(--color-field-placeholder);
+    opacity: 1;
+  }
+
+  .yd-input--sm,
+  .yd-select--sm {
+    min-height: var(--control-height-sm);
+    padding-block: 0.25rem;
+    font-size: 0.8125rem;
+  }
+
+  .yd-input--lg {
+    min-height: var(--control-height-lg);
+    padding-inline: 1rem;
+    font-size: 1rem;
+  }
+
+  .yd-textarea {
+    display: block;
+    min-height: 6rem;
+    resize: vertical;
+  }
+
+  .yd-select {
+    appearance: none;
+    padding-inline-end: 2rem;
+    background-image: linear-gradient(45deg, transparent 50%, currentColor 50%),
+      linear-gradient(135deg, currentColor 50%, transparent 50%);
+    background-position: calc(100% - 1.05rem) 55%, calc(100% - 0.7rem) 55%;
+    background-repeat: no-repeat;
+    background-size: 0.35rem 0.35rem;
+    cursor: pointer;
+  }
+
+  .yd-input:not(:disabled):hover,
+  .yd-textarea:not(:disabled):hover,
+  .yd-select:not(:disabled):hover {
+    border-color: color-mix(in oklab, var(--color-focus-ring) 45%, var(--color-field-border));
+  }
+
+  .yd-input:focus-visible,
+  .yd-textarea:focus-visible,
+  .yd-select:focus-visible {
+    outline: none;
+    border-color: var(--color-focus-ring);
+    box-shadow: 0 0 0 3px color-mix(in oklab, var(--color-focus-ring) 25%, transparent);
+  }
+
+  .yd-input:disabled,
+  .yd-textarea:disabled,
+  .yd-select:disabled {
+    background-color: var(--color-surface-muted);
+    color: var(--color-content-muted);
+    cursor: not-allowed;
+  }
+
+  /* Invalid state is drawn the same way in both themes and never relies on red text alone. | 无效状态在
+     两套主题下画法一致，且不只依赖红色文字。 */
+  .yd-input--invalid,
+  .yd-input[aria-invalid="true"],
+  .yd-select[aria-invalid="true"],
+  .yd-textarea[aria-invalid="true"] {
+    border-color: var(--color-danger);
+    background-color: color-mix(in oklab, var(--color-danger-soft) 45%, var(--color-field));
+  }
+
+  /* Grouped control: an addon (prefix, suffix or button) attaches to the field. | 组合控件：附加区
+     （前缀、后缀或按钮）贴合字段两侧。 */
+  .yd-input-group {
+    display: flex;
+    align-items: stretch;
+    min-width: 0;
+  }
+
+  .yd-input-group > .yd-input,
+  .yd-input-group > .yd-select {
+    flex: 1 1 auto;
+    min-width: 0;
+    border-start-start-radius: 0;
+    border-end-start-radius: 0;
+  }
+
+  /* A button beside an input keeps its intrinsic width; without this it is allowed to shrink
+     until a two-character label wraps onto two lines. | 输入框旁的按钮保持自身宽度；否则它会被压到
+     两个字的标签都换行。 */
+  .yd-input-group > .yd-btn {
+    flex: 0 0 auto;
+    white-space: nowrap;
+  }
+
+  .yd-input-group > .yd-input-group__addon {
+    display: inline-flex;
+    align-items: center;
+    flex: 0 0 auto;
+    padding-inline: 0.75rem;
+    border: 1px solid var(--color-field-border);
+    border-inline-end: 0;
+    border-start-start-radius: var(--radius-control);
+    border-end-start-radius: var(--radius-control);
+    background-color: var(--color-surface-muted);
+    color: var(--color-content-muted);
+    font-size: 0.8125rem;
+    white-space: nowrap;
+  }
+
+  /* Checkbox and radio rows: the control, a label and an optional hint share one baseline. | 复选与单选行：
+     控件、标签与可选说明共用一条基线。 */
+  .yd-check,
+  .yd-radio {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.5rem;
+    min-width: 0;
+    padding-block: 0.125rem;
+  }
+
+  .yd-check--block,
+  .yd-radio--block {
+    padding: 0.625rem 0.75rem;
+    border: 1px solid var(--color-border-subtle);
+    border-radius: var(--radius-control);
+    background-color: var(--color-surface);
+  }
+
+  .yd-check__input,
+  .yd-radio__input {
+    flex: 0 0 auto;
+    width: 1rem;
+    height: 1rem;
+    margin-top: 0.125rem;
+    accent-color: var(--color-accent);
+  }
+
+  .yd-check__input:focus-visible,
+  .yd-radio__input:focus-visible {
+    outline: 2px solid var(--color-focus-ring);
+    outline-offset: 2px;
+  }
+
+  .yd-check__body,
+  .yd-radio__body {
+    display: flex;
+    flex-direction: column;
+    gap: 0.125rem;
+    min-width: 0;
+  }
+
+  .yd-check__label,
+  .yd-radio__label {
+    color: var(--color-content);
+    font-size: 0.875rem;
+    font-weight: 500;
+    line-height: 1.4;
+  }
+
+  .yd-check__hint,
+  .yd-radio__hint {
+    color: var(--color-content-muted);
+    font-size: 0.8125rem;
+    line-height: 1.5;
+  }
+
+  /* Switch: a native checkbox restyled into a track and thumb. No script is involved, so it
+     stays operable before Alpine initialises and inside a htmx swap. | 开关：原生复选框重绘为轨道与
+     滑块。全程不涉脚本，因此在 Alpine 初始化前与 htmx 交换之后都保持可操作。 */
+  .yd-toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    cursor: pointer;
+  }
+
+  .yd-toggle__input {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    margin: -1px;
+    padding: 0;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+    border: 0;
+  }
+
+  .yd-toggle__track {
+    position: relative;
+    flex: 0 0 auto;
+    width: 2.5rem;
+    height: 1.375rem;
+    border: 1px solid var(--color-field-border);
+    border-radius: 999px;
+    background-color: var(--color-track);
+    transition: background-color 140ms var(--ease-standard), border-color 140ms var(--ease-standard);
+  }
+
+  .yd-toggle__track::after {
+    content: "";
+    position: absolute;
+    top: 0.125rem;
+    left: 0.125rem;
+    width: 1rem;
+    height: 1rem;
+    border-radius: 999px;
+    background-color: var(--color-surface);
+    box-shadow: 0 1px 2px color-mix(in oklab, var(--color-content) 25%, transparent);
+    transition: transform 140ms var(--ease-standard);
+  }
+
+  .yd-toggle__input:checked + .yd-toggle__track {
+    border-color: var(--color-accent);
+    background-color: var(--color-accent);
+  }
+
+  .yd-toggle__input:checked + .yd-toggle__track::after {
+    transform: translateX(1.125rem);
+  }
+
+  .yd-toggle__input:focus-visible + .yd-toggle__track {
+    outline: 2px solid var(--color-focus-ring);
+    outline-offset: 2px;
+  }
+
+  .yd-toggle__label {
+    color: var(--color-content);
+    font-size: 0.875rem;
+    font-weight: 500;
+  }
+
+  /* Segmented control: one choice out of a short list, drawn as adjacent buttons. | 分段控件：
+     短列表中的单选，绘制为相邻按钮。 */
+  .yd-segmented {
+    display: inline-flex;
+    flex-wrap: wrap;
+    gap: 0.125rem;
+    padding: 0.1875rem;
+    border: 1px solid var(--color-border-subtle);
+    border-radius: var(--radius-control);
+    background-color: var(--color-surface-muted);
+  }
+
+  .yd-segmented__item {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 1.875rem;
+    padding: 0.25rem 0.75rem;
+    border: 0;
+    border-radius: calc(var(--radius-control) - 0.1875rem);
+    background-color: transparent;
+    color: var(--color-content-muted);
+    font: inherit;
+    font-size: 0.8125rem;
+    font-weight: 500;
+    line-height: 1.3;
+    cursor: pointer;
+    transition: background-color 140ms var(--ease-standard), color 140ms var(--ease-standard);
+  }
+
+  /* A label wrapping a hidden radio is the accessible form of this control; :has() paints the
+     selected state without asking the server to remember which one is active. | 包裹隐藏单选的
+     标签是本控件的可访问写法；:has() 直接画出选中态，不需要服务端记住哪一个处于激活。 */
+  .yd-segmented__item:has(> input:checked) {
+    background-color: var(--color-surface);
+    color: var(--color-accent);
+    box-shadow: 0 1px 2px color-mix(in oklab, var(--color-content) 8%, transparent);
+  }
+
+  .yd-segmented__item:not(:disabled):hover {
+    color: var(--color-content);
+  }
+
+  .yd-segmented__item--active,
+  .yd-segmented__item[aria-pressed="true"],
+  .yd-segmented__item[aria-selected="true"] {
+    background-color: var(--color-surface);
+    color: var(--color-accent);
+    box-shadow: 0 1px 2px color-mix(in oklab, var(--color-content) 8%, transparent);
+  }
+
+  .yd-segmented__item:focus-visible {
+    outline: 2px solid var(--color-focus-ring);
+    outline-offset: 2px;
+  }
+
+  /* Search: a magnifier glyph carved out of the field with padding, not a background image. | 搜索框：
+     用留白腾出放大镜位置，不引入背景图。 */
+  .yd-search {
+    position: relative;
+    display: flex;
+    align-items: center;
+    min-width: 0;
+  }
+
+  /* A page-level filter search may be wider than the header's global search. | 页面级筛选搜索可以比顶栏
+     的全局搜索更宽。 */
+  .yd-page > .yd-search {
+    max-width: 36rem;
+  }
+
+  .yd-search__icon {
+    position: absolute;
+    left: 0.75rem;
+    display: inline-flex;
+    width: 1rem;
+    height: 1rem;
+    color: var(--color-content-muted);
+    pointer-events: none;
+  }
+
+  /* The magnifier is drawn with two rules: a ring and a handle. No inline SVG, no icon font, so
+     the control stays inside the offline icon policy and follows currentColor. | 放大镜用两条规则画出：
+     一个圆环与一个手柄。没有内联 SVG、没有图标字体，因此控件符合离线图标规范并跟随 currentColor。 */
+  .yd-search__icon::before {
+    content: "";
+    position: absolute;
+    top: 0.125rem;
+    left: 0.125rem;
+    width: 0.625rem;
+    height: 0.625rem;
+    border: 1.5px solid currentColor;
+    border-radius: 999px;
+  }
+
+  .yd-search__icon::after {
+    content: "";
+    position: absolute;
+    right: 0.0625rem;
+    bottom: 0.0625rem;
+    width: 0.4375rem;
+    height: 1.5px;
+    background-color: currentColor;
+    border-radius: 999px;
+    transform: rotate(45deg);
+    transform-origin: right center;
+  }
+
+  .yd-search__field {
+    position: relative;
+    display: flex;
+    flex: 1 1 auto;
+    min-width: 0;
+  }
+
+  .yd-search__field > .yd-input {
+    width: 100%;
+    padding-inline-start: 2.25rem;
+  }
+
+  .yd-search__submit {
+    flex: 0 0 auto;
+    margin-inline-start: 0.5rem;
+  }
+
+  .yd-search__clear {
+    position: absolute;
+    right: 0.5rem;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 1.5rem;
+    height: 1.5rem;
+    border: 0;
+    border-radius: 999px;
+    background-color: transparent;
+    color: var(--color-content-muted);
+    cursor: pointer;
+  }
+
+  .yd-search__clear:hover {
+    background-color: var(--color-surface-muted);
+    color: var(--color-content);
+  }
+
+  /* File drop: the dashed area is the target, the list below is the result. | 文件拖放：虚线区是目标，
+     下方列表是结果。 */
+  .yd-file {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+  }
+
+  .yd-file__input {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    margin: -1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    border: 0;
+  }
+
+  .yd-file__drop {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 0.25rem;
+    min-height: 5.5rem;
+    padding: 1rem;
+    border: 1px dashed var(--color-field-border);
+    border-radius: var(--radius-control);
+    background-color: var(--color-surface-muted);
+    color: var(--color-content-muted);
+    font-size: 0.8125rem;
+    text-align: center;
+    cursor: pointer;
+    transition: border-color 140ms var(--ease-standard), background-color 140ms var(--ease-standard);
+  }
+
+  .yd-file__drop:hover,
+  .yd-file__drop--active {
+    border-color: var(--color-accent);
+    background-color: var(--color-accent-soft);
+    color: var(--color-content);
+  }
+
+  .yd-file__list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.375rem;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+
+  .yd-file__item {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.375rem 0.5rem;
+    border: 1px solid var(--color-border-subtle);
+    border-radius: 0.5rem;
+    background-color: var(--color-surface);
+    font-size: 0.8125rem;
+  }
+
+  .yd-file__name {
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .yd-file__size {
+    flex: 0 0 auto;
+    color: var(--color-content-muted);
+    font-variant-numeric: tabular-nums;
+  }
+
+  .yd-file__remove {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 1.5rem;
+    height: 1.5rem;
+    border: 0;
+    border-radius: 999px;
+    background-color: transparent;
+    color: var(--color-content-muted);
+    cursor: pointer;
+  }
+
+  .yd-file__remove:hover {
+    background-color: var(--color-danger-soft);
+    color: var(--color-danger);
+  }
+
+  .yd-char-count {
+    color: var(--color-content-muted);
+    font-size: 0.75rem;
+    font-variant-numeric: tabular-nums;
+    text-align: end;
+  }
+
+  /* Password field: the reveal button sits inside the control, so the field keeps one width. | 口令
+     字段：显示按钮位于控件内部，字段因此保持同一宽度。 */
+  .yd-password {
+    position: relative;
+  }
+
+  .yd-password > .yd-input {
+    padding-inline-end: 2.75rem;
+  }
+
+  .yd-password__toggle {
+    position: absolute;
+    right: 0.375rem;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 2rem;
+    height: 2rem;
+    border: 0;
+    border-radius: 0.375rem;
+    background-color: transparent;
+    color: var(--color-content-muted);
+    font: inherit;
+    font-size: 0.75rem;
+    cursor: pointer;
+  }
+
+  .yd-password__toggle:hover {
+    background-color: var(--color-surface-muted);
+    color: var(--color-content);
+  }
+
+  .yd-password__toggle[aria-pressed="true"] {
+    color: var(--color-accent);
+  }
+
+  .yd-password__meter {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 0.25rem;
+  }
+
+  .yd-password__bar {
+    height: 0.25rem;
+    border-radius: 999px;
+    background-color: var(--color-track);
+    transition: background-color 140ms var(--ease-standard);
+  }
+
+  .yd-password__bar--on {
+    background-color: var(--color-accent);
+  }
+
+  .yd-password__meter:has(.yd-password__bar--on:nth-child(3)) .yd-password__bar--on {
+    background-color: var(--color-success);
+  }
+
+  .yd-password__hint {
+    margin: 0;
+    color: var(--color-content-muted);
+    font-size: 0.75rem;
+    line-height: 1.5;
+  }
+
+  /* Inline status wrapper for a spinner plus its hidden or visible label. | 加载指示器连同标签的
+     行内状态包装。 */
+  .yd-inline-status {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    min-width: 0;
+  }
+
+  /* ================================================================================================
+     Feedback | 反馈
+     ================================================================================================ */
+
+  /* Alert: a soft fill, a status border and a title/body pair. It stays readable in both themes
+     because every colour is a soft token that the dark block redefines. | 提示条：浅色底、状态边框与
+     标题/正文两级。所有颜色都是暗色块会重定义的浅色令牌，因此两套主题下都清晰可读。 */
+  .yd-alert {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.625rem;
+    padding: 0.75rem 0.875rem;
+    border: 1px solid var(--color-border-subtle);
+    border-inline-start-width: 3px;
+    border-radius: var(--radius-control);
+    background-color: var(--color-surface-muted);
+    color: var(--color-content);
+    font-size: 0.875rem;
+    line-height: 1.55;
+  }
+
+  .yd-alert__icon {
+    flex: 0 0 auto;
+    margin-top: 0.0625rem;
+  }
+
+  .yd-alert__body {
+    display: flex;
+    flex-direction: column;
+    gap: 0.125rem;
+    min-width: 0;
+  }
+
+  .yd-alert__title {
+    margin: 0;
+    font-weight: 600;
+  }
+
+  .yd-alert__text {
+    margin: 0;
+    color: var(--color-content-muted);
+  }
+
+  .yd-alert__actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    margin-top: 0.375rem;
+  }
+
+  .yd-alert--info {
+    border-color: var(--color-info);
+    background-color: var(--color-info-soft);
+  }
+
+  .yd-alert--success {
+    border-color: var(--color-success);
+    background-color: var(--color-success-soft);
+  }
+
+  .yd-alert--warn {
+    border-color: var(--color-warning);
+    background-color: var(--color-warning-soft);
+  }
+
+  .yd-alert--danger {
+    border-color: var(--color-danger);
+    background-color: var(--color-danger-soft);
+  }
+
+  /* Empty state: an invitation to act, never a blank panel. | 空状态：邀请操作，而不是一块空白。 */
+  .yd-empty {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    padding: 3rem 1.5rem;
+    border: 1px dashed var(--color-border-subtle);
+    border-radius: var(--radius-panel);
+    background-color: var(--color-surface-muted);
+    color: var(--color-content-muted);
+    text-align: center;
+  }
+
+  .yd-empty--compact {
+    padding: 1.5rem 1rem;
+  }
+
+  .yd-empty__icon {
+    display: inline-flex;
+    color: var(--color-content-muted);
+  }
+
+  .yd-empty__title {
+    margin: 0;
+    color: var(--color-content);
+    font-size: 1rem;
+    font-weight: 600;
+  }
+
+  .yd-empty__text {
+    max-width: 32rem;
+    margin: 0;
+    font-size: 0.875rem;
+    line-height: 1.6;
+  }
+
+  .yd-empty__actions {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 0.5rem;
+    margin-top: 0.5rem;
+  }
+
+  /* Spinner: pure CSS, sized in em so it follows the surrounding text. | 加载指示器：纯 CSS，以 em 定尺寸，
+     跟随周围文字。 */
+  .yd-spinner {
+    display: inline-block;
+    width: 1.25rem;
+    height: 1.25rem;
+    border: 2px solid color-mix(in oklab, var(--color-accent) 25%, transparent);
+    border-top-color: var(--color-accent);
+    border-radius: 999px;
+    animation: yd-spin 700ms linear infinite;
+  }
+
+  .yd-spinner--sm {
+    width: 0.875rem;
+    height: 0.875rem;
+    border-width: 1.5px;
+  }
+
+  .yd-spinner--lg {
+    width: 2rem;
+    height: 2rem;
+    border-width: 3px;
+  }
+
+  @keyframes yd-spin {
+    to {
+      transform: rotate(360deg);
+    }
+  }
+
+  /* Toast region: stacked messages pinned to the top-right, outside any scrolling container. | 轻提示
+     区域：固定在右上角，脱离任何滚动容器。 */
+  .yd-toast-region {
+    position: fixed;
+    top: 1rem;
+    right: 1rem;
+    z-index: var(--z-toast);
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    width: min(22rem, calc(100vw - 2rem));
+    pointer-events: none;
+  }
+
+  .yd-toast {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.5rem;
+    padding: 0.75rem 0.875rem;
+    border: 1px solid var(--color-border-subtle);
+    border-radius: var(--radius-control);
+    background-color: var(--color-surface);
+    color: var(--color-content);
+    box-shadow: var(--shadow-card);
+    font-size: 0.875rem;
+    line-height: 1.5;
+    pointer-events: auto;
+  }
+
+  .yd-toast--success {
+    border-inline-start: 3px solid var(--color-success);
+  }
+
+  .yd-toast--error {
+    border-inline-start: 3px solid var(--color-danger);
+  }
+
+  .yd-toast--info {
+    border-inline-start: 3px solid var(--color-info);
+  }
+
+  /* Tag: a compact label with an optional remove control. | 标签：紧凑文字块，可选删除控件。 */
+  .yd-tag {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+    max-width: 100%;
+    padding: 0.125rem 0.5rem;
+    border: 1px solid var(--color-border-subtle);
+    border-radius: 999px;
+    background-color: var(--color-surface-muted);
+    color: var(--color-content);
+    font-size: 0.75rem;
+    font-weight: 500;
+    line-height: 1.5;
+  }
+
+  .yd-tag--accent {
+    border-color: color-mix(in oklab, var(--color-accent) 35%, transparent);
+    background-color: var(--color-accent-soft);
+    color: var(--color-accent);
+  }
+
+  .yd-tag--success {
+    border-color: color-mix(in oklab, var(--color-success) 35%, transparent);
+    background-color: var(--color-success-soft);
+    color: var(--color-success);
+  }
+
+  .yd-tag--warn {
+    border-color: color-mix(in oklab, var(--color-warning) 35%, transparent);
+    background-color: var(--color-warning-soft);
+    color: var(--color-warning);
+  }
+
+  .yd-tag--danger {
+    border-color: color-mix(in oklab, var(--color-danger) 35%, transparent);
+    background-color: var(--color-danger-soft);
+    color: var(--color-danger);
+  }
+
+  .yd-tag__remove {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 1rem;
+    height: 1rem;
+    border: 0;
+    border-radius: 999px;
+    background-color: transparent;
+    color: currentColor;
+    font: inherit;
+    line-height: 1;
+    cursor: pointer;
+  }
+
+  .yd-tag__remove:hover {
+    background-color: color-mix(in oklab, currentColor 15%, transparent);
+  }
+
+  .yd-tag-list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.375rem;
+    min-width: 0;
+  }
+
+  /* Keyboard hint. | 键盘提示。 */
+  .yd-kbd {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 1.25rem;
+    height: 1.25rem;
+    padding-inline: 0.25rem;
+    border: 1px solid var(--color-border-subtle);
+    border-bottom-width: 2px;
+    border-radius: 0.25rem;
+    background-color: var(--color-surface-muted);
+    color: var(--color-content-muted);
+    font-family: var(--font-mono);
+    font-size: 0.6875rem;
+    line-height: 1;
+  }
+
+  /* Tooltip: an attribute-driven bubble, no script and no layout impact. | 工具提示：由属性驱动的气泡，
+     零脚本、零布局影响。 */
+  [data-yd-tooltip] {
+    position: relative;
+  }
+
+  [data-yd-tooltip]::after {
+    content: attr(data-yd-tooltip);
+    position: absolute;
+    left: 50%;
+    bottom: calc(100% + 0.375rem);
+    z-index: var(--z-dropdown);
+    max-width: 16rem;
+    padding: 0.25rem 0.5rem;
+    border: 1px solid var(--color-border-subtle);
+    border-radius: 0.375rem;
+    background-color: var(--color-surface);
+    color: var(--color-content);
+    box-shadow: var(--shadow-card);
+    font-size: 0.75rem;
+    font-weight: 400;
+    line-height: 1.45;
+    white-space: normal;
+    text-align: center;
+    opacity: 0;
+    transform: translate(-50%, 0.125rem);
+    transition: opacity 120ms var(--ease-standard), transform 120ms var(--ease-standard);
+    pointer-events: none;
+  }
+
+  [data-yd-tooltip]:hover::after,
+  [data-yd-tooltip]:focus-visible::after {
+    opacity: 1;
+    transform: translate(-50%, 0);
+  }
+
+  /* Popover: a token-driven floating panel anchored by an Alpine component. | 浮层：由 Alpine 组件
+     锚定的令牌化浮动面板。 */
+  .yd-popover {
+    position: absolute;
+    right: 0;
+    top: calc(100% + 0.375rem);
+    z-index: var(--z-dropdown);
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    min-width: 14rem;
+    padding: 0.75rem;
+    border: 1px solid var(--color-border-subtle);
+    border-radius: var(--radius-control);
+    background-color: var(--color-surface);
+    box-shadow: var(--shadow-card);
+    color: var(--color-content);
+  }
+
+  /* Modal size modifiers; the base .yd-modal keeps its existing geometry. | 模态尺寸修饰符；
+     基础 .yd-modal 保持原有几何。 */
+  .yd-modal--sm .yd-modal__panel {
+    max-width: 24rem;
+  }
+
+  .yd-modal--lg .yd-modal__panel {
+    max-width: 48rem;
+  }
+
+  /* ================================================================================================
+     Navigation | 导航
+     ================================================================================================ */
+
+  .yd-tabs {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+    min-width: 0;
+  }
+
+  .yd-tabs__list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.25rem;
+    border-bottom: 1px solid var(--color-border-subtle);
+  }
+
+  .yd-tabs__tab {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.375rem;
+    min-height: 2.25rem;
+    padding: 0.375rem 0.75rem;
+    border: 0;
+    border-bottom: 2px solid transparent;
+    background-color: transparent;
+    color: var(--color-content-muted);
+    font: inherit;
+    font-size: 0.875rem;
+    font-weight: 500;
+    cursor: pointer;
+    transition: color 140ms var(--ease-standard), border-color 140ms var(--ease-standard);
+  }
+
+  .yd-tabs__tab:hover {
+    color: var(--color-content);
+  }
+
+  .yd-tabs__tab--active,
+  .yd-tabs__tab[aria-selected="true"] {
+    border-bottom-color: var(--color-accent);
+    color: var(--color-accent);
+  }
+
+  .yd-tabs__tab:focus-visible {
+    outline: 2px solid var(--color-focus-ring);
+    outline-offset: -2px;
+  }
+
+  .yd-tabs__panel {
+    min-width: 0;
+  }
+
+  .yd-tabs--pill .yd-tabs__list {
+    border-bottom: 0;
+    padding: 0.1875rem;
+    border-radius: var(--radius-control);
+    background-color: var(--color-surface-muted);
+  }
+
+  .yd-tabs--pill .yd-tabs__tab {
+    border-bottom: 0;
+    border-radius: calc(var(--radius-control) - 0.1875rem);
+  }
+
+  .yd-tabs--pill .yd-tabs__tab--active,
+  .yd-tabs--pill .yd-tabs__tab[aria-selected="true"] {
+    background-color: var(--color-surface);
+    color: var(--color-accent);
+    box-shadow: 0 1px 2px color-mix(in oklab, var(--color-content) 8%, transparent);
+  }
+
+  /* Steps: only for a real sequence; the connector is drawn between items. | 步骤条：只用于真正的
+     先后流程；连接线画在相邻项之间。 */
+  .yd-steps {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.75rem;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+
+  .yd-steps__item {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    min-width: 0;
+    color: var(--color-content-muted);
+    font-size: 0.875rem;
+  }
+
+  .yd-steps__item:not(:last-child)::after {
+    content: "";
+    flex: 1 1 2rem;
+    min-width: 1.5rem;
+    height: 1px;
+    margin-inline: 0.25rem;
+    background-color: var(--color-border-subtle);
+  }
+
+  .yd-steps__index {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex: 0 0 auto;
+    width: 1.75rem;
+    height: 1.75rem;
+    border: 1px solid var(--color-border-subtle);
+    border-radius: 999px;
+    background-color: var(--color-surface);
+    color: var(--color-content-muted);
+    font-size: 0.8125rem;
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .yd-steps__label {
+    min-width: 0;
+  }
+
+  .yd-steps__item--current {
+    color: var(--color-content);
+    font-weight: 600;
+  }
+
+  .yd-steps__item--current .yd-steps__index {
+    border-color: var(--color-accent);
+    background-color: var(--color-accent);
+    color: var(--color-on-accent);
+  }
+
+  .yd-steps__item--done .yd-steps__index {
+    border-color: var(--color-success);
+    background-color: var(--color-success-soft);
+    color: var(--color-success);
+  }
+
+  /* Dropdown: the Alpine-driven counterpart of the <details> menu, for panels that need focus
+     management and keyboard navigation. | 下拉：需要焦点管理与键盘导航的面板所用的 Alpine 版本，
+     与 <details> 菜单互为补充。 */
+  .yd-dropdown {
+    position: relative;
+    display: inline-block;
+  }
+
+  .yd-dropdown__trigger {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.375rem;
+  }
+
+  .yd-dropdown__panel {
+    position: absolute;
+    right: 0;
+    top: calc(100% + 0.25rem);
+    z-index: var(--z-dropdown);
+    display: flex;
+    flex-direction: column;
+    min-width: 12rem;
+    padding: 0.25rem;
+    border: 1px solid var(--color-border-subtle);
+    border-radius: var(--radius-control);
+    background-color: var(--color-surface);
+    box-shadow: var(--shadow-card);
+  }
+
+  .yd-dropdown__item {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    width: 100%;
+    min-height: 2rem;
+    padding: 0.375rem 0.625rem;
+    border: 0;
+    border-radius: 0.375rem;
+    background-color: transparent;
+    color: var(--color-content);
+    font: inherit;
+    font-size: 0.875rem;
+    line-height: 1.35;
+    text-align: start;
+    text-decoration: none;
+    cursor: pointer;
+  }
+
+  .yd-dropdown__item:hover,
+  .yd-dropdown__item--active {
+    background-color: var(--color-surface-muted);
+    color: var(--color-content);
+  }
+
+  .yd-dropdown__item--danger {
+    color: var(--color-danger);
+  }
+
+  .yd-dropdown__item:focus-visible {
+    outline: 2px solid var(--color-focus-ring);
+    outline-offset: -2px;
+  }
+
+  .yd-dropdown__label {
+    padding: 0.375rem 0.625rem 0.125rem;
+    color: var(--color-content-muted);
+    font-size: 0.75rem;
+    font-weight: 600;
+  }
+
+  .yd-dropdown__separator {
+    height: 1px;
+    margin: 0.25rem 0;
+    border: 0;
+    background-color: var(--color-border-subtle);
+  }
+
+  /* ================================================================================================
+     Data display | 数据展示
+     ================================================================================================ */
+
+  /* Compact density for long admin lists; the header stays sticky inside the scroll container. | 长管理
+     列表的紧凑密度；表头在滚动容器内保持吸附。 */
+  .yd-table--compact .yd-table__th,
+  .yd-table--compact .yd-table__td {
+    padding-block: 0.375rem;
+    font-size: 0.8125rem;
+  }
+
+  .yd-table__th--num,
+  .yd-table__td--num {
+    text-align: end;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .yd-table__td--wrap {
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+
+  .yd-table__wrap {
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior-x: contain;
+  }
+
+  .yd-avatar--xs {
+    width: 1.5rem;
+    height: 1.5rem;
+    font-size: 0.625rem;
+  }
+
+  .yd-avatar--lg {
+    width: 2.75rem;
+    height: 2.75rem;
+    font-size: 1rem;
+  }
+
+  /* Statistic: a value, a label and an optional signed delta. | 统计值：数值、标签与可选的带符号变化量。 */
+  .yd-stat {
+    display: flex;
+    flex-direction: column;
+    gap: 0.125rem;
+    min-width: 0;
+  }
+
+  .yd-stat__label {
+    color: var(--color-content-muted);
+    font-size: 0.75rem;
+    line-height: 1.4;
+  }
+
+  .yd-stat__value {
+    color: var(--color-content);
+    font-size: 1.375rem;
+    font-weight: 650;
+    font-variant-numeric: tabular-nums;
+    line-height: 1.2;
+  }
+
+  .yd-stat__delta {
+    font-size: 0.75rem;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .yd-stat__delta--up {
+    color: var(--color-success);
+  }
+
+  .yd-stat__delta--down {
+    color: var(--color-danger);
+  }
+
+  /* Monospace and tabular-nums helpers used by identifiers and amounts. | 标识符与金额使用的等宽与
+     表格数字辅助类。 */
+  .yd-mono {
+    font-family: var(--font-mono);
+    font-size: 0.875em;
+  }
+
+  .yd-num {
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* ================================================================================================
+     China-specific controls | 中国常用控件
+     Every control below is progressive: the visible input is the submitted one, so a form still
+     works before Alpine initialises. The script only sanitises, validates and formats around it.
+     以下控件全部渐进增强：可见输入框本身就是提交字段，因此 Alpine 初始化之前表单依旧可用；
+     脚本只负责净化、校验与格式化。
+     ================================================================================================ */
+
+  /* Shared wrapper: room for a trailing status glyph without reflowing the field. | 共用外壳：
+     为尾部状态图标预留位置，且不引起字段回流。 */
+  .yd-cn-field {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+    min-width: 0;
+  }
+
+  .yd-cn-field > .yd-input,
+  .yd-cn-field > .yd-textarea,
+  .yd-cn-field > .yd-select {
+    padding-inline-end: 2.25rem;
+  }
+
+  .yd-cn-field__status {
+    position: absolute;
+    top: calc(var(--control-height) / 2 - 0.5rem);
+    right: 0.75rem;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 1rem;
+    height: 1rem;
+    font-size: 0.75rem;
+    line-height: 1;
+    pointer-events: none;
+  }
+
+  .yd-cn-field__status--ok {
+    color: var(--color-success);
+  }
+
+  .yd-cn-field__status--bad {
+    color: var(--color-danger);
+  }
+
+  /* Formatted preview ("138 0013 8000", "6222 0212 3456 7890") and derived facts. | 格式化预览
+     （如 138 0013 8000、6222 0212 3456 7890）与派生信息。 */
+  .yd-cn-hint {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.25rem 0.75rem;
+    margin: 0;
+    color: var(--color-content-muted);
+    font-size: 0.8125rem;
+    line-height: 1.5;
+  }
+
+  .yd-cn-hint--error {
+    color: var(--color-danger);
+  }
+
+  .yd-cn-hint__value {
+    color: var(--color-content);
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* Region cascader: three adjacent selects that stack on narrow screens. | 省市区级联：三个相邻
+     下拉，窄屏时堆叠。 */
+  .yd-cn-region {
+    display: grid;
+    gap: 0.5rem;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  @media (max-width: 47.999rem) {
+    .yd-cn-region {
+      grid-template-columns: minmax(0, 1fr);
+    }
+  }
+
+  .yd-cn-region__select {
+    min-width: 0;
+  }
+
+  /* RMB amount: the input keeps a machine value, the preview shows the Chinese capitalised form. | 人民币
+     金额：输入框保留机读值，预览区显示中文大写。 */
+  .yd-cn-amount {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+    min-width: 0;
+  }
+
+  .yd-cn-amount__upper {
+    margin: 0;
+    color: var(--color-content-muted);
+    font-size: 0.8125rem;
+    line-height: 1.5;
+  }
+
+  .yd-cn-amount__upper strong {
+    color: var(--color-content);
+    font-weight: 600;
+  }
+
+  /* SMS code: the code field and the send button share one row; the button keeps its width so the
+     row does not jump when the countdown text changes. | 短信验证码：验证码输入与发送按钮同一行；
+     按钮宽度固定，倒计时文字变化时整行不跳动。 */
+  .yd-cn-sms {
+    display: flex;
+    align-items: stretch;
+    gap: 0.5rem;
+    min-width: 0;
+  }
+
+  .yd-cn-sms > .yd-input {
+    flex: 1 1 auto;
+    min-width: 0;
+    letter-spacing: 0.25em;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .yd-cn-sms > .yd-btn {
+    flex: 0 0 auto;
+    min-width: 6.5rem;
+    white-space: nowrap;
+  }
+
+  /* Date range: two native date inputs plus presets that fill both. | 日期范围：两个原生日期输入，
+     加上一键填入两端的预设。 */
+  .yd-cn-date-range {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    min-width: 0;
+  }
+
+  .yd-cn-date-range__inputs {
+    display: grid;
+    gap: 0.5rem;
+    grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+    align-items: center;
+  }
+
+  .yd-cn-date-range__sep {
+    color: var(--color-content-muted);
+    text-align: center;
+  }
+
+  .yd-cn-date-range__presets {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.25rem;
+  }
+
+  .yd-cn-date-range__preset {
+    padding: 0.1875rem 0.5rem;
+    border: 1px solid var(--color-border-subtle);
+    border-radius: 999px;
+    background-color: transparent;
+    color: var(--color-content-muted);
+    font: inherit;
+    font-size: 0.75rem;
+    line-height: 1.4;
+    cursor: pointer;
+  }
+
+  .yd-cn-date-range__preset:hover {
+    border-color: var(--color-accent);
+    color: var(--color-accent);
+  }
+
+  .yd-cn-date-range__preset--active {
+    border-color: var(--color-accent);
+    background-color: var(--color-accent-soft);
+    color: var(--color-accent);
+  }
+
+  @media (max-width: 29.999rem) {
+    .yd-cn-date-range__inputs {
+      grid-template-columns: minmax(0, 1fr);
+    }
+
+    .yd-cn-date-range__sep {
+      display: none;
+    }
+  }
+
+  /* ================================================================================================
+     Responsive and motion guards | 响应式与动效守卫
+     ================================================================================================ */
+
+  /* Below 64rem the shell is already compact; the kit follows it rather than inventing a second
+     breakpoint set. | 64rem 以下外壳本就收紧，组件层跟随它，而不是另造一套断点。 */
+  @media (max-width: 47.999rem) {
+    .yd-toolbar,
+    .yd-toolbar__group {
+      width: 100%;
+    }
+
+    .yd-toolbar > .yd-input,
+    .yd-toolbar > .yd-select,
+    .yd-toolbar > .yd-search {
+      flex: 1 1 100%;
+    }
+
+    .yd-cn-sms {
+      flex-wrap: wrap;
+    }
+
+    .yd-cn-sms > .yd-btn {
+      flex: 1 1 100%;
+    }
+  }
+
+  /* Wide screens get the extra gutter from clamp(); nothing else changes, so a 2560px monitor
+     shows more content rather than a stretched layout. | 宽屏只会通过 clamp() 获得更大的留白，
+     其它不变：2560px 显示器看到的是更多内容，而不是被拉伸的布局。 */
+  @media (min-width: 120rem) {
+    .yd-container {
+      padding-inline: 4rem;
+    }
+  }
+
+  /* Reduced motion stops animation but keeps every state distinction. | 减少动态效果时停止动画，
+     但保留全部状态区分。 */
+  @media (prefers-reduced-motion: reduce) {
+    .yd-input,
+    .yd-textarea,
+    .yd-select,
+    .yd-toggle__track,
+    .yd-toggle__track::after,
+    .yd-tabs__tab,
+    .yd-segmented__item,
+    .yd-file__drop,
+    [data-yd-tooltip]::after {
+      transition: none;
+    }
+
+    .yd-spinner {
+      animation: none;
+      border-top-color: color-mix(in oklab, var(--color-accent) 60%, var(--color-border-subtle));
+    }
+  }
+}
+
+/* ================================================================================================
+   Charts | 图表
+   The Go renderer (http/chart) emits semantic classes only; every colour below comes from a
+   theme token, so the same SVG is legible in light and dark without a second theme table.
+   Go 渲染器（http/chart）只输出语义类；下面每个颜色都来自主题令牌，因此同一份 SVG 在明暗两套
+   主题下都清晰，不需要第二套主题表。
+   ================================================================================================ */
+@layer components {
+  /* Series palette: eight distinguishable colours built from the status tokens. | 系列调色板：
+     由状态令牌构成的八种可区分颜色。 */
+  .yd-chart,
+  .yd-chart-card {
+    --yd-chart-1: var(--color-accent);
+    --yd-chart-2: var(--color-success);
+    --yd-chart-3: var(--color-warning);
+    --yd-chart-4: var(--color-danger);
+    --yd-chart-5: var(--color-info);
+    --yd-chart-6: color-mix(in oklab, var(--color-accent) 55%, var(--color-success));
+    --yd-chart-7: color-mix(in oklab, var(--color-warning) 55%, var(--color-accent));
+    --yd-chart-8: color-mix(in oklab, var(--color-info) 55%, var(--color-success));
+  }
+
+  .yd-chart {
+    width: 100%;
+    height: auto;
+    overflow: visible;
+  }
+
+  .yd-chart__series,
+  .yd-chart__series--1 {
+    color: var(--yd-chart-1);
+  }
+
+  .yd-chart__series--2 {
+    color: var(--yd-chart-2);
+  }
+
+  .yd-chart__series--3 {
+    color: var(--yd-chart-3);
+  }
+
+  .yd-chart__series--4 {
+    color: var(--yd-chart-4);
+  }
+
+  .yd-chart__series--5 {
+    color: var(--yd-chart-5);
+  }
+
+  .yd-chart__series--6 {
+    color: var(--yd-chart-6);
+  }
+
+  .yd-chart__series--7 {
+    color: var(--yd-chart-7);
+  }
+
+  .yd-chart__series--8 {
+    color: var(--yd-chart-8);
+  }
+
+  .yd-chart__line {
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 2;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+    vector-effect: non-scaling-stroke;
+  }
+
+  .yd-chart__area {
+    fill: currentColor;
+    opacity: 0.14;
+    stroke: none;
+  }
+
+  .yd-chart__point {
+    fill: var(--color-surface);
+    stroke: currentColor;
+    stroke-width: 2;
+    vector-effect: non-scaling-stroke;
+  }
+
+  .yd-chart__bar {
+    fill: currentColor;
+  }
+
+  .yd-chart__slice {
+    fill: currentColor;
+    stroke: var(--color-surface);
+    stroke-width: 2;
+    vector-effect: non-scaling-stroke;
+  }
+
+  .yd-chart__grid {
+    stroke: var(--color-border-subtle);
+    stroke-width: 1;
+    vector-effect: non-scaling-stroke;
+  }
+
+  .yd-chart__grid-ring {
+    fill: none;
+    stroke: var(--color-border-subtle);
+    vector-effect: non-scaling-stroke;
+  }
+
+  .yd-chart__axis-text {
+    fill: var(--color-content-muted);
+    font-family: var(--font-sans);
+    font-size: 11px;
+  }
+
+  .yd-chart__axis-text--x {
+    text-anchor: middle;
+  }
+
+  .yd-chart__value {
+    fill: var(--color-content);
+    font-family: var(--font-sans);
+    font-size: 20px;
+    font-weight: 650;
+    font-variant-numeric: tabular-nums;
+    text-anchor: middle;
+  }
+
+  .yd-chart__value--center {
+    font-size: 18px;
+  }
+
+  .yd-chart__empty {
+    fill: var(--color-content-muted);
+    font-family: var(--font-sans);
+    font-size: 12px;
+    text-anchor: middle;
+  }
+
+  .yd-chart__gauge-track {
+    fill: none;
+    stroke: var(--color-track);
+    stroke-width: 14;
+    stroke-linecap: round;
+    vector-effect: non-scaling-stroke;
+  }
+
+  .yd-chart__gauge-value {
+    fill: none;
+    stroke: var(--color-accent);
+    stroke-width: 14;
+    stroke-linecap: round;
+    vector-effect: non-scaling-stroke;
+  }
+
+  .yd-chart__ring-track,
+  .yd-chart__ring-value {
+    fill: none;
+    stroke-width: 10;
+    transform: rotate(-90deg);
+    transform-origin: center;
+    vector-effect: non-scaling-stroke;
+  }
+
+  .yd-chart__ring-track {
+    stroke: var(--color-track);
+  }
+
+  .yd-chart__ring-value {
+    stroke: var(--color-accent);
+    stroke-linecap: round;
+  }
+
+  .yd-chart__radar {
+    fill: currentColor;
+    fill-opacity: 0.12;
+    stroke: currentColor;
+    stroke-width: 2;
+    vector-effect: non-scaling-stroke;
+  }
+
+  .yd-chart__cell {
+    fill: currentColor;
+    stroke: var(--color-surface);
+    stroke-width: 1;
+  }
+
+  /* Card wrapper: one frame for the title, plot, legend and footnote. | 卡片外壳：标题、图形、
+     图例与脚注共用一个画框。 */
+  .yd-chart-card {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+    min-width: 0;
+    margin: 0;
+    padding: 1.25rem;
+    border: 1px solid var(--color-border-subtle);
+    border-radius: var(--radius-panel);
+    background-color: var(--color-surface);
+    color: var(--color-content);
+    box-shadow: var(--shadow-card);
+  }
+
+  .yd-chart-card__title {
+    margin: 0;
+    font-size: 0.9375rem;
+    font-weight: 600;
+  }
+
+  .yd-chart-card__caption {
+    margin: 0;
+    color: var(--color-content-muted);
+    font-size: 0.75rem;
+    line-height: 1.5;
+  }
+
+  .yd-chart-card__plot {
+    min-width: 0;
+  }
+
+  .yd-chart-card__legend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.375rem 1rem;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+
+  .yd-chart-card__legend-item {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.375rem;
+    color: var(--color-content-muted);
+    font-size: 0.75rem;
+    line-height: 1.4;
+  }
+
+  .yd-chart-card__swatch {
+    width: 0.625rem;
+    height: 0.625rem;
+    border-radius: 999px;
+    background-color: currentColor;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .yd-chart * {
+      transition: none;
+      animation: none;
+    }
+  }
+}
+
+/* ================================================================================================
+   Extended display components | 扩展展示组件
+   The shapes every admin surface repeats: accordion, aspect ratio, avatar group, button group,
+   carousel, code block, description grid, ellipsis, gradient text, figure, media item, list,
+   marquee, meter, rating, result, scroll area, slider and timeline. They stay server-rendered,
+   so a fragment swap carries them without an initialisation step.
+   每个管理界面都会重复的形状：折叠面板、宽高比、头像组、按钮组、轮播、代码块、描述列表、省略、
+   渐变文字、图片、媒体行、列表、跑马灯、进度条、评分、结果页、滚动容器、滑块与时间线。它们保持
+   服务端渲染，因此片段交换后无需初始化步骤。
+   ================================================================================================ */
+@layer components {
+  /* Accordion and collapse | 折叠面板 */
+  .yd-accordion {
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    border: 1px solid var(--color-border-subtle);
+    border-radius: var(--radius-panel);
+    background-color: var(--color-surface);
+  }
+
+  .yd-accordion__item {
+    border-top: 1px solid var(--color-border-subtle);
+  }
+
+  .yd-accordion__item:first-child {
+    border-top: 0;
+  }
+
+  .yd-accordion__summary {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    padding: 0.75rem 1rem;
+    color: var(--color-content);
+    font-size: 0.875rem;
+    font-weight: 600;
+    list-style: none;
+    cursor: pointer;
+  }
+
+  .yd-accordion__summary::-webkit-details-marker {
+    display: none;
+  }
+
+  .yd-accordion__summary::after {
+    content: "+";
+    flex: 0 0 auto;
+    color: var(--color-content-muted);
+    font-size: 1rem;
+    font-weight: 400;
+  }
+
+  .yd-accordion__item[open] > .yd-accordion__summary::after {
+    content: "−";
+  }
+
+  .yd-accordion__summary:focus-visible {
+    outline: 2px solid var(--color-focus-ring);
+    outline-offset: -2px;
+  }
+
+  .yd-accordion__body {
+    padding: 0 1rem 1rem;
+    color: var(--color-content-muted);
+    font-size: 0.875rem;
+    line-height: 1.65;
+  }
+
+  /* Aspect ratio | 宽高比 */
+  .yd-aspect-ratio {
+    position: relative;
+    width: 100%;
+    overflow: hidden;
+    border-radius: var(--radius-control);
+    background-color: var(--color-surface-muted);
+  }
+
+  .yd-aspect-ratio::before {
+    content: "";
+    display: block;
+    padding-top: 56.25%;
+  }
+
+  .yd-aspect-ratio--1x1::before {
+    padding-top: 100%;
+  }
+
+  .yd-aspect-ratio--4x3::before {
+    padding-top: 75%;
+  }
+
+  .yd-aspect-ratio--3x2::before {
+    padding-top: 66.6667%;
+  }
+
+  .yd-aspect-ratio > * {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+  }
+
+  /* Avatar group | 头像组 */
+  .yd-avatar-group {
+    display: flex;
+    align-items: center;
+  }
+
+  .yd-avatar-group > .yd-avatar {
+    margin-inline-start: -0.5rem;
+    border: 2px solid var(--color-surface);
+  }
+
+  .yd-avatar-group > .yd-avatar:first-child {
+    margin-inline-start: 0;
+  }
+
+  .yd-avatar-group__more {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 2rem;
+    height: 2rem;
+    margin-inline-start: -0.5rem;
+    border: 2px solid var(--color-surface);
+    border-radius: 999px;
+    background-color: var(--color-surface-muted);
+    color: var(--color-content-muted);
+    font-size: 0.6875rem;
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* Button group | 按钮组 */
+  .yd-button-group {
+    display: inline-flex;
+    flex-wrap: wrap;
+  }
+
+  .yd-button-group > .yd-btn {
+    margin-inline-start: -1px;
+    border-radius: 0;
+  }
+
+  .yd-button-group > .yd-btn:first-child {
+    margin-inline-start: 0;
+    border-start-start-radius: var(--radius-control);
+    border-end-start-radius: var(--radius-control);
+  }
+
+  .yd-button-group > .yd-btn:last-child {
+    border-start-end-radius: var(--radius-control);
+    border-end-end-radius: var(--radius-control);
+  }
+
+  /* Badge dot and count | 徽标圆点与计数 */
+  .yd-badge--dot {
+    width: 0.5rem;
+    height: 0.5rem;
+    padding: 0;
+    border-radius: 999px;
+  }
+
+  .yd-badge--count {
+    justify-content: center;
+    min-width: 1.25rem;
+    padding-inline: 0.375rem;
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* Carousel | 轮播 */
+  .yd-carousel {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    gap: 0.625rem;
+    min-width: 0;
+  }
+
+  .yd-carousel__track {
+    display: flex;
+    gap: 0.75rem;
+    overflow-x: auto;
+    scroll-behavior: smooth;
+    scroll-snap-type: x mandatory;
+    scrollbar-width: none;
+  }
+
+  .yd-carousel__track::-webkit-scrollbar {
+    display: none;
+  }
+
+  .yd-carousel__item {
+    flex: 0 0 100%;
+    min-width: 0;
+    scroll-snap-align: start;
+  }
+
+  .yd-carousel__nav {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem;
+  }
+
+  .yd-carousel__dots {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 0.375rem;
+  }
+
+  .yd-carousel__dot {
+    width: 0.5rem;
+    height: 0.5rem;
+    padding: 0;
+    border: 0;
+    border-radius: 999px;
+    background-color: var(--color-border);
+    cursor: pointer;
+  }
+
+  .yd-carousel__dot--active {
+    width: 1.25rem;
+    background-color: var(--color-accent);
+  }
+
+  /* Code block | 代码块 */
+  .yd-code--block {
+    display: block;
+    overflow: auto;
+    padding: 0.75rem 1rem;
+    border: 1px solid var(--color-border-subtle);
+    border-radius: var(--radius-control);
+    background-color: var(--color-surface-muted);
+    color: var(--color-content);
+    font-family: var(--font-mono);
+    font-size: 0.8125rem;
+    line-height: 1.65;
+    white-space: pre;
+  }
+
+  .yd-code__header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem;
+    padding: 0.5rem 0.75rem;
+    border: 1px solid var(--color-border-subtle);
+    border-bottom: 0;
+    border-start-start-radius: var(--radius-control);
+    border-start-end-radius: var(--radius-control);
+    background-color: var(--color-surface-muted);
+    color: var(--color-content-muted);
+    font-family: var(--font-mono);
+    font-size: 0.75rem;
+  }
+
+  .yd-code__header + .yd-code--block {
+    border-start-start-radius: 0;
+    border-start-end-radius: 0;
+  }
+
+  /* Description grid | 描述列表 */
+  .yd-descriptions {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(13rem, 1fr));
+    gap: 1px;
+    overflow: hidden;
+    border: 1px solid var(--color-border-subtle);
+    border-radius: var(--radius-panel);
+    background-color: var(--color-border-subtle);
+  }
+
+  .yd-descriptions__item {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+    min-width: 0;
+    padding: 0.75rem 1rem;
+    background-color: var(--color-surface);
+  }
+
+  .yd-descriptions__key {
+    color: var(--color-content-muted);
+    font-size: 0.75rem;
+    line-height: 1.4;
+  }
+
+  .yd-descriptions__value {
+    color: var(--color-content);
+    font-size: 0.875rem;
+    line-height: 1.5;
+    overflow-wrap: anywhere;
+  }
+
+  /* Ellipsis | 文本省略 */
+  .yd-ellipsis {
+    display: -webkit-box;
+    overflow: hidden;
+    -webkit-box-orient: vertical;
+    min-width: 0;
+  }
+
+  .yd-ellipsis--1 {
+    -webkit-line-clamp: 1;
+  }
+
+  .yd-ellipsis--2 {
+    -webkit-line-clamp: 2;
+  }
+
+  .yd-ellipsis--3 {
+    -webkit-line-clamp: 3;
+  }
+
+  /* Gradient text | 渐变文字 */
+  .yd-gradient-text {
+    background-image: linear-gradient(90deg, var(--color-accent), var(--color-info));
+    background-clip: text;
+    -webkit-background-clip: text;
+    color: transparent;
+  }
+
+  /* Highlight | 高亮 */
+  .yd-highlight {
+    padding-inline: 0.125rem;
+    border-radius: 0.25rem;
+    background-color: var(--color-warning-soft);
+    color: var(--color-content);
+  }
+
+  /* Figure | 图片与图注 */
+  .yd-figure {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    margin: 0;
+    min-width: 0;
+  }
+
+  .yd-figure__media {
+    display: block;
+    width: 100%;
+    height: auto;
+    border: 1px solid var(--color-border-subtle);
+    border-radius: var(--radius-control);
+    background-color: var(--color-surface-muted);
+  }
+
+  .yd-figure__caption {
+    color: var(--color-content-muted);
+    font-size: 0.75rem;
+    line-height: 1.5;
+  }
+
+  /* Media item row | 媒体行 */
+  .yd-item {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.75rem;
+    min-width: 0;
+    padding: 0.75rem;
+    border: 1px solid var(--color-border-subtle);
+    border-radius: var(--radius-control);
+    background-color: var(--color-surface);
+  }
+
+  .yd-item__media {
+    flex: 0 0 auto;
+  }
+
+  .yd-item__body {
+    display: flex;
+    flex: 1 1 auto;
+    flex-direction: column;
+    gap: 0.125rem;
+    min-width: 0;
+  }
+
+  .yd-item__title {
+    color: var(--color-content);
+    font-size: 0.875rem;
+    font-weight: 600;
+    line-height: 1.45;
+  }
+
+  .yd-item__text {
+    color: var(--color-content-muted);
+    font-size: 0.8125rem;
+    line-height: 1.55;
+  }
+
+  .yd-item__meta {
+    color: var(--color-content-muted);
+    font-size: 0.75rem;
+    line-height: 1.4;
+  }
+
+  .yd-item__actions {
+    flex: 0 0 auto;
+  }
+
+  /* List extensions | 列表扩展 */
+  .yd-list__title {
+    color: var(--color-content);
+    font-size: 0.875rem;
+    font-weight: 600;
+  }
+
+  .yd-list__text {
+    color: var(--color-content-muted);
+    font-size: 0.8125rem;
+    line-height: 1.55;
+  }
+
+  .yd-list__meta {
+    color: var(--color-content-muted);
+    font-size: 0.75rem;
+    white-space: nowrap;
+  }
+
+  .yd-list__icon {
+    display: inline-flex;
+    flex: 0 0 auto;
+    color: var(--color-content-muted);
+  }
+
+  /* Marquee | 跑马灯 */
+  .yd-marquee {
+    overflow: hidden;
+    padding: 0.25rem 0.75rem;
+    border: 1px solid var(--color-border-subtle);
+    border-radius: 999px;
+    background-color: var(--color-surface);
+  }
+
+  .yd-marquee__track {
+    display: flex;
+    width: max-content;
+    gap: 2rem;
+    animation: yd-marquee 22s linear infinite;
+  }
+
+  .yd-marquee:hover .yd-marquee__track {
+    animation-play-state: paused;
+  }
+
+  .yd-marquee__item {
+    color: var(--color-content-muted);
+    font-size: 0.8125rem;
+    white-space: nowrap;
+  }
+
+  @keyframes yd-marquee {
+    to {
+      transform: translateX(-50%);
+    }
+  }
+
+  /* Native progress meter | 原生进度条 */
+  .yd-meter {
+    width: 100%;
+    height: 0.5rem;
+    overflow: hidden;
+    appearance: none;
+    border: 0;
+    border-radius: 999px;
+    background-color: var(--color-track);
+  }
+
+  .yd-meter::-webkit-progress-bar {
+    border-radius: 999px;
+    background-color: var(--color-track);
+  }
+
+  .yd-meter::-webkit-progress-value {
+    border-radius: 999px;
+    background-color: var(--color-accent);
+    transition: width 180ms var(--ease-standard);
+  }
+
+  .yd-meter::-moz-progress-bar {
+    border-radius: 999px;
+    background-color: var(--color-accent);
+  }
+
+  .yd-meter--success::-webkit-progress-value {
+    background-color: var(--color-success);
+  }
+
+  .yd-meter--warning::-webkit-progress-value {
+    background-color: var(--color-warning);
+  }
+
+  .yd-meter--danger::-webkit-progress-value {
+    background-color: var(--color-danger);
+  }
+
+  .yd-meter--success::-moz-progress-bar {
+    background-color: var(--color-success);
+  }
+
+  .yd-meter--warning::-moz-progress-bar {
+    background-color: var(--color-warning);
+  }
+
+  .yd-meter--danger::-moz-progress-bar {
+    background-color: var(--color-danger);
+  }
+
+  .yd-meter-row {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    min-width: 0;
+  }
+
+  .yd-meter-row > .yd-meter {
+    flex: 1 1 auto;
+  }
+
+  .yd-meter__label {
+    flex: 0 0 auto;
+    color: var(--color-content-muted);
+    font-size: 0.75rem;
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* Star rating | 星级评分 */
+  .yd-rate {
+    display: inline-flex;
+    flex-direction: row-reverse;
+    gap: 0.125rem;
+  }
+
+  .yd-rate__input {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    margin: -1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    border: 0;
+  }
+
+  .yd-rate__label {
+    color: var(--color-border);
+    font-size: 1.25rem;
+    line-height: 1;
+    cursor: pointer;
+    transition: color 120ms var(--ease-standard);
+  }
+
+  .yd-rate__input:checked ~ .yd-rate__label,
+  .yd-rate__input:focus-visible + .yd-rate__label {
+    color: var(--color-warning);
+  }
+
+  .yd-rate__label:hover,
+  .yd-rate__label:hover ~ .yd-rate__label {
+    color: var(--color-warning);
+  }
+
+  /* Result page | 结果页 */
+  .yd-result {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 2.5rem 1.5rem;
+    border: 1px solid var(--color-border-subtle);
+    border-radius: var(--radius-panel);
+    background-color: var(--color-surface);
+    text-align: center;
+  }
+
+  .yd-result__icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 3rem;
+    height: 3rem;
+    margin-bottom: 0.25rem;
+    border-radius: 999px;
+    background-color: var(--color-surface-muted);
+    color: var(--color-content-muted);
+    font-size: 1.5rem;
+    font-weight: 700;
+  }
+
+  .yd-result--success .yd-result__icon {
+    background-color: var(--color-success-soft);
+    color: var(--color-success);
+  }
+
+  .yd-result--warning .yd-result__icon {
+    background-color: var(--color-warning-soft);
+    color: var(--color-warning);
+  }
+
+  .yd-result--error .yd-result__icon {
+    background-color: var(--color-danger-soft);
+    color: var(--color-danger);
+  }
+
+  .yd-result--info .yd-result__icon {
+    background-color: var(--color-info-soft);
+    color: var(--color-info);
+  }
+
+  .yd-result__title {
+    margin: 0;
+    color: var(--color-content);
+    font-size: 1.125rem;
+    font-weight: 650;
+  }
+
+  .yd-result__text {
+    max-width: 36rem;
+    margin: 0;
+    color: var(--color-content-muted);
+    font-size: 0.875rem;
+    line-height: 1.65;
+  }
+
+  .yd-result__actions {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 0.5rem;
+    margin-top: 0.5rem;
+  }
+
+  /* Scroll area | 滚动容器 */
+  .yd-scroll-area {
+    overflow: auto;
+    overscroll-behavior: contain;
+    scrollbar-width: thin;
+  }
+
+  .yd-scroll-area--sm {
+    max-height: 12rem;
+  }
+
+  .yd-scroll-area--md {
+    max-height: 20rem;
+  }
+
+  .yd-scroll-area--lg {
+    max-height: 32rem;
+  }
+
+  .yd-scroll-area--x {
+    overflow-x: auto;
+    overflow-y: hidden;
+  }
+
+  /* Slider | 滑块 */
+  .yd-slider {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    min-width: 0;
+  }
+
+  .yd-slider__input {
+    flex: 1 1 auto;
+    min-width: 0;
+    accent-color: var(--color-accent);
+  }
+
+  .yd-slider__value {
+    flex: 0 0 auto;
+    min-width: 2.5rem;
+    color: var(--color-content-muted);
+    font-size: 0.8125rem;
+    font-variant-numeric: tabular-nums;
+    text-align: end;
+  }
+
+  /* Timeline | 时间线 */
+  .yd-timeline {
+    display: flex;
+    flex-direction: column;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+
+  .yd-timeline__item {
+    position: relative;
+    display: flex;
+    gap: 0.75rem;
+    padding-bottom: 1rem;
+  }
+
+  .yd-timeline__item::before {
+    content: "";
+    position: absolute;
+    top: 1rem;
+    bottom: 0;
+    left: 0.4375rem;
+    width: 1px;
+    background-color: var(--color-border-subtle);
+  }
+
+  .yd-timeline__item:last-child::before {
+    display: none;
+  }
+
+  .yd-timeline__dot {
+    position: relative;
+    z-index: 1;
+    flex: 0 0 auto;
+    width: 0.875rem;
+    height: 0.875rem;
+    margin-top: 0.25rem;
+    border: 2px solid var(--color-border);
+    border-radius: 999px;
+    background-color: var(--color-surface);
+  }
+
+  .yd-timeline__item--done .yd-timeline__dot {
+    border-color: var(--color-success);
+    background-color: var(--color-success);
+  }
+
+  .yd-timeline__item--current .yd-timeline__dot {
+    border-color: var(--color-accent);
+    background-color: var(--color-accent);
+  }
+
+  .yd-timeline__body {
+    display: flex;
+    flex-direction: column;
+    gap: 0.125rem;
+    min-width: 0;
+  }
+
+  .yd-timeline__time {
+    color: var(--color-content-muted);
+    font-size: 0.75rem;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .yd-timeline__title {
+    color: var(--color-content);
+    font-size: 0.875rem;
+    font-weight: 600;
+  }
+
+  .yd-timeline__text {
+    color: var(--color-content-muted);
+    font-size: 0.8125rem;
+    line-height: 1.55;
+  }
+
+  /* Watermark | 水印 */
+  .yd-watermark {
+    position: relative;
+    overflow: hidden;
+  }
+
+  .yd-watermark__layer {
+    position: absolute;
+    inset: -2rem;
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(8rem, 1fr));
+    gap: 2rem;
+    align-content: space-around;
+    justify-items: center;
+    color: var(--color-content);
+    font-size: 0.75rem;
+    opacity: 0.06;
+    transform: rotate(-20deg);
+    pointer-events: none;
+  }
+
+  /* Sortable table header | 可排序表头 */
+  .yd-sort-header {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+    padding: 0;
+    border: 0;
+    background-color: transparent;
+    color: inherit;
+    font: inherit;
+    text-align: inherit;
+    text-decoration: none;
+    cursor: pointer;
+  }
+
+  .yd-sort-header--active {
+    color: var(--color-accent);
+  }
+
+  .yd-sort-header__icon {
+    font-size: 0.625rem;
+    line-height: 1;
+  }
+
+  /* Log viewer | 日志查看器 */
+  .yd-log {
+    max-height: 24rem;
+    overflow: auto;
+    padding: 0.75rem;
+    border: 1px solid var(--color-border-subtle);
+    border-radius: var(--radius-control);
+    background-color: var(--color-surface-muted);
+    color: var(--color-content);
+    font-family: var(--font-mono);
+    font-size: 0.75rem;
+    line-height: 1.7;
+  }
+
+  .yd-log__line {
+    display: flex;
+    gap: 0.625rem;
+    min-width: 0;
+  }
+
+  .yd-log__time {
+    flex: 0 0 auto;
+    color: var(--color-content-muted);
+    font-variant-numeric: tabular-nums;
+  }
+
+  .yd-log__level {
+    flex: 0 0 auto;
+    width: 3.5rem;
+    font-weight: 600;
+  }
+
+  .yd-log__level--error {
+    color: var(--color-danger);
+  }
+
+  .yd-log__level--warn {
+    color: var(--color-warning);
+  }
+
+  .yd-log__level--info {
+    color: var(--color-info);
+  }
+
+  .yd-log__body {
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
+
+  /* Notification card | 通知卡片 */
+  .yd-notification {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.625rem;
+    padding: 0.875rem 1rem;
+    border: 1px solid var(--color-border-subtle);
+    border-inline-start-width: 3px;
+    border-radius: var(--radius-control);
+    background-color: var(--color-surface);
+    box-shadow: var(--shadow-card);
+  }
+
+  .yd-notification--success {
+    border-inline-start-color: var(--color-success);
+  }
+
+  .yd-notification--warning {
+    border-inline-start-color: var(--color-warning);
+  }
+
+  .yd-notification--error {
+    border-inline-start-color: var(--color-danger);
+  }
+
+  .yd-notification--info {
+    border-inline-start-color: var(--color-info);
+  }
+
+  .yd-notification__body {
+    display: flex;
+    flex-direction: column;
+    gap: 0.125rem;
+    min-width: 0;
+  }
+
+  .yd-notification__title {
+    margin: 0;
+    color: var(--color-content);
+    font-size: 0.875rem;
+    font-weight: 600;
+  }
+
+  .yd-notification__text {
+    margin: 0;
+    color: var(--color-content-muted);
+    font-size: 0.8125rem;
+    line-height: 1.55;
+  }
+}
+
+/* ================================================================================================
+   Extended navigation and form components | 扩展导航与表单组件
+   The navigation pieces that stay useful in a server-rendered shell (anchor, affix, back-to-top,
+   command palette, context menu, floating action, menubar, tree, pagination) and the form pieces
+   that need only a small amount of local state (combobox, number, OTP, colour, countdown).
+   服务端渲染外壳里仍然有用的导航件（锚点、固钉、回到顶部、命令面板、右键菜单、悬浮操作、菜单栏、
+   树、分页）以及只需要少量本地状态的表单件（组合框、数字、验证码、颜色、倒计时）。
+   ================================================================================================ */
+@layer components {
+  /* Anchor: a sticky table of contents with a scrollspy state. | 锚点：带滚动高亮状态的粘性目录。 */
+  .yd-anchor {
+    position: sticky;
+    top: 1rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+    min-width: 0;
+    padding-inline-start: 0.75rem;
+    border-inline-start: 2px solid var(--color-border-subtle);
+  }
+
+  .yd-anchor__list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.125rem;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+
+  .yd-anchor__link {
+    display: block;
+    padding: 0.25rem 0.5rem;
+    border-radius: 0.375rem;
+    color: var(--color-content-muted);
+    font-size: 0.8125rem;
+    line-height: 1.45;
+    text-decoration: none;
+  }
+
+  .yd-anchor__link:hover {
+    background-color: var(--color-surface-muted);
+    color: var(--color-content);
+  }
+
+  .yd-anchor__link--active {
+    background-color: var(--color-accent-soft);
+    color: var(--color-accent);
+    font-weight: 600;
+  }
+
+  /* Affix: a sticky band above scrolling content. | 固钉：滚动内容上方的粘性带。 */
+  .yd-affix {
+    position: sticky;
+    top: 0;
+    z-index: var(--z-sticky);
+    background-color: var(--color-surface);
+    border-bottom: 1px solid var(--color-border-subtle);
+  }
+
+  /* Back to top and floating action | 回到顶部与悬浮操作 */
+  .yd-back-top,
+  .yd-fab {
+    position: fixed;
+    right: 1.5rem;
+    z-index: var(--z-toast);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border: 1px solid var(--color-border-subtle);
+    background-color: var(--color-surface);
+    color: var(--color-content);
+    box-shadow: var(--shadow-card);
+    cursor: pointer;
+  }
+
+  .yd-back-top {
+    bottom: 1.5rem;
+    width: 2.5rem;
+    height: 2.5rem;
+    border-radius: 999px;
+    font-size: 1rem;
+  }
+
+  .yd-fab {
+    bottom: 1.5rem;
+    gap: 0.375rem;
+    min-height: 2.75rem;
+    padding-inline: 1rem;
+    border-radius: 999px;
+    font-size: 0.875rem;
+    font-weight: 600;
+  }
+
+  .yd-fab--primary {
+    border-color: transparent;
+    background-color: var(--color-accent);
+    color: var(--color-on-accent);
+  }
+
+  .yd-back-top:hover,
+  .yd-fab:hover {
+    border-color: var(--color-accent);
+    color: var(--color-accent);
+  }
+
+  .yd-fab--primary:hover {
+    background-color: var(--color-brand-700);
+    color: var(--color-on-accent);
+  }
+
+  /* Command palette | 命令面板 */
+  .yd-command {
+    position: fixed;
+    inset: 0;
+    z-index: var(--z-overlay);
+    display: flex;
+    align-items: flex-start;
+    justify-content: center;
+    padding: 10vh 1rem 1rem;
+    background-color: var(--color-overlay);
+  }
+
+  .yd-command__panel {
+    display: flex;
+    flex-direction: column;
+    width: min(36rem, 100%);
+    max-height: 70vh;
+    overflow: hidden;
+    border: 1px solid var(--color-border-subtle);
+    border-radius: var(--radius-panel);
+    background-color: var(--color-surface);
+    box-shadow: var(--shadow-card);
+  }
+
+  .yd-command__input {
+    width: 100%;
+    padding: 0.875rem 1rem;
+    border: 0;
+    border-bottom: 1px solid var(--color-border-subtle);
+    background-color: transparent;
+    color: var(--color-content);
+    font: inherit;
+    font-size: 0.9375rem;
+  }
+
+  .yd-command__input:focus-visible {
+    outline: none;
+  }
+
+  .yd-command__list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.125rem;
+    overflow: auto;
+    padding: 0.375rem;
+  }
+
+  .yd-command__group {
+    padding: 0.5rem 0.625rem 0.25rem;
+    color: var(--color-content-muted);
+    font-size: 0.6875rem;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+  }
+
+  .yd-command__item {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    min-height: 2.25rem;
+    padding: 0.375rem 0.625rem;
+    border: 0;
+    border-radius: 0.375rem;
+    background-color: transparent;
+    color: var(--color-content);
+    font: inherit;
+    font-size: 0.875rem;
+    text-align: start;
+    text-decoration: none;
+    cursor: pointer;
+  }
+
+  .yd-command__item:hover,
+  .yd-command__item--active {
+    background-color: var(--color-surface-muted);
+  }
+
+  .yd-command__empty {
+    padding: 1.5rem 1rem;
+    color: var(--color-content-muted);
+    font-size: 0.8125rem;
+    text-align: center;
+  }
+
+  /* Context menu: JS positions it at the pointer. | 右键菜单：由脚本定位到指针处。 */
+  .yd-context-menu {
+    position: fixed;
+    z-index: var(--z-dropdown);
+    display: flex;
+    flex-direction: column;
+    min-width: 12rem;
+    padding: 0.25rem;
+    border: 1px solid var(--color-border-subtle);
+    border-radius: var(--radius-control);
+    background-color: var(--color-surface);
+    box-shadow: var(--shadow-card);
+  }
+
+  /* Menubar: horizontal commands with dropdown panels. | 菜单栏：带下拉面板的横向命令。 */
+  .yd-menubar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.125rem;
+    padding: 0.1875rem;
+    border: 1px solid var(--color-border-subtle);
+    border-radius: var(--radius-control);
+    background-color: var(--color-surface);
+  }
+
+  .yd-menubar__item {
+    position: relative;
+  }
+
+  .yd-menubar__trigger {
+    display: inline-flex;
+    align-items: center;
+    min-height: 1.875rem;
+    padding: 0.25rem 0.625rem;
+    border: 0;
+    border-radius: 0.375rem;
+    background-color: transparent;
+    color: var(--color-content);
+    font: inherit;
+    font-size: 0.8125rem;
+    cursor: pointer;
+  }
+
+  .yd-menubar__trigger:hover,
+  .yd-menubar__item[open] > .yd-menubar__trigger {
+    background-color: var(--color-surface-muted);
+  }
+
+  .yd-menubar__panel {
+    position: absolute;
+    left: 0;
+    top: calc(100% + 0.25rem);
+    z-index: var(--z-dropdown);
+    display: flex;
+    flex-direction: column;
+    min-width: 12rem;
+    padding: 0.25rem;
+    border: 1px solid var(--color-border-subtle);
+    border-radius: var(--radius-control);
+    background-color: var(--color-surface);
+    box-shadow: var(--shadow-card);
+  }
+
+  .yd-menubar__item:not([open]) > .yd-menubar__panel {
+    display: none;
+  }
+
+  /* Tree: nested details keep expansion working without a script. | 树：嵌套 details 使展开在无脚本时
+     也可用。 */
+  .yd-tree,
+  .yd-tree__children {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+
+  .yd-tree__children {
+    margin-inline-start: 0.75rem;
+    padding-inline-start: 0.75rem;
+    border-inline-start: 1px solid var(--color-border-subtle);
+  }
+
+  .yd-tree__item {
+    padding-block: 0.0625rem;
+  }
+
+  .yd-tree__summary {
+    display: flex;
+    align-items: center;
+    gap: 0.375rem;
+    padding: 0.25rem 0.5rem;
+    border-radius: 0.375rem;
+    color: var(--color-content);
+    font-size: 0.875rem;
+    list-style: none;
+    cursor: pointer;
+  }
+
+  .yd-tree__summary::-webkit-details-marker {
+    display: none;
+  }
+
+  .yd-tree__summary:hover {
+    background-color: var(--color-surface-muted);
+  }
+
+  .yd-tree__label {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .yd-tree__meta {
+    color: var(--color-content-muted);
+    font-size: 0.75rem;
+  }
+
+  /* Pagination extension | 分页扩展 */
+  .yd-pagination__ellipsis {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 2rem;
+    color: var(--color-content-muted);
+    font-size: 0.8125rem;
+  }
+
+  /* Combobox | 组合框 */
+  .yd-combobox {
+    position: relative;
+    min-width: 0;
+  }
+
+  .yd-combobox__panel {
+    position: absolute;
+    left: 0;
+    right: 0;
+    top: calc(100% + 0.25rem);
+    z-index: var(--z-dropdown);
+    display: flex;
+    flex-direction: column;
+    max-height: 16rem;
+    overflow: auto;
+    padding: 0.25rem;
+    border: 1px solid var(--color-border-subtle);
+    border-radius: var(--radius-control);
+    background-color: var(--color-surface);
+    box-shadow: var(--shadow-card);
+  }
+
+  .yd-combobox__option {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    min-height: 2rem;
+    padding: 0.375rem 0.625rem;
+    border: 0;
+    border-radius: 0.375rem;
+    background-color: transparent;
+    color: var(--color-content);
+    font: inherit;
+    font-size: 0.875rem;
+    text-align: start;
+    cursor: pointer;
+  }
+
+  .yd-combobox__option:hover,
+  .yd-combobox__option--active {
+    background-color: var(--color-surface-muted);
+  }
+
+  .yd-combobox__empty {
+    padding: 0.625rem 0.75rem;
+    color: var(--color-content-muted);
+    font-size: 0.8125rem;
+  }
+
+  /* Number stepper | 数字步进器 */
+  .yd-number {
+    display: flex;
+    align-items: stretch;
+    min-width: 0;
+  }
+
+  .yd-number__input {
+    flex: 1 1 auto;
+    min-width: 0;
+    text-align: center;
+    border-radius: 0;
+    border-inline: 0;
+  }
+
+  .yd-number__step {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex: 0 0 auto;
+    width: 2.5rem;
+    border: 1px solid var(--color-field-border);
+    background-color: var(--color-surface-muted);
+    color: var(--color-content);
+    font: inherit;
+    font-size: 1rem;
+    cursor: pointer;
+  }
+
+  .yd-number__step:first-child {
+    border-start-start-radius: var(--radius-control);
+    border-end-start-radius: var(--radius-control);
+  }
+
+  .yd-number__step:last-child {
+    border-start-end-radius: var(--radius-control);
+    border-end-end-radius: var(--radius-control);
+  }
+
+  .yd-number__step:hover {
+    background-color: var(--color-accent-soft);
+    color: var(--color-accent);
+  }
+
+  /* One-time password | 一次性验证码 */
+  .yd-otp {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+  }
+
+  .yd-otp__input {
+    width: 2.5rem;
+    height: 2.75rem;
+    padding: 0;
+    border: 1px solid var(--color-field-border);
+    border-radius: var(--radius-control);
+    background-color: var(--color-field);
+    color: var(--color-content);
+    font: inherit;
+    font-size: 1.125rem;
+    font-weight: 600;
+    text-align: center;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .yd-otp__input:focus-visible {
+    outline: none;
+    border-color: var(--color-focus-ring);
+    box-shadow: 0 0 0 3px color-mix(in oklab, var(--color-focus-ring) 25%, transparent);
+  }
+
+  /* Colour picker | 颜色选择 */
+  .yd-color {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    min-width: 0;
+  }
+
+  .yd-color__swatch {
+    flex: 0 0 auto;
+    width: 2.5rem;
+    height: 2.5rem;
+    padding: 0;
+    border: 1px solid var(--color-field-border);
+    border-radius: var(--radius-control);
+    background-color: transparent;
+    cursor: pointer;
+  }
+
+  .yd-color__value {
+    flex: 1 1 auto;
+    min-width: 0;
+    font-family: var(--font-mono);
+    text-transform: uppercase;
+  }
+
+  /* Countdown and number animation | 倒计时与数字动画 */
+  .yd-countdown {
+    color: var(--color-content);
+    font-variant-numeric: tabular-nums;
+    font-weight: 650;
+  }
+
+  .yd-stat__spark {
+    width: 100%;
+    height: 2.5rem;
+  }
+
+  /* Filter panel: a compact set of controls above a list. | 筛选面板：列表上方的一组紧凑控件。 */
+  .yd-filter-panel {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-end;
+    gap: 0.75rem;
+    padding: 0.875rem;
+    border: 1px solid var(--color-border-subtle);
+    border-radius: var(--radius-panel);
+    background-color: var(--color-surface);
+  }
+
+  .yd-filter-panel > .yd-field {
+    flex: 1 1 12rem;
+  }
+
+  .yd-filter-panel__actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    margin-inline-start: auto;
+  }
+}
+
+@layer components {
+  /* Vertical divider | 垂直分隔线 */
+  .yd-divider--vertical {
+    display: inline-block;
+    width: 1px;
+    height: 1em;
+    margin-inline: 0.5rem;
+    border-top: 0;
+    border-inline-start: 1px solid var(--color-border-subtle);
+    vertical-align: middle;
+  }
+
+  /* Labelled horizontal divider: the text sits on the rule instead of floating above it. | 带文案的
+     水平分隔线：文字落在线上，而不是浮在上方。 */
+  .yd-divider--labeled {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    border-top: 0;
+    color: var(--color-content-muted);
+    font-size: 0.75rem;
+    line-height: 1.5;
+  }
+
+  .yd-divider--labeled::before,
+  .yd-divider--labeled::after {
+    content: "";
+    flex: 1 1 auto;
+    border-top: 1px solid var(--color-border-subtle);
+  }
+
+  .yd-divider__label {
+    flex: 0 0 auto;
+  }
+
+  /* Navigation menu section and active item | 导航菜单分区与当前项 */
+  .yd-nav__title {
+    margin: 0.5rem 0 0.25rem;
+    padding-inline: 0.5rem;
+    color: var(--color-content-muted);
+    font-size: 0.6875rem;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+  }
+
+  .yd-nav__link--active {
+    background-color: var(--color-accent-soft);
+    color: var(--color-accent);
+    font-weight: 600;
+  }
+
+  /* Code frame: one column for the header and the block | 代码外框：表头与代码块一列排布 */
+  .yd-code-frame {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+  }
+}
+
+/* ================================================================================================
+   Interaction and accessibility refinements | 交互与可访问性收尾
+   These rules are the shared floor for the components above: every custom control that is not a
+   native button gets a visible focus ring, small dot targets get a larger invisible hit area, and
+   reduced-motion / forced-colors users keep every state distinction. They live in the component
+   layer so a page utility can still override them deliberately.
+   这些规则是上面组件的共同底线：每个非原生按钮的自定义控件都有可见焦点环，小圆点获得更大的
+   不可见点击区域，减弱动效与强制色彩用户仍能保留全部状态区分。它们位于组件层，因此页面工具类
+   仍可有意覆盖。
+   ================================================================================================ */
+@layer components {
+  /* Focus ring for the custom controls that are not .yd-btn. | 非 .yd-btn 自定义控件的焦点环。 */
+  .yd-anchor__link:focus-visible,
+  .yd-dropdown__trigger:focus-visible,
+  .yd-sort-header:focus-visible,
+  .yd-command__item:focus-visible,
+  .yd-command__input:focus-visible,
+  .yd-combobox__option:focus-visible,
+  .yd-context-menu .yd-dropdown__item:focus-visible,
+  .yd-number__step:focus-visible,
+  .yd-cn-date-range__preset:focus-visible,
+  .yd-search__clear:focus-visible,
+  .yd-file__remove:focus-visible,
+  .yd-tag__remove:focus-visible,
+  .yd-password__toggle:focus-visible,
+  .yd-menubar__trigger:focus-visible,
+  .yd-tree__summary:focus-visible,
+  .yd-back-top:focus-visible,
+  .yd-fab:focus-visible,
+  .yd-carousel:focus-visible,
+  .yd-scroll-area:focus-visible,
+  .yd-log:focus-visible {
+    outline: 2px solid var(--color-focus-ring);
+    outline-offset: 2px;
+  }
+
+  .yd-command__input:focus-visible {
+    outline: none;
+    border-bottom-color: var(--color-focus-ring);
+    box-shadow: inset 0 -2px 0 var(--color-focus-ring);
+  }
+
+  /* A dot is visually small; the pseudo element gives it a 44px-class hit area without moving the
+     layout. | 圆点视觉上很小；伪元素在不动布局的前提下给它接近 44px 的点击区域。 */
+  .yd-carousel__dot {
+    position: relative;
+  }
+
+  .yd-carousel__dot::before {
+    content: "";
+    position: absolute;
+    inset: -0.75rem;
+  }
+
+  .yd-rate__label--on,
+  .yd-rate__label--on ~ .yd-rate__label {
+    color: var(--color-warning);
+  }
+
+  /* Dropdown panels must not leave the viewport on a phone. | 下拉面板不得在手机上跑出视口。 */
+  .yd-dropdown__panel,
+  .yd-context-menu {
+    max-width: min(22rem, calc(100vw - 2rem));
+    max-height: min(70vh, 32rem);
+    overflow: auto;
+    overscroll-behavior: contain;
+  }
+
+  .yd-combobox__panel,
+  .yd-command__list {
+    overscroll-behavior: contain;
+  }
+
+  .yd-file__input:focus-visible + .yd-file__drop {
+    outline: 2px solid var(--color-focus-ring);
+    outline-offset: 2px;
+  }
+
+  .yd-segmented__item:has(> input:disabled) {
+    cursor: not-allowed;
+    opacity: 0.6;
+  }
+
+  .yd-divider--labeled {
+    margin-block: 1rem;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .yd-carousel__track {
+      scroll-behavior: auto;
+    }
+
+    .yd-marquee__track {
+      animation: none;
+    }
+
+    .yd-meter::-webkit-progress-value {
+      transition: none;
+    }
+
+    .yd-rate__label {
+      transition: none;
+    }
+  }
+
+  @media (forced-colors: active) {
+    .yd-gradient-text {
+      background-image: none;
+      color: CanvasText;
+    }
+
+    .yd-chart,
+    .yd-chart-card {
+      --yd-chart-1: CanvasText;
+      --yd-chart-2: CanvasText;
+      --yd-chart-3: CanvasText;
+      --yd-chart-4: CanvasText;
+      --yd-chart-5: CanvasText;
+      --yd-chart-6: CanvasText;
+      --yd-chart-7: CanvasText;
+      --yd-chart-8: CanvasText;
+    }
+
+    .yd-chart__point {
+      fill: Canvas;
+    }
+
+    .yd-chart__slice {
+      stroke: Canvas;
+    }
+  }
+}

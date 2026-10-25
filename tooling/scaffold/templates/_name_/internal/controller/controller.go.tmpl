@@ -68,10 +68,13 @@ const (
 	TplAccount = "portal/pages/account.html"
 	// TplRealtime is the realtime demo fragment. | TplRealtime 是实时推送演示片段。
 	TplRealtime = "portal/pages/realtime.html"
-	// TplError is the portal validation failure fragment. | TplError 是门户校验失败片段。
-	TplError = "portal/pages/error.html"
-	// TplMgrError is the management validation failure fragment. | TplMgrError 是管理端校验失败片段。
-	TplMgrError = "mgr/pages/error.html"
+	// TplUIKit is the component gallery of the portal. | TplUIKit 是门户的组件示例页。
+	TplUIKit = "portal/pages/ui_kit.html"
+	// TplError is the validation failure fragment shared by the portal and the back office. |
+	// TplError 是门户与后台共用的校验失败片段。
+	TplError = "partials/pages/error.html"
+	// TplMgrError is kept as an alias of the same shared fragment. | TplMgrError 指向同一份共享片段。
+	TplMgrError = TplError
 	// TplUserCreateDrawer is the user creation drawer fragment. | TplUserCreateDrawer 是新建用户抽屉片段。
 	TplUserCreateDrawer = "mgr/partials/users/create_drawer.html"
 	// TplUserEditDrawer is the user edit drawer fragment. | TplUserEditDrawer 是编辑用户抽屉片段。
@@ -104,10 +107,6 @@ const (
 	TplMessageSearch = "portal/partials/messages/search.html"
 	// TplMessageCompose is the create/edit message drawer. | TplMessageCompose 是新建/编辑消息抽屉。
 	TplMessageCompose = "portal/partials/messages/compose.html"
-	// TplSidebarUnread is the sidebar unread badge. | TplSidebarUnread 是侧栏未读角标。
-	TplSidebarUnread = "portal/partials/messages/sidebar_unread"
-	// TplSidebarFriendRequests is the sidebar friend-request badge. | TplSidebarFriendRequests 是侧栏好友申请角标。
-	TplSidebarFriendRequests = "portal/partials/messages/sidebar_friend_requests"
 	// TplMessagePin is the pin-window drawer. | TplMessagePin 是置顶窗口抽屉。
 	TplMessagePin = "mgr/partials/messages/pin.html"
 	// TplMessageGroupDrawer is the group settings drawer. | TplMessageGroupDrawer 是群设置抽屉。
@@ -136,10 +135,12 @@ const (
 	TplMessageAuditBody = "mgr/partials/messages/audit.html"
 	// TplMessageNotice is the realtime notice fragment pushed into the shell. | TplMessageNotice 是推送到外壳的实时通知片段。
 	TplMessageNotice = "portal/partials/messages/notice.html"
-	// TplUnreadBadge is the shell unread badge fragment. | TplUnreadBadge 是外壳未读徽标片段。
-	TplUnreadBadge = "portal/partials/messages/unread_badge.html"
-	// TplUnreadMenuBadge is the unread count of the user-menu row. | TplUnreadMenuBadge 是用户菜单未读行的计数徽标。
-	TplUnreadMenuBadge = "portal/partials/messages/unread_menu_badge.html"
+	// MessagePortalBase is the portal action prefix of the shared message card. | MessagePortalBase 是共享消息卡片在门户的动作前缀。
+	MessagePortalBase = "/messages"
+	// MessageAdminBase is the back-office action prefix of the shared message card. | MessageAdminBase 是共享消息卡片在后台的动作前缀。
+	MessageAdminBase = "/mgr/messages"
+	// TplUnreadFrames renders all four unread frames in one pass. | TplUnreadFrames 一次渲染全部四条未读片段。
+	TplUnreadFrames = "partials/messages/unread_frames.html"
 	// TplMessageAttachment is one uploaded attachment chip. | TplMessageAttachment 是一个已上传附件标签。
 	TplMessageAttachment = "portal/partials/messages/attachment_chip.html"
 )
@@ -817,8 +818,8 @@ func (c *Controller) toast(ctx *router.Ctx, message string) {
 	htmx.TriggerFromCtx(ctx, htmx.Event{Name: meta.ToastEvent, Detail: message})
 }
 
-// fail 输出错误片段：状态码 + portal/pages/error.html。
-// fail writes the error fragment: the status code plus portal/pages/error.html.
+// fail 输出错误片段：状态码 + partials/pages/error.html。
+// fail writes the error fragment: the status code plus partials/pages/error.html.
 //
 // htmx 侧由表单上的 hx-status:422="target:#yd-errors swap:innerHTML" 声明式接管，
 // 因此这里既不需要额外的响应头，也不需要前端为失败路径写命令式代码。

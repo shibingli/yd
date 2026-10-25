@@ -21,32 +21,29 @@
       hx-disabled-elt="find button[type='submit']"
       data-yd-confirm="{{ tr "confirm.create_role" }}"
       novalidate>
-  <div class="yd-form__field">
-    <label class="yd-form__label" for="yd-role-name">{{ tr "field.role_name" }}</label>
-    <input class="yd-input" id="yd-role-name" name="name" type="text"
-           autocomplete="off" required maxlength="32" placeholder="support">
-    <span class="yd-hint">{{ tr "page.roles.name_hint" }}</span>
-  </div>
-  <div class="yd-form__field">
-    <label class="yd-form__label" for="yd-role-description">{{ tr "field.description" }}</label>
-    <input class="yd-input" id="yd-role-description" name="description" type="text"
-           autocomplete="off" maxlength="128" placeholder="{{ tr "page.roles.description_placeholder" }}">
-  </div>
+  {{template "components.form.field" (dict
+    "ID" "yd-role-name" "Name" "name" "Type" "text"
+    "Label" (tr "field.role_name") "LabelKey" "field.role_name"
+    "Hint" (tr "page.roles.name_hint") "HintKey" "page.roles.name_hint"
+    "Placeholder" "support" "Autocomplete" "off" "Required" true "MaxLength" 32)}}
+  {{template "components.form.field" (dict
+    "ID" "yd-role-description" "Name" "description" "Type" "text"
+    "Label" (tr "field.description") "LabelKey" "field.description"
+    "Placeholder" (tr "page.roles.description_placeholder") "PlaceholderKey" "page.roles.description_placeholder"
+    "Autocomplete" "off" "MaxLength" 128)}}
 
   <fieldset class="yd-form__fieldset">
     <legend class="yd-form__label">{{ tr "field.permissions" }}</legend>
     {{ range .Catalogue }}
-    <label class="yd-check" for="yd-role-perm-{{ .Key }}">
-      <input class="yd-check__input" id="yd-role-perm-{{ .Key }}" type="checkbox"
-             name="permission" value="{{ .Key }}">
-      <span class="yd-check__label"><code class="yd-code">{{ .Key }}</code> {{ .Label }}</span>
-      <span class="yd-hint">{{ .Module }}</span>
-    </label>
+    {{template "components.form.check" (dict
+      "ID" (printf "yd-role-perm-%s" .Key) "Name" "permission" "Value" .Key
+      "Label" (printf "%s — %s" .Key .Label)
+      "Hint" .Module "Block" true)}}
     {{ end }}
   </fieldset>
 
-  <div class="yd-form__actions">
-    <button type="submit" class="yd-btn yd-btn--primary">{{ tr "ui.save" }}</button>
-  </div>
+  {{template "components.form.actions" (dict
+    "SubmitLabel" (tr "ui.save") "SubmitKey" "ui.save"
+    "CancelLabel" (tr "ui.cancel") "CancelKey" "ui.cancel")}}
 </form>
 {{- end -}}

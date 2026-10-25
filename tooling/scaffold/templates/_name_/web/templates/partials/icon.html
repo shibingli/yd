@@ -1,0 +1,15 @@
+{{/*
+  partials/icon.html — the shared icon entry for component templates.
+  partials/icon.html — 组件模板共用的图标入口。
+
+  门户页面、后台页面与组件模板（web/templates/components/*）都只写 `partials/icon`：整个生成项目
+  只有这一个图标入口，不存在 `portal/partials/icon` 与 `mgr/partials/icon` 两份副本。图标仍来自
+  同一份按需 SVG sprite（Iconify 的 Lucide 子集），`yd icons sync` 只扫描该调用形式。
+  Portal pages, back-office pages and component templates all write `partials/icon` only: a generated
+  project has exactly one icon entry, with no `portal/partials/icon` / `mgr/partials/icon` duplicates.
+  The icons still come from the same on-demand SVG sprite (Iconify's Lucide subset), and `yd icons sync`
+  scans this call form alone.
+*/}}
+{{- define "partials/icon" -}}
+<svg class="yd-icon" data-yd-icon="{{ . }}" aria-hidden="true" focusable="false"><use href="{{ asset "/static/img/icons.svg" }}#i-{{ . }}"></use></svg>
+{{- end -}}

@@ -79,6 +79,11 @@ var (
 	assetsResolveTailwindBin = build.ResolveTailwindBin
 )
 
+// ErrAssetsFallback indicates that the minified stylesheet was produced but the committed
+// development fallback could not be written. | ErrAssetsFallback 表示压缩样式表已产出，但无法写入
+// 签入的开发回退文件。
+var ErrAssetsFallback = errs.New("assets: cannot write the built stylesheet fallback | assets：无法写入样式表回退")
+
 // assetsUsageLine is the usage line of the assets command. | assetsUsageLine 是 assets 命令的用法行。
 const assetsUsageLine = "yd assets <list|update|verify|add|minify> [flags] [args]"
 
@@ -335,6 +340,7 @@ func runAssetsMinifyCSS(ctx context.Context, env *Env, staticRoot string, check 
 	}
 
 	committed := filepath.Join(staticRoot, "css", "yd.min.css")
+	fallback := filepath.Join(staticRoot, "css", "yd.css")
 	opts := build.TailwindOptions{
 		Enabled:    true,
 		Minify:     true,
@@ -369,6 +375,16 @@ func runAssetsMinifyCSS(ctx context.Context, env *Env, staticRoot string, check 
 		return false, err
 	}
 	if !check {
+		// The committed yd.css is the fallback a build uses when the Tailwind binary is absent.
+		// Keep it byte-identical to the minified artifact so development and production render the
+		// same CSS, and so TestBuiltCssIsMinifiedAndNonEmpty keeps holding.
+		// 签入的 yd.css 是缺少 Tailwind 二进制时的构建回退。让它与压缩产物逐字节一致，开发与生产
+		// 因此渲染同一份 CSS，TestBuiltCssIsMinifiedAndNonEmpty 也继续成立。
+		if data, readErr := os.ReadFile(committed); readErr == nil {
+			if writeErr := os.WriteFile(fallback, data, 0o644); writeErr != nil {
+				return false, errs.Wrap(writeErr, ErrAssetsFallback)
+			}
+		}
 		return false, nil
 	}
 
@@ -378,6 +394,11 @@ func runAssetsMinifyCSS(ctx context.Context, env *Env, staticRoot string, check 
 	}
 	want, err := os.ReadFile(committed)
 	if err != nil || !bytes.Equal(fresh, want) {
+		return true, nil
+	}
+	// A stale fallback is drift too: a build without Tailwind would embed old CSS. | 过期的回退文件
+	// 同样属于漂移：缺少 Tailwind 的构建会内嵌旧 CSS。
+	if fallbackBytes, fallbackErr := os.ReadFile(fallback); fallbackErr == nil && !bytes.Equal(fresh, fallbackBytes) {
 		return true, nil
 	}
 	return false, nil

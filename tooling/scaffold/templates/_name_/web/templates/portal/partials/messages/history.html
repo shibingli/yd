@@ -11,7 +11,7 @@
 */}}
 {{- define "portal/partials/messages/history" -}}
 {{- range .Thread }}
-{{ template "portal/partials/messages/message" . }}
+{{ template "partials/messages/message" . }}
 {{- else }}
 <p class="yd-hint yd-msg-thread__empty">{{ tr "message.empty_thread" }}</p>
 {{- end }}

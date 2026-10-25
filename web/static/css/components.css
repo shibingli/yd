@@ -49,6 +49,23 @@
   /* Foreground drawn on a solid accent fill; the brand scale is shared by both themes, so this value is never overridden. | 实心强调色之上的前景色；品牌色阶为两套主题共用，故本值无需覆盖。 */
   --color-on-accent: #ffffff;
 
+  /* Form, overlay and feedback surfaces of the UI kit. | UI 组件层的表单、遮罩与反馈表面。 */
+  --color-surface-raised: #ffffff;
+  --color-field: #ffffff;
+  --color-field-border: #cbd5e1;
+  --color-field-placeholder: #94a3b8;
+  --color-focus-ring: #2563eb;
+  --color-overlay: rgb(2 6 23 / 0.55);
+  --color-track: #e2e8f0;
+  --color-on-danger: #ffffff;
+
+  /* Soft fills behind status text: alerts, tags and empty states. | 状态文字背后的浅色底：提示、标签与空状态。 */
+  --color-accent-soft: #eff6ff;
+  --color-success-soft: #dcfce7;
+  --color-warning-soft: #fef3c7;
+  --color-danger-soft: #fee2e2;
+  --color-info-soft: #e0f2fe;
+
   /* Typography. | 字体。 */
   --font-sans: "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
   /* Monospace stack for code, translation keys and stream payloads. | 用于代码、翻译键与数据流载荷的等宽字体栈。 */
@@ -77,6 +94,38 @@
   --color-warning: #d97706;
   --color-info: #0284c7;
   --color-accent: #2563eb;
+
+  /* UI-kit surfaces and sizes. | UI 组件层的表面与尺寸。 */
+  --color-surface-raised: #ffffff;
+  --color-field: #ffffff;
+  --color-field-border: #cbd5e1;
+  --color-field-placeholder: #94a3b8;
+  --color-focus-ring: #2563eb;
+  --color-overlay: rgb(2 6 23 / 0.55);
+  --color-track: #e2e8f0;
+  --color-on-danger: #ffffff;
+  --color-accent-soft: #eff6ff;
+  --color-success-soft: #dcfce7;
+  --color-warning-soft: #fef3c7;
+  --color-danger-soft: #fee2e2;
+  --color-info-soft: #e0f2fe;
+
+  /* Control geometry in rem: browser zoom and OS display scaling both move it with the root font. | 控件几何尺寸使用 rem：浏览器缩放与系统显示缩放都会随根字号一起移动。 */
+  --control-height-sm: 2rem;
+  --control-height: 2.5rem;
+  --control-height-lg: 3rem;
+  --radius-control: 0.625rem;
+  --radius-panel: 0.875rem;
+  --content-measure: 72ch;
+
+  /* Stacking order shared by every overlay component. | 全部浮层组件共用的层叠顺序。 */
+  --z-sticky: 20;
+  --z-dropdown: 40;
+  --z-overlay: 50;
+  --z-toast: 60;
+
+  /* One easing curve for every state transition of the kit. | 组件层所有状态过渡共用的缓动曲线。 */
+  --ease-standard: cubic-bezier(0.2, 0.7, 0.3, 1);
 }
 
 /* Dark theme overrides; must stay after :root so it wins on equal specificity. | 暗色主题覆盖；必须位于 :root 之后，才能在同等特异性下胜出。 */
@@ -93,6 +142,21 @@
   --color-warning: #fbbf24;
   --color-info: #38bdf8;
   --color-accent: #60a5fa;
+
+  /* UI-kit surfaces and feedback fills for the dark theme. | 暗色主题下的 UI 组件表面与反馈底色。 */
+  --color-surface-raised: #0f1a2c;
+  --color-field: #0b1220;
+  --color-field-border: #334155;
+  --color-field-placeholder: #64748b;
+  --color-focus-ring: #60a5fa;
+  --color-overlay: rgb(2 6 23 / 0.72);
+  --color-track: #1e293b;
+  --color-on-danger: #0b1220;
+  --color-accent-soft: #172554;
+  --color-success-soft: #052e16;
+  --color-warning-soft: #451a03;
+  --color-danger-soft: #450a0a;
+  --color-info-soft: #082f49;
 }
 
 /* The hidden attribute must win over every component display rule. | hidden 属性必须压过所有组件的 display 规则。 */
@@ -323,6 +387,10 @@
     top: 0;
     z-index: 30;
     display: flex;
+    /* The shell is a fixed-height column and the workspace takes the remaining space; the bar
+       itself must never shrink, or its wrapped second row overlaps the workspace. | 外壳是固定
+       高度的纵向容器，工作区占据剩余空间；顶栏本身绝不能被压缩，否则换行后的第二行会盖住工作区。 */
+    flex: 0 0 auto;
     align-items: center;
     gap: 0.75rem;
     min-height: 3.5rem;

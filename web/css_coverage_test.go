@@ -23,6 +23,10 @@ import (
 // ydAppJSPath is the script whose class manipulation must be covered as well. | ydAppJSPath 是同样必须覆盖其类操作的脚本。
 const ydAppJSPath = "static/js/yd-app.js"
 
+// ydUIJSPath is the UI-kit behaviour layer, the other script that may add or remove classes. | ydUIJSPath 是 UI 组件层的行为脚本，
+// 同样可能增删类名。
+const ydUIJSPath = "static/js/yd-ui.js"
+
 // minEnumeratedYdClasses is the floor below which the scanner itself is presumed broken rather than the
 // markup being genuinely smaller. | minEnumeratedYdClasses 是下限，低于它即推定扫描器本身失效，而不是标记真的变小了。
 const minEnumeratedYdClasses = 100
@@ -80,6 +84,14 @@ func siteOf(text, file string, offset int) string {
 // 满是 data-yd-* 属性与 #yd-* 标识，把它们算作类名会为根本不会携带类的东西索取样式。
 func collectTemplateClasses(text, file string, out ydClassOrigins) {
 	for _, loc := range classAttrPattern.FindAllStringSubmatchIndex(text, -1) {
+		// Skip Alpine bindings (x-bind:class, :class) and any other -*class: their values are
+		// expressions, not class lists, and treating the quoted branch names as classes would
+		// demand styles for tokens that never reach an element's class list.
+		// 跳过 Alpine 绑定（x-bind:class、:class）以及其它 -*class：它们的取值是表达式而不是类列表，
+		// 把其中引号里的分支名当作类名会为根本不会进入元素类列表的 token 索取样式。
+		if loc[0] > 0 && (text[loc[0]-1] == '-' || text[loc[0]-1] == ':') {
+			continue
+		}
 		value := ""
 		switch {
 		case loc[2] >= 0:
@@ -156,7 +168,7 @@ func TestEveryYdClassUsedInTemplatesIsDefined(t *testing.T) {
 	// value can never be mistaken for a styled class. | 只从选择器前导文本中读取定义，
 	// 这样声明值里被引用的类名绝不会被误当成已有样式的类。
 	defined := make(map[string]bool)
-	for _, prelude := range selectorPattern.FindAllStringSubmatch(cssBlock(t, css, "@layer components"), -1) {
+	for _, prelude := range selectorPattern.FindAllStringSubmatch(css, -1) {
 		for _, m := range ydDefinitionPattern.FindAllStringSubmatch(prelude[1], -1) {
 			defined[m[1]] = true
 		}
@@ -185,6 +197,11 @@ func TestEveryYdClassUsedInTemplatesIsDefined(t *testing.T) {
 		t.Fatal("no template was scanned, the guard would be vacuous | 未扫描到任何模板，该守卫形同虚设")
 	}
 	collectScriptClasses(string(readEmbedded(t, fsys, ydAppJSPath)), ydAppJSPath, used)
+	// yd-ui.js is the other first-class author of component classes: an Alpine component that
+	// toggles a class the stylesheet never defines is exactly as broken as one written in a
+	// template. | yd-ui.js 是另一处组件类的一等作者：Alpine 组件切换了样式表从未定义的类，
+	// 与模板里的同类缺陷完全一样。
+	collectScriptClasses(string(readEmbedded(t, fsys, ydUIJSPath)), ydUIJSPath, used)
 
 	tokens := make([]string, 0, len(used))
 	for token := range used {
@@ -294,6 +311,20 @@ func TestNoHardcodedColorsInAppCSS(t *testing.T) {
 	if inside == 0 {
 		t.Error(`no colour literal lives in @theme, :root or [data-theme="dark"], so this guard proves nothing | @theme、:root 与 [data-theme="dark"] 中没有任何颜色字面量，该守卫什么也证明不了`)
 	}
+
+	// The UI-kit layer has no token block of its own: every rule there must reference a token, so
+	// a single literal is a defect at file:line rather than something to exempt.
+	// UI 组件层没有自己的令牌块：那里每条规则都必须引用令牌，因此任何一个字面值都是 file:line 级别的
+	// 缺陷，而不是可以豁免的东西。
+	uiCSS := string(readEmbedded(t, web.FS(), uiCSSPath))
+	uiLiterals := 0
+	for _, loc := range colorLiteralPattern.FindAllStringIndex(uiCSS, -1) {
+		uiLiterals++
+		t.Errorf("%s:%d hard-codes the colour %s outside a token block; use a theme variable | %s:%d 在令牌块之外硬编码了颜色 %s，请改用主题变量",
+			uiCSSPath, strings.Count(uiCSS[:loc[0]], "\n")+1, uiCSS[loc[0]:loc[1]], uiCSSPath, strings.Count(uiCSS[:loc[0]], "\n")+1, uiCSS[loc[0]:loc[1]])
+	}
+	t.Logf("colour literals in %s: %d (must be 0) | %s 中的颜色字面量：%d（必须为 0）", uiCSSPath, uiLiterals, uiCSSPath, uiLiterals)
+
 	t.Logf("colour literals in %s: %d inside the token blocks, %d outside | %s 中的颜色字面量：令牌块内 %d 处，令牌块外 %d 处",
 		componentsCSSPath, inside, outside, componentsCSSPath, inside, outside)
 }

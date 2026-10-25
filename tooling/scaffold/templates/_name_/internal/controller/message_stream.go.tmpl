@@ -10,20 +10,22 @@ import (
 	"strconv"
 	"time"
 
+	"{{ .YdModule }}/messaging"
+	"{{ .YdModule }}/messaging/realtime"
+	"{{ .YdModule }}/security/authz"
 	"{{ .YdxModule }}/json"
 	"{{ .YdxModule }}/log"
 	"{{ .YdxModule }}/render"
 	"{{ .YdxModule }}/router"
 	"{{ .YdxModule }}/websocket"
-	"{{ .YdModule }}/messaging"
-	"{{ .YdModule }}/messaging/realtime"
-	"{{ .YdModule }}/security/authz"
 )
 
 // Write timeout and action names of the message WebSocket. | 消息 WebSocket 的写入超时与动作名。
 const (
 	// messageSocketWriteTimeout bounds one frame write. | messageSocketWriteTimeout 限定单帧写出时间。
 	messageSocketWriteTimeout = 5 * time.Second
+	// unreadFrameSeparator splits the four frames produced by TplUnreadFrames. | unreadFrameSeparator 切分 TplUnreadFrames 产出的四条片段。
+	unreadFrameSeparator = "<yd-unread-frame></yd-unread-frame>"
 	// messageActionSend is the inbound quick-send action. | messageActionSend 是入站快捷发送动作。
 	messageActionSend = "send"
 	// messageActionRead is the inbound mark-read action. | messageActionRead 是入站标记已读动作。
@@ -184,25 +186,27 @@ func (c *Controller) pushUnreadBadge(conn *websocket.Conn, actor messaging.Actor
 	if c.i18n != nil {
 		data[render.TranslatorKey] = c.i18n.Translator(lang)
 	}
-	if err := conn.SetWriteDeadline(time.Now().Add(messageSocketWriteTimeout)); err != nil {
-		_ = conn.CloseNow()
+	// Render all four frames in one pass. render.Dev reloads the whole template tree on every
+	// Render, so four separate calls would compile the tree four times and make one push slower
+	// than the write timeout as the tree grows. | 一次渲染四条片段。render.Dev 每次 Render 都会重载
+	// 整棵模板树，分四次调用等于编译四遍，模板变大后一次推送就会超过写超时。
+	var buf bytes.Buffer
+	if err := c.app.Renderer().Render(&buf, TplUnreadFrames, data); err != nil {
+		c.log.Warn("unread badges render failed | 未读徽标渲染失败", log.Err(err))
 		return
 	}
-	for _, badge := range []struct {
-		template string
-		target   string
-	}{
-		{TplUnreadBadge, "#yd-unread-badge"},
-		{TplUnreadMenuBadge, "#yd-unread-menu-badge"},
-		{TplSidebarUnread, "#yd-sidebar-unread"},
-		{TplSidebarFriendRequests, "#yd-sidebar-friend-requests"},
-	} {
-		var buf bytes.Buffer
-		if err := c.app.Renderer().Render(&buf, badge.template, data); err != nil {
-			c.log.Debug("unread badge render failed | 未读徽标渲染失败", log.Str("template", badge.template), log.Err(err))
+	targets := []string{"#yd-unread-badge", "#yd-unread-menu-badge", "#yd-sidebar-unread", "#yd-sidebar-friend-requests"}
+	parts := bytes.Split(buf.Bytes(), []byte(unreadFrameSeparator))
+	if len(parts) != len(targets) {
+		c.log.Warn("unread badge frame count mismatch | 未读徽标帧数不匹配", log.Int("frames", len(parts)))
+		return
+	}
+	for i, target := range targets {
+		if err := conn.SetWriteDeadline(time.Now().Add(messageSocketWriteTimeout)); err != nil {
+			_ = conn.CloseNow()
 			return
 		}
-		if err := conn.WriteHtmxFragment(badge.target, "outerHTML", buf.String()); err != nil {
+		if err := conn.WriteHtmxFragment(target, "outerHTML", string(parts[i])); err != nil {
 			_ = conn.CloseNow()
 			return
 		}

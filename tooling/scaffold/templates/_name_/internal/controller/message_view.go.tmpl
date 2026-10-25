@@ -115,6 +115,9 @@ type messageView struct {
 	Recalled bool
 	// Mine reports whether the actor wrote it. | Mine 报告当前主体是否作者。
 	Mine bool
+	// BasePath is the action prefix: /messages in the portal, /mgr/messages in the back office. |
+	// BasePath 是动作前缀：门户为 /messages，后台为 /mgr/messages。
+	BasePath string
 }
 
 // conversationView is one conversation ready for rendering. | conversationView 是可直接渲染的会话。
@@ -192,6 +195,7 @@ func (c *Controller) messageViewOf(actor messaging.Actor, msg messaging.MessageV
 		PinnedNow:     msg.PinnedNow(now),
 		Recalled:      msg.Status == messaging.StatusRecalled,
 		Mine:          msg.SenderID == actor.ID,
+		BasePath:      MessagePortalBase,
 	}
 	if strings.TrimSpace(view.SenderName) == "" {
 		view.SenderName = "?"
@@ -226,6 +230,16 @@ func (c *Controller) messageViewsOf(actor messaging.Actor, list []messaging.Mess
 	out := make([]messageView, 0, len(list))
 	for _, msg := range list {
 		out = append(out, c.messageViewOf(actor, msg, lang, now))
+	}
+	return out
+}
+
+// adminMessageViewsOf converts a batch for the back office, where the same card acts on /mgr/messages. |
+// adminMessageViewsOf 为后台转换一批消息，同一张卡片因而对 /mgr/messages 发起动作。
+func (c *Controller) adminMessageViewsOf(actor messaging.Actor, list []messaging.MessageView, lang string, now time.Time) []messageView {
+	out := c.messageViewsOf(actor, list, lang, now)
+	for i := range out {
+		out[i].BasePath = MessageAdminBase
 	}
 	return out
 }

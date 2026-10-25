@@ -20,41 +20,37 @@
   <input type="hidden" name="id" value="{{ .Item.ID }}">
   <input type="hidden" name="kind" value="{{ .Kind }}">
   {{- else }}
-  <div class="yd-field">
-    <label class="yd-label" for="yd-tag-kind">{{ tr "message.settings.tag_kind" }}</label>
-    <select class="yd-select" id="yd-tag-kind" name="kind">
-      <option value="group"{{ if eq .Kind "group" }} selected{{ end }}>{{ tr "message.settings.group" }}</option>
-      <option value="tag"{{ if eq .Kind "tag" }} selected{{ end }}>{{ tr "message.settings.tag" }}</option>
-    </select>
-  </div>
+  {{template "components.form.select" (dict
+    "ID" "yd-tag-kind" "Name" "kind"
+    "Label" (tr "message.settings.tag_kind") "LabelKey" "message.settings.tag_kind"
+    "Options" (list
+      (dict "Value" "group" "Label" (tr "message.settings.group") "Key" "message.settings.group" "Selected" (eq .Kind "group"))
+      (dict "Value" "tag" "Label" (tr "message.settings.tag") "Key" "message.settings.tag" "Selected" (eq .Kind "tag"))))}}
   {{- end }}
-  <div class="yd-field">
-    <label class="yd-label" for="yd-tag-key">{{ tr "message.settings.key" }}</label>
-    <input class="yd-input" id="yd-tag-key" name="key" type="text" maxlength="64" value="{{ .Item.Key }}"
-           {{ if eq .Mode "edit" }}readonly{{ end }} required>
-  </div>
-  <div class="yd-field">
-    <label class="yd-label" for="yd-tag-name">{{ tr "message.settings.name_zh" }}</label>
-    <input class="yd-input" id="yd-tag-name" name="name" type="text" maxlength="128" value="{{ .Item.Name }}" required>
-  </div>
-  <div class="yd-field">
-    <label class="yd-label" for="yd-tag-name-en">{{ tr "message.settings.name_en" }}</label>
-    <input class="yd-input" id="yd-tag-name-en" name="name_en" type="text" maxlength="128" value="{{ .Item.NameEN }}" required>
-  </div>
-  <div class="yd-field">
-    <label class="yd-label" for="yd-tag-tone">{{ tr "message.settings.tone" }}</label>
-    <select class="yd-select" id="yd-tag-tone" name="tone">
-      <option value="neutral"{{ if eq "neutral" $.Item.Tone }} selected{{ end }}>{{ tr "message.tone.neutral" }}</option>
-      <option value="info"{{ if eq "info" $.Item.Tone }} selected{{ end }}>{{ tr "message.tone.info" }}</option>
-      <option value="success"{{ if eq "success" $.Item.Tone }} selected{{ end }}>{{ tr "message.tone.success" }}</option>
-      <option value="warn"{{ if eq "warn" $.Item.Tone }} selected{{ end }}>{{ tr "message.tone.warn" }}</option>
-      <option value="danger"{{ if eq "danger" $.Item.Tone }} selected{{ end }}>{{ tr "message.tone.danger" }}</option>
-    </select>
-  </div>
-  <div class="yd-form__actions">
-    <button type="button" class="yd-btn yd-btn--ghost" data-yd-drawer-close>{{ tr "ui.cancel" }}</button>
-    <button type="submit" class="yd-btn yd-btn--primary">{{ tr "ui.save" }}</button>
-  </div>
+  {{template "components.form.field" (dict
+    "ID" "yd-tag-key" "Name" "key" "Type" "text" "Value" .Item.Key
+    "Label" (tr "message.settings.key") "LabelKey" "message.settings.key"
+    "MaxLength" 64 "Required" true "Readonly" (eq .Mode "edit"))}}
+  {{template "components.form.field" (dict
+    "ID" "yd-tag-name" "Name" "name" "Type" "text" "Value" .Item.Name
+    "Label" (tr "message.settings.name_zh") "LabelKey" "message.settings.name_zh"
+    "MaxLength" 128 "Required" true)}}
+  {{template "components.form.field" (dict
+    "ID" "yd-tag-name-en" "Name" "name_en" "Type" "text" "Value" .Item.NameEN
+    "Label" (tr "message.settings.name_en") "LabelKey" "message.settings.name_en"
+    "MaxLength" 128 "Required" true)}}
+  {{template "components.form.select" (dict
+    "ID" "yd-tag-tone" "Name" "tone"
+    "Label" (tr "message.settings.tone") "LabelKey" "message.settings.tone"
+    "Options" (list
+      (dict "Value" "neutral" "Label" (tr "message.tone.neutral") "Key" "message.tone.neutral" "Selected" (eq "neutral" .Item.Tone))
+      (dict "Value" "info" "Label" (tr "message.tone.info") "Key" "message.tone.info" "Selected" (eq "info" .Item.Tone))
+      (dict "Value" "success" "Label" (tr "message.tone.success") "Key" "message.tone.success" "Selected" (eq "success" .Item.Tone))
+      (dict "Value" "warn" "Label" (tr "message.tone.warn") "Key" "message.tone.warn" "Selected" (eq "warn" .Item.Tone))
+      (dict "Value" "danger" "Label" (tr "message.tone.danger") "Key" "message.tone.danger" "Selected" (eq "danger" .Item.Tone))))}}
+  {{template "components.form.actions" (dict
+    "SubmitLabel" (tr "ui.save") "SubmitKey" "ui.save"
+    "CancelLabel" (tr "ui.cancel") "CancelKey" "ui.cancel")}}
 </form>
 {{- end -}}
 {{ template "mgr/partials/message_settings/tag_form" . }}

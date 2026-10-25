@@ -89,8 +89,10 @@ YD 把「Go 单体后端 + Htmx 片段前端」做成一套可直接交付的全
 - 纯 Go SM2/SM3/SM4；登录与敏感字段 SM2 前置加密；`authz` 注册表与静态校验。
 
 **前端与体验**
-- Htmx 4.0 + 官方扩展、Tailwind v4 `@theme`、Alpine 3.17、htmx morph。
-- 抽屉、确认框、列表下拉菜单、语言局部切换、三态主题、离线图标 sprite。
+- Htmx 4.0 + 官方扩展、Tailwind v4 `@theme`、Alpine 3.17（CSP 构建）、htmx morph。
+- 统一 UI 组件层：布局、表单、反馈、导航、数据展示、图表与中国常用控件（手机号、身份证、银行卡、统一社会信用代码、人民币大写、省市区、日期范围、短信验证码）。
+- 门户 `/ui-kit` 组件示例页：一页看全控件；门户与后台共用同一套组件与外壳，不复制两套。
+- 抽屉、确认框、列表下拉菜单、语言局部切换、三态主题、离线图标 sprite；宽屏流式布局与 125% / 150% 显示缩放适配。
 - 消息中心即时通讯布局；指标看板；全局加载进度条。
 
 **运行时与交付**
@@ -123,7 +125,7 @@ yd ko --repo registry.example.com/myapp --tags v1.0.0 --push
 yd service install   # Windows SCM / systemd / launchd
 ```
 
-配置优先级：命令行参数 > 环境变量（`YD_` 前缀，含 `.env`）> 配置文件（YAML/TOML/JSON）> 框架默认值。完整命令与配置见 [yd 使用手册](docs/yd-usage.md)。
+配置优先级：命令行参数 > 环境变量（`YD_` 前缀，含 `.env`）> 配置文件（YAML/TOML/JSON）> 框架默认值。Htmx 4、Tailwind CSS v4 与 Alpine.js 3 默认集成，不需要选择；`--htmx-ext` 只追加额外的 Htmx 扩展。完整命令与配置见 [yd 使用手册](docs/yd-usage.md)。
 
 ### 架构一览
 
@@ -156,16 +158,69 @@ cmd/yd/        CLI 入口
 runtime/       app · server · grpcx · lifecycle · service · metricsx · GC 接线
 security/      auth · authz · 国密集成
 messaging/     站内消息中心
+http/          chart · 服务端 SVG 图表（折线/面积/柱/堆叠/饼/环/仪表/雷达/热力等）
 tooling/       scaffold · gen · build · docker · ko · assets · versions · tools
-web/           内嵌 templates / static / langs
+web/           内嵌 templates（含 components/ UI 组件库）/ static / langs
 ```
 
 ### 文档
 
 - [yd 使用手册](docs/yd-usage.md)
+- [前端 UI 组件层与使用手册](docs/frontend-ui.md) · [组件全景与图表用法](docs/frontend-components.md)
 - [二级缓存](docs/cache.md) · [GORM 方言](docs/gorm-dialects.md) · [实时传输](docs/realtime-transports.md) · [节点身份](docs/node-identity.md) · [运行时 GC](docs/runtime-gc.md)
 - [Redis/asynq 分区](docs/redis-asynq.md) · [消息中心](docs/message-center.md) · [中间件指标](docs/middleware-metrics.md) · [发布与二进制](docs/releasing.md) · [验收记录](docs/verification.md)
 - [ydx 组件与基准](https://github.com/shibingli/ydx)
+
+### 开源致谢
+
+YD 的每一层都站在开源社区的成果之上：路由与模板、数据库与缓存、实时传输、前端交互、样式与图标、构建与发布工具，几乎没有一个环节是凭空写出来的。谨向下列项目的作者、维护者与贡献者致以诚挚敬意——他们长期、细致且大多无偿的工作，是这个项目能够以「单二进制、零 Node、离线可用」形态存在的前提。
+
+| 项目 | 在 YD 中的角色 | 项目主页 |
+|---|---|---|
+| **Go** | 语言与工具链，纯 Go 静态构建的基础 | https://go.dev |
+| **htmx** | 片段驱动的前端事件总线；`hx-*` 官方扩展与 morph 差量更新 | https://htmx.org |
+| **Alpine.js（CSP 构建）** | 页面内局部状态、焦点管理与控件行为；CSP 构建使 `script-src 'self'` 下仍可用 | https://alpinejs.dev |
+| **Tailwind CSS** | 设计令牌、工具类与 standalone 编译器；`@theme` 语义变量与暗色主题 | https://tailwindcss.com |
+| **Idiomorph** | DOM morph 算法（htmx 4 内建 morph 的来源） | https://github.com/bigskysoftware/idiomorph |
+| **EasyMDE** | 消息中心与后台的 Markdown 编辑器 | https://github.com/Ionaru/easy-markdown-editor |
+| **CodeMirror · marked** | EasyMDE 浏览器包内含的编辑器引擎与 Markdown 解析器 | https://codemirror.net · https://marked.js.org |
+| **Font Awesome** | 少量遗留图标与字体资源（新图标优先使用 Lucide sprite） | https://fontawesome.com |
+| **Iconify / Lucide** | 离线图标 sprite 的数据来源与图标设计 | https://iconify.design · https://lucide.dev |
+| **spf13/afero** | 可替换的文件系统抽象（OsFs / MemFs） | https://github.com/spf13/afero |
+| **spf13/pflag** | POSIX 风格命令行参数 | https://github.com/spf13/pflag |
+| **spf13/viper** | 多格式配置、环境变量与配置热加载 | https://github.com/spf13/viper |
+| **go.yaml.in/yaml/v3 · pelletier/go-toml/v2** | YAML 与 TOML 配置解析 | https://pkg.go.dev/go.yaml.in/yaml/v3 · https://github.com/pelletier/go-toml |
+| **fsnotify** | 文件变更监听（`yd dev` 热重载） | https://github.com/fsnotify/fsnotify |
+| **GORM** | ORM 与迁移；MySQL / PostgreSQL / SQLite / 达梦方言接入 | https://gorm.io |
+| **glebarez/sqlite · modernc.org/sqlite** | 纯 Go SQLite 驱动，保证默认构建零 cgo | https://github.com/glebarez/sqlite · https://modernc.org/sqlite |
+| **go-sql-driver/mysql · pgx** | MySQL 与 PostgreSQL 驱动 | https://github.com/go-sql-driver/mysql · https://github.com/jackc/pgx |
+| **godoes/gorm-dameng** | 达梦 DM8 的 GORM 方言 | https://github.com/godoes/gorm-dameng |
+| **go-redis** | Redis 单机 / 哨兵 / 集群、Pub/Sub 与 Lua 原子操作 | https://github.com/redis/go-redis |
+| **asynq** | Redis 驱动的持久任务队列与失败重试 | https://github.com/hibiken/asynq |
+| **quic-go · webtransport-go** | HTTP/3、QUIC 与 WebTransport | https://github.com/quic-go/quic-go · https://github.com/quic-go/webtransport-go |
+| **emmansun/gmsm** | 纯 Go 的 SM2 / SM3 / SM4 实现 | https://github.com/emmansun/gmsm |
+| **goldmark** | 服务端 Markdown 渲染（消息中心富文本） | https://github.com/yuin/goldmark |
+| **kardianos/service** | Windows SCM / systemd / launchd 的统一服务封装 | https://github.com/kardianos/service |
+| **gRPC-Go · golang.org/x/crypto** | gRPC 双通道与密码学基础件 | https://grpc.io · https://pkg.go.dev/golang.org/x/crypto |
+| **miniredis** | 测试期 Redis 替身 | https://github.com/alicebob/miniredis |
+| **betteralign** | 结构体内存对齐检查与重排 | https://github.com/dkorunic/betteralign |
+| **ko** | 无 Dockerfile 的 Go 镜像构建 | https://github.com/google/ko |
+| **tdewolff/minify** | JavaScript 与 SVG 的生产压缩 | https://github.com/tdewolff/minify |
+| **Docker** | 多阶段镜像构建与 `scratch` 交付 | https://www.docker.com |
+| **Node.js · Playwright** | 仅用于前端脚本单元测试与浏览器验证，不参与运行时 | https://nodejs.org · https://playwright.dev |
+| **ydx** | YunDev 自研组件（路由、JSON、Base64、日志、缓存、实时、渲染等），以 Apache-2.0 开源 | https://github.com/shibingli/ydx |
+
+组件命名、交互模式与可访问性约定参考了下列项目的公开文档；YD **未复制其源码**，组件实现、样式与行为均为本仓自研，
+对照矩阵与差异说明见 [`docs/frontend-components.md`](docs/frontend-components.md)：
+
+| 设计参考 | 侧重 | 项目主页 |
+|---|---|---|
+| **Naive UI** | 完整的中后台组件分类与数据表格交互 | https://www.naiveui.com |
+| **Shadcn UI** | 语义化组合、可访问性与 Tailwind 令牌 | https://ui.shadcn.com |
+| **OpenTiny TinyVue** | 企业级表单、图表与中国业务控件 | https://opentiny.design |
+| **HeroUI Pro** | 组件质感、动效克制与图表卡片 | https://www.heroui.com |
+
+前端资产的版本、来源与 SHA-256 锁定在 [`web/assets.lock.json`](web/assets.lock.json)；第三方许可正文与逐项说明见 [`web/static/js/vendor/LICENSES.md`](web/static/js/vendor/LICENSES.md)。上表未逐一展开的传递依赖记录在 `go.mod` / `go.sum` 中，其许可以各自仓库公布为准。若某处归属或链接有误，欢迎提交 Issue 指正——我们更愿意把致谢写准确，而不是写得多。
 
 ### 许可
 
@@ -242,8 +297,10 @@ Reference host: AMD Ryzen AI MAX+ 395 (16 cores / 32 threads, 30 GiB, Ubuntu 26.
 - Pure-Go SM2/SM3/SM4; SM2 pre-encryption for sign-in and sensitive fields; the `authz` registry and static checks.
 
 **Frontend & UX**
-- Htmx 4.0 + official extensions, Tailwind v4 `@theme`, Alpine 3.17, htmx morph.
-- Drawers, confirmations, list menus, local language switch, tri-state theme, offline icon sprite.
+- Htmx 4.0 + official extensions, Tailwind v4 `@theme`, Alpine 3.17 (CSP build), htmx morph.
+- One UI kit: layout, forms, feedback, navigation, data display, charts and China-specific controls (mobile, ID card, bank card, unified social credit code, RMB capitalisation, province/city/district, date range, SMS code).
+- Portal `/ui-kit` component gallery: every control on one page; the portal and back office share one kit and one shell rather than two copies.
+- Drawers, confirmations, list menus, local language switch, tri-state theme, offline icon sprite; fluid wide-screen layout and 125% / 150% display-scaling support.
 - Message center IM layout; metrics dashboard; global loading progress bar.
 
 **Runtime & delivery**
@@ -276,7 +333,7 @@ yd ko --repo registry.example.com/myapp --tags v1.0.0 --push
 yd service install   # Windows SCM / systemd / launchd
 ```
 
-Configuration precedence: command-line flags > environment variables (`YD_` prefix, including `.env`) > config files (YAML/TOML/JSON) > framework defaults. See the [user manual](docs/yd-usage.md) for the full command and configuration reference.
+Configuration precedence: command-line flags > environment variables (`YD_` prefix, including `.env`) > config files (YAML/TOML/JSON) > framework defaults. Htmx 4, Tailwind CSS v4 and Alpine.js 3 are always integrated and need no choice; `--htmx-ext` only adds extra Htmx extensions. See the [user manual](docs/yd-usage.md) for the full command and configuration reference.
 
 ### Architecture
 
@@ -309,16 +366,71 @@ cmd/yd/        CLI entry point
 runtime/       app · server · grpcx · lifecycle · service · metricsx · GC wiring
 security/      auth · authz · guomi integration
 messaging/     in-app message center
+http/          chart · server-rendered SVG charts (line/area/bar/stacked/pie/donut/gauge/radar/heatmap)
 tooling/       scaffold · gen · build · docker · ko · assets · versions · tools
-web/           embedded templates / static / language catalogs
+web/           embedded templates (with the components/ UI kit) / static / language catalogs
 ```
 
 ### Documentation
 
 - [User manual](docs/yd-usage.md)
+- [Frontend UI kit & usage manual](docs/frontend-ui.md) · [Component catalogue & charts](docs/frontend-components.md)
 - [Two-level cache](docs/cache.md) · [GORM dialects](docs/gorm-dialects.md) · [Real-time transports](docs/realtime-transports.md) · [Node identity](docs/node-identity.md) · [Runtime GC](docs/runtime-gc.md)
 - [Redis/asynq](docs/redis-asynq.md) · [Message center](docs/message-center.md) · [Middleware metrics](docs/middleware-metrics.md) · [Release & binaries](docs/releasing.md) · [Verification](docs/verification.md)
 - [ydx components & benchmarks](https://github.com/shibingli/ydx)
+
+### Acknowledgements
+
+Every layer of YD stands on work done in the open-source community: routing and templates, databases and caches, real-time transports, front-end interaction, styles and icons, build and release tooling. Very little of it was invented here. Our sincere thanks to the authors, maintainers and contributors of the projects below — their patient, mostly unpaid work is what makes a single-binary, zero-Node, offline-ready framework possible.
+
+| Project | Role in YD | Home |
+|---|---|---|
+| **Go** | Language and toolchain; the basis of pure-Go static builds | https://go.dev |
+| **htmx** | Fragment-driven front-end event bus; official `hx-*` extensions and morph swaps | https://htmx.org |
+| **Alpine.js (CSP build)** | Local page state, focus management and control behaviour; the CSP build keeps it usable under `script-src 'self'` | https://alpinejs.dev |
+| **Tailwind CSS** | Design tokens, utilities and the standalone compiler; `@theme` variables and dark mode | https://tailwindcss.com |
+| **Idiomorph** | The DOM morph algorithm behind htmx 4's built-in morph | https://github.com/bigskysoftware/idiomorph |
+| **EasyMDE** | Markdown editor for the message centre and back office | https://github.com/Ionaru/easy-markdown-editor |
+| **CodeMirror · marked** | Editor engine and Markdown parser bundled inside EasyMDE | https://codemirror.net · https://marked.js.org |
+| **Font Awesome** | A few legacy icons and font assets (new icons use the Lucide sprite) | https://fontawesome.com |
+| **Iconify / Lucide** | Data source and artwork for the offline icon sprite | https://iconify.design · https://lucide.dev |
+| **spf13/afero** | Swappable file-system abstraction (OsFs / MemFs) | https://github.com/spf13/afero |
+| **spf13/pflag** | POSIX-style command-line flags | https://github.com/spf13/pflag |
+| **spf13/viper** | Multi-format configuration, environment mapping and reload | https://github.com/spf13/viper |
+| **go.yaml.in/yaml/v3 · pelletier/go-toml/v2** | YAML and TOML configuration parsing | https://pkg.go.dev/go.yaml.in/yaml/v3 · https://github.com/pelletier/go-toml |
+| **fsnotify** | File-change watching for `yd dev` hot reload | https://github.com/fsnotify/fsnotify |
+| **GORM** | ORM and migrations; MySQL / PostgreSQL / SQLite / DM8 dialects | https://gorm.io |
+| **glebarez/sqlite · modernc.org/sqlite** | Pure-Go SQLite driver, keeping the default build cgo-free | https://github.com/glebarez/sqlite · https://modernc.org/sqlite |
+| **go-sql-driver/mysql · pgx** | MySQL and PostgreSQL drivers | https://github.com/go-sql-driver/mysql · https://github.com/jackc/pgx |
+| **godoes/gorm-dameng** | GORM dialect for DM8 | https://github.com/godoes/gorm-dameng |
+| **go-redis** | Redis standalone / sentinel / cluster, Pub/Sub and Lua atomics | https://github.com/redis/go-redis |
+| **asynq** | Redis-backed persistent task queue with retries | https://github.com/hibiken/asynq |
+| **quic-go · webtransport-go** | HTTP/3, QUIC and WebTransport | https://github.com/quic-go/quic-go · https://github.com/quic-go/webtransport-go |
+| **emmansun/gmsm** | Pure-Go SM2 / SM3 / SM4 | https://github.com/emmansun/gmsm |
+| **goldmark** | Server-side Markdown rendering for rich message content | https://github.com/yuin/goldmark |
+| **kardianos/service** | One service abstraction over SCM / systemd / launchd | https://github.com/kardianos/service |
+| **gRPC-Go · golang.org/x/crypto** | gRPC dual channel and cryptographic primitives | https://grpc.io · https://pkg.go.dev/golang.org/x/crypto |
+| **miniredis** | In-process Redis stand-in for tests | https://github.com/alicebob/miniredis |
+| **betteralign** | Struct memory-alignment checks and reordering | https://github.com/dkorunic/betteralign |
+| **ko** | Dockerfile-free Go image builds | https://github.com/google/ko |
+| **tdewolff/minify** | Production minification of JavaScript and SVG | https://github.com/tdewolff/minify |
+| **Docker** | Multi-stage image builds and `scratch` delivery | https://www.docker.com |
+| **Node.js · Playwright** | Used only for front-end unit tests and browser verification, never at runtime | https://nodejs.org · https://playwright.dev |
+| **ydx** | YunDev's own components (router, JSON, Base64, logging, cache, realtime, render and more), open-sourced under Apache-2.0 | https://github.com/shibingli/ydx |
+
+Component naming, interaction patterns and accessibility conventions were informed by the public documentation of the
+projects below. YD **does not copy their source**; every component, style and behaviour here is implemented in this
+repository. The mapping matrix and deliberate differences live in
+[`docs/frontend-components.md`](docs/frontend-components.md):
+
+| Design reference | Focus | Home |
+|---|---|---|
+| **Naive UI** | Comprehensive admin component taxonomy and data-table interaction | https://www.naiveui.com |
+| **Shadcn UI** | Semantic composition, accessibility and Tailwind tokens | https://ui.shadcn.com |
+| **OpenTiny TinyVue** | Enterprise forms, charts and China-specific business controls | https://opentiny.design |
+| **HeroUI Pro** | Component finish, restrained motion and chart cards | https://www.heroui.com |
+
+Front-end versions, sources and SHA-256 locks live in [`web/assets.lock.json`](web/assets.lock.json); third-party licence texts are in [`web/static/js/vendor/LICENSES.md`](web/static/js/vendor/LICENSES.md). Transitive dependencies not listed above are recorded in `go.mod` / `go.sum`, with licences as published by their own repositories. If an attribution or link is wrong, please open an issue — we would rather be accurate than exhaustive.
 
 ### License
 

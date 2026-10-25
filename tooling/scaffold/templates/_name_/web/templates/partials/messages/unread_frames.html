@@ -1,0 +1,23 @@
+{{/*
+  partials/messages/unread_frames.html —— 一次渲染四条未读片段，用分隔标记切开后逐帧推送。
+  partials/messages/unread_frames.html — renders all four unread frames once; the caller splits them on the
+  separator and writes one WebSocket frame per target.
+
+  为什么要合并：render.Dev 会在每次 Render 时重载整棵模板树，四条片段各渲染一次等于编译四遍。
+  合并为一次渲染后，开发期与生产期都只编译/执行一遍，推送路径也不会因为模板变大而变慢。
+  Why merge: render.Dev reloads the whole template tree on every Render, so rendering four fragments separately
+  means four compilations. One render keeps both development and production to a single compile/execution pass, and
+  the push path does not slow down as the template tree grows.
+
+  数据契约 | Data contract: .Unread（messaging.UnreadSummary）。
+*/}}
+{{- define "partials/messages/unread_frames" -}}
+{{- template "partials/messages/unread_badge" . -}}
+<yd-unread-frame></yd-unread-frame>
+{{- template "partials/messages/unread_menu_badge" . -}}
+<yd-unread-frame></yd-unread-frame>
+{{- template "partials/messages/sidebar_unread" . -}}
+<yd-unread-frame></yd-unread-frame>
+{{- template "partials/messages/sidebar_friend_requests" . -}}
+{{- end -}}
+{{- template "partials/messages/unread_frames" . -}}

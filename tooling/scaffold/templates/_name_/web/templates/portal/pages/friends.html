@@ -15,14 +15,14 @@
     </div>
   </header>
 
-  <form class="yd-filters" role="search" method="get" action="/friends"
-        hx-get="/friends/search" hx-target="#yd-friend-search-results" hx-swap="innerMorph"
-        hx-trigger="input changed delay:300ms from:#yd-friend-q, submit">
-    <label class="sr-only" for="yd-friend-q">{{ tr "friend.search_label" }}</label>
-    <input class="yd-input" id="yd-friend-q" name="q" type="search" autocomplete="off"
-           value="{{ .Query }}" placeholder="{{ tr "friend.search_placeholder" }}">
-    <button type="submit" class="yd-btn">{{ tr "ui.search" }}</button>
-  </form>
+  {{template "components.form.search" (dict
+    "ID" "yd-friend-q" "Action" "/friends" "Get" "/friends/search"
+    "Target" "#yd-friend-search-results" "Swap" "innerMorph"
+    "Trigger" "input changed delay:300ms from:#yd-friend-q, submit"
+    "Name" "q" "Value" .Query
+    "Label" (tr "friend.search_label") "LabelKey" "friend.search_label"
+    "Placeholder" (tr "friend.search_placeholder") "PlaceholderKey" "friend.search_placeholder"
+    "SubmitLabel" (tr "ui.search") "SubmitKey" "ui.search")}}
 
   <section id="yd-friend-search-results" class="yd-section" aria-live="polite">
     {{- if .Query }}

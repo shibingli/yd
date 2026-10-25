@@ -47,14 +47,14 @@
 
   {{template "partials/form.errors" .}}
 
-  <form class="yd-filters" role="search" method="get" action="/tenants"
-        hx-get="/tenants" hx-target="#yd-tenants-table" hx-swap="outerMorph" hx-push-url="true"
-        hx-trigger="input changed delay:300ms from:#yd-tenants-search, submit">
-    <label class="sr-only" for="yd-tenants-search" data-yd-i18n="tenants.search">{{tr "tenants.search"}}</label>
-    <input class="yd-input" id="yd-tenants-search" name="q" type="search" autocomplete="off"
-           placeholder="{{tr "tenants.search_placeholder"}}" data-yd-i18n-attr="placeholder:tenants.search_placeholder">
-    <button type="submit" class="yd-btn yd-btn--ghost" data-yd-i18n="action.search">{{tr "action.search"}}</button>
-  </form>
+  {{template "components.form.search" (dict
+    "ID" "yd-tenants-search" "Action" "/tenants" "Get" "/tenants"
+    "Target" "#yd-tenants-table" "Swap" "outerMorph" "PushURL" true
+    "Trigger" "input changed delay:300ms from:#yd-tenants-search, submit"
+    "Name" "q"
+    "Label" (tr "tenants.search") "LabelKey" "tenants.search"
+    "Placeholder" (tr "tenants.search_placeholder") "PlaceholderKey" "tenants.search_placeholder"
+    "SubmitLabel" (tr "action.search") "SubmitKey" "action.search")}}
 
   <section class="yd-card yd-section" id="yd-tenants-table" aria-labelledby="yd-tenants-table-title">
     <h2 class="sr-only" id="yd-tenants-table-title" data-yd-i18n="tenants.table">{{tr "tenants.table"}}</h2>

@@ -1027,6 +1027,24 @@
     return root.contains(aside);
   }
 
+  /* 外壳交换只替换顶栏、不重载文档；标签页标题必须跟着新页面走，否则从后台切到「我的资料」后仍显示旧标题。
+     项目名取自 body 的 data-yd-app-name，不解析旧标题。
+     A shell swap replaces the top bar but never reloads the document; the tab title must follow the new page, or
+     switching from the back office to "my profile" keeps the old title. The project name comes from the body's
+     data-yd-app-name attribute rather than from parsing the previous title. */
+  function syncDocumentTitle() {
+    var heading = document.querySelector(".yd-topbar__title");
+    if (!heading) {
+      return;
+    }
+    var text = (heading.textContent || "").trim();
+    if (!text) {
+      return;
+    }
+    var name = (document.body.getAttribute("data-yd-app-name") || "").trim();
+    document.title = name ? text + " · " + name : text;
+  }
+
   ["htmx:after:swap", "htmx:afterSwap"].forEach(function (name) {
     document.addEventListener(name, function (event) {
       var detail = (event && event.detail) || {};
@@ -1035,6 +1053,7 @@
       if (swapReplacedRail(target)) {
         setRailOpen(false);
       }
+      syncDocumentTitle();
     });
   });
 

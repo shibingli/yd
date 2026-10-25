@@ -8,7 +8,7 @@
 |---|---|
 | **端点返回 HTML 片段，不是 JSON** | 除显式标注为 API 的端点（`/api/**`、`/api/v1/openapi.json`）外，所有控制器必须返回 HTML 片段。 |
 | **区分整页与片段** | 通过请求头 `HX-Request: true` 判定。整页请求返回布局 + 内容；htmx 请求只返回内容片段。 |
-| **校验失败返回 422** | 表单校验失败返回 `422` + 错误片段（`portal/pages/error.html` 或 `mgr/pages/error.html`），模板中用 `hx-status:422="target:#yd-errors"` 声明式接管。 |
+| **校验失败返回 422** | 表单校验失败返回 `422` + 错误片段（`partials/pages/error.html`），模板中用 `hx-status:422="target:#yd-errors"` 声明式接管。 |
 | **重定向走 Htmx 头** | 局部跳转用 `HX-Location`，整页跳转用 `HX-Redirect`，禁止在片段响应里塞 `<meta refresh>`。 |
 | **多区域更新** | 需要同时更新多个区域时输出多个带 `hx-swap-oob` 的片段，或统一换入 `#yd-workspace`。 |
 | **未登录的两种答复** | 普通浏览请求（不带 `HX-Request`）被送到登录页：`303 → /login`；htmx 请求与带 `Authorization` 的 API 客户端得到 `401` 片段。同一个拒绝由 `Controller.Deny` 统一渲染，因此「被拒绝」只有一种页面表现。 |
@@ -18,14 +18,25 @@
 
 ```
 {{ .AssetRoot }}/templates/
-├── portal/      # 门户：layouts/、partials/、pages/（messages、friends、account、realtime、login、error）
+├── components/  # 门户与后台共享的全部 UI 组件
+├── partials/    # 门户与后台共享的骨架与外壳部件（base、app_shell、topbar、flash、
+│                # shell-switches、icon、sidebar_brand/footer、messages/**）
+├── portal/      # 门户：layouts/、partials/、pages/（messages、friends、account、realtime、ui_kit、login、error）
 └── mgr/         # 后台：layouts/、partials/、pages/（home、users、tenants、roles、permissions、messages、message_settings、error）
 ```
 
+- **共享组件只有一份**：整页骨架 `partials/base.html`、应用外壳 `partials/app_shell.html`、顶栏、
+  提示、语言/主题、图标、侧栏品牌与页脚、消息卡片与角标都放在树根 `partials/**`；门户与后台都调用它，
+  不得在 `portal/**` 或 `mgr/**` 下另存副本。两侧差异由 `.Portal` / `.Mgr` 数据键选择，不复制 HTML。
+- **角色部分留在自己的树**：`portal/layouts`、`mgr/layouts` 只调用共享骨架/外壳；侧栏与业务片段仍放各自的
+  `partials/` 与 `pages/`。两棵树禁止互相 include：门户外壳不引用 `mgr/**`，后台外壳不引用 `portal/**`；
+  根级共享部件按数据选择对应侧栏。
 - 片段命名：门户放 `portal/partials/<资源>/<动作>.html`，后台放 `mgr/partials/<资源>/<动作>.html`，例如
   `mgr/partials/users/list.html`、`portal/partials/messages/history.html`；片段首行用
   `{{ "{{- define \"mgr/partials/<资源>/<动作>\" -}}" }}` 命名，页面用
-  `{{ "{{ template \"mgr/partials/users/list\" . }}" }}` 引入（数据契约写在文件头的注释里）。两棵树禁止互相 include。
+  `{{ "{{ template \"mgr/partials/users/list\" . }}" }}` 引入（数据契约写在文件头的注释里）。
+  通用片段放 `partials/<资源>/<动作>.html`，门户与后台都写 `{{ "{{ template \"partials/<资源>/<动作>\" . }}" }}`。
+  门户的 `portal/pages/ui_kit.html` 是组件层活文档：新增组件时必须同步加入该页。
 - 禁止在模板中书写内联样式表；样式一律来自 Tailwind v4 语义化类（`bg-surface`、`text-content`、`border-border-subtle`、`bg-brand-600` …）。
 - 模板中的静态资源引用一律写成 `{{ "{{ asset \"/static/...\" }}" }}`：production 下自动解析 `*.min.js` / `yd.min.css` 并追加内容哈希，开发期使用源码；禁止裸写 `/static/...`。
 - 禁止硬编码颜色字面量（`#1d4ed8` 之类）；需要新色值请在 `{{ .AssetRoot }}/static/css/app.css` 的 `@theme` 中新增语义变量。
@@ -33,13 +44,25 @@
   `{{ "{{ tr \"page.users.subtitle\" .Total }}" }}`）。两份目录的键集合必须严格一致：少一个键，页面上出现的就是键名本身。
 - 需要「某权限是否可见」这类判断时，由控制器把布尔值算好放进页面数据（`Can*`），模板只读结果：
   模板函数表刻意不提供「切片是否包含」之类的助手，否则授权规则会以第二种实现散落到视图层。
-- 图标只经 `{{ "{{template \"portal/partials/icon\" \"lucide-…\"}}" }}`（后台用 `mgr/partials/icon`）引用：框架 sprite 随静态树合并提供，
+- 图标只经 `{{ "{{template \"partials/icon\" \"lucide-…\"}}" }}`引用：框架 sprite 随静态树合并提供，
   项目自定义图标运行 `yd icons sync` 生成自己的 `web/static/img/icons.svg`；禁止内联 SVG、Iconify 运行时与 CDN。
   `yd assets minify` 同时产出 `.min.svg`，生产模板由 `asset` 助手解析。
 - 主题切换是纯客户端行为（`{{ .AssetRoot }}/static/js/yd-app.js`）：`<html data-theme="light|dark|auto">` 承载主题。
   语言切换是单一状态按钮：按钮显示当前语言，`?lang=` 与 `yd_lang` cookie 承载选择，htmx 换入整个 `#yd-shell`
   （侧栏、顶栏与工作区一起更新），因此语言切换不刷新整页；脚本同时更新 `<html lang>`。
   CSP 只允许 `script-src 'self'`，**禁止内联脚本与内联样式**。
+- **统一 UI 组件层**：本项目已复制 `{{ .AssetRoot }}/static/css/components.css`、`ui.css` 与
+  `{{ .AssetRoot }}/templates/components/*.html`，并由 `{{ .AssetRoot }}/static/js/yd-ui.js` 提供 Alpine 行为组件。
+  布局、表单、反馈、导航、数据展示、图表与中国常用控件（手机号、身份证、银行卡、统一社会信用代码、人民币大写、
+  省市区、日期范围、短信验证码）一律优先使用组件模板，不要逐页手写。
+  - 脚本顺序固定：htmx → 所选扩展 → `yd-ui.js` → `alpine.min.js` → 国密 → 权限 → 进度条 → 本项目脚本。
+    Alpine 的 CSP 构建在脚本执行时立即启动，`yd-ui.js` 必须在它之前；
+  - 可见输入框就是提交字段，Alpine 只做净化、校验与格式化；脚本失败时表单仍可提交；
+  - 表单失败走 `hx-status:422` + 抽屉内错误槽位，变更动作一律 `data-yd-confirm`；
+  - 完整组件目录、数据契约、最佳实践与常见错误见框架手册：
+    <https://github.com/shibingli/yd/blob/main/docs/frontend-ui.md>；
+  - 组件全景、与 Naive UI / Shadcn UI / OpenTiny / Premium 的对照矩阵、扩展组件参数与图表选型见
+    <https://github.com/shibingli/yd/blob/main/docs/frontend-components.md>。
 
 ## 3. Htmx {{ .HtmxVersion }} 属性约定
 

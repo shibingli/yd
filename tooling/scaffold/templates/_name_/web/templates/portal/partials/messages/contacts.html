@@ -41,7 +41,7 @@
            hx-push-url="true">
           <span class="yd-avatar yd-avatar--sm" aria-hidden="true">{{ .Initial }}</span>
           <span class="yd-msg-contact__name">{{ .Name }}</span>
-          <span class="yd-msg-contact__action" aria-hidden="true">{{ template "portal/partials/icon" "lucide-message-circle" }}</span>
+          <span class="yd-msg-contact__action" aria-hidden="true">{{ template "partials/icon" "lucide-message-circle" }}</span>
         </a>
       </div>
       {{- end }}
@@ -57,7 +57,7 @@
                placeholder="{{ tr "message.group_title_placeholder" }}">
       </div>
       <button type="submit" class="yd-btn yd-btn--primary" data-yd-contact-submit disabled>
-        {{ template "portal/partials/icon" "lucide-users" }}{{ tr "message.create_group" }}
+        {{ template "partials/icon" "lucide-users" }}{{ tr "message.create_group" }}
       </button>
     </div>
   </form>

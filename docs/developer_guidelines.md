@@ -18,6 +18,7 @@ yd 采用「全栈单体（Modern Monolith）」模式：**后端直接返回 HT
 web/templates/
 ├── layouts/     # 整页骨架（base.html、dashboard.html）
 ├── partials/    # 可复用片段（sidebar、table、form、modal、flash、pagination、skeleton）
+├── components/  # 框架 UI 组件库（form、cn、layout、feedback、navigation、data、display、overlay、chart）
 └── pages/       # 业务页面（整页 + 其片段视图）
 ```
 
@@ -25,6 +26,13 @@ web/templates/
 - 禁止在模板中书写内联样式表；样式一律来自 Tailwind v4 语义化类（`bg-surface`、`text-content`、`border-border-subtle`、`bg-brand-600` …）。
 - 禁止硬编码颜色字面量（`#1d4ed8` 之类）；需要新色值请在 `web/static/css/app.css` 的 `@theme` 中新增语义变量。
 - 所有面向用户的文案必须带 `data-yd-i18n="<key>"`（前端 i18n 键），键名与 `configs/i18n/*.yaml` 保持一致。
+- **统一 UI 组件层**：布局、表单、反馈、导航、数据展示、图表与中国常用控件优先使用
+  `web/templates/components/*.html`，行为由 `web/static/js/yd-ui.js` 提供，样式在
+  `web/static/css/ui.css`。三层分工固定为「服务端状态归 htmx、页面内状态归 Alpine、外观归 Tailwind」，
+  不得在页面里另写一套。图表由 `http/chart` 在服务端生成 SVG，模板只包 `components.chart`。
+  完整目录、数据契约与最佳实践见
+  [`docs/frontend-ui.md`](frontend-ui.md)；组件对照矩阵与图表选型见
+  [`docs/frontend-components.md`](frontend-components.md)。
 
 ## 3. Htmx 4 属性约定
 

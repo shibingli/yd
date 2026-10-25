@@ -44,8 +44,7 @@ web/static/img/icons.min.svg         生产环境压缩产物（生产模板自�
 | `web/static/img/icons.svg` | 生成并提交入库的按需 sprite |
 | `web/static/img/icons.min.svg` | `yd assets minify` 产出的生产压缩 sprite |
 | `web/templates/partials/icon.html` | 框架模板使用的图标片段 |
-| `tooling/scaffold/templates/_name_/web/templates/portal/partials/icon.html` | 生成项目门户树使用的片段 |
-| `tooling/scaffold/templates/_name_/web/templates/mgr/partials/icon.html` | 生成项目后台树使用的片段 |
+| `tooling/scaffold/templates/_name_/web/templates/partials/icon.html` | 生成项目门户与后台共用的唯一片段 |
 
 生成项目不需要自己维护图标数据：框架 `web.Static()` 会把框架的 `static/` 合并到项目静态树中，
 `sprite` 由框架层兜底提供。项目也可以运行 `yd icons sync` 生成自己的 sprite，项目层的同名文件会覆盖框架层。
@@ -96,12 +95,11 @@ yd assets minify --check
 
 ```html
 {{template "partials/icon" "lucide-log-in"}}
-{{template "portal/partials/icon" "lucide-log-in"}}
-{{template "mgr/partials/icon" "lucide-log-in"}}
 ```
 
-框架示例模板用无前缀形式；生成项目的门户与后台两棵树分别用 `portal/` 与 `mgr/` 前缀，
-扫描器接受任意一层树前缀，因此三种写法都会进入 sprite。
+框架示例模板与生成项目统一使用树根级 `partials/icon`：门户与后台共用同一份片段，
+不存在 `portal/partials/icon` 与 `mgr/partials/icon` 两份副本。扫描器接受任意一层树前缀，
+因此旧项目里的带前缀写法仍会进入 sprite，但新模板一律写无前缀形式。
 
 参数是 **`<图标集前缀>-<图标名>`** 的完整引用，不带 `i-` 前缀，也不带 `#`。
 片段会渲染为：

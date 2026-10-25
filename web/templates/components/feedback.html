@@ -1,0 +1,109 @@
+{{/*
+  components/feedback.html — alerts, tags, spinners and skeletons.
+  components/feedback.html — 提示条、标签、加载指示器与骨架屏。
+
+  Every state here is drawn with a soft token that the dark block redefines, so a warning keeps
+  its contrast after the theme switch without a single colour literal in the template.
+  这里每个状态都由暗色块会重定义的浅色令牌绘制，因此切换主题后警告色依旧保持对比度，
+  模板里不需要任何颜色字面量。
+
+  Feedback also carries meaning, not only colour: alerts keep a title and body, an empty state
+  names the next action, and a spinner carries hidden text for assistive technology.
+  反馈不只靠颜色表达含义：提示条保留标题与正文，空状态指出下一步操作，加载指示器为辅助技术
+  携带隐藏文案。
+*/}}
+
+{{/* components.feedback.alert — a status strip. Dict keys | dict 的键:
+       Level (info|success|warn|danger), Title, TitleKey, Text, TextKey, Icon (template.HTML),
+       Actions (template.HTML) */}}
+{{- define "components.feedback.alert" -}}
+{{- $level := .Level | default "info" -}}
+<div class="yd-alert yd-alert--{{$level}}" role="{{if eq $level "danger"}}alert{{else}}status{{end}}">
+  {{with .Icon}}<span class="yd-alert__icon" aria-hidden="true">{{.}}</span>{{end}}
+  <div class="yd-alert__body">
+    {{if or .Title .TitleKey}}<p class="yd-alert__title"{{with .TitleKey}} data-yd-i18n="{{.}}"{{end}}>{{if .Title}}{{.Title}}{{else}}{{if .TitleKey}}{{tr .TitleKey}}{{end}}{{end}}</p>{{end}}
+    {{if or .Text .TextKey}}<p class="yd-alert__text"{{with .TextKey}} data-yd-i18n="{{.}}"{{end}}>{{if .Text}}{{.Text}}{{else}}{{if .TextKey}}{{tr .TextKey}}{{end}}{{end}}</p>{{end}}
+    {{with .Actions}}<div class="yd-alert__actions">{{.}}</div>{{end}}
+  </div>
+</div>
+{{- end -}}
+
+{{/* components.feedback.tag — a compact label. Dict keys | dict 的键:
+       Tone (accent|success|warn|danger), Label, LabelKey, RemoveAttrs (template.HTMLAttr),
+       RemoveKey (catalogue key of the remove control's aria-label) */}}
+{{- define "components.feedback.tag" -}}
+<span class="yd-tag{{with .Tone}} yd-tag--{{.}}{{end}}">
+  <span{{with .LabelKey}} data-yd-i18n="{{.}}"{{end}}>{{if .Label}}{{.Label}}{{else}}{{if .LabelKey}}{{tr .LabelKey}}{{end}}{{end}}</span>
+  {{with .RemoveAttrs}}
+  <button type="button" class="yd-tag__remove" {{.}}{{with $.RemoveKey}} data-yd-i18n-attr="aria-label:{{$.RemoveKey}}" aria-label="{{tr $.RemoveKey}}"{{end}}>{{template "partials/icon" "lucide-x"}}</button>
+  {{end}}
+</span>
+{{- end -}}
+
+{{/* components.feedback.spinner — a CSS-only loader. Dict keys | dict 的键:
+       Size (sm|lg), LabelKey, Label */}}
+{{- define "components.feedback.spinner" -}}
+<span class="yd-inline-status" role="status">
+  <span class="yd-spinner{{with .Size}} yd-spinner--{{.}}{{end}}" aria-hidden="true"></span>
+  {{with .Label}}<span class="sr-only"{{with $.LabelKey}} data-yd-i18n="{{$.LabelKey}}"{{end}}>{{.}}</span>{{end}}
+</span>
+{{- end -}}
+
+{{/* components.feedback.skeleton — first-paint placeholders. Dict keys | dict 的键:
+       Rows (optional slice; the default is three rows), Card, LabelKey, Label */}}
+{{- define "components.feedback.skeleton" -}}
+<div class="yd-stack" role="status" aria-busy="true">
+  {{with .Label}}<span class="sr-only"{{with $.LabelKey}} data-yd-i18n="{{$.LabelKey}}"{{end}}>{{.}}</span>{{end}}
+  {{if .Card}}<div class="yd-skeleton yd-skeleton--cards" aria-hidden="true"></div>{{else}}
+  <div class="yd-skeleton" aria-hidden="true">
+    {{if .Rows}}{{range .Rows}}<div class="yd-skeleton__row"></div>{{end}}{{else}}
+    <div class="yd-skeleton__row"></div>
+    <div class="yd-skeleton__row"></div>
+    <div class="yd-skeleton__row"></div>
+    {{end}}
+  </div>
+  {{end}}
+</div>
+{{- end -}}
+
+{{/* components.feedback.toast — one toast inside components.feedback.toast-region.
+     Dict keys | dict 的键: Tone (success|error|info), Text, TextKey */}}
+{{- define "components.feedback.toast" -}}
+<div class="yd-toast{{with .Tone}} yd-toast--{{.}}{{end}}" role="status">
+  <span class="yd-cn-hint__value"{{with .TextKey}} data-yd-i18n="{{.}}"{{end}}>{{if .Text}}{{.Text}}{{else}}{{if .TextKey}}{{tr .TextKey}}{{end}}{{end}}</span>
+</div>
+{{- end -}}
+
+{{- define "components.feedback.toast-region" -}}
+<div class="yd-toast-region" id="{{.ID | default "yd-toast-region"}}" aria-live="polite" aria-atomic="false"></div>
+{{- end -}}
+
+{{/* components.feedback.notification — a titled notification card. Dict keys | dict 的键:
+       Tone (success|warning|error|info), Title, TitleKey, Text, TextKey, Actions (template.HTML),
+       DismissAttrs (template.HTMLAttr), DismissKey */}}
+{{- define "components.feedback.notification" -}}
+<div class="yd-notification{{with .Tone}} yd-notification--{{.}}{{end}}" role="status">
+  <div class="yd-notification__body">
+    {{if or .Title .TitleKey}}<p class="yd-notification__title"{{with .TitleKey}} data-yd-i18n="{{.}}"{{end}}>{{if .Title}}{{.Title}}{{else}}{{if .TitleKey}}{{tr .TitleKey}}{{end}}{{end}}</p>{{end}}
+    {{if or .Text .TextKey}}<p class="yd-notification__text"{{with .TextKey}} data-yd-i18n="{{.}}"{{end}}>{{if .Text}}{{.Text}}{{else}}{{if .TextKey}}{{tr .TextKey}}{{end}}{{end}}</p>{{end}}
+  </div>
+  {{with .DismissAttrs}}
+  <button type="button" class="yd-file__remove" {{.}}{{with $.DismissKey}} data-yd-i18n-attr="aria-label:{{$.DismissKey}}" aria-label="{{tr $.DismissKey}}"{{end}}>{{template "partials/icon" "lucide-x"}}</button>
+  {{end}}
+</div>
+{{- end -}}
+
+{{/* components.feedback.message — a one-line inline message. Dict keys | dict 的键:
+       Tone (info|success|warn|danger), Text, TextKey */}}
+{{- define "components.feedback.message" -}}
+<p class="yd-alert yd-alert--{{if .Tone}}{{.Tone}}{{else}}info{{end}}" role="status">
+  <span class="yd-alert__text"{{with .TextKey}} data-yd-i18n="{{.}}"{{end}}>{{if .Text}}{{.Text}}{{else}}{{if .TextKey}}{{tr .TextKey}}{{end}}{{end}}</span>
+</p>
+{{- end -}}
+
+{{/* components.feedback.popconfirm — a guard around one mutating control. Dict keys | dict 的键:
+       Message, Label, LabelKey, Submit, Attrs (template.HTMLAttr), Class */}}
+{{- define "components.feedback.popconfirm" -}}
+<button type="{{if .Submit}}submit{{else}}button{{end}}" class="yd-btn{{if .Class}} {{.Class}}{{else}} yd-btn--danger{{end}}"
+        data-yd-confirm="{{.Message}}" {{.Attrs}}{{with .LabelKey}} data-yd-i18n="{{.}}"{{end}}>{{.Label}}</button>
+{{- end -}}

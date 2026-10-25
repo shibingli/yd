@@ -1,0 +1,63 @@
+{{/*
+  components/layout.html — page and container primitives of the yd UI kit.
+  components/layout.html — yd UI 组件层的页面与容器原语。
+
+  Layout is the one place where a kit should be opinionated but not restrictive: the page
+  header, a card and an empty state cover the recurring shapes, while everything between them
+  stays ordinary markup with Tailwind utilities. Container pairs are split into open/close
+  because html/template only accepts constant template names, so a page can place any content
+  between the two halves.
+  布局是最该有主张但不该受限的地方：页头、卡片与空状态覆盖反复出现的形状，其间的其它内容仍然
+  是普通标记加 Tailwind 工具类。容器拆成 open/close，因为 html/template 只接受常量模板名，
+  页面因此可以把任意内容放在两半之间。
+
+  Wide-screen stance | 宽屏立场
+    The page is fluid. Only prose gets a reading measure; an application surface uses the whole
+    viewport and gains gutter from clamp(), so a 2560px monitor shows more content instead of a
+    stretched copy of a 1280px one.
+    页面是流式的。只有正文使用阅读宽度；应用界面占满视口，并用 clamp() 获得留白，因此 2560px
+    显示器看到的是更多内容，而不是 1280px 布局被拉伸。
+*/}}
+
+{{/* components.layout.page-header — title, lead and actions. Dict keys | dict 的键:
+       Title, TitleKey, Lead, LeadKey, Actions (template.HTML) */}}
+{{- define "components.layout.page-header" -}}
+<header class="yd-page__header">
+  <div class="yd-stack yd-stack--xs">
+    <h1 class="yd-page__title"{{with .TitleKey}} data-yd-i18n="{{.}}"{{end}}>{{if .Title}}{{.Title}}{{else}}{{if .TitleKey}}{{tr .TitleKey}}{{end}}{{end}}</h1>
+    {{with .Lead}}<p class="yd-page__lead"{{with $.LeadKey}} data-yd-i18n="{{$.LeadKey}}"{{end}}>{{.}}</p>{{end}}
+  </div>
+  {{with .Actions}}<div class="yd-cluster">{{.}}</div>{{end}}
+</header>
+{{- end -}}
+
+{{/* components.layout.card.open — a titled panel. Dict keys | dict 的键:
+       ID, Title, TitleKey, Description, DescriptionKey, Actions (template.HTML)
+     Close it with components.layout.card.close. | 用 components.layout.card.close 收尾。 */}}
+{{- define "components.layout.card.open" -}}
+<section class="yd-card yd-stack"{{with .ID}} id="{{.}}"{{end}}>
+  {{if or .Title .Description .Actions}}
+  <header class="yd-cluster yd-cluster--between">
+    <div class="yd-stack yd-stack--xs">
+      {{if or .Title .TitleKey}}<h2 class="yd-section__title"{{with .TitleKey}} data-yd-i18n="{{.}}"{{end}}>{{if .Title}}{{.Title}}{{else}}{{tr .TitleKey}}{{end}}</h2>{{end}}
+      {{if or .Description .DescriptionKey}}<p class="yd-section__hint"{{with .DescriptionKey}} data-yd-i18n="{{.}}"{{end}}>{{if .Description}}{{.Description}}{{else}}{{tr .DescriptionKey}}{{end}}</p>{{end}}
+    </div>
+    {{with .Actions}}<div class="yd-cluster">{{.}}</div>{{end}}
+  </header>
+  {{end}}
+{{- end -}}
+
+{{- define "components.layout.card.close" -}}
+</section>
+{{- end -}}
+
+{{/* components.layout.empty — an empty state that invites an action. Dict keys | dict 的键:
+       Title, TitleKey, Text, TextKey, Icon (template.HTML), Actions (template.HTML), Compact */}}
+{{- define "components.layout.empty" -}}
+<div class="yd-empty{{if .Compact}} yd-empty--compact{{end}}">
+  {{with .Icon}}<span class="yd-empty__icon" aria-hidden="true">{{.}}</span>{{end}}
+  {{if or .Title .TitleKey}}<p class="yd-empty__title"{{with .TitleKey}} data-yd-i18n="{{.}}"{{end}}>{{if .Title}}{{.Title}}{{else}}{{tr .TitleKey}}{{end}}</p>{{end}}
+  {{if or .Text .TextKey}}<p class="yd-empty__text"{{with .TextKey}} data-yd-i18n="{{.}}"{{end}}>{{if .Text}}{{.Text}}{{else}}{{tr .TextKey}}{{end}}</p>{{end}}
+  {{with .Actions}}<div class="yd-empty__actions">{{.}}</div>{{end}}
+</div>
+{{- end -}}

@@ -1,0 +1,480 @@
+{{/*
+  components/form.html — the form primitives of the yd UI kit.
+  components/form.html — yd UI 组件层的表单原语。
+
+  Why these are partials and not hand-written markup per page | 为什么做成局部模板而不是每页手写
+    One field contract means one place to fix spacing, focus rings, error wiring and the
+    data-yd-i18n hooks. A page that hand-writes an input will drift from the kit the first time
+    the kit changes, and the drift is invisible until someone compares two screens side by side.
+    一份字段契约意味着间距、焦点环、错误接线与 data-yd-i18n 钩子只需在一处修正。手写输入框的页面
+    会在组件层第一次变化时漂移，而这种漂移直到有人并排比较两个页面才会被发现。
+
+  Bilingual copy | 双语文案
+    Every partial accepts either a pre-rendered Label/Hint/Error or the catalogue key that
+    renders it (LabelKey/HintKey/ErrorKey). The key wins when both are present: it is the only
+    form a language switch can rewrite in place.
+    每个局部模板都接受两种写法：渲染好的 Label/Hint/Error，或渲染它的目录键
+    （LabelKey/HintKey/ErrorKey）。两者同时存在时以键为准：只有键能在语言切换时就地重写。
+
+  Accessibility | 可访问性
+    The label always points at the control by id; an error is announced through role="alert" and
+    aria-describedby, and an invalid control carries aria-invalid="true" rather than a red border
+    alone. | 标签始终经 id 指向控件；错误经 role="alert" 与 aria-describedby 播报；无效控件带
+    aria-invalid="true"，而不是只有一圈红边。
+*/}}
+
+{{/* components.form.field renders label + input + hint + error.
+     Dict keys | dict 的键:
+       ID, Name, Type, Value, LabelKey, Label, PlaceholderKey, Placeholder, HintKey, Hint,
+       ErrorKey, Error, Autocomplete, InputMode, Required, Sensitive, Invalid, Disabled,
+       Readonly, MaxLength, Pattern, Min, Max, Step, DescribedBy, Attrs (template.HTMLAttr)
+     Attrs is appended to the input so a page can add data-yd-encrypt, hx-* or aria-* without
+     hand-writing the field. DescribedBy is derived from Hint/Error when the caller leaves it empty.
+     Attrs 追加到输入框上，页面因此无需手写字段就能添加 data-yd-encrypt、hx-* 或 aria-*。
+     调用方留空 DescribedBy 时，由 Hint/Error 自动推导。 */}}
+{{- define "components.form.field" -}}
+{{- $described := .DescribedBy -}}
+{{- if not $described -}}
+  {{- if and .Hint .Error -}}{{- $described = printf "%s-hint %s-error" .ID .ID -}}
+  {{- else if .Hint -}}{{- $described = printf "%s-hint" .ID -}}
+  {{- else if .Error -}}{{- $described = printf "%s-error" .ID -}}{{- end -}}
+{{- end -}}
+<div class="yd-field{{if .Required}} yd-field--required{{end}}{{if or .Invalid .Error}} yd-field--invalid{{end}}{{with .WrapperClass}} {{.}}{{end}}" data-yd-field="{{.Name}}">
+  <label class="yd-field__label" for="{{.ID}}"{{with .LabelKey}} data-yd-i18n="{{.}}"{{end}}>{{if .Label}}{{.Label}}{{else}}{{if .LabelKey}}{{tr .LabelKey}}{{end}}{{end}}</label>
+  <div class="yd-field__control">
+    <input class="yd-input{{if or .Invalid .Error}} yd-input--invalid{{end}}{{with .InputClass}} {{.}}{{end}}" id="{{.ID}}"{{with .Name}} name="{{.}}"{{end}} type="{{if .Type}}{{.Type}}{{else}}text{{end}}" value="{{.Value}}"
+           {{with .Autocomplete}}autocomplete="{{.}}"{{end}}
+           {{with .InputMode}}inputmode="{{.}}"{{end}}
+           {{with .MaxLength}}maxlength="{{.}}"{{end}}
+           {{with .Pattern}}pattern="{{.}}"{{end}}
+           {{with .Min}}min="{{.}}"{{end}}
+           {{with .Max}}max="{{.}}"{{end}}
+           {{with .Step}}step="{{.}}"{{end}}
+           {{if .Required}}required{{end}}
+           {{if .Disabled}}disabled{{end}}
+           {{if .Readonly}}readonly{{end}}
+           {{if .Sensitive}}data-yd-sensitive="true"{{end}}
+           {{if or .Invalid .Error}}aria-invalid="true"{{end}}
+           {{with $described}}aria-describedby="{{.}}"{{end}}
+           {{with .PlaceholderKey}}data-yd-i18n-attr="placeholder:{{.}}"{{end}}
+           {{if or .Placeholder .PlaceholderKey}}placeholder="{{if .Placeholder}}{{.Placeholder}}{{else}}{{if .PlaceholderKey}}{{tr .PlaceholderKey}}{{end}}{{end}}"{{end}} {{.Attrs}}>
+  </div>
+  {{if or .Hint .HintKey}}<p class="yd-field__hint" id="{{.ID}}-hint"{{with .HintKey}} data-yd-i18n="{{.}}"{{end}}>{{if .Hint}}{{.Hint}}{{else}}{{if .HintKey}}{{tr .HintKey}}{{end}}{{end}}</p>{{end}}
+  {{if or .Error .ErrorKey}}<p class="yd-field__error" id="{{.ID}}-error" role="alert"{{with .ErrorKey}} data-yd-i18n="{{.}}"{{end}}>{{if .Error}}{{.Error}}{{else}}{{if .ErrorKey}}{{tr .ErrorKey}}{{end}}{{end}}</p>{{end}}
+</div>
+{{- end -}}
+
+{{/* components.form.textarea renders a multi-line field. Dict keys add Rows and Attrs. | 多行字段，
+     额外支持 Rows 与 Attrs。 */}}
+{{- define "components.form.textarea" -}}
+{{- $described := .DescribedBy -}}
+{{- if not $described -}}
+  {{- if and .Hint .Error -}}{{- $described = printf "%s-hint %s-error" .ID .ID -}}
+  {{- else if .Hint -}}{{- $described = printf "%s-hint" .ID -}}
+  {{- else if .Error -}}{{- $described = printf "%s-error" .ID -}}{{- end -}}
+{{- end -}}
+<div class="yd-field{{if .Required}} yd-field--required{{end}}{{if or .Invalid .Error}} yd-field--invalid{{end}}" data-yd-field="{{.Name}}">
+  <label class="yd-field__label" for="{{.ID}}"{{with .LabelKey}} data-yd-i18n="{{.}}"{{end}}>{{if .Label}}{{.Label}}{{else}}{{if .LabelKey}}{{tr .LabelKey}}{{end}}{{end}}</label>
+  <textarea class="yd-textarea{{if or .Invalid .Error}} yd-input--invalid{{end}}{{with .InputClass}} {{.}}{{end}}" id="{{.ID}}" name="{{.Name}}"
+            {{with .Rows}}rows="{{.}}"{{end}}
+            {{with .MaxLength}}maxlength="{{.}}"{{end}}
+            {{if .Required}}required{{end}}
+            {{if .Disabled}}disabled{{end}}
+            {{if .Readonly}}readonly{{end}}
+            {{if or .Invalid .Error}}aria-invalid="true"{{end}}
+            {{with $described}}aria-describedby="{{.}}"{{end}}
+            {{with .PlaceholderKey}}data-yd-i18n-attr="placeholder:{{.}}"{{end}}
+            {{if or .Placeholder .PlaceholderKey}}placeholder="{{if .Placeholder}}{{.Placeholder}}{{else}}{{if .PlaceholderKey}}{{tr .PlaceholderKey}}{{end}}{{end}}"{{end}} {{.Attrs}}>{{.Value}}</textarea>
+  {{if or .Hint .HintKey}}<p class="yd-field__hint" id="{{.ID}}-hint"{{with .HintKey}} data-yd-i18n="{{.}}"{{end}}>{{if .Hint}}{{.Hint}}{{else}}{{if .HintKey}}{{tr .HintKey}}{{end}}{{end}}</p>{{end}}
+  {{if or .Error .ErrorKey}}<p class="yd-field__error" id="{{.ID}}-error" role="alert"{{with .ErrorKey}} data-yd-i18n="{{.}}"{{end}}>{{if .Error}}{{.Error}}{{else}}{{if .ErrorKey}}{{tr .ErrorKey}}{{end}}{{end}}</p>{{end}}
+</div>
+{{- end -}}
+
+{{/* components.form.select renders a native select. Options is []{Value, Label, Key, Selected, Disabled}.
+     Placeholder/PlaceholderKey label the empty option. Multiple and Size map to the native attributes;
+     Attrs is appended to the select. | Placeholder/PlaceholderKey 标注空选项。Multiple 与 Size 映射到
+     原生属性；Attrs 追加到 select 上。 */}}
+{{- define "components.form.select" -}}
+{{- $described := .DescribedBy -}}
+{{- if not $described -}}
+  {{- if and .Hint .Error -}}{{- $described = printf "%s-hint %s-error" .ID .ID -}}
+  {{- else if .Hint -}}{{- $described = printf "%s-hint" .ID -}}
+  {{- else if .Error -}}{{- $described = printf "%s-error" .ID -}}{{- end -}}
+{{- end -}}
+<div class="yd-field{{if .Required}} yd-field--required{{end}}{{if or .Invalid .Error}} yd-field--invalid{{end}}" data-yd-field="{{.Name}}">
+  <label class="yd-field__label" for="{{.ID}}"{{with .LabelKey}} data-yd-i18n="{{.}}"{{end}}>{{if .Label}}{{.Label}}{{else}}{{if .LabelKey}}{{tr .LabelKey}}{{end}}{{end}}</label>
+  <select class="yd-select{{if or .Invalid .Error}} yd-input--invalid{{end}}{{with .InputClass}} {{.}}{{end}}" id="{{.ID}}" name="{{.Name}}"
+          {{if .Required}}required{{end}}
+          {{if .Disabled}}disabled{{end}}
+          {{if .Multiple}}multiple{{end}}
+          {{with .Size}}size="{{.}}"{{end}}
+          {{if or .Invalid .Error}}aria-invalid="true"{{end}}
+          {{with $described}}aria-describedby="{{.}}"{{end}} {{.Attrs}}>
+    {{if or .Placeholder .PlaceholderKey}}<option value=""{{with .PlaceholderKey}} data-yd-i18n="{{.}}"{{end}}>{{if .Placeholder}}{{.Placeholder}}{{else}}{{if .PlaceholderKey}}{{tr .PlaceholderKey}}{{end}}{{end}}</option>{{end}}
+    {{with .Options}}{{range .}}
+    <option value="{{.Value}}"{{if .Selected}} selected{{end}}{{if .Disabled}} disabled{{end}}{{with .Key}} data-yd-i18n="{{.}}"{{end}}>{{if .Label}}{{.Label}}{{else}}{{if .Key}}{{tr .Key}}{{end}}{{end}}</option>
+    {{end}}{{end}}
+  </select>
+  {{if or .Hint .HintKey}}<p class="yd-field__hint" id="{{.ID}}-hint"{{with .HintKey}} data-yd-i18n="{{.}}"{{end}}>{{if .Hint}}{{.Hint}}{{else}}{{if .HintKey}}{{tr .HintKey}}{{end}}{{end}}</p>{{end}}
+  {{if or .Error .ErrorKey}}<p class="yd-field__error" id="{{.ID}}-error" role="alert"{{with .ErrorKey}} data-yd-i18n="{{.}}"{{end}}>{{if .Error}}{{.Error}}{{else}}{{if .ErrorKey}}{{tr .ErrorKey}}{{end}}{{end}}</p>{{end}}
+</div>
+{{- end -}}
+
+{{/* components.form.check renders a checkbox row. Dict keys | dict 的键:
+       ID, Name, Value, LabelKey, Label, LabelHTML (template.HTML), HintKey, Hint, HintHTML
+       (template.HTML), Checked, Block, Disabled, Attrs (template.HTMLAttr)
+     LabelHTML/HintHTML are for a row that needs a badge or code span; when absent the plain
+     Label/Hint pair is used and the i18n hooks stay on the text node. | LabelHTML/HintHTML 用于
+     需要徽标或代码片段的行；缺省时使用 Label/Hint，i18n 钩子留在文本节点上。 */}}
+{{- define "components.form.check" -}}
+<label class="yd-check{{if .Block}} yd-check--block{{end}}" for="{{.ID}}">
+  <input class="yd-check__input" type="checkbox" id="{{.ID}}" name="{{.Name}}" value="{{.Value}}"{{if .Checked}} checked{{end}}{{if .Disabled}} disabled{{end}} {{.Attrs}}>
+  <span class="yd-check__body">
+    <span class="yd-check__label"{{if not .LabelHTML}}{{with .LabelKey}} data-yd-i18n="{{.}}"{{end}}{{end}}>{{if .LabelHTML}}{{.LabelHTML}}{{else}}{{if .Label}}{{.Label}}{{else}}{{if .LabelKey}}{{tr .LabelKey}}{{end}}{{end}}{{end}}</span>
+    {{if or .Hint .HintKey}}<span class="yd-check__hint"{{if not .HintHTML}}{{with .HintKey}} data-yd-i18n="{{.}}"{{end}}{{end}}>{{if .HintHTML}}{{.HintHTML}}{{else}}{{if .Hint}}{{.Hint}}{{else}}{{if .HintKey}}{{tr .HintKey}}{{end}}{{end}}{{end}}</span>{{end}}
+  </span>
+</label>
+{{- end -}}
+
+{{/* components.form.radio renders one radio row. Dict keys mirror components.form.check. | 单选项，键与复选框一致。 */}}
+{{- define "components.form.radio" -}}
+<label class="yd-radio{{if .Block}} yd-radio--block{{end}}" for="{{.ID}}">
+  <input class="yd-radio__input" type="radio" id="{{.ID}}" name="{{.Name}}" value="{{.Value}}"{{if .Checked}} checked{{end}}{{if .Disabled}} disabled{{end}}>
+  <span class="yd-radio__body">
+    <span class="yd-radio__label"{{with .LabelKey}} data-yd-i18n="{{.}}"{{end}}>{{if .Label}}{{.Label}}{{else}}{{if .LabelKey}}{{tr .LabelKey}}{{end}}{{end}}</span>
+    {{if or .Hint .HintKey}}<span class="yd-radio__hint"{{with .HintKey}} data-yd-i18n="{{.}}"{{end}}>{{if .Hint}}{{.Hint}}{{else}}{{if .HintKey}}{{tr .HintKey}}{{end}}{{end}}</span>{{end}}
+  </span>
+</label>
+{{- end -}}
+
+{{/* components.form.toggle renders a native checkbox as a switch. Dict keys | dict 的键:
+       ID, Name, Value, LabelKey, Label, HintKey, Hint, Checked, Disabled */}}
+{{- define "components.form.toggle" -}}
+<label class="yd-check" for="{{.ID}}">
+  <input class="yd-toggle__input" type="checkbox" role="switch" id="{{.ID}}" name="{{.Name}}" value="{{.Value}}"{{if .Checked}} checked{{end}}{{if .Disabled}} disabled{{end}}>
+  <span class="yd-toggle__track" aria-hidden="true"></span>
+  <span class="yd-check__body">
+    <span class="yd-check__label"{{with .LabelKey}} data-yd-i18n="{{.}}"{{end}}>{{if .Label}}{{.Label}}{{else}}{{if .LabelKey}}{{tr .LabelKey}}{{end}}{{end}}</span>
+    {{if or .Hint .HintKey}}<span class="yd-check__hint"{{with .HintKey}} data-yd-i18n="{{.}}"{{end}}>{{if .Hint}}{{.Hint}}{{else}}{{if .HintKey}}{{tr .HintKey}}{{end}}{{end}}</span>{{end}}
+  </span>
+</label>
+{{- end -}}
+
+{{/* components.form.segmented renders a radio group as adjacent buttons. Options is []{Value, Label, Key, Checked, Disabled}. */}}
+{{- define "components.form.segmented" -}}
+{{- $name := .Name -}}
+<fieldset class="yd-field" data-yd-field="{{.Name}}">
+  <legend class="yd-field__label"{{with .LabelKey}} data-yd-i18n="{{.}}"{{end}}>{{if .Label}}{{.Label}}{{else}}{{if .LabelKey}}{{tr .LabelKey}}{{end}}{{end}}</legend>
+  <div class="yd-segmented">
+    {{with .Options}}{{range .}}
+    <label class="yd-segmented__item{{if .Checked}} yd-segmented__item--active{{end}}">
+      <input class="sr-only" type="radio" name="{{$name}}" value="{{.Value}}"{{if .Checked}} checked{{end}}{{if .Disabled}} disabled{{end}}>
+      <span{{with .Key}} data-yd-i18n="{{.}}"{{end}}>{{if .Label}}{{.Label}}{{else}}{{if .Key}}{{tr .Key}}{{end}}{{end}}</span>
+    </label>
+    {{end}}{{end}}
+  </div>
+  {{if or .Hint .HintKey}}<p class="yd-field__hint"{{with .HintKey}} data-yd-i18n="{{.}}"{{end}}>{{if .Hint}}{{.Hint}}{{else}}{{if .HintKey}}{{tr .HintKey}}{{end}}{{end}}</p>{{end}}
+</fieldset>
+{{- end -}}
+
+{{/* components.form.password renders a password field with reveal/hide and a strength hint.
+     Dict keys | dict 的键:
+       ID, Name, Value, LabelKey, Label, HintKey, Hint, ErrorKey, Error, Placeholder,
+       PlaceholderKey, Autocomplete, Required, Invalid, Sensitive, Attrs (template.HTMLAttr) */}}
+{{- define "components.form.password" -}}
+{{- $described := .DescribedBy -}}
+{{- if not $described -}}
+  {{- if and .Hint .Error -}}{{- $described = printf "%s-hint %s-error" .ID .ID -}}
+  {{- else if .Hint -}}{{- $described = printf "%s-hint" .ID -}}
+  {{- else if .Error -}}{{- $described = printf "%s-error" .ID -}}{{- end -}}
+{{- end -}}
+<div class="yd-field{{if .Required}} yd-field--required{{end}}{{if or .Invalid .Error}} yd-field--invalid{{end}}" data-yd-field="{{.Name}}" x-data="ydPassword">
+  <label class="yd-field__label" for="{{.ID}}"{{with .LabelKey}} data-yd-i18n="{{.}}"{{end}}>{{if .Label}}{{.Label}}{{else}}{{if .LabelKey}}{{tr .LabelKey}}{{end}}{{end}}</label>
+  <div class="yd-field__control yd-password">
+    <input class="yd-input{{if or .Invalid .Error}} yd-input--invalid{{end}}" id="{{.ID}}" name="{{.Name}}" x-ref="input" x-model="value"
+           type="password" value="{{.Value}}"
+           {{with .Autocomplete}}autocomplete="{{.}}"{{end}}
+           {{if .Required}}required{{end}}
+           {{if .Sensitive}}data-yd-sensitive="true"{{end}}
+           {{if or .Invalid .Error}}aria-invalid="true"{{end}}
+           {{with $described}}aria-describedby="{{.}}"{{end}}
+           {{with .PlaceholderKey}}data-yd-i18n-attr="placeholder:{{.}}"{{end}} {{if or .Placeholder .PlaceholderKey}}placeholder="{{if .Placeholder}}{{.Placeholder}}{{else}}{{if .PlaceholderKey}}{{tr .PlaceholderKey}}{{end}}{{end}}"{{end}}
+           x-bind:type="show ? 'text' : 'password'" {{.Attrs}}>
+    <button type="button" class="yd-password__toggle" x-on:click="toggle" x-bind:aria-pressed="show"
+            data-yd-i18n-attr="aria-label:cn.password.toggle" aria-label="{{tr "cn.password.toggle"}}"><span x-show="!show">{{template "partials/icon" "lucide-eye"}}</span><span x-show="show" x-cloak>{{template "partials/icon" "lucide-eye-off"}}</span></button>
+  </div>
+  <div class="yd-password__meter" x-show="value" x-cloak aria-hidden="true">
+    <span class="yd-password__bar" x-bind:class="score() >= 1 ? 'yd-password__bar--on' : ''"></span>
+    <span class="yd-password__bar" x-bind:class="score() >= 2 ? 'yd-password__bar--on' : ''"></span>
+    <span class="yd-password__bar" x-bind:class="score() >= 3 ? 'yd-password__bar--on' : ''"></span>
+  </div>
+  <p class="yd-password__hint" x-show="value" x-cloak>
+    <span x-show="label() === 'weak'" data-yd-i18n="cn.password.weak">{{tr "cn.password.weak"}}</span>
+    <span x-show="label() === 'fair'" data-yd-i18n="cn.password.fair">{{tr "cn.password.fair"}}</span>
+    <span x-show="label() === 'strong'" data-yd-i18n="cn.password.strong">{{tr "cn.password.strong"}}</span>
+  </p>
+  {{if or .Hint .HintKey}}<p class="yd-field__hint"{{with .HintKey}} data-yd-i18n="{{.}}"{{end}}>{{if .Hint}}{{.Hint}}{{else}}{{if .HintKey}}{{tr .HintKey}}{{end}}{{end}}</p>{{end}}
+  {{if or .Error .ErrorKey}}<p class="yd-field__error" role="alert"{{with .ErrorKey}} data-yd-i18n="{{.}}"{{end}}>{{if .Error}}{{.Error}}{{else}}{{if .ErrorKey}}{{tr .ErrorKey}}{{end}}{{end}}</p>{{end}}
+</div>
+{{- end -}}
+
+{{/* components.form.tags renders a token field. Dict keys | dict 的键:
+       ID, Name, Value (comma separated), LabelKey, Label, PlaceholderKey, Placeholder,
+       HintKey, Hint, AddLabel, AddKey, Max, Attrs (template.HTMLAttr) */}}
+{{- define "components.form.tags" -}}
+{{- $described := .DescribedBy -}}
+{{- if and (not $described) .Hint -}}{{- $described = printf "%s-hint" .ID -}}{{- end -}}
+<div class="yd-field" data-yd-field="{{.Name}}" x-data="ydTagInput" data-value="{{.Value}}" data-max="{{.Max}}">
+  <label class="yd-field__label" for="{{.ID}}"{{with .LabelKey}} data-yd-i18n="{{.}}"{{end}}>{{if .Label}}{{.Label}}{{else}}{{if .LabelKey}}{{tr .LabelKey}}{{end}}{{end}}</label>
+  <div class="yd-input-group">
+    <input class="yd-input" id="{{.ID}}" type="text" x-model="draft"
+           x-on:keydown.enter.prevent="add"
+           {{with $described}}aria-describedby="{{.}}"{{end}}
+           {{with .PlaceholderKey}}data-yd-i18n-attr="placeholder:{{.}}"{{end}} {{if or .Placeholder .PlaceholderKey}}placeholder="{{if .Placeholder}}{{.Placeholder}}{{else}}{{if .PlaceholderKey}}{{tr .PlaceholderKey}}{{end}}{{end}}"{{end}} {{.Attrs}}>
+    <button type="button" class="yd-btn yd-btn--ghost" x-on:click="add"{{with .AddKey}} data-yd-i18n="{{.}}"{{end}}>{{.AddLabel}}</button>
+  </div>
+  <div class="yd-tag-list" x-show="tags.length" x-cloak>
+    <template x-for="tag in tags" :key="tag">
+      <span class="yd-tag">
+        <span x-text="tag"></span>
+        <button type="button" class="yd-tag__remove" x-on:click="removeTag(tag)" aria-label="{{tr "ui.remove"}}" data-yd-i18n-attr="aria-label:ui.remove">{{template "partials/icon" "lucide-x"}}</button>
+      </span>
+    </template>
+  </div>
+  {{/* The hidden field keeps the initial server value before Alpine starts and is then kept in sync. | 隐藏字段在 Alpine 启动前保留服务端初始值，随后由它同步。 */}}
+  <input type="hidden" name="{{.Name}}" value="{{.Value}}" x-bind:value="value()">
+  {{if or .Hint .HintKey}}<p class="yd-field__hint"{{with .HintKey}} data-yd-i18n="{{.}}"{{end}}>{{if .Hint}}{{.Hint}}{{else}}{{if .HintKey}}{{tr .HintKey}}{{end}}{{end}}</p>{{end}}
+</div>
+{{- end -}}
+
+{{/* components.form.actions renders the submit/cancel pair. Dict keys | dict 的键:
+       SubmitKey, SubmitLabel, SubmitAttrs (template.HTMLAttr), SubmitDisabled,
+       CancelKey, CancelLabel, CancelHref, CancelAttrs (template.HTMLAttr), CancelModal, NoCancel */}}
+{{- define "components.form.actions" -}}
+<div class="yd-form__actions">
+  <button type="submit" class="yd-btn yd-btn--primary"{{with .SubmitKey}} data-yd-i18n="{{.}}"{{end}}{{if .SubmitDisabled}} disabled{{end}} {{.SubmitAttrs}}>{{if .SubmitLabel}}{{.SubmitLabel}}{{else}}{{if .SubmitKey}}{{tr .SubmitKey}}{{end}}{{end}}</button>
+  {{if not .NoCancel}}
+  {{if .CancelHref}}
+  <a class="yd-btn yd-btn--ghost" href="{{.CancelHref}}"{{with .CancelKey}} data-yd-i18n="{{.}}"{{end}} {{.CancelAttrs}}>{{if .CancelLabel}}{{.CancelLabel}}{{else}}{{if .CancelKey}}{{tr .CancelKey}}{{end}}{{end}}</a>
+  {{else}}
+  <button type="button" class="yd-btn yd-btn--ghost" {{if .CancelModal}}data-yd-modal-close{{else}}data-yd-drawer-close{{end}}{{with .CancelKey}} data-yd-i18n="{{.}}"{{end}} {{.CancelAttrs}}>{{if .CancelLabel}}{{.CancelLabel}}{{else}}{{if .CancelKey}}{{tr .CancelKey}}{{end}}{{end}}</button>
+  {{end}}
+  {{end}}
+</div>
+{{- end -}}
+
+{{/* components.form.search renders the search field the shell uses. Dict keys | dict 的键:
+       ID, Action, Get, Target, Trigger, Swap, PushURL, Name, Value, PlaceholderKey, Placeholder,
+       LabelKey, Label, ClearKey, SubmitLabel, SubmitKey, Autocomplete, Attrs (template.HTMLAttr)
+     It ships its own <form>; never nest it inside another form, because HTML drops or moves nested
+     forms and the magnifier leaves the input. | 它自带 <form>，绝不能嵌进另一个表单；HTML 会丢弃
+     或移动嵌套表单，放大镜会跑出输入框。 */}}
+{{- define "components.form.search" -}}
+{{- $clearKey := .ClearKey | default "ui.clear" -}}
+<form class="yd-search" role="search" method="get" action="{{.Action}}"
+      {{if .Get}}hx-get="{{.Get}}"{{if .Target}} hx-target="{{.Target}}"{{end}}
+      hx-trigger="{{if .Trigger}}{{.Trigger}}{{else}}input changed delay:250ms, search{{end}}"
+      hx-swap="{{if .Swap}}{{.Swap}}{{else}}innerHTML{{end}}"
+      hx-push-url="{{if .PushURL}}true{{else}}false{{end}}"{{end}}
+      x-data="ydSearch" {{.Attrs}}>
+  <span class="yd-search__icon" aria-hidden="true"></span>
+  <div class="yd-search__field">
+    <input class="yd-input" {{with .ID}}id="{{.}}"{{end}} type="search" name="{{if .Name}}{{.Name}}{{else}}q{{end}}" value="{{with .Value}}{{.}}{{end}}" x-ref="input" x-model="value"
+           {{with .Autocomplete}}autocomplete="{{.}}"{{end}}
+           {{with .PlaceholderKey}}data-yd-i18n-attr="placeholder:{{.}}"{{end}}
+           {{if or .Placeholder .PlaceholderKey}}placeholder="{{if .Placeholder}}{{.Placeholder}}{{else}}{{if .PlaceholderKey}}{{tr .PlaceholderKey}}{{end}}{{end}}"{{end}}
+           {{with .LabelKey}}data-yd-i18n-attr="aria-label:{{.}}"{{end}} aria-label="{{if .Label}}{{.Label}}{{else}}{{if .LabelKey}}{{tr .LabelKey}}{{end}}{{end}}">
+    <button type="button" class="yd-search__clear" x-show="value" x-cloak x-on:click="clear"
+            data-yd-i18n-attr="aria-label:{{$clearKey}}" aria-label="{{if eq $clearKey "ui.clear"}}{{tr "ui.clear"}}{{else}}{{tr $clearKey}}{{end}}">{{template "partials/icon" "lucide-x"}}</button>
+  </div>
+  {{if or .SubmitLabel .SubmitKey}}
+  <button type="submit" class="yd-search__submit yd-btn yd-btn--ghost"{{with .SubmitKey}} data-yd-i18n="{{.}}"{{end}}>{{if .SubmitLabel}}{{.SubmitLabel}}{{else}}{{if .SubmitKey}}{{tr .SubmitKey}}{{end}}{{end}}</button>
+  {{end}}
+</form>
+{{- end -}}
+
+{{/* components.form.file renders the drag-and-drop upload control. Dict keys | dict 的键:
+       ID, Name, LabelKey, Label, HintKey, Hint, Accept, Multiple, Required, Disabled,
+       Attrs (template.HTMLAttr) */}}
+{{- define "components.form.file" -}}
+{{- $described := .DescribedBy -}}
+{{- if and (not $described) .Hint -}}{{- $described = printf "%s-hint" .ID -}}{{- end -}}
+<div class="yd-field{{if .Required}} yd-field--required{{end}}" data-yd-field="{{.Name}}" x-data="ydUpload">
+  <label class="yd-field__label" for="{{.ID}}"{{with .LabelKey}} data-yd-i18n="{{.}}"{{end}}>{{if .Label}}{{.Label}}{{else}}{{if .LabelKey}}{{tr .LabelKey}}{{end}}{{end}}</label>
+  <div class="yd-file">
+    <input class="yd-file__input" type="file" id="{{.ID}}" name="{{.Name}}" x-ref="input"
+           {{with .Accept}}accept="{{.}}"{{end}}
+           {{if .Multiple}}multiple{{end}}
+           {{if .Required}}required{{end}}
+           {{if .Disabled}}disabled{{end}}
+           {{with $described}}aria-describedby="{{.}}"{{end}}
+           x-on:change="onChange" {{.Attrs}}>
+    <label class="yd-file__drop" for="{{.ID}}"
+           x-bind:class="dragging ? 'yd-file__drop--active' : ''"
+           x-on:dragover.prevent="dragging = true"
+           x-on:dragleave.prevent="dragging = false"
+           x-on:drop.prevent="onDrop">
+      <span data-yd-i18n="cn.upload.drop">{{tr "cn.upload.drop"}}</span>
+      {{if .Hint}}<span class="yd-cn-hint"{{with .HintKey}} data-yd-i18n="{{.}}"{{end}}>{{if .Hint}}{{.Hint}}{{else}}{{if .HintKey}}{{tr .HintKey}}{{end}}{{end}}</span>{{end}}
+    </label>
+    <ul class="yd-file__list" x-show="files.length" x-cloak>
+      <template x-for="file in files" :key="file.name + file.size">
+        <li class="yd-file__item">
+          <span class="yd-file__name" x-text="file.name"></span>
+          <span class="yd-file__size" x-text="sizeText(file.size)"></span>
+          <button type="button" class="yd-file__remove" x-on:click="remove(file)" aria-label="{{tr "ui.remove"}}" data-yd-i18n-attr="aria-label:ui.remove">{{template "partials/icon" "lucide-x"}}</button>
+        </li>
+      </template>
+    </ul>
+  </div>
+</div>
+{{- end -}}
+
+{{/* components.form.number — a native number input with stepper buttons. Dict keys | dict 的键:
+       ID, Name, Value, Min, Max, Step, Label, LabelKey, Hint, HintKey, Required, Disabled,
+       Attrs (template.HTMLAttr). Min/Max are omitted when zero or absent, so the control is not
+       silently clamped to an arbitrary 0..100 range. | Min/Max 为零或缺失时不输出，控件因此不会被
+       悄悄限制在任意的 0..100 区间。 */}}
+{{- define "components.form.number" -}}
+{{- $described := .DescribedBy -}}
+{{- if and (not $described) .Hint -}}{{- $described = printf "%s-hint" .ID -}}{{- end -}}
+<div class="yd-field{{if .Required}} yd-field--required{{end}}" x-data="ydNumber" data-value="{{.Value}}">
+  <label class="yd-field__label" for="{{.ID}}"{{with .LabelKey}} data-yd-i18n="{{.}}"{{end}}>{{if .Label}}{{.Label}}{{else}}{{if .LabelKey}}{{tr .LabelKey}}{{end}}{{end}}</label>
+  <div class="yd-number">
+    <button type="button" class="yd-number__step" x-on:click="step(-1)"
+            data-yd-i18n-attr="aria-label:ui.decrease" aria-label="{{tr "ui.decrease"}}">−</button>
+    <input class="yd-input yd-number__input" type="number" id="{{.ID}}" name="{{.Name}}" value="{{.Value}}"
+           {{with .Min}}min="{{.}}"{{end}} {{with .Max}}max="{{.}}"{{end}} step="{{if .Step}}{{.Step}}{{else}}1{{end}}"
+           {{if .Required}}required{{end}}{{if .Disabled}}disabled{{end}}
+           {{with $described}}aria-describedby="{{.}}"{{end}}
+           x-model="value" {{.Attrs}}>
+    <button type="button" class="yd-number__step" x-on:click="step(1)"
+            data-yd-i18n-attr="aria-label:ui.increase" aria-label="{{tr "ui.increase"}}">+</button>
+  </div>
+  {{if or .Hint .HintKey}}<p class="yd-field__hint" id="{{.ID}}-hint"{{with .HintKey}} data-yd-i18n="{{.}}"{{end}}>{{if .Hint}}{{.Hint}}{{else}}{{if .HintKey}}{{tr .HintKey}}{{end}}{{end}}</p>{{end}}
+</div>
+{{- end -}}
+
+{{/* components.form.otp — one digit per box, joined into a hidden field. Dict keys | dict 的键:
+       ID, Name, Value, Length, Slots []int, Label, LabelKey, Hint, HintKey, Required,
+       Attrs (template.HTMLAttr)
+     Slots is the caller's 0..Length-1 sequence, because html/template cannot range over a number.
+     Slots 由调用方提供 0..Length-1 的序列，因为 html/template 不能对数字做 range。 */}}
+{{- define "components.form.otp" -}}
+{{- $id := .ID -}}
+{{- $described := .DescribedBy -}}
+{{- if and (not $described) .Hint -}}{{- $described = printf "%s-hint" $id -}}{{- end -}}
+<div class="yd-field{{if .Required}} yd-field--required{{end}}" x-data="ydOtp" data-length="{{if .Length}}{{.Length}}{{else}}6{{end}}" data-value="{{.Value}}">
+  <label class="yd-field__label" for="{{$id}}-0"{{with .LabelKey}} data-yd-i18n="{{.}}"{{end}}>{{if .Label}}{{.Label}}{{else}}{{if .LabelKey}}{{tr .LabelKey}}{{end}}{{end}}</label>
+  <div class="yd-otp" {{with $described}}aria-describedby="{{.}}"{{end}}>
+    {{range .Slots}}
+    <input class="yd-otp__input" type="text" inputmode="numeric" autocomplete="one-time-code" maxlength="1"
+           id="{{$id}}-{{.}}" data-yd-otp-input {{if and $.Required (eq . 0)}}required{{end}}
+           x-on:input="onInput($event, {{.}})" x-on:keydown="onKeydown($event, {{.}})"
+           x-on:paste="onPaste($event, {{.}})" {{$.Attrs}}
+           aria-label="{{.}}">
+    {{end}}
+  </div>
+  <input type="hidden" name="{{.Name}}" value="{{.Value}}" x-bind:value="code">
+  {{if or .Hint .HintKey}}<p class="yd-field__hint"{{with .HintKey}} data-yd-i18n="{{.}}"{{end}}>{{if .Hint}}{{.Hint}}{{else}}{{if .HintKey}}{{tr .HintKey}}{{end}}{{end}}</p>{{end}}
+</div>
+{{- end -}}
+
+{{/* components.form.color — a native colour picker synced to a text field. Dict keys | dict 的键:
+       ID, Name, Value, Label, LabelKey, Hint, HintKey, Required, Attrs (template.HTMLAttr) */}}
+{{- define "components.form.color" -}}
+{{- $described := .DescribedBy -}}
+{{- if and (not $described) .Hint -}}{{- $described = printf "%s-hint" .ID -}}{{- end -}}
+<div class="yd-field{{if .Required}} yd-field--required{{end}}" x-data="ydColor" data-value="{{.Value}}">
+  <label class="yd-field__label" for="{{.ID}}"{{with .LabelKey}} data-yd-i18n="{{.}}"{{end}}>{{if .Label}}{{.Label}}{{else}}{{if .LabelKey}}{{tr .LabelKey}}{{end}}{{end}}</label>
+  <div class="yd-color">
+    <input class="yd-color__swatch" type="color" x-ref="picker" value="{{.Value}}" x-on:input="fromPicker" aria-hidden="true" tabindex="-1">
+    <input class="yd-input yd-color__value" id="{{.ID}}" name="{{.Name}}" type="text" value="{{.Value}}"
+           x-ref="text" x-model="value" x-on:input="fromText" autocomplete="off"
+           maxlength="7" pattern="#[0-9a-fA-F]{6}" {{if .Required}}required{{end}}
+           x-bind:aria-invalid="value !== '' && !valid()" {{with $described}}aria-describedby="{{.}}"{{end}} {{.Attrs}}>
+  </div>
+  {{if or .Hint .HintKey}}<p class="yd-field__hint" id="{{.ID}}-hint"{{with .HintKey}} data-yd-i18n="{{.}}"{{end}}>{{if .Hint}}{{.Hint}}{{else}}{{if .HintKey}}{{tr .HintKey}}{{end}}{{end}}</p>{{end}}
+</div>
+{{- end -}}
+
+{{/* components.form.combobox — a searchable select. Dict keys | dict 的键:
+       ID, Name, Value, LabelValue, Label, LabelKey, Placeholder, PlaceholderKey,
+       Options []{Value, Label, Key}, Hint, HintKey, Required, Disabled, Attrs (template.HTMLAttr) */}}
+{{- define "components.form.combobox" -}}
+{{- $described := .DescribedBy -}}
+{{- if and (not $described) .Hint -}}{{- $described = printf "%s-hint" .ID -}}{{- end -}}
+<div class="yd-field{{if .Required}} yd-field--required{{end}}" x-data="ydCombobox" data-value="{{.Value}}" data-label="{{.LabelValue}}">
+  <label class="yd-field__label" for="{{.ID}}"{{with .LabelKey}} data-yd-i18n="{{.}}"{{end}}>{{if .Label}}{{.Label}}{{else}}{{if .LabelKey}}{{tr .LabelKey}}{{end}}{{end}}</label>
+  <div class="yd-combobox">
+    <input class="yd-input" id="{{.ID}}" type="search" x-ref="text" autocomplete="off"
+           x-on:focus="show" x-on:input="onInput($event)" x-on:keydown="onKeydown($event)"
+           x-bind:aria-expanded="open" x-bind:aria-activedescendant="activeId"
+           role="combobox" aria-autocomplete="list" aria-controls="{{.ID}}-list"
+           {{if .Required}}required{{end}} {{if .Disabled}}disabled{{end}}
+           {{with $described}}aria-describedby="{{.}}"{{end}}
+           {{with .PlaceholderKey}}data-yd-i18n-attr="placeholder:{{.}}"{{end}} {{if or .Placeholder .PlaceholderKey}}placeholder="{{if .Placeholder}}{{.Placeholder}}{{else}}{{if .PlaceholderKey}}{{tr .PlaceholderKey}}{{end}}{{end}}"{{end}} {{.Attrs}}>
+    <div class="yd-combobox__panel" id="{{.ID}}-list" role="listbox" x-bind:hidden="!open" x-cloak>
+      {{range $i, $opt := .Options}}
+      <button type="button" class="yd-combobox__option" id="{{$.ID}}-option-{{$i}}"
+              role="option" aria-selected="false"
+              data-yd-combobox-option
+              data-value="{{$opt.Value}}" data-label="{{$opt.Label}}"
+              x-show="matches($el.textContent)" x-on:click="pick($el)">
+        <span{{with $opt.Key}} data-yd-i18n="{{.}}"{{end}}>{{$opt.Label}}</span>
+      </button>
+      {{end}}
+      <p class="yd-combobox__empty" x-bind:hidden="!showEmpty" x-cloak>{{tr "ui.no_results"}}</p>
+    </div>
+    <input type="hidden" name="{{.Name}}" value="{{.Value}}" x-bind:value="value">
+  </div>
+  {{if or .Hint .HintKey}}<p class="yd-field__hint" id="{{.ID}}-hint"{{with .HintKey}} data-yd-i18n="{{.}}"{{end}}>{{if .Hint}}{{.Hint}}{{else}}{{if .HintKey}}{{tr .HintKey}}{{end}}{{end}}</p>{{end}}
+</div>
+{{- end -}}
+
+{{/* components.form.date — a native date field. Dict keys mirror components.form.field. | 原生日期字段，
+     键与 components.form.field 一致。 */}}
+{{- define "components.form.date" -}}
+{{template "components.form.field" (dict
+  "ID" .ID "Name" .Name "Type" "date" "Value" .Value
+  "Label" .Label "LabelKey" .LabelKey "Hint" .Hint "HintKey" .HintKey
+  "Error" .Error "ErrorKey" .ErrorKey "Placeholder" .Placeholder "PlaceholderKey" .PlaceholderKey
+  "Min" .Min "Max" .Max "Required" .Required "Disabled" .Disabled "Readonly" .Readonly
+  "Invalid" .Invalid "DescribedBy" .DescribedBy "Attrs" .Attrs)}}
+{{- end -}}
+
+{{/* components.form.time — a native time field. Dict keys mirror components.form.field. | 原生时间字段，
+     键与 components.form.field 一致。 */}}
+{{- define "components.form.time" -}}
+{{template "components.form.field" (dict
+  "ID" .ID "Name" .Name "Type" "time" "Value" .Value
+  "Label" .Label "LabelKey" .LabelKey "Hint" .Hint "HintKey" .HintKey
+  "Error" .Error "ErrorKey" .ErrorKey "Placeholder" .Placeholder "PlaceholderKey" .PlaceholderKey
+  "Min" .Min "Max" .Max "Step" .Step "Required" .Required "Disabled" .Disabled "Readonly" .Readonly
+  "Invalid" .Invalid "DescribedBy" .DescribedBy "Attrs" .Attrs)}}
+{{- end -}}
+
+{{/* components.form.datetime — a native datetime-local field. Dict keys mirror components.form.field. |
+     原生 datetime-local 字段，键与 components.form.field 一致。 */}}
+{{- define "components.form.datetime" -}}
+{{template "components.form.field" (dict
+  "ID" .ID "Name" .Name "Type" "datetime-local" "Value" .Value
+  "Label" .Label "LabelKey" .LabelKey "Hint" .Hint "HintKey" .HintKey
+  "Error" .Error "ErrorKey" .ErrorKey "Placeholder" .Placeholder "PlaceholderKey" .PlaceholderKey
+  "Min" .Min "Max" .Max "Step" .Step "Required" .Required "Disabled" .Disabled "Readonly" .Readonly
+  "Invalid" .Invalid "DescribedBy" .DescribedBy "Attrs" .Attrs)}}
+{{- end -}}
+
+{{/* components.form.editor — a Markdown editor that degrades to a textarea.
+     Dict keys | dict 的键: ID, Name, Value, Rows, Label, LabelKey, Hint, HintKey, Required, Attrs
+     The page must include EasyMDE's stylesheet and script; without them the textarea remains and
+     the form still submits. | 页面需引入 EasyMDE 的样式与脚本；未引入时 textarea 保留，表单仍可提交。 */}}
+{{- define "components.form.editor" -}}
+<div class="yd-field yd-editor" data-yd-editor x-data="ydEditor">
+  <label class="yd-field__label" for="{{.ID}}"{{with .LabelKey}} data-yd-i18n="{{.}}"{{end}}>{{if .Label}}{{.Label}}{{else}}{{if .LabelKey}}{{tr .LabelKey}}{{end}}{{end}}</label>
+  <textarea class="yd-textarea" id="{{.ID}}" name="{{.Name}}" rows="{{if .Rows}}{{.Rows}}{{else}}10{{end}}"
+            {{if .Required}}required{{end}}
+            {{with .PlaceholderKey}}data-yd-i18n-attr="placeholder:{{.}}"{{end}} {{if or .Placeholder .PlaceholderKey}}placeholder="{{if .Placeholder}}{{.Placeholder}}{{else}}{{if .PlaceholderKey}}{{tr .PlaceholderKey}}{{end}}{{end}}"{{end}} {{.Attrs}}>{{.Value}}</textarea>
+  {{if or .Hint .HintKey}}<p class="yd-field__hint"{{with .HintKey}} data-yd-i18n="{{.}}"{{end}}>{{if .Hint}}{{.Hint}}{{else}}{{if .HintKey}}{{tr .HintKey}}{{end}}{{end}}</p>{{end}}
+</div>
+{{- end -}}

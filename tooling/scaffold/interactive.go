@@ -21,10 +21,8 @@ const (
 	promptGRPC = "启用 gRPC 双通道 (y/n) | Enable gRPC dual channel (y/n)"
 	// promptI18n asks whether i18n is wanted. | promptI18n 询问是否开启国际化。
 	promptI18n = "启用 i18n (y/n) | Enable i18n (y/n)"
-	// promptTailwind asks whether Tailwind is wanted. | promptTailwind 询问是否接入 Tailwind。
-	promptTailwind = "启用 Tailwind (y/n) | Enable Tailwind (y/n)"
 	// promptExts asks for the Htmx extension list. | promptExts 询问 Htmx 扩展列表。
-	promptExts = "Htmx 扩展 (逗号分隔，名称见 `yd new --help`) | Htmx extensions (comma separated, names in `yd new --help`)"
+	promptExts = "额外 Htmx 扩展 (逗号分隔，名称见 `yd new --help`；Htmx/Alpine/Tailwind 已内置) | Extra Htmx extensions (comma separated, names in `yd new --help`; Htmx/Alpine/Tailwind are built in)"
 	// promptLicense asks for the licence. | promptLicense 询问开源协议。
 	promptLicense = "开源协议 | License"
 	// noneAnswer clears list answers (for example: no Htmx extension at all). | noneAnswer 表示清空列表类回答（如不启用任何 Htmx 扩展）。
@@ -96,14 +94,15 @@ func Interactive(in io.Reader, out io.Writer, base Options, isTTY bool) (Options
 	base.DB = db
 
 	// Redis 与 asynq 不是开关：它们随每个项目生成，问答不再询问。
+	// Htmx、Tailwind CSS 与 Alpine.js 同样不是开关：它们是基线技术栈，问答不提供关闭项。
 	// Redis and asynq are not switches: they ship with every project, so the interview never asks.
+	// Htmx, Tailwind CSS and Alpine.js are baseline stack too, so the interview offers no way to turn them off.
 	for _, toggle := range []struct {
 		prompt string
 		value  *bool
 	}{
 		{promptGRPC, &base.GRPC},
 		{promptI18n, &base.I18n},
-		{promptTailwind, &base.Tailwind},
 	} {
 		answer, err := ask(toggle.prompt, yesNo(*toggle.value))
 		if err != nil {

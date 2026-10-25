@@ -1,0 +1,365 @@
+{{/*
+  components/display.html — the display primitives of the yd UI kit.
+  components/display.html — yd UI 组件层的展示原语。
+
+  What belongs here | 这里放什么
+    Shapes that present information without owning a data source: accordion, aspect ratio, avatar
+    group, badge, button group, carousel, code, descriptions, ellipsis, figure, media item, list,
+    marquee, meter, rating, result, scroll area, slider, timeline, watermark, kbd and divider.
+    不拥有数据源、只负责呈现信息的形状：折叠面板、宽高比、头像组、徽标、按钮组、轮播、代码、描述
+    列表、省略、图片、媒体行、列表、跑马灯、进度条、评分、结果页、滚动容器、滑块、时间线、水印、
+    键盘提示与分隔线。
+
+  Server-first | 服务端优先
+    Everything here renders without JavaScript except the carousel, the value bubble of the slider
+    and the watermark repetition. Those three use a tiny Alpine component; the rest are plain
+    markup plus CSS, so an htmx swap never needs a re-initialisation callback.
+    除轮播、滑块数值气泡与水印重复之外，这里的一切都不依赖 JavaScript。那三处使用很小的 Alpine
+    组件；其余都是普通标记加 CSS，因此 htmx 交换后不需要任何重新初始化回调。
+*/}}
+
+{{/* components.display.accordion — native details/summary, no script. Dict keys | dict 的键:
+       Items []{ID, Title, TitleKey, Open, Body (template.HTML)} */}}
+{{- define "components.display.accordion" -}}
+<div class="yd-accordion">
+  {{range .Items}}
+  <details class="yd-accordion__item"{{if .Open}} open{{end}}{{with .ID}} id="{{.}}"{{end}}>
+    <summary class="yd-accordion__summary"{{with .TitleKey}} data-yd-i18n="{{.}}"{{end}}>{{.Title}}</summary>
+    <div class="yd-accordion__body">{{.Body}}</div>
+  </details>
+  {{end}}
+</div>
+{{- end -}}
+
+{{/* components.display.aspect — an aspect-ratio frame around arbitrary content. Dict keys | dict 的键:
+       Ratio (16x9|1x1|4x3|3x2), Content (template.HTML), Caption, CaptionKey */}}
+{{- define "components.display.aspect" -}}
+<figure class="yd-figure">
+  <div class="yd-aspect-ratio{{with .Ratio}} yd-aspect-ratio--{{.}}{{end}}">{{.Content}}</div>
+  {{with .Caption}}<figcaption class="yd-figure__caption"{{with $.CaptionKey}} data-yd-i18n="{{$.CaptionKey}}"{{end}}>{{.}}</figcaption>{{end}}
+</figure>
+{{- end -}}
+
+{{/* components.display.avatar-group — overlapping avatars. Dict keys | dict 的键:
+       Items []{Initials, Label, LabelKey}, More (shown as +N) */}}
+{{- define "components.display.avatar-group" -}}
+<div class="yd-avatar-group">
+  {{range .Items}}
+  {{- $item := . -}}
+  <span class="yd-avatar{{with $item.Size}} yd-avatar--{{.}}{{end}}"{{if $item.Label}} role="img"{{with $item.LabelKey}} data-yd-i18n-attr="aria-label:{{.}}"{{end}} aria-label="{{$item.Label}}"{{else}} aria-hidden="true"{{end}}>{{$item.Initials}}</span>
+  {{end}}
+  {{with .More}}<span class="yd-avatar-group__more" aria-hidden="true">+{{.}}</span>{{end}}
+</div>
+{{- end -}}
+
+{{/* components.display.badge — status, dot or count badge. Dict keys | dict 的键:
+       Tone (success|warn|danger|info|muted), Label, LabelKey, Count, Max, Dot */}}
+{{- define "components.display.badge" -}}
+{{if .Dot}}
+<span class="yd-badge yd-badge--dot{{with .Tone}} yd-badge--{{.}}{{end}}" aria-hidden="true"></span>
+{{else if .Count}}
+<span class="yd-badge yd-badge--count{{with .Tone}} yd-badge--{{.}}{{end}}">
+  {{if .Max}}{{if gt .Count .Max}}{{.Max}}+{{else}}{{.Count}}{{end}}{{else}}{{.Count}}{{end}}
+</span>
+{{else if or .Label .LabelKey}}
+<span class="yd-badge{{with .Tone}} yd-badge--{{.}}{{end}}"{{with .LabelKey}} data-yd-i18n="{{.}}"{{end}}>{{if .Label}}{{.Label}}{{else}}{{if .LabelKey}}{{tr .LabelKey}}{{end}}{{end}}</span>
+{{end}}
+{{- end -}}
+
+{{/* components.display.button-group — adjacent buttons made from links. Dict keys | dict 的键:
+       Items []{Label, LabelKey, Href, Active, Attrs (template.HTMLAttr)} */}}
+{{- define "components.display.button-group" -}}
+<div class="yd-button-group" role="group">
+  {{range .Items}}
+  <a class="yd-btn{{if .Active}} yd-btn--primary{{end}}" href="{{.Href}}"{{if .Active}} aria-current="page"{{end}}{{with .LabelKey}} data-yd-i18n="{{.}}"{{end}} {{.Attrs}}>{{if .Label}}{{.Label}}{{else}}{{if .LabelKey}}{{tr .LabelKey}}{{end}}{{end}}</a>
+  {{end}}
+</div>
+{{- end -}}
+
+{{/* components.display.carousel — scroll-snap carousel. Dict keys | dict 的键:
+       Label, LabelKey, Items []{ID, Content (template.HTML), Caption, CaptionKey} */}}
+{{- define "components.display.carousel" -}}
+{{- $count := len .Items -}}
+<div class="yd-carousel" x-data="ydCarousel" data-count="{{$count}}" tabindex="0"
+     x-on:keydown="onKey($event)"
+     role="region" aria-roledescription="carousel"{{with .LabelKey}} aria-label="{{$.Label}}" data-yd-i18n-attr="aria-label:{{.}}"{{end}}>
+  <div class="yd-carousel__track" x-ref="track" aria-live="polite">
+    {{range $i, $item := .Items}}
+    <div class="yd-carousel__item" id="{{$item.ID}}" role="group" aria-roledescription="slide"
+         {{with $item.Caption}}aria-label="{{.}}"{{end}}>
+      {{$item.Content}}
+      {{with $item.Caption}}<p class="yd-figure__caption"{{with $item.CaptionKey}} data-yd-i18n="{{.}}"{{end}}>{{.}}</p>{{end}}
+    </div>
+    {{end}}
+  </div>
+  <div class="yd-carousel__nav">
+    <button type="button" class="yd-btn yd-btn--ghost yd-btn--sm" x-on:click="prev"
+            data-yd-i18n-attr="aria-label:ui.previous" aria-label="{{tr "ui.previous"}}">{{template "partials/icon" "lucide-arrow-left"}}</button>
+    <div class="yd-carousel__dots">
+      {{range $i, $item := .Items}}
+      <button type="button" class="yd-carousel__dot" x-on:click="go({{$i}})"
+              x-bind:class="active === {{$i}} ? 'yd-carousel__dot yd-carousel__dot--active' : 'yd-carousel__dot'"
+              x-bind:aria-current="active === {{$i}} ? 'true' : null"
+              data-yd-i18n-attr="aria-label:ui.slide" aria-label="{{tr "ui.slide"}} {{$i}}"></button>
+      {{end}}
+    </div>
+    <button type="button" class="yd-btn yd-btn--ghost yd-btn--sm" x-on:click="next"
+            data-yd-i18n-attr="aria-label:ui.next" aria-label="{{tr "ui.next"}}">{{template "partials/icon" "lucide-arrow-right"}}</button>
+  </div>
+</div>
+{{- end -}}
+
+{{/* components.display.code — a code block with a copy control. Dict keys | dict 的键:
+       Language, Code, CopyValue, Label, LabelKey */}}
+{{- define "components.display.code" -}}
+<div class="yd-code-frame">
+  <div class="yd-code__header">
+    <span{{with .LabelKey}} data-yd-i18n="{{.}}"{{end}}>{{if .Label}}{{.Label}}{{else}}{{if .LabelKey}}{{tr .LabelKey}}{{end}}{{end}}</span>
+    <button type="button" class="yd-btn yd-btn--ghost yd-btn--sm" x-data="ydCopy"
+            data-yd-copy="{{.CopyValue}}" x-on:click="copy"
+            data-yd-i18n-attr="aria-label:ui.copy" aria-label="{{tr "ui.copy"}}">
+      <span x-show="!copied && !error" data-yd-i18n="ui.copy">{{tr "ui.copy"}}</span>
+      <span x-show="copied" x-cloak data-yd-i18n="cn.copy.copied">{{tr "cn.copy.copied"}}</span>
+      <span x-show="error" x-cloak data-yd-i18n="cn.copy.failed">{{tr "cn.copy.failed"}}</span>
+    </button>
+  </div>
+  <pre class="yd-code yd-code--block{{with .Language}} language-{{.}}{{end}}"{{with .Language}} data-language="{{.}}"{{end}}><code>{{.Code}}</code></pre>
+</div>
+{{- end -}}
+
+{{/* components.display.descriptions — a key/value grid. Dict keys | dict 的键:
+       Items []{Label, LabelKey, Value, ValueKey} */}}
+{{- define "components.display.descriptions" -}}
+<dl class="yd-descriptions">
+  {{range .Items}}
+  <div class="yd-descriptions__item">
+    <dt class="yd-descriptions__key"{{with .LabelKey}} data-yd-i18n="{{.}}"{{end}}>{{.Label}}</dt>
+    <dd class="yd-descriptions__value"{{with .ValueKey}} data-yd-i18n="{{.}}"{{end}}>{{.Value}}</dd>
+  </div>
+  {{end}}
+</dl>
+{{- end -}}
+
+{{/* components.display.ellipsis — clamp text to N lines. Dict keys | dict 的键:
+       Lines (1|2|3), Text, TextKey, Title */}}
+{{- define "components.display.ellipsis" -}}
+<p class="yd-ellipsis{{with .Lines}} yd-ellipsis--{{.}}{{end}}"{{with .Title}} title="{{.}}"{{end}}{{with .TextKey}} data-yd-i18n="{{.}}"{{end}}>{{.Text}}</p>
+{{- end -}}
+
+{{/* components.display.gradient-text — one accent phrase, not a headline treatment. | 渐变文字：用于
+     一个强调短语，而不是标题装饰。 Dict keys | dict 的键: Text, TextKey */}}
+{{- define "components.display.gradient-text" -}}
+<span class="yd-gradient-text"{{with .TextKey}} data-yd-i18n="{{.}}"{{end}}>{{.Text}}</span>
+{{- end -}}
+
+{{/* components.display.highlight — already-escaped highlighted markup. Dict keys | dict 的键:
+       HTML (template.HTML) */}}
+{{- define "components.display.highlight" -}}
+<mark class="yd-highlight">{{.HTML}}</mark>
+{{- end -}}
+
+{{/* components.display.figure — an image with a caption. Dict keys | dict 的键:
+       Src, Alt, AltKey, Caption, CaptionKey, Ratio, Lazy */}}
+{{- define "components.display.figure" -}}
+<figure class="yd-figure">
+  <img class="yd-figure__media" src="{{.Src}}" alt="{{.Alt}}"
+       {{with .AltKey}}data-yd-i18n-attr="alt:{{.}}"{{end}}
+       {{if .Lazy}}loading="lazy" decoding="async"{{end}}>
+  {{with .Caption}}<figcaption class="yd-figure__caption"{{with $.CaptionKey}} data-yd-i18n="{{$.CaptionKey}}"{{end}}>{{.}}</figcaption>{{end}}
+</figure>
+{{- end -}}
+
+{{/* components.display.item — a media row. Dict keys | dict 的键:
+       Media (template.HTML), Title, TitleKey, Text, TextKey, Meta, MetaKey, Actions (template.HTML) */}}
+{{- define "components.display.item" -}}
+<div class="yd-item">
+  {{with .Media}}<div class="yd-item__media">{{.}}</div>{{end}}
+  <div class="yd-item__body">
+    {{if or .Title .TitleKey}}<p class="yd-item__title"{{with .TitleKey}} data-yd-i18n="{{.}}"{{end}}>{{if .Title}}{{.Title}}{{else}}{{tr .TitleKey}}{{end}}</p>{{end}}
+    {{if or .Text .TextKey}}<p class="yd-item__text"{{with .TextKey}} data-yd-i18n="{{.}}"{{end}}>{{if .Text}}{{.Text}}{{else}}{{tr .TextKey}}{{end}}</p>{{end}}
+    {{if or .Meta .MetaKey}}<p class="yd-item__meta"{{with .MetaKey}} data-yd-i18n="{{.}}"{{end}}>{{if .Meta}}{{.Meta}}{{else}}{{tr .MetaKey}}{{end}}</p>{{end}}
+  </div>
+  {{with .Actions}}<div class="yd-item__actions">{{.}}</div>{{end}}
+</div>
+{{- end -}}
+
+{{/* components.display.list — an ordered or unordered list. Dict keys | dict 的键:
+       Ordered, Items []{Title, TitleKey, Text, TextKey, Meta, MetaKey, Href, Icon (template.HTML)} */}}
+{{- define "components.display.list" -}}
+{{if .Ordered}}
+<ol class="yd-list yd-list--ordered">
+  {{range .Items}}
+  {{- $item := . -}}
+  <li class="yd-list__item">
+    {{with $item.Icon}}<span class="yd-list__icon" aria-hidden="true">{{.}}</span>{{end}}
+    <span class="yd-list__primary">
+      {{if $item.Href}}<a class="yd-list__title" href="{{$item.Href}}"{{with $item.TitleKey}} data-yd-i18n="{{.}}"{{end}}>{{$item.Title}}</a>{{else}}<span class="yd-list__title"{{with $item.TitleKey}} data-yd-i18n="{{.}}"{{end}}>{{$item.Title}}</span>{{end}}
+      {{with $item.Text}}<span class="yd-list__text"{{with $item.TextKey}} data-yd-i18n="{{.}}"{{end}}>{{.}}</span>{{end}}
+    </span>
+    {{with $item.Meta}}<span class="yd-list__meta"{{with $item.MetaKey}} data-yd-i18n="{{.}}"{{end}}>{{.}}</span>{{end}}
+  </li>
+  {{end}}
+</ol>
+{{else}}
+<ul class="yd-list">
+  {{range .Items}}
+  {{- $item := . -}}
+  <li class="yd-list__item">
+    {{with $item.Icon}}<span class="yd-list__icon" aria-hidden="true">{{.}}</span>{{end}}
+    <span class="yd-list__primary">
+      {{if $item.Href}}<a class="yd-list__title" href="{{$item.Href}}"{{with $item.TitleKey}} data-yd-i18n="{{.}}"{{end}}>{{$item.Title}}</a>{{else}}<span class="yd-list__title"{{with $item.TitleKey}} data-yd-i18n="{{.}}"{{end}}>{{$item.Title}}</span>{{end}}
+      {{with $item.Text}}<span class="yd-list__text"{{with $item.TextKey}} data-yd-i18n="{{.}}"{{end}}>{{.}}</span>{{end}}
+    </span>
+    {{with $item.Meta}}<span class="yd-list__meta"{{with $item.MetaKey}} data-yd-i18n="{{.}}"{{end}}>{{.}}</span>{{end}}
+  </li>
+  {{end}}
+</ul>
+{{end}}
+{{- end -}}
+
+{{/* components.display.marquee — a looping announcement strip. Dict keys | dict 的键:
+       Items []{Text, TextKey} */}}
+{{- define "components.display.marquee" -}}
+<div class="yd-marquee">
+  <div class="yd-marquee__track">
+    {{range .Items}}<span class="yd-marquee__item"{{with .TextKey}} data-yd-i18n="{{.}}"{{end}}>{{.Text}}</span>{{end}}
+    {{range .Items}}<span class="yd-marquee__item" aria-hidden="true"{{with .TextKey}} data-yd-i18n="{{.}}"{{end}}>{{.Text}}</span>{{end}}
+  </div>
+</div>
+{{- end -}}
+
+{{/* components.display.meter — native progress. Dict keys | dict 的键:
+       Value, Max, Label, LabelKey, Tone (success|warning|danger) */}}
+{{- define "components.display.meter" -}}
+<div class="yd-meter-row">
+  <progress class="yd-meter{{with .Tone}} yd-meter--{{.}}{{end}}" value="{{.Value}}" max="{{if .Max}}{{.Max}}{{else}}100{{end}}">{{.Value}} / {{if .Max}}{{.Max}}{{else}}100{{end}}</progress>
+  {{if or .Label .LabelKey}}<span class="yd-meter__label"{{with .LabelKey}} data-yd-i18n="{{.}}"{{end}}>{{if .Label}}{{.Label}}{{else}}{{tr .LabelKey}}{{end}}</span>{{end}}
+</div>
+{{- end -}}
+
+{{/* components.display.rate — a native radio group drawn as stars. Dict keys | dict 的键:
+       ID, Name, Value, Stars []int (e.g. 5,4,3,2,1), Label, LabelKey, Readonly, Required */}}
+{{- define "components.display.rate" -}}
+{{- $id := .ID -}}{{- $value := .Value -}}{{- $name := .Name -}}
+<div class="yd-rate" role="radiogroup"{{with .LabelKey}} aria-label="{{$.Label}}" data-yd-i18n-attr="aria-label:{{.}}"{{end}}>
+  {{range .Stars}}
+  <input class="yd-rate__input" type="radio" id="{{$id}}-{{.}}" name="{{$name}}" value="{{.}}"{{if eq $value .}} checked{{end}}{{if $.Readonly}} disabled{{end}}{{if $.Required}} required{{end}}>
+  <label class="yd-rate__label{{if le . $value}} yd-rate__label--on{{end}}" for="{{$id}}-{{.}}" aria-label="{{.}}">{{template "partials/icon" "lucide-star"}}</label>
+  {{end}}
+</div>
+{{- end -}}
+
+{{/* components.display.result — a status page. Dict keys | dict 的键:
+       Status (success|warning|error|info), Title, TitleKey, Text, TextKey,
+       Actions (template.HTML), Code */}}
+{{- define "components.display.result" -}}
+<div class="yd-result{{with .Status}} yd-result--{{.}}{{end}}">
+  <span class="yd-result__icon" aria-hidden="true">{{if eq .Status "success"}}{{template "partials/icon" "lucide-check-circle"}}{{else if eq .Status "warning"}}{{template "partials/icon" "lucide-alert-circle"}}{{else if eq .Status "error"}}{{template "partials/icon" "lucide-x-circle"}}{{else}}{{template "partials/icon" "lucide-info"}}{{end}}</span>
+  {{if or .Title .TitleKey}}<p class="yd-result__title"{{with .TitleKey}} data-yd-i18n="{{.}}"{{end}}>{{if .Title}}{{.Title}}{{else}}{{tr .TitleKey}}{{end}}</p>{{end}}
+  {{if or .Text .TextKey}}<p class="yd-result__text"{{with .TextKey}} data-yd-i18n="{{.}}"{{end}}>{{if .Text}}{{.Text}}{{else}}{{tr .TextKey}}{{end}}</p>{{end}}
+  {{with .Code}}<p class="yd-result__text"><code class="yd-code">{{.}}</code></p>{{end}}
+  {{with .Actions}}<div class="yd-result__actions">{{.}}</div>{{end}}
+</div>
+{{- end -}}
+
+{{/* components.display.scroll-area — a scroll container. Dict keys | dict 的键:
+       Size (sm|md|lg), Axis (x), Content (template.HTML) */}}
+{{- define "components.display.scroll-area" -}}
+<div class="yd-scroll-area{{with .Size}} yd-scroll-area--{{.}}{{end}}{{if eq .Axis "x"}} yd-scroll-area--x{{end}}"
+     tabindex="0"{{with .Label}} role="region" aria-label="{{.}}"{{with $.LabelKey}} data-yd-i18n-attr="aria-label:{{$.LabelKey}}"{{end}}{{end}}>{{.Content}}</div>
+{{- end -}}
+
+{{/* components.display.slider — a native range with a live value. Dict keys | dict 的键:
+       ID, Name, Value, Min, Max, Step, Label, LabelKey, Hint, HintKey */}}
+{{- define "components.display.slider" -}}
+<div class="yd-field" x-data="ydSlider" data-value="{{.Value}}">
+  <label class="yd-field__label" for="{{.ID}}"{{with .LabelKey}} data-yd-i18n="{{.}}"{{end}}>{{if .Label}}{{.Label}}{{else}}{{if .LabelKey}}{{tr .LabelKey}}{{end}}{{end}}</label>
+  <div class="yd-slider">
+    <input class="yd-slider__input" type="range" id="{{.ID}}" name="{{.Name}}"
+           value="{{.Value}}" min="{{if .Min}}{{.Min}}{{else}}0{{end}}" max="{{if .Max}}{{.Max}}{{else}}100{{end}}" step="{{if .Step}}{{.Step}}{{else}}1{{end}}"
+           x-model="value">
+    <output class="yd-slider__value" for="{{.ID}}" x-text="value"></output>
+  </div>
+  {{with .Hint}}<p class="yd-field__hint"{{with $.HintKey}} data-yd-i18n="{{$.HintKey}}"{{end}}>{{.}}</p>{{end}}
+</div>
+{{- end -}}
+
+{{/* components.display.timeline — a chronological list. Dict keys | dict 的键:
+       Items []{Time, TimeKey, Title, TitleKey, Text, TextKey, State (done|current)} */}}
+{{- define "components.display.timeline" -}}
+<ol class="yd-timeline">
+  {{range .Items}}
+  {{- $item := . -}}
+  <li class="yd-timeline__item{{with $item.State}} yd-timeline__item--{{.}}{{end}}">
+    <span class="yd-timeline__dot" aria-hidden="true"></span>
+    <div class="yd-timeline__body">
+      {{with $item.Time}}<span class="yd-timeline__time"{{with $item.TimeKey}} data-yd-i18n="{{.}}"{{end}}>{{.}}</span>{{end}}
+      {{with $item.Title}}<span class="yd-timeline__title"{{with $item.TitleKey}} data-yd-i18n="{{.}}"{{end}}>{{.}}</span>{{end}}
+      {{with $item.Text}}<span class="yd-timeline__text"{{with $item.TextKey}} data-yd-i18n="{{.}}"{{end}}>{{.}}</span>{{end}}
+    </div>
+  </li>
+  {{end}}
+</ol>
+{{- end -}}
+
+{{/* components.display.watermark — repeated text behind content. Dict keys | dict 的键:
+       Text, TextKey, Count, Content (template.HTML) */}}
+{{- define "components.display.watermark" -}}
+<div class="yd-watermark" x-data="ydWatermark" data-text="{{.Text}}" data-count="{{if .Count}}{{.Count}}{{else}}48{{end}}">
+  <div class="yd-watermark__layer" aria-hidden="true">
+    <template x-for="i in items()" :key="i"><span x-text="text"></span></template>
+  </div>
+  {{.Content}}
+</div>
+{{- end -}}
+
+{{/* components.display.kbd — keyboard hints. Dict keys | dict 的键:
+       Keys []string, Label, LabelKey */}}
+{{- define "components.display.kbd" -}}
+<span class="yd-cluster" aria-label="{{.Label}}"{{with .LabelKey}} data-yd-i18n-attr="aria-label:{{.}}"{{end}}>
+  {{range .Keys}}<kbd class="yd-kbd">{{.}}</kbd>{{end}}
+  {{with .Label}}<span{{with $.LabelKey}} data-yd-i18n="{{$.LabelKey}}"{{end}}>{{.}}</span>{{end}}
+</span>
+{{- end -}}
+
+{{/* components.display.divider — horizontal or vertical rule. Dict keys | dict 的键:
+       Label, LabelKey, Vertical */}}
+{{- define "components.display.divider" -}}
+{{if .Vertical}}
+<span class="yd-divider yd-divider--vertical" role="separator" aria-orientation="vertical"></span>
+{{else}}
+<div class="yd-divider{{if .Label}} yd-divider--labeled{{end}}" role="{{if .Label}}presentation{{else}}separator{{end}}">
+  {{with .Label}}<span class="yd-divider__label"{{with $.LabelKey}} data-yd-i18n="{{$.LabelKey}}"{{end}}>{{.}}</span>{{end}}
+</div>
+{{end}}
+{{- end -}}
+
+{{/* components.display.prose — long-form rendered HTML. Dict keys | dict 的键:
+       Content (template.HTML) */}}
+{{- define "components.display.prose" -}}
+<div class="yd-prose">{{.Content}}</div>
+{{- end -}}
+
+{{/* components.display.countdown — a live countdown. Dict keys | dict 的键:
+       Seconds, Static (do not auto-start when true), Label, LabelKey */}}
+{{- define "components.display.countdown" -}}
+<div class="yd-cluster" x-data="ydCountdown" data-seconds="{{.Seconds}}" data-auto="{{if .Static}}false{{else}}true{{end}}"
+     role="timer" aria-live="off">
+  {{if or .Label .LabelKey}}<span class="yd-field__hint"{{with .LabelKey}} data-yd-i18n="{{.}}"{{end}}>{{if .Label}}{{.Label}}{{else}}{{tr .LabelKey}}{{end}}</span>{{end}}
+  <span class="yd-countdown" x-text="label()"></span>
+</div>
+{{- end -}}
+
+{{/* components.display.number — an animated statistic. Dict keys | dict 的键:
+       Value, Format (number|currency|percent), Currency, Locale, Duration,
+       Label, LabelKey */}}
+{{- define "components.display.number" -}}
+<div class="yd-stat" x-data="ydNumberAnimation"
+     data-value="{{.Value}}" data-format="{{if .Format}}{{.Format}}{{else}}number{{end}}"
+     data-currency="{{if .Currency}}{{.Currency}}{{else}}CNY{{end}}"
+     data-locale="{{if .Locale}}{{.Locale}}{{else}}zh-CN{{end}}"
+     data-duration="{{if .Duration}}{{.Duration}}{{else}}900{{end}}">
+  {{with .Label}}<span class="yd-stat__label"{{with $.LabelKey}} data-yd-i18n="{{$.LabelKey}}"{{end}}>{{.}}</span>{{end}}
+  <span class="yd-stat__value" x-text="display">{{.Value}}</span>
+</div>
+{{- end -}}

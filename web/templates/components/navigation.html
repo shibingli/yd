@@ -1,0 +1,280 @@
+{{/*
+  components/navigation.html — tabs, breadcrumbs, steps and the Alpine dropdown.
+  components/navigation.html — 页签、面包屑、步骤条与 Alpine 下拉。
+
+  Two kinds of tabs, deliberately | 刻意区分两种页签
+    components.navigation.tabs is a server-driven navigation: each tab is a link (usually an htmx
+    hx-get) and the server decides which one is current. It is the right default because it keeps
+    the URL, permissions and data on the server.
+    components.navigation.tabs 是服务端驱动的导航：每个页签是一个链接（通常是 htmx hx-get），
+    由服务端决定哪一个当前。它是正确默认值，因为 URL、权限与数据都留在服务端。
+    A client-only tab panel uses x-data="ydTabs" with buttons and rendered panels; the usage manual
+    shows that form. Do not use it for content that must be addressable by URL.
+    纯客户端页签面板使用 x-data="ydTabs" 加按钮与已渲染面板；使用手册给出该写法。不要把它用于
+    必须能被 URL 直接定位的内容。
+
+  Dropdowns | 下拉
+    The Alpine dropdown is for panels that need focus management and keyboard navigation. A plain
+    list action menu can stay a native <details class="yd-menu">, which works with no script at
+    all. Both share the same panel and item classes.
+    Alpine 下拉用于需要焦点管理与键盘导航的面板。普通列表操作菜单可以继续使用原生
+    <details class="yd-menu">，它完全不需要脚本。两者共用同一套面板与条目类。
+*/}}
+
+{{/* components.navigation.tabs — server-driven tab navigation. Dict keys | dict 的键:
+       Label, LabelKey, Items []{Label, LabelKey, Href, Active, Attrs (template.HTMLAttr)} */}}
+{{- define "components.navigation.tabs" -}}
+<nav class="yd-tabs" aria-label="{{if .Label}}{{.Label}}{{else}}{{if .LabelKey}}{{tr .LabelKey}}{{end}}{{end}}" data-yd-i18n-attr="aria-label:{{.LabelKey}}">
+  <div class="yd-tabs__list" role="list">
+    {{range .Items}}
+    <a class="yd-tabs__tab{{if .Active}} yd-tabs__tab--active{{end}}" role="listitem" href="{{.Href}}"
+       {{if .Active}}aria-current="page"{{end}}
+       {{with .LabelKey}}data-yd-i18n="{{.}}"{{end}} {{.Attrs}}>{{.Label}}</a>
+    {{end}}
+  </div>
+</nav>
+{{- end -}}
+
+{{/* components.navigation.breadcrumb — the path to the current page. Dict keys | dict 的键:
+       Label, LabelKey, Items []{Label, LabelKey, Href, Current} */}}
+{{- define "components.navigation.breadcrumb" -}}
+<nav class="yd-breadcrumb" aria-label="{{if .Label}}{{.Label}}{{else}}{{if .LabelKey}}{{tr .LabelKey}}{{end}}{{end}}" data-yd-i18n-attr="aria-label:{{.LabelKey}}">
+  <ol class="yd-breadcrumb__list">
+    {{range .Items}}
+    {{if .Current}}
+    <li class="yd-breadcrumb__item"><span class="yd-breadcrumb__current" aria-current="page"{{with .LabelKey}} data-yd-i18n="{{.}}"{{end}}>{{if .Label}}{{.Label}}{{else}}{{if .LabelKey}}{{tr .LabelKey}}{{end}}{{end}}</span></li>
+    {{else}}
+    <li class="yd-breadcrumb__item"><a class="yd-breadcrumb__link" href="{{.Href}}"{{with .LabelKey}} data-yd-i18n="{{.}}"{{end}}>{{if .Label}}{{.Label}}{{else}}{{if .LabelKey}}{{tr .LabelKey}}{{end}}{{end}}</a></li>
+    {{end}}
+    {{end}}
+  </ol>
+</nav>
+{{- end -}}
+
+{{/* components.navigation.steps — only for a real sequence. Dict keys | dict 的键:
+       Label, LabelKey, Items []{Index, Label, LabelKey, State (current|done|"")} */}}
+{{- define "components.navigation.steps" -}}
+<ol class="yd-steps" aria-label="{{if .Label}}{{.Label}}{{else}}{{if .LabelKey}}{{tr .LabelKey}}{{end}}{{end}}" data-yd-i18n-attr="aria-label:{{.LabelKey}}">
+  {{range .Items}}
+  <li class="yd-steps__item{{with .State}} yd-steps__item--{{.}}{{end}}"{{if eq .State "current"}} aria-current="step"{{end}}>
+    <span class="yd-steps__index" aria-hidden="true">{{.Index}}</span>
+    <span class="yd-steps__label"{{with .LabelKey}} data-yd-i18n="{{.}}"{{end}}>{{if .Label}}{{.Label}}{{else}}{{if .LabelKey}}{{tr .LabelKey}}{{end}}{{end}}</span>
+  </li>
+  {{end}}
+</ol>
+{{- end -}}
+
+{{/* components.navigation.dropdown — an Alpine menu. Dict keys | dict 的键:
+       ID (optional, used for aria-controls), Label, LabelKey, PanelLabel, PanelLabelKey,
+       TriggerAttrs (template.HTMLAttr),
+       Items []{Label, LabelKey, Href, Danger, Attrs (template.HTMLAttr)},
+       ItemsHTML (template.HTML, for forms and buttons) */}}
+{{- define "components.navigation.dropdown" -}}
+{{- $panelID := .ID -}}
+<div class="yd-dropdown" x-data="ydDropdown" x-on:keydown="onKey($event)">
+  <button type="button" class="yd-dropdown__trigger {{.TriggerClass}}" x-on:click="toggle" x-ref="trigger"
+          x-bind:aria-expanded="open" aria-haspopup="menu"
+          {{with $panelID}}aria-controls="{{.}}-panel"{{end}} {{.TriggerAttrs}}>
+    {{with .Icon}}<span aria-hidden="true">{{.}}</span>{{end}}
+    <span{{with .LabelKey}} data-yd-i18n="{{.}}"{{end}}>{{if .Label}}{{.Label}}{{else}}{{if .LabelKey}}{{tr .LabelKey}}{{end}}{{end}}</span>
+  </button>
+  <div class="yd-dropdown__panel" {{with $panelID}}id="{{.}}-panel"{{end}} x-show="open" x-cloak role="menu"
+       aria-label="{{if .PanelLabel}}{{.PanelLabel}}{{else}}{{if .PanelLabelKey}}{{tr .PanelLabelKey}}{{end}}{{end}}" data-yd-i18n-attr="aria-label:{{.PanelLabelKey}}"
+       x-on:click="close(false)">
+    {{range .Items}}
+    <a class="yd-dropdown__item{{if .Danger}} yd-dropdown__item--danger{{end}}" role="menuitem" href="{{.Href}}"
+       {{with .LabelKey}}data-yd-i18n="{{.}}"{{end}} {{.Attrs}}>{{.Label}}</a>
+    {{end}}
+    {{with .ItemsHTML}}{{.}}{{end}}
+  </div>
+</div>
+{{- end -}}
+
+{{/* components.navigation.anchor — a sticky table of contents with scrollspy. Dict keys | dict 的键:
+       Label, LabelKey, Items []{Href, Label, LabelKey, Active} */}}
+{{- define "components.navigation.anchor" -}}
+<nav class="yd-anchor" x-data="ydAnchor"
+     {{with .LabelKey}}aria-label="{{$.Label}}" data-yd-i18n-attr="aria-label:{{.}}"{{end}}>
+  <ul class="yd-anchor__list">
+    {{range .Items}}
+    <li>
+      <a class="yd-anchor__link{{if .Active}} yd-anchor__link--active{{end}}" href="{{.Href}}"
+         x-bind:class="isActive('{{.Href}}') ? 'yd-anchor__link yd-anchor__link--active' : 'yd-anchor__link'"
+         x-bind:aria-current="isActive('{{.Href}}') ? 'location' : null"
+         {{with .LabelKey}}data-yd-i18n="{{.}}"{{end}}>{{.Label}}</a>
+    </li>
+    {{end}}
+  </ul>
+</nav>
+{{- end -}}
+
+{{/* components.navigation.affix — a sticky band. Dict keys | dict 的键:
+       Content (template.HTML) */}}
+{{- define "components.navigation.affix" -}}
+<div class="yd-affix">{{.Content}}</div>
+{{- end -}}
+
+{{/* components.navigation.back-top — a scroll-to-top control. Dict keys | dict 的键:
+       Label, LabelKey */}}
+{{- define "components.navigation.back-top" -}}
+<button type="button" class="yd-back-top" x-data="ydBackTop" x-show="visible" x-cloak
+        x-on:click="top"
+        data-yd-i18n-attr="aria-label:ui.back_to_top" aria-label="{{tr "ui.back_to_top"}}">{{template "partials/icon" "lucide-arrow-up"}}</button>
+{{- end -}}
+
+{{/* components.navigation.fab — a floating action. Dict keys | dict 的键:
+       Href, Label, LabelKey, Icon (template.HTML), Primary, Attrs (template.HTMLAttr) */}}
+{{- define "components.navigation.fab" -}}
+{{if .Href}}
+<a class="yd-fab{{if .Primary}} yd-fab--primary{{end}}" href="{{.Href}}" {{.Attrs}}{{with .LabelKey}} data-yd-i18n="{{.}}"{{end}}>
+  {{with .Icon}}<span aria-hidden="true">{{.}}</span>{{end}}<span>{{.Label}}</span>
+</a>
+{{else}}
+<button type="button" class="yd-fab{{if .Primary}} yd-fab--primary{{end}}" {{.Attrs}}{{with .LabelKey}} data-yd-i18n="{{.}}"{{end}}>
+  {{with .Icon}}<span aria-hidden="true">{{.}}</span>{{end}}<span>{{.Label}}</span>
+</button>
+{{end}}
+{{- end -}}
+
+{{/* components.navigation.command — a command palette. Dict keys | dict 的键:
+       ID (optional prefix), TriggerLabel, TriggerKey, Placeholder, PlaceholderKey,
+       Shortcut (one letter, default K),
+       Items []{Group, GroupKey, Label, LabelKey, Href, Attrs (template.HTMLAttr)} */}}
+{{- define "components.navigation.command" -}}
+{{- $prefix := .ID | default "yd-command" -}}
+<div x-data="ydCommand" data-shortcut="{{.Shortcut}}">
+  <button type="button" class="yd-btn yd-btn--ghost yd-btn--sm" x-on:click="show" x-ref="trigger"
+          {{with .TriggerKey}}data-yd-i18n="{{.}}"{{end}}>{{if .TriggerLabel}}{{.TriggerLabel}}{{else}}{{if .TriggerKey}}{{tr .TriggerKey}}{{end}}{{end}}</button>
+  <div class="yd-command" x-bind:hidden="!open" x-cloak role="dialog" aria-modal="true"
+       x-on:click.self="close(false)" x-on:keydown="onKey($event)"
+       data-yd-i18n-attr="aria-label:ui.command" aria-label="{{tr "ui.command"}}">
+    <div class="yd-command__panel">
+      <input class="yd-command__input" type="search" x-ref="input" x-on:input="onQuery($event)"
+             role="combobox" aria-autocomplete="list" aria-controls="{{$prefix}}-list"
+             x-bind:aria-activedescendant="activeId"
+             {{with .PlaceholderKey}}data-yd-i18n-attr="placeholder:{{.}}"{{end}} placeholder="{{if .Placeholder}}{{.Placeholder}}{{else}}{{if .PlaceholderKey}}{{tr .PlaceholderKey}}{{end}}{{end}}">
+      <div class="yd-command__list" id="{{$prefix}}-list" role="listbox">
+        {{$group := ""}}
+        {{range $i, $item := .Items}}
+        {{- if ne .Group $group}}
+        <p class="yd-command__group"{{with .GroupKey}} data-yd-i18n="{{.}}"{{end}}>{{.Group}}</p>
+        {{- $group = .Group}}
+        {{- end}}
+        <a class="yd-command__item" id="{{$prefix}}-item-{{$i}}" href="{{.Href}}" role="option" aria-selected="false"
+           data-yd-command-item
+           x-show="matches($el.textContent)" {{with .LabelKey}}data-yd-i18n="{{.}}"{{end}} {{.Attrs}}>{{.Label}}</a>
+        {{end}}
+        <p class="yd-command__empty" x-bind:hidden="!showEmpty" x-cloak>{{tr "ui.command_empty"}}</p>
+      </div>
+    </div>
+  </div>
+</div>
+{{- end -}}
+
+{{/* components.navigation.context-menu — a right-click menu over arbitrary content.
+     Dict keys | dict 的键: Content (template.HTML),
+     Items []{Label, LabelKey, Href, Danger, Attrs (template.HTMLAttr)} */}}
+{{- define "components.navigation.context-menu" -}}
+<div x-data="ydContextMenu" x-on:contextmenu.prevent="openAt($event)" x-on:keydown="onKey($event)">
+  {{.Content}}
+  <div class="yd-context-menu" x-ref="panel" x-show="open" x-cloak role="menu" tabindex="-1"
+       x-on:click="close(false)">
+    {{range .Items}}
+    <a class="yd-dropdown__item{{if .Danger}} yd-dropdown__item--danger{{end}}" role="menuitem" href="{{.Href}}"
+       {{with .LabelKey}}data-yd-i18n="{{.}}"{{end}} {{.Attrs}}>{{.Label}}</a>
+    {{end}}
+  </div>
+</div>
+{{- end -}}
+
+{{/* components.navigation.menubar — horizontal menus built from native details. Dict keys | dict 的键:
+       Label, LabelKey, Items []{Label, LabelKey, Items []{Label, LabelKey, Href, Attrs}} */}}
+{{- define "components.navigation.menubar" -}}
+<nav class="yd-menubar" role="menubar"
+     {{with .LabelKey}}aria-label="{{$.Label}}" data-yd-i18n-attr="aria-label:{{.}}"{{end}}>
+  {{range .Items}}
+  <details class="yd-menubar__item">
+    <summary class="yd-menubar__trigger"{{with .LabelKey}} data-yd-i18n="{{.}}"{{end}}>{{if .Label}}{{.Label}}{{else}}{{if .LabelKey}}{{tr .LabelKey}}{{end}}{{end}}</summary>
+    <div class="yd-menubar__panel" role="menu">
+      {{range .Items}}
+      <a class="yd-dropdown__item" role="menuitem" href="{{.Href}}"{{with .LabelKey}} data-yd-i18n="{{.}}"{{end}} {{.Attrs}}>{{.Label}}</a>
+      {{end}}
+    </div>
+  </details>
+  {{end}}
+</nav>
+{{- end -}}
+
+{{/* components.navigation.pagination — server-driven pages. Dict keys | dict 的键:
+       Label, LabelKey, Summary, SummaryKey, PrevHref, NextHref,
+       Pages []{Number, Href, Current, Ellipsis} */}}
+{{- define "components.navigation.pagination" -}}
+<nav class="yd-pagination" role="navigation"
+     {{with .LabelKey}}aria-label="{{$.Label}}" data-yd-i18n-attr="aria-label:{{.}}"{{end}}>
+  {{with .Summary}}<p class="yd-pagination__summary"{{with $.SummaryKey}} data-yd-i18n="{{$.SummaryKey}}"{{end}}>{{.}}</p>{{end}}
+  <ul class="yd-pagination__list">
+    {{with .PrevHref}}<li class="yd-pagination__item"><a class="yd-pagination__link" href="{{.}}" rel="prev" data-yd-i18n-attr="aria-label:ui.previous" aria-label="{{tr "ui.previous"}}">{{template "partials/icon" "lucide-chevron-left"}}</a></li>{{end}}
+    {{range .Pages}}
+    {{if .Ellipsis}}
+    <li class="yd-pagination__item"><span class="yd-pagination__ellipsis" aria-hidden="true">…</span></li>
+    {{else if .Current}}
+    <li class="yd-pagination__item"><a class="yd-pagination__link yd-pagination__link--current" href="{{.Href}}" aria-current="page">{{.Number}}</a></li>
+    {{else}}
+    <li class="yd-pagination__item"><a class="yd-pagination__link" href="{{.Href}}">{{.Number}}</a></li>
+    {{end}}
+    {{end}}
+    {{with .NextHref}}<li class="yd-pagination__item"><a class="yd-pagination__link" href="{{.}}" rel="next" data-yd-i18n-attr="aria-label:ui.next" aria-label="{{tr "ui.next"}}">{{template "partials/icon" "lucide-chevron-right"}}</a></li>{{end}}
+  </ul>
+</nav>
+{{- end -}}
+
+{{/* components.navigation.tree — nested details, no script. Nodes recurse through
+     components.navigation.tree.nodes. Dict keys | dict 的键: Items []Node
+     Node: Label, LabelKey, Href, Meta, MetaKey, Open, Children []Node */}}
+{{- define "components.navigation.tree" -}}
+<ul class="yd-tree">
+  {{template "components.navigation.tree.nodes" .Items}}
+</ul>
+{{- end -}}
+
+{{- define "components.navigation.tree.nodes" -}}
+{{range .}}
+{{- $node := . -}}
+<li class="yd-tree__item">
+  {{if $node.Children}}
+  <details{{if $node.Open}} open{{end}}>
+    <summary class="yd-tree__summary">
+      <span class="yd-tree__label"{{with $node.LabelKey}} data-yd-i18n="{{.}}"{{end}}>{{$node.Label}}</span>
+      {{with $node.Meta}}<span class="yd-tree__meta"{{with $node.MetaKey}} data-yd-i18n="{{.}}"{{end}}>{{.}}</span>{{end}}
+    </summary>
+    <ul class="yd-tree__children">{{template "components.navigation.tree.nodes" $node.Children}}</ul>
+  </details>
+  {{else}}
+  <a class="yd-tree__summary" href="{{$node.Href}}"{{with $node.LabelKey}} data-yd-i18n="{{.}}"{{end}}>
+    <span class="yd-tree__label">{{$node.Label}}</span>
+    {{with $node.Meta}}<span class="yd-tree__meta"{{with $node.MetaKey}} data-yd-i18n="{{.}}"{{end}}>{{.}}</span>{{end}}
+  </a>
+  {{end}}
+</li>
+{{end}}
+{{- end -}}
+
+{{/* components.navigation.menu — a vertical navigation menu. Dict keys | dict 的键:
+       Label, LabelKey, Items []{Section, SectionKey, Items []{Label, LabelKey, Href, Active, Icon (template.HTML)}} */}}
+{{- define "components.navigation.menu" -}}
+<nav class="yd-nav" aria-label="{{.Label}}"{{with .LabelKey}} data-yd-i18n-attr="aria-label:{{.}}"{{end}}>
+  {{range .Items}}
+  {{- $section := . -}}
+  <div class="yd-nav__section">
+    {{with $section.Section}}<p class="yd-nav__title"{{with $section.SectionKey}} data-yd-i18n="{{.}}"{{end}}>{{.}}</p>{{end}}
+    {{range $section.Items}}
+    <a class="yd-nav__link{{if .Active}} yd-nav__link--active{{end}}" href="{{.Href}}"
+       {{if .Active}}aria-current="page"{{end}}{{with .LabelKey}} data-yd-i18n="{{.}}"{{end}}>
+      {{with .Icon}}<span class="yd-nav__icon" aria-hidden="true">{{.}}</span>{{end}}
+      <span class="yd-nav__label">{{.Label}}</span>
+    </a>
+    {{end}}
+  </div>
+  {{end}}
+</nav>
+{{- end -}}

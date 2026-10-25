@@ -1,0 +1,282 @@
+{{/*
+  components/cn.html — China-specific form controls of the yd UI kit.
+  components/cn.html — yd UI 组件层的中国常用表单控件。
+
+  What "China-specific" means here | 这里的「中国常用」指什么
+    Labels, formats and validation rules an operator in mainland China expects every day:
+    an 11-digit mobile number, an 18-digit resident ID card with its GB 11643 checksum, a bank
+    card with Luhn, an 18-character unified social credit code with its GB 32100 checksum, an RMB
+    amount with the capitalised form, a province/city/district cascader, a date range with the
+    usual presets, and an SMS code with a resend countdown.
+    大陆运维每天都会遇到的标签、格式与校验规则：11 位手机号、带 GB 11643 校验位的 18 位居民身份证、
+    经 Luhn 校验的银行卡、带 GB 32100 校验位的 18 位统一社会信用代码、带中文大写的人民币金额、
+    省市区级联、带常用预设的日期范围，以及带重发倒计时的短信验证码。
+
+  Contract | 契约
+    Every control keeps its visible input as the submitted field and uses data-* for initial
+    values, so it works before Alpine loads and after every htmx swap. The script only sanitises,
+    validates and formats around it. Validation messages live in the catalogue, not in the script,
+    so both languages and any future wording change stay in one place.
+    每个控件都把可见输入框保留为提交字段，并用 data-* 承载初始值，因此 Alpine 加载之前与每次 htmx
+    交换之后仍然可用。脚本只在外围净化、校验与格式化。校验文案放在语言目录而不是脚本里，使两种语言与
+    任何后续措辞修改都只有一处。
+*/}}
+
+{{/* components.cn.phone — mainland mobile number with a 3-4-4 preview. Dict keys | dict 的键:
+       ID, Name, Value, LabelKey, Label, PlaceholderKey, Placeholder, HintKey, Hint, Required,
+       Attrs (template.HTMLAttr), DescribedBy */}}
+{{- define "components.cn.phone" -}}
+{{- $described := .DescribedBy -}}
+{{- if and (not $described) .Hint -}}{{- $described = printf "%s-hint" .ID -}}{{- end -}}
+<div class="yd-field{{if .Required}} yd-field--required{{end}}" data-yd-field="{{.Name}}" x-data="ydPhone" data-value="{{.Value}}">
+  <label class="yd-field__label" for="{{.ID}}"{{with .LabelKey}} data-yd-i18n="{{.}}"{{end}}>{{if .Label}}{{.Label}}{{else}}{{if .LabelKey}}{{tr .LabelKey}}{{end}}{{end}}</label>
+  <div class="yd-cn-field">
+    <input class="yd-input" id="{{.ID}}" name="{{.Name}}" type="tel" inputmode="numeric" autocomplete="tel-national" maxlength="11" value="{{.Value}}"
+           x-ref="input" x-on:input="onInput" x-bind:aria-invalid="touched && !valid()"
+           {{if .Required}}required{{end}} {{with $described}}aria-describedby="{{.}}"{{end}}
+           {{with .PlaceholderKey}}data-yd-i18n-attr="placeholder:{{.}}"{{end}} {{if or .Placeholder .PlaceholderKey}}placeholder="{{if .Placeholder}}{{.Placeholder}}{{else}}{{if .PlaceholderKey}}{{tr .PlaceholderKey}}{{end}}{{end}}"{{end}} {{.Attrs}}>
+    <span class="yd-cn-field__status yd-cn-field__status--ok" x-show="state() === 'ok'" x-cloak aria-hidden="true">{{template "partials/icon" "lucide-check"}}</span>
+    <span class="yd-cn-field__status yd-cn-field__status--bad" x-show="state() === 'bad'" x-cloak aria-hidden="true">{{template "partials/icon" "lucide-alert-circle"}}</span>
+  </div>
+  <p class="yd-cn-hint" x-show="touched" x-cloak>
+    <span class="yd-cn-hint__value" x-text="formatted()"></span>
+    <span class="yd-cn-hint--error" x-show="touched && !valid()" data-yd-i18n="cn.phone.invalid">{{tr "cn.phone.invalid"}}</span>
+  </p>
+  {{if or .Hint .HintKey}}<p class="yd-field__hint" id="{{.ID}}-hint"{{with .HintKey}} data-yd-i18n="{{.}}"{{end}}>{{if .Hint}}{{.Hint}}{{else}}{{if .HintKey}}{{tr .HintKey}}{{end}}{{end}}</p>{{end}}
+</div>
+{{- end -}}
+
+{{/* components.cn.idcard — resident ID card with birth date, sex and age. Dict keys mirror the phone. */}}
+{{- define "components.cn.idcard" -}}
+{{- $described := .DescribedBy -}}
+{{- if and (not $described) .Hint -}}{{- $described = printf "%s-hint" .ID -}}{{- end -}}
+<div class="yd-field{{if .Required}} yd-field--required{{end}}" data-yd-field="{{.Name}}" x-data="ydIDCard" data-value="{{.Value}}">
+  <label class="yd-field__label" for="{{.ID}}"{{with .LabelKey}} data-yd-i18n="{{.}}"{{end}}>{{if .Label}}{{.Label}}{{else}}{{if .LabelKey}}{{tr .LabelKey}}{{end}}{{end}}</label>
+  <div class="yd-cn-field">
+    <input class="yd-input" id="{{.ID}}" name="{{.Name}}" type="text" inputmode="text" autocomplete="off" maxlength="18" value="{{.Value}}"
+           x-ref="input" x-on:input="onInput" x-bind:aria-invalid="touched && !valid()"
+           {{if .Required}}required{{end}} {{with $described}}aria-describedby="{{.}}"{{end}}
+           {{with .PlaceholderKey}}data-yd-i18n-attr="placeholder:{{.}}"{{end}} {{if or .Placeholder .PlaceholderKey}}placeholder="{{if .Placeholder}}{{.Placeholder}}{{else}}{{if .PlaceholderKey}}{{tr .PlaceholderKey}}{{end}}{{end}}"{{end}} {{.Attrs}}>
+    <span class="yd-cn-field__status yd-cn-field__status--ok" x-show="state() === 'ok'" x-cloak aria-hidden="true">{{template "partials/icon" "lucide-check"}}</span>
+    <span class="yd-cn-field__status yd-cn-field__status--bad" x-show="state() === 'bad'" x-cloak aria-hidden="true">{{template "partials/icon" "lucide-alert-circle"}}</span>
+  </div>
+  <p class="yd-cn-hint" x-show="valid()" x-cloak>
+    <span><span data-yd-i18n="cn.idcard.birth">{{tr "cn.idcard.birth"}}</span> <span class="yd-cn-hint__value" x-text="birth()"></span></span>
+    <span><span data-yd-i18n="cn.idcard.sex">{{tr "cn.idcard.sex"}}</span>
+      <span class="yd-cn-hint__value" x-show="sex() === 'male'" data-yd-i18n="cn.idcard.male">{{tr "cn.idcard.male"}}</span>
+      <span class="yd-cn-hint__value" x-show="sex() === 'female'" data-yd-i18n="cn.idcard.female">{{tr "cn.idcard.female"}}</span>
+    </span>
+    <span><span data-yd-i18n="cn.idcard.age">{{tr "cn.idcard.age"}}</span> <span class="yd-cn-hint__value" x-text="age()"></span></span>
+  </p>
+  <p class="yd-cn-hint yd-cn-hint--error" x-show="touched && !valid()" x-cloak data-yd-i18n="cn.idcard.invalid">{{tr "cn.idcard.invalid"}}</p>
+  {{if or .Hint .HintKey}}<p class="yd-field__hint"{{with .HintKey}} data-yd-i18n="{{.}}"{{end}}>{{if .Hint}}{{.Hint}}{{else}}{{if .HintKey}}{{tr .HintKey}}{{end}}{{end}}</p>{{end}}
+</div>
+{{- end -}}
+
+{{/* components.cn.bankcard — bank card with Luhn and a best-effort issuer name. | 银行卡：Luhn 与尽力而为的发卡行名。 */}}
+{{- define "components.cn.bankcard" -}}
+{{- $described := .DescribedBy -}}
+{{- if and (not $described) .Hint -}}{{- $described = printf "%s-hint" .ID -}}{{- end -}}
+<div class="yd-field{{if .Required}} yd-field--required{{end}}" data-yd-field="{{.Name}}" x-data="ydBankCard" data-value="{{.Value}}">
+  <label class="yd-field__label" for="{{.ID}}"{{with .LabelKey}} data-yd-i18n="{{.}}"{{end}}>{{if .Label}}{{.Label}}{{else}}{{if .LabelKey}}{{tr .LabelKey}}{{end}}{{end}}</label>
+  <div class="yd-cn-field">
+    <input class="yd-input" id="{{.ID}}" name="{{.Name}}" type="text" inputmode="numeric" autocomplete="cc-number" maxlength="19" value="{{.Value}}"
+           x-ref="input" x-on:input="onInput" x-bind:aria-invalid="touched && !valid()"
+           {{if .Required}}required{{end}} {{with $described}}aria-describedby="{{.}}"{{end}}
+           {{with .PlaceholderKey}}data-yd-i18n-attr="placeholder:{{.}}"{{end}} {{if or .Placeholder .PlaceholderKey}}placeholder="{{if .Placeholder}}{{.Placeholder}}{{else}}{{if .PlaceholderKey}}{{tr .PlaceholderKey}}{{end}}{{end}}"{{end}} {{.Attrs}}>
+    <span class="yd-cn-field__status yd-cn-field__status--ok" x-show="state() === 'ok'" x-cloak aria-hidden="true">{{template "partials/icon" "lucide-check"}}</span>
+    <span class="yd-cn-field__status yd-cn-field__status--bad" x-show="state() === 'bad'" x-cloak aria-hidden="true">{{template "partials/icon" "lucide-alert-circle"}}</span>
+  </div>
+  <p class="yd-cn-hint" x-show="valid()" x-cloak>
+    <span class="yd-cn-hint__value" x-text="formatted()"></span>
+    <span x-show="bank()" x-text="bank()"></span>
+  </p>
+  <p class="yd-cn-hint yd-cn-hint--error" x-show="touched && !valid()" x-cloak data-yd-i18n="cn.bankcard.invalid">{{tr "cn.bankcard.invalid"}}</p>
+  {{if or .Hint .HintKey}}<p class="yd-field__hint"{{with .HintKey}} data-yd-i18n="{{.}}"{{end}}>{{if .Hint}}{{.Hint}}{{else}}{{if .HintKey}}{{tr .HintKey}}{{end}}{{end}}</p>{{end}}
+</div>
+{{- end -}}
+
+{{/* components.cn.creditcode — unified social credit code. | 统一社会信用代码。 */}}
+{{- define "components.cn.creditcode" -}}
+{{- $described := .DescribedBy -}}
+{{- if and (not $described) .Hint -}}{{- $described = printf "%s-hint" .ID -}}{{- end -}}
+<div class="yd-field{{if .Required}} yd-field--required{{end}}" data-yd-field="{{.Name}}" x-data="ydCreditCode" data-value="{{.Value}}">
+  <label class="yd-field__label" for="{{.ID}}"{{with .LabelKey}} data-yd-i18n="{{.}}"{{end}}>{{if .Label}}{{.Label}}{{else}}{{if .LabelKey}}{{tr .LabelKey}}{{end}}{{end}}</label>
+  <div class="yd-cn-field">
+    <input class="yd-input" id="{{.ID}}" name="{{.Name}}" type="text" inputmode="text" autocomplete="off" maxlength="18" value="{{.Value}}"
+           x-ref="input" x-on:input="onInput" x-bind:aria-invalid="touched && !valid()"
+           {{if .Required}}required{{end}} {{with $described}}aria-describedby="{{.}}"{{end}}
+           {{with .PlaceholderKey}}data-yd-i18n-attr="placeholder:{{.}}"{{end}} {{if or .Placeholder .PlaceholderKey}}placeholder="{{if .Placeholder}}{{.Placeholder}}{{else}}{{if .PlaceholderKey}}{{tr .PlaceholderKey}}{{end}}{{end}}"{{end}} {{.Attrs}}>
+    <span class="yd-cn-field__status yd-cn-field__status--ok" x-show="state() === 'ok'" x-cloak aria-hidden="true">{{template "partials/icon" "lucide-check"}}</span>
+    <span class="yd-cn-field__status yd-cn-field__status--bad" x-show="state() === 'bad'" x-cloak aria-hidden="true">{{template "partials/icon" "lucide-alert-circle"}}</span>
+  </div>
+  <p class="yd-cn-hint yd-cn-hint--error" x-show="touched && !valid()" x-cloak data-yd-i18n="cn.creditcode.invalid">{{tr "cn.creditcode.invalid"}}</p>
+  {{if or .Hint .HintKey}}<p class="yd-field__hint"{{with .HintKey}} data-yd-i18n="{{.}}"{{end}}>{{if .Hint}}{{.Hint}}{{else}}{{if .HintKey}}{{tr .HintKey}}{{end}}{{end}}</p>{{end}}
+</div>
+{{- end -}}
+
+{{/* components.cn.amount — RMB amount with the capitalised preview. Dict keys add | dict 额外键:
+       CurrencyKey, UpperKey, InvalidKey (optional overrides for the default catalogue keys),
+       Required, Attrs (template.HTMLAttr) */}}
+{{- define "components.cn.amount" -}}
+{{- $currencyKey := .CurrencyKey | default "cn.amount.currency" -}}
+{{- $upperKey := .UpperKey | default "cn.amount.upper" -}}
+{{- $invalidKey := .InvalidKey | default "cn.amount.invalid" -}}
+{{- $described := .DescribedBy -}}
+{{- if and (not $described) .Hint -}}{{- $described = printf "%s-hint" .ID -}}{{- end -}}
+<div class="yd-field{{if .Required}} yd-field--required{{end}}" data-yd-field="{{.Name}}" x-data="ydAmount" data-value="{{.Value}}">
+  <label class="yd-field__label" for="{{.ID}}"{{with .LabelKey}} data-yd-i18n="{{.}}"{{end}}>{{if .Label}}{{.Label}}{{else}}{{if .LabelKey}}{{tr .LabelKey}}{{end}}{{end}}</label>
+  <div class="yd-cn-amount">
+    <div class="yd-input-group">
+      <span class="yd-input-group__addon" data-yd-i18n="{{$currencyKey}}">{{if eq $currencyKey "cn.amount.currency"}}{{tr "cn.amount.currency"}}{{else}}{{tr $currencyKey}}{{end}}</span>
+      <input class="yd-input" id="{{.ID}}" name="{{.Name}}" type="text" inputmode="decimal" autocomplete="off" maxlength="15" value="{{.Value}}"
+             x-ref="input" x-on:input="onInput" x-bind:aria-invalid="touched && !valid()"
+             {{if .Required}}required{{end}} {{with $described}}aria-describedby="{{.}}"{{end}}
+             {{with .PlaceholderKey}}data-yd-i18n-attr="placeholder:{{.}}"{{end}} {{if or .Placeholder .PlaceholderKey}}placeholder="{{if .Placeholder}}{{.Placeholder}}{{else}}{{if .PlaceholderKey}}{{tr .PlaceholderKey}}{{end}}{{end}}"{{end}} {{.Attrs}}>
+    </div>
+    <p class="yd-cn-amount__upper" x-show="valid()" x-cloak>
+      <span data-yd-i18n="{{$upperKey}}">{{if eq $upperKey "cn.amount.upper"}}{{tr "cn.amount.upper"}}{{else}}{{tr $upperKey}}{{end}}</span>
+      <strong x-text="upper()"></strong>
+    </p>
+    <p class="yd-cn-hint yd-cn-hint--error" x-show="touched && !valid()" x-cloak data-yd-i18n="{{$invalidKey}}">{{if eq $invalidKey "cn.amount.invalid"}}{{tr "cn.amount.invalid"}}{{else}}{{tr $invalidKey}}{{end}}</p>
+    {{if or .Hint .HintKey}}<p class="yd-field__hint" id="{{.ID}}-hint"{{with .HintKey}} data-yd-i18n="{{.}}"{{end}}>{{if .Hint}}{{.Hint}}{{else}}{{if .HintKey}}{{tr .HintKey}}{{end}}{{end}}</p>{{end}}
+  </div>
+</div>
+{{- end -}}
+
+{{/* components.cn.region — province/city/district cascader. Dict keys | dict 的键:
+       Source, Province, City, District, ProvinceName, CityName, DistrictName,
+       LabelKey, Label, HintKey, Hint
+     Source is a CSS selector of a <script type="application/json"> element whose payload is
+     [{"code":"…","name":"…","children":[…]}, …]. Without it the built-in province list is used.
+     Source 是 <script type="application/json"> 元素的 CSS 选择器，载荷为
+     [{"code":"…","name":"…","children":[…]}, …]。缺省时使用内置省级列表。 */}}
+{{- define "components.cn.region" -}}
+{{- $provinceName := .ProvinceName | default "province" -}}
+{{- $cityName := .CityName | default "city" -}}
+{{- $districtName := .DistrictName | default "district" -}}
+{{- $described := .DescribedBy -}}
+{{- if and (not $described) .Hint -}}{{- $described = printf "%s-hint" $provinceName -}}{{- end -}}
+<div class="yd-field{{if .Required}} yd-field--required{{end}}" data-yd-field="{{$provinceName}}" x-data="ydRegion"
+     data-yd-region-source="{{.Source}}" data-province="{{.Province}}" data-city="{{.City}}" data-district="{{.District}}">
+  <span class="yd-field__label"{{with .LabelKey}} data-yd-i18n="{{.}}"{{end}}>{{if .Label}}{{.Label}}{{else}}{{if .LabelKey}}{{tr .LabelKey}}{{end}}{{end}}</span>
+  <div class="yd-cn-region">
+    <select class="yd-select yd-cn-region__select" name="{{$provinceName}}" x-model="province" x-on:change="onProvince"
+            {{if .Required}}required{{end}} {{with $described}}aria-describedby="{{.}}"{{end}}
+            data-yd-i18n-attr="aria-label:cn.region.province" aria-label="{{tr "cn.region.province"}}">
+      <option value="" data-yd-i18n="cn.region.province">{{tr "cn.region.province"}}</option>
+      <template x-for="item in provinces" :key="item.code">
+        <option :value="item.code" x-text="item.name"></option>
+      </template>
+    </select>
+    <select class="yd-select yd-cn-region__select" name="{{$cityName}}" x-model="city" x-on:change="onCity" x-bind:disabled="!cities.length"
+            {{if .Required}}required{{end}} {{with $described}}aria-describedby="{{.}}"{{end}}
+            data-yd-i18n-attr="aria-label:cn.region.city" aria-label="{{tr "cn.region.city"}}">
+      <option value="" data-yd-i18n="cn.region.city">{{tr "cn.region.city"}}</option>
+      <template x-for="item in cities" :key="item.code">
+        <option :value="item.code" x-text="item.name"></option>
+      </template>
+    </select>
+    <select class="yd-select yd-cn-region__select" name="{{$districtName}}" x-model="district" x-on:change="onDistrict" x-bind:disabled="!districts.length"
+            {{if .Required}}required{{end}} {{with $described}}aria-describedby="{{.}}"{{end}}
+            data-yd-i18n-attr="aria-label:cn.region.district" aria-label="{{tr "cn.region.district"}}">
+      <option value="" data-yd-i18n="cn.region.district">{{tr "cn.region.district"}}</option>
+      <template x-for="item in districts" :key="item.code">
+        <option :value="item.code" x-text="item.name"></option>
+      </template>
+    </select>
+  </div>
+  {{if or .Hint .HintKey}}<p class="yd-field__hint" id="{{$provinceName}}-hint"{{with .HintKey}} data-yd-i18n="{{.}}"{{end}}>{{if .Hint}}{{.Hint}}{{else}}{{if .HintKey}}{{tr .HintKey}}{{end}}{{end}}</p>{{end}}
+</div>
+{{- end -}}
+
+{{/* components.cn.daterange — two native dates plus the usual presets. Dict keys | dict 的键:
+       From, To, FromName, ToName, LabelKey, Label, HintKey, Hint, Required, Min, Max,
+       DescribedBy, Attrs, FromAttrs, ToAttrs (template.HTMLAttr) */}}
+{{- define "components.cn.daterange" -}}
+{{- $fromName := .FromName | default "from" -}}
+{{- $toName := .ToName | default "to" -}}
+{{- $described := .DescribedBy -}}
+{{- if and (not $described) .Hint -}}{{- $described = printf "%s-hint" $fromName -}}{{- end -}}
+<div class="yd-field{{if .Required}} yd-field--required{{end}}" data-yd-field="{{$fromName}}" x-data="ydDateRange" data-from="{{.From}}" data-to="{{.To}}">
+  <span class="yd-field__label"{{with .LabelKey}} data-yd-i18n="{{.}}"{{end}}>{{if .Label}}{{.Label}}{{else}}{{if .LabelKey}}{{tr .LabelKey}}{{end}}{{end}}</span>
+  <div class="yd-cn-date-range">
+    <div class="yd-cn-date-range__presets">
+      <button type="button" class="yd-cn-date-range__preset" x-on:click="apply('today')"
+              x-bind:class="within('today') ? 'yd-cn-date-range__preset--active' : ''" x-bind:aria-pressed="within('today')"
+              data-yd-i18n="cn.range.today">{{tr "cn.range.today"}}</button>
+      <button type="button" class="yd-cn-date-range__preset" x-on:click="apply('7d')"
+              x-bind:class="within('7d') ? 'yd-cn-date-range__preset--active' : ''" x-bind:aria-pressed="within('7d')"
+              data-yd-i18n="cn.range.7d">{{tr "cn.range.7d"}}</button>
+      <button type="button" class="yd-cn-date-range__preset" x-on:click="apply('30d')"
+              x-bind:class="within('30d') ? 'yd-cn-date-range__preset--active' : ''" x-bind:aria-pressed="within('30d')"
+              data-yd-i18n="cn.range.30d">{{tr "cn.range.30d"}}</button>
+      <button type="button" class="yd-cn-date-range__preset" x-on:click="apply('month')"
+              x-bind:class="within('month') ? 'yd-cn-date-range__preset--active' : ''" x-bind:aria-pressed="within('month')"
+              data-yd-i18n="cn.range.month">{{tr "cn.range.month"}}</button>
+      <button type="button" class="yd-cn-date-range__preset" x-on:click="apply('last-month')"
+              x-bind:class="within('last-month') ? 'yd-cn-date-range__preset--active' : ''" x-bind:aria-pressed="within('last-month')"
+              data-yd-i18n="cn.range.last_month">{{tr "cn.range.last_month"}}</button>
+    </div>
+    <div class="yd-cn-date-range__inputs">
+      <input class="yd-input" type="date" name="{{$fromName}}" value="{{.From}}" x-model="from" x-on:change="manual"
+             {{if .Required}}required{{end}} {{with .Min}}min="{{.}}"{{end}} {{with .Max}}max="{{.}}"{{end}}
+             x-bind:aria-invalid="!valid()" {{with $described}}aria-describedby="{{.}}"{{end}}
+             data-yd-i18n-attr="aria-label:cn.range.from" aria-label="{{tr "cn.range.from"}}" {{if .FromAttrs}}{{.FromAttrs}}{{else}}{{.Attrs}}{{end}}>
+      <span class="yd-cn-date-range__sep" aria-hidden="true">—</span>
+      <input class="yd-input" type="date" name="{{$toName}}" value="{{.To}}" x-model="to" x-on:change="manual"
+             {{if .Required}}required{{end}} {{with .Min}}min="{{.}}"{{end}} {{with .Max}}max="{{.}}"{{end}}
+             x-bind:aria-invalid="!valid()" {{with $described}}aria-describedby="{{.}}"{{end}}
+             data-yd-i18n-attr="aria-label:cn.range.to" aria-label="{{tr "cn.range.to"}}" {{if .ToAttrs}}{{.ToAttrs}}{{else}}{{.Attrs}}{{end}}>
+    </div>
+    <p class="yd-cn-hint yd-cn-hint--error" id="{{$fromName}}-error" x-show="!valid()" x-cloak
+       data-yd-i18n="cn.range.invalid" role="alert">{{tr "cn.range.invalid"}}</p>
+  </div>
+  {{if or .Hint .HintKey}}<p class="yd-field__hint" id="{{$fromName}}-hint"{{with .HintKey}} data-yd-i18n="{{.}}"{{end}}>{{if .Hint}}{{.Hint}}{{else}}{{if .HintKey}}{{tr .HintKey}}{{end}}{{end}}</p>{{end}}
+</div>
+{{- end -}}
+
+{{/* components.cn.sms — a six-digit code field with a resend countdown. Dict keys | dict 的键:
+       ID, Name, Value, LabelKey, Label, SendURL, SendMethod (get|post, default post), Target,
+       HintKey, Hint, Required, Attrs (template.HTMLAttr)
+     With SendURL the button posts through htmx and the countdown starts on a 2xx; without it the
+     button starts the countdown locally and the application owns the request.
+     提供 SendURL 时按钮经 htmx 提交，2xx 后启动倒计时；未提供时按钮只启动本地倒计时，
+     请求由应用自行负责。 */}}
+{{- define "components.cn.sms" -}}
+{{- $described := .DescribedBy -}}
+{{- if and (not $described) .Hint -}}{{- $described = printf "%s-hint" .ID -}}{{- end -}}
+<div class="yd-field{{if .Required}} yd-field--required{{end}}" data-yd-field="{{.Name}}" x-data="ydSmsCode">
+  <label class="yd-field__label" for="{{.ID}}"{{with .LabelKey}} data-yd-i18n="{{.}}"{{end}}>{{if .Label}}{{.Label}}{{else}}{{if .LabelKey}}{{tr .LabelKey}}{{end}}{{end}}</label>
+  <div class="yd-cn-sms">
+    <input class="yd-input" id="{{.ID}}" name="{{.Name}}" type="text" inputmode="numeric" autocomplete="one-time-code" maxlength="6" value="{{.Value}}"
+           {{if .Required}}required{{end}} {{with $described}}aria-describedby="{{.}}"{{end}}
+           {{with .PlaceholderKey}}data-yd-i18n-attr="placeholder:{{.}}"{{end}} {{if or .Placeholder .PlaceholderKey}}placeholder="{{if .Placeholder}}{{.Placeholder}}{{else}}{{if .PlaceholderKey}}{{tr .PlaceholderKey}}{{end}}{{end}}"{{end}} {{.Attrs}}>
+    {{if .SendURL}}
+    <button type="button" class="yd-btn yd-btn--ghost" {{if eq .SendMethod "get"}}hx-get="{{.SendURL}}"{{else}}hx-post="{{.SendURL}}"{{end}}{{if .Target}} hx-target="{{.Target}}"{{end}} hx-swap="none" x-bind:disabled="busy()"
+            data-yd-i18n-attr="aria-label:cn.sms.send" aria-label="{{tr "cn.sms.send"}}">
+      <span x-show="!busy()" data-yd-i18n="cn.sms.send">{{tr "cn.sms.send"}}</span>
+      <span x-show="busy()" x-text="label()" aria-hidden="true"></span>
+    </button>
+    {{else}}
+    <button type="button" class="yd-btn yd-btn--ghost" x-on:click="start" x-bind:disabled="busy()"
+            data-yd-i18n-attr="aria-label:cn.sms.send" aria-label="{{tr "cn.sms.send"}}">
+      <span x-show="!busy()" data-yd-i18n="cn.sms.send">{{tr "cn.sms.send"}}</span>
+      <span x-show="busy()" x-text="label()" aria-hidden="true"></span>
+    </button>
+    {{end}}
+  </div>
+  {{if or .Hint .HintKey}}<p class="yd-field__hint" id="{{.ID}}-hint"{{with .HintKey}} data-yd-i18n="{{.}}"{{end}}>{{if .Hint}}{{.Hint}}{{else}}{{if .HintKey}}{{tr .HintKey}}{{end}}{{end}}</p>{{end}}
+</div>
+{{- end -}}
+
+{{/* components.cn.copy — copy a literal or a target field's value. Dict keys | dict 的键:
+       Value, Target, LabelKey, Label */}}
+{{- define "components.cn.copy" -}}
+<button type="button" class="yd-btn yd-btn--ghost yd-btn--sm" x-data="ydCopy"
+        data-yd-copy="{{.Value}}" data-yd-copy-target="{{.Target}}" x-on:click="copy">
+  <span x-show="!copied && !error"{{with .LabelKey}} data-yd-i18n="{{.}}"{{end}}>{{if .Label}}{{.Label}}{{else}}{{if .LabelKey}}{{tr .LabelKey}}{{end}}{{end}}</span>
+  <span x-show="copied" x-cloak data-yd-i18n="cn.copy.copied">{{tr "cn.copy.copied"}}</span>
+  <span x-show="error" x-cloak data-yd-i18n="cn.copy.failed">{{tr "cn.copy.failed"}}</span>
+</button>
+{{- end -}}

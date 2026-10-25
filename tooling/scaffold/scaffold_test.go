@@ -23,6 +23,7 @@ import (
 	"github.com/shibingli/yd/security/authz"
 	"github.com/shibingli/yd/tooling/assets"
 	"github.com/shibingli/yd/tooling/scaffold"
+	"github.com/shibingli/yd/web"
 	"github.com/shibingli/ydx/afs"
 	"github.com/shibingli/ydx/base64"
 	"github.com/shibingli/ydx/guomi"
@@ -79,6 +80,7 @@ var requiredFiles = []string{
 	"internal/controller/realtime.go",
 	"internal/controller/role_controller.go",
 	"internal/controller/tenant_controller.go",
+	"internal/controller/ui_kit.go",
 	"internal/controller/user_controller.go",
 	"internal/meta/meta.go",
 	"internal/middleware/cache.go",
@@ -110,11 +112,20 @@ var requiredFiles = []string{
 	"web/i18n/zh-CN.yaml",
 	"web/static/css/app.css",
 	"web/static/css/components.css",
+	"web/static/css/ui.css",
 	"web/static/img/icons.svg",
 	"web/static/js/yd-app.js",
+	"web/templates/components/chart.html",
+	"web/templates/components/cn.html",
+	"web/templates/components/data.html",
+	"web/templates/components/display.html",
+	"web/templates/components/feedback.html",
+	"web/templates/components/form.html",
+	"web/templates/components/layout.html",
+	"web/templates/components/navigation.html",
+	"web/templates/components/overlay.html",
 	"web/templates/mgr/layouts/base.html",
 	"web/templates/mgr/layouts/shell.html",
-	"web/templates/mgr/pages/error.html",
 	"web/templates/mgr/pages/home.html",
 	"web/templates/mgr/pages/message_admin.html",
 	"web/templates/mgr/pages/message_settings.html",
@@ -122,24 +133,20 @@ var requiredFiles = []string{
 	"web/templates/mgr/pages/roles.html",
 	"web/templates/mgr/pages/tenants.html",
 	"web/templates/mgr/pages/users.html",
-	"web/templates/mgr/partials/flash.html",
 	"web/templates/mgr/partials/home/live_metrics.html",
 	"web/templates/mgr/partials/home/metrics.html",
 	"web/templates/mgr/partials/home/metrics_fragment.html",
 	"web/templates/mgr/partials/home/middleware.html",
 	"web/templates/mgr/partials/home/middleware_fragment.html",
-	"web/templates/mgr/partials/icon.html",
 	"web/templates/mgr/partials/message_settings/body.html",
 	"web/templates/mgr/partials/message_settings/tag_form.html",
 	"web/templates/mgr/partials/message_settings/type_form.html",
 	"web/templates/mgr/partials/messages/audit.html",
-	"web/templates/mgr/partials/messages/message.html",
 	"web/templates/mgr/partials/messages/pin.html",
 	"web/templates/mgr/partials/roles/drawer.html",
 	"web/templates/mgr/partials/roles/edit_drawer.html",
 	"web/templates/mgr/partials/roles/form.html",
 	"web/templates/mgr/partials/roles/list.html",
-	"web/templates/mgr/partials/shell-switches.html",
 	"web/templates/mgr/partials/sidebar.html",
 	"web/templates/mgr/partials/tenants/drawer.html",
 	"web/templates/mgr/partials/tenants/form.html",
@@ -149,20 +156,32 @@ var requiredFiles = []string{
 	"web/templates/mgr/partials/users/form.html",
 	"web/templates/mgr/partials/users/list.html",
 	"web/templates/mgr/partials/users/row.html",
+	"web/templates/partials/app_shell.html",
+	"web/templates/partials/base.html",
+	"web/templates/partials/flash.html",
+	"web/templates/partials/icon.html",
+	"web/templates/partials/messages/message.html",
+	"web/templates/partials/messages/sidebar_badges.html",
+	"web/templates/partials/messages/unread_badge.html",
+	"web/templates/partials/messages/unread_frames.html",
+	"web/templates/partials/messages/unread_menu_badge.html",
+	"web/templates/partials/pages/error.html",
+	"web/templates/partials/shell-switches.html",
+	"web/templates/partials/sidebar_brand.html",
+	"web/templates/partials/sidebar_footer.html",
+	"web/templates/partials/topbar.html",
 	"web/templates/portal/layouts/base.html",
 	"web/templates/portal/layouts/shell.html",
 	"web/templates/portal/pages/account.html",
-	"web/templates/portal/pages/error.html",
 	"web/templates/portal/pages/friends.html",
 	"web/templates/portal/pages/login.html",
 	"web/templates/portal/pages/messages.html",
 	"web/templates/portal/pages/realtime.html",
-	"web/templates/portal/partials/flash.html",
+	"web/templates/portal/pages/ui_kit.html",
 	"web/templates/portal/partials/friends/remark.html",
 	"web/templates/portal/partials/friends/request.html",
 	"web/templates/portal/partials/friends/search.html",
 	"web/templates/portal/partials/friends/summary.html",
-	"web/templates/portal/partials/icon.html",
 	"web/templates/portal/partials/login.html",
 	"web/templates/portal/partials/messages/attachment_chip.html",
 	"web/templates/portal/partials/messages/compose.html",
@@ -172,14 +191,9 @@ var requiredFiles = []string{
 	"web/templates/portal/partials/messages/group_settings.html",
 	"web/templates/portal/partials/messages/history.html",
 	"web/templates/portal/partials/messages/i18n_keys.html",
-	"web/templates/portal/partials/messages/message.html",
 	"web/templates/portal/partials/messages/notice.html",
 	"web/templates/portal/partials/messages/search.html",
-	"web/templates/portal/partials/messages/sidebar_badges.html",
 	"web/templates/portal/partials/messages/thread.html",
-	"web/templates/portal/partials/messages/unread_badge.html",
-	"web/templates/portal/partials/messages/unread_menu_badge.html",
-	"web/templates/portal/partials/shell-switches.html",
 	"web/templates/portal/partials/sidebar.html",
 }
 
@@ -757,9 +771,11 @@ func TestGeneratedPortalAndManagementTreesAreIsolated(t *testing.T) {
 		}
 	}
 
-	// 布局选择：控制器用 render.LayoutKey 与两套布局/外壳常量，门户与后台因此不会共用外壳。
-	// Layout selection: the controller uses render.LayoutKey and two layout/shell constant sets, so the two sides never
-	// share a shell.
+	// 布局选择：控制器用 render.LayoutKey 与两套布局/外壳常量选择各自入口；两侧共用 partials/base 与
+	// partials/app_shell，角色差异只体现在数据（.Portal/.Mgr）选出的侧栏上。
+	// Layout selection: the controller uses render.LayoutKey and two layout/shell constant sets to pick each entry;
+	// both sides share partials/base and partials/app_shell, and the role difference exists only in the rail that
+	// the .Portal / .Mgr data key selects.
 	ctrl := pr.read("internal/controller/controller.go")
 	for _, want := range []string{
 		"render.LayoutKey",
@@ -795,6 +811,126 @@ func TestGeneratedPortalAndManagementTreesAreIsolated(t *testing.T) {
 		if strings.Contains(router, unwanted) {
 			t.Errorf("router.go 仍暴露旧路由 %q | router.go still exposes %q", unwanted, unwanted)
 		}
+	}
+}
+
+// TestGeneratedPortalAndManagementShareOneComponentLayer pins the single component layer both surfaces use.
+// The document skeleton, application shell, top bar, confirmation dialog, drawer, flash, switches, badges and the
+// message card exist once under web/templates/partials; the two trees keep only their own rail and pages, and neither
+// tree includes the other. | TestGeneratedPortalAndManagementShareOneComponentLayer 固定门户与后台共用同一套组件层：
+// 文档骨架、应用外壳、顶栏、确认框、抽屉、提示、切换按钮、角标与消息卡片都只在
+// web/templates/partials 下存在一份；两棵树只保留自己的侧栏与页面，且互不 include。
+func TestGeneratedPortalAndManagementShareOneComponentLayer(t *testing.T) {
+	pr, _ := generateMem(t, scaffold.DefaultOptions("shared-components-app"))
+
+	// Every shared component exists exactly once at the root of the template tree. | 共享组件只在树根存在一份。
+	for _, rel := range []string{
+		"web/templates/partials/base.html",
+		"web/templates/partials/app_shell.html",
+		"web/templates/partials/topbar.html",
+		"web/templates/partials/flash.html",
+		"web/templates/partials/shell-switches.html",
+		"web/templates/partials/sidebar_brand.html",
+		"web/templates/partials/sidebar_footer.html",
+		"web/templates/partials/messages/message.html",
+		"web/templates/partials/messages/unread_badge.html",
+		"web/templates/partials/messages/unread_frames.html",
+		"web/templates/partials/messages/unread_menu_badge.html",
+		"web/templates/partials/messages/sidebar_badges.html",
+		"web/templates/partials/pages/error.html",
+	} {
+		if !pr.exists(rel) {
+			t.Errorf("共享组件缺失: %s | shared component missing: %s", rel, rel)
+		}
+	}
+
+	// The two trees contain no copy of a shared component. | 两棵树里没有共享组件的副本。
+	for _, stale := range []string{
+		"web/templates/portal/partials/icon.html",
+		"web/templates/mgr/partials/icon.html",
+		"web/templates/portal/partials/flash.html",
+		"web/templates/mgr/partials/flash.html",
+		"web/templates/portal/partials/shell-switches.html",
+		"web/templates/mgr/partials/shell-switches.html",
+		"web/templates/portal/partials/messages/message.html",
+		"web/templates/mgr/partials/messages/message.html",
+		"web/templates/portal/partials/messages/unread_badge.html",
+		"web/templates/portal/partials/messages/unread_menu_badge.html",
+		"web/templates/portal/partials/messages/sidebar_badges.html",
+		"web/templates/portal/pages/error.html",
+		"web/templates/mgr/pages/error.html",
+	} {
+		if pr.exists(stale) {
+			t.Errorf("共享组件仍有树内副本: %s | duplicated inside a tree: %s", stale, stale)
+		}
+	}
+
+	// Both layout entries only delegate to the shared skeleton. | 两个布局入口只委托给共享骨架。
+	for _, rel := range []string{"web/templates/portal/layouts/base.html", "web/templates/mgr/layouts/base.html"} {
+		body := pr.read(rel)
+		if !strings.Contains(body, `{{ template "partials/base" . }}`) {
+			t.Errorf("%s 未调用共享骨架 partials/base | %s does not call the shared skeleton", rel, rel)
+		}
+		if strings.Contains(body, "<!doctype") || strings.Contains(body, "<html") {
+			t.Errorf("%s 仍然自带整页骨架 | %s still carries its own document skeleton", rel, rel)
+		}
+	}
+
+	// Both shell entries only delegate to the shared application shell. | 两个外壳入口只委托给共享应用外壳。
+	portalShell := pr.read("web/templates/portal/layouts/shell.html")
+	if !strings.Contains(portalShell, `{{ template "partials/app_shell" . }}`) {
+		t.Error("门户外壳未调用共享应用外壳 | the portal shell does not call the shared application shell")
+	}
+	if !strings.Contains(portalShell, ".SignedIn") || !strings.Contains(portalShell, "yd-auth-shell") {
+		t.Error("门户外壳丢失了唯一的匿名登录分支 | the portal shell lost its anonymous sign-in branch")
+	}
+	mgrShell := pr.read("web/templates/mgr/layouts/shell.html")
+	if strings.TrimSpace(mgrShell[strings.LastIndex(mgrShell, "*/}}")+len("*/}}"):]) != `{{ template "partials/app_shell" . }}` {
+		t.Errorf("后台外壳必须只调用共享应用外壳 | the management shell must only call the shared application shell")
+	}
+
+	// The shared shell chooses one rail from data, while each tree keeps its own rail. | 共享外壳按数据选择侧栏，
+	// 两棵树的侧栏仍各自保留。
+	appShell := pr.read("web/templates/partials/app_shell.html")
+	for _, want := range []string{`template "portal/partials/sidebar"`, `template "mgr/partials/sidebar"`} {
+		if !strings.Contains(appShell, want) {
+			t.Errorf("共享应用外壳缺少侧栏选择 %q | the shared application shell lacks %q", want, want)
+		}
+	}
+	for _, rel := range []string{"web/templates/portal/partials/sidebar.html", "web/templates/mgr/partials/sidebar.html"} {
+		body := pr.read(rel)
+		for _, want := range []string{`partials/sidebar_brand`, `partials/sidebar_footer`} {
+			if !strings.Contains(body, want) {
+				t.Errorf("%s 未复用共享侧栏部件 %q | %s does not reuse %q", rel, want, rel, want)
+			}
+		}
+	}
+
+	// Both surfaces render the same message card, and its actions come from the view's BasePath. | 两侧渲染同一张
+	// 消息卡片，动作前缀来自视图的 BasePath。
+	card := pr.read("web/templates/partials/messages/message.html")
+	if !strings.Contains(card, "{{ .BasePath }}") {
+		t.Error("共享消息卡片必须从 .BasePath 取动作前缀 | the shared message card must take its action prefix from .BasePath")
+	}
+	for _, rel := range []string{"web/templates/portal/partials/messages/history.html", "web/templates/mgr/partials/messages/audit.html"} {
+		if !strings.Contains(pr.read(rel), `template "partials/messages/message"`) {
+			t.Errorf("%s 未使用共享消息卡片 | %s does not use the shared message card", rel, rel)
+		}
+	}
+	ctrl := pr.read("internal/controller/controller.go")
+	for _, want := range []string{"MessagePortalBase", "MessageAdminBase"} {
+		if !strings.Contains(ctrl, want) {
+			t.Errorf("controller.go 缺少消息卡片动作前缀常量 %q | controller.go is missing %q", want, want)
+		}
+	}
+
+	// A shell swap must carry the new page title into the tab. | 外壳交换必须把新页面标题带进标签页。
+	base := pr.read("web/templates/partials/base.html")
+	if !strings.Contains(base, `data-yd-app-name="{{ .Name }}"`) {
+		t.Error("共享骨架缺少 data-yd-app-name | the shared skeleton lacks data-yd-app-name")
+	}
+	if !strings.Contains(pr.read("web/static/js/yd-app.js"), "syncDocumentTitle") {
+		t.Error("yd-app.js 未在外壳交换后同步 document.title | yd-app.js does not sync document.title after a shell swap")
 	}
 }
 
@@ -1084,12 +1220,12 @@ func TestGenerateAssetsLockTrimmedToSelectedExtensions(t *testing.T) {
 		}
 	}
 
-	for _, want := range []string{"htmx", "alpinejs", "idiomorph", "hx-sse"} {
+	for _, want := range []string{"htmx", "alpinejs", "idiomorph", "hx-sse", "hx-alpine-compat"} {
 		if !slices.Contains(names, want) {
 			t.Errorf("资产清单缺少 %q: %v", want, names)
 		}
 	}
-	for _, unwanted := range []string{"hx-ws", "hx-preload", "hx-alpine-compat", "hx-targets", "hx-head"} {
+	for _, unwanted := range []string{"hx-ws", "hx-preload", "hx-targets", "hx-head"} {
 		if slices.Contains(names, unwanted) {
 			t.Errorf("资产清单不应含未选中的扩展资产 %q: %v", unwanted, names)
 		}
@@ -1171,15 +1307,15 @@ func TestInteractiveNonTTYUsesDefaults(t *testing.T) {
 // TestInteractiveTTYReadsAnswers 断言 TTY 下逐项读取回答，空行取默认值。
 // TestInteractiveTTYReadsAnswers asserts TTY mode reads one answer per prompt and empty lines keep defaults.
 func TestInteractiveTTYReadsAnswers(t *testing.T) {
-	// 询问顺序：name、module、db、grpc、i18n、tailwind、htmx-exts、license；Redis 与 Asynq 是内建能力，不再提问。
-	// Prompt order: name, module, db, grpc, i18n, tailwind, htmx-exts, license; Redis and Asynq are built in and never asked.
+	// 询问顺序：name、module、db、grpc、i18n、htmx-exts、license；Redis、Asynq、Htmx、Tailwind 与 Alpine 是内建能力，不再提问。
+	// Prompt order: name, module, db, grpc, i18n, htmx-exts, license; Redis, Asynq, Htmx, Tailwind and Alpine are built in
+	// and never asked.
 	answers := strings.Join([]string{
 		"shop-app", // 项目名 | project name
 		"",         // 模块路径 → 跟随新项目名 | module follows the new name
 		"postgres", // 数据库 | database
 		"n",        // grpc
 		"y",        // i18n
-		"",         // tailwind → 默认开启 | keeps the default (on)
 		"sse, ws",  // Htmx 扩展 | htmx extensions
 		"",         // 协议 → 默认 Apache-2.0 | license keeps its default
 	}, "\n") + "\n"
@@ -1482,6 +1618,24 @@ func TestGeneratedAppServesFrameworkFeatures(t *testing.T) {
 		}
 		if strings.Contains(body, `hx-trigger="every`) {
 			t.Errorf("GET /mgr 仍使用定时轮询，指标必须由 WebSocket 推送:\n%s", body)
+		}
+		// 组件示例页是门户内的活文档：组件层新增控件后，这一页必须仍然能整页渲染。
+		// The component gallery is living documentation inside the portal: after a new control joins the kit, this
+		// page must still render as a whole page.
+		resp, body = getText(t, client, base+"/ui-kit", nil)
+		if resp.StatusCode != http.StatusOK {
+			t.Fatalf("GET /ui-kit 状态码 = %d, 期望 200\n%s", resp.StatusCode, body)
+		}
+		for _, want := range []string{
+			`data-yd-page="ui-kit"`,
+			`id="yd-ui-kit-form"`,
+			`id="yd-kit-chart"`,
+			`id="yd-kit-modal"`,
+			`class="yd-chart-card__plot"`,
+		} {
+			if !strings.Contains(body, want) {
+				t.Errorf("GET /ui-kit 缺少 %q:\n%s", want, body)
+			}
 		}
 	})
 
@@ -2640,17 +2794,23 @@ func TestGeneratedI18nCatalogueCoversEveryTrKey(t *testing.T) {
 		}
 	}
 	// Dashboard gauge captions are data-driven: the template calls tr with .LabelKey, so the literal key
-	// lives in Go. Scan those references too, otherwise a legitimately used key is reported as stale.
-	// | 仪表盘标题是数据驱动的：模板用 .LabelKey 调 tr，字面键名留在 Go 里。这里一并扫描这些引用，
-	// 否则真正被用到的键会被误报为陈旧键。
-	goKeyPattern := regexpx.MustCompile(`"(metrics\.[a-z0-9_.]+)"`)
+	// lives in Go. Controller validation messages are the same shape. Scan those references too;
+	// otherwise a legitimately used key is reported as stale.
+	// | 仪表盘标题是数据驱动的：模板用 .LabelKey 调 tr，字面键名留在 Go 里。控制器校验文案同理。
+	// 这里一并扫描这些引用，否则真正被用到的键会被误报为陈旧键。
+	goKeyPatterns := []*regexpx.Regexp{
+		regexpx.MustCompile(`"(metrics\.[a-z0-9_.]+)"`),
+		regexpx.MustCompile(`\btr\([^,\n]+,\s*"([a-z0-9_.]+)"`),
+	}
 	for _, rel := range requiredFiles {
 		if !strings.HasPrefix(rel, "internal/") || !strings.HasSuffix(rel, ".go") {
 			continue
 		}
-		for _, match := range goKeyPattern.FindAllStringSubmatch(pr.read(rel), -1) {
-			if _, seen := used[match[1]]; !seen {
-				used[match[1]] = rel
+		for _, pattern := range goKeyPatterns {
+			for _, match := range pattern.FindAllStringSubmatch(pr.read(rel), -1) {
+				if _, seen := used[match[1]]; !seen {
+					used[match[1]] = rel
+				}
 			}
 		}
 	}
@@ -3111,6 +3271,12 @@ func startGeneratedAppWithStop(t *testing.T, bin, dir string) (string, func()) {
 		_, _ = cmd.Process.Wait()
 	}
 
+	t.Cleanup(func() {
+		if t.Failed() {
+			t.Logf("generated app log:\n%s", logs.String())
+		}
+	})
+
 	base := "http://127.0.0.1:" + strconv.Itoa(port)
 	probe := &http.Client{Timeout: httpTimeout}
 	deadline := time.Now().Add(startupTimeout)
@@ -3361,7 +3527,7 @@ func TestGenerateWiresStaticFSToRenderer(t *testing.T) {
 		`{{ asset "/static/css/yd.css" }}`,
 		`{{ asset "/static/js/yd-app.js" }}`,
 	} {
-		if !strings.Contains(pr.read("web/templates/portal/layouts/base.html"), want) {
+		if !strings.Contains(pr.read("web/templates/partials/base.html"), want) {
 			t.Errorf("生成的 base.html 未通过 asset 解析 %q", want)
 		}
 	}
@@ -3376,8 +3542,7 @@ func TestGeneratedShellsCarryTheGlobalProgressBar(t *testing.T) {
 	pr, _ := generateMem(t, scaffold.DefaultOptions("progress-app"))
 
 	for _, rel := range []string{
-		"web/templates/portal/layouts/base.html",
-		"web/templates/mgr/layouts/base.html",
+		"web/templates/partials/base.html",
 	} {
 		page := pr.read(rel)
 		for _, want := range []string{
@@ -3397,6 +3562,66 @@ func TestGeneratedShellsCarryTheGlobalProgressBar(t *testing.T) {
 		if progressAt < 0 || appAt < 0 || progressAt > appAt {
 			t.Errorf("%s must load yd-progress.js before yd-app.js (progress=%d app=%d) | %s 必须在 yd-app.js 之前加载 yd-progress.js（progress=%d app=%d）",
 				rel, progressAt, appAt, rel, progressAt, appAt)
+		}
+	}
+}
+
+// TestGeneratedUILoadsAlpineAndTheKitInOrder pins the one order the CSP build allows. Alpine's
+// CSP distribution starts the moment its script executes, so a registry loaded after it would
+// register into a started instance and every x-data on the page would fail. The test also proves
+// the UI layer is copied from the framework rather than re-implemented per project.
+// TestGeneratedUILoadsAlpineAndTheKitInOrder 固定 CSP 构建唯一允许的顺序。Alpine 的 CSP 发行版在
+// 脚本执行的那一刻就启动，排在它之后的注册表会注册进一个已启动的实例，页面里每个 x-data 都会失败。
+// 该测试同时证明 UI 层是从框架复制而来，而不是每个项目另写一份。
+func TestGeneratedUILoadsAlpineAndTheKitInOrder(t *testing.T) {
+	pr, _ := generateMem(t, scaffold.DefaultOptions("ui-app"))
+
+	for _, rel := range []string{
+		"web/templates/partials/base.html",
+	} {
+		page := pr.read(rel)
+		kit := `{{ asset "/static/js/yd-ui.js" }}`
+		alpine := `{{ asset "/static/js/vendor/alpine.min.js" }}`
+		kitAt := strings.Index(page, kit)
+		alpineAt := strings.Index(page, alpine)
+		switch {
+		case kitAt < 0:
+			t.Errorf("%s does not load yd-ui.js | %s 未加载 yd-ui.js", rel, rel)
+		case alpineAt < 0:
+			t.Errorf("%s does not load alpine.min.js | %s 未加载 alpine.min.js", rel, rel)
+		case kitAt > alpineAt:
+			t.Errorf("%s loads Alpine before the UI kit (kit=%d alpine=%d); the CSP build starts immediately, so the kit must come first | %s 先加载 Alpine 后加载 UI 层（kit=%d alpine=%d）；CSP 构建立即启动，UI 层必须在前",
+				rel, kitAt, alpineAt, rel, kitAt, alpineAt)
+		}
+	}
+
+	app := pr.read("web/static/css/app.css")
+	for _, want := range []string{`@import "./components.css"`, `@import "./ui.css"`} {
+		if !strings.Contains(app, want) {
+			t.Errorf("generated app.css lacks %q | 生成的 app.css 缺少 %q", want, want)
+		}
+	}
+
+	// The generated component templates and UI stylesheet must be byte-identical to the framework's
+	// copies: a second implementation would drift the moment either side is edited.
+	// 生成的组件模板与 UI 样式表必须与框架副本逐字节一致：第二份实现会在任一侧被修改的那一刻开始漂移。
+	for _, name := range []string{"chart.html", "cn.html", "data.html", "display.html", "feedback.html", "form.html", "layout.html", "navigation.html", "overlay.html"} {
+		rel := "web/templates/components/" + name
+		if !pr.exists(rel) {
+			t.Errorf("generated project lacks %s | 生成项目缺少 %s", rel, rel)
+			continue
+		}
+		want, err := afero.ReadFile(web.FS(), "templates/components/"+name)
+		if err != nil {
+			t.Fatalf("reading framework %s failed: %v | 读取框架 %s 失败：%v", name, err, name, err)
+		}
+		if got := pr.read(rel); got != string(want) {
+			t.Errorf("%s differs from the framework copy | %s 与框架副本不一致", rel, rel)
+		}
+	}
+	for _, rel := range []string{"web/static/css/ui.css"} {
+		if !pr.exists(rel) {
+			t.Errorf("generated project lacks %s | 生成项目缺少 %s", rel, rel)
 		}
 	}
 }
@@ -3451,7 +3676,7 @@ func TestGeneratePinsTheRunningYdVersion(t *testing.T) {
 func TestGenerateThemeBootAndAutoTokens(t *testing.T) {
 	pr, _ := generateMem(t, scaffold.DefaultOptions("theme-app"))
 
-	base := pr.read("web/templates/portal/layouts/base.html")
+	base := pr.read("web/templates/partials/base.html")
 	if !strings.Contains(base, `data-theme="auto"`) {
 		t.Error("generated base.html must default to data-theme=auto | 生成的 base.html 必须默认 data-theme=auto")
 	}
@@ -3492,7 +3717,7 @@ func TestGenerateThemeBootAndAutoTokens(t *testing.T) {
 func TestGenerateIconsUseTheBundledSprite(t *testing.T) {
 	pr, _ := generateMem(t, scaffold.DefaultOptions("icon-app"))
 
-	partial := pr.read("web/templates/portal/partials/icon.html")
+	partial := pr.read("web/templates/partials/icon.html")
 	for _, want := range []string{
 		`asset "/static/img/icons.svg"`,
 		`data-yd-icon="{{ . }}"`,
@@ -3508,13 +3733,13 @@ func TestGenerateIconsUseTheBundledSprite(t *testing.T) {
 		icon string
 	}{
 		{"web/templates/portal/partials/login.html", "lucide-log-in"},
-		{"web/templates/portal/layouts/shell.html", "lucide-log-out"},
-		{"web/templates/portal/partials/shell-switches.html", "lucide-languages"},
-		{"web/templates/portal/partials/shell-switches.html", "lucide-sun"},
-		{"web/templates/portal/partials/shell-switches.html", "lucide-moon"},
-		{"web/templates/portal/partials/shell-switches.html", "lucide-monitor"},
+		{"web/templates/partials/topbar.html", "lucide-log-out"},
+		{"web/templates/partials/shell-switches.html", "lucide-languages"},
+		{"web/templates/partials/shell-switches.html", "lucide-sun"},
+		{"web/templates/partials/shell-switches.html", "lucide-moon"},
+		{"web/templates/partials/shell-switches.html", "lucide-monitor"},
 	} {
-		needle := `template "portal/partials/icon" "` + want.icon + `"`
+		needle := `template "partials/icon" "` + want.icon + `"`
 		if !strings.Contains(pr.read(want.file), needle) {
 			t.Errorf("%s is missing %s | %s 缺少 %s", want.file, needle, want.file, needle)
 		}
@@ -3528,7 +3753,7 @@ func TestGenerateIconsUseTheBundledSprite(t *testing.T) {
 func TestGenerateLanguageToggle(t *testing.T) {
 	pr, _ := generateMem(t, scaffold.DefaultOptions("lang-app"))
 
-	switches := pr.read("web/templates/portal/partials/shell-switches.html")
+	switches := pr.read("web/templates/partials/shell-switches.html")
 	if got := strings.Count(switches, "data-yd-lang-toggle"); got != 1 {
 		t.Errorf("shell-switches.html has %d language toggles, want 1 | shell-switches.html 有 %d 个语言按钮，应为 1", got, got)
 	}
@@ -3583,14 +3808,14 @@ func TestGenerateRealtimeRecoveryHooks(t *testing.T) {
 		}
 	}
 
-	base := pr.read("web/templates/portal/layouts/base.html")
+	base := pr.read("web/templates/partials/base.html")
 	for _, want := range []string{"data-yd-connecting", "data-yd-recovered", "data-yd-offline"} {
 		if !strings.Contains(base, want) {
 			t.Errorf("generated base.html is missing %q | 生成的 base.html 缺少 %q", want, want)
 		}
 	}
 
-	flash := pr.read("web/templates/portal/partials/flash.html")
+	flash := pr.read("web/templates/partials/flash.html")
 	for _, want := range []string{"data-yd-connection-text", "data-yd-connection-attempt", "data-yd-reconnect"} {
 		if !strings.Contains(flash, want) {
 			t.Errorf("generated flash.html is missing %q | 生成的 flash.html 缺少 %q", want, want)
@@ -3657,7 +3882,7 @@ func TestSidebarOmitsHealthMenuItem(t *testing.T) {
 func TestSeedPasswordNoticeAppearsOnceOnHome(t *testing.T) {
 	pr, _ := generateMem(t, scaffold.DefaultOptions("notice-app"))
 
-	shell := pr.read("web/templates/portal/layouts/shell.html")
+	shell := pr.read("web/templates/partials/app_shell.html")
 	for _, unwanted := range []string{"SeedNotice", "data-yd-seed-password"} {
 		if strings.Contains(shell, unwanted) {
 			t.Errorf("shell.html still renders the seed-password banner (%q) | shell.html 仍渲染种子口令横幅（%q）", unwanted, unwanted)
@@ -3803,10 +4028,10 @@ func TestGenerateResponsiveShellHooks(t *testing.T) {
 		file string
 		text string
 	}{
-		{"web/templates/portal/layouts/shell.html", "data-yd-sidebar-open"},
-		{"web/templates/portal/layouts/shell.html", "data-yd-sidebar-backdrop"},
+		{"web/templates/partials/topbar.html", "data-yd-sidebar-open"},
+		{"web/templates/partials/app_shell.html", "data-yd-sidebar-backdrop"},
 		{"web/templates/portal/partials/sidebar.html", `id="yd-sidebar"`},
-		{"web/templates/portal/layouts/base.html", "yd-shell--app"},
+		{"web/templates/partials/base.html", "yd-shell--app"},
 		{"web/static/js/yd-app.js", "function setRailOpen"},
 		{"web/static/js/yd-app.js", "function swapReplacedRail(root)"},
 		{"web/static/css/components.css", "max-width: 63.999rem"},
@@ -3826,7 +4051,7 @@ func TestGenerateResponsiveShellHooks(t *testing.T) {
 func TestGeneratedDrawerErrorsStayInsideDrawer(t *testing.T) {
 	pr, _ := generateMem(t, scaffold.DefaultOptions("drawer-errors-app"))
 
-	shell := pr.read("web/templates/portal/layouts/shell.html")
+	shell := pr.read("web/templates/partials/app_shell.html")
 	for _, want := range []string{`id="yd-drawer-errors"`, "yd-errors--drawer"} {
 		if !strings.Contains(shell, want) {
 			t.Errorf("shell.html 缺少抽屉错误槽位 %q", want)
@@ -3903,7 +4128,7 @@ func TestGeneratedMessageCentreUsesInlineNewConversationPanel(t *testing.T) {
 		}
 	}
 
-	shell := pr.read("web/templates/portal/layouts/shell.html")
+	shell := pr.read("web/templates/partials/topbar.html")
 	for _, want := range []string{
 		`data-yd-user-menu`,
 		`href="/messages?folder=unread"`,
@@ -3919,7 +4144,7 @@ func TestGeneratedMessageCentreUsesInlineNewConversationPanel(t *testing.T) {
 			t.Errorf("shell.html 缺少 %q", want)
 		}
 	}
-	if !strings.Contains(pr.read("web/templates/portal/partials/messages/unread_menu_badge.html"), `id="yd-unread-menu-badge"`) {
+	if !strings.Contains(pr.read("web/templates/partials/messages/unread_menu_badge.html"), `id="yd-unread-menu-badge"`) {
 		t.Error("unread_menu_badge.html lacks its own count id | unread_menu_badge.html 缺少独立计数 id")
 	}
 	// 未读角标必须排在用户名之后、菜单箭头之前，不能盖在头像角上。
@@ -3984,5 +4209,74 @@ func TestGenerateDamengDSN(t *testing.T) {
 	wantDSN := `dm://SYSDBA:SYSDBA@127.0.0.1:5236?timeZone=0`
 	if !strings.Contains(cfg, wantDSN) {
 		t.Errorf("config.yaml 的达梦连接串缺少 %q:\n%s", wantDSN, cfg)
+	}
+}
+
+// TestGeneratedUIKitShowsEveryComponent pins the component gallery: every component template the framework ships is
+// referenced by the page, the page hand-writes no input or select, and the route plus sidebar entry exist. The only
+// exception is the recursive tree helper, which is invoked by components.navigation.tree itself. |
+// TestGeneratedUIKitShowsEveryComponent 固定组件示例页：框架提供的每一个组件模板都在页面里出现，页面不手写
+// input/select，路由与侧栏入口都存在。唯一例外是递归的树节点片段，它由 components.navigation.tree 自己调用。
+func TestGeneratedUIKitShowsEveryComponent(t *testing.T) {
+	pr, _ := generateMem(t, scaffold.DefaultOptions("ui-kit-app"))
+
+	page := pr.read("web/templates/portal/pages/ui_kit.html")
+	if !strings.Contains(page, `data-yd-page="ui-kit"`) {
+		t.Error("ui_kit.html lacks its page marker | ui_kit.html 缺少页面标记")
+	}
+	for _, unwanted := range []string{"<input", "<select", "<textarea"} {
+		if strings.Contains(page, unwanted) {
+			t.Errorf("ui_kit.html hand-writes %q; every control must come from components/** | ui_kit.html 手写了 %q；所有控件必须来自 components/**", unwanted, unwanted)
+		}
+	}
+
+	// form.search ships its own <form>; nesting it inside the demo form makes the browser drop or move nodes
+	// (the magnifier is the visible symptom). | form.search 自带 <form>，嵌进演示表单会让浏览器丢弃或移动节点，
+	// 放大镜错位就是可见症状。
+	searchAt := strings.Index(page, `template "components.form.search"`)
+	formClose := strings.Index(page, "</form>")
+	if searchAt < 0 || formClose < 0 || searchAt < formClose {
+		t.Error("ui_kit.html nests form.search inside the demo form | ui_kit.html 把 form.search 嵌进了演示表单")
+	}
+
+	entries, err := afero.ReadDir(web.FS(), "templates/components")
+	if err != nil {
+		t.Fatalf("reading framework components failed: %v | 读取框架组件失败：%v", err, err)
+	}
+	defPattern := regexpx.MustCompile(`\{\{-?\s*define\s+"(components\.[^"]+)"`)
+	missing := make([]string, 0)
+	for _, entry := range entries {
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".html") {
+			continue
+		}
+		body, readErr := afero.ReadFile(web.FS(), "templates/components/"+entry.Name())
+		if readErr != nil {
+			t.Fatalf("reading components/%s failed: %v | 读取 components/%s 失败：%v", entry.Name(), readErr, entry.Name(), readErr)
+		}
+		for _, match := range defPattern.FindAllStringSubmatch(string(body), -1) {
+			name := match[1]
+			if name == "components.navigation.tree.nodes" {
+				continue
+			}
+			if !strings.Contains(page, `template "`+name+`"`) {
+				missing = append(missing, name)
+			}
+		}
+	}
+	if len(missing) > 0 {
+		t.Errorf("ui_kit.html 未展示组件: %v | the component gallery does not show: %v", missing, missing)
+	}
+
+	router := pr.read("internal/router/router.go")
+	if !strings.Contains(router, `g.GET("/ui-kit", ctrl.UIKit)`) {
+		t.Error("router.go lacks the /ui-kit route | router.go 缺少 /ui-kit 路由")
+	}
+	sidebar := pr.read("web/templates/portal/partials/sidebar.html")
+	if !strings.Contains(sidebar, `data-yd-nav="ui-kit"`) || !strings.Contains(sidebar, `tr "nav.ui_kit"`) {
+		t.Error("portal sidebar lacks the component gallery entry | 门户侧栏缺少组件示例入口")
+	}
+	handler := pr.read("internal/controller/ui_kit.go")
+	if !strings.Contains(handler, "http/chart") || !strings.Contains(handler, "ChartSVG") {
+		t.Error("ui_kit.go must inject a server-rendered chart | ui_kit.go 必须注入服务端图表")
 	}
 }

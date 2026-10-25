@@ -87,6 +87,11 @@ func maskTemplateActions(text string) string {
 func collectScaffoldTemplateClasses(text, file string, out scaffoldClassOrigins) {
 	cleaned := maskTemplateActions(text)
 	for _, loc := range scaffoldClassAttrPattern.FindAllStringSubmatchIndex(cleaned, -1) {
+		// Skip Alpine bindings such as x-bind:class: their value is an expression, not a class list.
+		// 跳过 x-bind:class 等 Alpine 绑定：它们的取值是表达式而不是类列表。
+		if loc[0] > 0 && (cleaned[loc[0]-1] == '-' || cleaned[loc[0]-1] == ':') {
+			continue
+		}
 		value := ""
 		switch {
 		case loc[2] >= 0:
@@ -168,6 +173,9 @@ func TestGeneratedStylesDefineEveryYdClassUsedByTemplates(t *testing.T) {
 	css := p.read("web/static/css/app.css")
 	if p.exists("web/static/css/components.css") {
 		css += "\n" + p.read("web/static/css/components.css")
+	}
+	if p.exists("web/static/css/ui.css") {
+		css += "\n" + p.read("web/static/css/ui.css")
 	}
 	defined := scaffoldCSSDefinitions(css)
 	if len(defined) == 0 {

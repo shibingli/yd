@@ -172,7 +172,7 @@ func normalize(o Options) (Options, error) {
 	if err != nil {
 		return Options{}, err
 	}
-	o.HtmxExts = exts
+	o.HtmxExts = EffectiveExtensions(exts)
 
 	o.LocalReplace = filepath.ToSlash(strings.TrimSpace(o.LocalReplace))
 	for _, r := range o.LocalReplace {

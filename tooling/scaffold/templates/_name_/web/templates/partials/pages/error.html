@@ -1,6 +1,6 @@
 {{/*
-  pages/error.html —— 失败片段：422/404/400/401/500 共用的同一份渲染。
-  pages/error.html — the failure fragment: one render shared by 422, 404, 400, 401 and 500.
+  partials/pages/error.html —— 失败片段：422/404/400/401/500 共用的同一份渲染，门户与后台共用。
+  partials/pages/error.html — the failure fragment: one render shared by 422, 404, 400, 401 and 500 across the portal and the back office.
 
   它没有 id：这一份片段会被 htmx 以 innerHTML 换进 layouts/base.html 上的全局槽位 #yd-errors，
   而整页渲染时它又直接落在工作区里；若它自带 id，槽位与内容就会撞名。
@@ -13,9 +13,7 @@
   数据契约 | Data contract: .Status（HTTP 状态码）、.Errors（[{.Text}] 列表）。
 */}}
 <div class="yd-errors__body" role="alert" aria-live="assertive" data-yd-dismissable>
-  <p class="yd-errors__title">
-    请求未通过校验（HTTP {{ .Status }}）| Request failed validation (HTTP {{ .Status }})
-  </p>
+  <p class="yd-errors__title">{{ tr "ui.request_failed" .Status }}</p>
   <ul class="yd-errors__list">
     {{ range .Errors }}
     <li class="yd-errors__item">{{ .Text }}</li>
@@ -28,7 +26,5 @@
        every typed value intact. The button carries a flag and no selector: yd-app.js empties the innermost
        dismissable container, so it clears the slot when the fragment was swapped in and only the message block on a
        whole-page render — one script path for both. */}}
-  <button type="button" class="yd-btn yd-btn--ghost yd-btn--sm" data-yd-dismiss>
-    知道了 | Dismiss
-  </button>
+  <button type="button" class="yd-btn yd-btn--ghost yd-btn--sm" data-yd-dismiss>{{ tr "ui.dismiss" }}</button>
 </div>

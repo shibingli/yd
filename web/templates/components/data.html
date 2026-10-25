@@ -1,0 +1,96 @@
+{{/*
+  components/data.html — avatars, statistics and the table shell.
+  components/data.html — 头像、统计值与表格外壳。
+
+  Tables stay native | 表格保持原生
+    The shell is a real <table> with a caption, column headers and a scroll wrapper. A div grid
+    would look the same at 1280px and lose row/column semantics for screen readers, copied cells
+    and print. Density and alignment are modifiers, not a second component.
+    外壳是真正的 <table>，带 caption、列头与滚动包装。div 栅格在 1280px 下看起来一样，却会丢掉
+    读屏、单元格复制与打印所依赖的行列语义。密度与对齐是修饰符，不是第二套组件。
+
+  Morphing bodies | Morph 表体
+    The tbody carries hx-swap="outerMorph" by default: a row refresh keeps focus, scroll and any
+    unsubmitted input inside the row. Pass Swap explicitly only when a full replacement is what
+    you actually want.
+    表体默认带 hx-swap="outerMorph"：行刷新会保留焦点、滚动位置与行内未提交的输入。只有确实想
+    整块替换时才显式传 Swap。
+*/}}
+
+{{/* components.data.avatar — initials in a circle. Dict keys | dict 的键:
+       Initials, Size (xs|sm|lg), Label, LabelKey */}}
+{{- define "components.data.avatar" -}}
+<span class="yd-avatar{{with .Size}} yd-avatar--{{.}}{{end}}"{{if or .Label .LabelKey}} role="img"{{with .LabelKey}} data-yd-i18n-attr="aria-label:{{.}}"{{end}} aria-label="{{if .Label}}{{.Label}}{{else}}{{tr .LabelKey}}{{end}}"{{else}} aria-hidden="true"{{end}}>{{.Initials}}</span>
+{{- end -}}
+
+{{/* components.data.stat — a labelled value with an optional delta. Dict keys | dict 的键:
+       Label, LabelKey, Value, Delta, Trend (up|down), Hint, HintKey */}}
+{{- define "components.data.stat" -}}
+<div class="yd-stat">
+  <span class="yd-stat__label"{{with .LabelKey}} data-yd-i18n="{{.}}"{{end}}>{{if .Label}}{{.Label}}{{else}}{{if .LabelKey}}{{tr .LabelKey}}{{end}}{{end}}</span>
+  <span class="yd-stat__value">{{.Value}}</span>
+  {{with .Delta}}<span class="yd-stat__delta{{with $.Trend}} yd-stat__delta--{{$.Trend}}{{end}}">{{.}}</span>{{end}}
+  {{if or .Hint .HintKey}}<span class="yd-field__hint"{{with .HintKey}} data-yd-i18n="{{.}}"{{end}}>{{if .Hint}}{{.Hint}}{{else}}{{tr .HintKey}}{{end}}</span>{{end}}
+</div>
+{{- end -}}
+
+{{/* components.data.table.open — the table shell. Dict keys | dict 的键:
+       ID, Caption, CaptionKey, Compact, Columns []{Label, LabelKey, Numeric, Actions},
+       BodyID, BodyAttrs (template.HTMLAttr), Swap (default outerMorph)
+     Close it with components.data.table.close. | 用 components.data.table.close 收尾。 */}}
+{{- define "components.data.table.open" -}}
+<div class="yd-table__wrap" data-yd-table>
+  <table class="yd-table{{if .Compact}} yd-table--compact{{end}}"{{with .ID}} id="{{.}}"{{end}}
+         {{with .CaptionKey}}data-yd-i18n-attr="aria-label:{{.}}"{{end}} aria-label="{{if .Caption}}{{.Caption}}{{else}}{{if .CaptionKey}}{{tr .CaptionKey}}{{end}}{{end}}">
+    {{if or .Caption .CaptionKey}}<caption class="sr-only"{{with .CaptionKey}} data-yd-i18n="{{.}}"{{end}}>{{if .Caption}}{{.Caption}}{{else}}{{tr .CaptionKey}}{{end}}</caption>{{end}}
+    <thead class="yd-table__head">
+      <tr>
+        {{range .Columns}}
+        <th class="yd-table__th{{if .Numeric}} yd-table__th--num{{end}}{{if .Actions}} yd-table__th--actions{{end}}" scope="col"{{with .LabelKey}} data-yd-i18n="{{.}}"{{end}}>{{.Label}}</th>
+        {{end}}
+      </tr>
+    </thead>
+    <tbody{{with .BodyID}} id="{{.}}"{{end}} class="yd-table__body" hx-swap="{{.Swap | default "outerMorph"}}" {{.BodyAttrs}}>
+{{- end -}}
+
+{{- define "components.data.table.close" -}}
+    </tbody>
+  </table>
+</div>
+{{- end -}}
+
+{{/* components.data.kpi — a KPI tile with an optional sparkline. Dict keys | dict 的键:
+       Label, LabelKey, Value, Delta, Trend (up|down), Spark (template.HTML), Hint, HintKey */}}
+{{- define "components.data.kpi" -}}
+<div class="yd-card yd-kpi">
+  <span class="yd-kpi__label"{{with .LabelKey}} data-yd-i18n="{{.}}"{{end}}>{{if .Label}}{{.Label}}{{else}}{{if .LabelKey}}{{tr .LabelKey}}{{end}}{{end}}</span>
+  <span class="yd-kpi__value">{{.Value}}</span>
+  {{with .Delta}}<span class="yd-stat__delta{{with $.Trend}} yd-stat__delta--{{$.Trend}}{{end}}">{{.}}</span>{{end}}
+  {{with .Spark}}<div class="yd-stat__spark">{{.}}</div>{{end}}
+  {{if or .Hint .HintKey}}<span class="yd-field__hint"{{with .HintKey}} data-yd-i18n="{{.}}"{{end}}>{{if .Hint}}{{.Hint}}{{else}}{{tr .HintKey}}{{end}}</span>{{end}}
+</div>
+{{- end -}}
+
+{{/* components.data.sort-header — a sortable table header. Dict keys | dict 的键:
+       Label, LabelKey, Href, Active, Dir (asc|desc), Attrs (template.HTMLAttr) */}}
+{{- define "components.data.sort-header" -}}
+<a class="yd-sort-header{{if .Active}} yd-sort-header--active{{end}}" href="{{.Href}}"
+   {{with .LabelKey}}data-yd-i18n="{{.}}"{{end}} {{.Attrs}}>
+  <span>{{.Label}}</span>
+  <span class="yd-sort-header__icon" aria-hidden="true">{{if .Active}}{{if eq .Dir "asc"}}{{template "partials/icon" "lucide-chevron-up"}}{{else}}{{template "partials/icon" "lucide-chevron-down"}}{{end}}{{else}}{{template "partials/icon" "lucide-chevrons-up-down"}}{{end}}</span>
+</a>
+{{- end -}}
+
+{{/* components.data.log — a monospace log viewer. Dict keys | dict 的键:
+       Label, LabelKey, Lines []{Time, Level (error|warn|info), LevelKey, Body, BodyKey} */}}
+{{- define "components.data.log" -}}
+<div class="yd-log" role="log" tabindex="0" {{with .LabelKey}}aria-label="{{if $.Label}}{{$.Label}}{{else}}{{tr .}}{{end}}" data-yd-i18n-attr="aria-label:{{.}}"{{end}}>
+  {{range .Lines}}
+  <div class="yd-log__line">
+    <span class="yd-log__time">{{.Time}}</span>
+    <span class="yd-log__level yd-log__level--{{.Level}}"{{with .LevelKey}} data-yd-i18n="{{.}}"{{end}}>{{if .Level}}{{.Level}}{{else}}{{if .LevelKey}}{{tr .LevelKey}}{{end}}{{end}}</span>
+    <span class="yd-log__body"{{with .BodyKey}} data-yd-i18n="{{.}}"{{end}}>{{if .Body}}{{.Body}}{{else}}{{if .BodyKey}}{{tr .BodyKey}}{{end}}{{end}}</span>
+  </div>
+  {{end}}
+</div>
+{{- end -}}

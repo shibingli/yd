@@ -1,0 +1,34 @@
+{{/*
+  components/overlay.html — the modal shell.
+  components/overlay.html — 模态对话框外壳。
+
+  The shell owns the drawer and the confirmation dialog | 外壳拥有抽屉与确认框
+    Every generated project already renders #yd-drawer and #yd-confirm in its shell. New/edit
+    forms belong in the drawer, and every mutating action goes through data-yd-confirm; this
+    partial is for the rarer case of a modal that is not either of those two.
+    每个生成项目的外壳都已经渲染 #yd-drawer 与 #yd-confirm。新增/编辑表单应放进抽屉，每个变更动作
+    都要经过 data-yd-confirm；本局部模板用于「既不是抽屉也不是确认框」的少数模态场景。
+
+  Why open/close halves | 为什么拆成 open/close
+    html/template only accepts constant template names, so a page cannot pass a rendered block
+    as an argument. The two halves let the page put any form between them while keeping the
+    wrapper, backdrop, focus target and close control identical everywhere.
+    html/template 只接受常量模板名，页面无法把渲染好的块当作参数传入。拆成两半让页面把任意表单
+    放在中间，同时让包装、遮罩、焦点目标与关闭控件在所有页面保持一致。
+*/}}
+
+{{/* components.overlay.modal.open — a scriptless modal shell driven by yd-app.js.
+     Dict keys | dict 的键: ID, Title, TitleKey, Description, DescriptionKey, Size (sm|lg) */}}
+{{- define "components.overlay.modal.open" -}}
+<div id="{{.ID}}" class="yd-modal{{with .Size}} yd-modal--{{.}}{{end}}" role="dialog" aria-modal="true"
+     aria-labelledby="{{.ID}}-title" hidden data-yd-modal="{{.ID}}">
+  <div class="yd-modal__backdrop" data-yd-modal-close></div>
+  <div class="yd-modal__panel yd-card">
+    <h2 class="yd-modal__title" id="{{.ID}}-title"{{with .TitleKey}} data-yd-i18n="{{.}}"{{end}}>{{.Title}}</h2>
+    {{with .Description}}<p class="yd-modal__body"{{with $.DescriptionKey}} data-yd-i18n="{{$.DescriptionKey}}"{{end}}>{{.}}</p>{{end}}
+{{- end -}}
+
+{{- define "components.overlay.modal.close" -}}
+  </div>
+</div>
+{{- end -}}

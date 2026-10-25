@@ -11,6 +11,11 @@
    the framework assets by yd new; it provides every component (.yd-shell, .yd-table and friends) and may be adapted
    per project once the visual baseline is updated with it. */
 @import "./components.css";
+/* UI 组件层：表单、反馈、导航、数据展示与中国常用控件，同样由 yd new 逐字节复制。
+   它排在 components.css 之后，同等特异性下由它胜出。 | The UI-kit layer: forms, feedback, navigation, data
+   display and the China-specific controls, also copied byte for byte by yd new. It follows components.css so its
+   rules win on equal specificity. */
+@import "./ui.css";
 
 /* 扫描范围：模板与 Go 源码中的类名都会被裁剪保留。 | Scan scope: class names found in templates and Go sources are kept by the purger. */
 @source "../../templates/**/*.html";

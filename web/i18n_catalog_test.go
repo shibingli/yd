@@ -38,9 +38,20 @@ import (
 var parseFuncs = template.FuncMap{
 	"tr": func(key string, args ...any) string { return key },
 	// asset is only needed so the layout parses; its value is never rendered here. | asset 只为让布局通过解析；此处从不渲染它的取值。
-	"asset":   func(p string) string { return p },
-	"dict":    func(pairs ...any) (map[string]any, error) { return nil, nil },
-	"list":    func(items ...any) []any { return items },
+	"asset": func(p string) string { return p },
+	"dict":  func(pairs ...any) (map[string]any, error) { return nil, nil },
+	"list":  func(items ...any) []any { return items },
+	"default": func(def, v any) any {
+		switch value := v.(type) {
+		case nil:
+			return def
+		case string:
+			if value == "" {
+				return def
+			}
+		}
+		return v
+	},
 	"can":     func(ref any) bool { _, err := authz.ResolvePermission(parseRef(ref)); return err == nil },
 	"hasRole": func(ref any) bool { _, err := authz.ResolveRole(parseRef(ref)); return err == nil },
 	"perm": func(ref any) string {

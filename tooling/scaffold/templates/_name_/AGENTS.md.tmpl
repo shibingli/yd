@@ -57,8 +57,13 @@
       侧栏页脚只显示版本；favicon 指向同源 `/static/img/yd-icon.svg`，不得使用 CDN 或 `data:,`。
 - [ ] **静态引用**：模板中的 `/static/...` 一律写成 `{{ "{{ asset \"/static/...\" }}" }}`；
       production 下解析 `*.min.js` / `yd.min.css`，开发期使用源码，禁止裸写 `/static/...`。
-- [ ] **图标**：只使用 `{{ "{{template \"portal/partials/icon\" \"lucide-…\"}}" }}（后台用 \"mgr/partials/icon\"）`；`yd icons sync` 生成按需
+- [ ] **图标**：只使用 `{{ "{{template \"partials/icon\" \"lucide-…\"}}" }}`；`yd icons sync` 生成按需
       sprite，`yd icons check` 校验漂移；禁止内联 SVG、Iconify 运行时与 CDN；`minify` 同时处理 SVG。
+- [ ] **共享组件**：`templates/components/**` 与 `templates/partials/**` 是门户与后台共用的唯一一份；
+      整页骨架、应用外壳、顶栏、提示、语言/主题、图标、侧栏品牌/页脚与消息卡片都放树根 `partials/**`，
+      `portal/**` 与 `mgr/**` 只保留各自的布局入口、侧栏与页面，互不 include；差异用 `.Portal` / `.Mgr`，
+      不得复制同名模板。
+  门户的 `/ui-kit`（`portal/pages/ui_kit.html`）是组件层活文档：新增组件必须同步加入该页。
 - [ ] **Tailwind v4**：项目样式必须经 `@theme` 语义令牌与 `@layer components` 定义，
       可复用工具类用 `@apply`，颜色不得在令牌块之外写字面量；`@source` 要覆盖 `static/js/yd-*.js`，
       否则脚本运行期添加的类会被裁掉；EasyMDE 等无层 vendor CSS 的覆盖写在 `@layer` 之外。

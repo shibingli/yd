@@ -10,12 +10,7 @@
 */}}
 {{- define "mgr/partials/sidebar" -}}
 <aside id="yd-sidebar" class="yd-sidebar" data-yd-sidebar aria-label="{{ tr "nav.main" }}">
-  <div class="yd-sidebar__brand">
-    <a class="yd-brand" href="/mgr" hx-get="/mgr" hx-target="#yd-shell" hx-swap="innerMorph" hx-push-url="true">
-      <span class="yd-brand__mark" aria-hidden="true">yd</span>
-      <span class="yd-brand__name">{{ .Name }}</span>
-    </a>
-  </div>
+  {{ template "partials/sidebar_brand" . }}
 
   <nav class="yd-nav" aria-label="{{ tr "nav.site" }}">
     <p class="yd-nav__section">{{ tr "nav.group.overview" }}</p>
@@ -79,8 +74,6 @@
     </a>
   </nav>
 
-  <div class="yd-sidebar__footer">
-    <p class="yd-hint">{{ tr "nav.version" }} {{ .Version }}</p>
-  </div>
+  {{ template "partials/sidebar_footer" . }}
 </aside>
 {{- end -}}

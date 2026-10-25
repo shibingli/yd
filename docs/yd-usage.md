@@ -93,14 +93,13 @@ cd myapp
 yd dev
 ```
 
-交互式向导会询问数据库驱动、i18n、Tailwind、htmx 扩展等选项。脚本或 CI 中直接给参数：
+Htmx 4、Tailwind CSS v4 与 Alpine.js 3 始终集成，不需要选择；交互式向导只询问数据库驱动、i18n 与额外 Htmx 扩展。脚本或 CI 中直接给参数：
 
 ```bash
 yd new myapp \
   --module example.com/myapp \
   --db sqlite \
   --i18n \
-  --tailwind \
   --htmx-ext sse,ws,preload \
   --yes
 ```
@@ -172,15 +171,16 @@ myapp/
 │   ├── assets.lock.json      # 前端资产版本与 sha256
 │   ├── i18n/{zh-CN,en}.yaml
 │   ├── static/{css,js,img}   # 样式、脚本、图标 sprite
-│   └── templates/portal|mgr/ # 门户与后台两棵隔离的模板树
+│   └── templates/            # components/ 与 partials/（共享），portal/ 与 mgr/（角色页面）
 ├── Dockerfile
 ├── go.mod
 └── .yd.json                  # 脚手架元数据（项目名、资产根）
 ```
 
 **门户与后台隔离**：`/`、`/messages`、`/friends`、`/account` 属于门户；
-`/mgr/**` 属于后台管理。模板树 `portal/**` 与 `mgr/**` 禁止互相 include。
-成员 API 在 `/api/portal/v1/**`，管理 API 在 `/api/v1/**`。
+`/mgr/**` 属于后台管理。页面树 `portal/**` 与 `mgr/**` 禁止互相 include，但两者共用
+`templates/components/**` 与树根 `templates/partials/**` 的同一套组件/外壳；角色差异由
+`.Portal` / `.Mgr` 数据键选择。成员 API 在 `/api/portal/v1/**`，管理 API 在 `/api/v1/**`。
 
 ---
 
@@ -357,8 +357,7 @@ yd new <项目名> [flags]
 | `--db` | `sqlite` / `mysql` / `postgres` / `dm` / `none` |
 | `--grpc` | 开启 gRPC 双通道 |
 | `--i18n` | 开启国际化 |
-| `--tailwind` | 接入 Tailwind CSS v4 |
-| `--htmx-ext` | htmx 扩展名，可重复：`ws,sse,preload,alpine,targets,head,upsert,pending,multipart,download,browser-indicator,history-cache,live,prompt,ptag,csp,compat,htmx-2-compat` |
+| `--htmx-ext` | 额外 htmx 扩展名，可重复：`ws,sse,preload,targets,head,upsert,pending,multipart,download,browser-indicator,history-cache,live,prompt,ptag,csp,compat,htmx-2-compat`；`alpine` 恒开启，传入与不传等价。Htmx、Tailwind 与 Alpine 本身不是开关 |
 | `--license` | 许可证标识，默认 `Apache-2.0` |
 | `--local-replace` | 指向本地 yd 检出，写入 `go.mod` 的 replace（开发期） |
 | `--install-tools` | 把缺失的可选工具装进新项目 |
@@ -366,7 +365,7 @@ yd new <项目名> [flags]
 | `-y, --yes` | 全部取默认值，不提问；不触网 |
 
 ```bash
-yd new blog --module example.com/blog --db sqlite --i18n --tailwind \
+yd new blog --module example.com/blog --db sqlite --i18n \
   --htmx-ext sse,ws,preload --yes
 ```
 
@@ -572,7 +571,7 @@ yd icons check      # CI：校验 sprite 是否漂移
 图标只能写成：
 
 ```gotemplate
-{{template "portal/partials/icon" "lucide-user-round"}}
+{{template "partials/icon" "lucide-user-round"}}
 ```
 
 禁止内联 SVG、Iconify 运行时、CDN 与裸 `<use href="#i-…">`。
@@ -677,7 +676,8 @@ g.GET("/reports", authz.Require(authz.PermUserRead), c.Reports)
 
 3. 在处理器 doc 注释中写完整的 OpenAPI 3.0 注解块（`@Summary` / `@Description` /
    `@Tags` / `@Param` / `@Success` / `@Failure` / `@Security` / `@Router`）；
-4. 模板放在 `web/templates/portal/**` 或 `mgr/**`，文案写入 `web/i18n/{zh-CN,en}.yaml`；
+4. 门户页面放 `web/templates/portal/**`、后台页面放 `mgr/**`；通用组件放 `web/templates/components/**`，
+   共享外壳放 `web/templates/partials/**`；文案写入 `web/i18n/{zh-CN,en}.yaml`；
 5. 受保护页面的按钮用 `can` / `hasRole` 或 `data-yd-perm` 控制显隐；
 6. 运行 `yd gen` / `yd icons sync` / `yd authz check` / `yd build` 验证。
 
@@ -842,7 +842,40 @@ Redis 不可达时 `FailOpen`（默认 true）按未命中继续 loader。
 
 ## 9. 前端、资产与实时推送
 
-### 9.1 Tailwind v4
+### 9.1 UI 组件层
+
+前端统一在 **Htmx 4 + Alpine 3.17（CSP 构建）+ Tailwind v4** 三层上：
+**服务端状态归 htmx，页面内状态归 Alpine，外观归 Tailwind**。组件层由
+`web/static/css/ui.css`、`web/static/js/yd-ui.js` 与 `web/templates/components/*.html` 组成，
+`yd new` 会把样式与模板逐字节复制进生成项目，脚本经框架合并静态树兜底。
+
+- **先读手册**：[前端 UI 组件层使用手册](frontend-ui.md) 覆盖布局、表单、反馈、导航、数据展示、
+  中国常用控件（手机号、身份证、银行卡、统一社会信用代码、人民币大写、省市区、日期范围、短信验证码）
+  的用法与最佳实践；[组件全景与图表用法](frontend-components.md) 给出与 Naive UI / Shadcn UI /
+  OpenTiny / Premium 的完整对照矩阵、每个组件的参数与图表选型；
+- **脚本顺序固定**：`htmx → 扩展 → yd-ui.js → alpine.min.js → 国密 → 权限 → 进度条 → yd-app.js`。
+  Alpine 的 CSP 构建在脚本执行时立即启动，`yd-ui.js` 必须排在它前面并在 `alpine:init` 注册组件；
+- **CSP 约束**：只允许同源脚本，不含 `unsafe-eval` / `unsafe-inline`；不在 Alpine 表达式里写箭头函数、
+  解构、模板字符串或全局对象，不写内联脚本与 `onclick=`；
+- **渐进增强**：可见输入框就是提交字段，Alpine 只做净化、校验与格式化；脚本加载失败时表单仍可提交；
+- **主题与缩放**：颜色只来自语义令牌；控件尺寸用 rem + `min-height`，页面留白用 `clamp()`，
+  同时适配 1280/1920/2560 宽屏与 125% / 150% 显示缩放；
+- **权限**：`data-yd-perm` / `yd.can()` 只改善体验，服务端仍必须挂 `authz.Require` / `authz.Allow`。
+
+最小示例：
+
+```html
+{{template "components.form.field" (dict
+  "ID" "yd-user-email" "Name" "email" "Type" "email" "Value" .Email
+  "Label" (tr "field.email") "LabelKey" "field.email"
+  "Required" true "MaxLength" 254)}}
+
+{{template "components.cn.phone" (dict
+  "ID" "yd-user-phone" "Name" "phone" "Value" .Phone
+  "Label" (tr "field.phone") "LabelKey" "field.phone")}}
+```
+
+### 9.2 Tailwind v4
 
 - `web/static/css/app.css` 必须 `@import "tailwindcss"`；
 - 设计令牌写在 `@theme`，组件样式写在 `@layer components`；
@@ -850,7 +883,7 @@ Redis 不可达时 `FailOpen`（默认 true）按未命中继续 loader。
 - `@source` 必须覆盖 `web/static/js/yd-*.js`，否则脚本运行期添加的类会被裁掉；
 - EasyMDE 等无层 vendor CSS 的覆盖必须写在 `@layer` 之外并提高特异性。
 
-### 9.2 资产
+### 9.3 资产
 
 - 所有 `/static/...` 引用写成 `{{ asset "/static/..." }}`；
 - production 下自动解析同名 `.min.js` / `.min.css` / `.min.svg`；
@@ -863,7 +896,7 @@ yd assets minify --check
 yd icons check
 ```
 
-### 9.3 实时推送
+### 9.4 实时推送
 
 - **传输矩阵**：WebSocket（HTTP/1.1、HTTP/2 RFC 8441、HTTP/3 RFC 9220）、
   WebTransport（HTTP/3）与 SSE 共用消息中枢 `ydx/realtime`；单机在进程内扇出，
@@ -882,7 +915,7 @@ yd icons check
 - **恢复**：通道恢复时派发 `yd:realtime:recovered`，并按 `data-yd-resync` 重取片段；
 - 手动重试通过扩展的连接对象立即重连，只有连接对象不存在时才整页重载。
 
-### 9.4 管理概览指标
+### 9.5 管理概览指标
 
 `/mgr` 只建立一条 WebSocket `/mgr/ws/metrics`，服务端每 5 秒推送系统资源与
 中间件运行时两块片段；不要再为这两块内容写 HTTP 轮询。
@@ -1205,7 +1238,7 @@ yd versions sync    # 重新生成
 
 ```bash
 yd new taskapp --module example.com/taskapp --db sqlite \
-  --i18n --tailwind --htmx-ext sse,ws,preload --yes
+  --i18n --htmx-ext sse,ws,preload --yes
 cd taskapp
 ```
 

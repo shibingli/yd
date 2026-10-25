@@ -1,0 +1,107 @@
+{{/*
+  partials/topbar.html —— 门户与后台共用的顶栏：侧栏开关、页面标题、语言/主题、租户、用户菜单与退出。
+  partials/topbar.html — the top bar shared by the portal and the back office: rail trigger, page title,
+  language/theme switches, tenant menu, user menu and sign-out.
+
+  两份界面只在少量入口上不同，差异由数据而不是由第二份模板表达：
+    - 未读消息入口只在门户出现（后台不建立消息中心连接）；
+    - 后台多一个「返回门户」入口；
+    - 其余结构、ARIA 与交互完全一致。
+  The two surfaces differ in a few entries only, and the differences are expressed by data rather than by
+  a second template:
+    - the unread-message entry appears in the portal only (the back office opens no message-centre connection);
+    - the back office adds a "back to portal" entry;
+    - every other structure, ARIA attribute and interaction is identical.
+
+  数据契约 | Data contract: .Title .Path .Lang .Portal .Mgr .User .Tenant .Tenants .DefaultTenantID .Unread
+  .MessageAvailable .Perm。
+*/}}
+{{- define "partials/topbar" -}}
+<header class="yd-topbar" role="banner">
+  {{/* 抽屉式侧栏开关，仅在 64rem 断点以下显示。 | Off-canvas rail trigger, shown only below the 64rem breakpoint. */}}
+  <button type="button" class="yd-icon-btn yd-topbar__menu" data-yd-sidebar-open
+          aria-controls="yd-sidebar" aria-expanded="false"
+          data-yd-i18n-attr="aria-label:nav.open_menu" aria-label="{{ tr "nav.open_menu" }}">
+    {{ template "partials/icon" "lucide-menu" }}
+  </button>
+  <div class="yd-topbar__left">
+    <p class="yd-topbar__title">{{ .Title }}</p>
+  </div>
+  <nav class="yd-topbar__right" aria-label="{{ tr "ui.utility_links" }}">
+    {{ template "partials/shell-switches" . }}
+
+    {{/* 租户下拉：只列成员租户，当前租户被选中，默认租户带标记。切换是一次 POST，服务端会再次校验成员关系。
+         The tenant dropdown lists memberships only, selects the active one and marks the default. A switch is
+         one POST and the server verifies the membership again. */}}
+    {{- $activeTenant := "" }}{{ with .Tenant }}{{ $activeTenant = .ID }}{{ end }}
+    {{- with .Tenants }}
+    <details class="yd-menu yd-tenant" data-yd-menu>
+      <summary class="yd-btn yd-btn--ghost yd-btn--sm yd-tenant__trigger">
+        <span class="yd-tenant__label">{{ tr "tenant.current" }}</span>
+        <span class="yd-tenant__current">{{ with $.Tenant }}{{ .Display }}{{ end }}</span>
+        <span class="yd-tenant__caret" aria-hidden="true">{{ template "partials/icon" "lucide-chevron-down" }}</span>
+      </summary>
+      <div class="yd-menu__panel yd-tenant__panel">
+        <p class="yd-tenant__heading">{{ tr "tenant.switch" }}</p>
+        <form method="post" action="/tenant/switch"
+              hx-post="/tenant/switch" hx-target="#yd-workspace"
+              data-yd-confirm="{{ tr "confirm.switch_tenant" }}"
+              hx-disabled-elt="find button[type='submit']">
+          {{- range . }}
+          <button type="submit" name="tenant" value="{{ .ID }}"
+                  class="yd-menu__item yd-menu__item--row{{ if eq .ID $activeTenant }} yd-menu__item--active{{ end }}">
+            {{- if eq .ID $.DefaultTenantID }}<span class="yd-badge yd-badge--info">{{ tr "tenant.default" }}</span>{{ end }}
+            <span class="yd-tenant__name">{{ .Display }}</span>
+            {{- if eq .ID $activeTenant }}<span class="yd-tenant__check" aria-hidden="true">{{ template "partials/icon" "lucide-check" }}</span>{{ end }}
+          </button>
+          {{- end }}
+        </form>
+      </div>
+    </details>
+    {{- end }}
+
+    {{/* 用户名本身就是用户菜单：门户显示未读入口与「我的资料」，后台显示「我的资料」与「返回门户」；
+         退出登录仍是右侧独立按钮，菜单不把退出混进导航。
+         The user name is the user menu: the portal shows unread and profile, the back office shows profile and
+         back-to-portal; sign-out stays a separate button so the menu never mixes it into navigation. */}}
+    <details class="yd-user yd-menu" data-yd-user-menu data-yd-menu>
+      <summary class="yd-user__trigger" aria-haspopup="menu">
+        <span class="yd-user__avatar">
+          <span class="yd-avatar yd-avatar--sm" aria-hidden="true">{{ .User.Initial }}</span>
+        </span>
+        <span class="yd-user__name">{{ .User.Display }}</span>
+        {{- if and .Portal .MessageAvailable (can .Perm.MessageRead) }}
+        {{ template "partials/messages/unread_badge" . }}
+        {{- end }}
+        <span class="yd-user-menu__caret" aria-hidden="true">{{ template "partials/icon" "lucide-chevron-down" }}</span>
+      </summary>
+      <div class="yd-user__menu yd-menu__panel" role="menu" aria-label="{{ tr "nav.user_menu" }}">
+        {{- if and .Portal .MessageAvailable (can .Perm.MessageRead) }}
+        <a class="yd-menu__item yd-user-menu__item yd-user-menu__item--unread" role="menuitem"
+           href="/messages?folder=unread" hx-get="/messages?folder=unread" hx-target="#yd-shell"
+           hx-swap="innerMorph" hx-push-url="true">
+          {{ template "partials/icon" "lucide-mail" }}<span class="yd-user-menu__label">{{ tr "nav.unread_messages" }}</span>
+          {{ template "partials/messages/unread_menu_badge" . }}
+        </a>
+        {{- end }}
+        <a class="yd-menu__item yd-user-menu__item" role="menuitem" href="/account"
+           hx-get="/account" hx-target="#yd-shell" hx-swap="innerMorph" hx-push-url="true">
+          {{ template "partials/icon" "lucide-user-round" }}<span class="yd-user-menu__label">{{ tr "nav.my_profile" }}</span>
+        </a>
+        {{- if .Mgr }}
+        <a class="yd-menu__item yd-user-menu__item" role="menuitem" href="/">
+          {{ template "partials/icon" "lucide-house" }}<span class="yd-user-menu__label">{{ tr "nav.back_to_portal" }}</span>
+        </a>
+        {{- end }}
+      </div>
+    </details>
+    <form method="post" action="/logout" hx-post="/logout" hx-target="#yd-workspace" hx-swap="innerMorph"
+          data-yd-confirm="{{ tr "confirm.logout" }}">
+      <button type="submit" class="yd-btn yd-btn--ghost yd-btn--sm" data-yd-signout>
+        {{ template "partials/icon" "lucide-log-out" }}
+        <span>{{ tr "ui.sign_out" }}</span>
+      </button>
+    </form>
+  </nav>
+</header>
+{{- end -}}

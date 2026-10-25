@@ -47,44 +47,36 @@
 {{- end -}}
 
 {{- define "partials/form.field" -}}
-<div class="yd-field" data-yd-field="{{.Name}}">
-  <label class="yd-field__label" for="{{.ID}}" data-yd-i18n="{{.LabelKey}}">{{.Label}}</label>
-  <input class="yd-input" id="{{.ID}}" name="{{.Name}}" type="{{.Type}}" value="{{.Value}}"
-         {{with .Autocomplete}}autocomplete="{{.}}"{{end}}
-         {{if .Required}}required{{end}}
-         {{if .Sensitive}}data-yd-sensitive="true"{{end}}
-         {{with .PlaceholderKey}}data-yd-i18n-attr="placeholder:{{.}}"{{end}}
-         placeholder="{{.Placeholder}}">
-  {{if .HintKey}}<p class="yd-field__hint" data-yd-i18n="{{.HintKey}}">{{.Hint}}</p>{{end}}
-</div>
+{{template "components.form.field" (dict
+  "ID" .ID "Name" .Name "Type" .Type "Value" .Value
+  "Label" .Label "LabelKey" .LabelKey
+  "Placeholder" .Placeholder "PlaceholderKey" .PlaceholderKey
+  "Hint" .Hint "HintKey" .HintKey
+  "Autocomplete" .Autocomplete "Required" .Required "Sensitive" .Sensitive
+  "MaxLength" .MaxLength "Pattern" .Pattern "Min" .Min "Max" .Max "Step" .Step
+  "Disabled" .Disabled "Readonly" .Readonly "Invalid" .Invalid "DescribedBy" .DescribedBy
+  "Attrs" .Attrs)}}
 {{- end -}}
 
 {{- define "partials/form.select" -}}
-<div class="yd-field" data-yd-field="{{.Name}}">
-  <label class="yd-field__label" for="{{.ID}}" data-yd-i18n="{{.LabelKey}}">{{.Label}}</label>
-  <select class="yd-select" id="{{.ID}}" name="{{.Name}}">
-    {{with .Options}}{{range .}}
-    {{/* An option key is optional: a tenant option is data, and tagging it with a key would replace
-         the tenant's own name with the catalogue word on the next language switch.
-         选项的键是可选的：租户选项是数据，给它挂上键会在下次切换语言时
-         把租户自己的名字换成目录里的词。 */}}
-    <option value="{{.Value}}" {{if .Selected}}selected{{end}} {{with .Key}}data-yd-i18n="{{.}}"{{end}}>{{.Label}}</option>
-    {{end}}{{end}}
-  </select>
-  {{if .HintKey}}<p class="yd-field__hint" data-yd-i18n="{{.HintKey}}">{{.Hint}}</p>{{end}}
-</div>
+{{template "components.form.select" (dict
+  "ID" .ID "Name" .Name "Value" .Value "Options" .Options
+  "Label" .Label "LabelKey" .LabelKey
+  "Placeholder" .Placeholder "PlaceholderKey" .PlaceholderKey
+  "Hint" .Hint "HintKey" .HintKey
+  "Required" .Required "Disabled" .Disabled "Invalid" .Invalid
+  "Multiple" .Multiple "Size" .Size "Attrs" .Attrs)}}
 {{- end -}}
 
 {{- define "partials/form.check" -}}
-<div class="yd-field yd-field--check">
-  <input class="yd-checkbox" type="checkbox" id="{{.ID}}" name="{{.Name}}" value="{{.Value}}" {{if .Checked}}checked{{end}}>
-  <label class="yd-field__label" for="{{.ID}}" data-yd-i18n="{{.LabelKey}}">{{.Label}}</label>
-</div>
+{{template "components.form.check" (dict
+  "ID" .ID "Name" .Name "Value" .Value "Checked" .Checked "Disabled" .Disabled
+  "Label" .Label "LabelKey" .LabelKey "Hint" .Hint "HintKey" .HintKey
+  "Block" .Block "Attrs" .Attrs)}}
 {{- end -}}
 
 {{- define "partials/form.actions" -}}
-<div class="yd-form__actions">
-  <button type="submit" class="yd-btn yd-btn--primary" data-yd-i18n="{{.SubmitKey}}">{{.Submit}}</button>
-  <button type="button" class="yd-btn yd-btn--ghost" data-yd-modal-close data-yd-i18n="action.cancel">{{tr "action.cancel"}}</button>
-</div>
+{{template "components.form.actions" (dict
+  "SubmitKey" .SubmitKey "SubmitLabel" .Submit "SubmitAttrs" .SubmitAttrs
+  "CancelKey" "action.cancel" "CancelLabel" (tr "action.cancel") "CancelModal" true)}}
 {{- end -}}

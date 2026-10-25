@@ -177,10 +177,10 @@ func (r *lineReader) Read(p []byte) (int, error) {
 	return n, nil
 }
 
-// TestNewCommandRemovedFeatureFlagsAreRejected 断言 Redis 与 Asynq 的开关已移除：再传旧标志属于未知标志。
-// TestNewCommandRemovedFeatureFlagsAreRejected asserts the Redis and Asynq switches are gone: the old flags are unknown.
+// TestNewCommandRemovedFeatureFlagsAreRejected 断言 Redis、Asynq 与 Tailwind 的开关已移除：再传旧标志属于未知标志。
+// TestNewCommandRemovedFeatureFlagsAreRejected asserts the Redis, Asynq and Tailwind switches are gone: the old flags are unknown.
 func TestNewCommandRemovedFeatureFlagsAreRejected(t *testing.T) {
-	for _, flag := range []string{"--redis", "--asynq"} {
+	for _, flag := range []string{"--redis", "--asynq", "--tailwind"} {
 		te := newTestEnv(t, nil, "", false)
 		err := Execute(context.Background(), []string{newCommandName, "shop", "-y", flag + "=false"}, te.env)
 		if !errors.Is(err, ErrFlagParse) {
@@ -192,16 +192,15 @@ func TestNewCommandRemovedFeatureFlagsAreRejected(t *testing.T) {
 // TestNewCommandTTYInterviewUsesAnswers TTY 下逐项询问并把回答写入生成物。
 // TestNewCommandTTYInterviewUsesAnswers asks one question per option on a TTY and writes the answers into the project.
 func TestNewCommandTTYInterviewUsesAnswers(t *testing.T) {
-	// 询问顺序：项目名、模块路径、数据库、grpc、i18n、tailwind、扩展、协议；Redis 与 Asynq 是内建能力，不再提问。
-	// Question order: project name, module, database, grpc, i18n, tailwind, extensions, licence; Redis and Asynq are built
-	// in and never asked.
+	// 询问顺序：项目名、模块路径、数据库、grpc、i18n、扩展、协议；Redis、Asynq、Htmx、Tailwind 与 Alpine 是内建能力，不再提问。
+	// Question order: project name, module, database, grpc, i18n, extensions, licence; Redis, Asynq, Htmx, Tailwind and
+	// Alpine are built in and never asked.
 	answers := strings.Join([]string{
 		"shop",
 		"",
 		"2", // 2) postgres
 		"n", // grpc
 		"y", // i18n
-		"",  // Tailwind keeps its default (on) | Tailwind 保持默认（开启）
 		"sse, ws",
 		"",
 	}, "\n") + "\n"
@@ -212,12 +211,12 @@ func TestNewCommandTTYInterviewUsesAnswers(t *testing.T) {
 		t.Fatalf("yd new 失败: %v\n%s", err, te.errs.String())
 	}
 
-	// Redis 与 Asynq 已内建，不再出现在问答里；i18n 的默认值必须是 y。
-	// Redis and Asynq are built in and never appear in the interview; i18n must default to y.
+	// Redis、Asynq、Tailwind 与 Alpine 已内建，不再出现在问答里；i18n 的默认值必须是 y。
+	// Redis, Asynq, Tailwind and Alpine are built in and never appear in the interview; i18n must default to y.
 	prompts := te.out.String()
-	for _, unwanted := range []string{"启用 Redis", "启用 Asynq"} {
+	for _, unwanted := range []string{"启用 Redis", "启用 Asynq", "启用 Tailwind"} {
 		if strings.Contains(prompts, unwanted) {
-			t.Errorf("Redis 与 Asynq 已内建，问答不应再问 %q：\n%s", unwanted, prompts)
+			t.Errorf("内建能力不应再出现在问答里 %q：\n%s", unwanted, prompts)
 		}
 	}
 	if !strings.Contains(prompts, "启用 i18n | Enable i18n (y/n) [y]") {
@@ -230,10 +229,12 @@ func TestNewCommandTTYInterviewUsesAnswers(t *testing.T) {
 		`"db": "postgres"`,
 		`"redis": true`,
 		`"asynq": true`,
+		`"tailwind": true`,
 		`"grpc": false`,
 		`"i18n": true`,
 		`"sse"`,
 		`"ws"`,
+		`"alpine"`,
 	} {
 		if !strings.Contains(meta, want) {
 			t.Errorf(".yd.json 缺少 %q:\n%s", want, meta)

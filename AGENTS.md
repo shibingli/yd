@@ -261,13 +261,16 @@
 
 ## 24. 门户与后台隔离（强制）
 
-- **路由**：门户为 `/`、`/messages`、`/friends`、`/account`、`/realtime`；`/` 只按登录状态分流——
+- **路由**：门户为 `/`、`/messages`、`/friends`、`/account`、`/realtime`、`/ui-kit`；`/` 只按登录状态分流——
   匿名访客去 `/login`，已登录用户去 `/messages`（消息中心不可用时去 `/account`）。后台管理全部落在
   `/mgr/**`。门户默认只有普通用户能力（自己的消息、好友与账号），管理端点按注册表逐条挂管理能力守卫。
-- **模板隔离**：门户只放 `web/templates/portal/**`，后台只放 `web/templates/mgr/**`；两棵树各有自己的
-  `layouts/`、`partials/` 与 `icon`/`flash`/`shell-switches`/`sidebar`，禁止跨树 include。
-- **布局选择**：视图数据经 `render.LayoutKey` 指定 `LayoutPortal` 或 `LayoutMgr`；`#yd-shell` 交换按路径选择
-  `ShellPortal` 或 `ShellMgr`。
+- **模板隔离与共享组件**：门户只放 `web/templates/portal/**`，后台只放 `web/templates/mgr/**`；
+  共享 UI 组件与外壳只有一份，放在树根 `web/templates/components/**` 与 `web/templates/partials/**`
+  （整页骨架、应用外壳、顶栏、提示、语言/主题、图标、侧栏品牌/页脚、消息卡片与角标）。
+  两棵树只保留各自的布局入口、侧栏与页面，**禁止跨树 include**；根级共享部件按 `.Portal` / `.Mgr` 选择侧栏。
+- **布局选择**：视图数据经 `render.LayoutKey` 指定 `LayoutPortal` 或 `LayoutMgr`，两个入口都只调用
+  `partials/base`；`#yd-shell` 交换按路径选择 `ShellPortal` 或 `ShellMgr`，两个外壳都只调用
+  `partials/app_shell`。消息卡片由 `.BasePath` 区分 `/messages` 与 `/mgr/messages`，不得复制两份。
 - **API 隔离**：成员 API 在 `/api/portal/v1/**`，管理 API 在 `/api/v1/**`；OpenAPI `/api/v1/openapi.json`，
   查看器 `/mgr/docs`，指标推送 `/mgr/ws/metrics`。
 - **测试**：新增路由或页面必须同时更新门户与管理两套 e2e 断言，并把新模板加入 `requiredFiles` 清单。

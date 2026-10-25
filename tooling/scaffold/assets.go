@@ -1,12 +1,15 @@
 package scaffold
 
 import (
+	"os"
+	"path"
 	"strings"
 
 	"github.com/spf13/afero"
 
 	"github.com/shibingli/yd/tooling/assets"
 	"github.com/shibingli/yd/web"
+	"github.com/shibingli/ydx/afs"
 	"github.com/shibingli/ydx/errs"
 	"github.com/shibingli/ydx/json"
 )
@@ -133,32 +136,82 @@ func generatedDocs(o Options, v view, m *assets.Manifest) ([]plannedFile, error)
 	// 开启 Tailwind 时把框架组件层原样复制进项目：生成项目的模板使用了 .yd-shell、.yd-table 等
 	// 框架组件类，而项目自己的 yd.css 一旦生成就会遮蔽框架的兜底 yd.css，因此这份组件层必须
 	// 进入项目的 Tailwind 输入，否则页面会在第一次构建后失去全部布局样式。
-	// When Tailwind is on, copy the framework component layer verbatim into the project: the generated
+	// When Tailwind is on, copy the framework component layers verbatim into the project: the generated
 	// templates use framework component classes such as .yd-shell and .yd-table, and once the project's own
-	// yd.css exists it shadows the framework fallback, so this layer has to be part of the project's Tailwind
-	// input; otherwise the first build strips every layout rule from the page.
+	// yd.css exists it shadows the framework fallback, so these layers have to be part of the project's
+	// Tailwind input; otherwise the first build strips every layout rule from the page.
 	if o.Tailwind {
-		components, err := frameworkComponentsCSS()
-		if err != nil {
-			return nil, err
+		for _, name := range []string{"components.css", "ui.css"} {
+			css, err := frameworkCSS(name)
+			if err != nil {
+				return nil, err
+			}
+			files = append(files, plannedFile{
+				path:    projectPrefix(o.Name) + v.AssetRoot + "/static/css/" + name,
+				content: css,
+			})
 		}
-		files = append(files, plannedFile{
-			path:    projectPrefix(o.Name) + v.AssetRoot + "/static/css/components.css",
-			content: components,
-		})
 	}
+
+	// 组件模板与样式不同：它们没有 Tailwind 开关，始终随项目生成。运行时模板只做路径映射，
+	// 因此这里逐字节复制框架的唯一真源，生成项目与框架永远不会出现第二份实现。
+	// Unlike the stylesheets, component templates have no Tailwind switch and always ship with the
+	// project. Runtime templates are copied byte for byte from the framework's single source, so the
+	// generated project can never grow a second implementation of the same control.
+	componentTemplates, err := frameworkComponentTemplates(o.Name)
+	if err != nil {
+		return nil, err
+	}
+	files = append(files, componentTemplates...)
 	return files, nil
 }
 
-// frameworkComponentsCSS 读取框架内嵌的管理端组件层，它是生成项目 components.css 的唯一真源。
-// frameworkComponentsCSS reads the framework's embedded admin component layer, the single source of truth for the
-// generated project's components.css.
-func frameworkComponentsCSS() ([]byte, error) {
-	data, err := afero.ReadFile(web.FS(), "static/css/components.css")
+// frameworkCSS 读取框架内嵌的样式层，它是生成项目同名文件的唯一真源。
+// frameworkCSS reads one embedded framework stylesheet, the single source of truth for the generated project's file.
+func frameworkCSS(name string) ([]byte, error) {
+	target := "static/css/" + name
+	data, err := afero.ReadFile(web.FS(), target)
 	if err != nil {
-		return nil, errs.WrapDetail(err, ErrTemplateRead, "path=web/static/css/components.css | 路径=web/static/css/components.css")
+		return nil, errs.WrapDetail(err, ErrTemplateRead, "path=web/%[1]s | 路径=web/%[1]s", target)
 	}
 	return data, nil
+}
+
+// frameworkComponentTemplates copies web/templates/components/** into the project verbatim. | frameworkComponentTemplates
+// 把 web/templates/components/** 逐字节复制进项目。
+//
+// 组件模板是运行期 html/template 文件，其中的 {{ }} 属于运行时动作而不是生成期动作，因此只能逐字节
+// 复制；一旦在生成期渲染，模板动作会被执行掉，生成项目的页面就变成静态快照。
+// Component templates are runtime html/template files: their {{ }} actions are runtime syntax, not
+// generation-time syntax, so they must be copied byte for byte. Rendering them at generation time would
+// execute the actions and turn the generated project's pages into a static snapshot.
+func frameworkComponentTemplates(project string) ([]plannedFile, error) {
+	const srcRoot = "templates/components"
+	var files []plannedFile
+	err := afs.Walk(web.FS(), srcRoot, func(p string, info os.FileInfo, err error) error {
+		if err != nil {
+			return errs.WrapDetail(err, ErrTemplateRead, "path=web/%[1]s | 路径=web/%[1]s", p)
+		}
+		if info.IsDir() || !strings.HasSuffix(p, ".html") {
+			return nil
+		}
+		data, readErr := afero.ReadFile(web.FS(), p)
+		if readErr != nil {
+			return errs.WrapDetail(readErr, ErrTemplateRead, "path=web/%[1]s | 路径=web/%[1]s", p)
+		}
+		files = append(files, plannedFile{
+			path:    projectPrefix(project) + path.Join("web", "templates", "components", path.Base(p)),
+			content: data,
+		})
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	if len(files) == 0 {
+		return nil, errs.Detail(ErrTemplateRead, "no component template found under web/%s | web/%s 下没有组件模板", srcRoot, srcRoot)
+	}
+	return files, nil
 }
 
 // trimManifest 复制框架清单并裁剪扩展资产：核心资产全量保留，扩展资产只保留所选扩展对应的那一项。

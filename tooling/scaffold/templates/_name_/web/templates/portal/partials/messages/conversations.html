@@ -18,7 +18,7 @@
     <span class="yd-avatar yd-avatar--sm" aria-hidden="true">{{ .Initial }}</span>
     <span class="yd-msg-conv__main">
       <span class="yd-msg-conv__title">
-        {{- if .IsSystem }}{{ template "portal/partials/icon" "lucide-megaphone" }}{{ end -}}
+        {{- if .IsSystem }}{{ template "partials/icon" "lucide-megaphone" }}{{ end -}}
         {{ .Title }}
         {{- if .IsGroup }} <span class="yd-badge yd-badge--muted">{{ len .Members }}</span>{{ end }}
       </span>

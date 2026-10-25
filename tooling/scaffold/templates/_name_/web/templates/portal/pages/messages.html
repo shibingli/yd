@@ -46,7 +46,7 @@
         {{- if .CanSend }}
         <button type="button" class="yd-icon-btn" data-yd-msg-tab-open="contacts"
                 aria-label="{{ tr "message.new_chat" }}" title="{{ tr "message.new_chat" }}">
-          {{ template "portal/partials/icon" "lucide-pen-line" }}
+          {{ template "partials/icon" "lucide-pen-line" }}
         </button>
         {{- end }}
       </header>
@@ -58,13 +58,13 @@
       <div class="yd-msg-tabs" role="tablist" aria-label="{{ tr "message.conversation_tabs" }}" data-yd-msg-tabs>
         <button type="button" class="yd-msg-tab" id="yd-tab-conversations" role="tab"
                 aria-selected="true" aria-controls="yd-conversations-panel" data-yd-msg-tab="conversations">
-          {{ template "portal/partials/icon" "lucide-message-square" }}
+          {{ template "partials/icon" "lucide-message-square" }}
           <span>{{ tr "message.conversations" }}</span>
           <span class="yd-badge yd-badge--muted">{{ len .Conversations }}</span>
         </button>
         <button type="button" class="yd-msg-tab" id="yd-tab-contacts" role="tab" tabindex="-1"
                 aria-selected="false" aria-controls="yd-contacts-panel" data-yd-msg-tab="contacts">
-          {{ template "portal/partials/icon" "lucide-users" }}
+          {{ template "partials/icon" "lucide-users" }}
           <span>{{ tr "message.contacts" }}</span>
         </button>
       </div>
@@ -113,7 +113,7 @@
         {{- if .Pinned }}
         <details class="yd-msg-pins" id="yd-pinned-announcements">
           <summary class="yd-msg-pins__summary">
-            {{ template "portal/partials/icon" "lucide-pin" }}<span>{{ tr "message.pinned_title" }}</span>
+            {{ template "partials/icon" "lucide-pin" }}<span>{{ tr "message.pinned_title" }}</span>
             <span class="yd-badge yd-badge--info">{{ len .Pinned }}</span>
           </summary>
           <div class="yd-msg-pins__list">
@@ -150,7 +150,7 @@
         {{ template "portal/partials/messages/thread" . }}
       {{- else }}
       <div class="yd-msg-welcome">
-        {{ template "portal/partials/icon" "lucide-message-circle" }}
+        {{ template "partials/icon" "lucide-message-circle" }}
         <h2 class="yd-msg-welcome__title">{{ tr "message.welcome_title" }}</h2>
         <p class="yd-hint">{{ tr "message.welcome_hint" }}</p>
         <ul class="yd-msg-welcome__list">
@@ -160,7 +160,7 @@
         </ul>
         {{- if .CanSend }}
         <button type="button" class="yd-btn yd-btn--primary" data-yd-msg-tab-open="contacts">
-          {{ template "portal/partials/icon" "lucide-pen-line" }}{{ tr "message.new_chat" }}
+          {{ template "partials/icon" "lucide-pen-line" }}{{ tr "message.new_chat" }}
         </button>
         {{- end }}
       </div>

@@ -36,9 +36,7 @@ const (
 	flagNewGRPC = "grpc"
 	// flagNewI18n enables internationalisation. | flagNewI18n 开启国际化。
 	flagNewI18n = "i18n"
-	// flagNewTailwind wires Tailwind v4 in. | flagNewTailwind 接入 Tailwind v4。
-	flagNewTailwind = "tailwind"
-	// flagNewHtmxExt selects the Htmx extensions. | flagNewHtmxExt 选择 Htmx 扩展。
+	// flagNewHtmxExt selects the optional Htmx extensions. | flagNewHtmxExt 选择额外的 Htmx 扩展。
 	flagNewHtmxExt = "htmx-ext"
 	// flagNewLicense is the licence identifier. | flagNewLicense 是开源协议标识。
 	flagNewLicense = "license"
@@ -71,11 +69,16 @@ func init() {
 			"front-end assets.\n" +
 			"依据内嵌模板生成新项目，随后铺开它的配置与前端资产。\n" +
 			"\n" +
-			"Htmx 4 extensions | Htmx 4 扩展: ws, sse, preload, alpine, targets, head, upsert, pending,\n" +
-			"multipart, download, browser-indicator, history-cache, live, prompt, ptag, csp, compat,\n" +
+			"Htmx 4, Tailwind CSS v4 and Alpine.js 3 are always integrated; they are not switches.\n" +
+			"--htmx-ext only adds extra Htmx extensions on top of that baseline.\n" +
+			"Htmx 4、Tailwind CSS v4 与 Alpine.js 3 始终集成，不需要选择；--htmx-ext 只用于追加额外的 Htmx 扩展。\n" +
+			"\n" +
+			"Optional Htmx 4 extensions | 可额外选择的 Htmx 4 扩展: ws, sse, preload, targets, head, upsert,\n" +
+			"pending, multipart, download, browser-indicator, history-cache, live, prompt, ptag, csp, compat,\n" +
 			"htmx-2-compat. The last three are opt-in: csp needs a nonce policy, and compat / htmx-2-compat\n" +
-			"restore htmx 2 semantics.\n" +
+			"restore htmx 2 semantics. Alpine's hx-alpine-compat is always on.\n" +
 			"最后三项为显式选项：csp 需要 nonce 策略，compat / htmx-2-compat 恢复 htmx 2 语义。\n" +
+			"Alpine 的 hx-alpine-compat 恒开启。\n" +
 			"\n" +
 			"Without --yes an interactive terminal is asked for every option that was not passed as a flag;\n" +
 			"a pipe or CI run keeps every default, so the command stays scriptable.\n" +
@@ -92,8 +95,7 @@ func registerNewFlags(fs *pflag.FlagSet) {
 	fs.String(flagNewDB, "", "database driver: mysql/postgres/sqlite/dm/none | 数据库驱动：mysql/postgres/sqlite/dm/none")
 	fs.Bool(flagNewGRPC, false, "enable the gRPC dual channel | 开启 gRPC 双通道")
 	fs.Bool(flagNewI18n, false, "enable i18n | 开启国际化")
-	fs.Bool(flagNewTailwind, false, "wire in Tailwind CSS v4 | 接入 Tailwind CSS v4")
-	fs.StringArray(flagNewHtmxExt, nil, "Htmx extension name, repeatable (full list in the command help) | Htmx 扩展名，可重复（完整列表见命令帮助）")
+	fs.StringArray(flagNewHtmxExt, nil, "extra Htmx extensions; Alpine's hx-alpine-compat is always on (full list in the command help) | 额外的 Htmx 扩展；Alpine 的 hx-alpine-compat 恒开启（完整列表见命令帮助）")
 	fs.String(flagNewLicense, "", "licence identifier, defaults to Apache-2.0 | 开源协议标识，默认为 Apache-2.0")
 	fs.Bool(flagNewForce, false, "overwrite files that differ from the templates | 覆盖与模板不一致的文件")
 	fs.BoolP(flagNewYes, "y", false, "keep every default without prompting | 取默认值，不提问")
@@ -245,9 +247,6 @@ func applyNewFlags(o *scaffold.Options, env *Env, fs *pflag.FlagSet) {
 	if flagChanged(fs, flagNewI18n) {
 		o.I18n = flagBool(fs, flagNewI18n)
 	}
-	if flagChanged(fs, flagNewTailwind) {
-		o.Tailwind = flagBool(fs, flagNewTailwind)
-	}
 	if flagChanged(fs, flagNewHtmxExt) {
 		o.HtmxExts = flagStrings(fs, flagNewHtmxExt)
 	}
@@ -301,7 +300,6 @@ func interviewNew(env *Env, fs *pflag.FlagSet, o *scaffold.Options) error {
 	}{
 		{flagNewGRPC, "启用 gRPC 双通道 | Enable the gRPC dual channel", &o.GRPC},
 		{flagNewI18n, "启用 i18n | Enable i18n", &o.I18n},
-		{flagNewTailwind, "启用 Tailwind CSS v4 | Enable Tailwind CSS v4", &o.Tailwind},
 	} {
 		if flagChanged(fs, item.flag) {
 			continue
@@ -372,8 +370,9 @@ func featuresOf(o scaffold.Options) []string {
 	if o.Tailwind {
 		features = append(features, "tailwind")
 	}
-	if len(o.HtmxExts) > 0 {
-		features = append(features, "htmx:"+strings.Join(o.HtmxExts, "+"))
+	exts := scaffold.EffectiveExtensions(o.HtmxExts)
+	if len(exts) > 0 {
+		features = append(features, "htmx:"+strings.Join(exts, "+"))
 	}
 	return features
 }

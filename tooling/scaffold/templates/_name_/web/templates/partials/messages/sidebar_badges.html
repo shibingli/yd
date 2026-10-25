@@ -7,10 +7,10 @@
   Both badges always exist in the DOM (hidden when the count is zero) so the WebSocket can swap them by a stable id;
   rendering a node only when unread would leave the push without a target.
 */}}
-{{- define "portal/partials/messages/sidebar_unread" -}}
+{{- define "partials/messages/sidebar_unread" -}}
 <span id="yd-sidebar-unread" class="yd-badge yd-badge--warn"{{ if eq .Unread.Total 0 }} hidden{{ end }}>{{ .Unread.Total }}</span>
 {{- end -}}
-{{- define "portal/partials/messages/sidebar_friend_requests" -}}
+{{- define "partials/messages/sidebar_friend_requests" -}}
 <span id="yd-sidebar-friend-requests" class="yd-badge yd-badge--warn"{{ if eq .Unread.FriendRequests 0 }} hidden{{ end }}>{{ .Unread.FriendRequests }}</span>
 {{- end -}}
-{{ template "portal/partials/messages/sidebar_unread" . }}{{ template "portal/partials/messages/sidebar_friend_requests" . }}
+{{ template "partials/messages/sidebar_unread" . }}{{ template "partials/messages/sidebar_friend_requests" . }}

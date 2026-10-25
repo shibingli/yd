@@ -38,50 +38,46 @@
       hx-disabled-elt="find button[type='submit']"
       data-yd-confirm="{{ tr "confirm.create_user" }}"
       novalidate>
-  <div class="yd-form__field">
-    <label class="yd-form__label" for="yd-user-username">{{ tr "field.username" }}</label>
-    <input class="yd-input" id="yd-user-username" name="username" type="text"
-           autocomplete="off" required maxlength="64" placeholder="{{ tr "page.users.username_placeholder" }}">
-    <span class="yd-hint">{{ tr "page.users.username_hint" }}</span>
-  </div>
-  <div class="yd-form__field">
-    <label class="yd-form__label" for="yd-user-display">{{ tr "field.display_name" }}</label>
-    <input class="yd-input" id="yd-user-display" name="display_name" type="text"
-           autocomplete="off" maxlength="64" placeholder="{{ tr "page.users.display_placeholder" }}">
-  </div>
-  <div class="yd-form__field">
-    <label class="yd-form__label" for="yd-user-email">{{ tr "field.email" }}</label>
-    <input class="yd-input" id="yd-user-email" name="email" type="email"
-           autocomplete="off" maxlength="254" placeholder="jane@example.com">
-  </div>
-  <div class="yd-form__field">
-    <label class="yd-form__label" for="yd-user-password">{{ tr "field.password" }}</label>
-    <input class="yd-input" id="yd-user-password" name="password" type="password"
-           autocomplete="new-password" required data-yd-sensitive>
-    <span class="yd-hint">{{ tr "page.users.password_hint" }}</span>
-  </div>
+  {{template "components.form.field" (dict
+    "ID" "yd-user-username" "Name" "username" "Type" "text"
+    "Label" (tr "field.username") "LabelKey" "field.username"
+    "Placeholder" (tr "page.users.username_placeholder") "PlaceholderKey" "page.users.username_placeholder"
+    "Hint" (tr "page.users.username_hint") "HintKey" "page.users.username_hint"
+    "Autocomplete" "off" "Required" true "MaxLength" 64)}}
+  {{template "components.form.field" (dict
+    "ID" "yd-user-display" "Name" "display_name" "Type" "text"
+    "Label" (tr "field.display_name") "LabelKey" "field.display_name"
+    "Placeholder" (tr "page.users.display_placeholder") "PlaceholderKey" "page.users.display_placeholder"
+    "Autocomplete" "off" "MaxLength" 64)}}
+  {{template "components.form.field" (dict
+    "ID" "yd-user-email" "Name" "email" "Type" "email"
+    "Label" (tr "field.email") "LabelKey" "field.email"
+    "Placeholder" "jane@example.com"
+    "Autocomplete" "off" "MaxLength" 254)}}
+  {{template "components.form.password" (dict
+    "ID" "yd-user-password" "Name" "password"
+    "Label" (tr "field.password") "LabelKey" "field.password"
+    "Hint" (tr "page.users.password_hint") "HintKey" "page.users.password_hint"
+    "Autocomplete" "new-password" "Required" true "Sensitive" true)}}
 
   {{/* 角色勾选项来自本租户的角色表，而不是一个写死的清单：新建一个角色之后，建号表单立刻就能用它。 */}}
   {{/* The role checkboxes come from this tenant's role table rather than from a hard-coded list, so a freshly created
        role is immediately usable when creating a user. */}}
   <fieldset class="yd-form__fieldset">
-    <legend class="yd-form__label">{{ tr "field.roles" }}</legend>
+    <legend class="yd-form__label" data-yd-i18n="field.roles">{{ tr "field.roles" }}</legend>
     {{ range .RoleList }}
-    <label class="yd-check" for="yd-user-new-role-{{ .Name }}">
-      <input class="yd-check__input" id="yd-user-new-role-{{ .Name }}" type="checkbox"
-             name="roles" value="{{ .Name }}">
-      <span class="yd-check__label">{{ .Name }}</span>
-      <span class="yd-hint">{{ .Description }}</span>
-    </label>
+    {{template "components.form.check" (dict
+      "ID" (printf "yd-user-new-role-%s" .Name) "Name" "roles" "Value" .Name
+      "Label" .Name "Hint" .Description "Block" true)}}
     {{ end }}
     {{/* 一个都不勾就是普通成员：默认角色由服务端补，页面不写死任何角色名，改一个内置角色不必回来改模板。 */}}
     {{/* Ticking nothing means an ordinary member: the default role is filled in by the server, so the page hard-codes no
          role name and changing a built-in role never sends anyone back to this template. */}}
-    <p class="yd-hint">{{ tr "page.users.roles_hint" }}</p>
+    <p class="yd-hint" data-yd-i18n="page.users.roles_hint">{{ tr "page.users.roles_hint" }}</p>
   </fieldset>
 
   <div class="yd-form__actions">
-    <button type="submit" class="yd-btn yd-btn--primary" data-yd-perm="{{ .Perm.UserCreate }}">{{ tr "ui.create" }}</button>
+    <button type="submit" class="yd-btn yd-btn--primary" data-yd-perm="{{ .Perm.UserCreate }}" data-yd-i18n="ui.create">{{ tr "ui.create" }}</button>
   </div>
 </form>
 {{- end -}}

@@ -1,6 +1,8 @@
 package scaffold
 
 import (
+	"strings"
+
 	"github.com/shibingli/yd/core/version"
 	"github.com/shibingli/ydx/errs"
 )
@@ -41,9 +43,13 @@ type Options struct {
 // Defaults: Module = github.com/yun-dev/<name>, DB = sqlite, Tailwind = true, I18n = true,
 // License = Apache-2.0 and HtmxExts = {preload, sse, ws}; every other feature switch stays off.
 // Redis and asynq are not switches: every generated project ships their configuration and wiring.
+// Htmx, Tailwind CSS and Alpine.js themselves are not switches either: Htmx is the core, Tailwind is
+// on by default, and EffectiveExtensions always adds the Alpine compatibility extension.
 // 默认值：Module = github.com/yun-dev/<name>、DB = sqlite、Tailwind = true、I18n = true、
 // License = Apache-2.0、HtmxExts = {preload, sse, ws}，其余特性开关为 false。
 // Redis 与 asynq 不是开关：每个生成项目都自带它们的配置与接线。
+// Htmx、Tailwind CSS 与 Alpine.js 本身同样不是开关：Htmx 是核心，Tailwind 默认开启，
+// EffectiveExtensions 始终补上 Alpine 兼容扩展。
 func DefaultOptions(name string) Options {
 	return Options{
 		Name:      name,
@@ -55,6 +61,31 @@ func DefaultOptions(name string) Options {
 		HtmxExts:  []string{ExtPreload, ExtSSE, ExtWS},
 		YdVersion: version.ModuleVersion(),
 	}
+}
+
+// EffectiveExtensions returns the extensions a generated project always loads. | EffectiveExtensions
+// 返回生成项目始终加载的扩展。
+//
+// Htmx, Tailwind CSS and Alpine.js are the baseline stack rather than choices: the Alpine
+// compatibility extension is appended when the caller did not ask for it, so `--htmx-ext none`
+// still produces a page whose htmx swaps and Alpine components cooperate.
+// Htmx、Tailwind CSS 与 Alpine.js 是基线技术栈而不是可选项：调用方没有点名时也会补上 Alpine
+// 兼容扩展，因此 `--htmx-ext none` 生成出来的页面里，htmx 交换与 Alpine 组件仍然协同工作。
+func EffectiveExtensions(exts []string) []string {
+	out := make([]string, 0, len(exts)+1)
+	seen := make(map[string]bool, len(exts)+1)
+	for _, ext := range exts {
+		ext = strings.TrimSpace(ext)
+		if ext == "" || seen[ext] {
+			continue
+		}
+		seen[ext] = true
+		out = append(out, ext)
+	}
+	if !seen[ExtAlpine] {
+		out = append(out, ExtAlpine)
+	}
+	return out
 }
 
 // DBDefault is the driver used when none is specified. | DBDefault 是未指定数据库驱动时使用的默认值。

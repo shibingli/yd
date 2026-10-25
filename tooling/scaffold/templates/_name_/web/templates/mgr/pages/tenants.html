@@ -39,14 +39,14 @@
     </div>
   </header>
 
-  <form class="yd-filters" role="search" method="get" action="/mgr/tenants"
-        hx-get="/mgr/tenants" hx-target="#yd-workspace" hx-swap="innerMorph" hx-push-url="true"
-        hx-trigger="input changed delay:300ms from:#yd-tenants-search, submit">
-    <label class="sr-only" for="yd-tenants-search">{{ tr "page.tenants.search_label" }}</label>
-    <input class="yd-input" id="yd-tenants-search" name="q" type="search" autocomplete="off"
-           value="{{ .Keyword }}" placeholder="{{ tr "page.tenants.search_placeholder" }}">
-    <button type="submit" class="yd-btn yd-btn--ghost">{{ tr "ui.search" }}</button>
-  </form>
+  {{template "components.form.search" (dict
+    "ID" "yd-tenants-search" "Action" "/mgr/tenants" "Get" "/mgr/tenants"
+    "Target" "#yd-workspace" "Swap" "innerMorph" "PushURL" true
+    "Trigger" "input changed delay:300ms from:#yd-tenants-search, submit"
+    "Name" "q" "Value" .Keyword
+    "Label" (tr "page.tenants.search_label") "LabelKey" "page.tenants.search_label"
+    "Placeholder" (tr "page.tenants.search_placeholder") "PlaceholderKey" "page.tenants.search_placeholder"
+    "SubmitLabel" (tr "ui.search") "SubmitKey" "ui.search")}}
 
   <section class="yd-card yd-section" aria-labelledby="yd-tenants-table-title">
     <h2 class="sr-only" id="yd-tenants-table-title">{{ tr "page.tenants.table_title" }}</h2>

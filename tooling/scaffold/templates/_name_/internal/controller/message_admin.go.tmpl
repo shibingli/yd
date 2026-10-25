@@ -147,7 +147,7 @@ func (c *Controller) renderAdminPage(ctx *router.Ctx, notice string) {
 	}
 	page := messagePage{
 		Filters:       filters,
-		Results:       c.messageViewsOf(actor, result.Messages, lang, nowUTC()),
+		Results:       c.adminMessageViewsOf(actor, result.Messages, lang, nowUTC()),
 		Total:         result.Total,
 		CanManage:     true,
 		CanSystem:     authz.Can(ctx.Request.Context(), authz.PermMessageSystem),

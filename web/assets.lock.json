@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-10-24T02:17:57.2018466Z",
+  "generated_at": "2026-10-25T02:05:27.5291945Z",
   "sources": [
     "https://cdn.jsdelivr.net/npm/{pkg}@{ver}/{file}",
     "https://unpkg.com/{pkg}@{ver}/{file}"
@@ -8,12 +8,12 @@
     {
       "name": "alpinejs",
       "version": "3.17.5",
-      "url": "https://cdn.jsdelivr.net/npm/alpinejs@3.17.5/dist/cdn.min.js",
+      "url": "https://cdn.jsdelivr.net/npm/@alpinejs/csp@3.17.5/dist/cdn.min.js",
       "path": "static/js/vendor/alpine.min.js",
-      "sha256": "b4036e9e9ac22fa6f6ae1ba292e015e1f3e9c85d0d79e73e4c8eb9bb139b522e",
+      "sha256": "48c170c92032e527cbae71b8ce75cf1f96ca06fa869a6120ef0fe438d8e92c36",
       "license": "MIT",
       "kind": "js",
-      "size": 55935,
+      "size": 72242,
       "required": true
     },
     {

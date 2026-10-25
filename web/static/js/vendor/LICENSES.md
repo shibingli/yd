@@ -17,10 +17,10 @@ No file here may be edited by hand — re-run `yd assets update` instead. | 本�
 | htmx `hx-multipart` extension | 4.0.0 | `0BSD` (Zero-Clause BSD) | `htmx.org` | https://cdn.jsdelivr.net/npm/htmx.org@4.0.0/dist/ext/hx-multipart.min.js |
 | htmx `hx-download` extension | 4.0.0 | `0BSD` (Zero-Clause BSD) | `htmx.org` | https://cdn.jsdelivr.net/npm/htmx.org@4.0.0/dist/ext/hx-download.min.js |
 | htmx `hx-alpine-compat` extension | 4.0.0 | `0BSD` (Zero-Clause BSD) | `htmx.org` | https://cdn.jsdelivr.net/npm/htmx.org@4.0.0/dist/ext/hx-alpine-compat.min.js |
-| Alpine.js | 3.17.4 | `MIT` | `alpinejs` | https://cdn.jsdelivr.net/npm/alpinejs@3.17.4/dist/cdn.min.js |
+| Alpine.js (CSP build) | 3.17.5 | `MIT` | `@alpinejs/csp` | https://cdn.jsdelivr.net/npm/@alpinejs/csp@3.17.5/dist/cdn.min.js |
 | Idiomorph | 0.8.0 | `0BSD` (Zero-Clause BSD) | `idiomorph` | https://cdn.jsdelivr.net/npm/idiomorph@0.8.0/dist/idiomorph.min.js |
-| EasyMDE | 2.20.0 | `MIT` | `easymde` | https://cdn.jsdelivr.net/npm/easymde@2.20.0/dist/easymde.min.js |
-| EasyMDE stylesheet | 2.20.0 | `MIT` | `easymde` | https://cdn.jsdelivr.net/npm/easymde@2.20.0/dist/easymde.min.css |
+| EasyMDE | 2.21.0 | `MIT` | `easymde` | https://cdn.jsdelivr.net/npm/easymde@2.21.0/dist/easymde.min.js |
+| EasyMDE stylesheet | 2.21.0 | `MIT` | `easymde` | https://cdn.jsdelivr.net/npm/easymde@2.21.0/dist/easymde.min.css |
 | Font Awesome | 4.7.0 | `MIT` (CSS) / `OFL-1.1` (font) | `font-awesome` | https://cdn.jsdelivr.net/npm/font-awesome@4.7.0/css/font-awesome.min.css |
 | Font Awesome webfont | 4.7.0 | `OFL-1.1` | `font-awesome` | https://cdn.jsdelivr.net/npm/font-awesome@4.7.0/fonts/fontawesome-webfont.woff2 |
 
@@ -44,7 +44,14 @@ AN ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT
 OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 ```
 
-### MIT License — Alpine.js
+### MIT License — Alpine.js (CSP build)
+
+The vendored file is the `@alpinejs/csp` distribution rather than the default build: the default
+build evaluates expressions with `new Function`, which a `script-src 'self'` policy blocks.
+`@alpinejs/csp` is the same Alpine 3.17.5 release with a CSP-safe expression evaluator.
+签入的是 `@alpinejs/csp` 发行版而不是默认构建：默认构建用 `new Function` 求值表达式，会被
+`script-src 'self'` 策略拦截。`@alpinejs/csp` 是同一个 Alpine 3.17.5 版本，只是换成了 CSP 安全的
+表达式求值器。
 
 Copyright (c) 2019-2025 Caleb Porzio and contributors
 

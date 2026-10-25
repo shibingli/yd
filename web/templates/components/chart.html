@@ -1,0 +1,41 @@
+{{/*
+  components/chart.html — the frame around a server-rendered SVG chart.
+  components/chart.html — 服务端渲染 SVG 图表的外框。
+
+  The SVG itself comes from http/chart: a controller calls chart.Line / chart.Bar / chart.Pie and
+  passes the result here as template.HTML. Keeping the geometry in Go means the page has one copy
+  of the data — no JSON island for a client chart library to re-parse — and the chart remains a
+  plain <svg> whose classes inherit the theme.
+  SVG 本身来自 http/chart：控制器调用 chart.Line / chart.Bar / chart.Pie，把结果作为 template.HTML
+  传进来。几何留在 Go 里意味着页面只有一份数据——不需要给客户端图表库再准备一座 JSON 岛——图表也
+  依旧是普通 <svg>，由类名继承主题。
+
+  Data contract | 数据契约:
+    ID, Title, TitleKey, Caption, CaptionKey, SVG (template.HTML), Actions (template.HTML),
+    Legend []{Label, Class}, Footer, FooterKey
+*/}}
+{{- define "components.chart" -}}
+<figure class="yd-chart-card"{{with .ID}} id="{{.}}"{{end}}>
+  {{if or .Title .TitleKey .Caption .CaptionKey .Actions}}
+  <figcaption class="yd-cluster yd-cluster--between">
+    <div class="yd-stack yd-stack--xs">
+      {{if or .Title .TitleKey}}<p class="yd-chart-card__title"{{with .TitleKey}} data-yd-i18n="{{.}}"{{end}}>{{if .Title}}{{.Title}}{{else}}{{tr .TitleKey}}{{end}}</p>{{end}}
+      {{if or .Caption .CaptionKey}}<p class="yd-chart-card__caption"{{with .CaptionKey}} data-yd-i18n="{{.}}"{{end}}>{{if .Caption}}{{.Caption}}{{else}}{{tr .CaptionKey}}{{end}}</p>{{end}}
+    </div>
+    {{with .Actions}}<div class="yd-cluster">{{.}}</div>{{end}}
+  </figcaption>
+  {{end}}
+  <div class="yd-chart-card__plot">{{.SVG}}</div>
+  {{with .Legend}}
+  <ul class="yd-chart-card__legend">
+    {{range .}}
+    <li class="yd-chart-card__legend-item">
+      <span class="yd-chart-card__swatch {{.Class}}" aria-hidden="true"></span>
+      <span>{{.Label}}</span>
+    </li>
+    {{end}}
+  </ul>
+  {{end}}
+  {{if or .Footer .FooterKey}}<p class="yd-chart-card__caption"{{with .FooterKey}} data-yd-i18n="{{.}}"{{end}}>{{if .Footer}}{{.Footer}}{{else}}{{tr .FooterKey}}{{end}}</p>{{end}}
+</figure>
+{{- end -}}

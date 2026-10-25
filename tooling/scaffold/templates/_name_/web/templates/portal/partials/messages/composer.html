@@ -77,7 +77,7 @@
           hx-post="/messages/attachments" hx-target="#yd-msg-composer-attachments" hx-swap="beforeend"
           hx-encoding="multipart/form-data" hx-status:422="target:#yd-msg-composer-errors swap:innerHTML">
       <label class="yd-btn yd-btn--ghost yd-btn--sm" for="yd-msg-composer-file">
-        {{ template "portal/partials/icon" "lucide-paperclip" }}{{ tr "message.add_attachment" }}
+        {{ template "partials/icon" "lucide-paperclip" }}{{ tr "message.add_attachment" }}
       </label>
       <input class="sr-only" id="yd-msg-composer-file" name="file" type="file">
       <button type="submit" class="yd-btn yd-btn--ghost yd-btn--sm">{{ tr "message.upload" }}</button>
@@ -85,7 +85,7 @@
     {{- end }}
     <span class="yd-hint yd-msg-composer__hint">{{ tr "message.send_hint" }}</span>
     <button type="submit" form="yd-msg-composer-form" class="yd-btn yd-btn--primary yd-msg-composer__send">
-      {{ template "portal/partials/icon" "lucide-send" }}{{ tr "ui.send" }}
+      {{ template "partials/icon" "lucide-send" }}{{ tr "ui.send" }}
     </button>
   </div>
   {{- else }}

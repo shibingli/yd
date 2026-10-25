@@ -40,31 +40,24 @@
       hx-status:422="target:#yd-workspace swap:innerHTML"
       hx-disabled-elt="find button[type='submit']"
       novalidate>
-  <div class="yd-form__field">
-    <label class="yd-form__label" for="yd-login-username">{{ tr "field.username" }}</label>
-    {{/* 用户名带 value：失败回显时原样返回，用户只需重敲口令。
-         The user name carries a value: a failed attempt returns it unchanged, so only the password has to be typed again. */}}
-    <input class="yd-input" id="yd-login-username" name="username" type="text"
-           autocomplete="username" required value="{{ .Username }}" maxlength="64">
-  </div>
-  <div class="yd-form__field">
-    <label class="yd-form__label" for="yd-login-password">{{ tr "field.password" }}</label>
-    {{/* 口令字段带 data-yd-sensitive：明文只存在于输入框里，请求体中是 SM2 密文的 Base64。
-         The password field carries data-yd-sensitive: the clear text lives in the input only, while the request body
-         carries the Base64 of the SM2 ciphertext. */}}
-    <input class="yd-input" id="yd-login-password" name="password" type="password"
-           autocomplete="current-password" required data-yd-sensitive>
-  </div>
+  {{template "components.form.field" (dict
+    "ID" "yd-login-username" "Name" "username" "Type" "text" "Value" .Username
+    "Label" (tr "field.username") "LabelKey" "field.username"
+    "Autocomplete" "username" "Required" true "MaxLength" 64)}}
+  {{template "components.form.password" (dict
+    "ID" "yd-login-password" "Name" "password"
+    "Label" (tr "field.password") "LabelKey" "field.password"
+    "Autocomplete" "current-password" "Required" true "Sensitive" true)}}
   <div class="yd-form__actions">
     {{/* 公钥不可用时按钮保持禁用：与其提交一个必然被拒的明文请求，不如把原因说清楚。
          The button stays disabled while the key is unavailable: rather than submitting a clear-text request that is bound
          to be rejected, the reason is stated right here. */}}
     <button type="submit" class="yd-btn yd-btn--primary" {{ if not .PublicKey }}disabled{{ end }}>
-      {{ template "portal/partials/icon" "lucide-log-in" }}
+      {{ template "partials/icon" "lucide-log-in" }}
       <span>{{ tr "ui.sign_in" }}</span>
     </button>
     {{ if not .PublicKey }}
-    <span class="yd-hint">{{ tr "login.key_unavailable" }}</span>
+    <span class="yd-field__hint">{{ tr "login.key_unavailable" }}</span>
     {{ end }}
   </div>
 </form>

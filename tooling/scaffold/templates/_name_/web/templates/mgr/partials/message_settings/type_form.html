@@ -12,34 +12,31 @@
       hx-status:409="target:#yd-drawer-errors swap:innerHTML"
       hx-status:422="target:#yd-drawer-errors swap:innerHTML"
       data-yd-confirm="{{ tr "confirm.save_type" }}">
-  <div class="yd-field">
-    <label class="yd-label" for="yd-type-key">{{ tr "message.settings.key" }}</label>
-    <input class="yd-input" id="yd-type-key" name="key" type="text" maxlength="64" value="{{ .Item.Key }}"
-           {{ if eq .Mode "edit" }}readonly{{ end }} required>
-    <p class="yd-hint">{{ tr "message.settings.key_hint" }}</p>
-  </div>
-  <div class="yd-field">
-    <label class="yd-label" for="yd-type-name">{{ tr "message.settings.name_zh" }}</label>
-    <input class="yd-input" id="yd-type-name" name="name" type="text" maxlength="128" value="{{ .Item.Name }}" required>
-  </div>
-  <div class="yd-field">
-    <label class="yd-label" for="yd-type-name-en">{{ tr "message.settings.name_en" }}</label>
-    <input class="yd-input" id="yd-type-name-en" name="name_en" type="text" maxlength="128" value="{{ .Item.NameEN }}" required>
-  </div>
-  <div class="yd-field">
-    <label class="yd-label" for="yd-type-tone">{{ tr "message.settings.tone" }}</label>
-    <select class="yd-select" id="yd-type-tone" name="tone">
-      <option value="neutral"{{ if eq "neutral" $.Item.Tone }} selected{{ end }}>{{ tr "message.tone.neutral" }}</option>
-      <option value="info"{{ if eq "info" $.Item.Tone }} selected{{ end }}>{{ tr "message.tone.info" }}</option>
-      <option value="success"{{ if eq "success" $.Item.Tone }} selected{{ end }}>{{ tr "message.tone.success" }}</option>
-      <option value="warn"{{ if eq "warn" $.Item.Tone }} selected{{ end }}>{{ tr "message.tone.warn" }}</option>
-      <option value="danger"{{ if eq "danger" $.Item.Tone }} selected{{ end }}>{{ tr "message.tone.danger" }}</option>
-    </select>
-  </div>
-  <div class="yd-form__actions">
-    <button type="button" class="yd-btn yd-btn--ghost" data-yd-drawer-close>{{ tr "ui.cancel" }}</button>
-    <button type="submit" class="yd-btn yd-btn--primary">{{ tr "ui.save" }}</button>
-  </div>
+  {{template "components.form.field" (dict
+    "ID" "yd-type-key" "Name" "key" "Type" "text" "Value" .Item.Key
+    "Label" (tr "message.settings.key") "LabelKey" "message.settings.key"
+    "Hint" (tr "message.settings.key_hint") "HintKey" "message.settings.key_hint"
+    "MaxLength" 64 "Required" true "Readonly" (eq .Mode "edit"))}}
+  {{template "components.form.field" (dict
+    "ID" "yd-type-name" "Name" "name" "Type" "text" "Value" .Item.Name
+    "Label" (tr "message.settings.name_zh") "LabelKey" "message.settings.name_zh"
+    "MaxLength" 128 "Required" true)}}
+  {{template "components.form.field" (dict
+    "ID" "yd-type-name-en" "Name" "name_en" "Type" "text" "Value" .Item.NameEN
+    "Label" (tr "message.settings.name_en") "LabelKey" "message.settings.name_en"
+    "MaxLength" 128 "Required" true)}}
+  {{template "components.form.select" (dict
+    "ID" "yd-type-tone" "Name" "tone"
+    "Label" (tr "message.settings.tone") "LabelKey" "message.settings.tone"
+    "Options" (list
+      (dict "Value" "neutral" "Label" (tr "message.tone.neutral") "Key" "message.tone.neutral" "Selected" (eq "neutral" .Item.Tone))
+      (dict "Value" "info" "Label" (tr "message.tone.info") "Key" "message.tone.info" "Selected" (eq "info" .Item.Tone))
+      (dict "Value" "success" "Label" (tr "message.tone.success") "Key" "message.tone.success" "Selected" (eq "success" .Item.Tone))
+      (dict "Value" "warn" "Label" (tr "message.tone.warn") "Key" "message.tone.warn" "Selected" (eq "warn" .Item.Tone))
+      (dict "Value" "danger" "Label" (tr "message.tone.danger") "Key" "message.tone.danger" "Selected" (eq "danger" .Item.Tone))))}}
+  {{template "components.form.actions" (dict
+    "SubmitLabel" (tr "ui.save") "SubmitKey" "ui.save"
+    "CancelLabel" (tr "ui.cancel") "CancelKey" "ui.cancel")}}
 </form>
 {{- end -}}
 {{ template "mgr/partials/message_settings/type_form" . }}

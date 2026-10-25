@@ -41,20 +41,17 @@
           hx-status:422="target:#yd-errors swap:innerHTML"
           hx-disabled-elt="find button[type='submit']"
           data-yd-confirm="{{ tr "confirm.update_profile" }}">
-      <div class="yd-form__row">
-        <div class="yd-form__field">
-          <label class="yd-form__label" for="yd-account-display">{{ tr "field.display_name" }}</label>
-          <input class="yd-input" id="yd-account-display" name="display_name" type="text" required maxlength="120"
-                 value="{{ .User.Display }}" title="{{ tr "account.profile_invalid" }}">
-        </div>
-        <div class="yd-form__field">
-          <label class="yd-form__label" for="yd-account-email">{{ tr "field.email" }}</label>
-          <input class="yd-input" id="yd-account-email" name="email" type="email" maxlength="320" value="{{ .User.Email }}">
-        </div>
+      <div class="yd-form-grid">
+        {{template "components.form.field" (dict
+          "ID" "yd-account-display" "Name" "display_name" "Type" "text" "Value" .User.Display
+          "Label" (tr "field.display_name") "LabelKey" "field.display_name"
+          "Required" true "MaxLength" 120)}}
+        {{template "components.form.field" (dict
+          "ID" "yd-account-email" "Name" "email" "Type" "email" "Value" .User.Email
+          "Label" (tr "field.email") "LabelKey" "field.email" "MaxLength" 320)}}
       </div>
-      <div class="yd-form__actions">
-        <button type="submit" class="yd-btn yd-btn--primary">{{ tr "ui.save" }}</button>
-      </div>
+      {{template "components.form.actions" (dict
+        "SubmitLabel" (tr "ui.save") "SubmitKey" "ui.save" "NoCancel" true)}}
     </form>
   </section>
 
@@ -134,25 +131,22 @@
           hx-disabled-elt="find button[type='submit']"
           data-yd-confirm="{{ tr "confirm.change_password" }}"
           novalidate>
-      <div class="yd-form__field">
-        <label class="yd-form__label" for="yd-account-current">{{ tr "field.current_password" }}</label>
-        <input class="yd-input" id="yd-account-current" name="current" type="password"
-               autocomplete="current-password" required data-yd-sensitive>
-      </div>
-      <div class="yd-form__field">
-        <label class="yd-form__label" for="yd-account-next">{{ tr "field.new_password" }}</label>
-        <input class="yd-input" id="yd-account-next" name="password" type="password"
-               autocomplete="new-password" required data-yd-sensitive>
-      </div>
-      <div class="yd-form__field">
-        <label class="yd-form__label" for="yd-account-confirm">{{ tr "field.confirm_password" }}</label>
-        <input class="yd-input" id="yd-account-confirm" name="confirm" type="password"
-               autocomplete="new-password" required data-yd-sensitive>
-      </div>
-      <div class="yd-form__actions">
-        <button type="submit" class="yd-btn yd-btn--primary">{{ tr "ui.save" }}</button>
-        <span class="yd-hint">{{ tr "page.account.sign_out_after" }}</span>
-      </div>
+      <input class="sr-only" type="text" name="username" autocomplete="username" value="{{ .User.Username }}" readonly tabindex="-1">
+      {{template "components.form.field" (dict
+        "ID" "yd-account-current" "Name" "current" "Type" "password"
+        "Label" (tr "field.current_password") "LabelKey" "field.current_password"
+        "Autocomplete" "current-password" "Required" true "Sensitive" true)}}
+      {{template "components.form.password" (dict
+        "ID" "yd-account-next" "Name" "password"
+        "Label" (tr "field.new_password") "LabelKey" "field.new_password"
+        "Autocomplete" "new-password" "Required" true "Sensitive" true)}}
+      {{template "components.form.password" (dict
+        "ID" "yd-account-confirm" "Name" "confirm"
+        "Label" (tr "field.confirm_password") "LabelKey" "field.confirm_password"
+        "Autocomplete" "new-password" "Required" true "Sensitive" true)}}
+      {{template "components.form.actions" (dict
+        "SubmitLabel" (tr "ui.save") "SubmitKey" "ui.save" "NoCancel" true)}}
+      <p class="yd-field__hint">{{ tr "page.account.sign_out_after" }}</p>
     </form>
   </section>
 

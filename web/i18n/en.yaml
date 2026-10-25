@@ -348,3 +348,64 @@ error:
   server: Internal server error, please retry later.
   back_home: Back to the dashboard
   support: If the problem persists, hand the trace id to the support team.
+
+# yd UI kit copy | yd UI 组件层文案
+ui:
+  previous: Previous
+  next: Next
+  slide: Slide
+  back_to_top: Back to top
+  command: Command palette
+  command_empty: No matching command
+  no_results: No matches
+  remove: Remove
+  add: Add
+  copy: Copy
+  decrease: Decrease
+  increase: Increase
+  clear: Clear
+  search: Search
+
+cn:
+  phone:
+    invalid: Enter an 11-digit mainland mobile number
+  idcard:
+    birth: Date of birth
+    sex: Sex
+    male: Male
+    female: Female
+    age: Age
+    invalid: Enter an 18-digit resident ID card number with a valid check digit
+  bankcard:
+    invalid: Enter a valid bank card number
+  creditcode:
+    invalid: Enter an 18-character unified social credit code
+  amount:
+    currency: ¥
+    upper: In words
+    invalid: Enter a valid amount with at most two decimals
+  region:
+    province: Province / municipality
+    city: City
+    district: District / county
+  range:
+    today: Today
+    7d: Last 7 days
+    30d: Last 30 days
+    month: This month
+    last_month: Last month
+    from: Start date
+    to: End date
+    invalid: The start date cannot be after the end date
+  sms:
+    send: Send code
+  copy:
+    copied: Copied
+    failed: Copy failed
+  password:
+    toggle: Show or hide the password
+    weak: Weak
+    fair: Fair
+    strong: Strong
+  upload:
+    drop: Choose or drop files

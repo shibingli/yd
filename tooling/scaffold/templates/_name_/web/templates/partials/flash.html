@@ -11,7 +11,7 @@
   The reconnect button helps with the SSE stream: when it drops, #yd-connection appears and one click re-opens the
   partial refresh.
 */}}
-{{- define "portal/partials/flash" -}}
+{{- define "partials/flash" -}}
 <div id="yd-flash" class="yd-flash" role="status" aria-live="polite" aria-label="通知 | Notifications">
   {{/* 连接状态条：默认隐藏，由 yd-app.js 在 htmx:sse:* 与 htmx:ws:* 事件上切换。
        Connection banner: hidden by default and toggled by yd-app.js on the htmx:sse:* and htmx:ws:* events. */}}

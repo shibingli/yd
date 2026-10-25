@@ -334,6 +334,7 @@ func registerProtected(a *app.App, ctrl *controller.Controller, store *repositor
 	g.GET("/mgr/metrics", ctrl.Metrics, authz.Require(authz.PermUserRead))
 	g.GET("/mgr/metrics/middleware", ctrl.MiddlewareMetrics, authz.Require(authz.PermUserRead))
 	g.GET("/realtime", ctrl.Page)
+	g.GET("/ui-kit", ctrl.UIKit)
 	g.GET("/account", ctrl.Account)
 	g.POST("/account/profile", ctrl.UpdateProfile)
 	g.POST("/account/password", ctrl.ChangePassword)

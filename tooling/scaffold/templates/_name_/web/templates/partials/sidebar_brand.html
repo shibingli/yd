@@ -1,0 +1,22 @@
+{{/*
+  partials/sidebar_brand.html —— 侧栏品牌区，门户与后台共用的同一份结构。
+  partials/sidebar_brand.html — the rail's brand block, one structure shared by the portal and the back office.
+
+  只有链接目标随界面变化：门户回到 /，后台回到 /mgr。图标、排版与 htmx 外壳交换方式完全相同，
+  因此这里不复制两份品牌区。数据契约 | Data contract: .Name、.Mgr。
+*/}}
+{{- define "partials/sidebar_brand" -}}
+<div class="yd-sidebar__brand">
+  {{- if .Mgr }}
+  <a class="yd-brand" href="/mgr" hx-get="/mgr" hx-target="#yd-shell" hx-swap="innerMorph" hx-push-url="true">
+    <span class="yd-brand__mark" aria-hidden="true">yd</span>
+    <span class="yd-brand__name">{{ .Name }}</span>
+  </a>
+  {{- else }}
+  <a class="yd-brand" href="/" hx-get="/" hx-target="#yd-shell" hx-swap="innerMorph" hx-push-url="true">
+    <span class="yd-brand__mark" aria-hidden="true">yd</span>
+    <span class="yd-brand__name">{{ .Name }}</span>
+  </a>
+  {{- end }}
+</div>
+{{- end -}}

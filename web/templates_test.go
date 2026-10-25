@@ -108,8 +108,9 @@ var scriptsInOrder = []string{
 	"/static/js/vendor/hx-ptag.min.js",
 	"/static/js/vendor/hx-sse.min.js",
 	"/static/js/vendor/hx-ws.min.js",
-	"/static/js/vendor/alpine.min.js",
 	"/static/js/vendor/hx-alpine-compat.min.js",
+	"/static/js/yd-ui.js",
+	"/static/js/vendor/alpine.min.js",
 	"/static/js/yd-guomi.js",
 	"/static/js/yd-guomi-htmx.js",
 	"/static/js/yd-i18n.js",
@@ -186,6 +187,19 @@ func templateFuncs() template.FuncMap {
 		},
 		// list builds the slices handed to partials. | list 构建传给局部模板的切片。
 		"list": func(items ...any) []any { return items },
+		// default mirrors the render helper: it returns v unless v is empty. | default 对应 render 的
+		// 同名辅助函数：v 为空时返回默认值。
+		"default": func(def, v any) any {
+			switch value := v.(type) {
+			case nil:
+				return def
+			case string:
+				if value == "" {
+					return def
+				}
+			}
+			return v
+		},
 		// The four authority helpers mirror what the render binding publishes for one execution: a
 		// template asks about a capability or a role, and the answer is decided through the registry.
 		// 四个权限辅助函数对应 render 为单次执行发布的绑定：模板询问某项能力或某个角色，
@@ -467,10 +481,24 @@ func TestAllTemplatesParse(t *testing.T) {
 	}
 
 	// Every template must also execute: escaping errors only appear at execution time.
-	// 每个模板还必须能执行：转义错误只在执行期才会暴露。
+	// Component partials get their contract fixture instead of the page fixture; a page map does
+	// not carry the fields a component expects, and executing them with it would test nothing.
+	// 每个模板还必须能执行：转义错误只在执行期才会暴露。组件局部模板使用各自的契约固定数据，
+	// 页面数据没有组件期望的字段，用它执行并不能证明什么。
+	componentData := componentFixture()
 	for _, name := range definedNames(tmpl) {
+		data := any(templateData())
+		if strings.HasPrefix(name, "components.") {
+			if name == "components.navigation.tree.nodes" {
+				data = []map[string]any{{"Label": "Child", "Href": "/child"}}
+			} else if fixture, ok := componentData[name]; ok {
+				data = fixture
+			} else {
+				continue
+			}
+		}
 		var buf bytes.Buffer
-		if err := tmpl.ExecuteTemplate(&buf, name, templateData()); err != nil {
+		if err := tmpl.ExecuteTemplate(&buf, name, data); err != nil {
 			t.Errorf("execute %s: %v", name, err)
 		}
 	}
