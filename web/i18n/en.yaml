@@ -71,6 +71,7 @@ common:
   page: Page
   of: of
   pagination: Pagination
+  page_summary: "Page %d of %d"
 
 flash:
   region: Notifications

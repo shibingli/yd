@@ -1464,6 +1464,55 @@
     overscroll-behavior-x: contain;
   }
 
+  /* Empty state owns the full row and keeps the hover repaint from suggesting a selectable datum. |
+     空状态占据整行，并避免悬停重绘让人误以为该行可选中。 */
+  .yd-table__empty {
+    padding: 0;
+  }
+
+  .yd-table__empty-row:hover {
+    background-color: transparent;
+  }
+
+  /* Row count / range sits left, size choices stay next to the controls, page numbers close the line. |
+     行数/区间靠左，页长选项贴近控件，页码收尾。 */
+  .yd-pagination__sizes {
+    display: flex;
+    align-items: center;
+    gap: 0.25rem;
+    margin-inline-start: auto;
+  }
+
+  .yd-pagination__size {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 2.25rem;
+    height: 2rem;
+    padding: 0 0.5rem;
+    border: 1px solid var(--color-border-subtle);
+    border-radius: 0.5rem;
+    color: var(--color-content-muted);
+    font-size: 0.75rem;
+    text-decoration: none;
+  }
+
+  .yd-pagination__size:hover,
+  .yd-pagination__size--current {
+    background-color: var(--color-surface-muted);
+    color: var(--color-content);
+  }
+
+  .yd-pagination__size--current {
+    border-color: color-mix(in oklab, var(--color-accent) 45%, transparent);
+    color: var(--color-accent);
+  }
+
+  .yd-pagination__label {
+    margin-inline-start: 0.125rem;
+    font-size: 0.75rem;
+  }
+
   .yd-avatar--xs {
     width: 1.5rem;
     height: 1.5rem;

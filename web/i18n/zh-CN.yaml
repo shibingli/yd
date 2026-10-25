@@ -73,6 +73,7 @@ common:
   page: 第
   of: 共
   pagination: 分页
+  page_summary: "第 %d 页，共 %d 页"
 
 flash:
   region: 通知

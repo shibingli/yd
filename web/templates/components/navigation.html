@@ -231,15 +231,28 @@
 </nav>
 {{- end -}}
 
-{{/* components.navigation.pagination — server-driven pages. Dict keys | dict 的键:
-       Label, LabelKey, Summary, SummaryKey, PrevHref, NextHref,
-       Pages []{Number, Href, Current, Ellipsis} */}}
+{{/* components.navigation.pagination — server-driven pages or keyset cursors. Dict keys | dict 的键:
+       Label, LabelKey, Summary, SummaryKey, PrevHref, NextHref, ShowLabels,
+       Pages []{Number, Href, Current, Ellipsis},
+       SizeLabel, SizeLabelKey, SizeOptions []{Label, Href, Current}
+     Pages empty and PrevHref/NextHref set is the cursor form: no page numbers are invented, and a
+     keyset page never needs a COUNT. ShowLabels adds visible previous/next text for touch and
+     first-time users; the aria labels are always present. | Pages 为空且给出 PrevHref/NextHref 时是游标
+     形式：不编造页码，键集分页也无需 COUNT。ShowLabels 为上一页/下一页补充可见文字，方便触屏与
+     首次使用者；aria 标签始终存在。 */}}
 {{- define "components.navigation.pagination" -}}
 <nav class="yd-pagination" role="navigation"
      {{if or .Label .LabelKey}}aria-label="{{if .LabelKey}}{{tr .LabelKey}}{{else}}{{.Label}}{{end}}"{{with .LabelKey}} data-yd-i18n-attr="aria-label:{{.}}"{{end}}{{end}}>
   {{if or .Summary .SummaryKey}}<p class="yd-pagination__summary"{{with .SummaryKey}} data-yd-i18n="{{.}}"{{end}}>{{if .SummaryKey}}{{tr .SummaryKey}}{{else}}{{.Summary}}{{end}}</p>{{end}}
+  {{- if .SizeOptions}}
+  <div class="yd-pagination__sizes" role="group"{{if or .SizeLabel .SizeLabelKey}} aria-label="{{if .SizeLabel}}{{.SizeLabel}}{{else}}{{tr .SizeLabelKey}}{{end}}"{{with .SizeLabelKey}} data-yd-i18n-attr="aria-label:{{.}}"{{end}}{{end}}>
+    {{- range .SizeOptions}}
+    <a class="yd-pagination__size{{if .Current}} yd-pagination__size--current{{end}}" href="{{.Href}}"{{if .Current}} aria-current="true"{{end}}>{{.Label}}</a>
+    {{- end}}
+  </div>
+  {{- end}}
   <ul class="yd-pagination__list">
-    {{with .PrevHref}}<li class="yd-pagination__item"><a class="yd-pagination__link" href="{{.}}" rel="prev" data-yd-i18n-attr="aria-label:ui.previous" aria-label="{{tr "ui.previous"}}">{{template "partials/icon" "lucide-chevron-left"}}</a></li>{{end}}
+    {{with .PrevHref}}<li class="yd-pagination__item"><a class="yd-pagination__link" href="{{.}}" rel="prev" data-yd-i18n-attr="aria-label:ui.previous" aria-label="{{tr "ui.previous"}}">{{template "partials/icon" "lucide-chevron-left"}}{{if $.ShowLabels}}<span class="yd-pagination__label">{{tr "ui.previous"}}</span>{{end}}</a></li>{{end}}
     {{range .Pages}}
     {{if .Ellipsis}}
     <li class="yd-pagination__item"><span class="yd-pagination__ellipsis" aria-hidden="true">…</span></li>
@@ -249,7 +262,7 @@
     <li class="yd-pagination__item"><a class="yd-pagination__link" href="{{.Href}}">{{.Number}}</a></li>
     {{end}}
     {{end}}
-    {{with .NextHref}}<li class="yd-pagination__item"><a class="yd-pagination__link" href="{{.}}" rel="next" data-yd-i18n-attr="aria-label:ui.next" aria-label="{{tr "ui.next"}}">{{template "partials/icon" "lucide-chevron-right"}}</a></li>{{end}}
+    {{with .NextHref}}<li class="yd-pagination__item"><a class="yd-pagination__link" href="{{.}}" rel="next" data-yd-i18n-attr="aria-label:ui.next" aria-label="{{tr "ui.next"}}">{{if $.ShowLabels}}<span class="yd-pagination__label">{{tr "ui.next"}}</span>{{end}}{{template "partials/icon" "lucide-chevron-right"}}</a></li>{{end}}
   </ul>
 </nav>
 {{- end -}}

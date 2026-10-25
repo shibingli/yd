@@ -1,34 +1,25 @@
 {{/*
-  partials/pagination.html — cursor/offset pagination that never reloads the page.
-  partials/pagination.html — 永不整页刷新的分页控件。
+  partials/pagination.html — the framework sample pages' adapter to the one shared pager.
+  partials/pagination.html — 框架示例页到唯一共享分页组件的适配层。
 
-  Every link is a real href (crawlable, works without JavaScript) plus an hx-get that swaps
-  only the table region and pushes the URL, so the address bar stays shareable.
-  每个链接都是真实 href（可被爬取、无 JavaScript 可用），并附带 hx-get：
-  只交换表格区域并推送 URL，地址栏因此始终可分享。
+  Every link is a real href (crawlable, works without JavaScript) and htmx-boost swaps only the
+  workspace, so the address bar stays shareable. The markup itself lives in
+  components.navigation.pagination; this file exists only for the sample pages' legacy
+  .Pagination{Page, Pages, Total, Items} data contract.
+  每个链接都是真实 href（可被爬取、无 JavaScript 可用），htmx-boost 只交换工作区，地址栏因此始终可分享。
+  结构本身位于 components.navigation.pagination；本文件只保留给示例页的旧 .Pagination 数据契约。
 
   Data contract | 数据契约:
     .Pagination{Page, Pages, Total, Items []{Number, Href, Current}}
 */}}
 
 {{- define "partials/pagination" -}}
-<nav class="yd-pagination" data-yd-i18n-attr="aria-label:common.pagination" aria-label="{{tr "common.pagination"}}">
-  <p class="yd-pagination__summary">
-    <span data-yd-i18n="common.page">{{tr "common.page"}}</span>
-    <span class="yd-pagination__current">{{with .Pagination}}{{.Page}}{{end}}</span>
-    <span data-yd-i18n="common.of">{{tr "common.of"}}</span>
-    <span class="yd-pagination__total">{{with .Pagination}}{{.Pages}}{{end}}</span>
-  </p>
-  <ul class="yd-pagination__list">
-    {{with .Pagination}}{{with .Items}}{{range .}}
-    <li class="yd-pagination__item">
-      {{if .Current}}
-      <span class="yd-pagination__link yd-pagination__link--current" aria-current="page">{{.Number}}</span>
-      {{else}}
-      <a class="yd-pagination__link" href="{{.Href}}" hx-get="{{.Href}}" hx-target="#yd-workspace" hx-swap="innerMorph" hx-push-url="true">{{.Number}}</a>
-      {{end}}
-    </li>
-    {{end}}{{end}}{{end}}
-  </ul>
-</nav>
+{{- with .Pagination -}}
+<div hx-boost="true" hx-target="#yd-workspace" hx-swap="innerMorph" hx-push-url="true">
+  {{template "components.navigation.pagination" (dict
+    "LabelKey" "common.pagination"
+    "Summary" (tr "common.page_summary" .Page .Pages)
+    "Pages" .Items)}}
+</div>
+{{- end -}}
 {{- end -}}

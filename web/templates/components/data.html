@@ -73,6 +73,51 @@
 </div>
 {{- end -}}
 
+{{/* components.data.table.empty — the single empty row of a table. Dict keys | dict 的键:
+       Colspan, Title, TitleKey, Text, TextKey
+     It lives inside the tbody so the table keeps its header and column widths while empty. | 它位于
+     tbody 内，因此空表仍保留表头与列宽。 */}}
+{{- define "components.data.table.empty" -}}
+<tr class="yd-table__empty-row">
+  <td class="yd-table__td yd-table__empty" colspan="{{.Colspan}}">
+    {{template "components.layout.empty" (dict "Title" .Title "TitleKey" .TitleKey "Text" .Text "TextKey" .TextKey "Compact" true)}}
+  </td>
+</tr>
+{{- end -}}
+
+{{/* components.data.table — a complete server-rendered table. Dict keys | dict 的键:
+       The shell keys of components.data.table.open, plus:
+       Rows []{Cells []{Value, HTML, LabelKey, Numeric, Actions, Wrap, Attrs}, SelectValue, Selected, Attrs},
+       Colspan, Empty, EmptyKey, EmptyText, EmptyTextKey, Pager (template.HTML)
+
+     Every row is plain HTML: no per-row script, no client-side data mirror. Cells accept either an
+     already-rendered HTML fragment or text/value, so a business page can render links and badges
+     without a second table implementation. Pager is placed after the scroll wrapper, which keeps the
+     table and its controls independent during an htmx morph. | 每一行都是纯 HTML：没有逐行脚本，也没有
+     客户端数据镜像。单元格可接受已渲染的 HTML 片段或文本/取值，业务页因此能渲染链接与徽标而不必
+     另写一套表格。Pager 放在滚动包装之后，htmx morph 时表格与分页控件互不影响。 */}}
+{{- define "components.data.table" -}}
+{{template "components.data.table.open" .}}
+{{- if .Rows}}
+{{- range .Rows}}
+<tr class="yd-table__row"{{with .Attrs}}{{.}}{{end}}>
+  {{- if $.Selectable}}
+  <td class="yd-table__td yd-table__td--select">
+    <input class="yd-check__input" type="checkbox" name="{{$.SelectName | default "selected"}}" value="{{.SelectValue}}"{{if .Selected}} checked{{end}}>
+  </td>
+  {{- end}}
+  {{- range .Cells}}
+  <td class="yd-table__td{{if .Numeric}} yd-table__td--num{{end}}{{if .Actions}} yd-table__td--actions{{end}}{{if .Wrap}} yd-table__td--wrap{{end}}"{{with .Attrs}}{{.}}{{end}}>{{if .HTML}}{{.HTML}}{{else if .LabelKey}}{{tr .LabelKey}}{{else}}{{.Value}}{{end}}</td>
+  {{- end}}
+</tr>
+{{- end}}
+{{- else}}
+{{template "components.data.table.empty" (dict "Colspan" (or .Colspan (len .Columns)) "Title" .Empty "TitleKey" .EmptyKey "Text" .EmptyText "TextKey" .EmptyTextKey)}}
+{{- end}}
+{{template "components.data.table.close" .}}
+{{- with .Pager}}{{.}}{{end}}
+{{- end -}}
+
 {{/* components.data.kpi — a KPI tile with an optional sparkline. Dict keys | dict 的键:
        Label, LabelKey, Value, Delta, Trend (up|down), Spark (template.HTML), Hint, HintKey */}}
 {{- define "components.data.kpi" -}}

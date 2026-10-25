@@ -2767,6 +2767,12 @@
   font-weight: 500;
 }
 
+/* Block checks inside a drawer (roles, tenant memberships) need visible row spacing; otherwise consecutive rows touch. |
+   抽屉里的块状勾选项（角色、租户成员等）需要可见的行距，否则上下两行会贴在一起。 */
+.yd-drawer__section .yd-form__fieldset > .yd-check--block + .yd-check--block {
+  margin-top: 0.375rem;
+}
+
 .yd-divider {
   border: 0;
   border-top: 1px solid var(--color-border-subtle);
