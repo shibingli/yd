@@ -110,6 +110,46 @@ test('province fallback has the 34 first-level divisions', () => {
   assert.ok(CN.provinces.some((p) => p.code === '820000' && p.name === '澳门特别行政区'));
 });
 
+test('decorateEditorToolbar swaps legacy icon classes for cloned Lucide SVGs', () => {
+  const icon = { cloneNode: () => ({ kind: 'lucide-bold' }) };
+  const holder = { querySelector: () => icon };
+  const palette = { querySelector: (selector) => (selector.includes('lucide-bold') ? holder : null) };
+  const root = { querySelector: () => palette };
+  const button = {
+    className: 'fa fa-bold',
+    innerHTML: '<i class="fa"></i>',
+    children: [],
+    attributes: {},
+    title: 'Bold',
+    setAttribute(name, value) { this.attributes[name] = value; },
+    getAttribute(name) { return name === 'title' ? this.title : this.attributes[name]; },
+    appendChild(node) { this.children.push(node); }
+  };
+  api.decorateEditorToolbar({ toolbarElements: { bold: button } }, root);
+  assert.equal(button.className, 'yd-editor-tool');
+  assert.equal(button.innerHTML, '', 'the legacy glyph is cleared');
+  assert.deepEqual(button.children, [{ kind: 'lucide-bold' }]);
+  assert.equal(button.attributes['aria-label'], 'Bold');
+});
+
+test('decorateEditorToolbar keeps no-disable and semantic classes', () => {
+  const icon = { cloneNode: () => ({ kind: 'lucide-eye' }) };
+  const palette = { querySelector: (selector) => (selector.includes('lucide-eye') ? { querySelector: () => icon } : null) };
+  const root = { querySelector: () => palette };
+  const button = {
+    className: 'fa fa-eye no-disable',
+    innerHTML: '',
+    children: [],
+    attributes: {},
+    setAttribute(name, value) { this.attributes[name] = value; },
+    getAttribute() { return ''; },
+    appendChild(node) { this.children.push(node); }
+  };
+  api.decorateEditorToolbar({ toolbarElements: { preview: button } }, root);
+  assert.equal(button.className, 'yd-editor-tool no-disable');
+  assert.deepEqual(button.children, [{ kind: 'lucide-eye' }]);
+});
+
 test('register installs every component once and is idempotent', () => {
   const names = [];
   const fake = {
@@ -120,8 +160,8 @@ test('register installs every component once and is idempotent', () => {
   api.register(fake);
   api.register(fake);
   assert.deepEqual(names.sort(), api.components.slice().sort());
-  assert.ok(api.components.includes('ydPhone'));
-  assert.ok(api.components.includes('ydRegion'));
-  assert.ok(api.components.includes('ydAmount'));
+  for (const name of ['ydPhone', 'ydRegion', 'ydAmount', 'ydSelect', 'ydDateTime', 'ydRows', 'ydEmoji', 'ydSignature', 'ydResizable']) {
+    assert.ok(api.components.includes(name), `missing ${name}`);
+  }
   assert.equal(api.components.length, names.length, 'a second register call adds nothing');
 });

@@ -66,3 +66,46 @@ func TestRequestedButtonsUseIcons(t *testing.T) {
 		}
 	}
 }
+
+// TestEditorToolbarUsesLucideSprite pins the editor contract: EasyMDE's runtime toolbar clones
+// icons from a server-rendered Lucide palette, and no Font Awesome class or asset remains.
+// TestEditorToolbarUsesLucideSprite 固定编辑器契约：EasyMDE 的运行时工具栏从服务端渲染的 Lucide
+// 调色板克隆图标，且不再保留任何 Font Awesome 类名或资源。
+func TestEditorToolbarUsesLucideSprite(t *testing.T) {
+	icons := []string{
+		"lucide-bold", "lucide-italic", "lucide-heading", "lucide-strikethrough",
+		"lucide-quote", "lucide-list", "lucide-list-ordered", "lucide-link",
+		"lucide-image", "lucide-code", "lucide-table", "lucide-minus",
+		"lucide-eye", "lucide-columns-2", "lucide-maximize", "lucide-undo-2", "lucide-redo-2",
+	}
+	palette := string(readEmbedded(t, web.FS(), "templates/partials/editor-icons.html"))
+	for _, icon := range icons {
+		needle := `template "partials/icon" "` + icon + `"`
+		if !strings.Contains(palette, needle) {
+			t.Errorf("editor palette is missing %s | 编辑器调色板缺少 %s", needle, needle)
+		}
+		if !strings.Contains(palette, `data-yd-editor-icon="`+icon+`"`) {
+			t.Errorf("editor palette does not expose %s to the decorator | 编辑器调色板未向装饰器暴露 %s", icon, icon)
+		}
+	}
+	if !strings.Contains(palette, "data-yd-editor-icons") {
+		t.Error("editor palette lacks its root marker | 编辑器调色板缺少根标记")
+	}
+
+	kit := string(readEmbedded(t, web.FS(), "static/js/yd-ui.js"))
+	for _, want := range []string{"decorateEditorToolbar", "data-yd-editor-icons", "data-yd-editor-icon"} {
+		if !strings.Contains(kit, want) {
+			t.Errorf("yd-ui.js is missing %q | yd-ui.js 缺少 %q", want, want)
+		}
+	}
+	for _, file := range []string{"static/js/yd-ui.js", "static/js/yd-message-editor.js"} {
+		body := string(readEmbedded(t, web.FS(), file))
+		if strings.Contains(body, `"fa fa-`) {
+			t.Errorf("%s still assigns Font Awesome toolbar classes | %s 仍在分配 Font Awesome 工具栏类名", file, file)
+		}
+	}
+	editor := string(readEmbedded(t, web.FS(), "static/js/yd-message-editor.js"))
+	if !strings.Contains(editor, "decorateEditorToolbar") {
+		t.Error("yd-message-editor.js does not decorate its toolbar | yd-message-editor.js 未装饰其工具栏")
+	}
+}

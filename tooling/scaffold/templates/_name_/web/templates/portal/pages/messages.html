@@ -87,24 +87,23 @@
           <details class="yd-msg-search__filters">
             <summary>{{ tr "message.filters" }}</summary>
             <div class="yd-msg-search__fields">
-              <select class="yd-select" id="yd-message-folder" name="folder" aria-label="{{ tr "message.folder_label" }}">
-                <option value="all"{{ if eq .Filters.Folder "all" }} selected{{ end }}>{{ tr "message.folder.all" }}</option>
-                <option value="unread"{{ if eq .Filters.Folder "unread" }} selected{{ end }}>{{ tr "message.folder.unread" }}</option>
-                <option value="sent"{{ if eq .Filters.Folder "sent" }} selected{{ end }}>{{ tr "message.folder.sent" }}</option>
-                <option value="system"{{ if eq .Filters.Folder "system" }} selected{{ end }}>{{ tr "message.folder.system" }}</option>
-                <option value="pinned"{{ if eq .Filters.Folder "pinned" }} selected{{ end }}>{{ tr "message.folder.pinned" }}</option>
-              </select>
-              <select class="yd-select" id="yd-message-type" name="type_key" aria-label="{{ tr "message.type" }}">
-                <option value="">{{ tr "message.all_types" }}</option>
-                {{- range .Catalog.Types }}
-                <option value="{{ .Key }}"{{ if eq .Key $.Filters.TypeKey }} selected{{ end }}>{{ .Label }}</option>
-                {{- end }}
-              </select>
-              <select class="yd-select" id="yd-message-tag" name="tag" aria-label="{{ tr "message.tag" }}">
-                <option value="">{{ tr "message.all_tags" }}</option>
-                {{- range .Catalog.Groups }}<option value="{{ .ID }}"{{ if eq .ID $.Filters.TagID }} selected{{ end }}>{{ .Label }}</option>{{ end }}
-                {{- range .Catalog.Tags }}<option value="{{ .ID }}"{{ if eq .ID $.Filters.TagID }} selected{{ end }}>#{{ .Label }}</option>{{ end }}
-              </select>
+              {{template "components.form.select" (dict
+                "ID" "yd-message-folder" "Name" "folder" "LabelHidden" true
+                "Label" (tr "message.folder_label") "LabelKey" "message.folder_label"
+                "Options" (list
+                  (dict "Value" "all" "Key" "message.folder.all" "Selected" (eq .Filters.Folder "all"))
+                  (dict "Value" "unread" "Key" "message.folder.unread" "Selected" (eq .Filters.Folder "unread"))
+                  (dict "Value" "sent" "Key" "message.folder.sent" "Selected" (eq .Filters.Folder "sent"))
+                  (dict "Value" "system" "Key" "message.folder.system" "Selected" (eq .Filters.Folder "system"))
+                  (dict "Value" "pinned" "Key" "message.folder.pinned" "Selected" (eq .Filters.Folder "pinned"))))}}
+              {{template "components.form.select" (dict
+                "ID" "yd-message-type" "Name" "type_key" "LabelHidden" true
+                "Label" (tr "message.type") "LabelKey" "message.type"
+                "Options" (.Catalog.TypeFilterOptions .Filters.TypeKey))}}
+              {{template "components.form.select" (dict
+                "ID" "yd-message-tag" "Name" "tag" "LabelHidden" true
+                "Label" (tr "message.tag") "LabelKey" "message.tag"
+                "Options" (.Catalog.TagFilterOptions .Filters.TagID))}}
               <button type="submit" class="yd-btn">{{ tr "ui.search" }}</button>
             </div>
           </details>

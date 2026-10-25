@@ -365,6 +365,16 @@ ui:
   increase: Increase
   clear: Clear
   search: Search
+  select_all: Select all
+  send: Send
+  resize: Resize panes
+  close: Close
+  today: Today
+  apply: Apply
+  open_calendar: Open calendar
+  open_time: Open time picker
+  months: January|February|March|April|May|June|July|August|September|October|November|December
+  weekdays: Mon|Tue|Wed|Thu|Fri|Sat|Sun
 
 cn:
   phone:

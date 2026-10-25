@@ -7,12 +7,12 @@
 > 与树根 `web/templates/partials/**` 的共享外壳写进项目，运行期脚本经框架的合并静态树兜底提供。
 > 门户与管理控制台是同一套组件、同一套外壳，差异只由 `.Portal` / `.Mgr` 数据键选择。
 >
-> **Htmx 4、Tailwind CSS v4 与 Alpine.js 3 是基线技术栈，不是开关**：`yd new` 默认集成三者，
-> `hx-alpine-compat` 恒开启；`--htmx-ext` 只用于追加额外的 Htmx 扩展，没有 `--tailwind` 之类的
-> 选择项。生成的每个项目都具备本手册描述的全部能力。
+> **Htmx 4、Tailwind CSS v4、Alpine.js 3 与 i18n 是基线能力，不是开关**：`yd new` 默认集成四者，
+> 全部安全 Htmx 扩展默认加载，`hx-alpine-compat` 恒开启；`--htmx-ext` 只用于追加需显式选择的策略层，
+> `--i18n=false` 才显式关闭国际化，没有 `--tailwind` 之类的选择项。生成的每个项目都具备本手册描述的全部能力。
 >
-> 完整的组件清单、与 Naive UI / Shadcn UI / OpenTiny / Premium 的对照矩阵、扩展组件参数与图表选型，
-> 见 [`frontend-components.md`](frontend-components.md)。本手册讲分层与契约，那份文件讲「用哪一个、怎么传参」。
+> 完整的组件清单、扩展组件参数与图表选型，见 [`frontend-components.md`](frontend-components.md)。
+> 本手册讲分层与契约，那份文件讲「用哪一个、怎么传参」。
 
 ---
 
@@ -265,12 +265,13 @@ window.ydUI.CN             // 同 window.ydCN，校验与格式化内核
 
 ### 4.2 主题切换
 
-- `<html data-theme>` 只承载 **`light` / `dark`** 两个解析后的值；`system` 在首屏由
-  `yd-theme-boot.js` 解析后写入。
+- `<html data-theme>` 正常是 `light` / `dark` 解析值；服务端预渲染或首屏脚本失败时也可能是
+  `auto` / `system`。三种写法都必须在 CSS 里得到同一套令牌，否则输入框等控件会停在浅色。
 - 首屏主题脚本位于 `<head>`、样式表之前，且是唯一同步脚本；不得改成 `defer`，否则会先画错一帧。
-- `color-scheme` 在 `:root`、`[data-theme="dark"]`、`[data-theme="auto"]` 三处声明，原生控件（`select`、
-  滚动条、`dialog`）才会跟随主题。
-- 新增颜色时：先在 `@theme` 与 `:root` 声明，再在 `[data-theme="dark"]` 覆盖，最后在组件里引用变量。
+- `color-scheme` 在 `:root`、`[data-theme="dark"]` 与 `@media (prefers-color-scheme: dark)` 下的
+  `[data-theme="auto"]` / `[data-theme="system"]` 声明，原生控件（`select`、滚动条、`dialog`）才会跟随主题。
+- 新增颜色时：先在 `@theme` 与 `:root` 声明，再在 `[data-theme="dark"]` 覆盖，并把同一组变量复制到
+  跟随系统的媒体块；最后在组件里引用变量。`TestSystemPreferenceRepeatsEveryDarkToken` 会拦截漂移。
   **不得**在 `ui.css` 或模板里写 `#hex`、`rgb()`、`hsl()`。
 
 ### 4.3 语义使用示例

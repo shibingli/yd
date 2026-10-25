@@ -175,11 +175,26 @@ func (c *Controller) MessageGroupDrawer(ctx *router.Ctx) {
 			candidates = append(candidates, friendView[0])
 		}
 	}
+	candidateOptions := make([]map[string]any, 0, len(candidates))
+	for _, candidate := range candidates {
+		candidateOptions = append(candidateOptions, map[string]any{
+			"Value": candidate.Profile.ID,
+			"Label": candidate.Name,
+		})
+	}
+	if len(candidateOptions) == 0 {
+		candidateOptions = append(candidateOptions, map[string]any{
+			"Value":    "",
+			"Key":      "message.no_candidates",
+			"Disabled": true,
+		})
+	}
 	c.render(ctx, http.StatusOK, TplMessageGroupDrawer, c.view(ctx, "群设置 | Group settings", map[string]any{
-		"Conversation": views[0],
-		"Candidates":   candidates,
-		"CanManage":    conversation.CreatedBy == actor.ID || actor.Manage,
-		"ActorID":      actor.ID,
+		"Conversation":     views[0],
+		"Candidates":       candidates,
+		"CandidateOptions": candidateOptions,
+		"CanManage":        conversation.CreatedBy == actor.ID || actor.Manage,
+		"ActorID":          actor.ID,
 	}))
 }
 

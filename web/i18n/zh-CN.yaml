@@ -367,6 +367,16 @@ ui:
   increase: 增加
   clear: 清除
   search: 搜索
+  select_all: 全选
+  send: 发送
+  resize: 调整分栏大小
+  close: 关闭
+  today: 今天
+  apply: 应用
+  open_calendar: 打开日历
+  open_time: 打开时间选择
+  months: 一月|二月|三月|四月|五月|六月|七月|八月|九月|十月|十一月|十二月
+  weekdays: 周一|周二|周三|周四|周五|周六|周日
 
 cn:
   phone:

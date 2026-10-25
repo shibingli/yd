@@ -34,12 +34,10 @@
       hx-status:422="target:#yd-drawer-errors swap:innerHTML"
       data-yd-confirm="{{ tr "confirm.add_group_member" }}">
   <input type="hidden" name="action" value="add">
-  <div class="yd-field" data-yd-field="member_id">
-    <label class="yd-field__label" for="yd-group-member">{{ tr "message.add_member" }}</label>
-    <select class="yd-select" id="yd-group-member" name="member_id">
-      {{- range .Candidates }}<option value="{{ .Profile.ID }}">{{ .Name }}</option>{{ else }}<option value="">{{ tr "message.no_candidates" }}</option>{{ end }}
-    </select>
-  </div>
+  {{template "components.form.select" (dict
+    "ID" "yd-group-member" "Name" "member_id"
+    "Label" (tr "message.add_member") "LabelKey" "message.add_member"
+    "Options" .CandidateOptions)}}
   {{template "components.form.actions" (dict
     "SubmitLabel" (tr "message.add") "SubmitKey" "message.add" "SubmitDisabled" (not .Candidates)
     "CancelLabel" (tr "ui.cancel") "CancelKey" "ui.cancel")}}

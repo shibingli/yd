@@ -360,17 +360,19 @@
         {{template "components.data.kpi" (dict "Label" (tr "showcase.label.kpi") "LabelKey" "showcase.label.kpi" "Value" "98.4%" "Delta" "+0.8%" "Trend" "up")}}
       </div>
       {{template "components.data.table.open" (dict
-        "ID" "yd-kit-table" "Caption" (tr "showcase.label.table") "CaptionKey" "showcase.label.table"
+        "ID" "yd-kit-table" "Selectable" true "Caption" (tr "showcase.label.table") "CaptionKey" "showcase.label.table"
         "Columns" (list
           (dict "Label" (tr "showcase.sample.table_name") "LabelKey" "showcase.sample.table_name")
           (dict "Label" (tr "field.status") "LabelKey" "field.status")
           (dict "Label" (tr "field.actions") "LabelKey" "field.actions" "Actions" true))) }}
       <tr>
+        {{template "components.data.select-cell" (dict "Name" "ids" "Value" "alice")}}
         <td class="yd-table__td">{{template "components.data.sort-header" (dict "Label" (tr "showcase.sample.table_name") "LabelKey" "showcase.sample.table_name" "Href" "#yd-kit-data" "Active" true "Dir" "asc")}}</td>
         <td class="yd-table__td">{{template "components.display.badge" (dict "Tone" "success" "Label" (tr "status.active") "LabelKey" "status.active")}}</td>
         <td class="yd-table__td yd-table__td--actions">{{template "components.display.badge" (dict "Tone" "muted" "Label" (tr "showcase.sample.meta") "LabelKey" "showcase.sample.meta")}}</td>
       </tr>
       <tr>
+        {{template "components.data.select-cell" (dict "Name" "ids" "Value" "bob")}}
         <td class="yd-table__td">bob</td>
         <td class="yd-table__td">{{template "components.display.badge" (dict "Tone" "muted" "Label" (tr "status.disabled") "LabelKey" "status.disabled")}}</td>
         <td class="yd-table__td yd-table__td--actions">{{template "components.display.badge" (dict "Tone" "info" "Label" (tr "role.builtin") "LabelKey" "role.builtin")}}</td>
@@ -408,6 +410,222 @@
         "ID" "yd-kit-chart" "SVG" .ChartSVG
         "Title" (tr "showcase.section.chart") "TitleKey" "showcase.section.chart"
         "Caption" (tr "showcase.sample.caption") "CaptionKey" "showcase.sample.caption")}}
+    </section>
+
+    {{/* Advanced form primitives. | 进阶表单原语。 */}}
+    <section class="yd-card yd-section" aria-labelledby="yd-ui-kit-advanced-form">
+      <h2 class="yd-section__title" id="yd-ui-kit-advanced-form">{{tr "showcase.section.advanced_form"}}</h2>
+      <p class="yd-section__hint">{{tr "showcase.hint.advanced_form"}}</p>
+      <div class="yd-form-grid">
+        {{template "components.form.tree-select" (dict
+          "ID" "yd-kit-tree-select" "Name" "node"
+          "Label" (tr "showcase.label.tree_select") "LabelKey" "showcase.label.tree_select"
+          "Options" (list
+            (dict "Value" "1" "Label" (tr "showcase.sample.root") "LabelKey" "showcase.sample.root" "Selected" true)
+            (dict "Value" "2" "Label" (tr "showcase.sample.child") "LabelKey" "showcase.sample.child" "Prefix" "└─ ")))}}
+        {{template "components.form.mention" (dict
+          "ID" "yd-kit-mention" "Name" "mention" "Value" "@ann"
+          "Label" (tr "showcase.label.mention") "LabelKey" "showcase.label.mention"
+          "Placeholder" (tr "showcase.sample.type_mention") "PlaceholderKey" "showcase.sample.type_mention"
+          "Options" (list
+            (dict "Value" "ann" "Label" (tr "showcase.sample.ann") "LabelKey" "showcase.sample.ann")
+            (dict "Value" "bob" "Label" (tr "showcase.sample.bob") "LabelKey" "showcase.sample.bob")))}}
+        {{template "components.form.picker" (dict
+          "ID" "yd-kit-picker" "Name" "picked_at" "Kind" "datetime" "Value" "2026-10-25T09:30"
+          "Label" (tr "showcase.label.picker") "LabelKey" "showcase.label.picker")}}
+        {{template "components.form.month" (dict
+          "ID" "yd-kit-month" "Name" "month" "Value" "2026-10"
+          "Label" (tr "showcase.label.month") "LabelKey" "showcase.label.month")}}
+        {{template "components.form.year" (dict
+          "ID" "yd-kit-year" "Name" "year"
+          "Label" (tr "showcase.label.year") "LabelKey" "showcase.label.year"
+          "Options" (list
+            (dict "Value" "2026" "Label" "2026" "Selected" true)
+            (dict "Value" "2027" "Label" "2027")))}}
+        {{template "components.form.quarter" (dict
+          "ID" "yd-kit-quarter" "Name" "quarter"
+          "Label" (tr "showcase.label.quarter") "LabelKey" "showcase.label.quarter"
+          "Options" (list
+            (dict "Value" "Q1" "Label" "Q1" "Selected" true)
+            (dict "Value" "Q2" "Label" "Q2")
+            (dict "Value" "Q3" "Label" "Q3")
+            (dict "Value" "Q4" "Label" "Q4")))}}
+      </div>
+      {{template "components.form.dynamic-rows" (dict
+        "ID" "yd-kit-rows" "Name" "items"
+        "Label" (tr "showcase.label.dynamic_rows") "LabelKey" "showcase.label.dynamic_rows"
+        "Rows" (list (dict "Fields" .RowFields)) "RowTemplate" .RowTemplate
+        "AddLabel" (tr "showcase.label.add_row") "AddKey" "showcase.label.add_row")}}
+      {{template "components.form.cascader" (dict
+        "ID" "yd-kit-cascader" "Name" "region"
+        "Label" (tr "showcase.label.cascader") "LabelKey" "showcase.label.cascader"
+        "Levels" (list
+          (dict "Name" "province" "Label" (tr "showcase.label.province") "LabelKey" "showcase.label.province"
+            "Options" (list
+              (dict "Value" "11" "Label" (tr "showcase.sample.beijing") "LabelKey" "showcase.sample.beijing" "Selected" true)
+              (dict "Value" "31" "Label" (tr "showcase.sample.shanghai") "LabelKey" "showcase.sample.shanghai")))
+          (dict "Name" "city" "Label" (tr "showcase.label.city") "LabelKey" "showcase.label.city"
+            "Options" (list
+              (dict "Value" "1101" "Label" (tr "showcase.sample.haidian") "LabelKey" "showcase.sample.haidian")
+              (dict "Value" "1102" "Label" (tr "showcase.sample.chaoyang") "LabelKey" "showcase.sample.chaoyang")))))}}
+      {{template "components.form.time-range" (dict
+        "ID" "yd-kit-time-range" "Name" "window" "FromID" "yd-kit-window-from" "ToID" "yd-kit-window-to"
+        "FromName" "window_from" "ToName" "window_to" "From" "09:00" "To" "17:00"
+        "Label" (tr "showcase.label.time_range") "LabelKey" "showcase.label.time_range"
+        "FromLabel" (tr "showcase.label.from") "FromLabelKey" "showcase.label.from"
+        "ToLabel" (tr "showcase.label.to") "ToLabelKey" "showcase.label.to")}}
+      {{template "components.form.transfer" (dict
+        "ID" "yd-kit-transfer" "Name" "roles" "Action" "/ui-kit" "Method" "get"
+        "SourceName" "source" "TargetName" "target"
+        "SourceLabel" (tr "showcase.label.available") "SourceLabelKey" "showcase.label.available"
+        "TargetLabel" (tr "showcase.label.selected") "TargetLabelKey" "showcase.label.selected"
+        "SourceItems" (list
+          (dict "Value" "admin" "Label" (tr "showcase.sample.admin") "LabelKey" "showcase.sample.admin" "Checked" true)
+          (dict "Value" "editor" "Label" (tr "showcase.sample.editor") "LabelKey" "showcase.sample.editor"))
+        "TargetItems" (list (dict "Value" "viewer" "Label" (tr "showcase.sample.viewer") "LabelKey" "showcase.sample.viewer")))}}
+    </section>
+
+    {{/* Advanced display primitives. | 进阶展示原语。 */}}
+    <section class="yd-card yd-section" aria-labelledby="yd-ui-kit-advanced-display">
+      <h2 class="yd-section__title" id="yd-ui-kit-advanced-display">{{tr "showcase.section.advanced_display"}}</h2>
+      <p class="yd-section__hint">{{tr "showcase.hint.advanced_display"}}</p>
+      {{template "components.display.calendar" (dict
+        "ID" "yd-kit-calendar"
+        "Label" (tr "showcase.label.calendar") "LabelKey" "showcase.label.calendar"
+        "MonthLabel" .CalendarMonth
+        "TodayLabel" (tr "ui.today") "TodayLabelKey" "ui.today"
+        "PrevHref" "/ui-kit" "NextHref" "/ui-kit" "TodayHref" "/ui-kit"
+        "Weekdays" .CalendarWeekdays
+        "Weeks" (list
+          (dict "Days" (list
+            (dict "Number" "1" "Date" "2026-10-01" "Href" "/ui-kit" "Today" true "Selected" true
+              "Events" (list (dict "Label" (tr "showcase.sample.review") "LabelKey" "showcase.sample.review" "Href" "/ui-kit" "Tone" "success")))
+            (dict "Number" "2" "Date" "2026-10-02")
+            (dict "Number" "3" "Date" "2026-10-03" "Outside" true)))))}}
+      {{template "components.display.file-tree" (dict
+        "Label" (tr "showcase.label.file_tree") "LabelKey" "showcase.label.file_tree"
+        "Items" (list
+          (dict "Label" "src" "Open" true "Children" (list (dict "Label" "main.go" "Href" "/ui-kit")))
+          (dict "Label" "README.md" "Href" "/ui-kit")))}}
+      {{template "components.display.cell" (dict
+        "Label" (tr "showcase.label.cell") "LabelKey" "showcase.label.cell"
+        "Hint" (tr "showcase.sample.hint") "HintKey" "showcase.sample.hint"
+        "Control" (tr "status.active") "Href" "#yd-ui-kit-advanced-display")}}
+      {{template "components.display.attachment" (dict
+        "Title" "report.pdf" "Description" "2 MB" "State" "done" "Href" "/ui-kit")}}
+      {{template "components.display.bubble" (dict
+        "Tone" "secondary" "Content" (tr "showcase.sample.hello_bubble") "Align" "start")}}
+      {{template "components.display.chat-message" (dict
+        "Align" "end" "Avatar" "A" "Name" (tr "showcase.sample.ann") "NameKey" "showcase.sample.ann" "Time" "10:00"
+        "Content" (tr "showcase.sample.hello_message") "Tone" "secondary" "State" "sent")}}
+      {{template "components.display.trend-chip" (dict
+        "Value" "+12%" "Label" (tr "showcase.sample.week") "LabelKey" "showcase.sample.week" "Trend" "up" "Tone" "success")}}
+      {{template "components.display.text-shimmer" (dict "Text" (tr "showcase.sample.thinking") "TextKey" "showcase.sample.thinking")}}
+      {{template "components.display.trace" (dict
+        "Label" (tr "showcase.label.trace") "LabelKey" "showcase.label.trace"
+        "Items" (list
+          (dict "Title" (tr "showcase.sample.search_step") "TitleKey" "showcase.sample.search_step" "Description" "120ms" "Status" "running" "Href" "/ui-kit")
+          (dict "Title" (tr "showcase.sample.read_step") "TitleKey" "showcase.sample.read_step" "Description" (tr "showcase.sample.done") "DescriptionKey" "showcase.sample.done" "Status" "done")))}}
+      {{template "components.display.marker" (dict "Variant" "separator" "Role" "status" "Text" (tr "ui.today") "TextKey" "ui.today")}}
+      {{template "components.display.action-bar" (dict
+        "Label" (tr "showcase.label.selected") "LabelKey" "showcase.label.selected" "Count" "3"
+        "Actions" .ActionButtons
+        "ClearHref" "/ui-kit" "ClearLabel" (tr "ui.clear") "ClearKey" "ui.clear")}}
+      {{template "components.display.hover-card" (dict
+        "Label" (tr "showcase.label.hover_card") "LabelKey" "showcase.label.hover_card"
+        "Trigger" (tr "showcase.sample.ann") "Content" (tr "showcase.sample.profile") "Focusable" true)}}
+      {{template "components.display.virtual-list" (dict
+        "Label" (tr "showcase.label.virtual_list") "LabelKey" "showcase.label.virtual_list"
+        "Size" "lg" "Content" (tr "showcase.sample.row_one"))}}
+      {{template "components.display.image-viewer" (dict
+        "ID" "yd-kit-viewer" "Src" (asset "/static/img/yd-icon.svg") "ThumbSrc" (asset "/static/img/yd-icon.svg")
+        "Alt" (tr "showcase.sample.caption") "AltKey" "showcase.sample.caption"
+        "Title" (tr "showcase.label.image_viewer") "TitleKey" "showcase.label.image_viewer"
+        "Caption" (tr "showcase.sample.caption") "CaptionKey" "showcase.sample.caption"
+        "Label" (tr "showcase.label.open_image") "LabelKey" "showcase.label.open_image")}}
+      {{template "components.display.qrcode" (dict
+        "ID" "yd-kit-qr" "Src" (asset "/static/img/yd-icon.svg")
+        "Alt" (tr "showcase.sample.qr_alt") "AltKey" "showcase.sample.qr_alt"
+        "Caption" (tr "showcase.sample.qr_caption") "CaptionKey" "showcase.sample.qr_caption" "Size" "sm")}}
+      {{template "components.display.message-scroller" (dict
+        "Label" (tr "showcase.label.message_scroller") "LabelKey" "showcase.label.message_scroller"
+        "Size" "sm" "Content" (tr "showcase.sample.earlier_messages"))}}
+      {{template "components.display.kanban" (dict
+        "Label" (tr "showcase.label.kanban") "LabelKey" "showcase.label.kanban"
+        "Columns" (list
+          (dict "ID" "yd-kit-todo" "Title" (tr "showcase.sample.todo") "TitleKey" "showcase.sample.todo" "Count" 1
+            "Cards" (list
+              (dict "ID" "yd-kit-card-1" "Title" (tr "showcase.sample.card_title") "TitleKey" "showcase.sample.card_title"
+                "Text" (tr "showcase.sample.card_text") "TextKey" "showcase.sample.card_text"
+                "Meta" (tr "showcase.sample.ann") "MetaKey" "showcase.sample.ann" "Href" "#yd-ui-kit-advanced-display")))))}}
+
+      {{template "components.display.emoji-picker" (dict
+        "ID" "yd-kit-emoji" "Label" (tr "showcase.label.emoji") "LabelKey" "showcase.label.emoji"
+        "Target" "#yd-kit-prompt-text" "Emojis" (list "😀" "👍" "🎉"))}}
+      {{template "components.display.signature" (dict
+        "ID" "yd-kit-signature" "Name" "signature"
+        "Label" (tr "showcase.label.signature") "LabelKey" "showcase.label.signature"
+        "Hint" (tr "showcase.sample.sign_hint") "HintKey" "showcase.sample.sign_hint")}}
+      {{template "components.display.resizable" (dict
+        "ID" "yd-kit-resizable"
+        "Label" (tr "showcase.label.resizable") "LabelKey" "showcase.label.resizable"
+        "Split" 40
+        "Start" (tr "showcase.sample.start_pane")
+        "End" (tr "showcase.sample.end_pane"))}}
+      {{template "components.navigation.tabs-client" (dict
+        "Label" (tr "showcase.label.client_tabs") "LabelKey" "showcase.label.client_tabs" "Active" "one"
+        "Items" (list
+          (dict "ID" "one" "Label" (tr "showcase.sample.first_tab") "LabelKey" "showcase.sample.first_tab" "Content" (tr "showcase.sample.first_panel"))
+          (dict "ID" "two" "Label" (tr "showcase.sample.second_tab") "LabelKey" "showcase.sample.second_tab" "Content" (tr "showcase.sample.second_panel"))))}}
+    </section>
+
+    {{/* Conversation, questionnaire, navigation and overlays. | 对话、问卷、导航与浮层。 */}}
+    <section class="yd-card yd-section" aria-labelledby="yd-ui-kit-advanced-misc">
+      <h2 class="yd-section__title" id="yd-ui-kit-advanced-misc">{{tr "showcase.section.advanced_misc"}}</h2>
+      <p class="yd-section__hint">{{tr "showcase.hint.advanced_misc"}}</p>
+      {{template "components.display.prompt-input" (dict
+        "ID" "yd-kit-prompt" "Name" "prompt" "Action" "/ui-kit" "Value" ""
+        "Rows" 3
+        "Label" (tr "showcase.label.prompt") "LabelKey" "showcase.label.prompt"
+        "Placeholder" (tr "showcase.sample.type_message") "PlaceholderKey" "showcase.sample.type_message"
+        "SendKey" "ui.send")}}
+      {{template "components.feedback.questionnaire" (dict
+        "ID" "yd-kit-questionnaire" "Action" "/ui-kit" "Method" "get"
+        "Label" (tr "showcase.label.questionnaire") "LabelKey" "showcase.label.questionnaire"
+        "Progress" 50 "ProgressMax" 100
+        "Items" (list
+          (dict "Name" "role" "Prompt" (tr "showcase.sample.role_question") "PromptKey" "showcase.sample.role_question" "Required" true "Type" "radio"
+            "Choices" (list
+              (dict "Value" "admin" "Label" (tr "showcase.sample.admin") "LabelKey" "showcase.sample.admin" "Type" "radio" "Checked" true)
+              (dict "Value" "member" "Label" (tr "showcase.sample.member") "LabelKey" "showcase.sample.member" "Type" "radio"))))
+        "SubmitLabel" (tr "ui.save") "SubmitKey" "ui.save")}}
+      {{template "components.navigation.tabbar" (dict
+        "Label" (tr "showcase.label.tabbar") "LabelKey" "showcase.label.tabbar"
+        "Items" (list
+          (dict "Label" (tr "showcase.sample.home") "LabelKey" "showcase.sample.home" "Href" "/" "Active" true)
+          (dict "Label" (tr "showcase.sample.messages") "LabelKey" "showcase.sample.messages" "Href" "/messages" "Badge" "3")))}}
+      {{template "components.navigation.filter-bar" (dict
+        "ID" "yd-kit-filters" "Action" "/ui-kit" "Method" "get"
+        "Label" (tr "showcase.label.filter_bar") "LabelKey" "showcase.label.filter_bar"
+        "Fields" .FilterFields
+        "SubmitLabel" (tr "ui.search") "SubmitKey" "ui.search"
+        "ResetHref" "/ui-kit" "ResetLabel" (tr "ui.clear") "ResetKey" "ui.clear")}}
+      <button type="button" class="yd-btn yd-btn--ghost" data-yd-modal-open="yd-kit-action-sheet">{{tr "showcase.label.action_sheet"}}</button>
+      {{template "components.navigation.action-sheet" (dict
+        "ID" "yd-kit-action-sheet"
+        "Title" (tr "showcase.sample.actions_title") "TitleKey" "showcase.sample.actions_title"
+        "Description" (tr "showcase.sample.choose_one") "DescriptionKey" "showcase.sample.choose_one"
+        "Actions" (list
+          (dict "Label" (tr "ui.edit") "LabelKey" "ui.edit" "Href" "#yd-ui-kit-advanced-misc")
+          (dict "Label" (tr "ui.delete") "LabelKey" "ui.delete" "Href" "#yd-ui-kit-advanced-misc" "Danger" true))
+        "CancelLabel" (tr "ui.cancel") "CancelKey" "ui.cancel")}}
+      {{template "components.overlay.popover" (dict
+        "ID" "yd-kit-popover"
+        "Label" (tr "showcase.label.popover") "LabelKey" "showcase.label.popover"
+        "PanelLabel" (tr "showcase.sample.options_panel") "PanelLabelKey" "showcase.sample.options_panel"
+        "Content" (tr "showcase.sample.popover_panel"))}}
+      {{template "components.overlay.tooltip" (dict
+        "Content" (tr "showcase.sample.hover_me") "Text" (tr "showcase.label.tooltip") "TextKey" "showcase.label.tooltip" "Focusable" true)}}
     </section>
   </div>
 </section>

@@ -1,0 +1,68 @@
+{{/*
+  components/navigation_advanced.html — bottom navigation, filter bars and action sheets.
+  components/navigation_advanced.html — 底部导航、筛选条与操作面板。
+
+  Mobile surfaces stay declarative | 移动端界面保持声明式
+    The tab bar is a list of real links. The action sheet reuses the global modal controller, so it
+    inherits backdrop clicks, Escape, focus return and the confirm bridge without a second script.
+    底部导航是真实链接列表。操作面板复用全局模态控制器，因此无需第二套脚本就继承遮罩点击、Escape、
+    焦点返回与确认桥接。
+*/}}
+
+{{/* components.navigation.tabbar — a bottom navigation bar. Dict keys | dict 的键:
+       Label, LabelKey, Items []{Label, LabelKey, Href, Icon (template.HTML), Active, Badge, BadgeKey} */}}
+{{- define "components.navigation.tabbar" -}}
+<nav class="yd-tabbar"{{if or .Label .LabelKey}} aria-label="{{if .LabelKey}}{{tr .LabelKey}}{{else}}{{.Label}}{{end}}"{{with .LabelKey}} data-yd-i18n-attr="aria-label:{{.}}"{{end}}{{end}}>
+  {{range .Items}}
+  <a class="yd-tabbar__item{{if .Active}} yd-tabbar__item--active{{end}}" href="{{.Href}}"
+     {{if .Active}}aria-current="page"{{end}}>
+    <span class="yd-tabbar__icon" aria-hidden="true">{{with .Icon}}{{.}}{{else}}{{template "partials/icon" "lucide-circle"}}{{end}}</span>
+    <span class="yd-tabbar__label"{{with .LabelKey}} data-yd-i18n="{{.}}"{{end}}>{{if .LabelKey}}{{tr .LabelKey}}{{else}}{{.Label}}{{end}}</span>
+    {{if or .Badge .BadgeKey}}<span class="yd-badge yd-badge--count"{{with .BadgeKey}} data-yd-i18n="{{.}}"{{end}}>{{if .BadgeKey}}{{tr .BadgeKey}}{{else}}{{.Badge}}{{end}}</span>{{end}}
+  </a>
+  {{end}}
+</nav>
+{{- end -}}
+
+{{/* components.navigation.filter-bar — a server-driven filter form. Dict keys | dict 的键:
+       ID, Action, Method, Get, Target, Swap, Fields (template.HTML), Actions (template.HTML),
+       Label, LabelKey, SubmitLabel, SubmitKey, ResetHref, ResetLabel, ResetKey, Attrs (template.HTMLAttr)
+     It ships its own <form>, so never nest it inside another form. | 自带 <form>，绝不能嵌进另一个表单。 */}}
+{{- define "components.navigation.filter-bar" -}}
+<form class="yd-filter-bar" id="{{.ID}}" role="search" method="{{if .Method}}{{.Method}}{{else}}get{{end}}" action="{{.Action}}"
+      {{if .Get}}hx-get="{{.Get}}"{{with .Target}} hx-target="{{.}}"{{end}}{{with .Swap}} hx-swap="{{.}}"{{end}} hx-push-url="true"{{end}}
+      {{with .Attrs}}{{.}}{{end}}>
+  {{if or .Label .LabelKey}}<span class="yd-filter-bar__label"{{with .LabelKey}} data-yd-i18n="{{.}}"{{end}}>{{if .LabelKey}}{{tr .LabelKey}}{{else}}{{.Label}}{{end}}</span>{{end}}
+  <div class="yd-filter-bar__fields">{{.Fields}}</div>
+  <div class="yd-filter-bar__actions">
+    {{with .Actions}}{{.}}{{end}}
+    <button type="submit" class="yd-btn yd-btn--primary yd-btn--sm"{{with .SubmitKey}} data-yd-i18n="{{.}}"{{end}}>{{if .SubmitKey}}{{tr .SubmitKey}}{{else}}{{.SubmitLabel}}{{end}}</button>
+    {{with .ResetHref}}<a class="yd-btn yd-btn--ghost yd-btn--sm" href="{{.}}">{{if $.ResetKey}}{{tr $.ResetKey}}{{else}}{{$.ResetLabel}}{{end}}</a>{{end}}
+  </div>
+</form>
+{{- end -}}
+
+{{/* components.navigation.action-sheet — a bottom action sheet built on the global modal shell. Dict keys | dict 的键:
+       ID, Title, TitleKey, Description, DescriptionKey,
+       Actions []{Label, LabelKey, Href, Danger, Attrs (template.HTMLAttr)},
+       CancelLabel, CancelKey
+     Open it with any control carrying data-yd-modal-open="ID". Every action is a real link or
+     button; destructive entries opt into the danger modifier rather than relying on colour alone. |
+     用任意带 data-yd-modal-open="ID" 的控件打开。每个动作都是真实链接或按钮；破坏性条目显式使用
+     danger 修饰符，而不是只靠颜色。 */}}
+{{- define "components.navigation.action-sheet" -}}
+{{template "components.overlay.modal.open" (dict
+  "ID" .ID "Title" .Title "TitleKey" .TitleKey "Description" .Description
+  "DescriptionKey" .DescriptionKey "Class" "yd-action-sheet")}}
+    <div class="yd-action-sheet__actions">
+      {{range .Actions}}
+      {{if .Href}}
+      <a class="yd-action-sheet__action{{if .Danger}} yd-action-sheet__action--danger{{end}}" href="{{.Href}}" {{with .Attrs}}{{.}}{{end}}>{{if .LabelKey}}{{tr .LabelKey}}{{else}}{{.Label}}{{end}}</a>
+      {{else}}
+      <button type="button" class="yd-action-sheet__action{{if .Danger}} yd-action-sheet__action--danger{{end}}" {{with .Attrs}}{{.}}{{end}}>{{if .LabelKey}}{{tr .LabelKey}}{{else}}{{.Label}}{{end}}</button>
+      {{end}}
+      {{end}}
+    </div>
+    <button type="button" class="yd-btn yd-btn--ghost yd-action-sheet__cancel" data-yd-modal-close>{{if .CancelKey}}{{tr .CancelKey}}{{else}}{{.CancelLabel}}{{end}}</button>
+{{template "components.overlay.modal.close" .}}
+{{- end -}}

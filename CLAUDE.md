@@ -31,7 +31,7 @@
 
 **前端**
 
-- Htmx **4.0.0** 作为事件总线，随包发布 **18 个官方扩展全部下载并锁定**（`ws/sse/preload/alpine/targets/head/upsert/pending/multipart/download/browser-indicator/history-cache/live/prompt/ptag/csp/compat/htmx-2-compat`）；框架 UI 加载其中 15 个安全扩展，`csp`（需 nonce 策略）与两个 htmx 2 兼容层只锁定、不默认加载，由 `yd new --htmx-ext` 显式选择；**Htmx、Tailwind CSS 与 Alpine.js 是基线技术栈，不是开关**：`yd new` 默认集成三者，`hx-alpine-compat` 恒开启，`--htmx-ext` 只追加额外扩展；Tailwind CSS **v4** 作为样式标准（`@theme` 语义化变量，默认蓝色系）
+- Htmx **4.0.0** 作为事件总线，随包发布 **18 个官方扩展全部下载并锁定**（`ws/sse/preload/alpine/targets/head/upsert/pending/multipart/download/browser-indicator/history-cache/live/prompt/ptag/csp/compat/htmx-2-compat`）；框架 UI 默认加载其中 15 个安全扩展，**交互问答不再要求选择扩展子集**；`csp`（需 nonce 策略）与两个 htmx 2 兼容层只锁定、不默认加载，仅由 `yd new --htmx-ext` 显式追加；**Htmx、Tailwind CSS 与 Alpine.js 是基线技术栈，不是开关**：`yd new` 默认集成三者，`hx-alpine-compat` 恒开启，`--htmx-ext` 只追加策略层或显式覆盖子集；Tailwind CSS **v4** 作为样式标准（`@theme` 语义化变量，默认蓝色系）
 - 不依赖 Node.js 编译管道：Tailwind 编译由 Go 脚手架工具静默驱动（standalone 二进制）
 - 资产一律 `go:embed` 打包进二进制，**严禁**运行时从公网 CDN 动态引入
 - Alpine.js 3.17 + htmx 内建 morph（Idiomorph 算法）实现精细化 DOM 差量更新
@@ -286,7 +286,7 @@ Co-Authored-By: Eric Shi <shibingli@sina.com>
 ## 10. 常用命令
 
 ```bash
-yd new <project>     # 初始化项目（Htmx/Tailwind/Alpine 默认集成；交互式只选择数据库、i18n 与额外 Htmx 扩展）
+yd new <project>     # 初始化项目（Htmx/Tailwind/Alpine、i18n 与全部安全扩展默认集成；交互式只选择数据库、gRPC 与协议）
 yd dev               # 热重载开发（Go 编译重启 + Tailwind 监听 + 模板局部刷新）
 yd gen module|crud   # 低代码生成（DB Schema 或 Go Struct → 路由/控制器/模板）
 yd build             # 跨平台静态打包（Tailwind 剪裁压缩 + go:embed + 单二进制）
@@ -822,6 +822,9 @@ yd versions sync               # 仅重新生成 version_generated.go
   `lucide-log-in` / `lucide-log-out`。新增按钮必须沿用同一片段，不得各写一套图标。
   OpenAPI 查看器的 `#theme-toggle` 同样使用这三枚图标（`data-theme-choice` + CSS），
   脚本只更新 `#theme-label`，**不得**用 `textContent` 覆盖按钮，否则会清掉图标节点。
+- **编辑器工具栏**：EasyMDE 的按钮在运行时构造，图标只能从 `partials/editor-icons.html`
+  的隐藏 Lucide 调色板克隆；`yd-ui.js` 的 `decorateEditorToolbar` 负责替换并移除 vendor 遗留的
+  `fa` / `fa-*` 类名。**禁止**引入任何图标字体（Font Awesome 等）或让 EasyMDE 从 CDN 下载图标。
 - **SVG 压缩**：sprite 与其他 `.svg` 一样进入 `minify` 阶段，生产模板解析 `.min.svg`；
   `yd assets minify --check` 同时校验 JS 与 SVG。不要手工编辑生成文件
   （`icons.svg` 文件头带生成标记）。
@@ -1096,8 +1099,8 @@ WebSocket、WebTransport 与 SSE 共用 `ydx/realtime` 中枢；使用说明见
 数据键选择；**禁止**为某一侧另写同名组件或外壳副本。`yd new` 将样式与组件模板逐字节复制进生成项目，
 脚本经框架合并静态树兜底；**禁止**在生成项目或业务页面里另写一套同名组件。
 图表另由 `http/chart` 在服务端生成纯 SVG，不得引入图表库。完整使用手册见
-`docs/frontend-ui.md`（分层、主题、表单契约与排查）与 `docs/frontend-components.md`（组件全景、
-与 Naive UI / Shadcn UI / OpenTiny / Premium 的对照矩阵、逐组件参数与图表选型）。 门户的 `/ui-kit`（`portal/pages/ui_kit.html`）是组件层的活文档：新增组件必须同步加入该页，
+`docs/frontend-ui.md`（分层、主题、表单契约与排查）与 `docs/frontend-components.md`（完整组件清单、
+逐组件参数与图表选型）。 门户的 `/ui-kit`（`portal/pages/ui_kit.html`）是组件层的活文档：新增组件必须同步加入该页，
 并由 `TestGeneratedUIKitShowsEveryComponent` 守卫。
 
 - **三层分工**：服务端状态（列表、记录、筛选、导航、变更、实时推送）归 **htmx**；页面内状态

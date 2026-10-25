@@ -39,18 +39,32 @@
        BodyID, BodyAttrs (template.HTMLAttr), Swap (default outerMorph)
      Close it with components.data.table.close. | 用 components.data.table.close 收尾。 */}}
 {{- define "components.data.table.open" -}}
-<div class="yd-table__wrap" data-yd-table>
+<div class="yd-table__wrap" data-yd-table{{if .Selectable}} x-data="ydTableSelect"{{end}}>
   <table class="yd-table{{if .Compact}} yd-table--compact{{end}}"{{with .ID}} id="{{.}}"{{end}}
          {{with .CaptionKey}}data-yd-i18n-attr="aria-label:{{.}}"{{end}} aria-label="{{if .Caption}}{{.Caption}}{{else}}{{if .CaptionKey}}{{tr .CaptionKey}}{{end}}{{end}}">
     {{if or .Caption .CaptionKey}}<caption class="sr-only"{{with .CaptionKey}} data-yd-i18n="{{.}}"{{end}}>{{if .Caption}}{{.Caption}}{{else}}{{tr .CaptionKey}}{{end}}</caption>{{end}}
     <thead class="yd-table__head">
       <tr>
+        {{if .Selectable}}<th class="yd-table__th yd-table__th--select" scope="col">
+          <input class="yd-check__input" type="checkbox" x-ref="all" x-on:change="toggleAll"
+                 data-yd-i18n-attr="aria-label:ui.select_all" aria-label="{{tr "ui.select_all"}}">
+        </th>{{end}}
         {{range .Columns}}
-        <th class="yd-table__th{{if .Numeric}} yd-table__th--num{{end}}{{if .Actions}} yd-table__th--actions{{end}}" scope="col"{{with .LabelKey}} data-yd-i18n="{{.}}"{{end}}>{{.Label}}</th>
+        <th class="yd-table__th{{if .Numeric}} yd-table__th--num{{end}}{{if .Actions}} yd-table__th--actions{{end}}" scope="col"{{with .LabelKey}} data-yd-i18n="{{.}}"{{end}}>{{if .LabelKey}}{{tr .LabelKey}}{{else}}{{.Label}}{{end}}</th>
         {{end}}
       </tr>
     </thead>
-    <tbody{{with .BodyID}} id="{{.}}"{{end}} class="yd-table__body" hx-swap="{{.Swap | default "outerMorph"}}" {{.BodyAttrs}}>
+    <tbody{{with .BodyID}} id="{{.}}"{{end}} class="yd-table__body" hx-swap="{{.Swap | default "outerMorph"}}" {{with .BodyAttrs}}{{.}}{{end}}>
+{{- end -}}
+
+{{/* components.data.select-cell — one row-selection cell for a selectable table. Dict keys | dict 的键:
+       Name, Value, Checked, Attrs (template.HTMLAttr)
+     Put it inside a <tr>; components.data.table.open sets up ydTableSelect on the wrapper. |
+     放进 <tr> 内；components.data.table.open 会在外层装配 ydTableSelect。 */}}
+{{- define "components.data.select-cell" -}}
+<td class="yd-table__td yd-table__td--select">
+  <input class="yd-check__input" type="checkbox" name="{{.Name}}" value="{{.Value}}"{{if .Checked}} checked{{end}} {{with .Attrs}}{{.}}{{end}}>
+</td>
 {{- end -}}
 
 {{- define "components.data.table.close" -}}
@@ -75,8 +89,8 @@
        Label, LabelKey, Href, Active, Dir (asc|desc), Attrs (template.HTMLAttr) */}}
 {{- define "components.data.sort-header" -}}
 <a class="yd-sort-header{{if .Active}} yd-sort-header--active{{end}}" href="{{.Href}}"
-   {{with .LabelKey}}data-yd-i18n="{{.}}"{{end}} {{.Attrs}}>
-  <span>{{.Label}}</span>
+   {{with .LabelKey}}data-yd-i18n="{{.}}"{{end}} {{with .Attrs}}{{.}}{{end}}>
+  <span>{{if .LabelKey}}{{tr .LabelKey}}{{else}}{{.Label}}{{end}}</span>
   <span class="yd-sort-header__icon" aria-hidden="true">{{if .Active}}{{if eq .Dir "asc"}}{{template "partials/icon" "lucide-chevron-up"}}{{else}}{{template "partials/icon" "lucide-chevron-down"}}{{end}}{{else}}{{template "partials/icon" "lucide-chevrons-up-down"}}{{end}}</span>
 </a>
 {{- end -}}

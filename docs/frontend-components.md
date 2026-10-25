@@ -1,251 +1,215 @@
-# yd 组件全景与使用手册
+# yd 组件清单与使用手册
 
-> 对齐参考：Naive UI 2.x（约 90 组件）、Shadcn UI（约 56 组件）、OpenTiny TinyVue 3.31（104 组件）、
-> Premium 侧以 HeroUI Pro（47 组件，含 9 类图表）为质量参照。
->
 > 基础栈：**Htmx 4.0.0 · Tailwind CSS v4.3 · Alpine.js 3.17.5（CSP 构建）**
 >
-> 本文件是 [`frontend-ui.md`](frontend-ui.md) 的完整组件目录与扩展用法。前者讲分层、主题、响应式与
-> 表单契约，本文件回答「参考库里那个组件，在 YD 里对应什么、怎么用、什么时候不该用」。
-
-> **门户与后台共用同一套组件**：`yd new` 生成的项目里，`web/templates/components/**` 与
-> `web/templates/partials/**` 只有一份，门户与管理控制台都调用它；两侧的差异由 `.Portal` / `.Mgr`
-> 数据键选择侧栏与少量入口，不复制组件或外壳。完整目录约定见
-> [`frontend-ui.md` §2.4](frontend-ui.md#24-门户与后台共用同一套组件)。
+> 本文件只列 **已实现且可用** 的组件与组合。组件层的唯一真源是
+> `web/templates/components/**`、`web/static/css/ui.css`、共享组件样式表与
+> `web/static/js/yd-ui.js`；本文件回答「有哪些、怎么用」。
 >
-> 生成项目的门户自带 `/ui-kit` 组件示例页，把本文列出的全部控件摆在同一页；新增组件必须同步加入该页。
+> 门户与管理控制台共用同一套组件：`yd new` 生成的项目里，组件模板与共享外壳只有一份，
+> 两侧差异只由 `.Portal` / `.Mgr` 数据键选择。生成项目的 `/ui-kit` 页面把全部组件摆在同一页，
+> 新增组件必须同步加入该页。
 
 ---
 
-## 0. 状态图例
-
-| 标记 | 含义 |
-|---|---|
-| ✅ | 已实现：有样式、模板、行为（如需要）、测试与本文用法 |
-| 🧩 | 组合实现：用现有原语 + htmx/Alpine 组合，不单独做组件 |
-| ⏳ | 明确规划：交互模型需要专门权衡，本文给出替代方案与边界 |
-| ❌ | 不适用：属于业务应用/第三方引擎，不是框架 UI 原语 |
-
-**判断原则**：能在服务端渲染、无脚本或极少脚本完成的，做成组件；需要第二套状态模型或第三方引擎的，
-先用 htmx/Alpine 组合并在本文说明，不硬造一个半成品。
-
----
-
-## 目录
-
-1. [完整组件矩阵](#1-完整组件矩阵)
-2. [显示组件用法](#2-显示组件用法)
-3. [导航组件用法](#3-导航组件用法)
-4. [表单新增组件](#4-表单新增组件)
-5. [重型组件与替代方案](#5-重型组件与替代方案)
-6. [图表用法](#6-图表用法)
-7. [组件选择速查](#7-组件选择速查)
-8. [最佳实践](#8-最佳实践)
-9. [测试与维护](#9-测试与维护)
-
----
-
-## 1. 完整组件矩阵
+## 1. 组件清单
 
 ### 1.1 反馈（Feedback）
 
-| 参考组件 | YD 实现 | 状态 | 推荐场景 |
-|---|---|---|---|
-| Alert | `components.feedback.alert` | ✅ | 页面内状态说明、警告、带操作提示 |
-| Alert Dialog | 全局 `data-yd-confirm` + `components.overlay.modal.*` | ✅ | 删除/启停/轮换等高风险变更 |
-| Message | `components.feedback.message` / `.yd-flash` | ✅ | 一次性行内结果 |
-| Notification | `components.feedback.notification` / `.yd-toast` | ✅ | 带标题的异步结果 |
-| Popconfirm | `components.feedback.popconfirm` | ✅ | 就地二次确认 |
-| Progress | `components.display.meter`（线性）、`chart.ProgressRing`（环形） | ✅ | 上传、配额、任务进度 |
-| Result | `components.display.result` | ✅ | 成功/失败/无权限/404 页面 |
-| Skeleton | `components.feedback.skeleton` | ✅ | 首屏占位 |
-| Spin | `components.feedback.spinner` | ✅ | 局部加载 |
-| Toast / Sonner | `#yd-flash` + `components.feedback.toast` | ✅ | 右下/右上轻提示 |
-| Tag / Chip | `components.feedback.tag` / `.yd-tag` | ✅ | 状态、筛选条件、已选值 |
-| Empty | `components.layout.empty` | ✅ | 空列表、空搜索、无权限提示 |
-| LoadingBar | 全局 `#yd-progress` + `components.display.meter` | ✅ | 顶部请求进度 / 局部进度 |
+| 组件 | 实现 | 适用场景 |
+|---|---|---|
+| Alert | `components.feedback.alert` | 页面内状态说明、警告、带操作提示 |
+| Toast | `components.feedback.toast` / `components.feedback.toast-region` | 一次性轻提示 |
+| Notification | `components.feedback.notification` | 带标题的异步结果 |
+| Message | `components.feedback.message` | 一行内联结果 |
+| Popconfirm | `components.feedback.popconfirm` | 就地二次确认 |
+| Questionnaire | `components.feedback.questionnaire` | 多问题表单，服务端一次渲染 |
+| Tag / Chip | `components.feedback.tag` | 状态、筛选条件、已选值 |
+| Spinner | `components.feedback.spinner` | 局部加载 |
+| Skeleton | `components.feedback.skeleton` | 首屏占位 |
+| Progress | `components.display.meter` / `chart.ProgressRing` | 线性或环形进度 |
+| Result | `components.display.result` | 成功、失败、无权限、404 页面 |
+| Empty | `components.layout.empty` | 空列表、空搜索、无权限提示 |
+| LoadingBar | `#yd-progress` + `components.display.meter` | 顶部请求进度与局部进度 |
 
 ### 1.2 导航（Navigation）
 
-| 参考组件 | YD 实现 | 状态 | 推荐场景 |
-|---|---|---|---|
-| Affix | `components.navigation.affix`（`position: sticky`） | ✅ | 工具栏、表头、筛选条 |
-| Anchor | `components.navigation.anchor` + `ydAnchor` 滚动高亮 | ✅ | 长文档、设置页目录 |
-| BackTop | `components.navigation.back-top` + `ydBackTop` | ✅ | 长列表/长文 |
-| Breadcrumb | `components.navigation.breadcrumb` | ✅ | 层级导航 |
-| Button | `.yd-btn`（primary / ghost / danger / sm） | ✅ | 所有动作 |
-| Command | `components.navigation.command` + `ydCommand`（Ctrl/Cmd+K） | ✅ | 全局搜索、快捷跳转 |
-| ContextMenu | `components.navigation.context-menu` + `ydContextMenu` | ✅ | 表格行、画布对象 |
-| Dropdown | `components.navigation.dropdown` / `details.yd-menu` | ✅ | 行操作、用户菜单 |
-| FloatButton / FAB | `components.navigation.fab` | ✅ | 移动端主操作 |
-| Icon | `partials/icon` + `web/static/img/icons.svg` | ✅ | 离线图标，按需 sprite |
-| Link | 原生 `<a>` + `--color-accent` / 语义令牌 | 🧩 | 行内链接 |
-| Menu | `components.navigation.menu` / 外壳侧栏 | ✅ | 侧栏、设置导航 |
-| Menubar | `components.navigation.menubar`（原生 details） | ✅ | 桌面式多级菜单 |
-| Navbar | 外壳 `#yd-shell` 顶栏 | 🧩 | 站点级导航，框架已提供 |
-| Navigation Menu | `components.navigation.menu` / `.yd-tabs` | ✅ | 顶栏/页签式导航 |
-| PageHeader | `components.layout.page-header` | ✅ | 页面标题与主操作 |
-| Pagination | `components.navigation.pagination` | ✅ | 服务端分页 |
-| Steps | `components.navigation.steps` | ✅ | 线性流程 |
-| Tabs | `components.navigation.tabs`（服务端）/ `ydTabs`（客户端） | ✅ | 分类内容 |
-| Tree / TreeMenu | `components.navigation.tree`（嵌套 details） | ✅ | 目录、权限树、组织架构 |
-| Sidebar | 外壳 `layouts/shell.html` | 🧩 | 站点级导航，框架已提供 |
-| Stepper | `components.navigation.steps` | ✅ | 同 Steps |
+| 组件 | 实现 | 适用场景 |
+|---|---|---|
+| Tabs | `components.navigation.tabs` | 服务端驱动的页签导航，每个页签是链接或 htmx 请求 |
+| Client tabs | `components.navigation.tabs-client` | 已渲染面板之间的纯客户端页签 |
+| Breadcrumb | `components.navigation.breadcrumb` | 层级导航 |
+| Steps / Stepper | `components.navigation.steps` | 线性流程 |
+| Dropdown / Action menu | `components.navigation.dropdown` / `details.yd-menu` | 行操作、用户菜单 |
+| Anchor | `components.navigation.anchor` | 长文档、设置页目录，滚动高亮 |
+| Affix / Sticky | `components.navigation.affix` | 工具栏、筛选条、表头吸附 |
+| BackTop | `components.navigation.back-top` | 长列表、长文回到顶部 |
+| FAB / FloatButton | `components.navigation.fab` | 移动端主操作 |
+| Command | `components.navigation.command` | 全局命令面板（Ctrl/Cmd+K） |
+| ContextMenu | `components.navigation.context-menu` | 表格行、画布对象的右键菜单 |
+| Menubar | `components.navigation.menubar` | 桌面式多级菜单 |
+| Pagination | `components.navigation.pagination` | 服务端分页 |
+| Tree | `components.navigation.tree` | 目录、权限树、组织架构 |
+| Menu | `components.navigation.menu` | 侧栏、设置导航 |
+| Tabbar | `components.navigation.tabbar` | 移动端底部导航 |
+| FilterBar | `components.navigation.filter-bar` | 列表页筛选表单 |
+| ActionSheet | `components.navigation.action-sheet` | 移动端底部操作面板 |
+| Link | 原生 `<a>` + `--color-accent` / 语义令牌 | 行内链接 |
+| Navbar / Sidebar | 外壳 `#yd-shell` | 站点级导航，框架已提供 |
 
 ### 1.3 数据录入（Data Entry）
 
-| 参考组件 | YD 实现 | 状态 | 推荐场景 |
-|---|---|---|---|
-| AutoComplete / Combobox | `components.form.combobox` + `ydCombobox` | ✅ | 可搜索单选、角色/租户选择 |
-| Cascader | `components.cn.region`（中国省市区） | ✅ | 中国地址；通用级联见 §5 |
-| Checkbox | `components.form.check` | ✅ | 多选 |
-| ColorPicker | `components.form.color` + `ydColor`（原生取色器） | ✅ | 主题色、标签色 |
-| DatePicker | `components.form.date`（原生 date） | ✅ | 单日期 |
-| DateInput / TimeInput | `components.form.date` / `form.time` / `form.datetime` | ✅ | 日期、时间与 `datetime-local` 输入 |
-| DateRange | `components.cn.daterange` | ✅ | 报表时间范围 |
-| DynamicInput | `components.form.tags` / 规划中的 `ydDynamicRows` | 🧩/⏳ | 标签用 Tags；可增删行见 §5 |
-| DynamicTags | `components.form.tags` + `ydTagInput` | ✅ | 标签、收件人 |
-| Form | `components.form.*` + 15 节表单契约 | ✅ | 所有表单 |
-| Input | `components.form.field` | ✅ | 单行文本 |
-| InputGroup | `.yd-input-group` + `components.form.field` | ✅ | 前缀/后缀/按钮贴合 |
-| InputNumber | `components.form.number` + `ydNumber` | ✅ | 数量、阈值 |
-| InputOTP | `components.form.otp` + `ydOtp` | ✅ | 短信/邮箱验证码 |
-| Label | `components.form.*` 的 `Label` / `LabelKey` | ✅ | 表单标签 |
-| Mention | — | ⏳ | 富文本 @ 提及；见 §5 |
-| Popselect | `components.navigation.dropdown` + 表单片段 | 🧩 | 浮层里放多选/确认 |
-| Radio | `components.form.radio` | ✅ | 单选 |
-| Rate | `components.display.rate` | ✅ | 评分 |
-| Select | `components.form.select` | ✅ | 原生单选 |
-| Slider | `components.display.slider` + `ydSlider` | ✅ | 数值范围 |
-| Switch | `components.form.toggle`（纯 CSS） | ✅ | 即时开关 |
-| Toggle Group | `components.form.segmented` | ✅ | 分段选择 |
-| TimePicker | `components.form.time`（原生 time） | ✅ | 单时间 |
-| Transfer | — | ⏳ | 双列表穿梭；见 §5 |
-| TreeSelect | — | ⏳ | 通用异步树选择；中国地址用 Region |
-| Upload | `components.form.file` + `ydUpload` | ✅ | 拖放上传、附件 |
-| Calendar | 原生日期 + 服务端月历模式 | 🧩/⏳ | 排班/日程见 §5 |
+| 组件 | 实现 | 适用场景 |
+|---|---|---|
+| Form / Field | `components.form.field` + `.yd-form-grid` | 所有表单 |
+| Input | `components.form.field` | 单行文本 |
+| Textarea | `components.form.textarea` | 多行文本 |
+| Select | `components.form.select` | 单选；真实 `<select>` 作无脚本回退，Alpine 启动后显示自定义列表框 |
+| TreeSelect | `components.form.tree-select` | 带层级缩进的选择 |
+| Cascader | `components.form.cascader` | 多级级联选择，每级一个选择器 |
+| Combobox / AutoComplete | `components.form.combobox` + `ydCombobox` | 可搜索单选 |
+| Transfer | `components.form.transfer` | 双列表穿梭；服务端决定移动结果 |
+| Checkbox | `components.form.check` | 多选 |
+| Radio | `components.form.radio` | 单选 |
+| Toggle / Switch | `components.form.toggle` | 即时开关 |
+| Segmented / ToggleGroup | `components.form.segmented` | 分段选择 |
+| Password | `components.form.password` | 口令输入、显示切换与强度提示 |
+| Tags / TagInput | `components.form.tags` + `ydTagInput` | 标签、收件人 |
+| DynamicRows | `components.form.dynamic-rows` | 可增删行；字段用 `name[]` 提交 |
+| Number | `components.form.number` + `ydNumber` | 数量、阈值 |
+| InputOTP | `components.form.otp` + `ydOtp` | 短信/邮箱验证码 |
+| ColorPicker | `components.form.color` + `ydColor` | 主题色、标签色 |
+| DatePicker | `components.form.date` | 自定义日历，提交 `YYYY-MM-DD` |
+| TimePicker | `components.form.time` | 自定义时/分列，提交 `HH:MM` |
+| DateTimePicker | `components.form.datetime` | 日历 + 时分，提交 `YYYY-MM-DDTHH:MM` |
+| Picker | `components.form.picker` | 日期、时间、日期时间、月份的统一选择器 |
+| MonthPicker | `components.form.month` | 自定义月份网格，提交 `YYYY-MM` |
+| YearPicker | `components.form.year` | 年份选择 |
+| QuarterPicker | `components.form.quarter` | 季度选择 |
+| TimeRange | `components.form.time-range` | 起止时间 |
+| DateRange | `components.cn.daterange` | 起止日期与常用预设 |
+| Mention | `components.form.mention` | 带原生 datalist 建议的提及输入 |
+| Upload / FileUpload | `components.form.file` + `ydUpload` | 拖放上传、附件 |
+| MarkdownEditor | `components.form.editor` + EasyMDE | Markdown 写作；未加载 EasyMDE 时回退 textarea |
+| Form actions | `components.form.actions` | 提交/取消按钮 |
+| Search | `components.form.search` + `ydSearch` | 页面级搜索，自带表单 |
+| InputGroup | `.yd-input-group` + `components.form.field` | 前缀、后缀、按钮贴合 |
+| Label | `components.form.*` 的 `Label` / `LabelKey` | 表单标签 |
+| Phone | `components.cn.phone` + `ydPhone` | 大陆手机号 |
+| IDCard | `components.cn.idcard` + `ydIDCard` | 居民身份证 |
+| BankCard | `components.cn.bankcard` + `ydBankCard` | 银行卡 |
+| CreditCode | `components.cn.creditcode` + `ydCreditCode` | 统一社会信用代码 |
+| Amount / Currency | `components.cn.amount` + `ydAmount` | 人民币金额与中文大写 |
+| Region | `components.cn.region` + `ydRegion` | 省 / 市 / 区三级联动 |
+| SMS | `components.cn.sms` + `ydSmsCode` | 短信验证码与重发倒计时 |
 
 ### 1.4 数据展示（Data Display）
 
-| 参考组件 | YD 实现 | 状态 | 推荐场景 |
-|---|---|---|---|
-| Avatar | `components.data.avatar` | ✅ | 用户/租户 |
-| AvatarGroup | `components.display.avatar-group` | ✅ | 参与者、成员 |
-| Badge | `components.display.badge` / `.yd-badge` | ✅ | 状态、计数、圆点 |
-| Card | `components.layout.card.*` / `.yd-card` | ✅ | 内容面板 |
-| Carousel | `components.display.carousel` + `ydCarousel` | ✅ | 引导、图片、公告 |
-| Code | `components.display.code` | ✅ | 代码块 + 复制 |
-| Collapse / Accordion | `components.display.accordion`（原生 details） | ✅ | FAQ、分组表单 |
-| Collapsible | `components.display.accordion` | ✅ | 单个可折叠区块 |
-| Countdown | `components.display.countdown` + `ydCountdown` | ✅ | 截止时间、重发 |
-| DataTable | `components.data.table.*` + `sort-header` + `ydTableSelect` | ✅ | 列表、批量操作 |
-| Descriptions | `components.display.descriptions` | ✅ | 详情键值对 |
-| Ellipsis | `components.display.ellipsis` | ✅ | 长文本截断 |
-| Equation | — | ❌ | 数学公式需 KaTeX/MathJax 引擎 |
-| GradientText | `components.display.gradient-text` | ✅ | 强调短语 |
-| Heatmap | `chart.Heatmap` | ✅ | 活跃度、矩阵 |
-| Highlight | `components.display.highlight` | ✅ | 搜索命中 |
-| Image | `components.display.figure` | ✅ | 图片 + 图注 |
-| Item / Thing | `components.display.item` / `.yd-item` | ✅ | 媒体行、结果行 |
-| KPI / Statistic | `components.data.kpi` / `data.stat` / `display.number` | ✅ | 指标卡 |
-| List | `components.display.list` | ✅ | 有序/无序列表 |
-| Log / LogViewer | `components.data.log` | ✅ | 运行日志、审计 |
-| Marquee | `components.display.marquee` | ✅ | 公告滚动 |
-| NumberAnimation | `components.display.number` + `ydNumberAnimation` | ✅ | 指标入场 |
-| QRCode | — | ⏳ | 需要纯 Go QR 编码器；见 §5 |
-| ScrollShadow | `components.display.scroll-area` | ✅ | 限高滚动区（无阴影渐隐） |
-| Snippet | `components.display.code` | ✅ | 代码片段 + 复制 |
-| Table | `components.data.table.*` | ✅ | 所有表格 |
-| Timeline | `components.display.timeline` | ✅ | 审计、进度历史 |
-| Tree | `components.navigation.tree` | ✅ | 层级数据 |
-| Typography / Prose | `.yd-prose` + `components.display.prose` | ✅ | Markdown/富文本输出 |
-| User | `components.data.avatar` + `components.display.item` | 🧩 | 用户行、成员行 |
-| VirtualList | htmx 分页 + `hx-trigger="revealed"` | 🧩/⏳ | 大数据列表；见 §5 |
-| Watermark | `components.display.watermark` + `ydWatermark` | ✅ | 内部资料水印 |
+| 组件 | 实现 | 适用场景 |
+|---|---|---|
+| Avatar | `components.data.avatar` | 用户/租户 |
+| AvatarGroup | `components.display.avatar-group` | 参与者、成员 |
+| Badge | `components.display.badge` | 状态、计数、圆点 |
+| Card | `components.layout.card.open` / `.card.close` | 内容面板 |
+| Carousel | `components.display.carousel` + `ydCarousel` | 引导、图片、公告 |
+| Code / Snippet | `components.display.code` | 代码块与复制 |
+| Accordion / Collapse | `components.display.accordion` | FAQ、分组表单 |
+| Countdown | `components.display.countdown` + `ydCountdown` | 截止时间、重发 |
+| Table | `components.data.table.open` / `.table.close` | 列表、批量操作 |
+| Table selection | `components.data.select-cell` + `ydTableSelect` | 可全选/半选的行选择 |
+| Sort header | `components.data.sort-header` | 可排序表头 |
+| Descriptions | `components.display.descriptions` | 详情键值对 |
+| Ellipsis | `components.display.ellipsis` | 长文本截断 |
+| GradientText | `components.display.gradient-text` | 强调短语 |
+| Highlight | `components.display.highlight` | 搜索命中 |
+| Figure / Image | `components.display.figure` | 图片与图注 |
+| ImageViewer | `components.display.image-viewer` | 缩略图 + 模态查看 |
+| Item / Thing | `components.display.item` | 媒体行、结果行 |
+| KPI / Statistic | `components.data.kpi` / `.stat` / `components.display.number` | 指标卡、统计值 |
+| List | `components.display.list` | 有序/无序列表 |
+| Log | `components.data.log` | 运行日志、审计 |
+| Marquee | `components.display.marquee` | 公告滚动 |
+| Meter | `components.display.meter` | 配额、完成度 |
+| Rate / Rating | `components.display.rate` | 评分 |
+| Slider | `components.display.slider` + `ydSlider` | 数值范围 |
+| Result | `components.display.result` | 结果页 |
+| ScrollArea / ScrollShadow | `components.display.scroll-area` | 限高滚动区 |
+| Timeline | `components.display.timeline` | 审计、进度历史 |
+| Watermark | `components.display.watermark` + `ydWatermark` | 内部资料水印 |
+| Kbd | `components.display.kbd` | 键盘提示 |
+| Divider / Separator | `components.display.divider` | 分组 |
+| Prose / Typography | `components.display.prose` | Markdown / 富文本输出 |
+| NumberAnimation | `components.display.number` + `ydNumberAnimation` | 指标入场 |
+| Calendar | `components.display.calendar` | 月历、事件、日程 |
+| FileTree | `components.display.file-tree` | 文件与文件夹树 |
+| Cell | `components.display.cell` | 设置行、导航行 |
+| Attachment | `components.display.attachment` | 附件卡片、上传状态 |
+| Bubble | `components.display.bubble` | 对话气泡 |
+| ChatMessage | `components.display.chat-message` | 头像、消息头、气泡与操作 |
+| MessageScroller | `components.display.message-scroller` | 有界消息滚动容器 |
+| PromptInput | `components.display.prompt-input` | 聊天/提示输入与发送 |
+| TrendChip | `components.display.trend-chip` | 升降趋势标签 |
+| TextShimmer | `components.display.text-shimmer` | 流式输出占位 |
+| Trace | `components.display.trace` | 执行轨迹、工具调用、推理步骤 |
+| Marker | `components.display.marker` | 对话中的状态/分隔标记 |
+| ActionBar | `components.display.action-bar` | 批量操作条 |
+| HoverCard | `components.display.hover-card` | 悬停/聚焦详情卡 |
+| VirtualList | `components.display.virtual-list` | 长列表，`content-visibility` 布局虚拟化 |
+| QRCode | `components.display.qrcode` | 二维码展示框；传入服务端编码后的 SVG 或图片 |
+| Kanban | `components.display.kanban` | 看板列与卡片 |
+| EmojiPicker | `components.display.emoji-picker` + `ydEmoji` | 表情面板，插入目标输入框 |
+| Signature | `components.display.signature` + `ydSignature` | 手写签名，隐藏字段提交 |
+| Resizable | `components.display.resizable` + `ydResizable` | 可拖拽/方向键调整的双栏 |
+| Copy | `components.cn.copy` + `ydCopy` | 复制文本 |
 
 ### 1.5 布局与浮层（Layout & Overlay）
 
-| 参考组件 | YD 实现 | 状态 | 推荐场景 |
-|---|---|---|---|
-| AspectRatio | `components.display.aspect` | ✅ | 图片/视频占位 |
-| Divider / Separator | `components.display.divider` | ✅ | 分组 |
-| Flex / Grid / Space | Tailwind 工具类 + `.yd-stack` / `.yd-cluster` | 🧩 | 所有布局 |
-| Layout | `layouts/shell.html` / `#yd-shell` | 🧩 | 站点骨架 |
-| Resizable | CSS `resize` / 规划中的拖拽分隔条 | 🧩/⏳ | 工作台分栏 |
-| ScrollArea | `components.display.scroll-area` | ✅ | 限高滚动区 |
-| Split | `.yd-split` / `.yd-workbench` | ✅ | 列表+详情 |
-| Dialog / Modal | `components.overlay.modal.*` | ✅ | 非抽屉模态 |
-| Drawer / Sheet | 外壳 `#yd-drawer` | 🧩 | 新增/编辑 |
-| Popover | `.yd-popover` / `components.navigation.dropdown` | ✅ | 浮层面板 |
-| HoverCard | `[data-yd-tooltip]` / `.yd-popover` | 🧩/⏳ | 悬停详情；延迟卡片见 §5 |
-| Tooltip | `[data-yd-tooltip]` | ✅ | 图标按钮说明 |
-| Menubar / ContextMenu | `components.navigation.menubar` / `context-menu` | ✅ | 桌面式操作 |
-| Command | `components.navigation.command` | ✅ | 命令面板 |
-| Sidebar | 外壳 | 🧩 | 站点导航 |
+| 组件 | 实现 | 适用场景 |
+|---|---|---|
+| PageHeader | `components.layout.page-header` | 页面标题与主操作 |
+| Card | `components.layout.card.open` / `.card.close` | 内容面板 |
+| Empty | `components.layout.empty` | 空状态与下一步操作 |
+| AspectRatio | `components.display.aspect` | 图片/视频占位 |
+| Divider | `components.display.divider` | 水平/垂直分组 |
+| Flex / Grid / Space | Tailwind 工具类 + `.yd-stack` / `.yd-cluster` / `.yd-grid` | 页面布局 |
+| Split / Workbench | `.yd-split` / `.yd-workbench` | 列表 + 详情 |
+| Layout / Sidebar / Navbar | `#yd-shell` / `layouts/shell.html` | 站点骨架 |
+| Modal / Dialog | `components.overlay.modal.open` / `.modal.close` | 非抽屉模态 |
+| Drawer / Sheet | 外壳 `#yd-drawer` | 新增/编辑 |
+| Popover | `components.overlay.popover` | 浮层面板、筛选器、小型表单 |
+| Tooltip | `components.overlay.tooltip` | 图标按钮说明 |
+| Dropdown | `components.navigation.dropdown` | 行操作、用户菜单 |
+| HoverCard | `components.display.hover-card` | 悬停详情 |
+| Command | `components.navigation.command` | 命令面板 |
+| Affix / Sticky | `components.navigation.affix` | 吸附工具栏 |
 
 ### 1.6 图表（Charts）
 
-| 图表 | Go API | 状态 | 推荐场景 |
-|---|---|---|---|
-| 折线图 | `chart.Line` | ✅ | 趋势 |
-| 面积图 | `chart.Area` | ✅ | 累计/流量 |
-| 柱状图 | `chart.Bar` | ✅ | 分类对比 |
-| 堆叠柱 | `chart.StackedBar` | ✅ | 构成 |
-| 饼图 | `chart.Pie` | ✅ | 占比（≤6 类） |
-| 环形图 | `chart.Donut` | ✅ | 占比 + 中心指标 |
-| 迷你折线 | `chart.Sparkline` | ✅ | KPI 卡片 |
-| 仪表盘 | `chart.Gauge` | ✅ | 使用率/健康度 |
-| 雷达图 | `chart.Radar` | ✅ | 多维评分 |
-| 组合图 | `chart.Composed` | ✅ | 柱 + 线 |
-| 热力图 | `chart.Heatmap` | ✅ | 活跃度矩阵 |
-| 进度环 | `chart.ProgressRing` | ✅ | 单一完成度 |
-| ChartTooltip | SVG `<title>`（原生悬停/读屏） | ✅ | 零脚本提示 |
-| CircularProgress | `chart.ProgressRing` | ✅ | 单一完成度 |
-| Widget | `components.data.kpi` + `chart.Sparkline` | ✅ | 指标卡 |
-| 地图 / 关系图 / 甘特 | — | ❌/⏳ | 见 §5 |
+图表由 `http/chart` 在服务端生成纯 SVG，模板只包 `components.chart`。
 
-### 1.7 业务模式（Patterns，不属于基础原语）
-
-| 参考 | YD 做法 | 状态 |
+| 图表 | Go API | 适用场景 |
 |---|---|---|
-| Kanban | htmx 拖拽列 + 服务端排序；`yd gen` 生成后按业务实现 | ⏳ |
-| Scheduler / Calendar | 原生日期 + 服务端月历片段 + htmx 导航 | 🧩 |
-| Gantt | 服务端 SVG/条形布局 + 时间轴 | ⏳ |
-| Flowchart | Canvas/SVG 业务组件；框架不内置 | ❌ |
-| SignaturePad | Canvas 业务组件 | ❌ |
-| Map | MapLibre/高德等业务集成 | ❌ |
-| AI Chat | 消息中心 + SSE/WS 已提供传输；对话 UI 属业务 | 🧩 |
-| Rich Text Editor | `components.form.editor` + EasyMDE（页面引入 vendor） | ✅ |
-| File Manager | 列表 + 上传 + htmx 分页组合 | 🧩 |
-
-### 1.8 命名归一（参考库专有叫法）
-
-四套参考库对同一件事常有不同命名。下表只列前面矩阵里不明显的别名，避免「找不到」被误读成「没实现」。
-
-| 参考库命名 | YD 对应 | 状态 |
-|---|---|---|
-| Button / ButtonGroup / Toggle / ToggleGroup / Chip / Tag | `.yd-btn` / `display.button-group` / `form.toggle` / `form.segmented` / `feedback.tag` | ✅ |
-| Label / Link / Kbd / Description / CircularProgress | 表单 `Label`/`LabelKey` / 原生 `<a>` / `display.kbd` / `display.descriptions` / `chart.ProgressRing` | ✅ |
-| Snippet / Code / ScrollShadow / User / Thing | `display.code` / `display.code` / `display.scroll-area` / `data.avatar` + `display.item` / `display.item` | ✅ |
-| Sheet / Navbar / Sidebar / HoverCard | 外壳 `#yd-drawer` / 顶栏 / 侧栏 / `[data-yd-tooltip]` | 🧩/⏳ |
-| Ripple | 无（不做水波纹；点击反馈由按钮状态与过渡表达） | ❌ |
-| DateInput / TimeInput / NumberInput / Listbox | `form.date` / `form.time` / `form.number` / `form.combobox` | ✅ |
-| FilterPanel / FilterBox / Toolbar / Wizard / LoadMore | 表单 + `.yd-card` / `.yd-cluster` + 按钮组 / `navigation.steps` + htmx / `hx-trigger="revealed"` | 🧩 |
-| Video / Popeditor / PullRefresh / Guide / CropUpload | `display.aspect` + 原生 `<video>` / 抽屉内编辑 / 无（用显式刷新） / 无（业务引导层） / 无（Canvas 裁剪） | 🧩/❌ |
-| Numeric / Currency / Amount / IpAddress | `form.number` / `cn.amount` / `cn.amount` / 普通输入 + 服务端校验（⏳ 专用控件） | ✅/⏳ |
-| Milestone / ScrollText / UserHead / LinkMenu / NavMenu / ToggleMenu | `display.timeline` / `display.marquee` / `data.avatar` / `navigation.menu` / `navigation.menu` / `navigation.dropdown` | ✅ |
-| QrCode / Transfer / TreeSelect / Calendar | 见 §5 的替代方案 | ⏳ |
-| ChartCore / LineChart / BarChart / ColumnChart / AreaChart | `http/chart` 的 `Line` / `Bar` / `Bar` / `Area` | ✅ |
-| PieChart / RingChart / HeatMapChart / RadarChart | `chart.Pie` / `chart.Donut` / `chart.Heatmap` / `chart.Radar` | ✅ |
-| RiverChart / SankeyChart / HistogramChart / Map / Gantt / Flowchart | 不内置（业务图表或第三方引擎） | ⏳/❌ |
+| 折线图 | `chart.Line` | 趋势 |
+| 面积图 | `chart.Area` | 累计、流量 |
+| 柱状图 | `chart.Bar` | 分类对比 |
+| 堆叠柱 | `chart.StackedBar` | 构成 |
+| 饼图 | `chart.Pie` | 占比（≤6 类） |
+| 环形图 | `chart.Donut` | 占比 + 中心指标 |
+| 迷你折线 | `chart.Sparkline` | KPI 卡片 |
+| 仪表盘 | `chart.Gauge` | 使用率、健康度 |
+| 雷达图 | `chart.Radar` | 多维评分 |
+| 组合图 | `chart.Composed` | 柱 + 线 |
+| 热力图 | `chart.Heatmap` | 活跃度矩阵 |
+| 进度环 | `chart.ProgressRing` | 单一完成度 |
+| 图例 | `chart.Legend` / `chart.SliceLegend` | 折线/柱/面积图例与饼图/环形图图例 |
 
 ---
 
 ## 2. 显示组件用法
 
-> 标记为 `template.HTML` 的键（`Body`、`Content`、`Actions`、`Media`、`SVG` 等）必须由控制器组装并完成
-> 净化后传入。**Go 模板里没有 `template.HTML` 这个可调用函数**，不要在 `.html` 中写
-> `(template.HTML ...)`；正确做法是控制器构造结构体/`map`，模板只引用字段。
+> 标记为 `template.HTML` 的键（`Body`、`Content`、`Actions`、`Media`、`SVG` 等）必须由控制器
+> 组装并完成净化后传入。**Go 模板里没有 `template.HTML` 这个可调用函数**，不要在 `.html` 中写
+> `(template.HTML ...)`；正确做法是控制器构造结构体或 `map`，模板只引用字段。
 
 ### 2.1 折叠面板
 
@@ -278,10 +242,9 @@
 {{template "components.display.badge" (dict "Tone" "info" "Dot" true)}}
 ```
 
-`Count` 与 `Label` 二选一，**不要传 `Count: 0`**（0 会落到文本徽标分支并渲染空徽标）；
-`Max` 用于 `99+`。
+`Count` 与 `Label` 二选一，**不要传 `Count: 0`**；`Max` 用于 `99+`。
 
-### 2.4 按钮组与 FAB
+### 2.4 按钮组与悬浮操作
 
 ```html
 {{template "components.display.button-group" (dict
@@ -302,7 +265,7 @@
 ```
 
 `Items` 每项 `{ID, Content (template.HTML), Caption, CaptionKey}`。滚动吸附是机制，箭头与圆点只调用
-`ydCarousel`；服务端仍渲染全部幻灯片，搜索引擎与无脚本用户都能看到内容。
+`ydCarousel`；服务端仍渲染全部幻灯片。
 
 ### 2.6 代码块
 
@@ -312,30 +275,16 @@
   "Code" .Snippet "CopyValue" .Snippet)}}
 ```
 
-复制按钮使用 `ydCopy`；`Code` 原样转义，不会被当作 HTML。
+复制按钮使用 `ydCopy`；`Code` 原样转义。
 
-### 2.7 描述列表
+### 2.7 描述列表、列表与时间线
 
 ```html
 {{template "components.display.descriptions" (dict
   "Items" (list
     (dict "Label" (tr "field.name") "LabelKey" "field.name" "Value" .User.Display)
     (dict "Label" (tr "field.email") "LabelKey" "field.email" "Value" .User.Email)))}}
-```
 
-### 2.8 省略、渐变与高亮
-
-```html
-{{template "components.display.ellipsis" (dict "Lines" 2 "Text" .Summary "Title" .Summary)}}
-{{template "components.display.gradient-text" (dict "Text" (tr "brand.slogan") "TextKey" "brand.slogan")}}
-{{template "components.display.highlight" (dict "HTML" .Highlighted)}}
-```
-
-`Highlight` 的 `HTML` 必须由服务端完成转义与匹配，不能直接把用户输入拼进去。
-
-### 2.9 列表、媒体行与时间线
-
-```html
 {{template "components.display.list" (dict "Items" .Items "Ordered" false)}}
 
 {{template "components.display.item" (dict
@@ -347,7 +296,7 @@
 
 `Media` 与 `Actions` 是控制器传入的 `template.HTML`。
 
-### 2.10 进度、评分与结果页
+### 2.8 进度、评分与结果页
 
 ```html
 {{template "components.display.meter" (dict "Value" 72 "Max" 100 "Label" "72%" "Tone" "success")}}
@@ -364,13 +313,13 @@
 
 `Stars` 由调用方给出降序序列（`5,4,3,2,1`），因为 html/template 不能对数字做 range。
 
-### 2.11 跑马灯、水印与数字动画
+### 2.9 跑马灯、水印与数字动画
 
 ```html
 {{template "components.display.marquee" (dict "Items" .Notices)}}
 
 {{template "components.display.watermark" (dict
-  "Text" "内部资料" "Count" 48 "Content" .Body)}}
+  "Text" "内部资料" "TextKey" "watermark.internal" "Count" 48 "Content" .Body)}}
 
 {{template "components.display.number" (dict
   "Value" 1234.5 "Format" "currency" "Label" (tr "stat.revenue") "LabelKey" "stat.revenue")}}
@@ -378,18 +327,112 @@
 
 水印只做视觉提醒，不构成访问控制；敏感页面仍必须鉴权。
 
-### 2.12 倒计时与分隔线
+### 2.10 倒计时与分隔线
 
 ```html
 {{template "components.display.countdown" (dict "Seconds" 3600 "Label" (tr "countdown.ends") "LabelKey" "countdown.ends")}}
 {{template "components.display.divider" (dict "Label" (tr "section.more") "LabelKey" "section.more")}}
 ```
 
+### 2.11 日历
+
+```html
+{{template "components.display.calendar" (dict
+  "ID" "team-calendar" "Label" (tr "calendar.title") "LabelKey" "calendar.title"
+  "MonthLabel" .MonthLabel "MonthLabelKey" .MonthLabelKey
+  "PrevHref" .PrevHref "NextHref" .NextHref "TodayHref" .TodayHref
+  "TodayLabel" (tr "calendar.today") "TodayLabelKey" "calendar.today"
+  "Weekdays" .Weekdays "Weeks" .Weeks)}}
+```
+
+日期运算留在控制器：`Weeks` 每项 `{Days []{Number, Date, Href, Outside, Today, Selected, Events}}`，
+模板只绘制收到的单元格，时区与每周起始日不会在服务端与浏览器之间分叉。
+
+### 2.12 文件树、设置行与附件
+
+```html
+{{template "components.display.file-tree" (dict "Label" (tr "fs.title") "LabelKey" "fs.title" "Items" .Files)}}
+
+{{template "components.display.cell" (dict
+  "Label" (tr "settings.notifications") "LabelKey" "settings.notifications"
+  "Hint" (tr "settings.notifications_hint") "HintKey" "settings.notifications_hint"
+  "Href" "/settings/notifications" "Control" .Toggle)}}
+
+{{template "components.display.attachment" (dict
+  "Title" .Name "Description" .Size "State" "done" "Href" .URL
+  "Actions" .Actions "RemoveAttrs" .RemoveAttrs "RemoveKey" "ui.remove")}}
+```
+
+`file-tree` 的节点支持 `Icon (template.HTML)`；`attachment` 的 `State` 取
+`idle|uploading|processing|error|done`，错误原因必须写进 `Description`，不能只靠颜色。
+
+### 2.13 对话表面
+
+```html
+{{template "components.display.message-scroller" (dict
+  "Label" (tr "message.history") "LabelKey" "message.history"
+  "Size" "lg" "Content" .History)}}
+
+{{template "components.display.chat-message" (dict
+  "Align" "end" "Avatar" .Avatar "Name" .SenderName "Time" .SentAt
+  "Content" .BodyHTML "Tone" "secondary" "State" "sent" "Actions" .Actions)}}
+
+{{template "components.display.prompt-input" (dict
+  "ID" "composer" "Name" "body" "Action" .PostURL "Post" .PostURL
+  "Target" "#thread" "Swap" "innerMorph" "Rows" 3
+  "Label" (tr "message.body") "LabelKey" "message.body"
+  "Placeholder" (tr "message.placeholder") "PlaceholderKey" "message.placeholder"
+  "SendKey" "ui.send")}}
+```
+
+`bubble` 可单独使用；`chat-message` 内部调用它。正文必须由服务端净化后传入。
+
+### 2.14 执行轨迹与标记
+
+```html
+{{template "components.display.trace" (dict
+  "Label" (tr "trace.title") "LabelKey" "trace.title" "Items" .Steps)}}
+
+{{template "components.display.marker" (dict
+  "Variant" "separator" "Role" "status" "Text" (tr "chat.today") "TextKey" "chat.today")}}
+```
+
+`trace` 每项 `{Title, Description, Status (running|error|pending|done), Icon, Href, Details, Open}`；
+展开行使用原生 `<details>`。
+
+### 2.15 看板与二维码展示
+
+```html
+{{template "components.display.kanban" (dict
+  "Label" (tr "board.title") "LabelKey" "board.title" "Columns" .Columns)}}
+
+{{template "components.display.qrcode" (dict
+  "SVG" .QRSVG "Label" (tr "qr.label") "LabelKey" "qr.label"
+  "Caption" (tr "qr.caption") "CaptionKey" "qr.caption")}}
+```
+
+`Columns` 每项 `{ID, Title, Count, Cards []{ID, Title, Text, Meta, Href, Actions}}`；
+`qrcode` 接收服务端已编码的 `SVG` 或 `Src` 图片。
+
+### 2.16 签名与可调整分栏
+
+```html
+{{template "components.display.signature" (dict
+  "ID" "signature" "Name" "signature" "Label" (tr "field.signature") "LabelKey" "field.signature"
+  "Hint" (tr "field.signature_hint") "HintKey" "field.signature_hint" "Required" true)}}
+
+{{template "components.display.resizable" (dict
+  "ID" "workbench" "Label" (tr "workbench.resize") "LabelKey" "workbench.resize"
+  "Split" 38 "Min" 20 "Max" 80 "Start" .List "End" .Detail)}}
+```
+
+签名写入隐藏字段；无脚本时保留服务端值。分隔条支持指针拖拽与方向键。
+
 ---
 
 ## 3. 导航组件用法
 
-### 3.1 锚点与固钉
+### 3.1 锚点、固钉与回到顶部
 
 ```html
 {{template "components.navigation.anchor" (dict
@@ -399,98 +442,139 @@
     (dict "Href" "#security" "Label" (tr "nav.security") "LabelKey" "nav.security")))}}
 
 {{template "components.navigation.affix" (dict "Content" .Toolbar)}}
+{{template "components.navigation.back-top" (dict)}}
 ```
 
-锚点由 `ydAnchor` 根据滚动位置高亮；目标 id 必须在同一页面内。
-
-### 3.2 回到顶部与命令面板
+### 3.2 命令面板、右键菜单与菜单栏
 
 ```html
-{{template "components.navigation.back-top" (dict)}}
-
 {{template "components.navigation.command" (dict
   "TriggerLabel" (tr "action.search") "TriggerKey" "action.search"
   "Placeholder" (tr "cmd.placeholder") "PlaceholderKey" "cmd.placeholder"
-  "Shortcut" "k"
-  "Items" .Commands)}}
+  "Shortcut" "k" "Items" .Commands)}}
+
+{{template "components.navigation.context-menu" (dict "Content" .Canvas "Items" .MenuItems)}}
+
+{{template "components.navigation.menubar" (dict
+  "Label" (tr "nav.menu") "LabelKey" "nav.menu" "Items" .Menus)}}
 ```
 
-`Shortcut` 是单个字母（大小写不敏感），省略即 `K`，对应 Ctrl/Cmd+K；`Items` 每项
-`{Group, GroupKey, Label, LabelKey, Href, Attrs}`。输入框按 `$el.textContent` 过滤，不需要客户端数据副本。
-
-### 3.3 右键菜单与浮动操作
+### 3.3 菜单、树与分页
 
 ```html
-{{template "components.navigation.context-menu" (dict
-  "Content" .Canvas
-  "Items" .MenuItems)}}
-
-{{template "components.navigation.fab" (dict "Href" "/new" "Label" (tr "action.create") "LabelKey" "action.create" "Primary" true)}}
-```
-
-右键菜单由脚本按指针定位并做视口边界收敛；滚动时自动关闭。
-
-### 3.4 菜单栏、菜单与树
-
-```html
-{{template "components.navigation.menubar" (dict "Label" (tr "nav.menu") "LabelKey" "nav.menu" "Items" .Menus)}}
-
-{{template "components.navigation.menu" (dict "Label" (tr "nav.main") "LabelKey" "nav.main" "Items" .Sections)}}
+{{template "components.navigation.menu" (dict
+  "Label" (tr "nav.main") "LabelKey" "nav.main" "Items" .Sections)}}
 
 {{template "components.navigation.tree" (dict "Items" .Tree)}}
-```
 
-树节点递归：`{Label, LabelKey, Href, Meta, MetaKey, Open, Children []Node}`。展开用原生 `<details>`。
-
-### 3.5 分页
-
-```html
 {{template "components.navigation.pagination" (dict
   "Label" (tr "nav.pagination") "LabelKey" "nav.pagination"
   "Summary" .Summary "SummaryKey" "page.summary"
   "PrevHref" .Prev "NextHref" .Next "Pages" .Pages)}}
 ```
 
-`Pages` 每项 `{Number, Href, Current, Ellipsis}`；分页链接由服务端生成，htmx 只负责换结果区。
+树节点递归：`{Label, LabelKey, Href, Meta, MetaKey, Open, Icon, Children []Node}`。展开用原生 `<details>`。
+
+### 3.4 客户端页签、底部导航与筛选条
+
+```html
+{{template "components.navigation.tabs-client" (dict
+  "Label" (tr "tabs.title") "LabelKey" "tabs.title" "Active" "one"
+  "Items" .Tabs)}}
+
+{{template "components.navigation.tabbar" (dict
+  "Label" (tr "nav.sections") "LabelKey" "nav.sections" "Items" .Items)}}
+
+{{template "components.navigation.filter-bar" (dict
+  "Action" .ListURL "Get" .ListURL "Target" "#rows" "Swap" "innerHTML"
+  "Fields" .Fields "Actions" .Actions "SubmitKey" "ui.search")}}
+```
+
+`tabs-client` 只用于不需要独立 URL 的内容；`filter-bar` 自带 `<form>`，不能嵌套在另一个表单里。
+
+### 3.5 操作面板
+
+```html
+<button type="button" class="yd-btn" data-yd-modal-open="actions">更多</button>
+
+{{template "components.navigation.action-sheet" (dict
+  "ID" "actions" "Title" (tr "action.more") "TitleKey" "action.more"
+  "Actions" .Actions "CancelKey" "action.cancel")}}
+```
 
 ---
 
-## 4. 表单新增组件
+## 4. 表单组件用法
 
-### 4.1 数字步进
+### 4.1 数字、验证码与动态行
 
 ```html
 {{template "components.form.number" (dict
   "ID" "quota" "Name" "quota" "Value" .Quota "Min" 1 "Max" 1000 "Step" 1
   "Label" (tr "field.quota") "LabelKey" "field.quota")}}
-```
 
-`ydNumber` 只做步进与边界收敛；服务端仍要校验范围。
-
-### 4.2 验证码
-
-```html
 {{template "components.form.otp" (dict
   "ID" "otp" "Name" "code" "Value" "" "Length" 6
   "Slots" (list 0 1 2 3 4 5)
   "Label" (tr "field.code") "LabelKey" "field.code")}}
+
+{{template "components.form.dynamic-rows" (dict
+  "ID" "lines" "Name" "lines" "Label" (tr "field.lines") "LabelKey" "field.lines"
+  "Rows" .Rows "RowTemplate" .RowTemplate "AddKey" "ui.add" "Min" 1 "Max" 20)}}
 ```
 
-可见输入框逐位输入，隐藏字段汇总后提交；脚本失败时隐藏字段仍保留服务端初始值。
+动态行内的字段用 `name="lines[]"` 提交；每行由服务端渲染，Alpine 只克隆蓝图与删除行。
 
-### 4.3 颜色、日期与时间
+### 4.2 日期、时间与月份
 
 ```html
-{{template "components.form.color" (dict "ID" "color" "Name" "color" "Value" "#2563eb" "Label" (tr "field.color") "LabelKey" "field.color")}}
-{{template "components.form.date" (dict "ID" "due" "Name" "due" "Value" .Due "Label" (tr "field.due") "LabelKey" "field.due")}}
-{{template "components.form.time" (dict "ID" "at" "Name" "at" "Value" .At "Label" (tr "field.at") "LabelKey" "field.at")}}
-{{template "components.form.datetime" (dict "ID" "pin" "Name" "pin_at" "Value" .PinAt "Label" (tr "field.pin_at") "LabelKey" "field.pin_at")}}
+{{template "components.form.date" (dict
+  "ID" "due" "Name" "due" "Value" .Due "Min" .Today "Max" .EndOfYear
+  "Label" (tr "field.due") "LabelKey" "field.due")}}
+
+{{template "components.form.time" (dict
+  "ID" "at" "Name" "at" "Value" .At
+  "Label" (tr "field.at") "LabelKey" "field.at")}}
+
+{{template "components.form.datetime" (dict
+  "ID" "pin" "Name" "pin_at" "Value" .PinAt
+  "Label" (tr "field.pin_at") "LabelKey" "field.pin_at")}}
+
+{{template "components.form.month" (dict
+  "ID" "period" "Name" "period" "Value" .Period
+  "Label" (tr "field.period") "LabelKey" "field.period")}}
 ```
 
-日期/时间使用浏览器原生控件，移动端与显示缩放都由浏览器处理。`form.datetime` 对应
-`datetime-local`，置顶公告的时间段用它。
+可见字段是文本框，提交值保持 ISO 风格；日历、时/分列与月份网格由 `ydDateTime` 渲染，月名与周名来自
+`ui.months` / `ui.weekdays` 目录。`Min`/`Max` 会禁用越界日期。
 
-### 4.4 组合框
+### 4.3 选择器：单选、树选、级联与穿梭
+
+```html
+{{template "components.form.select" (dict
+  "ID" "role" "Name" "role" "Label" (tr "field.role") "LabelKey" "field.role"
+  "Options" .RoleOptions)}}
+
+{{template "components.form.tree-select" (dict
+  "ID" "node" "Name" "node" "Label" (tr "field.node") "LabelKey" "field.node"
+  "Options" .NodeOptions)}}
+
+{{template "components.form.cascader" (dict
+  "ID" "region" "Name" "region" "Label" (tr "field.region") "LabelKey" "field.region"
+  "Levels" .RegionLevels)}}
+
+{{template "components.form.transfer" (dict
+  "ID" "roles" "Name" "roles" "Action" .SaveURL "Method" "post"
+  "SourceName" "source" "TargetName" "target"
+  "SourceLabel" (tr "transfer.available") "SourceLabelKey" "transfer.available"
+  "TargetLabel" (tr "transfer.selected") "TargetLabelKey" "transfer.selected"
+  "SourceItems" .Available "TargetItems" .Selected)}}
+```
+
+`form.select` 保留真实 `<select>` 作无脚本回退；Alpine 启动后显示自定义列表框。树选择的层级缩进由
+调用方通过 `Prefix` 给出。穿梭框的两个提交按钮携带 `direction=add|remove`。
+
+### 4.4 组合框、标签与提及
 
 ```html
 {{template "components.form.combobox" (dict
@@ -498,51 +582,53 @@
   "Label" (tr "field.role") "LabelKey" "field.role"
   "Placeholder" (tr "field.role_placeholder") "PlaceholderKey" "field.role_placeholder"
   "Options" .RoleOptions)}}
+
+{{template "components.form.tags" (dict
+  "ID" "tags" "Name" "tags" "Value" .Tags
+  "Label" (tr "field.tags") "LabelKey" "field.tags" "AddKey" "ui.add")}}
+
+{{template "components.form.mention" (dict
+  "ID" "mention" "Name" "mention" "Value" .Draft
+  "Label" (tr "field.mention") "LabelKey" "field.mention"
+  "Placeholder" (tr "field.mention_placeholder") "PlaceholderKey" "field.mention_placeholder"
+  "Options" .MemberOptions)}}
 ```
 
-选项由服务端渲染，输入时只过滤 DOM；选中值写入隐藏字段。大数据集请直接用 htmx 搜索端点，
-不要把上万条选项一次渲染进页面。
-
-### 4.5 Markdown 编辑器
+### 4.5 上传与 Markdown 编辑器
 
 ```html
+{{template "components.form.file" (dict
+  "ID" "attachment" "Name" "attachment"
+  "Label" (tr "field.attachment") "LabelKey" "field.attachment"
+  "Hint" (tr "field.attachment_hint") "HintKey" "field.attachment_hint")}}
+
 {{template "components.form.editor" (dict
   "ID" "body" "Name" "body" "Value" .Body "Rows" 10
   "Label" (tr "field.body") "LabelKey" "field.body")}}
 ```
 
-页面需额外引入 EasyMDE 的样式与脚本（消息中心已经这样做）；未引入时 `textarea` 保留，表单仍可提交。
-编辑器初始化后由 `ydEditor` 在 `yd:theme` 事件上切换暗色类。
+页面需为编辑器引入 EasyMDE 的样式与脚本；未引入时 `textarea` 保留，表单仍可提交。
+工具栏图标由 `partials/editor-icons.html` 的隐藏 Lucide 调色板提供（`yd-ui.js` 在运行时克隆进按钮），
+不加载 EasyMDE 默认的 Font Awesome 图标字体，也不请求 CDN。
 
-### 4.6 开关、评分、滑块
+### 4.6 动作、搜索与表单布局
 
-- 开关：`components.form.toggle`（纯 CSS）。
-- 评分：`components.display.rate`（原生 radio）。
-- 滑块：`components.display.slider`（原生 range + `ydSlider`）。
+```html
+{{template "components.form.actions" (dict
+  "SubmitKey" "action.save" "CancelKey" "action.cancel" "CancelHref" .BackURL)}}
 
----
+{{template "components.form.search" (dict
+  "ID" "search" "Action" .ListURL "Name" "q"
+  "Placeholder" (tr "action.search") "PlaceholderKey" "action.search")}}
+```
 
-## 5. 重型组件与替代方案
-
-以下组件在参考库中常见，但在 htmx 服务端渲染模型里需要额外权衡。**没有实现不是遗漏，而是明确的边界**：
-
-| 组件 | 为什么暂不内置 | YD 推荐做法 |
-|---|---|---|
-| Transfer | 双列表需要客户端维护两份集合与拖拽状态，与服务端分页模型冲突 | 用两个 `<select multiple>` + 服务端“加入/移出”按钮；每次动作返回刷新后的片段 |
-| ImagePreview / Lightbox | 需要遮罩、缩放、键盘导航与图片尺寸计算，且与抽屉/对话框共享焦点管理 | 用原生 `<dialog>` + `<img>` 写一个页面级片段；不要引入 lightbox 脚本库 |
-| TreeSelect | 通用树选择需要异步展开、搜索与回填，且与权限树耦合 | 中国地址用 `cn.region`；其它场景用 `navigation.tree` + 一个普通 select 回填，或 htmx 搜索端点 |
-| QRCode | 需要纯 Go QR 编码器或新增第三方依赖，违反依赖克制 | 服务端生成 PNG/SVG 后由 `display.figure` 展示；编码器放业务层 |
-| Calendar / Scheduler | 完整月历涉及日期数学、事件布局与时区 | 用 `components.form.date` + 服务端月历片段（htmx 上一月/下一月）；日程用列表/时间线 |
-| VirtualList | 客户端虚拟滚动会引入第二套数据状态 | htmx 分页 + `hx-trigger="revealed"` 无限加载；每页 20–50 条 |
-| RichTextEditor | 通用富文本需要编辑器引擎 | `components.form.editor` + EasyMDE（已 vendored）；不引入 Node 构建 |
-| Kanban / Gantt / Flowchart | 业务画布，不是 UI 原语 | `yd gen` 生成基础 CRUD 后按业务实现；拖动排序走 htmx |
-| SignaturePad / Map / AI Chat | 依赖 Canvas、地图 SDK 或模型服务 | 业务集成；消息传输可复用 SSE/WS |
+`form.search` 自带 `<form>`，不能嵌套在另一个表单里。
 
 ---
 
-## 6. 图表用法
+## 5. 图表用法
 
-### 6.1 调用一览
+### 5.1 调用一览
 
 | 函数 | 签名要点 | 说明 |
 |---|---|---|
@@ -556,14 +642,14 @@
 | `chart.Gauge` | `(value, max, opts)` | 半圆仪表盘 |
 | `chart.Radar` | `(axes, series, opts)` | 多维评分 |
 | `chart.Composed` | `(bars, lines, opts)` | 柱 + 线同图 |
-| `chart.Heatmap` | `(cells, xLabels, yLabels, opts)` | 矩阵热力，透明度编码数值 |
+| `chart.Heatmap` | `(cells, xLabels, yLabels, opts)` | 矩阵热力 |
 | `chart.ProgressRing` | `(value, max, opts)` | 环形完成度 |
 | `chart.Legend` | `(series)` | 折线/柱/面积图例 |
 | `chart.SliceLegend` | `(points)` | 饼图/环形图图例 |
 
 所有 `Options` 零值可用；`Width`/`Height` 是 `viewBox` 尺寸，CSS 负责流式缩放。
 
-### 6.2 控制器渲染
+### 5.2 控制器渲染
 
 ```go
 series := []chart.Series{
@@ -580,14 +666,9 @@ slices := []chart.Point{
 }
 data["DonutSVG"] = template.HTML(chart.Donut(slices, chart.Options{Title: "流量来源"}))
 data["DonutLegend"] = chart.SliceLegend(slices)
-
-data["SparkSVG"] = template.HTML(chart.Sparkline([]float64{12, 18, 15, 24, 28}, chart.Options{Width: 160, Height: 40}))
 ```
 
-饼图/环形图的图例用 `chart.SliceLegend(points)`；`Sparkline`、`Gauge`、`ProgressRing` 没有系列图例。
-`chart.ProgressRing(72, 100, ...)` 与 `chart.Gauge(72, 100, ...)` 都接受 `0..max` 的完成值。
-
-### 6.3 模板包装
+### 5.3 模板包装
 
 ```html
 {{template "components.chart" (dict
@@ -606,7 +687,7 @@ KPI + 迷你折线：
   "Spark" .SparkSVG)}}
 ```
 
-### 6.4 图表选择
+### 5.4 图表选择
 
 | 目的 | 用哪个 |
 |---|---|
@@ -619,18 +700,17 @@ KPI + 迷你折线：
 | KPI 卡片 | `Sparkline` + `data.kpi` |
 | 活跃度矩阵 | `Heatmap` |
 
-### 6.5 图表约束
+### 5.5 图表约束
 
 - 纯 SVG，无图表库、无 CDN；颜色来自 `yd-chart__series--1..8` 主题类。
 - 每个图形带 `<title>`，悬停与读屏都能读到标签与数值。
 - 空数据渲染为空图（可传 `EmptyText`），绝不输出 `NaN`/`Inf`。
-- 数值轴默认从 0 起；需要截断时显式传 `YMin`/`YMax`，并在说明里写明。
-- 图表在服务端生成，因此 htmx 换入片段即完成更新；不需要 `initChart()`。
-- 图例的系列类必须放在色块元素上（`components.chart` 已处理），否则色块只能继承正文色。
+- 数值轴默认从 0 起；需要截断时显式传 `YMin`/`YMax`。
+- 图表在服务端生成，htmx 换入片段即完成更新，不需要 `initChart()`。
 
 ---
 
-## 7. 组件选择速查
+## 6. 组件选择速查
 
 | 需求 | 首选 | 不要用 |
 |---|---|---|
@@ -639,35 +719,35 @@ KPI + 迷你折线：
 | 新增/编辑 | 右侧抽屉 `#yd-drawer` | 新开页面（除非流程很长） |
 | 危险操作 | `data-yd-confirm` / `feedback.popconfirm` | 浏览器 `confirm()` |
 | 空列表 | `layout.empty` + 下一步操作 | 只写“暂无数据” |
-| 加载 | `spinner`（局部）/ `skeleton`（首屏）/ `#yd-progress`（全局） | 全屏遮罩 |
+| 加载 | `spinner` / `skeleton` / `#yd-progress` | 全屏遮罩 |
 | 表单校验 | `hx-status:422` + `#errors` | `alert()` |
 | 长文本 | `display.ellipsis` / `scroll-area` | 让表格撑破布局 |
-| 层级数据 | `navigation.tree` | 缩进 div 拼接 |
+| 层级数据 | `navigation.tree` / `form.tree-select` | 缩进 div 拼接 |
 | 多步流程 | `navigation.steps` | 只靠按钮文案 |
+| 日期/时间 | `form.date` / `form.time` / `form.datetime` | 原生日期/时间控件 |
+| 下拉选择 | `form.select` / `form.combobox` | 未加样式的原生 `<select>` |
 | 趋势 | `chart.Line` / `chart.Area` | 用 emoji 或纯数字 |
 | 占比 | `chart.Pie` / `chart.Donut` | 饼图超过 6 类 |
 
 ---
 
-## 8. 最佳实践
+## 7. 最佳实践
 
-1. **先服务端，后脚本**：能在模板里渲染的，不要等 Alpine 再生成；能看到的内容必须已经在 HTML 里。
-2. **一个页面一个错误槽位**：抽屉内用 `#yd-drawer-errors`，页面级用 `#errors`；不要两套并存。
+1. **先服务端，后脚本**：能在模板里渲染的，不要等 Alpine 再生成。
+2. **一个页面一个错误槽位**：抽屉内用 `#yd-drawer-errors`，页面级用 `#errors`。
 3. **表单字段不复制**：可见输入框就是提交字段；隐藏字段只用于 OTP/Tags/Combobox 这类需要汇总的值。
 4. **列表操作用菜单**：行内动作超过 2 个就收进 `details.yd-menu` 或 `navigation.dropdown`。
-5. **分页与筛选留在服务端**：不要把全量数据塞进 Alpine；搜索用 `hx-trigger="input changed delay:250ms"`。
-6. **图表由控制器生成**：模板只包 `components.chart`；不要把坐标计算散进模板。
+5. **分页与筛选留在服务端**：不要把全量数据塞进 Alpine。
+6. **图表由控制器生成**：模板只包 `components.chart`。
 7. **颜色只来自令牌**：图表、徽标、状态都一样；新增颜色先加令牌。
 8. **主题与缩放一起验收**：每个新组件至少在明/暗、390px 与 1366px@125% 下看一次。
 9. **可访问性不是附加项**：标签、焦点、`aria-invalid`、`role=alert`、`aria-hidden` 与键盘路径在组件层解决。
-10. **i18n 是原生能力**：组件同时接受渲染好的 `Label`/`Hint`/`Error` 与对应的 `*Key`；**只给键也能渲染**，
-    这是控制器省略重复文案的依据。新增固定文案必须同时写入框架与脚手架的 `zh-CN` / `en` 两份目录，
-    并由 `TestComponentsRenderFromI18nKeysOnly` 与 `TestGeneratedI18nCatalogueCoversEveryTrKey` 守卫。
+10. **i18n 是原生能力**：组件同时接受渲染好的 `Label`/`Hint`/`Error` 与对应的 `*Key`；只给键也能渲染。
 11. **不新增第三方 UI/图表库**：需要新能力时先在 `ui.css` / `yd-ui.js` / `http/chart` 里补一个通用实现。
 
 ---
 
-## 9. 测试与维护
+## 8. 测试与维护
 
 ```bash
 go test ./web ./http/chart -count=1       # 组件模板、图表几何、CSS/i18n 守卫
@@ -679,13 +759,9 @@ go run ./cmd/yd assets verify --offline   # 离线资产校验
 
 新增组件时同步更新：
 
-1. 本文件的矩阵与用法；
+1. 本文件的清单与用法；
 2. `web/components_test.go` 的 fixture；
 3. 需要的 `yd-ui.test.mjs` 用例；
 4. `web/i18n/{zh-CN,en}.yaml` 与脚手架同名目录；
-5. `yd assets minify` 产物。
-
----
-
-> 组件库的价值不在于「数量对齐」，而在于每个组件都有明确的适用场景、失败方式与替代方案。
-> 本文件把已实现与未实现分开写，是为了让下一次扩展有据可依，而不是把半成品伪装成完成。
+5. `yd assets minify` 产物；
+6. 生成项目的 `/ui-kit` 页面。

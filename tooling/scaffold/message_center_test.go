@@ -864,7 +864,8 @@ func TestGeneratedAppMessageCentre(t *testing.T) {
 	})
 
 	t.Run("消息中心页面", func(t *testing.T) {
-		resp, body := probeGet(t, admin, base+"/messages", adminToken)
+		pageClient := newProbeClient(t, httpTimeout)
+		resp, body := probeGet(t, pageClient, base+"/messages", adminToken)
 		requireProbeStatus(t, resp, body, http.StatusOK, "打开消息中心")
 		for _, want := range []string{
 			`id="yd-msg-app"`,
@@ -886,6 +887,10 @@ func TestGeneratedAppMessageCentre(t *testing.T) {
 			`yd-user-menu__item--unread`,
 			`href="/messages?folder=unread"`,
 			`href="/account"`,
+			`id="yd-message-folder-menu"`,
+			`id="yd-message-type-menu"`,
+			`id="yd-message-tag-menu"`,
+			`aria-haspopup="listbox"`,
 		} {
 			if !strings.Contains(body, want) {
 				t.Errorf("消息中心页面缺少 %q", want)
@@ -911,6 +916,7 @@ func TestGeneratedAppMessageCentre(t *testing.T) {
 			`id="yd-message-thread-body"`,
 			`id="yd-msg-composer-form"`,
 			`id="yd-msg-composer-body"`,
+			`id="yd-msg-composer-type-menu"`,
 			`action="/messages"`,
 		} {
 			if !strings.Contains(body, want) {
@@ -940,6 +946,9 @@ func TestGeneratedAppMessageCentre(t *testing.T) {
 
 		resp, body = probeGet(t, admin, base+"/mgr/messages", adminToken)
 		requireProbeStatus(t, resp, body, http.StatusOK, "打开消息治理")
+		if !strings.Contains(body, `id="yd-admin-folder-menu"`) {
+			t.Errorf("消息治理筛选缺少统一下拉菜单:\n%s", body)
+		}
 		if !strings.Contains(body, `data-yd-nav="mgr-messages" aria-current="page"`) {
 			t.Errorf("消息治理页未高亮治理菜单:\n%s", body)
 		}

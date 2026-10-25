@@ -96,15 +96,11 @@
       </label>
       {{ end }}
     </fieldset>
-    <div class="yd-field" data-yd-field="default_tenant">
-      <label class="yd-field__label" for="yd-drawer-default-tenant">{{ tr "tenant.default" }}</label>
-      <select class="yd-select" id="yd-drawer-default-tenant" name="default_tenant">
-        {{ range .AllTenants }}
-        <option value="{{ .ID }}"{{ if eq .ID $target.DefaultTenantID }} selected{{ end }}>{{ .Display }}</option>
-        {{ end }}
-      </select>
-      <p class="yd-field__hint">{{ tr "tenant.default_hint" }}</p>
-    </div>
+    {{template "components.form.select" (dict
+      "ID" "yd-drawer-default-tenant" "Name" "default_tenant"
+      "Label" (tr "tenant.default") "LabelKey" "tenant.default"
+      "Hint" (tr "tenant.default_hint") "HintKey" "tenant.default_hint"
+      "Options" .TenantOptions)}}
     {{template "components.form.actions" (dict
       "SubmitLabel" (tr "ui.save") "SubmitKey" "ui.save"
       "CancelLabel" (tr "ui.cancel") "CancelKey" "ui.cancel")}}

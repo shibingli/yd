@@ -1132,6 +1132,12 @@
     position: relative;
   }
 
+  .yd-tooltip {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.375rem;
+  }
+
   [data-yd-tooltip]::after {
     content: attr(data-yd-tooltip);
     position: absolute;
@@ -1428,6 +1434,15 @@
   .yd-table__td--wrap {
     white-space: normal;
     overflow-wrap: anywhere;
+  }
+
+  /* Selection column: one narrow, centred checkbox lane; the master checkbox lives in the header. |
+     选择列：一条窄而居中的复选框通道，全选框位于表头。 */
+  .yd-table__th--select,
+  .yd-table__td--select {
+    width: 2.75rem;
+    padding-inline: 0.5rem;
+    text-align: center;
   }
 
   .yd-table__wrap {
@@ -3592,5 +3607,1592 @@
     .yd-chart__slice {
       stroke: Canvas;
     }
+  }
+}
+
+/* ================================================================================================
+   Advanced primitives | 进阶原语
+   Transfer, calendar, file tree, cells, attachments, conversation surfaces, trace, action bar,
+   hover card, virtual list, image viewer, questionnaire, tab bar, filter bar and action sheet.
+   Every colour below comes from a semantic token so both themes keep working without a second table.
+   传输框、日历、文件树、设置行、附件、对话界面、轨迹、操作条、悬停卡、虚拟列表、图片查看器、
+   问卷、底部导航、筛选条与操作面板。以下每个颜色都来自语义令牌，因此两套主题无需第二张表。
+   ================================================================================================ */
+@layer components {
+  /* ---------------------------------------------------------------- advanced forms | 进阶表单 */
+
+  .yd-transfer {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+    gap: 1rem;
+    align-items: start;
+    margin: 0;
+    padding: 0;
+    border: 0;
+  }
+
+  .yd-transfer__panel {
+    min-width: 0;
+    margin: 0;
+    padding: 0.75rem;
+    border: 1px solid var(--color-border-subtle);
+    border-radius: var(--radius-control);
+    background-color: var(--color-surface);
+  }
+
+  .yd-transfer__list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.375rem;
+    max-height: 16rem;
+    margin-top: 0.5rem;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+  }
+
+  .yd-transfer__actions {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    align-self: center;
+  }
+
+  .yd-transfer__empty {
+    padding: 0.5rem;
+    color: var(--color-content-muted);
+    font-size: 0.8125rem;
+    text-align: center;
+  }
+
+  .yd-tree-select {
+    min-width: 12rem;
+  }
+
+  .yd-cascader {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.75rem;
+    min-width: 0;
+    margin: 0;
+    padding: 0;
+    border: 0;
+  }
+
+  .yd-cascader__level {
+    display: flex;
+    flex: 1 1 10rem;
+    flex-direction: column;
+    gap: 0.25rem;
+    min-width: 10rem;
+  }
+
+  .yd-mention {
+    min-width: 0;
+  }
+
+  .yd-time-range {
+    margin: 0;
+    padding: 0;
+    border: 0;
+  }
+
+  @media (max-width: 48rem) {
+    .yd-transfer {
+      grid-template-columns: minmax(0, 1fr);
+    }
+
+    .yd-transfer__actions {
+      flex-direction: row;
+      justify-content: center;
+    }
+  }
+
+  /* ---------------------------------------------------------------- calendar | 日历 */
+
+  .yd-calendar {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+    margin: 0;
+    min-width: 0;
+  }
+
+  .yd-calendar__toolbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+  }
+
+  .yd-calendar__heading {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.125rem;
+    min-width: 0;
+  }
+
+  .yd-calendar__month {
+    font-weight: 600;
+  }
+
+  .yd-calendar__today {
+    color: var(--color-accent);
+    font-size: 0.75rem;
+  }
+
+  .yd-calendar__grid {
+    width: 100%;
+    border-collapse: collapse;
+    table-layout: fixed;
+  }
+
+  .yd-calendar__weekday {
+    padding: 0.375rem;
+    color: var(--color-content-muted);
+    font-size: 0.6875rem;
+    font-weight: 600;
+    text-align: center;
+  }
+
+  .yd-calendar__day {
+    min-height: 4rem;
+    padding: 0.375rem;
+    border-top: 1px solid var(--color-border-subtle);
+    vertical-align: top;
+  }
+
+  .yd-calendar__day--outside {
+    color: var(--color-content-muted);
+    opacity: 0.6;
+  }
+
+  .yd-calendar__day--today {
+    background-color: var(--color-accent-soft);
+  }
+
+  .yd-calendar__day--selected {
+    outline: 2px solid var(--color-accent);
+    outline-offset: -2px;
+  }
+
+  .yd-calendar__number {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 1.5rem;
+    height: 1.5rem;
+    border-radius: 999px;
+    font-size: 0.8125rem;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .yd-calendar__events {
+    display: flex;
+    flex-direction: column;
+    gap: 0.125rem;
+    margin: 0.25rem 0 0;
+    padding: 0;
+    list-style: none;
+  }
+
+  .yd-calendar__event {
+    display: block;
+    overflow: hidden;
+    color: var(--color-accent);
+    font-size: 0.6875rem;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .yd-calendar__event--success {
+    color: var(--color-success);
+  }
+
+  .yd-calendar__event--warning {
+    color: var(--color-warning);
+  }
+
+  .yd-calendar__event--danger {
+    color: var(--color-danger);
+  }
+
+  .yd-calendar__event--muted {
+    color: var(--color-content-muted);
+  }
+
+  /* ---------------------------------------------------------------- tree and cells | 树与设置行 */
+
+  .yd-file-tree {
+    min-width: 0;
+  }
+
+  .yd-tree__icon {
+    display: inline-flex;
+    flex: none;
+    align-items: center;
+    justify-content: center;
+    width: 1rem;
+    height: 1rem;
+    color: var(--color-content-muted);
+  }
+
+  .yd-cell {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    padding: 0.75rem 0;
+    border-bottom: 1px solid var(--color-border-subtle);
+    color: inherit;
+    text-decoration: none;
+  }
+
+  .yd-cell:last-child {
+    border-bottom: 0;
+  }
+
+  .yd-cell__body {
+    display: flex;
+    flex: 1 1 auto;
+    flex-direction: column;
+    gap: 0.125rem;
+    min-width: 0;
+  }
+
+  .yd-cell__label {
+    font-weight: 500;
+  }
+
+  .yd-cell__hint {
+    color: var(--color-content-muted);
+    font-size: 0.8125rem;
+  }
+
+  .yd-cell__control {
+    display: flex;
+    flex: none;
+    align-items: center;
+    gap: 0.5rem;
+  }
+
+  .yd-cell--danger .yd-cell__label {
+    color: var(--color-danger);
+  }
+
+  .yd-cell--disabled {
+    opacity: 0.55;
+    pointer-events: none;
+  }
+
+  /* ---------------------------------------------------------------- attachments | 附件 */
+
+  .yd-attachment {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    min-width: 0;
+    padding: 0.625rem 0.75rem;
+    border: 1px solid var(--color-border-subtle);
+    border-radius: var(--radius-control);
+    background-color: var(--color-surface);
+  }
+
+  .yd-attachment--vertical {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .yd-attachment--error {
+    border-color: var(--color-danger);
+  }
+
+  .yd-attachment__media {
+    display: flex;
+    flex: none;
+    align-items: center;
+    justify-content: center;
+    width: 2.5rem;
+    height: 2.5rem;
+    overflow: hidden;
+    border-radius: var(--radius-control);
+    background-color: var(--color-surface-muted);
+    color: var(--color-content-muted);
+  }
+
+  .yd-attachment--vertical .yd-attachment__media {
+    width: 100%;
+    height: 8rem;
+  }
+
+  .yd-attachment__body {
+    display: flex;
+    flex: 1 1 auto;
+    flex-direction: column;
+    gap: 0.125rem;
+    min-width: 0;
+  }
+
+  .yd-attachment__title {
+    overflow: hidden;
+    font-weight: 500;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .yd-attachment__description {
+    color: var(--color-content-muted);
+    font-size: 0.75rem;
+  }
+
+  .yd-attachment__actions {
+    display: flex;
+    flex: none;
+    align-items: center;
+    gap: 0.25rem;
+  }
+
+  .yd-attachment--uploading .yd-attachment__title,
+  .yd-attachment--processing .yd-attachment__title {
+    background-image: linear-gradient(90deg, var(--color-content-muted), var(--color-content), var(--color-content-muted));
+    background-size: 200% 100%;
+    background-clip: text;
+    color: transparent;
+    animation: yd-shimmer 1.4s linear infinite;
+  }
+
+  /* ---------------------------------------------------------------- conversation | 对话 */
+
+  .yd-bubble {
+    display: flex;
+    flex-direction: column;
+    align-self: flex-start;
+    gap: 0.25rem;
+    min-width: 0;
+    max-width: 80%;
+  }
+
+  .yd-bubble--start {
+    align-self: flex-start;
+  }
+
+  .yd-bubble--end {
+    align-self: flex-end;
+  }
+
+  .yd-bubble__content {
+    padding: 0.5rem 0.75rem;
+    border-radius: var(--radius-control);
+    background-color: var(--color-surface-muted);
+    color: var(--color-content);
+    overflow-wrap: anywhere;
+  }
+
+  .yd-bubble--secondary .yd-bubble__content {
+    background-color: var(--color-accent-soft);
+  }
+
+  .yd-bubble--muted .yd-bubble__content {
+    background-color: var(--color-surface);
+    border: 1px solid var(--color-border-subtle);
+    color: var(--color-content-muted);
+  }
+
+  .yd-bubble--tinted .yd-bubble__content {
+    background-color: var(--color-info-soft);
+    color: var(--color-info);
+  }
+
+  .yd-bubble--outline .yd-bubble__content {
+    background-color: transparent;
+    border: 1px solid var(--color-border);
+  }
+
+  .yd-bubble--ghost .yd-bubble__content {
+    max-width: none;
+    padding-inline: 0;
+    background-color: transparent;
+  }
+
+  .yd-bubble--destructive .yd-bubble__content {
+    background-color: var(--color-danger-soft);
+    color: var(--color-danger);
+  }
+
+  .yd-bubble__reactions {
+    display: flex;
+    gap: 0.25rem;
+  }
+
+  .yd-message {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.625rem;
+    min-width: 0;
+  }
+
+  .yd-message--end {
+    flex-direction: row-reverse;
+  }
+
+  .yd-message__avatar {
+    flex: none;
+  }
+
+  .yd-message__body {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+    min-width: 0;
+    max-width: min(80%, 42rem);
+  }
+
+  .yd-message--end .yd-message__body {
+    align-items: flex-end;
+  }
+
+  .yd-message__header {
+    display: flex;
+    align-items: baseline;
+    gap: 0.5rem;
+    color: var(--color-content-muted);
+    font-size: 0.75rem;
+  }
+
+  .yd-message__name {
+    color: var(--color-content);
+    font-weight: 600;
+  }
+
+  .yd-message__time {
+    font-variant-numeric: tabular-nums;
+  }
+
+  .yd-message__footer {
+    display: flex;
+    gap: 0.25rem;
+  }
+
+  .yd-message--error .yd-bubble__content {
+    border: 1px solid var(--color-danger);
+  }
+
+  .yd-message .yd-bubble {
+    max-width: 100%;
+  }
+
+  .yd-prompt {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    padding: 0.75rem;
+    border: 1px solid var(--color-border-subtle);
+    border-radius: var(--radius-control);
+    background-color: var(--color-surface);
+  }
+
+  .yd-prompt__input {
+    min-height: 3rem;
+    resize: vertical;
+  }
+
+  .yd-prompt__attachments {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+  }
+
+  .yd-prompt__actions {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 0.5rem;
+  }
+
+  .yd-trend-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+    padding: 0.125rem 0.5rem;
+    border-radius: 999px;
+    background-color: var(--color-surface-muted);
+    color: var(--color-content-muted);
+    font-size: 0.75rem;
+    font-weight: 600;
+  }
+
+  .yd-trend-chip--success {
+    background-color: var(--color-success-soft);
+    color: var(--color-success);
+  }
+
+  .yd-trend-chip--danger {
+    background-color: var(--color-danger-soft);
+    color: var(--color-danger);
+  }
+
+  .yd-trend-chip--muted {
+    background-color: var(--color-surface-muted);
+    color: var(--color-content-muted);
+  }
+
+  .yd-trend-chip__icon {
+    display: inline-flex;
+    width: 0.875rem;
+    height: 0.875rem;
+  }
+
+  .yd-trend-chip__value {
+    font-variant-numeric: tabular-nums;
+  }
+
+  .yd-trend-chip__label {
+    font-weight: 400;
+    opacity: 0.85;
+  }
+
+  .yd-shimmer {
+    display: inline-block;
+    background-image: linear-gradient(90deg, var(--color-content-muted), var(--color-content), var(--color-content-muted));
+    background-size: 200% 100%;
+    background-clip: text;
+    color: transparent;
+    animation: yd-shimmer 1.4s linear infinite;
+  }
+
+  @keyframes yd-shimmer {
+    to {
+      background-position: -200% 0;
+    }
+  }
+
+  /* ---------------------------------------------------------------- trace and markers | 轨迹与标记 */
+
+  .yd-trace {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+
+  .yd-trace__line {
+    padding-left: 0.75rem;
+    border-left: 2px solid var(--color-border-subtle);
+  }
+
+  .yd-trace__line--running {
+    border-left-color: var(--color-accent);
+  }
+
+  .yd-trace__line--error {
+    border-left-color: var(--color-danger);
+  }
+
+  .yd-trace__line--pending {
+    opacity: 0.65;
+  }
+
+  .yd-trace__summary,
+  .yd-trace__link,
+  .yd-trace__text {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    min-width: 0;
+  }
+
+  .yd-trace__summary {
+    cursor: pointer;
+  }
+
+  .yd-trace__icon {
+    display: inline-flex;
+    flex: none;
+    width: 1rem;
+    height: 1rem;
+    color: var(--color-content-muted);
+  }
+
+  .yd-trace__title {
+    overflow: hidden;
+    font-weight: 500;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .yd-trace__line--running .yd-trace__title {
+    background-image: linear-gradient(90deg, var(--color-content-muted), var(--color-content), var(--color-content-muted));
+    background-size: 200% 100%;
+    background-clip: text;
+    color: transparent;
+    animation: yd-shimmer 1.4s linear infinite;
+  }
+
+  .yd-trace__description {
+    color: var(--color-content-muted);
+    font-size: 0.75rem;
+  }
+
+  .yd-trace__details {
+    min-width: 0;
+  }
+
+  .yd-trace__detail {
+    padding: 0.5rem 0 0.5rem 1.5rem;
+    color: var(--color-content-muted);
+    font-size: 0.8125rem;
+  }
+
+  .yd-marker {
+    display: flex;
+    align-items: center;
+    gap: 0.375rem;
+    color: var(--color-content-muted);
+    font-size: 0.75rem;
+  }
+
+  .yd-marker--border {
+    padding-bottom: 0.375rem;
+    border-bottom: 1px solid var(--color-border-subtle);
+  }
+
+  .yd-marker--separator {
+    justify-content: center;
+  }
+
+  .yd-marker--separator::before,
+  .yd-marker--separator::after {
+    flex: 1 1 auto;
+    height: 1px;
+    background-color: var(--color-border-subtle);
+    content: "";
+  }
+
+  .yd-marker__icon {
+    display: inline-flex;
+    flex: none;
+    width: 0.875rem;
+    height: 0.875rem;
+  }
+
+  .yd-marker__text {
+    min-width: 0;
+  }
+
+  .yd-qrcode {
+    display: inline-flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    margin: 0;
+  }
+
+  .yd-qrcode__media {
+    display: block;
+    width: 10rem;
+    height: 10rem;
+    padding: 0.5rem;
+    border: 1px solid var(--color-border-subtle);
+    border-radius: var(--radius-control);
+    background-color: var(--color-surface);
+    object-fit: contain;
+  }
+
+  .yd-qrcode--sm .yd-qrcode__media {
+    width: 6rem;
+    height: 6rem;
+  }
+
+  .yd-qrcode--lg .yd-qrcode__media {
+    width: 14rem;
+    height: 14rem;
+  }
+
+  .yd-qrcode__caption {
+    max-width: 16rem;
+    color: var(--color-content-muted);
+    font-size: 0.75rem;
+  }
+
+  .yd-message-scroller {
+    max-height: 24rem;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    scroll-behavior: smooth;
+  }
+
+  .yd-message-scroller--sm {
+    max-height: 16rem;
+  }
+
+  .yd-message-scroller--lg {
+    max-height: 36rem;
+  }
+
+  .yd-kanban {
+    display: flex;
+    gap: 0.75rem;
+    overflow-x: auto;
+    padding-bottom: 0.25rem;
+    overscroll-behavior-x: contain;
+  }
+
+  .yd-kanban__column {
+    display: flex;
+    flex: 0 0 18rem;
+    flex-direction: column;
+    gap: 0.5rem;
+    min-width: 0;
+    padding: 0.75rem;
+    border: 1px solid var(--color-border-subtle);
+    border-radius: var(--radius-control);
+    background-color: var(--color-surface-muted);
+  }
+
+  .yd-kanban__header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem;
+  }
+
+  .yd-kanban__title {
+    font-size: 0.8125rem;
+    font-weight: 600;
+  }
+
+  .yd-kanban__cards {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+  }
+
+  .yd-kanban__card {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+    padding: 0.625rem;
+    border: 1px solid var(--color-border-subtle);
+    border-radius: var(--radius-control);
+    background-color: var(--color-surface);
+    box-shadow: var(--shadow-card);
+  }
+
+  .yd-kanban__card-title {
+    font-weight: 500;
+  }
+
+  .yd-kanban__card-text {
+    color: var(--color-content-muted);
+    font-size: 0.8125rem;
+  }
+
+  .yd-kanban__card-meta {
+    color: var(--color-content-muted);
+    font-size: 0.6875rem;
+  }
+
+  .yd-kanban__card-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.25rem;
+    margin-top: 0.25rem;
+  }
+
+  /* ---------------------------------------------------------------- action bar, hover card, virtual list | 操作条、悬停卡、虚拟列表 */
+
+  .yd-action-bar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+    padding: 0.5rem 0.75rem;
+    border: 1px solid var(--color-border-subtle);
+    border-radius: var(--radius-control);
+    background-color: var(--color-surface-raised);
+    box-shadow: var(--shadow-card);
+  }
+
+  .yd-action-bar--sticky {
+    position: sticky;
+    bottom: 1rem;
+    z-index: var(--z-sticky);
+  }
+
+  .yd-action-bar__count {
+    display: flex;
+    align-items: center;
+    gap: 0.375rem;
+    color: var(--color-content-muted);
+    font-size: 0.8125rem;
+  }
+
+  .yd-action-bar__actions {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.5rem;
+  }
+
+  .yd-action-bar__clear {
+    color: var(--color-accent);
+    font-size: 0.75rem;
+  }
+
+  .yd-hover-card {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+  }
+
+  .yd-hover-card__panel {
+    position: absolute;
+    top: calc(100% + 0.375rem);
+    left: 0;
+    z-index: var(--z-dropdown);
+    display: none;
+    min-width: 14rem;
+    max-width: 20rem;
+    padding: 0.75rem;
+    border: 1px solid var(--color-border-subtle);
+    border-radius: var(--radius-control);
+    background-color: var(--color-surface);
+    box-shadow: var(--shadow-card);
+    color: var(--color-content);
+  }
+
+  .yd-hover-card:hover .yd-hover-card__panel,
+  .yd-hover-card:focus-within .yd-hover-card__panel {
+    display: block;
+  }
+
+  .yd-hover-card__trigger {
+    display: inline-flex;
+  }
+
+  .yd-virtual-list {
+    max-height: 24rem;
+    overflow: auto;
+    overscroll-behavior: contain;
+  }
+
+  .yd-virtual-list--sm {
+    max-height: 16rem;
+  }
+
+  .yd-virtual-list--lg {
+    max-height: 32rem;
+  }
+
+  .yd-virtual-list > * {
+    content-visibility: auto;
+    contain-intrinsic-size: auto 3rem;
+  }
+
+  /* ---------------------------------------------------------------- image viewer | 图片查看器 */
+
+  .yd-image-viewer {
+    display: inline-flex;
+  }
+
+  .yd-image-viewer__trigger {
+    display: inline-flex;
+    overflow: hidden;
+    padding: 0;
+    border: 0;
+    border-radius: var(--radius-control);
+    background: none;
+    cursor: zoom-in;
+  }
+
+  .yd-image-viewer__trigger:focus-visible {
+    outline: 2px solid var(--color-focus-ring);
+    outline-offset: 2px;
+  }
+
+  .yd-image-viewer__thumb {
+    display: block;
+    max-width: 100%;
+    max-height: 12rem;
+    object-fit: cover;
+  }
+
+  .yd-image-viewer .yd-modal__panel {
+    max-width: min(96vw, 72rem);
+  }
+
+  .yd-image-viewer__close {
+    position: absolute;
+    top: 0.5rem;
+    right: 0.5rem;
+    z-index: 2;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 2rem;
+    height: 2rem;
+    border: 1px solid var(--color-border-subtle);
+    border-radius: 999px;
+    background-color: var(--color-surface);
+    color: var(--color-content);
+    cursor: pointer;
+  }
+
+  .yd-image-viewer__figure {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.75rem;
+    margin: 0;
+    padding: 1rem;
+  }
+
+  .yd-image-viewer__image {
+    max-width: 100%;
+    max-height: 75vh;
+    object-fit: contain;
+  }
+
+  .yd-image-viewer__caption {
+    color: var(--color-content-muted);
+    font-size: 0.8125rem;
+  }
+
+  /* ---------------------------------------------------------------- questionnaire | 问卷 */
+
+  .yd-questionnaire {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+  }
+
+  .yd-questionnaire__progress {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+  }
+
+  .yd-questionnaire__item {
+    margin: 0;
+    padding: 0.75rem;
+    border: 1px solid var(--color-border-subtle);
+    border-radius: var(--radius-control);
+    background-color: var(--color-surface);
+  }
+
+  .yd-questionnaire__prompt {
+    display: flex;
+    gap: 0.25rem;
+    padding: 0;
+    font-weight: 600;
+  }
+
+  .yd-questionnaire__required {
+    color: var(--color-danger);
+  }
+
+  .yd-questionnaire__choices {
+    display: flex;
+    flex-direction: column;
+    gap: 0.375rem;
+    margin-top: 0.5rem;
+  }
+
+  /* ---------------------------------------------------------------- bottom navigation | 底部导航 */
+
+  .yd-tabbar {
+    display: flex;
+    align-items: stretch;
+    justify-content: space-around;
+    gap: 0.25rem;
+    padding: 0.375rem;
+    border-top: 1px solid var(--color-border-subtle);
+    background-color: var(--color-surface);
+  }
+
+  .yd-tabbar__item {
+    position: relative;
+    display: flex;
+    flex: 1 1 0;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.125rem;
+    padding: 0.375rem 0.25rem;
+    border-radius: var(--radius-control);
+    color: var(--color-content-muted);
+    font-size: 0.6875rem;
+    text-decoration: none;
+  }
+
+  .yd-tabbar__item--active {
+    background-color: var(--color-accent-soft);
+    color: var(--color-accent);
+  }
+
+  .yd-tabbar__icon {
+    display: inline-flex;
+    width: 1.25rem;
+    height: 1.25rem;
+  }
+
+  .yd-tabbar__label {
+    font-weight: 500;
+  }
+
+  .yd-tabbar__item .yd-badge--count {
+    position: absolute;
+    top: 0.125rem;
+    right: 25%;
+  }
+
+  /* ---------------------------------------------------------------- filter bar | 筛选条 */
+
+  .yd-filter-bar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-end;
+    gap: 0.75rem;
+    padding: 0.75rem;
+    border: 1px solid var(--color-border-subtle);
+    border-radius: var(--radius-control);
+    background-color: var(--color-surface);
+  }
+
+  .yd-filter-bar__label {
+    align-self: center;
+    font-size: 0.8125rem;
+    font-weight: 600;
+  }
+
+  .yd-filter-bar__fields {
+    display: flex;
+    flex: 1 1 auto;
+    flex-wrap: wrap;
+    align-items: flex-end;
+    gap: 0.75rem;
+    min-width: 0;
+  }
+
+  .yd-filter-bar__actions {
+    display: flex;
+    flex: none;
+    align-items: center;
+    gap: 0.5rem;
+  }
+
+  /* ---------------------------------------------------------------- action sheet | 操作面板 */
+
+  .yd-action-sheet {
+    align-items: flex-end;
+  }
+
+  .yd-action-sheet .yd-modal__panel {
+    width: 100%;
+    max-width: 42rem;
+    margin-top: auto;
+    border-bottom-right-radius: 0;
+    border-bottom-left-radius: 0;
+  }
+
+  .yd-action-sheet__actions {
+    display: flex;
+    flex-direction: column;
+    gap: 0.375rem;
+    margin-top: 0.75rem;
+  }
+
+  .yd-action-sheet__action {
+    display: flex;
+    align-items: center;
+    width: 100%;
+    padding: 0.625rem 0.75rem;
+    border: 1px solid var(--color-border-subtle);
+    border-radius: var(--radius-control);
+    background-color: var(--color-surface);
+    color: var(--color-content);
+    font-size: 0.875rem;
+    text-align: left;
+    text-decoration: none;
+  }
+
+  .yd-action-sheet__action:hover {
+    background-color: var(--color-surface-muted);
+  }
+
+  .yd-action-sheet__action--danger {
+    color: var(--color-danger);
+  }
+
+  .yd-action-sheet__cancel {
+    width: 100%;
+    margin-top: 0.5rem;
+  }
+
+  @media (min-width: 48rem) {
+    .yd-action-sheet {
+      align-items: center;
+    }
+
+    .yd-action-sheet .yd-modal__panel {
+      border-radius: var(--radius-card);
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .yd-shimmer,
+    .yd-attachment--uploading .yd-attachment__title,
+    .yd-attachment--processing .yd-attachment__title,
+    .yd-trace__line--running .yd-trace__title {
+      background-image: none;
+      color: var(--color-content);
+      animation: none;
+    }
+  }
+}
+
+/* Pointer-driven primitives: emoji palette, signature pad, resizable split. | 指针驱动的原语：
+   表情面板、签名板、可拖拽分隔面板。 */
+@layer components {
+  .yd-emoji-picker {
+    display: flex;
+    flex-direction: column;
+    gap: 0.375rem;
+    min-width: 0;
+  }
+
+  .yd-emoji-picker__grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(2rem, 1fr));
+    gap: 0.25rem;
+    max-height: 12rem;
+    padding: 0.375rem;
+    overflow-y: auto;
+    border: 1px solid var(--color-border-subtle);
+    border-radius: var(--radius-control);
+    background-color: var(--color-surface);
+    overscroll-behavior: contain;
+  }
+
+  .yd-emoji-picker__item {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 2rem;
+    height: 2rem;
+    border: 0;
+    border-radius: var(--radius-control);
+    background: none;
+    font-size: 1.125rem;
+    line-height: 1;
+    cursor: pointer;
+  }
+
+  .yd-emoji-picker__item:hover,
+  .yd-emoji-picker__item:focus-visible {
+    background-color: var(--color-surface-muted);
+  }
+
+  .yd-signature {
+    min-width: 0;
+  }
+
+  .yd-signature__canvas {
+    width: 100%;
+    height: auto;
+    border: 1px dashed var(--color-border);
+    border-radius: var(--radius-control);
+    background-color: var(--color-field);
+    color: var(--color-content);
+    touch-action: none;
+  }
+
+  .yd-signature__actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 0.5rem;
+  }
+
+  .yd-resizable {
+    --yd-split: 50%;
+    display: grid;
+    grid-template-columns: var(--yd-split) 0.5rem minmax(0, 1fr);
+    align-items: stretch;
+    min-height: 8rem;
+    min-width: 0;
+  }
+
+  .yd-resizable--vertical {
+    grid-template-rows: var(--yd-split) 0.5rem minmax(0, 1fr);
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .yd-resizable__pane {
+    min-width: 0;
+    min-height: 0;
+    overflow: auto;
+  }
+
+  .yd-resizable__splitter {
+    position: relative;
+    border-radius: 999px;
+    background-color: var(--color-border-subtle);
+    cursor: col-resize;
+    touch-action: none;
+  }
+
+  .yd-resizable--vertical .yd-resizable__splitter {
+    cursor: row-resize;
+  }
+
+  .yd-resizable__splitter:focus-visible {
+    outline: 2px solid var(--color-focus-ring);
+    outline-offset: 2px;
+  }
+
+  .yd-resizable__splitter::after {
+    position: absolute;
+    inset-block: 35%;
+    left: 50%;
+    width: 2px;
+    border-radius: 999px;
+    background-color: var(--color-content-muted);
+    content: "";
+    transform: translateX(-50%);
+  }
+
+  .yd-resizable--vertical .yd-resizable__splitter::after {
+    inset-block: auto;
+    inset-inline: 35%;
+    top: 50%;
+    left: auto;
+    width: auto;
+    height: 2px;
+    transform: translateY(-50%);
+  }
+
+  /* Date and time picker: custom popup, no native calendar. | 日期时间选择器：自定义弹层，不使用原生日历。 */
+  .yd-rows {
+    min-width: 0;
+  }
+
+  .yd-rows__list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+  }
+
+  .yd-rows__row {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.5rem;
+    padding: 0.5rem;
+    border: 1px solid var(--color-border-subtle);
+    border-radius: var(--radius-control);
+    background-color: var(--color-surface);
+  }
+
+  .yd-rows__fields {
+    display: flex;
+    flex: 1 1 auto;
+    flex-wrap: wrap;
+    align-items: flex-end;
+    gap: 0.5rem;
+    min-width: 0;
+  }
+
+  .yd-rows__actions {
+    margin-top: 0.5rem;
+  }
+
+  .yd-selectbox {
+    position: relative;
+    min-width: 0;
+  }
+
+  .yd-selectbox__button {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem;
+    width: 100%;
+    min-width: 0;
+    text-align: left;
+    cursor: pointer;
+  }
+
+  .yd-selectbox__value {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .yd-selectbox__arrow {
+    display: inline-flex;
+    flex: none;
+    color: var(--color-content-muted);
+  }
+
+  .yd-selectbox__menu {
+    position: absolute;
+    top: calc(100% + 0.25rem);
+    right: 0;
+    left: 0;
+    z-index: var(--z-dropdown);
+    max-height: 16rem;
+    padding: 0.25rem;
+    overflow-y: auto;
+    border: 1px solid var(--color-border-subtle);
+    border-radius: var(--radius-control);
+    background-color: var(--color-surface);
+    box-shadow: var(--shadow-card);
+    overscroll-behavior: contain;
+  }
+
+  .yd-selectbox__option {
+    display: block;
+    width: 100%;
+    padding: 0.5rem 0.625rem;
+    border: 0;
+    border-radius: calc(var(--radius-control) - 0.125rem);
+    background: none;
+    color: var(--color-content);
+    font: inherit;
+    font-size: 0.875rem;
+    text-align: left;
+    cursor: pointer;
+  }
+
+  .yd-selectbox__option:hover:not(:disabled),
+  .yd-selectbox__option--active {
+    background-color: var(--color-accent-soft);
+    color: var(--color-accent);
+  }
+
+  .yd-selectbox__option:focus-visible {
+    outline: 2px solid var(--color-focus-ring);
+    outline-offset: -2px;
+  }
+
+  .yd-selectbox__option:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+
+  .yd-datetime {
+    position: relative;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    min-width: 0;
+  }
+
+  .yd-datetime__input {
+    flex: 1 1 auto;
+    min-width: 0;
+  }
+
+  .yd-datetime__toggle {
+    display: inline-flex;
+    flex: none;
+    align-items: center;
+    justify-content: center;
+    width: var(--control-height);
+    height: var(--control-height);
+    padding: 0;
+    border: 1px solid var(--color-field-border);
+    border-radius: var(--radius-control);
+    background-color: var(--color-field);
+    color: var(--color-content-muted);
+    cursor: pointer;
+  }
+
+  .yd-datetime__toggle:hover:not(:disabled) {
+    background-color: var(--color-surface-muted);
+    color: var(--color-content);
+  }
+
+  .yd-datetime__toggle:focus-visible {
+    outline: 2px solid var(--color-focus-ring);
+    outline-offset: 2px;
+  }
+
+  .yd-datetime__toggle:disabled {
+    opacity: 0.55;
+    cursor: not-allowed;
+  }
+
+  .yd-datetime__calendar {
+    min-width: 0;
+  }
+
+  .yd-datetime__panel {
+    position: absolute;
+    top: calc(100% + 0.375rem);
+    left: 0;
+    z-index: var(--z-dropdown);
+    width: min(22rem, 92vw);
+    padding: 0.75rem;
+    border: 1px solid var(--color-border-subtle);
+    border-radius: var(--radius-control);
+    background-color: var(--color-surface);
+    box-shadow: var(--shadow-card);
+    color: var(--color-content);
+  }
+
+  .yd-datetime__nav {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem;
+  }
+
+  .yd-datetime__title {
+    font-size: 0.875rem;
+    font-weight: 600;
+  }
+
+  .yd-datetime__weekdays {
+    display: grid;
+    grid-template-columns: repeat(7, 1fr);
+    gap: 0.25rem;
+    margin-top: 0.5rem;
+    color: var(--color-content-muted);
+    font-size: 0.6875rem;
+    text-align: center;
+  }
+
+  .yd-datetime__grid {
+    display: grid;
+    grid-template-columns: repeat(7, 1fr);
+    gap: 0.25rem;
+    margin-top: 0.25rem;
+  }
+
+  .yd-datetime__day {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 2rem;
+    height: 2rem;
+    padding: 0;
+    border: 0;
+    border-radius: var(--radius-control);
+    background: none;
+    color: var(--color-content);
+    font: inherit;
+    font-size: 0.8125rem;
+    cursor: pointer;
+  }
+
+  .yd-datetime__day:hover:not(:disabled) {
+    background-color: var(--color-surface-muted);
+  }
+
+  .yd-datetime__day--blank {
+    visibility: hidden;
+  }
+
+  .yd-datetime__day:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+  }
+
+  .yd-datetime__day:focus-visible {
+    outline: 2px solid var(--color-focus-ring);
+    outline-offset: 1px;
+  }
+
+  .yd-datetime__day--today {
+    border: 1px solid var(--color-accent);
+  }
+
+  .yd-datetime__day--selected {
+    background-color: var(--color-accent);
+    color: var(--color-on-accent);
+  }
+
+  .yd-datetime__months {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 0.375rem;
+    margin-top: 0.5rem;
+  }
+
+  .yd-datetime__month {
+    padding: 0.5rem 0.25rem;
+    border: 0;
+    border-radius: var(--radius-control);
+    background: none;
+    color: var(--color-content);
+    font: inherit;
+    font-size: 0.8125rem;
+    cursor: pointer;
+  }
+
+  .yd-datetime__month:hover {
+    background-color: var(--color-surface-muted);
+  }
+
+  .yd-datetime__month:focus-visible {
+    outline: 2px solid var(--color-focus-ring);
+    outline-offset: 1px;
+  }
+
+  .yd-datetime__month--selected {
+    background-color: var(--color-accent);
+    color: var(--color-on-accent);
+  }
+
+  .yd-datetime__month:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+  }
+
+  .yd-datetime__time {
+    display: flex;
+    gap: 0.5rem;
+    margin-top: 0.5rem;
+    padding-top: 0.5rem;
+    border-top: 1px solid var(--color-border-subtle);
+  }
+
+  .yd-datetime__time-column {
+    display: flex;
+    flex: 1 1 0;
+    flex-direction: column;
+    gap: 0.125rem;
+    max-height: 10rem;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+  }
+
+  .yd-datetime__time-option {
+    padding: 0.25rem 0.5rem;
+    border: 0;
+    border-radius: var(--radius-control);
+    background: none;
+    color: var(--color-content);
+    font: inherit;
+    font-size: 0.8125rem;
+    text-align: center;
+    cursor: pointer;
+  }
+
+  .yd-datetime__time-option:hover {
+    background-color: var(--color-surface-muted);
+  }
+
+  .yd-datetime__time-option--active {
+    background-color: var(--color-accent);
+    color: var(--color-on-accent);
+  }
+
+  .yd-datetime__actions {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem;
+    margin-top: 0.75rem;
   }
 }

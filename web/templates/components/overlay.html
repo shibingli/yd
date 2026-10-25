@@ -18,17 +18,52 @@
 */}}
 
 {{/* components.overlay.modal.open — a scriptless modal shell driven by yd-app.js.
-     Dict keys | dict 的键: ID, Title, TitleKey, Description, DescriptionKey, Size (sm|lg) */}}
+     Dict keys | dict 的键: ID, Title, TitleKey, Description, DescriptionKey, Size (sm|lg), Class */}}
 {{- define "components.overlay.modal.open" -}}
-<div id="{{.ID}}" class="yd-modal{{with .Size}} yd-modal--{{.}}{{end}}" role="dialog" aria-modal="true"
+<div id="{{.ID}}" class="yd-modal{{with .Class}} {{.}}{{end}}{{with .Size}} yd-modal--{{.}}{{end}}" role="dialog" aria-modal="true"
      aria-labelledby="{{.ID}}-title" hidden data-yd-modal="{{.ID}}">
   <div class="yd-modal__backdrop" data-yd-modal-close></div>
   <div class="yd-modal__panel yd-card">
-    <h2 class="yd-modal__title" id="{{.ID}}-title"{{with .TitleKey}} data-yd-i18n="{{.}}"{{end}}>{{.Title}}</h2>
-    {{with .Description}}<p class="yd-modal__body"{{with $.DescriptionKey}} data-yd-i18n="{{$.DescriptionKey}}"{{end}}>{{.}}</p>{{end}}
+    <h2 class="yd-modal__title" id="{{.ID}}-title"{{with .TitleKey}} data-yd-i18n="{{.}}"{{end}}>{{if .TitleKey}}{{tr .TitleKey}}{{else}}{{.Title}}{{end}}</h2>
+    {{if or .Description .DescriptionKey}}<p class="yd-modal__body"{{with .DescriptionKey}} data-yd-i18n="{{.}}"{{end}}>{{if .DescriptionKey}}{{tr .DescriptionKey}}{{else}}{{.Description}}{{end}}</p>{{end}}
 {{- end -}}
 
 {{- define "components.overlay.modal.close" -}}
   </div>
 </div>
+{{- end -}}
+
+{{/* components.overlay.popover — a focus-managed floating panel. Dict keys | dict 的键:
+       ID, Label, LabelKey, Icon (template.HTML), TriggerClass, TriggerAttrs (template.HTMLAttr),
+       PanelLabel, PanelLabelKey, Content (template.HTML)
+     The panel reuses ydDropdown for outside-click, Escape and arrow-key handling; the visual frame is
+     .yd-popover. Use it for filters, pickers and small forms, not for destructive confirmations. |
+     面板复用 ydDropdown 的外部点击、Escape 与方向键处理；视觉外框是 .yd-popover。用于筛选、选择器
+     与小型表单，不用于破坏性确认。 */}}
+{{- define "components.overlay.popover" -}}
+<div class="yd-dropdown" x-data="ydDropdown" x-on:keydown="onKey($event)">
+  <button type="button" class="yd-btn yd-btn--ghost {{.TriggerClass}}" x-on:click="toggle" x-ref="trigger"
+          x-bind:aria-expanded="open" aria-haspopup="dialog"{{with .ID}} aria-controls="{{.}}-popover"{{end}}
+          {{with .TriggerAttrs}}{{.}}{{end}}>
+    {{with .Icon}}<span aria-hidden="true">{{.}}</span>{{end}}
+    <span{{with .LabelKey}} data-yd-i18n="{{.}}"{{end}}>{{if .LabelKey}}{{tr .LabelKey}}{{else}}{{.Label}}{{end}}</span>
+  </button>
+  <div class="yd-popover"{{with .ID}} id="{{.}}-popover"{{end}} x-show="open" x-cloak role="dialog"
+       aria-label="{{if .PanelLabel}}{{.PanelLabel}}{{else}}{{if .PanelLabelKey}}{{tr .PanelLabelKey}}{{end}}{{end}}"
+       {{with .PanelLabelKey}}data-yd-i18n-attr="aria-label:{{.}}"{{end}}
+       x-on:click.outside="close(false)">{{.Content}}</div>
+</div>
+{{- end -}}
+
+{{/* components.overlay.tooltip — a no-script tooltip bubble. Dict keys | dict 的键:
+       Content (template.HTML), Text, TextKey, Focusable
+     The bubble is painted from data-yd-tooltip by CSS. Give the wrapped control its own visible
+     label or aria-label; a pseudo-element is not announced by assistive technology. Set Focusable
+     when the wrapper itself, rather than a child control, must receive keyboard focus. |
+     气泡由 CSS 从 data-yd-tooltip 绘制。被包装的控件必须自带可见文案或 aria-label；伪元素不会被
+     辅助技术播报。当需要包装元素本身获得键盘焦点时设置 Focusable。 */}}
+{{- define "components.overlay.tooltip" -}}
+<span class="yd-tooltip"{{if .Focusable}} tabindex="0"{{end}}
+      data-yd-tooltip="{{if .TextKey}}{{tr .TextKey}}{{else}}{{.Text}}{{end}}"
+      {{with .TextKey}}data-yd-i18n-attr="data-yd-tooltip:{{.}}"{{end}}>{{.Content}}</span>
 {{- end -}}

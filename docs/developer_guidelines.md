@@ -31,7 +31,7 @@ web/templates/
   `web/static/css/ui.css`。三层分工固定为「服务端状态归 htmx、页面内状态归 Alpine、外观归 Tailwind」，
   不得在页面里另写一套。图表由 `http/chart` 在服务端生成 SVG，模板只包 `components.chart`。
   完整目录、数据契约与最佳实践见
-  [`docs/frontend-ui.md`](frontend-ui.md)；组件对照矩阵与图表选型见
+  [`docs/frontend-ui.md`](frontend-ui.md)；组件清单、参数与图表选型见
   [`docs/frontend-components.md`](frontend-components.md)。
 
 ## 3. Htmx 4 属性约定

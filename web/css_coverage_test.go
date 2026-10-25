@@ -160,6 +160,68 @@ func hasPrefixDefinition(defined map[string]bool, prefix string) bool {
 // A class that exists only in the markup is the quietest kind of regression: the element still renders, the
 // build still passes, and the page is simply wrong in the one place nobody is looking. | 只存在于标记中的类是最安静的一类回归：
 // 元素照常渲染、构建照常通过，页面只是在那个人人都不看的地方显示不对。
+// TestEveryChartClassIsStyled scans the chart renderer as well: its classes are emitted from Go
+// strings rather than markup, so the template scan would otherwise leave a renamed chart class
+// completely unstyled. | TestEveryChartClassIsStyled 同时扫描图表渲染器：它的类名来自 Go 字符串而
+// 不是标记，否则模板扫描会漏掉一个被重命名且完全没有样式的图表类。
+func TestEveryChartClassIsStyled(t *testing.T) {
+	source, err := os.ReadFile("../http/chart/chart.go")
+	if err != nil {
+		t.Fatalf("reading the chart renderer failed: %[1]v | 读取图表渲染器失败：%[1]v", err)
+	}
+	css := appSource(t)
+	defined := make(map[string]bool)
+	for _, prelude := range selectorPattern.FindAllStringSubmatch(css, -1) {
+		for _, match := range ydDefinitionPattern.FindAllStringSubmatch(prelude[1], -1) {
+			defined[match[1]] = true
+		}
+	}
+	if len(defined) == 0 {
+		t.Fatal("the component layer defines no yd- class at all | 组件层未定义任何 yd- 类")
+	}
+	// Comments name the dynamic patterns (`yd-chart__series--N`) rather than concrete classes; a
+	// scanner that keeps them demands a rule for a token that never reaches the document.
+	// 注释里写的是动态模式（`yd-chart__series--N`）而不是具体类名；保留注释会让扫描器为一个永远不会
+	// 进入文档的 token 索取规则。
+	lines := strings.Split(string(source), "\n")
+	code := make([]string, 0, len(lines))
+	inBlock := false
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if inBlock {
+			if strings.Contains(trimmed, "*/") {
+				inBlock = false
+			}
+			continue
+		}
+		if strings.HasPrefix(trimmed, "/*") {
+			if !strings.Contains(trimmed, "*/") {
+				inBlock = true
+			}
+			continue
+		}
+		if index := strings.Index(line, "//"); index >= 0 {
+			line = line[:index]
+		}
+		code = append(code, line)
+	}
+	tokens := regexpx.MustCompile(`yd-[A-Za-z0-9_-]+`).FindAllString(strings.Join(code, "\n"), -1)
+	seen := map[string]bool{}
+	for _, token := range tokens {
+		if seen[token] {
+			continue
+		}
+		seen[token] = true
+		if strings.HasSuffix(token, "-") {
+			continue // a class prefix assembled at runtime | 运行期拼接的类名前缀
+		}
+		if defined[token] || hasPrefixDefinition(defined, token) {
+			continue
+		}
+		t.Errorf("chart.go refers to .%s but no stylesheet rule defines it | chart.go 引用了 .%s，但没有样式表规则定义它", token, token)
+	}
+}
+
 func TestEveryYdClassUsedInTemplatesIsDefined(t *testing.T) {
 	fsys := web.FS()
 	css := appSource(t)
@@ -291,9 +353,13 @@ func inAnySpan(spans [][2]int, offset int) bool {
 func TestNoHardcodedColorsInAppCSS(t *testing.T) {
 	css := string(readEmbedded(t, web.FS(), componentsCSSPath))
 
-	// Every block that defines variables may carry a literal colour; these three are all of them. | 所有定义变量的块都可以携带字面色值；这三个块就是全部。
+	// Every block that defines variables may carry a literal colour; these four are all of them.
+	// The system-preference media block defines the same dark palette for the auto/system choice,
+	// so it is a token block too rather than a component rule.
+	// 所有定义变量的块都可以携带字面色值；这四个块就是全部。跟随系统的媒体块为 auto/system 选择
+	// 定义同一套暗色调色板，因此它同样是令牌块而不是组件规则。
 	var exempt [][2]int
-	for _, prelude := range []string{"@theme", ":root", `[data-theme="dark"]`} {
+	for _, prelude := range []string{"@theme", ":root", `[data-theme="dark"]`, "@media (prefers-color-scheme: dark)"} {
 		start, end := blockSpan(t, css, prelude)
 		exempt = append(exempt, [2]int{start, end})
 	}

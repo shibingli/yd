@@ -211,7 +211,8 @@ asynq:
   勾选至少两位好友后，底部出现群名与「创建群聊」，提交 `/messages/groups`。搜索按姓名与登录名过滤，
   右侧当前会话与草稿保持不变。
 - 编辑器：EasyMDE 2.20（Markdown + 预览 + 全屏/并排），本地 vendored；关闭 `autoDownloadFontAwesome`，
-  图标由本地 Font Awesome 4.7 提供；无 CDN。内联撰写区使用紧凑工具栏（`data-yd-editor-compact`），
+  工具栏图标全部来自 Lucide 按需 sprite（`partials/editor-icons.html` + `yd-ui.js` 装饰），
+  不加载任何图标字体，也无 CDN。内联撰写区使用紧凑工具栏（`data-yd-editor-compact`），
   完整编辑器仍用于编辑消息与系统公告的抽屉。
 - 发送：日常消息直接在内联撰写区提交 `/messages`，**不弹确认**；公告频道提交 `/mgr/messages/system`，
   保留一次 `data-yd-confirm`。`Ctrl/Cmd+Enter` 发送，普通回车在 EasyMDE 中仍用于换行。

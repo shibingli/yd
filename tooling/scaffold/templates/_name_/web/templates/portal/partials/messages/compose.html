@@ -39,14 +39,10 @@
       hx-status:409="target:#yd-drawer-errors swap:innerHTML"
       hx-status:422="target:#yd-drawer-errors swap:innerHTML"
       data-yd-confirm="{{ tr "confirm.send_message" }}">
-  <div class="yd-field" data-yd-field="type_key">
-    <label class="yd-field__label" for="yd-compose-type">{{ tr "message.type" }}</label>
-    <select class="yd-select" id="yd-compose-type" name="type_key">
-      {{- range .Catalog.Types }}
-      <option value="{{ .Key }}"{{ if eq .Key $.DefaultType }} selected{{ end }}>{{ .Label }}</option>
-      {{- end }}
-    </select>
-  </div>
+  {{template "components.form.select" (dict
+    "ID" "yd-compose-type" "Name" "type_key"
+    "Label" (tr "message.type") "LabelKey" "message.type"
+    "Options" (.Catalog.TypeOptions .DefaultType))}}
 
   {{template "components.form.field" (dict
     "ID" "yd-compose-title" "Name" "title" "Type" "text" "Value" .Message.Title
@@ -59,6 +55,7 @@
     <div class="yd-editor" data-yd-editor data-lang="{{ .Lang }}">
       <textarea class="yd-editor__fallback" name="body_markdown" rows="12"
                 aria-label="{{ tr "message.body" }}">{{ .Message.BodyMarkdown }}</textarea>
+      {{template "partials/editor-icons" .}}
     </div>
     <p class="yd-hint">{{ tr "message.markdown_hint" }}</p>
   </div>

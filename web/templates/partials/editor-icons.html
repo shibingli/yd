@@ -1,0 +1,34 @@
+{{/*
+  partials/editor-icons.html —— EasyMDE 工具栏图标的唯一来源。
+  partials/editor-icons.html — the single source of the EasyMDE toolbar icons.
+
+  EasyMDE builds its toolbar buttons at runtime, so an editor template cannot put a
+  {{template "partials/icon" …}} call inside the button itself. The editor renders this hidden
+  palette once; yd-ui.js reuses the matching Lucide SVG for each button. Keeping the references
+  here means `yd icons sync` still sees every icon and the sprite stays on-demand. Do not
+  reintroduce an icon font or a runtime icon service.
+  EasyMDE 在运行时构造工具栏按钮，因此编辑器模板无法把 {{template "partials/icon" …}} 直接写进
+  按钮。编辑器渲染一次本隐藏调色板；yd-ui.js 为每个按钮复用对应的 Lucide SVG。引用写在这里，
+  `yd icons sync` 才能看见每个图标，sprite 因而仍按需生成。不得重新引入图标字体或运行时图标服务。
+*/}}
+{{- define "partials/editor-icons" -}}
+<span data-yd-editor-icons hidden aria-hidden="true">
+  <span data-yd-editor-icon="lucide-bold">{{template "partials/icon" "lucide-bold"}}</span>
+  <span data-yd-editor-icon="lucide-italic">{{template "partials/icon" "lucide-italic"}}</span>
+  <span data-yd-editor-icon="lucide-heading">{{template "partials/icon" "lucide-heading"}}</span>
+  <span data-yd-editor-icon="lucide-strikethrough">{{template "partials/icon" "lucide-strikethrough"}}</span>
+  <span data-yd-editor-icon="lucide-quote">{{template "partials/icon" "lucide-quote"}}</span>
+  <span data-yd-editor-icon="lucide-list">{{template "partials/icon" "lucide-list"}}</span>
+  <span data-yd-editor-icon="lucide-list-ordered">{{template "partials/icon" "lucide-list-ordered"}}</span>
+  <span data-yd-editor-icon="lucide-link">{{template "partials/icon" "lucide-link"}}</span>
+  <span data-yd-editor-icon="lucide-image">{{template "partials/icon" "lucide-image"}}</span>
+  <span data-yd-editor-icon="lucide-code">{{template "partials/icon" "lucide-code"}}</span>
+  <span data-yd-editor-icon="lucide-table">{{template "partials/icon" "lucide-table"}}</span>
+  <span data-yd-editor-icon="lucide-minus">{{template "partials/icon" "lucide-minus"}}</span>
+  <span data-yd-editor-icon="lucide-eye">{{template "partials/icon" "lucide-eye"}}</span>
+  <span data-yd-editor-icon="lucide-columns-2">{{template "partials/icon" "lucide-columns-2"}}</span>
+  <span data-yd-editor-icon="lucide-maximize">{{template "partials/icon" "lucide-maximize"}}</span>
+  <span data-yd-editor-icon="lucide-undo-2">{{template "partials/icon" "lucide-undo-2"}}</span>
+  <span data-yd-editor-icon="lucide-redo-2">{{template "partials/icon" "lucide-redo-2"}}</span>
+</span>
+{{- end -}}

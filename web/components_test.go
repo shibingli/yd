@@ -119,7 +119,7 @@ func componentFixture() map[string]map[string]any {
 		"components.navigation.dropdown":   clone(nil),
 		"components.data.avatar":           clone(nil),
 		"components.data.stat":             clone(nil),
-		"components.data.table.open":       clone(nil),
+		"components.data.table.open":       clone(map[string]any{"Selectable": true}),
 		"components.data.table.close":      clone(nil),
 		"components.chart":                 clone(nil),
 		"components.overlay.modal.open":    clone(map[string]any{"ID": "modal-id", "Size": "lg"}),
@@ -216,17 +216,245 @@ func componentFixture() map[string]map[string]any {
 			"ID": "combo", "Name": "role", "Value": "admin", "LabelValue": "Admin", "Label": "Role",
 			"Options": []map[string]any{{"Value": "admin", "Label": "Admin", "Key": "role.admin"}, {"Value": "member", "Label": "Member"}},
 		}),
+		"components.form.picker":   clone(map[string]any{"ID": "picker", "Name": "picked", "Kind": "datetime", "Value": "2026-10-25T09:30", "Label": "When", "LabelKey": "field.when"}),
 		"components.form.date":     clone(map[string]any{"ID": "date", "Name": "date", "Value": "2026-10-25", "Label": "Date"}),
 		"components.form.time":     clone(map[string]any{"ID": "time", "Name": "time", "Value": "10:30", "Label": "Time"}),
 		"components.form.datetime": clone(map[string]any{"ID": "datetime", "Name": "at", "Value": "2026-10-25T10:30", "Label": "At"}),
 		"components.form.editor":   clone(map[string]any{"ID": "editor", "Name": "body", "Value": "# Title", "Label": "Body", "Rows": 8}),
+		"components.form.transfer": clone(map[string]any{
+			"ID": "transfer", "Name": "roles", "Action": "/roles", "Method": "post",
+			"SourceName": "source", "TargetName": "target",
+			"SourceLabel": "Available", "SourceLabelKey": "transfer.source",
+			"TargetLabel": "Selected", "TargetLabelKey": "transfer.target",
+			"SourceItems": []map[string]any{{"Value": "a", "Label": "Alpha", "LabelKey": "opt.alpha", "Checked": true}},
+			"TargetItems": []map[string]any{{"Value": "b", "Label": "Beta", "LabelKey": "opt.beta"}},
+			"Hint":        "Hint", "HintKey": "transfer.hint",
+		}),
+		"components.form.tree-select": clone(map[string]any{
+			"ID": "tree-select", "Name": "node", "Value": "2", "Label": "Node", "LabelKey": "field.node",
+			"Options": []map[string]any{
+				{"Value": "1", "Label": "Root", "LabelKey": "node.root", "Selected": true},
+				{"Value": "2", "Label": "Child", "LabelKey": "node.child", "Prefix": "└─ "},
+			},
+		}),
+		"components.form.cascader": clone(map[string]any{
+			"ID": "cascader", "Name": "region", "Label": "Region", "LabelKey": "field.region",
+			"Levels": []map[string]any{
+				{"Name": "province", "Label": "Province", "LabelKey": "cn.region.province",
+					"Options": []map[string]any{{"Value": "11", "Label": "Beijing", "LabelKey": "region.beijing", "Selected": true}}},
+				{"Name": "city", "Label": "City", "LabelKey": "cn.region.city",
+					"Options": []map[string]any{{"Value": "1101", "Label": "Haidian", "LabelKey": "region.haidian"}}},
+			},
+			"Hint": "Hint", "HintKey": "cascader.hint",
+		}),
+		"components.form.dynamic-rows": clone(map[string]any{
+			"ID": "rows", "Name": "items", "Label": "Rows", "LabelKey": "field.rows",
+			"Rows":        []map[string]any{{"Fields": template.HTML(`<input class="yd-input" name="items[]" value="a">`)}},
+			"RowTemplate": template.HTML(`<input class="yd-input" name="items[]" value="">`),
+			"AddLabel":    "Add row", "AddKey": "ui.add", "Min": 1, "Max": 5,
+			"Hint": "Hint", "HintKey": "field.rows_hint",
+		}),
+		"components.form.mention": clone(map[string]any{
+			"ID": "mention", "Name": "mentions", "Value": "@ann", "Label": "Mention", "LabelKey": "field.mention",
+			"Placeholder": "Type @", "PlaceholderKey": "field.mention_placeholder",
+			"Options": []map[string]any{{"Value": "ann", "Label": "Ann", "LabelKey": "user.ann"}},
+		}),
+		"components.form.time-range": clone(map[string]any{
+			"ID": "time-range", "Name": "window", "FromID": "window-from", "ToID": "window-to",
+			"FromName": "window_from", "ToName": "window_to", "From": "09:00", "To": "17:00",
+			"Label": "Window", "LabelKey": "field.window", "FromLabel": "From", "FromLabelKey": "field.from",
+			"ToLabel": "To", "ToLabelKey": "field.to", "Hint": "Hint", "HintKey": "field.hint",
+		}),
+		"components.form.month": clone(map[string]any{"ID": "month", "Name": "month", "Value": "2026-10", "Label": "Month", "LabelKey": "field.month"}),
+		"components.form.year": clone(map[string]any{
+			"ID": "year", "Name": "year", "Label": "Year", "LabelKey": "field.year",
+			"Options": []map[string]any{{"Value": "2026", "Key": "year.2026", "Selected": true}, {"Value": "2027", "Key": "year.2027"}},
+		}),
+		"components.form.quarter": clone(map[string]any{
+			"ID": "quarter", "Name": "quarter", "Label": "Quarter", "LabelKey": "field.quarter",
+			"Options": []map[string]any{{"Value": "Q1", "Key": "quarter.q1", "Selected": true}, {"Value": "Q2", "Key": "quarter.q2"}},
+		}),
+		"components.display.calendar": clone(map[string]any{
+			"ID": "calendar", "Label": "Calendar", "LabelKey": "calendar.label",
+			"MonthLabel": "October 2026", "MonthLabelKey": "calendar.month",
+			"TodayLabel": "Today", "TodayLabelKey": "calendar.today",
+			"PrevHref": "/calendar?m=9", "NextHref": "/calendar?m=11", "TodayHref": "/calendar/today",
+			"Weekdays": []string{"Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"},
+			"Weeks": []map[string]any{{"Days": []map[string]any{
+				{"Number": "1", "Date": "2026-10-01", "Href": "/calendar/2026-10-01", "Today": true, "Selected": true,
+					"Events": []map[string]any{{"Label": "Review", "LabelKey": "calendar.event.review", "Href": "/events/1", "Tone": "success"}}},
+				{"Number": "2", "Date": "2026-10-02", "Outside": true},
+			}}},
+		}),
+		"components.display.file-tree": clone(map[string]any{
+			"Label": "Files", "LabelKey": "fs.label",
+			"Items": []map[string]any{
+				{"Label": "src", "LabelKey": "fs.src", "Open": true, "Icon": template.HTML(`<span>d</span>`),
+					"Children": []map[string]any{{"Label": "main.go", "LabelKey": "fs.main", "Href": "/src/main.go", "Icon": template.HTML(`<span>f</span>`)}}},
+			},
+		}),
+		"components.display.cell": clone(map[string]any{
+			"Label": "Notifications", "LabelKey": "settings.notifications", "Hint": "Hint", "HintKey": "settings.hint",
+			"Href": "/settings/notifications", "Control": template.HTML(`<span class="yd-badge">On</span>`), "Tone": "danger",
+		}),
+		"components.display.attachment": clone(map[string]any{
+			"Title": "report.pdf", "TitleKey": "file.report", "Description": "2 MB", "DescriptionKey": "file.size",
+			"State": "uploading", "Size": "sm", "Orientation": "vertical",
+			"Media": template.HTML(`<span>PDF</span>`), "Href": "/files/report.pdf",
+			"Actions":     template.HTML(`<button type="button" class="yd-btn yd-btn--ghost yd-btn--sm">Open</button>`),
+			"RemoveAttrs": template.HTMLAttr(`hx-delete="/files/report.pdf"`), "RemoveKey": "ui.remove",
+		}),
+		"components.display.bubble": clone(map[string]any{
+			"Tone": "secondary", "Align": "end", "Content": template.HTML("<p>Hello</p>"),
+			"Reactions": template.HTML(`<span class="yd-tag">👍</span>`),
+		}),
+		"components.display.chat-message": clone(map[string]any{
+			"Align": "end", "Avatar": template.HTML(`<span class="yd-avatar">A</span>`),
+			"Name": "Ann", "NameKey": "user.ann", "Time": "10:00", "TimeKey": "time.ten",
+			"Content": template.HTML("<p>Hello</p>"), "Tone": "secondary",
+			"Reactions": template.HTML(`<span class="yd-tag">👍</span>`),
+			"Actions":   template.HTML(`<button type="button" class="yd-btn yd-btn--ghost yd-btn--sm">Reply</button>`),
+			"State":     "sent", "ID": "message-1", "Attrs": template.HTMLAttr(`data-yd-message="1"`),
+		}),
+		"components.display.prompt-input": clone(map[string]any{
+			"ID": "prompt", "Name": "prompt", "Action": "/messages", "Post": "/messages", "Target": "#messages", "Swap": "innerMorph",
+			"Value": "Hello", "Rows": 3, "Label": "Message", "LabelKey": "field.message",
+			"Placeholder": "Type a message", "PlaceholderKey": "field.message_placeholder",
+			"SendLabel": "Send", "SendKey": "ui.send",
+			"Attachments": template.HTML(`<span class="yd-tag">file.pdf</span>`),
+			"Actions":     template.HTML(`<button type="button" class="yd-btn yd-btn--ghost">Attach</button>`),
+			"Hint":        "Hint", "HintKey": "field.hint",
+		}),
+		"components.display.trend-chip": clone(map[string]any{
+			"Value": "+12%", "Label": "vs last week", "LabelKey": "stat.vs_last_week", "Trend": "up", "Tone": "success",
+			"Hint": "Hint", "HintKey": "stat.hint",
+		}),
+		"components.display.text-shimmer": clone(map[string]any{"Text": "Thinking", "TextKey": "ai.thinking", "Label": "Thinking", "LabelKey": "ai.thinking"}),
+		"components.display.trace": clone(map[string]any{
+			"Label": "Trace", "LabelKey": "trace.label",
+			"Items": []map[string]any{
+				{"Title": "Search", "TitleKey": "trace.search", "Description": "120ms", "DescriptionKey": "trace.duration", "Status": "running", "Icon": template.HTML(`<span>i</span>`), "Href": "/trace/1"},
+				{"Title": "Read", "TitleKey": "trace.read", "Status": "done", "Details": template.HTML("<p>Details</p>"), "Open": true},
+			},
+		}),
+		"components.display.marker": clone(map[string]any{
+			"Variant": "separator", "Role": "status", "Icon": template.HTML(`<span>i</span>`), "Text": "Today", "TextKey": "chat.today",
+		}),
+		"components.display.qrcode": clone(map[string]any{
+			"ID": "qr", "SVG": template.HTML(`<svg viewBox="0 0 10 10"><rect width="10" height="10"></rect></svg>`),
+			"Alt": "QR code", "AltKey": "qr.alt", "Caption": "Scan me", "CaptionKey": "qr.caption",
+			"Label": "QR code", "LabelKey": "qr.label", "Size": "sm",
+		}),
+		"components.display.message-scroller": clone(map[string]any{
+			"Label": "Messages", "LabelKey": "chat.log", "Size": "lg",
+			"Content": template.HTML(`<p>Hello</p>`),
+		}),
+		"components.display.kanban": clone(map[string]any{
+			"Label": "Board", "LabelKey": "board.label",
+			"Columns": []map[string]any{{
+				"ID": "todo", "Title": "Todo", "TitleKey": "board.todo", "Count": 1,
+				"Cards": []map[string]any{{
+					"ID": "card-1", "Title": "Task", "TitleKey": "board.task",
+					"Text": "Do it", "TextKey": "board.task_text", "Meta": "Ann", "MetaKey": "board.meta",
+					"Href": "/tasks/1", "Actions": template.HTML(`<button type="button" class="yd-btn yd-btn--ghost yd-btn--sm">Move</button>`),
+				}},
+			}},
+		}),
+		"components.display.action-bar": clone(map[string]any{
+			"Label": "selected", "LabelKey": "table.selected", "Count": "3", "CountKey": "table.count",
+			"Actions":   template.HTML(`<button type="button" class="yd-btn yd-btn--danger">Delete</button>`),
+			"ClearHref": "/items", "ClearLabel": "Clear", "ClearKey": "ui.clear", "Sticky": true,
+		}),
+		"components.display.hover-card": clone(map[string]any{
+			"Label": "Details", "LabelKey": "card.details", "Trigger": template.HTML(`<span>Ann</span>`),
+			"Content": template.HTML("<p>Profile</p>"), "Focusable": true,
+		}),
+		"components.display.virtual-list": clone(map[string]any{
+			"Label": "Rows", "LabelKey": "list.rows", "Size": "lg",
+			"Content": template.HTML(`<div class="yd-item">Row</div>`),
+		}),
+		"components.display.image-viewer": clone(map[string]any{
+			"ID": "viewer", "Src": "/static/img/yd-icon.svg", "ThumbSrc": "/static/img/yd-icon.svg",
+			"Alt": "Icon", "AltKey": "brand.icon", "Title": "Preview", "TitleKey": "viewer.title",
+			"Caption": "Caption", "CaptionKey": "viewer.caption", "Label": "Open image", "LabelKey": "viewer.open",
+			"DownloadHref": "/static/img/yd-icon.svg", "DownloadLabel": "Download", "DownloadKey": "viewer.download",
+		}),
+		"components.feedback.questionnaire": clone(map[string]any{
+			"ID": "questionnaire", "Action": "/questionnaire", "Method": "post",
+			"Label": "Survey", "LabelKey": "questionnaire.title",
+			"Progress": 50, "ProgressMax": 100, "ProgressKey": "questionnaire.progress",
+			"Items": []map[string]any{{
+				"Name": "role", "Prompt": "Your role?", "PromptKey": "questionnaire.role",
+				"Description": "Pick one", "DescriptionKey": "questionnaire.role_hint", "Required": true, "Type": "radio",
+				"Choices": []map[string]any{
+					{"Value": "admin", "Label": "Admin", "LabelKey": "role.admin", "Type": "radio", "Checked": true},
+					{"Value": "member", "Label": "Member", "LabelKey": "role.member", "Type": "radio"},
+				},
+			}},
+			"SubmitLabel": "Submit", "SubmitKey": "action.save", "CancelHref": "/", "CancelLabel": "Cancel", "CancelKey": "action.cancel",
+		}),
+		"components.navigation.tabbar": clone(map[string]any{
+			"Label": "Sections", "LabelKey": "nav.sections",
+			"Items": []map[string]any{
+				{"Label": "Home", "LabelKey": "nav.home", "Href": "/", "Active": true, "Icon": template.HTML(`<span>i</span>`)},
+				{"Label": "Messages", "LabelKey": "nav.messages", "Href": "/messages", "Badge": "3", "BadgeKey": "nav.unread"},
+			},
+		}),
+		"components.navigation.filter-bar": clone(map[string]any{
+			"ID": "filters", "Action": "/users", "Method": "get", "Get": "/users", "Target": "#rows", "Swap": "innerHTML",
+			"Fields":  template.HTML(`<label class="yd-field"><span class="yd-field__label">Name</span><input class="yd-input" name="q"></label>`),
+			"Actions": template.HTML(`<button type="button" class="yd-btn yd-btn--ghost yd-btn--sm">More</button>`),
+			"Label":   "Filters", "LabelKey": "filter.label", "SubmitLabel": "Apply", "SubmitKey": "action.apply",
+			"ResetHref": "/users", "ResetLabel": "Reset", "ResetKey": "action.reset",
+		}),
+		"components.navigation.action-sheet": clone(map[string]any{
+			"ID": "sheet", "Title": "Actions", "TitleKey": "sheet.title",
+			"Description": "Choose", "DescriptionKey": "sheet.description",
+			"Actions": []map[string]any{
+				{"Label": "Edit", "LabelKey": "action.edit", "Href": "/edit"},
+				{"Label": "Delete", "LabelKey": "action.delete", "Danger": true, "Attrs": template.HTMLAttr(`data-yd-confirm="Delete?"`)},
+			},
+			"CancelLabel": "Cancel", "CancelKey": "action.cancel",
+		}),
+		"components.overlay.popover": clone(map[string]any{
+			"ID": "popover", "Label": "More", "LabelKey": "action.more", "Icon": template.HTML(`<span>i</span>`),
+			"TriggerClass": "yd-btn--sm", "TriggerAttrs": template.HTMLAttr(`data-yd-popover="1"`),
+			"PanelLabel": "Options", "PanelLabelKey": "panel.options",
+			"Content": template.HTML(`<p>Panel</p>`),
+		}),
+		"components.overlay.tooltip": clone(map[string]any{
+			"Content": template.HTML(`<span>Hover me</span>`), "Text": "Help", "TextKey": "tooltip.help", "Focusable": true,
+		}),
+		"components.data.select-cell": clone(map[string]any{
+			"Name": "ids", "Value": "1", "Checked": true, "Attrs": template.HTMLAttr(`data-yd-row="1"`),
+		}),
+		"components.navigation.tabs-client": clone(map[string]any{
+			"Label": "Panels", "LabelKey": "tabs.panels", "Active": "one",
+			"Items": []map[string]any{
+				{"ID": "one", "Label": "One", "LabelKey": "tabs.one", "Content": template.HTML("<p>One</p>")},
+				{"ID": "two", "Label": "Two", "LabelKey": "tabs.two", "Content": template.HTML("<p>Two</p>")},
+			},
+		}),
+		"components.display.emoji-picker": clone(map[string]any{
+			"ID": "emoji", "Label": "Emoji", "LabelKey": "emoji.label", "Target": "#prompt-text",
+			"Emojis": []string{"😀", "👍", "🎉"},
+		}),
+		"components.display.signature": clone(map[string]any{
+			"ID": "signature", "Name": "signature", "Value": "", "Label": "Signature", "LabelKey": "signature.label",
+			"Hint": "Sign above", "HintKey": "signature.hint", "ClearLabel": "Clear", "ClearKey": "ui.clear",
+			"Width": 640, "Height": 200, "Required": true, "Attrs": template.HTMLAttr(`data-yd-signature="1"`),
+		}),
+		"components.display.resizable": clone(map[string]any{
+			"ID": "split", "Label": "Resize", "LabelKey": "ui.resize", "Split": 40, "Min": 20, "Max": 80,
+			"Orientation": "horizontal", "Start": template.HTML("<p>Start</p>"), "End": template.HTML("<p>End</p>"),
+		}),
 	}
 }
 
 // TestEveryComponentRenders parses the component tree once and executes every define with a
 // fully populated fixture. | TestEveryComponentRenders 解析组件树一次，并用填满的固定数据执行每个 define。
 func TestEveryComponentRenders(t *testing.T) {
-	templates, err := template.New("components").Funcs(templateFuncs()).ParseFS(os.DirFS("templates"), "components/*.html", "partials/icon.html")
+	templates, err := template.New("components").Funcs(templateFuncs()).ParseFS(os.DirFS("templates"), "components/*.html", "partials/*.html")
 	if err != nil {
 		t.Fatalf("parsing components failed: %v | 解析组件失败: %v", err, err)
 	}
@@ -282,7 +510,7 @@ func TestEveryComponentRenders(t *testing.T) {
 // TestChartComponentKeepsTheSVGUnescaped 证明外框没有二次转义渲染器的输出：变成 &lt;svg&gt; 的图表
 // 是没人看得见的图表。
 func TestChartComponentKeepsTheSVGUnescaped(t *testing.T) {
-	templates, err := template.New("components").Funcs(templateFuncs()).ParseFS(os.DirFS("templates"), "components/*.html", "partials/icon.html")
+	templates, err := template.New("components").Funcs(templateFuncs()).ParseFS(os.DirFS("templates"), "components/*.html", "partials/*.html")
 	if err != nil {
 		t.Fatalf("parsing components failed: %v | 解析组件失败: %v", err, err)
 	}
@@ -313,7 +541,7 @@ func TestChartComponentKeepsTheSVGUnescaped(t *testing.T) {
 // in the renderer. | TestChinaComponentsKeepSubmittedFields 校验渐进增强承诺：即使渲染器里没有
 // Alpine，每个中国常用控件仍然带有可见、带 name 的表单字段。
 func TestChinaComponentsKeepSubmittedFields(t *testing.T) {
-	templates, err := template.New("components").Funcs(templateFuncs()).ParseFS(os.DirFS("templates"), "components/*.html", "partials/icon.html")
+	templates, err := template.New("components").Funcs(templateFuncs()).ParseFS(os.DirFS("templates"), "components/*.html", "partials/*.html")
 	if err != nil {
 		t.Fatalf("parsing components failed: %v | 解析组件失败: %v", err, err)
 	}
@@ -326,7 +554,7 @@ func TestChinaComponentsKeepSubmittedFields(t *testing.T) {
 		"components.cn.creditcode": {`name="field"`, `maxlength="18"`},
 		"components.cn.amount":     {`name="field"`, `inputmode="decimal"`},
 		"components.cn.region":     {`name="province"`, `name="city"`, `name="district"`},
-		"components.cn.daterange":  {`name="from"`, `name="to"`, `type="date"`},
+		"components.cn.daterange":  {`name="from"`, `name="to"`, `yd-datetime__input`},
 		"components.cn.sms":        {`name="field"`, `autocomplete="one-time-code"`},
 	}
 	for name, wants := range controls {
@@ -351,7 +579,7 @@ func TestChinaComponentsKeepSubmittedFields(t *testing.T) {
 // TestComponentsRenderFromI18nKeysOnly 校验原生 i18n 契约：只给组件目录键、不预渲染任何中英文文案，
 // 仍能输出可见文案。这样控制器可以省略重复的 Label/Hint 值，把语言目录当作唯一事实来源。
 func TestComponentsRenderFromI18nKeysOnly(t *testing.T) {
-	templates, err := template.New("components").Funcs(templateFuncs()).ParseFS(os.DirFS("templates"), "components/*.html", "partials/icon.html")
+	templates, err := template.New("components").Funcs(templateFuncs()).ParseFS(os.DirFS("templates"), "components/*.html", "partials/*.html")
 	if err != nil {
 		t.Fatalf("parsing components failed: %v | 解析组件失败: %v", err, err)
 	}

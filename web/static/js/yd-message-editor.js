@@ -68,39 +68,39 @@
       return undefined;
     }
     var items = [
-      {name: "bold", action: M.toggleBold, className: "fa fa-bold", title: labels.bold},
-      {name: "italic", action: M.toggleItalic, className: "fa fa-italic", title: labels.italic},
-      {name: "heading", action: M.toggleHeadingSmaller, className: "fa fa-header", title: labels.heading},
-      {name: "strikethrough", action: M.toggleStrikethrough, className: "fa fa-strikethrough", title: labels.strikethrough},
+      {name: "bold", action: M.toggleBold, className: "yd-editor-tool", title: labels.bold},
+      {name: "italic", action: M.toggleItalic, className: "yd-editor-tool", title: labels.italic},
+      {name: "heading", action: M.toggleHeadingSmaller, className: "yd-editor-tool", title: labels.heading},
+      {name: "strikethrough", action: M.toggleStrikethrough, className: "yd-editor-tool", title: labels.strikethrough},
       "|",
-      {name: "quote", action: M.toggleBlockquote, className: "fa fa-quote-left", title: labels.quote},
-      {name: "unordered-list", action: M.toggleUnorderedList, className: "fa fa-list-ul", title: labels.unorderedList},
-      {name: "ordered-list", action: M.toggleOrderedList, className: "fa fa-list-ol", title: labels.orderedList},
+      {name: "quote", action: M.toggleBlockquote, className: "yd-editor-tool", title: labels.quote},
+      {name: "unordered-list", action: M.toggleUnorderedList, className: "yd-editor-tool", title: labels.unorderedList},
+      {name: "ordered-list", action: M.toggleOrderedList, className: "yd-editor-tool", title: labels.orderedList},
       "|",
-      {name: "link", action: M.drawLink, className: "fa fa-link", title: labels.link}
+      {name: "link", action: M.drawLink, className: "yd-editor-tool", title: labels.link}
     ];
     if (!compact) {
-      items.push({name: "image", action: M.drawImage, className: "fa fa-image", title: labels.image});
+      items.push({name: "image", action: M.drawImage, className: "yd-editor-tool", title: labels.image});
     }
-    items.push({name: "code", action: M.toggleCodeBlock, className: "fa fa-code", title: labels.code});
+    items.push({name: "code", action: M.toggleCodeBlock, className: "yd-editor-tool", title: labels.code});
     if (!compact) {
       items.push(
-        {name: "table", action: M.drawTable, className: "fa fa-table", title: labels.table},
-        {name: "horizontal-rule", action: M.drawHorizontalRule, className: "fa fa-minus", title: labels.horizontalRule}
+        {name: "table", action: M.drawTable, className: "yd-editor-tool", title: labels.table},
+        {name: "horizontal-rule", action: M.drawHorizontalRule, className: "yd-editor-tool", title: labels.horizontalRule}
       );
     }
     items.push(
       "|",
-      {name: "preview", action: M.togglePreview, className: "fa fa-eye no-disable", title: labels.preview}
+      {name: "preview", action: M.togglePreview, className: "yd-editor-tool no-disable", title: labels.preview}
     );
     if (!compact) {
-      items.push({name: "side-by-side", action: M.toggleSideBySide, className: "fa fa-columns no-disable no-mobile", title: labels.sideBySide});
+      items.push({name: "side-by-side", action: M.toggleSideBySide, className: "yd-editor-tool no-disable no-mobile", title: labels.sideBySide});
     }
     items.push(
-      {name: "fullscreen", action: M.toggleFullScreen, className: "fa fa-arrows-alt no-disable no-mobile", title: labels.fullscreen},
+      {name: "fullscreen", action: M.toggleFullScreen, className: "yd-editor-tool no-disable no-mobile", title: labels.fullscreen},
       "|",
-      {name: "undo", action: M.undo, className: "fa fa-undo", title: labels.undo},
-      {name: "redo", action: M.redo, className: "fa fa-repeat", title: labels.redo}
+      {name: "undo", action: M.undo, className: "yd-editor-tool", title: labels.undo},
+      {name: "redo", action: M.redo, className: "yd-editor-tool", title: labels.redo}
     );
     return items;
   }
@@ -145,6 +145,9 @@
     try {
       editor = new window.EasyMDE({
         element: textarea,
+        /* Never let EasyMDE fetch its legacy Font Awesome stylesheet from a CDN; the toolbar
+           below is decorated with Lucide SVGs from the page's own sprite. | 绝不让 EasyMDE 从 CDN
+           拉取遗留的 Font Awesome 样式表；下面的工具栏使用页面自带 sprite 中的 Lucide SVG。 */
         autoDownloadFontAwesome: false,
         spellChecker: false,
         nativeSpellcheck: false,
@@ -167,6 +170,12 @@
 
     element.setAttribute(READY, "1");
     element.__ydEditor = editor;
+    /* EasyMDE 的工具栏由脚本在运行时构造；图标统一从隐藏调色板克隆 Lucide SVG，不依赖图标字体。 |
+       EasyMDE builds its toolbar at runtime; every icon is cloned from the hidden palette as a Lucide
+       SVG, so no icon font is involved. */
+    if (window.ydUI && typeof window.ydUI.decorateEditorToolbar === "function") {
+      window.ydUI.decorateEditorToolbar(editor, element);
+    }
     applyTheme(element);
   }
 

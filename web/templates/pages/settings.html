@@ -60,17 +60,18 @@
               (dict "Value" "UTC" "Key" "settings.timezone.utc" "Label" (tr "settings.timezone.utc"))
               (dict "Value" "America/New_York" "Key" "settings.timezone.new_york" "Label" (tr "settings.timezone.new_york"))))}}
 
-      {{/* Written inline (not through the partial) because it carries data-yd-theme-set,
-           the hook yd-app.js uses to apply the new theme immediately.
-           直接内联（不经由局部模板），因为它带 data-yd-theme-set —— yd-app.js 用来即时应用新主题的钩子。 */}}
-      <div class="yd-field" data-yd-field="theme">
-        <label class="yd-field__label" for="yd-settings-theme" data-yd-i18n="settings.field.theme">{{tr "settings.field.theme"}}</label>
-        <select class="yd-select" id="yd-settings-theme" name="theme" data-yd-theme-set>
-          <option value="light" data-yd-i18n="settings.theme.light">{{tr "settings.theme.light"}}</option>
-          <option value="dark" data-yd-i18n="settings.theme.dark">{{tr "settings.theme.dark"}}</option>
-          <option value="system" selected data-yd-i18n="settings.theme.system">{{tr "settings.theme.system"}}</option>
-        </select>
-      </div>
+      {{/* ThemeSet puts data-yd-theme-set on the native select behind the custom listbox, so
+           yd-app.js still applies the new theme immediately on change.
+           ThemeSet 把 data-yd-theme-set 放在自定义列表框背后的原生 select 上，yd-app.js 因此仍会在
+           变化时即时应用新主题。 */}}
+      {{template "components.form.select" (dict
+        "ID" "yd-settings-theme" "Name" "theme" "ThemeSet" true
+        "Label" (tr "settings.field.theme") "LabelKey" "settings.field.theme"
+        "Options" (list
+          (dict "Value" "light" "Key" "settings.theme.light")
+          (dict "Value" "dark" "Key" "settings.theme.dark")
+          (dict "Value" "system" "Key" "settings.theme.system" "Selected" true)))}}
+
 
       {{template "partials/form.check" (dict
           "ID" "yd-settings-notify-email" "Name" "notify_email" "Value" "1"

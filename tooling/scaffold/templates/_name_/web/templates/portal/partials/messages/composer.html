@@ -28,12 +28,10 @@
     <input type="hidden" name="conversation_id" value="{{ .ActiveConversation.ID }}">
     {{- end }}
     <div class="yd-msg-composer__top">
-      <select class="yd-select yd-msg-composer__type" id="yd-msg-composer-type" name="type_key"
-              aria-label="{{ tr "message.type" }}">
-        {{- range .Catalog.Types }}
-        <option value="{{ .Key }}"{{ if eq .Key $defaultType }} selected{{ end }}>{{ .Label }}</option>
-        {{- end }}
-      </select>
+      {{template "components.form.select" (dict
+        "ID" "yd-msg-composer-type" "Name" "type_key" "WrapperClass" "yd-msg-composer__type"
+        "LabelHidden" true "Label" (tr "message.type") "LabelKey" "message.type"
+        "Options" (.Catalog.TypeOptions $defaultType))}}
       <label class="sr-only" for="yd-msg-composer-title">{{ tr "message.title" }}</label>
       <input class="yd-input yd-msg-composer__title" id="yd-msg-composer-title" name="title" type="text"
              maxlength="160" placeholder="{{ tr "message.title_placeholder" }}">
@@ -43,6 +41,7 @@
       <textarea class="yd-editor__fallback" id="yd-msg-composer-body" name="body_markdown" rows="3"
                 aria-label="{{ tr "message.quick_label" }}"
                 placeholder="{{ tr "message.quick_placeholder" }}"></textarea>
+      {{template "partials/editor-icons" .}}
     </div>
 
     <div id="yd-msg-composer-errors" class="yd-msg-composer__errors" role="alert" aria-live="assertive"></div>

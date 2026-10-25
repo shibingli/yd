@@ -159,6 +159,43 @@
   --color-info-soft: #082f49;
 }
 
+/* System preference must paint the same tokens as an explicit dark choice. | 跟随系统时必须绘制与显式
+   深色选择完全相同的令牌。
+   Without this block an `auto`/`system` attribute keeps the light form-field background even when the
+   operating system asks for dark; that is the mixed palette a visitor sees in the settings form.
+   没有本块时，即使操作系统要求深色，`auto`/`system` 属性下的表单字段仍保持浅色背景——这正是访客在
+   设置表单里看到的混搭配色。 */
+@media (prefers-color-scheme: dark) {
+  :root[data-theme="auto"],
+  :root[data-theme="system"] {
+    color-scheme: dark;
+    --color-surface: #0b1220;
+    --color-surface-muted: #111c2f;
+    --color-content: #e6edf7;
+    --color-content-muted: #94a3b8;
+    --color-border: #475569;
+    --color-border-subtle: #334155;
+    --color-danger: #f87171;
+    --color-success: #4ade80;
+    --color-warning: #fbbf24;
+    --color-info: #38bdf8;
+    --color-accent: #60a5fa;
+    --color-surface-raised: #0f1a2c;
+    --color-field: #0b1220;
+    --color-field-border: #334155;
+    --color-field-placeholder: #64748b;
+    --color-focus-ring: #60a5fa;
+    --color-overlay: rgb(2 6 23 / 0.72);
+    --color-track: #1e293b;
+    --color-on-danger: #0b1220;
+    --color-accent-soft: #172554;
+    --color-success-soft: #052e16;
+    --color-warning-soft: #451a03;
+    --color-danger-soft: #450a0a;
+    --color-info-soft: #082f49;
+  }
+}
+
 /* The hidden attribute must win over every component display rule. | hidden 属性必须压过所有组件的 display 规则。 */
 [hidden] {
   display: none !important;
@@ -718,6 +755,7 @@
   .yd-theme-toggle[data-yd-theme-state="light"] [data-yd-theme-glyph="light"],
   .yd-theme-toggle[data-yd-theme-state="dark"] [data-yd-theme-glyph="dark"],
   .yd-theme-toggle[data-yd-theme-state="auto"] [data-yd-theme-glyph="system"],
+  .yd-theme-toggle[data-yd-theme-state="system"] [data-yd-theme-glyph="system"],
   .yd-theme-toggle:not([data-yd-theme-state]) [data-yd-theme-glyph="light"] {
     display: inline-flex;
   }
@@ -1433,6 +1471,7 @@
   /* Controls placed directly on a filter or search row stretch to fill the free space. | 直接位于筛选或搜索行中的控件会伸展填满剩余空间。 */
   .yd-filters > .yd-input,
   .yd-filters > .yd-select,
+  .yd-filters > .yd-field,
   .yd-search > .yd-input {
     flex: 1 1 10rem;
     min-width: 0;
@@ -2556,9 +2595,14 @@
    data-yd-theme-state for the glyph switch, and matching it here would override .yd-btn's
    inline-flex with display:inline. | 把可见性规则限定在标签节点上：按钮自身也带
    data-yd-theme-state 用于图标切换，在这里匹配到它会把 .yd-btn 的 inline-flex 覆盖成 display:inline。 */
-:root[data-theme="light"] .yd-theme__state[data-yd-theme-state="light"],
-:root[data-theme="dark"] .yd-theme__state[data-yd-theme-state="dark"],
-:root[data-theme="auto"] .yd-theme__state[data-yd-theme-state="auto"] {
+/* The button carries the choice; <html data-theme> carries the resolved light/dark value. Scoping
+   the label to the button means the "follow system" label stays visible even though the resolved
+   attribute is light or dark. | 按钮携带的是选择，<html data-theme> 携带的是解析后的明暗值。把
+   标签限定在按钮上，意味着即使解析后的属性是 light/dark，「跟随系统」标签仍然可见。 */
+.yd-theme-toggle[data-yd-theme-state="light"] .yd-theme__state[data-yd-theme-state="light"],
+.yd-theme-toggle[data-yd-theme-state="dark"] .yd-theme__state[data-yd-theme-state="dark"],
+.yd-theme-toggle[data-yd-theme-state="auto"] .yd-theme__state[data-yd-theme-state="auto"],
+.yd-theme-toggle[data-yd-theme-state="system"] .yd-theme__state[data-yd-theme-state="system"] {
   display: inline;
 }
 
@@ -4441,6 +4485,12 @@
   }
 
   .yd-msg-composer__type {
+    flex: 0 0 auto;
+    width: auto;
+    min-width: 7rem;
+  }
+
+  .yd-msg-composer__type .yd-selectbox__button {
     width: auto;
     min-width: 7rem;
   }
@@ -4578,15 +4628,44 @@
    ============================================================================================ */
 .yd-editor .EasyMDEContainer .CodeMirror,
 .yd-editor .EasyMDEContainer .CodeMirror-fullscreen {
+  /* The outer .yd-editor already owns the one border; the vendor's inner light border reads as a
+     white seam around the text area in dark mode. | 外层 .yd-editor 已经拥有唯一一道边框；vendor
+     的内层浅色边框在暗色主题下会变成正文区周围的一条白边。 */
+  border: 0;
+  border-radius: 0;
   background: var(--color-surface);
   color: var(--color-content);
   font-family: var(--font-mono);
 }
 
 .yd-editor .EasyMDEContainer .editor-toolbar {
-  border-color: var(--color-border-subtle);
+  border: 0;
+  border-bottom: 1px solid var(--color-border-subtle);
+  border-radius: 0;
   background: var(--color-surface-muted);
   opacity: 1;
+}
+
+/* EasyMDE builds toolbar buttons at runtime. Each button receives a Lucide <svg> cloned from the
+   hidden palette in partials/editor-icons.html; no icon font is shipped. | EasyMDE 在运行时构造
+   工具栏按钮。每个按钮接收从 partials/editor-icons.html 隐藏调色板克隆的 Lucide <svg>；
+   不随包提供任何图标字体。 */
+.yd-editor .EasyMDEContainer .editor-toolbar button.yd-editor-tool {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.yd-editor .EasyMDEContainer .editor-toolbar button.yd-editor-tool .yd-icon {
+  width: 1rem;
+  height: 1rem;
+}
+
+.yd-editor .EasyMDEContainer .CodeMirror-gutters,
+.yd-editor .EasyMDEContainer .CodeMirror-gutter-filler,
+.yd-editor .EasyMDEContainer .CodeMirror-scrollbar-filler {
+  border-color: var(--color-border-subtle);
+  background: var(--color-surface);
 }
 
 .yd-editor .EasyMDEContainer .editor-toolbar a {
@@ -4616,6 +4695,7 @@
 
 .yd-editor .EasyMDEContainer .editor-preview,
 .yd-editor .EasyMDEContainer .editor-preview-side {
+  border-color: var(--color-border-subtle);
   background: var(--color-surface);
   color: var(--color-content);
 }

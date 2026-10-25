@@ -12,7 +12,8 @@
   partial refresh.
 */}}
 {{- define "partials/flash" -}}
-<div id="yd-flash" class="yd-flash" role="status" aria-live="polite" aria-label="通知 | Notifications">
+<div id="yd-flash" class="yd-flash" role="status" aria-live="polite"
+     aria-label="{{tr "flash.region"}}" data-yd-i18n-attr="aria-label:flash.region">
   {{/* 连接状态条：默认隐藏，由 yd-app.js 在 htmx:sse:* 与 htmx:ws:* 事件上切换。
        Connection banner: hidden by default and toggled by yd-app.js on the htmx:sse:* and htmx:ws:* events. */}}
   <div id="yd-connection" class="yd-flash__item yd-flash__item--warn" role="status" hidden data-yd-connection>

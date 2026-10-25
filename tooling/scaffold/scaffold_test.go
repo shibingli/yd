@@ -119,10 +119,16 @@ var requiredFiles = []string{
 	"web/templates/components/cn.html",
 	"web/templates/components/data.html",
 	"web/templates/components/display.html",
+	"web/templates/components/display_advanced.html",
+	"web/templates/components/display_business.html",
+	"web/templates/components/display_interactive.html",
 	"web/templates/components/feedback.html",
+	"web/templates/components/feedback_advanced.html",
 	"web/templates/components/form.html",
+	"web/templates/components/form_advanced.html",
 	"web/templates/components/layout.html",
 	"web/templates/components/navigation.html",
+	"web/templates/components/navigation_advanced.html",
 	"web/templates/components/overlay.html",
 	"web/templates/mgr/layouts/base.html",
 	"web/templates/mgr/layouts/shell.html",
@@ -158,6 +164,7 @@ var requiredFiles = []string{
 	"web/templates/mgr/partials/users/row.html",
 	"web/templates/partials/app_shell.html",
 	"web/templates/partials/base.html",
+	"web/templates/partials/editor-icons.html",
 	"web/templates/partials/flash.html",
 	"web/templates/partials/icon.html",
 	"web/templates/partials/messages/message.html",
@@ -1307,16 +1314,15 @@ func TestInteractiveNonTTYUsesDefaults(t *testing.T) {
 // TestInteractiveTTYReadsAnswers 断言 TTY 下逐项读取回答，空行取默认值。
 // TestInteractiveTTYReadsAnswers asserts TTY mode reads one answer per prompt and empty lines keep defaults.
 func TestInteractiveTTYReadsAnswers(t *testing.T) {
-	// 询问顺序：name、module、db、grpc、i18n、htmx-exts、license；Redis、Asynq、Htmx、Tailwind 与 Alpine 是内建能力，不再提问。
-	// Prompt order: name, module, db, grpc, i18n, htmx-exts, license; Redis, Asynq, Htmx, Tailwind and Alpine are built in
-	// and never asked.
+	// 询问顺序：name、module、db、grpc、license；i18n、Htmx 扩展、Redis、Asynq、Htmx、Tailwind
+	// 与 Alpine 是内建能力，不再提问。
+	// Prompt order: name, module, db, grpc, license; i18n, Htmx extensions, Redis, Asynq, Htmx,
+	// Tailwind and Alpine are built in and never asked.
 	answers := strings.Join([]string{
 		"shop-app", // 项目名 | project name
 		"",         // 模块路径 → 跟随新项目名 | module follows the new name
 		"postgres", // 数据库 | database
 		"n",        // grpc
-		"y",        // i18n
-		"sse, ws",  // Htmx 扩展 | htmx extensions
 		"",         // 协议 → 默认 Apache-2.0 | license keeps its default
 	}, "\n") + "\n"
 
@@ -1334,8 +1340,8 @@ func TestInteractiveTTYReadsAnswers(t *testing.T) {
 	if got.GRPC || !got.I18n || !got.Tailwind {
 		t.Errorf("特性开关解析错误: %+v", got)
 	}
-	if !slices.Equal(got.HtmxExts, []string{"sse", "ws"}) {
-		t.Errorf("Htmx 扩展解析错误: %v", got.HtmxExts)
+	if !slices.Equal(got.HtmxExts, scaffold.DefaultExtensions()) {
+		t.Errorf("Htmx 扩展应为全部安全扩展: %v", got.HtmxExts)
 	}
 	prompts := out.String()
 	for _, unwanted := range []string{"启用 Redis", "启用 Asynq"} {
@@ -1523,10 +1529,11 @@ const (
 	// httpTimeout bounds one ordinary request. | httpTimeout 是单条普通请求的上限。
 	// httpTimeout is the probe timeout. The first HTML render in a generated project runs with
 	// render.Dev=true and therefore compiles the whole template tree; on a cold Windows filesystem that
-	// can approach ten seconds, so the timeout leaves headroom for the compile instead of failing a
-	// healthy app. | httpTimeout 是探针超时。生成项目首次 HTML 渲染运行在 render.Dev=true 下，
-	// 需要编译整棵模板树；在冷启动的 Windows 文件系统上接近十秒，因此留出编译余量，避免误判健康的应用。
-	httpTimeout = 20 * time.Second
+	// can take tens of seconds now that the gallery and the advanced components are part of the tree,
+	// so the timeout leaves headroom for the compile instead of failing a healthy app. | httpTimeout
+	// 是探针超时。生成项目首次 HTML 渲染运行在 render.Dev=true 下，需要编译整棵模板树；组件示例页与
+	// 进阶组件加入后，冷启动的 Windows 文件系统上可能达到数十秒，因此留出编译余量，避免误判健康的应用。
+	httpTimeout = 60 * time.Second
 	// sseTimeout 是等待一帧 SSE 推送的上限（推送间隔 5 秒，留足心跳与调度余量）。
 	// sseTimeout bounds the wait for one SSE frame (the push interval is five seconds, leaving room for heartbeats and scheduling).
 	sseTimeout = 20 * time.Second
@@ -1632,6 +1639,12 @@ func TestGeneratedAppServesFrameworkFeatures(t *testing.T) {
 			`id="yd-kit-chart"`,
 			`id="yd-kit-modal"`,
 			`class="yd-chart-card__plot"`,
+			`id="yd-ui-kit-advanced-form"`,
+			`id="yd-ui-kit-advanced-display"`,
+			`id="yd-ui-kit-advanced-misc"`,
+			`id="yd-kit-calendar"`,
+			`id="yd-kit-viewer"`,
+			`data-yd-editor-icons`,
 		} {
 			if !strings.Contains(body, want) {
 				t.Errorf("GET /ui-kit 缺少 %q:\n%s", want, body)
@@ -2783,13 +2796,20 @@ func TestGeneratedI18nCatalogueCoversEveryTrKey(t *testing.T) {
 	pr, _ := generateMem(t, scaffold.DefaultOptions("i18n-app"))
 
 	used := map[string]string{}
+	// optionKeyPattern covers the select/choice contract: the visible label comes from tr, while a
+	// data-driven option carries the same catalogue key in its Key field. | optionKeyPattern 覆盖
+	// 选择/选项契约：可见文案由 tr 给出，数据驱动的选项在 Key 字段里携带同一个目录键。
+	optionKeyPattern := regexpx.MustCompile(`"Key"\s+"([a-z0-9_.]+)"`)
 	for _, rel := range requiredFiles {
 		if !strings.HasPrefix(rel, "web/templates/") || !strings.HasSuffix(rel, ".html") {
 			continue
 		}
-		for _, match := range trKeyPattern.FindAllStringSubmatch(pr.read(rel), -1) {
-			if _, seen := used[match[1]]; !seen {
-				used[match[1]] = rel
+		body := pr.read(rel)
+		for _, pattern := range []*regexpx.Regexp{trKeyPattern, optionKeyPattern} {
+			for _, match := range pattern.FindAllStringSubmatch(body, -1) {
+				if _, seen := used[match[1]]; !seen {
+					used[match[1]] = rel
+				}
 			}
 		}
 	}
@@ -2801,6 +2821,7 @@ func TestGeneratedI18nCatalogueCoversEveryTrKey(t *testing.T) {
 	goKeyPatterns := []*regexpx.Regexp{
 		regexpx.MustCompile(`"(metrics\.[a-z0-9_.]+)"`),
 		regexpx.MustCompile(`\btr\([^,\n]+,\s*"([a-z0-9_.]+)"`),
+		regexpx.MustCompile(`"Key":\s*"([a-z0-9_.]+)"`),
 	}
 	for _, rel := range requiredFiles {
 		if !strings.HasPrefix(rel, "internal/") || !strings.HasSuffix(rel, ".go") {
@@ -3050,26 +3071,38 @@ func newProbeClient(t *testing.T, timeout time.Duration) *http.Client {
 	if err != nil {
 		t.Fatalf("构造 cookie jar 失败: %v", err)
 	}
+	// Each client owns its connection pool. Sharing http.DefaultTransport lets an idle keep-alive
+	// connection left over from an earlier test be reused after the server closed it, which shows up
+	// as a request that never reaches the access log and times out. | 每个客户端独占连接池。共用
+	// http.DefaultTransport 会复用先前测试留下、已被服务端关闭的空闲长连接，表现为请求从未到达
+	// 访问日志并最终超时。
+	transport := http.DefaultTransport.(*http.Transport).Clone()
 	return &http.Client{
 		Timeout:   timeout,
 		Jar:       jar,
-		Transport: langTransport{},
+		Transport: langTransport{base: transport},
 		// 不跟随重定向：303 与它的 Location 本身就是被测契约的一部分。
 		// Redirects are never followed: the 303 and its Location are part of the contract under test.
 		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
 	}
 }
 
-// langTransport 给每条请求补上 Accept-Language: en（已有取值时不动）。
-// langTransport appends Accept-Language: en to every request that does not carry one.
-type langTransport struct{}
+// langTransport 给每条请求补上 Accept-Language: en（已有取值时不动），并转发到客户端自己的连接池。
+// langTransport appends Accept-Language: en to every request that does not carry one and forwards
+// to the client's own connection pool.
+type langTransport struct {
+	base *http.Transport
+}
 
 // RoundTrip implements http.RoundTripper. | RoundTrip 实现 http.RoundTripper。
-func (langTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+func (t langTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 	if req.Header.Get("Accept-Language") == "" {
 		req.Header.Set("Accept-Language", "en")
 	}
-	return http.DefaultTransport.RoundTrip(req)
+	if t.base == nil {
+		return http.DefaultTransport.RoundTrip(req)
+	}
+	return t.base.RoundTrip(req)
 }
 
 // sm2Cipher 取服务端公钥并把明文口令加密成前端提交的形态：原始 C1C3C2 密文的标准 Base64。
@@ -3605,7 +3638,7 @@ func TestGeneratedUILoadsAlpineAndTheKitInOrder(t *testing.T) {
 	// The generated component templates and UI stylesheet must be byte-identical to the framework's
 	// copies: a second implementation would drift the moment either side is edited.
 	// 生成的组件模板与 UI 样式表必须与框架副本逐字节一致：第二份实现会在任一侧被修改的那一刻开始漂移。
-	for _, name := range []string{"chart.html", "cn.html", "data.html", "display.html", "feedback.html", "form.html", "layout.html", "navigation.html", "overlay.html"} {
+	for _, name := range []string{"chart.html", "cn.html", "data.html", "display.html", "display_advanced.html", "display_business.html", "display_interactive.html", "feedback.html", "feedback_advanced.html", "form.html", "form_advanced.html", "layout.html", "navigation.html", "navigation_advanced.html", "overlay.html"} {
 		rel := "web/templates/components/" + name
 		if !pr.exists(rel) {
 			t.Errorf("generated project lacks %s | 生成项目缺少 %s", rel, rel)
@@ -3619,9 +3652,18 @@ func TestGeneratedUILoadsAlpineAndTheKitInOrder(t *testing.T) {
 			t.Errorf("%s differs from the framework copy | %s 与框架副本不一致", rel, rel)
 		}
 	}
-	for _, rel := range []string{"web/static/css/ui.css"} {
+	for _, name := range []string{"ui.css"} {
+		rel := "web/static/css/" + name
 		if !pr.exists(rel) {
 			t.Errorf("generated project lacks %s | 生成项目缺少 %s", rel, rel)
+			continue
+		}
+		want, err := afero.ReadFile(web.FS(), "static/css/"+name)
+		if err != nil {
+			t.Fatalf("reading framework %s failed: %v | 读取框架 %s 失败：%v", name, err, name, err)
+		}
+		if got := pr.read(rel); got != string(want) {
+			t.Errorf("%s differs from the framework copy | %s 与框架副本不一致", rel, rel)
 		}
 	}
 }
@@ -3743,6 +3785,34 @@ func TestGenerateIconsUseTheBundledSprite(t *testing.T) {
 		if !strings.Contains(pr.read(want.file), needle) {
 			t.Errorf("%s is missing %s | %s 缺少 %s", want.file, needle, want.file, needle)
 		}
+	}
+
+	// The EasyMDE toolbar is built at runtime, so its icons come from a server-rendered palette
+	// shipped with every editor. No Font Awesome asset or class may survive. | EasyMDE 工具栏在
+	// 运行时构造，图标来自随每个编辑器渲染的服务端调色板；不得保留任何 Font Awesome 资源或类名。
+	palette := pr.read("web/templates/partials/editor-icons.html")
+	for _, want := range []string{"data-yd-editor-icons", `data-yd-editor-icon="lucide-bold"`, `template "partials/icon" "lucide-redo-2"`} {
+		if !strings.Contains(palette, want) {
+			t.Errorf("generated editor palette is missing %q | 生成的编辑器调色板缺少 %q", want, want)
+		}
+	}
+	for _, file := range []string{
+		"web/templates/components/form.html",
+		"web/templates/portal/partials/messages/compose.html",
+		"web/templates/portal/partials/messages/composer.html",
+	} {
+		if !strings.Contains(pr.read(file), `template "partials/editor-icons"`) {
+			t.Errorf("%s does not render the editor palette | %s 未渲染编辑器调色板", file, file)
+		}
+	}
+	lock := pr.read("web/assets.lock.json")
+	for _, gone := range []string{"font-awesome", "fontawesome"} {
+		if strings.Contains(strings.ToLower(lock), gone) {
+			t.Errorf("generated assets.lock.json still carries %q | 生成的 assets.lock.json 仍包含 %q", gone, gone)
+		}
+	}
+	if strings.Contains(pr.read("internal/controller/message_view.go"), "font-awesome") {
+		t.Error("message_view.go still loads the Font Awesome stylesheet | message_view.go 仍加载 Font Awesome 样式表")
 	}
 }
 

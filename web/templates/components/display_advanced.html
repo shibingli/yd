@@ -1,0 +1,295 @@
+{{/*
+  components/display_advanced.html — presentation primitives that carry more structure.
+  components/display_advanced.html — 承载更多结构的展示原语。
+
+  No second state model | 不引入第二套状态模型
+    Calendar, file-tree, attachment, bubble, message, trace, marker, action bar and hover card are
+    ordinary server-rendered markup. The image viewer reuses the global modal controller, so it does
+    not invent another focus trap. Only the interaction that genuinely belongs to the page (an emoji
+    palette, a signature canvas, a splitter) lives in a small Alpine component.
+    日历、文件树、附件、气泡、消息、轨迹、标记、操作条与悬停卡都是普通的服务端渲染标记。图片查看器复用
+    全局模态控制器，因此不会再造一个焦点陷阱。只有真正属于页面层的交互（表情面板、签名画布、分隔条）
+    才放进很小的 Alpine 组件。
+*/}}
+
+{{/* components.display.calendar — a server-rendered month grid. Dict keys | dict 的键:
+       Label, LabelKey, MonthLabel, MonthLabelKey, TodayLabel, TodayLabelKey,
+       PrevHref, NextHref, TodayHref, Weekdays []string,
+       Weeks []{Days []{Number, Date, Href, Outside, Today, Selected, Events []{Label, LabelKey, Href, Tone}}}
+     Date maths stays in the controller: the template only paints the cells it is given, so time
+     zones and locale week starts never diverge between the server and the browser. |
+     日期运算留在控制器：模板只绘制收到的单元格，时区与每周起始日因此不会在服务端与浏览器之间分叉。 */}}
+{{- define "components.display.calendar" -}}
+<figure class="yd-calendar"{{with .ID}} id="{{.}}"{{end}}>
+  <div class="yd-calendar__toolbar">
+    {{with .PrevHref}}<a class="yd-btn yd-btn--ghost yd-btn--sm" href="{{.}}" data-yd-i18n-attr="aria-label:ui.previous" aria-label="{{tr "ui.previous"}}">{{template "partials/icon" "lucide-chevron-left"}}</a>{{end}}
+    <div class="yd-calendar__heading">
+      {{if or .MonthLabel .MonthLabelKey}}<p class="yd-calendar__month"{{with .MonthLabelKey}} data-yd-i18n="{{.}}"{{end}}>{{if .MonthLabelKey}}{{tr .MonthLabelKey}}{{else}}{{.MonthLabel}}{{end}}</p>{{end}}
+      {{with .TodayHref}}<a class="yd-calendar__today" href="{{.}}">{{if $.TodayLabelKey}}{{tr $.TodayLabelKey}}{{else}}{{$.TodayLabel}}{{end}}</a>{{end}}
+    </div>
+    {{with .NextHref}}<a class="yd-btn yd-btn--ghost yd-btn--sm" href="{{.}}" data-yd-i18n-attr="aria-label:ui.next" aria-label="{{tr "ui.next"}}">{{template "partials/icon" "lucide-chevron-right"}}</a>{{end}}
+  </div>
+  <table class="yd-calendar__grid"{{if or .Label .LabelKey}} aria-label="{{if .LabelKey}}{{tr .LabelKey}}{{else}}{{.Label}}{{end}}"{{with .LabelKey}} data-yd-i18n-attr="aria-label:{{.}}"{{end}}{{end}}>
+    <thead>
+      <tr>{{range .Weekdays}}<th class="yd-calendar__weekday" scope="col">{{.}}</th>{{end}}</tr>
+    </thead>
+    <tbody>
+      {{range .Weeks}}
+      <tr>
+        {{range .Days}}
+        <td class="yd-calendar__day{{if .Outside}} yd-calendar__day--outside{{end}}{{if .Today}} yd-calendar__day--today{{end}}{{if .Selected}} yd-calendar__day--selected{{end}}"
+            {{with .Date}}data-date="{{.}}"{{end}}>
+          {{if .Href}}<a class="yd-calendar__number" href="{{.}}"{{if .Selected}} aria-current="date"{{end}}>{{.Number}}</a>{{else}}<span class="yd-calendar__number"{{if .Selected}} aria-current="date"{{end}}>{{.Number}}</span>{{end}}
+          {{with .Events}}
+          <ul class="yd-calendar__events">
+            {{range .}}<li><a class="yd-calendar__event{{with .Tone}} yd-calendar__event--{{.}}{{end}}" href="{{.Href}}"{{with .LabelKey}} data-yd-i18n="{{.}}"{{end}}>{{if .LabelKey}}{{tr .LabelKey}}{{else}}{{.Label}}{{end}}</a></li>{{end}}
+          </ul>
+          {{end}}
+        </td>
+        {{end}}
+      </tr>
+      {{end}}
+    </tbody>
+  </table>
+</figure>
+{{- end -}}
+
+{{/* components.display.file-tree — a tree with file and folder rows. Dict keys | dict 的键:
+       Items []Node, Label, LabelKey
+     Node adds Icon (template.HTML) to the navigation tree contract; the recursion is shared, so
+     file rows keep the same keyboard and details behaviour as every other tree. |
+     Node 在导航树契约上增加 Icon（template.HTML）；递归实现共享，因此文件行与其它树保持相同的键盘
+     与 details 行为。 */}}
+{{- define "components.display.file-tree" -}}
+<nav class="yd-file-tree"{{if or .Label .LabelKey}} aria-label="{{if .LabelKey}}{{tr .LabelKey}}{{else}}{{.Label}}{{end}}"{{with .LabelKey}} data-yd-i18n-attr="aria-label:{{.}}"{{end}}{{end}}>
+  <ul class="yd-tree">{{template "components.navigation.tree.nodes" .Items}}</ul>
+</nav>
+{{- end -}}
+
+{{/* components.display.cell — a settings / navigation row with a trailing control. Dict keys | dict 的键:
+       Label, LabelKey, Hint, HintKey, Control (template.HTML), Href, Tone (danger), Disabled,
+       Attrs (template.HTMLAttr) */}}
+{{- define "components.display.cell" -}}
+{{if .Href}}<a class="yd-cell{{with .Tone}} yd-cell--{{.}}{{end}}{{if .Disabled}} yd-cell--disabled{{end}}" href="{{.Href}}" {{with .Attrs}}{{.}}{{end}}>{{else}}<div class="yd-cell{{with .Tone}} yd-cell--{{.}}{{end}}{{if .Disabled}} yd-cell--disabled{{end}}" {{with .Attrs}}{{.}}{{end}}>{{end}}
+  <span class="yd-cell__body">
+    <span class="yd-cell__label"{{with .LabelKey}} data-yd-i18n="{{.}}"{{end}}>{{if .LabelKey}}{{tr .LabelKey}}{{else}}{{.Label}}{{end}}</span>
+    {{if or .Hint .HintKey}}<span class="yd-cell__hint"{{with .HintKey}} data-yd-i18n="{{.}}"{{end}}>{{if .HintKey}}{{tr .HintKey}}{{else}}{{.Hint}}{{end}}</span>{{end}}
+  </span>
+  {{with .Control}}<span class="yd-cell__control">{{.}}</span>{{end}}
+{{if .Href}}</a>{{else}}</div>{{end}}
+{{- end -}}
+
+{{/* components.display.attachment — one file card. Dict keys | dict 的键:
+       Title, TitleKey, Description, DescriptionKey, State (idle|uploading|processing|error|done),
+       Size (xs|sm), Orientation (vertical), Media (template.HTML), Href, Actions (template.HTML),
+       RemoveAttrs (template.HTMLAttr), RemoveKey
+     State only changes appearance and aria-busy; the caller reports the actual failure in the
+     description, so colour is never the only signal. |
+     State 只改变外观与 aria-busy；实际失败原因由调用方写进 description，颜色绝不是唯一信号。 */}}
+{{- define "components.display.attachment" -}}
+{{- $vertical := eq .Orientation "vertical" -}}
+<div class="yd-attachment{{with .State}} yd-attachment--{{.}}{{end}}{{with .Size}} yd-attachment--{{.}}{{end}}{{if $vertical}} yd-attachment--vertical{{end}}"
+     {{with .State}}data-state="{{.}}"{{end}}{{if or (eq .State "uploading") (eq .State "processing")}} aria-busy="true"{{end}}>
+  {{with .Media}}<span class="yd-attachment__media">{{.}}</span>{{end}}
+  <span class="yd-attachment__body">
+    {{if .Href}}<a class="yd-attachment__title" href="{{.Href}}"{{with .TitleKey}} data-yd-i18n="{{.}}"{{end}}>{{if .TitleKey}}{{tr .TitleKey}}{{else}}{{.Title}}{{end}}</a>{{else}}<span class="yd-attachment__title"{{with .TitleKey}} data-yd-i18n="{{.}}"{{end}}>{{if .TitleKey}}{{tr .TitleKey}}{{else}}{{.Title}}{{end}}</span>{{end}}
+    {{if or .Description .DescriptionKey}}<span class="yd-attachment__description"{{with .DescriptionKey}} data-yd-i18n="{{.}}"{{end}}>{{if .DescriptionKey}}{{tr .DescriptionKey}}{{else}}{{.Description}}{{end}}</span>{{end}}
+  </span>
+  {{if or .Actions .RemoveAttrs}}
+  <span class="yd-attachment__actions">
+    {{with .Actions}}{{.}}{{end}}
+    {{with .RemoveAttrs}}<button type="button" class="yd-file__remove" {{.}}{{with $.RemoveKey}} data-yd-i18n-attr="aria-label:{{$.RemoveKey}}" aria-label="{{tr $.RemoveKey}}"{{end}}>{{template "partials/icon" "lucide-x"}}</button>{{end}}
+  </span>
+  {{end}}
+</div>
+{{- end -}}
+
+{{/* components.display.bubble — one conversational surface. Dict keys | dict 的键:
+       Tone (default|secondary|muted|tinted|outline|ghost|destructive), Align (start|end),
+       Content (template.HTML), Reactions (template.HTML) */}}
+{{- define "components.display.bubble" -}}
+<div class="yd-bubble{{with .Tone}} yd-bubble--{{.}}{{end}}{{with .Align}} yd-bubble--{{.}}{{end}}"{{with .Align}} data-align="{{.}}"{{end}}>
+  <div class="yd-bubble__content">{{.Content}}</div>
+  {{with .Reactions}}<div class="yd-bubble__reactions">{{.}}</div>{{end}}
+</div>
+{{- end -}}
+
+{{/* components.display.chat-message — a message row with avatar, header, bubble and footer. Dict keys | dict 的键:
+       Align (start|end), Avatar (template.HTML), Name, NameKey, Time, TimeKey, Content (template.HTML),
+       Tone, Reactions (template.HTML), Actions (template.HTML), State (sending|sent|error),
+       ID, Attrs (template.HTMLAttr) */}}
+{{- define "components.display.chat-message" -}}
+<article class="yd-message{{with .Align}} yd-message--{{.}}{{end}}{{with .State}} yd-message--{{.}}{{end}}"{{with .ID}} id="{{.}}"{{end}}{{with .Attrs}} {{.}}{{end}}>
+  {{with .Avatar}}<span class="yd-message__avatar">{{.}}</span>{{end}}
+  <div class="yd-message__body">
+    {{if or .Name .NameKey .Time .TimeKey}}
+    <header class="yd-message__header">
+      {{if or .Name .NameKey}}<span class="yd-message__name"{{with .NameKey}} data-yd-i18n="{{.}}"{{end}}>{{if .NameKey}}{{tr .NameKey}}{{else}}{{.Name}}{{end}}</span>{{end}}
+      {{if or .Time .TimeKey}}<time class="yd-message__time"{{with .TimeKey}} data-yd-i18n="{{.}}"{{end}}>{{if .TimeKey}}{{tr .TimeKey}}{{else}}{{.Time}}{{end}}</time>{{end}}
+    </header>
+    {{end}}
+    {{template "components.display.bubble" (dict "Align" .Align "Tone" .Tone "Content" .Content "Reactions" .Reactions)}}
+    {{with .Actions}}<footer class="yd-message__footer">{{.}}</footer>{{end}}
+  </div>
+</article>
+{{- end -}}
+
+{{/* components.display.prompt-input — a chat composer. Dict keys | dict 的键:
+       ID, Name, Action, Post, Get, Target, Swap, Value, Rows, Label, LabelKey,
+       Placeholder, PlaceholderKey, SendLabel, SendKey, Attachments (template.HTML),
+       Actions (template.HTML), Hint, HintKey, Required, Attrs (template.HTMLAttr)
+     The send control is a real submit button; Enter in the textarea still inserts a newline, which
+     is what a multi-line prompt needs. | 发送控件是真实的提交按钮；文本域里的回车仍然换行，这正是
+     多行提示所需的。 */}}
+{{- define "components.display.prompt-input" -}}
+{{- $sendKey := .SendKey | default "ui.send" -}}
+<form class="yd-prompt" id="{{.ID}}" method="{{if .Post}}post{{else}}get{{end}}" action="{{.Action}}"
+      {{if .Post}}hx-post="{{.Post}}"{{else}}{{if .Get}}hx-get="{{.Get}}"{{end}}{{end}}
+      {{with .Target}}hx-target="{{.}}"{{end}}{{with .Swap}} hx-swap="{{.}}"{{end}}>
+  <label class="sr-only" for="{{.ID}}-text"{{with .LabelKey}} data-yd-i18n="{{.}}"{{end}}>{{if .LabelKey}}{{tr .LabelKey}}{{else}}{{.Label}}{{end}}</label>
+  {{with .Attachments}}<div class="yd-prompt__attachments">{{.}}</div>{{end}}
+  <textarea class="yd-textarea yd-prompt__input" id="{{.ID}}-text" name="{{.Name}}" rows="{{if .Rows}}{{.Rows}}{{else}}2{{end}}"
+            {{if .Required}}required{{end}}
+            {{with .PlaceholderKey}}data-yd-i18n-attr="placeholder:{{.}}"{{end}}
+            {{if or .Placeholder .PlaceholderKey}}placeholder="{{if .PlaceholderKey}}{{tr .PlaceholderKey}}{{else}}{{.Placeholder}}{{end}}"{{end}}
+            {{with .Attrs}}{{.}}{{end}}>{{.Value}}</textarea>
+  <div class="yd-prompt__actions">
+    {{with .Actions}}{{.}}{{end}}
+    <button type="submit" class="yd-btn yd-btn--primary"{{with $sendKey}} data-yd-i18n="{{.}}"{{end}}>{{tr $sendKey}}</button>
+  </div>
+  {{if or .Hint .HintKey}}<p class="yd-field__hint"{{with .HintKey}} data-yd-i18n="{{.}}"{{end}}>{{if .HintKey}}{{tr .HintKey}}{{else}}{{.Hint}}{{end}}</p>{{end}}
+</form>
+{{- end -}}
+
+{{/* components.display.trend-chip — a compact delta. Dict keys | dict 的键:
+       Value, Label, LabelKey, Trend (up|down|flat), Tone (success|danger|muted), Hint, HintKey */}}
+{{- define "components.display.trend-chip" -}}
+<span class="yd-trend-chip{{with .Tone}} yd-trend-chip--{{.}}{{end}}">
+  {{if eq .Trend "up"}}<span class="yd-trend-chip__icon" aria-hidden="true">{{template "partials/icon" "lucide-trending-up"}}</span>{{else if eq .Trend "down"}}<span class="yd-trend-chip__icon" aria-hidden="true">{{template "partials/icon" "lucide-trending-down"}}</span>{{else if eq .Trend "flat"}}<span class="yd-trend-chip__icon" aria-hidden="true">{{template "partials/icon" "lucide-minus"}}</span>{{end}}
+  <span class="yd-trend-chip__value">{{.Value}}</span>
+  {{if or .Label .LabelKey}}<span class="yd-trend-chip__label"{{with .LabelKey}} data-yd-i18n="{{.}}"{{end}}>{{if .LabelKey}}{{tr .LabelKey}}{{else}}{{.Label}}{{end}}</span>{{end}}
+  {{if or .Hint .HintKey}}<span class="sr-only"{{with .HintKey}} data-yd-i18n="{{.}}"{{end}}>{{if .HintKey}}{{tr .HintKey}}{{else}}{{.Hint}}{{end}}</span>{{end}}
+</span>
+{{- end -}}
+
+{{/* components.display.text-shimmer — streaming text placeholder. Dict keys | dict 的键:
+       Text, TextKey, Label, LabelKey
+     The animation is CSS-only and stops under prefers-reduced-motion; the text is always the
+     server-rendered value, never a client-side placeholder. |
+     动画纯 CSS 实现，并在 prefers-reduced-motion 下停止；文本始终是服务端渲染值，不是客户端占位符。 */}}
+{{- define "components.display.text-shimmer" -}}
+<span class="yd-shimmer" role="status" aria-live="polite"{{with .LabelKey}} aria-label="{{tr .}}" data-yd-i18n-attr="aria-label:{{.}}"{{end}}>{{if .TextKey}}{{tr .TextKey}}{{else}}{{.Text}}{{end}}</span>
+{{- end -}}
+
+{{/* components.display.trace — an agent / process activity list. Dict keys | dict 的键:
+       Label, LabelKey, Items []{Title, TitleKey, Description, DescriptionKey,
+       Status (running|error|pending|""), Icon (template.HTML), Href, Details (template.HTML), Open}
+     A completed step omits Status; running and pending use the present tense in the caller's copy.
+     Expandable rows use native details, so no JavaScript is needed. |
+     已完成的步骤省略 Status；运行中与待处理由调用方的文案使用现在时。可展开行使用原生 details，
+     无需 JavaScript。 */}}
+{{- define "components.display.trace" -}}
+<ol class="yd-trace"{{if or .Label .LabelKey}} aria-label="{{if .LabelKey}}{{tr .LabelKey}}{{else}}{{.Label}}{{end}}"{{with .LabelKey}} data-yd-i18n-attr="aria-label:{{.}}"{{end}}{{end}}>
+  {{range .Items}}
+  <li class="yd-trace__line{{with .Status}} yd-trace__line--{{.}}{{end}}">
+    {{if .Details}}
+    <details class="yd-trace__details"{{if .Open}} open{{end}}>
+      <summary class="yd-trace__summary">
+        {{with .Icon}}<span class="yd-trace__icon" aria-hidden="true">{{.}}</span>{{end}}
+        <span class="yd-trace__title"{{with .TitleKey}} data-yd-i18n="{{.}}"{{end}}>{{if .TitleKey}}{{tr .TitleKey}}{{else}}{{.Title}}{{end}}</span>
+        {{if or .Description .DescriptionKey}}<span class="yd-trace__description"{{with .DescriptionKey}} data-yd-i18n="{{.}}"{{end}}>{{if .DescriptionKey}}{{tr .DescriptionKey}}{{else}}{{.Description}}{{end}}</span>{{end}}
+      </summary>
+      <div class="yd-trace__detail">{{.Details}}</div>
+    </details>
+    {{else if .Href}}
+    <a class="yd-trace__link" href="{{.Href}}">
+      {{with .Icon}}<span class="yd-trace__icon" aria-hidden="true">{{.}}</span>{{end}}
+      <span class="yd-trace__title"{{with .TitleKey}} data-yd-i18n="{{.}}"{{end}}>{{if .TitleKey}}{{tr .TitleKey}}{{else}}{{.Title}}{{end}}</span>
+      {{if or .Description .DescriptionKey}}<span class="yd-trace__description"{{with .DescriptionKey}} data-yd-i18n="{{.}}"{{end}}>{{if .DescriptionKey}}{{tr .DescriptionKey}}{{else}}{{.Description}}{{end}}</span>{{end}}
+    </a>
+    {{else}}
+    <span class="yd-trace__text">
+      {{with .Icon}}<span class="yd-trace__icon" aria-hidden="true">{{.}}</span>{{end}}
+      <span class="yd-trace__title"{{with .TitleKey}} data-yd-i18n="{{.}}"{{end}}>{{if .TitleKey}}{{tr .TitleKey}}{{else}}{{.Title}}{{end}}</span>
+      {{if or .Description .DescriptionKey}}<span class="yd-trace__description"{{with .DescriptionKey}} data-yd-i18n="{{.}}"{{end}}>{{if .DescriptionKey}}{{tr .DescriptionKey}}{{else}}{{.Description}}{{end}}</span>{{end}}
+    </span>
+    {{end}}
+  </li>
+  {{end}}
+</ol>
+{{- end -}}
+
+{{/* components.display.marker — a short annotation inside a transcript. Dict keys | dict 的键:
+       Variant (default|border|separator), Role, Icon (template.HTML), Text, TextKey */}}
+{{- define "components.display.marker" -}}
+<div class="yd-marker{{with .Variant}} yd-marker--{{.}}{{end}}"{{with .Role}} role="{{.}}"{{end}}>
+  {{with .Icon}}<span class="yd-marker__icon" aria-hidden="true">{{.}}</span>{{end}}
+  <span class="yd-marker__text"{{with .TextKey}} data-yd-i18n="{{.}}"{{end}}>{{if .TextKey}}{{tr .TextKey}}{{else}}{{.Text}}{{end}}</span>
+</div>
+{{- end -}}
+
+{{/* components.display.action-bar — a bulk-action strip. Dict keys | dict 的键:
+       Label, LabelKey, Count, CountKey, Actions (template.HTML), ClearHref, ClearLabel, ClearKey,
+       Sticky */}}
+{{- define "components.display.action-bar" -}}
+<div class="yd-action-bar{{if .Sticky}} yd-action-bar--sticky{{end}}" role="region"
+     {{if or .Label .LabelKey}}aria-label="{{if .LabelKey}}{{tr .LabelKey}}{{else}}{{.Label}}{{end}}"{{with .LabelKey}} data-yd-i18n-attr="aria-label:{{.}}"{{end}}{{end}}>
+  <span class="yd-action-bar__count">
+    {{if or .Count .CountKey}}<strong>{{if .CountKey}}{{tr .CountKey}}{{else}}{{.Count}}{{end}}</strong>{{end}}
+    {{if or .Label .LabelKey}}<span{{with .LabelKey}} data-yd-i18n="{{.}}"{{end}}>{{if .LabelKey}}{{tr .LabelKey}}{{else}}{{.Label}}{{end}}</span>{{end}}
+  </span>
+  <span class="yd-action-bar__actions">{{.Actions}}</span>
+  {{if .ClearHref}}<a class="yd-action-bar__clear" href="{{.ClearHref}}">{{if $.ClearKey}}{{tr $.ClearKey}}{{else}}{{$.ClearLabel}}{{end}}</a>{{end}}
+</div>
+{{- end -}}
+
+{{/* components.display.hover-card — a CSS-only hover / focus card. Dict keys | dict 的键:
+       Label, LabelKey, Trigger (template.HTML), Content (template.HTML), Focusable
+     The panel opens on hover and focus-within; no script, no portal, no focus trap. Content must
+     therefore be non-modal. | 面板在悬停与 focus-within 时打开；无脚本、无传送门、无焦点陷阱，
+     因此内容必须是非模态的。 */}}
+{{- define "components.display.hover-card" -}}
+<span class="yd-hover-card"{{if .Focusable}} tabindex="0"{{end}}{{if or .Label .LabelKey}} aria-label="{{if .LabelKey}}{{tr .LabelKey}}{{else}}{{.Label}}{{end}}"{{with .LabelKey}} data-yd-i18n-attr="aria-label:{{.}}"{{end}}{{end}}>
+  <span class="yd-hover-card__trigger">{{.Trigger}}</span>
+  <span class="yd-hover-card__panel" role="group">{{.Content}}</span>
+</span>
+{{- end -}}
+
+{{/* components.display.virtual-list — a very long server-rendered list. Dict keys | dict 的键:
+       Label, LabelKey, Size (sm|md|lg), Content (template.HTML)
+     The browser virtualises layout with content-visibility; rows stay in the document, so find,
+     print and no-script reading keep working. For unbounded data still prefer htmx pagination. |
+     浏览器用 content-visibility 虚拟化布局；行仍留在文档里，因此查找、打印与无脚本阅读都有效。
+     无界数据仍应优先使用 htmx 分页。 */}}
+{{- define "components.display.virtual-list" -}}
+<div class="yd-virtual-list{{with .Size}} yd-virtual-list--{{.}}{{end}}" role="list" tabindex="0"
+     {{if or .Label .LabelKey}}aria-label="{{if .LabelKey}}{{tr .LabelKey}}{{else}}{{.Label}}{{end}}"{{with .LabelKey}} data-yd-i18n-attr="aria-label:{{.}}"{{end}}{{end}}>
+  {{.Content}}
+</div>
+{{- end -}}
+
+{{/* components.display.image-viewer — a thumbnail that opens a modal lightbox. Dict keys | dict 的键:
+       ID, Src, ThumbSrc, Alt, AltKey, Title, TitleKey, Caption, CaptionKey, Label, LabelKey,
+       DownloadHref, DownloadLabel, DownloadKey
+     It reuses the global modal controller: the trigger carries data-yd-modal-open, the dialog is the
+     usual components.overlay.modal shell. No second focus trap exists. |
+     复用全局模态控制器：触发器带 data-yd-modal-open，对话框是通常的 components.overlay.modal 外壳。
+     不存在第二套焦点陷阱。 */}}
+{{- define "components.display.image-viewer" -}}
+<div class="yd-image-viewer">
+  <button type="button" class="yd-image-viewer__trigger" data-yd-modal-open="{{.ID}}"
+          {{if or .Label .LabelKey}}aria-label="{{if .LabelKey}}{{tr .LabelKey}}{{else}}{{.Label}}{{end}}"{{with .LabelKey}} data-yd-i18n-attr="aria-label:{{.}}"{{end}}{{end}}>
+    <img class="yd-image-viewer__thumb" src="{{if .ThumbSrc}}{{.ThumbSrc}}{{else}}{{.Src}}{{end}}"
+         alt="{{if .AltKey}}{{tr .AltKey}}{{else}}{{.Alt}}{{end}}"{{with .AltKey}} data-yd-i18n-attr="alt:{{.}}"{{end}} loading="lazy" decoding="async">
+  </button>
+  {{template "components.overlay.modal.open" (dict "ID" .ID "Title" .Title "TitleKey" .TitleKey "Size" "lg")}}
+    <button type="button" class="yd-image-viewer__close" data-yd-modal-close
+            data-yd-i18n-attr="aria-label:ui.close" aria-label="{{tr "ui.close"}}">{{template "partials/icon" "lucide-x"}}</button>
+    <figure class="yd-image-viewer__figure">
+      <img class="yd-image-viewer__image" src="{{.Src}}" alt="{{if .AltKey}}{{tr .AltKey}}{{else}}{{.Alt}}{{end}}">
+      {{if or .Caption .CaptionKey}}<figcaption class="yd-image-viewer__caption"{{with .CaptionKey}} data-yd-i18n="{{.}}"{{end}}>{{if .CaptionKey}}{{tr .CaptionKey}}{{else}}{{.Caption}}{{end}}</figcaption>{{end}}
+      {{with .DownloadHref}}<a class="yd-btn yd-btn--ghost yd-btn--sm" href="{{.}}" download>{{if $.DownloadKey}}{{tr $.DownloadKey}}{{else}}{{$.DownloadLabel}}{{end}}</a>{{end}}
+    </figure>
+  {{template "components.overlay.modal.close" .}}
+</div>
+{{- end -}}

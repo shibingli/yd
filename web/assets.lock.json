@@ -37,26 +37,6 @@
       "size": 12923
     },
     {
-      "name": "font-awesome",
-      "version": "4.7.0",
-      "url": "https://cdn.jsdelivr.net/npm/font-awesome@4.7.0/css/font-awesome.min.css",
-      "path": "static/js/vendor/font-awesome.min.css",
-      "sha256": "799aeb25cc0373fdee0e1b1db7ad6c2f6a0e058dfadaa3379689f583213190bd",
-      "license": "MIT",
-      "kind": "css",
-      "size": 31000
-    },
-    {
-      "name": "font-awesome-webfont",
-      "version": "4.7.0",
-      "url": "https://cdn.jsdelivr.net/npm/font-awesome@4.7.0/fonts/fontawesome-webfont.woff2",
-      "path": "static/js/fonts/fontawesome-webfont.woff2",
-      "sha256": "2adefcbc041e7d18fcf2d417879dc5a09997aa64d675b7a3c4b6ce33da13f3fe",
-      "license": "OFL-1.1",
-      "kind": "binary",
-      "size": 77160
-    },
-    {
       "name": "htmx",
       "version": "4.0.0",
       "url": "https://cdn.jsdelivr.net/npm/htmx.org@4.0.0/dist/htmx.min.js",

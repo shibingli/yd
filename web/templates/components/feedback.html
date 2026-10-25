@@ -45,7 +45,7 @@
 {{- define "components.feedback.spinner" -}}
 <span class="yd-inline-status" role="status">
   <span class="yd-spinner{{with .Size}} yd-spinner--{{.}}{{end}}" aria-hidden="true"></span>
-  {{with .Label}}<span class="sr-only"{{with $.LabelKey}} data-yd-i18n="{{$.LabelKey}}"{{end}}>{{.}}</span>{{end}}
+  {{if or .Label .LabelKey}}<span class="sr-only"{{with .LabelKey}} data-yd-i18n="{{.}}"{{end}}>{{if .LabelKey}}{{tr .LabelKey}}{{else}}{{.Label}}{{end}}</span>{{end}}
 </span>
 {{- end -}}
 
@@ -53,7 +53,7 @@
        Rows (optional slice; the default is three rows), Card, LabelKey, Label */}}
 {{- define "components.feedback.skeleton" -}}
 <div class="yd-stack" role="status" aria-busy="true">
-  {{with .Label}}<span class="sr-only"{{with $.LabelKey}} data-yd-i18n="{{$.LabelKey}}"{{end}}>{{.}}</span>{{end}}
+  {{if or .Label .LabelKey}}<span class="sr-only"{{with .LabelKey}} data-yd-i18n="{{.}}"{{end}}>{{if .LabelKey}}{{tr .LabelKey}}{{else}}{{.Label}}{{end}}</span>{{end}}
   {{if .Card}}<div class="yd-skeleton yd-skeleton--cards" aria-hidden="true"></div>{{else}}
   <div class="yd-skeleton" aria-hidden="true">
     {{if .Rows}}{{range .Rows}}<div class="yd-skeleton__row"></div>{{end}}{{else}}
@@ -105,5 +105,5 @@
        Message, Label, LabelKey, Submit, Attrs (template.HTMLAttr), Class */}}
 {{- define "components.feedback.popconfirm" -}}
 <button type="{{if .Submit}}submit{{else}}button{{end}}" class="yd-btn{{if .Class}} {{.Class}}{{else}} yd-btn--danger{{end}}"
-        data-yd-confirm="{{.Message}}" {{.Attrs}}{{with .LabelKey}} data-yd-i18n="{{.}}"{{end}}>{{.Label}}</button>
+        data-yd-confirm="{{.Message}}" {{with .Attrs}}{{.}}{{end}}{{with .LabelKey}} data-yd-i18n="{{.}}"{{end}}>{{if .LabelKey}}{{tr .LabelKey}}{{else}}{{.Label}}{{end}}</button>
 {{- end -}}

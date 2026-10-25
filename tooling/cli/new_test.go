@@ -192,16 +192,15 @@ func TestNewCommandRemovedFeatureFlagsAreRejected(t *testing.T) {
 // TestNewCommandTTYInterviewUsesAnswers TTY 下逐项询问并把回答写入生成物。
 // TestNewCommandTTYInterviewUsesAnswers asks one question per option on a TTY and writes the answers into the project.
 func TestNewCommandTTYInterviewUsesAnswers(t *testing.T) {
-	// 询问顺序：项目名、模块路径、数据库、grpc、i18n、扩展、协议；Redis、Asynq、Htmx、Tailwind 与 Alpine 是内建能力，不再提问。
-	// Question order: project name, module, database, grpc, i18n, extensions, licence; Redis, Asynq, Htmx, Tailwind and
-	// Alpine are built in and never asked.
+	// 询问顺序：项目名、模块路径、数据库、grpc、协议；i18n、Htmx 扩展、Redis、Asynq、Htmx、
+	// Tailwind 与 Alpine 是内建能力，不再提问。
+	// Question order: project name, module, database, grpc, licence; i18n, Htmx extensions, Redis,
+	// Asynq, Htmx, Tailwind and Alpine are built in and never asked.
 	answers := strings.Join([]string{
 		"shop",
 		"",
 		"2", // 2) postgres
 		"n", // grpc
-		"y", // i18n
-		"sse, ws",
 		"",
 	}, "\n") + "\n"
 	te := newTestEnv(t, nil, "", true)
@@ -211,16 +210,13 @@ func TestNewCommandTTYInterviewUsesAnswers(t *testing.T) {
 		t.Fatalf("yd new 失败: %v\n%s", err, te.errs.String())
 	}
 
-	// Redis、Asynq、Tailwind 与 Alpine 已内建，不再出现在问答里；i18n 的默认值必须是 y。
-	// Redis, Asynq, Tailwind and Alpine are built in and never appear in the interview; i18n must default to y.
+	// Redis、Asynq、i18n、Tailwind 与 Alpine 已内建，不再出现在问答里。
+	// Redis, Asynq, i18n, Tailwind and Alpine are built in and never appear in the interview.
 	prompts := te.out.String()
-	for _, unwanted := range []string{"启用 Redis", "启用 Asynq", "启用 Tailwind"} {
+	for _, unwanted := range []string{"启用 Redis", "启用 Asynq", "启用 Tailwind", "启用 i18n"} {
 		if strings.Contains(prompts, unwanted) {
 			t.Errorf("内建能力不应再出现在问答里 %q：\n%s", unwanted, prompts)
 		}
-	}
-	if !strings.Contains(prompts, "启用 i18n | Enable i18n (y/n) [y]") {
-		t.Errorf("问答提示缺少 i18n 默认值：\n%s", prompts)
 	}
 
 	meta := readMemFile(t, te.env.FS, "shop/.yd.json")
@@ -234,17 +230,16 @@ func TestNewCommandTTYInterviewUsesAnswers(t *testing.T) {
 		`"i18n": true`,
 		`"sse"`,
 		`"ws"`,
+		`"preload"`,
+		`"targets"`,
 		`"alpine"`,
 	} {
 		if !strings.Contains(meta, want) {
 			t.Errorf(".yd.json 缺少 %q:\n%s", want, meta)
 		}
 	}
-	if strings.Contains(meta, "preload") {
-		t.Errorf("问答选择了 sse,ws，preload 不应出现:\n%s", meta)
-	}
 
-	for _, want := range []string{"项目名 | Project name", "数据库驱动 | Database driver", "Htmx 扩展"} {
+	for _, want := range []string{"项目名 | Project name", "数据库驱动 | Database driver"} {
 		if !strings.Contains(te.out.String(), want) {
 			t.Errorf("提示语缺少 %q:\n%s", want, te.out.String())
 		}

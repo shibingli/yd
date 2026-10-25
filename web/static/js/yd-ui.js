@@ -780,6 +780,244 @@
     };
   };
 
+  // registerSelect: replace the native dropdown's painted surface with a listbox while keeping the
+  // real <select> in the form. Without JavaScript the native control remains; with JavaScript the
+  // native select is hidden but still submits the same name/value pair.
+  // registerSelect：用列表框替换原生下拉的可见表面，同时把真实 <select> 留在表单里。没有 JavaScript
+  // 时原生控件仍在；有 JavaScript 时原生 select 被隐藏，但仍提交同一个 name/value。
+  components.ydSelect = function () {
+    return {
+      enhanced: false,
+      open: false,
+      options: [],
+      selectedLabel: '',
+      activeIndex: -1,
+      init: function () {
+        this.sync();
+        this.enhanced = true;
+        var native = this.$refs.native;
+        var doc = (this.$root || this.$el).ownerDocument;
+        if (native && native.hasAttribute('data-yd-theme-set') && doc && typeof doc.addEventListener === 'function') {
+          var self = this;
+          this._theme = function () {
+            self.sync();
+          };
+          doc.addEventListener('yd:theme', this._theme);
+        }
+      },
+      destroy: function () {
+        var doc = (this.$root || this.$el).ownerDocument;
+        if (this._theme && doc && typeof doc.removeEventListener === 'function') {
+          doc.removeEventListener('yd:theme', this._theme);
+          this._theme = null;
+        }
+      },
+      sync: function () {
+        var native = this.$refs.native;
+        if (!native) {
+          return;
+        }
+        var options = [];
+        var selectedLabel = '';
+        for (var i = 0; i < native.options.length; i++) {
+          var option = native.options[i];
+          var label = String(option.textContent || '').trim();
+          options.push({
+            value: option.value,
+            label: label,
+            disabled: option.disabled,
+            selected: option.selected,
+            active: false
+          });
+          if (option.selected) {
+            selectedLabel = label;
+          }
+        }
+        if (!selectedLabel && options.length) {
+          selectedLabel = options[0].label;
+        }
+        this.options = options;
+        this.selectedLabel = selectedLabel;
+      },
+      selectedIndex: function () {
+        for (var i = 0; i < this.options.length; i++) {
+          if (this.options[i].selected) {
+            return i;
+          }
+        }
+        return 0;
+      },
+      toggle: function () {
+        var trigger = this.$refs.trigger;
+        if (!trigger || trigger.disabled) {
+          return;
+        }
+        this.sync();
+        this.open = !this.open;
+        if (this.open) {
+          this.activeIndex = this.selectedIndex();
+          this.focusActive();
+        }
+      },
+      focusActive: function () {
+        var self = this;
+        this.$nextTick(function () {
+          var menu = self.$refs.menu;
+          if (!menu) {
+            return;
+          }
+          var nodes = menu.querySelectorAll('[role="option"]');
+          if (nodes[self.activeIndex]) {
+            nodes[self.activeIndex].focus();
+          }
+        });
+      },
+      choose: function (value) {
+        var native = this.$refs.native;
+        if (!native) {
+          return;
+        }
+        var option = null;
+        for (var i = 0; i < this.options.length; i++) {
+          if (this.options[i].value === value) {
+            option = this.options[i];
+            break;
+          }
+        }
+        if (option && option.disabled) {
+          return;
+        }
+        native.value = value;
+        var doc = (this.$root || this.$el).ownerDocument;
+        if (doc && typeof doc.createEvent === 'function') {
+          var event = doc.createEvent('Event');
+          event.initEvent('change', true, true);
+          native.dispatchEvent(event);
+        }
+        this.sync();
+        this.close(true);
+      },
+      move: function (delta) {
+        if (!this.options.length) {
+          return;
+        }
+        var index = this.activeIndex;
+        for (var step = 0; step < this.options.length; step++) {
+          index += delta;
+          if (index < 0) {
+            index = this.options.length - 1;
+          }
+          if (index >= this.options.length) {
+            index = 0;
+          }
+          if (!this.options[index].disabled) {
+            this.activeIndex = index;
+            this.highlight();
+            return;
+          }
+        }
+      },
+      highlight: function () {
+        for (var i = 0; i < this.options.length; i++) {
+          this.options[i].active = i === this.activeIndex;
+        }
+        this.focusActive();
+      },
+      onKey: function (event) {
+        var key = event && event.key;
+        if (key === 'Escape' || key === 'Esc') {
+          event.preventDefault();
+          this.close(true);
+          return;
+        }
+        if (key === 'ArrowDown' || key === 'Down') {
+          event.preventDefault();
+          if (!this.open) {
+            this.toggle();
+          } else {
+            this.move(1);
+          }
+          return;
+        }
+        if (key === 'ArrowUp' || key === 'Up') {
+          event.preventDefault();
+          if (!this.open) {
+            this.toggle();
+          } else {
+            this.move(-1);
+          }
+          return;
+        }
+        if (key === 'Home' || key === 'End') {
+          if (!this.open) {
+            return;
+          }
+          event.preventDefault();
+          this.activeIndex = key === 'Home' ? 0 : this.options.length - 1;
+          this.highlight();
+          return;
+        }
+        if ((key === 'Enter' || key === ' ' || key === 'Spacebar') && this.open) {
+          event.preventDefault();
+          var active = this.options[this.activeIndex];
+          if (active) {
+            this.choose(active.value);
+          }
+        }
+      },
+      close: function (restore) {
+        this.open = false;
+        this.activeIndex = -1;
+        if (restore && this.$refs.trigger && typeof this.$refs.trigger.focus === 'function') {
+          this.$refs.trigger.focus();
+        }
+      }
+    };
+  };
+
+  // registerRows: clone the server-rendered blueprint for a repeatable row and remove rows down to
+  // the minimum. The submitted names are ordinary `name[]` fields, so no index bookkeeping exists
+  // on either side. | registerRows：克隆服务端渲染的可重复行蓝图，并删到最小行数为止。提交名是
+  // 普通的 `name[]` 字段，因此两侧都不需要索引记账。
+  components.ydRows = function () {
+    return {
+      min: 1,
+      max: 20,
+      init: function () {
+        var root = this.$root || this.$el;
+        var min = parseInt(root.getAttribute('data-min'), 10);
+        var max = parseInt(root.getAttribute('data-max'), 10);
+        this.min = isFinite(min) ? min : 1;
+        this.max = isFinite(max) ? max : 20;
+      },
+      count: function () {
+        var root = this.$refs.list || this.$el;
+        return root.querySelectorAll('[data-yd-row]').length;
+      },
+      add: function () {
+        if (this.count() >= this.max) {
+          return;
+        }
+        var template = this.$refs.template;
+        var list = this.$refs.list;
+        if (!template || !list || !template.content || !template.content.firstElementChild) {
+          return;
+        }
+        var row = template.content.firstElementChild.cloneNode(true);
+        list.appendChild(row);
+        this.$dispatch('yd:rows:add', { count: this.count() });
+      },
+      remove: function (element) {
+        var row = element && element.closest ? element.closest('[data-yd-row]') : null;
+        if (!row || this.count() <= this.min) {
+          return;
+        }
+        row.parentNode.removeChild(row);
+        this.$dispatch('yd:rows:remove', { count: this.count() });
+      }
+    };
+  };
+
   // registerSearch: clear the field and re-fire the input event so an htmx trigger on the same
   // field re-queries immediately instead of waiting for the user to type again.
   // registerSearch：清空字段并重新派发 input 事件，使同一字段上的 htmx 触发器立即重新查询，
@@ -1231,8 +1469,44 @@
       to: '',
       preset: '',
       init: function () {
-        this.from = this.$el.getAttribute('data-from') || '';
-        this.to = this.$el.getAttribute('data-to') || '';
+        var root = this.$root || this.$el;
+        this.from = this.read('from') || root.getAttribute('data-from') || '';
+        this.to = this.read('to') || root.getAttribute('data-to') || '';
+        this.write('from', this.from, false);
+        this.write('to', this.to, false);
+        var self = this;
+        ['from', 'to'].forEach(function (name) {
+          var input = self.field(name);
+          if (input && typeof input.addEventListener === 'function') {
+            input.addEventListener('input', function () {
+              self.manual();
+            });
+          }
+        });
+      },
+      field: function (name) {
+        var root = this.$root || this.$el;
+        return root.querySelector('[name="' + name + '"]');
+      },
+      read: function (name) {
+        var input = this.field(name);
+        return input ? String(input.value || '') : '';
+      },
+      write: function (name, value, notify) {
+        var input = this.field(name);
+        if (!input) {
+          return;
+        }
+        input.value = value;
+        if (notify === false) {
+          return;
+        }
+        var doc = (this.$root || this.$el).ownerDocument;
+        if (doc && typeof doc.createEvent === 'function') {
+          var event = doc.createEvent('Event');
+          event.initEvent('input', true, true);
+          input.dispatchEvent(event);
+        }
       },
       apply: function (name) {
         var now = today();
@@ -1258,10 +1532,14 @@
         }
         this.from = ymd(start);
         this.to = ymd(end);
+        this.write('from', this.from);
+        this.write('to', this.to);
         this.preset = name;
         this.$dispatch('yd:daterange:change', { from: this.from, to: this.to, preset: name });
       },
       manual: function () {
+        this.from = this.read('from');
+        this.to = this.read('to');
         this.preset = '';
         this.$dispatch('yd:daterange:change', { from: this.from, to: this.to, preset: '' });
       },
@@ -2388,6 +2666,540 @@
     return table[String(title || '').toLowerCase()] || '';
   }
 
+  // EDITOR_ICONS maps every EasyMDE toolbar action to the Lucide symbol rendered by the hidden
+  // palette in partials/editor-icons.html. EasyMDE's own defaults name Font Awesome classes; those
+  // are stripped below, so the rendered toolbar never depends on an icon font.
+  // EDITOR_ICONS 把每个 EasyMDE 工具栏动作映射到 partials/editor-icons.html 隐藏调色板里的 Lucide
+  // 符号。EasyMDE 自带默认值使用 Font Awesome 类名；下面的装饰过程会移除它们，渲染后的工具栏因此
+  // 绝不依赖图标字体。
+  var EDITOR_ICONS = {
+    bold: 'lucide-bold',
+    italic: 'lucide-italic',
+    heading: 'lucide-heading',
+    strikethrough: 'lucide-strikethrough',
+    quote: 'lucide-quote',
+    'unordered-list': 'lucide-list',
+    'ordered-list': 'lucide-list-ordered',
+    link: 'lucide-link',
+    image: 'lucide-image',
+    code: 'lucide-code',
+    table: 'lucide-table',
+    'horizontal-rule': 'lucide-minus',
+    preview: 'lucide-eye',
+    'side-by-side': 'lucide-columns-2',
+    fullscreen: 'lucide-maximize',
+    undo: 'lucide-undo-2',
+    redo: 'lucide-redo-2'
+  };
+
+  // stripFontAwesome removes the vendor's legacy icon-font class tokens while keeping semantic
+  // classes such as no-disable and no-mobile. | stripFontAwesome 移除 vendor 遗留的图标字体类名，
+  // 同时保留 no-disable、no-mobile 等语义类。
+  function stripFontAwesome(className) {
+    return String(className || '').split(/\s+/).filter(function (token) {
+      return token && token !== 'fa' && token.indexOf('fa-') !== 0;
+    });
+  }
+
+  // decorateEditorToolbar replaces each EasyMDE toolbar glyph with the matching Lucide <svg> from
+  // the editor's hidden palette. The palette keeps the icons server-rendered (and therefore in the
+  // on-demand sprite); no icon font, CDN or data URI is involved. | decorateEditorToolbar 用编辑器
+  // 隐藏调色板中对应的 Lucide <svg> 替换每个 EasyMDE 工具栏字形。调色板让图标仍由服务端渲染
+  // （因而仍进入按需 sprite）；不涉及图标字体、CDN 或 data URI。
+  function decorateEditorToolbar(editor, root) {
+    if (!editor || !editor.toolbarElements || !root || typeof root.querySelector !== 'function') {
+      return;
+    }
+    var palette = root.querySelector('[data-yd-editor-icons]');
+    if (!palette) {
+      var doc = root.ownerDocument || g.document;
+      palette = doc && typeof doc.querySelector === 'function' ? doc.querySelector('[data-yd-editor-icons]') : null;
+    }
+    if (!palette) {
+      return;
+    }
+    Object.keys(editor.toolbarElements).forEach(function (name) {
+      var button = editor.toolbarElements[name];
+      var lucide = EDITOR_ICONS[name];
+      if (!button || !lucide) {
+        return;
+      }
+      var holder = palette.querySelector('[data-yd-editor-icon="' + lucide + '"]');
+      var icon = holder && holder.querySelector('svg');
+      var classes = stripFontAwesome(button.className);
+      if (classes.indexOf('yd-editor-tool') < 0) {
+        classes.unshift('yd-editor-tool');
+      }
+      button.className = classes.join(' ');
+      if (icon) {
+        button.innerHTML = '';
+        button.appendChild(icon.cloneNode(true));
+      }
+      var title = button.getAttribute('title');
+      if (title) {
+        button.setAttribute('aria-label', title);
+      }
+    });
+  }
+
+  // registerEmoji: insert an emoji into an existing named input or textarea. The palette never
+  // creates a field and never submits; it edits the control the page already rendered.
+  // registerEmoji：把表情插入已存在的命名字段或文本域。面板不创建字段、不提交，只编辑页面已经渲染的控件。
+  components.ydEmoji = function () {
+    return {
+      pick: function (emoji) {
+        var root = this.$root || this.$el;
+        var doc = root.ownerDocument;
+        var selector = root.getAttribute('data-target');
+        var target = selector && doc ? doc.querySelector(selector) : null;
+        if (!target || typeof target.value !== 'string') {
+          return;
+        }
+        var start = typeof target.selectionStart === 'number' ? target.selectionStart : target.value.length;
+        var end = typeof target.selectionEnd === 'number' ? target.selectionEnd : start;
+        target.value = target.value.slice(0, start) + emoji + target.value.slice(end);
+        var caret = start + emoji.length;
+        if (typeof target.setSelectionRange === 'function') {
+          target.setSelectionRange(caret, caret);
+        }
+        var event = doc.createEvent('Event');
+        event.initEvent('input', true, true);
+        target.dispatchEvent(event);
+        if (typeof target.focus === 'function') {
+          target.focus();
+        }
+        this.$dispatch('yd:emoji:pick', { emoji: emoji });
+      }
+    };
+  };
+
+  // registerSignature: draw on a canvas and keep the submitted value in the hidden field. A missing
+  // 2D context is treated as "no drawing", never as an exception that breaks the form.
+  // registerSignature：在画布上绘制，并把提交值保存在隐藏字段里。缺少 2D 上下文时视为「不能绘制」，
+  // 绝不以异常打断表单。
+  components.ydSignature = function () {
+    return {
+      value: '',
+      drawing: false,
+      ctx: null,
+      canvas: null,
+      init: function () {
+        this.canvas = this.$refs.canvas;
+        if (!this.canvas || typeof this.canvas.getContext !== 'function') {
+          return;
+        }
+        this.ctx = this.canvas.getContext('2d');
+        if (!this.ctx) {
+          return;
+        }
+        this.ctx.lineWidth = 2;
+        this.ctx.lineCap = 'round';
+        this.ctx.lineJoin = 'round';
+        var doc = (this.$root || this.$el).ownerDocument;
+        var win = doc && doc.defaultView;
+        var style = win && win.getComputedStyle ? win.getComputedStyle(this.canvas) : null;
+        this.ctx.strokeStyle = (style && style.color) || 'currentColor';
+        if (this.$refs.value && this.$refs.value.value) {
+          this.value = this.$refs.value.value;
+          this.restore(this.value);
+        }
+      },
+      restore: function (source) {
+        var self = this;
+        if (!this.ctx || !source) {
+          return;
+        }
+        var img = new Image();
+        img.onload = function () {
+          self.ctx.drawImage(img, 0, 0, self.canvas.width, self.canvas.height);
+        };
+        img.src = source;
+      },
+      point: function (event) {
+        var rect = this.canvas.getBoundingClientRect();
+        var scaleX = rect.width ? this.canvas.width / rect.width : 1;
+        var scaleY = rect.height ? this.canvas.height / rect.height : 1;
+        return { x: (event.clientX - rect.left) * scaleX, y: (event.clientY - rect.top) * scaleY };
+      },
+      start: function (event) {
+        if (!this.ctx) {
+          return;
+        }
+        this.drawing = true;
+        var point = this.point(event);
+        this.ctx.beginPath();
+        this.ctx.moveTo(point.x, point.y);
+        if (event.pointerId && this.canvas.setPointerCapture) {
+          this.canvas.setPointerCapture(event.pointerId);
+        }
+      },
+      draw: function (event) {
+        if (!this.drawing || !this.ctx) {
+          return;
+        }
+        var point = this.point(event);
+        this.ctx.lineTo(point.x, point.y);
+        this.ctx.stroke();
+      },
+      end: function () {
+        if (!this.drawing) {
+          return;
+        }
+        this.drawing = false;
+        if (this.canvas && this.canvas.toDataURL) {
+          this.value = this.canvas.toDataURL('image/png');
+        }
+        this.$dispatch('yd:signature:change', { value: this.value });
+      },
+      clear: function () {
+        if (this.ctx && this.canvas) {
+          this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
+        }
+        this.value = '';
+        this.$dispatch('yd:signature:change', { value: '' });
+      }
+    };
+  };
+
+  // registerResizable: a two-pane split with a pointer- and keyboard-driven separator. The document
+  // listeners are removed on destroy so an htmx swap cannot leave a drag handler behind.
+  // registerResizable：带指针与键盘分隔条的两栏布局。销毁时移除文档监听器，因此 htmx 交换不会留下
+  // 拖拽处理器。
+  components.ydResizable = function () {
+    return {
+      split: 50,
+      min: 20,
+      max: 80,
+      orientation: 'horizontal',
+      dragging: false,
+      init: function () {
+        var root = this.$root || this.$el;
+        var parsed = parseInt(root.getAttribute('data-split'), 10);
+        this.split = isFinite(parsed) ? parsed : 50;
+        parsed = parseInt(root.getAttribute('data-min'), 10);
+        this.min = isFinite(parsed) ? parsed : 20;
+        parsed = parseInt(root.getAttribute('data-max'), 10);
+        this.max = isFinite(parsed) ? parsed : 80;
+        this.orientation = root.getAttribute('data-orientation') || 'horizontal';
+        this.apply();
+      },
+      start: function () {
+        var self = this;
+        var doc = (this.$root || this.$el).ownerDocument;
+        this.dragging = true;
+        this._move = function (event) {
+          self.move(event);
+        };
+        this._up = function () {
+          self.stop();
+        };
+        doc.addEventListener('pointermove', this._move);
+        doc.addEventListener('pointerup', this._up);
+      },
+      stop: function () {
+        var doc = (this.$root || this.$el).ownerDocument;
+        this.dragging = false;
+        if (this._move) {
+          doc.removeEventListener('pointermove', this._move);
+          this._move = null;
+        }
+        if (this._up) {
+          doc.removeEventListener('pointerup', this._up);
+          this._up = null;
+        }
+      },
+      destroy: function () {
+        this.stop();
+      },
+      move: function (event) {
+        if (!this.dragging) {
+          return;
+        }
+        var root = this.$root || this.$el;
+        var rect = root.getBoundingClientRect();
+        var ratio = this.orientation === 'vertical'
+          ? (rect.height ? (event.clientY - rect.top) / rect.height : 0.5)
+          : (rect.width ? (event.clientX - rect.left) / rect.width : 0.5);
+        this.set(ratio * 100);
+      },
+      nudge: function (delta) {
+        this.set(this.split + delta);
+      },
+      set: function (value) {
+        var next = Math.round(value);
+        if (!isFinite(next)) {
+          return;
+        }
+        if (next < this.min) {
+          next = this.min;
+        }
+        if (next > this.max) {
+          next = this.max;
+        }
+        this.split = next;
+        this.apply();
+      },
+      apply: function () {
+        var root = this.$root || this.$el;
+        root.style.setProperty('--yd-split', this.split + '%');
+        var splitter = this.$refs.splitter;
+        if (splitter) {
+          splitter.setAttribute('aria-valuenow', String(this.split));
+        }
+      }
+    };
+  };
+
+  // splitLabels turns a pipe-separated catalogue value into a list, falling back to English when a
+  // translation is missing. | splitLabels 把竖线分隔的目录取值拆成列表，缺失翻译时回退英文。
+  function splitLabels(value, fallback) {
+    var parts = String(value || '').split('|');
+    var out = [];
+    for (var i = 0; i < parts.length; i++) {
+      var part = parts[i].trim();
+      if (part) {
+        out.push(part);
+      }
+    }
+    return out.length ? out : fallback.slice();
+  }
+
+  // padRange returns zero-padded values from 00 to count-1. | padRange 返回从 00 到 count-1 的补零值。
+  function padRange(count) {
+    var out = [];
+    for (var i = 0; i < count; i++) {
+      out.push(pad2(i));
+    }
+    return out;
+  }
+
+  // dateParts and timeParts read the ISO-like values the picker emits. | dateParts 与 timeParts 读取
+  // 选择器输出的 ISO 风格取值。
+  function dateParts(value) {
+    var match = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(value || ''));
+    if (!match) {
+      return null;
+    }
+    return { year: parseInt(match[1], 10), month: parseInt(match[2], 10) - 1, day: parseInt(match[3], 10) };
+  }
+
+  function timeParts(value) {
+    var match = /(\d{2}):(\d{2})/.exec(String(value || ''));
+    if (!match) {
+      return null;
+    }
+    return { hour: match[1], minute: match[2] };
+  }
+
+  // monthParts reads the YYYY-MM value emitted by the month picker. | monthParts 读取月份选择器
+  // 输出的 YYYY-MM 取值。
+  function monthParts(value) {
+    var match = /^(\d{4})-(\d{2})$/.exec(String(value || ''));
+    if (!match) {
+      return null;
+    }
+    return { year: parseInt(match[1], 10), month: parseInt(match[2], 10) - 1 };
+  }
+
+  // registerDateTime: a locale-independent date/time picker. The visible field is a text input and
+  // the submitted value stays ISO-like; month and weekday labels come from the server's catalogue,
+  // so the popup can never mix the browser locale with the page language. |
+  // registerDateTime：与区域设置无关的日期/时间选择器。可见字段是文本框，提交值保持 ISO 风格；
+  // 月名与周名来自服务端目录，因此弹层绝不会把浏览器区域设置与页面语言混在一起。
+  components.ydDateTime = function () {
+    return {
+      open: false,
+      kind: 'date',
+      year: 0,
+      month: 0,
+      day: 1,
+      hour: '00',
+      minute: '00',
+      months: [],
+      weekdays: [],
+      days: [],
+      hours: [],
+      minutes: [],
+      monthLabel: '',
+      min: '',
+      max: '',
+      init: function () {
+        var root = this.$root || this.$el;
+        this.kind = root.getAttribute('data-kind') || 'date';
+        this.min = root.getAttribute('data-min') || '';
+        this.max = root.getAttribute('data-max') || '';
+        this.months = splitLabels(root.getAttribute('data-months'), [
+          'January', 'February', 'March', 'April', 'May', 'June',
+          'July', 'August', 'September', 'October', 'November', 'December'
+        ]);
+        this.weekdays = splitLabels(root.getAttribute('data-weekdays'), [
+          'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'
+        ]);
+        this.hours = padRange(24);
+        this.minutes = padRange(60);
+        var now = new Date();
+        this.year = now.getFullYear();
+        this.month = now.getMonth();
+        this.day = now.getDate();
+        this.hour = pad2(now.getHours());
+        this.minute = pad2(now.getMinutes());
+        this.parseInput();
+      },
+      parseInput: function () {
+        var input = this.$refs.input;
+        if (!input) {
+          return;
+        }
+        var value = String(input.value || '').trim();
+        if (this.kind === 'month') {
+          var month = monthParts(value);
+          if (month) {
+            this.year = month.year;
+            this.month = month.month;
+          }
+          this.build();
+          return;
+        }
+        var date = dateParts(value);
+        var time = timeParts(value);
+        if (date) {
+          this.year = date.year;
+          this.month = date.month;
+          this.day = date.day;
+        }
+        if (time) {
+          this.hour = time.hour;
+          this.minute = time.minute;
+        }
+        this.build();
+      },
+      build: function () {
+        if (this.kind === 'month') {
+          this.days = [];
+          this.monthLabel = String(this.year);
+          return;
+        }
+        var first = new Date(this.year, this.month, 1);
+        var offset = (first.getDay() + 6) % 7;
+        var count = new Date(this.year, this.month + 1, 0).getDate();
+        var now = new Date();
+        var cells = [];
+        for (var blank = 0; blank < offset; blank++) {
+          cells.push({ key: 'blank-' + blank, label: '', day: 0, className: 'yd-datetime__day--blank' });
+        }
+        for (var day = 1; day <= count; day++) {
+          var className = '';
+          var iso = this.year + '-' + pad2(this.month + 1) + '-' + pad2(day);
+          var disabled = (this.min && iso < this.min) || (this.max && iso > this.max);
+          if (day === this.day) {
+            className = 'yd-datetime__day--selected';
+          } else if (now.getFullYear() === this.year && now.getMonth() === this.month && now.getDate() === day) {
+            className = 'yd-datetime__day--today';
+          }
+          cells.push({
+            key: iso,
+            label: String(day),
+            day: day,
+            disabled: disabled,
+            className: className
+          });
+        }
+        this.days = cells;
+        this.monthLabel = (this.months[this.month] || '') + ' ' + this.year;
+      },
+      prevMonth: function () {
+        if (this.kind === 'month') {
+          this.year -= 1;
+          this.build();
+          return;
+        }
+        if (this.month === 0) {
+          this.month = 11;
+          this.year -= 1;
+        } else {
+          this.month -= 1;
+        }
+        this.build();
+      },
+      nextMonth: function () {
+        if (this.kind === 'month') {
+          this.year += 1;
+          this.build();
+          return;
+        }
+        if (this.month === 11) {
+          this.month = 0;
+          this.year += 1;
+        } else {
+          this.month += 1;
+        }
+        this.build();
+      },
+      monthDisabled: function (index) {
+        var key = this.year + '-' + pad2(index + 1);
+        return Boolean((this.min && key + '-01' < this.min && key < this.min.slice(0, 7)) || (this.max && key + '-01' > this.max && key > this.max.slice(0, 7)));
+      },
+      pickMonth: function (index) {
+        if (index < 0 || index > 11 || this.monthDisabled(index)) {
+          return;
+        }
+        this.month = index;
+        this.day = 1;
+        this.apply();
+      },
+      pickDay: function (cell) {
+        if (!cell || !cell.day || cell.disabled) {
+          return;
+        }
+        this.day = cell.day;
+        if (this.kind === 'date') {
+          this.apply();
+          return;
+        }
+        this.build();
+      },
+      today: function () {
+        var now = new Date();
+        this.year = now.getFullYear();
+        this.month = now.getMonth();
+        this.day = now.getDate();
+        this.hour = pad2(now.getHours());
+        this.minute = pad2(now.getMinutes());
+        this.apply();
+      },
+      apply: function () {
+        var date = this.year + '-' + pad2(this.month + 1) + '-' + pad2(this.day);
+        var time = this.hour + ':' + this.minute;
+        var value = this.kind === 'time' ? time : this.kind === 'datetime' ? date + 'T' + time : this.kind === 'month' ? this.year + '-' + pad2(this.month + 1) : date;
+        var input = this.$refs.input;
+        if (input) {
+          input.value = value;
+          var doc = (this.$root || this.$el).ownerDocument;
+          if (doc && typeof doc.createEvent === 'function') {
+            var event = doc.createEvent('Event');
+            event.initEvent('input', true, true);
+            input.dispatchEvent(event);
+          }
+        }
+        this.close(false);
+      },
+      toggle: function () {
+        var input = this.$refs.input;
+        if (!input || input.disabled || input.readOnly) {
+          return;
+        }
+        this.parseInput();
+        this.open = !this.open;
+      },
+      close: function (restore) {
+        this.open = false;
+        if (restore && this.$refs.input && typeof this.$refs.input.focus === 'function') {
+          this.$refs.input.focus();
+        }
+      }
+    };
+  };
+
   // registerEditor: initialise EasyMDE when the page included it, keep the textarea as the form
   // field and re-apply the dark class when the theme changes. | registerEditor：页面引入 EasyMDE 时
   // 初始化它，保留 textarea 作为表单字段，并在主题切换时重新应用暗色类。
@@ -2433,6 +3245,8 @@
             element: el,
             spellChecker: false,
             status: false,
+            // Never fetch EasyMDE's legacy icon stylesheet; localizeToolbar swaps in Lucide SVGs.
+            // 绝不拉取 EasyMDE 的遗留图标样式表；localizeToolbar 会换成 Lucide SVG。
             autoDownloadFontAwesome: false,
             placeholder: el.getAttribute('placeholder') || '',
             toolbar: ['bold', 'italic', 'heading', '|', 'quote', 'unordered-list', 'ordered-list', '|', 'link', 'image', 'code', 'table', '|', 'preview', 'side-by-side', 'fullscreen']
@@ -2486,6 +3300,7 @@
             buttons[i].setAttribute('aria-label', label);
           }
         }
+        decorateEditorToolbar(this.editor, root);
       }
     };
   };
@@ -2507,6 +3322,7 @@
     version: VERSION,
     components: Object.keys(components),
     register: register,
+    decorateEditorToolbar: decorateEditorToolbar,
     CN: CN
   };
 

@@ -37,12 +37,14 @@
              因此命名为 range.label 而不是 range：加载器把键摊平成点分路径，
              名为 dashboard.range 的消息无法与 dashboard.range.24h 等消息共存——
              两者之一会静默遮蔽另一个。 */}}
-        <label class="sr-only" for="yd-dashboard-range" data-yd-i18n="dashboard.range.label">{{tr "dashboard.range.label"}}</label>
-        <select class="yd-select" id="yd-dashboard-range" name="range">
-          <option value="24h" data-yd-i18n="dashboard.range.24h">{{tr "dashboard.range.24h"}}</option>
-          <option value="7d" selected data-yd-i18n="dashboard.range.7d">{{tr "dashboard.range.7d"}}</option>
-          <option value="30d" data-yd-i18n="dashboard.range.30d">{{tr "dashboard.range.30d"}}</option>
-        </select>
+        {{template "components.form.select" (dict
+          "ID" "yd-dashboard-range" "Name" "range" "LabelHidden" true
+          "Label" (tr "dashboard.range.label") "LabelKey" "dashboard.range.label"
+          "Options" (list
+            (dict "Value" "24h" "Key" "dashboard.range.24h")
+            (dict "Value" "7d" "Key" "dashboard.range.7d" "Selected" true)
+            (dict "Value" "30d" "Key" "dashboard.range.30d")))}}
+
         <button type="submit" class="yd-btn yd-btn--ghost" data-yd-i18n="action.apply">{{tr "action.apply"}}</button>
       </form>
       <button type="button" class="yd-btn yd-btn--primary"

@@ -1,0 +1,66 @@
+{{/*
+  components/feedback_advanced.html — longer feedback surfaces.
+  components/feedback_advanced.html — 较长的反馈界面。
+
+  A questionnaire is a form, not a wizard engine | 问卷是表单，不是向导引擎
+    Questions are rendered in one server pass with real radio, checkbox and text fields. There is no
+    client-side answer store, so a refresh, a validation error or an htmx swap can re-render the
+    whole form without losing what the server already knows. Branching belongs in the controller.
+    问题在一次服务端渲染中给出真实的单选、复选与文本字段。没有客户端答案存储，因此刷新、校验错误或
+    htmx 交换都能重新渲染整张表单而不丢失服务端已知内容。分支逻辑属于控制器。
+*/}}
+
+{{/* components.feedback.questionnaire — a multi-question form. Dict keys | dict 的键:
+       ID, Action, Method, Label, LabelKey, Progress, ProgressMax, ProgressKey,
+       Items []{Name, Prompt, PromptKey, Description, DescriptionKey, Required,
+       Type (radio|checkbox|text), Value, Placeholder, PlaceholderKey, Error, ErrorKey,
+       Choices []{Value, Label, LabelKey, Description, DescriptionKey, Type, Checked}},
+       SubmitLabel, SubmitKey, CancelHref, CancelLabel, CancelKey, Attrs (template.HTMLAttr)
+     The form ships its own <form>, so never nest it inside another form. |
+     本组件自带 <form>，绝不能嵌进另一个表单。 */}}
+{{- define "components.feedback.questionnaire" -}}
+<form class="yd-questionnaire" id="{{.ID}}" method="{{if .Method}}{{.Method}}{{else}}post{{end}}"{{with .Action}} action="{{.}}"{{end}} {{with .Attrs}}{{.}}{{end}}>
+  {{if or .Label .LabelKey}}<h2 class="yd-section__title"{{with .LabelKey}} data-yd-i18n="{{.}}"{{end}}>{{if .LabelKey}}{{tr .LabelKey}}{{else}}{{.Label}}{{end}}</h2>{{end}}
+  {{if or .Progress .ProgressKey}}
+  <div class="yd-questionnaire__progress">
+    <progress class="yd-meter" value="{{.Progress}}" max="{{if .ProgressMax}}{{.ProgressMax}}{{else}}100{{end}}">{{.Progress}}</progress>
+    {{with .ProgressKey}}<span class="yd-field__hint" data-yd-i18n="{{.}}">{{tr .}}</span>{{end}}
+  </div>
+  {{end}}
+  {{range .Items}}
+  {{- $item := . -}}
+  <fieldset class="yd-questionnaire__item{{if or .Error .ErrorKey}} yd-field--invalid{{end}}">
+    <legend class="yd-questionnaire__prompt">
+      <span{{with .PromptKey}} data-yd-i18n="{{.}}"{{end}}>{{if .PromptKey}}{{tr .PromptKey}}{{else}}{{.Prompt}}{{end}}</span>
+      {{if .Required}}<span class="yd-questionnaire__required" aria-hidden="true">*</span>{{end}}
+    </legend>
+    {{if or .Description .DescriptionKey}}<p class="yd-field__hint"{{with .DescriptionKey}} data-yd-i18n="{{.}}"{{end}}>{{if .DescriptionKey}}{{tr .DescriptionKey}}{{else}}{{.Description}}{{end}}</p>{{end}}
+    {{if eq .Type "text"}}
+    <input class="yd-input" type="text" id="{{$.ID}}-{{.Name}}" name="{{.Name}}" value="{{.Value}}"
+           {{if .Required}}required{{end}}
+           {{with .PlaceholderKey}}data-yd-i18n-attr="placeholder:{{.}}"{{end}}
+           {{if or .Placeholder .PlaceholderKey}}placeholder="{{if .PlaceholderKey}}{{tr .PlaceholderKey}}{{else}}{{.Placeholder}}{{end}}"{{end}}
+           {{if or .Error .ErrorKey}}aria-invalid="true"{{end}}>
+    {{else}}
+    <div class="yd-questionnaire__choices">
+      {{range .Choices}}
+      <label class="yd-check yd-check--block">
+        <input class="yd-check__input" type="{{if eq .Type "checkbox"}}checkbox{{else}}radio{{end}}"
+               name="{{$item.Name}}" value="{{.Value}}"{{if .Checked}} checked{{end}}{{if $item.Required}} required{{end}}>
+        <span class="yd-check__body">
+          <span class="yd-check__label"{{with .LabelKey}} data-yd-i18n="{{.}}"{{end}}>{{if .LabelKey}}{{tr .LabelKey}}{{else}}{{.Label}}{{end}}</span>
+          {{if or .Description .DescriptionKey}}<span class="yd-check__hint"{{with .DescriptionKey}} data-yd-i18n="{{.}}"{{end}}>{{if .DescriptionKey}}{{tr .DescriptionKey}}{{else}}{{.Description}}{{end}}</span>{{end}}
+        </span>
+      </label>
+      {{end}}
+    </div>
+    {{end}}
+    {{if or .Error .ErrorKey}}<p class="yd-field__error" role="alert"{{with .ErrorKey}} data-yd-i18n="{{.}}"{{end}}>{{if .ErrorKey}}{{tr .ErrorKey}}{{else}}{{.Error}}{{end}}</p>{{end}}
+  </fieldset>
+  {{end}}
+  <div class="yd-form__actions">
+    <button type="submit" class="yd-btn yd-btn--primary"{{with .SubmitKey}} data-yd-i18n="{{.}}"{{end}}>{{if .SubmitKey}}{{tr .SubmitKey}}{{else}}{{.SubmitLabel}}{{end}}</button>
+    {{if .CancelHref}}<a class="yd-btn yd-btn--ghost" href="{{.CancelHref}}"{{with .CancelKey}} data-yd-i18n="{{.}}"{{end}}>{{if .CancelKey}}{{tr .CancelKey}}{{else}}{{.CancelLabel}}{{end}}</a>{{end}}
+  </div>
+</form>
+{{- end -}}

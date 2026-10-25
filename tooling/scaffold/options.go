@@ -26,7 +26,7 @@ type Options struct {
 	// 锁定框架模块版本。为空表示不锁定，由 go mod tidy 解析当前模块版本；CLI 用运行中二进制
 	// 的模块版本填充它，避免生成项目解析到缺少所导入包的旧框架。
 	YdVersion string
-	// HtmxExts lists the Htmx 4 extensions to ship with the project (ws, sse, preload, alpine). | HtmxExts 是需要随项目加载的 Htmx 4 扩展（ws、sse、preload、alpine）。
+	// HtmxExts lists the Htmx 4 extensions to ship with the project; DefaultExtensions covers every safe one. | HtmxExts 是需要随项目加载的 Htmx 4 扩展；DefaultExtensions 给出全部安全扩展。
 	HtmxExts []string
 	// GRPC enables the gRPC dual-channel server. | GRPC 表示是否开启 gRPC 双通道。
 	GRPC bool
@@ -41,12 +41,13 @@ type Options struct {
 // DefaultOptions returns the default options for the project called name. | DefaultOptions 返回以 name 为项目名的默认选项。
 //
 // Defaults: Module = github.com/yun-dev/<name>, DB = sqlite, Tailwind = true, I18n = true,
-// License = Apache-2.0 and HtmxExts = {preload, sse, ws}; every other feature switch stays off.
+// License = Apache-2.0 and HtmxExts = every safe extension from DefaultExtensions; every other
+// feature switch stays off.
 // Redis and asynq are not switches: every generated project ships their configuration and wiring.
 // Htmx, Tailwind CSS and Alpine.js themselves are not switches either: Htmx is the core, Tailwind is
 // on by default, and EffectiveExtensions always adds the Alpine compatibility extension.
 // 默认值：Module = github.com/yun-dev/<name>、DB = sqlite、Tailwind = true、I18n = true、
-// License = Apache-2.0、HtmxExts = {preload, sse, ws}，其余特性开关为 false。
+// License = Apache-2.0、HtmxExts = DefaultExtensions 返回的全部安全扩展，其余特性开关为 false。
 // Redis 与 asynq 不是开关：每个生成项目都自带它们的配置与接线。
 // Htmx、Tailwind CSS 与 Alpine.js 本身同样不是开关：Htmx 是核心，Tailwind 默认开启，
 // EffectiveExtensions 始终补上 Alpine 兼容扩展。
@@ -58,7 +59,7 @@ func DefaultOptions(name string) Options {
 		License:   LicenseApache2,
 		Tailwind:  true,
 		I18n:      true,
-		HtmxExts:  []string{ExtPreload, ExtSSE, ExtWS},
+		HtmxExts:  DefaultExtensions(),
 		YdVersion: version.ModuleVersion(),
 	}
 }
@@ -67,10 +68,13 @@ func DefaultOptions(name string) Options {
 // 返回生成项目始终加载的扩展。
 //
 // Htmx, Tailwind CSS and Alpine.js are the baseline stack rather than choices: the Alpine
-// compatibility extension is appended when the caller did not ask for it, so `--htmx-ext none`
-// still produces a page whose htmx swaps and Alpine components cooperate.
+// compatibility extension is appended when the caller did not ask for it, so even an explicit
+// subset still produces a page whose htmx swaps and Alpine components cooperate. An empty list
+// (the no-flag `yd new` path) is filled by the caller with DefaultExtensions; this function only
+// normalises what it is given.
 // Htmx、Tailwind CSS 与 Alpine.js 是基线技术栈而不是可选项：调用方没有点名时也会补上 Alpine
-// 兼容扩展，因此 `--htmx-ext none` 生成出来的页面里，htmx 交换与 Alpine 组件仍然协同工作。
+// 兼容扩展，因此即使显式给出子集，页面里的 htmx 交换与 Alpine 组件仍能协同。空列表（未传标志的
+// `yd new` 路径）由调用方填入 DefaultExtensions；本函数只负责规范化传入值。
 func EffectiveExtensions(exts []string) []string {
 	out := make([]string, 0, len(exts)+1)
 	seen := make(map[string]bool, len(exts)+1)

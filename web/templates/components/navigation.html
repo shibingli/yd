@@ -29,10 +29,36 @@
     {{range .Items}}
     <a class="yd-tabs__tab{{if .Active}} yd-tabs__tab--active{{end}}" role="listitem" href="{{.Href}}"
        {{if .Active}}aria-current="page"{{end}}
-       {{with .LabelKey}}data-yd-i18n="{{.}}"{{end}} {{.Attrs}}>{{.Label}}</a>
+       {{with .LabelKey}}data-yd-i18n="{{.}}"{{end}} {{with .Attrs}}{{.}}{{end}}>{{if .LabelKey}}{{tr .LabelKey}}{{else}}{{.Label}}{{end}}</a>
     {{end}}
   </div>
 </nav>
+{{- end -}}
+
+{{/* components.navigation.tabs-client — client-side tabs over already-rendered panels. Dict keys | dict 的键:
+       Label, LabelKey, Active (tab ID), Items []{ID, Label, LabelKey, Content (template.HTML)}
+     Use it only for content that does not need its own URL. Server-driven navigation uses
+     components.navigation.tabs instead. | 仅用于不需要独立 URL 的内容；服务端驱动的导航使用
+     components.navigation.tabs。 */}}
+{{- define "components.navigation.tabs-client" -}}
+<div class="yd-tabs" x-data="ydTabs" data-active="{{.Active}}" x-on:keydown="onKey($event)">
+  <div class="yd-tabs__list" role="tablist"{{if or .Label .LabelKey}} aria-label="{{if .LabelKey}}{{tr .LabelKey}}{{else}}{{.Label}}{{end}}"{{with .LabelKey}} data-yd-i18n-attr="aria-label:{{.}}"{{end}}{{end}}>
+    {{range .Items}}
+    <button type="button" class="yd-tabs__tab{{if eq .ID $.Active}} yd-tabs__tab--active{{end}}" role="tab"
+            id="{{.ID}}-tab" data-tab="{{.ID}}" aria-controls="{{.ID}}-panel"
+            x-bind:aria-selected="isActive('{{.ID}}')"
+            x-bind:class="isActive('{{.ID}}') ? 'yd-tabs__tab yd-tabs__tab--active' : 'yd-tabs__tab'"
+            x-on:click="select('{{.ID}}')"
+            x-on:keydown.arrow-right.prevent="move($event, 1)"
+            x-on:keydown.arrow-left.prevent="move($event, -1)"
+            {{with .LabelKey}}data-yd-i18n="{{.}}"{{end}}>{{if .LabelKey}}{{tr .LabelKey}}{{else}}{{.Label}}{{end}}</button>
+    {{end}}
+  </div>
+  {{range .Items}}
+  <div class="yd-tabs__panel" id="{{.ID}}-panel" role="tabpanel" aria-labelledby="{{.ID}}-tab"
+       data-panel="{{.ID}}" x-show="isActive('{{.ID}}')"{{if ne .ID $.Active}} x-cloak{{end}}>{{.Content}}</div>
+  {{end}}
+</div>
 {{- end -}}
 
 {{/* components.navigation.breadcrumb — the path to the current page. Dict keys | dict 的键:
@@ -74,7 +100,7 @@
 <div class="yd-dropdown" x-data="ydDropdown" x-on:keydown="onKey($event)">
   <button type="button" class="yd-dropdown__trigger {{.TriggerClass}}" x-on:click="toggle" x-ref="trigger"
           x-bind:aria-expanded="open" aria-haspopup="menu"
-          {{with $panelID}}aria-controls="{{.}}-panel"{{end}} {{.TriggerAttrs}}>
+          {{with $panelID}}aria-controls="{{.}}-panel"{{end}} {{with .TriggerAttrs}}{{.}}{{end}}>
     {{with .Icon}}<span aria-hidden="true">{{.}}</span>{{end}}
     <span{{with .LabelKey}} data-yd-i18n="{{.}}"{{end}}>{{if .Label}}{{.Label}}{{else}}{{if .LabelKey}}{{tr .LabelKey}}{{end}}{{end}}</span>
   </button>
@@ -83,7 +109,7 @@
        x-on:click="close(false)">
     {{range .Items}}
     <a class="yd-dropdown__item{{if .Danger}} yd-dropdown__item--danger{{end}}" role="menuitem" href="{{.Href}}"
-       {{with .LabelKey}}data-yd-i18n="{{.}}"{{end}} {{.Attrs}}>{{.Label}}</a>
+       {{with .LabelKey}}data-yd-i18n="{{.}}"{{end}} {{with .Attrs}}{{.}}{{end}}>{{if .LabelKey}}{{tr .LabelKey}}{{else}}{{.Label}}{{end}}</a>
     {{end}}
     {{with .ItemsHTML}}{{.}}{{end}}
   </div>
@@ -94,14 +120,14 @@
        Label, LabelKey, Items []{Href, Label, LabelKey, Active} */}}
 {{- define "components.navigation.anchor" -}}
 <nav class="yd-anchor" x-data="ydAnchor"
-     {{with .LabelKey}}aria-label="{{$.Label}}" data-yd-i18n-attr="aria-label:{{.}}"{{end}}>
+     {{if or .Label .LabelKey}}aria-label="{{if .LabelKey}}{{tr .LabelKey}}{{else}}{{.Label}}{{end}}"{{with .LabelKey}} data-yd-i18n-attr="aria-label:{{.}}"{{end}}{{end}}>
   <ul class="yd-anchor__list">
     {{range .Items}}
     <li>
       <a class="yd-anchor__link{{if .Active}} yd-anchor__link--active{{end}}" href="{{.Href}}"
          x-bind:class="isActive('{{.Href}}') ? 'yd-anchor__link yd-anchor__link--active' : 'yd-anchor__link'"
          x-bind:aria-current="isActive('{{.Href}}') ? 'location' : null"
-         {{with .LabelKey}}data-yd-i18n="{{.}}"{{end}}>{{.Label}}</a>
+         {{with .LabelKey}}data-yd-i18n="{{.}}"{{end}}>{{if .LabelKey}}{{tr .LabelKey}}{{else}}{{.Label}}{{end}}</a>
     </li>
     {{end}}
   </ul>
@@ -126,12 +152,12 @@
        Href, Label, LabelKey, Icon (template.HTML), Primary, Attrs (template.HTMLAttr) */}}
 {{- define "components.navigation.fab" -}}
 {{if .Href}}
-<a class="yd-fab{{if .Primary}} yd-fab--primary{{end}}" href="{{.Href}}" {{.Attrs}}{{with .LabelKey}} data-yd-i18n="{{.}}"{{end}}>
-  {{with .Icon}}<span aria-hidden="true">{{.}}</span>{{end}}<span>{{.Label}}</span>
+<a class="yd-fab{{if .Primary}} yd-fab--primary{{end}}" href="{{.Href}}" {{with .Attrs}}{{.}}{{end}}{{with .LabelKey}} data-yd-i18n="{{.}}"{{end}}>
+  {{with .Icon}}<span aria-hidden="true">{{.}}</span>{{end}}<span>{{if .LabelKey}}{{tr .LabelKey}}{{else}}{{.Label}}{{end}}</span>
 </a>
 {{else}}
-<button type="button" class="yd-fab{{if .Primary}} yd-fab--primary{{end}}" {{.Attrs}}{{with .LabelKey}} data-yd-i18n="{{.}}"{{end}}>
-  {{with .Icon}}<span aria-hidden="true">{{.}}</span>{{end}}<span>{{.Label}}</span>
+<button type="button" class="yd-fab{{if .Primary}} yd-fab--primary{{end}}" {{with .Attrs}}{{.}}{{end}}{{with .LabelKey}} data-yd-i18n="{{.}}"{{end}}>
+  {{with .Icon}}<span aria-hidden="true">{{.}}</span>{{end}}<span>{{if .LabelKey}}{{tr .LabelKey}}{{else}}{{.Label}}{{end}}</span>
 </button>
 {{end}}
 {{- end -}}
@@ -157,12 +183,12 @@
         {{$group := ""}}
         {{range $i, $item := .Items}}
         {{- if ne .Group $group}}
-        <p class="yd-command__group"{{with .GroupKey}} data-yd-i18n="{{.}}"{{end}}>{{.Group}}</p>
+        <p class="yd-command__group"{{with .GroupKey}} data-yd-i18n="{{.}}"{{end}}>{{if .GroupKey}}{{tr .GroupKey}}{{else}}{{.Group}}{{end}}</p>
         {{- $group = .Group}}
         {{- end}}
         <a class="yd-command__item" id="{{$prefix}}-item-{{$i}}" href="{{.Href}}" role="option" aria-selected="false"
            data-yd-command-item
-           x-show="matches($el.textContent)" {{with .LabelKey}}data-yd-i18n="{{.}}"{{end}} {{.Attrs}}>{{.Label}}</a>
+           x-show="matches($el.textContent)" {{with .LabelKey}}data-yd-i18n="{{.}}"{{end}} {{with .Attrs}}{{.}}{{end}}>{{if .LabelKey}}{{tr .LabelKey}}{{else}}{{.Label}}{{end}}</a>
         {{end}}
         <p class="yd-command__empty" x-bind:hidden="!showEmpty" x-cloak>{{tr "ui.command_empty"}}</p>
       </div>
@@ -181,7 +207,7 @@
        x-on:click="close(false)">
     {{range .Items}}
     <a class="yd-dropdown__item{{if .Danger}} yd-dropdown__item--danger{{end}}" role="menuitem" href="{{.Href}}"
-       {{with .LabelKey}}data-yd-i18n="{{.}}"{{end}} {{.Attrs}}>{{.Label}}</a>
+       {{with .LabelKey}}data-yd-i18n="{{.}}"{{end}} {{with .Attrs}}{{.}}{{end}}>{{if .LabelKey}}{{tr .LabelKey}}{{else}}{{.Label}}{{end}}</a>
     {{end}}
   </div>
 </div>
@@ -191,13 +217,13 @@
        Label, LabelKey, Items []{Label, LabelKey, Items []{Label, LabelKey, Href, Attrs}} */}}
 {{- define "components.navigation.menubar" -}}
 <nav class="yd-menubar" role="menubar"
-     {{with .LabelKey}}aria-label="{{$.Label}}" data-yd-i18n-attr="aria-label:{{.}}"{{end}}>
+     {{if or .Label .LabelKey}}aria-label="{{if .LabelKey}}{{tr .LabelKey}}{{else}}{{.Label}}{{end}}"{{with .LabelKey}} data-yd-i18n-attr="aria-label:{{.}}"{{end}}{{end}}>
   {{range .Items}}
   <details class="yd-menubar__item">
     <summary class="yd-menubar__trigger"{{with .LabelKey}} data-yd-i18n="{{.}}"{{end}}>{{if .Label}}{{.Label}}{{else}}{{if .LabelKey}}{{tr .LabelKey}}{{end}}{{end}}</summary>
     <div class="yd-menubar__panel" role="menu">
       {{range .Items}}
-      <a class="yd-dropdown__item" role="menuitem" href="{{.Href}}"{{with .LabelKey}} data-yd-i18n="{{.}}"{{end}} {{.Attrs}}>{{.Label}}</a>
+      <a class="yd-dropdown__item" role="menuitem" href="{{.Href}}"{{with .LabelKey}} data-yd-i18n="{{.}}"{{end}} {{with .Attrs}}{{.}}{{end}}>{{if .LabelKey}}{{tr .LabelKey}}{{else}}{{.Label}}{{end}}</a>
       {{end}}
     </div>
   </details>
@@ -210,8 +236,8 @@
        Pages []{Number, Href, Current, Ellipsis} */}}
 {{- define "components.navigation.pagination" -}}
 <nav class="yd-pagination" role="navigation"
-     {{with .LabelKey}}aria-label="{{$.Label}}" data-yd-i18n-attr="aria-label:{{.}}"{{end}}>
-  {{with .Summary}}<p class="yd-pagination__summary"{{with $.SummaryKey}} data-yd-i18n="{{$.SummaryKey}}"{{end}}>{{.}}</p>{{end}}
+     {{if or .Label .LabelKey}}aria-label="{{if .LabelKey}}{{tr .LabelKey}}{{else}}{{.Label}}{{end}}"{{with .LabelKey}} data-yd-i18n-attr="aria-label:{{.}}"{{end}}{{end}}>
+  {{if or .Summary .SummaryKey}}<p class="yd-pagination__summary"{{with .SummaryKey}} data-yd-i18n="{{.}}"{{end}}>{{if .SummaryKey}}{{tr .SummaryKey}}{{else}}{{.Summary}}{{end}}</p>{{end}}
   <ul class="yd-pagination__list">
     {{with .PrevHref}}<li class="yd-pagination__item"><a class="yd-pagination__link" href="{{.}}" rel="prev" data-yd-i18n-attr="aria-label:ui.previous" aria-label="{{tr "ui.previous"}}">{{template "partials/icon" "lucide-chevron-left"}}</a></li>{{end}}
     {{range .Pages}}
@@ -244,14 +270,16 @@
   {{if $node.Children}}
   <details{{if $node.Open}} open{{end}}>
     <summary class="yd-tree__summary">
-      <span class="yd-tree__label"{{with $node.LabelKey}} data-yd-i18n="{{.}}"{{end}}>{{$node.Label}}</span>
+      {{with $node.Icon}}<span class="yd-tree__icon" aria-hidden="true">{{.}}</span>{{end}}
+      <span class="yd-tree__label"{{with $node.LabelKey}} data-yd-i18n="{{.}}"{{end}}>{{if $node.LabelKey}}{{tr $node.LabelKey}}{{else}}{{$node.Label}}{{end}}</span>
       {{with $node.Meta}}<span class="yd-tree__meta"{{with $node.MetaKey}} data-yd-i18n="{{.}}"{{end}}>{{.}}</span>{{end}}
     </summary>
     <ul class="yd-tree__children">{{template "components.navigation.tree.nodes" $node.Children}}</ul>
   </details>
   {{else}}
   <a class="yd-tree__summary" href="{{$node.Href}}"{{with $node.LabelKey}} data-yd-i18n="{{.}}"{{end}}>
-    <span class="yd-tree__label">{{$node.Label}}</span>
+    {{with $node.Icon}}<span class="yd-tree__icon" aria-hidden="true">{{.}}</span>{{end}}
+    <span class="yd-tree__label">{{if $node.LabelKey}}{{tr $node.LabelKey}}{{else}}{{$node.Label}}{{end}}</span>
     {{with $node.Meta}}<span class="yd-tree__meta"{{with $node.MetaKey}} data-yd-i18n="{{.}}"{{end}}>{{.}}</span>{{end}}
   </a>
   {{end}}
@@ -262,16 +290,16 @@
 {{/* components.navigation.menu — a vertical navigation menu. Dict keys | dict 的键:
        Label, LabelKey, Items []{Section, SectionKey, Items []{Label, LabelKey, Href, Active, Icon (template.HTML)}} */}}
 {{- define "components.navigation.menu" -}}
-<nav class="yd-nav" aria-label="{{.Label}}"{{with .LabelKey}} data-yd-i18n-attr="aria-label:{{.}}"{{end}}>
+<nav class="yd-nav"{{if or .Label .LabelKey}} aria-label="{{if .LabelKey}}{{tr .LabelKey}}{{else}}{{.Label}}{{end}}"{{with .LabelKey}} data-yd-i18n-attr="aria-label:{{.}}"{{end}}{{end}}>
   {{range .Items}}
   {{- $section := . -}}
   <div class="yd-nav__section">
-    {{with $section.Section}}<p class="yd-nav__title"{{with $section.SectionKey}} data-yd-i18n="{{.}}"{{end}}>{{.}}</p>{{end}}
+    {{if or $section.Section $section.SectionKey}}<p class="yd-nav__title"{{with $section.SectionKey}} data-yd-i18n="{{.}}"{{end}}>{{if $section.SectionKey}}{{tr $section.SectionKey}}{{else}}{{$section.Section}}{{end}}</p>{{end}}
     {{range $section.Items}}
     <a class="yd-nav__link{{if .Active}} yd-nav__link--active{{end}}" href="{{.Href}}"
        {{if .Active}}aria-current="page"{{end}}{{with .LabelKey}} data-yd-i18n="{{.}}"{{end}}>
       {{with .Icon}}<span class="yd-nav__icon" aria-hidden="true">{{.}}</span>{{end}}
-      <span class="yd-nav__label">{{.Label}}</span>
+      <span class="yd-nav__label">{{if .LabelKey}}{{tr .LabelKey}}{{else}}{{.Label}}{{end}}</span>
     </a>
     {{end}}
   </div>

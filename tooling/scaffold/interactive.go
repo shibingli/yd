@@ -19,10 +19,6 @@ const (
 	promptDB = "数据库 (mysql/postgres/sqlite/dm/none) | Database (mysql/postgres/sqlite/dm/none)"
 	// promptGRPC asks whether gRPC is wanted. | promptGRPC 询问是否开启 gRPC。
 	promptGRPC = "启用 gRPC 双通道 (y/n) | Enable gRPC dual channel (y/n)"
-	// promptI18n asks whether i18n is wanted. | promptI18n 询问是否开启国际化。
-	promptI18n = "启用 i18n (y/n) | Enable i18n (y/n)"
-	// promptExts asks for the Htmx extension list. | promptExts 询问 Htmx 扩展列表。
-	promptExts = "额外 Htmx 扩展 (逗号分隔，名称见 `yd new --help`；Htmx/Alpine/Tailwind 已内置) | Extra Htmx extensions (comma separated, names in `yd new --help`; Htmx/Alpine/Tailwind are built in)"
 	// promptLicense asks for the licence. | promptLicense 询问开源协议。
 	promptLicense = "开源协议 | License"
 	// noneAnswer clears list answers (for example: no Htmx extension at all). | noneAnswer 表示清空列表类回答（如不启用任何 Htmx 扩展）。
@@ -97,34 +93,21 @@ func Interactive(in io.Reader, out io.Writer, base Options, isTTY bool) (Options
 	// Htmx、Tailwind CSS 与 Alpine.js 同样不是开关：它们是基线技术栈，问答不提供关闭项。
 	// Redis and asynq are not switches: they ship with every project, so the interview never asks.
 	// Htmx, Tailwind CSS and Alpine.js are baseline stack too, so the interview offers no way to turn them off.
-	for _, toggle := range []struct {
-		prompt string
-		value  *bool
-	}{
-		{promptGRPC, &base.GRPC},
-		{promptI18n, &base.I18n},
-	} {
-		answer, err := ask(toggle.prompt, yesNo(*toggle.value))
-		if err != nil {
-			return base, err
-		}
-		parsed, err := parseYesNo(answer)
-		if err != nil {
-			return base, errs.WrapDetail(err, ErrAnswerInvalid, "prompt=%[1]s | 提示=%[1]s", toggle.prompt)
-		}
-		*toggle.value = parsed
-	}
-
-	extAnswer, err := ask(promptExts, strings.Join(base.HtmxExts, ","))
+	// i18n is part of the baseline and is never asked; only gRPC remains a yes/no question. |
+	// i18n 属于基线，不再询问；只剩 gRPC 一个是/否问题。
+	answer, err := ask(promptGRPC, yesNo(base.GRPC))
 	if err != nil {
 		return base, err
 	}
-	exts, err := ParseExtensions(extAnswer)
+	parsed, err := parseYesNo(answer)
 	if err != nil {
-		return base, err
+		return base, errs.WrapDetail(err, ErrAnswerInvalid, "prompt=%[1]s | 提示=%[1]s", promptGRPC)
 	}
-	base.HtmxExts = exts
+	base.GRPC = parsed
 
+	// Extensions are part of the baseline: withDefaults already fills an empty list with every safe
+	// extension, and an explicit subset from the caller is preserved untouched. | 扩展属于基线：
+	// withDefaults 已把空列表补成全部安全扩展，调用方显式给出的子集则原样保留。
 	license, err := ask(promptLicense, base.License)
 	if err != nil {
 		return base, err
@@ -158,6 +141,9 @@ func ParseExtensions(s string) ([]string, error) {
 
 // withDefaults fills empty fields without touching explicitly given boolean switches. | withDefaults 补齐空字段的默认值（不改动已显式给定的布尔开关）。
 func withDefaults(o Options) Options {
+	if len(o.HtmxExts) == 0 {
+		o.HtmxExts = DefaultExtensions()
+	}
 	if strings.TrimSpace(o.DB) == "" {
 		o.DB = DBDefault
 	}

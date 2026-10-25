@@ -57,7 +57,7 @@
            {{if or .Invalid .Error}}aria-invalid="true"{{end}}
            {{with $described}}aria-describedby="{{.}}"{{end}}
            {{with .PlaceholderKey}}data-yd-i18n-attr="placeholder:{{.}}"{{end}}
-           {{if or .Placeholder .PlaceholderKey}}placeholder="{{if .Placeholder}}{{.Placeholder}}{{else}}{{if .PlaceholderKey}}{{tr .PlaceholderKey}}{{end}}{{end}}"{{end}} {{.Attrs}}>
+           {{if or .Placeholder .PlaceholderKey}}placeholder="{{if .Placeholder}}{{.Placeholder}}{{else}}{{if .PlaceholderKey}}{{tr .PlaceholderKey}}{{end}}{{end}}"{{end}} {{with .Attrs}}{{.}}{{end}}>
   </div>
   {{if or .Hint .HintKey}}<p class="yd-field__hint" id="{{.ID}}-hint"{{with .HintKey}} data-yd-i18n="{{.}}"{{end}}>{{if .Hint}}{{.Hint}}{{else}}{{if .HintKey}}{{tr .HintKey}}{{end}}{{end}}</p>{{end}}
   {{if or .Error .ErrorKey}}<p class="yd-field__error" id="{{.ID}}-error" role="alert"{{with .ErrorKey}} data-yd-i18n="{{.}}"{{end}}>{{if .Error}}{{.Error}}{{else}}{{if .ErrorKey}}{{tr .ErrorKey}}{{end}}{{end}}</p>{{end}}
@@ -84,16 +84,22 @@
             {{if or .Invalid .Error}}aria-invalid="true"{{end}}
             {{with $described}}aria-describedby="{{.}}"{{end}}
             {{with .PlaceholderKey}}data-yd-i18n-attr="placeholder:{{.}}"{{end}}
-            {{if or .Placeholder .PlaceholderKey}}placeholder="{{if .Placeholder}}{{.Placeholder}}{{else}}{{if .PlaceholderKey}}{{tr .PlaceholderKey}}{{end}}{{end}}"{{end}} {{.Attrs}}>{{.Value}}</textarea>
+            {{if or .Placeholder .PlaceholderKey}}placeholder="{{if .Placeholder}}{{.Placeholder}}{{else}}{{if .PlaceholderKey}}{{tr .PlaceholderKey}}{{end}}{{end}}"{{end}} {{with .Attrs}}{{.}}{{end}}>{{.Value}}</textarea>
   {{if or .Hint .HintKey}}<p class="yd-field__hint" id="{{.ID}}-hint"{{with .HintKey}} data-yd-i18n="{{.}}"{{end}}>{{if .Hint}}{{.Hint}}{{else}}{{if .HintKey}}{{tr .HintKey}}{{end}}{{end}}</p>{{end}}
   {{if or .Error .ErrorKey}}<p class="yd-field__error" id="{{.ID}}-error" role="alert"{{with .ErrorKey}} data-yd-i18n="{{.}}"{{end}}>{{if .Error}}{{.Error}}{{else}}{{if .ErrorKey}}{{tr .ErrorKey}}{{end}}{{end}}</p>{{end}}
 </div>
 {{- end -}}
 
-{{/* components.form.select renders a native select. Options is []{Value, Label, Key, Selected, Disabled}.
-     Placeholder/PlaceholderKey label the empty option. Multiple and Size map to the native attributes;
-     Attrs is appended to the select. | Placeholder/PlaceholderKey 标注空选项。Multiple 与 Size 映射到
-     原生属性；Attrs 追加到 select 上。 */}}
+{{/* components.form.select renders a styled listbox over a real native select. Options is
+     []{Value, Label, Key, Selected, Disabled}. Placeholder/PlaceholderKey label the empty option.
+     Multiple and Size map to the native attributes; Attrs is appended to the select. LabelHidden
+     keeps the label for assistive technology only; ThemeSet marks the native select for yd-app's
+     immediate theme switch. The native select stays in the form as the no-script fallback and as
+     the submitted field; ydSelect only replaces the visible surface. | 在真实原生 select 之上渲染
+     样式化列表框。Placeholder/PlaceholderKey 标注空选项；Multiple 与 Size 映射到原生属性；Attrs
+     追加到 select 上。LabelHidden 让标签仅供辅助技术读取；ThemeSet 给原生 select 打上 yd-app
+     即时切换主题所需的钩子。原生 select 始终留在表单里作为无脚本回退与提交字段，
+     ydSelect 只替换可见表面。 */}}
 {{- define "components.form.select" -}}
 {{- $described := .DescribedBy -}}
 {{- if not $described -}}
@@ -101,22 +107,53 @@
   {{- else if .Hint -}}{{- $described = printf "%s-hint" .ID -}}
   {{- else if .Error -}}{{- $described = printf "%s-error" .ID -}}{{- end -}}
 {{- end -}}
-<div class="yd-field{{if .Required}} yd-field--required{{end}}{{if or .Invalid .Error}} yd-field--invalid{{end}}" data-yd-field="{{.Name}}">
-  <label class="yd-field__label" for="{{.ID}}"{{with .LabelKey}} data-yd-i18n="{{.}}"{{end}}>{{if .Label}}{{.Label}}{{else}}{{if .LabelKey}}{{tr .LabelKey}}{{end}}{{end}}</label>
-  <select class="yd-select{{if or .Invalid .Error}} yd-input--invalid{{end}}{{with .InputClass}} {{.}}{{end}}" id="{{.ID}}" name="{{.Name}}"
-          {{if .Required}}required{{end}}
-          {{if .Disabled}}disabled{{end}}
-          {{if .Multiple}}multiple{{end}}
-          {{with .Size}}size="{{.}}"{{end}}
-          {{if or .Invalid .Error}}aria-invalid="true"{{end}}
-          {{with $described}}aria-describedby="{{.}}"{{end}} {{.Attrs}}>
-    {{if or .Placeholder .PlaceholderKey}}<option value=""{{with .PlaceholderKey}} data-yd-i18n="{{.}}"{{end}}>{{if .Placeholder}}{{.Placeholder}}{{else}}{{if .PlaceholderKey}}{{tr .PlaceholderKey}}{{end}}{{end}}</option>{{end}}
-    {{with .Options}}{{range .}}
-    <option value="{{.Value}}"{{if .Selected}} selected{{end}}{{if .Disabled}} disabled{{end}}{{with .Key}} data-yd-i18n="{{.}}"{{end}}>{{if .Label}}{{.Label}}{{else}}{{if .Key}}{{tr .Key}}{{end}}{{end}}</option>
-    {{end}}{{end}}
-  </select>
-  {{if or .Hint .HintKey}}<p class="yd-field__hint" id="{{.ID}}-hint"{{with .HintKey}} data-yd-i18n="{{.}}"{{end}}>{{if .Hint}}{{.Hint}}{{else}}{{if .HintKey}}{{tr .HintKey}}{{end}}{{end}}</p>{{end}}
-  {{if or .Error .ErrorKey}}<p class="yd-field__error" id="{{.ID}}-error" role="alert"{{with .ErrorKey}} data-yd-i18n="{{.}}"{{end}}>{{if .Error}}{{.Error}}{{else}}{{if .ErrorKey}}{{tr .ErrorKey}}{{end}}{{end}}</p>{{end}}
+<div class="yd-field{{if .Required}} yd-field--required{{end}}{{if or .Invalid .Error}} yd-field--invalid{{end}}{{with .WrapperClass}} {{.}}{{end}}" data-yd-field="{{.Name}}">
+  <label class="yd-field__label{{if .LabelHidden}} sr-only{{end}}" for="{{.ID}}"{{with .LabelKey}} data-yd-i18n="{{.}}"{{end}}>{{if .LabelKey}}{{tr .LabelKey}}{{else}}{{.Label}}{{end}}</label>
+  {{/* A real select stays in the form. Alpine only swaps the visible surface: without JavaScript the
+       native control remains, and with JavaScript it still submits the same name/value pair. |
+       真实 select 始终留在表单里。Alpine 只替换可见表面：没有 JavaScript 时原生控件仍在，有
+       JavaScript 时它仍然提交同一个 name/value。 */}}
+  <div class="yd-selectbox"{{if not .Multiple}} x-data="ydSelect" x-on:click.outside="close(false)"{{end}}>
+    <select class="yd-select{{if or .Invalid .Error}} yd-input--invalid{{end}}{{with .InputClass}} {{.}}{{end}}" id="{{.ID}}" name="{{.Name}}"
+            {{if not .Multiple}}x-ref="native" x-show="!enhanced" x-on:change="sync"
+            x-bind:required="!enhanced && {{if .Required}}true{{else}}false{{end}}"{{else}}
+            {{if .Required}}required{{end}}{{end}}
+            {{if .Disabled}}disabled{{end}}
+            {{if .ThemeSet}}data-yd-theme-set{{end}}
+            {{if .Multiple}}multiple{{end}}
+            {{with .Size}}size="{{.}}"{{end}}
+            {{if or .Invalid .Error}}aria-invalid="true"{{end}}
+            {{with $described}}aria-describedby="{{.}}"{{end}} {{with .Attrs}}{{.}}{{end}}>
+      {{if or .Placeholder .PlaceholderKey}}<option value=""{{with .PlaceholderKey}} data-yd-i18n="{{.}}"{{end}}>{{if .Placeholder}}{{.Placeholder}}{{else}}{{if .PlaceholderKey}}{{tr .PlaceholderKey}}{{end}}{{end}}</option>{{end}}
+      {{with .Options}}{{range .}}
+      <option value="{{.Value}}"{{if .Selected}} selected{{end}}{{if .Disabled}} disabled{{end}}{{with .Key}} data-yd-i18n="{{.}}"{{else}}{{with .LabelKey}} data-yd-i18n="{{.}}"{{end}}{{end}}>{{.Prefix}}{{if .Key}}{{tr .Key}}{{else}}{{if .LabelKey}}{{tr .LabelKey}}{{else}}{{.Label}}{{end}}{{end}}</option>
+      {{end}}{{end}}
+    </select>
+    {{if not .Multiple}}
+    <button type="button" class="yd-input yd-selectbox__button{{if or .Invalid .Error}} yd-input--invalid{{end}}"
+            x-show="enhanced" x-cloak x-on:click="toggle" x-on:keydown="onKey($event)" x-ref="trigger"
+            x-bind:aria-expanded="open" aria-haspopup="listbox" aria-controls="{{.ID}}-menu"
+            aria-label="{{if .LabelKey}}{{tr .LabelKey}}{{else}}{{.Label}}{{end}}"
+            {{if .Required}}aria-required="true"{{end}}{{if .Disabled}}disabled{{end}}
+            {{if or .Invalid .Error}}aria-invalid="true"{{end}}
+            {{with $described}}aria-describedby="{{.}}"{{end}}>
+      <span class="yd-selectbox__value" x-text="selectedLabel"></span>
+      <span class="yd-selectbox__arrow" aria-hidden="true">{{template "partials/icon" "lucide-chevron-down"}}</span>
+    </button>
+    <div class="yd-selectbox__menu" id="{{.ID}}-menu" x-show="open" x-cloak x-ref="menu"
+         x-on:keydown="onKey($event)" role="listbox" tabindex="-1"
+         aria-label="{{if .LabelKey}}{{tr .LabelKey}}{{else}}{{.Label}}{{end}}">
+      <template x-for="(option, index) in options" :key="index">
+        <button type="button" class="yd-selectbox__option" role="option"
+                x-bind:class="option.active ? 'yd-selectbox__option--active' : ''"
+                x-bind:aria-selected="option.selected" x-bind:disabled="option.disabled"
+                x-on:click="choose(option.value)" x-text="option.label"></button>
+      </template>
+    </div>
+    {{end}}
+  </div>
+  {{if or .Hint .HintKey}}<p class="yd-field__hint" id="{{.ID}}-hint"{{with .HintKey}} data-yd-i18n="{{.}}"{{end}}>{{if .HintKey}}{{tr .HintKey}}{{else}}{{.Hint}}{{end}}</p>{{end}}
+  {{if or .Error .ErrorKey}}<p class="yd-field__error" id="{{.ID}}-error" role="alert"{{with .ErrorKey}} data-yd-i18n="{{.}}"{{end}}>{{if .ErrorKey}}{{tr .ErrorKey}}{{else}}{{.Error}}{{end}}</p>{{end}}
 </div>
 {{- end -}}
 
@@ -128,7 +165,7 @@
      需要徽标或代码片段的行；缺省时使用 Label/Hint，i18n 钩子留在文本节点上。 */}}
 {{- define "components.form.check" -}}
 <label class="yd-check{{if .Block}} yd-check--block{{end}}" for="{{.ID}}">
-  <input class="yd-check__input" type="checkbox" id="{{.ID}}" name="{{.Name}}" value="{{.Value}}"{{if .Checked}} checked{{end}}{{if .Disabled}} disabled{{end}} {{.Attrs}}>
+  <input class="yd-check__input" type="checkbox" id="{{.ID}}" name="{{.Name}}" value="{{.Value}}"{{if .Checked}} checked{{end}}{{if .Disabled}} disabled{{end}} {{with .Attrs}}{{.}}{{end}}>
   <span class="yd-check__body">
     <span class="yd-check__label"{{if not .LabelHTML}}{{with .LabelKey}} data-yd-i18n="{{.}}"{{end}}{{end}}>{{if .LabelHTML}}{{.LabelHTML}}{{else}}{{if .Label}}{{.Label}}{{else}}{{if .LabelKey}}{{tr .LabelKey}}{{end}}{{end}}{{end}}</span>
     {{if or .Hint .HintKey}}<span class="yd-check__hint"{{if not .HintHTML}}{{with .HintKey}} data-yd-i18n="{{.}}"{{end}}{{end}}>{{if .HintHTML}}{{.HintHTML}}{{else}}{{if .Hint}}{{.Hint}}{{else}}{{if .HintKey}}{{tr .HintKey}}{{end}}{{end}}{{end}}</span>{{end}}
@@ -169,7 +206,7 @@
     {{with .Options}}{{range .}}
     <label class="yd-segmented__item{{if .Checked}} yd-segmented__item--active{{end}}">
       <input class="sr-only" type="radio" name="{{$name}}" value="{{.Value}}"{{if .Checked}} checked{{end}}{{if .Disabled}} disabled{{end}}>
-      <span{{with .Key}} data-yd-i18n="{{.}}"{{end}}>{{if .Label}}{{.Label}}{{else}}{{if .Key}}{{tr .Key}}{{end}}{{end}}</span>
+      <span{{with .Key}} data-yd-i18n="{{.}}"{{end}}>{{if .Key}}{{tr .Key}}{{else}}{{.Label}}{{end}}</span>
     </label>
     {{end}}{{end}}
   </div>
@@ -199,7 +236,7 @@
            {{if or .Invalid .Error}}aria-invalid="true"{{end}}
            {{with $described}}aria-describedby="{{.}}"{{end}}
            {{with .PlaceholderKey}}data-yd-i18n-attr="placeholder:{{.}}"{{end}} {{if or .Placeholder .PlaceholderKey}}placeholder="{{if .Placeholder}}{{.Placeholder}}{{else}}{{if .PlaceholderKey}}{{tr .PlaceholderKey}}{{end}}{{end}}"{{end}}
-           x-bind:type="show ? 'text' : 'password'" {{.Attrs}}>
+           x-bind:type="show ? 'text' : 'password'" {{with .Attrs}}{{.}}{{end}}>
     <button type="button" class="yd-password__toggle" x-on:click="toggle" x-bind:aria-pressed="show"
             data-yd-i18n-attr="aria-label:cn.password.toggle" aria-label="{{tr "cn.password.toggle"}}"><span x-show="!show">{{template "partials/icon" "lucide-eye"}}</span><span x-show="show" x-cloak>{{template "partials/icon" "lucide-eye-off"}}</span></button>
   </div>
@@ -230,8 +267,8 @@
     <input class="yd-input" id="{{.ID}}" type="text" x-model="draft"
            x-on:keydown.enter.prevent="add"
            {{with $described}}aria-describedby="{{.}}"{{end}}
-           {{with .PlaceholderKey}}data-yd-i18n-attr="placeholder:{{.}}"{{end}} {{if or .Placeholder .PlaceholderKey}}placeholder="{{if .Placeholder}}{{.Placeholder}}{{else}}{{if .PlaceholderKey}}{{tr .PlaceholderKey}}{{end}}{{end}}"{{end}} {{.Attrs}}>
-    <button type="button" class="yd-btn yd-btn--ghost" x-on:click="add"{{with .AddKey}} data-yd-i18n="{{.}}"{{end}}>{{.AddLabel}}</button>
+           {{with .PlaceholderKey}}data-yd-i18n-attr="placeholder:{{.}}"{{end}} {{if or .Placeholder .PlaceholderKey}}placeholder="{{if .Placeholder}}{{.Placeholder}}{{else}}{{if .PlaceholderKey}}{{tr .PlaceholderKey}}{{end}}{{end}}"{{end}} {{with .Attrs}}{{.}}{{end}}>
+    <button type="button" class="yd-btn yd-btn--ghost" x-on:click="add"{{with .AddKey}} data-yd-i18n="{{.}}"{{end}}>{{if .AddKey}}{{tr .AddKey}}{{else}}{{.AddLabel}}{{end}}</button>
   </div>
   <div class="yd-tag-list" x-show="tags.length" x-cloak>
     <template x-for="tag in tags" :key="tag">
@@ -252,12 +289,12 @@
        CancelKey, CancelLabel, CancelHref, CancelAttrs (template.HTMLAttr), CancelModal, NoCancel */}}
 {{- define "components.form.actions" -}}
 <div class="yd-form__actions">
-  <button type="submit" class="yd-btn yd-btn--primary"{{with .SubmitKey}} data-yd-i18n="{{.}}"{{end}}{{if .SubmitDisabled}} disabled{{end}} {{.SubmitAttrs}}>{{if .SubmitLabel}}{{.SubmitLabel}}{{else}}{{if .SubmitKey}}{{tr .SubmitKey}}{{end}}{{end}}</button>
+  <button type="submit" class="yd-btn yd-btn--primary"{{with .SubmitKey}} data-yd-i18n="{{.}}"{{end}}{{if .SubmitDisabled}} disabled{{end}} {{with .SubmitAttrs}}{{.}}{{end}}>{{if .SubmitKey}}{{tr .SubmitKey}}{{else}}{{.SubmitLabel}}{{end}}</button>
   {{if not .NoCancel}}
   {{if .CancelHref}}
-  <a class="yd-btn yd-btn--ghost" href="{{.CancelHref}}"{{with .CancelKey}} data-yd-i18n="{{.}}"{{end}} {{.CancelAttrs}}>{{if .CancelLabel}}{{.CancelLabel}}{{else}}{{if .CancelKey}}{{tr .CancelKey}}{{end}}{{end}}</a>
+  <a class="yd-btn yd-btn--ghost" href="{{.CancelHref}}"{{with .CancelKey}} data-yd-i18n="{{.}}"{{end}} {{with .CancelAttrs}}{{.}}{{end}}>{{if .CancelKey}}{{tr .CancelKey}}{{else}}{{.CancelLabel}}{{end}}</a>
   {{else}}
-  <button type="button" class="yd-btn yd-btn--ghost" {{if .CancelModal}}data-yd-modal-close{{else}}data-yd-drawer-close{{end}}{{with .CancelKey}} data-yd-i18n="{{.}}"{{end}} {{.CancelAttrs}}>{{if .CancelLabel}}{{.CancelLabel}}{{else}}{{if .CancelKey}}{{tr .CancelKey}}{{end}}{{end}}</button>
+  <button type="button" class="yd-btn yd-btn--ghost" {{if .CancelModal}}data-yd-modal-close{{else}}data-yd-drawer-close{{end}}{{with .CancelKey}} data-yd-i18n="{{.}}"{{end}} {{with .CancelAttrs}}{{.}}{{end}}>{{if .CancelKey}}{{tr .CancelKey}}{{else}}{{.CancelLabel}}{{end}}</button>
   {{end}}
   {{end}}
 </div>
@@ -276,7 +313,7 @@
       hx-trigger="{{if .Trigger}}{{.Trigger}}{{else}}input changed delay:250ms, search{{end}}"
       hx-swap="{{if .Swap}}{{.Swap}}{{else}}innerHTML{{end}}"
       hx-push-url="{{if .PushURL}}true{{else}}false{{end}}"{{end}}
-      x-data="ydSearch" {{.Attrs}}>
+      x-data="ydSearch" {{with .Attrs}}{{.}}{{end}}>
   <span class="yd-search__icon" aria-hidden="true"></span>
   <div class="yd-search__field">
     <input class="yd-input" {{with .ID}}id="{{.}}"{{end}} type="search" name="{{if .Name}}{{.Name}}{{else}}q{{end}}" value="{{with .Value}}{{.}}{{end}}" x-ref="input" x-model="value"
@@ -288,7 +325,7 @@
             data-yd-i18n-attr="aria-label:{{$clearKey}}" aria-label="{{if eq $clearKey "ui.clear"}}{{tr "ui.clear"}}{{else}}{{tr $clearKey}}{{end}}">{{template "partials/icon" "lucide-x"}}</button>
   </div>
   {{if or .SubmitLabel .SubmitKey}}
-  <button type="submit" class="yd-search__submit yd-btn yd-btn--ghost"{{with .SubmitKey}} data-yd-i18n="{{.}}"{{end}}>{{if .SubmitLabel}}{{.SubmitLabel}}{{else}}{{if .SubmitKey}}{{tr .SubmitKey}}{{end}}{{end}}</button>
+  <button type="submit" class="yd-search__submit yd-btn yd-btn--ghost"{{with .SubmitKey}} data-yd-i18n="{{.}}"{{end}}>{{if .SubmitKey}}{{tr .SubmitKey}}{{else}}{{.SubmitLabel}}{{end}}</button>
   {{end}}
 </form>
 {{- end -}}
@@ -308,14 +345,14 @@
            {{if .Required}}required{{end}}
            {{if .Disabled}}disabled{{end}}
            {{with $described}}aria-describedby="{{.}}"{{end}}
-           x-on:change="onChange" {{.Attrs}}>
+           x-on:change="onChange" {{with .Attrs}}{{.}}{{end}}>
     <label class="yd-file__drop" for="{{.ID}}"
            x-bind:class="dragging ? 'yd-file__drop--active' : ''"
            x-on:dragover.prevent="dragging = true"
            x-on:dragleave.prevent="dragging = false"
            x-on:drop.prevent="onDrop">
       <span data-yd-i18n="cn.upload.drop">{{tr "cn.upload.drop"}}</span>
-      {{if .Hint}}<span class="yd-cn-hint"{{with .HintKey}} data-yd-i18n="{{.}}"{{end}}>{{if .Hint}}{{.Hint}}{{else}}{{if .HintKey}}{{tr .HintKey}}{{end}}{{end}}</span>{{end}}
+      {{if or .Hint .HintKey}}<span class="yd-cn-hint"{{with .HintKey}} data-yd-i18n="{{.}}"{{end}}>{{if .HintKey}}{{tr .HintKey}}{{else}}{{.Hint}}{{end}}</span>{{end}}
     </label>
     <ul class="yd-file__list" x-show="files.length" x-cloak>
       <template x-for="file in files" :key="file.name + file.size">
@@ -347,7 +384,7 @@
            {{with .Min}}min="{{.}}"{{end}} {{with .Max}}max="{{.}}"{{end}} step="{{if .Step}}{{.Step}}{{else}}1{{end}}"
            {{if .Required}}required{{end}}{{if .Disabled}}disabled{{end}}
            {{with $described}}aria-describedby="{{.}}"{{end}}
-           x-model="value" {{.Attrs}}>
+           x-model="value" {{with .Attrs}}{{.}}{{end}}>
     <button type="button" class="yd-number__step" x-on:click="step(1)"
             data-yd-i18n-attr="aria-label:ui.increase" aria-label="{{tr "ui.increase"}}">+</button>
   </div>
@@ -371,7 +408,7 @@
     <input class="yd-otp__input" type="text" inputmode="numeric" autocomplete="one-time-code" maxlength="1"
            id="{{$id}}-{{.}}" data-yd-otp-input {{if and $.Required (eq . 0)}}required{{end}}
            x-on:input="onInput($event, {{.}})" x-on:keydown="onKeydown($event, {{.}})"
-           x-on:paste="onPaste($event, {{.}})" {{$.Attrs}}
+           x-on:paste="onPaste($event, {{.}})" {{with $.Attrs}}{{.}}{{end}}
            aria-label="{{.}}">
     {{end}}
   </div>
@@ -392,7 +429,7 @@
     <input class="yd-input yd-color__value" id="{{.ID}}" name="{{.Name}}" type="text" value="{{.Value}}"
            x-ref="text" x-model="value" x-on:input="fromText" autocomplete="off"
            maxlength="7" pattern="#[0-9a-fA-F]{6}" {{if .Required}}required{{end}}
-           x-bind:aria-invalid="value !== '' && !valid()" {{with $described}}aria-describedby="{{.}}"{{end}} {{.Attrs}}>
+           x-bind:aria-invalid="value !== '' && !valid()" {{with $described}}aria-describedby="{{.}}"{{end}} {{with .Attrs}}{{.}}{{end}}>
   </div>
   {{if or .Hint .HintKey}}<p class="yd-field__hint" id="{{.ID}}-hint"{{with .HintKey}} data-yd-i18n="{{.}}"{{end}}>{{if .Hint}}{{.Hint}}{{else}}{{if .HintKey}}{{tr .HintKey}}{{end}}{{end}}</p>{{end}}
 </div>
@@ -413,7 +450,7 @@
            role="combobox" aria-autocomplete="list" aria-controls="{{.ID}}-list"
            {{if .Required}}required{{end}} {{if .Disabled}}disabled{{end}}
            {{with $described}}aria-describedby="{{.}}"{{end}}
-           {{with .PlaceholderKey}}data-yd-i18n-attr="placeholder:{{.}}"{{end}} {{if or .Placeholder .PlaceholderKey}}placeholder="{{if .Placeholder}}{{.Placeholder}}{{else}}{{if .PlaceholderKey}}{{tr .PlaceholderKey}}{{end}}{{end}}"{{end}} {{.Attrs}}>
+           {{with .PlaceholderKey}}data-yd-i18n-attr="placeholder:{{.}}"{{end}} {{if or .Placeholder .PlaceholderKey}}placeholder="{{if .Placeholder}}{{.Placeholder}}{{else}}{{if .PlaceholderKey}}{{tr .PlaceholderKey}}{{end}}{{end}}"{{end}} {{with .Attrs}}{{.}}{{end}}>
     <div class="yd-combobox__panel" id="{{.ID}}-list" role="listbox" x-bind:hidden="!open" x-cloak>
       {{range $i, $opt := .Options}}
       <button type="button" class="yd-combobox__option" id="{{$.ID}}-option-{{$i}}"
@@ -421,7 +458,7 @@
               data-yd-combobox-option
               data-value="{{$opt.Value}}" data-label="{{$opt.Label}}"
               x-show="matches($el.textContent)" x-on:click="pick($el)">
-        <span{{with $opt.Key}} data-yd-i18n="{{.}}"{{end}}>{{$opt.Label}}</span>
+        <span{{with $opt.Key}} data-yd-i18n="{{.}}"{{end}}>{{if $opt.Key}}{{tr $opt.Key}}{{else}}{{$opt.Label}}{{end}}</span>
       </button>
       {{end}}
       <p class="yd-combobox__empty" x-bind:hidden="!showEmpty" x-cloak>{{tr "ui.no_results"}}</p>
@@ -432,37 +469,129 @@
 </div>
 {{- end -}}
 
-{{/* components.form.date — a native date field. Dict keys mirror components.form.field. | 原生日期字段，
-     键与 components.form.field 一致。 */}}
+{{/* components.form.picker — a token-localised date/time picker. Dict keys | dict 的键:
+       ID, Name, Kind (date|time|datetime|month), Value, Label, LabelKey, Hint, HintKey, Error, ErrorKey,
+       Placeholder, PlaceholderKey, Required, Disabled, Readonly, Invalid, Sensitive,
+       Autocomplete, Min, Max, DescribedBy, Attrs (template.HTMLAttr)
+     The visible field is a text input and the submitted value stays ISO-like (`YYYY-MM-DD`,
+     `HH:MM`, `YYYY-MM-DDTHH:MM`). The calendar and the hour/minute columns are rendered by
+     ydDateTime; month and weekday names come from the catalogue, never from the browser locale.
+     That removes the mixed Chinese/English popup the native control paints. |
+     可见字段是文本框，提交值保持 ISO 风格（`YYYY-MM-DD`、`HH:MM`、`YYYY-MM-DDTHH:MM`）。日历与
+     时/分列由 ydDateTime 渲染；月名与周名来自目录，绝不来自浏览器区域设置。这消除了原生控件弹出的
+     中英混显。 */}}
+{{- define "components.form.picker" -}}
+{{- $described := .DescribedBy -}}
+{{- if not $described -}}
+  {{- if and .Hint .Error -}}{{- $described = printf "%s-hint %s-error" .ID .ID -}}
+  {{- else if .Hint -}}{{- $described = printf "%s-hint" .ID -}}
+  {{- else if .Error -}}{{- $described = printf "%s-error" .ID -}}{{- end -}}
+{{- end -}}
+<div class="yd-field{{if .Required}} yd-field--required{{end}}{{if or .Invalid .Error}} yd-field--invalid{{end}}"
+     x-data="ydDateTime" data-kind="{{.Kind}}"
+     data-months="{{tr "ui.months"}}" data-weekdays="{{tr "ui.weekdays"}}"
+     data-min="{{.Min}}" data-max="{{.Max}}"
+     x-on:click.outside="close(false)" x-on:keydown.escape.prevent="close(true)">
+  <label class="yd-field__label" for="{{.ID}}"{{with .LabelKey}} data-yd-i18n="{{.}}"{{end}}>{{if .LabelKey}}{{tr .LabelKey}}{{else}}{{.Label}}{{end}}</label>
+  <div class="yd-datetime">
+    <input class="yd-input yd-datetime__input{{if or .Invalid .Error}} yd-input--invalid{{end}}" id="{{.ID}}"{{with .Name}} name="{{.}}"{{end}} type="text" value="{{.Value}}"
+           x-ref="input" x-on:input="parseInput" autocomplete="{{if .Autocomplete}}{{.Autocomplete}}{{else}}off{{end}}"
+           {{if .Required}}required{{end}}{{if .Disabled}}disabled{{end}}{{if .Readonly}}readonly{{end}}
+           {{if .Sensitive}}data-yd-sensitive="true"{{end}}
+           {{if or .Invalid .Error}}aria-invalid="true"{{end}}
+           {{with $described}}aria-describedby="{{.}}"{{end}}
+           {{with .PlaceholderKey}}data-yd-i18n-attr="placeholder:{{.}}"{{end}}
+           placeholder="{{if .Placeholder}}{{.Placeholder}}{{else}}{{if .PlaceholderKey}}{{tr .PlaceholderKey}}{{else}}{{if eq .Kind "time"}}HH:MM{{else if eq .Kind "datetime"}}YYYY-MM-DDTHH:MM{{else if eq .Kind "month"}}YYYY-MM{{else}}YYYY-MM-DD{{end}}{{end}}{{end}}"
+           {{with .Attrs}}{{.}}{{end}}>
+    <button type="button" class="yd-datetime__toggle" x-on:click="toggle" x-bind:aria-expanded="open"
+            data-yd-i18n-attr="aria-label:{{if eq .Kind "time"}}ui.open_time{{else}}ui.open_calendar{{end}}"
+            aria-label="{{if eq .Kind "time"}}{{tr "ui.open_time"}}{{else}}{{tr "ui.open_calendar"}}{{end}}"
+            {{if or .Disabled .Readonly}}disabled{{end}}>
+      {{if eq .Kind "time"}}{{template "partials/icon" "lucide-clock"}}{{else}}{{template "partials/icon" "lucide-calendar"}}{{end}}
+    </button>
+    <div class="yd-datetime__panel" x-show="open" x-cloak role="dialog"
+         aria-label="{{if .LabelKey}}{{tr .LabelKey}}{{else}}{{if .Label}}{{.Label}}{{else}}{{tr "ui.open_calendar"}}{{end}}{{end}}">
+      <div class="yd-datetime__nav" x-show="kind !== 'time'">
+        <button type="button" class="yd-btn yd-btn--ghost yd-btn--sm" x-on:click="prevMonth" data-yd-i18n-attr="aria-label:ui.previous" aria-label="{{tr "ui.previous"}}">{{template "partials/icon" "lucide-chevron-left"}}</button>
+        <span class="yd-datetime__title" x-text="monthLabel"></span>
+        <button type="button" class="yd-btn yd-btn--ghost yd-btn--sm" x-on:click="nextMonth" data-yd-i18n-attr="aria-label:ui.next" aria-label="{{tr "ui.next"}}">{{template "partials/icon" "lucide-chevron-right"}}</button>
+      </div>
+      <div class="yd-datetime__calendar" x-show="kind !== 'time' && kind !== 'month'">
+        <div class="yd-datetime__weekdays" aria-hidden="true"><template x-for="name in weekdays" :key="name"><span x-text="name"></span></template></div>
+        <div class="yd-datetime__grid" role="grid">
+          <template x-for="cell in days" :key="cell.key">
+            <button type="button" class="yd-datetime__day" x-bind:class="cell.className"
+                    x-on:click="pickDay(cell)" x-text="cell.label" x-bind:disabled="!cell.day || cell.disabled"></button>
+          </template>
+        </div>
+      </div>
+      <div class="yd-datetime__months" x-show="kind === 'month'">
+        <template x-for="(name, index) in months" :key="name">
+          <button type="button" class="yd-datetime__month"
+                  x-bind:class="index === month ? 'yd-datetime__month--selected' : ''"
+                  x-bind:disabled="monthDisabled(index)"
+                  x-on:click="pickMonth(index)" x-text="name"></button>
+        </template>
+      </div>
+      <div class="yd-datetime__time" x-show="kind === 'time' || kind === 'datetime'">
+        <div class="yd-datetime__time-column" role="listbox" aria-label="{{tr "ui.open_time"}}">
+          <template x-for="h in hours" :key="h">
+            <button type="button" class="yd-datetime__time-option" x-bind:class="hour === h ? 'yd-datetime__time-option--active' : ''"
+                    x-on:click="hour = h" x-text="h"></button>
+          </template>
+        </div>
+        <div class="yd-datetime__time-column" role="listbox" aria-label="{{tr "ui.open_time"}}">
+          <template x-for="m in minutes" :key="m">
+            <button type="button" class="yd-datetime__time-option" x-bind:class="minute === m ? 'yd-datetime__time-option--active' : ''"
+                    x-on:click="minute = m" x-text="m"></button>
+          </template>
+        </div>
+      </div>
+      <div class="yd-datetime__actions">
+        <button type="button" class="yd-btn yd-btn--ghost yd-btn--sm" x-on:click="today">{{tr "ui.today"}}</button>
+        <button type="button" class="yd-btn yd-btn--primary yd-btn--sm" x-on:click="apply">{{tr "ui.apply"}}</button>
+      </div>
+    </div>
+  </div>
+  {{if or .Hint .HintKey}}<p class="yd-field__hint" id="{{.ID}}-hint"{{with .HintKey}} data-yd-i18n="{{.}}"{{end}}>{{if .HintKey}}{{tr .HintKey}}{{else}}{{.Hint}}{{end}}</p>{{end}}
+  {{if or .Error .ErrorKey}}<p class="yd-field__error" id="{{.ID}}-error" role="alert"{{with .ErrorKey}} data-yd-i18n="{{.}}"{{end}}>{{if .ErrorKey}}{{tr .ErrorKey}}{{else}}{{.Error}}{{end}}</p>{{end}}
+</div>
+{{- end -}}
+
+{{/* components.form.date — a date picker. Dict keys mirror components.form.picker. | 日期选择器，
+     键与 components.form.picker 一致。 */}}
 {{- define "components.form.date" -}}
-{{template "components.form.field" (dict
-  "ID" .ID "Name" .Name "Type" "date" "Value" .Value
+{{template "components.form.picker" (dict
+  "ID" .ID "Name" .Name "Kind" "date" "Value" .Value
   "Label" .Label "LabelKey" .LabelKey "Hint" .Hint "HintKey" .HintKey
   "Error" .Error "ErrorKey" .ErrorKey "Placeholder" .Placeholder "PlaceholderKey" .PlaceholderKey
-  "Min" .Min "Max" .Max "Required" .Required "Disabled" .Disabled "Readonly" .Readonly
-  "Invalid" .Invalid "DescribedBy" .DescribedBy "Attrs" .Attrs)}}
+  "Required" .Required "Disabled" .Disabled "Readonly" .Readonly "Invalid" .Invalid
+  "Sensitive" .Sensitive "Autocomplete" .Autocomplete "Min" .Min "Max" .Max
+  "DescribedBy" .DescribedBy "Attrs" .Attrs)}}
 {{- end -}}
 
-{{/* components.form.time — a native time field. Dict keys mirror components.form.field. | 原生时间字段，
-     键与 components.form.field 一致。 */}}
+{{/* components.form.time — a time picker. Dict keys mirror components.form.picker. | 时间选择器，
+     键与 components.form.picker 一致。 */}}
 {{- define "components.form.time" -}}
-{{template "components.form.field" (dict
-  "ID" .ID "Name" .Name "Type" "time" "Value" .Value
+{{template "components.form.picker" (dict
+  "ID" .ID "Name" .Name "Kind" "time" "Value" .Value
   "Label" .Label "LabelKey" .LabelKey "Hint" .Hint "HintKey" .HintKey
   "Error" .Error "ErrorKey" .ErrorKey "Placeholder" .Placeholder "PlaceholderKey" .PlaceholderKey
-  "Min" .Min "Max" .Max "Step" .Step "Required" .Required "Disabled" .Disabled "Readonly" .Readonly
-  "Invalid" .Invalid "DescribedBy" .DescribedBy "Attrs" .Attrs)}}
+  "Required" .Required "Disabled" .Disabled "Readonly" .Readonly "Invalid" .Invalid
+  "Sensitive" .Sensitive "Autocomplete" .Autocomplete "Min" .Min "Max" .Max
+  "DescribedBy" .DescribedBy "Attrs" .Attrs)}}
 {{- end -}}
 
-{{/* components.form.datetime — a native datetime-local field. Dict keys mirror components.form.field. |
-     原生 datetime-local 字段，键与 components.form.field 一致。 */}}
+{{/* components.form.datetime — a combined date and time picker. Dict keys mirror
+     components.form.picker. | 日期时间组合选择器，键与 components.form.picker 一致。 */}}
 {{- define "components.form.datetime" -}}
-{{template "components.form.field" (dict
-  "ID" .ID "Name" .Name "Type" "datetime-local" "Value" .Value
+{{template "components.form.picker" (dict
+  "ID" .ID "Name" .Name "Kind" "datetime" "Value" .Value
   "Label" .Label "LabelKey" .LabelKey "Hint" .Hint "HintKey" .HintKey
   "Error" .Error "ErrorKey" .ErrorKey "Placeholder" .Placeholder "PlaceholderKey" .PlaceholderKey
-  "Min" .Min "Max" .Max "Step" .Step "Required" .Required "Disabled" .Disabled "Readonly" .Readonly
-  "Invalid" .Invalid "DescribedBy" .DescribedBy "Attrs" .Attrs)}}
+  "Required" .Required "Disabled" .Disabled "Readonly" .Readonly "Invalid" .Invalid
+  "Sensitive" .Sensitive "Autocomplete" .Autocomplete "Min" .Min "Max" .Max
+  "DescribedBy" .DescribedBy "Attrs" .Attrs)}}
 {{- end -}}
 
 {{/* components.form.editor — a Markdown editor that degrades to a textarea.
@@ -474,7 +603,8 @@
   <label class="yd-field__label" for="{{.ID}}"{{with .LabelKey}} data-yd-i18n="{{.}}"{{end}}>{{if .Label}}{{.Label}}{{else}}{{if .LabelKey}}{{tr .LabelKey}}{{end}}{{end}}</label>
   <textarea class="yd-textarea" id="{{.ID}}" name="{{.Name}}" rows="{{if .Rows}}{{.Rows}}{{else}}10{{end}}"
             {{if .Required}}required{{end}}
-            {{with .PlaceholderKey}}data-yd-i18n-attr="placeholder:{{.}}"{{end}} {{if or .Placeholder .PlaceholderKey}}placeholder="{{if .Placeholder}}{{.Placeholder}}{{else}}{{if .PlaceholderKey}}{{tr .PlaceholderKey}}{{end}}{{end}}"{{end}} {{.Attrs}}>{{.Value}}</textarea>
+            {{with .PlaceholderKey}}data-yd-i18n-attr="placeholder:{{.}}"{{end}} {{if or .Placeholder .PlaceholderKey}}placeholder="{{if .Placeholder}}{{.Placeholder}}{{else}}{{if .PlaceholderKey}}{{tr .PlaceholderKey}}{{end}}{{end}}"{{end}} {{with .Attrs}}{{.}}{{end}}>{{.Value}}</textarea>
+  {{template "partials/editor-icons" .}}
   {{if or .Hint .HintKey}}<p class="yd-field__hint"{{with .HintKey}} data-yd-i18n="{{.}}"{{end}}>{{if .Hint}}{{.Hint}}{{else}}{{if .HintKey}}{{tr .HintKey}}{{end}}{{end}}</p>{{end}}
 </div>
 {{- end -}}

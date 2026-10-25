@@ -7,6 +7,7 @@ package controller
 import (
 	"html/template"
 	"net/http"
+	"strings"
 
 	"{{ .YdModule }}/http/chart"
 	"{{ .YdxModule }}/router"
@@ -14,10 +15,14 @@ import (
 
 // UIKit renders the component gallery. | UIKit 渲染组件示例页。
 //
-// 图表必须由服务端生成：页面不引入图表库，SVG 的颜色通过语义类继承主题。其余示例全部在模板里用
-// dict/list 组合，处理器不复制任何控件标记。
-// The chart is server-rendered: the page loads no chart library, and the SVG inherits the theme through semantic
-// classes. Every other sample is composed in the template with dict/list, so the handler copies no control markup.
+// 图表必须由服务端生成：页面不引入图表库，SVG 的颜色通过语义类继承主题。其余示例在模板里用
+// dict/list 组合；处理器只补上组件契约要求由调用方组装的 HTML 片段（动态行、筛选字段、操作条）
+// 与按语言生成的日历标签，因为 Go 模板无法在表达式里构造 template.HTML。
+// The chart is server-rendered: the page loads no chart library, and the SVG inherits the theme through
+// semantic classes. Every other sample is composed in the template with dict/list; the handler only
+// supplies the HTML fragments the component contract leaves to the caller (row fields, filter fields,
+// action buttons) and the language-specific calendar labels, because a Go template cannot build
+// template.HTML inside an expression.
 //
 // @Summary Component gallery | 组件示例页
 // @Description Renders every component of the UI kit on one page for the signed-in member. | 为一个已登录成员在一页内渲染组件层的全部控件。
@@ -45,9 +50,35 @@ func (c *Controller) UIKit(ctx *router.Ctx) {
 		ShowGrid:    true,
 		ShowAxis:    true,
 	})
+	// Weekday and month names come from the same catalogue as the rest of the page; a Go template
+	// cannot split the pipe-separated catalogue value, so the controller does it once. |
+	// 星期与月份名称来自页面同一份目录；Go 模板无法拆分竖线分隔的目录值，因此控制器拆一次。
+	weekdays := []string{"Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"}
+	monthLabel := "October 2026"
+	if c.i18n != nil {
+		translator := c.i18n.Translator(c.lang(ctx))
+		if parts := strings.Split(translator.T("ui.weekdays"), "|"); len(parts) == 7 {
+			weekdays = parts
+		}
+		months := strings.Split(translator.T("ui.months"), "|")
+		if len(months) == 12 {
+			monthLabel = months[9] + " 2026"
+		}
+	}
+
 	c.render(ctx, http.StatusOK, TplUIKit, c.view(ctx, "组件示例 | Component gallery", map[string]any{
-		"ChartSVG":    template.HTML(svg), //nolint:gosec // chart.Line escapes every label and value | chart.Line 已转义全部标签与数值
-		"PageStyles":  messagePageStyles,
-		"PageScripts": []string{"/static/js/vendor/easymde.min.js"},
+		"ChartSVG":         template.HTML(svg), //nolint:gosec // chart.Line escapes every label and value | chart.Line 已转义全部标签与数值
+		"CalendarMonth":    monthLabel,
+		"CalendarWeekdays": weekdays,
+		// The component contracts type these three fields as template.HTML because callers assemble
+		// them from server data. The gallery supplies one real field/button each so the sample is
+		// usable, not a string placeholder. | 三个字段在组件契约中是 template.HTML，由调用方用
+		// 服务端数据组装。示例各给一个真实字段/按钮，避免只是字符串占位。
+		"RowFields":     template.HTML(`<input class="yd-input" type="text" name="items[]" value="" data-yd-i18n-attr="aria-label:showcase.label.dynamic_rows" aria-label="Dynamic rows">`), //nolint:gosec // fixed sample markup, no user data | 固定示例标记，无用户数据
+		"RowTemplate":   template.HTML(`<input class="yd-input" type="text" name="items[]" value="" data-yd-i18n-attr="aria-label:showcase.label.dynamic_rows" aria-label="Dynamic rows">`), //nolint:gosec // fixed sample markup, no user data | 固定示例标记，无用户数据
+		"FilterFields":  template.HTML(`<input class="yd-input" type="search" name="q" value="" data-yd-i18n-attr="aria-label:ui.search" aria-label="Search">`),                             //nolint:gosec // fixed sample markup, no user data | 固定示例标记，无用户数据
+		"ActionButtons": template.HTML(`<button type="button" class="yd-btn yd-btn--danger yd-btn--sm" data-yd-i18n="ui.delete">Delete</button>`),                                             //nolint:gosec // fixed sample markup, no user data | 固定示例标记，无用户数据
+		"PageStyles":    messagePageStyles,
+		"PageScripts":   []string{"/static/js/vendor/easymde.min.js"},
 	}))
 }

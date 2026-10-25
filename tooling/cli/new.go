@@ -70,15 +70,15 @@ func init() {
 			"依据内嵌模板生成新项目，随后铺开它的配置与前端资产。\n" +
 			"\n" +
 			"Htmx 4, Tailwind CSS v4 and Alpine.js 3 are always integrated; they are not switches.\n" +
-			"--htmx-ext only adds extra Htmx extensions on top of that baseline.\n" +
-			"Htmx 4、Tailwind CSS v4 与 Alpine.js 3 始终集成，不需要选择；--htmx-ext 只用于追加额外的 Htmx 扩展。\n" +
+			"Every safe Htmx 4 extension is included by default, so the interview never asks for a subset.\n" +
+			"--htmx-ext only adds the opt-in policy layers (csp, compat, htmx-2-compat) on top of that baseline.\n" +
+			"Htmx 4、Tailwind CSS v4 与 Alpine.js 3 始终集成，不需要选择。全部安全 Htmx 4 扩展默认包含，\n" +
+			"问答不再询问子集；--htmx-ext 只用于追加需显式选择的策略层（csp、compat、htmx-2-compat）。\n" +
 			"\n" +
-			"Optional Htmx 4 extensions | 可额外选择的 Htmx 4 扩展: ws, sse, preload, targets, head, upsert,\n" +
-			"pending, multipart, download, browser-indicator, history-cache, live, prompt, ptag, csp, compat,\n" +
-			"htmx-2-compat. The last three are opt-in: csp needs a nonce policy, and compat / htmx-2-compat\n" +
-			"restore htmx 2 semantics. Alpine's hx-alpine-compat is always on.\n" +
-			"最后三项为显式选项：csp 需要 nonce 策略，compat / htmx-2-compat 恢复 htmx 2 语义。\n" +
-			"Alpine 的 hx-alpine-compat 恒开启。\n" +
+			"Included by default | 默认包含: ws, sse, preload, targets, head, upsert, pending, multipart,\n" +
+			"download, browser-indicator, history-cache, live, prompt, ptag, alpine.\n" +
+			"Opt-in only | 仅显式选择: csp (needs a nonce policy), compat / htmx-2-compat (restore htmx 2 semantics).\n" +
+			"csp 需要 nonce 策略；compat / htmx-2-compat 恢复 htmx 2 语义。\n" +
 			"\n" +
 			"Without --yes an interactive terminal is asked for every option that was not passed as a flag;\n" +
 			"a pipe or CI run keeps every default, so the command stays scriptable.\n" +
@@ -94,8 +94,8 @@ func registerNewFlags(fs *pflag.FlagSet) {
 	fs.String(flagNewModule, "", "module path, defaults to github.com/yun-dev/<name> | 模块路径，默认为 github.com/yun-dev/<name>")
 	fs.String(flagNewDB, "", "database driver: mysql/postgres/sqlite/dm/none | 数据库驱动：mysql/postgres/sqlite/dm/none")
 	fs.Bool(flagNewGRPC, false, "enable the gRPC dual channel | 开启 gRPC 双通道")
-	fs.Bool(flagNewI18n, false, "enable i18n | 开启国际化")
-	fs.StringArray(flagNewHtmxExt, nil, "extra Htmx extensions; Alpine's hx-alpine-compat is always on (full list in the command help) | 额外的 Htmx 扩展；Alpine 的 hx-alpine-compat 恒开启（完整列表见命令帮助）")
+	fs.Bool(flagNewI18n, true, "i18n is on by default; pass --i18n=false to disable it | 默认开启 i18n；用 --i18n=false 关闭")
+	fs.StringArray(flagNewHtmxExt, nil, "extra opt-in Htmx policy layers (csp, compat, htmx-2-compat); every safe extension is included by default | 额外的 Htmx 策略层（csp、compat、htmx-2-compat）；全部安全扩展默认包含")
 	fs.String(flagNewLicense, "", "licence identifier, defaults to Apache-2.0 | 开源协议标识，默认为 Apache-2.0")
 	fs.Bool(flagNewForce, false, "overwrite files that differ from the templates | 覆盖与模板不一致的文件")
 	fs.BoolP(flagNewYes, "y", false, "keep every default without prompting | 取默认值，不提问")
@@ -293,35 +293,18 @@ func interviewNew(env *Env, fs *pflag.FlagSet, o *scaffold.Options) error {
 		o.DB = dbChoices[idx]
 	}
 
-	for _, item := range []struct {
-		flag     string
-		question string
-		value    *bool
-	}{
-		{flagNewGRPC, "启用 gRPC 双通道 | Enable the gRPC dual channel", &o.GRPC},
-		{flagNewI18n, "启用 i18n | Enable i18n", &o.I18n},
-	} {
-		if flagChanged(fs, item.flag) {
-			continue
-		}
-		answer, err := Confirm(env, item.question, *item.value)
+	// i18n is part of the baseline: every generated project ships both catalogues, so the interview
+	// never asks whether to enable it. | i18n 属于基线：每个生成项目都带两份语言目录，问答不再询问。
+	if !flagChanged(fs, flagNewGRPC) {
+		answer, err := Confirm(env, "启用 gRPC 双通道 | Enable the gRPC dual channel", o.GRPC)
 		if err != nil {
 			return err
 		}
-		*item.value = answer
+		o.GRPC = answer
 	}
 
-	if !flagChanged(fs, flagNewHtmxExt) {
-		answer, err := Prompt(env, "Htmx 扩展 (ws/sse/preload/alpine，逗号分隔，none 表示不启用) | Htmx extensions (comma separated, none disables)", strings.Join(o.HtmxExts, ","))
-		if err != nil {
-			return err
-		}
-		exts, err := scaffold.ParseExtensions(answer)
-		if err != nil {
-			return err
-		}
-		o.HtmxExts = exts
-	}
+	// Htmx extensions are part of the baseline; only an explicit flag can add the policy layers.
+	// Htmx 扩展属于基线；只有显式标志才能追加策略层。
 
 	if !flagChanged(fs, flagNewLicense) {
 		license, err := Prompt(env, "开源协议 | Licence", o.License)

@@ -89,8 +89,8 @@ YD 把「Go 单体后端 + Htmx 片段前端」做成一套可直接交付的全
 - 纯 Go SM2/SM3/SM4；登录与敏感字段 SM2 前置加密；`authz` 注册表与静态校验。
 
 **前端与体验**
-- Htmx 4.0 + 官方扩展、Tailwind v4 `@theme`、Alpine 3.17（CSP 构建）、htmx morph。
-- 统一 UI 组件层：布局、表单、反馈、导航、数据展示、图表与中国常用控件（手机号、身份证、银行卡、统一社会信用代码、人民币大写、省市区、日期范围、短信验证码）。
+- Htmx 4.0 与全部安全官方扩展默认加载、Tailwind v4 `@theme`、Alpine 3.17（CSP 构建）、htmx morph。
+- 统一 UI 组件层：反馈、导航、数据录入、数据展示、布局与浮层，以及手机号、身份证、银行卡、统一社会信用代码、人民币大写、省市区、日期范围、短信验证码等中国控件；完整清单见「前端组件清单」。
 - 门户 `/ui-kit` 组件示例页：一页看全控件；门户与后台共用同一套组件与外壳，不复制两套。
 - 抽屉、确认框、列表下拉菜单、语言局部切换、三态主题、离线图标 sprite；宽屏流式布局与 125% / 150% 显示缩放适配。
 - 消息中心即时通讯布局；指标看板；全局加载进度条。
@@ -100,6 +100,21 @@ YD 把「Go 单体后端 + Htmx 片段前端」做成一套可直接交付的全
 - 中间件运行时指标与系统资源仪表盘（WebSocket 单通道推送）。
 - `yd new / dev / gen / build / docker / ko / service / assets / versions / authz / icons / align / tools / completion`。
 - 六种平台/架构组合的预编译二进制；`yd service` 安装为 SCM / systemd / launchd。
+
+### 前端组件清单
+
+组件真源是 `web/templates/components/**`、`web/static/css/ui.css` 与 `web/static/js/yd-ui.js`；
+`yd new` 会把组件模板与样式逐字节复制进每个生成项目，脚本经框架合并静态树提供，门户 `/ui-kit`
+一页展示全部组件。参数、数据契约与示例见 [组件全景与图表用法](docs/frontend-components.md)。
+
+| 分类 | 组件 |
+|---|---|
+| 反馈 | Alert、Toast、Notification、Message、Popconfirm、Questionnaire、Tag、Spinner、Skeleton、Progress、Result、Empty、LoadingBar |
+| 导航 | Tabs、ClientTabs、Breadcrumb、Steps、Dropdown/ActionMenu、Anchor、Affix、BackTop、FAB、Command、ContextMenu、Menubar、Pagination、Tree、Menu、Tabbar、FilterBar、ActionSheet、Link、Navbar/Sidebar |
+| 数据录入 | Form/Field、Input、Textarea、Select、TreeSelect、Cascader、Combobox、Transfer、Checkbox、Radio、Toggle、Segmented、Password、Tags、DynamicRows、Number、InputOTP、ColorPicker、DatePicker、TimePicker、DateTimePicker、Picker、MonthPicker、YearPicker、QuarterPicker、TimeRange、DateRange、Mention、Upload、MarkdownEditor、FormActions、Search、InputGroup、Label、Phone、IDCard、BankCard、CreditCode、Amount、Region、SMS |
+| 数据展示 | Avatar、AvatarGroup、Badge、ButtonGroup、Card、Carousel、Code、Accordion、Countdown、Table、TableSelection、SortHeader、Descriptions、Ellipsis、GradientText、Highlight、Figure、ImageViewer、Item、KPI/Statistic、List、Log、Marquee、Meter、Rate、Slider、ScrollArea、Timeline、Watermark、Kbd、Divider、Prose、NumberAnimation、Calendar、FileTree、Cell、Attachment、Bubble、ChatMessage、MessageScroller、PromptInput、TrendChip、TextShimmer、Trace、Marker、ActionBar、HoverCard、VirtualList、QRCode、Kanban、EmojiPicker、Signature、Resizable、Copy |
+| 布局与浮层 | PageHeader、AspectRatio、Flex/Grid/Space、Split/Workbench、Layout/Sidebar/Navbar、Modal/Dialog、Drawer/Sheet、Popover、Tooltip |
+| 服务端 SVG 图表 | Line、Area、Bar、StackedBar、Pie、Donut、Sparkline、Gauge、Radar、Composed、Heatmap、ProgressRing、Legend/SliceLegend |
 
 ### 快速开始
 
@@ -125,7 +140,7 @@ yd ko --repo registry.example.com/myapp --tags v1.0.0 --push
 yd service install   # Windows SCM / systemd / launchd
 ```
 
-配置优先级：命令行参数 > 环境变量（`YD_` 前缀，含 `.env`）> 配置文件（YAML/TOML/JSON）> 框架默认值。Htmx 4、Tailwind CSS v4 与 Alpine.js 3 默认集成，不需要选择；`--htmx-ext` 只追加额外的 Htmx 扩展。完整命令与配置见 [yd 使用手册](docs/yd-usage.md)。
+配置优先级：命令行参数 > 环境变量（`YD_` 前缀，含 `.env`）> 配置文件（YAML/TOML/JSON）> 框架默认值。Htmx 4、Tailwind CSS v4 与 Alpine.js 3 默认集成，不需要选择；全部安全 Htmx 4 扩展默认加载，`--htmx-ext` 只追加需显式选择的策略层。完整命令与配置见 [yd 使用手册](docs/yd-usage.md)。
 
 ### 架构一览
 
@@ -184,7 +199,6 @@ YD 的每一层都站在开源社区的成果之上：路由与模板、数据�
 | **Idiomorph** | DOM morph 算法（htmx 4 内建 morph 的来源） | https://github.com/bigskysoftware/idiomorph |
 | **EasyMDE** | 消息中心与后台的 Markdown 编辑器 | https://github.com/Ionaru/easy-markdown-editor |
 | **CodeMirror · marked** | EasyMDE 浏览器包内含的编辑器引擎与 Markdown 解析器 | https://codemirror.net · https://marked.js.org |
-| **Font Awesome** | 少量遗留图标与字体资源（新图标优先使用 Lucide sprite） | https://fontawesome.com |
 | **Iconify / Lucide** | 离线图标 sprite 的数据来源与图标设计 | https://iconify.design · https://lucide.dev |
 | **spf13/afero** | 可替换的文件系统抽象（OsFs / MemFs） | https://github.com/spf13/afero |
 | **spf13/pflag** | POSIX 风格命令行参数 | https://github.com/spf13/pflag |
@@ -209,16 +223,6 @@ YD 的每一层都站在开源社区的成果之上：路由与模板、数据�
 | **Docker** | 多阶段镜像构建与 `scratch` 交付 | https://www.docker.com |
 | **Node.js · Playwright** | 仅用于前端脚本单元测试与浏览器验证，不参与运行时 | https://nodejs.org · https://playwright.dev |
 | **ydx** | YunDev 自研组件（路由、JSON、Base64、日志、缓存、实时、渲染等），以 Apache-2.0 开源 | https://github.com/shibingli/ydx |
-
-组件命名、交互模式与可访问性约定参考了下列项目的公开文档；YD **未复制其源码**，组件实现、样式与行为均为本仓自研，
-对照矩阵与差异说明见 [`docs/frontend-components.md`](docs/frontend-components.md)：
-
-| 设计参考 | 侧重 | 项目主页 |
-|---|---|---|
-| **Naive UI** | 完整的中后台组件分类与数据表格交互 | https://www.naiveui.com |
-| **Shadcn UI** | 语义化组合、可访问性与 Tailwind 令牌 | https://ui.shadcn.com |
-| **OpenTiny TinyVue** | 企业级表单、图表与中国业务控件 | https://opentiny.design |
-| **HeroUI Pro** | 组件质感、动效克制与图表卡片 | https://www.heroui.com |
 
 前端资产的版本、来源与 SHA-256 锁定在 [`web/assets.lock.json`](web/assets.lock.json)；第三方许可正文与逐项说明见 [`web/static/js/vendor/LICENSES.md`](web/static/js/vendor/LICENSES.md)。上表未逐一展开的传递依赖记录在 `go.mod` / `go.sum` 中，其许可以各自仓库公布为准。若某处归属或链接有误，欢迎提交 Issue 指正——我们更愿意把致谢写准确，而不是写得多。
 
@@ -297,8 +301,8 @@ Reference host: AMD Ryzen AI MAX+ 395 (16 cores / 32 threads, 30 GiB, Ubuntu 26.
 - Pure-Go SM2/SM3/SM4; SM2 pre-encryption for sign-in and sensitive fields; the `authz` registry and static checks.
 
 **Frontend & UX**
-- Htmx 4.0 + official extensions, Tailwind v4 `@theme`, Alpine 3.17 (CSP build), htmx morph.
-- One UI kit: layout, forms, feedback, navigation, data display, charts and China-specific controls (mobile, ID card, bank card, unified social credit code, RMB capitalisation, province/city/district, date range, SMS code).
+- Htmx 4.0 with every safe official extension loaded by default, Tailwind v4 `@theme`, Alpine 3.17 (CSP build), htmx morph.
+- One UI kit: feedback, navigation, data entry, data display, layout and overlays, plus China-specific controls (mobile, ID card, bank card, unified social credit code, RMB capitalisation, province/city/district, date range, SMS code); the complete inventory is below.
 - Portal `/ui-kit` component gallery: every control on one page; the portal and back office share one kit and one shell rather than two copies.
 - Drawers, confirmations, list menus, local language switch, tri-state theme, offline icon sprite; fluid wide-screen layout and 125% / 150% display-scaling support.
 - Message center IM layout; metrics dashboard; global loading progress bar.
@@ -308,6 +312,23 @@ Reference host: AMD Ryzen AI MAX+ 395 (16 cores / 32 threads, 30 GiB, Ubuntu 26.
 - Middleware runtime metrics and a system-resource dashboard (single WebSocket channel).
 - `yd new / dev / gen / build / docker / ko / service / assets / versions / authz / icons / align / tools / completion`.
 - Six prebuilt platform/architecture combinations; `yd service` installs SCM / systemd / launchd services.
+
+### Frontend component inventory
+
+The single source of truth is `web/templates/components/**`, `web/static/css/ui.css` and
+`web/static/js/yd-ui.js`. `yd new` copies the templates and stylesheet byte-for-byte into every
+generated project, the scripts come from the framework's merged static tree, and the portal's
+`/ui-kit` page shows every control on one screen. Parameters, data contracts and examples live in
+the [component catalogue & chart guide](docs/frontend-components.md).
+
+| Category | Components |
+|---|---|
+| Feedback | Alert, Toast, Notification, Message, Popconfirm, Questionnaire, Tag, Spinner, Skeleton, Progress, Result, Empty, LoadingBar |
+| Navigation | Tabs, ClientTabs, Breadcrumb, Steps, Dropdown/ActionMenu, Anchor, Affix, BackTop, FAB, Command, ContextMenu, Menubar, Pagination, Tree, Menu, Tabbar, FilterBar, ActionSheet, Link, Navbar/Sidebar |
+| Data entry | Form/Field, Input, Textarea, Select, TreeSelect, Cascader, Combobox, Transfer, Checkbox, Radio, Toggle, Segmented, Password, Tags, DynamicRows, Number, InputOTP, ColorPicker, DatePicker, TimePicker, DateTimePicker, Picker, MonthPicker, YearPicker, QuarterPicker, TimeRange, DateRange, Mention, Upload, MarkdownEditor, FormActions, Search, InputGroup, Label, Phone, IDCard, BankCard, CreditCode, Amount, Region, SMS |
+| Data display | Avatar, AvatarGroup, Badge, ButtonGroup, Card, Carousel, Code, Accordion, Countdown, Table, TableSelection, SortHeader, Descriptions, Ellipsis, GradientText, Highlight, Figure, ImageViewer, Item, KPI/Statistic, List, Log, Marquee, Meter, Rate, Slider, ScrollArea, Timeline, Watermark, Kbd, Divider, Prose, NumberAnimation, Calendar, FileTree, Cell, Attachment, Bubble, ChatMessage, MessageScroller, PromptInput, TrendChip, TextShimmer, Trace, Marker, ActionBar, HoverCard, VirtualList, QRCode, Kanban, EmojiPicker, Signature, Resizable, Copy |
+| Layout & overlay | PageHeader, AspectRatio, Flex/Grid/Space, Split/Workbench, Layout/Sidebar/Navbar, Modal/Dialog, Drawer/Sheet, Popover, Tooltip |
+| Server-rendered SVG charts | Line, Area, Bar, StackedBar, Pie, Donut, Sparkline, Gauge, Radar, Composed, Heatmap, ProgressRing, Legend/SliceLegend |
 
 ### Quick start
 
@@ -333,7 +354,7 @@ yd ko --repo registry.example.com/myapp --tags v1.0.0 --push
 yd service install   # Windows SCM / systemd / launchd
 ```
 
-Configuration precedence: command-line flags > environment variables (`YD_` prefix, including `.env`) > config files (YAML/TOML/JSON) > framework defaults. Htmx 4, Tailwind CSS v4 and Alpine.js 3 are always integrated and need no choice; `--htmx-ext` only adds extra Htmx extensions. See the [user manual](docs/yd-usage.md) for the full command and configuration reference.
+Configuration precedence: command-line flags > environment variables (`YD_` prefix, including `.env`) > config files (YAML/TOML/JSON) > framework defaults. Htmx 4, Tailwind CSS v4 and Alpine.js 3 are always integrated and need no choice; every safe Htmx 4 extension is loaded by default, and `--htmx-ext` only adds the opt-in policy layers. See the [user manual](docs/yd-usage.md) for the full command and configuration reference.
 
 ### Architecture
 
@@ -392,7 +413,6 @@ Every layer of YD stands on work done in the open-source community: routing and 
 | **Idiomorph** | The DOM morph algorithm behind htmx 4's built-in morph | https://github.com/bigskysoftware/idiomorph |
 | **EasyMDE** | Markdown editor for the message centre and back office | https://github.com/Ionaru/easy-markdown-editor |
 | **CodeMirror · marked** | Editor engine and Markdown parser bundled inside EasyMDE | https://codemirror.net · https://marked.js.org |
-| **Font Awesome** | A few legacy icons and font assets (new icons use the Lucide sprite) | https://fontawesome.com |
 | **Iconify / Lucide** | Data source and artwork for the offline icon sprite | https://iconify.design · https://lucide.dev |
 | **spf13/afero** | Swappable file-system abstraction (OsFs / MemFs) | https://github.com/spf13/afero |
 | **spf13/pflag** | POSIX-style command-line flags | https://github.com/spf13/pflag |
@@ -417,18 +437,6 @@ Every layer of YD stands on work done in the open-source community: routing and 
 | **Docker** | Multi-stage image builds and `scratch` delivery | https://www.docker.com |
 | **Node.js · Playwright** | Used only for front-end unit tests and browser verification, never at runtime | https://nodejs.org · https://playwright.dev |
 | **ydx** | YunDev's own components (router, JSON, Base64, logging, cache, realtime, render and more), open-sourced under Apache-2.0 | https://github.com/shibingli/ydx |
-
-Component naming, interaction patterns and accessibility conventions were informed by the public documentation of the
-projects below. YD **does not copy their source**; every component, style and behaviour here is implemented in this
-repository. The mapping matrix and deliberate differences live in
-[`docs/frontend-components.md`](docs/frontend-components.md):
-
-| Design reference | Focus | Home |
-|---|---|---|
-| **Naive UI** | Comprehensive admin component taxonomy and data-table interaction | https://www.naiveui.com |
-| **Shadcn UI** | Semantic composition, accessibility and Tailwind tokens | https://ui.shadcn.com |
-| **OpenTiny TinyVue** | Enterprise forms, charts and China-specific business controls | https://opentiny.design |
-| **HeroUI Pro** | Component finish, restrained motion and chart cards | https://www.heroui.com |
 
 Front-end versions, sources and SHA-256 locks live in [`web/assets.lock.json`](web/assets.lock.json); third-party licence texts are in [`web/static/js/vendor/LICENSES.md`](web/static/js/vendor/LICENSES.md). Transitive dependencies not listed above are recorded in `go.mod` / `go.sum`, with licences as published by their own repositories. If an attribution or link is wrong, please open an issue — we would rather be accurate than exhaustive.
 

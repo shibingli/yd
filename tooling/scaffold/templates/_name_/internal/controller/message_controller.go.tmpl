@@ -51,6 +51,52 @@ type catalogView struct {
 	Tags []tagView
 }
 
+// TypeOptions returns the compose type options, marking selected. | TypeOptions 返回撰写类型选项，
+// 并标记当前选中项。
+func (c catalogView) TypeOptions(selected string) []map[string]any {
+	out := make([]map[string]any, 0, len(c.Types))
+	for _, item := range c.Types {
+		out = append(out, map[string]any{
+			"Value":    item.Key,
+			"Label":    item.Label,
+			"Selected": item.Key == selected,
+		})
+	}
+	return out
+}
+
+// TypeFilterOptions adds the "all types" entry before the type options. | TypeFilterOptions 在类型选项
+// 之前加入「全部类型」条目。
+func (c catalogView) TypeFilterOptions(selected string) []map[string]any {
+	out := []map[string]any{
+		{"Value": "", "Key": "message.all_types"},
+	}
+	return append(out, c.TypeOptions(selected)...)
+}
+
+// TagFilterOptions adds the "all tags" entry, then groups, then labels. | TagFilterOptions 依次加入
+// 「全部标签」、分组与自由标签。
+func (c catalogView) TagFilterOptions(selected string) []map[string]any {
+	out := []map[string]any{
+		{"Value": "", "Key": "message.all_tags"},
+	}
+	for _, group := range c.Groups {
+		out = append(out, map[string]any{
+			"Value":    group.ID,
+			"Label":    group.Label,
+			"Selected": group.ID == selected,
+		})
+	}
+	for _, tag := range c.Tags {
+		out = append(out, map[string]any{
+			"Value":    tag.ID,
+			"Label":    "#" + tag.Label,
+			"Selected": tag.ID == selected,
+		})
+	}
+	return out
+}
+
 // messagePage is the complete data of one message-centre render. | messagePage 是一次消息中心渲染的完整数据。
 type messagePage struct {
 	// Filters is the filter bar state. | Filters 是过滤栏状态。

@@ -212,9 +212,13 @@
     if (d && d.documentElement) {
       d.documentElement.setAttribute('data-theme', resolved);
     }
+    // The switch markup spells the system choice "auto" so one CSS rule can drive both the label and
+    // the glyph; the stored preference keeps the three-state names. | 切换控件用 "auto" 表示跟随系统，
+    // 使一条 CSS 规则同时驱动标签与图标；存储偏好仍使用三态名称。
+    var uiChoice = choice === 'system' ? 'auto' : choice;
     all('[data-yd-theme-toggle]').forEach(function (button) {
       button.setAttribute('aria-pressed', resolved === 'dark' ? 'true' : 'false');
-      button.setAttribute('data-yd-theme-state', choice);
+      button.setAttribute('data-yd-theme-state', uiChoice);
     });
     all('[data-yd-theme-set]').forEach(function (select) {
       if (select.value !== choice) {

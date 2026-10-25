@@ -1,0 +1,219 @@
+{{/*
+  components/form_advanced.html — the heavier form primitives.
+  components/form_advanced.html — 较重的表单原语。
+
+  Server-first | 服务端优先
+    Transfer, cascader and tree-select keep the submitted values in real named fields and let the
+    server decide what a move or a level change means. None of them keeps a second copy of the data
+    in JavaScript, so an htmx swap can replace the whole fragment without re-seeding client state.
+    传输框、级联选择与树选择把提交值留在真实的命名字段里，由服务端决定一次移动或一层变化意味着
+    什么。它们都不在 JavaScript 里保存第二份数据，因此 htmx 换入整块片段时无需重新灌入客户端状态。
+
+  Aliases are deliberate | 别名是刻意保留的
+    Month, year and quarter are thin delegations to field/select. The reference libraries expose them
+    as separate names; keeping the names makes migration obvious without adding a second rendering
+    path for a control the browser already understands.
+    月、年与季度是 field/select 的薄委托。参考库把它们暴露为独立名称；保留这些名称让迁移一目了然，
+    又不必为浏览器已经理解的控件再写第二条渲染路径。
+*/}}
+
+{{/* components.form.transfer — a server-driven dual list. Dict keys | dict 的键:
+       ID, Name, Action, Method, SourceName, TargetName, SourceLabel, SourceLabelKey,
+       TargetLabel, TargetLabelKey, SourceItems, TargetItems, SourceEmpty, SourceEmptyKey,
+       TargetEmpty, TargetEmptyKey, Hint, HintKey
+     Items are []{Value, Label, LabelKey, Checked}. The two submit buttons carry direction=add or
+     direction=remove; the server moves the checked values and returns the refreshed fragment.
+     Because this ships its own <form>, never nest it inside another form. |
+     条目为 []{Value, Label, LabelKey, Checked}。两个提交按钮分别带 direction=add 与
+     direction=remove；服务端移动被勾选的值并返回刷新后的片段。它自带 <form>，绝不能嵌进另一个表单。 */}}
+{{- define "components.form.transfer" -}}
+<form class="yd-field yd-transfer" id="{{.ID}}" method="{{if .Method}}{{.Method}}{{else}}post{{end}}"{{with .Action}} action="{{.}}"{{end}}>
+  <fieldset class="yd-transfer__panel">
+    {{if or .SourceLabel .SourceLabelKey}}<legend class="yd-field__label"{{with .SourceLabelKey}} data-yd-i18n="{{.}}"{{end}}>{{if .SourceLabelKey}}{{tr .SourceLabelKey}}{{else}}{{.SourceLabel}}{{end}}</legend>{{end}}
+    <div class="yd-transfer__list">
+      {{range .SourceItems}}
+      <label class="yd-check yd-check--block" for="{{$.ID}}-source-{{.Value}}">
+        <input class="yd-check__input" type="checkbox" id="{{$.ID}}-source-{{.Value}}"
+               name="{{$.SourceName}}" value="{{.Value}}"{{if .Checked}} checked{{end}}>
+        <span class="yd-check__label"{{with .LabelKey}} data-yd-i18n="{{.}}"{{end}}>{{if .LabelKey}}{{tr .LabelKey}}{{else}}{{.Label}}{{end}}</span>
+      </label>
+      {{else}}
+      <p class="yd-transfer__empty"{{with $.SourceEmptyKey}} data-yd-i18n="{{.}}"{{end}}>{{if $.SourceEmptyKey}}{{tr $.SourceEmptyKey}}{{else}}{{$.SourceEmpty}}{{end}}</p>
+      {{end}}
+    </div>
+  </fieldset>
+  <div class="yd-transfer__actions">
+    <button type="submit" class="yd-btn yd-btn--ghost" name="direction" value="add">{{tr "ui.add"}}</button>
+    <button type="submit" class="yd-btn yd-btn--ghost" name="direction" value="remove">{{tr "ui.remove"}}</button>
+  </div>
+  <fieldset class="yd-transfer__panel">
+    {{if or .TargetLabel .TargetLabelKey}}<legend class="yd-field__label"{{with .TargetLabelKey}} data-yd-i18n="{{.}}"{{end}}>{{if .TargetLabelKey}}{{tr .TargetLabelKey}}{{else}}{{.TargetLabel}}{{end}}</legend>{{end}}
+    <div class="yd-transfer__list">
+      {{range .TargetItems}}
+      <label class="yd-check yd-check--block" for="{{$.ID}}-target-{{.Value}}">
+        <input class="yd-check__input" type="checkbox" id="{{$.ID}}-target-{{.Value}}"
+               name="{{$.TargetName}}" value="{{.Value}}"{{if .Checked}} checked{{end}}>
+        <span class="yd-check__label"{{with .LabelKey}} data-yd-i18n="{{.}}"{{end}}>{{if .LabelKey}}{{tr .LabelKey}}{{else}}{{.Label}}{{end}}</span>
+      </label>
+      {{else}}
+      <p class="yd-transfer__empty"{{with $.TargetEmptyKey}} data-yd-i18n="{{.}}"{{end}}>{{if $.TargetEmptyKey}}{{tr $.TargetEmptyKey}}{{else}}{{$.TargetEmpty}}{{end}}</p>
+      {{end}}
+    </div>
+  </fieldset>
+  {{if or .Hint .HintKey}}<p class="yd-field__hint"{{with .HintKey}} data-yd-i18n="{{.}}"{{end}}>{{if .HintKey}}{{tr .HintKey}}{{else}}{{.Hint}}{{end}}</p>{{end}}
+  <input type="hidden" name="{{.Name}}" value="1">
+</form>
+{{- end -}}
+
+{{/* components.form.tree-select — a form.select whose rows carry caller-indented tree prefixes.
+     Dict keys | dict 的键:
+       ID, Name, Value, Label, LabelKey, Placeholder, PlaceholderKey, Hint, HintKey, Error, ErrorKey,
+       Required, Disabled, Options []{Value, Label, LabelKey, Prefix, Selected, Disabled},
+       Attrs (template.HTMLAttr)
+     Prefix is the caller-supplied tree drawing (for example "└─ "), so every level stays one
+     option with the same keyboard behaviour while the hierarchy is visible. |
+     Prefix 是调用方给出的树形前缀（例如 "└─ "），因此每一层仍是一个选项、键盘行为不变，
+     同时呈现层级。 */}}
+{{- define "components.form.tree-select" -}}
+{{template "components.form.select" (dict
+  "ID" .ID "Name" .Name "Label" .Label "LabelKey" .LabelKey
+  "Placeholder" .Placeholder "PlaceholderKey" .PlaceholderKey
+  "Hint" .Hint "HintKey" .HintKey "Error" .Error "ErrorKey" .ErrorKey
+  "Required" .Required "Disabled" .Disabled "Invalid" .Invalid
+  "Options" .Options "InputClass" "yd-tree-select" "DescribedBy" .DescribedBy "Attrs" .Attrs)}}
+{{- end -}}
+
+{{/* components.form.cascader — one form.select per level. Dict keys | dict 的键:
+       ID, Name, Label, LabelKey, Hint, HintKey, Levels []{Name, Label, LabelKey, Value, Attrs,
+       Options []{Value, Label, LabelKey, Selected, Disabled}}
+     Every level is rendered and submitted, so the control works without JavaScript. Give a level
+     htmx attributes in Attrs when a change should fetch the next set from the server. |
+     每一层都渲染并提交，因此没有 JavaScript 也能用。需要变化时向服务端取下一层时，在 Attrs 上
+     给该层加 htmx 属性。 */}}
+{{- define "components.form.cascader" -}}
+<div class="yd-field" data-yd-field="{{.Name}}">
+  <fieldset class="yd-cascader">
+    {{if or .Label .LabelKey}}<legend class="yd-field__label"{{with .LabelKey}} data-yd-i18n="{{.}}"{{end}}>{{if .LabelKey}}{{tr .LabelKey}}{{else}}{{.Label}}{{end}}</legend>{{end}}
+    {{range .Levels}}
+    <div class="yd-cascader__level">
+      {{template "components.form.select" (dict
+        "ID" (printf "%s-%s" $.ID .Name) "Name" .Name
+        "Label" .Label "LabelKey" .LabelKey "Options" .Options "Attrs" .Attrs)}}
+    </div>
+    {{end}}
+  </fieldset>
+  {{if or .Hint .HintKey}}<p class="yd-field__hint"{{with .HintKey}} data-yd-i18n="{{.}}"{{end}}>{{if .HintKey}}{{tr .HintKey}}{{else}}{{.Hint}}{{end}}</p>{{end}}
+</div>
+{{- end -}}
+
+{{/* components.form.mention — a text input with native datalist suggestions. Dict keys | dict 的键:
+       ID, Name, Value, Label, LabelKey, Placeholder, PlaceholderKey, Hint, HintKey, Required,
+       Disabled, Options []{Value, Label, LabelKey}, Attrs (template.HTMLAttr)
+     The datalist gives suggestions without a second state model; the server still parses and
+     validates the mention tokens. | datalist 在不引入第二套状态模型的前提下给出建议；服务端仍负责
+     解析并校验提及标记。 */}}
+{{- define "components.form.mention" -}}
+{{- $described := .DescribedBy -}}
+{{- if and (not $described) .Hint -}}{{- $described = printf "%s-hint" .ID -}}{{- end -}}
+<div class="yd-field{{if .Required}} yd-field--required{{end}}" data-yd-field="{{.Name}}">
+  <label class="yd-field__label" for="{{.ID}}"{{with .LabelKey}} data-yd-i18n="{{.}}"{{end}}>{{if .LabelKey}}{{tr .LabelKey}}{{else}}{{.Label}}{{end}}</label>
+  <input class="yd-input yd-mention" id="{{.ID}}" name="{{.Name}}" type="text" value="{{.Value}}"
+         list="{{.ID}}-mentions" autocomplete="off"
+         {{if .Required}}required{{end}}{{if .Disabled}}disabled{{end}}
+         {{with $described}}aria-describedby="{{.}}"{{end}}
+         {{with .PlaceholderKey}}data-yd-i18n-attr="placeholder:{{.}}"{{end}}
+         {{if or .Placeholder .PlaceholderKey}}placeholder="{{if .PlaceholderKey}}{{tr .PlaceholderKey}}{{else}}{{.Placeholder}}{{end}}"{{end}}
+         {{with .Attrs}}{{.}}{{end}}>
+  <datalist id="{{.ID}}-mentions">
+    {{range .Options}}<option value="{{.Value}}"{{with .LabelKey}} data-yd-i18n="{{.}}"{{end}}>{{if .LabelKey}}{{tr .LabelKey}}{{else}}{{.Label}}{{end}}</option>{{end}}
+  </datalist>
+  {{if or .Hint .HintKey}}<p class="yd-field__hint"{{with .HintKey}} data-yd-i18n="{{.}}"{{end}}>{{if .HintKey}}{{tr .HintKey}}{{else}}{{.Hint}}{{end}}</p>{{end}}
+</div>
+{{- end -}}
+
+{{/* components.form.time-range — a labelled pair of custom time pickers. Dict keys | dict 的键:
+       ID, Name, FromID, ToID, FromName, ToName, From, To, Label, LabelKey, FromLabel,
+       FromLabelKey, ToLabel, ToLabelKey, Hint, HintKey, Required, FromAttrs, ToAttrs
+     The two controls stay independent named fields; the server validates the ordering. |
+     两个控件保持独立命名字段；先后顺序由服务端校验。 */}}
+{{- define "components.form.time-range" -}}
+<fieldset class="yd-field yd-time-range" data-yd-field="{{.Name}}">
+  {{if or .Label .LabelKey}}<legend class="yd-field__label"{{with .LabelKey}} data-yd-i18n="{{.}}"{{end}}>{{if .LabelKey}}{{tr .LabelKey}}{{else}}{{.Label}}{{end}}</legend>{{end}}
+  <div class="yd-form-grid">
+    {{template "components.form.time" (dict
+      "ID" .FromID "Name" .FromName "Value" .From
+      "Label" .FromLabel "LabelKey" .FromLabelKey "Required" .Required "Attrs" .FromAttrs)}}
+    {{template "components.form.time" (dict
+      "ID" .ToID "Name" .ToName "Value" .To
+      "Label" .ToLabel "LabelKey" .ToLabelKey "Required" .Required "Attrs" .ToAttrs)}}
+  </div>
+  {{if or .Hint .HintKey}}<p class="yd-field__hint"{{with .HintKey}} data-yd-i18n="{{.}}"{{end}}>{{if .HintKey}}{{tr .HintKey}}{{else}}{{.Hint}}{{end}}</p>{{end}}
+</fieldset>
+{{- end -}}
+
+{{/* components.form.dynamic-rows — repeatable server-rendered rows. Dict keys | dict 的键:
+       ID, Name, Label, LabelKey, Hint, HintKey, Rows []{Fields (template.HTML)},
+       RowTemplate (template.HTML), AddLabel, AddKey, RemoveLabel, RemoveKey, Min, Max
+     Fields and RowTemplate should use `name="{{.Name}}[]"` for repeated values; the browser then
+     submits one entry per row without any index bookkeeping. Alpine only clones the blueprint and
+     removes a row; the server still owns validation and the final shape. |
+     Fields 与 RowTemplate 内的字段应使用 `name="{{.Name}}[]"` 提交重复值；浏览器因此每行提交一项，
+     无需索引记账。Alpine 只克隆蓝图与删除行；校验与最终结构仍由服务端负责。 */}}
+{{- define "components.form.dynamic-rows" -}}
+<div class="yd-field yd-rows" id="{{.ID}}" data-yd-field="{{.Name}}" x-data="ydRows"
+     data-min="{{if .Min}}{{.Min}}{{else}}1{{end}}" data-max="{{if .Max}}{{.Max}}{{else}}20{{end}}">
+  {{if or .Label .LabelKey}}<span class="yd-field__label"{{with .LabelKey}} data-yd-i18n="{{.}}"{{end}}>{{if .LabelKey}}{{tr .LabelKey}}{{else}}{{.Label}}{{end}}</span>{{end}}
+  <div class="yd-rows__list" x-ref="list">
+    {{range .Rows}}
+    <div class="yd-rows__row" data-yd-row>
+      <div class="yd-rows__fields">{{.Fields}}</div>
+      <button type="button" class="yd-file__remove" x-on:click="remove($el)"
+              data-yd-i18n-attr="aria-label:ui.remove" aria-label="{{tr "ui.remove"}}">{{template "partials/icon" "lucide-x"}}</button>
+    </div>
+    {{end}}
+  </div>
+  <template x-ref="template">
+    <div class="yd-rows__row" data-yd-row>
+      <div class="yd-rows__fields">{{.RowTemplate}}</div>
+      <button type="button" class="yd-file__remove" x-on:click="remove($el)"
+              data-yd-i18n-attr="aria-label:ui.remove" aria-label="{{tr "ui.remove"}}">{{template "partials/icon" "lucide-x"}}</button>
+    </div>
+  </template>
+  <div class="yd-rows__actions">
+    <button type="button" class="yd-btn yd-btn--ghost yd-btn--sm" x-on:click="add">{{if .AddKey}}{{tr .AddKey}}{{else}}{{.AddLabel}}{{end}}</button>
+  </div>
+  {{if or .Hint .HintKey}}<p class="yd-field__hint"{{with .HintKey}} data-yd-i18n="{{.}}"{{end}}>{{if .HintKey}}{{tr .HintKey}}{{else}}{{.Hint}}{{end}}</p>{{end}}
+  <input type="hidden" name="{{.Name}}_present" value="1">
+</div>
+{{- end -}}
+
+{{/* components.form.month — a custom month picker. Dict keys mirror components.form.picker. | 自定义
+     月份选择器，键与 components.form.picker 一致。 */}}
+{{- define "components.form.month" -}}
+{{template "components.form.picker" (dict
+  "ID" .ID "Name" .Name "Kind" "month" "Value" .Value
+  "Label" .Label "LabelKey" .LabelKey "Hint" .Hint "HintKey" .HintKey
+  "Error" .Error "ErrorKey" .ErrorKey "Placeholder" .Placeholder "PlaceholderKey" .PlaceholderKey
+  "Required" .Required "Disabled" .Disabled "Readonly" .Readonly "Invalid" .Invalid
+  "Sensitive" .Sensitive "Autocomplete" .Autocomplete "Min" .Min "Max" .Max
+  "DescribedBy" .DescribedBy "Attrs" .Attrs)}}
+{{- end -}}
+
+{{/* components.form.year — a year select. Dict keys | dict 的键:
+       ID, Name, Label, LabelKey, Hint, HintKey, Options []{Value, Label, Key, Selected}, Required,
+       Disabled, Attrs
+     The caller supplies the year range; the template never guesses a window from the clock. |
+     年份范围由调用方给出；模板绝不根据当前时钟猜测窗口。 */}}
+{{- define "components.form.year" -}}
+{{template "components.form.select" (dict
+  "ID" .ID "Name" .Name "Label" .Label "LabelKey" .LabelKey "Hint" .Hint "HintKey" .HintKey
+  "Required" .Required "Disabled" .Disabled "Options" .Options "Attrs" .Attrs)}}
+{{- end -}}
+
+{{/* components.form.quarter — a quarter select. Dict keys mirror components.form.year. | 季度选择，
+     键与 components.form.year 一致。 */}}
+{{- define "components.form.quarter" -}}
+{{template "components.form.select" (dict
+  "ID" .ID "Name" .Name "Label" .Label "LabelKey" .LabelKey "Hint" .Hint "HintKey" .HintKey
+  "Required" .Required "Disabled" .Disabled "Options" .Options "Attrs" .Attrs)}}
+{{- end -}}

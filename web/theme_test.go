@@ -402,6 +402,52 @@ func TestWideViewportsStayFluid(t *testing.T) {
 	}
 }
 
+// TestSystemPreferenceRepeatsEveryDarkToken keeps the "follow system" choice from drifting away
+// from the explicit dark choice. The two blocks must define the same variables, otherwise an input
+// or a form surface keeps its light background while the rest of the page turns dark.
+// TestSystemPreferenceRepeatsEveryDarkToken 防止「跟随系统」与显式深色选择漂移。两个块必须定义
+// 同一组变量，否则输入框或表单表面会在页面其余部分变暗时保留浅色背景。
+func TestSystemPreferenceRepeatsEveryDarkToken(t *testing.T) {
+	css := string(readEmbedded(t, web.FS(), componentsCSSPath))
+	dark := cssBlock(t, css, `[data-theme="dark"]`)
+	start, end := blockSpan(t, css, "@media (prefers-color-scheme: dark)")
+	auto := css[start:end]
+	if !strings.Contains(auto, "color-scheme: dark") {
+		t.Error("the system-preference block must declare color-scheme: dark | 跟随系统的块必须声明 color-scheme: dark")
+	}
+	tokenPattern := regexpx.MustCompile(`(--color-[a-z0-9-]+)\s*:`)
+	seen := 0
+	for _, match := range tokenPattern.FindAllStringSubmatch(dark, -1) {
+		seen++
+		if !strings.Contains(auto, match[1]+":") {
+			t.Errorf("system-preference block lacks %s, which [data-theme=dark] defines | 跟随系统的块缺少 [data-theme=dark] 定义的 %s", match[1], match[1])
+		}
+	}
+	if seen == 0 {
+		t.Fatal("the dark block defines no colour token; the guard would be vacuous | 暗色块没有定义颜色令牌，守卫形同虚设")
+	}
+}
+
+// TestEditorKeepsOneBorder locks the EasyMDE override that removes the vendor's inner light border.
+// Without it the text area draws a second, light rectangle inside the themed wrapper, which reads as
+// a white seam in dark mode. | TestEditorKeepsOneBorder 固定 EasyMDE 覆盖中「移除 vendor 浅色内边框」
+// 的规则。缺少它时正文区会在主题外壳内再画一个浅色矩形，在暗色模式下表现为一条白边。
+func TestEditorKeepsOneBorder(t *testing.T) {
+	css := string(readEmbedded(t, web.FS(), componentsCSSPath))
+	codeMirror := cssBlock(t, css, ".yd-editor .EasyMDEContainer .CodeMirror-fullscreen")
+	if !strings.Contains(codeMirror, "border: 0") {
+		t.Error("CodeMirror must remove the vendor inner border | CodeMirror 必须移除 vendor 内边框")
+	}
+	toolbar := cssBlock(t, css, ".yd-editor .EasyMDEContainer .editor-toolbar")
+	if !strings.Contains(toolbar, "border: 0") || !strings.Contains(toolbar, "border-bottom: 1px solid") {
+		t.Error("the toolbar must keep only its bottom separator | 工具栏必须只保留底部分隔线")
+	}
+	outer := cssBlock(t, css, ".yd-editor")
+	if !strings.Contains(outer, "border: 1px solid var(--color-border-subtle)") {
+		t.Error("the outer .yd-editor wrapper must own the single border | 外层 .yd-editor 必须拥有唯一一道边框")
+	}
+}
+
 // TestModalDialogsStayCentered pins the automatic margins that Tailwind Preflight erases. | TestModalDialogsStayCentered
 // 锁定会被 Tailwind Preflight 抹掉的自动外边距。
 //

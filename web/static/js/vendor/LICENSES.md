@@ -21,8 +21,6 @@ No file here may be edited by hand — re-run `yd assets update` instead. | 本�
 | Idiomorph | 0.8.0 | `0BSD` (Zero-Clause BSD) | `idiomorph` | https://cdn.jsdelivr.net/npm/idiomorph@0.8.0/dist/idiomorph.min.js |
 | EasyMDE | 2.21.0 | `MIT` | `easymde` | https://cdn.jsdelivr.net/npm/easymde@2.21.0/dist/easymde.min.js |
 | EasyMDE stylesheet | 2.21.0 | `MIT` | `easymde` | https://cdn.jsdelivr.net/npm/easymde@2.21.0/dist/easymde.min.css |
-| Font Awesome | 4.7.0 | `MIT` (CSS) / `OFL-1.1` (font) | `font-awesome` | https://cdn.jsdelivr.net/npm/font-awesome@4.7.0/css/font-awesome.min.css |
-| Font Awesome webfont | 4.7.0 | `OFL-1.1` | `font-awesome` | https://cdn.jsdelivr.net/npm/font-awesome@4.7.0/fonts/fontawesome-webfont.woff2 |
 
 ## License texts | 许可正文
 
@@ -88,12 +86,10 @@ SOFTWARE.
   CodeMirror and marked; `autoDownloadFontAwesome` is disabled so no runtime CDN request is made.
   | EasyMDE 是消息中心的 Markdown 编辑器。浏览器包已内含 CodeMirror 与 marked；应用关闭了
   `autoDownloadFontAwesome`，运行时不会请求任何 CDN。
-- Font Awesome 4.7 supplies the editor toolbar icons. The stylesheet is MIT; the webfont is
-  SIL OFL 1.1. The font lives in `static/js/fonts/` because the stylesheet references it as
-  `../fonts/…`; both paths are locked in `web/assets.lock.json`.
-  | Font Awesome 4.7 提供编辑器工具栏图标。样式表为 MIT，字体为 SIL OFL 1.1。字体位于
-  `static/js/fonts/`，因为样式表以 `../fonts/…` 引用它；两条路径都锁定在
-  `web/assets.lock.json` 中。
+- The editor toolbar ships **no icon font**. Every button receives a Lucide `<svg>` cloned from
+  `partials/editor-icons.html`, which references the same on-demand sprite as the rest of the UI.
+  | 编辑器工具栏**不随包提供图标字体**。每个按钮使用从 `partials/editor-icons.html` 克隆的
+  Lucide `<svg>`，与界面其余部分共用同一份按需 sprite。
 - `hx-status:*`, `hx-validate`, `hx-encoding` and the `innerMorph` / `outerMorph` swap
   strategies are built into htmx 4 itself and therefore have no separate extension file here.
   | `hx-status:*`、`hx-validate`、`hx-encoding` 与 `innerMorph` / `outerMorph` 交换策略均

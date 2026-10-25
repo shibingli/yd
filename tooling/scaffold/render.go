@@ -266,6 +266,26 @@ var extNames = []string{
 // 调用方可以重排或截断它，而不会影响校验。
 func Extensions() []string { return append([]string(nil), extNames...) }
 
+// DefaultExtensions returns every extension a generated project loads without being asked. | DefaultExtensions
+// 返回生成项目无需询问就加载的全部扩展。
+//
+// The three policy / compatibility layers stay opt-in: csp needs a site nonce, while compat and
+// htmx-2-compat restore htmx 2 semantics and would undo the 4.x behaviour the scaffold is built
+// around. Every other extension is part of the baseline, so `yd new` never asks a visitor to pick
+// a subset. | 三个策略/兼容层保持显式选择：csp 需要站点 nonce，compat 与 htmx-2-compat 恢复
+// htmx 2 语义，会抵消脚手架所基于的 4.x 行为。其余扩展都属于基线，因此 `yd new` 不再询问访客挑选子集。
+func DefaultExtensions() []string {
+	out := make([]string, 0, len(extNames))
+	for _, ext := range extNames {
+		switch ext {
+		case ExtCSP, ExtCompat, ExtHtmx2Compat:
+			continue
+		}
+		out = append(out, ext)
+	}
+	return out
+}
+
 // dsnFor builds a sample DSN per driver (the address and credentials only fit local development). | dsnFor 依据数据库驱动生成示例 DSN（仅地址与凭据是本地开发用的默认值）。
 //
 // 时区、时间配置、空值严格性与默认字符集**不在这里写死**，而是交给 gorm.PresetDSN 补齐——

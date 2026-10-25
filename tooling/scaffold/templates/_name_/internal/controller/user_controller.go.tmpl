@@ -417,6 +417,7 @@ func (c *Controller) EditUserForm(ctx *router.Ctx) {
 		c.failService(ctx, err)
 		return
 	}
+	tenantOptions := make([]map[string]any, 0)
 	data := c.view(ctx, "编辑用户 | Edit user", map[string]any{
 		"Target":       target,
 		"RoleOptions":  model.RoleOptions(roles, target.Roles),
@@ -425,7 +426,15 @@ func (c *Controller) EditUserForm(ctx *router.Ctx) {
 	})
 	if all, err := c.tenants.List(ctx.Request.Context()); err == nil {
 		data["AllTenants"] = all
+		for _, tenant := range all {
+			tenantOptions = append(tenantOptions, map[string]any{
+				"Value":    tenant.ID,
+				"Label":    tenant.Display,
+				"Selected": tenant.ID == target.DefaultTenantID,
+			})
+		}
 	}
+	data["TenantOptions"] = tenantOptions
 	c.render(ctx, http.StatusOK, TplUserEditDrawer, data)
 }
 

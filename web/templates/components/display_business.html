@@ -1,0 +1,74 @@
+{{/*
+  components/display_business.html — business-shaped display surfaces.
+  components/display_business.html — 业务形态的展示界面。
+
+  What belongs here | 这里放什么
+    A QR display frame, a transcript scroller and a kanban board. They are still plain server
+    markup: the QR encoder, the drag-and-drop rule and the board's ordering stay in the controller
+    or the business layer, where the data and permissions already live.
+    二维码展示框、transcript 滚动容器与看板。它们仍是普通的服务端标记：二维码编码、拖拽规则与看板
+    排序留在控制器或业务层，那里已经有数据与权限。
+*/}}
+
+{{/* components.display.qrcode — a frame around a server-encoded QR image. Dict keys | dict 的键:
+       ID, SVG (template.HTML), Src, Alt, AltKey, Caption, CaptionKey, Label, LabelKey, Size (sm|lg)
+     Encoding stays server-side: pass either an SVG produced by a pure-Go encoder or an image URL.
+     The component owns only the frame, alt text and caption. | 编码留在服务端：传入纯 Go 编码器产出的
+     SVG 或图片 URL。组件只负责外框、替代文本与图注。 */}}
+{{- define "components.display.qrcode" -}}
+<figure class="yd-qrcode{{with .Size}} yd-qrcode--{{.}}{{end}}"{{with .ID}} id="{{.}}"{{end}}>
+  {{if .SVG}}
+  <div class="yd-qrcode__media" role="img"
+       aria-label="{{if .LabelKey}}{{tr .LabelKey}}{{else}}{{.Label}}{{end}}"
+       {{with .LabelKey}}data-yd-i18n-attr="aria-label:{{.}}"{{end}}>{{.SVG}}</div>
+  {{else}}
+  <img class="yd-qrcode__media" src="{{.Src}}" alt="{{if .AltKey}}{{tr .AltKey}}{{else}}{{.Alt}}{{end}}"
+       {{with .AltKey}}data-yd-i18n-attr="alt:{{.}}"{{end}} loading="lazy" decoding="async">
+  {{end}}
+  {{if or .Caption .CaptionKey}}<figcaption class="yd-qrcode__caption"{{with .CaptionKey}} data-yd-i18n="{{.}}"{{end}}>{{if .CaptionKey}}{{tr .CaptionKey}}{{else}}{{.Caption}}{{end}}</figcaption>{{end}}
+</figure>
+{{- end -}}
+
+{{/* components.display.message-scroller — a bounded transcript viewport. Dict keys | dict 的键:
+       Label, LabelKey, Size (sm|md|lg), Content (template.HTML)
+     The viewport is a labelled live log. Following the live edge, anchoring a turn and preserving
+     scroll on prepend belong to the application; this component only supplies the scroll contract.
+     | 视口是带标签的实时日志。跟随实时边缘、锚定回合与前置历史时保持滚动属于应用逻辑；本组件只提供
+     滚动契约。 */}}
+{{- define "components.display.message-scroller" -}}
+<div class="yd-message-scroller{{with .Size}} yd-message-scroller--{{.}}{{end}}"
+     role="log" aria-live="polite" aria-relevant="additions" tabindex="0"
+     {{if or .Label .LabelKey}}aria-label="{{if .LabelKey}}{{tr .LabelKey}}{{else}}{{.Label}}{{end}}"{{with .LabelKey}} data-yd-i18n-attr="aria-label:{{.}}"{{end}}{{end}}>
+  {{.Content}}
+</div>
+{{- end -}}
+
+{{/* components.display.kanban — a server-rendered board. Dict keys | dict 的键:
+       Label, LabelKey, Columns []{ID, Title, TitleKey, Count, Cards []{ID, Title, TitleKey,
+       Text, TextKey, Meta, MetaKey, Href, Actions (template.HTML)}}
+     Ordering and drag rules stay in the business layer; the board gives every card a stable id so
+     an htmx move can target it. | 排序与拖拽规则留在业务层；看板为每张卡片提供稳定 id，htmx 移动
+     因此可以定位它。 */}}
+{{- define "components.display.kanban" -}}
+<div class="yd-kanban" role="list"
+     {{if or .Label .LabelKey}}aria-label="{{if .LabelKey}}{{tr .LabelKey}}{{else}}{{.Label}}{{end}}"{{with .LabelKey}} data-yd-i18n-attr="aria-label:{{.}}"{{end}}{{end}}>
+  {{range .Columns}}
+  <section class="yd-kanban__column" role="listitem"{{with .ID}} id="{{.}}"{{end}}>
+    <header class="yd-kanban__header">
+      {{if or .Title .TitleKey}}<h3 class="yd-kanban__title"{{with .TitleKey}} data-yd-i18n="{{.}}"{{end}}>{{if .TitleKey}}{{tr .TitleKey}}{{else}}{{.Title}}{{end}}</h3>{{end}}
+      {{with .Count}}<span class="yd-badge yd-badge--count">{{.}}</span>{{end}}
+    </header>
+    <div class="yd-kanban__cards">
+      {{range .Cards}}
+      <article class="yd-kanban__card"{{with .ID}} id="{{.}}"{{end}}>
+        {{if .Href}}<a class="yd-kanban__card-title" href="{{.Href}}"{{with .TitleKey}} data-yd-i18n="{{.}}"{{end}}>{{if .TitleKey}}{{tr .TitleKey}}{{else}}{{.Title}}{{end}}</a>{{else}}<span class="yd-kanban__card-title"{{with .TitleKey}} data-yd-i18n="{{.}}"{{end}}>{{if .TitleKey}}{{tr .TitleKey}}{{else}}{{.Title}}{{end}}</span>{{end}}
+        {{if or .Text .TextKey}}<p class="yd-kanban__card-text"{{with .TextKey}} data-yd-i18n="{{.}}"{{end}}>{{if .TextKey}}{{tr .TextKey}}{{else}}{{.Text}}{{end}}</p>{{end}}
+        {{if or .Meta .MetaKey}}<p class="yd-kanban__card-meta"{{with .MetaKey}} data-yd-i18n="{{.}}"{{end}}>{{if .MetaKey}}{{tr .MetaKey}}{{else}}{{.Meta}}{{end}}</p>{{end}}
+        {{with .Actions}}<div class="yd-kanban__card-actions">{{.}}</div>{{end}}
+      </article>
+      {{end}}
+    </div>
+  </section>
+  {{end}}
+</div>
+{{- end -}}

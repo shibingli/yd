@@ -61,7 +61,7 @@ ok  github.com/shibingli/yd/e2e  26.829s
 
 `TestScaffoldBuildRun` 覆盖：
 
-1. `yd new demo --module example.com/demo --db sqlite --i18n --htmx-ext sse,ws,preload --local-replace <repo> --yes`
+1. `yd new demo --module example.com/demo --db sqlite --local-replace <repo> --yes`
 2. 生成物齐全性（`go.mod`、`LICENSE`、`Dockerfile`、`.gitignore`、`.gitattributes`、
    `.yd.json`、`CLAUDE.md`、`AGENTS.md`、`configs/`、`cmd/app/main.go`、
    `docs/developer_guidelines.md`、`web/assets.lock.json` 等）与 `.gitignore` 规范行
@@ -351,7 +351,7 @@ regexp2 + 超时；调用方仍然只经包装层。修复后 race 下该测试�
 - Htmx 固定走 **v4 轨道**：npm 把 4.x 发布在 `next` 标签下、`latest` 仍是 2.x，
   因此解析器按「当前大版本 + 稳定版」选择，绝不降级（`TestResolveLatestNeverDowngrades`）；
   真实干跑确认 `htmx 4.0.0` 判定为已是最新，而不是被 2.0.11 覆盖。
-- htmx 4 的 **18 个官方扩展**全部进入 `web/assets.lock.json`（共 21 个前端资产）并经
+- htmx 4 的 **18 个官方扩展**全部进入 `web/assets.lock.json`（共 23 个前端资产，不含任何图标字体）并经
   `yd assets update` 下载、锁定；框架 UI 加载其中 15 个，`csp` 与两个 htmx 2 兼容层仅锁定不默认加载。
 - 升级 CLI 测试用注入点 `versionsRunGo` / `versionsHTTPClient`，测试进程内不执行真实 go、不触网。
 

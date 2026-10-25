@@ -34,7 +34,7 @@
     <input class="yd-input" id="{{.ID}}" name="{{.Name}}" type="tel" inputmode="numeric" autocomplete="tel-national" maxlength="11" value="{{.Value}}"
            x-ref="input" x-on:input="onInput" x-bind:aria-invalid="touched && !valid()"
            {{if .Required}}required{{end}} {{with $described}}aria-describedby="{{.}}"{{end}}
-           {{with .PlaceholderKey}}data-yd-i18n-attr="placeholder:{{.}}"{{end}} {{if or .Placeholder .PlaceholderKey}}placeholder="{{if .Placeholder}}{{.Placeholder}}{{else}}{{if .PlaceholderKey}}{{tr .PlaceholderKey}}{{end}}{{end}}"{{end}} {{.Attrs}}>
+           {{with .PlaceholderKey}}data-yd-i18n-attr="placeholder:{{.}}"{{end}} {{if or .Placeholder .PlaceholderKey}}placeholder="{{if .Placeholder}}{{.Placeholder}}{{else}}{{if .PlaceholderKey}}{{tr .PlaceholderKey}}{{end}}{{end}}"{{end}} {{with .Attrs}}{{.}}{{end}}>
     <span class="yd-cn-field__status yd-cn-field__status--ok" x-show="state() === 'ok'" x-cloak aria-hidden="true">{{template "partials/icon" "lucide-check"}}</span>
     <span class="yd-cn-field__status yd-cn-field__status--bad" x-show="state() === 'bad'" x-cloak aria-hidden="true">{{template "partials/icon" "lucide-alert-circle"}}</span>
   </div>
@@ -56,7 +56,7 @@
     <input class="yd-input" id="{{.ID}}" name="{{.Name}}" type="text" inputmode="text" autocomplete="off" maxlength="18" value="{{.Value}}"
            x-ref="input" x-on:input="onInput" x-bind:aria-invalid="touched && !valid()"
            {{if .Required}}required{{end}} {{with $described}}aria-describedby="{{.}}"{{end}}
-           {{with .PlaceholderKey}}data-yd-i18n-attr="placeholder:{{.}}"{{end}} {{if or .Placeholder .PlaceholderKey}}placeholder="{{if .Placeholder}}{{.Placeholder}}{{else}}{{if .PlaceholderKey}}{{tr .PlaceholderKey}}{{end}}{{end}}"{{end}} {{.Attrs}}>
+           {{with .PlaceholderKey}}data-yd-i18n-attr="placeholder:{{.}}"{{end}} {{if or .Placeholder .PlaceholderKey}}placeholder="{{if .Placeholder}}{{.Placeholder}}{{else}}{{if .PlaceholderKey}}{{tr .PlaceholderKey}}{{end}}{{end}}"{{end}} {{with .Attrs}}{{.}}{{end}}>
     <span class="yd-cn-field__status yd-cn-field__status--ok" x-show="state() === 'ok'" x-cloak aria-hidden="true">{{template "partials/icon" "lucide-check"}}</span>
     <span class="yd-cn-field__status yd-cn-field__status--bad" x-show="state() === 'bad'" x-cloak aria-hidden="true">{{template "partials/icon" "lucide-alert-circle"}}</span>
   </div>
@@ -83,7 +83,7 @@
     <input class="yd-input" id="{{.ID}}" name="{{.Name}}" type="text" inputmode="numeric" autocomplete="cc-number" maxlength="19" value="{{.Value}}"
            x-ref="input" x-on:input="onInput" x-bind:aria-invalid="touched && !valid()"
            {{if .Required}}required{{end}} {{with $described}}aria-describedby="{{.}}"{{end}}
-           {{with .PlaceholderKey}}data-yd-i18n-attr="placeholder:{{.}}"{{end}} {{if or .Placeholder .PlaceholderKey}}placeholder="{{if .Placeholder}}{{.Placeholder}}{{else}}{{if .PlaceholderKey}}{{tr .PlaceholderKey}}{{end}}{{end}}"{{end}} {{.Attrs}}>
+           {{with .PlaceholderKey}}data-yd-i18n-attr="placeholder:{{.}}"{{end}} {{if or .Placeholder .PlaceholderKey}}placeholder="{{if .Placeholder}}{{.Placeholder}}{{else}}{{if .PlaceholderKey}}{{tr .PlaceholderKey}}{{end}}{{end}}"{{end}} {{with .Attrs}}{{.}}{{end}}>
     <span class="yd-cn-field__status yd-cn-field__status--ok" x-show="state() === 'ok'" x-cloak aria-hidden="true">{{template "partials/icon" "lucide-check"}}</span>
     <span class="yd-cn-field__status yd-cn-field__status--bad" x-show="state() === 'bad'" x-cloak aria-hidden="true">{{template "partials/icon" "lucide-alert-circle"}}</span>
   </div>
@@ -106,7 +106,7 @@
     <input class="yd-input" id="{{.ID}}" name="{{.Name}}" type="text" inputmode="text" autocomplete="off" maxlength="18" value="{{.Value}}"
            x-ref="input" x-on:input="onInput" x-bind:aria-invalid="touched && !valid()"
            {{if .Required}}required{{end}} {{with $described}}aria-describedby="{{.}}"{{end}}
-           {{with .PlaceholderKey}}data-yd-i18n-attr="placeholder:{{.}}"{{end}} {{if or .Placeholder .PlaceholderKey}}placeholder="{{if .Placeholder}}{{.Placeholder}}{{else}}{{if .PlaceholderKey}}{{tr .PlaceholderKey}}{{end}}{{end}}"{{end}} {{.Attrs}}>
+           {{with .PlaceholderKey}}data-yd-i18n-attr="placeholder:{{.}}"{{end}} {{if or .Placeholder .PlaceholderKey}}placeholder="{{if .Placeholder}}{{.Placeholder}}{{else}}{{if .PlaceholderKey}}{{tr .PlaceholderKey}}{{end}}{{end}}"{{end}} {{with .Attrs}}{{.}}{{end}}>
     <span class="yd-cn-field__status yd-cn-field__status--ok" x-show="state() === 'ok'" x-cloak aria-hidden="true">{{template "partials/icon" "lucide-check"}}</span>
     <span class="yd-cn-field__status yd-cn-field__status--bad" x-show="state() === 'bad'" x-cloak aria-hidden="true">{{template "partials/icon" "lucide-alert-circle"}}</span>
   </div>
@@ -132,7 +132,7 @@
       <input class="yd-input" id="{{.ID}}" name="{{.Name}}" type="text" inputmode="decimal" autocomplete="off" maxlength="15" value="{{.Value}}"
              x-ref="input" x-on:input="onInput" x-bind:aria-invalid="touched && !valid()"
              {{if .Required}}required{{end}} {{with $described}}aria-describedby="{{.}}"{{end}}
-             {{with .PlaceholderKey}}data-yd-i18n-attr="placeholder:{{.}}"{{end}} {{if or .Placeholder .PlaceholderKey}}placeholder="{{if .Placeholder}}{{.Placeholder}}{{else}}{{if .PlaceholderKey}}{{tr .PlaceholderKey}}{{end}}{{end}}"{{end}} {{.Attrs}}>
+             {{with .PlaceholderKey}}data-yd-i18n-attr="placeholder:{{.}}"{{end}} {{if or .Placeholder .PlaceholderKey}}placeholder="{{if .Placeholder}}{{.Placeholder}}{{else}}{{if .PlaceholderKey}}{{tr .PlaceholderKey}}{{end}}{{end}}"{{end}} {{with .Attrs}}{{.}}{{end}}>
     </div>
     <p class="yd-cn-amount__upper" x-show="valid()" x-cloak>
       <span data-yd-i18n="{{$upperKey}}">{{if eq $upperKey "cn.amount.upper"}}{{tr "cn.amount.upper"}}{{else}}{{tr $upperKey}}{{end}}</span>
@@ -190,12 +190,16 @@
 </div>
 {{- end -}}
 
-{{/* components.cn.daterange — two native dates plus the usual presets. Dict keys | dict 的键:
+{{/* components.cn.daterange — two custom date pickers plus the usual presets. Dict keys | dict 的键:
        From, To, FromName, ToName, LabelKey, Label, HintKey, Hint, Required, Min, Max,
        DescribedBy, Attrs, FromAttrs, ToAttrs (template.HTMLAttr) */}}
 {{- define "components.cn.daterange" -}}
 {{- $fromName := .FromName | default "from" -}}
 {{- $toName := .ToName | default "to" -}}
+{{- $fromAttrs := .FromAttrs -}}
+{{- if not $fromAttrs -}}{{- $fromAttrs = .Attrs -}}{{- end -}}
+{{- $toAttrs := .ToAttrs -}}
+{{- if not $toAttrs -}}{{- $toAttrs = .Attrs -}}{{- end -}}
 {{- $described := .DescribedBy -}}
 {{- if and (not $described) .Hint -}}{{- $described = printf "%s-hint" $fromName -}}{{- end -}}
 <div class="yd-field{{if .Required}} yd-field--required{{end}}" data-yd-field="{{$fromName}}" x-data="ydDateRange" data-from="{{.From}}" data-to="{{.To}}">
@@ -219,15 +223,15 @@
               data-yd-i18n="cn.range.last_month">{{tr "cn.range.last_month"}}</button>
     </div>
     <div class="yd-cn-date-range__inputs">
-      <input class="yd-input" type="date" name="{{$fromName}}" value="{{.From}}" x-model="from" x-on:change="manual"
-             {{if .Required}}required{{end}} {{with .Min}}min="{{.}}"{{end}} {{with .Max}}max="{{.}}"{{end}}
-             x-bind:aria-invalid="!valid()" {{with $described}}aria-describedby="{{.}}"{{end}}
-             data-yd-i18n-attr="aria-label:cn.range.from" aria-label="{{tr "cn.range.from"}}" {{if .FromAttrs}}{{.FromAttrs}}{{else}}{{.Attrs}}{{end}}>
+      {{template "components.form.date" (dict
+        "ID" (printf "%s-from" $fromName) "Name" $fromName "Value" .From
+        "Label" (tr "cn.range.from") "LabelKey" "cn.range.from" "Required" .Required
+        "Min" .Min "Max" .Max "Attrs" $fromAttrs)}}
       <span class="yd-cn-date-range__sep" aria-hidden="true">—</span>
-      <input class="yd-input" type="date" name="{{$toName}}" value="{{.To}}" x-model="to" x-on:change="manual"
-             {{if .Required}}required{{end}} {{with .Min}}min="{{.}}"{{end}} {{with .Max}}max="{{.}}"{{end}}
-             x-bind:aria-invalid="!valid()" {{with $described}}aria-describedby="{{.}}"{{end}}
-             data-yd-i18n-attr="aria-label:cn.range.to" aria-label="{{tr "cn.range.to"}}" {{if .ToAttrs}}{{.ToAttrs}}{{else}}{{.Attrs}}{{end}}>
+      {{template "components.form.date" (dict
+        "ID" (printf "%s-to" $toName) "Name" $toName "Value" .To
+        "Label" (tr "cn.range.to") "LabelKey" "cn.range.to" "Required" .Required
+        "Min" .Min "Max" .Max "Attrs" $toAttrs)}}
     </div>
     <p class="yd-cn-hint yd-cn-hint--error" id="{{$fromName}}-error" x-show="!valid()" x-cloak
        data-yd-i18n="cn.range.invalid" role="alert">{{tr "cn.range.invalid"}}</p>
@@ -251,7 +255,7 @@
   <div class="yd-cn-sms">
     <input class="yd-input" id="{{.ID}}" name="{{.Name}}" type="text" inputmode="numeric" autocomplete="one-time-code" maxlength="6" value="{{.Value}}"
            {{if .Required}}required{{end}} {{with $described}}aria-describedby="{{.}}"{{end}}
-           {{with .PlaceholderKey}}data-yd-i18n-attr="placeholder:{{.}}"{{end}} {{if or .Placeholder .PlaceholderKey}}placeholder="{{if .Placeholder}}{{.Placeholder}}{{else}}{{if .PlaceholderKey}}{{tr .PlaceholderKey}}{{end}}{{end}}"{{end}} {{.Attrs}}>
+           {{with .PlaceholderKey}}data-yd-i18n-attr="placeholder:{{.}}"{{end}} {{if or .Placeholder .PlaceholderKey}}placeholder="{{if .Placeholder}}{{.Placeholder}}{{else}}{{if .PlaceholderKey}}{{tr .PlaceholderKey}}{{end}}{{end}}"{{end}} {{with .Attrs}}{{.}}{{end}}>
     {{if .SendURL}}
     <button type="button" class="yd-btn yd-btn--ghost" {{if eq .SendMethod "get"}}hx-get="{{.SendURL}}"{{else}}hx-post="{{.SendURL}}"{{end}}{{if .Target}} hx-target="{{.Target}}"{{end}} hx-swap="none" x-bind:disabled="busy()"
             data-yd-i18n-attr="aria-label:cn.sms.send" aria-label="{{tr "cn.sms.send"}}">

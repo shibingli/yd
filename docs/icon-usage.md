@@ -29,7 +29,7 @@ web/static/img/icons.min.svg         生产环境压缩产物（生产模板自�
 - **无 Node.js**：图标生成由 Go 工具 `yd icons` 完成，Tailwind v4 仍由 standalone 二进制编译。
 - **无运行时网络**：sprite 随 `go:embed` 进入二进制，sprite 内是 `<symbol>`，没有 Iconify API、
   没有 CDN、没有按图标发起的网络请求。
-- **按需体积**：生成器只把模板实际引用的图标写进 sprite。框架与脚手架模板合计约 24 个图标、约 7 KB；
+- **按需体积**：生成器只把模板实际引用的图标写进 sprite（当前约 60 个，未压缩 sprite 约 16 KB）；
   未引用的图标不会进入前端产物。
 - **CSP 友好**：sprite 与页面同源；图标通过 `<use>` 引用，不依赖内联脚本或 data URI。
 - **htmx 友好**：`<svg><use>` 是普通 DOM，htmx 的 morph/局部交换不会破坏它。
@@ -45,6 +45,8 @@ web/static/img/icons.min.svg         生产环境压缩产物（生产模板自�
 | `web/static/img/icons.min.svg` | `yd assets minify` 产出的生产压缩 sprite |
 | `web/templates/partials/icon.html` | 框架模板使用的图标片段 |
 | `tooling/scaffold/templates/_name_/web/templates/partials/icon.html` | 生成项目门户与后台共用的唯一片段 |
+| `web/templates/partials/editor-icons.html` | EasyMDE 运行时工具栏的隐藏 Lucide 调色板 |
+| `tooling/scaffold/templates/_name_/web/templates/partials/editor-icons.html` | 生成项目同名的隐藏调色板 |
 
 生成项目不需要自己维护图标数据：框架 `web.Static()` 会把框架的 `static/` 合并到项目静态树中，
 `sprite` 由框架层兜底提供。项目也可以运行 `yd icons sync` 生成自己的 sprite，项目层的同名文件会覆盖框架层。
@@ -150,7 +152,17 @@ yd assets minify --check
 
 语言按钮显示当前语言，使用 `lucide-languages`；切换逻辑仍走原来的单一按钮路径。
 
-## 5. 当前内置图标
+### 4.3 编辑器工具栏
+
+EasyMDE 在运行时构造工具栏按钮，因此图标不能直接写在按钮上。`form.editor` 与消息撰写区
+在编辑器根节点内渲染一次 `partials/editor-icons.html` 的隐藏调色板；`yd-ui.js` 的
+`decorateEditorToolbar` 把对应 Lucide `<svg>` 克隆进每个按钮。这样：
+
+- 图标引用仍写在模板里，`yd icons sync` 会把它们纳入按需 sprite；
+- 渲染后的工具栏不含 `fa` / `fa-*` 类名，也不加载任何图标字体；
+- 新增编辑器动作时，在 `EDITOR_ICONS`（`yd-ui.js`）与调色板中同时加入图标名。
+
+## 5. 常用图标示例
 
 | 引用 | 用途 |
 |---|---|
@@ -229,6 +241,7 @@ Tailwind 的 `text-*` 工具类。
 ## 9. 禁止事项
 
 - 禁止引入 Lucide/Iconify 运行时脚本或 `iconify-icon` 自定义元素；
+- 禁止引入任何图标字体（Font Awesome 等）；编辑器工具栏也只使用 Lucide sprite；
 - 禁止在模板中写内联 `<svg>` 图标或硬编码 `<use href="#i-…">`；
 - 禁止在运行时访问 Iconify API 或任何 CDN；
 - 禁止手工编辑 `web/static/img/icons.svg`（文件头带生成标记）；

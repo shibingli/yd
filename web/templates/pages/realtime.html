@@ -90,11 +90,13 @@
            loader flattens the catalogue into dotted paths. | 该标签与下方的频道名是同层叶子，
            因此键名为 channel.label：加载器把目录摊平成点分路径后，
            名为 realtime.channel 的消息会与 realtime.channel.orders 冲突。 */}}
-      <label class="sr-only" for="yd-realtime-channel" data-yd-i18n="realtime.channel.label">{{tr "realtime.channel.label"}}</label>
-      <select class="yd-select" id="yd-realtime-channel" name="channel">
-        <option value="orders" data-yd-i18n="realtime.channel.orders">{{tr "realtime.channel.orders"}}</option>
-        <option value="audit" data-yd-i18n="realtime.channel.audit">{{tr "realtime.channel.audit"}}</option>
-      </select>
+      {{template "components.form.select" (dict
+        "ID" "yd-realtime-channel" "Name" "channel" "LabelHidden" true
+        "Label" (tr "realtime.channel.label") "LabelKey" "realtime.channel.label"
+        "Options" (list
+          (dict "Value" "orders" "Key" "realtime.channel.orders")
+          (dict "Value" "audit" "Key" "realtime.channel.audit")))}}
+
       <button type="submit" class="yd-btn yd-btn--ghost" data-yd-i18n="action.apply">{{tr "action.apply"}}</button>
     </form>
   </section>

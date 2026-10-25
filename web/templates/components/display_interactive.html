@@ -1,0 +1,79 @@
+{{/*
+  components/display_interactive.html — the few components that genuinely need pointer state.
+  components/display_interactive.html — 少数真正需要指针状态的组件。
+
+  CSP first | CSP 优先
+    Each behaviour is registered through Alpine.data() in yd-ui.js and keeps all logic there; the
+    markup only calls methods. No inline handler, eval or new Function is involved, so the generated
+    project's script-src 'self' policy stays intact.
+    每个行为都在 yd-ui.js 里经 Alpine.data() 注册并把逻辑留在那里；标记只调用方法。不涉及内联处理器、
+    eval 或 new Function，因此生成项目的 script-src 'self' 策略保持完整。
+
+  Server value remains the value | 服务端值仍是提交值
+    The signature canvas writes its data URL into a real hidden field; before Alpine starts (and when
+    it fails to load) the field still carries the server value. The emoji palette only edits an
+    existing named input. | 签名画布把 data URL 写入真实的隐藏字段；Alpine 启动前（以及加载失败时）
+    字段仍携带服务端值。表情面板只编辑已存在的命名字段。
+*/}}
+
+{{/* components.display.emoji-picker — a palette that inserts into a target field. Dict keys | dict 的键:
+       ID, Label, LabelKey, Target (CSS selector), Emojis []string
+     Target must point at an input or textarea that already exists on the page. The palette never
+     submits anything and never creates a second field. | Target 必须指向页面上已存在的输入框或
+     文本域。面板不提交任何内容，也不会创建第二个字段。 */}}
+{{- define "components.display.emoji-picker" -}}
+<div class="yd-emoji-picker" x-data="ydEmoji" data-target="{{.Target}}"{{with .ID}} id="{{.}}"{{end}}>
+  {{if or .Label .LabelKey}}<span class="yd-field__label"{{with .LabelKey}} data-yd-i18n="{{.}}"{{end}}>{{if .LabelKey}}{{tr .LabelKey}}{{else}}{{.Label}}{{end}}</span>{{end}}
+  <div class="yd-emoji-picker__grid" role="group"{{if or .Label .LabelKey}} aria-label="{{if .LabelKey}}{{tr .LabelKey}}{{else}}{{.Label}}{{end}}"{{end}}>
+    {{range .Emojis}}
+    <button type="button" class="yd-emoji-picker__item" x-on:click="pick('{{.}}')" aria-label="{{.}}">{{.}}</button>
+    {{end}}
+  </div>
+</div>
+{{- end -}}
+
+{{/* components.display.signature — a pointer-drawn signature pad. Dict keys | dict 的键:
+       ID, Name, Value, Label, LabelKey, Hint, HintKey, ClearLabel, ClearKey, Width, Height,
+       Required, Attrs (template.HTMLAttr)
+     The canvas is 2× its CSS size for a crisp stroke; the hidden field is the submitted value. |
+     画布按 CSS 尺寸的 2 倍绘制以获得清晰笔迹；隐藏字段是提交值。 */}}
+{{- define "components.display.signature" -}}
+<div class="yd-field yd-signature" x-data="ydSignature">
+  <label class="yd-field__label" for="{{.ID}}"{{with .LabelKey}} data-yd-i18n="{{.}}"{{end}}>{{if .LabelKey}}{{tr .LabelKey}}{{else}}{{.Label}}{{end}}</label>
+  <canvas class="yd-signature__canvas" id="{{.ID}}" x-ref="canvas"
+          width="{{if .Width}}{{.Width}}{{else}}640{{end}}" height="{{if .Height}}{{.Height}}{{else}}200{{end}}"
+          x-on:pointerdown.prevent="start($event)" x-on:pointermove.prevent="draw($event)"
+          x-on:pointerup="end" x-on:pointerleave="end" {{with .Attrs}}{{.}}{{end}}></canvas>
+  <input type="hidden" name="{{.Name}}" x-ref="value" value="{{.Value}}" x-bind:value="value"{{if .Required}} required{{end}}>
+  <div class="yd-signature__actions">
+    <button type="button" class="yd-btn yd-btn--ghost yd-btn--sm" x-on:click="clear">{{if .ClearKey}}{{tr .ClearKey}}{{else}}{{if .ClearLabel}}{{.ClearLabel}}{{else}}{{tr "ui.clear"}}{{end}}{{end}}</button>
+  </div>
+  {{if or .Hint .HintKey}}<p class="yd-field__hint"{{with .HintKey}} data-yd-i18n="{{.}}"{{end}}>{{if .HintKey}}{{tr .HintKey}}{{else}}{{.Hint}}{{end}}</p>{{end}}
+</div>
+{{- end -}}
+
+{{/* components.display.resizable — a two-pane split with a draggable separator. Dict keys | dict 的键:
+       ID, Label, LabelKey, Split (percent), Min, Max, Orientation (vertical), Start, End
+     Start and End are template.HTML. The separator is keyboard operable with the arrow keys; the
+     panes remain ordinary server-rendered content. | Start 与 End 是 template.HTML。分隔条可用方向键
+     操作；两侧仍是普通的服务端渲染内容。 */}}
+{{- define "components.display.resizable" -}}
+{{- $vertical := eq .Orientation "vertical" -}}
+<div class="yd-resizable{{if $vertical}} yd-resizable--vertical{{end}}"
+     {{with .ID}}id="{{.}}"{{end}} x-data="ydResizable"
+     data-split="{{if .Split}}{{.Split}}{{else}}50{{end}}"
+     data-min="{{if .Min}}{{.Min}}{{else}}20{{end}}" data-max="{{if .Max}}{{.Max}}{{else}}80{{end}}"
+     data-orientation="{{if .Orientation}}{{.Orientation}}{{else}}horizontal{{end}}">
+  <div class="yd-resizable__pane" x-ref="start">{{.Start}}</div>
+  <div class="yd-resizable__splitter" role="separator"
+       aria-orientation="{{if eq .Orientation "vertical"}}horizontal{{else}}vertical{{end}}"
+       aria-valuemin="{{if .Min}}{{.Min}}{{else}}20{{end}}" aria-valuemax="{{if .Max}}{{.Max}}{{else}}80{{end}}"
+       aria-valuenow="{{if .Split}}{{.Split}}{{else}}50{{end}}"
+       aria-label="{{if .LabelKey}}{{tr .LabelKey}}{{else}}{{if .Label}}{{.Label}}{{else}}{{tr "ui.resize"}}{{end}}{{end}}"
+       tabindex="0" x-ref="splitter"
+       x-on:pointerdown.prevent="start($event)"
+       x-on:keydown.arrow-left.prevent="nudge(-2)" x-on:keydown.arrow-right.prevent="nudge(2)"
+       x-on:keydown.arrow-up.prevent="nudge(-2)" x-on:keydown.arrow-down.prevent="nudge(2)"></div>
+  <div class="yd-resizable__pane" x-ref="end">{{.End}}</div>
+</div>
+{{- end -}}

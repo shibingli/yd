@@ -93,14 +93,12 @@ cd myapp
 yd dev
 ```
 
-Htmx 4、Tailwind CSS v4 与 Alpine.js 3 始终集成，不需要选择；交互式向导只询问数据库驱动、i18n 与额外 Htmx 扩展。脚本或 CI 中直接给参数：
+Htmx 4、Tailwind CSS v4 与 Alpine.js 3 始终集成，不需要选择；i18n 与全部安全 Htmx 4 扩展默认包含；交互式向导只询问项目名、模块、数据库、gRPC 与协议，不再询问 i18n 或扩展子集。脚本或 CI 中直接给参数：
 
 ```bash
 yd new myapp \
   --module example.com/myapp \
   --db sqlite \
-  --i18n \
-  --htmx-ext sse,ws,preload \
   --yes
 ```
 
@@ -356,8 +354,8 @@ yd new <项目名> [flags]
 | `--module` | Go 模块路径，默认 `github.com/yun-dev/<name>` |
 | `--db` | `sqlite` / `mysql` / `postgres` / `dm` / `none` |
 | `--grpc` | 开启 gRPC 双通道 |
-| `--i18n` | 开启国际化 |
-| `--htmx-ext` | 额外 htmx 扩展名，可重复：`ws,sse,preload,targets,head,upsert,pending,multipart,download,browser-indicator,history-cache,live,prompt,ptag,csp,compat,htmx-2-compat`；`alpine` 恒开启，传入与不传等价。Htmx、Tailwind 与 Alpine 本身不是开关 |
+| `--i18n` | 国际化默认开启；用 `--i18n=false` 显式关闭 |
+| `--htmx-ext` | 省略时加载全部安全扩展：`ws,sse,preload,targets,head,upsert,pending,multipart,download,browser-indicator,history-cache,live,prompt,ptag,alpine`。显式传入时只加载所列扩展（`alpine` 恒开启），并可追加仅显式选择的策略层 `csp`（需 nonce）、`compat` / `htmx-2-compat`（恢复 htmx 2 语义）。Htmx、Tailwind 与 Alpine 本身不是开关 |
 | `--license` | 许可证标识，默认 `Apache-2.0` |
 | `--local-replace` | 指向本地 yd 检出，写入 `go.mod` 的 replace（开发期） |
 | `--install-tools` | 把缺失的可选工具装进新项目 |
@@ -365,8 +363,7 @@ yd new <项目名> [flags]
 | `-y, --yes` | 全部取默认值，不提问；不触网 |
 
 ```bash
-yd new blog --module example.com/blog --db sqlite --i18n \
-  --htmx-ext sse,ws,preload --yes
+yd new blog --module example.com/blog --db sqlite --yes
 ```
 
 ### 5.2 `yd dev`
@@ -851,8 +848,8 @@ Redis 不可达时 `FailOpen`（默认 true）按未命中继续 loader。
 
 - **先读手册**：[前端 UI 组件层使用手册](frontend-ui.md) 覆盖布局、表单、反馈、导航、数据展示、
   中国常用控件（手机号、身份证、银行卡、统一社会信用代码、人民币大写、省市区、日期范围、短信验证码）
-  的用法与最佳实践；[组件全景与图表用法](frontend-components.md) 给出与 Naive UI / Shadcn UI /
-  OpenTiny / Premium 的完整对照矩阵、每个组件的参数与图表选型；
+  的用法与最佳实践；[组件全景与图表用法](frontend-components.md) 给出完整组件清单、
+  每个组件的参数与图表选型；
 - **脚本顺序固定**：`htmx → 扩展 → yd-ui.js → alpine.min.js → 国密 → 权限 → 进度条 → yd-app.js`。
   Alpine 的 CSP 构建在脚本执行时立即启动，`yd-ui.js` 必须排在它前面并在 `alpine:init` 注册组件；
 - **CSP 约束**：只允许同源脚本，不含 `unsafe-eval` / `unsafe-inline`；不在 Alpine 表达式里写箭头函数、
@@ -1238,7 +1235,7 @@ yd versions sync    # 重新生成
 
 ```bash
 yd new taskapp --module example.com/taskapp --db sqlite \
-  --i18n --htmx-ext sse,ws,preload --yes
+  --yes
 cd taskapp
 ```
 
