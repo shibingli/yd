@@ -1,6 +1,6 @@
-# Release workflow: build the standalone yd CLI for Linux and Windows on amd64 and
-# arm64, package the binaries, and attach them to the GitHub Release of a vX.Y.Z tag.
-# | 发布工作流：为 vX.Y.Z 标签构建 Linux/Windows、amd64/arm64 的独立 yd CLI，
+# Release workflow: build the standalone yd CLI for Linux, Windows and macOS on amd64
+# and arm64, package the binaries, and attach them to the GitHub Release of a vX.Y.Z tag.
+# | 发布工作流：为 vX.Y.Z 标签构建 Linux/Windows/macOS、amd64/arm64 的独立 yd CLI，
 # 打包并附加到对应的 GitHub Release。
 name: Release
 
@@ -68,8 +68,8 @@ jobs:
           go-version-file: go.mod
           cache: true
       - name: Build and vet
-        # Compile the whole module and run vet before spending time on four cross builds.
-        # | 在四次交叉构建之前先编译整个模块并运行 vet。
+        # Compile the whole module and run vet before spending time on six cross builds.
+        # | 在六次交叉构建之前先编译整个模块并运行 vet。
         run: |
           set -euo pipefail
           go build ./...
@@ -84,7 +84,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        goos: [linux, windows]
+        goos: [linux, windows, darwin]
         goarch: [amd64, arm64]
     steps:
       - uses: actions/checkout@v4
@@ -172,6 +172,8 @@ jobs:
           |---|---|---|
           | Linux | amd64 | `yd_@@TAG@@_linux_amd64.tar.gz` |
           | Linux | arm64 | `yd_@@TAG@@_linux_arm64.tar.gz` |
+          | macOS | amd64 (Intel) | `yd_@@TAG@@_darwin_amd64.tar.gz` |
+          | macOS | arm64 (Apple Silicon) | `yd_@@TAG@@_darwin_arm64.tar.gz` |
           | Windows | amd64 | `yd_@@TAG@@_windows_amd64.zip` |
           | Windows | arm64 | `yd_@@TAG@@_windows_arm64.zip` |
 
@@ -185,6 +187,15 @@ jobs:
           yd --version
           ```
 
+          macOS（Intel 用 amd64，Apple Silicon 用 arm64；按实际架构替换文件名）：
+
+          ```bash
+          tar -xzf yd_@@TAG@@_darwin_arm64.tar.gz
+          sudo install yd_@@TAG@@_darwin_arm64/yd /usr/local/bin/yd
+          xattr -d com.apple.quarantine /usr/local/bin/yd 2>/dev/null || true
+          yd --version
+          ```
+
           Windows：解压 zip，把 `yd.exe` 放入 `PATH`，然后执行 `yd --version`。
 
           ## 校验
@@ -193,7 +204,7 @@ jobs:
           sha256sum -c checksums.txt
           ```
 
-          > 二进制为 CGO_ENABLED=0 的静态链接版本，内置全部前端资产。
+          > 二进制均为 CGO_ENABLED=0 的纯 Go 版本；Linux/Windows 为静态链接，macOS 仅依赖系统 libSystem。
           EOF
           sed -i "s/@@TAG@@/${TAG}/g" release-notes.md
 

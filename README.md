@@ -26,7 +26,7 @@ YD 深度融合 **Go 1.27+ / Htmx 4.0 / Tailwind v4**，消除传统前后端分
 
 ## 快速开始
 
-预编译二进制（Linux / Windows，amd64 / arm64）见 [Releases](https://github.com/shibingli/yd/releases)；从源码安装：
+预编译二进制（Linux / Windows / macOS，amd64 / arm64）见 [Releases](https://github.com/shibingli/yd/releases)；从源码安装：
 
 ```bash
 # 安装 CLI

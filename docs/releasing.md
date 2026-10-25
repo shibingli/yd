@@ -1,7 +1,7 @@
 # 发布与预编译二进制
 
 `.github/workflows/release.yml` 是 yd 唯一的标签发布入口。推送 `vX.Y.Z` 形式的标签后，
-GitHub Actions 会自动完成四平台构建、打包、校验和生成与 Release 资产上传。
+GitHub Actions 会自动完成六种平台/架构组合的构建、打包、校验和生成与 Release 资产上传。
 
 ## 触发方式
 
@@ -19,6 +19,8 @@ GitHub Actions 会自动完成四平台构建、打包、校验和生成与 Rele
 |---|---|---|
 | Linux | amd64 | `yd_<tag>_linux_amd64.tar.gz` |
 | Linux | arm64 | `yd_<tag>_linux_arm64.tar.gz` |
+| macOS | amd64 (Intel) | `yd_<tag>_darwin_amd64.tar.gz` |
+| macOS | arm64 (Apple Silicon) | `yd_<tag>_darwin_arm64.tar.gz` |
 | Windows | amd64 | `yd_<tag>_windows_amd64.zip` |
 | Windows | arm64 | `yd_<tag>_windows_arm64.zip` |
 
@@ -34,8 +36,9 @@ Release 同时附带 `checksums.txt`（SHA-256），可执行：
 sha256sum -c checksums.txt
 ```
 
-构建固定使用 `CGO_ENABLED=0`、`-trimpath` 与 `-ldflags "-s -w"`，产物为纯 Go 静态链接
-二进制，前端资产已由 `go:embed` 打入，无需运行时依赖。
+构建固定使用 `CGO_ENABLED=0`、`-trimpath` 与 `-ldflags "-s -w"`，前端资产已由
+`go:embed` 打入，无需运行时依赖。Linux/Windows 产物为静态链接；macOS 为纯 Go 二进制，
+仅依赖系统 `libSystem`，不依赖任何第三方运行时。
 
 ## 版本注入
 
@@ -75,6 +78,6 @@ CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath \
 
 - 不得在脚本、CI 或文档中另写一套发布流程；标签发布只经该工作流。
 - 不得把构建产物提交入库；Release 资产是唯一的分发载体。
-- 不得跳过 `verify` 作业：编译整个模块并运行 `go vet` 后才进入四平台交叉构建。
+- 不得跳过 `verify` 作业：编译整个模块并运行 `go vet` 后才进入六种平台/架构组合的交叉构建。
 - 不得在 Release 说明或资产名中加入与构建无关的标记；资产名固定为
   `yd_<tag>_<goos>_<goarch>.<ext>`。
