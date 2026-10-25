@@ -25,6 +25,14 @@
     <button type="submit" class="yd-btn">{{ tr "ui.search" }}</button>
   </form>
   {{ template "mgr/partials/messages/audit_table" . }}
+  {{- if .Pages }}
+  <div class="yd-section" hx-boost="true" hx-target="#yd-workspace" hx-swap="innerMorph" hx-push-url="true">
+    {{ template "components.navigation.pagination" (dict
+      "Label" (tr "ui.pagination") "LabelKey" "ui.pagination"
+      "Summary" (tr "ui.page_summary" .Page .PageCount)
+      "PrevHref" .PrevHref "NextHref" .NextHref "Pages" .Pages "ShowLabels" true) }}
+  </div>
+  {{- end }}
 </section>
 {{- else }}
 <section class="yd-page" data-yd-page="message-admin" aria-labelledby="yd-admin-title">
@@ -68,6 +76,14 @@
     <p class="yd-hint">{{ tr "message.no_results" }}</p>
     {{- end }}
   </section>
+  {{- if .Pages }}
+  <div class="yd-section" hx-boost="true" hx-target="#yd-workspace" hx-swap="innerMorph" hx-push-url="true">
+    {{ template "components.navigation.pagination" (dict
+      "Label" (tr "ui.pagination") "LabelKey" "ui.pagination"
+      "Summary" (tr "ui.page_summary" .Page .PageCount)
+      "PrevHref" .PrevHref "NextHref" .NextHref "Pages" .Pages "ShowLabels" true) }}
+  </div>
+  {{- end }}
   <section class="yd-card yd-section" aria-labelledby="yd-admin-audit">
     <header class="yd-section__header">
       <h2 class="yd-section__title" id="yd-admin-audit">{{ tr "message.admin.recent_audit" }}</h2>

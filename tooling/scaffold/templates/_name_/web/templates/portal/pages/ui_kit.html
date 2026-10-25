@@ -339,11 +339,24 @@
           "Label" (tr "showcase.label.pagination") "LabelKey" "showcase.label.pagination"
           "Summary" (tr "showcase.sample.summary") "SummaryKey" "showcase.sample.summary"
           "PrevHref" "#yd-kit-navigation" "NextHref" "#yd-kit-navigation"
+          "SizeLabel" (tr "showcase.label.page_size") "SizeLabelKey" "showcase.label.page_size"
+          "SizeOptions" (list
+            (dict "Label" "20" "Href" "#yd-kit-navigation" "Current" true)
+            (dict "Label" "50" "Href" "#yd-kit-navigation")
+            (dict "Label" "100" "Href" "#yd-kit-navigation"))
           "Pages" (list
             (dict "Number" 1 "Href" "#yd-kit-navigation" "Current" true)
             (dict "Number" 2 "Href" "#yd-kit-navigation")
             (dict "Ellipsis" true)
             (dict "Number" 9 "Href" "#yd-kit-navigation"))) }}
+        {{template "components.navigation.pagination" (dict
+          "Label" (tr "showcase.label.pagination_cursor") "LabelKey" "showcase.label.pagination_cursor"
+          "Summary" (tr "ui.page_cursor_summary" 20)
+          "PrevHref" "#yd-kit-navigation" "NextHref" "#yd-kit-navigation" "ShowLabels" true) }}
+        <div class="yd-cluster">
+          <a class="yd-btn yd-btn--ghost yd-btn--sm" href="#yd-kit-navigation">{{tr "ui.page_mode_pages"}}</a>
+          <a class="yd-btn yd-btn--ghost yd-btn--sm" href="#yd-kit-navigation">{{tr "ui.page_mode_keyset"}}</a>
+        </div>
         {{template "components.navigation.tree" (dict
           "Items" (list
             (dict "Label" (tr "showcase.label.tree") "LabelKey" "showcase.label.tree" "Open" true "Children" (list
@@ -359,6 +372,28 @@
         {{template "components.data.stat" (dict "Label" (tr "showcase.label.stat") "LabelKey" "showcase.label.stat" "Value" "1,288" "Delta" "+12%" "Trend" "up" "Hint" (tr "showcase.sample.hint") "HintKey" "showcase.sample.hint")}}
         {{template "components.data.kpi" (dict "Label" (tr "showcase.label.kpi") "LabelKey" "showcase.label.kpi" "Value" "98.4%" "Delta" "+0.8%" "Trend" "up")}}
       </div>
+      {{template "components.data.table" (dict
+        "ID" "yd-kit-table-full" "Selectable" true "SelectName" "ids"
+        "Caption" (tr "ui.data_table") "CaptionKey" "ui.data_table"
+        "Columns" (list
+          (dict "Label" (tr "showcase.sample.table_name") "LabelKey" "showcase.sample.table_name")
+          (dict "Label" (tr "field.status") "LabelKey" "field.status")
+          (dict "Label" (tr "field.actions") "LabelKey" "field.actions" "Actions" true))
+        "Rows" (list
+          (dict "SelectValue" "alice" "Selected" true "Cells" (list
+            (dict "Value" "alice")
+            (dict "LabelKey" "status.active")
+            (dict "Value" "—" "Actions" true)))
+          (dict "SelectValue" "bob" "Cells" (list
+            (dict "Value" "bob")
+            (dict "LabelKey" "status.disabled")
+            (dict "Value" "—" "Actions" true)))) ) }}
+      <table class="yd-table" aria-label="{{tr "showcase.label.table"}}">
+        <tbody>
+          {{template "components.data.table.empty" (dict
+            "Colspan" 2 "TitleKey" "showcase.sample.empty" "TextKey" "showcase.sample.hint")}}
+        </tbody>
+      </table>
       {{template "components.data.table.open" (dict
         "ID" "yd-kit-table" "Selectable" true "Caption" (tr "showcase.label.table") "CaptionKey" "showcase.label.table"
         "Columns" (list

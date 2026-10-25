@@ -5,6 +5,8 @@ package controller
 
 import (
 	"net/http"
+	"net/url"
+	"strconv"
 	"strings"
 
 	"{{ .YdxModule }}/log"
@@ -119,6 +121,53 @@ func (c *Controller) MessageAudit(ctx *router.Ctx) {
 	c.renderAuditPage(ctx, "")
 }
 
+// adminMessageHref builds one moderation page URL, preserving every active filter. | adminMessageHref
+// 构造治理分页地址，并保留全部生效的过滤条件。
+func adminMessageHref(filter messageFilters, page int) string {
+	values := url.Values{}
+	if filter.Query != "" {
+		values.Set("q", filter.Query)
+	}
+	if filter.TypeKey != "" {
+		values.Set(FieldTypeKey, filter.TypeKey)
+	}
+	if filter.SenderID != "" {
+		values.Set(FieldSender, filter.SenderID)
+	}
+	if filter.TagID != "" {
+		values.Set(FieldTag, filter.TagID)
+	}
+	if filter.Folder != "" {
+		values.Set(FieldFolder, filter.Folder)
+	}
+	if page > 1 {
+		values.Set("page", strconv.Itoa(page))
+	}
+	if len(values) == 0 {
+		return "/mgr/messages"
+	}
+	return "/mgr/messages?" + values.Encode()
+}
+
+// adminAuditHref builds one audit page URL, preserving the action and message filters. | adminAuditHref
+// 构造审计分页地址，并保留动作与消息过滤条件。
+func adminAuditHref(action, messageID string, page int) string {
+	values := url.Values{}
+	if action != "" {
+		values.Set("action", action)
+	}
+	if messageID != "" {
+		values.Set("message_id", messageID)
+	}
+	if page > 1 {
+		values.Set("page", strconv.Itoa(page))
+	}
+	if len(values) == 0 {
+		return "/mgr/messages/audit"
+	}
+	return "/mgr/messages/audit?" + values.Encode()
+}
+
 // renderAdminPage builds the moderation page with a notice. | renderAdminPage 构建带提示的治理页面。
 func (c *Controller) renderAdminPage(ctx *router.Ctx, notice string) {
 	actor := c.messageActor(ctx)
@@ -158,6 +207,22 @@ func (c *Controller) renderAdminPage(ctx *router.Ctx, notice string) {
 	data["AdminMode"] = true
 	data["Audit"] = auditViewsOf(audit)
 	data["AuditTotal"] = auditTotal
+	pageSize := c.messages.Options().PageSize
+	pageCount := 1
+	if pageSize > 0 {
+		pageCount = (result.Total + pageSize - 1) / pageSize
+	}
+	if pageCount < 1 {
+		pageCount = 1
+	}
+	pages, prevHref, nextHref := pageLinks(result.Total, filters.Page, pageSize, func(n int) string {
+		return adminMessageHref(filters, n)
+	})
+	data["Page"] = filters.Page
+	data["PageCount"] = pageCount
+	data["Pages"] = pages
+	data["PrevHref"] = prevHref
+	data["NextHref"] = nextHref
 	if notice != "" {
 		c.toast(ctx, notice)
 	}
@@ -178,6 +243,10 @@ func (c *Controller) renderAuditPage(ctx *router.Ctx, notice string) {
 		c.failService(ctx, err)
 		return
 	}
+	pages, prevHref, nextHref := pageLinks(total, filter.Page, filter.PageSize, func(n int) string {
+		return adminAuditHref(filter.Action, filter.MessageID, n)
+	})
+	_, pageCount, _, _ := pageBounds(total, filter.Page, filter.PageSize)
 	data := c.pageView(ctx, "消息审计 | Message audit", map[string]any{
 		"Audit":      auditViewsOf(audit),
 		"AuditTotal": total,
@@ -185,6 +254,11 @@ func (c *Controller) renderAuditPage(ctx *router.Ctx, notice string) {
 		"Filter":     filter,
 		"CanManage":  true,
 		"ActorID":    actor.ID,
+		"Page":       filter.Page,
+		"PageCount":  pageCount,
+		"Pages":      pages,
+		"PrevHref":   prevHref,
+		"NextHref":   nextHref,
 	})
 	if notice != "" {
 		c.toast(ctx, notice)
