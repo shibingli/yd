@@ -448,6 +448,26 @@ func TestEditorKeepsOneBorder(t *testing.T) {
 	}
 }
 
+// TestPasswordHidesNativeReveal pins the single-eye contract: the kit renders one themed toggle and
+// hides Edge's native reveal/clear controls, so a password field never shows two eyes. |
+// TestPasswordHidesNativeReveal 固定单只看眼睛的契约：组件只渲染一个主题化按钮，并隐藏 Edge
+// 原生的显示/清除控件，密码框因此不会出现两只眼睛。
+func TestPasswordHidesNativeReveal(t *testing.T) {
+	css := string(readEmbedded(t, web.FS(), uiCSSPath))
+	for _, selector := range []string{
+		".yd-password > .yd-input::-ms-reveal",
+		".yd-password > .yd-input::-ms-clear",
+	} {
+		if native := cssBlock(t, css, selector); !strings.Contains(native, "display: none") {
+			t.Errorf("%s must be hidden | %s 必须被隐藏", selector, selector)
+		}
+	}
+	markup := string(readEmbedded(t, web.FS(), "templates/components/form.html"))
+	if got := strings.Count(markup, `class="yd-password__toggle"`); got != 1 {
+		t.Errorf("components.form.password renders %[1]d reveal buttons, want 1 | components.form.password 渲染了 %[1]d 个显示按钮，应为 1", got)
+	}
+}
+
 // TestModalDialogsStayCentered pins the automatic margins that Tailwind Preflight erases. | TestModalDialogsStayCentered
 // 锁定会被 Tailwind Preflight 抹掉的自动外边距。
 //

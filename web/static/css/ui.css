@@ -792,6 +792,18 @@
     padding-inline-end: 2.75rem;
   }
 
+  /* Edge paints its own reveal eye and clear cross inside a password field. The kit owns the one
+     themed toggle, so the native controls must be hidden; otherwise the field shows two eyes. |
+     Edge 会在密码框内绘制自己的显示眼睛与清除叉。组件自带唯一的主题化按钮，必须隐藏原生控件，
+     否则字段里会出现两只眼睛。 */
+  .yd-password > .yd-input::-ms-reveal {
+    display: none;
+  }
+
+  .yd-password > .yd-input::-ms-clear {
+    display: none;
+  }
+
   .yd-password__toggle {
     position: absolute;
     right: 0.375rem;
