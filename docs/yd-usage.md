@@ -575,7 +575,7 @@ yd assets list
 yd assets verify --offline        # CI：不触网，校验 sha256
 yd assets update                  # 在线更新并重新锁定
 yd assets add my-lib --url https://example.com/my-lib.js \
-  --version 1.2.3 --kind js --path /js/vendor/my-lib.js --license MIT
+  --version 1.2.3 --kind js --path /js/vendored/my-lib.js --license MIT
 yd assets minify                  # 生成 *.min.js / *.min.svg / yd.min.css
 yd assets minify --check          # CI：校验压缩资产是否漂移
 ```

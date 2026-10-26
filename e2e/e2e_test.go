@@ -227,7 +227,7 @@ func TestScaffoldBuildRun(t *testing.T) {
 		addr, stop := startApp(t, filepath.Join(project))
 		defer stop()
 
-		for _, p := range []string{"/static/js/vendor/htmx.min.js", "/static/css/yd.css"} {
+		for _, p := range []string{"/static/js/vendored/htmx.min.js", "/static/css/yd.css"} {
 			res := httpGet(t, "http://"+addr+p, nil)
 			if res.status != http.StatusOK || len(res.body) == 0 {
 				t.Errorf("静态资产 %s 不可用: 状态=%d 长度=%d", p, res.status, len(res.body))

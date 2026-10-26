@@ -4,7 +4,7 @@
  * Load it after htmx and after yd-guomi.js; the sample below is language neutral. | 请在 htmx 与
  * yd-guomi.js 之后引入本文件，下面的代码示例与语言无关。
  *
- *   <script src="/static/js/vendor/htmx.min.js"></script>
+ *   <script src="/static/js/vendored/htmx.min.js"></script>
  *   <script src="/static/js/yd-guomi.js"></script>
  *   <script src="/static/js/yd-guomi-htmx.js"></script>
  *   <script>ydGuomiHtmx.install();</script>

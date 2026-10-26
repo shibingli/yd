@@ -79,13 +79,13 @@ func seedFile(t *testing.T, fsys afero.Fs, rel, body string) {
 func TestAssetsListPrintsTable(t *testing.T) {
 	const body = "hello world"
 	fsys := afero.NewMemMapFs()
-	seedFile(t, fsys, "static/js/vendor/htmx.min.js", body)
-	sum, err := afs.Sha256File(fsys, filepath.Join("web", "static", "js", "vendor", "htmx.min.js"))
+	seedFile(t, fsys, "static/js/vendored/htmx.min.js", body)
+	sum, err := afs.Sha256File(fsys, filepath.Join("web", "static", "js", "vendored", "htmx.min.js"))
 	if err != nil {
 		t.Fatalf("计算校验和失败: %v", err)
 	}
 	seedManifest(t, fsys, assets.Asset{
-		Name: "htmx", Version: "4.0.0", Path: "static/js/vendor/htmx.min.js",
+		Name: "htmx", Version: "4.0.0", Path: "static/js/vendored/htmx.min.js",
 		Kind: "js", SHA256: sum, Size: int64(len(body)), Required: true,
 	})
 
@@ -193,7 +193,7 @@ func TestAssetsUpdateWithSourceWritesFileAndLocks(t *testing.T) {
 	fsys := afero.NewMemMapFs()
 	seedManifest(t, fsys, assets.Asset{
 		Name: "app", Version: "2.0.0", URL: srv.URL + "/app.min.js",
-		Path: "static/js/vendor/app.min.js", Kind: "js", Required: true,
+		Path: "static/js/vendored/app.min.js", Kind: "js", Required: true,
 	})
 
 	te := newTestEnv(t, fsys, "", false)
@@ -205,7 +205,7 @@ func TestAssetsUpdateWithSourceWritesFileAndLocks(t *testing.T) {
 		t.Error("the test source got no request | 测试源未收到请求")
 	}
 
-	got, err := afero.ReadFile(fsys, filepath.Join("web", "static", "js", "vendor", "app.min.js"))
+	got, err := afero.ReadFile(fsys, filepath.Join("web", "static", "js", "vendored", "app.min.js"))
 	if err != nil || string(got) != body {
 		t.Fatalf("落盘内容 = %q (err=%v)，期望 %q", got, err, body)
 	}
@@ -273,7 +273,7 @@ func TestAssetsAddLocksChecksum(t *testing.T) {
 	err := Execute(context.Background(), []string{
 		"assets", "add", "idiomorph",
 		"--url", srv.URL + "/morph.min.js",
-		"--path", "static/js/vendor/idiomorph.min.js",
+		"--path", "static/js/vendored/idiomorph.min.js",
 		"--version", "0.8.0",
 		"--source", srv.URL + "/{file}",
 	}, te.env)
@@ -292,7 +292,7 @@ func TestAssetsAddLocksChecksum(t *testing.T) {
 	if locked.Version != "0.8.0" || locked.SHA256 == "" || locked.Size != int64(len(body)) {
 		t.Fatalf("资产未锁定: %+v", locked)
 	}
-	if got, err := afero.ReadFile(fsys, filepath.Join("web", "static", "js", "vendor", "idiomorph.min.js")); err != nil || string(got) != body {
+	if got, err := afero.ReadFile(fsys, filepath.Join("web", "static", "js", "vendored", "idiomorph.min.js")); err != nil || string(got) != body {
 		t.Fatalf("落盘内容 = %q (err=%v)", got, err)
 	}
 }

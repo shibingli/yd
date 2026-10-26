@@ -29,7 +29,7 @@ import (
 const lockFilePath = "assets.lock.json"
 
 // vendorDir is the directory holding every vendored third-party script. | vendorDir 是存放全部 vendoring 第三方脚本的目录。
-const vendorDir = "static/js/vendor"
+const vendorDir = "static/js/vendored"
 
 // minVendorBytes is the smallest plausible size of a minified library; anything smaller is a truncated download. | minVendorBytes 是压缩后库文件的最小可信体积；更小即视为下载被截断。
 const minVendorBytes = 256

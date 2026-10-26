@@ -72,7 +72,7 @@
 | 脚本顺序 | 各布局的 `base.scripts` / 生成项目的 `partials/base.html` | 顺序被测试钉死 |
 
 前端资产只能经 `yd assets update` / `yd assets minify` / `yd versions upgrade` 变更；不得手改
-`web/static/js/vendor/**`，也不得在模板里引入 CDN。
+`web/static/js/vendored/**`，也不得在模板里引入 CDN。
 
 ### 2.2 唯一允许的脚本顺序
 
@@ -171,9 +171,9 @@ web/templates/
 
 ```html
 <link rel="stylesheet" href="/static/css/yd.css">
-<script src="/static/js/vendor/htmx.min.js" defer></script>
+<script src="/static/js/vendored/htmx.min.js" defer></script>
 <script src="/static/js/yd-ui.js" defer></script>
-<script src="/static/js/vendor/alpine.min.js" defer></script>
+<script src="/static/js/vendored/alpine.min.js" defer></script>
 ```
 
 `yd-ui.js` 是 UMD 模块，在浏览器暴露 `window.ydUI`：

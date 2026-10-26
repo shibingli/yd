@@ -635,7 +635,7 @@ yd versions sync               # 仅重新生成 version_generated.go
 - 改动 `go.mod` 或 `web/assets.lock.json` 的提交，**必须同时提交** `yd versions sync` 的产物；
   守卫 `TestScaffoldVersionsMatchSources` 拦截漂移。
 - 前端资产只允许经 `yd versions upgrade` 或 `yd assets update` 重锁；
-  **禁止手改** `web/static/js/vendor/**`。
+  **禁止手改** `web/static/js/vendored/**`。
 - **升级导致的测试失败是信号，不是噪音**：先判断是上游行为变化还是本仓缺陷。
   例：`go-sql-driver/mysql` v1.10 调整了 `FormatDSN` 的参数顺序，钉死字符串顺序的用例因此失败——
   应更新期望并注明上游版本，而不是把测试删掉。

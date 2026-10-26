@@ -23,7 +23,7 @@
 
 - `docs/需求设计说明书.md` —— 需求基线，只读。
 - `LICENSE` 的授权条款正文（仅允许更新末尾版权行）。
-- 任何已锁定校验和的 `web/static/js/vendor/**` 内容——升级必须走 `yd assets update` 重新锁定，禁止手改。
+- 任何已锁定校验和的 `web/static/js/vendored/**` 内容——升级必须走 `yd assets update` 重新锁定，禁止手改。
 
 **需要人工确认**
 

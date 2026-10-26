@@ -98,7 +98,7 @@ func TestGeneratedAppServesScriptBundle(t *testing.T) {
 	if !strings.Contains(body, `<html lang="en"`) {
 		t.Errorf("KO_DATA_PATH 中的默认语言未生效，登录页不是英文:\n%s", body)
 	}
-	if strings.Contains(body, `/static/js/vendor/htmx.min.js`) {
+	if strings.Contains(body, `/static/js/vendored/htmx.min.js`) {
 		t.Errorf("生产页面仍逐个引用 vendor 脚本:\n%s", body)
 	}
 	var bundlePaths []string

@@ -53,7 +53,7 @@
   <div class="yd-field">
     <span class="yd-label">{{ tr "message.body" }}</span>
     <div class="yd-editor" data-yd-editor data-lang="{{ .Lang }}"
-         data-yd-editor-vendor="{{ asset "/static/js/vendor/easymde.min.js" }}">
+         data-yd-editor-vendor="{{ asset "/static/js/vendored/easymde.min.js" }}">
       <textarea class="yd-editor__fallback" name="body_markdown" rows="12"
                 aria-label="{{ tr "message.body" }}">{{ .Message.BodyMarkdown }}</textarea>
       {{template "partials/editor-icons" .}}

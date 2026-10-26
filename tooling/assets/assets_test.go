@@ -21,8 +21,8 @@ import (
 // 证明同一份锁文件在 Linux 与 Windows 上解析出相同的相对路径，且可移植的绝对路径形态在所有平台都被拒绝。
 func TestNormalizePathIsPlatformIndependent(t *testing.T) {
 	for _, tc := range []struct{ in, want string }{
-		{`static/js/vendor/app.js`, "static/js/vendor/app.js"},
-		{`static\js\vendor\app.js`, "static/js/vendor/app.js"},
+		{`static/js/vendored/app.js`, "static/js/vendored/app.js"},
+		{`static\js\vendored\app.js`, "static/js/vendored/app.js"},
 		{`a\..\b.css`, "b.css"},
 		{`./static/./app.css`, "static/app.css"},
 	} {
@@ -107,7 +107,7 @@ func TestUpdateDownloadsAndLocksChecksum(t *testing.T) {
 	srv, hits := newFileServer(t, map[string]string{"/htmx.min.js": body})
 	fsys := afero.NewMemMapFs()
 
-	a := Asset{Name: "htmx", Version: "4.0.0", URL: srv.URL + "/htmx.min.js", Path: "static/js/vendor/htmx.min.js", Kind: "js", Required: true}
+	a := Asset{Name: "htmx", Version: "4.0.0", URL: srv.URL + "/htmx.min.js", Path: "static/js/vendored/htmx.min.js", Kind: "js", Required: true}
 	if err := baseManifest(a).Save(fsys, testManifestPath); err != nil {
 		t.Fatalf("保存清单失败: %v", err)
 	}
@@ -123,7 +123,7 @@ func TestUpdateDownloadsAndLocksChecksum(t *testing.T) {
 		t.Fatalf("报告不符合预期: %+v", rep)
 	}
 
-	got, err := afero.ReadFile(fsys, filepath.Join(testRoot, "static", "js", "vendor", "htmx.min.js"))
+	got, err := afero.ReadFile(fsys, filepath.Join(testRoot, "static", "js", "vendored", "htmx.min.js"))
 	if err != nil {
 		t.Fatalf("读取落盘文件失败: %v", err)
 	}
@@ -453,7 +453,7 @@ func TestAddLocksChecksumAndAppendsToManifest(t *testing.T) {
 	locked, err := Add(context.Background(), UpdateOptions{
 		FS: fsys, ManifestPath: testManifestPath, Root: testRoot,
 		Sources: []string{srv.URL + "/{file}"},
-	}, Asset{Name: "idiomorph", Version: "0.8.0", URL: srv.URL + "/morph.js", Path: "static/js/vendor/idiomorph.min.js", Kind: "js"})
+	}, Asset{Name: "idiomorph", Version: "0.8.0", URL: srv.URL + "/morph.js", Path: "static/js/vendored/idiomorph.min.js", Kind: "js"})
 	if err != nil {
 		t.Fatalf("Add 失败: %v", err)
 	}
@@ -472,7 +472,7 @@ func TestAddLocksChecksumAndAppendsToManifest(t *testing.T) {
 	if !ok || found.SHA256 != locked.SHA256 {
 		t.Fatalf("清单未追加锁定条目: %+v", m.Assets)
 	}
-	if got, err := afero.ReadFile(fsys, filepath.Join(testRoot, "static", "js", "vendor", "idiomorph.min.js")); err != nil || string(got) != body {
+	if got, err := afero.ReadFile(fsys, filepath.Join(testRoot, "static", "js", "vendored", "idiomorph.min.js")); err != nil || string(got) != body {
 		t.Fatalf("落盘内容 = %q (err=%v)", got, err)
 	}
 }
@@ -707,11 +707,11 @@ func TestRenderSourceTemplates(t *testing.T) {
 // TestAssetLocalPath 校验 LocalPath 的拼接规则：清单路径始终用 "/"，落盘时按平台转换。
 // TestAssetLocalPath keeps manifest paths slash-separated while converting them for the local filesystem.
 func TestAssetLocalPath(t *testing.T) {
-	a := Asset{Name: "htmx", Path: "static/js/vendor/htmx.min.js"}
-	if got, want := a.LocalPath("web"), filepath.Join("web", "static", "js", "vendor", "htmx.min.js"); got != want {
+	a := Asset{Name: "htmx", Path: "static/js/vendored/htmx.min.js"}
+	if got, want := a.LocalPath("web"), filepath.Join("web", "static", "js", "vendored", "htmx.min.js"); got != want {
 		t.Errorf("LocalPath = %q，期望 %q", got, want)
 	}
-	if got, want := a.LocalPath(""), filepath.Join("static", "js", "vendor", "htmx.min.js"); got != want {
+	if got, want := a.LocalPath(""), filepath.Join("static", "js", "vendored", "htmx.min.js"); got != want {
 		t.Errorf("空 root 的 LocalPath = %q，期望 %q", got, want)
 	}
 }

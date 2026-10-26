@@ -171,11 +171,11 @@ func newView(o Options) view {
 // bundleScriptsFor 按 base.html 的装载顺序返回共享脚本。
 func bundleScriptsFor(exts []string) []string {
 	scripts := make([]string, 0, 4+len(exts)+8)
-	scripts = append(scripts, "/static/js/vendor/htmx.min.js")
+	scripts = append(scripts, "/static/js/vendored/htmx.min.js")
 	scripts = append(scripts, extScripts(exts)...)
 	scripts = append(scripts,
 		"/static/js/yd-ui.js",
-		"/static/js/vendor/alpine.min.js",
+		"/static/js/vendored/alpine.min.js",
 		"/static/js/yd-guomi.js",
 		"/static/js/yd-guomi-htmx.js",
 		"/static/js/yd-authz.js",
@@ -260,24 +260,24 @@ func extScripts(exts []string) []string {
 
 // extScript maps extension names onto local script paths (CDN references are forbidden). | extScript 是扩展注册名到本地脚本路径的映射（严禁 CDN 引用）。
 var extScript = map[string]string{
-	ExtWS:               "/static/js/vendor/hx-ws.min.js",
-	ExtSSE:              "/static/js/vendor/hx-sse.min.js",
-	ExtPreload:          "/static/js/vendor/hx-preload.min.js",
-	ExtAlpine:           "/static/js/vendor/hx-alpine-compat.min.js",
-	ExtTargets:          "/static/js/vendor/hx-targets.min.js",
-	ExtHead:             "/static/js/vendor/hx-head.min.js",
-	ExtUpsert:           "/static/js/vendor/hx-upsert.min.js",
-	ExtPending:          "/static/js/vendor/hx-pending.min.js",
-	ExtMultipart:        "/static/js/vendor/hx-multipart.min.js",
-	ExtDownload:         "/static/js/vendor/hx-download.min.js",
-	ExtBrowserIndicator: "/static/js/vendor/hx-browser-indicator.min.js",
-	ExtHistoryCache:     "/static/js/vendor/hx-history-cache.min.js",
-	ExtLive:             "/static/js/vendor/hx-live.min.js",
-	ExtPrompt:           "/static/js/vendor/hx-prompt.min.js",
-	ExtPTag:             "/static/js/vendor/hx-ptag.min.js",
-	ExtCSP:              "/static/js/vendor/hx-csp.min.js",
-	ExtCompat:           "/static/js/vendor/hx-compat.min.js",
-	ExtHtmx2Compat:      "/static/js/vendor/htmx-2-compat.min.js",
+	ExtWS:               "/static/js/vendored/hx-ws.min.js",
+	ExtSSE:              "/static/js/vendored/hx-sse.min.js",
+	ExtPreload:          "/static/js/vendored/hx-preload.min.js",
+	ExtAlpine:           "/static/js/vendored/hx-alpine-compat.min.js",
+	ExtTargets:          "/static/js/vendored/hx-targets.min.js",
+	ExtHead:             "/static/js/vendored/hx-head.min.js",
+	ExtUpsert:           "/static/js/vendored/hx-upsert.min.js",
+	ExtPending:          "/static/js/vendored/hx-pending.min.js",
+	ExtMultipart:        "/static/js/vendored/hx-multipart.min.js",
+	ExtDownload:         "/static/js/vendored/hx-download.min.js",
+	ExtBrowserIndicator: "/static/js/vendored/hx-browser-indicator.min.js",
+	ExtHistoryCache:     "/static/js/vendored/hx-history-cache.min.js",
+	ExtLive:             "/static/js/vendored/hx-live.min.js",
+	ExtPrompt:           "/static/js/vendored/hx-prompt.min.js",
+	ExtPTag:             "/static/js/vendored/hx-ptag.min.js",
+	ExtCSP:              "/static/js/vendored/hx-csp.min.js",
+	ExtCompat:           "/static/js/vendored/hx-compat.min.js",
+	ExtHtmx2Compat:      "/static/js/vendored/htmx-2-compat.min.js",
 }
 
 // extNames is the canonical order of valid extensions, used for validation and error hints. | extNames 是合法扩展名的固定顺序，用于校验与错误提示。

@@ -224,7 +224,7 @@ YD 的每一层都站在开源社区的成果之上：路由与模板、数据�
 | **Node.js · Playwright** | 仅用于前端脚本单元测试与浏览器验证，不参与运行时 | https://nodejs.org · https://playwright.dev |
 | **ydx** | YunDev 自研组件（路由、JSON、Base64、日志、缓存、实时、渲染等），以 Apache-2.0 开源 | https://github.com/shibingli/ydx |
 
-前端资产的版本、来源与 SHA-256 锁定在 [`web/assets.lock.json`](web/assets.lock.json)；第三方许可正文与逐项说明见 [`web/static/js/vendor/LICENSES.md`](web/static/js/vendor/LICENSES.md)。上表未逐一展开的传递依赖记录在 `go.mod` / `go.sum` 中，其许可以各自仓库公布为准。若某处归属或链接有误，欢迎提交 Issue 指正——我们更愿意把致谢写准确，而不是写得多。
+前端资产的版本、来源与 SHA-256 锁定在 [`web/assets.lock.json`](web/assets.lock.json)；第三方许可正文与逐项说明见 [`web/static/js/vendored/LICENSES.md`](web/static/js/vendored/LICENSES.md)。上表未逐一展开的传递依赖记录在 `go.mod` / `go.sum` 中，其许可以各自仓库公布为准。若某处归属或链接有误，欢迎提交 Issue 指正——我们更愿意把致谢写准确，而不是写得多。
 
 ### 许可
 
@@ -438,7 +438,7 @@ Every layer of YD stands on work done in the open-source community: routing and 
 | **Node.js · Playwright** | Used only for front-end unit tests and browser verification, never at runtime | https://nodejs.org · https://playwright.dev |
 | **ydx** | YunDev's own components (router, JSON, Base64, logging, cache, realtime, render and more), open-sourced under Apache-2.0 | https://github.com/shibingli/ydx |
 
-Front-end versions, sources and SHA-256 locks live in [`web/assets.lock.json`](web/assets.lock.json); third-party licence texts are in [`web/static/js/vendor/LICENSES.md`](web/static/js/vendor/LICENSES.md). Transitive dependencies not listed above are recorded in `go.mod` / `go.sum`, with licences as published by their own repositories. If an attribution or link is wrong, please open an issue — we would rather be accurate than exhaustive.
+Front-end versions, sources and SHA-256 locks live in [`web/assets.lock.json`](web/assets.lock.json); third-party licence texts are in [`web/static/js/vendored/LICENSES.md`](web/static/js/vendored/LICENSES.md). Transitive dependencies not listed above are recorded in `go.mod` / `go.sum`, with licences as published by their own repositories. If an attribution or link is wrong, please open an issue — we would rather be accurate than exhaustive.
 
 ### License
 

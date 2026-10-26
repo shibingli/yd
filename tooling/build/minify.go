@@ -279,9 +279,9 @@ func minifiedSource(abs string) (string, bool) {
 	}
 }
 
-// minifySources returns every .js and .svg source under root, sorted, skipping vendor trees and
+// minifySources returns every .js and .svg source under root, sorted, skipping vendor/vendored trees and
 // already-minified files. CSS stays out: Tailwind owns its minification. | minifySources 返回 root 下
-// 全部 .js 与 .svg 源码（已排序），跳过 vendor 目录与已压缩文件。CSS 不在其中：它由 Tailwind 压缩。
+// 全部 .js 与 .svg 源码（已排序），跳过 vendor/vendored 目录与已压缩文件。CSS 不在其中：它由 Tailwind 压缩。
 func minifySources(root string) ([]string, error) {
 	var out []string
 	err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
@@ -289,7 +289,7 @@ func minifySources(root string) ([]string, error) {
 			return err
 		}
 		if d.IsDir() {
-			if d.Name() == "vendor" {
+			if d.Name() == "vendor" || d.Name() == "vendored" {
 				return filepath.SkipDir
 			}
 			return nil
@@ -352,7 +352,7 @@ func checkMinified(ctx context.Context, run ExecCommandFunc, dir, bin, input, ou
 }
 
 // cleanStaleMinified removes .min.js files whose source disappeared, skipping
-// vendor trees. | cleanStaleMinified 删除源文件已消失的 .min.js，跳过 vendor 目录。
+// vendor/vendored trees. | cleanStaleMinified 删除源文件已消失的 .min.js，跳过 vendor/vendored 目录。
 // minifyManifestName is the project-local record of outputs this stage generated.
 // It lives under .yd/, which every generated project already ignores, and it is
 // what lets cleanup delete only files this stage owns. | minifyManifestName 是本阶段
@@ -407,11 +407,11 @@ func writeMinifyManifest(dir string, outputs []string, log *ydlog.Logger) {
 }
 
 // ownedOutput reports whether rel is a .min.js or .min.svg output this stage may own: inside root,
-// not under vendor and ending in a tracked suffix. | ownedOutput 报告 rel 是否可能是本阶段拥有的
-// .min.js 或 .min.svg 产物：位于 root 内、不在 vendor 下且以受跟踪后缀结尾。
+// not under vendor/vendored and ending in a tracked suffix. | ownedOutput 报告 rel 是否可能是本阶段拥有的
+// .min.js 或 .min.svg 产物：位于 root 内、不在 vendor/vendored 下且以受跟踪后缀结尾。
 func ownedOutput(root, dir, rel string) (string, bool) {
 	cleanRel := filepath.ToSlash(rel)
-	if _, ok := minifiedSource(cleanRel); !ok || strings.Contains("/"+cleanRel+"/", "/vendor/") {
+	if _, ok := minifiedSource(cleanRel); !ok || (strings.Contains("/"+cleanRel+"/", "/vendor/") || strings.Contains("/"+cleanRel+"/", "/vendored/")) {
 		return "", false
 	}
 	abs := resolvePath(dir, cleanRel)

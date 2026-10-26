@@ -79,6 +79,6 @@ func (c *Controller) UIKit(ctx *router.Ctx) {
 		"FilterFields":  template.HTML(`<input class="yd-input" type="search" name="q" value="" data-yd-i18n-attr="aria-label:ui.search" aria-label="Search">`),                             //nolint:gosec // fixed sample markup, no user data | 固定示例标记，无用户数据
 		"ActionButtons": template.HTML(`<button type="button" class="yd-btn yd-btn--danger yd-btn--sm" data-yd-i18n="ui.delete">Delete</button>`),                                             //nolint:gosec // fixed sample markup, no user data | 固定示例标记，无用户数据
 		"PageStyles":    messagePageStyles,
-		"PageScripts":   []string{"/static/js/vendor/easymde.min.js"},
+		"PageScripts":   []string{"/static/js/vendored/easymde.min.js"},
 	}))
 }

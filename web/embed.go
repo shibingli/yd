@@ -5,7 +5,7 @@
 //
 // Layout of the embedded tree (paths always use "/" and satisfy fs.ValidPath): | 内嵌目录树的布局（路径一律以 "/" 分隔并满足 fs.ValidPath）：
 //
-//	static/js/vendor/   third-party JavaScript locked by assets.lock.json | 由 assets.lock.json 锁定的第三方 JavaScript
+//	static/js/vendored/   third-party JavaScript locked by assets.lock.json | 由 assets.lock.json 锁定的第三方 JavaScript
 //	static/css/         Tailwind v4 entry app.css, the shared components.css and the committed build artifact yd.css | Tailwind v4 入口 app.css、共享组件层 components.css 与签入仓库的编译产物 yd.css
 //	templates/          page templates consumed by the render package | 供 render 包使用的页面模板
 //	i18n/               built-in message catalogues loaded by i18n.New and injected into the layout | 由 i18n.New 加载并注入布局的内置消息目录
@@ -29,7 +29,7 @@ import (
 // JavaScript 模式是 "*.js"，刻意不匹配 "*.test.mjs" 测试套件：测试既不能进入二进制，也不能从 /static 提供。
 // CSS 输入仍保留在内嵌树中，因为脚手架会把它们复制进生成项目，覆盖守卫也从这里读取。
 //
-//go:embed all:static/css all:static/img all:static/js/vendor
+//go:embed all:static/css all:static/img all:static/js/vendored
 //go:embed static/js/*.js assets.lock.json all:templates
 var embedded embed.FS
 

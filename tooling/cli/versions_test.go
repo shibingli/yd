@@ -26,8 +26,8 @@ require github.com/shibingli/yd v1.2.3
 const versionsManifest = `{
   "version": 1,
   "assets": [
-    {"name":"htmx","version":"4.0.0","url":"https://cdn.jsdelivr.net/npm/htmx.org@4.0.0/dist/htmx.min.js","path":"static/js/vendor/htmx.min.js","sha256":"97702a55839da4ec5879c4eec4030c905e074b71d398cf763f40321de1e04c13","size":1},
-    {"name":"alpinejs","version":"3.17.4","url":"https://cdn.jsdelivr.net/npm/alpinejs@3.17.4/dist/cdn.min.js","path":"static/js/vendor/alpine.min.js","sha256":"97702a55839da4ec5879c4eec4030c905e074b71d398cf763f40321de1e04c13","size":1}
+    {"name":"htmx","version":"4.0.0","url":"https://cdn.jsdelivr.net/npm/htmx.org@4.0.0/dist/htmx.min.js","path":"static/js/vendored/htmx.min.js","sha256":"97702a55839da4ec5879c4eec4030c905e074b71d398cf763f40321de1e04c13","size":1},
+    {"name":"alpinejs","version":"3.17.4","url":"https://cdn.jsdelivr.net/npm/alpinejs@3.17.4/dist/cdn.min.js","path":"static/js/vendored/alpine.min.js","sha256":"97702a55839da4ec5879c4eec4030c905e074b71d398cf763f40321de1e04c13","size":1}
   ]
 }`
 

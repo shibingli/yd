@@ -69,7 +69,7 @@ ok  github.com/shibingli/yd/e2e  26.829s
 4. **整页与 htmx 片段语义**：普通请求返回含 `<html` 的整页；带 `HX-Request: true`
    返回不含 `<html` 的片段
 5. **OpenAPI 3.0**：`/api/v1/openapi.json` 含 `"3.0`；`/mgr/docs` 查看器可访问且**不含任何外部 CDN 引用**
-6. **静态资产本地可用**：`/static/js/vendor/htmx.min.js` 与 `/static/css/yd.css` 均可取到
+6. **静态资产本地可用**：`/static/js/vendored/htmx.min.js` 与 `/static/css/yd.css` 均可取到
 
 `TestCrossCompile` 校验三平台真实产物的文件头（linux 产物必须是 ELF）。
 

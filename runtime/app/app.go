@@ -38,6 +38,8 @@ package app
 import (
 	"context"
 	"errors"
+	"net/http"
+	"strings"
 	"sync"
 	"time"
 
@@ -383,6 +385,21 @@ func Default() (*App, error) {
 	// make static assets lose Accept-Encoding. As the innermost global middleware it writes the headers right before
 	// the route handler and does not change compression behaviour.
 	a.UseObserved(StaticCacheDescriptor, a.StaticCache())
+
+	// The vendor directory was renamed to vendored because Go module zips omit directories named vendor, which made
+	// `go install ...@vX.Y.Z` fail on the embedded assets. Projects generated before the rename still request the old
+	// URL, so keep one same-origin redirect instead of breaking their templates. |
+	// vendor 目录已改名为 vendored：Go 模块 zip 会省略名为 vendor 的目录，导致 `go install ...@vX.Y.Z` 在嵌入资产时
+	// 失败。重命名前生成的项目仍请求旧地址，因此保留一个同源重定向，避免破坏它们的模板。
+	a.router.GET(staticURLPrefix+"/js/vendor/*filepath", func(c *router.Ctx) {
+		target := staticURLPrefix + "/js/vendored/" + strings.TrimPrefix(c.Param("filepath"), "/")
+		if raw := c.Request.URL.RawQuery; raw != "" {
+			target += "?" + raw
+		}
+		if err := c.Redirect(http.StatusPermanentRedirect, target); err != nil {
+			c.SetStatus(http.StatusNotFound)
+		}
+	})
 
 	a.router.StaticFS(staticURLPrefix, a.staticFS)
 

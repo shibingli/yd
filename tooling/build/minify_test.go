@@ -66,11 +66,11 @@ func TestResolveMinifyBinMissing(t *testing.T) {
 
 // TestBuildMinifyWritesMinSiblings pins the per-file conversion and the vendor
 // skip: app.js becomes app.min.js while vendor assets are never touched. | TestBuildMinifyWritesMinSiblings
-// 固定逐文件转换与 vendor 跳过：app.js 变成 app.min.js，vendor 资产一律不动。
+// 固定逐文件转换与 vendor 跳过：app.js 变成 app.min.js，vendored 资产一律不动。
 func TestBuildMinifyWritesMinSiblings(t *testing.T) {
 	dir := t.TempDir()
 	writeFile(t, filepath.Join(dir, "web", "static", "js", "app.js"), "console.log(1)\n")
-	writeFile(t, filepath.Join(dir, "web", "static", "js", "vendor", "htmx.min.js"), "/*min*/\n")
+	writeFile(t, filepath.Join(dir, "web", "static", "js", "vendored", "htmx.min.js"), "/*min*/\n")
 	bin := filepath.Join(dir, minifyBinName())
 	writeFile(t, bin, "stand-in for the minify executable\n")
 
@@ -88,7 +88,7 @@ func TestBuildMinifyWritesMinSiblings(t *testing.T) {
 		t.Fatalf("buildMinifyWith 失败: %v", err)
 	}
 	if len(fake.calls) != 1 {
-		t.Fatalf("minify 调用次数 = %d, 期望 1（vendor 应跳过）: %v", len(fake.calls), fake.calls)
+		t.Fatalf("minify 调用次数 = %d, 期望 1（vendored 应跳过）: %v", len(fake.calls), fake.calls)
 	}
 	argv := fake.calls[0]
 	wantOut := filepath.Join(dir, "web", "static", "js", "app.min.js")

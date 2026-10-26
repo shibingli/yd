@@ -1892,9 +1892,9 @@ func TestGeneratedAppServesFrameworkFeatures(t *testing.T) {
 	})
 
 	t.Run("静态资产", func(t *testing.T) {
-		resp, body := getText(t, client, base+"/static/js/vendor/htmx.min.js", nil)
+		resp, body := getText(t, client, base+"/static/js/vendored/htmx.min.js", nil)
 		if resp.StatusCode != http.StatusOK {
-			t.Fatalf("GET /static/js/vendor/htmx.min.js 状态码 = %d, 期望 200", resp.StatusCode)
+			t.Fatalf("GET /static/js/vendored/htmx.min.js 状态码 = %d, 期望 200", resp.StatusCode)
 		}
 		if len(body) < 1000 || !strings.Contains(body, "htmx") {
 			t.Errorf("htmx.min.js 内容异常（长度 %d 字节）", len(body))
@@ -3562,24 +3562,24 @@ func TestGenerateSupportsTheFullHtmx4ExtensionSet(t *testing.T) {
 
 	meta := pr.read("internal/meta/meta.go")
 	for _, want := range []string{
-		"/static/js/vendor/hx-ws.min.js",
-		"/static/js/vendor/hx-sse.min.js",
-		"/static/js/vendor/hx-preload.min.js",
-		"/static/js/vendor/hx-alpine-compat.min.js",
-		"/static/js/vendor/hx-targets.min.js",
-		"/static/js/vendor/hx-head.min.js",
-		"/static/js/vendor/hx-upsert.min.js",
-		"/static/js/vendor/hx-pending.min.js",
-		"/static/js/vendor/hx-multipart.min.js",
-		"/static/js/vendor/hx-download.min.js",
-		"/static/js/vendor/hx-browser-indicator.min.js",
-		"/static/js/vendor/hx-history-cache.min.js",
-		"/static/js/vendor/hx-live.min.js",
-		"/static/js/vendor/hx-prompt.min.js",
-		"/static/js/vendor/hx-ptag.min.js",
-		"/static/js/vendor/hx-csp.min.js",
-		"/static/js/vendor/hx-compat.min.js",
-		"/static/js/vendor/htmx-2-compat.min.js",
+		"/static/js/vendored/hx-ws.min.js",
+		"/static/js/vendored/hx-sse.min.js",
+		"/static/js/vendored/hx-preload.min.js",
+		"/static/js/vendored/hx-alpine-compat.min.js",
+		"/static/js/vendored/hx-targets.min.js",
+		"/static/js/vendored/hx-head.min.js",
+		"/static/js/vendored/hx-upsert.min.js",
+		"/static/js/vendored/hx-pending.min.js",
+		"/static/js/vendored/hx-multipart.min.js",
+		"/static/js/vendored/hx-download.min.js",
+		"/static/js/vendored/hx-browser-indicator.min.js",
+		"/static/js/vendored/hx-history-cache.min.js",
+		"/static/js/vendored/hx-live.min.js",
+		"/static/js/vendored/hx-prompt.min.js",
+		"/static/js/vendored/hx-ptag.min.js",
+		"/static/js/vendored/hx-csp.min.js",
+		"/static/js/vendored/hx-compat.min.js",
+		"/static/js/vendored/htmx-2-compat.min.js",
 	} {
 		if !strings.Contains(meta, want) {
 			t.Errorf("meta.go 缺少脚本 %q", want)
@@ -3678,7 +3678,7 @@ func TestGeneratedUILoadsAlpineAndTheKitInOrder(t *testing.T) {
 	} {
 		page := pr.read(rel)
 		kit := `{{ asset "/static/js/yd-ui.js" }}`
-		alpine := `{{ asset "/static/js/vendor/alpine.min.js" }}`
+		alpine := `{{ asset "/static/js/vendored/alpine.min.js" }}`
 		kitAt := strings.Index(page, kit)
 		alpineAt := strings.Index(page, alpine)
 		switch {

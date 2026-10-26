@@ -142,6 +142,13 @@ func TestDefaultWiresEmbeddedAssets(t *testing.T) {
 	if body := rec.Body.String(); !strings.Contains(body, "--yd-brand") {
 		t.Errorf("静态资源正文异常: %q", body)
 	}
+	// Projects generated before the vendor -> vendored rename keep working through one same-origin redirect. |
+	// 在 vendor -> vendored 重命名之前生成的项目通过一次同源重定向继续工作。
+	legacy := doRequest(t, a, http.MethodGet, "/static/js/vendor/htmx.min.js?v=1", nil)
+	if legacy.Code != http.StatusPermanentRedirect || legacy.Header().Get("Location") != "/static/js/vendored/htmx.min.js?v=1" {
+		t.Errorf("legacy vendor redirect = %d %q, want 308 /static/js/vendored/htmx.min.js?v=1",
+			legacy.Code, legacy.Header().Get("Location"))
+	}
 	// RequestID runs in the default chain and echoes the incoming header. | 默认链上的 RequestID 会回显请求头。
 	if got := rec.Header().Get("X-Request-Id"); got != "trace-1" {
 		t.Errorf("X-Request-Id 回显 = %q, 期望 %q", got, "trace-1")

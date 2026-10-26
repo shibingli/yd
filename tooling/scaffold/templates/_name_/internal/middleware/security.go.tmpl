@@ -18,9 +18,9 @@ const (
 	// cspPolicy is the content security policy: same-origin resources only by default.
 	//
 	// 关键约束：script-src 不含 'unsafe-inline'，也不含任何外部主机，因此内联脚本与 CDN 脚本都会被浏览器拒绝
-	// ——框架要求静态资源全部本地化（见 web/static/js/vendor/），这条策略是它的强制执行点。
+	// ——框架要求静态资源全部本地化（见 web/static/js/vendored/），这条策略是它的强制执行点。
 	// The key constraint: script-src carries neither 'unsafe-inline' nor any external host, so inline and CDN scripts are
-	// both refused by the browser — the framework requires every static asset to be local (see web/static/js/vendor/) and
+	// both refused by the browser — the framework requires every static asset to be local (see web/static/js/vendored/) and
 	// this policy is where that requirement is enforced.
 	//
 	// style-src 保留 'unsafe-inline'：htmx 的局部交换与 Tailwind 的运行时样式都可能内联注入 style 属性，禁用它会让

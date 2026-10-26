@@ -120,12 +120,12 @@
 <script src="{{ . }}" defer></script>
 {{- end }}
 {{- else }}
-<script src="{{ asset "/static/js/vendor/htmx.min.js" }}" defer></script>
+<script src="{{ asset "/static/js/vendored/htmx.min.js" }}" defer></script>
 {{- range .Scripts }}
 <script src="{{ asset . }}" defer></script>
 {{- end }}
 <script src="{{ asset "/static/js/yd-ui.js" }}" defer></script>
-<script src="{{ asset "/static/js/vendor/alpine.min.js" }}" defer></script>
+<script src="{{ asset "/static/js/vendored/alpine.min.js" }}" defer></script>
 <script src="{{ asset "/static/js/yd-guomi.js" }}" defer></script>
 <script src="{{ asset "/static/js/yd-guomi-htmx.js" }}" defer></script>
 <script src="{{ asset "/static/js/yd-authz.js" }}" defer></script>

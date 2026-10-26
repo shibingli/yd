@@ -40,7 +40,7 @@ const testManifest = `{
       "name": "htmx",
       "version": "4.0.0",
       "url": "https://cdn.jsdelivr.net/npm/htmx.org@4.0.0/dist/htmx.min.js",
-      "path": "static/js/vendor/htmx.min.js",
+      "path": "static/js/vendored/htmx.min.js",
       "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
       "size": 1
     },
@@ -48,7 +48,7 @@ const testManifest = `{
       "name": "alpinejs",
       "version": "3.17.4",
       "url": "https://cdn.jsdelivr.net/npm/alpinejs@3.17.4/dist/cdn.min.js",
-      "path": "static/js/vendor/alpine.min.js",
+      "path": "static/js/vendored/alpine.min.js",
       "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
       "size": 1
     }
