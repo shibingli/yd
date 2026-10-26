@@ -73,6 +73,7 @@ yd tools install tailwindcss   # 下载 Tailwind standalone 二进制
 
 ```bash
 yd versions upgrade          # 升级 Go 模块 + 前端资产并重新生成脚手架版本常量
+yd versions upgrade --self   # 同时把运行中的 yd 更新到最新 Release
 yd versions upgrade --dry-run
 yd versions check            # 离线校验生成文件与真源一致，CI 可用
 ```
@@ -619,6 +620,7 @@ yd authz list
 
 ```bash
 yd versions [check|sync|upgrade] [--dir DIR] [--dry-run] [--go] [--assets]
+             [--self] [--self-binary PATH] [--self-version TAG] [--self-force]
 ```
 
 ```bash
@@ -627,7 +629,19 @@ yd versions sync                   # 只重新生成 version_generated.go
 yd versions upgrade --dry-run      # 只打印计划
 yd versions upgrade                # Go 模块 + 前端资产
 yd versions upgrade --go=false     # 只升级前端资产
+yd versions upgrade --self         # 同时把当前 yd 更新到最新 Release
+yd versions upgrade --go=false --assets=false --self   # 只更新 yd CLI
+yd versions upgrade --self --self-binary /usr/local/bin/yd  # 指定安装位置
+yd versions upgrade --self --self-version v1.15.4 --self-force # 固定版本/降级
 ```
+
+`--self` 更新的是**当前运行的可执行文件**：自定义下载的 Release 二进制、`go install`
+产物与任意 `--self-binary` 指定的文件都按同一路径处理；传入目录时自动找其中的
+`yd` / `yd.exe`。更新器会下载对应 GOOS/GOARCH 的 Release 归档、校验 `checksums.txt`
+中的 SHA-256、解包并在目标文件旁原子替换，旧文件保留为 `.old-<pid>` 以便回滚。
+运行中的进程继续使用旧映像，新版本在**下一次执行** `yd` 时生效；Windows 上旧文件
+若被占用会在后续运行中清理。`--dry-run` 不访问网络。Release 查询与下载遵循
+`http.proxy`（`YD_HTTP_PROXY`），代理地址可能含凭据，不会写入日志。
 
 ### 5.12 `yd tools`
 
@@ -1232,7 +1246,10 @@ go get github.com/shibingli/ydx/afs@v0.2.0 github.com/shibingli/ydx/middleware@v
 go mod tidy
 yd versions sync
 
-# 3. 全量门禁
+# 3. 发布 yd Release 后升级本机 CLI（不碰项目依赖）
+yd versions upgrade --go=false --assets=false --self --self-binary /usr/local/bin/yd
+
+# 4. 全量门禁
 go build ./... && go vet ./... && go test ./... -race
 ```
 

@@ -616,12 +616,21 @@ yd completion install [--shell S] [--dir D] [--print] [--append-rc] [--yes]
 yd versions upgrade            # go get -u ./... + go mod tidy + npm 最新资产重锁 + 重新生成
 yd versions upgrade --dry-run  # 只打印计划，不执行 go、不下载、不写文件
 yd versions upgrade --go=false # 只升级前端资产
+yd versions upgrade --self     # 项目升级完成后把运行中的 yd 更新到最新 Release
+yd versions upgrade --go=false --assets=false --self  # 只更新 yd CLI
+yd versions upgrade --self --self-binary PATH         # 替换指定文件或目录中的 yd[.exe]
+yd versions upgrade --self --self-version TAG --self-force # 固定版本或降级
 yd versions check              # 离线校验生成文件与真源一致（CI 可用的非零退出）
 yd versions sync               # 仅重新生成 version_generated.go
 ```
 
 - `upgrade` 按顺序执行：Go 模块 → npm 资产（jsDelivr / unpkg 的 `@ver` 段改写为 registry 最新版，
-  下载并重新锁定 sha256）→ 重新生成脚手架常量。
+  下载并重新锁定 sha256）→ 重新生成脚手架常量 →（`--self`）替换 CLI。
+- **CLI 自更新**：下载与当前 GOOS/GOARCH 匹配的 Release 归档，校验 `checksums.txt` 的 SHA-256，
+  解包后在目标目录原子替换；默认目标是 `os.Executable()`，`--self-binary` 可指定文件或目录
+  （目录解析为其中的 `yd[.exe]`）。因此自定义下载、`go install` 与任意位置的二进制都走同一条路径。
+  运行中的进程继续使用旧映像，新版本在下次启动生效；旧文件保留为 `.old-<pid>` 以便回滚。
+  `--dry-run` 不访问网络；下载遵循 `http.proxy`。
 - registry 查询或 Go 模块升级失败时，在改写任何资产之前返回错误；资产下载阶段失败会返回错误，
   此时锁文件可能已指向新版本而文件尚未全部重锁，重新运行 `yd versions upgrade`（或
   `yd assets update`）即可收敛。未变化的资产保留原校验和，因此仍能拒绝被移动的标签或被篡改的镜像。

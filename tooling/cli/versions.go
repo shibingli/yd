@@ -14,6 +14,7 @@ import (
 
 	"github.com/spf13/pflag"
 
+	"github.com/shibingli/yd/core/version"
 	"github.com/shibingli/yd/tooling/assets"
 	"github.com/shibingli/yd/tooling/versions"
 	"github.com/shibingli/ydx/errs"
@@ -32,10 +33,20 @@ const (
 	flagVersionsGo = "go"
 	// flagVersionsAssets upgrades the npm-pinned front-end assets. | flagVersionsAssets 升级 npm 锁定的前端资产。
 	flagVersionsAssets = "assets"
+	// flagVersionsSelf also updates the running yd CLI. | flagVersionsSelf 同时更新运行中的 yd CLI。
+	flagVersionsSelf = "self"
+	// flagVersionsSelfBinary is the yd file or directory to replace. | flagVersionsSelfBinary 是要替换的
+	// yd 文件或目录。
+	flagVersionsSelfBinary = "self-binary"
+	// flagVersionsSelfVersion pins the CLI release tag. | flagVersionsSelfVersion 指定 CLI 的 Release 标签。
+	flagVersionsSelfVersion = "self-version"
+	// flagVersionsSelfForce permits reinstalling or downgrading the CLI. | flagVersionsSelfForce 允许
+	// 重装或降级 CLI。
+	flagVersionsSelfForce = "self-force"
 )
 
 // versionsUsageLine is the usage line of the versions command. | versionsUsageLine 是 versions 命令的用法行。
-const versionsUsageLine = "yd versions [check|sync|upgrade] [--dir DIR] [--dry-run] [--go] [--assets]"
+const versionsUsageLine = "yd versions [check|sync|upgrade] [--dir DIR] [--dry-run] [--go] [--assets] [--self] [--self-binary PATH] [--self-version TAG] [--self-force]"
 
 // The versions command's action words. | versions 命令的动作词。
 const (
@@ -50,7 +61,8 @@ const (
 var (
 	// ErrVersionsCommand reports a failed external go command. | ErrVersionsCommand 表示外部 go 命令执行失败。
 	ErrVersionsCommand = errs.New("run go command failed | 执行 go 命令失败")
-	// ErrVersionsNothing reports an upgrade with both halves disabled. | ErrVersionsNothing 表示升级的两个部分都被关闭。
+	// ErrVersionsNothing reports an upgrade with every selectable part disabled. | ErrVersionsNothing
+	// 表示升级的所有可选部分都被关闭。
 	ErrVersionsNothing = errs.New("nothing to upgrade | 没有可升级项")
 	// ErrNoScaffold reports sync outside the framework repository. | ErrNoScaffold 表示在框架仓库之外运行 sync。
 	ErrNoScaffold = errs.New("no tooling/scaffold directory; sync only applies to the framework repository | 没有 tooling/scaffold 目录；sync 仅适用于框架仓库")
@@ -58,6 +70,11 @@ var (
 
 // versionsFlags keeps the versions command's flag set. | versionsFlags 保存 versions 命令的标志集。
 var versionsFlags *pflag.FlagSet
+
+// versionsSelfUpdate is the injection point for CLI replacement; tests replace it so no release is
+// downloaded inside the test process. | versionsSelfUpdate 是 CLI 替换的注入点；测试替换它，使测试
+// 进程内不会真的下载 Release。
+var versionsSelfUpdate = versions.UpdateSelf
 
 // versionsRunGo is the injection point for the external go command; tests replace it so no real
 // module operation runs inside the test process. | versionsRunGo 是外部 go 命令的注入点；
@@ -118,9 +135,12 @@ func init() {
 			"\n" +
 			"check (default) verifies the generated version file and prints the inventory; sync regenerates it;\n" +
 			"upgrade runs go get -u ./... plus go mod tidy, resolves the latest npm release of every locked asset,\n" +
-			"downloads and re-locks them, then regenerates the version file.\n" +
+			"downloads and re-locks them, then regenerates the version file. --self additionally replaces the\n" +
+			"running yd binary (or --self-binary PATH) with the latest GitHub release after project upgrades;\n" +
+			"the new binary takes effect on the next invocation.\n" +
 			"check（默认）校验生成文件并打印版本清单；sync 重新生成；upgrade 执行 go get -u ./... 与 go mod tidy，\n" +
-			"解析并重新锁定每个资产的 npm 最新版本，最后重新生成版本文件。",
+			"解析并重新锁定每个资产的 npm 最新版本，最后重新生成版本文件。--self 在项目升级完成后一并把运行中的\n" +
+			"yd 二进制（或 --self-binary PATH）替换为最新 GitHub Release；新二进制在下次启动时生效。",
 		Usage: versionsUsageLine,
 		Flags: registerVersionsFlags,
 		Run:   runVersions,
@@ -138,6 +158,10 @@ func registerVersionsFlags(fs *pflag.FlagSet) {
 	fs.Bool(flagVersionsDryRun, false, "report the plan without changing anything | 只报告计划，不做任何改动")
 	fs.Bool(flagVersionsGo, true, "upgrade Go module dependencies (upgrade) | 升级 Go 模块依赖（upgrade）")
 	fs.Bool(flagVersionsAssets, true, "upgrade npm-pinned front-end assets (upgrade) | 升级 npm 锁定的前端资产（upgrade）")
+	fs.Bool(flagVersionsSelf, false, "also update the running yd CLI (upgrade) | 同时更新运行中的 yd CLI（upgrade）")
+	fs.String(flagVersionsSelfBinary, "", "yd file or directory to replace (upgrade) | 要替换的 yd 文件或目录（upgrade）")
+	fs.String(flagVersionsSelfVersion, "", "yd release tag for --self, empty means latest | --self 的 yd Release 标签，空表示最新")
+	fs.Bool(flagVersionsSelfForce, false, "reinstall or downgrade the yd CLI | 重装或降级 yd CLI")
 	versionsFlags = fs
 }
 
@@ -220,9 +244,13 @@ func runVersionsUpgrade(ctx context.Context, env *Env) error {
 	dry, _ := fs.GetBool(flagVersionsDryRun)
 	upgradeGo, _ := fs.GetBool(flagVersionsGo)
 	upgradeAssets, _ := fs.GetBool(flagVersionsAssets)
+	updateSelf := flagBool(fs, flagVersionsSelf) ||
+		flagChanged(fs, flagVersionsSelfBinary) ||
+		flagChanged(fs, flagVersionsSelfVersion) ||
+		flagChanged(fs, flagVersionsSelfForce)
 
-	if !upgradeGo && !upgradeAssets {
-		return errs.Detail(ErrVersionsNothing, "pass --go or --assets | 请传 --go 或 --assets")
+	if !upgradeGo && !upgradeAssets && !updateSelf {
+		return errs.Detail(ErrVersionsNothing, "pass --go, --assets or --self | 请传 --go、--assets 或 --self")
 	}
 
 	if upgradeGo {
@@ -342,19 +370,66 @@ func runVersionsUpgrade(ctx context.Context, env *Env) error {
 
 	if !versions.HasScaffold(env.FS, dir) {
 		fmt.Fprintln(env.Out, "scaffold | 脚手架: not present, sync skipped | 不存在，已跳过生成")
-		return nil
+		return runVersionsSelfUpdate(ctx, env, client, dry, updateSelf)
 	}
 	if dry {
 		fmt.Fprintln(env.Out, "would regenerate | 将重新生成: "+versions.GeneratedPath)
-		return nil
+		return runVersionsSelfUpdate(ctx, env, client, dry, updateSelf)
 	}
 	path, err := versions.Sync(env.FS, dir)
 	if err != nil {
 		return err
 	}
 	fmt.Fprintf(env.Out, "synced | 已同步: %s\n", path)
+	if err := runVersionsSelfUpdate(ctx, env, client, false, updateSelf); err != nil {
+		return err
+	}
 	fmt.Fprintln(env.Out, "next | 下一步: run go build ./... && go vet ./... && go test ./... -race")
 	return nil
+}
+
+// runVersionsSelfUpdate replaces the yd CLI after the project upgrade. The binary path, release
+// tag and force switch all come from the versions flags; a directory path resolves to yd[.exe]. |
+// runVersionsSelfUpdate 在项目升级后替换 yd CLI。二进制路径、Release 标签与强制开关都来自 versions
+// 标志；目录路径会解析为其中的 yd[.exe]。
+func runVersionsSelfUpdate(ctx context.Context, env *Env, client *http.Client, dry, enabled bool) error {
+	if !enabled {
+		return nil
+	}
+	binaryPath, _ := versionsFlags.GetString(flagVersionsSelfBinary)
+	if dry {
+		fmt.Fprintf(env.Out, "would update | 将更新: yd CLI -> latest (binary | 二进制: %s)\n", binaryOrCurrent(binaryPath))
+		return nil
+	}
+	targetVersion, _ := versionsFlags.GetString(flagVersionsSelfVersion)
+	res, err := versionsSelfUpdate(ctx, versions.SelfUpdateOptions{
+		HTTPClient:     client,
+		CurrentVersion: version.ModuleVersion(),
+		TargetVersion:  targetVersion,
+		BinaryPath:     binaryPath,
+		Force:          flagBool(versionsFlags, flagVersionsSelfForce),
+	})
+	if err != nil {
+		return err
+	}
+	if !res.Updated {
+		fmt.Fprintf(env.Out, "cli | 命令行: %s\n", res.Reason)
+		return nil
+	}
+	fmt.Fprintf(env.Out, "cli | 命令行: %s -> %s (%s)\n", res.FromVersion, res.ToVersion, res.Binary)
+	if res.Backup != "" {
+		fmt.Fprintf(env.Out, "backup | 备份: %s\n", res.Backup)
+	}
+	fmt.Fprintln(env.Out, "restart | 重新启动: the new yd binary takes effect on the next invocation | 新 yd 二进制在下次启动时生效")
+	return nil
+}
+
+// binaryOrCurrent renders the self-update target for dry runs. | binaryOrCurrent 为干跑渲染自更新目标。
+func binaryOrCurrent(path string) string {
+	if path != "" {
+		return path
+	}
+	return "current executable | 当前可执行文件"
 }
 
 // printAssetPlan writes one line per locked asset. | printAssetPlan 为每个已锁定资产写一行。

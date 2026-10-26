@@ -343,6 +343,10 @@ regexp2 + 超时；调用方仍然只经包装层。修复后 race 下该测试�
   后守卫立即失败，恢复后通过。
 - `yd versions upgrade` 依次执行 `go get -u ./...`、`go mod tidy`、npm registry 最新版本解析
   （jsDelivr / unpkg 的 `@ver` 段改写）、下载重锁、重新生成；`--dry-run` 不执行 go、不下载、不写文件。
+- `--self` 在项目升级完成后更新 CLI：按当前 GOOS/GOARCH 下载 Release 归档、校验
+  `checksums.txt`、解包并原子替换 `os.Executable()` 或 `--self-binary` 指定的文件/目录；
+  `--self-version` 固定版本、`--self-force` 允许重装或降级。测试覆盖 tar.gz/zip、
+  checksum 不匹配、路径穿越、目录目标、已是最新、拒绝降级与 dry-run 不触网。
 - 模板里不再有第二处版本钉点：Dockerfile 的 `golang:{{ .GoMajorMinor }}-alpine` 由 `GoVersion`
   计算（`TestGenerateDockerfileUsesScratchMultiStage` 断言），README / CLAUDE.md / meta.go 均用同一常量。
 - 生成项目（无 `tooling/scaffold`）运行 `yd versions upgrade` 只升级 Go 模块与资产，

@@ -251,3 +251,69 @@ func TestVersionsClientUsesConfiguredProxy(t *testing.T) {
 		t.Fatalf("响应 = %q, err = %v | response", body, readErr)
 	}
 }
+
+// TestVersionsUpgradeSelfWiresFlags proves --self-binary/--self-version/--self-force reach the
+// updater even without the explicit --self switch, and that the CLI replacement runs after project
+// work. | TestVersionsUpgradeSelfWiresFlags 证明即使没有显式 --self 开关，
+// --self-binary/--self-version/--self-force 也会传到更新器，并且 CLI 替换发生在项目工作之后。
+func TestVersionsUpgradeSelfWiresFlags(t *testing.T) {
+	te := newTestEnv(t, versionsFS(t), "", false)
+	old := versionsSelfUpdate
+	var got versions.SelfUpdateOptions
+	versionsSelfUpdate = func(_ context.Context, o versions.SelfUpdateOptions) (*versions.SelfUpdateResult, error) {
+		got = o
+		return &versions.SelfUpdateResult{
+			FromVersion: "v1.0.0",
+			ToVersion:   "v9.9.9",
+			Binary:      o.BinaryPath,
+			Updated:     true,
+		}, nil
+	}
+	t.Cleanup(func() { versionsSelfUpdate = old })
+
+	err := Execute(context.Background(), []string{
+		"versions", "upgrade", "--go=false", "--assets=false",
+		"--self-binary", "custom/yd", "--self-version", "v9.9.9", "--self-force",
+	}, te.env)
+	if err != nil {
+		t.Fatalf("upgrade: %v", err)
+	}
+	if got.BinaryPath != "custom/yd" || got.TargetVersion != "v9.9.9" || !got.Force {
+		t.Fatalf("自更新选项 = %+v | self options = %+v", got, got)
+	}
+	if got.HTTPClient == nil {
+		t.Error("自更新缺少 HTTP 客户端 | self update has no HTTP client")
+	}
+	out := te.out.String()
+	for _, want := range []string{"cli | 命令行:", "v1.0.0 -> v9.9.9", "next | 下一步"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("输出缺少 %q:\n%s", want, out)
+		}
+	}
+}
+
+// TestVersionsUpgradeSelfDryRunDoesNotDownload keeps --dry-run network-free for the CLI half. |
+// TestVersionsUpgradeSelfDryRunDoesNotDownload 保证 CLI 那一半在 --dry-run 下不触网。
+func TestVersionsUpgradeSelfDryRunDoesNotDownload(t *testing.T) {
+	te := newTestEnv(t, versionsFS(t), "", false)
+	old := versionsSelfUpdate
+	called := false
+	versionsSelfUpdate = func(context.Context, versions.SelfUpdateOptions) (*versions.SelfUpdateResult, error) {
+		called = true
+		return &versions.SelfUpdateResult{}, nil
+	}
+	t.Cleanup(func() { versionsSelfUpdate = old })
+
+	err := Execute(context.Background(), []string{
+		"versions", "upgrade", "--go=false", "--assets=false", "--self", "--dry-run",
+	}, te.env)
+	if err != nil {
+		t.Fatalf("dry-run: %v", err)
+	}
+	if called {
+		t.Error("dry-run 不得调用自更新器 | dry-run must not call the updater")
+	}
+	if !strings.Contains(te.out.String(), "would update | 将更新") {
+		t.Errorf("dry-run 未打印自更新计划:\n%s", te.out.String())
+	}
+}

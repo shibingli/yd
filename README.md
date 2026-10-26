@@ -124,6 +124,9 @@ YD 把「Go 单体后端 + Htmx 片段前端」做成一套可直接交付的全
 # 从源码安装 CLI
 go install github.com/shibingli/yd/cmd/yd@latest
 
+# 之后可把 CLI 更新到最新 Release；--self-binary 可指定自定义位置
+yd versions upgrade --go=false --assets=false --self
+
 # 创建项目并进入
 yd new myapp && cd myapp
 
@@ -337,6 +340,9 @@ Prebuilt binaries (Linux / Windows / macOS, amd64 / arm64) are on [Releases](htt
 ```bash
 # Install the CLI from source
 go install github.com/shibingli/yd/cmd/yd@latest
+
+# Later, update the CLI to the latest release; --self-binary selects a custom path
+yd versions upgrade --go=false --assets=false --self
 
 # Create a project and enter it
 yd new myapp && cd myapp
