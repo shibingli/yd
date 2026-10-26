@@ -126,6 +126,43 @@ auth:
   # Ceiling of one auth statement; 0 keeps the framework default (no extra bound). | 单条鉴权语句的上限；0 表示沿用框架默认值（不额外设限）。
   gorm:
     query_timeout: 0
+{{- end }}
+
+# 人机验证（验证码）：接线始终随项目生成，这里只决定是否在登录与修改口令时要求验证。
+# Human verification (captcha): the wiring always ships with the project; these switches decide
+# whether sign-in and password changes require it.
+captcha:
+  login: {{ if .Captcha }}true{{ else }}false{{ end }}            # 登录时要求验证码 | require verification on sign-in
+  password_change: {{ if .Captcha }}true{{ else }}false{{ end }}  # 修改口令时要求验证码 | require verification when changing the password
+  # 生产环境必须通过 YD_CAPTCHA_SECRET 注入；development 留空时回退到文档化开发密钥并每次启动告警。
+  # 其它环境留空会拒绝启动。| Production must inject it through YD_CAPTCHA_SECRET; in development an empty
+  # value falls back to the documented development secret with a warning on every start, while every other
+  # environment refuses to start.
+  secret: ""
+  # auto：优先 Redis，不可用时按 fallback 处理；memory：仅单机；redis：要求 Redis。
+  # auto prefers Redis and applies fallback when it is unavailable; memory is single-node only;
+  # redis requires Redis and still applies fallback.
+  store: auto
+  # Redis 不可用时：memory 降级为进程内存储并告警；fail 拒绝启动（严格多机模式）。
+  # When Redis is unavailable: memory degrades to the in-process store with a warning; fail refuses
+  # to start, which is what a strict multi-replica deployment wants.
+  fallback: memory
+  # 启用可用键盘完成的视觉题型。click_text / click_icon / semantic / slide 只支持指针，
+  # 需要无障碍替代方案时才显式加入；留空表示全部内置题型，会随机出到仅指针题型。
+  # Keyboard-operable visual types. click_text / click_icon / semantic / slide are pointer-only; add them explicitly
+  # only when an accessible alternative exists. Empty means every built-in type, including the pointer-only ones.
+  types: [text, rotate]
+  # Redis 键命名空间；同一部署内唯一，多个应用共享同一 Redis 时必须区分。
+  # Redis key namespace; unique per deployment and required when several applications share one Redis.
+  key_prefix: "yd:captcha:"
+  # 反向代理的 CIDR 列表（也可写单个 IP）；为空时只信任直接对端地址。仅在应用确实位于可信代理之后时配置，
+  # 否则客户端可以伪造 X-Forwarded-For 绕过按 IP 限流。
+  # CIDR list of reverse proxies (a bare IP is accepted too); empty trusts only the direct peer. Configure it only
+  # when the application really sits behind a trusted proxy, otherwise clients could forge X-Forwarded-For and
+  # bypass the per-IP limits.
+  trusted_proxies: []
+
+{{- if ne .DB "none" }}
 
 # Database: tenants, users, roles and permissions live here, so the data survives a restart. | 数据库：租户、用户、角色与权限都存在这里，重启后数据仍在。
 db:
@@ -205,7 +242,7 @@ grpc:
 {{- if .I18n }}
 
 i18n:
-  default: zh-CN
+  default_lang: zh-CN
   fallback: en
   dir: configs/i18n
 {{- end }}

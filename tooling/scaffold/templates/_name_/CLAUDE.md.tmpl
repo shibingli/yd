@@ -21,6 +21,7 @@
 | redis 集成 | 内置（始终启用） |
 | asynq 队列 | 内置（始终启用） |
 | grpc 双通道 | {{ .GRPC }} |
+| 验证码（登录 / 改密） | {{ .Captcha }} |
 | 登录鉴权（多租户 / 用户 / 角色 / 权限） | {{ .Auth }} |
 | i18n | {{ .I18n }} |
 | tailwind | {{ .Tailwind }} |
@@ -46,6 +47,16 @@
 鉴权相关的两个键（见 `configs/config.yaml` 的 `auth` 段）：`auth.master_key`（`YD_AUTH_MASTER_KEY`）封装每个用户的
 `sec_key`，**生产环境必须注入**；`development` 之外留空会让进程**拒绝启动**，开发环境才回退到内置密钥并告警；`auth.token_ttl`（`YD_AUTH_TOKEN_TTL`）
 决定登录会话的时长，登录 cookie 的 `MaxAge` 与它同源。
+
+验证码（见 `configs/config.yaml` 的 `captcha` 段）：`captcha.login` 与 `captcha.password_change` 分别控制登录与改密；
+`captcha.store` 取 `auto` / `memory` / `redis`，`captcha.fallback` 取 `memory` / `fail`；`captcha.secret`
+（`YD_CAPTCHA_SECRET`）生产必须注入，非 development 留空会拒绝启动。应用位于反向代理之后时必须配置
+`captcha.trusted_proxies`（CIDR 列表，也可写单个 IP），否则按 IP 限流会把所有客户端算成代理地址。
+验证码接线始终随项目生成，
+两个开关都关闭时不挂 `/captcha` 路由、不加载 SDK。登录在租户解析与 SM2 解密**之前**校验验证码，
+改密在 `ChangePassword` **之前**校验；一次性令牌只消费一次，失败统一返回 `captcha.failed` 文案。
+Redis 客户端由 `internal/service.NewRedis` **唯一**打开，缓存、消息总线与验证码共用；`a.Set(app.ServiceRedis, …)`
+负责一次关闭，不得再登记第二个关闭钩子。
 
 ## 5. 代码风格（强制）
 

@@ -47,10 +47,10 @@
 
 - **依赖形态**：`go.mod` 直接引用 `github.com/shibingli/ydx/<module> vX.Y.Z`；**禁止**本地
   `replace`。开发期联调只能在两个仓库之外临时使用 `go.work`，不得提交。
-- **模块清单**（35 个）：`errs`、`sysinfo`、`buffpool`、`protocol`、`nodeid`、`base64`、`json`、`afs`、
+- **模块清单**（36 个）：`errs`、`sysinfo`、`buffpool`、`protocol`、`nodeid`、`base64`、`json`、`afs`、
   `config`、`log`、`regexpx`、`router`、`gorm`、`redis`、`asynq`、`cache`、`sse`、`websocket`、
   `webtransport`、`realtime`、`render`、`i18n`、`openapi`、`openapi/ydrouter`、`jwt`、`guomi`、
-  `middleware` 及 8 个 `middleware/*` 插件。
+  `captcha`、`middleware` 及 8 个 `middleware/*` 插件。
 - **OpenAPI 分层**：`openapi` 核心不依赖任何路由器，只接受 `openapi.Route` 并提供标准
   `net/http` 处理器；`ydx/router` 项目经 `openapi/ydrouter` 的 `FromRouter` / `Handler` 接入。
 - **包标识符已同步改名**：`errs`、`json`、`base64`、`log`、`buffpool`、`gorm`、`cache`、
@@ -1144,3 +1144,50 @@ WebSocket、WebTransport 与 SSE 共用 `ydx/realtime` 中枢；使用说明见
   用例 → 本手册条目 → `yd assets minify` 产物。守卫测试见第 20 节清单，未覆盖的组件视为未完成。
 - **禁止**：引入第二套 UI 库或图标库；在业务页面手写输入框绕过字段契约；用 Alpine 维护服务端列表；
   为纯 CSS 能表达的状态（开关、选中、禁用）编写脚本；在模板里写内联样式或色值。
+
+## 31. 验证码（captcha，强制）
+
+生成项目内置 `github.com/shibingli/ydx/captcha`，由框架包 `security/captcha` 统一装配；
+使用说明见 `docs/captcha.md`。验证码接线**始终随项目生成**，是否要求验证完全由配置决定。
+
+- **两个运行时开关**：`captcha.login` 与 `captcha.password_change`（`YD_CAPTCHA_LOGIN` /
+  `YD_CAPTCHA_PASSWORD_CHANGE`）；两者都关闭时不建管理器、不挂 `/captcha` 路由、不加载浏览器 SDK。
+  `yd new --captcha` 只把生成配置的两个值设为 `true`，之后可随时改配置开关，**不得**把它做成生成期才可用的功能。
+- **登录顺序不可颠倒**：验证码必须在租户解析与 SM2 口令解密**之前**校验；失败返回 422 并重新渲染登录页，
+  不触碰鉴权存储、不暴露租户是否存在。改密在已登录与租户校验之后、`ChangePassword` **之前**校验，
+  失败返回 422 错误片段并保留表单。
+- **令牌**：只从 POST 正文的隐藏字段 `captcha_token` 或 `X-Captcha-Token` 请求头读取，一次性消费；
+  **不得**接受 URL 查询串（会进入访问日志、历史与 Referer）。缺少、过期、已用、签名不符一律回同一句
+  `captcha.failed` 文案，不得泄露账号、租户或底层原因。动作名只有 `login` 与 `password_change`；
+  验证码启用时未知动作必须失败关闭（`ErrUnknownAction`），不得静默跳过校验。
+- **密钥**：`captcha.secret` 至少 16 字节，生产必须经 `YD_CAPTCHA_SECRET` 注入，多副本必须使用**同一个**值；
+  非 development 环境启用但留空必须**拒绝启动**。development 留空回退到 `security/captcha.DevSecret` 并每次启动告警；密钥不得写入日志。
+- **单机 / 多机**：`captcha.store` 取 `auto`（默认优先 Redis）、`memory`、`redis`；`captcha.fallback` 取
+  `memory`（默认，Redis 不可用时降级并双语言告警）或 `fail`（严格多机，拒绝启动）。降级只发生在启动期；
+  运行期 Redis 故障由验证失败关闭兜底。`captcha.key_prefix` 在同一部署内唯一。应用位于反向代理之后时
+  必须配置 `captcha.trusted_proxies`（CIDR 列表，也可写单个 IP），否则按 IP 限流会把所有客户端算成代理地址；
+  不得把不可信网段写进去，否则 `X-Forwarded-For` 可被伪造。
+- **可访问性**：生成项目默认 `captcha.types: [text, rotate]`，两者都可用键盘完成；`click_text` /
+  `click_icon` / `semantic` / `slide` 只有指针事件，必须提供无障碍替代方案时才显式加入。SDK 作答控件由
+  `yd-captcha.js` 在 `onReady` 后补 `aria-required` / `aria-describedby` / `aria-invalid`；挂载点不再使用
+  不合法的 `role="group"` + `aria-required`。SDK 的英文 `aria-label` 由页面本地化标签替换。
+- **进程级单例**：生成项目由 `internal/service.NewRedis` 只打开**一个** Redis 客户端，二级缓存、消息总线与
+  验证码共用；`a.Set(app.ServiceRedis, redisClient)` 负责在关停时恰好关闭一次。缓存管理器由
+  `a.Set(app.ServiceCache, cacheMgr)` 的 `io.Closer` 钩子关闭，**不得**再登记第二个关闭钩子。GORM 句柄、
+  缓存、消息总线、验证码管理器、SSE Broker、Ticker、MetricsCollector 与 Controller 均每进程只创建一次；
+  asynq 的客户端与服务端是生产者/消费者两个角色，各自持有连接池，但每个角色只创建一次。
+  `TestGeneratedProjectCreatesOneBackendClientPerProcess` 守卫这些单例。
+- **前端唯一实现**：登录页与账号页共用 `web/templates/partials/captcha.html`；挂载、令牌写入、提交守卫、
+  4xx 重置、主题与语言跟随只由 `web/static/js/yd-captcha.js` 负责，不得另写第二套脚本或内联脚本。
+  脚本在 `window` 捕获阶段拦截未完成验证的提交，先于 htmx 与 `data-yd-confirm` 确认框；普通必填字段必须先由
+  浏览器校验，空用户名不得消耗已完成的验证码。4xx 重置必须等 htmx 完成交换，避免在即将被替换的节点上白开题。
+- **语言切换必须保留已验证状态**：外壳交换时验证码挂载点与隐藏令牌带 `hx-preserve`，已完成的令牌和已输入的
+  答案不得丢失；标签/提示位于挂载点之外按新语言重渲染；用户名输入同样保留，口令字段不保留。历史快照恢复时必须
+  清除克隆组件与旧令牌并重新出题，避免两个组件或过期令牌通过提交守卫。
+- **i18n 与主题**：周边标签与失败文案走 `field.captcha` 与 `captcha.hint/required/failed/unavailable`，
+  两本目录必须同时存在；组件自身文案由 ydx 内置目录按 `<html lang>` 提供。`i18n.default_lang` 不在
+  验证码内置语言中时回退到 `zh-CN` 并告警，不得因此拒绝启动。主题跟随 `<html data-theme>`（`light` /
+  `dark` / `auto`），切换即时生效；语言变化只让尚未完成的组件重新出题，已完成的令牌保持有效。
+- **测试**：`security/captcha` 覆盖禁用、缺密钥、开发回退、内存存储、未知题型、Redis 严格/降级与无效令牌；
+  脚手架守卫覆盖路由/控制器顺序、共享片段、脚本顺序与两本目录键；e2e 覆盖 challenge、SDK 资产、登录与改密
+  无令牌 422，以及默认关闭时 `/captcha` 404。修改任一环节必须保持这些用例通过。

@@ -522,6 +522,7 @@ func TestBuildSetsCrossCompileEnv(t *testing.T) {
 		"GOOS":               "windows",
 		"GOARCH":             "amd64",
 		"CGO_ENABLED":        "1",
+		"GOWORK":             "off",
 		"YD_BUILD_FROM_TEST": "1",
 	} {
 		if env[key] != want {

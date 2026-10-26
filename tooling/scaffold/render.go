@@ -111,6 +111,7 @@ type view struct {
 	// feature switches | 特性开关
 	GRPC     bool
 	Auth     bool
+	Captcha  bool
 	I18n     bool
 	Tailwind bool
 }
@@ -149,6 +150,7 @@ func newView(o Options) view {
 		YdxReplaces:     ydxReplaces(o.LocalReplace),
 		GRPC:            o.GRPC,
 		Auth:            true,
+		Captcha:         o.Captcha,
 		I18n:            o.I18n,
 		Tailwind:        o.Tailwind,
 		HtmxExts:        o.HtmxExts,
@@ -178,6 +180,7 @@ func bundleScriptsFor(exts []string) []string {
 		"/static/js/yd-guomi-htmx.js",
 		"/static/js/yd-authz.js",
 		"/static/js/yd-progress.js",
+		"/static/js/yd-captcha.js",
 		"/static/js/yd-app.js",
 	)
 	return scripts
@@ -228,6 +231,9 @@ func featuresOf(o Options) []string {
 	// Authentication is not an option: a generated project always ships the multi-tenant sign-in chain, so it is recorded
 	// here unconditionally.
 	features = append(features, "auth")
+	if o.Captcha {
+		features = append(features, "captcha")
+	}
 	if o.I18n {
 		features = append(features, "i18n")
 	}

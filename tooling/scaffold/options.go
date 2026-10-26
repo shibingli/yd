@@ -30,6 +30,12 @@ type Options struct {
 	HtmxExts []string
 	// GRPC enables the gRPC dual-channel server. | GRPC 表示是否开启 gRPC 双通道。
 	GRPC bool
+	// Captcha enables sign-in and password-change verification by default. | Captcha 表示默认在登录与改密时要求验证码。
+	//
+	// The wiring always ships with the project; this switch only writes the two runtime configuration values, so a
+	// project generated without it can still be enabled later by editing configs/config.yaml. | 接线始终随项目生成；
+	// 本开关只写入两个运行时配置值，因此生成时未开启的项目之后仍可通过 configs/config.yaml 打开。
+	Captcha bool
 	// I18n enables internationalisation. | I18n 表示是否开启国际化。
 	I18n bool
 	// Tailwind enables the Tailwind v4 styling pipeline. | Tailwind 表示是否接入 Tailwind v4 样式管道。
@@ -42,7 +48,8 @@ type Options struct {
 //
 // Defaults: Module = github.com/yun-dev/<name>, DB = sqlite, Tailwind = true, I18n = true,
 // License = Apache-2.0 and HtmxExts = every safe extension from DefaultExtensions; every other
-// feature switch stays off.
+// feature switch stays off. Captcha is off by default: the code is always wired, but sign-in and
+// password changes only require a token after captcha.login / captcha.password_change are enabled.
 // Redis and asynq are not switches: every generated project ships their configuration and wiring.
 // Htmx, Tailwind CSS and Alpine.js themselves are not switches either: Htmx is the core, Tailwind is
 // on by default, and EffectiveExtensions always adds the Alpine compatibility extension.

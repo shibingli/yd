@@ -81,10 +81,17 @@ func TestNewCommandGeneratesProject(t *testing.T) {
 		}
 	}
 	bus := readMemFile(t, te.env.FS, "demo/internal/service/message_bus.go")
-	for _, want := range []string{"redis.Open", "asynq.NewClient"} {
+	for _, want := range []string{"asynq.NewClient", "asynq.NewServer"} {
 		if !strings.Contains(bus, want) {
 			t.Errorf("message_bus.go 缺少 %q:\n%s", want, bus)
 		}
+	}
+	if strings.Contains(bus, "redis.Open") {
+		t.Errorf("message_bus.go 不得自行打开第二个 Redis 客户端:\n%s", bus)
+	}
+	redisFile := readMemFile(t, te.env.FS, "demo/internal/service/redis.go")
+	if !strings.Contains(redisFile, "redis.Open") {
+		t.Errorf("internal/service/redis.go 必须打开唯一的 Redis 客户端:\n%s", redisFile)
 	}
 
 	out := te.out.String()
@@ -192,15 +199,16 @@ func TestNewCommandRemovedFeatureFlagsAreRejected(t *testing.T) {
 // TestNewCommandTTYInterviewUsesAnswers TTY 下逐项询问并把回答写入生成物。
 // TestNewCommandTTYInterviewUsesAnswers asks one question per option on a TTY and writes the answers into the project.
 func TestNewCommandTTYInterviewUsesAnswers(t *testing.T) {
-	// 询问顺序：项目名、模块路径、数据库、grpc、协议；i18n、Htmx 扩展、Redis、Asynq、Htmx、
+	// 询问顺序：项目名、模块路径、数据库、grpc、验证码、协议；i18n、Htmx 扩展、Redis、Asynq、Htmx、
 	// Tailwind 与 Alpine 是内建能力，不再提问。
-	// Question order: project name, module, database, grpc, licence; i18n, Htmx extensions, Redis,
+	// Question order: project name, module, database, grpc, captcha, licence; i18n, Htmx extensions, Redis,
 	// Asynq, Htmx, Tailwind and Alpine are built in and never asked.
 	answers := strings.Join([]string{
 		"shop",
 		"",
 		"2", // 2) postgres
 		"n", // grpc
+		"y", // captcha
 		"",
 	}, "\n") + "\n"
 	te := newTestEnv(t, nil, "", true)
@@ -227,6 +235,7 @@ func TestNewCommandTTYInterviewUsesAnswers(t *testing.T) {
 		`"asynq": true`,
 		`"tailwind": true`,
 		`"grpc": false`,
+		`"captcha": true`,
 		`"i18n": true`,
 		`"sse"`,
 		`"ws"`,
@@ -239,7 +248,7 @@ func TestNewCommandTTYInterviewUsesAnswers(t *testing.T) {
 		}
 	}
 
-	for _, want := range []string{"项目名 | Project name", "数据库驱动 | Database driver"} {
+	for _, want := range []string{"项目名 | Project name", "数据库驱动 | Database driver", "启用验证码"} {
 		if !strings.Contains(te.out.String(), want) {
 			t.Errorf("提示语缺少 %q:\n%s", want, te.out.String())
 		}
@@ -322,4 +331,33 @@ func existsMem(t *testing.T, fs afero.Fs, path string) bool {
 		t.Fatalf("判断 %s 是否存在失败: %v", path, err)
 	}
 	return ok
+}
+
+// TestNewCommandCaptchaFlag asserts --captcha flips both runtime switches and the manifest entry.
+// | TestNewCommandCaptchaFlag 断言 --captcha 打开两个运行时开关并写入工程清单。
+func TestNewCommandCaptchaFlag(t *testing.T) {
+	te := newTestEnv(t, nil, "", false)
+	if err := Execute(context.Background(), []string{newCommandName, "secure", "-y", "--captcha"}, te.env); err != nil {
+		t.Fatalf("yd new --captcha 失败: %v\n%s", err, te.errs.String())
+	}
+
+	cfg := readMemFile(t, te.env.FS, "secure/configs/config.yaml")
+	for _, want := range []string{"captcha:", "login: true", "password_change: true"} {
+		if !strings.Contains(cfg, want) {
+			t.Errorf("config.yaml 缺少 %q:\n%s", want, cfg)
+		}
+	}
+	meta := readMemFile(t, te.env.FS, "secure/.yd.json")
+	if !strings.Contains(meta, `"captcha": true`) {
+		t.Errorf(".yd.json 未标记 captcha 开启:\n%s", meta)
+	}
+
+	plain := newTestEnv(t, nil, "", false)
+	if err := Execute(context.Background(), []string{newCommandName, "plain", "-y"}, plain.env); err != nil {
+		t.Fatalf("yd new -y 失败: %v\n%s", err, plain.errs.String())
+	}
+	plainCfg := readMemFile(t, plain.env.FS, "plain/configs/config.yaml")
+	if !strings.Contains(plainCfg, "login: false") || !strings.Contains(plainCfg, "password_change: false") {
+		t.Errorf("默认生成不应开启验证码:\n%s", plainCfg)
+	}
 }

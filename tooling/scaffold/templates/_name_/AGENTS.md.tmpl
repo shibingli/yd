@@ -51,6 +51,10 @@
 - [ ] **用户是全局身份**：登录名全局唯一；一个用户可隶属多个租户（`yd_auth_user_tenants`），
       必须有且只有一个默认租户；登录页不显示租户，服务端按全局登录名认证并落入默认租户；
       切换租户校验成员关系并重新签发令牌；身份租户与默认租户不可移除；旧库升级必须回填成员关系。
+- [ ] **验证码**：`captcha.login` / `captcha.password_change` 是唯二运行时开关；登录必须在租户解析与 SM2 解密
+      **之前**校验，改密必须在 `ChangePassword` **之前**校验；令牌一次性消费，失败统一 `captcha.failed` 文案；
+      `captcha.secret` 生产必须注入；登录页与账号页共用 `partials/captcha.html`，`yd-captcha.js` 负责挂载、
+      令牌写入、提交守卫与 4xx 重置；Redis 客户端只由 `internal/service.NewRedis` 打开一次。
 - [ ] **前端交互**：导航/语言切换 `hx-target="#yd-shell"`；新增/编辑走抽屉；列表操作与顶栏租户切换共用
       `details.yd-menu` 面板；所有变更动作带 `data-yd-confirm`，多按钮表单必须把 `event.submitter` 传回
       `requestSubmit`；登录前外壳只有登录卡片（含离线图标品牌区）与语言/主题切换；接口组一律新标签页打开；

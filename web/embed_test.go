@@ -389,6 +389,7 @@ func TestJavaScriptTestSuitesAreNotEmbedded(t *testing.T) {
 		"static/js/yd-guomi.test.mjs",
 		"static/js/yd-progress.test.mjs",
 		"static/js/yd-realtime.test.mjs",
+		"static/js/yd-captcha.test.mjs",
 	} {
 		if afs.Exists(fsys, name) {
 			t.Errorf("%s must not be embedded or served | %s 不得被内嵌或对外提供", name, name)

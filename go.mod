@@ -14,6 +14,7 @@ require (
 	github.com/shibingli/ydx/base64 v0.1.11
 	github.com/shibingli/ydx/buffpool v0.1.4
 	github.com/shibingli/ydx/cache v0.1.17
+	github.com/shibingli/ydx/captcha v0.1.0
 	github.com/shibingli/ydx/config v0.1.8
 	github.com/shibingli/ydx/errs v0.1.4
 	github.com/shibingli/ydx/gc v0.1.0
@@ -24,9 +25,11 @@ require (
 	github.com/shibingli/ydx/jwt v0.1.10
 	github.com/shibingli/ydx/log v0.1.10
 	github.com/shibingli/ydx/middleware v0.1.13
+	github.com/shibingli/ydx/middleware/ratelimit v0.1.12
 	github.com/shibingli/ydx/nodeid v0.1.4
 	github.com/shibingli/ydx/protocol v0.1.5
 	github.com/shibingli/ydx/realtime v0.1.7
+	github.com/shibingli/ydx/redis v0.1.9
 	github.com/shibingli/ydx/regexpx v0.1.7
 	github.com/shibingli/ydx/render v0.1.10
 	github.com/shibingli/ydx/router v0.1.11
@@ -72,7 +75,6 @@ require (
 	github.com/shibingli/ydx/middleware/asyncafter v0.1.12 // indirect
 	github.com/shibingli/ydx/middleware/compress v0.1.12 // indirect
 	github.com/shibingli/ydx/middleware/cors v0.1.12 // indirect
-	github.com/shibingli/ydx/middleware/ratelimit v0.1.12 // indirect
 	github.com/shibingli/ydx/middleware/recovery v0.1.12 // indirect
 	github.com/shibingli/ydx/middleware/reqlog v0.1.12 // indirect
 	github.com/shibingli/ydx/middleware/requestid v0.1.12 // indirect

@@ -104,6 +104,7 @@ var requiredFiles = []string{
 	"internal/service/message_bus.go",
 	"internal/service/metrics.go",
 	"internal/service/realtime.go",
+	"internal/service/redis.go",
 	"internal/service/role.go",
 	"internal/service/tenant.go",
 	"internal/service/user.go",
@@ -166,6 +167,7 @@ var requiredFiles = []string{
 	"web/templates/mgr/partials/users/row.html",
 	"web/templates/partials/app_shell.html",
 	"web/templates/partials/base.html",
+	"web/templates/partials/captcha.html",
 	"web/templates/partials/editor-icons.html",
 	"web/templates/partials/flash.html",
 	"web/templates/partials/icon.html",
@@ -523,7 +525,7 @@ func TestGenerateAlwaysIntegratesRedisAndAsynq(t *testing.T) {
 			t.Errorf("repository/store.go is missing %q | repository/store.go 缺少 %q", want, want)
 		}
 	}
-	for _, want := range []string{"postgres", "redis:", "asynq:", "grpc:", "i18n:"} {
+	for _, want := range []string{"postgres", "redis:", "asynq:", "grpc:", "i18n:", "default_lang: zh-CN"} {
 		if !strings.Contains(cfg, want) {
 			t.Errorf("config.yaml 缺少 %q:\n%s", want, cfg)
 		}
@@ -541,9 +543,9 @@ func TestGenerateAlwaysIntegratesRedisAndAsynq(t *testing.T) {
 		t.Errorf("realtime.go 缺少 HTTP/2/3 处理器生命周期说明:\n%s", realtime)
 	}
 
-	// Redis 与 Asynq 不受任何开关控制：关掉其余可选特性后，它们仍必须出现在配置、总线与装配点里。
+	// Redis 与 Asynq 不受任何开关控制：关掉其余可选特性后，它们仍必须出现在配置、共享客户端与总线装配点里。
 	// Redis and Asynq are not switchable: with every other optional feature off they must still appear in the
-	// configuration, the message bus and the assembly points.
+	// configuration, the shared client and the message-bus assembly points.
 	plain := scaffold.DefaultOptions("plain-app")
 	plain.DB = scaffold.DBNone
 	plain.I18n = false
@@ -559,11 +561,18 @@ func TestGenerateAlwaysIntegratesRedisAndAsynq(t *testing.T) {
 			t.Errorf("未开启特性时 config.yaml 不应含 %q:\n%s", unwanted, cfgPlain)
 		}
 	}
+	redisFile := prPlain.read("internal/service/redis.go")
+	if !strings.Contains(redisFile, "redis.Open") {
+		t.Errorf("进程级 Redis 客户端应始终在 internal/service/redis.go 装配:\n%s", redisFile)
+	}
 	bus := prPlain.read("internal/service/message_bus.go")
-	for _, want := range []string{"redis.Open", "asynq.NewClient"} {
+	for _, want := range []string{"asynq.NewClient", "asynq.NewServer"} {
 		if !strings.Contains(bus, want) {
 			t.Errorf("消息总线应始终装配 %q:\n%s", want, bus)
 		}
+	}
+	if strings.Contains(bus, "redis.Open") {
+		t.Errorf("消息总线必须复用共享 Redis 客户端，不得再次建连:\n%s", bus)
 	}
 	if routerPlain := prPlain.read("internal/router/router.go"); !strings.Contains(routerPlain, "asynq") {
 		t.Error("router.go must always mention asynq | router.go 应始终包含 asynq 装配点")
@@ -652,6 +661,16 @@ func TestGeneratedPersistenceFollowsDatabaseChoice(t *testing.T) {
 		if !strings.Contains(cfgDB, want) {
 			t.Errorf("选了数据库的 config.yaml 缺少 %q", want)
 		}
+	}
+	// auth.gorm 必须留在 auth 段里：插在 captcha 段之后会让 query_timeout 变成 captcha.gorm，框架读不到。
+	// auth.gorm must stay inside the auth block: placing it after captcha turns query_timeout into captcha.gorm,
+	// a key the framework never reads.
+	authAt, captchaAt := strings.Index(cfgDB, "\nauth:\n"), strings.Index(cfgDB, "\ncaptcha:\n")
+	if authAt < 0 || captchaAt < 0 || authAt >= captchaAt {
+		t.Fatalf("config.yaml 的 auth/captcha 段位置异常: auth=%d captcha=%d", authAt, captchaAt)
+	}
+	if !strings.Contains(cfgDB[authAt:captchaAt], "\n  gorm:\n") {
+		t.Error("config.yaml 把 auth.gorm 放到了 auth 段之外 | config.yaml moved auth.gorm outside the auth block")
 	}
 	// ydx/gorm 读的是 db.maxconn：写成基线文档里的 db.max_conn 就是一个永远不会生效的死键。
 	// ydx/gorm reads db.maxconn: the db.max_conn spelling from the baseline document is a dead key that never takes effect.
@@ -1794,6 +1813,7 @@ func TestGeneratedAppServesFrameworkFeatures(t *testing.T) {
 			`"/events"`,
 			`"/ws"`,
 			`"/login"`,
+			`"X-Captcha-Token"`,
 			`"/guomi/pubkey"`,
 			`"/realtime"`,
 			// 注解里的摘要：出现它就证明注解块被真正解析，而不是仅由路由树兜底推导（未解析的兜底操作没有 summary）。
@@ -2425,6 +2445,17 @@ func TestGeneratedAppSupportsAuth(t *testing.T) {
 		}
 		if !strings.Contains(login, `data-yd-page="login"`) {
 			t.Errorf("GET /login 不是登录页:\n%s", login)
+		}
+
+		// 验证码默认关闭：路由不挂载，登录页也不渲染组件与 SDK。 |
+		// Captcha is off by default: the routes are not mounted and the sign-in page renders neither the widget
+		// nor the SDK.
+		respCaptcha, _ := postJSON(t, anon, base+"/captcha/challenge", `{"action":"login"}`)
+		if respCaptcha.StatusCode != http.StatusNotFound {
+			t.Errorf("默认关闭时 POST /captcha/challenge 状态码 = %d, 期望 404", respCaptcha.StatusCode)
+		}
+		if strings.Contains(login, "data-yd-captcha") {
+			t.Errorf("默认关闭时登录页不应渲染验证码组件:\n%s", login)
 		}
 	})
 
@@ -4381,5 +4412,376 @@ func TestGeneratedUIKitShowsEveryComponent(t *testing.T) {
 	handler := pr.read("internal/controller/ui_kit.go")
 	if !strings.Contains(handler, "http/chart") || !strings.Contains(handler, "ChartSVG") {
 		t.Error("ui_kit.go must inject a server-rendered chart | ui_kit.go 必须注入服务端图表")
+	}
+}
+
+// TestCaptchaOptionWritesConfiguration asserts the generation switch reaches the config, the env template and
+// the project manifest. | TestCaptchaOptionWritesConfiguration 断言生成开关写入配置、环境变量模板与工程清单。
+func TestCaptchaOptionWritesConfiguration(t *testing.T) {
+	base := scaffold.DefaultOptions(demoName)
+
+	disabled, _ := generateMem(t, base)
+	disabledConfig := disabled.read("configs/config.yaml")
+	for _, want := range []string{
+		"captcha:", "login: false", "password_change: false", `store: auto`, `fallback: memory`,
+		`types: [text, rotate]`, `trusted_proxies: []`,
+	} {
+		if !strings.Contains(disabledConfig, want) {
+			t.Errorf("默认配置缺少 %q:\n%s", want, disabledConfig)
+		}
+	}
+	if strings.Contains(disabled.read(".yd.json"), `"captcha": true`) {
+		t.Error("default .yd.json must not mark captcha as enabled | 默认生成的 .yd.json 不应把 captcha 标记为开启")
+	}
+
+	enabledOptions := base
+	enabledOptions.Captcha = true
+	enabled, _ := generateMem(t, enabledOptions)
+
+	enabledConfig := enabled.read("configs/config.yaml")
+	for _, want := range []string{"login: true", "password_change: true"} {
+		if !strings.Contains(enabledConfig, want) {
+			t.Errorf("--captcha 配置缺少 %q:\n%s", want, enabledConfig)
+		}
+	}
+	env := enabled.read(".env.template")
+	for _, want := range []string{"# YD_CAPTCHA_LOGIN=true", "# YD_CAPTCHA_PASSWORD_CHANGE=true", "YD_CAPTCHA_SECRET", "YD_CAPTCHA_TRUSTED_PROXIES"} {
+		if !strings.Contains(env, want) {
+			t.Errorf("--captcha 环境模板缺少 %q:\n%s", want, env)
+		}
+	}
+	for _, forbidden := range []string{"\nYD_CAPTCHA_LOGIN=", "\nYD_CAPTCHA_PASSWORD_CHANGE=", "\nYD_CAPTCHA_STORE=", "\nYD_CAPTCHA_FALLBACK="} {
+		if strings.Contains(env, forbidden) {
+			t.Errorf(".env.template must not actively override config.yaml with %q; a copied .env would silently win:\n%s", forbidden, env)
+		}
+	}
+	if !strings.Contains(enabled.read(".yd.json"), `"captcha": true`) {
+		t.Error("--captcha .yd.json must mark captcha as enabled | --captcha 生成的 .yd.json 应标记 captcha 开启")
+	}
+	if !strings.Contains(enabled.read("internal/meta/meta.go"), `"captcha"`) {
+		t.Error("--captcha meta.Features must contain captcha | --captcha 生成的 meta.Features 应包含 captcha")
+	}
+	if !strings.Contains(enabled.read("README.md"), "YD_CAPTCHA_SECRET=<至少 16 字节的随机值>") {
+		t.Error("--captcha README must put YD_CAPTCHA_SECRET into the systemd env block | --captcha 的 README 应把 YD_CAPTCHA_SECRET 写进 systemd 环境块")
+	}
+	if strings.Contains(disabled.read("README.md"), "YD_CAPTCHA_SECRET=<至少 16 字节的随机值>") {
+		t.Error("a project generated without captcha must not require YD_CAPTCHA_SECRET in the systemd env block")
+	}
+}
+
+// TestGeneratedProjectWiresCaptcha asserts the router, controller and both handlers carry the captcha chain.
+// | TestGeneratedProjectWiresCaptcha 断言路由、控制器与两个处理器都带上验证码链路。
+func TestGeneratedProjectWiresCaptcha(t *testing.T) {
+	o := scaffold.DefaultOptions("captcha-app")
+	o.Captcha = true
+	pr, _ := generateMem(t, o)
+
+	router := pr.read("internal/router/router.go")
+	for _, want := range []string{
+		`"github.com/shibingli/yd/security/captcha"`,
+		"captcha.NewWithClient(a.Config(), a.Logger(), redisClient)",
+		"captchaSvc.Register(a.Router())",
+		"ErrCaptcha",
+		"controller.New(a, store, a.Logger(), captchaSvc, redisClient)",
+	} {
+		if !strings.Contains(router, want) {
+			t.Errorf("router.go 缺少 %q:\n%s", want, router)
+		}
+	}
+
+	ctrl := pr.read("internal/controller/controller.go")
+	for _, want := range []string{
+		`"github.com/shibingli/yd/security/captcha"`,
+		"captcha *captcha.Service",
+		`"CaptchaLogin"`,
+		`"CaptchaPasswordChange"`,
+		`"CaptchaEndpoint"`,
+		`"CaptchaTokenField"`,
+	} {
+		if !strings.Contains(ctrl, want) {
+			t.Errorf("controller.go 缺少 %q:\n%s", want, ctrl)
+		}
+	}
+
+	auth := pr.read("internal/controller/auth_controller.go")
+	for _, want := range []string{
+		"captcha.Token(ctx)",
+		"captcha.Verify(ctx.Request.Context(), captcha.Token(ctx), captcha.ActionLogin)",
+		"captcha.Verify(ctx.Request.Context(), captcha.Token(ctx), captcha.ActionPasswordChange)",
+	} {
+		if !strings.Contains(auth, want) {
+			t.Errorf("auth_controller.go 缺少 %q", want)
+		}
+	}
+	loginVerify := strings.Index(auth, "captcha.ActionLogin")
+	loginCall := strings.Index(auth, "c.auth.Login(")
+	if loginVerify < 0 || loginCall < 0 || loginVerify > loginCall {
+		t.Errorf("登录处理器必须在 c.auth.Login 之前校验验证码（verify=%d call=%d）", loginVerify, loginCall)
+	}
+	changeVerify := strings.Index(auth, "captcha.ActionPasswordChange")
+	changeCall := strings.Index(auth, "c.auth.ChangePassword(")
+	if changeVerify < 0 || changeCall < 0 || changeVerify > changeCall {
+		t.Errorf("改密处理器必须在 c.auth.ChangePassword 之前校验验证码（verify=%d call=%d）", changeVerify, changeCall)
+	}
+}
+
+// TestGeneratedProjectRendersCaptchaWidget asserts the shared partial is wired into both pages, the shared script is
+// loaded in the documented order and the two catalogues carry every captcha key. |
+// TestGeneratedProjectRendersCaptchaWidget 断言共享片段接入两个页面、共享脚本按既定顺序加载，且两份目录都含有全部验证码键。
+func TestGeneratedProjectRendersCaptchaWidget(t *testing.T) {
+	o := scaffold.DefaultOptions("captcha-widget")
+	o.Captcha = true
+	pr, _ := generateMem(t, o)
+
+	partial := pr.read("web/templates/partials/captcha.html")
+	for _, want := range []string{
+		"data-yd-captcha", "data-yd-captcha-host", `name="{{ .Field }}"`, `tr "captcha.required"`,
+		"yd-field--required", `aria-describedby=`, "hx-preserve",
+	} {
+		if !strings.Contains(partial, want) {
+			t.Errorf("captcha.html 缺少 %q:\n%s", want, partial)
+		}
+	}
+	if strings.Contains(partial, `aria-required="true"`) {
+		t.Error("aria-required is not supported on role=group; the adapter marks the SDK answer control instead")
+	}
+	hintAt := strings.Index(partial, `id="{{ .InputID }}-hint"`)
+	hostAt := strings.Index(partial, `data-yd-captcha-host`)
+	if hintAt < 0 || hostAt < 0 || hintAt > hostAt {
+		t.Error("captcha.html must render the hint above the widget it points at | 提示必须位于它所指的组件上方")
+	}
+
+	login := pr.read("web/templates/portal/partials/login.html")
+	for _, want := range []string{`template "partials/captcha"`, ".CaptchaLogin", ".CaptchaLoginAction", `"Attrs" "hx-preserve"`} {
+		if !strings.Contains(login, want) {
+			t.Errorf("login.html 缺少 %q:\n%s", want, login)
+		}
+	}
+	account := pr.read("web/templates/portal/pages/account.html")
+	for _, want := range []string{`template "partials/captcha"`, ".CaptchaPasswordChange", ".CaptchaPasswordChangeAction"} {
+		if !strings.Contains(account, want) {
+			t.Errorf("account.html 缺少 %q:\n%s", want, account)
+		}
+	}
+
+	base := pr.read("web/templates/partials/base.html")
+	captchaAt := strings.Index(base, `{{ asset "/static/js/yd-captcha.js" }}`)
+	appAt := strings.Index(base, `{{ asset "/static/js/yd-app.js" }}`)
+	if captchaAt < 0 || appAt < 0 || captchaAt > appAt {
+		t.Errorf("base.html 必须在 yd-app.js 之前加载 yd-captcha.js（captcha=%d app=%d）", captchaAt, appAt)
+	}
+
+	for _, rel := range []string{"web/i18n/zh-CN.yaml", "web/i18n/en.yaml"} {
+		catalogue := pr.read(rel)
+		for _, key := range []string{"captcha:", "hint:", "required:", "failed:", "unavailable:"} {
+			if !strings.Contains(catalogue, key) {
+				t.Errorf("%s 缺少验证码键 %q", rel, key)
+			}
+		}
+	}
+}
+
+// captchaProbeConfig enables exactly one action per probe so each subtest exercises one path.
+// | captchaProbeConfig 每个探针只开启一个动作，使每个子测试只覆盖一条路径。
+func captchaProbeConfig(login, passwordChange bool) string {
+	return "captcha:\n" +
+		"  login: " + strconv.FormatBool(login) + "\n" +
+		"  password_change: " + strconv.FormatBool(passwordChange) + "\n" +
+		"  store: memory\n" +
+		"  secret: \"0123456789abcdef0123456789abcdef\"\n"
+}
+
+// writeProbeConfig writes configs/config.local.yaml, the documented local override layer.
+// | writeProbeConfig 写入 configs/config.local.yaml，也就是文档化的本地覆盖层。
+func writeProbeConfig(t *testing.T, dir, content string) {
+	t.Helper()
+	path := filepath.Join(dir, "configs", "config.local.yaml")
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatalf("写入本地配置失败: %v", err)
+	}
+}
+
+// postJSON submits one JSON body and returns the response with its body as text. | postJSON 提交一个 JSON 请求体，
+// 返回响应与响应体文本。
+func postJSON(t *testing.T, client *http.Client, target, body string) (*http.Response, string) {
+	t.Helper()
+	req, err := http.NewRequest(http.MethodPost, target, strings.NewReader(body))
+	if err != nil {
+		t.Fatalf("构造 JSON 请求失败: %v", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	return doText(t, client, req)
+}
+
+// TestGeneratedAppSupportsCaptcha proves the generated project can enable sign-in verification and password-change
+// verification at runtime, serves the same-origin SDK, and refuses both actions without a valid token. |
+// TestGeneratedAppSupportsCaptcha 证明生成项目可以在运行期开启登录与改密验证、提供同源 SDK，并在没有有效令牌时拒绝两个动作。
+func TestGeneratedAppSupportsCaptcha(t *testing.T) {
+	if testing.Short() {
+		t.Skip("短模式跳过真实验证码验证 | skipped in short mode")
+	}
+
+	t.Run("登录验证", func(t *testing.T) {
+		_, base := startProbeAppWith(t, "yd-captcha-login-probe", func(dir string) {
+			writeProbeConfig(t, dir, captchaProbeConfig(true, false))
+		})
+		client := newProbeClient(t, httpTimeout)
+
+		respChallenge, challenge := postJSON(t, client, base+"/captcha/challenge", `{"action":"login"}`)
+		if respChallenge.StatusCode != http.StatusOK {
+			t.Fatalf("POST /captcha/challenge 状态码 = %d, 期望 200\n%s", respChallenge.StatusCode, challenge)
+		}
+		if !strings.Contains(challenge, `"id"`) {
+			t.Errorf("challenge 响应缺少 id:\n%s", challenge)
+		}
+
+		respAsset, asset := getText(t, client, base+"/captcha/assets/yd-captcha.js", nil)
+		if respAsset.StatusCode != http.StatusOK || !strings.Contains(asset, "YdCaptcha") {
+			t.Fatalf("GET /captcha/assets/yd-captcha.js 状态码 = %d, 期望 200 且包含 YdCaptcha\n%s",
+				respAsset.StatusCode, asset)
+		}
+		respAdapter, adapter := getText(t, client, base+"/static/js/yd-captcha.js", nil)
+		if respAdapter.StatusCode != http.StatusOK || !strings.Contains(adapter, "YdCaptcha.mount") {
+			t.Fatalf("GET /static/js/yd-captcha.js 状态码 = %d, 期望 200 且包含 YdCaptcha.mount；框架静态树未合并\n%s",
+				respAdapter.StatusCode, adapter)
+		}
+
+		respLogin, login := getText(t, client, base+"/login", nil)
+		if respLogin.StatusCode != http.StatusOK {
+			t.Fatalf("GET /login 状态码 = %d, 期望 200\n%s", respLogin.StatusCode, login)
+		}
+		for _, want := range []string{"data-yd-captcha", "yd-login-captcha-token", "/static/js/yd-captcha.js"} {
+			if !strings.Contains(login, want) {
+				t.Errorf("登录页缺少 %q:\n%s", want, login)
+			}
+		}
+
+		for name, token := range map[string]string{
+			"缺少令牌": "",
+			"伪造令牌": "forged-token",
+		} {
+			form := map[string]string{"username": probeAdmin, "password": probeAdminPassword}
+			if token != "" {
+				form["captcha_token"] = token
+			}
+			resp, body := postForm(t, client, base+"/login", form, map[string]string{"X-YD-Encrypted": "sm2"})
+			if resp.StatusCode != http.StatusUnprocessableEntity {
+				t.Errorf("%s POST /login 状态码 = %d, 期望 422\n%s", name, resp.StatusCode, body)
+			}
+			if !strings.Contains(body, "Verification failed") {
+				t.Errorf("%s 的 422 未回显验证码失败文案:\n%s", name, body)
+			}
+			if !strings.Contains(body, "data-yd-captcha") {
+				t.Errorf("%s 的 422 未重新渲染验证码组件:\n%s", name, body)
+			}
+			if cookie := sessionToken(t, client, base); cookie != "" {
+				t.Errorf("%s 之后不应写下会话 cookie", name)
+			}
+		}
+	})
+
+	t.Run("改密验证", func(t *testing.T) {
+		_, base := startProbeAppWith(t, "yd-captcha-password-probe", func(dir string) {
+			writeProbeConfig(t, dir, captchaProbeConfig(false, true))
+		})
+		client := newProbeClient(t, httpTimeout)
+		signIn(t, client, base, probeTenant, probeAdmin, probeAdminPassword)
+
+		respAccount, account := getText(t, client, base+"/account", nil)
+		if respAccount.StatusCode != http.StatusOK {
+			t.Fatalf("GET /account 状态码 = %d, 期望 200\n%s", respAccount.StatusCode, account)
+		}
+		for _, want := range []string{"data-yd-captcha", "yd-account-captcha-token", "password_change"} {
+			if !strings.Contains(account, want) {
+				t.Errorf("账号页缺少 %q:\n%s", want, account)
+			}
+		}
+
+		resp, body := postForm(t, client, base+"/account/password", map[string]string{
+			"current": probeAdminPassword, "password": "Next@123456", "confirm": "Next@123456",
+		}, map[string]string{"X-YD-Encrypted": "sm2"})
+		if resp.StatusCode != http.StatusUnprocessableEntity {
+			t.Fatalf("无令牌 POST /account/password 状态码 = %d, 期望 422\n%s", resp.StatusCode, body)
+		}
+		if !strings.Contains(body, "Verification failed") {
+			t.Errorf("改密 422 未回显验证码失败文案:\n%s", body)
+		}
+	})
+}
+
+// TestGeneratedProjectCreatesOneBackendClientPerProcess pins the process-wide singletons: one Redis client, one GORM
+// handle, one cache, one message bus, one captcha manager and one controller. Duplicate opens are the usual source of
+// pool leaks and double shutdown hooks. | TestGeneratedProjectCreatesOneBackendClientPerProcess 钉住进程级单例：
+// 一个 Redis 客户端、一个 GORM 句柄、一个缓存、一个消息总线、一个验证码管理器与一个控制器。重复打开是连接池泄漏与
+// 重复关停钩子的常见来源。
+func TestGeneratedProjectCreatesOneBackendClientPerProcess(t *testing.T) {
+	pr, _ := generateMem(t, scaffold.DefaultOptions("single-instance"))
+
+	tokens := []string{
+		"redis.Open(", "ydgorm.Open(", "goredis.NewClient(", "redis.NewClient(",
+		"repository.Open(", "service.NewRedis(", "service.NewCache(", "service.NewMessageBus(",
+		"captcha.NewWithClient(", "asynq.NewClient(", "asynq.NewServer(", "asynq.NewRegistry(",
+		"sse.NewBroker(", "service.NewTicker(", "controller.New(", "service.NewMetricsService(",
+		"web.InitBundles(", "i18n.New(", "openapi.ParseSource(", "gormcache.New(", "realtime.NewRedisBus(",
+	}
+	counts := make(map[string]int, len(tokens))
+	err := afero.Walk(pr.fs, pr.name, func(p string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+		if info.IsDir() || !strings.HasSuffix(p, ".go") || strings.HasSuffix(p, "_test.go") {
+			return nil
+		}
+		content, readErr := afero.ReadFile(pr.fs, p)
+		if readErr != nil {
+			return readErr
+		}
+		for _, token := range tokens {
+			counts[token] += strings.Count(string(content), token)
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("walk generated project failed: %v", err)
+	}
+
+	want := map[string]int{
+		"redis.Open(":                1,
+		"ydgorm.Open(":               1,
+		"goredis.NewClient(":         0,
+		"redis.NewClient(":           0,
+		"repository.Open(":           1,
+		"service.NewRedis(":          1,
+		"service.NewCache(":          1,
+		"service.NewMessageBus(":     1,
+		"captcha.NewWithClient(":     1,
+		"asynq.NewClient(":           1,
+		"asynq.NewServer(":           1,
+		"asynq.NewRegistry(":         1,
+		"sse.NewBroker(":             1,
+		"service.NewTicker(":         1,
+		"controller.New(":            1,
+		"service.NewMetricsService(": 1,
+		"web.InitBundles(":           1,
+		"i18n.New(":                  1,
+		"openapi.ParseSource(":       1,
+		"gormcache.New(":             1,
+		"realtime.NewRedisBus(":      1,
+	}
+	for token, expected := range want {
+		if got := counts[token]; got != expected {
+			t.Errorf("%q occurs %d times, want %d", token, got, expected)
+		}
+	}
+
+	router := pr.read("internal/router/router.go")
+	if got := strings.Count(router, "a.Set(app.ServiceRedis, redisClient)"); got != 1 {
+		t.Errorf("a.Set(app.ServiceRedis, redisClient) occurs %d times, want 1", got)
+	}
+	if got := strings.Count(router, "a.Set(app.ServiceCache, cacheMgr)"); got != 1 {
+		t.Errorf("a.Set(app.ServiceCache, cacheMgr) occurs %d times, want 1", got)
+	}
+	if strings.Contains(router, "return closeCache()") {
+		t.Error("the cache manager is closed by App.Set; a second closeCache hook duplicates shutdown")
 	}
 }

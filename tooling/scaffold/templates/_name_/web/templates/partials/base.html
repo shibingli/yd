@@ -106,15 +106,15 @@
   {{- end }}
 </div>
 
-{{/* 脚本顺序（唯一允许的顺序）：htmx 核心 → 所选扩展 → UI 组件层 → Alpine → 国密加解密 → 权限守卫 → 进度条 → 本项目脚本。
+{{/* 脚本顺序（唯一允许的顺序）：htmx 核心 → 所选扩展 → UI 组件层 → Alpine → 国密加解密 → 权限守卫 → 进度条 → 验证码适配 → 本项目脚本。
      全部带 defer。Alpine 的 CSP 构建在脚本执行时立即启动，yd-ui.js 因此必须排在它之前。
      production 下这些共享脚本由 web.InitBundles 在启动时按同一顺序合成若干不超过配置上限的分块；
      开发期与无法组装时仍逐个加载，便于调试。PageScripts 永远单独加载，它们是页面级资产。
      Script order (the only allowed order): htmx core → extensions → the UI kit → Alpine → crypto → authority guard →
-     progress bar → this project's script, all deferred. The Alpine CSP build starts immediately, so yd-ui.js must
-     come first. In production web.InitBundles concatenates these shared scripts in this very order at startup into
-     chunks capped by bundle.max_bytes; development, and any failed assembly, keep the individual tags for debugging.
-     PageScripts always load separately because they are page-level assets. */}}
+     progress bar → captcha adapter → this project's script, all deferred. The Alpine CSP build starts immediately, so
+     yd-ui.js must come first. In production web.InitBundles concatenates these shared scripts in this very order at
+     startup into chunks capped by bundle.max_bytes; development, and any failed assembly, keep the individual tags for
+     debugging. PageScripts always load separately because they are page-level assets. */}}
 {{- with .BundleURLs }}
 {{- range . }}
 <script src="{{ . }}" defer></script>
@@ -130,6 +130,7 @@
 <script src="{{ asset "/static/js/yd-guomi-htmx.js" }}" defer></script>
 <script src="{{ asset "/static/js/yd-authz.js" }}" defer></script>
 <script src="{{ asset "/static/js/yd-progress.js" }}" defer></script>
+<script src="{{ asset "/static/js/yd-captcha.js" }}" defer></script>
 <script src="{{ asset "/static/js/yd-app.js" }}" defer></script>
 {{- end }}
 {{- range .PageScripts }}

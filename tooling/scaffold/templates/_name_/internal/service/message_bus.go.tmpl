@@ -10,13 +10,13 @@ import (
 	"time"
 
 	asynqio "github.com/hibiken/asynq"
+	goredis "github.com/redis/go-redis/v9"
 
 	"{{ .YdxModule }}/config"
 	"{{ .YdxModule }}/json"
 	ydlog "{{ .YdxModule }}/log"
 	"{{ .YdxModule }}/nodeid"
 	"{{ .YdxModule }}/asynq"
-	"{{ .YdxModule }}/redis"
 	"{{ .YdModule }}/messaging"
 	"{{ .YdModule }}/messaging/realtime"
 )
@@ -39,33 +39,19 @@ const messageEventTask = "yd:message:event"
 // startup: the local hub keeps working and the failure is logged. |
 // 每个生成项目都内建 Redis 与 asynq：实时事件经 Redis Pub/Sub 跨节点广播，写入失败会入队，并由处理该任务的任一节点
 // 重发。Redis 连接失败绝不阻塞启动：本地 Hub 继续工作，失败只记录日志。
-func NewMessageBus(cfg *config.Config, log *ydlog.Logger, nodeID string) (*realtime.Hub, func() error, error) {
+func NewMessageBus(cfg *config.Config, log *ydlog.Logger, nodeID string, redisClient goredis.UniversalClient) (*realtime.Hub, func() error, error) {
 	if log == nil {
 		log = ydlog.Default()
 	}
-	redisClient, err := redis.Open(redis.OptionsFromConfig(cfg))
-	if err != nil {
-		log.Warn("redis is configured but unavailable, message delivery stays local | 已配置 redis 但不可用，消息投递保持本地",
-			ydlog.Err(err),
-		)
-		return realtime.New(log), func() error { return nil }, nil
-	}
-	// 启动时做一次有界探测：Redis 不可达就明确退回单节点，而不是让订阅协程每秒重试并刷日志。
-	// A bounded probe at startup: an unreachable Redis degrades explicitly to single-node instead of letting the
-	// subscription goroutine retry and flood the log every second.
-	healthCtx, healthCancel := context.WithTimeout(context.Background(), 2*time.Second)
-	healthErr := redis.Health(healthCtx, redisClient)
-	healthCancel()
-	if healthErr != nil {
-		_ = redis.Close(redisClient)
-		log.Warn("redis health check failed, message delivery stays local | Redis 健康检查失败，消息投递保持本地",
-			ydlog.Err(healthErr),
-		)
+	// redisClient was opened and probed once by NewRedis; nil means Redis is unavailable, message delivery stays
+	// local and no second connection is opened here.
+	// redisClient 由 NewRedis 打开并探活一次；nil 表示 Redis 不可用，消息投递保持本地，不再自行建连。
+	if redisClient == nil {
+		log.Debug("redis is unavailable, message delivery stays local | Redis 不可用，消息投递保持本地")
 		return realtime.New(log), func() error { return nil }, nil
 	}
 	bus, err := realtime.NewRedisBus(redisClient, realtime.DefaultRedisChannel, log)
 	if err != nil {
-		_ = redis.Close(redisClient)
 		log.Warn("message bus is unavailable, delivery stays local | 消息总线不可用，投递保持本地", ydlog.Err(err))
 		return realtime.New(log), func() error { return nil }, nil
 	}
@@ -91,26 +77,37 @@ func NewMessageBus(cfg *config.Config, log *ydlog.Logger, nodeID string) (*realt
 		log.Warn("message retry task registry is invalid | 消息重试任务注册表非法", ydlog.Err(regErr))
 	} else {
 		options := asynq.OptionsFromConfig(cfg)
-		redisOpt := asynqio.RedisClientOpt{
-			Addr:     strings.TrimSpace(cfg.GetString("redis.addr")),
-			Password: cfg.GetString("redis.password"),
-			DB:       cfg.GetInt("redis.db"),
-		}
-		if options.RedisAddr == "" {
-			options.RedisAddr = redisOpt.Addr
-		}
-		client, clientErr := asynq.NewClient(redisOpt, options)
-		if clientErr != nil {
-			log.Warn("message retry client is unavailable | 消息重试客户端不可用", ydlog.Err(clientErr))
+		// asynq's RedisClientOpt only supports a single node; in sentinel / cluster mode the shared Pub/Sub bus keeps
+		// working, but durable retry is not claimed.
+		// asynq 的 RedisClientOpt 只支持单机连接；sentinel / cluster 模式下共享 Pub/Sub 总线照常工作，
+		// 但持久重试不会被错误地声称可用。
+		mode := strings.ToLower(strings.TrimSpace(cfg.GetString("redis.mode")))
+		if mode != "" && mode != "single" {
+			log.Warn("asynq durable retry supports single-node Redis only; failed broadcasts are not retried in this mode | asynq 持久重试只支持单机 Redis；该模式下失败广播不会重试",
+				ydlog.Str("mode", mode),
+			)
 		} else {
-			server := asynq.NewServer(registry, redisOpt, options, log)
-			if startErr := server.Start(); startErr != nil {
-				log.Warn("message retry worker is unavailable | 消息重试工作器不可用", ydlog.Err(startErr))
-				_ = client.Close()
+			redisOpt := asynqio.RedisClientOpt{
+				Addr:     strings.TrimSpace(cfg.GetString("redis.addr")),
+				Password: cfg.GetString("redis.password"),
+				DB:       cfg.GetInt("redis.db"),
+			}
+			if options.RedisAddr == "" {
+				options.RedisAddr = redisOpt.Addr
+			}
+			client, clientErr := asynq.NewClient(redisOpt, options)
+			if clientErr != nil {
+				log.Warn("message retry client is unavailable | 消息重试客户端不可用", ydlog.Err(clientErr))
 			} else {
-				taskCli = client
-				taskSrv = server
-				retry = &asynqRetryQueue{client: client}
+				server := asynq.NewServer(registry, redisOpt, options, log)
+				if startErr := server.Start(); startErr != nil {
+					log.Warn("message retry worker is unavailable | 消息重试工作器不可用", ydlog.Err(startErr))
+					_ = client.Close()
+				} else {
+					taskCli = client
+					taskSrv = server
+					retry = &asynqRetryQueue{client: client}
+				}
 			}
 		}
 	}
@@ -130,7 +127,9 @@ func NewMessageBus(cfg *config.Config, log *ydlog.Logger, nodeID string) (*realt
 				log.Warn("message retry client close failed | 消息重试客户端关闭失败", ydlog.Err(closeErr))
 			}
 		}
-		return redis.Close(redisClient)
+		// The shared Redis client is closed by the App's ServiceRedis hook; never close it here.
+		// 共享 Redis 客户端由 App 的 ServiceRedis 钩子关闭，这里绝不重复关闭。
+		return nil
 	}, nil
 }
 

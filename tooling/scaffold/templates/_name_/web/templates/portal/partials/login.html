@@ -40,14 +40,22 @@
       hx-status:422="target:#yd-workspace swap:innerHTML"
       hx-disabled-elt="find button[type='submit']"
       novalidate>
+  {{/* hx-preserve 让语言切换的外壳交换保留已输入的用户名；口令字段刻意不保留。 |
+       hx-preserve keeps the typed user name through the language shell swap; the password is deliberately not kept. */}}
   {{template "components.form.field" (dict
     "ID" "yd-login-username" "Name" "username" "Type" "text" "Value" .Username
     "Label" (tr "field.username") "LabelKey" "field.username"
-    "Autocomplete" "username" "Required" true "MaxLength" 64)}}
+    "Autocomplete" "username" "Required" true "MaxLength" 64 "Attrs" "hx-preserve")}}
   {{template "components.form.password" (dict
     "ID" "yd-login-password" "Name" "password"
     "Label" (tr "field.password") "LabelKey" "field.password"
     "Autocomplete" "current-password" "Required" true "Sensitive" true)}}
+  {{/* 验证码在 SM2 口令字段之后、提交按钮之前：用户先完成人机验证，再提交整张表单。 |
+       Captcha sits after the SM2 password field and before the submit button: the user completes it first and then
+       submits the whole form. */}}
+  {{template "partials/captcha" (dict
+    "Enabled" .CaptchaLogin "Action" .CaptchaLoginAction "Endpoint" .CaptchaEndpoint
+    "Field" .CaptchaTokenField "InputID" "yd-login-captcha-token")}}
   <div class="yd-form__actions">
     {{/* 公钥不可用时按钮保持禁用：与其提交一个必然被拒的明文请求，不如把原因说清楚。
          The button stays disabled while the key is unavailable: rather than submitting a clear-text request that is bound

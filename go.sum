@@ -100,6 +100,8 @@ github.com/shibingli/ydx/buffpool v0.1.4 h1:aQpZ8Rzs6Qt6/H/lW4st3I74mdAqJkzoyAVV
 github.com/shibingli/ydx/buffpool v0.1.4/go.mod h1:1PYC8bCUvgsvXzeFHDVo2wqy62bNYps+c1yZGCK4o/Y=
 github.com/shibingli/ydx/cache v0.1.17 h1:ibah/W7KJcl3LGEfzTlsV9mJPNdCMZBIcp+p/1co6do=
 github.com/shibingli/ydx/cache v0.1.17/go.mod h1:3t/v+ebyGMVPtr8IdExLs5IHBDY9qUjKlJeByHgTYds=
+github.com/shibingli/ydx/captcha v0.1.0 h1:hKvow1CC6IJDcQ2hWBU6E1sjlwZhjnc6Ef5jGCKq52U=
+github.com/shibingli/ydx/captcha v0.1.0/go.mod h1:kafQmF9vlHQO5IWrierb29V9OpiFwj/KCRdOTr9PHSg=
 github.com/shibingli/ydx/config v0.1.8 h1:vGgqju8UqN3Fq/mIwbN0JYCQJnMz8JrxTF2TJC8oZAQ=
 github.com/shibingli/ydx/config v0.1.8/go.mod h1:FCQCjq65sOQA7UBTuZTvv20GWDUwEJXtLB7oRpTXiTE=
 github.com/shibingli/ydx/errs v0.1.4 h1:/hexB5eDFA/wWhRof5yxWEVeVlHn1P7IZmys9U4h1iA=
@@ -142,6 +144,8 @@ github.com/shibingli/ydx/protocol v0.1.5 h1:+rXZJY3eb5lsArppW0H0T1TLCVO9qCVxJ9ju
 github.com/shibingli/ydx/protocol v0.1.5/go.mod h1:eKLAtgDa8Cf4Sg0eMYzf4srW8SW7+T3ceTGV73E1nZ0=
 github.com/shibingli/ydx/realtime v0.1.7 h1:wnt3SZfQbOeq4NeV6Nb/HSQHpMFWMrjy+7IfI8DKofE=
 github.com/shibingli/ydx/realtime v0.1.7/go.mod h1:dmpV3UM6AblNKSmljgVs0NqzccGVrTK8FNdEm3qM5eA=
+github.com/shibingli/ydx/redis v0.1.9 h1:7z3vx+OCZjpI8/1zKXhZBq4gZ3t/YNs8OtCqfTi+QSI=
+github.com/shibingli/ydx/redis v0.1.9/go.mod h1:tXTLi8w+FWxIt60NapbxpCFH0lYZUA8Y6iNKuB4Mdm4=
 github.com/shibingli/ydx/regexpx v0.1.7 h1:pLEH/b8iaIooTIfb8c5YTpaJ3imsWUzbji5eGi4SRfA=
 github.com/shibingli/ydx/regexpx v0.1.7/go.mod h1:oC3q0ssHYf1m92iRnRNpl3rsXfLnwLMtLwiZsoftnDw=
 github.com/shibingli/ydx/render v0.1.10 h1:aeyMPoWwrKb9QjXhh4nLe/xamfhY9NldriMpAmbpb8k=

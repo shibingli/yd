@@ -28,7 +28,10 @@ func writeKoDataConfig(t *testing.T, projDir string) string {
 	if !strings.Contains(text, "i18n:\n") {
 		t.Fatalf("生成项目的配置缺少 i18n 段:\n%s", text)
 	}
-	text = strings.Replace(text, "i18n:\n", "i18n:\n  default_lang: en\n", 1)
+	if !strings.Contains(text, "default_lang: zh-CN") {
+		t.Fatalf("生成项目的 i18n 段缺少 default_lang: zh-CN:\n%s", text)
+	}
+	text = strings.Replace(text, "default_lang: zh-CN", "default_lang: en", 1)
 
 	root := t.TempDir()
 	dir := filepath.Join(root, "configs")

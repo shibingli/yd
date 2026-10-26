@@ -12,6 +12,7 @@ import (
 	"{{ .Module }}/internal/middleware"
 	"{{ .Module }}/internal/service"
 	"{{ .YdModule }}/security/auth"
+	"{{ .YdModule }}/security/captcha"
 	"{{ .YdxModule }}/log"
 	"{{ .YdxModule }}/router"
 )
@@ -83,14 +84,28 @@ func (c *Controller) LoginPage(ctx *router.Ctx) {
 // @Param tenant formData string true "tenant slug or tn_ id | 租户标识或 tn_ ID"
 // @Param username formData string true "sign-in name inside the tenant | 租户内的登录名"
 // @Param password formData string true "SM2 ciphertext, Base64 or raw | SM2 密文，Base64 或原始字节"
+// @Param captcha_token formData string false "one-time verification token; required while captcha.login is on | 一次性验证令牌；captcha.login 开启时必填"
+// @Param X-Captcha-Token header string false "one-time verification token for API clients; the form field wins | 供 API 客户端使用的一次性验证令牌；表单字段优先"
 // @Success 200 {object} string "HX-Redirect to the workspace | 指向工作区的 HX-Redirect"
 // @Success 303 {object} string "redirect to the workspace | 303 跳转到工作区"
 // @Failure 401 {object} string "sign-in refused | 登录被拒绝"
-// @Failure 422 {object} string "malformed input | 输入不合法"
+// @Failure 422 {object} string "malformed input or failed verification | 输入不合法或验证码未通过"
 // @Security BearerAuth
 // @Router /login [post]
 func (c *Controller) Login(ctx *router.Ctx) {
 	username := field(ctx, FieldUsername)
+
+	// Captcha comes before tenant resolution and password decryption: a refused request never touches the auth store
+	// and cannot differ based on whether the tenant exists.
+	// 验证码先于租户解析与口令解密：被拒绝的请求不会触碰鉴权存储，也不会因为租户是否存在而产生差异。
+	// The captcha service records the reason at Debug (expected refusals) or Warn (store failures); the access log
+	// already records the 422, so this handler does not add a third line. | 验证码服务已按原因记录 Debug（预期拒绝）或
+	// Warn（存储故障）；访问日志已记录 422，本处理器不再增加第三条日志。
+	if err := c.captcha.Verify(ctx.Request.Context(), captcha.Token(ctx), captcha.ActionLogin); err != nil {
+		c.loginFailed(ctx, http.StatusUnprocessableEntity, c.tr(c.lang(ctx), "captcha.failed"), username)
+		return
+	}
+
 	tenantKey := field(ctx, FieldTenant)
 	if tenantKey == "" {
 		// 请求头里的租户由租户解析中间件记下，这里复用它的结果，避免两处各解析一次。
@@ -329,10 +344,12 @@ func (c *Controller) UpdateProfile(ctx *router.Ctx) {
 // @Param current formData string true "current password as SM2 ciphertext | 当前口令的 SM2 密文"
 // @Param password formData string true "new password as SM2 ciphertext | 新口令的 SM2 密文"
 // @Param confirm formData string true "repeated new password as SM2 ciphertext | 重复输入的新口令 SM2 密文"
+// @Param captcha_token formData string false "one-time verification token; required while captcha.password_change is on | 一次性验证令牌；captcha.password_change 开启时必填"
+// @Param X-Captcha-Token header string false "one-time verification token for API clients; the form field wins | 供 API 客户端使用的一次性验证令牌；表单字段优先"
 // @Success 200 {object} string "HX-Redirect to the sign-in page | 指向登录页的 HX-Redirect"
 // @Success 303 {object} string "redirect to the sign-in page | 303 跳转到登录页"
 // @Failure 401 {object} string "no session or wrong current password | 无有效会话或当前口令错误"
-// @Failure 422 {object} string "the new passwords do not match | 两次输入的新口令不一致"
+// @Failure 422 {object} string "mismatched passwords or failed verification | 两次口令不一致或验证码未通过"
 // @Security BearerAuth
 // @Router /account/password [post]
 func (c *Controller) ChangePassword(ctx *router.Ctx) {
@@ -343,6 +360,14 @@ func (c *Controller) ChangePassword(ctx *router.Ctx) {
 	}
 	tenantID, ok := c.tenantID(ctx)
 	if !ok {
+		return
+	}
+
+	// A password change is an authenticated action, yet captcha still comes before the business call: once the
+	// one-time token is consumed, a failed password check requires a fresh challenge as well.
+	// 改密是已登录动作，但验证码仍挡在业务调用之前：一次性令牌被消费后，口令校验失败也需要重新出题。
+	if err := c.captcha.Verify(ctx.Request.Context(), captcha.Token(ctx), captcha.ActionPasswordChange); err != nil {
+		c.fail(ctx, http.StatusUnprocessableEntity, c.tr(c.lang(ctx), "captcha.failed"))
 		return
 	}
 

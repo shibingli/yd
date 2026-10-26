@@ -17,6 +17,8 @@ import (
 	"strconv"
 	"strings"
 
+	goredis "github.com/redis/go-redis/v9"
+
 	"{{ .Module }}/internal/meta"
 	"{{ .Module }}/internal/middleware"
 	"{{ .Module }}/internal/model"
@@ -35,6 +37,7 @@ import (
 	"{{ .YdModule }}/runtime/metricsx"
 	"{{ .YdModule }}/security/auth"
 	"{{ .YdModule }}/security/authz"
+	"{{ .YdModule }}/security/captcha"
 )
 
 // 布局与外壳名：门户与管理后台各自使用独立的骨架，页面模板树也互不引用。
@@ -293,6 +296,8 @@ type Controller struct {
 	store *repository.Store
 	// auth serves sign-in, password changes and sec_key rotation. | auth 是登录、改密与 sec_key 轮换服务。
 	auth *service.AuthService
+	// captcha owns the optional human-verification guard for sign-in and password changes. | captcha 持有登录与改密的可选人机验证守卫。
+	captcha *captcha.Service
 	// tenants is the tenant service. | tenants 是租户服务。
 	tenants *service.TenantService
 	// users is the user service. | users 是用户服务。
@@ -330,7 +335,10 @@ type Controller struct {
 // Sharing one AuthService is mandatory: exactly one SM2 key pair may exist, because sign-in, user creation and password
 // changes all have to decrypt with the very same private key — two key pairs would silently mismatch the public key the
 // browser fetched.
-func New(a *app.App, store *repository.Store, log *ydlog.Logger) (*Controller, error) {
+// redisClient is the one process-wide client opened by service.NewRedis; nil means Redis is unavailable and the
+// message bus stays in-process. | redisClient 是由 service.NewRedis 打开的进程级客户端；nil 表示 Redis 不可用，
+// 消息总线保持在进程内。
+func New(a *app.App, store *repository.Store, log *ydlog.Logger, captchaSvc *captcha.Service, redisClient goredis.UniversalClient) (*Controller, error) {
 	if a == nil || store == nil {
 		return nil, service.ErrAuthUnavailable
 	}
@@ -343,7 +351,7 @@ func New(a *app.App, store *repository.Store, log *ydlog.Logger) (*Controller, e
 		return nil, err
 	}
 	metricsSvc := service.NewMetricsService()
-	hub, closeMessageBus, busErr := service.NewMessageBus(a.Config(), log, a.NodeID())
+	hub, closeMessageBus, busErr := service.NewMessageBus(a.Config(), log, a.NodeID(), redisClient)
 	if busErr != nil {
 		log.Warn("message bus is unavailable, falling back to in-process delivery | 消息总线不可用，回退到进程内投递",
 			ydlog.Err(busErr),
@@ -367,6 +375,7 @@ func New(a *app.App, store *repository.Store, log *ydlog.Logger) (*Controller, e
 		app:        a,
 		store:      store,
 		auth:       authSvc,
+		captcha:    captchaSvc,
 		tenants:    service.NewTenantService(store),
 		users:      service.NewUserService(store, authSvc),
 		roles:      service.NewRoleService(store),
@@ -616,6 +625,15 @@ func (c *Controller) renderData(ctx *router.Ctx, title string, extra map[string]
 		"Unread":           messaging.UnreadSummary{},
 		"MessageAvailable": c.MessagesAvailable(),
 		"MessageError":     "",
+		// The captcha switches appear in every page's data: the sign-in and account pages decide from them whether
+		// to render the widget, and the whole block is omitted while disabled.
+		// 验证码开关在每一份页面数据里都出现：登录页与账号页据此决定是否渲染组件，关闭时模板整块省略。
+		"CaptchaLogin":            c.captcha.Enabled(captcha.ActionLogin),
+		"CaptchaPasswordChange":   c.captcha.Enabled(captcha.ActionPasswordChange),
+		"CaptchaEndpoint":         captcha.Endpoint,
+		"CaptchaTokenField":       captcha.TokenField,
+		"CaptchaLoginAction":      captcha.ActionLogin,
+		"CaptchaPasswordChangeAction": captcha.ActionPasswordChange,
 	}
 	layout, shell, portal := c.layoutForPath(ctx.Path())
 	data[render.LayoutKey] = layout

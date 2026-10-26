@@ -39,6 +39,8 @@ type projectFeatures struct {
 	Asynq bool `json:"asynq"`
 	// GRPC tells whether the gRPC dual channel is enabled. | GRPC 表示是否开启 gRPC 双通道。
 	GRPC bool `json:"grpc"`
+	// Captcha tells whether sign-in and password changes require verification by default. | Captcha 表示登录与改密是否默认要求验证码。
+	Captcha bool `json:"captcha"`
 	// Auth 表示多租户 + 用户 / 角色 / 权限的登录鉴权链路已接入。
 	// Auth tells whether the multi-tenant sign-in chain — users, roles and capabilities — is wired in.
 	//
@@ -112,6 +114,7 @@ func generatedDocs(o Options, v view, m *assets.Manifest) ([]plannedFile, error)
 			Redis:    true,
 			Asynq:    true,
 			GRPC:     o.GRPC,
+			Captcha:  o.Captcha,
 			I18n:     o.I18n,
 			Tailwind: o.Tailwind,
 			Auth:     true,

@@ -246,14 +246,16 @@ func (o Options) buildArgs(target Target, out string) []string {
 }
 
 // buildEnv merges the toolchain environment for one target: CGO is always disabled
-// so the artifact stays static, GOOS/GOARCH are pinned, and caller supplied Env
-// entries win over both. | buildEnv 合并单个目标的工具链环境：始终关闭 CGO 以保证产物静态链接，
-// 固定 GOOS/GOARCH，调用方传入的 Env 条目则优先于两者。
+// so the artifact stays static, GOOS/GOARCH are pinned, workspace mode is disabled
+// so a parent go.work cannot redirect the build, and caller supplied Env entries
+// win over all three. | buildEnv 合并单个目标的工具链环境：始终关闭 CGO 以保证产物静态链接，
+// 固定 GOOS/GOARCH，关闭工作区模式以免上级 go.work 改变构建目标，调用方传入的 Env 条目优先于三者。
 func (o Options) buildEnv(target Target) []string {
 	return []string{
 		"CGO_ENABLED=0",
 		"GOOS=" + target.GOOS,
 		"GOARCH=" + target.GOARCH,
+		"GOWORK=off",
 	}
 }
 

@@ -144,6 +144,12 @@
         "ID" "yd-account-confirm" "Name" "confirm"
         "Label" (tr "field.confirm_password") "LabelKey" "field.confirm_password"
         "Autocomplete" "new-password" "Required" true "Sensitive" true)}}
+      {{/* 改密的验证码与登录共用同一片段；令牌随表单提交，服务端在口令校验之前消费它。 |
+           The password-change captcha shares one fragment with sign-in; the token travels with the form and the
+           server consumes it before checking the passwords. */}}
+      {{template "partials/captcha" (dict
+        "Enabled" .CaptchaPasswordChange "Action" .CaptchaPasswordChangeAction "Endpoint" .CaptchaEndpoint
+        "Field" .CaptchaTokenField "InputID" "yd-account-captcha-token")}}
       {{template "components.form.actions" (dict
         "SubmitLabel" (tr "ui.save") "SubmitKey" "ui.save" "NoCancel" true)}}
       <p class="yd-field__hint">{{ tr "page.account.sign_out_after" }}</p>

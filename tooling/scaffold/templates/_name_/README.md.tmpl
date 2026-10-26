@@ -23,6 +23,7 @@ Go {{ .GoVersion }} + Htmx {{ .HtmxVersion }} + Tailwind CSS {{ .TailwindVersion
 | redis 集成 | 内置（始终启用） |
 | asynq 队列 | 内置（始终启用） |
 | grpc 双通道 | {{ .GRPC }} |
+| 验证码（登录 / 改密） | {{ .Captcha }} |
 | 登录鉴权（多租户 / 用户 / 角色 / 权限） | {{ .Auth }} |
 | i18n | {{ .I18n }} |
 | tailwind | {{ .Tailwind }} |
@@ -259,6 +260,51 @@ assembly point.
   本项目一个角色名、一个能力标识都不写，因此 `yd authz check` 永远通过。
 - **拒绝的形态**：普通浏览请求得到 `303 → /login`，htmx 请求与 API 客户端得到 `401` 片段；越权一律按「没有这条数据」处理。
 
+## 人机验证（验证码）
+
+验证码接线始终随项目生成（`internal/router` 装配 `security/captcha`，登录页与账号页共用
+`partials/captcha.html`），是否要求验证完全由配置决定：
+
+- `captcha.login` / `captcha.password_change`：分别控制登录与修改口令是否要求验证码；默认值由
+  `yd new --captcha` 决定，之后可随时改 `configs/config.yaml` 或 `YD_CAPTCHA_LOGIN` /
+  `YD_CAPTCHA_PASSWORD_CHANGE`；两个开关在进程启动时读取，改后重启生效（`yd dev` 会自动热重载）。
+- `captcha.store`：`auto`（默认，优先 Redis）、`memory`（单机）或 `redis`（多机共享挑战、图片与限流）。
+- `captcha.fallback`：Redis 不可用时 `memory` 降级到进程内存储并告警（默认），`fail` 拒绝启动（严格多机）。
+- `captcha.secret`：一次性令牌签名密钥，至少 16 字节。生产环境必须通过 `YD_CAPTCHA_SECRET` 注入，多副本
+  必须使用同一个值；`development` 留空时回退到文档化开发密钥并每次启动告警，其它环境留空拒绝启动。
+- `captcha.types`：启用的视觉题型（`text`、`click_text`、`click_icon`、`semantic`、`slide`、`scratch`、
+  `rotate`）。默认 `[text, rotate]`，只含可用键盘完成的题型；`click_*` / `semantic` / `slide` 只支持指针，
+  需要无障碍替代方案时才显式加入。留空表示全部内置题型。
+- `captcha.key_prefix`：Redis 键命名空间，多应用共享同一 Redis 时必须区分。
+- `captcha.trusted_proxies`：可信反向代理 CIDR 列表（也可写单个 IP）；为空时只信任直接对端。仅在应用确实
+  位于代理之后时配置，否则可被伪造的 `X-Forwarded-For` 绕过按 IP 限流。
+
+浏览器组件由 `/captcha/assets/yd-captcha.js` 提供；`web/static/js/yd-captcha.js` 负责按需加载、把令牌写入
+`captcha_token` 隐藏字段、在完成验证前阻止提交、请求被拒后重新出题，并跟随 `<html data-theme>` 与 `lang`
+同步主题和文案。语言切换替换外壳时，验证码挂载点与隐藏令牌带 `hx-preserve`，已完成的令牌与已输入的答案
+保留；标签/提示按新语言重新渲染；用户名输入保留，口令字段刻意不保留。历史快照恢复时会清除克隆组件与旧令牌。
+验证失败只返回统一文案，不泄露账号或租户信息。
+
+## 进程级单例
+
+一个进程只创建一次下列实例，避免连接池泄漏与重复关停：
+
+- **GORM 句柄**：`internal/repository.Open` 中的 `ydgorm.Open` 一次；鉴权存储与消息存储共用它。
+- **Redis 客户端**：`internal/service.NewRedis` 一次，注册为 `app.ServiceRedis`；二级缓存、消息总线与验证码
+  共用同一个客户端，`App` 的 `io.Closer` 钩子在关停时关闭一次。
+- **二级缓存**：`service.NewCache` 一次，经 `app.Set(app.ServiceCache, …)` 自动关闭；**不要**再注册第二个
+  关闭钩子，否则同一个管理器会被关闭两次。
+- **消息总线**：`service.NewMessageBus` 一次。asynq 的客户端与服务端是生产者/消费者两个角色，各自持有连接池，
+  但每个角色只创建一次。asynq 的持久重试目前使用单机 Redis 连接参数；`redis.mode` 为 `sentinel` 或
+  `cluster` 时，共享 Pub/Sub 总线照常工作，持久重试会打印告警并停用。
+- **验证码管理器**：`captcha.NewWithClient` 一次，复用上面的共享 Redis 客户端。
+- **SSE Broker、Ticker、MetricsCollector、Controller**：各一次。
+- **中间件**：`auth` / `authz` / `tenant` / `promote` / `cache-bypass` 在公开组与受保护组各挂一次，这是两条
+  独立链路而不是重复实例；`UseObserved` 按名称合并计数。
+
+关停顺序由 `app` 的逆序钩子保证：先关缓存、消息总线与验证码，再关共享 Redis 客户端。
+修改装配顺序时请保持这些单例，不要为同一个对象再登记第二个关闭钩子。
+
 ## 环境变量
 
 环境变量前缀固定 `YD_`，下划线自动映射为多级嵌套（`YD_SERVER_PORT` → `server.port`）。
@@ -271,6 +317,19 @@ assembly point.
 |---|---|---|
 | `auth.master_key` | `YD_AUTH_MASTER_KEY` | 封装每个用户的 `sec_key`。仅 `development` 留空时回退到内置开发密钥并告警，**其它环境留空则拒绝启动** |
 | `auth.token_ttl` | `YD_AUTH_TOKEN_TTL` | 令牌有效期（如 `2h`），登录 cookie 的 `MaxAge` 与它同源 |
+
+验证码相关的键（`configs/config.yaml` 的 `captcha` 段）：
+
+| 键 | 环境变量 | 说明 |
+|---|---|---|
+| `captcha.login` | `YD_CAPTCHA_LOGIN` | 登录时要求验证码 |
+| `captcha.password_change` | `YD_CAPTCHA_PASSWORD_CHANGE` | 修改口令时要求验证码 |
+| `captcha.secret` | `YD_CAPTCHA_SECRET` | 一次性令牌签名密钥，至少 16 字节；生产必须注入 |
+| `captcha.store` | `YD_CAPTCHA_STORE` | `auto` / `memory` / `redis` |
+| `captcha.fallback` | `YD_CAPTCHA_FALLBACK` | Redis 不可用时 `memory` 降级或 `fail` 拒绝启动 |
+| `captcha.types` | `YD_CAPTCHA_TYPES` | 逗号分隔的视觉题型，默认 `[text, rotate]`；留空为全部内置题型 |
+| `captcha.key_prefix` | `YD_CAPTCHA_KEY_PREFIX` | Redis 键命名空间，多应用共享 Redis 时必须区分 |
+| `captcha.trusted_proxies` | `YD_CAPTCHA_TRUSTED_PROXIES` | 可信反向代理 CIDR 列表（也可写单个 IP），为空只信任直接对端 |
 
 ## 安装为系统服务
 
@@ -339,16 +398,23 @@ sudo systemctl enable --now {{ .Name }}
 systemctl status {{ .Name }}
 ```
 
-`/etc/{{ .Name }}/yd.env` 至少包含以下三行（文件权限 0600、属主 root）：
+`/etc/{{ .Name }}/yd.env` 至少包含以下条目（文件权限 0600、属主 root）：
 
 ```bash
 YD_APP_ENV=production
 YD_AUTH_MASTER_KEY=<32 字节随机值的 Base64>
 YD_SEED_ADMIN_PASSWORD=<强口令>
+{{- if .Captcha }}
+YD_CAPTCHA_SECRET=<至少 16 字节的随机值>
+{{- end }}
 ```
 
 `YD_AUTH_MASTER_KEY` 是封装每用户 `sec_key` 的主密钥，不是管理员登录口令；管理员口令来自
 `YD_SEED_ADMIN_PASSWORD`，且只在租户表为空时使用一次。
+{{- if .Captcha }}
+本项目的 `captcha.login` / `captcha.password_change` 默认开启，生产环境的 `YD_CAPTCHA_SECRET` 必须注入；
+缺少它时进程按设计拒绝启动。多副本必须使用同一个值。
+{{- end }}
 
 ## 无 Dockerfile 打包（ko）
 

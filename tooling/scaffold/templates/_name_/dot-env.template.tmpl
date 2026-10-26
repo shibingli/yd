@@ -8,10 +8,12 @@
 
 # 运行环境：development（本地开发）| production（生产）。
 # Docker 镜像默认 production；ko 构建的镜像没有注入环境变量的标志，必须在部署清单中显式设置。
+# 本模板不固定环境：未设置时框架取 development。生产部署必须显式设置 YD_APP_ENV=production。
 # Runtime environment: development (local) | production.
 # Docker images default to production; images built by ko have no environment-injection flag, so the deployment
-# manifest must set it explicitly.
-YD_APP_ENV=development
+# manifest must set it explicitly. This template leaves the environment unpinned: the framework defaults to
+# development, and production must set YD_APP_ENV=production explicitly.
+# YD_APP_ENV=development
 
 # 配置目录：默认 configs；Docker 镜像设为 /configs，ko 镜像从 KO_DATA_PATH/configs 解析。
 # 把配置挂载到别处时覆盖本项即可。
@@ -82,10 +84,10 @@ YD_GRPC_PORT=9090
 {{- end }}
 {{- if .I18n }}
 
-# 国际化
-# Internationalisation
-YD_I18N_DEFAULT=zh-CN
-YD_I18N_FALLBACK=en
+# 国际化：默认语言由 configs/config.yaml 的 i18n.default_lang 决定；取消注释才用环境变量覆盖。
+# Internationalisation: i18n.default_lang in configs/config.yaml decides the default; uncomment to override.
+# YD_I18N_DEFAULT_LANG=zh-CN
+# YD_I18N_FALLBACK=en
 {{- end }}
 
 
@@ -115,6 +117,27 @@ YD_GUOMI_SM2_PRIVATE_KEY=
 # Empty selects the scaffold's built-in development key in development only; outside development an empty key refuses to start.
 YD_AUTH_MASTER_KEY=
 YD_AUTH_TOKEN_TTL=2h
+
+# 验证码：接线始终随项目生成，这里只决定登录与修改口令是否要求验证。
+# Captcha: the wiring always ships with the project; these switches decide whether sign-in and password
+# changes require verification.
+# 以下四项默认由 configs/config.yaml 决定；取消注释才用环境变量覆盖（环境变量优先级更高）。
+# These four are decided by configs/config.yaml by default; uncomment them to override through the environment
+# (environment variables take precedence).
+# YD_CAPTCHA_LOGIN={{ if .Captcha }}true{{ else }}false{{ end }}
+# YD_CAPTCHA_PASSWORD_CHANGE={{ if .Captcha }}true{{ else }}false{{ end }}
+# YD_CAPTCHA_STORE=auto
+# YD_CAPTCHA_FALLBACK=memory
+# 生产环境必须注入 YD_CAPTCHA_SECRET（至少 16 字节）；development 留空会回退到文档化开发密钥并每次启动告警。
+# Production must inject YD_CAPTCHA_SECRET (at least 16 bytes); in development an empty value falls back
+# to the documented development secret with a warning on every start.
+# YD_CAPTCHA_SECRET=
+# 启用的视觉题型，逗号分隔；留空表示全部内置题型。click_* / semantic / slide 需要指针，默认不启用。
+# Enabled visual types, comma-separated; empty means all. click_* / semantic / slide require a pointer and are off by default.
+# YD_CAPTCHA_TYPES=text,rotate
+# YD_CAPTCHA_KEY_PREFIX=yd:captcha:
+# 反向代理 CIDR，逗号分隔；为空只信任直接对端。| Trusted proxy CIDRs, comma-separated; empty trusts the direct peer.
+# YD_CAPTCHA_TRUSTED_PROXIES=10.0.0.0/8
 
 # 可选：覆盖 seed.tenant / seed.username；留空则使用 internal/meta 的 default / admin。
 # Optional: override seed.tenant / seed.username; empty falls back to default / admin in internal/meta.

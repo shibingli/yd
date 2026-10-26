@@ -34,6 +34,8 @@ const (
 	flagNewDB = "db"
 	// flagNewGRPC enables the gRPC dual channel. | flagNewGRPC 开启 gRPC 双通道。
 	flagNewGRPC = "grpc"
+	// flagNewCaptcha enables sign-in and password-change verification by default. | flagNewCaptcha 默认开启登录与改密验证码。
+	flagNewCaptcha = "captcha"
 	// flagNewI18n enables internationalisation. | flagNewI18n 开启国际化。
 	flagNewI18n = "i18n"
 	// flagNewHtmxExt selects the optional Htmx extensions. | flagNewHtmxExt 选择额外的 Htmx 扩展。
@@ -80,6 +82,12 @@ func init() {
 			"Opt-in only | 仅显式选择: csp (needs a nonce policy), compat / htmx-2-compat (restore htmx 2 semantics).\n" +
 			"csp 需要 nonce 策略；compat / htmx-2-compat 恢复 htmx 2 语义。\n" +
 			"\n" +
+			"Captcha wiring always ships with the project; --captcha only turns captcha.login and\n" +
+			"captcha.password_change on in the generated configuration. Enable or disable them later by\n" +
+			"editing configs/config.yaml (or YD_CAPTCHA_LOGIN / YD_CAPTCHA_PASSWORD_CHANGE).\n" +
+			"验证码接线始终随项目生成；--captcha 只把生成配置里的 captcha.login 与 captcha.password_change\n" +
+			"设为开启，之后可修改 configs/config.yaml（或 YD_CAPTCHA_LOGIN / YD_CAPTCHA_PASSWORD_CHANGE）随时开关。\n" +
+			"\n" +
 			"Without --yes an interactive terminal is asked for every option that was not passed as a flag;\n" +
 			"a pipe or CI run keeps every default, so the command stays scriptable.\n" +
 			"未传 --yes 时，交互终端会被逐项询问未被标志指定的选项；管道或 CI 环境一律取默认值，因此命令可脚本化。",
@@ -94,6 +102,7 @@ func registerNewFlags(fs *pflag.FlagSet) {
 	fs.String(flagNewModule, "", "module path, defaults to github.com/yun-dev/<name> | 模块路径，默认为 github.com/yun-dev/<name>")
 	fs.String(flagNewDB, "", "database driver: mysql/postgres/sqlite/dm/none | 数据库驱动：mysql/postgres/sqlite/dm/none")
 	fs.Bool(flagNewGRPC, false, "enable the gRPC dual channel | 开启 gRPC 双通道")
+	fs.Bool(flagNewCaptcha, false, "enable captcha on sign-in and password changes | 开启登录与修改密码的验证码")
 	fs.Bool(flagNewI18n, true, "i18n is on by default; pass --i18n=false to disable it | 默认开启 i18n；用 --i18n=false 关闭")
 	fs.StringArray(flagNewHtmxExt, nil, "extra opt-in Htmx policy layers (csp, compat, htmx-2-compat); every safe extension is included by default | 额外的 Htmx 策略层（csp、compat、htmx-2-compat）；全部安全扩展默认包含")
 	fs.String(flagNewLicense, "", "licence identifier, defaults to Apache-2.0 | 开源协议标识，默认为 Apache-2.0")
@@ -244,6 +253,9 @@ func applyNewFlags(o *scaffold.Options, env *Env, fs *pflag.FlagSet) {
 	if flagChanged(fs, flagNewGRPC) {
 		o.GRPC = flagBool(fs, flagNewGRPC)
 	}
+	if flagChanged(fs, flagNewCaptcha) {
+		o.Captcha = flagBool(fs, flagNewCaptcha)
+	}
 	if flagChanged(fs, flagNewI18n) {
 		o.I18n = flagBool(fs, flagNewI18n)
 	}
@@ -303,6 +315,14 @@ func interviewNew(env *Env, fs *pflag.FlagSet, o *scaffold.Options) error {
 		o.GRPC = answer
 	}
 
+	if !flagChanged(fs, flagNewCaptcha) {
+		answer, err := Confirm(env, "启用验证码（登录与修改密码）| Enable captcha (sign-in and password change)", o.Captcha)
+		if err != nil {
+			return err
+		}
+		o.Captcha = answer
+	}
+
 	// Htmx extensions are part of the baseline; only an explicit flag can add the policy layers.
 	// Htmx 扩展属于基线；只有显式标志才能追加策略层。
 
@@ -346,6 +366,9 @@ func featuresOf(o scaffold.Options) []string {
 	features = append(features, "redis", "asynq")
 	if o.GRPC {
 		features = append(features, "grpc")
+	}
+	if o.Captcha {
+		features = append(features, "captcha")
 	}
 	if o.I18n {
 		features = append(features, "i18n")

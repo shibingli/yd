@@ -1,0 +1,54 @@
+// This file opens the process-wide Redis client: the cache, the message bus and captcha share it instead of each
+// opening its own connection pool.
+// 本文件只打开进程唯一的 Redis 客户端：缓存、消息总线与验证码共用它，避免三处各自建连。
+
+package service
+
+import (
+	"context"
+	"time"
+
+	goredis "github.com/redis/go-redis/v9"
+
+	"{{ .YdxModule }}/config"
+	ydlog "{{ .YdxModule }}/log"
+	"{{ .YdxModule }}/redis"
+)
+
+// redisHealthTimeout bounds the one startup probe. | redisHealthTimeout 限制启动期唯一一次探活。
+const redisHealthTimeout = 2 * time.Second
+
+// NewRedis opens the one Redis client shared by every component. | NewRedis 打开所有组件共用的唯一 Redis 客户端。
+//
+// Redis is optional: an unusable configuration or a failed probe returns nil after a bilingual warning, so the cache
+// stays local, the message bus stays local and captcha applies its own fallback. The returned client is registered
+// under app.ServiceRedis; its io.Closer hook closes the client exactly once during shutdown. | Redis 是可选的：
+// 配置不可用或探活失败时打印双语告警并返回 nil，缓存与消息总线保持本地，验证码按自身降级策略处理。返回的客户端
+// 注册为 app.ServiceRedis；App 的 io.Closer 钩子在关停时恰好关闭一次。
+//
+// asynq's client and server are the producer and the consumer, each with its own pool; they do not share this client,
+// but each role is created exactly once.
+// asynq 的客户端与服务端是生产者和消费者两个角色，各自持有连接池；它们不共用这个客户端，但每个角色只创建一次。
+func NewRedis(cfg *config.Config, log *ydlog.Logger) goredis.UniversalClient {
+	if log == nil {
+		log = ydlog.Default()
+	}
+	client, err := redis.Open(redis.OptionsFromConfig(cfg))
+	if err != nil {
+		log.Warn("redis is configured but unavailable; redis-backed features stay local | 已配置 Redis 但不可用；依赖 Redis 的能力保持本地",
+			ydlog.Err(err),
+		)
+		return nil
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), redisHealthTimeout)
+	healthErr := redis.Health(ctx, client)
+	cancel()
+	if healthErr != nil {
+		_ = redis.Close(client)
+		log.Warn("redis health check failed; redis-backed features stay local | Redis 健康检查失败；依赖 Redis 的能力保持本地",
+			ydlog.Err(healthErr),
+		)
+		return nil
+	}
+	return client
+}

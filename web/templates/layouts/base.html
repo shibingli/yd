@@ -116,5 +116,10 @@
 <script src="{{ asset "/static/js/yd-authz.js" }}" defer></script>
 {{/* Ahead of yd-app.js: it binds the rendered bar at load time, so requests fired during boot still animate it. | 位于 yd-app.js 之前：它在加载时就绑定已渲染的进度条，引导期间的请求同样会有动画。 */}}
 <script src="{{ asset "/static/js/yd-progress.js" }}" defer></script>
+{{/* Mounts ydx captcha widgets on pages that render partials/captcha.html. This small adapter is shared, but the
+     SDK and its stylesheet are fetched only when a host exists. |
+     在渲染 partials/captcha.html 的页面上挂载 ydx 验证码组件。这个适配器是共享的，但 SDK 与样式表只在存在
+     挂载点时才请求。 */}}
+<script src="{{ asset "/static/js/yd-captcha.js" }}" defer></script>
 <script src="{{ asset "/static/js/yd-app.js" }}" defer></script>
 {{- end -}}

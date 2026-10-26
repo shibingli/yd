@@ -116,6 +116,7 @@ var scriptsInOrder = []string{
 	"/static/js/yd-i18n.js",
 	"/static/js/yd-authz.js",
 	"/static/js/yd-progress.js",
+	"/static/js/yd-captcha.js",
 	"/static/js/yd-app.js",
 }
 

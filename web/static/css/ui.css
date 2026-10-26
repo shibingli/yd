@@ -234,6 +234,20 @@
     min-width: 0;
   }
 
+  /* Captcha mount point: the widget owns its internal layout, while the field only reserves the block, the
+     gap and a stable minimum height so the form does not jump when the SDK finishes loading. |
+     验证码挂载点：组件自身负责内部布局，字段只预留区块、间距与稳定的最小高度，避免 SDK 加载完成后表单跳动。 */
+  .yd-field--captcha {
+    gap: 0.5rem;
+  }
+
+  .yd-captcha-host {
+    display: block;
+    /* Typical text/rotate challenge height (image, answer row and actions); the SDK may grow taller for other types. |
+       文本/旋转题型的典型高度（图片、作答行与操作区）；其它题型可能更高。 */
+    min-height: 12rem;
+  }
+
   .yd-field--inline {
     flex-direction: row;
     flex-wrap: wrap;

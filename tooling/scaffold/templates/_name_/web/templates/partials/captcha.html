@@ -1,0 +1,41 @@
+{{/*
+  partials/captcha.html —— 人机验证挂载点（登录与改密共用）。
+  partials/captcha.html — the human-verification mount point shared by sign-in and password changes.
+
+  数据契约 | Data contract: dict keys Enabled / Action / Endpoint / Field / InputID。
+  Enabled 为 false 时整块不渲染，页面与从未启用验证码的项目逐字节一致。
+  When Enabled is false nothing renders, so the page stays byte-identical to a project that never enabled captcha.
+
+  组件本身由 /captcha/assets/yd-captcha.js 在浏览器里挂载；这里只提供挂载点、隐藏令牌字段与本地化文案。
+  The widget is mounted in the browser by /captcha/assets/yd-captcha.js; this file only provides the mount point,
+  the hidden token field and the localized copy.
+
+  挂载点与隐藏令牌带 hx-preserve：语言切换会整块替换外壳，但已完成的令牌与已输入的答案必须保留。
+  标签、提示与错误位于挂载点之外，因此按新语言重新渲染；挂载点内的组件由 yd-captcha.js 在交换后识别并沿用。
+  The mount point and hidden token carry hx-preserve: a language switch replaces the whole shell, but a solved token
+  and the typed answer must survive. The label, hint and error sit outside the mount point and are re-rendered in the
+  new language; yd-captcha.js adopts the preserved mount point after the swap.
+*/}}
+{{- define "partials/captcha" -}}
+{{- if .Enabled }}
+<div class="yd-field yd-field--required yd-field--captcha" data-yd-captcha
+     id="{{ .InputID }}-field"
+     data-yd-captcha-action="{{ .Action }}"
+     data-yd-captcha-endpoint="{{ .Endpoint }}"
+     data-yd-captcha-input="{{ .InputID }}"
+     data-yd-captcha-required="{{ tr "captcha.required" }}"
+     data-yd-captcha-unavailable="{{ tr "captcha.unavailable" }}">
+  <span class="yd-field__label" id="{{ .InputID }}-label">{{ tr "field.captcha" }}</span>
+  <p class="yd-field__hint" id="{{ .InputID }}-hint">{{ tr "captcha.hint" }}</p>
+  {{/* 挂载点与令牌一起保留；SDK 根节点与用户已输入的答案都留在其中。 | The mount point and token are preserved together;
+       the SDK root and the typed answer stay inside. */}}
+  <div class="yd-captcha-host" data-yd-captcha-host role="group"
+       id="{{ .InputID }}-mount" hx-preserve
+       aria-labelledby="{{ .InputID }}-label"
+       aria-describedby="{{ .InputID }}-hint {{ .InputID }}-error">
+    <input type="hidden" name="{{ .Field }}" id="{{ .InputID }}" value="">
+  </div>
+  <p class="yd-field__error" id="{{ .InputID }}-error" role="alert"></p>
+</div>
+{{- end }}
+{{- end -}}

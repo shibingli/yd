@@ -197,6 +197,7 @@ var scaffoldYdxModules = []string{
 	"github.com/shibingli/ydx/base64",
 	"github.com/shibingli/ydx/buffpool",
 	"github.com/shibingli/ydx/cache",
+	"github.com/shibingli/ydx/captcha",
 	"github.com/shibingli/ydx/config",
 	"github.com/shibingli/ydx/errs",
 	"github.com/shibingli/ydx/gorm",

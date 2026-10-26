@@ -190,6 +190,11 @@ outbox 表；这是业务选择，不是框架默认。
   数据本身不丢，重连/刷新后可见。广播重试可能造成重复通知，页面按事件 ID/片段幂等处理。
 - **通用 Hub**：未配置 `RetryQueue` 时，广播失败只返回错误/计数，不自动补发；配置后
   语义与消息中心一致（至少一次、可能重复）。
+- **asynq 与 sentinel / cluster**：生成项目的消息中心共享 Pub/Sub 总线使用唯一的
+  `goredis.UniversalClient`，支持单机、哨兵与集群；但 asynq 的持久重试当前通过
+  `asynqio.RedisClientOpt` 连接单机地址，`redis.mode` 为 `sentinel` 或 `cluster` 时会打印告警并停用补发。
+  需要多机补发时，应先在 `ydx/asynq` 增加 `NewClientFromRedisClient` / `NewServerFromRedisClient`
+  支持共享客户端，再打开该路径。
 - **缓存**：失效事件丢失由 L1 租约兜底，因此是「最终一致」，不是「立即一致」。
 - **直接 Redis 状态**：全部按可重建设计；任何键都不应成为唯一事实源。
 - **SSE**：`Last-Event-ID` 只携带 ID，补拉由业务端点完成；框架不保存历史。

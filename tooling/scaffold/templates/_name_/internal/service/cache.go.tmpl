@@ -1,74 +1,54 @@
-// 本文件装配进程级二级缓存：Redis 可达时启用远端并通过 Pub/Sub 同步 L1，不可达时明确降级为仅本地。
 // This file wires the process-wide two-level cache: the remote is enabled when Redis is reachable and L1 is
 // synchronized through Pub/Sub; an unreachable Redis degrades explicitly to local-only.
+// 本文件装配进程级二级缓存：Redis 可达时启用远端并通过 Pub/Sub 同步 L1，不可达时明确降级为仅本地。
 
 package service
 
 import (
-	"context"
-	"errors"
-	"time"
+	goredis "github.com/redis/go-redis/v9"
 
+	"{{ .YdxModule }}/cache"
 	"{{ .YdxModule }}/config"
 	"{{ .YdxModule }}/errs"
 	ydlog "{{ .YdxModule }}/log"
-	"{{ .YdxModule }}/cache"
-	"{{ .YdxModule }}/redis"
 )
 
 // ErrCache reports a cache assembly failure that is not a Redis outage. | ErrCache 表示不是 Redis 故障的缓存装配失败。
 var ErrCache = errs.New("service: cache unavailable | service：缓存不可用")
 
-// NewCache builds the process-wide cache and its close function.
-// NewCache 构造进程级缓存及其关闭函数。
+// NewCache builds the process-wide cache on the shared Redis client. | NewCache 在共享 Redis 客户端上构建进程级缓存。
 //
-// Redis 可达时使用远端；不可达、探活失败或远端装配失败时只建本地缓存并告警。缓存永远不是启动的硬依赖。
-// When Redis is reachable the remote is used; an unreachable server, a failed probe or a failed remote assembly falls
-// back to the local cache with a warning. The cache is never a hard startup dependency.
-func NewCache(cfg *config.Config, log *ydlog.Logger) (*cache.Manager, func() error, error) {
+// redisClient is the process-wide client opened by NewRedis; nil means Redis is unavailable and only the local cache
+// is built. The manager itself is an io.Closer, so the caller registers it with app.Set and the App closes it once. |
+// redisClient 是由 NewRedis 打开的进程级客户端；nil 表示 Redis 不可用，只构建本地缓存。管理器本身实现 io.Closer，
+// 因此调用方用 app.Set 注册它，由 App 恰好关闭一次。
+func NewCache(cfg *config.Config, log *ydlog.Logger, redisClient goredis.UniversalClient) (*cache.Manager, error) {
 	if log == nil {
 		log = ydlog.Default()
 	}
 	opts := cache.OptionsFromConfig(cfg)
-	redisClient, err := redis.Open(redis.OptionsFromConfig(cfg))
-	if err != nil {
-		log.Warn("cache redis is configured but unavailable, using the local cache only | 已配置 Redis 但不可用，仅使用本地缓存",
-			ydlog.Err(err),
+	if redisClient != nil {
+		remote, remoteErr := cache.NewRedisRemote(redisClient, cache.RedisOptionsFromConfig(cfg))
+		if remoteErr == nil {
+			mgr, mgrErr := cache.NewManager(
+				cache.WithOptions(opts),
+				cache.WithRemote(remote),
+				cache.WithLogger(log),
+			)
+			if mgrErr == nil {
+				return mgr, nil
+			}
+			remoteErr = mgrErr
+		}
+		log.Warn("cache remote is unavailable, using the local cache only | 缓存远端不可用，仅使用本地缓存",
+			ydlog.Err(remoteErr),
 		)
 	} else {
-		healthCtx, cancel := context.WithTimeout(context.Background(), time.Second)
-		healthErr := redis.Health(healthCtx, redisClient)
-		cancel()
-		if healthErr == nil {
-			remote, remoteErr := cache.NewRedisRemote(redisClient, cache.RedisOptionsFromConfig(cfg))
-			if remoteErr == nil {
-				mgr, mgrErr := cache.NewManager(
-					cache.WithOptions(opts),
-					cache.WithRemote(remote),
-					cache.WithLogger(log),
-				)
-				if mgrErr == nil {
-					return mgr, func() error {
-						return errors.Join(mgr.Close(), redis.Close(redisClient))
-					}, nil
-				}
-				remoteErr = mgrErr
-			}
-			log.Warn("cache remote is unavailable, using the local cache only | 缓存远端不可用，仅使用本地缓存",
-				ydlog.Err(remoteErr),
-			)
-		} else {
-			log.Warn("cache redis health check failed, using the local cache only | 缓存 Redis 健康检查失败，仅使用本地缓存",
-				ydlog.Err(healthErr),
-			)
-		}
-		if closeErr := redis.Close(redisClient); closeErr != nil {
-			log.Warn("cache redis client close failed | 缓存 Redis 客户端关闭失败", ydlog.Err(closeErr))
-		}
+		log.Debug("redis is unavailable, using the local cache only | Redis 不可用，仅使用本地缓存")
 	}
 	mgr, mgrErr := cache.NewManager(cache.WithOptions(opts), cache.WithLogger(log))
 	if mgrErr != nil {
-		return nil, nil, errs.Wrap(mgrErr, ErrCache)
+		return nil, errs.Wrap(mgrErr, ErrCache)
 	}
-	return mgr, mgr.Close, nil
+	return mgr, nil
 }

@@ -19,6 +19,8 @@ const (
 	promptDB = "数据库 (mysql/postgres/sqlite/dm/none) | Database (mysql/postgres/sqlite/dm/none)"
 	// promptGRPC asks whether gRPC is wanted. | promptGRPC 询问是否开启 gRPC。
 	promptGRPC = "启用 gRPC 双通道 (y/n) | Enable gRPC dual channel (y/n)"
+	// promptCaptcha asks whether sign-in and password changes require verification. | promptCaptcha 询问登录与改密是否要求验证码。
+	promptCaptcha = "启用验证码（登录与修改密码） (y/n) | Enable captcha (sign-in and password change) (y/n)"
 	// promptLicense asks for the licence. | promptLicense 询问开源协议。
 	promptLicense = "开源协议 | License"
 	// noneAnswer clears list answers (for example: no Htmx extension at all). | noneAnswer 表示清空列表类回答（如不启用任何 Htmx 扩展）。
@@ -93,8 +95,8 @@ func Interactive(in io.Reader, out io.Writer, base Options, isTTY bool) (Options
 	// Htmx、Tailwind CSS 与 Alpine.js 同样不是开关：它们是基线技术栈，问答不提供关闭项。
 	// Redis and asynq are not switches: they ship with every project, so the interview never asks.
 	// Htmx, Tailwind CSS and Alpine.js are baseline stack too, so the interview offers no way to turn them off.
-	// i18n is part of the baseline and is never asked; only gRPC remains a yes/no question. |
-	// i18n 属于基线，不再询问；只剩 gRPC 一个是/否问题。
+	// i18n is part of the baseline and is never asked; gRPC and captcha remain yes/no questions. |
+	// i18n 属于基线，不再询问；只剩 gRPC 与验证码两个是/否问题。
 	answer, err := ask(promptGRPC, yesNo(base.GRPC))
 	if err != nil {
 		return base, err
@@ -104,6 +106,16 @@ func Interactive(in io.Reader, out io.Writer, base Options, isTTY bool) (Options
 		return base, errs.WrapDetail(err, ErrAnswerInvalid, "prompt=%[1]s | 提示=%[1]s", promptGRPC)
 	}
 	base.GRPC = parsed
+
+	captchaAnswer, err := ask(promptCaptcha, yesNo(base.Captcha))
+	if err != nil {
+		return base, err
+	}
+	captchaEnabled, err := parseYesNo(captchaAnswer)
+	if err != nil {
+		return base, errs.WrapDetail(err, ErrAnswerInvalid, "prompt=%[1]s | 提示=%[1]s", promptCaptcha)
+	}
+	base.Captcha = captchaEnabled
 
 	// Extensions are part of the baseline: withDefaults already fills an empty list with every safe
 	// extension, and an explicit subset from the caller is preserved untouched. | 扩展属于基线：

@@ -27,6 +27,7 @@ import (
 	"{{ .YdModule }}/runtime/app"
 	"{{ .YdModule }}/security/auth"
 	"{{ .YdModule }}/security/authz"
+	"{{ .YdModule }}/security/captcha"
 	"{{ .YdxModule }}/errs"
 	"{{ .YdxModule }}/log"
 	"{{ .YdxModule }}/openapi"
@@ -75,6 +76,8 @@ var (
 	ErrTicker = errs.New("router: realtime publisher failed to start | router：实时推送启动失败")
 	// ErrCache reports a failed cache assembly. | ErrCache 表示缓存装配失败。
 	ErrCache = errs.New("router: cache assembly failed | router：缓存装配失败")
+	// ErrCaptcha reports a failed captcha assembly. | ErrCaptcha 表示验证码装配失败。
+	ErrCaptcha = errs.New("router: captcha assembly failed | router：验证码装配失败")
 )
 
 // Register 把全部端点登记到应用门面上。
@@ -107,15 +110,25 @@ func Register(a *app.App) error {
 	}
 	a.OnShutdown(func(context.Context) error { return store.Close() })
 
-	// 二级缓存与控制器共享同一份配置：Redis 可达时启用远端，否则只建本地缓存；缓存故障绝不阻塞启动。
-	// The two-level cache reads the same configuration as the controllers: Redis enables the remote, otherwise only
-	// the local cache is built; a cache outage never blocks startup.
-	cacheMgr, closeCache, err := service.NewCache(a.Config(), a.Logger())
+	// Redis 只在这里打开一次：缓存、消息总线与验证码共用同一个客户端，App 的 io.Closer 钩子负责关停它。
+	// Redis is opened exactly once here: the cache, the message bus and captcha share one client, and the App's
+	// io.Closer hook closes it during shutdown.
+	redisClient := service.NewRedis(a.Config(), a.Logger())
+	if redisClient != nil {
+		a.Set(app.ServiceRedis, redisClient)
+	}
+
+	// 二级缓存与控制器共享同一份配置与同一个 Redis 客户端：可达时启用远端，否则只建本地缓存；缓存故障绝不阻塞启动。
+	// The two-level cache reads the same configuration and the same Redis client as the controllers: a reachable
+	// server enables the remote, otherwise only the local cache is built; a cache outage never blocks startup.
+	cacheMgr, err := service.NewCache(a.Config(), a.Logger(), redisClient)
 	if err != nil {
 		return errs.Wrap(err, ErrCache)
 	}
+	// a.Set 已登记 cache.Manager 的 io.Closer 钩子；再登记一个 closeCache 会让关停重复关闭同一个实例。
+	// a.Set already registers the cache.Manager io.Closer hook; a second closeCache hook would close the same
+	// instance twice during shutdown.
 	a.Set(app.ServiceCache, cacheMgr)
-	a.OnShutdown(func(context.Context) error { return closeCache() })
 {{- if ne .DB "none" }}
 	if gormDB := store.GormDB(); gormDB != nil && gormcache.EnabledFromConfig(a.Config()) {
 		cachePlugin, pluginErr := gormcache.New(gormcache.OptionsFromConfig(a.Config(), cacheMgr))
@@ -132,6 +145,16 @@ func Register(a *app.App) error {
 	}
 {{- end }}
 
+	// The captcha wiring always ships with the project: with both actions off it builds no manager and mounts no
+	// route; when enabled it reuses the one Redis client opened above.
+	// 验证码接线始终随项目生成：两个动作都关闭时它不建管理器、不挂路由；启用时复用上面唯一的 Redis 客户端。
+	captchaSvc, err := captcha.NewWithClient(a.Config(), a.Logger(), redisClient)
+	if err != nil {
+		return errs.Wrap(err, ErrCaptcha)
+	}
+	a.OnShutdown(func(context.Context) error { return captchaSvc.Close() })
+	captchaSvc.Register(a.Router())
+
 	// 默认数据只在租户表为空时创建，而且没有配置种子口令时不会创建任何账号；既有租户每次启动只补齐内置角色
 	// 缺失的能力绑定（只增不减），因此升级后新增的能力立即可用。
 	// The default data is created only while the tenant table is empty, and no account is created without a seed
@@ -141,7 +164,7 @@ func Register(a *app.App) error {
 		return errs.Wrap(err, ErrSeed)
 	}
 
-	ctrl, err := controller.New(a, store, a.Logger())
+	ctrl, err := controller.New(a, store, a.Logger(), captchaSvc, redisClient)
 	if err != nil {
 		return errs.Wrap(err, ErrAuth)
 	}
@@ -595,7 +618,7 @@ func registerOpenAPI(a *app.App) {
 		DocsPath:     DocsPath,
 		AssetsPath:   openapi.DefaultAssetsPath,
 		Title:        meta.Name + " API",
-		SkipPrefixes: []string{StaticPrefix + "/"},
+		SkipPrefixes: []string{StaticPrefix + "/", captcha.Endpoint + "/"},
 	}
 	report := &openapi.Report{}
 	source := parseSource(a)
