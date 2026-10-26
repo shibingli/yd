@@ -1077,6 +1077,9 @@ func TestGenerateMainGoIsMinimalCompilableSkeleton(t *testing.T) {
 		`"` + scaffold.YdxModule + `/log"`,
 		`"` + scaffold.YdxModule + `/middleware"`,
 		"signal.NotifyContext",
+		"syscall.SIGTERM",
+		"syscall.SIGQUIT",
+		"syscall.SIGHUP",
 		// 门面装配：本项目资产经 app.WithFS 交给渲染器与 /static，而不是退回框架内嵌资产。
 		// Facade assembly: this project's assets reach the renderer and /static through app.WithFS instead of falling back
 		// to the framework's embedded ones.

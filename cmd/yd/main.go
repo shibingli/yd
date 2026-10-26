@@ -52,10 +52,15 @@ func run(args []string, stdout, stderr io.Writer, stdin *os.File) int {
 		IsTTY:   isTerminal(stdin),
 	}
 
-	// Ctrl+C and SIGTERM cancel the context, so a long-running command (dev, docker) can shut down
-	// cleanly instead of being killed mid-write. | Ctrl+C 与 SIGTERM 会取消上下文，使长时间运行的命令
-	// （dev、docker）能够干净退出，而不是在写入过程中被强杀。
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	// Every catchable shutdown signal cancels the context, so a long-running command (dev, docker)
+	// can drain cleanly: Ctrl+C and Ctrl+Break (os.Interrupt), SIGTERM, SIGQUIT and SIGHUP on Unix;
+	// Windows console close/logoff/shutdown arrives as SIGTERM. SIGKILL (kill -9) and Task Manager's
+	// End Task (TerminateProcess) bypass signal handling and cannot be caught by any process. |
+	// 所有可捕获的退出信号都会取消上下文，使长时间运行的命令（dev、docker）能够干净排空：Ctrl+C 与
+	// Ctrl+Break（os.Interrupt）、Unix 的 SIGTERM、SIGQUIT 与 SIGHUP；Windows 的控制台关闭、注销与
+	// 关机以 SIGTERM 到达。SIGKILL（kill -9）与任务管理器的“结束任务”（TerminateProcess）绕过信号
+	// 处理，任何进程都无法捕获。
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM, syscall.SIGQUIT, syscall.SIGHUP)
 	defer stop()
 
 	err := cli.Execute(ctx, args, env)

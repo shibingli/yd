@@ -6,6 +6,8 @@ import (
 	"errors"
 	"os"
 	"os/exec"
+	"os/signal"
+	"syscall"
 
 	"github.com/kardianos/service"
 	"github.com/shibingli/yd/runtime/server"
@@ -32,6 +34,17 @@ func platformReexec(env []string) error {
 	cmd.Stdin = os.Stdin
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
+	// The console delivers Ctrl+C, Ctrl+Break and close/logoff/shutdown to the wrapper and the
+	// re-executed child at the same time. If the wrapper keeps the default handlers it exits first,
+	// so `yd dev` sees the child as stopped and returns its prompt while the real server is still
+	// draining. Ignore the catchable console signals here: the child owns the graceful shutdown,
+	// and the wrapper waits for its exit code. TerminateProcess (Task Manager End Task) cannot be
+	// caught, so no handler can cover that case. |
+	// 控制台会把 Ctrl+C、Ctrl+Break 以及关闭/注销/关机同时送给包装进程与重新执行的子进程。包装进程
+	// 若保留默认处理，会先于子进程退出，使 `yd dev` 误以为子进程已停止并提前返回提示符，而真正的
+	// 服务器仍在排空。这里忽略可捕获的控制台信号：优雅退出由子进程负责，包装进程只等待它的退出码。
+	// TerminateProcess（任务管理器“结束任务”）无法被捕获，因此没有任何处理器能覆盖该情况。
+	signal.Ignore(os.Interrupt, syscall.SIGTERM)
 	if err := cmd.Run(); err != nil {
 		var exitErr *exec.ExitError
 		if errors.As(err, &exitErr) {

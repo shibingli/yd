@@ -9,7 +9,6 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
-	"syscall"
 	"time"
 
 	"github.com/shibingli/ydx/errs"
@@ -81,6 +80,7 @@ func (r *DevRunner) startChild(ctx context.Context, bin string) error {
 	cmd.Stdout = r.out
 	cmd.Stderr = r.out
 	cmd.Env = childEnv(cmd, r.opts.Port, r.opts.HTTP2ExtendedConnect)
+	prepareChildTree(cmd)
 
 	proc := &childProc{cmd: cmd, done: make(chan struct{}), ready: make(chan struct{})}
 	defer close(proc.ready)
@@ -182,11 +182,34 @@ func (r *DevRunner) waitChild(p *childProc, pid int) {
 	r.log.Info("dev: child exited cleanly | dev: 子进程正常退出", log.Int("pid", pid))
 }
 
-// stopChild terminates the running child, politely first and forcibly after the grace period. | stopChild 终止运行中的子进程：先请求优雅退出，超过宽限期后强制结束。
+// shutdownGrace returns the configured shutdown window or the package default. | shutdownGrace 返回
+// 配置的退出等待窗口或包默认值。
+func (r *DevRunner) shutdownGrace() time.Duration {
+	if r.opts.ShutdownGrace > 0 {
+		return r.opts.ShutdownGrace
+	}
+	return DefaultShutdownGrace
+}
+
+// stopChild replaces the running child: signal it, then force-terminate it after the short grace
+// period. It is the restart path, not the Ctrl+C path. | stopChild 替换运行中的子进程：先发信号，
+// 超过短宽限期后强制终止。它服务于重启路径，而不是 Ctrl+C 路径。
 //
 // It never returns while the child is still reaped-able: the reaper's Wait is awaited, so no zombie and no orphan is left behind. | 只要子进程还有待收尸的可能，它就不会返回：它会等待回收 goroutine 的 Wait，因此不会留下僵尸或孤儿。
 // With no child registered it is a no-op, which is what makes it safe to defer on every exit path of Run. | 没有登记子进程时它是空操作，因此可以安全地在 Run 的每条退出路径上 defer。
-func (r *DevRunner) stopChild() {
+func (r *DevRunner) stopChild() { r.stopChildProcess(false) }
+
+// stopChildGracefully is the shutdown path: on Windows the console has already delivered Ctrl+C to
+// the whole tree, so it first waits DefaultShutdownGrace for the application's own drain; Unix gets
+// SIGTERM on its process group and the same window. Only if the child is still alive is the tree
+// force-terminated. | stopChildGracefully 是退出路径：Windows 控制台已经把 Ctrl+C 送达整棵
+// 进程树，因此先等待 DefaultShutdownGrace 让应用自行排空；Unix 对进程组发 SIGTERM 并等待同一
+// 窗口。只有子进程仍然存活时才强制终止整棵树。
+func (r *DevRunner) stopChildGracefully() { r.stopChildProcess(true) }
+
+// stopChildProcess stops the registered child tree, optionally allowing a full graceful shutdown
+// window first. | stopChildProcess 停止已登记的子进程树；graceful 为 true 时先给出完整的优雅退出窗口。
+func (r *DevRunner) stopChildProcess(graceful bool) {
 	p := r.takeChild()
 	if p == nil {
 		return
@@ -196,12 +219,39 @@ func (r *DevRunner) stopChild() {
 	if p.err != nil || p.pid == 0 {
 		return
 	}
-	// Windows has no SIGTERM; a Signal error means killing right away. | Windows 不支持 SIGTERM，Signal 返回错误即直接强杀。
-	if err := p.cmd.Process.Signal(syscall.SIGTERM); err != nil {
-		_ = p.cmd.Process.Kill()
+	stopped := func() {
+		r.log.Info("dev: child stopped | dev: 子进程已停止", log.Int("pid", p.pid))
+	}
+	if graceful {
+		// Windows has already delivered Ctrl+C to every console process; a new process group does
+		// not exist there. Wait for the application to drain before touching the tree. | Windows
+		// 已经把 Ctrl+C 送达每个控制台进程（该平台没有进程组）。先等应用排空，再动进程树。
+		if runtime.GOOS == "windows" {
+			if childReaped(p.done, r.shutdownGrace()) {
+				stopped()
+				return
+			}
+		} else if signalChildTree(p.pid) {
+			if childReaped(p.done, r.shutdownGrace()) {
+				stopped()
+				return
+			}
+		}
+	}
+	// Always stop the whole child tree, not just the direct child: a child that re-executed itself to
+	// set GODEBUG holds the real listener in its grandchild, and killing only the wrapper leaves that
+	// grandchild bound to the development port. Unix signals its process group; Windows uses taskkill. |
+	// 必须终止整棵子进程树而不是直接子进程：为设置 GODEBUG 而重新执行自身的子进程会把真正的监听器放在
+	// 孙进程里，只杀包装进程会让孙进程继续占住开发端口。Unix 对进程组发信号，Windows 使用 taskkill。
+	if !signalChildTree(p.pid) {
+		if !killChildTree(p.pid) {
+			_ = p.cmd.Process.Kill()
+		}
 	}
 	if !childReaped(p.done, childGracePeriod) {
-		_ = p.cmd.Process.Kill()
+		if !killChildTree(p.pid) {
+			_ = p.cmd.Process.Kill()
+		}
 		if !childReaped(p.done, childGracePeriod) {
 			// Still not reaped within the grace period: record the fact in the log, never return silently. | 宽限期内仍未被收尸：把事实写进日志，绝不静默返回。
 			r.log.Error("dev: child survived SIGTERM and Kill, it may leak | dev: 子进程在 SIGTERM 与 Kill 之后仍然存活，可能泄漏",
@@ -209,7 +259,7 @@ func (r *DevRunner) stopChild() {
 			return
 		}
 	}
-	r.log.Info("dev: child stopped | dev: 子进程已停止", log.Int("pid", p.pid))
+	stopped()
 }
 
 // childReaped reports whether done was closed within d, that is whether the child was reaped in time. | childReaped 判断 done 是否在 d 内被关闭，即子进程是否及时被收尸。

@@ -190,14 +190,18 @@ func killAndWait(pid int) {
 // devOptions assembles a dev configuration backed by a fake builder and a fake child. | devOptions 组装一份使用假构建器与假子进程的开发配置。
 func (h *devHarness) devOptions(dir string, out io.Writer, mutate func(*DevOptions)) DevOptions {
 	o := DevOptions{
-		Dir:         dir,
-		NoTailwind:  true,
-		Debounce:    40 * time.Millisecond,
-		Log:         testLogger(),
-		Out:         out,
-		Build:       func(context.Context, DevOptions) (string, error) { return "fake-app", nil },
-		Command:     h.factory,
-		OnChildExit: h.onExit,
+		Dir:        dir,
+		NoTailwind: true,
+		Debounce:   40 * time.Millisecond,
+		// Keep the suite fast: the helper ignores Ctrl+C, so the graceful wait must expire quickly
+		// before the tree is force-terminated. | 保持套件快速：辅助进程忽略 Ctrl+C，优雅等待必须尽快
+		// 到期，然后强制终止进程树。
+		ShutdownGrace: 100 * time.Millisecond,
+		Log:           testLogger(),
+		Out:           out,
+		Build:         func(context.Context, DevOptions) (string, error) { return "fake-app", nil },
+		Command:       h.factory,
+		OnChildExit:   h.onExit,
 	}
 	if mutate != nil {
 		mutate(&o)
@@ -333,6 +337,12 @@ func TestDevRestartsChildOnGoChange(t *testing.T) {
 
 func TestDevRestartsChildOnTemplateChange(t *testing.T) {
 	dir := t.TempDir()
+	// Create the template directory before the watcher starts: on Linux and macOS a directory
+	// created and populated inside one notification burst can lose the file event before the new
+	// watch is registered. This test owns the restart contract, not that watcher race. |
+	// 在监听器启动前创建模板目录：在 Linux 与 macOS 上，于同一通知爆发中创建目录并写入文件，
+	// 可能在新监听注册前丢失文件事件。本测试验证重启契约，而不是该监听竞态。
+	writeFile(t, filepath.Join(dir, "web", "templates", "home.html"), "<p>old</p>\n")
 	h := newDevHarness(t, dir)
 	out := &syncBuffer{}
 	r := h.newRunner(t, out, nil)

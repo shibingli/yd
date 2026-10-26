@@ -4,6 +4,7 @@ package cli
 
 import (
 	"context"
+	"time"
 
 	"github.com/shibingli/yd/tooling/toolchain"
 	"github.com/shibingli/ydx/log"
@@ -98,11 +99,23 @@ func devOptions(env *Env, fs *pflag.FlagSet) toolchain.DevOptions {
 		NoWatch:              flagBool(fs, flagDevNoWatch),
 		NoReload:             flagBool(fs, flagDevNoReload),
 		Debounce:             debounce,
+		ShutdownGrace:        devShutdownGrace(env),
 		AppArgs:              fs.Args(),
 		Log:                  log.Default(),
 		Out:                  env.Out,
 		HTTP2ExtendedConnect: env.Cfg != nil && env.Cfg.GetBool(keyDevHTTP2ExtendedConnect),
 	}
+}
+
+// devShutdownGrace keeps the full graceful window for an interactive terminal, where Ctrl+C has
+// already reached the child tree, and a shorter bound for non-interactive runs whose child may never
+// have received an interrupt. | devShutdownGrace 为交互终端保留完整的优雅退出窗口——那里的 Ctrl+C
+// 已经送达子进程树；非交互运行则使用较短的等待，因为子进程可能根本没收到中断。
+func devShutdownGrace(env *Env) time.Duration {
+	if env != nil && env.IsTTY {
+		return toolchain.DefaultShutdownGrace
+	}
+	return 3 * time.Second
 }
 
 // devPort resolves the port injected into the child: --port first, then server.port, then 0 (the app default). | devPort 解析注入子进程的端口：先是 --port，其次是 server.port，最后是 0（应用默认值）。

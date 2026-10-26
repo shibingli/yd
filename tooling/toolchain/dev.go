@@ -30,6 +30,13 @@ const devTopic = "yd.dev.reload"
 // devHeartbeat is the SSE keep-alive interval of the reload endpoint. | devHeartbeat 是热重载端点的 SSE 保活间隔。
 const devHeartbeat = 15 * time.Second
 
+// DefaultShutdownGrace is how long a cancelled dev session waits for the child tree to complete its
+// own shutdown. It covers the generated application's default server.shutdown_timeout with a margin;
+// a child that never exits is force-terminated after it. | DefaultShutdownGrace 是取消开发会话后
+// 等待子进程树完成自身退出的时长。它覆盖生成应用默认的 server.shutdown_timeout 并留有裕量；
+// 始终不退出的子进程会在之后被强制终止。
+const DefaultShutdownGrace = 15 * time.Second
+
 // EnvDev and EnvDevPort are injected into the child process. | EnvDev 与 EnvDevPort 会被注入子进程。
 const (
 	// EnvDev marks a process as started by `yd dev`. | EnvDev 标记进程由 `yd dev` 启动。
@@ -96,6 +103,12 @@ type DevOptions struct {
 	NoWatch bool
 	// NoReload disables the dev-only reload endpoint (the --no-reload flag). | NoReload 关闭仅开发模式的热重载端点（--no-reload 标志）。
 	NoReload bool
+	// ShutdownGrace is how long a cancelled dev session waits for the child tree to finish its own
+	// graceful shutdown before it is force-terminated. Zero selects DefaultShutdownGrace. Tests set
+	// a short value so a helper that ignores interrupts cannot slow the suite. | ShutdownGrace 是取消
+	// 开发会话后等待子进程树完成自身优雅退出的时长，超时才强制终止。零值取 DefaultShutdownGrace。
+	// 测试会设置较短的值，避免忽略中断的辅助进程拖慢套件。
+	ShutdownGrace time.Duration
 	// HTTP2ExtendedConnect merges GODEBUG=http2xconnect=1 into the child
 	// environment so the development server can serve RFC 8441. | HTTP2ExtendedConnect
 	// 把 GODEBUG=http2xconnect=1 合并进子进程环境，使开发服务器可以服务 RFC 8441。
@@ -207,7 +220,7 @@ func (r *DevRunner) Run(ctx context.Context) error {
 	}
 	// Defers run last-in-first-out: the child is stopped first, the running flag is released after. | 延迟调用后进先出：先停子进程，再释放运行标记。
 	defer r.finish()
-	defer r.stopChild()
+	defer r.stopChildGracefully()
 
 	if !r.opts.NoTailwind {
 		r.buildCSS(ctx)

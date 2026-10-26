@@ -290,6 +290,19 @@ func TestDevRunsChildAndStopsOnCancel(t *testing.T) {
 	}
 }
 
+// TestDevShutdownGraceDistinguishesTerminals locks the Ctrl+C window: an interactive session waits
+// for the application's own drain, while a non-interactive child that may never have received the
+// interrupt is force-terminated sooner. | TestDevShutdownGraceDistinguishesTerminals 固定 Ctrl+C
+// 等待窗口：交互会话等待应用自行排空，可能从未收到中断的非交互子进程则更早强制终止。
+func TestDevShutdownGraceDistinguishesTerminals(t *testing.T) {
+	if got := devShutdownGrace(&Env{IsTTY: true}); got != toolchain.DefaultShutdownGrace {
+		t.Errorf("交互终端 ShutdownGrace = %v，期望 %v | want %v", got, toolchain.DefaultShutdownGrace, toolchain.DefaultShutdownGrace)
+	}
+	if got := devShutdownGrace(&Env{}); got != 3*time.Second {
+		t.Errorf("非交互 ShutdownGrace = %v，期望 3s | want 3s", got)
+	}
+}
+
 // TestDevOptionsReadsHTTP2ExtendedConnect pins the config key wiring. | TestDevOptionsReadsHTTP2ExtendedConnect 固定配置键接线。
 func TestDevOptionsReadsHTTP2ExtendedConnect(t *testing.T) {
 	cfg, err := config.Load(config.Options{Name: "yd", ConfigDir: t.TempDir(), FS: afero.NewMemMapFs()})

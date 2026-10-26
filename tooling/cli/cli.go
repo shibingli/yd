@@ -24,6 +24,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -204,7 +205,7 @@ func loadConfig(env *Env, fs *pflag.FlagSet) (*config.Config, error) {
 	if env.Cfg != nil {
 		return env.Cfg, nil
 	}
-	dir, name := env.WorkDir, ""
+	dir, name := projectConfigDir(env), ""
 	if v := flagString(fs, flagConfig); v != "" {
 		dir, name = splitConfigPath(v, env.WorkDir)
 	}
@@ -229,6 +230,61 @@ func loadConfig(env *Env, fs *pflag.FlagSet) (*config.Config, error) {
 	}
 	return cfg, nil
 }
+
+// projectConfigDir resolves the default configuration directory of the current project. | projectConfigDir
+// 解析当前项目的默认配置目录。
+//
+// Generated applications read configs/config.yaml (or YD_CONFIG_DIR / $KO_DATA_PATH/configs), while the
+// CLI used to search only the project root. That mismatch made `yd dev` read framework defaults even
+// when the project set server.http2.extended_connect or server.port, so the Windows child re-executed
+// and left a grandchild holding the dev port. The precedence here mirrors meta.ConfigDirPath: explicit
+// YD_CONFIG_DIR > $KO_DATA_PATH/configs when present > <workdir>/configs when present > the workdir
+// fallback used by tests and minimal projects. |
+// 生成应用读取 configs/config.yaml（或 YD_CONFIG_DIR / $KO_DATA_PATH/configs），而 CLI 过去只搜索项目
+// 根目录。这一差异使 `yd dev` 在项目设置了 server.http2.extended_connect 或 server.port 时仍读取框架
+// 默认值，导致 Windows 子进程重新执行并留下占住开发端口的孙进程。这里的优先级与 meta.ConfigDirPath
+// 一致：显式 YD_CONFIG_DIR > 存在时的 $KO_DATA_PATH/configs > 存在时的 <workdir>/configs > 测试与
+// 最小项目所用的 workdir 回退。
+func projectConfigDir(env *Env) string {
+	if env == nil {
+		return "."
+	}
+	workDir := env.WorkDir
+	if strings.TrimSpace(workDir) == "" {
+		workDir = "."
+	}
+	if dir := strings.TrimSpace(os.Getenv(configDirEnvKey)); dir != "" {
+		return resolveUserPath(workDir, dir)
+	}
+	if root := strings.TrimSpace(os.Getenv(koDataEnvKey)); root != "" {
+		if candidate := filepath.Join(root, projectConfigsDir); isConfigDir(env, candidate) {
+			return candidate
+		}
+	}
+	if candidate := filepath.Join(workDir, projectConfigsDir); isConfigDir(env, candidate) {
+		return candidate
+	}
+	return workDir
+}
+
+// isConfigDir reports whether path is an existing directory in the CLI file system. | isConfigDir
+// 报告 path 在 CLI 文件系统中是否为已存在的目录。
+func isConfigDir(env *Env, path string) bool {
+	if env.FS == nil {
+		info, err := os.Stat(path)
+		return err == nil && info.IsDir()
+	}
+	info, err := env.FS.Stat(path)
+	return err == nil && info.IsDir()
+}
+
+// Configuration directory names and environment keys shared with generated applications. | 与生成
+// 应用共享的配置目录名与环境变量键。
+const (
+	projectConfigsDir = "configs"
+	configDirEnvKey   = "YD_CONFIG_DIR"
+	koDataEnvKey      = "KO_DATA_PATH"
+)
 
 // splitConfigPath splits a --config value into a search directory and a config name (extension optional). | splitConfigPath 把 --config 取值拆分为搜索目录与配置名（扩展名可选）。
 func splitConfigPath(value, workDir string) (dir, name string) {

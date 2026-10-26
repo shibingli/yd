@@ -686,7 +686,11 @@ yd completion install --append-rc --yes   # 显式写入 rc 文件（先备份�
 - 模板变化 → 重启子进程（渲染器缓存重新编译模板树一次），再经开发期热重载端点刷新页面；
 - CSS/JS 变化 → 重新生成 Tailwind 样式与压缩资产，并局部刷新 `#yd-shell`。
 
-`yd dev` 启动的进程与生产二进制共用同一条优雅退出路径；Ctrl+C 会先终止子进程。
+`yd dev` 与生成应用读取同一份 `configs/config.yaml`（`YD_CONFIG_DIR` 可覆盖），
+因此 `server.port`、`server.http2.extended_connect` 等配置在两端一致。
+`yd dev` 启动的进程与生产二进制共用同一条优雅退出路径。Ctrl+C、Ctrl+Break、
+SIGTERM、SIGQUIT 与 SIGHUP 都会取消开发会话的 context：交互式终端先等待应用自身排空
+（默认 15s），超时才强制终止整棵子进程树；Windows 控制台关闭、注销与关机以 SIGTERM 到达。
 
 ### 6.2 新增页面与端点
 
@@ -1189,6 +1193,11 @@ yd service start --name myapp
 排空 → 强制关闭残留 hijack 连接 → gRPC 优雅停止 → 逆序执行 `OnShutdown` 钩子 →
 `errors.Join` 聚合错误。长连接必须注册 Tracker（WebSocket 发 1001 关闭帧，
 SSE 停止心跳并 flush），不要只靠对端断开。
+
+可捕获的退出信号为 `SIGINT`、`SIGTERM`、`SIGQUIT` 与 `SIGHUP`；Windows 的控制台关闭、
+注销与关机以 `SIGTERM` 到达。**`kill -9`（SIGKILL）与任务管理器“结束任务”
+（TerminateProcess）都是不可捕获的强杀机制，任何进程都无法在此时执行收尾**；
+生产环境应通过服务管理器、`kill -TERM` 或正常停止流程退出。
 
 ---
 

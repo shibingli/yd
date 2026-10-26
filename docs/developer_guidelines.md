@@ -374,10 +374,13 @@ Windows 走 SCM、Linux 走 systemd、macOS 走 launchd。禁止为单个平台�
 
 | 模式 | 触发条件 | 行为 |
 |---|---|---|
-| 前台 | 有终端且未给 `-service` | `application.Run(ctx)`，SIGINT/SIGTERM 触发优雅退出 |
+| 前台 | 有终端且未给 `-service` | `application.Run(ctx)`，SIGINT/SIGTERM/SIGQUIT/SIGHUP 触发优雅退出 |
 | 服务模式 | 被服务管理器拉起（无终端，`service.Interactive()` 为 false）或显式 `-service run` | `service.Run(opts, fn)` 托管 `application.Run` |
 | 控制动作 | `-service install\|uninstall\|start\|stop\|restart\|status` | 一次服务管理器调用后返回，不装配端口、不进前台循环 |
 
+- **可捕获与不可捕获的退出信号**：前台入口捕获 `SIGINT`、`SIGTERM`、`SIGQUIT` 与 `SIGHUP`；
+  Windows 控制台关闭、注销与关机以 `SIGTERM` 到达。`kill -9`（SIGKILL）和任务管理器“结束任务”
+  （TerminateProcess）不可捕获，任何进程都无法执行优雅退出；部署侧只能避免强杀，不能依赖应用收尾。
 - **停止只取消 context，绝不 `os.Exit`**：服务管理器发来 Stop 时，`service.Run` 取消传给 `application.Run`
   的 context 并**等待它返回**（缺省宽限 30s，超时返回 `service.ErrStopTimeout`）。在途请求与长连接由
   §15 的关停序列收尾；任何 `os.Exit` / `panic` / `log.Fatal` 都会硬切断请求，并让服务管理器把「停止」
