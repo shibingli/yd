@@ -17,7 +17,7 @@ require (
 	github.com/shibingli/ydx/captcha v0.1.1
 	github.com/shibingli/ydx/config v0.1.8
 	github.com/shibingli/ydx/errs v0.1.4
-	github.com/shibingli/ydx/gc v0.1.0
+	github.com/shibingli/ydx/gc v0.1.1
 	github.com/shibingli/ydx/gorm v0.1.13
 	github.com/shibingli/ydx/guomi v0.1.2
 	github.com/shibingli/ydx/i18n v0.1.10
