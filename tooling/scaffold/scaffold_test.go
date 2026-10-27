@@ -4831,3 +4831,45 @@ func TestGeneratedConfigDefaultsKoToLocal(t *testing.T) {
 		t.Fatal("生成的 config.yaml 缺少 ko.local | the generated config has no ko.local")
 	}
 }
+
+// TestGeneratedListActionsUseIconMenus pins the generated list/table action convention: the right-hand
+// actions are one icon button (lucide-more-horizontal, labelled by ui.actions) that expands a
+// details.yd-menu, never a row of text buttons. | TestGeneratedListActionsUseIconMenus 固定生成项目
+// 的列表/表格操作约定：右侧操作是一个图标按钮（lucide-more-horizontal，由 ui.actions 提供可访问名称）
+// 展开 details.yd-menu，而不是一排文字按钮。
+func TestGeneratedListActionsUseIconMenus(t *testing.T) {
+	const name = "icon-actions-app"
+	pr, res := generateMem(t, scaffold.DefaultOptions(name))
+	prefix := name + "/web/templates/"
+	checked := 0
+	for _, path := range res.Files {
+		if !strings.HasPrefix(path, prefix) || !strings.HasSuffix(path, ".html") {
+			continue
+		}
+		rel := strings.TrimPrefix(path, name+"/")
+		content := pr.read(rel)
+		if strings.Contains(content, `>{{ tr "ui.actions" }}</summary>`) {
+			t.Errorf("%s 仍把 ui.actions 当作按钮文字 | %s still uses ui.actions as summary text", rel, rel)
+		}
+		checked++
+	}
+	if checked == 0 {
+		t.Fatal("没有扫描到生成项目的模板 | no generated templates were scanned")
+	}
+	for _, rel := range []string{
+		"web/templates/mgr/partials/users/row.html",
+		"web/templates/mgr/partials/roles/list.html",
+		"web/templates/mgr/partials/message_settings/body.html",
+	} {
+		content := pr.read(rel)
+		if !strings.Contains(content, `aria-label="{{ tr "ui.actions" }}"`) {
+			t.Errorf("%s 的操作图标缺少 aria-label | %s action icon lacks aria-label", rel, rel)
+		}
+		if !strings.Contains(content, `{{ template "partials/icon" "lucide-more-horizontal" }}`) {
+			t.Errorf("%s 的操作按钮不是 lucide-more-horizontal 图标 | %s action trigger is not the lucide-more-horizontal icon", rel, rel)
+		}
+	}
+	if sprite := pr.read("web/static/img/icons.svg"); !strings.Contains(sprite, `id="i-lucide-more-horizontal"`) {
+		t.Error("生成的图标 sprite 缺少 lucide-more-horizontal | the generated icon sprite lacks lucide-more-horizontal")
+	}
+}

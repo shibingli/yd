@@ -55,8 +55,9 @@
       **之前**校验，改密必须在 `ChangePassword` **之前**校验；令牌一次性消费，失败统一 `captcha.failed` 文案；
       `captcha.secret` 生产必须注入；登录页与账号页共用 `partials/captcha.html`，`yd-captcha.js` 负责挂载、
       令牌写入、提交守卫与 4xx 重置；Redis 客户端只由 `internal/service.NewRedis` 打开一次。
-- [ ] **前端交互**：导航/语言切换 `hx-target="#yd-shell"`；新增/编辑走抽屉；列表操作与顶栏租户切换共用
-      `details.yd-menu` 面板；所有变更动作带 `data-yd-confirm`，多按钮表单必须把 `event.submitter` 传回
+- [ ] **前端交互**：导航/语言切换 `hx-target="#yd-shell"`；新增/编辑走抽屉；列表右侧操作统一为一个
+      图标按钮（`lucide-more-horizontal` + `aria-label`）展开的 `details.yd-menu`；顶栏租户切换复用同一套
+      面板；所有变更动作带 `data-yd-confirm`，多按钮表单必须把 `event.submitter` 传回
       `requestSubmit`；登录前外壳只有登录卡片（含离线图标品牌区）与语言/主题切换；接口组一律新标签页打开；
       侧栏页脚只显示版本；favicon 指向同源 `/static/img/yd-icon.svg`，不得使用 CDN 或 `data:,`。
 - [ ] **静态引用**：模板中的 `/static/...` 一律写成 `{{ "{{ asset \"/static/...\" }}" }}`；

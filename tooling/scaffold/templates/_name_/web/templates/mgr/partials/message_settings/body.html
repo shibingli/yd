@@ -37,7 +37,7 @@
             {{- if $.CanTypeManage }}
             <td class="yd-table__td yd-table__td--actions">
               <details class="yd-menu" data-yd-menu>
-                <summary class="yd-btn yd-btn--ghost yd-btn--sm">{{ tr "ui.actions" }}</summary>
+                <summary class="yd-btn yd-btn--ghost yd-btn--sm" aria-label="{{ tr "ui.actions" }}">{{ template "partials/icon" "lucide-more-horizontal" }}</summary>
                 <div class="yd-menu__panel" role="menu">
                   <button type="button" class="yd-menu__item" role="menuitem" data-yd-drawer-open
                           hx-get="/mgr/message-settings/types/{{ .Key }}/edit" hx-target="#yd-drawer-body" hx-swap="innerHTML">{{ tr "ui.edit" }}</button>
@@ -114,7 +114,7 @@
         {{- if $.CanManage }}
         <td class="yd-table__td yd-table__td--actions">
           <details class="yd-menu" data-yd-menu>
-            <summary class="yd-btn yd-btn--ghost yd-btn--sm">{{ tr "ui.actions" }}</summary>
+            <summary class="yd-btn yd-btn--ghost yd-btn--sm" aria-label="{{ tr "ui.actions" }}">{{ template "partials/icon" "lucide-more-horizontal" }}</summary>
             <div class="yd-menu__panel" role="menu">
               <button type="button" class="yd-menu__item" role="menuitem" data-yd-drawer-open
                       hx-get="/mgr/message-settings/tags/{{ .ID }}/edit" hx-target="#yd-drawer-body" hx-swap="innerHTML">{{ tr "ui.edit" }}</button>

@@ -327,7 +327,8 @@ Windows 显示缩放改变的是 CSS 像素与设备的比例，本质上与浏�
 
 - `.yd-table__wrap` 负责横向滚动，并设置 `overscroll-behavior-x: contain`，避免滚动穿透。
 - 窄屏不要强行压缩列宽；保留滚动，或用卡片列表替代（业务自行选择，组件层不隐藏数据）。
-- 行内操作菜单优先 `<details class="yd-menu">`；`yd-app.js` 会把面板提升为 `fixed` 定位，避免被表格的
+- 行内操作统一为一个图标按钮（`lucide-more-horizontal`，`aria-label` 取自 `ui.actions`）展开
+  `<details class="yd-menu">`，不得并排文字按钮；`yd-app.js` 会把面板提升为 `fixed` 定位，避免被表格的
   `overflow-x` 裁切。
 
 ### 5.5 建议验证矩阵
@@ -773,7 +774,7 @@ Windows 显示缩放改变的是 CSS 像素与设备的比例，本质上与浏�
           "Attrs" (template.HTMLAttr `hx-delete="/mgr/users/1" hx-target="closest tr" hx-swap="delete" data-yd-confirm="确定删除？"`)))) }}
 ```
 
-普通行内操作菜单可以继续用 `<details class="yd-menu">`，它不需要脚本；需要焦点管理与键盘导航时用下拉。
+普通行内操作菜单可以继续用 `<details class="yd-menu">`（触发器统一为 `lucide-more-horizontal` 图标按钮 + `aria-label`），它不需要脚本；需要焦点管理与键盘导航时用下拉。
 
 ---
 

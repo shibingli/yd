@@ -44,7 +44,7 @@
          Capability checkboxes move into the drawer as well, so the list answers "what is this role granted"
          and no longer doubles as an editor. */}}
     <details class="yd-menu" data-yd-menu>
-      <summary class="yd-btn yd-btn--ghost yd-btn--sm">{{ tr "ui.actions" }}</summary>
+      <summary class="yd-btn yd-btn--ghost yd-btn--sm" aria-label="{{ tr "ui.actions" }}">{{ template "partials/icon" "lucide-more-horizontal" }}</summary>
       <div class="yd-menu__panel" role="menu">
         {{- if can $.Perm.RoleManage }}
         <button type="button" class="yd-menu__item" role="menuitem" data-yd-drawer-open

@@ -752,7 +752,7 @@ KPI + 迷你折线：
 | 需求 | 首选 | 不要用 |
 |---|---|---|
 | 页面主操作 | `yd-btn--primary` | 多个同色主按钮 |
-| 行内操作 | `details.yd-menu` / `navigation.dropdown` | 一排文字链接 |
+| 行内操作 | `details.yd-menu`（图标按钮触发） / `navigation.dropdown` | 一排文字按钮 |
 | 新增/编辑 | 右侧抽屉 `#yd-drawer` | 新开页面（除非流程很长） |
 | 危险操作 | `data-yd-confirm` / `feedback.popconfirm` | 浏览器 `confirm()` |
 | 空列表 | `layout.empty` + 下一步操作 | 只写“暂无数据” |
@@ -773,7 +773,7 @@ KPI + 迷你折线：
 1. **先服务端，后脚本**：能在模板里渲染的，不要等 Alpine 再生成。
 2. **一个页面一个错误槽位**：抽屉内用 `#yd-drawer-errors`，页面级用 `#errors`。
 3. **表单字段不复制**：可见输入框就是提交字段；隐藏字段只用于 OTP/Tags/Combobox 这类需要汇总的值。
-4. **列表操作用菜单**：行内动作超过 2 个就收进 `details.yd-menu` 或 `navigation.dropdown`。
+4. **列表操作用图标菜单**：表格/列表右侧操作列一律收进一个图标按钮（`lucide-more-horizontal` + `aria-label`）展开的 `details.yd-menu`，或 `navigation.dropdown`；不得按数量决定是否并排文字按钮。
 5. **分页与筛选留在服务端**：不要把全量数据塞进 Alpine。
 6. **图表由控制器生成**：模板只包 `components.chart`。
 7. **颜色只来自令牌**：图表、徽标、状态都一样；新增颜色先加令牌。

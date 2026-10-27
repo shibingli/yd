@@ -143,7 +143,8 @@ Redis 客户端由 `internal/service.NewRedis` **唯一**打开，缓存、消�
 5. **前端交互**：消息中心是即时通讯布局——左侧会话列表、右上方历史、右下方内联撰写区；后台治理与目录设置
    保持列表式管理页。日常消息直接在内联撰写区发送，不弹确认；公告频道、撤回/撤销、退出/解散、置顶与好友变更
    必须先过 `data-yd-confirm`；新建会话、编辑、置顶与群设置走右侧抽屉（`#yd-drawer`）。
-   列表操作用 `details.yd-menu`；实时刷新只重取 `/messages/:id/history`，不重建撰写区、不清掉草稿，也不整页跳转。
+   列表操作统一为图标按钮（`lucide-more-horizontal` + `aria-label`）展开的 `details.yd-menu`；
+   实时刷新只重取 `/messages/:id/history`，不重建撰写区、不清掉草稿，也不整页跳转。
 6. **实时与多节点**：`#yd-shell` 持有唯一的 `/ws/messages` 连接；事件只带 ID 与元数据，接收方按权限重取。
    生成项目默认内建 `redis`（Pub/Sub）与 `asynq`（持久重试）；Redis 不可达时告警并退回进程内 Hub，
    多副本部署必须给每个副本唯一的 `node.id`（`message.node_id` 是兼容别名）。
@@ -226,7 +227,8 @@ yd gen module|crud   # 低代码生成（DB Schema 或 Go Struct）
 - 接口组（接口文档、OpenAPI JSON）一律 `target="_blank" rel="noopener noreferrer"` 新标签页打开，
   页面内的 `/mgr/docs`、`/api/v1/openapi.json` 链接同样处理；它们不能换进工作区。
 - 新增/编辑一律用右侧抽屉（`#yd-drawer` + `data-yd-drawer-open` + `hx-get` 片段）；
-  列表操作用下拉菜单（`details.yd-menu`），顶栏租户切换复用同一套面板与条目样式（不用原生 select）；
+  列表右侧操作统一为一个图标按钮（`lucide-more-horizontal`，`aria-label` 取自 `ui.actions`）展开的
+  `details.yd-menu`，不得并排文字按钮；顶栏租户切换复用同一套面板与条目样式（不用原生 select）；
   所有变更动作必须带 `data-yd-confirm` 并经过全局确认对话框；多按钮表单确认后必须把
   `event.submitter` 传回 `requestSubmit`，否则按钮的 `name`/`value` 会丢失。
 - 图标一律写成 `{{ "{{template \"partials/icon\" \"lucide-…\"}}" }}`：框架 sprite 由 `yd icons sync`

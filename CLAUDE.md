@@ -238,7 +238,8 @@ Co-Authored-By: Eric Shi <shibingli@sina.com>
   认证并落入默认租户。子域名与 `X-Tenant` 仍可指定租户，但只对该用户已隶属的租户生效。
 - **切换租户必须校验成员关系并重新签发令牌**：`POST /tenant/switch` 只接受成员租户，
   非成员与不存在的租户都返回 404；新令牌的 `tid` 是目标租户，旧令牌在自身租户内继续有效至过期。
-- **列表交互统一**：新增/编辑走右侧抽屉（`#yd-drawer`），列表操作用下拉菜单（`details.yd-menu`），
+- **列表交互统一**：新增/编辑走右侧抽屉（`#yd-drawer`），列表右侧操作统一为一个**图标按钮**
+  （`lucide-more-horizontal`，`aria-label` 取自 `ui.actions`）展开 `details.yd-menu`，不得并排文字按钮；
   所有变更动作（退出、删除、启停、轮换、重置、创建、保存、切换租户、修改默认租户）都必须先经过
   `data-yd-confirm` 的全局确认对话框。
 - **每用户独立 JWT 密钥（强制）**：创建用户时生成该用户专属的 `sec_key`；
@@ -734,10 +735,11 @@ yd versions sync               # 仅重新生成 version_generated.go
 - **所有变更动作必须确认**：退出、删除、启停、轮换 sec_key、重置口令、创建、保存、切换租户、
   修改默认租户都带 `data-yd-confirm`；确认对话框的文案来自模板的 `tr`，脚本里不写业务文案。
   表单在捕获阶段拦截后必须用 `requestSubmit` 重新提交，且要识别 htmx 4 的 `detail.ctx` 形态。
-- **列表操作用下拉菜单**：用户与角色列表的行内动作统一放在 `details.yd-menu` 中；
-  面板由脚本提升为 `position: fixed` 并用 `right:auto` + `left` 定位，避免被表格容器的
-  `overflow-x` 裁切。**顶栏租户切换复用同一套 `details.yd-menu` 面板与 `.yd-menu__item`**，
-  不再使用原生 `select`（其选项由操作系统绘制，无法与站内控件统一）。
+- **列表操作统一为图标菜单**：所有数据表格与列表的右侧操作列只渲染一个图标按钮
+  （`lucide-more-horizontal`，`aria-label` 取自 `ui.actions`）展开 `details.yd-menu`，不得并排文字按钮；
+  用户、角色、消息设置等列表一致。面板由脚本提升为 `position: fixed` 并用 `right:auto` + `left` 定位，
+  避免被表格容器的 `overflow-x` 裁切。**顶栏租户切换复用同一套 `details.yd-menu` 面板与
+  `.yd-menu__item`**，不再使用原生 `select`（其选项由操作系统绘制，无法与站内控件统一）。
 - **确认框必须保留提交者**：多按钮表单（例如租户菜单每个条目各带一个 `tenant` 值）在确认后要用
   `form.requestSubmit(event.submitter)` 重新提交；不带 submitter 的 `requestSubmit()` 会丢掉按钮的
   `name`/`value`，服务端因此收不到目标值。

@@ -120,8 +120,9 @@
       中间件两块片段，不得再写 HTTP 轮询或重同步。详见 `docs/middleware-metrics.md`。
 - [ ] **Tailwind v4 分层**：所有项目样式必须建立在 Tailwind v4 之上——`@import "tailwindcss"`、
       `@theme` 语义令牌、`@layer components`；可复用工具类用 `@apply`，颜色不得在令牌块之外写字面量。
-- [ ] **交互约定**：新增/编辑走右侧抽屉（`#yd-drawer`），列表操作与顶栏租户切换共用下拉菜单
-      （`details.yd-menu` 与同一套面板样式，不用原生 select 呈现租户选项）；所有变更动作（退出、删除、启停、
+- [ ] **交互约定**：新增/编辑走右侧抽屉（`#yd-drawer`），列表右侧操作统一为一个图标按钮
+      （`lucide-more-horizontal`，`aria-label` 取自 `ui.actions`）展开 `details.yd-menu`，不得并排文字按钮；
+      顶栏租户切换复用同一套面板与条目样式（不用原生 select 呈现租户选项）；所有变更动作（退出、删除、启停、
       轮换、重置、创建、保存、切换租户、改默认租户）必须带 `data-yd-confirm` 并经过全局确认对话框；
       多按钮表单确认后必须把 `event.submitter` 传回 `requestSubmit`；轮询与变更不得写历史。
 - [ ] **登录页最小化**：未登录外壳只有登录卡片（含离线图标品牌区）与语言/主题切换，不得出现侧栏、
