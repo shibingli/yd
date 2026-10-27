@@ -642,6 +642,10 @@
 ```
 
 页面需为编辑器引入 EasyMDE 的样式与脚本；未引入时 `textarea` 保留，表单仍可提交。
+用 `PageScripts` / `PageStyles` 引入时，页面模板还必须渲染 `#yd-page-assets` 声明节点
+（`data-yd-styles` / `data-yd-scripts`，参见 `docs/frontend-ui.md` §2.2）：htmx 局部导航不会重写 `<head>`，
+缺少它时编辑器在局部导航后不会升级；脚本结算后 `yd-app.js` 广播 `yd:page-assets:loaded`，`yd-ui.js`
+的 `ydEditor` 据此重试初始化。
 消息中心默认把 EasyMDE 延迟到首次聚焦 `[data-yd-editor]` 或打开抽屉时再加载：包装元素用
 `data-yd-editor-vendor="{{ asset "/static/js/vendored/easymde.min.js" }}"` 声明地址，
 `yd-message-editor.js` 负责同源注入并在加载后升级全部编辑器；只读访问因此不必下载约 320 KB 的编辑器。

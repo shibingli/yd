@@ -6,4 +6,17 @@
   The body is chosen by partials/messages/audit.html: AdminMode shows messages and recent audit, AuditMode the full
   audit table.
 */}}
+{{/* 页面脚本/样式的惰性加载声明：整页请求由 layouts/base.html 直接装载；htmx 局部导航不会重写 <head>，
+     yd-app.js 因此在交换后读取本元素并按顺序补齐缺失的资产。治理页的「编辑」与「新建公告」抽屉都含
+     EasyMDE 编辑器，缺少它时抽屉里的编辑器在局部导航后不会初始化，只有整页刷新才恢复。
+     The lazy asset declaration: a full-page request loads these through layouts/base.html, while an htmx
+     partial navigation never rewrites <head>; yd-app.js therefore reads this element after a swap and adds
+     the missing assets in order. The moderation page's edit and announcement drawers both contain an
+     EasyMDE editor, and without this declaration the editor inside a drawer never initialises after a
+     partial navigation until the page is reloaded in full. */}}
+{{- if or .PageStyles .PageScripts }}
+<div id="yd-page-assets" hidden
+     data-yd-styles="{{ range .PageStyles }}{{ asset . }} {{ end }}"
+     data-yd-scripts="{{ range .PageScripts }}{{ asset . }} {{ end }}"></div>
+{{- end }}
 {{ template "mgr/partials/messages/audit" . }}

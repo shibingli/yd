@@ -93,6 +93,12 @@ htmx 核心
 脚本边界，单个源文件本身超过上限时单独成块并在启动日志告警，绝不按任意字节切断压缩脚本。开发期或
 组装失败时回退为逐脚本标签，`PageScripts`（消息编辑器等）仍然单独加载。两种形态的执行顺序完全一致。
 
+页面通过 `PageScripts` / `PageStyles` 引入的资产，在 **htmx 局部导航**下不会经过 `<head>` 重写：页面模板必须
+同时渲染 `#yd-page-assets` 声明节点（`data-yd-styles` / `data-yd-scripts`，消息中心、治理页与组件示例页即如此）。
+`yd-app.js` 在每次交换后读取它并按顺序补齐缺失资产，全部脚本结算后广播 `yd:page-assets:loaded`；
+`yd-ui.js` 的 `ydEditor` 监听该事件重试初始化。`window.load` 在局部导航后早已触发，不能作为第二次机会，
+缺少声明节点或事件时，编辑器会一直停在 `textarea`，只有整页刷新才升级。
+
 **为什么 `yd-ui.js` 必须排在 Alpine 前面**：签入的是 Alpine 的 **CSP 构建**
 （`@alpinejs/csp`），它在脚本执行时**立即启动**，不会等待 `DOMContentLoaded`。组件注册表若排在它之后，
 `Alpine.data` 会注册进一个已经启动的实例，页面上每个 `x-data` 都会以

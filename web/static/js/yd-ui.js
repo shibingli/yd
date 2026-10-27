@@ -3258,7 +3258,24 @@
       init: function () {
         var root = this.$root || this.$el;
         var win = root.ownerDocument.defaultView;
+        var doc = root.ownerDocument;
         var self = this;
+        // An htmx partial navigation swaps the workspace but never rewrites <head>, and its page scripts
+        // arrive after window.load has already fired. yd-app.js therefore announces
+        // "yd:page-assets:loaded" once the page-level scripts settle; retry here so the editor is not
+        // left as a bare textarea until a full reload. Register the listener before the delegation and
+        // EasyMDE checks below, because either path may return early while the script is still in
+        // flight. | htmx 局部导航只替换工作区、不重写 <head>，其页面脚本在 window.load 早已触发后
+        // 才到达。yd-app.js 在页面级脚本结算后广播 "yd:page-assets:loaded"；在这里重试，编辑器才
+        // 不会一直停在 textarea 直到整页刷新。监听器必须在委托与 EasyMDE 判断之前注册：这两条路径
+        // 都可能在脚本仍在路上时提前返回。
+        if (!this._waitingForAssets && doc && typeof doc.addEventListener === 'function') {
+          this._waitingForAssets = true;
+          this._onPageAssets = function () {
+            self.init();
+          };
+          doc.addEventListener('yd:page-assets:loaded', this._onPageAssets);
+        }
         // Message pages load the dedicated yd-message-editor.js, which owns the localized toolbar
         // and compact layout. Initialising EasyMDE here as well would create two editors over one
         // textarea; defer to that owner and only keep the generic path for pages without it.
@@ -3276,15 +3293,20 @@
         }
         // Page scripts load after Alpine in the documented order, so the first init can run
         // before EasyMDE exists. Retry once the document finishes loading instead of leaving a
-        // textarea that never upgrades. | 按文档顺序，页面脚本排在 Alpine 之后，首次 init 可能早于
-        // EasyMDE 就绪。文档加载完成后再试一次，避免 textarea 永远不升级。
+        // textarea that never upgrades. window.load only helps a full page load: after a partial
+        // navigation it has already fired, so that path must rely on the page-assets signal above.
+        // | 按文档顺序，页面脚本排在 Alpine 之后，首次 init 可能早于 EasyMDE 就绪。文档加载完成后再试
+        // 一次，避免 textarea 永远不升级。window.load 只对整页加载有效：局部导航后它早已触发，
+        // 那条路径必须依赖上面的页面资产信号。
         if (!win.EasyMDE) {
-          if (typeof win.addEventListener === 'function' && !this._waitingForEditor) {
+          if (doc && doc.readyState !== 'complete' && typeof win.addEventListener === 'function' && !this._waitingForEditor) {
             this._waitingForEditor = true;
-            win.addEventListener('load', function () {
+            this._onLoad = function () {
               self._waitingForEditor = false;
+              self._onLoad = null;
               self.init();
-            }, {once: true});
+            };
+            win.addEventListener('load', this._onLoad, {once: true});
           }
           return;
         }
@@ -3315,12 +3337,23 @@
         root.ownerDocument.addEventListener('yd:theme', this._onTheme);
       },
       destroy: function () {
-        if (this._onTheme) {
-          var root = this.$root || this.$el;
-          root.ownerDocument.removeEventListener('yd:theme', this._onTheme);
+        var root = this.$root || this.$el;
+        var doc = root && root.ownerDocument;
+        var win = doc && doc.defaultView;
+        if (this._onPageAssets && doc && typeof doc.removeEventListener === 'function') {
+          doc.removeEventListener('yd:page-assets:loaded', this._onPageAssets);
+          this._onPageAssets = null;
+          this._waitingForAssets = false;
+        }
+        if (this._onLoad && win && typeof win.removeEventListener === 'function') {
+          win.removeEventListener('load', this._onLoad);
+          this._onLoad = null;
+          this._waitingForEditor = false;
+        }
+        if (this._onTheme && doc && typeof doc.removeEventListener === 'function') {
+          doc.removeEventListener('yd:theme', this._onTheme);
         }
         if (this._delegated) {
-          var win = (this.$root || this.$el).ownerDocument.defaultView;
           if (win.yd && win.yd.messageEditor && typeof win.yd.messageEditor.destroy === 'function') {
             win.yd.messageEditor.destroy(this.$el);
           }

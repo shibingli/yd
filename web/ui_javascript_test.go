@@ -103,6 +103,50 @@ func TestEditorInstanceStateStaysOffAlpineState(t *testing.T) {
 	}
 }
 
+// TestEditorRetriesWhenPageAssetsArrive pins the htmx-navigation retry. A partial navigation swaps
+// the workspace but never rewrites <head>, and its page scripts arrive after window.load has already
+// fired; without this signal the editor stays a bare textarea until a full reload. The event name is
+// a contract with the generated project's yd-app.js. |
+// TestEditorRetriesWhenPageAssetsArrive 固定 htmx 导航下的重试。局部导航只换工作区、不重写
+// <head>，页面脚本在 window.load 早已触发后才到达；没有这个信号，编辑器会一直停在 textarea
+// 直到整页刷新。事件名是与生成项目 yd-app.js 的契约。
+func TestEditorRetriesWhenPageAssetsArrive(t *testing.T) {
+	raw, err := afero.ReadFile(FS(), uiJSAssetName)
+	if err != nil {
+		t.Fatalf("reading embedded %s failed: %v | 读取内嵌的 %s 失败：%v", uiJSAssetName, err, uiJSAssetName, err)
+	}
+	source := string(raw)
+	start := strings.Index(source, "components.ydEditor = function")
+	if start < 0 {
+		t.Fatalf("%s no longer defines components.ydEditor | %s 未定义 components.ydEditor", uiJSAssetName, uiJSAssetName)
+	}
+	rest := source[start:]
+	end := strings.Index(rest, "function register(Alpine)")
+	if end < 0 {
+		t.Fatalf("cannot delimit the ydEditor component in %s | 无法在 %s 中界定 ydEditor 组件", uiJSAssetName, uiJSAssetName)
+	}
+	block := rest[:end]
+	for _, want := range []string{
+		"'yd:page-assets:loaded'",
+		"_onPageAssets",
+		"readyState",
+	} {
+		if !strings.Contains(block, want) {
+			t.Errorf("ydEditor is missing %q; after an htmx navigation the editor never initialises | ydEditor 缺少 %q；htmx 导航后编辑器不会初始化", want, want)
+		}
+	}
+
+	// Production serves the minified sibling; the event name is a string literal and survives minification. |
+	// production 提供压缩后的同族文件；事件名是字符串字面量，压缩后仍然保留。
+	minified, err := afero.ReadFile(FS(), uiJSAssetMinName)
+	if err != nil {
+		t.Fatalf("reading embedded %s failed: %v | 读取内嵌的 %s 失败：%v", uiJSAssetMinName, err, uiJSAssetMinName, err)
+	}
+	if !strings.Contains(string(minified), "yd:page-assets:loaded") {
+		t.Errorf("%s lost the page-assets retry listener | %s 丢失了页面资产重试监听", uiJSAssetMinName, uiJSAssetMinName)
+	}
+}
+
 // TestUIJSAssetStaysCSPCompatible proves the shipped file can run under `script-src 'self'` and
 // still publishes the surface the templates call.
 // TestUIJSAssetStaysCSPCompatible 证明随包文件能在 `script-src 'self'` 下运行，并且仍然发布模板

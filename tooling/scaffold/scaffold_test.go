@@ -952,6 +952,18 @@ func TestGeneratedPortalAndManagementShareOneComponentLayer(t *testing.T) {
 		}
 	}
 
+	// The moderation page hosts the edit and announcement drawers, both of which contain an EasyMDE
+	// editor. A shell swap never rewrites <head>, so the page must declare the lazy asset node that
+	// yd-app.js reads; without it the drawer editor stays a bare textarea until a full reload. |
+	// 治理页承载编辑与新建公告抽屉，两者都含 EasyMDE 编辑器。外壳交换不会重写 <head>，页面必须声明
+	// yd-app.js 读取的惰性资产节点；缺少它时抽屉编辑器要整页刷新才会升级。
+	adminPage := pr.read("web/templates/mgr/pages/message_admin.html")
+	for _, want := range []string{`id="yd-page-assets"`, "data-yd-styles=", "data-yd-scripts="} {
+		if !strings.Contains(adminPage, want) {
+			t.Errorf("message_admin.html lacks %q; its drawer editors never initialise after an htmx navigation | message_admin.html 缺少 %q；htmx 导航后抽屉编辑器不会初始化", want, want)
+		}
+	}
+
 	// A shell swap must carry the new page title into the tab. | 外壳交换必须把新页面标题带进标签页。
 	base := pr.read("web/templates/partials/base.html")
 	if !strings.Contains(base, `data-yd-app-name="{{ .Name }}"`) {
@@ -1677,6 +1689,7 @@ func TestGeneratedAppServesFrameworkFeatures(t *testing.T) {
 			`id="yd-kit-calendar"`,
 			`id="yd-kit-viewer"`,
 			`data-yd-editor-icons`,
+			`id="yd-page-assets"`,
 		} {
 			if !strings.Contains(body, want) {
 				t.Errorf("GET /ui-kit 缺少 %q:\n%s", want, body)
@@ -3823,6 +3836,29 @@ func TestGenerateThemeBootAndAutoTokens(t *testing.T) {
 	}
 }
 
+// TestGeneratedPageAssetsAnnounceCompletion pins the second initialisation point of page-level
+// assets. A full page load delivers deferred page scripts before window.load, but an htmx partial
+// navigation never fires it again; the editor component therefore has no trigger unless yd-app.js
+// announces that the page scripts settled. The event name is a contract with yd-ui.js. |
+// TestGeneratedPageAssetsAnnounceCompletion 固定页面级资产的第二个初始化时机。整页加载会在
+// window.load 之前执行延迟的页面脚本，但 htmx 局部导航不会再次触发它；除非 yd-app.js 广播页面脚本
+// 已结算，编辑器组件就没有任何触发点。事件名是与 yd-ui.js 的契约。
+func TestGeneratedPageAssetsAnnounceCompletion(t *testing.T) {
+	pr, _ := generateMem(t, scaffold.DefaultOptions("page-assets-app"))
+
+	app := pr.read("web/static/js/yd-app.js")
+	for _, want := range []string{
+		"function loadPageAssets(root)",
+		`"yd:page-assets:loaded"`,
+		"document.dispatchEvent",
+		"CustomEvent",
+	} {
+		if !strings.Contains(app, want) {
+			t.Errorf("generated yd-app.js is missing %q; an htmx navigation would never re-initialise page-level editors | 生成的 yd-app.js 缺少 %q；htmx 局部导航后将永远不会重新初始化页面级编辑器", want, want)
+		}
+	}
+}
+
 // TestGenerateIconsUseTheBundledSprite pins the generated icon contract: every requested button
 // references the shared partial, and the partial resolves the framework sprite instead of copying
 // icon bodies into templates. | TestGenerateIconsUseTheBundledSprite 固定生成项目的图标契约：
@@ -4364,6 +4400,15 @@ func TestGeneratedUIKitShowsEveryComponent(t *testing.T) {
 	page := pr.read("web/templates/portal/pages/ui_kit.html")
 	if !strings.Contains(page, `data-yd-page="ui-kit"`) {
 		t.Error("ui_kit.html lacks its page marker | ui_kit.html 缺少页面标记")
+	}
+	// The gallery loads EasyMDE as a page script. A shell swap never rewrites <head>, so the page must
+	// also declare the node yd-app.js reads after a swap; without it the editor stays a bare textarea
+	// until a full reload. | 组件示例页把 EasyMDE 作为页面脚本加载。外壳交换不会重写 <head>，因此
+	// 页面还必须声明 yd-app.js 在交换后读取的节点；缺少它时编辑器要整页刷新才会升级。
+	for _, want := range []string{`id="yd-page-assets"`, "data-yd-styles=", "data-yd-scripts="} {
+		if !strings.Contains(page, want) {
+			t.Errorf("ui_kit.html lacks %q; its editor never upgrades after an htmx navigation | ui_kit.html 缺少 %q；htmx 局部导航后编辑器不会升级", want, want)
+		}
 	}
 	for _, unwanted := range []string{"<input", "<select", "<textarea"} {
 		if strings.Contains(page, unwanted) {

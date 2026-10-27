@@ -1193,11 +1193,13 @@
 
   /* 页面级资产：htmx 局部导航只替换工作区，不会重写 <head>，因此消息页的编辑器脚本需要按需补齐。
      本函数读取 #yd-page-assets 上的 data-yd-styles / data-yd-scripts，幂等地插入缺失项；
-     脚本按声明顺序串行加载，保证 EasyMDE 先于 yd-message-editor.js 执行。
+     脚本按声明顺序串行加载，保证 EasyMDE 先于 yd-message-editor.js 执行；全部结算后广播
+     yd:page-assets:loaded，供已存在的编辑器组件重试初始化（局部导航不会再触发 window.load）。
      Page assets: an htmx partial navigation replaces only the workspace and never rewrites <head>, so the message
      editor must be loaded on demand. This reads data-yd-styles / data-yd-scripts from #yd-page-assets and inserts the
      missing entries idempotently; scripts load one after another in declaration order, so EasyMDE precedes
-     yd-message-editor.js. */
+     yd-message-editor.js. Once every script settles it announces yd:page-assets:loaded so an existing editor
+     component can retry (a partial navigation never fires window.load again). */
   function loadPageAssets(root) {
     var node = (root || document).querySelector("#yd-page-assets");
     if (!node) {
@@ -1223,8 +1225,20 @@
       // no longer scans the whole document a second time.
       return;
     }
+    /* 页面级脚本结算后广播一次：htmx 局部导航不会再次触发 window.load，编辑器组件因此需要这个信号
+       重新尝试初始化。事件名与 yd-ui.js 的监听器成对，改动时两边必须同步。
+       Broadcast once the page-level scripts settle: an htmx partial navigation never fires window.load
+       again, so the editor component needs this signal to retry initialisation. The event name is a
+       contract with yd-ui.js; both sides must change together. */
+    function announcePageAssets() {
+      if (typeof document.dispatchEvent !== "function" || typeof window.CustomEvent !== "function") {
+        return;
+      }
+      document.dispatchEvent(new window.CustomEvent("yd:page-assets:loaded"));
+    }
     function next(index) {
       if (index >= pending.length) {
+        announcePageAssets();
         return;
       }
       var script = document.createElement("script");

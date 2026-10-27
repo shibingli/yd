@@ -12,6 +12,18 @@
 
   数据契约 | Data contract: .ChartSVG（template.HTML，服务端经 http/chart 生成）。
 */}}
+{{/* 页面脚本/样式的惰性加载声明：整页请求由 layouts/base.html 直接装载；htmx 局部导航不会重写 <head>，
+     yd-app.js 因此在交换后读取本元素并按顺序补齐缺失的资产。本页的 Markdown 编辑器依赖 EasyMDE，
+     缺少它时编辑器在局部导航后会永远停在 textarea，只有整页刷新才升级。
+     The lazy asset declaration: a full-page request loads these through layouts/base.html, while an htmx
+     partial navigation never rewrites <head>; yd-app.js therefore reads this element after a swap and adds
+     the missing assets in order. This page's Markdown editor needs EasyMDE, and without the declaration the
+     editor stays a bare textarea after a partial navigation until a full reload. */}}
+{{- if or .PageStyles .PageScripts }}
+<div id="yd-page-assets" hidden
+     data-yd-styles="{{ range .PageStyles }}{{ asset . }} {{ end }}"
+     data-yd-scripts="{{ range .PageScripts }}{{ asset . }} {{ end }}"></div>
+{{- end }}
 <section class="yd-page" data-yd-page="ui-kit" aria-labelledby="yd-ui-kit-title">
   {{template "components.layout.page-header" (dict
     "Title" (tr "nav.ui_kit") "TitleKey" "nav.ui_kit"
