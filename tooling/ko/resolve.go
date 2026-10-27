@@ -9,6 +9,7 @@ import (
 	"runtime"
 	"strings"
 
+	"github.com/shibingli/yd/tooling/payload"
 	"github.com/shibingli/ydx/errs"
 )
 
@@ -34,6 +35,10 @@ const LocalToolDir = ".yd/tools"
 // It is a variable so tests can simulate a missing CLI without touching the real PATH. | 它被声明为变量，
 // 便于测试在不触碰真实 PATH 的前提下模拟 CLI 缺失。
 var PathLookup = exec.LookPath
+
+// EmbeddedEnsure materializes the embedded ko payload; it is a variable so tests can simulate a host
+// without a payload. | EmbeddedEnsure 物化嵌入的 ko payload；它是变量，便于测试模拟没有 payload 的宿主。
+var EmbeddedEnsure = payload.Ensure
 
 // Resolve resolves the ko executable following the documented precedence chain. | Resolve 按文档化的优先级链解析 ko 可执行文件。
 //
@@ -75,6 +80,13 @@ func Resolve(o Options) (string, error) {
 	// Finally fall back to the ko command on PATH. | 最后回退 PATH 上的 ko 命令。
 	if p, err := lookup(DefaultBinary); err == nil && p != "" {
 		return p, nil
+	}
+	// Execution commands may materialize the pinned ko payload shipped inside yd. | 执行命令可以物化 yd
+	// 内嵌的固定版本 ko payload。
+	if o.Embedded {
+		if path, ok, err := EmbeddedEnsure(workingDir, payload.ToolKo); err == nil && ok {
+			return path, nil
+		}
 	}
 	return "", errs.Detail(ErrBinaryNotFound,
 		"checked Binary, %[2]s, %[3]s and PATH; install it with %[1]q or drop the binary into %[3]s | 已检查 Binary、%[2]s、%[3]s 与 PATH；可用 %[1]q 安装，或把二进制放入 %[3]s",

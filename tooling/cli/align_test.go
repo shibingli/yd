@@ -327,6 +327,9 @@ func TestAlignMissingToolHintsWithoutPanic(t *testing.T) {
 	orig := align.PathLookup
 	align.PathLookup = func(string) (string, error) { return "", errors.New("not found") }
 	t.Cleanup(func() { align.PathLookup = orig })
+	origEnsure := align.EmbeddedEnsure
+	align.EmbeddedEnsure = func(string, string) (string, bool, error) { return "", false, nil }
+	t.Cleanup(func() { align.EmbeddedEnsure = origEnsure })
 
 	te := newTestEnv(t, nil, "", false)
 	te.env.WorkDir = t.TempDir() // 没有 .yd/tools，也没有 PATH | no .yd/tools and no PATH

@@ -316,10 +316,19 @@ service:
 # Every key below is overridable through the YD_KO_* prefix: YD_KO_REPOSITORY -> ko.repository, and so on | 下面每个键都可由 YD_KO_* 前缀覆盖：YD_KO_REPOSITORY -> ko.repository，其余同理
 ko:
   binary: ""            # path to the ko binary; empty follows the resolution order above | ko 可执行文件路径；留空按上面的顺序解析
-  repository: ""        # image repository handed to ko as KO_DOCKER_REPO; empty without --repo refuses to build unless --local is set | 镜像仓库，作为 KO_DOCKER_REPO 传给 ko；留空且未给 --repo 时拒绝构建，改用 --local 除外
+  repository: ""        # image repository handed to ko as KO_DOCKER_REPO; required only when ko.local=false (the default below builds locally) | 镜像仓库，作为 KO_DOCKER_REPO 传给 ko；仅在 ko.local=false 时需要（下方默认本地构建）
   tags: []              # image tags such as [latest, v1.0.0]; empty keeps ko's default latest | 镜像标签，如 [latest, v1.0.0]；留空沿用 ko 缺省的 latest
   platforms: []         # target platforms such as [linux/amd64, linux/arm64]; empty takes every platform the base image supports | 目标平台，如 [linux/amd64, linux/arm64]；留空取基础镜像支持的全部平台
   base_image: ""        # base image override (KO_DEFAULTBASEIMAGE); on an intranet point it at a locally cached image | 覆盖基础镜像（KO_DEFAULTBASEIMAGE）；内网填本地缓存的基础镜像地址
   packages: []          # Go packages to build such as [./cmd/app]; empty uses the project entry point | 要打包的 Go 包，如 [./cmd/app]；留空用项目入口
-  local: false          # true equals ko's --local: load into the local docker daemon instead of pushing | true 等价于 ko 的 --local：装进本地 docker 守护进程而不推送
+  ldflags: ["-s -w"]    # linker flags, repeated as --ldflags; the default strips symbols and DWARF; an empty list keeps them | 链接参数，逐个以 --ldflags 传入；默认去掉符号表与 DWARF；空列表则保留
+  local: true           # a fresh project has no registry, so `yd ko` loads into the local docker daemon by default; pass --local=false (or ko.local=false) together with --repo for registry delivery | 新项目没有仓库，`yd ko` 默认载入本地 docker 守护进程；面向仓库交付时传 --local=false（或 ko.local=false）并配 --repo
   push: false           # true equals ko's --push: push to the repository once the build succeeds | true 等价于 ko 的 --push：构建成功后推送到 repository
+
+# Binary compression | 二进制压缩
+# `yd docker` and `yd ko` compress binaries smaller than 1 GiB with the embedded UPX 5.2.1 by default;
+# --no-upx or upx.enabled=false keeps them uncompressed. | 两条打包路径默认用嵌入的 UPX 5.2.1 压缩小于
+# 1 GiB 的产物；--no-upx 或 upx.enabled=false 关闭。
+upx:
+  enabled: true         # false skips the UPX step in both image commands | false 表示两条镜像命令都跳过 UPX
+  bin: ""               # external UPX 5.2.1+; empty uses the embedded payload | 外部 UPX 5.2.1+；留空使用嵌入 payload

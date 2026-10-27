@@ -287,6 +287,7 @@ func runAssetsMinify(ctx context.Context, env *Env, fs *pflag.FlagSet) error {
 		Root:      staticRoot,
 		Enabled:   true,
 		CheckOnly: check,
+		Embedded:  true,
 	}, log)
 	switch {
 	case errors.Is(jsErr, build.ErrMinifyNotFound):

@@ -20,8 +20,10 @@ import (
 
 	"github.com/shibingli/yd/tooling/align"
 	"github.com/shibingli/yd/tooling/ko"
+	"github.com/shibingli/yd/tooling/payload"
 	"github.com/shibingli/yd/tooling/toolchain"
 	"github.com/shibingli/yd/tooling/tools"
+	"github.com/shibingli/yd/tooling/upx"
 )
 
 // The registry names the tests below rely on. | 下方测试所依赖的注册表名称。
@@ -36,6 +38,8 @@ const (
 	cliToolMinify = "minify"
 	// cliToolDocker is the optional container engine, which cannot be installed by go install. | cliToolDocker 是可选容器引擎，无法用 go install 安装。
 	cliToolDocker = "docker"
+	// cliToolUPX is the embedded binary packer. | cliToolUPX 是内置的二进制压缩器。
+	cliToolUPX = "upx"
 )
 
 // TestMain makes the whole cli test binary independent of the machine it runs on. | TestMain 让整个 cli 测试二进制与所在机器无关。
@@ -55,13 +59,22 @@ func TestMain(m *testing.M) {
 	_ = os.Setenv(align.EnvToolBin, "")
 	_ = os.Setenv(ko.EnvBinary, "")
 	_ = os.Setenv(toolchain.EnvTailwindBin, "")
+	// Keep payload materialization away from the developer's real cache. | 让 payload 物化远离开发机真实缓存。
+	cacheDir, cacheErr := os.MkdirTemp("", "yd-cli-payload-cache-*")
+	if cacheErr != nil {
+		_, _ = os.Stderr.WriteString(cacheErr.Error() + "\n")
+		os.Exit(1)
+	}
+	_ = os.Setenv(payload.CacheEnv, cacheDir)
 
 	tools.PathLookup = func(string) (string, error) { return "", os.ErrNotExist }
 	ko.PathLookup = func(string) (string, error) { return "", os.ErrNotExist }
 	tools.ExecCommand = func(context.Context, string, []string, string, []string) ([]byte, error) {
 		return nil, errors.New("cli test: no external command may run | cli 测试：不得运行任何外部命令")
 	}
-	os.Exit(m.Run())
+	code := m.Run()
+	_ = os.RemoveAll(cacheDir)
+	os.Exit(code)
 }
 
 // newToolBin is the project-local path a tool is installed into. | newToolBin 是工具被安装到的项目内路径。
@@ -296,8 +309,12 @@ func TestToolsCheckPrintsTableAndHints(t *testing.T) {
 	}
 
 	out := te.out.String()
-	if !strings.Contains(out, "tools | 工具: 5") {
+	if !strings.Contains(out, "tools | 工具: 6") {
 		t.Errorf("状态表缺少表头 | the table misses its header:\n%s", out)
+	}
+	upxState, upxDetail := toolsStateMissing, "-"
+	if upx.EmbeddedHostAvailable() {
+		upxState, upxDetail = toolsStateReady, "embedded | 内置"
 	}
 	for _, want := range []struct {
 		name   string
@@ -307,8 +324,9 @@ func TestToolsCheckPrintsTableAndHints(t *testing.T) {
 		{cliToolBetteralign, toolsStateReady, pathStub.at(cliToolBetteralign)},
 		{cliToolKo, toolsStateReady, localKo},
 		{cliToolTailwind, toolsStateMissing, "-"},
-		{cliToolMinify, toolsStateMissing, "-"},
+		{cliToolMinify, toolsStateReady, "embedded | 内置"},
 		{cliToolDocker, toolsStateReady, pathStub.at(cliToolDocker)},
+		{cliToolUPX, upxState, upxDetail},
 	} {
 		row := fmt.Sprintf("  %-13s %s %s", want.name, want.state, want.detail)
 		if !strings.Contains(out, row) {
@@ -361,8 +379,8 @@ func TestToolsCheckHonoursConfiguredBinaries(t *testing.T) {
 			t.Errorf("状态表缺少配置路径行 %q | the table misses the configured row:\n%s", row, out)
 		}
 	}
-	if !strings.Contains(out, fmt.Sprintf("  %-13s %s", cliToolKo, toolsStateMissing)) {
-		t.Errorf("ko 未配置且不在 PATH 上，应显示缺失 | ko must stay missing:\n%s", out)
+	if !strings.Contains(out, fmt.Sprintf("  %-13s %s", cliToolKo, toolsStateReady)) {
+		t.Errorf("ko 已嵌入，应显示就绪 | ko is embedded and must be ready:\n%s", out)
 	}
 	if got := exec.count(); got != 0 {
 		t.Errorf("check 运行了 %d 条命令，期望 0 条 | check ran %d commands, want 0", got, got)
@@ -379,7 +397,7 @@ func TestToolsCheckAcceptsItsActionWord(t *testing.T) {
 	if err := Execute(context.Background(), []string{toolsCommandName, toolsActionCheck}, te.env); err != nil {
 		t.Fatalf("yd tools check 失败 | yd tools check failed: %v", err)
 	}
-	if !strings.Contains(te.out.String(), "tools | 工具: 5") {
+	if !strings.Contains(te.out.String(), "tools | 工具: 6") {
 		t.Errorf("状态表未打印 | the table was not printed:\n%s", te.out.String())
 	}
 	if got := exec.count(); got != 0 {
@@ -391,6 +409,7 @@ func TestToolsCheckAcceptsItsActionWord(t *testing.T) {
 // tools, their GOBIN, and the summary. | TestToolsInstallDefaultsToEveryInstallableTool 固定整次安装运行：
 // 两个可用 go install 安装的工具、它们的 GOBIN 与摘要。
 func TestToolsInstallDefaultsToEveryInstallableTool(t *testing.T) {
+	disableEmbeddedTools(t)
 	te := openToolsEnv(t, "", false)
 	pathStub := newCliFakePath(t, "go", cliToolDocker)
 	useToolPath(t, pathStub)
@@ -486,6 +505,7 @@ func TestToolsInstallSkipsAReadyTool(t *testing.T) {
 
 // TestToolsInstallNamedToolInstallsOnlyThatTool keeps a named run narrow. | TestToolsInstallNamedToolInstallsOnlyThatTool 让具名运行只做被点名的事。
 func TestToolsInstallNamedToolInstallsOnlyThatTool(t *testing.T) {
+	disableEmbeddedTools(t)
 	te := openToolsEnv(t, "", false)
 	useToolPath(t, newCliFakePath(t, "go"))
 	exec := &cliFakeInstall{}
@@ -514,6 +534,7 @@ func TestToolsInstallNamedToolInstallsOnlyThatTool(t *testing.T) {
 // returned, which is what makes cmd/yd exit non-zero. | TestToolsInstallReportsFailureWithNonZeroExit
 // 证明安装失败既被报告也被返回，这正是 cmd/yd 非零退出的依据。
 func TestToolsInstallReportsFailureWithNonZeroExit(t *testing.T) {
+	disableEmbeddedTools(t)
 	te := openToolsEnv(t, "", false)
 	useToolPath(t, newCliFakePath(t, "go"))
 	exec := &cliFakeInstall{fail: errors.New("exit status 1")}
@@ -543,6 +564,7 @@ func TestToolsInstallReportsFailureWithNonZeroExit(t *testing.T) {
 
 // TestToolsInstallWithoutGoToolchain explains the one dependency an automatic installation has. | TestToolsInstallWithoutGoToolchain 说明自动安装唯一的前置依赖。
 func TestToolsInstallWithoutGoToolchain(t *testing.T) {
+	disableEmbeddedTools(t)
 	te := openToolsEnv(t, "", false)
 	useToolPath(t, newCliFakePath(t))
 	exec := &cliFakeInstall{}
@@ -684,16 +706,23 @@ func TestNewPrintsToolHintsWithoutInstalling(t *testing.T) {
 	}
 
 	out := te.out.String()
+	// The embedded tools are ready out of the box; only the downloadable engine and Tailwind need a hint. |
+	// 嵌入工具开箱即用；只有需下载的引擎与 Tailwind 需要提示。
 	for _, want := range []string{
 		"missing tools | 缺失工具:",
-		cliToolBetteralign + ": ",
-		cliToolKo + ": ",
+		cliToolTailwind + ": ",
+		cliToolDocker + ": ",
 		"install | 安装:",
 		"yd tools install",
 		tools.LocalToolDir,
 	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("提示缺少 %q | the hints miss %q:\n%s", want, want, out)
+		}
+	}
+	for _, absent := range []string{cliToolBetteralign + ": ", cliToolKo + ": ", cliToolMinify + ": "} {
+		if strings.Contains(out, absent) {
+			t.Errorf("嵌入工具不应出现在提示里 | an embedded tool must not be hinted: %q\n%s", absent, out)
 		}
 	}
 	if !strings.Contains(out, "project created | 项目已创建") {
@@ -712,7 +741,9 @@ func TestNewPrintsToolHintsWithoutInstalling(t *testing.T) {
 	}
 }
 
-// TestNewInstallToolsFlagInstallsThem is the explicit opt-in of a script. | TestNewInstallToolsFlagInstallsThem 是脚本的显式选择加入。
+// TestNewInstallToolsFlagInstallsThem is the explicit opt-in of a script; the pinned payloads are
+// materialized without Go or the network. | TestNewInstallToolsFlagInstallsThem 是脚本的显式选择加入；
+// 固定版本 payload 无需 Go 与网络即可物化。
 func TestNewInstallToolsFlagInstallsThem(t *testing.T) {
 	te := openToolsEnv(t, "", false)
 	pathStub := newCliFakePath(t, "go")
@@ -724,17 +755,13 @@ func TestNewInstallToolsFlagInstallsThem(t *testing.T) {
 		t.Fatalf("yd new --install-tools 失败 | failed: %v\n%s", err, te.errs.String())
 	}
 
-	installs := exec.installs()
-	if len(installs) != 3 {
-		t.Fatalf("安装了 %d 次，期望 2 次 | ran %d installs, want 2", len(installs), len(installs))
+	if installs := exec.installs(); len(installs) != 0 {
+		t.Fatalf("嵌入安装不应执行 go install，实际 %d 次 | embedded installation must not run go install, got %d", len(installs), len(installs))
+	}
+	if pathStub.askedFor("go") {
+		t.Error("嵌入安装不得查找 go 工具链 | embedded installation must not look up the go toolchain")
 	}
 	projectDir := filepath.Join(te.env.WorkDir, "demo")
-	wantGobin := filepath.Join(projectDir, filepath.FromSlash(tools.LocalToolDir))
-	for _, call := range installs {
-		if got := envValue(call.env, "GOBIN"); got != wantGobin {
-			t.Errorf("GOBIN = %q，期望新项目的工具目录 %q | want %q", got, wantGobin, wantGobin)
-		}
-	}
 	for _, name := range []string{cliToolBetteralign, cliToolKo, cliToolMinify} {
 		if _, err := os.Stat(newToolBin(projectDir, name)); err != nil {
 			t.Errorf("%s 未安装进新项目 | %s is missing: %v", name, name, err)
@@ -748,10 +775,47 @@ func TestNewInstallToolsFlagInstallsThem(t *testing.T) {
 	}
 }
 
+// TestNewInstallToolsFlagFallsBackToGoInstall pins the non-embedded route: GOBIN points at the new
+// project and every tool is installed there. | TestNewInstallToolsFlagFallsBackToGoInstall 固定非嵌入路径：
+// GOBIN 指向新项目，每个工具都安装到那里。
+func TestNewInstallToolsFlagFallsBackToGoInstall(t *testing.T) {
+	disableEmbeddedTools(t)
+	te := openToolsEnv(t, "", false)
+	pathStub := newCliFakePath(t, "go")
+	useToolPath(t, pathStub)
+	exec := &cliFakeInstall{}
+	useToolExec(t, exec)
+
+	if err := Execute(context.Background(), []string{newCommandName, "demo", "-y", "--install-tools"}, te.env); err != nil {
+		t.Fatalf("yd new --install-tools 失败 | failed: %v\n%s", err, te.errs.String())
+	}
+	installs := exec.installs()
+	if len(installs) != 3 {
+		t.Fatalf("安装了 %d 次，期望 3 次 | ran %d installs, want 3", len(installs), len(installs))
+	}
+	projectDir := filepath.Join(te.env.WorkDir, "demo")
+	wantGobin := filepath.Join(projectDir, filepath.FromSlash(tools.LocalToolDir))
+	for _, call := range installs {
+		if got := envValue(call.env, "GOBIN"); got != wantGobin {
+			t.Errorf("GOBIN = %q，期望新项目的工具目录 %q | want %q", got, wantGobin, wantGobin)
+		}
+	}
+}
+
+// disableEmbeddedTools forces the Go-install/download routes for one CLI test. | disableEmbeddedTools
+// 在单个 CLI 测试中强制走 go install/下载路径。
+func disableEmbeddedTools(t *testing.T) {
+	t.Helper()
+	old := tools.EmbeddedAvailable
+	tools.EmbeddedAvailable = func(string) bool { return false }
+	t.Cleanup(func() { tools.EmbeddedAvailable = old })
+}
+
 // TestNewInstallFailureStillSucceeds is the hard rule of the closing step: the project is already
 // generated, so a failed installation may only warn. | TestNewInstallFailureStillSucceeds 是收尾步骤的硬性规则：
 // 项目已经生成完毕，因此安装失败只允许告警。
 func TestNewInstallFailureStillSucceeds(t *testing.T) {
+	disableEmbeddedTools(t)
 	te := openToolsEnv(t, "", false)
 	useToolPath(t, newCliFakePath(t, "go"))
 	exec := &cliFakeInstall{fail: errors.New("exit status 1")}
@@ -793,8 +857,11 @@ func TestNewTTYToolPromptInstallsOnYes(t *testing.T) {
 	if !strings.Contains(out, "现在就安装缺失的工具吗？| Install the missing tools now?") {
 		t.Errorf("未询问是否安装 | the question was not asked:\n%s", out)
 	}
-	if len(exec.installs()) != 3 {
-		t.Errorf("答是时应安装两个工具 | answering yes must install both:\n%s", out)
+	if len(exec.installs()) != 0 {
+		t.Errorf("答是时应物化嵌入工具，不执行 go install | answering yes must materialize embedded tools, not run go install:\n%s", out)
+	}
+	if !strings.Contains(out, "installed | 已安装: 3") {
+		t.Errorf("摘要未报告三个已安装工具 | the summary misses the three installed tools:\n%s", out)
 	}
 	if !existsMem(t, te.env.FS, filepath.Join(te.env.WorkDir, "demo", ".yd.json")) {
 		t.Error("答是时项目仍应生成完毕 | the project must still be generated")
@@ -879,5 +946,32 @@ func TestToolsInstallTailwindDownloadsFromConfiguredURL(t *testing.T) {
 	}
 	if got := exec.installCount(); got != 0 {
 		t.Errorf("tailwindcss 不应执行 go install | tailwindcss must not run go install: %d calls", got)
+	}
+}
+
+// TestToolsInstallMaterializesEmbeddedTools pins the offline install: the embedded payloads land in
+// .yd/tools without go install, the network or a Go toolchain. | TestToolsInstallMaterializesEmbeddedTools
+// 固定离线安装：嵌入 payload 无需 go install、网络或 Go 工具链即可落入 .yd/tools。
+func TestToolsInstallMaterializesEmbeddedTools(t *testing.T) {
+	te := openToolsEnv(t, "", false)
+	pathStub := newCliFakePath(t, "go")
+	useToolPath(t, pathStub)
+	exec := &cliFakeInstall{}
+	useToolExec(t, exec)
+
+	if err := Execute(context.Background(), []string{toolsCommandName, toolsActionInstall}, te.env); err != nil {
+		t.Fatalf("yd tools install 失败 | failed: %v", err)
+	}
+	if installs := exec.installs(); len(installs) != 0 {
+		t.Errorf("嵌入安装不应执行 go install，实际 %d 次 | embedded installation must not run go install, got %d", len(installs), len(installs))
+	}
+	if pathStub.askedFor("go") {
+		t.Error("嵌入安装不得查找 go 工具链 | embedded installation must not look up the go toolchain")
+	}
+	for _, name := range []string{cliToolBetteralign, cliToolKo, cliToolMinify} {
+		path := newToolBin(te.env.WorkDir, name)
+		if _, err := os.Stat(path); err != nil {
+			t.Errorf("%s 未物化到 .yd/tools | %s was not materialized: %v", name, name, err)
+		}
 	}
 }

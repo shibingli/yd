@@ -1,5 +1,5 @@
-// This file holds the tool registry: the five optional external tools in a fixed order, plus the
-// lookup used by the install command. | 本文件保存工具注册表：固定顺序的五个可选外部工具，以及安装命令所用的查找。
+// This file holds the tool registry: the six optional external tools in a fixed order, plus the
+// lookup used by the install command. | 本文件保存工具注册表：固定顺序的六个可选外部工具，以及安装命令所用的查找。
 //
 // The registry is the single source of truth for names, purposes and install hints. | 注册表是名称、用途与安装提示的唯一来源。
 
@@ -11,6 +11,7 @@ import (
 	"github.com/shibingli/yd/tooling/align"
 	"github.com/shibingli/yd/tooling/build"
 	"github.com/shibingli/yd/tooling/ko"
+	"github.com/shibingli/yd/tooling/upx"
 	"github.com/shibingli/ydx/errs"
 )
 
@@ -26,6 +27,9 @@ const (
 	NameMinify = "minify"
 	// NameDocker is the container engine behind `yd docker` and `yd ko --local`. | NameDocker 是 `yd docker` 与 `yd ko --local` 背后的容器引擎。
 	NameDocker = "docker"
+	// NameUPX is the binary packer embedded in yd and overridable through upx.bin / YD_UPX_BIN. | NameUPX
+	// 是 yd 内置、可由 upx.bin / YD_UPX_BIN 覆盖的二进制压缩器。
+	NameUPX = "upx"
 
 	// The unexported aliases keep the internal call sites short. | 未导出别名让包内调用点保持简短。
 	toolBetteralign = NameBetteralign
@@ -33,9 +37,10 @@ const (
 	toolTailwindcss = NameTailwindcss
 	toolMinify      = NameMinify
 	toolDocker      = NameDocker
+	toolUPX         = NameUPX
 )
 
-// registry holds the five entries in the order Registry returns them. | registry 按 Registry 返回的顺序保存五个条目。
+// registry holds the six entries in the order Registry returns them. | registry 按 Registry 返回的顺序保存六个条目。
 //
 // betteralign and ko quote align.InstallHint and ko.InstallHint verbatim instead of repeating the
 // command, so each hint has exactly one definition and the registry can never drift from the
@@ -88,6 +93,13 @@ var registry = []Tool{
 		// must stay free of side effects. | 刻意不查询版本：`docker version` 会与守护进程通信，
 		// 而状态探测必须没有副作用。
 		VersionArgs: nil,
+	},
+	{
+		Name:        toolUPX,
+		Summary:     "compress built binaries with UPX | 用 UPX 压缩构建产物",
+		InstallHint: upx.InstallHint,
+		DocURL:      "https://github.com/upx/upx/releases",
+		VersionArgs: []string{"--version"},
 	},
 }
 

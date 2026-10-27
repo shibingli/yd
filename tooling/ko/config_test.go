@@ -52,6 +52,7 @@ ko:
   platforms: ["linux/amd64", "linux/arm64"]
   local: true
   push: false
+  ldflags: ["-s -w", "-X main.version=v1"]
 `)
 
 	o := OptionsFromConfig(c, "work")
@@ -63,10 +64,28 @@ ko:
 		Packages:   []string{"./cmd/api", "./cmd/worker"},
 		Tags:       []string{"v1.2.3", "latest"},
 		Platforms:  []string{"linux/amd64", "linux/arm64"},
+		LDFlags:    []string{"-s -w", "-X main.version=v1"},
 		Local:      true,
 		Push:       false,
 	}
 	assertKoOptionsEqual(t, o, want)
+}
+
+// TestOptionsFromConfigEmptyLDFlagsDisables pins the escape hatch: an explicitly empty ko.ldflags list
+// disables the default strip flags instead of silently restoring them. | TestOptionsFromConfigEmptyLDFlagsDisables
+// 固化逃生口：显式空的 ko.ldflags 列表关闭默认的去符号参数，而不是悄悄回退到默认值。
+func TestOptionsFromConfigEmptyLDFlagsDisables(t *testing.T) {
+	c := loadKoConfig(t, `
+ko:
+  ldflags: []
+`)
+	o := OptionsFromConfig(c, "work")
+	if o.LDFlags == nil {
+		t.Fatal("显式空的 ko.ldflags 必须产生非 nil 空切片 | an explicit empty ko.ldflags must yield a non-nil empty slice")
+	}
+	if got := o.EffectiveLDFlags(); len(got) != 0 {
+		t.Errorf("EffectiveLDFlags() = %q | EffectiveLDFlags() 得到 %q，期望为空", got, got)
+	}
 }
 
 // TestOptionsFromConfigUnset checks the zero-value fallbacks: an empty config file leaves everything
@@ -84,8 +103,11 @@ func TestOptionsFromConfigUnset(t *testing.T) {
 		t.Errorf("字符串项应为空：%+v | the string fields must stay empty: %+v", o, o)
 	}
 	// Without explicit packages the argv falls back to the `yd new` layout. | 未显式给出包时，argv 回退到 `yd new` 的布局。
-	if got, want := o.Args(), []string{"build", "--base-import-paths", "--push=false", DefaultPackage}; !slices.Equal(got, want) {
+	if got, want := o.Args(), []string{"build", "--base-import-paths", "--push=false", "--ldflags", DefaultLDFlags, DefaultPackage}; !slices.Equal(got, want) {
 		t.Errorf("Args() = %q | Args() 得到 %q，期望 %q", got, got, want)
+	}
+	if o.LDFlags != nil {
+		t.Errorf("未配置 ko.ldflags 时应保持 nil | LDFlags must stay nil when ko.ldflags is unset: %q", o.LDFlags)
 	}
 
 	if o := OptionsFromConfig(nil, "work"); o.WorkingDir != "work" {
@@ -117,6 +139,9 @@ func assertKoOptionsEqual(t *testing.T, got, want Options) {
 	}
 	if !slices.Equal(got.Platforms, want.Platforms) {
 		t.Errorf("Platforms = %q | Platforms 得到 %q，期望 %q", got.Platforms, got.Platforms, want.Platforms)
+	}
+	if !slices.Equal(got.LDFlags, want.LDFlags) {
+		t.Errorf("LDFlags = %q | LDFlags 得到 %q，期望 %q", got.LDFlags, got.LDFlags, want.LDFlags)
 	}
 	if got.Local != want.Local {
 		t.Errorf("Local = %v | Local 得到 %v，期望 %v", got.Local, got.Local, want.Local)

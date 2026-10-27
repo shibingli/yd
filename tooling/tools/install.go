@@ -11,6 +11,8 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/shibingli/yd/tooling/payload"
+	"github.com/shibingli/yd/tooling/upx"
 	yderrs "github.com/shibingli/ydx/errs"
 	ydlog "github.com/shibingli/ydx/log"
 )
@@ -106,6 +108,11 @@ func installableTools() []Tool {
 	return out
 }
 
+// EmbeddedEnsure materializes one embedded payload; it is a variable so tests can drive the download and
+// `go install` routes on a host that embeds the tool. | EmbeddedEnsure 物化一个嵌入 payload；它是变量，使测试
+// 可以在内嵌该工具的宿主上覆盖下载与 `go install` 路径。
+var EmbeddedEnsure = payload.Ensure
+
 // installPlan probes the plan, installs what is missing, and verifies the result. | installPlan 探测计划、安装缺失项，并验证结果。
 func installPlan(ctx context.Context, o Options, plan []Tool, log *ydlog.Logger) (*Report, error) {
 	ctx = contextOr(ctx)
@@ -117,6 +124,37 @@ func installPlan(ctx context.Context, o Options, plan []Tool, log *ydlog.Logger)
 	for _, t := range plan {
 		st := probe(t, o)
 		switch {
+		case st.Found && payload.IsMarker(st.Path):
+			// The tool ships inside yd: extract it into .yd/tools without Go or the network. |
+			// 工具随 yd 发布：无需 Go 与网络，直接解压到 .yd/tools。
+			path, ok, err := EmbeddedEnsure(root, t.Name)
+			if err != nil || !ok {
+				report.Failed = append(report.Failed, Failure{
+					Name: t.Name,
+					Err:  yderrs.WrapDetail(err, ErrInstallFailed, "cannot extract the embedded %[1]s payload | 无法解压嵌入的 %[1]s payload", t.Name),
+				})
+				continue
+			}
+			report.Installed = append(report.Installed, Status{Tool: t, Path: path, Found: true})
+			log.Info("embedded tool materialized | 已物化内置工具", ydlog.Str("tool", t.Name), ydlog.Str("path", path))
+		case st.Found && upx.IsEmbedded(st.Path):
+			// UPX uses its own marker; materialize the host payload through the upx package. |
+			// UPX 使用自己的标记；经 upx 包物化宿主 payload。
+			data, name, ok := upx.EmbeddedHost()
+			var path string
+			var err error
+			if ok {
+				path, err = upx.Materialize(root, name, data)
+			}
+			if !ok || err != nil {
+				report.Failed = append(report.Failed, Failure{
+					Name: t.Name,
+					Err:  yderrs.WrapDetail(err, ErrInstallFailed, "cannot extract the embedded %[1]s payload | 无法解压嵌入的 %[1]s payload", t.Name),
+				})
+				continue
+			}
+			report.Installed = append(report.Installed, Status{Tool: t, Path: path, Found: true})
+			log.Info("embedded tool materialized | 已物化内置工具", ydlog.Str("tool", t.Name), ydlog.Str("path", path))
 		case st.Found:
 			log.Debug("tool already available | 工具已就绪", ydlog.Str("tool", t.Name), ydlog.Str("path", st.Path))
 			report.Skipped = append(report.Skipped, st)

@@ -260,10 +260,13 @@ yd gen module|crud   # 低代码生成（DB Schema 或 Go Struct）
 - OpenAPI 查看器左侧按 `tag` 分组，操作详情提供同源在线测试（服务器、鉴权头、参数与 JSON 请求体，
   响应显示状态/耗时/响应头/正文）；跨源请求会被 CSP 拦截，因此只允许同源。
   查看器读取 `localStorage.yd_theme` 并在顶栏提供浅色/深色/跟随系统切换，控件边框必须清晰可见。
-- **可选外部工具一律经 `yd tools`**：`betteralign` / `ko` / `tailwindcss` / `minify` / `docker` 用 `yd tools check` 探测、
-  `yd tools install [名称...]` 安装（落在项目内 `.yd/tools/`，`GOBIN` 指向它的绝对路径）；
+- **可选外部工具一律经 `yd tools`**：`betteralign` / `ko` / `tailwindcss` / `minify` / `docker` / `upx` 用 `yd tools check` 探测、
+  `yd tools install [名称...]` 安装（落在项目内 `.yd/tools/`，`GOBIN` 指向它的绝对路径；`upx` 默认使用嵌入的
+  5.2.1 payload，覆盖 Linux amd64/arm64 与 Windows amd64，macOS 与 Windows/arm64 用外部 `upx`）；
   **禁止**手写 `go install` 装到全局，**禁止**改动 `PATH` 或往 `~/go/bin` 写东西。
-  五个工具都是可选的，缺失只影响对应能力，**不得**让 `yd build` / `yd dev` / `yd gen` / `go test` 或 CI 失败；
+  六个工具都是可选的，缺失只影响对应能力，**不得**让 `yd build` / `yd dev` / `yd gen` / `go test` 或 CI 失败；
+  `ko` / `minify` / `betteralign` 的宿主 payload 与 UPX 的 Linux/Windows-amd64 payload 已嵌入 `yd`，
+  `yd tools install` 离线物化，无需 Go 或网络。
   安装失败只告警（`yd new --yes` 不触网），判定哨兵一律用 `errors.Is`（`tools.ErrUnknownTool` /
   `tools.ErrNoGoToolchain` / `tools.ErrNotInstallable` / `tools.ErrInstallFailed`）。
 
@@ -295,10 +298,16 @@ yd gen module|crud   # 低代码生成（DB Schema 或 Go Struct）
 1. **分工**：需要定制构建步骤（装系统包、拷额外文件）就走 `yd docker` 与仓库根目录的 `Dockerfile`；
    标准的「单二进制 + 空镜像」交付走 `yd ko`，它不需要 Dockerfile，也不要求本机装 docker。
 2. **命令行唯一**：`yd ko [--repo R] [--tags a,b] [--platforms linux/amd64,linux/arm64] [--base-image X]
-   [--package ./cmd/app] [--local] [--push] [--no-config] [--binary PATH] [--dir DIR]`；配置键 `ko.binary` /
-   `ko.repository` / `ko.tags` / `ko.platforms` / `ko.base_image` / `ko.packages` / `ko.local` / `ko.push`
-   （`YD_KO_*` 环境变量生效），优先级仍是「命令行 > 环境变量 > 配置文件 > 缺省值」。注意 ko 自己的标志是单数
-   `--platform`，`--platforms` 是本命令的标志名。
+   [--package ./cmd/app] [--local] [--push] [--no-config] [--ldflags "-s -w"] [--binary PATH] [--dir DIR]`；
+   配置键 `ko.binary` / `ko.repository` / `ko.tags` / `ko.platforms` / `ko.base_image` / `ko.packages` /
+   `ko.local` / `ko.push` / `ko.ldflags`（`YD_KO_*` 环境变量生效），优先级仍是「命令行 > 环境变量 > 配置文件 > 缺省值」。
+   生成的 `configs/config.yaml` 默认 `ko.local: true`（新项目没有仓库，`yd ko` 开箱即用载入本地 Docker）；
+   面向 registry 时传 `--local=false`（或设 `ko.local: false`）并配 `--repo`。
+   注意 ko 自己的标志是单数 `--platform`，`--platforms` 是本命令的标志名。
+   `yd ko` 默认传 `--ldflags "-s -w"` 去符号（与 `yd docker` 的 Dockerfile 一致）；需要注入版本变量时用
+   `--ldflags "-s -w -X main.version=v1.0.0"`，需要保留符号表与 DWARF 调试信息时传空的 `--ldflags ""`。
+   `yd docker`/`yd ko` 默认还会用嵌入的 UPX 5.2.1 压缩 < 1 GiB 的产物，`--no-upx` 或 `upx.enabled=false` 关闭；
+   UPX 缺失/失败只告警，不影响构建。
 2.1 **配置文件默认打包**：`yd ko` 在构建前把 `configs/config.yaml` 暂存到本地包的 `kodata/configs/`，构建结束
    （含失败）立即清理；ko 将该目录放进镜像的 `KO_DATA_PATH`，应用经 `meta.ConfigDirPath` 自动采用。
    `yd docker` 默认把同一文件复制到 `/configs` 并设置 `YD_CONFIG_DIR=/configs`，同时创建 `/data`。

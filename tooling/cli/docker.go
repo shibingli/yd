@@ -43,10 +43,12 @@ const (
 	// flagDockerNoConfig leaves configs/config.yaml out of the image. | flagDockerNoConfig 不把
 	// configs/config.yaml 打进镜像。
 	flagDockerNoConfig = "no-config"
+	// flagDockerNoUPX keeps the built binary uncompressed. | flagDockerNoUPX 保持构建产物未压缩。
+	flagDockerNoUPX = "no-upx"
 )
 
 // dockerUsageLine is the usage line of the docker command. | dockerUsageLine 是 docker 命令的用法行。
-const dockerUsageLine = "yd docker [--tag <project>:<version>] [--platform linux/amd64] [--no-config] [flags]"
+const dockerUsageLine = "yd docker [--tag <project>:<version>] [--platform linux/amd64] [--no-config] [--no-upx] [flags]"
 
 // dockerProjectMetaName is the metadata file `yd new` writes and the docker and service commands
 // read for the project name. | dockerProjectMetaName 是 `yd new` 写入、docker 与 service 命令用于读取
@@ -103,6 +105,7 @@ func registerDockerFlags(fs *pflag.FlagSet) {
 	fs.String(flagDockerBin, "", "docker CLI to invoke | 调用的 docker CLI")
 	fs.Bool(flagDockerNoAssets, false, "skip the embedded asset refresh | 跳过内嵌资产刷新")
 	fs.Bool(flagDockerNoConfig, false, "do not package configs/config.yaml into the image | 不把 configs/config.yaml 打包进镜像")
+	fs.Bool(flagDockerNoUPX, false, "keep the built binary uncompressed (skip UPX) | 不压缩构建产物（跳过 UPX）")
 	dockerFlags = fs
 }
 
@@ -131,6 +134,7 @@ func dockerOptions(env *Env, fs *pflag.FlagSet) docker.Options {
 		WithAssets:    !flagBool(fs, flagDockerNoAssets),
 		PrepareAssets: dockerPrepareAssets,
 		ExecCommand:   dockerExecCommand,
+		UPX:           dockerUPXEnabled(env, fs),
 	}
 	// The Dockerfile turns YD_GODEBUG into the runtime ENV; only pass it when the
 	// operator asked to force RFC 8441. YD_INCLUDE_CONFIG=false removes the baked
@@ -144,10 +148,27 @@ func dockerOptions(env *Env, fs *pflag.FlagSet) docker.Options {
 	if flagBool(fs, flagDockerNoConfig) {
 		buildArgs["YD_INCLUDE_CONFIG"] = "false"
 	}
+	// UPX defaults on; --no-upx or upx.enabled=false leaves the image Dockerfile step unused. |
+	// UPX 默认开启；--no-upx 或 upx.enabled=false 使镜像 Dockerfile 中的步骤不被启用。
+	if dockerUPXEnabled(env, fs) {
+		buildArgs["YD_INCLUDE_UPX"] = "true"
+	}
 	if len(buildArgs) > 0 {
 		o.BuildArgs = buildArgs
 	}
 	return o
+}
+
+// dockerUPXEnabled reports whether the UPX step runs: --no-upx wins, then upx.enabled, default true. |
+// dockerUPXEnabled 报告是否执行 UPX 步骤：--no-upx 优先，其次 upx.enabled，默认开启。
+func dockerUPXEnabled(env *Env, fs *pflag.FlagSet) bool {
+	if flagBool(fs, flagDockerNoUPX) {
+		return false
+	}
+	if env != nil && env.Cfg != nil && env.Cfg.IsSet("upx.enabled") {
+		return env.Cfg.GetBool("upx.enabled")
+	}
+	return true
 }
 
 // dockerTag resolves the image reference: --tag verbatim when it was given, otherwise

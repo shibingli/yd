@@ -1,24 +1,26 @@
 // Package tools is the single probe-and-install entry point for the optional external tools the
 // framework shells out to. | Package tools 是框架所调用可选外部工具的统一探测与安装入口。
 //
-// Five tools are optional by design, and each resolver chain is owned by the package that uses it: | 按设计共有五个可选工具，
+// Six tools are optional by design, and each resolver chain is owned by the package that uses it: | 按设计共有六个可选工具，
 // 各自的解析链由使用它的包负责：
 //
 //   - betteralign, behind align.Resolve, reports struct field orders that waste memory (CLAUDE.md §8); |  - betteralign 由 align.Resolve 解析，报告浪费内存的结构体字段顺序（CLAUDE.md §8）；
 //   - ko, behind ko.Resolve, builds images without a Dockerfile (CLAUDE.md §13); |  - ko 由 ko.Resolve 解析，无需 Dockerfile 构建镜像（CLAUDE.md §13）；
 //   - tailwindcss, behind toolchain.ResolveTailwind, compiles the stylesheets; |  - tailwindcss 由 toolchain.ResolveTailwind 解析，编译样式表；
 //   - minify, behind build.ResolveMinifyBin, minifies the JavaScript assets; |  - minify 由 build.ResolveMinifyBin 解析，压缩 JavaScript 资产；
-//   - docker, looked up on PATH, builds and runs the container images. |  - docker 在 PATH 上查找，构建并运行容器镜像。
+//   - docker, looked up on PATH, builds and runs the container images; |  - docker 在 PATH 上查找，构建并运行容器镜像；
+//   - upx, behind upx.Resolve, compresses the built binaries (CLAUDE.md §13). |  - upx 由 upx.Resolve 解析，压缩构建产物（CLAUDE.md §13）。
 //
 // What this package adds is the one place that can answer "what is still missing on this machine",
-// and the one command that installs it: Registry lists the five entries, Check probes them through
-// their own chains, Hints renders the bilingual recovery hints, and Install either runs `go install`
-// with GOBIN, GOPATH, GOMODCACHE and GOCACHE pinned inside <dir>/.yd/tools, or downloads the
-// tailwindcss standalone binary into the same directory. Both routes land on the project-local
-// segment every chain already looks at. | 本包补充的是那个能回答「这台机器还缺什么」的唯一入口，以及那条统一的
-// 安装命令：Registry 列出四个条目，Check 按各自链条探测，Hints 渲染双语恢复提示，Install 或以固定在
-// <dir>/.yd/tools 内的 GOBIN、GOPATH、GOMODCACHE 与 GOCACHE 运行 `go install`，或把 tailwindcss
-// standalone 二进制下载到同一目录。两条路径都落在每条解析链本来就查看的项目内一段。
+// and the one command that installs it: Registry lists the six entries, Check probes them through
+// their own chains, Hints renders the bilingual recovery hints, and Install either materializes an
+// embedded payload, runs `go install` with GOBIN, GOPATH, GOMODCACHE and GOCACHE pinned inside
+// <dir>/.yd/tools, or downloads the tailwindcss standalone binary into the same directory. Every
+// route lands on the project-local segment each chain already looks at. | 本包补充的是那个能回答
+// 「这台机器还缺什么」的唯一入口，以及那条统一的安装命令：Registry 列出六个条目，Check 按各自链条探测，
+// Hints 渲染双语恢复提示，Install 或物化嵌入 payload、或以固定在 <dir>/.yd/tools 内的 GOBIN、GOPATH、
+// GOMODCACHE 与 GOCACHE 运行 `go install`，或把 tailwindcss standalone 二进制下载到同一目录。
+// 三条路径都落在每条解析链本来就查看的项目内一段。
 //
 // The probe is read-only: Check, Missing and Hints never install anything, never reach the network
 // and never execute a tool, so a missing tool can only ever produce a hint. Versions are therefore

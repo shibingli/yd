@@ -15,6 +15,19 @@ COPY . .
 # 此处只需产出静态链接的单文件可执行程序。
 RUN CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags "-s -w" -o /out/app ./cmd/app
 
+# UPX 压缩：yd docker 会把嵌入的 Linux UPX 5.2.1 放到 .yd/upx/upx（无需下载）；--no-upx 或
+# --build-arg YD_INCLUDE_UPX=false 保留原文件。不经过 yd 的直接 docker build 不受影响。
+# UPX: yd docker stages the embedded Linux UPX 5.2.1 binary at .yd/upx/upx (no download); --no-upx or
+# --build-arg YD_INCLUDE_UPX=false keeps the original binary. A direct docker build without yd is unaffected.
+ARG YD_INCLUDE_UPX=false
+RUN if [ "$YD_INCLUDE_UPX" = "true" ] && [ -x /src/.yd/upx/upx ]; then \
+        if [ "$(wc -c < /out/app)" -lt 1073741824 ]; then \
+            /src/.yd/upx/upx --best --lzma /out/app || echo "yd: UPX failed; keeping the original binary | yd：UPX 失败，保留原文件" >&2; \
+        else \
+            echo "yd: binary exceeds the UPX size limit | yd：二进制超过 UPX 体积上限" >&2; \
+        fi; \
+    fi
+
 FROM scratch
 
 # RFC 8441: yd docker passes this build arg when server.http2.extended_connect is true.

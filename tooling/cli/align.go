@@ -103,6 +103,7 @@ func alignOptions(env *Env, fs *pflag.FlagSet) (align.Options, align.ToolOptions
 		Bin:       flagString(fs, flagAlignBin),
 		ConfigBin: configString(env, keyAlignBin),
 		LocalDir:  env.WorkDir,
+		Embedded:  true,
 	}
 	return o, tool
 }

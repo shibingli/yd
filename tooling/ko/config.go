@@ -25,6 +25,9 @@ const (
 	KeyBaseImage = "ko.base_image"
 	// KeyPackages lists the import paths to build. | KeyPackages 列出要构建的导入路径。
 	KeyPackages = "ko.packages"
+	// KeyLDFlags lists the linker flags passed to ko; an explicitly empty list disables the default
+	// "-s -w". | KeyLDFlags 列出传给 ko 的链接参数；显式空列表会关闭默认的 "-s -w"。
+	KeyLDFlags = "ko.ldflags"
 	// KeyLocal publishes into the local docker daemon instead of a registry. | KeyLocal 把结果发布到本地
 	// docker 守护进程而不推送到仓库。
 	KeyLocal = "ko.local"
@@ -44,6 +47,7 @@ const (
 // Keys, with the value the package falls back to when the key is unset: | 配置键，以及键未设置时本包回退到的取值：
 //
 //	ko.packages   import paths to build; empty means DefaultPackage (./cmd/app) | 待构建的导入路径；为空表示 DefaultPackage（./cmd/app）
+//	ko.ldflags    linker flags, e.g. ["-s -w"]; unset means DefaultLDFlags, an empty list disables them | 链接参数，例如 ["-s -w"]；未设置表示 DefaultLDFlags，空列表则关闭
 //	ko.binary     ko executable, skips the resolution chain; empty means the chain | ko 可执行文件，跳过解析链；为空表示走解析链
 //	ko.repository target repository, e.g. registry.example.com/team/app; required unless ko.local | 目标仓库；除非 ko.local 否则必填
 //	ko.tags       tags to publish; empty keeps ko's own default (latest) | 要发布的标签；为空沿用 ko 的默认值（latest）
@@ -52,9 +56,11 @@ const (
 //	ko.local      publish to the local docker daemon instead of a registry | 发布到本地 docker 守护进程而不推送到仓库
 //	ko.push       push the result to the repository | 把结果推送到仓库
 //
-// The two booleans default to false, which is why the `yd ko` command passes their flags to ko
-// explicitly instead of relying on ko's own --push default of true. | 两个布尔项默认 false，正因如此
-// `yd ko` 命令会把它们的标志显式传给 ko，而不依赖 ko 自身 --push 的 true 默认值。
+// Unset booleans default to false (the scaffold's generated config explicitly sets ko.local=true so a
+// fresh project builds locally without a registry), which is why the `yd ko` command passes their flags
+// to ko explicitly instead of relying on ko's own --push default of true. | 未设置的布尔项默认 false（脚手架
+// 生成的配置显式设置 ko.local=true，使新项目无需仓库即可本地构建），正因如此 `yd ko` 命令会把它们的标志显式
+// 传给 ko，而不依赖 ko 自身 --push 的 true 默认值。
 //
 // The environment layer is already applied by the time this function runs, so YD_KO_REPOSITORY (and
 // the rest of YD_KO_*) lands on the same keys and wins over the config file, as the framework's
@@ -73,6 +79,14 @@ func OptionsFromConfig(c *config.Config, workDir string) Options {
 	o.Platforms = c.GetStringSlice(KeyPlatforms)
 	if packages := c.GetStringSlice(KeyPackages); len(packages) > 0 {
 		o.Packages = packages
+	}
+	if c.IsSet(KeyLDFlags) {
+		// An explicitly empty list must stay non-nil: nil would be read as "use the default". |
+		// 显式空列表必须保持非 nil：nil 会被解读为「使用默认值」。
+		o.LDFlags = c.GetStringSlice(KeyLDFlags)
+		if o.LDFlags == nil {
+			o.LDFlags = []string{}
+		}
 	}
 	o.Local = c.GetBool(KeyLocal)
 	o.Push = c.GetBool(KeyPush)

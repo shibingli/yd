@@ -9,10 +9,10 @@ import (
 	"github.com/shibingli/yd/tooling/ko"
 )
 
-// TestRegistryOrderAndShape pins the five entries and their order, which is also the order of every
-// status table and every report. | TestRegistryOrderAndShape 固定五个条目及其顺序，该顺序也是每张状态表与每份报告的顺序。
+// TestRegistryOrderAndShape pins the six entries and their order, which is also the order of every
+// status table and every report. | TestRegistryOrderAndShape 固定六个条目及其顺序，该顺序也是每张状态表与每份报告的顺序。
 func TestRegistryOrderAndShape(t *testing.T) {
-	want := []string{toolBetteralign, toolKo, toolTailwindcss, toolMinify, toolDocker}
+	want := []string{toolBetteralign, toolKo, toolTailwindcss, toolMinify, toolDocker, toolUPX}
 	got := Registry()
 	if len(got) != len(want) {
 		t.Fatalf("Registry() 有 %d 个条目，期望 %d 个 | Registry() has %d entries, want %d", len(got), len(want), len(got), len(want))
@@ -37,7 +37,7 @@ func TestRegistryOrderAndShape(t *testing.T) {
 			t.Errorf("%s 的 Summary 未中英同步 | Summary is not bilingual: %q", name, got[i].Summary)
 		}
 	}
-	for _, name := range []string{toolTailwindcss, toolDocker} {
+	for _, name := range []string{toolTailwindcss, toolDocker, toolUPX} {
 		if hint := lookupFor(t, name).InstallHint; !strings.Contains(hint, " | ") {
 			t.Errorf("%s 的 InstallHint 未中英同步 | InstallHint is not bilingual: %q", name, hint)
 		}
@@ -52,6 +52,7 @@ func TestRegistryOrderAndShape(t *testing.T) {
 		{toolTailwindcss, ""},
 		{toolMinify, "github.com/tdewolff/minify/v2/cmd/minify@latest"},
 		{toolDocker, ""},
+		{toolUPX, ""},
 	} {
 		if got := lookupFor(t, want.name).GoInstall; got != want.goInstall {
 			t.Errorf("%s 的 GoInstall = %q，期望 %q | want %q", want.name, got, want.goInstall, want.goInstall)

@@ -186,6 +186,10 @@ func TestBuiltinDockerfileUsesScratchAndMultiStage(t *testing.T) {
 		"COPY --from=builder /out/app /app",
 		`ARG YD_GODEBUG=""`,
 		"ENV GODEBUG=${YD_GODEBUG}",
+		"ARG YD_INCLUDE_UPX=false",
+		"/src/.yd/upx/upx",
+		"--best --lzma",
+		"1073741824",
 	} {
 		if !strings.Contains(body, want) {
 			t.Errorf("内置 Dockerfile 缺少 %q:\n%s", want, body)

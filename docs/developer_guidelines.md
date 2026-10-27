@@ -409,8 +409,8 @@ Windows 走 SCM、Linux 走 systemd、macOS 走 launchd。禁止为单个平台�
 
 | 项 | 值 |
 |---|---|
-| 命令行 | `yd ko [--repo R] [--tags a,b] [--platforms linux/amd64,linux/arm64] [--base-image X] [--package ./cmd/app] [--local] [--push] [--no-config] [--binary PATH] [--dir DIR]` |
-| 配置键 | `ko.binary` / `ko.repository` / `ko.tags` / `ko.platforms` / `ko.base_image` / `ko.packages` / `ko.local` / `ko.push`（`YD_KO_*` 自动映射） |
+| 命令行 | `yd ko [--repo R] [--tags a,b] [--platforms linux/amd64,linux/arm64] [--base-image X] [--package ./cmd/app] [--local] [--push] [--no-config] [--ldflags "-s -w"] [--no-upx] [--binary PATH] [--dir DIR]` |
+| 配置键 | `ko.binary` / `ko.repository` / `ko.tags` / `ko.platforms` / `ko.base_image` / `ko.packages` / `ko.local` / `ko.push` / `ko.ldflags`（`YD_KO_*` 自动映射）；UPX 另有 `upx.bin` / `upx.enabled` |
 | 二进制解析 | `--binary` → `YD_KO_BIN` → `<项目>/.yd/tools/ko[.exe]` → `PATH` |
 | 哨兵 | `ko.ErrBinaryNotFound` / `ko.ErrNoRepository` / `ko.ErrBuildFailed` / `ko.ErrInvalidOptions` / `ko.ErrConfigStage` |
 
@@ -422,6 +422,17 @@ Windows 走 SCM、Linux 走 systemd、macOS 走 launchd。禁止为单个平台�
 - **标志落在 ko 侧的真实形态**：仓库经 `KO_DOCKER_REPO` 传给 ko，多平台走 ko 的 `--platform`（**单数**，
   `--platforms` 是本命令的标志名），基础镜像走 `KO_DEFAULTBASEIMAGE`，标签走 `--tags`；
   `--local` 对应 ko 的 `-L/--local`（装进本机 docker 守护进程，不出网），`--push` 对应 ko 的 `--push`。
+- **生成项目默认本地加载**：`yd new` 生成的 `configs/config.yaml` 默认 `ko.local: true`，新项目没有仓库时
+  `yd ko` 开箱即用载入本地 docker；面向 registry 时必须显式 `--local=false`（或 `ko.local: false`）并配
+  `--repo`/`--push`，否则 `--push` 会同时载入本地与推送。库层在该键未设置时仍回退 false。
+- **默认去符号**：`yd ko` 默认把 `-s -w` 作为 `--ldflags` 传给 ko，与 `yd docker` 的 Dockerfile 路径一致；
+  同一项目实测文件体积约减少 29%、gzip 压缩层约减半。`--ldflags`（或 `ko.ldflags`）可替换为带 `-X` 版本变量的
+  取值；传空值或 `ko.ldflags: []` 关闭，供需要保留符号表与 DWARF 的调试场景使用。
+- **默认 UPX 压缩**：两个打包入口默认对 < 1 GiB 的产物执行 UPX 5.2.1（`--best --lzma`），`--no-upx` /
+  `upx.enabled=false` 关闭。`yd docker` 把嵌入的 Linux amd64/arm64 UPX 暂存为 `.yd/upx/upx`，Dockerfile
+  在 `go build` 后执行（Dockerfile 无 `YD_INCLUDE_UPX` 步骤时告警跳过）；`yd ko` 通过 `KO_GO_PATH` 包装器
+  在 `go build -o` 之后压缩，并用压缩前备份回答 ko 的 `go version -m`。UPX 缺失/过旧/超限/失败只告警，
+  **绝不**让构建失败。UPX 是 GPL-2.0+（含例外），发行包必须附带 `THIRD_PARTY_NOTICES.md` 与许可证文本。
 - **配置文件默认打包**：`yd docker` 把 `configs/config.yaml` 复制到 `/configs`，设置
   `YD_CONFIG_DIR=/configs` 并创建 `/data`（SQLite、节点身份与附件）；`yd ko` 在构建前把同一文件暂存到每个本地包的
   `kodata/configs/`，构建结束（含失败）立即清理，ko 将其放进镜像的 `KO_DATA_PATH`，应用经
@@ -440,19 +451,20 @@ Windows 走 SCM、Linux 走 systemd、macOS 走 launchd。禁止为单个平台�
 
 ## 18. 可选外部工具契约
 
-五个**可选外部工具**——`betteralign`（内存对齐）、`ko`（无 Dockerfile 镜像打包）、`tailwindcss`（样式表编译）、
-`minify`（JavaScript 压缩）、`docker`（Dockerfile 镜像构建）——由 `github.com/shibingli/yd/tooling/tools` 统一探测与安装。
-`align` / `ko` / `toolchain` / `build` 各自的 `Resolve` 仍是「工具在哪」的唯一事实来源，`tools` 只做**单向聚合**：
+六个**可选外部工具**——`betteralign`（内存对齐）、`ko`（无 Dockerfile 镜像打包）、`tailwindcss`（样式表编译）、
+`minify`（JavaScript 压缩）、`docker`（Dockerfile 镜像构建）、`upx`（二进制压缩，嵌入 yd）——由
+`github.com/shibingli/yd/tooling/tools` 统一探测与安装。
+`align` / `ko` / `toolchain` / `build` / `upx` 各自的 `Resolve` 仍是「工具在哪」的唯一事实来源，`tools` 只做**单向聚合**：
 注册表、探测与安装都建在它们之上，提示文案也复用它们的 `InstallHint`。
 
 | 项 | 值 |
 |---|---|
 | 包 | `github.com/shibingli/yd/tooling/tools` |
-| 注册表 | `betteralign` / `ko` / `tailwindcss` / `minify` / `docker`（顺序固定） |
+| 注册表 | `betteralign` / `ko` / `tailwindcss` / `minify` / `docker` / `upx`（顺序固定） |
 | API | `Registry()` / `Lookup(name)` / `Check(dir)` / `Missing(dir)` / `Hints(dir)` / `Install(ctx, dir, names, log)` / `InstallAll(ctx, dir, log)` |
 | 安装结果 | `*Report{Installed, Skipped, Failed}` |
 | CLI | `yd tools [check]`；`yd tools install [名称...]`（缺省为全部 Go 可安装项；`tailwindcss` 需显式点名） |
-| 解析链 | 显式参数/配置 → 环境变量 → `<项目>/.yd/tools` → `PATH` |
+| 解析链 | 显式参数/配置 → 环境变量 → `<项目>/.yd/tools` → `PATH` → 嵌入 payload（ko / minify / betteralign；upx 在 PATH 之前） |
 | 安装落点 | `GOBIN` / `GOPATH` / `GOMODCACHE` / `GOCACHE` 全部在 `<项目>/.yd/tools` 之下，装完无需额外配置 |
 | 哨兵 | `tools.ErrUnknownTool` / `ErrNoGoToolchain` / `ErrNotInstallable` / `ErrInstallFailed` |
 
@@ -463,14 +475,21 @@ Windows 走 SCM、Linux 走 systemd、macOS 走 launchd。禁止为单个平台�
   `yd tools install tailwindcss` 下载 GitHub Release 的 standalone 二进制（遵循 `http.proxy` 与 `tailwind.url`，
   只装它时不需要 Go 工具链）；`docker` 需安装 Docker Engine / Docker Desktop，
   `Install` 对它返回 `ErrNotInstallable` 并给出获取途径——这是明确的「不代装」，不是失败。
+  `upx` 默认使用嵌入的 5.2.1 payload（Linux amd64/arm64 + Windows amd64；macOS 与 Windows/arm64 需外部
+  `upx`），无需下载；`upx.bin` / `YD_UPX_BIN` 可覆盖，外部版本必须 ≥ 5.2.1，`yd tools check` 显示
+  `embedded | 内置`，探测不执行它；`yd tools install upx` 可显式物化宿主 payload。
+  `ko` / `minify` / `betteralign` 同样嵌入 v0.19.1 / v2.24.24 / v0.15.4（六个平台：linux/windows/darwin ×
+  amd64/arm64），`yd tools install` 直接离线物化到 `.yd/tools`；PATH 上已有更新版本时仍优先使用 PATH。
+  物化经内容寻址缓存（`<用户缓存目录>/yd/payloads/<sha256>/`，`YD_TOOLS_CACHE_DIR` 可重定位）：同一 payload
+  每台机器只解压一次，后续项目硬链接复用（跨卷复制）；sidecar 记录 SHA-256/大小/mtime，损坏自动重建。
 - **Go 安装环境隔离**：`go install` 之前由 `installEnv` 注入隔离后的 `GOBIN` / `GOPATH` / `GOMODCACHE` /
   `GOCACHE`、`GOWORK=off`，并在未显式配置时补上国内可用的 `GOPROXY` 链与 `GOSUMDB=off`；
   显式导出的代理与校验设置优先。
 - **不改 PATH**：安装只落在项目内 `.yd/tools/`，**不得**改动用户 `PATH`，也**不得**往 `~/go/bin` 写东西；
   往全局写属于越界，且在 CI 上不可预期（见 §17 对 ko 的同款约束）。
-- **缺失不阻塞**：五个工具一律可选，缺失只影响对应能力——`yd align` / `yd ko` / `yd docker` 返回各自哨兵
-  并给出安装提示，`tailwindcss` 缺失时样式表阶段、`minify` 缺失时 JavaScript 压缩阶段都以告警跳过——
-  **不得**让 `yd build` / `yd dev` / `yd gen` / `go test` 或 CI 失败。
+- **缺失不阻塞**：六个工具一律可选，缺失只影响对应能力——`yd align` / `yd ko` / `yd docker` 返回各自哨兵
+  并给出安装提示，`tailwindcss` 缺失时样式表阶段、`minify` 缺失时 JavaScript 压缩阶段都以告警跳过，
+  `upx` 缺失/过旧时压缩阶段以告警跳过——**不得**让 `yd build` / `yd dev` / `yd gen` / `go test` 或 CI 失败。
 - **`yd new` 收尾**：项目生成后探测一次并打印缺失清单；交互模式询问「现在就安装缺失的工具吗？」（默认是），
   答是则 `InstallAll`；非交互场景用 `--install-tools` 显式安装；**`--yes` 不触网**
   （e2e 与 CI 的入口不得带网络副作用）。安装失败只 Warn，`yd new` 仍返回成功。

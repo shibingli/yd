@@ -491,6 +491,7 @@ yd docker [--tag 镜像:版本] [--platform linux/amd64] [flags]
 | `--no-cache` | 禁用构建缓存 |
 | `--no-assets` | 跳过内嵌资产刷新 |
 | `--no-config` | 不把 `configs/config.yaml` 打进镜像（默认打包基线配置） |
+| `--no-upx` | 不压缩构建产物（默认用嵌入的 UPX 5.2.1 压缩） |
 | `--push` | 构建成功后推送 |
 
 ```bash
@@ -503,24 +504,45 @@ yd docker --platform linux/arm64 --no-cache
 `--no-config`（或直接构建时的 `--build-arg YD_INCLUDE_CONFIG=false`）生成完全由环境变量驱动的镜像。
 镜像不会复制 `config.local.yaml`，避免把本地密钥带进产物。
 
+`yd docker` 默认把嵌入二进制里的 Linux UPX 5.2.1 暂存到构建上下文的 `.yd/upx/upx`，由 Dockerfile 在
+`go build` 后执行 `upx --best --lzma`（无需下载）；`--no-upx` 或 `upx.enabled=false` 关闭，超 1 GiB 的
+产物自动跳过。旧项目（Dockerfile 中没有 `YD_INCLUDE_UPX` 步骤）会告警并跳过压缩，重新运行 `yd new` 或
+给 Dockerfile 补上该步骤即可。
+
 ### 5.6 `yd ko`
 
 ```bash
 yd ko [--repo R] [--tags a,b] [--platforms ...] [--base-image X] \
-      [--package ./cmd/app] [--local] [--push] [--no-config] [--binary PATH] [--dir DIR] [packages...]
+      [--package ./cmd/app] [--local] [--push] [--no-config] [--ldflags "-s -w"] \
+      [--no-upx] [--binary PATH] [--dir DIR] [packages...]
 ```
 
 ```bash
-yd ko --repo registry.example.com/team/myapp --tags v1.0.0 \
+yd ko --local=false --repo registry.example.com/team/myapp --tags v1.0.0 \
       --platforms linux/amd64,linux/arm64 --push
-yd ko --local            # 载入本地 Docker，不推送
+yd ko                    # 生成项目默认 ko.local: true，载入本地 Docker，不推送
 ```
+
+生成项目的 `configs/config.yaml` 默认 `ko.local: true`：新项目没有仓库也能开箱即用（`yd ko` 直接载入本地
+Docker）；面向 registry 构建/推送时显式传 `--local=false`（或设 `ko.local: false`）并配 `--repo`/`--push`，
+否则 `--push` 会同时载入本地与推送。
 
 ko 是**可选外部工具**，不会成为 Go 依赖；缺失时只让 `yd ko` 返回安装提示。
 镜像的两个入口只有 `yd docker` 与 `yd ko`，不要手写 `docker build` 或自行拼 ko 参数。
 
 ko 没有注入环境变量的标志，因此 `yd ko` 在 `app.env` 不是 production 时会给出告警：部署清单必须显式设置
 `YD_APP_ENV=production`，否则镜像会使用源码资产、失去不可变缓存，并可能回退到文档化的开发种子口令。
+
+`yd ko` 默认以 `--ldflags "-s -w"` 去符号，与 `yd docker` 的 Dockerfile 一致：二进制不再携带符号表与 DWARF，
+压缩后的镜像层体积约减半。需要注入版本变量时可写 `--ldflags "-s -w -X main.version=v1.0.0"`（或配置
+`ko.ldflags`）；需要保留调试信息时传空的 `--ldflags ""`（或 `ko.ldflags: []`）关闭。
+
+`yd ko` 默认在 `go build` 完成后用嵌入的 UPX 5.2.1（`--best --lzma`）压缩产物；`--no-upx` 或
+`upx.enabled=false` 关闭。实现上 `yd ko` 把自己的可执行文件设为 ko 的 `KO_GO_PATH` 包装器：构建结束先保留
+压缩前备份，再由 UPX 替换产物；ko 随后读取 `go version -m` 时改读备份（压缩后的二进制无法被该命令解析），
+读完即删。UPX 缺失、版本低于 5.2.1、产物超 1 GiB 或压缩失败都只告警并保留原文件，**不会**让构建失败。
+macOS 宿主与 Windows/arm64 宿主没有官方 UPX 发行版，因此 `yd ko` 需要 PATH 上的外部 `upx`
+（macOS 可 `brew install upx`）；`yd docker` 仍使用嵌入的 Linux payload 完成压缩。
 
 `yd ko` 默认把 `configs/config.yaml` 暂存到每个本地包的 `kodata/configs/` 后再构建，构建结束（含失败）即清理；
 ko 把该目录挂到镜像的 `KO_DATA_PATH`，生成项目据此解析配置目录并自动采用它。已有 `kodata/configs/config.yaml`
@@ -655,6 +677,22 @@ yd tools check
 yd tools install
 yd tools install tailwindcss
 ```
+
+注册表共六项：`betteralign`、`ko`、`tailwindcss`、`minify`、`docker`、`upx`。`upx`（5.2.1）、`ko`（v0.19.1）、
+`minify`（v2.24.24）与 `betteralign`（v0.15.4）的宿主平台 payload 已嵌入 `yd`，`yd tools check` 显示
+`embedded | 内置`；`yd tools install` 对它们直接离线物化到 `.yd/tools`（`upx` 需显式点名），不需要 Go 工具链或网络。
+`upx.bin` / `YD_UPX_BIN` 可指向外部二进制（须 5.2.1+，仅用于 `yd ko` 的宿主压缩；`yd docker` 始终使用嵌入的
+Linux payload）。探测保持只读，不会执行任何工具。
+嵌入式 payload 覆盖 linux/windows/darwin × amd64/arm64；UPX 例外，只有 linux amd64/arm64 与 windows amd64，
+macOS 与 Windows/arm64 的 `yd ko` 需外部 `upx`。其它平台自动回退到 PATH 与手动安装。已存在的
+`.yd/tools/<工具>` 始终优先；`yd` 升级后要改用新的嵌入版本，删除对应文件（或整个 `.yd/tools`）再运行
+`yd tools install` 即可。
+
+解压使用**内容寻址缓存**：默认位于 `<用户缓存目录>/yd/payloads/<sha256>/`；`YD_TOOLS_CACHE_DIR` 可覆盖
+用户缓存根，实际条目落在 `<该值>/payloads/<sha256>/`。
+同一 payload 在一台机器上只解压一次；后续项目通过硬链接复用（跨卷时自动复制为副本），
+`yd docker` 的 UPX 暂存同样走该缓存。缓存条目带大小、mtime 与 SHA-256 sidecar，被外部改动或损坏时
+自动重新解压；删除缓存目录是安全的，下次使用会重新生成。
 
 ### 5.13 `yd align`
 
@@ -1183,7 +1221,7 @@ yd docker --tag registry.example.com/team/myapp:v1.0.0 --push
 ### 12.3 ko
 
 ```bash
-yd ko --repo registry.example.com/team/myapp --tags v1.0.0 --push
+yd ko --local=false --repo registry.example.com/team/myapp --tags v1.0.0 --push
 ```
 
 ko 路径不需要 Dockerfile，也不要求本机有 Docker 守护进程。
@@ -1407,7 +1445,7 @@ yd build
 ```bash
 yd docker --tag registry.example.com/team/taskapp:v1.0.0
 # 或
-yd ko --repo registry.example.com/team/taskapp --tags v1.0.0 --push
+yd ko --local=false --repo registry.example.com/team/taskapp --tags v1.0.0 --push
 # 或安装为系统服务
 yd service install --name taskapp
 ```
@@ -1462,6 +1500,9 @@ yd service install --name taskapp
 | `YD_BETTERALIGN_BIN` | — | betteralign 路径 |
 | `YD_KO_BIN` | — | ko 路径 |
 | `YD_MINIFY_BIN` | — | minify 路径 |
+| `YD_UPX_BIN` | `upx.bin` | UPX 路径（仅 `yd ko` 宿主压缩；默认嵌入 5.2.1，外部版本须 ≥ 5.2.1） |
+| `YD_UPX_ENABLED` | `upx.enabled` | 是否执行 UPX 压缩（默认 `true`） |
+| `YD_TOOLS_CACHE_DIR` | — | 嵌入式工具缓存根（条目在 `<值>/payloads`；默认 `<用户缓存目录>/yd/payloads`） |
 
 ## 附录 B：常用代码片段
 

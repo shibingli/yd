@@ -307,7 +307,7 @@ func PrepareAssets(ctx context.Context, dir string, log *ydlog.Logger) error {
 	default:
 		return err
 	}
-	if _, err := BuildMinify(ctx, dir, MinifyOptions{Enabled: true}, log); err != nil {
+	if _, err := BuildMinify(ctx, dir, MinifyOptions{Enabled: true, Embedded: true}, log); err != nil {
 		if errors.Is(err, ErrMinifyNotFound) {
 			log.Warn("minify stage skipped | 跳过压缩阶段", ydlog.Err(err))
 			return nil

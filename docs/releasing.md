@@ -77,7 +77,12 @@ CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath \
 ## 约束
 
 - 不得在脚本、CI 或文档中另写一套发布流程；标签发布只经该工作流。
-- 不得把构建产物提交入库；Release 资产是唯一的分发载体。
+- 不得把**本项目**的构建产物提交入库；Release 资产是唯一的分发载体。例外：`tooling/upx/data/` 下固定版本的
+  第三方 payload（带版本、来源、SHA-256 与许可证）属于构建输入，必须入库并由
+  `TestEmbeddedPayloadsMatchLockedChecksums` 保护。
+- Release 归档必须包含 `LICENSE`、`THIRD_PARTY_NOTICES.md`、`UPX-LICENSE`、`UPX-COPYING`、
+  `KO-LICENSE`、`MINIFY-LICENSE` 与 `BETTERALIGN-LICENSE`（工作流已包含）；嵌入的 UPX、ko、minify 与
+  betteralign 按其各自许可证分发，缺少声明与许可证文本即违反分发义务。
 - 不得跳过 `verify` 作业：编译整个模块并运行 `go vet` 后才进入六种平台/架构组合的交叉构建。
 - 不得在 Release 说明或资产名中加入与构建无关的标记；资产名固定为
   `yd_<tag>_<goos>_<goarch>.<ext>`。

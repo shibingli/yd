@@ -9,7 +9,9 @@ import (
 	"github.com/shibingli/yd/tooling/align"
 	"github.com/shibingli/yd/tooling/build"
 	"github.com/shibingli/yd/tooling/ko"
+	"github.com/shibingli/yd/tooling/payload"
 	"github.com/shibingli/yd/tooling/toolchain"
+	"github.com/shibingli/yd/tooling/upx"
 	"github.com/shibingli/ydx/errs"
 )
 
@@ -119,6 +121,18 @@ var resolveTool = func(t Tool, o Options) (string, error) {
 			return "", errs.Detail(errDockerNotFound, "lookup returned no path | 查找未返回路径")
 		}
 		return path, nil
+	case toolUPX:
+		bin, err := upx.Resolve(upx.Options{
+			Binary:           o.configuredBin(t.Name),
+			Dir:              o.Dir,
+			PathLookup:       o.PathLookup,
+			Materialize:      false,
+			SkipVersionCheck: true,
+		})
+		if err != nil {
+			return "", err
+		}
+		return bin.Path, nil
 	}
 	return "", errs.Detail(ErrUnknownTool, "%q has no resolver | %q 没有解析器", t.Name, t.Name)
 }
@@ -138,6 +152,8 @@ func notFoundSentinel(t Tool) error {
 		return build.ErrMinifyNotFound
 	case toolDocker:
 		return errDockerNotFound
+	case toolUPX:
+		return upx.ErrBinaryNotFound
 	}
 	return nil
 }
@@ -161,11 +177,17 @@ func toolDir(dir string) string {
 	return dir
 }
 
+// EmbeddedAvailable reports whether the running platform embeds a tool. It is a variable so tests can
+// exercise the download/`go install` routes. | EmbeddedAvailable 报告当前平台是否嵌入了某工具。它是变量，
+// 使测试可以覆盖下载/`go install` 路径。
+var EmbeddedAvailable = payload.Available
+
 // probe resolves one tool and classifies the outcome. | probe 解析单个工具并归类结果。
 //
 // No tool is ever executed here, and nothing reaches the network: a miss produces an empty Path with
-// a nil Err, while a resolver failure produces the error itself. | 这里绝不执行任何工具，也不触网：
-// 缺失得到空的 Path 与 nil 的 Err，解析器失败则得到错误本身。
+// a nil Err, while a resolver failure produces the error itself. A tool shipped inside yd is reported
+// with its embedded marker, which keeps the probe read-only. | 这里绝不执行任何工具，也不触网：缺失得到空的
+// Path 与 nil 的 Err，解析器失败则得到错误本身。随 yd 内嵌的工具以嵌入标记报告，使探测保持只读。
 func probe(t Tool, o Options) Status {
 	st := Status{Tool: t}
 	path, err := resolveTool(t, o)
@@ -175,7 +197,11 @@ func probe(t Tool, o Options) Status {
 	case err == nil:
 		st.Err = errs.Detail(errEmptyPath, "%[1]s resolved without a path | %[1]s 解析结果没有路径", t.Name)
 	case isNotFound(t, err):
-		// The expected outcome for an optional tool: it stays empty, Err stays nil. | 可选工具的预期结果：保持为空，Err 也为 nil。
+		// The expected outcome for an optional tool: it stays empty, unless the host embeds it. |
+		// 可选工具的预期结果：保持为空，除非宿主内嵌了它。
+		if EmbeddedAvailable(t.Name) {
+			st.Path, st.Found = payload.Marker(t.Name), true
+		}
 	default:
 		st.Err = err
 	}

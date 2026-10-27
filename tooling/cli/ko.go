@@ -8,11 +8,15 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
+	"os/exec"
 	"strings"
 
 	"github.com/shibingli/yd/core/envx"
 	"github.com/shibingli/yd/tooling/build"
 	"github.com/shibingli/yd/tooling/ko"
+	"github.com/shibingli/yd/tooling/upx"
+	ydlog "github.com/shibingli/ydx/log"
 	"github.com/spf13/pflag"
 )
 
@@ -48,11 +52,16 @@ const (
 	// flagKoNoConfig suppresses packaging configs/config.yaml into the image. | flagKoNoConfig 关闭把
 	// configs/config.yaml 打包进镜像。
 	flagKoNoConfig = "no-config"
+	// flagKoLDFlags overrides the linker flags passed to ko; the default keeps "-s -w". | flagKoLDFlags
+	// 覆盖传给 ko 的链接参数；默认保留 "-s -w"。
+	flagKoLDFlags = "ldflags"
+	// flagKoNoUPX disables the UPX compression of the built binary. | flagKoNoUPX 关闭构建产物的 UPX 压缩。
+	flagKoNoUPX = "no-upx"
 )
 
 // koUsageLine is the usage line of the ko command. | koUsageLine 是 ko 命令的用法行。
 const koUsageLine = "yd ko [--repo <registry>/<team>/<app>] [--tags v1.2.3,latest] [--platforms linux/amd64,linux/arm64] [--base-image IMG]\n" +
-	"      [--package ./cmd/app] [--local] [--push] [--no-config] [--binary PATH] [--dir DIR] [packages...]"
+	"      [--package ./cmd/app] [--local] [--push] [--no-config] [--ldflags \"-s -w\"] [--no-upx] [--binary PATH] [--dir DIR] [packages...]"
 
 // koFlags keeps the ko command's flag set, installed by registerKoFlags. | koFlags 保存 ko 命令的标志集，
 // 由 registerKoFlags 安装。
@@ -63,6 +72,11 @@ var koFlags *pflag.FlagSet
 // the network. | koExecCommand 覆盖 ko 的执行器；nil 表示使用 ko 包自带的执行器（它会执行真实的 CLI）。
 // 它被声明为变量，便于测试注入假实现而永不启动 ko、接触镜像仓库或网络。
 var koExecCommand ko.ExecCommandFunc
+
+// koUPXEnv builds the KO_GO_PATH wrapper environment for one run; it is a variable so tests can pin the
+// child environment without resolving a real Go toolchain or extracting the embedded payload. | koUPXEnv
+// 为一次运行构造 KO_GO_PATH 包装器环境；它是变量，便于测试固定子进程环境而无需解析真实 Go 工具链或解压嵌入 payload。
+var koUPXEnv = resolveKoUPXEnv
 
 func init() {
 	Register(Command{
@@ -80,6 +94,11 @@ func init() {
 			"arguments.\n" +
 			"取值优先级由高到低：标志、环境变量（YD_KO_*）、配置文件（ko.repository、ko.tags 等）与默认值；\n" +
 			"包也可以用位置参数给出。\n" +
+			"Binaries are stripped by default with -ldflags \"-s -w\", matching yd docker; pass an empty\n" +
+			"--ldflags to keep the symbol table and debug information.\n" +
+			"二进制默认以 -ldflags \"-s -w\" 去符号，与 yd docker 一致；传空的 --ldflags 可保留符号表与调试信息。\n" +
+			"Built binaries are UPX-compressed with the embedded UPX 5.2.1 unless --no-upx is passed.\n" +
+			"构建产物默认经嵌入的 UPX 5.2.1 压缩，除非传入 --no-upx。\n" +
 			"ko is an optional external tool: when it is missing the command prints an installation hint and\n" +
 			"exits non-zero, without ever panicking.\n" +
 			"ko 是可选的外部工具：缺失时命令打印安装提示并以非零码退出，绝不 panic。",
@@ -101,6 +120,8 @@ func registerKoFlags(fs *pflag.FlagSet) {
 	fs.String(flagKoBinary, "", "ko executable, skips the resolution chain | ko 可执行文件，跳过解析链")
 	fs.String(flagKoDir, "", "directory ko runs in, default the working directory | ko 运行所在目录，缺省为工作目录")
 	fs.Bool(flagKoNoConfig, false, "do not package configs/config.yaml into the image | 不把 configs/config.yaml 打包进镜像")
+	fs.StringSlice(flagKoLDFlags, nil, "linker flags passed to ko, default \"-s -w\"; an empty value disables them | 传给 ko 的链接参数，默认 \"-s -w\"；传空值关闭")
+	fs.Bool(flagKoNoUPX, false, "keep the built binary uncompressed (skip UPX) | 不压缩构建产物（跳过 UPX）")
 	koFlags = fs
 }
 
@@ -179,6 +200,14 @@ func koOptions(env *Env, fs *pflag.FlagSet) ko.Options {
 	if flagChanged(fs, flagKoBaseImage) {
 		o.BaseImage = strings.TrimSpace(flagString(fs, flagKoBaseImage))
 	}
+	if flagChanged(fs, flagKoLDFlags) {
+		// An explicitly empty slice disables the default strip flags, so it must stay non-nil. |
+		// 显式空切片会关闭默认去符号参数，因此必须保持非 nil。
+		o.LDFlags = flagStringSlice(fs, flagKoLDFlags)
+		if o.LDFlags == nil {
+			o.LDFlags = []string{}
+		}
+	}
 	if flagChanged(fs, flagKoBinary) {
 		o.Binary = strings.TrimSpace(flagString(fs, flagKoBinary))
 	}
@@ -193,6 +222,10 @@ func koOptions(env *Env, fs *pflag.FlagSet) ko.Options {
 	}
 	o.SkipConfig = flagBool(fs, flagKoNoConfig)
 	o.Exec = koExecCommand
+	o.Embedded = true
+	if koUPXEnabled(env, fs) {
+		o.Env = koUPXEnv(env, o.WorkingDir)
+	}
 	// 与 yd build / yd docker 同一套资产阶段：ko 直接编译源码树，若不先产出 yd.css 与 .min 同族文件，
 	// 干净检出会回退到框架样式表并发送未压缩脚本。 |
 	// The same asset stages as yd build / yd docker: ko compiles the source tree directly, so without producing
@@ -211,6 +244,53 @@ func koPackages(fs *pflag.FlagSet) []string {
 		return packages
 	}
 	return append(packages, fs.Args()...)
+}
+
+// koUPXEnabled reports whether the UPX step runs: --no-upx wins, then upx.enabled, default true. | koUPXEnabled
+// 报告是否执行 UPX 步骤：--no-upx 优先，其次 upx.enabled，默认开启。
+func koUPXEnabled(env *Env, fs *pflag.FlagSet) bool {
+	if flagBool(fs, flagKoNoUPX) {
+		return false
+	}
+	if env != nil && env.Cfg != nil && env.Cfg.IsSet("upx.enabled") {
+		return env.Cfg.GetBool("upx.enabled")
+	}
+	return true
+}
+
+// resolveKoUPXEnv resolves the UPX binary, the real Go toolchain and this executable, and returns the
+// KO_GO_PATH wrapper environment. An explicit KO_GO_PATH is respected as the real Go target. | resolveKoUPXEnv
+// 解析 UPX、真实 Go 工具链与本可执行文件，返回 KO_GO_PATH 包装器环境。显式 KO_GO_PATH 会被尊重为真实 Go 目标。
+func resolveKoUPXEnv(env *Env, workDir string) map[string]string {
+	if env == nil {
+		return nil
+	}
+	explicit := ""
+	if env.Cfg != nil {
+		explicit = strings.TrimSpace(env.Cfg.GetString("upx.bin"))
+	}
+	bin, err := upx.Resolve(upx.Options{Binary: explicit, Dir: workDir, Materialize: true})
+	if err != nil {
+		commandLogger(env).Warn("ko: UPX unavailable; the binary stays uncompressed | ko：UPX 不可用，二进制保持未压缩",
+			ydlog.Err(err))
+		return nil
+	}
+	goBin := strings.TrimSpace(os.Getenv("KO_GO_PATH"))
+	if goBin == "" {
+		goBin, err = exec.LookPath("go")
+		if err != nil {
+			commandLogger(env).Warn("ko: the go toolchain was not found; skipping UPX | ko：未找到 go 工具链，跳过 UPX",
+				ydlog.Err(err))
+			return nil
+		}
+	}
+	executable, err := os.Executable()
+	if err != nil {
+		commandLogger(env).Warn("ko: cannot locate the yd executable; skipping UPX | ko：无法定位 yd 可执行文件，跳过 UPX",
+			ydlog.Err(err))
+		return nil
+	}
+	return upx.WrapperEnvironment(executable, goBin, bin, upx.MaxSize)
 }
 
 // koWorkDir resolves the directory ko runs in: --dir when it was given (relative values resolve
@@ -235,6 +315,7 @@ func printKoSession(env *Env, o ko.Options) {
 	fmt.Fprintf(env.Out, "tags | 标签: %s\n", koDash(strings.Join(o.Tags, ",")))
 	fmt.Fprintf(env.Out, "platforms | 平台: %s\n", koDash(strings.Join(o.Platforms, ",")))
 	fmt.Fprintf(env.Out, "base image | 基础镜像: %s\n", koDash(o.BaseImage))
+	fmt.Fprintf(env.Out, "ldflags | 链接参数: %s\n", koLDFlagsLabel(o))
 	fmt.Fprintf(env.Out, "config | 配置: %s\n", koConfigLabel(o))
 	fmt.Fprintf(env.Out, "mode | 模式: %s\n", koMode(o))
 }
@@ -246,6 +327,12 @@ func koConfigLabel(o ko.Options) string {
 		return "-"
 	}
 	return ko.DefaultConfigDir + "/config.yaml"
+}
+
+// koLDFlagsLabel renders the effective linker flags, or a dash when they were disabled. | koLDFlagsLabel
+// 渲染实际生效的链接参数；关闭时显示短横线。
+func koLDFlagsLabel(o ko.Options) string {
+	return koDash(strings.Join(o.EffectiveLDFlags(), " "))
 }
 
 // koSessionPackages renders the package list of the session summary, defaulting to the layout

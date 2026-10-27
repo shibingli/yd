@@ -16,6 +16,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/shibingli/yd/tooling/payload"
 	"github.com/shibingli/ydx/errs"
 	"github.com/shibingli/ydx/json"
 	ydlog "github.com/shibingli/ydx/log"
@@ -51,6 +52,10 @@ type MinifyOptions struct {
 	Enabled bool
 	// CheckOnly verifies committed .min.js/.min.svg files instead of writing them. | CheckOnly 校验已提交的 .min.js/.min.svg 而不是写入。
 	CheckOnly bool
+	// Embedded enables the embedded minify payload fallback when no external binary exists. Execution
+	// commands set it; probes and tests leave it false. | Embedded 在没有外部二进制时启用嵌入 minify payload
+	// 回退。执行命令设置它；探测与测试保持 false。
+	Embedded bool
 }
 
 // MinifyResult reports what one minification run produced or found. | MinifyResult 报告一次压缩运行产出或发现的内容。
@@ -91,10 +96,28 @@ func ResolveMinifyBin(dir, bin string) (string, error) {
 	return ResolveMinifyBinWith(dir, bin, exec.LookPath)
 }
 
+// EmbeddedEnsure materializes the embedded minify payload; it is a variable so tests can simulate a host
+// without a payload. | EmbeddedEnsure 物化嵌入的 minify payload；它是变量，便于测试模拟没有 payload 的宿主。
+var EmbeddedEnsure = payload.Ensure
+
 // ResolveMinifyBinWith is ResolveMinifyBin with an injectable PATH lookup, so
 // `yd tools check` probes through the same lookup it uses for every other tool. | ResolveMinifyBinWith
 // 是带可注入 PATH 查找的 ResolveMinifyBin，使 `yd tools check` 用与其它工具相同的查找进行探测。
 func ResolveMinifyBinWith(dir, bin string, lookup func(string) (string, error)) (string, error) {
+	return resolveMinifyBin(dir, bin, lookup, false)
+}
+
+// ResolveMinifyBinEmbedded is ResolveMinifyBin with the embedded payload fallback enabled after PATH, used
+// by the execution commands so a fresh checkout works offline. Read-only probes keep the plain resolver. |
+// ResolveMinifyBinEmbedded 是启用「PATH 之后回退嵌入 payload」的 ResolveMinifyBin，供执行命令使用，使干净
+// 检出也能离线工作；只读探测仍用普通解析器。
+func ResolveMinifyBinEmbedded(dir, bin string) (string, error) {
+	return resolveMinifyBin(dir, bin, exec.LookPath, true)
+}
+
+// resolveMinifyBin implements the shared chain and the optional embedded fallback. | resolveMinifyBin 实现共用
+// 解析链与可选的嵌入回退。
+func resolveMinifyBin(dir, bin string, lookup func(string) (string, error), embedded bool) (string, error) {
 	if lookup == nil {
 		lookup = exec.LookPath
 	}
@@ -110,6 +133,11 @@ func ResolveMinifyBinWith(dir, bin string, lookup func(string) (string, error)) 
 	}
 	if found, err := lookup("minify"); err == nil && found != "" {
 		return found, nil
+	}
+	if embedded {
+		if path, ok, err := EmbeddedEnsure(dir, payload.ToolMinify); err == nil && ok {
+			return path, nil
+		}
 	}
 	return "", errs.Detail(ErrMinifyNotFound,
 		"tried --minify-bin, $%s, %s and PATH | 已尝试 --minify-bin、$%s、%s 与 PATH",
@@ -170,7 +198,7 @@ func buildMinifyWith(ctx context.Context, dir string, o MinifyOptions, log *ydlo
 		// without minify into a false success. | 校验模式仍验证工具，缺少目录的机器不会
 		// 因为没装 minify 而误报成功。
 		if o.CheckOnly {
-			if _, rerr := ResolveMinifyBin(dir, o.Bin); rerr != nil {
+			if _, rerr := resolveMinifyBin(dir, o.Bin, exec.LookPath, o.Embedded); rerr != nil {
 				return MinifyResult{}, rerr
 			}
 		}
@@ -192,7 +220,7 @@ func buildMinifyWith(ctx context.Context, dir string, o MinifyOptions, log *ydlo
 	// 没有源码也必须能解析工具，否则缺少 minify 的机器会误报成功。
 	var bin string
 	if o.CheckOnly || len(files) > 0 {
-		bin, err = ResolveMinifyBin(dir, o.Bin)
+		bin, err = resolveMinifyBin(dir, o.Bin, exec.LookPath, o.Embedded)
 		if err != nil {
 			return MinifyResult{}, err
 		}

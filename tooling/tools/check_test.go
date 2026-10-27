@@ -11,7 +11,9 @@ import (
 
 	"github.com/shibingli/yd/tooling/align"
 	"github.com/shibingli/yd/tooling/ko"
+	"github.com/shibingli/yd/tooling/payload"
 	"github.com/shibingli/yd/tooling/toolchain"
+	"github.com/shibingli/yd/tooling/upx"
 )
 
 // TestCheckReportsEveryTool pins the shape of the status table: one row per registry entry, in
@@ -19,14 +21,14 @@ import (
 func TestCheckReportsEveryTool(t *testing.T) {
 	isolate(t)
 	root := t.TempDir()
-	path := newFakePATH(t, toolBetteralign, toolTailwindcss, toolMinify, toolDocker)
+	path := newFakePATH(t, toolBetteralign, toolTailwindcss, toolMinify, toolDocker, toolUPX)
 	usePATH(path)
 	exec := &fakeExec{}
 	injectExec(t, exec.run)
 
 	statuses := Check(root)
-	if len(statuses) != 5 {
-		t.Fatalf("Check 返回 %d 行，期望 5 行 | Check returned %d rows, want 5", len(statuses), len(statuses))
+	if len(statuses) != 6 {
+		t.Fatalf("Check 返回 %d 行，期望 6 行 | Check returned %d rows, want 6", len(statuses), len(statuses))
 	}
 	byName := statusesByName(statuses)
 	for _, want := range []struct {
@@ -34,10 +36,11 @@ func TestCheckReportsEveryTool(t *testing.T) {
 		found bool
 	}{
 		{toolBetteralign, true},
-		{toolKo, false},
+		{toolKo, true},
 		{toolTailwindcss, true},
 		{toolMinify, true},
 		{toolDocker, true},
+		{toolUPX, true},
 	} {
 		st := byName[want.name]
 		if st.Found != want.found {
@@ -57,11 +60,23 @@ func TestCheckReportsEveryTool(t *testing.T) {
 	if got := byName[toolDocker].Path; got != path.known[toolDocker] {
 		t.Errorf("docker.Path = %q，期望 PATH 上的 %q", got, path.known[toolDocker])
 	}
+	if got := byName[toolKo].Path; got != payload.Marker(toolKo) {
+		t.Errorf("ko.Path = %q，期望嵌入标记 %q", got, payload.Marker(toolKo))
+	}
+	// UPX has no host payload on macOS or Windows/arm64; there the PATH copy is the valid source. |
+	// macOS 与 Windows/arm64 没有 UPX 宿主 payload；这两种宿主上 PATH 副本才是有效来源。
+	if upx.EmbeddedHostAvailable() {
+		if got := byName[toolUPX].Path; got != upx.EmbeddedMarker {
+			t.Errorf("upx.Path = %q，期望嵌入标记 %q", got, upx.EmbeddedMarker)
+		}
+	} else if got := byName[toolUPX].Path; got != path.known[toolUPX] {
+		t.Errorf("upx.Path = %q，期望 PATH 上的 %q", got, path.known[toolUPX])
+	}
 	if calls := exec.allCalls(); len(calls) != 0 {
 		t.Errorf("Check 执行了 %d 条命令，期望 0 条 | Check ran %d commands, want 0", len(calls), len(calls))
 	}
-	if missing := Missing(root); len(missing) != 1 || missing[0].Tool.Name != toolKo {
-		t.Errorf("Missing = %v，期望只有 ko | want only ko", statusNames(missing))
+	if missing := Missing(root); len(missing) != 0 {
+		t.Errorf("Missing = %v，期望为空（其余工具均已嵌入） | want none (the rest are embedded)", statusNames(missing))
 	}
 }
 
@@ -167,8 +182,8 @@ func TestCheckReportsUnexpectedResolverFailures(t *testing.T) {
 	}
 	// Neither of them counts as missing: reinstalling cannot repair a chain. | 两者都不算缺失：再装一次修不好链。
 	missing := Missing(root)
-	if got := statusNames(missing); strings.Join(got, ",") != toolTailwindcss+","+toolMinify+","+toolDocker {
-		t.Errorf("Missing = %v，期望 %v", got, []string{toolTailwindcss, toolMinify, toolDocker})
+	if got := statusNames(missing); strings.Join(got, ",") != toolTailwindcss+","+toolDocker {
+		t.Errorf("Missing = %v，期望 %v", got, []string{toolTailwindcss, toolDocker})
 	}
 	for _, line := range Hints(root) {
 		if strings.Contains(line, toolBetteralign) || strings.Contains(line, "ko:") {
@@ -185,7 +200,7 @@ func TestMissingAndHintsListEveryGap(t *testing.T) {
 	usePATH(path)
 
 	missing := Missing(root)
-	want := names()
+	want := []string{toolTailwindcss, toolDocker}
 	if got := statusNames(missing); strings.Join(got, ",") != strings.Join(want, ",") {
 		t.Fatalf("Missing = %v，期望 %v", got, want)
 	}

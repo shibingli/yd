@@ -15,10 +15,19 @@ import (
 // 脚手架生成的布局一致，因此 `yd ko` 在新项目里无需参数即可工作。
 const DefaultPackage = "./cmd/app"
 
+// DefaultLDFlags is the linker flag string every build carries unless Options.LDFlags overrides it.
+// Stripping the symbol table and the DWARF data matches the Dockerfile path and roughly halves the
+// compressed image. | DefaultLDFlags 是每次构建默认携带的链接参数；去掉符号表与 DWARF 调试信息与
+// Dockerfile 路径一致，能使压缩后的镜像体积约减半。
+const DefaultLDFlags = "-s -w"
+
 // The ko subcommand and flags used by Args. | Args 使用的 ko 子命令与标志。
 const (
 	// buildVerb is the ko subcommand that builds and publishes images. | buildVerb 是构建并发布镜像的 ko 子命令。
 	buildVerb = "build"
+	// flagLDFlags is ko's repeatable linker flag; every entry is one value. | flagLDFlags 是 ko 可重复的
+	// 链接参数标志；每个条目对应一个取值。
+	flagLDFlags = "--ldflags"
 	// flagTags is ko's repeatable tag flag, spelled with the plural. | flagTags 是 ko 可重复的标签标志，采用复数拼写。
 	flagTags = "--tags"
 	// flagPlatform is ko's repeatable platform flag, spelled with the singular. | flagPlatform 是 ko 可重复的平台标志，
@@ -56,16 +65,23 @@ const platformAll = "all"
 //   - --push is always present, as --push=true or --push=false, because ko's own default is true and
 //     a silent push would be a surprise; |   - --push 始终存在，形如 --push=true 或 --push=false，
 //     因为 ko 自身的默认值是 true，静默推送会让人意外；
+//   - --ldflags carries EffectiveLDFlags, i.e. the default "-s -w" unless the caller overrode or
+//     explicitly cleared it; |   - --ldflags 携带 EffectiveLDFlags，即默认的 "-s -w"，除非调用方覆盖
+//     或显式清空；
 //   - --local is passed only when Local is set; |   - 仅在 Local 为真时传入 --local；
 //   - --tags and --platform are repeated once per value, in the order given (and never comma-joined,
 //     which ko documents as a deprecated form); |   - --tags 与 --platform 按给出的顺序逐个重复传入（绝不逗号拼接，
 //     ko 文档把逗号形式标记为已废弃）；
 //   - the package import paths close the line. |   - 包导入路径位于末尾。
 func (o Options) Args() []string {
-	args := make([]string, 0, 2+len(o.Tags)+len(o.Platforms)*2+len(o.Packages)+1)
+	ldflags := o.EffectiveLDFlags()
+	args := make([]string, 0, 2+len(ldflags)*2+len(o.Tags)+len(o.Platforms)*2+len(o.Packages)+1)
 	args = append(args, buildVerb, flagBaseImportPaths, flagPush+"="+strconv.FormatBool(o.Push))
 	if o.Local {
 		args = append(args, flagLocal)
+	}
+	for _, ldflag := range ldflags {
+		args = append(args, flagLDFlags, ldflag)
 	}
 	for _, tag := range o.tags() {
 		args = append(args, flagTags, tag)
@@ -90,6 +106,23 @@ func (o Options) Args() []string {
 
 // tags returns the normalized tags of the run. | tags 返回本次运行归一化后的标签。
 func (o Options) tags() []string { return normalizeList(o.Tags) }
+
+// EffectiveLDFlags returns the --ldflags values handed to ko: DefaultLDFlags when LDFlags is nil,
+// otherwise the configured entries with blanks dropped. An explicitly empty (non-nil) slice therefore
+// disables the default. | EffectiveLDFlags 返回交给 ko 的 --ldflags 取值：LDFlags 为 nil 时是
+// DefaultLDFlags，否则是去掉空白项后的配置取值；因此显式的非 nil 空切片会关闭默认值。
+func (o Options) EffectiveLDFlags() []string {
+	if o.LDFlags == nil {
+		return []string{DefaultLDFlags}
+	}
+	out := make([]string, 0, len(o.LDFlags))
+	for _, value := range o.LDFlags {
+		if value = strings.TrimSpace(value); value != "" {
+			out = append(out, value)
+		}
+	}
+	return out
+}
 
 // platforms returns the normalized platforms of the run. | platforms 返回本次运行归一化后的平台。
 func (o Options) platforms() []string { return normalizeList(o.Platforms) }

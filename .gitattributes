@@ -8,3 +8,9 @@
 *.jpeg binary
 *.gif binary
 *.ico binary
+
+# Embedded UPX payloads are binary build inputs | 嵌入的 UPX payload 是二进制构建输入
+tooling/upx/data/upx-* binary
+
+# Embedded tool payloads are gzip build inputs | 嵌入工具 payload 是 gzip 构建输入
+tooling/payload/data/*.gz binary

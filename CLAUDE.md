@@ -361,10 +361,21 @@ yd icons check       # 校验图标 sprite 是否漂移（CI 可用）
 - **调用方式同构**：两者都调用**外部 CLI**（docker / ko）完成实际构建，因此 CI 与开发机只需装好对应工具，
   不引入任何 Go 构建期依赖。
 - **CLI**：`yd ko [--repo R] [--tags a,b] [--platforms linux/amd64,linux/arm64] [--base-image X]
-  [--package ./cmd/app] [--local] [--push] [--binary PATH] [--dir DIR]`。
+  [--package ./cmd/app] [--local] [--push] [--no-config] [--ldflags "-s -w"] [--no-upx] [--binary PATH] [--dir DIR]`。
 - **配置键**：`ko.binary` / `ko.repository` / `ko.tags` / `ko.platforms` / `ko.base_image` / `ko.packages` /
-  `ko.local` / `ko.push`，`YD_KO_*` 环境变量由既有前缀机制自动映射；优先级不变
+  `ko.local` / `ko.push` / `ko.ldflags`，`YD_KO_*` 环境变量由既有前缀机制自动映射；优先级不变
   （命令行参数 > 环境变量 > 配置文件 > 框架默认值）。
+- **生成项目默认本地加载**：`yd new` 生成的 `configs/config.yaml` 默认 `ko.local: true`，新项目没有仓库时
+  `yd ko` 开箱即用载入本地 Docker；面向 registry 时显式 `--local=false`（或 `ko.local: false`）并配
+  `--repo`/`--push`，否则 `--push` 会同时载入本地与推送。库层在该键未设置时仍回退 false。
+- **默认去符号**：`yd ko` 默认传 `--ldflags "-s -w"`，与 `yd docker` 的 Dockerfile 一致；`--ldflags` /
+  `ko.ldflags` 可替换（如追加 `-X` 版本变量），传空值或 `ko.ldflags: []` 关闭（调试时保留符号表与 DWARF）。
+- **默认 UPX 压缩（两入口一致）**：`yd docker` 与 `yd ko` 默认对 < 1 GiB 的产物执行 UPX 5.2.1
+  （`--best --lzma`）；`--no-upx` 或 `upx.enabled=false` 关闭；`upx.bin` / `YD_UPX_BIN` 可覆盖可执行文件。
+  `yd docker` 把嵌入的 Linux amd64/arm64 UPX 暂存到 `.yd/upx/upx` 供 Dockerfile 使用（无需下载）；
+  `yd ko` 通过 `KO_GO_PATH` 包装器在 `go build -o` 之后压缩，并用压缩前备份回答 ko 的 `go version -m`
+  （压缩后的二进制无法被该命令解析，ko 会因此中止）。UPX 缺失、版本过旧、超限或失败只告警并保留原文件，
+  **绝不**使构建失败。
 - **二进制解析顺序**：`--binary` → `YD_KO_BIN` → `<项目>/.yd/tools/ko[.exe]` → `PATH`；
   找不到时返回 `ko.ErrBinaryNotFound` 并给出 `go install github.com/google/ko@latest` 提示，
   **绝不 panic**（与 `betteralign` 缺失时的口径一致）。
@@ -380,19 +391,23 @@ yd icons check       # 校验图标 sprite 是否漂移（CI 可用）
 
 `tools` 包（`github.com/shibingli/yd/tooling/tools`）是**唯一的探测与安装入口**：`betteralign`（内存对齐）、
 `ko`（无 Dockerfile 镜像打包）、`tailwindcss`（样式表编译）、`minify`（JavaScript/SVG 压缩）、`docker`（镜像构建）
-五个工具一律经它处理，注册表顺序固定为这五条。**禁止**在脚本、CI 或文档里另立一套「自己 `go install` 到全局」的指引。
+与 `upx`（二进制压缩，嵌入 yd）六个工具一律经它处理，注册表顺序固定为这六条（`upx` 在末尾）。
+**禁止**在脚本、CI 或文档里另立一套「自己 `go install` 到全局」的指引。
 
 - **API 与 CLI 同源**：`Registry()` / `Lookup(name)` / `Check(dir)` / `Missing(dir)` / `Hints(dir)` /
   `CheckWith(Options)` / `MissingWith(Options)` / `HintsWith(Options)` / `InstallWith(ctx, Options, names, log)`
-  （`Options.Binaries` 接收 `align.bin` / `ko.binary` / `tailwind.bin` / `minify.bin`，使探测、安装与真实命令看到同一份配置）/
+  （`Options.Binaries` 接收 `align.bin` / `ko.binary` / `tailwind.bin` / `minify.bin` / `upx.bin`，使探测、安装与真实命令看到同一份配置）/
   `Install(ctx, dir, names, log)` / `InstallAll(ctx, dir, log)`，结果以 `*Report{Installed, Skipped, Failed}` 返回；
   CLI 侧是 `yd tools [check]`（列出每个工具的状态、路径或版本与安装提示）与
   `yd tools install [名称...]`（缺省为全部 **Go 可安装**项；`tailwindcss` 需显式点名，见下）。探测**只读**：
   不触网、不执行工具、不改动任何文件；提示文案复用各解析包的 `InstallHint`，不另写一份。
-- **安装落点与解析链**：解析链固定为「显式参数/配置 → 环境变量 → `<项目>/.yd/tools` → `PATH`」
-  （`LocalToolDir = ".yd/tools"`）；安装把 `GOBIN` 指向 **`<项目>/.yd/tools` 的绝对路径**——即解析链的第三段，
-  装完无需任何额外配置。**不得改动用户 `PATH`，也不得往 `~/go/bin` 写东西**：往全局写属于越界，
-  且在 CI 上不可预期。
+- **安装落点与解析链**：解析链固定为「显式参数/配置 → 环境变量 → `<项目>/.yd/tools` → `PATH` → 嵌入 payload」
+  （`LocalToolDir = ".yd/tools"`；`ko` / `minify` / `betteralign` 的宿主 payload 由构建标签选择，`upx` 携带
+  Linux amd64/arm64 与 Windows amd64 三种 payload；`upx` 的嵌入段位于 `PATH` 之前，以免 PATH 上的旧版本压过
+  随 yd 发布的 5.2.1，macOS 与 Windows/arm64 宿主回退到外部 `upx`）。执行命令在解析链末端按需物化到
+  `.yd/tools`；只读探测只报告 `embedded | 内置`，不写盘、不执行。安装把 `GOBIN` 指向
+  **`<项目>/.yd/tools` 的绝对路径**——即解析链的第三段，装完无需任何额外配置。
+  **不得改动用户 `PATH`，也不得往 `~/go/bin` 写东西**：往全局写属于越界，且在 CI 上不可预期。
 - **Go 安装环境隔离（强制）**：执行 `go install` 前必须由 `installEnv` 注入
   `GOBIN` / `GOPATH` / `GOMODCACHE` / `GOCACHE` 到 `<项目>/.yd/tools` 之下（模块缓存、构建缓存与二进制都归本项目），
   `GOWORK=off`，并在调用方未显式导出时补上
@@ -410,8 +425,20 @@ yd icons check       # 校验图标 sprite 是否漂移（CI 可用）
   `yd tools install tailwindcss` 下载 GitHub Release 的 standalone 二进制到 `.yd/tools/`（只安装它时不需要 Go 工具链），
   下载遵循 `http.proxy`（`YD_HTTP_PROXY`；为空时使用标准 `HTTP_PROXY` / `HTTPS_PROXY` / `NO_PROXY`）与
   `tailwind.url`（`YD_TAILWIND_URL`，GitHub 不可达时指向镜像）；`docker` 需安装 Docker Engine / Docker Desktop，
-  `Install` 对它返回 `ErrNotInstallable` 并给出获取途径，而不是失败退出。`yd assets update`、`yd assets add` 与
+  `Install` 对它返回 `ErrNotInstallable` 并给出获取途径，而不是失败退出。`upx` 默认使用嵌入的 5.2.1 payload
+  （`upx.bin` / `YD_UPX_BIN` 可覆盖；版本低于 5.2.1 只告警并跳过），`ko` / `minify` / `betteralign` 默认使用嵌入的
+  v0.19.1 / v2.24.24 / v0.15.4 payload，`yd tools check` 显示 `embedded | 内置`；`yd tools install` 对它们直接离线物化，
+  不执行 `go install`、不触网、不需要 Go 工具链（`upx` 需显式点名 `yd tools install upx`）。
+  解压经**内容寻址缓存**（`<用户缓存目录>/yd/payloads/<sha256>/`，`YD_TOOLS_CACHE_DIR` 可重定位）：同一 payload
+  每台机器只解压一次，后续项目硬链接复用（跨卷复制）；sidecar 记录 SHA-256/大小/mtime，损坏自动重建；
+  删除缓存目录安全。`yd docker` 的 UPX 暂存同样经该缓存。
+  `yd assets update`、`yd assets add` 与
   `yd versions upgrade` 的下载同样使用 `http.proxy`（标准代理环境变量为兜底）。代理 URL 可能含凭据，**不得**写入日志。
+- **嵌入 payload 的许可与入包（强制）**：`tooling/upx/data/` 与 `tooling/payload/data/` 下的二进制**不是** yd
+  自身代码；版本、来源、许可证与 SHA-256 记录在各自的 `data/README.md` 与平台常量文件中，
+  锁定测试 `TestEmbeddedPayloadsMatchLockedChecksums` / `TestHostPayloadsMatchChecksums` 拦截漂移。任何包含这些
+  二进制的发行包必须同时附带 `THIRD_PARTY_NOTICES.md` 与各自的许可证文件（release 工作流已包含）；
+  `.gitignore` 的 `*.exe` 规则要求 payload 使用无后缀文件名或 gzip 扩展名。
 - **`yd new` 收尾统一处理**：项目生成后探测缺失工具并打印提示；交互模式询问「现在就安装缺失的工具吗？」
   （默认是），答是则 `InstallAll`（Go 可安装项；`tailwindcss` 按提示显式安装）；非交互场景用 `--install-tools` 显式安装；**`--yes` 不触网**
   （e2e / CI 入口不得带网络副作用）。安装失败只 Warn 并给出提示，绝不影响建项目成功。

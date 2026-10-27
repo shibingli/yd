@@ -20,6 +20,7 @@ import (
 	"github.com/spf13/pflag"
 
 	"github.com/shibingli/yd/tooling/ko"
+	"github.com/shibingli/yd/tooling/upx"
 	"github.com/shibingli/ydx/afs"
 	"github.com/shibingli/ydx/config"
 )
@@ -101,6 +102,9 @@ func newKoTestEnv(t *testing.T) (*testEnv, string) {
 	dir := t.TempDir()
 	te := newTestEnv(t, nil, "", false)
 	te.env.WorkDir = dir
+	oldEnv := koUPXEnv
+	koUPXEnv = func(*Env, string) map[string]string { return nil }
+	t.Cleanup(func() { koUPXEnv = oldEnv })
 	return te, dir
 }
 
@@ -134,6 +138,7 @@ func TestKoCommandRegistered(t *testing.T) {
 	for _, name := range []string{
 		flagKoRepo, flagKoTags, flagKoPlatforms, flagKoBaseImage,
 		flagKoPackage, flagKoLocal, flagKoPush, flagKoNoConfig, flagKoBinary, flagKoDir,
+		flagKoLDFlags, flagKoNoUPX,
 	} {
 		if fs.Lookup(name) == nil {
 			t.Errorf("ko 命令缺少标志 --%s", name)
@@ -154,7 +159,7 @@ func TestKoCommandHelp(t *testing.T) {
 		"yd ko", "Usage",
 		"--" + flagKoRepo, "--" + flagKoTags, "--" + flagKoPlatforms, "--" + flagKoBaseImage,
 		"--" + flagKoPackage, "--" + flagKoLocal, "--" + flagKoPush, "--" + flagKoNoConfig,
-		"--" + flagKoBinary, "--" + flagKoDir,
+		"--" + flagKoBinary, "--" + flagKoDir, "--" + flagKoLDFlags, "--" + flagKoNoUPX,
 	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("ko 帮助缺少 %q：\n%s", want, out)
@@ -188,6 +193,7 @@ func TestKoFlagsMapToOptions(t *testing.T) {
 		"--local", "--push",
 		"--binary", "/opt/ko",
 		"--dir", "sub",
+		"--ldflags", "-s -w -X main.version=dev",
 		"./cmd/worker",
 	)
 	o := koOptions(te.env, fs)
@@ -216,6 +222,9 @@ func TestKoFlagsMapToOptions(t *testing.T) {
 	if want := filepath.Join(dir, "sub"); o.WorkingDir != want {
 		t.Errorf("WorkingDir = %q | WorkingDir 得到 %q，期望 %q", o.WorkingDir, o.WorkingDir, want)
 	}
+	if got, want := o.EffectiveLDFlags(), []string{"-s -w -X main.version=dev"}; !slices.Equal(got, want) {
+		t.Errorf("EffectiveLDFlags() = %q | EffectiveLDFlags() 得到 %q，期望 %q", got, got, want)
+	}
 }
 
 // TestKoFlagsNotPassedKeepConfig ko 只在标志确实传入时覆盖配置：--local=false 能关掉配置里的 ko.local=true，
@@ -229,14 +238,18 @@ ko:
   repository: registry.example.com/from-file
   local: true
   push: true
+  ldflags: ["-s -w", "-X main.version=v1"]
 `)
 
 	fromFile := koOptions(te.env, koParseFlags(t))
 	if fromFile.Repository != "registry.example.com/from-file" || !fromFile.Local || !fromFile.Push {
 		t.Errorf("未传标志时应保留配置：%+v | the config must survive untouched: %+v", fromFile, fromFile)
 	}
+	if got, want := fromFile.EffectiveLDFlags(), []string{"-s -w", "-X main.version=v1"}; !slices.Equal(got, want) {
+		t.Errorf("未传 --ldflags 时必须保留 ko.ldflags：%q | the configured ko.ldflags must survive: %q", got, got)
+	}
 
-	overridden := koOptions(te.env, koParseFlags(t, "--local=false", "--repo", "registry.example.com/from-flag"))
+	overridden := koOptions(te.env, koParseFlags(t, "--local=false", "--repo", "registry.example.com/from-flag", "--ldflags", "-X main.version=v2"))
 	if overridden.Local {
 		t.Error("--local=false 必须关掉配置里的 ko.local=true | --local=false must disable a configured ko.local=true")
 	}
@@ -245,6 +258,9 @@ ko:
 	}
 	if overridden.Repository != "registry.example.com/from-flag" {
 		t.Errorf("Repository = %q | Repository 得到 %q，期望标志取值", overridden.Repository, overridden.Repository)
+	}
+	if got, want := overridden.EffectiveLDFlags(), []string{"-X main.version=v2"}; !slices.Equal(got, want) {
+		t.Errorf("--ldflags 必须覆盖 ko.ldflags：%q | --ldflags must replace ko.ldflags: %q", got, got)
 	}
 }
 
@@ -258,6 +274,65 @@ func TestKoNoConfigMapsToSkipConfig(t *testing.T) {
 	}
 	if !koOptions(te.env, koParseFlags(t, "--no-config")).SkipConfig {
 		t.Error("--no-config 必须关闭配置打包 | --no-config must disable configuration packaging")
+	}
+}
+
+// TestKoUPXEnvironment pins the wrapper env injection and both opt-outs. | TestKoUPXEnvironment 固定包装器
+// 环境注入与两种关闭方式。
+func TestKoUPXEnvironment(t *testing.T) {
+	t.Setenv(ko.EnvBinary, "")
+	te, _ := newKoTestEnv(t)
+	oldEnv := koUPXEnv
+	t.Cleanup(func() { koUPXEnv = oldEnv })
+	koUPXEnv = func(*Env, string) map[string]string {
+		return map[string]string{
+			"KO_GO_PATH":       "/yd",
+			"YD_KO_GO_WRAPPER": "1",
+			"YD_KO_GO_REAL":    "/go",
+			upx.EnvBin:         "/upx",
+			upx.MaxBytesEnv:    "1073741824",
+		}
+	}
+	if got := koOptions(te.env, koParseFlags(t)).Env["KO_GO_PATH"]; got != "/yd" {
+		t.Errorf("KO_GO_PATH = %q | 期望 /yd", got)
+	}
+	if o := koOptions(te.env, koParseFlags(t, "--no-upx")); o.Env != nil {
+		t.Errorf("--no-upx 不得注入环境：%+v | --no-upx must not inject env: %+v", o.Env, o.Env)
+	}
+
+	te.env.Cfg = loadKoCLIConfig(t, "upx:\n  enabled: false\n")
+	if o := koOptions(te.env, koParseFlags(t)); o.Env != nil {
+		t.Errorf("upx.enabled=false 不得注入环境：%+v | upx.enabled=false must not inject env: %+v", o.Env, o.Env)
+	}
+}
+
+// TestKoRunPassesUPXWrapperEnv pins the child environment of a real ko invocation. | TestKoRunPassesUPXWrapperEnv
+// 固定真实 ko 调用的子进程环境。
+func TestKoRunPassesUPXWrapperEnv(t *testing.T) {
+	fake := useKoExec(t, "ko.local/app:v1@"+cliKoDigest, nil)
+	te, _ := newKoTestEnv(t)
+	oldEnv := koUPXEnv
+	t.Cleanup(func() { koUPXEnv = oldEnv })
+	koUPXEnv = func(*Env, string) map[string]string {
+		return map[string]string{
+			"KO_GO_PATH":       "/yd",
+			"YD_KO_GO_WRAPPER": "1",
+			"YD_KO_GO_REAL":    "/go",
+			upx.EnvBin:         "/upx",
+		}
+	}
+	if err := Execute(context.Background(), []string{"ko", "--local"}, te.env); err != nil {
+		t.Fatalf("yd ko --local 失败: %v", err)
+	}
+	for key, want := range map[string]string{
+		"KO_GO_PATH":       "/yd",
+		"YD_KO_GO_WRAPPER": "1",
+		"YD_KO_GO_REAL":    "/go",
+		upx.EnvBin:         "/upx",
+	} {
+		if got := envValue(fake.calls[0].env, key); got != want {
+			t.Errorf("%s = %q | 期望 %q", key, got, want)
+		}
 	}
 }
 
@@ -313,6 +388,7 @@ func TestKoRunSummaryAndArgv(t *testing.T) {
 	}
 	wantArgs := []string{
 		"build", "--base-import-paths", "--push=true",
+		"--ldflags", "-s -w",
 		"--tags", "v1.2.3", "--tags", "latest",
 		"--platform", "linux/amd64", "--platform", "linux/arm64",
 		"./cmd/app",
@@ -337,6 +413,7 @@ func TestKoRunSummaryAndArgv(t *testing.T) {
 		"tags | 标签: v1.2.3,latest",
 		"platforms | 平台: linux/amd64,linux/arm64",
 		"base image | 基础镜像: cgr.dev/chainguard/static:latest",
+		"ldflags | 链接参数: -s -w",
 		"mode | 模式: push | 推送到仓库",
 		"image | 镜像: " + cliKoImage,
 		"digest | 摘要: " + cliKoDigest,
@@ -358,7 +435,7 @@ func TestKoRunLocalWithoutRepository(t *testing.T) {
 		t.Fatalf("yd ko --local 失败: %v", err)
 	}
 
-	wantArgs := []string{"build", "--base-import-paths", "--push=false", "--local", "./cmd/app"}
+	wantArgs := []string{"build", "--base-import-paths", "--push=false", "--local", "--ldflags", "-s -w", "./cmd/app"}
 	if !slices.Equal(fake.calls[0].args, wantArgs) {
 		t.Errorf("ko argv = %q，期望 %q", fake.calls[0].args, wantArgs)
 	}
@@ -368,6 +445,28 @@ func TestKoRunLocalWithoutRepository(t *testing.T) {
 	}
 	if !strings.Contains(out, "repository | 仓库: -") {
 		t.Errorf("未配置仓库时应显示占位符：\n%s", out)
+	}
+	if !strings.Contains(out, "ldflags | 链接参数: -s -w") {
+		t.Errorf("摘要未报告默认链接参数：\n%s", out)
+	}
+}
+
+// TestKoLDFlagsCanBeDisabled | TestKoLDFlagsCanBeDisabled 传空的 --ldflags 时不再向 ko 传链接参数，摘要显示占位符。
+// passes no linker flags to ko when --ldflags is empty, and the summary shows the dash placeholder.
+func TestKoLDFlagsCanBeDisabled(t *testing.T) {
+	fake := useKoExec(t, "ko.local/app:v1@"+cliKoDigest, nil)
+
+	te, _ := newKoTestEnv(t)
+	if err := Execute(context.Background(), []string{"ko", "--local", "--ldflags", ""}, te.env); err != nil {
+		t.Fatalf("yd ko --local --ldflags '' 失败: %v", err)
+	}
+	for _, arg := range fake.calls[0].args {
+		if arg == "--ldflags" {
+			t.Fatalf("空 --ldflags 不应向 ko 传任何链接参数：%q", fake.calls[0].args)
+		}
+	}
+	if !strings.Contains(te.out.String(), "ldflags | 链接参数: -") {
+		t.Errorf("摘要应显示占位符：\n%s", te.out.String())
 	}
 }
 
@@ -396,6 +495,9 @@ func TestKoMissingRepositoryError(t *testing.T) {
 func TestKoBinaryNotFoundHint(t *testing.T) {
 	fake := useKoExec(t, cliKoOutput, nil)
 	ko.PathLookup = func(string) (string, error) { return "", os.ErrNotExist }
+	origEnsure := ko.EmbeddedEnsure
+	ko.EmbeddedEnsure = func(string, string) (string, bool, error) { return "", false, nil }
+	t.Cleanup(func() { ko.EmbeddedEnsure = origEnsure })
 
 	te, _ := newKoTestEnv(t)
 	err := Execute(context.Background(), []string{"ko", "--repo", "registry.example.com/team/app"}, te.env)

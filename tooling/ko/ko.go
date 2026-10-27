@@ -96,10 +96,6 @@ type Options struct {
 	// leaves the tree untouched; the CLI supplies the shared Tailwind+minify stage. | PrepareAssets
 	// 在 ko 编译前刷新内嵌前端资产；nil 表示不改动源码树，CLI 会注入共用的 Tailwind+压缩阶段。
 	PrepareAssets func(ctx context.Context, dir string, log *ydlog.Logger) error
-	// SkipConfig suppresses staging configs/config.yaml into each local package's kodata directory.
-	// false (the default) packages the baseline configuration into the image. | SkipConfig 关闭把
-	// configs/config.yaml 暂存进各本地包的 kodata 目录；false（默认）会把基线配置打包进镜像。
-	SkipConfig bool
 	// Binary is the explicit ko executable; empty falls back to the resolution chain. | Binary 是显式的
 	// ko 可执行文件；为空时回退到解析链。
 	Binary string
@@ -115,6 +111,10 @@ type Options struct {
 	// Packages are the import paths to build; empty means DefaultPackage. | Packages 是待构建的导入路径；
 	// 为空表示 DefaultPackage。
 	Packages []string
+	// LDFlags are the linker flag values handed to ko one --ldflags each; nil applies DefaultLDFlags
+	// ("-s -w"), while an explicitly empty slice disables them. | LDFlags 是逐个 --ldflags 交给 ko 的
+	// 链接参数取值；nil 使用 DefaultLDFlags（"-s -w"），显式空切片则关闭。
+	LDFlags []string
 	// Platforms are the targets passed as one --platform flag each, e.g. linux/amd64; ko emits a
 	// manifest list when several of them match a multi-arch base image. | Platforms 是逐个以 --platform
 	// 传入的目标平台，例如 linux/amd64；当多个平台命中多架构基础镜像时 ko 会产出清单列表。
@@ -122,6 +122,14 @@ type Options struct {
 	// Tags are the tags passed as one --tags flag each; empty keeps ko's own default (latest). | Tags 是
 	// 逐个以 --tags 传入的标签；为空时沿用 ko 自身的默认值（latest）。
 	Tags []string
+	// Embedded enables the embedded ko payload fallback after PATH. Execution commands set it so a fresh
+	// checkout works offline; read-only probes leave it false. | Embedded 在 PATH 之后启用嵌入 ko payload
+	// 回退。执行命令设置它，使干净检出也能离线工作；只读探测保持 false。
+	Embedded bool
+	// SkipConfig suppresses staging configs/config.yaml into each local package's kodata directory.
+	// false (the default) packages the baseline configuration into the image. | SkipConfig 关闭把
+	// configs/config.yaml 暂存进各本地包的 kodata 目录；false（默认）会把基线配置打包进镜像。
+	SkipConfig bool
 	// Local loads the result into the local docker daemon instead of a registry (--local). | Local 把
 	// 结果载入本地 docker 守护进程而不推送到仓库（--local）。
 	Local bool

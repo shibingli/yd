@@ -172,8 +172,9 @@ func buildOptions(env *Env, fs *pflag.FlagSet, log *ydlog.Logger) (build.Options
 			Minify:  tailwindMinify,
 		},
 		Minify: build.MinifyOptions{
-			Enabled: minifyAssets,
-			Bin:     buildMinifyBin(env, fs),
+			Enabled:  minifyAssets,
+			Bin:      buildMinifyBin(env, fs),
+			Embedded: true,
 		},
 		Offline:      flagBool(fs, flagBuildOffline),
 		TrimPath:     true,

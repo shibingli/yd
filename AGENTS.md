@@ -196,10 +196,12 @@
       `<项目>/.yd/tools/ko[.exe]` → `PATH`），缺失时只返回 `ko.ErrBinaryNotFound` 并提示
       `go install github.com/google/ko@latest`，**不得**让 `yd build` / `yd dev` / `go test` 或 CI 失败；
       **不得**新增 ko 的 Go 依赖（`go.mod` 不因本特性变化）；两条路径的产物都必须是 `CGO_ENABLED=0` 静态链接。
-- [ ] **可选外部工具**：`betteralign` / `ko` / `tailwindcss` / `minify` / `docker` 一律经 `yd tools` 探测与安装
+- [ ] **可选外部工具**：`betteralign` / `ko` / `tailwindcss` / `minify` / `docker` / `upx` 一律经 `yd tools` 探测与安装
       （`yd tools check` 只报告；`yd tools install` 把可 `go install` 的项装进项目内 `.yd/tools/`，
-      `GOBIN` 指向它的绝对路径），**禁止**手写 `go install` 装到全局，**禁止**改动 `PATH` 或往 `~/go/bin` 写东西；
-      五个工具一律可选，缺失只影响对应能力，**不得**让 `yd build` / `yd dev` / `yd gen` / `go test` 或 CI 失败
+      `GOBIN` 指向它的绝对路径；`upx` 默认使用嵌入的 5.2.1 payload，显示 `embedded | 内置`；macOS 与
+      Windows/arm64 没有嵌入的宿主 payload，回退到 PATH 上的外部 `upx`），
+      **禁止**手写 `go install` 装到全局，**禁止**改动 `PATH` 或往 `~/go/bin` 写东西；
+      六个工具一律可选，缺失只影响对应能力，**不得**让 `yd build` / `yd dev` / `yd gen` / `go test` 或 CI 失败
       （`yd new --yes` 不得触网）；哨兵 `tools.ErrUnknownTool` / `tools.ErrNoGoToolchain` /
       `tools.ErrNotInstallable` / `tools.ErrInstallFailed` 一律用 `errors.Is` 判定。
 

@@ -17,6 +17,7 @@ import (
 
 	"github.com/shibingli/yd/core/version"
 	"github.com/shibingli/yd/tooling/cli"
+	"github.com/shibingli/yd/tooling/upx"
 	"github.com/shibingli/ydx/afs"
 	"github.com/shibingli/ydx/log"
 )
@@ -42,6 +43,13 @@ func main() {
 // be exercised without touching the real stdio. | 它把标准流作为参数接收而不是直接取用进程全局变量，
 // 因此可以在不触碰真实标准输入输出的前提下验证入口逻辑。
 func run(args []string, stdout, stderr io.Writer, stdin *os.File) int {
+	// `yd ko` points KO_GO_PATH at this executable and sets the marker, so ko's `go build` runs through
+	// this branch and its output can be UPX-compressed before ko packs it. A normal invocation never sets
+	// the marker, so the CLI is never hijacked. | `yd ko` 把 KO_GO_PATH 指向本可执行文件并设置标记，使 ko 的
+	// `go build` 走这一分支，其产物能在 ko 打包前被 UPX 压缩。普通调用不会设置该标记，因此 CLI 不会被劫持。
+	if os.Getenv(upx.WrapperMarkerEnv) == "1" {
+		return upx.WrapperMainFromEnv(args, stdin, stdout, stderr)
+	}
 	env := &cli.Env{
 		FS:      afs.NewOS(""),
 		Out:     stdout,

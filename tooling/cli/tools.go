@@ -15,7 +15,9 @@ import (
 
 	"github.com/shibingli/yd/tooling/build"
 	"github.com/shibingli/yd/tooling/ko"
+	"github.com/shibingli/yd/tooling/payload"
 	"github.com/shibingli/yd/tooling/tools"
+	"github.com/shibingli/yd/tooling/upx"
 	"github.com/shibingli/ydx/errs"
 	"github.com/spf13/pflag"
 )
@@ -73,13 +75,13 @@ func init() {
 			"resolver looks, so nothing has to be added to PATH.\n" +
 			"报告本机可用的可选外部工具，并把缺失的那些安装到项目内的 " + tools.LocalToolDir + " 目录——那是每个解析器\n" +
 			"最先查看的位置，因此无需改动 PATH。\n" +
-			"The five tools are betteralign, ko, tailwindcss, minify and docker; betteralign, ko, tailwindcss\n" +
-			"and minify can be installed automatically (tailwindcss downloads a release binary and honours\n" +
-			"http.proxy and tailwind.url), while docker is only reported. Only `yd tools install` ever touches\n" +
-			"the network.\n" +
-			"五个工具是 betteralign、ko、tailwindcss、minify 与 docker；betteralign、ko、tailwindcss 与 minify\n" +
-			"可以自动安装（tailwindcss 下载发布二进制，并遵循 http.proxy 与 tailwind.url），docker 只做报告。\n" +
-			"只有 `yd tools install` 会接触网络。\n" +
+			"The six tools are betteralign, ko, tailwindcss, minify, docker and upx; betteralign, ko, minify\n" +
+			"and upx ship inside yd and are materialized offline (upx only when named explicitly), while\n" +
+			"tailwindcss downloads a release binary (honouring http.proxy and tailwind.url) and docker is only\n" +
+			"reported. Only `yd tools install` ever touches the network.\n" +
+			"六个工具是 betteralign、ko、tailwindcss、minify、docker 与 upx；betteralign、ko、minify 与 upx\n" +
+			"随 yd 发布并离线物化（upx 仅在显式点名时安装），tailwindcss 下载发布二进制（遵循 http.proxy 与\n" +
+			"tailwind.url），docker 只做报告。只有 `yd tools install` 会接触网络。\n" +
 			"check never fails a build: a missing optional tool is a hint, not an error.\n" +
 			"check 绝不让构建失败：可选工具缺失是提示，不是错误。",
 		Usage:       toolsUsageLine,
@@ -175,12 +177,12 @@ func runToolsCheck(env *Env) error {
 // toolsProbeOptions maps the layered configuration onto the probe's executables. | toolsProbeOptions
 // 把分层配置映射为探测所用的可执行文件。
 //
-// The four keys are the same ones the commands themselves read (align.bin, ko.binary,
-// tailwind.bin, minify.bin), so `yd tools check` and `yd align`/`yd ko`/`yd dev`/`yd build` agree
-// on what is available; leaving them empty keeps the env -> .yd/tools -> PATH tail of each chain
-// unchanged. | 四个键与各命令自身读取的键完全一致（align.bin、ko.binary、tailwind.bin、minify.bin），
-// 因此 `yd tools check` 与 `yd align`/`yd ko`/`yd dev`/`yd build` 对「什么可用」的判断一致；
-// 留空则各链条尾部「环境变量 → .yd/tools → PATH」不变。
+// The five keys are the same ones the commands themselves read (align.bin, ko.binary,
+// tailwind.bin, minify.bin, upx.bin), so `yd tools check` and `yd align`/`yd ko`/`yd dev`/`yd build`
+// agree on what is available; leaving them empty keeps the env -> .yd/tools -> embedded -> PATH tail
+// of each chain unchanged. | 五个键与各命令自身读取的键完全一致（align.bin、ko.binary、tailwind.bin、
+// minify.bin、upx.bin），因此 `yd tools check` 与 `yd align`/`yd ko`/`yd dev`/`yd build` 对「什么可用」的判断
+// 一致；留空则各链条尾部「环境变量 → .yd/tools → 嵌入 → PATH」不变。
 func toolsProbeOptions(env *Env) tools.Options {
 	opts := tools.Options{
 		Dir:         env.WorkDir,
@@ -195,6 +197,7 @@ func toolsProbeOptions(env *Env) tools.Options {
 		tools.NameKo:          configString(env, ko.KeyBinary),
 		tools.NameTailwindcss: configString(env, keyDevTailwindBin),
 		tools.NameMinify:      configString(env, build.KeyMinifyBin),
+		tools.NameUPX:         configString(env, upx.KeyBinary),
 	}
 	return opts
 }
@@ -228,6 +231,8 @@ func toolsDetail(st tools.Status) string {
 		return st.Err.Error()
 	case !st.Found:
 		return "-"
+	case upx.IsEmbedded(st.Path), payload.IsMarker(st.Path):
+		return "embedded | 内置"
 	case st.Version != "":
 		return st.Path + " (" + st.Version + ")"
 	default:

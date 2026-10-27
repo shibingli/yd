@@ -139,7 +139,7 @@ yd gen crud user --fields "name:string,age:int"
 # 单文件静态构建 / 镜像 / 系统服务
 yd build
 yd docker            # Dockerfile → scratch
-yd ko --repo registry.example.com/myapp --tags v1.0.0 --push
+yd ko --local=false --repo registry.example.com/myapp --tags v1.0.0 --push
 yd service install   # Windows SCM / systemd / launchd
 ```
 
@@ -220,14 +220,15 @@ YD 的每一层都站在开源社区的成果之上：路由与模板、数据�
 | **kardianos/service** | Windows SCM / systemd / launchd 的统一服务封装 | https://github.com/kardianos/service |
 | **gRPC-Go · golang.org/x/crypto** | gRPC 双通道与密码学基础件 | https://grpc.io · https://pkg.go.dev/golang.org/x/crypto |
 | **miniredis** | 测试期 Redis 替身 | https://github.com/alicebob/miniredis |
-| **betteralign** | 结构体内存对齐检查与重排 | https://github.com/dkorunic/betteralign |
-| **ko** | 无 Dockerfile 的 Go 镜像构建 | https://github.com/google/ko |
-| **tdewolff/minify** | JavaScript 与 SVG 的生产压缩 | https://github.com/tdewolff/minify |
+| **betteralign** | 结构体内存对齐检查与重排（v0.15.4 已嵌入 `yd`，离线可用） | https://github.com/dkorunic/betteralign |
+| **ko** | 无 Dockerfile 的 Go 镜像构建（v0.19.1 已嵌入 `yd`，离线可用） | https://github.com/google/ko |
+| **tdewolff/minify** | JavaScript 与 SVG 的生产压缩（v2.24.24 已嵌入 `yd`，离线可用） | https://github.com/tdewolff/minify |
+| **UPX** | 构建产物的二次压缩；Linux amd64/arm64 与 Windows amd64 二进制已嵌入 `yd`（GPL-2.0+，含被压缩程序例外） | https://github.com/upx/upx |
 | **Docker** | 多阶段镜像构建与 `scratch` 交付 | https://www.docker.com |
 | **Node.js · Playwright** | 仅用于前端脚本单元测试与浏览器验证，不参与运行时 | https://nodejs.org · https://playwright.dev |
 | **ydx** | YunDev 自研组件（路由、JSON、Base64、日志、缓存、实时、渲染等），以 Apache-2.0 开源 | https://github.com/shibingli/ydx |
 
-前端资产的版本、来源与 SHA-256 锁定在 [`web/assets.lock.json`](web/assets.lock.json)；第三方许可正文与逐项说明见 [`web/static/js/vendored/LICENSES.md`](web/static/js/vendored/LICENSES.md)。上表未逐一展开的传递依赖记录在 `go.mod` / `go.sum` 中，其许可以各自仓库公布为准。若某处归属或链接有误，欢迎提交 Issue 指正——我们更愿意把致谢写准确，而不是写得多。
+前端资产的版本、来源与 SHA-256 锁定在 [`web/assets.lock.json`](web/assets.lock.json)；第三方许可正文与逐项说明见 [`web/static/js/vendored/LICENSES.md`](web/static/js/vendored/LICENSES.md)。嵌入 `yd` 的 UPX、ko、minify 与 betteralign 二进制的版本、来源、SHA-256 与许可文本见 [`tooling/upx/data/README.md`](tooling/upx/data/README.md)、[`tooling/payload/data/README.md`](tooling/payload/data/README.md) 与 [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md)。上表未逐一展开的传递依赖记录在 `go.mod` / `go.sum` 中，其许可以各自仓库公布为准。若某处归属或链接有误，欢迎提交 Issue 指正——我们更愿意把致谢写准确，而不是写得多。
 
 ### 许可
 
@@ -356,7 +357,7 @@ yd gen crud user --fields "name:string,age:int"
 # Single-binary build / image / system service
 yd build
 yd docker            # Dockerfile → scratch
-yd ko --repo registry.example.com/myapp --tags v1.0.0 --push
+yd ko --local=false --repo registry.example.com/myapp --tags v1.0.0 --push
 yd service install   # Windows SCM / systemd / launchd
 ```
 
@@ -437,14 +438,15 @@ Every layer of YD stands on work done in the open-source community: routing and 
 | **kardianos/service** | One service abstraction over SCM / systemd / launchd | https://github.com/kardianos/service |
 | **gRPC-Go · golang.org/x/crypto** | gRPC dual channel and cryptographic primitives | https://grpc.io · https://pkg.go.dev/golang.org/x/crypto |
 | **miniredis** | In-process Redis stand-in for tests | https://github.com/alicebob/miniredis |
-| **betteralign** | Struct memory-alignment checks and reordering | https://github.com/dkorunic/betteralign |
-| **ko** | Dockerfile-free Go image builds | https://github.com/google/ko |
-| **tdewolff/minify** | Production minification of JavaScript and SVG | https://github.com/tdewolff/minify |
+| **betteralign** | Struct memory-alignment checks and reordering (v0.15.4 embedded in `yd`, works offline) | https://github.com/dkorunic/betteralign |
+| **ko** | Dockerfile-free Go image builds (v0.19.1 embedded in `yd`, works offline) | https://github.com/google/ko |
+| **tdewolff/minify** | Production minification of JavaScript and SVG (v2.24.24 embedded in `yd`, works offline) | https://github.com/tdewolff/minify |
+| **UPX** | Secondary compression of built binaries; the Linux amd64/arm64 and Windows amd64 binaries are embedded in `yd` (GPL-2.0+ with the compressed-program exception) | https://github.com/upx/upx |
 | **Docker** | Multi-stage image builds and `scratch` delivery | https://www.docker.com |
 | **Node.js · Playwright** | Used only for front-end unit tests and browser verification, never at runtime | https://nodejs.org · https://playwright.dev |
 | **ydx** | YunDev's own components (router, JSON, Base64, logging, cache, realtime, render and more), open-sourced under Apache-2.0 | https://github.com/shibingli/ydx |
 
-Front-end versions, sources and SHA-256 locks live in [`web/assets.lock.json`](web/assets.lock.json); third-party licence texts are in [`web/static/js/vendored/LICENSES.md`](web/static/js/vendored/LICENSES.md). Transitive dependencies not listed above are recorded in `go.mod` / `go.sum`, with licences as published by their own repositories. If an attribution or link is wrong, please open an issue — we would rather be accurate than exhaustive.
+Front-end versions, sources and SHA-256 locks live in [`web/assets.lock.json`](web/assets.lock.json); third-party licence texts are in [`web/static/js/vendored/LICENSES.md`](web/static/js/vendored/LICENSES.md). The version, source, SHA-256 and licence texts of the UPX, ko, minify and betteralign binaries embedded in `yd` live in [`tooling/upx/data/README.md`](tooling/upx/data/README.md), [`tooling/payload/data/README.md`](tooling/payload/data/README.md) and [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md). Transitive dependencies not listed above are recorded in `go.mod` / `go.sum`, with licences as published by their own repositories. If an attribution or link is wrong, please open an issue — we would rather be accurate than exhaustive.
 
 ### License
 

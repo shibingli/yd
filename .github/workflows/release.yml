@@ -119,6 +119,15 @@ jobs:
 
           cp "build/${GOOS}_${GOARCH}/yd${ext}" "stage/${pkg}/"
           cp LICENSE "stage/${pkg}/"
+          # The embedded UPX binaries are GPL-2.0+ with the UPX exception; every distribution must carry
+          # the notice and the license texts. | 嵌入的 UPX 二进制是 GPL-2.0+（含例外），每个发行包都必须附带
+          # 声明与许可证文本。
+          cp THIRD_PARTY_NOTICES.md "stage/${pkg}/"
+          cp tooling/upx/data/LICENSE "stage/${pkg}/UPX-LICENSE"
+          cp tooling/upx/data/COPYING "stage/${pkg}/UPX-COPYING"
+          cp tooling/payload/data/licenses/ko-LICENSE "stage/${pkg}/KO-LICENSE"
+          cp tooling/payload/data/licenses/minify-LICENSE "stage/${pkg}/MINIFY-LICENSE"
+          cp tooling/payload/data/licenses/betteralign-LICENSE "stage/${pkg}/BETTERALIGN-LICENSE"
 
           if [ "$GOOS" = "linux" ] && [ "$GOARCH" = "amd64" ]; then
             # Run the native artifact once to prove the injected version is real.

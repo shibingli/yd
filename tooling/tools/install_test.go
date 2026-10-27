@@ -14,6 +14,8 @@ import (
 	"sync/atomic"
 	"testing"
 
+	"github.com/shibingli/yd/tooling/payload"
+	"github.com/shibingli/yd/tooling/upx"
 	"github.com/shibingli/ydx/log"
 )
 
@@ -62,10 +64,46 @@ func TestInstallWithSkipsConfiguredBinariesWithoutGoToolchain(t *testing.T) {
 	}
 }
 
-// TestInstallAllLandsInTheProjectLocalDir is the acceptance test of the plan: the binaries end up in
-// <dir>/.yd/tools, GOBIN is absolute and Check turns ready afterwards. | TestInstallAllLandsInTheProjectLocalDir
-// 是计划的验收测试：二进制落在 <dir>/.yd/tools，GOBIN 是绝对路径，随后 Check 转为就绪。
+// TestInstallAllMaterializesEmbeddedTools is the embedded acceptance test: the pinned payloads land in
+// <dir>/.yd/tools without Go, the network or any external process. | TestInstallAllMaterializesEmbeddedTools
+// 是嵌入路径的验收测试：固定版本 payload 在无 Go、无网络、无外部进程的情况下落入 <dir>/.yd/tools。
+func TestInstallAllMaterializesEmbeddedTools(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	usePATH(newFakePATH(t))
+	exec := &fakeExec{}
+	injectExec(t, exec.run)
+
+	report, err := InstallAll(t.Context(), root, quietLogger())
+	if err != nil {
+		t.Fatalf("InstallAll 返回错误 %v | InstallAll failed: %[1]v", err)
+	}
+	if got := statusNames(report.Installed); strings.Join(got, ",") != toolBetteralign+","+toolKo+","+toolMinify {
+		t.Fatalf("Installed = %v，期望 betteralign,ko,minify | want betteralign,ko,minify", got)
+	}
+	if len(report.Skipped) != 0 || len(report.Failed) != 0 {
+		t.Errorf("Skipped = %v，Failed = %v，期望都为空 | both must be empty", statusNames(report.Skipped), failureNames(report.Failed))
+	}
+	if calls := exec.allCalls(); len(calls) != 0 {
+		t.Errorf("嵌入安装执行了 %d 条命令，期望 0 条 | embedded installation ran %d commands, want 0", len(calls), len(calls))
+	}
+	for _, name := range []string{toolBetteralign, toolKo, toolMinify} {
+		if _, err := os.Stat(localBin(root, name)); err != nil {
+			t.Errorf("项目内未找到 %s | %s is not in the project: %v", name, name, err)
+		}
+	}
+	for _, st := range Check(root) {
+		if st.Tool.GoInstall != "" && !st.Found {
+			t.Errorf("%s 安装后仍未就绪 | %s is still not ready after installing", st.Tool.Name, st.Tool.Name)
+		}
+	}
+}
+
+// TestInstallAllLandsInTheProjectLocalDir is the acceptance test of the Go-install fallback: the binaries
+// end up in <dir>/.yd/tools, GOBIN is absolute and Check turns ready afterwards. | TestInstallAllLandsInTheProjectLocalDir
+// 是 `go install` 回退路径的验收测试：二进制落在 <dir>/.yd/tools，GOBIN 是绝对路径，随后 Check 转为就绪。
 func TestInstallAllLandsInTheProjectLocalDir(t *testing.T) {
+	disableEmbedded(t)
 	isolate(t)
 	root := t.TempDir()
 	path := newFakePATH(t, "go")
@@ -249,6 +287,7 @@ func TestInstallNamesNotInstallableTools(t *testing.T) {
 
 // TestInstallWithoutGoToolchain reports the missing toolchain with the way to get it. | TestInstallWithoutGoToolchain 报告缺失的工具链并给出获取方式。
 func TestInstallWithoutGoToolchain(t *testing.T) {
+	disableEmbedded(t)
 	isolate(t)
 	root := t.TempDir()
 	path := newFakePATH(t)
@@ -274,6 +313,7 @@ func TestInstallWithoutGoToolchain(t *testing.T) {
 // TestInstallContinuesAfterAFailure is the contract of the plan: one tool failing never aborts the
 // rest. | TestInstallContinuesAfterAFailure 是计划的契约：单个工具失败绝不中止其余。
 func TestInstallContinuesAfterAFailure(t *testing.T) {
+	disableEmbedded(t)
 	isolate(t)
 	root := t.TempDir()
 	path := newFakePATH(t, "go")
@@ -311,6 +351,7 @@ func TestInstallContinuesAfterAFailure(t *testing.T) {
 
 // TestInstallFailsWhenTheToolStaysUnresolvable covers the verification step. | TestInstallFailsWhenTheToolStaysUnresolvable 覆盖验证这一步。
 func TestInstallFailsWhenTheToolStaysUnresolvable(t *testing.T) {
+	disableEmbedded(t)
 	isolate(t)
 	root := t.TempDir()
 	path := newFakePATH(t, "go")
@@ -391,6 +432,7 @@ func TestInstallReportsUnexpectedResolutionFailure(t *testing.T) {
 
 // TestInstallUsesAnAbsoluteGobinForARelativeRoot pins the absoluteness requirement. | TestInstallUsesAnAbsoluteGobinForARelativeRoot 固定绝对路径的要求。
 func TestInstallUsesAnAbsoluteGobinForARelativeRoot(t *testing.T) {
+	disableEmbedded(t)
 	isolate(t)
 	root := t.TempDir()
 	t.Chdir(root)
@@ -705,4 +747,54 @@ func TestInstallTailwindRejectsEmptyDownload(t *testing.T) {
 	if _, statErr := os.Stat(filepath.Join(root, ".yd", "tools", "tailwindcss"+exeSuffix())); !errors.Is(statErr, os.ErrNotExist) {
 		t.Fatalf("空下载不应留下文件 | an empty download must leave no file: %v", statErr)
 	}
+}
+
+// disableEmbedded forces the download/`go install` routes for one test. | disableEmbedded 在单个测试中强制走
+// 下载/`go install` 路径。
+func disableEmbedded(t *testing.T) {
+	t.Helper()
+	old := EmbeddedAvailable
+	EmbeddedAvailable = func(string) bool { return false }
+	t.Cleanup(func() { EmbeddedAvailable = old })
+}
+
+// TestInstallMaterializesEmbeddedUPX pins the explicit offline install of the embedded packer. |
+// TestInstallMaterializesEmbeddedUPX 固定嵌入压缩器的显式离线安装。
+func TestInstallMaterializesEmbeddedUPX(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	usePATH(newFakePATH(t))
+	exec := &fakeExec{}
+	injectExec(t, exec.run)
+
+	report, err := Install(t.Context(), root, []string{toolUPX}, quietLogger())
+	if err != nil {
+		t.Fatalf("Install(upx) 返回错误 %v", err)
+	}
+	if upx.EmbeddedHostAvailable() {
+		if got := statusNames(report.Installed); strings.Join(got, ",") != toolUPX {
+			t.Fatalf("Installed = %v，期望 upx | want upx", got)
+		}
+		if _, statErr := os.Stat(filepath.Join(root, filepath.FromSlash(LocalToolDir), upx.HostBinaryName())); statErr != nil {
+			t.Errorf("upx 未物化：%v | upx was not materialized: %v", statErr, statErr)
+		}
+	} else if len(report.Failed) != 1 {
+		t.Errorf("无嵌入 payload 的宿主应记为失败：%v | a host without a payload must report a failure: %v", report.Failed, report.Failed)
+	}
+	if calls := exec.allCalls(); len(calls) != 0 {
+		t.Errorf("嵌入安装执行了 %d 条命令，期望 0 条", len(calls))
+	}
+}
+
+// TestMain isolates the payload cache used by embedded extraction. | TestMain 隔离嵌入解压使用的 payload 缓存。
+func TestMain(m *testing.M) {
+	dir, err := os.MkdirTemp("", "yd-tools-cache-*")
+	if err != nil {
+		_, _ = os.Stderr.WriteString(err.Error() + "\n")
+		os.Exit(1)
+	}
+	_ = os.Setenv(payload.CacheEnv, dir)
+	code := m.Run()
+	_ = os.RemoveAll(dir)
+	os.Exit(code)
 }

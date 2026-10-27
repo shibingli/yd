@@ -82,6 +82,10 @@ type Options struct {
 	// go:embed assets baked into the image are never stale. | WithAssets 在构建前刷新内嵌样式表，
 	// 保证烘进镜像的 go:embed 资产不过期。
 	WithAssets bool
+	// UPX compresses the built binary with the embedded Linux UPX; the resolved Dockerfile must carry the
+	// YD_INCLUDE_UPX step, otherwise the step is skipped with a warning. | UPX 用嵌入的 Linux UPX 压缩构建
+	// 产物；解析出的 Dockerfile 必须带 YD_INCLUDE_UPX 步骤，否则告警并跳过。
+	UPX bool
 }
 
 // Result reports one finished image build. | Result 报告一次已完成的镜像构建。
@@ -195,6 +199,17 @@ func BuildImage(ctx context.Context, o Options, fs afero.Fs, log *ydlog.Logger) 
 		return nil, err
 	}
 	log.Debug("docker daemon reachable | docker 守护进程可达", ydlog.Str("server_version", server))
+
+	// UPX is a best-effort step: the embedded Linux payload is staged into the build context, and a
+	// Dockerfile without the YD_INCLUDE_UPX step simply skips it with a warning. | UPX 是尽力而为的步骤：
+	// 嵌入的 Linux payload 会被暂存进构建上下文，没有 YD_INCLUDE_UPX 步骤的 Dockerfile 只会告警并跳过。
+	if o.UPX {
+		if !strings.Contains(string(dockerfile.Content), "YD_INCLUDE_UPX") {
+			log.Warn("docker: the resolved Dockerfile has no UPX step; skipping compression (regenerate the project or add ARG YD_INCLUDE_UPX) | docker：解析出的 Dockerfile 没有 UPX 步骤，跳过压缩（重新生成项目或补上 ARG YD_INCLUDE_UPX）")
+		} else {
+			defer stageUPX(o, log).cleanup(log)
+		}
+	}
 
 	cmd := run(ctx, o.DockerBin, o.buildArgs(dockerfile.Path)...)
 	cmd.Dir = o.Dir

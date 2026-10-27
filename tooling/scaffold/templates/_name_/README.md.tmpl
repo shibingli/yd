@@ -432,27 +432,31 @@ YD_CAPTCHA_SECRET=<至少 16 字节的随机值>
 二进制解析顺序：`--binary` → `YD_KO_BIN` → `<项目>/.yd/tools/ko[.exe]` → `PATH`。
 
 ```bash
-# 1. Build and load into the local docker daemon, no push | 构建并装进本地 docker 守护进程，不推送
-yd ko --local --repo {{ .Name }}
+# 1. Build and load into the local docker daemon, no push (the generated config already sets ko.local: true) |
+# 构建并装进本地 docker 守护进程，不推送（生成的配置已默认 ko.local: true）
+yd ko
 
-# 2. Build and push to an image registry | 构建并推送到镜像仓库
-yd ko --repo registry.example.com/{{ .Name }} --tags latest,v1.0.0 --push
+# 2. Build and push to an image registry (turn the local default off explicitly) |
+# 构建并推送到镜像仓库（显式关闭本地默认）
+yd ko --local=false --repo registry.example.com/{{ .Name }} --tags latest,v1.0.0 --push
 
 # 3. Multi-platform build: one manifest list for linux/amd64 and linux/arm64 | 多平台构建：一次产出 linux/amd64 与 linux/arm64 的 manifest list
-yd ko --repo registry.example.com/{{ .Name }} --tags v1.0.0 \
+yd ko --local=false --repo registry.example.com/{{ .Name }} --tags v1.0.0 \
       --platforms linux/amd64,linux/arm64 --push
 
 # 4. Override the base image (the default is cgr.dev/chainguard/static) | 覆盖基础镜像（缺省 cgr.dev/chainguard/static）
-yd ko --repo registry.example.com/{{ .Name }} --base-image registry.example.com/base/static:latest --push
+yd ko --local=false --repo registry.example.com/{{ .Name }} --base-image registry.example.com/base/static:latest --push
 
 # 5. Pick the entry package and the working directory | 指定入口包与工作目录
-yd ko --package ./cmd/app --dir . --repo registry.example.com/{{ .Name }} --push
+yd ko --local=false --package ./cmd/app --dir . --repo registry.example.com/{{ .Name }} --push
 ```
 
 - **`--local` 与 `--push` 的区别**：`--local` 把结果装进本机 docker 守护进程（等价于 ko 的 `-L/--local`），
   **不出网、不需要仓库**，镜像名形如 `ko.local/<导入路径>`，适合本机跑一遍；`--push` 把结果推到 `--repo`
   指定的仓库（等价于 ko 的 `--push`），交付与部署走这条。两者含义不同，不能互相替代：自测用 `--local`，
-  交付用 `--push`。推送前请先在目标仓库登录（`docker login`，ko 复用 Docker 的凭据配置 `~/.docker/config.json`；
+  交付用 `--push`。**生成的 `configs/config.yaml` 默认 `ko.local: true`**（新项目没有仓库，`yd ko` 开箱即用）；
+  面向仓库时显式传 `--local=false`（或把配置改为 `ko.local: false`），否则 `--push` 会同时载入本地与推送。
+  推送前请先在目标仓库登录（`docker login`，ko 复用 Docker 的凭据配置 `~/.docker/config.json`；
   也可以直接用 ko 自己的 `ko login`）。
 - **多平台**：`--platforms linux/amd64,linux/arm64` 落到 ko 的 `--platform`（**注意 ko 侧的标志是单数 `--platform`**），
   一次构建产出 manifest list；传 `all` 则取基础镜像支持的全部平台。多平台结果面向仓库分发，本机验证用单平台 + `--local` 即可。
@@ -463,8 +467,14 @@ yd ko --package ./cmd/app --dir . --repo registry.example.com/{{ .Name }} --push
   ko 会把它放进镜像的 `KO_DATA_PATH`，应用启动时自动从该目录读取配置；构建结束（含失败）立即清理暂存副本。
   已有的 `kodata/configs/config.yaml` 保留不覆盖；`--no-config` 关闭打包。非本地包（导入路径或 `...` 模式）
   无法定位源码目录，会跳过暂存。`config.local.yaml` 永不打包，避免把本地密钥带进镜像。
-- **配置固化**：`configs/config.yaml` 的 `ko` 段（`YD_KO_*` 环境变量同样生效）可以写仓库、标签、平台与基础镜像，
-  一次配好之后日常只需 `yd ko`；命令行标志优先于配置，配置优先于缺省值。
+- **默认去符号**：`yd ko` 默认以 `--ldflags "-s -w"` 编译，与 `yd docker` 的 Dockerfile 一致；成品二进制不再
+  携带符号表与 DWARF，压缩后的镜像层体积约减半。需要注入版本变量时用
+  `--ldflags "-s -w -X main.version=v1.0.0"`（或配置 `ko.ldflags`）；需要保留调试信息时传 `--ldflags ""`。
+- **默认 UPX 压缩**：`yd docker` 与 `yd ko` 默认用嵌入的 UPX 5.2.1（`--best --lzma`）压缩小于 1 GiB 的产物，
+  `--no-upx` 或 `upx.enabled=false` 关闭；UPX 缺失/失败只告警，不影响构建。`yd docker` 需要 Dockerfile 带有
+  `YD_INCLUDE_UPX` 步骤（本项目的 Dockerfile 已包含），旧项目请重新生成或补上该步骤。
+- **配置固化**：`configs/config.yaml` 的 `ko` 段（`YD_KO_*` 环境变量同样生效）可以写仓库、标签、平台、基础镜像
+  与链接参数，一次配好之后日常只需 `yd ko`；命令行标志优先于配置，配置优先于缺省值。
 
 ### 离线 / 内网怎么打
 
@@ -477,7 +487,7 @@ ko 只把 Go 源码编译成镜像层，唯一需要联网的部分是**拉取�
 2. **结果推内网 registry**：把 `--repo` 指向内网仓库（如 `--repo registry.internal/{{ .Name }}`），
    推送前先登录一次，凭据留在 Docker 的凭据配置里即可被 ko 复用。内网 registry 走标准 TLS 校验，
    请让它的证书由内网 CA 签发并把该 CA 装进系统信任库——不要指望关掉校验。
-3. **完全不出网的本机验证**：`yd ko --local --repo {{ .Name }}` 只需要一个能被本机读取的基础镜像，
+3. **完全不出网的本机验证**：`yd ko`（生成的配置默认 `ko.local: true`）只需要一个能被本机读取的基础镜像，
    结果直接装进本地 docker 守护进程，全程不碰任何仓库。
 4. **配合 `yd build --offline`**：镜像之前的那一步（Tailwind 剪裁 + `go:embed` + 静态编译）可用
    `yd build --offline` 强制 `-mod=vendor`，整条链路都不触网。容器内不需要任何运行时依赖，
@@ -485,7 +495,7 @@ ko 只把 Go 源码编译成镜像层，唯一需要联网的部分是**拉取�
 
 ## 可选外部工具
 
-有五个能力依赖**外部工具**，它们都不是本项目的 Go 依赖（不进 `go.mod`），由 `yd tools` 统一探测与安装：
+有六个能力依赖**外部工具**，它们都不是本项目的 Go 依赖（不进 `go.mod`），由 `yd tools` 统一探测与安装：
 
 | 工具 | 用途 | 缺失时的影响 |
 |---|---|---|
@@ -494,12 +504,15 @@ ko 只把 Go 源码编译成镜像层，唯一需要联网的部分是**拉取�
 | `tailwindcss` | 样式表编译（Tailwind CSS v4 standalone） | `yd dev` / `yd build` 的样式表阶段以告警跳过，构建照常完成 |
 | `minify` | JavaScript 压缩（`yd build` / `yd assets minify`） | JS 压缩阶段以告警跳过，生产页面回退到源码脚本 |
 | `docker` | Dockerfile 多阶段镜像构建（`yd docker`） | 只有 `yd docker` 会报错，并提示安装 Docker Engine / Docker Desktop |
+| `upx` | 构建产物二次压缩（UPX 5.2.1；Linux amd64/arm64 与 Windows amd64 已嵌入 `yd`） | 压缩阶段以告警跳过，构建照常完成 |
 
 **工具缺失不会让 `yd build` / `yd dev` / `go test` 失败**：只有在真正用到对应能力时才会报错，
-并在错误里带上安装提示。
+并在错误里带上安装提示。`ko` / `minify` / `betteralign` 的宿主平台二进制与 UPX 的 Linux/Windows-amd64
+payload 已嵌入 `yd`，`yd tools install` 对它们直接离线物化到 `.yd/tools`；`tailwindcss` 与 `docker` 仍需按
+提示获取，macOS 与 Windows/arm64 的 `yd ko` 需要外部 `upx`。
 
 ```bash
-# Probe all five tools: status, path or version, and the install hint when one is missing | 探测五个工具：状态、路径或版本，以及缺失时的安装提示
+# Probe all six tools: status, path or version, and the install hint when one is missing | 探测六个工具：状态、路径或版本，以及缺失时的安装提示
 yd tools check
 
 # Install the Go-installable tools (defaults to betteralign + ko + minify) | 安装可 go install 的工具（缺省为 betteralign + ko + minify）

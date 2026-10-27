@@ -120,16 +120,24 @@
 - [ ] **镜像打包**：镜像一律经 `yd ko`（Go 源码直出，无需 Dockerfile）或 `yd docker`（Dockerfile 多阶段构建）产出，
       **禁止**另行手写 `docker build` 参数或自拼 ko 命令；ko 是**可选外部工具**，缺失时只让 `yd ko` 返回哨兵并给出
       安装提示（`go install github.com/google/ko@latest`），不得导致 `yd build` / `yd dev` / `go test` 或 CI 失败，
-      也不得把 ko 加进 `go.mod`；两条路径的产物都必须是 `CGO_ENABLED=0` 静态链接。
+      也不得把 ko 加进 `go.mod`；两条路径的产物都必须是 `CGO_ENABLED=0` 静态链接，且默认以 `-ldflags "-s -w"`
+      去符号（`yd ko --ldflags` 可覆盖，空值关闭）。
+      两条路径默认还会用嵌入的 UPX 5.2.1 压缩 < 1 GiB 的产物（`--no-upx` / `upx.enabled=false` 关闭，失败只告警）。
+      生成的配置默认 `ko.local: true`（无仓库时 `yd ko` 直接载入本地 Docker）；面向 registry 构建/推送时传
+      `--local=false`（或设 `ko.local: false`）并配 `--repo`。
       两条路径默认打包 `configs/config.yaml`（Dockerfile 走 `/configs` + `YD_CONFIG_DIR`，ko 走 `kodata` +
       `KO_DATA_PATH`），只打包基线文件、绝不打包 `config.local.yaml`；`--no-config` 关闭打包。
 - [ ] **服务模式优雅退出**：被服务管理器托管时（无终端或 `-service run`）由 `service.Run` 驱动 `application.Run`，
       停止只取消 context 并等待它返回；入口与业务代码**禁止** `os.Exit`、`panic` 或自建后台进程来「停服务」，
       `-service install|uninstall|start|stop|restart|status` 这类控制动作只执行一次服务管理器调用、不得启动服务器。
-- [ ] **可选外部工具**：`betteralign` / `ko` / `tailwindcss` / `minify` / `docker` 一律经 `yd tools` 探测与安装
-      （`yd tools check` 只报告；`yd tools install` 把可 `go install` 的项装进项目内 `.yd/tools/`，`GOBIN` 指向它的绝对路径），
-      **禁止**手写 `go install` 装到全局，**禁止**改动 `PATH` 或往 `~/go/bin` 写东西；五个工具一律可选，
+- [ ] **可选外部工具**：`betteralign` / `ko` / `tailwindcss` / `minify` / `docker` / `upx` 一律经 `yd tools` 探测与安装
+      （`yd tools check` 只报告；`yd tools install` 把可 `go install` 的项装进项目内 `.yd/tools/`，`GOBIN` 指向它的绝对路径；
+      `upx` 默认使用嵌入的 5.2.1 payload，覆盖 Linux amd64/arm64 与 Windows amd64，macOS 与 Windows/arm64
+      用外部 `upx`），
+      **禁止**手写 `go install` 装到全局，**禁止**改动 `PATH` 或往 `~/go/bin` 写东西；六个工具一律可选，
       缺失只影响对应能力，**不得**让 `go build` / `go vet` / `go test` 或 CI 失败（`yd new --yes` 不得触网）；
+      `ko` / `minify` / `betteralign` 的宿主 payload 与 UPX 的 Linux/Windows-amd64 payload 已嵌入 `yd`，
+      `yd tools install` 离线物化。
       哨兵 `tools.ErrUnknownTool` / `tools.ErrNoGoToolchain` / `tools.ErrNotInstallable` / `tools.ErrInstallFailed`
       一律用 `errors.Is` 判定。
 

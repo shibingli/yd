@@ -1057,6 +1057,10 @@ func TestGenerateDockerfileUsesScratchMultiStage(t *testing.T) {
 		"ENV YD_CONFIG_DIR=/configs",
 		"COPY --from=builder /out/configs /configs",
 		"COPY --from=builder /out/data /data",
+		"ARG YD_INCLUDE_UPX=false",
+		"/src/.yd/upx/upx",
+		"--best --lzma",
+		"1073741824",
 		`ENTRYPOINT ["/app"]`,
 	} {
 		if !strings.Contains(df, want) {
@@ -4786,5 +4790,44 @@ func TestGeneratedProjectCreatesOneBackendClientPerProcess(t *testing.T) {
 	}
 	if strings.Contains(router, "return closeCache()") {
 		t.Error("the cache manager is closed by App.Set; a second closeCache hook duplicates shutdown")
+	}
+}
+
+// TestGeneratedConfigDefaultsKoToLocal pins the generated ko.local default: a fresh project has no
+// registry, so `yd ko` must be able to load into the local docker daemon without extra flags. |
+// TestGeneratedConfigDefaultsKoToLocal 固定生成的 ko.local 默认值：新项目没有仓库，因此 `yd ko` 必须能
+// 不带额外参数地载入本地 docker 守护进程。
+func TestGeneratedConfigDefaultsKoToLocal(t *testing.T) {
+	pr, _ := generateMem(t, scaffold.DefaultOptions("ko-local-app"))
+	cfg := pr.read("configs/config.yaml")
+	inKo := false
+	found := false
+	for _, line := range strings.Split(cfg, "\n") {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "ko:" {
+			inKo = true
+			continue
+		}
+		if !inKo {
+			continue
+		}
+		if line != "" && !strings.HasPrefix(line, " ") {
+			break
+		}
+		if !strings.HasPrefix(trimmed, "local:") {
+			continue
+		}
+		found = true
+		value := strings.TrimSpace(strings.TrimPrefix(trimmed, "local:"))
+		if i := strings.IndexByte(value, '#'); i >= 0 {
+			value = strings.TrimSpace(value[:i])
+		}
+		if value != "true" {
+			t.Errorf("ko.local = %q，期望 true | want true", value)
+		}
+		break
+	}
+	if !found {
+		t.Fatal("生成的 config.yaml 缺少 ko.local | the generated config has no ko.local")
 	}
 }

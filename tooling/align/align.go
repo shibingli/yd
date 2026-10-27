@@ -2,7 +2,7 @@
 //
 // The tool is optional by design: when it cannot be resolved, Resolve returns ErrToolNotFound, whose message carries an actionable installation hint, so a missing analyzer never fails a build. | 该工具按设计就是可选的：无法解析时 Resolve 返回 ErrToolNotFound，其文案带有可执行的安装提示，因此分析器缺失绝不会让构建失败。
 //
-// Resolution follows the repository precedence chain 命令行参数 > 环境变量（含 .env）> 配置文件 > 框架默认值: Bin, ConfigBin, EnvBin, the project-local .yd/tools copy and finally PATH. | 解析遵循仓库优先级链「命令行参数 > 环境变量（含 .env）> 配置文件 > 框架默认值」：Bin、ConfigBin、EnvBin、项目内 .yd/tools 副本，最后是 PATH。
+// Resolution follows the repository precedence chain 命令行参数 > 环境变量（含 .env）> 配置文件 > 框架默认值: Bin, ConfigBin, EnvBin, the project-local .yd/tools copy, PATH and finally the embedded payload when the caller allows materialization. | 解析遵循仓库优先级链「命令行参数 > 环境变量（含 .env）> 配置文件 > 框架默认值」：Bin、ConfigBin、EnvBin、项目内 .yd/tools 副本、PATH，最后是调用方允许物化时的嵌入 payload。
 //
 // Every failure path references a package-level sentinel declared here, so callers decide with errors.Is instead of string matching. | 所有失败路径都引用本文件声明的包级哨兵，调用方用 errors.Is 判定而不做字符串匹配。
 package align
@@ -20,6 +20,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/shibingli/yd/tooling/payload"
 	"github.com/shibingli/ydx/errs"
 	ydlog "github.com/shibingli/ydx/log"
 	"github.com/shibingli/ydx/regexpx"
@@ -73,6 +74,10 @@ var (
 // It is a variable so tests can simulate a missing tool without touching the real PATH. | 它被声明为变量，便于测试在不触碰真实 PATH 的前提下模拟工具缺失。
 var PathLookup = exec.LookPath
 
+// EmbeddedEnsure materializes the embedded betteralign payload; it is a variable so tests can simulate a
+// host without a payload. | EmbeddedEnsure 物化嵌入的 betteralign payload；它是变量，便于测试模拟没有 payload 的宿主。
+var EmbeddedEnsure = payload.Ensure
+
 // ToolOptions collects every source that may point at the betteralign binary. | ToolOptions 汇总所有可能指向 betteralign 可执行文件的来源。
 //
 // Resolution order, highest priority first: Bin, ConfigBin, EnvBin, the project-local .yd/tools copy under LocalDir, and finally PATH. | 解析顺序由高到低：Bin、ConfigBin、EnvBin、LocalDir 下项目内的 .yd/tools 副本，最后是 PATH。
@@ -87,6 +92,10 @@ type ToolOptions struct {
 	EnvBin string
 	// LocalDir is the project root that hosts .yd/tools/betteralign[.exe]. | LocalDir 是承载 .yd/tools/betteralign[.exe] 的项目根目录。
 	LocalDir string
+	// Embedded enables the embedded payload fallback after PATH: execution commands materialize it into
+	// LocalDir/.yd/tools, while read-only probes leave it disabled. | Embedded 在 PATH 之后启用嵌入 payload
+	// 回退：执行命令把它物化到 LocalDir/.yd/tools，只读探测保持关闭。
+	Embedded bool
 }
 
 // Resolve resolves the betteralign executable following the documented precedence chain. | Resolve 按文档化的优先级链解析 betteralign 可执行文件。
@@ -127,6 +136,13 @@ func Resolve(o ToolOptions) (string, error) {
 	// Finally fall back to the betteralign command on PATH. | 最后回退 PATH 上的 betteralign 命令。
 	if p, err := lookup(toolName); err == nil && p != "" {
 		return p, nil
+	}
+	// Execution commands may materialize the pinned payload shipped inside yd; probes pass Embedded=false. |
+	// 执行命令可以物化 yd 内嵌的固定版本 payload；探测传 Embedded=false。
+	if o.Embedded && o.LocalDir != "" {
+		if path, ok, err := EmbeddedEnsure(o.LocalDir, payload.ToolBetteralign); err == nil && ok {
+			return path, nil
+		}
 	}
 	return "", errs.Detail(ErrToolNotFound,
 		"checked Bin, ConfigBin, EnvBin, %[2]s and PATH; install it with %[1]q or drop the binary into %[2]s | 已检查 Bin、ConfigBin、EnvBin、%[2]s 与 PATH；可用 %[1]q 安装，或把二进制放入 %[2]s",

@@ -17,6 +17,7 @@ import (
 
 	"github.com/shibingli/yd/core/version"
 	"github.com/shibingli/yd/tooling/docker"
+	"github.com/shibingli/ydx/afs"
 	"github.com/shibingli/ydx/config"
 	"github.com/shibingli/ydx/log"
 	"github.com/spf13/afero"
@@ -157,6 +158,7 @@ func TestDockerCommandRegistered(t *testing.T) {
 	for _, name := range []string{
 		flagDockerTag, flagDockerPlatform, flagDockerNoCache, flagDockerFile,
 		flagDockerTarget, flagDockerPush, flagDockerBin, flagDockerNoAssets, flagDockerNoConfig,
+		flagDockerNoUPX,
 	} {
 		if fs.Lookup(name) == nil {
 			t.Errorf("docker 命令缺少标志 --%s", name)
@@ -175,7 +177,7 @@ func TestDockerCommandHelp(t *testing.T) {
 		"yd docker", "Usage",
 		"--" + flagDockerTag, "--" + flagDockerPlatform, "--" + flagDockerNoCache,
 		"--" + flagDockerFile, "--" + flagDockerTarget, "--" + flagDockerPush,
-		"--" + flagDockerBin, "--" + flagDockerNoAssets, "--" + flagDockerNoConfig,
+		"--" + flagDockerBin, "--" + flagDockerNoAssets, "--" + flagDockerNoConfig, "--" + flagDockerNoUPX,
 	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("docker 帮助缺少 %q：\n%s", want, out)
@@ -301,6 +303,60 @@ func TestDockerNoConfigPassesBuildArg(t *testing.T) {
 	}
 }
 
+// TestDockerNoUPXPassesBuildArg pins the default UPX step and both opt-outs. | TestDockerNoUPXPassesBuildArg
+// 固化默认 UPX 步骤与两种关闭方式。
+func TestDockerNoUPXPassesBuildArg(t *testing.T) {
+	o := dockerOptions(&Env{WorkDir: "."}, dockerParseFlags(t))
+	if got := o.BuildArgs["YD_INCLUDE_UPX"]; got != "true" {
+		t.Errorf("默认 YD_INCLUDE_UPX = %q，期望 true | default YD_INCLUDE_UPX = %q, want true", got, got)
+	}
+	if !o.UPX {
+		t.Error("默认 UPX 必须开启 | UPX must default to on")
+	}
+
+	for _, tc := range []struct {
+		name string
+		cfg  *config.Config
+		args []string
+	}{
+		{name: "flag | 标志", args: []string{"--no-upx"}},
+		{name: "config | 配置", cfg: loadDockerCLIConfig(t, "upx:\n  enabled: false\n")},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			env := &Env{WorkDir: ".", Cfg: tc.cfg}
+			o := dockerOptions(env, dockerParseFlags(t, tc.args...))
+			if o.UPX {
+				t.Error("关闭时 UPX 必须为 false | UPX must be false when disabled")
+			}
+			if _, ok := o.BuildArgs["YD_INCLUDE_UPX"]; ok {
+				t.Errorf("关闭时不得传 YD_INCLUDE_UPX: %v | a disabled step must not pass YD_INCLUDE_UPX", o.BuildArgs)
+			}
+		})
+	}
+}
+
+// loadDockerCLIConfig loads an in-memory configuration fixture with a test-only env prefix. | loadDockerCLIConfig
+// 加载带测试专用环境前缀的内存配置夹具。
+func loadDockerCLIConfig(t *testing.T, yaml string) *config.Config {
+	t.Helper()
+	mem := afs.NewMem()
+	if err := afero.WriteFile(mem, "config.yaml", []byte(yaml), 0o644); err != nil {
+		t.Fatalf("写入内存配置文件失败: %v", err)
+	}
+	c, err := config.Load(config.Options{
+		Name:       "docker",
+		ConfigDir:  ".",
+		ConfigName: "config",
+		EnvPrefix:  "YDDOCKERCLITEST",
+		EnvFile:    "absent.env",
+		FS:         mem,
+	})
+	if err != nil {
+		t.Fatalf("config.Load 失败: %v", err)
+	}
+	return c
+}
+
 // The asset stage runs by default and never under --no-assets. | TestDockerAssetsStageRunsUnlessDisabled 资产阶段默认执行，--no-assets 时不执行。
 func TestDockerAssetsStageRunsUnlessDisabled(t *testing.T) {
 	fake := cliFakeDocker()
@@ -369,6 +425,9 @@ func TestDockerForwardsBuildFlags(t *testing.T) {
 	}
 	if strings.Contains(joined, "YD_GODEBUG") {
 		t.Errorf("default config must not inject YD_GODEBUG: %s | 默认配置不得注入 YD_GODEBUG", joined)
+	}
+	if !strings.Contains(joined, "YD_INCLUDE_UPX=true") {
+		t.Errorf("UPX 默认开启，argv 应包含 YD_INCLUDE_UPX=true：%s", joined)
 	}
 }
 

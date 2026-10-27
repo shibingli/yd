@@ -9,9 +9,9 @@ import (
 )
 
 // TestArgs pins the argv handed to the ko CLI: the verb, the fixed import-path naming, the always
-// explicit push switch, the repeatable tag and platform flags in the order given (deduplicated), and
-// the package list last. | TestArgs 固化交给 ko CLI 的 argv：子命令、固定的镜像命名方式、始终显式的推送
-// 开关、按给定顺序（已去重）重复的标签与平台标志，以及位于末尾的包列表。
+// explicit push switch, the default linker flags, the repeatable tag and platform flags in the order
+// given (deduplicated), and the package list last. | TestArgs 固化交给 ko CLI 的 argv：子命令、固定的镜像
+// 命名方式、始终显式的推送开关、默认链接参数、按给定顺序（已去重）重复的标签与平台标志，以及位于末尾的包列表。
 func TestArgs(t *testing.T) {
 	tests := []struct {
 		name string
@@ -21,18 +21,23 @@ func TestArgs(t *testing.T) {
 		{
 			name: "defaults | 缺省",
 			opts: Options{},
-			want: []string{"build", "--base-import-paths", "--push=false", "./cmd/app"},
+			want: []string{"build", "--base-import-paths", "--push=false", "--ldflags", DefaultLDFlags, "./cmd/app"},
 		},
 		{
 			name: "push and local | 推送与本地",
 			opts: Options{Repository: "registry.example.com/team/app", Push: true, Local: true},
-			want: []string{"build", "--base-import-paths", "--push=true", "--local", "./cmd/app"},
+			want: []string{
+				"build", "--base-import-paths", "--push=true", "--local",
+				"--ldflags", DefaultLDFlags,
+				"./cmd/app",
+			},
 		},
 		{
 			name: "tags keep their order and drop duplicates | 标签保序去重",
 			opts: Options{Tags: []string{" v1.2.3 ", "latest", "v1.2.3", "", "  "}},
 			want: []string{
 				"build", "--base-import-paths", "--push=false",
+				"--ldflags", DefaultLDFlags,
 				"--tags", "v1.2.3", "--tags", "latest",
 				"./cmd/app",
 			},
@@ -42,14 +47,38 @@ func TestArgs(t *testing.T) {
 			opts: Options{Platforms: []string{"linux/amd64, linux/arm64", "linux/amd64"}},
 			want: []string{
 				"build", "--base-import-paths", "--push=false",
+				"--ldflags", DefaultLDFlags,
 				"--platform", "linux/amd64", "--platform", "linux/arm64",
 				"./cmd/app",
 			},
 		},
 		{
+			name: "custom ldflags replace the default | 自定义链接参数替换默认值",
+			opts: Options{LDFlags: []string{" -X main.version=v1 ", "", "-X main.commit=abc"}},
+			want: []string{
+				"build", "--base-import-paths", "--push=false",
+				"--ldflags", "-X main.version=v1", "--ldflags", "-X main.commit=abc",
+				"./cmd/app",
+			},
+		},
+		{
+			name: "explicitly empty ldflags disable the default | 显式空链接参数关闭默认值",
+			opts: Options{LDFlags: []string{}},
+			want: []string{"build", "--base-import-paths", "--push=false", "./cmd/app"},
+		},
+		{
+			name: "blank ldflags disable the default | 空白链接参数关闭默认值",
+			opts: Options{LDFlags: []string{"  "}},
+			want: []string{"build", "--base-import-paths", "--push=false", "./cmd/app"},
+		},
+		{
 			name: "packages close the line | 包列表位于末尾",
 			opts: Options{Packages: []string{" ./cmd/api ", "./cmd/worker", "./cmd/api"}},
-			want: []string{"build", "--base-import-paths", "--push=false", "./cmd/api", "./cmd/worker"},
+			want: []string{
+				"build", "--base-import-paths", "--push=false",
+				"--ldflags", DefaultLDFlags,
+				"./cmd/api", "./cmd/worker",
+			},
 		},
 	}
 	for _, tc := range tests {
@@ -62,8 +91,31 @@ func TestArgs(t *testing.T) {
 	}
 }
 
-// TestValidate checks the two option combinations this package refuses before ko is ever started. | TestValidate
-// 校验本包在启动 ko 之前就拒绝的两种选项组合。
+// TestEffectiveLDFlags pins the default and the two override shapes: nil means the strip flags, any
+// non-nil slice is used verbatim (blanks dropped), and an explicitly empty slice disables them. |
+// TestEffectiveLDFlags 固化默认值与两种覆盖形态：nil 表示去符号参数，任何非 nil 切片按原样使用（丢弃空白项），
+// 显式空切片则关闭。
+func TestEffectiveLDFlags(t *testing.T) {
+	tests := []struct {
+		name string
+		in   []string
+		want []string
+	}{
+		{name: "nil uses the default | nil 使用默认值", in: nil, want: []string{DefaultLDFlags}},
+		{name: "override | 覆盖", in: []string{" -X main.version=v1 ", " ", "-s"}, want: []string{"-X main.version=v1", "-s"}},
+		{name: "empty disables | 空切片关闭", in: []string{}, want: []string{}},
+		{name: "blanks disable | 全空白关闭", in: []string{" ", "\t"}, want: []string{}},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := Options{LDFlags: tc.in}.EffectiveLDFlags()
+			if !slices.Equal(got, tc.want) {
+				t.Errorf("EffectiveLDFlags() = %q | EffectiveLDFlags() 得到 %q，期望 %q", got, got, tc.want)
+			}
+		})
+	}
+}
+
 func TestValidate(t *testing.T) {
 	tests := []struct {
 		sentinel error

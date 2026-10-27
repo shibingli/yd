@@ -190,12 +190,16 @@ ok  github.com/shibingli/yd/e2e  27.117s
 
 | 能力 | 验收证据 |
 |---|---|
-| 无 Dockerfile 出镜像 | `ko` 包 41 个用例 + `cli` 的 11 个 ko 用例全部通过（`-race`）；`yd ko` 实际生成的命令行为 `ko build --base-import-paths --push=<bool> [--local] [--tags …] [--platform …] <packages>` |
+| 无 Dockerfile 出镜像 | `ko` 包 41 个用例 + `cli` 的 11 个 ko 用例全部通过（`-race`）；`yd ko` 实际生成的命令行为 `ko build --base-import-paths --push=<bool> [--local] [--ldflags "-s -w"] [--tags …] [--platform …] <packages>`；UPX 经环境变量 `KO_GO_PATH` + `YD_KO_GO_WRAPPER=1` 注入，不改 argv |
+| 二进制二次压缩 | 实测（`.scratch/genprobe/probe`，linux/amd64）：`yd ko --local` 产出的 `/ko-app/app` 为 UPX 打包（48.2MB → 12.6MB，26.1%）；同一镜像未压缩统计从 111MB 降至 31.6MB。压缩发生在 `go build -o` 之后，`go version -m` 从压缩前备份读取（压缩后的二进制无法被该命令解析），备份读后即删；冷/热 `KOCACHE` 均产出压缩层。UPX 缺失/过旧/超限/失败只告警，构建照常成功；失败前若产物已被替换，包装器会从压缩前备份恢复原文件（新增破坏性失败回归用例）。远程 amd64 主机上 `yd docker --no-assets` 的 Dockerfile UPX 步骤同样生效：镜像内 `/app` 7.93MB → 3.98MB（50.19%）；原生 arm64 主机上 UPX 压缩 arm64 ELF 31.65MB → 7.06MB（22.29%） |
+| 工具硬集成（离线） | `ko` v0.19.1、`minify` v2.24.24、`betteralign` v0.15.4 与 UPX 5.2.1 的宿主 payload 按构建标签嵌入；`yd tools check` 显示 `embedded | 内置`，`yd tools install` 直接离线物化到 `.yd/tools`（无 Go、无网络、无外部命令）。实测平台：Windows amd64（本地）、Linux amd64（mbox.yun-dev.cn，`uname -m` = x86_64）、Linux arm64（116.62.83.99，`uname -m` = aarch64）以及本地 Docker qemu arm64。四个工具在三种架构上均成功物化并执行（`ko version` → 0.19.1，`upx --version` → 5.2.1）；最小 PATH 下 `yd ko` 用嵌入的 ko/minify/UPX 成功出镜像，`yd align` 用嵌入 betteralign 完成分析。macOS 与 Windows/arm64 没有 UPX 宿主 payload，`upx.Resolve` 回退 PATH 上的外部 `upx`（macOS 可 Homebrew）并校验 ≥5.2.1（新增回归用例）；`yd docker` 在这两种宿主上仍用嵌入的 Linux payload |
+| 嵌入式工具缓存 | 物化走内容寻址缓存 `<用户缓存目录>/yd/payloads/<sha256>/`（`YD_TOOLS_CACHE_DIR` 可覆盖根）。同一 payload 首次解压后跨项目硬链接复用：Windows 首次 777ms → 第二次 58ms、远程 amd64 228ms → 6ms、远程 arm64 352ms → 12ms；两侧 `stat` 的 inode 相同且 `nlink=3`（缓存 + 两个项目）。截断缓存与同大小篡改均被 sidecar 的 大小/mtime/SHA-256 校验捕获并自动重建；零字节残留会被 `InstallAt` 修复（新增回归用例）；`yd` 升级后删除 `.yd/tools/<工具>` 再运行 `yd tools install` 即可切换到新的嵌入版本 |
+| 交叉编译 | `linux/windows/darwin × amd64/arm64` 六种组合 `CGO_ENABLED=0 go build ./...` 全部通过（嵌入 payload 的构建标签覆盖全部矩阵） |
 | ko 仍是外部工具 | **`go.mod` / `go.sum` 零改动**（`grep -c "google/ko" go.mod go.sum` = 0/0）；守卫 `TestKoStaysAnExternalTool` 扫描全仓 import，引入 ko 库即失败（已变异验证） |
 | 不意外推送 | ko 自身的 `--push` **默认为 true**，因此 `yd ko` **始终显式传** `--push=true|false`。独立实测（假 ko 回显 argv）：默认 → `--push=false`、传 `--push` → `--push=true`、`--local` → `--push=false --local` |
 | 仓库与基础镜像 | ko 没有 `--repository`/`--base` 标志，二者只经环境变量传递；实测子进程收到 `KO_DOCKER_REPO=registry.example.com/team/app`、`KO_DEFAULTBASEIMAGE=cgr.dev/chainguard/static:latest` |
 | 缺失时不阻塞 | `yd ko --binary <不存在>` → 双语安装提示（`go install github.com/google/ko@latest` + `.yd/tools`）+ 哨兵 `ErrBinaryNotFound`，退出码 1、**无 panic**；`yd build` / `yd dev` / `go test` 一概不受影响 |
-| 无仓库时拒绝构建 | 未配仓库且未给 `--local` → `ErrNoRepository`，提示给出 `--repo` / `ko.repository` / `KO_DOCKER_REPO` / `--local` 四条出路 |
+| 无仓库时拒绝构建 | 未配仓库且 `ko.local` 未开启（未设置或 false，且没有 `--local`）→ `ErrNoRepository`，提示给出 `--repo` / `ko.repository` / `KO_DOCKER_REPO` / `--local` 四条出路；`yd new` 生成的 `configs/config.yaml` 默认 `ko.local: true`，因此新项目 `yd ko` 开箱即用载入本地 Docker；面向 registry 需 `--local=false` |
 
 **据官方文档与源码核对后纠正的四处想当然**（这些若照最初的契约实现都会出错）：
 
