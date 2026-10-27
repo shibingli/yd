@@ -210,8 +210,10 @@ func TestVersionsPlainProjectSkipsScaffold(t *testing.T) {
 	if err := Execute(context.Background(), []string{"versions", "check"}, te.env); err != nil {
 		t.Fatalf("check in plain project: %v", err)
 	}
-	if !strings.Contains(te.out.String(), "not present") {
-		t.Errorf("check output does not announce the skip: %s", te.out.String())
+	for _, want := range []string{"no scaffold sources", "生成文件校验"} {
+		if !strings.Contains(te.out.String(), want) {
+			t.Errorf("check output does not announce the friendly skip (%q): %s", want, te.out.String())
+		}
 	}
 	err := Execute(context.Background(), []string{"versions", "sync"}, te.env)
 	if !errors.Is(err, ErrNoScaffold) {
@@ -219,6 +221,30 @@ func TestVersionsPlainProjectSkipsScaffold(t *testing.T) {
 	}
 	if _, statErr := fsys.Stat("tooling/scaffold"); statErr == nil {
 		t.Error("sync created tooling/scaffold in a plain project")
+	}
+}
+
+// TestVersionsPlainProjectUpgradeAnnouncesScaffoldSkip pins the friendly upgrade notice: a project made
+// by yd new has no scaffold sources, and the run must say so instead of looking broken. |
+// TestVersionsPlainProjectUpgradeAnnouncesScaffoldSkip 固定 upgrade 的友好提示：yd new 生成的项目没有
+// 脚手架源码，运行必须说清楚，而不是看起来像失败。
+func TestVersionsPlainProjectUpgradeAnnouncesScaffoldSkip(t *testing.T) {
+	fsys := afero.NewMemMapFs()
+	writeVersionsFile(t, fsys, "go.mod", versionsGoMod)
+	writeVersionsFile(t, fsys, "web/assets.lock.json", versionsManifest)
+	te := newTestEnv(t, fsys, "", false)
+	useVersionsGo(t, func(context.Context, string, io.Writer, ...string) error {
+		t.Fatal("dry run must not execute go")
+		return nil
+	})
+	useVersionsHTTP(t, versionsTransport{versions: map[string][]string{"htmx.org": {"4.0.0", "4.1.0"}, "alpinejs": {"3.17.4"}}})
+	if err := Execute(context.Background(), []string{"versions", "upgrade", "--dry-run"}, te.env); err != nil {
+		t.Fatalf("upgrade --dry-run: %v", err)
+	}
+	for _, want := range []string{"no scaffold sources", "版本文件同步"} {
+		if !strings.Contains(te.out.String(), want) {
+			t.Errorf("upgrade output does not announce the friendly skip (%q): %s", want, te.out.String())
+		}
 	}
 }
 

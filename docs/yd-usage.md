@@ -665,6 +665,10 @@ yd versions upgrade --self --self-version v1.15.4 --self-force # 固定版本/�
 若被占用会在后续运行中清理。`--dry-run` 不访问网络。Release 查询与下载遵循
 `http.proxy`（`YD_HTTP_PROXY`），代理地址可能含凭据，不会写入日志。
 
+`yd new` 生成的项目没有 `tooling/scaffold`（那是 yd 框架仓库自己的生成器）：`upgrade` 只升级
+Go 模块与前端资产，`check` 只校验版本清单，二者都会跳过生成文件并打印一条说明，这是正常情况；
+`sync` 仅适用于框架仓库，生成项目无需运行。
+
 ### 5.12 `yd tools`
 
 ```bash

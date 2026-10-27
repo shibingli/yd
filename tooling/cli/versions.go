@@ -65,7 +65,7 @@ var (
 	// 表示升级的所有可选部分都被关闭。
 	ErrVersionsNothing = errs.New("nothing to upgrade | 没有可升级项")
 	// ErrNoScaffold reports sync outside the framework repository. | ErrNoScaffold 表示在框架仓库之外运行 sync。
-	ErrNoScaffold = errs.New("no tooling/scaffold directory; sync only applies to the framework repository | 没有 tooling/scaffold 目录；sync 仅适用于框架仓库")
+	ErrNoScaffold = errs.New("no tooling/scaffold directory; sync only applies to the framework repository (projects created by yd new do not need it) | 没有 tooling/scaffold 目录；sync 仅适用于框架仓库（yd new 生成的项目无需运行）")
 )
 
 // versionsFlags keeps the versions command's flag set. | versionsFlags 保存 versions 命令的标志集。
@@ -207,7 +207,7 @@ func runVersionsCheck(env *Env) error {
 	fmt.Fprintf(env.Out, "htmx | Htmx 版本: %s\n", inv.HtmxVersion)
 	fmt.Fprintf(env.Out, "modules | 直接依赖: %d\n", len(inv.Modules))
 	if !versions.HasScaffold(env.FS, dir) {
-		fmt.Fprintln(env.Out, "scaffold | 脚手架: not present, generated check skipped | 不存在，跳过生成文件校验")
+		fmt.Fprintln(env.Out, "scaffold | 脚手架: no scaffold sources here (normal for yd new projects); generated-file check skipped | 此处没有脚手架源码（yd new 生成的项目属正常情况），已跳过生成文件校验")
 		return nil
 	}
 	if err := versions.Check(env.FS, dir); err != nil {
@@ -369,7 +369,7 @@ func runVersionsUpgrade(ctx context.Context, env *Env) error {
 	}
 
 	if !versions.HasScaffold(env.FS, dir) {
-		fmt.Fprintln(env.Out, "scaffold | 脚手架: not present, sync skipped | 不存在，已跳过生成")
+		fmt.Fprintln(env.Out, "scaffold | 脚手架: no scaffold sources here (normal for yd new projects); version-file sync skipped | 此处没有脚手架源码（yd new 生成的项目属正常情况），已跳过版本文件同步")
 		return runVersionsSelfUpdate(ctx, env, client, dry, updateSelf)
 	}
 	if dry {
