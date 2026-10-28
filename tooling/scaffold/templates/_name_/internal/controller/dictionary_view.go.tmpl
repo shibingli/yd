@@ -40,6 +40,8 @@ type dictionaryTypeView struct {
 	Description string `json:"description,omitempty"`
 	// Status is enabled or disabled. | Status 取 enabled 或 disabled。
 	Status string `json:"status"`
+	// Scope is the tenant or system layer. | Scope 取租户层或系统层。
+	Scope string `json:"scope"`
 	// Sort is the display order. | Sort 是展示顺序。
 	Sort int `json:"sort"`
 	// ItemCount is the number of items. | ItemCount 是字典项数量。
@@ -83,6 +85,8 @@ type dictionaryItemView struct {
 	Remark string `json:"remark,omitempty"`
 	// Status is enabled or disabled. | Status 取 enabled 或 disabled。
 	Status string `json:"status"`
+	// Scope is the tenant or system layer. | Scope 取租户层或系统层。
+	Scope string `json:"scope"`
 	// IsDefault marks the preselected item. | IsDefault 标记预选项。
 	IsDefault bool `json:"default"`
 	// Sort is the display order. | Sort 是展示顺序。
@@ -90,7 +94,11 @@ type dictionaryItemView struct {
 }
 
 // dictionaryHref builds one workbench URL with the complete view state. | dictionaryHref 构造带完整视图状态的工作台 URL。
-func dictionaryHref(selectedID, keyword, itemKeyword string, page, itemPage int) string {
+func dictionaryHref(basePath, selectedID, keyword, itemKeyword string, page, itemPage int) string {
+	basePath = strings.TrimSpace(basePath)
+	if basePath == "" {
+		basePath = "/mgr/dictionaries"
+	}
 	values := url.Values{}
 	if selectedID = strings.TrimSpace(selectedID); selectedID != "" {
 		values.Set("type", selectedID)
@@ -108,9 +116,9 @@ func dictionaryHref(selectedID, keyword, itemKeyword string, page, itemPage int)
 		values.Set("ipage", strconv.Itoa(itemPage))
 	}
 	if len(values) == 0 {
-		return "/mgr/dictionaries"
+		return basePath
 	}
-	return "/mgr/dictionaries?" + values.Encode()
+	return basePath + "?" + values.Encode()
 }
 
 // dictionaryItemPageNumber reads the 1-based item page query. | dictionaryItemPageNumber 读取从 1 开始的字典项页码。
@@ -167,6 +175,7 @@ func dictionaryTypeViews(types []dictionary.Type, lang string) []dictionaryTypeV
 			NameEN:      current.NameEN,
 			Description: current.Description,
 			Status:      string(current.Status),
+			Scope:       string(dictionary.ScopeOf(current.TenantID)),
 			Sort:        current.Sort,
 			ItemCount:   current.ItemCount,
 			Builtin:     current.Builtin,
@@ -193,6 +202,7 @@ func dictionaryItemViews(items []dictionary.Item, lang string) []dictionaryItemV
 			ExtraText: current.Extra,
 			Remark:    current.Remark,
 			Status:    string(current.Status),
+			Scope:     string(dictionary.ScopeOf(current.TenantID)),
 			IsDefault: current.IsDefault,
 			Sort:      current.Sort,
 		})

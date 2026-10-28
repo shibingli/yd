@@ -9,9 +9,15 @@
 中英标签、排序、启停状态、默认标记与可选的 JSON 元数据。业务数据只保存机器值，标签可以随时改，
 字典项可以停用而不影响历史数据。
 
+数据字典分两层：**租户级**字典只属于一个租户，**系统级**字典由全部租户共享。解析时租户层优先，
+租户没有同编码时回退到系统层；系统层由配置的系统租户维护，其它租户只读。
+
 ## 1. 能力一览
 
 - **租户级**：类型与字典项都以 `tenant_id` 为硬边界，跨租户读写一律 404，不泄露存在性。
+- **系统级**：系统字典存放在保留归属 `__system__` 下，对全部租户可见；同编码的租户字典优先，
+  系统字典只作兜底。系统层默认只读，配置 `dictionary.system_tenant` 后由该租户中持有
+  `dictionary:system_manage` 的成员维护。
 - **通用模型**：任意下拉框、状态机、类型标签、地区/币种/行业枚举都能直接用；
   一个类型下最多 1000 项，单项元数据（颜色、图标、CSS 类等）放在 `extra` JSON 对象里。
 - **稳定标识**：类型 `code` 与字典项 `value` 创建后不可修改，改它们会破坏已保存的业务数据。
@@ -32,8 +38,9 @@
 | 持久化 | `dictionary/gormstore/` | `yd_dict_types`、`yd_dict_items` 的迁移与 `Store` 实现、内置种子 |
 | 装配 | `internal/service/dictionary.go`（生成项目） | 读取 `dictionary.*` 配置，打开缓存命名空间 |
 | 存储接线 | `internal/repository/store.go`（生成项目） | 迁移并暴露 `DictionaryStore()`，启动时补齐内置字典 |
-| 页面 | `internal/controller/dictionary_controller.go`（生成项目） | 工作台、抽屉、启停与删除 |
-| JSON API | `internal/controller/dictionary_api.go`（生成项目） | 门户批量/单条解析、后台 CRUD |
+| 页面 | `internal/controller/dictionary_controller.go`（生成项目） | 租户/系统工作台、抽屉、启停与删除 |
+| JSON API | `internal/controller/dictionary_api.go`（生成项目） | 门户批量/单条解析、租户 CRUD |
+| 系统 JSON API | `internal/controller/dictionary_system_api.go`（生成项目） | 系统层只读查询与系统租户 CRUD |
 
 `dictionary` 领域包不依赖 GORM、HTTP 或消息中心；GORM 只出现在 `dictionary/gormstore` 子包里。
 
@@ -50,6 +57,9 @@
   `(tenant_id, created_at)`。
 - `yd_dict_items`：`(tenant_id, type_id, item_value)` 唯一、`(tenant_id, type_id, sort_order)`、
   `(tenant_id, type_id, status, sort_order)`。
+
+系统级字典复用同一对表，`tenant_id` 固定为保留值 `__system__`。它不是租户标识，也不能用于登录、
+鉴权或成员关系；唯一索引 `(tenant_id, code)` 因此天然把系统层与每个租户分开。
 
 **没有外键**：删除类型时由 `gormstore.DeleteType` 在同一个事务里先删字典项、再删类型；
 引用完整性由服务层维护，与本仓其它表一致。
@@ -79,7 +89,18 @@
 - `sort`：0 到 1,000,000，决定字典项在类型内的顺序。
 - 单个类型最多 1000 项。上限在类型行锁内复查，并发写入也不会突破。
 
-### 4.3 删除语义
+### 4.3 范围与优先级
+
+- 每个类型与字典项都属于一个范围：`tenant`（租户级）或 `system`（系统级）。
+- 解析同一编码时按「租户 → 系统」的顺序查找：租户层命中即返回（`scope` 为 `tenant`），
+  租户层不存在（或停用）时回退系统层（`scope` 为 `system`）。
+- 两层都可以有同编码；系统级唯一索引只在系统层内生效，不会与租户编码冲突。
+- 系统层默认只读。`dictionary.system_tenant` 配置某个租户的 slug 或 `tn_` ID 后，该租户中持有
+  `dictionary:system_manage` 的成员可以维护系统层；其它租户（包括其管理员）只能读。该键在启动时
+  解析一次，修改配置或新建目标租户后需要重启进程。
+- 系统租户自身也按同一顺序解析：如果它同时有租户级同编码字典，租户级仍然优先。
+
+### 4.4 删除语义
 
 - 删除字典项是**硬删除**，不可撤销；历史业务数据里保存的机器值仍然存在，只是再也解析不到标签。
   因此推荐停用而不是删除。
@@ -88,22 +109,25 @@
 
 ## 5. 缓存与性能
 
-- 缓存命名空间固定为 `dictionary`，每进程唯一；键为 `<tenant_id>|<code>`（`|` 不会出现在编码里）。
-- 值为 `dictionary.Snapshot`：类型元数据 + **启用**字典项（按 `sort`、创建时间排序），
+- 缓存命名空间固定为 `dictionary`，每进程唯一；租户键为 `tenant:<tenant_id>|<code>`，系统键为
+  `system|<code>`（`|` 不会出现在编码里，前缀也保证系统层不会与任何租户键相撞）。
+- 值为 `dictionary.Snapshot`：范围 + 类型元数据 + **启用**字典项（按 `sort`、创建时间排序），
   用 `ydx/json` 编解码。
-- 单条解析 `Service.Resolve` 经 `cache.Cache.GetOrLoad`，同一进程内并发未命中会合并为一次加载；
-  不存在的编码走负缓存（默认 30 秒）。
+- 单条解析 `Service.Resolve` 先读租户层，租户未命中时再读系统层；每层各自经
+  `cache.Cache.GetOrLoad`，同一进程内并发未命中会合并为一次加载。租户层不存在的编码走负缓存
+  （默认 30 秒），但系统层仍会被查询，因此系统级的新增/删除不会被租户负缓存挡住。
 - 批量解析 `Service.ResolveMany` 逐键读取缓存：命中的编码零数据库查询；冷编码各自经 `GetOrLoad`
   单飞加载并 CAS 回填，因此慢加载器不会覆盖并发写入。单次最多 50 个编码。
 - 写透回填由缓存完成：加载时观察到的版本参与 CAS，并发写删除键后陈旧结果不会被重新写回。
-- 任何写操作在数据库提交后调用 `cache.Cache.Delete` 删除对应编码的键，并通过 Pub/Sub 让其它节点的
-  L1 失效；失效失败只记告警，L1 租约与 TTL 兜底。
+- 任何写操作在数据库提交后调用 `cache.Cache.Delete` 删除对应范围的键，并通过 Pub/Sub 让其它节点的
+  L1 失效；系统写只失效系统键，租户写只失效该租户键，互不干扰。失效失败只记告警，L1 租约与 TTL 兜底。
 - 默认 TTL 10 分钟、负缓存 30 秒，可在 `configs/config.yaml` 的 `dictionary` 段覆盖：
 
 ```yaml
 dictionary:
   cache_ttl: 10m
   cache_negative_ttl: 30s
+  system_tenant: ""   # 允许管理系统字典的租户 slug 或 tn_ ID；留空表示系统层只读
 ```
 
 - 管理列表（类型分页、字典项分页）直接查库，不走业务缓存；GORM 插件仍可按 `cache.gorm` 的通用规则
@@ -112,17 +136,19 @@ dictionary:
 ## 6. HTTP API
 
 所有 API 都要求 `Authorization: Bearer <token>`（登录后由浏览器 cookie 自动提升）。
-门户解析接口要求 `dictionary:resolve`；后台读取接口要求 `dictionary:read`，写接口要求
-`dictionary:manage`。内置角色默认授权：
+门户解析接口要求 `dictionary:resolve`；后台读取接口要求 `dictionary:read`，租户写接口要求
+`dictionary:manage`，系统写接口要求 `dictionary:system_manage` **且**当前活动租户等于配置的
+`dictionary.system_tenant`。内置角色默认授权：
 
-| 角色 | `dictionary:resolve` | `dictionary:read` | `dictionary:manage` |
-|---|---|---|---|
-| `owner` / `admin` | ✅ | ✅ | ✅ |
-| `auditor` | ✅ | ✅ | ❌ |
-| `member` | ✅ | ❌ | ❌ |
+| 角色 | `dictionary:resolve` | `dictionary:read` | `dictionary:manage` | `dictionary:system_manage` |
+|---|---|---|---|---|
+| `owner` / `admin` | ✅ | ✅ | ✅ | ✅（仅系统租户生效） |
+| `auditor` | ✅ | ✅ | ❌ | ❌ |
+| `member` | ✅ | ❌ | ❌ | ❌ |
 
-这样普通成员可以为表单解析启用字典，但看不到后台工作台；后台工作台与类型/字典项列表只对持有
-`dictionary:read` 的角色开放。
+这样普通成员可以为表单解析启用字典（含系统层兜底），但看不到后台工作台；后台工作台与类型/字典项列表
+只对持有 `dictionary:read` 的角色开放。`dictionary:system_manage` 只有在配置的系统租户内才生效，
+其它租户即使持有该能力也会得到 403。
 
 ### 6.1 门户解析
 
@@ -138,6 +164,7 @@ GET /api/portal/v1/dictionaries/gender
 {
   "dictionaries": [
     {
+      "scope": "tenant",
       "code": "gender",
       "name": "性别",
       "name_en": "Gender",
@@ -153,8 +180,9 @@ GET /api/portal/v1/dictionaries/gender
 }
 ```
 
-- 停用的类型与字典项不会出现；未知或停用的编码列在 `missing` 下。
-- 单条接口在类型不存在或停用时返回 404。
+- `scope` 标记实际提供该字典的层：`tenant` 或 `system`；租户有同编码时一定是 `tenant`。
+- 停用的类型与字典项不会出现；两层都没有启用类型的编码列在 `missing` 下。
+- 单条接口在两层都不存在或停用时返回 404。
 - 编码可以是 `code` 重复参数，也可以是 `codes` 逗号分隔参数，两者都支持。
 
 ### 6.2 后台类型 CRUD
@@ -217,13 +245,47 @@ DELETE /api/v1/dictionaries/{id}/items/{item_id}
 因此不传 `default` 会清除默认标记。`extra` 可以直接是 JSON 对象，也可以是包含 JSON 对象的字符串；
 两种形态都会在服务端校验为对象。
 
-### 6.4 状态码
+### 6.4 系统级 API
+
+系统级读取对所有持有 `dictionary:read` 的账号开放；写入只在配置的系统租户内、且账号持有
+`dictionary:system_manage` 时可用。响应结构与租户级一致，`scope` 为 `system`。
+
+```http
+GET    /api/v1/system-dictionaries?q=&status=&page=1&page_size=20
+POST   /api/v1/system-dictionaries
+GET    /api/v1/system-dictionaries/{id}?include_disabled=false
+PUT    /api/v1/system-dictionaries/{id}
+DELETE /api/v1/system-dictionaries/{id}
+GET    /api/v1/system-dictionaries/{id}/items?q=&status=
+POST   /api/v1/system-dictionaries/{id}/items
+PUT    /api/v1/system-dictionaries/{id}/items/{item_id}
+DELETE /api/v1/system-dictionaries/{id}/items/{item_id}
+```
+
+创建系统类型：
+
+```json
+{
+  "code": "invoice_status",
+  "name": "发票状态",
+  "name_en": "Invoice status",
+  "description": "全局发票生命周期",
+  "status": "enabled",
+  "sort": 100
+}
+```
+
+租户创建同编码字典不会冲突；解析时租户版本优先。删除或停用租户版本后，解析自动回退到系统版本。
+系统内置字典（`gender`、`yes_no`、`priority`、`task_status`）同样不可删除，但系统租户可以改标签、
+启停或修改字典项。
+
+### 6.5 状态码
 
 | 状态 | 含义 |
 |---|---|
 | 200 / 201 / 204 | 成功 / 已创建 / 无内容 |
-| 403 | 缺少 `dictionary:resolve`、`dictionary:read` 或 `dictionary:manage` |
-| 404 | 类型或字典项不存在，或跨租户 |
+| 403 | 缺少 `dictionary:resolve`、`dictionary:read`、`dictionary:manage` 或 `dictionary:system_manage`；或系统写请求来自非系统租户 |
+| 404 | 类型或字典项不存在、跨租户，或系统层不存在该编码 |
 | 409 | 编码重复、机器值重复、内置类型不可删除 |
 | 422 | 编码/值/标签/排序/状态/JSON 校验失败，或批量编码过多 |
 | 503 | 数据字典存储不可用（项目未配置数据库或迁移失败） |
@@ -232,7 +294,9 @@ DELETE /api/v1/dictionaries/{id}/items/{item_id}
 
 ## 7. 管理页面
 
-`/mgr/dictionaries` 是数据字典工作台：
+`/mgr/dictionaries` 是租户数据字典工作台，`/mgr/system-dictionaries` 是系统级工作台；两者共用同一套
+页面与组件，通过顶部页签切换。系统页面对所有持有 `dictionary:read` 的账号可读；只有配置的系统租户
+中持有 `dictionary:system_manage` 的成员会看到新建、编辑、启停与删除控件。
 
 - 左侧是字典类型列表，支持关键字搜索与分页；点击名称切换到该类型的字典项。
 - 右侧是所选类型的字典项列表，显示标签、机器值、排序、默认标记与启停状态；支持按机器值/中英标签搜索。
@@ -265,6 +329,7 @@ snapshots, err := ctrl.DictionaryService().ResolveMany(ctx, tenantID, []string{"
 ```
 
 `Snapshot.Lookup(value)` 返回 `(SnapshotItem, bool)`，`SnapshotItem.DisplayLabel(lang)` 按语言选择标签。
+`Snapshot.Scope` 告诉调用方实际命中租户层还是系统层，可用于审计或展示来源。
 
 ### 8.2 浏览器 / 脚本
 
@@ -293,7 +358,7 @@ const gender = dictionaries.find((item) => item.code === "gender");
 
 ## 9. 内置字典
 
-生成项目首次启动（以及每次启动补齐缺失类型）时写入：
+生成项目首次启动（以及每次启动补齐缺失类型）时写入系统层，并为每个租户写入一份租户级副本：
 
 | 编码 | 名称 | 字典项 |
 |---|---|---|
@@ -304,16 +369,21 @@ const gender = dictionaries.find((item) => item.code === "gender");
 
 种子规则：
 
-- 只补**类型编码不存在**的字典；已存在的类型整体保持不变（标签、排序、状态都不覆盖）。
+- 系统层在每个安装实例启动时写入一次；租户层在种子租户创建时写入，既有租户每次启动补齐。
+- 每个范围只补**类型编码不存在**的字典；已存在的类型整体保持不变（标签、排序、状态都不覆盖）。
 - 已存在类型下被删除的字典项不会复活；升级新增的字典项也不会被补进已存在的类型。
-- 内置类型不可删除，但可以停用、改标签、改排序或修改字典项。
-- 种子在启动时按租户执行；运行期新建的租户在下次启动时补齐。
+- 内置类型不可删除，但可以停用、改标签、改排序或修改字典项（系统内置仅系统租户可改）。
+- 租户级内置字典优先于系统级内置字典；删除/停用租户副本后才会看到系统层版本。
+- 运行期新建的租户在下次启动时补齐租户层副本；在此期间它直接使用系统层的内置字典。
 
 ## 10. 多租户与安全
 
-- 每个 `Store` 方法都显式接收 `tenant_id`，每条 SQL 都把它写进 WHERE；跨租户与不存在都返回
-  `dictionary.ErrNotFound`，HTTP 映射为 404。
-- 门户解析只返回启用类型与启用项；后台读写都要求对应能力，前端显隐不是安全边界。
+- 每个租户 `Store` 方法都显式接收 `tenant_id`，每条 SQL 都把它写进 WHERE；跨租户与不存在都返回
+  `dictionary.ErrNotFound`，HTTP 映射为 404。系统层是唯一有意例外：它固定使用保留归属
+  `__system__`，由服务层显式选择，绝不从请求参数或用户输入推导。
+- 系统层对全部租户可见，但写入口只对配置的 `dictionary.system_tenant` 开放；其它租户即使持有
+  `dictionary:system_manage` 也会被控制器拒绝（403），前端显隐不是安全边界。
+- 门户解析只返回启用类型与启用项；后台读写都要求对应能力。
 - `extra` 会进入 API 响应与页面模板，但模板必须把它当数据而不是 HTML；需要展示 `extra` 时
   请显式转义或只读取其中的白名单字段。
 - 字典编码、机器值、标签都不是凭据，不应承载密钥、口令或个人信息。
@@ -325,6 +395,9 @@ const gender = dictionaries.find((item) => item.code === "gender");
 | 页面 503 | 项目未配置数据库或迁移失败；查看启动日志中的 `dictionary tables are ready` / `data dictionary is unavailable` |
 | 新建后门户仍看不到 | 类型或字典项处于停用状态；检查 `status` |
 | 修改后其它节点仍读到旧值 | 缓存失效发布失败；检查 Redis Pub/Sub 与 `cache.*` 日志，等待 TTL/租约（默认 10 分钟 / 30 秒） |
+| 系统字典页没有新建/编辑按钮 | `dictionary.system_tenant` 为空或当前租户不是该租户，或账号没有 `dictionary:system_manage`；系统页此时只读 |
+| 系统字典创建返回 403 | 当前活动租户不是配置的系统租户；切换租户后再试，或让系统租户管理员操作 |
+| 解析到的是租户值而不是系统值 | 这是预期优先级：同编码租户字典优先；删除或停用租户副本后才会回退系统层 |
 | `missing` 里出现内置编码 | 内置种子在 `Seed` 阶段写入；确认启动日志有 `builtin dictionaries seeded`，或检查数据库迁移是否成功 |
 | 无法删除字典 | 内置类型受保护；改为停用 |
 | 机器值改不了 | 设计如此：`code` 与 `value` 创建后不可变，新增一项并停用旧项即可 |
@@ -337,6 +410,7 @@ go test ./security/authz/... -race
 go test ./tooling/scaffold/... -run 'Dictionary|I18n|Docs|RealGenerate' -count=1
 ```
 
-领域测试覆盖校验、默认项互斥、停用规则、缓存命中/失效、逐键批量加载、内置目录；
-`gormstore` 测试覆盖幂等迁移、唯一索引、排序、租户隔离、级联删除与内置种子；
-脚手架测试覆盖生成文件清单、路由守卫、i18n 键集合与真实编译。
+领域测试覆盖校验、默认项互斥、停用规则、缓存命中/失效、逐键批量加载、内置目录、
+租户优先/系统兜底与系统失效；`gormstore` 测试覆盖幂等迁移、唯一索引、排序、租户隔离、
+系统层解析、级联删除与内置种子；脚手架测试覆盖生成文件清单、路由守卫、i18n 键集合、
+系统管理权限、真实编译与生成项目启动。

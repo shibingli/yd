@@ -13,6 +13,7 @@ import (
 
 	"{{ .Module }}/internal/service"
 	"{{ .YdModule }}/dictionary"
+	"{{ .YdModule }}/security/auth"
 	"{{ .YdxModule }}/log"
 	"{{ .YdxModule }}/router"
 )
@@ -449,6 +450,29 @@ func (c *Controller) APIDeleteDictionaryItem(ctx *router.Ctx) {
 	if err := ctx.NoContent(http.StatusNoContent); err != nil {
 		c.log.Warn("dictionary item API delete response failed | 数据字典项 API 删除响应失败", log.Err(err))
 	}
+}
+
+// apiDictionaryReadTenant returns the owner of a read: the active tenant or the system layer. |
+// apiDictionaryReadTenant 返回读取归属：当前租户或系统层。
+func (c *Controller) apiDictionaryReadTenant(ctx *router.Ctx, system bool) (string, bool) {
+	if system {
+		return dictionary.SystemTenantID, true
+	}
+	return c.tenantID(ctx)
+}
+
+// apiDictionaryWriteTenant authorizes a write and returns its owner. System writes additionally
+// require membership in the configured system tenant. | apiDictionaryWriteTenant 授权写入并返回归属；
+// 系统写入还要求配置系统租户的成员关系。
+func (c *Controller) apiDictionaryWriteTenant(ctx *router.Ctx, system bool) (string, bool) {
+	if system {
+		if !c.CanManageSystemDictionaries(ctx) {
+			c.dictionaryAPIFail(ctx, auth.ErrForbidden)
+			return "", false
+		}
+		return dictionary.SystemTenantID, true
+	}
+	return c.tenantID(ctx)
 }
 
 // dictionaryAPIAvailable reports availability and writes a JSON error when unavailable. | dictionaryAPIAvailable

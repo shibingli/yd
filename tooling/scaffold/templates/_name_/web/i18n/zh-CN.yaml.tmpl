@@ -413,6 +413,8 @@ page:
   dictionaries:
     title: "数据字典"
     subtitle: "维护租户内的枚举类型与字典项；编码与机器值创建后不可修改"
+    system_title: "系统数据字典"
+    system_subtitle: "全局共享的字典层；租户字典优先，租户没有同编码时回退到系统层"
   message_admin:
     title: "消息治理"
     subtitle: "管理员检索全部消息、撤销公告并查看审计"
@@ -422,6 +424,11 @@ page:
 
 dictionary:
   current: "当前"
+  scope:
+    label: "字典范围"
+    tenant: "租户字典"
+    system: "系统字典"
+    readonly: "系统字典仅配置的系统租户可修改。"
   type:
     title: "字典类型"
     new: "新建字典"

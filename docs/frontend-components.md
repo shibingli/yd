@@ -525,6 +525,8 @@
 ```
 
 `tabs-client` 只用于不需要独立 URL 的内容；`filter-bar` 自带 `<form>`，不能嵌套在另一个表单里。
+服务端页签 `components.navigation.tabs` 的每个条目可额外传 `Get` / `Target` / `Swap` / `PushURL`，
+渲染为 htmx 请求（不传 `Get` 时保持普通链接）；`Active` 决定当前页签。
 
 ### 3.5 操作面板
 

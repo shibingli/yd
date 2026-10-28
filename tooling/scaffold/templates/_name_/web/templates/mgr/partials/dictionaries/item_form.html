@@ -7,8 +7,8 @@
   <h2 class="yd-section__title">{{ if eq .Mode "edit" }}{{ tr "dictionary.item.edit" }}{{ else }}{{ tr "dictionary.item.new" }}{{ end }}</h2>
   <p class="yd-section__hint">{{ .TypeLabel }} <code class="yd-code">{{ .TypeCode }}</code></p>
 </div>
-<form class="yd-form" method="post" action="/mgr/dictionaries/{{ .TypeID }}/items"
-      hx-post="/mgr/dictionaries/{{ .TypeID }}/items"
+<form class="yd-form" method="post" action="{{ .BasePath }}/{{ .TypeID }}/items"
+      hx-post="{{ .BasePath }}/{{ .TypeID }}/items"
       hx-target="#yd-workspace" hx-swap="innerMorph"
       hx-status:409="target:#yd-drawer-errors swap:innerHTML"
       hx-status:422="target:#yd-drawer-errors swap:innerHTML"

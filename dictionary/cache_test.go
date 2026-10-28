@@ -94,16 +94,16 @@ func TestResolveManyUsesPerCodeCache(t *testing.T) {
 	if len(got) != 3 {
 		t.Fatalf("resolved %d dictionaries, want 3", len(got))
 	}
-	// Three existing codes plus the missing one each own one GetOrLoad on a cold batch. |
-	// 冷批量中三个存在的编码与一个缺失编码各触发一次 GetOrLoad。
-	if store.resolveCalls != 4 {
-		t.Fatalf("resolve calls = %d, want 4", store.resolveCalls)
+	// Three existing codes own one tenant load each; the missing code owns a tenant miss and a
+	// system fallback miss. | 三个存在的编码各触发一次租户加载；缺失编码各触发一次租户未命中与一次系统兜底未命中。
+	if store.resolveCalls != 5 {
+		t.Fatalf("resolve calls = %d, want 5", store.resolveCalls)
 	}
 	if _, err := service.ResolveMany(ctx, "tn_a", []string{"gender", "priority"}); err != nil {
 		t.Fatalf("ResolveMany warm: %v", err)
 	}
-	if store.resolveCalls != 4 {
-		t.Fatalf("resolve calls after warm batch = %d, want 4", store.resolveCalls)
+	if store.resolveCalls != 5 {
+		t.Fatalf("resolve calls after warm batch = %d, want 5", store.resolveCalls)
 	}
 	if _, err := service.ResolveMany(ctx, "tn_a", []string{"Bad-Code"}); !errors.Is(err, ErrInvalidInput) {
 		t.Fatalf("invalid code error = %v, want ErrInvalidInput", err)
@@ -114,6 +114,69 @@ func TestResolveManyUsesPerCodeCache(t *testing.T) {
 	}
 	if _, err := service.ResolveMany(ctx, "tn_a", tooMany); !errors.Is(err, ErrTooManyCodes) {
 		t.Fatalf("too many codes error = %v, want ErrTooManyCodes", err)
+	}
+}
+
+// TestResolvePrefersTenantAndFallsBackToSystem checks the two-layer precedence and system
+// invalidation. | TestResolvePrefersTenantAndFallsBackToSystem 校验两层优先级与系统层失效。
+func TestResolvePrefersTenantAndFallsBackToSystem(t *testing.T) {
+	manager, err := cache.NewManager()
+	if err != nil {
+		t.Fatalf("NewManager: %v", err)
+	}
+	t.Cleanup(func() { _ = manager.Close() })
+	snapshots, err := cache.New[Snapshot](manager, "dictionary")
+	if err != nil {
+		t.Fatalf("cache.New: %v", err)
+	}
+	store := newMemoryStore()
+	service, err := New(store, snapshots, nil, Options{})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	ctx := context.Background()
+	systemType, err := service.CreateType(ctx, SystemTenantID, TypeInput{Code: "shared", Name: "系统共享"})
+	if err != nil {
+		t.Fatalf("CreateType(system): %v", err)
+	}
+	if _, err := service.CreateItem(ctx, SystemTenantID, systemType.ID, ItemInput{Value: "one", Label: "系统项"}); err != nil {
+		t.Fatalf("CreateItem(system): %v", err)
+	}
+	tenantType, err := service.CreateType(ctx, "tn_a", TypeInput{Code: "shared", Name: "租户覆盖"})
+	if err != nil {
+		t.Fatalf("CreateType(tenant): %v", err)
+	}
+	if _, err := service.CreateItem(ctx, "tn_a", tenantType.ID, ItemInput{Value: "one", Label: "租户项"}); err != nil {
+		t.Fatalf("CreateItem(tenant): %v", err)
+	}
+
+	tenantSnapshot, err := service.Resolve(ctx, "tn_a", "shared")
+	if err != nil {
+		t.Fatalf("Resolve tenant: %v", err)
+	}
+	if tenantSnapshot.Scope != ScopeTenant || tenantSnapshot.Name != "租户覆盖" {
+		t.Fatalf("tenant snapshot = %+v", tenantSnapshot)
+	}
+	systemSnapshot, err := service.Resolve(ctx, "tn_b", "shared")
+	if err != nil {
+		t.Fatalf("Resolve system fallback: %v", err)
+	}
+	if systemSnapshot.Scope != ScopeSystem || systemSnapshot.Name != "系统共享" {
+		t.Fatalf("system snapshot = %+v", systemSnapshot)
+	}
+	if _, err := service.UpdateType(ctx, SystemTenantID, systemType.ID, TypeInput{Name: "系统共享（新）", Status: StatusEnabled}); err != nil {
+		t.Fatalf("UpdateType(system): %v", err)
+	}
+	systemSnapshot, err = service.Resolve(ctx, "tn_b", "shared")
+	if err != nil || systemSnapshot.Name != "系统共享（新）" {
+		t.Fatalf("system snapshot after update = %+v, %v", systemSnapshot, err)
+	}
+	if err := service.DeleteType(ctx, "tn_a", tenantType.ID); err != nil {
+		t.Fatalf("DeleteType(tenant): %v", err)
+	}
+	tenantSnapshot, err = service.Resolve(ctx, "tn_a", "shared")
+	if err != nil || tenantSnapshot.Scope != ScopeSystem || tenantSnapshot.Name != "系统共享（新）" {
+		t.Fatalf("tenant fallback after delete = %+v, %v", tenantSnapshot, err)
 	}
 }
 

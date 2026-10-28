@@ -77,6 +77,9 @@ type dictionarySnapshotItemView struct {
 //
 // @Name dictionarySnapshotView
 type dictionarySnapshotView struct {
+	// Scope reports whether the tenant or the system layer supplied the dictionary. | Scope 报告
+	// 字典来自租户层还是系统层。
+	Scope string `json:"scope"`
 	// Code is the immutable code. | Code 是不可变编码。
 	Code string `json:"code"`
 	// Name is the Chinese name. | Name 是中文名。
@@ -221,6 +224,7 @@ func dictionarySnapshotViewOf(snapshot dictionary.Snapshot) dictionarySnapshotVi
 		})
 	}
 	return dictionarySnapshotView{
+		Scope:       string(snapshot.Scope),
 		Code:        snapshot.Code,
 		Name:        snapshot.Name,
 		NameEN:      snapshot.NameEN,

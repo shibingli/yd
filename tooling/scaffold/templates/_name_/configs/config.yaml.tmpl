@@ -318,6 +318,12 @@ message:
 dictionary:
   cache_ttl: 10m             # 已解析字典的缓存时长 | cache lifetime of one resolved dictionary
   cache_negative_ttl: 30s    # 缺失编码的负缓存时长 | negative-cache lifetime of a missing code
+  # 允许管理系统级字典的租户（slug 或 tn_ ID）。留空时系统字典只读，任何租户都不能修改；
+  # 配置后的租户仍需持有 dictionary:system_manage 能力。其它租户始终只读。
+  # Tenant allowed to manage the system-wide dictionary layer (slug or tn_ ID). Empty keeps system
+  # dictionaries read-only; the configured tenant still needs dictionary:system_manage. Every other
+  # tenant is always read-only.
+  system_tenant: ""
 
 # 系统服务：yd service <install|uninstall|start|stop|restart|status> 与入口的 -service <动作> 都读这一段。
 # 服务名缺省回退到 app.name，显示名回退到服务名，描述回退到显示名；全部键都可由 YD_SERVICE_* 覆盖。

@@ -16,6 +16,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
 	goredis "github.com/redis/go-redis/v9"
 
@@ -360,6 +361,10 @@ type Controller struct {
 	dictionaries *service.DictionaryService
 	// dictionaryErr records why data dictionaries are unavailable. | dictionaryErr 记录数据字典不可用的原因。
 	dictionaryErr error
+	// systemTenantID is the resolved owner of the system dictionary layer; empty disables system
+	// management and leaves that layer read-only. | systemTenantID 是系统级字典层的解析归属；
+	// 为空时关闭系统管理，该层保持只读。
+	systemTenantID string
 	// hub fans message events out to WebSocket subscribers. | hub 把消息事件分发给 WebSocket 订阅者。
 	hub *realtime.Hub
 	// i18n is the catalogue bundle, used to translate outside a template execution (conversation
@@ -444,12 +449,30 @@ func New(a *app.App, store *repository.Store, log *ydlog.Logger, captchaSvc *cap
 	if dictionaryErr != nil {
 		log.Warn("data dictionary is disabled | 数据字典已禁用", ydlog.Err(dictionaryErr))
 	}
+	tenants := service.NewTenantService(store)
+	systemTenantID := ""
+	if key := strings.TrimSpace(a.Config().GetString(service.ConfigDictionarySystemTenant)); key != "" {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		resolved, resolveErr := tenants.Resolve(ctx, key)
+		cancel()
+		if resolveErr != nil {
+			log.Warn("system dictionary tenant cannot be resolved, system management is disabled | 系统级字典租户无法解析，系统管理已关闭",
+				ydlog.Str("key", key),
+				ydlog.Err(resolveErr),
+			)
+		} else {
+			systemTenantID = resolved
+			log.Info("system dictionary management enabled | 系统级字典管理已启用",
+				ydlog.Str("tenant", resolved),
+			)
+		}
+	}
 	return &Controller{
-		app:           a,
-		store:         store,
-		auth:          authSvc,
-		captcha:       captchaSvc,
-		tenants:       service.NewTenantService(store),
+		app:            a,
+		store:          store,
+		auth:           authSvc,
+		captcha:        captchaSvc,
+		tenants:        tenants,
 		users:         service.NewUserService(store, authSvc),
 		roles:         service.NewRoleService(store),
 		provider:      metricsx.NewCollector(metricsSvc, a.MiddlewareMetrics()),
@@ -457,9 +480,10 @@ func New(a *app.App, store *repository.Store, log *ydlog.Logger, captchaSvc *cap
 		messageErr:    messageErr,
 		attachments:   attachmentsSvc,
 		attachmentErr: attachmentErr,
-		dictionaries:  dictionaries,
-		dictionaryErr: dictionaryErr,
-		hub:           hub,
+		dictionaries:   dictionaries,
+		dictionaryErr:  dictionaryErr,
+		systemTenantID: systemTenantID,
+		hub:            hub,
 		i18n:          bundle,
 		log:           log,
 		bundleURLs:    web.BundleURLs(),
@@ -519,6 +543,21 @@ func (c *Controller) DictionaryService() *service.DictionaryService {
 		return nil
 	}
 	return c.dictionaries
+}
+
+// CanManageSystemDictionaries reports whether the caller is an authenticated member of the
+// configured system tenant holding dictionary:system_manage. Every other tenant is read-only. |
+// CanManageSystemDictionaries 报告调用方是否为配置系统租户中持有 dictionary:system_manage 的成员；
+// 其它租户始终只读。
+func (c *Controller) CanManageSystemDictionaries(ctx *router.Ctx) bool {
+	if c == nil || ctx == nil || c.systemTenantID == "" || !c.DictionariesAvailable() {
+		return false
+	}
+	if !authz.Can(ctx.Request.Context(), authz.PermDictionarySystemManage) {
+		return false
+	}
+	tenantID, ok := middleware.TenantID(ctx)
+	return ok && tenantID == c.systemTenantID
 }
 
 // AttachmentError returns why attachments are unavailable, or nil. | AttachmentError 返回附件不可用的原因，

@@ -39,94 +39,6 @@ func New(store Store, snapshots *cache.Cache[Snapshot], log *ydlog.Logger, optio
 // Options returns the effective options. | Options 返回生效选项。
 func (s *Service) Options() Options { return s.options }
 
-// Resolve returns one enabled dictionary by code. | Resolve 按编码返回一个启用字典。
-func (s *Service) Resolve(ctx context.Context, tenantID, code string) (Snapshot, error) {
-	tenantID = strings.TrimSpace(tenantID)
-	code = strings.ToLower(strings.TrimSpace(code))
-	if tenantID == "" || !codeRe.MatchString(code) {
-		return Snapshot{}, ErrInvalidInput
-	}
-	if s.snapshots == nil {
-		return s.resolveUncached(ctx, tenantID, code)
-	}
-	snapshot, err := s.snapshots.GetOrLoad(ctx, cacheKey(tenantID, code), func(ctx context.Context) (Snapshot, error) {
-		loaded, loadErr := s.store.Resolve(ctx, tenantID, []string{code})
-		if loadErr != nil {
-			return Snapshot{}, loadErr
-		}
-		if value, ok := loaded[code]; ok {
-			return value, nil
-		}
-		return Snapshot{}, cache.ErrNotFound
-	})
-	if err != nil {
-		if errors.Is(err, cache.ErrNotFound) {
-			return Snapshot{}, ErrNotFound
-		}
-		if errors.Is(err, ErrUnavailable) {
-			return Snapshot{}, err
-		}
-		// A cache failure (for example an entry larger than the L1 shard) must not fail the read;
-		// the store is the source of truth, so fall back to it. | 缓存故障（例如条目超过 L1 分片）
-		// 不得让读取失败；存储才是事实来源，因此回退到存储。
-		s.log.Warn("dictionary cache read failed, reading the store instead | 数据字典缓存读取失败，改为读存储",
-			ydlog.Err(err),
-			ydlog.Str("code", code),
-		)
-		return s.resolveUncached(ctx, tenantID, code)
-	}
-	if snapshot.Code == "" {
-		return Snapshot{}, ErrNotFound
-	}
-	return snapshot, nil
-}
-
-// ResolveMany returns every enabled dictionary named by codes. A code without an enabled type is
-// absent from the result. Warm codes are answered from the cache; a cold code is loaded through
-// GetOrLoad, whose single-flight CAS write-back never overwrites a concurrent write. |
-// ResolveMany 返回 codes 命中的全部启用字典；没有启用类型的编码不出现在结果中。命中的编码由缓存直接答复；
-// 冷编码经 GetOrLoad 加载，其单飞 CAS 回填不会覆盖并发写入。
-func (s *Service) ResolveMany(ctx context.Context, tenantID string, codes []string) (map[string]Snapshot, error) {
-	tenantID = strings.TrimSpace(tenantID)
-	if tenantID == "" {
-		return nil, ErrInvalidInput
-	}
-	normalized, err := s.normalizeCodes(codes)
-	if err != nil {
-		return nil, err
-	}
-	if len(normalized) == 0 {
-		return map[string]Snapshot{}, nil
-	}
-	if s.snapshots == nil {
-		return s.store.Resolve(ctx, tenantID, normalized)
-	}
-	result := make(map[string]Snapshot, len(normalized))
-	for _, code := range normalized {
-		snapshot, resolveErr := s.Resolve(ctx, tenantID, code)
-		if resolveErr != nil {
-			if errors.Is(resolveErr, ErrNotFound) {
-				continue
-			}
-			return nil, resolveErr
-		}
-		result[code] = snapshot
-	}
-	return result, nil
-}
-
-// resolveUncached reads one snapshot directly from the store. | resolveUncached 直接从存储读取一个快照。
-func (s *Service) resolveUncached(ctx context.Context, tenantID, code string) (Snapshot, error) {
-	loaded, err := s.store.Resolve(ctx, tenantID, []string{code})
-	if err != nil {
-		return Snapshot{}, err
-	}
-	if snapshot, ok := loaded[code]; ok {
-		return snapshot, nil
-	}
-	return Snapshot{}, ErrNotFound
-}
-
 // ListTypes returns one page of dictionary types. | ListTypes 返回一页数据字典类型。
 func (s *Service) ListTypes(ctx context.Context, tenantID string, filter Filter) (TypePage, error) {
 	tenantID = strings.TrimSpace(tenantID)
@@ -482,27 +394,6 @@ func (s *Service) DeleteItem(ctx context.Context, tenantID, typeID, id string) e
 	return nil
 }
 
-// Invalidate removes one dictionary from both cache levels. External writers that update the tables
-// directly must call it; the service does so after every write of its own. | Invalidate 从两级缓存中移除
-// 一个字典。直接写表的调用方必须调用它；服务自身在每次写入后都会调用。
-func (s *Service) Invalidate(ctx context.Context, tenantID, code string) error {
-	if s.snapshots == nil {
-		return nil
-	}
-	return s.snapshots.Delete(ctx, cacheKey(tenantID, code))
-}
-
-// invalidate removes one dictionary from the cache and logs a failure without failing the write. |
-// invalidate 从缓存移除一个字典；失效失败只记录日志，不让写入失败。
-func (s *Service) invalidate(ctx context.Context, tenantID, code string) {
-	if err := s.Invalidate(ctx, tenantID, code); err != nil {
-		s.log.Warn("dictionary cache invalidation failed | 数据字典缓存失效失败",
-			ydlog.Err(err),
-			ydlog.Str("code", code),
-		)
-	}
-}
-
 // normalizeCodes trims, lower-cases, validates and de-duplicates a batch, preserving order. |
 // normalizeCodes 去空白、转小写、校验并按原顺序去重一批编码。
 func (s *Service) normalizeCodes(codes []string) ([]string, error) {
@@ -541,8 +432,3 @@ func (s *Service) page(page, size int) (int, int) {
 	}
 	return page, size
 }
-
-// cacheKey builds the cache key of one dictionary. The separator cannot appear in a dictionary code,
-// so two tenants can never map onto the same key. | cacheKey 构造一个字典的缓存键。分隔符不可能出现在字典
-// 编码里，因此两个租户不会映射到同一个键。
-func cacheKey(tenantID, code string) string { return tenantID + "|" + code }

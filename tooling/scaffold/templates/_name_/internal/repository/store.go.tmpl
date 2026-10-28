@@ -624,6 +624,10 @@ func (s *Store) seedSpecs() []seedSpec {
 // create anything** and says so (see seedPassword) — which is why no password is written in the sources here, or
 // anywhere else. Reconciling an existing tenant's built-in capabilities needs no password.
 func (s *Store) Seed(ctx context.Context) error {
+	// System dictionaries are global and seeded once per installation; tenant dictionaries keep
+	// their own copy and therefore continue to override the system layer. |
+	// 系统级字典是全局的，每个安装实例只写一次；租户字典仍保留自己的副本，因此继续覆盖系统层。
+	s.ensureBuiltinDictionaries(ctx, dictionary.SystemTenantID)
 	tenants, err := s.svc.ListTenants(ctx)
 	if err != nil {
 		return errs.Wrap(err, ErrSeed)
@@ -707,10 +711,11 @@ func (s *Store) seedTenant(ctx context.Context, roles *RoleRepo, spec seedSpec, 
 	return nil
 }
 
-// ensureBuiltinDictionaries adds the predefined dictionaries a tenant does not have yet. The seeder
-// is optional (an in-memory store has none) and a failure only warns: a missing dictionary must
-// never stop the application from starting. | ensureBuiltinDictionaries 为租户补齐尚不存在的预置字典。
-// 种子器是可选的（内存存储没有），失败也只告警：缺少字典绝不能阻止应用启动。
+// ensureBuiltinDictionaries adds the predefined dictionaries an owner (tenant or system layer) does
+// not have yet. The seeder is optional (an in-memory store has none) and a failure only warns: a
+// missing dictionary must never stop the application from starting. |
+// ensureBuiltinDictionaries 为归属方（租户或系统层）补齐尚不存在的预置字典。种子器是可选的
+// （内存存储没有），失败也只告警：缺少字典绝不能阻止应用启动。
 func (s *Store) ensureBuiltinDictionaries(ctx context.Context, tenantID string) {
 	if s.dict == nil {
 		return
@@ -729,7 +734,8 @@ func (s *Store) ensureBuiltinDictionaries(ctx context.Context, tenantID string) 
 	if count > 0 {
 		s.log.Info("builtin dictionaries seeded | 内置数据字典已写入",
 			ydlog.Int("types", count),
-			ydlog.Str("tenant", tenantID),
+			ydlog.Str("scope", string(dictionary.ScopeOf(tenantID))),
+			ydlog.Str("owner", tenantID),
 		)
 	}
 }

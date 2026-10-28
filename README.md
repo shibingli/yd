@@ -395,7 +395,7 @@ runtime/       app · server · grpcx · lifecycle · service · metricsx · GC 
 security/      auth · authz · guomi integration
 messaging/     in-app message center
 attachments/   generic attachment metadata and references
-dictionary/    tenant-scoped data dictionaries (types, items, two-level cache)
+dictionary/    tenant and system data dictionaries (types, items, two-level cache)
 http/          chart · server-rendered SVG charts (line/area/bar/stacked/pie/donut/gauge/radar/heatmap)
 tooling/       scaffold · gen · build · docker · ko · assets · versions · tools
 web/           embedded templates (with the components/ UI kit) / static / language catalogs

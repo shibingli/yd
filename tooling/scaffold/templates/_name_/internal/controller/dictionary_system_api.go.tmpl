@@ -1,0 +1,395 @@
+{{/*
+  This file owns the system-wide dictionary JSON API. Every tenant may read the layer through
+  dictionary:read; only the configured system tenant holding dictionary:system_manage may write it.
+  本文件承载系统级数据字典 JSON API。所有租户都可凭 dictionary:read 读取该层；
+  只有配置的系统租户且持有 dictionary:system_manage 的成员可以写入。
+*/}}
+
+package controller
+
+import (
+	"net/http"
+	"strings"
+
+	"{{ .YdModule }}/dictionary"
+	"{{ .YdxModule }}/log"
+	"{{ .YdxModule }}/router"
+)
+
+// APISystemDictionaries lists system-wide dictionary types. | APISystemDictionaries 列出系统级字典类型。
+//
+// @Summary List system dictionary types | 列出系统字典类型
+// @Description Returns one page of system-wide types. Every tenant may read the layer. |
+// @Description 返回一页系统级类型。所有租户都可读取该层。
+// @Tags system-dictionaries
+// @Produce json
+// @Param q query string false "search keyword | 搜索关键字"
+// @Param status query string false "enabled|disabled | 启停状态"
+// @Param page query int false "1-based page | 从 1 开始的页码"
+// @Param page_size query int false "page length | 页长"
+// @Success 200 {object} string "system type page | 系统类型分页"
+// @Failure 403 {object} string "dictionary:read required | 需要 dictionary:read"
+// @Failure 503 {object} string "dictionary storage unavailable | 数据字典存储不可用"
+// @Security BearerAuth
+// @Router /api/v1/system-dictionaries [get]
+func (c *Controller) APISystemDictionaries(ctx *router.Ctx) {
+	if !c.dictionaryAPIAvailable(ctx) {
+		return
+	}
+	tenantID, ok := c.apiDictionaryReadTenant(ctx, true)
+	if !ok {
+		return
+	}
+	page, err := c.dictionaries.ListTypes(ctx.Request.Context(), tenantID, dictionary.Filter{
+		Query:    strings.TrimSpace(ctx.Query(FieldKeyword)),
+		Status:   dictionary.Status(strings.TrimSpace(ctx.Query(FieldStatus))),
+		Page:     queryInt(ctx, "page", 1),
+		PageSize: queryInt(ctx, "page_size", defaultPageSize),
+	})
+	if err != nil {
+		c.dictionaryAPIFail(ctx, err)
+		return
+	}
+	_ = ctx.JSON(http.StatusOK, map[string]any{
+		"items":     dictionaryTypeViews(page.Items, c.lang(ctx)),
+		"total":     page.Total,
+		"page":      page.Page,
+		"page_size": page.PageSize,
+	})
+}
+
+// APISystemDictionary returns one system type and its items. | APISystemDictionary 返回一个系统类型及其字典项。
+//
+// @Summary Read a system dictionary type | 读取系统字典类型
+// @Description Returns one system-wide type and one page of its items. Disabled items are included
+// @Description by default; pass include_disabled=false for enabled items only.
+// @Description 返回一个系统级类型及其一页字典项。默认包含停用项；传 include_disabled=false 只返回启用项。
+// @Tags system-dictionaries
+// @Produce json
+// @Param id path string true "type id | 类型 ID"
+// @Param include_disabled query bool false "false returns enabled items only | 传 false 只返回启用项"
+// @Param page query int false "1-based item page | 从 1 开始的字典项页码"
+// @Param page_size query int false "item page length | 字典项页长"
+// @Success 200 {object} string "type and items | 类型与字典项"
+// @Failure 403 {object} string "dictionary:read required | 需要 dictionary:read"
+// @Failure 404 {object} string "type not found | 类型不存在"
+// @Security BearerAuth
+// @Router /api/v1/system-dictionaries/{id} [get]
+func (c *Controller) APISystemDictionary(ctx *router.Ctx) {
+	if !c.dictionaryAPIAvailable(ctx) {
+		return
+	}
+	tenantID, ok := c.apiDictionaryReadTenant(ctx, true)
+	if !ok {
+		return
+	}
+	current, err := c.dictionaries.GetType(ctx.Request.Context(), tenantID, ctx.Param("id"))
+	if err != nil {
+		c.dictionaryAPIFail(ctx, err)
+		return
+	}
+	status := dictionary.Status("")
+	if strings.EqualFold(strings.TrimSpace(ctx.Query("include_disabled")), "false") {
+		status = dictionary.StatusEnabled
+	}
+	page, err := c.dictionaries.ListItems(ctx.Request.Context(), tenantID, current.ID, dictionary.ItemFilter{
+		Status:   status,
+		Page:     queryInt(ctx, "page", 1),
+		PageSize: queryInt(ctx, "page_size", defaultPageSize),
+	})
+	if err != nil {
+		c.dictionaryAPIFail(ctx, err)
+		return
+	}
+	_ = ctx.JSON(http.StatusOK, map[string]any{
+		"type":      dictionaryTypeViews([]dictionary.Type{current}, c.lang(ctx))[0],
+		"items":     dictionaryItemViews(page.Items, c.lang(ctx)),
+		"total":     page.Total,
+		"page":      page.Page,
+		"page_size": page.PageSize,
+	})
+}
+
+// APICreateSystemDictionary creates a system type. | APICreateSystemDictionary 新建一个系统类型。
+//
+// @Summary Create a system dictionary type | 新建系统字典类型
+// @Description Creates a system-wide type from the configured system tenant. | 从配置的系统租户新建系统级类型。
+// @Tags system-dictionaries
+// @Accept json
+// @Produce json
+// @Param body body dictionaryTypeRequest true "type payload | 类型载荷"
+// @Success 201 {object} dictionaryTypeView "created type | 已创建类型"
+// @Failure 403 {object} string "not the system tenant | 不是系统租户"
+// @Failure 409 {object} string "duplicate code | 编码重复"
+// @Failure 422 {object} string "validation failed | 校验失败"
+// @Security BearerAuth
+// @Router /api/v1/system-dictionaries [post]
+func (c *Controller) APICreateSystemDictionary(ctx *router.Ctx) {
+	if !c.dictionaryAPIAvailable(ctx) {
+		return
+	}
+	tenantID, ok := c.apiDictionaryWriteTenant(ctx, true)
+	if !ok {
+		return
+	}
+	var request dictionaryTypeRequest
+	if err := ctx.Bind(&request); err != nil {
+		c.dictionaryAPIFail(ctx, dictionary.ErrInvalidInput)
+		return
+	}
+	created, err := c.dictionaries.CreateType(ctx.Request.Context(), tenantID, dictionaryTypeInput(request))
+	if err != nil {
+		c.dictionaryAPIFail(ctx, err)
+		return
+	}
+	c.log.Info("system dictionary type created | 系统数据字典类型已创建",
+		log.Str("id", created.ID),
+		log.Str("code", created.Code),
+	)
+	_ = ctx.JSON(http.StatusCreated, dictionaryTypeViews([]dictionary.Type{created}, c.lang(ctx))[0])
+}
+
+// APIUpdateSystemDictionary updates a system type. | APIUpdateSystemDictionary 更新一个系统类型。
+//
+// @Summary Update a system dictionary type | 更新系统字典类型
+// @Description Updates one system-wide type; the code is immutable. | 更新一个系统级类型；编码不可变。
+// @Tags system-dictionaries
+// @Accept json
+// @Produce json
+// @Param id path string true "type id | 类型 ID"
+// @Param body body dictionaryTypeRequest true "type payload | 类型载荷"
+// @Success 200 {object} dictionaryTypeView "updated type | 已更新类型"
+// @Failure 403 {object} string "not the system tenant | 不是系统租户"
+// @Failure 404 {object} string "type not found | 类型不存在"
+// @Failure 422 {object} string "validation failed | 校验失败"
+// @Security BearerAuth
+// @Router /api/v1/system-dictionaries/{id} [put]
+func (c *Controller) APIUpdateSystemDictionary(ctx *router.Ctx) {
+	if !c.dictionaryAPIAvailable(ctx) {
+		return
+	}
+	tenantID, ok := c.apiDictionaryWriteTenant(ctx, true)
+	if !ok {
+		return
+	}
+	var request dictionaryTypeRequest
+	if err := ctx.Bind(&request); err != nil {
+		c.dictionaryAPIFail(ctx, dictionary.ErrInvalidInput)
+		return
+	}
+	updated, err := c.dictionaries.UpdateType(ctx.Request.Context(), tenantID, ctx.Param("id"), dictionaryTypeInput(request))
+	if err != nil {
+		c.dictionaryAPIFail(ctx, err)
+		return
+	}
+	c.log.Info("system dictionary type updated | 系统数据字典类型已更新",
+		log.Str("id", updated.ID),
+		log.Str("code", updated.Code),
+		log.Str("status", string(updated.Status)),
+	)
+	_ = ctx.JSON(http.StatusOK, dictionaryTypeViews([]dictionary.Type{updated}, c.lang(ctx))[0])
+}
+
+// APIDeleteSystemDictionary deletes a system type and its items. | APIDeleteSystemDictionary
+// 删除一个系统类型及其字典项。
+//
+// @Summary Delete a system dictionary type | 删除系统字典类型
+// @Description Deletes one non-builtin system-wide type and every item it owns. |
+// @Description 删除一个非内置系统级类型及其全部字典项。
+// @Tags system-dictionaries
+// @Produce json
+// @Param id path string true "type id | 类型 ID"
+// @Success 204 {string} string "no content | 无内容"
+// @Failure 403 {object} string "not the system tenant | 不是系统租户"
+// @Failure 409 {object} string "built-in dictionary | 内置字典"
+// @Security BearerAuth
+// @Router /api/v1/system-dictionaries/{id} [delete]
+func (c *Controller) APIDeleteSystemDictionary(ctx *router.Ctx) {
+	if !c.dictionaryAPIAvailable(ctx) {
+		return
+	}
+	tenantID, ok := c.apiDictionaryWriteTenant(ctx, true)
+	if !ok {
+		return
+	}
+	if err := c.dictionaries.DeleteType(ctx.Request.Context(), tenantID, ctx.Param("id")); err != nil {
+		c.dictionaryAPIFail(ctx, err)
+		return
+	}
+	c.log.Info("system dictionary type deleted | 系统数据字典类型已删除", log.Str("id", ctx.Param("id")))
+	if err := ctx.NoContent(http.StatusNoContent); err != nil {
+		c.log.Warn("system dictionary API delete response failed | 系统数据字典 API 删除响应失败", log.Err(err))
+	}
+}
+
+// APISystemDictionaryItems lists the items of one system type. | APISystemDictionaryItems
+// 列出一个系统类型的字典项。
+//
+// @Summary List system dictionary items | 列出系统字典项
+// @Description Returns one page of items in the system-wide layer. | 返回系统级字典层的一页字典项。
+// @Tags system-dictionaries
+// @Produce json
+// @Param id path string true "type id | 类型 ID"
+// @Param q query string false "search keyword | 搜索关键字"
+// @Param status query string false "enabled|disabled | 启停状态"
+// @Param page query int false "1-based page | 从 1 开始的页码"
+// @Param page_size query int false "page length | 页长"
+// @Success 200 {object} string "item page | 字典项分页"
+// @Failure 403 {object} string "dictionary:read required | 需要 dictionary:read"
+// @Failure 404 {object} string "type not found | 类型不存在"
+// @Security BearerAuth
+// @Router /api/v1/system-dictionaries/{id}/items [get]
+func (c *Controller) APISystemDictionaryItems(ctx *router.Ctx) {
+	if !c.dictionaryAPIAvailable(ctx) {
+		return
+	}
+	tenantID, ok := c.apiDictionaryReadTenant(ctx, true)
+	if !ok {
+		return
+	}
+	page, err := c.dictionaries.ListItems(ctx.Request.Context(), tenantID, ctx.Param("id"), dictionary.ItemFilter{
+		Query:    strings.TrimSpace(ctx.Query(FieldKeyword)),
+		Status:   dictionary.Status(strings.TrimSpace(ctx.Query(FieldStatus))),
+		Page:     queryInt(ctx, "page", 1),
+		PageSize: queryInt(ctx, "page_size", defaultPageSize),
+	})
+	if err != nil {
+		c.dictionaryAPIFail(ctx, err)
+		return
+	}
+	_ = ctx.JSON(http.StatusOK, map[string]any{
+		"items":     dictionaryItemViews(page.Items, c.lang(ctx)),
+		"total":     page.Total,
+		"page":      page.Page,
+		"page_size": page.PageSize,
+	})
+}
+
+// APICreateSystemDictionaryItem creates a system item. | APICreateSystemDictionaryItem 新建一个系统字典项。
+//
+// @Summary Create a system dictionary item | 新建系统字典项
+// @Description Creates a system-wide item; the value must be unique inside the type. |
+// @Description 新建系统级字典项；机器值在类型内必须唯一。
+// @Tags system-dictionaries
+// @Accept json
+// @Produce json
+// @Param id path string true "type id | 类型 ID"
+// @Param body body dictionaryItemRequest true "item payload | 字典项载荷"
+// @Success 201 {object} dictionaryItemView "created item | 已创建字典项"
+// @Failure 403 {object} string "not the system tenant | 不是系统租户"
+// @Failure 409 {object} string "duplicate value | 值重复"
+// @Failure 422 {object} string "validation failed | 校验失败"
+// @Security BearerAuth
+// @Router /api/v1/system-dictionaries/{id}/items [post]
+func (c *Controller) APICreateSystemDictionaryItem(ctx *router.Ctx) {
+	if !c.dictionaryAPIAvailable(ctx) {
+		return
+	}
+	tenantID, ok := c.apiDictionaryWriteTenant(ctx, true)
+	if !ok {
+		return
+	}
+	var request dictionaryItemRequest
+	if err := ctx.Bind(&request); err != nil {
+		c.dictionaryAPIFail(ctx, dictionary.ErrInvalidInput)
+		return
+	}
+	input, err := dictionaryItemInput(request)
+	if err != nil {
+		c.dictionaryAPIFail(ctx, err)
+		return
+	}
+	created, err := c.dictionaries.CreateItem(ctx.Request.Context(), tenantID, ctx.Param("id"), input)
+	if err != nil {
+		c.dictionaryAPIFail(ctx, err)
+		return
+	}
+	c.log.Info("system dictionary item created | 系统数据字典项已创建",
+		log.Str("type", created.TypeID),
+		log.Str("id", created.ID),
+		log.Str("value", created.Value),
+	)
+	_ = ctx.JSON(http.StatusCreated, dictionaryItemViews([]dictionary.Item{created}, c.lang(ctx))[0])
+}
+
+// APIUpdateSystemDictionaryItem updates a system item. | APIUpdateSystemDictionaryItem 更新一个系统字典项。
+//
+// @Summary Update a system dictionary item | 更新系统字典项
+// @Description Updates one system-wide item; the value is immutable. | 更新一个系统级字典项；机器值不可变。
+// @Tags system-dictionaries
+// @Accept json
+// @Produce json
+// @Param id path string true "type id | 类型 ID"
+// @Param item_id path string true "item id | 字典项 ID"
+// @Param body body dictionaryItemRequest true "item payload | 字典项载荷"
+// @Success 200 {object} dictionaryItemView "updated item | 已更新字典项"
+// @Failure 403 {object} string "not the system tenant | 不是系统租户"
+// @Failure 404 {object} string "item not found | 字典项不存在"
+// @Failure 422 {object} string "validation failed | 校验失败"
+// @Security BearerAuth
+// @Router /api/v1/system-dictionaries/{id}/items/{item_id} [put]
+func (c *Controller) APIUpdateSystemDictionaryItem(ctx *router.Ctx) {
+	if !c.dictionaryAPIAvailable(ctx) {
+		return
+	}
+	tenantID, ok := c.apiDictionaryWriteTenant(ctx, true)
+	if !ok {
+		return
+	}
+	var request dictionaryItemRequest
+	if err := ctx.Bind(&request); err != nil {
+		c.dictionaryAPIFail(ctx, dictionary.ErrInvalidInput)
+		return
+	}
+	input, err := dictionaryItemInput(request)
+	if err != nil {
+		c.dictionaryAPIFail(ctx, err)
+		return
+	}
+	updated, err := c.dictionaries.UpdateItem(ctx.Request.Context(), tenantID, ctx.Param("id"), ctx.Param("item_id"), input)
+	if err != nil {
+		c.dictionaryAPIFail(ctx, err)
+		return
+	}
+	c.log.Info("system dictionary item updated | 系统数据字典项已更新",
+		log.Str("type", updated.TypeID),
+		log.Str("id", updated.ID),
+		log.Str("value", updated.Value),
+		log.Str("status", string(updated.Status)),
+	)
+	_ = ctx.JSON(http.StatusOK, dictionaryItemViews([]dictionary.Item{updated}, c.lang(ctx))[0])
+}
+
+// APIDeleteSystemDictionaryItem deletes a system item. | APIDeleteSystemDictionaryItem 删除一个系统字典项。
+//
+// @Summary Delete a system dictionary item | 删除系统字典项
+// @Description Deletes one system-wide item. | 删除一个系统级字典项。
+// @Tags system-dictionaries
+// @Produce json
+// @Param id path string true "type id | 类型 ID"
+// @Param item_id path string true "item id | 字典项 ID"
+// @Success 204 {string} string "no content | 无内容"
+// @Failure 403 {object} string "not the system tenant | 不是系统租户"
+// @Failure 404 {object} string "item not found | 字典项不存在"
+// @Security BearerAuth
+// @Router /api/v1/system-dictionaries/{id}/items/{item_id} [delete]
+func (c *Controller) APIDeleteSystemDictionaryItem(ctx *router.Ctx) {
+	if !c.dictionaryAPIAvailable(ctx) {
+		return
+	}
+	tenantID, ok := c.apiDictionaryWriteTenant(ctx, true)
+	if !ok {
+		return
+	}
+	if err := c.dictionaries.DeleteItem(ctx.Request.Context(), tenantID, ctx.Param("id"), ctx.Param("item_id")); err != nil {
+		c.dictionaryAPIFail(ctx, err)
+		return
+	}
+	c.log.Info("system dictionary item deleted | 系统数据字典项已删除",
+		log.Str("type", ctx.Param("id")),
+		log.Str("id", ctx.Param("item_id")),
+	)
+	if err := ctx.NoContent(http.StatusNoContent); err != nil {
+		c.log.Warn("system dictionary item API delete response failed | 系统数据字典项 API 删除响应失败", log.Err(err))
+	}
+}

@@ -105,11 +105,12 @@ func BuiltinCatalog() []BuiltinType {
 	return out
 }
 
-// BuiltinRows materializes the predefined catalogue for one tenant. Identifiers are derived from the
-// tenant, type code and item value, so two replicas starting at the same moment generate identical
-// rows and the unique indexes turn the race into a no-op instead of an orphaned item. |
-// BuiltinRows 为一个租户生成预置目录行。标识由租户、类型编码与字典项值派生，因此同一瞬间启动的两个副本
-// 会生成完全相同的行，唯一索引把竞争变成无操作，而不是留下孤立字典项。
+// BuiltinRows materializes the predefined catalogue for one owner (a tenant or the system layer).
+// Identifiers are derived from the owner, type code and item value, so two replicas starting at the
+// same moment generate identical rows and the unique indexes turn the race into a no-op instead of
+// an orphaned item. | BuiltinRows 为一个归属方（租户或系统层）生成预置目录行。标识由归属方、
+// 类型编码与字典项值派生，因此同一瞬间启动的两个副本会生成完全相同的行，唯一索引把竞争变成
+// 无操作，而不是留下孤立字典项。
 func BuiltinRows(tenantID string, now time.Time) ([]Type, []Item) {
 	types := make([]Type, 0, len(builtinCatalog))
 	items := make([]Item, 0, len(builtinCatalog)*4)

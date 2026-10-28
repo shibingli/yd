@@ -136,6 +136,10 @@ const (
 	// PermDictionaryManage allows creating, updating and deleting dictionary types and items. |
 	// PermDictionaryManage 允许创建、修改与删除数据字典类型及字典项。
 	PermDictionaryManage = "dictionary:manage"
+	// PermDictionarySystemManage allows managing the system-wide dictionary layer from the configured
+	// system tenant. It has no effect in any other tenant. | PermDictionarySystemManage 允许从配置的
+	// 系统租户管理系统级字典层；在其它租户中不生效。
+	PermDictionarySystemManage = "dictionary:system_manage"
 )
 
 // Role names. | 角色名。
@@ -199,6 +203,7 @@ var builtinPermissions = []Permission{
 	{Name: PermDictionaryResolve, Description: "Resolve enabled dictionaries for forms and clients | 为表单与客户端解析启用的数据字典"},
 	{Name: PermDictionaryRead, Description: "List dictionary types and items in the back office | 在后台列出数据字典类型与字典项"},
 	{Name: PermDictionaryManage, Description: "Manage dictionary types and items | 管理数据字典类型与字典项"},
+	{Name: PermDictionarySystemManage, Description: "Manage the system-wide dictionary layer from the configured system tenant | 从配置的系统租户管理系统级字典层"},
 }
 
 // builtinRoles is the framework role vocabulary. | builtinRoles 是框架角色词汇表。

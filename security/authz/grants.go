@@ -53,7 +53,7 @@ var builtinGrants = []Grant{
 			PermMessageRead, PermMessageSend, PermMessageUpdate, PermMessageDelete,
 			PermMessageSystem, PermMessageManage, PermMessageTypeRead, PermMessageTypeManage,
 			PermAttachmentCreate, PermAttachmentRead, PermAttachmentReadOwn, PermAttachmentDelete, PermAttachmentManage,
-			PermDictionaryResolve, PermDictionaryRead, PermDictionaryManage,
+			PermDictionaryResolve, PermDictionaryRead, PermDictionaryManage, PermDictionarySystemManage,
 		},
 	},
 	{
@@ -84,7 +84,7 @@ var builtinGrants = []Grant{
 			PermMessageRead, PermMessageSend, PermMessageUpdate, PermMessageDelete,
 			PermMessageSystem, PermMessageManage, PermMessageTypeRead, PermMessageTypeManage,
 			PermAttachmentCreate, PermAttachmentRead, PermAttachmentReadOwn, PermAttachmentDelete, PermAttachmentManage,
-			PermDictionaryResolve, PermDictionaryRead, PermDictionaryManage,
+			PermDictionaryResolve, PermDictionaryRead, PermDictionaryManage, PermDictionarySystemManage,
 		},
 	},
 	{

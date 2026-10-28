@@ -9,19 +9,32 @@
   data.table.open/close/empty because their rows contain menus and forms (complex rows).
 */}}
 {{- define "mgr/pages/dictionaries" -}}
-<section class="yd-page" data-yd-page="dictionaries" aria-labelledby="yd-dictionaries-title">
+<section class="yd-page" data-yd-page="{{ .PageID }}" aria-labelledby="yd-dictionaries-title">
   <header class="yd-page__header">
     <div>
-      <h1 class="yd-page__title" id="yd-dictionaries-title">{{ tr "page.dictionaries.title" }}</h1>
-      <p class="yd-page__subtitle">{{ tr "page.dictionaries.subtitle" }}</p>
+      <h1 class="yd-page__title" id="yd-dictionaries-title">{{ if .SystemScope }}{{ tr "page.dictionaries.system_title" }}{{ else }}{{ tr "page.dictionaries.title" }}{{ end }}</h1>
+      <p class="yd-page__subtitle">{{ if .SystemScope }}{{ tr "page.dictionaries.system_subtitle" }}{{ else }}{{ tr "page.dictionaries.subtitle" }}{{ end }}</p>
     </div>
     {{- if .CanManage }}
     <button type="button" class="yd-btn yd-btn--primary" data-yd-drawer-open
-            hx-get="/mgr/dictionaries/new" hx-target="#yd-drawer-body" hx-swap="innerHTML">
+            hx-get="{{ .BasePath }}/new" hx-target="#yd-drawer-body" hx-swap="innerHTML">
       {{ template "partials/icon" "lucide-plus" }}{{ tr "dictionary.type.new" }}
     </button>
     {{- end }}
   </header>
+
+  {{ template "components.navigation.tabs" (dict
+    "LabelKey" "dictionary.scope.label" "Label" (tr "dictionary.scope.label")
+    "Items" (list
+      (dict "LabelKey" "dictionary.scope.tenant" "Label" (tr "dictionary.scope.tenant")
+            "Href" "/mgr/dictionaries" "Get" "/mgr/dictionaries" "Target" "#yd-workspace"
+            "Swap" "innerMorph" "PushURL" true "Active" (not .SystemScope))
+      (dict "LabelKey" "dictionary.scope.system" "Label" (tr "dictionary.scope.system")
+            "Href" "/mgr/system-dictionaries" "Get" "/mgr/system-dictionaries" "Target" "#yd-workspace"
+            "Swap" "innerMorph" "PushURL" true "Active" .SystemScope))) }}
+  {{- if and .SystemScope (not .CanManage) }}
+  <p class="yd-hint">{{ tr "dictionary.scope.readonly" }}</p>
+  {{- end }}
 
   <div class="yd-workbench" id="yd-dictionary-workbench">
     <section class="yd-card yd-section" aria-labelledby="yd-dictionary-types-title">
@@ -30,8 +43,8 @@
       </header>
 
       {{ template "components.form.search" (dict
-        "ID" "yd-dictionary-search" "Action" "/mgr/dictionaries"
-        "Get" "/mgr/dictionaries" "Target" "#yd-workspace" "Swap" "innerMorph" "PushURL" true
+        "ID" "yd-dictionary-search" "Action" .BasePath
+        "Get" .BasePath "Target" "#yd-workspace" "Swap" "innerMorph" "PushURL" true
         "Trigger" "input changed delay:300ms from:#yd-dictionary-search, submit"
         "Name" "q" "Value" .Keyword
         "Label" (tr "dictionary.type.search") "LabelKey" "dictionary.type.search"
@@ -77,9 +90,9 @@
               <summary class="yd-icon-btn" aria-label="{{ tr "ui.actions" }}">{{ template "partials/icon" "lucide-more-horizontal" }}</summary>
               <div class="yd-menu__panel" role="menu">
                 <button type="button" class="yd-menu__item yd-menu__item--with-icon" role="menuitem" data-yd-drawer-open
-                        hx-get="/mgr/dictionaries/{{ .ID }}/edit" hx-target="#yd-drawer-body" hx-swap="innerHTML">{{ template "partials/icon" "lucide-pen-line" }}{{ tr "ui.edit" }}</button>
-                <form method="post" action="/mgr/dictionaries/{{ .ID }}/status"
-                      hx-post="/mgr/dictionaries/{{ .ID }}/status" hx-target="#yd-workspace" hx-swap="innerMorph"
+                        hx-get="{{ $.BasePath }}/{{ .ID }}/edit" hx-target="#yd-drawer-body" hx-swap="innerHTML">{{ template "partials/icon" "lucide-pen-line" }}{{ tr "ui.edit" }}</button>
+                <form method="post" action="{{ $.BasePath }}/{{ .ID }}/status"
+                      hx-post="{{ $.BasePath }}/{{ .ID }}/status" hx-target="#yd-workspace" hx-swap="innerMorph"
                       hx-status:409="target:#yd-errors swap:innerHTML" hx-status:422="target:#yd-errors swap:innerHTML"
                       data-yd-confirm="{{ tr "confirm.toggle_dictionary" }}">
                   <input type="hidden" name="status" value="{{ if eq .Status $.StatusEnabled }}{{ $.StatusDisabled }}{{ else }}{{ $.StatusEnabled }}{{ end }}">
@@ -89,8 +102,8 @@
                   </button>
                 </form>
                 {{- if not .Builtin }}
-                <form method="post" action="/mgr/dictionaries/{{ .ID }}/delete"
-                      hx-post="/mgr/dictionaries/{{ .ID }}/delete" hx-target="#yd-workspace" hx-swap="innerMorph"
+                <form method="post" action="{{ $.BasePath }}/{{ .ID }}/delete"
+                      hx-post="{{ $.BasePath }}/{{ .ID }}/delete" hx-target="#yd-workspace" hx-swap="innerMorph"
                       hx-status:409="target:#yd-errors swap:innerHTML" hx-status:422="target:#yd-errors swap:innerHTML"
                       data-yd-confirm="{{ tr "confirm.delete_dictionary" }}">
                   <button type="submit" class="yd-menu__item yd-menu__item--with-icon" role="menuitem">{{ template "partials/icon" "lucide-trash-2" }}{{ tr "ui.delete" }}</button>
@@ -132,14 +145,14 @@
         </div>
         {{- if .CanManage }}
         <button type="button" class="yd-btn yd-btn--primary yd-btn--sm" data-yd-drawer-open
-                hx-get="/mgr/dictionaries/{{ .Selected.ID }}/items/new" hx-target="#yd-drawer-body" hx-swap="innerHTML">
+                hx-get="{{ .BasePath }}/{{ .Selected.ID }}/items/new" hx-target="#yd-drawer-body" hx-swap="innerHTML">
           {{ template "partials/icon" "lucide-plus" }}{{ tr "dictionary.item.new" }}
         </button>
         {{- end }}
       </header>
 
-      <form class="yd-toolbar" role="search" method="get" action="/mgr/dictionaries"
-            hx-get="/mgr/dictionaries" hx-target="#yd-workspace" hx-swap="innerMorph" hx-push-url="true"
+      <form class="yd-toolbar" role="search" method="get" action="{{ .BasePath }}"
+            hx-get="{{ .BasePath }}" hx-target="#yd-workspace" hx-swap="innerMorph" hx-push-url="true"
             hx-trigger="input changed delay:300ms from:#yd-dictionary-item-search, submit">
         <input type="hidden" name="type" value="{{ .Selected.ID }}">
         <input type="hidden" name="q" value="{{ .Keyword }}">
@@ -193,9 +206,9 @@
               <summary class="yd-icon-btn" aria-label="{{ tr "ui.actions" }}">{{ template "partials/icon" "lucide-more-horizontal" }}</summary>
               <div class="yd-menu__panel" role="menu">
                 <button type="button" class="yd-menu__item yd-menu__item--with-icon" role="menuitem" data-yd-drawer-open
-                        hx-get="/mgr/dictionaries/{{ $.Selected.ID }}/items/{{ .ID }}/edit" hx-target="#yd-drawer-body" hx-swap="innerHTML">{{ template "partials/icon" "lucide-pen-line" }}{{ tr "ui.edit" }}</button>
-                <form method="post" action="/mgr/dictionaries/{{ $.Selected.ID }}/items/{{ .ID }}/status"
-                      hx-post="/mgr/dictionaries/{{ $.Selected.ID }}/items/{{ .ID }}/status" hx-target="#yd-workspace" hx-swap="innerMorph"
+                        hx-get="{{ $.BasePath }}/{{ $.Selected.ID }}/items/{{ .ID }}/edit" hx-target="#yd-drawer-body" hx-swap="innerHTML">{{ template "partials/icon" "lucide-pen-line" }}{{ tr "ui.edit" }}</button>
+                <form method="post" action="{{ $.BasePath }}/{{ $.Selected.ID }}/items/{{ .ID }}/status"
+                      hx-post="{{ $.BasePath }}/{{ $.Selected.ID }}/items/{{ .ID }}/status" hx-target="#yd-workspace" hx-swap="innerMorph"
                       hx-status:409="target:#yd-errors swap:innerHTML" hx-status:422="target:#yd-errors swap:innerHTML"
                       data-yd-confirm="{{ tr "confirm.toggle_dictionary_item" }}">
                   <input type="hidden" name="status" value="{{ if eq .Status $.StatusEnabled }}{{ $.StatusDisabled }}{{ else }}{{ $.StatusEnabled }}{{ end }}">
@@ -204,8 +217,8 @@
                     {{- else }}{{ template "partials/icon" "lucide-circle-check" }}{{ tr "ui.enable" }}{{ end }}
                   </button>
                 </form>
-                <form method="post" action="/mgr/dictionaries/{{ $.Selected.ID }}/items/{{ .ID }}/delete"
-                      hx-post="/mgr/dictionaries/{{ $.Selected.ID }}/items/{{ .ID }}/delete" hx-target="#yd-workspace" hx-swap="innerMorph"
+                <form method="post" action="{{ $.BasePath }}/{{ $.Selected.ID }}/items/{{ .ID }}/delete"
+                      hx-post="{{ $.BasePath }}/{{ $.Selected.ID }}/items/{{ .ID }}/delete" hx-target="#yd-workspace" hx-swap="innerMorph"
                       hx-status:409="target:#yd-errors swap:innerHTML" hx-status:422="target:#yd-errors swap:innerHTML"
                       data-yd-confirm="{{ tr "confirm.delete_dictionary_item" }}">
                   <button type="submit" class="yd-menu__item yd-menu__item--with-icon" role="menuitem">{{ template "partials/icon" "lucide-trash-2" }}{{ tr "ui.delete" }}</button>

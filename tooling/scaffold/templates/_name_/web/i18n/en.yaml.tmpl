@@ -408,6 +408,8 @@ page:
   dictionaries:
     title: "Data dictionaries"
     subtitle: "Maintain the tenant's enumerations and their items; codes and machine values are immutable"
+    system_title: "System data dictionaries"
+    system_subtitle: "A globally shared layer; tenant dictionaries win, and the system layer is the fallback"
   message_admin:
     title: "Moderation"
     subtitle: "Search every message, revoke announcements and review the audit trail"
@@ -417,6 +419,11 @@ page:
 
 dictionary:
   current: "Current"
+  scope:
+    label: "Dictionary scope"
+    tenant: "Tenant dictionaries"
+    system: "System dictionaries"
+    readonly: "System dictionaries can be changed only by the configured system tenant."
   type:
     title: "Dictionary types"
     new: "New dictionary"

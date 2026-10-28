@@ -445,6 +445,22 @@ func registerProtected(a *app.App, ctrl *controller.Controller, store *repositor
 	g.POST("/mgr/dictionaries/:id/items/:item_id/status", ctrl.SetDictionaryItemStatus, authz.Require(authz.PermDictionaryManage))
 	g.POST("/mgr/dictionaries/:id/items/:item_id/delete", ctrl.DeleteDictionaryItem, authz.Require(authz.PermDictionaryManage))
 
+	// 系统级字典：所有后台读者可查看，只有配置的系统租户且持有 dictionary:system_manage 的成员可变更。
+	// System dictionaries: every back-office reader may view them; only members of the configured
+	// system tenant holding dictionary:system_manage may mutate them.
+	g.GET("/mgr/system-dictionaries", ctrl.SystemDictionaries, authz.Require(authz.PermDictionaryRead))
+	g.GET("/mgr/system-dictionaries/new", ctrl.NewSystemDictionaryDrawer, authz.Require(authz.PermDictionarySystemManage))
+	g.GET("/mgr/system-dictionaries/:id/edit", ctrl.EditSystemDictionaryDrawer, authz.Require(authz.PermDictionarySystemManage))
+	g.POST("/mgr/system-dictionaries", ctrl.SaveSystemDictionary, authz.Require(authz.PermDictionarySystemManage))
+	g.POST("/mgr/system-dictionaries/:id", ctrl.UpdateSystemDictionary, authz.Require(authz.PermDictionarySystemManage))
+	g.POST("/mgr/system-dictionaries/:id/status", ctrl.SetSystemDictionaryStatus, authz.Require(authz.PermDictionarySystemManage))
+	g.POST("/mgr/system-dictionaries/:id/delete", ctrl.DeleteSystemDictionary, authz.Require(authz.PermDictionarySystemManage))
+	g.GET("/mgr/system-dictionaries/:id/items/new", ctrl.NewSystemDictionaryItemDrawer, authz.Require(authz.PermDictionarySystemManage))
+	g.GET("/mgr/system-dictionaries/:id/items/:item_id/edit", ctrl.EditSystemDictionaryItemDrawer, authz.Require(authz.PermDictionarySystemManage))
+	g.POST("/mgr/system-dictionaries/:id/items", ctrl.SaveSystemDictionaryItem, authz.Require(authz.PermDictionarySystemManage))
+	g.POST("/mgr/system-dictionaries/:id/items/:item_id/status", ctrl.SetSystemDictionaryItemStatus, authz.Require(authz.PermDictionarySystemManage))
+	g.POST("/mgr/system-dictionaries/:id/items/:item_id/delete", ctrl.DeleteSystemDictionaryItem, authz.Require(authz.PermDictionarySystemManage))
+
 	// 数据字典 API：门户批量/单条解析只读启用数据；后台 CRUD 与页面共用同一份服务。
 	// The data-dictionary API: the portal batch/single resolver reads enabled data only, while the
 	// back-office CRUD shares the very same service as the page.
@@ -459,6 +475,18 @@ func registerProtected(a *app.App, ctrl *controller.Controller, store *repositor
 	g.POST("/api/v1/dictionaries/:id/items", ctrl.APICreateDictionaryItem, authz.Require(authz.PermDictionaryManage))
 	g.PUT("/api/v1/dictionaries/:id/items/:item_id", ctrl.APIUpdateDictionaryItem, authz.Require(authz.PermDictionaryManage))
 	g.DELETE("/api/v1/dictionaries/:id/items/:item_id", ctrl.APIDeleteDictionaryItem, authz.Require(authz.PermDictionaryManage))
+
+	// 系统级字典 API：读取对全部后台读者开放，写入只对配置的系统租户开放。
+	// System dictionary API: reads are open to every back-office reader, writes only to the configured system tenant.
+	g.GET("/api/v1/system-dictionaries", ctrl.APISystemDictionaries, authz.Require(authz.PermDictionaryRead))
+	g.POST("/api/v1/system-dictionaries", ctrl.APICreateSystemDictionary, authz.Require(authz.PermDictionarySystemManage))
+	g.GET("/api/v1/system-dictionaries/:id", ctrl.APISystemDictionary, authz.Require(authz.PermDictionaryRead))
+	g.PUT("/api/v1/system-dictionaries/:id", ctrl.APIUpdateSystemDictionary, authz.Require(authz.PermDictionarySystemManage))
+	g.DELETE("/api/v1/system-dictionaries/:id", ctrl.APIDeleteSystemDictionary, authz.Require(authz.PermDictionarySystemManage))
+	g.GET("/api/v1/system-dictionaries/:id/items", ctrl.APISystemDictionaryItems, authz.Require(authz.PermDictionaryRead))
+	g.POST("/api/v1/system-dictionaries/:id/items", ctrl.APICreateSystemDictionaryItem, authz.Require(authz.PermDictionarySystemManage))
+	g.PUT("/api/v1/system-dictionaries/:id/items/:item_id", ctrl.APIUpdateSystemDictionaryItem, authz.Require(authz.PermDictionarySystemManage))
+	g.DELETE("/api/v1/system-dictionaries/:id/items/:item_id", ctrl.APIDeleteSystemDictionaryItem, authz.Require(authz.PermDictionarySystemManage))
 
 	// 好友生命周期：申请、接受/拒绝/取消、删除、拉黑与备注。
 	// The friend lifecycle: request, accept/reject/cancel, remove, block and remark.

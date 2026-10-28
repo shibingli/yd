@@ -249,7 +249,7 @@ func (m *memoryStore) Resolve(_ context.Context, tenantID string, codes []string
 		if _, ok := wanted[current.Code]; !ok {
 			continue
 		}
-		snapshot := Snapshot{Code: current.Code, Name: current.Name, NameEN: current.NameEN, Description: current.Description, Items: []SnapshotItem{}}
+		snapshot := Snapshot{Scope: ScopeOf(tenantID), Code: current.Code, Name: current.Name, NameEN: current.NameEN, Description: current.Description, Items: []SnapshotItem{}}
 		var items []Item
 		for _, item := range m.items {
 			if item.TenantID == tenantID && item.TypeID == current.ID && item.Status == StatusEnabled {
@@ -342,6 +342,56 @@ func TestItemDefaultAndStatusRules(t *testing.T) {
 	}
 	if _, err := service.CreateItem(ctx, "tn_a", dictionaryType.ID, ItemInput{Value: "bad", Label: "坏", Extra: "[1]"}); !errors.Is(err, ErrInvalidExtra) {
 		t.Fatalf("bad extra error = %v, want ErrInvalidExtra", err)
+	}
+}
+
+// TestResolveManyUncachedMergesSystemFallback checks the cache-disabled batch merge. |
+// TestResolveManyUncachedMergesSystemFallback 校验关闭缓存时的批量合并。
+func TestResolveManyUncachedMergesSystemFallback(t *testing.T) {
+	store := newMemoryStore()
+	service, err := New(store, nil, nil, Options{})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	ctx := context.Background()
+	systemShared, err := service.CreateType(ctx, SystemTenantID, TypeInput{Code: "shared", Name: "系统共享"})
+	if err != nil {
+		t.Fatalf("CreateType(system shared): %v", err)
+	}
+	if _, err := service.CreateItem(ctx, SystemTenantID, systemShared.ID, ItemInput{Value: "one", Label: "系统项"}); err != nil {
+		t.Fatalf("CreateItem(system shared): %v", err)
+	}
+	systemOnly, err := service.CreateType(ctx, SystemTenantID, TypeInput{Code: "system_only", Name: "仅系统"})
+	if err != nil {
+		t.Fatalf("CreateType(system only): %v", err)
+	}
+	if _, err := service.CreateItem(ctx, SystemTenantID, systemOnly.ID, ItemInput{Value: "two", Label: "系统项二"}); err != nil {
+		t.Fatalf("CreateItem(system only): %v", err)
+	}
+	tenantShared, err := service.CreateType(ctx, "tn_a", TypeInput{Code: "shared", Name: "租户覆盖"})
+	if err != nil {
+		t.Fatalf("CreateType(tenant shared): %v", err)
+	}
+	if _, err := service.CreateItem(ctx, "tn_a", tenantShared.ID, ItemInput{Value: "one", Label: "租户项"}); err != nil {
+		t.Fatalf("CreateItem(tenant shared): %v", err)
+	}
+
+	batch, err := service.ResolveMany(ctx, "tn_a", []string{"shared", "system_only"})
+	if err != nil {
+		t.Fatalf("ResolveMany tenant: %v", err)
+	}
+	if batch["shared"].Scope != ScopeTenant || batch["shared"].Name != "租户覆盖" {
+		t.Fatalf("tenant shared = %+v", batch["shared"])
+	}
+	if batch["system_only"].Scope != ScopeSystem || batch["system_only"].Name != "仅系统" {
+		t.Fatalf("system only = %+v", batch["system_only"])
+	}
+	batch, err = service.ResolveMany(ctx, "tn_b", []string{"shared"})
+	if err != nil {
+		t.Fatalf("ResolveMany fallback: %v", err)
+	}
+	if batch["shared"].Scope != ScopeSystem || batch["shared"].Name != "系统共享" {
+		t.Fatalf("system fallback = %+v", batch["shared"])
 	}
 }
 

@@ -49,7 +49,7 @@
     {{- if and .DictionaryAvailable (can .Perm.DictionaryRead) }}
     <p class="yd-nav__section">{{ tr "nav.group.data" }}</p>
     <a class="yd-nav__link" href="/mgr/dictionaries" hx-get="/mgr/dictionaries" hx-target="#yd-shell" hx-swap="innerMorph" hx-push-url="true"
-       data-yd-nav="mgr-dictionaries"{{ if hasPrefix .Path "/mgr/dictionaries" }} aria-current="page"{{ end }}>
+       data-yd-nav="mgr-dictionaries"{{ if or (hasPrefix .Path "/mgr/dictionaries") (hasPrefix .Path "/mgr/system-dictionaries") }} aria-current="page"{{ end }}>
       <span class="yd-nav__label">{{ tr "nav.dictionaries" }}</span>
     </a>
     {{- end }}

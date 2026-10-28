@@ -7,11 +7,13 @@ import (
 
 // Store persists dictionary types and their items. | Store 持久化数据字典类型及其字典项。
 //
-// Every method takes the tenant explicitly: the tenant is the hard boundary and no query may cross
-// it. The store owns the transactional rules that must be atomic (default-item exclusivity, the
+// Every method takes the owner explicitly: for tenant rows that is the tenant (the hard boundary),
+// and system rows use the reserved SystemTenantID chosen by the service layer, never by request
+// input. The store owns the transactional rules that must be atomic (default-item exclusivity, the
 // cascade of a type deletion) and reports the domain sentinels defined in this package. |
-// 每个方法都显式接收租户：租户是硬边界，任何查询都不得跨越它。存储负责必须原子的规则
-// （默认项互斥、类型删除的级联），并返回本包定义的领域哨兵。
+// 每个方法都显式接收归属方：租户行传入租户（硬边界），系统行传入服务层选择的保留
+// SystemTenantID，绝不来自请求输入。存储负责必须原子的规则（默认项互斥、类型删除的级联），
+// 并返回本包定义的领域哨兵。
 type Store interface {
 	// CreateType inserts one dictionary type. | CreateType 插入一个数据字典类型。
 	CreateType(ctx context.Context, t Type) error

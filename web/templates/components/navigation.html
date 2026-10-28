@@ -22,13 +22,16 @@
 */}}
 
 {{/* components.navigation.tabs — server-driven tab navigation. Dict keys | dict 的键:
-       Label, LabelKey, Items []{Label, LabelKey, Href, Active, Attrs (template.HTMLAttr)} */}}
+       Label, LabelKey, Items []{Label, LabelKey, Href, Active, Get, Target, Swap, PushURL,
+       Attrs (template.HTMLAttr)}. Get/Target/Swap turn each tab into an htmx request; without Get
+       the tab is a plain link. | Get/Target/Swap 把页签变成 htmx 请求；不传 Get 时是普通链接。 */}}
 {{- define "components.navigation.tabs" -}}
 <nav class="yd-tabs" aria-label="{{if .Label}}{{.Label}}{{else}}{{if .LabelKey}}{{tr .LabelKey}}{{end}}{{end}}" data-yd-i18n-attr="aria-label:{{.LabelKey}}">
   <div class="yd-tabs__list" role="list">
     {{range .Items}}
     <a class="yd-tabs__tab{{if .Active}} yd-tabs__tab--active{{end}}" role="listitem" href="{{.Href}}"
        {{if .Active}}aria-current="page"{{end}}
+       {{if .Get}}hx-get="{{.Get}}" hx-target="{{if .Target}}{{.Target}}{{else}}this{{end}}" hx-swap="{{if .Swap}}{{.Swap}}{{else}}innerHTML{{end}}" hx-push-url="{{if .PushURL}}true{{else}}false{{end}}"{{end}}
        {{with .LabelKey}}data-yd-i18n="{{.}}"{{end}} {{with .Attrs}}{{.}}{{end}}>{{if .LabelKey}}{{tr .LabelKey}}{{else}}{{.Label}}{{end}}</a>
     {{end}}
   </div>

@@ -8,8 +8,8 @@
   <p class="yd-section__hint">{{ tr "dictionary.type.hint" }}</p>
 </div>
 <form class="yd-form" method="post"
-      action="{{ if eq .Mode "edit" }}/mgr/dictionaries/{{ .Item.ID }}{{ else }}/mgr/dictionaries{{ end }}"
-      hx-post="{{ if eq .Mode "edit" }}/mgr/dictionaries/{{ .Item.ID }}{{ else }}/mgr/dictionaries{{ end }}"
+      action="{{ if eq .Mode "edit" }}{{ .BasePath }}/{{ .Item.ID }}{{ else }}{{ .BasePath }}{{ end }}"
+      hx-post="{{ if eq .Mode "edit" }}{{ .BasePath }}/{{ .Item.ID }}{{ else }}{{ .BasePath }}{{ end }}"
       hx-target="#yd-workspace" hx-swap="innerMorph"
       hx-status:409="target:#yd-drawer-errors swap:innerHTML"
       hx-status:422="target:#yd-drawer-errors swap:innerHTML"

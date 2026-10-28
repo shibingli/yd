@@ -83,20 +83,26 @@ Go {{ .GoVersion }} + Htmx {{ .HtmxVersion }} + Tailwind CSS {{ .TailwindVersion
 `allow_shared_seed` 与 `salt`；`message.node_id` 是兼容别名，留空时使用 `node.id`。
 
 数据字典在 `/mgr/dictionaries`：左侧字典类型、右侧所选类型的字典项，新建/编辑走右侧抽屉，
-启停与删除先确认。首次启动自动写入 `gender`、`yes_no`、`priority`、`task_status` 四组通用字典；
-门户解析 API 为 `/api/portal/v1/dictionaries`，后台 CRUD 在 `/api/v1/dictionaries`。
+启停与删除先确认。`/mgr/system-dictionaries` 是全局系统字典层，租户字典优先、系统字典兜底；
+系统层默认只读，配置 `dictionary.system_tenant` 后由该租户中持有 `dictionary:system_manage`
+的成员维护。首次启动自动写入 `gender`、`yes_no`、`priority`、`task_status` 四组系统内置字典，
+并为每个租户写入一份租户级副本；门户解析 API 为 `/api/portal/v1/dictionaries`，租户 CRUD 在
+`/api/v1/dictionaries`，系统 CRUD 在 `/api/v1/system-dictionaries`。
 它需要真实数据库；`--db none` 的项目会显式报告不可用，并从后台侧栏隐藏入口。
 缓存与规则见 [`docs/dictionary.md`](docs/dictionary.md)，配置项在 `configs/config.yaml` 的 `dictionary` 段
-（`cache_ttl`、`cache_negative_ttl`，环境变量 `YD_DICTIONARY_*`）。
+（`cache_ttl`、`cache_negative_ttl`、`system_tenant`，环境变量 `YD_DICTIONARY_*`）。
 
 The data dictionary lives at `/mgr/dictionaries`: types on the left, the selected type's items on the
-right, create/edit in the right drawer, and confirmation before every status change or deletion. The
-first start seeds four generic dictionaries (`gender`, `yes_no`, `priority`, `task_status`). The portal
-resolver is `/api/portal/v1/dictionaries` and the back-office CRUD is `/api/v1/dictionaries`. It needs a
-real database; a project generated with `--db none` reports it as unavailable and hides the back-office
-entry. See [`docs/dictionary.md`](docs/dictionary.md) for the cache, rules and API; configure
-`dictionary.cache_ttl` and `dictionary.cache_negative_ttl` under the `dictionary` section
-(`YD_DICTIONARY_*`).
+right, create/edit in the right drawer, and confirmation before every status change or deletion.
+`/mgr/system-dictionaries` is the global system layer; tenant dictionaries win and the system layer is
+the fallback. The system layer is read-only until `dictionary.system_tenant` names the tenant whose
+members holding `dictionary:system_manage` may maintain it. The first start seeds four system built-ins
+(`gender`, `yes_no`, `priority`, `task_status`) plus one tenant-level copy per tenant. The portal resolver
+is `/api/portal/v1/dictionaries`, tenant CRUD is `/api/v1/dictionaries`, and system CRUD is
+`/api/v1/system-dictionaries`. It needs a real database; a project generated with `--db none` reports it
+as unavailable and hides the back-office entry. See [`docs/dictionary.md`](docs/dictionary.md) for the
+cache, rules and API; configure `dictionary.cache_ttl`, `dictionary.cache_negative_ttl` and
+`dictionary.system_tenant` under the `dictionary` section (`YD_DICTIONARY_*`).
 
 GORM 查询缓存默认开启并按安全等级分流：`yd_auth_users` 永不缓存（即时撤销），成员/角色/权限/租户走
 `cache.gorm.sensitive_tables` 的独立命名空间与短 TTL；`/login`、`/account`、`/tenant`、`/mgr` 与

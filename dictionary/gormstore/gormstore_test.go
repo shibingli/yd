@@ -152,6 +152,9 @@ func TestResolveFiltersAndOrders(t *testing.T) {
 	if !ok {
 		t.Fatal("gender is missing from the resolved map")
 	}
+	if snapshot.Scope != dictionary.ScopeTenant {
+		t.Fatalf("snapshot scope = %q, want tenant", snapshot.Scope)
+	}
 	if len(snapshot.Items) != 2 {
 		t.Fatalf("resolved %d items, want 2", len(snapshot.Items))
 	}
@@ -166,6 +169,42 @@ func TestResolveFiltersAndOrders(t *testing.T) {
 	}
 	if loaded, _ := store.Resolve(ctx, "tn_other", []string{"gender"}); len(loaded) != 0 {
 		t.Fatal("cross-tenant Resolve returned rows")
+	}
+}
+
+// TestSystemScopeResolutionAndIsolation checks the reserved system owner and its scope marker. |
+// TestSystemScopeResolutionAndIsolation 校验保留的系统归属与范围标记。
+func TestSystemScopeResolutionAndIsolation(t *testing.T) {
+	store := newTestStore(t)
+	ctx := context.Background()
+	systemType := seedType(t, store, dictionary.SystemTenantID, "dict_system", "global_status")
+	seedItem(t, store, dictionary.SystemTenantID, systemType.ID, "item_active", "active", 10)
+	tenantType := seedType(t, store, "tn_a", "dict_tenant", "global_status")
+	seedItem(t, store, "tn_a", tenantType.ID, "item_tenant", "active", 10)
+
+	system, err := store.Resolve(ctx, dictionary.SystemTenantID, []string{"global_status"})
+	if err != nil {
+		t.Fatalf("Resolve(system): %v", err)
+	}
+	if system["global_status"].Scope != dictionary.ScopeSystem {
+		t.Fatalf("system snapshot = %+v", system["global_status"])
+	}
+	tenant, err := store.Resolve(ctx, "tn_a", []string{"global_status"})
+	if err != nil {
+		t.Fatalf("Resolve(tenant): %v", err)
+	}
+	if tenant["global_status"].Scope != dictionary.ScopeTenant {
+		t.Fatalf("tenant snapshot = %+v", tenant["global_status"])
+	}
+	other, err := store.Resolve(ctx, "tn_b", []string{"global_status"})
+	if err != nil || len(other) != 0 {
+		t.Fatalf("another tenant resolved system rows: %+v, %v", other, err)
+	}
+	if got, err := store.GetTypeByCode(ctx, dictionary.SystemTenantID, "global_status"); err != nil || got.ID != systemType.ID {
+		t.Fatalf("GetTypeByCode(system) = %+v, %v", got, err)
+	}
+	if _, err := store.GetTypeByCode(ctx, "tn_a", "global_status"); err != nil {
+		t.Fatalf("tenant type disappeared: %v", err)
 	}
 }
 
@@ -321,5 +360,27 @@ func TestEnsureBuiltinsIdempotentAndPreservesEdits(t *testing.T) {
 	items, _, _ = store.ListItems(ctx, "tn_a", gender.ID, dictionary.ItemFilter{Page: 1, PageSize: 10})
 	if len(items) != 2 {
 		t.Fatalf("EnsureBuiltins resurrected a deleted item: %d items", len(items))
+	}
+}
+
+// TestEnsureBuiltinsSeedsSystemLayer checks the reserved system owner. |
+// TestEnsureBuiltinsSeedsSystemLayer 校验保留的系统归属。
+func TestEnsureBuiltinsSeedsSystemLayer(t *testing.T) {
+	store := newTestStore(t)
+	ctx := context.Background()
+	inserted, err := store.EnsureBuiltins(ctx, dictionary.SystemTenantID)
+	if err != nil || inserted != len(dictionary.BuiltinCatalog()) {
+		t.Fatalf("EnsureBuiltins(system) = %d, %v", inserted, err)
+	}
+	gender, err := store.GetTypeByCode(ctx, dictionary.SystemTenantID, "gender")
+	if err != nil || gender.TenantID != dictionary.SystemTenantID || !gender.Builtin {
+		t.Fatalf("system gender = %+v, %v", gender, err)
+	}
+	if _, err := store.GetTypeByCode(ctx, "tn_a", "gender"); !errors.Is(err, dictionary.ErrNotFound) {
+		t.Fatalf("tenant unexpectedly received the system seed: %v", err)
+	}
+	snapshot, err := store.Resolve(ctx, dictionary.SystemTenantID, []string{"gender"})
+	if err != nil || snapshot["gender"].Scope != dictionary.ScopeSystem {
+		t.Fatalf("system snapshot = %+v, %v", snapshot, err)
 	}
 }

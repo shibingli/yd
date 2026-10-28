@@ -43,10 +43,10 @@ func Migrate(ctx context.Context, db *gorm.DB) error {
 	return nil
 }
 
-// EnsureBuiltins inserts the predefined dictionary types a tenant does not have yet. An existing
-// type is left untouched as a whole, so renamed labels, disabled types and deleted items survive
-// every restart. | EnsureBuiltins 插入租户尚不存在的预置字典类型。已存在的类型整体保持不变，
-// 因此改过的标签、停用的类型与删除的字典项都能在每次重启后保留。
+// EnsureBuiltins inserts the predefined dictionary types an owner (tenant or system) does not have
+// yet. An existing type is left untouched as a whole, so renamed labels, disabled types and deleted
+// items survive every restart. | EnsureBuiltins 插入归属方（租户或系统层）尚不存在的预置字典类型。
+// 已存在的类型整体保持不变，因此改过的标签、停用的类型与删除的字典项都能在每次重启后保留。
 func (s *Store) EnsureBuiltins(ctx context.Context, tenantID string) (int, error) {
 	types, items := dictionary.BuiltinRows(tenantID, time.Now().UTC())
 	codes := make([]string, 0, len(types))
@@ -458,7 +458,12 @@ func (s *Store) Resolve(ctx context.Context, tenantID string, codes []string) (m
 	for _, current := range rows {
 		snapshot, ok := out[current.TypeCode]
 		if !ok {
-			snapshot = dictionary.Snapshot{Code: current.TypeCode, Name: current.TypeName, Items: make([]dictionary.SnapshotItem, 0, 4)}
+			snapshot = dictionary.Snapshot{
+				Scope: dictionary.ScopeOf(tenantID),
+				Code:  current.TypeCode,
+				Name:  current.TypeName,
+				Items: make([]dictionary.SnapshotItem, 0, 4),
+			}
 			if current.TypeNameEN != nil {
 				snapshot.NameEN = *current.TypeNameEN
 			}

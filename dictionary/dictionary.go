@@ -1,6 +1,6 @@
-// Package dictionary owns tenant-scoped data dictionaries: named enumerations made of ordered
-// items that carry a stable machine value and bilingual labels. | Package dictionary 负责租户级
-// 数据字典：由有序字典项组成、带稳定机器值与中英标签的命名枚举。
+// Package dictionary owns tenant-scoped and system-wide data dictionaries: named enumerations
+// made of ordered items that carry a stable machine value and bilingual labels. | Package dictionary
+// 负责租户级与系统级数据字典：由有序字典项组成、带稳定机器值与中英标签的命名枚举。
 //
 // A dictionary type is identified by an immutable lower-case code, and each of its items is
 // identified by an immutable value inside that type. Business rows keep the value, never the label,
@@ -8,8 +8,10 @@
 // 字典类型由不可变的小写编码标识，其字典项由类型内不可变的机器值标识。业务数据只保存机器值、
 // 从不保存标签，因此改标签不会重写数据，停用字典项也只是不再提供选择。
 //
-// Every query is scoped by the tenant: the tenant is the hard boundary and no method may cross it. |
-// 每个查询都以租户为条件：租户是硬边界，任何方法都不得跨越它。
+// Every tenant query is scoped by its tenant; system dictionaries live under the reserved
+// SystemTenantID and are the only rows a tenant read may deliberately fall back to. |
+// 每个租户查询都以自己的租户为条件；系统级字典存放在保留的 SystemTenantID 下，
+// 是租户读取唯一允许有意回退到的行。
 package dictionary
 
 import (
@@ -46,6 +48,30 @@ var (
 	ErrUnavailable = errs.New("dictionary storage is unavailable | 数据字典存储不可用")
 )
 
+// SystemTenantID is the reserved owner of system-wide dictionaries. It is not a tenant identifier
+// and must never be used for authentication or membership. | SystemTenantID 是系统级字典的保留归属，
+// 不是租户标识，绝不能用于鉴权或成员关系。
+const SystemTenantID = "__system__"
+
+// Scope is the visibility layer of a dictionary. | Scope 是数据字典的可见范围。
+type Scope string
+
+// Dictionary scopes. | 数据字典范围。
+const (
+	// ScopeTenant is a dictionary owned by one tenant. | ScopeTenant 是由单个租户拥有的字典。
+	ScopeTenant Scope = "tenant"
+	// ScopeSystem is a dictionary shared by every tenant. | ScopeSystem 是由全部租户共享的字典。
+	ScopeSystem Scope = "system"
+)
+
+// ScopeOf reports the scope of the owner. | ScopeOf 报告归属对应的范围。
+func ScopeOf(tenantID string) Scope {
+	if tenantID == SystemTenantID {
+		return ScopeSystem
+	}
+	return ScopeTenant
+}
+
 // Status is the lifecycle state of a dictionary type or item. | Status 是数据字典类型或字典项的生命周期状态。
 type Status string
 
@@ -79,7 +105,8 @@ type Type struct {
 	UpdatedAt time.Time `json:"updated_at" gorm:"column:updated_at;autoUpdateTime"`
 	// ID is the primary key, prefixed "dict_". | ID 是主键，前缀为 dict_。
 	ID string `json:"id" gorm:"column:id;type:varchar(64);primaryKey"`
-	// TenantID is the hard tenant boundary. | TenantID 是硬租户边界。
+	// TenantID is the owner: a tenant identifier, or SystemTenantID for system rows. |
+	// TenantID 是归属方：租户标识，系统行则为 SystemTenantID。
 	TenantID string `json:"tenant_id" gorm:"column:tenant_id;type:varchar(64);not null;uniqueIndex:uidx_dict_type_code,priority:1;index:idx_dict_type_tenant_sort,priority:1;index:idx_dict_type_tenant_created,priority:1;index:idx_dict_type_tenant_status,priority:1"`
 	// Code is the immutable public identifier, unique inside the tenant. | Code 是不可变的公共标识，租户内唯一。
 	Code string `json:"code" gorm:"column:code;type:varchar(64);not null;uniqueIndex:uidx_dict_type_code,priority:2"`
@@ -110,7 +137,8 @@ type Item struct {
 	UpdatedAt time.Time `json:"updated_at" gorm:"column:updated_at;autoUpdateTime"`
 	// ID is the primary key, prefixed "dit_". | ID 是主键，前缀为 dit_。
 	ID string `json:"id" gorm:"column:id;type:varchar(64);primaryKey"`
-	// TenantID is the hard tenant boundary. | TenantID 是硬租户边界。
+	// TenantID is the owner: a tenant identifier, or SystemTenantID for system rows. |
+	// TenantID 是归属方：租户标识，系统行则为 SystemTenantID。
 	TenantID string `json:"tenant_id" gorm:"column:tenant_id;type:varchar(64);not null;uniqueIndex:uidx_dict_item_value,priority:1;index:idx_dict_item_tenant_sort,priority:1;index:idx_dict_item_tenant_status,priority:1"`
 	// TypeID is the owning dictionary type. | TypeID 是所属字典类型。
 	TypeID string `json:"type_id" gorm:"column:type_id;type:varchar(64);not null;uniqueIndex:uidx_dict_item_value,priority:2;index:idx_dict_item_tenant_sort,priority:2;index:idx_dict_item_tenant_status,priority:2"`
@@ -153,6 +181,8 @@ type SnapshotItem struct {
 
 // Snapshot is the cacheable public view of one enabled dictionary type. | Snapshot 是一个启用字典类型的可缓存公共视图。
 type Snapshot struct {
+	// Scope is the layer that supplied the dictionary: tenant or system. | Scope 是提供该字典的层级：租户或系统。
+	Scope Scope `json:"scope"`
 	// Code is the immutable dictionary code. | Code 是不可变字典编码。
 	Code string `json:"code"`
 	// Name is the Chinese display name. | Name 是中文展示名。

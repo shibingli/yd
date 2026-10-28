@@ -1,7 +1,8 @@
 {{/*
-  This file owns the data-dictionary workbench handlers: the page, the create/edit drawers, and the
-  status and delete actions.
-  本文件承载数据字典工作台处理器：页面、新建/编辑抽屉，以及启停与删除动作。
+  This file owns the data-dictionary workbench: the page, the type drawers, the type status and
+  delete actions, and the shared page assembly. Item handlers live in dictionary_item_controller.go.
+  本文件承载数据字典工作台：页面、类型抽屉、类型启停与删除动作，以及共享页面组装。
+  字典项处理器位于 dictionary_item_controller.go。
 */}}
 
 package controller
@@ -16,6 +17,13 @@ import (
 	"{{ .YdModule }}/security/authz"
 	"{{ .YdxModule }}/log"
 	"{{ .YdxModule }}/router"
+)
+
+const (
+	// dictionaryBasePath is the tenant workbench and its mutation prefix. | dictionaryBasePath 是租户工作台及其变更前缀。
+	dictionaryBasePath = "/mgr/dictionaries"
+	// systemDictionaryBasePath is the system workbench and its mutation prefix. | systemDictionaryBasePath 是系统工作台及其变更前缀。
+	systemDictionaryBasePath = "/mgr/system-dictionaries"
 )
 
 // Dictionaries renders the data-dictionary workbench. | Dictionaries 渲染数据字典工作台。
@@ -36,20 +44,62 @@ import (
 // @Security BearerAuth
 // @Router /mgr/dictionaries [get]
 func (c *Controller) Dictionaries(ctx *router.Ctx) {
+	c.dictionaryWorkbench(ctx, false)
+}
+
+// dictionaryWorkbench renders either the tenant or the system workbench. | dictionaryWorkbench
+// 渲染租户或系统工作台。
+func (c *Controller) dictionaryWorkbench(ctx *router.Ctx, system bool) {
 	if !c.DictionariesAvailable() {
 		c.dictionaryUnavailable(ctx)
 		return
 	}
-	tenantID, ok := c.tenantID(ctx)
+	tenantID, basePath, scope, canManage, ok := c.dictionaryReadTarget(ctx, system)
 	if !ok {
 		return
 	}
-	data, err := c.dictionaryPageData(ctx, tenantID, ctx.Query("type"), ctx.Query(FieldKeyword), ctx.Query(FieldItemQuery), pageNumber(ctx), dictionaryItemPageNumber(ctx))
+	data, err := c.dictionaryPageData(ctx, tenantID, ctx.Query("type"), ctx.Query(FieldKeyword), ctx.Query(FieldItemQuery), pageNumber(ctx), dictionaryItemPageNumber(ctx), basePath, scope, canManage)
 	if err != nil {
 		c.failService(ctx, err)
 		return
 	}
 	c.render(ctx, http.StatusOK, TplDictionaries, data)
+}
+
+// dictionaryReadTarget returns the tenant, base path, scope and write capability of a workbench
+// read. | dictionaryReadTarget 返回工作台读取使用的租户、基础路径、范围与写权限。
+func (c *Controller) dictionaryReadTarget(ctx *router.Ctx, system bool) (string, string, dictionary.Scope, bool, bool) {
+	if system {
+		return dictionary.SystemTenantID, systemDictionaryBasePath, dictionary.ScopeSystem, c.CanManageSystemDictionaries(ctx), true
+	}
+	tenantID, ok := c.tenantID(ctx)
+	if !ok {
+		return "", "", "", false, false
+	}
+	return tenantID, dictionaryBasePath, dictionary.ScopeTenant, authz.Can(ctx.Request.Context(), authz.PermDictionaryManage), true
+}
+
+// dictionaryMutationTarget authorizes a tenant or system mutation and returns its target. System
+// writes require both dictionary:system_manage and membership in the configured system tenant. |
+// dictionaryMutationTarget 授权租户或系统变更并返回目标；系统写入同时要求
+// dictionary:system_manage 与配置系统租户的成员关系。
+func (c *Controller) dictionaryMutationTarget(ctx *router.Ctx, system bool) (string, string, dictionary.Scope, bool, bool) {
+	if system {
+		if !c.CanManageSystemDictionaries(ctx) {
+			c.fail(ctx, http.StatusForbidden, msgForbidden)
+			return "", "", "", false, false
+		}
+		return dictionary.SystemTenantID, systemDictionaryBasePath, dictionary.ScopeSystem, true, true
+	}
+	tenantID, ok := c.tenantID(ctx)
+	if !ok {
+		return "", "", "", false, false
+	}
+	if !authz.Can(ctx.Request.Context(), authz.PermDictionaryManage) {
+		c.fail(ctx, http.StatusForbidden, msgForbidden)
+		return "", "", "", false, false
+	}
+	return tenantID, dictionaryBasePath, dictionary.ScopeTenant, true, true
 }
 
 // NewDictionaryDrawer renders the create-type drawer. | NewDictionaryDrawer 渲染新建类型抽屉。
@@ -63,13 +113,28 @@ func (c *Controller) Dictionaries(ctx *router.Ctx) {
 // @Security BearerAuth
 // @Router /mgr/dictionaries/new [get]
 func (c *Controller) NewDictionaryDrawer(ctx *router.Ctx) {
+	c.newDictionaryDrawer(ctx, false)
+}
+
+// newDictionaryDrawer renders a type drawer for one scope. | newDictionaryDrawer 渲染一个范围类型抽屉。
+func (c *Controller) newDictionaryDrawer(ctx *router.Ctx, system bool) {
 	if !c.DictionariesAvailable() {
 		c.dictionaryUnavailable(ctx)
 		return
 	}
-	c.render(ctx, http.StatusOK, TplDictionaryTypeDrawer, c.pageView(ctx, "新建数据字典 | New dictionary", map[string]any{
-		"Mode": "create",
-		"Item": dictionaryTypeView{Status: string(dictionary.StatusEnabled)},
+	_, basePath, scope, _, ok := c.dictionaryMutationTarget(ctx, system)
+	if !ok {
+		return
+	}
+	title := "新建数据字典 | New dictionary"
+	if system {
+		title = "新建系统字典 | New system dictionary"
+	}
+	c.render(ctx, http.StatusOK, TplDictionaryTypeDrawer, c.pageView(ctx, title, map[string]any{
+		"Mode":     "create",
+		"BasePath": basePath,
+		"Scope":    string(scope),
+		"Item":     dictionaryTypeView{Status: string(dictionary.StatusEnabled)},
 	}))
 }
 
@@ -86,11 +151,16 @@ func (c *Controller) NewDictionaryDrawer(ctx *router.Ctx) {
 // @Security BearerAuth
 // @Router /mgr/dictionaries/{id}/edit [get]
 func (c *Controller) EditDictionaryDrawer(ctx *router.Ctx) {
+	c.editDictionaryDrawer(ctx, false)
+}
+
+// editDictionaryDrawer renders the edit-type drawer for one scope. | editDictionaryDrawer 渲染一个范围的编辑类型抽屉。
+func (c *Controller) editDictionaryDrawer(ctx *router.Ctx, system bool) {
 	if !c.DictionariesAvailable() {
 		c.dictionaryUnavailable(ctx)
 		return
 	}
-	tenantID, ok := c.tenantID(ctx)
+	tenantID, basePath, scope, _, ok := c.dictionaryMutationTarget(ctx, system)
 	if !ok {
 		return
 	}
@@ -99,9 +169,15 @@ func (c *Controller) EditDictionaryDrawer(ctx *router.Ctx) {
 		c.failService(ctx, err)
 		return
 	}
-	c.render(ctx, http.StatusOK, TplDictionaryTypeDrawer, c.pageView(ctx, "编辑数据字典 | Edit dictionary", map[string]any{
-		"Mode": "edit",
-		"Item": dictionaryTypeViews([]dictionary.Type{current}, c.lang(ctx))[0],
+	title := "编辑数据字典 | Edit dictionary"
+	if system {
+		title = "编辑系统字典 | Edit system dictionary"
+	}
+	c.render(ctx, http.StatusOK, TplDictionaryTypeDrawer, c.pageView(ctx, title, map[string]any{
+		"Mode":     "edit",
+		"BasePath": basePath,
+		"Scope":    string(scope),
+		"Item":     dictionaryTypeViews([]dictionary.Type{current}, c.lang(ctx))[0],
 	}))
 }
 
@@ -124,7 +200,7 @@ func (c *Controller) EditDictionaryDrawer(ctx *router.Ctx) {
 // @Security BearerAuth
 // @Router /mgr/dictionaries [post]
 func (c *Controller) SaveDictionary(ctx *router.Ctx) {
-	c.saveDictionary(ctx, "")
+	c.saveDictionary(ctx, "", false)
 }
 
 // UpdateDictionary updates one dictionary type selected by the path. | UpdateDictionary 更新路径指定的一个字典类型。
@@ -148,17 +224,17 @@ func (c *Controller) SaveDictionary(ctx *router.Ctx) {
 // @Security BearerAuth
 // @Router /mgr/dictionaries/{id} [post]
 func (c *Controller) UpdateDictionary(ctx *router.Ctx) {
-	c.saveDictionary(ctx, ctx.Param("id"))
+	c.saveDictionary(ctx, ctx.Param("id"), false)
 }
 
 // saveDictionary is the shared create/update path. An empty id creates a type. | saveDictionary 是新建/更新的共享路径；
 // id 为空时新建。
-func (c *Controller) saveDictionary(ctx *router.Ctx, id string) {
+func (c *Controller) saveDictionary(ctx *router.Ctx, id string, system bool) {
 	if !c.DictionariesAvailable() {
 		c.dictionaryUnavailable(ctx)
 		return
 	}
-	tenantID, ok := c.tenantID(ctx)
+	tenantID, basePath, scope, canManage, ok := c.dictionaryMutationTarget(ctx, system)
 	if !ok {
 		return
 	}
@@ -186,10 +262,11 @@ func (c *Controller) saveDictionary(ctx *router.Ctx, id string) {
 	c.log.Info("dictionary type saved | 数据字典类型已保存",
 		log.Str("id", saved.ID),
 		log.Str("code", saved.Code),
+		log.Str("scope", string(scope)),
 		log.Str("status", string(saved.Status)),
 	)
 	c.toast(ctx, "字典类型已保存 | dictionary type saved")
-	c.respondDictionaryPage(ctx, tenantID, saved.ID)
+	c.respondDictionaryPage(ctx, tenantID, saved.ID, basePath, scope, canManage)
 }
 
 // SetDictionaryStatus enables or disables one type. | SetDictionaryStatus 启用或停用一个类型。
@@ -205,11 +282,16 @@ func (c *Controller) saveDictionary(ctx *router.Ctx, id string) {
 // @Security BearerAuth
 // @Router /mgr/dictionaries/{id}/status [post]
 func (c *Controller) SetDictionaryStatus(ctx *router.Ctx) {
+	c.setDictionaryStatus(ctx, false)
+}
+
+// setDictionaryStatus flips one type in either scope. | setDictionaryStatus 切换任一范围的类型状态。
+func (c *Controller) setDictionaryStatus(ctx *router.Ctx, system bool) {
 	if !c.DictionariesAvailable() {
 		c.dictionaryUnavailable(ctx)
 		return
 	}
-	tenantID, ok := c.tenantID(ctx)
+	tenantID, basePath, scope, canManage, ok := c.dictionaryMutationTarget(ctx, system)
 	if !ok {
 		return
 	}
@@ -220,10 +302,11 @@ func (c *Controller) SetDictionaryStatus(ctx *router.Ctx) {
 	}
 	c.log.Info("dictionary type status updated | 数据字典类型状态已更新",
 		log.Str("id", updated.ID),
+		log.Str("scope", string(scope)),
 		log.Str("status", string(updated.Status)),
 	)
 	c.toast(ctx, "字典类型状态已更新 | dictionary type status updated")
-	c.respondDictionaryPage(ctx, tenantID, ctx.Param("id"))
+	c.respondDictionaryPage(ctx, tenantID, ctx.Param("id"), basePath, scope, canManage)
 }
 
 // DeleteDictionary deletes one type and every item it owns. | DeleteDictionary 删除一个类型及其全部字典项。
@@ -239,11 +322,16 @@ func (c *Controller) SetDictionaryStatus(ctx *router.Ctx) {
 // @Security BearerAuth
 // @Router /mgr/dictionaries/{id}/delete [post]
 func (c *Controller) DeleteDictionary(ctx *router.Ctx) {
+	c.deleteDictionary(ctx, false)
+}
+
+// deleteDictionary removes one type in either scope. | deleteDictionary 删除任一范围的类型。
+func (c *Controller) deleteDictionary(ctx *router.Ctx, system bool) {
 	if !c.DictionariesAvailable() {
 		c.dictionaryUnavailable(ctx)
 		return
 	}
-	tenantID, ok := c.tenantID(ctx)
+	tenantID, basePath, scope, canManage, ok := c.dictionaryMutationTarget(ctx, system)
 	if !ok {
 		return
 	}
@@ -251,228 +339,19 @@ func (c *Controller) DeleteDictionary(ctx *router.Ctx) {
 		c.failService(ctx, err)
 		return
 	}
-	c.log.Info("dictionary type deleted | 数据字典类型已删除", log.Str("id", ctx.Param("id")))
+	c.log.Info("dictionary type deleted | 数据字典类型已删除",
+		log.Str("id", ctx.Param("id")),
+		log.Str("scope", string(scope)),
+	)
 	c.toast(ctx, "字典类型已删除 | dictionary type deleted")
-	c.respondDictionaryPage(ctx, tenantID, "")
-}
-
-// NewDictionaryItemDrawer renders the create-item drawer. | NewDictionaryItemDrawer 渲染新建字典项抽屉。
-//
-// @Summary Create dictionary item drawer | 新建字典项抽屉
-// @Description Renders an empty item form for one type. | 为指定类型渲染空的字典项表单。
-// @Tags dictionaries
-// @Accept html
-// @Produce html
-// @Param id path string true "type id | 类型 ID"
-// @Success 200 {object} string "drawer fragment | 抽屉片段"
-// @Security BearerAuth
-// @Router /mgr/dictionaries/{id}/items/new [get]
-func (c *Controller) NewDictionaryItemDrawer(ctx *router.Ctx) {
-	if !c.DictionariesAvailable() {
-		c.dictionaryUnavailable(ctx)
-		return
-	}
-	tenantID, ok := c.tenantID(ctx)
-	if !ok {
-		return
-	}
-	current, err := c.dictionaries.GetType(ctx.Request.Context(), tenantID, ctx.Param("id"))
-	if err != nil {
-		c.failService(ctx, err)
-		return
-	}
-	c.render(ctx, http.StatusOK, TplDictionaryItemDrawer, c.pageView(ctx, "新建字典项 | New dictionary item", map[string]any{
-		"Mode":      "create",
-		"TypeID":    current.ID,
-		"TypeCode":  current.Code,
-		"TypeLabel": dictionaryTypeViews([]dictionary.Type{current}, c.lang(ctx))[0].Label,
-		"Item":      dictionaryItemView{Status: string(dictionary.StatusEnabled)},
-	}))
-}
-
-// EditDictionaryItemDrawer renders the edit-item drawer. | EditDictionaryItemDrawer 渲染编辑字典项抽屉。
-//
-// @Summary Edit dictionary item drawer | 编辑字典项抽屉
-// @Description Renders the item form for one type and item. | 渲染指定类型与字典项的表单。
-// @Tags dictionaries
-// @Accept html
-// @Produce html
-// @Param id path string true "type id | 类型 ID"
-// @Param item_id path string true "item id | 字典项 ID"
-// @Success 200 {object} string "drawer fragment | 抽屉片段"
-// @Failure 404 {object} string "item not found | 字典项不存在"
-// @Security BearerAuth
-// @Router /mgr/dictionaries/{id}/items/{item_id}/edit [get]
-func (c *Controller) EditDictionaryItemDrawer(ctx *router.Ctx) {
-	if !c.DictionariesAvailable() {
-		c.dictionaryUnavailable(ctx)
-		return
-	}
-	tenantID, ok := c.tenantID(ctx)
-	if !ok {
-		return
-	}
-	current, err := c.dictionaries.GetType(ctx.Request.Context(), tenantID, ctx.Param("id"))
-	if err != nil {
-		c.failService(ctx, err)
-		return
-	}
-	item, err := c.dictionaries.GetItem(ctx.Request.Context(), tenantID, current.ID, ctx.Param("item_id"))
-	if err != nil {
-		c.failService(ctx, err)
-		return
-	}
-	c.render(ctx, http.StatusOK, TplDictionaryItemDrawer, c.pageView(ctx, "编辑字典项 | Edit dictionary item", map[string]any{
-		"Mode":      "edit",
-		"TypeID":    current.ID,
-		"TypeCode":  current.Code,
-		"TypeLabel": dictionaryTypeViews([]dictionary.Type{current}, c.lang(ctx))[0].Label,
-		"Item":      dictionaryItemViews([]dictionary.Item{item}, c.lang(ctx))[0],
-	}))
-}
-
-// SaveDictionaryItem creates or updates one item. The hidden id selects the mode. | SaveDictionaryItem
-// 新建或更新一个字典项；隐藏的 id 字段决定模式。
-//
-// @Summary Save dictionary item | 保存字典项
-// @Description Creates an item when the id is absent, otherwise updates it. The value is immutable after creation.
-// @Description 没有 id 时新建字典项，否则更新；机器值在创建后不可修改。
-// @Tags dictionaries
-// @Accept html
-// @Produce html
-// @Param id path string true "type id | 类型 ID"
-// @Param item_id formData string false "item id | 字典项 ID"
-// @Param value formData string true "immutable value | 不可变机器值"
-// @Param label formData string true "Chinese label | 中文标签"
-// @Param label_en formData string false "English label | 英文标签"
-// @Param extra formData string false "JSON metadata object | JSON 元数据对象"
-// @Param remark formData string false "administrative note | 管理备注"
-// @Param status formData string false "enabled|disabled | 启停状态"
-// @Param default formData bool false "preselect this item | 预选该项"
-// @Param sort formData int false "display order | 展示顺序"
-// @Success 200 {object} string "refreshed workbench | 刷新后的工作台"
-// @Failure 409 {object} string "duplicate value | 值重复"
-// @Failure 422 {object} string "validation failed | 校验失败"
-// @Security BearerAuth
-// @Router /mgr/dictionaries/{id}/items [post]
-func (c *Controller) SaveDictionaryItem(ctx *router.Ctx) {
-	if !c.DictionariesAvailable() {
-		c.dictionaryUnavailable(ctx)
-		return
-	}
-	tenantID, ok := c.tenantID(ctx)
-	if !ok {
-		return
-	}
-	typeID := ctx.Param("id")
-	input := dictionary.ItemInput{
-		Value:   field(ctx, FieldDictionaryValue),
-		Label:   dictionaryLongField(ctx, FieldDictionaryLabel, 512),
-		LabelEN: dictionaryLongField(ctx, FieldDictionaryLabelEN, 512),
-		Extra:   dictionaryLongField(ctx, FieldDictionaryExtra, 4096),
-		Remark:  dictionaryLongField(ctx, FieldRemark, 2048),
-		Status:  dictionary.Status(field(ctx, FieldStatus)),
-		Default: field(ctx, FieldDictionaryDefault) != "",
-		Sort:    formInt(ctx, FieldDictionarySort),
-	}
-	itemID := strings.TrimSpace(field(ctx, FieldDictionaryID))
-	var (
-		saved dictionary.Item
-		err   error
-	)
-	if itemID == "" {
-		saved, err = c.dictionaries.CreateItem(ctx.Request.Context(), tenantID, typeID, input)
-	} else {
-		saved, err = c.dictionaries.UpdateItem(ctx.Request.Context(), tenantID, typeID, itemID, input)
-	}
-	if err != nil {
-		c.failService(ctx, err)
-		return
-	}
-	c.log.Info("dictionary item saved | 数据字典项已保存",
-		log.Str("type", saved.TypeID),
-		log.Str("id", saved.ID),
-		log.Str("value", saved.Value),
-		log.Str("status", string(saved.Status)),
-	)
-	c.toast(ctx, "字典项已保存 | dictionary item saved")
-	c.respondDictionaryPage(ctx, tenantID, typeID)
-}
-
-// SetDictionaryItemStatus enables or disables one item. | SetDictionaryItemStatus 启用或停用一个字典项。
-//
-// @Summary Enable or disable a dictionary item | 启停字典项
-// @Description Sets the status of one item and refreshes the workbench. | 设置一个字典项的状态并刷新工作台。
-// @Tags dictionaries
-// @Accept html
-// @Produce html
-// @Param id path string true "type id | 类型 ID"
-// @Param item_id path string true "item id | 字典项 ID"
-// @Param status formData string true "enabled|disabled | 启停状态"
-// @Success 200 {object} string "refreshed workbench | 刷新后的工作台"
-// @Security BearerAuth
-// @Router /mgr/dictionaries/{id}/items/{item_id}/status [post]
-func (c *Controller) SetDictionaryItemStatus(ctx *router.Ctx) {
-	if !c.DictionariesAvailable() {
-		c.dictionaryUnavailable(ctx)
-		return
-	}
-	tenantID, ok := c.tenantID(ctx)
-	if !ok {
-		return
-	}
-	updated, err := c.dictionaries.SetItemStatus(ctx.Request.Context(), tenantID, ctx.Param("id"), ctx.Param("item_id"), dictionary.Status(field(ctx, FieldStatus)))
-	if err != nil {
-		c.failService(ctx, err)
-		return
-	}
-	c.log.Info("dictionary item status updated | 数据字典项状态已更新",
-		log.Str("type", updated.TypeID),
-		log.Str("id", updated.ID),
-		log.Str("status", string(updated.Status)),
-	)
-	c.toast(ctx, "字典项状态已更新 | dictionary item status updated")
-	c.respondDictionaryPage(ctx, tenantID, ctx.Param("id"))
-}
-
-// DeleteDictionaryItem deletes one item. | DeleteDictionaryItem 删除一个字典项。
-//
-// @Summary Delete a dictionary item | 删除字典项
-// @Description Deletes one item and refreshes the workbench. | 删除一个字典项并刷新工作台。
-// @Tags dictionaries
-// @Accept html
-// @Produce html
-// @Param id path string true "type id | 类型 ID"
-// @Param item_id path string true "item id | 字典项 ID"
-// @Success 200 {object} string "refreshed workbench | 刷新后的工作台"
-// @Security BearerAuth
-// @Router /mgr/dictionaries/{id}/items/{item_id}/delete [post]
-func (c *Controller) DeleteDictionaryItem(ctx *router.Ctx) {
-	if !c.DictionariesAvailable() {
-		c.dictionaryUnavailable(ctx)
-		return
-	}
-	tenantID, ok := c.tenantID(ctx)
-	if !ok {
-		return
-	}
-	if err := c.dictionaries.DeleteItem(ctx.Request.Context(), tenantID, ctx.Param("id"), ctx.Param("item_id")); err != nil {
-		c.failService(ctx, err)
-		return
-	}
-	c.log.Info("dictionary item deleted | 数据字典项已删除",
-		log.Str("type", ctx.Param("id")),
-		log.Str("id", ctx.Param("item_id")),
-	)
-	c.toast(ctx, "字典项已删除 | dictionary item deleted")
-	c.respondDictionaryPage(ctx, tenantID, ctx.Param("id"))
+	c.respondDictionaryPage(ctx, tenantID, "", basePath, scope, canManage)
 }
 
 // respondDictionaryPage refreshes the workbench after a mutation. Search and paging form fields are
 // read when present; htmx pushes the canonical page URL so a refresh stays on the page. |
 // respondDictionaryPage 在变更后刷新工作台。存在搜索与分页表单字段时会一并读取；htmx 会把规范页面 URL
 // 压入历史，刷新后仍停留在该页。
-func (c *Controller) respondDictionaryPage(ctx *router.Ctx, tenantID, selectedID string) {
+func (c *Controller) respondDictionaryPage(ctx *router.Ctx, tenantID, selectedID, basePath string, scope dictionary.Scope, canManage bool) {
 	keyword := field(ctx, FieldKeyword)
 	itemKeyword := field(ctx, FieldItemQuery)
 	page := formInt(ctx, "page")
@@ -483,8 +362,8 @@ func (c *Controller) respondDictionaryPage(ctx *router.Ctx, tenantID, selectedID
 	if itemPage < 1 {
 		itemPage = 1
 	}
-	htmx.PushURL(ctx.Writer, dictionaryHref(selectedID, keyword, itemKeyword, page, itemPage))
-	data, err := c.dictionaryPageData(ctx, tenantID, selectedID, keyword, itemKeyword, page, itemPage)
+	htmx.PushURL(ctx.Writer, dictionaryHref(basePath, selectedID, keyword, itemKeyword, page, itemPage))
+	data, err := c.dictionaryPageData(ctx, tenantID, selectedID, keyword, itemKeyword, page, itemPage, basePath, scope, canManage)
 	if err != nil {
 		c.failService(ctx, err)
 		return
@@ -494,7 +373,7 @@ func (c *Controller) respondDictionaryPage(ctx *router.Ctx, tenantID, selectedID
 
 // dictionaryPageData loads the workbench, applying the type and item search keywords. |
 // dictionaryPageData 加载工作台，并应用类型与字典项搜索关键字。
-func (c *Controller) dictionaryPageData(ctx *router.Ctx, tenantID, selectedID, keyword, itemKeyword string, page, itemPage int) (map[string]any, error) {
+func (c *Controller) dictionaryPageData(ctx *router.Ctx, tenantID, selectedID, keyword, itemKeyword string, page, itemPage int, basePath string, scope dictionary.Scope, canManage bool) (map[string]any, error) {
 	lang := c.lang(ctx)
 	types, err := c.dictionaries.ListTypes(ctx.Request.Context(), tenantID, dictionary.Filter{
 		Query:    keyword,
@@ -509,7 +388,7 @@ func (c *Controller) dictionaryPageData(ctx *router.Ctx, tenantID, selectedID, k
 		selectedID = typeViews[0].ID
 	}
 	for i := range typeViews {
-		typeViews[i].Href = dictionaryHref(typeViews[i].ID, keyword, "", types.Page, 1)
+		typeViews[i].Href = dictionaryHref(basePath, typeViews[i].ID, keyword, "", types.Page, 1)
 		typeViews[i].Active = typeViews[i].ID == selectedID
 	}
 	var (
@@ -536,20 +415,30 @@ func (c *Controller) dictionaryPageData(ctx *router.Ctx, tenantID, selectedID, k
 		}
 	}
 	typePages, typePrev, typeNext := pageLinks(types.Total, types.Page, types.PageSize, func(n int) string {
-		return dictionaryHref(selectedID, keyword, itemKeyword, n, itemPage)
+		return dictionaryHref(basePath, selectedID, keyword, itemKeyword, n, itemPage)
 	})
 	itemPages, itemPrev, itemNext := pageLinks(itemPageData.Total, itemPageData.Page, itemPageData.PageSize, func(n int) string {
-		return dictionaryHref(selectedID, keyword, itemKeyword, page, n)
+		return dictionaryHref(basePath, selectedID, keyword, itemKeyword, page, n)
 	})
 	_, typePageCount, _, _ := pageBounds(types.Total, types.Page, types.PageSize)
 	_, itemPageCount, _, _ := pageBounds(itemPageData.Total, itemPageData.Page, itemPageData.PageSize)
-	return c.pageView(ctx, "数据字典 | Data dictionary", map[string]any{
+	title := "数据字典 | Data dictionary"
+	pageID := "dictionaries"
+	if scope == dictionary.ScopeSystem {
+		title = "系统数据字典 | System dictionaries"
+		pageID = "system-dictionaries"
+	}
+	return c.pageView(ctx, title, map[string]any{
 		"Types":           typeViews,
 		"Selected":        selected,
 		"Items":           itemViews,
 		"Keyword":         keyword,
 		"ItemKeyword":     itemKeyword,
-		"CanManage":       authz.Can(ctx.Request.Context(), authz.PermDictionaryManage),
+		"CanManage":       canManage,
+		"BasePath":        basePath,
+		"Scope":           string(scope),
+		"SystemScope":     scope == dictionary.ScopeSystem,
+		"PageID":          pageID,
 		"TypePage":        types.Page,
 		"TypePageCount":   typePageCount,
 		"TypePages":       typePages,

@@ -20,6 +20,10 @@ const (
 	configDictionaryCacheTTL = "dictionary.cache_ttl"
 	// configDictionaryNegativeTTL is how long a missing code stays negatively cached. | configDictionaryNegativeTTL 是缺失编码的负缓存时长。
 	configDictionaryNegativeTTL = "dictionary.cache_negative_ttl"
+	// ConfigDictionarySystemTenant names the tenant allowed to manage system dictionaries. Empty
+	// keeps the system layer read-only. | ConfigDictionarySystemTenant 指定允许管理系统级字典的租户；
+	// 留空时系统层只读。
+	ConfigDictionarySystemTenant = "dictionary.system_tenant"
 	// dictionaryNamespace is the cache namespace of the dictionary service; it must be unique per process. |
 	// dictionaryNamespace 是数据字典服务的缓存命名空间；每个进程内必须唯一。
 	dictionaryNamespace = "dictionary"

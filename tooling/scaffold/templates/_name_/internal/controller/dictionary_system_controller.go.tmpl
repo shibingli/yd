@@ -1,0 +1,258 @@
+{{/*
+  This file owns the system-wide dictionary workbench wrappers. Every handler delegates to the
+  shared tenant/system implementation after the route guard has checked dictionary:system_manage;
+  the generic handlers then enforce membership in the configured system tenant.
+  本文件承载系统级数据字典工作台包装器。路由守卫校验 dictionary:system_manage 后，处理器委托给
+  租户/系统共享实现；通用实现随后校验配置系统租户的成员关系。
+*/}}
+
+package controller
+
+import (
+	"{{ .YdxModule }}/router"
+)
+
+// SystemDictionaries renders the read-only project of the system-wide dictionary layer. A member of
+// the configured system tenant holding dictionary:system_manage also receives the write controls. |
+// SystemDictionaries 渲染系统级字典层的只读视图；配置系统租户中持有 dictionary:system_manage 的成员
+// 同时获得写控件。
+//
+// @Summary System dictionary workbench | 系统数据字典工作台
+// @Description Lists system-wide dictionary types and their items. Every tenant reads the layer;
+// @Description only the configured system tenant may manage it.
+// @Description 列出系统级字典类型及其字典项。所有租户都可读取该层；只有配置的系统租户可以管理。
+// @Tags dictionaries
+// @Accept html
+// @Produce html
+// @Param type query string false "selected type id | 选中的类型 ID"
+// @Param q query string false "type search keyword | 类型搜索关键字"
+// @Param page query int false "type page | 类型页码"
+// @Param ipage query int false "item page | 字典项页码"
+// @Success 200 {object} string "system workbench page or fragment | 系统工作台页面或片段"
+// @Failure 503 {object} string "dictionary storage unavailable | 数据字典存储不可用"
+// @Security BearerAuth
+// @Router /mgr/system-dictionaries [get]
+func (c *Controller) SystemDictionaries(ctx *router.Ctx) {
+	c.dictionaryWorkbench(ctx, true)
+}
+
+// NewSystemDictionaryDrawer renders the create-system-type drawer. | NewSystemDictionaryDrawer
+// 渲染新建系统类型抽屉。
+//
+// @Summary Create system dictionary type drawer | 新建系统字典类型抽屉
+// @Description Renders an empty system dictionary type form for the configured system tenant. |
+// @Description 为配置的系统租户渲染空的系统字典类型表单。
+// @Tags dictionaries
+// @Accept html
+// @Produce html
+// @Success 200 {object} string "drawer fragment | 抽屉片段"
+// @Failure 403 {object} string "not the system tenant | 不是系统租户"
+// @Security BearerAuth
+// @Router /mgr/system-dictionaries/new [get]
+func (c *Controller) NewSystemDictionaryDrawer(ctx *router.Ctx) {
+	c.newDictionaryDrawer(ctx, true)
+}
+
+// EditSystemDictionaryDrawer renders the edit-system-type drawer. | EditSystemDictionaryDrawer
+// 渲染编辑系统类型抽屉。
+//
+// @Summary Edit system dictionary type drawer | 编辑系统字典类型抽屉
+// @Description Renders the system dictionary type form for one id. | 渲染指定 ID 的系统字典类型表单。
+// @Tags dictionaries
+// @Accept html
+// @Produce html
+// @Param id path string true "type id | 类型 ID"
+// @Success 200 {object} string "drawer fragment | 抽屉片段"
+// @Failure 403 {object} string "not the system tenant | 不是系统租户"
+// @Failure 404 {object} string "type not found | 类型不存在"
+// @Security BearerAuth
+// @Router /mgr/system-dictionaries/{id}/edit [get]
+func (c *Controller) EditSystemDictionaryDrawer(ctx *router.Ctx) {
+	c.editDictionaryDrawer(ctx, true)
+}
+
+// SaveSystemDictionary creates a system dictionary type. | SaveSystemDictionary 新建一个系统字典类型。
+//
+// @Summary Create system dictionary type | 新建系统字典类型
+// @Description Creates a system-wide type from the configured system tenant. | 从配置的系统租户新建系统级类型。
+// @Tags dictionaries
+// @Accept html
+// @Produce html
+// @Param code formData string true "immutable code | 不可变编码"
+// @Param name formData string true "Chinese name | 中文名"
+// @Param name_en formData string false "English name | 英文名"
+// @Param description formData string false "description | 说明"
+// @Param status formData string false "enabled|disabled | 启停状态"
+// @Param sort formData int false "display order | 展示顺序"
+// @Success 200 {object} string "refreshed system workbench | 刷新后的系统工作台"
+// @Failure 403 {object} string "not the system tenant | 不是系统租户"
+// @Failure 409 {object} string "duplicate code | 编码重复"
+// @Failure 422 {object} string "validation failed | 校验失败"
+// @Security BearerAuth
+// @Router /mgr/system-dictionaries [post]
+func (c *Controller) SaveSystemDictionary(ctx *router.Ctx) {
+	c.saveDictionary(ctx, "", true)
+}
+
+// UpdateSystemDictionary updates one system dictionary type selected by the path. |
+// UpdateSystemDictionary 更新路径指定的一个系统字典类型。
+//
+// @Summary Update system dictionary type | 更新系统字典类型
+// @Description Updates one system-wide type; the code is immutable. | 更新一个系统级类型；编码不可变。
+// @Tags dictionaries
+// @Accept html
+// @Produce html
+// @Param id path string true "type id | 类型 ID"
+// @Param code formData string false "immutable code | 不可变编码"
+// @Param name formData string true "Chinese name | 中文名"
+// @Param name_en formData string false "English name | 英文名"
+// @Param description formData string false "description | 说明"
+// @Param status formData string false "enabled|disabled | 启停状态"
+// @Param sort formData int false "display order | 展示顺序"
+// @Success 200 {object} string "refreshed system workbench | 刷新后的系统工作台"
+// @Failure 403 {object} string "not the system tenant | 不是系统租户"
+// @Failure 404 {object} string "type not found | 类型不存在"
+// @Failure 422 {object} string "validation failed | 校验失败"
+// @Security BearerAuth
+// @Router /mgr/system-dictionaries/{id} [post]
+func (c *Controller) UpdateSystemDictionary(ctx *router.Ctx) {
+	c.saveDictionary(ctx, ctx.Param("id"), true)
+}
+
+// SetSystemDictionaryStatus enables or disables one system type. | SetSystemDictionaryStatus
+// 启用或停用一个系统类型。
+//
+// @Summary Enable or disable a system dictionary type | 启停系统字典类型
+// @Description Sets the status of one system-wide type. | 设置一个系统级类型的状态。
+// @Tags dictionaries
+// @Accept html
+// @Produce html
+// @Param id path string true "type id | 类型 ID"
+// @Param status formData string true "enabled|disabled | 启停状态"
+// @Success 200 {object} string "refreshed system workbench | 刷新后的系统工作台"
+// @Failure 403 {object} string "not the system tenant | 不是系统租户"
+// @Failure 404 {object} string "type not found | 类型不存在"
+// @Security BearerAuth
+// @Router /mgr/system-dictionaries/{id}/status [post]
+func (c *Controller) SetSystemDictionaryStatus(ctx *router.Ctx) {
+	c.setDictionaryStatus(ctx, true)
+}
+
+// DeleteSystemDictionary deletes one system type and every item it owns. | DeleteSystemDictionary
+// 删除一个系统类型及其全部字典项。
+//
+// @Summary Delete a system dictionary type | 删除系统字典类型
+// @Description Deletes one non-builtin system-wide type and all of its items. | 删除一个非内置系统级类型及其全部字典项。
+// @Tags dictionaries
+// @Accept html
+// @Produce html
+// @Param id path string true "type id | 类型 ID"
+// @Success 200 {object} string "refreshed system workbench | 刷新后的系统工作台"
+// @Failure 403 {object} string "not the system tenant | 不是系统租户"
+// @Failure 409 {object} string "built-in dictionary | 内置字典"
+// @Security BearerAuth
+// @Router /mgr/system-dictionaries/{id}/delete [post]
+func (c *Controller) DeleteSystemDictionary(ctx *router.Ctx) {
+	c.deleteDictionary(ctx, true)
+}
+
+// NewSystemDictionaryItemDrawer renders the create-system-item drawer. |
+// NewSystemDictionaryItemDrawer 渲染新建系统字典项抽屉。
+//
+// @Summary Create system dictionary item drawer | 新建系统字典项抽屉
+// @Description Renders an empty system item form for one type. | 为指定系统类型渲染空的字典项表单。
+// @Tags dictionaries
+// @Accept html
+// @Produce html
+// @Param id path string true "type id | 类型 ID"
+// @Success 200 {object} string "drawer fragment | 抽屉片段"
+// @Failure 403 {object} string "not the system tenant | 不是系统租户"
+// @Security BearerAuth
+// @Router /mgr/system-dictionaries/{id}/items/new [get]
+func (c *Controller) NewSystemDictionaryItemDrawer(ctx *router.Ctx) {
+	c.newDictionaryItemDrawer(ctx, true)
+}
+
+// EditSystemDictionaryItemDrawer renders the edit-system-item drawer. |
+// EditSystemDictionaryItemDrawer 渲染编辑系统字典项抽屉。
+//
+// @Summary Edit system dictionary item drawer | 编辑系统字典项抽屉
+// @Description Renders the system item form for one type and item. | 渲染指定系统类型与字典项的表单。
+// @Tags dictionaries
+// @Accept html
+// @Produce html
+// @Param id path string true "type id | 类型 ID"
+// @Param item_id path string true "item id | 字典项 ID"
+// @Success 200 {object} string "drawer fragment | 抽屉片段"
+// @Failure 403 {object} string "not the system tenant | 不是系统租户"
+// @Failure 404 {object} string "item not found | 字典项不存在"
+// @Security BearerAuth
+// @Router /mgr/system-dictionaries/{id}/items/{item_id}/edit [get]
+func (c *Controller) EditSystemDictionaryItemDrawer(ctx *router.Ctx) {
+	c.editDictionaryItemDrawer(ctx, true)
+}
+
+// SaveSystemDictionaryItem creates or updates one system item. The hidden id selects the mode. |
+// SaveSystemDictionaryItem 新建或更新一个系统字典项；隐藏的 id 字段决定模式。
+//
+// @Summary Save system dictionary item | 保存系统字典项
+// @Description Creates a system item when the id is absent, otherwise updates it. The value is immutable after creation.
+// @Description 没有 id 时新建系统字典项，否则更新；机器值在创建后不可修改。
+// @Tags dictionaries
+// @Accept html
+// @Produce html
+// @Param id path string true "type id | 类型 ID"
+// @Param item_id formData string false "item id | 字典项 ID"
+// @Param value formData string true "immutable value | 不可变机器值"
+// @Param label formData string true "Chinese label | 中文标签"
+// @Param label_en formData string false "English label | 英文标签"
+// @Param extra formData string false "JSON metadata object | JSON 元数据对象"
+// @Param remark formData string false "administrative note | 管理备注"
+// @Param status formData string false "enabled|disabled | 启停状态"
+// @Param default formData bool false "preselect this item | 预选该项"
+// @Param sort formData int false "display order | 展示顺序"
+// @Success 200 {object} string "refreshed system workbench | 刷新后的系统工作台"
+// @Failure 403 {object} string "not the system tenant | 不是系统租户"
+// @Failure 409 {object} string "duplicate value | 值重复"
+// @Failure 422 {object} string "validation failed | 校验失败"
+// @Security BearerAuth
+// @Router /mgr/system-dictionaries/{id}/items [post]
+func (c *Controller) SaveSystemDictionaryItem(ctx *router.Ctx) {
+	c.saveDictionaryItem(ctx, true)
+}
+
+// SetSystemDictionaryItemStatus enables or disables one system item. | SetSystemDictionaryItemStatus
+// 启用或停用一个系统字典项。
+//
+// @Summary Enable or disable a system dictionary item | 启停系统字典项
+// @Description Sets the status of one system-wide item. | 设置一个系统级字典项的状态。
+// @Tags dictionaries
+// @Accept html
+// @Produce html
+// @Param id path string true "type id | 类型 ID"
+// @Param item_id path string true "item id | 字典项 ID"
+// @Param status formData string true "enabled|disabled | 启停状态"
+// @Success 200 {object} string "refreshed system workbench | 刷新后的系统工作台"
+// @Failure 403 {object} string "not the system tenant | 不是系统租户"
+// @Security BearerAuth
+// @Router /mgr/system-dictionaries/{id}/items/{item_id}/status [post]
+func (c *Controller) SetSystemDictionaryItemStatus(ctx *router.Ctx) {
+	c.setDictionaryItemStatus(ctx, true)
+}
+
+// DeleteSystemDictionaryItem deletes one system item. | DeleteSystemDictionaryItem 删除一个系统字典项。
+//
+// @Summary Delete a system dictionary item | 删除系统字典项
+// @Description Deletes one system-wide item. | 删除一个系统级字典项。
+// @Tags dictionaries
+// @Accept html
+// @Produce html
+// @Param id path string true "type id | 类型 ID"
+// @Param item_id path string true "item id | 字典项 ID"
+// @Success 200 {object} string "refreshed system workbench | 刷新后的系统工作台"
+// @Failure 403 {object} string "not the system tenant | 不是系统租户"
+// @Security BearerAuth
+// @Router /mgr/system-dictionaries/{id}/items/{item_id}/delete [post]
+func (c *Controller) DeleteSystemDictionaryItem(ctx *router.Ctx) {
+	c.deleteDictionaryItem(ctx, true)
+}
