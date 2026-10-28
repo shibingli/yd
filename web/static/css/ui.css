@@ -313,6 +313,26 @@
     min-width: 0;
   }
 
+  /* A leading icon is part of the control surface, not a separate tap target: it is absolutely positioned, hidden
+     from assistive technology and never receives pointer events. The input keeps a matching inline start padding. |
+     前置图标属于控件表面而不是独立点击目标：绝对定位、对辅助技术隐藏且不接收指针事件；输入框用相同的内边距避让。 */
+  .yd-field__control--icon > .yd-input {
+    padding-inline-start: 2.25rem;
+  }
+
+  .yd-field__icon {
+    position: absolute;
+    inset-inline-start: 0.75rem;
+    display: inline-flex;
+    color: var(--color-content-muted);
+    pointer-events: none;
+  }
+
+  .yd-field__icon .yd-icon {
+    width: 1rem;
+    height: 1rem;
+  }
+
   .yd-field__hint,
   .yd-field__error {
     margin: 0;

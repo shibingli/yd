@@ -165,3 +165,27 @@ test('register installs every component once and is idempotent', () => {
   }
   assert.equal(api.components.length, names.length, 'a second register call adds nothing');
 });
+
+test('date picker leaves days enabled when no min/max is configured', () => {
+  const factories = {};
+  api.register({ data(name, factory) { factories[name] = factory; } });
+  const picker = factories.ydDateTime();
+  picker.kind = 'date';
+  picker.year = 2026;
+  picker.month = 9;
+  picker.day = 1;
+  picker.months = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+  picker.min = '';
+  picker.max = '';
+  picker.build();
+  const days = picker.days.filter((cell) => cell.day > 0);
+  assert.ok(days.length > 0, 'the month has day cells');
+  assert.ok(days.every((cell) => cell.disabled === false), 'unbounded days are real booleans, not empty strings');
+
+  picker.min = '2026-10-10';
+  picker.build();
+  const before = picker.days.find((cell) => cell.day === 1);
+  const onBound = picker.days.find((cell) => cell.day === 10);
+  assert.equal(before.disabled, true);
+  assert.equal(onBound.disabled, false);
+});

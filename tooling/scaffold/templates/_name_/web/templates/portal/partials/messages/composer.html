@@ -38,9 +38,11 @@
         "ID" "yd-msg-composer-type" "Name" "type_key" "WrapperClass" "yd-msg-composer__type"
         "LabelHidden" true "Label" (tr "message.type") "LabelKey" "message.type"
         "Options" (.Catalog.TypeOptions $defaultType))}}
-      <label class="sr-only" for="yd-msg-composer-title">{{ tr "message.title" }}</label>
-      <input class="yd-input yd-msg-composer__title" id="yd-msg-composer-title" name="title" type="text"
-             maxlength="160" placeholder="{{ tr "message.title_placeholder" }}">
+      {{template "components.form.field" (dict
+        "ID" "yd-msg-composer-title" "Name" "title" "Type" "text" "MaxLength" 160
+        "Label" (tr "message.title") "LabelKey" "message.title" "LabelHidden" true
+        "InputClass" "yd-msg-composer__title" "WrapperClass" "yd-msg-composer__title-field"
+        "PlaceholderKey" "message.title_placeholder")}}
     </div>
 
     <div class="yd-editor yd-editor--compact" data-yd-editor data-yd-editor-compact data-lang="{{ .Lang }}"

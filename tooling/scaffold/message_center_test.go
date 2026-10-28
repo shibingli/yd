@@ -888,7 +888,7 @@ func TestGeneratedAppMessageCentre(t *testing.T) {
 			`data-yd-msg-tab="contacts"`,
 			`id="yd-contacts-panel"`,
 			`id="yd-contact-list"`,
-			`data-yd-contact-search`,
+			`id="yd-contact-q"`,
 			`action="/messages/groups"`,
 			`data-yd-user-menu`,
 			`id="yd-unread-badge"`,

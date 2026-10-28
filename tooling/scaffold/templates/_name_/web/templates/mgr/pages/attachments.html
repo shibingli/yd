@@ -45,35 +45,36 @@
 
   <form class="yd-filters" role="search" method="get" action="/mgr/attachments"
         hx-get="/mgr/attachments" hx-target="#yd-workspace" hx-swap="innerMorph" hx-push-url="true">
-    <div class="yd-search__field">
-      <span class="yd-search__icon" aria-hidden="true">{{ template "partials/icon" "lucide-search" }}</span>
-      <input class="yd-input" id="yd-attachment-q" name="q" type="search" autocomplete="off"
-             value="{{ .Filters.Query }}" placeholder="{{ tr "page.mgr_attachments.search_placeholder" }}">
-    </div>
-    <label class="sr-only" for="yd-attachment-uploader">{{ tr "attachment.field.uploader" }}</label>
-    <select class="yd-select" id="yd-attachment-uploader" name="uploader">
-      <option value="">{{ tr "attachment.uploader.all" }}</option>
-      {{- range .Uploaders }}
-      <option value="{{ .Value }}"{{ if .Selected }} selected{{ end }}>{{ .Label }}</option>
-      {{- end }}
-    </select>
-    <label class="sr-only" for="yd-attachment-status">{{ tr "attachment.status_label" }}</label>
-    <select class="yd-select" id="yd-attachment-status" name="status">
-      <option value=""{{ if eq .Filters.Status "" }} selected{{ end }}>{{ tr "attachment.status.all" }}</option>
-      <option value="pending"{{ if eq .Filters.Status "pending" }} selected{{ end }}>{{ tr "attachment.status.pending" }}</option>
-      <option value="referenced"{{ if eq .Filters.Status "referenced" }} selected{{ end }}>{{ tr "attachment.status.referenced" }}</option>
-      <option value="deleted"{{ if eq .Filters.Status "deleted" }} selected{{ end }}>{{ tr "attachment.status.deleted" }}</option>
-    </select>
-    <label class="sr-only" for="yd-attachment-referenced">{{ tr "attachment.field.refs" }}</label>
-    <select class="yd-select" id="yd-attachment-referenced" name="referenced">
-      <option value=""{{ if eq .Filters.Referenced "" }} selected{{ end }}>{{ tr "attachment.referenced.all" }}</option>
-      <option value="yes"{{ if eq .Filters.Referenced "yes" }} selected{{ end }}>{{ tr "attachment.referenced.yes" }}</option>
-      <option value="no"{{ if eq .Filters.Referenced "no" }} selected{{ end }}>{{ tr "attachment.referenced.no" }}</option>
-    </select>
-    <label class="sr-only" for="yd-attachment-from">{{ tr "attachment.from" }}</label>
-    <input class="yd-input" id="yd-attachment-from" name="from" type="date" value="{{ .Filters.From }}">
-    <label class="sr-only" for="yd-attachment-to">{{ tr "attachment.to" }}</label>
-    <input class="yd-input" id="yd-attachment-to" name="to" type="date" value="{{ .Filters.To }}">
+    {{template "components.form.field" (dict
+      "ID" "yd-attachment-q" "Name" "q" "Type" "search" "Value" .Filters.Query
+      "Label" (tr "attachment.field.name") "LabelKey" "attachment.field.name" "LabelHidden" true
+      "LeadingIcon" "lucide-search" "Autocomplete" "off"
+      "PlaceholderKey" "page.mgr_attachments.search_placeholder")}}
+    {{template "components.form.select" (dict
+      "ID" "yd-attachment-uploader" "Name" "uploader" "LabelHidden" true
+      "Label" (tr "attachment.field.uploader") "LabelKey" "attachment.field.uploader"
+      "PlaceholderKey" "attachment.uploader.all" "Options" .Uploaders)}}
+    {{template "components.form.select" (dict
+      "ID" "yd-attachment-status" "Name" "status" "LabelHidden" true
+      "Label" (tr "attachment.status_label") "LabelKey" "attachment.status_label"
+      "PlaceholderKey" "attachment.status.all"
+      "Options" (list
+        (dict "Value" "pending" "Key" "attachment.status.pending" "Selected" (eq .Filters.Status "pending"))
+        (dict "Value" "referenced" "Key" "attachment.status.referenced" "Selected" (eq .Filters.Status "referenced"))
+        (dict "Value" "deleted" "Key" "attachment.status.deleted" "Selected" (eq .Filters.Status "deleted"))))}}
+    {{template "components.form.select" (dict
+      "ID" "yd-attachment-referenced" "Name" "referenced" "LabelHidden" true
+      "Label" (tr "attachment.field.refs") "LabelKey" "attachment.field.refs"
+      "PlaceholderKey" "attachment.referenced.all"
+      "Options" (list
+        (dict "Value" "yes" "Key" "attachment.referenced.yes" "Selected" (eq .Filters.Referenced "yes"))
+        (dict "Value" "no" "Key" "attachment.referenced.no" "Selected" (eq .Filters.Referenced "no"))))}}
+    {{template "components.form.date" (dict
+      "ID" "yd-attachment-from" "Name" "from" "Value" .Filters.From
+      "Label" (tr "attachment.from") "LabelKey" "attachment.from" "LabelHidden" true)}}
+    {{template "components.form.date" (dict
+      "ID" "yd-attachment-to" "Name" "to" "Value" .Filters.To
+      "Label" (tr "attachment.to") "LabelKey" "attachment.to" "LabelHidden" true)}}
     <button type="submit" class="yd-btn">{{ template "partials/icon" "lucide-search" }}{{ tr "ui.search" }}</button>
   </form>
 
@@ -107,17 +108,17 @@
             <td class="yd-table__td"><span class="yd-badge yd-badge--{{ .StatusTone }}">{{ tr .StatusKey }}</span></td>
             <td class="yd-table__td">{{ .RefCount }}</td>
             <td class="yd-table__td">{{ .CreatedText }}</td>
-            <td class="yd-table__td">
+            <td class="yd-table__td yd-table__td--actions">
               <details class="yd-menu" data-yd-menu>
                 <summary class="yd-icon-btn" aria-label="{{ tr "ui.actions" }}">{{ template "partials/icon" "lucide-more-horizontal" }}</summary>
                 <div class="yd-menu__panel" role="menu">
                   {{- if not .Deleted }}
-                  <a class="yd-menu__item" role="menuitem" href="{{ .DownloadURL }}" target="_blank" rel="noopener noreferrer">
+                  <a class="yd-menu__item yd-menu__item--with-icon" role="menuitem" href="{{ .DownloadURL }}" target="_blank" rel="noopener noreferrer">
                     {{ template "partials/icon" "lucide-download" }}{{ tr "attachment.download" }}
                   </a>
                   {{- end }}
                   {{- if and $.CanManage (not .Deleted) }}
-                  <button type="button" class="yd-menu__item" role="menuitem" data-yd-drawer-open
+                  <button type="button" class="yd-menu__item yd-menu__item--with-icon" role="menuitem" data-yd-drawer-open
                           hx-get="/mgr/attachments/{{ .ID }}/delete" hx-target="#yd-drawer-body" hx-swap="innerHTML">
                     {{ template "partials/icon" "lucide-trash-2" }}{{ tr "attachment.delete" }}
                   </button>

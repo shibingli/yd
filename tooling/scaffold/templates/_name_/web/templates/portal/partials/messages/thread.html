@@ -35,22 +35,22 @@
     <div class="yd-msg-thread__actions">
       {{- if and .ActiveConversation.IsGroup (or .CanSend .CanManage (eq .ActorID .ActiveConversation.CreatedBy)) }}
       <details class="yd-menu" data-yd-menu>
-        <summary class="yd-btn yd-btn--ghost yd-btn--sm" aria-label="{{ tr "ui.actions" }}">{{ template "partials/icon" "lucide-settings" }}</summary>
+        <summary class="yd-icon-btn" aria-label="{{ tr "ui.actions" }}">{{ template "partials/icon" "lucide-settings" }}</summary>
         <div class="yd-menu__panel" role="menu">
           {{- if .CanSend }}
-          <button type="button" class="yd-menu__item" role="menuitem" data-yd-drawer-open
-                  hx-get="/messages/groups/{{ .ActiveConversation.ID }}/settings" hx-target="#yd-drawer-body" hx-swap="innerHTML">{{ tr "message.group_settings" }}</button>
+          <button type="button" class="yd-menu__item yd-menu__item--with-icon" role="menuitem" data-yd-drawer-open
+                  hx-get="/messages/groups/{{ .ActiveConversation.ID }}/settings" hx-target="#yd-drawer-body" hx-swap="innerHTML">{{ template "partials/icon" "lucide-settings" }}{{ tr "message.group_settings" }}</button>
           <form method="post" action="/messages/groups/{{ .ActiveConversation.ID }}/leave"
                 hx-post="/messages/groups/{{ .ActiveConversation.ID }}/leave" hx-target="#yd-workspace"
                 data-yd-confirm="{{ tr "confirm.leave_group" }}">
-            <button type="submit" class="yd-menu__item" role="menuitem">{{ tr "message.leave_group" }}</button>
+            <button type="submit" class="yd-menu__item yd-menu__item--with-icon" role="menuitem">{{ template "partials/icon" "lucide-log-out" }}{{ tr "message.leave_group" }}</button>
           </form>
           {{- end }}
           {{- if or .CanManage (eq .ActorID .ActiveConversation.CreatedBy) }}
           <form method="post" action="/messages/groups/{{ .ActiveConversation.ID }}/dissolve"
                 hx-post="/messages/groups/{{ .ActiveConversation.ID }}/dissolve" hx-target="#yd-workspace"
                 data-yd-confirm="{{ tr "confirm.dissolve_group" }}">
-            <button type="submit" class="yd-menu__item" role="menuitem">{{ tr "message.dissolve_group" }}</button>
+            <button type="submit" class="yd-menu__item yd-menu__item--with-icon" role="menuitem">{{ template "partials/icon" "lucide-trash-2" }}{{ tr "message.dissolve_group" }}</button>
           </form>
           {{- end }}
         </div>

@@ -20,14 +20,14 @@
   <form class="yd-filters" method="get" action="/mgr/messages/audit"
         hx-get="/mgr/messages/audit" hx-target="#yd-workspace" hx-swap="innerMorph" hx-push-url="true"
         hx-trigger="input changed delay:300ms from:#yd-audit-action, input changed delay:300ms from:#yd-audit-message, submit">
-    <div class="yd-search__field">
-      <span class="yd-search__icon" aria-hidden="true">{{ template "partials/icon" "lucide-search" }}</span>
-      <input class="yd-input" id="yd-audit-action" name="action" type="search" value="{{ .Filter.Action }}" placeholder="{{ tr "message.admin.action_filter" }}">
-    </div>
-    <div class="yd-search__field">
-      <span class="yd-search__icon" aria-hidden="true">{{ template "partials/icon" "lucide-search" }}</span>
-      <input class="yd-input" id="yd-audit-message" name="message_id" type="search" value="{{ .Filter.MessageID }}" placeholder="{{ tr "message.admin.message_filter" }}">
-    </div>
+    {{template "components.form.field" (dict
+      "ID" "yd-audit-action" "Name" "action" "Type" "search" "Value" .Filter.Action
+      "Label" (tr "message.admin.action_filter") "LabelKey" "message.admin.action_filter" "LabelHidden" true
+      "LeadingIcon" "lucide-search" "Autocomplete" "off" "PlaceholderKey" "message.admin.action_filter")}}
+    {{template "components.form.field" (dict
+      "ID" "yd-audit-message" "Name" "message_id" "Type" "search" "Value" .Filter.MessageID
+      "Label" (tr "message.admin.message_filter") "LabelKey" "message.admin.message_filter" "LabelHidden" true
+      "LeadingIcon" "lucide-search" "Autocomplete" "off" "PlaceholderKey" "message.admin.message_filter")}}
     <button type="submit" class="yd-btn">{{ template "partials/icon" "lucide-search" }}{{ tr "ui.search" }}</button>
   </form>
   {{ template "mgr/partials/messages/audit_table" . }}
@@ -58,10 +58,10 @@
   <form class="yd-filters" method="get" action="/mgr/messages"
         hx-get="/mgr/messages" hx-target="#yd-workspace" hx-swap="innerMorph" hx-push-url="true"
         hx-trigger="input changed delay:300ms from:#yd-admin-q, change from:#yd-admin-folder, submit">
-    <div class="yd-search__field">
-      <span class="yd-search__icon" aria-hidden="true">{{ template "partials/icon" "lucide-search" }}</span>
-      <input class="yd-input" id="yd-admin-q" name="q" type="search" value="{{ .Filters.Query }}" placeholder="{{ tr "message.search_placeholder" }}">
-    </div>
+    {{template "components.form.field" (dict
+      "ID" "yd-admin-q" "Name" "q" "Type" "search" "Value" .Filters.Query
+      "Label" (tr "message.search_label") "LabelKey" "message.search_label" "LabelHidden" true
+      "LeadingIcon" "lucide-search" "Autocomplete" "off" "PlaceholderKey" "message.search_placeholder")}}
     {{template "components.form.select" (dict
       "ID" "yd-admin-folder" "Name" "folder" "LabelHidden" true
       "Label" (tr "message.folder_label") "LabelKey" "message.folder_label"

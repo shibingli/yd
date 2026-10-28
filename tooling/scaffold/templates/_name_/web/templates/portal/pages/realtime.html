@@ -86,10 +86,13 @@
              Enter is handled by yd-app.js clicking the same send button; an hx-trigger filter cannot be used
              because htmx compiles filters with new Function, which CSP script-src 'self' blocks. */}}
         <div class="yd-composer" data-yd-ws-composer>
-          <label class="sr-only" for="yd-ws-message">{{ tr "page.realtime.composer_label" }}</label>
-          <input class="yd-input yd-composer__input" id="yd-ws-message" name="message" type="text"
-                 autocomplete="off" placeholder="{{ tr "page.realtime.composer_placeholder" }}"
-                 data-yd-ws-enter>
+          <div class="yd-composer__field" data-yd-ws-enter>
+            {{template "components.form.field" (dict
+              "ID" "yd-ws-message" "Name" "message" "Type" "text"
+              "Label" (tr "page.realtime.composer_label") "LabelKey" "page.realtime.composer_label" "LabelHidden" true
+              "Autocomplete" "off" "PlaceholderKey" "page.realtime.composer_placeholder"
+              "InputClass" "yd-composer__input")}}
+          </div>
           <button type="button" class="yd-btn yd-btn--primary"
                   hx-ws:send="true" hx-include="closest [data-yd-ws-composer]">{{ tr "ui.send" }}</button>
         </div>

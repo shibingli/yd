@@ -68,6 +68,16 @@ type attachmentUploaderOption struct {
 	Label string
 	// Selected marks the active uploader. | Selected 标记当前选中的上传者。
 	Selected bool
+	// Key is the optional catalogue key of the label; uploaders use a rendered display name instead. |
+	// Key 是标签的可选目录键；上传者使用已渲染的展示名。
+	Key string
+	// LabelKey is the optional alternate catalogue key accepted by components.form.select. |
+	// LabelKey 是 components.form.select 接受的另一个可选目录键。
+	LabelKey string
+	// Prefix is the optional text rendered before the label. | Prefix 是标签前可选的前缀文本。
+	Prefix string
+	// Disabled marks an option that cannot be selected. | Disabled 标记不可选择的选项。
+	Disabled bool
 }
 
 // attachmentView is one attachment row ready for rendering. | attachmentView 是可直接渲染的附件行。

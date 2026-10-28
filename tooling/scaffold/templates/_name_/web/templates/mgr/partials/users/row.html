@@ -46,25 +46,25 @@
   {{- if .CanWrite }}
   <td class="yd-table__td yd-table__td--actions">
     <details class="yd-menu" data-yd-menu>
-      <summary class="yd-btn yd-btn--ghost yd-btn--sm" aria-label="{{ tr "ui.actions" }}">{{ template "partials/icon" "lucide-more-horizontal" }}</summary>
+      <summary class="yd-icon-btn" aria-label="{{ tr "ui.actions" }}">{{ template "partials/icon" "lucide-more-horizontal" }}</summary>
       <div class="yd-menu__panel" role="menu">
-        <button type="button" class="yd-menu__item" role="menuitem" data-yd-drawer-open
-                hx-get="/mgr/users/{{ .User.ID }}/edit" hx-target="#yd-drawer-body" hx-swap="innerHTML">{{ tr "ui.edit" }}</button>
+        <button type="button" class="yd-menu__item yd-menu__item--with-icon" role="menuitem" data-yd-drawer-open
+                hx-get="/mgr/users/{{ .User.ID }}/edit" hx-target="#yd-drawer-body" hx-swap="innerHTML">{{ template "partials/icon" "lucide-pen-line" }}{{ tr "ui.edit" }}</button>
 
         <form method="post" action="/mgr/users/{{ .User.ID }}/status"
               hx-post="/mgr/users/{{ .User.ID }}/status" hx-target="#yd-workspace" hx-swap="innerMorph"
               data-yd-confirm="{{ if .User.Active }}{{ tr "confirm.disable_user" }}{{ else }}{{ tr "confirm.enable_user" }}{{ end }}">
           {{ if .User.Active }}
-          <button type="submit" name="status" value="disabled" class="yd-menu__item" role="menuitem">{{ tr "ui.disable" }}</button>
+          <button type="submit" name="status" value="disabled" class="yd-menu__item yd-menu__item--with-icon" role="menuitem">{{ template "partials/icon" "lucide-ban" }}{{ tr "ui.disable" }}</button>
           {{ else }}
-          <button type="submit" name="status" value="active" class="yd-menu__item" role="menuitem">{{ tr "ui.enable" }}</button>
+          <button type="submit" name="status" value="active" class="yd-menu__item yd-menu__item--with-icon" role="menuitem">{{ template "partials/icon" "lucide-circle-check" }}{{ tr "ui.enable" }}</button>
           {{ end }}
         </form>
 
         <form method="post" action="/mgr/users/{{ .User.ID }}/sec-key"
               hx-post="/mgr/users/{{ .User.ID }}/sec-key" hx-target="#yd-workspace" hx-swap="innerMorph"
               data-yd-confirm="{{ tr "confirm.rotate_key" }}">
-          <button type="submit" class="yd-menu__item" role="menuitem">{{ tr "ui.rotate_key" }}</button>
+          <button type="submit" class="yd-menu__item yd-menu__item--with-icon" role="menuitem">{{ template "partials/icon" "lucide-key-round" }}{{ tr "ui.rotate_key" }}</button>
         </form>
       </div>
     </details>

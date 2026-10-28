@@ -25,13 +25,18 @@
 
 {{/* components.form.field renders label + input + hint + error.
      Dict keys | dict 的键:
-       ID, Name, Type, Value, LabelKey, Label, PlaceholderKey, Placeholder, HintKey, Hint,
+       ID, Name, Type, Value, LabelKey, Label, LabelHidden, PlaceholderKey, Placeholder, HintKey, Hint,
        ErrorKey, Error, Autocomplete, InputMode, Required, Sensitive, Invalid, Disabled,
-       Readonly, MaxLength, Pattern, Min, Max, Step, DescribedBy, Attrs (template.HTMLAttr)
+       Readonly, MaxLength, Pattern, Min, Max, Step, DescribedBy, LeadingIcon, Attrs (template.HTMLAttr)
      Attrs is appended to the input so a page can add data-yd-encrypt, hx-* or aria-* without
      hand-writing the field. DescribedBy is derived from Hint/Error when the caller leaves it empty.
+     LabelHidden keeps the label for assistive technology only, which is what a compact filter row
+     needs. LeadingIcon names a Lucide sprite glyph rendered inside the control (for example a search
+     magnifier); it stays decorative and is never announced. |
      Attrs 追加到输入框上，页面因此无需手写字段就能添加 data-yd-encrypt、hx-* 或 aria-*。
-     调用方留空 DescribedBy 时，由 Hint/Error 自动推导。 */}}
+     调用方留空 DescribedBy 时，由 Hint/Error 自动推导。LabelHidden 让标签仅供辅助技术读取，
+     这正是紧凑筛选行需要的。LeadingIcon 指定控件内渲染的 Lucide sprite 图标（例如搜索放大镜）；
+     它只作装饰，不会被读屏播报。 */}}
 {{- define "components.form.field" -}}
 {{- $described := .DescribedBy -}}
 {{- if not $described -}}
@@ -40,8 +45,9 @@
   {{- else if .Error -}}{{- $described = printf "%s-error" .ID -}}{{- end -}}
 {{- end -}}
 <div class="yd-field{{if .Required}} yd-field--required{{end}}{{if or .Invalid .Error}} yd-field--invalid{{end}}{{with .WrapperClass}} {{.}}{{end}}" data-yd-field="{{.Name}}">
-  <label class="yd-field__label" for="{{.ID}}"{{with .LabelKey}} data-yd-i18n="{{.}}"{{end}}>{{if .Label}}{{.Label}}{{else}}{{if .LabelKey}}{{tr .LabelKey}}{{end}}{{end}}</label>
-  <div class="yd-field__control">
+  <label class="yd-field__label{{if .LabelHidden}} sr-only{{end}}" for="{{.ID}}"{{with .LabelKey}} data-yd-i18n="{{.}}"{{end}}>{{if .Label}}{{.Label}}{{else}}{{if .LabelKey}}{{tr .LabelKey}}{{end}}{{end}}</label>
+  <div class="yd-field__control{{if .LeadingIcon}} yd-field__control--icon{{end}}">
+    {{- with .LeadingIcon}}<span class="yd-field__icon" aria-hidden="true">{{template "partials/icon" .}}</span>{{end}}
     <input class="yd-input{{if or .Invalid .Error}} yd-input--invalid{{end}}{{with .InputClass}} {{.}}{{end}}" id="{{.ID}}"{{with .Name}} name="{{.}}"{{end}} type="{{if .Type}}{{.Type}}{{else}}text{{end}}" value="{{.Value}}"
            {{with .Autocomplete}}autocomplete="{{.}}"{{end}}
            {{with .InputMode}}inputmode="{{.}}"{{end}}
@@ -478,7 +484,7 @@
 {{/* components.form.picker — a token-localised date/time picker. Dict keys | dict 的键:
        ID, Name, Kind (date|time|datetime|month), Value, Label, LabelKey, Hint, HintKey, Error, ErrorKey,
        Placeholder, PlaceholderKey, Required, Disabled, Readonly, Invalid, Sensitive,
-       Autocomplete, Min, Max, DescribedBy, Attrs (template.HTMLAttr)
+       Autocomplete, Min, Max, DescribedBy, LabelHidden, Attrs (template.HTMLAttr)
      The visible field is a text input and the submitted value stays ISO-like (`YYYY-MM-DD`,
      `HH:MM`, `YYYY-MM-DDTHH:MM`). The calendar and the hour/minute columns are rendered by
      ydDateTime; month and weekday names come from the catalogue, never from the browser locale.
@@ -498,7 +504,7 @@
      data-months="{{tr "ui.months"}}" data-weekdays="{{tr "ui.weekdays"}}"
      data-min="{{.Min}}" data-max="{{.Max}}"
      x-on:click.outside="close(false)" x-on:keydown.escape.prevent="close(true)">
-  <label class="yd-field__label" for="{{.ID}}"{{with .LabelKey}} data-yd-i18n="{{.}}"{{end}}>{{if .LabelKey}}{{tr .LabelKey}}{{else}}{{.Label}}{{end}}</label>
+  <label class="yd-field__label{{if .LabelHidden}} sr-only{{end}}" for="{{.ID}}"{{with .LabelKey}} data-yd-i18n="{{.}}"{{end}}>{{if .LabelKey}}{{tr .LabelKey}}{{else}}{{.Label}}{{end}}</label>
   <div class="yd-datetime">
     <input class="yd-input yd-datetime__input{{if or .Invalid .Error}} yd-input--invalid{{end}}" id="{{.ID}}"{{with .Name}} name="{{.}}"{{end}} type="text" value="{{.Value}}"
            x-ref="input" x-on:input="parseInput" autocomplete="{{if .Autocomplete}}{{.Autocomplete}}{{else}}off{{end}}"
@@ -573,7 +579,7 @@
   "Error" .Error "ErrorKey" .ErrorKey "Placeholder" .Placeholder "PlaceholderKey" .PlaceholderKey
   "Required" .Required "Disabled" .Disabled "Readonly" .Readonly "Invalid" .Invalid
   "Sensitive" .Sensitive "Autocomplete" .Autocomplete "Min" .Min "Max" .Max
-  "DescribedBy" .DescribedBy "Attrs" .Attrs)}}
+  "DescribedBy" .DescribedBy "LabelHidden" .LabelHidden "Attrs" .Attrs)}}
 {{- end -}}
 
 {{/* components.form.time — a time picker. Dict keys mirror components.form.picker. | 时间选择器，
@@ -585,7 +591,7 @@
   "Error" .Error "ErrorKey" .ErrorKey "Placeholder" .Placeholder "PlaceholderKey" .PlaceholderKey
   "Required" .Required "Disabled" .Disabled "Readonly" .Readonly "Invalid" .Invalid
   "Sensitive" .Sensitive "Autocomplete" .Autocomplete "Min" .Min "Max" .Max
-  "DescribedBy" .DescribedBy "Attrs" .Attrs)}}
+  "DescribedBy" .DescribedBy "LabelHidden" .LabelHidden "Attrs" .Attrs)}}
 {{- end -}}
 
 {{/* components.form.datetime — a combined date and time picker. Dict keys mirror
@@ -597,7 +603,7 @@
   "Error" .Error "ErrorKey" .ErrorKey "Placeholder" .Placeholder "PlaceholderKey" .PlaceholderKey
   "Required" .Required "Disabled" .Disabled "Readonly" .Readonly "Invalid" .Invalid
   "Sensitive" .Sensitive "Autocomplete" .Autocomplete "Min" .Min "Max" .Max
-  "DescribedBy" .DescribedBy "Attrs" .Attrs)}}
+  "DescribedBy" .DescribedBy "LabelHidden" .LabelHidden "Attrs" .Attrs)}}
 {{- end -}}
 
 {{/* components.form.editor — a Markdown editor that degrades to a textarea.

@@ -1151,6 +1151,10 @@ WebSocket、WebTransport 与 SSE 共用 `ydx/realtime` 中枢；使用说明见
 `docs/frontend-ui.md`（分层、主题、表单契约与排查）与 `docs/frontend-components.md`（完整组件清单、
 逐组件参数与图表选型）。 门户的 `/ui-kit`（`portal/pages/ui_kit.html`）是组件层的活文档：新增组件必须同步加入该页，
 并由 `TestGeneratedUIKitShowsEveryComponent` 守卫。
+**组件库优先是硬规则**：写任何页面控件前先查 `web/templates/components/**` 与 `/ui-kit` 示例；
+已有组件能覆盖的场景必须复用，不得凭偏好手写等价 DOM。判定顺序固定为
+「组件 → 组件参数/修饰类 → 新增组件 → 手写 HTML」，只有前三级都无法表达时才允许写原生 HTML，
+并在提交说明中写明原因。
 
 - **三层分工**：服务端状态（列表、记录、筛选、导航、变更、实时推送）归 **htmx**；页面内状态
   （菜单开合、页签、输入格式化、本地校验、拖放、标签）归 **Alpine**；颜色、间距、断点与状态外观归
@@ -1188,6 +1192,12 @@ WebSocket、WebTransport 与 SSE 共用 `ydx/realtime` 中枢；使用说明见
 - **图表只在服务端生成**：`http/chart` 输出纯 SVG 与语义类（`yd-chart__series--N`），模板只包
   `components.chart`；不得引入图表库、客户端 JSON 数据岛或内联 `<script>`。空数据、`NaN`/`Inf`
   与颜色字面量由 `http/chart/chart_test.go` 守卫，每个图形必须带 `<title>`。
+- **可见表单控件一律走组件**：搜索框/文本框用 `components.form.field`（紧凑筛选行加
+  `LabelHidden` 与 `LeadingIcon`），下拉用 `components.form.select`，日期用
+  `components.form.date` / `.time` / `.datetime`，文件用 `components.form.file` 或
+  `form.field` 的 `Type "file"`；不得手写 `<select>`、`type="date"` 或带 `yd-input` 的裸输入。
+  列表操作菜单里图标与文字并存的行必须加 `yd-menu__item--with-icon`，
+  否则 Tailwind preflight 会把 SVG 变成块级元素、图标独占一行并让菜单行高翻倍。
 - **新增组件必须同批完成**：令牌（如需）→ `ui.css` 组件规则（无颜色字面量）→ 组件模板（双语契约注释）→
   `Alpine.data` 行为（仅需时，CSP 安全）→ 中英文案键 → `components_test.go` 固定数据与 `yd-ui.test.mjs`
   用例 → 本手册条目 → `yd assets minify` 产物。守卫测试见第 20 节清单，未覆盖的组件视为未完成。

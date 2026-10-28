@@ -43,6 +43,10 @@
           {{template "components.form.field" (dict
             "ID" "yd-kit-email" "Name" "email" "Type" "email" "Value" "alice@example.com"
             "Label" (tr "field.email") "LabelKey" "field.email" "Autocomplete" "email")}}
+          {{template "components.form.field" (dict
+            "ID" "yd-kit-search" "Name" "term" "Type" "search"
+            "Label" (tr "showcase.label.search") "LabelKey" "showcase.label.search" "LabelHidden" true
+            "LeadingIcon" "lucide-search" "PlaceholderKey" "showcase.label.search")}}
           {{template "components.form.password" (dict
             "ID" "yd-kit-password" "Name" "password" "Value" ""
             "Label" (tr "field.password") "LabelKey" "field.password"

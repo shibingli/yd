@@ -44,11 +44,11 @@
          Capability checkboxes move into the drawer as well, so the list answers "what is this role granted"
          and no longer doubles as an editor. */}}
     <details class="yd-menu" data-yd-menu>
-      <summary class="yd-btn yd-btn--ghost yd-btn--sm" aria-label="{{ tr "ui.actions" }}">{{ template "partials/icon" "lucide-more-horizontal" }}</summary>
+      <summary class="yd-icon-btn" aria-label="{{ tr "ui.actions" }}">{{ template "partials/icon" "lucide-more-horizontal" }}</summary>
       <div class="yd-menu__panel" role="menu">
         {{- if can $.Perm.RoleManage }}
-        <button type="button" class="yd-menu__item" role="menuitem" data-yd-drawer-open
-                hx-get="/mgr/roles/{{ $role.ID }}/edit" hx-target="#yd-drawer-body" hx-swap="innerHTML">{{ tr "ui.edit" }}</button>
+        <button type="button" class="yd-menu__item yd-menu__item--with-icon" role="menuitem" data-yd-drawer-open
+                hx-get="/mgr/roles/{{ $role.ID }}/edit" hx-target="#yd-drawer-body" hx-swap="innerHTML">{{ template "partials/icon" "lucide-pen-line" }}{{ tr "ui.edit" }}</button>
         {{- end }}
         {{- if can $.Perm.RoleDelete }}
         <form method="post" action="/mgr/roles/{{ $role.ID }}/delete"
@@ -56,7 +56,7 @@
               hx-status:409="target:#yd-errors swap:innerHTML"
               hx-status:404="target:#yd-errors swap:innerHTML"
               data-yd-confirm="{{ tr "confirm.delete_role" }}">
-          <button type="submit" class="yd-menu__item yd-menu__item--danger" role="menuitem" {{ if $role.Builtin }}disabled{{ end }}>{{ tr "ui.delete" }}</button>
+          <button type="submit" class="yd-menu__item yd-menu__item--danger yd-menu__item--with-icon" role="menuitem" {{ if $role.Builtin }}disabled{{ end }}>{{ template "partials/icon" "lucide-trash-2" }}{{ tr "ui.delete" }}</button>
         </form>
         {{- end }}
       </div>

@@ -55,6 +55,13 @@
       **之前**校验，改密必须在 `ChangePassword` **之前**校验；令牌一次性消费，失败统一 `captcha.failed` 文案；
       `captcha.secret` 生产必须注入；登录页与账号页共用 `partials/captcha.html`，`yd-captcha.js` 负责挂载、
       令牌写入、提交守卫与 4xx 重置；Redis 客户端只由 `internal/service.NewRedis` 打开一次。
+- [ ] **前端组件库优先**：写任何页面控件前先查 `templates/components/**` 与 `/ui-kit`；
+      可见文本框/搜索框用 `components.form.field`（紧凑筛选行加 `LabelHidden` 与 `LeadingIcon`），
+      下拉用 `components.form.select`，日期用 `components.form.date` / `.time` / `.datetime`，
+      文件用 `components.form.file` 或 `form.field` 的 `Type "file"`；禁止手写 `<select>`、
+      `type="date"` 或裸 `class="yd-input"`。所有表格右侧操作菜单统一为
+      `yd-icon-btn` 触发的 `details.yd-menu`，菜单项统一为 `yd-menu__item`，图标+文字行加
+      `yd-menu__item--with-icon`，不得并排文字按钮或混用触发器样式。
 - [ ] **前端交互**：导航/语言切换 `hx-target="#yd-shell"`；新增/编辑走抽屉；列表右侧操作统一为一个
       图标按钮（`lucide-more-horizontal` + `aria-label`）展开的 `details.yd-menu`；顶栏租户切换复用同一套
       面板；所有变更动作带 `data-yd-confirm`，多按钮表单必须把 `event.submitter` 传回

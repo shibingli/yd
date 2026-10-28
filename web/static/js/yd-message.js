@@ -367,7 +367,7 @@
   /* 联系人搜索只过滤已渲染的行，不发起请求；姓名与登录名都参与匹配。
      The contact search filters the rendered rows without a request; both display name and username take part. */
   function filterContacts() {
-    var input = document.querySelector("[data-yd-contact-search]");
+    var input = document.getElementById("yd-contact-q");
     if (!input) {
       return;
     }
@@ -621,7 +621,7 @@
   }
 
   function uploadFile(form) {
-    return form ? form.querySelector("[data-yd-upload-file]") : null;
+    return form ? form.querySelector("[data-yd-upload-file], input[type='file']") : null;
   }
 
   function syncUploadForm(form) {
@@ -784,7 +784,7 @@
     if (opener) {
       event.preventDefault();
       activateMsgTab(opener.getAttribute("data-yd-msg-tab-open"));
-      var search = document.querySelector("[data-yd-contact-search]");
+      var search = document.getElementById("yd-contact-q");
       if (search) {
         search.focus();
       }
@@ -814,14 +814,14 @@
   });
 
   document.addEventListener("input", function (event) {
-    if (event.target && event.target.matches && event.target.matches("[data-yd-contact-search]")) {
+    if (event.target && event.target.matches && event.target.matches("#yd-contact-q")) {
       filterContacts();
     }
   });
 
   document.addEventListener("change", function (event) {
     var target = event.target;
-    if (target && target.matches && target.matches("[data-yd-upload-file]")) {
+    if (target && target.matches && target.matches("[data-yd-upload-file], input[type='file']")) {
       var form = uploadForm(target);
       if (form) {
         if (target.files && target.files.length > 0) {

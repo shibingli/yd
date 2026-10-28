@@ -206,6 +206,30 @@
       （`yd new --yes` 不得触网）；哨兵 `tools.ErrUnknownTool` / `tools.ErrNoGoToolchain` /
       `tools.ErrNotInstallable` / `tools.ErrInstallFailed` 一律用 `errors.Is` 判定。
 
+## 3.1 前端组件库优先（强制）
+
+所有门户与后台页面在写任何 HTML 控件前，必须先查 `web/templates/components/**` 与 `/ui-kit` 组件示例；
+已有组件能覆盖的场景**必须复用**，不得凭个人偏好手写一份等价控件。判定顺序固定为：
+**组件 → 组件参数/修饰类 → 新增组件 → 手写 HTML**，只有前三级都无法表达时才允许写原生 HTML，
+并在 PR/提交说明中写明原因。
+
+- **表单控件**：可见文本/搜索输入用 `components.form.field`（紧凑筛选行加 `LabelHidden` 与
+  `LeadingIcon`），下拉用 `components.form.select`，日期用 `components.form.date` / `.time` /
+  `.datetime`，文件用 `components.form.file` 或 `form.field` 的 `Type "file"`。禁止手写 `<select>`、
+  `type="date"`、裸 `class="yd-input"`；原生 `<select>` 只允许由 `form.select` 生成，作为无脚本回退。
+- **筛选与工具栏**：筛选行优先使用 `components.navigation.filter-bar` 或 `components.form.*`，
+  不得在业务页面重新实现一套输入/下拉/日期外观。
+- **表格操作菜单**：所有表格右侧操作列统一为 `yd-icon-btn` 触发的 `details.yd-menu`，菜单项统一为
+  `yd-menu__item`；图标与文字并存时使用 `yd-menu__item--with-icon`（flex、同高、不换行），
+  且每个表格行操作都必须采用同一结构与同一组间距。不得出现并排文字按钮、裸 `<ul>` 菜单或各项
+  使用不同触发器样式。
+- **组件规则**：组件参数、`LabelHidden`/`LeadingIcon` 等修饰键、`yd-menu__item--with-icon` 等
+  修饰类只在组件文档与 `docs/frontend-ui.md`/`docs/frontend-components.md` 中定义；业务模板不得
+  复制组件内部 DOM 结构。
+- **守卫**：`go test ./tooling/scaffold/... -run TestGeneratedTemplatesUseComponentFormControls` 与
+  `/ui-kit` 组件覆盖测试必须通过；新增组件必须同批补组件示例、测试、文档与压缩资产。
+  违反本节的页面视为未完成。
+
 ## 4. 提交纪律（强制，Agent 必须遵守）
 
 - **提交信息一律使用中文 Conventional Commits**，格式：

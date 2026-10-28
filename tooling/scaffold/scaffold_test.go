@@ -995,7 +995,7 @@ func TestGeneratedPortalAndManagementShareOneComponentLayer(t *testing.T) {
 	}
 	compose := pr.read("web/templates/portal/partials/messages/compose.html")
 	for _, want := range []string{
-		"data-yd-upload-form", "data-yd-upload-file", "data-yd-upload-submit", "data-yd-upload-status",
+		"data-yd-upload-form", "components.form.field", `"Type" "file"`, "data-yd-upload-submit", "data-yd-upload-status",
 		"data-yd-upload-uploading", "data-yd-upload-uploaded", "data-yd-upload-failed", "data-yd-upload-error-target",
 		"data-yd-attachment-preview", "data-yd-attachment-src", "data-yd-attachment-download",
 	} {
@@ -1037,6 +1037,87 @@ func TestGeneratedPortalAndManagementShareOneComponentLayer(t *testing.T) {
 	}
 	if !strings.Contains(pr.read("web/static/js/yd-app.js"), "syncDocumentTitle") {
 		t.Error("yd-app.js 未在外壳交换后同步 document.title | yd-app.js does not sync document.title after a shell swap")
+	}
+}
+
+// TestGeneratedTemplatesUseComponentFormControls pins the visible form contract: ordinary inputs, selects and date
+// pickers come from components.form.* instead of hand-written native controls, and icon-bearing action-menu rows use
+// the flex modifier that keeps the glyph on the same line. |
+// TestGeneratedTemplatesUseComponentFormControls 固定可见表单契约：普通输入框、下拉框与日期选择器必须来自
+// components.form.*，不得手写原生控件；带图标的操作菜单行使用保持同一行的弹性修饰类。
+func TestGeneratedTemplatesUseComponentFormControls(t *testing.T) {
+	pr, _ := generateMem(t, scaffold.DefaultOptions("component-form-controls"))
+
+	// Scan every generated template outside components/: a single hand-written select/date/input is enough to
+	// make one page drift from the component library. | 扫描 components/ 之外的每一个生成模板：只要有一个手写的
+	// select、日期或输入框，就足以让某个页面偏离组件库。
+	for _, rel := range requiredFiles {
+		if !strings.HasPrefix(rel, "web/templates/") || strings.HasPrefix(rel, "web/templates/components/") {
+			continue
+		}
+		body := pr.read(rel)
+		for _, unwanted := range []string{
+			"<select", `type="date"`, `type="datetime-local"`, `type="month"`, `type="time"`, `class="yd-input`,
+		} {
+			if strings.Contains(body, unwanted) {
+				t.Errorf("%s 手写原生控件 %q；改用 components.form.field/select/date | %s hand-writes %q; use components.form.field/select/date", rel, unwanted, rel, unwanted)
+			}
+		}
+	}
+
+	for _, rel := range []string{
+		"web/templates/portal/pages/attachments.html",
+		"web/templates/mgr/pages/attachments.html",
+	} {
+		body := pr.read(rel)
+		for _, want := range []string{
+			`components.form.field`, `components.form.select`, `components.form.date`,
+			`yd-menu__item--with-icon`,
+		} {
+			if !strings.Contains(body, want) {
+				t.Errorf("%s 缺少组件化控件或图标菜单修饰类 %q | %s lacks %q", rel, want, rel, want)
+			}
+		}
+	}
+
+	if !strings.Contains(pr.read("web/templates/mgr/partials/messages/audit.html"), `components.form.field`) {
+		t.Error("消息审计筛选栏仍手写搜索输入框 | the message audit filter still hand-writes its search inputs")
+	}
+	if !strings.Contains(pr.read("web/templates/partials/base.html"), `name="htmx-config"`) {
+		t.Error("共享骨架缺少 htmx-config 的 hx-live 前缀配置 | the shared skeleton lacks the htmx-config hx-live prefix")
+	}
+	css := pr.read("web/static/css/components.css")
+	if !strings.Contains(css, ".yd-menu__item.yd-menu__item--with-icon") {
+		t.Error("components.css 缺少图标菜单行的弹性布局规则 | components.css lacks the flex rule for icon action rows")
+	}
+
+	// Every action menu shares one trigger and one item layout: an icon button opens a details panel, and
+	// icon-bearing items use the flex modifier. A stray ghost button or text-only icon row makes two tables
+	// look like they came from different products. | 所有操作菜单共用同一套触发器与菜单项布局：图标按钮打开
+	// details 面板，带图标的菜单项使用弹性修饰类；混入 ghost 按钮或纯文字图标行会让两张表看起来不是同一套界面。
+	menus := []string{
+		"web/templates/mgr/partials/users/row.html",
+		"web/templates/mgr/partials/roles/list.html",
+		"web/templates/mgr/partials/message_settings/body.html",
+		"web/templates/portal/pages/attachments.html",
+		"web/templates/mgr/pages/attachments.html",
+		"web/templates/portal/partials/friends/summary.html",
+		"web/templates/portal/partials/messages/thread.html",
+		"web/templates/partials/messages/message.html",
+	}
+	for _, rel := range menus {
+		body := pr.read(rel)
+		if strings.Contains(body, `<summary class="yd-btn`) {
+			t.Errorf("%s 的菜单触发器仍是文字按钮，应统一为 yd-icon-btn | %s still uses a text-button menu trigger", rel, rel)
+		}
+		if !strings.Contains(body, "yd-menu__item--with-icon") {
+			t.Errorf("%s 的菜单项未统一使用图标弹性行 | %s does not use the shared icon menu row", rel, rel)
+		}
+	}
+	for _, rel := range []string{"web/templates/portal/pages/attachments.html", "web/templates/mgr/pages/attachments.html"} {
+		if !strings.Contains(pr.read(rel), "yd-table__td--actions") {
+			t.Errorf("%s 的操作列缺少统一的 yd-table__td--actions | %s lacks the shared action cell class", rel, rel)
+		}
 	}
 }
 
@@ -3249,9 +3330,12 @@ func TestGeneratedI18nCatalogueCoversEveryTrKey(t *testing.T) {
 
 	used := map[string]string{}
 	// optionKeyPattern covers the select/choice contract: the visible label comes from tr, while a
-	// data-driven option carries the same catalogue key in its Key field. | optionKeyPattern 覆盖
-	// 选择/选项契约：可见文案由 tr 给出，数据驱动的选项在 Key 字段里携带同一个目录键。
-	optionKeyPattern := regexpx.MustCompile(`"Key"\s+"([a-z0-9_.]+)"`)
+	// data-driven option carries the same catalogue key in its Key field. The component dictionary
+	// keys are equally real references: a filter passes PlaceholderKey/LabelKey instead of calling tr
+	// inline. | optionKeyPattern 覆盖选择/选项契约：可见文案由 tr 给出，数据驱动的选项在 Key 字段里
+	// 携带同一个目录键。组件字典键同样是真实引用：筛选行用 PlaceholderKey/LabelKey，而不是在模板里
+	// 直接调用 tr。
+	optionKeyPattern := regexpx.MustCompile(`"(?:Key|LabelKey|PlaceholderKey|HintKey|ErrorKey|SubmitKey|CancelKey|ClearKey|PanelLabelKey|ResetKey|TitleKey|TextKey|DescriptionKey)"\s+"([a-z0-9_.]+)"`)
 	for _, rel := range requiredFiles {
 		if !strings.HasPrefix(rel, "web/templates/") || !strings.HasSuffix(rel, ".html") {
 			continue
@@ -4772,9 +4856,10 @@ func TestGeneratedMessageCentreUsesInlineNewConversationPanel(t *testing.T) {
 	for _, want := range []string{
 		`action="/messages/groups"`,
 		`name="group_members"`,
-		`name="group_title"`,
+		`"Name" "group_title"`,
+		`components.form.field`,
 		`href="/messages/direct/`,
-		`data-yd-contact-search`,
+		`"ID" "yd-contact-q"`,
 		`data-yd-contact-check`,
 		`data-yd-contact-submit`,
 	} {
@@ -5086,7 +5171,7 @@ func TestGeneratedProjectRendersCaptchaWidget(t *testing.T) {
 	}
 
 	login := pr.read("web/templates/portal/partials/login.html")
-	for _, want := range []string{`template "partials/captcha"`, ".CaptchaLogin", ".CaptchaLoginAction", `"Attrs" "hx-preserve"`} {
+	for _, want := range []string{`template "partials/captcha"`, ".CaptchaLogin", ".CaptchaLoginAction", `hx "preserve" "true"`} {
 		if !strings.Contains(login, want) {
 			t.Errorf("login.html 缺少 %q:\n%s", want, login)
 		}

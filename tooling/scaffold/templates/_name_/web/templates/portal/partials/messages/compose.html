@@ -135,10 +135,9 @@
       hx-status:422="target:#yd-drawer-errors swap:innerHTML"
       hx-status:500="target:#yd-drawer-errors swap:innerHTML"
       data-yd-drawer-persist>
-  <div class="yd-field" data-yd-field="file">
-    <label class="yd-field__label" for="yd-attachment-file">{{ tr "message.add_attachment" }}</label>
-    <input class="yd-input" id="yd-attachment-file" name="file" type="file" data-yd-upload-file>
-  </div>
+  {{template "components.form.field" (dict
+    "ID" "yd-attachment-file" "Name" "file" "Type" "file"
+    "Label" (tr "message.add_attachment") "LabelKey" "message.add_attachment")}}
   <button type="submit" class="yd-btn yd-btn--sm" data-yd-upload-submit>{{ template "partials/icon" "lucide-upload" }}{{ tr "message.upload" }}</button>
   <span class="yd-hint" id="yd-attachment-upload-status" data-yd-upload-status role="status" aria-live="polite"></span>
 </form>

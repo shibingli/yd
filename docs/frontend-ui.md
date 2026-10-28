@@ -335,7 +335,8 @@ Windows 显示缩放改变的是 CSS 像素与设备的比例，本质上与浏�
 - 窄屏不要强行压缩列宽；保留滚动，或用卡片列表替代（业务自行选择，组件层不隐藏数据）。
 - 行内操作统一为一个图标按钮（`lucide-more-horizontal`，`aria-label` 取自 `ui.actions`）展开
   `<details class="yd-menu">`，不得并排文字按钮；`yd-app.js` 会把面板提升为 `fixed` 定位，避免被表格的
-  `overflow-x` 裁切。
+  `overflow-x` 裁切。带图标与文字的菜单项必须加 `yd-menu__item--with-icon`：Tailwind preflight 会把
+  SVG 变成块级元素，缺少这个弹性修饰类时图标会独占一行、菜单行高翻倍。
 
 ### 5.5 建议验证矩阵
 
@@ -424,9 +425,15 @@ Windows 显示缩放改变的是 CSS 像素与设备的比例，本质上与浏�
   "Autocomplete" "off" "MaxLength" 254 "Required" true)}}
 ```
 
-可用键：`ID`、`Name`、`Type`、`Value`、`LabelKey`、`Label`、`PlaceholderKey`、`Placeholder`、
+可用键：`ID`、`Name`、`Type`、`Value`、`LabelKey`、`Label`、`LabelHidden`、`PlaceholderKey`、`Placeholder`、
 `HintKey`、`Hint`、`ErrorKey`、`Error`、`Autocomplete`、`InputMode`、`Required`、`Sensitive`、
-`Invalid`、`Disabled`、`Readonly`、`MaxLength`、`Pattern`、`Min`、`Max`、`Step`、`DescribedBy`。
+`Invalid`、`Disabled`、`Readonly`、`MaxLength`、`Pattern`、`Min`、`Max`、`Step`、`DescribedBy`、`LeadingIcon`。
+
+- `LabelHidden` 把标签收进 `sr-only`，仍保留 `for` 与读屏语义；筛选条等紧凑工具行使用它，不应删掉标签。
+- `LeadingIcon` 接受 Lucide sprite 名称（如 `lucide-search`），在控件内部渲染装饰图标；图标不进入
+  可访问名称，输入框自动留出内边距。
+- 筛选行里的搜索框、下拉框与日期选择器必须分别用 `components.form.field`（`Type "search"`）、
+  `components.form.select` 与 `components.form.date`；禁止手写原生 `<select>` 或 `type="date"`。
 
 - `Sensitive` 生成 `data-yd-sensitive="true"`，由 `yd-guomi-htmx.js` 在请求前用 SM2 加密。
 - `Invalid` 生成 `aria-invalid="true"` 与 `yd-input--invalid`，错误文本同时通过 `role="alert"` 播报。

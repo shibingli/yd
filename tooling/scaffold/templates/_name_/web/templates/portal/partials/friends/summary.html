@@ -64,19 +64,19 @@
           </a>
           {{- end }}
           <details class="yd-menu" data-yd-menu>
-            <summary class="yd-btn yd-btn--ghost yd-btn--sm" aria-label="{{ tr "ui.actions" }}">{{ template "partials/icon" "lucide-more-horizontal" }}</summary>
+            <summary class="yd-icon-btn" aria-label="{{ tr "ui.actions" }}">{{ template "partials/icon" "lucide-more-horizontal" }}</summary>
             <div class="yd-menu__panel" role="menu">
-              <button type="button" class="yd-menu__item" role="menuitem" data-yd-drawer-open
-                      hx-get="/friends/{{ .Profile.ID }}/remark" hx-target="#yd-drawer-body" hx-swap="innerHTML">{{ tr "friend.remark" }}</button>
+              <button type="button" class="yd-menu__item yd-menu__item--with-icon" role="menuitem" data-yd-drawer-open
+                      hx-get="/friends/{{ .Profile.ID }}/remark" hx-target="#yd-drawer-body" hx-swap="innerHTML">{{ template "partials/icon" "lucide-pen-line" }}{{ tr "friend.remark" }}</button>
               <form method="post" action="/friends/{{ .Profile.ID }}/remove"
                     hx-post="/friends/{{ .Profile.ID }}/remove" hx-target="#yd-friends-panel" hx-swap="outerMorph"
                     data-yd-confirm="{{ tr "confirm.remove_friend" }}">
-                <button type="submit" class="yd-menu__item" role="menuitem">{{ tr "friend.remove" }}</button>
+                <button type="submit" class="yd-menu__item yd-menu__item--with-icon" role="menuitem">{{ template "partials/icon" "lucide-user-minus" }}{{ tr "friend.remove" }}</button>
               </form>
               <form method="post" action="/friends/{{ .Profile.ID }}/block"
                     hx-post="/friends/{{ .Profile.ID }}/block" hx-target="#yd-friends-panel" hx-swap="outerMorph"
                     data-yd-confirm="{{ tr "confirm.block_friend" }}">
-                <button type="submit" class="yd-menu__item" role="menuitem">{{ tr "friend.block" }}</button>
+                <button type="submit" class="yd-menu__item yd-menu__item--with-icon" role="menuitem">{{ template "partials/icon" "lucide-ban" }}{{ tr "friend.block" }}</button>
               </form>
             </div>
           </details>

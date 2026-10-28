@@ -25,22 +25,22 @@
       <time class="yd-msg__time" datetime="{{ .CreatedAt.Format "2006-01-02T15:04:05Z07:00" }}">{{ .When }}</time>
       {{- if or .CanEdit .CanRecall .CanPin .CanRevoke }}
       <details class="yd-menu yd-msg__menu" data-yd-menu>
-        <summary class="yd-btn yd-btn--ghost yd-btn--sm" aria-label="{{ tr "ui.actions" }}">{{ template "partials/icon" "lucide-more-horizontal" }}</summary>
+        <summary class="yd-icon-btn" aria-label="{{ tr "ui.actions" }}">{{ template "partials/icon" "lucide-more-horizontal" }}</summary>
         <div class="yd-menu__panel" role="menu">
           {{- if .CanEdit }}
-          <button type="button" class="yd-menu__item" role="menuitem" data-yd-drawer-open
-                  hx-get="{{ .BasePath }}/{{ .ID }}/edit" hx-target="#yd-drawer-body" hx-swap="innerHTML">{{ tr "ui.edit" }}</button>
+          <button type="button" class="yd-menu__item yd-menu__item--with-icon" role="menuitem" data-yd-drawer-open
+                  hx-get="{{ .BasePath }}/{{ .ID }}/edit" hx-target="#yd-drawer-body" hx-swap="innerHTML">{{ template "partials/icon" "lucide-pen-line" }}{{ tr "ui.edit" }}</button>
           {{- end }}
           {{- if .CanPin }}
-          <button type="button" class="yd-menu__item" role="menuitem" data-yd-drawer-open
-                  hx-get="{{ .BasePath }}/{{ .ID }}/pin" hx-target="#yd-drawer-body" hx-swap="innerHTML">{{ tr "message.pin" }}</button>
+          <button type="button" class="yd-menu__item yd-menu__item--with-icon" role="menuitem" data-yd-drawer-open
+                  hx-get="{{ .BasePath }}/{{ .ID }}/pin" hx-target="#yd-drawer-body" hx-swap="innerHTML">{{ template "partials/icon" "lucide-pin" }}{{ tr "message.pin" }}</button>
           {{- end }}
           {{- if and .PinnedNow .CanPin }}
           <form method="post" action="{{ .BasePath }}/{{ .ID }}/unpin"
                 hx-post="{{ .BasePath }}/{{ .ID }}/unpin" hx-target="#yd-workspace" hx-swap="innerMorph"
                 data-yd-confirm="{{ tr "confirm.unpin_message" }}">
             <input type="hidden" name="conversation_id" value="{{ .ConversationID }}">
-            <button type="submit" class="yd-menu__item" role="menuitem">{{ tr "message.unpin" }}</button>
+            <button type="submit" class="yd-menu__item yd-menu__item--with-icon" role="menuitem">{{ template "partials/icon" "lucide-pin" }}{{ tr "message.unpin" }}</button>
           </form>
           {{- end }}
           {{- if .CanRecall }}
@@ -48,7 +48,7 @@
                 hx-post="{{ .BasePath }}/{{ .ID }}/recall" hx-target="#yd-workspace" hx-swap="innerMorph"
                 data-yd-confirm="{{ tr "confirm.recall_message" }}">
             <input type="hidden" name="conversation_id" value="{{ .ConversationID }}">
-            <button type="submit" class="yd-menu__item" role="menuitem">{{ tr "message.recall" }}</button>
+            <button type="submit" class="yd-menu__item yd-menu__item--with-icon" role="menuitem">{{ template "partials/icon" "lucide-undo-2" }}{{ tr "message.recall" }}</button>
           </form>
           {{- end }}
           {{- if .CanRevoke }}
@@ -56,7 +56,7 @@
                 hx-post="{{ .BasePath }}/{{ .ID }}/revoke" hx-target="#yd-workspace" hx-swap="innerMorph"
                 data-yd-confirm="{{ tr "confirm.revoke_message" }}">
             <input type="hidden" name="conversation_id" value="{{ .ConversationID }}">
-            <button type="submit" class="yd-menu__item" role="menuitem">{{ tr "message.revoke" }}</button>
+            <button type="submit" class="yd-menu__item yd-menu__item--with-icon" role="menuitem">{{ template "partials/icon" "lucide-x-circle" }}{{ tr "message.revoke" }}</button>
           </form>
           {{- end }}
         </div>

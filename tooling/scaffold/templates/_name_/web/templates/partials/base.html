@@ -56,6 +56,12 @@
   <meta property="og:url" content="{{ . }}">
   {{- end }}
   <title>{{ with .Title }}{{ . }} · {{ end }}{{ .Name }}</title>
+  {{/* hx-live 在检测到 Alpine 且未配置 bindPrefix 时会把每个属性都当作表达式求值；CSP 下求值器被拦截，
+       任何带 x-for 的组件都会在控制台刷屏。固定显式前缀后只处理 hx-live: 属性；当前模板不使用这类绑定。
+       When Alpine is present and bindPrefix is unset, hx-live evaluates every attribute as an expression; CSP
+       blocks that evaluator, so every x-for component floods the console. Pin an explicit prefix: only hx-live:
+       attributes are evaluated, and no template currently uses such a binding. */}}
+  <meta name="htmx-config" content='{"live":{"bindPrefix":"hx-live:"}}'>
   {{/* 首屏主题：在样式表之前同步解析 auth/system，避免系统深色下先画出一帧浅色。
        First-paint theme: resolve auto/system synchronously before the stylesheet, so a system-dark
        visitor never sees a light frame first. */}}

@@ -677,3 +677,42 @@ func TestComponentsRenderFromI18nKeysOnly(t *testing.T) {
 		}
 	}
 }
+
+// TestFormFilterControlsSupportHiddenLabelsAndLeadingIcons pins the compact-filter variant of the
+// form primitives: a visually hidden label still renders for assistive technology, and a leading
+// icon stays decorative inside the control. | TestFormFilterControlsSupportHiddenLabelsAndLeadingIcons
+// 固定表单原语的紧凑筛选变体：视觉隐藏的标签仍为辅助技术渲染，前置图标作为装饰留在控件内部。
+func TestFormFilterControlsSupportHiddenLabelsAndLeadingIcons(t *testing.T) {
+	templates, err := template.New("components").Funcs(templateFuncs()).ParseFS(os.DirFS("templates"), "components/*.html", "partials/*.html")
+	if err != nil {
+		t.Fatalf("parsing components failed | 解析组件失败: %v", err)
+	}
+	render := func(name string, data map[string]any) string {
+		t.Helper()
+		var buf bytes.Buffer
+		if err := templates.ExecuteTemplate(&buf, name, data); err != nil {
+			t.Fatalf("rendering %s failed | 渲染 %s 失败: %v", name, name, err)
+		}
+		return buf.String()
+	}
+
+	field := render("components.form.field", map[string]any{
+		"ID": "filter-q", "Name": "q", "Type": "search", "LabelHidden": true,
+		"LabelKey": "field.search", "LeadingIcon": "lucide-search",
+	})
+	for _, want := range []string{
+		`class="yd-field__label sr-only"`, `yd-field__control--icon`,
+		`data-yd-icon="lucide-search"`, `aria-hidden="true"`, `type="search"`,
+	} {
+		if !strings.Contains(field, want) {
+			t.Errorf("filter field lacks %q | 筛选字段缺少 %q", want, want)
+		}
+	}
+
+	date := render("components.form.date", map[string]any{
+		"ID": "filter-from", "Name": "from", "LabelHidden": true, "LabelKey": "field.from",
+	})
+	if !strings.Contains(date, `class="yd-field__label sr-only"`) {
+		t.Error("date filter still renders a visible label | 日期筛选仍渲染可见标签")
+	}
+}

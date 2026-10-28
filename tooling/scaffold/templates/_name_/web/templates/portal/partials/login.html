@@ -45,7 +45,7 @@
   {{template "components.form.field" (dict
     "ID" "yd-login-username" "Name" "username" "Type" "text" "Value" .Username
     "Label" (tr "field.username") "LabelKey" "field.username"
-    "Autocomplete" "username" "Required" true "MaxLength" 64 "Attrs" "hx-preserve")}}
+    "Autocomplete" "username" "Required" true "MaxLength" 64 "Attrs" (hx "preserve" "true"))}}
   {{template "components.form.password" (dict
     "ID" "yd-login-password" "Name" "password"
     "Label" (tr "field.password") "LabelKey" "field.password"

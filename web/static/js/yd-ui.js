@@ -3140,7 +3140,10 @@
         for (var day = 1; day <= count; day++) {
           var className = '';
           var iso = this.year + '-' + pad2(this.month + 1) + '-' + pad2(day);
-          var disabled = (this.min && iso < this.min) || (this.max && iso > this.max);
+          // Coerce to a real boolean: the empty string returned by the min/max expressions otherwise reaches
+          // x-bind:disabled and disables every day when neither bound is set. | 强制转为布尔值：min/max 表达式在
+          // 未设置时会返回空串，直接传给 x-bind:disabled 会让所有日期都被禁用。
+          var disabled = Boolean((this.min && iso < this.min) || (this.max && iso > this.max));
           if (day === this.day) {
             className = 'yd-datetime__day--selected';
           } else if (now.getFullYear() === this.year && now.getMonth() === this.month && now.getDate() === day) {

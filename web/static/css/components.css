@@ -1719,6 +1719,11 @@
     min-width: 0;
   }
 
+  .yd-composer__field {
+    flex: 1 1 auto;
+    min-width: 0;
+  }
+
   /* Append-only log of SSE and WebSocket messages. | 服务端推送与 WebSocket 消息的追加式日志。 */
   .yd-stream {
     display: flex;
@@ -2531,6 +2536,22 @@
 
   .yd-menu__item:hover {
     background-color: var(--color-surface-muted);
+  }
+
+  /* Rows that pair an icon with a label must share one flex line. Tailwind's preflight makes inline SVG a block,
+     so a plain block row puts the icon above the label and doubles the row height. nowrap keeps short action
+     labels on that line instead of wrapping under the glyph. |
+     图标与文字并存的行必须共用一条弹性行。Tailwind 的 preflight 会把内联 SVG 变成块级元素，普通块级行因此
+     把图标放到文字上方、行高翻倍；nowrap 保证短动作文案留在同一行，不会折到图标下方。 */
+  .yd-menu__item.yd-menu__item--with-icon {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    white-space: nowrap;
+  }
+
+  .yd-menu__item.yd-menu__item--with-icon .yd-icon {
+    flex: 0 0 auto;
   }
 
   .yd-menu__item--danger {
@@ -4154,6 +4175,10 @@
     width: 100%;
   }
 
+  .yd-msg-contacts__search .yd-field {
+    width: 100%;
+  }
+
   .yd-msg-contacts__search .yd-input {
     width: 100%;
   }
@@ -4283,7 +4308,8 @@
     gap: 0.5rem;
   }
 
-  .yd-msg-search__row > .yd-search__field {
+  .yd-msg-search__row > .yd-search__field,
+  .yd-msg-search__row > .yd-field {
     flex: 1 1 auto;
     min-width: 0;
   }
@@ -4614,6 +4640,11 @@
   }
 
   .yd-msg-composer__title {
+    flex: 1 1 14rem;
+    min-width: 0;
+  }
+
+  .yd-msg-composer__title-field {
     flex: 1 1 14rem;
     min-width: 0;
   }

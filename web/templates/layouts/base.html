@@ -62,6 +62,10 @@
 <meta name="color-scheme" content="light dark">
 <meta name="description" content="{{tr "app.description"}}">
 <title>{{with .Title}}{{.}} · {{end}}{{tr "app.name"}}</title>
+{{/* hx-live with Alpine must not treat every attribute as a binding; pin an explicit prefix so the CSP
+     build never reaches its expression evaluator. | hx-live 与 Alpine 并存时不能把每个属性都当绑定；
+     固定显式前缀，CSP 构建因此不会走到它的表达式求值器。 */}}
+<meta name="htmx-config" content='{"live":{"bindPrefix":"hx-live:"}}'>
 {{/* First-paint theme, ahead of the stylesheet and therefore synchronous: it only reads the
      yd_theme preference and writes <html data-theme>, so nothing blocks on the network and no
      wrong frame is ever painted. yd-app.js takes over the interactive three-state switch.
