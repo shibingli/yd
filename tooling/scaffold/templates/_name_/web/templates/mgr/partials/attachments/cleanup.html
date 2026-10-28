@@ -1,0 +1,46 @@
+{{/*
+  mgr/partials/attachments/cleanup.html —— 管理员集中清理未引用附件的抽屉。
+  mgr/partials/attachments/cleanup.html — the drawer an administrator uses to clean up unreferenced attachments.
+
+  清理范围由当前名称、上传者与日期筛选决定，但引用状态强制为「未引用」：仍被消息或其它业务消费的文件
+  永远不属于批量清理。每个受影响的上传者会收到一条汇总通知，通知带原因与至多十个文件名。
+  The scope comes from the current name, uploader and date filters, while the reference state is forced to
+  "unreferenced": a file still consumed by a message or another feature is never part of a bulk cleanup. Every affected
+  uploader receives one summary notice with the reason and up to ten file names.
+
+  数据契约 | Data contract: .Count .Filters .UploaderName .Action .ReasonMax。
+*/}}
+<div class="yd-drawer__head">
+  <h2 class="yd-section__title">{{ tr "attachment.cleanup_title" }}</h2>
+  <p class="yd-section__hint">{{ tr "attachment.cleanup_count" .Count }}</p>
+  <p class="yd-section__hint">
+    {{- with .Filters.Query }}{{ tr "attachment.cleanup_query" . }} · {{ end -}}
+    {{- with .UploaderName }}{{ tr "attachment.cleanup_uploader" . }} · {{ end -}}
+    {{- if or .Filters.From .Filters.To }}{{ tr "attachment.cleanup_range" .Filters.From .Filters.To }}{{ end -}}
+    {{- if not (or .Filters.Query .UploaderName .Filters.From .Filters.To) }}{{ tr "attachment.cleanup_all" }}{{ end -}}
+  </p>
+</div>
+
+<section class="yd-drawer__section" aria-labelledby="yd-attachment-cleanup-form">
+  <h3 class="yd-section__title" id="yd-attachment-cleanup-form">{{ tr "attachment.delete_reason" }}</h3>
+  <p class="yd-section__hint">{{ tr "attachment.cleanup_hint" }}</p>
+  <form class="yd-form" method="post" action="{{ .Action }}"
+        hx-post="{{ .Action }}" hx-target="#yd-workspace" hx-swap="innerMorph"
+        hx-status:422="target:#yd-drawer-errors swap:innerHTML"
+        hx-disabled-elt="find button[type='submit']"
+        data-yd-confirm="{{ tr "confirm.attachment_cleanup" }}" novalidate>
+    <input type="hidden" name="q" value="{{ .Filters.Query }}">
+    <input type="hidden" name="uploader" value="{{ .Filters.UploaderID }}">
+    <input type="hidden" name="from" value="{{ .Filters.From }}">
+    <input type="hidden" name="to" value="{{ .Filters.To }}">
+    {{template "components.form.textarea" (dict
+      "ID" "yd-attachment-cleanup-reason" "Name" "reason" "Rows" 4 "Required" true
+      "MaxLength" .ReasonMax
+      "Label" (tr "attachment.reason") "LabelKey" "attachment.reason"
+      "Hint" (tr "attachment.reason_hint") "HintKey" "attachment.reason_hint"
+      "Placeholder" (tr "attachment.reason_placeholder") "PlaceholderKey" "attachment.reason_placeholder")}}
+    {{template "components.form.actions" (dict
+      "SubmitLabel" (tr "attachment.cleanup_submit") "SubmitKey" "attachment.cleanup_submit"
+      "CancelLabel" (tr "ui.cancel") "CancelKey" "ui.cancel")}}
+  </form>
+</section>

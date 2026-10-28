@@ -5,9 +5,11 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"errors"
+	"io"
 	"strings"
 	"time"
 
+	"github.com/shibingli/yd/attachments"
 	"github.com/shibingli/ydx/errs"
 	ydlog "github.com/shibingli/ydx/log"
 )
@@ -45,16 +47,12 @@ type Options struct {
 	NewID func(prefix string) (string, error)
 	// SystemConversationKey is the stable key of the tenant announcement channel. | SystemConversationKey 是租户公告频道的稳定键。
 	SystemConversationKey string
-	// AllowedTypes lists accepted MIME types; nil installs the default allow list. | AllowedTypes 列出接受的 MIME 类型；nil 安装默认白名单。
-	AllowedTypes []string
 	// RecallWindow bounds a regular author's recall. | RecallWindow 限制普通作者的撤回窗口。
 	RecallWindow time.Duration
 	// EditWindow bounds a regular author's edit. | EditWindow 限制普通作者的编辑窗口。
 	EditWindow time.Duration
 	// MaxAttachments is the number of files one message may carry. | MaxAttachments 是单条消息可携带的文件数。
 	MaxAttachments int
-	// MaxAttachmentSize is the per-file byte ceiling. | MaxAttachmentSize 是单文件字节上限。
-	MaxAttachmentSize int64
 	// MaxMembers is the group member ceiling. | MaxMembers 是群成员上限。
 	MaxMembers int
 	// MaxTitleLen is the title byte ceiling. | MaxTitleLen 是标题字节上限。
@@ -69,8 +67,6 @@ type Options struct {
 	MaxPageSize int
 	// SearchTerms is the maximum number of whitespace-separated search terms. | SearchTerms 是空白分隔检索词的最大数量。
 	SearchTerms int
-	// PendingTTL is how long an unattached upload survives. | PendingTTL 是未挂载上传的保留时长。
-	PendingTTL time.Duration
 }
 
 // DefaultOptions returns production-safe defaults. | DefaultOptions 返回生产可用的默认值。
@@ -79,7 +75,6 @@ func DefaultOptions() Options {
 		RecallWindow:          5 * time.Minute,
 		EditWindow:            5 * time.Minute,
 		MaxAttachments:        10,
-		MaxAttachmentSize:     20 << 20,
 		MaxMembers:            50,
 		MaxTitleLen:           160,
 		MaxBodyLen:            128 << 10,
@@ -87,7 +82,6 @@ func DefaultOptions() Options {
 		PageSize:              20,
 		MaxPageSize:           100,
 		SearchTerms:           6,
-		PendingTTL:            24 * time.Hour,
 		SystemConversationKey: "announcements",
 	}
 }
@@ -113,9 +107,6 @@ func (o Options) normalized() Options {
 	if o.MaxAttachments <= 0 {
 		o.MaxAttachments = d.MaxAttachments
 	}
-	if o.MaxAttachmentSize <= 0 {
-		o.MaxAttachmentSize = d.MaxAttachmentSize
-	}
 	if o.MaxMembers <= 0 {
 		o.MaxMembers = d.MaxMembers
 	}
@@ -137,16 +128,29 @@ func (o Options) normalized() Options {
 	if o.SearchTerms <= 0 {
 		o.SearchTerms = d.SearchTerms
 	}
-	if o.PendingTTL <= 0 {
-		o.PendingTTL = d.PendingTTL
-	}
 	if o.SystemConversationKey == "" {
 		o.SystemConversationKey = d.SystemConversationKey
 	}
-	if len(o.AllowedTypes) == 0 {
-		o.AllowedTypes = defaultAllowedTypes()
-	}
 	return o
+}
+
+// AttachmentService is the subset of the attachments domain the message centre needs. | AttachmentService
+// 是消息中心所需的附件域子集。
+type AttachmentService interface {
+	// Upload stores one pending file. | Upload 保存一个待引用文件。
+	Upload(ctx context.Context, actor attachments.Actor, name string, declaredSize int64, r io.Reader) (attachments.Attachment, error)
+	// Lookup reads one attachment without an ownership check. | Lookup 读取附件但不校验所有权。
+	Lookup(ctx context.Context, tenantID, id string) (attachments.Attachment, error)
+	// Read returns the bytes of one attachment after the caller authorized it. | Read 在调用方完成鉴权后返回字节。
+	Read(ctx context.Context, attachment attachments.Attachment) ([]byte, error)
+	// Pending validates pending uploads owned by uploader. | Pending 校验上传者拥有的待引用上传。
+	Pending(ctx context.Context, tenantID, uploaderID string, ids []string) ([]attachments.Attachment, error)
+	// ListByRef lists the attachments of one business object. | ListByRef 列出某个业务对象的附件。
+	ListByRef(ctx context.Context, tenantID string, ref attachments.Ref) ([]attachments.Attachment, error)
+	// Refs lists the references of one attachment. | Refs 列出一个附件的引用。
+	Refs(ctx context.Context, tenantID, attachmentID string) ([]attachments.Ref, error)
+	// CleanupPending tombstones expired pending uploads. | CleanupPending 把超时的待引用上传变成墓碑。
+	CleanupPending(ctx context.Context, tenantID string) (int, error)
 }
 
 // Service owns every message-centre rule. | Service 拥有消息中心的全部规则。
@@ -157,8 +161,9 @@ type Service struct {
 	directory Directory
 	// renderer turns Markdown into sanitised HTML. | renderer 把 Markdown 转成净化 HTML。
 	renderer Renderer
-	// blobs stores attachment bytes; nil disables uploads. | blobs 保存附件字节；nil 表示禁用上传。
-	blobs BlobStore
+	// attachments owns uploads, references and file storage; nil disables attachments. | attachments
+	// 拥有上传、引用与文件存储；nil 表示禁用附件。
+	attachments AttachmentService
 	// notifier delivers realtime events; nil drops them. | notifier 投递实时事件；nil 表示丢弃。
 	notifier Notifier
 	// log records delivery and cleanup problems. | log 记录投递与清理问题。
@@ -167,10 +172,10 @@ type Service struct {
 	options Options
 }
 
-// New constructs a service. Store, Directory and Renderer are mandatory; BlobStore and Notifier
-// are optional, and a missing one degrades exactly the feature that needs it. | New 构造服务。
-// Store、Directory 与 Renderer 必填；BlobStore 与 Notifier 可选，缺失时只降级依赖它的能力。
-func New(store Store, directory Directory, renderer Renderer, blobs BlobStore, notifier Notifier, log *ydlog.Logger, options Options) (*Service, error) {
+// New constructs a service. Store, Directory and Renderer are mandatory; AttachmentService and
+// Notifier are optional, and a missing one degrades exactly the feature that needs it. | New 构造服务。
+// Store、Directory 与 Renderer 必填；AttachmentService 与 Notifier 可选，缺失时只降级依赖它的能力。
+func New(store Store, directory Directory, renderer Renderer, attachmentService AttachmentService, notifier Notifier, log *ydlog.Logger, options Options) (*Service, error) {
 	if store == nil || directory == nil || renderer == nil {
 		return nil, errs.Detail(ErrUnavailable, "store, directory and renderer are required | store、directory 与 renderer 为必填")
 	}
@@ -178,13 +183,13 @@ func New(store Store, directory Directory, renderer Renderer, blobs BlobStore, n
 		log = ydlog.Default()
 	}
 	return &Service{
-		store:     store,
-		directory: directory,
-		renderer:  renderer,
-		blobs:     blobs,
-		notifier:  notifier,
-		log:       log,
-		options:   options.normalized(),
+		store:       store,
+		directory:   directory,
+		renderer:    renderer,
+		attachments: attachmentService,
+		notifier:    notifier,
+		log:         log,
+		options:     options.normalized(),
 	}, nil
 }
 

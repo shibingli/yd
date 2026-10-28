@@ -220,6 +220,17 @@ cache:
     # - high-security/classified routes bypass every cache read via CacheBypass (see internal/router).
     ignore_tables:
       - yd_auth_users
+      # Attachment rows carry StoredKey with json:"-": the storage key must never reach an API
+      # payload, but the JSON-backed query cache would also drop it, so the second download after
+      # a cache hit fails with "invalid attachment key". Attachment rows are read on upload,
+      # download and message assembly, not on a cache-sensitive hot list, so they stay uncached.
+      # The reference table is joined on every message render and must reflect a release or a
+      # tombstone immediately, so it stays uncached as well.
+      # 附件行的 StoredKey 带 json:"-"，既不能进入 API 载荷，也会被 JSON 查询缓存丢弃；缓存命中后
+      # 的第二次下载会因“附件键非法”失败。附件行只在上下传与消息装配时读取，不是缓存敏感的热列表，
+      # 因此永不进入查询缓存。引用表在每次消息渲染时参与连接，且解除引用或墓碑必须立即生效，同样不缓存。
+      - yd_attachments
+      - yd_attachment_refs
     sensitive_tables:
       - yd_auth_tenants
       - yd_auth_user_tenants
@@ -279,8 +290,16 @@ message:
   max_attachment_size: 20971520   # 单文件上限（字节，20 MiB） | per-file ceiling in bytes (20 MiB)
   max_group_members: 50      # 群成员上限 | group member ceiling
   page_size: 20              # 列表默认页长 | default page length
-  attachment_dir: data/attachments  # 本地附件目录（相对进程工作目录） | local attachment directory (relative to the process working directory)
-  pending_ttl: 24h           # 未挂载上传的保留时长 | how long an unattached upload survives
+  attachment_dir: data/attachments  # 本地附件目录（相对进程工作目录；多节点请改为各节点共享的绝对路径） | local attachment directory (relative to the process working directory; use a shared absolute mount for several nodes)
+  # 以下 attachment_* 键配置**框架级附件存储**，消息中心只是第一个消费方；其它功能共用同一后端。
+  # 附件字节后端：local 写 attachment_dir；redis 写部署共用的 Redis（多节点无需共享文件系统）。
+  # 键按 <租户哈希>/<上传者哈希>/<YYYY>/<MM>/<DD>/<附件 ID> 分区，两种后端一致。
+  # The attachment_* keys configure the framework-wide attachment store (the message centre is only the first
+  # consumer). Backend: local writes attachment_dir; redis writes the deployment Redis (no shared filesystem for
+  # several nodes). Keys are partitioned as <tenant hash>/<uploader hash>/<YYYY>/<MM>/<DD>/<attachment id> in both.
+  attachment_store: local     # local | redis
+  attachment_redis_prefix: "yd:msg:blob:"  # redis 后端的键前缀；同一部署内唯一 | key prefix of the redis backend; unique per deployment
+  pending_ttl: 24h           # 未被引用上传的保留时长（释放引用后重新计时） | how long an unreferenced upload survives (restarts after a release)
   node_id: ""                # 兼容别名；留空使用 node.id | compatibility alias; empty uses node.id
   # allowed_types:           # optional attachment MIME allow list; empty uses the framework default | 可选附件 MIME 白名单；留空使用框架默认值
   #   - image/png

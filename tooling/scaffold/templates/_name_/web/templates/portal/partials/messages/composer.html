@@ -12,8 +12,11 @@
 */}}
 {{- define "portal/partials/messages/composer" -}}
 {{- $system := .ActiveConversation.IsSystem -}}
+{{- $notice := .ActiveConversation.IsNotice -}}
 {{- $canPost := false -}}
-{{- if $system -}}{{- $canPost = .CanSystem -}}{{- else -}}{{- $canPost = .CanSend -}}{{- end -}}
+{{- if $notice -}}{{- $canPost = false -}}
+{{- else if $system -}}{{- $canPost = .CanSystem -}}
+{{- else -}}{{- $canPost = .CanSend -}}{{- end -}}
 {{- $action := "/messages" -}}
 {{- $defaultType := "normal" -}}
 {{- if $system -}}{{- $action = "/mgr/messages/system" -}}{{- $defaultType = "announcement" -}}{{- end -}}
@@ -74,13 +77,14 @@
   <div class="yd-msg-composer__bar">
     {{- if or (not $system) .CanSend }}
     <form class="yd-msg-composer__upload" method="post" action="/messages/attachments"
+          enctype="multipart/form-data"
           hx-post="/messages/attachments" hx-target="#yd-msg-composer-attachments" hx-swap="beforeend"
           hx-encoding="multipart/form-data" hx-status:422="target:#yd-msg-composer-errors swap:innerHTML">
       <label class="yd-btn yd-btn--ghost yd-btn--sm" for="yd-msg-composer-file">
         {{ template "partials/icon" "lucide-paperclip" }}{{ tr "message.add_attachment" }}
       </label>
       <input class="sr-only" id="yd-msg-composer-file" name="file" type="file">
-      <button type="submit" class="yd-btn yd-btn--ghost yd-btn--sm">{{ tr "message.upload" }}</button>
+      <button type="submit" class="yd-btn yd-btn--sm">{{ template "partials/icon" "lucide-upload" }}{{ tr "message.upload" }}</button>
     </form>
     {{- end }}
     <span class="yd-hint yd-msg-composer__hint">{{ tr "message.send_hint" }}</span>
@@ -90,7 +94,9 @@
   </div>
   {{- else }}
   <p class="yd-hint yd-msg-composer__readonly">
-    {{- if $system }}{{ tr "message.system_channel_hint" }}{{ else }}{{ tr "message.read_only" }}{{ end -}}
+    {{- if $notice }}{{ tr "message.notice_channel_hint" }}
+    {{- else if $system }}{{ tr "message.system_channel_hint" }}
+    {{- else }}{{ tr "message.read_only" }}{{ end -}}
   </p>
   {{- end }}
 </div>

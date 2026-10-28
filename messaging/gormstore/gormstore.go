@@ -1,10 +1,12 @@
 // Package gormstore is the GORM-backed messaging.Store. | Package gormstore 是基于 GORM 的 messaging.Store。
 //
 // The schema is owned here: Migrate creates yd_msg_types, yd_msg_tags, yd_msg_conversations,
-// yd_msg_members, yd_msg_messages, yd_msg_message_tags, yd_msg_attachments, yd_msg_friend_requests,
-// yd_msg_friendships, yd_msg_friend_notes, yd_msg_blocks and yd_msg_audit, every one of them
-// tenant-first. Migrate is idempotent and safe to run on every start. | 模式由本包拥有：
-// Migrate 创建上述十二张表，所有索引都以租户为第一列。Migrate 幂等，可在每次启动时运行。
+// yd_msg_members, yd_msg_messages, yd_msg_message_tags, yd_msg_friend_requests, yd_msg_friendships,
+// yd_msg_friend_notes, yd_msg_blocks and yd_msg_audit, every one of them tenant-first. Attachments
+// live in the separate attachments domain (yd_attachments and yd_attachment_refs). Migrate is
+// idempotent and safe to run on every start. | 模式由本包拥有：Migrate 创建上述十一张表，所有索引都以
+// 租户为第一列；附件属于独立的附件域（yd_attachments 与 yd_attachment_refs）。Migrate 幂等，可在每次
+// 启动时运行。
 package gormstore
 
 import (
@@ -63,7 +65,6 @@ func Migrate(ctx context.Context, db *gorm.DB) error {
 		&messaging.Member{},
 		&messaging.Message{},
 		&messaging.MessageTag{},
-		&messaging.Attachment{},
 		&messaging.FriendRequest{},
 		&messaging.Friendship{},
 		&messaging.FriendNote{},

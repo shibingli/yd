@@ -52,6 +52,7 @@ var builtinGrants = []Grant{
 			PermPermissionRead, PermPermissionManage,
 			PermMessageRead, PermMessageSend, PermMessageUpdate, PermMessageDelete,
 			PermMessageSystem, PermMessageManage, PermMessageTypeRead, PermMessageTypeManage,
+			PermAttachmentCreate, PermAttachmentRead, PermAttachmentReadOwn, PermAttachmentDelete, PermAttachmentManage,
 		},
 	},
 	{
@@ -81,6 +82,7 @@ var builtinGrants = []Grant{
 			PermPermissionRead,
 			PermMessageRead, PermMessageSend, PermMessageUpdate, PermMessageDelete,
 			PermMessageSystem, PermMessageManage, PermMessageTypeRead, PermMessageTypeManage,
+			PermAttachmentCreate, PermAttachmentRead, PermAttachmentReadOwn, PermAttachmentDelete, PermAttachmentManage,
 		},
 	},
 	{
@@ -97,6 +99,7 @@ var builtinGrants = []Grant{
 		Permissions: []string{
 			PermTenantRead, PermUserRead, PermRoleRead, PermPermissionRead,
 			PermMessageRead, PermMessageTypeRead,
+			PermAttachmentRead,
 		},
 	},
 	{
@@ -113,6 +116,7 @@ var builtinGrants = []Grant{
 		Role: RoleMember,
 		Permissions: []string{
 			PermMessageRead, PermMessageSend, PermMessageUpdate, PermMessageDelete,
+			PermAttachmentCreate, PermAttachmentReadOwn, PermAttachmentDelete,
 		},
 	},
 }

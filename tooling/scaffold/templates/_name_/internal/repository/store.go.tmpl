@@ -61,9 +61,11 @@ import (
 	"time"
 
 	"{{ .Module }}/internal/meta"
+	"{{ .YdModule }}/attachments"
 	"{{ .YdModule }}/messaging"
 	"{{ .YdModule }}/security/auth"
 {{- if ne .DB "none" }}
+	attachmentsgorm "{{ .YdModule }}/attachments/gormstore"
 	messaginggorm "{{ .YdModule }}/messaging/gormstore"
 	"{{ .YdModule }}/security/auth/gormstore"
 {{- end }}
@@ -144,6 +146,12 @@ type Store struct {
 	// msgErr 记录消息中心不可用的原因，供控制器与运维日志读取。
 	// msgErr records why the message centre is unavailable, read by the controller and by operations logs.
 	msgErr error
+	// attach 是通用附件元数据存储；数据库不可用或迁移失败时为 nil，AttachmentAvailable 报告该状态。
+	// attach is the generic attachment metadata store; nil when the database is unavailable or its
+	// migration failed, which AttachmentAvailable reports.
+	attach attachments.Store
+	// attachErr records why the attachment store is unavailable. | attachErr 记录附件存储不可用的原因。
+	attachErr error
 	// cfg 是装配时的配置，种子口令从它的 seed 段读取（环境变量经前缀映射已在配置层生效）。
 	// cfg is the configuration this store was assembled with, read for the seed password (the environment variable has
 	// already taken effect inside the configuration layer).
@@ -198,13 +206,17 @@ func Open(o Options) (*Store, error) {
 		closeRelease(release)
 		return nil, errs.Wrap(err, ErrOpen)
 	}
+	attachmentStore, attachmentErr := openAttachmentStore(db, log)
+	if attachmentErr != nil {
+		log.Warn("attachment storage is unavailable | 附件存储不可用", ydlog.Err(attachmentErr))
+	}
 	msgStore, msgErr := openMessageStore(db, log)
 	if msgErr != nil {
 		log.Warn("message centre is unavailable | 消息中心不可用", ydlog.Err(msgErr))
 	}
 	return &Store{
 		svc: svc, raw: raw, issuer: issuer, log: log, db: db, cfg: o.Config,
-		msg: msgStore, msgErr: msgErr,
+		msg: msgStore, msgErr: msgErr, attach: attachmentStore, attachErr: attachmentErr,
 		release: release, persistent: release != nil,
 	}, nil
 }
@@ -259,6 +271,65 @@ func (s *Store) SetMessageCacheInvalidator(inv interface{ Invalidate(context.Con
 	setter.SetInvalidator(inv)
 }
 {{- end }}
+
+{{ if ne .DB "none" -}}
+// openAttachmentStore migrates the generic attachment tables, copies any legacy message attachments,
+// drops the old table after the copy and opens the metadata store on the shared pool. |
+// openAttachmentStore 迁移通用附件表、复制旧消息附件、复制完成后删除旧表，并在共享连接池上打开元数据存储。
+func openAttachmentStore(db any, log *ydlog.Logger) (attachments.Store, error) {
+	if db == nil {
+		return nil, errs.Detail(attachments.ErrUnavailable, "no database | 没有数据库")
+	}
+	gdb, ok := db.(*gorm.DB)
+	if !ok {
+		return nil, errs.Detail(attachments.ErrUnavailable, "unexpected database handle | 非预期的数据库句柄")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), migrateTimeout)
+	defer cancel()
+	if err := attachmentsgorm.Migrate(ctx, gdb); err != nil {
+		return nil, errs.Wrap(err, attachments.ErrUnavailable)
+	}
+	copied, err := attachmentsgorm.MigrateLegacy(ctx, gdb)
+	if err != nil {
+		return nil, errs.Wrap(err, attachments.ErrUnavailable)
+	}
+	if copied > 0 {
+		log.Info("legacy message attachments migrated | 旧消息附件已迁移", ydlog.Int("count", copied))
+	}
+	if dropped, dropErr := attachmentsgorm.DropLegacy(ctx, gdb); dropErr != nil {
+		// The copy already succeeded; a failed drop must not disable attachments. It stays visible
+		// so an operator can remove the now-unused table manually. | 复制已经成功；删除失败不得禁用附件，
+		// 但必须留下告警，供运维手工删除这张不再使用的表。
+		log.Warn("legacy message attachment table could not be dropped | 旧消息附件表删除失败", ydlog.Err(dropErr))
+	} else if dropped {
+		log.Info("legacy message attachment table dropped | 旧消息附件表已删除")
+	}
+	store, err := attachmentsgorm.New(gdb)
+	if err != nil {
+		return nil, errs.Wrap(err, attachments.ErrUnavailable)
+	}
+	log.Info("attachment tables are ready | 附件数据表已就绪",
+		ydlog.Strs("tables", []string{"yd_attachments", "yd_attachment_refs"}),
+	)
+	return store, nil
+}
+{{ else -}}
+// openAttachmentStore reports the attachment store as unavailable in a project generated without a
+// database. | openAttachmentStore 在未选择数据库的生成项目里报告附件存储不可用。
+func openAttachmentStore(_ any, _ *ydlog.Logger) (attachments.Store, error) {
+	return nil, errs.Detail(attachments.ErrUnavailable, "the project was generated without a database | 项目生成时未选择数据库")
+}
+{{ end -}}
+
+// AttachmentStore returns the generic attachment metadata store, or nil when it is unavailable. |
+// AttachmentStore 返回通用附件元数据存储；不可用时返回 nil。
+func (s *Store) AttachmentStore() attachments.Store { return s.attach }
+
+// AttachmentError reports why the attachment store is unavailable. | AttachmentError 报告附件存储不可用的原因。
+func (s *Store) AttachmentError() error { return s.attachErr }
+
+// AttachmentAvailable reports whether attachments can be served. | AttachmentAvailable 报告附件功能是否可用。
+func (s *Store) AttachmentAvailable() bool { return s.attach != nil }
 
 {{ if ne .DB "none" -}}
 // openMessageStore migrates and opens the message-centre tables on the same pool the auth store uses. |

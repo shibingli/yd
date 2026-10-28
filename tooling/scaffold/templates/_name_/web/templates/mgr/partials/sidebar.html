@@ -62,6 +62,14 @@
     </a>
     {{- end }}
 
+    {{- if and .AttachmentAvailable (can .Perm.AttachmentRead) }}
+    <p class="yd-nav__section">{{ tr "nav.group.files" }}</p>
+    <a class="yd-nav__link" href="/mgr/attachments" hx-get="/mgr/attachments" hx-target="#yd-shell" hx-swap="innerMorph" hx-push-url="true"
+       data-yd-nav="mgr-attachments"{{ if hasPrefix .Path "/mgr/attachments" }} aria-current="page"{{ end }}>
+      <span class="yd-nav__label">{{ tr "nav.attachments" }}</span>
+    </a>
+    {{- end }}
+
     <p class="yd-nav__section">{{ tr "nav.group.api" }}</p>
     <a class="yd-nav__link" href="/mgr/docs" target="_blank" rel="noopener noreferrer" data-yd-nav="mgr-docs">
       <span class="yd-nav__label">{{ tr "nav.docs" }}</span>

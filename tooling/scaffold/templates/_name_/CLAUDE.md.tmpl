@@ -137,6 +137,7 @@ Redis 客户端由 `internal/service.NewRedis` **唯一**打开，缓存、消�
    系统公告 `message:system`、治理与置顶 `message:manage`、目录 `message-type:read|manage`。
    普通用户的「仅本人」由服务端强制（`messaging.Edit` / `messaging.Recall`），前端显隐不是安全边界。
 3. **撤回是软墓碑**：正文保留供审计，非管理员只看到空正文与空附件；系统公告撤销同样走这条路径。
+   撤回**不释放附件引用**：引用行保留，只有消息被硬删除或附件字段清空才调用 `Release`。
    置顶只作用于系统来源消息，`pinned + pin_start_at + pin_end_at` 决定当前是否生效。
 4. **富文本**：存储 Markdown 源 + goldmark 渲染并净化的 HTML + 纯文本投影；不得直接把用户输入当 HTML 输出。
    编辑器是本地 vendored 的 EasyMDE，禁止 CDN 与内联脚本。
@@ -152,20 +153,52 @@ Redis 客户端由 `internal/service.NewRedis` **唯一**打开，缓存、消�
    不得在运行期重新推导。生成项目默认把身份写在 `data/node-id`，容器部署必须把该路径放到每实例独立的
    持久卷，否则容器重建后身份会变；生产多副本建议显式设置 `node.id`。`node.require_persistent=true`
    时无法持久化会拒绝启动。节点 ID 不是凭据，不得用于鉴权或信任判断。完整判定见
-   <https://github.com/shibingli/yd/blob/main/docs/node-identity.md>。
+   [`docs/node-identity.md`](docs/node-identity.md)。
 7. **Redis / Pub/Sub / asynq 分区**：实时扇出用 Pub/Sub；共享状态、去重、在线、游标、计数、锁、
    限流用直接 Redis 命令（键必须带 TTL 且可重建，多键原子用 Lua）；失败补发、离线通知、重活、
    定时任务用 asynq。禁止把 asynq 当广播总线、把 Pub/Sub 当可靠队列；事件在事务提交后发布，
    严格不丢时由业务加 outbox。完整判定见
-   <https://github.com/shibingli/yd/blob/main/docs/redis-asynq.md>。
+   [`docs/redis-asynq.md`](docs/redis-asynq.md)。
 8. **GORM 缓存安全分级（强制）**：`yd_auth_users` 永不缓存（口令散列、`sec_key` 密文与状态必须读库，
    否则禁用/轮换不能立即生效）；`yd_auth_user_tenants` / `yd_auth_roles` / `yd_auth_role_permissions` /
    `yd_auth_tenants` 进入 `cache.gorm.sensitive_tables`（独立命名空间 + 5s TTL + 提交后失效）。
    高安全/涉密路由（`/login`、`/logout`、`/account/**`、`/tenant/**`、`/mgr/**`、`/api/v1/**` 与
    `/api/portal/v1/account/**`）必须在鉴权中间件**之前**挂 `middleware.CacheBypass`，整个请求跳过缓存读取。
-   消息表属于常规数据，正常缓存；消息存储与鉴权存储都已在事务提交后显式失效。显式事务必须用
-   `cache.WithDeferredInvalidation` + 提交后 `SetInvalidator` 失效，不得让写回调在提交前推进代际。
+   消息表属于常规数据，正常缓存；消息存储与鉴权存储都已在事务提交后显式失效。例外：
+   `yd_attachments` 与 `yd_attachment_refs` 必须留在 `cache.gorm.ignore_tables`，因为前者的
+   `stored_key` 带 `json:"-"`，JSON 查询缓存会丢掉它并让下载报“附件键非法”，而后者参与每次消息渲染
+   且解除引用必须立即生效。显式事务必须用 `cache.WithDeferredInvalidation` + 提交后 `SetInvalidator`
+   失效，不得让写回调在提交前推进代际。
 9. **数据表**：`yd_msg_*` 由 `messaginggorm.Migrate` 建出；索引以 `tenant_id` 打头。改表结构时同步迁移与测试。
+
+## 6.2 通用附件（强制）
+
+附件能力的唯一入口是框架域包 `{{ .YdModule }}/attachments`，消息中心只是第一个消费方；
+使用说明见 [`docs/attachments.md`](docs/attachments.md)；本项目还生成 [`docs/README.md`](docs/README.md)
+作为全部关联指南的索引。任何新功能都不得自建上传表、
+存储键或下载路径。
+
+1. **领域独立**：`attachments` 不依赖 `messaging`、GORM 或 HTTP；业务通过 `(ref_type, ref_id)` 绑定，
+   消息中心的 `ref_type` 为 `message`。`yd_attachment_refs` 是引用的唯一事实来源。
+2. **两表**：`yd_attachments`（元数据）与 `yd_attachment_refs`（引用）；索引以 `tenant_id` 打头，
+   没有外键，完整性由事务内的锁行与复查维护。两张表都必须留在 `cache.gorm.ignore_tables`。
+3. **生命周期**：`pending → referenced`；最后一个引用 `Release` 后回到 `pending` 并写入 `released_at`
+   重置保留时长；到期、用户自删或管理员删除后进入 `deleted` 墓碑。先提交墓碑，再尽力删除字节；
+   字节删除失败只告警。管理员删除已引用附件时保留引用行，业务按墓碑渲染。
+4. **上传安全**：大小在读取前后各校验一次；MIME 由字节嗅探，绝不采信客户端；存储键只含不透明标识与
+   UTC 日期分区。`message.attachment_*` 配置的是框架级附件存储；`local` 多节点必须共享挂载，
+   `redis` 多节点共用 Redis，后端不可用时整体禁用附件并告警，绝不静默退回本地目录。
+5. **权限**：只用注册表里的 `attachment:create` / `attachment:read_own` / `attachment:delete` /
+   `attachment:read` / `attachment:manage`。门户用 `read_own`，后台用 `read`（审计员只读），
+   删除/清理用 `manage`，用户自删用 `delete`；服务端仍校验上传者、状态与引用数。
+6. **管理员删除必须带原因并通知上传者**：生成项目经 `internal/service/attachment.go` 调用
+   `messaging.NotifyUser`，写入上传者的私有通知频道（`kind=notice`）；该频道只读且不出现在管理端消息列表。
+   批量清理按上传者各发一条汇总通知；通知失败只告警，不回滚删除。
+7. **集中清理只碰未引用**：后台“未引用”筛选与清理必须使用 `NOT EXISTS (yd_attachment_refs …)`，
+   并在带条件更新后复查真正进入墓碑的行；仍被业务引用的文件永远不属于批量清理。
+8. **迁移**：`attachmentsgorm.Migrate` 幂等建表；`MigrateLegacy` 把旧 `yd_msg_attachments` 复制到新表，
+   随后 `DropLegacy` 删除旧表；删除失败只告警，不阻塞附件。新代码只读写新表。升级时不得更换存储后端或
+   前缀，否则旧 `stored_key` 不可达。
 
 ## 7. 提交纪律（强制）
 

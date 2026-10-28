@@ -50,9 +50,12 @@
   <form class="yd-search" role="search" method="get" action="/search"
         hx-get="/search" hx-target="#yd-workspace" hx-swap="innerMorph" hx-push-url="true">
     <label class="sr-only" for="yd-search-input" data-yd-i18n="topbar.search">{{tr "topbar.search"}}</label>
-    <input class="yd-input yd-search__input" id="yd-search-input" name="q" type="search" autocomplete="off"
-           placeholder="{{tr "topbar.search_placeholder"}}" data-yd-i18n-attr="placeholder:topbar.search_placeholder">
-    <button type="submit" class="yd-btn yd-btn--ghost" data-yd-i18n="action.search">{{tr "action.search"}}</button>
+    <div class="yd-search__field">
+      <span class="yd-search__icon" aria-hidden="true">{{template "partials/icon" "lucide-search"}}</span>
+      <input class="yd-input yd-search__input" id="yd-search-input" name="q" type="search" autocomplete="off"
+             placeholder="{{tr "topbar.search_placeholder"}}" data-yd-i18n-attr="placeholder:topbar.search_placeholder">
+    </div>
+    <button type="submit" class="yd-btn">{{template "partials/icon" "lucide-search"}}<span data-yd-i18n="action.search">{{tr "action.search"}}</span></button>
   </form>
 
   <div class="yd-topbar__actions">

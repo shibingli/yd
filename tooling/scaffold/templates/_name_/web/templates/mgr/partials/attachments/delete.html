@@ -1,0 +1,42 @@
+{{/*
+  mgr/partials/attachments/delete.html —— 管理员删除单个附件的原因抽屉。
+  mgr/partials/attachments/delete.html — the reason drawer of an administrator's single-attachment deletion.
+
+  原因必填：上传者会在自己的私有通知频道里看到这条原因，没有原因的通知等于无法申诉的处罚。
+  已被引用的附件同样可以删除，但引用行会保留，所属消息因此渲染墓碑而不是坏链接。
+  The reason is mandatory: the uploader sees it in their private notice channel, and a notice without a reason is a
+  penalty with no way to appeal. A referenced attachment can still be deleted, but its reference rows stay, so the
+  owning message renders a tombstone instead of a broken link.
+
+  数据契约 | Data contract: .Attachment（attachmentView） .Action .ReasonMax。
+*/}}
+<div class="yd-drawer__head">
+  <h2 class="yd-section__title">{{ tr "attachment.delete_title" }}</h2>
+  <p class="yd-section__hint">
+    {{ .Attachment.OriginalName }} · {{ .Attachment.SizeText }} · {{ .Attachment.UploaderName }}
+  </p>
+</div>
+
+<section class="yd-drawer__section" aria-labelledby="yd-attachment-delete-form">
+  <h3 class="yd-section__title" id="yd-attachment-delete-form">{{ tr "attachment.delete_reason" }}</h3>
+  <p class="yd-section__hint">{{ tr "attachment.delete_hint" }}</p>
+  {{- if gt .Attachment.RefCount 0 }}
+  <p class="yd-hint">{{ tr "attachment.delete_referenced_hint" .Attachment.RefCount }}</p>
+  {{- end }}
+  <form class="yd-form" method="post" action="{{ .Action }}"
+        hx-post="{{ .Action }}" hx-target="#yd-workspace" hx-swap="innerMorph"
+        hx-status:422="target:#yd-drawer-errors swap:innerHTML"
+        hx-status:404="target:#yd-drawer-errors swap:innerHTML"
+        hx-disabled-elt="find button[type='submit']"
+        data-yd-confirm="{{ tr "confirm.attachment_delete_managed" }}" novalidate>
+    {{template "components.form.textarea" (dict
+      "ID" "yd-attachment-delete-reason" "Name" "reason" "Rows" 4 "Required" true
+      "MaxLength" .ReasonMax
+      "Label" (tr "attachment.reason") "LabelKey" "attachment.reason"
+      "Hint" (tr "attachment.reason_hint") "HintKey" "attachment.reason_hint"
+      "Placeholder" (tr "attachment.reason_placeholder") "PlaceholderKey" "attachment.reason_placeholder")}}
+    {{template "components.form.actions" (dict
+      "SubmitLabel" (tr "attachment.delete") "SubmitKey" "attachment.delete"
+      "CancelLabel" (tr "ui.cancel") "CancelKey" "ui.cancel")}}
+  </form>
+</section>

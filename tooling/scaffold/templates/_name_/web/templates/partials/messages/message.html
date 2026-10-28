@@ -80,12 +80,26 @@
       {{- if .Attachments }}
       <div class="yd-msg__attachments">
         {{- range .Attachments }}
-        <a class="yd-attachment" href="/messages/attachments/{{ .ID }}" download>
+        {{- if .Deleted }}
+        <span class="yd-attachment yd-attachment--deleted"{{ with .DeleteReason }} title="{{ . }}"{{ end }}>
+          {{ template "partials/icon" "lucide-file-x" }}
+          <span class="yd-attachment__name">{{ .OriginalName }}</span>
+          <span class="yd-badge yd-badge--danger">{{ tr "attachment.deleted_tombstone" }}</span>
+          {{- with .DeleteReason }}<span class="yd-attachment__size">{{ . }}</span>{{ end }}
+        </span>
+        {{- else }}
+        <a class="yd-attachment" href="/messages/attachments/{{ .ID }}{{ if .Image }}?inline=1{{ end }}"
+           target="_blank" rel="noopener noreferrer"{{ if not .Image }} download{{ end }}>
+          {{- if .Image }}
+          <img class="yd-attachment__thumb" src="/messages/attachments/{{ .ID }}?inline=1" alt="" width="28" height="28" loading="lazy">
+          {{- else }}
           {{ template "partials/icon" "lucide-paperclip" }}
+          {{- end }}
           <span class="yd-attachment__name">{{ .OriginalName }}</span>
           <span class="yd-attachment__size">{{ .SizeText }}</span>
-          {{ template "partials/icon" "lucide-download" }}
+          {{ if .Image }}{{ template "partials/icon" "lucide-eye" }}{{ else }}{{ template "partials/icon" "lucide-download" }}{{ end }}
         </a>
+        {{- end }}
         {{- end }}
       </div>
       {{- end }}

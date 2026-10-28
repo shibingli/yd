@@ -208,21 +208,24 @@ func TestBuiltinGrantsAuditorIsReadOnly(t *testing.T) {
 // TestBuiltinGrantsMemberHoldsOnlySelfService 钉住成员刻意保留的非空授权。
 //
 // Every other capability is tenant-wide, so granting one would let an ordinary account reach its
-// colleagues' data. The message capabilities listed here are different: their services scope them
-// to the member's own conversations and messages, which is why they are the only entries here and
-// why this list must stay closed. | 其余能力都是租户级的，授予任何一项都会让普通账号碰到同事的数据。
-// 这里列出的消息能力不同：对应服务把它们限定在成员自己的会话与消息上，这正是它们是唯一条目、
-// 且这份清单必须保持封闭的原因。
+// colleagues' data. The message and attachment capabilities listed here are different: their
+// services scope them to the member's own conversations, messages and uploads, which is why they
+// are the only entries here and why this list must stay closed. | 其余能力都是租户级的，授予任何一项
+// 都会让普通账号碰到同事的数据。这里列出的消息与附件能力不同：对应服务把它们限定在成员自己的会话、
+// 消息与上传上，这正是它们是唯一条目、且这份清单必须保持封闭的原因。
 func TestBuiltinGrantsMemberHoldsOnlySelfService(t *testing.T) {
 	g, ok := authz.GrantOf(authz.RoleMember)
 	if !ok {
 		t.Fatalf("GrantOf(%q) reports no grant | GrantOf(%q) 报告没有授权", authz.RoleMember, authz.RoleMember)
 	}
 	want := map[string]bool{
-		authz.PermMessageRead:   true,
-		authz.PermMessageSend:   true,
-		authz.PermMessageUpdate: true,
-		authz.PermMessageDelete: true,
+		authz.PermMessageRead:       true,
+		authz.PermMessageSend:       true,
+		authz.PermMessageUpdate:     true,
+		authz.PermMessageDelete:     true,
+		authz.PermAttachmentCreate:  true,
+		authz.PermAttachmentReadOwn: true,
+		authz.PermAttachmentDelete:  true,
 	}
 	held := make(map[string]bool, len(g.Permissions))
 	for _, token := range g.Permissions {

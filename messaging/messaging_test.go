@@ -11,8 +11,10 @@ import (
 	"time"
 
 	"github.com/glebarez/sqlite"
+	"github.com/shibingli/yd/attachments"
+	"github.com/shibingli/yd/attachments/filestore"
+	attachmentsgorm "github.com/shibingli/yd/attachments/gormstore"
 	"github.com/shibingli/yd/messaging"
-	"github.com/shibingli/yd/messaging/filestore"
 	"github.com/shibingli/yd/messaging/gormstore"
 	"github.com/shibingli/yd/messaging/markdown"
 	"github.com/shibingli/ydx/log"
@@ -142,6 +144,7 @@ type fixture struct {
 	clock    *testClock
 	notifier *notifier
 	dir      *directory
+	attach   *attachments.Service
 }
 
 // newFixture builds an isolated SQLite-backed service. | newFixture 构建隔离的 SQLite 服务。
@@ -168,11 +171,25 @@ func newFixture(t *testing.T) *fixture {
 	if err != nil {
 		t.Fatalf("store: %v", err)
 	}
+	clock := &testClock{now: time.Date(2026, 10, 20, 9, 0, 0, 0, time.UTC)}
 	blobs, err := filestore.New(t.TempDir())
 	if err != nil {
 		t.Fatalf("blob store: %v", err)
 	}
-	clock := &testClock{now: time.Date(2026, 10, 20, 9, 0, 0, 0, time.UTC)}
+	if err := attachmentsgorm.Migrate(ctx, db); err != nil {
+		t.Fatalf("attachment migrate: %v", err)
+	}
+	attachmentStore, err := attachmentsgorm.New(db)
+	if err != nil {
+		t.Fatalf("attachment store: %v", err)
+	}
+	attachmentSvc, err := attachments.New(attachmentStore, blobs, log.Default(), attachments.Options{
+		Now:     clock.Now,
+		MaxSize: 1 << 20,
+	})
+	if err != nil {
+		t.Fatalf("attachment service: %v", err)
+	}
 	note := &notifier{}
 	dir := &directory{profiles: map[string]messaging.Profile{
 		"us_alice": {ID: "us_alice", Username: "alice", DisplayName: "Alice", Active: true},
@@ -180,16 +197,15 @@ func newFixture(t *testing.T) *fixture {
 		"us_carol": {ID: "us_carol", Username: "carol", DisplayName: "Carol", Active: true},
 		"us_admin": {ID: "us_admin", Username: "admin", DisplayName: "Admin", Active: true},
 	}}
-	svc, err := messaging.New(store, dir, markdown.New(), blobs, note, log.Default(), messaging.Options{
-		Now:               clock.Now,
-		RecallWindow:      5 * time.Minute,
-		EditWindow:        5 * time.Minute,
-		MaxAttachmentSize: 1 << 20,
+	svc, err := messaging.New(store, dir, markdown.New(), attachmentSvc, note, log.Default(), messaging.Options{
+		Now:          clock.Now,
+		RecallWindow: 5 * time.Minute,
+		EditWindow:   5 * time.Minute,
 	})
 	if err != nil {
 		t.Fatalf("service: %v", err)
 	}
-	return &fixture{svc: svc, store: store, db: db, clock: clock, notifier: note, dir: dir}
+	return &fixture{svc: svc, store: store, db: db, clock: clock, notifier: note, dir: dir, attach: attachmentSvc}
 }
 
 // actor builds an actor of the fixture tenant. | actor 构造 fixture 租户中的主体。
@@ -775,6 +791,36 @@ func TestAttachments(t *testing.T) {
 	if attachment.OriginalName != "evil.png" || attachment.ContentType != "image/png" {
 		t.Fatalf("attachment = %+v", attachment)
 	}
+	// Bytes are partitioned by tenant, uploader and UTC day before the opaque id; the original name
+	// and the raw uploader id must never reach the storage key. | 字节在附件 ID 之前按租户、上传者与
+	// UTC 日期分区；原始文件名与明文上传者 ID 绝不能出现在存储键里。
+	parts := strings.Split(attachment.StoredKey, "/")
+	if len(parts) != 6 {
+		t.Fatalf("stored key segments = %d (%q)", len(parts), attachment.StoredKey)
+	}
+	if len(parts[0]) != 16 || len(parts[1]) != 16 {
+		t.Fatalf("tenant/uploader hashes = %q / %q", parts[0], parts[1])
+	}
+	if parts[2] != "2026" || parts[3] != "10" || parts[4] != "20" {
+		t.Fatalf("date partition = %q/%q/%q", parts[2], parts[3], parts[4])
+	}
+	if parts[5] != attachment.ID {
+		t.Fatalf("attachment id segment = %q want %q", parts[5], attachment.ID)
+	}
+	if strings.Contains(attachment.StoredKey, "evil") || strings.Contains(attachment.StoredKey, alice.ID) {
+		t.Fatalf("stored key leaks name or identity: %q", attachment.StoredKey)
+	}
+	if attachment.CreatedAt.UTC().Format("2006/01/02") != strings.Join(parts[2:5], "/") {
+		t.Fatalf("created at %s does not match the date partition %v", attachment.CreatedAt, parts[2:5])
+	}
+	bobAttachment, err := f.svc.UploadAttachment(ctx, bob, "note.txt", 10, bytes.NewReader([]byte("hello bob!")))
+	if err != nil {
+		t.Fatalf("bob upload: %v", err)
+	}
+	bobParts := strings.Split(bobAttachment.StoredKey, "/")
+	if len(bobParts) != 6 || bobParts[0] != parts[0] || bobParts[1] == parts[1] {
+		t.Fatalf("bob key = %q, alice key = %q", bobAttachment.StoredKey, attachment.StoredKey)
+	}
 	if _, err := f.svc.Send(ctx, alice, messaging.SendInput{ConversationID: conv.ID, Markdown: "see attachment", AttachmentIDs: []string{attachment.ID}}); err != nil {
 		t.Fatalf("send with attachment: %v", err)
 	}
@@ -851,5 +897,107 @@ func TestStoreRejectsMissingOrInUseRelations(t *testing.T) {
 	}
 	if err := f.store.DeleteType(ctx, tenantID, custom.Key); !errors.Is(err, messaging.ErrTypeInUse) {
 		t.Fatalf("delete in-use type error = %v, want ErrTypeInUse", err)
+	}
+}
+
+// TestNotifyUserCreatesAPrivateNoticeChannel proves that a deletion notice reaches exactly one
+// recipient, that the recipient cannot post into the channel, and that management browsing never
+// includes somebody else's notices. | TestNotifyUserCreatesAPrivateNoticeChannel 证明删除通知只到达一位
+// 收件人、收件人不能向该频道投稿，且管理端浏览永远不会包含他人的通知。
+func TestNotifyUserCreatesAPrivateNoticeChannel(t *testing.T) {
+	f := newFixture(t)
+	ctx := context.Background()
+	alice, bob := actor("us_alice", "Alice"), actor("us_bob", "Bob")
+
+	if _, err := f.svc.NotifyUser(ctx, tenantID, alice.ID, alice, "伪造通知 | Forged notice", "body"); !errors.Is(err, messaging.ErrForbidden) {
+		t.Fatalf("member injected a notice: %v", err)
+	}
+	sent, err := f.svc.NotifyUser(ctx, tenantID, alice.ID, admin(), "附件删除通知 | Attachment deleted", "原因 | Reason: policy")
+	if err != nil {
+		t.Fatalf("notify: %v", err)
+	}
+	if sent.ConversationKind != messaging.KindNotice || sent.SenderID != "us_admin" {
+		t.Fatalf("notice = kind %q sender %q", sent.ConversationKind, sent.SenderID)
+	}
+	aliceList, err := f.svc.Conversations(ctx, alice)
+	if err != nil {
+		t.Fatalf("alice conversations: %v", err)
+	}
+	var notice messaging.ConversationView
+	found := false
+	for _, conv := range aliceList {
+		if conv.ID == sent.ConversationID {
+			notice, found = conv, true
+			break
+		}
+	}
+	if !found || notice.Kind != messaging.KindNotice || notice.Unread != 1 {
+		t.Fatalf("alice notice conversation = %+v found=%v", notice, found)
+	}
+	bobList, err := f.svc.Conversations(ctx, bob)
+	if err != nil {
+		t.Fatalf("bob conversations: %v", err)
+	}
+	for _, conv := range bobList {
+		if conv.ID == sent.ConversationID {
+			t.Fatalf("bob can see alice's notice channel: %+v", conv)
+		}
+	}
+	if _, err := f.svc.Send(ctx, alice, messaging.SendInput{ConversationID: sent.ConversationID, Markdown: "reply"}); !errors.Is(err, messaging.ErrSystemOnly) {
+		t.Fatalf("reply into a notice channel err = %v, want ErrSystemOnly", err)
+	}
+	if _, _, err := f.svc.Conversation(ctx, admin(), sent.ConversationID); !errors.Is(err, messaging.ErrNotFound) {
+		t.Fatalf("administrator opened a private notice channel: %v", err)
+	}
+	if _, err := f.svc.Message(ctx, admin(), sent.ID); !errors.Is(err, messaging.ErrNotFound) {
+		t.Fatalf("administrator read a private notice message: %v", err)
+	}
+	// A management search never returns notice rows, even when the administrator asks for the exact title. |
+	// 即使管理员按标题精确检索，管理端结果也永远不会返回通知行。
+	result, err := f.svc.Messages(ctx, admin(), messaging.MessageFilter{Query: "附件删除通知"})
+	if err != nil {
+		t.Fatalf("admin messages: %v", err)
+	}
+	for _, msg := range result.Messages {
+		if msg.ID == sent.ID {
+			t.Fatalf("management listing leaked a notice: %+v", msg)
+		}
+	}
+}
+
+// TestManagedAttachmentDeletionLeavesATombstone proves that an administrator deletion keeps the
+// reference rows of a message, so the message renders a tombstone, and that the bytes are gone. |
+// TestManagedAttachmentDeletionLeavesATombstone 证明管理员删除会保留消息的引用行，使消息渲染墓碑，且字节确实已删除。
+func TestManagedAttachmentDeletionLeavesATombstone(t *testing.T) {
+	f := newFixture(t)
+	ctx := context.Background()
+	alice, bob := actor("us_alice", "Alice"), actor("us_bob", "Bob")
+	conv := befriend(t, f, alice, bob)
+
+	attachment, err := f.svc.UploadAttachment(ctx, alice, "note.txt", 5, bytes.NewReader([]byte("hello")))
+	if err != nil {
+		t.Fatalf("upload: %v", err)
+	}
+	if _, err := f.svc.Send(ctx, alice, messaging.SendInput{ConversationID: conv.ID, Markdown: "see file", AttachmentIDs: []string{attachment.ID}}); err != nil {
+		t.Fatalf("send: %v", err)
+	}
+	if _, err := f.attach.DeleteManaged(ctx, attachments.Actor{
+		ID: "us_admin", TenantID: tenantID, DisplayName: "Admin", Manage: true,
+	}, attachment.ID, "policy violation"); err != nil {
+		t.Fatalf("managed delete: %v", err)
+	}
+	thread, err := f.svc.Messages(ctx, bob, messaging.MessageFilter{ConversationID: conv.ID})
+	if err != nil {
+		t.Fatalf("thread: %v", err)
+	}
+	if len(thread.Messages) != 1 || len(thread.Messages[0].Attachments) != 1 {
+		t.Fatalf("thread = %+v", thread.Messages)
+	}
+	tombstone := thread.Messages[0].Attachments[0]
+	if tombstone.ID != attachment.ID || tombstone.Status != attachments.StatusDeleted || tombstone.DeleteReason != "policy violation" {
+		t.Fatalf("tombstone = %+v", tombstone)
+	}
+	if _, _, err := f.svc.DownloadAttachment(ctx, bob, attachment.ID); !errors.Is(err, messaging.ErrAttachmentNotFound) {
+		t.Fatalf("download tombstone err = %v, want ErrAttachmentNotFound", err)
 	}
 }

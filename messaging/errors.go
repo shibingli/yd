@@ -3,12 +3,12 @@
 // 好友、单聊与群聊、管理员公告、附件、标签与已读状态。
 //
 // The package owns the rules and depends on no ORM and no HTTP layer: persistence arrives through
-// Store, user profiles through Directory, markdown rendering through Renderer, attachment bytes
-// through BlobStore and realtime delivery through Notifier. The GORM implementation lives in
-// messaging/gormstore, exactly like security/auth and security/auth/gormstore. | 本包只拥有规则，
-// 不依赖 ORM 与 HTTP 层：持久化经 Store、用户资料经 Directory、Markdown 渲染经 Renderer、附件字节经
-// BlobStore、实时投递经 Notifier 注入。GORM 实现位于 messaging/gormstore，与 security/auth 及其
-// gormstore 的分层完全一致。
+// Store, user profiles through Directory, markdown rendering through Renderer, attachment lifecycle
+// through the attachments domain and realtime delivery through Notifier. The GORM implementation
+// lives in messaging/gormstore, exactly like security/auth and security/auth/gormstore. | 本包只拥有
+// 规则，不依赖 ORM 与 HTTP 层：持久化经 Store、用户资料经 Directory、Markdown 渲染经 Renderer、
+// 附件生命周期经 attachments 域、实时投递经 Notifier 注入。GORM 实现位于 messaging/gormstore，
+// 与 security/auth 及其 gormstore 的分层完全一致。
 package messaging
 
 import "github.com/shibingli/ydx/errs"

@@ -14,6 +14,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"{{ .YdModule }}/attachments"
 	"{{ .YdxModule }}/errs"
 	"{{ .YdxModule }}/log"
 	"{{ .YdxModule }}/router"
@@ -849,7 +850,7 @@ func (c *Controller) UploadMessageAttachment(ctx *router.Ctx) {
 		"Attachment": messageAttachmentView{
 			Attachment: attachment,
 			SizeText:   sizeText(attachment.Size),
-			Image:      strings.HasPrefix(attachment.ContentType, "image/"),
+			Image:      attachments.IsImage(attachment),
 		},
 	}))
 }
@@ -877,12 +878,22 @@ func (c *Controller) DownloadMessageAttachment(ctx *router.Ctx) {
 		c.failService(ctx, err)
 		return
 	}
-	disposition := mime.FormatMediaType("attachment", map[string]string{"filename": safeDownloadName(attachment.OriginalName)})
+	// Images may be opened inline for a thumbnail/preview; everything else is always a download.
+	// The query flag is ignored for non-image types so an attachment can never be rendered as a
+	// document in the browser. | 图片可以内联打开用于缩略图/预览，其余类型一律下载；非图片类型
+	// 会忽略该查询参数，附件因此绝不按文档在浏览器中渲染。
+	inline := strings.TrimSpace(ctx.Query("inline")) == "1" && attachments.IsImage(attachment)
+	dispositionType := "attachment"
+	if inline {
+		dispositionType = "inline"
+	}
+	disposition := mime.FormatMediaType(dispositionType, map[string]string{"filename": safeDownloadName(attachment.OriginalName)})
 	if disposition == "" {
-		disposition = "attachment"
+		disposition = dispositionType
 	}
 	ctx.SetHeader("Content-Disposition", disposition)
 	ctx.SetHeader("X-Content-Type-Options", "nosniff")
+	ctx.SetHeader("Cache-Control", "private, no-store")
 	if err := ctx.Blob(http.StatusOK, attachment.ContentType, data); err != nil {
 		c.log.Warn("attachment write failed | 附件写出失败", log.Err(err))
 	}

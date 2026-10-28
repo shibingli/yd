@@ -902,7 +902,7 @@ yd versions sync               # 仅重新生成 version_generated.go
 消息中心由框架域包 `messaging` + `messaging/gormstore` 与脚手架接线组成，使用说明见
 `docs/message-center.md`。以下约束不可绕过：
 
-- **租户硬边界**：12 张 `yd_msg_*` 表全部以 `tenant_id` 为第一条件；跨租户与不存在一律 `messaging.ErrNotFound`，
+- **租户硬边界**：11 张 `yd_msg_*` 表全部以 `tenant_id` 为第一条件；跨租户与不存在一律 `messaging.ErrNotFound`，
   不得返回任何数据，也不得用 403 暴露资源是否存在。
 - **好友规则**：单聊必须已接受好友且双方未拉黑；群发成员必须都是发起人的好友；拉黑同时删除好友关系并关闭申请。
 - **系统消息**：只有 `message:system` 可发布/撤销；撤销是软撤回，正文保留在库中，审计记录保留标题与 Markdown 正文；
@@ -916,7 +916,9 @@ yd versions sync               # 仅重新生成 version_generated.go
   其作用域由服务端限制为本人消息；`auditor` 只持有 `message:read` 与 `message-type:read`。
 - **富文本**：Markdown 源 + 服务端 goldmark 渲染；原始 HTML 与危险链接必须被移除。客户端提交的 HTML 不得信任，
   模板只能输出净化后的 `BodyHTML`。
-- **附件**：MIME 由服务端嗅探，白名单不含 HTML/SVG/脚本；存储键不得包含原始文件名；下载必须按消息可见性鉴权。
+- **附件**：复用框架级 `attachments` 域（见第 32 节），先上传后挂载；MIME 由服务端嗅探，白名单不含
+  HTML/SVG/脚本；存储键不得包含原始文件名；下载必须按消息可见性鉴权。撤回**不释放**附件引用，管理员删除
+  附件时保留引用行并渲染墓碑。
 - **实时**：`yd new` 生成的项目默认内建 `redis`（Pub/Sub 广播）与 `asynq`（持久重试），两者不是可选开关；
   Redis 不可达时明确降级为单节点并告警，不得阻塞启动。多副本的 `node.id` 必须唯一，`message.node_id` 是兼容别名。
 - **前端**：消息中心是即时通讯布局——左侧会话列表、右上方历史消息、右下方内联撰写区；后台治理与目录设置
@@ -985,14 +987,17 @@ yd versions sync               # 仅重新生成 version_generated.go
 - **校验与写入同事务**：引用校验不能先查后用；创建/更新在写入事务内对目标行加共享锁
   （MySQL `FOR SHARE`；SQLite 自动忽略），多个 ID 先去重并排序后加锁，避免死锁；
   删除目标行时加更新锁并在同一事务内复查引用，杜绝「计数通过后又被插入」的悬空关联。
-  目标被删除时，软删除记录留下的引用（如软删除消息留下的 `yd_msg_attachments` /
-  `yd_msg_message_tags` 行）必须在同一事务内清空或删除。
+  目标被删除时，软删除记录留下的引用（如被硬删除消息留下的 `yd_attachment_refs` /
+  `yd_msg_message_tags` 行）必须在同一事务内清空或删除。**例外**：消息撤回是内容墓碑，
+  `yd_attachment_refs` 必须保留，以便消息在原位置渲染附件墓碑；只有业务对象硬删除或附件字段被清空时
+  才调用 `attachments.Service.Release`。
 - **索引不是关系**：索引只用于查询性能与唯一性，不得把索引误当作引用完整性；
   所有鉴权与消息表索引仍以 `tenant_id` 打头。
 - **必须维护的关联表**（新增关联表时同样处理）：
   `yd_auth_user_tenants` 与 `yd_auth_role_permissions`（成员/角色清理）、
-  `yd_msg_members` / `yd_msg_messages` / `yd_msg_attachments` / `yd_msg_friend_*` /
-  `yd_msg_message_tags`（会话、成员、附件、关系与标签）。
+  `yd_msg_members` / `yd_msg_messages` / `yd_attachment_refs` / `yd_msg_friend_*` /
+  `yd_msg_message_tags`（会话、成员、附件引用、关系与标签）。`yd_attachments` 是附件元数据主表，
+  删除业务对象时按 `Release` 规则处理，不得留下指向已删业务的引用行。
 - **守卫**：`repotest` 的 `TestNoForeignKeyDefinitions` 扫描 Go 结构标签、SQL 字符串、模板与
   `.sql` 文件；消息与鉴权模型的 GORM Schema 断言不得解析出关联关系。
 
@@ -1026,8 +1031,10 @@ yd versions sync               # 仅重新生成 version_generated.go
   `ignore_tables` 永不缓存；高安全/涉密请求经 `middleware.CacheBypass`（必须挂在鉴权中间件之前）
   跳过全部读取，写入仍失效。**`yd_auth_users` 必须留在 `ignore_tables`**：口令散列、`sec_key` 密文
   与状态不得进入缓存，禁用/删除用户与轮换 `sec_key` 才能立即生效；成员关系、角色、权限与租户进入
-  `sensitive_tables`。显式事务必须用 `cache.WithDeferredInvalidation` + 提交后 `Invalidate`，不得让
-  写回调在提交前推进代际；`security/auth/gormstore` 经 `Store.SetInvalidator` 已内建该模式。
+  `sensitive_tables`。**`yd_attachments` 与 `yd_attachment_refs` 必须留在 `ignore_tables`**：前者带
+  `json:"-"` 的 `stored_key` 会被 JSON 缓存丢弃，后者参与每次消息渲染且解除引用必须立即生效。显式事务必须用
+  `cache.WithDeferredInvalidation` + 提交后 `Invalidate`，不得让写回调在提交前推进代际；
+  `security/auth/gormstore` 经 `Store.SetInvalidator` 已内建该模式。
 - **配置**：`cache.*` 默认值在 `ydx/config/defaults.go`，经 `cache.OptionsFromConfig` /
   `cache.RedisOptionsFromConfig` / `gormcache.OptionsFromConfig` 读取；GORM 插件由
   `cache.gorm.enabled` 控制，脚手架默认开启（`true`）；`yd_msg_*` 作为常规数据正常缓存，消息存储与
@@ -1229,3 +1236,41 @@ WebSocket、WebTransport 与 SSE 共用 `ydx/realtime` 中枢；使用说明见
 - **测试**：`security/captcha` 覆盖禁用、缺密钥、开发回退、内存存储、未知题型、Redis 严格/降级与无效令牌；
   脚手架守卫覆盖路由/控制器顺序、共享片段、脚本顺序与两本目录键；e2e 覆盖 challenge、SDK 资产、登录与改密
   无令牌 422，以及默认关闭时 `/captcha` 404。修改任一环节必须保持这些用例通过。
+
+## 32. 通用附件（强制）
+
+`attachments` 域（`github.com/shibingli/yd/attachments`）是附件能力的唯一入口，消息中心只是第一个消费方。
+使用说明见 `docs/attachments.md`；`yd new` 会把本文与关联指南一并复制到生成项目的 `docs/` 目录并生成
+`docs/README.md` 索引。任何新功能都不得自建上传表、存储键或下载路径。
+
+- **领域独立**：`attachments` 不依赖 `messaging`、GORM 或 HTTP；业务通过 `(ref_type, ref_id)` 绑定，
+  消息中心的 `ref_type` 为 `message`。引用表 `yd_attachment_refs` 是引用的唯一事实来源，
+  没有外键，完整性由服务层在事务内维护（见第 25 节）。
+- **两表**：`yd_attachments`（元数据）与 `yd_attachment_refs`（引用）。索引一律以 `tenant_id` 打头；
+  `stored_key` 带 `json:"-"`，两张表都必须留在 `cache.gorm.ignore_tables`。
+- **生命周期**：`pending → referenced`；最后一个引用 `Release` 后回到 `pending` 并写入 `released_at`
+  重置保留时长；`pending` 到期、用户自删或管理员删除后进入 `deleted` 墓碑。**消息撤回不释放引用**：
+  撤回是内容墓碑，只有业务对象硬删除或字段清空才 `Release`；管理员删除已引用附件时保留引用行，
+  业务按墓碑渲染，绝不产生坏链接。
+- **删除顺序**：先在同一事务里锁行、标记墓碑（用户自删还必须复查“无引用”），提交后再尽力删除字节；
+  字节删除失败只告警，不恢复可访问状态。墓碑保留删除人、原因与时间。
+- **上传安全**：大小在读取前后各校验一次；MIME 由字节嗅探，绝不采信客户端；存储键只含不透明标识与
+  UTC 日期分区，不含原始文件名或明文用户 ID；本地后端拒绝 `..`、绝对路径与不安全字符，Redis 后端校验前缀。
+- **后端配置**：沿用 `message.attachment_dir` / `message.attachment_store` / `message.attachment_redis_prefix`
+  作为**框架级附件存储**配置（保留键名使旧文件可达）；`local` 多节点必须共享挂载，`redis` 多节点共用 Redis。
+  配置的后端不可用时整体禁用附件并告警，**绝不静默退回本地目录**。
+- **权限**：只使用注册表里的 `attachment:create` / `attachment:read_own` / `attachment:delete` /
+  `attachment:read` / `attachment:manage`。门户用 `read_own`，后台用 `read`（审计员只读），
+  删除/清理用 `manage`，用户自删用 `delete`；服务端仍校验上传者、状态与引用数，前端显隐不是安全边界。
+- **管理员删除必须带原因并通知上传者**：原因最长 500 字符；生成项目经 `messaging.NotifyUser` 写入
+  上传者的私有通知频道（`kind=notice`，`notice_key=notice:<user id>`）。该频道只读、不属于管理端消息列表；
+  批量清理按上传者各发一条汇总通知（至多十个文件名）。通知失败只告警，不回滚删除。
+- **集中清理只碰未引用**：后台“未引用”筛选与 `DeleteUnreferenced` 必须使用
+  `NOT EXISTS (SELECT 1 FROM yd_attachment_refs …)`，并在带条件更新后复查真正进入墓碑的行；
+  仍被消息或其它业务引用的文件永远不属于批量清理。
+- **迁移**：`attachments/gormstore.Migrate` 幂等创建新表；`MigrateLegacy` 把旧 `yd_msg_attachments`
+  复制到新表（`attached` → `referenced`，其余 → `pending`），随后 `DropLegacy` 删除旧表；
+  删除失败只告警并保留手工清理入口，绝不因此禁用附件。新代码只读写新表。
+  升级时不得更换存储后端或前缀，否则旧 `stored_key` 不可达。
+- **禁止**：在业务里自建上传/下载端点绕过 `attachments.Service`；把 `stored_key` 放进 API 或日志；
+  用原始文件名拼存储路径；用数据库级联防；对已引用附件做用户自删；用前端判定替代服务端权限校验。

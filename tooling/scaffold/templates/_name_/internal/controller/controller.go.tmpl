@@ -25,6 +25,7 @@ import (
 	"{{ .Module }}/internal/repository"
 	"{{ .Module }}/internal/service"
 	"{{ .Module }}/web"
+	"{{ .YdModule }}/attachments"
 	"{{ .YdxModule }}/errs"
 	ydlog "{{ .YdxModule }}/log"
 	"{{ .YdModule }}/http/htmx"
@@ -140,6 +141,15 @@ const (
 	TplMessageAuditBody = "mgr/partials/messages/audit.html"
 	// TplMessageNotice is the realtime notice fragment pushed into the shell. | TplMessageNotice 是推送到外壳的实时通知片段。
 	TplMessageNotice = "portal/partials/messages/notice.html"
+	// TplAttachments is the portal page where a user manages their own attachments. | TplAttachments 是用户管理自己附件的门户页面。
+	TplAttachments = "portal/pages/attachments.html"
+	// TplMgrAttachments is the back-office page where an administrator manages every attachment. |
+	// TplMgrAttachments 是管理员管理全部附件的后台页面。
+	TplMgrAttachments = "mgr/pages/attachments.html"
+	// TplMgrAttachmentDelete is the deletion-reason drawer. | TplMgrAttachmentDelete 是删除原因抽屉。
+	TplMgrAttachmentDelete = "mgr/partials/attachments/delete.html"
+	// TplMgrAttachmentCleanup is the unreferenced-cleanup drawer. | TplMgrAttachmentCleanup 是未引用附件清理抽屉。
+	TplMgrAttachmentCleanup = "mgr/partials/attachments/cleanup.html"
 	// MessagePortalBase is the portal action prefix of the shared message card. | MessagePortalBase 是共享消息卡片在门户的动作前缀。
 	MessagePortalBase = "/messages"
 	// MessageAdminBase is the back-office action prefix of the shared message card. | MessageAdminBase 是共享消息卡片在后台的动作前缀。
@@ -312,6 +322,13 @@ type Controller struct {
 	messages *service.MessageService
 	// messageErr records why the message centre is unavailable, shown on its pages. | messageErr 记录消息中心不可用的原因，并在其页面上展示。
 	messageErr error
+	// attachments is the generic attachment facade shared by the message centre and every other
+	// feature; it is nil when the metadata store or the blob backend is unavailable. | attachments 是消息
+	// 中心与其它功能共用的通用附件门面；元数据存储或字节后端不可用时为 nil。
+	attachments *service.AttachmentService
+	// attachmentErr records why attachments are unavailable, shown on their pages. | attachmentErr 记录附件
+	// 不可用的原因，并在其页面上展示。
+	attachmentErr error
 	// hub fans message events out to WebSocket subscribers. | hub 把消息事件分发给 WebSocket 订阅者。
 	hub *realtime.Hub
 	// i18n is the catalogue bundle, used to translate outside a template execution (conversation
@@ -364,28 +381,47 @@ func New(a *app.App, store *repository.Store, log *ydlog.Logger, captchaSvc *cap
 	if value, ok := a.Get(app.ServiceI18n); ok {
 		bundle, _ = value.(*i18n.Bundle)
 	}
-	messages, messageErr := service.NewMessageService(store, hub, a.Config(), log)
+	attachmentsSvc, attachmentErr := service.NewAttachmentService(store.AttachmentStore(), a.Config(), log, redisClient)
+	if attachmentErr != nil {
+		log.Warn("attachment centre is disabled | 附件中心已禁用", ydlog.Err(attachmentErr))
+	}
+	messages, messageErr := service.NewMessageService(store, hub, a.Config(), log, attachmentsSvc)
 	if messageErr != nil {
 		if !errors.Is(messageErr, service.ErrMessageUnavailable) {
 			return nil, messageErr
 		}
 		log.Warn("message centre is disabled | 消息中心已禁用", ydlog.Err(messageErr))
 	}
+	if attachmentsSvc != nil {
+		if messages != nil && messages.Available() {
+			// Deletion notices are delivered through the message centre, but the attachment domain never
+			// imports it; this closure is the only seam between the two. | 删除通知经消息中心投递，但附件域
+			// 从不导入消息中心；这个闭包是两者之间唯一的接缝。
+			attachmentsSvc.SetNoticeWriter(func(ctx context.Context, tenantID, recipientID string, actor messaging.Actor, title, markdown string) error {
+				_, err := messages.NotifyUser(ctx, tenantID, recipientID, actor, title, markdown)
+				return err
+			})
+		} else {
+			log.Warn("attachment deletion notices are disabled because the message centre is unavailable | 消息中心不可用，附件删除通知已关闭")
+		}
+	}
 	return &Controller{
-		app:        a,
-		store:      store,
-		auth:       authSvc,
-		captcha:    captchaSvc,
-		tenants:    service.NewTenantService(store),
-		users:      service.NewUserService(store, authSvc),
-		roles:      service.NewRoleService(store),
-		provider:   metricsx.NewCollector(metricsSvc, a.MiddlewareMetrics()),
-		messages:   messages,
-		messageErr: messageErr,
-		hub:        hub,
-		i18n:       bundle,
-		log:        log,
-		bundleURLs: web.BundleURLs(),
+		app:           a,
+		store:         store,
+		auth:          authSvc,
+		captcha:       captchaSvc,
+		tenants:       service.NewTenantService(store),
+		users:         service.NewUserService(store, authSvc),
+		roles:         service.NewRoleService(store),
+		provider:      metricsx.NewCollector(metricsSvc, a.MiddlewareMetrics()),
+		messages:      messages,
+		messageErr:    messageErr,
+		attachments:   attachmentsSvc,
+		attachmentErr: attachmentErr,
+		hub:           hub,
+		i18n:          bundle,
+		log:           log,
+		bundleURLs:    web.BundleURLs(),
 	}, nil
 }
 
@@ -406,11 +442,36 @@ func (c *Controller) StartMessageHub(ctx context.Context) {
 	}
 }
 
-// StartMessageJanitor starts the pending-upload cleaner; the caller owns the context and cancels it
-// on shutdown. | StartMessageJanitor 启动待挂载上传清理器；调用方拥有上下文并在关停时取消。
-func (c *Controller) StartMessageJanitor(ctx context.Context) {
-	if c.messages != nil {
-		c.messages.StartJanitor(ctx)
+// AttachmentCentre returns the generic attachment facade; nil means the capability is unavailable. |
+// AttachmentCentre 返回通用附件门面；nil 表示该能力不可用。
+func (c *Controller) AttachmentCentre() *service.AttachmentService {
+	if c == nil {
+		return nil
+	}
+	return c.attachments
+}
+
+// AttachmentsAvailable reports whether the attachment capability can serve requests. |
+// AttachmentsAvailable 报告附件能力能否服务请求。
+func (c *Controller) AttachmentsAvailable() bool {
+	return c != nil && c.attachments != nil
+}
+
+// AttachmentError returns why attachments are unavailable, or nil. | AttachmentError 返回附件不可用的原因，
+// 或 nil。
+func (c *Controller) AttachmentError() error {
+	if c == nil {
+		return nil
+	}
+	return c.attachmentErr
+}
+
+// StartAttachmentJanitor starts the pending-upload cleaner; the caller owns the context and cancels
+// it on shutdown. It is a no-op when attachments are unavailable. | StartAttachmentJanitor 启动待引用
+// 上传清理器；调用方拥有上下文并在关停时取消。附件不可用时不做任何事。
+func (c *Controller) StartAttachmentJanitor(ctx context.Context) {
+	if c != nil && c.attachments != nil {
+		c.attachments.StartJanitor(ctx)
 	}
 }
 
@@ -622,9 +683,11 @@ func (c *Controller) renderData(ctx *router.Ctx, title string, extra map[string]
 		"Permissions":      []model.Permission{},
 		"PageStyles":       []string{},
 		"PageScripts":      []string{},
-		"Unread":           messaging.UnreadSummary{},
-		"MessageAvailable": c.MessagesAvailable(),
-		"MessageError":     "",
+		"Unread":             messaging.UnreadSummary{},
+		"MessageAvailable":   c.MessagesAvailable(),
+		"MessageError":       "",
+		"AttachmentAvailable": c.AttachmentsAvailable(),
+		"AttachmentError":     "",
 		// The captcha switches appear in every page's data: the sign-in and account pages decide from them whether
 		// to render the widget, and the whole block is omitted while disabled.
 		// 验证码开关在每一份页面数据里都出现：登录页与账号页据此决定是否渲染组件，关闭时模板整块省略。
@@ -745,6 +808,9 @@ func (c *Controller) renderData(ctx *router.Ctx, title string, extra map[string]
 	}
 	if c.messageErr != nil {
 		data["MessageError"] = c.messageErr.Error()
+	}
+	if c.attachmentErr != nil {
+		data["AttachmentError"] = c.attachmentErr.Error()
 	}
 	return data
 }
@@ -1084,7 +1150,8 @@ func statusFor(err error) (int, string) {
 		return http.StatusUnauthorized, msgUnauthorized
 	case errors.Is(err, auth.ErrNotFound),
 		errors.Is(err, messaging.ErrNotFound),
-		errors.Is(err, messaging.ErrAttachmentNotFound):
+		errors.Is(err, messaging.ErrAttachmentNotFound),
+		errors.Is(err, attachments.ErrNotFound):
 		return http.StatusNotFound, err.Error()
 	case errors.Is(err, auth.ErrWeakPassword), errors.Is(err, auth.ErrInvalidInput):
 		// 框架 sentinel 与项目 sentinel 落在同一个状态码上：调用方分辨不出拒绝来自哪一层。
@@ -1107,12 +1174,18 @@ func statusFor(err error) (int, string) {
 		errors.Is(err, messaging.ErrRequestClosed), errors.Is(err, messaging.ErrRecalled),
 		errors.Is(err, messaging.ErrTypeProtected), errors.Is(err, messaging.ErrTypeInUse):
 		return http.StatusConflict, err.Error()
-	case errors.Is(err, messaging.ErrAttachmentTooLarge):
+	case errors.Is(err, messaging.ErrAttachmentTooLarge), errors.Is(err, attachments.ErrTooLarge):
 		return http.StatusRequestEntityTooLarge, err.Error()
-	case errors.Is(err, messaging.ErrAttachmentType):
+	case errors.Is(err, messaging.ErrAttachmentType), errors.Is(err, attachments.ErrTypeNotAllowed):
 		return http.StatusUnsupportedMediaType, err.Error()
-	case errors.Is(err, messaging.ErrUnavailable):
+	case errors.Is(err, messaging.ErrUnavailable), errors.Is(err, attachments.ErrUnavailable),
+		errors.Is(err, service.ErrAttachmentUnavailable):
 		return http.StatusServiceUnavailable, err.Error()
+	case errors.Is(err, attachments.ErrReferenced):
+		return http.StatusConflict, err.Error()
+	case errors.Is(err, attachments.ErrInvalidInput), errors.Is(err, attachments.ErrReasonRequired),
+		errors.Is(err, attachments.ErrReasonTooLong), errors.Is(err, attachments.ErrRefInvalid):
+		return http.StatusUnprocessableEntity, err.Error()
 	case errors.Is(err, messaging.ErrInvalidInput), errors.Is(err, messaging.ErrSelfOperation),
 		errors.Is(err, messaging.ErrTypeUnknown), errors.Is(err, messaging.ErrTagUnknown),
 		errors.Is(err, messaging.ErrPinWindowInvalid), errors.Is(err, messaging.ErrTooManyMembers),

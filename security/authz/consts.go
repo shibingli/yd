@@ -20,6 +20,8 @@ const (
 	GroupMessage = "message"
 	// GroupMessageType is the message type, group and tag catalogue resource group. | GroupMessageType 是消息类型、分组与标签目录资源分组。
 	GroupMessageType = "message-type"
+	// GroupAttachment is the framework-wide attachment resource group. | GroupAttachment 是框架级附件资源分组。
+	GroupAttachment = "attachment"
 )
 
 // groupLabels maps every framework resource group to its bilingual label. | groupLabels 把每个框架资源分组映射到中英对照标签。
@@ -30,6 +32,7 @@ var groupLabels = map[string]string{
 	GroupPermission:  "permission | 权限",
 	GroupMessage:     "message | 消息",
 	GroupMessageType: "message-type | 消息类型",
+	GroupAttachment:  "attachment | 附件",
 }
 
 // GroupLabel returns the bilingual label of a resource group. | GroupLabel 返回资源分组的中英对照标签。
@@ -106,6 +109,21 @@ const (
 	PermMessageTypeRead = "message-type:read"
 	// PermMessageTypeManage allows the message type, group and tag lifecycle. | PermMessageTypeManage 允许管理消息类型、分组与标签生命周期。
 	PermMessageTypeManage = "message-type:manage"
+
+	// PermAttachmentCreate allows uploading attachments. | PermAttachmentCreate 允许上传附件。
+	PermAttachmentCreate = "attachment:create"
+	// PermAttachmentRead allows read-only access to every attachment of the tenant (the auditor). |
+	// PermAttachmentRead 允许只读访问租户内全部附件（审计员）。
+	PermAttachmentRead = "attachment:read"
+	// PermAttachmentReadOwn allows listing and reading one's own attachments. | PermAttachmentReadOwn
+	// 允许列出与读取自己的附件。
+	PermAttachmentReadOwn = "attachment:read_own"
+	// PermAttachmentDelete allows deleting one's own unreferenced attachments. | PermAttachmentDelete
+	// 允许删除自己未被引用的附件。
+	PermAttachmentDelete = "attachment:delete"
+	// PermAttachmentManage allows listing every attachment and deleting any with a reason. | PermAttachmentManage
+	// 允许列出全部附件并带原因删除任意附件。
+	PermAttachmentManage = "attachment:manage"
 )
 
 // Role names. | 角色名。
@@ -159,6 +177,12 @@ var builtinPermissions = []Permission{
 	{Name: PermMessageManage, Description: "Moderate every message and pin announcements | 管理全部消息并置顶公告"},
 	{Name: PermMessageTypeRead, Description: "Read message types, groups and tags | 读取消息类型、分组与标签"},
 	{Name: PermMessageTypeManage, Description: "Manage the message type, group and tag lifecycle | 管理消息类型、分组与标签生命周期"},
+
+	{Name: PermAttachmentCreate, Description: "Upload attachments | 上传附件"},
+	{Name: PermAttachmentRead, Description: "Read every attachment of the tenant | 只读租户内全部附件"},
+	{Name: PermAttachmentReadOwn, Description: "List and read own attachments | 列出与读取自己的附件"},
+	{Name: PermAttachmentDelete, Description: "Delete own unreferenced attachments | 删除自己未被引用的附件"},
+	{Name: PermAttachmentManage, Description: "Manage every attachment, including deletion with a reason | 管理全部附件，包含带原因删除"},
 }
 
 // builtinRoles is the framework role vocabulary. | builtinRoles 是框架角色词汇表。

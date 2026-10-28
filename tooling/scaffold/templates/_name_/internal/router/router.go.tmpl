@@ -415,6 +415,20 @@ func registerProtected(a *app.App, ctrl *controller.Controller, store *repositor
 	g.POST("/messages/groups/:id/leave", ctrl.LeaveMessageGroup, authz.Require(authz.PermMessageSend))
 	g.POST("/messages/groups/:id/dissolve", ctrl.DissolveMessageGroup, authz.Require(authz.PermMessageSend))
 
+	// 通用附件：门户只管理自己上传的文件，后台管理租户内全部文件；读、写、管理与删除各对应注册表的一条能力。
+	// Generic attachments: the portal manages the visitor's own files and the back office manages every file of the
+	// tenant; read, create, manage and delete each map onto one capability of the registry.
+	g.GET("/attachments", ctrl.Attachments, authz.Require(authz.PermAttachmentReadOwn))
+	g.POST("/attachments", ctrl.UploadAttachment, authz.Require(authz.PermAttachmentCreate))
+	g.GET("/attachments/:id/download", ctrl.DownloadAttachment, authz.Require(authz.PermAttachmentReadOwn))
+	g.POST("/attachments/:id/delete", ctrl.DeleteOwnAttachment, authz.Require(authz.PermAttachmentDelete))
+	g.GET("/mgr/attachments", ctrl.MgrAttachments, authz.Require(authz.PermAttachmentRead))
+	g.GET("/mgr/attachments/cleanup", ctrl.MgrAttachmentCleanupDrawer, authz.Require(authz.PermAttachmentManage))
+	g.POST("/mgr/attachments/cleanup", ctrl.MgrCleanupAttachments, authz.Require(authz.PermAttachmentManage))
+	g.GET("/mgr/attachments/:id/download", ctrl.MgrDownloadAttachment, authz.Require(authz.PermAttachmentRead))
+	g.GET("/mgr/attachments/:id/delete", ctrl.MgrAttachmentDeleteDrawer, authz.Require(authz.PermAttachmentManage))
+	g.POST("/mgr/attachments/:id/delete", ctrl.MgrDeleteAttachment, authz.Require(authz.PermAttachmentManage))
+
 	// 好友生命周期：申请、接受/拒绝/取消、删除、拉黑与备注。
 	// The friend lifecycle: request, accept/reject/cancel, remove, block and remark.
 	g.GET("/friends", ctrl.Friends, authz.Require(authz.PermMessageRead))
@@ -480,6 +494,19 @@ func registerProtected(a *app.App, ctrl *controller.Controller, store *repositor
 	g.GET("/api/v1/message-tags", ctrl.APIMessageTags, authz.Require(authz.PermMessageTypeRead))
 	g.POST("/api/v1/message-tags", ctrl.APISaveMessageTag, authz.Require(authz.PermMessageTypeManage))
 	g.POST("/api/v1/message-tags/:id/archive", ctrl.APIArchiveMessageTag, authz.Require(authz.PermMessageTypeManage))
+
+	// 附件 JSON API：与页面共用同一份服务；成员只看自己的文件，管理面看租户内全部文件。
+	// The attachment JSON API shares the very same service as the pages: members see their own files while the
+	// management surface sees every file of the tenant.
+	g.GET("/api/portal/v1/attachments", ctrl.APIAttachments, authz.Require(authz.PermAttachmentReadOwn))
+	g.POST("/api/portal/v1/attachments", ctrl.APIUploadGenericAttachment, authz.Require(authz.PermAttachmentCreate))
+	g.GET("/api/portal/v1/attachments/:id/download", ctrl.APIPortalDownloadAttachment, authz.Require(authz.PermAttachmentReadOwn))
+	g.POST("/api/portal/v1/attachments/:id/delete", ctrl.APIDeleteOwnAttachment, authz.Require(authz.PermAttachmentDelete))
+	g.GET("/api/v1/attachments", ctrl.APIMgrAttachments, authz.Require(authz.PermAttachmentRead))
+	g.POST("/api/v1/attachments", ctrl.APIUploadManageAttachment, authz.Require(authz.PermAttachmentCreate))
+	g.GET("/api/v1/attachments/:id/download", ctrl.APIAdminDownloadAttachment, authz.Require(authz.PermAttachmentRead))
+	g.POST("/api/v1/attachments/cleanup", ctrl.APICleanupAttachments, authz.Require(authz.PermAttachmentManage))
+	g.POST("/api/v1/attachments/:id/delete", ctrl.APIDeleteManagedAttachment, authz.Require(authz.PermAttachmentManage))
 
 	// 实时消息通道：WebSocket 推送与单条快捷回复共用同一条连接。
 	// The realtime message channel: WebSocket pushes and the quick reply share one connection.
@@ -594,7 +621,7 @@ func startTicker(a *app.App, ticker *service.Ticker, broker *sse.Broker) error {
 func startMessageRuntime(a *app.App, ctrl *controller.Controller) {
 	ctx, cancel := context.WithCancel(context.Background())
 	ctrl.StartMessageHub(ctx)
-	ctrl.StartMessageJanitor(ctx)
+	ctrl.StartAttachmentJanitor(ctx)
 	a.OnShutdown(func(context.Context) error {
 		cancel()
 		return nil

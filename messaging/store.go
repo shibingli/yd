@@ -93,6 +93,8 @@ type Store interface {
 	GetDirectConversation(ctx context.Context, tenantID, userA, userB string) (Conversation, error)
 	// GetSystemConversation resolves the tenant announcement channel. | GetSystemConversation 解析租户公告频道。
 	GetSystemConversation(ctx context.Context, tenantID string) (Conversation, error)
+	// GetNoticeConversation resolves one user's private notice channel. | GetNoticeConversation 解析某个用户的私有通知频道。
+	GetNoticeConversation(ctx context.Context, tenantID, noticeKey string) (Conversation, error)
 	// ListConversations lists the conversations of one user. | ListConversations 列出某个用户的会话。
 	ListConversations(ctx context.Context, tenantID, userID string) ([]Conversation, error)
 	// ListAllConversations lists every conversation of a tenant, for administrators. | ListAllConversations 列出租户的全部会话，供管理员使用。
@@ -136,14 +138,6 @@ type Store interface {
 	MessageAttachments(ctx context.Context, tenantID string, messageIDs []string) (map[string][]Attachment, error)
 	// MessageTags resolves groups and tags for a batch of messages. | MessageTags 批量解析消息的分组与标签。
 	MessageTags(ctx context.Context, tenantID string, messageIDs []string) (map[string][]Tag, error)
-
-	// CreateAttachment stores one pending upload. | CreateAttachment 保存一个待挂载上传。
-	CreateAttachment(ctx context.Context, a Attachment) error
-	// GetAttachment reads one attachment. | GetAttachment 读取一个附件。
-	GetAttachment(ctx context.Context, tenantID, id string) (Attachment, error)
-	// CleanupPending removes pending attachments older than the cutoff and returns them so their
-	// blobs can be deleted. | CleanupPending 删除早于截止时间的待挂载附件并返回它们，以便删除对应字节。
-	CleanupPending(ctx context.Context, before time.Time) ([]Attachment, error)
 
 	// AddAudit appends one audit entry. | AddAudit 追加一条审计记录。
 	AddAudit(ctx context.Context, entry AuditEntry) error

@@ -1,7 +1,7 @@
 # 站内消息中心 | In-app message centre
 
 > 适用范围：yd 框架与 `yd new` 生成的项目。本文是消息中心的唯一使用说明；
-> 设计取舍与实施记录见 `docs/superpowers/plans/2026-10-20-message-center.md`（本地笔记，不入库）。
+> 设计取舍与实施记录保存在框架仓库的开发笔记中，不随生成项目发布。
 
 ## 1. 能力一览
 
@@ -10,7 +10,7 @@
 - **系统公告**：仅 `message:system` 可发布与撤销；撤销保留审计历史；置顶支持立即/未来开始与可选结束时间。
 - **消息生命周期**：发送、编辑（窗口内）、撤回（窗口内；管理员不受窗口限制）、软墓碑、已读/未读。
 - **富文本**：Markdown 源 + 服务端 goldmark 渲染并净化的 HTML + 纯文本投影；原始 HTML 与危险链接被移除。
-- **附件**：先上传后挂载，服务端嗅探 MIME、限制大小与类型；下载按消息可见性鉴权。
+- **附件**：复用框架级 `attachments` 域，先上传后挂载；服务端嗅探 MIME、限制大小与类型；下载按消息可见性鉴权。完整能力见 `docs/attachments.md`。
 - **分类与标签**：管理员维护消息类型、分组与标签；消息可带多个分组与多个标签。
 - **检索**：标题、正文、发送人、类型、分组/标签的混合检索；所有查询以租户为边界。
 - **即时通讯界面**：左侧会话列表、右上历史消息、右下内联撰写区；后台治理与目录设置保持列表式管理页。
@@ -24,12 +24,13 @@
 | 层 | 位置 | 职责 |
 |---|---|---|
 | 领域 | `messaging/` | 类型、哨兵、Store 接口、业务规则、事件 |
-| 持久化 | `messaging/gormstore/` | 12 张 `yd_msg_*` 表的 AutoMigrate 与 Store 实现 |
+| 持久化 | `messaging/gormstore/` | 11 张 `yd_msg_*` 表的 AutoMigrate 与 Store 实现 |
 | 用户目录 | `messaging/authdirectory/` | 把 `security/auth.Service` 适配为 `messaging.Directory` |
 | Markdown | `messaging/markdown/` | goldmark 安全渲染与纯文本抽取 |
-| 附件 | `messaging/filestore/` | 本地不透明键存储 |
+| 附件领域 | `attachments/`、`attachments/gormstore/` | 通用上传、引用、生命周期与两种字节后端 |
+| 附件适配 | `messaging/attachments.go` | 消息可见性下载、待挂载校验 |
 | 实时 | `messaging/realtime/` | 进程内 Hub、Redis Bus、重试接口 |
-| 项目接线 | `internal/service/message.go`、`message_bus.go` | 配置、目录、附件、Hub、asynq |
+| 项目接线 | `internal/service/message.go`、`attachment.go`、`message_bus.go` | 配置、目录、附件门面与删除通知、Hub、asynq |
 | 页面/API | `internal/controller/message_*`、`friend_controller.go` | HTML、片段、JSON API、WebSocket |
 
 领域包不依赖 GORM 与 HTTP；持久化与用户目录都是接口实现，替换实现不影响规则。
@@ -42,11 +43,15 @@
 |---|---|
 | `yd_msg_types` | 消息类型（内置 announcement/normal/system/finance/marketing） |
 | `yd_msg_tags` | `kind=group` 或 `kind=tag` 的分组与标签 |
-| `yd_msg_conversations` | direct/group/system 会话 |
+| `yd_msg_conversations` | direct/group/system/notice 会话；`notice_key` 为用户私有通知频道 |
 | `yd_msg_members` | 会话成员与 `last_read_at` 已读水位 |
 | `yd_msg_messages` | 消息、Markdown/HTML/纯文本快照、`search_text`、置顶与撤回字段 |
+
+`yd_msg_attachments` 是升级前的旧表：`MigrateLegacy` 一次性复制到新表，复制完成后 `DropLegacy`
+删除它；新代码不再读写旧表。
 | `yd_msg_message_tags` | 消息-分组/标签连接 |
-| `yd_msg_attachments` | 待挂载/已挂载附件元数据 |
+| `yd_attachments` | 通用附件元数据（租户、上传者、状态、墓碑） |
+| `yd_attachment_refs` | 业务对象引用（`ref_type`/`ref_id`，消息为 `message`） |
 | `yd_msg_friend_requests` | 有向好友申请状态机 |
 | `yd_msg_friendships` | 规范化 ID 顺序的无向好友关系 |
 | `yd_msg_friend_notes` | 每个所有者自己的好友备注 |
@@ -84,12 +89,26 @@ message:
   max_group_members: 50
   page_size: 20
   attachment_dir: data/attachments
+  attachment_store: local          # local | redis
+  attachment_redis_prefix: "yd:msg:blob:"
   pending_ttl: 24h
   node_id: ""
   # allowed_types:
   #   - image/png
   #   - application/pdf
 ```
+
+附件字节按 `<租户哈希>/<上传者哈希>/<YYYY>/<MM>/<DD>/<附件 ID>` 分区，两种后端使用同一套键。
+这些 `message.attachment_*` 键现在配置的是**框架级附件存储**，不再专属于消息中心：
+
+- `attachment_store: local`（默认）写 `attachment_dir`。单节点可直接使用相对目录；多节点必须把
+  `attachment_dir` 指向每个节点都挂载的共享目录（NFS / SMB / 云文件系统），并使用绝对路径。
+- `attachment_store: redis` 写部署共用的 Redis，多节点无需共享文件系统；`attachment_redis_prefix`
+  在同一部署内必须唯一。Redis 不可达或前缀非法时上传被禁用并告警，绝不静默退回本地目录。
+  该模式把附件字节放在 Redis 内存中，必须按 `max_attachment_size` × 并发上传量预留内存，并设置
+  Redis 的 `maxmemory-policy noeviction`（附件不能像缓存一样被淘汰）；大文件部署优先使用共享目录。
+- 两种后端都实现 `attachments.BlobStore`，空键、父目录穿越与不安全字符在存储层再次拒绝。
+- 完整生命周期、权限、API、清理与迁移见 `docs/attachments.md`。
 
 环境变量前缀 `YD_MESSAGE_*`（例如 `YD_MESSAGE_RECALL_WINDOW=10m`、`YD_MESSAGE_NODE_ID=node-1`）。
 
@@ -161,6 +180,7 @@ asynq:
 - `POST /api/portal/v1/friends/requests`、`/:id/accept|reject|cancel`
 - `POST /api/portal/v1/friends/:id/remove|block|unblock|remark`
 - `POST /api/portal/v1/messages/attachments`、`GET /api/portal/v1/messages/attachments/:id`
+- 通用附件 API（我的附件、后台治理与清理）见 `docs/attachments.md`，与上表共用同一份附件服务。
 
 请求与响应使用框架 `json`，错误为 `{"error":"..."}`；状态码由哨兵映射（404/403/409/413/415/422/503）。
 
@@ -180,6 +200,16 @@ asynq:
   - `{"action":"ping"}` 保活。
   - 其它内容忽略，不回显。
 
+### 通知频道
+
+管理员删除附件时，生成项目经 `AttachmentService` 调用 `messaging.NotifyUser`，在收件人的私有通知频道写入一条
+系统消息。频道是 `kind=notice` 的会话，`notice_key = notice:<user id>` 在租户内唯一：
+
+- 只有收件人是成员；管理端消息列表按 `kind` 排除通知会话，普通检索也不会返回。
+- 收件人可以阅读并标记已读，但 `Send` 对该会话返回 `ErrSystemOnly`，撰写区显示只读提示。
+- 通知正文为 Markdown（管理员、文件名、大小、原因、UTC 时间），与普通消息一样经 goldmark 净化。
+- 通知在删除事务提交后发送；发送失败只记 Warn，不回滚删除。
+
 ## 7. 搜索语义
 
 `search_text` 在发送/编辑时生成：小写拼接标题、纯文本正文、发送人快照、类型中英文名、分组/标签中英文名与会话标题。
@@ -196,8 +226,11 @@ asynq:
   抽屉会再次复核关系，直接打开旧链接也不能绕过。
 - **系统公告**：只有 `message:system` 可发布/撤销；置顶只有 `message:manage` 且仅系统来源消息。
 - **撤回**：正文保留在库中供审计；对无 `message:manage` 的读者显示墓碑并清空正文/附件/标题。
+  撤回**不释放附件引用**：附件仍属于原消息；只有消息被硬删除或附件字段被清空才调用 `Release`。
 - **富文本**：goldmark 默认 HTML 渲染器省略原始 HTML，危险 URL 协议被拒绝；模板以 `template.HTML` 输出仅限该净化结果。
 - **附件**：服务端嗅探 MIME，默认白名单不含 HTML/SVG/脚本；下载使用 `Content-Disposition: attachment` 与 `nosniff`。
+  图片附件在消息卡片与撰写区显示缩略图，并以 `?inline=1` 内联预览（仅 `image/*` 生效，其它类型始终下载）；
+  未挂载上传由附件域的 janitor 按 `pending_ttl` 清理；管理员删除附件后保留引用行，消息按墓碑渲染。
 - **实时事件**：事件只携带 ID 与小型元数据，不携带正文；接收方按权限重新读取。
 - **限流**：建议在反向代理或 `middleware.RateLimit` 上对发送/好友申请按用户限流；消息中心本身不信任 `X-Forwarded-For`。
 

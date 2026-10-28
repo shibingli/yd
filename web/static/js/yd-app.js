@@ -1171,6 +1171,76 @@
       root.id === 'yd-connection';
   }
 
+  /* hx-history-cache asks hx-alpine-compat to destroy the *live* Alpine tree before it saves a
+     snapshot. htmx then morphs the next view and copies those emptied stacks onto the incoming
+     nodes; Alpine sees data-has-alpine-state and skips x-data, so x-show/x-text never run and a
+     native select renders next to its styled button. Any marker whose stack is empty is repaired
+     here by initialising the tree again. | hx-history-cache 在保存快照前让 hx-alpine-compat
+     销毁了**活动** Alpine 树；htmx 随后 morph 下一个视图，把空栈复制到新节点，Alpine 见到
+     data-has-alpine-state 就跳过 x-data，x-show/x-text 因此从不执行，原生 select 与样式化按钮
+     会同时显示。这里对栈为空的标记节点重新初始化整棵树。 */
+  function reviveAlpineScopes(root) {
+    var scope = root && root.nodeType === 1 ? root : win().document;
+    if (!scope || typeof scope.querySelectorAll !== 'function') {
+      return 0;
+    }
+    var nodes = Array.prototype.slice.call(scope.querySelectorAll('[data-has-alpine-state]'));
+    if (scope.nodeType === 1 && typeof scope.hasAttribute === 'function' &&
+        scope.hasAttribute('data-has-alpine-state')) {
+      nodes.unshift(scope);
+    }
+    var alpine = win().Alpine;
+    var revived = 0;
+    for (var i = 0; i < nodes.length; i++) {
+      var el = nodes[i];
+      if (!el || el.nodeType !== 1) {
+        continue;
+      }
+      if (el._x_dataStack && el._x_dataStack.length) {
+        continue; // a healthy cloned state needs no repair | 已复制到有效状态的节点无需修复
+      }
+      /* The marker makes Alpine skip x-data even when the copied stack is empty; both must go. |
+         标记会让 Alpine 把空栈也当作已初始化；两者都必须清掉。 */
+      el.removeAttribute('data-has-alpine-state');
+      try {
+        delete el._x_dataStack;
+      } catch (err) {
+        el._x_dataStack = undefined;
+      }
+      if (alpine && typeof alpine.initTree === 'function') {
+        alpine.initTree(el);
+        revived++;
+      }
+    }
+    return revived;
+  }
+
+  /* Fullscreen EasyMDE positions itself against the viewport (top: 0 / 50px), while the app bar is
+     sticky at the top. Publish the measured bar height so the editor can start below it instead of
+     painting its toolbar across the navigation. | EasyMDE 全屏按视口定位（top: 0 / 50px），而应用
+     顶栏吸顶在顶部。这里发布实测顶栏高度，让编辑器从导航下方开始，而不是把工具栏画到导航上。 */
+  var TOPBAR_OFFSET = '--yd-topbar-offset';
+
+  function syncTopbarOffset() {
+    var d = win().document;
+    if (!d || !d.documentElement || !d.documentElement.style) {
+      return;
+    }
+    var style = d.documentElement.style;
+    var bar = one('.yd-topbar');
+    if (!bar || typeof bar.getBoundingClientRect !== 'function') {
+      if (typeof style.removeProperty === 'function') {
+        style.removeProperty(TOPBAR_OFFSET);
+      }
+      return;
+    }
+    var rect = bar.getBoundingClientRect();
+    var height = Math.ceil((rect && rect.height) || 0);
+    if (height > 0 && typeof style.setProperty === 'function') {
+      style.setProperty(TOPBAR_OFFSET, height + 'px');
+    }
+  }
+
   function onAfterSwap(event) {
     var detail = (event && event.detail) || {};
     var ctx = detail.ctx || {};
@@ -1180,9 +1250,15 @@
     }
     formatCells(root);
     autoDismissFlashes(root);
+    syncTopbarOffset();
     if (quietSwapTarget(root)) {
       return;
     }
+    /* The history cache destroyed every Alpine tree in the live document, including regions the
+       swap did not touch (the conversation rail's filters, for example), so the repair is
+       document-wide rather than limited to the target. | 历史缓存销毁了活动文档中的全部 Alpine
+       树，包括本次交换没有触及的区域（例如会话栏的筛选器），因此修复范围是整份文档而非目标。 */
+    reviveAlpineScopes(win().document);
     syncActiveNav();
     syncDocumentTitle();
     // A swap may replace the elements that own the streams; recompute the aggregate and drop
@@ -1213,6 +1289,7 @@
       var schedule = win().requestAnimationFrame || function (fn) { return win().setTimeout(fn, 16); };
       resizeFrame = schedule(function () {
         resizeFrame = 0;
+        syncTopbarOffset();
         var media = win().matchMedia;
         if (typeof media !== 'function') {
           return;
@@ -1230,6 +1307,13 @@
     }
     onDocument('change', onChange);
     onDocument('keydown', onKeyDown);
+    /* Repair before the deferred Alpine flush paints the broken nodes, then again after the swap as
+       a safety net for morphs that settle without a before-settle event. | 在 Alpine 延迟刷新绘制
+       破损节点之前先修复，交换完成后再兜底一次，覆盖没有 before-settle 的 morph。 */
+    onDocument('htmx:before:settle', function () {
+      syncTopbarOffset();
+      reviveAlpineScopes(win().document);
+    });
     onDocument('htmx:after:swap', onAfterSwap);
     onDocument('htmx:sse:before:connection', onSSEBefore);
     onDocument('htmx:sse:after:connection', onSSEAfter);
@@ -1300,6 +1384,7 @@
     applySidebar(read(SIDEBAR_KEY) === 'true');
     applyMobileSidebar(false);
     syncActiveNav();
+    syncTopbarOffset();
     formatCells(win().document);
     autoDismissFlashes(win().document);
     watchSystem();
@@ -1316,7 +1401,9 @@
     sidebar: applySidebar,
     toggleSidebar: toggleSidebar,
     formatCells: formatCells,
-    setConnection: setConnection
+    setConnection: setConnection,
+    reviveAlpineScopes: reviveAlpineScopes,
+    syncTopbarOffset: syncTopbarOffset
   };
 
   ready(boot);

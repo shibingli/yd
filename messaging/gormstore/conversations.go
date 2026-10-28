@@ -62,6 +62,18 @@ func (s *Store) GetSystemConversation(ctx context.Context, tenantID string) (mes
 	return conv, nil
 }
 
+// GetNoticeConversation resolves one user's private notice channel. | GetNoticeConversation 解析某个用户的
+// 私有通知频道。
+func (s *Store) GetNoticeConversation(ctx context.Context, tenantID, noticeKey string) (messaging.Conversation, error) {
+	var conv messaging.Conversation
+	if err := s.dbc(ctx).
+		Where("tenant_id = ? AND notice_key = ?", tenantID, noticeKey).
+		First(&conv).Error; err != nil {
+		return messaging.Conversation{}, queryError(err)
+	}
+	return conv, nil
+}
+
 // ListConversations lists the conversations of one user. | ListConversations 列出某个用户的会话。
 func (s *Store) ListConversations(ctx context.Context, tenantID, userID string) ([]messaging.Conversation, error) {
 	var out []messaging.Conversation

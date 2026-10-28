@@ -314,8 +314,10 @@
       hx-swap="{{if .Swap}}{{.Swap}}{{else}}innerHTML{{end}}"
       hx-push-url="{{if .PushURL}}true{{else}}false{{end}}"{{end}}
       x-data="ydSearch" {{with .Attrs}}{{.}}{{end}}>
-  <span class="yd-search__icon" aria-hidden="true"></span>
   <div class="yd-search__field">
+    {{/* The magnifier lives inside the field so it paints above the input's opaque surface. |
+         放大镜放在输入框内部，才能绘制在输入框不透明底色之上。 */}}
+    <span class="yd-search__icon" aria-hidden="true">{{template "partials/icon" "lucide-search"}}</span>
     <input class="yd-input" {{with .ID}}id="{{.}}"{{end}} type="search" name="{{if .Name}}{{.Name}}{{else}}q{{end}}" value="{{with .Value}}{{.}}{{end}}" x-ref="input" x-model="value"
            {{with .Autocomplete}}autocomplete="{{.}}"{{end}}
            {{with .PlaceholderKey}}data-yd-i18n-attr="placeholder:{{.}}"{{end}}
@@ -325,7 +327,11 @@
             data-yd-i18n-attr="aria-label:{{$clearKey}}" aria-label="{{if eq $clearKey "ui.clear"}}{{tr "ui.clear"}}{{else}}{{tr $clearKey}}{{end}}">{{template "partials/icon" "lucide-x"}}</button>
   </div>
   {{if or .SubmitLabel .SubmitKey}}
-  <button type="submit" class="yd-search__submit yd-btn yd-btn--ghost"{{with .SubmitKey}} data-yd-i18n="{{.}}"{{end}}>{{if .SubmitKey}}{{tr .SubmitKey}}{{else}}{{.SubmitLabel}}{{end}}</button>
+  {{/* A standard button, not the transparent ghost variant: the search action must read as a
+       control. The icon sits in its own span so data-yd-i18n only ever rewrites the label. |
+       标准按钮而非透明 ghost 变体：搜索动作必须看起来是控件。图标独占一个 span，
+       data-yd-i18n 因此只会改写文字，不会抹掉图标。 */}}
+  <button type="submit" class="yd-search__submit yd-btn">{{template "partials/icon" "lucide-search"}}<span{{with .SubmitKey}} data-yd-i18n="{{.}}"{{end}}>{{if .SubmitKey}}{{tr .SubmitKey}}{{else}}{{.SubmitLabel}}{{end}}</span></button>
   {{end}}
 </form>
 {{- end -}}

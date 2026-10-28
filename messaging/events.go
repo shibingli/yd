@@ -3,6 +3,8 @@ package messaging
 import (
 	"context"
 	"time"
+
+	"github.com/shibingli/yd/attachments"
 )
 
 // Event types emitted by the service after a successful write. | 服务在写入成功后发出的事件类型。
@@ -77,11 +79,7 @@ type Renderer interface {
 }
 
 // BlobStore stores attachment bytes under opaque keys. | BlobStore 以不透明键保存附件字节。
-type BlobStore interface {
-	// Put writes data under key, replacing an existing value. | Put 把 data 写入 key，覆盖已有值。
-	Put(ctx context.Context, key string, data []byte) error
-	// Get reads the bytes stored under key. | Get 读取 key 下的字节。
-	Get(ctx context.Context, key string) ([]byte, error)
-	// Delete removes key; a missing key is not an error. | Delete 删除 key；键不存在不算错误。
-	Delete(ctx context.Context, key string) error
-}
+//
+// Deprecated: use attachments.BlobStore. The message centre now delegates all attachment storage to
+// the attachments domain. | 已弃用：请使用 attachments.BlobStore；消息中心现在把附件存储全部委托给附件域。
+type BlobStore = attachments.BlobStore

@@ -95,7 +95,7 @@ const ydApp = globalThis.ydApp;
 test('yd-app boots without throwing and exposes its API', () => {
   const api = globalThis.ydApp;
   assert.ok(api, 'ydApp must be published to the global object');
-  for (const name of ['boot', 'theme', 'setTheme', 'toggleTheme', 'sidebar', 'formatCells']) {
+  for (const name of ['boot', 'theme', 'setTheme', 'toggleTheme', 'sidebar', 'formatCells', 'reviveAlpineScopes', 'syncTopbarOffset']) {
     assert.equal(typeof api[name], 'function', `missing ${name}`);
   }
   // Boot registers the delegated listeners; aborting in the theme path would leave this list empty.
@@ -111,4 +111,32 @@ test('theme switches still write the attribute and the stored preference', () =>
   ydApp.setTheme('light');
   assert.equal(env.html.getAttribute('data-theme'), 'light');
   assert.equal(env.storage.getItem('yd_theme'), 'light');
+});
+
+test('reviveAlpineScopes repairs empty cloned scopes and leaves healthy ones alone', () => {
+  const initialised = [];
+  globalThis.Alpine = {
+    initTree(el) {
+      initialised.push(el);
+      el._x_dataStack = [{}];
+    }
+  };
+  const broken = fakeElement();
+  broken.setAttribute('data-has-alpine-state', 'true');
+  broken._x_dataStack = [];
+  const healthy = fakeElement();
+  healthy.setAttribute('data-has-alpine-state', 'true');
+  healthy._x_dataStack = [{}];
+  const root = {
+    nodeType: 1,
+    querySelectorAll() { return [broken, healthy]; },
+    hasAttribute() { return false; }
+  };
+  const revived = ydApp.reviveAlpineScopes(root);
+  assert.equal(revived, 1, 'only the empty stack is re-initialised');
+  assert.equal(broken.hasAttribute('data-has-alpine-state'), false, 'the skip marker is removed');
+  assert.equal(broken._x_dataStack.length, 1, 'the scope is rebuilt');
+  assert.equal(initialised.length, 1);
+  assert.equal(healthy.hasAttribute('data-has-alpine-state'), true, 'healthy scopes keep their marker');
+  delete globalThis.Alpine;
 });

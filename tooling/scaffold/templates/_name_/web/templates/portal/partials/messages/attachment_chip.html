@@ -3,17 +3,26 @@
   partials/messages/attachment_chip.html — one uploaded attachment.
 
   隐藏字段 attachment_ids 与消息表单同处一个 form，因此提交时随表单一起发出；移除按钮只删除本节点，
-  隐藏字段随之消失，服务端因此不会绑定它。
+  隐藏字段随之消失，服务端因此不会绑定它。图片附件额外带缩略图与内联预览链接，其它类型保持下载。
   The hidden attachment_ids field lives in the same form as the message fields and is submitted with them; the remove
-  button deletes this node, which removes the hidden field, so the server never binds it.
+  button deletes this node, which removes the hidden field, so the server never binds it. Image attachments also carry
+  a thumbnail and an inline preview link; every other type stays a download.
 
   数据契约 | Data contract: .Attachment（messageAttachmentView）。
 */}}
 {{- define "portal/partials/messages/attachment_chip" -}}
 <span class="yd-attachment-chip" data-yd-attachment>
   <input type="hidden" name="attachment_ids" value="{{ .Attachment.ID }}">
-  <span class="yd-attachment-chip__name">{{ .Attachment.OriginalName }}</span>
-  <span class="yd-attachment-chip__size">{{ .SizeText }}</span>
+  <a class="yd-attachment-chip__link"
+     href="/messages/attachments/{{ .Attachment.ID }}{{ if .Attachment.Image }}?inline=1{{ end }}"
+     target="_blank" rel="noopener noreferrer">
+    {{- if .Attachment.Image }}
+    <img class="yd-attachment-chip__thumb" src="/messages/attachments/{{ .Attachment.ID }}?inline=1"
+         alt="" width="28" height="28" loading="lazy">
+    {{- end }}
+    <span class="yd-attachment-chip__name">{{ .Attachment.OriginalName }}</span>
+  </a>
+  <span class="yd-attachment-chip__size">{{ .Attachment.SizeText }}</span>
   <button type="button" class="yd-icon-btn yd-attachment-chip__remove" data-yd-attachment-remove
           aria-label="{{ tr "ui.remove" }}">×</button>
 </span>

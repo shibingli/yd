@@ -1472,6 +1472,7 @@
   .yd-filters > .yd-input,
   .yd-filters > .yd-select,
   .yd-filters > .yd-field,
+  .yd-filters > .yd-search__field,
   .yd-search > .yd-input {
     flex: 1 1 10rem;
     min-width: 0;
@@ -3552,6 +3553,45 @@
     border-color: var(--color-accent);
   }
 
+  /* A tombstone has no bytes left: it must not look like a working download. | 墓碑已无字节，不能看起来仍可下载。 */
+  .yd-attachment--deleted {
+    border-style: dashed;
+    color: var(--color-content-muted);
+  }
+
+  .yd-attachment--deleted .yd-attachment__size {
+    max-width: 12rem;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  /* The chip name is a preview/download link; the hidden field and remove button stay outside it. |
+     附件名是预览/下载链接；隐藏字段与移除按钮留在链接之外。 */
+  .yd-attachment-chip__link {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.375rem;
+    min-width: 0;
+    color: inherit;
+    text-decoration: none;
+  }
+
+  .yd-attachment-chip__link:hover .yd-attachment-chip__name {
+    text-decoration: underline;
+  }
+
+  .yd-attachment-chip__thumb,
+  .yd-attachment__thumb {
+    flex: 0 0 auto;
+    width: 1.75rem;
+    height: 1.75rem;
+    border: 1px solid var(--color-border-subtle);
+    border-radius: 0.25rem;
+    object-fit: cover;
+    background: var(--color-surface);
+  }
+
   .yd-attachment__size,
   .yd-attachment-chip__size {
     color: var(--color-content-muted);
@@ -4047,6 +4087,10 @@
     padding: 0.75rem 1rem 0.5rem;
   }
 
+  .yd-msg-contacts__search .yd-search__field {
+    width: 100%;
+  }
+
   .yd-msg-contacts__search .yd-input {
     width: 100%;
   }
@@ -4174,6 +4218,11 @@
     display: flex;
     align-items: center;
     gap: 0.5rem;
+  }
+
+  .yd-msg-search__row > .yd-search__field {
+    flex: 1 1 auto;
+    min-width: 0;
   }
 
   .yd-msg-search__input {
@@ -4650,6 +4699,43 @@
   border-radius: 0;
   background: var(--color-surface-muted);
   opacity: 1;
+}
+
+/* EasyMDE's fullscreen toolbar and preview are fixed to the viewport (top: 0 / 50px). The app bar
+   is sticky at z-index 30, so the two used to paint over each other. Start the editor below the
+   measured bar height instead; --yd-topbar-offset is published by yd-app.js and falls back to the
+   bar's minimum height before the script runs. | EasyMDE 的全屏工具栏与预览固定在视口
+   （top: 0 / 50px），而应用顶栏以 z-index 30 吸顶，两者因此互相覆盖。这里让编辑器从实测顶栏
+   高度之下开始；--yd-topbar-offset 由 yd-app.js 写入，脚本运行前回退到顶栏最小高度。 */
+.yd-editor .EasyMDEContainer .editor-toolbar.fullscreen {
+  top: var(--yd-topbar-offset, 3.5rem);
+  z-index: var(--z-overlay);
+}
+
+.yd-editor .EasyMDEContainer .CodeMirror-fullscreen {
+  top: calc(var(--yd-topbar-offset, 3.5rem) + 50px);
+  z-index: calc(var(--z-overlay) - 1);
+  /* The compact composer caps the editor at 180px; fullscreen must release that cap or it stops
+     mid-page and leaves the chrome showing underneath. | 紧凑撰写区把编辑器限制在 180px；
+     全屏必须解除该上限，否则编辑器只铺到页面中部，下面会露出应用外壳。 */
+  max-height: none;
+}
+
+.yd-editor .EasyMDEContainer .editor-preview-side {
+  top: calc(var(--yd-topbar-offset, 3.5rem) + 50px);
+  z-index: calc(var(--z-overlay) - 1);
+}
+
+/* Inside the drawer the dialog already owns the top layer and covers the app bar; offsetting the
+   editor there would only leave a strip of backdrop above it. | 抽屉里的对话框本身就位于顶层并
+   盖住应用顶栏，再偏移只会留下一条遮罩空隙。 */
+.yd-drawer .yd-editor .EasyMDEContainer .editor-toolbar.fullscreen {
+  top: 0;
+}
+
+.yd-drawer .yd-editor .EasyMDEContainer .CodeMirror-fullscreen,
+.yd-drawer .yd-editor .EasyMDEContainer .editor-preview-side {
+  top: 50px;
 }
 
 /* EasyMDE builds toolbar buttons at runtime. Each button receives a Lucide <svg> cloned from the

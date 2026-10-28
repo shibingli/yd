@@ -607,8 +607,8 @@
     outline-offset: 2px;
   }
 
-  /* Search: a magnifier glyph carved out of the field with padding, not a background image. | 搜索框：
-     用留白腾出放大镜位置，不引入背景图。 */
+  /* Search: the magnifier is a real sprite icon inside the field, not a background image. | 搜索框：
+     放大镜是字段内部的 sprite 图标，不引入背景图。 */
   .yd-search {
     position: relative;
     display: flex;
@@ -624,39 +624,23 @@
 
   .yd-search__icon {
     position: absolute;
+    top: 50%;
     left: 0.75rem;
     display: inline-flex;
+    align-items: center;
+    justify-content: center;
     width: 1rem;
     height: 1rem;
     color: var(--color-content-muted);
     pointer-events: none;
+    transform: translateY(-50%);
   }
 
-  /* The magnifier is drawn with two rules: a ring and a handle. No inline SVG, no icon font, so
-     the control stays inside the offline icon policy and follows currentColor. | 放大镜用两条规则画出：
-     一个圆环与一个手柄。没有内联 SVG、没有图标字体，因此控件符合离线图标规范并跟随 currentColor。 */
-  .yd-search__icon::before {
-    content: "";
-    position: absolute;
-    top: 0.125rem;
-    left: 0.125rem;
-    width: 0.625rem;
-    height: 0.625rem;
-    border: 1.5px solid currentColor;
-    border-radius: 999px;
-  }
-
-  .yd-search__icon::after {
-    content: "";
-    position: absolute;
-    right: 0.0625rem;
-    bottom: 0.0625rem;
-    width: 0.4375rem;
-    height: 1.5px;
-    background-color: currentColor;
-    border-radius: 999px;
-    transform: rotate(45deg);
-    transform-origin: right center;
+  /* The icon partial renders a 1.125rem svg by default; the field reserves exactly 1rem. |
+     图标片段默认输出 1.125rem 的 svg；字段只预留 1rem。 */
+  .yd-search__icon .yd-icon {
+    width: 1rem;
+    height: 1rem;
   }
 
   .yd-search__field {

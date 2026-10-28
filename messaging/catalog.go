@@ -47,24 +47,6 @@ func builtinTypes(tenantID string) []MessageType {
 	}
 }
 
-// defaultAllowedTypes is the attachment allow list. HTML, SVG and executable script types are
-// deliberately absent: an attachment is served as a download, but a type that a browser can execute
-// with a wrong Content-Type is still a liability. | defaultAllowedTypes 是附件白名单。
-// HTML、SVG 与可执行脚本类型被刻意排除：附件虽然以下载方式提供，但浏览器可能以错误的
-// Content-Type 执行某些类型，仍然构成风险。
-func defaultAllowedTypes() []string {
-	return []string{
-		"image/png",
-		"image/jpeg",
-		"image/gif",
-		"image/webp",
-		"application/pdf",
-		"application/zip",
-		"text/plain",
-		"application/octet-stream",
-	}
-}
-
 // Catalog returns the active catalog for compose forms. | Catalog 返回撰写表单使用的生效目录。
 func (s *Service) Catalog(ctx context.Context, actor Actor) (Catalog, error) {
 	if !actor.valid() {

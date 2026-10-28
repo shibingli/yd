@@ -524,8 +524,9 @@ Windows 显示缩放改变的是 CSS 像素与设备的比例，本质上与浏�
 
 给了 `Get` 时，输入框以 `hx-trigger="input changed delay:250ms, search"` 请求，目标只换结果区；
 清空按钮会重新触发 `input` 事件，不需要第二次请求逻辑。
-`components.form.search` 自带 `<form>`，**不得嵌进另一个 `<form>`**：HTML 会丢弃或移动嵌套表单，
-放大镜会跑到输入框之外（组件示例页曾因此出现错位）。
+放大镜来自 `partials/icon` 的 `lucide-search`，位于字段内部；提交按钮是标准 `.yd-btn`（图标 + 文案），
+不是透明的 `yd-btn--ghost`。`components.form.search` 自带 `<form>`，**不得嵌进另一个 `<form>`**：
+HTML 会丢弃或移动嵌套表单，放大镜会跑到输入框之外（组件示例页曾因此出现错位）。
 
 ### 7.9 文件
 

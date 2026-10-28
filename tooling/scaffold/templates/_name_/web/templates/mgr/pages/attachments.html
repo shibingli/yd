@@ -1,0 +1,149 @@
+{{/*
+  mgr/pages/attachments.html —— 后台附件治理：租户内全部附件、未引用筛选与集中清理。
+  mgr/pages/attachments.html — back-office attachment governance: every file of the tenant, the unreferenced filter and
+  bulk cleanup.
+
+  管理员看得到租户内全部记录，审计员（只持 attachment:read）看到同一张表但没有任何写控件。
+  删除必须填写原因并通知上传者；批量清理只处理完全没有引用的记录，仍被业务消费的文件永远不在其中。
+  An administrator sees every record of the tenant; an auditor holding only attachment:read sees the same table with no
+  write control at all. A deletion requires a reason and notifies the uploader; a bulk cleanup only touches records with
+  no reference whatsoever, so a file still consumed by a feature is never part of it.
+
+  数据契约 | Data contract: .Unavailable .Error .Filters .Items .Uploaders .Pages .PrevHref .NextHref .Total .Page
+  .PageCount .Empty .CanManage .CleanupCount .CleanupURL .UnreferencedURL .ReasonMax .MaxSizeText .AllowedTypesText，
+  以及 authz.Data 注入的 .Perm。
+*/}}
+<section class="yd-page" data-yd-page="attachments" aria-labelledby="yd-attachments-title">
+  <header class="yd-page__header">
+    <div>
+      <h1 class="yd-page__title" id="yd-attachments-title">{{ tr "page.mgr_attachments.title" }}</h1>
+      <p class="yd-page__subtitle">{{ tr "page.mgr_attachments.subtitle" .Total }}</p>
+    </div>
+    <div class="yd-page__actions">
+      <span class="yd-badge yd-badge--muted">{{ tr "page.mgr_attachments.scope" }}</span>
+      {{- if .CanManage }}
+      <a class="yd-btn yd-btn--ghost" href="{{ .UnreferencedURL }}"
+         hx-get="{{ .UnreferencedURL }}" hx-target="#yd-workspace" hx-swap="innerMorph" hx-push-url="true">
+        {{ template "partials/icon" "lucide-filter" }}{{ tr "attachment.filter_unreferenced" }}
+      </a>
+      <button type="button" class="yd-btn yd-btn--danger" data-yd-drawer-open
+              hx-get="{{ .CleanupURL }}" hx-target="#yd-drawer-body" hx-swap="innerHTML">
+        {{ template "partials/icon" "lucide-trash-2" }}{{ tr "attachment.cleanup" }}
+        {{- if gt .CleanupCount 0 }} <span class="yd-badge yd-badge--danger">{{ .CleanupCount }}</span>{{ end }}
+      </button>
+      {{- end }}
+    </div>
+  </header>
+
+  {{- if .Unavailable }}
+  <div class="yd-card yd-section">
+    <h2 class="yd-section__title">{{ tr "attachment.unavailable_title" }}</h2>
+    <p class="yd-hint">{{ tr "attachment.unavailable_hint" }}</p>
+    {{- with .Error }}<p class="yd-hint"><code class="yd-code">{{ . }}</code></p>{{ end }}
+  </div>
+  {{- else }}
+
+  <form class="yd-filters" role="search" method="get" action="/mgr/attachments"
+        hx-get="/mgr/attachments" hx-target="#yd-workspace" hx-swap="innerMorph" hx-push-url="true">
+    <div class="yd-search__field">
+      <span class="yd-search__icon" aria-hidden="true">{{ template "partials/icon" "lucide-search" }}</span>
+      <input class="yd-input" id="yd-attachment-q" name="q" type="search" autocomplete="off"
+             value="{{ .Filters.Query }}" placeholder="{{ tr "page.mgr_attachments.search_placeholder" }}">
+    </div>
+    <label class="sr-only" for="yd-attachment-uploader">{{ tr "attachment.field.uploader" }}</label>
+    <select class="yd-select" id="yd-attachment-uploader" name="uploader">
+      <option value="">{{ tr "attachment.uploader.all" }}</option>
+      {{- range .Uploaders }}
+      <option value="{{ .Value }}"{{ if .Selected }} selected{{ end }}>{{ .Label }}</option>
+      {{- end }}
+    </select>
+    <label class="sr-only" for="yd-attachment-status">{{ tr "attachment.status_label" }}</label>
+    <select class="yd-select" id="yd-attachment-status" name="status">
+      <option value=""{{ if eq .Filters.Status "" }} selected{{ end }}>{{ tr "attachment.status.all" }}</option>
+      <option value="pending"{{ if eq .Filters.Status "pending" }} selected{{ end }}>{{ tr "attachment.status.pending" }}</option>
+      <option value="referenced"{{ if eq .Filters.Status "referenced" }} selected{{ end }}>{{ tr "attachment.status.referenced" }}</option>
+      <option value="deleted"{{ if eq .Filters.Status "deleted" }} selected{{ end }}>{{ tr "attachment.status.deleted" }}</option>
+    </select>
+    <label class="sr-only" for="yd-attachment-referenced">{{ tr "attachment.field.refs" }}</label>
+    <select class="yd-select" id="yd-attachment-referenced" name="referenced">
+      <option value=""{{ if eq .Filters.Referenced "" }} selected{{ end }}>{{ tr "attachment.referenced.all" }}</option>
+      <option value="yes"{{ if eq .Filters.Referenced "yes" }} selected{{ end }}>{{ tr "attachment.referenced.yes" }}</option>
+      <option value="no"{{ if eq .Filters.Referenced "no" }} selected{{ end }}>{{ tr "attachment.referenced.no" }}</option>
+    </select>
+    <label class="sr-only" for="yd-attachment-from">{{ tr "attachment.from" }}</label>
+    <input class="yd-input" id="yd-attachment-from" name="from" type="date" value="{{ .Filters.From }}">
+    <label class="sr-only" for="yd-attachment-to">{{ tr "attachment.to" }}</label>
+    <input class="yd-input" id="yd-attachment-to" name="to" type="date" value="{{ .Filters.To }}">
+    <button type="submit" class="yd-btn">{{ template "partials/icon" "lucide-search" }}{{ tr "ui.search" }}</button>
+  </form>
+
+  <section class="yd-card yd-section" id="yd-attachments-table" aria-labelledby="yd-attachments-table-title">
+    <h2 class="sr-only" id="yd-attachments-table-title">{{ tr "page.mgr_attachments.table_title" }}</h2>
+    <div class="yd-table__wrap" data-yd-table>
+      <table class="yd-table" aria-label="{{ tr "page.mgr_attachments.table_title" }}">
+        <caption class="sr-only">{{ tr "page.mgr_attachments.table_title" }}</caption>
+        <thead class="yd-table__head">
+          <tr>
+            <th class="yd-table__th" scope="col">{{ tr "attachment.field.name" }}</th>
+            <th class="yd-table__th" scope="col">{{ tr "attachment.field.uploader" }}</th>
+            <th class="yd-table__th" scope="col">{{ tr "attachment.field.type" }}</th>
+            <th class="yd-table__th" scope="col">{{ tr "attachment.field.size" }}</th>
+            <th class="yd-table__th" scope="col">{{ tr "attachment.field.status" }}</th>
+            <th class="yd-table__th" scope="col">{{ tr "attachment.field.refs" }}</th>
+            <th class="yd-table__th" scope="col">{{ tr "attachment.field.created" }}</th>
+            <th class="yd-table__th" scope="col">{{ tr "field.actions" }}</th>
+          </tr>
+        </thead>
+        <tbody class="yd-table__body" hx-swap="outerMorph">
+          {{- range .Items }}
+          <tr class="yd-table__row">
+            <td class="yd-table__td">
+              {{- if .Deleted }}<span title="{{ .DeleteReason }}">{{ .OriginalName }}</span>{{ with .DeleteReason }}<span class="yd-hint"> · {{ . }}</span>{{ end }}
+              {{- else }}<a href="{{ if .Image }}{{ .PreviewURL }}{{ else }}{{ .DownloadURL }}{{ end }}" target="_blank" rel="noopener noreferrer"{{ if not .Image }} download{{ end }}>{{ .OriginalName }}</a>{{ end -}}
+            </td>
+            <td class="yd-table__td">{{ .UploaderName }}</td>
+            <td class="yd-table__td"><span class="yd-code">{{ .ContentType }}</span></td>
+            <td class="yd-table__td">{{ .SizeText }}</td>
+            <td class="yd-table__td"><span class="yd-badge yd-badge--{{ .StatusTone }}">{{ tr .StatusKey }}</span></td>
+            <td class="yd-table__td">{{ .RefCount }}</td>
+            <td class="yd-table__td">{{ .CreatedText }}</td>
+            <td class="yd-table__td">
+              <details class="yd-menu" data-yd-menu>
+                <summary class="yd-icon-btn" aria-label="{{ tr "ui.actions" }}">{{ template "partials/icon" "lucide-more-horizontal" }}</summary>
+                <div class="yd-menu__panel" role="menu">
+                  {{- if not .Deleted }}
+                  <a class="yd-menu__item" role="menuitem" href="{{ .DownloadURL }}" target="_blank" rel="noopener noreferrer">
+                    {{ template "partials/icon" "lucide-download" }}{{ tr "attachment.download" }}
+                  </a>
+                  {{- end }}
+                  {{- if and $.CanManage (not .Deleted) }}
+                  <button type="button" class="yd-menu__item" role="menuitem" data-yd-drawer-open
+                          hx-get="/mgr/attachments/{{ .ID }}/delete" hx-target="#yd-drawer-body" hx-swap="innerHTML">
+                    {{ template "partials/icon" "lucide-trash-2" }}{{ tr "attachment.delete" }}
+                  </button>
+                  {{- end }}
+                  {{- if .Deleted }}<span class="yd-menu__item" aria-disabled="true">{{ tr "attachment.tombstone" }}</span>{{ end }}
+                </div>
+              </details>
+            </td>
+          </tr>
+          {{- else }}
+          <tr class="yd-table__row yd-table__row--empty">
+            <td class="yd-table__td" colspan="8">{{ if .Filtered }}{{ tr "attachment.no_match" }}{{ else }}{{ tr "attachment.empty" }}{{ end }}</td>
+          </tr>
+          {{- end }}
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  {{- if .Pages }}
+  <div class="yd-section" hx-boost="true" hx-target="#yd-workspace" hx-swap="innerMorph" hx-push-url="true">
+    {{ template "components.navigation.pagination" (dict
+      "Label" (tr "page.mgr_attachments.title")
+      "Summary" (tr "ui.page_summary" .Page .PageCount)
+      "PrevHref" .PrevHref "NextHref" .NextHref "Pages" .Pages) }}
+  </div>
+  {{- end }}
+  {{- end }}
+</section>

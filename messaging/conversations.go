@@ -118,8 +118,12 @@ func (s *Service) openConversation(ctx context.Context, actor Actor, conversatio
 	if err != nil {
 		return Conversation{}, nil, 0, errs.Wrap(err, ErrUnavailable)
 	}
-	if !containsMember(members, actor.ID) && !actor.Manage {
-		return Conversation{}, nil, 0, ErrNotFound
+	if !containsMember(members, actor.ID) {
+		// A notice channel is private to its recipient; management bypass never opens one. |
+		// 通知频道只属于收件人，管理旁路也不能打开。
+		if conv.Kind == KindNotice || !actor.Manage {
+			return Conversation{}, nil, 0, ErrNotFound
+		}
 	}
 
 	// 打开会话即推进已读水位；管理员旁路查看不推进，避免替成员“读掉”消息。

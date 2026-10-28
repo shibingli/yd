@@ -450,6 +450,12 @@ func plan(o Options) ([]plannedFile, error) {
 	}
 	files = append(files, extras...)
 
+	docFiles, err := frameworkDocs(o.Name)
+	if err != nil {
+		return nil, err
+	}
+	files = append(files, docFiles...)
+
 	sprite, err := iconSprite(o.Name, files)
 	if err != nil {
 		return nil, err

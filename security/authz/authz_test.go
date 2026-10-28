@@ -290,7 +290,7 @@ func TestNameShapes(t *testing.T) {
 func TestGroupLabel(t *testing.T) {
 	for _, g := range []string{
 		authz.GroupTenant, authz.GroupUser, authz.GroupRole, authz.GroupPermission,
-		authz.GroupMessage, authz.GroupMessageType,
+		authz.GroupMessage, authz.GroupMessageType, authz.GroupAttachment,
 	} {
 		if label := authz.GroupLabel(g); label == g {
 			t.Errorf("GroupLabel(%q) has no translation | 分组 %q 没有译文", g, g)

@@ -12,6 +12,7 @@ import (
 	"unicode/utf8"
 
 	"{{ .Module }}/internal/middleware"
+	"{{ .YdModule }}/attachments"
 	"{{ .YdxModule }}/router"
 	"{{ .YdModule }}/messaging"
 	"{{ .YdModule }}/security/auth"
@@ -81,8 +82,12 @@ type messageAttachmentView struct {
 	messaging.Attachment
 	// SizeText is a human-readable size. | SizeText 是人类可读大小。
 	SizeText string
+	// DeleteReason is the administrator's reason, shown on the tombstone. | DeleteReason 是管理员填写的原因，显示在墓碑上。
+	DeleteReason string
 	// Image reports whether the attachment can be previewed inline. | Image 报告附件是否可内联预览。
 	Image bool
+	// Deleted reports a tombstone left after an administrator removed the file. | Deleted 报告管理员删除文件后留下的墓碑。
+	Deleted bool
 }
 
 // messageView is one message ready for rendering. | messageView 是可直接渲染的消息。
@@ -146,6 +151,8 @@ type conversationView struct {
 	IsDirect bool
 	// IsGroup reports a group conversation. | IsGroup 报告是否为群聊。
 	IsGroup bool
+	// IsNotice reports the private, read-only notice channel of one user. | IsNotice 报告某个用户的私有只读通知频道。
+	IsNotice bool
 	// Active marks the conversation currently open. | Active 标记当前打开的会话。
 	Active bool
 }
@@ -208,9 +215,11 @@ func (c *Controller) messageViewOf(actor messaging.Actor, msg messaging.MessageV
 	}
 	for _, attachment := range msg.Attachments {
 		view.Attachments = append(view.Attachments, messageAttachmentView{
-			Attachment: attachment,
-			SizeText:   sizeText(attachment.Size),
-			Image:      strings.HasPrefix(attachment.ContentType, "image/"),
+			Attachment:   attachment,
+			SizeText:     sizeText(attachment.Size),
+			DeleteReason: attachment.DeleteReason,
+			Image:        attachments.IsImage(attachment),
+			Deleted:      attachment.Status == attachments.StatusDeleted,
 		})
 	}
 	for _, tag := range msg.Tags {
@@ -260,9 +269,13 @@ func (c *Controller) conversationViewsOf(actor messaging.Actor, list []messaging
 			IsSystem:         conv.Kind == messaging.KindSystem,
 			IsDirect:         conv.Kind == messaging.KindDirect,
 			IsGroup:          conv.Kind == messaging.KindGroup,
+			IsNotice:         conv.Kind == messaging.KindNotice,
 			Active:           conv.ID == activeID,
 		}
 		switch {
+		case conv.Kind == messaging.KindNotice:
+			view.Title = c.tr(lang, "message.notice_channel")
+			view.Initial = "!"
 		case conv.Kind == messaging.KindSystem:
 			view.Title = c.tr(lang, "message.system_channel")
 			view.Initial = "◆"

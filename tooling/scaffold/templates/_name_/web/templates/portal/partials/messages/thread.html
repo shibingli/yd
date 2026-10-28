@@ -20,11 +20,13 @@
       <div>
         <h2 class="yd-msg-thread__title">
           {{- .ActiveConversation.Title }}
+          {{- if .ActiveConversation.IsNotice }} <span class="yd-badge yd-badge--info">{{ tr "message.notice_channel_badge" }}</span>{{ end }}
           {{- if .ActiveConversation.IsSystem }} <span class="yd-badge yd-badge--info">{{ tr "message.system_channel_badge" }}</span>{{ end }}
           {{- if .ActiveConversation.IsGroup }} <span class="yd-badge yd-badge--muted">{{ len .ActiveConversation.Members }}</span>{{ end }}
         </h2>
         <p class="yd-msg-thread__hint">
-          {{- if .ActiveConversation.IsSystem }}{{ tr "message.system_channel_hint" }}
+          {{- if .ActiveConversation.IsNotice }}{{ tr "message.notice_channel_hint" }}
+          {{- else if .ActiveConversation.IsSystem }}{{ tr "message.system_channel_hint" }}
           {{- else if .ActiveConversation.IsGroup }}{{ tr "message.group_hint" }}
           {{- else }}{{ tr "message.direct_hint" }}{{ end -}}
         </p>

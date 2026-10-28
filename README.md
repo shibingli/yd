@@ -186,7 +186,7 @@ web/           内嵌 templates（含 components/ UI 组件库）/ static / lang
 - [yd 使用手册](docs/yd-usage.md)
 - [前端 UI 组件层与使用手册](docs/frontend-ui.md) · [组件全景与图表用法](docs/frontend-components.md)
 - [二级缓存](docs/cache.md) · [GORM 方言](docs/gorm-dialects.md) · [实时传输](docs/realtime-transports.md) · [节点身份](docs/node-identity.md) · [运行时 GC](docs/runtime-gc.md)
-- [Redis/asynq 分区](docs/redis-asynq.md) · [消息中心](docs/message-center.md) · [中间件指标](docs/middleware-metrics.md) · [发布与二进制](docs/releasing.md) · [验收记录](docs/verification.md)
+- [Redis/asynq 分区](docs/redis-asynq.md) · [消息中心](docs/message-center.md) · [通用附件](docs/attachments.md) · [中间件指标](docs/middleware-metrics.md) · [发布与二进制](docs/releasing.md) · [验收记录](docs/verification.md)
 - [ydx 组件与基准](https://github.com/shibingli/ydx)
 
 ### 开源致谢
@@ -404,7 +404,7 @@ web/           embedded templates (with the components/ UI kit) / static / langu
 - [User manual](docs/yd-usage.md)
 - [Frontend UI kit & usage manual](docs/frontend-ui.md) · [Component catalogue & charts](docs/frontend-components.md)
 - [Two-level cache](docs/cache.md) · [GORM dialects](docs/gorm-dialects.md) · [Real-time transports](docs/realtime-transports.md) · [Node identity](docs/node-identity.md) · [Runtime GC](docs/runtime-gc.md)
-- [Redis/asynq](docs/redis-asynq.md) · [Message center](docs/message-center.md) · [Middleware metrics](docs/middleware-metrics.md) · [Release & binaries](docs/releasing.md) · [Verification](docs/verification.md)
+- [Redis/asynq](docs/redis-asynq.md) · [Message center](docs/message-center.md) · [Generic attachments](docs/attachments.md) · [Middleware metrics](docs/middleware-metrics.md) · [Release & binaries](docs/releasing.md) · [Verification](docs/verification.md)
 - [ydx components & benchmarks](https://github.com/shibingli/ydx)
 
 ### Acknowledgements

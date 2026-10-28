@@ -1,0 +1,1318 @@
+// 本文件是通用附件端点：门户管理自己的附件，后台管理租户内全部附件，两套 JSON API 与页面共用同一份领域服务。
+// This file holds the generic attachment endpoints: the portal manages one's own files, the back office manages every
+// file of the tenant, and both JSON APIs share the very same domain service as the pages.
+//
+// 附件能力不专属于消息中心：任何业务都能上传文件、用 (ref_type, ref_id) 绑定到自己的对象，并在之后解除引用。
+// 上传与下载都在租户边界内完成，跨租户与不存在的记录一律返回 404，绝不泄露存在性。
+// Attachments do not belong to the message centre: any feature may upload a file, bind it to its own object through a
+// (ref_type, ref_id) pair and release it later. Uploads and downloads stay inside the tenant boundary, and a foreign or
+// missing record always answers 404 without leaking whether it existed.
+
+package controller
+
+import (
+	"fmt"
+	"net/http"
+	"net/url"
+	"sort"
+	"strconv"
+	"strings"
+	"time"
+
+	"{{ .Module }}/internal/middleware"
+	"{{ .Module }}/internal/service"
+	"{{ .YdModule }}/attachments"
+	"{{ .YdModule }}/security/auth"
+	"{{ .YdModule }}/security/authz"
+	"{{ .YdxModule }}/log"
+	"{{ .YdxModule }}/router"
+)
+
+// Attachment page paths. | 附件页面路径。
+const (
+	// attachmentPortalBase is the portal page and action prefix. | attachmentPortalBase 是门户页面与动作前缀。
+	attachmentPortalBase = "/attachments"
+	// attachmentMgrBase is the back-office page and action prefix. | attachmentMgrBase 是后台页面与动作前缀。
+	attachmentMgrBase = "/mgr/attachments"
+	// attachmentPortalAPI is the member JSON API prefix. | attachmentPortalAPI 是成员 JSON API 前缀。
+	attachmentPortalAPI = "/api/portal/v1/attachments"
+	// attachmentMgrAPI is the management JSON API prefix. | attachmentMgrAPI 是管理 JSON API 前缀。
+	attachmentMgrAPI = "/api/v1/attachments"
+)
+
+// attachmentFilters is the filter bar state. | attachmentFilters 是过滤栏状态。
+type attachmentFilters struct {
+	// Query matches the original file name. | Query 匹配原始文件名。
+	Query string
+	// Status is pending, referenced or deleted; empty means every live state. | Status 取 pending、referenced 或
+	// deleted；空表示全部未删除状态。
+	Status string
+	// Referenced is "yes", "no" or empty. | Referenced 取 yes、no 或空。
+	Referenced string
+	// UploaderID narrows a management page to one uploader. | UploaderID 把管理页面限定到一个上传者。
+	UploaderID string
+	// From and To are inclusive YYYY-MM-DD bounds. | From 与 To 是包含端点的 YYYY-MM-DD 边界。
+	From string
+	// To is the inclusive upper date. | To 是包含的上界日期。
+	To string
+	// Page is the 1-based page number. | Page 是从 1 开始的页码。
+	Page int
+}
+
+// attachmentUploaderOption is one uploader choice of the management filter. | attachmentUploaderOption 是管理筛选
+// 的一个上传者选项。
+type attachmentUploaderOption struct {
+	// Value is the user id. | Value 是用户 ID。
+	Value string
+	// Label is the display name. | Label 是展示名。
+	Label string
+	// Selected marks the active uploader. | Selected 标记当前选中的上传者。
+	Selected bool
+}
+
+// attachmentView is one attachment row ready for rendering. | attachmentView 是可直接渲染的附件行。
+type attachmentView struct {
+	// Attachment is the stored record. | Attachment 是存储记录。
+	attachments.Attachment
+	// SizeText is a human-readable size. | SizeText 是人类可读大小。
+	SizeText string
+	// CreatedText is the formatted upload time. | CreatedText 是格式化的上传时间。
+	CreatedText string
+	// UploaderName is the resolved display name, empty on the portal. | UploaderName 是解析后的展示名，门户为空。
+	UploaderName string
+	// DownloadURL is the download endpoint. | DownloadURL 是下载端点。
+	DownloadURL string
+	// PreviewURL is the inline preview endpoint for an image. | PreviewURL 是图片的内联预览端点。
+	PreviewURL string
+	// StatusKey is the i18n key of the lifecycle state. | StatusKey 是生命周期状态的 i18n 键。
+	StatusKey string
+	// StatusTone is the semantic badge tone of the state. | StatusTone 是状态的语义徽标色调。
+	StatusTone string
+	// DeleteURL is the self-service deletion endpoint. | DeleteURL 是自助删除端点。
+	DeleteURL string
+	// Image reports whether the row can be previewed inline. | Image 报告该行能否内联预览。
+	Image bool
+	// Deleted reports a tombstone. | Deleted 报告是否为墓碑。
+	Deleted bool
+	// CanDelete reports whether the visitor may delete this row. | CanDelete 报告访问者能否删除该行。
+	CanDelete bool
+}
+
+// attachmentPage is the complete data of one attachment page render. | attachmentPage 是一次附件页面渲染的完整数据。
+type attachmentPage struct {
+	// Filters is the filter bar state. | Filters 是过滤栏状态。
+	Filters attachmentFilters
+	// Items is the current page. | Items 是当前页。
+	Items []attachmentView
+	// Uploaders is the management uploader filter. | Uploaders 是管理端上传者筛选。
+	Uploaders []attachmentUploaderOption
+	// Pages is the pagination link model. | Pages 是分页链接模型。
+	Pages []map[string]any
+	// PrevHref and NextHref are the neighbouring page links. | PrevHref 与 NextHref 是相邻页链接。
+	PrevHref string
+	// NextHref is the next page link. | NextHref 是下一页链接。
+	NextHref string
+	// CleanupURL opens the unreferenced-cleanup drawer. | CleanupURL 打开未引用附件清理抽屉。
+	CleanupURL string
+	// UnreferencedURL filters the list to unreferenced rows. | UnreferencedURL 把列表筛选为未引用记录。
+	UnreferencedURL string
+	// MaxSizeText is the per-file ceiling. | MaxSizeText 是单文件上限。
+	MaxSizeText string
+	// AllowedTypesText is the MIME allow list. | AllowedTypesText 是 MIME 白名单。
+	AllowedTypesText string
+	// Error is the unavailability reason. | Error 是不可用原因。
+	Error string
+	// ReasonMax bounds the deletion reason. | ReasonMax 限制删除原因长度。
+	ReasonMax int
+	// Total is the matching row count. | Total 是匹配总数。
+	Total int
+	// Page is the current page number. | Page 是当前页码。
+	Page int
+	// PageCount is the number of pages. | PageCount 是页数。
+	PageCount int
+	// CleanupCount is the number of unreferenced rows under the current filters. | CleanupCount 是当前筛选下的未引用数量。
+	CleanupCount int
+	// CanCreate reports attachment:create. | CanCreate 报告 attachment:create。
+	CanCreate bool
+	// CanDelete reports attachment:delete. | CanDelete 报告 attachment:delete。
+	CanDelete bool
+	// CanManage reports attachment:manage. | CanManage 报告 attachment:manage。
+	CanManage bool
+	// Unavailable reports a missing store or blob backend. | Unavailable 报告存储或字节后端缺失。
+	Unavailable bool
+	// Empty reports an empty page. | Empty 报告空页。
+	Empty bool
+	// Filtered reports that a filter is active, so an empty page means "no match". | Filtered 报告当前有筛选，
+	// 因此空页表示「没有匹配项」。
+	Filtered bool
+}
+
+// data flattens the page into the render map. | data 把页面摊平进渲染数据。
+func (p attachmentPage) data() map[string]any {
+	return map[string]any{
+		"Filters":          p.Filters,
+		"Items":            p.Items,
+		"Uploaders":        p.Uploaders,
+		"Pages":            p.Pages,
+		"PrevHref":         p.PrevHref,
+		"NextHref":         p.NextHref,
+		"CleanupURL":       p.CleanupURL,
+		"UnreferencedURL":  p.UnreferencedURL,
+		"MaxSizeText":      p.MaxSizeText,
+		"AllowedTypesText": p.AllowedTypesText,
+		"Error":            p.Error,
+		"ReasonMax":        p.ReasonMax,
+		"Total":            p.Total,
+		"Page":             p.Page,
+		"PageCount":        p.PageCount,
+		"CleanupCount":     p.CleanupCount,
+		"CanCreate":        p.CanCreate,
+		"CanDelete":        p.CanDelete,
+		"CanManage":        p.CanManage,
+		"Unavailable":      p.Unavailable,
+		"Empty":            p.Empty,
+		"Filtered":         p.Filtered,
+	}
+}
+
+// attachmentDeletePage is the deletion-reason drawer data. | attachmentDeletePage 是删除原因抽屉的数据。
+type attachmentDeletePage struct {
+	// Attachment is the row being deleted. | Attachment 是被删除的行。
+	Attachment attachmentView
+	// Action is the form endpoint. | Action 是表单端点。
+	Action string
+	// ReasonMax bounds the reason. | ReasonMax 限制原因长度。
+	ReasonMax int
+}
+
+// attachmentCleanupPage is the cleanup drawer data. | attachmentCleanupPage 是清理抽屉的数据。
+type attachmentCleanupPage struct {
+	// Filters is the active filter carried into the form. | Filters 是带进表单的当前筛选。
+	Filters attachmentFilters
+	// UploaderName is the selected uploader's display name. | UploaderName 是选中上传者的展示名。
+	UploaderName string
+	// Action is the form endpoint. | Action 是表单端点。
+	Action string
+	// ReasonMax bounds the reason. | ReasonMax 限制原因长度。
+	ReasonMax int
+	// Count is the number of rows the cleanup will remove. | Count 是本次清理将删除的记录数。
+	Count int
+}
+
+// apiAttachmentRecord is one API row. | apiAttachmentRecord 是一条 API 记录。
+//
+// @Name apiAttachmentRecord
+type apiAttachmentRecord struct {
+	// Attachment is the stored record with its JSON tags. | Attachment 是带 JSON 标签的存储记录。
+	attachments.Attachment
+	// SizeText is a human-readable size. | SizeText 是人类可读大小。
+	SizeText string `json:"size_text"`
+	// DownloadURL is the authenticated download endpoint. | DownloadURL 是需鉴权的下载端点。
+	DownloadURL string `json:"download_url"`
+	// PreviewURL is the inline endpoint for an image, empty otherwise. | PreviewURL 是图片的内联端点，其它类型为空。
+	PreviewURL string `json:"preview_url,omitempty"`
+	// UploaderName is resolved on the management API. | UploaderName 在管理 API 上解析。
+	UploaderName string `json:"uploader_name,omitempty"`
+}
+
+// apiAttachmentList is the list response. | apiAttachmentList 是列表响应。
+//
+// @Name apiAttachmentList
+type apiAttachmentList struct {
+	// Items is the page. | Items 是本页。
+	Items []apiAttachmentRecord `json:"items"`
+	// Total is the matching count. | Total 是匹配总数。
+	Total int `json:"total"`
+	// Page is the current page. | Page 是当前页码。
+	Page int `json:"page"`
+	// PageSize is the effective page length. | PageSize 是生效页长。
+	PageSize int `json:"page_size"`
+}
+
+// apiAttachmentDeleteRequest is the deletion body. | apiAttachmentDeleteRequest 是删除请求体。
+//
+// @Name apiAttachmentDeleteRequest
+type apiAttachmentDeleteRequest struct {
+	// Reason is mandatory for a management deletion. | Reason 在管理删除时必填。
+	Reason string `json:"reason"`
+}
+
+// apiAttachmentCleanupRequest is the cleanup body. | apiAttachmentCleanupRequest 是清理请求体。
+//
+// @Name apiAttachmentCleanupRequest
+type apiAttachmentCleanupRequest struct {
+	// Reason is mandatory. | Reason 必填。
+	Reason string `json:"reason"`
+	// Query, UploaderID, From and To narrow the affected rows. | Query、UploaderID、From 与 To 限定受影响记录。
+	Query      string `json:"query"`
+	UploaderID string `json:"uploader_id"`
+	From       string `json:"from"`
+	To         string `json:"to"`
+}
+
+// Attachments renders the portal page of one's own attachments. | Attachments 渲染用户自己的附件门户页面。
+//
+// @Summary My attachments | 我的附件
+// @Description Lists the files the signed-in user uploaded inside the token's tenant, including pending uploads waiting
+// @Description for a business object and referenced ones. The keyword matches the original file name; the status and
+// @Description date filters narrow the same query, and every row links to an authenticated download.
+// @Description 列出当前用户在令牌所属租户内上传的文件，包含等待业务引用的待引用附件与已被引用的附件。关键字匹配
+// @Description 原始文件名；状态与日期筛选缩小同一查询；每一行都链接到需鉴权的下载端点。
+// @Tags attachments
+// @Accept html
+// @Produce html
+// @Param q query string false "file-name keyword | 文件名关键字"
+// @Param status query string false "pending|referenced|deleted | 生命周期状态"
+// @Param from query string false "inclusive start date | 包含的起始日期"
+// @Param to query string false "inclusive end date | 包含的结束日期"
+// @Param page query int false "1-based page number | 从 1 开始的页码"
+// @Param HX-Request header string false "htmx partial request | htmx 局部请求标记"
+// @Success 200 {object} string "attachment page or fragment | 附件整页或片段"
+// @Failure 401 {object} string "no session | 无有效会话"
+// @Failure 403 {object} string "missing attachment:read_own | 缺少 attachment:read_own"
+// @Failure 503 {object} string "attachment centre unavailable | 附件中心不可用"
+// @Security BearerAuth
+// @Router /attachments [get]
+func (c *Controller) Attachments(ctx *router.Ctx) {
+	c.attachmentsPage(ctx, false, "")
+}
+
+// MgrAttachments renders the back-office page of every attachment in the tenant. | MgrAttachments 渲染租户内全部
+// 附件的后台页面。
+//
+// @Summary Attachment management | 附件管理
+// @Description Lists every attachment of the token's tenant. The uploader, lifecycle state, reference state and date
+// @Description range narrow the query; administrators can delete a row with a mandatory reason and clean up every
+// @Description unreferenced row in one operation. Auditors holding only attachment:read see the same rows without any
+// @Description write control.
+// @Description 列出令牌所属租户的全部附件。上传者、生命周期状态、引用状态与日期范围缩小查询；管理员可以填写必填
+// @Description 原因删除单条，并一次清理全部未引用记录。只持有 attachment:read 的审计员能看到同样的行，但没有任何写控件。
+// @Tags attachments
+// @Accept html
+// @Produce html
+// @Param q query string false "file-name keyword | 文件名关键字"
+// @Param status query string false "pending|referenced|deleted | 生命周期状态"
+// @Param referenced query string false "yes|no | 是否已被引用"
+// @Param uploader query string false "uploader id | 上传者 ID"
+// @Param from query string false "inclusive start date | 包含的起始日期"
+// @Param to query string false "inclusive end date | 包含的结束日期"
+// @Param page query int false "1-based page number | 从 1 开始的页码"
+// @Param HX-Request header string false "htmx partial request | htmx 局部请求标记"
+// @Success 200 {object} string "attachment management page or fragment | 附件管理整页或片段"
+// @Failure 401 {object} string "no session | 无有效会话"
+// @Failure 403 {object} string "missing attachment:read | 缺少 attachment:read"
+// @Failure 503 {object} string "attachment centre unavailable | 附件中心不可用"
+// @Security BearerAuth
+// @Router /mgr/attachments [get]
+func (c *Controller) MgrAttachments(ctx *router.Ctx) {
+	c.attachmentsPage(ctx, true, "")
+}
+
+// UploadAttachment stores one file from the portal upload form. | UploadAttachment 保存门户上传表单中的一个文件。
+//
+// @Summary Upload attachment | 上传附件
+// @Description Streams the multipart file into the configured blob backend and records a pending attachment. The
+// @Description content type is sniffed from the bytes, the size is enforced before and after reading, and the stored
+// @Description key contains only opaque identifiers plus a date partition.
+// @Description 把 multipart 文件写入配置的字节后端并登记为待引用附件。内容类型由字节嗅探，大小在读取前后各校验一次，
+// @Description 存储键只含不透明标识与日期分区。
+// @Tags attachments
+// @Accept multipart/form-data
+// @Produce html
+// @Param file formData file true "file to upload | 待上传文件"
+// @Success 200 {object} string "refreshed attachment page | 刷新后的附件页面"
+// @Failure 401 {object} string "no session | 无有效会话"
+// @Failure 403 {object} string "missing attachment:create | 缺少 attachment:create"
+// @Failure 413 {object} string "file too large | 文件过大"
+// @Failure 415 {object} string "content type not allowed | 内容类型不允许"
+// @Failure 422 {object} string "invalid upload | 上传参数非法"
+// @Failure 503 {object} string "attachment centre unavailable | 附件中心不可用"
+// @Security BearerAuth
+// @Router /attachments [post]
+func (c *Controller) UploadAttachment(ctx *router.Ctx) {
+	if !c.attachmentsReady(ctx) {
+		return
+	}
+	file, header, err := ctx.FormFile("file")
+	if err != nil {
+		c.failService(ctx, attachments.ErrInvalidInput)
+		return
+	}
+	defer func() {
+		if closeErr := file.Close(); closeErr != nil {
+			c.log.Debug("attachment stream close failed | 附件流关闭失败", log.Err(closeErr))
+		}
+	}()
+	if _, err := c.attachments.Upload(ctx.Request.Context(), c.attachmentActor(ctx), header.Filename, header.Size, file); err != nil {
+		c.failService(ctx, err)
+		return
+	}
+	c.attachmentsPage(ctx, false, "附件已上传 | attachment uploaded")
+}
+
+// DownloadAttachment streams one attachment after the service authorizes visibility. | DownloadAttachment 在服务完成
+// 可见性鉴权后流式返回附件。
+//
+// @Summary Download attachment | 下载附件
+// @Description Streams the bytes with nosniff and a private no-store cache policy. The inline flag is honoured only for
+// @Description images, so a non-image can never be rendered as a document in the browser. The service allows the
+// @Description uploader, a manager and a read-only auditor; everyone else receives 404.
+// @Description 以 nosniff 与 private no-store 缓存策略流式返回字节。内联标志只对图片生效，非图片绝不会按文档在
+// @Description 浏览器中渲染。服务放行上传者、管理员与只读审计员，其余主体一律收到 404。
+// @Tags attachments
+// @Produce octet-stream
+// @Param id path string true "attachment id | 附件 ID"
+// @Param inline query string false "1 to preview an image inline | 取 1 时内联预览图片"
+// @Success 200 {file} file "attachment bytes | 附件字节"
+// @Failure 404 {object} string "attachment not found | 附件不存在"
+// @Failure 503 {object} string "attachment centre unavailable | 附件中心不可用"
+// @Security BearerAuth
+// @Router /attachments/{id}/download [get]
+func (c *Controller) DownloadAttachment(ctx *router.Ctx) {
+	if !c.attachmentsReady(ctx) {
+		return
+	}
+	attachment, data, err := c.attachments.Download(ctx.Request.Context(), c.attachmentActor(ctx), ctx.Param("id"))
+	if err != nil {
+		c.failService(ctx, err)
+		return
+	}
+	inline := strings.TrimSpace(ctx.Query("inline")) == "1" && attachments.IsImage(attachment)
+	ctx.SetHeader("Content-Disposition", attachments.ContentDisposition(attachment, inline))
+	ctx.SetHeader("X-Content-Type-Options", "nosniff")
+	ctx.SetHeader("Cache-Control", "private, no-store")
+	if err := ctx.Blob(http.StatusOK, attachment.ContentType, data); err != nil {
+		c.log.Warn("attachment write failed | 附件写出失败", log.Err(err))
+	}
+}
+
+// MgrDownloadAttachment streams one attachment through the management route. | MgrDownloadAttachment 经管理路由流式
+// 返回附件。
+//
+// @Summary Download attachment | 下载附件
+// @Description Streams the bytes of any attachment of the tenant; attachment:read admits the read-only auditor as well
+// @Description as the manager and the uploader. A foreign or missing id answers 404.
+// @Description 流式返回租户内任意附件的字节；attachment:read 同时放行只读审计员、管理员与上传者。跨租户或不存在的
+// @Description ID 返回 404。
+// @Tags attachments
+// @Produce octet-stream
+// @Param id path string true "attachment id | 附件 ID"
+// @Param inline query string false "1 to preview an image inline | 取 1 时内联预览图片"
+// @Success 200 {file} file "attachment bytes | 附件字节"
+// @Failure 404 {object} string "attachment not found | 附件不存在"
+// @Failure 503 {object} string "attachment centre unavailable | 附件中心不可用"
+// @Security BearerAuth
+// @Router /mgr/attachments/{id}/download [get]
+func (c *Controller) MgrDownloadAttachment(ctx *router.Ctx) {
+	c.DownloadAttachment(ctx)
+}
+
+// APIPortalDownloadAttachment streams one of the visitor's own attachments. | APIPortalDownloadAttachment 流式返回访问者
+// 自己的一个附件。
+//
+// @Summary Download my attachment | 下载我的附件
+// @Description Streams one attachment uploaded by the visitor. The uploader is the only principal admitted by the
+// @Description member route; a foreign id answers 404.
+// @Description 流式返回访问者上传的一个附件。成员路由只放行上传者本人；他人的 ID 返回 404。
+// @Tags attachments
+// @Produce octet-stream
+// @Param id path string true "attachment id | 附件 ID"
+// @Param inline query string false "1 to preview an image inline | 取 1 时内联预览图片"
+// @Success 200 {file} file "attachment bytes | 附件字节"
+// @Failure 404 {object} string "attachment not found | 附件不存在"
+// @Failure 503 {object} string "attachment centre unavailable | 附件中心不可用"
+// @Security BearerAuth
+// @Router /api/portal/v1/attachments/{id}/download [get]
+func (c *Controller) APIPortalDownloadAttachment(ctx *router.Ctx) {
+	c.DownloadAttachment(ctx)
+}
+
+// APIAdminDownloadAttachment streams any attachment of the tenant through the management API. |
+// APIAdminDownloadAttachment 经管理 API 流式返回租户内任意附件。
+//
+// @Summary Download attachment | 下载附件
+// @Description Streams any attachment of the tenant; attachment:read admits the read-only auditor as well as the
+// @Description manager. A foreign or missing id answers 404.
+// @Description 流式返回租户内任意附件；attachment:read 同时放行只读审计员与管理员。跨租户或不存在的 ID 返回 404。
+// @Tags attachments
+// @Produce octet-stream
+// @Param id path string true "attachment id | 附件 ID"
+// @Param inline query string false "1 to preview an image inline | 取 1 时内联预览图片"
+// @Success 200 {file} file "attachment bytes | 附件字节"
+// @Failure 404 {object} string "attachment not found | 附件不存在"
+// @Failure 503 {object} string "attachment centre unavailable | 附件中心不可用"
+// @Security BearerAuth
+// @Router /api/v1/attachments/{id}/download [get]
+func (c *Controller) APIAdminDownloadAttachment(ctx *router.Ctx) {
+	c.DownloadAttachment(ctx)
+}
+
+// DeleteOwnAttachment removes one unreferenced pending attachment owned by the visitor. | DeleteOwnAttachment 删除访问者
+// 拥有的一个未被引用的待引用附件。
+//
+// @Summary Delete my attachment | 删除我的附件
+// @Description Deletes a pending attachment with no references. A referenced attachment is refused with 409 because
+// @Description deleting it would leave the owning feature pointing at a missing file; the owner must first remove the
+// @Description consuming object.
+// @Description 删除没有引用的待引用附件。已被引用的附件以 409 拒绝，因为删除会让持有它的业务指向一个不存在的文件；
+// @Description 所有者必须先删除消费它的业务对象。
+// @Tags attachments
+// @Accept html
+// @Produce html
+// @Param id path string true "attachment id | 附件 ID"
+// @Success 200 {object} string "refreshed attachment page | 刷新后的附件页面"
+// @Failure 403 {object} string "missing attachment:delete | 缺少 attachment:delete"
+// @Failure 404 {object} string "attachment not found | 附件不存在"
+// @Failure 409 {object} string "attachment is still referenced | 附件仍被引用"
+// @Failure 503 {object} string "attachment centre unavailable | 附件中心不可用"
+// @Security BearerAuth
+// @Router /attachments/{id}/delete [post]
+func (c *Controller) DeleteOwnAttachment(ctx *router.Ctx) {
+	if !c.attachmentsReady(ctx) {
+		return
+	}
+	if err := c.attachments.DeleteOwn(ctx.Request.Context(), c.attachmentActor(ctx), ctx.Param("id")); err != nil {
+		c.failService(ctx, err)
+		return
+	}
+	c.attachmentsPage(ctx, false, "附件已删除 | attachment deleted")
+}
+
+// MgrAttachmentDeleteDrawer renders the mandatory-reason drawer. | MgrAttachmentDeleteDrawer 渲染必填原因的删除抽屉。
+//
+// @Summary Attachment deletion drawer | 附件删除抽屉
+// @Description Renders the deletion form for one live attachment. The form posts the reason to the management deletion
+// @Description endpoint; every failure keeps the drawer open so the reason can be corrected in place.
+// @Description 为一条存活附件渲染删除表单。表单把原因提交到管理删除端点；任何失败都让抽屉保持打开，以便就地修正原因。
+// @Tags attachments
+// @Accept html
+// @Produce html
+// @Param id path string true "attachment id | 附件 ID"
+// @Success 200 {object} string "deletion drawer | 删除抽屉"
+// @Failure 403 {object} string "missing attachment:manage | 缺少 attachment:manage"
+// @Failure 404 {object} string "attachment not found | 附件不存在"
+// @Failure 503 {object} string "attachment centre unavailable | 附件中心不可用"
+// @Security BearerAuth
+// @Router /mgr/attachments/{id}/delete [get]
+func (c *Controller) MgrAttachmentDeleteDrawer(ctx *router.Ctx) {
+	if !c.attachmentsReady(ctx) {
+		return
+	}
+	tenantID, ok := c.tenantID(ctx)
+	if !ok {
+		return
+	}
+	actor := c.attachmentActor(ctx)
+	attachment, err := c.attachments.Get(ctx.Request.Context(), actor, ctx.Param("id"))
+	if err != nil {
+		c.failService(ctx, err)
+		return
+	}
+	names := c.uploaderNames(ctx, tenantID, []attachments.Attachment{attachment})
+	c.render(ctx, http.StatusOK, TplMgrAttachmentDelete, c.pageView(ctx, c.tr(c.lang(ctx), "attachment.delete_title"), map[string]any{
+		"Attachment": c.attachmentViewOf(attachment, attachmentMgrBase, names[attachment.UploaderID], false),
+		"ReasonMax":  c.attachments.Options().MaxReasonLen,
+		"Action":     attachmentMgrBase + "/" + attachment.ID + "/delete",
+	}))
+}
+
+// MgrDeleteAttachment deletes one attachment with a reason and notifies its uploader. | MgrDeleteAttachment 带原因删除
+// 一个附件并通知上传者。
+//
+// @Summary Delete attachment | 删除附件
+// @Description Deletes any live attachment of the tenant with a mandatory reason. A referenced attachment keeps its
+// @Description reference rows so the owning message renders a tombstone instead of a broken file, and the uploader
+// @Description receives a private notice carrying the administrator's reason.
+// @Description 填写必填原因后删除租户内任意存活附件。已被引用的附件保留引用行，所属消息因此渲染墓碑而不是坏文件；
+// @Description 上传者会收到一条带管理员原因的私有通知。
+// @Tags attachments
+// @Accept html
+// @Produce html
+// @Param id path string true "attachment id | 附件 ID"
+// @Param reason formData string true "deletion reason | 删除原因"
+// @Success 200 {object} string "refreshed management page | 刷新后的管理页面"
+// @Failure 403 {object} string "missing attachment:manage | 缺少 attachment:manage"
+// @Failure 404 {object} string "attachment not found | 附件不存在"
+// @Failure 422 {object} string "missing or overlong reason | 原因缺失或过长"
+// @Failure 503 {object} string "attachment centre unavailable | 附件中心不可用"
+// @Security BearerAuth
+// @Router /mgr/attachments/{id}/delete [post]
+func (c *Controller) MgrDeleteAttachment(ctx *router.Ctx) {
+	if !c.attachmentsReady(ctx) {
+		return
+	}
+	outcome, err := c.attachments.DeleteManaged(ctx.Request.Context(), c.attachmentActor(ctx), ctx.Param("id"), field(ctx, "reason"))
+	if err != nil {
+		c.failService(ctx, err)
+		return
+	}
+	c.log.Info("attachment deleted by an administrator | 管理员已删除附件",
+		log.Str("attachment", outcome.Attachment.ID),
+		log.Str("uploader", outcome.UploaderID),
+		log.Str("actor", outcome.ActorID),
+	)
+	c.attachmentsPage(ctx, true, "附件已删除 | attachment deleted")
+}
+
+// MgrAttachmentCleanupDrawer renders the unreferenced-cleanup drawer. | MgrAttachmentCleanupDrawer 渲染未引用附件清理抽屉。
+//
+// @Summary Unreferenced cleanup drawer | 未引用附件清理抽屉
+// @Description Counts every attachment matching the current name, uploader and date filters that has no reference at
+// @Description all, then renders the mandatory-reason form. Reference state is forced to "no": an attachment that is
+// @Description still consumed by another feature is never part of a bulk cleanup.
+// @Description 统计当前名称、上传者与日期筛选下完全没有任何引用的附件数量，并渲染必填原因表单。引用状态强制为
+// @Description “否”：仍被其它功能消费的附件永远不属于批量清理。
+// @Tags attachments
+// @Accept html
+// @Produce html
+// @Param q query string false "file-name keyword | 文件名关键字"
+// @Param uploader query string false "uploader id | 上传者 ID"
+// @Param from query string false "inclusive start date | 包含的起始日期"
+// @Param to query string false "inclusive end date | 包含的结束日期"
+// @Success 200 {object} string "cleanup drawer | 清理抽屉"
+// @Failure 403 {object} string "missing attachment:manage | 缺少 attachment:manage"
+// @Failure 503 {object} string "attachment centre unavailable | 附件中心不可用"
+// @Security BearerAuth
+// @Router /mgr/attachments/cleanup [get]
+func (c *Controller) MgrAttachmentCleanupDrawer(ctx *router.Ctx) {
+	if !c.attachmentsReady(ctx) {
+		return
+	}
+	tenantID, ok := c.tenantID(ctx)
+	if !ok {
+		return
+	}
+	actor := c.attachmentActor(ctx)
+	filters := parseAttachmentFilters(ctx)
+	filters.Referenced = "no"
+	filters.Status = ""
+	filters.Page = 1
+	filter := attachmentFilter(filters, 1, 1)
+	page, err := c.attachments.ListAll(ctx.Request.Context(), actor, filter)
+	if err != nil {
+		c.failService(ctx, err)
+		return
+	}
+	uploaderName := ""
+	if filters.UploaderID != "" {
+		names := c.uploaderNames(ctx, tenantID, []attachments.Attachment{ {UploaderID: filters.UploaderID} })
+		uploaderName = names[filters.UploaderID]
+	}
+	c.render(ctx, http.StatusOK, TplMgrAttachmentCleanup, c.pageView(ctx, c.tr(c.lang(ctx), "attachment.cleanup_title"), map[string]any{
+		"Filters":      filters,
+		"UploaderName": uploaderName,
+		"Action":       attachmentMgrBase + "/cleanup",
+		"ReasonMax":    c.attachments.Options().MaxReasonLen,
+		"Count":        page.Total,
+	}))
+}
+
+// MgrCleanupAttachments deletes every unreferenced attachment matching the filters. | MgrCleanupAttachments 删除匹配筛选
+// 的全部未引用附件。
+//
+// @Summary Clean up unreferenced attachments | 清理未引用附件
+// @Description Deletes every attachment matching the current name, uploader and date filters that has no reference,
+// @Description in bounded batches. Each affected uploader receives one summary notice with the reason and up to ten
+// @Description file names; the response reports the total and the per-uploader counts.
+// @Description 按有界批次删除当前名称、上传者与日期筛选下没有任何引用的附件。每个受影响的上传者收到一条带原因与
+// @Description 至多十个文件名的汇总通知；响应报告总数与按上传者分组的数量。
+// @Tags attachments
+// @Accept html
+// @Produce html
+// @Param reason formData string true "cleanup reason | 清理原因"
+// @Param q formData string false "file-name keyword | 文件名关键字"
+// @Param uploader formData string false "uploader id | 上传者 ID"
+// @Param from formData string false "inclusive start date | 包含的起始日期"
+// @Param to formData string false "inclusive end date | 包含的结束日期"
+// @Success 200 {object} string "refreshed management page | 刷新后的管理页面"
+// @Failure 403 {object} string "missing attachment:manage | 缺少 attachment:manage"
+// @Failure 422 {object} string "missing or overlong reason | 原因缺失或过长"
+// @Failure 503 {object} string "attachment centre unavailable | 附件中心不可用"
+// @Security BearerAuth
+// @Router /mgr/attachments/cleanup [post]
+func (c *Controller) MgrCleanupAttachments(ctx *router.Ctx) {
+	if !c.attachmentsReady(ctx) {
+		return
+	}
+	filters := parseAttachmentFormFilters(ctx)
+	report, err := c.attachments.DeleteUnreferenced(ctx.Request.Context(), c.attachmentActor(ctx), field(ctx, "reason"), attachmentFilter(filters, 1, 1))
+	if err != nil {
+		c.failService(ctx, err)
+		return
+	}
+	c.log.Info("unreferenced attachments cleaned up | 未引用附件已清理", log.Int("count", report.Count))
+	if report.Count == 0 {
+		c.attachmentsPage(ctx, true, "没有可清理的未引用附件 | no unreferenced attachments to clean up")
+		return
+	}
+	c.attachmentsPage(ctx, true, fmt.Sprintf("已清理 %[1]d 个未引用附件 | %[1]d unreferenced attachments cleaned up", report.Count))
+}
+
+// APIAttachments lists the visitor's own attachments as JSON. | APIAttachments 以 JSON 列出访问者自己的附件。
+//
+// @Summary List my attachments | 列出我的附件
+// @Description Returns the same rows and filters as the portal page, with an authenticated download URL on each item.
+// @Description 返回与门户页面相同的行与筛选，并在每条记录上给出需鉴权的下载地址。
+// @Tags attachments
+// @Produce json
+// @Param q query string false "file-name keyword | 文件名关键字"
+// @Param status query string false "pending|referenced|deleted | 生命周期状态"
+// @Param from query string false "inclusive start date | 包含的起始日期"
+// @Param to query string false "inclusive end date | 包含的结束日期"
+// @Param page query int false "1-based page number | 从 1 开始的页码"
+// @Success 200 {object} apiAttachmentList "attachment page | 附件分页"
+// @Failure 401 {object} string "no session | 无有效会话"
+// @Failure 403 {object} string "missing attachment:read_own | 缺少 attachment:read_own"
+// @Failure 503 {object} string "attachment centre unavailable | 附件中心不可用"
+// @Security BearerAuth
+// @Router /api/portal/v1/attachments [get]
+func (c *Controller) APIAttachments(ctx *router.Ctx) {
+	c.apiAttachmentList(ctx, false)
+}
+
+// APIMgrAttachments lists every attachment of the tenant as JSON. | APIMgrAttachments 以 JSON 列出租户内全部附件。
+//
+// @Summary List every attachment | 列出全部附件
+// @Description Returns every attachment of the token's tenant with uploader names resolved. The uploader, reference
+// @Description state and date filters match the management page.
+// @Description 返回令牌所属租户的全部附件，并解析上传者名称。上传者、引用状态与日期筛选与后台页面一致。
+// @Tags attachments
+// @Produce json
+// @Param q query string false "file-name keyword | 文件名关键字"
+// @Param status query string false "pending|referenced|deleted | 生命周期状态"
+// @Param referenced query string false "yes|no | 是否已被引用"
+// @Param uploader query string false "uploader id | 上传者 ID"
+// @Param from query string false "inclusive start date | 包含的起始日期"
+// @Param to query string false "inclusive end date | 包含的结束日期"
+// @Param page query int false "1-based page number | 从 1 开始的页码"
+// @Success 200 {object} apiAttachmentList "attachment page | 附件分页"
+// @Failure 401 {object} string "no session | 无有效会话"
+// @Failure 403 {object} string "missing attachment:read | 缺少 attachment:read"
+// @Failure 503 {object} string "attachment centre unavailable | 附件中心不可用"
+// @Security BearerAuth
+// @Router /api/v1/attachments [get]
+func (c *Controller) APIMgrAttachments(ctx *router.Ctx) {
+	c.apiAttachmentList(ctx, true)
+}
+
+// APIUploadGenericAttachment uploads one file and returns its pending record. | APIUploadGenericAttachment 上传一个文件并返回其
+// 待引用记录。
+//
+// @Summary Upload attachment | 上传附件
+// @Description Accepts the same multipart upload as the portal form and returns 201 with the pending record and its
+// @Description authenticated download URL. The caller binds it to a business object later through the domain's Bind.
+// @Description 接受与门户表单相同的 multipart 上传，返回 201、待引用记录及其需鉴权的下载地址。调用方之后通过领域的
+// @Description Bind 把它绑定到业务对象。
+// @Tags attachments
+// @Accept multipart/form-data
+// @Produce json
+// @Param file formData file true "file to upload | 待上传文件"
+// @Success 201 {object} apiAttachmentRecord "created pending attachment | 已创建的待引用附件"
+// @Failure 401 {object} string "no session | 无有效会话"
+// @Failure 403 {object} string "missing attachment:create | 缺少 attachment:create"
+// @Failure 413 {object} string "file too large | 文件过大"
+// @Failure 415 {object} string "content type not allowed | 内容类型不允许"
+// @Failure 422 {object} string "invalid upload | 上传参数非法"
+// @Failure 503 {object} string "attachment centre unavailable | 附件中心不可用"
+// @Security BearerAuth
+// @Router /api/portal/v1/attachments [post]
+func (c *Controller) APIUploadGenericAttachment(ctx *router.Ctx) {
+	c.apiUploadAttachment(ctx, attachmentPortalAPI)
+}
+
+// APIUploadManageAttachment uploads one file through the management API. | APIUploadManageAttachment 经管理 API 上传
+// 一个文件。
+//
+// @Summary Upload attachment | 上传附件
+// @Description Accepts the same multipart upload as the member API and returns 201 with the pending record. The caller
+// @Description binds it to a business object later through the domain's Bind.
+// @Description 接受与成员 API 相同的 multipart 上传，返回 201 与待引用记录。调用方之后通过领域的 Bind 把它绑定到
+// @Description 业务对象。
+// @Tags attachments
+// @Accept multipart/form-data
+// @Produce json
+// @Param file formData file true "file to upload | 待上传文件"
+// @Success 201 {object} apiAttachmentRecord "created pending attachment | 已创建的待引用附件"
+// @Failure 401 {object} string "no session | 无有效会话"
+// @Failure 403 {object} string "missing attachment:create | 缺少 attachment:create"
+// @Failure 413 {object} string "file too large | 文件过大"
+// @Failure 415 {object} string "content type not allowed | 内容类型不允许"
+// @Failure 422 {object} string "invalid upload | 上传参数非法"
+// @Failure 503 {object} string "attachment centre unavailable | 附件中心不可用"
+// @Security BearerAuth
+// @Router /api/v1/attachments [post]
+func (c *Controller) APIUploadManageAttachment(ctx *router.Ctx) {
+	c.apiUploadAttachment(ctx, attachmentMgrAPI)
+}
+
+// apiUploadAttachment stores one API upload and returns the record with a download URL of the
+// matching namespace. | apiUploadAttachment 保存一次 API 上传，并返回带对应命名空间下载地址的记录。
+func (c *Controller) apiUploadAttachment(ctx *router.Ctx, base string) {
+	if !c.attachmentsReady(ctx) {
+		return
+	}
+	file, header, err := ctx.FormFile("file")
+	if err != nil {
+		c.apiFail(ctx, attachments.ErrInvalidInput)
+		return
+	}
+	defer func() {
+		if closeErr := file.Close(); closeErr != nil {
+			c.log.Debug("attachment stream close failed | 附件流关闭失败", log.Err(closeErr))
+		}
+	}()
+	attachment, err := c.attachments.Upload(ctx.Request.Context(), c.attachmentActor(ctx), header.Filename, header.Size, file)
+	if err != nil {
+		c.apiFail(ctx, err)
+		return
+	}
+	_ = ctx.JSON(http.StatusCreated, c.apiAttachmentRecordOf(attachment, base, ""))
+}
+
+// APIDeleteOwnAttachment deletes one unreferenced pending attachment. | APIDeleteOwnAttachment 删除一个未被引用的
+// 待引用附件。
+//
+// @Summary Delete my attachment | 删除我的附件
+// @Description Deletes a pending attachment with no references and returns 200. A referenced attachment answers 409.
+// @Description 删除没有引用的待引用附件并返回 200；已被引用的附件返回 409。
+// @Tags attachments
+// @Accept json
+// @Produce json
+// @Param id path string true "attachment id | 附件 ID"
+// @Success 200 {object} string "deleted | 已删除"
+// @Failure 403 {object} string "missing attachment:delete | 缺少 attachment:delete"
+// @Failure 404 {object} string "attachment not found | 附件不存在"
+// @Failure 409 {object} string "attachment is still referenced | 附件仍被引用"
+// @Failure 503 {object} string "attachment centre unavailable | 附件中心不可用"
+// @Security BearerAuth
+// @Router /api/portal/v1/attachments/{id}/delete [post]
+func (c *Controller) APIDeleteOwnAttachment(ctx *router.Ctx) {
+	if !c.attachmentsReady(ctx) {
+		return
+	}
+	if err := c.attachments.DeleteOwn(ctx.Request.Context(), c.attachmentActor(ctx), ctx.Param("id")); err != nil {
+		c.apiFail(ctx, err)
+		return
+	}
+	_ = ctx.JSON(http.StatusOK, map[string]any{"deleted": true})
+}
+
+// APIDeleteManagedAttachment deletes any attachment with a reason. | APIDeleteManagedAttachment 带原因删除任意附件。
+//
+// @Summary Delete attachment | 删除附件
+// @Description Deletes any live attachment with a mandatory reason and notifies its uploader through the message
+// @Description centre. A referenced attachment keeps its reference rows so the owning feature renders a tombstone.
+// @Description 填写必填原因删除任意存活附件，并经由消息中心通知上传者。已被引用的附件保留引用行，所属功能因此渲染墓碑。
+// @Tags attachments
+// @Accept json
+// @Produce json
+// @Param id path string true "attachment id | 附件 ID"
+// @Param body body apiAttachmentDeleteRequest true "deletion reason | 删除原因"
+// @Success 200 {object} string "deleted | 已删除"
+// @Failure 403 {object} string "missing attachment:manage | 缺少 attachment:manage"
+// @Failure 404 {object} string "attachment not found | 附件不存在"
+// @Failure 422 {object} string "missing or overlong reason | 原因缺失或过长"
+// @Failure 503 {object} string "attachment centre unavailable | 附件中心不可用"
+// @Security BearerAuth
+// @Router /api/v1/attachments/{id}/delete [post]
+func (c *Controller) APIDeleteManagedAttachment(ctx *router.Ctx) {
+	if !c.attachmentsReady(ctx) {
+		return
+	}
+	var request apiAttachmentDeleteRequest
+	if err := ctx.Bind(&request); err != nil {
+		c.apiFail(ctx, attachments.ErrInvalidInput)
+		return
+	}
+	if _, err := c.attachments.DeleteManaged(ctx.Request.Context(), c.attachmentActor(ctx), ctx.Param("id"), request.Reason); err != nil {
+		c.apiFail(ctx, err)
+		return
+	}
+	_ = ctx.JSON(http.StatusOK, map[string]any{"deleted": true})
+}
+
+// APICleanupAttachments deletes every unreferenced attachment matching the request. | APICleanupAttachments 删除匹配
+// 请求的全部未引用附件。
+//
+// @Summary Clean up unreferenced attachments | 清理未引用附件
+// @Description Deletes every unreferenced attachment matching the optional name, uploader and date filters, sends one
+// @Description summary notice per affected uploader, and returns the total plus the per-uploader counts.
+// @Description 删除匹配可选名称、上传者与日期筛选的全部未引用附件，为每个受影响的上传者发送一条汇总通知，并返回总数
+// @Description 与按上传者分组的数量。
+// @Tags attachments
+// @Accept json
+// @Produce json
+// @Param body body apiAttachmentCleanupRequest true "cleanup filters and reason | 清理筛选与原因"
+// @Success 200 {object} string "cleanup report | 清理报告"
+// @Failure 403 {object} string "missing attachment:manage | 缺少 attachment:manage"
+// @Failure 422 {object} string "missing or overlong reason | 原因缺失或过长"
+// @Failure 503 {object} string "attachment centre unavailable | 附件中心不可用"
+// @Security BearerAuth
+// @Router /api/v1/attachments/cleanup [post]
+func (c *Controller) APICleanupAttachments(ctx *router.Ctx) {
+	if !c.attachmentsReady(ctx) {
+		return
+	}
+	var request apiAttachmentCleanupRequest
+	if err := ctx.Bind(&request); err != nil {
+		c.apiFail(ctx, attachments.ErrInvalidInput)
+		return
+	}
+	filters := attachmentFilters{
+		Query:      strings.TrimSpace(request.Query),
+		UploaderID: strings.TrimSpace(request.UploaderID),
+		From:       strings.TrimSpace(request.From),
+		To:         strings.TrimSpace(request.To),
+	}
+	report, err := c.attachments.DeleteUnreferenced(ctx.Request.Context(), c.attachmentActor(ctx), request.Reason, attachmentFilter(filters, 1, 1))
+	if err != nil {
+		c.apiFail(ctx, err)
+		return
+	}
+	byUploader := make(map[string]int, len(report.ByUploader))
+	for uploaderID, group := range report.ByUploader {
+		byUploader[uploaderID] = group.Count
+	}
+	_ = ctx.JSON(http.StatusOK, map[string]any{
+		"deleted":     report.Count,
+		"by_uploader": byUploader,
+	})
+}
+
+// attachmentsPage loads and renders either the portal or the management page. | attachmentsPage 加载并渲染门户或
+// 管理页面。
+func (c *Controller) attachmentsPage(ctx *router.Ctx, management bool, notice string) {
+	templateName := TplAttachments
+	titleKey := "page.attachments.title"
+	if management {
+		templateName = TplMgrAttachments
+		titleKey = "page.mgr_attachments.title"
+	}
+	title := c.tr(c.lang(ctx), titleKey)
+	tenantID, ok := c.tenantID(ctx)
+	if !ok {
+		return
+	}
+	page := attachmentPage{
+		Filters:           parseAttachmentFilters(ctx),
+		CanCreate:         authz.Can(ctx.Request.Context(), authz.PermAttachmentCreate),
+		CanDelete:         authz.Can(ctx.Request.Context(), authz.PermAttachmentDelete),
+		CanManage:         authz.Can(ctx.Request.Context(), authz.PermAttachmentManage),
+		ReasonMax:         0,
+		MaxSizeText:       "",
+		AllowedTypesText:  "",
+		CleanupURL:        "",
+		UnreferencedURL:   "",
+		Uploaders:         nil,
+		Items:             nil,
+		Pages:             nil,
+		PrevHref:          "",
+		NextHref:          "",
+		Error:             "",
+		Total:             0,
+		Page:              1,
+		PageCount:         0,
+		CleanupCount:      0,
+		Unavailable:       false,
+		Empty:             false,
+	}
+	if !c.AttachmentsAvailable() {
+		page.Unavailable = true
+		if err := c.AttachmentError(); err != nil {
+			page.Error = err.Error()
+		}
+		c.render(ctx, http.StatusServiceUnavailable, templateName, c.pageView(ctx, title, page.data()))
+		return
+	}
+	options := c.attachments.Options()
+	page.ReasonMax = options.MaxReasonLen
+	page.MaxSizeText = sizeText(options.MaxSize)
+	page.AllowedTypesText = strings.Join(options.AllowedTypes, ", ")
+	actor := c.attachmentActor(ctx)
+	filter := attachmentFilter(page.Filters, options.PageSize, 0)
+	var result attachments.Page
+	var err error
+	if management {
+		if !actor.Manage && !actor.ReadAll {
+			c.failService(ctx, attachments.ErrNotFound)
+			return
+		}
+		result, err = c.attachments.ListAll(ctx.Request.Context(), actor, filter)
+	} else {
+		result, err = c.attachments.ListOwn(ctx.Request.Context(), actor, filter)
+	}
+	if err != nil {
+		c.failService(ctx, err)
+		return
+	}
+	current, pageCount, _, _ := pageBounds(result.Total, page.Filters.Page, result.PageSize)
+	if current != page.Filters.Page {
+		// An out-of-range page refetches the last page instead of presenting an empty result. |
+		// 页码越界时重取最后一页，而不是把空页当成结果。
+		page.Filters.Page = current
+		filter = attachmentFilter(page.Filters, options.PageSize, 0)
+		if management {
+			result, err = c.attachments.ListAll(ctx.Request.Context(), actor, filter)
+		} else {
+			result, err = c.attachments.ListOwn(ctx.Request.Context(), actor, filter)
+		}
+		if err != nil {
+			c.failService(ctx, err)
+			return
+		}
+	}
+	page.Total = result.Total
+	page.Page = current
+	page.PageCount = pageCount
+	page.Empty = len(result.Items) == 0
+	page.Filtered = page.Filters.Query != "" || page.Filters.Status != "" || page.Filters.Referenced != "" ||
+		page.Filters.UploaderID != "" || page.Filters.From != "" || page.Filters.To != ""
+
+	var names map[string]string
+	if management {
+		names = c.uploaderNames(ctx, tenantID, result.Items)
+		page.Uploaders = c.uploaderOptions(ctx, tenantID, page.Filters.UploaderID)
+	}
+	base := attachmentPortalBase
+	if management {
+		base = attachmentMgrBase
+	}
+	views := make([]attachmentView, 0, len(result.Items))
+	for _, item := range result.Items {
+		deletable := page.CanDelete && !management &&
+			item.UploaderID == actor.ID && item.Status == attachments.StatusPending && item.RefCount == 0
+		views = append(views, c.attachmentViewOf(item, base, names[item.UploaderID], deletable))
+	}
+	page.Items = views
+	href := func(n int) string {
+		return page.Filters.href(base, n)
+	}
+	page.Pages, page.PrevHref, page.NextHref = pageLinks(result.Total, current, result.PageSize, href)
+	page.UnreferencedURL = page.Filters.withReferenced("no").href(base, 1)
+	if management {
+		cleanupFilters := page.Filters
+		cleanupFilters.Referenced = "no"
+		cleanupFilters.Status = ""
+		cleanupFilters.Page = 1
+		cleanupResult, cleanupErr := c.attachments.ListAll(ctx.Request.Context(), actor, attachmentFilter(cleanupFilters, options.PageSize, 1))
+		if cleanupErr != nil {
+			c.failService(ctx, cleanupErr)
+			return
+		}
+		page.CleanupCount = cleanupResult.Total
+		page.CleanupURL = cleanupFilters.href(attachmentMgrBase+"/cleanup", 1)
+	}
+	if notice != "" {
+		c.toast(ctx, notice)
+	}
+	c.render(ctx, http.StatusOK, templateName, c.pageView(ctx, title, page.data()))
+}
+
+// attachmentViewOf converts one domain row. | attachmentViewOf 转换一条领域记录。
+func (c *Controller) attachmentViewOf(item attachments.Attachment, base, uploaderName string, canDelete bool) attachmentView {
+	downloadURL := base + "/" + item.ID + "/download"
+	view := attachmentView{
+		Attachment:   item,
+		SizeText:     sizeText(item.Size),
+		CreatedText:  item.CreatedAt.UTC().Format("2006-01-02 15:04"),
+		UploaderName: uploaderName,
+		DownloadURL:  downloadURL,
+		PreviewURL:   "",
+		StatusKey:    "attachment.status." + string(item.Status),
+		StatusTone:   attachmentStatusTone(item.Status),
+		DeleteURL:    base + "/" + item.ID + "/delete",
+		Image:        false,
+		Deleted:      item.Status == attachments.StatusDeleted,
+		CanDelete:    canDelete,
+	}
+	if attachments.IsImage(item) {
+		view.Image = true
+		view.PreviewURL = downloadURL + "?inline=1"
+	}
+	if strings.TrimSpace(view.UploaderName) == "" {
+		view.UploaderName = item.UploaderID
+	}
+	return view
+}
+
+// attachmentStatusTone maps a lifecycle state onto a badge tone. | attachmentStatusTone 把生命周期状态映射为徽标色调。
+func attachmentStatusTone(status attachments.Status) string {
+	switch status {
+	case attachments.StatusReferenced:
+		return "info"
+	case attachments.StatusDeleted:
+		return "danger"
+	default:
+		return "muted"
+	}
+}
+
+// apiAttachmentRecordOf converts one row for JSON. | apiAttachmentRecordOf 转换一条 JSON 记录。
+func (c *Controller) apiAttachmentRecordOf(item attachments.Attachment, base, uploaderName string) apiAttachmentRecord {
+	downloadURL := base + "/" + item.ID + "/download"
+	record := apiAttachmentRecord{
+		Attachment:   item,
+		SizeText:     sizeText(item.Size),
+		DownloadURL:  downloadURL,
+		UploaderName: uploaderName,
+	}
+	if attachments.IsImage(item) {
+		record.PreviewURL = downloadURL + "?inline=1"
+	}
+	return record
+}
+
+// apiAttachmentList writes one JSON page. | apiAttachmentList 写出一个 JSON 分页。
+func (c *Controller) apiAttachmentList(ctx *router.Ctx, management bool) {
+	tenantID, ok := c.tenantID(ctx)
+	if !ok {
+		return
+	}
+	if !c.attachmentsReady(ctx) {
+		return
+	}
+	actor := c.attachmentActor(ctx)
+	filters := parseAttachmentFilters(ctx)
+	options := c.attachments.Options()
+	filter := attachmentFilter(filters, options.PageSize, 0)
+	var result attachments.Page
+	var err error
+	if management {
+		result, err = c.attachments.ListAll(ctx.Request.Context(), actor, filter)
+	} else {
+		result, err = c.attachments.ListOwn(ctx.Request.Context(), actor, filter)
+	}
+	if err != nil {
+		c.apiFail(ctx, err)
+		return
+	}
+	var names map[string]string
+	base := attachmentPortalAPI
+	if management {
+		base = attachmentMgrAPI
+		names = c.uploaderNames(ctx, tenantID, result.Items)
+	}
+	items := make([]apiAttachmentRecord, 0, len(result.Items))
+	for _, item := range result.Items {
+		items = append(items, c.apiAttachmentRecordOf(item, base, names[item.UploaderID]))
+	}
+	_ = ctx.JSON(http.StatusOK, apiAttachmentList{
+		Items:    items,
+		Total:    result.Total,
+		Page:     result.Page,
+		PageSize: result.PageSize,
+	})
+}
+
+// attachmentsReady reports whether the capability can serve the request and answers 503 otherwise. |
+// attachmentsReady 报告附件能力能否服务请求，否则以 503 应答。
+func (c *Controller) attachmentsReady(ctx *router.Ctx) bool {
+	if c.AttachmentsAvailable() {
+		return true
+	}
+	reason := service.ErrAttachmentUnavailable
+	if err := c.AttachmentError(); err != nil {
+		reason = err
+	}
+	c.failService(ctx, reason)
+	return false
+}
+
+// attachmentActor builds the domain actor from the request. | attachmentActor 从请求构造领域主体。
+func (c *Controller) attachmentActor(ctx *router.Ctx) attachments.Actor {
+	actor := attachments.Actor{}
+	user, ok := auth.CurrentUser(ctx)
+	if !ok || user == nil {
+		return actor
+	}
+	actor.ID = user.ID
+	actor.TenantID = user.TenantID
+	actor.DisplayName = user.DisplayName
+	if strings.TrimSpace(actor.DisplayName) == "" {
+		actor.DisplayName = user.Username
+	}
+	if tenantID, ok := middleware.TenantID(ctx); ok {
+		actor.TenantID = tenantID
+	}
+	request := ctx.Request.Context()
+	actor.Manage = authz.Can(request, authz.PermAttachmentManage)
+	actor.ReadAll = authz.Can(request, authz.PermAttachmentRead)
+	return actor
+}
+
+// uploaderNames resolves the display names of a page of attachments. A failure only falls back to ids: the list
+// itself stays usable when the user directory has a hiccup. | uploaderNames 解析一页附件的上传者展示名。失败时回退到
+// ID：用户目录抖动不应让列表本身不可用。
+func (c *Controller) uploaderNames(ctx *router.Ctx, tenantID string, items []attachments.Attachment) map[string]string {
+	names := make(map[string]string, len(items))
+	ids := make([]string, 0, len(items))
+	seen := make(map[string]struct{}, len(items))
+	for _, item := range items {
+		if item.UploaderID == "" {
+			continue
+		}
+		if _, ok := seen[item.UploaderID]; ok {
+			continue
+		}
+		seen[item.UploaderID] = struct{}{}
+		ids = append(ids, item.UploaderID)
+	}
+	if len(ids) == 0 {
+		return names
+	}
+	users, err := c.store.Auth().GetUsers(ctx.Request.Context(), tenantID, ids)
+	if err != nil {
+		c.log.Warn("attachment uploader names are unavailable | 无法解析附件上传者名称", log.Err(err))
+		return names
+	}
+	for _, user := range users {
+		name := user.DisplayName
+		if strings.TrimSpace(name) == "" {
+			name = user.Username
+		}
+		names[user.ID] = name
+	}
+	return names
+}
+
+// uploaderOptions builds the management uploader filter. | uploaderOptions 构造管理端上传者筛选。
+func (c *Controller) uploaderOptions(ctx *router.Ctx, tenantID, selected string) []attachmentUploaderOption {
+	users, err := c.store.Auth().ListUsers(ctx.Request.Context(), tenantID)
+	if err != nil {
+		c.log.Warn("attachment uploader filter is unavailable | 无法加载附件上传者筛选", log.Err(err))
+		return nil
+	}
+	options := make([]attachmentUploaderOption, 0, len(users))
+	for _, user := range users {
+		label := user.DisplayName
+		if strings.TrimSpace(label) == "" {
+			label = user.Username
+		}
+		options = append(options, attachmentUploaderOption{Value: user.ID, Label: label, Selected: user.ID == selected})
+	}
+	sort.SliceStable(options, func(i, j int) bool {
+		return strings.ToLower(options[i].Label) < strings.ToLower(options[j].Label)
+	})
+	return options
+}
+
+// parseAttachmentFilters reads the query-string filter bar. | parseAttachmentFilters 读取查询串过滤栏。
+func parseAttachmentFilters(ctx *router.Ctx) attachmentFilters {
+	return attachmentFilters{
+		Query:      strings.TrimSpace(ctx.Query("q")),
+		Status:     strings.TrimSpace(ctx.Query("status")),
+		Referenced: strings.TrimSpace(ctx.Query("referenced")),
+		UploaderID: strings.TrimSpace(ctx.Query("uploader")),
+		From:       strings.TrimSpace(ctx.Query("from")),
+		To:         strings.TrimSpace(ctx.Query("to")),
+		Page:       pageNumber(ctx),
+	}
+}
+
+// parseAttachmentFormFilters reads the same fields from a form body, which is how POSTs carry their filters. |
+// parseAttachmentFormFilters 从表单正文读取同样的字段，POST 因此能携带自己的筛选。
+func parseAttachmentFormFilters(ctx *router.Ctx) attachmentFilters {
+	return attachmentFilters{
+		Query:      field(ctx, "q"),
+		Status:     field(ctx, "status"),
+		Referenced: field(ctx, "referenced"),
+		UploaderID: field(ctx, "uploader"),
+		From:       field(ctx, "from"),
+		To:         field(ctx, "to"),
+		Page:       1,
+	}
+}
+
+// href builds a page link preserving every filter. | href 构造保留全部筛选的页面链接。
+func (f attachmentFilters) href(base string, page int) string {
+	query := url.Values{}
+	if f.Query != "" {
+		query.Set("q", f.Query)
+	}
+	if f.Status != "" {
+		query.Set("status", f.Status)
+	}
+	if f.Referenced != "" {
+		query.Set("referenced", f.Referenced)
+	}
+	if f.UploaderID != "" {
+		query.Set("uploader", f.UploaderID)
+	}
+	if f.From != "" {
+		query.Set("from", f.From)
+	}
+	if f.To != "" {
+		query.Set("to", f.To)
+	}
+	if page > 0 {
+		query.Set("page", strconv.Itoa(page))
+	}
+	if len(query) == 0 {
+		return base
+	}
+	return base + "?" + query.Encode()
+}
+
+// withReferenced returns a copy with the reference filter replaced. | withReferenced 返回替换引用筛选后的副本。
+func (f attachmentFilters) withReferenced(value string) attachmentFilters {
+	f.Referenced = value
+	// The shortcut means "show unreferenced rows", not "show unreferenced tombstones". | 快捷入口表达的是
+	// 「显示未引用记录」，而不是「显示未引用的墓碑」。
+	f.Status = ""
+	f.Page = 1
+	return f
+}
+
+// attachmentFilter maps the view state onto the domain filter. pageSize 0 keeps the service default. |
+// attachmentFilter 把视图状态映射为领域筛选；pageSize 为 0 时沿用服务默认。
+func attachmentFilter(filters attachmentFilters, pageSize int, pageOverride int) attachments.Filter {
+	page := filters.Page
+	if pageOverride > 0 {
+		page = pageOverride
+	}
+	filter := attachments.Filter{
+		Query:      filters.Query,
+		UploaderID: filters.UploaderID,
+		Page:       page,
+		PageSize:   pageSize,
+	}
+	if status := attachments.Status(filters.Status); status.Valid() {
+		filter.Status = status
+		if status == attachments.StatusDeleted {
+			filter.IncludeDeleted = true
+		}
+	}
+	switch filters.Referenced {
+	case "yes":
+		filter.Referenced = attachmentBool(true)
+	case "no":
+		filter.Referenced = attachmentBool(false)
+	}
+	if from, ok := parseAttachmentDate(filters.From, false); ok {
+		filter.From = &from
+	}
+	if to, ok := parseAttachmentDate(filters.To, true); ok {
+		filter.To = &to
+	}
+	return filter
+}
+
+// parseAttachmentDate parses a YYYY-MM-DD bound; endOfDay makes the upper bound inclusive. |
+// parseAttachmentDate 解析 YYYY-MM-DD 边界；endOfDay 让上界包含一整天。
+func parseAttachmentDate(value string, endOfDay bool) (time.Time, bool) {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return time.Time{}, false
+	}
+	parsed, err := time.Parse("2006-01-02", value)
+	if err != nil {
+		return time.Time{}, false
+	}
+	if endOfDay {
+		parsed = parsed.Add(24*time.Hour - time.Nanosecond)
+	}
+	return parsed.UTC(), true
+}
+
+// attachmentBool returns a pointer to value. | attachmentBool 返回 value 的指针。
+func attachmentBool(value bool) *bool { return &value }

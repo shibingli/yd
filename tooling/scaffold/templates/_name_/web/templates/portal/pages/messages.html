@@ -82,8 +82,11 @@
               hx-trigger="input changed delay:350ms from:#yd-message-q, change from:#yd-message-folder, change from:#yd-message-type, change from:#yd-message-tag, submit">
           <div class="yd-msg-search__row">
             <label class="sr-only" for="yd-message-q">{{ tr "message.search_label" }}</label>
-            <input class="yd-input yd-msg-search__input" id="yd-message-q" name="q" type="search" autocomplete="off"
-                   value="{{ .Filters.Query }}" placeholder="{{ tr "message.search_placeholder" }}">
+            <div class="yd-search__field">
+              <span class="yd-search__icon" aria-hidden="true">{{ template "partials/icon" "lucide-search" }}</span>
+              <input class="yd-input yd-msg-search__input" id="yd-message-q" name="q" type="search" autocomplete="off"
+                     value="{{ .Filters.Query }}" placeholder="{{ tr "message.search_placeholder" }}">
+            </div>
             {{- if .Filters.Active }}
             <a class="yd-btn yd-btn--ghost yd-btn--sm" href="/messages"
                hx-get="/messages" hx-target="#yd-workspace" hx-swap="innerMorph" hx-push-url="true">{{ tr "message.clear_search" }}</a>
@@ -109,7 +112,7 @@
                 "ID" "yd-message-tag" "Name" "tag" "LabelHidden" true
                 "Label" (tr "message.tag") "LabelKey" "message.tag"
                 "Options" (.Catalog.TagFilterOptions .Filters.TagID))}}
-              <button type="submit" class="yd-btn">{{ tr "ui.search" }}</button>
+              <button type="submit" class="yd-btn">{{ template "partials/icon" "lucide-search" }}{{ tr "ui.search" }}</button>
             </div>
           </details>
         </form>

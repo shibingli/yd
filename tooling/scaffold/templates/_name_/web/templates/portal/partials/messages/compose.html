@@ -88,7 +88,15 @@
     <div id="yd-attachment-list" class="yd-attachments">
       {{- range .Message.Attachments }}
       <span class="yd-attachment-chip">
-        <span class="yd-attachment-chip__name">{{ .OriginalName }}</span>
+        <a class="yd-attachment-chip__link"
+           href="/messages/attachments/{{ .ID }}{{ if .Image }}?inline=1{{ end }}"
+           target="_blank" rel="noopener noreferrer">
+          {{- if .Image }}
+          <img class="yd-attachment-chip__thumb" src="/messages/attachments/{{ .ID }}?inline=1"
+               alt="" width="28" height="28" loading="lazy">
+          {{- end }}
+          <span class="yd-attachment-chip__name">{{ .OriginalName }}</span>
+        </a>
         <span class="yd-attachment-chip__size">{{ .SizeText }}</span>
       </span>
       {{- end }}
@@ -107,6 +115,7 @@
 
 {{- if ne $mode "edit" }}
 <form class="yd-upload" method="post" action="/messages/attachments"
+      enctype="multipart/form-data"
       hx-post="/messages/attachments" hx-target="#yd-attachment-list" hx-swap="beforeend"
       hx-encoding="multipart/form-data" hx-status:422="target:#yd-drawer-errors swap:innerHTML"
       data-yd-drawer-persist>
@@ -114,7 +123,7 @@
     <label class="yd-field__label" for="yd-attachment-file">{{ tr "message.add_attachment" }}</label>
     <input class="yd-input" id="yd-attachment-file" name="file" type="file">
   </div>
-  <button type="submit" class="yd-btn yd-btn--ghost yd-btn--sm">{{ template "partials/icon" "lucide-paperclip" }}{{ tr "message.upload" }}</button>
+  <button type="submit" class="yd-btn yd-btn--sm">{{ template "partials/icon" "lucide-upload" }}{{ tr "message.upload" }}</button>
 </form>
 {{- end }}
 {{- end -}}

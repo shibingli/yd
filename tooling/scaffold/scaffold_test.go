@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"io"
+	"mime/multipart"
 	"net"
 	"net/http"
 	"net/http/cookiejar"
@@ -21,6 +22,7 @@ import (
 	"testing"
 	"time"
 
+	frameworkdocs "github.com/shibingli/yd/docs"
 	"github.com/shibingli/yd/security/authz"
 	"github.com/shibingli/yd/tooling/assets"
 	"github.com/shibingli/yd/tooling/scaffold"
@@ -63,8 +65,27 @@ var requiredFiles = []string{
 	"configs/config.local.yaml.template",
 	"configs/config.yaml",
 	"data/.gitkeep",
+	"docs/README.md",
+	"docs/attachments.md",
+	"docs/cache.md",
+	"docs/captcha.md",
 	"docs/developer_guidelines.md",
+	"docs/frontend-components.md",
+	"docs/frontend-ui.md",
+	"docs/gorm-dialects.md",
+	"docs/icon-usage.md",
+	"docs/message-center.md",
+	"docs/middleware-metrics.md",
+	"docs/node-identity.md",
+	"docs/realtime-transports.md",
+	"docs/redis-asynq.md",
+	"docs/render-performance.md",
+	"docs/render-usage.md",
+	"docs/runtime-gc.md",
+	"docs/verification.md",
+	"docs/yd-usage.md",
 	"go.mod",
+	"internal/controller/attachment_controller.go",
 	"internal/controller/auth_controller.go",
 	"internal/controller/controller.go",
 	"internal/controller/friend_controller.go",
@@ -98,6 +119,7 @@ var requiredFiles = []string{
 	"internal/repository/tenant_repo.go",
 	"internal/repository/user_repo.go",
 	"internal/router/router.go",
+	"internal/service/attachment.go",
 	"internal/service/auth.go",
 	"internal/service/cache.go",
 	"internal/service/message.go",
@@ -135,6 +157,7 @@ var requiredFiles = []string{
 	"web/templates/components/overlay.html",
 	"web/templates/mgr/layouts/base.html",
 	"web/templates/mgr/layouts/shell.html",
+	"web/templates/mgr/pages/attachments.html",
 	"web/templates/mgr/pages/home.html",
 	"web/templates/mgr/pages/message_admin.html",
 	"web/templates/mgr/pages/message_settings.html",
@@ -142,6 +165,8 @@ var requiredFiles = []string{
 	"web/templates/mgr/pages/roles.html",
 	"web/templates/mgr/pages/tenants.html",
 	"web/templates/mgr/pages/users.html",
+	"web/templates/mgr/partials/attachments/cleanup.html",
+	"web/templates/mgr/partials/attachments/delete.html",
 	"web/templates/mgr/partials/home/live_metrics.html",
 	"web/templates/mgr/partials/home/metrics.html",
 	"web/templates/mgr/partials/home/metrics_fragment.html",
@@ -184,6 +209,7 @@ var requiredFiles = []string{
 	"web/templates/portal/layouts/base.html",
 	"web/templates/portal/layouts/shell.html",
 	"web/templates/portal/pages/account.html",
+	"web/templates/portal/pages/attachments.html",
 	"web/templates/portal/pages/friends.html",
 	"web/templates/portal/pages/login.html",
 	"web/templates/portal/pages/messages.html",
@@ -643,6 +669,8 @@ func TestGeneratedPersistenceFollowsDatabaseChoice(t *testing.T) {
 		`"github.com/shibingli/ydx/gorm"`,
 		"gormstore.Migrate(ctx, db)",
 		"gormstore.New(db, gormstore.OptionsFromConfig(o.Config))",
+		"attachmentsgorm.MigrateLegacy(ctx, gdb)",
+		"attachmentsgorm.DropLegacy(ctx, gdb)",
 		"auth data is stored in the database",
 		"no database is configured, auth data lives in memory",
 		"database unavailable, auth data falls back to memory",
@@ -744,8 +772,10 @@ func TestGeneratedProjectEnablesGormCacheByDefault(t *testing.T) {
 			t.Errorf("configs/config.yaml is missing %q | configs/config.yaml 缺少 %q", want, want)
 		}
 	}
-	// Message tables are regular data now; they must not be excluded from the cache. |
-	// 消息表现在是常规数据，不得再排除在缓存之外。
+	// Message tables are regular data now; they must not be excluded from the cache. Attachments
+	// are the one exception: StoredKey is json:"-" and a JSON-backed cache would erase it. |
+	// 消息表现在是常规数据，不得再排除在缓存之外。附件是唯一例外：StoredKey 带 json:"-",
+	// 基于 JSON 的查询缓存会把它丢掉。
 	if strings.Contains(cfg, "- yd_msg_messages") || strings.Contains(cfg, "- yd_msg_conversations") {
 		t.Error("message tables must stay cached | 消息表必须保持缓存")
 	}
@@ -1400,6 +1430,62 @@ func TestInteractiveTTYReadsAnswers(t *testing.T) {
 
 // TestGeneratedGovernanceDocsStateConstraints 断言生成的治理文档覆盖硬性约束。
 // TestGeneratedGovernanceDocsStateConstraints asserts the generated governance docs cover the hard constraints.
+// TestGeneratedDocsCoverFrameworkGuides keeps the bundle complete when a new guide is added:
+// every public guide except the framework release manual and the read-only requirement baseline
+// must appear in requiredFiles (developer_guidelines.md is generated separately but still listed). |
+// TestGeneratedDocsCoverFrameworkGuides 在新增指南时保持文档包完整：除框架发布手册与只读需求基线外，
+// 每份公开指南都必须出现在 requiredFiles 中（developer_guidelines.md 由独立模板生成，但也在清单内）。
+func TestGeneratedDocsCoverFrameworkGuides(t *testing.T) {
+	entries, err := frameworkdocs.FS.ReadDir(".")
+	if err != nil {
+		t.Fatalf("read embedded docs: %v", err)
+	}
+	excluded := map[string]bool{
+		"releasing.md": true,
+		"需求设计说明书.md":   true,
+	}
+	for _, entry := range entries {
+		nameInDocs := entry.Name()
+		if entry.IsDir() || !strings.HasSuffix(nameInDocs, ".md") || excluded[nameInDocs] {
+			continue
+		}
+		rel := "docs/" + nameInDocs
+		if !slices.Contains(requiredFiles, rel) {
+			t.Errorf("framework guide %s is not shipped to generated projects", rel)
+		}
+	}
+}
+
+// TestGeneratedDocsMatchFrameworkSources proves the generated project receives byte-identical
+// copies of the framework guides rather than stale duplicates, and that the index links the new
+// attachment documentation. | TestGeneratedDocsMatchFrameworkSources 证明生成项目拿到的是逐字节相同的
+// 框架指南，而不是陈旧的副本，并证明索引链接到新的附件文档。
+func TestGeneratedDocsMatchFrameworkSources(t *testing.T) {
+	pr, _ := generateMem(t, scaffold.DefaultOptions("docs-app"))
+	for _, rel := range requiredFiles {
+		if !strings.HasPrefix(rel, "docs/") || !strings.HasSuffix(rel, ".md") ||
+			rel == "docs/README.md" || rel == "docs/developer_guidelines.md" {
+			continue
+		}
+		want, err := frameworkdocs.FS.ReadFile(strings.TrimPrefix(rel, "docs/"))
+		if err != nil {
+			t.Fatalf("framework doc %s is not embedded: %v", rel, err)
+		}
+		if got := pr.read(rel); got != string(want) {
+			t.Errorf("generated %s drifted from the framework source", rel)
+		}
+	}
+	if got := pr.read("docs/realtime-transports.md"); !strings.Contains(got, `{{ asset "/static/js/yd-realtime.js" }}`) {
+		t.Error("generated doc lost the runtime template example")
+	}
+	index := pr.read("docs/README.md")
+	for _, want := range []string{"attachments.md", "message-center.md", "cache.md", "redis-asynq.md"} {
+		if !strings.Contains(index, want) {
+			t.Errorf("docs/README.md is missing %q", want)
+		}
+	}
+}
+
 func TestGeneratedGovernanceDocsStateConstraints(t *testing.T) {
 	o := scaffold.DefaultOptions("gov-app")
 	pr, _ := generateMem(t, o)
@@ -1431,6 +1517,9 @@ func TestGeneratedGovernanceDocsStateConstraints(t *testing.T) {
 		"auth.LoginEncryptedHeader",
 		"SeedPasswordNotice",
 		"web/i18n",
+		"docs/attachments.md",
+		"docs/node-identity.md",
+		"docs/redis-asynq.md",
 	} {
 		if !strings.Contains(claude, want) {
 			t.Errorf("CLAUDE.md 缺少 %q", want)
@@ -2858,6 +2947,267 @@ func TestGeneratedAppRootRespectsMessageRead(t *testing.T) {
 	}
 }
 
+// TestGeneratedAttachmentManagement proves the whole generic attachment lifecycle through real HTTP
+// requests: a member uploads and downloads a file, deletes an unreferenced one, an administrator
+// filters unreferenced rows, deletes with a reason, cleans up in bulk, and the uploader receives the
+// notice in the private message-centre channel. | TestGeneratedAttachmentManagement 通过真实 HTTP 请求
+// 证明通用附件的完整生命周期：成员上传与下载、删除未引用文件，管理员筛选未引用行、带原因删除与批量清理，
+// 上传者在消息中心的私有频道收到通知。
+func TestGeneratedAttachmentManagement(t *testing.T) {
+	if testing.Short() {
+		t.Skip("短模式跳过真实启动 | skipped in short mode")
+	}
+
+	_, base := startProbeAppDBWith(t, "yd-attachment-probe", scaffold.DBSQLite, nil)
+
+	adminClient := newProbeClient(t, httpTimeout)
+	adminToken := signIn(t, adminClient, base, probeTenant, probeAdmin, probeAdminPassword)
+	createProbeUser(t, adminClient, base, adminToken, "probe-attach-user", "member", "probe-attach-user@example.com")
+	createProbeRole(t, adminClient, base, adminToken, "attachment-auditor", authz.PermAttachmentRead)
+	createProbeUser(t, adminClient, base, adminToken, "probe-attach-auditor", "attachment-auditor", "probe-attach-auditor@example.com")
+
+	user := newProbeClient(t, httpTimeout)
+	userToken := signIn(t, user, base, probeTenant, "probe-attach-user", probeUserPassword)
+	auditor := newProbeClient(t, httpTimeout)
+	auditorToken := signIn(t, auditor, base, probeTenant, "probe-attach-auditor", probeUserPassword)
+
+	authHeaders := func(token string) map[string]string {
+		return map[string]string{"Authorization": "Bearer " + token, "HX-Request": "true"}
+	}
+
+	// Upload one pending file and verify the portal page, the API list and the download endpoint. |
+	// 上传一个待引用文件，并核验门户页面、API 列表与下载端点。
+	resp, body := uploadProbeAttachment(t, user, base, userToken, "first.txt", []byte("first attachment"))
+	if resp.StatusCode != http.StatusOK || !strings.Contains(body, "first.txt") {
+		t.Fatalf("门户上传失败（状态码 %d）:\n%s", resp.StatusCode, body)
+	}
+	items := probeAttachmentItems(t, user, base, userToken, "/api/portal/v1/attachments")
+	if len(items) != 1 || items[0].Name != "first.txt" || items[0].Status != "pending" {
+		t.Fatalf("API 列表 = %+v", items)
+	}
+	firstID := items[0].ID
+	resp, downloaded := getText(t, user, base+"/attachments/"+firstID+"/download", authHeaders(userToken))
+	if resp.StatusCode != http.StatusOK || downloaded != "first attachment" {
+		t.Fatalf("下载状态码 %d，正文 %q", resp.StatusCode, downloaded)
+	}
+	if disposition := resp.Header.Get("Content-Disposition"); !strings.Contains(disposition, "attachment") {
+		t.Fatalf("下载 Content-Disposition = %q", disposition)
+	}
+
+	// The management page shows the row, and the member is refused there. | 管理页面能看到该行，成员访问被拒。
+	resp, body = getText(t, adminClient, base+"/mgr/attachments", authHeaders(adminToken))
+	if resp.StatusCode != http.StatusOK || !strings.Contains(body, "first.txt") {
+		t.Fatalf("管理员附件页状态码 %d:\n%s", resp.StatusCode, body)
+	}
+	resp, body = getText(t, adminClient, base+"/mgr/attachments?referenced=no", authHeaders(adminToken))
+	if resp.StatusCode != http.StatusOK || !strings.Contains(body, "first.txt") {
+		t.Fatalf("未引用筛选状态码 %d:\n%s", resp.StatusCode, body)
+	}
+	resp, _ = getText(t, user, base+"/mgr/attachments", authHeaders(userToken))
+	if resp.StatusCode != http.StatusForbidden {
+		t.Fatalf("成员访问管理附件页状态码 = %d，期望 403", resp.StatusCode)
+	}
+
+	// The auditor holds attachment:read only: it can list and download every file but sees no write
+	// control, and the deletion route still refuses it. | 审计员只持有 attachment:read：可以列出与下载
+	// 全部文件，但看不到任何写控件，删除路由仍然拒绝。
+	resp, body = getText(t, auditor, base+"/mgr/attachments", authHeaders(auditorToken))
+	if resp.StatusCode != http.StatusOK || !strings.Contains(body, "first.txt") {
+		t.Fatalf("审计员附件页状态码 = %d", resp.StatusCode)
+	}
+	if strings.Contains(body, "Unreferenced only") || strings.Contains(body, "/delete") {
+		t.Fatalf("审计员看到了写控件")
+	}
+	resp, downloaded = getText(t, auditor, base+"/mgr/attachments/"+firstID+"/download", authHeaders(auditorToken))
+	if resp.StatusCode != http.StatusOK || downloaded != "first attachment" {
+		t.Fatalf("审计员下载状态码 = %d，正文 %q", resp.StatusCode, downloaded)
+	}
+	resp, _ = postForm(t, auditor, base+"/mgr/attachments/"+firstID+"/delete", map[string]string{"reason": "auditor"}, authHeaders(auditorToken))
+	if resp.StatusCode != http.StatusForbidden {
+		t.Fatalf("审计员删除状态码 = %d，期望 403", resp.StatusCode)
+	}
+
+	// The administrator deletes with a mandatory reason; the uploader then sees the notice channel. |
+	// 管理员带必填原因删除；上传者随后看到通知频道。
+	resp, body = postForm(t, adminClient, base+"/mgr/attachments/"+firstID+"/delete", map[string]string{"reason": "policy violation"}, authHeaders(adminToken))
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("管理员删除状态码 = %d:\n%s", resp.StatusCode, body)
+	}
+	resp, body = getText(t, user, base+"/messages", authHeaders(userToken))
+	if resp.StatusCode != http.StatusOK || !strings.Contains(body, "Notices") {
+		t.Fatalf("上传者消息页缺少通知频道（状态码 %d）:\n%s", resp.StatusCode, body)
+	}
+	noticeID := probeNoticeConversation(t, body)
+	resp, body = getText(t, user, base+"/messages/"+noticeID, authHeaders(userToken))
+	if resp.StatusCode != http.StatusOK || !strings.Contains(body, "policy violation") {
+		t.Fatalf("通知会话缺少删除原因（状态码 %d）:\n%s", resp.StatusCode, body)
+	}
+	if !strings.Contains(body, "private notice channel") {
+		t.Fatalf("通知会话没有只读提示:\n%s", body)
+	}
+	items = probeAttachmentItems(t, adminClient, base, adminToken, "/api/v1/attachments?referenced=no")
+	if len(items) != 0 {
+		t.Fatalf("删除后仍有未引用记录: %+v", items)
+	}
+
+	// A member may delete a pending file (a referenced one is covered by the messaging tests); the
+	// bulk cleanup removes every unreferenced row and notifies each uploader. |
+	// 成员可以删除待引用文件（已引用由消息测试覆盖）；批量清理删除全部未引用记录并通知每个上传者。
+	uploadProbeAttachment(t, user, base, userToken, "second.txt", []byte("second"))
+	uploadProbeAttachment(t, user, base, userToken, "third.txt", []byte("third"))
+	resp, body = postForm(t, adminClient, base+"/mgr/attachments/cleanup", map[string]string{"reason": "retention policy"}, authHeaders(adminToken))
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("批量清理状态码 = %d:\n%s", resp.StatusCode, body)
+	}
+	items = probeAttachmentItems(t, adminClient, base, adminToken, "/api/v1/attachments")
+	if len(items) != 0 {
+		t.Fatalf("批量清理后仍有记录: %+v", items)
+	}
+	// The cleanup notification reuses the same private channel and carries its own reason. |
+	// 清理通知复用同一个私有频道，并携带自己的原因。
+	resp, body = getText(t, user, base+"/messages", authHeaders(userToken))
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("清理后消息页状态码 = %d", resp.StatusCode)
+	}
+	noticeID = probeNoticeConversation(t, body)
+	resp, body = getText(t, user, base+"/messages/"+noticeID, authHeaders(userToken))
+	if resp.StatusCode != http.StatusOK || !strings.Contains(body, "retention policy") {
+		t.Fatalf("清理通知缺少原因（状态码 %d）:\n%s", resp.StatusCode, body)
+	}
+	uploadProbeAttachment(t, user, base, userToken, "fourth.txt", []byte("fourth"))
+	items = probeAttachmentItems(t, user, base, userToken, "/api/portal/v1/attachments")
+	if len(items) != 1 {
+		t.Fatalf("成员重新上传后的列表 = %+v", items)
+	}
+	resp, body = postForm(t, user, base+"/attachments/"+items[0].ID+"/delete", nil, authHeaders(userToken))
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("成员删除待引用附件状态码 = %d:\n%s", resp.StatusCode, body)
+	}
+	items = probeAttachmentItems(t, user, base, userToken, "/api/portal/v1/attachments")
+	if len(items) != 0 {
+		t.Fatalf("成员删除后仍有记录: %+v", items)
+	}
+
+	// The JSON surface is the same lifecycle: upload, self-delete and the management cleanup. |
+	// JSON 面走同一条生命周期：上传、自助删除与管理端集中清理。
+	resp, body = uploadProbeAttachmentTo(t, user, base, userToken, "/api/portal/v1/attachments", "api-upload.txt", []byte("api upload"))
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("API 上传状态码 = %d: %s", resp.StatusCode, body)
+	}
+	var uploaded probeAttachmentRecord
+	if err := json.Unmarshal([]byte(body), &uploaded); err != nil || uploaded.ID == "" {
+		t.Fatalf("解析 API 上传响应失败: %v: %s", err, body)
+	}
+	if !strings.Contains(uploaded.Download, "/api/portal/v1/attachments/") {
+		t.Fatalf("API 上传的下载地址 = %q", uploaded.Download)
+	}
+	resp, body = postForm(t, user, base+"/api/portal/v1/attachments/"+uploaded.ID+"/delete", nil, authHeaders(userToken))
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("API 自助删除状态码 = %d: %s", resp.StatusCode, body)
+	}
+	uploadProbeAttachmentTo(t, user, base, userToken, "/api/portal/v1/attachments", "api-cleanup.txt", []byte("api cleanup"))
+	resp, body = postJSON(t, adminClient, base+"/api/v1/attachments/cleanup", `{"reason":"api cleanup"}`, authHeaders(adminToken))
+	if resp.StatusCode != http.StatusOK || !strings.Contains(body, `"deleted":1`) {
+		t.Fatalf("API 集中清理状态码 = %d: %s", resp.StatusCode, body)
+	}
+
+	// The message composer's upload path goes through the same attachment domain; its inline image
+	// preview is also authenticated. | 消息撰写区的上传同样经过附件域；其图片内联预览也需要鉴权。
+	png := []byte{0x89, 'P', 'N', 'G', 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 0}
+	resp, body = uploadProbeAttachmentTo(t, user, base, userToken, "/messages/attachments", "message-image.png", png)
+	if resp.StatusCode != http.StatusOK || !strings.Contains(body, `name="attachment_ids"`) {
+		t.Fatalf("消息附件上传状态码 = %d: %s", resp.StatusCode, body)
+	}
+	messageAttachmentPattern := regexpx.MustCompile(`name="attachment_ids" value="([^"]+)"`)
+	match := messageAttachmentPattern.FindStringSubmatch(body)
+	if len(match) != 2 {
+		t.Fatalf("消息附件片段没有 attachment_ids: %s", body)
+	}
+	resp, downloaded = getText(t, user, base+"/messages/attachments/"+match[1]+"?inline=1", authHeaders(userToken))
+	if resp.StatusCode != http.StatusOK || resp.Header.Get("Content-Type") != "image/png" {
+		t.Fatalf("消息图片内联预览状态码 = %d，Content-Type = %q", resp.StatusCode, resp.Header.Get("Content-Type"))
+	}
+	resp, body = postForm(t, user, base+"/api/portal/v1/attachments/"+match[1]+"/delete", nil, authHeaders(userToken))
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("清理消息附件状态码 = %d: %s", resp.StatusCode, body)
+	}
+}
+
+// probeAttachmentRecord is the subset of the attachment API the probe reads. | probeAttachmentRecord 是探针读取的
+// 附件 API 子集。
+type probeAttachmentRecord struct {
+	ID       string `json:"id"`
+	Name     string `json:"name"`
+	Status   string `json:"status"`
+	Download string `json:"download_url"`
+	SizeText string `json:"size_text"`
+}
+
+// uploadProbeAttachment posts one multipart file and returns the response and body. | uploadProbeAttachment 提交一个
+// multipart 文件并返回响应与正文。
+func uploadProbeAttachment(t *testing.T, client *http.Client, base, token, name string, content []byte) (*http.Response, string) {
+	t.Helper()
+
+	return uploadProbeAttachmentTo(t, client, base, token, "/attachments", name, content)
+}
+
+// uploadProbeAttachmentTo posts one multipart file to the given endpoint. | uploadProbeAttachmentTo 把 multipart
+// 文件提交到指定端点。
+func uploadProbeAttachmentTo(t *testing.T, client *http.Client, base, token, path, name string, content []byte) (*http.Response, string) {
+	t.Helper()
+
+	var buf bytes.Buffer
+	writer := multipart.NewWriter(&buf)
+	part, err := writer.CreateFormFile("file", name)
+	if err != nil {
+		t.Fatalf("构造 multipart 文件失败: %v", err)
+	}
+	if _, err := part.Write(content); err != nil {
+		t.Fatalf("写入 multipart 文件失败: %v", err)
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatalf("关闭 multipart 失败: %v", err)
+	}
+	req, err := http.NewRequest(http.MethodPost, base+path, &buf)
+	if err != nil {
+		t.Fatalf("构造上传请求失败: %v", err)
+	}
+	req.Header.Set("Content-Type", writer.FormDataContentType())
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("HX-Request", "true")
+	return doText(t, client, req)
+}
+
+// probeAttachmentItems reads one attachment API page. | probeAttachmentItems 读取一页附件 API。
+func probeAttachmentItems(t *testing.T, client *http.Client, base, token, path string) []probeAttachmentRecord {
+	t.Helper()
+
+	resp, body := getText(t, client, base+path, map[string]string{"Authorization": "Bearer " + token})
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("附件 API %s 状态码 = %d:\n%s", path, resp.StatusCode, body)
+	}
+	var payload struct {
+		Items []probeAttachmentRecord `json:"items"`
+	}
+	if err := json.Unmarshal([]byte(body), &payload); err != nil {
+		t.Fatalf("解析附件 API %s 失败: %v\n%s", path, err, body)
+	}
+	return payload.Items
+}
+
+// probeNoticeConversation extracts the first conversation id of the message page. | probeNoticeConversation 提取消息页
+// 的第一个会话 ID。
+func probeNoticeConversation(t *testing.T, body string) string {
+	t.Helper()
+
+	pattern := regexpx.MustCompile(`data-yd-conversation-id="([^"]+)"`)
+	match := pattern.FindStringSubmatch(body)
+	if len(match) != 2 {
+		t.Fatalf("消息页没有会话链接:\n%s", body)
+	}
+	return match[1]
+}
+
 func TestGeneratedI18nCatalogueCoversEveryTrKey(t *testing.T) {
 	pr, _ := generateMem(t, scaffold.DefaultOptions("i18n-app"))
 
@@ -3859,6 +4209,29 @@ func TestGeneratedPageAssetsAnnounceCompletion(t *testing.T) {
 	}
 }
 
+// TestGeneratedAppRepairsAlpineScopes pins the two shell repairs that regressions silently undo:
+// hx-history-cache empties every Alpine data stack in the live document before an htmx morph, and
+// EasyMDE's fullscreen toolbar ignores the sticky app bar. The glue must re-initialise the emptied
+// scopes and publish the measured bar height. | TestGeneratedAppRepairsAlpineScopes 固定两项会被
+// 回归悄悄撤销的外壳修复：hx-history-cache 在 htmx morph 前清空活动文档的 Alpine 数据栈，
+// EasyMDE 全屏工具栏又不认识吸顶顶栏。胶水层必须重新初始化空栈并发布实测顶栏高度。
+func TestGeneratedAppRepairsAlpineScopes(t *testing.T) {
+	pr, _ := generateMem(t, scaffold.DefaultOptions("alpine-repair-app"))
+
+	app := pr.read("web/static/js/yd-app.js")
+	for _, want := range []string{
+		"function reviveAlpineScopes(root)",
+		`"[data-has-alpine-state]"`,
+		"alpine.initTree(el)",
+		"function syncTopbarOffset()",
+		`"--yd-topbar-offset"`,
+	} {
+		if !strings.Contains(app, want) {
+			t.Errorf("generated yd-app.js is missing %q | 生成的 yd-app.js 缺少 %q", want, want)
+		}
+	}
+}
+
 // TestGenerateIconsUseTheBundledSprite pins the generated icon contract: every requested button
 // references the shared partial, and the partial resolves the framework sprite instead of copying
 // icon bodies into templates. | TestGenerateIconsUseTheBundledSprite 固定生成项目的图标契约：
@@ -4655,13 +5028,18 @@ func writeProbeConfig(t *testing.T, dir, content string) {
 
 // postJSON submits one JSON body and returns the response with its body as text. | postJSON 提交一个 JSON 请求体，
 // 返回响应与响应体文本。
-func postJSON(t *testing.T, client *http.Client, target, body string) (*http.Response, string) {
+func postJSON(t *testing.T, client *http.Client, target, body string, headers ...map[string]string) (*http.Response, string) {
 	t.Helper()
 	req, err := http.NewRequest(http.MethodPost, target, strings.NewReader(body))
 	if err != nil {
 		t.Fatalf("构造 JSON 请求失败: %v", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
+	for _, set := range headers {
+		for name, value := range set {
+			req.Header.Set(name, value)
+		}
+	}
 	return doText(t, client, req)
 }
 

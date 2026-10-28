@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/shibingli/yd/attachments"
 	"github.com/shibingli/yd/messaging"
 	"github.com/shibingli/ydx/errs"
 	"gorm.io/gorm"
@@ -15,7 +16,7 @@ import (
 
 // CreateMessage inserts a message with its tags and attachments atomically. | CreateMessage 原子地插入消息及其标签与附件。
 func (s *Store) CreateMessage(ctx context.Context, msg messaging.Message, tagIDs, attachmentIDs []string) error {
-	return s.transaction(ctx, []string{"yd_msg_messages", "yd_msg_message_tags", "yd_msg_attachments", "yd_msg_conversations", "yd_msg_members"}, func(tx *gorm.DB) error {
+	return s.transaction(ctx, []string{"yd_msg_messages", "yd_msg_message_tags", "yd_attachments", "yd_attachment_refs", "yd_msg_conversations", "yd_msg_members"}, func(tx *gorm.DB) error {
 		if err := lockMessageTypeTx(tx, msg.TenantID, msg.TypeKey); err != nil {
 			return err
 		}
@@ -33,16 +34,37 @@ func (s *Store) CreateMessage(ctx context.Context, msg messaging.Message, tagIDs
 			}
 		}
 		if len(attachmentIDs) > 0 {
-			result := tx.Model(&messaging.Attachment{}).
-				Where("tenant_id = ? AND id IN ? AND uploader_id = ? AND status = ?",
-					msg.TenantID, attachmentIDs, msg.SenderID, messaging.AttachmentPending).
-				Updates(map[string]any{"message_id": msg.ID, "status": messaging.AttachmentAttached})
-			if result.Error != nil {
-				return queryError(result.Error)
+			var locked []attachments.Attachment
+			if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
+				Where("tenant_id = ? AND id IN ?", msg.TenantID, attachmentIDs).
+				Find(&locked).Error; err != nil {
+				return queryError(err)
 			}
-			if int(result.RowsAffected) != len(attachmentIDs) {
+			if len(locked) != len(attachmentIDs) {
 				return errs.Detail(messaging.ErrAttachmentNotFound,
-					"expected=%[1]d actual=%[2]d | 期望=%[1]d 实际=%[2]d", len(attachmentIDs), result.RowsAffected)
+					"expected=%[1]d actual=%[2]d | 期望=%[1]d 实际=%[2]d", len(attachmentIDs), len(locked))
+			}
+			for _, attachment := range locked {
+				if attachment.UploaderID != msg.SenderID || attachment.Status != attachments.StatusPending {
+					return messaging.ErrAttachmentNotFound
+				}
+			}
+			for _, id := range attachmentIDs {
+				binding := attachments.RefBinding{
+					CreatedAt:    msg.CreatedAt,
+					TenantID:     msg.TenantID,
+					AttachmentID: id,
+					RefType:      attachments.RefTypeMessage,
+					RefID:        msg.ID,
+				}
+				if err := tx.Clauses(clause.OnConflict{DoNothing: true}).Create(&binding).Error; err != nil {
+					return createError(err)
+				}
+			}
+			if err := tx.Model(&attachments.Attachment{}).
+				Where("tenant_id = ? AND id IN ? AND status = ?", msg.TenantID, attachmentIDs, attachments.StatusPending).
+				Update("status", attachments.StatusReferenced).Error; err != nil {
+				return queryError(err)
 			}
 		}
 		if err := tx.Model(&messaging.Conversation{}).
@@ -117,6 +139,13 @@ func (s *Store) UpdateMessage(ctx context.Context, msg messaging.Message, tagIDs
 // ListMessages returns one page of messages and the total count. | ListMessages 返回一页消息与总数。
 func (s *Store) ListMessages(ctx context.Context, tenantID, userID string, filter messaging.MessageFilter, admin bool) ([]messaging.Message, int, error) {
 	query := s.dbc(ctx).Model(&messaging.Message{}).Where("yd_msg_messages.tenant_id = ?", tenantID)
+	if admin {
+		// Private notice channels are system notifications, not moderation material. |
+		// 私有通知频道是系统通知，不属于治理内容。
+		query = query.
+			Joins("JOIN yd_msg_conversations conv ON conv.tenant_id = yd_msg_messages.tenant_id AND conv.id = yd_msg_messages.conversation_id").
+			Where("conv.kind <> ?", messaging.KindNotice)
+	}
 
 	needMember := !admin || filter.Folder == messaging.FolderUnread
 	if needMember {
@@ -371,27 +400,6 @@ func (s *Store) SetPin(ctx context.Context, msg messaging.Message, audit messagi
 		}
 		return nil
 	})
-}
-
-// MessageAttachments resolves attachments for a batch of messages. | MessageAttachments 批量解析消息的附件。
-func (s *Store) MessageAttachments(ctx context.Context, tenantID string, messageIDs []string) (map[string][]messaging.Attachment, error) {
-	out := make(map[string][]messaging.Attachment, len(messageIDs))
-	for _, batch := range chunks(messageIDs) {
-		var rows []messaging.Attachment
-		if err := s.dbc(ctx).
-			Where("tenant_id = ? AND message_id IN ? AND status = ?", tenantID, batch, messaging.AttachmentAttached).
-			Order("created_at ASC").
-			Find(&rows).Error; err != nil {
-			return nil, queryError(err)
-		}
-		for _, row := range rows {
-			if row.MessageID == nil {
-				continue
-			}
-			out[*row.MessageID] = append(out[*row.MessageID], row)
-		}
-	}
-	return out, nil
 }
 
 // MessageTags resolves groups and tags for a batch of messages. | MessageTags 批量解析消息的分组与标签。

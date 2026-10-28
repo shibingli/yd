@@ -66,7 +66,7 @@ func (s *Service) Send(ctx context.Context, actor Actor, in SendInput) (MessageV
 	if !containsMember(members, actor.ID) {
 		return MessageView{}, ErrNotFound
 	}
-	if conv.Kind == KindSystem {
+	if conv.Kind == KindSystem || conv.Kind == KindNotice {
 		return MessageView{}, ErrSystemOnly
 	}
 	if conv.Kind == KindDirect {
@@ -468,8 +468,12 @@ func (s *Service) messageForChange(ctx context.Context, actor Actor, messageID s
 	if err != nil {
 		return Message{}, Conversation{}, nil, errs.Wrap(err, ErrUnavailable)
 	}
-	if !containsMember(members, actor.ID) && !actor.Manage {
-		return Message{}, Conversation{}, nil, ErrNotFound
+	if !containsMember(members, actor.ID) {
+		// A notice channel is private to its recipient; management bypass never opens one. |
+		// 通知频道只属于收件人，管理旁路也不能打开。
+		if conv.Kind == KindNotice || !actor.Manage {
+			return Message{}, Conversation{}, nil, ErrNotFound
+		}
 	}
 	return msg, conv, members, nil
 }
@@ -644,18 +648,14 @@ func (s *Service) pendingAttachments(ctx context.Context, actor Actor, ids []str
 	if len(ids) > s.options.MaxAttachments {
 		return nil, ErrTooManyAttachments
 	}
-	out := make([]Attachment, 0, len(ids))
-	for _, id := range ids {
-		attachment, err := s.store.GetAttachment(ctx, actor.TenantID, id)
-		if err != nil {
-			return nil, mapStoreError(err, ErrAttachmentNotFound)
-		}
-		if attachment.UploaderID != actor.ID || attachment.Status != AttachmentPending {
-			return nil, ErrAttachmentNotFound
-		}
-		out = append(out, attachment)
+	if s.attachments == nil {
+		return nil, errs.Detail(ErrUnavailable, "attachment storage is not configured | 未配置附件存储")
 	}
-	return out, nil
+	attachments, err := s.attachments.Pending(ctx, actor.TenantID, actor.ID, ids)
+	if err != nil {
+		return nil, mapAttachmentError(err)
+	}
+	return attachments, nil
 }
 
 // splitTags partitions a tag list into labels and groups. | splitTags 把标签列表拆成自由标签与分组。

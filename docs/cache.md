@@ -377,6 +377,11 @@ GORM 缓存按**数据敏感度**和**接口敏感度**两层分离：
   `CacheBypass` 可做到零窗口；
 - `yd_msg_*` 属于常规数据，正常缓存；`messaging/gormstore` 与 `security/auth/gormstore` 都在
   显式事务提交后调用 `SetInvalidator` 失效，不会在提交前推进代际；
+- **例外：`yd_attachments` 与 `yd_attachment_refs` 在 `ignore_tables`**。附件行的 `StoredKey` 带
+  `json:"-"`，既不能出现在 API 载荷里，也会被 JSON 缓存的编解码丢弃；一旦命中缓存，下载拿到空键并报
+  “附件键非法”。引用表参与每次消息渲染，且解除引用或墓碑必须立即生效。附件行只在上下传与消息装配时读取，
+  不是缓存敏感的热列表。旧表 `yd_msg_attachments` 在迁移完成后即被删除，不再需要缓存配置。**通用规则**：
+  任何带有 `json:"-"` 且读取路径需要该字段的表都不得进入 JSON 查询缓存；
 - `/login`、`/logout`、`/account/**`、`/tenant/**`、`/mgr/**`、`/api/v1/**` 与
   `/api/portal/v1/account/**` 在路由链最前面挂 `CacheBypass`，任何 GORM 读取都不经过缓存；
 - 普通门户页面（消息、好友等）仍走缓存。

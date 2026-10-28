@@ -1,0 +1,249 @@
+// 本文件装配通用附件能力：存储后端、生命周期选项、后台清理与管理员删除通知。
+// This file wires the generic attachment capability: storage backend, lifecycle options, the janitor and
+// administrator-deletion notices.
+
+package service
+
+import (
+	"context"
+	"fmt"
+	"strings"
+	"time"
+
+	goredis "github.com/redis/go-redis/v9"
+
+	"{{ .YdModule }}/attachments"
+	"{{ .YdModule }}/attachments/filestore"
+	"{{ .YdModule }}/attachments/redisstore"
+	"{{ .YdModule }}/messaging"
+	"{{ .YdxModule }}/config"
+	"{{ .YdxModule }}/errs"
+	ydlog "{{ .YdxModule }}/log"
+)
+
+// 附件配置键：沿用 message 段，保证旧项目的文件与消息附件指向同一个后端；这些键现在配置的是框架级附件存储。
+// Attachment configuration keys: they stay in the message section so old projects keep pointing at the same
+// backend as message attachments; they now configure the framework-wide attachment store.
+const (
+	// configAttachmentDir is the local attachment directory. | configAttachmentDir 是本地附件目录。
+	configAttachmentDir = "message.attachment_dir"
+	// configAttachmentStore selects the blob backend: local or redis. | configAttachmentStore 选择字节后端：local 或 redis。
+	configAttachmentStore = "message.attachment_store"
+	// configAttachmentRedisPrefix namespaces Redis attachment keys. | configAttachmentRedisPrefix 是 Redis 附件键的命名空间。
+	configAttachmentRedisPrefix = "message.attachment_redis_prefix"
+	// configMaxAttachmentSize is the per-file byte ceiling. | configMaxAttachmentSize 是单文件字节上限。
+	configMaxAttachmentSize = "message.max_attachment_size"
+	// configAllowedTypes is the sniffed-MIME allow list. | configAllowedTypes 是嗅探后的 MIME 白名单。
+	configAllowedTypes = "message.allowed_types"
+	// configPendingTTL is how long an unreferenced upload survives. | configPendingTTL 是未被引用上传的保留时长。
+	configPendingTTL = "message.pending_ttl"
+	// defaultAttachmentDir is the local directory when none is configured. | defaultAttachmentDir 是未配置时的本地目录。
+	defaultAttachmentDir = "data/attachments"
+)
+
+// ErrAttachmentUnavailable reports an attachment centre without a usable store. | ErrAttachmentUnavailable
+// 表示附件中心没有可用存储。
+var ErrAttachmentUnavailable = errs.New("attachment centre is unavailable | 附件中心不可用")
+
+// NoticeWriter delivers one deletion notice to the message centre. | NoticeWriter 把一条删除通知投递到消息中心。
+type NoticeWriter func(ctx context.Context, tenantID, recipientID string, actor messaging.Actor, title, markdown string) error
+
+// AttachmentService is the project-facing attachment facade. It adds deletion notices on top of the
+// domain service; the domain itself stays independent of the message centre. | AttachmentService 是
+// 项目侧的附件门面。它在领域服务之上增加删除通知；领域本身仍不依赖消息中心。
+type AttachmentService struct {
+	// Service is the embedded domain service. | Service 是内嵌的领域服务。
+	*attachments.Service
+	// log records janitor and notice failures. | log 记录清理与通知失败。
+	log *ydlog.Logger
+	// notify delivers deletion notices; nil disables them. | notify 投递删除通知；nil 表示关闭。
+	notify NoticeWriter
+}
+
+// NewAttachmentService assembles the attachment domain over the project's metadata store and the
+// configured blob backend. | NewAttachmentService 在项目元数据存储与配置的字节后端之上装配附件域。
+func NewAttachmentService(store attachments.Store, cfg *config.Config, log *ydlog.Logger, redisClient goredis.UniversalClient) (*AttachmentService, error) {
+	if log == nil {
+		log = ydlog.Default()
+	}
+	if store == nil {
+		return nil, errs.Wrap(attachments.ErrUnavailable, ErrAttachmentUnavailable)
+	}
+	dir := defaultAttachmentDir
+	mode := "local"
+	prefix := redisstore.DefaultPrefix
+	options := attachments.DefaultOptions()
+	if cfg != nil {
+		if value := strings.TrimSpace(cfg.GetString(configAttachmentDir)); value != "" {
+			dir = value
+		}
+		if value := strings.ToLower(strings.TrimSpace(cfg.GetString(configAttachmentStore))); value != "" {
+			mode = value
+		}
+		if value := strings.TrimSpace(cfg.GetString(configAttachmentRedisPrefix)); value != "" {
+			prefix = value
+		}
+		if value := cfg.GetInt64(configMaxAttachmentSize); value > 0 {
+			options.MaxSize = value
+		}
+		if value := cfg.GetStringSlice(configAllowedTypes); len(value) > 0 {
+			options.AllowedTypes = value
+		}
+		if value := cfg.Duration(configPendingTTL); value > 0 {
+			options.PendingTTL = value
+		}
+	}
+
+	var blobs attachments.BlobStore
+	switch mode {
+	case "local":
+		fileStore, err := filestore.New(dir)
+		if err != nil {
+			return nil, errs.WrapDetail(err, ErrAttachmentUnavailable, "dir=%q | 目录=%q", dir)
+		}
+		blobs = fileStore
+	case "redis":
+		if redisClient == nil {
+			return nil, errs.Detail(ErrAttachmentUnavailable, "redis is unavailable | Redis 不可用")
+		}
+		redisBlob, err := redisstore.New(redisClient, prefix)
+		if err != nil {
+			return nil, errs.WrapDetail(err, ErrAttachmentUnavailable, "prefix=%q | 前缀=%q", prefix)
+		}
+		blobs = redisBlob
+	default:
+		return nil, errs.Detail(ErrAttachmentUnavailable, "unknown attachment store %[1]q | 未知的附件存储 %[1]q", mode)
+	}
+	svc, err := attachments.New(store, blobs, log, options)
+	if err != nil {
+		return nil, errs.Wrap(err, ErrAttachmentUnavailable)
+	}
+	return &AttachmentService{Service: svc, log: log}, nil
+}
+
+// SetNoticeWriter installs the message-centre notifier after the message service exists. |
+// SetNoticeWriter 在消息服务创建后安装消息中心通知器。
+func (s *AttachmentService) SetNoticeWriter(writer NoticeWriter) {
+	if s != nil {
+		s.notify = writer
+	}
+}
+
+// DeleteManaged deletes one attachment and notifies its uploader. | DeleteManaged 删除一个附件并通知上传者。
+func (s *AttachmentService) DeleteManaged(ctx context.Context, actor attachments.Actor, id, reason string) (attachments.DeletionOutcome, error) {
+	if s == nil || s.Service == nil {
+		return attachments.DeletionOutcome{}, ErrAttachmentUnavailable
+	}
+	outcome, err := s.Service.DeleteManaged(ctx, actor, id, reason)
+	if err != nil {
+		return attachments.DeletionOutcome{}, err
+	}
+	s.notifyDeletion(ctx, outcome)
+	return outcome, nil
+}
+
+// DeleteUnreferenced deletes unreferenced attachments and sends one summary per uploader. |
+// DeleteUnreferenced 删除未引用附件，并为每个上传者发送一条汇总通知。
+func (s *AttachmentService) DeleteUnreferenced(ctx context.Context, actor attachments.Actor, reason string, filter attachments.Filter) (attachments.DeleteReport, error) {
+	if s == nil || s.Service == nil {
+		return attachments.DeleteReport{}, ErrAttachmentUnavailable
+	}
+	report, err := s.Service.DeleteUnreferenced(ctx, actor, reason, filter)
+	// Rows already deleted by an earlier batch must still be announced even when a later batch
+	// fails; otherwise the uploader sees the files disappear with no reason. |
+	// 前面批次已删除的行即使后续批次失败也必须通知，否则上传者会看到文件消失却收不到原因。
+	s.notifyCleanup(ctx, actor.TenantID, actor, report)
+	return report, err
+}
+
+// StartJanitor removes expired pending uploads until ctx is cancelled. | StartJanitor 清理过期的待引用
+// 上传，直到 ctx 被取消。
+//
+// The goroutine has exactly one exit: ctx.Done. | 该协程只有一个出口：ctx.Done。
+func (s *AttachmentService) StartJanitor(ctx context.Context) {
+	if s == nil || s.Service == nil {
+		return
+	}
+	go func() {
+		ticker := time.NewTicker(time.Hour)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				removed, err := s.CleanupPendingAll(ctx)
+				if err != nil {
+					s.log.Warn("pending attachment cleanup failed | 待引用附件清理失败", ydlog.Err(err))
+					continue
+				}
+				if removed > 0 {
+					s.log.Info("pending attachments cleaned up | 待引用附件已清理", ydlog.Int("count", removed))
+				}
+			}
+		}
+	}()
+}
+
+// formatSize renders a byte count for a notice. | formatSize 为通知渲染字节数。
+func formatSize(size int64) string {
+	switch {
+	case size < 1024:
+		return fmt.Sprintf("%d B", size)
+	case size < 1024*1024:
+		return fmt.Sprintf("%.1f KiB", float64(size)/1024)
+	default:
+		return fmt.Sprintf("%.1f MiB", float64(size)/(1024*1024))
+	}
+}
+
+// notifyDeletion sends one notice for a managed single deletion. | notifyDeletion 为一次管理员单条删除
+// 发送通知。
+func (s *AttachmentService) notifyDeletion(ctx context.Context, outcome attachments.DeletionOutcome) {
+	if s == nil || s.notify == nil || outcome.UploaderID == "" || outcome.UploaderID == outcome.ActorID {
+		return
+	}
+	var body strings.Builder
+	body.WriteString("**附件删除通知 | Attachment deleted**\n\n")
+	fmt.Fprintf(&body, "管理员 **%s** 删除了你上传的附件 | Administrator **%s** deleted your attachment:\n\n",
+		outcome.ActorName, outcome.ActorName)
+	fmt.Fprintf(&body, "- %s (%s)\n\n", outcome.Attachment.OriginalName, formatSize(outcome.Attachment.Size))
+	fmt.Fprintf(&body, "原因 | Reason: %s\n\n", outcome.Reason)
+	fmt.Fprintf(&body, "时间 | Time: %s\n", time.Now().UTC().Format(time.RFC3339))
+	actor := messaging.Actor{ID: outcome.ActorID, TenantID: outcome.Attachment.TenantID, DisplayName: outcome.ActorName, Manage: true}
+	if err := s.notify(ctx, outcome.Attachment.TenantID, outcome.UploaderID, actor,
+		"附件删除通知 | Attachment deleted", body.String()); err != nil {
+		s.log.Warn("attachment deletion notice failed | 附件删除通知发送失败", ydlog.Err(err),
+			ydlog.Str("attachment", outcome.Attachment.ID), ydlog.Str("uploader", outcome.UploaderID))
+	}
+}
+
+// notifyCleanup sends one summary per uploader for a bulk cleanup. | notifyCleanup 为批量清理按上传者
+// 各发送一条汇总通知。
+func (s *AttachmentService) notifyCleanup(ctx context.Context, tenantID string, actor attachments.Actor, report attachments.DeleteReport) {
+	if s == nil || s.notify == nil || report.Count == 0 {
+		return
+	}
+	for uploaderID, group := range report.ByUploader {
+		if uploaderID == "" || uploaderID == report.ActorID {
+			continue
+		}
+		var body strings.Builder
+		body.WriteString("**附件清理通知 | Attachments cleaned up**\n\n")
+		fmt.Fprintf(&body, "管理员 **%s** 清理了你的 %d 个未被引用的附件 | Administrator **%s** cleaned up %d of your unreferenced attachments:\n\n",
+			report.ActorName, group.Count, report.ActorName, group.Count)
+		for _, name := range group.Names {
+			fmt.Fprintf(&body, "- %s\n", name)
+		}
+		if group.Count > len(group.Names) {
+			fmt.Fprintf(&body, "- … (%d more | 另有 %d 个)\n", group.Count-len(group.Names), group.Count-len(group.Names))
+		}
+		fmt.Fprintf(&body, "\n原因 | Reason: %s\n\n", report.Reason)
+		fmt.Fprintf(&body, "时间 | Time: %s\n", time.Now().UTC().Format(time.RFC3339))
+		noticeActor := messaging.Actor{ID: actor.ID, TenantID: tenantID, DisplayName: actor.DisplayName, Manage: true}
+		if err := s.notify(ctx, tenantID, uploaderID, noticeActor, "附件清理通知 | Attachments cleaned up", body.String()); err != nil {
+			s.log.Warn("attachment cleanup notice failed | 附件清理通知发送失败", ydlog.Err(err),
+				ydlog.Str("uploader", uploaderID))
+		}
+	}
+}

@@ -4,6 +4,8 @@ import (
 	"strings"
 	"time"
 	"unicode/utf8"
+
+	"github.com/shibingli/yd/attachments"
 )
 
 // ConversationKind tells a direct chat, an ad-hoc group and the tenant announcement channel apart. |
@@ -18,6 +20,10 @@ const (
 	KindGroup ConversationKind = "group"
 	// KindSystem is the tenant announcement channel; only message:system may post into it. | KindSystem 是租户公告频道，只有 message:system 可以写入。
 	KindSystem ConversationKind = "system"
+	// KindNotice is one user's private system-notice channel. Users read it and cannot post into it;
+	// the attachment manager writes deletion notices through Service.NotifyUser. | KindNotice 是
+	// 每个用户私有的系统通知频道：用户可读、不可写，附件管理员经 Service.NotifyUser 写入删除通知。
+	KindNotice ConversationKind = "notice"
 )
 
 // ConversationStatus is the lifecycle state of a conversation. | ConversationStatus 是会话的生命周期状态。
@@ -91,14 +97,18 @@ const (
 )
 
 // AttachmentStatus is the lifecycle of an uploaded file. | AttachmentStatus 是已上传文件的生命周期。
-type AttachmentStatus string
+//
+// Deprecated: use attachments.Status. | 已弃用：请使用 attachments.Status。
+type AttachmentStatus = attachments.Status
 
-// Attachment statuses. | 附件状态。
+// Attachment status aliases kept for source compatibility. | 为源码兼容保留的附件状态别名。
 const (
-	// AttachmentPending was uploaded but not yet bound to a message. | AttachmentPending 已上传但尚未绑定消息。
-	AttachmentPending AttachmentStatus = "pending"
+	// AttachmentPending was uploaded but not yet bound. | AttachmentPending 已上传但尚未绑定。
+	AttachmentPending = attachments.StatusPending
 	// AttachmentAttached belongs to a sent message. | AttachmentAttached 已属于一条已发送消息。
-	AttachmentAttached AttachmentStatus = "attached"
+	AttachmentAttached = attachments.StatusReferenced
+	// AttachmentDeleted is a tombstone. | AttachmentDeleted 是墓碑。
+	AttachmentDeleted = attachments.StatusDeleted
 )
 
 // Tone names a semantic colour role instead of a literal colour. | Tone 命名语义色角色，而不是颜色字面量。
@@ -127,10 +137,13 @@ type Conversation struct {
 	DirectKey *string `json:"-" gorm:"column:direct_key;type:varchar(160);uniqueIndex:uidx_msg_conv_direct,priority:2"`
 	// SystemKey is the fixed announcement key for the tenant system channel and NULL otherwise. | SystemKey 是租户公告频道的固定键，其它会话为 NULL。
 	SystemKey *string `json:"-" gorm:"column:system_key;type:varchar(64);uniqueIndex:uidx_msg_conv_system,priority:2"`
+	// NoticeKey is "notice:<user id>" for a private notice channel and NULL otherwise. | NoticeKey 在私有通知频道上为
+	// "notice:<用户 ID>"，其它会话为 NULL。
+	NoticeKey *string `json:"-" gorm:"column:notice_key;type:varchar(96);uniqueIndex:uidx_msg_conv_notice,priority:2"`
 	// ID is the primary key, prefixed "cv_". | ID 是主键，前缀为 cv_。
 	ID string `json:"id" gorm:"column:id;type:varchar(64);primaryKey"`
 	// TenantID is the hard tenant boundary. | TenantID 是硬租户边界。
-	TenantID string `json:"tenant_id" gorm:"column:tenant_id;type:varchar(64);not null;index:idx_msg_conv_tenant_created,priority:1;uniqueIndex:uidx_msg_conv_direct,priority:1;uniqueIndex:uidx_msg_conv_system,priority:1"`
+	TenantID string `json:"tenant_id" gorm:"column:tenant_id;type:varchar(64);not null;index:idx_msg_conv_tenant_created,priority:1;uniqueIndex:uidx_msg_conv_direct,priority:1;uniqueIndex:uidx_msg_conv_system,priority:1;uniqueIndex:uidx_msg_conv_notice,priority:1"`
 	// Kind is direct, group or system. | Kind 是 direct、group 或 system。
 	Kind ConversationKind `json:"kind" gorm:"column:kind;type:varchar(16);not null;index:idx_msg_conv_kind"`
 	// Title is the group name; direct and system conversations derive their display name. | Title 是群名；单聊与系统会话由展示层推导。
@@ -360,34 +373,10 @@ type MessageTag struct {
 // TableName pins the table name. | TableName 固定表名。
 func (MessageTag) TableName() string { return "yd_msg_message_tags" }
 
-// Attachment is one uploaded file, pending or bound to a message. | Attachment 是一个已上传文件，待挂载或已绑定消息。
-type Attachment struct {
-	// CreatedAt is the UTC upload time. | CreatedAt 是 UTC 上传时间。
-	CreatedAt time.Time `json:"created_at" gorm:"column:created_at;autoCreateTime;index:idx_msg_attachment_pending,priority:3"`
-	// MessageID is nil while pending. | MessageID 在待挂载时为空。
-	MessageID *string `json:"message_id" gorm:"column:message_id;type:varchar(64);index:idx_msg_attachment_message"`
-	// ID is the primary key, prefixed "att_". | ID 是主键，前缀为 att_。
-	ID string `json:"id" gorm:"column:id;type:varchar(64);primaryKey"`
-	// TenantID is the tenant boundary. | TenantID 是租户边界。
-	TenantID string `json:"tenant_id" gorm:"column:tenant_id;type:varchar(64);not null;index:idx_msg_attachment_pending,priority:1"`
-	// UploaderID is the user that uploaded the file. | UploaderID 是上传者。
-	UploaderID string `json:"uploader_id" gorm:"column:uploader_id;type:varchar(64);not null;index:idx_msg_attachment_pending,priority:2"`
-	// OriginalName is the file name as submitted, escaped on display. | OriginalName 是提交时的文件名，展示时转义。
-	OriginalName string `json:"name" gorm:"column:original_name;type:varchar(255);not null"`
-	// StoredKey is the opaque storage key; it never contains the original name. | StoredKey 是不透明存储键，绝不包含原始文件名。
-	StoredKey string `json:"-" gorm:"column:stored_key;type:varchar(255);not null"`
-	// ContentType is the sniffed MIME type. | ContentType 是嗅探出的 MIME 类型。
-	ContentType string `json:"content_type" gorm:"column:content_type;type:varchar(128);not null"`
-	// SHA256 is the lowercase hex digest of the content. | SHA256 是内容的小写十六进制摘要。
-	SHA256 string `json:"sha256" gorm:"column:sha256;type:varchar(64);not null"`
-	// Status is pending or attached. | Status 取 pending 或 attached。
-	Status AttachmentStatus `json:"status" gorm:"column:status;type:varchar(16);not null;index:idx_msg_attachment_pending,priority:4"`
-	// Size is the byte length. | Size 是字节长度。
-	Size int64 `json:"size" gorm:"column:size;not null"`
-}
-
-// TableName pins the table name. | TableName 固定表名。
-func (Attachment) TableName() string { return "yd_msg_attachments" }
+// Attachment is one uploaded file owned by the attachments domain. | Attachment 是由附件域拥有的一个已上传文件。
+//
+// Deprecated: use attachments.Attachment. | 已弃用：请使用 attachments.Attachment。
+type Attachment = attachments.Attachment
 
 // FriendRequest is one directed request in the friend lifecycle. | FriendRequest 是好友生命周期中的一条有向申请。
 type FriendRequest struct {
