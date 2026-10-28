@@ -2,12 +2,13 @@
  * yd-captcha.js — mounts the ydx captcha widget on every [data-yd-captcha] host.
  * yd-captcha.js — 在每个 [data-yd-captcha] 挂载点上初始化 ydx 验证码组件。
  *
- * The script owns only the glue: it loads the same-origin SDK on demand, writes the one-time token into the hidden
- * input, blocks a submit until the widget has verified, resets the widget after a refused request and follows the
- * application's theme and language. All user-facing copy comes from the template's data attributes and the SDK's own
- * catalogue, so this file contains no business text. | 本脚本只负责粘合：按需加载同源 SDK、把一次性令牌写入隐藏字段、
- * 在完成验证前阻止提交、请求被拒后重置组件，并跟随应用的主题与语言。所有面向用户的文案来自模板的 data 属性与
- * SDK 自带目录，因此本文件不包含任何业务文案。
+ * The script owns only the glue: it loads the same-origin SDK on demand, mounts the widget lazily when a dialog opens,
+ * writes the one-time token into the hidden input, closes the dialog and re-submits the original form after a
+ * successful verification, resets the widget after a refused request and follows the application's theme and
+ * language. All user-facing copy comes from the template's data attributes and the SDK's own catalogue, so this file
+ * contains no business text. | 本脚本只负责粘合：按需加载同源 SDK、在对话框打开时惰性挂载组件、把一次性令牌写入
+ * 隐藏字段、验证成功后关闭对话框并重新提交原表单、请求被拒后重置组件，并跟随应用的主题与语言。所有面向用户的
+ * 文案来自模板的 data 属性与 SDK 自带目录，因此本文件不包含任何业务文案。
  *
  * Hard rules | 硬规则:
  *   1. No dependency and no build step; the SDK is loaded from /captcha/assets on the same origin.
@@ -29,9 +30,11 @@
   var SDK_URL = '/captcha/assets/yd-captcha.js';
   var CSS_URL = '/captcha/assets/yd-captcha.css';
   var HOST_SELECTOR = '[data-yd-captcha]';
+  var DIALOG_SELECTOR = 'dialog[data-yd-captcha-dialog]';
   var MOUNT_SELECTOR = '[data-yd-captcha-host]';
   var ROOT_SELECTOR = '.yd-captcha';
   var STAGE_CONTROL_SELECTOR = '.yd-captcha__stage input, .yd-captcha__stage select, .yd-captcha__stage textarea';
+  var VERIFY_SELECTOR = '.yd-captcha__actions .yd-captcha__button--primary';
   var TOKEN_SELECTOR = 'input[name="captcha_token"]';
 
   var records = [];
@@ -41,6 +44,9 @@
   var sdkLoading = false;
   var sdkFailed = false;
   var cssLoaded = false;
+  // pendingSubmission is the form that opened a captcha dialog. It is re-submitted after the SDK reports a token. |
+  // pendingSubmission 是打开验证码对话框的那张表单；SDK 产出令牌后会重新提交它。
+  var pendingSubmission = null;
 
   /* ---------------------------------------------------------------- assets | 资产 */
 
@@ -186,6 +192,195 @@
     return target.querySelector(ROOT_SELECTOR);
   }
 
+  // dialogFor returns the native captcha dialog that owns a host. Older inline hosts have none, which keeps the
+  // fallback path (and projects generated before the dialog existed) working unchanged. | dialogFor 返回拥有该挂载点的
+  // 原生验证码对话框。旧的页内挂载点没有对话框，因此回退路径（以及对话框出现前生成的项目）保持原样。
+  function dialogFor(host) {
+    if (!host) {
+      return null;
+    }
+    if (host.getAttribute && host.getAttribute('data-yd-captcha-dialog') !== null) {
+      return host;
+    }
+    return closest(host, DIALOG_SELECTOR);
+  }
+
+  function dialogOpen(dialog) {
+    return !!(dialog && (dialog.open || (dialog.hasAttribute && dialog.hasAttribute('open'))));
+  }
+
+  // openDialog shows the native modal. If showModal is unavailable the open attribute still exposes the dialog in
+  // normal flow; the submit guard never treats that failure as verification. | openDialog 显示原生模态框。若 showModal
+  // 不可用，open 属性仍让对话框按普通流显示；提交守卫绝不会把这种失败当成验证通过。
+  function openDialog(dialog) {
+    if (!dialog) {
+      return false;
+    }
+    if (dialogOpen(dialog)) {
+      return true;
+    }
+    try {
+      if (typeof dialog.showModal === 'function') {
+        dialog.showModal();
+      } else {
+        dialog.setAttribute('open', '');
+      }
+    } catch (err) {
+      dialog.setAttribute('open', '');
+    }
+    return dialogOpen(dialog);
+  }
+
+  function closeDialog(dialog) {
+    if (!dialog) {
+      return;
+    }
+    try {
+      if (typeof dialog.close === 'function' && dialog.open) {
+        dialog.close();
+        return;
+      }
+    } catch (ignored) {
+      /* fall through to the attribute fallback | 继续走属性回退 */
+    }
+    dialog.removeAttribute('open');
+  }
+
+  // focusCaptcha puts focus on the answer control, then the SDK verify button and finally the close control. This is
+  // what makes the modal usable with a keyboard as soon as it opens. | focusCaptcha 依次把焦点放在作答控件、SDK
+  // 验证按钮与关闭控件上；对话框一打开就可以用键盘操作。
+  function focusCaptcha(host) {
+    var target = sdkTarget(host);
+    var control = stageControl(host);
+    if (!control && target && typeof target.querySelector === 'function') {
+      control = target.querySelector(VERIFY_SELECTOR);
+    }
+    if (!control && typeof host.querySelector === 'function') {
+      control = host.querySelector('.yd-captcha-dialog__close');
+    }
+    if (control && typeof control.focus === 'function') {
+      control.focus();
+    }
+  }
+
+  // cancelDialog closes without submitting and remembers the challenge: reopening the dialog keeps the widget and a
+  // typed answer, so the user does not have to solve a second challenge after a mis-click. | cancelDialog 关闭对话框
+  // 但不提交，并保留挑战：再次打开时组件与已输入的答案仍在，用户误触后不需要重做一道题。
+  function cancelDialog(dialog) {
+    var pending = pendingSubmission;
+    pendingSubmission = null;
+    closeDialog(dialog);
+    // Focus the element that opened the dialog (the username field after Enter, or the submit button after a click),
+    // after close(): the browser restores focus while closing and would otherwise overwrite a focus call made before
+    // close() and leave the user on <body>. | 在 close() 之后把焦点还给打开对话框的元素（回车时的用户名输入，或点击时
+    // 的提交按钮），因为浏览器会在关闭过程中恢复焦点；在 close() 之前聚焦会被覆盖，用户会停在 <body>。
+    var focusTarget = null;
+    if (pending && pending.dialog === dialog) {
+      if (pending.opener && connected(pending.opener)) {
+        focusTarget = pending.opener;
+      } else if (pending.submitter && connected(pending.submitter)) {
+        focusTarget = pending.submitter;
+      }
+    }
+    if (focusTarget && typeof focusTarget.focus === 'function') {
+      try {
+        focusTarget.focus();
+      } catch (ignored) {
+        /* a removed opener cannot take focus back | 已移除的打开者无法收回焦点 */
+      }
+    }
+  }
+
+  // bindDialog attaches the cancel/backdrop/close handlers once per dialog. The handlers live on the dialog instead of
+  // the form because hx-preserve may move the mount point into a replacement dialog after a language switch. |
+  // bindDialog 为每个对话框只绑定一次取消、遮罩与关闭处理器。处理器挂在对话框而不是表单上：语言切换后
+  // hx-preserve 可能把挂载点移进新的对话框。
+  function bindDialog(host) {
+    var dialog = dialogFor(host);
+    if (!dialog || dialog.__ydCaptchaBound || typeof dialog.addEventListener !== 'function') {
+      return;
+    }
+    // Use an expando rather than an attribute: history-cache snapshots clone the dialog and its attributes but not
+    // listeners, so an attribute would tell the next mount that handlers already existed when the clone has none. |
+    // 用 expando 而不是属性：历史缓存会克隆对话框与其属性，却不会克隆监听器；属性会让下一次挂载误以为处理器
+    // 已经存在，而克隆节点实际上没有任何处理器。
+    dialog.__ydCaptchaBound = true;
+    dialog.addEventListener('cancel', function (event) {
+      if (event && typeof event.preventDefault === 'function') {
+        event.preventDefault();
+      }
+      cancelDialog(dialog);
+    });
+    dialog.addEventListener('click', function (event) {
+      var target = event && event.target;
+      if (target === dialog) {
+        cancelDialog(dialog);
+        return;
+      }
+      var closer = target ? closest(target, '[data-yd-captcha-cancel]') : null;
+      if (closer && dialog.contains && dialog.contains(closer)) {
+        if (typeof event.preventDefault === 'function') {
+          event.preventDefault();
+        }
+        cancelDialog(dialog);
+      }
+    });
+    dialog.addEventListener('close', function () {
+      if (pendingSubmission && pendingSubmission.dialog === dialog) {
+        pendingSubmission = null;
+      }
+    });
+  }
+
+  function closeOpenDialogs() {
+    pendingSubmission = null;
+    var dialogs = all(DIALOG_SELECTOR);
+    for (var i = 0; i < dialogs.length; i++) {
+      closeDialog(dialogs[i]);
+    }
+  }
+
+  // deferMount keeps a closed dialog from fetching a challenge at page load: the default two-minute challenge TTL
+  // would otherwise expire while the user is still filling in the form, and an invisible challenge would waste a
+  // round trip. | deferMount 阻止关闭的对话框在页面加载时请求挑战：默认两分钟的挑战 TTL 会在用户填写表单期间过期，
+  // 隐藏的挑战还会白白消耗一次往返。
+  function deferMount(host) {
+    var dialog = dialogFor(host);
+    return !!dialog && !dialogOpen(dialog) && !recordFor(host);
+  }
+
+  // ensureMounted mounts a dialog's widget on first use, loading the SDK if page load has not finished yet. |
+  // ensureMounted 在首次使用时挂载对话框组件；页面加载尚未完成时先等待 SDK。
+  function ensureMounted(host) {
+    if (!host) {
+      return;
+    }
+    bindDialog(host);
+    if (recordFor(host)) {
+      return;
+    }
+    loadCSS();
+    if (sdkFailed) {
+      showError(host, host.getAttribute('data-yd-captcha-unavailable') || '');
+      return;
+    }
+    if (win.YdCaptcha && typeof win.YdCaptcha.mount === 'function') {
+      mountHost(host);
+      return;
+    }
+    loadSDK(function (err) {
+      if (err) {
+        showError(host, host.getAttribute('data-yd-captcha-unavailable') || '');
+        return;
+      }
+      // The user may have cancelled while the SDK was loading; mount only when the dialog is still open. |
+      // 用户在 SDK 加载期间可能已取消；只有对话框仍打开时才挂载。
+      if (connected(host) && dialogOpen(dialogFor(host))) {
+        mountHost(host);
+      }
+    });
+  }
+
   // purgeRoots removes SDK roots that were cloned from a history snapshot; mounting on top of them would leave two
   // widgets in one host. | purgeRoots 移除历史快照克隆出来的 SDK 根节点；在它上面再挂载会让一个挂载点出现两个组件。
   function purgeRoots(host) {
@@ -207,6 +402,20 @@
       return null;
     }
     return target.querySelector(STAGE_CONTROL_SELECTOR);
+  }
+
+  // hasUserAnswer reports whether a closed widget already holds input. Pointer challenges expose no stage control,
+  // so they are treated as potentially in progress and preserved. | hasUserAnswer 报告关闭的组件是否已有输入。
+  // 指针题没有作答控件，因此按可能已有进度处理并保留。
+  function hasUserAnswer(host) {
+    var control = stageControl(host);
+    if (!control) {
+      return true;
+    }
+    if (typeof control.value !== 'string') {
+      return true;
+    }
+    return control.value.trim() !== '';
   }
 
   function labelText(host) {
@@ -323,7 +532,11 @@
   /* ---------------------------------------------------------------- mount | 挂载 */
 
   function mountHost(host) {
-    if (!host || recordFor(host)) {
+    if (!host) {
+      return;
+    }
+    bindDialog(host);
+    if (recordFor(host)) {
       return;
     }
     // A restored history snapshot can carry a cloned SDK root; mounting on top of it would show two widgets. A host
@@ -341,7 +554,11 @@
     var endpoint = host.getAttribute('data-yd-captcha-endpoint') || '/captcha';
     var locale = currentLocale();
     var theme = currentTheme();
-    var previousFocus = doc.activeElement;
+    // A dialog is mounted after showModal(), while focus already belongs inside the top layer. Restoring the field
+    // that was active before the dialog opened would move focus behind the modal, so only legacy inline hosts keep
+    // the old focus-restoration path. | 对话框在 showModal() 之后挂载，焦点已属于顶层；把焦点还给打开对话框前的字段
+    // 会让焦点跑到模态框背后，因此只有旧的页内挂载点保留原来的焦点恢复逻辑。
+    var previousFocus = dialogFor(host) ? null : doc.activeElement;
     // record is created before the SDK callbacks so they can follow an hx-preserve adoption to the new host instead of
     // writing the token and dispatching events on the detached old one. | record 在 SDK 回调之前创建，使回调能跟随
     // hx-preserve 归入新宿主，而不是把令牌与事件写到已脱离文档的旧宿主上。
@@ -371,6 +588,17 @@
           clearError(record.host);
           record.host.setAttribute('data-yd-captcha-verified', 'true');
           dispatch(record.host, 'yd:captcha:verified', { token: token, action: action });
+          // completeSubmission captures the pending submit before it clears it and closes the dialog. Closing first
+          // would let a synchronous `close` event clear pendingSubmission and silently drop the submit. If nothing is
+          // pending (for example a solve triggered by a restored widget), close the solved modal afterwards so the
+          // user does not have to dismiss it manually. | completeSubmission 会先捕获待提交状态再清空并关闭；先关闭
+          // 会让同步的 `close` 事件清掉 pendingSubmission，静默丢掉提交。若没有待提交（例如恢复组件后完成验证），
+          // 之后再关闭已完成的对话框，避免用户手动关闭。
+          completeSubmission(record.host);
+          var solvedDialog = dialogFor(record.host);
+          if (dialogOpen(solvedDialog)) {
+            closeDialog(solvedDialog);
+          }
         },
         onError: function () {
           if (record.closed || (record.widget && record.widget.destroyed)) {
@@ -390,6 +618,11 @@
           // attached after that. | SDK 在渲染挑战时创建作答控件；标签与必填语义只能在那之后挂上。
           describeControl(record.host);
           labelRoot(record.host);
+          // If the dialog is already open, move focus from the close button to the freshly rendered answer control. |
+          // 对话框已经打开时，把焦点从关闭按钮移到刚渲染好的作答控件。
+          if (dialogOpen(dialogFor(record.host))) {
+            focusCaptcha(record.host);
+          }
         }
       });
     } catch (err) {
@@ -446,18 +679,24 @@
     if (!hosts.length) {
       return;
     }
+    // Bind dialogs even while they stay closed so Esc/cancel/backdrop work the moment a dialog opens; only the widget
+    // mount itself is deferred. | 对话框保持关闭时也绑定取消处理器，使打开瞬间 Esc/取消/遮罩立即生效；只有组件挂载
+    // 本身被延后。
+    for (var i = 0; i < hosts.length; i++) {
+      bindDialog(hosts[i]);
+    }
     loadCSS();
     loadSDK(function (err) {
       var current = all(HOST_SELECTOR);
       if (err) {
-        for (var i = 0; i < current.length; i++) {
-          showError(current[i], current[i].getAttribute('data-yd-captcha-unavailable') || '');
+        for (var j = 0; j < current.length; j++) {
+          showError(current[j], current[j].getAttribute('data-yd-captcha-unavailable') || '');
         }
         return;
       }
-      for (var j = 0; j < current.length; j++) {
-        if (connected(current[j])) {
-          mountHost(current[j]);
+      for (var k = 0; k < current.length; k++) {
+        if (connected(current[k]) && !deferMount(current[k])) {
+          mountHost(current[k]);
         }
       }
     });
@@ -500,7 +739,7 @@
       return;
     }
     resetHostState(host);
-    if (connected(host)) {
+    if (connected(host) && !deferMount(host)) {
       mountHost(host);
     }
   }
@@ -590,6 +829,11 @@
     if (!newHost) {
       return false;
     }
+    // The old dialog is detached and can no longer be a modal; close it before following the preserved mount point. |
+    // 旧对话框已经脱离文档、不再是模态框；跟随保留挂载点前先关闭它。
+    if (dialogOpen(record.host)) {
+      closeDialog(record.host);
+    }
     record.host = newHost;
     record.target = sdkTarget(newHost);
     return true;
@@ -623,7 +867,9 @@
 
   function refreshLocale() {
     var locale = currentLocale();
-    for (var i = 0; i < records.length; i++) {
+    // Iterate backwards because a closed dialog record is destroyed instead of restarting its challenge below. |
+    // 倒序遍历，因为下面会销毁关闭对话框的记录，而不是重新请求挑战。
+    for (var i = records.length - 1; i >= 0; i--) {
       var record = records[i];
       if (!connected(record.host)) {
         continue;
@@ -638,6 +884,19 @@
       // 切换后仍然有效；只有尚未完成的组件重新出题。
       if (input && input.value) {
         labelRoot(record.host);
+        continue;
+      }
+      // A closed dialog must not fetch a hidden challenge with the new locale. With input already typed, keep the
+      // widget and answer (the internal challenge text updates on the next challenge); without input, destroy it so
+      // the next open mounts a fresh, correctly localized widget. | 关闭的对话框不得用新语言偷偷请求挑战。已经输入
+      // 内容时保留组件与答案（内部挑战文案在下次出题时更新）；没有输入时销毁，等下次打开再挂载正确语言的新组件。
+      var hostDialog = dialogFor(record.host);
+      if (hostDialog && !dialogOpen(hostDialog)) {
+        if (!hasUserAnswer(record.host)) {
+          resetHostState(record.host);
+        } else {
+          labelRoot(record.host);
+        }
         continue;
       }
       try {
@@ -698,8 +957,58 @@
     if (input && input.value) {
       return;
     }
+    var dialog = dialogFor(host);
+    if (dialog && dialogOpen(dialog)) {
+      // Enter inside the modal would otherwise submit the login/password form again. Treat it as the SDK's own verify
+      // action instead, which is what the user expects while the dialog is open. | 对话框打开时在输入框按回车原本会再次
+      // 提交登录/改密表单；这里改为触发 SDK 的验证按钮，符合用户在对话框内按回车的预期。
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      var verify = typeof dialog.querySelector === 'function' ? dialog.querySelector(VERIFY_SELECTOR) : null;
+      if (verify && !verify.disabled && typeof verify.click === 'function') {
+        verify.click();
+      } else {
+        focusCaptcha(host);
+      }
+      return;
+    }
     event.preventDefault();
     event.stopImmediatePropagation();
+    if (dialog) {
+      // The dialog owns the challenge. The token was already checked above, so this always opens, never submits. |
+      // 挑战由对话框承载；上面已确认没有令牌，因此这里只打开对话框、绝不提交。
+      // SubmitEvent.submitter is null for an implicit Enter submission; fall back to the form's default submit control
+      // so a named button keeps its value exactly as the browser would have used it. | 隐式回车提交时
+      // SubmitEvent.submitter 为 null；回退到表单的默认提交控件，使带名字的按钮保留浏览器本来会发送的取值。
+      var submitter = event.submitter || null;
+      if (!submitter && typeof form.querySelector === 'function') {
+        submitter = form.querySelector('button[type="submit"], button:not([type]), input[type="submit"]');
+      }
+      var opener = doc.activeElement;
+      if (!opener || opener === doc.body || opener === dialog || !connected(opener)) {
+        opener = submitter;
+      }
+      pendingSubmission = {
+        form: form,
+        submitter: submitter,
+        opener: opener,
+        host: host,
+        dialog: dialog
+      };
+      if (!openDialog(dialog)) {
+        pendingSubmission = null;
+        showError(host, host.getAttribute('data-yd-captcha-unavailable') || '');
+        return;
+      }
+      if (sdkFailed) {
+        showError(host, host.getAttribute('data-yd-captcha-unavailable') || '');
+      }
+      ensureMounted(host);
+      focusCaptcha(host);
+      return;
+    }
+    // Legacy inline host (a project generated before the dialog existed): keep the original fail-closed behaviour. |
+    // 旧的页内挂载点（对话框出现前生成的项目）：保留原有的失败关闭行为。
     // A failed SDK load is an outage, not an unsolved challenge; use the matching localized copy. | SDK 加载失败是
     // 服务不可用而不是尚未完成验证，使用对应的本地化文案。
     var message = host.getAttribute('data-yd-captcha-required') || '';
@@ -721,6 +1030,67 @@
     }
     if (control && typeof control.focus === 'function') {
       control.focus();
+    }
+  }
+
+  // completeSubmission closes the dialog and re-submits the original form after the SDK wrote its token. The submitter
+  // is passed back to requestSubmit so a named button keeps its value (tenant switches and multi-button forms rely on
+  // this); failing to pass it would silently change what the server receives. | completeSubmission 在 SDK 写入令牌后关闭
+  // 对话框并重新提交原表单。提交者要原样交回 requestSubmit，带名字的按钮才能保留取值（租户切换与多按钮表单依赖
+  // 这一点）；漏传会悄悄改变服务端收到的内容。
+  function completeSubmission(host) {
+    var pending = pendingSubmission;
+    if (!pending) {
+      return;
+    }
+    var form = pending.form;
+    var dialog = pending.dialog;
+    if (!form || !connected(form)) {
+      pendingSubmission = null;
+      closeDialog(dialog);
+      return;
+    }
+    // Re-check what the user is about to submit: a form whose captcha host/dialog was swapped away while the dialog
+    // was open must not send a token into a stale form. | 提交前复查用户将要提交的表单：对话框打开期间验证码挂载点或
+    // 对话框被换掉的旧表单，不得带着令牌发出。
+    var formHost = form.querySelector(HOST_SELECTOR);
+    if (!formHost || dialogFor(formHost) !== dialog) {
+      pendingSubmission = null;
+      closeDialog(dialog);
+      return;
+    }
+    // The host may have been adopted after an hx-preserve move; the record belongs to the live form, not to the
+    // detached dialog that opened it. | 挂载点可能被 hx-preserve 移到新表单；记录跟随当前表单，而不是当初打开
+    // 对话框的已脱离节点。
+    pending.host = host;
+    pendingSubmission = null;
+    closeDialog(dialog);
+    var submitter = pending.submitter;
+    var belongs = !!submitter && (submitter.form === form || (typeof form.contains === 'function' && form.contains(submitter)));
+    try {
+      if (belongs && typeof form.requestSubmit === 'function') {
+        form.requestSubmit(submitter);
+      } else if (typeof form.requestSubmit === 'function') {
+        form.requestSubmit();
+      } else if (belongs && typeof submitter.click === 'function') {
+        submitter.click();
+      } else if (typeof form.submit === 'function') {
+        form.submit();
+      }
+    } catch (ignored) {
+      // A disabled submitter or a detached form is not a reason to lose the token; try the native fallbacks before
+      // giving up. | 提交按钮被禁用或表单已脱离文档，不应因此丢掉令牌；先尝试原生回退再放弃。
+      try {
+        if (belongs && typeof submitter.click === 'function' && !submitter.disabled) {
+          submitter.click();
+        } else if (typeof form.requestSubmit === 'function') {
+          form.requestSubmit();
+        } else if (typeof form.submit === 'function') {
+          form.submit();
+        }
+      } catch (ignoredAgain) {
+        /* the server remains the final gate | 服务端仍是最终防线 */
+      }
     }
   }
 
@@ -774,6 +1144,11 @@
   }
 
   function onAfterSwap() {
+    // A swap that removed the form also cancels any verification that was still open for it. |
+    // 交换移除了表单，说明为它打开的验证也应一并作废。
+    if (pendingSubmission && (!connected(pendingSubmission.form) || !connected(pendingSubmission.dialog))) {
+      pendingSubmission = null;
+    }
     // sweep first: it adopts a preserved mount point into its new host before pending resets map old hosts by id. |
     // 先做 sweep：它把保留挂载点归到新宿主，随后待重置列表才能按 id 找到旧请求对应的新宿主。
     sweep();
@@ -808,6 +1183,7 @@
   // 显示两个组件，保留旧令牌则会让提交守卫用一枚可能已被消费的令牌放行。
   function onHistoryRestore() {
     pendingResets = [];
+    closeOpenDialogs();
     sweep();
     var hosts = all(HOST_SELECTOR);
     for (var i = 0; i < hosts.length; i++) {

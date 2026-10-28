@@ -241,6 +241,39 @@
     gap: 0.5rem;
   }
 
+  /* Captcha dialog: the challenge is shown only when a protected form is submitted, so the page keeps
+     its normal height whether captcha is enabled or disabled. The panel owns the spacing; the dialog
+     itself only supplies the native modal surface and scrim. | 验证码对话框：仅在提交受保护表单时显示，
+     因此无论启用还是禁用验证码，页面都保持正常高度。间距由面板负责，对话框本身只提供原生模态表面与遮罩。 */
+  .yd-captcha-dialog {
+    width: min(32rem, calc(100vw - 2rem));
+    max-height: calc(100dvh - 2rem);
+    overflow-y: auto;
+  }
+
+  .yd-captcha-dialog__panel {
+    gap: 0.75rem;
+  }
+
+  .yd-captcha-dialog__head {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 0.75rem;
+  }
+
+  .yd-captcha-dialog__head .yd-dialog__title {
+    margin: 0;
+  }
+
+  .yd-captcha-dialog__close {
+    flex: none;
+  }
+
+  .yd-captcha-dialog[data-invalid="true"] .yd-field__error {
+    display: block;
+  }
+
   .yd-captcha-host {
     display: block;
     /* Typical text/rotate challenge height (image, answer row and actions); the SDK may grow taller for other types. |

@@ -279,11 +279,15 @@ assembly point.
 - `captcha.trusted_proxies`：可信反向代理 CIDR 列表（也可写单个 IP）；为空时只信任直接对端。仅在应用确实
   位于代理之后时配置，否则可被伪造的 `X-Forwarded-For` 绕过按 IP 限流。
 
-浏览器组件由 `/captcha/assets/yd-captcha.js` 提供；`web/static/js/yd-captcha.js` 负责按需加载、把令牌写入
-`captcha_token` 隐藏字段、在完成验证前阻止提交、请求被拒后重新出题，并跟随 `<html data-theme>` 与 `lang`
-同步主题和文案。语言切换替换外壳时，验证码挂载点与隐藏令牌带 `hx-preserve`，已完成的令牌与已输入的答案
-保留；标签/提示按新语言重新渲染；用户名输入保留，口令字段刻意不保留。历史快照恢复时会清除克隆组件与旧令牌。
-验证失败只返回统一文案，不泄露账号或租户信息。
+浏览器组件由 `/captcha/assets/yd-captcha.js` 提供；登录页与账号页只在提交时由
+`web/static/js/yd-captcha.js` 打开原生 `<dialog>`，页面本身不保留验证码高度。组件在首次打开时才挂载并请求
+挑战，避免页面停留导致挑战在打开前过期。脚本负责按需加载 SDK、把令牌写入 `captcha_token` 隐藏字段、验证成功后
+关闭对话框并用 `form.requestSubmit(originalSubmitter)` 继续原动作，以及请求被拒后重新出题，并跟随
+`<html data-theme>` 与 `lang` 同步主题和文案。取消、`Esc` 与遮罩只关闭对话框，
+已输入的答案保留；语言切换替换外壳时，验证码挂载点与隐藏令牌带 `hx-preserve`，已完成的令牌与已输入的答案
+保留；标签/提示按新语言重新渲染；用户名输入保留，口令字段刻意不保留。历史快照恢复时会关闭对话框并清除克隆
+组件与旧令牌。验证失败只返回统一文案，不泄露账号或租户信息；JavaScript 被禁用时显示 `captcha.noscript`
+提示，服务端仍以 422 失败关闭。
 
 ## 进程级单例
 

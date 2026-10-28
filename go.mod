@@ -11,6 +11,7 @@ require (
 	github.com/quic-go/quic-go v0.64.1
 	github.com/redis/go-redis/v9 v9.23.0
 	github.com/shibingli/ydx/afs v0.1.6
+	github.com/shibingli/ydx/asynq v0.1.10
 	github.com/shibingli/ydx/base64 v0.1.12
 	github.com/shibingli/ydx/buffpool v0.1.4
 	github.com/shibingli/ydx/cache v0.1.17
@@ -27,6 +28,8 @@ require (
 	github.com/shibingli/ydx/middleware v0.1.13
 	github.com/shibingli/ydx/middleware/ratelimit v0.1.12
 	github.com/shibingli/ydx/nodeid v0.1.4
+	github.com/shibingli/ydx/openapi v0.1.10
+	github.com/shibingli/ydx/openapi/ydrouter v0.1.10
 	github.com/shibingli/ydx/protocol v0.1.5
 	github.com/shibingli/ydx/realtime v0.1.7
 	github.com/shibingli/ydx/redis v0.1.10
@@ -57,6 +60,7 @@ require (
 	github.com/godoes/gorm-dameng v0.7.2 // indirect
 	github.com/golang/snappy v1.0.0 // indirect
 	github.com/google/uuid v1.6.0 // indirect
+	github.com/hibiken/asynq v0.26.0 // indirect
 	github.com/jackc/pgpassfile v1.0.0 // indirect
 	github.com/jackc/pgservicefile v0.0.0-20240606120523-5a60cdf6a761 // indirect
 	github.com/jackc/pgx/v5 v5.11.0 // indirect
@@ -70,6 +74,7 @@ require (
 	github.com/quic-go/qpack v0.6.0 // indirect
 	github.com/quic-go/webtransport-go v0.13.0 // indirect
 	github.com/remyoudompheng/bigfft v0.0.0-20230129092748-24d4a6f8daec // indirect
+	github.com/robfig/cron/v3 v3.0.1 // indirect
 	github.com/sagikazarmark/locafero v0.12.0 // indirect
 	github.com/shibingli/ydx/middleware/accesslog v0.1.12 // indirect
 	github.com/shibingli/ydx/middleware/asyncafter v0.1.12 // indirect
@@ -88,6 +93,7 @@ require (
 	golang.org/x/sync v0.24.0 // indirect
 	golang.org/x/sys v0.49.0 // indirect
 	golang.org/x/text v0.43.0 // indirect
+	golang.org/x/time v0.16.0 // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20261019180522-ce908d29299b // indirect
 	google.golang.org/protobuf v1.36.12 // indirect
 	gorm.io/driver/mysql v1.6.0 // indirect

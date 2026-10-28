@@ -53,8 +53,11 @@
 （`YD_CAPTCHA_SECRET`）生产必须注入，非 development 留空会拒绝启动。应用位于反向代理之后时必须配置
 `captcha.trusted_proxies`（CIDR 列表，也可写单个 IP），否则按 IP 限流会把所有客户端算成代理地址。
 验证码接线始终随项目生成，
-两个开关都关闭时不挂 `/captcha` 路由、不加载 SDK。登录在租户解析与 SM2 解密**之前**校验验证码，
-改密在 `ChangePassword` **之前**校验；一次性令牌只消费一次，失败统一返回 `captcha.failed` 文案。
+两个开关都关闭时不挂 `/captcha` 路由、不加载 SDK；启用时登录与改密页只在提交时弹出原生 `<dialog>`，
+页面不保留常驻的验证码高度，组件在首次打开时才挂载并请求挑战。登录在租户解析与 SM2 解密**之前**校验
+验证码，改密在 `ChangePassword` **之前**校验；一次性令牌只消费一次，失败统一返回 `captcha.failed` 文案。
+前端验证成功后必须用 `form.requestSubmit(originalSubmitter)` 继续原动作，取消、`Esc` 与遮罩只关闭对话框；
+无脚本时由服务端以 422 失败关闭，并显示 `captcha.noscript` 提示。
 Redis 客户端由 `internal/service.NewRedis` **唯一**打开，缓存、消息总线与验证码共用；`a.Set(app.ServiceRedis, …)`
 负责一次关闭，不得再登记第二个关闭钩子。
 

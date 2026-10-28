@@ -1224,17 +1224,24 @@ WebSocket、WebTransport 与 SSE 共用 `ydx/realtime` 中枢；使用说明见
   `TestGeneratedProjectCreatesOneBackendClientPerProcess` 守卫这些单例。
 - **前端唯一实现**：登录页与账号页共用 `web/templates/partials/captcha.html`；挂载、令牌写入、提交守卫、
   4xx 重置、主题与语言跟随只由 `web/static/js/yd-captcha.js` 负责，不得另写第二套脚本或内联脚本。
-  脚本在 `window` 捕获阶段拦截未完成验证的提交，先于 htmx 与 `data-yd-confirm` 确认框；普通必填字段必须先由
-  浏览器校验，空用户名不得消耗已完成的验证码。4xx 重置必须等 htmx 完成交换，避免在即将被替换的节点上白开题。
+  启用时片段只渲染一个默认关闭的原生 `<dialog>`，**不得**在表单里保留常驻的验证码高度；两个开关都关闭时
+  整块不渲染。组件必须**在首次打开时才挂载并请求挑战**，不得在页面加载时预取一个可能在用户打开前就过期的
+  挑战。脚本在 `window` 捕获阶段拦截未完成验证的提交，先校验普通必填字段，再打开对话框；
+  SDK 验证成功后写入令牌、关闭对话框，并用 `form.requestSubmit(originalSubmitter)` 继续原动作，随后才轮到
+  htmx 与 `data-yd-confirm` 确认框。取消、`Esc` 与遮罩只关闭对话框，必须保留组件与已输入答案；对话框内的
+  回车必须触发 SDK 验证按钮，不得直接提交外层表单。4xx 重置必须等 htmx 完成交换，避免在即将被替换的节点上白开题。
 - **语言切换必须保留已验证状态**：外壳交换时验证码挂载点与隐藏令牌带 `hx-preserve`，已完成的令牌和已输入的
   答案不得丢失；标签/提示位于挂载点之外按新语言重渲染；用户名输入同样保留，口令字段不保留。历史快照恢复时必须
   清除克隆组件与旧令牌并重新出题，避免两个组件或过期令牌通过提交守卫。
-- **i18n 与主题**：周边标签与失败文案走 `field.captcha` 与 `captcha.hint/required/failed/unavailable`，
-  两本目录必须同时存在；组件自身文案由 ydx 内置目录按 `<html lang>` 提供。`i18n.default_lang` 不在
-  验证码内置语言中时回退到 `zh-CN` 并告警，不得因此拒绝启动。主题跟随 `<html data-theme>`（`light` /
-  `dark` / `auto`），切换即时生效；语言变化只让尚未完成的组件重新出题，已完成的令牌保持有效。
+- **i18n 与主题**：周边标签与失败文案走 `field.captcha` 与
+  `captcha.hint/required/failed/unavailable/noscript`，两本目录必须同时存在；`captcha.noscript` 只在 JavaScript
+  被禁用时显示，服务端仍以 422 失败关闭。组件自身文案由 ydx 内置目录按 `<html lang>` 提供。
+  `i18n.default_lang` 不在验证码内置语言中时回退到 `zh-CN` 并告警，不得因此拒绝启动。主题跟随
+  `<html data-theme>`（`light` / `dark` / `auto`），切换即时生效；语言变化只让**尚未输入内容**的未完成组件
+  重新出题，已有输入与已完成的令牌保留，组件内部文案在下次出题时更新。
 - **测试**：`security/captcha` 覆盖禁用、缺密钥、开发回退、内存存储、未知题型、Redis 严格/降级与无效令牌；
-  脚手架守卫覆盖路由/控制器顺序、共享片段、脚本顺序与两本目录键；e2e 覆盖 challenge、SDK 资产、登录与改密
+  脚手架守卫覆盖路由/控制器顺序、对话框片段、脚本顺序与两本目录键；`yd-captcha.test.mjs` 覆盖提交时打开
+  对话框、成功后的提交者保留、取消/回车/失败关闭与 4xx 重置；e2e 覆盖 challenge、SDK 资产、登录与改密
   无令牌 422，以及默认关闭时 `/captcha` 404。修改任一环节必须保持这些用例通过。
 
 ## 32. 通用附件（强制）

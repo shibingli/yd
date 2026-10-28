@@ -27,11 +27,12 @@ func TestCaptchaJSAssetMountsSameOriginSDK(t *testing.T) {
 	source := string(raw)
 
 	for _, want := range []string{
-		"data-yd-captcha", "data-yd-captcha-host", "captcha_token",
+		"data-yd-captcha", "data-yd-captcha-dialog", "data-yd-captcha-host", "captcha_token",
 		"/captcha/assets/yd-captcha.js", "/captcha/assets/yd-captcha.css",
 		"YdCaptcha.mount", ".setTheme(", ".setLocale(",
 		"data-yd-captcha-required", "data-yd-captcha-unavailable",
 		"addEventListener('submit'", ", true)",
+		"showModal", "requestSubmit", "data-yd-captcha-cancel",
 		"htmx:after:request", "htmx:after:swap",
 		"htmx:history:cache:after:restore", "aria-invalid", "checkValidity",
 	} {

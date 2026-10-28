@@ -5,6 +5,8 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"go/parser"
+	"go/token"
 	"io"
 	"mime/multipart"
 	"net"
@@ -4144,6 +4146,75 @@ func TestGeneratePinsTheRunningYdVersion(t *testing.T) {
 	}
 }
 
+// TestGeneratedGoModPinsEveryScaffoldYdxModule guards the non-local generation path: every module
+// listed in YdxModules must carry an exact tag in go.mod. A missing tag makes `go build` resolve
+// the package against the ydx root module, which does not contain submodules such as asynq and
+// openapi, and the generated project fails on a clean machine even though --local-replace tests
+// pass. | TestGeneratedGoModPinsEveryScaffoldYdxModule 守护非本地生成路径：YdxModules 中的每个模块
+// 都必须在 go.mod 中带精确标签。缺少标签时 `go build` 会到 ydx 根模块中解析这些包，而根模块并不包含
+// asynq、openapi 等子模块，生成项目在干净机器上会失败——即使 --local-replace 测试通过。
+func TestGeneratedGoModPinsEveryScaffoldYdxModule(t *testing.T) {
+	o := scaffold.DefaultOptions("pinned-modules-app")
+	o.YdVersion = "v0.0.0-20261019121535-d525ac6da9d3"
+	// Exercise the conditional template branches as well, so an import that only appears with gRPC or captcha
+	// cannot bypass the module inventory. | 同时覆盖条件模板分支，使只在 gRPC 或验证码开启时出现的 import
+	// 也不能绕过模块清单。
+	o.GRPC = true
+	o.Captcha = true
+	o.DB = scaffold.DBMySQL
+	pr, res := generateMem(t, o)
+	gomod := pr.read("go.mod")
+
+	for _, modulePath := range scaffold.YdxModules {
+		version := scaffold.YdxVersions[modulePath]
+		if version == "" {
+			t.Errorf("YdxVersions 缺少模块 %q 的版本；生成项目会退回 ydx 根模块 | YdxVersions is missing %q; the generated project would fall back to the ydx root module", modulePath, modulePath)
+			continue
+		}
+		if !strings.Contains(gomod, modulePath+" "+version) {
+			t.Errorf("go.mod 未锁定 %q 的版本 %q:\n%s", modulePath, version, gomod)
+		}
+	}
+
+	// The go.mod loop above can only see modules someone remembered to list. Scan the generated imports
+	// instead, so a new {{ .YdxModule }}/foo import cannot silently bypass the version list just because
+	// --local-replace keeps the local build green. | 上面的 go.mod 循环只能发现有人记得列出的模块；扫描生成
+	// 代码的 import，避免新增的 {{ .YdxModule }}/foo 仅因 --local-replace 本地构建通过就悄悄绕过版本清单。
+	fset := token.NewFileSet()
+	for _, generated := range res.Files {
+		if !strings.HasSuffix(generated, ".go") {
+			continue
+		}
+		src, err := afero.ReadFile(pr.fs, generated)
+		if err != nil {
+			t.Fatalf("读取生成文件 %s 失败: %v", generated, err)
+		}
+		parsed, err := parser.ParseFile(fset, generated, src, parser.ImportsOnly)
+		if err != nil {
+			t.Fatalf("解析生成文件 %s 失败: %v", generated, err)
+		}
+		for _, imported := range parsed.Imports {
+			path, err := strconv.Unquote(imported.Path.Value)
+			if err != nil || !strings.HasPrefix(path, scaffold.YdxModule+"/") {
+				continue
+			}
+			owner := ""
+			for _, modulePath := range scaffold.YdxModules {
+				if (path == modulePath || strings.HasPrefix(path, modulePath+"/")) && len(modulePath) > len(owner) {
+					owner = modulePath
+				}
+			}
+			if owner == "" {
+				t.Errorf("%s 导入了未登记的 ydx 模块路径 %q；请在 scaffoldYdxModules 与 go.mod/tools.go 中补上 | %s imports unregistered ydx path %q; add it to scaffoldYdxModules and go.mod/tools.go", generated, path, generated, path)
+				continue
+			}
+			if scaffold.YdxVersions[owner] == "" {
+				t.Errorf("%s 的 ydx 导入 %q 所属模块 %q 没有版本 | ydx import %q in %s belongs to unversioned module %q", generated, path, owner, path, generated, owner)
+			}
+		}
+	}
+}
+
 // TestGenerateThemeBootAndAutoTokens pins the generated theme pipeline: the boot script runs before
 // the stylesheet, the default is "auto", and the auto dark block carries every semantic token the
 // shell uses. The last part is what keeps the workspace readable on a system-dark visitor. |
@@ -4960,8 +5031,9 @@ func TestGeneratedProjectRendersCaptchaWidget(t *testing.T) {
 
 	partial := pr.read("web/templates/partials/captcha.html")
 	for _, want := range []string{
-		"data-yd-captcha", "data-yd-captcha-host", `name="{{ .Field }}"`, `tr "captcha.required"`,
-		"yd-field--required", `aria-describedby=`, "hx-preserve",
+		"<dialog", "data-yd-captcha", "data-yd-captcha-dialog", "data-yd-captcha-host",
+		`name="{{ .Field }}"`, `tr "captcha.required"`, `tr "captcha.noscript"`,
+		"yd-banner--error", `aria-describedby=`, "hx-preserve", "data-yd-captcha-cancel",
 	} {
 		if !strings.Contains(partial, want) {
 			t.Errorf("captcha.html 缺少 %q:\n%s", want, partial)
@@ -4969,6 +5041,9 @@ func TestGeneratedProjectRendersCaptchaWidget(t *testing.T) {
 	}
 	if strings.Contains(partial, `aria-required="true"`) {
 		t.Error("aria-required is not supported on role=group; the adapter marks the SDK answer control instead")
+	}
+	if strings.Contains(partial, "yd-field--required") {
+		t.Error("the captcha dialog must not reserve a required field row in the form | 验证码对话框不得在表单里占用必填字段行")
 	}
 	hintAt := strings.Index(partial, `id="{{ .InputID }}-hint"`)
 	hostAt := strings.Index(partial, `data-yd-captcha-host`)
@@ -4998,7 +5073,7 @@ func TestGeneratedProjectRendersCaptchaWidget(t *testing.T) {
 
 	for _, rel := range []string{"web/i18n/zh-CN.yaml", "web/i18n/en.yaml"} {
 		catalogue := pr.read(rel)
-		for _, key := range []string{"captcha:", "hint:", "required:", "failed:", "unavailable:"} {
+		for _, key := range []string{"captcha:", "hint:", "required:", "failed:", "unavailable:", "noscript:"} {
 			if !strings.Contains(catalogue, key) {
 				t.Errorf("%s 缺少验证码键 %q", rel, key)
 			}
@@ -5080,10 +5155,16 @@ func TestGeneratedAppSupportsCaptcha(t *testing.T) {
 		if respLogin.StatusCode != http.StatusOK {
 			t.Fatalf("GET /login 状态码 = %d, 期望 200\n%s", respLogin.StatusCode, login)
 		}
-		for _, want := range []string{"data-yd-captcha", "yd-login-captcha-token", "/static/js/yd-captcha.js"} {
+		for _, want := range []string{
+			"data-yd-captcha", "data-yd-captcha-dialog", "data-yd-captcha-cancel",
+			"yd-login-captcha-token", "/static/js/yd-captcha.js", "<noscript",
+		} {
 			if !strings.Contains(login, want) {
 				t.Errorf("登录页缺少 %q:\n%s", want, login)
 			}
+		}
+		if strings.Contains(login, "yd-field--required yd-field--captcha") {
+			t.Errorf("登录页仍渲染了常驻的验证码字段:\n%s", login)
 		}
 
 		for name, token := range map[string]string{
@@ -5121,7 +5202,10 @@ func TestGeneratedAppSupportsCaptcha(t *testing.T) {
 		if respAccount.StatusCode != http.StatusOK {
 			t.Fatalf("GET /account 状态码 = %d, 期望 200\n%s", respAccount.StatusCode, account)
 		}
-		for _, want := range []string{"data-yd-captcha", "yd-account-captcha-token", "password_change"} {
+		for _, want := range []string{
+			"data-yd-captcha", "data-yd-captcha-dialog", "data-yd-captcha-cancel",
+			"yd-account-captcha-token", "password_change", "<noscript",
+		} {
 			if !strings.Contains(account, want) {
 				t.Errorf("账号页缺少 %q:\n%s", want, account)
 			}

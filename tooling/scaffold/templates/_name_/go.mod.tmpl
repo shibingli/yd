@@ -17,10 +17,12 @@ replace {{ .Module }} => {{ .PathQuoted }}
 {{- else if .YdVersion }}
 
 // Pinned to the versions that generated this project, so every framework package this project
-// imports always exists. Each ydx component is released under its own tag; modules the framework
-// does not import are left to `go mod tidy`. Upgrade with `yd versions upgrade`.
+// imports always exists. Each ydx component is released under its own tag, and every module in
+// this block carries its version; a missing version would make `go build` fall back to the
+// framework root module, which does not contain these packages. Upgrade with `yd versions upgrade`.
 // | 锁定到生成本项目的版本，确保项目导入的每个框架包一定存在；ydx 各组件按自己的标签发布，
-// 框架未依赖的模块交给 `go mod tidy` 解析；升级请用 `yd versions upgrade`。
+// 本块中的每个模块都带版本；缺少版本会让 `go build` 回退到框架根模块，而根模块并不包含这些包。
+// 升级请用 `yd versions upgrade`。
 require (
 	{{ .YdModule }} {{ .YdVersion }}
 {{- range .YdxModules }}

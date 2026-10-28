@@ -1,41 +1,71 @@
 {{/*
-  partials/captcha.html —— 人机验证挂载点（登录与改密共用）。
-  partials/captcha.html — the human-verification mount point shared by sign-in and password changes.
+  partials/captcha.html —— 人机验证对话框（登录与改密共用）。
+  partials/captcha.html — the human-verification dialog shared by sign-in and password changes.
 
   数据契约 | Data contract: dict keys Enabled / Action / Endpoint / Field / InputID。
-  Enabled 为 false 时整块不渲染，页面与从未启用验证码的项目逐字节一致。
-  When Enabled is false nothing renders, so the page stays byte-identical to a project that never enabled captcha.
+  Enabled 为 false 时整块不渲染，页面与从未启用验证码的项目逐字节一致，也不占用任何布局空间。
+  When Enabled is false nothing renders: the page stays byte-identical to a project that never enabled captcha and
+  occupies no layout space.
 
-  组件本身由 /captcha/assets/yd-captcha.js 在浏览器里挂载；这里只提供挂载点、隐藏令牌字段与本地化文案。
-  The widget is mounted in the browser by /captcha/assets/yd-captcha.js; this file only provides the mount point,
-  the hidden token field and the localized copy.
+  验证码不再直接铺在表单里，而是藏在原生 <dialog> 中：用户提交表单时才由 yd-captcha.js 调用 showModal()，
+  验证成功后写入令牌、关闭对话框并重新提交原来的表单。这样登录页与账号页没有常驻的验证码高度，启用与
+  禁用验证码的页面也保持同一套布局。组件本身由 /captcha/assets/yd-captcha.js 在浏览器里挂载；这里只提供
+  对话框、挂载点、隐藏令牌字段与本地化文案。
+  The widget no longer occupies a row in the form: it lives in a native <dialog>. yd-captcha.js calls showModal()
+  when the user submits, then writes the token, closes the dialog and re-submits the original form after a successful
+  verification. The sign-in and account pages therefore keep the same layout whether captcha is enabled or disabled.
+  The widget itself is mounted in the browser by /captcha/assets/yd-captcha.js; this file only provides the dialog,
+  the mount point, the hidden token and the localized copy.
 
   挂载点与隐藏令牌带 hx-preserve：语言切换会整块替换外壳，但已完成的令牌与已输入的答案必须保留。
-  标签、提示与错误位于挂载点之外，因此按新语言重新渲染；挂载点内的组件由 yd-captcha.js 在交换后识别并沿用。
+  标题、提示与错误位于挂载点之外，因此按新语言重新渲染；挂载点内的组件由 yd-captcha.js 在交换后识别并沿用。
   The mount point and hidden token carry hx-preserve: a language switch replaces the whole shell, but a solved token
-  and the typed answer must survive. The label, hint and error sit outside the mount point and are re-rendered in the
+  and the typed answer must survive. The title, hint and error sit outside the mount point and are re-rendered in the
   new language; yd-captcha.js adopts the preserved mount point after the swap.
+
+  无脚本说明只在 JavaScript 被禁用时显示：服务端仍会在缺少令牌时以 422 失败关闭，不会放行未验证的请求。
+  The no-script notice is visible only when JavaScript is disabled; the server still fails closed with a 422 when the
+  token is missing, so an unverified request is never accepted.
 */}}
 {{- define "partials/captcha" -}}
 {{- if .Enabled }}
-<div class="yd-field yd-field--required yd-field--captcha" data-yd-captcha
-     id="{{ .InputID }}-field"
-     data-yd-captcha-action="{{ .Action }}"
-     data-yd-captcha-endpoint="{{ .Endpoint }}"
-     data-yd-captcha-input="{{ .InputID }}"
-     data-yd-captcha-required="{{ tr "captcha.required" }}"
-     data-yd-captcha-unavailable="{{ tr "captcha.unavailable" }}">
-  <span class="yd-field__label" id="{{ .InputID }}-label">{{ tr "field.captcha" }}</span>
-  <p class="yd-field__hint" id="{{ .InputID }}-hint">{{ tr "captcha.hint" }}</p>
-  {{/* 挂载点与令牌一起保留；SDK 根节点与用户已输入的答案都留在其中。 | The mount point and token are preserved together;
-       the SDK root and the typed answer stay inside. */}}
-  <div class="yd-captcha-host" data-yd-captcha-host role="group"
-       id="{{ .InputID }}-mount" hx-preserve
-       aria-labelledby="{{ .InputID }}-label"
-       aria-describedby="{{ .InputID }}-hint {{ .InputID }}-error">
-    <input type="hidden" name="{{ .Field }}" id="{{ .InputID }}" value="">
+<dialog class="yd-dialog yd-captcha-dialog" data-yd-captcha data-yd-captcha-dialog
+        id="{{ .InputID }}-dialog"
+        data-yd-captcha-action="{{ .Action }}"
+        data-yd-captcha-endpoint="{{ .Endpoint }}"
+        data-yd-captcha-input="{{ .InputID }}"
+        data-yd-captcha-required="{{ tr "captcha.required" }}"
+        data-yd-captcha-unavailable="{{ tr "captcha.unavailable" }}"
+        aria-labelledby="{{ .InputID }}-label"
+        aria-describedby="{{ .InputID }}-hint {{ .InputID }}-error">
+  <div class="yd-dialog__panel yd-captcha-dialog__panel">
+    <header class="yd-captcha-dialog__head">
+      <h2 class="yd-dialog__title" id="{{ .InputID }}-label">{{ tr "field.captcha" }}</h2>
+      <button type="button" class="yd-icon-btn yd-captcha-dialog__close"
+              data-yd-captcha-cancel
+              aria-label="{{ tr "ui.close" }}">
+        {{ template "partials/icon" "lucide-x" }}
+      </button>
+    </header>
+    <p class="yd-field__hint" id="{{ .InputID }}-hint">{{ tr "captcha.hint" }}</p>
+    {{/* 挂载点与令牌一起保留；SDK 根节点与用户已输入的答案都留在其中。 | The mount point and token are preserved together;
+         the SDK root and the typed answer stay inside. */}}
+    <div class="yd-captcha-host" data-yd-captcha-host role="group"
+         id="{{ .InputID }}-mount" hx-preserve
+         aria-labelledby="{{ .InputID }}-label"
+         aria-describedby="{{ .InputID }}-hint {{ .InputID }}-error">
+      <input type="hidden" name="{{ .Field }}" id="{{ .InputID }}" value="">
+    </div>
+    <p class="yd-field__error" id="{{ .InputID }}-error" role="alert"></p>
+    <div class="yd-dialog__actions">
+      <button type="button" class="yd-btn yd-btn--ghost" data-yd-captcha-cancel>{{ tr "ui.cancel" }}</button>
+    </div>
   </div>
-  <p class="yd-field__error" id="{{ .InputID }}-error" role="alert"></p>
-</div>
+</dialog>
+<noscript>
+  <div class="yd-banner yd-banner--error" role="alert">
+    <span class="yd-banner__text">{{ tr "captcha.noscript" }}</span>
+  </div>
+</noscript>
 {{- end }}
 {{- end -}}

@@ -80,29 +80,70 @@ function makeElement(attrs = {}) {
   return element;
 }
 
-function installEnvironment(withSDK = true) {
+function installEnvironment(withSDK = true, options = {}) {
   const html = makeElement({ 'data-theme': 'light', lang: 'zh-CN' });
   html.contains = (node) => !node || node.detached !== true;
   const head = makeElement();
   const body = makeElement();
   const token = makeElement({ id: 'captcha-token', name: 'captcha_token' });
+  const stageInput = makeElement();
   const mountTarget = makeElement();
+  if (options.dialog === true) {
+    const baseMountQuery = mountTarget.querySelector.bind(mountTarget);
+    mountTarget.querySelector = (selector) => (
+      selector === '.yd-captcha__stage input, .yd-captcha__stage select, .yd-captcha__stage textarea'
+        ? stageInput
+        : baseMountQuery(selector)
+    );
+  }
   const errorNode = makeElement();
   const control = makeElement();
+  const closeButton = makeElement();
+  const cancelButton = makeElement();
+  const verifyButton = makeElement();
+  const dialog = options.dialog === true;
   const host = makeElement({
     'data-yd-captcha': '',
     'data-yd-captcha-action': 'login',
     'data-yd-captcha-endpoint': '/captcha',
     'data-yd-captcha-input': 'captcha-token',
     'data-yd-captcha-required': '请先完成人机验证',
-    'data-yd-captcha-unavailable': '人机验证暂时不可用'
+    'data-yd-captcha-unavailable': '人机验证暂时不可用',
+    ...(dialog ? { 'data-yd-captcha-dialog': '' } : {}),
+    ...(options.clonedMarker ? { 'data-yd-captcha-bound': '1' } : {})
   });
+  if (dialog) {
+    host.open = false;
+    host.showModal = function () {
+      this.open = true;
+      this.setAttribute('open', '');
+    };
+    host.close = function () {
+      this.open = false;
+      this.removeAttribute('open');
+      // Browsers dispatch `close` from close(); the fake must do the same so a pending submission cannot be cleared
+      // before it is re-submitted. | 浏览器会在 close() 时派发 close 事件；伪 DOM 必须同样派发，否则无法发现
+      // 待提交状态在重新提交前被清掉的缺陷。
+      for (const listener of this.listeners.filter((entry) => entry.name === 'close')) {
+        listener.fn({ target: this });
+      }
+    };
+  }
   const form = makeElement();
+  form.checkValidity = () => true;
+  form.contains = () => true;
+  form.requestSubmit = (submitter) => {
+    form.submitted = (form.submitted || 0) + 1;
+    form.lastSubmitter = submitter || null;
+  };
 
   host.querySelector = (selector) => {
     if (selector === '[data-yd-captcha-host]') return mountTarget;
     if (selector === '.yd-field__error') return errorNode;
     if (selector === 'button, input, select, textarea') return control;
+    if (selector === '.yd-captcha-dialog__close') return closeButton;
+    if (selector === '.yd-captcha__actions .yd-captcha__button--primary') return verifyButton;
+    if (selector === '[data-yd-captcha-cancel]') return cancelButton;
     return null;
   };
   host.closest = (selector) => (selector === 'form' ? form : null);
@@ -123,7 +164,11 @@ function installEnvironment(withSDK = true) {
     body,
     createElement: () => makeElement(),
     getElementById: (id) => (id === 'captcha-token' ? token : null),
-    querySelectorAll: (selector) => (selector === '[data-yd-captcha]' ? hosts.filter((item) => !item.detached) : []),
+    querySelectorAll: (selector) => (
+      selector === '[data-yd-captcha]' || selector === 'dialog[data-yd-captcha-dialog]'
+        ? hosts.filter((item) => !item.detached)
+        : []
+    ),
     addEventListener: (name, fn) => { docListeners.push({ name, fn }); },
     removeEventListener: () => {},
     dispatchEvent: () => true,
@@ -190,7 +235,11 @@ function installEnvironment(withSDK = true) {
     delete globalThis.YdCaptcha;
   }
 
-  return { html, head, host, hosts, form, token, mountTarget, errorNode, control, widgets, scripts, docListeners, windowListeners, observerCallbacks };
+  return {
+    html, head, host, hosts, form, token, mountTarget, errorNode, control,
+    closeButton, cancelButton, verifyButton, stageInput, dialog,
+    widgets, scripts, docListeners, windowListeners, observerCallbacks
+  };
 }
 
 const env = installEnvironment();
@@ -467,3 +516,151 @@ function submitEventFor(failure) {
     stopImmediatePropagation() { this.stopped = true; }
   };
 }
+
+function installDialogEnvironment(withSDK = true, options = {}) {
+  const failure = installEnvironment(withSDK, { dialog: true, ...options });
+  delete require.cache[require.resolve('./yd-captcha.js')];
+  require('./yd-captcha.js');
+  return failure;
+}
+
+test('a cloned dialog carrying a stale bound attribute still gets its cancel handlers', () => {
+  // History snapshots clone dialog attributes but not listeners. The runtime marker must therefore be an expando,
+  // otherwise the clone would silently lose Esc/cancel/backdrop handling. | 历史快照会克隆对话框属性但不克隆监听器；
+  // 运行期标记必须是 expando，否则克隆节点会悄悄失去 Esc/取消/遮罩处理。
+  const env = installDialogEnvironment(true, { clonedMarker: true });
+  const cancel = env.host.listeners.find((listener) => listener.name === 'cancel');
+  assert.ok(cancel, 'the cloned dialog must be bound again despite the stale data attribute');
+  assert.equal(env.host.getAttribute('data-yd-captcha-bound'), '1');
+});
+
+test('a dialog opens on submit and re-submits the form with the original submitter after success', () => {
+  const env = installDialogEnvironment();
+  const submit = env.windowListeners.find((listener) => listener.name === 'submit');
+  const submitter = makeElement({ id: 'login-submit' });
+  const opened = submitEventFor(env);
+  opened.submitter = submitter;
+  assert.equal(env.widgets.length, 0, 'a closed dialog must not fetch a challenge at page load');
+
+  submit.fn(opened);
+  assert.equal(env.widgets.length, 1, 'opening the dialog mounts the challenge lazily');
+  assert.equal(opened.defaultPrevented, true, 'the first submit must be held for verification');
+  assert.equal(opened.stopped, true);
+  assert.equal(env.host.open, true, 'the native dialog must be open');
+  assert.equal(env.form.submitted, undefined, 'nothing may be sent before verification');
+  assert.equal(env.errorNode.textContent, '', 'opening the dialog is not an error');
+
+  const widget = env.widgets[0];
+  widget.options.onSuccess('modal-token');
+  assert.equal(env.token.value, 'modal-token');
+  assert.equal(env.host.open, false, 'success closes the dialog');
+  assert.equal(env.form.submitted, 1, 'the original form is submitted exactly once');
+  assert.equal(env.form.lastSubmitter, submitter, 'the submitter must survive the captcha round trip');
+  assert.equal(env.host.getAttribute('data-yd-captcha-verified'), 'true');
+
+  const allowed = submitEventFor(env);
+  allowed.submitter = submitter;
+  submit.fn(allowed);
+  assert.equal(allowed.defaultPrevented, false, 'a solved token lets the next submit through');
+});
+
+test('cancelling a dialog keeps the challenge and does not submit anything', () => {
+  const env = installDialogEnvironment();
+  const submit = env.windowListeners.find((listener) => listener.name === 'submit');
+  const submitter = makeElement();
+  const opened = submitEventFor(env);
+  opened.submitter = submitter;
+  submit.fn(opened);
+  assert.equal(env.host.open, true);
+
+  const cancel = env.host.listeners.find((listener) => listener.name === 'cancel');
+  assert.ok(cancel, 'the dialog must handle Esc/native cancel');
+  let prevented = false;
+  cancel.fn({ preventDefault() { prevented = true; } });
+  assert.equal(prevented, true);
+  assert.equal(env.host.open, false, 'cancel closes the dialog');
+  assert.equal(env.form.submitted, undefined, 'cancel never submits');
+  assert.equal(env.widgets.length, 1, 'cancel keeps the mounted widget');
+  assert.equal(env.widgets[0].destroyed, false);
+  assert.equal(env.token.value, '', 'cancel leaves no token behind');
+
+  const reopened = submitEventFor(env);
+  reopened.submitter = submitter;
+  submit.fn(reopened);
+  assert.equal(env.host.open, true, 'the same challenge is reused when the user retries');
+  assert.equal(env.widgets.length, 1, 'retrying must not mount a second widget');
+});
+
+test('a language change on a closed dialog destroys the widget instead of fetching a hidden challenge', () => {
+  const env = installDialogEnvironment();
+  const submit = env.windowListeners.find((listener) => listener.name === 'submit');
+  submit.fn(submitEventFor(env));
+  const widget = env.widgets[0];
+  assert.ok(widget, 'opening the dialog must mount the first widget');
+  const cancel = env.host.listeners.find((listener) => listener.name === 'cancel');
+  let prevented = false;
+  cancel.fn({ preventDefault() { prevented = true; } });
+  assert.equal(env.host.open, false);
+
+  env.html.setAttribute('lang', 'en');
+  for (const callback of env.observerCallbacks) {
+    callback();
+  }
+  assert.equal(widget.destroyed, true, 'a closed dialog must not restart its challenge in the background');
+  assert.equal(env.widgets.length, 1, 'no new widget may be mounted while the dialog is closed');
+
+  submit.fn(submitEventFor(env));
+  assert.equal(env.host.open, true);
+  assert.equal(env.widgets.length, 2, 'reopening must mount a fresh widget in the new locale');
+});
+
+test('a language change on a closed dialog keeps an already typed answer', () => {
+  const env = installDialogEnvironment();
+  const submit = env.windowListeners.find((listener) => listener.name === 'submit');
+  submit.fn(submitEventFor(env));
+  const widget = env.widgets[0];
+  env.stageInput.value = 'abcd';
+  const cancel = env.host.listeners.find((listener) => listener.name === 'cancel');
+  cancel.fn({ preventDefault() {} });
+  assert.equal(env.host.open, false);
+
+  env.html.setAttribute('lang', 'en');
+  for (const callback of env.observerCallbacks) {
+    callback();
+  }
+  assert.equal(widget.destroyed, false, 'typed answers must survive a language change');
+  assert.equal(env.stageInput.value, 'abcd');
+  assert.equal(env.widgets.length, 1, 'the existing widget must be reused');
+
+  submit.fn(submitEventFor(env));
+  assert.equal(env.host.open, true);
+  assert.equal(env.stageInput.value, 'abcd', 'reopening must restore the same answer');
+  assert.equal(env.widgets.length, 1, 'reopening must not replace the preserved widget');
+});
+
+test('Enter inside the open dialog triggers the SDK verify button instead of submitting the form', () => {
+  const env = installDialogEnvironment();
+  const submit = env.windowListeners.find((listener) => listener.name === 'submit');
+  let verified = 0;
+  env.verifyButton.click = () => { verified += 1; };
+  const opened = submitEventFor(env);
+  submit.fn(opened);
+  assert.equal(env.host.open, true);
+
+  const enter = submitEventFor(env);
+  submit.fn(enter);
+  assert.equal(enter.defaultPrevented, true, 'Enter must not reach the login form');
+  assert.equal(verified, 1, 'Enter must activate the SDK verify button');
+  assert.equal(env.form.submitted, undefined);
+});
+
+test('a failed SDK load opens the dialog with the unavailable copy and never submits', () => {
+  const env = installDialogEnvironment(false);
+  const submit = env.windowListeners.find((listener) => listener.name === 'submit');
+  const opened = submitEventFor(env);
+  submit.fn(opened);
+  assert.equal(opened.defaultPrevented, true);
+  assert.equal(env.host.open, true, 'the user must see the failure inside the dialog');
+  assert.equal(env.errorNode.textContent, '人机验证暂时不可用');
+  assert.equal(env.form.submitted, undefined);
+});
