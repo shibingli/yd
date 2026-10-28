@@ -27,12 +27,12 @@ var (
 		"/static/js/vendored/easymde.min.css",
 	}
 	// EasyMDE 不再随页面自动加载：它是消息页最大的一件资产（约 320 KB），而多数访问只是阅读。
-	// 编辑器包装元素通过 data-yd-editor-vendor 声明地址，yd-message-editor.js 在首次聚焦或打开抽屉时
-	// 再同源加载；文本域在此期间保持可用，草稿不会丢。
+	// 编辑器包装元素通过 data-yd-editor-vendor 声明地址，yd-message-editor.js 在内联紧凑编辑器出现时、
+	// 首次聚焦其它编辑器或打开抽屉时再同源加载；文本域在此期间保持可用，草稿不会丢。
 	// EasyMDE is no longer loaded with the page: it is the message page's largest asset (about 320 KB) and most
-	// visits only read. The editor wrapper declares its URL through data-yd-editor-vendor, and
-	// yd-message-editor.js loads it same-origin on first focus or when a drawer opens; the textarea stays usable
-	// meanwhile, so no draft is lost.
+	// visits only read. The editor wrapper declares its URL through data-yd-editor-vendor, and yd-message-editor.js
+	// loads it same-origin when the compact inline composer appears, on first focus of any other editor, or when a
+	// drawer opens; the textarea stays usable meanwhile, so no draft is lost.
 	messagePageScripts = []string{
 		"/static/js/yd-message-editor.js",
 		"/static/js/yd-message.js",

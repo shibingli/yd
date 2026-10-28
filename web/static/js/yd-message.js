@@ -345,6 +345,7 @@
        again here duplicates that work. */
     syncContactSelection();
     filterContacts();
+    syncUploadForms(document);
   }
 
   /* 会话栏页签：在「会话」与「联系人」之间切换；只读角色没有联系人页签时是空操作。
@@ -437,6 +438,237 @@
     if (attachments) {
       attachments.innerHTML = "";
     }
+    var upload = document.querySelector("#yd-msg-composer [data-yd-upload-form]");
+    if (upload) {
+      upload.__ydUploading = false;
+      var file = uploadFile(upload);
+      if (file) {
+        file.value = "";
+      }
+      setUploadStatus(upload, "");
+      syncUploadForm(upload);
+    }
+  }
+
+  /* ---------------------------------------------------------------- attachment preview | 附件预览 */
+
+  /* openAttachmentPreview fills the one shared dialog from the trigger's data attributes. It returns false when
+     the browser cannot open a modal dialog, in which case the anchor's download fallback stays untouched. |
+     openAttachmentPreview 用触发元素的 data 属性填充唯一的共享对话框。浏览器无法打开模态框时返回 false，
+     此时链接自身的下载回退保持不变。 */
+  function openAttachmentPreview(trigger) {
+    var dialog = document.getElementById("yd-attachment-preview");
+    if (!dialog || typeof dialog.showModal !== "function") {
+      return false;
+    }
+    var name = trigger.getAttribute("data-yd-attachment-name") || "";
+    var size = trigger.getAttribute("data-yd-attachment-size") || "";
+    var isImage = trigger.getAttribute("data-yd-attachment-image") === "1";
+    var src = trigger.getAttribute("data-yd-attachment-src") || "";
+    var download = trigger.getAttribute("data-yd-attachment-download") || trigger.getAttribute("href") || "#";
+    var title = dialog.querySelector("[data-yd-attachment-preview-title]");
+    var image = dialog.querySelector("[data-yd-attachment-preview-image]");
+    var file = dialog.querySelector("[data-yd-attachment-preview-file]");
+    var meta = dialog.querySelector("[data-yd-attachment-preview-meta]");
+    var link = dialog.querySelector("[data-yd-attachment-preview-download]");
+    if (title && name) {
+      title.textContent = name;
+    }
+    if (link) {
+      link.href = download;
+    }
+    if (meta) {
+      meta.textContent = size;
+    }
+    if (image && file) {
+      if (isImage && src) {
+        image.onerror = function () {
+          image.hidden = true;
+          image.removeAttribute("src");
+          file.hidden = false;
+        };
+        image.src = src;
+        image.alt = name;
+        image.hidden = false;
+        file.hidden = true;
+      } else {
+        image.hidden = true;
+        image.removeAttribute("src");
+        file.hidden = false;
+      }
+    }
+    try {
+      if (!dialog.open) {
+        dialog.showModal();
+      }
+    } catch (error) {
+      return false;
+    }
+    dialog.__ydPreviewOpener = trigger;
+    var close = dialog.querySelector("[data-yd-attachment-preview-close]");
+    if (close && typeof close.focus === "function") {
+      close.focus();
+    }
+    return true;
+  }
+
+  function closeAttachmentPreview(dialog) {
+    if (!dialog) {
+      return;
+    }
+    if (dialog.open && typeof dialog.close === "function") {
+      dialog.close();
+    }
+  }
+
+  document.addEventListener("click", function (event) {
+    var target = event.target;
+    var trigger = target && target.closest ? target.closest("[data-yd-attachment-preview]") : null;
+    if (!trigger) {
+      return;
+    }
+    if (openAttachmentPreview(trigger)) {
+      event.preventDefault();
+    }
+  }, true);
+
+  document.addEventListener("click", function (event) {
+    var target = event.target;
+    if (!target || !target.closest) {
+      return;
+    }
+    var closer = target.closest("[data-yd-attachment-preview-close]");
+    if (closer) {
+      closeAttachmentPreview(closer.closest("dialog"));
+      event.preventDefault();
+      return;
+    }
+    var dialog = target.closest("dialog#yd-attachment-preview");
+    if (dialog && target === dialog) {
+      closeAttachmentPreview(dialog);
+    }
+  });
+
+  document.addEventListener("close", function (event) {
+    var dialog = event.target;
+    if (!dialog || dialog.id !== "yd-attachment-preview") {
+      return;
+    }
+    var opener = dialog.__ydPreviewOpener;
+    dialog.__ydPreviewOpener = null;
+    var image = dialog.querySelector("[data-yd-attachment-preview-image]");
+    if (image) {
+      image.hidden = true;
+      image.removeAttribute("src");
+    }
+    if (opener && opener.isConnected && typeof opener.focus === "function") {
+      opener.focus();
+    }
+  }, true);
+
+  /* ---------------------------------------------------------------- uploads | 附件上传 */
+
+  /* uploadForm returns the upload form owning a file input or submit control. |
+     uploadForm 返回拥有文件输入或提交控件的上传表单。 */
+  function uploadForm(node) {
+    return node && node.closest ? node.closest("[data-yd-upload-form]") : null;
+  }
+
+  /* uploadStatusNode finds the status element declared by the form. The inline composer puts it next to the
+     upload form while the drawer keeps it inside; the explicit target id handles both. |
+     uploadStatusNode 找到表单声明的状态元素。内联撰写区把它放在上传表单旁边，抽屉把它放在表单内部；
+     显式目标 id 同时覆盖两种情况。 */
+  function uploadStatusNode(form) {
+    if (!form) {
+      return null;
+    }
+    var id = form.getAttribute("data-yd-upload-status-target");
+    if (id) {
+      var byID = document.getElementById(id);
+      if (byID) {
+        return byID;
+      }
+    }
+    return form.querySelector("[data-yd-upload-status]");
+  }
+
+  function setUploadStatus(form, state) {
+    if (!form) {
+      return;
+    }
+    var node = uploadStatusNode(form);
+    if (!node) {
+      return;
+    }
+    node.textContent = state ? (form.getAttribute("data-yd-upload-" + state) || "") : "";
+  }
+
+  /* clearUploadError removes the previous 4xx/5xx fragment after a successful retry; otherwise a stale
+     "type not allowed" banner would sit above the chip that just uploaded fine. |
+     clearUploadError 在重试成功后移除上一轮的 4xx/5xx 片段，否则“类型不允许”的旧提示会留在刚刚上传成功的标签上方。 */
+  function clearUploadError(form) {
+    if (!form) {
+      return;
+    }
+    var id = form.getAttribute("data-yd-upload-error-target");
+    if (!id) {
+      return;
+    }
+    var node = document.getElementById(id);
+    if (node) {
+      node.innerHTML = "";
+    }
+  }
+
+  function uploadFile(form) {
+    return form ? form.querySelector("[data-yd-upload-file]") : null;
+  }
+
+  function syncUploadForm(form) {
+    if (!form) {
+      return;
+    }
+    var input = uploadFile(form);
+    var button = form.querySelector("[data-yd-upload-submit]");
+    if (!input || !button) {
+      return;
+    }
+    var hasFile = !!(input.files && input.files.length > 0);
+    button.disabled = !hasFile || form.__ydUploading === true;
+  }
+
+  function syncUploadForms(root) {
+    var scope = root && root.querySelectorAll ? root : document;
+    var forms = scope.querySelectorAll("[data-yd-upload-form]");
+    for (var i = 0; i < forms.length; i++) {
+      syncUploadForm(forms[i]);
+    }
+  }
+
+  /* submitUpload starts the htmx request as soon as a file is chosen. The original upload button remains for
+     no-script use and as an explicit retry after a failure. |
+     submitUpload 在选中文件后立即发起 htmx 请求；原上传按钮保留给无脚本场景，并作为失败后的显式重试。 */
+  function submitUpload(form) {
+    if (!form || form.__ydUploading) {
+      return;
+    }
+    var input = uploadFile(form);
+    if (!input || !input.files || input.files.length === 0) {
+      return;
+    }
+    form.__ydUploading = true;
+    setUploadStatus(form, "uploading");
+    try {
+      if (typeof form.requestSubmit === "function") {
+        form.requestSubmit();
+      } else {
+        form.submit();
+      }
+    } catch (error) {
+      form.__ydUploading = false;
+      setUploadStatus(form, "failed");
+      syncUploadForm(form);
+    }
   }
 
   /* 撰写区提交时记下发送意图，交换完成后把最新一条消息滚入视野。 |
@@ -446,6 +678,13 @@
       var detail = event.detail || {};
       var ctx = detail.ctx || {};
       var elt = ctx.sourceElement || detail.elt;
+      var upload = uploadForm(elt);
+      if (upload) {
+        upload.__ydUploading = true;
+        setUploadStatus(upload, "uploading");
+        syncUploadForm(upload);
+        return;
+      }
       if (elt && elt.id === "yd-msg-composer-form") {
         sending = true;
         lastSendAt = Date.now();
@@ -465,9 +704,47 @@
         status = detail.xhr && detail.xhr.status;
       }
       var elt = ctx.sourceElement || detail.elt;
+      var upload = uploadForm(elt);
+      if (upload) {
+        upload.__ydUploading = false;
+        var uploadInput = uploadFile(upload);
+        if (typeof status === "number" && status >= 200 && status < 300) {
+          if (uploadInput) {
+            // Clearing the selection lets the user choose the same file again; the chip appended by the
+            // response keeps the uploaded id in the main message form. | 清空选择后同一个文件可以再次选择；
+            // 响应追加的标签已把上传 id 保留在主消息表单中。
+            uploadInput.value = "";
+          }
+          clearUploadError(upload);
+          setUploadStatus(upload, "uploaded");
+        } else {
+          setUploadStatus(upload, "failed");
+        }
+        syncUploadForm(upload);
+        return;
+      }
       if (typeof status === "number" && status >= 200 && status < 300 && elt && elt.id === "yd-msg-composer-form") {
         clearComposer();
       }
+    });
+  });
+
+  /* 网络错误不会产生 after:request；finally:request 总会到达，因此在这里收尾仍停留在「上传中」的表单，
+     避免按钮被永久禁用、状态永远停在「正在上传」。 | Network failures skip after:request while finally:request
+     always arrives, so reconcile any upload form still marked as uploading here instead of leaving the button
+     disabled and the status stuck on "uploading" forever. */
+  ["htmx:finally:request", "htmx:finallyRequest"].forEach(function (name) {
+    document.addEventListener(name, function (event) {
+      var detail = event.detail || {};
+      var ctx = detail.ctx || {};
+      var elt = ctx.sourceElement || detail.elt;
+      var upload = uploadForm(elt);
+      if (!upload || upload.__ydUploading !== true) {
+        return;
+      }
+      upload.__ydUploading = false;
+      setUploadStatus(upload, "failed");
+      syncUploadForm(upload);
     });
   });
 
@@ -543,7 +820,20 @@
   });
 
   document.addEventListener("change", function (event) {
-    if (event.target && event.target.matches && event.target.matches("[data-yd-contact-check]")) {
+    var target = event.target;
+    if (target && target.matches && target.matches("[data-yd-upload-file]")) {
+      var form = uploadForm(target);
+      if (form) {
+        if (target.files && target.files.length > 0) {
+          submitUpload(form);
+        } else {
+          setUploadStatus(form, "");
+          syncUploadForm(form);
+        }
+      }
+      return;
+    }
+    if (target && target.matches && target.matches("[data-yd-contact-check]")) {
       syncContactSelection();
     }
   });
@@ -559,8 +849,20 @@
       return;
     }
     var chip = remove.closest("[data-yd-attachment]");
-    if (chip && chip.parentNode) {
-      chip.parentNode.removeChild(chip);
+    if (!chip || !chip.parentNode) {
+      return;
+    }
+    var container = chip.parentNode;
+    var scope = chip.closest(".yd-msg-composer") || chip.closest("#yd-drawer");
+    container.removeChild(chip);
+    // 移除最后一个附件后清掉「附件已添加」，否则状态行会声称还有附件。
+    // Clear "attachment added" once the last chip is removed; otherwise the status line claims an attachment that
+    // is no longer there.
+    if (scope && container.querySelectorAll("[data-yd-attachment]").length === 0) {
+      var forms = scope.querySelectorAll("[data-yd-upload-form]");
+      for (var i = 0; i < forms.length; i++) {
+        setUploadStatus(forms[i], "");
+      }
     }
   });
 
@@ -569,8 +871,10 @@
     lastConversation = activeConversation();
     syncContactSelection();
     filterContacts();
+    syncUploadForms(document);
   });
   scrollThread();
   syncContactSelection();
   filterContacts();
+  syncUploadForms(document);
 })();

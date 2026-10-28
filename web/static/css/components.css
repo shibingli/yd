@@ -2316,6 +2316,69 @@
     @apply max-w-md;
   }
 
+  /* Attachment preview: one top-layer modal shared by message cards and composer chips. | 附件预览：消息卡片与
+     撰写区标签共用同一个顶层对话框。 */
+  .yd-attachment-preview {
+    width: min(56rem, calc(100vw - 2rem));
+    max-width: min(56rem, calc(100vw - 2rem));
+    max-height: calc(100dvh - 2rem);
+    overflow-y: auto;
+  }
+
+  .yd-attachment-preview__panel {
+    @apply relative;
+    gap: 0.75rem;
+  }
+
+  .yd-attachment-preview__close {
+    @apply absolute top-3 right-3 z-10;
+    background-color: var(--color-surface);
+    color: var(--color-content);
+  }
+
+  .yd-attachment-preview .yd-dialog__title {
+    padding-right: 2.5rem;
+    overflow-wrap: anywhere;
+  }
+
+  .yd-attachment-preview__body {
+    @apply flex min-w-0 flex-col items-center justify-center gap-3;
+  }
+
+  .yd-attachment-preview__image {
+    display: block;
+    max-width: 100%;
+    max-height: 65vh;
+    border-radius: var(--radius-control);
+    object-fit: contain;
+  }
+
+  .yd-attachment-preview__file {
+    @apply flex flex-col items-center gap-2 px-4 py-8 text-center;
+  }
+
+  .yd-attachment-preview__icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--color-content-muted);
+  }
+
+  .yd-attachment-preview__icon .yd-icon {
+    width: 2.5rem;
+    height: 2.5rem;
+  }
+
+  .yd-attachment-preview__meta {
+    @apply m-0;
+    color: var(--color-content-muted);
+    font-size: 0.8125rem;
+  }
+
+  .yd-attachment-preview [hidden] {
+    display: none !important;
+  }
+
   /* Right-hand drawer: full height, scrollable body, and a close control that stays reachable. | 右侧抽屉：整高、正文可滚动、关闭控件始终可达。 */
   .yd-drawer {
     width: min(34rem, 100vw);
@@ -4599,6 +4662,17 @@
     font-size: 0.75rem;
   }
 
+  .yd-msg-composer__upload-status,
+  .yd-upload [data-yd-upload-status] {
+    min-width: 0;
+    font-size: 0.75rem;
+  }
+
+  .yd-msg-composer__upload-status:empty,
+  .yd-upload [data-yd-upload-status]:empty {
+    display: none;
+  }
+
   .yd-msg-composer__send {
     margin-left: auto;
   }
@@ -4607,8 +4681,16 @@
     margin: 0;
   }
 
+  /* Reserve the compact editor's final height while EasyMDE loads: toolbar (49px) + the editor's fixed 180px body.
+     EasyMDE maps maxHeight onto the scroll area, so the upgraded composer is 229px tall even when empty. Without this
+     budget the fallback textarea is shorter and the composer grows on upgrade, which is the jump users notice when the
+     composer first receives focus. border-box keeps the 14px padding inside it. | 在 EasyMDE 加载期间预留紧凑编辑器的
+     最终高度：工具栏 49px + 编辑器固定的 180px 正文。EasyMDE 把 maxHeight 用在滚动区上，升级后的撰写区即使为空也
+     有 229px 高。没有这份预算时回退文本域更矮，升级时撰写区会突然长高，这正是用户首次聚焦时看到的高度跳变；
+     border-box 让 14px 内边距计入预算。 */
   .yd-editor--compact .yd-editor__fallback {
-    min-height: 6rem;
+    box-sizing: border-box;
+    min-height: calc(180px + 3.0625rem);
   }
 
   .yd-editor--compact .EasyMDEContainer .CodeMirror {

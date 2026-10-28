@@ -207,6 +207,11 @@ func (c *Controller) renderAdminPage(ctx *router.Ctx, notice string) {
 	data["AdminMode"] = true
 	data["Audit"] = auditViewsOf(audit)
 	data["AuditTotal"] = auditTotal
+	// 治理页共用消息卡片与其附件预览，并可能在抽屉里打开 EasyMDE；它与门户消息页加载同一组页面资产。
+	// The moderation page shares the message card/attachment preview and may open EasyMDE in a drawer, so it loads
+	// the same page assets as the portal message centre.
+	data["PageStyles"] = messagePageStyles
+	data["PageScripts"] = messagePageScripts
 	pageSize := c.messages.Options().PageSize
 	pageCount := 1
 	if pageSize > 0 {

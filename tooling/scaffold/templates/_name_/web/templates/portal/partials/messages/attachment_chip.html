@@ -3,19 +3,25 @@
   partials/messages/attachment_chip.html — one uploaded attachment.
 
   隐藏字段 attachment_ids 与消息表单同处一个 form，因此提交时随表单一起发出；移除按钮只删除本节点，
-  隐藏字段随之消失，服务端因此不会绑定它。图片附件额外带缩略图与内联预览链接，其它类型保持下载。
+  隐藏字段随之消失，服务端因此不会绑定它。点击链接在共享对话框内预览：图片直接显示，其它类型显示文件信息
+  与下载入口，链接自身的 href 保留为无脚本回退。
   The hidden attachment_ids field lives in the same form as the message fields and is submitted with them; the remove
-  button deletes this node, which removes the hidden field, so the server never binds it. Image attachments also carry
-  a thumbnail and an inline preview link; every other type stays a download.
+  button deletes this node, which removes the hidden field, so the server never binds it. Clicking the link previews in
+  the shared dialog: images render inline while other types show file information and a download action, and the href
+  stays as the no-script fallback.
 
   数据契约 | Data contract: .Attachment（messageAttachmentView）。
 */}}
 {{- define "portal/partials/messages/attachment_chip" -}}
 <span class="yd-attachment-chip" data-yd-attachment>
   <input type="hidden" name="attachment_ids" value="{{ .Attachment.ID }}">
-  <a class="yd-attachment-chip__link"
-     href="/messages/attachments/{{ .Attachment.ID }}{{ if .Attachment.Image }}?inline=1{{ end }}"
-     target="_blank" rel="noopener noreferrer">
+  <a class="yd-attachment-chip__link" href="/messages/attachments/{{ .Attachment.ID }}" download
+     data-yd-attachment-preview
+     data-yd-attachment-name="{{ .Attachment.OriginalName }}"
+     data-yd-attachment-size="{{ .Attachment.SizeText }}"
+     data-yd-attachment-image="{{ if .Attachment.Image }}1{{ else }}0{{ end }}"
+     data-yd-attachment-src="{{ if .Attachment.Image }}/messages/attachments/{{ .Attachment.ID }}?inline=1{{ end }}"
+     data-yd-attachment-download="/messages/attachments/{{ .Attachment.ID }}">
     {{- if .Attachment.Image }}
     <img class="yd-attachment-chip__thumb" src="/messages/attachments/{{ .Attachment.ID }}?inline=1"
          alt="" width="28" height="28" loading="lazy">

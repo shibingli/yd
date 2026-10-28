@@ -10,11 +10,13 @@
   submit address; every other field (type, title, Markdown, groups, labels, attachments) is identical, so the server
   validation and the field names exist exactly once.
 
-  附件上传是抽屉内的独立表单，带 data-yd-drawer-persist：成功上传不会关闭抽屉，只会把附件标签追加到
-  #yd-attachment-list；标签里的隐藏字段属于主表单，因此随主表单一起提交。
-  The attachment upload is a separate form inside the drawer and carries data-yd-drawer-persist: a successful upload
-  never closes the drawer and only appends the chip to #yd-attachment-list; the chip's hidden field belongs to the main
-  form and is therefore submitted with it.
+  附件上传是抽屉内的独立表单，带 data-yd-drawer-persist：选择文件后自动提交，成功上传不会关闭抽屉，
+  只会把附件标签追加到 #yd-attachment-list，并在表单内显示上传状态；标签里的隐藏字段属于主表单，
+  因此随主表单一起提交。点击附件同样在共享对话框内预览。
+  The attachment upload is a separate form inside the drawer and carries data-yd-drawer-persist: choosing a file submits
+  it automatically, a successful upload never closes the drawer, and it only appends the chip to #yd-attachment-list
+  while reporting status inside the form; the chip's hidden field belongs to the main form and is therefore submitted
+  with it. Attachments likewise preview in the shared dialog.
 
   数据契约 | Data contract: .Mode .Catalog .DefaultType .Message .Lang。
 */}}
@@ -88,9 +90,13 @@
     <div id="yd-attachment-list" class="yd-attachments">
       {{- range .Message.Attachments }}
       <span class="yd-attachment-chip">
-        <a class="yd-attachment-chip__link"
-           href="/messages/attachments/{{ .ID }}{{ if .Image }}?inline=1{{ end }}"
-           target="_blank" rel="noopener noreferrer">
+        <a class="yd-attachment-chip__link" href="/messages/attachments/{{ .ID }}" download
+           data-yd-attachment-preview
+           data-yd-attachment-name="{{ .OriginalName }}"
+           data-yd-attachment-size="{{ .SizeText }}"
+           data-yd-attachment-image="{{ if .Image }}1{{ else }}0{{ end }}"
+           data-yd-attachment-src="{{ if .Image }}/messages/attachments/{{ .ID }}?inline=1{{ end }}"
+           data-yd-attachment-download="/messages/attachments/{{ .ID }}">
           {{- if .Image }}
           <img class="yd-attachment-chip__thumb" src="/messages/attachments/{{ .ID }}?inline=1"
                alt="" width="28" height="28" loading="lazy">
@@ -115,15 +121,26 @@
 
 {{- if ne $mode "edit" }}
 <form class="yd-upload" method="post" action="/messages/attachments"
-      enctype="multipart/form-data"
+      enctype="multipart/form-data" data-yd-upload-form
+      data-yd-upload-status-target="yd-attachment-upload-status"
+      data-yd-upload-error-target="yd-drawer-errors"
+      data-yd-upload-uploading="{{ tr "message.uploading" }}"
+      data-yd-upload-uploaded="{{ tr "message.uploaded" }}"
+      data-yd-upload-failed="{{ tr "message.upload_failed" }}"
       hx-post="/messages/attachments" hx-target="#yd-attachment-list" hx-swap="beforeend"
-      hx-encoding="multipart/form-data" hx-status:422="target:#yd-drawer-errors swap:innerHTML"
+      hx-encoding="multipart/form-data" hx-disabled-elt="find button[type='submit']"
+      hx-status:400="target:#yd-drawer-errors swap:innerHTML"
+      hx-status:413="target:#yd-drawer-errors swap:innerHTML"
+      hx-status:415="target:#yd-drawer-errors swap:innerHTML"
+      hx-status:422="target:#yd-drawer-errors swap:innerHTML"
+      hx-status:500="target:#yd-drawer-errors swap:innerHTML"
       data-yd-drawer-persist>
   <div class="yd-field" data-yd-field="file">
     <label class="yd-field__label" for="yd-attachment-file">{{ tr "message.add_attachment" }}</label>
-    <input class="yd-input" id="yd-attachment-file" name="file" type="file">
+    <input class="yd-input" id="yd-attachment-file" name="file" type="file" data-yd-upload-file>
   </div>
-  <button type="submit" class="yd-btn yd-btn--sm">{{ template "partials/icon" "lucide-upload" }}{{ tr "message.upload" }}</button>
+  <button type="submit" class="yd-btn yd-btn--sm" data-yd-upload-submit>{{ template "partials/icon" "lucide-upload" }}{{ tr "message.upload" }}</button>
+  <span class="yd-hint" id="yd-attachment-upload-status" data-yd-upload-status role="status" aria-live="polite"></span>
 </form>
 {{- end }}
 {{- end -}}

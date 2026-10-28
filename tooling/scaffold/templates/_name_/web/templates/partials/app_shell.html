@@ -76,4 +76,32 @@
     <div id="yd-drawer-body" class="yd-drawer__body"></div>
   </div>
 </dialog>
+
+{{/* 附件预览：消息卡片与撰写区标签共用一个顶层对话框，避免每个附件都打开新页面。
+     Attachment preview: message cards and composer chips share one top-layer dialog, so viewing a file never opens
+     a new page. */}}
+<dialog id="yd-attachment-preview" class="yd-dialog yd-attachment-preview"
+        aria-labelledby="yd-attachment-preview-title">
+  <div class="yd-dialog__panel yd-attachment-preview__panel">
+    <button type="button" class="yd-icon-btn yd-attachment-preview__close"
+            data-yd-attachment-preview-close aria-label="{{ tr "ui.close" }}">
+      {{ template "partials/icon" "lucide-x" }}
+    </button>
+    <h2 class="yd-dialog__title" id="yd-attachment-preview-title"
+        data-yd-attachment-preview-title>{{ tr "attachment.preview_title" }}</h2>
+    <div class="yd-attachment-preview__body">
+      <img class="yd-attachment-preview__image" data-yd-attachment-preview-image alt="" hidden>
+      <p class="yd-attachment-preview__meta" data-yd-attachment-preview-meta></p>
+      <div class="yd-attachment-preview__file" data-yd-attachment-preview-file hidden>
+        <span class="yd-attachment-preview__icon" aria-hidden="true">{{ template "partials/icon" "lucide-paperclip" }}</span>
+        <p class="yd-hint">{{ tr "attachment.preview_hint" }}</p>
+      </div>
+    </div>
+    <div class="yd-dialog__actions">
+      <a class="yd-btn yd-btn--primary" data-yd-attachment-preview-download
+         href="#" download>{{ tr "attachment.download" }}</a>
+      <button type="button" class="yd-btn yd-btn--ghost" data-yd-attachment-preview-close>{{ tr "ui.close" }}</button>
+    </div>
+  </div>
+</dialog>
 {{- end -}}

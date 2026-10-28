@@ -208,7 +208,13 @@
       return;
     }
     if (typeof window.EasyMDE !== "function" && typeof window.EasyMDE !== "object") {
-      if (eagerEditor(element)) {
+      // The compact inline composer used to upgrade only after the user focused its textarea; that changed the
+      // composer's height under the pointer and made the first click feel jumpy. A compact editor is the primary
+      // input on the message page, so load it as soon as the composer exists. Full drawer editors remain eager on
+      // open and every other editor stays lazy. | 会话底部的紧凑编辑器过去只在用户聚焦 textarea 后才升级，插入
+      // 点下方的撰写区会因此跳动，第一次点击显得不自然。紧凑编辑器是消息页的主输入区，因此在它出现时就加载；
+      // 抽屉编辑器仍在打开时立即加载，其它编辑器继续惰性加载。
+      if (eagerEditor(element) || element.hasAttribute("data-yd-editor-compact")) {
         loadVendor(vendorURL(element), function () {
           initOne(element);
         });

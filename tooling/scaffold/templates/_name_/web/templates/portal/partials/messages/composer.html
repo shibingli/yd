@@ -3,10 +3,13 @@
   partials/messages/composer.html — the inline composer at the bottom of a conversation.
 
   普通消息直接发到 /messages；公告频道只有 message:system 能发，发到 /mgr/messages/system 并保留一次确认。
-  附件上传是独立表单：它只把标签追加进主表单的附件列表，隐藏字段因此仍随主表单提交；标签自带移除按钮。
+  附件上传是独立表单：选择文件后立即自动提交，状态行显示上传中/已添加/失败；它只把标签追加进主表单的附件
+  列表，隐藏字段因此仍随主表单提交。显式上传按钮保留给无脚本环境与失败重试，标签自带移除按钮。
   An ordinary message posts to /messages; the announcement channel accepts only message:system and posts to
-  /mgr/messages/system with one confirmation. The attachment upload is a separate form: it only appends a chip to the main
-  form's attachment list, so the hidden field still travels with the main form; the chip carries its own remove button.
+  /mgr/messages/system with one confirmation. The attachment upload is a separate form: choosing a file submits it at
+  once and a status line reports uploading/added/failed. It only appends a chip to the main form's attachment list, so
+  the hidden field still travels with the main form. The explicit upload button remains for no-script use and retries,
+  and the chip carries its own remove button.
 
   数据契约 | Data contract: .ActiveConversation、.Catalog、.CanSend、.CanSystem、.Lang。
 */}}
@@ -77,15 +80,27 @@
   <div class="yd-msg-composer__bar">
     {{- if or (not $system) .CanSend }}
     <form class="yd-msg-composer__upload" method="post" action="/messages/attachments"
-          enctype="multipart/form-data"
+          enctype="multipart/form-data" data-yd-upload-form
+          data-yd-upload-status-target="yd-msg-composer-upload-status"
+          data-yd-upload-error-target="yd-msg-composer-errors"
+          data-yd-upload-uploading="{{ tr "message.uploading" }}"
+          data-yd-upload-uploaded="{{ tr "message.uploaded" }}"
+          data-yd-upload-failed="{{ tr "message.upload_failed" }}"
           hx-post="/messages/attachments" hx-target="#yd-msg-composer-attachments" hx-swap="beforeend"
-          hx-encoding="multipart/form-data" hx-status:422="target:#yd-msg-composer-errors swap:innerHTML">
+          hx-encoding="multipart/form-data" hx-disabled-elt="find button[type='submit']"
+          hx-status:400="target:#yd-msg-composer-errors swap:innerHTML"
+          hx-status:413="target:#yd-msg-composer-errors swap:innerHTML"
+          hx-status:415="target:#yd-msg-composer-errors swap:innerHTML"
+          hx-status:422="target:#yd-msg-composer-errors swap:innerHTML"
+          hx-status:500="target:#yd-msg-composer-errors swap:innerHTML">
       <label class="yd-btn yd-btn--ghost yd-btn--sm" for="yd-msg-composer-file">
         {{ template "partials/icon" "lucide-paperclip" }}{{ tr "message.add_attachment" }}
       </label>
-      <input class="sr-only" id="yd-msg-composer-file" name="file" type="file">
-      <button type="submit" class="yd-btn yd-btn--sm">{{ template "partials/icon" "lucide-upload" }}{{ tr "message.upload" }}</button>
+      <input class="sr-only" id="yd-msg-composer-file" name="file" type="file" data-yd-upload-file>
+      <button type="submit" class="yd-btn yd-btn--sm" data-yd-upload-submit>{{ template "partials/icon" "lucide-upload" }}{{ tr "message.upload" }}</button>
     </form>
+    <span class="yd-hint yd-msg-composer__upload-status" id="yd-msg-composer-upload-status"
+          data-yd-upload-status role="status" aria-live="polite"></span>
     {{- end }}
     <span class="yd-hint yd-msg-composer__hint">{{ tr "message.send_hint" }}</span>
     <button type="submit" form="yd-msg-composer-form" class="yd-btn yd-btn--primary yd-msg-composer__send">

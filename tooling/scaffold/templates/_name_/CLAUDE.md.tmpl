@@ -143,12 +143,16 @@ Redis 客户端由 `internal/service.NewRedis` **唯一**打开，缓存、消�
    撤回**不释放附件引用**：引用行保留，只有消息被硬删除或附件字段清空才调用 `Release`。
    置顶只作用于系统来源消息，`pinned + pin_start_at + pin_end_at` 决定当前是否生效。
 4. **富文本**：存储 Markdown 源 + goldmark 渲染并净化的 HTML + 纯文本投影；不得直接把用户输入当 HTML 输出。
-   编辑器是本地 vendored 的 EasyMDE，禁止 CDN 与内联脚本。
+   编辑器是本地 vendored 的 EasyMDE，禁止 CDN 与内联脚本；内联撰写区的紧凑编辑器在片段渲染后立即加载，
+   不得等首次聚焦才升级，否则正文区高度会在聚焦瞬间跳变。
 5. **前端交互**：消息中心是即时通讯布局——左侧会话列表、右上方历史、右下方内联撰写区；后台治理与目录设置
    保持列表式管理页。日常消息直接在内联撰写区发送，不弹确认；公告频道、撤回/撤销、退出/解散、置顶与好友变更
    必须先过 `data-yd-confirm`；新建会话、编辑、置顶与群设置走右侧抽屉（`#yd-drawer`）。
    列表操作统一为图标按钮（`lucide-more-horizontal` + `aria-label`）展开的 `details.yd-menu`；
    实时刷新只重取 `/messages/:id/history`，不重建撰写区、不清掉草稿，也不整页跳转。
+   **附件**：选择文件即自动上传并显示状态（上传中/已添加/失败重试），保留显式上传按钮作为无脚本与重试入口；
+   点击附件在当前页的共享 `<dialog id="yd-attachment-preview">` 预览（图片内联，其它类型显示信息与下载），
+   禁止 `target="_blank"` 打开新页面。
 6. **实时与多节点**：`#yd-shell` 持有唯一的 `/ws/messages` 连接；事件只带 ID 与元数据，接收方按权限重取。
    生成项目默认内建 `redis`（Pub/Sub）与 `asynq`（持久重试）；Redis 不可达时告警并退回进程内 Hub，
    多副本部署必须给每个副本唯一的 `node.id`（`message.node_id` 是兼容别名）。

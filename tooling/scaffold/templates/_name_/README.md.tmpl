@@ -68,8 +68,11 @@ Go {{ .GoVersion }} + Htmx {{ .HtmxVersion }} + Tailwind CSS {{ .TailwindVersion
 - **消息治理**：`/mgr/messages` 与 `/mgr/messages/audit` 提供全租户治理与审计；
   `/mgr/message-settings` 维护消息类型、分组与标签（内置 announcement / normal / system / finance / marketing）。
 - **富文本**：Markdown 源由服务端 goldmark 渲染并净化（原始 HTML 与危险链接被移除），
-  编辑器为本地 vendored 的 EasyMDE 2.20，无 CDN、无 Node 构建。
-- **附件**：先上传后挂载，内容类型由字节嗅探、大小与 MIME 白名单由服务端强制；下载按消息可见性鉴权。
+  编辑器为本地 vendored 的 EasyMDE 2.20，无 CDN、无 Node 构建；内联撰写区在渲染时即加载紧凑编辑器，
+  聚焦正文输入区不会改变区域高度。
+- **附件**：选择文件后立即自动上传并在撰写区给出状态，无需再点击上传按钮；附件在页内模态窗口预览
+  （图片直接显示，其它类型显示文件信息与下载入口），不再打开新页面。内容类型由字节嗅探、
+  大小与 MIME 白名单由服务端强制；下载按消息可见性鉴权。
 - **实时与离线**：`/ws/messages` 推送消息、好友、撤回与置顶事件；成员 API 在
   `/api/portal/v1/messages/...` 与 `/api/portal/v1/friends/...`，管理 API（公告撤销、置顶与目录）在 `/api/v1/...`。
 
@@ -89,7 +92,8 @@ GORM 查询缓存默认开启并按安全等级分流：`yd_auth_users` 永不�
 
 The generated project ships a tenant-scoped message centre: the friend lifecycle, direct and group chats, administrator
 announcements with audit-preserving revocation and time-window pinning, mixed full-text search, message types, groups and
-tags, attachments, a locally vendored EasyMDE Markdown editor, a JSON API and a WebSocket push channel. It needs a real
+tags, attachments that upload as soon as a file is chosen and preview in an in-page modal, a locally vendored
+EasyMDE Markdown editor, a JSON API and a WebSocket push channel. It needs a real
 database; a project generated with `--db none` reports the centre as unavailable instead of pretending to work. Configure
 `message.recall_window`, `edit_window`, attachment limits and `node_id` under the `message` section (`YD_MESSAGE_*`
 environment variables map onto it). Node identity lives under the `node` section: `id` (explicit identity), `id_file`

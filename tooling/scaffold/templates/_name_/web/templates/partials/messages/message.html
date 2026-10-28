@@ -3,10 +3,12 @@
   partials/messages/message.html — one chat message (avatar, meta and bubble).
 
   正文来自服务端渲染并净化的 HTML（template.HTML）；撤回后正文已被领域层清空，这里只显示墓碑。
-  自己的消息靠右，其他人的消息靠左；操作菜单只在有对应能力时出现，且只影响当前消息。
+  自己的消息靠右，其他人的消息靠左；操作菜单只在有对应能力时出现，且只影响当前消息。附件链接在共享
+  对话框内预览（图片内联，其它类型显示信息与下载），不再打开新页面。
   The body comes from server-rendered, sanitised HTML (template.HTML); after a recall the domain layer has already
   cleared it and this file shows a tombstone. The actor's own messages align right and everyone else's left; the action
-  menu appears only when the actor holds the matching capability and only affects this message.
+  menu appears only when the actor holds the matching capability and only affects this message. Attachment links preview
+  in the shared dialog (images inline, other types with file information and download) instead of opening a new page.
 
   数据契约 | Data contract: messageView；卡片动作统一以 .BasePath 为前缀（门户 /messages，后台 /mgr/messages）。
   Data contract: messageView; card actions are prefixed with .BasePath (/messages in the portal, /mgr/messages in the back office).
@@ -88,8 +90,13 @@
           {{- with .DeleteReason }}<span class="yd-attachment__size">{{ . }}</span>{{ end }}
         </span>
         {{- else }}
-        <a class="yd-attachment" href="/messages/attachments/{{ .ID }}{{ if .Image }}?inline=1{{ end }}"
-           target="_blank" rel="noopener noreferrer"{{ if not .Image }} download{{ end }}>
+        <a class="yd-attachment" href="/messages/attachments/{{ .ID }}" download
+           data-yd-attachment-preview
+           data-yd-attachment-name="{{ .OriginalName }}"
+           data-yd-attachment-size="{{ .SizeText }}"
+           data-yd-attachment-image="{{ if .Image }}1{{ else }}0{{ end }}"
+           data-yd-attachment-src="{{ if .Image }}/messages/attachments/{{ .ID }}?inline=1{{ end }}"
+           data-yd-attachment-download="/messages/attachments/{{ .ID }}">
           {{- if .Image }}
           <img class="yd-attachment__thumb" src="/messages/attachments/{{ .ID }}?inline=1" alt="" width="28" height="28" loading="lazy">
           {{- else }}
@@ -97,7 +104,7 @@
           {{- end }}
           <span class="yd-attachment__name">{{ .OriginalName }}</span>
           <span class="yd-attachment__size">{{ .SizeText }}</span>
-          {{ if .Image }}{{ template "partials/icon" "lucide-eye" }}{{ else }}{{ template "partials/icon" "lucide-download" }}{{ end }}
+          {{ template "partials/icon" "lucide-eye" }}
         </a>
         {{- end }}
         {{- end }}

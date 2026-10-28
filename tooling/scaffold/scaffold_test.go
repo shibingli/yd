@@ -952,9 +952,12 @@ func TestGeneratedPortalAndManagementShareOneComponentLayer(t *testing.T) {
 	// The shared shell chooses one rail from data, while each tree keeps its own rail. | 共享外壳按数据选择侧栏，
 	// 两棵树的侧栏仍各自保留。
 	appShell := pr.read("web/templates/partials/app_shell.html")
-	for _, want := range []string{`template "portal/partials/sidebar"`, `template "mgr/partials/sidebar"`} {
+	for _, want := range []string{
+		`template "portal/partials/sidebar"`, `template "mgr/partials/sidebar"`,
+		`id="yd-attachment-preview"`, `data-yd-attachment-preview-image`, `tr "attachment.preview_title"`,
+	} {
 		if !strings.Contains(appShell, want) {
-			t.Errorf("共享应用外壳缺少侧栏选择 %q | the shared application shell lacks %q", want, want)
+			t.Errorf("共享应用外壳缺少侧栏选择或附件预览 %q | the shared application shell lacks %q", want, want)
 		}
 	}
 	for _, rel := range []string{"web/templates/portal/partials/sidebar.html", "web/templates/mgr/partials/sidebar.html"} {
@@ -971,6 +974,37 @@ func TestGeneratedPortalAndManagementShareOneComponentLayer(t *testing.T) {
 	card := pr.read("web/templates/partials/messages/message.html")
 	if !strings.Contains(card, "{{ .BasePath }}") {
 		t.Error("共享消息卡片必须从 .BasePath 取动作前缀 | the shared message card must take its action prefix from .BasePath")
+	}
+	for _, want := range []string{"data-yd-attachment-preview", "data-yd-attachment-src", "data-yd-attachment-download"} {
+		if !strings.Contains(card, want) {
+			t.Errorf("消息卡片附件缺少页内预览属性 %q | message-card attachments lack %q", want, want)
+		}
+	}
+	if strings.Contains(card, `target="_blank"`) {
+		t.Error("消息附件不得在新页面打开，必须使用共享预览对话框 | message attachments must not open in a new page; use the shared preview dialog")
+	}
+	composer := pr.read("web/templates/portal/partials/messages/composer.html")
+	for _, want := range []string{
+		"data-yd-upload-form", "data-yd-upload-file", "data-yd-upload-status-target", "data-yd-upload-status",
+		"data-yd-upload-uploading", "data-yd-upload-uploaded", "data-yd-upload-failed", "data-yd-upload-error-target",
+		`tr "message.uploading"`, `tr "message.uploaded"`, `tr "message.upload_failed"`,
+	} {
+		if !strings.Contains(composer, want) {
+			t.Errorf("内联撰写区缺少自动上传接线 %q | the inline composer lacks %q", want, want)
+		}
+	}
+	compose := pr.read("web/templates/portal/partials/messages/compose.html")
+	for _, want := range []string{
+		"data-yd-upload-form", "data-yd-upload-file", "data-yd-upload-submit", "data-yd-upload-status",
+		"data-yd-upload-uploading", "data-yd-upload-uploaded", "data-yd-upload-failed", "data-yd-upload-error-target",
+		"data-yd-attachment-preview", "data-yd-attachment-src", "data-yd-attachment-download",
+	} {
+		if !strings.Contains(compose, want) {
+			t.Errorf("消息抽屉缺少自动上传或附件预览接线 %q | the message drawer lacks %q", want, want)
+		}
+	}
+	if strings.Contains(compose, `target="_blank"`) {
+		t.Error("抽屉附件不得在新页面打开，必须使用共享预览对话框 | drawer attachments must not open in a new page; use the shared preview dialog")
 	}
 	for _, rel := range []string{"web/templates/portal/partials/messages/history.html", "web/templates/mgr/partials/messages/audit.html"} {
 		if !strings.Contains(pr.read(rel), `template "partials/messages/message"`) {

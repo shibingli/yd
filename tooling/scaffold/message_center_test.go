@@ -895,6 +895,7 @@ func TestGeneratedAppMessageCentre(t *testing.T) {
 			`id="yd-unread-menu-badge"`,
 			`id="yd-sidebar-unread"`,
 			`id="yd-sidebar-friend-requests"`,
+			`id="yd-attachment-preview"`,
 			`yd-user-menu__item--unread`,
 			`href="/messages?folder=unread"`,
 			`href="/account"`,
@@ -928,6 +929,14 @@ func TestGeneratedAppMessageCentre(t *testing.T) {
 			`id="yd-msg-composer-form"`,
 			`id="yd-msg-composer-body"`,
 			`id="yd-msg-composer-type-menu"`,
+			`data-yd-upload-form`,
+			`data-yd-upload-file`,
+			`data-yd-upload-status-target`,
+			`data-yd-upload-error-target`,
+			`data-yd-upload-uploaded`,
+			`id="yd-msg-composer-upload-status"`,
+			`data-yd-attachment-preview`,
+			`data-yd-attachment-src`,
 			`action="/messages"`,
 		} {
 			if !strings.Contains(body, want) {
@@ -1004,6 +1013,14 @@ func TestGeneratedAppMessageCentre(t *testing.T) {
 		requireProbeStatus(t, resp, body, http.StatusOK, "打开消息治理")
 		if !strings.Contains(body, `id="yd-admin-folder-menu"`) {
 			t.Errorf("消息治理筛选缺少统一下拉菜单:\n%s", body)
+		}
+		// 治理页复用消息卡片与附件预览；它必须加载同一份页面脚本，否则预览对话框和抽屉编辑器都不会工作。
+		// The moderation page reuses message cards and the attachment preview, so it must load the same page
+		// scripts; otherwise neither the preview dialog nor the drawer editor works.
+		for _, want := range []string{`id="yd-attachment-preview"`, "yd-message.js", "yd-message-editor.js"} {
+			if !strings.Contains(body, want) {
+				t.Errorf("消息治理页缺少 %q:\n%s", want, body)
+			}
 		}
 		if !strings.Contains(body, `data-yd-nav="mgr-messages" aria-current="page"`) {
 			t.Errorf("消息治理页未高亮治理菜单:\n%s", body)
