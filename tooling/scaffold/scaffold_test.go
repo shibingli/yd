@@ -72,6 +72,7 @@ var requiredFiles = []string{
 	"docs/cache.md",
 	"docs/captcha.md",
 	"docs/developer_guidelines.md",
+	"docs/dictionary.md",
 	"docs/frontend-components.md",
 	"docs/frontend-ui.md",
 	"docs/gorm-dialects.md",
@@ -90,6 +91,10 @@ var requiredFiles = []string{
 	"internal/controller/attachment_controller.go",
 	"internal/controller/auth_controller.go",
 	"internal/controller/controller.go",
+	"internal/controller/dictionary_api.go",
+	"internal/controller/dictionary_api_types.go",
+	"internal/controller/dictionary_controller.go",
+	"internal/controller/dictionary_view.go",
 	"internal/controller/friend_controller.go",
 	"internal/controller/home.go",
 	"internal/controller/message_admin.go",
@@ -124,6 +129,7 @@ var requiredFiles = []string{
 	"internal/service/attachment.go",
 	"internal/service/auth.go",
 	"internal/service/cache.go",
+	"internal/service/dictionary.go",
 	"internal/service/message.go",
 	"internal/service/message_bus.go",
 	"internal/service/metrics.go",
@@ -160,6 +166,7 @@ var requiredFiles = []string{
 	"web/templates/mgr/layouts/base.html",
 	"web/templates/mgr/layouts/shell.html",
 	"web/templates/mgr/pages/attachments.html",
+	"web/templates/mgr/pages/dictionaries.html",
 	"web/templates/mgr/pages/home.html",
 	"web/templates/mgr/pages/message_admin.html",
 	"web/templates/mgr/pages/message_settings.html",
@@ -169,6 +176,8 @@ var requiredFiles = []string{
 	"web/templates/mgr/pages/users.html",
 	"web/templates/mgr/partials/attachments/cleanup.html",
 	"web/templates/mgr/partials/attachments/delete.html",
+	"web/templates/mgr/partials/dictionaries/item_form.html",
+	"web/templates/mgr/partials/dictionaries/type_form.html",
 	"web/templates/mgr/partials/home/live_metrics.html",
 	"web/templates/mgr/partials/home/metrics.html",
 	"web/templates/mgr/partials/home/metrics_fragment.html",
@@ -2034,6 +2043,9 @@ func TestGeneratedAppServesFrameworkFeatures(t *testing.T) {
 			`"/mgr/users"`,
 			`"/mgr/messages"`,
 			`"/mgr/metrics"`,
+			`"/mgr/dictionaries"`,
+			`"/api/portal/v1/dictionaries"`,
+			`"/api/v1/dictionaries"`,
 			`"/api/portal/v1/messages"`,
 			`"/api/v1/message-types"`,
 			`"/events"`,
@@ -2070,6 +2082,7 @@ func TestGeneratedAppServesFrameworkFeatures(t *testing.T) {
 		}
 
 		assertAnnotatedOperations(t, doc)
+		assertOpenAPIRefsResolve(t, doc)
 
 		respDocs, docs := getText(t, client, base+"/mgr/docs", nil)
 		if respDocs.StatusCode != http.StatusOK {
@@ -4015,6 +4028,75 @@ func assertAnnotatedOperations(t *testing.T, doc string) {
 		t.Errorf("框架静态挂载点数量 = %d, 期望 1（%s）", fallback, frameworkStaticPath)
 	}
 	t.Logf("OpenAPI 注解覆盖: %d 个业务操作全部带摘要与标签，%d 个框架挂载点由路由树兜底", annotated, fallback)
+}
+
+// assertOpenAPIRefsResolve proves every local $ref in the generated document points at an
+// existing component. Unexported payload types need an @Name annotation; without it the document
+// still renders, but the reference stays dangling and /mgr/docs cannot show the schema. |
+// assertOpenAPIRefsResolve 证明生成文档中的每个本地 $ref 都指向已存在的组件。未导出的载荷类型
+// 需要 @Name 注解；缺少它时文档仍会渲染，但引用悬空，/mgr/docs 无法展示该 Schema。
+func assertOpenAPIRefsResolve(t *testing.T, doc string) {
+	t.Helper()
+
+	var root map[string]any
+	if err := json.Unmarshal([]byte(doc), &root); err != nil {
+		t.Fatalf("解析 /openapi.json 失败: %v\n%s", err, doc)
+	}
+	seen := make(map[string]bool)
+	var walk func(any)
+	walk = func(node any) {
+		switch value := node.(type) {
+		case map[string]any:
+			if ref, ok := value["$ref"].(string); ok {
+				if seen[ref] {
+					return
+				}
+				seen[ref] = true
+				if !strings.HasPrefix(ref, "#/") {
+					t.Errorf("OpenAPI $ref %q 不是本地引用", ref)
+					return
+				}
+				if _, ok := resolveOpenAPIPointer(root, strings.TrimPrefix(ref, "#/")); !ok {
+					t.Errorf("OpenAPI $ref %q 无法解析（缺少 @Name 注解？）", ref)
+				}
+				return
+			}
+			for _, child := range value {
+				walk(child)
+			}
+		case []any:
+			for _, child := range value {
+				walk(child)
+			}
+		}
+	}
+	walk(root)
+}
+
+// resolveOpenAPIPointer walks one JSON pointer inside the decoded document. | resolveOpenAPIPointer
+// 在解码后的文档内按一个 JSON 指针遍历。
+func resolveOpenAPIPointer(root map[string]any, pointer string) (any, bool) {
+	var current any = root
+	for _, token := range strings.Split(pointer, "/") {
+		token = strings.ReplaceAll(strings.ReplaceAll(token, "~1", "/"), "~0", "~")
+		switch node := current.(type) {
+		case map[string]any:
+			next, ok := node[token]
+			if !ok {
+				return nil, false
+			}
+			current = next
+		case []any:
+			index, err := strconv.Atoi(token)
+			if err != nil || index < 0 || index >= len(node) {
+				return nil, false
+			}
+			current = node[index]
+		default:
+			return nil, false
+		}
+	}
+	return current, true
 }
 
 // doText 执行请求并读出响应体文本；读取量以 maxBodyBytes 封顶，响应体始终关闭。

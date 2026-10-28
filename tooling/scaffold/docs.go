@@ -18,6 +18,7 @@ import (
 // 框架发布手册与只读需求基线不在此列：它们描述框架仓库本身，而不是由它构建的应用。
 var frameworkDocFiles = []string{
 	"attachments.md",
+	"dictionary.md",
 	"message-center.md",
 	"cache.md",
 	"redis-asynq.md",

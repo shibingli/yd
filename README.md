@@ -186,7 +186,7 @@ web/           内嵌 templates（含 components/ UI 组件库）/ static / lang
 - [yd 使用手册](docs/yd-usage.md)
 - [前端 UI 组件层与使用手册](docs/frontend-ui.md) · [组件全景与图表用法](docs/frontend-components.md)
 - [二级缓存](docs/cache.md) · [GORM 方言](docs/gorm-dialects.md) · [实时传输](docs/realtime-transports.md) · [节点身份](docs/node-identity.md) · [运行时 GC](docs/runtime-gc.md)
-- [Redis/asynq 分区](docs/redis-asynq.md) · [消息中心](docs/message-center.md) · [通用附件](docs/attachments.md) · [中间件指标](docs/middleware-metrics.md) · [发布与二进制](docs/releasing.md) · [验收记录](docs/verification.md)
+- [Redis/asynq 分区](docs/redis-asynq.md) · [消息中心](docs/message-center.md) · [通用附件](docs/attachments.md) · [数据字典](docs/dictionary.md) · [中间件指标](docs/middleware-metrics.md) · [发布与二进制](docs/releasing.md) · [验收记录](docs/verification.md)
 - [ydx 组件与基准](https://github.com/shibingli/ydx)
 
 ### 开源致谢
@@ -257,7 +257,7 @@ YD turns the “Go monolith + Htmx fragments” pair into a directly shippable f
 
 | Scenario | Typical workload | What YD provides |
 |---|---|---|
-| **Internal business systems / admin** | CRUD, forms, lists, permissions, message audit | htmx drawers and partial swaps, `yd gen crud`, the authz registry (24 permissions / 4 roles), tenant/member model, metrics dashboard, i18n/theme |
+| **Internal business systems / admin** | CRUD, forms, lists, permissions, message audit | htmx drawers and partial swaps, `yd gen crud`, the authz permission registry / 4 roles, tenant/member model, metrics dashboard, i18n/theme |
 | **Multi-tenant SaaS / enterprise apps** | Tenant isolation, user sessions, configurable database, cache and rate limits | Hard tenant boundary, per-user JWT `sec_key`, MySQL / PostgreSQL / SQLite / DM8, two-level cache and tiered GORM cache, rate limiting |
 | **Real-time messaging / collaboration / monitoring** | Chat, notifications, live dashboards, long-lived connections | Message center, WebSocket / SSE / WebTransport, the `ydx/realtime` hub, Redis multi-node fan-out, asynq retry, graceful shutdown and reconnect |
 | **Private / domestic-stack / air-gapped delivery** | Air-gapped environments, domestic crypto and databases, single-file deployment | `go:embed`, offline asset verification, no CDN, SM2/SM3/SM4, DM8, pure-Go static Linux binary, scratch images, Windows service / systemd / launchd |
@@ -394,6 +394,8 @@ cmd/yd/        CLI entry point
 runtime/       app · server · grpcx · lifecycle · service · metricsx · GC wiring
 security/      auth · authz · guomi integration
 messaging/     in-app message center
+attachments/   generic attachment metadata and references
+dictionary/    tenant-scoped data dictionaries (types, items, two-level cache)
 http/          chart · server-rendered SVG charts (line/area/bar/stacked/pie/donut/gauge/radar/heatmap)
 tooling/       scaffold · gen · build · docker · ko · assets · versions · tools
 web/           embedded templates (with the components/ UI kit) / static / language catalogs
@@ -404,7 +406,7 @@ web/           embedded templates (with the components/ UI kit) / static / langu
 - [User manual](docs/yd-usage.md)
 - [Frontend UI kit & usage manual](docs/frontend-ui.md) · [Component catalogue & charts](docs/frontend-components.md)
 - [Two-level cache](docs/cache.md) · [GORM dialects](docs/gorm-dialects.md) · [Real-time transports](docs/realtime-transports.md) · [Node identity](docs/node-identity.md) · [Runtime GC](docs/runtime-gc.md)
-- [Redis/asynq](docs/redis-asynq.md) · [Message center](docs/message-center.md) · [Generic attachments](docs/attachments.md) · [Middleware metrics](docs/middleware-metrics.md) · [Release & binaries](docs/releasing.md) · [Verification](docs/verification.md)
+- [Redis/asynq](docs/redis-asynq.md) · [Message center](docs/message-center.md) · [Generic attachments](docs/attachments.md) · [Data dictionaries](docs/dictionary.md) · [Middleware metrics](docs/middleware-metrics.md) · [Release & binaries](docs/releasing.md) · [Verification](docs/verification.md)
 - [ydx components & benchmarks](https://github.com/shibingli/ydx)
 
 ### Acknowledgements

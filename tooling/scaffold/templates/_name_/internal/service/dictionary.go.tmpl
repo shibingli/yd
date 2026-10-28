@@ -1,0 +1,80 @@
+// This file wires the data dictionary: the store opened by internal/repository, the typed cache
+// namespace that accelerates resolution, and the configuration knobs of both.
+// 本文件装配数据字典：由 internal/repository 打开的存储、加速解析的泛型缓存命名空间，以及两者的配置项。
+
+package service
+
+import (
+	"time"
+
+	"{{ .YdModule }}/dictionary"
+	"{{ .YdxModule }}/cache"
+	"{{ .YdxModule }}/config"
+	"{{ .YdxModule }}/errs"
+	ydlog "{{ .YdxModule }}/log"
+)
+
+// Data-dictionary configuration keys and defaults. | 数据字典配置键与默认值。
+const (
+	// configDictionaryCacheTTL is the cache lifetime of one resolved dictionary. | configDictionaryCacheTTL 是单个已解析字典的缓存时长。
+	configDictionaryCacheTTL = "dictionary.cache_ttl"
+	// configDictionaryNegativeTTL is how long a missing code stays negatively cached. | configDictionaryNegativeTTL 是缺失编码的负缓存时长。
+	configDictionaryNegativeTTL = "dictionary.cache_negative_ttl"
+	// dictionaryNamespace is the cache namespace of the dictionary service; it must be unique per process. |
+	// dictionaryNamespace 是数据字典服务的缓存命名空间；每个进程内必须唯一。
+	dictionaryNamespace = "dictionary"
+	// defaultDictionaryCacheTTL is used when the configuration leaves the lifetime empty. | defaultDictionaryCacheTTL
+	// 是配置未给出缓存时长时的默认值。
+	defaultDictionaryCacheTTL = 10 * time.Minute
+	// defaultDictionaryNegativeTTL is used when the configuration leaves the negative lifetime empty. |
+	// defaultDictionaryNegativeTTL 是配置未给出负缓存时长时的默认值。
+	defaultDictionaryNegativeTTL = 30 * time.Second
+)
+
+// ErrDictionaryUnavailable reports a dictionary service without a usable store or namespace. |
+// ErrDictionaryUnavailable 表示数据字典服务没有可用存储或命名空间。
+var ErrDictionaryUnavailable = errs.New("dictionary service is unavailable | 数据字典服务不可用")
+
+// DictionaryService is the project-facing data-dictionary facade. | DictionaryService 是项目侧的数据字典门面。
+type DictionaryService struct {
+	// Service is the embedded domain service. | Service 是内嵌的领域服务。
+	*dictionary.Service
+}
+
+// NewDictionaryService assembles the dictionary domain over the project's store and the process-wide
+// cache manager. A nil manager keeps the service correct but uncached. | NewDictionaryService 在项目存储与
+// 进程级缓存管理器之上装配数据字典域；管理器为 nil 时服务仍然正确，只是没有缓存。
+func NewDictionaryService(cfg *config.Config, store dictionary.Store, manager *cache.Manager, log *ydlog.Logger) (*DictionaryService, error) {
+	if store == nil {
+		return nil, errs.Wrap(dictionary.ErrUnavailable, ErrDictionaryUnavailable)
+	}
+	if log == nil {
+		log = ydlog.Default()
+	}
+	var snapshots *cache.Cache[dictionary.Snapshot]
+	if manager != nil {
+		ttl := defaultDictionaryCacheTTL
+		negativeTTL := defaultDictionaryNegativeTTL
+		if cfg != nil {
+			if value := cfg.Duration(configDictionaryCacheTTL); value > 0 {
+				ttl = value
+			}
+			if value := cfg.Duration(configDictionaryNegativeTTL); value > 0 {
+				negativeTTL = value
+			}
+		}
+		cacheService, err := cache.New[dictionary.Snapshot](manager, dictionaryNamespace,
+			cache.WithTTL(ttl),
+			cache.WithNegativeTTL(negativeTTL),
+		)
+		if err != nil {
+			return nil, errs.Wrap(err, ErrDictionaryUnavailable)
+		}
+		snapshots = cacheService
+	}
+	domainService, err := dictionary.New(store, snapshots, log, dictionary.Options{})
+	if err != nil {
+		return nil, errs.Wrap(err, ErrDictionaryUnavailable)
+	}
+	return &DictionaryService{Service: domainService}, nil
+}

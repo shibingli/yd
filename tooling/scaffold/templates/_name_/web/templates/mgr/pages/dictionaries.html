@@ -1,0 +1,242 @@
+{{/*
+  pages/dictionaries.html —— 数据字典工作台：左侧类型列表，右侧所选类型的字典项。
+  pages/dictionaries.html — the data-dictionary workbench: types on the left, items of the selected type on the right.
+
+  选择类型、搜索与分页都是 htmx 请求，目标为 #yd-workspace；新建/编辑走右侧抽屉，启停与删除先经过确认框。
+  表格使用组件层的 data.table.open/close/empty（行内包含菜单与表单，属于复杂行）。
+  Selecting a type, searching and paging are htmx requests targeting #yd-workspace; create/edit open the right drawer, and
+  status changes and deletions pass through the confirmation dialog first. The tables use the component layer's
+  data.table.open/close/empty because their rows contain menus and forms (complex rows).
+*/}}
+{{- define "mgr/pages/dictionaries" -}}
+<section class="yd-page" data-yd-page="dictionaries" aria-labelledby="yd-dictionaries-title">
+  <header class="yd-page__header">
+    <div>
+      <h1 class="yd-page__title" id="yd-dictionaries-title">{{ tr "page.dictionaries.title" }}</h1>
+      <p class="yd-page__subtitle">{{ tr "page.dictionaries.subtitle" }}</p>
+    </div>
+    {{- if .CanManage }}
+    <button type="button" class="yd-btn yd-btn--primary" data-yd-drawer-open
+            hx-get="/mgr/dictionaries/new" hx-target="#yd-drawer-body" hx-swap="innerHTML">
+      {{ template "partials/icon" "lucide-plus" }}{{ tr "dictionary.type.new" }}
+    </button>
+    {{- end }}
+  </header>
+
+  <div class="yd-workbench" id="yd-dictionary-workbench">
+    <section class="yd-card yd-section" aria-labelledby="yd-dictionary-types-title">
+      <header class="yd-section__header">
+        <h2 class="yd-section__title" id="yd-dictionary-types-title">{{ tr "dictionary.type.title" }}</h2>
+      </header>
+
+      {{ template "components.form.search" (dict
+        "ID" "yd-dictionary-search" "Action" "/mgr/dictionaries"
+        "Get" "/mgr/dictionaries" "Target" "#yd-workspace" "Swap" "innerMorph" "PushURL" true
+        "Trigger" "input changed delay:300ms from:#yd-dictionary-search, submit"
+        "Name" "q" "Value" .Keyword
+        "Label" (tr "dictionary.type.search") "LabelKey" "dictionary.type.search"
+        "Placeholder" (tr "dictionary.type.search_placeholder") "PlaceholderKey" "dictionary.type.search_placeholder"
+        "SubmitLabel" (tr "ui.search") "SubmitKey" "ui.search")}}
+
+      {{- if .CanManage }}
+      {{ template "components.data.table.open" (dict
+        "ID" "yd-dictionary-types"
+        "CaptionKey" "dictionary.type.title"
+        "Columns" (list
+          (dict "LabelKey" "field.name")
+          (dict "LabelKey" "dictionary.type.code")
+          (dict "LabelKey" "field.status")
+          (dict "LabelKey" "dictionary.type.item_count" "Numeric" true)
+          (dict "LabelKey" "field.actions" "Actions" true))) }}
+      {{- else }}
+      {{ template "components.data.table.open" (dict
+        "ID" "yd-dictionary-types"
+        "CaptionKey" "dictionary.type.title"
+        "Columns" (list
+          (dict "LabelKey" "field.name")
+          (dict "LabelKey" "dictionary.type.code")
+          (dict "LabelKey" "field.status")
+          (dict "LabelKey" "dictionary.type.item_count" "Numeric" true))) }}
+      {{- end }}
+        {{- range .Types }}
+        <tr class="yd-table__row">
+          <td class="yd-table__td">
+            <a class="yd-link" href="{{ .Href }}" hx-get="{{ .Href }}" hx-target="#yd-workspace" hx-swap="innerMorph" hx-push-url="true">{{ .Label }}</a>
+            {{- if .Active }} {{ template "components.display.badge" (dict "Tone" "info" "LabelKey" "dictionary.current") }}{{ end }}
+            {{- if .Builtin }} {{ template "components.display.badge" (dict "Tone" "muted" "LabelKey" "dictionary.type.builtin") }}{{ end }}
+          </td>
+          <td class="yd-table__td"><code class="yd-code">{{ .Code }}</code></td>
+          <td class="yd-table__td">
+            {{- if eq .Status $.StatusEnabled }}{{ template "components.display.badge" (dict "Tone" "success" "LabelKey" "status.active") }}
+            {{- else }}{{ template "components.display.badge" (dict "Tone" "warn" "LabelKey" "status.disabled") }}{{ end }}
+          </td>
+          <td class="yd-table__td yd-table__td--num">{{ .ItemCount }}</td>
+          {{- if $.CanManage }}
+          <td class="yd-table__td yd-table__td--actions">
+            <details class="yd-menu" data-yd-menu>
+              <summary class="yd-icon-btn" aria-label="{{ tr "ui.actions" }}">{{ template "partials/icon" "lucide-more-horizontal" }}</summary>
+              <div class="yd-menu__panel" role="menu">
+                <button type="button" class="yd-menu__item yd-menu__item--with-icon" role="menuitem" data-yd-drawer-open
+                        hx-get="/mgr/dictionaries/{{ .ID }}/edit" hx-target="#yd-drawer-body" hx-swap="innerHTML">{{ template "partials/icon" "lucide-pen-line" }}{{ tr "ui.edit" }}</button>
+                <form method="post" action="/mgr/dictionaries/{{ .ID }}/status"
+                      hx-post="/mgr/dictionaries/{{ .ID }}/status" hx-target="#yd-workspace" hx-swap="innerMorph"
+                      hx-status:409="target:#yd-errors swap:innerHTML" hx-status:422="target:#yd-errors swap:innerHTML"
+                      data-yd-confirm="{{ tr "confirm.toggle_dictionary" }}">
+                  <input type="hidden" name="status" value="{{ if eq .Status $.StatusEnabled }}{{ $.StatusDisabled }}{{ else }}{{ $.StatusEnabled }}{{ end }}">
+                  <button type="submit" class="yd-menu__item yd-menu__item--with-icon" role="menuitem">
+                    {{- if eq .Status $.StatusEnabled }}{{ template "partials/icon" "lucide-ban" }}{{ tr "ui.disable" }}
+                    {{- else }}{{ template "partials/icon" "lucide-circle-check" }}{{ tr "ui.enable" }}{{ end }}
+                  </button>
+                </form>
+                {{- if not .Builtin }}
+                <form method="post" action="/mgr/dictionaries/{{ .ID }}/delete"
+                      hx-post="/mgr/dictionaries/{{ .ID }}/delete" hx-target="#yd-workspace" hx-swap="innerMorph"
+                      hx-status:409="target:#yd-errors swap:innerHTML" hx-status:422="target:#yd-errors swap:innerHTML"
+                      data-yd-confirm="{{ tr "confirm.delete_dictionary" }}">
+                  <button type="submit" class="yd-menu__item yd-menu__item--with-icon" role="menuitem">{{ template "partials/icon" "lucide-trash-2" }}{{ tr "ui.delete" }}</button>
+                </form>
+                {{- end }}
+              </div>
+            </details>
+          </td>
+          {{- end }}
+        </tr>
+        {{- else }}
+        {{- if .CanManage }}
+        {{ template "components.data.table.empty" (dict "Colspan" 5 "TitleKey" "dictionary.type.empty") }}
+        {{- else }}
+        {{ template "components.data.table.empty" (dict "Colspan" 4 "TitleKey" "dictionary.type.empty") }}
+        {{- end }}
+        {{- end }}
+      {{ template "components.data.table.close" . }}
+
+      {{- if gt .TypePageCount 1 }}
+      <div class="yd-section" hx-boost="true" hx-target="#yd-workspace" hx-swap="innerMorph" hx-push-url="true">
+        {{ template "components.navigation.pagination" (dict
+          "Label" (tr "dictionary.type.title")
+          "Summary" (tr "ui.page_summary" .TypePage .TypePageCount)
+          "PrevHref" .TypePrevHref "NextHref" .TypeNextHref "Pages" .TypePages) }}
+      </div>
+      {{- end }}
+    </section>
+
+    <section class="yd-card yd-section" {{ if .Selected }}aria-labelledby="yd-dictionary-items-title"{{ else }}aria-label="{{ tr "dictionary.item.title" }}"{{ end }}>
+      {{- if .Selected }}
+      <header class="yd-section__header">
+        <div>
+          <h2 class="yd-section__title" id="yd-dictionary-items-title">
+            {{ .Selected.Label }} <code class="yd-code">{{ .Selected.Code }}</code>
+            {{- if eq .Selected.Status .StatusDisabled }} {{ template "components.display.badge" (dict "Tone" "warn" "LabelKey" "status.disabled") }}{{ end }}
+          </h2>
+          {{- if .Selected.Description }}<p class="yd-section__hint">{{ .Selected.Description }}</p>{{ end }}
+        </div>
+        {{- if .CanManage }}
+        <button type="button" class="yd-btn yd-btn--primary yd-btn--sm" data-yd-drawer-open
+                hx-get="/mgr/dictionaries/{{ .Selected.ID }}/items/new" hx-target="#yd-drawer-body" hx-swap="innerHTML">
+          {{ template "partials/icon" "lucide-plus" }}{{ tr "dictionary.item.new" }}
+        </button>
+        {{- end }}
+      </header>
+
+      <form class="yd-toolbar" role="search" method="get" action="/mgr/dictionaries"
+            hx-get="/mgr/dictionaries" hx-target="#yd-workspace" hx-swap="innerMorph" hx-push-url="true"
+            hx-trigger="input changed delay:300ms from:#yd-dictionary-item-search, submit">
+        <input type="hidden" name="type" value="{{ .Selected.ID }}">
+        <input type="hidden" name="q" value="{{ .Keyword }}">
+        {{- if gt .TypePage 1 }}
+        <input type="hidden" name="page" value="{{ .TypePage }}">
+        {{- end }}
+        {{ template "components.form.field" (dict
+          "ID" "yd-dictionary-item-search" "Name" "iq" "Type" "search" "Value" .ItemKeyword
+          "Label" (tr "dictionary.item.search") "LabelKey" "dictionary.item.search" "LabelHidden" true
+          "Placeholder" (tr "dictionary.item.search_placeholder") "PlaceholderKey" "dictionary.item.search_placeholder"
+          "LeadingIcon" "lucide-search" "MaxLength" 128) }}
+        <button type="submit" class="yd-btn">{{ template "partials/icon" "lucide-search" }}{{ tr "ui.search" }}</button>
+      </form>
+
+      {{- if .CanManage }}
+      {{ template "components.data.table.open" (dict
+        "ID" "yd-dictionary-items"
+        "CaptionKey" "dictionary.item.title"
+        "Columns" (list
+          (dict "LabelKey" "dictionary.item.label")
+          (dict "LabelKey" "dictionary.item.value")
+          (dict "LabelKey" "dictionary.item.sort" "Numeric" true)
+          (dict "LabelKey" "field.status")
+          (dict "LabelKey" "field.actions" "Actions" true))) }}
+      {{- else }}
+      {{ template "components.data.table.open" (dict
+        "ID" "yd-dictionary-items"
+        "CaptionKey" "dictionary.item.title"
+        "Columns" (list
+          (dict "LabelKey" "dictionary.item.label")
+          (dict "LabelKey" "dictionary.item.value")
+          (dict "LabelKey" "dictionary.item.sort" "Numeric" true)
+          (dict "LabelKey" "field.status"))) }}
+      {{- end }}
+        {{- range .Items }}
+        <tr class="yd-table__row">
+          <td class="yd-table__td">
+            <span class="yd-table__primary">{{ .Label }}</span>
+            {{- if .IsDefault }} {{ template "components.display.badge" (dict "Tone" "info" "LabelKey" "dictionary.item.default") }}{{ end }}
+            {{- if .Remark }} <span class="yd-hint">{{ .Remark }}</span>{{ end }}
+          </td>
+          <td class="yd-table__td"><code class="yd-code">{{ .Value }}</code></td>
+          <td class="yd-table__td yd-table__td--num">{{ .Sort }}</td>
+          <td class="yd-table__td">
+            {{- if eq .Status $.StatusEnabled }}{{ template "components.display.badge" (dict "Tone" "success" "LabelKey" "status.active") }}
+            {{- else }}{{ template "components.display.badge" (dict "Tone" "warn" "LabelKey" "status.disabled") }}{{ end }}
+          </td>
+          {{- if $.CanManage }}
+          <td class="yd-table__td yd-table__td--actions">
+            <details class="yd-menu" data-yd-menu>
+              <summary class="yd-icon-btn" aria-label="{{ tr "ui.actions" }}">{{ template "partials/icon" "lucide-more-horizontal" }}</summary>
+              <div class="yd-menu__panel" role="menu">
+                <button type="button" class="yd-menu__item yd-menu__item--with-icon" role="menuitem" data-yd-drawer-open
+                        hx-get="/mgr/dictionaries/{{ $.Selected.ID }}/items/{{ .ID }}/edit" hx-target="#yd-drawer-body" hx-swap="innerHTML">{{ template "partials/icon" "lucide-pen-line" }}{{ tr "ui.edit" }}</button>
+                <form method="post" action="/mgr/dictionaries/{{ $.Selected.ID }}/items/{{ .ID }}/status"
+                      hx-post="/mgr/dictionaries/{{ $.Selected.ID }}/items/{{ .ID }}/status" hx-target="#yd-workspace" hx-swap="innerMorph"
+                      hx-status:409="target:#yd-errors swap:innerHTML" hx-status:422="target:#yd-errors swap:innerHTML"
+                      data-yd-confirm="{{ tr "confirm.toggle_dictionary_item" }}">
+                  <input type="hidden" name="status" value="{{ if eq .Status $.StatusEnabled }}{{ $.StatusDisabled }}{{ else }}{{ $.StatusEnabled }}{{ end }}">
+                  <button type="submit" class="yd-menu__item yd-menu__item--with-icon" role="menuitem">
+                    {{- if eq .Status $.StatusEnabled }}{{ template "partials/icon" "lucide-ban" }}{{ tr "ui.disable" }}
+                    {{- else }}{{ template "partials/icon" "lucide-circle-check" }}{{ tr "ui.enable" }}{{ end }}
+                  </button>
+                </form>
+                <form method="post" action="/mgr/dictionaries/{{ $.Selected.ID }}/items/{{ .ID }}/delete"
+                      hx-post="/mgr/dictionaries/{{ $.Selected.ID }}/items/{{ .ID }}/delete" hx-target="#yd-workspace" hx-swap="innerMorph"
+                      hx-status:409="target:#yd-errors swap:innerHTML" hx-status:422="target:#yd-errors swap:innerHTML"
+                      data-yd-confirm="{{ tr "confirm.delete_dictionary_item" }}">
+                  <button type="submit" class="yd-menu__item yd-menu__item--with-icon" role="menuitem">{{ template "partials/icon" "lucide-trash-2" }}{{ tr "ui.delete" }}</button>
+                </form>
+              </div>
+            </details>
+          </td>
+          {{- end }}
+        </tr>
+        {{- else }}
+        {{- if .CanManage }}
+        {{ template "components.data.table.empty" (dict "Colspan" 5 "TitleKey" "dictionary.item.empty") }}
+        {{- else }}
+        {{ template "components.data.table.empty" (dict "Colspan" 4 "TitleKey" "dictionary.item.empty") }}
+        {{- end }}
+        {{- end }}
+      {{ template "components.data.table.close" . }}
+
+      {{- if gt .ItemPageCount 1 }}
+      <div class="yd-section" hx-boost="true" hx-target="#yd-workspace" hx-swap="innerMorph" hx-push-url="true">
+        {{ template "components.navigation.pagination" (dict
+          "Label" (tr "dictionary.item.title")
+          "Summary" (tr "ui.page_summary" .ItemPage .ItemPageCount)
+          "PrevHref" .ItemPrevHref "NextHref" .ItemNextHref "Pages" .ItemPages) }}
+      </div>
+      {{- end }}
+      {{- else }}
+      {{ template "components.layout.empty" (dict "TitleKey" "dictionary.type.select_hint") }}
+      {{- end }}
+    </section>
+  </div>
+</section>
+{{- end -}}
+{{ template "mgr/pages/dictionaries" . }}

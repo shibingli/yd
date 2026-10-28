@@ -1,0 +1,230 @@
+{{/*
+  This file owns the data-dictionary JSON API payloads and their conversions: request structs,
+  response views, code parsing and the extra-JSON normalization.
+  本文件承载数据字典 JSON API 的载荷与转换：请求结构、响应视图、编码解析与扩展 JSON 规范化。
+*/}}
+
+package controller
+
+import (
+	"strconv"
+	"strings"
+
+	"{{ .YdModule }}/dictionary"
+	"{{ .YdxModule }}/json"
+	"{{ .YdxModule }}/router"
+)
+
+// dictionaryTypeRequest is the JSON payload of a type create or update. | dictionaryTypeRequest 是类型新建或更新的 JSON 载荷。
+//
+// @Name dictionaryTypeRequest
+type dictionaryTypeRequest struct {
+	// Code is the immutable code; updates ignore it. | Code 是不可变编码；更新时忽略。
+	Code string `json:"code"`
+	// Name is the Chinese display name. | Name 是中文展示名。
+	Name string `json:"name"`
+	// NameEN is the English display name. | NameEN 是英文展示名。
+	NameEN string `json:"name_en"`
+	// Description explains the dictionary. | Description 说明字典用途。
+	Description string `json:"description"`
+	// Status is enabled or disabled. | Status 取 enabled 或 disabled。
+	Status string `json:"status"`
+	// Sort is the display order. | Sort 是展示顺序。
+	Sort int `json:"sort"`
+}
+
+// dictionaryItemRequest is the JSON payload of an item create or update. | dictionaryItemRequest 是字典项新建或更新的 JSON 载荷。
+//
+// @Name dictionaryItemRequest
+type dictionaryItemRequest struct {
+	// Value is the immutable machine value; updates ignore it. | Value 是不可变机器值；更新时忽略。
+	Value string `json:"value"`
+	// Label is the Chinese label. | Label 是中文标签。
+	Label string `json:"label"`
+	// LabelEN is the English label. | LabelEN 是英文标签。
+	LabelEN string `json:"label_en"`
+	// Extra is a JSON object with presentation metadata. | Extra 是携带展示元数据的 JSON 对象。
+	Extra any `json:"extra"`
+	// Remark is the administrative note. | Remark 是管理备注。
+	Remark string `json:"remark"`
+	// Status is enabled or disabled. | Status 取 enabled 或 disabled。
+	Status string `json:"status"`
+	// Default marks the preselected item. | Default 标记预选项。
+	Default bool `json:"default"`
+	// Sort is the display order. | Sort 是展示顺序。
+	Sort int `json:"sort"`
+}
+
+// dictionarySnapshotItemView is one public item in a resolution response. | dictionarySnapshotItemView 是解析响应中的一个公共字典项。
+//
+// @Name dictionarySnapshotItemView
+type dictionarySnapshotItemView struct {
+	// Value is the machine value. | Value 是机器值。
+	Value string `json:"value"`
+	// Label is the Chinese label. | Label 是中文标签。
+	Label string `json:"label"`
+	// LabelEN is the English label. | LabelEN 是英文标签。
+	LabelEN string `json:"label_en,omitempty"`
+	// Extra is the decoded metadata object. | Extra 是解码后的元数据对象。
+	Extra any `json:"extra,omitempty"`
+	// IsDefault reports whether the item is preselected. | IsDefault 报告该字典项是否为预选项。
+	IsDefault bool `json:"default,omitempty"`
+	// Sort is the display order. | Sort 是展示顺序。
+	Sort int `json:"sort,omitempty"`
+}
+
+// dictionarySnapshotView is one resolved dictionary in an API response. | dictionarySnapshotView 是 API 响应中的一个已解析字典。
+//
+// @Name dictionarySnapshotView
+type dictionarySnapshotView struct {
+	// Code is the immutable code. | Code 是不可变编码。
+	Code string `json:"code"`
+	// Name is the Chinese name. | Name 是中文名。
+	Name string `json:"name"`
+	// NameEN is the English name. | NameEN 是英文名。
+	NameEN string `json:"name_en,omitempty"`
+	// Description explains the dictionary. | Description 说明字典用途。
+	Description string `json:"description,omitempty"`
+	// Items are the enabled items. | Items 是启用的字典项。
+	Items []dictionarySnapshotItemView `json:"items"`
+}
+
+// dictionaryBatchResponse is the portal batch response. | dictionaryBatchResponse 是门户批量响应。
+//
+// @Name dictionaryBatchResponse
+type dictionaryBatchResponse struct {
+	// Dictionaries are the resolved dictionaries in request order. | Dictionaries 是按请求顺序排列的已解析字典。
+	Dictionaries []dictionarySnapshotView `json:"dictionaries"`
+	// Missing lists requested codes without an enabled type. | Missing 列出没有启用类型的请求编码。
+	Missing []string `json:"missing,omitempty"`
+}
+
+// dictionaryCodes collects repeated code parameters and comma-separated codes parameters. |
+// dictionaryCodes 收集重复的 code 参数与逗号分隔的 codes 参数。
+func dictionaryCodes(ctx *router.Ctx) []string {
+	codes := make([]string, 0, 4)
+	appendCodes := func(value string) {
+		for _, part := range strings.Split(value, ",") {
+			if part = strings.TrimSpace(part); part != "" {
+				codes = append(codes, part)
+			}
+		}
+	}
+	for _, value := range ctx.QueryValuesAll("code") {
+		appendCodes(value)
+	}
+	for _, value := range ctx.QueryValuesAll("codes") {
+		appendCodes(value)
+	}
+	return codes
+}
+
+// queryInt reads one integer query parameter and falls back to fallback. | queryInt 读取一个整数查询参数，非法时回退。
+func queryInt(ctx *router.Ctx, name string, fallback int) int {
+	value, err := strconv.Atoi(strings.TrimSpace(ctx.Query(name)))
+	if err != nil {
+		return fallback
+	}
+	return value
+}
+
+// dictionaryTypeInput converts a JSON payload into the domain input. | dictionaryTypeInput 把 JSON 载荷转换为领域输入。
+func dictionaryTypeInput(request dictionaryTypeRequest) dictionary.TypeInput {
+	return dictionary.TypeInput{
+		Code:        request.Code,
+		Name:        request.Name,
+		NameEN:      request.NameEN,
+		Description: request.Description,
+		Status:      dictionary.Status(request.Status),
+		Sort:        request.Sort,
+	}
+}
+
+// dictionaryItemInput converts a JSON payload into the domain input. | dictionaryItemInput 把 JSON 载荷转换为领域输入。
+func dictionaryItemInput(request dictionaryItemRequest) (dictionary.ItemInput, error) {
+	extra, err := dictionaryExtraInput(request.Extra)
+	if err != nil {
+		return dictionary.ItemInput{}, err
+	}
+	return dictionary.ItemInput{
+		Value:   request.Value,
+		Label:   request.Label,
+		LabelEN: request.LabelEN,
+		Extra:   extra,
+		Remark:  request.Remark,
+		Status:  dictionary.Status(request.Status),
+		Default: request.Default,
+		Sort:    request.Sort,
+	}, nil
+}
+
+// dictionaryExtraInput normalizes the JSON metadata field: a string is treated as raw JSON and any
+// other value is marshalled; both must produce a JSON object. | dictionaryExtraInput 规范化 JSON 元数据字段：
+// 字符串按原始 JSON 处理，其它值序列化；两者都必须产生 JSON 对象。
+func dictionaryExtraInput(value any) (string, error) {
+	if value == nil {
+		return "", nil
+	}
+	if text, ok := value.(string); ok {
+		text = strings.TrimSpace(text)
+		if text == "" {
+			return "", nil
+		}
+		if !json.Valid([]byte(text)) {
+			return "", dictionary.ErrInvalidExtra
+		}
+		return text, nil
+	}
+	data, err := json.Marshal(value)
+	if err != nil {
+		return "", dictionary.ErrInvalidExtra
+	}
+	return string(data), nil
+}
+
+// dictionarySnapshotViews converts resolved snapshots into API views in request order. | dictionarySnapshotViews
+// 按请求顺序把已解析快照转换为 API 视图。
+func dictionarySnapshotViews(snapshots map[string]dictionary.Snapshot, order []string) ([]dictionarySnapshotView, []string) {
+	views := make([]dictionarySnapshotView, 0, len(order))
+	missing := make([]string, 0)
+	seen := make(map[string]struct{}, len(order))
+	for _, code := range order {
+		code = strings.ToLower(strings.TrimSpace(code))
+		if code == "" {
+			continue
+		}
+		if _, ok := seen[code]; ok {
+			continue
+		}
+		seen[code] = struct{}{}
+		snapshot, ok := snapshots[code]
+		if !ok {
+			missing = append(missing, code)
+			continue
+		}
+		views = append(views, dictionarySnapshotViewOf(snapshot))
+	}
+	return views, missing
+}
+
+// dictionarySnapshotViewOf converts one snapshot. | dictionarySnapshotViewOf 转换一个快照。
+func dictionarySnapshotViewOf(snapshot dictionary.Snapshot) dictionarySnapshotView {
+	items := make([]dictionarySnapshotItemView, 0, len(snapshot.Items))
+	for _, item := range snapshot.Items {
+		items = append(items, dictionarySnapshotItemView{
+			Value:     item.Value,
+			Label:     item.Label,
+			LabelEN:   item.LabelEN,
+			Extra:     dictionaryExtraValue(item.Extra),
+			IsDefault: item.IsDefault,
+			Sort:      item.Sort,
+		})
+	}
+	return dictionarySnapshotView{
+		Code:        snapshot.Code,
+		Name:        snapshot.Name,
+		NameEN:      snapshot.NameEN,
+		Description: snapshot.Description,
+		Items:       items,
+	}
+}

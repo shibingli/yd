@@ -99,7 +99,7 @@ func NewAttachmentService(store attachments.Store, cfg *config.Config, log *ydlo
 	case "local":
 		fileStore, err := filestore.New(dir)
 		if err != nil {
-			return nil, errs.WrapDetail(err, ErrAttachmentUnavailable, "dir=%q | 目录=%q", dir)
+			return nil, errs.WrapDetail(err, ErrAttachmentUnavailable, "dir=%[1]q | 目录=%[1]q", dir)
 		}
 		blobs = fileStore
 	case "redis":
@@ -108,7 +108,7 @@ func NewAttachmentService(store attachments.Store, cfg *config.Config, log *ydlo
 		}
 		redisBlob, err := redisstore.New(redisClient, prefix)
 		if err != nil {
-			return nil, errs.WrapDetail(err, ErrAttachmentUnavailable, "prefix=%q | 前缀=%q", prefix)
+			return nil, errs.WrapDetail(err, ErrAttachmentUnavailable, "prefix=%[1]q | 前缀=%[1]q", prefix)
 		}
 		blobs = redisBlob
 	default:

@@ -28,6 +28,7 @@ nav:
     api: "接口"
     messages: "消息"
     files: "文件"
+    data: "数据"
     management: "管理"
     dev: "开发工具"
 
@@ -44,6 +45,7 @@ nav:
   messages: "消息中心"
   friends: "好友"
   attachments: "附件"
+  dictionaries: "数据字典"
   message_admin: "消息治理"
   message_settings: "消息目录"
   user_menu: "用户菜单"
@@ -267,6 +269,12 @@ confirm:
   block_friend: "确定要拉黑这位用户吗？好友关系会被删除。"
   unblock_friend: "确定要解除拉黑吗？"
   save_remark: "确定要保存这条好友备注吗？"
+  save_dictionary: "确定要保存这个字典类型吗？"
+  save_dictionary_item: "确定要保存这个字典项吗？"
+  delete_dictionary: "确定要删除这个字典类型及其全部字典项吗？该操作不可撤销。"
+  delete_dictionary_item: "确定要删除这个字典项吗？"
+  toggle_dictionary: "确定要切换这个字典类型的启停状态吗？"
+  toggle_dictionary_item: "确定要切换这个字典项的启停状态吗？"
   recall_message: "确定要撤回这条消息吗？"
   revoke_message: "确定要撤销这条系统公告吗？历史记录会保留。"
   pin_message: "确定要置顶这条公告吗？"
@@ -402,12 +410,50 @@ page:
   message_settings:
     title: "消息目录"
     subtitle: "维护消息类型、分组与标签；系统类型受保护"
+  dictionaries:
+    title: "数据字典"
+    subtitle: "维护租户内的枚举类型与字典项；编码与机器值创建后不可修改"
   message_admin:
     title: "消息治理"
     subtitle: "管理员检索全部消息、撤销公告并查看审计"
   message_audit:
     title: "消息审计"
     subtitle: "撤回、撤销、置顶与管理员编辑都留有记录"
+
+dictionary:
+  current: "当前"
+  type:
+    title: "字典类型"
+    new: "新建字典"
+    edit: "编辑字典"
+    hint: "字典编码创建后不可修改；业务数据只保存字典项的机器值。"
+    search: "搜索字典类型"
+    search_placeholder: "编码或名称"
+    code: "字典编码"
+    code_hint: "小写字母开头，仅限小写字母、数字与下划线，创建后不可修改"
+    name_en: "英文名称"
+    description: "说明"
+    sort: "排序"
+    item_count: "字典项数"
+    builtin: "内置"
+    empty: "还没有任何字典类型"
+    select_hint: "从左侧选择一个字典类型来查看它的字典项。"
+  item:
+    title: "字典项"
+    new: "新建字典项"
+    edit: "编辑字典项"
+    search: "搜索字典项"
+    search_placeholder: "值或标签"
+    value: "机器值"
+    value_hint: "业务数据保存的值，创建后不可修改"
+    label: "中文标签"
+    label_en: "英文标签"
+    sort: "排序"
+    default: "默认项"
+    extra: "扩展 JSON"
+    extra_hint: "可选，必须是 JSON 对象，例如 {\"color\":\"red\"}"
+    remark: "备注"
+    empty: "该字典还没有任何字典项"
 
 
 message:

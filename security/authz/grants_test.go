@@ -190,6 +190,11 @@ func TestBuiltinGrantsAuditorIsReadOnly(t *testing.T) {
 	held := make(map[string]bool, len(g.Permissions))
 	for _, token := range g.Permissions {
 		held[token] = true
+		if token == authz.PermDictionaryResolve {
+			// A read-shaped capability that does not end in :read and is listed explicitly by the
+			// auditor grant. | 一种读取形态但不以 :read 结尾、由审计员授权显式列出的能力。
+			continue
+		}
 		if !strings.HasSuffix(token, ":read") {
 			t.Errorf("the auditor holds %q, which is not a read capability | 审计员持有 %q，而它不是读能力", token, token)
 		}
@@ -209,10 +214,13 @@ func TestBuiltinGrantsAuditorIsReadOnly(t *testing.T) {
 //
 // Every other capability is tenant-wide, so granting one would let an ordinary account reach its
 // colleagues' data. The message and attachment capabilities listed here are different: their
-// services scope them to the member's own conversations, messages and uploads, which is why they
-// are the only entries here and why this list must stay closed. | 其余能力都是租户级的，授予任何一项
+// services scope them to the member's own conversations, messages and uploads. dictionary:resolve is
+// different in the other direction: it exposes the tenant's reference data (labels and machine
+// values) and no personal record, which is exactly what a member's forms need to render a select.
+// These are the only entries here, and this list must stay closed. | 其余能力都是租户级的，授予任何一项
 // 都会让普通账号碰到同事的数据。这里列出的消息与附件能力不同：对应服务把它们限定在成员自己的会话、
-// 消息与上传上，这正是它们是唯一条目、且这份清单必须保持封闭的原因。
+// 消息与上传上。dictionary:resolve 则是另一种不同：它只暴露租户的参考数据（标签与机器值），不含任何个人记录，
+// 而这正是成员的表达单渲染下拉框所需要的。它们就是这里的全部条目，且这份清单必须保持封闭。
 func TestBuiltinGrantsMemberHoldsOnlySelfService(t *testing.T) {
 	g, ok := authz.GrantOf(authz.RoleMember)
 	if !ok {
@@ -226,6 +234,7 @@ func TestBuiltinGrantsMemberHoldsOnlySelfService(t *testing.T) {
 		authz.PermAttachmentCreate:  true,
 		authz.PermAttachmentReadOwn: true,
 		authz.PermAttachmentDelete:  true,
+		authz.PermDictionaryResolve: true,
 	}
 	held := make(map[string]bool, len(g.Permissions))
 	for _, token := range g.Permissions {

@@ -23,6 +23,7 @@ nav:
     api: "API"
     messages: "Messages"
     files: "Files"
+    data: "Data"
     management: "Management"
     dev: "Development"
 
@@ -39,6 +40,7 @@ nav:
   messages: "Message centre"
   friends: "Friends"
   attachments: "Attachments"
+  dictionaries: "Data dictionaries"
   message_admin: "Moderation"
   message_settings: "Message catalogue"
   unread_messages: "Unread messages"
@@ -262,6 +264,12 @@ confirm:
   block_friend: "Block this user? The friendship is removed."
   unblock_friend: "Unblock this user?"
   save_remark: "Save this friend remark?"
+  save_dictionary: "Save this dictionary type?"
+  save_dictionary_item: "Save this dictionary item?"
+  delete_dictionary: "Delete this dictionary type and every item it owns? This cannot be undone."
+  delete_dictionary_item: "Delete this dictionary item?"
+  toggle_dictionary: "Change the status of this dictionary type?"
+  toggle_dictionary_item: "Change the status of this dictionary item?"
   recall_message: "Recall this message?"
   revoke_message: "Revoke this announcement? The history is retained."
   pin_message: "Pin this announcement?"
@@ -397,12 +405,50 @@ page:
   message_settings:
     title: "Message catalogue"
     subtitle: "Maintain message types, groups and labels; the system type is protected"
+  dictionaries:
+    title: "Data dictionaries"
+    subtitle: "Maintain the tenant's enumerations and their items; codes and machine values are immutable"
   message_admin:
     title: "Moderation"
     subtitle: "Search every message, revoke announcements and review the audit trail"
   message_audit:
     title: "Message audit"
     subtitle: "Recall, revoke, pin and administrator edits all leave a record"
+
+dictionary:
+  current: "Current"
+  type:
+    title: "Dictionary types"
+    new: "New dictionary"
+    edit: "Edit dictionary"
+    hint: "The code is immutable after creation; business rows keep item values, never labels."
+    search: "Search dictionary types"
+    search_placeholder: "Code or name"
+    code: "Dictionary code"
+    code_hint: "starts with a lower-case letter and contains only lower-case letters, digits and underscores; immutable after creation"
+    name_en: "English name"
+    description: "Description"
+    sort: "Order"
+    item_count: "Items"
+    builtin: "Built-in"
+    empty: "No dictionary types yet"
+    select_hint: "Select a dictionary type on the left to see its items."
+  item:
+    title: "Dictionary items"
+    new: "New dictionary item"
+    edit: "Edit dictionary item"
+    search: "Search dictionary items"
+    search_placeholder: "Value or label"
+    value: "Machine value"
+    value_hint: "the value business rows store; immutable after creation"
+    label: "Chinese label"
+    label_en: "English label"
+    sort: "Order"
+    default: "Default item"
+    extra: "Extra JSON"
+    extra_hint: "optional; must be a JSON object, for example {\"color\":\"red\"}"
+    remark: "Remark"
+    empty: "This dictionary has no items yet"
 
 
 message:

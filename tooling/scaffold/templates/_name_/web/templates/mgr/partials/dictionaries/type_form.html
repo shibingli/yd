@@ -1,0 +1,49 @@
+{{/*
+  partials/dictionaries/type_form.html —— 字典类型新建/编辑抽屉。
+  partials/dictionaries/type_form.html — the dictionary type create/edit drawer.
+*/}}
+{{- define "mgr/partials/dictionaries/type_form" -}}
+<div class="yd-drawer__head">
+  <h2 class="yd-section__title">{{ if eq .Mode "edit" }}{{ tr "dictionary.type.edit" }}{{ else }}{{ tr "dictionary.type.new" }}{{ end }}</h2>
+  <p class="yd-section__hint">{{ tr "dictionary.type.hint" }}</p>
+</div>
+<form class="yd-form" method="post"
+      action="{{ if eq .Mode "edit" }}/mgr/dictionaries/{{ .Item.ID }}{{ else }}/mgr/dictionaries{{ end }}"
+      hx-post="{{ if eq .Mode "edit" }}/mgr/dictionaries/{{ .Item.ID }}{{ else }}/mgr/dictionaries{{ end }}"
+      hx-target="#yd-workspace" hx-swap="innerMorph"
+      hx-status:409="target:#yd-drawer-errors swap:innerHTML"
+      hx-status:422="target:#yd-drawer-errors swap:innerHTML"
+      data-yd-confirm="{{ tr "confirm.save_dictionary" }}">
+  {{template "components.form.field" (dict
+    "ID" "yd-dictionary-code" "Name" "code" "Type" "text" "Value" .Item.Code
+    "Label" (tr "dictionary.type.code") "LabelKey" "dictionary.type.code"
+    "Hint" (tr "dictionary.type.code_hint") "HintKey" "dictionary.type.code_hint"
+    "MaxLength" 64 "Required" true "Readonly" (eq .Mode "edit"))}}
+  {{template "components.form.field" (dict
+    "ID" "yd-dictionary-name" "Name" "name" "Type" "text" "Value" .Item.Name
+    "Label" (tr "field.name") "LabelKey" "field.name"
+    "MaxLength" 80 "Required" true)}}
+  {{template "components.form.field" (dict
+    "ID" "yd-dictionary-name-en" "Name" "name_en" "Type" "text" "Value" .Item.NameEN
+    "Label" (tr "dictionary.type.name_en") "LabelKey" "dictionary.type.name_en"
+    "MaxLength" 80)}}
+  {{template "components.form.textarea" (dict
+    "ID" "yd-dictionary-description" "Name" "description" "Value" .Item.Description "Rows" 3
+    "Label" (tr "dictionary.type.description") "LabelKey" "dictionary.type.description"
+    "MaxLength" 500)}}
+  {{template "components.form.number" (dict
+    "ID" "yd-dictionary-sort" "Name" "sort" "Value" .Item.Sort
+    "Label" (tr "dictionary.type.sort") "LabelKey" "dictionary.type.sort"
+    "Min" 0 "Max" 1000000)}}
+  {{template "components.form.select" (dict
+    "ID" "yd-dictionary-status" "Name" "status"
+    "Label" (tr "field.status") "LabelKey" "field.status"
+    "Options" (list
+      (dict "Value" "enabled" "Label" (tr "status.active") "Key" "status.active" "Selected" (eq .Item.Status "enabled"))
+      (dict "Value" "disabled" "Label" (tr "status.disabled") "Key" "status.disabled" "Selected" (eq .Item.Status "disabled"))))}}
+  {{template "components.form.actions" (dict
+    "SubmitLabel" (tr "ui.save") "SubmitKey" "ui.save"
+    "CancelLabel" (tr "ui.cancel") "CancelKey" "ui.cancel")}}
+</form>
+{{- end -}}
+{{ template "mgr/partials/dictionaries/type_form" . }}

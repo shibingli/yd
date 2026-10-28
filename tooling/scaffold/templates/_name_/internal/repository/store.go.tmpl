@@ -62,10 +62,12 @@ import (
 
 	"{{ .Module }}/internal/meta"
 	"{{ .YdModule }}/attachments"
+	"{{ .YdModule }}/dictionary"
 	"{{ .YdModule }}/messaging"
 	"{{ .YdModule }}/security/auth"
 {{- if ne .DB "none" }}
 	attachmentsgorm "{{ .YdModule }}/attachments/gormstore"
+	dictionarygorm "{{ .YdModule }}/dictionary/gormstore"
 	messaginggorm "{{ .YdModule }}/messaging/gormstore"
 	"{{ .YdModule }}/security/auth/gormstore"
 {{- end }}
@@ -152,6 +154,11 @@ type Store struct {
 	attach attachments.Store
 	// attachErr records why the attachment store is unavailable. | attachErr 记录附件存储不可用的原因。
 	attachErr error
+	// dict is the data-dictionary store; nil when the database is unavailable or its migration failed. |
+	// dict 是数据字典存储；数据库不可用或迁移失败时为 nil。
+	dict dictionary.Store
+	// dictErr records why the dictionary store is unavailable. | dictErr 记录数据字典存储不可用的原因。
+	dictErr error
 	// cfg 是装配时的配置，种子口令从它的 seed 段读取（环境变量经前缀映射已在配置层生效）。
 	// cfg is the configuration this store was assembled with, read for the seed password (the environment variable has
 	// already taken effect inside the configuration layer).
@@ -214,9 +221,14 @@ func Open(o Options) (*Store, error) {
 	if msgErr != nil {
 		log.Warn("message centre is unavailable | 消息中心不可用", ydlog.Err(msgErr))
 	}
+	dictStore, dictErr := openDictionaryStore(db, log)
+	if dictErr != nil {
+		log.Warn("data dictionary is unavailable | 数据字典不可用", ydlog.Err(dictErr))
+	}
 	return &Store{
 		svc: svc, raw: raw, issuer: issuer, log: log, db: db, cfg: o.Config,
 		msg: msgStore, msgErr: msgErr, attach: attachmentStore, attachErr: attachmentErr,
+		dict: dictStore, dictErr: dictErr,
 		release: release, persistent: release != nil,
 	}, nil
 }
@@ -330,6 +342,49 @@ func (s *Store) AttachmentError() error { return s.attachErr }
 
 // AttachmentAvailable reports whether attachments can be served. | AttachmentAvailable 报告附件功能是否可用。
 func (s *Store) AttachmentAvailable() bool { return s.attach != nil }
+
+// DictionaryStore returns the data-dictionary store, or nil when it is unavailable. | DictionaryStore 返回数据字典存储；
+// 不可用时返回 nil。
+func (s *Store) DictionaryStore() dictionary.Store { return s.dict }
+
+// DictionaryError reports why the data-dictionary store is unavailable. | DictionaryError 报告数据字典存储不可用的原因。
+func (s *Store) DictionaryError() error { return s.dictErr }
+
+// DictionaryAvailable reports whether data dictionaries can be served. | DictionaryAvailable 报告数据字典功能是否可用。
+func (s *Store) DictionaryAvailable() bool { return s.dict != nil }
+
+{{ if ne .DB "none" -}}
+// openDictionaryStore migrates and opens the data-dictionary tables on the shared pool. |
+// openDictionaryStore 在共享连接池上迁移并打开数据字典表。
+func openDictionaryStore(db any, log *ydlog.Logger) (dictionary.Store, error) {
+	if db == nil {
+		return nil, errs.Detail(dictionary.ErrUnavailable, "no database | 没有数据库")
+	}
+	gdb, ok := db.(*gorm.DB)
+	if !ok {
+		return nil, errs.Detail(dictionary.ErrUnavailable, "unexpected database handle | 非预期的数据库句柄")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), migrateTimeout)
+	defer cancel()
+	if err := dictionarygorm.Migrate(ctx, gdb); err != nil {
+		return nil, errs.Wrap(err, dictionary.ErrUnavailable)
+	}
+	store, err := dictionarygorm.New(gdb)
+	if err != nil {
+		return nil, errs.Wrap(err, dictionary.ErrUnavailable)
+	}
+	log.Info("dictionary tables are ready | 数据字典表已就绪",
+		ydlog.Strs("tables", []string{"yd_dict_types", "yd_dict_items"}),
+	)
+	return store, nil
+}
+{{ else -}}
+// openDictionaryStore reports the dictionary store as unavailable in a project generated without a
+// database. | openDictionaryStore 在未选择数据库的生成项目里报告数据字典存储不可用。
+func openDictionaryStore(_ any, _ *ydlog.Logger) (dictionary.Store, error) {
+	return nil, errs.Detail(dictionary.ErrUnavailable, "the project was generated without a database | 项目生成时未选择数据库")
+}
+{{ end -}}
 
 {{ if ne .DB "none" -}}
 // openMessageStore migrates and opens the message-centre tables on the same pool the auth store uses. |
@@ -585,6 +640,7 @@ func (s *Store) Seed(ctx context.Context) error {
 				return errs.Wrap(err, ErrSeed)
 			}
 			added += count
+			s.ensureBuiltinDictionaries(ctx, tenant.ID)
 		}
 		if added > 0 {
 			s.log.Info("built-in role grants upgraded | 内置角色能力已升级",
@@ -644,7 +700,38 @@ func (s *Store) seedTenant(ctx context.Context, roles *RoleRepo, spec seedSpec, 
 	if err := roles.Ensure(ctx, tenant.ID); err != nil {
 		return err
 	}
-	return s.ensureAdmin(ctx, tenant, spec, password)
+	if err := s.ensureAdmin(ctx, tenant, spec, password); err != nil {
+		return err
+	}
+	s.ensureBuiltinDictionaries(ctx, tenant.ID)
+	return nil
+}
+
+// ensureBuiltinDictionaries adds the predefined dictionaries a tenant does not have yet. The seeder
+// is optional (an in-memory store has none) and a failure only warns: a missing dictionary must
+// never stop the application from starting. | ensureBuiltinDictionaries 为租户补齐尚不存在的预置字典。
+// 种子器是可选的（内存存储没有），失败也只告警：缺少字典绝不能阻止应用启动。
+func (s *Store) ensureBuiltinDictionaries(ctx context.Context, tenantID string) {
+	if s.dict == nil {
+		return
+	}
+	seeder, ok := s.dict.(interface {
+		EnsureBuiltins(context.Context, string) (int, error)
+	})
+	if !ok {
+		return
+	}
+	count, err := seeder.EnsureBuiltins(ctx, tenantID)
+	if err != nil {
+		s.log.Warn("builtin dictionaries could not be seeded | 内置数据字典写入失败", ydlog.Err(err))
+		return
+	}
+	if count > 0 {
+		s.log.Info("builtin dictionaries seeded | 内置数据字典已写入",
+			ydlog.Int("types", count),
+			ydlog.Str("tenant", tenantID),
+		)
+	}
 }
 
 // ensureTenant returns the tenant of that slug, creating it when absent. | ensureTenant 按标识取租户，不存在时创建；返回的是租户记录本身。

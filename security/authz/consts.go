@@ -22,6 +22,8 @@ const (
 	GroupMessageType = "message-type"
 	// GroupAttachment is the framework-wide attachment resource group. | GroupAttachment 是框架级附件资源分组。
 	GroupAttachment = "attachment"
+	// GroupDictionary is the data-dictionary resource group. | GroupDictionary 是数据字典资源分组。
+	GroupDictionary = "dictionary"
 )
 
 // groupLabels maps every framework resource group to its bilingual label. | groupLabels 把每个框架资源分组映射到中英对照标签。
@@ -33,6 +35,7 @@ var groupLabels = map[string]string{
 	GroupMessage:     "message | 消息",
 	GroupMessageType: "message-type | 消息类型",
 	GroupAttachment:  "attachment | 附件",
+	GroupDictionary:  "dictionary | 数据字典",
 }
 
 // GroupLabel returns the bilingual label of a resource group. | GroupLabel 返回资源分组的中英对照标签。
@@ -124,6 +127,15 @@ const (
 	// PermAttachmentManage allows listing every attachment and deleting any with a reason. | PermAttachmentManage
 	// 允许列出全部附件并带原因删除任意附件。
 	PermAttachmentManage = "attachment:manage"
+	// PermDictionaryResolve allows resolving enabled dictionaries through the portal API. | PermDictionaryResolve
+	// 允许通过门户 API 解析启用的数据字典。
+	PermDictionaryResolve = "dictionary:resolve"
+	// PermDictionaryRead allows listing dictionary types and items in the back office. | PermDictionaryRead
+	// 允许在后台列出数据字典类型与字典项。
+	PermDictionaryRead = "dictionary:read"
+	// PermDictionaryManage allows creating, updating and deleting dictionary types and items. |
+	// PermDictionaryManage 允许创建、修改与删除数据字典类型及字典项。
+	PermDictionaryManage = "dictionary:manage"
 )
 
 // Role names. | 角色名。
@@ -183,6 +195,10 @@ var builtinPermissions = []Permission{
 	{Name: PermAttachmentReadOwn, Description: "List and read own attachments | 列出与读取自己的附件"},
 	{Name: PermAttachmentDelete, Description: "Delete own unreferenced attachments | 删除自己未被引用的附件"},
 	{Name: PermAttachmentManage, Description: "Manage every attachment, including deletion with a reason | 管理全部附件，包含带原因删除"},
+
+	{Name: PermDictionaryResolve, Description: "Resolve enabled dictionaries for forms and clients | 为表单与客户端解析启用的数据字典"},
+	{Name: PermDictionaryRead, Description: "List dictionary types and items in the back office | 在后台列出数据字典类型与字典项"},
+	{Name: PermDictionaryManage, Description: "Manage dictionary types and items | 管理数据字典类型与字典项"},
 }
 
 // builtinRoles is the framework role vocabulary. | builtinRoles 是框架角色词汇表。

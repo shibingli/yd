@@ -307,6 +307,18 @@ message:
   #   - application/pdf
   #   - text/plain
 
+# 数据字典：类型与字典项都按租户隔离，公共解析只返回启用的类型与字典项。
+# Data dictionaries: types and items are tenant-scoped, and public resolution returns enabled types and items only.
+#
+# 解析结果走二级缓存（命名空间 dictionary）：单条解析命中 L1/L2；批量解析逐键读取缓存，冷编码各自
+# 经 GetOrLoad 单飞加载并 CAS 回填。写操作在事务提交后删除对应编码的缓存键；租约与 TTL 为缓存故障提供兜底。
+# Resolution goes through the two-level cache (namespace dictionary): a single lookup hits L1/L2; a batch reads
+# per key, and each cold code is loaded through its own single-flight GetOrLoad with a CAS write-back. Every write
+# deletes the cache key of its code after commit; the lease and TTL bound a failed invalidation.
+dictionary:
+  cache_ttl: 10m             # 已解析字典的缓存时长 | cache lifetime of one resolved dictionary
+  cache_negative_ttl: 30s    # 缺失编码的负缓存时长 | negative-cache lifetime of a missing code
+
 # 系统服务：yd service <install|uninstall|start|stop|restart|status> 与入口的 -service <动作> 都读这一段。
 # 服务名缺省回退到 app.name，显示名回退到服务名，描述回退到显示名；全部键都可由 YD_SERVICE_* 覆盖。
 # 改动这一段之后要重新安装服务（yd service install）才会写进服务管理器。

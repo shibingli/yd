@@ -429,6 +429,37 @@ func registerProtected(a *app.App, ctrl *controller.Controller, store *repositor
 	g.GET("/mgr/attachments/:id/delete", ctrl.MgrAttachmentDeleteDrawer, authz.Require(authz.PermAttachmentManage))
 	g.POST("/mgr/attachments/:id/delete", ctrl.MgrDeleteAttachment, authz.Require(authz.PermAttachmentManage))
 
+	// 数据字典：工作台与抽屉读取 dictionary:read，所有变更都要求 dictionary:manage。
+	// Data dictionaries: the workbench and drawers read with dictionary:read, and every mutation
+	// requires dictionary:manage.
+	g.GET("/mgr/dictionaries", ctrl.Dictionaries, authz.Require(authz.PermDictionaryRead))
+	g.GET("/mgr/dictionaries/new", ctrl.NewDictionaryDrawer, authz.Require(authz.PermDictionaryManage))
+	g.GET("/mgr/dictionaries/:id/edit", ctrl.EditDictionaryDrawer, authz.Require(authz.PermDictionaryManage))
+	g.POST("/mgr/dictionaries", ctrl.SaveDictionary, authz.Require(authz.PermDictionaryManage))
+	g.POST("/mgr/dictionaries/:id", ctrl.UpdateDictionary, authz.Require(authz.PermDictionaryManage))
+	g.POST("/mgr/dictionaries/:id/status", ctrl.SetDictionaryStatus, authz.Require(authz.PermDictionaryManage))
+	g.POST("/mgr/dictionaries/:id/delete", ctrl.DeleteDictionary, authz.Require(authz.PermDictionaryManage))
+	g.GET("/mgr/dictionaries/:id/items/new", ctrl.NewDictionaryItemDrawer, authz.Require(authz.PermDictionaryManage))
+	g.GET("/mgr/dictionaries/:id/items/:item_id/edit", ctrl.EditDictionaryItemDrawer, authz.Require(authz.PermDictionaryManage))
+	g.POST("/mgr/dictionaries/:id/items", ctrl.SaveDictionaryItem, authz.Require(authz.PermDictionaryManage))
+	g.POST("/mgr/dictionaries/:id/items/:item_id/status", ctrl.SetDictionaryItemStatus, authz.Require(authz.PermDictionaryManage))
+	g.POST("/mgr/dictionaries/:id/items/:item_id/delete", ctrl.DeleteDictionaryItem, authz.Require(authz.PermDictionaryManage))
+
+	// 数据字典 API：门户批量/单条解析只读启用数据；后台 CRUD 与页面共用同一份服务。
+	// The data-dictionary API: the portal batch/single resolver reads enabled data only, while the
+	// back-office CRUD shares the very same service as the page.
+	g.GET("/api/portal/v1/dictionaries", ctrl.APIPortalDictionaries, authz.Require(authz.PermDictionaryResolve))
+	g.GET("/api/portal/v1/dictionaries/:code", ctrl.APIPortalDictionary, authz.Require(authz.PermDictionaryResolve))
+	g.GET("/api/v1/dictionaries", ctrl.APIDictionaries, authz.Require(authz.PermDictionaryRead))
+	g.POST("/api/v1/dictionaries", ctrl.APICreateDictionary, authz.Require(authz.PermDictionaryManage))
+	g.GET("/api/v1/dictionaries/:id", ctrl.APIDictionary, authz.Require(authz.PermDictionaryRead))
+	g.PUT("/api/v1/dictionaries/:id", ctrl.APIUpdateDictionary, authz.Require(authz.PermDictionaryManage))
+	g.DELETE("/api/v1/dictionaries/:id", ctrl.APIDeleteDictionary, authz.Require(authz.PermDictionaryManage))
+	g.GET("/api/v1/dictionaries/:id/items", ctrl.APIDictionaryItems, authz.Require(authz.PermDictionaryRead))
+	g.POST("/api/v1/dictionaries/:id/items", ctrl.APICreateDictionaryItem, authz.Require(authz.PermDictionaryManage))
+	g.PUT("/api/v1/dictionaries/:id/items/:item_id", ctrl.APIUpdateDictionaryItem, authz.Require(authz.PermDictionaryManage))
+	g.DELETE("/api/v1/dictionaries/:id/items/:item_id", ctrl.APIDeleteDictionaryItem, authz.Require(authz.PermDictionaryManage))
+
 	// 好友生命周期：申请、接受/拒绝/取消、删除、拉黑与备注。
 	// The friend lifecycle: request, accept/reject/cancel, remove, block and remark.
 	g.GET("/friends", ctrl.Friends, authz.Require(authz.PermMessageRead))

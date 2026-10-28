@@ -26,6 +26,7 @@ import (
 	"{{ .Module }}/internal/service"
 	"{{ .Module }}/web"
 	"{{ .YdModule }}/attachments"
+	"{{ .YdModule }}/dictionary"
 	"{{ .YdxModule }}/errs"
 	ydlog "{{ .YdxModule }}/log"
 	"{{ .YdModule }}/http/htmx"
@@ -39,6 +40,7 @@ import (
 	"{{ .YdModule }}/security/auth"
 	"{{ .YdModule }}/security/authz"
 	"{{ .YdModule }}/security/captcha"
+	"{{ .YdxModule }}/cache"
 )
 
 // 布局与外壳名：门户与管理后台各自使用独立的骨架，页面模板树也互不引用。
@@ -150,6 +152,12 @@ const (
 	TplMgrAttachmentDelete = "mgr/partials/attachments/delete.html"
 	// TplMgrAttachmentCleanup is the unreferenced-cleanup drawer. | TplMgrAttachmentCleanup 是未引用附件清理抽屉。
 	TplMgrAttachmentCleanup = "mgr/partials/attachments/cleanup.html"
+	// TplDictionaries is the data-dictionary workbench page. | TplDictionaries 是数据字典工作台页面。
+	TplDictionaries = "mgr/pages/dictionaries.html"
+	// TplDictionaryTypeDrawer is the dictionary type create/edit drawer. | TplDictionaryTypeDrawer 是字典类型新建/编辑抽屉。
+	TplDictionaryTypeDrawer = "mgr/partials/dictionaries/type_form.html"
+	// TplDictionaryItemDrawer is the dictionary item create/edit drawer. | TplDictionaryItemDrawer 是字典项新建/编辑抽屉。
+	TplDictionaryItemDrawer = "mgr/partials/dictionaries/item_form.html"
 	// MessagePortalBase is the portal action prefix of the shared message card. | MessagePortalBase 是共享消息卡片在门户的动作前缀。
 	MessagePortalBase = "/messages"
 	// MessageAdminBase is the back-office action prefix of the shared message card. | MessageAdminBase 是共享消息卡片在后台的动作前缀。
@@ -213,6 +221,8 @@ const (
 	FieldTenant = "tenant"
 	// FieldKeyword is the list filter keyword. | FieldKeyword 是列表筛选关键字。
 	FieldKeyword = "q"
+	// FieldItemQuery is the dictionary item search keyword. | FieldItemQuery 是字典项搜索关键字。
+	FieldItemQuery = "iq"
 	// FieldRoles is the role multiple-choice of the user form. | FieldRoles 是用户表单里的角色多选。
 	FieldRoles = "roles"
 	// FieldTenants is the tenant multiple-choice of the membership form. | FieldTenants 是成员关系表单里的租户多选。
@@ -286,6 +296,22 @@ const (
 	FieldFriend = "friend_id"
 	// FieldRemark is the friend remark. | FieldRemark 是好友备注。
 	FieldRemark = "remark"
+	// FieldDictionaryID is the primary key of a dictionary type or item. | FieldDictionaryID 是字典类型或字典项的主键。
+	FieldDictionaryID = "id"
+	// FieldDictionaryCode is the immutable code of a dictionary type. | FieldDictionaryCode 是字典类型的不可变编码。
+	FieldDictionaryCode = "code"
+	// FieldDictionaryValue is the immutable value of a dictionary item. | FieldDictionaryValue 是字典项的不可变机器值。
+	FieldDictionaryValue = "value"
+	// FieldDictionaryLabel is the Chinese label of a dictionary item. | FieldDictionaryLabel 是字典项的中文标签。
+	FieldDictionaryLabel = "label"
+	// FieldDictionaryLabelEN is the English label of a dictionary item. | FieldDictionaryLabelEN 是字典项的英文标签。
+	FieldDictionaryLabelEN = "label_en"
+	// FieldDictionaryExtra is the JSON metadata of a dictionary item. | FieldDictionaryExtra 是字典项的 JSON 元数据。
+	FieldDictionaryExtra = "extra"
+	// FieldDictionarySort is the display order of a dictionary type or item. | FieldDictionarySort 是字典类型或字典项的展示顺序。
+	FieldDictionarySort = "sort"
+	// FieldDictionaryDefault is the default-item flag. | FieldDictionaryDefault 是默认项标记。
+	FieldDictionaryDefault = "default"
 	// FieldRequest is the friend request id. | FieldRequest 是好友申请 ID。
 	FieldRequest = "request_id"
 	// FieldBody is the quick-send text sent over WebSocket. | FieldBody 是经 WebSocket 发送的快捷消息文本。
@@ -329,6 +355,11 @@ type Controller struct {
 	// attachmentErr records why attachments are unavailable, shown on their pages. | attachmentErr 记录附件
 	// 不可用的原因，并在其页面上展示。
 	attachmentErr error
+	// dictionaries is the data-dictionary facade; nil when the project has no database. | dictionaries
+	// 是数据字典门面；项目没有数据库时为 nil。
+	dictionaries *service.DictionaryService
+	// dictionaryErr records why data dictionaries are unavailable. | dictionaryErr 记录数据字典不可用的原因。
+	dictionaryErr error
 	// hub fans message events out to WebSocket subscribers. | hub 把消息事件分发给 WebSocket 订阅者。
 	hub *realtime.Hub
 	// i18n is the catalogue bundle, used to translate outside a template execution (conversation
@@ -405,6 +436,14 @@ func New(a *app.App, store *repository.Store, log *ydlog.Logger, captchaSvc *cap
 			log.Warn("attachment deletion notices are disabled because the message centre is unavailable | 消息中心不可用，附件删除通知已关闭")
 		}
 	}
+	var cacheManager *cache.Manager
+	if value, ok := a.Get(app.ServiceCache); ok {
+		cacheManager, _ = value.(*cache.Manager)
+	}
+	dictionaries, dictionaryErr := service.NewDictionaryService(a.Config(), store.DictionaryStore(), cacheManager, log)
+	if dictionaryErr != nil {
+		log.Warn("data dictionary is disabled | 数据字典已禁用", ydlog.Err(dictionaryErr))
+	}
 	return &Controller{
 		app:           a,
 		store:         store,
@@ -418,6 +457,8 @@ func New(a *app.App, store *repository.Store, log *ydlog.Logger, captchaSvc *cap
 		messageErr:    messageErr,
 		attachments:   attachmentsSvc,
 		attachmentErr: attachmentErr,
+		dictionaries:  dictionaries,
+		dictionaryErr: dictionaryErr,
 		hub:           hub,
 		i18n:          bundle,
 		log:           log,
@@ -455,6 +496,29 @@ func (c *Controller) AttachmentCentre() *service.AttachmentService {
 // AttachmentsAvailable 报告附件能力能否服务请求。
 func (c *Controller) AttachmentsAvailable() bool {
 	return c != nil && c.attachments != nil
+}
+
+// DictionariesAvailable reports whether the data-dictionary capability can serve requests. |
+// DictionariesAvailable 报告数据字典能力能否服务请求。
+func (c *Controller) DictionariesAvailable() bool {
+	return c != nil && c.dictionaries != nil && c.dictionaries.Service != nil
+}
+
+// DictionaryError returns why data dictionaries are unavailable, or nil. | DictionaryError 返回数据字典不可用的原因，或 nil。
+func (c *Controller) DictionaryError() error {
+	if c == nil {
+		return nil
+	}
+	return c.dictionaryErr
+}
+
+// DictionaryService returns the data-dictionary facade; nil means the capability is unavailable. |
+// DictionaryService 返回数据字典门面；nil 表示该能力不可用。
+func (c *Controller) DictionaryService() *service.DictionaryService {
+	if c == nil {
+		return nil
+	}
+	return c.dictionaries
 }
 
 // AttachmentError returns why attachments are unavailable, or nil. | AttachmentError 返回附件不可用的原因，
@@ -688,6 +752,7 @@ func (c *Controller) renderData(ctx *router.Ctx, title string, extra map[string]
 		"MessageError":       "",
 		"AttachmentAvailable": c.AttachmentsAvailable(),
 		"AttachmentError":     "",
+		"DictionaryAvailable": c.DictionariesAvailable(),
 		// The captcha switches appear in every page's data: the sign-in and account pages decide from them whether
 		// to render the widget, and the whole block is omitted while disabled.
 		// 验证码开关在每一份页面数据里都出现：登录页与账号页据此决定是否渲染组件，关闭时模板整块省略。
@@ -1191,6 +1256,16 @@ func statusFor(err error) (int, string) {
 		errors.Is(err, messaging.ErrPinWindowInvalid), errors.Is(err, messaging.ErrTooManyMembers),
 		errors.Is(err, messaging.ErrTooManyAttachments), errors.Is(err, messaging.ErrSearchTooBroad):
 		return http.StatusUnprocessableEntity, err.Error()
+	case errors.Is(err, dictionary.ErrInvalidInput), errors.Is(err, dictionary.ErrInvalidExtra),
+		errors.Is(err, dictionary.ErrTooManyCodes), errors.Is(err, dictionary.ErrItemLimit):
+		return http.StatusUnprocessableEntity, err.Error()
+	case errors.Is(err, dictionary.ErrNotFound):
+		return http.StatusNotFound, err.Error()
+	case errors.Is(err, dictionary.ErrCodeTaken), errors.Is(err, dictionary.ErrValueTaken),
+		errors.Is(err, dictionary.ErrBuiltinProtected):
+		return http.StatusConflict, err.Error()
+	case errors.Is(err, dictionary.ErrUnavailable), errors.Is(err, service.ErrDictionaryUnavailable):
+		return http.StatusServiceUnavailable, err.Error()
 	case errors.Is(err, router.ErrBodyTooLarge):
 		return http.StatusRequestEntityTooLarge, err.Error()
 	default:

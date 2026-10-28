@@ -52,6 +52,8 @@
 // Data | 数据层:
 //
 //   - [github.com/shibingli/ydx/gorm], [github.com/shibingli/ydx/redis], [github.com/shibingli/ydx/asynq] GORM, Redis and asynq. | GORM / Redis / asynq 插件。
+//   - [github.com/shibingli/yd/dictionary] tenant-scoped data dictionaries with a two-level cache. | 租户级数据字典与二级缓存。
+//   - [github.com/shibingli/yd/attachments] generic attachment metadata and reference lifecycle. | 通用附件元数据与引用生命周期。
 //
 // Application and tooling | 应用与工具链:
 //

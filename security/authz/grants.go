@@ -53,6 +53,7 @@ var builtinGrants = []Grant{
 			PermMessageRead, PermMessageSend, PermMessageUpdate, PermMessageDelete,
 			PermMessageSystem, PermMessageManage, PermMessageTypeRead, PermMessageTypeManage,
 			PermAttachmentCreate, PermAttachmentRead, PermAttachmentReadOwn, PermAttachmentDelete, PermAttachmentManage,
+			PermDictionaryResolve, PermDictionaryRead, PermDictionaryManage,
 		},
 	},
 	{
@@ -83,13 +84,16 @@ var builtinGrants = []Grant{
 			PermMessageRead, PermMessageSend, PermMessageUpdate, PermMessageDelete,
 			PermMessageSystem, PermMessageManage, PermMessageTypeRead, PermMessageTypeManage,
 			PermAttachmentCreate, PermAttachmentRead, PermAttachmentReadOwn, PermAttachmentDelete, PermAttachmentManage,
+			PermDictionaryResolve, PermDictionaryRead, PermDictionaryManage,
 		},
 	},
 	{
-		// The auditor reads every resource and changes none: every ":read" capability is the whole
-		// grant, and a capability is added to it only when reading it is what the capability means. |
-		// 审计员可读全部资源、不改动任何一项：全部 ":read" 能力就是授权，
-		// 只有「读取」正是该能力含义时才会被加进来。
+		// The auditor reads every resource and changes none: every read-shaped capability is the whole
+		// grant, and a capability is added to it only when reading it is what the capability means.
+		// dictionary:resolve is read-shaped without ending in :read, so it is listed explicitly. |
+		// 审计员可读全部资源、不改动任何一项：全部读取形态的能力就是授权，
+		// 只有「读取」正是该能力含义时才会被加进来。dictionary:resolve 是读取形态但结尾不是 :read，
+		// 因此显式列出。
 		//
 		// The list is written out even though it currently equals "every registered capability ending in
 		// :read": a new read capability must be a decision here, not an automatic widening of the
@@ -100,6 +104,7 @@ var builtinGrants = []Grant{
 			PermTenantRead, PermUserRead, PermRoleRead, PermPermissionRead,
 			PermMessageRead, PermMessageTypeRead,
 			PermAttachmentRead,
+			PermDictionaryResolve, PermDictionaryRead,
 		},
 	},
 	{
@@ -108,15 +113,18 @@ var builtinGrants = []Grant{
 		//
 		// This is the deliberate exception to "the member grants nothing": message:update/delete
 		// are not tenant-wide grants, because the message service refuses rows the actor did not
-		// author. message:read/send operate on conversations the actor belongs to. Every other
-		// capability stays withheld, because it really is tenant-wide. |
+		// author. message:read/send operate on conversations the actor belongs to. dictionary:resolve
+		// exposes only the tenant's reference data (labels and machine values) and no personal record.
+		// Every other capability stays withheld, because it really is tenant-wide. |
 		// 这是「成员不授予任何能力」的刻意例外：message:update/delete 不是租户级授权，
 		// 因为消息服务会拒绝主体没有编写的记录。message:read/send 只作用于主体所属的会话；
+		// dictionary:resolve 只暴露租户的参考数据（标签与机器值），不含任何个人记录。
 		// 其余能力仍然不授予，因为它们确实是租户级的。
 		Role: RoleMember,
 		Permissions: []string{
 			PermMessageRead, PermMessageSend, PermMessageUpdate, PermMessageDelete,
 			PermAttachmentCreate, PermAttachmentReadOwn, PermAttachmentDelete,
+			PermDictionaryResolve,
 		},
 	},
 }

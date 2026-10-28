@@ -1,0 +1,224 @@
+{{/*
+  This file owns the data-dictionary view models and their conversions: the template/API projections,
+  the locale-aware labels, the workbench URL and the form-field helpers.
+  本文件承载数据字典视图模型及其转换：模板/API 投影、按语言选择的标签、工作台 URL 与表单字段辅助函数。
+*/}}
+
+package controller
+
+import (
+	"net/http"
+	"net/url"
+	"strconv"
+	"strings"
+	"time"
+
+	"{{ .Module }}/internal/service"
+	"{{ .YdModule }}/dictionary"
+	"{{ .YdxModule }}/json"
+	"{{ .YdxModule }}/router"
+)
+
+// dictionaryTypeView is the template and JSON projection of one dictionary type. | dictionaryTypeView
+// 是一个字典类型的模板与 JSON 投影。
+//
+// @Name dictionaryTypeView
+type dictionaryTypeView struct {
+	// CreatedAt is the creation instant. | CreatedAt 是创建时刻。
+	CreatedAt time.Time `json:"created_at"`
+	// UpdatedAt is the last-write instant. | UpdatedAt 是最后写入时刻。
+	UpdatedAt time.Time `json:"updated_at"`
+	// ID is the primary key. | ID 是主键。
+	ID string `json:"id"`
+	// Code is the immutable dictionary code. | Code 是不可变字典编码。
+	Code string `json:"code"`
+	// Name is the Chinese display name. | Name 是中文展示名。
+	Name string `json:"name"`
+	// NameEN is the English display name. | NameEN 是英文展示名。
+	NameEN string `json:"name_en,omitempty"`
+	// Description explains the dictionary. | Description 说明字典用途。
+	Description string `json:"description,omitempty"`
+	// Status is enabled or disabled. | Status 取 enabled 或 disabled。
+	Status string `json:"status"`
+	// Sort is the display order. | Sort 是展示顺序。
+	Sort int `json:"sort"`
+	// ItemCount is the number of items. | ItemCount 是字典项数量。
+	ItemCount int `json:"item_count"`
+	// Builtin marks a framework-seeded dictionary. | Builtin 标记框架预置字典。
+	Builtin bool `json:"builtin,omitempty"`
+	// Label is the locale-selected name used by templates only. | Label 是模板使用的按语言选择的名称。
+	Label string `json:"-"`
+	// Href is the workbench URL selecting this type, used by templates only. | Href 是选择该类型的工作台 URL，仅模板使用。
+	Href string `json:"-"`
+	// Active marks the row selected by the current request, used by templates only. | Active 标记当前请求选中的行，仅模板使用。
+	Active bool `json:"-"`
+}
+
+// dictionaryItemView is the template and JSON projection of one dictionary item. | dictionaryItemView
+// 是一个字典项的模板与 JSON 投影。
+//
+// @Name dictionaryItemView
+type dictionaryItemView struct {
+	// CreatedAt is the creation instant. | CreatedAt 是创建时刻。
+	CreatedAt time.Time `json:"created_at"`
+	// UpdatedAt is the last-write instant. | UpdatedAt 是最后写入时刻。
+	UpdatedAt time.Time `json:"updated_at"`
+	// ID is the primary key. | ID 是主键。
+	ID string `json:"id"`
+	// TypeID is the owning type. | TypeID 是所属类型。
+	TypeID string `json:"type_id"`
+	// Value is the immutable machine value. | Value 是不可变机器值。
+	Value string `json:"value"`
+	// Label is the locale-selected label used by templates only. | Label 是模板使用的按语言选择的标签。
+	Label string `json:"-"`
+	// LabelZH is the Chinese label returned by the JSON API. | LabelZH 是 JSON API 返回的中文标签。
+	LabelZH string `json:"label"`
+	// LabelEN is the English label. | LabelEN 是英文标签。
+	LabelEN string `json:"label_en,omitempty"`
+	// Extra is the decoded JSON metadata, or nil. | Extra 是解码后的 JSON 元数据，或 nil。
+	Extra any `json:"extra,omitempty"`
+	// ExtraText is the raw JSON metadata used by the edit form, template only. | ExtraText 是编辑表单使用的原始 JSON 元数据，仅模板使用。
+	ExtraText string `json:"-"`
+	// Remark is the administrative note. | Remark 是管理备注。
+	Remark string `json:"remark,omitempty"`
+	// Status is enabled or disabled. | Status 取 enabled 或 disabled。
+	Status string `json:"status"`
+	// IsDefault marks the preselected item. | IsDefault 标记预选项。
+	IsDefault bool `json:"default"`
+	// Sort is the display order. | Sort 是展示顺序。
+	Sort int `json:"sort"`
+}
+
+// dictionaryHref builds one workbench URL with the complete view state. | dictionaryHref 构造带完整视图状态的工作台 URL。
+func dictionaryHref(selectedID, keyword, itemKeyword string, page, itemPage int) string {
+	values := url.Values{}
+	if selectedID = strings.TrimSpace(selectedID); selectedID != "" {
+		values.Set("type", selectedID)
+	}
+	if keyword = strings.TrimSpace(keyword); keyword != "" {
+		values.Set("q", keyword)
+	}
+	if itemKeyword = strings.TrimSpace(itemKeyword); itemKeyword != "" {
+		values.Set("iq", itemKeyword)
+	}
+	if page > 1 {
+		values.Set("page", strconv.Itoa(page))
+	}
+	if itemPage > 1 {
+		values.Set("ipage", strconv.Itoa(itemPage))
+	}
+	if len(values) == 0 {
+		return "/mgr/dictionaries"
+	}
+	return "/mgr/dictionaries?" + values.Encode()
+}
+
+// dictionaryItemPageNumber reads the 1-based item page query. | dictionaryItemPageNumber 读取从 1 开始的字典项页码。
+func dictionaryItemPageNumber(ctx *router.Ctx) int {
+	page, err := strconv.Atoi(strings.TrimSpace(ctx.Query("ipage")))
+	if err != nil || page < 1 {
+		return 1
+	}
+	return page
+}
+
+// formInt reads one integer form field and falls back to zero. | formInt 读取一个整数表单字段，非法时回到零值。
+func formInt(ctx *router.Ctx, name string) int {
+	value, err := strconv.Atoi(strings.TrimSpace(ctx.FormValue(name)))
+	if err != nil {
+		return 0
+	}
+	return value
+}
+
+// dictionaryLongField reads a form field with an explicit byte cap, for descriptions, remarks and JSON. |
+// dictionaryLongField 以显式字节上限读取表单字段，用于说明、备注与 JSON。
+func dictionaryLongField(ctx *router.Ctx, name string, max int) string {
+	value := strings.TrimSpace(ctx.FormValue(name))
+	if max > 0 && len(value) > max {
+		cut := max
+		for cut > 0 && value[cut]&0xC0 == 0x80 {
+			cut--
+		}
+		value = value[:cut]
+	}
+	return value
+}
+
+// dictionaryUnavailable ends an HTML request with the assembly error. | dictionaryUnavailable 以装配错误结束 HTML 请求。
+func (c *Controller) dictionaryUnavailable(ctx *router.Ctx) {
+	message := service.ErrDictionaryUnavailable.Error()
+	if c.dictionaryErr != nil {
+		message = c.dictionaryErr.Error()
+	}
+	c.fail(ctx, http.StatusServiceUnavailable, message)
+}
+
+// dictionaryTypeViews converts domain types into template/API views. | dictionaryTypeViews 把领域类型转换为模板/API 视图。
+func dictionaryTypeViews(types []dictionary.Type, lang string) []dictionaryTypeView {
+	out := make([]dictionaryTypeView, 0, len(types))
+	for _, current := range types {
+		out = append(out, dictionaryTypeView{
+			CreatedAt:   current.CreatedAt,
+			UpdatedAt:   current.UpdatedAt,
+			ID:          current.ID,
+			Code:        current.Code,
+			Name:        current.Name,
+			NameEN:      current.NameEN,
+			Description: current.Description,
+			Status:      string(current.Status),
+			Sort:        current.Sort,
+			ItemCount:   current.ItemCount,
+			Builtin:     current.Builtin,
+			Label:       dictionaryDisplay(current.Name, current.NameEN, lang),
+		})
+	}
+	return out
+}
+
+// dictionaryItemViews converts domain items into template/API views. | dictionaryItemViews 把领域字典项转换为模板/API 视图。
+func dictionaryItemViews(items []dictionary.Item, lang string) []dictionaryItemView {
+	out := make([]dictionaryItemView, 0, len(items))
+	for _, current := range items {
+		out = append(out, dictionaryItemView{
+			CreatedAt: current.CreatedAt,
+			UpdatedAt: current.UpdatedAt,
+			ID:        current.ID,
+			TypeID:    current.TypeID,
+			Value:     current.Value,
+			Label:     dictionaryDisplay(current.Label, current.LabelEN, lang),
+			LabelZH:   current.Label,
+			LabelEN:   current.LabelEN,
+			Extra:     dictionaryExtraValue(current.Extra),
+			ExtraText: current.Extra,
+			Remark:    current.Remark,
+			Status:    string(current.Status),
+			IsDefault: current.IsDefault,
+			Sort:      current.Sort,
+		})
+	}
+	return out
+}
+
+// dictionaryDisplay selects the English label for an English locale when it exists. | dictionaryDisplay
+// 在英文语言环境且存在英文标签时选择英文标签。
+func dictionaryDisplay(chinese, english, lang string) string {
+	if strings.HasPrefix(strings.ToLower(strings.TrimSpace(lang)), "en") && strings.TrimSpace(english) != "" {
+		return english
+	}
+	return chinese
+}
+
+// dictionaryExtraValue decodes stored JSON metadata for the API; invalid stored data is omitted. |
+// dictionaryExtraValue 为 API 解码已存储的 JSON 元数据；损坏的存量数据直接省略。
+func dictionaryExtraValue(raw string) any {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return nil
+	}
+	var value any
+	if err := json.Unmarshal([]byte(raw), &value); err != nil {
+		return nil
+	}
+	return value
+}
