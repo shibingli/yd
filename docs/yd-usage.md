@@ -76,6 +76,8 @@ yd versions upgrade          # 升级 Go 模块 + 前端资产并重新生成脚
 yd versions upgrade --self   # 同时把运行中的 yd 更新到最新 Release
 yd versions upgrade --dry-run
 yd versions check            # 离线校验生成文件与真源一致，CI 可用
+yd sync --dry-run            # 已有生成项目：预览脚手架全量同步计划
+yd sync                      # 同步脚手架模板 + Go 模块 + 前端资产（先确认、自动备份）
 ```
 
 升级后必须重新跑质量门禁：
@@ -667,9 +669,33 @@ yd versions upgrade --self --self-version v1.15.4 --self-force # 固定版本/�
 
 `yd new` 生成的项目没有 `tooling/scaffold`（那是 yd 框架仓库自己的生成器）：`upgrade` 只升级
 Go 模块与前端资产，`check` 只校验版本清单，二者都会跳过生成文件并打印一条说明，这是正常情况；
-`sync` 仅适用于框架仓库，生成项目无需运行。
+生成项目需要连同脚手架模板一起刷新时，使用 `yd sync`（交互确认、自动备份）。
+`versions sync` 仅适用于框架仓库，生成项目无需运行。
 
-### 5.12 `yd tools`
+### 5.12 `yd sync`
+
+全量同步当前项目到**运行中的 yd 二进制内嵌的脚手架**：重新渲染全部生成文件，新增缺失文件、
+覆盖内容冲突的生成文件，并在覆盖前自动备份；随后默认升级 Go 模块与前端资产。
+
+```bash
+yd sync --dry-run                 # 只打印完整计划
+yd sync                           # 交互确认后执行
+yd sync --yes                     # 非交互确认
+yd sync --yes --go=false --assets=false   # 只同步脚手架文件
+```
+
+- **安全提示与确认**：先打印新增/覆盖/未变化统计、覆盖文件列表与备份位置；交互终端必须确认，
+  非交互环境未传 `--yes` 会直接拒绝且不做任何修改。`--dry-run` 不写入、不触网。
+- **备份**：被覆盖的文件写入 `.yd/backup/sync-<UTC>/`；`configs/config.yaml` 永远保持原样，
+  模板内容写到 `configs/config.yaml.yd-new` 供手工合并；`go.mod` 与 `go.sum` 不被脚手架同步覆盖。
+- **依赖与资源**：`--go`（默认 true）执行 `go get -u ./...` + `go mod tidy`；`--assets`（默认 true）
+  升级同大版本 npm 资产并强制重新下载全部锁定资源。两步都需要网络，可分别关闭。
+- **模板来源**：同步使用当前运行的 yd 二进制内嵌模板；先执行
+  `yd versions upgrade --self` 更新 CLI，才能拿到最新脚手架。
+- **不删除**：同步只新增/覆盖，不删除项目中多出的文件；被覆盖的本地修改请从备份恢复后合并。
+- 完成后建议执行：`yd assets minify && go build ./... && go vet ./... && go test ./... -race`。
+
+### 5.13 `yd tools`
 
 ```bash
 yd tools [check]
@@ -698,7 +724,7 @@ macOS 与 Windows/arm64 的 `yd ko` 需外部 `upx`。其它平台自动回退�
 `yd docker` 的 UPX 暂存同样走该缓存。缓存条目带大小、mtime 与 SHA-256 sidecar，被外部改动或损坏时
 自动重新解压；删除缓存目录是安全的，下次使用会重新生成。
 
-### 5.13 `yd align`
+### 5.14 `yd align`
 
 ```bash
 yd align [--apply] [--test] [--exclude-dir DIR]... [--bin PATH] [--max-passes N] [targets...]
@@ -713,7 +739,7 @@ yd align --test ./internal/...
 
 `betteralign` 缺失时只打印安装提示并返回非零，不影响构建。
 
-### 5.14 `yd completion`
+### 5.15 `yd completion`
 
 ```bash
 yd completion bash|zsh|csh|powershell   # 打印脚本

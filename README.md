@@ -132,6 +132,9 @@ yd versions upgrade --go=false --assets=false --self
 # 创建项目并进入
 yd new myapp && cd myapp
 
+# 已有项目全量同步脚手架模板、Go 模块与前端资产（先确认并自动备份）
+yd sync
+
 # 热重载开发（Go 编译重启 + Tailwind 监听 + 模板局部刷新）
 yd dev
 
@@ -354,6 +357,9 @@ yd versions upgrade --go=false --assets=false --self
 
 # Create a project and enter it
 yd new myapp && cd myapp
+
+# Full-sync scaffold templates, Go modules and front-end assets (prompt + backup)
+yd sync
 
 # Hot-reload development (Go rebuild + Tailwind watch + template partials)
 yd dev

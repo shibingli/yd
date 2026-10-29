@@ -292,6 +292,7 @@ Co-Authored-By: Eric Shi <shibingli@sina.com>
 
 ```bash
 yd new <project>     # 初始化项目（Htmx/Tailwind/Alpine、i18n 与全部安全扩展默认集成；交互式只选择数据库、gRPC 与协议）
+yd sync              # 全量同步脚手架模板 + Go 模块 + 前端资产（先确认并备份，保留 config/go.mod/go.sum）
 yd dev               # 热重载开发（Go 编译重启 + Tailwind 监听 + 模板局部刷新）
 yd gen module|crud   # 低代码生成（DB Schema 或 Go Struct → 路由/控制器/模板）
 yd build             # 跨平台静态打包（Tailwind 剪裁压缩 + go:embed + 单二进制）
@@ -654,6 +655,8 @@ yd versions upgrade --self --self-binary PATH         # 替换指定文件或目
 yd versions upgrade --self --self-version TAG --self-force # 固定版本或降级
 yd versions check              # 离线校验生成文件与真源一致（CI 可用的非零退出）
 yd versions sync               # 仅重新生成 version_generated.go
+yd sync --dry-run              # 生成项目：预览脚手架模板全量同步
+yd sync                        # 生成项目：模板 + Go 模块 + 前端资产（确认 + 备份）
 ```
 
 - `upgrade` 按顺序执行：Go 模块 → npm 资产（jsDelivr / unpkg 的 `@ver` 段改写为 registry 最新版，
@@ -668,6 +671,12 @@ yd versions sync               # 仅重新生成 version_generated.go
   `yd assets update`）即可收敛。未变化的资产保留原校验和，因此仍能拒绝被移动的标签或被篡改的镜像。
 - **生成项目也可用**：`yd new` 产出的项目没有 `tooling/scaffold`，`yd versions upgrade` 只升级
   Go 模块与前端资产并跳过生成文件那一半；`check` 同样跳过生成文件校验。
+- **脚手架全量同步**：生成项目需要同步当前 CLI 内嵌的模板时用 `yd sync`。命令先打印新增/覆盖/未变化
+  统计与覆盖清单，交互确认后才写入；非交互必须 `--yes`，`--dry-run` 只打印计划。被覆盖文件备份到
+  `.yd/backup/sync-<UTC>/`，`configs/config.yaml` 保持原样（模板写入 `configs/config.yaml.yd-new`），
+  `go.mod` / `go.sum` **不被覆盖**；默认随后升级 Go 模块与前端资产（同大版本 + 强制重新下载）。
+  同步不删除项目多出的文件；模板来源是**运行中的 yd 二进制**，需要最新脚手架时先执行
+  `yd versions upgrade --self`。
 - 升级后必须跑完整门禁：`go build ./... && go vet ./... && go test ./... -race`。
 
 ### 20.3 约束
