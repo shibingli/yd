@@ -345,7 +345,7 @@ regexp2 + 超时；调用方仍然只经包装层。修复后 race 下该测试�
 - `yd versions check` 离线比对生成文件与真源，漂移时非零退出；守卫
   `TestScaffoldVersionsMatchSources` 在测试期拦截。变异验证：把生成文件里的 `4.0.0` 改成 `4.0.1`
   后守卫立即失败，恢复后通过。
-- `yd versions upgrade` 依次执行 `go mod tidy`、`go get -u ./...`、`go mod tidy`、npm registry 最新版本解析
+- `yd versions upgrade` 依次执行 `go mod tidy`、`go get -u -tags=tools ./...`、`go mod tidy`、npm registry 最新版本解析
   （jsDelivr / unpkg 的 `@ver` 段改写）、下载重锁、重新生成；`--dry-run` 不执行 go、不下载、不写文件。
 - `--self` 在项目升级完成后更新 CLI：按当前 GOOS/GOARCH 下载 Release 归档、校验
   `checksums.txt`、解包并原子替换 `os.Executable()` 或 `--self-binary` 指定的文件/目录；

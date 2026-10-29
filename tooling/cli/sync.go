@@ -228,7 +228,7 @@ func runSync(ctx context.Context, env *Env) error {
 	printSyncConfigReport(env, plan.Config)
 	if dry {
 		if upgradeGo {
-			fmt.Fprintln(env.Out, "would upgrade | 将升级: Go modules -> go mod tidy && go get -u ./... && go mod tidy")
+			fmt.Fprintln(env.Out, "would upgrade | 将升级: Go modules -> go mod tidy && go get -u -tags=tools ./... && go mod tidy")
 		}
 		if upgradeAssets {
 			fmt.Fprintln(env.Out, "would upgrade | 将升级: front-end assets -> latest same-major release and a forced re-download")
@@ -479,7 +479,7 @@ func printSyncWarning(env *Env, plan *syncPlan, upgradeGo, upgradeAssets, dry bo
 	}
 	fmt.Fprintln(env.Out, "go.mod and go.sum are never overwritten by the scaffold sync. | 脚手架同步永不覆盖 go.mod 与 go.sum。")
 	if upgradeGo {
-		fmt.Fprintln(env.Out, "Go modules will be upgraded by go mod tidy, go get -u ./... and a second go mod tidy (network access). | 将依次执行 go mod tidy、go get -u ./... 与第二次 go mod tidy 升级 Go 模块（需要网络）。")
+		fmt.Fprintln(env.Out, "Go modules will be upgraded by go mod tidy, go get -u -tags=tools ./... and a second go mod tidy (network access). | 将依次执行 go mod tidy、go get -u -tags=tools ./... 与第二次 go mod tidy 升级 Go 模块（需要网络）。")
 	}
 	if upgradeAssets {
 		fmt.Fprintln(env.Out, "Front-end assets will be upgraded to the latest same-major release and re-downloaded (network access). | 前端资产将升级到同大版本的最新发布并重新下载（需要网络）。")

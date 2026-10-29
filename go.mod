@@ -39,6 +39,7 @@ require (
 	github.com/shibingli/ydx/sse v0.1.10
 	github.com/shibingli/ydx/websocket v0.1.13
 	github.com/shibingli/ydx/webtransport v0.1.0
+	github.com/shibingli/ydx/workflow v0.1.2
 	github.com/spf13/afero v1.15.0
 	github.com/spf13/pflag v1.0.10
 	github.com/yuin/goldmark v1.8.6

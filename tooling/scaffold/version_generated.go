@@ -12,9 +12,9 @@ const GoVersion = "1.27.3"
 // Source: the asset manifest entry named "htmx". | 来源：资产清单中名为 "htmx" 的条目。
 const HtmxVersion = "4.0.0"
 
-// YdxVersions maps each ydx module required by the framework to its own tag version. | YdxVersions 把框架依赖的每个 ydx 模块映射到它自己的标签版本。
+// YdxVersions maps each ydx module pinned for generated projects to its own tag version. | YdxVersions 把生成项目锁定的每个 ydx 模块映射到它自己的标签版本。
 //
-// Source: the ydx requirements in go.mod, sorted by path. | 来源：go.mod 中的 ydx 依赖，按路径排序。
+// Source: the ydx requirements in go.mod, including scaffold-only modules kept there by tools.go. | 来源：go.mod 中的 ydx 依赖；仅脚手架使用的模块由 tools.go 保留在其中。
 var YdxVersions = map[string]string{
 	"github.com/shibingli/ydx/afs":                   "v0.1.6",
 	"github.com/shibingli/ydx/asynq":                 "v0.1.10",
@@ -53,12 +53,12 @@ var YdxVersions = map[string]string{
 	"github.com/shibingli/ydx/sysinfo":               "v0.1.4",
 	"github.com/shibingli/ydx/websocket":             "v0.1.13",
 	"github.com/shibingli/ydx/webtransport":          "v0.1.0",
-	"github.com/shibingli/ydx/workflow":              "v0.1.1",
+	"github.com/shibingli/ydx/workflow":              "v0.1.2",
 }
 
 // YdxModules lists the ydx modules a generated project may import. | YdxModules 列出生成项目可能导入的 ydx 模块。
 //
-// Source: the ydx requirements in go.mod, plus the scaffold-only modules. | 来源：go.mod 中的 ydx 依赖，加上仅脚手架使用的模块。
+// Source: the ydx requirements in go.mod; scaffold-only modules are kept there by the tools-tag imports in tools.go. | 来源：go.mod 中的 ydx 依赖；仅脚手架使用的模块由 tools.go 的 tools 标签导入保留在其中。
 var YdxModules = []string{
 	"github.com/shibingli/ydx/afs",
 	"github.com/shibingli/ydx/asynq",

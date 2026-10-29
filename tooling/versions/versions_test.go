@@ -23,6 +23,7 @@ require (
 	github.com/shibingli/yd v1.2.3
 	github.com/shibingli/ydx/errs v0.1.0
 	github.com/shibingli/ydx/log v0.1.0
+	github.com/shibingli/ydx/workflow v0.1.2
 	github.com/spf13/viper v1.21.0 // indirect
 	github.com/klauspost/compress v1.20.3
 )
@@ -104,22 +105,17 @@ func TestLoadDerivesScaffoldVersions(t *testing.T) {
 			t.Errorf("YdxVersions[%q] = %q, want v0.1.0", modulePath, got)
 		}
 	}
-	if got := inv.YdxVersions["github.com/shibingli/ydx/workflow"]; got != "v0.1.1" {
-		t.Errorf("YdxVersions[workflow] = %q, want the scaffold-only v0.1.1", got)
+	if got := inv.YdxVersions["github.com/shibingli/ydx/workflow"]; got != "v0.1.2" {
+		t.Errorf("YdxVersions[workflow] = %q, want v0.1.2 from go.mod", got)
 	}
 	if len(inv.YdxVersions) != 3 {
-		t.Errorf("YdxVersions = %v, want the two required ydx modules plus the scaffold-only workflow", inv.YdxVersions)
+		t.Errorf("YdxVersions = %v, want the three ydx requirements from go.mod", inv.YdxVersions)
 	}
-	if len(inv.YdxModules) != len(scaffoldYdxModules) {
-		t.Errorf("YdxModules = %d, want %d", len(inv.YdxModules), len(scaffoldYdxModules))
+	wantYdx := []string{"github.com/shibingli/ydx/errs", "github.com/shibingli/ydx/log", "github.com/shibingli/ydx/workflow"}
+	if strings.Join(inv.YdxModules, ",") != strings.Join(wantYdx, ",") {
+		t.Errorf("YdxModules = %v, want %v", inv.YdxModules, wantYdx)
 	}
-	joinedYdx := strings.Join(inv.YdxModules, ",")
-	for _, modulePath := range []string{"github.com/shibingli/ydx/cache", "github.com/shibingli/ydx/errs", "github.com/shibingli/ydx/log", "github.com/shibingli/ydx/workflow"} {
-		if !strings.Contains(joinedYdx, modulePath) {
-			t.Errorf("YdxModules missing %q: %v", modulePath, inv.YdxModules)
-		}
-	}
-	want := []string{"github.com/klauspost/compress", "github.com/shibingli/yd", "github.com/shibingli/ydx/errs", "github.com/shibingli/ydx/log", "golang.org/x/sync"}
+	want := []string{"github.com/klauspost/compress", "github.com/shibingli/yd", "github.com/shibingli/ydx/errs", "github.com/shibingli/ydx/log", "github.com/shibingli/ydx/workflow", "golang.org/x/sync"}
 	if len(inv.Modules) != len(want) {
 		t.Fatalf("Modules = %+v, want %v", inv.Modules, want)
 	}
@@ -203,8 +199,9 @@ func TestLoadIgnoresLocalReplacePlaceholders(t *testing.T) {
 	if _, ok := inv.YdxVersions["github.com/shibingli/ydx/log"]; ok {
 		t.Errorf("log version = %q, want the placeholder to be ignored", inv.YdxVersions["github.com/shibingli/ydx/log"])
 	}
-	if len(inv.YdxModules) != len(scaffoldYdxModules) {
-		t.Errorf("YdxModules = %d, want %d", len(inv.YdxModules), len(scaffoldYdxModules))
+	wantYdx := []string{"github.com/shibingli/ydx/errs", "github.com/shibingli/ydx/log", "github.com/shibingli/ydx/workflow"}
+	if strings.Join(inv.YdxModules, ",") != strings.Join(wantYdx, ",") {
+		t.Errorf("YdxModules = %v, want %v", inv.YdxModules, wantYdx)
 	}
 }
 
@@ -217,8 +214,12 @@ func TestLoadIgnoresLocalReplacePlaceholders(t *testing.T) {
 func TestLoadAllPlaceholdersHasNoYdxVersion(t *testing.T) {
 	fsys := afero.NewMemMapFs()
 	mod := testGoMod
-	for _, path := range []string{"github.com/shibingli/ydx/errs", "github.com/shibingli/ydx/log"} {
-		mod = strings.Replace(mod, path+" v0.1.0", path+" v0.0.0-00010101000000-000000000000", 1)
+	for _, module := range []struct{ path, version string }{
+		{"github.com/shibingli/ydx/errs", "v0.1.0"},
+		{"github.com/shibingli/ydx/log", "v0.1.0"},
+		{"github.com/shibingli/ydx/workflow", "v0.1.2"},
+	} {
+		mod = strings.Replace(mod, module.path+" "+module.version, module.path+" v0.0.0-00010101000000-000000000000", 1)
 	}
 	writeFile(t, fsys, GoModPath, mod)
 	writeFile(t, fsys, assets.DefaultManifestPath, testManifest)

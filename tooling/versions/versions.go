@@ -185,58 +185,6 @@ func Load(fsys afero.Fs, dir string) (*Inventory, error) {
 	}, nil
 }
 
-// scaffoldYdxModules is every ydx module a generated project may import. It is kept here rather
-// than derived only from go.mod because the framework itself does not import every module (for
-// example cache is wired by generated projects, not by yd), while the generated go.mod must still
-// pin all of them. | scaffoldYdxModules 是生成项目可能导入的全部 ydx 模块。它保存在这里而不是只从
-// go.mod 推导，是因为框架本身并不导入每个模块（例如 cache 由生成项目接线，yd 不导入），而生成的
-// go.mod 仍必须锁定全部模块。
-var scaffoldYdxModules = []string{
-	"github.com/shibingli/ydx/afs",
-	"github.com/shibingli/ydx/asynq",
-	"github.com/shibingli/ydx/base64",
-	"github.com/shibingli/ydx/buffpool",
-	"github.com/shibingli/ydx/cache",
-	"github.com/shibingli/ydx/captcha",
-	"github.com/shibingli/ydx/config",
-	"github.com/shibingli/ydx/errs",
-	"github.com/shibingli/ydx/gorm",
-	"github.com/shibingli/ydx/i18n",
-	"github.com/shibingli/ydx/json",
-	"github.com/shibingli/ydx/jwt",
-	"github.com/shibingli/ydx/log",
-	"github.com/shibingli/ydx/middleware",
-	"github.com/shibingli/ydx/middleware/accesslog",
-	"github.com/shibingli/ydx/middleware/asyncafter",
-	"github.com/shibingli/ydx/middleware/compress",
-	"github.com/shibingli/ydx/middleware/cors",
-	"github.com/shibingli/ydx/middleware/ratelimit",
-	"github.com/shibingli/ydx/middleware/recovery",
-	"github.com/shibingli/ydx/middleware/reqlog",
-	"github.com/shibingli/ydx/middleware/requestid",
-	"github.com/shibingli/ydx/nodeid",
-	"github.com/shibingli/ydx/openapi",
-	"github.com/shibingli/ydx/openapi/ydrouter",
-	"github.com/shibingli/ydx/protocol",
-	"github.com/shibingli/ydx/redis",
-	"github.com/shibingli/ydx/regexpx",
-	"github.com/shibingli/ydx/render",
-	"github.com/shibingli/ydx/router",
-	"github.com/shibingli/ydx/sse",
-	"github.com/shibingli/ydx/sysinfo",
-	"github.com/shibingli/ydx/websocket",
-	"github.com/shibingli/ydx/workflow",
-}
-
-// scaffoldYdxVersions pins modules that only generated projects import. The framework itself does
-// not require them, so they have no go.mod entry to derive from; a generated go.mod still needs a
-// real version, which `yd new --local-replace` replaces with the sibling checkout. |
-// scaffoldYdxVersions 锁定仅由生成项目导入的模块。框架自身不依赖它们，因此没有可推导的 go.mod 条目；
-// 生成项目的 go.mod 仍需要一个真实版本，而 `yd new --local-replace` 会用同级检出替换它。
-var scaffoldYdxVersions = map[string]string{
-	"github.com/shibingli/ydx/workflow": "v0.1.1",
-}
-
 // localReplaceVersion is the zero pseudo-version `yd new --local-replace` writes into a generated go.mod. |
 // localReplaceVersion 是 `yd new --local-replace` 写入生成 go.mod 的零伪版本。
 //
@@ -246,45 +194,32 @@ var scaffoldYdxVersions = map[string]string{
 // 在 `go build -mod=mod` 之后看起来像版本冲突。
 const localReplaceVersion = "v0.0.0-00010101000000-000000000000"
 
-// ydxInventory extracts the per-module ydx versions and the module paths from the requirements. |
-// ydxInventory 从依赖中提取每个 ydx 模块的版本与模块路径。
-//
-// Every ydx component is an independent module released under its own subdirectory tag, so the
-// versions legitimately differ. Recording one version per module is the only invariant that
-// survives an upgrade of a single component. | ydx 的每个组件都是独立模块、按各自的子目录标签发布，
-// 版本本来就可能不同。按模块记录版本是唯一能在单个组件升级后依然成立的不变量。
+// ydxInventory derives the per-module ydx versions and paths from go.mod. Scaffold-only modules
+// are kept in go.mod by the tools-tag imports in tools.go, so this is the single source for every
+// pinned ydx version; no second hand-maintained table exists. | ydxInventory 从 go.mod 推导每个 ydx
+// 模块的版本与路径。仅脚手架使用的模块由 tools.go 的 tools 标签导入保留在 go.mod 中，因此这里是
+// 所有 ydx 锁定版本的唯一来源，不再维护第二份手工表。
 func ydxInventory(modules []Module) (map[string]string, []string) {
 	versions := make(map[string]string)
-	observed := false
-	paths := make(map[string]bool, len(scaffoldYdxModules)+len(modules))
-	for _, modulePath := range scaffoldYdxModules {
-		paths[modulePath] = true
-	}
+	paths := make(map[string]bool, len(modules))
 	for _, m := range modules {
 		if m.Path != "github.com/shibingli/ydx" && !strings.HasPrefix(m.Path, "github.com/shibingli/ydx/") {
 			continue
 		}
-		observed = true
 		isBenchmark := strings.Contains(m.Path, "/benchmarks/") || m.Path == "github.com/shibingli/ydx/benchmarks"
-		if !isBenchmark {
-			paths[m.Path] = true
+		if isBenchmark {
+			continue
 		}
-		// Benchmark modules never reach a generated project, and a local-replace placeholder says
-		// nothing about the real version. | 基准模块不会进入生成项目；local-replace 占位版本不代表真实版本。
-		if isBenchmark || m.Version == localReplaceVersion {
+		paths[m.Path] = true
+		// A local-replace placeholder says nothing about the real version. | local-replace
+		// 占位版本不代表真实版本。
+		if m.Version == localReplaceVersion {
 			continue
 		}
 		versions[m.Path] = m.Version
 	}
-	if !observed {
+	if len(paths) == 0 {
 		return nil, nil
-	}
-	if len(versions) > 0 {
-		for modulePath, version := range scaffoldYdxVersions {
-			if _, ok := versions[modulePath]; !ok {
-				versions[modulePath] = version
-			}
-		}
 	}
 	out := make([]string, 0, len(paths))
 	for modulePath := range paths {
@@ -375,8 +310,8 @@ func Generate(inv *Inventory) []byte {
 	b.WriteString("//\n// Source: the asset manifest entry named \"htmx\". | 来源：资产清单中名为 \"htmx\" 的条目。\n")
 	b.WriteString("const HtmxVersion = " + strconv.Quote(inv.HtmxVersion) + "\n")
 	if len(inv.YdxVersions) > 0 {
-		b.WriteString("\n// YdxVersions maps each ydx module required by the framework to its own tag version. | YdxVersions 把框架依赖的每个 ydx 模块映射到它自己的标签版本。\n")
-		b.WriteString("//\n// Source: the ydx requirements in go.mod, sorted by path. | 来源：go.mod 中的 ydx 依赖，按路径排序。\n")
+		b.WriteString("\n// YdxVersions maps each ydx module pinned for generated projects to its own tag version. | YdxVersions 把生成项目锁定的每个 ydx 模块映射到它自己的标签版本。\n")
+		b.WriteString("//\n// Source: the ydx requirements in go.mod, including scaffold-only modules kept there by tools.go. | 来源：go.mod 中的 ydx 依赖；仅脚手架使用的模块由 tools.go 保留在其中。\n")
 		b.WriteString("var YdxVersions = map[string]string{\n")
 		paths := make([]string, 0, len(inv.YdxVersions))
 		for modulePath := range inv.YdxVersions {
@@ -390,7 +325,7 @@ func Generate(inv *Inventory) []byte {
 	}
 	if len(inv.YdxModules) > 0 {
 		b.WriteString("\n// YdxModules lists the ydx modules a generated project may import. | YdxModules 列出生成项目可能导入的 ydx 模块。\n")
-		b.WriteString("//\n// Source: the ydx requirements in go.mod, plus the scaffold-only modules. | 来源：go.mod 中的 ydx 依赖，加上仅脚手架使用的模块。\n")
+		b.WriteString("//\n// Source: the ydx requirements in go.mod; scaffold-only modules are kept there by the tools-tag imports in tools.go. | 来源：go.mod 中的 ydx 依赖；仅脚手架使用的模块由 tools.go 的 tools 标签导入保留在其中。\n")
 		b.WriteString("var YdxModules = []string{\n")
 		for _, modulePath := range inv.YdxModules {
 			b.WriteString("\t" + strconv.Quote(modulePath) + ",\n")

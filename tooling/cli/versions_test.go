@@ -182,7 +182,7 @@ func TestVersionsUpgradeAppliesBothHalves(t *testing.T) {
 	if err := Execute(context.Background(), []string{"versions", "upgrade"}, te.env); err != nil {
 		t.Fatalf("upgrade: %v", err)
 	}
-	wantCalls := []string{"mod tidy", "get -u ./...", "mod tidy"}
+	wantCalls := []string{"mod tidy", "get -u -tags=tools ./...", "mod tidy"}
 	if len(calls) != len(wantCalls) {
 		t.Fatalf("go calls = %v, want %v", calls, wantCalls)
 	}
@@ -207,8 +207,8 @@ func TestVersionsUpgradeAppliesBothHalves(t *testing.T) {
 }
 
 // TestVersionsUpgradeTidiesBeforeGet proves a newly imported module missing from go.mod is added
-// by the initial tidy before `go get -u ./...` runs. | TestVersionsUpgradeTidiesBeforeGet 验证
-// 新导入但尚未写入 go.mod 的模块会先由 tidy 补入，再执行 `go get -u ./...`。
+// by the initial tidy before `go get -u -tags=tools ./...` runs. | TestVersionsUpgradeTidiesBeforeGet 验证
+// 新导入但尚未写入 go.mod 的模块会先由 tidy 补入，再执行 `go get -u -tags=tools ./...`。
 func TestVersionsUpgradeTidiesBeforeGet(t *testing.T) {
 	fsys := versionsFS(t)
 	te := newTestEnv(t, fsys, "", false)
@@ -220,7 +220,7 @@ func TestVersionsUpgradeTidiesBeforeGet(t *testing.T) {
 		switch call {
 		case "mod tidy":
 			tidied = true
-		case "get -u ./...":
+		case "get -u -tags=tools ./...":
 			if !tidied {
 				return errors.New("cannot find module providing package")
 			}
@@ -230,7 +230,7 @@ func TestVersionsUpgradeTidiesBeforeGet(t *testing.T) {
 	if err := Execute(context.Background(), []string{"versions", "upgrade", "--assets=false"}, te.env); err != nil {
 		t.Fatalf("upgrade: %v\n%s", err, te.errs.String())
 	}
-	want := []string{"mod tidy", "get -u ./...", "mod tidy"}
+	want := []string{"mod tidy", "get -u -tags=tools ./...", "mod tidy"}
 	if strings.Join(calls, ",") != strings.Join(want, ",") {
 		t.Fatalf("go calls = %v, want %v", calls, want)
 	}

@@ -134,11 +134,11 @@ func init() {
 			"并以一个可重复的步骤升级 Go 模块与 npm 锁定的前端资产。\n" +
 			"\n" +
 			"check (default) verifies the generated version file and prints the inventory; sync regenerates it;\n" +
-			"upgrade runs go mod tidy, go get -u ./... and a second go mod tidy, resolves the latest npm release of every locked asset,\n" +
+			"upgrade runs go mod tidy, go get -u -tags=tools ./... and a second go mod tidy, resolves the latest npm release of every locked asset,\n" +
 			"downloads and re-locks them, then regenerates the version file. --self additionally replaces the\n" +
 			"running yd binary (or --self-binary PATH) with the latest GitHub release after project upgrades;\n" +
 			"the new binary takes effect on the next invocation.\n" +
-			"check（默认）校验生成文件并打印版本清单；sync 重新生成；upgrade 执行 go mod tidy、go get -u ./... 与第二次 go mod tidy，\n" +
+			"check（默认）校验生成文件并打印版本清单；sync 重新生成；upgrade 执行 go mod tidy、go get -u -tags=tools ./... 与第二次 go mod tidy，\n" +
 			"解析并重新锁定每个资产的 npm 最新版本，最后重新生成版本文件。--self 在项目升级完成后一并把运行中的\n" +
 			"yd 二进制（或 --self-binary PATH）替换为最新 GitHub Release；新二进制在下次启动时生效。",
 		Usage: versionsUsageLine,
@@ -255,16 +255,16 @@ func runVersionsUpgrade(ctx context.Context, env *Env) error {
 
 	if upgradeGo {
 		if dry {
-			fmt.Fprintln(env.Out, "would run | 将执行: go mod tidy && go get -u ./... && go mod tidy")
+			fmt.Fprintln(env.Out, "would run | 将执行: go mod tidy && go get -u -tags=tools ./... && go mod tidy")
 		} else {
 			// Tidy first: a new scaffold file may import a module that is not in go.mod yet, and
-			// `go get -u ./...` cannot add such a package when the module graph is incomplete.
+			// `go get -u -tags=tools ./...` cannot add such a package when the module graph is incomplete.
 			// | 先执行 tidy：新增的脚手架文件可能导入尚未写入 go.mod 的模块，而模块图不完整时
-			// `go get -u ./...` 无法补上这个包。
+			// `go get -u -tags=tools ./...` 无法补上这个包。
 			if err := versionsRunGo(ctx, dir, env.Out, "mod", "tidy"); err != nil {
 				return err
 			}
-			if err := versionsRunGo(ctx, dir, env.Out, "get", "-u", "./..."); err != nil {
+			if err := versionsRunGo(ctx, dir, env.Out, "get", "-u", "-tags=tools", "./..."); err != nil {
 				return err
 			}
 			if err := versionsRunGo(ctx, dir, env.Out, "mod", "tidy"); err != nil {

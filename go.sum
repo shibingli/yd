@@ -170,6 +170,8 @@ github.com/shibingli/ydx/websocket v0.1.13 h1:ZrL5CPFZH6+Oi0mE07cuOWYqOkIyX1NqYs
 github.com/shibingli/ydx/websocket v0.1.13/go.mod h1:MNo0DxSzBR80vVgsvfQ5+H0Gaswvl5QP5M6ThzVBnDo=
 github.com/shibingli/ydx/webtransport v0.1.0 h1:3DwbXgXyXRFCnCbxj8Z0xlJx9WY9Vhu+0NhyCOslXr4=
 github.com/shibingli/ydx/webtransport v0.1.0/go.mod h1:irmdW+MRnQEXlijy/TiLYgbbjLnFKRaUsihQNwATdPs=
+github.com/shibingli/ydx/workflow v0.1.2 h1:aqhWx6bkmqan2wClMpg3gbMTA8ADArqRYJeyb3WJU8I=
+github.com/shibingli/ydx/workflow v0.1.2/go.mod h1:LIg2D1O98ELCdcgo+7kDYlE7lPx49J6zpuXk5qAWeIs=
 github.com/spf13/afero v1.15.0 h1:b/YBCLWAJdFWJTN9cLhiXXcD7mzKn9Dm86dNnfyQw1I=
 github.com/spf13/afero v1.15.0/go.mod h1:NC2ByUVxtQs4b3sIUphxK0NioZnmxgyCrfzeuq8lxMg=
 github.com/spf13/cast v1.10.0 h1:h2x0u2shc1QuLHfxi+cTJvs30+ZAHOGRic8uyGTDWxY=

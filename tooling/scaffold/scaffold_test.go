@@ -4461,7 +4461,7 @@ func TestGeneratedGoModPinsEveryScaffoldYdxModule(t *testing.T) {
 				}
 			}
 			if owner == "" {
-				t.Errorf("%s 导入了未登记的 ydx 模块路径 %q；请在 scaffoldYdxModules 与 go.mod/tools.go 中补上 | %s imports unregistered ydx path %q; add it to scaffoldYdxModules and go.mod/tools.go", generated, path, generated, path)
+				t.Errorf("%s 导入了未登记的 ydx 模块路径 %q；请在 go.mod 或 tools.go 中补上 | %s imports unregistered ydx path %q; add it to go.mod or tools.go", generated, path, generated, path)
 				continue
 			}
 			if scaffold.YdxVersions[owner] == "" {

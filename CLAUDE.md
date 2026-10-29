@@ -646,7 +646,7 @@ yd completion install [--shell S] [--dir D] [--print] [--append-rc] [--yes]
 ### 20.2 升级流程
 
 ```bash
-yd versions upgrade            # go mod tidy + go get -u ./... + go mod tidy + npm 最新资产重锁 + 重新生成
+yd versions upgrade            # go mod tidy + go get -u -tags=tools ./... + go mod tidy + npm 最新资产重锁 + 重新生成
 yd versions upgrade --dry-run  # 只打印计划，不执行 go、不下载、不写文件
 yd versions upgrade --go=false # 只升级前端资产
 yd versions upgrade --self     # 项目升级完成后把运行中的 yd 更新到最新 Release
