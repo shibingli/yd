@@ -571,6 +571,42 @@ func TestSelectRendersInitialLabelBeforeAlpine(t *testing.T) {
 	}
 }
 
+// TestCheckAndRadioRenderBorderlessMarks pins the visible mark to a sibling span: the native input
+// stays present for the form and label semantics, while no native border is painted. |
+// TestCheckAndRadioRenderBorderlessMarks 固定可见标记为相邻 span：原生 input 保留表单与标签语义，
+// 但不再绘制原生边框。
+func TestCheckAndRadioRenderBorderlessMarks(t *testing.T) {
+	templates, err := template.New("components").Funcs(templateFuncs()).ParseFS(os.DirFS("templates"), "components/*.html", "partials/*.html")
+	if err != nil {
+		t.Fatalf("parsing components failed: %v | 解析组件失败: %v", err, err)
+	}
+	cases := []struct {
+		name     string
+		template string
+		want     string
+	}{
+		{"checkbox", "components.form.check", `class="yd-check__box"`},
+		{"radio", "components.form.radio", `class="yd-radio__mark"`},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			var buf bytes.Buffer
+			if err := templates.ExecuteTemplate(&buf, tc.template, map[string]any{
+				"ID": "choice", "Name": "choice", "Value": "yes", "Label": "Choice",
+			}); err != nil {
+				t.Fatalf("render %s: %v | 渲染 %s 失败", tc.name, err, tc.name)
+			}
+			out := buf.String()
+			if !strings.Contains(out, tc.want) {
+				t.Errorf("%s lacks its visual mark %s:\n%s | %s 缺少可见标记", tc.name, tc.want, out, tc.name)
+			}
+			if !strings.Contains(out, `aria-hidden="true"`) {
+				t.Errorf("%s mark is not hidden from assistive technology:\n%s | %s 的标记未对辅助技术隐藏", tc.name, out, tc.name)
+			}
+		})
+	}
+}
+
 // TestChartComponentKeepsTheSVGUnescaped proves the frame does not double-escape the renderer's
 // output: a chart that arrives as &lt;svg&gt; is a chart nobody can see.
 // TestChartComponentKeepsTheSVGUnescaped 证明外框没有二次转义渲染器的输出：变成 &lt;svg&gt; 的图表

@@ -491,6 +491,29 @@ func TestToggleUsesDedicatedWrapper(t *testing.T) {
 	}
 }
 
+// TestChoiceMarksAndBlocksAreBorderless pins the checkbox/radio visual language to the switch:
+// no border, the unchecked track colour and the checked accent colour. |
+// TestChoiceMarksAndBlocksAreBorderless 固定复选框/单选框与开关一致的视觉语言：无边框，未选中用轨道色，
+// 选中用强调色。
+func TestChoiceMarksAndBlocksAreBorderless(t *testing.T) {
+	css := string(readEmbedded(t, web.FS(), uiCSSPath))
+	mark := cssBlock(t, css, ".yd-check__box,\n  .yd-radio__mark")
+	if !strings.Contains(mark, "border: 0;") {
+		t.Errorf("choice marks must not draw a border:\n%s | 复选/单选标记不得绘制边框", mark)
+	}
+	if !strings.Contains(mark, "var(--color-track)") {
+		t.Errorf("unchecked choice marks must use the switch track colour:\n%s | 未选中的标记必须使用开关轨道色", mark)
+	}
+	checked := cssBlock(t, css, ".yd-check__input:checked + .yd-check__box,\n  .yd-radio__input:checked + .yd-radio__mark")
+	if !strings.Contains(checked, "var(--color-accent)") {
+		t.Errorf("checked choice marks must use the switch accent colour:\n%s | 选中的标记必须使用开关强调色", checked)
+	}
+	block := cssBlock(t, css, ".yd-check--block,\n  .yd-radio--block")
+	if !strings.Contains(block, "border: 0;") || strings.Contains(block, "border: 1px") {
+		t.Errorf("block choice rows must be borderless:\n%s | 块级选项行必须无边框", block)
+	}
+}
+
 // TestEditorToolbarHoverFollowsTheme pins readable hover/active states on the runtime toolbar. |
 // TestEditorToolbarHoverFollowsTheme 固定运行时工具栏清晰的悬停/激活状态。
 func TestEditorToolbarHoverFollowsTheme(t *testing.T) {

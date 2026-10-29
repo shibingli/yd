@@ -46,8 +46,11 @@
     <thead class="yd-table__head">
       <tr>
         {{if .Selectable}}<th class="yd-table__th yd-table__th--select" scope="col">
-          <input class="yd-check__input" type="checkbox" x-ref="all" x-on:change="toggleAll"
-                 data-yd-i18n-attr="aria-label:ui.select_all" aria-label="{{tr "ui.select_all"}}">
+          <label class="yd-check">
+            <input class="yd-check__input" type="checkbox" x-ref="all" x-on:change="toggleAll"
+                   data-yd-i18n-attr="aria-label:ui.select_all" aria-label="{{tr "ui.select_all"}}">
+            <span class="yd-check__box" aria-hidden="true"></span>
+          </label>
         </th>{{end}}
         {{range .Columns}}
         <th class="yd-table__th{{if .Numeric}} yd-table__th--num{{end}}{{if .Actions}} yd-table__th--actions{{end}}" scope="col"{{with .LabelKey}} data-yd-i18n="{{.}}"{{end}}>{{if .LabelKey}}{{tr .LabelKey}}{{else}}{{.Label}}{{end}}</th>
@@ -63,7 +66,10 @@
      放进 <tr> 内；components.data.table.open 会在外层装配 ydTableSelect。 */}}
 {{- define "components.data.select-cell" -}}
 <td class="yd-table__td yd-table__td--select">
-  <input class="yd-check__input" type="checkbox" name="{{.Name}}" value="{{.Value}}"{{if .Checked}} checked{{end}} {{with .Attrs}}{{.}}{{end}}>
+  <label class="yd-check">
+    <input class="yd-check__input" type="checkbox" name="{{.Name}}" value="{{.Value}}"{{if .Checked}} checked{{end}} {{with .Attrs}}{{.}}{{end}}>
+    <span class="yd-check__box" aria-hidden="true"></span>
+  </label>
 </td>
 {{- end -}}
 
@@ -103,7 +109,10 @@
 <tr class="yd-table__row"{{with .Attrs}}{{.}}{{end}}>
   {{- if $.Selectable}}
   <td class="yd-table__td yd-table__td--select">
-    <input class="yd-check__input" type="checkbox" name="{{$.SelectName | default "selected"}}" value="{{.SelectValue}}"{{if .Selected}} checked{{end}}>
+    <label class="yd-check">
+      <input class="yd-check__input" type="checkbox" name="{{$.SelectName | default "selected"}}" value="{{.SelectValue}}"{{if .Selected}} checked{{end}}>
+      <span class="yd-check__box" aria-hidden="true"></span>
+    </label>
   </td>
   {{- end}}
   {{- range .Cells}}

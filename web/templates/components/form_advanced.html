@@ -35,6 +35,7 @@
       <label class="yd-check yd-check--block" for="{{$.ID}}-source-{{.Value}}">
         <input class="yd-check__input" type="checkbox" id="{{$.ID}}-source-{{.Value}}"
                name="{{$.SourceName}}" value="{{.Value}}"{{if .Checked}} checked{{end}}>
+        <span class="yd-check__box" aria-hidden="true"></span>
         <span class="yd-check__label"{{with .LabelKey}} data-yd-i18n="{{.}}"{{end}}>{{if .LabelKey}}{{tr .LabelKey}}{{else}}{{.Label}}{{end}}</span>
       </label>
       {{else}}
@@ -53,6 +54,7 @@
       <label class="yd-check yd-check--block" for="{{$.ID}}-target-{{.Value}}">
         <input class="yd-check__input" type="checkbox" id="{{$.ID}}-target-{{.Value}}"
                name="{{$.TargetName}}" value="{{.Value}}"{{if .Checked}} checked{{end}}>
+        <span class="yd-check__box" aria-hidden="true"></span>
         <span class="yd-check__label"{{with .LabelKey}} data-yd-i18n="{{.}}"{{end}}>{{if .LabelKey}}{{tr .LabelKey}}{{else}}{{.Label}}{{end}}</span>
       </label>
       {{else}}

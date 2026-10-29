@@ -471,7 +471,9 @@ Windows 显示缩放改变的是 CSS 像素与设备的比例，本质上与浏�
   "Checked" true "Block" true)}}
 ```
 
-开关用于「立即生效」的二元设置；需要提交表单的普通选项用复选框。开关是原生 checkbox + CSS，
+开关用于「立即生效」的二元设置；需要提交表单的普通选项用复选框。复选框与单选框的可见标记
+与开关共用同一套状态色：不绘制原生边框，未选中使用 `--color-track` 混合少量内容色，选中使用 `--color-accent`；
+`Block` 选项行同样去除了边框，改用 `--color-surface-muted` 背景。开关是原生 checkbox + CSS，
 不依赖 Alpine，因此在 Alpine 启动前与 htmx 交换后都可用。
 
 ```html

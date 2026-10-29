@@ -1412,17 +1412,34 @@
     cursor: not-allowed;
   }
 
-  /* Native checkbox recoloured through accent-color, no custom widget involved. | 原生复选框经 accent-color 着色，不引入自定义控件。 */
+  /* Borderless checkbox matching the switch's track/accent colours: the native box is removed
+     and the fill alone carries the state. | 无边框复选框，沿用开关的轨道色与强调色：移除原生盒子，
+     由填充色表达选中状态。 */
   .yd-checkbox {
     flex: 0 0 auto;
-    width: 1rem;
-    height: 1rem;
-    accent-color: var(--color-accent);
+    width: 1.125rem;
+    height: 1.125rem;
+    appearance: none;
+    -webkit-appearance: none;
+    border: 0;
+    border-radius: 0.375rem;
+    background-color: color-mix(in oklab, var(--color-content) 14%, var(--color-track));
+    cursor: pointer;
+    transition: background-color 140ms var(--ease-standard);
+  }
+
+  .yd-checkbox:checked {
+    background-color: var(--color-accent);
   }
 
   .yd-checkbox:focus-visible {
-    outline: 2px solid var(--color-accent);
+    outline: 2px solid var(--color-focus-ring);
     outline-offset: 2px;
+  }
+
+  .yd-checkbox:disabled {
+    opacity: 0.55;
+    cursor: not-allowed;
   }
 
   /* Secondary note under a control or a card. | 控件或卡片下方的补充说明。 */

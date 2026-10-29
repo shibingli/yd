@@ -68,8 +68,12 @@
     <div class="yd-checks">
       {{- range .Catalog.Groups }}
       {{- $gid := .ID }}
-      <label class="yd-check"><input type="checkbox" name="group_ids" value="{{ .ID }}"
-        {{- range $.Message.Groups }}{{ if eq .ID $gid }} checked{{ end }}{{ end }}> {{ .Label }}</label>
+      <label class="yd-check">
+        <input class="yd-check__input" type="checkbox" name="group_ids" value="{{ .ID }}"
+          {{- range $.Message.Groups }}{{ if eq .ID $gid }} checked{{ end }}{{ end }}>
+        <span class="yd-check__box" aria-hidden="true"></span>
+        <span class="yd-check__body"><span class="yd-check__label">{{ .Label }}</span></span>
+      </label>
       {{- else }}<p class="yd-hint">{{ tr "message.no_groups" }}</p>{{ end }}
     </div>
   </div>
@@ -79,8 +83,12 @@
     <div class="yd-checks">
       {{- range .Catalog.Tags }}
       {{- $tid := .ID }}
-      <label class="yd-check"><input type="checkbox" name="tag_ids" value="{{ .ID }}"
-        {{- range $.Message.Tags }}{{ if eq .ID $tid }} checked{{ end }}{{ end }}> #{{ .Label }}</label>
+      <label class="yd-check">
+        <input class="yd-check__input" type="checkbox" name="tag_ids" value="{{ .ID }}"
+          {{- range $.Message.Tags }}{{ if eq .ID $tid }} checked{{ end }}{{ end }}>
+        <span class="yd-check__box" aria-hidden="true"></span>
+        <span class="yd-check__body"><span class="yd-check__label">#{{ .Label }}</span></span>
+      </label>
       {{- else }}<p class="yd-hint">{{ tr "message.no_tags" }}</p>{{ end }}
     </div>
   </div>

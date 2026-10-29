@@ -90,6 +90,7 @@
                name="tenants" value="{{ .ID }}"
                {{- if $target.HasTenant .ID }} checked{{ end }}
                {{- if or (eq .ID $target.HomeTenantID) (eq .ID $target.DefaultTenantID) }} disabled{{ end }}>
+        <span class="yd-check__box" aria-hidden="true"></span>
         <span class="yd-check__label">{{ .Display }}</span>
         {{- if eq .ID $target.HomeTenantID }}<span class="yd-badge yd-badge--muted">{{ tr "tenant.home" }}</span>{{ end }}
         {{- if eq .ID $target.DefaultTenantID }}<span class="yd-badge yd-badge--info">{{ tr "tenant.default" }}</span>{{ end }}

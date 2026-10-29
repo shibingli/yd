@@ -1017,9 +1017,12 @@
       });
       var line = el('label', { className: 'yd-check' });
       line.setAttribute('for', id);
+      var mark = el('span', { className: 'yd-check__box' });
+      mark.setAttribute('aria-hidden', 'true');
       var body = el('span', { className: 'yd-check__body' });
       body.appendChild(el('span', { className: 'yd-check__label', text: label }));
       line.appendChild(input);
+      line.appendChild(mark);
       line.appendChild(body);
       return line;
     }

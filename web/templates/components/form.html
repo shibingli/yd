@@ -193,6 +193,7 @@
 {{- define "components.form.check" -}}
 <label class="yd-check{{if .Block}} yd-check--block{{end}}" for="{{.ID}}">
   <input class="yd-check__input" type="checkbox" id="{{.ID}}" name="{{.Name}}" value="{{.Value}}"{{if .Checked}} checked{{end}}{{if .Disabled}} disabled{{end}} {{with .Attrs}}{{.}}{{end}}>
+  <span class="yd-check__box" aria-hidden="true"></span>
   <span class="yd-check__body">
     <span class="yd-check__label"{{if not .LabelHTML}}{{with .LabelKey}} data-yd-i18n="{{.}}"{{end}}{{end}}>{{if .LabelHTML}}{{.LabelHTML}}{{else}}{{if .Label}}{{.Label}}{{else}}{{if .LabelKey}}{{tr .LabelKey}}{{end}}{{end}}{{end}}</span>
     {{if or .Hint .HintKey}}<span class="yd-check__hint"{{if not .HintHTML}}{{with .HintKey}} data-yd-i18n="{{.}}"{{end}}{{end}}>{{if .HintHTML}}{{.HintHTML}}{{else}}{{if .Hint}}{{.Hint}}{{else}}{{if .HintKey}}{{tr .HintKey}}{{end}}{{end}}{{end}}</span>{{end}}
@@ -204,6 +205,7 @@
 {{- define "components.form.radio" -}}
 <label class="yd-radio{{if .Block}} yd-radio--block{{end}}" for="{{.ID}}">
   <input class="yd-radio__input" type="radio" id="{{.ID}}" name="{{.Name}}" value="{{.Value}}"{{if .Checked}} checked{{end}}{{if .Disabled}} disabled{{end}}>
+  <span class="yd-radio__mark" aria-hidden="true"></span>
   <span class="yd-radio__body">
     <span class="yd-radio__label"{{with .LabelKey}} data-yd-i18n="{{.}}"{{end}}>{{if .Label}}{{.Label}}{{else}}{{if .LabelKey}}{{tr .LabelKey}}{{end}}{{end}}</span>
     {{if or .Hint .HintKey}}<span class="yd-radio__hint"{{with .HintKey}} data-yd-i18n="{{.}}"{{end}}>{{if .Hint}}{{.Hint}}{{else}}{{if .HintKey}}{{tr .HintKey}}{{end}}{{end}}</span>{{end}}

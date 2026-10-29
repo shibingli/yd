@@ -21,6 +21,7 @@ func TestWorkflowDesignerUsesComponentControls(t *testing.T) {
 	body := string(script)
 	for _, want := range []string{
 		"yd-check__input",
+		"yd-check__box",
 		"yd-check__label",
 		"yd-selectbox",
 		"ydSelect",

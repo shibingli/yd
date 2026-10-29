@@ -493,24 +493,94 @@
   .yd-check--block,
   .yd-radio--block {
     padding: 0.625rem 0.75rem;
-    border: 1px solid var(--color-border-subtle);
+    border: 0;
     border-radius: var(--radius-control);
-    background-color: var(--color-surface);
+    background-color: var(--color-surface-muted);
   }
 
+  /* The native control keeps the form value, label association and focus order, but the visible
+     mark is a sibling span: no native border, unchecked uses the switch track colour and checked
+     uses the switch accent colour. | 原生控件保留表单值、标签关联与焦点顺序，可见标记由相邻 span
+     绘制：不保留原生边框，未选中使用开关轨道色，选中使用开关强调色。 */
   .yd-check__input,
   .yd-radio__input {
-    flex: 0 0 auto;
-    width: 1rem;
-    height: 1rem;
-    margin-top: 0.125rem;
-    accent-color: var(--color-accent);
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    margin: -1px;
+    padding: 0;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+    border: 0;
   }
 
-  .yd-check__input:focus-visible,
-  .yd-radio__input:focus-visible {
+  .yd-check__box,
+  .yd-radio__mark {
+    flex: 0 0 auto;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 1.125rem;
+    height: 1.125rem;
+    margin-top: 0.0625rem;
+    border: 0;
+    border-radius: 0.375rem;
+    /* A slight content tint keeps the borderless mark visible in both themes while staying in the
+       switch track family. | 轻微混入内容色，使无边框标记在明暗两套主题下都清晰可见，同时保持
+       开关轨道色系。 */
+    background-color: color-mix(in oklab, var(--color-content) 14%, var(--color-track));
+    transition: background-color 140ms var(--ease-standard);
+  }
+
+  .yd-radio__mark {
+    border-radius: 999px;
+  }
+
+  .yd-check__box::after {
+    content: "";
+    width: 0.5rem;
+    height: 0.3125rem;
+    border-inline-start: 0.125rem solid var(--color-surface);
+    border-block-end: 0.125rem solid var(--color-surface);
+    opacity: 0;
+    transform: rotate(-45deg) translateY(-0.0625rem) scale(0.8);
+    transition: opacity 140ms var(--ease-standard), transform 140ms var(--ease-standard);
+  }
+
+  .yd-radio__mark::after {
+    content: "";
+    width: 0.4375rem;
+    height: 0.4375rem;
+    border-radius: 999px;
+    background-color: var(--color-surface);
+    transform: scale(0);
+    transition: transform 140ms var(--ease-standard);
+  }
+
+  .yd-check__input:checked + .yd-check__box,
+  .yd-radio__input:checked + .yd-radio__mark {
+    background-color: var(--color-accent);
+  }
+
+  .yd-check__input:checked + .yd-check__box::after {
+    opacity: 1;
+    transform: rotate(-45deg) translateY(-0.0625rem) scale(1);
+  }
+
+  .yd-radio__input:checked + .yd-radio__mark::after {
+    transform: scale(1);
+  }
+
+  .yd-check__input:focus-visible + .yd-check__box,
+  .yd-radio__input:focus-visible + .yd-radio__mark {
     outline: 2px solid var(--color-focus-ring);
     outline-offset: 2px;
+  }
+
+  .yd-check__input:disabled + .yd-check__box,
+  .yd-radio__input:disabled + .yd-radio__mark {
+    opacity: 0.55;
   }
 
   .yd-check__body,
@@ -565,7 +635,7 @@
     height: 1.375rem;
     border: 1px solid var(--color-field-border);
     border-radius: 999px;
-    background-color: var(--color-track);
+    background-color: color-mix(in oklab, var(--color-content) 14%, var(--color-track));
     transition: background-color 140ms var(--ease-standard), border-color 140ms var(--ease-standard);
   }
 
@@ -1508,6 +1578,12 @@
     width: 2.75rem;
     padding-inline: 0.5rem;
     text-align: center;
+  }
+
+  .yd-table__th--select .yd-check,
+  .yd-table__td--select .yd-check {
+    justify-content: center;
+    padding-block: 0;
   }
 
   .yd-table__wrap {

@@ -45,8 +45,9 @@
     <div class="yd-questionnaire__choices">
       {{range .Choices}}
       <label class="yd-check yd-check--block">
-        <input class="yd-check__input" type="{{if eq .Type "checkbox"}}checkbox{{else}}radio{{end}}"
+        <input class="{{if eq .Type "checkbox"}}yd-check__input{{else}}yd-radio__input{{end}}" type="{{if eq .Type "checkbox"}}checkbox{{else}}radio{{end}}"
                name="{{$item.Name}}" value="{{.Value}}"{{if .Checked}} checked{{end}}{{if $item.Required}} required{{end}}>
+        <span class="{{if eq .Type "checkbox"}}yd-check__box{{else}}yd-radio__mark{{end}}" aria-hidden="true"></span>
         <span class="yd-check__body">
           <span class="yd-check__label"{{with .LabelKey}} data-yd-i18n="{{.}}"{{end}}>{{if .LabelKey}}{{tr .LabelKey}}{{else}}{{.Label}}{{end}}</span>
           {{if or .Description .DescriptionKey}}<span class="yd-check__hint"{{with .DescriptionKey}} data-yd-i18n="{{.}}"{{end}}>{{if .DescriptionKey}}{{tr .DescriptionKey}}{{else}}{{.Description}}{{end}}</span>{{end}}
