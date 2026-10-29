@@ -44,6 +44,16 @@
 环境变量前缀固定 **`YD_`**，下划线自动映射为多级嵌套：`YD_SERVER_PORT` → `server.port`、`YD_DB_MAXCONN` → `db.maxconn`。
 `.env` 不入库（已被 `.gitignore` 忽略），仓库内只保留 `.env.template`。
 
+`configs/config.yaml` 是 yd 生成的基线，个人值与密钥写入 `configs/config.local.yaml`（已被 `.gitignore`
+忽略、加载优先级更高）。`yd new` 会把生成基线记录到 `.yd/config.baseline.yaml`；`yd sync` 默认
+`--config-mode=auto`，存在基线时执行三方合并：用户修改迁移到 local，新模板的注释与默认值写回基线，
+local 冲突优先并只报告键名。没有基线且内容已与模板一致的 `config.yaml` 只补写基线；内容不同的
+旧项目保持 `config.yaml` 并写 `.yd-new`。执行一次 `yd sync --config-mode=adopt` 可迁移并建立基线；
+`--config-mode=keep` 保留旧式旁路文件，
+`--config-mode=overwrite` 显式替换基线且不触碰 local。配置报告只打印键路径，不打印值；用户从基线
+删除的键不会迁移，新模板会重新提供它们。人工注释在 auto/adopt/overwrite 下不保留，个人值应放 local。
+只补写 `.yd/config.baseline.yaml` 属于内部簿记，不触发确认；基线损坏时 auto 回退到安全模式。
+
 鉴权相关的两个键（见 `configs/config.yaml` 的 `auth` 段）：`auth.master_key`（`YD_AUTH_MASTER_KEY`）封装每个用户的
 `sec_key`，**生产环境必须注入**；`development` 之外留空会让进程**拒绝启动**，开发环境才回退到内置密钥并告警；`auth.token_ttl`（`YD_AUTH_TOKEN_TTL`）
 决定登录会话的时长，登录 cookie 的 `MaxAge` 与它同源。

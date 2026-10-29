@@ -134,6 +134,13 @@ func runNew(ctx context.Context, env *Env) error {
 	if err != nil {
 		return err
 	}
+	// The baseline snapshot is auxiliary: a project that cannot persist it still works, but its
+	// first `yd sync` falls back to the legacy reconciliation (baseline when unchanged, sidecar when
+	// different). | 基线快照是辅助产物：无法持久化它的项目仍可正常工作，但首次 `yd sync` 会回退到
+	// 旧项目路径（内容一致时补写基线，内容不同时写旁路文件）。
+	if err := writeConfigBaseline(newTargetFS(env), strings.TrimSpace(opts.Name)); err != nil {
+		log.Default().Warn("config baseline write failed; yd sync will use legacy mode | 配置基线写入失败；yd sync 将使用旧项目模式", log.Err(err))
+	}
 
 	printNewReport(env, opts, res)
 	newToolStep(ctx, env, fs, opts.Name)

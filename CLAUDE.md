@@ -292,7 +292,7 @@ Co-Authored-By: Eric Shi <shibingli@sina.com>
 
 ```bash
 yd new <project>     # 初始化项目（Htmx/Tailwind/Alpine、i18n 与全部安全扩展默认集成；交互式只选择数据库、gRPC 与协议）
-yd sync              # 全量同步脚手架模板 + Go 模块 + 前端资产（先确认并备份，保留 config/go.mod/go.sum）
+yd sync              # 全量同步脚手架模板 + Go 模块 + 前端资产（先确认并备份；配置按 --config-mode 处理，保留 go.mod/go.sum）
 yd dev               # 热重载开发（Go 编译重启 + Tailwind 监听 + 模板局部刷新）
 yd gen module|crud   # 低代码生成（DB Schema 或 Go Struct → 路由/控制器/模板）
 yd build             # 跨平台静态打包（Tailwind 剪裁压缩 + go:embed + 单二进制）
@@ -673,10 +673,19 @@ yd sync                        # 生成项目：模板 + Go 模块 + 前端资�
   Go 模块与前端资产并跳过生成文件那一半；`check` 同样跳过生成文件校验。
 - **脚手架全量同步**：生成项目需要同步当前 CLI 内嵌的模板时用 `yd sync`。命令先打印新增/覆盖/未变化
   统计与覆盖清单，交互确认后才写入；非交互必须 `--yes`，`--dry-run` 只打印计划。被覆盖文件备份到
-  `.yd/backup/sync-<UTC>/`，`configs/config.yaml` 保持原样（模板写入 `configs/config.yaml.yd-new`），
-  `go.mod` / `go.sum` **不被覆盖**；默认随后升级 Go 模块与前端资产（同大版本 + 强制重新下载）。
-  同步不删除项目多出的文件；模板来源是**运行中的 yd 二进制**，需要最新脚手架时先执行
-  `yd versions upgrade --self`。
+  `.yd/backup/sync-<UTC>/`，`go.mod` / `go.sum` **不被覆盖**；默认随后升级 Go 模块与前端资产
+  （同大版本 + 强制重新下载）。同步不删除项目多出的文件；模板来源是**运行中的 yd 二进制**，需要最新
+  脚手架时先执行 `yd versions upgrade --self`。
+- **配置同步（强制模型）**：`configs/config.yaml` 是生成基线，个人值与密钥写
+  `configs/config.local.yaml`（不入库、优先级更高）；`yd new` 把生成基线写入
+  `.yd/config.baseline.yaml`。`yd sync --config-mode=auto` 在存在基线时执行三方合并：用户改过的值
+  迁移到 local，新模板的注释与默认值写回基线，local 冲突优先并只报告键名；没有基线且内容已与模板
+  一致的 `config.yaml` 只补写基线，内容不同的旧项目保持 `config.yaml` 并写 `.yd-new` 安全模式。
+  旧项目用 `--config-mode=adopt` 一次性迁移，
+  `keep` 保持旧式旁路，`overwrite` 显式替换基线且保持 local 不动。配置报告只打印键路径、绝不打印值；
+  auto/adopt/overwrite 会整体替换基线的注释，旧文件必须先进备份。只补写 `.yd/config.baseline.yaml`
+  属于内部簿记，不触发确认并保持无操作退出；auto 遇到损坏基线时回退到旧项目安全模式（内容一致则
+  修复基线，否则写旁路文件），`adopt`/`overwrite` 用于显式修复。
 - 升级后必须跑完整门禁：`go build ./... && go vet ./... && go test ./... -race`。
 
 ### 20.3 约束

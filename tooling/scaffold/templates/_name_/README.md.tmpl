@@ -178,11 +178,19 @@ yd docker --tag {{ .Name }}:latest
 ```
 
 需要把当前项目同步到运行中 yd 二进制内嵌的最新脚手架时，执行 `yd sync`：先打印新增/覆盖/未变化
-统计与覆盖清单，交互确认后才写入；被覆盖文件备份到 `.yd/backup/sync-<UTC>/`，
-`configs/config.yaml` 保持原样（新模板写入 `configs/config.yaml.yd-new`），`go.mod` 与 `go.sum`
-不会被覆盖；默认随后升级 Go 模块并强制重新下载前端资产，可用 `--go=false` / `--assets=false`
-分别关闭，`--dry-run` 只打印计划。模板来自当前 CLI，需要最新脚手架时先执行
+统计与覆盖清单，交互确认后才写入；被覆盖文件备份到 `.yd/backup/sync-<UTC>/`，`go.mod` 与
+`go.sum` 不会被覆盖；默认随后升级 Go 模块并强制重新下载前端资产，可用 `--go=false` /
+`--assets=false` 分别关闭，`--dry-run` 只打印计划。模板来自当前 CLI，需要最新脚手架时先执行
 `yd versions upgrade --self`。
+
+配置按 `--config-mode` 处理：`configs/config.yaml` 是生成基线，个人值与密钥放
+`configs/config.local.yaml`（不入库、优先级更高）。新项目由 `yd new` 写入
+`.yd/config.baseline.yaml`；`auto` 在存在基线时执行三方合并，把用户修改迁移到 local、把新模板的
+注释与默认值写回基线，local 冲突优先并只报告键名。没有基线且内容已与模板一致的 `config.yaml`
+只补写基线；内容不同的旧项目保留 `config.yaml` 并写 `configs/config.yaml.yd-new`；执行一次
+`yd sync --config-mode=adopt` 可迁移并建立基线。
+`--config-mode=keep` 保持旧式旁路文件，`--config-mode=overwrite` 显式替换基线且不触碰 local。
+只补写 `.yd/config.baseline.yaml` 属于内部簿记，不触发确认；基线损坏时 auto 回退到安全模式。
 
 镜像默认把 `configs/config.yaml` 复制到 `/configs`（`YD_CONFIG_DIR=/configs`）并创建 `/data`
 （SQLite、节点身份与附件），运行时可用 `-v` 挂载覆盖；`--no-config` 可去掉内置配置。

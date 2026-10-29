@@ -46,6 +46,7 @@ func TestNewCommandGeneratesProject(t *testing.T) {
 		"demo/.gitignore",
 		"demo/.env.template",
 		"demo/.yd.json",
+		"demo/.yd/config.baseline.yaml",
 		"demo/CLAUDE.md",
 		"demo/AGENTS.md",
 		"demo/LICENSE",
@@ -79,6 +80,9 @@ func TestNewCommandGeneratesProject(t *testing.T) {
 		if !strings.Contains(cfg, want) {
 			t.Errorf("configs/config.yaml 缺少 %q:\n%s", want, cfg)
 		}
+	}
+	if baseline := readMemFile(t, te.env.FS, "demo/.yd/config.baseline.yaml"); baseline != cfg {
+		t.Errorf("config baseline must equal the generated config | 配置基线必须与生成的配置一致")
 	}
 	bus := readMemFile(t, te.env.FS, "demo/internal/service/message_bus.go")
 	for _, want := range []string{"asynq.NewClient", "asynq.NewServer"} {

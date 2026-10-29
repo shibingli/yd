@@ -78,6 +78,7 @@ yd versions upgrade --dry-run
 yd versions check            # 离线校验生成文件与真源一致，CI 可用
 yd sync --dry-run            # 已有生成项目：预览脚手架全量同步计划
 yd sync                      # 同步脚手架模板 + Go 模块 + 前端资产（先确认、自动备份）
+yd sync --config-mode=adopt  # 旧项目：一次性迁移配置覆盖并建立基线
 ```
 
 升级后必须重新跑质量门禁：
@@ -679,20 +680,44 @@ Go 模块与前端资产，`check` 只校验版本清单，二者都会跳过生
 
 ```bash
 yd sync --dry-run                 # 只打印完整计划
-yd sync                           # 交互确认后执行
+yd sync                           # 交互确认后执行（auto）
 yd sync --yes                     # 非交互确认
 yd sync --yes --go=false --assets=false   # 只同步脚手架文件
+yd sync --config-mode=adopt       # 旧项目一次性迁移配置覆盖
+yd sync --config-mode=keep        # 保持旧式旁路文件
+yd sync --config-mode=overwrite   # 显式用新模板替换基线
 ```
 
-- **安全提示与确认**：先打印新增/覆盖/未变化统计、覆盖文件列表与备份位置；交互终端必须确认，
-  非交互环境未传 `--yes` 会直接拒绝且不做任何修改。`--dry-run` 不写入、不触网。
-- **备份**：被覆盖的文件写入 `.yd/backup/sync-<UTC>/`；`configs/config.yaml` 永远保持原样，
-  模板内容写到 `configs/config.yaml.yd-new` 供手工合并；`go.mod` 与 `go.sum` 不被脚手架同步覆盖。
+- **配置模型**：`configs/config.yaml` 是 yd 生成的基线；个人值与密钥放
+  `configs/config.local.yaml`（已被 `.gitignore` 忽略，加载优先级更高）。`yd new` 会把生成时的
+  基线写入 `.yd/config.baseline.yaml`，供后续三方合并使用。
+- **auto（默认）**：存在基线时执行三方合并——用户改过的值迁移到 `config.local.yaml`，新模板的
+  注释与默认值写回 `configs/config.yaml`，本地值冲突时 local 优先并报告；没有基线时，内容已与
+  模板一致的 `config.yaml` 只补写基线，内容不同的旧项目保持原样并写入
+  `configs/config.yaml.yd-new` 作为安全模式。
+- **adopt**：旧项目一次性迁移。把当前基线与新模板的差异值迁移到 local，安装新模板并记录基线；
+  旧的默认值也会被视为覆盖值迁移，执行前应查看配置报告并从备份确认。
+- **keep**：保留 `config.yaml` 并只写旁路文件，不触碰 local 或基线。
+- **overwrite**：显式用新模板替换 `config.yaml` 并刷新基线，local 保持不动；用于确认放弃旧基线
+  内容的场景。
+- **安全提示与确认**：先打印新增/覆盖/未变化统计、覆盖文件列表、备份位置与仅含键名的配置报告
+  （绝不打印配置值）；交互终端必须确认，非交互环境未传 `--yes` 会直接拒绝且不做任何修改。
+  `--dry-run` 不写入、不触网。唯一例外是只补写 `.yd/config.baseline.yaml` 这一派生快照：它属于
+  内部簿记，不触发确认并保持 `already current` 的无操作退出状态。
+- **损坏的基线**：auto 遇到无法解析的基线时回退到旧项目安全模式——配置已与模板一致则直接修复
+  基线，否则保留配置并写旁路文件并告警；`adopt`/`overwrite` 可显式修复。
+- **备份**：被覆盖的文件（包括 `configs/config.yaml`、`config.local.yaml` 与
+  `.yd/config.baseline.yaml`）写入 `.yd/backup/sync-<UTC>/`；`go.mod` 与 `go.sum` 不被脚手架同步覆盖。
+- **配置注释与删除**：auto/adopt/overwrite 会用新模板整体替换 `config.yaml`，其中的人工注释不保留；
+  用户从 `config.yaml` 删除的键不会被迁移，新模板会重新提供它们（报告中的「配置中删除的键」会列出）。
+  被替换的旧文件在备份中，个人值应放在 local 或由合并迁移。
 - **依赖与资源**：`--go`（默认 true）执行 `go get -u ./...` + `go mod tidy`；`--assets`（默认 true）
   升级同大版本 npm 资产并强制重新下载全部锁定资源。两步都需要网络，可分别关闭。
 - **模板来源**：同步使用当前运行的 yd 二进制内嵌模板；先执行
   `yd versions upgrade --self` 更新 CLI，才能拿到最新脚手架。
 - **不删除**：同步只新增/覆盖，不删除项目中多出的文件；被覆盖的本地修改请从备份恢复后合并。
+- **克隆注意**：`.yd/` 不入库；新克隆没有基线时，auto 会按旧项目安全模式处理。若 `config.yaml`
+  里已有提交过的修改，先执行一次 `yd sync --config-mode=adopt`。
 - 完成后建议执行：`yd assets minify && go build ./... && go vet ./... && go test ./... -race`。
 
 ### 5.13 `yd tools`

@@ -1,9 +1,9 @@
 // This file implements the full project sync command: it re-renders every scaffold file from the
-// running yd binary, backs up conflicting generated files, and then upgrades Go modules and the
-// locked front-end assets. It deliberately keeps user-owned runtime files (configs/config.yaml,
-// go.mod and go.sum) out of the overwrite set. | 本文件实现全量项目同步命令：用当前 yd 二进制重新渲染
-// 全部脚手架文件，覆盖前备份冲突的生成文件，然后升级 Go 模块与已锁定的前端资产。用户自有的运行期
-// 文件（configs/config.yaml、go.mod 与 go.sum）刻意不进入覆盖集合。
+// running yd binary, merges the generated configuration baseline with the user's local overrides,
+// backs up conflicting generated files, and then upgrades Go modules and the locked front-end
+// assets. go.mod and go.sum remain user-owned. | 本文件实现全量项目同步命令：用当前 yd 二进制重新
+// 渲染全部脚手架文件，把生成的配置基线与用户本地覆盖合并，覆盖前备份冲突的生成文件，然后升级
+// Go 模块与已锁定的前端资产。go.mod 与 go.sum 仍归用户所有。
 
 package cli
 
@@ -33,14 +33,15 @@ const syncCommandName = "sync"
 
 // The sync command's flag names. | sync 命令的标志名。
 const (
-	flagSyncDir    = "dir"
-	flagSyncDryRun = "dry-run"
-	flagSyncYes    = "yes"
-	flagSyncGo     = "go"
-	flagSyncAssets = "assets"
+	flagSyncDir        = "dir"
+	flagSyncDryRun     = "dry-run"
+	flagSyncYes        = "yes"
+	flagSyncGo         = "go"
+	flagSyncAssets     = "assets"
+	flagSyncConfigMode = "config-mode"
 )
 
-const syncUsageLine = "yd sync [--dir DIR] [--yes] [--dry-run] [--go] [--assets]"
+const syncUsageLine = "yd sync [--dir DIR] [--yes] [--dry-run] [--go] [--assets] [--config-mode auto|keep|adopt|overwrite]"
 
 var (
 	// ErrSyncNotProject reports a directory without the .yd.json written by yd new. | ErrSyncNotProject
@@ -94,6 +95,8 @@ type syncFile struct {
 	Existing []byte
 	// Kind is add or overwrite. | Kind 取新增或覆盖。
 	Kind syncKind
+	// Mode is the file mode; zero means 0644. | Mode 是文件模式；零值表示 0644。
+	Mode os.FileMode
 }
 
 // syncPlan is the complete local change set before any write. | syncPlan 是写入前的完整本地变更集。
@@ -103,12 +106,8 @@ type syncPlan struct {
 	// Unchanged counts rendered files already identical to the project. | Unchanged 统计已与项目一致的
 	// 渲染文件。
 	Unchanged int
-	// ConfigKept reports that configs/config.yaml differs and was preserved. | ConfigKept 表示
-	// configs/config.yaml 内容不同且被保留。
-	ConfigKept bool
-	// ConfigNew is the rendered sidecar for the preserved config, when it differs. | ConfigNew 是被保留
-	// 配置的渲染旁路文件（内容不同时）。
-	ConfigNew string
+	// Config is the managed configuration part of the plan. | Config 是计划中受管理的配置部分。
+	Config *syncConfigPlan
 }
 
 // counts returns the add and overwrite counts. | counts 返回新增与覆盖数量。
@@ -123,17 +122,34 @@ func (p *syncPlan) counts() (adds, overwrites int) {
 	return adds, overwrites
 }
 
+// onlyConfigBaseline reports whether the only planned write is the derived baseline snapshot. |
+// onlyConfigBaseline 报告计划中是否只有派生出来的配置基线快照写入。
+func (p *syncPlan) onlyConfigBaseline() bool {
+	if p == nil || len(p.Files) == 0 {
+		return false
+	}
+	for _, file := range p.Files {
+		if file.Rel != syncConfigBaselineRel {
+			return false
+		}
+	}
+	return true
+}
+
 func init() {
 	Register(Command{
 		Name:  syncCommandName,
 		Short: "full-sync scaffold templates, Go modules and front-end assets | 全量同步脚手架模板、Go 模块与前端资源",
 		Long: "Re-render every scaffold file with the running yd binary, then upgrade Go modules and locked npm front-end assets.\n" +
-			"Conflicting generated files are backed up under .yd/backup/ before being overwritten; configs/config.yaml, go.mod and go.sum are never overwritten. " +
+			"Conflicting generated files are backed up under .yd/backup/ before being overwritten; go.mod and go.sum are never overwritten. " +
+			"Configuration follows --config-mode: auto merges a generated baseline with configs/config.local.yaml when a baseline exists, keep preserves the legacy sidecar mode, adopt migrates a legacy project once, and overwrite replaces the baseline explicitly. A legacy config identical to the new template only gets a baseline; a differing one keeps its sidecar until adopted. " +
 			"An interactive run asks for confirmation; non-interactive runs require --yes, and --dry-run only prints the plan.\n" +
 			"用当前 yd 二进制重新渲染全部脚手架文件，然后升级 Go 模块与锁定的 npm 前端资产。冲突的生成文件在覆盖前\n" +
-			"备份到 .yd/backup/；configs/config.yaml、go.mod 与 go.sum 永不覆盖。交互运行会要求确认，非交互运行\n" +
-			"必须传 --yes，--dry-run 只打印计划。模板来自当前运行的 yd 二进制；如需最新脚手架，请先执行\n" +
-			"`yd versions upgrade --self` 更新 CLI。",
+			"备份到 .yd/backup/；go.mod 与 go.sum 永不覆盖。配置按 --config-mode 处理：auto 在存在基线时把生成\n" +
+			"基线与 configs/config.local.yaml 合并，keep 保持旧式旁路文件，adopt 一次性迁移旧项目，overwrite 显式\n" +
+			"替换基线；没有基线且内容与模板一致时只补写基线，内容不同时保持旁路文件等待 adopt。交互运行会要求确认，\n" +
+			"非交互运行必须传 --yes，--dry-run 只打印计划。模板来自当前运行的\n" +
+			"yd 二进制；如需最新脚手架，请先执行 `yd versions upgrade --self` 更新 CLI。",
 		Usage: syncUsageLine,
 		Flags: registerSyncFlags,
 		Run:   runSync,
@@ -147,6 +163,7 @@ func registerSyncFlags(fs *pflag.FlagSet) {
 	fs.Bool(flagSyncYes, false, "confirm the sync without prompting | 不询问直接确认同步")
 	fs.Bool(flagSyncGo, true, "upgrade Go module dependencies | 升级 Go 模块依赖")
 	fs.Bool(flagSyncAssets, true, "upgrade and re-download locked front-end assets | 升级并重新下载锁定的前端资产")
+	fs.String(flagSyncConfigMode, string(syncConfigAuto), "configuration mode: auto, keep, adopt or overwrite | 配置模式：auto、keep、adopt 或 overwrite")
 	syncFlags = fs
 }
 
@@ -161,7 +178,19 @@ func runSync(ctx context.Context, env *Env) error {
 	if err != nil {
 		return err
 	}
-	plan, err := buildSyncPlan(env.FS, dir, rendered)
+	mode, err := parseSyncConfigMode(flagString(syncFlags, flagSyncConfigMode))
+	if err != nil {
+		return err
+	}
+	newConfig, ok := rendered[syncConfigBaseRel]
+	if !ok {
+		return errs.Detail(ErrSyncConfig, "missing rendered %[1]s | 缺少渲染的 %[1]s", syncConfigBaseRel)
+	}
+	configPlan, err := planSyncConfig(env.FS, dir, newConfig, mode)
+	if err != nil {
+		return err
+	}
+	plan, err := buildSyncPlan(env.FS, dir, rendered, configPlan)
 	if err != nil {
 		return err
 	}
@@ -171,10 +200,24 @@ func runSync(ctx context.Context, env *Env) error {
 	upgradeGo := flagBool(syncFlags, flagSyncGo)
 	upgradeAssets := flagBool(syncFlags, flagSyncAssets)
 	adds, overwrites := plan.counts()
-	if plan.ConfigKept {
-		fmt.Fprintf(env.Out, "configs/config.yaml is kept unchanged; new template: %s | configs/config.yaml 保持不变；新模板: %s\n", plan.ConfigNew, plan.ConfigNew)
+	if !upgradeGo && !upgradeAssets && plan.onlyConfigBaseline() {
+		// Recording the derived baseline is internal bookkeeping, not a project update; keep the
+		// historical no-op exit status for CI while still enabling future three-way merges. |
+		// 记录派生基线属于内部簿记而不是项目更新；保持 CI 上原有的无操作退出状态，同时让后续三方
+		// 合并可用。
+		printSyncConfigReport(env, plan.Config)
+		if dry {
+			fmt.Fprintln(env.Out, "already current | 已是最新: config baseline would be recorded | 将记录配置基线")
+			return nil
+		}
+		if err := applySyncFiles(env, dir, plan); err != nil {
+			return err
+		}
+		fmt.Fprintln(env.Out, "already current | 已是最新: config baseline recorded | 已记录配置基线")
+		return nil
 	}
 	if adds == 0 && overwrites == 0 && !upgradeGo && !upgradeAssets {
+		printSyncConfigReport(env, plan.Config)
 		fmt.Fprintln(env.Out, "already current | 已是最新: scaffold files match and dependency upgrades are disabled")
 		return nil
 	}
@@ -182,6 +225,7 @@ func runSync(ctx context.Context, env *Env) error {
 	backupPath := syncBackupPath(env.FS, dir)
 	printSyncWarning(env, plan, upgradeGo, upgradeAssets, dry, backupPath)
 	printSyncFiles(env, plan, dry)
+	printSyncConfigReport(env, plan.Config)
 	if dry {
 		if upgradeGo {
 			fmt.Fprintln(env.Out, "would upgrade | 将升级: Go modules -> go get -u ./... && go mod tidy")
@@ -322,46 +366,20 @@ func renderSyncScaffold(ctx context.Context, opts scaffold.Options) (map[string]
 }
 
 // buildSyncPlan compares rendered files with the project. configs/config.yaml and the module files
-// are handled outside the overwrite set. | buildSyncPlan 把渲染文件与项目比较。configs/config.yaml 与
-// 模块文件不在覆盖集合内。
-func buildSyncPlan(fs afero.Fs, dir string, rendered map[string][]byte) (*syncPlan, error) {
+// are handled outside the overwrite set; the managed configuration plan supplies its own writes. |
+// buildSyncPlan 把渲染文件与项目比较。configs/config.yaml 与模块文件不在普通覆盖集合内；受管理的
+// 配置计划提供自己的写入项。
+func buildSyncPlan(fs afero.Fs, dir string, rendered map[string][]byte, configPlan *syncConfigPlan) (*syncPlan, error) {
 	rels := make([]string, 0, len(rendered))
 	for rel := range rendered {
 		rels = append(rels, rel)
 	}
 	sort.Strings(rels)
-	plan := &syncPlan{}
+	plan := &syncPlan{Config: configPlan}
 	for _, rel := range rels {
 		switch rel {
-		case "go.mod", "go.sum":
+		case "go.mod", "go.sum", syncConfigBaseRel:
 			continue
-		case "configs/config.yaml":
-			existing, exists, err := readProjectFile(fs, dir, rel)
-			if err != nil {
-				return nil, err
-			}
-			if !exists {
-				plan.Files = append(plan.Files, syncFile{Rel: rel, Content: rendered[rel], Kind: syncAdd})
-				continue
-			}
-			if bytes.Equal(existing, rendered[rel]) {
-				plan.Unchanged++
-				continue
-			}
-			plan.ConfigKept = true
-			plan.ConfigNew = rel + ".yd-new"
-			sidecarExisting, sidecarExists, err := readProjectFile(fs, dir, plan.ConfigNew)
-			if err != nil {
-				return nil, err
-			}
-			switch {
-			case !sidecarExists:
-				plan.Files = append(plan.Files, syncFile{Rel: plan.ConfigNew, Content: rendered[rel], Kind: syncAdd})
-			case bytes.Equal(sidecarExisting, rendered[rel]):
-				plan.Unchanged++
-			default:
-				plan.Files = append(plan.Files, syncFile{Rel: plan.ConfigNew, Content: rendered[rel], Existing: sidecarExisting, Kind: syncOverwrite})
-			}
 		default:
 			existing, exists, err := readProjectFile(fs, dir, rel)
 			if err != nil {
@@ -379,7 +397,26 @@ func buildSyncPlan(fs afero.Fs, dir string, rendered map[string][]byte) (*syncPl
 			plan.Files = append(plan.Files, syncFile{Rel: rel, Content: rendered[rel], Existing: existing, Kind: syncOverwrite})
 		}
 	}
+	if configPlan != nil {
+		plan.Files = append(plan.Files, configPlan.Files...)
+		plan.Unchanged += configPlan.Unchanged
+	}
+	sortSyncPlanFiles(plan.Files)
 	return plan, nil
+}
+
+// sortSyncPlanFiles orders writes by path, keeping the configuration baseline last so it only
+// advances after the baseline and local files have been written. | sortSyncPlanFiles 按路径排序
+// 写入项，并把配置基线放到最后，使它在基线与本地文件写入成功后才推进。
+func sortSyncPlanFiles(files []syncFile) {
+	sort.SliceStable(files, func(i, j int) bool {
+		leftBaseline := files[i].Rel == syncConfigBaselineRel
+		rightBaseline := files[j].Rel == syncConfigBaselineRel
+		if leftBaseline != rightBaseline {
+			return !leftBaseline
+		}
+		return files[i].Rel < files[j].Rel
+	})
 }
 
 // syncManifestEqual reports whether two asset locks have the same entries, ignoring generated_at.
@@ -437,8 +474,8 @@ func printSyncWarning(env *Env, plan *syncPlan, upgradeGo, upgradeAssets, dry bo
 	if overwrites > 0 || upgradeGo || upgradeAssets {
 		fmt.Fprintf(env.Out, "A backup will be written to %s before any file is replaced or upgraded. | 覆盖或升级前会备份到 %s。\n", backupPath, backupPath)
 	}
-	if plan.ConfigKept {
-		fmt.Fprintf(env.Out, "configs/config.yaml is kept unchanged; the new template will be written to %s for manual merge. | configs/config.yaml 保持不变；新模板写入 %s，请手工合并。\n", plan.ConfigNew, plan.ConfigNew)
+	if plan.Config != nil {
+		fmt.Fprintf(env.Out, "configs/config.yaml follows --config-mode=%s; the detailed configuration report is printed below. | configs/config.yaml 按 --config-mode=%s 处理；详细配置报告见下方。\n", plan.Config.Report.Mode, plan.Config.Report.Mode)
 	}
 	fmt.Fprintln(env.Out, "go.mod and go.sum are never overwritten by the scaffold sync. | 脚手架同步永不覆盖 go.mod 与 go.sum。")
 	if upgradeGo {
@@ -470,85 +507,6 @@ func printSyncFiles(env *Env, plan *syncPlan, all bool) {
 		}
 		fmt.Fprintf(env.Out, "  %-10s %s\n", action, file.Rel)
 	}
-}
-
-// syncBackupPath returns a unique backup directory below .yd/backup. | syncBackupPath 返回 .yd/backup
-// 下唯一的备份目录。
-func syncBackupPath(fs afero.Fs, dir string) string {
-	stamp := time.Now().UTC().Format("20060102-150405")
-	base := filepath.Join(dir, ".yd", "backup", "sync-"+stamp)
-	path := base
-	for i := 1; ; i++ {
-		if _, err := fs.Stat(path); err != nil {
-			return path
-		}
-		path = fmt.Sprintf("%s-%d", base, i)
-	}
-}
-
-// backupSyncFiles copies every file that will be overwritten, plus go.mod/go.sum and the asset lock
-// when their upgrade steps are enabled. | backupSyncFiles 复制每个将被覆盖的文件；启用相应升级步骤时
-// 还会备份 go.mod/go.sum 与资产锁。
-func backupSyncFiles(fs afero.Fs, dir string, plan *syncPlan, upgradeGo, upgradeAssets bool, backupPath string) (string, error) {
-	rels := make([]string, 0, len(plan.Files)+3)
-	seen := make(map[string]bool)
-	add := func(rel string) {
-		if rel == "" || seen[rel] {
-			return
-		}
-		seen[rel] = true
-		rels = append(rels, rel)
-	}
-	for _, file := range plan.Files {
-		if file.Kind == syncOverwrite {
-			add(file.Rel)
-		}
-	}
-	if upgradeGo {
-		add("go.mod")
-		add("go.sum")
-	}
-	if upgradeAssets {
-		add(assets.DefaultManifestPath)
-	}
-	backedUp := 0
-	for _, rel := range rels {
-		data, exists, err := readProjectFile(fs, dir, rel)
-		if err != nil {
-			return "", err
-		}
-		if !exists {
-			continue
-		}
-		dst := filepath.Join(backupPath, filepath.FromSlash(rel))
-		if err := fs.MkdirAll(filepath.Dir(dst), 0o700); err != nil {
-			return "", errs.WrapDetail(err, ErrSyncApply, "create backup directory for %[1]s | 为 %[1]s 创建备份目录", rel)
-		}
-		if err := afero.WriteFile(fs, dst, data, 0o600); err != nil {
-			return "", errs.WrapDetail(err, ErrSyncApply, "back up %[1]s | 备份 %[1]s", rel)
-		}
-		backedUp++
-	}
-	if backedUp == 0 {
-		return "", nil
-	}
-	return backupPath, nil
-}
-
-// applySyncPlan writes the planned adds and overwrites. | applySyncPlan 写入计划中的新增与覆盖。
-func applySyncPlan(env *Env, dir string, plan *syncPlan) error {
-	for _, file := range plan.Files {
-		path := filepath.Join(dir, filepath.FromSlash(file.Rel))
-		if err := env.FS.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-			return errs.WrapDetail(err, ErrSyncApply, "create directory for %[1]s | 为 %[1]s 创建目录", file.Rel)
-		}
-		if err := afero.WriteFile(env.FS, path, file.Content, 0o644); err != nil {
-			return errs.WrapDetail(err, ErrSyncApply, "write %[1]s | 写入 %[1]s", file.Rel)
-		}
-	}
-	_, overwrites := plan.counts()
-	fmt.Fprintf(env.Out, "scaffold synced | 脚手架已同步: %d added | 新增, %d overwritten | 覆盖\n", len(plan.Files)-overwrites, overwrites)
-	return nil
 }
 
 // runSyncVersionsUpgrade reuses the versions upgrade pipeline with a temporary flag set. The

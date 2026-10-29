@@ -181,6 +181,9 @@ func TestSyncBackupCoversModuleAndAssetFiles(t *testing.T) {
 // 同时仍能发现实质性的锁定变化。
 func TestSyncIgnoresAssetLockTimestamp(t *testing.T) {
 	fs, dir := syncFixture(t)
+	if err := writeConfigBaseline(fs, dir); err != nil {
+		t.Fatalf("write config baseline: %v | 写入配置基线失败", err)
+	}
 	lockPath := dir + "/" + assets.DefaultManifestPath
 	m, err := assets.LoadManifest(fs, lockPath)
 	if err != nil {
@@ -213,6 +216,128 @@ func TestSyncIgnoresAssetLockTimestamp(t *testing.T) {
 	}
 	if !strings.Contains(te.out.String(), "overwrite | 覆盖 1") {
 		t.Fatalf("substantive lock change was not scheduled:\n%s | 实质性的资产锁变化未被安排覆盖", te.out.String())
+	}
+}
+
+// TestSyncConfigAutoMergeThroughCLI proves a generated baseline turns user edits into local
+// overrides and restores the generated baseline through the real command. |
+// TestSyncConfigAutoMergeThroughCLI 验证生成基线会把用户修改迁移为本地覆盖，并通过真实命令恢复
+// 生成基线。
+func TestSyncConfigAutoMergeThroughCLI(t *testing.T) {
+	fs, dir := syncFixture(t)
+	if err := writeConfigBaseline(fs, dir); err != nil {
+		t.Fatalf("write config baseline: %v | 写入配置基线失败", err)
+	}
+	configPath := dir + "/" + syncConfigBaseRel
+	original := syncRead(t, fs, configPath)
+	modified := strings.Replace(original, "  port: 8080", "  port: 9099", 1)
+	if modified == original {
+		t.Fatalf("fixture has no server port to modify | 测试夹具没有可修改的服务端口")
+	}
+	syncWrite(t, fs, configPath, modified+"\ncustom:\n  enabled: true\n")
+
+	te := newTestEnv(t, fs, "", false)
+	if err := Execute(context.Background(), []string{
+		"sync", "--dir", dir, "--yes", "--go=false", "--assets=false",
+	}, te.env); err != nil {
+		t.Fatalf("sync: %v\n%s", err, te.out.String())
+	}
+	if got := syncRead(t, fs, configPath); got != original {
+		t.Fatalf("config.yaml was not restored to the new template | config.yaml 未恢复为新模板")
+	}
+	local := syncRead(t, fs, dir+"/"+syncConfigLocalRel)
+	if !strings.Contains(local, "9099") || !strings.Contains(local, "custom:") {
+		t.Fatalf("user overrides were not moved to config.local.yaml:\n%s | 用户覆盖未迁移到本地文件", local)
+	}
+	if got := syncRead(t, fs, dir+"/"+syncConfigBaselineRel); got != original {
+		t.Fatalf("baseline snapshot was not refreshed | 基线快照未刷新")
+	}
+	if _, err := afero.ReadFile(fs, dir+"/"+syncConfigSidecarRel); err == nil {
+		t.Fatalf("auto merge left a legacy sidecar | 自动合并遗留了旁路文件")
+	}
+
+	te = newTestEnv(t, fs, "", false)
+	if err := Execute(context.Background(), []string{
+		"sync", "--dir", dir, "--dry-run", "--go=false", "--assets=false",
+	}, te.env); err != nil {
+		t.Fatalf("second sync: %v | 第二次同步失败", err)
+	}
+	if !strings.Contains(te.out.String(), "already current | 已是最新") {
+		t.Fatalf("second sync was not idempotent:\n%s | 第二次同步不幂等", te.out.String())
+	}
+}
+
+// TestSyncConfigLegacyAdoptThroughCLI migrates an old project once and then records a baseline. |
+// TestSyncConfigLegacyAdoptThroughCLI 一次性迁移旧项目并记录基线。
+func TestSyncConfigLegacyAdoptThroughCLI(t *testing.T) {
+	fs, dir := syncFixture(t)
+	configPath := dir + "/" + syncConfigBaseRel
+	original := syncRead(t, fs, configPath)
+	modified := strings.Replace(original, "  port: 8080", "  port: 9099", 1)
+	if modified == original {
+		t.Fatalf("fixture has no server port to modify | 测试夹具没有可修改的服务端口")
+	}
+	syncWrite(t, fs, configPath, modified)
+
+	te := newTestEnv(t, fs, "", false)
+	if err := Execute(context.Background(), []string{
+		"sync", "--dir", dir, "--yes", "--config-mode", "adopt", "--go=false", "--assets=false",
+	}, te.env); err != nil {
+		t.Fatalf("adopt sync: %v\n%s", err, te.out.String())
+	}
+	if got := syncRead(t, fs, configPath); got != original {
+		t.Fatalf("adopt did not install the new template | 迁移未安装新模板")
+	}
+	if local := syncRead(t, fs, dir+"/"+syncConfigLocalRel); !strings.Contains(local, "9099") {
+		t.Fatalf("adopt did not preserve the old port:\n%s | 迁移未保留旧端口", local)
+	}
+	if got := syncRead(t, fs, dir+"/"+syncConfigBaselineRel); got != original {
+		t.Fatalf("adopt did not record a baseline | 迁移未记录基线")
+	}
+}
+
+// TestSyncConfigLegacyCreatesBaselineWhenCurrent proves an unmodified legacy project adopts the
+// snapshot without touching its configuration. | TestSyncConfigLegacyCreatesBaselineWhenCurrent
+// 验证未修改的旧项目会记录快照且不改动配置。
+func TestSyncConfigLegacyCreatesBaselineWhenCurrent(t *testing.T) {
+	fs, dir := syncFixture(t)
+	configPath := dir + "/" + syncConfigBaseRel
+	original := syncRead(t, fs, configPath)
+
+	te := newTestEnv(t, fs, "", false)
+	// No --yes: recording only the derived baseline must keep the historical no-op exit status. |
+	// 不传 --yes：只记录派生基线必须保持原有的无操作退出状态。
+	if err := Execute(context.Background(), []string{
+		"sync", "--dir", dir, "--go=false", "--assets=false",
+	}, te.env); err != nil {
+		t.Fatalf("sync: %v\n%s", err, te.out.String())
+	}
+	if got := syncRead(t, fs, configPath); got != original {
+		t.Fatalf("unmodified legacy config changed | 未修改的旧配置被改变")
+	}
+	if got := syncRead(t, fs, dir+"/"+syncConfigBaselineRel); got != original {
+		t.Fatalf("baseline was not created | 基线未创建")
+	}
+	if _, err := afero.ReadFile(fs, dir+"/"+syncConfigSidecarRel); err == nil {
+		t.Fatalf("unmodified legacy project got a sidecar | 未修改的旧项目生成了旁路文件")
+	}
+}
+
+// TestSyncConfigInvalidMode rejects an unknown configuration mode before any write. |
+// TestSyncConfigInvalidMode 在写入前拒绝未知配置模式。
+func TestSyncConfigInvalidMode(t *testing.T) {
+	fs, dir := syncFixture(t)
+	configPath := dir + "/" + syncConfigBaseRel
+	original := syncRead(t, fs, configPath)
+	te := newTestEnv(t, fs, "", false)
+	err := Execute(context.Background(), []string{
+		"sync", "--dir", dir, "--config-mode", "merge", "--yes", "--go=false", "--assets=false",
+	}, te.env)
+	if !errors.Is(err, ErrSyncConfigMode) {
+		t.Fatalf("invalid config mode = %v, want ErrSyncConfigMode | 非法配置模式应返回 ErrSyncConfigMode", err)
+	}
+	if got := syncRead(t, fs, configPath); got != original {
+		t.Fatalf("invalid mode changed config | 非法模式修改了配置")
 	}
 }
 

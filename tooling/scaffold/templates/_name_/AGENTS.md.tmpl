@@ -17,6 +17,10 @@
 - `{{ .AssetRoot }}/assets.lock.json` 中已锁定的校验和 —— 依赖升级必须走 `yd assets update` 重新锁定，禁止手改。
 - `.yd.json` 中由脚手架写入的 `name`/`module`/`assetRoot` 字段。
 
+配置边界：`configs/config.yaml` 是 yd 生成的基线，个人与环境覆盖写 `configs/config.local.yaml`
+（不入库、优先级更高）；`yd sync` 默认 `--config-mode=auto` 做三方合并，旧项目用
+`yd sync --config-mode=adopt` 迁移并建立基线。变更基线默认值仍需人工确认。
+
 **需要人工确认**
 
 - 新增第三方依赖（尤其引入 cgo 或超过 1MB 体积的依赖）。

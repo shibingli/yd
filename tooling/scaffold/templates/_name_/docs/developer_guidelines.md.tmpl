@@ -93,6 +93,9 @@
 
 - 环境变量前缀固定 **`YD_`**，下划线自动映射为多级嵌套：`YD_SERVER_PORT` → `server.port`、`YD_DB_MAXCONN` → `db.maxconn`。
 - 优先级：命令行参数 > 环境变量（含 `.env`）> 配置文件（`configs/config.local.yaml` > `configs/config.yaml`）> 框架默认值。
+- `configs/config.yaml` 是 yd 生成的基线，个人值与密钥写 `configs/config.local.yaml`（不入库）。`yd new`
+  记录 `.yd/config.baseline.yaml`，`yd sync` 默认执行三方合并；旧项目用 `yd sync --config-mode=adopt`
+  迁移并建立基线。
 - `.env` 不得入库（`.gitignore` 已忽略），随仓只提供 `.env.template`。
 
 ## 7. 鉴权链路与多租户
