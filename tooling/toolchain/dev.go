@@ -545,6 +545,22 @@ func devBuildArgs(dir, out, pkg string) []string {
 	return append(args, "-o", out, pkg)
 }
 
+// devBuildEnv pins the development build to module mode. A go.work above the project silently
+// changes the module graph and fails when it does not list the project; the production build
+// already clears GOWORK for the same reason. | devBuildEnv 把开发构建固定为模块模式。项目上级的
+// go.work 会改变模块图，且未列出该项目时直接失败；生产构建已因同样原因清除 GOWORK。
+func devBuildEnv(environ []string) []string {
+	env := make([]string, 0, len(environ)+1)
+	for _, kv := range environ {
+		key, _, ok := strings.Cut(kv, "=")
+		if ok && strings.EqualFold(key, "GOWORK") {
+			continue
+		}
+		env = append(env, kv)
+	}
+	return append(env, "GOWORK=off")
+}
+
 // defaultBuild compiles the application into bin/.dev-app[.exe]. | defaultBuild 把应用编译到 bin/.dev-app[.exe]。
 func defaultBuild(ctx context.Context, o DevOptions) (string, error) {
 	pkg := o.Package
@@ -558,6 +574,7 @@ func defaultBuild(ctx context.Context, o DevOptions) (string, error) {
 	var buf tailBuffer
 	cmd := newCommand(ctx, "go", devBuildArgs(o.Dir, out, pkg)...)
 	cmd.Dir = o.Dir
+	cmd.Env = devBuildEnv(os.Environ())
 	cmd.Stdout = &buf
 	cmd.Stderr = &buf
 	if err := cmd.Run(); err != nil {

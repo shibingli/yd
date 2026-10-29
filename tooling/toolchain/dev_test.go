@@ -557,6 +557,77 @@ func TestDevBuildArgsResolvesFreshProject(t *testing.T) {
 	}
 }
 
+// TestDevBuildDisablesParentWorkspace proves the dev build does not inherit a go.work found above
+// the project: an ambient workspace that does not list the module makes `go build ./cmd/app` fail
+// before the dev server ever starts. | TestDevBuildDisablesParentWorkspace 证明开发构建不会继承项目
+// 上级的 go.work：未把该模块列入工作区的环境会让 `go build ./cmd/app` 在开发服务器启动前就失败。
+func TestDevBuildDisablesParentWorkspace(t *testing.T) {
+	original := ExecCommand
+	t.Cleanup(func() { ExecCommand = original })
+
+	t.Setenv("GOWORK", filepath.Join(t.TempDir(), "go.work"))
+	var captured *exec.Cmd
+	ExecCommand = func(ctx context.Context, name string, args ...string) *exec.Cmd {
+		captured = exec.CommandContext(ctx, os.Args[0], "-test.run=^TestDevBuildEnvHelper$")
+		return captured
+	}
+
+	if _, err := defaultBuild(context.Background(), DevOptions{Dir: t.TempDir(), Package: "./cmd/app"}); err != nil {
+		t.Fatalf("defaultBuild 返回错误 | defaultBuild: %v", err)
+	}
+	if captured == nil {
+		t.Fatal("未捕获 go build 命令 | the go build command was not captured")
+	}
+	count := 0
+	for _, kv := range captured.Env {
+		key, value, ok := strings.Cut(kv, "=")
+		if ok && strings.EqualFold(key, "GOWORK") {
+			count++
+			if value != "off" {
+				t.Errorf("GOWORK = %q，期望 off | want off", value)
+			}
+		}
+	}
+	if count != 1 {
+		t.Errorf("GOWORK 条目数 = %d，期望恰好 1 个 | want exactly one GOWORK entry", count)
+	}
+}
+
+// TestDevBuildEnvHelper is the harmless child used by TestDevBuildDisablesParentWorkspace. |
+// TestDevBuildEnvHelper 是 TestDevBuildDisablesParentWorkspace 使用的最小成功子进程。
+func TestDevBuildEnvHelper(t *testing.T) {}
+
+// TestDevBuildIgnoresParentWorkspaceFile runs the real go build with an ambient go.work that does
+// not list the project. Before the environment fix this failed with the exact workspace error a
+// generated project sees under a parent go.work. | TestDevBuildIgnoresParentWorkspaceFile 用真实
+// go build 验证上级 go.work 不包含项目时开发构建仍能完成；修复前这正是生成项目在上级 go.work
+// 下遇到的错误。
+func TestDevBuildIgnoresParentWorkspaceFile(t *testing.T) {
+	if _, err := exec.LookPath("go"); err != nil {
+		t.Skipf("未找到 go 工具链，跳过真实构建 | skipping: go is not on PATH: %v", err)
+	}
+	root := t.TempDir()
+	write := func(path, content string) {
+		t.Helper()
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatalf("创建目录失败 | mkdir: %v", err)
+		}
+		if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+			t.Fatalf("写入 %s 失败 | write: %v", path, err)
+		}
+	}
+	write(filepath.Join(root, "other", "go.mod"), "module example.com/other\n\ngo 1.21\n")
+	write(filepath.Join(root, "go.work"), "go 1.21\n\nuse ./other\n")
+	proj := filepath.Join(root, "proj")
+	write(filepath.Join(proj, "go.mod"), "module example.com/proj\n\ngo 1.21\n")
+	write(filepath.Join(proj, "main.go"), "package main\n\nfunc main() {}\n")
+	t.Setenv("GOWORK", filepath.Join(root, "go.work"))
+
+	if _, err := defaultBuild(context.Background(), DevOptions{Dir: proj, Package: "."}); err != nil {
+		t.Fatalf("defaultBuild 在上级 go.work 下失败 | defaultBuild failed under a parent go.work: %v", err)
+	}
+}
+
 func TestDevOptionsDefaults(t *testing.T) {
 	dir := t.TempDir()
 	r, err := NewDevRunner(DevOptions{Dir: dir, Log: testLogger(), Out: io.Discard})
