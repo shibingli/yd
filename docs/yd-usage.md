@@ -711,7 +711,8 @@ yd sync --config-mode=overwrite   # 显式用新模板替换基线
 - **配置注释与删除**：auto/adopt/overwrite 会用新模板整体替换 `config.yaml`，其中的人工注释不保留；
   用户从 `config.yaml` 删除的键不会被迁移，新模板会重新提供它们（报告中的「配置中删除的键」会列出）。
   被替换的旧文件在备份中，个人值应放在 local 或由合并迁移。
-- **依赖与资源**：`--go`（默认 true）执行 `go get -u ./...` + `go mod tidy`；`--assets`（默认 true）
+- **依赖与资源**：`--go`（默认 true）依次执行 `go mod tidy`、`go get -u ./...`、`go mod tidy`；
+  先 tidy 是为了先把新脚手架导入、但尚未写入 go.mod 的模块补进模块图；`--assets`（默认 true）
   升级同大版本 npm 资产并强制重新下载全部锁定资源。两步都需要网络，可分别关闭。
 - **模板来源**：同步使用当前运行的 yd 二进制内嵌模板；先执行
   `yd versions upgrade --self` 更新 CLI，才能拿到最新脚手架。
@@ -1346,8 +1347,8 @@ yd versions upgrade --go=false --assets=false --self --self-binary /usr/local/bi
 go build ./... && go vet ./... && go test ./... -race
 ```
 
-生成项目用 `yd versions upgrade` 跟进；它执行 `go get -u ./...` 与 `go mod tidy`，
-再重新锁定前端资产。
+生成项目用 `yd versions upgrade` 跟进；它先执行 `go mod tidy` 补全新导入的模块，再执行
+`go get -u ./...` 与第二次 `go mod tidy`，最后重新锁定前端资产。
 
 ### 13.3 本地联调
 
