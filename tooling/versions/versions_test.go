@@ -104,8 +104,8 @@ func TestLoadDerivesScaffoldVersions(t *testing.T) {
 			t.Errorf("YdxVersions[%q] = %q, want v0.1.0", modulePath, got)
 		}
 	}
-	if got := inv.YdxVersions["github.com/shibingli/ydx/workflow"]; got != "v0.1.0" {
-		t.Errorf("YdxVersions[workflow] = %q, want the scaffold-only v0.1.0", got)
+	if got := inv.YdxVersions["github.com/shibingli/ydx/workflow"]; got != "v0.1.1" {
+		t.Errorf("YdxVersions[workflow] = %q, want the scaffold-only v0.1.1", got)
 	}
 	if len(inv.YdxVersions) != 3 {
 		t.Errorf("YdxVersions = %v, want the two required ydx modules plus the scaffold-only workflow", inv.YdxVersions)

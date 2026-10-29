@@ -53,7 +53,7 @@ var YdxVersions = map[string]string{
 	"github.com/shibingli/ydx/sysinfo":               "v0.1.4",
 	"github.com/shibingli/ydx/websocket":             "v0.1.13",
 	"github.com/shibingli/ydx/webtransport":          "v0.1.0",
-	"github.com/shibingli/ydx/workflow":              "v0.1.0",
+	"github.com/shibingli/ydx/workflow":              "v0.1.1",
 }
 
 // YdxModules lists the ydx modules a generated project may import. | YdxModules 列出生成项目可能导入的 ydx 模块。

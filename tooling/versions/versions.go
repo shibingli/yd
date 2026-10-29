@@ -234,7 +234,7 @@ var scaffoldYdxModules = []string{
 // scaffoldYdxVersions 锁定仅由生成项目导入的模块。框架自身不依赖它们，因此没有可推导的 go.mod 条目；
 // 生成项目的 go.mod 仍需要一个真实版本，而 `yd new --local-replace` 会用同级检出替换它。
 var scaffoldYdxVersions = map[string]string{
-	"github.com/shibingli/ydx/workflow": "v0.1.0",
+	"github.com/shibingli/ydx/workflow": "v0.1.1",
 }
 
 // localReplaceVersion is the zero pseudo-version `yd new --local-replace` writes into a generated go.mod. |
