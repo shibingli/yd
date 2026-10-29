@@ -104,14 +104,17 @@ func TestLoadDerivesScaffoldVersions(t *testing.T) {
 			t.Errorf("YdxVersions[%q] = %q, want v0.1.0", modulePath, got)
 		}
 	}
-	if len(inv.YdxVersions) != 2 {
-		t.Errorf("YdxVersions = %v, want exactly the two required ydx modules", inv.YdxVersions)
+	if got := inv.YdxVersions["github.com/shibingli/ydx/workflow"]; got != "v0.1.0" {
+		t.Errorf("YdxVersions[workflow] = %q, want the scaffold-only v0.1.0", got)
+	}
+	if len(inv.YdxVersions) != 3 {
+		t.Errorf("YdxVersions = %v, want the two required ydx modules plus the scaffold-only workflow", inv.YdxVersions)
 	}
 	if len(inv.YdxModules) != len(scaffoldYdxModules) {
 		t.Errorf("YdxModules = %d, want %d", len(inv.YdxModules), len(scaffoldYdxModules))
 	}
 	joinedYdx := strings.Join(inv.YdxModules, ",")
-	for _, modulePath := range []string{"github.com/shibingli/ydx/cache", "github.com/shibingli/ydx/errs", "github.com/shibingli/ydx/log"} {
+	for _, modulePath := range []string{"github.com/shibingli/ydx/cache", "github.com/shibingli/ydx/errs", "github.com/shibingli/ydx/log", "github.com/shibingli/ydx/workflow"} {
 		if !strings.Contains(joinedYdx, modulePath) {
 			t.Errorf("YdxModules missing %q: %v", modulePath, inv.YdxModules)
 		}

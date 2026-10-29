@@ -12,8 +12,10 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"html/template"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 	"time"
@@ -28,12 +30,7 @@ import (
 	"{{ .Module }}/web"
 	"{{ .YdModule }}/attachments"
 	"{{ .YdModule }}/dictionary"
-	"{{ .YdxModule }}/errs"
-	ydlog "{{ .YdxModule }}/log"
 	"{{ .YdModule }}/http/htmx"
-	"{{ .YdxModule }}/i18n"
-	"{{ .YdxModule }}/render"
-	"{{ .YdxModule }}/router"
 	"{{ .YdModule }}/messaging"
 	"{{ .YdModule }}/messaging/realtime"
 	"{{ .YdModule }}/runtime/app"
@@ -42,6 +39,12 @@ import (
 	"{{ .YdModule }}/security/authz"
 	"{{ .YdModule }}/security/captcha"
 	"{{ .YdxModule }}/cache"
+	"{{ .YdxModule }}/errs"
+	"{{ .YdxModule }}/i18n"
+	ydlog "{{ .YdxModule }}/log"
+	"{{ .YdxModule }}/render"
+	"{{ .YdxModule }}/router"
+	"{{ .YdxModule }}/workflow"
 )
 
 // 布局与外壳名：门户与管理后台各自使用独立的骨架，页面模板树也互不引用。
@@ -159,6 +162,41 @@ const (
 	TplDictionaryTypeDrawer = "mgr/partials/dictionaries/type_form.html"
 	// TplDictionaryItemDrawer is the dictionary item create/edit drawer. | TplDictionaryItemDrawer 是字典项新建/编辑抽屉。
 	TplDictionaryItemDrawer = "mgr/partials/dictionaries/item_form.html"
+	// TplWorkflows is the process-definition workbench. | TplWorkflows 是流程定义工作台。
+	TplWorkflows = "mgr/pages/workflows.html"
+	// TplWorkflowDesigner is the visual process designer. | TplWorkflowDesigner 是可视化流程设计器。
+	TplWorkflowDesigner = "mgr/pages/workflow_designer.html"
+	// TplWorkflowGroups is the workflow group directory page. | TplWorkflowGroups 是流程组目录页面。
+	TplWorkflowGroups = "mgr/pages/workflow_groups.html"
+	// TplWorkflowInstances is the instance governance page. | TplWorkflowInstances 是实例治理页面。
+	TplWorkflowInstances = "mgr/pages/workflow_instances.html"
+	// TplWorkflowTasks is the portal task page. | TplWorkflowTasks 是门户待办页面。
+	TplWorkflowTasks = "portal/pages/workflow_tasks.html"
+	// TplWorkflowDefinitionDrawer is the definition create/edit drawer. | TplWorkflowDefinitionDrawer 是定义新建/编辑抽屉。
+	TplWorkflowDefinitionDrawer = "mgr/partials/workflows/definition_form.html"
+	// TplWorkflowVersions is the version list drawer. | TplWorkflowVersions 是版本列表抽屉。
+	TplWorkflowVersions = "mgr/partials/workflows/versions.html"
+	// TplWorkflowImport is the import drawer. | TplWorkflowImport 是导入抽屉。
+	TplWorkflowImport = "mgr/partials/workflows/import.html"
+	// TplWorkflowInstanceDrawer is the instance detail drawer. | TplWorkflowInstanceDrawer 是实例详情抽屉。
+	TplWorkflowInstanceDrawer = "partials/workflows/instance_detail.html"
+	// TplWorkflowTaskDrawer is the task detail drawer shared by the portal and the back office. |
+	// TplWorkflowTaskDrawer 是门户与后台共用的任务详情抽屉。
+	TplWorkflowTaskDrawer = "partials/workflows/task.html"
+	// TplWorkflowStartDrawer is the start-process drawer. | TplWorkflowStartDrawer 是发起流程抽屉。
+	TplWorkflowStartDrawer = "portal/partials/workflows/start.html"
+	// TplWorkflowGroupDrawer is the group create/edit drawer. | TplWorkflowGroupDrawer 是流程组新建/编辑抽屉。
+	TplWorkflowGroupDrawer = "mgr/partials/workflows/group_form.html"
+	// TplWorkflowGroupMembers is the group member drawer. | TplWorkflowGroupMembers 是组成员抽屉。
+	TplWorkflowGroupMembers = "mgr/partials/workflows/group_members.html"
+	// TplWorkflowTaskList is the portal task list fragment. | TplWorkflowTaskList 是门户任务列表片段。
+	TplWorkflowTaskList = "portal/partials/workflows/task_list.html"
+	// TplWorkflowDefinitionList is the definition list fragment. | TplWorkflowDefinitionList 是定义列表片段。
+	TplWorkflowDefinitionList = "mgr/partials/workflows/definition_list.html"
+	// TplWorkflowInstanceList is the instance list fragment. | TplWorkflowInstanceList 是实例列表片段。
+	TplWorkflowInstanceList = "mgr/partials/workflows/instance_list.html"
+	// TplWorkflowGroupList is the group list fragment. | TplWorkflowGroupList 是组列表片段。
+	TplWorkflowGroupList = "mgr/partials/workflows/group_list.html"
 	// MessagePortalBase is the portal action prefix of the shared message card. | MessagePortalBase 是共享消息卡片在门户的动作前缀。
 	MessagePortalBase = "/messages"
 	// MessageAdminBase is the back-office action prefix of the shared message card. | MessageAdminBase 是共享消息卡片在后台的动作前缀。
@@ -319,6 +357,55 @@ const (
 	FieldBody = "body"
 	// FieldAction is the inbound WebSocket action name. | FieldAction 是入站 WebSocket 动作名。
 	FieldAction = "action"
+
+	// FieldWorkflowKey is the immutable definition key. | FieldWorkflowKey 是不可变定义键。
+	FieldWorkflowKey = "key"
+	// FieldWorkflowCategory is the process category. | FieldWorkflowCategory 是流程分类。
+	FieldWorkflowCategory = "category"
+	// FieldWorkflowIcon is the process icon name. | FieldWorkflowIcon 是流程图标名。
+	FieldWorkflowIcon = "icon"
+	// FieldWorkflowDesign is the design JSON submitted by the designer. | FieldWorkflowDesign 是设计器提交的设计 JSON。
+	FieldWorkflowDesign = "design"
+	// FieldWorkflowNote is a version or publication note. | FieldWorkflowNote 是版本或发布说明。
+	FieldWorkflowNote = "note"
+	// FieldWorkflowTitle is the instance title. | FieldWorkflowTitle 是实例标题。
+	FieldWorkflowTitle = "title"
+	// FieldWorkflowBusinessKey is the caller's external business key. | FieldWorkflowBusinessKey 是调用方的外部业务键。
+	FieldWorkflowBusinessKey = "business_key"
+	// FieldWorkflowDecision is the approve or reject decision. | FieldWorkflowDecision 是通过或驳回决策。
+	FieldWorkflowDecision = "decision"
+	// FieldWorkflowComment is a task comment or action reason. | FieldWorkflowComment 是任务意见或动作原因。
+	FieldWorkflowComment = "comment"
+	// FieldWorkflowReason is a withdrawal or termination reason. | FieldWorkflowReason 是撤回或终止原因。
+	FieldWorkflowReason = "reason"
+	// FieldWorkflowTarget is the target user, node or group. | FieldWorkflowTarget 是目标用户、节点或组。
+	FieldWorkflowTarget = "target_id"
+	// FieldWorkflowTargetNode is the return target node. | FieldWorkflowTargetNode 是退回目标节点。
+	FieldWorkflowTargetNode = "target_node"
+	// FieldWorkflowTargetTask is the task to remove during remove-sign. | FieldWorkflowTargetTask 是减签要移除的任务。
+	FieldWorkflowTargetTask = "target_task_id"
+	// FieldWorkflowUsers lists added approvers. | FieldWorkflowUsers 列出新增审批人。
+	FieldWorkflowUsers = "user_ids"
+	// FieldWorkflowPosition is the add-sign position. | FieldWorkflowPosition 是加签位置。
+	FieldWorkflowPosition = "position"
+	// FieldWorkflowFilterStatus is the workflow list status filter. | FieldWorkflowFilterStatus 是流程列表状态筛选。
+	FieldWorkflowFilterStatus = "status"
+	// FieldWorkflowFilterDefinition is the definition filter. | FieldWorkflowFilterDefinition 是定义筛选。
+	FieldWorkflowFilterDefinition = "definition"
+	// FieldWorkflowFilterTab is the portal tab. | FieldWorkflowFilterTab 是门户页签。
+	FieldWorkflowFilterTab = "tab"
+	// FieldWorkflowSignal is the message signal name. | FieldWorkflowSignal 是消息信号名。
+	FieldWorkflowSignal = "signal"
+	// FieldWorkflowVersion is the version number filter. | FieldWorkflowVersion 是版本号筛选。
+	FieldWorkflowVersion = "version"
+	// FieldWorkflowFormat is the export format. | FieldWorkflowFormat 是导出格式。
+	FieldWorkflowFormat = "format"
+	// FieldWorkflowFile is the import upload. | FieldWorkflowFile 是导入上传文件。
+	FieldWorkflowFile = "file"
+	// FieldWorkflowGroupRole links a group to a yd role. | FieldWorkflowGroupRole 把组关联到 yd 角色。
+	FieldWorkflowGroupRole = "role"
+	// FieldWorkflowMembers lists group members. | FieldWorkflowMembers 列出组成员。
+	FieldWorkflowMembers = "members"
 )
 
 // ErrPlaceholder reports a failed placeholder image encoding (practically only possible when memory is exhausted). | ErrPlaceholder 表示占位图编码失败（几乎只可能因为内存耗尽）。
@@ -361,6 +448,11 @@ type Controller struct {
 	dictionaries *service.DictionaryService
 	// dictionaryErr records why data dictionaries are unavailable. | dictionaryErr 记录数据字典不可用的原因。
 	dictionaryErr error
+	// workflow is the process-engine facade; nil when the project has no database. | workflow 是流程引擎门面；
+	// 项目没有数据库时为 nil。
+	workflow *service.WorkflowService
+	// workflowErr records why the process engine is unavailable. | workflowErr 记录流程引擎不可用的原因。
+	workflowErr error
 	// systemTenantID is the resolved owner of the system dictionary layer; empty disables system
 	// management and leaves that layer read-only. | systemTenantID 是系统级字典层的解析归属；
 	// 为空时关闭系统管理，该层保持只读。
@@ -449,6 +541,10 @@ func New(a *app.App, store *repository.Store, log *ydlog.Logger, captchaSvc *cap
 	if dictionaryErr != nil {
 		log.Warn("data dictionary is disabled | 数据字典已禁用", ydlog.Err(dictionaryErr))
 	}
+	workflowSvc, workflowErr := service.NewWorkflowService(a.Config(), store.WorkflowStore(), store.Auth(), messages, log)
+	if workflowErr != nil {
+		log.Warn("workflow engine is disabled | 流程引擎已禁用", ydlog.Err(workflowErr))
+	}
 	tenants := service.NewTenantService(store)
 	systemTenantID := ""
 	if key := strings.TrimSpace(a.Config().GetString(service.ConfigDictionarySystemTenant)); key != "" {
@@ -473,20 +569,22 @@ func New(a *app.App, store *repository.Store, log *ydlog.Logger, captchaSvc *cap
 		auth:           authSvc,
 		captcha:        captchaSvc,
 		tenants:        tenants,
-		users:         service.NewUserService(store, authSvc),
-		roles:         service.NewRoleService(store),
-		provider:      metricsx.NewCollector(metricsSvc, a.MiddlewareMetrics()),
-		messages:      messages,
-		messageErr:    messageErr,
-		attachments:   attachmentsSvc,
-		attachmentErr: attachmentErr,
+		users:          service.NewUserService(store, authSvc),
+		roles:          service.NewRoleService(store),
+		provider:       metricsx.NewCollector(metricsSvc, a.MiddlewareMetrics()),
+		messages:       messages,
+		messageErr:     messageErr,
+		attachments:    attachmentsSvc,
+		attachmentErr:  attachmentErr,
 		dictionaries:   dictionaries,
 		dictionaryErr:  dictionaryErr,
+		workflow:       workflowSvc,
+		workflowErr:    workflowErr,
 		systemTenantID: systemTenantID,
 		hub:            hub,
-		i18n:          bundle,
-		log:           log,
-		bundleURLs:    web.BundleURLs(),
+		i18n:           bundle,
+		log:            log,
+		bundleURLs:     web.BundleURLs(),
 	}, nil
 }
 
@@ -543,6 +641,68 @@ func (c *Controller) DictionaryService() *service.DictionaryService {
 		return nil
 	}
 	return c.dictionaries
+}
+
+// WorkflowAvailable reports whether the process engine can serve requests. | WorkflowAvailable
+// 报告流程引擎能否服务请求。
+func (c *Controller) WorkflowAvailable() bool {
+	return c != nil && c.workflow != nil && c.workflow.Service != nil
+}
+
+// WorkflowError returns why the process engine is unavailable, or nil. | WorkflowError 返回流程引擎不可用的原因，或 nil。
+func (c *Controller) WorkflowError() error {
+	if c == nil {
+		return nil
+	}
+	return c.workflowErr
+}
+
+// WorkflowService returns the process-engine facade; nil means the capability is unavailable. |
+// WorkflowService 返回流程引擎门面；nil 表示该能力不可用。
+func (c *Controller) WorkflowService() *service.WorkflowService {
+	if c == nil {
+		return nil
+	}
+	return c.workflow
+}
+
+// StartWorkflowRuntime starts the workflow scheduler and attaches its stop to the shutdown chain. |
+// StartWorkflowRuntime 启动流程调度器，并把停止动作挂到退出链上。
+func (c *Controller) StartWorkflowRuntime(ctx context.Context) {
+	if !c.WorkflowAvailable() {
+		return
+	}
+	if err := c.workflow.SchedulerStart(ctx); err != nil {
+		c.log.Warn("workflow scheduler failed to start | 流程调度器启动失败", ydlog.Err(err))
+	}
+	c.app.OnShutdown(func(context.Context) error { return c.workflow.SchedulerStop() })
+}
+
+// workflowActor returns the engine actor of the signed-in user. | workflowActor 返回当前登录用户的流程操作人。
+func (c *Controller) workflowActor(ctx *router.Ctx) workflow.Actor {
+	user, ok := auth.CurrentUser(ctx)
+	if !ok || user == nil {
+		return workflow.Actor{}
+	}
+	return workflow.Actor{
+		ID:    user.ID,
+		Name:  user.DisplayName,
+		Admin: authz.Can(ctx.Request.Context(), authz.PermWorkflowAdmin),
+	}
+}
+
+// workflowServiceOrFail writes a 503 when the engine is unavailable and reports false. |
+// workflowServiceOrFail 在引擎不可用时写出 503 并返回 false。
+func (c *Controller) workflowServiceOrFail(ctx *router.Ctx) bool {
+	if c.WorkflowAvailable() {
+		return true
+	}
+	message := "流程引擎不可用 | workflow engine is unavailable"
+	if c.workflowErr != nil {
+		message = c.workflowErr.Error()
+	}
+	c.fail(ctx, http.StatusServiceUnavailable, message)
+	return false
 }
 
 // CanManageSystemDictionaries reports whether the caller is an authenticated member of the
@@ -760,46 +920,48 @@ func (c *Controller) pageView(ctx *router.Ctx, title string, extra map[string]an
 // seeded administrator the SeedPassword check adds a password-hash verification on top.
 func (c *Controller) renderData(ctx *router.Ctx, title string, extra map[string]any, full bool) map[string]any {
 	data := map[string]any{
-		"Title":            title,
-		"Name":             meta.Name,
-		"Module":           meta.Module,
-		"Description":      meta.Description,
-		"Version":          meta.Version,
-		"GoVersion":        meta.GoVersion,
-		"HtmxVersion":      meta.HtmxVersion,
-		"TailwindVersion":  meta.TailwindVersion,
-		"Features":         meta.Features,
-		"Scripts":          meta.HtmxExtScripts,
-		"BundleURLs":       c.bundleURLs,
-		"Path":             ctx.Path(),
-		"PublicKey":        c.PublicKey(),
-		"KeyEndpoint":      PubkeyPath,
-		"Lang":             c.lang(ctx),
-		"TenantHeader":     meta.TenantHeader,
-		"SeedNotice":       meta.SeedPasswordNotice,
-		"User":             nil,
-		"Tenant":           nil,
-		"Tenants":          []model.Tenant{},
-		"DefaultTenantID":  "",
-		"SignedIn":         false,
-		"SeedPassword":     false,
-		"Permissions":      []model.Permission{},
-		"PageStyles":       []string{},
-		"PageScripts":      []string{},
-		"Unread":             messaging.UnreadSummary{},
-		"MessageAvailable":   c.MessagesAvailable(),
-		"MessageError":       "",
+		"Title":               title,
+		"Name":                meta.Name,
+		"Module":              meta.Module,
+		"Description":         meta.Description,
+		"Version":             meta.Version,
+		"GoVersion":           meta.GoVersion,
+		"HtmxVersion":         meta.HtmxVersion,
+		"TailwindVersion":     meta.TailwindVersion,
+		"Features":            meta.Features,
+		"Scripts":             meta.HtmxExtScripts,
+		"BundleURLs":          c.bundleURLs,
+		"Path":                ctx.Path(),
+		"PublicKey":           c.PublicKey(),
+		"KeyEndpoint":         PubkeyPath,
+		"Lang":                c.lang(ctx),
+		"TenantHeader":        meta.TenantHeader,
+		"SeedNotice":          meta.SeedPasswordNotice,
+		"User":                nil,
+		"Tenant":              nil,
+		"Tenants":             []model.Tenant{},
+		"DefaultTenantID":     "",
+		"SignedIn":            false,
+		"SeedPassword":        false,
+		"Permissions":         []model.Permission{},
+		"PageStyles":          []string{},
+		"PageScripts":         []string{},
+		"Unread":              messaging.UnreadSummary{},
+		"MessageAvailable":    c.MessagesAvailable(),
+		"MessageError":        "",
 		"AttachmentAvailable": c.AttachmentsAvailable(),
 		"AttachmentError":     "",
 		"DictionaryAvailable": c.DictionariesAvailable(),
+		"WorkflowAvailable":   c.WorkflowAvailable(),
+		"WorkflowError":       workflowErrorMessage(c.WorkflowError()),
 		// The captcha switches appear in every page's data: the sign-in and account pages decide from them whether
 		// to render the widget, and the whole block is omitted while disabled.
 		// 验证码开关在每一份页面数据里都出现：登录页与账号页据此决定是否渲染组件，关闭时模板整块省略。
-		"CaptchaLogin":            c.captcha.Enabled(captcha.ActionLogin),
-		"CaptchaPasswordChange":   c.captcha.Enabled(captcha.ActionPasswordChange),
-		"CaptchaEndpoint":         captcha.Endpoint,
-		"CaptchaTokenField":       captcha.TokenField,
-		"CaptchaLoginAction":      captcha.ActionLogin,
+		"CaptchaLogin":                c.captcha.Enabled(captcha.ActionLogin),
+		"CaptchaPasswordChange":       c.captcha.Enabled(captcha.ActionPasswordChange),
+		"CaptchaEndpoint":             captcha.Endpoint,
+		"CaptchaTokenField":           captcha.TokenField,
+		"CaptchaLoginAction":          captcha.ActionLogin,
 		"CaptchaPasswordChangeAction": captcha.ActionPasswordChange,
 	}
 	layout, shell, portal := c.layoutForPath(ctx.Path())
@@ -1001,6 +1163,25 @@ func field(ctx *router.Ctx, name string) string {
 		value = value[:maxFormFieldLen]
 	}
 	return value
+}
+
+// firstNonEmpty returns the first non-empty value. | firstNonEmpty 返回第一个非空值。
+func firstNonEmpty(values ...string) string {
+	for _, value := range values {
+		if strings.TrimSpace(value) != "" {
+			return strings.TrimSpace(value)
+		}
+	}
+	return ""
+}
+
+// workflowHTMXTarget reports whether an htmx request swaps one specific container. Page handlers
+// then answer with the list fragment, so a filtered URL stays the canonical page URL while the
+// browser history and HX-Current-URL both carry the filters. | workflowHTMXTarget 报告 htmx 请求是否
+// 换入指定容器。页面处理器因此返回列表片段，筛选后的 URL 仍是规范页面 URL，浏览器历史与
+// HX-Current-URL 都带着筛选条件。
+func workflowHTMXTarget(ctx *router.Ctx, id string) bool {
+	return strings.TrimPrefix(strings.TrimSpace(ctx.Request.Header.Get("HX-Target")), "#") == id
 }
 
 // payload 读取一个密文字段并还原为字节：前端提交的是 Base64，auth.DecryptLoginPayload 两种形态都接受。
@@ -1305,9 +1486,114 @@ func statusFor(err error) (int, string) {
 		return http.StatusConflict, err.Error()
 	case errors.Is(err, dictionary.ErrUnavailable), errors.Is(err, service.ErrDictionaryUnavailable):
 		return http.StatusServiceUnavailable, err.Error()
+	case errors.Is(err, workflow.ErrInvalidInput), errors.Is(err, workflow.ErrInvalidDesign),
+		errors.Is(err, workflow.ErrInvalidCondition), errors.Is(err, workflow.ErrInvalidForm),
+		errors.Is(err, workflow.ErrImportInvalid), errors.Is(err, workflow.ErrBPMNInvalid),
+		errors.Is(err, workflow.ErrNoAssignee), errors.Is(err, workflow.ErrLimit):
+		return http.StatusUnprocessableEntity, err.Error()
+	case errors.Is(err, workflow.ErrNotFound):
+		return http.StatusNotFound, err.Error()
+	case errors.Is(err, workflow.ErrForbidden), errors.Is(err, workflow.ErrTaskNotMine):
+		return http.StatusForbidden, msgForbidden
+	case errors.Is(err, workflow.ErrConflict), errors.Is(err, workflow.ErrTaskClosed),
+		errors.Is(err, workflow.ErrInstanceClosed), errors.Is(err, workflow.ErrVersionPublished),
+		errors.Is(err, workflow.ErrDefinitionPublished), errors.Is(err, workflow.ErrWithdrawExpired),
+		errors.Is(err, workflow.ErrRemindLimit):
+		return http.StatusConflict, err.Error()
+	case errors.Is(err, workflow.ErrUnavailable), errors.Is(err, workflow.ErrAIUnavailable),
+		errors.Is(err, workflow.ErrNotificationFailed), errors.Is(err, service.ErrWorkflowUnavailable):
+		return http.StatusServiceUnavailable, err.Error()
 	case errors.Is(err, router.ErrBodyTooLarge):
 		return http.StatusRequestEntityTooLarge, err.Error()
 	default:
 		return http.StatusInternalServerError, msgInternal
 	}
+}
+
+// workflowPagination builds the server-driven page links shared by the workflow lists. |
+// workflowPagination 构建流程列表共用的服务端分页链接。
+func (c *Controller) workflowPagination(ctx *router.Ctx, base string, params map[string]string, page, pageSize, total int) map[string]any {
+	if total <= pageSize || pageSize <= 0 {
+		return nil
+	}
+	totalPages := (total + pageSize - 1) / pageSize
+	if totalPages < 1 {
+		totalPages = 1
+	}
+	if page < 1 {
+		page = 1
+	}
+	if page > totalPages {
+		page = totalPages
+	}
+	href := func(number int) string {
+		values := url.Values{}
+		for key, value := range params {
+			if strings.TrimSpace(value) != "" {
+				values.Set(key, value)
+			}
+		}
+		if number > 1 {
+			values.Set("page", strconv.Itoa(number))
+		}
+		if encoded := values.Encode(); encoded != "" {
+			return base + "?" + encoded
+		}
+		return base
+	}
+	pages := make([]map[string]any, 0, 7)
+	addPage := func(number int) {
+		pages = append(pages, map[string]any{"Number": number, "Href": href(number), "Current": number == page})
+	}
+	addEllipsis := func() {
+		pages = append(pages, map[string]any{"Ellipsis": true})
+	}
+	switch {
+	case totalPages <= 7:
+		for number := 1; number <= totalPages; number++ {
+			addPage(number)
+		}
+	default:
+		addPage(1)
+		start, end := page-1, page+1
+		if start < 2 {
+			start, end = 2, 4
+		}
+		if end > totalPages-1 {
+			start, end = totalPages-3, totalPages-1
+		}
+		if start > 2 {
+			addEllipsis()
+		}
+		for number := start; number <= end; number++ {
+			addPage(number)
+		}
+		if end < totalPages-1 {
+			addEllipsis()
+		}
+		addPage(totalPages)
+	}
+	var prevHref, nextHref string
+	if page > 1 {
+		prevHref = href(page - 1)
+	}
+	if page < totalPages {
+		nextHref = href(page + 1)
+	}
+	return map[string]any{
+		"LabelKey": "ui.pagination",
+		"Summary":  fmt.Sprintf(c.tr(c.lang(ctx), "ui.page_summary"), page, totalPages),
+		"PrevHref": prevHref,
+		"NextHref": nextHref,
+		"Pages":    pages,
+	}
+}
+
+// workflowErrorMessage renders an unavailable-engine reason for page data. | workflowErrorMessage
+// 为页面数据渲染引擎不可用原因。
+func workflowErrorMessage(err error) string {
+	if err == nil {
+		return ""
+	}
+	return err.Error()
 }

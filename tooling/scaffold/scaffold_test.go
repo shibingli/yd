@@ -21,6 +21,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -86,6 +87,7 @@ var requiredFiles = []string{
 	"docs/render-usage.md",
 	"docs/runtime-gc.md",
 	"docs/verification.md",
+	"docs/workflow.md",
 	"docs/yd-usage.md",
 	"go.mod",
 	"internal/controller/attachment_controller.go",
@@ -114,6 +116,13 @@ var requiredFiles = []string{
 	"internal/controller/tenant_controller.go",
 	"internal/controller/ui_kit.go",
 	"internal/controller/user_controller.go",
+	"internal/controller/workflow_api.go",
+	"internal/controller/workflow_api_types.go",
+	"internal/controller/workflow_controller.go",
+	"internal/controller/workflow_group_controller.go",
+	"internal/controller/workflow_instance_controller.go",
+	"internal/controller/workflow_runtime_api.go",
+	"internal/controller/workflow_task_controller.go",
 	"internal/meta/meta.go",
 	"internal/middleware/cache.go",
 	"internal/middleware/observability.go",
@@ -141,6 +150,7 @@ var requiredFiles = []string{
 	"internal/service/role.go",
 	"internal/service/tenant.go",
 	"internal/service/user.go",
+	"internal/service/workflow.go",
 	"web/assets.lock.json",
 	"web/bundle_generated.go",
 	"web/embed.go",
@@ -177,6 +187,10 @@ var requiredFiles = []string{
 	"web/templates/mgr/pages/roles.html",
 	"web/templates/mgr/pages/tenants.html",
 	"web/templates/mgr/pages/users.html",
+	"web/templates/mgr/pages/workflow_designer.html",
+	"web/templates/mgr/pages/workflow_groups.html",
+	"web/templates/mgr/pages/workflow_instances.html",
+	"web/templates/mgr/pages/workflows.html",
 	"web/templates/mgr/partials/attachments/cleanup.html",
 	"web/templates/mgr/partials/attachments/delete.html",
 	"web/templates/mgr/partials/dictionaries/item_form.html",
@@ -204,6 +218,14 @@ var requiredFiles = []string{
 	"web/templates/mgr/partials/users/form.html",
 	"web/templates/mgr/partials/users/list.html",
 	"web/templates/mgr/partials/users/row.html",
+	"web/templates/mgr/partials/workflows/definition_form.html",
+	"web/templates/mgr/partials/workflows/definition_list.html",
+	"web/templates/mgr/partials/workflows/group_form.html",
+	"web/templates/mgr/partials/workflows/group_list.html",
+	"web/templates/mgr/partials/workflows/group_members.html",
+	"web/templates/mgr/partials/workflows/import.html",
+	"web/templates/mgr/partials/workflows/instance_list.html",
+	"web/templates/mgr/partials/workflows/versions.html",
 	"web/templates/partials/app_shell.html",
 	"web/templates/partials/base.html",
 	"web/templates/partials/captcha.html",
@@ -220,6 +242,9 @@ var requiredFiles = []string{
 	"web/templates/partials/sidebar_brand.html",
 	"web/templates/partials/sidebar_footer.html",
 	"web/templates/partials/topbar.html",
+	"web/templates/partials/workflows/instance_detail.html",
+	"web/templates/partials/workflows/labels.html",
+	"web/templates/partials/workflows/task.html",
 	"web/templates/portal/layouts/base.html",
 	"web/templates/portal/layouts/shell.html",
 	"web/templates/portal/pages/account.html",
@@ -229,6 +254,7 @@ var requiredFiles = []string{
 	"web/templates/portal/pages/messages.html",
 	"web/templates/portal/pages/realtime.html",
 	"web/templates/portal/pages/ui_kit.html",
+	"web/templates/portal/pages/workflow_tasks.html",
 	"web/templates/portal/partials/friends/remark.html",
 	"web/templates/portal/partials/friends/request.html",
 	"web/templates/portal/partials/friends/search.html",
@@ -246,6 +272,8 @@ var requiredFiles = []string{
 	"web/templates/portal/partials/messages/search.html",
 	"web/templates/portal/partials/messages/thread.html",
 	"web/templates/portal/partials/sidebar.html",
+	"web/templates/portal/partials/workflows/start.html",
+	"web/templates/portal/partials/workflows/task_list.html",
 }
 
 // specGitignore 是需求基线 §二.3 的 .gitignore 模板逐字内容（已去掉提示行），
@@ -1787,7 +1815,7 @@ const (
 	// startupTimeout 是等待生成的应用就绪的上限：首次启动要建连、装配模板并绑定端口。
 	// startupTimeout bounds the wait for the generated application to become ready: the first start has to connect,
 	// assemble its templates and bind the port.
-	startupTimeout = 30 * time.Second
+	startupTimeout = 60 * time.Second
 	// httpTimeout bounds one ordinary request. | httpTimeout 是单条普通请求的上限。
 	// httpTimeout is the probe timeout. The first HTML render in a generated project runs with
 	// render.Dev=true and therefore compiles the whole template tree; on a cold Windows filesystem that
@@ -3824,6 +3852,29 @@ func startGeneratedAppWithStop(t *testing.T, bin, dir string) (string, func()) {
 // always wins even when the developer shell exported the same key. |
 // startGeneratedAppWithStopEnv 是带附加环境变量的 startGeneratedAppWithStop；附加变量会先从继承环境中移除，
 // 因此显式值总是优先，即使开发者的 shell 导出了同名变量。
+// lockedBuffer is a bytes.Buffer safe for one child process writing while the test reads it.
+// | lockedBuffer 是一个并发安全的 bytes.Buffer，供子进程写入的同时测试读取。
+type lockedBuffer struct {
+	// mu guards buf. | mu 保护 buf。
+	mu sync.Mutex
+	// buf holds the captured output. | buf 保存捕获的输出。
+	buf bytes.Buffer
+}
+
+// Write appends p under the lock. | Write 在锁内追加 p。
+func (b *lockedBuffer) Write(p []byte) (int, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.Write(p)
+}
+
+// String returns a copy of the captured output. | String 返回已捕获输出的副本。
+func (b *lockedBuffer) String() string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.String()
+}
+
 func startGeneratedAppWithStopEnv(t *testing.T, bin, dir string, extra map[string]string) (string, func()) {
 	t.Helper()
 
@@ -3852,9 +3903,9 @@ func startGeneratedAppWithStopEnv(t *testing.T, bin, dir string, extra map[strin
 		"YD_SERVER_PORT="+strconv.Itoa(port),
 		"YD_LOG_FORMAT=console",
 	), extraEnv...)
-	var logs bytes.Buffer
-	cmd.Stdout = &logs
-	cmd.Stderr = &logs
+	logs := &lockedBuffer{}
+	cmd.Stdout = logs
+	cmd.Stderr = logs
 	if err := cmd.Start(); err != nil {
 		t.Fatalf("启动生成的应用失败: %v", err)
 	}
@@ -5307,8 +5358,493 @@ func writeProbeConfig(t *testing.T, dir, content string) {
 	}
 }
 
+// TestGeneratedWorkflowAPIUnavailableIsJSON proves a project generated without a database answers the workflow
+// JSON API with a JSON 503 instead of an HTML error fragment. |
+// TestGeneratedWorkflowAPIUnavailableIsJSON 证明没有数据库的生成项目对流程 JSON API 返回 JSON 503，
+// 而不是 HTML 错误片段。
+func TestGeneratedWorkflowAPIUnavailableIsJSON(t *testing.T) {
+	if testing.Short() {
+		t.Skip("短模式跳过流程 API 不可用验证 | skipped in short mode")
+	}
+	_, base := startProbeApp(t, "yd-workflow-nodb-probe")
+	admin := newProbeClient(t, httpTimeout)
+	token := signIn(t, admin, base, probeTenant, probeAdmin, probeAdminPassword)
+	resp, body := getText(t, admin, base+"/api/v1/workflows/definitions", map[string]string{
+		"Authorization": "Bearer " + token,
+		"Accept":        "application/json",
+	})
+	if resp.StatusCode != http.StatusServiceUnavailable {
+		t.Fatalf("无数据库项目的流程 API 状态码 = %d，期望 503\n%s", resp.StatusCode, body)
+	}
+	if !strings.Contains(strings.ToLower(resp.Header.Get("Content-Type")), "application/json") {
+		t.Fatalf("无数据库项目的流程 API Content-Type = %q", resp.Header.Get("Content-Type"))
+	}
+	var payload map[string]any
+	if err := json.Unmarshal([]byte(body), &payload); err != nil || payload["error"] == nil || payload["error"] == "" {
+		t.Fatalf("流程 API 错误体不是 JSON: %v\n%s", err, body)
+	}
+}
+
+// TestGeneratedWorkflowLifecycle proves the generated project wires the process engine end to end: definitions,
+// versions, publication, the portal start form, task approval, the designer page, groups and a valid OpenAPI
+// document. | TestGeneratedWorkflowLifecycle 证明生成项目完整接通流程引擎：定义、版本、发布、门户发起、
+// 任务审批、设计器页面、流程组与合法的 OpenAPI 文档。
+func TestGeneratedWorkflowLifecycle(t *testing.T) {
+	if testing.Short() {
+		t.Skip("短模式跳过流程引擎端到端验证 | skipped in short mode")
+	}
+
+	_, base := startProbeAppDBWith(t, "yd-workflow-probe", scaffold.DBSQLite, nil)
+	admin := newProbeClient(t, httpTimeout)
+	token := signIn(t, admin, base, probeTenant, probeAdmin, probeAdminPassword)
+	auth := map[string]string{"Authorization": "Bearer " + token, "Accept": "application/json"}
+
+	resp, body := postJSON(t, admin, base+"/api/v1/workflows/definitions", `{
+		"key": "leave", "name": "Leave request", "name_en": "Leave request", "category": "hr"
+	}`, auth)
+	if resp.StatusCode != http.StatusCreated && resp.StatusCode != http.StatusOK {
+		t.Fatalf("创建流程定义状态码 = %d\n%s", resp.StatusCode, body)
+	}
+	var definition struct {
+		ID string `json:"id"`
+	}
+	if err := json.Unmarshal([]byte(body), &definition); err != nil || definition.ID == "" {
+		t.Fatalf("解析流程定义失败: %v\n%s", err, body)
+	}
+
+	design := `{
+		"schema_version": 1,
+		"nodes": [
+			{"id": "start_1", "type": "start", "name": "Start", "position": {"x": 80, "y": 200}},
+			{"id": "user_1", "type": "user", "name": "Manager approval", "position": {"x": 280, "y": 180},
+			 "assignee": {"type": "initiator"}, "completion": {"mode": "any"}},
+			{"id": "end_1", "type": "end", "name": "End", "position": {"x": 560, "y": 200}}
+		],
+		"edges": [
+			{"id": "edge_1", "source": "start_1", "target": "user_1"},
+			{"id": "edge_2", "source": "user_1", "target": "end_1"}
+		],
+		"forms": {"start": [{"key": "days", "label": "Days", "type": "number", "required": true}]}
+	}`
+	resp, body = postJSON(t, admin, base+"/api/v1/workflows/definitions/"+definition.ID+"/versions",
+		`{"design": `+design+`, "note": "draft"}`, auth)
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("创建流程版本状态码 = %d\n%s", resp.StatusCode, body)
+	}
+	var version struct {
+		ID string `json:"id"`
+	}
+	if err := json.Unmarshal([]byte(body), &version); err != nil || version.ID == "" {
+		t.Fatalf("解析流程版本失败: %v\n%s", err, body)
+	}
+	resp, body = postJSON(t, admin, base+"/api/v1/workflows/versions/"+version.ID+"/publish", `{"note": "release-note-xyz"}`, auth)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("发布流程版本状态码 = %d\n%s", resp.StatusCode, body)
+	}
+
+	// The version list is a lightweight summary; the design is read one version at a time. |
+	// 版本列表只返回轻量摘要；设计按单个版本读取。
+	resp, body = getText(t, admin, base+"/api/v1/workflows/definitions/"+definition.ID+"/versions", auth)
+	if resp.StatusCode != http.StatusOK || !strings.Contains(body, `"status":"published"`) {
+		t.Fatalf("API 版本摘要状态码 = %d\n%s", resp.StatusCode, body)
+	}
+	if strings.Contains(body, `"design"`) || strings.Contains(body, `"bpmn"`) {
+		t.Fatalf("API 版本列表仍返回设计或 BPMN 文档:\n%s", body)
+	}
+	resp, body = getText(t, admin, base+"/api/v1/workflows/versions/"+version.ID, auth)
+	if resp.StatusCode != http.StatusOK || !strings.Contains(body, `"design"`) {
+		t.Fatalf("API 单版本读取缺少设计: 状态码 = %d\n%s", resp.StatusCode, body)
+	}
+
+	resp, body = getText(t, admin, base+"/mgr/workflows/"+definition.ID+"/versions", nil)
+	if resp.StatusCode != http.StatusOK || !strings.Contains(body, "release-note-xyz") {
+		t.Fatalf("版本抽屉状态码 = %d, 期望 200 且包含发布说明\n%s", resp.StatusCode, body)
+	}
+	if !strings.Contains(body, "data-yd-drawer-persist") {
+		t.Fatalf("版本抽屉的写操作会在成功后关闭抽屉:\n%s", body)
+	}
+
+	resp, body = getText(t, admin, base+"/mgr/workflows", nil)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("流程列表状态码 = %d\n%s", resp.StatusCode, body)
+	}
+	if strings.Contains(body, "Unpublished draft") || strings.Contains(body, "有未发布草稿") {
+		t.Fatalf("没有草稿时列表仍显示草稿标记:\n%s", body)
+	}
+
+	resp, body = getText(t, admin, base+"/mgr/workflows?q=Leave", map[string]string{
+		"HX-Request": "true", "HX-Target": "yd-workflow-definitions",
+	})
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("流程列表片段状态码 = %d\n%s", resp.StatusCode, body)
+	}
+	if strings.Contains(body, "<!doctype html>") || !strings.Contains(body, `hx-swap-oob="true"`) {
+		t.Fatalf("流程列表片段未返回 OOB 总数或误返回整页:\n%s", body)
+	}
+
+	// Category filters are shared by the HTML workbench and the JSON API. | 分类筛选在 HTML 工作台与 JSON API 之间共用。
+	resp, body = getText(t, admin, base+"/mgr/workflows?category=hr", map[string]string{
+		"HX-Request": "true", "HX-Target": "yd-workflow-definitions",
+	})
+	if resp.StatusCode != http.StatusOK || !strings.Contains(body, "Leave request") {
+		t.Fatalf("按分类筛选流程列表状态码 = %d\n%s", resp.StatusCode, body)
+	}
+	resp, body = getText(t, admin, base+"/mgr/workflows?category=finance", map[string]string{
+		"HX-Request": "true", "HX-Target": "yd-workflow-definitions",
+	})
+	if resp.StatusCode != http.StatusOK || strings.Contains(body, "Leave request") {
+		t.Fatalf("不匹配分类的流程列表状态码 = %d\n%s", resp.StatusCode, body)
+	}
+	resp, body = getText(t, admin, base+"/api/v1/workflows/definitions?category=hr", auth)
+	if resp.StatusCode != http.StatusOK || !strings.Contains(body, `"key":"leave"`) {
+		t.Fatalf("API 分类筛选状态码 = %d\n%s", resp.StatusCode, body)
+	}
+	if !strings.Contains(body, `"version_count":1`) {
+		t.Fatalf("定义列表的版本计数未批量填充:\n%s", body)
+	}
+	resp, body = getText(t, admin, base+"/api/v1/workflows/definitions?category=finance", auth)
+	if resp.StatusCode != http.StatusOK || strings.Contains(body, `"key":"leave"`) {
+		t.Fatalf("API 分类筛选未生效状态码 = %d\n%s", resp.StatusCode, body)
+	}
+
+	// A draft version can be deleted through the API, matching the version drawer. |
+	// 草稿版本可以经 API 删除，与版本抽屉保持一致。
+	resp, body = postJSON(t, admin, base+"/api/v1/workflows/definitions/"+definition.ID+"/versions",
+		`{"design": `+design+`, "note": "disposable"}`, auth)
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("创建待删除草稿状态码 = %d\n%s", resp.StatusCode, body)
+	}
+	var disposable struct {
+		ID string `json:"id"`
+	}
+	if err := json.Unmarshal([]byte(body), &disposable); err != nil || disposable.ID == "" {
+		t.Fatalf("解析待删除草稿失败: %v\n%s", err, body)
+	}
+	resp, body = deleteJSON(t, admin, base+"/api/v1/workflows/versions/"+disposable.ID, auth)
+	if resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("删除草稿状态码 = %d, 期望 204\n%s", resp.StatusCode, body)
+	}
+	resp, body = getText(t, admin, base+"/api/v1/workflows/definitions/"+definition.ID+"/versions", auth)
+	if resp.StatusCode != http.StatusOK || strings.Contains(body, disposable.ID) {
+		t.Fatalf("删除后版本列表状态码 = %d, 期望 200 且不含 %s\n%s", resp.StatusCode, disposable.ID, body)
+	}
+
+	resp, body = postJSON(t, admin, base+"/api/portal/v1/workflows/instances",
+		`{"definition_key": "leave", "title": "Two days off", "form_data": {"days": 2}}`, auth)
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("发起流程状态码 = %d\n%s", resp.StatusCode, body)
+	}
+	var instance struct {
+		ID     string `json:"id"`
+		Status string `json:"status"`
+	}
+	if err := json.Unmarshal([]byte(body), &instance); err != nil || instance.ID == "" || instance.Status != "running" {
+		t.Fatalf("发起后的实例 = %+v err=%v\n%s", instance, err, body)
+	}
+
+	// The instance category is inherited from the definition and filters both surfaces. |
+	// 实例分类继承自定义，并同时作用于两个界面。
+	resp, body = getText(t, admin, base+"/mgr/workflow-instances?category=hr", map[string]string{
+		"HX-Request": "true", "HX-Target": "yd-workflow-instances",
+	})
+	if resp.StatusCode != http.StatusOK || !strings.Contains(body, "Two days off") {
+		t.Fatalf("按分类筛选实例列表状态码 = %d\n%s", resp.StatusCode, body)
+	}
+	resp, body = getText(t, admin, base+"/mgr/workflow-instances?category=finance", map[string]string{
+		"HX-Request": "true", "HX-Target": "yd-workflow-instances",
+	})
+	if resp.StatusCode != http.StatusOK || strings.Contains(body, "Two days off") {
+		t.Fatalf("不匹配分类的实例列表状态码 = %d\n%s", resp.StatusCode, body)
+	}
+	resp, body = getText(t, admin, base+"/api/v1/workflow-instances?category=hr", auth)
+	if resp.StatusCode != http.StatusOK || !strings.Contains(body, "Two days off") {
+		t.Fatalf("API 实例分类筛选状态码 = %d\n%s", resp.StatusCode, body)
+	}
+	if strings.Contains(body, `"variables"`) || strings.Contains(body, `"current_nodes"`) {
+		t.Fatalf("实例列表仍返回变量或节点快照载荷:\n%s", body)
+	}
+	resp, body = getText(t, admin, base+"/api/v1/workflow-instances?category=finance", auth)
+	if resp.StatusCode != http.StatusOK || strings.Contains(body, "Two days off") {
+		t.Fatalf("API 实例分类筛选未生效状态码 = %d\n%s", resp.StatusCode, body)
+	}
+	resp, body = getText(t, admin, base+"/api/v1/workflows/definitions?category=hr", auth)
+	if resp.StatusCode != http.StatusOK || !strings.Contains(body, `"instance_count":1`) {
+		t.Fatalf("定义列表的实例计数未批量填充: 状态码 = %d\n%s", resp.StatusCode, body)
+	}
+
+	resp, body = getText(t, admin, base+"/api/portal/v1/workflows/tasks", auth)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("任务列表状态码 = %d\n%s", resp.StatusCode, body)
+	}
+	var page struct {
+		Items []struct {
+			ID string `json:"id"`
+		} `json:"items"`
+	}
+	if err := json.Unmarshal([]byte(body), &page); err != nil || len(page.Items) == 0 {
+		t.Fatalf("任务列表 = %s err=%v", body, err)
+	}
+	resp, body = getText(t, admin, base+"/mgr/workflow-tasks/"+page.Items[0].ID, nil)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("管理端任务抽屉状态码 = %d\n%s", resp.StatusCode, body)
+	}
+	if !strings.Contains(body, `hx-post="/mgr/workflow-tasks/`+page.Items[0].ID+`/action"`) {
+		t.Fatalf("the admin task drawer lacks its decision form: \n%s", body)
+	}
+	resp, body = getText(t, admin, base+"/workflow/tasks/"+page.Items[0].ID, nil)
+	if resp.StatusCode != http.StatusOK || !strings.Contains(body, `hx-post="/workflow/tasks/`+page.Items[0].ID+`/action"`) {
+		t.Fatalf("门户任务抽屉状态码 = %d, 期望 200 且含审批表单\n%s", resp.StatusCode, body)
+	}
+	resp, body = getText(t, admin, base+"/mgr/workflow-instances/"+instance.ID, nil)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("管理端实例抽屉状态码 = %d\n%s", resp.StatusCode, body)
+	}
+	resp, body = getText(t, admin, base+"/workflow/instances/"+instance.ID, nil)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("门户实例抽屉状态码 = %d\n%s", resp.StatusCode, body)
+	}
+	resp, body = postJSON(t, admin, base+"/api/portal/v1/workflows/tasks/"+page.Items[0].ID+"/approve",
+		`{"action": "approve", "comment": "ok", "form_data": {"days": 2}}`, auth)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("审批任务状态码 = %d\n%s", resp.StatusCode, body)
+	}
+
+	resp, body = getText(t, admin, base+"/api/portal/v1/workflows/instances/"+instance.ID, auth)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("实例详情状态码 = %d\n%s", resp.StatusCode, body)
+	}
+	if !strings.Contains(body, `"variables"`) {
+		t.Fatalf("实例详情缺少变量载荷:\n%s", body)
+	}
+	var detail struct {
+		Instance struct {
+			Status  string `json:"status"`
+			Outcome string `json:"outcome"`
+		} `json:"instance"`
+	}
+	if err := json.Unmarshal([]byte(body), &detail); err != nil {
+		t.Fatalf("解析实例详情失败: %v\n%s", err, body)
+	}
+	if detail.Instance.Status != "completed" || detail.Instance.Outcome != "approved" {
+		t.Fatalf("审批后的实例状态 = %+v\n%s", detail.Instance, body)
+	}
+
+	resp, body = getText(t, admin, base+"/api/v1/workflows/export?format=json&keys=leave", auth)
+	if resp.StatusCode != http.StatusOK || !strings.Contains(body, `"leave"`) {
+		t.Fatalf("JSON 导出状态码 = %d\n%s", resp.StatusCode, body)
+	}
+	resp, body = getText(t, admin, base+"/api/v1/workflows/export?format=bpmn&version="+version.ID, auth)
+	if resp.StatusCode != http.StatusOK || !strings.Contains(body, "<definitions") {
+		t.Fatalf("BPMN 导出状态码 = %d\n%s", resp.StatusCode, body)
+	}
+
+	// The start drawer renders the published start form through the shared field partial. |
+	// 发起抽屉经共享字段片段渲染已发布版本的发起表单。
+	resp, body = getText(t, admin, base+"/workflow/start?definition=leave", nil)
+	if resp.StatusCode != http.StatusOK || !strings.Contains(body, `name="field_days"`) {
+		t.Fatalf("发起抽屉状态码 = %d, 期望 200 且包含发起表单字段\n%s", resp.StatusCode, body)
+	}
+
+	// The HTML start form and the HTML approval action share the same service. | HTML 发起表单与审批动作共用同一份服务。
+	resp, body = postForm(t, admin, base+"/workflow/start", map[string]string{
+		"definition": "leave", "title": "HTML instance", "field_days": "3",
+	}, nil)
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusSeeOther {
+		t.Fatalf("HTML 发起流程状态码 = %d\n%s", resp.StatusCode, body)
+	}
+	resp, body = getText(t, admin, base+"/workflow/tasks", nil)
+	if resp.StatusCode != http.StatusOK || !strings.Contains(body, "HTML instance") {
+		t.Fatalf("门户任务页状态码 = %d\n%s", resp.StatusCode, body)
+	}
+	resp, body = getText(t, admin, base+"/api/portal/v1/workflows/tasks", auth)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("HTML 实例任务列表状态码 = %d\n%s", resp.StatusCode, body)
+	}
+	page.Items = nil
+	if err := json.Unmarshal([]byte(body), &page); err != nil || len(page.Items) == 0 {
+		t.Fatalf("HTML 实例任务列表 = %s err=%v", body, err)
+	}
+	resp, body = postForm(t, admin, base+"/workflow/tasks/"+page.Items[0].ID+"/action", map[string]string{
+		"decision": "approve", "comment": "ok", "field_days": "3",
+	}, nil)
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusSeeOther {
+		t.Fatalf("HTML 审批状态码 = %d\n%s", resp.StatusCode, body)
+	}
+
+	// A group with a linked role exercises the workflow-owned directory. | 带关联角色的流程组覆盖流程自有目录。
+	resp, body = postJSON(t, admin, base+"/api/v1/workflows/groups",
+		`{"key": "approvers", "name": "Approvers", "role": "member"}`, auth)
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("创建流程组状态码 = %d\n%s", resp.StatusCode, body)
+	}
+	var workflowGroup struct {
+		ID string `json:"id"`
+	}
+	if err := json.Unmarshal([]byte(body), &workflowGroup); err != nil || workflowGroup.ID == "" {
+		t.Fatalf("解析流程组失败: %v\n%s", err, body)
+	}
+	resp, body = getText(t, admin, base+"/mgr/workflow-groups/"+workflowGroup.ID+"/members", nil)
+	if resp.StatusCode != http.StatusOK || !strings.Contains(body, `hx-post="/mgr/workflow-groups/`+workflowGroup.ID+`/members"`) {
+		t.Fatalf("管理员组成员抽屉状态码 = %d, 期望 200 且含保存表单\n%s", resp.StatusCode, body)
+	}
+
+	// The create form's status field must reach the service, not be forced to enabled. |
+	// 新建表单的状态字段必须传给服务，而不是被强制为 enabled。
+	resp, body = postForm(t, admin, base+"/mgr/workflow-groups", map[string]string{
+		"key": "disabled-group", "name": "Disabled group", "status": "disabled",
+	}, nil)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("新建停用组状态码 = %d\n%s", resp.StatusCode, body)
+	}
+	resp, body = getText(t, admin, base+"/api/v1/workflows/groups?q=disabled-group", auth)
+	if resp.StatusCode != http.StatusOK || !strings.Contains(body, `"status":"disabled"`) {
+		t.Fatalf("新建组未按表单保存停用状态: 状态码 = %d\n%s", resp.StatusCode, body)
+	}
+
+	// Every create/edit/import drawer renders its shared components. | 每个新建/编辑/导入抽屉都经共享组件渲染。
+	for _, path := range []string{
+		"/mgr/workflows/new",
+		"/mgr/workflows/" + definition.ID + "/edit",
+		"/mgr/workflows/import",
+		"/mgr/workflow-groups/new",
+		"/mgr/workflow-groups/" + workflowGroup.ID + "/edit",
+	} {
+		resp, body = getText(t, admin, base+path, nil)
+		if resp.StatusCode != http.StatusOK || strings.Contains(body, `data-yd-page="error"`) {
+			t.Fatalf("抽屉 %s 状态码 = %d\n%s", path, resp.StatusCode, body)
+		}
+	}
+
+	for _, page := range []string{
+		"/mgr/workflows",
+		"/mgr/workflows/" + definition.ID + "/design",
+		"/mgr/workflows/" + definition.ID + "/versions",
+		"/mgr/workflow-instances",
+		"/mgr/workflow-groups",
+		"/workflow/tasks",
+	} {
+		resp, body = getText(t, admin, base+page, nil)
+		if resp.StatusCode != http.StatusOK {
+			t.Fatalf("页面 %s 状态码 = %d\n%s", page, resp.StatusCode, body)
+		}
+		if strings.Contains(body, `data-yd-page="error"`) {
+			t.Fatalf("页面 %s 渲染了错误页:\n%s", page, body)
+		}
+	}
+
+	// The designer script owns no copy: its label island must be valid JSON translated from the
+	// catalogue, not a raw key. | 设计器脚本不自带文案：目录岛必须是经目录翻译的合法 JSON，
+	// 而不是裸键。
+	resp, body = getText(t, admin, base+"/mgr/workflows/"+definition.ID+"/design", nil)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("设计器页面状态码 = %d\n%s", resp.StatusCode, body)
+	}
+	const labelMarker = `id="yd-workflow-labels">`
+	labelStart := strings.Index(body, labelMarker)
+	if labelStart < 0 {
+		t.Fatalf("设计器页面缺少目录岛:\n%s", body)
+	}
+	labelStart += len(labelMarker)
+	labelEnd := strings.Index(body[labelStart:], "</script>")
+	if labelEnd < 0 {
+		t.Fatalf("设计器目录岛没有结束标签:\n%s", body[labelStart:])
+	}
+	var designerLabels map[string]string
+	if err := json.Unmarshal([]byte(body[labelStart:labelStart+labelEnd]), &designerLabels); err != nil {
+		t.Fatalf("设计器目录岛不是合法 JSON: %v\n%s", err, body[labelStart:labelStart+labelEnd])
+	}
+	for _, key := range []string{"label_start", "label_zoom", "label_validation_node_no_name"} {
+		if value := designerLabels[key]; value == "" || value == key {
+			t.Fatalf("设计器目录 %s = %q，期望已翻译文案\n%s", key, value, body[labelStart:labelStart+labelEnd])
+		}
+	}
+
+	// A workflow:read role may inspect every workflow surface but must not be offered manage-only
+	// links or action forms that its endpoints would refuse. | workflow:read 角色可以查看全部流程面，
+	// 但不应看到只读端点会拒绝的管理链接或动作表单。
+	createProbeRole(t, admin, base, token, "workflow-auditor", authz.PermWorkflowRead)
+	createProbeUser(t, admin, base, token, "probe-workflow-reader", "workflow-auditor", "probe-workflow-reader@example.com")
+	reader := newProbeClient(t, httpTimeout)
+	signIn(t, reader, base, probeTenant, "probe-workflow-reader", probeUserPassword)
+
+	resp, body = getText(t, reader, base+"/mgr/workflows", nil)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("只读角色访问流程列表状态码 = %d\n%s", resp.StatusCode, body)
+	}
+	if !strings.Contains(body, "Unpublished draft") && !strings.Contains(body, "有未发布草稿") {
+		t.Errorf("设计器创建草稿后列表未显示草稿标记:\n%s", body)
+	}
+	if !strings.Contains(body, `href="/mgr/workflows/export?format=json&keys=leave"`) {
+		t.Errorf("只读角色看不到 JSON 导出链接:\n%s", body)
+	}
+	if strings.Contains(body, `href="/mgr/workflows/`+definition.ID+`/design"`) {
+		t.Errorf("只读角色的定义列表仍渲染了设计器链接:\n%s", body)
+	}
+	resp, body = getText(t, reader, base+"/mgr/workflows/"+definition.ID+"/design", nil)
+	if resp.StatusCode != http.StatusForbidden {
+		t.Fatalf("只读角色访问设计器状态码 = %d, 期望 403\n%s", resp.StatusCode, body)
+	}
+
+	resp, body = getText(t, reader, base+"/mgr/workflow-tasks/"+page.Items[0].ID, nil)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("只读角色访问管理端任务抽屉状态码 = %d\n%s", resp.StatusCode, body)
+	}
+	if strings.Contains(body, `hx-post="/mgr/workflow-tasks/`) {
+		t.Errorf("只读角色的任务抽屉渲染了管理动作表单:\n%s", body)
+	}
+	resp, body = postForm(t, reader, base+"/mgr/workflow-tasks/"+page.Items[0].ID+"/action",
+		map[string]string{"decision": "approve"}, nil)
+	if resp.StatusCode != http.StatusForbidden {
+		t.Fatalf("只读角色提交管理端任务动作状态码 = %d, 期望 403\n%s", resp.StatusCode, body)
+	}
+
+	resp, body = getText(t, reader, base+"/mgr/workflow-groups/"+workflowGroup.ID+"/members", nil)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("只读角色访问组成员抽屉状态码 = %d\n%s", resp.StatusCode, body)
+	}
+	if strings.Contains(body, `hx-post="/mgr/workflow-groups/`) {
+		t.Errorf("只读角色的组成员抽屉渲染了保存表单:\n%s", body)
+	}
+
+	resp, body = getText(t, admin, base+"/api/v1/openapi.json", auth)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("OpenAPI 文档状态码 = %d\n%s", resp.StatusCode, body)
+	}
+	if strings.Contains(body, "#/components/schemas/workflow.") {
+		t.Fatalf("OpenAPI 文档含无法解析的流程类型引用:\n%.2000s", body)
+	}
+	if !strings.Contains(body, "/api/v1/workflows/definitions") {
+		t.Fatalf("OpenAPI 文档缺少流程定义端点:\n%.2000s", body)
+	}
+}
+
 // postJSON submits one JSON body and returns the response with its body as text. | postJSON 提交一个 JSON 请求体，
 // 返回响应与响应体文本。
+// deleteJSON sends one DELETE with the given headers and returns the response and body. | deleteJSON
+// 发送一次带指定请求头的 DELETE 并返回响应与正文。
+func deleteJSON(t *testing.T, client *http.Client, target string, headers ...map[string]string) (*http.Response, string) {
+	t.Helper()
+	req, err := http.NewRequest(http.MethodDelete, target, nil)
+	if err != nil {
+		t.Fatalf("create DELETE %s: %v | 创建 DELETE 请求失败", target, err)
+	}
+	for _, set := range headers {
+		for key, value := range set {
+			req.Header.Set(key, value)
+		}
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		t.Fatalf("DELETE %s: %v | 发送 DELETE 失败", target, err)
+	}
+	data, err := io.ReadAll(resp.Body)
+	resp.Body.Close()
+	if err != nil {
+		t.Fatalf("read DELETE body %s: %v | 读取 DELETE 响应失败", target, err)
+	}
+	return resp, string(data)
+}
+
 func postJSON(t *testing.T, client *http.Client, target, body string, headers ...map[string]string) (*http.Response, string) {
 	t.Helper()
 	req, err := http.NewRequest(http.MethodPost, target, strings.NewReader(body))

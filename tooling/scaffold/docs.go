@@ -19,6 +19,7 @@ import (
 var frameworkDocFiles = []string{
 	"attachments.md",
 	"dictionary.md",
+	"workflow.md",
 	"message-center.md",
 	"cache.md",
 	"redis-asynq.md",

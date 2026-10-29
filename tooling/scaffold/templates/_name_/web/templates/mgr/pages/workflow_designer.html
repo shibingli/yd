@@ -1,0 +1,230 @@
+{{/*
+  mgr/pages/workflow_designer.html —— 可视化流程设计器外壳。
+  mgr/pages/workflow_designer.html — the visual process designer shell.
+
+  画布、属性面板与规则/表单编辑器全部由同源脚本 yd-workflow-designer.js 构建，服务端只提供
+  初始设计 JSON、目录 JSON 与动作地址；页面因此没有内联脚本，满足 CSP script-src 'self'。
+  The canvas, inspector and rule/form editors are built by the same-origin script
+  yd-workflow-designer.js; the server only supplies the initial design JSON, the directory JSON and
+  the action URLs, so the page carries no inline script and satisfies CSP script-src 'self'.
+
+  数据契约 | Data contract: .Definition、.WorkflowVersion、.DesignJSON、.DirectoryJSON、.CanManage。
+*/}}
+{{/* 页面脚本的惰性加载声明：整页请求由 partials/base.html 直接装载；htmx 局部导航不会重写 <head>，
+     yd-app.js 在交换后读取本元素并补齐缺失的脚本。 | Lazy page-asset declaration: a full page loads through
+     partials/base.html, while an htmx navigation never rewrites <head>; yd-app.js reads this element after a swap. */}}
+{{- if or .PageStyles .PageScripts }}
+<div id="yd-page-assets" hidden
+     data-yd-styles="{{ range .PageStyles }}{{ asset . }} {{ end }}"
+     data-yd-scripts="{{ range .PageScripts }}{{ asset . }} {{ end }}"></div>
+{{- end }}
+
+<section class="yd-flow" data-yd-page="workflow-designer" data-yd-workflow-designer
+         data-definition-id="{{ .Definition.ID }}"
+         data-version-id="{{ .WorkflowVersion.ID }}"
+         data-save-url="/api/v1/workflows/versions/{{ .WorkflowVersion.ID }}"
+         data-publish-url="/api/v1/workflows/versions/{{ .WorkflowVersion.ID }}/publish"
+         data-export-json="/mgr/workflows/export?format=json&keys={{ .Definition.Key }}"
+         data-export-bpmn="/mgr/workflows/export?format=bpmn&version={{ .WorkflowVersion.ID }}"
+         data-back-url="/mgr/workflows"
+         data-confirm-publish="{{ tr "confirm.publish_workflow" }}"
+         aria-labelledby="yd-flow-title">
+  <header class="yd-flow__top">
+    <div class="yd-flow__heading">
+      <a class="yd-btn yd-btn--ghost yd-btn--sm" href="/mgr/workflows">{{ template "partials/icon" "lucide-arrow-left" }}{{ tr "workflow.designer.back" }}</a>
+      <div>
+        <h1 class="yd-page__title" id="yd-flow-title">{{ .Definition.Name }}</h1>
+        <p class="yd-page__subtitle">
+          <code class="yd-code">{{ .Definition.Key }}</code>
+          · v{{ .WorkflowVersion.Version }}
+          {{- if eq .WorkflowVersion.Status "draft" }} · {{ tr "workflow.version.draft" }}{{ else }} · {{ tr "workflow.version.published" }}{{ end }}
+        </p>
+      </div>
+    </div>
+    <div class="yd-flow__actions">
+      <button type="button" class="yd-btn yd-btn--ghost yd-btn--sm" data-yd-flow-action="validate">{{ template "partials/icon" "lucide-circle-check" }}{{ tr "workflow.designer.validate" }}</button>
+      <button type="button" class="yd-btn yd-btn--ghost yd-btn--sm" data-yd-flow-action="connect" aria-pressed="false">{{ template "partials/icon" "lucide-spline" }}{{ tr "workflow.designer.connect" }}</button>
+      <button type="button" class="yd-btn yd-btn--ghost yd-btn--sm" data-yd-flow-action="zoom-out" aria-label="{{ tr "workflow.designer.zoom_out" }}">{{ template "partials/icon" "lucide-zoom-out" }}</button>
+      <button type="button" class="yd-btn yd-btn--ghost yd-btn--sm" data-yd-flow-action="zoom-in" aria-label="{{ tr "workflow.designer.zoom_in" }}">{{ template "partials/icon" "lucide-zoom-in" }}</button>
+      <button type="button" class="yd-btn yd-btn--ghost yd-btn--sm" data-yd-flow-action="delete">{{ template "partials/icon" "lucide-trash-2" }}{{ tr "workflow.designer.delete" }}</button>
+      <a class="yd-btn yd-btn--ghost yd-btn--sm" data-yd-flow-action="export-json" href="/mgr/workflows/export?format=json&keys={{ .Definition.Key }}">{{ template "partials/icon" "lucide-download" }}JSON</a>
+      <a class="yd-btn yd-btn--ghost yd-btn--sm" data-yd-flow-action="export-bpmn" href="/mgr/workflows/export?format=bpmn&version={{ .WorkflowVersion.ID }}">{{ template "partials/icon" "lucide-file-code" }}BPMN</a>
+      <button type="button" class="yd-btn yd-btn--primary yd-btn--sm" data-yd-flow-action="save">{{ template "partials/icon" "lucide-save" }}{{ tr "ui.save" }}</button>
+      <button type="button" class="yd-btn yd-btn--primary yd-btn--sm" data-yd-flow-action="publish">{{ template "partials/icon" "lucide-rocket" }}{{ tr "workflow.version.publish" }}</button>
+    </div>
+  </header>
+
+  <div class="yd-flow__main">
+    <aside class="yd-flow__palette" aria-label="{{ tr "workflow.designer.palette" }}">
+      <p class="yd-nav__section">{{ tr "workflow.designer.palette" }}</p>
+      <button type="button" class="yd-flow__palette-item" draggable="true" data-node-type="start">{{ template "partials/icon" "lucide-circle-play" }}{{ tr "workflow.designer.palette_start" }}</button>
+      <button type="button" class="yd-flow__palette-item" draggable="true" data-node-type="end">{{ template "partials/icon" "lucide-circle-stop" }}{{ tr "workflow.designer.palette_end" }}</button>
+      <button type="button" class="yd-flow__palette-item" draggable="true" data-node-type="user">{{ template "partials/icon" "lucide-user-check" }}{{ tr "workflow.designer.palette_user" }}</button>
+      <button type="button" class="yd-flow__palette-item" draggable="true" data-node-type="service">{{ template "partials/icon" "lucide-cog" }}{{ tr "workflow.designer.palette_service" }}</button>
+      <button type="button" class="yd-flow__palette-item" draggable="true" data-node-type="exclusive">{{ template "partials/icon" "lucide-diamond" }}{{ tr "workflow.designer.palette_exclusive" }}</button>
+      <button type="button" class="yd-flow__palette-item" draggable="true" data-node-type="parallel">{{ template "partials/icon" "lucide-git-fork" }}{{ tr "workflow.designer.palette_parallel" }}</button>
+      <button type="button" class="yd-flow__palette-item" draggable="true" data-node-type="inclusive">{{ template "partials/icon" "lucide-git-branch" }}{{ tr "workflow.designer.palette_inclusive" }}</button>
+      <button type="button" class="yd-flow__palette-item" draggable="true" data-node-type="catch">{{ template "partials/icon" "lucide-timer" }}{{ tr "workflow.designer.palette_catch" }}</button>
+      <button type="button" class="yd-flow__palette-item" draggable="true" data-node-type="event">{{ template "partials/icon" "lucide-zap" }}{{ tr "workflow.designer.palette_event" }}</button>
+      <p class="yd-field__hint">{{ tr "workflow.designer.palette_hint" }}</p>
+    </aside>
+
+    <div class="yd-flow__canvas" data-yd-flow-canvas>
+      <div class="yd-flow__stage" data-yd-flow-stage>
+        <svg class="yd-flow__svg" xmlns="http://www.w3.org/2000/svg" data-yd-flow-svg role="img" aria-label="{{ tr "workflow.designer.canvas" }}">
+          <defs>
+            <marker id="yd-flow-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+              <path d="M 0 0 L 10 5 L 0 10 z" fill="currentColor"></path>
+            </marker>
+          </defs>
+          <g data-yd-flow-layers></g>
+        </svg>
+      </div>
+      <p class="yd-flow__hint">{{ tr "workflow.designer.canvas_hint" }}</p>
+    </div>
+
+    <aside class="yd-flow__inspector" data-yd-flow-inspector aria-label="{{ tr "workflow.designer.inspector" }}">
+      <p class="yd-field__hint">{{ tr "workflow.designer.inspector_hint" }}</p>
+    </aside>
+  </div>
+
+  <p class="yd-flow__status" data-yd-flow-status role="status" aria-live="polite"></p>
+  <script type="application/json" id="yd-workflow-design">{{ .DesignJSON }}</script>
+  <script type="application/json" id="yd-workflow-directory">{{ .DirectoryJSON }}</script>
+  {{/* 设计器脚本文案目录：服务端按当前语言渲染，脚本只按短键取词，不在 JS 内写死业务文案。 |
+       Designer label catalogue rendered in the active language; the script looks up short keys only. */}}
+  <script type="application/json" id="yd-workflow-labels">{
+    "label_a_node_cannot_connect_to_itself": {{ tr "workflow.designer.label_a_node_cannot_connect_to_itself" }},
+    "label_a_node_needs_a_name": {{ tr "workflow.designer.label_a_node_needs_a_name" }},
+    "label_add_field": {{ tr "workflow.designer.label_add_field" }},
+    "label_add_rule": {{ tr "workflow.designer.label_add_rule" }},
+    "label_ai_prompt": {{ tr "workflow.designer.label_ai_prompt" }},
+    "label_allow_automatic_approval_rules": {{ tr "workflow.designer.label_allow_automatic_approval_rules" }},
+    "label_approval": {{ tr "workflow.designer.label_approval" }},
+    "label_approval_count": {{ tr "workflow.designer.label_approval_count" }},
+    "label_approve": {{ tr "workflow.designer.label_approve" }},
+    "label_ask_the_ai_decider": {{ tr "workflow.designer.label_ask_the_ai_decider" }},
+    "label_assigned_directly": {{ tr "workflow.designer.label_assigned_directly" }},
+    "label_assignees": {{ tr "workflow.designer.label_assignees" }},
+    "label_assignment": {{ tr "workflow.designer.label_assignment" }},
+    "label_automatic_approval_rules": {{ tr "workflow.designer.label_automatic_approval_rules" }},
+    "label_category": {{ tr "workflow.designer.label_category" }},
+    "label_checkbox": {{ tr "workflow.designer.label_checkbox" }},
+    "label_claim_before_acting": {{ tr "workflow.designer.label_claim_before_acting" }},
+    "label_claim_mode": {{ tr "workflow.designer.label_claim_mode" }},
+    "label_completion": {{ tr "workflow.designer.label_completion" }},
+    "label_condition": {{ tr "workflow.designer.label_condition" }},
+    "label_connect_mode_off": {{ tr "workflow.designer.label_connect_mode_off" }},
+    "label_countersign_everyone": {{ tr "workflow.designer.label_countersign_everyone" }},
+    "label_date": {{ tr "workflow.designer.label_date" }},
+    "label_date_and_time": {{ tr "workflow.designer.label_date_and_time" }},
+    "label_deadline": {{ tr "workflow.designer.label_deadline" }},
+    "label_decision": {{ tr "workflow.designer.label_decision" }},
+    "label_default_deadline": {{ tr "workflow.designer.label_default_deadline" }},
+    "label_default_flow_of_the_gateway": {{ tr "workflow.designer.label_default_flow_of_the_gateway" }},
+    "label_default_terminate": {{ tr "workflow.designer.label_default_terminate" }},
+    "label_delete_flow": {{ tr "workflow.designer.label_delete_flow" }},
+    "label_delete_node": {{ tr "workflow.designer.label_delete_node" }},
+    "label_delete_rule": {{ tr "workflow.designer.label_delete_rule" }},
+    "label_deleted": {{ tr "workflow.designer.label_deleted" }},
+    "label_description": {{ tr "workflow.designer.label_description" }},
+    "label_draft_saved": {{ tr "workflow.designer.label_draft_saved" }},
+    "label_duration": {{ tr "workflow.designer.label_duration" }},
+    "label_enabled": {{ tr "workflow.designer.label_enabled" }},
+    "label_end": {{ tr "workflow.designer.label_end" }},
+    "label_end_the_process": {{ tr "workflow.designer.label_end_the_process" }},
+    "label_english_name": {{ tr "workflow.designer.label_english_name" }},
+    "label_event": {{ tr "workflow.designer.label_event" }},
+    "label_node_event": {{ tr "workflow.designer.label_node_event" }},
+    "label_event_name": {{ tr "workflow.designer.label_event_name" }},
+    "label_exclusive": {{ tr "workflow.designer.label_exclusive" }},
+    "label_forbid_add_remove_sign": {{ tr "workflow.designer.label_forbid_add_remove_sign" }},
+    "label_forbid_delegation": {{ tr "workflow.designer.label_forbid_delegation" }},
+    "label_forbid_return": {{ tr "workflow.designer.label_forbid_return" }},
+    "label_form_fields": {{ tr "workflow.designer.label_form_fields" }},
+    "label_grab_first_claimer_wins": {{ tr "workflow.designer.label_grab_first_claimer_wins" }},
+    "label_groups": {{ tr "workflow.designer.label_groups" }},
+    "label_inclusive": {{ tr "workflow.designer.label_inclusive" }},
+    "label_initiator": {{ tr "workflow.designer.label_initiator" }},
+    "label_instance_start": {{ tr "workflow.designer.label_instance_start" }},
+    "label_key": {{ tr "workflow.designer.label_key" }},
+    "label_kind": {{ tr "workflow.designer.label_kind" }},
+    "label_label": {{ tr "workflow.designer.label_label" }},
+    "label_long_text": {{ tr "workflow.designer.label_long_text" }},
+    "label_match_comma_separated": {{ tr "workflow.designer.label_match_comma_separated" }},
+    "label_message_signal": {{ tr "workflow.designer.label_message_signal" }},
+    "label_mode": {{ tr "workflow.designer.label_mode" }},
+    "label_name": {{ tr "workflow.designer.label_name" }},
+    "label_no_candidate_is_available": {{ tr "workflow.designer.label_no_candidate_is_available" }},
+    "label_node_added": {{ tr "workflow.designer.label_node_added" }},
+    "label_number": {{ tr "workflow.designer.label_number" }},
+    "label_on_reject": {{ tr "workflow.designer.label_on_reject" }},
+    "label_on_rejection": {{ tr "workflow.designer.label_on_rejection" }},
+    "label_options_value_label_per_line": {{ tr "workflow.designer.label_options_value_label_per_line" }},
+    "label_or_sign_any_approver": {{ tr "workflow.designer.label_or_sign_any_approver" }},
+    "label_parallel": {{ tr "workflow.designer.label_parallel" }},
+    "label_percentage": {{ tr "workflow.designer.label_percentage" }},
+    "label_pick_the_source_node": {{ tr "workflow.designer.label_pick_the_source_node" }},
+    "label_pick_the_target_node": {{ tr "workflow.designer.label_pick_the_target_node" }},
+    "label_priority": {{ tr "workflow.designer.label_priority" }},
+    "label_process_settings": {{ tr "workflow.designer.label_process_settings" }},
+    "label_publishing": {{ tr "workflow.designer.label_publishing" }},
+    "label_ready": {{ tr "workflow.designer.label_ready" }},
+    "label_reject": {{ tr "workflow.designer.label_reject" }},
+    "label_reject_a_second_running_instance_with_the_same_key": {{ tr "workflow.designer.label_reject_a_second_running_instance_with_the_same_key" }},
+    "label_reject_on_the_first_rejection": {{ tr "workflow.designer.label_reject_on_the_first_rejection" }},
+    "label_reject_only_when_all_reject": {{ tr "workflow.designer.label_reject_only_when_all_reject" }},
+    "label_remind_every": {{ tr "workflow.designer.label_remind_every" }},
+    "label_reminder_ceiling": {{ tr "workflow.designer.label_reminder_ceiling" }},
+    "label_request_failed": {{ tr "workflow.designer.label_request_failed" }},
+    "label_required": {{ tr "workflow.designer.label_required" }},
+    "label_return_to_the_initiator": {{ tr "workflow.designer.label_return_to_the_initiator" }},
+    "label_role": {{ tr "workflow.designer.label_role" }},
+    "label_roles": {{ tr "workflow.designer.label_roles" }},
+    "label_routing_and_timing": {{ tr "workflow.designer.label_routing_and_timing" }},
+    "label_rule_name": {{ tr "workflow.designer.label_rule_name" }},
+    "label_saving": {{ tr "workflow.designer.label_saving" }},
+    "label_scope": {{ tr "workflow.designer.label_scope" }},
+    "label_select": {{ tr "workflow.designer.label_select" }},
+    "label_select_a_node_or_a_flow_first": {{ tr "workflow.designer.label_select_a_node_or_a_flow_first" }},
+    "label_sequence_flow": {{ tr "workflow.designer.label_sequence_flow" }},
+    "label_sequence_flow_added": {{ tr "workflow.designer.label_sequence_flow_added" }},
+    "label_sequential_one_at_a_time": {{ tr "workflow.designer.label_sequential_one_at_a_time" }},
+    "label_service": {{ tr "workflow.designer.label_service" }},
+    "label_signal_name": {{ tr "workflow.designer.label_signal_name" }},
+    "label_sort_order": {{ tr "workflow.designer.label_sort_order" }},
+    "label_start": {{ tr "workflow.designer.label_start" }},
+    "label_task_creation": {{ tr "workflow.designer.label_task_creation" }},
+    "label_terminate": {{ tr "workflow.designer.label_terminate" }},
+    "label_terminate_the_whole_process": {{ tr "workflow.designer.label_terminate_the_whole_process" }},
+    "label_text": {{ tr "workflow.designer.label_text" }},
+    "label_the_design_needs_a_start_event": {{ tr "workflow.designer.label_the_design_needs_a_start_event" }},
+    "label_the_design_needs_an_end_event": {{ tr "workflow.designer.label_the_design_needs_an_end_event" }},
+    "label_this_sequence_flow_already_exists": {{ tr "workflow.designer.label_this_sequence_flow_already_exists" }},
+    "label_threshold": {{ tr "workflow.designer.label_threshold" }},
+    "label_threshold_type": {{ tr "workflow.designer.label_threshold_type" }},
+    "label_timer": {{ tr "workflow.designer.label_timer" }},
+    "label_unique_business_key": {{ tr "workflow.designer.label_unique_business_key" }},
+    "label_user": {{ tr "workflow.designer.label_user" }},
+    "label_users": {{ tr "workflow.designer.label_users" }},
+    "label_users_2": {{ tr "workflow.designer.label_users_2" }},
+    "label_validation_duplicate_node_id": {{ tr "workflow.designer.label_validation_duplicate_node_id" }},
+    "label_validation_edge_missing_node": {{ tr "workflow.designer.label_validation_edge_missing_node" }},
+    "label_validation_node_no_assignee": {{ tr "workflow.designer.label_validation_node_no_assignee" }},
+    "label_validation_node_no_name": {{ tr "workflow.designer.label_validation_node_no_name" }},
+    "label_validation_passed": {{ tr "workflow.designer.label_validation_passed" }},
+    "label_validation_wait_no_duration": {{ tr "workflow.designer.label_validation_wait_no_duration" }},
+    "label_validation_wait_no_signal": {{ tr "workflow.designer.label_validation_wait_no_signal" }},
+    "label_variable_expression": {{ tr "workflow.designer.label_variable_expression" }},
+    "label_version_note": {{ tr "workflow.designer.label_version_note" }},
+    "label_version_published": {{ tr "workflow.designer.label_version_published" }},
+    "label_vote_sign_threshold": {{ tr "workflow.designer.label_vote_sign_threshold" }},
+    "label_wait": {{ tr "workflow.designer.label_wait" }},
+    "label_wait_event": {{ tr "workflow.designer.label_wait_event" }},
+    "label_withdrawal_window": {{ tr "workflow.designer.label_withdrawal_window" }},
+    "label_workflow_group": {{ tr "workflow.designer.label_workflow_group" }},
+    "label_workflow_groups": {{ tr "workflow.designer.label_workflow_groups" }},
+    "label_zoom": {{ tr "workflow.designer.label_zoom" }}
+  }</script>
+
+</section>

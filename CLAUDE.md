@@ -47,10 +47,14 @@
 
 - **依赖形态**：`go.mod` 直接引用 `github.com/shibingli/ydx/<module> vX.Y.Z`；**禁止**本地
   `replace`。开发期联调只能在两个仓库之外临时使用 `go.work`，不得提交。
-- **模块清单**（36 个）：`errs`、`sysinfo`、`buffpool`、`protocol`、`nodeid`、`base64`、`json`、`afs`、
+- **模块清单**（37 个）：`errs`、`sysinfo`、`buffpool`、`protocol`、`nodeid`、`base64`、`json`、`afs`、
   `config`、`log`、`regexpx`、`router`、`gorm`、`redis`、`asynq`、`cache`、`sse`、`websocket`、
   `webtransport`、`realtime`、`render`、`i18n`、`openapi`、`openapi/ydrouter`、`jwt`、`guomi`、
-  `captcha`、`middleware` 及 8 个 `middleware/*` 插件。
+  `captcha`、`workflow`、`middleware` 及 8 个 `middleware/*` 插件。
+- **流程引擎**：`workflow` 是可独立使用的 BPMN 2.0 子集引擎；持久化在 `workflow/gormstore`
+  （覆盖 ydx/gorm 支持的 MySQL / PostgreSQL / SQLite / DM8），通知在 `workflow/notify`，
+  多供应商 AI 决策在 `workflow/ai`。yd 侧只保留页面、JSON API、权限守卫与装配接线，
+  使用说明见 `docs/workflow.md`。
 - **OpenAPI 分层**：`openapi` 核心不依赖任何路由器，只接受 `openapi.Route` 并提供标准
   `net/http` 处理器；`ydx/router` 项目经 `openapi/ydrouter` 的 `FromRouter` / `Handler` 接入。
 - **包标识符已同步改名**：`errs`、`json`、`base64`、`log`、`buffpool`、`gorm`、`cache`、

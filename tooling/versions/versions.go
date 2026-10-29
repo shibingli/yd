@@ -225,6 +225,16 @@ var scaffoldYdxModules = []string{
 	"github.com/shibingli/ydx/sse",
 	"github.com/shibingli/ydx/sysinfo",
 	"github.com/shibingli/ydx/websocket",
+	"github.com/shibingli/ydx/workflow",
+}
+
+// scaffoldYdxVersions pins modules that only generated projects import. The framework itself does
+// not require them, so they have no go.mod entry to derive from; a generated go.mod still needs a
+// real version, which `yd new --local-replace` replaces with the sibling checkout. |
+// scaffoldYdxVersions 锁定仅由生成项目导入的模块。框架自身不依赖它们，因此没有可推导的 go.mod 条目；
+// 生成项目的 go.mod 仍需要一个真实版本，而 `yd new --local-replace` 会用同级检出替换它。
+var scaffoldYdxVersions = map[string]string{
+	"github.com/shibingli/ydx/workflow": "v0.1.0",
 }
 
 // localReplaceVersion is the zero pseudo-version `yd new --local-replace` writes into a generated go.mod. |
@@ -268,6 +278,13 @@ func ydxInventory(modules []Module) (map[string]string, []string) {
 	}
 	if !observed {
 		return nil, nil
+	}
+	if len(versions) > 0 {
+		for modulePath, version := range scaffoldYdxVersions {
+			if _, ok := versions[modulePath]; !ok {
+				versions[modulePath] = version
+			}
+		}
 	}
 	out := make([]string, 0, len(paths))
 	for modulePath := range paths {

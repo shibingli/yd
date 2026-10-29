@@ -1,0 +1,86 @@
+{{/*
+  portal/partials/workflows/task_list.html —— 待办/已办/我发起的表格。
+  portal/partials/workflows/task_list.html — the todo, done and started tables.
+
+  数据契约 | Data contract: .Tab、.Tasks 或 .Instances、.Total、.Page、.PageSize。
+*/}}
+{{- define "portal/partials/workflows/task_list" -}}
+{{- if .OOB }}<p class="yd-page__subtitle" id="yd-workflow-tasks-total" hx-swap-oob="true">{{ tr "workflow.tasks.subtitle" .Total }}</p>{{ end }}
+{{- if eq .Tab "started" -}}
+<div class="yd-table__wrap" data-yd-table>
+  <table class="yd-table" aria-label="{{ tr "workflow.tasks.started" }}">
+    <thead class="yd-table__head">
+      <tr>
+        <th class="yd-table__th" scope="col">{{ tr "workflow.field.title" }}</th>
+        <th class="yd-table__th" scope="col">{{ tr "workflow.field.definition" }}</th>
+        <th class="yd-table__th" scope="col">{{ tr "field.status" }}</th>
+        <th class="yd-table__th" scope="col">{{ tr "workflow.field.started_at" }}</th>
+        <th class="yd-table__th" scope="col">{{ tr "field.actions" }}</th>
+      </tr>
+    </thead>
+    <tbody class="yd-table__body">
+      {{ range .Instances }}
+      <tr class="yd-table__row">
+        <td class="yd-table__td">{{ .Title }}</td>
+        <td class="yd-table__td">{{ .DefinitionName }} <span class="yd-table__muted">v{{ .Version }}</span></td>
+        <td class="yd-table__td">{{ template "partials/workflows/instance_badge" (dict "Status" .Status "Outcome" .Outcome) }}{{ with .Outcome }} · {{ template "partials/workflows/outcome_label" . }}{{ end }}</td>
+        <td class="yd-table__td">{{ .StartedAt.Format "2006-01-02 15:04" }}</td>
+        <td class="yd-table__td yd-table__td--actions">
+          <button type="button" class="yd-icon-btn" data-yd-drawer-open aria-label="{{ tr "workflow.instances.detail" }}"
+                  hx-get="/workflow/instances/{{ .ID }}" hx-target="#yd-drawer-body" hx-swap="innerHTML">
+            {{ template "partials/icon" "lucide-eye" }}
+          </button>
+        </td>
+      </tr>
+      {{ else }}
+      <tr class="yd-table__row yd-table__row--empty"><td class="yd-table__td" colspan="5">{{ tr "workflow.tasks.empty_started" }}</td></tr>
+      {{ end }}
+    </tbody>
+  </table>
+</div>
+{{- else -}}
+<div class="yd-table__wrap" data-yd-table>
+  <table class="yd-table" aria-label="{{ tr "workflow.tasks.title" }}">
+    <thead class="yd-table__head">
+      <tr>
+        <th class="yd-table__th" scope="col">{{ tr "workflow.field.title" }}</th>
+        <th class="yd-table__th" scope="col">{{ tr "workflow.field.node" }}</th>
+        <th class="yd-table__th" scope="col">{{ tr "workflow.field.assignee" }}</th>
+        <th class="yd-table__th" scope="col">{{ tr "field.status" }}</th>
+        <th class="yd-table__th" scope="col">{{ tr "workflow.field.due" }}</th>
+        <th class="yd-table__th" scope="col">{{ tr "field.actions" }}</th>
+      </tr>
+    </thead>
+    <tbody class="yd-table__body">
+      {{ range .Tasks }}
+      <tr class="yd-table__row">
+        <td class="yd-table__td">
+          {{ .InstanceTitle }}
+          {{- with .InstanceInitiator }}<p class="yd-table__hint">{{ . }}</p>{{ end }}
+        </td>
+        <td class="yd-table__td">{{ .NodeName }}</td>
+        <td class="yd-table__td">{{ if .AssigneeName }}{{ .AssigneeName }}{{ else }}{{ tr "workflow.tasks.pool" }}{{ end }}</td>
+        <td class="yd-table__td">
+          {{- if eq .Status "pending" }}{{ template "components.display.badge" (dict "Tone" "info" "LabelKey" "workflow.task.pending") }}
+          {{- else if eq .Status "claimed" }}{{ template "components.display.badge" (dict "Tone" "info" "LabelKey" "workflow.task.claimed") }}
+          {{- else if eq .Status "completed" }}{{ template "components.display.badge" (dict "Tone" "success" "LabelKey" "workflow.task.completed") }}
+          {{- else }}{{ template "components.display.badge" (dict "Tone" "muted" "LabelKey" "workflow.task.cancelled") }}{{ end }}
+        </td>
+        <td class="yd-table__td">{{ if .DueAt.IsZero }}—{{ else }}{{ .DueAt.Format "2006-01-02 15:04" }}{{ end }}</td>
+        <td class="yd-table__td yd-table__td--actions">
+          <button type="button" class="yd-icon-btn" data-yd-drawer-open aria-label="{{ tr "workflow.task.open" }}"
+                  hx-get="/workflow/tasks/{{ .ID }}" hx-target="#yd-drawer-body" hx-swap="innerHTML">
+            {{ template "partials/icon" "lucide-eye" }}
+          </button>
+        </td>
+      </tr>
+      {{ else }}
+      <tr class="yd-table__row yd-table__row--empty"><td class="yd-table__td" colspan="6">{{ tr "workflow.tasks.empty" }}</td></tr>
+      {{ end }}
+    </tbody>
+  </table>
+</div>
+{{- end -}}
+{{ template "partials/workflows/pagination" .Pagination }}
+{{- end -}}
+{{ template "portal/partials/workflows/task_list" . }}

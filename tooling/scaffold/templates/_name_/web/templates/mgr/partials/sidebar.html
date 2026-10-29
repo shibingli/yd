@@ -70,6 +70,26 @@
     </a>
     {{- end }}
 
+    {{- if and .WorkflowAvailable (can .Perm.WorkflowRead) }}
+    <p class="yd-nav__section">{{ tr "nav.group.workflow" }}</p>
+    {{- if can .Perm.WorkflowRead }}
+    <a class="yd-nav__link" href="/mgr/workflows" hx-get="/mgr/workflows" hx-target="#yd-shell" hx-swap="innerMorph" hx-push-url="true"
+       data-yd-nav="mgr-workflows"{{ if hasPrefix .Path "/mgr/workflows" }} aria-current="page"{{ end }}>
+      <span class="yd-nav__label">{{ tr "nav.workflows" }}</span>
+    </a>
+    <a class="yd-nav__link" href="/mgr/workflow-instances" hx-get="/mgr/workflow-instances" hx-target="#yd-shell" hx-swap="innerMorph" hx-push-url="true"
+       data-yd-nav="mgr-workflow-instances"{{ if hasPrefix .Path "/mgr/workflow-instances" }} aria-current="page"{{ end }}>
+      <span class="yd-nav__label">{{ tr "nav.workflow_instances" }}</span>
+    </a>
+    {{- end }}
+    {{- if can .Perm.WorkflowRead }}
+    <a class="yd-nav__link" href="/mgr/workflow-groups" hx-get="/mgr/workflow-groups" hx-target="#yd-shell" hx-swap="innerMorph" hx-push-url="true"
+       data-yd-nav="mgr-workflow-groups"{{ if hasPrefix .Path "/mgr/workflow-groups" }} aria-current="page"{{ end }}>
+      <span class="yd-nav__label">{{ tr "nav.workflow_groups" }}</span>
+    </a>
+    {{- end }}
+    {{- end }}
+
     {{- if and .AttachmentAvailable (can .Perm.AttachmentRead) }}
     <p class="yd-nav__section">{{ tr "nav.group.files" }}</p>
     <a class="yd-nav__link" href="/mgr/attachments" hx-get="/mgr/attachments" hx-target="#yd-shell" hx-swap="innerMorph" hx-push-url="true"

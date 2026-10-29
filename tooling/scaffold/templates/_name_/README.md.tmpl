@@ -104,6 +104,12 @@ as unavailable and hides the back-office entry. See [`docs/dictionary.md`](docs/
 cache, rules and API; configure `dictionary.cache_ttl`, `dictionary.cache_negative_ttl` and
 `dictionary.system_tenant` under the `dictionary` section (`YD_DICTIONARY_*`).
 
+流程引擎在 `/mgr/workflows`：定义、版本、拖拽设计器、导入导出与实例治理；门户 `/workflow/tasks` 提供
+待办、已办、我发起的与审批抽屉。流程自有组在 `/mgr/workflow-groups`，可关联 yd 角色；JSON API 在
+`/api/v1/workflows/**` 与 `/api/portal/v1/workflows/**`。配置项在 `workflow` 段（`withdraw_window`、
+`default_due`、`scan_interval`、`notify.*`、`ai.*`，环境变量 `YD_WORKFLOW_*`）。它需要真实数据库；
+`--db none` 的项目会显式报告不可用并隐藏入口。详见 [`docs/workflow.md`](docs/workflow.md)。
+
 GORM 查询缓存默认开启并按安全等级分流：`yd_auth_users` 永不缓存（即时撤销），成员/角色/权限/租户走
 `cache.gorm.sensitive_tables` 的独立命名空间与短 TTL；`/login`、`/account`、`/tenant`、`/mgr` 与
 `/api/v1` 等高安全路由在鉴权前挂 `CacheBypass`，整个请求不读缓存。
@@ -111,6 +117,14 @@ GORM 查询缓存默认开启并按安全等级分流：`yd_auth_users` 永不�
 `yd:message:event` 持久重试）。单节点无需 Redis，不可达时应用会明确告警并退回进程内投递，启动不受影响；
 多副本部署必须给每个副本唯一的 `node.id`（`message.node_id` 是兼容别名）；容器部署要把 `data/node-id`
 放在每实例独立的持久卷上，否则容器重建后身份会变。
+
+The workflow engine lives at `/mgr/workflows`: definitions, versions, the drag-and-drop designer, import/export and
+instance governance; the portal `/workflow/tasks` provides todo, done and started views plus the approval drawer.
+Workflow-owned groups live at `/mgr/workflow-groups` and may link one yd role. JSON APIs are under
+`/api/v1/workflows/**` and `/api/portal/v1/workflows/**`; configure `workflow.withdraw_window`, `default_due`,
+`scan_interval`, `notify.*` and `ai.*` under the `workflow` section (`YD_WORKFLOW_*`). It needs a real database;
+a project generated with `--db none` reports the engine as unavailable and hides the entry. See
+[`docs/workflow.md`](docs/workflow.md) for the full guide.
 
 The generated project ships a tenant-scoped message centre: the friend lifecycle, direct and group chats, administrator
 announcements with audit-preserving revocation and time-window pinning, mixed full-text search, message types, groups and

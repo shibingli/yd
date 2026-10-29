@@ -716,3 +716,31 @@ func TestFormFilterControlsSupportHiddenLabelsAndLeadingIcons(t *testing.T) {
 		t.Error("date filter still renders a visible label | 日期筛选仍渲染可见标签")
 	}
 }
+
+// TestSearchComponentCarriesHiddenFilters proves the search form keeps a status or tab filter on
+// both the htmx request and the no-script GET submission. | TestSearchComponentCarriesHiddenFilters
+// 证明搜索表单在 htmx 请求与无脚本 GET 提交中都会保留 status 或 tab 筛选。
+func TestSearchComponentCarriesHiddenFilters(t *testing.T) {
+	templates, err := template.New("components").Funcs(templateFuncs()).ParseFS(os.DirFS("templates"), "components/*.html", "partials/*.html")
+	if err != nil {
+		t.Fatalf("parsing components failed: %v | 解析组件失败: %v", err, err)
+	}
+	var buf bytes.Buffer
+	if err := templates.ExecuteTemplate(&buf, "components.form.search", map[string]any{
+		"ID": "query", "Action": "/list", "Get": "/list", "Name": "q", "Value": "leave",
+		"Hidden": map[string]string{"status": "published", "tab": "todo"},
+	}); err != nil {
+		t.Fatalf("rendering search failed: %v | 渲染搜索组件失败: %v", err, err)
+	}
+	out := buf.String()
+	for _, want := range []string{
+		`type="hidden" name="status" value="published"`,
+		`type="hidden" name="tab" value="todo"`,
+		`action="/list"`,
+		`hx-get="/list"`,
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("search component lacks %q:\n%s", want, out)
+		}
+	}
+}

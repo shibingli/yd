@@ -1,0 +1,47 @@
+{{/*
+  portal/partials/workflows/start.html —— 发起流程抽屉：先选流程，再填发起表单。
+  portal/partials/workflows/start.html — the start drawer: choose a process, then fill its start form.
+
+  数据契约 | Data contract: .Definitions、.Definition、.WorkflowVersion、.Fields、.Key、.BasePath。
+*/}}
+{{- define "portal/partials/workflows/start" -}}
+<div class="yd-drawer__head">
+  <h2 class="yd-section__title">{{ tr "workflow.start" }}</h2>
+  <p class="yd-section__hint">{{ tr "workflow.start_hint" }}</p>
+</div>
+{{- if .Definition }}
+<form class="yd-form" method="post" action="/workflow/start"
+      data-yd-confirm="{{ tr "confirm.start_workflow" }}"
+      hx-post="/workflow/start" hx-target="#yd-workspace" hx-swap="innerMorph"
+      hx-status:422="target:#yd-drawer-errors swap:innerHTML"
+      hx-status:409="target:#yd-drawer-errors swap:innerHTML">
+  <input type="hidden" name="definition" value="{{ .Definition.Key }}">
+  <dl class="yd-detail-list">
+    <div><dt>{{ tr "workflow.field.definition" }}</dt><dd>{{ .Definition.Name }} <span class="yd-table__muted">v{{ .WorkflowVersion.Version }}</span></dd></div>
+  </dl>
+  {{template "components.form.field" (dict
+    "ID" "yd-workflow-start-title" "Name" "title" "Type" "text" "Value" ""
+    "Label" (tr "workflow.field.title") "LabelKey" "workflow.field.title" "MaxLength" 200 "Required" true)}}
+  {{template "components.form.field" (dict
+    "ID" "yd-workflow-start-business-key" "Name" "business_key" "Type" "text" "Value" ""
+    "Label" (tr "workflow.field.business_key") "LabelKey" "workflow.field.business_key" "MaxLength" 128)}}
+  {{ range .Fields }}{{ template "partials/workflows/field" . }}{{ end }}
+  {{template "components.form.actions" (dict
+    "SubmitLabel" (tr "workflow.start") "SubmitKey" "workflow.start"
+    "CancelLabel" (tr "ui.cancel") "CancelKey" "ui.cancel")}}
+</form>
+{{- else }}
+<div class="yd-stack">
+  {{ range .Definitions }}
+  <button type="button" class="yd-menu__item yd-menu__item--with-icon" data-yd-drawer-open
+          hx-get="/workflow/start?definition={{ .Key }}" hx-target="#yd-drawer-body" hx-swap="innerHTML">
+    {{ template "partials/icon" "lucide-circle-play" }}{{ .Name }}
+    {{- with .Description }}<span class="yd-table__hint">{{ . }}</span>{{ end }}
+  </button>
+  {{ else }}
+  <p class="yd-field__hint">{{ tr "workflow.start_empty" }}</p>
+  {{ end }}
+</div>
+{{- end }}
+{{- end -}}
+{{ template "portal/partials/workflows/start" . }}

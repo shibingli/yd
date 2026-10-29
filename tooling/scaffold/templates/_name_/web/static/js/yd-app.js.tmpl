@@ -657,6 +657,11 @@
     dialog.showModal();
   }
 
+  /* 页面级脚本复用同一个确认对话框：设计器等动态组件不再调用原生 window.confirm，视觉与键盘行为保持一致。
+     Page-level scripts reuse the same confirmation dialog, so dynamic components such as the designer never
+     fall back to the native window.confirm and their visual and keyboard behaviour stays consistent. */
+  yd.confirm = askConfirm;
+
   /* 列表操作菜单：details 提供无脚本开合；打开后把面板改为 fixed 定位，避开表格容器的 overflow 裁切。
      List action menus: details provides the no-script toggle; once open the panel is lifted into fixed
      positioning so the table wrapper's overflow clipping cannot cut it off. */

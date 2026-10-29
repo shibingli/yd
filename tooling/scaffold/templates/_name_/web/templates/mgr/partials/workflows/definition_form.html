@@ -1,0 +1,46 @@
+{{/*
+  mgr/partials/workflows/definition_form.html —— 流程定义新建/编辑抽屉。
+  mgr/partials/workflows/definition_form.html — the definition create/edit drawer.
+
+  数据契约 | Data contract: .Definition、.Mode（create|edit）。
+*/}}
+{{- define "mgr/partials/workflows/definition_form" -}}
+<div class="yd-drawer__head">
+  <h2 class="yd-section__title">{{ if eq .Mode "edit" }}{{ tr "workflow.edit" }}{{ else }}{{ tr "workflow.new" }}{{ end }}</h2>
+  <p class="yd-section__hint">{{ tr "workflow.form_hint" }}</p>
+</div>
+<form class="yd-form" method="post"
+      data-yd-confirm="{{ tr "confirm.save_workflow" }}"
+      action="{{ if eq .Mode "edit" }}/mgr/workflows/{{ .Definition.ID }}{{ else }}/mgr/workflows{{ end }}"
+      hx-post="{{ if eq .Mode "edit" }}/mgr/workflows/{{ .Definition.ID }}{{ else }}/mgr/workflows{{ end }}"
+      hx-target="#yd-workflow-definitions" hx-swap="innerMorph"
+      hx-status:409="target:#yd-drawer-errors swap:innerHTML"
+      hx-status:422="target:#yd-drawer-errors swap:innerHTML">
+  {{template "components.form.field" (dict
+    "ID" "yd-workflow-key" "Name" "key" "Type" "text" "Value" .Definition.Key
+    "Label" (tr "workflow.field.key") "LabelKey" "workflow.field.key"
+    "Hint" (tr "workflow.field.key_hint") "HintKey" "workflow.field.key_hint"
+    "MaxLength" 64 "Required" true "Readonly" (eq .Mode "edit"))}}
+  {{template "components.form.field" (dict
+    "ID" "yd-workflow-name" "Name" "name" "Type" "text" "Value" .Definition.Name
+    "Label" (tr "field.name") "LabelKey" "field.name" "MaxLength" 120 "Required" true)}}
+  {{template "components.form.field" (dict
+    "ID" "yd-workflow-name-en" "Name" "name_en" "Type" "text" "Value" .Definition.NameEN
+    "Label" (tr "workflow.field.name_en") "LabelKey" "workflow.field.name_en" "MaxLength" 120)}}
+  {{template "components.form.field" (dict
+    "ID" "yd-workflow-category" "Name" "category" "Type" "text" "Value" .Definition.Category
+    "Label" (tr "workflow.field.category") "LabelKey" "workflow.field.category" "MaxLength" 64
+    "Hint" (tr "workflow.field.category_hint") "HintKey" "workflow.field.category_hint")}}
+  {{template "components.form.field" (dict
+    "ID" "yd-workflow-icon" "Name" "icon" "Type" "text" "Value" .Definition.Icon
+    "Label" (tr "workflow.field.icon") "LabelKey" "workflow.field.icon" "MaxLength" 64
+    "Hint" (tr "workflow.field.icon_hint") "HintKey" "workflow.field.icon_hint")}}
+  {{template "components.form.textarea" (dict
+    "ID" "yd-workflow-description" "Name" "description" "Value" .Definition.Description "Rows" 3
+    "Label" (tr "field.description") "LabelKey" "field.description" "MaxLength" 1000)}}
+  {{template "components.form.actions" (dict
+    "SubmitLabel" (tr "ui.save") "SubmitKey" "ui.save"
+    "CancelLabel" (tr "ui.cancel") "CancelKey" "ui.cancel")}}
+</form>
+{{- end -}}
+{{ template "mgr/partials/workflows/definition_form" . }}

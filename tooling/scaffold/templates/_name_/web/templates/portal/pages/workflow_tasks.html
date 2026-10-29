@@ -1,0 +1,39 @@
+{{/*
+  portal/pages/workflow_tasks.html —— 个人流程中心：待办、已办与我发起的。
+  portal/pages/workflow_tasks.html — the personal workflow centre: todo, done and started.
+
+  数据契约 | Data contract: .Tab、.Keyword、.Tasks 或 .Instances、.Total、.Page、.PageSize、.CanStart、
+  .CanApprove、.StartDefinitions、.Perm。
+*/}}
+<section class="yd-page" data-yd-page="workflow-tasks" aria-labelledby="yd-workflow-tasks-title">
+  <header class="yd-page__header">
+    <div>
+      <h1 class="yd-page__title" id="yd-workflow-tasks-title">{{ tr "workflow.tasks.title" }}</h1>
+      <p class="yd-page__subtitle" id="yd-workflow-tasks-total">{{ tr "workflow.tasks.subtitle" .Total }}</p>
+    </div>
+    <div class="yd-page__actions">
+      {{- if .CanStart }}
+      <button type="button" class="yd-btn yd-btn--primary" data-yd-drawer-open
+              hx-get="/workflow/start" hx-target="#yd-drawer-body" hx-swap="innerHTML">
+        {{ template "partials/icon" "lucide-circle-play" }}{{ tr "workflow.start" }}
+      </button>
+      {{- end }}
+    </div>
+  </header>
+
+  {{template "components.navigation.tabs" (dict "LabelKey" "workflow.tasks.tabs" "Items" .TabItems)}}
+
+  {{template "components.form.search" (dict
+    "ID" "yd-workflow-tasks-search" "Action" "/workflow/tasks" "Get" "/workflow/tasks"
+    "Target" "#yd-workflow-task-list" "Swap" "innerMorph" "PushURL" true
+    "Trigger" "input changed delay:300ms from:#yd-workflow-tasks-search, submit"
+    "Name" "q" "Value" .Keyword "Hidden" (dict "tab" .Tab)
+    "Label" (tr "workflow.tasks.search") "LabelKey" "workflow.tasks.search"
+    "Placeholder" (tr "workflow.tasks.search_placeholder") "PlaceholderKey" "workflow.tasks.search_placeholder"
+    "SubmitLabel" (tr "ui.search") "SubmitKey" "ui.search")}}
+
+  <section class="yd-card yd-section" id="yd-workflow-task-list" aria-labelledby="yd-workflow-task-list-title">
+    <h2 class="sr-only" id="yd-workflow-task-list-title">{{ tr "workflow.tasks.title" }}</h2>
+    {{ template "portal/partials/workflows/task_list" . }}
+  </section>
+</section>

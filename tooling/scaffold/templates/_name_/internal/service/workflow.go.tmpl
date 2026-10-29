@@ -1,0 +1,397 @@
+// This file wires the workflow engine: the store opened by internal/repository, the authentication
+// directory, the notification channels, the optional AI decider and the scheduler. | 本文件装配流程
+// 引擎：由 internal/repository 打开的存储、鉴权目录、通知渠道、可选 AI 决策器与调度器。
+
+package service
+
+import (
+	"context"
+	"strings"
+	"time"
+
+	"{{ .Module }}/internal/meta"
+	"{{ .YdModule }}/messaging"
+	"{{ .YdModule }}/security/auth"
+	"{{ .YdxModule }}/workflow"
+	"{{ .YdxModule }}/workflow/ai"
+	"{{ .YdxModule }}/workflow/notify"
+	"{{ .YdxModule }}/config"
+	"{{ .YdxModule }}/errs"
+	ydlog "{{ .YdxModule }}/log"
+)
+
+// Workflow configuration keys. | 流程配置键。
+const (
+	// ConfigWorkflowWithdrawWindow is the initiator withdrawal window. | ConfigWorkflowWithdrawWindow 是发起人撤回窗口。
+	ConfigWorkflowWithdrawWindow = "workflow.withdraw_window"
+	// ConfigWorkflowDefaultDue is the default task deadline. | ConfigWorkflowDefaultDue 是默认任务期限。
+	ConfigWorkflowDefaultDue = "workflow.default_due"
+	// ConfigWorkflowRemindEvery is the default reminder interval. | ConfigWorkflowRemindEvery 是默认催办间隔。
+	ConfigWorkflowRemindEvery = "workflow.default_remind_every"
+	// ConfigWorkflowMaxRemind is the default reminder ceiling. | ConfigWorkflowMaxRemind 是默认催办上限。
+	ConfigWorkflowMaxRemind = "workflow.max_remind"
+	// ConfigWorkflowScanInterval is the scheduler tick. | ConfigWorkflowScanInterval 是调度扫描间隔。
+	ConfigWorkflowScanInterval = "workflow.scan_interval"
+	// ConfigWorkflowPageSize is the default list page length. | ConfigWorkflowPageSize 是列表默认页长。
+	ConfigWorkflowPageSize = "workflow.page_size"
+	// ConfigWorkflowMaxImportBytes bounds one import. | ConfigWorkflowMaxImportBytes 限制单次导入。
+	ConfigWorkflowMaxImportBytes = "workflow.max_import_bytes"
+	// ConfigWorkflowNotifyChannels lists the active notification channels. | ConfigWorkflowNotifyChannels
+	// 列出启用的通知渠道。
+	ConfigWorkflowNotifyChannels = "workflow.notify.channels"
+	// ConfigWorkflowNotifyEvents lists event kinds that notify. | ConfigWorkflowNotifyEvents 列出会通知的事件类型。
+	ConfigWorkflowNotifyEvents = "workflow.notify.events"
+	// ConfigWorkflowNotifyLang is the notification language. | ConfigWorkflowNotifyLang 是通知语言。
+	ConfigWorkflowNotifyLang = "workflow.notify.lang"
+	// ConfigWorkflowNotifyBaseURL prefixes notification deep links. | ConfigWorkflowNotifyBaseURL 是通知深链前缀。
+	ConfigWorkflowNotifyBaseURL = "workflow.notify.base_url"
+	// ConfigWorkflowWebhookURL, Kind and Secret configure the webhook channel. | ConfigWorkflowWebhookURL、
+	// Kind 与 Secret 配置 Webhook 渠道。
+	ConfigWorkflowWebhookURL    = "workflow.notify.webhook.url"
+	ConfigWorkflowWebhookKind   = "workflow.notify.webhook.kind"
+	ConfigWorkflowWebhookSecret = "workflow.notify.webhook.secret"
+	// ConfigWorkflowSMTPHost, Port, Username, Password, From, FromName and TLS configure the mail channel. |
+	// ConfigWorkflowSMTPHost、Port、Username、Password、From、FromName 与 TLS 配置邮件渠道。
+	ConfigWorkflowSMTPHost     = "workflow.notify.smtp.host"
+	ConfigWorkflowSMTPPort     = "workflow.notify.smtp.port"
+	ConfigWorkflowSMTPUsername = "workflow.notify.smtp.username"
+	ConfigWorkflowSMTPPassword = "workflow.notify.smtp.password"
+	ConfigWorkflowSMTPFrom     = "workflow.notify.smtp.from"
+	ConfigWorkflowSMTPFromName = "workflow.notify.smtp.from_name"
+	ConfigWorkflowSMTPTLS      = "workflow.notify.smtp.tls"
+	// ConfigWorkflowAIEnabled, Provider, BaseURL, APIKey, Model, MaxTokens, APIVersion, Timeout and
+	// MinConfidence configure the optional decider. | ConfigWorkflowAIEnabled、Provider、BaseURL、APIKey、
+	// Model、MaxTokens、APIVersion、Timeout 与 MinConfidence 配置可选决策器。
+	ConfigWorkflowAIEnabled       = "workflow.ai.enabled"
+	ConfigWorkflowAIProvider      = "workflow.ai.provider"
+	ConfigWorkflowAIBaseURL       = "workflow.ai.base_url"
+	ConfigWorkflowAIAPIKey        = "workflow.ai.api_key"
+	ConfigWorkflowAIModel         = "workflow.ai.model"
+	ConfigWorkflowAIMaxTokens     = "workflow.ai.max_tokens"
+	ConfigWorkflowAIAPIVersion    = "workflow.ai.api_version"
+	ConfigWorkflowAITimeout       = "workflow.ai.timeout"
+	ConfigWorkflowAIMinConfidence = "workflow.ai.min_confidence"
+)
+
+// ErrWorkflowUnavailable reports a process engine without a usable store or directory. |
+// ErrWorkflowUnavailable 表示流程引擎没有可用存储或目录。
+var ErrWorkflowUnavailable = errs.New("workflow service is unavailable | 流程服务不可用")
+
+// WorkflowService is the project-facing process-engine facade. | WorkflowService 是项目侧的流程引擎门面。
+type WorkflowService struct {
+	// Service is the embedded domain service. | Service 是内嵌的领域服务。
+	*workflow.Service
+	// scheduler drives reminders, timers and notification retries. | scheduler 驱动催办、定时器与通知重试。
+	scheduler *workflow.Scheduler
+}
+
+// Scheduler returns the runtime scheduler. | Scheduler 返回运行期调度器。
+func (w *WorkflowService) Scheduler() *workflow.Scheduler {
+	if w == nil {
+		return nil
+	}
+	return w.scheduler
+}
+
+// NewWorkflowService assembles the engine over the project's store, auth directory, messaging
+// centre and configuration. | NewWorkflowService 在项目存储、鉴权目录、消息中心与配置之上装配引擎。
+func NewWorkflowService(cfg *config.Config, store workflow.Store, authSvc *auth.Service, messages *MessageService, log *ydlog.Logger) (*WorkflowService, error) {
+	if store == nil {
+		return nil, errs.Wrap(workflow.ErrUnavailable, ErrWorkflowUnavailable)
+	}
+	if log == nil {
+		log = ydlog.Default()
+	}
+	options := workflow.Options{
+		WithdrawWindow:     cfg.GetDuration(ConfigWorkflowWithdrawWindow),
+		DefaultDue:         cfg.GetDuration(ConfigWorkflowDefaultDue),
+		DefaultRemindEvery: cfg.GetDuration(ConfigWorkflowRemindEvery),
+		DefaultMaxRemind:   cfg.GetInt(ConfigWorkflowMaxRemind),
+		ScanInterval:       cfg.GetDuration(ConfigWorkflowScanInterval),
+		PageSize:           cfg.GetInt(ConfigWorkflowPageSize),
+		MaxImportBytes:     cfg.GetInt(ConfigWorkflowMaxImportBytes),
+		NotifyEvents:       cfg.GetStringSlice(ConfigWorkflowNotifyEvents),
+	}
+	lang := strings.TrimSpace(cfg.GetString(ConfigWorkflowNotifyLang))
+	if lang == "" {
+		lang = strings.TrimSpace(cfg.GetString("i18n.default_lang"))
+	}
+	if lang == "" {
+		lang = meta.DefaultLang
+	}
+	notifyOptions := workflow.NotificationOptions{
+		Lang:    lang,
+		BaseURL: cfg.GetString(ConfigWorkflowNotifyBaseURL),
+		Events:  cfg.GetStringSlice(ConfigWorkflowNotifyEvents),
+	}
+
+	channels, err := workflowChannels(cfg, messages, log)
+	if err != nil {
+		return nil, err
+	}
+	dispatcher := workflow.NewDispatcher(0, channels...)
+	decider, err := workflowAIDecider(cfg, log)
+	if err != nil {
+		// AI is optional: an unusable configuration disables it with a warning rather than
+		// refusing to start the process engine. | AI 是可选项：配置不可用时告警禁用，而不是拒绝启动流程引擎。
+		log.Warn("workflow AI decider is disabled | 流程 AI 决策器已禁用", ydlog.Err(err))
+		decider = nil
+	}
+	domain, err := workflow.New(store, workflow.Deps{
+		Directory:  workflowDirectory{auth: authSvc},
+		Decider:    decider,
+		Dispatcher: dispatcher,
+		Logger:     log,
+		Options:    options,
+		Notify:     notifyOptions,
+	})
+	if err != nil {
+		return nil, errs.Wrap(err, ErrWorkflowUnavailable)
+	}
+	scheduler := workflow.NewScheduler(domain, options.ScanInterval, log)
+	log.Info("workflow engine assembled | 流程引擎已装配",
+		ydlog.Strs("channels", dispatcher.Channels()),
+		ydlog.Bool("ai", decider != nil),
+		ydlog.Str("lang", lang),
+	)
+	return &WorkflowService{Service: domain, scheduler: scheduler}, nil
+}
+
+// workflowChannels builds the configured notification channels. | workflowChannels 构建配置的通知渠道。
+func workflowChannels(cfg *config.Config, messages *MessageService, log *ydlog.Logger) ([]workflow.Channel, error) {
+	selected := cfg.GetStringSlice(ConfigWorkflowNotifyChannels)
+	if len(selected) == 0 {
+		selected = []string{"message"}
+	}
+	enabled := make(map[string]bool, len(selected))
+	for _, name := range selected {
+		enabled[strings.ToLower(strings.TrimSpace(name))] = true
+	}
+	channels := make([]workflow.Channel, 0, 4)
+	if enabled["message"] {
+		if messages != nil && messages.Available() {
+			channels = append(channels, &workflowMessageChannel{messages: messages})
+		} else {
+			log.Warn("workflow in-app notifications are disabled because the message centre is unavailable | 消息中心不可用，流程站内通知已关闭")
+		}
+	}
+	if enabled["log"] {
+		channels = append(channels, &notify.LogChannel{Logger: log})
+	}
+	if enabled["webhook"] {
+		url := strings.TrimSpace(cfg.GetString(ConfigWorkflowWebhookURL))
+		if url == "" {
+			log.Warn("workflow webhook channel has no URL and is skipped | 流程 Webhook 渠道未配置 URL，已跳过")
+		} else {
+			channel, err := notify.NewWebhook(notify.WebhookOptions{
+				URL:    url,
+				Kind:   cfg.GetString(ConfigWorkflowWebhookKind),
+				Secret: cfg.GetString(ConfigWorkflowWebhookSecret),
+				Timeout: 10 * time.Second,
+			})
+			if err != nil {
+				return nil, errs.Wrap(err, ErrWorkflowUnavailable)
+			}
+			channels = append(channels, channel)
+		}
+	}
+	if enabled["smtp"] {
+		host := strings.TrimSpace(cfg.GetString(ConfigWorkflowSMTPHost))
+		from := strings.TrimSpace(cfg.GetString(ConfigWorkflowSMTPFrom))
+		if host == "" || from == "" {
+			log.Warn("workflow SMTP channel lacks host or sender and is skipped | 流程 SMTP 渠道缺少主机或发件人，已跳过")
+		} else {
+			channel, err := notify.NewSMTP(notify.SMTPOptions{
+				Host:     host,
+				Port:     cfg.GetInt(ConfigWorkflowSMTPPort),
+				Username: cfg.GetString(ConfigWorkflowSMTPUsername),
+				Password: cfg.GetString(ConfigWorkflowSMTPPassword),
+				From:     from,
+				FromName: cfg.GetString(ConfigWorkflowSMTPFromName),
+				TLS:      cfg.GetBool(ConfigWorkflowSMTPTLS),
+			})
+			if err != nil {
+				return nil, errs.Wrap(err, ErrWorkflowUnavailable)
+			}
+			channels = append(channels, channel)
+		}
+	}
+	return channels, nil
+}
+
+// workflowAIDecider builds the optional decider. | workflowAIDecider 构建可选决策器。
+func workflowAIDecider(cfg *config.Config, log *ydlog.Logger) (workflow.Decider, error) {
+	if !cfg.GetBool(ConfigWorkflowAIEnabled) {
+		return nil, nil
+	}
+	decider, err := ai.New(ai.Options{
+		Enabled:       true,
+		Provider:      cfg.GetString(ConfigWorkflowAIProvider),
+		BaseURL:       cfg.GetString(ConfigWorkflowAIBaseURL),
+		APIKey:        cfg.GetString(ConfigWorkflowAIAPIKey),
+		Model:         cfg.GetString(ConfigWorkflowAIModel),
+		MaxTokens:     cfg.GetInt(ConfigWorkflowAIMaxTokens),
+		APIVersion:    cfg.GetString(ConfigWorkflowAIAPIVersion),
+		Timeout:       cfg.GetDuration(ConfigWorkflowAITimeout),
+		MinConfidence: cfg.GetFloat64(ConfigWorkflowAIMinConfidence),
+		Logger:        log,
+	})
+	if err != nil {
+		return nil, err
+	}
+	return decider, nil
+}
+
+// workflowMessageChannel writes one notification into the recipient's private notice channel. |
+// workflowMessageChannel 把通知写入接收人的私有通知频道。
+type workflowMessageChannel struct {
+	// messages is the in-app message centre. | messages 是站内消息中心。
+	messages *MessageService
+}
+
+// Name returns the channel name. | Name 返回渠道名。
+func (c *workflowMessageChannel) Name() string { return "message" }
+
+// Send writes one in-app notice. | Send 写入一条站内通知。
+func (c *workflowMessageChannel) Send(ctx context.Context, note workflow.Notification) error {
+	if c == nil || c.messages == nil || !c.messages.Available() {
+		return errs.Detail(ErrWorkflowUnavailable, "message centre is unavailable | 消息中心不可用")
+	}
+	_, err := c.messages.NotifyUser(ctx, note.TenantID, note.RecipientID, messaging.Actor{
+		ID:          "workflow-system",
+		TenantID:    note.TenantID,
+		DisplayName: "Workflow | 流程",
+		System:      true,
+	}, note.Title, note.Body)
+	return err
+}
+
+// workflowDirectory adapts auth.Service to the engine's assignee directory. | workflowDirectory
+// 把 auth.Service 适配为引擎的审批人目录。
+type workflowDirectory struct {
+	// auth is the framework authentication service. | auth 是框架鉴权服务。
+	auth *auth.Service
+}
+
+// User resolves one active member by id or username. | User 按 ID 或用户名解析一个启用成员。
+func (d workflowDirectory) User(ctx context.Context, tenantID, userID string) (workflow.Assignee, error) {
+	if d.auth == nil {
+		return workflow.Assignee{}, workflow.ErrUnavailable
+	}
+	if user, err := d.auth.GetUser(ctx, tenantID, userID); err == nil && user.Status == auth.StatusActive {
+		return workflowAssignee(user), nil
+	}
+	users, err := d.auth.ListUsers(ctx, tenantID)
+	if err != nil {
+		return workflow.Assignee{}, err
+	}
+	for _, user := range users {
+		if user.Status == auth.StatusActive && (user.ID == userID || user.Username == userID) {
+			return workflowAssignee(user), nil
+		}
+	}
+	return workflow.Assignee{}, workflow.ErrNotFound
+}
+
+// Users resolves a batch, preserving order and skipping duplicates. | Users 批量解析，保持顺序并跳过重复项。
+func (d workflowDirectory) Users(ctx context.Context, tenantID string, userIDs []string) ([]workflow.Assignee, error) {
+	if d.auth == nil {
+		return nil, workflow.ErrUnavailable
+	}
+	if len(userIDs) == 0 {
+		return nil, nil
+	}
+	users, err := d.auth.ListUsers(ctx, tenantID)
+	if err != nil {
+		return nil, err
+	}
+	byKey := make(map[string]*auth.User, len(users)*2)
+	for _, user := range users {
+		if user.Status != auth.StatusActive {
+			continue
+		}
+		byKey[user.ID] = user
+		byKey[user.Username] = user
+	}
+	out := make([]workflow.Assignee, 0, len(userIDs))
+	seen := make(map[string]bool, len(userIDs))
+	for _, id := range userIDs {
+		user, ok := byKey[strings.TrimSpace(id)]
+		if !ok || seen[user.ID] {
+			continue
+		}
+		seen[user.ID] = true
+		out = append(out, workflowAssignee(user))
+	}
+	return out, nil
+}
+
+// UsersByRole returns every active member holding role. | UsersByRole 返回持有角色的全部启用成员。
+func (d workflowDirectory) UsersByRole(ctx context.Context, tenantID, role string) ([]workflow.Assignee, error) {
+	if d.auth == nil {
+		return nil, workflow.ErrUnavailable
+	}
+	users, err := d.auth.ListUsers(ctx, tenantID)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]workflow.Assignee, 0, 4)
+	for _, user := range users {
+		if user.Status != auth.StatusActive {
+			continue
+		}
+		for _, held := range user.Roles {
+			if held == role {
+				out = append(out, workflowAssignee(user))
+				break
+			}
+		}
+	}
+	return out, nil
+}
+
+// workflowAssignee maps one auth user onto the engine's assignee value. | workflowAssignee 把鉴权用户映射为引擎审批人。
+func workflowAssignee(user *auth.User) workflow.Assignee {
+	name := strings.TrimSpace(user.DisplayName)
+	if name == "" {
+		name = user.Username
+	}
+	return workflow.Assignee{
+		ID:    user.ID,
+		Name:  name,
+		Email: user.Email,
+		Roles: append([]string(nil), user.Roles...),
+	}
+}
+
+// workflowRoleNames lists the tenant roles for assignment pickers. | workflowRoleNames 列出供指派选择器使用的租户角色。
+func workflowRoleNames(ctx context.Context, authSvc *auth.Service, tenantID string) []string {
+	if authSvc == nil {
+		return nil
+	}
+	roles, err := authSvc.ListRoles(ctx, tenantID)
+	if err != nil {
+		return nil
+	}
+	out := make([]string, 0, len(roles))
+	for _, role := range roles {
+		out = append(out, role.Name)
+	}
+	return out
+}
+
+// SchedulerStart starts the scheduler under one context. | SchedulerStart 在一个上下文下启动调度器。
+func (w *WorkflowService) SchedulerStart(ctx context.Context) error {
+	if w == nil || w.scheduler == nil {
+		return nil
+	}
+	return w.scheduler.Start(ctx)
+}
+
+// SchedulerStop stops the scheduler with a bounded wait. | SchedulerStop 在有界等待内停止调度器。
+func (w *WorkflowService) SchedulerStop() error {
+	if w == nil || w.scheduler == nil {
+		return nil
+	}
+	return w.scheduler.Stop(10 * time.Second)
+}

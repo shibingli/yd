@@ -1,0 +1,394 @@
+// This file owns instance governance: the management list, the shared detail drawer, withdrawal,
+// administrative termination and message signals. | 本文件负责实例治理：管理列表、共享详情抽屉、
+// 撤回、管理员终止与消息信号。
+
+package controller
+
+import (
+	"net/http"
+	"strings"
+
+	"{{ .YdModule }}/security/authz"
+	"{{ .YdxModule }}/router"
+	"{{ .YdxModule }}/workflow"
+)
+
+// workflowInstanceViewData is the template contract of one instance drawer. | workflowInstanceViewData
+// 是实例抽屉的模板契约。
+type workflowInstanceViewData struct {
+	// Detail is the loaded instance view. | Detail 是已加载的实例视图。
+	Detail workflow.InstanceDetail
+	// Tasks are the instance tasks. | Tasks 是实例任务。
+	Tasks []workflow.Task
+	// CanWithdraw, CanTerminate and CanSignal gate the action forms. | CanWithdraw、CanTerminate 与
+	// CanSignal 控制动作表单是否出现。
+	CanWithdraw  bool
+	CanTerminate bool
+	CanSignal    bool
+	// BasePath is the action prefix, portal or management. | BasePath 是动作前缀，门户或后台。
+	BasePath string
+}
+
+// WorkflowInstances renders the instance governance page. | WorkflowInstances 渲染实例治理页面。
+//
+// @Summary Instance governance | 实例治理
+// @Description Lists every process instance with status, definition and keyword filters. | 按状态、定义与关键字筛选全部流程实例。
+// @Tags workflow
+// @Produce html
+// @Param status query string false "Instance state | 实例状态"
+// @Param category query string false "Process category | 流程分类"
+// @Param q query string false "Search keyword | 搜索关键字"
+// @Param page query int false "1-based page | 从 1 开始的页码"
+// @Success 200 {string} string "instance page | 实例页面"
+// @Failure 403 {string} string "permission denied | 权限不足"
+// @Security BearerAuth
+// @Router /mgr/workflow-instances [get]
+func (c *Controller) WorkflowInstances(ctx *router.Ctx) {
+	if !c.workflowServiceOrFail(ctx) {
+		return
+	}
+	if workflowHTMXTarget(ctx, "yd-workflow-instances") {
+		c.WorkflowInstanceList(ctx)
+		return
+	}
+	tenantID, ok := c.tenantID(ctx)
+	if !ok {
+		return
+	}
+	c.renderWorkflowInstancesPage(ctx, tenantID, field(ctx, FieldKeyword), field(ctx, FieldWorkflowFilterStatus), field(ctx, FieldWorkflowCategory), pageNumber(ctx))
+}
+
+// renderWorkflowInstancesPage renders the full governance page with explicit filters. |
+// renderWorkflowInstancesPage 使用显式筛选条件渲染完整治理页面。
+func (c *Controller) renderWorkflowInstancesPage(ctx *router.Ctx, tenantID, keyword, status, category string, pageNo int) {
+	page, err := c.workflow.ListInstances(ctx.Request.Context(), tenantID, workflow.InstanceFilter{
+		Query: keyword, Status: status, Category: category, Page: pageNo,
+	})
+	if err != nil {
+		c.failService(ctx, err)
+		return
+	}
+	data := c.pageView(ctx, "流程实例 | Workflow instances", map[string]any{
+		"Instances": page.Items,
+		"Total":     page.Total,
+		"Page":      page.Page,
+		"PageSize":  page.PageSize,
+		"Keyword":   keyword,
+		"Status":    status,
+		"Category":  category,
+		"CanAdmin":  c.workflowCanAdmin(ctx),
+		"Stats":     c.workflowStats(ctx, tenantID),
+		"Pagination": c.workflowPagination(ctx, "/mgr/workflow-instances", map[string]string{
+			"q": keyword, "status": status, "category": category,
+		}, page.Page, page.PageSize, page.Total),
+	})
+	c.render(ctx, http.StatusOK, TplWorkflowInstances, data)
+}
+
+// WorkflowInstanceList renders only the instance table. | WorkflowInstanceList 只渲染实例表格。
+//
+// @Summary Instance list fragment | 实例列表片段
+// @Description Returns the instance table alone. | 只返回实例表格。
+// @Tags workflow
+// @Produce html
+// @Param status query string false "Instance state | 实例状态"
+// @Param category query string false "Process category | 流程分类"
+// @Param q query string false "Search keyword | 搜索关键字"
+// @Success 200 {string} string "instance table | 实例表格"
+// @Security BearerAuth
+// @Router /mgr/workflow-instances/list [get]
+func (c *Controller) WorkflowInstanceList(ctx *router.Ctx) {
+	if !c.workflowServiceOrFail(ctx) {
+		return
+	}
+	tenantID, ok := c.tenantID(ctx)
+	if !ok {
+		return
+	}
+	page, err := c.workflow.ListInstances(ctx.Request.Context(), tenantID, workflow.InstanceFilter{
+		Query: field(ctx, FieldKeyword), Status: field(ctx, FieldWorkflowFilterStatus),
+		Category: field(ctx, FieldWorkflowCategory), Page: pageNumber(ctx),
+	})
+	if err != nil {
+		c.failService(ctx, err)
+		return
+	}
+	c.render(ctx, http.StatusOK, TplWorkflowInstanceList, c.view(ctx, "实例列表 | Instances", map[string]any{
+		"Instances": page.Items, "Total": page.Total, "Page": page.Page, "PageSize": page.PageSize,
+		"Keyword": field(ctx, FieldKeyword), "Status": field(ctx, FieldWorkflowFilterStatus),
+		"Category": field(ctx, FieldWorkflowCategory),
+		"CanAdmin": c.workflowCanAdmin(ctx),
+		"OOB":      true,
+		"Pagination": c.workflowPagination(ctx, "/mgr/workflow-instances", map[string]string{
+			"q": field(ctx, FieldKeyword), "status": field(ctx, FieldWorkflowFilterStatus), "category": field(ctx, FieldWorkflowCategory),
+		}, page.Page, page.PageSize, page.Total),
+	}))
+}
+
+// workflowCanAdmin reports whether the caller holds workflow:admin. | workflowCanAdmin 报告调用方是否持有 workflow:admin。
+func (c *Controller) workflowCanAdmin(ctx *router.Ctx) bool {
+	return authz.Can(ctx.Request.Context(), authz.PermWorkflowAdmin)
+}
+
+// workflowStats loads the tenant summary, tolerating a disabled engine. | workflowStats 加载租户汇总，
+// 引擎不可用时返回零值。
+func (c *Controller) workflowStats(ctx *router.Ctx, tenantID string) workflow.Stats {
+	stats, err := c.workflow.Stats(ctx.Request.Context(), tenantID)
+	if err != nil {
+		return workflow.Stats{}
+	}
+	return stats
+}
+
+// MgrWorkflowInstanceDrawer renders the management instance drawer. | MgrWorkflowInstanceDrawer
+// 渲染管理端实例抽屉。
+//
+// @Summary Management instance drawer | 管理端实例详情抽屉
+// @Description Returns the shared instance drawer with management action URLs. | 返回使用管理端动作地址的共享实例抽屉。
+// @Tags workflow
+// @Produce html
+// @Param id path string true "Instance id | 实例 ID"
+// @Success 200 {string} string "instance drawer | 实例抽屉"
+// @Failure 404 {string} string "instance not found | 实例不存在"
+// @Security BearerAuth
+// @Router /mgr/workflow-instances/{id} [get]
+func (c *Controller) MgrWorkflowInstanceDrawer(ctx *router.Ctx) {
+	c.workflowInstanceDrawerAt(ctx, "/mgr/workflow-instances", false)
+}
+
+// PortalWorkflowInstanceDrawer renders the portal instance drawer. | PortalWorkflowInstanceDrawer
+// 渲染门户实例抽屉。
+//
+// @Summary Portal instance drawer | 门户实例详情抽屉
+// @Description Returns the instance drawer when the caller participates in the instance. | 在调用方参与实例时返回实例抽屉。
+// @Tags workflow
+// @Produce html
+// @Param id path string true "Instance id | 实例 ID"
+// @Success 200 {string} string "instance drawer | 实例抽屉"
+// @Failure 403 {string} string "instance not visible | 实例不可见"
+// @Security BearerAuth
+// @Router /workflow/instances/{id} [get]
+func (c *Controller) PortalWorkflowInstanceDrawer(ctx *router.Ctx) {
+	c.workflowInstanceDrawerAt(ctx, "/workflow/instances", true)
+}
+
+// workflowInstanceDrawerAt renders the shared instance drawer with one action prefix. |
+// workflowInstanceDrawerAt 以指定动作前缀渲染共享实例抽屉。
+func (c *Controller) workflowInstanceDrawerAt(ctx *router.Ctx, basePath string, portal bool) {
+	if !c.workflowServiceOrFail(ctx) {
+		return
+	}
+	tenantID, ok := c.tenantID(ctx)
+	if !ok {
+		return
+	}
+	actor := c.workflowActor(ctx)
+	detail, err := c.workflow.InstanceDetail(ctx.Request.Context(), tenantID, ctx.Param("id"))
+	if err != nil {
+		c.failService(ctx, err)
+		return
+	}
+	if portal {
+		visible, err := c.workflow.InstanceVisible(ctx.Request.Context(), tenantID, detail.Instance, actor)
+		if err != nil {
+			c.failService(ctx, err)
+			return
+		}
+		if !visible {
+			c.fail(ctx, http.StatusForbidden, msgForbidden)
+			return
+		}
+	}
+	adminArea := strings.HasPrefix(basePath, "/mgr")
+	view := workflowInstanceViewData{
+		Detail:       detail,
+		Tasks:        detail.Tasks,
+		BasePath:     basePath,
+		CanWithdraw:  detail.Instance.Status == workflow.InstanceRunning && (actor.Admin || (!adminArea && detail.Instance.InitiatorID == actor.ID)),
+		CanTerminate: detail.Instance.Status == workflow.InstanceRunning && actor.Admin && adminArea,
+		CanSignal:    detail.Instance.Status == workflow.InstanceRunning && actor.Admin && adminArea,
+	}
+	c.render(ctx, http.StatusOK, TplWorkflowInstanceDrawer, c.view(ctx, "实例详情 | Instance", map[string]any{
+		"View":            view,
+		"Detail":          view.Detail,
+		"Instance":        view.Detail.Instance,
+		"Definition":      view.Detail.Definition,
+		"WorkflowVersion": view.Detail.Version,
+		"Tasks":           view.Tasks,
+		"Events":          view.Detail.Events,
+		"Comments":        view.Detail.Comments,
+		"Variables":       view.Detail.Variables,
+		"CanWithdraw":     view.CanWithdraw,
+		"CanTerminate":    view.CanTerminate,
+		"CanSignal":       view.CanSignal,
+		"BasePath":        view.BasePath,
+	}))
+}
+
+// MgrWithdrawWorkflowInstance withdraws a running instance from the back office. | MgrWithdrawWorkflowInstance
+// 从后台撤回运行中实例。
+//
+// @Summary Withdraw an instance (management) | 撤回实例（管理端）
+// @Description Withdraws a running instance; an administrator bypasses the configured window. | 撤回运行中实例；管理员不受配置窗口限制。
+// @Tags workflow
+// @Accept application/x-www-form-urlencoded
+// @Produce html
+// @Param id path string true "Instance id | 实例 ID"
+// @Param reason formData string false "Withdrawal reason | 撤回原因"
+// @Success 200 {string} string "refreshed instance page | 刷新后的实例页面"
+// @Security BearerAuth
+// @Router /mgr/workflow-instances/{id}/withdraw [post]
+func (c *Controller) MgrWithdrawWorkflowInstance(ctx *router.Ctx) {
+	c.WithdrawWorkflowInstance(ctx)
+}
+
+// WithdrawWorkflowInstance withdraws a running instance. | WithdrawWorkflowInstance 撤回运行中实例。
+//
+// @Summary Withdraw an instance | 撤回实例
+// @Description Withdraws a running instance inside the configured window; an administrator bypasses it. | 在配置窗口内撤回运行中实例；管理员不受窗口限制。
+// @Tags workflow
+// @Accept application/x-www-form-urlencoded
+// @Produce html
+// @Param id path string true "Instance id | 实例 ID"
+// @Param reason formData string false "Withdrawal reason | 撤回原因"
+// @Success 200 {string} string "empty page refresh trigger | 空页面刷新触发"
+// @Security BearerAuth
+// @Router /workflow/instances/{id}/withdraw [post]
+func (c *Controller) WithdrawWorkflowInstance(ctx *router.Ctx) {
+	if !c.workflowServiceOrFail(ctx) {
+		return
+	}
+	tenantID, ok := c.tenantID(ctx)
+	if !ok {
+		return
+	}
+	actor := c.workflowActor(ctx)
+	if err := c.workflow.WithdrawInstance(ctx.Request.Context(), tenantID, actor, ctx.Param("id"), workflow.ReasonInput{
+		Reason: field(ctx, FieldWorkflowReason),
+	}); err != nil {
+		c.failService(ctx, err)
+		return
+	}
+	c.toast(ctx, "流程已撤回 | Instance withdrawn")
+	c.workflowInstanceRefresh(ctx, tenantID, actor)
+}
+
+// TerminateWorkflowInstance administratively terminates an instance. | TerminateWorkflowInstance
+// 由管理员终止实例。
+//
+// @Summary Terminate an instance | 终止实例
+// @Description Terminates a running instance administratively. | 由管理员终止运行中实例。
+// @Tags workflow
+// @Accept application/x-www-form-urlencoded
+// @Produce html
+// @Param id path string true "Instance id | 实例 ID"
+// @Param reason formData string false "Termination reason | 终止原因"
+// @Success 200 {string} string "empty page refresh trigger | 空页面刷新触发"
+// @Security BearerAuth
+// @Router /mgr/workflow-instances/{id}/terminate [post]
+func (c *Controller) TerminateWorkflowInstance(ctx *router.Ctx) {
+	if !c.workflowServiceOrFail(ctx) {
+		return
+	}
+	tenantID, ok := c.tenantID(ctx)
+	if !ok {
+		return
+	}
+	actor := c.workflowActor(ctx)
+	if err := c.workflow.TerminateInstance(ctx.Request.Context(), tenantID, actor, ctx.Param("id"), workflow.ReasonInput{
+		Reason: field(ctx, FieldWorkflowReason),
+	}); err != nil {
+		c.failService(ctx, err)
+		return
+	}
+	c.toast(ctx, "实例已终止 | Instance terminated")
+	c.workflowInstanceRefresh(ctx, tenantID, actor)
+}
+
+// SignalWorkflowInstance delivers one message event. | SignalWorkflowInstance 投递一个消息事件。
+//
+// @Summary Deliver a message event | 投递消息事件
+// @Description Wakes every waiting token matching the signal name and merges the payload into the instance variables. | 唤醒匹配信号名的等待令牌，并把载荷合并进实例变量。
+// @Tags workflow
+// @Accept application/x-www-form-urlencoded
+// @Produce html
+// @Param id path string true "Instance id | 实例 ID"
+// @Param signal formData string true "Signal name | 信号名"
+// @Success 200 {string} string "empty page refresh trigger | 空页面刷新触发"
+// @Security BearerAuth
+// @Router /mgr/workflow-instances/{id}/signal [post]
+func (c *Controller) SignalWorkflowInstance(ctx *router.Ctx) {
+	if !c.workflowServiceOrFail(ctx) {
+		return
+	}
+	tenantID, ok := c.tenantID(ctx)
+	if !ok {
+		return
+	}
+	actor := c.workflowActor(ctx)
+	if _, err := c.workflow.Signal(ctx.Request.Context(), tenantID, actor, ctx.Param("id"), field(ctx, FieldWorkflowSignal), nil); err != nil {
+		c.failService(ctx, err)
+		return
+	}
+	c.toast(ctx, "消息已投递 | Signal delivered")
+	c.workflowInstanceRefresh(ctx, tenantID, actor)
+}
+
+// workflowInstanceRefresh refreshes the current page after an instance action. | workflowInstanceRefresh
+// 在实例动作后刷新当前页面。
+func (c *Controller) workflowInstanceRefresh(ctx *router.Ctx, tenantID string, actor workflow.Actor) {
+	// A drawer action targets #yd-workspace and must return a whole page; a row action targets
+	// the list container and only needs the table fragment. | 抽屉动作的目标是 #yd-workspace，
+	// 必须返回整页；行内动作的目标是列表容器，只需表格片段。
+	if strings.TrimPrefix(strings.TrimSpace(ctx.Request.Header.Get("HX-Target")), "#") == "yd-workspace" {
+		if strings.HasPrefix(ctx.Path(), "/mgr/") {
+			// Preserve the filters and page the operator was looking at. | 保留操作人正在查看的筛选条件与页码。
+			c.renderWorkflowInstancesPage(ctx, tenantID,
+				firstNonEmpty(field(ctx, "return_q"), workflowCurrentQuery(ctx, FieldKeyword)),
+				firstNonEmpty(field(ctx, "return_status"), workflowCurrentQuery(ctx, FieldWorkflowFilterStatus)),
+				firstNonEmpty(field(ctx, "return_category"), workflowCurrentQuery(ctx, FieldWorkflowCategory)),
+				pageNumberFromQuery(ctx, firstNonEmpty(field(ctx, "return_page"), workflowCurrentQuery(ctx, "page"))))
+			return
+		}
+		c.renderWorkflowTasksPage(ctx, tenantID, actor, "started",
+			workflowCurrentQuery(ctx, FieldKeyword),
+			pageNumberFromQuery(ctx, workflowCurrentQuery(ctx, "page")))
+		return
+	}
+	if strings.HasPrefix(ctx.Path(), "/mgr/") {
+		keyword := firstNonEmpty(field(ctx, "return_q"), workflowCurrentQuery(ctx, FieldKeyword))
+		status := firstNonEmpty(field(ctx, "return_status"), workflowCurrentQuery(ctx, FieldWorkflowFilterStatus))
+		category := firstNonEmpty(field(ctx, "return_category"), workflowCurrentQuery(ctx, FieldWorkflowCategory))
+		page, err := c.workflow.ListInstances(ctx.Request.Context(), tenantID, workflow.InstanceFilter{
+			Query: keyword, Status: status, Category: category,
+			Page: pageNumberFromQuery(ctx, firstNonEmpty(field(ctx, "return_page"), workflowCurrentQuery(ctx, "page"))), PageSize: c.workflow.Options().PageSize,
+		})
+		if err != nil {
+			c.failService(ctx, err)
+			return
+		}
+		c.render(ctx, http.StatusOK, TplWorkflowInstanceList, c.view(ctx, "实例列表 | Instances", map[string]any{
+			"Instances": page.Items, "Total": page.Total, "Page": page.Page, "PageSize": page.PageSize,
+			"Keyword": keyword, "Status": status, "Category": category,
+			"CanAdmin": c.workflowCanAdmin(ctx),
+			"OOB":      true,
+			"Pagination": c.workflowPagination(ctx, "/mgr/workflow-instances", map[string]string{
+				"q": keyword, "status": status, "category": category,
+			}, page.Page, page.PageSize, page.Total),
+		}))
+		return
+	}
+	keyword := workflowCurrentQuery(ctx, FieldKeyword)
+	page, err := c.workflow.ListInstances(ctx.Request.Context(), tenantID, workflow.InstanceFilter{
+		InitiatorID: actor.ID, Query: keyword,
+		Page: pageNumberFromQuery(ctx, workflowCurrentQuery(ctx, "page")), PageSize: c.workflow.Options().PageSize,
+	})
+	if err != nil {
+		c.failService(ctx, err)
+		return
+	}
+	c.render(ctx, http.StatusOK, TplWorkflowTaskList, c.view(ctx, "我发起的 | Started", map[string]any{
+		"Instances": page.Items, "Total": page.Total, "Page": page.Page, "PageSize": page.PageSize,
+		"Tab": "started", "Keyword": keyword, "OOB": true,
+	}))
+}

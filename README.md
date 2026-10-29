@@ -35,6 +35,7 @@ YD 把「Go 单体后端 + Htmx 片段前端」做成一套可直接交付的全
 - **性能是设计出来的**：自研 SIMD JSON/Base64、零拷贝日志、基数树路由与零分配渲染 / WebSocket 热路径。
 - **安全与多租户是默认值**：租户硬边界、每用户 JWT `sec_key`、纯 Go SM2/SM3/SM4、登录与敏感字段前置加密。
 - **实时与后台开箱即用**：站内消息中心、WebSocket/SSE/WebTransport、Redis Pub/Sub、asynq 持久重试、指标看板。
+- **流程引擎开箱即用**：BPMN 2.0 可执行子集、中国式审批（或签/会签/票签/加签/转办/委派/退回）、多版本、自动审批、通知 outbox 与同源可视化设计器。
 - **跨平台交付**：Linux / Windows / macOS × amd64 / arm64 预编译二进制，`yd service` 安装为 SCM / systemd / launchd，`yd docker` / `yd ko` 出镜像。
 
 ### 应用场景
@@ -44,6 +45,7 @@ YD 把「Go 单体后端 + Htmx 片段前端」做成一套可直接交付的全
 | **企业内部系统 / 管理后台** | CRUD、表单、列表、权限、消息审计 | htmx 抽屉与局部刷新、`yd gen crud` 低代码、authz 注册表（24 权限 / 4 角色）、租户/成员模型、指标看板、i18n/主题 |
 | **多租户 SaaS / 企业应用** | 租户隔离、用户会话、可配置数据库、缓存与限流 | 租户硬边界、每用户 JWT `sec_key`、MySQL / PostgreSQL / SQLite / 达梦 DM8、二级缓存与 GORM 分级缓存、限流 |
 | **实时消息 / 协作 / 监控** | 聊天、通知、实时仪表盘、长连接 | 站内消息中心、WebSocket / SSE / WebTransport、`ydx/realtime` 中枢、Redis 多机广播、asynq 失败补发、优雅退出与自动重连 |
+| **审批 / 工单 / 流程编排** | 请假、报销、合同审批、会签与退回 | BPMN 2.0 子集、或签/会签/票签/顺序审批、加签/转办/委派/退回/撤回、多版本、自动审批与 AI 决策、同源拖拽设计器 |
 | **私有化 / 信创 / 离线交付** | 气隙环境、国产密码与数据库、单文件部署 | `go:embed`、离线资产校验、无 CDN、SM2/SM3/SM4、达梦 DM8、Linux 纯 Go 静态二进制、scratch 镜像、Windows 服务 / systemd / launchd |
 | **高并发 API / 网关 / 边缘** | 低延迟、高吞吐、JSON/Base64、HTTP/3 | 基数树路由、SIMD JSON/Base64、零拷贝日志与缓冲池、H2C/HTTP3、gzip/zstd/brotli、限流、缓存旁路 |
 
@@ -299,6 +301,11 @@ Reference host: AMD Ryzen AI MAX+ 395 (16 cores / 32 threads, 30 GiB, Ubuntu 26.
 - Redis (standalone / sentinel / cluster) and asynq weighted queues.
 - Two-level cache: L1 ring + Redis L2, W-TinyLFU, CAS backfill, Pub/Sub invalidation, tiered GORM query caching.
 
+**Workflow**
+- BPMN 2.0 executable subset with or-sign, countersign, vote-sign, sequential approval, add/remove sign, transfer, delegation, return and withdrawal.
+- Versioned definitions, workflow-owned groups linked to yd roles, automatic approval rules and an optional OpenAI / Anthropic decider.
+- Same-origin drag-and-drop designer, notification outbox (in-app, webhook, SMTP) and portal/back-office HTML plus JSON APIs.
+
 **Security & multi-tenancy**
 - Hard tenant boundary, global user identity, memberships and roles, first-start seed data.
 - Per-user JWT `sec_key`, key selection via token `kid`, immediate revocation on disable/delete/rotation.
@@ -406,7 +413,7 @@ web/           embedded templates (with the components/ UI kit) / static / langu
 - [User manual](docs/yd-usage.md)
 - [Frontend UI kit & usage manual](docs/frontend-ui.md) · [Component catalogue & charts](docs/frontend-components.md)
 - [Two-level cache](docs/cache.md) · [GORM dialects](docs/gorm-dialects.md) · [Real-time transports](docs/realtime-transports.md) · [Node identity](docs/node-identity.md) · [Runtime GC](docs/runtime-gc.md)
-- [Redis/asynq](docs/redis-asynq.md) · [Message center](docs/message-center.md) · [Generic attachments](docs/attachments.md) · [Data dictionaries](docs/dictionary.md) · [Middleware metrics](docs/middleware-metrics.md) · [Release & binaries](docs/releasing.md) · [Verification](docs/verification.md)
+- [Redis/asynq](docs/redis-asynq.md) · [Message center](docs/message-center.md) · [Workflow engine](docs/workflow.md) · [Generic attachments](docs/attachments.md) · [Data dictionaries](docs/dictionary.md) · [Middleware metrics](docs/middleware-metrics.md) · [Release & binaries](docs/releasing.md) · [Verification](docs/verification.md)
 - [ydx components & benchmarks](https://github.com/shibingli/ydx)
 
 ### Acknowledgements

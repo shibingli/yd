@@ -181,6 +181,7 @@ func Register(a *app.App) error {
 		return err
 	}
 	startMessageRuntime(a, ctrl)
+	startWorkflowRuntime(a, ctrl)
 
 	registerOpenAPI(a)
 	registerFeatures(a)
@@ -488,6 +489,101 @@ func registerProtected(a *app.App, ctrl *controller.Controller, store *repositor
 	g.PUT("/api/v1/system-dictionaries/:id/items/:item_id", ctrl.APIUpdateSystemDictionaryItem, authz.Require(authz.PermDictionarySystemManage))
 	g.DELETE("/api/v1/system-dictionaries/:id/items/:item_id", ctrl.APIDeleteSystemDictionaryItem, authz.Require(authz.PermDictionarySystemManage))
 
+	// 流程引擎：定义、设计器、版本、流程组、实例与任务各自对应注册表里的一条能力。
+	// The workflow engine: definitions, the designer, versions, groups, instances and tasks each map onto one
+	// capability of the registry.
+	g.GET("/mgr/workflows", ctrl.Workflows, authz.Require(authz.PermWorkflowRead))
+	g.GET("/mgr/workflows/list", ctrl.WorkflowDefinitionList, authz.Require(authz.PermWorkflowRead))
+	g.GET("/mgr/workflows/new", ctrl.NewWorkflowDrawer, authz.Require(authz.PermWorkflowManage))
+	g.POST("/mgr/workflows", ctrl.SaveWorkflow, authz.Require(authz.PermWorkflowManage))
+	g.GET("/mgr/workflows/import", ctrl.WorkflowImportDrawer, authz.Require(authz.PermWorkflowManage))
+	g.POST("/mgr/workflows/import", ctrl.WorkflowImport, authz.Require(authz.PermWorkflowManage))
+	g.GET("/mgr/workflows/export", ctrl.WorkflowExport, authz.Require(authz.PermWorkflowRead))
+	g.GET("/mgr/workflows/:id/edit", ctrl.EditWorkflowDrawer, authz.Require(authz.PermWorkflowManage))
+	g.POST("/mgr/workflows/:id", ctrl.UpdateWorkflow, authz.Require(authz.PermWorkflowManage))
+	g.POST("/mgr/workflows/:id/status", ctrl.SetWorkflowStatus, authz.Require(authz.PermWorkflowManage))
+	g.POST("/mgr/workflows/:id/delete", ctrl.DeleteWorkflow, authz.Require(authz.PermWorkflowManage))
+	g.GET("/mgr/workflows/:id/design", ctrl.WorkflowDesigner, authz.Require(authz.PermWorkflowManage))
+	g.GET("/mgr/workflows/:id/versions", ctrl.WorkflowVersions, authz.Require(authz.PermWorkflowRead))
+	g.POST("/mgr/workflows/:id/versions", ctrl.CreateWorkflowDraft, authz.Require(authz.PermWorkflowManage))
+	g.POST("/mgr/workflows/:id/versions/:version_id/publish", ctrl.PublishWorkflowVersion, authz.Require(authz.PermWorkflowManage))
+	g.POST("/mgr/workflows/:id/versions/:version_id/delete", ctrl.DeleteWorkflowVersion, authz.Require(authz.PermWorkflowManage))
+
+	g.GET("/mgr/workflow-groups", ctrl.WorkflowGroups, authz.Require(authz.PermWorkflowRead))
+	g.GET("/mgr/workflow-groups/list", ctrl.WorkflowGroupList, authz.Require(authz.PermWorkflowRead))
+	g.GET("/mgr/workflow-groups/new", ctrl.NewWorkflowGroupDrawer, authz.Require(authz.PermWorkflowManage))
+	g.POST("/mgr/workflow-groups", ctrl.SaveWorkflowGroup, authz.Require(authz.PermWorkflowManage))
+	g.GET("/mgr/workflow-groups/:id/edit", ctrl.EditWorkflowGroupDrawer, authz.Require(authz.PermWorkflowManage))
+	g.POST("/mgr/workflow-groups/:id", ctrl.UpdateWorkflowGroup, authz.Require(authz.PermWorkflowManage))
+	g.POST("/mgr/workflow-groups/:id/delete", ctrl.DeleteWorkflowGroup, authz.Require(authz.PermWorkflowManage))
+	g.GET("/mgr/workflow-groups/:id/members", ctrl.WorkflowGroupMembersDrawer, authz.Require(authz.PermWorkflowRead))
+	g.POST("/mgr/workflow-groups/:id/members", ctrl.SetWorkflowGroupMembers, authz.Require(authz.PermWorkflowManage))
+
+	g.GET("/mgr/workflow-instances", ctrl.WorkflowInstances, authz.Require(authz.PermWorkflowRead))
+	g.GET("/mgr/workflow-instances/list", ctrl.WorkflowInstanceList, authz.Require(authz.PermWorkflowRead))
+	g.GET("/mgr/workflow-instances/:id", ctrl.MgrWorkflowInstanceDrawer, authz.Require(authz.PermWorkflowRead))
+	g.POST("/mgr/workflow-instances/:id/withdraw", ctrl.MgrWithdrawWorkflowInstance, authz.Require(authz.PermWorkflowAdmin))
+	g.POST("/mgr/workflow-instances/:id/terminate", ctrl.TerminateWorkflowInstance, authz.Require(authz.PermWorkflowAdmin))
+	g.POST("/mgr/workflow-instances/:id/signal", ctrl.SignalWorkflowInstance, authz.Require(authz.PermWorkflowAdmin))
+	g.GET("/mgr/workflow-tasks/:id", ctrl.MgrWorkflowTaskDrawer, authz.Require(authz.PermWorkflowRead))
+	g.POST("/mgr/workflow-tasks/:id/:action", ctrl.MgrWorkflowTaskAction, authz.Require(authz.PermWorkflowAdmin))
+
+	g.GET("/workflow/tasks", ctrl.WorkflowTasks, authz.RequireAny(authz.PermWorkflowUse, authz.PermWorkflowApprove))
+	g.GET("/workflow/tasks/list", ctrl.WorkflowTaskList, authz.RequireAny(authz.PermWorkflowUse, authz.PermWorkflowApprove))
+	g.GET("/workflow/tasks/:id", ctrl.WorkflowTaskDrawer, authz.RequireAny(authz.PermWorkflowUse, authz.PermWorkflowApprove))
+	g.POST("/workflow/tasks/:id/action", ctrl.ApproveWorkflowTask, authz.Require(authz.PermWorkflowApprove))
+	g.POST("/workflow/tasks/:id/claim", ctrl.ClaimWorkflowTask, authz.Require(authz.PermWorkflowApprove))
+	g.POST("/workflow/tasks/:id/transfer", ctrl.TransferWorkflowTask, authz.Require(authz.PermWorkflowApprove))
+	g.POST("/workflow/tasks/:id/delegate", ctrl.DelegateWorkflowTask, authz.Require(authz.PermWorkflowApprove))
+	g.POST("/workflow/tasks/:id/add-sign", ctrl.AddSignWorkflowTask, authz.Require(authz.PermWorkflowApprove))
+	g.POST("/workflow/tasks/:id/remove-sign", ctrl.RemoveSignWorkflowTask, authz.Require(authz.PermWorkflowApprove))
+	g.POST("/workflow/tasks/:id/return", ctrl.ReturnWorkflowTask, authz.Require(authz.PermWorkflowApprove))
+	g.POST("/workflow/tasks/:id/remind", ctrl.RemindWorkflowTask, authz.Require(authz.PermWorkflowApprove))
+	g.GET("/workflow/start", ctrl.WorkflowStartDrawer, authz.Require(authz.PermWorkflowUse))
+	g.POST("/workflow/start", ctrl.WorkflowStart, authz.Require(authz.PermWorkflowUse))
+	g.GET("/workflow/instances/:id", ctrl.PortalWorkflowInstanceDrawer, authz.Require(authz.PermWorkflowUse))
+	g.POST("/workflow/instances/:id/withdraw", ctrl.WithdrawWorkflowInstance, authz.Require(authz.PermWorkflowUse))
+
+	// 流程 JSON API：后台与门户各一套路由，共用同一份服务与租户边界。
+	// The workflow JSON API: separate back-office and portal routes over the same service and tenant boundary.
+	g.GET("/api/v1/workflows/definitions", ctrl.APIDefinitions, authz.Require(authz.PermWorkflowRead))
+	g.POST("/api/v1/workflows/definitions", ctrl.APICreateDefinition, authz.Require(authz.PermWorkflowManage))
+	g.GET("/api/v1/workflows/definitions/:id", ctrl.APIDefinition, authz.Require(authz.PermWorkflowRead))
+	g.PUT("/api/v1/workflows/definitions/:id", ctrl.APIUpdateDefinition, authz.Require(authz.PermWorkflowManage))
+	g.DELETE("/api/v1/workflows/definitions/:id", ctrl.APIDeleteDefinition, authz.Require(authz.PermWorkflowManage))
+	g.GET("/api/v1/workflows/definitions/:id/versions", ctrl.APIDefinitionVersions, authz.Require(authz.PermWorkflowRead))
+	g.POST("/api/v1/workflows/definitions/:id/versions", ctrl.APICreateVersion, authz.Require(authz.PermWorkflowManage))
+	g.GET("/api/v1/workflows/versions/:version_id", ctrl.APIVersion, authz.Require(authz.PermWorkflowRead))
+	g.DELETE("/api/v1/workflows/versions/:version_id", ctrl.APIDeleteVersion, authz.Require(authz.PermWorkflowManage))
+	g.PUT("/api/v1/workflows/versions/:version_id", ctrl.APIUpdateVersion, authz.Require(authz.PermWorkflowManage))
+	g.POST("/api/v1/workflows/versions/:version_id/publish", ctrl.APIPublishVersion, authz.Require(authz.PermWorkflowManage))
+	g.GET("/api/v1/workflows/export", ctrl.APIWorkflowExport, authz.Require(authz.PermWorkflowRead))
+	g.POST("/api/v1/workflows/import", ctrl.APIWorkflowImport, authz.Require(authz.PermWorkflowManage))
+	g.GET("/api/v1/workflows/groups", ctrl.APIWorkflowGroups, authz.Require(authz.PermWorkflowRead))
+	g.POST("/api/v1/workflows/groups", ctrl.APICreateWorkflowGroup, authz.Require(authz.PermWorkflowManage))
+	g.GET("/api/v1/workflows/groups/:id", ctrl.APIWorkflowGroup, authz.Require(authz.PermWorkflowRead))
+	g.PUT("/api/v1/workflows/groups/:id", ctrl.APIUpdateWorkflowGroup, authz.Require(authz.PermWorkflowManage))
+	g.DELETE("/api/v1/workflows/groups/:id", ctrl.APIDeleteWorkflowGroup, authz.Require(authz.PermWorkflowManage))
+	g.GET("/api/v1/workflows/groups/:id/members", ctrl.APIWorkflowGroupMembers, authz.Require(authz.PermWorkflowRead))
+	g.PUT("/api/v1/workflows/groups/:id/members", ctrl.APIUpdateWorkflowGroupMembers, authz.Require(authz.PermWorkflowManage))
+	g.GET("/api/v1/workflows/stats", ctrl.APIWorkflowStats, authz.Require(authz.PermWorkflowRead))
+	g.GET("/api/v1/workflow-instances", ctrl.APIWorkflowInstances, authz.Require(authz.PermWorkflowRead))
+	g.GET("/api/v1/workflow-instances/:id", ctrl.APIWorkflowInstance, authz.Require(authz.PermWorkflowRead))
+	g.POST("/api/v1/workflow-instances/:id/withdraw", ctrl.APIWorkflowWithdraw, authz.Require(authz.PermWorkflowAdmin))
+	g.POST("/api/v1/workflow-instances/:id/terminate", ctrl.APIWorkflowTerminate, authz.Require(authz.PermWorkflowAdmin))
+	g.POST("/api/v1/workflow-instances/:id/signal", ctrl.APIWorkflowSignal, authz.Require(authz.PermWorkflowAdmin))
+	g.GET("/api/v1/workflow-tasks", ctrl.APIWorkflowTasks, authz.Require(authz.PermWorkflowRead))
+	g.GET("/api/v1/workflow-tasks/:id", ctrl.APIWorkflowTask, authz.Require(authz.PermWorkflowRead))
+	g.POST("/api/v1/workflow-tasks/:id/:action", ctrl.APIWorkflowTaskAction, authz.Require(authz.PermWorkflowAdmin))
+	g.GET("/api/portal/v1/workflows/definitions", ctrl.APIWorkflowCatalog, authz.Require(authz.PermWorkflowUse))
+	g.GET("/api/portal/v1/workflows/instances", ctrl.APIPortalWorkflowInstances, authz.Require(authz.PermWorkflowUse))
+	g.POST("/api/portal/v1/workflows/instances", ctrl.APIWorkflowStart, authz.Require(authz.PermWorkflowUse))
+	g.GET("/api/portal/v1/workflows/instances/:id", ctrl.APIPortalWorkflowInstance, authz.Require(authz.PermWorkflowUse))
+	g.POST("/api/portal/v1/workflows/instances/:id/withdraw", ctrl.APIPortalWorkflowWithdraw, authz.Require(authz.PermWorkflowUse))
+	g.GET("/api/portal/v1/workflows/tasks", ctrl.APIPortalWorkflowTasks, authz.RequireAny(authz.PermWorkflowUse, authz.PermWorkflowApprove))
+	g.GET("/api/portal/v1/workflows/tasks/:id", ctrl.APIPortalWorkflowTask, authz.RequireAny(authz.PermWorkflowUse, authz.PermWorkflowApprove))
+	g.POST("/api/portal/v1/workflows/tasks/:id/:action", ctrl.APIPortalWorkflowTaskAction, authz.Require(authz.PermWorkflowApprove))
+
 	// 好友生命周期：申请、接受/拒绝/取消、删除、拉黑与备注。
 	// The friend lifecycle: request, accept/reject/cancel, remove, block and remark.
 	g.GET("/friends", ctrl.Friends, authz.Require(authz.PermMessageRead))
@@ -672,6 +768,18 @@ func startTicker(a *app.App, ticker *service.Ticker, broker *sse.Broker) error {
 
 	ticker.LogStart(a.Logger(), broker.Clients(service.EventsTopic))
 	return nil
+}
+
+// startWorkflowRuntime 启动流程调度器；调度器自身的停止动作由控制器挂到关停链上，这里只负责可取消的上下文。
+// startWorkflowRuntime starts the workflow scheduler; the controller hangs the scheduler's own stop action on the
+// shutdown chain, and this only owns the cancellable context.
+func startWorkflowRuntime(a *app.App, ctrl *controller.Controller) {
+	ctx, cancel := context.WithCancel(context.Background())
+	ctrl.StartWorkflowRuntime(ctx)
+	a.OnShutdown(func(context.Context) error {
+		cancel()
+		return nil
+	})
 }
 
 // startMessageRuntime 启动消息总线订阅与待挂载附件清理，并把停止动作挂到关停钩子上。

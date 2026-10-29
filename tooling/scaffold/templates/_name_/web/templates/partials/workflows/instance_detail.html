@@ -1,0 +1,137 @@
+{{/*
+  partials/workflows/instance_detail.html —— 门户与后台共用的实例详情抽屉。
+  partials/workflows/instance_detail.html — the instance detail drawer shared by the portal and the back office.
+
+  数据契约 | Data contract: .Detail（workflow.InstanceDetail）、.Instance、.Definition、.WorkflowVersion、.Tasks、.Events、
+  .Comments、.Variables、.CanWithdraw、.CanTerminate、.CanSignal、.BasePath。
+*/}}
+{{- define "partials/workflows/instance_detail" -}}
+{{- $taskBase := "/workflow/tasks" -}}
+{{- if hasPrefix .BasePath "/mgr" }}{{ $taskBase = "/mgr/workflow-tasks" }}{{ end -}}
+<div class="yd-drawer__head">
+  <h2 class="yd-section__title">{{ .Instance.Title }}</h2>
+  <p class="yd-section__hint">
+    {{ .Definition.Name }} · v{{ .WorkflowVersion.Version }} · {{ .Instance.InitiatorName }}
+    · {{ .Instance.StartedAt.Format "2006-01-02 15:04" }}
+  </p>
+</div>
+<div class="yd-stack">
+  <dl class="yd-detail-list">
+    <div><dt>{{ tr "field.status" }}</dt><dd>{{ template "partials/workflows/instance_badge" (dict "Status" .Instance.Status "Outcome" .Instance.Outcome) }}{{ with .Instance.Outcome }} · {{ template "partials/workflows/outcome_label" . }}{{ end }}</dd></div>
+    {{- with .Instance.BusinessKey }}<div><dt>{{ tr "workflow.field.business_key" }}</dt><dd>{{ . }}</dd></div>{{ end }}
+    {{- with .Instance.EndedReason }}<div><dt>{{ tr "workflow.field.reason" }}</dt><dd>{{ . }}</dd></div>{{ end }}
+  </dl>
+
+  <section class="yd-section" aria-labelledby="yd-workflow-instance-tasks">
+    <h3 class="yd-section__title" id="yd-workflow-instance-tasks">{{ tr "workflow.instance.tasks" }}</h3>
+    <div class="yd-table__wrap">
+      <table class="yd-table" aria-label="{{ tr "workflow.instance.tasks" }}">
+        <thead class="yd-table__head">
+          <tr>
+            <th class="yd-table__th" scope="col">{{ tr "workflow.field.node" }}</th>
+            <th class="yd-table__th" scope="col">{{ tr "workflow.field.assignee" }}</th>
+            <th class="yd-table__th" scope="col">{{ tr "field.status" }}</th>
+            <th class="yd-table__th" scope="col">{{ tr "workflow.field.decision" }}</th>
+            <th class="yd-table__th" scope="col">{{ tr "workflow.field.completed_at" }}</th>
+            <th class="yd-table__th" scope="col">{{ tr "field.actions" }}</th>
+          </tr>
+        </thead>
+        <tbody class="yd-table__body">
+          {{ range .Tasks }}
+          <tr class="yd-table__row">
+            <td class="yd-table__td">{{ .NodeName }}</td>
+            <td class="yd-table__td">{{ if .AssigneeName }}{{ .AssigneeName }}{{ else }}—{{ end }}</td>
+            <td class="yd-table__td">{{ template "partials/workflows/task_badge" .Status }}</td>
+            <td class="yd-table__td">{{ template "partials/workflows/decision_label" .Decision }}</td>
+            <td class="yd-table__td">{{ if .CompletedAt.IsZero }}—{{ else }}{{ .CompletedAt.Format "2006-01-02 15:04" }}{{ end }}</td>
+            <td class="yd-table__td yd-table__td--actions">
+              <button type="button" class="yd-icon-btn" data-yd-drawer-open aria-label="{{ tr "workflow.instances.detail" }}"
+                      hx-get="{{ $taskBase }}/{{ .ID }}" hx-target="#yd-drawer-body" hx-swap="innerHTML">
+                {{ template "partials/icon" "lucide-eye" }}
+              </button>
+            </td>
+          </tr>
+          {{ else }}
+          <tr class="yd-table__row yd-table__row--empty"><td class="yd-table__td" colspan="6">{{ tr "workflow.instance.no_tasks" }}</td></tr>
+          {{ end }}
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section class="yd-section" aria-labelledby="yd-workflow-instance-variables">
+    <h3 class="yd-section__title" id="yd-workflow-instance-variables">{{ tr "workflow.instance.variables" }}</h3>
+    <dl class="yd-detail-list">
+      {{ range $key, $value := .Variables }}
+      <div><dt><code class="yd-code">{{ $key }}</code></dt><dd>{{ $value }}</dd></div>
+      {{ else }}
+      <div><dd>{{ tr "workflow.instance.no_variables" }}</dd></div>
+      {{ end }}
+    </dl>
+  </section>
+
+  <section class="yd-section" aria-labelledby="yd-workflow-instance-timeline">
+    <h3 class="yd-section__title" id="yd-workflow-instance-timeline">{{ tr "workflow.instance.timeline" }}</h3>
+    <ol class="yd-timeline">
+      {{ range .Events }}
+      <li class="yd-timeline__item">
+        <span class="yd-timeline__dot" aria-hidden="true"></span>
+        <div>
+          <p class="yd-timeline__title">{{ template "partials/workflows/event_label" .Type }}</p>
+          {{- with .Message }}<p class="yd-timeline__body">{{ . }}</p>{{ end }}
+          <p class="yd-timeline__meta">{{ if .ActorName }}{{ .ActorName }} · {{ end }}{{ .CreatedAt.Format "2006-01-02 15:04" }}</p>
+        </div>
+      </li>
+      {{ else }}
+      <li class="yd-timeline__item">{{ tr "workflow.instance.no_events" }}</li>
+      {{ end }}
+    </ol>
+  </section>
+
+  {{- if or .CanWithdraw .CanTerminate .CanSignal }}
+  <section class="yd-section" aria-labelledby="yd-workflow-instance-actions">
+    <h3 class="yd-section__title" id="yd-workflow-instance-actions">{{ tr "workflow.instance.actions" }}</h3>
+    <div class="yd-stack">
+      {{- if .CanWithdraw }}
+      <form class="yd-form" method="post" action="{{ .BasePath }}/{{ .Instance.ID }}/withdraw"
+            hx-post="{{ .BasePath }}/{{ .Instance.ID }}/withdraw" hx-target="#yd-workspace" hx-swap="innerMorph"
+            hx-status:409="target:#yd-drawer-errors swap:innerHTML"
+            hx-status:422="target:#yd-drawer-errors swap:innerHTML"
+            data-yd-confirm="{{ tr "confirm.withdraw_workflow" }}">
+        {{template "components.form.textarea" (dict
+          "ID" "yd-workflow-withdraw-reason" "Name" "reason" "Rows" 2
+          "Label" (tr "workflow.field.reason") "LabelKey" "workflow.field.reason" "MaxLength" 500)}}
+        {{template "components.form.actions" (dict "SubmitLabel" (tr "workflow.instances.withdraw") "SubmitKey" "workflow.instances.withdraw")}}
+      </form>
+      {{- end }}
+      {{- if .CanTerminate }}
+      <form class="yd-form" method="post" action="{{ .BasePath }}/{{ .Instance.ID }}/terminate"
+            hx-post="{{ .BasePath }}/{{ .Instance.ID }}/terminate" hx-target="#yd-workspace" hx-swap="innerMorph"
+            hx-status:409="target:#yd-drawer-errors swap:innerHTML"
+            hx-status:422="target:#yd-drawer-errors swap:innerHTML"
+            data-yd-confirm="{{ tr "confirm.terminate_workflow" }}">
+        {{template "components.form.textarea" (dict
+          "ID" "yd-workflow-terminate-reason" "Name" "reason" "Rows" 2
+          "Label" (tr "workflow.field.reason") "LabelKey" "workflow.field.reason" "MaxLength" 500)}}
+        {{template "components.form.actions" (dict "SubmitLabel" (tr "workflow.instances.terminate") "SubmitKey" "workflow.instances.terminate")}}
+      </form>
+      {{- end }}
+      {{- if .CanSignal }}
+      <form class="yd-form" method="post" action="/mgr/workflow-instances/{{ .Instance.ID }}/signal"
+            data-yd-confirm="{{ tr "confirm.workflow_signal" }}"
+            hx-post="/mgr/workflow-instances/{{ .Instance.ID }}/signal" hx-target="#yd-workspace" hx-swap="innerMorph"
+            hx-status:409="target:#yd-drawer-errors swap:innerHTML"
+            hx-status:422="target:#yd-drawer-errors swap:innerHTML">
+        {{template "components.form.field" (dict
+          "ID" "yd-workflow-signal" "Name" "signal" "Type" "text"
+          "Label" (tr "workflow.instance.signal") "LabelKey" "workflow.instance.signal"
+          "Hint" (tr "workflow.instance.signal_hint") "HintKey" "workflow.instance.signal_hint" "MaxLength" 128)}}
+        {{template "components.form.actions" (dict "SubmitLabel" (tr "workflow.instance.signal_send") "SubmitKey" "workflow.instance.signal_send")}}
+      </form>
+      {{- end }}
+    </div>
+  </section>
+  {{- end }}
+</div>
+{{- end -}}
+{{ template "partials/workflows/instance_detail" . }}

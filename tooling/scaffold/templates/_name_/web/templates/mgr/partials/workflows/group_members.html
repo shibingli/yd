@@ -1,0 +1,53 @@
+{{/*
+  mgr/partials/workflows/group_members.html —— 流程组显式成员抽屉。
+  mgr/partials/workflows/group_members.html — the explicit group membership drawer.
+
+  关联角色的持有者不在这个列表里：他们是隐式成员，勾选框只管理显式成员。
+  Linked role holders are absent: they are implicit members, and the checkboxes manage explicit members only.
+
+  数据契约 | Data contract: .Group、.Users（[]map{ID,Name,Username,Selected}）、.Selected、.CanManage。
+*/}}
+{{- define "mgr/partials/workflows/group_members" -}}
+<div class="yd-drawer__head">
+  <h2 class="yd-section__title">{{ tr "workflow.groups.members" }} · {{ .Group.Name }}</h2>
+  <p class="yd-section__hint">{{ tr "workflow.groups.members_hint" }}</p>
+</div>
+{{- if .CanManage }}
+<form class="yd-form" method="post" action="/mgr/workflow-groups/{{ .Group.ID }}/members"
+      data-yd-confirm="{{ tr "confirm.save_workflow_members" }}"
+      hx-post="/mgr/workflow-groups/{{ .Group.ID }}/members" hx-target="#yd-workflow-groups" hx-swap="innerMorph"
+      hx-status:409="target:#yd-drawer-errors swap:innerHTML"
+      hx-status:422="target:#yd-drawer-errors swap:innerHTML">
+  <fieldset class="yd-field" data-yd-field="members">
+    <legend class="yd-field__label">{{ tr "workflow.groups.members" }}</legend>
+    <div class="yd-check-list">
+      {{ range .Users }}
+      {{template "components.form.toggle" (dict
+        "ID" (printf "yd-workflow-member-%s" .ID) "Name" "members" "Value" .ID
+        "Checked" .Selected "Label" .Name "Hint" .Username)}}
+      {{ else }}
+      <p class="yd-field__hint">{{ tr "workflow.groups.no_users" }}</p>
+      {{ end }}
+    </div>
+    {{- with .Group.Role }}
+    <p class="yd-field__hint">{{ tr "workflow.groups.implicit_role" . }}</p>
+    {{- end }}
+  </fieldset>
+  {{template "components.form.actions" (dict
+    "SubmitLabel" (tr "ui.save") "SubmitKey" "ui.save"
+    "CancelLabel" (tr "ui.cancel") "CancelKey" "ui.cancel")}}
+</form>
+{{- else }}
+<dl class="yd-detail-list">
+  {{ range .Users }}
+  <div><dt>{{ .Name }}</dt>{{ with .Username }}<dd>{{ . }}</dd>{{ end }}</div>
+  {{ else }}
+  <div><dd>{{ tr "workflow.groups.no_users" }}</dd></div>
+  {{ end }}
+</dl>
+{{- with .Group.Role }}
+<p class="yd-field__hint">{{ tr "workflow.groups.implicit_role" . }}</p>
+{{- end }}
+{{- end }}
+{{- end -}}
+{{ template "mgr/partials/workflows/group_members" . }}

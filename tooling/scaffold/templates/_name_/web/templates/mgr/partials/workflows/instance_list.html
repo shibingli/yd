@@ -1,0 +1,84 @@
+{{/*
+  mgr/partials/workflows/instance_list.html —— 实例表格与空状态。
+  mgr/partials/workflows/instance_list.html — the instance table and its empty state.
+
+  数据契约 | Data contract: .Instances（[]workflow.Instance）、.CanAdmin。
+*/}}
+{{- define "mgr/partials/workflows/instance_list" -}}
+{{- if .OOB }}<p class="yd-page__subtitle" id="yd-workflow-instances-total" hx-swap-oob="true">{{ tr "workflow.instances.subtitle" .Total }}</p>{{ end }}
+<div class="yd-table__wrap" data-yd-table>
+  <table class="yd-table" aria-label="{{ tr "workflow.instances.title" }}">
+    <caption class="sr-only">{{ tr "workflow.instances.title" }}</caption>
+    <thead class="yd-table__head">
+      <tr>
+        <th class="yd-table__th" scope="col">{{ tr "workflow.field.title" }}</th>
+        <th class="yd-table__th" scope="col">{{ tr "workflow.field.definition" }}</th>
+        <th class="yd-table__th" scope="col">{{ tr "workflow.field.initiator" }}</th>
+        <th class="yd-table__th" scope="col">{{ tr "field.status" }}</th>
+        <th class="yd-table__th" scope="col">{{ tr "workflow.field.started_at" }}</th>
+        <th class="yd-table__th" scope="col">{{ tr "field.actions" }}</th>
+      </tr>
+    </thead>
+    <tbody class="yd-table__body">
+      {{ range .Instances }}
+      <tr class="yd-table__row">
+        <td class="yd-table__td">
+          {{ .Title }}
+          {{- with .BusinessKey }}<p class="yd-table__hint">{{ . }}</p>{{ end }}
+        </td>
+        <td class="yd-table__td">
+          {{ .DefinitionName }} <span class="yd-table__muted">v{{ .Version }}</span>
+          {{- with .Category }}<p class="yd-table__hint">{{ . }}</p>{{ end }}
+        </td>
+        <td class="yd-table__td">{{ .InitiatorName }}</td>
+        <td class="yd-table__td">{{ template "partials/workflows/instance_badge" (dict "Status" .Status "Outcome" .Outcome) }}</td>
+        <td class="yd-table__td">{{ .StartedAt.Format "2006-01-02 15:04" }}</td>
+        <td class="yd-table__td yd-table__td--actions">
+          <details class="yd-menu" data-yd-menu>
+            <summary class="yd-icon-btn" aria-label="{{ tr "ui.actions" }}">{{ template "partials/icon" "lucide-more-horizontal" }}</summary>
+            <div class="yd-menu__panel" role="menu">
+              <button type="button" class="yd-menu__item yd-menu__item--with-icon" role="menuitem" data-yd-drawer-open
+                      hx-get="/mgr/workflow-instances/{{ .ID }}" hx-target="#yd-drawer-body" hx-swap="innerHTML">
+                {{ template "partials/icon" "lucide-eye" }}{{ tr "workflow.instances.detail" }}
+              </button>
+              {{- if and $.CanAdmin (eq .Status "running") }}
+              <form method="post" action="/mgr/workflow-instances/{{ .ID }}/withdraw"
+                    hx-post="/mgr/workflow-instances/{{ .ID }}/withdraw" hx-target="#yd-workspace" hx-swap="innerMorph"
+                    hx-status:409="target:#yd-errors swap:innerHTML"
+                    hx-status:422="target:#yd-errors swap:innerHTML"
+                    data-yd-confirm="{{ tr "confirm.withdraw_workflow" }}">
+                <input type="hidden" name="reason" value="">
+                <input type="hidden" name="return_q" value="{{ $.Keyword }}">
+                <input type="hidden" name="return_status" value="{{ $.Status }}">
+                <input type="hidden" name="return_category" value="{{ $.Category }}">
+                <input type="hidden" name="return_page" value="{{ $.Page }}">
+                <button type="submit" class="yd-menu__item yd-menu__item--with-icon" role="menuitem">{{ template "partials/icon" "lucide-undo-2" }}{{ tr "workflow.instances.withdraw" }}</button>
+              </form>
+              <form method="post" action="/mgr/workflow-instances/{{ .ID }}/terminate"
+                    hx-post="/mgr/workflow-instances/{{ .ID }}/terminate" hx-target="#yd-workspace" hx-swap="innerMorph"
+                    hx-status:409="target:#yd-errors swap:innerHTML"
+                    hx-status:422="target:#yd-errors swap:innerHTML"
+                    data-yd-confirm="{{ tr "confirm.terminate_workflow" }}">
+                <input type="hidden" name="reason" value="">
+                <input type="hidden" name="return_q" value="{{ $.Keyword }}">
+                <input type="hidden" name="return_status" value="{{ $.Status }}">
+                <input type="hidden" name="return_category" value="{{ $.Category }}">
+                <input type="hidden" name="return_page" value="{{ $.Page }}">
+                <button type="submit" class="yd-menu__item yd-menu__item--with-icon" role="menuitem">{{ template "partials/icon" "lucide-octagon-x" }}{{ tr "workflow.instances.terminate" }}</button>
+              </form>
+              {{- end }}
+            </div>
+          </details>
+        </td>
+      </tr>
+      {{ else }}
+      <tr class="yd-table__row yd-table__row--empty">
+        <td class="yd-table__td" colspan="6">{{ tr "workflow.instances.empty" }}</td>
+      </tr>
+      {{ end }}
+    </tbody>
+  </table>
+</div>
+{{ template "partials/workflows/pagination" .Pagination }}
+{{- end -}}
+{{ template "mgr/partials/workflows/instance_list" . }}

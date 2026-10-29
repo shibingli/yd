@@ -1,0 +1,530 @@
+// This file owns the instance and task JSON API shared by the portal and the back office. |
+// 本文件负责门户与后台共用的实例与任务 JSON API。
+
+package controller
+
+import (
+	"net/http"
+	"strings"
+
+	"{{ .YdxModule }}/router"
+	"{{ .YdxModule }}/workflow"
+)
+
+// APIWorkflowCatalog lists the published definitions a member may start. | APIWorkflowCatalog
+// 列出成员可发起的已发布定义。
+//
+// @Summary Startable definitions | 可发起流程
+// @Description Returns every published definition. | 返回全部已发布定义。
+// @Tags workflow
+// @Produce json
+// @Success 200 {object} workflowDefinitionPageDoc "definitions | 定义分页"
+// @Security BearerAuth
+// @Router /api/portal/v1/workflows/definitions [get]
+func (c *Controller) APIWorkflowCatalog(ctx *router.Ctx) {
+	tenantID, ok := c.workflowAPIAvailable(ctx)
+	if !ok {
+		return
+	}
+	page, err := c.workflow.ListDefinitions(ctx.Request.Context(), tenantID, workflow.DefinitionFilter{
+		Status: workflow.DefinitionPublished, Page: 1, PageSize: 100,
+	})
+	if err != nil {
+		c.workflowAPIFail(ctx, err)
+		return
+	}
+	_ = ctx.JSON(http.StatusOK, page)
+}
+
+// APIWorkflowStart starts one instance. | APIWorkflowStart 发起一个实例。
+//
+// @Summary Start a process | 发起流程
+// @Description Creates an instance from a published definition and its start form. | 从已发布定义及其发起表单创建实例。
+// @Tags workflow
+// @Accept json
+// @Produce json
+// @Param body body workflowStartRequest true "start payload | 发起载荷"
+// @Success 201 {object} workflowInstanceDoc "created instance | 已创建实例"
+// @Failure 422 {object} string "form validation failed | 表单校验失败"
+// @Security BearerAuth
+// @Router /api/portal/v1/workflows/instances [post]
+func (c *Controller) APIWorkflowStart(ctx *router.Ctx) {
+	tenantID, ok := c.workflowAPIAvailable(ctx)
+	if !ok {
+		return
+	}
+	request := workflowStartRequest{}
+	if err := ctx.Bind(&request); err != nil {
+		c.workflowAPIFail(ctx, workflow.ErrInvalidInput)
+		return
+	}
+	instance, err := c.workflow.Start(ctx.Request.Context(), tenantID, c.workflowActor(ctx), workflow.StartInput{
+		DefinitionID: request.DefinitionID, DefinitionKey: request.DefinitionKey, Version: request.Version,
+		Title: request.Title, BusinessKey: request.BusinessKey, Category: request.Category,
+		Variables: request.Variables, FormData: request.FormData,
+	})
+	if err != nil {
+		c.workflowAPIFail(ctx, err)
+		return
+	}
+	_ = ctx.JSON(http.StatusCreated, instance)
+}
+
+// APIWorkflowInstances lists instances. | APIWorkflowInstances 列出实例。
+//
+// @Summary List instances | 列出实例
+// @Description Returns one page with the lean projection (no variables or node snapshots); the portal endpoint only returns the caller's own instances. | 返回精简投影分页（不含变量与节点快照）；门户端点只返回调用方自己的实例。
+// @Tags workflow
+// @Produce json
+// @Param status query string false "Instance state | 实例状态"
+// @Param category query string false "Process category | 流程分类"
+// @Param q query string false "Search keyword | 搜索关键字"
+// @Param page query int false "1-based page | 从 1 开始的页码"
+// @Param page_size query int false "Page length | 页长"
+// @Success 200 {object} workflowInstancePageDoc "instance page | 实例分页"
+// @Security BearerAuth
+// @Router /api/v1/workflow-instances [get]
+func (c *Controller) APIWorkflowInstances(ctx *router.Ctx) {
+	tenantID, ok := c.workflowAPIAvailable(ctx)
+	if !ok {
+		return
+	}
+	filter := workflow.InstanceFilter{
+		Query: strings.TrimSpace(ctx.Query(FieldKeyword)), Status: strings.TrimSpace(ctx.Query(FieldStatus)),
+		Category: strings.TrimSpace(ctx.Query(FieldWorkflowCategory)),
+		Page:     queryInt(ctx, "page", 1), PageSize: queryInt(ctx, "page_size", defaultPageSize),
+	}
+	if strings.HasPrefix(ctx.Path(), "/api/portal/") {
+		filter.InitiatorID = c.workflowActor(ctx).ID
+	}
+	page, err := c.workflow.ListInstances(ctx.Request.Context(), tenantID, filter)
+	if err != nil {
+		c.workflowAPIFail(ctx, err)
+		return
+	}
+	_ = ctx.JSON(http.StatusOK, page)
+}
+
+// APIWorkflowInstance reads one instance. | APIWorkflowInstance 读取一个实例。
+//
+// @Summary Read instance | 读取实例
+// @Description Returns the instance, tasks, events, comments and variables. | 返回实例、任务、事件、评论与变量。
+// @Tags workflow
+// @Produce json
+// @Param id path string true "Instance id | 实例 ID"
+// @Success 200 {object} workflowInstanceDetailDoc "instance detail | 实例详情"
+// @Security BearerAuth
+// @Router /api/v1/workflow-instances/{id} [get]
+func (c *Controller) APIWorkflowInstance(ctx *router.Ctx) {
+	tenantID, ok := c.workflowAPIAvailable(ctx)
+	if !ok {
+		return
+	}
+	detail, err := c.workflow.InstanceDetail(ctx.Request.Context(), tenantID, ctx.Param("id"))
+	if err != nil {
+		c.workflowAPIFail(ctx, err)
+		return
+	}
+	if strings.HasPrefix(ctx.Path(), "/api/portal/") {
+		visible, err := c.workflow.InstanceVisible(ctx.Request.Context(), tenantID, detail.Instance, c.workflowActor(ctx))
+		if err != nil {
+			c.workflowAPIFail(ctx, err)
+			return
+		}
+		if !visible {
+			c.workflowAPIFail(ctx, workflow.ErrForbidden)
+			return
+		}
+	}
+	_ = ctx.JSON(http.StatusOK, detail)
+}
+
+// APIWorkflowWithdraw withdraws one instance. | APIWorkflowWithdraw 撤回一个实例。
+//
+// @Summary Withdraw instance | 撤回实例
+// @Description Withdraws a running instance inside the configured window. | 在配置窗口内撤回运行中实例。
+// @Tags workflow
+// @Accept json
+// @Produce json
+// @Param id path string true "Instance id | 实例 ID"
+// @Param body body workflowReasonRequest false "reason | 原因"
+// @Success 204 {string} string "withdrawn | 已撤回"
+// @Security BearerAuth
+// @Router /api/v1/workflow-instances/{id}/withdraw [post]
+func (c *Controller) APIWorkflowWithdraw(ctx *router.Ctx) {
+	tenantID, ok := c.workflowAPIAvailable(ctx)
+	if !ok {
+		return
+	}
+	request := workflowReasonRequest{}
+	_ = ctx.Bind(&request)
+	if err := c.workflow.WithdrawInstance(ctx.Request.Context(), tenantID, c.workflowActor(ctx), ctx.Param("id"), workflow.ReasonInput{Reason: request.Reason}); err != nil {
+		c.workflowAPIFail(ctx, err)
+		return
+	}
+	_ = ctx.NoContent(http.StatusNoContent)
+}
+
+// APIWorkflowTerminate terminates one instance. | APIWorkflowTerminate 终止一个实例。
+//
+// @Summary Terminate instance | 终止实例
+// @Description Administratively terminates a running instance. | 由管理员终止运行中实例。
+// @Tags workflow
+// @Accept json
+// @Produce json
+// @Param id path string true "Instance id | 实例 ID"
+// @Param body body workflowReasonRequest false "reason | 原因"
+// @Success 204 {string} string "terminated | 已终止"
+// @Security BearerAuth
+// @Router /api/v1/workflow-instances/{id}/terminate [post]
+func (c *Controller) APIWorkflowTerminate(ctx *router.Ctx) {
+	tenantID, ok := c.workflowAPIAvailable(ctx)
+	if !ok {
+		return
+	}
+	request := workflowReasonRequest{}
+	_ = ctx.Bind(&request)
+	if err := c.workflow.TerminateInstance(ctx.Request.Context(), tenantID, c.workflowActor(ctx), ctx.Param("id"), workflow.ReasonInput{Reason: request.Reason}); err != nil {
+		c.workflowAPIFail(ctx, err)
+		return
+	}
+	_ = ctx.NoContent(http.StatusNoContent)
+}
+
+// APIWorkflowSignal delivers one message event. | APIWorkflowSignal 投递一个消息事件。
+//
+// @Summary Deliver a message event | 投递消息事件
+// @Description Wakes matching message tokens and merges the payload into the variables. | 唤醒匹配的消息令牌并把载荷合并进变量。
+// @Tags workflow
+// @Accept json
+// @Produce json
+// @Param id path string true "Instance id | 实例 ID"
+// @Param body body workflowSignalRequest true "signal payload | 信号载荷"
+// @Success 200 {object} map[string]int "woken token count | 唤醒令牌数"
+// @Security BearerAuth
+// @Router /api/v1/workflow-instances/{id}/signal [post]
+func (c *Controller) APIWorkflowSignal(ctx *router.Ctx) {
+	tenantID, ok := c.workflowAPIAvailable(ctx)
+	if !ok {
+		return
+	}
+	request := workflowSignalRequest{}
+	if err := ctx.Bind(&request); err != nil {
+		c.workflowAPIFail(ctx, workflow.ErrInvalidInput)
+		return
+	}
+	woken, err := c.workflow.Signal(ctx.Request.Context(), tenantID, c.workflowActor(ctx), ctx.Param("id"), request.Signal, request.Payload)
+	if err != nil {
+		c.workflowAPIFail(ctx, err)
+		return
+	}
+	_ = ctx.JSON(http.StatusOK, map[string]int{"woken": woken})
+}
+
+// APIWorkflowTasks lists tasks. | APIWorkflowTasks 列出任务。
+//
+// @Summary List tasks | 列出任务
+// @Description Returns one page; the portal endpoint only returns tasks assigned to or claimable by the caller. | 返回分页；门户端点只返回指派给调用方或调用方可抢的任务。
+// @Tags workflow
+// @Produce json
+// @Param tab query string false "todo or done | todo 或 done"
+// @Param status query string false "Task state | 任务状态"
+// @Param q query string false "Search keyword | 搜索关键字"
+// @Param instance query string false "Instance id | 实例 ID"
+// @Param page query int false "1-based page | 从 1 开始的页码"
+// @Param page_size query int false "Page length | 页长"
+// @Success 200 {object} workflowTaskPageDoc "task page | 任务分页"
+// @Security BearerAuth
+// @Router /api/v1/workflow-tasks [get]
+func (c *Controller) APIWorkflowTasks(ctx *router.Ctx) {
+	tenantID, ok := c.workflowAPIAvailable(ctx)
+	if !ok {
+		return
+	}
+	filter := workflow.TaskFilter{
+		Query: strings.TrimSpace(ctx.Query(FieldKeyword)), Status: strings.TrimSpace(ctx.Query(FieldStatus)),
+		InstanceID: strings.TrimSpace(ctx.Query("instance")),
+		Page:       queryInt(ctx, "page", 1), PageSize: queryInt(ctx, "page_size", defaultPageSize),
+	}
+	portal := strings.HasPrefix(ctx.Path(), "/api/portal/")
+	if portal {
+		filter.ActorID = c.workflowActor(ctx).ID
+	}
+	tab := strings.ToLower(strings.TrimSpace(ctx.Query(FieldWorkflowFilterTab)))
+	if portal && filter.Status == "" {
+		if tab == "done" {
+			filter.Status = workflow.TaskCompleted
+		} else {
+			filter.Statuses = []string{workflow.TaskPending, workflow.TaskClaimed}
+		}
+	}
+	page, err := c.workflow.ListTasks(ctx.Request.Context(), tenantID, filter)
+	if err != nil {
+		c.workflowAPIFail(ctx, err)
+		return
+	}
+	_ = ctx.JSON(http.StatusOK, page)
+}
+
+// APIWorkflowTask reads one task. | APIWorkflowTask 读取一个任务。
+//
+// @Summary Read task | 读取任务
+// @Description Returns the task, its node form and the instance variables. | 返回任务、节点表单与实例变量。
+// @Tags workflow
+// @Produce json
+// @Param id path string true "Task id | 任务 ID"
+// @Success 200 {object} workflowTaskDetailDoc "task detail | 任务详情"
+// @Security BearerAuth
+// @Router /api/v1/workflow-tasks/{id} [get]
+func (c *Controller) APIWorkflowTask(ctx *router.Ctx) {
+	tenantID, ok := c.workflowAPIAvailable(ctx)
+	if !ok {
+		return
+	}
+	detail, err := c.workflow.TaskDetail(ctx.Request.Context(), tenantID, ctx.Param("id"))
+	if err != nil {
+		c.workflowAPIFail(ctx, err)
+		return
+	}
+	if strings.HasPrefix(ctx.Path(), "/api/portal/") {
+		visible, err := c.workflow.TaskVisible(ctx.Request.Context(), tenantID, detail.Task, c.workflowActor(ctx))
+		if err != nil {
+			c.workflowAPIFail(ctx, err)
+			return
+		}
+		if !visible {
+			c.workflowAPIFail(ctx, workflow.ErrForbidden)
+			return
+		}
+	}
+	_ = ctx.JSON(http.StatusOK, detail)
+}
+
+// APIWorkflowTaskAction performs one task action. | APIWorkflowTaskAction 执行一个任务动作。
+//
+// @Summary Task action | 任务动作
+// @Description Runs approve, reject, claim, transfer, delegate, add-sign, remove-sign, return or remind. | 执行通过、驳回、签收、转办、委派、加签、减签、退回或催办。
+// @Tags workflow
+// @Accept json
+// @Produce json
+// @Param id path string true "Task id | 任务 ID"
+// @Param action path string true "Action word | 动作词"
+// @Param body body workflowActionRequest true "action payload | 动作载荷"
+// @Success 200 {object} workflowTaskActionResponse "updated task and instance | 更新后的任务与实例"
+// @Security BearerAuth
+// @Router /api/v1/workflow-tasks/{id}/{action} [post]
+func (c *Controller) APIWorkflowTaskAction(ctx *router.Ctx) {
+	tenantID, ok := c.workflowAPIAvailable(ctx)
+	if !ok {
+		return
+	}
+	action := strings.ToLower(strings.TrimSpace(ctx.Param("action")))
+	actor := c.workflowActor(ctx)
+	taskID := ctx.Param("id")
+	var task workflow.Task
+	var err error
+	switch action {
+	case "approve", "reject":
+		request := workflowActionRequest{}
+		if bindErr := ctx.Bind(&request); bindErr != nil {
+			c.workflowAPIFail(ctx, workflow.ErrInvalidInput)
+			return
+		}
+		decision := request.Decision
+		if decision == "" {
+			decision = action
+		}
+		if action == "approve" {
+			decision = workflow.DecisionApprove
+		} else if action == "reject" {
+			decision = workflow.DecisionReject
+		}
+		task, err = c.workflow.Approve(ctx.Request.Context(), tenantID, actor, taskID, workflow.ActionInput{
+			Decision: decision, Comment: request.Comment, FormData: request.FormData,
+		})
+	case "claim":
+		task, err = c.workflow.Claim(ctx.Request.Context(), tenantID, actor, taskID)
+	case "transfer", "delegate":
+		request := workflowReassignRequest{}
+		if bindErr := ctx.Bind(&request); bindErr != nil {
+			c.workflowAPIFail(ctx, workflow.ErrInvalidInput)
+			return
+		}
+		if action == "delegate" {
+			task, err = c.workflow.Delegate(ctx.Request.Context(), tenantID, actor, taskID, workflow.DelegateInput{TargetID: request.TargetID, Comment: request.Comment})
+		} else {
+			task, err = c.workflow.Transfer(ctx.Request.Context(), tenantID, actor, taskID, workflow.TransferInput{TargetID: request.TargetID, Comment: request.Comment})
+		}
+	case "add-sign":
+		request := workflowAddSignRequest{}
+		if bindErr := ctx.Bind(&request); bindErr != nil {
+			c.workflowAPIFail(ctx, workflow.ErrInvalidInput)
+			return
+		}
+		if _, err = c.workflow.AddSign(ctx.Request.Context(), tenantID, actor, taskID, workflow.AddSignInput{
+			UserIDs: request.UserIDs, Position: request.Position, Comment: request.Comment,
+		}); err == nil {
+			task, err = c.workflow.GetTask(ctx.Request.Context(), tenantID, taskID)
+		}
+	case "remove-sign":
+		request := workflowRemoveSignRequest{}
+		if bindErr := ctx.Bind(&request); bindErr != nil {
+			c.workflowAPIFail(ctx, workflow.ErrInvalidInput)
+			return
+		}
+		err = c.workflow.RemoveSign(ctx.Request.Context(), tenantID, actor, taskID, request.TaskID, request.Comment)
+		if err == nil {
+			task, err = c.workflow.GetTask(ctx.Request.Context(), tenantID, taskID)
+		}
+	case "return":
+		request := workflowReturnRequest{}
+		if bindErr := ctx.Bind(&request); bindErr != nil {
+			c.workflowAPIFail(ctx, workflow.ErrInvalidInput)
+			return
+		}
+		err = c.workflow.Return(ctx.Request.Context(), tenantID, actor, taskID, workflow.ReturnInput{
+			TargetNodeID: request.TargetNodeID, Comment: request.Comment,
+		})
+		if err == nil {
+			task, err = c.workflow.GetTask(ctx.Request.Context(), tenantID, taskID)
+		}
+	case "remind":
+		request := workflowRemindRequest{}
+		_ = ctx.Bind(&request)
+		task, err = c.workflow.Remind(ctx.Request.Context(), tenantID, actor, taskID, request.Comment)
+	default:
+		c.workflowAPIFail(ctx, workflow.ErrInvalidInput)
+		return
+	}
+	if err != nil {
+		c.workflowAPIFail(ctx, err)
+		return
+	}
+	instance, instanceErr := c.workflow.GetInstance(ctx.Request.Context(), tenantID, task.InstanceID)
+	if instanceErr != nil {
+		c.workflowAPIFail(ctx, instanceErr)
+		return
+	}
+	_ = ctx.JSON(http.StatusOK, workflowTaskActionResponse{Task: task, Instance: instance})
+}
+
+// APIWorkflowStats returns the tenant summary. | APIWorkflowStats 返回租户汇总。
+//
+// @Summary Workflow statistics | 流程统计
+// @Description Returns definition, instance and task counts for the tenant. | 返回租户的定义、实例与任务计数。
+// @Tags workflow
+// @Produce json
+// @Success 200 {object} workflowStatsDoc "statistics | 统计"
+// @Security BearerAuth
+// @Router /api/v1/workflows/stats [get]
+func (c *Controller) APIWorkflowStats(ctx *router.Ctx) {
+	tenantID, ok := c.workflowAPIAvailable(ctx)
+	if !ok {
+		return
+	}
+	stats, err := c.workflow.Stats(ctx.Request.Context(), tenantID)
+	if err != nil {
+		c.workflowAPIFail(ctx, err)
+		return
+	}
+	_ = ctx.JSON(http.StatusOK, stats)
+}
+
+// APIPortalWorkflowInstances lists the caller's instances. | APIPortalWorkflowInstances 列出调用方发起的实例。
+//
+// @Summary My instances | 我的实例
+// @Description Returns the caller's instances with the lean projection (no variables or node snapshots). | 以精简投影返回调用方发起的实例（不含变量与节点快照）。
+// @Tags workflow
+// @Produce json
+// @Param q query string false "Search keyword | 搜索关键字"
+// @Param status query string false "Instance state | 实例状态"
+// @Param category query string false "Process category | 流程分类"
+// @Param page query int false "1-based page | 从 1 开始的页码"
+// @Param page_size query int false "Page length | 页长"
+// @Success 200 {object} workflowInstancePageDoc "instance page | 实例分页"
+// @Security BearerAuth
+// @Router /api/portal/v1/workflows/instances [get]
+func (c *Controller) APIPortalWorkflowInstances(ctx *router.Ctx) {
+	c.APIWorkflowInstances(ctx)
+}
+
+// APIPortalWorkflowInstance reads one of the caller's instances. | APIPortalWorkflowInstance 读取调用方的一个实例。
+//
+// @Summary My instance detail | 我的实例详情
+// @Description Returns one instance the caller initiated or participates in. | 返回调用方发起或参与的实例。
+// @Tags workflow
+// @Produce json
+// @Param id path string true "Instance id | 实例 ID"
+// @Success 200 {object} workflowInstanceDetailDoc "instance detail | 实例详情"
+// @Security BearerAuth
+// @Router /api/portal/v1/workflows/instances/{id} [get]
+func (c *Controller) APIPortalWorkflowInstance(ctx *router.Ctx) {
+	c.APIWorkflowInstance(ctx)
+}
+
+// APIPortalWorkflowWithdraw withdraws one of the caller's instances. | APIPortalWorkflowWithdraw 撤回调用方的一个实例。
+//
+// @Summary Withdraw my instance | 撤回我的实例
+// @Description Withdraws a running instance inside the configured window. | 在配置窗口内撤回运行中实例。
+// @Tags workflow
+// @Accept json
+// @Produce json
+// @Param id path string true "Instance id | 实例 ID"
+// @Param body body workflowReasonRequest false "reason | 原因"
+// @Success 204 {string} string "withdrawn | 已撤回"
+// @Security BearerAuth
+// @Router /api/portal/v1/workflows/instances/{id}/withdraw [post]
+func (c *Controller) APIPortalWorkflowWithdraw(ctx *router.Ctx) {
+	c.APIWorkflowWithdraw(ctx)
+}
+
+// APIPortalWorkflowTasks lists the caller's tasks. | APIPortalWorkflowTasks 列出调用方的任务。
+//
+// @Summary My tasks | 我的任务
+// @Description Returns tasks assigned to the caller or claimable by the caller. | 返回指派给调用方或调用方可签收的任务。
+// @Tags workflow
+// @Produce json
+// @Param tab query string false "todo or done | todo 或 done"
+// @Param status query string false "Task state | 任务状态"
+// @Param q query string false "Search keyword | 搜索关键字"
+// @Param instance query string false "Instance id | 实例 ID"
+// @Param page query int false "1-based page | 从 1 开始的页码"
+// @Param page_size query int false "Page length | 页长"
+// @Success 200 {object} workflowTaskPageDoc "task page | 任务分页"
+// @Security BearerAuth
+// @Router /api/portal/v1/workflows/tasks [get]
+func (c *Controller) APIPortalWorkflowTasks(ctx *router.Ctx) {
+	c.APIWorkflowTasks(ctx)
+}
+
+// APIPortalWorkflowTask reads one of the caller's tasks. | APIPortalWorkflowTask 读取调用方的一个任务。
+//
+// @Summary My task detail | 我的任务详情
+// @Description Returns one task with its instance and form context. | 返回任务及其实例与表单上下文。
+// @Tags workflow
+// @Produce json
+// @Param id path string true "Task id | 任务 ID"
+// @Success 200 {object} workflowTaskDetailDoc "task detail | 任务详情"
+// @Security BearerAuth
+// @Router /api/portal/v1/workflows/tasks/{id} [get]
+func (c *Controller) APIPortalWorkflowTask(ctx *router.Ctx) {
+	c.APIWorkflowTask(ctx)
+}
+
+// APIPortalWorkflowTaskAction acts on one of the caller's tasks. | APIPortalWorkflowTaskAction 处理调用方的一个任务。
+//
+// @Summary Act on my task | 处理我的任务
+// @Description Dispatches claim, approve, reject, transfer, delegate, add-sign, remove-sign, return or remind. |
+// 分派签收、通过、驳回、转办、委派、加签、减签、退回或催办。
+// @Tags workflow
+// @Accept json
+// @Produce json
+// @Param id path string true "Task id | 任务 ID"
+// @Param action path string true "Action | 动作"
+// @Param body body workflowActionRequest true "action payload | 动作载荷"
+// @Success 200 {object} workflowTaskActionResponse "updated task and instance | 更新后的任务与实例"
+// @Security BearerAuth
+// @Router /api/portal/v1/workflows/tasks/{id}/{action} [post]
+func (c *Controller) APIPortalWorkflowTaskAction(ctx *router.Ctx) {
+	c.APIWorkflowTaskAction(ctx)
+}

@@ -308,7 +308,10 @@
 
 {{/* components.form.search renders the search field the shell uses. Dict keys | dict 的键:
        ID, Action, Get, Target, Trigger, Swap, PushURL, Name, Value, PlaceholderKey, Placeholder,
-       LabelKey, Label, ClearKey, SubmitLabel, SubmitKey, Autocomplete, Attrs (template.HTMLAttr)
+       LabelKey, Label, ClearKey, SubmitLabel, SubmitKey, Autocomplete, Hidden (map), Attrs (template.HTMLAttr)
+     Hidden fields travel with both the htmx request and the no-script GET submission, so a filter
+     such as status survives a search without encoding it into the action URL. |
+     Hidden 中的隐藏字段同时随 htmx 请求与无脚本 GET 提交，status 这类筛选因此无需拼进 action URL。
      It ships its own <form>; never nest it inside another form, because HTML drops or moves nested
      forms and the magnifier leaves the input. | 它自带 <form>，绝不能嵌进另一个表单；HTML 会丢弃
      或移动嵌套表单，放大镜会跑出输入框。 */}}
@@ -320,6 +323,9 @@
       hx-swap="{{if .Swap}}{{.Swap}}{{else}}innerHTML{{end}}"
       hx-push-url="{{if .PushURL}}true{{else}}false{{end}}"{{end}}
       x-data="ydSearch" {{with .Attrs}}{{.}}{{end}}>
+  {{- range $name, $value := .Hidden }}
+  <input type="hidden" name="{{ $name }}" value="{{ $value }}">
+  {{- end }}
   <div class="yd-search__field">
     {{/* The magnifier lives inside the field so it paints above the input's opaque surface. |
          放大镜放在输入框内部，才能绘制在输入框不透明底色之上。 */}}

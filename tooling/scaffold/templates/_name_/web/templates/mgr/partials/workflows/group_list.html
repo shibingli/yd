@@ -1,0 +1,79 @@
+{{/*
+  mgr/partials/workflows/group_list.html —— 流程组表格与空状态。
+  mgr/partials/workflows/group_list.html — the workflow group table and its empty state.
+
+  数据契约 | Data contract: .Groups（[]workflow.Group）、.CanManage。
+*/}}
+{{- define "mgr/partials/workflows/group_list" -}}
+{{- if .OOB }}<p class="yd-page__subtitle" id="yd-workflow-groups-total" hx-swap-oob="true">{{ tr "workflow.groups.subtitle" .Total }}</p>{{ end }}
+<div class="yd-table__wrap" data-yd-table>
+  <table class="yd-table" aria-label="{{ tr "workflow.groups.title" }}">
+    <caption class="sr-only">{{ tr "workflow.groups.title" }}</caption>
+    <thead class="yd-table__head">
+      <tr>
+        <th class="yd-table__th" scope="col">{{ tr "workflow.field.key" }}</th>
+        <th class="yd-table__th" scope="col">{{ tr "field.name" }}</th>
+        <th class="yd-table__th" scope="col">{{ tr "workflow.groups.linked_role" }}</th>
+        <th class="yd-table__th" scope="col">{{ tr "workflow.groups.member_count" }}</th>
+        <th class="yd-table__th" scope="col">{{ tr "field.status" }}</th>
+        <th class="yd-table__th" scope="col">{{ tr "field.actions" }}</th>
+      </tr>
+    </thead>
+    <tbody class="yd-table__body">
+      {{ range .Groups }}
+      <tr class="yd-table__row">
+        <td class="yd-table__td"><code class="yd-code">{{ .Key }}</code></td>
+        <td class="yd-table__td">
+          {{ .Name }}
+          {{- with .NameEN }}<span class="yd-table__muted"> · {{ . }}</span>{{ end }}
+          {{- with .Description }}<p class="yd-table__hint">{{ . }}</p>{{ end }}
+        </td>
+        <td class="yd-table__td">{{ with .Role }}<code class="yd-code">{{ . }}</code>{{ else }}—{{ end }}</td>
+        <td class="yd-table__td yd-table__td--num">{{ .MemberCount }}</td>
+        <td class="yd-table__td">
+          {{- if eq .Status "enabled" }}{{ template "components.display.badge" (dict "Tone" "success" "LabelKey" "status.active") }}
+          {{- else }}{{ template "components.display.badge" (dict "Tone" "warn" "LabelKey" "status.disabled") }}{{ end }}
+        </td>
+        <td class="yd-table__td yd-table__td--actions">
+          <details class="yd-menu" data-yd-menu>
+            <summary class="yd-icon-btn" aria-label="{{ tr "ui.actions" }}">{{ template "partials/icon" "lucide-more-horizontal" }}</summary>
+            <div class="yd-menu__panel" role="menu">
+              {{- if $.CanManage }}
+              <button type="button" class="yd-menu__item yd-menu__item--with-icon" role="menuitem" data-yd-drawer-open
+                      hx-get="/mgr/workflow-groups/{{ .ID }}/edit" hx-target="#yd-drawer-body" hx-swap="innerHTML">
+                {{ template "partials/icon" "lucide-pen-line" }}{{ tr "ui.edit" }}
+              </button>
+              {{- end }}
+              <button type="button" class="yd-menu__item yd-menu__item--with-icon" role="menuitem" data-yd-drawer-open
+                      hx-get="/mgr/workflow-groups/{{ .ID }}/members" hx-target="#yd-drawer-body" hx-swap="innerHTML">
+                {{ template "partials/icon" "lucide-users" }}{{ tr "workflow.groups.members" }}
+              </button>
+              {{- if $.CanManage }}
+              <form method="post" action="/mgr/workflow-groups/{{ .ID }}/delete"
+                    hx-post="/mgr/workflow-groups/{{ .ID }}/delete" hx-target="#yd-workflow-groups" hx-swap="innerMorph"
+                    hx-status:409="target:#yd-errors swap:innerHTML"
+                    hx-status:422="target:#yd-errors swap:innerHTML"
+                    data-yd-confirm="{{ tr "confirm.delete_workflow_group" }}">
+                <input type="hidden" name="return_q" value="{{ $.Keyword }}">
+                <input type="hidden" name="return_status" value="{{ $.Status }}">
+                <input type="hidden" name="return_page" value="{{ $.Page }}">
+                <button type="submit" class="yd-menu__item yd-menu__item--with-icon" role="menuitem">
+                  {{ template "partials/icon" "lucide-trash-2" }}{{ tr "ui.delete" }}
+                </button>
+              </form>
+              {{- end }}
+            </div>
+          </details>
+        </td>
+      </tr>
+      {{ else }}
+      <tr class="yd-table__row yd-table__row--empty">
+        <td class="yd-table__td" colspan="6">{{ tr "workflow.groups.empty" }}</td>
+      </tr>
+      {{ end }}
+    </tbody>
+  </table>
+</div>
+{{ template "partials/workflows/pagination" .Pagination }}
+{{- end -}}
+{{ template "mgr/partials/workflows/group_list" . }}

@@ -1,0 +1,59 @@
+{{/*
+  mgr/pages/workflows.html —— 流程定义工作台：筛选、列表与生命周期动作。
+  mgr/pages/workflows.html — the process-definition workbench: filters, list and lifecycle actions.
+
+  数据契约 | Data contract: .Definitions（[]workflowDefinitionView）、.Total、.Page、.PageSize、.Keyword、
+  .Status、.Category、.CanManage，以及 authz.Data 注入的 .Perm/.Role。
+*/}}
+<section class="yd-page" data-yd-page="workflows" aria-labelledby="yd-workflows-title">
+  <header class="yd-page__header">
+    <div>
+      <h1 class="yd-page__title" id="yd-workflows-title">{{ tr "workflow.title" }}</h1>
+      <p class="yd-page__subtitle" id="yd-workflows-total">{{ tr "workflow.subtitle" .Total }}</p>
+    </div>
+    <div class="yd-page__actions">
+      {{- if can .Perm.WorkflowManage }}
+      <button type="button" class="yd-btn yd-btn--ghost" data-yd-drawer-open
+              hx-get="/mgr/workflows/import" hx-target="#yd-drawer-body" hx-swap="innerHTML">
+        {{ template "partials/icon" "lucide-upload" }}{{ tr "workflow.import" }}
+      </button>
+      <button type="button" class="yd-btn yd-btn--primary" data-yd-drawer-open
+              hx-get="/mgr/workflows/new" hx-target="#yd-drawer-body" hx-swap="innerHTML">
+        {{ template "partials/icon" "lucide-plus" }}{{ tr "workflow.new" }}
+      </button>
+      {{- end }}
+    </div>
+  </header>
+
+  {{template "components.form.search" (dict
+    "ID" "yd-workflows-search" "Action" "/mgr/workflows" "Get" "/mgr/workflows"
+    "Target" "#yd-workflow-definitions" "Swap" "innerMorph" "PushURL" true
+    "Trigger" "input changed delay:300ms from:#yd-workflows-search, submit"
+    "Name" "q" "Value" .Keyword "Hidden" (dict "status" .Status "category" .Category)
+    "Label" (tr "workflow.search") "LabelKey" "workflow.search"
+    "Placeholder" (tr "workflow.search_placeholder") "PlaceholderKey" "workflow.search_placeholder"
+    "SubmitLabel" (tr "ui.search") "SubmitKey" "ui.search")}}
+
+  <form class="yd-toolbar" hx-get="/mgr/workflows" hx-target="#yd-workflow-definitions"
+        hx-swap="innerMorph" hx-push-url="true" hx-trigger="change">
+    <input type="hidden" name="q" value="{{ .Keyword }}">
+    {{template "components.form.field" (dict
+      "ID" "yd-workflows-category" "Name" "category" "Type" "text" "Value" .Category
+      "Label" (tr "workflow.field.category") "LabelKey" "workflow.field.category" "LabelHidden" true
+      "Placeholder" (tr "workflow.field.category") "PlaceholderKey" "workflow.field.category" "MaxLength" 64)}}
+    {{template "components.form.select" (dict
+      "ID" "yd-workflows-status" "Name" "status"
+      "Label" (tr "field.status") "LabelKey" "field.status" "LabelHidden" true
+      "Options" (list
+        (dict "Value" "" "Label" (tr "ui.all") "Key" "ui.all" "Selected" (eq .Status ""))
+        (dict "Value" "draft" "Label" (tr "workflow.status.draft") "Key" "workflow.status.draft" "Selected" (eq .Status "draft"))
+        (dict "Value" "published" "Label" (tr "workflow.status.published") "Key" "workflow.status.published" "Selected" (eq .Status "published"))
+        (dict "Value" "disabled" "Label" (tr "workflow.status.disabled") "Key" "workflow.status.disabled" "Selected" (eq .Status "disabled"))))}}
+    <noscript><button type="submit" class="yd-btn">{{ tr "ui.search" }}</button></noscript>
+</form>
+
+  <section class="yd-card yd-section" id="yd-workflow-definitions" aria-labelledby="yd-workflow-definitions-title">
+    <h2 class="sr-only" id="yd-workflow-definitions-title">{{ tr "workflow.title" }}</h2>
+    {{ template "mgr/partials/workflows/definition_list" . }}
+  </section>
+</section>

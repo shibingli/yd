@@ -1,0 +1,89 @@
+{{/*
+  mgr/partials/workflows/versions.html —— 流程版本抽屉：历史、发布与草稿删除。
+  mgr/partials/workflows/versions.html — the version drawer: history, publication and draft deletion.
+
+  数据契约 | Data contract: .Definition、.Versions（[]workflow.VersionSummary）、.CanManage。
+*/}}
+{{- define "mgr/partials/workflows/versions" -}}
+<div class="yd-drawer__head">
+  <h2 class="yd-section__title">{{ tr "workflow.versions" }}</h2>
+  <p class="yd-section__hint">{{ tr "workflow.versions_hint" }}</p>
+</div>
+<div class="yd-stack">
+  <div class="yd-toolbar">
+    {{- if .CanManage }}
+    <a class="yd-btn yd-btn--ghost" href="/mgr/workflows/{{ .Definition.ID }}/design">{{ template "partials/icon" "lucide-workflow" }}{{ tr "workflow.design" }}</a>
+    <form method="post" action="/mgr/workflows/{{ .Definition.ID }}/versions"
+          data-yd-confirm="{{ tr "confirm.create_workflow_draft" }}" data-yd-drawer-persist
+          hx-post="/mgr/workflows/{{ .Definition.ID }}/versions" hx-target="#yd-drawer-body" hx-swap="innerHTML"
+          hx-status:409="target:#yd-drawer-errors swap:innerHTML" hx-status:422="target:#yd-drawer-errors swap:innerHTML">
+      <button type="submit" class="yd-btn yd-btn--primary">{{ template "partials/icon" "lucide-plus" }}{{ tr "workflow.version.new_draft" }}</button>
+    </form>
+    {{- end }}
+  </div>
+  <div class="yd-table__wrap" data-yd-table>
+    <table class="yd-table" aria-label="{{ tr "workflow.versions" }}">
+      <thead class="yd-table__head">
+        <tr>
+          <th class="yd-table__th" scope="col">{{ tr "workflow.field.version" }}</th>
+          <th class="yd-table__th" scope="col">{{ tr "field.status" }}</th>
+          <th class="yd-table__th" scope="col">{{ tr "workflow.field.published_at" }}</th>
+          <th class="yd-table__th" scope="col">{{ tr "workflow.field.note" }}</th>
+          <th class="yd-table__th" scope="col">{{ tr "field.actions" }}</th>
+        </tr>
+      </thead>
+      <tbody class="yd-table__body">
+        {{ range .Versions }}
+        <tr class="yd-table__row">
+          <td class="yd-table__td">v{{ .Version }}</td>
+          <td class="yd-table__td">
+            {{- if eq .Status "published" }}{{ template "components.display.badge" (dict "Tone" "success" "LabelKey" "workflow.version.published") }}
+            {{- else }}{{ template "components.display.badge" (dict "Tone" "muted" "LabelKey" "workflow.version.draft") }}{{ end }}
+          </td>
+          <td class="yd-table__td">{{ if .PublishedAt.IsZero }}—{{ else }}{{ .PublishedAt.Format "2006-01-02 15:04" }}{{ end }}</td>
+          <td class="yd-table__td">{{ with .Note }}{{ . }}{{ else }}—{{ end }}</td>
+          <td class="yd-table__td yd-table__td--actions">
+            {{- if or (and $.CanManage (eq .Status "draft")) (eq .Status "published") }}
+            <details class="yd-menu" data-yd-menu>
+              <summary class="yd-icon-btn" aria-label="{{ tr "ui.actions" }}">{{ template "partials/icon" "lucide-more-horizontal" }}</summary>
+              <div class="yd-menu__panel" role="menu">
+                {{- if and $.CanManage (eq .Status "draft") }}
+                <form method="post" action="/mgr/workflows/{{ $.Definition.ID }}/versions/{{ .ID }}/publish"
+                      hx-post="/mgr/workflows/{{ $.Definition.ID }}/versions/{{ .ID }}/publish" hx-target="#yd-drawer-body" hx-swap="innerHTML"
+                      hx-status:409="target:#yd-drawer-errors swap:innerHTML"
+                      hx-status:422="target:#yd-drawer-errors swap:innerHTML"
+                      data-yd-confirm="{{ tr "confirm.publish_workflow" }}" data-yd-drawer-persist>
+                  <button type="submit" class="yd-menu__item yd-menu__item--with-icon" role="menuitem">
+                    {{ template "partials/icon" "lucide-rocket" }}{{ tr "workflow.version.publish" }}
+                  </button>
+                </form>
+                <form method="post" action="/mgr/workflows/{{ $.Definition.ID }}/versions/{{ .ID }}/delete"
+                      hx-post="/mgr/workflows/{{ $.Definition.ID }}/versions/{{ .ID }}/delete" hx-target="#yd-drawer-body" hx-swap="innerHTML"
+                      hx-status:409="target:#yd-drawer-errors swap:innerHTML"
+                      hx-status:422="target:#yd-drawer-errors swap:innerHTML"
+                      data-yd-confirm="{{ tr "confirm.delete_workflow_version" }}" data-yd-drawer-persist>
+                  <button type="submit" class="yd-menu__item yd-menu__item--with-icon" role="menuitem">
+                    {{ template "partials/icon" "lucide-trash-2" }}{{ tr "ui.delete" }}
+                  </button>
+                </form>
+                {{- else if eq .Status "published" }}
+                <a class="yd-menu__item yd-menu__item--with-icon" role="menuitem" href="/mgr/workflows/export?format=bpmn&version={{ .ID }}">
+                  {{ template "partials/icon" "lucide-file-code" }}{{ tr "workflow.export_bpmn" }}
+                </a>
+                {{- end }}
+              </div>
+            </details>
+            {{- else }}—{{ end }}
+          </td>
+        </tr>
+        {{ else }}
+        <tr class="yd-table__row yd-table__row--empty">
+          <td class="yd-table__td" colspan="5">{{ tr "workflow.version.empty" }}</td>
+        </tr>
+        {{ end }}
+      </tbody>
+    </table>
+  </div>
+</div>
+{{- end -}}
+{{ template "mgr/partials/workflows/versions" . }}

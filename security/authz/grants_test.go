@@ -235,6 +235,8 @@ func TestBuiltinGrantsMemberHoldsOnlySelfService(t *testing.T) {
 		authz.PermAttachmentReadOwn: true,
 		authz.PermAttachmentDelete:  true,
 		authz.PermDictionaryResolve: true,
+		authz.PermWorkflowUse:       true,
+		authz.PermWorkflowApprove:   true,
 	}
 	held := make(map[string]bool, len(g.Permissions))
 	for _, token := range g.Permissions {

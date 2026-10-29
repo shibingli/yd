@@ -1,0 +1,54 @@
+{{/*
+  mgr/pages/workflow_instances.html —— 流程实例治理：统计、筛选与实例列表。
+  mgr/pages/workflow_instances.html — instance governance: statistics, filters and the instance list.
+
+  数据契约 | Data contract: .Instances、.Total、.Page、.PageSize、.Keyword、.Status、.Category、.Stats、.CanAdmin、.Perm。
+*/}}
+<section class="yd-page" data-yd-page="workflow-instances" aria-labelledby="yd-workflow-instances-title">
+  <header class="yd-page__header">
+    <div>
+      <h1 class="yd-page__title" id="yd-workflow-instances-title">{{ tr "workflow.instances.title" }}</h1>
+      <p class="yd-page__subtitle" id="yd-workflow-instances-total">{{ tr "workflow.instances.subtitle" .Total }}</p>
+    </div>
+  </header>
+
+  <div class="yd-stat-grid">
+    {{template "components.data.stat" (dict "LabelKey" "workflow.instances.running" "Value" .Stats.Running )}}
+    {{template "components.data.stat" (dict "LabelKey" "workflow.instances.completed" "Value" .Stats.Completed )}}
+    {{template "components.data.stat" (dict "LabelKey" "workflow.instances.withdrawn" "Value" .Stats.Withdrawn )}}
+    {{template "components.data.stat" (dict "LabelKey" "workflow.instances.pending_tasks" "Value" .Stats.PendingTasks )}}
+  </div>
+
+  {{template "components.form.search" (dict
+    "ID" "yd-workflow-instances-search" "Action" "/mgr/workflow-instances" "Get" "/mgr/workflow-instances"
+    "Target" "#yd-workflow-instances" "Swap" "innerMorph" "PushURL" true
+    "Trigger" "input changed delay:300ms from:#yd-workflow-instances-search, submit"
+    "Name" "q" "Value" .Keyword "Hidden" (dict "status" .Status "category" .Category)
+    "Label" (tr "workflow.instances.search") "LabelKey" "workflow.instances.search"
+    "Placeholder" (tr "workflow.instances.search_placeholder") "PlaceholderKey" "workflow.instances.search_placeholder"
+    "SubmitLabel" (tr "ui.search") "SubmitKey" "ui.search")}}
+
+  <form class="yd-toolbar" hx-get="/mgr/workflow-instances" hx-target="#yd-workflow-instances"
+        hx-swap="innerMorph" hx-push-url="true" hx-trigger="change">
+    <input type="hidden" name="q" value="{{ .Keyword }}">
+    {{template "components.form.field" (dict
+      "ID" "yd-workflow-instances-category" "Name" "category" "Type" "text" "Value" .Category
+      "Label" (tr "workflow.field.category") "LabelKey" "workflow.field.category" "LabelHidden" true
+      "Placeholder" (tr "workflow.field.category") "PlaceholderKey" "workflow.field.category" "MaxLength" 64)}}
+    {{template "components.form.select" (dict
+      "ID" "yd-workflow-instances-status" "Name" "status"
+      "Label" (tr "field.status") "LabelKey" "field.status" "LabelHidden" true
+      "Options" (list
+        (dict "Value" "" "Label" (tr "ui.all") "Key" "ui.all" "Selected" (eq .Status ""))
+        (dict "Value" "running" "Label" (tr "workflow.instances.running") "Key" "workflow.instances.running" "Selected" (eq .Status "running"))
+        (dict "Value" "completed" "Label" (tr "workflow.instances.completed") "Key" "workflow.instances.completed" "Selected" (eq .Status "completed"))
+        (dict "Value" "withdrawn" "Label" (tr "workflow.instances.withdrawn") "Key" "workflow.instances.withdrawn" "Selected" (eq .Status "withdrawn"))
+        (dict "Value" "terminated" "Label" (tr "workflow.instances.terminated") "Key" "workflow.instances.terminated" "Selected" (eq .Status "terminated"))))}}
+    <noscript><button type="submit" class="yd-btn">{{ tr "ui.search" }}</button></noscript>
+</form>
+
+  <section class="yd-card yd-section" id="yd-workflow-instances" aria-labelledby="yd-workflow-instances-list-title">
+    <h2 class="sr-only" id="yd-workflow-instances-list-title">{{ tr "workflow.instances.title" }}</h2>
+    {{ template "mgr/partials/workflows/instance_list" . }}
+  </section>
+</section>

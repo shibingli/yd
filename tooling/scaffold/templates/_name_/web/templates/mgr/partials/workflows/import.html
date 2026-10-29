@@ -1,0 +1,29 @@
+{{/*
+  mgr/partials/workflows/import.html —— 流程包与 BPMN 导入抽屉。
+  mgr/partials/workflows/import.html — the bundle and BPMN import drawer.
+
+  数据契约 | Data contract: .MaxBytes。
+*/}}
+{{- define "mgr/partials/workflows/import" -}}
+<div class="yd-drawer__head">
+  <h2 class="yd-section__title">{{ tr "workflow.import" }}</h2>
+  <p class="yd-section__hint">{{ tr "workflow.import_hint" .MaxBytes }}</p>
+</div>
+<form class="yd-form" method="post" action="/mgr/workflows/import" enctype="multipart/form-data"
+      data-yd-confirm="{{ tr "confirm.import_workflow" }}"
+      hx-post="/mgr/workflows/import" hx-encoding="multipart/form-data"
+      hx-target="#yd-workflow-definitions" hx-swap="innerMorph"
+      hx-status:409="target:#yd-drawer-errors swap:innerHTML"
+      hx-status:413="target:#yd-drawer-errors swap:innerHTML"
+      hx-status:422="target:#yd-drawer-errors swap:innerHTML">
+  {{template "components.form.file" (dict
+    "ID" "yd-workflow-import-file" "Name" "file"
+    "Label" (tr "workflow.import_file") "LabelKey" "workflow.import_file"
+    "Hint" (tr "workflow.import_file_hint") "HintKey" "workflow.import_file_hint"
+    "Accept" ".json,.bpmn,.xml,application/json,application/xml" "Required" true)}}
+  {{template "components.form.actions" (dict
+    "SubmitLabel" (tr "workflow.import") "SubmitKey" "workflow.import"
+    "CancelLabel" (tr "ui.cancel") "CancelKey" "ui.cancel")}}
+</form>
+{{- end -}}
+{{ template "mgr/partials/workflows/import" . }}

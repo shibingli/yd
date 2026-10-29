@@ -1,0 +1,895 @@
+// This file owns the process-definition lifecycle: the workbench, the drawers, the visual designer,
+// versions, and JSON/BPMN import and export. | 本文件负责流程定义生命周期：工作台、抽屉、可视化设计器、
+// 版本以及 JSON/BPMN 导入导出。
+
+package controller
+
+import (
+	"io"
+	"net/http"
+	"path/filepath"
+	"strings"
+
+	"{{ .YdModule }}/security/authz"
+	"{{ .YdxModule }}/errs"
+	"{{ .YdxModule }}/json"
+	ydlog "{{ .YdxModule }}/log"
+	"{{ .YdxModule }}/render"
+	"{{ .YdxModule }}/router"
+	"{{ .YdxModule }}/workflow"
+)
+
+// workflowDefinitionView is one definition row with lightweight version markers. | workflowDefinitionView 是带轻量版本标记的定义行。
+type workflowDefinitionView struct {
+	// Definition is the row itself. | Definition 是定义行本身。
+	Definition workflow.Definition
+	// Published is the newest published version, when any. | Published 是最新的已发布版本（如有）。
+	Published workflow.VersionSummary
+	// Draft is the newest draft, when any. | Draft 是最近的草稿（如有）。
+	Draft workflow.VersionSummary
+	// CanManage reports whether the caller may mutate this definition. | CanManage 报告调用方能否修改该定义。
+	CanManage bool
+}
+
+// Workflows renders the process-definition workbench. | Workflows 渲染流程定义工作台。
+//
+// @Summary Process definitions | 流程定义工作台
+// @Description Renders the definition workbench with filters, version state and lifecycle actions. | 渲染带筛选、版本状态与生命周期动作的定义工作台。
+// @Tags workflow
+// @Produce html
+// @Param q query string false "Search keyword | 搜索关键字"
+// @Param status query string false "draft, published or disabled | draft、published 或 disabled"
+// @Param category query string false "Process category | 流程分类"
+// @Param page query int false "1-based page | 从 1 开始的页码"
+// @Success 200 {string} string "definition workbench | 定义工作台"
+// @Failure 403 {string} string "permission denied | 权限不足"
+// @Failure 503 {string} string "workflow engine unavailable | 流程引擎不可用"
+// @Security BearerAuth
+// @Router /mgr/workflows [get]
+func (c *Controller) Workflows(ctx *router.Ctx) {
+	if !c.workflowServiceOrFail(ctx) {
+		return
+	}
+	if workflowHTMXTarget(ctx, "yd-workflow-definitions") {
+		c.WorkflowDefinitionList(ctx)
+		return
+	}
+	tenantID, ok := c.tenantID(ctx)
+	if !ok {
+		return
+	}
+	page, views, err := c.workflowDefinitionRows(ctx, tenantID, workflow.DefinitionFilter{
+		Query:    field(ctx, FieldKeyword),
+		Status:   field(ctx, FieldWorkflowFilterStatus),
+		Category: field(ctx, FieldWorkflowCategory),
+		Page:     pageNumber(ctx),
+	})
+	if err != nil {
+		c.failService(ctx, err)
+		return
+	}
+	data := c.pageView(ctx, "流程管理 | Workflows", map[string]any{
+		"Definitions": views,
+		"Total":       page.Total,
+		"Page":        page.Page,
+		"PageSize":    page.PageSize,
+		"Keyword":     field(ctx, FieldKeyword),
+		"Status":      field(ctx, FieldWorkflowFilterStatus),
+		"Category":    field(ctx, FieldWorkflowCategory),
+		"CanManage":   c.workflowCanManage(ctx),
+		"Pagination": c.workflowPagination(ctx, "/mgr/workflows", map[string]string{
+			"q": field(ctx, FieldKeyword), "status": field(ctx, FieldWorkflowFilterStatus), "category": field(ctx, FieldWorkflowCategory),
+		}, page.Page, page.PageSize, page.Total),
+	})
+	c.render(ctx, http.StatusOK, TplWorkflows, data)
+}
+
+// WorkflowDefinitionList renders only the definition table after a filter or mutation. |
+// WorkflowDefinitionList 在筛选或变更后只渲染定义表格。
+//
+// @Summary Definition list fragment | 定义列表片段
+// @Description Returns the definition table alone so htmx can swap it without rebuilding the page. | 只返回定义表格，使 htmx 无需重建页面即可换入。
+// @Tags workflow
+// @Produce html
+// @Param q query string false "Search keyword | 搜索关键字"
+// @Param status query string false "Lifecycle state | 生命周期状态"
+// @Param category query string false "Category | 分类"
+// @Param page query int false "1-based page | 从 1 开始的页码"
+// @Success 200 {string} string "definition table | 定义表格"
+// @Failure 503 {string} string "workflow engine unavailable | 流程引擎不可用"
+// @Security BearerAuth
+// @Router /mgr/workflows/list [get]
+func (c *Controller) WorkflowDefinitionList(ctx *router.Ctx) {
+	if !c.workflowServiceOrFail(ctx) {
+		return
+	}
+	tenantID, ok := c.tenantID(ctx)
+	if !ok {
+		return
+	}
+	page, views, err := c.workflowDefinitionRows(ctx, tenantID, workflow.DefinitionFilter{
+		Query:    field(ctx, FieldKeyword),
+		Status:   field(ctx, FieldWorkflowFilterStatus),
+		Category: field(ctx, FieldWorkflowCategory),
+		Page:     pageNumber(ctx),
+	})
+	if err != nil {
+		c.failService(ctx, err)
+		return
+	}
+	c.render(ctx, http.StatusOK, TplWorkflowDefinitionList, c.view(ctx, "流程列表 | Workflows", map[string]any{
+		"Definitions": views,
+		"Total":       page.Total,
+		"Page":        page.Page,
+		"PageSize":    page.PageSize,
+		"Keyword":     field(ctx, FieldKeyword),
+		"Status":      field(ctx, FieldWorkflowFilterStatus),
+		"Category":    field(ctx, FieldWorkflowCategory),
+		"CanManage":   c.workflowCanManage(ctx),
+		"OOB":         true,
+		"Pagination": c.workflowPagination(ctx, "/mgr/workflows", map[string]string{
+			"q": field(ctx, FieldKeyword), "status": field(ctx, FieldWorkflowFilterStatus), "category": field(ctx, FieldWorkflowCategory),
+		}, page.Page, page.PageSize, page.Total),
+	}))
+}
+
+// workflowDefinitionRows loads one page and decorates every row with its versions. | workflowDefinitionRows
+// 加载一页定义并为每行补充版本。
+func (c *Controller) workflowDefinitionRows(ctx *router.Ctx, tenantID string, filter workflow.DefinitionFilter) (workflow.DefinitionPage, []workflowDefinitionView, error) {
+	page, err := c.workflow.ListDefinitions(ctx.Request.Context(), tenantID, filter)
+	if err != nil {
+		return workflow.DefinitionPage{}, nil, err
+	}
+	ids := make([]string, 0, len(page.Items))
+	for _, definition := range page.Items {
+		ids = append(ids, definition.ID)
+	}
+	summariesByDefinition, err := c.workflow.VersionSummariesForDefinitions(ctx.Request.Context(), tenantID, ids)
+	if err != nil {
+		return workflow.DefinitionPage{}, nil, err
+	}
+	views := make([]workflowDefinitionView, 0, len(page.Items))
+	for _, definition := range page.Items {
+		summaries := summariesByDefinition[definition.ID]
+		view := workflowDefinitionView{
+			Definition: definition,
+			CanManage:  c.workflowCanManage(ctx),
+		}
+		for _, version := range summaries {
+			if version.Status == workflow.VersionDraft && view.Draft.ID == "" {
+				view.Draft = version
+			}
+			if version.Status == workflow.VersionPublished && view.Published.ID == "" {
+				view.Published = version
+			}
+		}
+		views = append(views, view)
+	}
+	return page, views, nil
+}
+
+// workflowCanManage reports whether the caller holds workflow:manage. | workflowCanManage 报告调用方是否持有 workflow:manage。
+func (c *Controller) workflowCanManage(ctx *router.Ctx) bool {
+	return authz.Can(ctx.Request.Context(), authz.PermWorkflowManage)
+}
+
+// NewWorkflowDrawer renders the create-definition drawer. | NewWorkflowDrawer 渲染新建定义抽屉。
+//
+// @Summary New definition drawer | 新建定义抽屉
+// @Description Returns the create-definition form for the shared drawer. | 返回共享抽屉的新建定义表单。
+// @Tags workflow
+// @Produce html
+// @Success 200 {string} string "definition form | 定义表单"
+// @Security BearerAuth
+// @Router /mgr/workflows/new [get]
+func (c *Controller) NewWorkflowDrawer(ctx *router.Ctx) {
+	if !c.workflowServiceOrFail(ctx) {
+		return
+	}
+	c.render(ctx, http.StatusOK, TplWorkflowDefinitionDrawer, c.view(ctx, "新建流程 | New workflow", map[string]any{
+		"Definition": workflow.Definition{Status: workflow.DefinitionDraft},
+		"Mode":       "create",
+	}))
+}
+
+// EditWorkflowDrawer renders the edit-definition drawer. | EditWorkflowDrawer 渲染编辑定义抽屉。
+//
+// @Summary Edit definition drawer | 编辑定义抽屉
+// @Description Returns the edit-definition form pre-filled from the stored row. | 返回按库中记录预填的编辑表单。
+// @Tags workflow
+// @Produce html
+// @Param id path string true "Definition id | 定义 ID"
+// @Success 200 {string} string "definition form | 定义表单"
+// @Failure 404 {string} string "definition not found | 定义不存在"
+// @Security BearerAuth
+// @Router /mgr/workflows/{id}/edit [get]
+func (c *Controller) EditWorkflowDrawer(ctx *router.Ctx) {
+	if !c.workflowServiceOrFail(ctx) {
+		return
+	}
+	tenantID, ok := c.tenantID(ctx)
+	if !ok {
+		return
+	}
+	definition, err := c.workflow.GetDefinition(ctx.Request.Context(), tenantID, ctx.Param("id"))
+	if err != nil {
+		c.failService(ctx, err)
+		return
+	}
+	c.render(ctx, http.StatusOK, TplWorkflowDefinitionDrawer, c.view(ctx, "编辑流程 | Edit workflow", map[string]any{
+		"Definition": definition,
+		"Mode":       "edit",
+	}))
+}
+
+// SaveWorkflow creates one definition. | SaveWorkflow 创建一个定义。
+//
+// @Summary Create definition | 创建定义
+// @Description Creates a draft definition from the drawer form. | 从抽屉表单创建草稿定义。
+// @Tags workflow
+// @Accept application/x-www-form-urlencoded
+// @Produce html
+// @Param key formData string true "Immutable key | 不可变键"
+// @Param name formData string true "Chinese name | 中文名"
+// @Param name_en formData string false "English name | 英文名"
+// @Param category formData string false "Category | 分类"
+// @Param description formData string false "Description | 说明"
+// @Success 200 {string} string "definition table | 定义表格"
+// @Failure 422 {string} string "validation failed | 校验失败"
+// @Failure 409 {string} string "duplicate key | 键重复"
+// @Security BearerAuth
+// @Router /mgr/workflows [post]
+func (c *Controller) SaveWorkflow(ctx *router.Ctx) {
+	if !c.workflowServiceOrFail(ctx) {
+		return
+	}
+	tenantID, ok := c.tenantID(ctx)
+	if !ok {
+		return
+	}
+	actor := c.workflowActor(ctx)
+	if _, err := c.workflow.CreateDefinition(ctx.Request.Context(), tenantID, actor.ID, workflow.DefinitionInput{
+		Key:         field(ctx, FieldWorkflowKey),
+		Name:        field(ctx, FieldName),
+		NameEN:      field(ctx, FieldNameEN),
+		Description: workflowLongField(ctx, FieldDescription, 1000),
+		Category:    field(ctx, FieldWorkflowCategory),
+		Icon:        field(ctx, FieldWorkflowIcon),
+	}); err != nil {
+		c.failService(ctx, err)
+		return
+	}
+	c.toast(ctx, "流程已创建 | Workflow created")
+	c.renderWorkflowList(ctx, tenantID)
+}
+
+// UpdateWorkflow updates one definition. | UpdateWorkflow 更新一个定义。
+//
+// @Summary Update definition | 更新定义
+// @Description Updates the editable fields of one definition; the key is immutable. | 更新定义的可编辑字段；键不可变。
+// @Tags workflow
+// @Accept application/x-www-form-urlencoded
+// @Produce html
+// @Param id path string true "Definition id | 定义 ID"
+// @Param name formData string true "Chinese name | 中文名"
+// @Param name_en formData string false "English name | 英文名"
+// @Param category formData string false "Category | 分类"
+// @Param description formData string false "Description | 说明"
+// @Success 200 {string} string "definition table | 定义表格"
+// @Failure 403 {string} string "permission denied | 权限不足"
+// @Failure 404 {string} string "definition not found | 定义不存在"
+// @Security BearerAuth
+// @Router /mgr/workflows/{id} [post]
+func (c *Controller) UpdateWorkflow(ctx *router.Ctx) {
+	if !c.workflowServiceOrFail(ctx) {
+		return
+	}
+	tenantID, ok := c.tenantID(ctx)
+	if !ok {
+		return
+	}
+	actor := c.workflowActor(ctx)
+	if _, err := c.workflow.UpdateDefinition(ctx.Request.Context(), tenantID, ctx.Param("id"), actor.ID, workflow.DefinitionInput{
+		Name:        field(ctx, FieldName),
+		NameEN:      field(ctx, FieldNameEN),
+		Description: workflowLongField(ctx, FieldDescription, 1000),
+		Category:    field(ctx, FieldWorkflowCategory),
+		Icon:        field(ctx, FieldWorkflowIcon),
+	}); err != nil {
+		c.failService(ctx, err)
+		return
+	}
+	c.toast(ctx, "流程已保存 | Workflow saved")
+	c.renderWorkflowList(ctx, tenantID)
+}
+
+// SetWorkflowStatus enables, disables or drafts a definition. | SetWorkflowStatus 启用、停用或恢复草稿状态。
+//
+// @Summary Change definition state | 变更定义状态
+// @Description Enables, disables or returns a definition to draft state. | 启用、停用或把定义恢复为草稿。
+// @Tags workflow
+// @Accept application/x-www-form-urlencoded
+// @Produce html
+// @Param id path string true "Definition id | 定义 ID"
+// @Param status formData string true "Target state | 目标状态"
+// @Success 200 {string} string "definition table | 定义表格"
+// @Failure 409 {string} string "invalid transition | 非法流转"
+// @Security BearerAuth
+// @Router /mgr/workflows/{id}/status [post]
+func (c *Controller) SetWorkflowStatus(ctx *router.Ctx) {
+	if !c.workflowServiceOrFail(ctx) {
+		return
+	}
+	tenantID, ok := c.tenantID(ctx)
+	if !ok {
+		return
+	}
+	actor := c.workflowActor(ctx)
+	if _, err := c.workflow.SetDefinitionStatus(ctx.Request.Context(), tenantID, ctx.Param("id"), actor.ID, field(ctx, FieldStatus)); err != nil {
+		c.failService(ctx, err)
+		return
+	}
+	c.toast(ctx, "流程状态已更新 | Workflow state updated")
+	c.renderWorkflowList(ctx, tenantID)
+}
+
+// DeleteWorkflow removes one definition that has no instances. | DeleteWorkflow 删除没有实例的定义。
+//
+// @Summary Delete definition | 删除定义
+// @Description Deletes a definition and its versions when no instance exists. | 在没有实例时删除定义及其版本。
+// @Tags workflow
+// @Accept application/x-www-form-urlencoded
+// @Produce html
+// @Param id path string true "Definition id | 定义 ID"
+// @Success 200 {string} string "definition table | 定义表格"
+// @Failure 409 {string} string "definition in use | 定义正在使用"
+// @Security BearerAuth
+// @Router /mgr/workflows/{id}/delete [post]
+func (c *Controller) DeleteWorkflow(ctx *router.Ctx) {
+	if !c.workflowServiceOrFail(ctx) {
+		return
+	}
+	tenantID, ok := c.tenantID(ctx)
+	if !ok {
+		return
+	}
+	if err := c.workflow.DeleteDefinition(ctx.Request.Context(), tenantID, ctx.Param("id")); err != nil {
+		c.failService(ctx, err)
+		return
+	}
+	c.toast(ctx, "流程已删除 | Workflow deleted")
+	c.renderWorkflowList(ctx, tenantID)
+}
+
+// renderWorkflowList renders the definition table after one mutation. | renderWorkflowList 在变更后渲染定义表格。
+func (c *Controller) renderWorkflowList(ctx *router.Ctx, tenantID string) {
+	// Mutations carry no filters of their own; recover them from the page the operator was on. |
+	// 变更请求本身不带筛选条件，从操作人所在页面恢复。
+	keyword := firstNonEmpty(field(ctx, "return_q"), workflowCurrentQuery(ctx, FieldKeyword))
+	status := firstNonEmpty(field(ctx, "return_status"), workflowCurrentQuery(ctx, FieldWorkflowFilterStatus))
+	category := firstNonEmpty(field(ctx, "return_category"), workflowCurrentQuery(ctx, FieldWorkflowCategory))
+	pageNo := pageNumberFromQuery(ctx, firstNonEmpty(field(ctx, "return_page"), workflowCurrentQuery(ctx, "page")))
+	page, views, err := c.workflowDefinitionRows(ctx, tenantID, workflow.DefinitionFilter{
+		Query: keyword, Status: status, Category: category, Page: pageNo,
+	})
+	if err != nil {
+		c.failService(ctx, err)
+		return
+	}
+	c.render(ctx, http.StatusOK, TplWorkflowDefinitionList, c.view(ctx, "流程列表 | Workflows", map[string]any{
+		"Definitions": views,
+		"Total":       page.Total,
+		"Page":        page.Page,
+		"PageSize":    page.PageSize,
+		"Keyword":     keyword,
+		"Status":      status,
+		"Category":    category,
+		"CanManage":   c.workflowCanManage(ctx),
+		"OOB":         true,
+		"Pagination": c.workflowPagination(ctx, "/mgr/workflows", map[string]string{
+			"q": keyword, "status": status, "category": category,
+		}, page.Page, page.PageSize, page.Total),
+	}))
+}
+
+// WorkflowDesigner renders the visual designer page. | WorkflowDesigner 渲染可视化设计器页面。
+//
+// @Summary Visual process designer | 可视化流程设计器
+// @Description Opens the newest draft of a definition, creating one from the latest version when needed. | 打开定义最近的草稿，必要时从最新版本创建草稿。
+// @Tags workflow
+// @Produce html
+// @Param id path string true "Definition id | 定义 ID"
+// @Success 200 {string} string "designer page | 设计器页面"
+// @Failure 404 {string} string "definition not found | 定义不存在"
+// @Security BearerAuth
+// @Router /mgr/workflows/{id}/design [get]
+func (c *Controller) WorkflowDesigner(ctx *router.Ctx) {
+	if !c.workflowServiceOrFail(ctx) {
+		return
+	}
+	tenantID, ok := c.tenantID(ctx)
+	if !ok {
+		return
+	}
+	definition, err := c.workflow.GetDefinition(ctx.Request.Context(), tenantID, ctx.Param("id"))
+	if err != nil {
+		c.failService(ctx, err)
+		return
+	}
+	version, err := c.workflowDesignerVersion(ctx, tenantID, definition)
+	if err != nil {
+		c.failService(ctx, err)
+		return
+	}
+	directory, err := c.workflowDirectoryJSON(ctx, tenantID)
+	if err != nil {
+		c.failService(ctx, err)
+		return
+	}
+	data := c.view(ctx, "流程设计器 | Workflow designer", map[string]any{
+		"Definition":      definition,
+		"WorkflowVersion": version,
+		"DesignJSON":      version.Design,
+		"DirectoryJSON":   directory,
+		"CanManage":       c.workflowCanManage(ctx),
+		"PageScripts":     []string{"/static/js/yd-workflow-designer.js"},
+	})
+	data[render.LayoutKey] = LayoutMgr
+	c.render(ctx, http.StatusOK, TplWorkflowDesigner, data)
+}
+
+// workflowDesignerVersion returns the newest draft, cloning the newest version when necessary. The
+// summaries query keeps every older design and BPMN document out of the page render. | workflowDesignerVersion
+// 返回最近草稿，必要时克隆最新版本。摘要查询让所有旧设计与 BPMN 文档不进入页面渲染。
+func (c *Controller) workflowDesignerVersion(ctx *router.Ctx, tenantID string, definition workflow.Definition) (workflow.Version, error) {
+	summaries, err := c.workflow.VersionSummariesForDefinitions(ctx.Request.Context(), tenantID, []string{definition.ID})
+	if err != nil {
+		return workflow.Version{}, err
+	}
+	versions := summaries[definition.ID]
+	var newest workflow.Version
+	if len(versions) > 0 {
+		for _, summary := range versions {
+			if summary.Status == workflow.VersionDraft {
+				return c.workflow.GetVersion(ctx.Request.Context(), tenantID, summary.ID)
+			}
+		}
+		newest, err = c.workflow.GetVersion(ctx.Request.Context(), tenantID, versions[0].ID)
+		if err != nil {
+			return workflow.Version{}, err
+		}
+	}
+	design := defaultWorkflowDesign()
+	if newest.ID != "" {
+		parsed, err := workflow.DesignOf(newest)
+		if err != nil {
+			return workflow.Version{}, err
+		}
+		design = parsed
+	}
+	actor := c.workflowActor(ctx)
+	return c.workflow.CreateVersion(ctx.Request.Context(), tenantID, definition.ID, actor.ID, workflow.VersionInput{
+		Design: design, Note: "设计器自动创建 | created by the designer",
+	})
+}
+
+// defaultWorkflowDesign returns the starter graph of a new process. | defaultWorkflowDesign 返回新流程的起始图。
+func defaultWorkflowDesign() workflow.Design {
+	design := workflow.DefaultDesign()
+	design.Nodes = []workflow.Node{
+		{ID: "start", Type: workflow.NodeStart, Name: "开始 | Start", Position: workflow.Position{X: 80, Y: 220}},
+		{
+			ID: "approve", Type: workflow.NodeUserTask, Name: "审批 | Approve",
+			Assignee:   workflow.Assignment{Type: workflow.AssigneeInitiator, Claim: workflow.ClaimAssigned},
+			Completion: workflow.Completion{Mode: workflow.CompletionAny, RejectMode: workflow.RejectModeAny},
+			OnReject:   workflow.OnRejectTerminate, AllowAuto: true,
+			Position: workflow.Position{X: 280, Y: 200},
+		},
+		{ID: "end", Type: workflow.NodeEnd, Name: "结束 | End", Position: workflow.Position{X: 560, Y: 220}},
+	}
+	design.Edges = []workflow.Edge{
+		{ID: "flow_start_approve", Source: "start", Target: "approve", Sort: 0},
+		{ID: "flow_approve_end", Source: "approve", Target: "end", Sort: 1},
+	}
+	return design
+}
+
+// workflowDirectoryJSON renders users, roles and groups for the designer pickers. | workflowDirectoryJSON
+// 为设计器选择器渲染用户、角色与流程组。
+func (c *Controller) workflowDirectoryJSON(ctx *router.Ctx, tenantID string) (string, error) {
+	users, err := c.users.List(ctx.Request.Context(), tenantID, "")
+	if err != nil {
+		return "", err
+	}
+	roles, err := c.roles.List(ctx.Request.Context(), tenantID)
+	if err != nil {
+		return "", err
+	}
+	groups, err := c.workflow.ListGroups(ctx.Request.Context(), tenantID, workflow.GroupFilter{Page: 1, PageSize: 100})
+	if err != nil {
+		return "", err
+	}
+	type directoryUser struct {
+		ID       string `json:"id"`
+		Name     string `json:"name"`
+		Username string `json:"username"`
+	}
+	type directoryGroup struct {
+		Key  string `json:"key"`
+		Name string `json:"name"`
+		Role string `json:"role,omitempty"`
+	}
+	directory := struct {
+		Users  []directoryUser  `json:"users"`
+		Roles  []string         `json:"roles"`
+		Groups []directoryGroup `json:"groups"`
+	}{
+		Users:  make([]directoryUser, 0, len(users)),
+		Roles:  make([]string, 0, len(roles)),
+		Groups: make([]directoryGroup, 0, len(groups.Items)),
+	}
+	for _, user := range users {
+		directory.Users = append(directory.Users, directoryUser{ID: user.ID, Name: user.DisplayName, Username: user.Username})
+	}
+	for _, role := range roles {
+		directory.Roles = append(directory.Roles, role.Name)
+	}
+	for _, group := range groups.Items {
+		directory.Groups = append(directory.Groups, directoryGroup{Key: group.Key, Name: group.Name, Role: group.Role})
+	}
+	data, err := json.Marshal(directory)
+	if err != nil {
+		return "", errs.Wrap(err, workflow.ErrInvalidInput)
+	}
+	return string(data), nil
+}
+
+// WorkflowVersions renders the version drawer. | WorkflowVersions 渲染版本抽屉。
+//
+// @Summary Version history drawer | 版本历史抽屉
+// @Description Lists every version of a definition with publish and delete actions. | 列出一个定义的全部版本及发布、删除动作。
+// @Tags workflow
+// @Produce html
+// @Param id path string true "Definition id | 定义 ID"
+// @Success 200 {string} string "version drawer | 版本抽屉"
+// @Failure 404 {string} string "definition not found | 定义不存在"
+// @Security BearerAuth
+// @Router /mgr/workflows/{id}/versions [get]
+func (c *Controller) WorkflowVersions(ctx *router.Ctx) {
+	if !c.workflowServiceOrFail(ctx) {
+		return
+	}
+	tenantID, ok := c.tenantID(ctx)
+	if !ok {
+		return
+	}
+	definition, err := c.workflow.GetDefinition(ctx.Request.Context(), tenantID, ctx.Param("id"))
+	if err != nil {
+		c.failService(ctx, err)
+		return
+	}
+	summaries, err := c.workflow.VersionSummariesForDefinitions(ctx.Request.Context(), tenantID, []string{definition.ID})
+	if err != nil {
+		c.failService(ctx, err)
+		return
+	}
+	c.render(ctx, http.StatusOK, TplWorkflowVersions, c.view(ctx, "版本 | Versions", map[string]any{
+		"Definition": definition,
+		"Versions":   summaries[definition.ID],
+		"CanManage":  c.workflowCanManage(ctx),
+	}))
+}
+
+// CreateWorkflowDraft appends a draft cloned from the newest version. | CreateWorkflowDraft 从最新版本克隆一个草稿。
+//
+// @Summary Create draft version | 创建草稿版本
+// @Description Clones the newest version into a new draft, or starts an empty graph. | 把最新版本克隆为新草稿，或从空图开始。
+// @Tags workflow
+// @Accept application/x-www-form-urlencoded
+// @Produce html
+// @Param id path string true "Definition id | 定义 ID"
+// @Success 200 {string} string "version drawer | 版本抽屉"
+// @Security BearerAuth
+// @Router /mgr/workflows/{id}/versions [post]
+func (c *Controller) CreateWorkflowDraft(ctx *router.Ctx) {
+	if !c.workflowServiceOrFail(ctx) {
+		return
+	}
+	tenantID, ok := c.tenantID(ctx)
+	if !ok {
+		return
+	}
+	definition, err := c.workflow.GetDefinition(ctx.Request.Context(), tenantID, ctx.Param("id"))
+	if err != nil {
+		c.failService(ctx, err)
+		return
+	}
+	design := defaultWorkflowDesign()
+	summaries, err := c.workflow.VersionSummariesForDefinitions(ctx.Request.Context(), tenantID, []string{definition.ID})
+	if err != nil {
+		c.failService(ctx, err)
+		return
+	}
+	if versions := summaries[definition.ID]; len(versions) > 0 {
+		newest, err := c.workflow.GetVersion(ctx.Request.Context(), tenantID, versions[0].ID)
+		if err != nil {
+			c.failService(ctx, err)
+			return
+		}
+		parsed, err := workflow.DesignOf(newest)
+		if err != nil {
+			c.failService(ctx, err)
+			return
+		}
+		design = parsed
+	}
+	actor := c.workflowActor(ctx)
+	if _, err := c.workflow.CreateVersion(ctx.Request.Context(), tenantID, definition.ID, actor.ID, workflow.VersionInput{
+		Design: design, Note: field(ctx, FieldWorkflowNote),
+	}); err != nil {
+		c.failService(ctx, err)
+		return
+	}
+	c.toast(ctx, "草稿已创建 | Draft created")
+	c.WorkflowVersions(ctx)
+}
+
+// PublishWorkflowVersion freezes one draft. | PublishWorkflowVersion 冻结一个草稿。
+//
+// @Summary Publish version | 发布版本
+// @Description Publishes a draft so new instances may bind to it. | 发布草稿，使新实例可以绑定它。
+// @Tags workflow
+// @Accept application/x-www-form-urlencoded
+// @Produce html
+// @Param id path string true "Definition id | 定义 ID"
+// @Param version_id path string true "Version id | 版本 ID"
+// @Param note formData string false "Publication note | 发布说明"
+// @Success 200 {string} string "version drawer | 版本抽屉"
+// @Failure 409 {string} string "version already published | 版本已发布"
+// @Security BearerAuth
+// @Router /mgr/workflows/{id}/versions/{version_id}/publish [post]
+func (c *Controller) PublishWorkflowVersion(ctx *router.Ctx) {
+	if !c.workflowServiceOrFail(ctx) {
+		return
+	}
+	tenantID, ok := c.tenantID(ctx)
+	if !ok {
+		return
+	}
+	actor := c.workflowActor(ctx)
+	if _, err := c.workflow.PublishVersion(ctx.Request.Context(), tenantID, ctx.Param("version_id"), actor.ID, field(ctx, FieldWorkflowNote)); err != nil {
+		c.failService(ctx, err)
+		return
+	}
+	c.toast(ctx, "版本已发布 | Version published")
+	c.WorkflowVersions(ctx)
+}
+
+// DeleteWorkflowVersion removes one draft. | DeleteWorkflowVersion 删除一个草稿。
+//
+// @Summary Delete draft version | 删除草稿版本
+// @Description Deletes a draft; published versions are immutable. | 删除草稿；已发布版本不可变。
+// @Tags workflow
+// @Produce html
+// @Param id path string true "Definition id | 定义 ID"
+// @Param version_id path string true "Version id | 版本 ID"
+// @Success 200 {string} string "version drawer | 版本抽屉"
+// @Failure 409 {string} string "version is published | 版本已发布"
+// @Security BearerAuth
+// @Router /mgr/workflows/{id}/versions/{version_id}/delete [post]
+func (c *Controller) DeleteWorkflowVersion(ctx *router.Ctx) {
+	if !c.workflowServiceOrFail(ctx) {
+		return
+	}
+	tenantID, ok := c.tenantID(ctx)
+	if !ok {
+		return
+	}
+	if err := c.workflow.DeleteVersion(ctx.Request.Context(), tenantID, ctx.Param("version_id")); err != nil {
+		c.failService(ctx, err)
+		return
+	}
+	c.toast(ctx, "草稿已删除 | Draft deleted")
+	c.WorkflowVersions(ctx)
+}
+
+// WorkflowExport downloads definitions as a JSON bundle or one BPMN document. | WorkflowExport
+// 以 JSON 流程包或单个 BPMN 文档下载定义。
+//
+// @Summary Export definitions | 导出定义
+// @Description Exports selected definitions as a JSON bundle, or one version as BPMN 2.0 XML. | 把选定定义导出为 JSON 流程包，或把一个版本导出为 BPMN 2.0 XML。
+// @Tags workflow
+// @Produce application/json,application/xml
+// @Param keys query string false "Comma-separated definition keys; empty exports all | 逗号分隔的定义键；空表示全部"
+// @Param definition query string false "Definition id for one BPMN export | 单个 BPMN 导出的定义 ID"
+// @Param version query string false "Version id for a BPMN export | BPMN 导出的版本 ID"
+// @Param format query string false "json or bpmn | json 或 bpmn"
+// @Success 200 {file} file "exported document | 导出文档"
+// @Failure 404 {string} string "definition not found | 定义不存在"
+// @Security BearerAuth
+// @Router /mgr/workflows/export [get]
+func (c *Controller) WorkflowExport(ctx *router.Ctx) {
+	if !c.workflowServiceOrFail(ctx) {
+		return
+	}
+	tenantID, ok := c.tenantID(ctx)
+	if !ok {
+		return
+	}
+	format := strings.ToLower(strings.TrimSpace(ctx.Query(FieldWorkflowFormat)))
+	if format == "" {
+		format = "json"
+	}
+	if format == "bpmn" {
+		versionID := strings.TrimSpace(ctx.Query(FieldWorkflowVersion))
+		if versionID == "" {
+			definitionID := strings.TrimSpace(ctx.Query(FieldWorkflowFilterDefinition))
+			definition, err := c.workflow.GetDefinition(ctx.Request.Context(), tenantID, definitionID)
+			if err != nil {
+				c.failService(ctx, err)
+				return
+			}
+			version, _, err := c.workflow.LatestPublishedVersion(ctx.Request.Context(), tenantID, definition.ID)
+			if err != nil {
+				c.failService(ctx, err)
+				return
+			}
+			versionID = version.ID
+		}
+		document, err := c.workflow.ExportBPMN(ctx.Request.Context(), tenantID, versionID)
+		if err != nil {
+			c.failService(ctx, err)
+			return
+		}
+		if err := ctx.DownloadBytes([]byte(document), router.DownloadOptions{
+			Filename: "workflow.bpmn", ContentType: "application/xml; charset=utf-8",
+		}); err != nil {
+			c.log.Warn("workflow BPMN download failed | 流程 BPMN 下载失败", ydlog.Err(err))
+		}
+		return
+	}
+	keys := make([]string, 0, 8)
+	for _, key := range strings.Split(ctx.Query("keys"), ",") {
+		if trimmed := strings.TrimSpace(key); trimmed != "" {
+			keys = append(keys, trimmed)
+		}
+	}
+	bundle, err := c.workflow.ExportBundle(ctx.Request.Context(), tenantID, keys)
+	if err != nil {
+		c.failService(ctx, err)
+		return
+	}
+	data, err := json.MarshalIndent(bundle, "", "  ")
+	if err != nil {
+		c.failService(ctx, err)
+		return
+	}
+	if err := ctx.DownloadBytes(append(data, '\n'), router.DownloadOptions{
+		Filename: "workflows.json", ContentType: "application/json; charset=utf-8",
+	}); err != nil {
+		c.log.Warn("workflow bundle download failed | 流程包下载失败", ydlog.Err(err))
+	}
+}
+
+// WorkflowImportDrawer renders the import drawer. | WorkflowImportDrawer 渲染导入抽屉。
+//
+// @Summary Import drawer | 导入抽屉
+// @Description Returns the JSON bundle / BPMN upload form. | 返回 JSON 流程包 / BPMN 上传表单。
+// @Tags workflow
+// @Produce html
+// @Success 200 {string} string "import form | 导入表单"
+// @Security BearerAuth
+// @Router /mgr/workflows/import [get]
+func (c *Controller) WorkflowImportDrawer(ctx *router.Ctx) {
+	if !c.workflowServiceOrFail(ctx) {
+		return
+	}
+	c.render(ctx, http.StatusOK, TplWorkflowImport, c.view(ctx, "导入流程 | Import workflows", map[string]any{
+		"MaxBytes": c.workflow.Options().MaxImportBytes,
+	}))
+}
+
+// WorkflowImport reads one upload and merges it. | WorkflowImport 读取一个上传并合并。
+//
+// @Summary Import workflows | 导入流程
+// @Description Accepts a JSON bundle or a BPMN 2.0 XML document and merges it into the tenant. | 接收 JSON 流程包或 BPMN 2.0 XML 文档并合并进租户。
+// @Tags workflow
+// @Accept multipart/form-data
+// @Produce html
+// @Param file formData file true "Bundle or BPMN file | 流程包或 BPMN 文件"
+// @Success 200 {string} string "definition table | 定义表格"
+// @Failure 422 {string} string "invalid document | 文档非法"
+// @Security BearerAuth
+// @Router /mgr/workflows/import [post]
+func (c *Controller) WorkflowImport(ctx *router.Ctx) {
+	if !c.workflowServiceOrFail(ctx) {
+		return
+	}
+	tenantID, ok := c.tenantID(ctx)
+	if !ok {
+		return
+	}
+	file, header, err := ctx.FormFile(FieldWorkflowFile)
+	if err != nil {
+		c.fail(ctx, http.StatusUnprocessableEntity, "请选择要导入的文件 | choose a file to import")
+		return
+	}
+	defer func() { _ = file.Close() }()
+	limit := int64(c.workflow.Options().MaxImportBytes)
+	if header.Size > limit {
+		c.fail(ctx, http.StatusRequestEntityTooLarge, "导入文件过大 | import file is too large")
+		return
+	}
+	content, readErr := io.ReadAll(io.LimitReader(file, limit+1))
+	if readErr != nil {
+		c.fail(ctx, http.StatusUnprocessableEntity, "读取导入文件失败 | the import file could not be read")
+		return
+	}
+	if int64(len(content)) > limit {
+		c.fail(ctx, http.StatusRequestEntityTooLarge, "导入文件过大 | import file is too large")
+		return
+	}
+	actor := c.workflowActor(ctx)
+	extension := strings.ToLower(filepath.Ext(header.Filename))
+	if extension == ".bpmn" || extension == ".xml" || firstNonSpace(content) == '<' {
+		process, parseErr := workflow.ParseBPMN(string(content))
+		if parseErr != nil {
+			c.failService(ctx, parseErr)
+			return
+		}
+		if _, _, err := c.workflow.ImportBPMN(ctx.Request.Context(), tenantID, actor.ID, process); err != nil {
+			c.failService(ctx, err)
+			return
+		}
+		c.toast(ctx, "BPMN 已导入为草稿 | BPMN imported as a draft")
+		c.renderWorkflowList(ctx, tenantID)
+		return
+	}
+	bundle := workflow.Bundle{}
+	if err := json.Unmarshal(content, &bundle); err != nil || len(bundle.Definitions) == 0 {
+		single := workflow.BundleDefinition{}
+		if singleErr := json.Unmarshal(content, &single); singleErr != nil || single.Key == "" {
+			c.fail(ctx, http.StatusUnprocessableEntity, "无法识别的流程包 | unrecognised workflow bundle")
+			return
+		}
+		bundle = workflow.Bundle{SchemaVersion: workflow.BundleSchemaVersion, Definitions: []workflow.BundleDefinition{single}}
+	}
+	report, err := c.workflow.ImportBundle(ctx.Request.Context(), tenantID, actor.ID, bundle)
+	if err != nil {
+		c.failService(ctx, err)
+		return
+	}
+	c.toast(ctx, "导入完成 | Import finished")
+	c.log.Info("workflow bundle imported | 流程包已导入",
+		ydlog.Int("definitions", report.Definitions),
+		ydlog.Int("created", report.Created),
+		ydlog.Int("updated", report.Updated),
+		ydlog.Int("skipped", report.Skipped),
+	)
+	c.renderWorkflowList(ctx, tenantID)
+}
+
+// firstNonSpace returns the first non-whitespace byte, or 0. | firstNonSpace 返回首个非空白字节，或 0。
+func firstNonSpace(content []byte) byte {
+	for _, b := range content {
+		if b == ' ' || b == '\t' || b == '\n' || b == '\r' {
+			continue
+		}
+		return b
+	}
+	return 0
+}
+
+// workflowLongField reads one form field with a larger cap than the generic helper. |
+// workflowLongField 以比通用助手更大的上限读取一个表单字段。
+func workflowLongField(ctx *router.Ctx, name string, limit int) string {
+	value := strings.TrimSpace(ctx.FormValue(name))
+	if len([]rune(value)) > limit {
+		value = string([]rune(value)[:limit])
+	}
+	return value
+}
+
+// compile-time assertion that errs stays referenced by the directory helper. |
+// 编译期断言，确保 errs 仍被目录辅助函数引用。
+var _ = errs.Wrap

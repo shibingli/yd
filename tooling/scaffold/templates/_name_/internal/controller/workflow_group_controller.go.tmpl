@@ -1,0 +1,401 @@
+// This file owns workflow-owned approval groups: the directory page, the group drawer and the
+// explicit-membership drawer. A group may additionally link to one yd role. | 本文件负责流程自有
+// 审批组：目录页面、组抽屉与显式成员抽屉。组还可以额外关联一个 yd 角色。
+
+package controller
+
+import (
+	"net/http"
+	"strings"
+
+	"{{ .Module }}/internal/model"
+	"{{ .YdxModule }}/router"
+	"{{ .YdxModule }}/workflow"
+)
+
+// WorkflowGroups renders the group directory. | WorkflowGroups 渲染流程组目录。
+//
+// @Summary Workflow groups | 流程组目录
+// @Description Lists workflow-owned approval groups with member counts and linked roles. | 列出流程自有审批组、成员数与关联角色。
+// @Tags workflow
+// @Produce html
+// @Param q query string false "Search keyword | 搜索关键字"
+// @Param status query string false "Group state | 组状态"
+// @Param page query int false "1-based page | 从 1 开始的页码"
+// @Success 200 {string} string "group page | 组页面"
+// @Security BearerAuth
+// @Router /mgr/workflow-groups [get]
+func (c *Controller) WorkflowGroups(ctx *router.Ctx) {
+	if !c.workflowServiceOrFail(ctx) {
+		return
+	}
+	if workflowHTMXTarget(ctx, "yd-workflow-groups") {
+		c.WorkflowGroupList(ctx)
+		return
+	}
+	tenantID, ok := c.tenantID(ctx)
+	if !ok {
+		return
+	}
+	page, err := c.workflow.ListGroups(ctx.Request.Context(), tenantID, workflow.GroupFilter{
+		Query: field(ctx, FieldKeyword), Status: field(ctx, FieldWorkflowFilterStatus), Page: pageNumber(ctx),
+	})
+	if err != nil {
+		c.failService(ctx, err)
+		return
+	}
+	data := c.pageView(ctx, "流程组 | Workflow groups", map[string]any{
+		"Groups":    page.Items,
+		"Total":     page.Total,
+		"Page":      page.Page,
+		"PageSize":  page.PageSize,
+		"Keyword":   field(ctx, FieldKeyword),
+		"Status":    field(ctx, FieldWorkflowFilterStatus),
+		"CanManage": c.workflowCanManage(ctx),
+		"Pagination": c.workflowPagination(ctx, "/mgr/workflow-groups", map[string]string{
+			"q": field(ctx, FieldKeyword), "status": field(ctx, FieldWorkflowFilterStatus),
+		}, page.Page, page.PageSize, page.Total),
+	})
+	c.render(ctx, http.StatusOK, TplWorkflowGroups, data)
+}
+
+// WorkflowGroupList renders only the group table. | WorkflowGroupList 只渲染组表格。
+//
+// @Summary Group list fragment | 组列表片段
+// @Description Returns the group table alone. | 只返回组表格。
+// @Tags workflow
+// @Produce html
+// @Param q query string false "Search keyword | 搜索关键字"
+// @Param status query string false "Group state | 组状态"
+// @Param page query int false "1-based page | 从 1 开始的页码"
+// @Success 200 {string} string "group table | 组表格"
+// @Security BearerAuth
+// @Router /mgr/workflow-groups/list [get]
+func (c *Controller) WorkflowGroupList(ctx *router.Ctx) {
+	if !c.workflowServiceOrFail(ctx) {
+		return
+	}
+	tenantID, ok := c.tenantID(ctx)
+	if !ok {
+		return
+	}
+	page, err := c.workflow.ListGroups(ctx.Request.Context(), tenantID, workflow.GroupFilter{
+		Query: field(ctx, FieldKeyword), Status: field(ctx, FieldWorkflowFilterStatus), Page: pageNumber(ctx),
+	})
+	if err != nil {
+		c.failService(ctx, err)
+		return
+	}
+	c.render(ctx, http.StatusOK, TplWorkflowGroupList, c.view(ctx, "流程组 | Groups", map[string]any{
+		"Groups": page.Items, "Total": page.Total, "Page": page.Page, "PageSize": page.PageSize,
+		"Keyword": field(ctx, FieldKeyword), "Status": field(ctx, FieldWorkflowFilterStatus),
+		"CanManage": c.workflowCanManage(ctx),
+		"OOB":       true,
+		"Pagination": c.workflowPagination(ctx, "/mgr/workflow-groups", map[string]string{
+			"q": field(ctx, FieldKeyword), "status": field(ctx, FieldWorkflowFilterStatus),
+		}, page.Page, page.PageSize, page.Total),
+	}))
+}
+
+// NewWorkflowGroupDrawer renders the group create drawer. | NewWorkflowGroupDrawer 渲染新建组抽屉。
+//
+// @Summary New group drawer | 新建组抽屉
+// @Description Returns the group form with the tenant's role list. | 返回带租户角色列表的组表单。
+// @Tags workflow
+// @Produce html
+// @Success 200 {string} string "group form | 组表单"
+// @Security BearerAuth
+// @Router /mgr/workflow-groups/new [get]
+func (c *Controller) NewWorkflowGroupDrawer(ctx *router.Ctx) {
+	if !c.workflowServiceOrFail(ctx) {
+		return
+	}
+	tenantID, ok := c.tenantID(ctx)
+	if !ok {
+		return
+	}
+	roles, err := c.roles.List(ctx.Request.Context(), tenantID)
+	if err != nil {
+		c.failService(ctx, err)
+		return
+	}
+	c.render(ctx, http.StatusOK, TplWorkflowGroupDrawer, c.view(ctx, "新建流程组 | New group", map[string]any{
+		"Group":       workflow.Group{Status: workflow.GroupEnabled},
+		"RoleOptions": workflowRoleOptions(roles, ""),
+		"Mode":        "create",
+	}))
+}
+
+// EditWorkflowGroupDrawer renders the group edit drawer. | EditWorkflowGroupDrawer 渲染编辑组抽屉。
+//
+// @Summary Edit group drawer | 编辑组抽屉
+// @Description Returns the group form pre-filled from the stored row. | 返回按库中记录预填的组表单。
+// @Tags workflow
+// @Produce html
+// @Param id path string true "Group id | 组 ID"
+// @Success 200 {string} string "group form | 组表单"
+// @Security BearerAuth
+// @Router /mgr/workflow-groups/{id}/edit [get]
+func (c *Controller) EditWorkflowGroupDrawer(ctx *router.Ctx) {
+	if !c.workflowServiceOrFail(ctx) {
+		return
+	}
+	tenantID, ok := c.tenantID(ctx)
+	if !ok {
+		return
+	}
+	group, err := c.workflow.GetGroup(ctx.Request.Context(), tenantID, ctx.Param("id"))
+	if err != nil {
+		c.failService(ctx, err)
+		return
+	}
+	roles, err := c.roles.List(ctx.Request.Context(), tenantID)
+	if err != nil {
+		c.failService(ctx, err)
+		return
+	}
+	c.render(ctx, http.StatusOK, TplWorkflowGroupDrawer, c.view(ctx, "编辑流程组 | Edit group", map[string]any{
+		"Group":       group,
+		"RoleOptions": workflowRoleOptions(roles, group.Role),
+		"Mode":        "edit",
+	}))
+}
+
+// SaveWorkflowGroup creates one group. | SaveWorkflowGroup 创建一个组。
+//
+// @Summary Create group | 创建组
+// @Description Creates a workflow group with an optional linked role. | 创建可关联角色的流程组。
+// @Tags workflow
+// @Accept application/x-www-form-urlencoded
+// @Produce html
+// @Param key formData string true "Immutable group key | 不可变组键"
+// @Param name formData string true "Chinese name | 中文名"
+// @Param role formData string false "Linked yd role | 关联 yd 角色"
+// @Success 200 {string} string "group table | 组表格"
+// @Security BearerAuth
+// @Router /mgr/workflow-groups [post]
+func (c *Controller) SaveWorkflowGroup(ctx *router.Ctx) {
+	if !c.workflowServiceOrFail(ctx) {
+		return
+	}
+	tenantID, ok := c.tenantID(ctx)
+	if !ok {
+		return
+	}
+	if _, err := c.workflow.CreateGroup(ctx.Request.Context(), tenantID, workflow.GroupInput{
+		Key:         field(ctx, FieldWorkflowKey),
+		Name:        field(ctx, FieldName),
+		NameEN:      field(ctx, FieldNameEN),
+		Description: workflowLongField(ctx, FieldDescription, 500),
+		Role:        field(ctx, FieldWorkflowGroupRole),
+		Status:      firstNonEmpty(field(ctx, FieldStatus), workflow.GroupEnabled),
+	}); err != nil {
+		c.failService(ctx, err)
+		return
+	}
+	c.toast(ctx, "流程组已创建 | Group created")
+	c.renderWorkflowGroupList(ctx, tenantID)
+}
+
+// UpdateWorkflowGroup updates one group. | UpdateWorkflowGroup 更新一个组。
+//
+// @Summary Update group | 更新组
+// @Description Updates the editable fields and linked role of one group. | 更新组的可编辑字段与关联角色。
+// @Tags workflow
+// @Accept application/x-www-form-urlencoded
+// @Produce html
+// @Param id path string true "Group id | 组 ID"
+// @Param name formData string true "Chinese name | 中文名"
+// @Param role formData string false "Linked yd role | 关联 yd 角色"
+// @Param status formData string false "enabled or disabled | enabled 或 disabled"
+// @Success 200 {string} string "group table | 组表格"
+// @Security BearerAuth
+// @Router /mgr/workflow-groups/{id} [post]
+func (c *Controller) UpdateWorkflowGroup(ctx *router.Ctx) {
+	if !c.workflowServiceOrFail(ctx) {
+		return
+	}
+	tenantID, ok := c.tenantID(ctx)
+	if !ok {
+		return
+	}
+	if _, err := c.workflow.UpdateGroup(ctx.Request.Context(), tenantID, ctx.Param("id"), workflow.GroupInput{
+		Name:        field(ctx, FieldName),
+		NameEN:      field(ctx, FieldNameEN),
+		Description: workflowLongField(ctx, FieldDescription, 500),
+		Role:        field(ctx, FieldWorkflowGroupRole),
+		Status:      field(ctx, FieldStatus),
+	}); err != nil {
+		c.failService(ctx, err)
+		return
+	}
+	c.toast(ctx, "流程组已保存 | Group saved")
+	c.renderWorkflowGroupList(ctx, tenantID)
+}
+
+// DeleteWorkflowGroup removes one group. | DeleteWorkflowGroup 删除一个组。
+//
+// @Summary Delete group | 删除组
+// @Description Deletes one group and its explicit members. | 删除一个组及其显式成员。
+// @Tags workflow
+// @Produce html
+// @Param id path string true "Group id | 组 ID"
+// @Success 200 {string} string "group table | 组表格"
+// @Security BearerAuth
+// @Router /mgr/workflow-groups/{id}/delete [post]
+func (c *Controller) DeleteWorkflowGroup(ctx *router.Ctx) {
+	if !c.workflowServiceOrFail(ctx) {
+		return
+	}
+	tenantID, ok := c.tenantID(ctx)
+	if !ok {
+		return
+	}
+	if err := c.workflow.DeleteGroup(ctx.Request.Context(), tenantID, ctx.Param("id")); err != nil {
+		c.failService(ctx, err)
+		return
+	}
+	c.toast(ctx, "流程组已删除 | Group deleted")
+	c.renderWorkflowGroupList(ctx, tenantID)
+}
+
+// renderWorkflowGroupList renders the group table after one mutation. | renderWorkflowGroupList
+// 在变更后渲染组表格。
+func (c *Controller) renderWorkflowGroupList(ctx *router.Ctx, tenantID string) {
+	// Mutations carry no filters of their own; recover them from the page the operator was on. |
+	// 变更请求本身不带筛选条件，从操作人所在页面恢复。
+	keyword := firstNonEmpty(field(ctx, "return_q"), workflowCurrentQuery(ctx, FieldKeyword))
+	status := firstNonEmpty(field(ctx, "return_status"), workflowCurrentQuery(ctx, FieldWorkflowFilterStatus))
+	pageNo := pageNumberFromQuery(ctx, firstNonEmpty(field(ctx, "return_page"), workflowCurrentQuery(ctx, "page")))
+	page, err := c.workflow.ListGroups(ctx.Request.Context(), tenantID, workflow.GroupFilter{
+		Query: keyword, Status: status, Page: pageNo,
+	})
+	if err != nil {
+		c.failService(ctx, err)
+		return
+	}
+	c.render(ctx, http.StatusOK, TplWorkflowGroupList, c.view(ctx, "流程组 | Groups", map[string]any{
+		"Groups": page.Items, "Total": page.Total, "Page": page.Page, "PageSize": page.PageSize,
+		"Keyword": keyword, "Status": status,
+		"CanManage": c.workflowCanManage(ctx),
+		"OOB":       true,
+		"Pagination": c.workflowPagination(ctx, "/mgr/workflow-groups", map[string]string{
+			"q": keyword, "status": status,
+		}, page.Page, page.PageSize, page.Total),
+	}))
+}
+
+// WorkflowGroupMembersDrawer renders the membership drawer. | WorkflowGroupMembersDrawer 渲染成员抽屉。
+//
+// @Summary Group membership drawer | 组成员抽屉
+// @Description Returns explicit members; workflow:manage also receives the editable checkboxes. | 返回显式成员；workflow:manage 还会得到可编辑的勾选框。
+// @Tags workflow
+// @Produce html
+// @Param id path string true "Group id | 组 ID"
+// @Success 200 {string} string "membership form | 成员表单"
+// @Security BearerAuth
+// @Router /mgr/workflow-groups/{id}/members [get]
+func (c *Controller) WorkflowGroupMembersDrawer(ctx *router.Ctx) {
+	if !c.workflowServiceOrFail(ctx) {
+		return
+	}
+	tenantID, ok := c.tenantID(ctx)
+	if !ok {
+		return
+	}
+	group, err := c.workflow.GetGroup(ctx.Request.Context(), tenantID, ctx.Param("id"))
+	if err != nil {
+		c.failService(ctx, err)
+		return
+	}
+	members, err := c.workflow.GroupMembers(ctx.Request.Context(), tenantID, group.ID)
+	if err != nil {
+		c.failService(ctx, err)
+		return
+	}
+	canManage := c.workflowCanManage(ctx)
+	rows := make([]map[string]any, 0, len(members))
+	if canManage {
+		users, err := c.users.List(ctx.Request.Context(), tenantID, "")
+		if err != nil {
+			c.failService(ctx, err)
+			return
+		}
+		selected := make(map[string]bool, len(members))
+		for _, member := range members {
+			selected[member.UserID] = true
+		}
+		rows = make([]map[string]any, 0, len(users))
+		for _, user := range users {
+			rows = append(rows, map[string]any{
+				"ID": user.ID, "Name": user.DisplayName, "Username": user.Username, "Selected": selected[user.ID],
+			})
+		}
+	} else {
+		// Read-only viewers see the explicit members only; the full tenant user directory
+		// belongs to workflow:manage. | 只读查看者只看到显式成员；完整租户用户目录属于
+		// workflow:manage。
+		for _, member := range members {
+			name := member.UserName
+			if name == "" {
+				name = member.UserID
+			}
+			rows = append(rows, map[string]any{
+				"ID": member.UserID, "Name": name, "Username": "", "Selected": true,
+			})
+		}
+	}
+	c.render(ctx, http.StatusOK, TplWorkflowGroupMembers, c.view(ctx, "组成员 | Group members", map[string]any{
+		"Group": group, "Users": rows, "Selected": len(members), "CanManage": canManage,
+	}))
+}
+
+// SetWorkflowGroupMembers replaces the explicit members of one group. | SetWorkflowGroupMembers
+// 替换一个组的显式成员。
+//
+// @Summary Replace group members | 替换组成员
+// @Description Sets the explicit member list; linked role holders remain implicit members. | 设置显式成员列表；关联角色的持有者仍是隐式成员。
+// @Tags workflow
+// @Accept application/x-www-form-urlencoded
+// @Produce html
+// @Param id path string true "Group id | 组 ID"
+// @Param members formData string false "Repeated user ids | 重复出现的用户 ID"
+// @Success 200 {string} string "group table | 组表格"
+// @Security BearerAuth
+// @Router /mgr/workflow-groups/{id}/members [post]
+func (c *Controller) SetWorkflowGroupMembers(ctx *router.Ctx) {
+	if !c.workflowServiceOrFail(ctx) {
+		return
+	}
+	tenantID, ok := c.tenantID(ctx)
+	if !ok {
+		return
+	}
+	userIDs := formValues(ctx, FieldWorkflowMembers)
+	if len(userIDs) == 0 {
+		for _, value := range strings.Split(ctx.FormValue(FieldWorkflowMembers), ",") {
+			if trimmed := strings.TrimSpace(value); trimmed != "" {
+				userIDs = append(userIDs, trimmed)
+			}
+		}
+	}
+	if _, err := c.workflow.SetGroupMembers(ctx.Request.Context(), tenantID, ctx.Param("id"), userIDs); err != nil {
+		c.failService(ctx, err)
+		return
+	}
+	c.toast(ctx, "组成员已保存 | Group members saved")
+	c.renderWorkflowGroupList(ctx, tenantID)
+}
+
+// workflowRoleOptions renders the optional linked-role select. | workflowRoleOptions 渲染可选的关联角色下拉项。
+func workflowRoleOptions(roles []model.Role, selected string) []map[string]any {
+	options := make([]map[string]any, 0, len(roles))
+	for _, role := range roles {
+		options = append(options, map[string]any{
+			"Value":    role.Name,
+			"Label":    role.Name,
+			"Selected": role.Name == selected,
+		})
+	}
+	return options
+}

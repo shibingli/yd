@@ -665,7 +665,9 @@
   "Placeholder" (tr "action.search") "PlaceholderKey" "action.search")}}
 ```
 
-`form.search` 自带 `<form>`，不能嵌套在另一个表单里。
+`form.search` 自带 `<form>`，不能嵌套在另一个表单里。筛选值（如 `status`、`tab`）通过
+`"Hidden" (dict "status" .Status)` 随表单一起提交，htmx 请求与无脚本 GET 都会保留它；
+不要把它拼进 `Action` 的查询串，否则原生表单提交会丢弃该查询串。
 
 ---
 

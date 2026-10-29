@@ -65,11 +65,13 @@ import (
 	"{{ .YdModule }}/dictionary"
 	"{{ .YdModule }}/messaging"
 	"{{ .YdModule }}/security/auth"
+	"{{ .YdxModule }}/workflow"
 {{- if ne .DB "none" }}
 	attachmentsgorm "{{ .YdModule }}/attachments/gormstore"
 	dictionarygorm "{{ .YdModule }}/dictionary/gormstore"
 	messaginggorm "{{ .YdModule }}/messaging/gormstore"
 	"{{ .YdModule }}/security/auth/gormstore"
+	workflowgorm "{{ .YdxModule }}/workflow/gormstore"
 {{- end }}
 	"{{ .YdModule }}/security/authz"
 	"{{ .YdxModule }}/config"
@@ -159,6 +161,11 @@ type Store struct {
 	dict dictionary.Store
 	// dictErr records why the dictionary store is unavailable. | dictErr 记录数据字典存储不可用的原因。
 	dictErr error
+	// workflow is the process-engine store; nil when the database is unavailable or its migration failed. |
+	// workflow 是流程引擎存储；数据库不可用或迁移失败时为 nil。
+	workflow workflow.Store
+	// workflowErr records why the workflow store is unavailable. | workflowErr 记录流程存储不可用的原因。
+	workflowErr error
 	// cfg 是装配时的配置，种子口令从它的 seed 段读取（环境变量经前缀映射已在配置层生效）。
 	// cfg is the configuration this store was assembled with, read for the seed password (the environment variable has
 	// already taken effect inside the configuration layer).
@@ -225,10 +232,14 @@ func Open(o Options) (*Store, error) {
 	if dictErr != nil {
 		log.Warn("data dictionary is unavailable | 数据字典不可用", ydlog.Err(dictErr))
 	}
+	workflowStore, workflowErr := openWorkflowStore(db, log)
+	if workflowErr != nil {
+		log.Warn("workflow engine is unavailable | 流程引擎不可用", ydlog.Err(workflowErr))
+	}
 	return &Store{
 		svc: svc, raw: raw, issuer: issuer, log: log, db: db, cfg: o.Config,
 		msg: msgStore, msgErr: msgErr, attach: attachmentStore, attachErr: attachmentErr,
-		dict: dictStore, dictErr: dictErr,
+		dict: dictStore, dictErr: dictErr, workflow: workflowStore, workflowErr: workflowErr,
 		release: release, persistent: release != nil,
 	}, nil
 }
@@ -343,6 +354,16 @@ func (s *Store) AttachmentError() error { return s.attachErr }
 // AttachmentAvailable reports whether attachments can be served. | AttachmentAvailable 报告附件功能是否可用。
 func (s *Store) AttachmentAvailable() bool { return s.attach != nil }
 
+// WorkflowStore returns the process-engine store, or nil when it is unavailable. | WorkflowStore
+// 返回流程引擎存储；不可用时返回 nil。
+func (s *Store) WorkflowStore() workflow.Store { return s.workflow }
+
+// WorkflowError reports why the process engine is unavailable. | WorkflowError 报告流程引擎不可用的原因。
+func (s *Store) WorkflowError() error { return s.workflowErr }
+
+// WorkflowAvailable reports whether the process engine can be served. | WorkflowAvailable 报告流程引擎能否服务请求。
+func (s *Store) WorkflowAvailable() bool { return s.workflow != nil }
+
 // DictionaryStore returns the data-dictionary store, or nil when it is unavailable. | DictionaryStore 返回数据字典存储；
 // 不可用时返回 nil。
 func (s *Store) DictionaryStore() dictionary.Store { return s.dict }
@@ -383,6 +404,44 @@ func openDictionaryStore(db any, log *ydlog.Logger) (dictionary.Store, error) {
 // database. | openDictionaryStore 在未选择数据库的生成项目里报告数据字典存储不可用。
 func openDictionaryStore(_ any, _ *ydlog.Logger) (dictionary.Store, error) {
 	return nil, errs.Detail(dictionary.ErrUnavailable, "the project was generated without a database | 项目生成时未选择数据库")
+}
+{{ end -}}
+
+{{ if ne .DB "none" -}}
+// openWorkflowStore migrates and opens the process-engine tables on the shared pool. |
+// openWorkflowStore 在共享连接池上迁移并打开流程引擎表。
+func openWorkflowStore(db any, log *ydlog.Logger) (workflow.Store, error) {
+	if db == nil {
+		return nil, errs.Detail(workflow.ErrUnavailable, "no database | 没有数据库")
+	}
+	gdb, ok := db.(*gorm.DB)
+	if !ok {
+		return nil, errs.Detail(workflow.ErrUnavailable, "unexpected database handle | 非预期的数据库句柄")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), migrateTimeout)
+	defer cancel()
+	if err := workflowgorm.Migrate(ctx, gdb); err != nil {
+		return nil, errs.Wrap(err, workflow.ErrUnavailable)
+	}
+	store, err := workflowgorm.New(gdb)
+	if err != nil {
+		return nil, errs.Wrap(err, workflow.ErrUnavailable)
+	}
+	log.Info("workflow tables are ready | 流程引擎表已就绪",
+		ydlog.Strs("tables", []string{
+			"yd_workflow_definitions", "yd_workflow_versions", "yd_workflow_instances",
+			"yd_workflow_tokens", "yd_workflow_tasks", "yd_workflow_task_candidates", "yd_workflow_events",
+			"yd_workflow_comments", "yd_workflow_notifications",
+			"yd_workflow_groups", "yd_workflow_group_members",
+		}),
+	)
+	return store, nil
+}
+{{ else -}}
+// openWorkflowStore reports the process engine as unavailable in a project generated without a database. |
+// openWorkflowStore 在未选择数据库的生成项目里报告流程引擎不可用。
+func openWorkflowStore(_ any, _ *ydlog.Logger) (workflow.Store, error) {
+	return nil, errs.Detail(workflow.ErrUnavailable, "the project was generated without a database | 项目生成时未选择数据库")
 }
 {{ end -}}
 

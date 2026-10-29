@@ -231,6 +231,21 @@ cache:
       # 因此永不进入查询缓存。引用表在每次消息渲染时参与连接，且解除引用或墓碑必须立即生效，同样不缓存。
       - yd_attachments
       - yd_attachment_refs
+      # Workflow rows are read under row locks inside a transaction and drive state transitions;
+      # a cached SELECT could feed a stale token or task into that transition, so every workflow
+      # table stays out of the query cache. | 流程行在事务内以行锁读取并驱动状态流转；被缓存的 SELECT
+      # 可能把陈旧令牌或任务带进流转，因此全部流程表都不进入查询缓存。
+      - yd_workflow_definitions
+      - yd_workflow_versions
+      - yd_workflow_instances
+      - yd_workflow_tokens
+      - yd_workflow_tasks
+      - yd_workflow_task_candidates
+      - yd_workflow_events
+      - yd_workflow_comments
+      - yd_workflow_notifications
+      - yd_workflow_groups
+      - yd_workflow_group_members
     sensitive_tables:
       - yd_auth_tenants
       - yd_auth_user_tenants
@@ -324,6 +339,52 @@ dictionary:
   # dictionaries read-only; the configured tenant still needs dictionary:system_manage. Every other
   # tenant is always read-only.
   system_tenant: ""
+
+# Workflow engine: definitions and versions, running instances, tasks, groups and notifications. |
+# 流程引擎：定义与版本、运行实例、任务、流程组与通知。
+#
+# Single-node and multi-node deployments share one code path: every state lives in the database, and
+# task claims, reminders and notification delivery are claimed by conditional updates, so several
+# replicas may run the scheduler without double processing. Pages refresh through htmx polling and
+# in-app messages. | 单机与多节点共用同一套逻辑：所有状态在数据库里，任务领取、催办与通知投递都经
+# 条件更新领取，因此多个副本可以同时运行调度器而不会重复处理；实时页面通过 htmx 轮询与站内消息获得更新。
+workflow:
+  withdraw_window: 30m        # initiator withdrawal window | 发起人撤回窗口
+  default_due: 72h            # default task deadline | 任务默认期限
+  default_remind_every: 12h   # default reminder interval | 默认催办间隔
+  max_remind: 5               # default reminder ceiling | 默认催办上限
+  scan_interval: 30s          # scheduler scan interval | 调度扫描间隔
+  page_size: 20               # default list page length | 列表默认页长
+  max_import_bytes: 8388608   # import bundle size limit | 导入包上限
+  notify:
+    # message: in-app messages; webhook: WeCom/DingTalk/Feishu/generic; smtp: e-mail; log: development log.
+    # message：站内消息；webhook：企业微信/钉钉/飞书/通用；smtp：邮件；log：开发日志。
+    channels: [message]
+    events: [assigned, reminded, approved, rejected, returned, withdrawn, completed, delegated]
+    lang: zh-CN               # notification language; empty follows i18n.default_lang | 通知语言，留空沿用 i18n.default_lang
+    base_url: ""              # deep-link prefix such as https://example.com | 深链前缀，例如 https://example.com
+    webhook:
+      url: ""                 # robot endpoint; holds a token and is never logged | 机器人地址；含 token，禁止写入日志
+      kind: generic           # generic | wecom | dingtalk | feishu
+      secret: ""              # DingTalk signing secret; YD_WORKFLOW_NOTIFY_WEBHOOK_SECRET | 钉钉加签密钥
+    smtp:
+      host: ""
+      port: 587
+      username: ""
+      password: ""            # inject via YD_WORKFLOW_NOTIFY_SMTP_PASSWORD | 生产环境请用 YD_WORKFLOW_NOTIFY_SMTP_PASSWORD 注入
+      from: ""
+      from_name: ""
+      tls: true
+  ai:
+    enabled: false            # no network request while unconfigured | 未配置时完全不触网
+    provider: openai          # openai | openai-responses | anthropic
+    base_url: ""              # e.g. https://api.openai.com/v1 or https://api.anthropic.com | 例如 https://api.openai.com/v1 或 https://api.anthropic.com
+    api_key: ""               # inject via YD_WORKFLOW_AI_API_KEY; never logged | 请用 YD_WORKFLOW_AI_API_KEY 注入，绝不写入日志
+    model: ""
+    max_tokens: 512
+    api_version: "2023-06-01" # Anthropic version header | Anthropic 版本头
+    timeout: 20s
+    min_confidence: 0.7       # below this confidence the node stays manual | 低于该置信度保持人工审批
 
 # 系统服务：yd service <install|uninstall|start|stop|restart|status> 与入口的 -service <动作> 都读这一段。
 # 服务名缺省回退到 app.name，显示名回退到服务名，描述回退到显示名；全部键都可由 YD_SERVICE_* 覆盖。

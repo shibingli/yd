@@ -1,0 +1,196 @@
+{{/*
+  partials/workflows/task.html —— 门户与后台共用的任务详情与审批动作抽屉。
+  partials/workflows/task.html — the task detail and approval-action drawer shared by the portal and back office.
+
+  数据契约 | Data contract: .Task、.Instance、.Definition、.WorkflowVersion、.Node、.Comments、.Variables、.Fields、
+  .Users、.UserOptions、.Siblings、.SiblingOptions、.ReturnOptions、.CanAct、.CanClaim、.CanAdmin、.CanRemind、
+  .CanReturn、.CanSign、.CanDelegate、.BasePath。
+*/}}
+{{- define "partials/workflows/field" -}}
+{{- if eq .Field.Type "textarea" -}}
+{{template "components.form.textarea" (dict
+  "ID" .ID "Name" .Name "Value" .Value "Rows" 3
+  "Label" .Field.Label "LabelKey" "" "Hint" .Field.Placeholder "HintKey" ""
+  "MaxLength" .Field.MaxLength "Required" .Field.Required)}}
+{{- else if eq .Field.Type "select" -}}
+{{template "components.form.select" (dict
+  "ID" .ID "Name" .Name "Value" .Value
+  "Label" .Field.Label "LabelKey" ""
+  "Options" .Options "Required" .Field.Required)}}
+{{- else if eq .Field.Type "checkbox" -}}
+{{template "components.form.toggle" (dict
+  "ID" .ID "Name" .Name "Value" "true" "Checked" .Checked
+  "Label" .Field.Label "Hint" .Field.Placeholder)}}
+{{- else -}}
+{{template "components.form.field" (dict
+  "ID" .ID "Name" .Name "Type" .InputType "Value" .Value
+  "Label" .Field.Label "LabelKey" "" "Placeholder" .Field.Placeholder
+  "MaxLength" .Field.MaxLength "Min" .Field.Min "Max" .Field.Max
+  "Required" .Field.Required)}}
+{{- end -}}
+{{- end -}}
+
+{{- define "partials/workflows/task" -}}
+<div class="yd-drawer__head">
+  <h2 class="yd-section__title">{{ .Node.Name }} · {{ .Instance.Title }}</h2>
+  <p class="yd-section__hint">
+    {{ .Definition.Name }} · v{{ .WorkflowVersion.Version }} · {{ .Task.AssigneeName }}{{ if not .Task.AssigneeName }}{{ tr "workflow.tasks.pool" }}{{ end }}
+  </p>
+</div>
+<div class="yd-stack">
+  <dl class="yd-detail-list">
+    <div><dt>{{ tr "field.status" }}</dt><dd>{{ template "partials/workflows/task_badge" .Task.Status }}</dd></div>
+    <div><dt>{{ tr "workflow.field.due" }}</dt><dd>{{ if .Task.DueAt.IsZero }}—{{ else }}{{ .Task.DueAt.Format "2006-01-02 15:04" }}{{ end }}</dd></div>
+    {{- with .Task.OriginalAssigneeName }}<div><dt>{{ tr "workflow.field.delegated_from" }}</dt><dd>{{ . }}</dd></div>{{ end }}
+    {{- with .Task.Comment }}<div><dt>{{ tr "workflow.field.comment" }}</dt><dd>{{ . }}</dd></div>{{ end }}
+  </dl>
+
+  {{- if .CanClaim }}
+  <form class="yd-form" method="post" action="{{ .BasePath }}/{{ .Task.ID }}/claim"
+        data-yd-confirm="{{ tr "confirm.workflow_claim" }}"
+        hx-post="{{ .BasePath }}/{{ .Task.ID }}/claim" hx-target="#yd-workspace" hx-swap="innerMorph"
+        hx-status:409="target:#yd-drawer-errors swap:innerHTML" hx-status:403="target:#yd-drawer-errors swap:innerHTML"
+        hx-status:422="target:#yd-drawer-errors swap:innerHTML">
+    {{template "components.form.actions" (dict "SubmitLabel" (tr "workflow.task.claim") "SubmitKey" "workflow.task.claim" "NoCancel" true)}}
+  </form>
+  {{- end }}
+
+  {{- if .CanAct }}
+  <section class="yd-section" aria-labelledby="yd-workflow-decision-title">
+    <h3 class="yd-section__title" id="yd-workflow-decision-title">{{ tr "workflow.task.decision" }}</h3>
+    <form class="yd-form" method="post" action="{{ .BasePath }}/{{ .Task.ID }}/action"
+          data-yd-confirm="{{ tr "confirm.workflow_decision" }}"
+          hx-post="{{ .BasePath }}/{{ .Task.ID }}/action" hx-target="#yd-workspace" hx-swap="innerMorph"
+          hx-status:409="target:#yd-drawer-errors swap:innerHTML"
+          hx-status:422="target:#yd-drawer-errors swap:innerHTML">
+      {{template "components.form.select" (dict
+        "ID" "yd-workflow-decision" "Name" "decision"
+        "Label" (tr "workflow.field.decision") "LabelKey" "workflow.field.decision" "Required" true
+        "Options" (list
+          (dict "Value" "approve" "Label" (tr "workflow.decision.approve") "Key" "workflow.decision.approve" "Selected" true)
+          (dict "Value" "reject" "Label" (tr "workflow.decision.reject") "Key" "workflow.decision.reject")))}}
+      {{template "components.form.textarea" (dict
+        "ID" "yd-workflow-task-comment" "Name" "comment" "Rows" 3
+        "Label" (tr "workflow.field.comment") "LabelKey" "workflow.field.comment" "MaxLength" 2000)}}
+      {{ range .Fields }}{{ template "partials/workflows/field" . }}{{ end }}
+      {{template "components.form.actions" (dict "SubmitLabel" (tr "workflow.task.submit") "SubmitKey" "workflow.task.submit"
+        "CancelLabel" (tr "ui.cancel") "CancelKey" "ui.cancel")}}
+    </form>
+  </section>
+  {{- end }}
+
+  {{- if or .CanSign .CanReturn .CanDelegate .CanRemind }}
+  <section class="yd-section" aria-labelledby="yd-workflow-task-more">
+    <h3 class="yd-section__title" id="yd-workflow-task-more">{{ tr "workflow.task.more" }}</h3>
+    <div class="yd-stack">
+      {{- if .CanDelegate }}
+      <form class="yd-form" method="post" action="{{ .BasePath }}/{{ .Task.ID }}/transfer"
+            hx-post="{{ .BasePath }}/{{ .Task.ID }}/transfer" hx-target="#yd-workspace" hx-swap="innerMorph"
+            hx-status:409="target:#yd-drawer-errors swap:innerHTML"
+            hx-status:422="target:#yd-drawer-errors swap:innerHTML"
+            data-yd-confirm="{{ tr "confirm.workflow_transfer" }}">
+        {{template "components.form.select" (dict
+          "ID" "yd-workflow-transfer-target" "Name" "target_id" "Required" true
+          "Label" (tr "workflow.task.transfer") "LabelKey" "workflow.task.transfer"
+          "Options" .UserOptions)}}
+        {{template "components.form.textarea" (dict "ID" "yd-workflow-transfer-comment" "Name" "comment" "Rows" 2
+          "Label" (tr "workflow.field.comment") "LabelKey" "workflow.field.comment" "MaxLength" 2000)}}
+        {{template "components.form.actions" (dict "SubmitLabel" (tr "workflow.task.transfer") "SubmitKey" "workflow.task.transfer")}}
+      </form>
+      <form class="yd-form" method="post" action="{{ .BasePath }}/{{ .Task.ID }}/delegate"
+            hx-post="{{ .BasePath }}/{{ .Task.ID }}/delegate" hx-target="#yd-workspace" hx-swap="innerMorph"
+            hx-status:409="target:#yd-drawer-errors swap:innerHTML"
+            hx-status:422="target:#yd-drawer-errors swap:innerHTML"
+            data-yd-confirm="{{ tr "confirm.workflow_delegate" }}">
+        {{template "components.form.select" (dict
+          "ID" "yd-workflow-delegate-target" "Name" "target_id" "Required" true
+          "Label" (tr "workflow.task.delegate") "LabelKey" "workflow.task.delegate"
+          "Options" .UserOptions)}}
+        {{template "components.form.textarea" (dict "ID" "yd-workflow-delegate-comment" "Name" "comment" "Rows" 2
+          "Label" (tr "workflow.field.comment") "LabelKey" "workflow.field.comment" "MaxLength" 2000)}}
+        {{template "components.form.actions" (dict "SubmitLabel" (tr "workflow.task.delegate") "SubmitKey" "workflow.task.delegate")}}
+      </form>
+      {{- end }}
+
+      {{- if .CanSign }}
+      <form class="yd-form" method="post" action="{{ .BasePath }}/{{ .Task.ID }}/add-sign"
+            hx-post="{{ .BasePath }}/{{ .Task.ID }}/add-sign" hx-target="#yd-workspace" hx-swap="innerMorph"
+            hx-status:409="target:#yd-drawer-errors swap:innerHTML"
+            hx-status:422="target:#yd-drawer-errors swap:innerHTML"
+            data-yd-confirm="{{ tr "confirm.workflow_add_sign" }}">
+        <fieldset class="yd-field" data-yd-field="user_ids">
+          <legend class="yd-field__label">{{ tr "workflow.task.add_sign" }}</legend>
+          <div class="yd-check-list">
+            {{ range .Users }}
+            {{template "components.form.toggle" (dict "ID" (printf "yd-workflow-add-%s" .ID) "Name" "user_ids" "Value" .ID "Label" .Name "Hint" .Username)}}
+            {{ end }}
+          </div>
+        </fieldset>
+        {{template "components.form.select" (dict "ID" "yd-workflow-add-position" "Name" "position"
+          "Label" (tr "workflow.field.position") "LabelKey" "workflow.field.position"
+          "Options" (list
+            (dict "Value" "after" "Label" (tr "workflow.position.after") "Key" "workflow.position.after" "Selected" true)
+            (dict "Value" "before" "Label" (tr "workflow.position.before") "Key" "workflow.position.before")))}}
+        {{template "components.form.actions" (dict "SubmitLabel" (tr "workflow.task.add_sign") "SubmitKey" "workflow.task.add_sign")}}
+      </form>
+      {{- if .SiblingOptions }}
+      <form class="yd-form" method="post" action="{{ .BasePath }}/{{ .Task.ID }}/remove-sign"
+            hx-post="{{ .BasePath }}/{{ .Task.ID }}/remove-sign" hx-target="#yd-workspace" hx-swap="innerMorph"
+            hx-status:409="target:#yd-drawer-errors swap:innerHTML"
+            hx-status:422="target:#yd-drawer-errors swap:innerHTML"
+            data-yd-confirm="{{ tr "confirm.workflow_remove_sign" }}">
+        {{template "components.form.select" (dict "ID" "yd-workflow-remove-target" "Name" "target_task_id" "Required" true
+          "Label" (tr "workflow.task.remove_sign") "LabelKey" "workflow.task.remove_sign" "Options" .SiblingOptions)}}
+        {{template "components.form.actions" (dict "SubmitLabel" (tr "workflow.task.remove_sign") "SubmitKey" "workflow.task.remove_sign")}}
+      </form>
+      {{- end }}
+      {{- end }}
+
+      {{- if .CanReturn }}
+      <form class="yd-form" method="post" action="{{ .BasePath }}/{{ .Task.ID }}/return"
+            hx-post="{{ .BasePath }}/{{ .Task.ID }}/return" hx-target="#yd-workspace" hx-swap="innerMorph"
+            hx-status:409="target:#yd-drawer-errors swap:innerHTML"
+            hx-status:422="target:#yd-drawer-errors swap:innerHTML"
+            data-yd-confirm="{{ tr "confirm.workflow_return" }}">
+        {{template "components.form.select" (dict "ID" "yd-workflow-return-target" "Name" "target_node" "Required" true
+          "Label" (tr "workflow.task.return") "LabelKey" "workflow.task.return" "Options" .ReturnOptions)}}
+        {{template "components.form.textarea" (dict "ID" "yd-workflow-return-comment" "Name" "comment" "Rows" 2
+          "Label" (tr "workflow.field.comment") "LabelKey" "workflow.field.comment" "MaxLength" 2000)}}
+        {{template "components.form.actions" (dict "SubmitLabel" (tr "workflow.task.return") "SubmitKey" "workflow.task.return")}}
+      </form>
+      {{- end }}
+
+      {{- if .CanRemind }}
+      <form class="yd-form" method="post" action="{{ .BasePath }}/{{ .Task.ID }}/remind"
+            hx-post="{{ .BasePath }}/{{ .Task.ID }}/remind" hx-target="#yd-workspace" hx-swap="innerMorph"
+            hx-status:409="target:#yd-drawer-errors swap:innerHTML"
+            hx-status:422="target:#yd-drawer-errors swap:innerHTML"
+            data-yd-confirm="{{ tr "confirm.workflow_remind" }}">
+        {{template "components.form.textarea" (dict "ID" "yd-workflow-remind-comment" "Name" "comment" "Rows" 2
+          "Label" (tr "workflow.task.remind") "LabelKey" "workflow.task.remind" "MaxLength" 2000)}}
+        {{template "components.form.actions" (dict "SubmitLabel" (tr "workflow.task.remind") "SubmitKey" "workflow.task.remind")}}
+      </form>
+      {{- end }}
+    </div>
+  </section>
+  {{- end }}
+
+  <section class="yd-section" aria-labelledby="yd-workflow-task-comments">
+    <h3 class="yd-section__title" id="yd-workflow-task-comments">{{ tr "workflow.instance.comments" }}</h3>
+    <ul class="yd-timeline">
+      {{ range .Comments }}
+      <li class="yd-timeline__item">
+        <span class="yd-timeline__dot" aria-hidden="true"></span>
+        <div>
+          <p class="yd-timeline__body">{{ .Body }}</p>
+          <p class="yd-timeline__meta">{{ .AuthorName }} · {{ .CreatedAt.Format "2006-01-02 15:04" }}</p>
+        </div>
+      </li>
+      {{ else }}
+      <li class="yd-timeline__item">{{ tr "workflow.instance.no_comments" }}</li>
+      {{ end }}
+    </ul>
+  </section>
+</div>
+{{- end -}}
+{{ template "partials/workflows/task" . }}

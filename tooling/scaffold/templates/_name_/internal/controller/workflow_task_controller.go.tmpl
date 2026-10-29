@@ -1,0 +1,1020 @@
+// This file owns the portal task surface and the shared task actions: my tasks, the start drawer,
+// task detail and every Chinese approval action. | 本文件负责门户待办面与共享任务动作：我的待办、
+// 发起抽屉、任务详情以及全部中国式审批动作。
+
+package controller
+
+import (
+	"errors"
+	"net/http"
+	"net/url"
+	"strconv"
+	"strings"
+
+	"{{ .YdModule }}/security/authz"
+	"{{ .YdxModule }}/json"
+	"{{ .YdxModule }}/router"
+	"{{ .YdxModule }}/workflow"
+)
+
+// workflowTaskViewData is the template contract of one task drawer. | workflowTaskViewData 是任务抽屉的模板契约。
+type workflowTaskViewData struct {
+	// Task is the task row. | Task 是任务记录。
+	Task workflow.Task
+	// Instance is the owning instance. | Instance 是所属实例。
+	Instance workflow.Instance
+	// Definition and Version describe the pinned process. | Definition 与 Version 描述绑定的流程。
+	Definition workflow.Definition
+	Version    workflow.Version
+	// Node is the current design node. | Node 是当前设计节点。
+	Node workflow.Node
+	// Comments are the instance comments. | Comments 是实例评论。
+	Comments []workflow.Comment
+	// Variables are the instance variables. | Variables 是实例变量。
+	Variables map[string]any
+	// FormFields are the node form fields. | FormFields 是节点表单字段。
+	FormFields []workflow.FormField
+	// FormValues are the initial string values of the node form. | FormValues 是节点表单的初始字符串值。
+	FormValues map[string]string
+	// ReturnTargets are the visited user tasks a return may target. | ReturnTargets 是退回可选的已访问用户任务。
+	ReturnTargets []workflow.Node
+	// CanAct, CanClaim, CanAdmin and CanRemind gate the action forms. | CanAct、CanClaim、CanAdmin 与
+	// CanRemind 控制动作表单是否出现。
+	CanAct      bool
+	CanClaim    bool
+	CanAdmin    bool
+	CanRemind   bool
+	CanReturn   bool
+	CanSign     bool
+	CanDelegate bool
+	// BasePath is the action prefix, portal or management. | BasePath 是动作前缀，门户或后台。
+	BasePath string
+}
+
+// WorkflowTasks renders the portal task page. | WorkflowTasks 渲染门户待办页面。
+//
+// @Summary My workflow tasks | 我的流程待办
+// @Description Renders the todo, done and started tabs with counts and filters. | 渲染待办、已办与我发起的页签及筛选。
+// @Tags workflow
+// @Produce html
+// @Param tab query string false "todo, done or started | todo、done 或 started"
+// @Param q query string false "Search keyword | 搜索关键字"
+// @Param page query int false "1-based page | 从 1 开始的页码"
+// @Success 200 {string} string "task page | 待办页面"
+// @Failure 403 {string} string "permission denied | 权限不足"
+// @Security BearerAuth
+// @Router /workflow/tasks [get]
+func (c *Controller) WorkflowTasks(ctx *router.Ctx) {
+	if !c.workflowServiceOrFail(ctx) {
+		return
+	}
+	if workflowHTMXTarget(ctx, "yd-workflow-task-list") {
+		c.WorkflowTaskList(ctx)
+		return
+	}
+	tenantID, ok := c.tenantID(ctx)
+	if !ok {
+		return
+	}
+	tab := strings.ToLower(strings.TrimSpace(ctx.Query(FieldWorkflowFilterTab)))
+	if tab != "done" && tab != "started" {
+		tab = "todo"
+	}
+	c.renderWorkflowTasksPage(ctx, tenantID, c.workflowActor(ctx), tab, field(ctx, FieldKeyword), pageNumber(ctx))
+}
+
+// renderWorkflowTasksPage renders the whole portal task page for one tab. | renderWorkflowTasksPage
+// 为指定页签渲染完整的门户任务页面。
+func (c *Controller) renderWorkflowTasksPage(ctx *router.Ctx, tenantID string, actor workflow.Actor, tab, keyword string, pageNo int) {
+	if tab != "done" && tab != "started" {
+		tab = "todo"
+	}
+	data := c.pageView(ctx, "我的流程 | My workflows", map[string]any{
+		"Tab":        tab,
+		"Keyword":    keyword,
+		"CanStart":   permissionWorkflowUse(ctx),
+		"CanApprove": permissionWorkflowApprove(ctx),
+		"TabItems":   c.workflowTaskTabs(ctx, tab),
+	})
+	if tab == "started" {
+		page, err := c.workflow.ListInstances(ctx.Request.Context(), tenantID, workflow.InstanceFilter{
+			Query: keyword, InitiatorID: actor.ID, Page: pageNo,
+		})
+		if err != nil {
+			c.failService(ctx, err)
+			return
+		}
+		data["Instances"] = page.Items
+		data["Total"] = page.Total
+		data["Page"] = page.Page
+		data["PageSize"] = page.PageSize
+		data["Pagination"] = c.workflowPagination(ctx, "/workflow/tasks", map[string]string{
+			"tab": tab, "q": keyword,
+		}, page.Page, page.PageSize, page.Total)
+	} else {
+		filter := workflow.TaskFilter{
+			Query: keyword, ActorID: actor.ID, Page: pageNo,
+		}
+		if tab == "done" {
+			filter.Status = workflow.TaskCompleted
+		} else {
+			filter.Statuses = []string{workflow.TaskPending, workflow.TaskClaimed}
+		}
+		page, err := c.workflow.ListTasks(ctx.Request.Context(), tenantID, filter)
+		if err != nil {
+			c.failService(ctx, err)
+			return
+		}
+		data["Tasks"] = page.Items
+		data["Total"] = page.Total
+		data["Page"] = page.Page
+		data["PageSize"] = page.PageSize
+		data["Pagination"] = c.workflowPagination(ctx, "/workflow/tasks", map[string]string{
+			"tab": tab, "q": keyword,
+		}, page.Page, page.PageSize, page.Total)
+	}
+	if definitions, err := c.workflow.ListDefinitions(ctx.Request.Context(), tenantID, workflow.DefinitionFilter{
+		Status: workflow.DefinitionPublished, Page: 1, PageSize: 100,
+	}); err == nil {
+		data["StartDefinitions"] = definitions.Items
+	}
+	c.render(ctx, http.StatusOK, TplWorkflowTasks, data)
+}
+
+// workflowTaskTabs builds the server-driven tab links. | workflowTaskTabs 构建服务端驱动的页签链接。
+func (c *Controller) workflowTaskTabs(ctx *router.Ctx, active string) []map[string]any {
+	tabs := []struct {
+		Key      string
+		LabelKey string
+		Label    string
+	}{
+		{"todo", "workflow.tasks.todo", c.tr(c.lang(ctx), "workflow.tasks.todo")},
+		{"done", "workflow.tasks.done", c.tr(c.lang(ctx), "workflow.tasks.done")},
+		{"started", "workflow.tasks.started", c.tr(c.lang(ctx), "workflow.tasks.started")},
+	}
+	out := make([]map[string]any, 0, len(tabs))
+	for _, tab := range tabs {
+		out = append(out, map[string]any{
+			"Href": "/workflow/tasks?tab=" + tab.Key, "Get": "/workflow/tasks?tab=" + tab.Key,
+			"Target": "#yd-workspace", "Swap": "innerMorph", "PushURL": true,
+			"Label": tab.Label, "LabelKey": tab.LabelKey, "Active": tab.Key == active,
+		})
+	}
+	return out
+}
+
+// workflowCurrentQuery reads one query value from the fragment's current URL. | workflowCurrentQuery
+// 从片段当前 URL 读取一个查询值。
+//
+// htmx sends HX-Current-URL for every request, so a drawer action can refresh the page the user
+// is actually looking at instead of falling back to the first tab. | htmx 每次请求都会发送
+// HX-Current-URL，因此抽屉动作可以刷新用户正在看的页面，而不是退回第一个页签。
+func workflowCurrentQuery(ctx *router.Ctx, key string) string {
+	raw := strings.TrimSpace(ctx.Request.Header.Get("HX-Current-URL"))
+	if raw == "" {
+		return ctx.Query(key)
+	}
+	if i := strings.IndexByte(raw, '?'); i >= 0 {
+		raw = raw[i+1:]
+	} else {
+		return ""
+	}
+	values, err := url.ParseQuery(raw)
+	if err != nil {
+		return ""
+	}
+	return values.Get(key)
+}
+
+// pageNumberFromQuery parses a positive page number. | pageNumberFromQuery 解析正整数页码。
+func pageNumberFromQuery(ctx *router.Ctx, raw string) int {
+	value, err := strconv.Atoi(strings.TrimSpace(raw))
+	if err != nil || value < 1 {
+		return 1
+	}
+	return value
+}
+
+// permissionWorkflowUse reports workflow:use for a template flag. | permissionWorkflowUse 为模板标记报告 workflow:use。
+func permissionWorkflowUse(ctx *router.Ctx) bool {
+	return authz.Can(ctx.Request.Context(), authz.PermWorkflowUse)
+}
+
+// permissionWorkflowApprove reports workflow:approve for a template flag. | permissionWorkflowApprove
+// 为模板标记报告 workflow:approve。
+func permissionWorkflowApprove(ctx *router.Ctx) bool {
+	return authz.Can(ctx.Request.Context(), authz.PermWorkflowApprove)
+}
+
+// WorkflowTaskList renders only the task table after a mutation or filter. | WorkflowTaskList
+// 在变更或筛选后只渲染任务表格。
+//
+// @Summary Task list fragment | 任务列表片段
+// @Description Returns the portal task table alone. | 只返回门户任务表格。
+// @Tags workflow
+// @Produce html
+// @Param tab query string false "todo, done or started | todo、done 或 started"
+// @Param q query string false "Search keyword | 搜索关键字"
+// @Param page query int false "1-based page | 从 1 开始的页码"
+// @Success 200 {string} string "task table | 任务表格"
+// @Security BearerAuth
+// @Router /workflow/tasks/list [get]
+func (c *Controller) WorkflowTaskList(ctx *router.Ctx) {
+	if !c.workflowServiceOrFail(ctx) {
+		return
+	}
+	tenantID, ok := c.tenantID(ctx)
+	if !ok {
+		return
+	}
+	actor := c.workflowActor(ctx)
+	tab := strings.ToLower(strings.TrimSpace(ctx.Query(FieldWorkflowFilterTab)))
+	if tab != "done" && tab != "started" {
+		tab = "todo"
+	}
+	data := c.view(ctx, "任务列表 | Tasks", map[string]any{"Tab": tab, "Keyword": field(ctx, FieldKeyword)})
+	if tab == "started" {
+		page, err := c.workflow.ListInstances(ctx.Request.Context(), tenantID, workflow.InstanceFilter{
+			Query: field(ctx, FieldKeyword), InitiatorID: actor.ID, Page: pageNumber(ctx),
+		})
+		if err != nil {
+			c.failService(ctx, err)
+			return
+		}
+		data["Instances"] = page.Items
+		data["Total"] = page.Total
+		data["Page"] = page.Page
+		data["PageSize"] = page.PageSize
+		data["Pagination"] = c.workflowPagination(ctx, "/workflow/tasks", map[string]string{
+			"tab": tab, "q": field(ctx, FieldKeyword),
+		}, page.Page, page.PageSize, page.Total)
+	} else {
+		filter := workflow.TaskFilter{Query: field(ctx, FieldKeyword), ActorID: actor.ID, Page: pageNumber(ctx)}
+		if tab == "done" {
+			filter.Status = workflow.TaskCompleted
+		} else {
+			filter.Statuses = []string{workflow.TaskPending, workflow.TaskClaimed}
+		}
+		page, err := c.workflow.ListTasks(ctx.Request.Context(), tenantID, filter)
+		if err != nil {
+			c.failService(ctx, err)
+			return
+		}
+		data["Tasks"] = page.Items
+		data["Total"] = page.Total
+		data["Page"] = page.Page
+		data["PageSize"] = page.PageSize
+		data["Pagination"] = c.workflowPagination(ctx, "/workflow/tasks", map[string]string{
+			"tab": tab, "q": field(ctx, FieldKeyword),
+		}, page.Page, page.PageSize, page.Total)
+	}
+	data["OOB"] = true
+	c.render(ctx, http.StatusOK, TplWorkflowTaskList, data)
+}
+
+// WorkflowTaskDrawer renders one task's detail and action forms. | WorkflowTaskDrawer 渲染任务详情与动作表单。
+//
+// @Summary Task detail drawer | 任务详情抽屉
+// @Description Returns the shared task drawer, including claim, approve, transfer, delegate,
+// @Description add-sign, remove-sign, return and remind forms allowed for the caller. | 返回共享任务抽屉，
+// @Description 含调用方可见的签收、通过、转办、委派、加签、减签、退回与催办表单。
+// @Tags workflow
+// @Produce html
+// @Param id path string true "Task id | 任务 ID"
+// @Success 200 {string} string "task drawer | 任务抽屉"
+// @Failure 403 {string} string "task not visible | 任务不可见"
+// @Failure 404 {string} string "task not found | 任务不存在"
+// @Security BearerAuth
+// @Router /workflow/tasks/{id} [get]
+func (c *Controller) WorkflowTaskDrawer(ctx *router.Ctx) {
+	c.workflowTaskDrawerAt(ctx, "/workflow/tasks", false)
+}
+
+// MgrWorkflowTaskDrawer renders the management variant of the shared task drawer. |
+// MgrWorkflowTaskDrawer 渲染共享任务抽屉的管理端变体。
+//
+// @Summary Management task drawer | 管理端任务抽屉
+// @Description Returns the same task drawer with management action URLs. | 返回使用管理端动作地址的同一任务抽屉。
+// @Tags workflow
+// @Produce html
+// @Param id path string true "Task id | 任务 ID"
+// @Success 200 {string} string "task drawer | 任务抽屉"
+// @Security BearerAuth
+// @Router /mgr/workflow-tasks/{id} [get]
+func (c *Controller) MgrWorkflowTaskDrawer(ctx *router.Ctx) {
+	c.workflowTaskDrawerAt(ctx, "/mgr/workflow-tasks", true)
+}
+
+// MgrWorkflowTaskAction dispatches one management task action. | MgrWorkflowTaskAction 分派一次管理端任务动作。
+//
+// @Summary Manage a task | 管理端任务动作
+// @Description Dispatches claim, approve, transfer, delegate, add-sign, remove-sign, return or remind for one task. |
+// 分派签收、审批、转办、委派、加签、减签、退回或催办。
+// @Tags workflow
+// @Accept application/x-www-form-urlencoded
+// @Produce html
+// @Param id path string true "Task id | 任务 ID"
+// @Param action path string true "Action | 动作"
+// @Success 200 {string} string "refreshed instance page | 刷新后的实例页面"
+// @Failure 403 {string} string "permission denied | 权限不足"
+// @Security BearerAuth
+// @Router /mgr/workflow-tasks/{id}/{action} [post]
+func (c *Controller) MgrWorkflowTaskAction(ctx *router.Ctx) {
+	switch strings.ToLower(strings.TrimSpace(ctx.Param("action"))) {
+	case "action":
+		c.ApproveWorkflowTask(ctx)
+	case "claim":
+		c.ClaimWorkflowTask(ctx)
+	case "transfer":
+		c.TransferWorkflowTask(ctx)
+	case "delegate":
+		c.DelegateWorkflowTask(ctx)
+	case "add-sign":
+		c.AddSignWorkflowTask(ctx)
+	case "remove-sign":
+		c.RemoveSignWorkflowTask(ctx)
+	case "return":
+		c.ReturnWorkflowTask(ctx)
+	case "remind":
+		c.RemindWorkflowTask(ctx)
+	default:
+		c.fail(ctx, http.StatusUnprocessableEntity, "未知任务动作 | unknown task action")
+	}
+}
+
+// workflowTaskDrawerAt renders the shared task drawer with one action prefix. The portal keeps the
+// participant check; the back office is already guarded by workflow:read and may inspect any task.
+// Action forms are only rendered when the caller can actually execute the matching endpoint:
+// workflow:approve in the portal, workflow:admin in the back office. |
+// workflowTaskDrawerAt 以指定动作前缀渲染共享任务抽屉。门户保留参与者校验；后台已由
+// workflow:read 守卫，可查看任意任务。只有调用方确实能执行对应端点时才渲染动作表单：
+// 门户需要 workflow:approve，后台需要 workflow:admin。
+func (c *Controller) workflowTaskDrawerAt(ctx *router.Ctx, basePath string, backOffice bool) {
+	if !c.workflowServiceOrFail(ctx) {
+		return
+	}
+	tenantID, ok := c.tenantID(ctx)
+	if !ok {
+		return
+	}
+	actor := c.workflowActor(ctx)
+	detail, err := c.workflow.TaskDetail(ctx.Request.Context(), tenantID, ctx.Param("id"))
+	if err != nil {
+		c.failService(ctx, err)
+		return
+	}
+	if !backOffice {
+		visible, err := c.workflow.TaskVisible(ctx.Request.Context(), tenantID, detail.Task, actor)
+		if err != nil {
+			c.failService(ctx, err)
+			return
+		}
+		if !visible {
+			c.fail(ctx, http.StatusForbidden, msgForbidden)
+			return
+		}
+	}
+	canAct := authz.Can(ctx.Request.Context(), authz.PermWorkflowApprove)
+	if backOffice {
+		canAct = authz.Can(ctx.Request.Context(), authz.PermWorkflowAdmin)
+	}
+	data := workflowTaskView(detail, actor, basePath, canAct)
+	data["Fields"] = workflowFormFieldViews(detail.Node.Form, workflowStringValues(detail.Variables, detail.Node.Form))
+	// Only the forms that will actually render need the tenant directory or sibling tasks. |
+	// 只有确实会渲染的表单才需要租户用户目录或同令牌任务。
+	canSign, _ := data["CanSign"].(bool)
+	canDelegate, _ := data["CanDelegate"].(bool)
+	canReturn, _ := data["CanReturn"].(bool)
+	if canSign || canDelegate {
+		if users, err := c.users.List(ctx.Request.Context(), tenantID, ""); err == nil {
+			rows := make([]map[string]any, 0, len(users))
+			options := make([]map[string]any, 0, len(users))
+			for _, user := range users {
+				rows = append(rows, map[string]any{"ID": user.ID, "Name": user.DisplayName, "Username": user.Username})
+				label := user.DisplayName
+				if label == "" {
+					label = user.Username
+				}
+				options = append(options, map[string]any{"Value": user.ID, "Label": label})
+			}
+			data["Users"] = rows
+			data["UserOptions"] = options
+		}
+	}
+	if canSign {
+		if siblings, err := c.workflow.ListTasks(ctx.Request.Context(), tenantID, workflow.TaskFilter{
+			InstanceID: detail.Instance.ID, Page: 1, PageSize: c.workflow.Options().MaxPageSize,
+		}); err == nil {
+			pending := make([]workflow.Task, 0, 4)
+			for _, sibling := range siblings.Items {
+				if sibling.TokenID != detail.Task.TokenID || sibling.ID == detail.Task.ID {
+					continue
+				}
+				if sibling.Status == workflow.TaskQueued || sibling.Status == workflow.TaskPending {
+					pending = append(pending, sibling)
+				}
+			}
+			data["Siblings"] = pending
+			siblingOptions := make([]map[string]any, 0, len(pending))
+			for _, sibling := range pending {
+				label := sibling.NodeName + " · " + sibling.AssigneeName
+				siblingOptions = append(siblingOptions, map[string]any{"Value": sibling.ID, "Label": label})
+			}
+			data["SiblingOptions"] = siblingOptions
+		}
+	}
+	if canReturn {
+		targets := make([]map[string]any, 0, 8)
+		if view, ok := data["ReturnTargets"].([]workflow.Node); ok {
+			for _, node := range view {
+				targets = append(targets, map[string]any{"Value": node.ID, "Label": node.Name})
+			}
+		}
+		data["ReturnOptions"] = targets
+	}
+	c.render(ctx, http.StatusOK, TplWorkflowTaskDrawer, c.view(ctx, "任务详情 | Task", data))
+}
+
+// workflowFormFieldView is one form field prepared for rendering. | workflowFormFieldView 是准备渲染的一个表单字段。
+type workflowFormFieldView struct {
+	// Field is the domain field. | Field 是领域字段。
+	Field workflow.FormField
+	// ID is the stable HTML id. | ID 是稳定的 HTML ID。
+	ID string
+	// Name is the submitted field name. The field_ prefix keeps a design field from colliding with
+	// the action form's own decision/comment/title/target fields. | Name 是提交字段名。field_ 前缀
+	// 防止设计字段与动作表单自带的 decision/comment/title/target 字段同名覆盖。
+	Name string
+	// InputType is the HTML input type; datetime maps to datetime-local. | InputType 是 HTML 输入类型；
+	// datetime 映射为 datetime-local。
+	InputType string
+	// Value is the current string value. | Value 是当前字符串值。
+	Value string
+	// Checked is the boolean state of a checkbox. | Checked 是复选框的布尔状态。
+	Checked bool
+	// Options are the selectable values. | Options 是可选项。
+	Options []map[string]any
+}
+
+// workflowFormFieldViews prepares fields with values and select options. | workflowFormFieldViews
+// 准备带取值与选项的表单字段。
+func workflowFormFieldViews(fields []workflow.FormField, values map[string]string) []workflowFormFieldView {
+	out := make([]workflowFormFieldView, 0, len(fields))
+	for _, field := range fields {
+		value := values[field.Key]
+		inputType := field.Type
+		if inputType == "datetime" {
+			inputType = "datetime-local"
+		}
+		view := workflowFormFieldView{
+			Field:     field,
+			ID:        "yd-workflow-field-" + field.Key,
+			Name:      "field_" + field.Key,
+			InputType: inputType,
+			Value:     value,
+			Checked:   value == "true" || value == "on" || value == "1" || value == "yes",
+		}
+		for _, option := range field.Options {
+			view.Options = append(view.Options, map[string]any{
+				"Value": option.Value, "Label": option.Label, "Key": "",
+				"Selected": option.Value == value,
+			})
+		}
+		out = append(out, view)
+	}
+	return out
+}
+
+// workflowTaskView builds the template contract of one loaded task. canAct is the permission of
+// the endpoint that will receive the forms; a viewer without it sees the read-only drawer even
+// when they are the assignee. | workflowTaskView 构建已加载任务的模板契约。canAct 是接收表单的
+// 端点所要求的权限；没有它的查看者即使是指派人，也只看到只读抽屉。
+func workflowTaskView(detail workflow.TaskDetail, actor workflow.Actor, basePath string, canAct bool) map[string]any {
+	view := workflowTaskViewData{
+		Task:          detail.Task,
+		Instance:      detail.Instance,
+		Definition:    detail.Definition,
+		Version:       detail.Version,
+		Node:          detail.Node,
+		Comments:      detail.Comments,
+		Variables:     detail.Variables,
+		FormFields:    detail.Node.Form,
+		FormValues:    workflowStringValues(detail.Variables, detail.Node.Form),
+		ReturnTargets: workflowReturnTargets(detail),
+		BasePath:      basePath,
+	}
+	assigned := detail.Task.AssigneeID == actor.ID
+	view.CanAdmin = canAct && actor.Admin
+	view.CanClaim = canAct && detail.Instance.Status == workflow.InstanceRunning &&
+		detail.Task.Status == workflow.TaskPending &&
+		detail.Task.AssigneeID == "" && workflowTaskHasCandidate(detail.Task, actor.ID)
+	view.CanAct = canAct && detail.Instance.Status == workflow.InstanceRunning &&
+		(detail.Task.Status == workflow.TaskPending || detail.Task.Status == workflow.TaskClaimed) &&
+		(assigned || actor.Admin) && detail.Task.AssigneeID != ""
+	view.CanRemind = canAct && detail.Instance.Status == workflow.InstanceRunning &&
+		(detail.Instance.InitiatorID == actor.ID || actor.Admin)
+	view.CanReturn = view.CanAct && !detail.Design.Settings.ForbidReturn
+	view.CanSign = canAct && (view.CanAct || actor.Admin) && !detail.Design.Settings.ForbidAddSign
+	view.CanDelegate = view.CanAct && !detail.Design.Settings.ForbidDelegate
+	return map[string]any{
+		"View":            view,
+		"Task":            view.Task,
+		"Instance":        view.Instance,
+		"Definition":      view.Definition,
+		"WorkflowVersion": view.Version,
+		"Node":            view.Node,
+		"Comments":        view.Comments,
+		"Variables":       view.Variables,
+		"FormFields":      view.FormFields,
+		"FormValues":      view.FormValues,
+		"ReturnTargets":   view.ReturnTargets,
+		"CanAct":          view.CanAct,
+		"CanClaim":        view.CanClaim,
+		"CanAdmin":        view.CanAdmin,
+		"CanRemind":       view.CanRemind,
+		"CanReturn":       view.CanReturn,
+		"CanSign":         view.CanSign,
+		"CanDelegate":     view.CanDelegate,
+		"BasePath":        view.BasePath,
+	}
+}
+
+// workflowStringValues maps instance variables onto the string form values of one form. |
+// workflowStringValues 把实例变量映射到表单的字符串初值。
+func workflowStringValues(variables map[string]any, fields []workflow.FormField) map[string]string {
+	out := map[string]string{}
+	for _, field := range fields {
+		value, ok := variables[field.Key]
+		if !ok {
+			continue
+		}
+		data, err := json.Marshal(value)
+		if err != nil {
+			continue
+		}
+		text := string(data)
+		if len(text) >= 2 && text[0] == '"' {
+			var decoded string
+			if json.Unmarshal(data, &decoded) == nil {
+				text = decoded
+			}
+		}
+		out[field.Key] = text
+	}
+	return out
+}
+
+// workflowReturnTargets lists the user tasks a task may return to. | workflowReturnTargets
+// 列出任务可以退回的用户任务。
+func workflowReturnTargets(detail workflow.TaskDetail) []workflow.Node {
+	visited := workflow.DecodeStringList(detail.Instance.VisitedNodes)
+	out := make([]workflow.Node, 0, len(visited))
+	seen := map[string]bool{}
+	for _, id := range visited {
+		if seen[id] || id == detail.Task.NodeID {
+			continue
+		}
+		if node, ok := detail.Design.FindNode(id); ok && node.Type == workflow.NodeUserTask {
+			seen[id] = true
+			out = append(out, node)
+		}
+	}
+	out = append(out, workflow.Node{ID: workflow.InitiatorNodeID, Type: workflow.NodeUserTask, Name: "发起人 | Initiator"})
+	return out
+}
+
+// workflowTaskHasCandidate reports whether id appears in the candidate pool. | workflowTaskHasCandidate
+// 报告 id 是否在候选池中。
+func workflowTaskHasCandidate(task workflow.Task, id string) bool {
+	for _, candidate := range task.CandidateList() {
+		if candidate == id {
+			return true
+		}
+	}
+	return false
+}
+
+// WorkflowStartDrawer renders the start-process drawer. | WorkflowStartDrawer 渲染发起流程抽屉。
+//
+// @Summary Start-process drawer | 发起流程抽屉
+// @Description Lists published definitions, or renders the selected definition's start form. | 列出已发布定义，或渲染所选定义的发起表单。
+// @Tags workflow
+// @Produce html
+// @Param definition query string false "Definition key | 定义键"
+// @Success 200 {string} string "start form | 发起表单"
+// @Security BearerAuth
+// @Router /workflow/start [get]
+func (c *Controller) WorkflowStartDrawer(ctx *router.Ctx) {
+	if !c.workflowServiceOrFail(ctx) {
+		return
+	}
+	tenantID, ok := c.tenantID(ctx)
+	if !ok {
+		return
+	}
+	key := strings.TrimSpace(ctx.Query(FieldWorkflowFilterDefinition))
+	data := map[string]any{"BasePath": "/workflow", "Key": key}
+	definitions, err := c.workflow.ListDefinitions(ctx.Request.Context(), tenantID, workflow.DefinitionFilter{
+		Status: workflow.DefinitionPublished, Page: 1, PageSize: c.workflow.Options().MaxPageSize,
+	})
+	if err != nil {
+		c.failService(ctx, err)
+		return
+	}
+	data["Definitions"] = definitions.Items
+	if key != "" {
+		definition, err := c.workflow.GetDefinitionByKey(ctx.Request.Context(), tenantID, key)
+		if err != nil {
+			c.failService(ctx, err)
+			return
+		}
+		if definition.Status != workflow.DefinitionPublished {
+			c.fail(ctx, http.StatusNotFound, "该流程未发布 | the process is not published")
+			return
+		}
+		version, design, err := c.workflow.LatestPublishedVersion(ctx.Request.Context(), tenantID, definition.ID)
+		if err != nil {
+			c.failService(ctx, err)
+			return
+		}
+		data["Definition"] = definition
+		data["WorkflowVersion"] = version
+		data["Fields"] = workflowFormFieldViews(design.StartForm(), map[string]string{})
+		data["FormValues"] = map[string]string{}
+	}
+	c.render(ctx, http.StatusOK, TplWorkflowStartDrawer, c.view(ctx, "发起流程 | Start", data))
+}
+
+// WorkflowStart starts one instance from the drawer form. | WorkflowStart 从抽屉表单发起一个实例。
+//
+// @Summary Start a process | 发起流程
+// @Description Creates an instance from the selected published definition and its start form. | 从所选已发布定义及其发起表单创建实例。
+// @Tags workflow
+// @Accept application/x-www-form-urlencoded
+// @Produce html
+// @Param definition formData string true "Definition key | 定义键"
+// @Param title formData string true "Instance title | 实例标题"
+// @Param business_key formData string false "External business key | 外部业务键"
+// @Success 303 {string} string "redirect to my workflows | 跳转到我的流程"
+// @Failure 422 {string} string "form validation failed | 表单校验失败"
+// @Security BearerAuth
+// @Router /workflow/start [post]
+func (c *Controller) WorkflowStart(ctx *router.Ctx) {
+	if !c.workflowServiceOrFail(ctx) {
+		return
+	}
+	tenantID, ok := c.tenantID(ctx)
+	if !ok {
+		return
+	}
+	key := strings.TrimSpace(ctx.FormValue(FieldWorkflowFilterDefinition))
+	definition, err := c.workflow.GetDefinitionByKey(ctx.Request.Context(), tenantID, key)
+	if err != nil {
+		c.failService(ctx, err)
+		return
+	}
+	version, design, err := c.workflow.LatestPublishedVersion(ctx.Request.Context(), tenantID, definition.ID)
+	if err != nil {
+		if errors.Is(err, workflow.ErrNotFound) {
+			c.fail(ctx, http.StatusUnprocessableEntity, "该流程尚未发布 | the process has no published version")
+			return
+		}
+		c.failService(ctx, err)
+		return
+	}
+	actor := c.workflowActor(ctx)
+	instance, err := c.workflow.Start(ctx.Request.Context(), tenantID, actor, workflow.StartInput{
+		DefinitionID: definition.ID,
+		Version:      version.Version,
+		Title:        field(ctx, FieldWorkflowTitle),
+		BusinessKey:  field(ctx, FieldWorkflowBusinessKey),
+		FormData:     workflowSubmittedForm(ctx, design.StartForm()),
+	})
+	if err != nil {
+		c.failService(ctx, err)
+		return
+	}
+	c.toast(ctx, "流程已发起 | Workflow started")
+	_ = instance
+	c.redirect(ctx, "/workflow/tasks?tab=started")
+}
+
+// workflowSubmittedForm reads the form fields of one design scope from the request. The field_
+// prefix is added by the rendered controls, so a design field can never shadow the action form's
+// own decision/comment/title/target fields. | workflowSubmittedForm 从请求读取一个设计作用域的
+// 表单字段。渲染控件时加上的 field_ 前缀保证设计字段绝不会覆盖动作表单自带的
+// decision/comment/title/target 字段。
+func workflowSubmittedForm(ctx *router.Ctx, fields []workflow.FormField) map[string]any {
+	values := map[string]any{}
+	for _, field := range fields {
+		raw := strings.TrimSpace(ctx.FormValue("field_" + field.Key))
+		switch field.Type {
+		case "number":
+			if raw == "" {
+				continue
+			}
+			if parsed, err := strconv.ParseFloat(raw, 64); err == nil {
+				values[field.Key] = parsed
+			} else {
+				values[field.Key] = raw
+			}
+		case "checkbox":
+			values[field.Key] = raw == "on" || raw == "true" || raw == "1"
+		default:
+			if raw != "" || field.Required {
+				values[field.Key] = raw
+			}
+		}
+	}
+	return values
+}
+
+// ApproveWorkflowTask records one approve or reject decision. | ApproveWorkflowTask 记录一次通过或驳回决策。
+//
+// @Summary Approve or reject a task | 通过或驳回任务
+// @Description Records the decision, validates the node form and advances the node when it is decided. | 记录决策、校验节点表单并在节点完成时推进流程。
+// @Tags workflow
+// @Accept application/x-www-form-urlencoded
+// @Produce html
+// @Param id path string true "Task id | 任务 ID"
+// @Param decision formData string true "approve or reject | approve 或 reject"
+// @Param comment formData string false "Approval comment | 审批意见"
+// @Success 200 {string} string "task table | 任务表格"
+// @Failure 403 {string} string "not the assignee | 非指派人"
+// @Failure 409 {string} string "task already closed | 任务已结束"
+// @Failure 422 {string} string "form validation failed | 表单校验失败"
+// @Security BearerAuth
+// @Router /workflow/tasks/{id}/action [post]
+func (c *Controller) ApproveWorkflowTask(ctx *router.Ctx) {
+	if !c.workflowServiceOrFail(ctx) {
+		return
+	}
+	tenantID, ok := c.tenantID(ctx)
+	if !ok {
+		return
+	}
+	detail, err := c.workflow.TaskDetail(ctx.Request.Context(), tenantID, ctx.Param("id"))
+	if err != nil {
+		c.failService(ctx, err)
+		return
+	}
+	actor := c.workflowActor(ctx)
+	if _, err := c.workflow.Approve(ctx.Request.Context(), tenantID, actor, detail.Task.ID, workflow.ActionInput{
+		Decision: field(ctx, FieldWorkflowDecision),
+		Comment:  field(ctx, FieldWorkflowComment),
+		FormData: workflowSubmittedForm(ctx, detail.Node.Form),
+	}); err != nil {
+		c.failService(ctx, err)
+		return
+	}
+	c.toast(ctx, "任务已处理 | Task decided")
+	c.workflowTaskListAfterAction(ctx, tenantID, actor)
+}
+
+// ClaimWorkflowTask claims a pool task. | ClaimWorkflowTask 签收一个候选池任务。
+//
+// @Summary Claim a task | 签收任务
+// @Description Claims a pooled task for the caller. | 为调用方签收候选池任务。
+// @Tags workflow
+// @Produce html
+// @Param id path string true "Task id | 任务 ID"
+// @Success 200 {string} string "task table | 任务表格"
+// @Failure 403 {string} string "not a candidate | 非候选人"
+// @Security BearerAuth
+// @Router /workflow/tasks/{id}/claim [post]
+func (c *Controller) ClaimWorkflowTask(ctx *router.Ctx) {
+	if !c.workflowServiceOrFail(ctx) {
+		return
+	}
+	tenantID, ok := c.tenantID(ctx)
+	if !ok {
+		return
+	}
+	actor := c.workflowActor(ctx)
+	if _, err := c.workflow.Claim(ctx.Request.Context(), tenantID, actor, ctx.Param("id")); err != nil {
+		c.failService(ctx, err)
+		return
+	}
+	c.toast(ctx, "任务已签收 | Task claimed")
+	c.workflowTaskListAfterAction(ctx, tenantID, actor)
+}
+
+// TransferWorkflowTask reassigns a task. | TransferWorkflowTask 转办任务。
+//
+// @Summary Transfer a task | 转办任务
+// @Description Reassigns an open task to another member. | 把未结束任务改派给另一名成员。
+// @Tags workflow
+// @Accept application/x-www-form-urlencoded
+// @Produce html
+// @Param id path string true "Task id | 任务 ID"
+// @Param target_id formData string true "Target user id | 目标用户 ID"
+// @Param comment formData string false "Reason | 原因"
+// @Success 200 {string} string "task table | 任务表格"
+// @Security BearerAuth
+// @Router /workflow/tasks/{id}/transfer [post]
+func (c *Controller) TransferWorkflowTask(ctx *router.Ctx) {
+	c.workflowReassign(ctx, false)
+}
+
+// DelegateWorkflowTask delegates a task. | DelegateWorkflowTask 委派任务。
+//
+// @Summary Delegate a task | 委派任务
+// @Description Hands a task to a delegate while keeping the owner for final confirmation. | 把任务交给受托人，同时保留原指派人做最终确认。
+// @Tags workflow
+// @Accept application/x-www-form-urlencoded
+// @Produce html
+// @Param id path string true "Task id | 任务 ID"
+// @Param target_id formData string true "Delegate user id | 受托人 ID"
+// @Param comment formData string false "Reason | 原因"
+// @Success 200 {string} string "task table | 任务表格"
+// @Security BearerAuth
+// @Router /workflow/tasks/{id}/delegate [post]
+func (c *Controller) DelegateWorkflowTask(ctx *router.Ctx) {
+	c.workflowReassign(ctx, true)
+}
+
+// workflowReassign implements transfer and delegation over the shared task route. |
+// workflowReassign 在共享任务路由上实现转办与委派。
+func (c *Controller) workflowReassign(ctx *router.Ctx, delegate bool) {
+	if !c.workflowServiceOrFail(ctx) {
+		return
+	}
+	tenantID, ok := c.tenantID(ctx)
+	if !ok {
+		return
+	}
+	actor := c.workflowActor(ctx)
+	var err error
+	if delegate {
+		_, err = c.workflow.Delegate(ctx.Request.Context(), tenantID, actor, ctx.Param("id"), workflow.DelegateInput{
+			TargetID: field(ctx, FieldWorkflowTarget), Comment: field(ctx, FieldWorkflowComment),
+		})
+	} else {
+		_, err = c.workflow.Transfer(ctx.Request.Context(), tenantID, actor, ctx.Param("id"), workflow.TransferInput{
+			TargetID: field(ctx, FieldWorkflowTarget), Comment: field(ctx, FieldWorkflowComment),
+		})
+	}
+	if err != nil {
+		c.failService(ctx, err)
+		return
+	}
+	c.toast(ctx, "任务已转派 | Task reassigned")
+	c.workflowTaskListAfterAction(ctx, tenantID, actor)
+}
+
+// AddSignWorkflowTask adds approvers to a running node. | AddSignWorkflowTask 为运行中节点加签。
+//
+// @Summary Add approvers | 加签
+// @Description Adds one or more approvers before or after the current task. | 在当前任务之前或之后增加一名或多名审批人。
+// @Tags workflow
+// @Accept application/x-www-form-urlencoded
+// @Produce html
+// @Param id path string true "Task id | 任务 ID"
+// @Param user_ids formData string true "Comma-separated user ids | 逗号分隔的用户 ID"
+// @Param position formData string false "before or after | before 或 after"
+// @Param comment formData string false "Reason | 原因"
+// @Success 200 {string} string "task table | 任务表格"
+// @Security BearerAuth
+// @Router /workflow/tasks/{id}/add-sign [post]
+func (c *Controller) AddSignWorkflowTask(ctx *router.Ctx) {
+	if !c.workflowServiceOrFail(ctx) {
+		return
+	}
+	tenantID, ok := c.tenantID(ctx)
+	if !ok {
+		return
+	}
+	actor := c.workflowActor(ctx)
+	userIDs := formValues(ctx, FieldWorkflowUsers)
+	if len(userIDs) == 0 {
+		userIDs = splitFormList(ctx.FormValue(FieldWorkflowUsers))
+	}
+	if _, err := c.workflow.AddSign(ctx.Request.Context(), tenantID, actor, ctx.Param("id"), workflow.AddSignInput{
+		UserIDs:  userIDs,
+		Position: field(ctx, FieldWorkflowPosition),
+		Comment:  field(ctx, FieldWorkflowComment),
+	}); err != nil {
+		c.failService(ctx, err)
+		return
+	}
+	c.toast(ctx, "加签完成 | Approvers added")
+	c.workflowTaskListAfterAction(ctx, tenantID, actor)
+}
+
+// RemoveSignWorkflowTask removes one queued task. | RemoveSignWorkflowTask 移除一条排队任务。
+//
+// @Summary Remove an approver | 减签
+// @Description Cancels one queued or pending task of the same node. | 取消同一节点的一条排队或待处理任务。
+// @Tags workflow
+// @Accept application/x-www-form-urlencoded
+// @Produce html
+// @Param id path string true "Task id | 任务 ID"
+// @Param target_task_id formData string true "Task to remove | 要移除的任务"
+// @Param comment formData string false "Reason | 原因"
+// @Success 200 {string} string "task table | 任务表格"
+// @Security BearerAuth
+// @Router /workflow/tasks/{id}/remove-sign [post]
+func (c *Controller) RemoveSignWorkflowTask(ctx *router.Ctx) {
+	if !c.workflowServiceOrFail(ctx) {
+		return
+	}
+	tenantID, ok := c.tenantID(ctx)
+	if !ok {
+		return
+	}
+	actor := c.workflowActor(ctx)
+	if err := c.workflow.RemoveSign(ctx.Request.Context(), tenantID, actor, ctx.Param("id"), field(ctx, FieldWorkflowTargetTask), field(ctx, FieldWorkflowComment)); err != nil {
+		c.failService(ctx, err)
+		return
+	}
+	c.toast(ctx, "减签完成 | Approver removed")
+	c.workflowTaskListAfterAction(ctx, tenantID, actor)
+}
+
+// ReturnWorkflowTask returns the instance to a visited node. | ReturnWorkflowTask 把实例退回到已访问节点。
+//
+// @Summary Return work | 退回
+// @Description Returns the instance to a visited user task or to the initiator. | 把实例退回已访问用户任务或发起人。
+// @Tags workflow
+// @Accept application/x-www-form-urlencoded
+// @Produce html
+// @Param id path string true "Task id | 任务 ID"
+// @Param target_node formData string true "Target node id | 目标节点 ID"
+// @Param comment formData string false "Reason | 原因"
+// @Success 200 {string} string "task table | 任务表格"
+// @Security BearerAuth
+// @Router /workflow/tasks/{id}/return [post]
+func (c *Controller) ReturnWorkflowTask(ctx *router.Ctx) {
+	if !c.workflowServiceOrFail(ctx) {
+		return
+	}
+	tenantID, ok := c.tenantID(ctx)
+	if !ok {
+		return
+	}
+	actor := c.workflowActor(ctx)
+	if err := c.workflow.Return(ctx.Request.Context(), tenantID, actor, ctx.Param("id"), workflow.ReturnInput{
+		TargetNodeID: field(ctx, FieldWorkflowTargetNode), Comment: field(ctx, FieldWorkflowComment),
+	}); err != nil {
+		c.failService(ctx, err)
+		return
+	}
+	c.toast(ctx, "流程已退回 | Work returned")
+	c.workflowTaskListAfterAction(ctx, tenantID, actor)
+}
+
+// RemindWorkflowTask sends one reminder. | RemindWorkflowTask 发送一次催办。
+//
+// @Summary Remind an approver | 催办
+// @Description Sends one reminder for a task, respecting the node's reminder ceiling. | 为任务发送一次催办，并遵守节点催办上限。
+// @Tags workflow
+// @Accept application/x-www-form-urlencoded
+// @Produce html
+// @Param id path string true "Task id | 任务 ID"
+// @Param comment formData string false "Reminder note | 催办说明"
+// @Success 200 {string} string "task table | 任务表格"
+// @Security BearerAuth
+// @Router /workflow/tasks/{id}/remind [post]
+func (c *Controller) RemindWorkflowTask(ctx *router.Ctx) {
+	if !c.workflowServiceOrFail(ctx) {
+		return
+	}
+	tenantID, ok := c.tenantID(ctx)
+	if !ok {
+		return
+	}
+	actor := c.workflowActor(ctx)
+	if _, err := c.workflow.Remind(ctx.Request.Context(), tenantID, actor, ctx.Param("id"), field(ctx, FieldWorkflowComment)); err != nil {
+		c.failService(ctx, err)
+		return
+	}
+	c.toast(ctx, "催办已发送 | Reminder sent")
+	c.workflowTaskListAfterAction(ctx, tenantID, actor)
+}
+
+// workflowTaskListAfterAction refreshes the owning page after one action. | workflowTaskListAfterAction
+// 在动作后刷新所属页面。
+func (c *Controller) workflowTaskListAfterAction(ctx *router.Ctx, tenantID string, actor workflow.Actor) {
+	if strings.HasPrefix(ctx.Path(), "/mgr/") {
+		c.renderWorkflowInstancesPage(ctx, tenantID,
+			workflowCurrentQuery(ctx, FieldKeyword),
+			workflowCurrentQuery(ctx, FieldWorkflowFilterStatus),
+			workflowCurrentQuery(ctx, FieldWorkflowCategory),
+			pageNumberFromQuery(ctx, workflowCurrentQuery(ctx, "page")))
+		return
+	}
+	tab := workflowCurrentQuery(ctx, FieldWorkflowFilterTab)
+	c.renderWorkflowTasksPage(ctx, tenantID, actor, tab, workflowCurrentQuery(ctx, FieldKeyword), pageNumberFromQuery(ctx, workflowCurrentQuery(ctx, "page")))
+}
+
+// splitFormList splits a comma-separated form value. | splitFormList 切分逗号分隔的表单值。
+func splitFormList(raw string) []string {
+	parts := strings.Split(raw, ",")
+	out := make([]string, 0, len(parts))
+	for _, part := range parts {
+		if value := strings.TrimSpace(part); value != "" {
+			out = append(out, value)
+		}
+	}
+	return out
+}

@@ -1,0 +1,49 @@
+{{/*
+  mgr/pages/workflow_groups.html —— 流程组目录：流程自有审批组与 yd 角色关联。
+  mgr/pages/workflow_groups.html — the workflow group directory: workflow-owned approval groups with yd role links.
+
+  数据契约 | Data contract: .Groups、.Total、.Keyword、.Status、.CanManage、.Perm。
+*/}}
+<section class="yd-page" data-yd-page="workflow-groups" aria-labelledby="yd-workflow-groups-title">
+  <header class="yd-page__header">
+    <div>
+      <h1 class="yd-page__title" id="yd-workflow-groups-title">{{ tr "workflow.groups.title" }}</h1>
+      <p class="yd-page__subtitle" id="yd-workflow-groups-total">{{ tr "workflow.groups.subtitle" .Total }}</p>
+    </div>
+    <div class="yd-page__actions">
+      {{- if .CanManage }}
+      <button type="button" class="yd-btn yd-btn--primary" data-yd-drawer-open
+              hx-get="/mgr/workflow-groups/new" hx-target="#yd-drawer-body" hx-swap="innerHTML">
+        {{ template "partials/icon" "lucide-plus" }}{{ tr "workflow.groups.new" }}
+      </button>
+      {{- end }}
+    </div>
+  </header>
+
+  {{template "components.form.search" (dict
+    "ID" "yd-workflow-groups-search" "Action" "/mgr/workflow-groups" "Get" "/mgr/workflow-groups"
+    "Target" "#yd-workflow-groups" "Swap" "innerMorph" "PushURL" true
+    "Trigger" "input changed delay:300ms from:#yd-workflow-groups-search, submit"
+    "Name" "q" "Value" .Keyword "Hidden" (dict "status" .Status)
+    "Label" (tr "workflow.groups.search") "LabelKey" "workflow.groups.search"
+    "Placeholder" (tr "workflow.groups.search_placeholder") "PlaceholderKey" "workflow.groups.search_placeholder"
+    "SubmitLabel" (tr "ui.search") "SubmitKey" "ui.search")}}
+
+  <form class="yd-toolbar" hx-get="/mgr/workflow-groups" hx-target="#yd-workflow-groups"
+        hx-swap="innerMorph" hx-push-url="true" hx-trigger="change">
+    <input type="hidden" name="q" value="{{ .Keyword }}">
+    {{template "components.form.select" (dict
+      "ID" "yd-workflow-groups-status" "Name" "status"
+      "Label" (tr "field.status") "LabelKey" "field.status" "LabelHidden" true
+      "Options" (list
+        (dict "Value" "" "Label" (tr "ui.all") "Key" "ui.all" "Selected" (eq .Status ""))
+        (dict "Value" "enabled" "Label" (tr "status.active") "Key" "status.active" "Selected" (eq .Status "enabled"))
+        (dict "Value" "disabled" "Label" (tr "status.disabled") "Key" "status.disabled" "Selected" (eq .Status "disabled"))))}}
+    <noscript><button type="submit" class="yd-btn">{{ tr "ui.search" }}</button></noscript>
+</form>
+
+  <section class="yd-card yd-section" id="yd-workflow-groups" aria-labelledby="yd-workflow-groups-list-title">
+    <h2 class="sr-only" id="yd-workflow-groups-list-title">{{ tr "workflow.groups.title" }}</h2>
+    {{ template "mgr/partials/workflows/group_list" . }}
+  </section>
+</section>

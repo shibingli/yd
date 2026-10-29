@@ -24,6 +24,8 @@ const (
 	GroupAttachment = "attachment"
 	// GroupDictionary is the data-dictionary resource group. | GroupDictionary 是数据字典资源分组。
 	GroupDictionary = "dictionary"
+	// GroupWorkflow is the workflow-engine resource group. | GroupWorkflow 是流程引擎资源分组。
+	GroupWorkflow = "workflow"
 )
 
 // groupLabels maps every framework resource group to its bilingual label. | groupLabels 把每个框架资源分组映射到中英对照标签。
@@ -36,6 +38,7 @@ var groupLabels = map[string]string{
 	GroupMessageType: "message-type | 消息类型",
 	GroupAttachment:  "attachment | 附件",
 	GroupDictionary:  "dictionary | 数据字典",
+	GroupWorkflow:    "workflow | 流程",
 }
 
 // GroupLabel returns the bilingual label of a resource group. | GroupLabel 返回资源分组的中英对照标签。
@@ -140,6 +143,22 @@ const (
 	// system tenant. It has no effect in any other tenant. | PermDictionarySystemManage 允许从配置的
 	// 系统租户管理系统级字典层；在其它租户中不生效。
 	PermDictionarySystemManage = "dictionary:system_manage"
+
+	// PermWorkflowUse allows starting processes and reading one's own instances in the portal. |
+	// PermWorkflowUse 允许在门户发起流程并读取自己的实例。
+	PermWorkflowUse = "workflow:use"
+	// PermWorkflowApprove allows acting on tasks assigned to the caller. | PermWorkflowApprove
+	// 允许处理指派给调用方的任务。
+	PermWorkflowApprove = "workflow:approve"
+	// PermWorkflowRead allows reading every definition, version, group, instance, task and statistic in the back office. |
+	// PermWorkflowRead 允许在后台读取全部定义、版本、流程组、实例、任务与统计。
+	PermWorkflowRead = "workflow:read"
+	// PermWorkflowManage allows managing definitions, designs, versions, groups and imports. | PermWorkflowManage
+	// 允许管理定义、设计、版本、流程组与导入。
+	PermWorkflowManage = "workflow:manage"
+	// PermWorkflowAdmin allows administrative actions on any instance or task. | PermWorkflowAdmin
+	// 允许对任意实例或任务执行管理动作。
+	PermWorkflowAdmin = "workflow:admin"
 )
 
 // Role names. | 角色名。
@@ -204,6 +223,12 @@ var builtinPermissions = []Permission{
 	{Name: PermDictionaryRead, Description: "List dictionary types and items in the back office | 在后台列出数据字典类型与字典项"},
 	{Name: PermDictionaryManage, Description: "Manage dictionary types and items | 管理数据字典类型与字典项"},
 	{Name: PermDictionarySystemManage, Description: "Manage the system-wide dictionary layer from the configured system tenant | 从配置的系统租户管理系统级字典层"},
+
+	{Name: PermWorkflowUse, Description: "Start processes and read own instances | 发起流程并读取自己的实例"},
+	{Name: PermWorkflowApprove, Description: "Act on tasks assigned to the caller | 处理指派给调用方的任务"},
+	{Name: PermWorkflowRead, Description: "Read every definition, version, group, instance and task in the back office | 在后台读取全部定义、版本、流程组、实例与任务"},
+	{Name: PermWorkflowManage, Description: "Manage definitions, designs, versions, groups and imports | 管理定义、设计、版本、流程组与导入"},
+	{Name: PermWorkflowAdmin, Description: "Administer any instance or task | 管理任意实例或任务"},
 }
 
 // builtinRoles is the framework role vocabulary. | builtinRoles 是框架角色词汇表。

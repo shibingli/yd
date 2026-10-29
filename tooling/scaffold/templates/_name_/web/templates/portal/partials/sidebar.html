@@ -28,6 +28,12 @@
       {{ template "partials/messages/sidebar_friend_requests" . }}
     </a>
     {{- end }}
+    {{- if and .WorkflowAvailable (or (can .Perm.WorkflowUse) (can .Perm.WorkflowApprove)) }}
+    <a class="yd-nav__link" href="/workflow/tasks" hx-get="/workflow/tasks" hx-target="#yd-shell" hx-swap="innerMorph" hx-push-url="true"
+       data-yd-nav="workflow-tasks"{{ if hasPrefix .Path "/workflow" }} aria-current="page"{{ end }}>
+      <span class="yd-nav__label">{{ tr "nav.workflow_tasks" }}</span>
+    </a>
+    {{- end }}
     {{- if and .AttachmentAvailable (can .Perm.AttachmentReadOwn) }}
     <a class="yd-nav__link" href="/attachments" hx-get="/attachments" hx-target="#yd-shell" hx-swap="innerMorph" hx-push-url="true"
        data-yd-nav="attachments"{{ if hasPrefix .Path "/attachments" }} aria-current="page"{{ end }}>
@@ -62,6 +68,8 @@
       {{- $mgrHref = "/mgr/message-settings" -}}
     {{- else if and .AttachmentAvailable (can .Perm.AttachmentRead) -}}
       {{- $mgrHref = "/mgr/attachments" -}}
+    {{- else if and .WorkflowAvailable (can .Perm.WorkflowRead) -}}
+      {{- $mgrHref = "/mgr/workflows" -}}
     {{- end -}}
     {{- if $mgrHref }}
     <p class="yd-nav__section">{{ tr "nav.group.management" }}</p>

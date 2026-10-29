@@ -1,0 +1,642 @@
+// This file owns the definition, version and group JSON API. | 本文件负责定义、版本与流程组的 JSON API。
+
+package controller
+
+import (
+	"io"
+	"net/http"
+	"strings"
+
+	"{{ .Module }}/internal/middleware"
+	"{{ .Module }}/internal/service"
+	ydlog "{{ .YdxModule }}/log"
+	"{{ .YdxModule }}/router"
+	"{{ .YdxModule }}/workflow"
+)
+
+// workflowAPIFail writes the shared API error shape. | workflowAPIFail 写出共享 API 错误形态。
+func (c *Controller) workflowAPIFail(ctx *router.Ctx, err error) {
+	status, message := statusFor(err)
+	if status >= http.StatusInternalServerError {
+		c.log.Error("workflow API request failed | 流程 API 请求失败", ydlog.Err(err), ydlog.Str("path", ctx.Path()))
+	}
+	_ = ctx.JSON(status, map[string]any{"error": message})
+}
+
+// workflowAPIAvailable guards an API handler. | workflowAPIAvailable 守卫一个 API 处理器。
+func (c *Controller) workflowAPIAvailable(ctx *router.Ctx) (string, bool) {
+	if !c.WorkflowAvailable() {
+		// JSON clients must receive a JSON error, never the HTML fragment produced by the page
+		// helper. | JSON 客户端必须收到 JSON 错误，不能拿到页面辅助函数生成的 HTML 片段。
+		c.workflowAPIFail(ctx, service.ErrWorkflowUnavailable)
+		return "", false
+	}
+	tenantID, ok := middleware.TenantID(ctx)
+	if !ok {
+		c.workflowAPIFail(ctx, service.ErrTenantMissing)
+		return "", false
+	}
+	return tenantID, true
+}
+
+// APIDefinitions lists or creates process definitions. | APIDefinitions 列出或创建流程定义。
+//
+// @Summary List definitions | 列出流程定义
+// @Description Returns one page of definitions with version and instance counts. | 返回带版本与实例计数的定义分页。
+// @Tags workflow
+// @Produce json
+// @Param q query string false "Search keyword | 搜索关键字"
+// @Param category query string false "Process category | 流程分类"
+// @Param status query string false "Lifecycle state | 生命周期状态"
+// @Param page query int false "1-based page | 从 1 开始的页码"
+// @Param page_size query int false "Page length | 页长"
+// @Success 200 {object} workflowDefinitionPageDoc "definition page | 定义分页"
+// @Security BearerAuth
+// @Router /api/v1/workflows/definitions [get]
+func (c *Controller) APIDefinitions(ctx *router.Ctx) {
+	tenantID, ok := c.workflowAPIAvailable(ctx)
+	if !ok {
+		return
+	}
+	page, err := c.workflow.ListDefinitions(ctx.Request.Context(), tenantID, workflow.DefinitionFilter{
+		Query: strings.TrimSpace(ctx.Query(FieldKeyword)), Category: strings.TrimSpace(ctx.Query(FieldWorkflowCategory)),
+		Status: strings.TrimSpace(ctx.Query(FieldStatus)),
+		Page:   queryInt(ctx, "page", 1), PageSize: queryInt(ctx, "page_size", defaultPageSize),
+	})
+	if err != nil {
+		c.workflowAPIFail(ctx, err)
+		return
+	}
+	_ = ctx.JSON(http.StatusOK, page)
+}
+
+// APICreateDefinition creates one definition. | APICreateDefinition 创建一个定义。
+//
+// @Summary Create definition | 创建定义
+// @Description Creates a draft definition. | 创建草稿定义。
+// @Tags workflow
+// @Accept json
+// @Produce json
+// @Param body body workflowDefinitionRequest true "definition payload | 定义载荷"
+// @Success 201 {object} workflowDefinitionDoc "created definition | 已创建定义"
+// @Failure 422 {object} string "validation failed | 校验失败"
+// @Failure 409 {object} string "duplicate key | 键重复"
+// @Security BearerAuth
+// @Router /api/v1/workflows/definitions [post]
+func (c *Controller) APICreateDefinition(ctx *router.Ctx) {
+	tenantID, ok := c.workflowAPIAvailable(ctx)
+	if !ok {
+		return
+	}
+	request := workflowDefinitionRequest{}
+	if err := ctx.Bind(&request); err != nil {
+		c.workflowAPIFail(ctx, workflow.ErrInvalidInput)
+		return
+	}
+	definition, err := c.workflow.CreateDefinition(ctx.Request.Context(), tenantID, c.workflowActor(ctx).ID, workflow.DefinitionInput{
+		Key: request.Key, Name: request.Name, NameEN: request.NameEN, Description: request.Description,
+		Category: request.Category, Icon: request.Icon,
+	})
+	if err != nil {
+		c.workflowAPIFail(ctx, err)
+		return
+	}
+	_ = ctx.JSON(http.StatusCreated, definition)
+}
+
+// APIDefinition reads, updates or deletes one definition. | APIDefinition 读取、更新或删除一个定义。
+//
+// @Summary Read definition | 读取定义
+// @Description Returns one definition. | 返回一个定义。
+// @Tags workflow
+// @Produce json
+// @Param id path string true "Definition id | 定义 ID"
+// @Success 200 {object} workflowDefinitionDoc "definition | 定义"
+// @Failure 404 {object} string "not found | 不存在"
+// @Security BearerAuth
+// @Router /api/v1/workflows/definitions/{id} [get]
+func (c *Controller) APIDefinition(ctx *router.Ctx) {
+	tenantID, ok := c.workflowAPIAvailable(ctx)
+	if !ok {
+		return
+	}
+	definition, err := c.workflow.GetDefinition(ctx.Request.Context(), tenantID, ctx.Param("id"))
+	if err != nil {
+		c.workflowAPIFail(ctx, err)
+		return
+	}
+	_ = ctx.JSON(http.StatusOK, definition)
+}
+
+// APIUpdateDefinition updates one definition. | APIUpdateDefinition 更新一个定义。
+//
+// @Summary Update definition | 更新定义
+// @Description Replaces the editable fields of one definition. | 覆盖定义的可编辑字段。
+// @Tags workflow
+// @Accept json
+// @Produce json
+// @Param id path string true "Definition id | 定义 ID"
+// @Param body body workflowDefinitionRequest true "definition payload | 定义载荷"
+// @Success 200 {object} workflowDefinitionDoc "updated definition | 已更新定义"
+// @Security BearerAuth
+// @Router /api/v1/workflows/definitions/{id} [put]
+func (c *Controller) APIUpdateDefinition(ctx *router.Ctx) {
+	tenantID, ok := c.workflowAPIAvailable(ctx)
+	if !ok {
+		return
+	}
+	request := workflowDefinitionRequest{}
+	if err := ctx.Bind(&request); err != nil {
+		c.workflowAPIFail(ctx, workflow.ErrInvalidInput)
+		return
+	}
+	definition, err := c.workflow.UpdateDefinition(ctx.Request.Context(), tenantID, ctx.Param("id"), c.workflowActor(ctx).ID, workflow.DefinitionInput{
+		Name: request.Name, NameEN: request.NameEN, Description: request.Description,
+		Category: request.Category, Icon: request.Icon, Status: request.Status,
+	})
+	if err != nil {
+		c.workflowAPIFail(ctx, err)
+		return
+	}
+	_ = ctx.JSON(http.StatusOK, definition)
+}
+
+// APIDeleteDefinition deletes one definition. | APIDeleteDefinition 删除一个定义。
+//
+// @Summary Delete definition | 删除定义
+// @Description Deletes a definition with no instances. | 删除没有实例的定义。
+// @Tags workflow
+// @Produce json
+// @Param id path string true "Definition id | 定义 ID"
+// @Success 204 {string} string "deleted | 已删除"
+// @Failure 409 {object} string "definition in use | 定义正在使用"
+// @Security BearerAuth
+// @Router /api/v1/workflows/definitions/{id} [delete]
+func (c *Controller) APIDeleteDefinition(ctx *router.Ctx) {
+	tenantID, ok := c.workflowAPIAvailable(ctx)
+	if !ok {
+		return
+	}
+	if err := c.workflow.DeleteDefinition(ctx.Request.Context(), tenantID, ctx.Param("id")); err != nil {
+		c.workflowAPIFail(ctx, err)
+		return
+	}
+	_ = ctx.NoContent(http.StatusNoContent)
+}
+
+// APIDefinitionVersions lists the version summaries of one definition. | APIDefinitionVersions
+// 列出一个定义的版本摘要。
+//
+// @Summary List versions | 列出流程版本
+// @Description Returns every version of one definition in descending order as lightweight summaries; read one version for its design. | 按降序返回一个定义的全部轻量版本摘要；设计经单版本读取。
+// @Tags workflow
+// @Produce json
+// @Param id path string true "Definition id | 定义 ID"
+// @Success 200 {object} workflowVersionPageDoc "version page | 版本分页"
+// @Security BearerAuth
+// @Router /api/v1/workflows/definitions/{id}/versions [get]
+func (c *Controller) APIDefinitionVersions(ctx *router.Ctx) {
+	tenantID, ok := c.workflowAPIAvailable(ctx)
+	if !ok {
+		return
+	}
+	page, err := c.workflow.ListVersionSummaries(ctx.Request.Context(), tenantID, ctx.Param("id"))
+	if err != nil {
+		c.workflowAPIFail(ctx, err)
+		return
+	}
+	_ = ctx.JSON(http.StatusOK, page)
+}
+
+// APICreateVersion appends one draft version. | APICreateVersion 追加一个草稿版本。
+//
+// @Summary Create version | 创建版本
+// @Description Appends a draft design to a definition. | 为定义追加草稿设计。
+// @Tags workflow
+// @Accept json
+// @Produce json
+// @Param id path string true "Definition id | 定义 ID"
+// @Param body body workflowVersionRequest true "version payload | 版本载荷"
+// @Success 201 {object} workflowVersionDoc "created version | 已创建版本"
+// @Security BearerAuth
+// @Router /api/v1/workflows/definitions/{id}/versions [post]
+func (c *Controller) APICreateVersion(ctx *router.Ctx) {
+	tenantID, ok := c.workflowAPIAvailable(ctx)
+	if !ok {
+		return
+	}
+	request := workflowVersionRequest{}
+	if err := ctx.Bind(&request); err != nil {
+		c.workflowAPIFail(ctx, workflow.ErrInvalidInput)
+		return
+	}
+	version, err := c.workflow.CreateVersion(ctx.Request.Context(), tenantID, ctx.Param("id"), c.workflowActor(ctx).ID, workflow.VersionInput{
+		Design: request.Design, Note: request.Note,
+	})
+	if err != nil {
+		c.workflowAPIFail(ctx, err)
+		return
+	}
+	_ = ctx.JSON(http.StatusCreated, version)
+}
+
+// APIVersion reads or updates one version. | APIVersion 读取或更新一个版本。
+//
+// @Summary Read version | 读取版本
+// @Description Returns one version with its parsed design document. | 返回一个版本及其解析后的设计文档。
+// @Tags workflow
+// @Produce json
+// @Param version_id path string true "Version id | 版本 ID"
+// @Success 200 {object} workflowVersionResponse "version | 版本"
+// @Security BearerAuth
+// @Router /api/v1/workflows/versions/{version_id} [get]
+func (c *Controller) APIVersion(ctx *router.Ctx) {
+	tenantID, ok := c.workflowAPIAvailable(ctx)
+	if !ok {
+		return
+	}
+	version, err := c.workflow.GetVersion(ctx.Request.Context(), tenantID, ctx.Param("version_id"))
+	if err != nil {
+		c.workflowAPIFail(ctx, err)
+		return
+	}
+	document, err := workflow.DesignOf(version)
+	if err != nil {
+		c.workflowAPIFail(ctx, err)
+		return
+	}
+	_ = ctx.JSON(http.StatusOK, workflowVersionResponse{Version: version, Document: document})
+}
+
+// APIUpdateVersion updates one draft. | APIUpdateVersion 更新一个草稿。
+//
+// @Summary Update draft | 更新草稿
+// @Description Replaces the design of one draft version. | 覆盖一个草稿版本的设计。
+// @Tags workflow
+// @Accept json
+// @Produce json
+// @Param version_id path string true "Version id | 版本 ID"
+// @Param body body workflowVersionRequest true "version payload | 版本载荷"
+// @Success 200 {object} workflowVersionDoc "updated version | 已更新版本"
+// @Security BearerAuth
+// @Router /api/v1/workflows/versions/{version_id} [put]
+func (c *Controller) APIUpdateVersion(ctx *router.Ctx) {
+	tenantID, ok := c.workflowAPIAvailable(ctx)
+	if !ok {
+		return
+	}
+	request := workflowVersionRequest{}
+	if err := ctx.Bind(&request); err != nil {
+		c.workflowAPIFail(ctx, workflow.ErrInvalidInput)
+		return
+	}
+	version, err := c.workflow.UpdateVersion(ctx.Request.Context(), tenantID, ctx.Param("version_id"), c.workflowActor(ctx).ID, workflow.VersionInput{
+		Design: request.Design, Note: request.Note,
+	})
+	if err != nil {
+		c.workflowAPIFail(ctx, err)
+		return
+	}
+	_ = ctx.JSON(http.StatusOK, version)
+}
+
+// APIPublishVersion publishes one draft. | APIPublishVersion 发布一个草稿。
+//
+// @Summary Publish version | 发布版本
+// @Description Freezes a draft and makes it the latest usable version. | 冻结草稿并使其成为最新可用版本。
+// @Tags workflow
+// @Accept json
+// @Produce json
+// @Param version_id path string true "Version id | 版本 ID"
+// @Param body body workflowPublishRequest true "publication note | 发布说明"
+// @Success 200 {object} workflowVersionDoc "published version | 已发布版本"
+// @Security BearerAuth
+// @Router /api/v1/workflows/versions/{version_id}/publish [post]
+func (c *Controller) APIPublishVersion(ctx *router.Ctx) {
+	tenantID, ok := c.workflowAPIAvailable(ctx)
+	if !ok {
+		return
+	}
+	request := workflowPublishRequest{}
+	_ = ctx.Bind(&request)
+	version, err := c.workflow.PublishVersion(ctx.Request.Context(), tenantID, ctx.Param("version_id"), c.workflowActor(ctx).ID, request.Note)
+	if err != nil {
+		c.workflowAPIFail(ctx, err)
+		return
+	}
+	_ = ctx.JSON(http.StatusOK, version)
+}
+
+// APIDeleteVersion removes one draft version. | APIDeleteVersion 删除一个草稿版本。
+//
+// @Summary Delete draft version | 删除草稿版本
+// @Description Deletes one draft; published versions are immutable. | 删除草稿；已发布版本不可变。
+// @Tags workflow
+// @Produce json
+// @Param version_id path string true "Version id | 版本 ID"
+// @Success 204 {string} string "deleted | 已删除"
+// @Failure 409 {string} string "version is published | 版本已发布"
+// @Security BearerAuth
+// @Router /api/v1/workflows/versions/{version_id} [delete]
+func (c *Controller) APIDeleteVersion(ctx *router.Ctx) {
+	tenantID, ok := c.workflowAPIAvailable(ctx)
+	if !ok {
+		return
+	}
+	if err := c.workflow.DeleteVersion(ctx.Request.Context(), tenantID, ctx.Param("version_id")); err != nil {
+		c.workflowAPIFail(ctx, err)
+		return
+	}
+	_ = ctx.NoContent(http.StatusNoContent)
+}
+
+// APIWorkflowExport exports a JSON bundle or one BPMN document. | APIWorkflowExport 导出 JSON 流程包或单个 BPMN 文档。
+//
+// @Summary Export workflows | 导出流程
+// @Description Exports definitions as a JSON bundle, or one version as BPMN 2.0 XML. | 把定义导出为 JSON 流程包，或把一个版本导出为 BPMN 2.0 XML。
+// @Tags workflow
+// @Produce application/json,application/xml
+// @Param keys query string false "Comma-separated definition keys | 逗号分隔的定义键"
+// @Param format query string false "json or bpmn | json 或 bpmn"
+// @Param version query string false "Version id for BPMN | BPMN 版本 ID"
+// @Success 200 {file} file "exported document | 导出文档"
+// @Security BearerAuth
+// @Router /api/v1/workflows/export [get]
+func (c *Controller) APIWorkflowExport(ctx *router.Ctx) {
+	tenantID, ok := c.workflowAPIAvailable(ctx)
+	if !ok {
+		return
+	}
+	if strings.EqualFold(strings.TrimSpace(ctx.Query(FieldWorkflowFormat)), "bpmn") {
+		document, err := c.workflow.ExportBPMN(ctx.Request.Context(), tenantID, strings.TrimSpace(ctx.Query(FieldWorkflowVersion)))
+		if err != nil {
+			c.workflowAPIFail(ctx, err)
+			return
+		}
+		_ = ctx.Blob(http.StatusOK, "application/xml; charset=utf-8", []byte(document))
+		return
+	}
+	keys := make([]string, 0, 8)
+	for _, key := range strings.Split(ctx.Query("keys"), ",") {
+		if trimmed := strings.TrimSpace(key); trimmed != "" {
+			keys = append(keys, trimmed)
+		}
+	}
+	bundle, err := c.workflow.ExportBundle(ctx.Request.Context(), tenantID, keys)
+	if err != nil {
+		c.workflowAPIFail(ctx, err)
+		return
+	}
+	_ = ctx.JSON(http.StatusOK, bundle)
+}
+
+// APIWorkflowImport imports one bundle or one BPMN document. | APIWorkflowImport 导入一个流程包或一份 BPMN 文档。
+//
+// @Summary Import workflows | 导入流程
+// @Description With format=json (the default) merges a JSON bundle and returns an import report; with
+// format=bpmn parses one BPMN 2.0 document and returns the created definition and draft version. |
+// format=json（默认）合并 JSON 流程包并返回导入报告；format=bpmn 解析一份 BPMN 2.0 文档并返回新建的定义与草稿版本。
+// @Tags workflow
+// @Accept json
+// @Produce json
+// @Param format query string false "json | bpmn"
+// @Param body body workflowBundleDoc true "workflow bundle or BPMN XML | 流程包或 BPMN XML"
+// @Success 200 {object} map[string]any "import report, or the created definition and version | 导入报告，或新建的定义与版本"
+// @Security BearerAuth
+// @Router /api/v1/workflows/import [post]
+func (c *Controller) APIWorkflowImport(ctx *router.Ctx) {
+	tenantID, ok := c.workflowAPIAvailable(ctx)
+	if !ok {
+		return
+	}
+	actorID := c.workflowActor(ctx).ID
+	if strings.EqualFold(strings.TrimSpace(ctx.Query(FieldWorkflowFormat)), "bpmn") {
+		body := ctx.Body()
+		defer func() { _ = body.Close() }()
+		limit := int64(c.workflow.Options().MaxImportBytes)
+		raw, err := io.ReadAll(io.LimitReader(body, limit+1))
+		if err != nil {
+			c.workflowAPIFail(ctx, workflow.ErrImportInvalid)
+			return
+		}
+		if int64(len(raw)) > limit {
+			c.workflowAPIFail(ctx, workflow.ErrLimit)
+			return
+		}
+		process, err := workflow.ParseBPMN(string(raw))
+		if err != nil {
+			c.workflowAPIFail(ctx, err)
+			return
+		}
+		definition, version, err := c.workflow.ImportBPMN(ctx.Request.Context(), tenantID, actorID, process)
+		if err != nil {
+			c.workflowAPIFail(ctx, err)
+			return
+		}
+		_ = ctx.JSON(http.StatusOK, map[string]any{"definition": definition, "version": version})
+		return
+	}
+	bundle := workflow.Bundle{}
+	if err := ctx.Bind(&bundle); err != nil {
+		c.workflowAPIFail(ctx, workflow.ErrImportInvalid)
+		return
+	}
+	report, err := c.workflow.ImportBundle(ctx.Request.Context(), tenantID, actorID, bundle)
+	if err != nil {
+		c.workflowAPIFail(ctx, err)
+		return
+	}
+	_ = ctx.JSON(http.StatusOK, report)
+}
+
+// APIWorkflowGroups lists or creates groups. | APIWorkflowGroups 列出或创建流程组。
+//
+// @Summary List groups | 列出流程组
+// @Description Returns one page of workflow-owned approval groups. | 返回流程自有审批组的分页。
+// @Tags workflow
+// @Produce json
+// @Param q query string false "Search keyword | 搜索关键字"
+// @Param status query string false "Group state | 组状态"
+// @Param page query int false "1-based page | 从 1 开始的页码"
+// @Param page_size query int false "Page length | 页长"
+// @Success 200 {object} workflowGroupPageDoc "group page | 组分页"
+// @Security BearerAuth
+// @Router /api/v1/workflows/groups [get]
+func (c *Controller) APIWorkflowGroups(ctx *router.Ctx) {
+	tenantID, ok := c.workflowAPIAvailable(ctx)
+	if !ok {
+		return
+	}
+	page, err := c.workflow.ListGroups(ctx.Request.Context(), tenantID, workflow.GroupFilter{
+		Query: strings.TrimSpace(ctx.Query(FieldKeyword)), Status: strings.TrimSpace(ctx.Query(FieldStatus)),
+		Page: queryInt(ctx, "page", 1), PageSize: queryInt(ctx, "page_size", defaultPageSize),
+	})
+	if err != nil {
+		c.workflowAPIFail(ctx, err)
+		return
+	}
+	_ = ctx.JSON(http.StatusOK, page)
+}
+
+// APICreateWorkflowGroup creates one group. | APICreateWorkflowGroup 创建一个流程组。
+//
+// @Summary Create group | 创建流程组
+// @Description Creates a group with an optional linked yd role. | 创建可关联 yd 角色的流程组。
+// @Tags workflow
+// @Accept json
+// @Produce json
+// @Param body body workflowGroupRequest true "group payload | 组载荷"
+// @Success 201 {object} workflowGroupDoc "created group | 已创建组"
+// @Security BearerAuth
+// @Router /api/v1/workflows/groups [post]
+func (c *Controller) APICreateWorkflowGroup(ctx *router.Ctx) {
+	tenantID, ok := c.workflowAPIAvailable(ctx)
+	if !ok {
+		return
+	}
+	request := workflowGroupRequest{}
+	if err := ctx.Bind(&request); err != nil {
+		c.workflowAPIFail(ctx, workflow.ErrInvalidInput)
+		return
+	}
+	group, err := c.workflow.CreateGroup(ctx.Request.Context(), tenantID, workflow.GroupInput{
+		Key: request.Key, Name: request.Name, NameEN: request.NameEN,
+		Description: request.Description, Role: request.Role, Status: request.Status,
+	})
+	if err != nil {
+		c.workflowAPIFail(ctx, err)
+		return
+	}
+	_ = ctx.JSON(http.StatusCreated, group)
+}
+
+// APIWorkflowGroup reads, updates or deletes one group. | APIWorkflowGroup 读取、更新或删除一个流程组。
+//
+// @Summary Read group | 读取流程组
+// @Description Returns one group. | 返回一个流程组。
+// @Tags workflow
+// @Produce json
+// @Param id path string true "Group id | 组 ID"
+// @Success 200 {object} workflowGroupDoc "group | 流程组"
+// @Security BearerAuth
+// @Router /api/v1/workflows/groups/{id} [get]
+func (c *Controller) APIWorkflowGroup(ctx *router.Ctx) {
+	tenantID, ok := c.workflowAPIAvailable(ctx)
+	if !ok {
+		return
+	}
+	group, err := c.workflow.GetGroup(ctx.Request.Context(), tenantID, ctx.Param("id"))
+	if err != nil {
+		c.workflowAPIFail(ctx, err)
+		return
+	}
+	_ = ctx.JSON(http.StatusOK, group)
+}
+
+// APIUpdateWorkflowGroup updates one group. | APIUpdateWorkflowGroup 更新一个流程组。
+//
+// @Summary Update group | 更新流程组
+// @Description Replaces the editable fields and linked role of one group. | 覆盖组的可编辑字段与关联角色。
+// @Tags workflow
+// @Accept json
+// @Produce json
+// @Param id path string true "Group id | 组 ID"
+// @Param body body workflowGroupRequest true "group payload | 组载荷"
+// @Success 200 {object} workflowGroupDoc "updated group | 已更新组"
+// @Security BearerAuth
+// @Router /api/v1/workflows/groups/{id} [put]
+func (c *Controller) APIUpdateWorkflowGroup(ctx *router.Ctx) {
+	tenantID, ok := c.workflowAPIAvailable(ctx)
+	if !ok {
+		return
+	}
+	request := workflowGroupRequest{}
+	if err := ctx.Bind(&request); err != nil {
+		c.workflowAPIFail(ctx, workflow.ErrInvalidInput)
+		return
+	}
+	group, err := c.workflow.UpdateGroup(ctx.Request.Context(), tenantID, ctx.Param("id"), workflow.GroupInput{
+		Name: request.Name, NameEN: request.NameEN, Description: request.Description,
+		Role: request.Role, Status: request.Status,
+	})
+	if err != nil {
+		c.workflowAPIFail(ctx, err)
+		return
+	}
+	_ = ctx.JSON(http.StatusOK, group)
+}
+
+// APIDeleteWorkflowGroup deletes one group. | APIDeleteWorkflowGroup 删除一个流程组。
+//
+// @Summary Delete group | 删除流程组
+// @Description Deletes one group and its explicit members. | 删除一个组及其显式成员。
+// @Tags workflow
+// @Produce json
+// @Param id path string true "Group id | 组 ID"
+// @Success 204 {string} string "deleted | 已删除"
+// @Security BearerAuth
+// @Router /api/v1/workflows/groups/{id} [delete]
+func (c *Controller) APIDeleteWorkflowGroup(ctx *router.Ctx) {
+	tenantID, ok := c.workflowAPIAvailable(ctx)
+	if !ok {
+		return
+	}
+	if err := c.workflow.DeleteGroup(ctx.Request.Context(), tenantID, ctx.Param("id")); err != nil {
+		c.workflowAPIFail(ctx, err)
+		return
+	}
+	_ = ctx.NoContent(http.StatusNoContent)
+}
+
+// APIWorkflowGroupMembers reads or replaces group members. | APIWorkflowGroupMembers 读取或替换组成员。
+//
+// @Summary List group members | 列出组成员
+// @Description Returns the explicit members of one group. | 返回一个组的显式成员。
+// @Tags workflow
+// @Produce json
+// @Param id path string true "Group id | 组 ID"
+// @Success 200 {array} workflowGroupMemberDoc "members | 成员"
+// @Security BearerAuth
+// @Router /api/v1/workflows/groups/{id}/members [get]
+func (c *Controller) APIWorkflowGroupMembers(ctx *router.Ctx) {
+	tenantID, ok := c.workflowAPIAvailable(ctx)
+	if !ok {
+		return
+	}
+	members, err := c.workflow.GroupMembers(ctx.Request.Context(), tenantID, ctx.Param("id"))
+	if err != nil {
+		c.workflowAPIFail(ctx, err)
+		return
+	}
+	_ = ctx.JSON(http.StatusOK, members)
+}
+
+// APIUpdateWorkflowGroupMembers replaces group members. | APIUpdateWorkflowGroupMembers 替换组成员。
+//
+// @Summary Replace group members | 替换组成员
+// @Description Sets the explicit member list. | 设置显式成员列表。
+// @Tags workflow
+// @Accept json
+// @Produce json
+// @Param id path string true "Group id | 组 ID"
+// @Param body body workflowGroupMembersRequest true "member payload | 成员载荷"
+// @Success 200 {array} workflowGroupMemberDoc "members | 成员"
+// @Security BearerAuth
+// @Router /api/v1/workflows/groups/{id}/members [put]
+func (c *Controller) APIUpdateWorkflowGroupMembers(ctx *router.Ctx) {
+	tenantID, ok := c.workflowAPIAvailable(ctx)
+	if !ok {
+		return
+	}
+	request := workflowGroupMembersRequest{}
+	if err := ctx.Bind(&request); err != nil {
+		c.workflowAPIFail(ctx, workflow.ErrInvalidInput)
+		return
+	}
+	members, err := c.workflow.SetGroupMembers(ctx.Request.Context(), tenantID, ctx.Param("id"), request.Members)
+	if err != nil {
+		c.workflowAPIFail(ctx, err)
+		return
+	}
+	_ = ctx.JSON(http.StatusOK, members)
+}

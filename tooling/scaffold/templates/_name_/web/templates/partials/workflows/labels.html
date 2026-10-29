@@ -1,0 +1,103 @@
+{{/*
+  partials/workflows/labels.html —— 流程状态、决定与事件的双语标签。
+  partials/workflows/labels.html — bilingual labels for workflow states, decisions and events.
+
+  共用模板只输出文案或徽标，不做任何权限判断；调用方传入字符串或 dict{Status,Outcome}。
+  The shared templates only render copy or badges and never make an authorization decision; callers pass a
+  string or a dict{Status,Outcome}.
+*/}}
+
+{{- define "partials/workflows/instance_badge" -}}
+{{- if eq .Status "running" -}}
+{{ template "components.display.badge" (dict "Tone" "info" "LabelKey" "workflow.instances.running") }}
+{{- else if eq .Status "completed" -}}
+{{- if eq .Outcome "rejected" -}}
+{{ template "components.display.badge" (dict "Tone" "danger" "LabelKey" "workflow.instances.rejected") }}
+{{- else -}}
+{{ template "components.display.badge" (dict "Tone" "success" "LabelKey" "workflow.instances.completed") }}
+{{- end -}}
+{{- else if eq .Status "withdrawn" -}}
+{{ template "components.display.badge" (dict "Tone" "muted" "LabelKey" "workflow.instances.withdrawn") }}
+{{- else if eq .Status "terminated" -}}
+{{ template "components.display.badge" (dict "Tone" "warn" "LabelKey" "workflow.instances.terminated") }}
+{{- else -}}
+{{ template "components.display.badge" (dict "Tone" "muted" "Label" .Status) }}
+{{- end -}}
+{{- end -}}
+
+{{- define "partials/workflows/task_badge" -}}
+{{- if eq . "pending" -}}
+{{ template "components.display.badge" (dict "Tone" "info" "LabelKey" "workflow.task.pending") }}
+{{- else if eq . "claimed" -}}
+{{ template "components.display.badge" (dict "Tone" "info" "LabelKey" "workflow.task.claimed") }}
+{{- else if eq . "completed" -}}
+{{ template "components.display.badge" (dict "Tone" "success" "LabelKey" "workflow.task.completed") }}
+{{- else if eq . "cancelled" -}}
+{{ template "components.display.badge" (dict "Tone" "muted" "LabelKey" "workflow.task.cancelled") }}
+{{- else if eq . "queued" -}}
+{{ template "components.display.badge" (dict "Tone" "muted" "LabelKey" "workflow.task.queued") }}
+{{- else -}}
+{{ template "components.display.badge" (dict "Tone" "muted" "Label" .) }}
+{{- end -}}
+{{- end -}}
+
+{{- define "partials/workflows/decision_label" -}}
+{{- if eq . "approve" -}}
+{{ tr "workflow.decision.approve" }}
+{{- else if eq . "reject" -}}
+{{ tr "workflow.decision.reject" }}
+{{- else if eq . "none" -}}
+{{ tr "workflow.decision.none" }}
+{{- else -}}
+{{ . }}
+{{- end -}}
+{{- end -}}
+
+{{- define "partials/workflows/outcome_label" -}}
+{{- if eq . "approved" -}}
+{{ tr "workflow.outcome.approved" }}
+{{- else if eq . "rejected" -}}
+{{ tr "workflow.outcome.rejected" }}
+{{- else if eq . "withdrawn" -}}
+{{ tr "workflow.outcome.withdrawn" }}
+{{- else if eq . "terminated" -}}
+{{ tr "workflow.outcome.terminated" }}
+{{- else -}}
+{{ . }}
+{{- end -}}
+{{- end -}}
+
+{{/* 分页条：列表片段与整页共用；hx-boost 让页码切换走整页应答并只换工作区。 |
+     Pagination shared by list fragments and full pages; hx-boost makes a page link a workspace swap. */}}
+{{- define "partials/workflows/pagination" -}}
+{{- with . }}
+<div class="yd-section" hx-boost="true" hx-target="#yd-workspace" hx-swap="innerMorph" hx-push-url="true">
+  {{ template "components.navigation.pagination" . }}
+</div>
+{{- end }}
+{{- end -}}
+
+{{- define "partials/workflows/event_label" -}}
+{{- $labels := dict
+  "instance.started" (tr "workflow.event.instance_started")
+  "instance.completed" (tr "workflow.event.instance_completed")
+  "instance.rejected" (tr "workflow.event.instance_rejected")
+  "instance.withdrawn" (tr "workflow.event.instance_withdrawn")
+  "instance.terminated" (tr "workflow.event.instance_terminated")
+  "node.entered" (tr "workflow.event.node_entered")
+  "task.created" (tr "workflow.event.task_created")
+  "task.claimed" (tr "workflow.event.task_claimed")
+  "task.approved" (tr "workflow.event.task_approved")
+  "task.rejected" (tr "workflow.event.task_rejected")
+  "task.transferred" (tr "workflow.event.task_transferred")
+  "task.delegated" (tr "workflow.event.task_delegated")
+  "task.delegated_back" (tr "workflow.event.task_delegated_back")
+  "task.added" (tr "workflow.event.task_added")
+  "task.removed" (tr "workflow.event.task_removed")
+  "task.returned" (tr "workflow.event.task_returned")
+  "task.reminded" (tr "workflow.event.task_reminded")
+  "task.auto_decided" (tr "workflow.event.task_auto_decided")
+  "comment.added" (tr "workflow.event.comment_added")
+-}}
+{{ index $labels . | default . }}
+{{- end -}}

@@ -1,0 +1,474 @@
+// This file holds the request and response shapes of the workflow JSON API. | 本文件承载流程 JSON API
+// 的请求与响应结构。
+
+package controller
+
+import (
+	"{{ .YdxModule }}/workflow"
+)
+
+// workflowDefinitionRequest is the create/update payload of a definition. | workflowDefinitionRequest
+// 是流程定义的创建/更新载荷。
+// @Name workflowDefinitionRequest
+type workflowDefinitionRequest struct {
+	// Key is required on create. | Key 在创建时必填。
+	Key string `json:"key"`
+	// Name and NameEN are the bilingual display names. | Name 与 NameEN 是中英展示名。
+	Name   string `json:"name"`
+	NameEN string `json:"name_en"`
+	// Description explains the process. | Description 说明流程用途。
+	Description string `json:"description"`
+	// Category groups processes. | Category 为流程分组。
+	Category string `json:"category"`
+	// Icon is a lucide icon name. | Icon 是 lucide 图标名。
+	Icon string `json:"icon"`
+	// Status is the lifecycle state for updates. | Status 是更新时的生命周期状态。
+	Status string `json:"status"`
+}
+
+// workflowVersionRequest is the create/update payload of a draft version. | workflowVersionRequest
+// 是草稿版本的创建/更新载荷。
+// @Name workflowVersionRequest
+type workflowVersionRequest struct {
+	// Design is the graph document. | Design 是图文档。
+	Design workflow.Design `json:"design"`
+	// Note is the draft or publication note. | Note 是草稿或发布说明。
+	Note string `json:"note"`
+}
+
+// workflowPublishRequest is the publish payload. | workflowPublishRequest 是发布载荷。
+// @Name workflowPublishRequest
+type workflowPublishRequest struct {
+	// Note is the publication note. | Note 是发布说明。
+	Note string `json:"note"`
+}
+
+// workflowGroupRequest is the create/update payload of a workflow group. | workflowGroupRequest
+// 是流程组的创建/更新载荷。
+// @Name workflowGroupRequest
+type workflowGroupRequest struct {
+	// Key is required on create. | Key 在创建时必填。
+	Key string `json:"key"`
+	// Name and NameEN are the bilingual display names. | Name 与 NameEN 是中英展示名。
+	Name   string `json:"name"`
+	NameEN string `json:"name_en"`
+	// Description explains the group. | Description 说明组用途。
+	Description string `json:"description"`
+	// Role links the group to a yd role. | Role 把组关联到 yd 角色。
+	Role string `json:"role"`
+	// Status is enabled or disabled. | Status 取 enabled 或 disabled。
+	Status string `json:"status"`
+}
+
+// workflowGroupMembersRequest replaces the explicit member list. | workflowGroupMembersRequest
+// 替换显式成员列表。
+// @Name workflowGroupMembersRequest
+type workflowGroupMembersRequest struct {
+	// Members are the user ids. | Members 是用户 ID。
+	Members []string `json:"members"`
+}
+
+// workflowStartRequest starts one instance. | workflowStartRequest 发起一个实例。
+// @Name workflowStartRequest
+type workflowStartRequest struct {
+	// DefinitionID or DefinitionKey selects the definition. | DefinitionID 或 DefinitionKey 选择定义。
+	DefinitionID  string `json:"definition_id"`
+	DefinitionKey string `json:"definition_key"`
+	// Version pins a published version; zero selects the latest. | Version 绑定已发布版本；零值选择最新。
+	Version int `json:"version"`
+	// Title is the instance subject. | Title 是实例标题。
+	Title string `json:"title"`
+	// BusinessKey is the external reference. | BusinessKey 是外部业务键。
+	BusinessKey string `json:"business_key"`
+	// Category overrides the definition category. | Category 覆盖定义分类。
+	Category string `json:"category"`
+	// Variables are instance variables. | Variables 是实例变量。
+	Variables map[string]any `json:"variables"`
+	// FormData is the start form submission. | FormData 是发起表单提交。
+	FormData map[string]any `json:"form_data"`
+}
+
+// workflowActionRequest is one approve or reject call. | workflowActionRequest 是一次通过或驳回调用。
+// @Name workflowActionRequest
+type workflowActionRequest struct {
+	// Action is approve or reject; empty falls back to Decision. | Action 取 approve 或 reject；空值回退到 Decision。
+	Action string `json:"action"`
+	// Decision is approve or reject. | Decision 取 approve 或 reject。
+	Decision string `json:"decision"`
+	// Comment is the approval note. | Comment 是审批意见。
+	Comment string `json:"comment"`
+	// FormData is the node form submission. | FormData 是节点表单提交。
+	FormData map[string]any `json:"form_data"`
+}
+
+// workflowReassignRequest is one transfer or delegation call. | workflowReassignRequest 是一次转办或委派调用。
+// @Name workflowReassignRequest
+type workflowReassignRequest struct {
+	// TargetID is the new assignee or delegate. | TargetID 是新处理人或受托人。
+	TargetID string `json:"target_id"`
+	// Comment explains the action. | Comment 说明动作原因。
+	Comment string `json:"comment"`
+}
+
+// workflowAddSignRequest adds approvers. | workflowAddSignRequest 增加审批人。
+// @Name workflowAddSignRequest
+type workflowAddSignRequest struct {
+	// UserIDs are the added approvers. | UserIDs 是新增审批人。
+	UserIDs []string `json:"user_ids"`
+	// Position is before or after. | Position 取 before 或 after。
+	Position string `json:"position"`
+	// Comment explains the action. | Comment 说明动作原因。
+	Comment string `json:"comment"`
+}
+
+// workflowReturnRequest returns an instance. | workflowReturnRequest 退回实例。
+// @Name workflowReturnRequest
+type workflowReturnRequest struct {
+	// TargetNodeID is a visited user task or the initiator node. | TargetNodeID 是已访问用户任务或发起人节点。
+	TargetNodeID string `json:"target_node_id"`
+	// Comment explains the return. | Comment 说明退回原因。
+	Comment string `json:"comment"`
+}
+
+// workflowRemoveSignRequest removes one queued task. | workflowRemoveSignRequest 移除一条排队任务。
+// @Name workflowRemoveSignRequest
+type workflowRemoveSignRequest struct {
+	// TaskID is the queued task to cancel. | TaskID 是要取消的排队任务。
+	TaskID string `json:"task_id"`
+	// Comment explains the removal. | Comment 说明减签原因。
+	Comment string `json:"comment"`
+}
+
+// workflowReasonRequest carries a withdrawal or termination reason. | workflowReasonRequest
+// 承载撤回或终止原因。
+// @Name workflowReasonRequest
+type workflowReasonRequest struct {
+	// Reason explains the action. | Reason 说明动作原因。
+	Reason string `json:"reason"`
+}
+
+// workflowRemindRequest carries one reminder note. | workflowRemindRequest 承载一条催办说明。
+// @Name workflowRemindRequest
+type workflowRemindRequest struct {
+	// Comment is the reminder text. | Comment 是催办文本。
+	Comment string `json:"comment"`
+}
+
+// workflowSignalRequest delivers one message event. | workflowSignalRequest 投递一个消息事件。
+// @Name workflowSignalRequest
+type workflowSignalRequest struct {
+	// Signal is the message name. | Signal 是消息名。
+	Signal string `json:"signal"`
+	// Payload is merged into the instance variables. | Payload 合并进实例变量。
+	Payload map[string]any `json:"payload"`
+}
+
+// workflowTaskActionResponse is the API shape after one task action. | workflowTaskActionResponse
+// 是一次任务动作后的 API 形态。
+// @Name workflowTaskActionResponse
+type workflowTaskActionResponse struct {
+	// Task is the updated task. | Task 是更新后的任务。
+	Task workflow.Task `json:"task"`
+	// Instance is the reloaded instance. | Instance 是重新读取的实例。
+	Instance workflow.Instance `json:"instance"`
+}
+
+// workflowVersionResponse adds the parsed design to one version. | workflowVersionResponse
+// 为一个版本补充解析后的设计。
+// @Name workflowVersionResponse
+type workflowVersionResponse struct {
+	// Version is the stored row. | Version 是存储行。
+	workflow.Version
+	// Document is the parsed design. | Document 是解析后的设计。
+	Document workflow.Design `json:"document"`
+}
+
+// 以下类型只服务 OpenAPI 文档：注解里的类型名必须在本包中声明，否则生成器会留下无法解析的
+// `$ref`。它们的字段与 workflow 领域类型一一对应，运行时并不使用它们。
+// The types below serve the OpenAPI document only: an annotation can only name a component declared in this
+// package, otherwise the generator leaves an unresolvable `$ref`. Their fields mirror the workflow domain
+// types one for one, and the runtime never uses them.
+
+// workflowDefinitionDoc documents one process definition. | workflow.Definition 描述一个流程定义。
+//
+// @Name workflowDefinitionDoc
+type workflowDefinitionDoc struct {
+	// ID is the primary key. | ID 是主键。
+	ID string `json:"id"`
+	// Key is the immutable public identifier. | Key 是不可变公共标识。
+	Key string `json:"key"`
+	// Name is the Chinese display name. | Name 是中文展示名。
+	Name string `json:"name"`
+	// NameEN is the English display name. | NameEN 是英文展示名。
+	NameEN string `json:"name_en,omitempty"`
+	// Description explains the process. | Description 说明流程用途。
+	Description string `json:"description,omitempty"`
+	// Category groups processes. | Category 为流程分组。
+	Category string `json:"category,omitempty"`
+	// Icon is a lucide icon name. | Icon 是 lucide 图标名。
+	Icon string `json:"icon,omitempty"`
+	// Status is draft, published or disabled. | Status 取 draft、published 或 disabled。
+	Status string `json:"status"`
+	// CurrentVersion is the latest published version number. | CurrentVersion 是最近发布的版本号。
+	CurrentVersion int `json:"current_version"`
+	// VersionCount is the number of versions. | VersionCount 是版本数量。
+	VersionCount int `json:"version_count"`
+	// InstanceCount is the number of instances. | InstanceCount 是实例数量。
+	InstanceCount int `json:"instance_count"`
+}
+
+// workflowDefinitionPageDoc documents one page of definitions. | workflow.DefinitionPage 描述定义分页。
+//
+// @Name workflowDefinitionPageDoc
+type workflowDefinitionPageDoc struct {
+	// Items are the rows in this page. | Items 是本页记录。
+	Items []workflow.Definition `json:"items"`
+	// Total is the number of matching definitions. | Total 是匹配总数。
+	Total int `json:"total"`
+	// Page and PageSize echo the effective paging. | Page 与 PageSize 回显生效的分页。
+	Page     int `json:"page"`
+	PageSize int `json:"page_size"`
+}
+
+// workflowVersionDoc documents one version. | workflow.Version 描述一个版本。
+//
+// @Name workflowVersionDoc
+type workflowVersionDoc struct {
+	// ID is the primary key. | ID 是主键。
+	ID string `json:"id"`
+	// DefinitionID is the owning definition. | DefinitionID 是所属定义。
+	DefinitionID string `json:"definition_id"`
+	// Version is the monotonically increasing version number. | Version 是单调递增的版本号。
+	Version int `json:"version"`
+	// Status is draft or published. | Status 取 draft 或 published。
+	Status string `json:"status"`
+	// Design is the canonical JSON design document. | Design 是规范化后的设计 JSON。
+	Design string `json:"design"`
+	// BPMN is the derived BPMN 2.0 XML. | BPMN 是派生的 BPMN 2.0 XML。
+	BPMN string `json:"bpmn,omitempty"`
+	// Checksum is the SHA-256 of Design. | Checksum 是 Design 的 SHA-256。
+	Checksum string `json:"checksum,omitempty"`
+	// Note is the publication note. | Note 是发布说明。
+	Note string `json:"note,omitempty"`
+}
+
+// workflowVersionPageDoc documents the version history. | workflow.VersionPage 描述版本历史。
+//
+// @Name workflowVersionPageDoc
+type workflowVersionPageDoc struct {
+	// Items are the lightweight versions in descending order. | Items 是按版本号降序排列的轻量版本。
+	Items []workflow.VersionSummary `json:"items"`
+	// Total is the number of versions. | Total 是版本总数。
+	Total int `json:"total"`
+}
+
+// workflowGroupDoc documents one workflow group. | workflow.Group 描述一个流程组。
+//
+// @Name workflowGroupDoc
+type workflowGroupDoc struct {
+	// ID is the primary key. | ID 是主键。
+	ID string `json:"id"`
+	// Key is the immutable group key. | Key 是不可变组键。
+	Key string `json:"key"`
+	// Name is the Chinese display name. | Name 是中文展示名。
+	Name string `json:"name"`
+	// NameEN is the English display name. | NameEN 是英文展示名。
+	NameEN string `json:"name_en,omitempty"`
+	// Description explains the group. | Description 说明组用途。
+	Description string `json:"description,omitempty"`
+	// Role links the group to a yd role name. | Role 把组关联到 yd 角色名。
+	Role string `json:"role,omitempty"`
+	// Status is enabled or disabled. | Status 取 enabled 或 disabled。
+	Status string `json:"status"`
+	// MemberCount is the number of explicit members. | MemberCount 是显式成员数量。
+	MemberCount int `json:"member_count"`
+}
+
+// workflowGroupPageDoc documents one page of groups. | workflow.GroupPage 描述流程组分页。
+//
+// @Name workflowGroupPageDoc
+type workflowGroupPageDoc struct {
+	// Items are the rows in this page. | Items 是本页记录。
+	Items []workflow.Group `json:"items"`
+	// Total is the number of matching groups. | Total 是匹配总数。
+	Total int `json:"total"`
+	// Page and PageSize echo the effective paging. | Page 与 PageSize 回显生效的分页。
+	Page     int `json:"page"`
+	PageSize int `json:"page_size"`
+}
+
+// workflowGroupMemberDoc documents one explicit group member. | workflow.GroupMember 描述一个显式组成员。
+//
+// @Name workflowGroupMemberDoc
+type workflowGroupMemberDoc struct {
+	// ID is the primary key. | ID 是主键。
+	ID string `json:"id"`
+	// GroupID is the owning group. | GroupID 是所属组。
+	GroupID string `json:"group_id"`
+	// UserID is the member user id. | UserID 是成员用户 ID。
+	UserID string `json:"user_id"`
+	// UserName is the display name at membership time. | UserName 是加入时的展示名。
+	UserName string `json:"user_name,omitempty"`
+}
+
+// workflowInstanceDoc documents one instance. | workflow.Instance 描述一个实例。
+//
+// @Name workflowInstanceDoc
+type workflowInstanceDoc struct {
+	// ID is the primary key. | ID 是主键。
+	ID string `json:"id"`
+	// DefinitionID is the owning definition. | DefinitionID 是所属定义。
+	DefinitionID string `json:"definition_id"`
+	// Version is the pinned version number. | Version 是绑定的版本号。
+	Version int `json:"version"`
+	// Title is the instance subject. | Title 是实例标题。
+	Title string `json:"title"`
+	// BusinessKey is the external business key. | BusinessKey 是外部业务键。
+	BusinessKey string `json:"business_key,omitempty"`
+	// Category is copied from the definition. | Category 从定义复制。
+	Category string `json:"category,omitempty"`
+	// InitiatorID and InitiatorName identify the caller who started it. | InitiatorID 与 InitiatorName 标识发起人。
+	InitiatorID   string `json:"initiator_id"`
+	InitiatorName string `json:"initiator_name,omitempty"`
+	// Status is running, completed, rejected, withdrawn or terminated. | Status 是实例状态。
+	Status string `json:"status"`
+	// Outcome is approved, rejected, withdrawn or terminated. | Outcome 是实例结果。
+	Outcome string `json:"outcome,omitempty"`
+	// EndedReason explains the terminal state. | EndedReason 说明结束原因。
+	EndedReason string `json:"ended_reason,omitempty"`
+}
+
+// workflowInstancePageDoc documents one page of instances. | workflow.InstancePage 描述实例分页。
+//
+// @Name workflowInstancePageDoc
+type workflowInstancePageDoc struct {
+	// Items are the rows in this page. | Items 是本页记录。
+	Items []workflow.Instance `json:"items"`
+	// Total is the number of matching instances. | Total 是匹配总数。
+	Total int `json:"total"`
+	// Page and PageSize echo the effective paging. | Page 与 PageSize 回显生效的分页。
+	Page     int `json:"page"`
+	PageSize int `json:"page_size"`
+}
+
+// workflowInstanceDetailDoc documents one instance with its audit surface. | workflow.InstanceDetail
+// 描述一个实例及其审计面。
+//
+// @Name workflowInstanceDetailDoc
+type workflowInstanceDetailDoc struct {
+	// Instance is the instance row. | Instance 是实例记录。
+	Instance workflow.Instance `json:"instance"`
+	// Definition is the owning definition. | Definition 是所属定义。
+	Definition workflow.Definition `json:"definition"`
+	// Version is the pinned version. | Version 是绑定版本。
+	Version workflow.Version `json:"version"`
+	// Design is the parsed design of the pinned version. | Design 是绑定版本解析后的设计。
+	Design workflow.Design `json:"design"`
+	// Tasks, Events and Comments are the audit surface. | Tasks、Events 与 Comments 是审计面。
+	Tasks    []workflow.Task  `json:"tasks"`
+	Events   []map[string]any `json:"events"`
+	Comments []map[string]any `json:"comments"`
+	// Variables is the parsed instance variable object. | Variables 是解析后的实例变量对象。
+	Variables map[string]any `json:"variables"`
+}
+
+// workflowTaskDoc documents one user task. | workflow.Task 描述一个用户任务。
+//
+// @Name workflowTaskDoc
+type workflowTaskDoc struct {
+	// ID is the primary key. | ID 是主键。
+	ID string `json:"id"`
+	// InstanceID is the owning instance. | InstanceID 是所属实例。
+	InstanceID string `json:"instance_id"`
+	// NodeID and NodeName identify the user-task node. | NodeID 与 NodeName 标识用户任务节点。
+	NodeID   string `json:"node_id"`
+	NodeName string `json:"node_name"`
+	// AssigneeID and AssigneeName identify the current assignee. | AssigneeID 与 AssigneeName 标识当前处理人。
+	AssigneeID   string `json:"assignee_id,omitempty"`
+	AssigneeName string `json:"assignee_name,omitempty"`
+	// Candidates lists the users allowed to claim the task. | Candidates 列出可签收该任务的用户。
+	Candidates []string `json:"candidates,omitempty"`
+	// Status is pending, claimed, completed or cancelled. | Status 是任务状态。
+	Status string `json:"status"`
+	// Decision is approve or reject. | Decision 取 approve 或 reject。
+	Decision string `json:"decision,omitempty"`
+	// Comment is the approval note. | Comment 是审批意见。
+	Comment string `json:"comment,omitempty"`
+	// DueAt is the deadline. | DueAt 是截止时间。
+	DueAt string `json:"due_at,omitempty"`
+}
+
+// workflowTaskPageDoc documents one page of tasks. | workflow.TaskPage 描述任务分页。
+//
+// @Name workflowTaskPageDoc
+type workflowTaskPageDoc struct {
+	// Items are the rows in this page. | Items 是本页记录。
+	Items []workflow.Task `json:"items"`
+	// Total is the number of matching tasks. | Total 是匹配总数。
+	Total int `json:"total"`
+	// Page and PageSize echo the effective paging. | Page 与 PageSize 回显生效的分页。
+	Page     int `json:"page"`
+	PageSize int `json:"page_size"`
+}
+
+// workflowTaskDetailDoc documents one task with its instance context. | workflow.TaskDetail
+// 描述一个任务及其实例上下文。
+//
+// @Name workflowTaskDetailDoc
+type workflowTaskDetailDoc struct {
+	// Task is the task row. | Task 是任务记录。
+	Task workflow.Task `json:"task"`
+	// Instance is the owning instance. | Instance 是所属实例。
+	Instance workflow.Instance `json:"instance"`
+	// Definition and Version describe the pinned process. | Definition 与 Version 描述绑定的流程。
+	Definition workflow.Definition `json:"definition"`
+	Version    workflow.Version    `json:"version"`
+	// Design is the parsed design of the pinned version. | Design 是绑定版本解析后的设计。
+	Design workflow.Design `json:"design"`
+	// Variables is the parsed instance variable object. | Variables 是解析后的实例变量对象。
+	Variables map[string]any `json:"variables"`
+	// Comments are the instance comments. | Comments 是实例审批意见。
+	Comments []map[string]any `json:"comments"`
+}
+
+// workflowStatsDoc documents the tenant summary. | workflow.Stats 描述租户汇总。
+//
+// @Name workflowStatsDoc
+type workflowStatsDoc struct {
+	// Definitions and Published count definitions. | Definitions 与 Published 统计定义。
+	Definitions int `json:"definitions"`
+	Published   int `json:"published"`
+	// Instances counts instances, split by state. | Instances 统计实例，并按状态拆分。
+	Instances int `json:"instances"`
+	Running   int `json:"running"`
+	Completed int `json:"completed"`
+	Withdrawn int `json:"withdrawn"`
+	Rejected  int `json:"rejected"`
+	// PendingTasks and OverdueTasks count actionable human work. | PendingTasks 与 OverdueTasks 统计待处理人工工作。
+	PendingTasks int `json:"pending_tasks"`
+	OverdueTasks int `json:"overdue_tasks"`
+}
+
+// workflowImportReportDoc documents one import result. | workflow.ImportReport 描述一次导入结果。
+//
+// @Name workflowImportReportDoc
+type workflowImportReportDoc struct {
+	// Definitions is the number of definitions touched. | Definitions 是涉及的定义数量。
+	Definitions int `json:"definitions"`
+	// Created, Updated and Skipped count versions. | Created、Updated 与 Skipped 统计版本。
+	Created int `json:"created"`
+	Updated int `json:"updated"`
+	Skipped int `json:"skipped"`
+}
+
+// workflowBundleDoc documents one exported bundle. | workflow.Bundle 描述一个导出的流程包。
+//
+// @Name workflowBundleDoc
+type workflowBundleDoc struct {
+	// SchemaVersion is the bundle schema version. | SchemaVersion 是流程包 schema 版本。
+	SchemaVersion int `json:"schema_version"`
+	// ExportedAt is the UTC export instant. | ExportedAt 是导出时刻。
+	ExportedAt string `json:"exported_at"`
+	// Definitions are the exported definitions. | Definitions 是导出的定义。
+	Definitions []map[string]any `json:"definitions"`
+}

@@ -1,0 +1,115 @@
+{{/*
+  mgr/partials/workflows/definition_list.html —— 流程定义表格与空状态。
+  mgr/partials/workflows/definition_list.html — the process-definition table and its empty state.
+
+  数据契约 | Data contract: .Definitions（[]workflowDefinitionView）、.CanManage、.Perm。
+*/}}
+{{- define "mgr/partials/workflows/definition_list" -}}
+{{- if .OOB }}<p class="yd-page__subtitle" id="yd-workflows-total" hx-swap-oob="true">{{ tr "workflow.subtitle" .Total }}</p>{{ end }}
+<div class="yd-table__wrap" data-yd-table>
+  <table class="yd-table" aria-label="{{ tr "workflow.title" }}">
+    <caption class="sr-only">{{ tr "workflow.title" }}</caption>
+    <thead class="yd-table__head">
+      <tr>
+        <th class="yd-table__th" scope="col">{{ tr "workflow.field.key" }}</th>
+        <th class="yd-table__th" scope="col">{{ tr "field.name" }}</th>
+        <th class="yd-table__th" scope="col">{{ tr "workflow.field.category" }}</th>
+        <th class="yd-table__th" scope="col">{{ tr "field.status" }}</th>
+        <th class="yd-table__th" scope="col">{{ tr "workflow.field.version" }}</th>
+        <th class="yd-table__th" scope="col">{{ tr "workflow.field.instances" }}</th>
+        <th class="yd-table__th" scope="col">{{ tr "field.actions" }}</th>
+      </tr>
+    </thead>
+    <tbody class="yd-table__body">
+      {{ with .Definitions }}
+      {{ range . }}
+      <tr class="yd-table__row">
+        <td class="yd-table__td"><code class="yd-code">{{ .Definition.Key }}</code></td>
+        <td class="yd-table__td">
+          {{- if $.CanManage }}<a class="yd-link" href="/mgr/workflows/{{ .Definition.ID }}/design">{{ .Definition.Name }}</a>
+          {{- else }}{{ .Definition.Name }}{{ end }}
+          {{- with .Definition.NameEN }}<span class="yd-table__muted"> · {{ . }}</span>{{ end }}
+          {{- with .Definition.Description }}<p class="yd-table__hint">{{ . }}</p>{{ end }}
+        </td>
+        <td class="yd-table__td">
+          {{- with .Definition.Category }}{{ template "components.display.badge" (dict "Tone" "muted" "Label" .) }}{{ else }}—{{ end }}
+        </td>
+        <td class="yd-table__td">
+          {{- if eq .Definition.Status "published" }}{{ template "components.display.badge" (dict "Tone" "success" "LabelKey" "workflow.status.published") }}
+          {{- else if eq .Definition.Status "disabled" }}{{ template "components.display.badge" (dict "Tone" "warn" "LabelKey" "workflow.status.disabled") }}
+          {{- else }}{{ template "components.display.badge" (dict "Tone" "muted" "LabelKey" "workflow.status.draft") }}{{ end }}
+        </td>
+        <td class="yd-table__td yd-table__td--num">
+          {{- if .Definition.CurrentVersion }}v{{ .Definition.CurrentVersion }}{{ else }}—{{ end }}
+          {{- if .Draft.ID }} <span class="yd-table__muted">{{ tr "workflow.version.draft_pending" }}</span>{{ end }}
+        </td>
+        <td class="yd-table__td yd-table__td--num">{{ .Definition.InstanceCount }}</td>
+        <td class="yd-table__td yd-table__td--actions">
+          <details class="yd-menu" data-yd-menu>
+            <summary class="yd-icon-btn" aria-label="{{ tr "ui.actions" }}">{{ template "partials/icon" "lucide-more-horizontal" }}</summary>
+            <div class="yd-menu__panel" role="menu">
+              {{- if $.CanManage }}
+              <a class="yd-menu__item yd-menu__item--with-icon" role="menuitem" href="/mgr/workflows/{{ .Definition.ID }}/design">
+                {{ template "partials/icon" "lucide-workflow" }}{{ tr "workflow.design" }}
+              </a>
+              <button type="button" class="yd-menu__item yd-menu__item--with-icon" role="menuitem" data-yd-drawer-open
+                      hx-get="/mgr/workflows/{{ .Definition.ID }}/edit" hx-target="#yd-drawer-body" hx-swap="innerHTML">
+                {{ template "partials/icon" "lucide-pen-line" }}{{ tr "ui.edit" }}
+              </button>
+              {{- end }}
+              <button type="button" class="yd-menu__item yd-menu__item--with-icon" role="menuitem" data-yd-drawer-open
+                      hx-get="/mgr/workflows/{{ .Definition.ID }}/versions" hx-target="#yd-drawer-body" hx-swap="innerHTML">
+                {{ template "partials/icon" "lucide-history" }}{{ tr "workflow.versions" }}
+              </button>
+              <a class="yd-menu__item yd-menu__item--with-icon" role="menuitem" href="/mgr/workflows/export?format=json&keys={{ .Definition.Key }}">
+                {{ template "partials/icon" "lucide-download" }}{{ tr "workflow.export_json" }}
+              </a>
+              {{- if .Published.ID }}
+              <a class="yd-menu__item yd-menu__item--with-icon" role="menuitem" href="/mgr/workflows/export?format=bpmn&version={{ .Published.ID }}">
+                {{ template "partials/icon" "lucide-file-code" }}{{ tr "workflow.export_bpmn" }}
+              </a>
+              {{- end }}
+              {{- if $.CanManage }}
+              <form method="post" action="/mgr/workflows/{{ .Definition.ID }}/status"
+                    hx-post="/mgr/workflows/{{ .Definition.ID }}/status" hx-target="#yd-workflow-definitions" hx-swap="innerMorph"
+                    hx-status:409="target:#yd-errors swap:innerHTML" hx-status:422="target:#yd-errors swap:innerHTML"
+                    data-yd-confirm="{{ tr "confirm.workflow_status" }}">
+                <input type="hidden" name="status" value="{{ if eq .Definition.Status "disabled" }}published{{ else }}disabled{{ end }}">
+                <input type="hidden" name="return_q" value="{{ $.Keyword }}">
+                <input type="hidden" name="return_status" value="{{ $.Status }}">
+                <input type="hidden" name="return_category" value="{{ $.Category }}">
+                <input type="hidden" name="return_page" value="{{ $.Page }}">
+                <button type="submit" class="yd-menu__item yd-menu__item--with-icon" role="menuitem">
+                  {{- if eq .Definition.Status "disabled" }}{{ template "partials/icon" "lucide-circle-check" }}{{ tr "ui.enable" }}
+                  {{- else }}{{ template "partials/icon" "lucide-ban" }}{{ tr "ui.disable" }}{{ end }}
+                </button>
+              </form>
+              <form method="post" action="/mgr/workflows/{{ .Definition.ID }}/delete"
+                    hx-post="/mgr/workflows/{{ .Definition.ID }}/delete" hx-target="#yd-workflow-definitions" hx-swap="innerMorph"
+                    hx-status:409="target:#yd-errors swap:innerHTML" hx-status:422="target:#yd-errors swap:innerHTML"
+                    data-yd-confirm="{{ tr "confirm.delete_workflow" }}">
+                <input type="hidden" name="return_q" value="{{ $.Keyword }}">
+                <input type="hidden" name="return_status" value="{{ $.Status }}">
+                <input type="hidden" name="return_category" value="{{ $.Category }}">
+                <input type="hidden" name="return_page" value="{{ $.Page }}">
+                <button type="submit" class="yd-menu__item yd-menu__item--with-icon" role="menuitem">
+                  {{ template "partials/icon" "lucide-trash-2" }}{{ tr "ui.delete" }}
+                </button>
+              </form>
+              {{- end }}
+            </div>
+          </details>
+        </td>
+      </tr>
+      {{ end }}
+      {{ else }}
+      <tr class="yd-table__row yd-table__row--empty">
+        <td class="yd-table__td" colspan="7">{{ tr "workflow.empty" }}</td>
+      </tr>
+      {{ end }}
+    </tbody>
+  </table>
+</div>
+{{ template "partials/workflows/pagination" .Pagination }}
+{{- end -}}
+{{ template "mgr/partials/workflows/definition_list" . }}
