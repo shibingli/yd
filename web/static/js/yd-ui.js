@@ -814,12 +814,25 @@
       selectedLabel: '',
       activeIndex: -1,
       init: function () {
+        var root = this.$root || this.$el;
+        var initialLabel = root && root.getAttribute ? root.getAttribute('data-selected-label') || '' : '';
         this.sync();
+        if (!this.selectedLabel) {
+          this.selectedLabel = initialLabel;
+        }
         this.enhanced = true;
+        var self = this;
+        // x-ref values are registered on child directives after this component initialises, so the
+        // first synchronous sync() has no native select yet. Resync once the tree is ready, which
+        // also fills the option list before the menu is opened for the first time. |
+        // x-ref 在子指令初始化后才注册，首次同步的 sync() 还拿不到真实 select。树就绪后再同步一次，
+        // 顺便在首次打开菜单前填好选项列表。
+        this.$nextTick(function () {
+          self.sync();
+        });
         var native = this.$refs.native;
         var doc = (this.$root || this.$el).ownerDocument;
         if (native && native.hasAttribute('data-yd-theme-set') && doc && typeof doc.addEventListener === 'function') {
-          var self = this;
           this._theme = function () {
             self.sync();
           };
@@ -834,7 +847,7 @@
         }
       },
       sync: function () {
-        var native = this.$refs.native;
+        var native = this.$refs && this.$refs.native;
         if (!native) {
           return;
         }

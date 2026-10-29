@@ -521,6 +521,56 @@ func TestEveryComponentRenders(t *testing.T) {
 	}
 }
 
+// TestSelectRendersInitialLabelBeforeAlpine proves the visible select surface carries the selected
+// (or first/placeholder) label in server HTML, so htmx swaps never show an empty status dropdown
+// before Alpine initialises the widget. | TestSelectRendersInitialLabelBeforeAlpine 验证可见下拉
+// 表面在服务端 HTML 中已有选中（或首个/占位）文案，htmx 换入后不会在 Alpine 初始化前显示空白状态。
+func TestSelectRendersInitialLabelBeforeAlpine(t *testing.T) {
+	templates, err := template.New("components").Funcs(templateFuncs()).ParseFS(os.DirFS("templates"), "components/*.html", "partials/*.html")
+	if err != nil {
+		t.Fatalf("parsing components failed: %v | 解析组件失败: %v", err, err)
+	}
+	cases := []struct {
+		name    string
+		options []map[string]any
+		want    string
+	}{
+		{
+			name: "selected",
+			options: []map[string]any{
+				{"Value": "enabled", "Label": "Active", "Selected": true},
+				{"Value": "disabled", "Label": "Disabled"},
+			},
+			want: "Active",
+		},
+		{
+			name: "fallback to the first option",
+			options: []map[string]any{
+				{"Value": "enabled", "Label": "Active"},
+				{"Value": "disabled", "Label": "Disabled"},
+			},
+			want: "Active",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			var buf bytes.Buffer
+			if err := templates.ExecuteTemplate(&buf, "components.form.select", map[string]any{
+				"ID": "status", "Name": "status", "Label": "Status", "Options": tc.options,
+			}); err != nil {
+				t.Fatalf("render select: %v | 渲染 select 失败", err)
+			}
+			out := buf.String()
+			if !strings.Contains(out, `data-selected-label="`+tc.want+`"`) {
+				t.Errorf("select lacks the server-side selected label %q:\n%s | select 缺少服务端选中文案", tc.want, out)
+			}
+			if !strings.Contains(out, `x-text="selectedLabel">`+tc.want+`</span>`) {
+				t.Errorf("select value span is empty before Alpine:\n%s | select 在 Alpine 前显示空白", out)
+			}
+		})
+	}
+}
+
 // TestChartComponentKeepsTheSVGUnescaped proves the frame does not double-escape the renderer's
 // output: a chart that arrives as &lt;svg&gt; is a chart nobody can see.
 // TestChartComponentKeepsTheSVGUnescaped 证明外框没有二次转义渲染器的输出：变成 &lt;svg&gt; 的图表

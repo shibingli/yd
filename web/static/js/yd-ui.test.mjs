@@ -166,6 +166,38 @@ test('register installs every component once and is idempotent', () => {
   assert.equal(api.components.length, names.length, 'a second register call adds nothing');
 });
 
+test('select shows the server label before refs exist and syncs on the next tick', () => {
+  const factories = {};
+  api.register({ data(name, factory) { factories[name] = factory; } });
+  const component = factories.ydSelect();
+  const root = {
+    getAttribute(name) {
+      return name === 'data-selected-label' ? 'Active' : null;
+    }
+  };
+  const native = {
+    options: [
+      { textContent: 'Active', value: 'enabled', disabled: false, selected: true },
+      { textContent: 'Disabled', value: 'disabled', disabled: false, selected: false }
+    ]
+  };
+  let pending = null;
+  component.$root = root;
+  component.$el = root;
+  component.$refs = {};
+  component.$nextTick = (fn) => {
+    pending = fn;
+  };
+  component.init();
+  assert.equal(component.enhanced, true);
+  assert.equal(component.selectedLabel, 'Active', 'the server-rendered label survives before the native ref exists');
+  assert.equal(component.options.length, 0, 'refs are not available during init');
+  component.$refs.native = native;
+  pending();
+  assert.equal(component.options.length, 2, 'the deferred sync fills the menu options');
+  assert.equal(component.options[0].selected, true);
+});
+
 test('date picker leaves days enabled when no min/max is configured', () => {
   const factories = {};
   api.register({ data(name, factory) { factories[name] = factory; } });

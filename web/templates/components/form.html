@@ -113,13 +113,34 @@
   {{- else if .Hint -}}{{- $described = printf "%s-hint" .ID -}}
   {{- else if .Error -}}{{- $described = printf "%s-error" .ID -}}{{- end -}}
 {{- end -}}
+{{- $placeholder := "" -}}
+{{- if .Placeholder -}}{{- $placeholder = .Placeholder -}}{{- else if .PlaceholderKey -}}{{- $placeholder = tr .PlaceholderKey -}}{{- end -}}
+{{- $selectedLabel := "" -}}
+{{- $hasSelected := false -}}
+{{- with .Options -}}
+  {{- range . -}}
+    {{- if .Selected -}}
+      {{- $hasSelected = true -}}
+      {{- if .Key -}}{{- $selectedLabel = tr .Key -}}{{- else if .LabelKey -}}{{- $selectedLabel = tr .LabelKey -}}{{- else -}}{{- $selectedLabel = .Label -}}{{- end -}}
+    {{- end -}}
+  {{- end -}}
+{{- end -}}
+{{- if not $hasSelected -}}
+  {{- if $placeholder -}}
+    {{- $selectedLabel = $placeholder -}}
+  {{- else -}}
+    {{- with .Options -}}{{- with index . 0 -}}
+      {{- if .Key -}}{{- $selectedLabel = tr .Key -}}{{- else if .LabelKey -}}{{- $selectedLabel = tr .LabelKey -}}{{- else -}}{{- $selectedLabel = .Label -}}{{- end -}}
+    {{- end -}}{{- end -}}
+  {{- end -}}
+{{- end -}}
 <div class="yd-field{{if .Required}} yd-field--required{{end}}{{if or .Invalid .Error}} yd-field--invalid{{end}}{{with .WrapperClass}} {{.}}{{end}}" data-yd-field="{{.Name}}">
   <label class="yd-field__label{{if .LabelHidden}} sr-only{{end}}" for="{{.ID}}"{{with .LabelKey}} data-yd-i18n="{{.}}"{{end}}>{{if .LabelKey}}{{tr .LabelKey}}{{else}}{{.Label}}{{end}}</label>
   {{/* A real select stays in the form. Alpine only swaps the visible surface: without JavaScript the
        native control remains, and with JavaScript it still submits the same name/value pair. |
        真实 select 始终留在表单里。Alpine 只替换可见表面：没有 JavaScript 时原生控件仍在，有
        JavaScript 时它仍然提交同一个 name/value。 */}}
-  <div class="yd-selectbox"{{if not .Multiple}} x-data="ydSelect" x-on:click.outside="close(false)"{{end}}>
+  <div class="yd-selectbox" data-selected-label="{{$selectedLabel}}"{{if not .Multiple}} x-data="ydSelect" x-on:click.outside="close(false)"{{end}}>
     <select class="yd-select{{if or .Invalid .Error}} yd-input--invalid{{end}}{{with .InputClass}} {{.}}{{end}}" id="{{.ID}}" name="{{.Name}}"
             {{if not .Multiple}}x-ref="native" x-show="!enhanced" x-on:change="sync"
             x-bind:required="!enhanced && {{if .Required}}true{{else}}false{{end}}"{{else}}
@@ -143,7 +164,7 @@
             {{if .Required}}aria-required="true"{{end}}{{if .Disabled}}disabled{{end}}
             {{if or .Invalid .Error}}aria-invalid="true"{{end}}
             {{with $described}}aria-describedby="{{.}}"{{end}}>
-      <span class="yd-selectbox__value" x-text="selectedLabel"></span>
+      <span class="yd-selectbox__value" x-text="selectedLabel">{{$selectedLabel}}</span>
       <span class="yd-selectbox__arrow" aria-hidden="true">{{template "partials/icon" "lucide-chevron-down"}}</span>
     </button>
     <div class="yd-selectbox__menu" id="{{.ID}}-menu" x-show="open" x-cloak x-ref="menu"
