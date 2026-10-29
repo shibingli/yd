@@ -445,8 +445,9 @@ type workflowFormFieldView struct {
 	// the action form's own decision/comment/title/target fields. | Name 是提交字段名。field_ 前缀
 	// 防止设计字段与动作表单自带的 decision/comment/title/target 字段同名覆盖。
 	Name string
-	// InputType is the HTML input type; datetime maps to datetime-local. | InputType 是 HTML 输入类型；
-	// datetime 映射为 datetime-local。
+	// InputType is the HTML input type for generic fields; date, datetime and time use the shared
+	// picker component instead. | InputType 是一般字段的 HTML 输入类型；date、datetime 与 time
+	// 使用共享选择器组件。
 	InputType string
 	// Value is the current string value. | Value 是当前字符串值。
 	Value string
@@ -462,15 +463,11 @@ func workflowFormFieldViews(fields []workflow.FormField, values map[string]strin
 	out := make([]workflowFormFieldView, 0, len(fields))
 	for _, field := range fields {
 		value := values[field.Key]
-		inputType := field.Type
-		if inputType == "datetime" {
-			inputType = "datetime-local"
-		}
 		view := workflowFormFieldView{
 			Field:     field,
 			ID:        "yd-workflow-field-" + field.Key,
 			Name:      "field_" + field.Key,
-			InputType: inputType,
+			InputType: field.Type,
 			Value:     value,
 			Checked:   value == "true" || value == "on" || value == "1" || value == "yes",
 		}

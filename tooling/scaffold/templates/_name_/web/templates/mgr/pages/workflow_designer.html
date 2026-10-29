@@ -91,6 +91,10 @@
   <p class="yd-flow__status" data-yd-flow-status role="status" aria-live="polite"></p>
   <script type="application/json" id="yd-workflow-design">{{ .DesignJSON }}</script>
   <script type="application/json" id="yd-workflow-directory">{{ .DirectoryJSON }}</script>
+  {{/* 动态组件图标：脚本克隆这里的服务端图标，避免在 JS 内另写 SVG 或引入 Iconify 运行时。 |
+       Dynamic component icons: the script clones these server-rendered icons instead of embedding
+       inline SVG or adding an Iconify runtime. */}}
+  <template id="yd-flow-icon-chevron-down">{{template "partials/icon" "lucide-chevron-down"}}</template>
   {{/* 设计器脚本文案目录：服务端按当前语言渲染，脚本只按短键取词，不在 JS 内写死业务文案。 |
        Designer label catalogue rendered in the active language; the script looks up short keys only. */}}
   <script type="application/json" id="yd-workflow-labels">{
@@ -204,6 +208,7 @@
     "label_threshold": {{ tr "workflow.designer.label_threshold" }},
     "label_threshold_type": {{ tr "workflow.designer.label_threshold_type" }},
     "label_timer": {{ tr "workflow.designer.label_timer" }},
+    "label_type": {{ tr "workflow.designer.label_type" }},
     "label_unique_business_key": {{ tr "workflow.designer.label_unique_business_key" }},
     "label_user": {{ tr "workflow.designer.label_user" }},
     "label_users": {{ tr "workflow.designer.label_users" }},

@@ -22,6 +22,22 @@
   var SVG_NS = 'http://www.w3.org/2000/svg';
   var CANVAS_W = 2400;
   var CANVAS_H = 1600;
+  var CONTROL_SEQ = 0;
+
+  // nextControlID keeps generated labels and controls associated without colliding when the
+  // inspector is rebuilt. | nextControlID 保证属性面板重建时，生成的标签与控件始终关联且不冲突。
+  function nextControlID(prefix) {
+    CONTROL_SEQ += 1;
+    return prefix + '-' + CONTROL_SEQ;
+  }
+
+  // cloneIcon copies a server-rendered icon template into dynamically built component markup,
+  // keeping the Iconify sprite as the only icon source. | cloneIcon 把服务端渲染的图标模板复制到
+  // 动态构建的组件标记中，确保 Iconify sprite 仍是唯一图标来源。
+  function cloneIcon(id) {
+    var template = document.getElementById(id);
+    return template && template.content ? template.content.cloneNode(true) : null;
+  }
 
   // LABELS is the server-rendered catalogue island of this page: every dynamic label goes
   // through L, so the designer follows the server language without embedding business copy. |
@@ -780,11 +796,52 @@
     // -----------------------------------------------------------------------
 
     function labelled(text, control, hint) {
-      var wrap = el('label', { className: 'yd-field' });
-      wrap.appendChild(el('span', { className: 'yd-field__label', text: text }));
-      wrap.appendChild(control);
+      var wrap = el('div', { className: 'yd-field' });
+      var labelables = [];
+      if (control && control.matches && control.matches('input, select, textarea')) {
+        labelables = [control];
+      } else if (control && control.querySelectorAll) {
+        labelables = Array.prototype.slice.call(control.querySelectorAll('input, select, textarea'));
+      }
+      var single = labelables.length === 1 ? labelables[0] : null;
+      var id = single && single.id ? single.id : '';
+      var label;
+      if (single) {
+        label = el('label', { className: 'yd-field__label', text: text });
+        if (id) {
+          label.setAttribute('for', id);
+        }
+      } else {
+        label = el('span', { className: 'yd-field__label', text: text });
+        if (labelables.length > 1) {
+          var groupID = nextControlID('yd-flow-group');
+          label.id = groupID;
+          wrap.setAttribute('role', 'group');
+          wrap.setAttribute('aria-labelledby', groupID);
+        }
+      }
+      wrap.appendChild(label);
+      if (control) {
+        wrap.appendChild(control);
+      }
       if (hint) {
-        wrap.appendChild(el('span', { className: 'yd-field__hint', text: hint }));
+        var hintID = id ? id + '-hint' : '';
+        var hintNode = el('span', { className: 'yd-field__hint', text: hint });
+        if (hintID) {
+          hintNode.id = hintID;
+          if (single) {
+            single.setAttribute('aria-describedby', hintID);
+          } else if (labelables.length > 1) {
+            wrap.setAttribute('aria-describedby', hintID);
+          }
+        }
+        wrap.appendChild(hintNode);
+      }
+      if (control && control.querySelector) {
+        var trigger = control.querySelector('.yd-selectbox__button');
+        if (trigger) {
+          trigger.setAttribute('aria-label', text);
+        }
       }
       return wrap;
     }
@@ -795,6 +852,7 @@
         type: (attrs && attrs.type) || 'text',
         value: value === null || value === undefined ? '' : String(value)
       });
+      input.id = attrs && attrs.id ? attrs.id : nextControlID('yd-flow-input');
       if (attrs && attrs.placeholder) {
         input.placeholder = attrs.placeholder;
       }
@@ -836,6 +894,7 @@
         className: 'yd-textarea',
         rows: rows || 3
       });
+      area.id = nextControlID('yd-flow-textarea');
       area.value = value === null || value === undefined ? '' : String(value);
       area.addEventListener('input', function () {
         onInput(area.value);
@@ -843,31 +902,130 @@
       return area;
     }
 
-    function selectInput(value, options, onChange) {
-      var select = el('select', { className: 'yd-select' });
+    function selectInput(value, options, onChange, ariaLabel) {
+      var id = nextControlID('yd-flow-select');
+      var selectedLabel = '';
+      var select = el('select', { className: 'yd-select', id: id });
       options.forEach(function (option) {
         var item = el('option', { value: option.value, text: option.label });
         if (String(option.value) === String(value === undefined || value === null ? '' : value)) {
           item.selected = true;
+          selectedLabel = option.label;
         }
         select.appendChild(item);
       });
+      if (!selectedLabel && options.length) {
+        selectedLabel = options[0].label;
+      }
+      if (ariaLabel) {
+        select.setAttribute('aria-label', ariaLabel);
+      }
+      select.setAttribute('x-ref', 'native');
+      select.setAttribute('x-show', '!enhanced');
+      select.setAttribute('x-on:change', 'sync');
       select.addEventListener('change', function () {
-        onChange(select.value);
+        var next = select.value;
+        // Let ydSelect finish its choose() path before a mode/type change rebuilds the inspector. |
+        // 让 ydSelect 完成 choose() 后再由模式/类型变更重建属性面板。
+        if (window.Alpine && typeof window.Alpine.initTree === 'function') {
+          setTimeout(function () {
+            onChange(next);
+          }, 0);
+        } else {
+          onChange(next);
+        }
       });
-      return select;
+
+      var box = el('div', { className: 'yd-selectbox' });
+      box.setAttribute('data-selected-label', selectedLabel);
+      box.setAttribute('x-data', 'ydSelect');
+      box.setAttribute('x-on:click.outside', 'close(false)');
+      box.appendChild(select);
+
+      var trigger = el('button', {
+        className: 'yd-input yd-selectbox__button',
+        type: 'button'
+      });
+      trigger.setAttribute('x-show', 'enhanced');
+      trigger.setAttribute('x-cloak', '');
+      trigger.setAttribute('x-on:click', 'toggle');
+      trigger.setAttribute('x-on:keydown', 'onKey($event)');
+      trigger.setAttribute('x-ref', 'trigger');
+      trigger.setAttribute('x-bind:aria-expanded', 'open');
+      trigger.setAttribute('aria-haspopup', 'listbox');
+      trigger.setAttribute('aria-controls', id + '-menu');
+      if (ariaLabel) {
+        trigger.setAttribute('aria-label', ariaLabel);
+      }
+      var valueNode = el('span', {
+        className: 'yd-selectbox__value',
+        text: selectedLabel
+      });
+      valueNode.setAttribute('x-text', 'selectedLabel');
+      trigger.appendChild(valueNode);
+      var arrow = el('span', { className: 'yd-selectbox__arrow' });
+      arrow.setAttribute('aria-hidden', 'true');
+      var arrowIcon = cloneIcon('yd-flow-icon-chevron-down');
+      if (arrowIcon) {
+        arrow.appendChild(arrowIcon);
+      }
+      trigger.appendChild(arrow);
+      box.appendChild(trigger);
+
+      var menu = el('div', { className: 'yd-selectbox__menu', id: id + '-menu' });
+      menu.setAttribute('x-show', 'open');
+      menu.setAttribute('x-cloak', '');
+      menu.setAttribute('x-ref', 'menu');
+      menu.setAttribute('x-on:keydown', 'onKey($event)');
+      menu.setAttribute('role', 'listbox');
+      menu.setAttribute('tabindex', '-1');
+      if (ariaLabel) {
+        menu.setAttribute('aria-label', ariaLabel);
+      }
+      var optionTemplate = el('template');
+      optionTemplate.setAttribute('x-for', '(option, index) in options');
+      optionTemplate.setAttribute(':key', 'index');
+      var optionButton = el('button', {
+        className: 'yd-selectbox__option',
+        type: 'button'
+      });
+      optionButton.setAttribute('role', 'option');
+      optionButton.setAttribute('x-bind:class', "option.active ? 'yd-selectbox__option--active' : ''");
+      optionButton.setAttribute('x-bind:aria-selected', 'option.selected');
+      optionButton.setAttribute('x-bind:disabled', 'option.disabled');
+      optionButton.setAttribute('x-on:click', 'choose(option.value)');
+      optionButton.setAttribute('x-text', 'option.label');
+      // Children of a template belong in its content fragment: appendChild(template, child) would
+      // leave the node outside the cloned row and make x-for evaluate `option` without a scope. |
+      // template 的子节点必须放进 content：直接 appendChild 会把节点留在克隆行之外，
+      // 让 x-for 在没有作用域的情况下求值 `option`。
+      optionTemplate.content.appendChild(optionButton);
+      menu.appendChild(optionTemplate);
+      box.appendChild(menu);
+      return box;
     }
 
-    function checkboxInput(checked, label, onChange) {
-      var wrap = el('label', { className: 'yd-check' });
-      var input = el('input', { type: 'checkbox' });
+    function checkboxLine(value, label, checked, onChange) {
+      var id = nextControlID('yd-flow-check');
+      var input = el('input', { className: 'yd-check__input', type: 'checkbox', id: id });
+      if (value !== undefined && value !== null && value !== '') {
+        input.value = value;
+      }
       input.checked = Boolean(checked);
       input.addEventListener('change', function () {
         onChange(input.checked);
       });
-      wrap.appendChild(input);
-      wrap.appendChild(el('span', { text: label }));
-      return wrap;
+      var line = el('label', { className: 'yd-check' });
+      line.setAttribute('for', id);
+      var body = el('span', { className: 'yd-check__body' });
+      body.appendChild(el('span', { className: 'yd-check__label', text: label }));
+      line.appendChild(input);
+      line.appendChild(body);
+      return line;
+    }
+
+    function checkboxInput(checked, label, onChange) {
+      return checkboxLine('', label, checked, onChange);
     }
 
     function valueList(values, choices, onChange) {
@@ -881,9 +1039,7 @@
         return wrap;
       }
       choices.forEach(function (choice) {
-        var input = el('input', { type: 'checkbox', value: choice.value });
-        input.checked = Boolean(selected[choice.value]);
-        input.addEventListener('change', function () {
+        wrap.appendChild(checkboxLine(choice.value, choice.label, selected[choice.value], function () {
           var out = [];
           Array.prototype.forEach.call(wrap.querySelectorAll('input[type=checkbox]'), function (item) {
             if (item.checked) {
@@ -891,11 +1047,7 @@
             }
           });
           onChange(out);
-        });
-        var line = el('label', { className: 'yd-check' });
-        line.appendChild(input);
-        line.appendChild(el('span', { text: choice.label }));
-        wrap.appendChild(line);
+        }));
       });
       return wrap;
     }
@@ -1215,7 +1367,7 @@
           field.type = value;
           markDirty();
           renderInspector();
-        }));
+        }, L('label_type', 'Type')));
         row.appendChild(checkboxInput(field.required, L('label_required', 'Required'), function (checked) {
           field.required = checked;
           markDirty();
@@ -1344,6 +1496,26 @@
     // -----------------------------------------------------------------------
 
     function renderInspector() {
+      if (window.Alpine && typeof window.Alpine.destroyTree === 'function') {
+        try {
+          window.Alpine.destroyTree(inspector);
+        } catch (err) {
+          // The old inspector may already be detached; the new tree is still safe to build. |
+          // 旧属性面板可能已经脱离文档；新树仍可安全构建。
+        }
+      }
+      renderInspectorView();
+      if (window.Alpine && typeof window.Alpine.initTree === 'function') {
+        try {
+          window.Alpine.initTree(inspector);
+        } catch (err) {
+          // Keep the native select fallback usable when Alpine cannot initialize the subtree. |
+          // Alpine 无法初始化子树时保留原生 select 回退，控件仍然可用。
+        }
+      }
+    }
+
+    function renderInspectorView() {
       if (!state.selected) {
         renderProcessInspector();
         return;

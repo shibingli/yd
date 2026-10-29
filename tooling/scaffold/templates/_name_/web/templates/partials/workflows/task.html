@@ -21,6 +21,21 @@
 {{template "components.form.toggle" (dict
   "ID" .ID "Name" .Name "Value" "true" "Checked" .Checked
   "Label" .Field.Label "Hint" .Field.Placeholder)}}
+{{- else if eq .Field.Type "date" -}}
+{{template "components.form.date" (dict
+  "ID" .ID "Name" .Name "Value" .Value
+  "Label" .Field.Label "LabelKey" "" "Placeholder" .Field.Placeholder
+  "Required" .Field.Required)}}
+{{- else if eq .Field.Type "datetime" -}}
+{{template "components.form.datetime" (dict
+  "ID" .ID "Name" .Name "Value" .Value
+  "Label" .Field.Label "LabelKey" "" "Placeholder" .Field.Placeholder
+  "Required" .Field.Required)}}
+{{- else if eq .Field.Type "time" -}}
+{{template "components.form.time" (dict
+  "ID" .ID "Name" .Name "Value" .Value
+  "Label" .Field.Label "LabelKey" "" "Placeholder" .Field.Placeholder
+  "Required" .Field.Required)}}
 {{- else -}}
 {{template "components.form.field" (dict
   "ID" .ID "Name" .Name "Type" .InputType "Value" .Value
