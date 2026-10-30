@@ -12,12 +12,13 @@ import (
 	"{{ .Module }}/internal/meta"
 	"{{ .YdModule }}/messaging"
 	"{{ .YdModule }}/security/auth"
+	"{{ .YdxModule }}/config"
+	"{{ .YdxModule }}/cron"
+	"{{ .YdxModule }}/errs"
+	ydlog "{{ .YdxModule }}/log"
 	"{{ .YdxModule }}/workflow"
 	"{{ .YdxModule }}/workflow/ai"
 	"{{ .YdxModule }}/workflow/notify"
-	"{{ .YdxModule }}/config"
-	"{{ .YdxModule }}/errs"
-	ydlog "{{ .YdxModule }}/log"
 )
 
 // Workflow configuration keys. | 流程配置键。
@@ -94,8 +95,11 @@ func (w *WorkflowService) Scheduler() *workflow.Scheduler {
 }
 
 // NewWorkflowService assembles the engine over the project's store, auth directory, messaging
-// centre and configuration. | NewWorkflowService 在项目存储、鉴权目录、消息中心与配置之上装配引擎。
-func NewWorkflowService(cfg *config.Config, store workflow.Store, authSvc *auth.Service, messages *MessageService, log *ydlog.Logger) (*WorkflowService, error) {
+// centre and configuration. shared is the process-wide cron scheduler; when it is non-nil the scan
+// job is mounted on it instead of a private scheduler. | NewWorkflowService 在项目存储、鉴权目录、
+// 消息中心与配置之上装配引擎。shared 是进程级 cron 调度器；非空时扫描任务挂载在它上面，而不是
+// 使用私有调度器。
+func NewWorkflowService(cfg *config.Config, store workflow.Store, authSvc *auth.Service, messages *MessageService, log *ydlog.Logger, shared *cron.Scheduler) (*WorkflowService, error) {
 	if store == nil {
 		return nil, errs.Wrap(workflow.ErrUnavailable, ErrWorkflowUnavailable)
 	}
@@ -148,7 +152,13 @@ func NewWorkflowService(cfg *config.Config, store workflow.Store, authSvc *auth.
 	if err != nil {
 		return nil, errs.Wrap(err, ErrWorkflowUnavailable)
 	}
-	scheduler := workflow.NewScheduler(domain, options.ScanInterval, log)
+	// 共享调度器上不配置 Store：workflow-scan 只存在于内存，Reload 会把它丢掉。 |
+	// The shared scheduler carries no Store: workflow-scan lives in memory only, and Reload would drop it.
+	var schedulerOptions []workflow.SchedulerOption
+	if shared != nil {
+		schedulerOptions = append(schedulerOptions, workflow.WithCronScheduler(shared))
+	}
+	scheduler := workflow.NewScheduler(domain, options.ScanInterval, log, schedulerOptions...)
 	log.Info("workflow engine assembled | 流程引擎已装配",
 		ydlog.Strs("channels", dispatcher.Channels()),
 		ydlog.Bool("ai", decider != nil),

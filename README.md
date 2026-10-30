@@ -36,6 +36,7 @@ YD 把「Go 单体后端 + Htmx 片段前端」做成一套可直接交付的全
 - **安全与多租户是默认值**：租户硬边界、每用户 JWT `sec_key`、纯 Go SM2/SM3/SM4、登录与敏感字段前置加密。
 - **实时与后台开箱即用**：站内消息中心、WebSocket/SSE/WebTransport、Redis Pub/Sub、asynq 持久重试、指标看板。
 - **流程引擎开箱即用**：BPMN 2.0 可执行子集、中国式审批（或签/会签/票签/加签/转办/委派/退回）、多版本、自动审批、通知 outbox 与同源可视化设计器。
+- **定时任务开箱即用**：`ydx/cron` 单机/多机调度，cron/Quartz 语法、超时/重试/并发策略与 Redis 分布式锁；流程扫描与业务任务共用一个进程级调度器，按部署隔离命名空间。
 - **跨平台交付**：Linux / Windows / macOS × amd64 / arm64 预编译二进制，`yd service` 安装为 SCM / systemd / launchd，`yd docker` / `yd ko` 出镜像。
 
 ### 应用场景
@@ -46,6 +47,7 @@ YD 把「Go 单体后端 + Htmx 片段前端」做成一套可直接交付的全
 | **多租户 SaaS / 企业应用** | 租户隔离、用户会话、可配置数据库、缓存与限流 | 租户硬边界、每用户 JWT `sec_key`、MySQL / PostgreSQL / SQLite / 达梦 DM8、二级缓存与 GORM 分级缓存、限流 |
 | **实时消息 / 协作 / 监控** | 聊天、通知、实时仪表盘、长连接 | 站内消息中心、WebSocket / SSE / WebTransport、`ydx/realtime` 中枢、Redis 多机广播、asynq 失败补发、优雅退出与自动重连 |
 | **审批 / 工单 / 流程编排** | 请假、报销、合同审批、会签与退回 | BPMN 2.0 子集、或签/会签/票签/顺序审批、加签/转办/委派/退回/撤回、多版本、自动审批与 AI 决策、同源拖拽设计器 |
+| **定时任务 / 周期作业** | 对账、清理、报表、催办扫描 | `ydx/cron` 共享调度器、cron/Quartz 语法、超时/重试/并发策略、Redis 分布式锁与按部署隔离的命名空间 |
 | **私有化 / 信创 / 离线交付** | 气隙环境、国产密码与数据库、单文件部署 | `go:embed`、离线资产校验、无 CDN、SM2/SM3/SM4、达梦 DM8、Linux 纯 Go 静态二进制、scratch 镜像、Windows 服务 / systemd / launchd |
 | **高并发 API / 网关 / 边缘** | 低延迟、高吞吐、JSON/Base64、HTTP/3 | 基数树路由、SIMD JSON/Base64、零拷贝日志与缓冲池、H2C/HTTP3、gzip/zstd/brotli、限流、缓存旁路 |
 
@@ -164,11 +166,11 @@ Router / Middleware / Server
         │
         ▼
 Application
-  auth/authz · messaging · realtime hub · metricsx · nodeid · gc · service
+  auth/authz · messaging · cron · realtime hub · metricsx · nodeid · gc · service
         │
         ▼
 Data & Security
-  GORM (MySQL/PostgreSQL/SQLite/DM8) · Redis · asynq · two-level cache
+  GORM (MySQL/PostgreSQL/SQLite/DM8) · Redis · asynq · cron · two-level cache
   SM2/SM3/SM4 · per-user JWT sec_key · tenant boundary
 ```
 
@@ -191,7 +193,7 @@ web/           内嵌 templates（含 components/ UI 组件库）/ static / lang
 - [yd 使用手册](docs/yd-usage.md)
 - [前端 UI 组件层与使用手册](docs/frontend-ui.md) · [组件全景与图表用法](docs/frontend-components.md)
 - [二级缓存](docs/cache.md) · [GORM 方言](docs/gorm-dialects.md) · [实时传输](docs/realtime-transports.md) · [节点身份](docs/node-identity.md) · [运行时 GC](docs/runtime-gc.md)
-- [Redis/asynq 分区](docs/redis-asynq.md) · [消息中心](docs/message-center.md) · [通用附件](docs/attachments.md) · [数据字典](docs/dictionary.md) · [中间件指标](docs/middleware-metrics.md) · [发布与二进制](docs/releasing.md) · [验收记录](docs/verification.md)
+- [Redis/asynq 分区](docs/redis-asynq.md) · [定时任务](docs/cron.md) · [消息中心](docs/message-center.md) · [通用附件](docs/attachments.md) · [数据字典](docs/dictionary.md) · [中间件指标](docs/middleware-metrics.md) · [发布与二进制](docs/releasing.md) · [验收记录](docs/verification.md)
 - [ydx 组件与基准](https://github.com/shibingli/ydx)
 
 ### 开源致谢
@@ -256,6 +258,7 @@ YD turns the “Go monolith + Htmx fragments” pair into a directly shippable f
 - **Performance by design**: self-built SIMD JSON/Base64, zero-copy logging, radix routing and zero-allocation render/WebSocket hot paths.
 - **Secure and multi-tenant by default**: hard tenant boundaries, per-user JWT `sec_key`, pure-Go SM2/SM3/SM4, and pre-transport encryption for sign-in and sensitive fields.
 - **Real-time and admin out of the box**: the message center, WebSocket/SSE/WebTransport, Redis Pub/Sub, asynq retries and a metrics dashboard.
+- **Scheduled jobs out of the box**: `ydx/cron` runs single-node or multi-node schedules with cron/Quartz syntax, timeouts, retries, overlap policies and Redis distributed locks; the workflow scan and business jobs share one process-wide scheduler with a per-deployment namespace.
 - **Cross-platform delivery**: prebuilt binaries for Linux/Windows/macOS × amd64/arm64, `yd service` for SCM/systemd/launchd, and images via `yd docker`/`yd ko`.
 
 ### Application scenarios
@@ -265,6 +268,7 @@ YD turns the “Go monolith + Htmx fragments” pair into a directly shippable f
 | **Internal business systems / admin** | CRUD, forms, lists, permissions, message audit | htmx drawers and partial swaps, `yd gen crud`, the authz permission registry / 4 roles, tenant/member model, metrics dashboard, i18n/theme |
 | **Multi-tenant SaaS / enterprise apps** | Tenant isolation, user sessions, configurable database, cache and rate limits | Hard tenant boundary, per-user JWT `sec_key`, MySQL / PostgreSQL / SQLite / DM8, two-level cache and tiered GORM cache, rate limiting |
 | **Real-time messaging / collaboration / monitoring** | Chat, notifications, live dashboards, long-lived connections | Message center, WebSocket / SSE / WebTransport, the `ydx/realtime` hub, Redis multi-node fan-out, asynq retry, graceful shutdown and reconnect |
+| **Scheduled jobs / periodic work** | Reconciliation, cleanup, reports, reminder scans | The `ydx/cron` shared scheduler, cron/Quartz syntax, timeouts, retries, overlap policies, Redis distributed locks and a per-deployment namespace |
 | **Private / domestic-stack / air-gapped delivery** | Air-gapped environments, domestic crypto and databases, single-file deployment | `go:embed`, offline asset verification, no CDN, SM2/SM3/SM4, DM8, pure-Go static Linux binary, scratch images, Windows service / systemd / launchd |
 | **High-throughput API / gateway / edge** | Low latency, high throughput, JSON/Base64, HTTP/3 | Radix router, SIMD JSON/Base64, zero-copy logging and buffer pool, H2C/HTTP3, gzip/zstd/brotli, rate limiting, cache bypass |
 
@@ -390,11 +394,11 @@ Router / Middleware / Server
         │
         ▼
 Application
-  auth/authz · messaging · realtime hub · metricsx · nodeid · gc · service
+  auth/authz · messaging · cron · realtime hub · metricsx · nodeid · gc · service
         │
         ▼
 Data & Security
-  GORM (MySQL/PostgreSQL/SQLite/DM8) · Redis · asynq · two-level cache
+  GORM (MySQL/PostgreSQL/SQLite/DM8) · Redis · asynq · cron · two-level cache
   SM2/SM3/SM4 · per-user JWT sec_key · tenant boundary
 ```
 
@@ -419,7 +423,7 @@ web/           embedded templates (with the components/ UI kit) / static / langu
 - [User manual](docs/yd-usage.md)
 - [Frontend UI kit & usage manual](docs/frontend-ui.md) · [Component catalogue & charts](docs/frontend-components.md)
 - [Two-level cache](docs/cache.md) · [GORM dialects](docs/gorm-dialects.md) · [Real-time transports](docs/realtime-transports.md) · [Node identity](docs/node-identity.md) · [Runtime GC](docs/runtime-gc.md)
-- [Redis/asynq](docs/redis-asynq.md) · [Message center](docs/message-center.md) · [Workflow engine](docs/workflow.md) · [Generic attachments](docs/attachments.md) · [Data dictionaries](docs/dictionary.md) · [Middleware metrics](docs/middleware-metrics.md) · [Release & binaries](docs/releasing.md) · [Verification](docs/verification.md)
+- [Redis/asynq](docs/redis-asynq.md) · [Scheduled jobs](docs/cron.md) · [Message center](docs/message-center.md) · [Workflow engine](docs/workflow.md) · [Generic attachments](docs/attachments.md) · [Data dictionaries](docs/dictionary.md) · [Middleware metrics](docs/middleware-metrics.md) · [Release & binaries](docs/releasing.md) · [Verification](docs/verification.md)
 - [ydx components & benchmarks](https://github.com/shibingli/ydx)
 
 ### Acknowledgements

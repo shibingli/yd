@@ -190,6 +190,10 @@ Camunda 命名空间里的 `camunda:assignee`、`camunda:candidateUsers`、`camu
 - **行锁**：审批动作用 `SELECT ... FOR UPDATE`（由 ydx/gorm 的 `FeatureRowLock` 选择方言实现；
   SQLite 自动忽略）串行化同一实例的状态迁移。
 - **SQLite**：必须使用 `_txlock=immediate`，不要加 `_time_format`（详见 `docs/gorm-dialects.md`）。
+- **调度器承载**：生成项目的流程扫描任务挂载在进程唯一的共享 cron 调度器上（`internal/service/cron.go`），
+  不创建私有的定时循环。共享调度器配置 Redis Locker 时，`workflow-scan` 带 `Singleton`，每个周期只有
+  一个副本扫描；锁键为 `<cron.namespace>:lock:workflow-scan:<触发时刻>`。同一部署的所有副本必须共用
+  同一个 `cron.namespace`，不同应用或环境共用同一套 Redis 时必须使用不同的值（见 [`cron.md`](cron.md)）。
 - **调度间隔**：`workflow.scan_interval` 默认 30s；多副本同时扫描是安全的，只会有一个副本领取到同一条到期记录。
 - **通知**：通知先写入 `yd_workflow_notifications`，提交后由调度器领取投递；进程崩溃不会丢失，
   重复投递由投递状态与领取者标记约束。

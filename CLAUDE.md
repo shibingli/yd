@@ -47,14 +47,18 @@
 
 - **依赖形态**：`go.mod` 直接引用 `github.com/shibingli/ydx/<module> vX.Y.Z`；**禁止**本地
   `replace`。开发期联调只能在两个仓库之外临时使用 `go.work`，不得提交。
-- **模块清单**（37 个）：`errs`、`sysinfo`、`buffpool`、`protocol`、`nodeid`、`base64`、`json`、`afs`、
-  `config`、`log`、`regexpx`、`router`、`gorm`、`redis`、`asynq`、`cache`、`sse`、`websocket`、
+- **模块清单**（38 个）：`errs`、`sysinfo`、`buffpool`、`protocol`、`nodeid`、`base64`、`json`、`afs`、
+  `config`、`log`、`regexpx`、`router`、`gorm`、`redis`、`asynq`、`cron`、`cache`、`sse`、`websocket`、
   `webtransport`、`realtime`、`render`、`i18n`、`openapi`、`openapi/ydrouter`、`jwt`、`guomi`、
   `captcha`、`workflow`、`middleware` 及 8 个 `middleware/*` 插件。
 - **流程引擎**：`workflow` 是可独立使用的 BPMN 2.0 子集引擎；持久化在 `workflow/gormstore`
   （覆盖 ydx/gorm 支持的 MySQL / PostgreSQL / SQLite / DM8），通知在 `workflow/notify`，
   多供应商 AI 决策在 `workflow/ai`。yd 侧只保留页面、JSON API、权限守卫与装配接线，
   使用说明见 `docs/workflow.md`。
+- **定时任务**：`cron` 是单机/多机全生命周期调度模块。生成项目只创建一个进程级共享调度器，
+  流程扫描经 `workflow.WithCronScheduler` 挂载其上，业务经 `Controller.CronScheduler()` 注册任务；
+  多实例的分布式锁键为 `<cron.namespace>:lock:<任务>:<触发时刻>`，命名空间规则见第 33 节与
+  `docs/cron.md`。
 - **OpenAPI 分层**：`openapi` 核心不依赖任何路由器，只接受 `openapi.Route` 并提供标准
   `net/http` 处理器；`ydx/router` 项目经 `openapi/ydrouter` 的 `FromRouter` / `Handler` 接入。
 - **包标识符已同步改名**：`errs`、`json`、`base64`、`log`、`buffpool`、`gorm`、`cache`、
@@ -1095,7 +1099,8 @@ WebSocket、WebTransport 与 SSE 共用 `ydx/realtime` 中枢；使用说明见
   不得再写第二套重连或探测逻辑。
 - **Redis / Pub/Sub / asynq 分区**（强制，详见 `docs/redis-asynq.md`）：
   - **实时扇出走 Redis Pub/Sub**；**共享状态、去重、在线、游标、计数、锁、限流走直接 Redis 命令**
-    （多键原子用 Lua，键必须带 TTL 且可重建）；**失败补发、离线通知、重活与定时任务走 asynq**；
+    （多键原子用 Lua，键必须带 TTL 且可重建）；**失败补发、离线通知、重活与延迟/一次性任务走
+    asynq，固定周期调度走 cron**（见第 33 节）；
   - **禁止把 asynq 当广播总线**：任务队列是「一个任务一个消费者」，要广播就为每节点建任务，
     扇出成本随节点数线性增长且延迟不可控；**禁止把 Pub/Sub 当可靠队列**：断线即丢、无确认；
   - **失败广播只能经 `realtime.Options.Retry` + `Hub.PublishRemote` 补发**，worker 不得再次本地扇出；
@@ -1317,3 +1322,32 @@ WebSocket、WebTransport 与 SSE 共用 `ydx/realtime` 中枢；使用说明见
   升级时不得更换存储后端或前缀，否则旧 `stored_key` 不可达。
 - **禁止**：在业务里自建上传/下载端点绕过 `attachments.Service`；把 `stored_key` 放进 API 或日志；
   用原始文件名拼存储路径；用数据库级联防；对已引用附件做用户自删；用前端判定替代服务端权限校验。
+
+## 33. 定时任务与多实例命名空间（强制）
+
+`ydx/cron` 是框架唯一的定时任务调度组件，使用说明见 `docs/cron.md`（随生成项目发布）。
+生成项目只创建**一个进程级共享调度器**：流程引擎的扫描任务经 `workflow.WithCronScheduler` 挂载其上，
+业务任务经 `Controller.CronScheduler()` 注册；**禁止**再创建第二个定时循环或私有 ticker。
+
+- **装配位置**：`internal/service/cron.go` 读取 `cron.*` 并装配 Locker；`internal/controller` 构造它、
+  交给 `NewWorkflowService`，并在 `StartWorkflowRuntime` 中先启动共享调度器、再挂载流程扫描。
+- **命名空间是隔离边界**：分布式锁键为
+  `<cron.namespace>:lock:<任务 ID>:<计划触发时刻>`；手动触发额外带 `:manual:<node_id>`。
+  同一部署的所有副本**必须**使用相同的 `cron.namespace`，否则 Singleton 任务在每个副本各跑一次；
+  不同应用或不同环境共用同一套 Redis 时**必须**使用不同的值，否则一个部署会抢走另一个部署的
+  `workflow-scan` 触发，后者静默停摆。默认值为 `yd:<项目名>:cron`，代码在配置留空时按同一规则回退；
+  **不得**回退到 ydx 的通用默认值 `cron`。命名空间不是安全边界，多租户用独立 Redis DB/ACL。
+- **共享调度器不得配置 Store**：`workflow-scan` 只在内存中，带 Store 的 `Reload` 会按持久化定义重建
+  任务表并丢弃它。需要持久化定义的应用另建调度器，且不要把流程扫描挂上去。
+- **节点身份**：`cron.node_id` 留空回退 `node.id` / 身份文件；多副本必须唯一（见第 28 节）。
+  计划触发的锁键不含 node_id，因此同一部署的副本天然共享同一把锁。
+- **关停顺序**：cron 的停止钩子先登记、流程扫描的停止钩子后登记，逆序执行时先卸载扫描、再关闭调度器；
+  `CronService.Stop` 有界等待（10s），重复调用安全。共享调度器的生命周期由 `Stop` 掌握，
+  不用调用方上下文取消来停止它。
+- **失败语义**：Redis 在启动期不可用时不装配 Locker，每个副本都扫描，正确性由数据库条件领取保证；
+  运行期 Locker 故障按 cron 的失败关闭语义跳过当次触发并计入失败，Redis 恢复后下一周期继续。
+  `Singleton` 只保证「每次触发至多一个节点执行」，不是跨故障的恰好一次；业务任务必须幂等。
+- **管理 API 默认不挂载**：需要时由业务在受保护路由组调用 `scheduler.Mount(...)`，并自行套管理权限
+  守卫；cron API 不内建认证与限流，**不得**暴露在公开分组。
+- **守卫**：脚手架测试必须断言生成配置含 `cron.namespace`、cron 服务模板装配 Locker、
+  workflow 服务使用 `WithCronScheduler`；新增或调整配置键时同步更新 `docs/cron.md` 与生成项目 README。

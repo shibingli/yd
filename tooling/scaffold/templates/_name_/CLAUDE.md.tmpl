@@ -20,6 +20,7 @@
 | 数据库 | {{ .DB }} |
 | redis 集成 | 内置（始终启用） |
 | asynq 队列 | 内置（始终启用） |
+| 定时任务（cron） | 内置（进程级共享调度器） |
 | grpc 双通道 | {{ .GRPC }} |
 | 验证码（登录 / 改密） | {{ .Captcha }} |
 | 登录鉴权（多租户 / 用户 / 角色 / 权限） | {{ .Auth }} |
@@ -171,9 +172,13 @@ Redis 客户端由 `internal/service.NewRedis` **唯一**打开，缓存、消�
    持久卷，否则容器重建后身份会变；生产多副本建议显式设置 `node.id`。`node.require_persistent=true`
    时无法持久化会拒绝启动。节点 ID 不是凭据，不得用于鉴权或信任判断。完整判定见
    [`docs/node-identity.md`](docs/node-identity.md)。
+   **定时任务（强制）**：进程只创建一个 cron 调度器，流程扫描与业务任务共用；多副本必须共用同一个
+   `cron.namespace`，不同应用或环境共用同一套 Redis 时必须使用不同的值，否则 `workflow-scan` 的
+   分布式锁会跨部署互斥、只有一个部署真正扫描。共享调度器不得配置 `Store`。完整规则见
+   [`docs/cron.md`](docs/cron.md)。
 7. **Redis / Pub/Sub / asynq 分区**：实时扇出用 Pub/Sub；共享状态、去重、在线、游标、计数、锁、
-   限流用直接 Redis 命令（键必须带 TTL 且可重建，多键原子用 Lua）；失败补发、离线通知、重活、
-   定时任务用 asynq。禁止把 asynq 当广播总线、把 Pub/Sub 当可靠队列；事件在事务提交后发布，
+   限流用直接 Redis 命令（键必须带 TTL 且可重建，多键原子用 Lua）；失败补发、离线通知、重活用
+   asynq，周期调度用 cron。禁止把 asynq 当广播总线、把 Pub/Sub 当可靠队列；事件在事务提交后发布，
    严格不丢时由业务加 outbox。完整判定见
    [`docs/redis-asynq.md`](docs/redis-asynq.md)。
 8. **GORM 缓存安全分级（强制）**：`yd_auth_users` 永不缓存（口令散列、`sec_key` 密文与状态必须读库，

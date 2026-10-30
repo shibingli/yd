@@ -8,7 +8,7 @@
 - **Base64**：amd64 与 arm64 均为正式支持架构，默认使用自研 `ydx/base64` 内核（amd64 在 `GOEXPERIMENT=simd` 下按 VBMI2/VBMI → 基础 AVX-512 → AVX2 选择，arm64 手写 NEON），其它架构走纯 Go 标量；`b64x_std` 标签切换标准库。主模块不再依赖 cloudwego/base64x/cristalhq。
 - **环境自适应**：并行度、分块大小、缓冲与池上限一律由 `ydx/sysinfo` 在运行时读取 GOMAXPROCS、逻辑 CPU 数与 cgroup/主机内存后决定；库 API 不接收核心数或内存容量参数。
 - **基准报告**：所有基准统一在 `ydx/benchmarks/*`；单核/多核、全部对比库、CPU 与峰值 RSS 以 ydx 仓的 `benchmarks/README.md` 与各模块 README 为准。yd 仓库不保留 `benchmarks/` 目录。
-- **组件依赖**：`errs/json/base64/log/buffpool/afs/config/sysinfo/regexpx/router/gorm/redis/asynq/cache/sse/websocket/render/jwt/guomi` 与中间件插件均由 `github.com/shibingli/ydx/*` 提供；yd 只按版本号引用，禁止本地 replace 或复制源码。
+- **组件依赖**：`errs/json/base64/log/buffpool/afs/config/sysinfo/regexpx/router/gorm/redis/asynq/cron/cache/sse/websocket/render/jwt/guomi` 与中间件插件均由 `github.com/shibingli/ydx/*` 提供；yd 只按版本号引用，禁止本地 replace 或复制源码。
 - SIMD 相关构建与测试使用 `GOEXPERIMENT=simd`；Go 1.27.3+ 若已默认启用可省略。
 
 ## 1. 修改权限边界
@@ -351,10 +351,10 @@
       说明见 `docs/realtime-transports.md`。
 - [ ] **Redis / Pub/Sub / asynq 分区**：实时扇出用 Pub/Sub；共享状态、去重、在线、游标、计数、
       锁、限流用直接 Redis 命令（键必须带 TTL 且可重建，多键原子用 Lua）；失败补发、离线通知、
-      重活、定时任务用 asynq。禁止把 asynq 当广播总线（一个任务只被一个消费者处理），禁止把
-      Pub/Sub 当可靠队列（断线即丢）；失败广播经 `realtime.Options.Retry` + `Hub.PublishRemote`
-      补发且不得重复本地扇出；事件在数据库事务提交后发布，严格不丢时由业务加 outbox。
-      说明见 `docs/redis-asynq.md`。
+      重活、延迟/一次性任务用 asynq，固定周期调度用 cron（见 `docs/cron.md`）。禁止把 asynq 当广播总线
+      （一个任务只被一个消费者处理），禁止把 Pub/Sub 当可靠队列（断线即丢）；失败广播经
+      `realtime.Options.Retry` + `Hub.PublishRemote` 补发且不得重复本地扇出；事件在数据库事务提交后发布，
+      严格不丢时由业务加 outbox。说明见 `docs/redis-asynq.md`。
 - [ ] **节点身份**：一律经 `ydx/nodeid`；优先级 `node.id` > `node.id_file` > 平台种子，文件创建后
       即为权威，运行期不得重新推导。生产多副本必须显式 `node.id` 或每实例独立 `id_file`；容器默认
       禁止宿主种子，`id_file` 必须位于每实例独立持久卷，否则开启 `node.require_persistent` 让启动

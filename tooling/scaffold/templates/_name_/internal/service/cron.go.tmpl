@@ -1,0 +1,116 @@
+// 本文件装配进程唯一的定时任务调度器：流程扫描与业务任务共用它，Redis 可用时按次抢占分布式锁。
+// This file assembles the process-wide cron scheduler: the workflow scan and business jobs share it, and a
+// per-fire distributed claim is used whenever Redis is available.
+
+package service
+
+import (
+	"context"
+	"strings"
+	"time"
+
+	goredis "github.com/redis/go-redis/v9"
+
+	"{{ .Module }}/internal/meta"
+	"{{ .YdxModule }}/config"
+	"{{ .YdxModule }}/cron"
+	cronredis "{{ .YdxModule }}/cron/redis"
+	ydlog "{{ .YdxModule }}/log"
+)
+
+const (
+	// ConfigCronNamespace is the lock and store key prefix shared by every replica of one deployment. |
+	// ConfigCronNamespace 是同一部署所有副本共用的锁与存储键前缀。
+	ConfigCronNamespace = "cron.namespace"
+	// cronStopTimeout bounds the graceful stop of the shared scheduler. |
+	// cronStopTimeout 限制共享调度器的优雅停止。
+	cronStopTimeout = 10 * time.Second
+	// cronNamespacePrefix groups this project's cron keys with the other framework prefixes. |
+	// cronNamespacePrefix 把本项目的 cron 键与框架其它前缀归到一起。
+	cronNamespacePrefix = "yd:"
+	// cronNamespaceSuffix keeps cron keys apart from the cache, realtime and message prefixes. |
+	// cronNamespaceSuffix 把 cron 键与缓存、实时与消息前缀区分开。
+	cronNamespaceSuffix = ":cron"
+)
+
+// CronService owns the one scheduler of the process. | CronService 持有进程唯一的调度器。
+//
+// 共享调度器上不要配置 Store：process 内的任务（包括 workflow-scan）只存在于内存，带 Store 的
+// Reload 会按持久化定义重建任务表并丢弃它们。需要持久化定义的应用应另建一个调度器。
+// Do not configure a Store on the shared scheduler: in-process jobs (workflow-scan included) exist only in
+// memory, and a Store-backed Reload rebuilds the job table from persisted definitions and drops them. An
+// application that needs persisted definitions should own a second scheduler.
+type CronService struct {
+	// scheduler is the process-wide cron scheduler. | scheduler 是进程级 cron 调度器。
+	scheduler *cron.Scheduler
+}
+
+// NewCronService builds the shared scheduler from the cron configuration section. |
+// NewCronService 按 cron 配置段构建共享调度器。
+//
+// namespace 决定分布式锁键的前缀（`<namespace>:lock:<job>:<触发时刻>`）。同一部署的所有副本必须取
+// 相同的值才能互斥；不同应用或不同环境共用同一套 Redis 时必须取不同的值，否则一个部署会抢走另一个
+// 部署的 workflow-scan 触发。配置留空时回退到 `yd:<项目名>:cron`。 |
+// The namespace prefixes distributed lock keys (`<namespace>:lock:<job>:<fire instant>`). Every replica of
+// one deployment must use the same value so they exclude each other; different applications or environments
+// sharing one Redis must use different values, otherwise one deployment steals another's workflow-scan
+// fires. An empty configuration falls back to `yd:<project name>:cron`.
+func NewCronService(cfg *config.Config, nodeID string, log *ydlog.Logger, redisClient goredis.UniversalClient) *CronService {
+	if log == nil {
+		log = ydlog.Default()
+	}
+	options := cron.OptionsFromConfig(cfg)
+	options.Logger = log
+	options.Namespace = strings.TrimSpace(options.Namespace)
+	if options.Namespace == "" {
+		options.Namespace = cronNamespacePrefix + meta.Name + cronNamespaceSuffix
+	}
+	if strings.TrimSpace(options.NodeID) == "" {
+		options.NodeID = strings.TrimSpace(nodeID)
+	}
+	if redisClient != nil {
+		// The lock is only an optimization for the scan: without Redis every replica scans, and the
+		// database's conditional claims keep the work correct. | 锁只是扫描的优化：没有 Redis 时每个
+		// 副本都扫描，正确性仍由数据库的条件领取保证。
+		options.Locker = cronredis.NewLocker(redisClient)
+	}
+	log.Info("cron scheduler assembled | 定时任务调度器已装配",
+		ydlog.Str("namespace", options.Namespace),
+		ydlog.Bool("distributed", options.Locker != nil),
+	)
+	return &CronService{scheduler: cron.New(options)}
+}
+
+// Scheduler returns the shared scheduler for business jobs. Register a task handler before adding a
+// job; jobs added at runtime stay in memory. | Scheduler 返回共享调度器供业务任务使用。添加任务前先注册
+// 处理器；运行期添加的任务只保存在内存。
+func (c *CronService) Scheduler() *cron.Scheduler {
+	if c == nil {
+		return nil
+	}
+	return c.scheduler
+}
+
+// Start starts the scheduler. The lifetime is owned by Stop rather than the caller's context, so a
+// cancellation of the assembly context cannot pre-empt the shutdown budget. | Start 启动调度器。生命周期由
+// Stop 掌握而不是调用方上下文，因此装配上下文的取消不会抢占关闭预算。
+func (c *CronService) Start(ctx context.Context) error {
+	if c == nil || c.scheduler == nil {
+		return nil
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	return c.scheduler.Start(context.WithoutCancel(ctx))
+}
+
+// Stop stops the scheduler with a bounded wait; it is safe to call more than once. |
+// Stop 在有界等待内停止调度器；重复调用安全。
+func (c *CronService) Stop() error {
+	if c == nil || c.scheduler == nil {
+		return nil
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), cronStopTimeout)
+	defer cancel()
+	return c.scheduler.Stop(ctx)
+}

@@ -23,6 +23,7 @@ var YdxVersions = map[string]string{
 	"github.com/shibingli/ydx/cache":                 "v0.1.17",
 	"github.com/shibingli/ydx/captcha":               "v0.1.1",
 	"github.com/shibingli/ydx/config":                "v0.1.8",
+	"github.com/shibingli/ydx/cron":                  "v0.1.2",
 	"github.com/shibingli/ydx/errs":                  "v0.1.4",
 	"github.com/shibingli/ydx/gc":                    "v0.1.1",
 	"github.com/shibingli/ydx/gorm":                  "v0.1.13",
@@ -53,7 +54,7 @@ var YdxVersions = map[string]string{
 	"github.com/shibingli/ydx/sysinfo":               "v0.1.4",
 	"github.com/shibingli/ydx/websocket":             "v0.1.13",
 	"github.com/shibingli/ydx/webtransport":          "v0.1.0",
-	"github.com/shibingli/ydx/workflow":              "v0.1.2",
+	"github.com/shibingli/ydx/workflow":              "v0.1.3",
 }
 
 // YdxModules lists the ydx modules a generated project may import. | YdxModules 列出生成项目可能导入的 ydx 模块。
@@ -67,6 +68,7 @@ var YdxModules = []string{
 	"github.com/shibingli/ydx/cache",
 	"github.com/shibingli/ydx/captcha",
 	"github.com/shibingli/ydx/config",
+	"github.com/shibingli/ydx/cron",
 	"github.com/shibingli/ydx/errs",
 	"github.com/shibingli/ydx/gc",
 	"github.com/shibingli/ydx/gorm",

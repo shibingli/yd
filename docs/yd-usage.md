@@ -21,6 +21,7 @@
 | [`docs/node-identity.md`](node-identity.md) | 节点身份的来源、稳定性边界、安全、性能与唯一性，以及物理机/虚机/容器/Kubernetes 部署方式 |
 | [`docs/runtime-gc.md`](runtime-gc.md) | 运行时 GC 调度 `ydx/gc` 的策略预设、繁忙跳过、内存压力强制执行、安全边界与观测 |
 | [`docs/redis-asynq.md`](redis-asynq.md) | Redis 直接命令 / Redis Pub/Sub / asynq 的分区规则、可靠性边界与运维要点 |
+| [`docs/cron.md`](cron.md) | 进程级共享 cron 调度器、workflow 扫描挂载、多实例命名空间与业务任务注册 |
 | [`docs/middleware-metrics.md`](middleware-metrics.md) | 中间件运行时指标与自定义指标 |
 | [`docs/icon-usage.md`](icon-usage.md) | 离线图标 sprite 的生成、校验与故障排查 |
 | [`docs/render-usage.md`](render-usage.md) | 模板渲染引擎用法 |

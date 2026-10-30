@@ -39,6 +39,7 @@ import (
 	"{{ .YdModule }}/security/authz"
 	"{{ .YdModule }}/security/captcha"
 	"{{ .YdxModule }}/cache"
+	"{{ .YdxModule }}/cron"
 	"{{ .YdxModule }}/errs"
 	"{{ .YdxModule }}/i18n"
 	ydlog "{{ .YdxModule }}/log"
@@ -453,6 +454,9 @@ type Controller struct {
 	workflow *service.WorkflowService
 	// workflowErr records why the process engine is unavailable. | workflowErr 记录流程引擎不可用的原因。
 	workflowErr error
+	// cronSvc is the process-wide scheduler shared by the workflow scan and business jobs. | cronSvc 是流程
+	// 扫描与业务任务共用的进程级调度器。
+	cronSvc *service.CronService
 	// systemTenantID is the resolved owner of the system dictionary layer; empty disables system
 	// management and leaves that layer read-only. | systemTenantID 是系统级字典层的解析归属；
 	// 为空时关闭系统管理，该层保持只读。
@@ -541,7 +545,8 @@ func New(a *app.App, store *repository.Store, log *ydlog.Logger, captchaSvc *cap
 	if dictionaryErr != nil {
 		log.Warn("data dictionary is disabled | 数据字典已禁用", ydlog.Err(dictionaryErr))
 	}
-	workflowSvc, workflowErr := service.NewWorkflowService(a.Config(), store.WorkflowStore(), store.Auth(), messages, log)
+	cronSvc := service.NewCronService(a.Config(), a.NodeID(), log, redisClient)
+	workflowSvc, workflowErr := service.NewWorkflowService(a.Config(), store.WorkflowStore(), store.Auth(), messages, log, cronSvc.Scheduler())
 	if workflowErr != nil {
 		log.Warn("workflow engine is disabled | 流程引擎已禁用", ydlog.Err(workflowErr))
 	}
@@ -580,6 +585,7 @@ func New(a *app.App, store *repository.Store, log *ydlog.Logger, captchaSvc *cap
 		dictionaryErr:  dictionaryErr,
 		workflow:       workflowSvc,
 		workflowErr:    workflowErr,
+		cronSvc:        cronSvc,
 		systemTenantID: systemTenantID,
 		hub:            hub,
 		i18n:           bundle,
@@ -666,9 +672,24 @@ func (c *Controller) WorkflowService() *service.WorkflowService {
 	return c.workflow
 }
 
-// StartWorkflowRuntime starts the workflow scheduler and attaches its stop to the shutdown chain. |
-// StartWorkflowRuntime 启动流程调度器，并把停止动作挂到退出链上。
+// CronScheduler returns the process-wide cron scheduler so business code can register task handlers
+// and add its own jobs. The scheduler keeps definitions in memory only; there is no Reload. |
+// CronScheduler 返回进程级 cron 调度器，业务代码可在它上面注册任务处理器并添加自己的任务。调度器只把
+// 定义保存在内存中，因此没有 Reload。
+func (c *Controller) CronScheduler() *cron.Scheduler {
+	if c == nil || c.cronSvc == nil {
+		return nil
+	}
+	return c.cronSvc.Scheduler()
+}
+
+// StartWorkflowRuntime starts the shared cron scheduler and the workflow scan mounted on it, then
+// attaches their stop actions to the shutdown chain. The cron stop hook is registered first, so the
+// reverse-order shutdown detaches the scan before the scheduler closes. |
+// StartWorkflowRuntime 启动共享 cron 调度器与挂载其上的流程扫描，并把停止动作挂到退出链上。cron 的停止
+// 钩子先登记，因此逆序关停会先卸载扫描任务、再关闭调度器。
 func (c *Controller) StartWorkflowRuntime(ctx context.Context) {
+	c.startCronRuntime(ctx)
 	if !c.WorkflowAvailable() {
 		return
 	}
@@ -676,6 +697,19 @@ func (c *Controller) StartWorkflowRuntime(ctx context.Context) {
 		c.log.Warn("workflow scheduler failed to start | 流程调度器启动失败", ydlog.Err(err))
 	}
 	c.app.OnShutdown(func(context.Context) error { return c.workflow.SchedulerStop() })
+}
+
+// startCronRuntime starts the shared scheduler and registers its stop hook. |
+// startCronRuntime 启动共享调度器并登记其停止钩子。
+func (c *Controller) startCronRuntime(ctx context.Context) {
+	if c == nil || c.cronSvc == nil {
+		return
+	}
+	if err := c.cronSvc.Start(ctx); err != nil {
+		c.log.Warn("cron scheduler failed to start | 定时任务调度器启动失败", ydlog.Err(err))
+		return
+	}
+	c.app.OnShutdown(func(context.Context) error { return c.cronSvc.Stop() })
 }
 
 // workflowActor returns the engine actor of the signed-in user. | workflowActor 返回当前登录用户的流程操作人。

@@ -113,6 +113,9 @@
       生成项目默认写入 `data/node-id`；容器必须把该路径挂到每实例独立持久卷，否则重建后身份会变。
       生产多副本建议显式 `node.id`；`node.require_persistent=true` 时无法持久化必须拒绝启动。
       节点 ID 只用于消息 id、Redis 键与指标标签，**不是凭据**，不得用于鉴权或信任判断。
+- [ ] **定时任务命名空间**：进程只创建一个 cron 调度器，流程扫描与业务任务共用；同一部署的所有副本必须
+      共用同一个 `cron.namespace`，不同应用或环境共用同一套 Redis 时必须使用不同的值，否则
+      `workflow-scan` 的分布式锁会跨部署互斥；共享调度器不得配置 `Store`。详见框架 `docs/cron.md`。
 - [ ] **GORM 缓存安全分级**：`yd_auth_users` 永不缓存；成员/角色/权限/租户进
       `cache.gorm.sensitive_tables`；高安全/涉密路由在鉴权前挂 `middleware.CacheBypass`；
       显式事务用 `cache.WithDeferredInvalidation` + 提交后 `SetInvalidator` 失效。

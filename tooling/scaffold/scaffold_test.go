@@ -72,6 +72,7 @@ var requiredFiles = []string{
 	"docs/attachments.md",
 	"docs/cache.md",
 	"docs/captcha.md",
+	"docs/cron.md",
 	"docs/developer_guidelines.md",
 	"docs/dictionary.md",
 	"docs/frontend-components.md",
@@ -141,6 +142,7 @@ var requiredFiles = []string{
 	"internal/service/attachment.go",
 	"internal/service/auth.go",
 	"internal/service/cache.go",
+	"internal/service/cron.go",
 	"internal/service/dictionary.go",
 	"internal/service/message.go",
 	"internal/service/message_bus.go",
@@ -513,9 +515,9 @@ func TestGenerateHiddenFilesNotLostOnMemFS(t *testing.T) {
 	if meta.Features["auth"] != true {
 		t.Errorf(".yd.json features.auth = %v, 期望 true", meta.Features["auth"])
 	}
-	// Redis 与 Asynq 同样是内建能力：没有开关，生成项目一律登记为已接入。
-	// Redis and Asynq are built in as well: there is no switch, and every generated project records them as wired in.
-	for _, key := range []string{"redis", "asynq"} {
+	// Redis、Asynq 与 Cron 同样是内建能力：没有开关，生成项目一律登记为已接入。
+	// Redis, Asynq and Cron are built in as well: there is no switch, and every generated project records them as wired in.
+	for _, key := range []string{"redis", "asynq", "cron"} {
 		if meta.Features[key] != true {
 			t.Errorf(".yd.json features.%s = %v, 期望 true", key, meta.Features[key])
 		}
@@ -593,7 +595,7 @@ func TestGenerateAlwaysIntegratesRedisAndAsynq(t *testing.T) {
 			t.Errorf("repository/store.go is missing %q | repository/store.go 缺少 %q", want, want)
 		}
 	}
-	for _, want := range []string{"postgres", "redis:", "asynq:", "grpc:", "i18n:", "default_lang: zh-CN"} {
+	for _, want := range []string{"postgres", "redis:", "asynq:", "cron:", "grpc:", "i18n:", "default_lang: zh-CN"} {
 		if !strings.Contains(cfg, want) {
 			t.Errorf("config.yaml 缺少 %q:\n%s", want, cfg)
 		}
@@ -836,6 +838,81 @@ func TestGeneratedProjectEnablesGormCacheByDefault(t *testing.T) {
 	prPlain, _ := generateMem(t, plain)
 	if cfg := prPlain.read("configs/config.yaml"); strings.Contains(cfg, "ignore_tables:") {
 		t.Errorf("未选数据库的 config.yaml 不应出现 GORM 缓存配置:\n%s", cfg)
+	}
+}
+
+// TestGeneratedProjectSharesOneCronScheduler proves the scaffold wires exactly one process-wide cron
+// scheduler, mounts the workflow scan on it and gives the deployment a project-specific lock namespace.
+// | TestGeneratedProjectSharesOneCronScheduler 证明脚手架只装配一个进程级 cron 调度器、把流程扫描
+// 挂载其上，并为部署提供项目专属的锁命名空间。
+func TestGeneratedProjectSharesOneCronScheduler(t *testing.T) {
+	pr, _ := generateMem(t, scaffold.DefaultOptions("cron-app"))
+
+	cfg := strings.ReplaceAll(pr.read("configs/config.yaml"), "\r\n", "\n")
+	for _, want := range []string{
+		"cron:\n",
+		`namespace: "yd:cron-app:cron"`,
+		"node_id:",
+		"lock_ttl: 30s",
+		"shutdown_timeout: 30s",
+	} {
+		if !strings.Contains(cfg, want) {
+			t.Errorf("configs/config.yaml is missing %q | configs/config.yaml 缺少 %q", want, want)
+		}
+	}
+
+	// The shared scheduler must fall back to the project-scoped namespace rather than the generic
+	// "cron" default, and it must never configure a Store: Reload would drop the in-memory scan job.
+	// | 共享调度器必须回退到项目级命名空间而不是通用默认值 "cron"，且不得配置 Store：
+	// Reload 会丢弃内存中的扫描任务。
+	cronSvc := pr.read("internal/service/cron.go")
+	for _, want := range []string{
+		"cron.OptionsFromConfig(cfg)",
+		"cronNamespacePrefix + meta.Name + cronNamespaceSuffix",
+		"cronredis.NewLocker(redisClient)",
+		"options.Locker = cronredis.NewLocker(redisClient)",
+	} {
+		if !strings.Contains(cronSvc, want) {
+			t.Errorf("internal/service/cron.go 缺少 %q:\n%s", want, cronSvc)
+		}
+	}
+	if strings.Contains(cronSvc, "Store:") || strings.Contains(cronSvc, "options.Store") {
+		t.Error("the shared scheduler must not configure a Store | 共享调度器不得配置 Store")
+	}
+
+	workflowSvc := pr.read("internal/service/workflow.go")
+	for _, want := range []string{
+		"shared *cron.Scheduler",
+		"workflow.WithCronScheduler(shared)",
+	} {
+		if !strings.Contains(workflowSvc, want) {
+			t.Errorf("internal/service/workflow.go 缺少 %q", want)
+		}
+	}
+
+	ctrl := pr.read("internal/controller/controller.go")
+	for _, want := range []string{
+		"service.NewCronService(",
+		"cronSvc.Scheduler()",
+		"func (c *Controller) CronScheduler()",
+		"c.startCronRuntime(ctx)",
+		"func (c *Controller) startCronRuntime(ctx context.Context)",
+		"return c.cronSvc.Stop()",
+	} {
+		if !strings.Contains(ctrl, want) {
+			t.Errorf("internal/controller/controller.go 缺少 %q", want)
+		}
+	}
+	// The cron stop hook is registered before the workflow one, so the reverse-order shutdown
+	// detaches the scan before the scheduler closes. | cron 的停止钩子先于流程钩子登记，逆序关停
+	// 才会先卸载扫描、再关闭调度器。
+	start := strings.Index(ctrl, "func (c *Controller) StartWorkflowRuntime")
+	if start < 0 {
+		t.Fatal("StartWorkflowRuntime is missing | 缺少 StartWorkflowRuntime")
+	}
+	body := ctrl[start:]
+	if cronStart, workflowHook := strings.Index(body, "c.startCronRuntime(ctx)"), strings.Index(body, "c.workflow.SchedulerStop()"); cronStart < 0 || workflowHook < 0 || cronStart > workflowHook {
+		t.Errorf("StartWorkflowRuntime must start cron before registering the workflow stop hook | StartWorkflowRuntime 必须先启动 cron 再登记流程停止钩子")
 	}
 }
 
@@ -1665,6 +1742,7 @@ func TestGeneratedGovernanceDocsStateConstraints(t *testing.T) {
 		"Tailwind CSS **v4**",
 		"redis",
 		"asynq",
+		"cron",
 		// 鉴权链路：多租户边界、能力守卫与会话顺序必须在助手的全局上下文里写明。
 		// The authentication chain: the tenant boundary, the capability guards and the session order must be spelled out for the assistant.
 		"auth.RequirePermission",
@@ -5976,7 +6054,7 @@ func TestGeneratedProjectCreatesOneBackendClientPerProcess(t *testing.T) {
 	tokens := []string{
 		"redis.Open(", "ydgorm.Open(", "goredis.NewClient(", "redis.NewClient(",
 		"repository.Open(", "service.NewRedis(", "service.NewCache(", "service.NewMessageBus(",
-		"captcha.NewWithClient(", "asynq.NewClient(", "asynq.NewServer(", "asynq.NewRegistry(",
+		"service.NewCronService(", "captcha.NewWithClient(", "asynq.NewClient(", "asynq.NewServer(", "asynq.NewRegistry(",
 		"sse.NewBroker(", "service.NewTicker(", "controller.New(", "service.NewMetricsService(",
 		"web.InitBundles(", "i18n.New(", "openapi.ParseSource(", "gormcache.New(", "realtime.NewRedisBus(",
 	}
@@ -6010,6 +6088,7 @@ func TestGeneratedProjectCreatesOneBackendClientPerProcess(t *testing.T) {
 		"service.NewRedis(":          1,
 		"service.NewCache(":          1,
 		"service.NewMessageBus(":     1,
+		"service.NewCronService(":    1,
 		"captcha.NewWithClient(":     1,
 		"asynq.NewClient(":           1,
 		"asynq.NewServer(":           1,

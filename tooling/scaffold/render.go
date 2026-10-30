@@ -221,9 +221,10 @@ func quoteModPath(value string) string {
 // featuresOf summarises the selected features for templates and startup logs (same source as the Features variable in internal/router).
 func featuresOf(o Options) []string {
 	features := []string{"db:" + o.DB}
-	// Redis 与 asynq 不是开关：生成项目一律带它们的配置、消息总线与队列接线。
-	// Redis and asynq are not switches: every generated project ships their configuration, message bus and queue wiring.
-	features = append(features, "redis", "asynq")
+	// Redis、asynq 与 cron 不是开关：生成项目一律带它们的配置、消息总线、队列与共享调度器接线。
+	// Redis, asynq and cron are not switches: every generated project ships their configuration, message bus,
+	// queue and shared-scheduler wiring.
+	features = append(features, "redis", "asynq", "cron")
 	if o.GRPC {
 		features = append(features, "grpc")
 	}

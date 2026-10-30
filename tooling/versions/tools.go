@@ -11,5 +11,6 @@
 package versions
 
 import (
+	_ "github.com/shibingli/ydx/cron"
 	_ "github.com/shibingli/ydx/workflow"
 )

@@ -340,6 +340,26 @@ dictionary:
   # tenant is always read-only.
   system_tenant: ""
 
+# 定时任务调度：进程内只创建一个共享 cron 调度器，流程引擎的扫描任务挂载在它上面。
+# 分布式锁键形如 <namespace>:lock:<任务>:<计划触发时刻>。同一部署的所有副本必须使用相同的 namespace
+# 才能互斥；不同应用或不同环境共用同一套 Redis 时必须使用不同的 namespace，否则 workflow-scan 的锁
+# 会跨部署互斥，只有一个部署的扫描真正执行。namespace 不是安全边界，多租户请使用独立 Redis DB/ACL。
+# Cron scheduling: one shared cron scheduler per process, and the workflow scan is mounted on it.
+# A distributed lock key is <namespace>:lock:<job>:<scheduled instant>. Every replica of one deployment
+# must share the namespace to exclude each other; different applications or environments sharing one Redis
+# must use different namespaces, or the workflow-scan locks become mutually exclusive across deployments and
+# only one of them actually scans. The namespace is not a security boundary; use a separate Redis DB or ACL
+# for tenants.
+cron:
+  namespace: "yd:{{ .Name }}:cron"   # 同一部署保持一致，不同部署必须不同 | same within a deployment, different across deployments
+  node_id: ""                        # 留空回退 node.id 与身份文件 | empty falls back to node.id and the identity file
+  concurrency: 0                     # 0 取 GOMAXPROCS | 0 uses GOMAXPROCS
+  queue_size: 1024                   # 待运行队列容量 | pending-run queue capacity
+  lock_ttl: 30s                      # 锁有效期与触发去重窗口 | claim lifetime and fire deduplication window
+  lock_timeout: 5s                   # 单次加锁预算 | one TryLock budget
+  shutdown_timeout: 30s              # 在途任务的优雅关闭预算 | graceful budget for in-flight runs
+  history_limit: 8                   # 每任务运行记录环；负数关闭 | per-job run-record ring; negative disables
+
 # Workflow engine: definitions and versions, running instances, tasks, groups and notifications. |
 # 流程引擎：定义与版本、运行实例、任务、流程组与通知。
 #

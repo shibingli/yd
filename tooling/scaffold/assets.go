@@ -23,7 +23,7 @@ type projectMeta struct {
 	Module string `json:"module"`
 	// AssetRoot is the front-end asset root. | AssetRoot 是前端资产根目录。
 	AssetRoot string `json:"assetRoot"`
-	// Features records the component switches; redis and asynq are always true. | Features 记录组件开关；redis 与 asynq 恒为 true。
+	// Features records the component switches; redis, asynq and cron are always true. | Features 记录组件开关；redis、asynq 与 cron 恒为 true。
 	Features projectFeatures `json:"features"`
 }
 
@@ -37,6 +37,9 @@ type projectFeatures struct {
 	Redis bool `json:"redis"`
 	// Asynq records that asynq is wired in; it is not switchable. | Asynq 记录 asynq 已接入；它不是开关。
 	Asynq bool `json:"asynq"`
+	// Cron records that the process-wide cron scheduler is wired in; it is not switchable. |
+	// Cron 记录进程级 cron 调度器已接入；它不是开关。
+	Cron bool `json:"cron"`
 	// GRPC tells whether the gRPC dual channel is enabled. | GRPC 表示是否开启 gRPC 双通道。
 	GRPC bool `json:"grpc"`
 	// Captcha tells whether sign-in and password changes require verification by default. | Captcha 表示登录与改密是否默认要求验证码。
@@ -113,6 +116,7 @@ func generatedDocs(o Options, v view, m *assets.Manifest) ([]plannedFile, error)
 			DB:       o.DB,
 			Redis:    true,
 			Asynq:    true,
+			Cron:     true,
 			GRPC:     o.GRPC,
 			Captcha:  o.Captcha,
 			I18n:     o.I18n,

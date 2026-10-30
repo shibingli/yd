@@ -20,6 +20,7 @@ var frameworkDocFiles = []string{
 	"attachments.md",
 	"dictionary.md",
 	"workflow.md",
+	"cron.md",
 	"message-center.md",
 	"cache.md",
 	"redis-asynq.md",

@@ -110,6 +110,8 @@ github.com/shibingli/ydx/captcha v0.1.1 h1:2FM7ATNdJJIn9ysyAbqtUDD2PrxEWnjNvNY8v
 github.com/shibingli/ydx/captcha v0.1.1/go.mod h1:P7ifwZRWUEwYRIMOmtx/MLjUBUR64G0q7A6IyN7s9Do=
 github.com/shibingli/ydx/config v0.1.8 h1:vGgqju8UqN3Fq/mIwbN0JYCQJnMz8JrxTF2TJC8oZAQ=
 github.com/shibingli/ydx/config v0.1.8/go.mod h1:FCQCjq65sOQA7UBTuZTvv20GWDUwEJXtLB7oRpTXiTE=
+github.com/shibingli/ydx/cron v0.1.2 h1:qhaUZ7YWi0aEuRXlYuUXYcSQJhzppRBd4Ya2/b7yIrU=
+github.com/shibingli/ydx/cron v0.1.2/go.mod h1:KIGtVaIGv08m7KdpO7K2tUVZuOK3GdA5vGNWoj7qZDI=
 github.com/shibingli/ydx/errs v0.1.4 h1:/hexB5eDFA/wWhRof5yxWEVeVlHn1P7IZmys9U4h1iA=
 github.com/shibingli/ydx/errs v0.1.4/go.mod h1:N6GNQq5eustT11WTdXOip9bXcIwrFd4c9UWG0gIDuwU=
 github.com/shibingli/ydx/gc v0.1.1 h1:vgCmSwQh+aRB0eetcayADv1PH03UHhuERz7TnK0R9xs=
@@ -170,8 +172,8 @@ github.com/shibingli/ydx/websocket v0.1.13 h1:ZrL5CPFZH6+Oi0mE07cuOWYqOkIyX1NqYs
 github.com/shibingli/ydx/websocket v0.1.13/go.mod h1:MNo0DxSzBR80vVgsvfQ5+H0Gaswvl5QP5M6ThzVBnDo=
 github.com/shibingli/ydx/webtransport v0.1.0 h1:3DwbXgXyXRFCnCbxj8Z0xlJx9WY9Vhu+0NhyCOslXr4=
 github.com/shibingli/ydx/webtransport v0.1.0/go.mod h1:irmdW+MRnQEXlijy/TiLYgbbjLnFKRaUsihQNwATdPs=
-github.com/shibingli/ydx/workflow v0.1.2 h1:aqhWx6bkmqan2wClMpg3gbMTA8ADArqRYJeyb3WJU8I=
-github.com/shibingli/ydx/workflow v0.1.2/go.mod h1:LIg2D1O98ELCdcgo+7kDYlE7lPx49J6zpuXk5qAWeIs=
+github.com/shibingli/ydx/workflow v0.1.3 h1:zqAD6aJQvlNWNgVaKyyAX21bB9uaAyxz7Nm6drnVYSo=
+github.com/shibingli/ydx/workflow v0.1.3/go.mod h1:JUg97ic9n2HeyV/8JLa6/9bBvvNDKnw6WtTMTLpekxU=
 github.com/spf13/afero v1.15.0 h1:b/YBCLWAJdFWJTN9cLhiXXcD7mzKn9Dm86dNnfyQw1I=
 github.com/spf13/afero v1.15.0/go.mod h1:NC2ByUVxtQs4b3sIUphxK0NioZnmxgyCrfzeuq8lxMg=
 github.com/spf13/cast v1.10.0 h1:h2x0u2shc1QuLHfxi+cTJvs30+ZAHOGRic8uyGTDWxY=
