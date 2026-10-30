@@ -179,6 +179,16 @@
 - 首登改密提醒（`meta.SeedPasswordNotice`）在首页身份卡、账号页与 README 中共用同一句，不得各写一份；外壳不重复它。
 - 新增包须在包文档注释中说明其职责边界与不做什么。
 - 生成的代码变更须能通过 `yd gen` 幂等重放（重复执行不产生 diff）。
+{{- if .WAF }}
+
+## WAF（强制）
+
+- 项目默认带 `internal/waf` 并启用 WAF；`yd new --waf=false` 完全省略该包、配置段与 Coraza 依赖。
+- **WAF 独占 `config.Watch` 的单回调槽**：业务代码不得再调用 `cfg.Watch`，否则热启停静默失效。
+- 启停与调优只改 `configs/config.yaml` 的 `waf.*`；`waf.enabled` 缺键按 `true` 处理。
+- 规则 ID `900001-900010` 为保留段；任何 WAF 变更后跑 `go test ./internal/waf`。
+- 完整说明见 `docs/waf.md`。
+{{- end }}
 
 ## 6. 数据关系与完整性（强制）
 

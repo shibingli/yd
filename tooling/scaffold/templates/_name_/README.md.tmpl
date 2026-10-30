@@ -357,6 +357,22 @@ assembly point.
 保留；标签/提示按新语言重新渲染；用户名输入保留，口令字段刻意不保留。历史快照恢复时会关闭对话框并清除克隆
 组件与旧令牌。验证失败只返回统一文案，不泄露账号或租户信息；JavaScript 被禁用时显示 `captcha.noscript`
 提示，服务端仍以 422 失败关闭。
+{{- if .WAF }}
+
+## WAF
+
+`yd new` 默认随项目生成 `internal/waf` 并启用 WAF。引擎是 ydx 的 Coraza 中间件，规则围绕
+Go/HTML/SQL/JavaScript 裁剪。
+
+- 配置：`waf.enabled`（缺键即 true）、`waf.mode`（`block`/`detection`/`off`）、
+  `waf.paranoia_level`、`waf.anomaly_threshold`、`waf.inspect_json`、正文上限、
+  `exclude_paths`、`exclude_args`、`extra_rule_files`、`directives`、`trusted_proxies`。
+- 热启停：修改 `configs/config.yaml` 或 `config.local.yaml` 后 `config.Watch` 自动生效，
+  不需要重启。WAF 独占 `config.Watch` 单回调槽，业务代码不得再调用 `cfg.Watch`。
+- 默认排除：`/healthz`、`/static`、`/openapi/assets`、`/events`、`/ws`、`/mgr/ws`
+  与附件上传下载路径；`body_markdown`、`json.design` 等富文本/结构化字段免于攻击规则。
+- 完整说明见 `docs/waf.md`。
+{{- end }}
 
 ## 进程级单例
 

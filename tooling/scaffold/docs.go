@@ -27,6 +27,7 @@ var frameworkDocFiles = []string{
 	"realtime-transports.md",
 	"node-identity.md",
 	"captcha.md",
+	"waf.md",
 	"gorm-dialects.md",
 	"icon-usage.md",
 	"frontend-ui.md",

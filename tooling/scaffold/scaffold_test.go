@@ -88,6 +88,7 @@ var requiredFiles = []string{
 	"docs/render-usage.md",
 	"docs/runtime-gc.md",
 	"docs/verification.md",
+	"docs/waf.md",
 	"docs/workflow.md",
 	"docs/yd-usage.md",
 	"go.mod",
@@ -6367,6 +6368,31 @@ func TestGeneratedMiddlewareMetricsIncludesWAF(t *testing.T) {
 	for _, path := range []string{"web/i18n/zh-CN.yaml", "web/i18n/en.yaml"} {
 		if !strings.Contains(pr.read(path), "waf:") {
 			t.Errorf("%s 缺少 metrics.middleware.name.waf", path)
+		}
+	}
+}
+
+// TestGeneratedDocsIncludeWAF publishes the guide and the project-level constraints. |
+// TestGeneratedDocsIncludeWAF 发布指南与项目级约束。
+func TestGeneratedDocsIncludeWAF(t *testing.T) {
+	pr, _ := generateMem(t, scaffold.DefaultOptions("waf-docs"))
+	if !strings.Contains(pr.read("docs/waf.md"), "waf.enabled") {
+		t.Error("docs/waf.md 未随项目发布")
+	}
+	for _, path := range []string{"README.md", "CLAUDE.md", "AGENTS.md"} {
+		if !strings.Contains(pr.read(path), "## WAF") {
+			t.Errorf("%s 缺少 WAF 段", path)
+		}
+	}
+}
+
+// TestGeneratedCLAUDEKeepsSingleWatchSlot warns that WAF owns the config.Watch slot. |
+// TestGeneratedCLAUDEKeepsSingleWatchSlot 警告 WAF 独占 config.Watch 槽。
+func TestGeneratedCLAUDEKeepsSingleWatchSlot(t *testing.T) {
+	pr, _ := generateMem(t, scaffold.DefaultOptions("waf-watch"))
+	for _, path := range []string{"CLAUDE.md", "AGENTS.md"} {
+		if !strings.Contains(pr.read(path), "cfg.Watch") {
+			t.Errorf("%s 未记录单槽限制", path)
 		}
 	}
 }

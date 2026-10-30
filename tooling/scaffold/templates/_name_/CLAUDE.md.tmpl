@@ -221,6 +221,18 @@ Redis 客户端由 `internal/service.NewRedis` **唯一**打开，缓存、消�
 8. **迁移**：`attachmentsgorm.Migrate` 幂等建表；`MigrateLegacy` 把旧 `yd_msg_attachments` 复制到新表，
    随后 `DropLegacy` 删除旧表；删除失败只告警，不阻塞附件。新代码只读写新表。升级时不得更换存储后端或
    前缀，否则旧 `stored_key` 不可达。
+{{- if .WAF }}
+
+## WAF（强制）
+
+- 项目默认带 `internal/waf` 并启用 WAF；`yd new --waf=false` 生成的项目没有该包、配置段与 Coraza 依赖。
+- **WAF 独占 `config.Watch` 的单回调槽**：业务代码不得再调用 `cfg.Watch`，否则会顶掉 WAF 的监视器，
+  让 `waf.enabled` / `waf.mode` 的热切换静默失效。需要第二个监听者时先做共享分发器。
+- 启停与调优只改 `configs/config.yaml` 的 `waf.*`；`waf.enabled` 缺键按 `true` 处理，显式 `false` 才旁路。
+- **规则 ID `900001-900010` 为保留段**；新增规则前先读 `docs/waf.md`，不要与 CRS 或 tune 冲突。
+- 任何 WAF 变更必须跑 `go test ./internal/waf`；上线前先用 `mode: detection` 观察误报。
+- `yd sync` 只增不删：把 `.yd.json` 的 `waf` 改成 `false` 不会移除既有 `internal/waf`，需要手工删除。
+{{- end }}
 
 ## 7. 提交纪律（强制）
 
