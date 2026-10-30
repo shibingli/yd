@@ -175,6 +175,11 @@ func runSync(ctx context.Context, env *Env) error {
 	if err != nil {
 		return err
 	}
+	if !opts.WAF {
+		if info, statErr := env.FS.Stat(filepath.Join(dir, "internal", "waf")); statErr == nil && info.IsDir() {
+			fmt.Fprintln(env.Err, "waf: .yd.json marks WAF off but internal/waf exists; yd sync never deletes files — remove it manually | waf：清单标记关闭但 internal/waf 仍存在；yd sync 不删除文件，请手工移除")
+		}
+	}
 	rendered, err := renderSyncScaffold(ctx, opts)
 	if err != nil {
 		return err

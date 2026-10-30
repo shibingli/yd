@@ -352,3 +352,23 @@ func TestSyncRejectsNonProject(t *testing.T) {
 		t.Fatalf("sync in a non-project = %v, want ErrSyncNotProject | 非项目目录应返回 ErrSyncNotProject", err)
 	}
 }
+
+// TestSyncWarnsWhenWAFDisabledButPackageExists prevents a half-removed WAF tree from going
+// unnoticed. | TestSyncWarnsWhenWAFDisabledButPackageExists 防止半移除的 WAF 目录被静默留下。
+func TestSyncWarnsWhenWAFDisabledButPackageExists(t *testing.T) {
+	fs, dir := syncFixture(t)
+	metaPath := dir + "/.yd.json"
+	meta := syncRead(t, fs, metaPath)
+	meta = strings.Replace(meta, `"waf": true`, `"waf": false`, 1)
+	syncWrite(t, fs, metaPath, meta)
+
+	te := newTestEnv(t, fs, "", false)
+	if err := Execute(context.Background(), []string{
+		"sync", "--dir", dir, "--dry-run", "--go=false", "--assets=false",
+	}, te.env); err != nil {
+		t.Fatalf("sync dry-run: %v\n%s", err, te.errs.String())
+	}
+	if !strings.Contains(te.errs.String(), "internal/waf") {
+		t.Fatalf("缺少半移除告警:\n%s", te.errs.String())
+	}
+}
