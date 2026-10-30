@@ -157,6 +157,8 @@ var requiredFiles = []string{
 	"internal/waf/rules_test.go",
 	"internal/waf/settings.go",
 	"internal/waf/settings_test.go",
+	"internal/waf/waf.go",
+	"internal/waf/waf_test.go",
 	"web/assets.lock.json",
 	"web/bundle_generated.go",
 	"web/embed.go",
@@ -6257,14 +6259,11 @@ func TestLocalReplaceIncludesWAFFromNestedModule(t *testing.T) {
 	}
 }
 
-// TestGeneratedWAFSettingsAndRulesTests runs the generated package's own settings and rule tests
-// against the real engine. | TestGeneratedWAFSettingsAndRulesTests 用真实引擎运行生成包的设置与
-// 规则测试。
-func TestGeneratedWAFSettingsAndRulesTests(t *testing.T) {
-	if testing.Short() {
-		t.Skip("短模式跳过生成项目测试 | skipped in short mode")
-	}
-	goBin, err := exec.LookPath("go")
+// generateWAFProject lays down one real project with WAF enabled and returns its directory. |
+// generateWAFProject 生成一个启用 WAF 的真实项目并返回其目录。
+func generateWAFProject(t *testing.T, name string) (goBin, projDir string) {
+	t.Helper()
+	found, err := exec.LookPath("go")
 	if err != nil {
 		t.Skipf("未找到 go 工具链，跳过: %v", err)
 	}
@@ -6272,15 +6271,22 @@ func TestGeneratedWAFSettingsAndRulesTests(t *testing.T) {
 	if err != nil {
 		t.Fatalf("创建临时目录失败: %v", err)
 	}
-	defer func() { _ = os.RemoveAll(dir) }()
+	t.Cleanup(func() { _ = os.RemoveAll(dir) })
 
-	o := scaffold.DefaultOptions("yd-waf-unit")
+	o := scaffold.DefaultOptions(name)
 	o.DB = scaffold.DBSQLite
 	o.LocalReplace = filepath.ToSlash(repoRoot(t))
 	if _, err := scaffold.Generate(context.Background(), o, afs.NewOS(dir), nil); err != nil {
 		t.Fatalf("生成失败: %v", err)
 	}
-	projDir := filepath.Join(dir, o.Name)
+	return found, filepath.Join(dir, o.Name)
+}
+
+// runGeneratedWAFTests runs the generated package's own tests against the real engine. |
+// runGeneratedWAFTests 用真实引擎运行生成包自身的测试。
+func runGeneratedWAFTests(t *testing.T, name string) {
+	t.Helper()
+	goBin, projDir := generateWAFProject(t, name)
 	output, err := runGo(goBin, projDir, true, "test", "-mod=mod", "./internal/waf")
 	if err != nil {
 		t.Logf("GOPROXY=off 测试失败，回退到环境代理重试:\n%s", output)
@@ -6289,4 +6295,22 @@ func TestGeneratedWAFSettingsAndRulesTests(t *testing.T) {
 	if err != nil {
 		t.Fatalf("生成的 WAF 包测试失败: %v\n%s", err, output)
 	}
+}
+
+// TestGeneratedWAFSettingsAndRulesTests covers the generated settings and rule profile. |
+// TestGeneratedWAFSettingsAndRulesTests 覆盖生成包的设置与规则画像。
+func TestGeneratedWAFSettingsAndRulesTests(t *testing.T) {
+	if testing.Short() {
+		t.Skip("短模式跳过生成项目测试 | skipped in short mode")
+	}
+	runGeneratedWAFTests(t, "yd-waf-unit")
+}
+
+// TestGeneratedWAFManagerTests covers the generated manager, hot reload and shutdown. |
+// TestGeneratedWAFManagerTests 覆盖生成包的管理器、热重载与关停。
+func TestGeneratedWAFManagerTests(t *testing.T) {
+	if testing.Short() {
+		t.Skip("短模式跳过生成项目测试 | skipped in short mode")
+	}
+	runGeneratedWAFTests(t, "yd-waf-manager")
 }

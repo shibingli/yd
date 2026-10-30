@@ -1,0 +1,180 @@
+package waf
+
+import (
+	"context"
+	"io"
+	"net/http"
+	"net/http/httptest"
+	"net/url"
+	"strings"
+	"testing"
+
+	"{{ .YdxModule }}/log"
+	"{{ .YdxModule }}/router"
+)
+
+// testLogger discards engine logs during tests. | testLogger 在测试中丢弃引擎日志。
+func testLogger() *log.Logger { return log.New(log.Options{Writer: io.Discard}) }
+
+// newTestManager builds a manager without the watcher and closes it at the end of the test. |
+// newTestManager 构建不启动监视器的管理器，并在测试结束时关闭。
+func newTestManager(t *testing.T, body string) *Manager {
+	t.Helper()
+	m, err := newManager(testConfig(t, body), testLogger(), false)
+	if err != nil {
+		t.Fatalf("newManager: %v", err)
+	}
+	t.Cleanup(func() { _ = m.Shutdown(context.Background()) })
+	return m
+}
+
+// serve sends one request through a fresh router carrying the WAF middleware. | serve 通过携带
+// WAF 中间件的新路由器发送一个请求。
+func serve(t *testing.T, m *Manager, method, target, contentType, body string) int {
+	t.Helper()
+	r := router.New()
+	r.Use(m.Middleware())
+	r.GET("/login", func(c *router.Ctx) { _ = c.String(http.StatusOK, "ok") })
+	r.GET("/static/*filepath", func(c *router.Ctx) { _ = c.String(http.StatusOK, "ok") })
+	r.POST("/send", func(c *router.Ctx) { _ = c.String(http.StatusOK, "ok") })
+	r.POST("/api/send", func(c *router.Ctx) { _ = c.String(http.StatusOK, "ok") })
+	r.PUT("/api/send", func(c *router.Ctx) { _ = c.String(http.StatusOK, "ok") })
+	r.PATCH("/api/send", func(c *router.Ctx) { _ = c.String(http.StatusOK, "ok") })
+	r.DELETE("/api/send", func(c *router.Ctx) { _ = c.String(http.StatusOK, "ok") })
+
+	req := httptest.NewRequest(method, target, strings.NewReader(body))
+	if contentType != "" {
+		req.Header.Set("Content-Type", contentType)
+	}
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, req)
+	return rec.Code
+}
+
+// TestMiddlewareBlocksSQLi proves a public query-string attack is blocked. | TestMiddlewareBlocksSQLi
+// 证明公网查询串攻击会被拦截。
+func TestMiddlewareBlocksSQLi(t *testing.T) {
+	m := newTestManager(t, "")
+	target := "/login?x=" + url.QueryEscape("1' OR '1'='1")
+	if got := serve(t, m, http.MethodGet, target, "", ""); got != http.StatusForbidden {
+		t.Fatalf("SQLi status = %d, want 403", got)
+	}
+}
+
+// TestMarkdownAndJSONExclusions proves rich-text payloads pass while a plain title stays
+// protected. | TestMarkdownAndJSONExclusions 证明富文本载荷放行，普通标题仍然受保护。
+func TestMarkdownAndJSONExclusions(t *testing.T) {
+	m := newTestManager(t, "")
+	form := url.Values{"body_markdown": {"<script>alert(1)</script>"}}.Encode()
+	if got := serve(t, m, http.MethodPost, "/send", "application/x-www-form-urlencoded", form); got != http.StatusOK {
+		t.Errorf("form Markdown status = %d, want 200", got)
+	}
+	for _, payload := range []string{
+		`{"body_markdown":"<script>alert(1)</script>"}`,
+		`{"design":{"script":"<script>alert(1)</script>"}}`,
+	} {
+		if got := serve(t, m, http.MethodPost, "/api/send", "application/json", payload); got != http.StatusOK {
+			t.Errorf("%s status = %d, want 200", payload, got)
+		}
+	}
+	if got := serve(t, m, http.MethodPost, "/api/send", "application/json", `{"title":"<script>alert(1)</script>"}`); got != http.StatusForbidden {
+		t.Errorf("JSON title XSS status = %d, want 403", got)
+	}
+}
+
+// TestMethodWhitelistAllowsAPIMethods keeps the generated JSON API usable. |
+// TestMethodWhitelistAllowsAPIMethods 保持生成项目 JSON API 可用。
+func TestMethodWhitelistAllowsAPIMethods(t *testing.T) {
+	m := newTestManager(t, "")
+	for _, method := range []string{http.MethodPut, http.MethodPatch, http.MethodDelete} {
+		if got := serve(t, m, method, "/api/send", "application/json", `{"title":"hello"}`); got != http.StatusOK {
+			t.Errorf("%s status = %d, want 200", method, got)
+		}
+	}
+}
+
+// TestExcludePathsBypass proves static assets never enter the engine. | TestExcludePathsBypass
+// 证明静态资源不进入引擎。
+func TestExcludePathsBypass(t *testing.T) {
+	m := newTestManager(t, "")
+	target := "/static/app.js?x=" + url.QueryEscape("1' OR '1'='1")
+	if got := serve(t, m, http.MethodGet, target, "", ""); got != http.StatusOK {
+		t.Fatalf("static status = %d, want 200", got)
+	}
+}
+
+// TestApplyTogglesEngine proves the configuration switch works without rebuilding the process. |
+// TestApplyTogglesEngine 证明配置开关无需重建进程即可生效。
+func TestApplyTogglesEngine(t *testing.T) {
+	m := newTestManager(t, "waf:\n  enabled: false\n")
+	attack := "/login?x=" + url.QueryEscape("1' OR '1'='1")
+	if got := serve(t, m, http.MethodGet, attack, "", ""); got != http.StatusOK {
+		t.Fatalf("disabled status = %d, want 200", got)
+	}
+
+	m.cfg.Set("waf.enabled", true)
+	m.Apply()
+	if got := serve(t, m, http.MethodGet, attack, "", ""); got != http.StatusForbidden {
+		t.Fatalf("enabled status = %d, want 403", got)
+	}
+
+	m.cfg.Set("waf.enabled", false)
+	m.Apply()
+	if got := serve(t, m, http.MethodGet, attack, "", ""); got != http.StatusOK {
+		t.Fatalf("re-disabled status = %d, want 200", got)
+	}
+}
+
+// TestApplyKeepsOldEngineOnBadConfig proves a bad reload never drops protection. |
+// TestApplyKeepsOldEngineOnBadConfig 证明错误重载不会丢失防护。
+func TestApplyKeepsOldEngineOnBadConfig(t *testing.T) {
+	m := newTestManager(t, "")
+	attack := "/login?x=" + url.QueryEscape("1' OR '1'='1")
+	m.cfg.Set("waf.mode", "bogus")
+	m.Apply()
+	if got := serve(t, m, http.MethodGet, attack, "", ""); got != http.StatusForbidden {
+		t.Fatalf("status after bad reload = %d, want 403", got)
+	}
+}
+
+// TestShutdownBypasses proves a closed manager stops inspecting. | TestShutdownBypasses 证明关闭后的
+// 管理器不再检测。
+func TestShutdownBypasses(t *testing.T) {
+	m, err := newManager(testConfig(t, ""), testLogger(), false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := m.Shutdown(context.Background()); err != nil {
+		t.Fatalf("Shutdown: %v", err)
+	}
+	attack := "/login?x=" + url.QueryEscape("1' OR '1'='1")
+	if got := serve(t, m, http.MethodGet, attack, "", ""); got != http.StatusOK {
+		t.Fatalf("status after shutdown = %d, want 200", got)
+	}
+}
+
+// TestClientIPUsesTrustedProxies proves the router's trust model is reused. |
+// TestClientIPUsesTrustedProxies 证明复用了路由器的可信代理模型。
+func TestClientIPUsesTrustedProxies(t *testing.T) {
+	s, err := settingsFrom(testConfig(t, "waf:\n  trusted_proxies: [\"10.0.0.0/8\"]\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req.RemoteAddr = "10.0.0.1:1234"
+	req.Header.Set("X-Forwarded-For", "203.0.113.9")
+	if got := clientIPFunc(s.trustedProxies)(req); got != "203.0.113.9" {
+		t.Fatalf("client IP = %q, want 203.0.113.9", got)
+	}
+}
+
+// TestNewRejectsNilAndInvalidConfig pins the startup failures. | TestNewRejectsNilAndInvalidConfig
+// 钉住启动期失败。
+func TestNewRejectsNilAndInvalidConfig(t *testing.T) {
+	if _, err := newManager(nil, testLogger(), false); err == nil {
+		t.Error("nil config must fail")
+	}
+	if _, err := newManager(testConfig(t, "waf:\n  mode: bogus\n"), testLogger(), false); err == nil {
+		t.Error("invalid mode must fail")
+	}
+}

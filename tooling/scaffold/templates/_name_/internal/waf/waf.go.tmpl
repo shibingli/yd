@@ -1,0 +1,214 @@
+package waf
+
+import (
+	"context"
+	"net/http"
+	"net/netip"
+	"path"
+	"strings"
+	"sync"
+	"sync/atomic"
+	"time"
+
+	"github.com/corazawaf/coraza-coreruleset"
+
+	"{{ .YdxModule }}/config"
+	"{{ .YdxModule }}/errs"
+	"{{ .YdxModule }}/log"
+	ydxwaf "{{ .YdxModule }}/middleware/waf"
+	"{{ .YdxModule }}/router"
+)
+
+// ErrEngine reports a WAF engine that could not be built. | ErrEngine 表示 WAF 引擎构建失败。
+var ErrEngine = errs.New("waf: engine unavailable | waf：引擎不可用")
+
+// Manager owns the hot-swappable engine. A nil current engine means the middleware passes every
+// request through. | Manager 持有可热切换的引擎。current 为 nil 表示中间件直接放行所有请求。
+type Manager struct {
+	// current is the active engine; nil means bypass. | current 是当前引擎；nil 表示旁路。
+	current atomic.Pointer[entry]
+	// cfg is the layered configuration watched for runtime toggles. | cfg 是用于运行时切换的分层配置。
+	cfg *config.Config
+	// logger receives block, reload and shutdown diagnostics. | logger 接收拦截、重载与关停诊断。
+	logger *log.Logger
+	// last is the signature of the applied settings. | last 是已应用设置的签名。
+	last string
+	// mu serialises Apply and Shutdown. | mu 串行化 Apply 与 Shutdown。
+	mu sync.Mutex
+	// closed stops late watch callbacks after shutdown. | closed 在关停后阻止迟到的监视回调。
+	closed atomic.Bool
+}
+
+// entry is one installed engine and its prebuilt middleware closure. | entry 是一个已安装引擎及其
+// 预构建中间件闭包。
+type entry struct {
+	// engine is the ydx WAF instance. | engine 是 ydx WAF 实例。
+	engine *ydxwaf.WAF
+	// mw is engine.Middleware captured once. | mw 是只捕获一次的 engine.Middleware。
+	mw router.Middleware
+}
+
+// New builds a manager and starts the configuration watcher, so waf.enabled and waf.mode can be
+// changed without a restart. | New 构建管理器并启动配置监视，使 waf.enabled 与 waf.mode 无需重启即可
+// 切换。
+func New(cfg *config.Config, logger *log.Logger) (*Manager, error) {
+	return newManager(cfg, logger, true)
+}
+
+// newManager is New with the watcher injectable for tests. | newManager 是 New 的可注入监视器版本，
+// 供测试使用。
+func newManager(cfg *config.Config, logger *log.Logger, watch bool) (*Manager, error) {
+	if cfg == nil {
+		return nil, errs.Detail(ErrConfig, "nil configuration | 配置为 nil")
+	}
+	if logger == nil {
+		logger = log.Default()
+	}
+	s, err := settingsFrom(cfg)
+	if err != nil {
+		return nil, err
+	}
+	m := &Manager{cfg: cfg, logger: logger, last: s.signature()}
+	if s.enabled {
+		engine, err := buildEngine(s, logger)
+		if err != nil {
+			return nil, err
+		}
+		m.current.Store(&entry{engine: engine, mw: engine.Middleware()})
+	}
+	if watch {
+		cfg.Watch(func(*config.Config) { m.Apply() })
+		if err := cfg.WatchErr(); err != nil {
+			logger.Warn("waf config watch unavailable; runtime toggling needs a restart | WAF 配置监视不可用；运行时切换需要重启", log.Err(err))
+		}
+	}
+	return m, nil
+}
+
+// Middleware returns the global middleware. A nil engine passes the request through with one
+// atomic load. | Middleware 返回全局中间件。引擎为 nil 时只做一次原子读取并放行。
+func (m *Manager) Middleware() router.Middleware {
+	return func(c *router.Ctx) {
+		e := m.current.Load()
+		if e == nil {
+			c.Next()
+			return
+		}
+		e.mw(c)
+	}
+}
+
+// Apply re-reads the configuration and switches the engine without a restart. A rejected or
+// failed reload keeps the current engine and only logs. | Apply 重新读取配置并在不重启的情况下切换
+// 引擎。配置被拒绝或重载失败时保留当前引擎，只记录日志。
+func (m *Manager) Apply() {
+	if m == nil || m.closed.Load() {
+		return
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	s, err := settingsFrom(m.cfg)
+	if err != nil {
+		m.logger.Error("waf configuration rejected; keeping the current engine | WAF 配置被拒绝；保留当前引擎", log.Err(err))
+		return
+	}
+	signature := s.signature()
+	if signature == m.last {
+		return
+	}
+	switch {
+	case !s.enabled:
+		if old := m.current.Swap(nil); old != nil {
+			go m.retire(old.engine)
+		}
+	case m.current.Load() == nil:
+		engine, err := buildEngine(s, m.logger)
+		if err != nil {
+			m.logger.Error("waf enable failed; staying bypassed | WAF 启用失败；保持旁路", log.Err(err))
+			return
+		}
+		m.current.Store(&entry{engine: engine, mw: engine.Middleware()})
+	default:
+		current := m.current.Load()
+		if err := current.engine.ReloadWith(optionsFor(s, m.logger)); err != nil {
+			m.logger.Error("waf reload failed; keeping the current engine | WAF 重载失败；保留当前引擎", log.Err(err))
+			return
+		}
+	}
+	m.last = signature
+}
+
+// Shutdown stops the middleware and drains in-flight transactions. | Shutdown 停止中间件并排空在途
+// 事务。
+func (m *Manager) Shutdown(ctx context.Context) error {
+	if m == nil {
+		return nil
+	}
+	m.closed.Store(true)
+	m.mu.Lock()
+	e := m.current.Swap(nil)
+	m.mu.Unlock()
+	if e == nil {
+		return nil
+	}
+	return e.engine.Shutdown(ctx)
+}
+
+// buildEngine compiles the settings into a ydx WAF instance. | buildEngine 把设置编译为 ydx WAF 实例。
+func buildEngine(s settings, logger *log.Logger) (*ydxwaf.WAF, error) {
+	engine, err := ydxwaf.New(optionsFor(s, logger))
+	if err != nil {
+		return nil, errs.Wrap(err, ErrEngine)
+	}
+	return engine, nil
+}
+
+// optionsFor maps the settings onto the ydx WAF options. | optionsFor 把设置映射为 ydx WAF 选项。
+func optionsFor(s settings, logger *log.Logger) ydxwaf.Options {
+	ruleFiles := make([]string, 0, len(baseRuleFiles)+len(s.extraRuleFiles))
+	ruleFiles = append(ruleFiles, baseRuleFiles...)
+	ruleFiles = append(ruleFiles, s.extraRuleFiles...)
+	return ydxwaf.Options{
+		RootFS:                   tuneFS{crs: coreruleset.FS, tune: []byte(tuneDirectives(s))},
+		RuleFiles:                ruleFiles,
+		Directives:               inlineDirectives(s),
+		Mode:                     s.mode,
+		RequestBodyLimit:         s.requestBodyLimit,
+		RequestBodyInMemoryLimit: s.requestBodyInMemoryLimit,
+		Exclude:                  excludeFunc(s.excludePaths),
+		ClientIP:                 clientIPFunc(s.trustedProxies),
+		Logger:                   logger,
+	}
+}
+
+// excludeFunc bypasses the engine for exact prefixes; the boundary check keeps /attachments-other
+// from matching /attachments. | excludeFunc 按精确前缀旁路引擎；边界检查避免
+// /attachments-other 命中 /attachments。
+func excludeFunc(paths []string) func(*http.Request) bool {
+	return func(r *http.Request) bool {
+		target := path.Clean("/" + r.URL.Path)
+		for _, prefix := range paths {
+			if target == prefix || strings.HasPrefix(target, prefix+"/") {
+				return true
+			}
+		}
+		return false
+	}
+}
+
+// clientIPFunc reuses the router's trusted-proxy model. | clientIPFunc 复用路由器的可信代理模型。
+func clientIPFunc(trusted []netip.Prefix) func(*http.Request) string {
+	return func(r *http.Request) string {
+		return (&router.Ctx{Request: r}).ClientIP(trusted)
+	}
+}
+
+// retire drains a detached engine with a bounded wait. | retire 在有界等待内排空已摘除的引擎。
+func (m *Manager) retire(engine *ydxwaf.WAF) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := engine.Shutdown(ctx); err != nil {
+		m.logger.Warn("waf retired engine shutdown failed | WAF 退休引擎关停失败", log.Err(err))
+	}
+}
