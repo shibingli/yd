@@ -107,6 +107,11 @@ func (m *Manager) Apply() {
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	// Re-check under the lock: Shutdown may have set closed while Apply was waiting for mu. |
+	// 在锁内复查：Shutdown 可能在 Apply 等待 mu 时已置 closed。
+	if m.closed.Load() {
+		return
+	}
 
 	s, err := settingsFrom(m.cfg)
 	if err != nil {

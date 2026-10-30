@@ -6338,14 +6338,14 @@ func TestGeneratedProjectWiresWAFInOrder(t *testing.T) {
 		"ErrWAF",
 	} {
 		if !strings.Contains(main, want) {
-			t.Errorf("main.go 缺少 %q:\n%s", want, main)
+			t.Errorf("main.go is missing | main.go 缺少 %[1]q:\n%[2]s", want, main)
 		}
 	}
 	if strings.Index(main, `MetricsDescriptor("security")`) > strings.Index(main, `MetricsDescriptor("waf")`) {
-		t.Error("WAF 必须在 security 之后注册")
+		t.Error("WAF must be registered after security | WAF 必须在 security 之后注册")
 	}
 	if strings.Index(main, `MetricsDescriptor("waf")`) > strings.Index(main, "registerI18n(application, log)") {
-		t.Error("WAF 必须在 i18n 之前注册")
+		t.Error("WAF must be registered before i18n | WAF 必须在 i18n 之前注册")
 	}
 }
 
@@ -6361,7 +6361,7 @@ func TestGeneratedWAFConfigDefaults(t *testing.T) {
 		"/healthz", "/static", "body_markdown", "json.design",
 	} {
 		if !strings.Contains(cfg, want) {
-			t.Errorf("config 缺少 %q:\n%s", want, cfg)
+			t.Errorf("config is missing | config 缺少 %[1]q:\n%[2]s", want, cfg)
 		}
 	}
 }
@@ -6372,11 +6372,11 @@ func TestGeneratedMiddlewareMetricsIncludesWAF(t *testing.T) {
 	pr, _ := generateMem(t, scaffold.DefaultOptions("waf-metrics"))
 	obs := pr.read("internal/middleware/observability.go")
 	if !strings.Contains(obs, `"waf"`) {
-		t.Error("observability 缺少 waf 描述符")
+		t.Error("observability is missing the waf descriptor | observability 缺少 waf 描述符")
 	}
 	for _, path := range []string{"web/i18n/zh-CN.yaml", "web/i18n/en.yaml"} {
 		if !strings.Contains(pr.read(path), "waf:") {
-			t.Errorf("%s 缺少 metrics.middleware.name.waf", path)
+			t.Errorf("%[1]s is missing metrics.middleware.name.waf | %[1]s 缺少 metrics.middleware.name.waf", path)
 		}
 	}
 }
@@ -6386,11 +6386,11 @@ func TestGeneratedMiddlewareMetricsIncludesWAF(t *testing.T) {
 func TestGeneratedDocsIncludeWAF(t *testing.T) {
 	pr, _ := generateMem(t, scaffold.DefaultOptions("waf-docs"))
 	if !strings.Contains(pr.read("docs/waf.md"), "waf.enabled") {
-		t.Error("docs/waf.md 未随项目发布")
+		t.Error("docs/waf.md is not published with the project | docs/waf.md 未随项目发布")
 	}
 	for _, path := range []string{"README.md", "CLAUDE.md", "AGENTS.md"} {
 		if !strings.Contains(pr.read(path), "## WAF") {
-			t.Errorf("%s 缺少 WAF 段", path)
+			t.Errorf("%[1]s is missing the WAF section | %[1]s 缺少 WAF 段", path)
 		}
 	}
 }
@@ -6401,7 +6401,7 @@ func TestGeneratedCLAUDEKeepsSingleWatchSlot(t *testing.T) {
 	pr, _ := generateMem(t, scaffold.DefaultOptions("waf-watch"))
 	for _, path := range []string{"CLAUDE.md", "AGENTS.md"} {
 		if !strings.Contains(pr.read(path), "cfg.Watch") {
-			t.Errorf("%s 未记录单槽限制", path)
+			t.Errorf("%[1]s does not document the single watch slot | %[1]s 未记录单槽限制", path)
 		}
 	}
 }
@@ -6435,14 +6435,14 @@ func TestGeneratedWAFProfileMatchesDesign(t *testing.T) {
 		"attack-injection-generic",
 	} {
 		if !strings.Contains(rules, want) {
-			t.Errorf("rules.go 缺少 %q", want)
+			t.Errorf("rules.go is missing | rules.go 缺少 %[1]q", want)
 		}
 	}
 	for _, unwanted := range []string{
 		"REQUEST-933-", "REQUEST-944-", "RESPONSE-950-", "RESPONSE-959-",
 	} {
 		if strings.Contains(rules, unwanted) {
-			t.Errorf("rules.go 不应加载 %q", unwanted)
+			t.Errorf("rules.go must not load | rules.go 不应加载 %[1]q", unwanted)
 		}
 	}
 }
@@ -6459,8 +6459,43 @@ func TestGeneratedWAFConfigKeys(t *testing.T) {
 		"trusted_proxies:",
 	} {
 		if !strings.Contains(cfg, want) {
-			t.Errorf("config.yaml 缺少 %q", want)
+			t.Errorf("config.yaml is missing | config.yaml 缺少 %[1]q", want)
 		}
+	}
+}
+
+// TestGeneratedWithoutWAFCompiles proves the opt-out project still builds after the conditional
+// imports, config section and go.mod pins disappear. | TestGeneratedWithoutWAFCompiles 证明移除
+// 条件 import、配置段与 go.mod 锁定后，关闭 WAF 的项目仍可编译。
+func TestGeneratedWithoutWAFCompiles(t *testing.T) {
+	if testing.Short() {
+		t.Skip("短模式跳过生成项目编译 | skipped in short mode")
+	}
+	goBin, err := exec.LookPath("go")
+	if err != nil {
+		t.Skipf("未找到 go 工具链，跳过: %v", err)
+	}
+	dir, err := os.MkdirTemp("", "yd-waf-off-*")
+	if err != nil {
+		t.Fatalf("创建临时目录失败: %v", err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(dir) })
+
+	o := scaffold.DefaultOptions("yd-waf-off")
+	o.DB = scaffold.DBSQLite
+	o.WAF = false
+	o.LocalReplace = filepath.ToSlash(repoRoot(t))
+	if _, err := scaffold.Generate(context.Background(), o, afs.NewOS(dir), nil); err != nil {
+		t.Fatalf("生成失败: %v", err)
+	}
+	projDir := filepath.Join(dir, o.Name)
+	output, err := runGo(goBin, projDir, true, "build", "-mod=mod", "./...")
+	if err != nil {
+		t.Logf("GOPROXY=off 编译失败，回退到环境代理重试:\n%s", output)
+		output, err = runGo(goBin, projDir, false, "build", "-mod=mod", "./...")
+	}
+	if err != nil {
+		t.Fatalf("关闭 WAF 的生成项目无法编译: %v\n%s", err, output)
 	}
 }
 
@@ -6473,7 +6508,7 @@ func TestGeneratedProjectWithoutWAFHasNoCoraza(t *testing.T) {
 	gomod := pr.read("go.mod")
 	for _, unwanted := range []string{"ydx/middleware/waf", "corazawaf", "coraza-coreruleset"} {
 		if strings.Contains(gomod, unwanted) {
-			t.Errorf("go.mod 不应包含 %q:\n%s", unwanted, gomod)
+			t.Errorf("go.mod must not contain | go.mod 不应包含 %[1]q:\n%[2]s", unwanted, gomod)
 		}
 	}
 	for _, generated := range res.Files {
@@ -6485,7 +6520,7 @@ func TestGeneratedProjectWithoutWAFHasNoCoraza(t *testing.T) {
 			t.Fatalf("读取生成文件 %s 失败: %v", generated, err)
 		}
 		if strings.Contains(string(src), "ydx/middleware/waf") || strings.Contains(string(src), "coraza-coreruleset") {
-			t.Errorf("%s 不应引用 Coraza", generated)
+			t.Errorf("%[1]s must not reference Coraza | %[1]s 不应引用 Coraza", generated)
 		}
 	}
 }
@@ -6512,7 +6547,7 @@ func waitForProbeStatus(t *testing.T, client *http.Client, target string, want i
 			return
 		}
 		if time.Now().After(deadline) {
-			t.Fatalf("%s 未在 %s 内变成 %d", target, timeout, want)
+			t.Fatalf("%[1]s did not become %[2]d within %[3]s | %[1]s 未在 %[3]s 内变成 %[2]d", target, want, timeout)
 		}
 		time.Sleep(100 * time.Millisecond)
 	}
@@ -6528,7 +6563,7 @@ func waitForProbeNotStatus(t *testing.T, client *http.Client, target string, unw
 			return
 		}
 		if time.Now().After(deadline) {
-			t.Fatalf("%s 在 %s 内仍是 %d", target, timeout, unwanted)
+			t.Fatalf("%[1]s is still %[2]d after %[3]s | %[1]s 在 %[3]s 内仍是 %[2]d", target, unwanted, timeout)
 		}
 		time.Sleep(100 * time.Millisecond)
 	}
@@ -6547,7 +6582,7 @@ func TestGeneratedWAFHotToggleWithoutRestart(t *testing.T) {
 	attack := base + "/login?x=" + url.QueryEscape("1' OR '1'='1")
 
 	if got := probeStatus(t, client, attack); got == http.StatusForbidden {
-		t.Fatalf("启动时关闭不应拦截: %d", got)
+		t.Fatalf("WAF disabled at boot must not block: %[1]d | 启动时关闭不应拦截: %[1]d", got)
 	}
 	writeProbeConfig(t, projDir, "waf:\n  enabled: true\n")
 	waitForProbeStatus(t, client, attack, http.StatusForbidden, 10*time.Second)
