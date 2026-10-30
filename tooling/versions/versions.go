@@ -68,6 +68,12 @@ type Inventory struct {
 	YdxVersions map[string]string
 	// YdxModules are the ydx module paths required by the framework, sorted by path. | YdxModules 是框架要求的 ydx 模块路径，按路径排序。
 	YdxModules []string
+	// WafModuleVersion is the ydx WAF module version pinned by the nested WAF dependency module.
+	// | WafModuleVersion 是嵌套 WAF 依赖模块锁定的 ydx WAF 模块版本。
+	WafModuleVersion string
+	// CRSRulesetVersion is the OWASP CRS version pinned by the nested WAF dependency module. |
+	// CRSRulesetVersion 是嵌套 WAF 依赖模块锁定的 OWASP CRS 版本。
+	CRSRulesetVersion string
 	// Modules are the direct requirements, sorted by path. | Modules 是直接依赖，按路径排序。
 	Modules []Module
 	// Assets is the locked asset list, sorted by name. | Assets 是锁定的资产列表，按名字排序。
@@ -140,6 +146,60 @@ func HasScaffold(fsys afero.Fs, dir string) bool {
 	return err == nil && info.IsDir()
 }
 
+// WafDepsDir is the nested module holding the optional WAF dependencies. Keeping them in a
+// separate module stops Coraza and its transitive requirements (including goccy) from entering
+// the framework's root go.mod. | WafDepsDir 是承载可选 WAF 依赖的嵌套模块。把它们放在独立模块中，
+// 可阻止 Coraza 及其传递依赖（含 goccy）进入框架根 go.mod。
+const WafDepsDir = "tooling/versions/waf"
+
+// wafDepsGoModPath is the nested module file relative to the project directory. | wafDepsGoModPath
+// 是嵌套模块文件相对项目目录的路径。
+const wafDepsGoModPath = WafDepsDir + "/go.mod"
+
+// wafModulePath is the ydx WAF module path pinned by the nested module. | wafModulePath 是嵌套模块
+// 锁定的 ydx WAF 模块路径。
+const wafModulePath = "github.com/shibingli/ydx/middleware/waf"
+
+// wafCRSModulePath is the OWASP CRS module path pinned by the nested module. | wafCRSModulePath 是
+// 嵌套模块锁定的 OWASP CRS 模块路径。
+const wafCRSModulePath = "github.com/corazawaf/coraza-coreruleset"
+
+// HasWafDeps reports whether dir contains the nested WAF dependency module. | HasWafDeps 报告 dir
+// 是否包含嵌套 WAF 依赖模块。
+func HasWafDeps(fsys afero.Fs, dir string) bool {
+	info, err := fsys.Stat(filepath.Join(dir, filepath.FromSlash(wafDepsGoModPath)))
+	return err == nil && !info.IsDir()
+}
+
+// loadWAFVersions reads the two pins from the nested WAF dependency module. | loadWAFVersions 从
+// 嵌套 WAF 依赖模块读取两个版本。
+func loadWAFVersions(fsys afero.Fs, dir string) (waf, crs string, err error) {
+	path := filepath.Join(dir, filepath.FromSlash(wafDepsGoModPath))
+	data, err := afero.ReadFile(fsys, path)
+	if err != nil {
+		return "", "", errs.WrapDetail(err, ErrGoMod, "path %[1]q | 路径 %[1]q", path)
+	}
+	_, _, _, modules, err := parseGoMod(string(data))
+	if err != nil {
+		return "", "", errs.WrapDetail(err, ErrGoModInvalid, "path %[1]q | 路径 %[1]q", path)
+	}
+	for _, m := range modules {
+		switch m.Path {
+		case wafModulePath:
+			waf = m.Version
+		case wafCRSModulePath:
+			crs = m.Version
+		}
+	}
+	if waf == "" {
+		return "", "", errs.Detail(ErrGoModInvalid, "path %[1]q: missing %[2]s | 路径 %[1]q：缺少 %[2]s", path, wafModulePath)
+	}
+	if crs == "" {
+		return "", "", errs.Detail(ErrGoModInvalid, "path %[1]q: missing %[2]s | 路径 %[1]q：缺少 %[2]s", path, wafCRSModulePath)
+	}
+	return waf, crs, nil
+}
+
 // Load reads go.mod and the asset lock from fsys, whose root is the project directory. | Load 从 fsys 读取 go.mod 与资产锁文件，fsys 的根是项目目录。
 //
 // The asset path follows assets.DefaultManifestPath, so the same call works for the framework
@@ -174,14 +234,23 @@ func Load(fsys afero.Fs, dir string) (*Inventory, error) {
 		return nil, errs.Detail(ErrNoHtmxAsset, "htmx version %[1]q is not a version token | htmx 版本 %[1]q 不是合法版本记号", htmx.Version)
 	}
 	ydxVersions, ydxModules := ydxInventory(allModules)
+	var wafVersion, crsVersion string
+	if HasScaffold(fsys, dir) {
+		wafVersion, crsVersion, err = loadWAFVersions(fsys, dir)
+		if err != nil {
+			return nil, err
+		}
+	}
 	return &Inventory{
-		ModulePath:  modulePath,
-		GoDirective: goDirective,
-		Modules:     modules,
-		Assets:      m.Assets,
-		HtmxVersion: htmx.Version,
-		YdxVersions: ydxVersions,
-		YdxModules:  ydxModules,
+		ModulePath:        modulePath,
+		GoDirective:       goDirective,
+		Modules:           modules,
+		Assets:            m.Assets,
+		HtmxVersion:       htmx.Version,
+		YdxVersions:       ydxVersions,
+		YdxModules:        ydxModules,
+		WafModuleVersion:  wafVersion,
+		CRSRulesetVersion: crsVersion,
 	}, nil
 }
 
@@ -309,6 +378,16 @@ func Generate(inv *Inventory) []byte {
 	b.WriteString("// HtmxVersion is the version of the htmx asset in web/assets.lock.json. | HtmxVersion 是 web/assets.lock.json 中 htmx 资产的版本。\n")
 	b.WriteString("//\n// Source: the asset manifest entry named \"htmx\". | 来源：资产清单中名为 \"htmx\" 的条目。\n")
 	b.WriteString("const HtmxVersion = " + strconv.Quote(inv.HtmxVersion) + "\n")
+	if inv.WafModuleVersion != "" {
+		b.WriteString("\n// WafModuleVersion is the ydx WAF module version pinned by the nested WAF dependency module. | WafModuleVersion 是嵌套 WAF 依赖模块锁定的 ydx WAF 模块版本。\n")
+		b.WriteString("//\n// Source: tooling/versions/waf/go.mod. | 来源：tooling/versions/waf/go.mod。\n")
+		b.WriteString("const WafModuleVersion = " + strconv.Quote(inv.WafModuleVersion) + "\n")
+	}
+	if inv.CRSRulesetVersion != "" {
+		b.WriteString("\n// CRSRulesetVersion is the OWASP CRS version pinned by the nested WAF dependency module. | CRSRulesetVersion 是嵌套 WAF 依赖模块锁定的 OWASP CRS 版本。\n")
+		b.WriteString("//\n// Source: tooling/versions/waf/go.mod. | 来源：tooling/versions/waf/go.mod。\n")
+		b.WriteString("const CRSRulesetVersion = " + strconv.Quote(inv.CRSRulesetVersion) + "\n")
+	}
 	if len(inv.YdxVersions) > 0 {
 		b.WriteString("\n// YdxVersions maps each ydx module pinned for generated projects to its own tag version. | YdxVersions 把生成项目锁定的每个 ydx 模块映射到它自己的标签版本。\n")
 		b.WriteString("//\n// Source: the ydx requirements in go.mod, including scaffold-only modules kept there by tools.go. | 来源：go.mod 中的 ydx 依赖；仅脚手架使用的模块由 tools.go 保留在其中。\n")

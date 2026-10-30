@@ -12,6 +12,16 @@ const GoVersion = "1.27.3"
 // Source: the asset manifest entry named "htmx". | 来源：资产清单中名为 "htmx" 的条目。
 const HtmxVersion = "4.0.0"
 
+// WafModuleVersion is the ydx WAF module version pinned by the nested WAF dependency module. | WafModuleVersion 是嵌套 WAF 依赖模块锁定的 ydx WAF 模块版本。
+//
+// Source: tooling/versions/waf/go.mod. | 来源：tooling/versions/waf/go.mod。
+const WafModuleVersion = "v0.1.0"
+
+// CRSRulesetVersion is the OWASP CRS version pinned by the nested WAF dependency module. | CRSRulesetVersion 是嵌套 WAF 依赖模块锁定的 OWASP CRS 版本。
+//
+// Source: tooling/versions/waf/go.mod. | 来源：tooling/versions/waf/go.mod。
+const CRSRulesetVersion = "v0.0.0-20240226094324-415b1017abdc"
+
 // YdxVersions maps each ydx module pinned for generated projects to its own tag version. | YdxVersions 把生成项目锁定的每个 ydx 模块映射到它自己的标签版本。
 //
 // Source: the ydx requirements in go.mod, including scaffold-only modules kept there by tools.go. | 来源：go.mod 中的 ydx 依赖；仅脚手架使用的模块由 tools.go 保留在其中。

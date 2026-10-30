@@ -56,6 +56,17 @@ const testManifest = `{
   ]
 }`
 
+// testWAFGoMod is the nested WAF dependency module fixture. | testWAFGoMod 是嵌套 WAF 依赖模块夹具。
+const testWAFGoMod = `module github.com/shibingli/yd/tooling/versions/waf
+
+go 1.27.3
+
+require (
+	github.com/corazawaf/coraza-coreruleset v0.0.0-20240226094324-415b1017abdc
+	github.com/shibingli/ydx/middleware/waf v0.1.0
+)
+`
+
 // newFixture builds a memory file system with go.mod and the asset lock. | newFixture 构建含 go.mod 与资产锁的内存文件系统。
 func newFixture(t *testing.T) afero.Fs {
 	t.Helper()
@@ -235,6 +246,8 @@ func TestLoadAllPlaceholdersHasNoYdxVersion(t *testing.T) {
 // TestGenerateSyncCheckRoundTrip pins the generated content and the drift detection. | TestGenerateSyncCheckRoundTrip 钉住生成内容与漂移检测。
 func TestGenerateSyncCheckRoundTrip(t *testing.T) {
 	fsys := newFixture(t)
+	writeFile(t, fsys, "tooling/scaffold/.keep", "")
+	writeFile(t, fsys, "tooling/versions/waf/go.mod", testWAFGoMod)
 	if err := Check(fsys, "."); !errors.Is(err, ErrGeneratedDrift) {
 		t.Fatalf("Check before Sync = %v, want ErrGeneratedDrift", err)
 	}
@@ -468,6 +481,57 @@ func TestCompareSemver(t *testing.T) {
 		}
 		if got := compareSemver(a, b); got != c.want {
 			t.Errorf("compareSemver(%q,%q) = %d, want %d", c.a, c.b, got, c.want)
+		}
+	}
+}
+
+// TestLoadReadsNestedWAFVersions proves the WAF-only dependencies come from the nested module,
+// keeping Coraza out of the framework's root go.mod. | TestLoadReadsNestedWAFVersions 证明 WAF
+// 专用依赖来自嵌套模块，从而让 Coraza 不进入框架根 go.mod。
+func TestLoadReadsNestedWAFVersions(t *testing.T) {
+	fsys := newFixture(t)
+	writeFile(t, fsys, "tooling/scaffold/.keep", "")
+	writeFile(t, fsys, "tooling/versions/waf/go.mod", testWAFGoMod)
+	inv, err := Load(fsys, ".")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if inv.WafModuleVersion != "v0.1.0" {
+		t.Errorf("WafModuleVersion = %q, want v0.1.0", inv.WafModuleVersion)
+	}
+	if inv.CRSRulesetVersion != "v0.0.0-20240226094324-415b1017abdc" {
+		t.Errorf("CRSRulesetVersion = %q, want the pinned pseudo-version", inv.CRSRulesetVersion)
+	}
+}
+
+// TestLoadSkipsWAFVersionsWithoutScaffold proves a generated project never needs the nested module. |
+// TestLoadSkipsWAFVersionsWithoutScaffold 证明生成项目不需要嵌套模块。
+func TestLoadSkipsWAFVersionsWithoutScaffold(t *testing.T) {
+	fsys := newFixture(t)
+	inv, err := Load(fsys, ".")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if inv.WafModuleVersion != "" || inv.CRSRulesetVersion != "" {
+		t.Errorf("无脚手架时不应读取嵌套模块: %+v", inv)
+	}
+}
+
+// TestGenerateWritesWAFVersions proves the generated scaffold constants carry both pins. |
+// TestGenerateWritesWAFVersions 证明脚手架生成常量携带两个版本。
+func TestGenerateWritesWAFVersions(t *testing.T) {
+	got := string(Generate(&Inventory{
+		GoDirective:       "1.27.3",
+		HtmxVersion:       "4.0.0",
+		WafModuleVersion:  "v0.1.0",
+		CRSRulesetVersion: "v0.0.0-20240226094324-415b1017abdc",
+	}))
+	for _, want := range []string{
+		`const WafModuleVersion = "v0.1.0"`,
+		`const CRSRulesetVersion = "v0.0.0-20240226094324-415b1017abdc"`,
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("生成文件缺少 %q:\n%s", want, got)
 		}
 	}
 }

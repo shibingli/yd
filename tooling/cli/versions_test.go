@@ -22,6 +22,17 @@ go 1.27.3
 require github.com/shibingli/yd v1.2.3
 `
 
+// versionsWAFGoMod is the nested WAF dependency module fixture. | versionsWAFGoMod 是嵌套 WAF 依赖模块夹具。
+const versionsWAFGoMod = `module github.com/shibingli/yd/tooling/versions/waf
+
+go 1.27.3
+
+require (
+	github.com/corazawaf/coraza-coreruleset v0.0.0-20240226094324-415b1017abdc
+	github.com/shibingli/ydx/middleware/waf v0.1.0
+)
+`
+
 // versionsManifest is the asset lock fixture with one upgradable and one current asset. | versionsManifest 是含一个可升级与一个已最新资产的资产锁夹具。
 const versionsManifest = `{
   "version": 1,
@@ -40,6 +51,7 @@ func versionsFS(t *testing.T) afero.Fs {
 	if err := fsys.MkdirAll("tooling/scaffold", 0o755); err != nil {
 		t.Fatalf("MkdirAll: %v", err)
 	}
+	writeVersionsFile(t, fsys, "tooling/versions/waf/go.mod", versionsWAFGoMod)
 	return fsys
 }
 
