@@ -165,8 +165,8 @@ captcha:
 
 # Web 应用防火墙：默认启用，规则围绕 Go 服务端、HTML、SQL 与 JavaScript。
 # Web application firewall: enabled by default; the rule profile targets Go services, HTML, SQL and JavaScript.
-# enabled / mode 的修改经 config.Watch 热生效，无需重启；-waf=false 生成的项目没有本节与 internal/waf。
-# Changes to enabled / mode are hot-reloaded through config.Watch; projects generated with -waf=false have neither
+# enabled / mode 的修改经 config.Watch 热生效，无需重启；--waf=false 生成的项目没有本节与 internal/waf。
+# Changes to enabled / mode are hot-reloaded through config.Watch; projects generated with --waf=false have neither
 # this section nor internal/waf.
 waf:
   enabled: true                 # 运行时总开关；false 直接旁路 | runtime master switch; false bypasses the engine
@@ -175,7 +175,7 @@ waf:
   anomaly_threshold: 5          # 异常分达到即拦截 | block once the inbound anomaly score reaches this value
   inspect_json: true            # 解析 application/json 正文进入 ARGS | parse JSON bodies into ARGS
   request_body_limit: 8388608           # 8 MiB
-  request_body_in_memory_limit: 131072  # 128 KiB
+  request_body_in_memory_limit: 131072  # 128 KiB；超出写临时文件，scratch/ko 镜像必须提供 /tmp | above this spills to a temp file; scratch/ko images need /tmp
   # 完全旁路的路径：健康检查、静态资源、OpenAPI 查看器、SSE/WebSocket 与附件上传下载。
   # Paths that bypass the engine: health probes, static assets, the OpenAPI viewer, SSE/WebSocket and attachment I/O.
   exclude_paths:
@@ -488,7 +488,7 @@ ko:
   repository: ""        # image repository handed to ko as KO_DOCKER_REPO; required only when ko.local=false (the default below builds locally) | 镜像仓库，作为 KO_DOCKER_REPO 传给 ko；仅在 ko.local=false 时需要（下方默认本地构建）
   tags: []              # image tags such as [latest, v1.0.0]; empty keeps ko's default latest | 镜像标签，如 [latest, v1.0.0]；留空沿用 ko 缺省的 latest
   platforms: []         # target platforms such as [linux/amd64, linux/arm64]; empty takes every platform the base image supports | 目标平台，如 [linux/amd64, linux/arm64]；留空取基础镜像支持的全部平台
-  base_image: ""        # base image override (KO_DEFAULTBASEIMAGE); on an intranet point it at a locally cached image | 覆盖基础镜像（KO_DEFAULTBASEIMAGE）；内网填本地缓存的基础镜像地址
+  base_image: ""        # base image override (KO_DEFAULTBASEIMAGE); on an intranet point it at a locally cached image; the WAF body buffer needs a writable /tmp | 覆盖基础镜像（KO_DEFAULTBASEIMAGE）；内网填本地缓存的基础镜像地址；WAF 正文缓冲需要可写 /tmp
   packages: []          # Go packages to build such as [./cmd/app]; empty uses the project entry point | 要打包的 Go 包，如 [./cmd/app]；留空用项目入口
   ldflags: ["-s -w"]    # linker flags, repeated as --ldflags; the default strips symbols and DWARF; an empty list keeps them | 链接参数，逐个以 --ldflags 传入；默认去掉符号表与 DWARF；空列表则保留
   local: true           # a fresh project has no registry, so `yd ko` loads into the local docker daemon by default; pass --local=false (or ko.local=false) together with --repo for registry delivery | 新项目没有仓库，`yd ko` 默认载入本地 docker 守护进程；面向仓库交付时传 --local=false（或 ko.local=false）并配 --repo

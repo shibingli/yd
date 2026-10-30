@@ -68,6 +68,36 @@ func TestSettingsExplicitDisable(t *testing.T) {
 	}
 }
 
+// TestSettingsBooleanStrings accepts the common YAML/env boolean spellings instead of silently
+// casting them to false. | TestSettingsBooleanStrings 接受常见的 YAML/环境变量布尔拼写，而不是
+// 静默转成 false。
+func TestSettingsBooleanStrings(t *testing.T) {
+	s, err := settingsFrom(testConfig(t, "waf:\n  enabled: yes\n  inspect_json: no\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !s.enabled {
+		t.Error("yes must enable WAF | yes 必须启用 WAF")
+	}
+	if s.inspectJSON {
+		t.Error("no must disable JSON inspection | no 必须关闭 JSON 检测")
+	}
+}
+
+// TestSettingsRejectsNonBoolean fails closed on a value that is neither a bool nor a known
+// boolean spelling. | TestSettingsRejectsNonBoolean 对既非布尔值也非已知拼写的取值失败关闭。
+func TestSettingsRejectsNonBoolean(t *testing.T) {
+	for _, body := range []string{
+		"waf:\n  enabled: maybe\n",
+		"waf:\n  enabled: 1\n",
+		"waf:\n  inspect_json: maybe\n",
+	} {
+		if _, err := settingsFrom(testConfig(t, body)); !errors.Is(err, ErrConfig) {
+			t.Errorf("%q: err = %v, want ErrConfig", body, err)
+		}
+	}
+}
+
 // TestSettingsRejectsInvalidValues proves validation runs even while disabled. |
 // TestSettingsRejectsInvalidValues 证明关闭时仍然校验。
 func TestSettingsRejectsInvalidValues(t *testing.T) {

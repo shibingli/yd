@@ -6464,6 +6464,21 @@ func TestGeneratedWAFConfigKeys(t *testing.T) {
 	}
 }
 
+// TestGeneratedDockerfileCreatesTmp proves the scratch image can spill large WAF request bodies to
+// a temp file. | TestGeneratedDockerfileCreatesTmp 证明 scratch 镜像能为大 WAF 请求正文提供临时文件。
+func TestGeneratedDockerfileCreatesTmp(t *testing.T) {
+	pr, _ := generateMem(t, scaffold.DefaultOptions("waf-tmp"))
+	dockerfile := pr.read("Dockerfile")
+	for _, want := range []string{
+		"/out/tmp",
+		"COPY --from=builder /out/tmp /tmp",
+	} {
+		if !strings.Contains(dockerfile, want) {
+			t.Errorf("Dockerfile is missing | Dockerfile 缺少 %[1]q:\n%[2]s", want, dockerfile)
+		}
+	}
+}
+
 // TestGeneratedWithoutWAFCompiles proves the opt-out project still builds after the conditional
 // imports, config section and go.mod pins disappear. | TestGeneratedWithoutWAFCompiles 证明移除
 // 条件 import、配置段与 go.mod 锁定后，关闭 WAF 的项目仍可编译。

@@ -22,6 +22,10 @@ import (
 // ErrEngine reports a WAF engine that could not be built. | ErrEngine 表示 WAF 引擎构建失败。
 var ErrEngine = errs.New("waf: engine unavailable | waf：引擎不可用")
 
+// watchErrorInterval bounds how often a persistent config-watch error is sampled. | watchErrorInterval
+// 限制持续配置监视错误的采样频率。
+const watchErrorInterval = 30 * time.Second
+
 // Manager owns the hot-swappable engine. A nil current engine means the middleware passes every
 // request through. | Manager 持有可热切换的引擎。current 为 nil 表示中间件直接放行所有请求。
 type Manager struct {
@@ -33,6 +37,10 @@ type Manager struct {
 	logger *log.Logger
 	// last is the signature of the applied settings. | last 是已应用设置的签名。
 	last string
+	// lastWatchErr is the last config-watch error already logged. | lastWatchErr 是上次已记录的配置监视错误。
+	lastWatchErr string
+	// stopWatch stops the error sampler on shutdown. | stopWatch 在关停时停止错误采样器。
+	stopWatch chan struct{}
 	// mu serialises Apply and Shutdown. | mu 串行化 Apply 与 Shutdown。
 	mu sync.Mutex
 	// closed stops late watch callbacks after shutdown. | closed 在关停后阻止迟到的监视回调。
@@ -79,10 +87,43 @@ func newManager(cfg *config.Config, logger *log.Logger, watch bool) (*Manager, e
 	if watch {
 		cfg.Watch(func(*config.Config) { m.Apply() })
 		if err := cfg.WatchErr(); err != nil {
+			m.lastWatchErr = err.Error()
 			logger.Warn("waf config watch unavailable; runtime toggling needs a restart | WAF 配置监视不可用；运行时切换需要重启", log.Err(err))
 		}
+		m.stopWatch = make(chan struct{})
+		go m.watchLoop()
 	}
 	return m, nil
+}
+
+// watchLoop samples the config watcher's error so a file that fails to reload is not silent. |
+// watchLoop 采样配置监视错误，避免重载失败被静默吞掉。
+func (m *Manager) watchLoop() {
+	ticker := time.NewTicker(watchErrorInterval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-m.stopWatch:
+			return
+		case <-ticker.C:
+			m.logWatchError(m.cfg.WatchErr(), &m.lastWatchErr)
+		}
+	}
+}
+
+// logWatchError records an error once and resets the dedup state on recovery. | logWatchError 只记录一次
+// 错误，并在恢复时重置去重状态。
+func (m *Manager) logWatchError(err error, last *string) {
+	if err == nil {
+		*last = ""
+		return
+	}
+	message := err.Error()
+	if message == *last {
+		return
+	}
+	*last = message
+	m.logger.Error("waf config reload failed; keeping the current engine | WAF 配置重载失败；保留当前引擎", log.Err(err))
 }
 
 // Middleware returns the global middleware. A nil engine passes the request through with one
@@ -150,7 +191,12 @@ func (m *Manager) Shutdown(ctx context.Context) error {
 	if m == nil {
 		return nil
 	}
-	m.closed.Store(true)
+	if m.closed.Swap(true) {
+		return nil
+	}
+	if m.stopWatch != nil {
+		close(m.stopWatch)
+	}
 	m.mu.Lock()
 	e := m.current.Swap(nil)
 	m.mu.Unlock()

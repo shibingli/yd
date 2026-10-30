@@ -1,7 +1,9 @@
 package waf
 
 import (
+	"bytes"
 	"context"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -79,6 +81,17 @@ func TestMarkdownAndJSONExclusions(t *testing.T) {
 	}
 	if got := serve(t, m, http.MethodPost, "/api/send", "application/json", `{"title":"<script>alert(1)</script>"}`); got != http.StatusForbidden {
 		t.Errorf("JSON title XSS status = %d, want 403", got)
+	}
+}
+
+// TestLargeBodyIsAccepted proves a body above the in-memory limit spills to a temp file and is
+// still served. The scratch image must provide /tmp for this path. | TestLargeBodyIsAccepted 证明
+// 超过内存上限的正文会落到临时文件并仍被正常服务；scratch 镜像必须提供 /tmp。
+func TestLargeBodyIsAccepted(t *testing.T) {
+	m := newTestManager(t, "")
+	body := `{"body_markdown":"` + strings.Repeat("a", 256<<10) + `"}`
+	if got := serve(t, m, http.MethodPost, "/api/send", "application/json", body); got != http.StatusOK {
+		t.Fatalf("large body status = %d, want 200", got)
 	}
 }
 
@@ -165,6 +178,36 @@ func TestClientIPUsesTrustedProxies(t *testing.T) {
 	req.Header.Set("X-Forwarded-For", "203.0.113.9")
 	if got := clientIPFunc(s.trustedProxies)(req); got != "203.0.113.9" {
 		t.Fatalf("client IP = %q, want 203.0.113.9", got)
+	}
+}
+
+// TestWatchErrorLogsOnce keeps a repeated watch failure from flooding the log. |
+// TestWatchErrorLogsOnce 避免重复的监视失败刷屏。
+func TestWatchErrorLogsOnce(t *testing.T) {
+	var buf bytes.Buffer
+	m := &Manager{logger: log.New(log.Options{Writer: &buf})}
+	last := ""
+	m.logWatchError(errors.New("boom"), &last)
+	m.logWatchError(errors.New("boom"), &last)
+	if got := strings.Count(buf.String(), "boom"); got != 1 {
+		t.Fatalf("watch error logged %d times, want 1:\n%s", got, buf.String())
+	}
+}
+
+// TestShutdownStopsWatchLoop proves the error sampler exits on shutdown. |
+// TestShutdownStopsWatchLoop 证明错误采样器在关停时退出。
+func TestShutdownStopsWatchLoop(t *testing.T) {
+	m, err := newManager(testConfig(t, ""), testLogger(), true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := m.Shutdown(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-m.stopWatch:
+	default:
+		t.Fatal("watch loop was not stopped")
 	}
 }
 

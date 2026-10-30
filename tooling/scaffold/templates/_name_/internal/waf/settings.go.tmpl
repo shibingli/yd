@@ -105,13 +105,21 @@ func settingsFrom(cfg *config.Config) (settings, error) {
 	if cfg == nil {
 		return settings{}, errs.Detail(ErrConfig, "nil configuration | 配置为 nil")
 	}
+	enabled, err := boolSetting(cfg, "waf.enabled", true)
+	if err != nil {
+		return settings{}, err
+	}
+	inspectJSON, err := boolSetting(cfg, "waf.inspect_json", true)
+	if err != nil {
+		return settings{}, err
+	}
 	s := settings{
-		enabled:                  cfg.Get("waf.enabled") == nil || cfg.GetBool("waf.enabled"),
+		enabled:                  enabled,
 		paranoiaLevel:            cfg.GetInt("waf.paranoia_level"),
 		anomalyThreshold:         cfg.GetInt("waf.anomaly_threshold"),
 		requestBodyLimit:         cfg.GetInt("waf.request_body_limit"),
 		requestBodyInMemoryLimit: cfg.GetInt("waf.request_body_in_memory_limit"),
-		inspectJSON:              cfg.Get("waf.inspect_json") == nil || cfg.GetBool("waf.inspect_json"),
+		inspectJSON:              inspectJSON,
 	}
 
 	switch strings.ToLower(strings.TrimSpace(cfg.GetString("waf.mode"))) {
@@ -150,7 +158,6 @@ func settingsFrom(cfg *config.Config) (settings, error) {
 		return settings{}, errs.Detail(ErrConfig, "waf.request_body_in_memory_limit must be 1..request_body_limit | waf.request_body_in_memory_limit 必须在 1..request_body_limit")
 	}
 
-	var err error
 	if s.excludePaths, err = pathList(cfg, "waf.exclude_paths", defaultExcludePaths); err != nil {
 		return settings{}, err
 	}
@@ -165,6 +172,29 @@ func settingsFrom(cfg *config.Config) (settings, error) {
 		return settings{}, err
 	}
 	return s, nil
+}
+
+// boolSetting reads a boolean key strictly: an absent key uses fallback; a bool or a known spelling
+// (true/false/1/0/yes/no/on/off, case-insensitive) is accepted; anything else is ErrConfig. |
+// boolSetting 严格读取布尔键：缺键使用 fallback；bool 或已知拼写（true/false/1/0/yes/no/on/off，
+// 忽略大小写）被接受；其它取值返回 ErrConfig。
+func boolSetting(cfg *config.Config, key string, fallback bool) (bool, error) {
+	raw := cfg.Get(key)
+	if raw == nil {
+		return fallback, nil
+	}
+	switch value := raw.(type) {
+	case bool:
+		return value, nil
+	case string:
+		switch strings.ToLower(strings.TrimSpace(value)) {
+		case "true", "1", "yes", "on":
+			return true, nil
+		case "false", "0", "no", "off":
+			return false, nil
+		}
+	}
+	return false, errs.Detail(ErrConfig, "%[1]s must be a boolean | %[1]s 必须是布尔值", key)
 }
 
 // signature renders the settings into a comparable token so an unrelated configuration change
