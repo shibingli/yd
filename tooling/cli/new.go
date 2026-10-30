@@ -36,6 +36,8 @@ const (
 	flagNewGRPC = "grpc"
 	// flagNewCaptcha enables sign-in and password-change verification by default. | flagNewCaptcha 默认开启登录与改密验证码。
 	flagNewCaptcha = "captcha"
+	// flagNewWAF ships the WAF package and enables it by default. | flagNewWAF 随项目生成 WAF 并默认启用。
+	flagNewWAF = "waf"
 	// flagNewI18n enables internationalisation. | flagNewI18n 开启国际化。
 	flagNewI18n = "i18n"
 	// flagNewHtmxExt selects the optional Htmx extensions. | flagNewHtmxExt 选择额外的 Htmx 扩展。
@@ -88,6 +90,12 @@ func init() {
 			"验证码接线始终随项目生成；--captcha 只把生成配置里的 captcha.login 与 captcha.password_change\n" +
 			"设为开启，之后可修改 configs/config.yaml（或 YD_CAPTCHA_LOGIN / YD_CAPTCHA_PASSWORD_CHANGE）随时开关。\n" +
 			"\n" +
+			"WAF ships with the project and is enabled by default; --waf=false omits the package, the configuration\n" +
+			"section and the Coraza dependency entirely. Toggle it later in configs/config.yaml (waf.enabled) without\n" +
+			"restarting the process.\n" +
+			"WAF 随项目生成并默认开启；--waf=false 完全省略 WAF 包、配置段与 Coraza 依赖。之后可在\n" +
+			"configs/config.yaml 的 waf.enabled 中热启停，无需重启进程。\n" +
+			"\n" +
 			"Without --yes an interactive terminal is asked for every option that was not passed as a flag;\n" +
 			"a pipe or CI run keeps every default, so the command stays scriptable.\n" +
 			"未传 --yes 时，交互终端会被逐项询问未被标志指定的选项；管道或 CI 环境一律取默认值，因此命令可脚本化。",
@@ -103,6 +111,7 @@ func registerNewFlags(fs *pflag.FlagSet) {
 	fs.String(flagNewDB, "", "database driver: mysql/postgres/sqlite/dm/none | 数据库驱动：mysql/postgres/sqlite/dm/none")
 	fs.Bool(flagNewGRPC, false, "enable the gRPC dual channel | 开启 gRPC 双通道")
 	fs.Bool(flagNewCaptcha, false, "enable captcha on sign-in and password changes | 开启登录与修改密码的验证码")
+	fs.Bool(flagNewWAF, true, "ship the WAF and enable it by default; --waf=false omits it entirely | 随项目生成 WAF 并默认启用；--waf=false 完全省略")
 	fs.Bool(flagNewI18n, true, "i18n is on by default; pass --i18n=false to disable it | 默认开启 i18n；用 --i18n=false 关闭")
 	fs.StringArray(flagNewHtmxExt, nil, "extra opt-in Htmx policy layers (csp, compat, htmx-2-compat); every safe extension is included by default | 额外的 Htmx 策略层（csp、compat、htmx-2-compat）；全部安全扩展默认包含")
 	fs.String(flagNewLicense, "", "licence identifier, defaults to Apache-2.0 | 开源协议标识，默认为 Apache-2.0")
@@ -263,6 +272,9 @@ func applyNewFlags(o *scaffold.Options, env *Env, fs *pflag.FlagSet) {
 	if flagChanged(fs, flagNewCaptcha) {
 		o.Captcha = flagBool(fs, flagNewCaptcha)
 	}
+	if flagChanged(fs, flagNewWAF) {
+		o.WAF = flagBool(fs, flagNewWAF)
+	}
 	if flagChanged(fs, flagNewI18n) {
 		o.I18n = flagBool(fs, flagNewI18n)
 	}
@@ -330,6 +342,14 @@ func interviewNew(env *Env, fs *pflag.FlagSet, o *scaffold.Options) error {
 		o.Captcha = answer
 	}
 
+	if !flagChanged(fs, flagNewWAF) {
+		answer, err := Confirm(env, "启用 WAF（默认开启）| Enable WAF (on by default)", o.WAF)
+		if err != nil {
+			return err
+		}
+		o.WAF = answer
+	}
+
 	// Htmx extensions are part of the baseline; only an explicit flag can add the policy layers.
 	// Htmx 扩展属于基线；只有显式标志才能追加策略层。
 
@@ -376,6 +396,9 @@ func featuresOf(o scaffold.Options) []string {
 	}
 	if o.Captcha {
 		features = append(features, "captcha")
+	}
+	if o.WAF {
+		features = append(features, "waf")
 	}
 	if o.I18n {
 		features = append(features, "i18n")

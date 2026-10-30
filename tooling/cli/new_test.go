@@ -203,16 +203,17 @@ func TestNewCommandRemovedFeatureFlagsAreRejected(t *testing.T) {
 // TestNewCommandTTYInterviewUsesAnswers TTY 下逐项询问并把回答写入生成物。
 // TestNewCommandTTYInterviewUsesAnswers asks one question per option on a TTY and writes the answers into the project.
 func TestNewCommandTTYInterviewUsesAnswers(t *testing.T) {
-	// 询问顺序：项目名、模块路径、数据库、grpc、验证码、协议；i18n、Htmx 扩展、Redis、Asynq、Htmx、
-	// Tailwind 与 Alpine 是内建能力，不再提问。
-	// Question order: project name, module, database, grpc, captcha, licence; i18n, Htmx extensions, Redis,
-	// Asynq, Htmx, Tailwind and Alpine are built in and never asked.
+	// 询问顺序：项目名、模块路径、数据库、grpc、验证码、WAF、协议；i18n、Htmx 扩展、Redis、Asynq、
+	// Htmx、Tailwind 与 Alpine 是内建能力，不再提问。
+	// Question order: project name, module, database, grpc, captcha, WAF, licence; i18n, Htmx extensions,
+	// Redis, Asynq, Htmx, Tailwind and Alpine are built in and never asked.
 	answers := strings.Join([]string{
 		"shop",
 		"",
 		"2", // 2) postgres
 		"n", // grpc
 		"y", // captcha
+		"y", // waf
 		"",
 	}, "\n") + "\n"
 	te := newTestEnv(t, nil, "", true)
@@ -240,6 +241,7 @@ func TestNewCommandTTYInterviewUsesAnswers(t *testing.T) {
 		`"tailwind": true`,
 		`"grpc": false`,
 		`"captcha": true`,
+		`"waf": true`,
 		`"i18n": true`,
 		`"sse"`,
 		`"ws"`,
@@ -252,7 +254,7 @@ func TestNewCommandTTYInterviewUsesAnswers(t *testing.T) {
 		}
 	}
 
-	for _, want := range []string{"项目名 | Project name", "数据库驱动 | Database driver", "启用验证码"} {
+	for _, want := range []string{"项目名 | Project name", "数据库驱动 | Database driver", "启用验证码", "启用 WAF"} {
 		if !strings.Contains(te.out.String(), want) {
 			t.Errorf("提示语缺少 %q:\n%s", want, te.out.String())
 		}
@@ -363,5 +365,34 @@ func TestNewCommandCaptchaFlag(t *testing.T) {
 	plainCfg := readMemFile(t, plain.env.FS, "plain/configs/config.yaml")
 	if !strings.Contains(plainCfg, "login: false") || !strings.Contains(plainCfg, "password_change: false") {
 		t.Errorf("默认生成不应开启验证码:\n%s", plainCfg)
+	}
+}
+
+// TestNewCommandWAFDefaultOn asserts WAF ships with every project by default. |
+// TestNewCommandWAFDefaultOn 断言 WAF 默认随每个项目生成。
+func TestNewCommandWAFDefaultOn(t *testing.T) {
+	te := newTestEnv(t, nil, "", false)
+	if err := Execute(context.Background(), []string{newCommandName, "secure", "-y"}, te.env); err != nil {
+		t.Fatalf("yd new 失败: %v\n%s", err, te.errs.String())
+	}
+	meta := readMemFile(t, te.env.FS, "secure/.yd.json")
+	if !strings.Contains(meta, `"waf": true`) {
+		t.Errorf(".yd.json 未标记 waf 开启:\n%s", meta)
+	}
+	if !strings.Contains(te.out.String(), "waf") {
+		t.Errorf("报告缺少 waf:\n%s", te.out.String())
+	}
+}
+
+// TestNewCommandWAFFlagOff asserts --waf=false records the opt-out in the manifest. |
+// TestNewCommandWAFFlagOff 断言 --waf=false 在清单中记录关闭。
+func TestNewCommandWAFFlagOff(t *testing.T) {
+	te := newTestEnv(t, nil, "", false)
+	if err := Execute(context.Background(), []string{newCommandName, "secure", "-y", "--waf=false"}, te.env); err != nil {
+		t.Fatalf("yd new 失败: %v\n%s", err, te.errs.String())
+	}
+	meta := readMemFile(t, te.env.FS, "secure/.yd.json")
+	if !strings.Contains(meta, `"waf": false`) {
+		t.Errorf(".yd.json 未标记 waf 关闭:\n%s", meta)
 	}
 }

@@ -44,6 +44,9 @@ type projectFeatures struct {
 	GRPC bool `json:"grpc"`
 	// Captcha tells whether sign-in and password changes require verification by default. | Captcha 表示登录与改密是否默认要求验证码。
 	Captcha bool `json:"captcha"`
+	// WAF tells whether the WAF package, rules and dependencies ship with the project. | WAF 表示项目是否
+	// 随包携带 WAF 包、规则与依赖。
+	WAF bool `json:"waf"`
 	// Auth 表示多租户 + 用户 / 角色 / 权限的登录鉴权链路已接入。
 	// Auth tells whether the multi-tenant sign-in chain — users, roles and capabilities — is wired in.
 	//
@@ -119,6 +122,7 @@ func generatedDocs(o Options, v view, m *assets.Manifest) ([]plannedFile, error)
 			Cron:     true,
 			GRPC:     o.GRPC,
 			Captcha:  o.Captcha,
+			WAF:      o.WAF,
 			I18n:     o.I18n,
 			Tailwind: o.Tailwind,
 			Auth:     true,

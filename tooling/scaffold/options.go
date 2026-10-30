@@ -36,6 +36,11 @@ type Options struct {
 	// project generated without it can still be enabled later by editing configs/config.yaml. | 接线始终随项目生成；
 	// 本开关只写入两个运行时配置值，因此生成时未开启的项目之后仍可通过 configs/config.yaml 打开。
 	Captcha bool
+	// WAF ships the WAF middleware, its rules and its dependencies with the project and enables it by default.
+	// Passing --waf=false omits the package, the configuration section and the Coraza dependency entirely.
+	// | WAF 表示随项目生成 WAF 中间件、规则与依赖并默认启用。传 --waf=false 会完全省略包、配置段与
+	// Coraza 依赖。
+	WAF bool
 	// I18n enables internationalisation. | I18n 表示是否开启国际化。
 	I18n bool
 	// Tailwind enables the Tailwind v4 styling pipeline. | Tailwind 表示是否接入 Tailwind v4 样式管道。
@@ -47,23 +52,24 @@ type Options struct {
 // DefaultOptions returns the default options for the project called name. | DefaultOptions 返回以 name 为项目名的默认选项。
 //
 // Defaults: Module = github.com/yun-dev/<name>, DB = sqlite, Tailwind = true, I18n = true,
-// License = Apache-2.0 and HtmxExts = every safe extension from DefaultExtensions; every other
-// feature switch stays off. Captcha is off by default: the code is always wired, but sign-in and
+// WAF = true, License = Apache-2.0 and HtmxExts = every safe extension from DefaultExtensions;
+// every other feature switch stays off. Captcha is off by default: the code is always wired, but sign-in and
 // password changes only require a token after captcha.login / captcha.password_change are enabled.
 // Redis and asynq are not switches: every generated project ships their configuration and wiring.
 // Htmx, Tailwind CSS and Alpine.js themselves are not switches either: Htmx is the core, Tailwind is
 // on by default, and EffectiveExtensions always adds the Alpine compatibility extension.
 // 默认值：Module = github.com/yun-dev/<name>、DB = sqlite、Tailwind = true、I18n = true、
-// License = Apache-2.0、HtmxExts = DefaultExtensions 返回的全部安全扩展，其余特性开关为 false。
-// Redis 与 asynq 不是开关：每个生成项目都自带它们的配置与接线。
-// Htmx、Tailwind CSS 与 Alpine.js 本身同样不是开关：Htmx 是核心，Tailwind 默认开启，
-// EffectiveExtensions 始终补上 Alpine 兼容扩展。
+// WAF = true、License = Apache-2.0、HtmxExts = DefaultExtensions 返回的全部安全扩展，其余特性开关为
+// false。Redis 与 asynq 不是开关：每个生成项目都自带它们的配置与接线。Htmx、Tailwind CSS 与
+// Alpine.js 本身同样不是开关：Htmx 是核心，Tailwind 默认开启，EffectiveExtensions 始终补上
+// Alpine 兼容扩展。
 func DefaultOptions(name string) Options {
 	return Options{
 		Name:      name,
 		Module:    defaultModule(name),
 		DB:        DBDefault,
 		License:   LicenseApache2,
+		WAF:       true,
 		Tailwind:  true,
 		I18n:      true,
 		HtmxExts:  DefaultExtensions(),

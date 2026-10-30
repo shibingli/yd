@@ -235,6 +235,9 @@ func featuresOf(o Options) []string {
 	if o.Captcha {
 		features = append(features, "captcha")
 	}
+	if o.WAF {
+		features = append(features, "waf")
+	}
 	if o.I18n {
 		features = append(features, "i18n")
 	}

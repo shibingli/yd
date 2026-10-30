@@ -685,6 +685,7 @@ func newInterviewPins() []string {
 		"--db", "none",
 		"--grpc=false",
 		"--captcha=false",
+		"--waf=false",
 		"--i18n=false",
 		"--htmx-ext", "none",
 		"--license", "Apache-2.0",

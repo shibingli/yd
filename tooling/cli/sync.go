@@ -68,6 +68,7 @@ type syncMeta struct {
 		HtmxExts []string `json:"htmxExts"`
 		GRPC     *bool    `json:"grpc"`
 		Captcha  *bool    `json:"captcha"`
+		WAF      *bool    `json:"waf"`
 		I18n     *bool    `json:"i18n"`
 		Tailwind *bool    `json:"tailwind"`
 	} `json:"features"`
@@ -317,6 +318,9 @@ func syncOptions(fs afero.Fs, dir string) (scaffold.Options, error) {
 	if meta.Features.Captcha != nil {
 		opts.Captcha = *meta.Features.Captcha
 	}
+	// DefaultOptions enables WAF; a project whose manifest predates the switch must stay without it. |
+	// DefaultOptions 默认开启 WAF；清单早于该开关的项目必须保持不生成。
+	opts.WAF = meta.Features.WAF != nil && *meta.Features.WAF
 	if meta.Features.I18n != nil {
 		opts.I18n = *meta.Features.I18n
 	}

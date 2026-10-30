@@ -21,6 +21,8 @@ const (
 	promptGRPC = "启用 gRPC 双通道 (y/n) | Enable gRPC dual channel (y/n)"
 	// promptCaptcha asks whether sign-in and password changes require verification. | promptCaptcha 询问登录与改密是否要求验证码。
 	promptCaptcha = "启用验证码（登录与修改密码） (y/n) | Enable captcha (sign-in and password change) (y/n)"
+	// promptWAF asks whether the WAF ships with the project. | promptWAF 询问是否随项目生成 WAF。
+	promptWAF = "启用 WAF（默认开启） (y/n) | Enable WAF (on by default) (y/n)"
 	// promptLicense asks for the licence. | promptLicense 询问开源协议。
 	promptLicense = "开源协议 | License"
 	// noneAnswer clears list answers (for example: no Htmx extension at all). | noneAnswer 表示清空列表类回答（如不启用任何 Htmx 扩展）。
@@ -116,6 +118,16 @@ func Interactive(in io.Reader, out io.Writer, base Options, isTTY bool) (Options
 		return base, errs.WrapDetail(err, ErrAnswerInvalid, "prompt=%[1]s | 提示=%[1]s", promptCaptcha)
 	}
 	base.Captcha = captchaEnabled
+
+	wafAnswer, err := ask(promptWAF, yesNo(base.WAF))
+	if err != nil {
+		return base, err
+	}
+	wafEnabled, err := parseYesNo(wafAnswer)
+	if err != nil {
+		return base, errs.WrapDetail(err, ErrAnswerInvalid, "prompt=%[1]s | 提示=%[1]s", promptWAF)
+	}
+	base.WAF = wafEnabled
 
 	// Extensions are part of the baseline: withDefaults already fills an empty list with every safe
 	// extension, and an explicit subset from the caller is preserved untouched. | 扩展属于基线：
