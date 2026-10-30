@@ -272,6 +272,24 @@ func runVersionsUpgrade(ctx context.Context, env *Env) error {
 			}
 			fmt.Fprintln(env.Out, "go modules upgraded | Go 模块已升级")
 		}
+		if versions.HasScaffold(env.FS, dir) && versions.HasWafDeps(env.FS, dir) {
+			wafDir := filepath.Join(dir, filepath.FromSlash(versions.WafDepsDir))
+			if dry {
+				fmt.Fprintf(env.Out, "would run in %s | 将在 %s 执行: go mod tidy && go get -u -tags=tools ./... && go mod tidy\n",
+					versions.WafDepsDir, versions.WafDepsDir)
+			} else {
+				if err := versionsRunGo(ctx, wafDir, env.Out, "mod", "tidy"); err != nil {
+					return err
+				}
+				if err := versionsRunGo(ctx, wafDir, env.Out, "get", "-u", "-tags=tools", "./..."); err != nil {
+					return err
+				}
+				if err := versionsRunGo(ctx, wafDir, env.Out, "mod", "tidy"); err != nil {
+					return err
+				}
+				fmt.Fprintln(env.Out, "waf modules upgraded | WAF 模块已升级")
+			}
+		}
 	}
 
 	if upgradeAssets {

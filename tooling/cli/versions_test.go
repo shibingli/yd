@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -185,9 +186,13 @@ func TestVersionsUpgradeDryRunDoesNothing(t *testing.T) {
 func TestVersionsUpgradeAppliesBothHalves(t *testing.T) {
 	fsys := versionsFS(t)
 	te := newTestEnv(t, fsys, "", false)
-	var calls [][]string
-	useVersionsGo(t, func(_ context.Context, _ string, _ io.Writer, args ...string) error {
-		calls = append(calls, args)
+	type goCall struct {
+		dir  string
+		args string
+	}
+	var calls []goCall
+	useVersionsGo(t, func(_ context.Context, dir string, _ io.Writer, args ...string) error {
+		calls = append(calls, goCall{dir: filepath.ToSlash(dir), args: strings.Join(args, " ")})
 		return nil
 	})
 	useVersionsHTTP(t, versionsTransport{versions: map[string][]string{"htmx.org": {"4.0.0", "4.1.0"}, "alpinejs": {"3.17.4"}}})
@@ -195,12 +200,16 @@ func TestVersionsUpgradeAppliesBothHalves(t *testing.T) {
 		t.Fatalf("upgrade: %v", err)
 	}
 	wantCalls := []string{"mod tidy", "get -u -tags=tools ./...", "mod tidy"}
-	if len(calls) != len(wantCalls) {
-		t.Fatalf("go calls = %v, want %v", calls, wantCalls)
+	if len(calls) != len(wantCalls)*2 {
+		t.Fatalf("go calls = %v, want root and nested WAF calls", calls)
 	}
 	for i := range wantCalls {
-		if strings.Join(calls[i], " ") != wantCalls[i] {
-			t.Fatalf("go call %d = %v, want %q", i, calls[i], wantCalls[i])
+		if calls[i].args != wantCalls[i] {
+			t.Fatalf("root go call %d = %v, want %q", i, calls[i], wantCalls[i])
+		}
+		wafCall := calls[len(wantCalls)+i]
+		if !strings.HasSuffix(wafCall.dir, versions.WafDepsDir) || wafCall.args != wantCalls[i] {
+			t.Fatalf("nested go call %d = %+v, want %q in %s", i, wafCall, wantCalls[i], versions.WafDepsDir)
 		}
 	}
 	data, err := afero.ReadFile(fsys, "web/assets.lock.json")
@@ -226,7 +235,10 @@ func TestVersionsUpgradeTidiesBeforeGet(t *testing.T) {
 	te := newTestEnv(t, fsys, "", false)
 	tidied := false
 	var calls []string
-	useVersionsGo(t, func(_ context.Context, _ string, _ io.Writer, args ...string) error {
+	useVersionsGo(t, func(_ context.Context, dir string, _ io.Writer, args ...string) error {
+		if strings.HasSuffix(filepath.ToSlash(dir), versions.WafDepsDir) {
+			return nil
+		}
 		call := strings.Join(args, " ")
 		calls = append(calls, call)
 		switch call {
@@ -245,6 +257,28 @@ func TestVersionsUpgradeTidiesBeforeGet(t *testing.T) {
 	want := []string{"mod tidy", "get -u -tags=tools ./...", "mod tidy"}
 	if strings.Join(calls, ",") != strings.Join(want, ",") {
 		t.Fatalf("go calls = %v, want %v", calls, want)
+	}
+}
+
+// TestVersionsUpgradeUpdatesNestedWAFModule proves the heavy WAF module follows the same upgrade
+// cycle without entering the root go.mod. | TestVersionsUpgradeUpdatesNestedWAFModule 证明重型
+// WAF 模块走同一条升级流程，同时不进入根 go.mod。
+func TestVersionsUpgradeUpdatesNestedWAFModule(t *testing.T) {
+	fsys := versionsFS(t)
+	te := newTestEnv(t, fsys, "", false)
+	var calls []string
+	useVersionsGo(t, func(_ context.Context, dir string, _ io.Writer, args ...string) error {
+		if strings.HasSuffix(filepath.ToSlash(dir), versions.WafDepsDir) {
+			calls = append(calls, strings.Join(args, " "))
+		}
+		return nil
+	})
+	if err := Execute(context.Background(), []string{"versions", "upgrade", "--assets=false"}, te.env); err != nil {
+		t.Fatalf("upgrade: %v\n%s", err, te.errs.String())
+	}
+	want := []string{"mod tidy", "get -u -tags=tools ./...", "mod tidy"}
+	if strings.Join(calls, ",") != strings.Join(want, ",") {
+		t.Fatalf("nested go calls = %v, want %v", calls, want)
 	}
 }
 

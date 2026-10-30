@@ -4506,8 +4506,17 @@ func TestGeneratedGoModPinsEveryScaffoldYdxModule(t *testing.T) {
 	pr, res := generateMem(t, o)
 	gomod := pr.read("go.mod")
 
-	for _, modulePath := range scaffold.YdxModules {
-		version := scaffold.YdxVersions[modulePath]
+	modules := append([]string{}, scaffold.YdxModules...)
+	moduleVersions := make(map[string]string, len(scaffold.YdxVersions)+1)
+	for modulePath, version := range scaffold.YdxVersions {
+		moduleVersions[modulePath] = version
+	}
+	if o.WAF {
+		modules = append(modules, scaffold.WAFYdxModule)
+		moduleVersions[scaffold.WAFYdxModule] = scaffold.WafModuleVersion
+	}
+	for _, modulePath := range modules {
+		version := moduleVersions[modulePath]
 		if version == "" {
 			t.Errorf("YdxVersions 缺少模块 %q 的版本；生成项目会退回 ydx 根模块 | YdxVersions is missing %q; the generated project would fall back to the ydx root module", modulePath, modulePath)
 			continue
@@ -4540,7 +4549,7 @@ func TestGeneratedGoModPinsEveryScaffoldYdxModule(t *testing.T) {
 				continue
 			}
 			owner := ""
-			for _, modulePath := range scaffold.YdxModules {
+			for _, modulePath := range modules {
 				if (path == modulePath || strings.HasPrefix(path, modulePath+"/")) && len(modulePath) > len(owner) {
 					owner = modulePath
 				}
@@ -4549,7 +4558,7 @@ func TestGeneratedGoModPinsEveryScaffoldYdxModule(t *testing.T) {
 				t.Errorf("%s 导入了未登记的 ydx 模块路径 %q；请在 go.mod 或 tools.go 中补上 | %s imports unregistered ydx path %q; add it to go.mod or tools.go", generated, path, generated, path)
 				continue
 			}
-			if scaffold.YdxVersions[owner] == "" {
+			if moduleVersions[owner] == "" {
 				t.Errorf("%s 的 ydx 导入 %q 所属模块 %q 没有版本 | ydx import %q in %s belongs to unversioned module %q", generated, path, owner, path, generated, owner)
 			}
 		}
@@ -6393,6 +6402,90 @@ func TestGeneratedCLAUDEKeepsSingleWatchSlot(t *testing.T) {
 	for _, path := range []string{"CLAUDE.md", "AGENTS.md"} {
 		if !strings.Contains(pr.read(path), "cfg.Watch") {
 			t.Errorf("%s 未记录单槽限制", path)
+		}
+	}
+}
+
+// TestGeneratedWAFProfileMatchesDesign pins the Go/HTML/SQL/JavaScript rule selection. |
+// TestGeneratedWAFProfileMatchesDesign 钉住 Go/HTML/SQL/JavaScript 规则选择。
+func TestGeneratedWAFProfileMatchesDesign(t *testing.T) {
+	pr, _ := generateMem(t, scaffold.DefaultOptions("waf-profile"))
+	rules := pr.read("internal/waf/rules.go")
+	for _, want := range []string{
+		"@coraza.conf-recommended",
+		"@crs-setup.conf.example",
+		"@owasp_crs/REQUEST-901-INITIALIZATION.conf",
+		"@owasp_crs/REQUEST-905-COMMON-EXCEPTIONS.conf",
+		"@owasp_crs/REQUEST-911-METHOD-ENFORCEMENT.conf",
+		"@owasp_crs/REQUEST-920-PROTOCOL-ENFORCEMENT.conf",
+		"@owasp_crs/REQUEST-921-PROTOCOL-ATTACK.conf",
+		"@owasp_crs/REQUEST-930-APPLICATION-ATTACK-LFI.conf",
+		"@owasp_crs/REQUEST-931-APPLICATION-ATTACK-RFI.conf",
+		"@owasp_crs/REQUEST-932-APPLICATION-ATTACK-RCE.conf",
+		"@owasp_crs/REQUEST-934-APPLICATION-ATTACK-GENERIC.conf",
+		"@owasp_crs/REQUEST-941-APPLICATION-ATTACK-XSS.conf",
+		"@owasp_crs/REQUEST-942-APPLICATION-ATTACK-SQLI.conf",
+		"@owasp_crs/REQUEST-949-BLOCKING-EVALUATION.conf",
+		"SecRuleRemoveById 934140 934150 934170",
+		"ctl:requestBodyProcessor=JSON",
+		"tx.allowed_methods=GET HEAD POST OPTIONS PUT PATCH DELETE CONNECT",
+		"attack-xss",
+		"attack-sqli",
+		"attack-rce",
+		"attack-injection-generic",
+	} {
+		if !strings.Contains(rules, want) {
+			t.Errorf("rules.go 缺少 %q", want)
+		}
+	}
+	for _, unwanted := range []string{
+		"REQUEST-933-", "REQUEST-944-", "RESPONSE-950-", "RESPONSE-959-",
+	} {
+		if strings.Contains(rules, unwanted) {
+			t.Errorf("rules.go 不应加载 %q", unwanted)
+		}
+	}
+}
+
+// TestGeneratedWAFConfigKeys pins every generated waf.* key. | TestGeneratedWAFConfigKeys 钉住
+// 生成的每个 waf.* 键。
+func TestGeneratedWAFConfigKeys(t *testing.T) {
+	pr, _ := generateMem(t, scaffold.DefaultOptions("waf-keys"))
+	cfg := pr.read("configs/config.yaml")
+	for _, want := range []string{
+		"waf:", "enabled:", "mode:", "paranoia_level:", "anomaly_threshold:",
+		"inspect_json:", "request_body_limit:", "request_body_in_memory_limit:",
+		"exclude_paths:", "exclude_args:", "extra_rule_files:", "directives:",
+		"trusted_proxies:",
+	} {
+		if !strings.Contains(cfg, want) {
+			t.Errorf("config.yaml 缺少 %q", want)
+		}
+	}
+}
+
+// TestGeneratedProjectWithoutWAFHasNoCoraza keeps the opt-out dependency-free. |
+// TestGeneratedProjectWithoutWAFHasNoCoraza 保证关闭时不引入 Coraza。
+func TestGeneratedProjectWithoutWAFHasNoCoraza(t *testing.T) {
+	o := scaffold.DefaultOptions("waf-off-coraza")
+	o.WAF = false
+	pr, res := generateMem(t, o)
+	gomod := pr.read("go.mod")
+	for _, unwanted := range []string{"ydx/middleware/waf", "corazawaf", "coraza-coreruleset"} {
+		if strings.Contains(gomod, unwanted) {
+			t.Errorf("go.mod 不应包含 %q:\n%s", unwanted, gomod)
+		}
+	}
+	for _, generated := range res.Files {
+		if !strings.HasSuffix(generated, ".go") {
+			continue
+		}
+		src, err := afero.ReadFile(pr.fs, generated)
+		if err != nil {
+			t.Fatalf("读取生成文件 %s 失败: %v", generated, err)
+		}
+		if strings.Contains(string(src), "ydx/middleware/waf") || strings.Contains(string(src), "coraza-coreruleset") {
+			t.Errorf("%s 不应引用 Coraza", generated)
 		}
 	}
 }
