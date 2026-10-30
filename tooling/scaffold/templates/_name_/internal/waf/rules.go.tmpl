@@ -1,0 +1,178 @@
+package waf
+
+import (
+	"bytes"
+	"io/fs"
+	"path"
+	"strconv"
+	"strings"
+	"time"
+)
+
+// tuneFileName is the in-memory tuning file served on top of the embedded CRS tree. | tuneFileName
+// 是叠加在嵌入式 CRS 规则树之上的内存 tune 文件。
+const tuneFileName = "yd-tuning.conf"
+
+// baseRuleFiles is the Go/HTML/SQL/JavaScript profile: protocol attacks, LFI/RFI/RCE, generic
+// JavaScript/SSRF, XSS and SQLi, with PHP/Java/IIS and the response-side groups excluded. |
+// baseRuleFiles 是 Go/HTML/SQL/JavaScript 画像：协议攻击、LFI/RFI/RCE、通用 JavaScript/SSRF、
+// XSS 与 SQLi；排除 PHP/Java/IIS 与响应侧规则组。
+var baseRuleFiles = []string{
+	"@coraza.conf-recommended",
+	"@crs-setup.conf.example",
+	tuneFileName,
+	"@owasp_crs/REQUEST-901-INITIALIZATION.conf",
+	"@owasp_crs/REQUEST-905-COMMON-EXCEPTIONS.conf",
+	"@owasp_crs/REQUEST-911-METHOD-ENFORCEMENT.conf",
+	"@owasp_crs/REQUEST-920-PROTOCOL-ENFORCEMENT.conf",
+	"@owasp_crs/REQUEST-921-PROTOCOL-ATTACK.conf",
+	"@owasp_crs/REQUEST-930-APPLICATION-ATTACK-LFI.conf",
+	"@owasp_crs/REQUEST-931-APPLICATION-ATTACK-RFI.conf",
+	"@owasp_crs/REQUEST-932-APPLICATION-ATTACK-RCE.conf",
+	"@owasp_crs/REQUEST-934-APPLICATION-ATTACK-GENERIC.conf",
+	"@owasp_crs/REQUEST-941-APPLICATION-ATTACK-XSS.conf",
+	"@owasp_crs/REQUEST-942-APPLICATION-ATTACK-SQLI.conf",
+	"@owasp_crs/REQUEST-949-BLOCKING-EVALUATION.conf",
+}
+
+// exclusionTags are the CRS attack tags the field exclusions apply to. | exclusionTags 是字段
+// 排除所作用的 CRS 攻击标签。
+var exclusionTags = []string{
+	"attack-xss",
+	"attack-sqli",
+	"attack-rce",
+	"attack-injection-generic",
+	"attack-lfi",
+	"attack-rfi",
+	"attack-ssrf",
+}
+
+// jsonBodyProcessor enables JSON body parsing before the CRS phase-2 rules run. | jsonBodyProcessor
+// 在 CRS phase-2 规则之前开启 JSON 正文解析。
+const jsonBodyProcessor = `SecRule REQUEST_HEADERS:Content-Type "@rx (?i)^application/(?:[a-z0-9.-]+\+)?json" "id:900010,phase:1,pass,nolog,ctl:requestBodyProcessor=JSON"`
+
+// tuneDirectives renders the CRS initialization overrides. It is loaded after the setup file and
+// before REQUEST-901, which only fills these variables when they are still unset. | tuneDirectives
+// 渲染 CRS 初始化覆盖。它位于 setup 文件之后、REQUEST-901 之前；901 只在这些变量仍未设置时写入
+// 默认值。
+func tuneDirectives(s settings) string {
+	var b strings.Builder
+	b.WriteString(`SecAction "id:900001,phase:1,pass,nolog,setvar:tx.blocking_paranoia_level=`)
+	b.WriteString(strconv.Itoa(s.paranoiaLevel))
+	b.WriteString("\"\n")
+	b.WriteString(`SecAction "id:900002,phase:1,pass,nolog,setvar:tx.detection_paranoia_level=`)
+	b.WriteString(strconv.Itoa(s.paranoiaLevel))
+	b.WriteString("\"\n")
+	b.WriteString(`SecAction "id:900003,phase:1,pass,nolog,setvar:tx.inbound_anomaly_score_threshold=`)
+	b.WriteString(strconv.Itoa(s.anomalyThreshold))
+	b.WriteString("\"\n")
+	b.WriteString(`SecAction "id:900004,phase:1,pass,nolog,setvar:tx.allowed_methods=GET HEAD POST OPTIONS PUT PATCH DELETE CONNECT"`)
+	b.WriteString("\n")
+	return b.String()
+}
+
+// inlineDirectives renders the rules loaded after the security baseline. | inlineDirectives 渲染
+// 安全基线之后加载的规则。
+func inlineDirectives(s settings) []string {
+	out := []string{"SecRuleRemoveById 934140 934150 934170"}
+	if s.inspectJSON {
+		out = append(out, jsonBodyProcessor)
+	}
+	for _, tag := range exclusionTags {
+		if line := exclusionDirective(tag, s.excludeArgs); line != "" {
+			out = append(out, line)
+		}
+	}
+	out = append(out, s.directives...)
+	return out
+}
+
+// exclusionDirective renders one SecRuleUpdateTargetByTag line. A json.* prefix becomes an
+// anchored regex so nested keys are excluded as well. | exclusionDirective 渲染一条
+// SecRuleUpdateTargetByTag。json.* 前缀会变成锚定正则，从而同时排除嵌套键。
+func exclusionDirective(tag string, args []string) string {
+	if len(args) == 0 {
+		return ""
+	}
+	targets := make([]string, 0, len(args))
+	for _, arg := range args {
+		if strings.HasPrefix(arg, "json.") {
+			targets = append(targets, "!ARGS:/^"+strings.ReplaceAll(arg, ".", `\.`)+`($|\.)/`)
+			continue
+		}
+		targets = append(targets, "!ARGS:"+arg)
+	}
+	return `SecRuleUpdateTargetByTag "` + tag + `" "` + strings.Join(targets, "|") + `"`
+}
+
+// tuneFS serves the in-memory tuning file on top of the embedded CRS tree. | tuneFS 在嵌入式
+// CRS 规则树之上提供内存 tune 文件。
+type tuneFS struct {
+	// crs is the embedded CRS filesystem. | crs 是嵌入式 CRS 文件系统。
+	crs fs.FS
+	// tune is the generated tuning file. | tune 是生成的 tune 文件。
+	tune []byte
+}
+
+// Open implements fs.FS. | Open 实现 fs.FS。
+func (f tuneFS) Open(name string) (fs.File, error) {
+	if path.Clean(name) == tuneFileName {
+		return &memFile{Reader: bytes.NewReader(f.tune), name: tuneFileName, size: int64(len(f.tune))}, nil
+	}
+	return f.crs.Open(name)
+}
+
+// ReadFile implements fs.ReadFileFS. | ReadFile 实现 fs.ReadFileFS。
+func (f tuneFS) ReadFile(name string) ([]byte, error) {
+	if path.Clean(name) == tuneFileName {
+		return f.tune, nil
+	}
+	return fs.ReadFile(f.crs, name)
+}
+
+// ReadDir implements fs.ReadDirFS. | ReadDir 实现 fs.ReadDirFS。
+func (f tuneFS) ReadDir(name string) ([]fs.DirEntry, error) { return fs.ReadDir(f.crs, name) }
+
+// Glob implements fs.GlobFS. | Glob 实现 fs.GlobFS。
+func (f tuneFS) Glob(pattern string) ([]string, error) { return fs.Glob(f.crs, pattern) }
+
+// memFile is one in-memory rule file. | memFile 是一个内存规则文件。
+type memFile struct {
+	*bytes.Reader
+	// name is the base name reported by Stat. | name 是 Stat 报告的基名。
+	name string
+	// size is the file length. | size 是文件长度。
+	size int64
+}
+
+// Stat implements fs.File. | Stat 实现 fs.File。
+func (m *memFile) Stat() (fs.FileInfo, error) { return memInfo{m.name, m.size}, nil }
+
+// Close implements fs.File. | Close 实现 fs.File。
+func (m *memFile) Close() error { return nil }
+
+// memInfo is the fs.FileInfo of a memFile. | memInfo 是 memFile 的 fs.FileInfo。
+type memInfo struct {
+	// name is the base name. | name 是基名。
+	name string
+	// size is the file length. | size 是文件长度。
+	size int64
+}
+
+// Name implements fs.FileInfo. | Name 实现 fs.FileInfo。
+func (i memInfo) Name() string { return i.name }
+
+// Size implements fs.FileInfo. | Size 实现 fs.FileInfo。
+func (i memInfo) Size() int64 { return i.size }
+
+// Mode implements fs.FileInfo. | Mode 实现 fs.FileInfo。
+func (i memInfo) Mode() fs.FileMode { return 0o444 }
+
+// ModTime implements fs.FileInfo. | ModTime 实现 fs.FileInfo。
+func (i memInfo) ModTime() time.Time { return time.Time{} }
+
+// IsDir implements fs.FileInfo. | IsDir 实现 fs.FileInfo。
+func (i memInfo) IsDir() bool { return false }
+
+// Sys implements fs.FileInfo. | Sys 实现 fs.FileInfo。
+func (i memInfo) Sys() any { return nil }

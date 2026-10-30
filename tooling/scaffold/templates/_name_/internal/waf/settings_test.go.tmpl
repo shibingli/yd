@@ -1,0 +1,103 @@
+package waf
+
+import (
+	"errors"
+	"testing"
+
+	"github.com/spf13/afero"
+
+	"{{ .YdxModule }}/afs"
+	"{{ .YdxModule }}/config"
+	ydxwaf "{{ .YdxModule }}/middleware/waf"
+)
+
+// testConfig builds a layered configuration from an in-memory config.yaml. | testConfig 从内存
+// config.yaml 构建分层配置。
+func testConfig(t *testing.T, body string) *config.Config {
+	t.Helper()
+	fsys := afs.NewMem()
+	if body != "" {
+		if err := afero.WriteFile(fsys, "config.yaml", []byte(body), 0o644); err != nil {
+			t.Fatalf("write config.yaml: %v", err)
+		}
+	}
+	cfg, err := config.Load(config.Options{
+		FS:         fsys,
+		ConfigDir:  ".",
+		ConfigName: "config",
+		EnvPrefix:  "YDWAFTEST",
+	})
+	if err != nil {
+		t.Fatalf("load config: %v", err)
+	}
+	return cfg
+}
+
+// TestSettingsDefaults proves an absent waf.enabled key still enables the engine. |
+// TestSettingsDefaults 证明 waf.enabled 缺键时仍然启用引擎。
+func TestSettingsDefaults(t *testing.T) {
+	s, err := settingsFrom(testConfig(t, ""))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !s.enabled {
+		t.Error("缺键时必须默认启用 | an absent enabled key must default to true")
+	}
+	if s.mode != ydxwaf.ModeBlock {
+		t.Errorf("mode = %v, want block", s.mode)
+	}
+	if s.paranoiaLevel != 1 || s.anomalyThreshold != 5 {
+		t.Errorf("paranoiaLevel = %d, anomalyThreshold = %d", s.paranoiaLevel, s.anomalyThreshold)
+	}
+	if !s.inspectJSON {
+		t.Error("inspect_json 默认必须为 true | inspect_json must default to true")
+	}
+	if len(s.excludePaths) == 0 || len(s.excludeArgs) == 0 {
+		t.Error("默认排除清单为空 | the default exclusion lists are empty")
+	}
+}
+
+// TestSettingsExplicitDisable keeps an explicit false. | TestSettingsExplicitDisable 保留显式关闭。
+func TestSettingsExplicitDisable(t *testing.T) {
+	s, err := settingsFrom(testConfig(t, "waf:\n  enabled: false\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if s.enabled {
+		t.Error("显式 false 必须关闭 | an explicit false must disable the engine")
+	}
+}
+
+// TestSettingsRejectsInvalidValues proves validation runs even while disabled. |
+// TestSettingsRejectsInvalidValues 证明关闭时仍然校验。
+func TestSettingsRejectsInvalidValues(t *testing.T) {
+	for _, body := range []string{
+		"waf:\n  mode: bogus\n",
+		"waf:\n  paranoia_level: 5\n",
+		"waf:\n  anomaly_threshold: -1\n",
+		"waf:\n  request_body_limit: -1\n",
+		"waf:\n  request_body_in_memory_limit: -1\n",
+		"waf:\n  request_body_limit: 1024\n  request_body_in_memory_limit: 2048\n",
+		"waf:\n  trusted_proxies: [not-a-cidr]\n",
+		"waf:\n  exclude_args: [\"bad name\"]\n",
+		"waf:\n  exclude_paths: [relative]\n",
+		"waf:\n  extra_rule_files: [\"/tmp/evil.conf\"]\n",
+		"waf:\n  enabled: false\n  mode: bogus\n",
+	} {
+		if _, err := settingsFrom(testConfig(t, body)); !errors.Is(err, ErrConfig) {
+			t.Errorf("%q: err = %v, want ErrConfig", body, err)
+		}
+	}
+}
+
+// TestSettingsExtraRulesAndDirectives accepts embedded rule files and inline directives. |
+// TestSettingsExtraRulesAndDirectives 接受嵌入式规则文件与内联指令。
+func TestSettingsExtraRulesAndDirectives(t *testing.T) {
+	s, err := settingsFrom(testConfig(t, "waf:\n  extra_rule_files: [\"@owasp_crs/REQUEST-913-SCANNER-DETECTION.conf\"]\n  directives: [\"SecAction \\\"id:900099,phase:1,pass,nolog\\\"\"]\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(s.extraRuleFiles) != 1 || len(s.directives) != 1 {
+		t.Fatalf("settings = %+v", s)
+	}
+}

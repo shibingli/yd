@@ -1,0 +1,81 @@
+package waf
+
+import (
+	"reflect"
+	"strings"
+	"testing"
+
+	"github.com/corazawaf/coraza-coreruleset"
+)
+
+// TestBaseRulesAreTheGoProfile pins the exact CRS subset. | TestBaseRulesAreTheGoProfile 钉住精确的
+// CRS 子集。
+func TestBaseRulesAreTheGoProfile(t *testing.T) {
+	want := []string{
+		"@coraza.conf-recommended",
+		"@crs-setup.conf.example",
+		tuneFileName,
+		"@owasp_crs/REQUEST-901-INITIALIZATION.conf",
+		"@owasp_crs/REQUEST-905-COMMON-EXCEPTIONS.conf",
+		"@owasp_crs/REQUEST-911-METHOD-ENFORCEMENT.conf",
+		"@owasp_crs/REQUEST-920-PROTOCOL-ENFORCEMENT.conf",
+		"@owasp_crs/REQUEST-921-PROTOCOL-ATTACK.conf",
+		"@owasp_crs/REQUEST-930-APPLICATION-ATTACK-LFI.conf",
+		"@owasp_crs/REQUEST-931-APPLICATION-ATTACK-RFI.conf",
+		"@owasp_crs/REQUEST-932-APPLICATION-ATTACK-RCE.conf",
+		"@owasp_crs/REQUEST-934-APPLICATION-ATTACK-GENERIC.conf",
+		"@owasp_crs/REQUEST-941-APPLICATION-ATTACK-XSS.conf",
+		"@owasp_crs/REQUEST-942-APPLICATION-ATTACK-SQLI.conf",
+		"@owasp_crs/REQUEST-949-BLOCKING-EVALUATION.conf",
+	}
+	if !reflect.DeepEqual(baseRuleFiles, want) {
+		t.Fatalf("baseRuleFiles = %v", baseRuleFiles)
+	}
+}
+
+// TestTuneSetsMethodWhitelist keeps PUT/PATCH/DELETE/CONNECT out of the 911 false-positive path. |
+// TestTuneSetsMethodWhitelist 让 PUT/PATCH/DELETE/CONNECT 不被 911 误伤。
+func TestTuneSetsMethodWhitelist(t *testing.T) {
+	got := tuneDirectives(settings{paranoiaLevel: 1, anomalyThreshold: 5})
+	for _, want := range []string{
+		"tx.blocking_paranoia_level=1",
+		"tx.detection_paranoia_level=1",
+		"tx.inbound_anomaly_score_threshold=5",
+		"tx.allowed_methods=GET HEAD POST OPTIONS PUT PATCH DELETE CONNECT",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("tune 缺少 %q:\n%s", want, got)
+		}
+	}
+}
+
+// TestInlineDirectivesRemovePHPSubrulesAndExcludeFields pins the post-CRS directives. |
+// TestInlineDirectivesRemovePHPSubrulesAndExcludeFields 钉住 CRS 之后加载的指令。
+func TestInlineDirectivesRemovePHPSubrulesAndExcludeFields(t *testing.T) {
+	got := strings.Join(inlineDirectives(settings{
+		inspectJSON: true,
+		excludeArgs: []string{"body_markdown", "json.design"},
+	}), "\n")
+	for _, want := range []string{
+		"SecRuleRemoveById 934140 934150 934170",
+		"ctl:requestBodyProcessor=JSON",
+		`!ARGS:body_markdown`,
+		`!ARGS:/^json\.design($|\.)/`,
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("directives 缺少 %q:\n%s", want, got)
+		}
+	}
+}
+
+// TestTuneFSReadsTuneAndDelegatesCRS proves the overlay serves the tune file and the CRS tree. |
+// TestTuneFSReadsTuneAndDelegatesCRS 证明叠加层提供 tune 文件与 CRS 规则树。
+func TestTuneFSReadsTuneAndDelegatesCRS(t *testing.T) {
+	f := tuneFS{crs: coreruleset.FS, tune: []byte("tune")}
+	if got, err := f.ReadFile(tuneFileName); err != nil || string(got) != "tune" {
+		t.Fatalf("tune = %q, %v", got, err)
+	}
+	if got, err := f.ReadFile("@owasp_crs/REQUEST-941-APPLICATION-ATTACK-XSS.conf"); err != nil || len(got) == 0 {
+		t.Fatalf("CRS 委派失败: %v", err)
+	}
+}

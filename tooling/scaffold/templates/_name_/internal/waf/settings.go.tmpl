@@ -1,0 +1,312 @@
+// Package waf wires the ydx WAF into this project: configuration, the Go/HTML/SQL/JavaScript
+// rule profile and a hot-swappable manager. | Package waf 把 ydx WAF 接入本项目：配置、
+// Go/HTML/SQL/JavaScript 规则画像与可热切换的管理器。
+package waf
+
+import (
+	"net/netip"
+	"path"
+	"strconv"
+	"strings"
+
+	"{{ .YdxModule }}/config"
+	"{{ .YdxModule }}/errs"
+	ydxwaf "{{ .YdxModule }}/middleware/waf"
+)
+
+// ErrConfig reports an invalid waf.* setting. | ErrConfig 表示非法的 waf.* 配置。
+var ErrConfig = errs.New("waf: invalid configuration | waf：配置非法")
+
+// Default body limits and CRS scoring values. | 默认正文上限与 CRS 评分值。
+const (
+	// defaultRequestBodyLimit is 8 MiB. | defaultRequestBodyLimit 为 8 MiB。
+	defaultRequestBodyLimit = 8 << 20
+	// defaultRequestBodyInMemoryLimit is 128 KiB. | defaultRequestBodyInMemoryLimit 为 128 KiB。
+	defaultRequestBodyInMemoryLimit = 128 << 10
+	// maxRequestBodyLimit is the engine's upper bound (1 GiB). | maxRequestBodyLimit 是引擎上限（1 GiB）。
+	maxRequestBodyLimit = 1 << 30
+	// defaultParanoiaLevel is CRS PL1. | defaultParanoiaLevel 是 CRS PL1。
+	defaultParanoiaLevel = 1
+	// defaultAnomalyThreshold is CRS's default inbound threshold. | defaultAnomalyThreshold 是
+	// CRS 默认入站异常分阈值。
+	defaultAnomalyThreshold = 5
+)
+
+// defaultExcludePaths bypass the engine entirely: health probes, static assets, the OpenAPI
+// viewer, realtime streams and attachment upload/download endpoints. | defaultExcludePaths 完全
+// 跳过引擎：健康检查、静态资源、OpenAPI 查看器、实时流与附件上传下载端点。
+var defaultExcludePaths = []string{
+	"/healthz",
+	"/static",
+	"/openapi/assets",
+	"/events",
+	"/ws",
+	"/mgr/ws",
+	"/messages/attachments",
+	"/attachments",
+	"/mgr/attachments",
+	"/api/portal/v1/attachments",
+	"/api/portal/v1/messages/attachments",
+	"/api/v1/attachments",
+}
+
+// defaultExcludeArgs are rich-text or structured payloads that the server renders sanely or
+// stores without executing; they are exempt from the inbound attack rules to avoid false
+// positives on code examples. | defaultExcludeArgs 是由服务端安全渲染或原样存储的富文本/结构化
+// 载荷；它们免于入站攻击规则，以免代码示例触发误报。
+var defaultExcludeArgs = []string{
+	"body_markdown",
+	"json.body_markdown",
+	"json.design",
+	"json.document",
+	"json.variables",
+	"json.form_data",
+	"json.payload",
+}
+
+// settings is one validated snapshot of the waf.* configuration. | settings 是一份校验后的
+// waf.* 配置快照。
+type settings struct {
+	// excludePaths bypass the engine entirely. | excludePaths 完全跳过引擎。
+	excludePaths []string
+	// excludeArgs are exempt from attack rules. | excludeArgs 免于攻击规则。
+	excludeArgs []string
+	// extraRuleFiles are additional embedded CRS rule files. | extraRuleFiles 是额外的嵌入式
+	// CRS 规则文件。
+	extraRuleFiles []string
+	// directives are inline SecLang directives loaded last. | directives 是最后加载的内联
+	// SecLang 指令。
+	directives []string
+	// trustedProxies may supply X-Forwarded-For. | trustedProxies 可以提供 X-Forwarded-For。
+	trustedProxies []netip.Prefix
+	// mode selects block, detection or off. | mode 选择拦截、仅检测或关闭。
+	mode ydxwaf.Mode
+	// paranoiaLevel is the CRS blocking paranoia level. | paranoiaLevel 是 CRS 拦截 Paranoia Level。
+	paranoiaLevel int
+	// anomalyThreshold is the inbound anomaly score threshold. | anomalyThreshold 是入站异常分阈值。
+	anomalyThreshold int
+	// requestBodyLimit caps inspected request bytes. | requestBodyLimit 限制被检测的请求字节数。
+	requestBodyLimit int
+	// requestBodyInMemoryLimit caps the in-memory part of the request body. |
+	// requestBodyInMemoryLimit 限制请求正文驻留内存的字节数。
+	requestBodyInMemoryLimit int
+	// enabled is the runtime master switch. | enabled 是运行时总开关。
+	enabled bool
+	// inspectJSON parses application/json bodies into ARGS. | inspectJSON 把 application/json
+	// 正文解析进 ARGS。
+	inspectJSON bool
+}
+
+// settingsFrom reads and validates the waf.* configuration. An absent enabled key means true;
+// every value is validated even while the engine is disabled, so a typo cannot lie dormant. |
+// settingsFrom 读取并校验 waf.* 配置。enabled 缺键表示 true；即使引擎关闭也校验全部取值，
+// 避免错误配置潜伏。
+func settingsFrom(cfg *config.Config) (settings, error) {
+	if cfg == nil {
+		return settings{}, errs.Detail(ErrConfig, "nil configuration | 配置为 nil")
+	}
+	s := settings{
+		enabled:                  cfg.Get("waf.enabled") == nil || cfg.GetBool("waf.enabled"),
+		paranoiaLevel:            cfg.GetInt("waf.paranoia_level"),
+		anomalyThreshold:         cfg.GetInt("waf.anomaly_threshold"),
+		requestBodyLimit:         cfg.GetInt("waf.request_body_limit"),
+		requestBodyInMemoryLimit: cfg.GetInt("waf.request_body_in_memory_limit"),
+		inspectJSON:              cfg.Get("waf.inspect_json") == nil || cfg.GetBool("waf.inspect_json"),
+	}
+
+	switch strings.ToLower(strings.TrimSpace(cfg.GetString("waf.mode"))) {
+	case "", "block":
+		s.mode = ydxwaf.ModeBlock
+	case "detection":
+		s.mode = ydxwaf.ModeDetection
+	case "off":
+		s.mode = ydxwaf.ModeOff
+	default:
+		return settings{}, errs.Detail(ErrConfig, "waf.mode must be block, detection or off | waf.mode 必须是 block、detection 或 off")
+	}
+
+	if s.paranoiaLevel == 0 {
+		s.paranoiaLevel = defaultParanoiaLevel
+	}
+	if s.paranoiaLevel < 1 || s.paranoiaLevel > 4 {
+		return settings{}, errs.Detail(ErrConfig, "waf.paranoia_level must be 1..4 | waf.paranoia_level 必须在 1..4")
+	}
+	if s.anomalyThreshold == 0 {
+		s.anomalyThreshold = defaultAnomalyThreshold
+	}
+	if s.anomalyThreshold < 1 {
+		return settings{}, errs.Detail(ErrConfig, "waf.anomaly_threshold must be positive | waf.anomaly_threshold 必须为正数")
+	}
+	if s.requestBodyLimit == 0 {
+		s.requestBodyLimit = defaultRequestBodyLimit
+	}
+	if s.requestBodyLimit < 1 || s.requestBodyLimit > maxRequestBodyLimit {
+		return settings{}, errs.Detail(ErrConfig, "waf.request_body_limit must be 1..1 GiB | waf.request_body_limit 必须在 1..1 GiB")
+	}
+	if s.requestBodyInMemoryLimit == 0 {
+		s.requestBodyInMemoryLimit = defaultRequestBodyInMemoryLimit
+	}
+	if s.requestBodyInMemoryLimit < 1 || s.requestBodyInMemoryLimit > s.requestBodyLimit {
+		return settings{}, errs.Detail(ErrConfig, "waf.request_body_in_memory_limit must be 1..request_body_limit | waf.request_body_in_memory_limit 必须在 1..request_body_limit")
+	}
+
+	var err error
+	if s.excludePaths, err = pathList(cfg, "waf.exclude_paths", defaultExcludePaths); err != nil {
+		return settings{}, err
+	}
+	if s.excludeArgs, err = argList(cfg, "waf.exclude_args", defaultExcludeArgs); err != nil {
+		return settings{}, err
+	}
+	if s.extraRuleFiles, err = embeddedRuleFiles(cfg); err != nil {
+		return settings{}, err
+	}
+	s.directives = cleanList(cfg.GetStringSlice("waf.directives"))
+	if s.trustedProxies, err = parseTrustedProxies(cfg.GetStringSlice("waf.trusted_proxies")); err != nil {
+		return settings{}, err
+	}
+	return s, nil
+}
+
+// signature renders the settings into a comparable token so an unrelated configuration change
+// does not rebuild the engine. | signature 把设置渲染成可比较的记号，使无关配置变更不会重建引擎。
+func (s settings) signature() string {
+	var b strings.Builder
+	b.WriteString(strconv.FormatBool(s.enabled))
+	b.WriteByte(0)
+	b.WriteString(strconv.Itoa(int(s.mode)))
+	b.WriteByte(0)
+	b.WriteString(strconv.Itoa(s.paranoiaLevel))
+	b.WriteByte(0)
+	b.WriteString(strconv.Itoa(s.anomalyThreshold))
+	b.WriteByte(0)
+	b.WriteString(strconv.Itoa(s.requestBodyLimit))
+	b.WriteByte(0)
+	b.WriteString(strconv.Itoa(s.requestBodyInMemoryLimit))
+	b.WriteByte(0)
+	b.WriteString(strconv.FormatBool(s.inspectJSON))
+	b.WriteByte(0)
+	writeSignatureList(&b, s.excludePaths)
+	writeSignatureList(&b, s.excludeArgs)
+	writeSignatureList(&b, s.extraRuleFiles)
+	writeSignatureList(&b, s.directives)
+	for _, prefix := range s.trustedProxies {
+		b.WriteString(prefix.String())
+		b.WriteByte(0)
+	}
+	return b.String()
+}
+
+// writeSignatureList appends one list with a terminator. | writeSignatureList 追加一个带终止符的列表。
+func writeSignatureList(b *strings.Builder, values []string) {
+	for _, value := range values {
+		b.WriteString(value)
+		b.WriteByte(1)
+	}
+	b.WriteByte(0)
+}
+
+// pathList reads a path list; an absent key uses defaults and an explicit empty list stays empty. |
+// pathList 读取路径列表；缺键使用默认值，显式空列表保持为空。
+func pathList(cfg *config.Config, key string, defaults []string) ([]string, error) {
+	if cfg.Get(key) == nil {
+		return append([]string(nil), defaults...), nil
+	}
+	out := make([]string, 0, len(cfg.GetStringSlice(key)))
+	for _, raw := range cfg.GetStringSlice(key) {
+		value := strings.TrimSpace(raw)
+		if value == "" {
+			continue
+		}
+		if !strings.HasPrefix(value, "/") {
+			return nil, errs.Detail(ErrConfig, "%[1]s entry %[2]q must start with / | %[1]s 条目 %[2]q 必须以 / 开头", key, value)
+		}
+		out = append(out, path.Clean(value))
+	}
+	return out, nil
+}
+
+// argList reads the field exclusion list and validates every name. | argList 读取字段排除列表并
+// 校验每个名称。
+func argList(cfg *config.Config, key string, defaults []string) ([]string, error) {
+	if cfg.Get(key) == nil {
+		return append([]string(nil), defaults...), nil
+	}
+	out := make([]string, 0, len(cfg.GetStringSlice(key)))
+	for _, raw := range cfg.GetStringSlice(key) {
+		value := strings.TrimSpace(raw)
+		if value == "" {
+			continue
+		}
+		if !validArgName(value) {
+			return nil, errs.Detail(ErrConfig, "%[1]s entry %[2]q must match [A-Za-z0-9_.]+ | %[1]s 条目 %[2]q 必须匹配 [A-Za-z0-9_.]+", key, value)
+		}
+		out = append(out, value)
+	}
+	return out, nil
+}
+
+// embeddedRuleFiles accepts only rule files shipped inside the CRS module. | embeddedRuleFiles
+// 只接受随 CRS 模块分发的规则文件。
+func embeddedRuleFiles(cfg *config.Config) ([]string, error) {
+	out := cleanList(cfg.GetStringSlice("waf.extra_rule_files"))
+	for _, file := range out {
+		if !strings.HasPrefix(file, "@") || strings.Contains(file, "..") {
+			return nil, errs.Detail(ErrConfig, "waf.extra_rule_files entry %[1]q must be an embedded @owasp_crs path | waf.extra_rule_files 条目 %[1]q 必须是嵌入式 @owasp_crs 路径", file)
+		}
+	}
+	return out, nil
+}
+
+// cleanList trims and drops empty entries. | cleanList 去除空白与空条目。
+func cleanList(values []string) []string {
+	out := make([]string, 0, len(values))
+	for _, raw := range values {
+		if value := strings.TrimSpace(raw); value != "" {
+			out = append(out, value)
+		}
+	}
+	return out
+}
+
+// validArgName reports whether a field name is safe to embed in a SecLang target. | validArgName
+// 报告字段名是否可以安全嵌入 SecLang 目标。
+func validArgName(name string) bool {
+	if name == "" {
+		return false
+	}
+	for _, r := range name {
+		switch {
+		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9', r == '_', r == '.':
+		default:
+			return false
+		}
+	}
+	return true
+}
+
+// parseTrustedProxies parses CIDR prefixes; a bare IP is treated as a single host. | parseTrustedProxies
+// 解析 CIDR 前缀；裸 IP 视为单主机。
+func parseTrustedProxies(values []string) ([]netip.Prefix, error) {
+	out := make([]netip.Prefix, 0, len(values))
+	for _, raw := range values {
+		value := strings.TrimSpace(raw)
+		if value == "" {
+			continue
+		}
+		if strings.Contains(value, "/") {
+			prefix, err := netip.ParsePrefix(value)
+			if err != nil {
+				return nil, errs.WrapDetail(err, ErrConfig, "waf.trusted_proxies %[1]q | waf.trusted_proxies %[1]q", value)
+			}
+			out = append(out, prefix.Masked())
+			continue
+		}
+		addr, err := netip.ParseAddr(value)
+		if err != nil {
+			return nil, errs.WrapDetail(err, ErrConfig, "waf.trusted_proxies %[1]q | waf.trusted_proxies %[1]q", value)
+		}
+		addr = addr.Unmap()
+		out = append(out, netip.PrefixFrom(addr, addr.BitLen()))
+	}
+	return out, nil
+}

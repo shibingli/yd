@@ -153,6 +153,10 @@ var requiredFiles = []string{
 	"internal/service/tenant.go",
 	"internal/service/user.go",
 	"internal/service/workflow.go",
+	"internal/waf/rules.go",
+	"internal/waf/rules_test.go",
+	"internal/waf/settings.go",
+	"internal/waf/settings_test.go",
 	"web/assets.lock.json",
 	"web/bundle_generated.go",
 	"web/embed.go",
@@ -6250,5 +6254,39 @@ func TestLocalReplaceIncludesWAFFromNestedModule(t *testing.T) {
 	gomod := pr.read("go.mod")
 	if !strings.Contains(gomod, "replace github.com/shibingli/ydx/middleware/waf =>") {
 		t.Errorf("本地替换缺少 WAF 模块:\n%s", gomod)
+	}
+}
+
+// TestGeneratedWAFSettingsAndRulesTests runs the generated package's own settings and rule tests
+// against the real engine. | TestGeneratedWAFSettingsAndRulesTests 用真实引擎运行生成包的设置与
+// 规则测试。
+func TestGeneratedWAFSettingsAndRulesTests(t *testing.T) {
+	if testing.Short() {
+		t.Skip("短模式跳过生成项目测试 | skipped in short mode")
+	}
+	goBin, err := exec.LookPath("go")
+	if err != nil {
+		t.Skipf("未找到 go 工具链，跳过: %v", err)
+	}
+	dir, err := os.MkdirTemp("", "yd-waf-unit-*")
+	if err != nil {
+		t.Fatalf("创建临时目录失败: %v", err)
+	}
+	defer func() { _ = os.RemoveAll(dir) }()
+
+	o := scaffold.DefaultOptions("yd-waf-unit")
+	o.DB = scaffold.DBSQLite
+	o.LocalReplace = filepath.ToSlash(repoRoot(t))
+	if _, err := scaffold.Generate(context.Background(), o, afs.NewOS(dir), nil); err != nil {
+		t.Fatalf("生成失败: %v", err)
+	}
+	projDir := filepath.Join(dir, o.Name)
+	output, err := runGo(goBin, projDir, true, "test", "-mod=mod", "./internal/waf")
+	if err != nil {
+		t.Logf("GOPROXY=off 测试失败，回退到环境代理重试:\n%s", output)
+		output, err = runGo(goBin, projDir, false, "test", "-mod=mod", "./internal/waf")
+	}
+	if err != nil {
+		t.Fatalf("生成的 WAF 包测试失败: %v\n%s", err, output)
 	}
 }
