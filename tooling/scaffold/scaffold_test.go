@@ -6489,3 +6489,75 @@ func TestGeneratedProjectWithoutWAFHasNoCoraza(t *testing.T) {
 		}
 	}
 }
+
+// probeStatus sends one GET and returns its status code. | probeStatus 发送一次 GET 并返回状态码。
+func probeStatus(t *testing.T, client *http.Client, target string) int {
+	t.Helper()
+	resp, err := client.Get(target)
+	if err != nil {
+		t.Fatalf("GET %s: %v", target, err)
+	}
+	_, _ = io.Copy(io.Discard, resp.Body)
+	_ = resp.Body.Close()
+	return resp.StatusCode
+}
+
+// waitForProbeStatus polls until the status matches or the deadline expires. | waitForProbeStatus
+// 轮询直到状态匹配或超时。
+func waitForProbeStatus(t *testing.T, client *http.Client, target string, want int, timeout time.Duration) {
+	t.Helper()
+	deadline := time.Now().Add(timeout)
+	for {
+		if got := probeStatus(t, client, target); got == want {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("%s 未在 %s 内变成 %d", target, timeout, want)
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+}
+
+// waitForProbeNotStatus polls until the status differs from unwanted. | waitForProbeNotStatus
+// 轮询直到状态不再是被排除的值。
+func waitForProbeNotStatus(t *testing.T, client *http.Client, target string, unwanted int, timeout time.Duration) {
+	t.Helper()
+	deadline := time.Now().Add(timeout)
+	for {
+		if got := probeStatus(t, client, target); got != unwanted {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("%s 在 %s 内仍是 %d", target, timeout, unwanted)
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+}
+
+// TestGeneratedWAFHotToggleWithoutRestart proves waf.enabled is hot-reloaded from the config file. |
+// TestGeneratedWAFHotToggleWithoutRestart 证明 waf.enabled 由配置文件热重载。
+func TestGeneratedWAFHotToggleWithoutRestart(t *testing.T) {
+	if testing.Short() {
+		t.Skip("短模式跳过真实服务热切换 | skipped in short mode")
+	}
+	projDir, base := startProbeAppWith(t, "yd-waf-toggle-probe", func(dir string) {
+		writeProbeConfig(t, dir, "waf:\n  enabled: false\n")
+	})
+	client := &http.Client{Timeout: httpTimeout}
+	attack := base + "/login?x=" + url.QueryEscape("1' OR '1'='1")
+
+	if got := probeStatus(t, client, attack); got == http.StatusForbidden {
+		t.Fatalf("启动时关闭不应拦截: %d", got)
+	}
+	writeProbeConfig(t, projDir, "waf:\n  enabled: true\n")
+	waitForProbeStatus(t, client, attack, http.StatusForbidden, 10*time.Second)
+
+	writeProbeConfig(t, projDir, "waf:\n  enabled: false\n")
+	waitForProbeNotStatus(t, client, attack, http.StatusForbidden, 10*time.Second)
+
+	for _, target := range []string{base + "/healthz", base + "/static/css/yd.css"} {
+		if got := probeStatus(t, client, target); got != http.StatusOK {
+			t.Errorf("%s status = %d, want 200", target, got)
+		}
+	}
+}
