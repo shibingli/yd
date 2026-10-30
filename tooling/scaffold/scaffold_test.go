@@ -6314,3 +6314,59 @@ func TestGeneratedWAFManagerTests(t *testing.T) {
 	}
 	runGeneratedWAFTests(t, "yd-waf-manager")
 }
+
+// TestGeneratedProjectWiresWAFInOrder pins the entry-point wiring and its position in the chain. |
+// TestGeneratedProjectWiresWAFInOrder 钉住入口接线及其在链中的位置。
+func TestGeneratedProjectWiresWAFInOrder(t *testing.T) {
+	pr, _ := generateMem(t, scaffold.DefaultOptions("waf-wired"))
+	main := pr.read("cmd/app/main.go")
+	for _, want := range []string{
+		`appwaf "github.com/yun-dev/waf-wired/internal/waf"`,
+		"appwaf.New(application.Config(), log)",
+		"application.OnShutdown(wafManager.Shutdown)",
+		`middleware.MetricsDescriptor("waf")`,
+		"ErrWAF",
+	} {
+		if !strings.Contains(main, want) {
+			t.Errorf("main.go 缺少 %q:\n%s", want, main)
+		}
+	}
+	if strings.Index(main, `MetricsDescriptor("security")`) > strings.Index(main, `MetricsDescriptor("waf")`) {
+		t.Error("WAF 必须在 security 之后注册")
+	}
+	if strings.Index(main, `MetricsDescriptor("waf")`) > strings.Index(main, "registerI18n(application, log)") {
+		t.Error("WAF 必须在 i18n 之前注册")
+	}
+}
+
+// TestGeneratedWAFConfigDefaults pins the generated waf.* section. | TestGeneratedWAFConfigDefaults
+// 钉住生成的 waf.* 配置段。
+func TestGeneratedWAFConfigDefaults(t *testing.T) {
+	pr, _ := generateMem(t, scaffold.DefaultOptions("waf-config"))
+	cfg := pr.read("configs/config.yaml")
+	for _, want := range []string{
+		"waf:", "enabled: true", "mode: block", "paranoia_level: 1",
+		"anomaly_threshold: 5", "inspect_json: true",
+		"request_body_limit: 8388608", "request_body_in_memory_limit: 131072",
+		"/healthz", "/static", "body_markdown", "json.design",
+	} {
+		if !strings.Contains(cfg, want) {
+			t.Errorf("config 缺少 %q:\n%s", want, cfg)
+		}
+	}
+}
+
+// TestGeneratedMiddlewareMetricsIncludesWAF keeps the WAF visible on the dashboard. |
+// TestGeneratedMiddlewareMetricsIncludesWAF 让 WAF 出现在仪表盘上。
+func TestGeneratedMiddlewareMetricsIncludesWAF(t *testing.T) {
+	pr, _ := generateMem(t, scaffold.DefaultOptions("waf-metrics"))
+	obs := pr.read("internal/middleware/observability.go")
+	if !strings.Contains(obs, `"waf"`) {
+		t.Error("observability 缺少 waf 描述符")
+	}
+	for _, path := range []string{"web/i18n/zh-CN.yaml", "web/i18n/en.yaml"} {
+		if !strings.Contains(pr.read(path), "waf:") {
+			t.Errorf("%s 缺少 metrics.middleware.name.waf", path)
+		}
+	}
+}

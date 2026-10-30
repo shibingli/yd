@@ -37,6 +37,9 @@ import (
 	"{{ .Module }}/internal/meta"
 	"{{ .Module }}/internal/middleware"
 	"{{ .Module }}/internal/router"
+{{- if .WAF }}
+	appwaf "{{ .Module }}/internal/waf"
+{{- end }}
 	"{{ .Module }}/web"
 	"{{ .YdModule }}/runtime/app"
 	"{{ .YdxModule }}/errs"
@@ -59,6 +62,10 @@ var (
 	// ErrService 表示服务管理器动作失败（安装、卸载、启动、停止、重启或状态查询）。
 	// ErrService reports a failed service manager action (install, uninstall, start, stop, restart or a status query).
 	ErrService = errs.New("service action failed | 服务动作失败")
+{{- if .WAF }}
+	// ErrWAF reports a failed WAF assembly. | ErrWAF 表示 WAF 装配失败。
+	ErrWAF = errs.New("waf assembly failed | WAF 装配失败")
+{{- end }}
 )
 
 // main 是进程入口：构造日志与退出上下文，装配成功后按前台或服务模式运行。
@@ -201,6 +208,20 @@ func assemble(log *ydlog.Logger) (*app.App, error) {
 	application.UseObserved(middleware.MetricsDescriptor("compress"), ydmw.Compress(ydmw.CompressOptions{}))
 	application.UseObserved(middleware.MetricsDescriptor("cors"), ydmw.CORS(ydmw.CORSOptions{}))
 	application.UseObserved(middleware.MetricsDescriptor("security"), middleware.Security())
+{{- if .WAF }}
+
+	// WAF 位于安全头之后、i18n 与业务链之前：拦截响应仍带安全头，请求先过规则再进入业务；
+	// 管理器监听配置变更，waf.enabled / waf.mode 的修改无需重启。
+	// The WAF sits after the security headers and before i18n and the business chain: blocked responses keep the
+	// security headers, and requests pass the rules first; the manager watches configuration, so changes to
+	// waf.enabled / waf.mode need no restart.
+	wafManager, err := appwaf.New(application.Config(), log)
+	if err != nil {
+		return nil, errs.Wrap(err, ErrWAF)
+	}
+	application.OnShutdown(wafManager.Shutdown)
+	application.UseObserved(middleware.MetricsDescriptor("waf"), wafManager.Middleware())
+{{- end }}
 
 	// 共享脚本 bundle 由 web 包在启动时按外壳顺序拼好；生产期页面只请求这一份，开发期与组装失败时
 	// 回退到逐脚本。先登记精确路由，静态通配路由随后兜底。

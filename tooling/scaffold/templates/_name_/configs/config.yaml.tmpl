@@ -161,6 +161,57 @@ captcha:
   # when the application really sits behind a trusted proxy, otherwise clients could forge X-Forwarded-For and
   # bypass the per-IP limits.
   trusted_proxies: []
+{{- if .WAF }}
+
+# Web 应用防火墙：默认启用，规则围绕 Go 服务端、HTML、SQL 与 JavaScript。
+# Web application firewall: enabled by default; the rule profile targets Go services, HTML, SQL and JavaScript.
+# enabled / mode 的修改经 config.Watch 热生效，无需重启；-waf=false 生成的项目没有本节与 internal/waf。
+# Changes to enabled / mode are hot-reloaded through config.Watch; projects generated with -waf=false have neither
+# this section nor internal/waf.
+waf:
+  enabled: true                 # 运行时总开关；false 直接旁路 | runtime master switch; false bypasses the engine
+  mode: block                   # block | detection | off
+  paranoia_level: 1             # CRS PL1-4；越高越严格，误报也越多 | CRS PL1-4; stricter and noisier as it rises
+  anomaly_threshold: 5          # 异常分达到即拦截 | block once the inbound anomaly score reaches this value
+  inspect_json: true            # 解析 application/json 正文进入 ARGS | parse JSON bodies into ARGS
+  request_body_limit: 8388608           # 8 MiB
+  request_body_in_memory_limit: 131072  # 128 KiB
+  # 完全旁路的路径：健康检查、静态资源、OpenAPI 查看器、SSE/WebSocket 与附件上传下载。
+  # Paths that bypass the engine: health probes, static assets, the OpenAPI viewer, SSE/WebSocket and attachment I/O.
+  exclude_paths:
+    - /healthz
+    - /static
+    - /openapi/assets
+    - /events
+    - /ws
+    - /mgr/ws
+    - /messages/attachments
+    - /attachments
+    - /mgr/attachments
+    - /api/portal/v1/attachments
+    - /api/portal/v1/messages/attachments
+    - /api/v1/attachments
+  # 富文本/结构化字段免于入站攻击规则，避免代码示例误报；服务端仍负责输出编码与净化。
+  # Rich-text/structured fields exempt from inbound attack rules to avoid false positives on code examples; the
+  # server still owns output encoding and sanitisation.
+  exclude_args:
+    - body_markdown
+    - json.body_markdown
+    - json.design
+    - json.document
+    - json.variables
+    - json.form_data
+    - json.payload
+  # 追加随 coreruleset 分发的嵌入式规则，例如 @owasp_crs/REQUEST-913-SCANNER-DETECTION.conf。
+  # Additional embedded CRS files, for example @owasp_crs/REQUEST-913-SCANNER-DETECTION.conf.
+  extra_rule_files: []
+  # 最后加载的内联 SecLang；适合项目自有规则与 target 排除。
+  # Inline SecLang loaded last; suitable for project rules and target exclusions.
+  directives: []
+  # 可信反向代理 CIDR 或单个 IP；为空只信任直接对端。
+  # Trusted reverse proxy CIDRs or bare IPs; empty trusts only the direct peer.
+  trusted_proxies: []
+{{- end }}
 
 {{- if ne .DB "none" }}
 
