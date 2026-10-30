@@ -6201,3 +6201,54 @@ func TestGeneratedListActionsUseIconMenus(t *testing.T) {
 		t.Error("生成的图标 sprite 缺少 lucide-more-horizontal | the generated icon sprite lacks lucide-more-horizontal")
 	}
 }
+
+// TestGeneratedGoModPinsWAFWhenEnabled proves the generated go.mod pins both WAF-only modules only
+// when the feature is on. | TestGeneratedGoModPinsWAFWhenEnabled 证明生成 go.mod 只在开启时锁定两个
+// WAF 专用模块。
+func TestGeneratedGoModPinsWAFWhenEnabled(t *testing.T) {
+	pr, _ := generateMem(t, scaffold.DefaultOptions("waf-pins"))
+	gomod := pr.read("go.mod")
+	for _, want := range []string{
+		"github.com/shibingli/ydx/middleware/waf " + scaffold.WafModuleVersion,
+		"github.com/corazawaf/coraza-coreruleset " + scaffold.CRSRulesetVersion,
+	} {
+		if !strings.Contains(gomod, want) {
+			t.Errorf("go.mod 缺少 %q:\n%s", want, gomod)
+		}
+	}
+
+	o := scaffold.DefaultOptions("waf-off-pins")
+	o.WAF = false
+	pr, _ = generateMem(t, o)
+	gomod = pr.read("go.mod")
+	for _, unwanted := range []string{"ydx/middleware/waf", "coraza-coreruleset"} {
+		if strings.Contains(gomod, unwanted) {
+			t.Errorf("WAF 关闭时 go.mod 不应包含 %q:\n%s", unwanted, gomod)
+		}
+	}
+}
+
+// TestGeneratedWithoutWAFHasNoWAFFiles keeps the opt-out complete. | TestGeneratedWithoutWAFHasNoWAFFiles
+// 保证关闭时完全不生成 WAF 包。
+func TestGeneratedWithoutWAFHasNoWAFFiles(t *testing.T) {
+	o := scaffold.DefaultOptions("waf-off-files")
+	o.WAF = false
+	_, res := generateMem(t, o)
+	for _, f := range res.Files {
+		if strings.Contains(f, "/internal/waf/") {
+			t.Errorf("WAF 关闭时不应生成 %s", f)
+		}
+	}
+}
+
+// TestLocalReplaceIncludesWAFFromNestedModule keeps the development replace chain complete. |
+// TestLocalReplaceIncludesWAFFromNestedModule 保证开发期 replace 链完整。
+func TestLocalReplaceIncludesWAFFromNestedModule(t *testing.T) {
+	o := scaffold.DefaultOptions("waf-local")
+	o.LocalReplace = filepath.ToSlash(filepath.Join("..", "yd"))
+	pr, _ := generateMem(t, o)
+	gomod := pr.read("go.mod")
+	if !strings.Contains(gomod, "replace github.com/shibingli/ydx/middleware/waf =>") {
+		t.Errorf("本地替换缺少 WAF 模块:\n%s", gomod)
+	}
+}

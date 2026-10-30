@@ -89,6 +89,14 @@ type view struct {
 	YdxModules []string
 	// YdxReplaces lists the local ydx replacements used in development. | YdxReplaces 列出开发期使用的 ydx 本地替换。
 	YdxReplaces []ydxReplace
+	// WafModule is the optional WAF module path written into go.mod. | WafModule 是写入 go.mod 的可选 WAF 模块路径。
+	WafModule string
+	// WafModuleVersion pins the WAF module from the nested dependency module. | WafModuleVersion
+	// 从嵌套依赖模块锁定 WAF 模块版本。
+	WafModuleVersion string
+	// CRSRulesetVersion pins the OWASP CRS module from the nested dependency module. |
+	// CRSRulesetVersion 从嵌套依赖模块锁定 OWASP CRS 模块版本。
+	CRSRulesetVersion string
 
 	// versions and framework constants | 版本与框架常量
 	GoVersion       string
@@ -112,12 +120,18 @@ type view struct {
 	GRPC     bool
 	Auth     bool
 	Captcha  bool
+	WAF      bool
 	I18n     bool
 	Tailwind bool
 }
 
 // newView builds the template context from normalised options. | newView 由规范化后的选项构造模板上下文。
 func newView(o Options) view {
+	modules := make([]string, 0, len(YdxModules)+1)
+	modules = append(modules, YdxModules...)
+	if o.WAF {
+		modules = append(modules, WAFYdxModule)
+	}
 	return view{
 		Name:         o.Name,
 		Module:       o.Module,
@@ -145,13 +159,17 @@ func newView(o Options) view {
 		}(),
 		AssetRoot:       AssetRoot,
 		YdVersion:       o.YdVersion,
-		YdxVersions:     YdxVersions,
-		YdxModules:      YdxModules,
-		YdxReplaces:     ydxReplaces(o.LocalReplace),
-		GRPC:            o.GRPC,
-		Auth:            true,
-		Captcha:         o.Captcha,
-		I18n:            o.I18n,
+		YdxVersions:       YdxVersions,
+		YdxModules:        YdxModules,
+		YdxReplaces:       ydxReplaces(o.LocalReplace, modules),
+		WafModule:         WAFYdxModule,
+		WafModuleVersion:  WafModuleVersion,
+		CRSRulesetVersion: CRSRulesetVersion,
+		GRPC:              o.GRPC,
+		Auth:              true,
+		Captcha:           o.Captcha,
+		WAF:               o.WAF,
+		I18n:              o.I18n,
 		Tailwind:        o.Tailwind,
 		HtmxExts:        o.HtmxExts,
 		GoVersion:       GoVersion,
@@ -195,13 +213,13 @@ type ydxReplace struct {
 }
 
 // ydxReplaces derives the sibling ydx checkout from the local yd checkout. | ydxReplaces 从本地 yd 检出推导同级的 ydx 检出。
-func ydxReplaces(localReplace string) []ydxReplace {
-	if localReplace == "" || len(YdxModules) == 0 {
+func ydxReplaces(localReplace string, modules []string) []ydxReplace {
+	if localReplace == "" || len(modules) == 0 {
 		return nil
 	}
 	root := filepath.ToSlash(filepath.Join(filepath.Dir(localReplace), "ydx"))
-	out := make([]ydxReplace, 0, len(YdxModules))
-	for _, module := range YdxModules {
+	out := make([]ydxReplace, 0, len(modules))
+	for _, module := range modules {
 		relative := strings.TrimPrefix(module, YdxModule+"/")
 		out = append(out, ydxReplace{Module: module, PathQuoted: quoteModPath(root + "/" + relative)})
 	}
@@ -388,6 +406,12 @@ func outputPath(tmplPath, name string) string {
 	return path.Join(segments...)
 }
 
+// skipTemplate reports whether a template is excluded by the project's feature switches. |
+// skipTemplate 报告模板是否被项目特性开关排除。
+func skipTemplate(o Options, rel string) bool {
+	return !o.WAF && strings.HasPrefix(rel, projectDir+"/internal/waf/")
+}
+
 // plan 渲染全部模板并返回按路径排序的文件清单，不触碰目标文件系统。
 // plan renders every template and returns the file list sorted by path, without touching the target filesystem.
 func plan(o Options) ([]plannedFile, error) {
@@ -409,6 +433,9 @@ func plan(o Options) ([]plannedFile, error) {
 		}
 
 		rel := strings.TrimPrefix(p, templateRoot+"/")
+		if skipTemplate(o, rel) {
+			return nil
+		}
 		if strings.HasPrefix(rel, sharedDir+"/") {
 			// Verbatim copy (LICENSE and other fixed files stay byte-identical). | 原样复制（LICENSE、.gitignore、.gitattributes 等固定文件，逐字节保持一致）。
 			files = append(files, plannedFile{path: projectPrefix(o.Name) + path.Base(rel), content: data})

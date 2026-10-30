@@ -187,6 +187,8 @@ const (
 	YdModule = "github.com/shibingli/yd"
 	// YdxModule is the module path prefix of the reusable component repository. | YdxModule 是可复用组件仓库的模块路径前缀。
 	YdxModule = "github.com/shibingli/ydx"
+	// WAFYdxModule is the optional WAF component module path. | WAFYdxModule 是可选的 WAF 组件模块路径。
+	WAFYdxModule = "github.com/shibingli/ydx/middleware/waf"
 	// AssetRoot is the front-end asset root written into .yd.json. | AssetRoot 是生成项目的前端资产根目录，写入 .yd.json。
 	AssetRoot = "web"
 )

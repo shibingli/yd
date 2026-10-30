@@ -8,6 +8,10 @@ require (
 {{- range .YdxModules }}
 	{{ . }} v0.0.0-00010101000000-000000000000
 {{- end }}
+{{- if .WAF }}
+	{{ .WafModule }} v0.0.0-00010101000000-000000000000
+	github.com/corazawaf/coraza-coreruleset {{ .CRSRulesetVersion }}
+{{- end }}
 )
 
 replace {{ .YdModule }} => {{ .LocalReplaceQuoted }}
@@ -31,6 +35,10 @@ require (
 	{{ . }} {{ $version }}
 {{- end }}
 {{- end }}
+{{- if .WAF }}
+	{{ .WafModule }} {{ .WafModuleVersion }}
+	github.com/corazawaf/coraza-coreruleset {{ .CRSRulesetVersion }}
+{{- end }}
 )
 {{- else }}
 
@@ -38,4 +46,11 @@ require (
 // by go mod tidy once the modules are published. | 框架依赖 github.com/shibingli/yd 与
 // github.com/shibingli/ydx 在模块发布后由 go mod tidy 引入。
 // During development, point yd new at a local framework checkout with its --local-replace argument. | 开发期可用 yd new 的 --local-replace 参数指向本地框架仓库。
+{{- if .WAF }}
+
+require (
+	{{ .WafModule }} {{ .WafModuleVersion }}
+	github.com/corazawaf/coraza-coreruleset {{ .CRSRulesetVersion }}
+)
+{{- end }}
 {{- end }}
