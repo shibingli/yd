@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"io/fs"
 	"path"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -14,11 +15,13 @@ import (
 const tuneFileName = "yd-tuning.conf"
 
 // baseRuleFiles is the Go/HTML/SQL/JavaScript profile: protocol attacks, LFI/RFI/RCE, generic
-// JavaScript/SSRF, XSS and SQLi, with PHP/Java/IIS and the response-side groups excluded. |
+// JavaScript/SSRF, XSS and SQLi, with PHP/Java/IIS and the response-side groups excluded. The
+// Coraza-recommended file is deliberately absent: it references REQBODY_PROCESSOR_ERROR, which the
+// ydx engine does not implement, and its defaults are covered by ydxwaf.Options. |
 // baseRuleFiles 是 Go/HTML/SQL/JavaScript 画像：协议攻击、LFI/RFI/RCE、通用 JavaScript/SSRF、
-// XSS 与 SQLi；排除 PHP/Java/IIS 与响应侧规则组。
+// XSS 与 SQLi；排除 PHP/Java/IIS 与响应侧规则组。刻意不加载 Coraza 推荐配置文件：它引用
+// ydx 引擎未实现的 REQBODY_PROCESSOR_ERROR，其默认值已由 ydxwaf.Options 覆盖。
 var baseRuleFiles = []string{
-	"@coraza.conf-recommended",
 	"@crs-setup.conf.example",
 	tuneFileName,
 	"@owasp_crs/REQUEST-901-INITIALIZATION.conf",
@@ -87,17 +90,24 @@ func inlineDirectives(s settings) []string {
 	return out
 }
 
-// exclusionDirective renders one SecRuleUpdateTargetByTag line. A json.* prefix becomes an
-// anchored regex so nested keys are excluded as well. | exclusionDirective 渲染一条
-// SecRuleUpdateTargetByTag。json.* 前缀会变成锚定正则，从而同时排除嵌套键。
+// exclusionDirective renders one SecRuleUpdateTargetByTag line. A json.* entry names a JSON body
+// path; the engine flattens JSON leaves into ARGS and JSON without the json. prefix, so the entry
+// becomes an anchored regex over both collections and nested keys are excluded as well. |
+// exclusionDirective 渲染一条 SecRuleUpdateTargetByTag。json.* 条目表示 JSON 正文路径；引擎把
+// JSON 叶子扁平化进 ARGS 与 JSON 时不再保留 json. 前缀，因此该条目会变成作用于两个集合的锚定
+// 正则，从而同时排除嵌套键。
 func exclusionDirective(tag string, args []string) string {
 	if len(args) == 0 {
 		return ""
 	}
-	targets := make([]string, 0, len(args))
+	targets := make([]string, 0, len(args)*2)
 	for _, arg := range args {
-		if strings.HasPrefix(arg, "json.") {
-			targets = append(targets, "!ARGS:/^"+strings.ReplaceAll(arg, ".", `\.`)+`($|\.)/`)
+		if name, ok := strings.CutPrefix(arg, "json."); ok {
+			escaped := strings.ReplaceAll(name, ".", `\.`)
+			targets = append(targets,
+				"!ARGS:/^"+escaped+`($|\.)/`,
+				"!JSON:/^"+escaped+`($|\.)/`,
+			)
 			continue
 		}
 		targets = append(targets, "!ARGS:"+arg)
@@ -133,8 +143,21 @@ func (f tuneFS) ReadFile(name string) ([]byte, error) {
 // ReadDir implements fs.ReadDirFS. | ReadDir 实现 fs.ReadDirFS。
 func (f tuneFS) ReadDir(name string) ([]fs.DirEntry, error) { return fs.ReadDir(f.crs, name) }
 
-// Glob implements fs.GlobFS. | Glob 实现 fs.GlobFS。
-func (f tuneFS) Glob(pattern string) ([]string, error) { return fs.Glob(f.crs, pattern) }
+// Glob implements fs.GlobFS. The engine glob-expands every rule file, so the in-memory tune file
+// must appear as a match; otherwise loading fails with "rule file not found". | Glob 实现
+// fs.GlobFS。引擎会对每个规则文件做通配展开，因此内存 tune 文件必须作为匹配项出现；否则加载会以
+// “rule file not found” 失败。
+func (f tuneFS) Glob(pattern string) ([]string, error) {
+	matches, err := fs.Glob(f.crs, pattern)
+	if err != nil {
+		return nil, err
+	}
+	if ok, _ := path.Match(pattern, tuneFileName); ok {
+		matches = append(matches, tuneFileName)
+		slices.Sort(matches)
+	}
+	return matches, nil
+}
 
 // memFile is one in-memory rule file. | memFile 是一个内存规则文件。
 type memFile struct {

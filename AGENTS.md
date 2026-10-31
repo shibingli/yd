@@ -8,7 +8,7 @@
 - **Base64**：amd64 与 arm64 均为正式支持架构，默认使用自研 `ydx/base64` 内核（amd64 在 `GOEXPERIMENT=simd` 下按 VBMI2/VBMI → 基础 AVX-512 → AVX2 选择，arm64 手写 NEON），其它架构走纯 Go 标量；`b64x_std` 标签切换标准库。主模块不再依赖 cloudwego/base64x/cristalhq。
 - **环境自适应**：并行度、分块大小、缓冲与池上限一律由 `ydx/sysinfo` 在运行时读取 GOMAXPROCS、逻辑 CPU 数与 cgroup/主机内存后决定；库 API 不接收核心数或内存容量参数。
 - **基准报告**：所有基准统一在 `ydx/benchmarks/*`；单核/多核、全部对比库、CPU 与峰值 RSS 以 ydx 仓的 `benchmarks/README.md` 与各模块 README 为准。yd 仓库不保留 `benchmarks/` 目录。
-- **组件依赖**：`errs/json/base64/log/buffpool/afs/config/sysinfo/regexpx/router/gorm/redis/asynq/cron/cache/sse/websocket/render/jwt/guomi` 与中间件插件均由 `github.com/shibingli/ydx/*` 提供；yd 只按版本号引用，禁止本地 replace 或复制源码。
+- **组件依赖**：`errs/json/base64/log/buffpool/afs/config/sysinfo/regexpx/router/gorm/redis/asynq/cron/cache/sse/websocket/render/jwt/guomi/waf` 与中间件插件均由 `github.com/shibingli/ydx/*` 提供；yd 只按版本号引用，禁止本地 replace 或复制源码。
 - SIMD 相关构建与测试使用 `GOEXPERIMENT=simd`；Go 1.27.3+ 若已默认启用可省略。
 
 ## 1. 修改权限边界
@@ -72,6 +72,11 @@
 - [ ] **客户端地址**：按 IP 限流、审计或风控必须用 `KeyRemoteIP(trusted)` / `Ctx.ClientIP(trusted)`，不得用无条件信任代理头的 `RealIP()`；`TrustedProxies` 为空时只看对端地址。
 - [ ] **正则安全**：所有正则必须经 `ydx/regexpx`，禁止直接 `import "regexp"`、`"github.com/dlclark/regexp2"` 或任何其它正则引擎；不含环视/反向引用的模式走自研 Pike VM 线性引擎，需要 .NET 构造的模式走自研回溯 VM + 强制超时，不得关闭超时；批量扫描不得引入 .NET 构造而掉到回溯路径。
 - [ ] **版本同步**：改动 `go.mod` 或 `web/assets.lock.json` 后必须运行 `yd versions sync`；提交里必须同时包含 `tooling/scaffold/version_generated.go` 的更新，且 `yd versions check` 通过。
+- [ ] **WAF 与中间件顺序**：生成项目的全局顺序固定为
+      `recover → request-id → access-log → security → compress → cors → waf → i18n → static-cache`；
+      WAF 在 security 之后（403 仍带安全头）、i18n 与业务链之前。WAF 依赖只允许
+      `ydx/waf` 与 `coraza-coreruleset/crs/v4`（及其 `libinjection-go`、`wazero`），
+      旧 Coraza/goccy/gjson 不得回归；`TestGeneratedWAFModuleGraphIsLean` 守卫生成项目的模块图。
 - [ ] **请求边界**：外部输入必须限长（WebSocket `MaxMessageSize`、请求体 `MaxBytesReader`），并设置读写超时。
 - [ ] **htmx 4 实时通道**：`hx-ws:send` 必须位于 `hx-ws:connect` 元素内部（扩展用 `closest()` 向上找连接，
       否则报 “No WebSocket connection found” 且消息不会发出）；下行只交换 `content`，旧 `BODY` 不会渲染；

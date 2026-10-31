@@ -73,11 +73,6 @@ type SelfUpdateOptions struct {
 	// BinaryPath is the file or directory to replace; empty means the running executable. | BinaryPath
 	// 是要替换的文件或目录；为空表示运行中的可执行文件。
 	BinaryPath string
-	// Force permits re-installing the current version or downgrading. | Force 允许重装当前版本或降级。
-	Force bool
-	// SkipVerify disables running the staged binary; tests use it with synthetic payloads. | SkipVerify
-	// 关闭对暂存二进制的执行校验；测试用它配合合成载荷。
-	SkipVerify bool
 	// ReleaseBaseURL overrides the public release endpoint, primarily for tests. | ReleaseBaseURL
 	// 覆盖公开 Release 端点，主要供测试使用。
 	ReleaseBaseURL string
@@ -88,6 +83,11 @@ type SelfUpdateOptions struct {
 	// GOARCH 选择 Release 资产；为空时使用运行平台。
 	GOOS   string
 	GOARCH string
+	// Force permits re-installing the current version or downgrading. | Force 允许重装当前版本或降级。
+	Force bool
+	// SkipVerify disables running the staged binary; tests use it with synthetic payloads. | SkipVerify
+	// 关闭对暂存二进制的执行校验；测试用它配合合成载荷。
+	SkipVerify bool
 }
 
 // SelfUpdateResult describes one self-update attempt. | SelfUpdateResult 描述一次自更新尝试。
@@ -101,10 +101,10 @@ type SelfUpdateResult struct {
 	// Backup is the previous file kept for rollback, empty when it was cleaned. | Backup 是为回滚
 	// 保留的旧文件；已清理时为空。
 	Backup string
-	// Updated reports whether the binary was replaced. | Updated 表示二进制是否已被替换。
-	Updated bool
 	// Reason explains a skipped update. | Reason 说明跳过更新的原因。
 	Reason string
+	// Updated reports whether the binary was replaced. | Updated 表示二进制是否已被替换。
+	Updated bool
 }
 
 // UpdateSelf downloads a released yd binary, verifies its checksum and replaces the current or

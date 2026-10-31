@@ -11,6 +11,7 @@
 package completion
 
 import (
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -131,7 +132,15 @@ func runSyntaxMatrix(t *testing.T, label string, reg Registry) {
 				}
 				checked++
 				path := writeScript(t, sh, reg)
-				out, err := exec.Command(bin, check.args(path)...).CombinedOutput()
+				// Run from the script's directory and pass only its base name. The interpreter on PATH
+				// may be WSL bash, which cannot open a Windows path such as E:\Temp\...; a relative
+				// name works for WSL, Git Bash and every POSIX shell alike. | 从脚本目录运行并只传
+				// 基名。PATH 上的解释器可能是 WSL bash，无法打开 E:\Temp\... 这类 Windows 路径；
+				// 相对文件名对 WSL、Git Bash 与所有 POSIX shell 都成立。
+				scriptDir, scriptName := filepath.Split(path)
+				cmd := exec.Command(bin, check.args(scriptName)...)
+				cmd.Dir = scriptDir
+				out, err := cmd.CombinedOutput()
 				if err != nil {
 					t.Fatalf("%s rejected the generated script | %s 拒绝了生成的脚本: %v\n%s", bin, bin, err, out)
 				}
@@ -264,16 +273,32 @@ func TestGeneratedBashScriptLoadsAndRegisters(t *testing.T) {
 	}
 	path := writeScript(t, Bash, fixtureRegistry())
 
-	// $1 is the script, $2 is the program word; -c takes the program name as the next argument. | $1 是脚本，
-	// $2 是程序词；-c 之后的第一个参数是程序名。
-	driver := `source "$1" || exit 9; complete -p "$2"`
-	out, err := exec.Command(bin, "--noprofile", "--norc", "-c", driver, "yd-completion-test", path, fixtureRegistry().Program).CombinedOutput()
+	// Run a driver file from the script's directory. WSL's bash launcher does not forward
+	// positional arguments after -c and cannot open a Windows path, so the script and program
+	// names are embedded as quoted shell words instead of $1/$2. | 从脚本目录运行驱动文件。
+	// WSL 的 bash 启动器不会转发 -c 之后的位置参数，也无法打开 Windows 路径，因此脚本名与
+	// 程序名以带引号的 shell 词内嵌，而不是 $1/$2。
+	scriptDir, scriptName := filepath.Split(path)
+	driver := fmt.Sprintf("source %s || exit 9\ncomplete -p %s\n", shellQuote(scriptName), shellQuote(fixtureRegistry().Program))
+	driverPath := filepath.Join(scriptDir, "driver.sh")
+	if err := os.WriteFile(driverPath, []byte(driver), 0o644); err != nil {
+		t.Fatalf("write driver failed | 写入驱动脚本失败: %v", err)
+	}
+	cmd := exec.Command(bin, "--noprofile", "--norc", "driver.sh")
+	cmd.Dir = scriptDir
+	out, err := cmd.CombinedOutput()
 	if err != nil {
 		t.Fatalf("source failed | source 失败: %v\n%s", err, out)
 	}
 	if got, want := strings.TrimSpace(string(out)), "complete -o default -F _yd_completion yd"; got != want {
 		t.Errorf("loading the script printed or registered %q, want %q | 加载脚本的输出或注册结果不符", got, want)
 	}
+}
+
+// shellQuote renders value as one single-quoted POSIX shell word. | shellQuote 把 value 渲染为一个
+// 单引号的 POSIX shell 词。
+func shellQuote(value string) string {
+	return "'" + strings.ReplaceAll(value, "'", `'\''`) + "'"
 }
 
 // powerShellProbeDriver asks PowerShell what it would offer at five cursors, one line per cursor. | powerShellProbeDriver

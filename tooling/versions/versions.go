@@ -147,9 +147,10 @@ func HasScaffold(fsys afero.Fs, dir string) bool {
 }
 
 // WafDepsDir is the nested module holding the optional WAF dependencies. Keeping them in a
-// separate module stops Coraza and its transitive requirements (including goccy) from entering
-// the framework's root go.mod. | WafDepsDir 是承载可选 WAF 依赖的嵌套模块。把它们放在独立模块中，
-// 可阻止 Coraza 及其传递依赖（含 goccy）进入框架根 go.mod。
+// separate module stops the WAF engine's third-party requirements (libinjection-go and wazero)
+// and the CRS rule bundle from entering the framework's root go.mod. | WafDepsDir 是承载可选
+// WAF 依赖的嵌套模块。把它们放在独立模块中，可阻止 WAF 引擎的第三方依赖（libinjection-go 与
+// wazero）以及 CRS 规则包进入框架根 go.mod。
 const WafDepsDir = "tooling/versions/waf"
 
 // wafDepsGoModPath is the nested module file relative to the project directory. | wafDepsGoModPath
@@ -158,11 +159,11 @@ const wafDepsGoModPath = WafDepsDir + "/go.mod"
 
 // wafModulePath is the ydx WAF module path pinned by the nested module. | wafModulePath 是嵌套模块
 // 锁定的 ydx WAF 模块路径。
-const wafModulePath = "github.com/shibingli/ydx/middleware/waf"
+const wafModulePath = "github.com/shibingli/ydx/waf"
 
 // wafCRSModulePath is the OWASP CRS module path pinned by the nested module. | wafCRSModulePath 是
 // 嵌套模块锁定的 OWASP CRS 模块路径。
-const wafCRSModulePath = "github.com/corazawaf/coraza-coreruleset"
+const wafCRSModulePath = "github.com/corazawaf/coraza-coreruleset/crs/v4"
 
 // HasWafDeps reports whether dir contains the nested WAF dependency module. | HasWafDeps 报告 dir
 // 是否包含嵌套 WAF 依赖模块。

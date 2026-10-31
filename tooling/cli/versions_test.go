@@ -29,8 +29,8 @@ const versionsWAFGoMod = `module github.com/shibingli/yd/tooling/versions/waf
 go 1.27.3
 
 require (
-	github.com/corazawaf/coraza-coreruleset v0.0.0-20240226094324-415b1017abdc
-	github.com/shibingli/ydx/middleware/waf v0.1.0
+	github.com/corazawaf/coraza-coreruleset/crs/v4 v4.29.0
+	github.com/shibingli/ydx/waf v0.1.4
 )
 `
 

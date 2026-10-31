@@ -5,14 +5,13 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/corazawaf/coraza-coreruleset"
+	crs "github.com/corazawaf/coraza-coreruleset/crs/v4"
 )
 
 // TestBaseRulesAreTheGoProfile pins the exact CRS subset. | TestBaseRulesAreTheGoProfile 钉住精确的
 // CRS 子集。
 func TestBaseRulesAreTheGoProfile(t *testing.T) {
 	want := []string{
-		"@coraza.conf-recommended",
 		"@crs-setup.conf.example",
 		tuneFileName,
 		"@owasp_crs/REQUEST-901-INITIALIZATION.conf",
@@ -31,6 +30,18 @@ func TestBaseRulesAreTheGoProfile(t *testing.T) {
 	if !reflect.DeepEqual(baseRuleFiles, want) {
 		t.Fatalf("baseRuleFiles = %v", baseRuleFiles)
 	}
+	for _, unwanted := range baseRuleFiles {
+		if unwanted == "@coraza.conf-recommended" {
+			t.Fatal("the Coraza-recommended file is not supported by the ydx engine | ydx 引擎不支持 Coraza 推荐配置文件")
+		}
+	}
+	if crs.Version == "" {
+		t.Fatal("CRS version is empty | CRS 版本为空")
+	}
+	if !strings.HasPrefix(crs.Version, "v4.") {
+		t.Fatalf("CRS version = %q, want the v4 line; a major upgrade requires re-validating the WAF profile | CRS 版本 = %q，期望 v4 线；大版本升级必须重新验证 WAF 画像", crs.Version, crs.Version)
+	}
+	t.Logf("CRS version: %s | CRS 版本: %s", crs.Version, crs.Version)
 }
 
 // TestTuneSetsMethodWhitelist keeps PUT/PATCH/DELETE/CONNECT out of the 911 false-positive path. |
@@ -60,7 +71,8 @@ func TestInlineDirectivesRemovePHPSubrulesAndExcludeFields(t *testing.T) {
 		"SecRuleRemoveById 934140 934150 934170",
 		"ctl:requestBodyProcessor=JSON",
 		`!ARGS:body_markdown`,
-		`!ARGS:/^json\.design($|\.)/`,
+		`!ARGS:/^design($|\.)/`,
+		`!JSON:/^design($|\.)/`,
 	} {
 		if !strings.Contains(got, want) {
 			t.Errorf("directives 缺少 %q:\n%s", want, got)
@@ -71,11 +83,30 @@ func TestInlineDirectivesRemovePHPSubrulesAndExcludeFields(t *testing.T) {
 // TestTuneFSReadsTuneAndDelegatesCRS proves the overlay serves the tune file and the CRS tree. |
 // TestTuneFSReadsTuneAndDelegatesCRS 证明叠加层提供 tune 文件与 CRS 规则树。
 func TestTuneFSReadsTuneAndDelegatesCRS(t *testing.T) {
-	f := tuneFS{crs: coreruleset.FS, tune: []byte("tune")}
+	f := tuneFS{crs: crs.FS, tune: []byte("tune")}
 	if got, err := f.ReadFile(tuneFileName); err != nil || string(got) != "tune" {
 		t.Fatalf("tune = %q, %v", got, err)
 	}
 	if got, err := f.ReadFile("@owasp_crs/REQUEST-941-APPLICATION-ATTACK-XSS.conf"); err != nil || len(got) == 0 {
 		t.Fatalf("CRS 委派失败: %v", err)
+	}
+}
+
+// TestTuneFSGlobFindsTuneFile proves the tune file participates in glob expansion. The engine
+// glob-expands every top-level rule file, so a missing match aborts the whole build. |
+// TestTuneFSGlobFindsTuneFile 证明 tune 文件参与通配展开。引擎会对每个顶层规则文件做通配展开，
+// 缺少匹配项会让整个构建失败。
+func TestTuneFSGlobFindsTuneFile(t *testing.T) {
+	f := tuneFS{crs: crs.FS, tune: []byte("tune")}
+	matches, err := f.Glob(tuneFileName)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(matches) != 1 || matches[0] != tuneFileName {
+		t.Fatalf("Glob(%q) = %v, want [%s]", tuneFileName, matches, tuneFileName)
+	}
+	crsMatches, err := f.Glob("@owasp_crs/REQUEST-941-APPLICATION-ATTACK-XSS.conf")
+	if err != nil || len(crsMatches) != 1 {
+		t.Fatalf("CRS glob = %v, %v", crsMatches, err)
 	}
 }

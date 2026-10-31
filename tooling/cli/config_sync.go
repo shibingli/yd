@@ -80,20 +80,6 @@ func parseSyncConfigMode(raw string) (syncConfigMode, error) {
 type syncConfigReport struct {
 	// Mode is the requested configuration mode. | Mode 是请求的配置模式。
 	Mode syncConfigMode
-	// Baseline reports whether a baseline existed when planning started. | Baseline 表示规划开始时是否
-	// 已有基线。
-	Baseline bool
-	// BaselineWritten reports whether the baseline will be written. | BaselineWritten 表示基线将被写入。
-	BaselineWritten bool
-	// BaselineInvalid reports an unreadable or malformed baseline snapshot. | BaselineInvalid 表示
-	// 基线快照无法解析或格式非法。
-	BaselineInvalid bool
-	// Kept reports that the baseline file itself was preserved. | Kept 表示基线文件本体被保留。
-	Kept bool
-	// Merged reports a three-way or adoption merge. | Merged 表示执行了三方合并或迁移合并。
-	Merged bool
-	// Overwritten reports an explicit baseline replacement. | Overwritten 表示显式替换了基线。
-	Overwritten bool
 	// Sidecar is the legacy template sidecar path, when one is written. | Sidecar 是写入的旧式模板旁路
 	// 文件路径。
 	Sidecar string
@@ -116,6 +102,20 @@ type syncConfigReport struct {
 	// DeletedKeys lists keys deleted by the user and therefore not carried into the local file. |
 	// DeletedKeys 列出用户删除、因此不会进入本地文件的键。
 	DeletedKeys []string
+	// Baseline reports whether a baseline existed when planning started. | Baseline 表示规划开始时是否
+	// 已有基线。
+	Baseline bool
+	// BaselineWritten reports whether the baseline will be written. | BaselineWritten 表示基线将被写入。
+	BaselineWritten bool
+	// BaselineInvalid reports an unreadable or malformed baseline snapshot. | BaselineInvalid 表示
+	// 基线快照无法解析或格式非法。
+	BaselineInvalid bool
+	// Kept reports that the baseline file itself was preserved. | Kept 表示基线文件本体被保留。
+	Kept bool
+	// Merged reports a three-way or adoption merge. | Merged 表示执行了三方合并或迁移合并。
+	Merged bool
+	// Overwritten reports an explicit baseline replacement. | Overwritten 表示显式替换了基线。
+	Overwritten bool
 	// ParseWarning reports that a legacy diff could not be produced. | ParseWarning 表示旧项目差异无法
 	// 生成。
 	ParseWarning bool
@@ -125,11 +125,11 @@ type syncConfigReport struct {
 type syncConfigPlan struct {
 	// Files are the baseline, local and sidecar writes. | Files 是基线、本地覆盖与旁路文件的写入项。
 	Files []syncFile
+	// Report explains what happened without exposing values. | Report 在不暴露值的前提下说明处理结果。
+	Report syncConfigReport
 	// Unchanged counts configuration files already identical to the target content. | Unchanged 统计已
 	// 与目标内容一致的配置文件。
 	Unchanged int
-	// Report explains what happened without exposing values. | Report 在不暴露值的前提下说明处理结果。
-	Report syncConfigReport
 }
 
 // addFile plans one configuration file write and records whether it was already current. | addFile

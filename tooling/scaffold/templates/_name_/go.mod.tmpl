@@ -10,7 +10,7 @@ require (
 {{- end }}
 {{- if .WAF }}
 	{{ .WafModule }} v0.0.0-00010101000000-000000000000
-	github.com/corazawaf/coraza-coreruleset {{ .CRSRulesetVersion }}
+	{{ .WafCRSModule }} {{ .CRSRulesetVersion }}
 {{- end }}
 )
 
@@ -37,7 +37,7 @@ require (
 {{- end }}
 {{- if .WAF }}
 	{{ .WafModule }} {{ .WafModuleVersion }}
-	github.com/corazawaf/coraza-coreruleset {{ .CRSRulesetVersion }}
+	{{ .WafCRSModule }} {{ .CRSRulesetVersion }}
 {{- end }}
 )
 {{- else }}
@@ -50,7 +50,7 @@ require (
 
 require (
 	{{ .WafModule }} {{ .WafModuleVersion }}
-	github.com/corazawaf/coraza-coreruleset {{ .CRSRulesetVersion }}
+	{{ .WafCRSModule }} {{ .CRSRulesetVersion }}
 )
 {{- end }}
 {{- end }}

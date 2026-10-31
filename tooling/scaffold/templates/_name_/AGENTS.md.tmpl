@@ -183,9 +183,15 @@
 
 ## WAF（强制）
 
-- 项目默认带 `internal/waf` 并启用 WAF；`yd new --waf=false` 完全省略该包、配置段与 Coraza 依赖。
+- 项目默认带 `internal/waf` 并启用 WAF；`yd new --waf=false` 完全省略该包、配置段与任何 WAF 依赖。
+- 引擎是 `github.com/shibingli/ydx/waf`（自研 SecLang，不再内嵌 Coraza），规则来自
+  `github.com/corazawaf/coraza-coreruleset/crs/v4 v4.29.0`。
+- **全局中间件顺序固定**：`recover → request-id → access-log → security → compress → cors → waf → i18n → static-cache`；
+  WAF 在 security 之后、i18n 与业务链之前，403 必须带安全头。
 - **WAF 独占 `config.Watch` 的单回调槽**：业务代码不得再调用 `cfg.Watch`，否则热启停静默失效。
 - 启停与调优只改 `configs/config.yaml` 的 `waf.*`；`waf.enabled` 缺键按 `true` 处理。
+- `waf.request_body_limit` 超限返回 413；`request_body_in_memory_limit` 已删除并忽略。
+- **不加载 `@coraza.conf-recommended`**：它引用新引擎未实现的 `REQBODY_PROCESSOR_ERROR` 宏。
 - 规则 ID `900001-900010` 为保留段；任何 WAF 变更后跑 `go test ./internal/waf`。
 - 完整说明见 `docs/waf.md`。
 {{- end }}

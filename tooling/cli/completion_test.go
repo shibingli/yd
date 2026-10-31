@@ -13,6 +13,7 @@ package cli
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -679,6 +680,12 @@ func TestCompletionUsageErrors(t *testing.T) {
 // 真实的 bash，因为补全脚本唯一有意义的测试就是 shell 会拿它做什么：`bash -n` 证明它可解析，source 证明它加载时
 // 安静，四个 COMPREPLY 探针则证明它在命令位置给出命令、在命令之后给出标志、在取值标志之后什么都不给、在位置参数处
 // 什么都不给。
+// bashQuote renders value as one single-quoted POSIX shell word. | bashQuote 把 value 渲染为一个
+// 单引号的 POSIX shell 词。
+func bashQuote(value string) string {
+	return "'" + strings.ReplaceAll(value, "'", `'\''`) + "'"
+}
+
 func TestCompletionBashScriptIsValidAndCompletes(t *testing.T) {
 	bin, err := exec.LookPath("bash")
 	if err != nil {
@@ -693,7 +700,15 @@ func TestCompletionBashScriptIsValidAndCompletes(t *testing.T) {
 	if err := os.WriteFile(path, te.out.Bytes(), 0o644); err != nil {
 		t.Fatalf("write failed | 写入失败: %v", err)
 	}
-	if out, err := exec.Command(bin, "--noprofile", "--norc", "-n", path).CombinedOutput(); err != nil {
+	// Run bash from the script's directory and pass only its base name. The bash on PATH may be
+	// WSL, where a Windows path such as E:\Temp\... is not a valid Linux path; a relative name
+	// works for WSL, Git Bash and every POSIX shell alike. | 从脚本目录运行 bash 并只传基名。
+	// PATH 上的 bash 可能是 WSL，Windows 路径（如 E:\Temp\...）在其中无效；相对文件名对 WSL、
+	// Git Bash 与所有 POSIX shell 都成立。
+	scriptDir, scriptName := filepath.Split(path)
+	parse := exec.Command(bin, "--noprofile", "--norc", "-n", scriptName)
+	parse.Dir = scriptDir
+	if out, err := parse.CombinedOutput(); err != nil {
 		t.Fatalf("bash -n rejected the script | bash -n 拒绝了脚本: %v\n%s", err, out)
 	}
 
@@ -701,21 +716,32 @@ func TestCompletionBashScriptIsValidAndCompletes(t *testing.T) {
 	// while the script is loaded - a word, a warning - fails the test instead of hiding in the scrollback.
 	// | 输出的每一行都带前缀标明它报告的内容，因此加载脚本时冒出来的任何别的输出（一个词、一句警告）都会让测试失败，
 	// 而不是消失在回滚缓冲里。
-	driver := `source "$1" || exit 9
-reg=$(complete -p "$2") || exit 8
+	// WSL's bash launcher does not forward positional arguments after -c, so the script and command
+	// names travel as quoted shell variables instead of $1/$2. | WSL 的 bash 启动器不会转发 -c 之后
+	// 的位置参数，因此脚本名与命令名通过带引号的 shell 变量传递，而不是 $1/$2。
+	driver := fmt.Sprintf(`yd_script=%s
+yd_cmd=%s
+source "$yd_script" || exit 9
+reg=$(complete -p "$yd_cmd") || exit 8
 echo "reg:${reg}"
-COMP_WORDS=("$2" ''); COMP_CWORD=1; _yd_completion; echo "cmds:${#COMPREPLY[@]}:${COMPREPLY[*]}"
-COMP_WORDS=("$2" build --); COMP_CWORD=2; _yd_completion; echo "flags:${#COMPREPLY[@]}:${COMPREPLY[*]}"
-COMP_WORDS=("$2" build --output ''); COMP_CWORD=3; _yd_completion; echo "value:${#COMPREPLY[@]}:${COMPREPLY[*]}"
-COMP_WORDS=("$2" gen ''); COMP_CWORD=2; _yd_completion; echo "pos:${#COMPREPLY[@]}:${COMPREPLY[*]}"
-COMP_WORDS=("$2" completion ''); COMP_CWORD=2; _yd_completion; echo "completion:${#COMPREPLY[@]}:${COMPREPLY[*]}"
-COMP_WORDS=("$2" assets ''); COMP_CWORD=2; _yd_completion; echo "assets:${#COMPREPLY[@]}:${COMPREPLY[*]}"
-COMP_WORDS=("$2" tools install ''); COMP_CWORD=3; _yd_completion; echo "tools:${#COMPREPLY[@]}:${COMPREPLY[*]}"
-COMP_WORDS=("$2" assets --manifest lock.json ''); COMP_CWORD=4; _yd_completion; echo "skipflag:${#COMPREPLY[@]}:${COMPREPLY[*]}"
-COMP_WORDS=("$2" --config cfg assets ''); COMP_CWORD=4; _yd_completion; echo "skipglobal:${#COMPREPLY[@]}:${COMPREPLY[*]}"
-COMP_WORDS=("$2" assets list ''); COMP_CWORD=3; _yd_completion; echo "noposition:${#COMPREPLY[@]}:${COMPREPLY[*]}"
-COMP_WORDS=("$2" --); COMP_CWORD=1; _yd_completion; echo "globals:${#COMPREPLY[@]}:${COMPREPLY[*]}"`
-	out, err := exec.Command(bin, "--noprofile", "--norc", "-c", driver, "yd-completion-test", filepath.ToSlash(path), "yd").CombinedOutput()
+COMP_WORDS=("$yd_cmd" ''); COMP_CWORD=1; _yd_completion; echo "cmds:${#COMPREPLY[@]}:${COMPREPLY[*]}"
+COMP_WORDS=("$yd_cmd" build --); COMP_CWORD=2; _yd_completion; echo "flags:${#COMPREPLY[@]}:${COMPREPLY[*]}"
+COMP_WORDS=("$yd_cmd" build --output ''); COMP_CWORD=3; _yd_completion; echo "value:${#COMPREPLY[@]}:${COMPREPLY[*]}"
+COMP_WORDS=("$yd_cmd" gen ''); COMP_CWORD=2; _yd_completion; echo "pos:${#COMPREPLY[@]}:${COMPREPLY[*]}"
+COMP_WORDS=("$yd_cmd" completion ''); COMP_CWORD=2; _yd_completion; echo "completion:${#COMPREPLY[@]}:${COMPREPLY[*]}"
+COMP_WORDS=("$yd_cmd" assets ''); COMP_CWORD=2; _yd_completion; echo "assets:${#COMPREPLY[@]}:${COMPREPLY[*]}"
+COMP_WORDS=("$yd_cmd" tools install ''); COMP_CWORD=3; _yd_completion; echo "tools:${#COMPREPLY[@]}:${COMPREPLY[*]}"
+COMP_WORDS=("$yd_cmd" assets --manifest lock.json ''); COMP_CWORD=4; _yd_completion; echo "skipflag:${#COMPREPLY[@]}:${COMPREPLY[*]}"
+COMP_WORDS=("$yd_cmd" --config cfg assets ''); COMP_CWORD=4; _yd_completion; echo "skipglobal:${#COMPREPLY[@]}:${COMPREPLY[*]}"
+COMP_WORDS=("$yd_cmd" assets list ''); COMP_CWORD=3; _yd_completion; echo "noposition:${#COMPREPLY[@]}:${COMPREPLY[*]}"
+COMP_WORDS=("$yd_cmd" --); COMP_CWORD=1; _yd_completion; echo "globals:${#COMPREPLY[@]}:${COMPREPLY[*]}"`, bashQuote(scriptName), bashQuote("yd"))
+	driverPath := filepath.Join(scriptDir, "driver.sh")
+	if err := os.WriteFile(driverPath, []byte(driver), 0o644); err != nil {
+		t.Fatalf("write driver failed | 写入驱动脚本失败: %v", err)
+	}
+	driverCmd := exec.Command(bin, "--noprofile", "--norc", "driver.sh")
+	driverCmd.Dir = scriptDir
+	out, err := driverCmd.CombinedOutput()
 	if err != nil {
 		t.Fatalf("sourcing the script failed | source 脚本失败: %v\n%s", err, out)
 	}

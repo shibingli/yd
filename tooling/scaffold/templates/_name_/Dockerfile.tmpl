@@ -40,9 +40,11 @@ RUN if [ "$YD_INCLUDE_UPX" = "true" ] && [ -x /src/.yd/upx/upx ]; then \
 # 配置文件默认打进镜像：只复制基线 config.yaml，不复制可能含密钥的 config.local.yaml；
 # 运行时可用 -v 挂载覆盖，YD_* 环境变量仍具有最高优先级；--no-config 可生成完全由环境变量驱动的镜像。
 ARG YD_INCLUDE_CONFIG=true
-# /out/tmp 供 scratch 运行时的临时文件使用：WAF 会把超过内存上限的请求正文落盘，缺少 /tmp 会让
-# 这类请求以 500 失败。| /out/tmp feeds the scratch runtime's temporary directory: the WAF spills
-# request bodies above the in-memory limit to disk, and a missing /tmp turns those requests into 500s.
+# /out/tmp 供 scratch 运行时的临时文件使用（数据库排序溢出、原子写等）；缺少可写 /tmp 时依赖
+# 临时目录的运行路径会失败。WAF 正文不再落盘，但运行时仍需要这个目录。
+# /out/tmp feeds the scratch runtime's temporary directory (database sort spills, atomic writes and
+# similar); without a writable /tmp those paths fail. WAF bodies no longer spill to disk, but the
+# runtime still needs the directory.
 RUN mkdir -p /out/configs /out/data /out/tmp && chmod 1777 /out/tmp && \
     if [ "$YD_INCLUDE_CONFIG" = "true" ] && [ -f configs/config.yaml ]; then \
         cp configs/config.yaml /out/configs/config.yaml; \
@@ -73,9 +75,8 @@ ENV YD_CONFIG_DIR=/configs
 COPY --from=builder /out/configs /configs
 COPY --from=builder /out/data /data
 
-# WAF 正文缓冲的临时目录：scratch 必须显式提供 /tmp，否则超过内存上限的请求会以 500 失败。
-# Temporary directory for WAF body buffering: scratch must provide /tmp explicitly, or requests
-# above the in-memory limit fail with 500.
+# 运行时临时目录：scratch 必须显式提供 /tmp，供数据库与原子写等路径使用。
+# Runtime temporary directory: scratch must provide /tmp explicitly for database and atomic-write paths.
 ENV TMPDIR=/tmp
 COPY --from=builder /out/tmp /tmp
 

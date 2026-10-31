@@ -8,7 +8,7 @@ import (
 
 	"{{ .YdxModule }}/afs"
 	"{{ .YdxModule }}/config"
-	ydxwaf "{{ .YdxModule }}/middleware/waf"
+	ydxwaf "{{ .YdxModule }}/waf"
 )
 
 // testConfig builds a layered configuration from an in-memory config.yaml. | testConfig 从内存
@@ -106,8 +106,6 @@ func TestSettingsRejectsInvalidValues(t *testing.T) {
 		"waf:\n  paranoia_level: 5\n",
 		"waf:\n  anomaly_threshold: -1\n",
 		"waf:\n  request_body_limit: -1\n",
-		"waf:\n  request_body_in_memory_limit: -1\n",
-		"waf:\n  request_body_limit: 1024\n  request_body_in_memory_limit: 2048\n",
 		"waf:\n  trusted_proxies: [not-a-cidr]\n",
 		"waf:\n  exclude_args: [\"bad name\"]\n",
 		"waf:\n  exclude_paths: [relative]\n",
@@ -117,6 +115,21 @@ func TestSettingsRejectsInvalidValues(t *testing.T) {
 		if _, err := settingsFrom(testConfig(t, body)); !errors.Is(err, ErrConfig) {
 			t.Errorf("%q: err = %v, want ErrConfig", body, err)
 		}
+	}
+}
+
+// TestSettingsIgnoreRemovedInMemoryLimit keeps an upgraded project with the old key in its local
+// configuration bootable. The engine now buffers up to request_body_limit in memory and rejects
+// anything larger with 413, so the removed key no longer participates in validation. |
+// TestSettingsIgnoreRemovedInMemoryLimit 让本地配置仍带旧键的升级项目可以启动。引擎现在最多把
+// request_body_limit 大小的正文缓冲在内存中，超限直接返回 413，因此已删除的键不再参与校验。
+func TestSettingsIgnoreRemovedInMemoryLimit(t *testing.T) {
+	s, err := settingsFrom(testConfig(t, "waf:\n  request_body_in_memory_limit: -1\n"))
+	if err != nil {
+		t.Fatalf("removed key must be ignored | 已删除的键必须被忽略: %v", err)
+	}
+	if s.requestBodyLimit != defaultRequestBodyLimit {
+		t.Fatalf("requestBodyLimit = %d, want %d", s.requestBodyLimit, defaultRequestBodyLimit)
 	}
 }
 

@@ -193,11 +193,15 @@ func assemble(log *ydlog.Logger) (*app.App, error) {
 		return nil, errs.Wrap(err, ErrAssemble)
 	}
 
-	// 中间件顺序与 app.Default 保持一致（恢复 → 请求 ID → 访问日志 → 压缩 → CORS），
-	// 其后追加本项目的补充中间件：顺序即执行顺序，安全头必须在最外层之外尽早生效。
-	// The middleware order matches app.Default (recover → request id → access log → compress → CORS)
-	// with this project's extras appended: the order is the execution order, and security headers should land as early
-	// as possible; the static cache joins last so it can write the final Vary header.
+	// 全局中间件顺序固定为：恢复 → 请求 ID → 访问日志 → 安全响应头 → 压缩 → CORS → WAF → i18n → 静态缓存。
+	// 顺序即执行顺序，不可随意调换：安全头先于压缩、CORS 与 WAF 写入，WAF 拦截的 403 也带安全头；
+	// CORS 先于 WAF，预检请求因此无需进入规则引擎；WAF 先于 i18n 与业务链，攻击请求在进入鉴权或数据库之前
+	// 就被拒绝。静态缓存最后登记，才能写出最终的 Vary 头。
+	// The global middleware order is fixed: recover → request id → access log → security headers → compress →
+	// CORS → WAF → i18n → static cache. The order is the execution order and must not be rearranged: security
+	// headers are written before compression, CORS and the WAF, so even a WAF 403 carries them; CORS precedes the WAF
+	// so preflight requests never enter the rule engine; the WAF precedes i18n and the business chain so attacks are
+	// rejected before authentication or database work. The static cache registers last so it can write the final Vary.
 	// 每个内建中间件都经 UseObserved 同时登记运行时描述符：首页的中间件卡片因此开箱即有数据，
 	// 自定义中间件也可以走同一条路径加入，而不必修改框架。
 	// Every built-in middleware registers its runtime descriptor through UseObserved, so the home middleware card
@@ -205,9 +209,9 @@ func assemble(log *ydlog.Logger) (*app.App, error) {
 	application.UseObserved(middleware.MetricsDescriptor("recover"), ydmw.Recover(log))
 	application.UseObserved(middleware.MetricsDescriptor("request-id"), ydmw.RequestID(""))
 	application.UseObserved(middleware.MetricsDescriptor("access-log"), ydmw.AccessLog(log))
+	application.UseObserved(middleware.MetricsDescriptor("security"), middleware.Security())
 	application.UseObserved(middleware.MetricsDescriptor("compress"), ydmw.Compress(ydmw.CompressOptions{}))
 	application.UseObserved(middleware.MetricsDescriptor("cors"), ydmw.CORS(ydmw.CORSOptions{}))
-	application.UseObserved(middleware.MetricsDescriptor("security"), middleware.Security())
 {{- if .WAF }}
 
 	// WAF 位于安全头之后、i18n 与业务链之前：拦截响应仍带安全头，请求先过规则再进入业务；

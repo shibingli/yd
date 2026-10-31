@@ -10,13 +10,13 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/corazawaf/coraza-coreruleset"
+	crs "github.com/corazawaf/coraza-coreruleset/crs/v4"
 
 	"{{ .YdxModule }}/config"
 	"{{ .YdxModule }}/errs"
 	"{{ .YdxModule }}/log"
-	ydxwaf "{{ .YdxModule }}/middleware/waf"
 	"{{ .YdxModule }}/router"
+	ydxwaf "{{ .YdxModule }}/waf"
 )
 
 // ErrEngine reports a WAF engine that could not be built. | ErrEngine 表示 WAF 引擎构建失败。
@@ -221,12 +221,12 @@ func optionsFor(s settings, logger *log.Logger) ydxwaf.Options {
 	ruleFiles = append(ruleFiles, baseRuleFiles...)
 	ruleFiles = append(ruleFiles, s.extraRuleFiles...)
 	return ydxwaf.Options{
-		RootFS:                   tuneFS{crs: coreruleset.FS, tune: []byte(tuneDirectives(s))},
+		RootFS:                   tuneFS{crs: crs.FS, tune: []byte(tuneDirectives(s))},
 		RuleFiles:                ruleFiles,
 		Directives:               inlineDirectives(s),
 		Mode:                     s.mode,
 		RequestBodyLimit:         s.requestBodyLimit,
-		RequestBodyInMemoryLimit: s.requestBodyInMemoryLimit,
+		RequestBodyLimitAction:   ydxwaf.LimitReject,
 		Exclude:                  excludeFunc(s.excludePaths),
 		ClientIP:                 clientIPFunc(s.trustedProxies),
 		Logger:                   logger,

@@ -11,7 +11,7 @@ import (
 
 	"{{ .YdxModule }}/config"
 	"{{ .YdxModule }}/errs"
-	ydxwaf "{{ .YdxModule }}/middleware/waf"
+	ydxwaf "{{ .YdxModule }}/waf"
 )
 
 // ErrConfig reports an invalid waf.* setting. | ErrConfig 表示非法的 waf.* 配置。
@@ -21,8 +21,6 @@ var ErrConfig = errs.New("waf: invalid configuration | waf：配置非法")
 const (
 	// defaultRequestBodyLimit is 8 MiB. | defaultRequestBodyLimit 为 8 MiB。
 	defaultRequestBodyLimit = 8 << 20
-	// defaultRequestBodyInMemoryLimit is 128 KiB. | defaultRequestBodyInMemoryLimit 为 128 KiB。
-	defaultRequestBodyInMemoryLimit = 128 << 10
 	// maxRequestBodyLimit is the engine's upper bound (1 GiB). | maxRequestBodyLimit 是引擎上限（1 GiB）。
 	maxRequestBodyLimit = 1 << 30
 	// defaultParanoiaLevel is CRS PL1. | defaultParanoiaLevel 是 CRS PL1。
@@ -85,11 +83,9 @@ type settings struct {
 	paranoiaLevel int
 	// anomalyThreshold is the inbound anomaly score threshold. | anomalyThreshold 是入站异常分阈值。
 	anomalyThreshold int
-	// requestBodyLimit caps inspected request bytes. | requestBodyLimit 限制被检测的请求字节数。
+	// requestBodyLimit caps inspected request bytes; a larger body is rejected with 413. |
+	// requestBodyLimit 限制被检测的请求字节数；更大的正文返回 413。
 	requestBodyLimit int
-	// requestBodyInMemoryLimit caps the in-memory part of the request body. |
-	// requestBodyInMemoryLimit 限制请求正文驻留内存的字节数。
-	requestBodyInMemoryLimit int
 	// enabled is the runtime master switch. | enabled 是运行时总开关。
 	enabled bool
 	// inspectJSON parses application/json bodies into ARGS. | inspectJSON 把 application/json
@@ -117,9 +113,8 @@ func settingsFrom(cfg *config.Config) (settings, error) {
 		enabled:                  enabled,
 		paranoiaLevel:            cfg.GetInt("waf.paranoia_level"),
 		anomalyThreshold:         cfg.GetInt("waf.anomaly_threshold"),
-		requestBodyLimit:         cfg.GetInt("waf.request_body_limit"),
-		requestBodyInMemoryLimit: cfg.GetInt("waf.request_body_in_memory_limit"),
-		inspectJSON:              inspectJSON,
+		requestBodyLimit: cfg.GetInt("waf.request_body_limit"),
+		inspectJSON:      inspectJSON,
 	}
 
 	switch strings.ToLower(strings.TrimSpace(cfg.GetString("waf.mode"))) {
@@ -151,13 +146,6 @@ func settingsFrom(cfg *config.Config) (settings, error) {
 	if s.requestBodyLimit < 1 || s.requestBodyLimit > maxRequestBodyLimit {
 		return settings{}, errs.Detail(ErrConfig, "waf.request_body_limit must be 1..1 GiB | waf.request_body_limit 必须在 1..1 GiB")
 	}
-	if s.requestBodyInMemoryLimit == 0 {
-		s.requestBodyInMemoryLimit = defaultRequestBodyInMemoryLimit
-	}
-	if s.requestBodyInMemoryLimit < 1 || s.requestBodyInMemoryLimit > s.requestBodyLimit {
-		return settings{}, errs.Detail(ErrConfig, "waf.request_body_in_memory_limit must be 1..request_body_limit | waf.request_body_in_memory_limit 必须在 1..request_body_limit")
-	}
-
 	if s.excludePaths, err = pathList(cfg, "waf.exclude_paths", defaultExcludePaths); err != nil {
 		return settings{}, err
 	}
@@ -210,8 +198,6 @@ func (s settings) signature() string {
 	b.WriteString(strconv.Itoa(s.anomalyThreshold))
 	b.WriteByte(0)
 	b.WriteString(strconv.Itoa(s.requestBodyLimit))
-	b.WriteByte(0)
-	b.WriteString(strconv.Itoa(s.requestBodyInMemoryLimit))
 	b.WriteByte(0)
 	b.WriteString(strconv.FormatBool(s.inspectJSON))
 	b.WriteByte(0)

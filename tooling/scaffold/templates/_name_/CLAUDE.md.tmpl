@@ -225,10 +225,16 @@ Redis 客户端由 `internal/service.NewRedis` **唯一**打开，缓存、消�
 
 ## WAF（强制）
 
-- 项目默认带 `internal/waf` 并启用 WAF；`yd new --waf=false` 生成的项目没有该包、配置段与 Coraza 依赖。
+- 项目默认带 `internal/waf` 并启用 WAF；`yd new --waf=false` 生成的项目没有该包、配置段与任何 WAF 依赖。
+- 引擎是 `github.com/shibingli/ydx/waf`（自研 SecLang，不再内嵌 Coraza），规则来自
+  `github.com/corazawaf/coraza-coreruleset/crs/v4 v4.29.0`；两者由 yd 的嵌套模块锁定，生成项目按标签引用。
+- **全局中间件顺序固定**：`recover → request-id → access-log → security → compress → cors → waf → i18n → static-cache`。
+  WAF 必须在 security 之后（403 仍带安全头）、i18n 与业务链之前（攻击先于鉴权/数据库被拒绝）。
 - **WAF 独占 `config.Watch` 的单回调槽**：业务代码不得再调用 `cfg.Watch`，否则会顶掉 WAF 的监视器，
   让 `waf.enabled` / `waf.mode` 的热切换静默失效。需要第二个监听者时先做共享分发器。
 - 启停与调优只改 `configs/config.yaml` 的 `waf.*`；`waf.enabled` 缺键按 `true` 处理，显式 `false` 才旁路。
+- `waf.request_body_limit` 超限返回 413；已删除的 `request_body_in_memory_limit` 不再参与校验。
+- **不加载 `@coraza.conf-recommended`**：它引用新引擎未实现的 `REQBODY_PROCESSOR_ERROR` 宏，默认值由引擎选项覆盖。
 - **规则 ID `900001-900010` 为保留段**；新增规则前先读 `docs/waf.md`，不要与 CRS 或 tune 冲突。
 - 任何 WAF 变更必须跑 `go test ./internal/waf`；上线前先用 `mode: detection` 观察误报。
 - `yd sync` 只增不删：把 `.yd.json` 的 `waf` 改成 `false` 不会移除既有 `internal/waf`，需要手工删除。

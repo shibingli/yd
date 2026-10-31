@@ -74,6 +74,31 @@ YD 把「Go 单体后端 + Htmx 片段前端」做成一套可直接交付的全
 
 > 口径提醒：缓存 `Get` 返回调用方拥有的副本，`sync.Map` / ristretto 返回缓存内引用；限流基准中 `x/time/rate` 默认变体为全局 limiter 且不写响应头，ydx 另给出补头与按 IP 分桶的同口径变体；`sync.Pool` 基线不含尺寸分级。以上差异已在 `optimization-report.md` 中逐项说明，不以删除对比项或放宽语义制造“全胜”。数字与硬件、编译器版本强相关，请在目标机器上复跑基准。
 
+#### WAF 与正则复测（升级验证，2026-10-31）
+
+WAF 引擎已迁移到 `github.com/shibingli/ydx/waf v0.1.4`（自研 SecLang，不再内嵌 Coraza），规则数据为 OWASP CRS v4.29.0；保留 `libinjection-go`（`@detectSQLi`）与 `wazero`（WASM 插件），已移除 Coraza v3、goccy、gjson 等旧传递依赖。完整验证见 [docs/verification.md §3.21](docs/verification.md)。
+
+主机：Intel Core i9-10980HK（8 核 / 16 线程），Windows 11，Go 1.27.3；`-benchtime=300ms -count=3` 中位数。WAF 使用完整 OWASP CRS 4.29.0 严格模式（ydx 703 条规则 / Coraza 660 条），两个引擎各走自己的 `net/http` 中间件；检测一致性 56/59，3 项差异均为已知 Windows `normalizePath` 漏报，mismatch 0。
+
+| 场景 | ydx/waf | Coraza v3.8.1 | 延迟倍数 | 分配（ydx / Coraza） |
+|---|---:|---:|---:|---|
+| 善意 GET | 204–226 µs | 977–1120 µs | 4.7–5.1× | 187 / 2932 |
+| SQLi GET | 140–148 µs | 886–934 µs | 6.2× | 140 / 2708 |
+| 善意表单 POST | 247–293 µs | 1.57–1.60 ms | 5.7× | 228 / 3285 |
+| SQLi 表单 POST | 183–188 µs | 1.18–1.25 ms | 6.5× | 162 / 2917 |
+| 并发善意 GET | 35.7–36.8 µs | 176–187 µs | 5.0× | 187 / 2933 |
+
+regexpx v0.1.13 复测（同机、`-benchtime=300ms -count=3` 中位数）：
+
+| 场景 | ydx/regexpx | 标准库 | 结论 |
+|---|---:|---:|---|
+| `MatchString/literal` | 38–39 ns | 528–562 ns | 约 14× |
+| `FindAll/email` | 308–332 µs | 13.7–14.4 ms | 约 44× |
+| `FindAll/date` | 410–473 µs | 10.6–11.2 ms | 约 25× |
+| CRS 必需字节预过滤 | 31–37 ns | — | 0 alloc |
+
+> WAF 规则构建约 223–229 ms（Coraza 约 125–130 ms，慢约 1.8×），属一次性启动成本；请求热路径的延迟与分配优势在持续流量下占主导。数字与硬件、编译器和后台负载相关，请在目标机器复跑。
+
 ### 核心能力
 
 **HTTP 与实时**
@@ -91,6 +116,7 @@ YD 把「Go 单体后端 + Htmx 片段前端」做成一套可直接交付的全
 - 租户硬边界、全局用户身份、成员关系与角色、首启种子数据。
 - 每用户 JWT `sec_key`、令牌 `kid` 取密钥、禁用 / 删除 / 轮换即时失效。
 - 纯 Go SM2/SM3/SM4；登录与敏感字段 SM2 前置加密；`authz` 注册表与静态校验。
+- 自研 SecLang WAF（`ydx/waf v0.1.4` + OWASP CRS 4.29.0）：热启停、请求级规则画像与 JSON/富文本排除；保留 `libinjection-go` 与 `wazero`，不再依赖 Coraza 引擎。
 
 **前端与体验**
 - Htmx 4.0 与全部安全官方扩展默认加载、Tailwind v4 `@theme`、Alpine 3.17（CSP 构建）、htmx morph。
@@ -295,6 +321,31 @@ Reference host: AMD Ryzen AI MAX+ 395 (16 cores / 32 threads, 30 GiB, Ubuntu 26.
 
 > Fairness notes: the cache `Get` returns a caller-owned copy while `sync.Map`/ristretto return references; the default `x/time/rate` variant uses a global limiter and writes no headers, while ydx also benchmarks header-writing and per-IP variants; the `sync.Pool` baseline has no size classes. Every difference is documented in `optimization-report.md`; no comparison was removed or weakened to manufacture an “all wins” table. Numbers depend strongly on hardware and compiler version; re-run the suites on your target machine.
 
+#### WAF and regex re-validation (upgrade verification, 2026-10-31)
+
+The WAF engine is now `github.com/shibingli/ydx/waf v0.1.4` (self-built SecLang, no embedded Coraza) with OWASP CRS v4.29.0 rules. `libinjection-go` (`@detectSQLi`) and `wazero` (WASM plugins) are retained; Coraza v3, goccy, gjson and the rest of the old tree are gone. Full evidence: [docs/verification.md §3.21](docs/verification.md).
+
+Host: Intel Core i9-10980HK (8C/16T), Windows 11, Go 1.27.3; medians of `-benchtime=300ms -count=3`. Full OWASP CRS 4.29.0 in strict mode (ydx 703 rules / Coraza 660), each through its own `net/http` middleware; detection agreement 56/59, with the 3 differences being known Windows `normalizePath` misses and 0 mismatches.
+
+| Scenario | ydx/waf | Coraza v3.8.1 | Latency | Allocs (ydx / Coraza) |
+|---|---:|---:|---:|---|
+| Benign GET | 204–226 µs | 977–1120 µs | 4.7–5.1× | 187 / 2932 |
+| SQLi GET | 140–148 µs | 886–934 µs | 6.2× | 140 / 2708 |
+| Benign form POST | 247–293 µs | 1.57–1.60 ms | 5.7× | 228 / 3285 |
+| SQLi form POST | 183–188 µs | 1.18–1.25 ms | 6.5× | 162 / 2917 |
+| Concurrent benign GET | 35.7–36.8 µs | 176–187 µs | 5.0× | 187 / 2933 |
+
+regexpx v0.1.13 re-run (same host, medians of `-benchtime=300ms -count=3`):
+
+| Scenario | ydx/regexpx | Stdlib | Result |
+|---|---:|---:|---|
+| `MatchString/literal` | 38–39 ns | 528–562 ns | ~14× |
+| `FindAll/email` | 308–332 µs | 13.7–14.4 ms | ~44× |
+| `FindAll/date` | 410–473 µs | 10.6–11.2 ms | ~25× |
+| CRS required-byte prefilter | 31–37 ns | — | 0 allocs |
+
+> WAF rule construction is ~223–229 ms (Coraza ~125–130 ms, about 1.8× slower) and is a one-time startup cost; the hot-path latency and allocation advantages dominate under sustained traffic. Numbers depend on hardware, compiler and background load; re-run on your target machine.
+
 ### Core capabilities
 
 **HTTP & real-time**
@@ -317,6 +368,7 @@ Reference host: AMD Ryzen AI MAX+ 395 (16 cores / 32 threads, 30 GiB, Ubuntu 26.
 - Hard tenant boundary, global user identity, memberships and roles, first-start seed data.
 - Per-user JWT `sec_key`, key selection via token `kid`, immediate revocation on disable/delete/rotation.
 - Pure-Go SM2/SM3/SM4; SM2 pre-encryption for sign-in and sensitive fields; the `authz` registry and static checks.
+- A self-built SecLang WAF (`ydx/waf v0.1.4` + OWASP CRS 4.29.0): hot toggling, per-request rule profiles and JSON/rich-text exclusions; `libinjection-go` and `wazero` are retained, while the Coraza engine is gone.
 
 **Frontend & UX**
 - Htmx 4.0 with every safe official extension loaded by default, Tailwind v4 `@theme`, Alpine 3.17 (CSP build), htmx morph.

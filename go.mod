@@ -26,21 +26,21 @@ require (
 	github.com/shibingli/ydx/json v0.1.14
 	github.com/shibingli/ydx/jwt v0.1.11
 	github.com/shibingli/ydx/log v0.1.11
-	github.com/shibingli/ydx/middleware v0.1.13
+	github.com/shibingli/ydx/middleware v0.1.15
 	github.com/shibingli/ydx/middleware/ratelimit v0.1.12
 	github.com/shibingli/ydx/nodeid v0.1.4
 	github.com/shibingli/ydx/openapi v0.1.10
 	github.com/shibingli/ydx/openapi/ydrouter v0.1.10
 	github.com/shibingli/ydx/protocol v0.1.5
-	github.com/shibingli/ydx/realtime v0.1.7
+	github.com/shibingli/ydx/realtime v0.1.9
 	github.com/shibingli/ydx/redis v0.1.10
-	github.com/shibingli/ydx/regexpx v0.1.7
+	github.com/shibingli/ydx/regexpx v0.1.13
 	github.com/shibingli/ydx/render v0.1.10
 	github.com/shibingli/ydx/router v0.1.12
 	github.com/shibingli/ydx/sse v0.1.10
-	github.com/shibingli/ydx/websocket v0.1.13
+	github.com/shibingli/ydx/websocket v0.1.15
 	github.com/shibingli/ydx/webtransport v0.1.0
-	github.com/shibingli/ydx/workflow v0.1.3
+	github.com/shibingli/ydx/workflow v0.1.5
 	github.com/spf13/afero v1.15.0
 	github.com/spf13/pflag v1.0.10
 	github.com/yuin/goldmark v1.8.7
@@ -78,13 +78,13 @@ require (
 	github.com/remyoudompheng/bigfft v0.0.0-20230129092748-24d4a6f8daec // indirect
 	github.com/robfig/cron/v3 v3.0.1 // indirect
 	github.com/sagikazarmark/locafero v0.12.0 // indirect
-	github.com/shibingli/ydx/middleware/accesslog v0.1.12 // indirect
-	github.com/shibingli/ydx/middleware/asyncafter v0.1.12 // indirect
+	github.com/shibingli/ydx/middleware/accesslog v0.1.14 // indirect
+	github.com/shibingli/ydx/middleware/asyncafter v0.1.14 // indirect
 	github.com/shibingli/ydx/middleware/compress v0.1.12 // indirect
 	github.com/shibingli/ydx/middleware/cors v0.1.12 // indirect
-	github.com/shibingli/ydx/middleware/recovery v0.1.12 // indirect
+	github.com/shibingli/ydx/middleware/recovery v0.1.14 // indirect
 	github.com/shibingli/ydx/middleware/reqlog v0.1.12 // indirect
-	github.com/shibingli/ydx/middleware/requestid v0.1.12 // indirect
+	github.com/shibingli/ydx/middleware/requestid v0.1.14 // indirect
 	github.com/shibingli/ydx/sysinfo v0.1.4 // indirect
 	github.com/spf13/cast v1.10.0 // indirect
 	github.com/spf13/viper v1.21.0 // indirect

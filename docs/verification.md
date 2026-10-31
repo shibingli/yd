@@ -1332,3 +1332,127 @@ CGO_ENABLED=1 CC=clang go test ./... -race    ydx/render、runtime/app、web 通
     `contentEncoding` / `contentMediaType`、`unevaluatedProperties` / `unevaluatedItems` 等），
     但这些字段在 3.0.3 中不被规范允许；使用它们时必须把 `Document.OpenAPI` 设为
     `LatestSpecVersion`，否则请只用 3.0 字段。
+
+## 3.21 ydx/waf 与 regexpx 升级验证（2026-10-31）
+
+### 3.21.1 依赖升级与清理
+
+| 内容 | 升级前 | 升级后 |
+|---|---|---|
+| WAF 引擎 | `ydx/middleware/waf v0.1.0`（Coraza 封装） | `ydx/waf v0.1.4`（自研 SecLang） |
+| 规则数据 | `coraza-coreruleset` 2024-02（CRS 3.x） | `coraza-coreruleset/crs/v4 v4.29.0` |
+| regexpx | v0.1.7 | v0.1.13 |
+| middleware | v0.1.13 | v0.1.15 |
+| accesslog / asyncafter / recovery / requestid | v0.1.12 | v0.1.14 |
+| realtime | v0.1.7 | v0.1.9 |
+| websocket | v0.1.13 | v0.1.15 |
+| workflow | v0.1.3 | v0.1.5 |
+
+清理结果：
+
+- 根模块 `go list -m all` 不含任何 WAF-only 依赖：`wazero`、`libinjection-go`、`coreruleset`、
+  `corazawaf`、`goccy`、`gjson`、`ocsf`、`kaptinlin` 均无命中。
+- 嵌套模块 `tooling/versions/waf/go.sum` 删除 `coraza/v3`、`goccy/go-json`、`goccy/go-yaml`、
+  `tidwall/gjson`、`kaptinlin/*`、`ocsf-schema-golang`、`magefile/mage`、
+  `petar-dambovaliev/aho-corasick`、`rsc.io/binaryregexp` 等旧传递依赖。
+- 生成项目（WAF 开启）的模块图只剩 `ydx/waf`、`crs/v4`、`libinjection-go`、`wazero` 四个
+  WAF 专属依赖；`go list -m all` 对旧依赖零命中。
+- 生成项目（WAF 关闭）的模块图不含 `ydx/waf`、`crs/v4`、`corazawaf/*` 或 `wazero`。
+- **剩余第三方依赖是 ydx/waf v0.1.4 的硬性要求**：`libinjection-go` 用于 `@detectSQLi`，
+  `wazero` 用于 WASM 插件。它们不是旧 Coraza 栈的残留，也不属于「可清理的无效依赖」；
+  要移除它们需要修改 ydx/waf 本身（例如移除 `@detectSQLi` 或把 WASM 插件改为构建标签）。
+
+### 3.21.2 发现并修复的真实兼容性问题
+
+1. **CRS 3.x 与自研引擎不兼容**：`@coraza.conf-recommended` 的 multipart 错误日志引用
+   `REQBODY_PROCESSOR_ERROR`，新引擎严格模式以 `unknown macro variable` 拒绝启动。
+   规则画像移除该文件，关键默认值由 `ydxwaf.Options` 的零值安全基线覆盖；CRS 4.29.0 严格模式
+   加载 703 条规则、0 条跳过。
+2. **tune 文件未参与通配展开**：新引擎对每个顶层规则文件执行 `fs.Glob`，`tuneFS.Glob` 原先只
+   委托 CRS 树，`yd-tuning.conf` 被报 “rule file not found”。`Glob` 现在合并并排序 tune 文件。
+3. **JSON 排除前缀不匹配**：新引擎把 JSON 叶子扁平化为 `design.script`（不带 `json.` 前缀）并
+   写入 `ARGS`/`JSON`；原 `!ARGS:/^json\.design.../` 无法命中。现在 `json.*` 生成
+   `!ARGS:/^design($|\.)/` 与 `!JSON:/^design($|\.)/`，嵌套键排除测试通过。
+4. **正文上限语义变化**：`request_body_in_memory_limit` 已删除；正文最多缓冲
+   `request_body_limit` 字节，超限直接 413，不再落临时文件。旧键被忽略，不阻止升级项目启动。
+5. **CRS 精确版本断言阻断升级**：生成项目的 `rules_test.go` 原先硬编码 `crs.Version == v4.29.0`；
+   `yd versions upgrade` 把 CRS 升到 v4.30.0 后测试立刻失败。现在只校验 v4 主版本并保留
+   SQLi/XSS/LFI/RCE 等行为测试，升级后 `go test ./internal/waf` 通过。
+6. **脏工作区版本不可获取**：从带有未提交修改的 v1.24.0 工作区构建时，`ModuleVersion` 返回
+   `v1.24.0+dirty`，写进生成项目 go.mod 后 `go mod tidy` 无法获取。`core/version` 与
+   `scaffold` 现在去掉 `+dirty` 后缀，保留 `+incompatible`；重新生成的项目直接锁定 `v1.24.0`。
+7. **WSL bash 测试夹具不可移植**：`tooling/cli` 与 `tooling/completion` 把 Windows 路径和
+   `-c` 后的位置参数直接交给 WSL bash，分别报 “No such file or directory” 与空 `$1/$2`。
+   改为从脚本目录运行、驱动脚本落盘并使用带引号的 shell 变量；两项测试在 WSL 下通过。
+8. **中间件顺序**：全局顺序固定为
+   `recover → request-id → access-log → security → compress → cors → waf → i18n → static-cache`；
+   安全头先于 WAF，WAF 403 仍带 CSP/`X-Content-Type-Options`/`X-Frame-Options`；CORS 先于 WAF；
+   WAF 先于 i18n 与业务链。静态顺序断言与真实服务探针共同守卫。
+9. **Windows e2e 探针的进程树**：生成的配置默认 `server.http2.extended_connect: true`，
+   `app.Run` 在 Windows 上会重新执行自身以合并 `GODEBUG=http2xconnect=1`；e2e 只终止包装
+   进程，子进程继续占用端口与 SQLite 文件，`TempDir` 清理因此失败。探针关闭该特性，并对直接
+   子进程显式 `Kill` 加 `WaitDelay`；完整 e2e 套件随后通过。
+
+### 3.21.3 验证矩阵
+
+| 项 | 命令 | 结果 |
+|---|---|---|
+| yd 构建/静态检查 | `go build ./... && go vet ./...` | PASS |
+| yd 非 e2e 全量 | `go test -race -count=1 <除 scaffold/e2e 外的全部包>` | 全部 PASS（含 tooling/cli、tooling/completion） |
+| scaffold 短模式 | `go test -race ./tooling/scaffold -short -count=1` | PASS（81.9s） |
+| WAF 功能矩阵 | 19 项 `TestGenerated*WAF*` 等（含生成包测试、依赖图、热切换探针） | 全部 PASS（59.3s） |
+| scaffold app-level e2e | 消息中心/鉴权/附件/流程/验证码/单例 7 组（`-race`） | 全部 PASS（101.9s） |
+| version / versions / cli | `go test -race ./core/version ./tooling/versions ./tooling/cli` | 全部 PASS |
+| 资源与版本一致性 | `yd assets verify --offline`；`yd versions check` | PASS（23 个资产；生成文件已同步） |
+| 交叉编译 | `GOOS=linux GOARCH=arm64 CGO_ENABLED=0 go build ./...` | PASS |
+| ydx/waf | `GOWORK=off go build ./... && go vet ./...`；`CGO_ENABLED=1 CC=clang go test ./... -race` | 全部 PASS（9.4s） |
+| ydx/regexpx | `GOWORK=off go build/vet`；`CGO_ENABLED=1 CC=clang go test ./... -race` | 全部 PASS（90.1s） |
+| ydx 仓库守卫 | `cd ydx/repotest && GOWORK=off go test ./...` | PASS |
+| CRS 4.29 严格加载与一致性 | `YDX_WAF_CRS_DIR=<crs429> go test ./...`（benchmarks/waf） | ydx 703 条规则；Coraza 660；同意 56/59，差异 3 项均为已知 Windows `normalizePath` 漏报，mismatch 0 |
+| 真项目生成/依赖解析 | `yd new demo --db none -y`；`go mod tidy`；`go build ./...`；`go test ./internal/waf` | PASS；生成 go.mod 锁定 `yd v1.24.0`、`ydx/waf v0.1.4`、`crs/v4 v4.29.0` |
+| CLI 升级 | `yd versions upgrade --dir . --go=true --assets=false` | PASS；CRS v4.29.0→v4.30.0、libinjection v0.3.3→v0.3.5；修复版本断言后 WAF 测试/构建通过 |
+| CLI 模板同步 | `yd sync --dir . --yes --go=false --assets=false` | PASS；覆盖 2 个漂移文件（docs/waf.md、rules_test.go），先备份；随后构建/WAF 测试通过 |
+| CLI 版本检查 | `yd versions check --dir .` | PASS |
+| tagged e2e 全生命周期 | `go test -tags e2e -race ./e2e -count=1 -timeout 30m` | 7 项全部 PASS（165.7s） |
+| 内存对齐 | `yd align --apply`（改动包） | 0 diagnostics，2 遍 |
+
+**regexpx 性能（本机 i9-10980HK，`-benchtime=300ms -count=3` 中位数）**
+
+| 场景 | ydx/regexpx | 标准库 | 结论 |
+|---|---:|---:|---|
+| `MatchString/literal` | ~38–39 ns | ~528–562 ns | 约 14× |
+| `FindAll/email` | ~308–332 µs | ~13.7–14.4 ms | 约 44× |
+| `FindAll/date` | ~410–473 µs | ~10.6–11.2 ms | 约 25× |
+| `FindAll/word` | ~6.4–6.7 ms | ~20.6–22.6 ms | 约 3× |
+| `FindAll/alternation` | ~3.5–3.7 ms | ~13.0–15.2 ms | 约 4× |
+| `CRSRequiredByteRepetition` | ~31–37 ns | — | 0 alloc |
+| `MinimumLengthShort` | ~4.7–5.9 ns | — | 0 alloc |
+| `DFALargeAlternation` | ~22–26 ns | — | 0 alloc |
+
+**WAF 性能（完整 CRS 4.29.0，ydx 自动并行 vs Coraza v3.8.1）**
+
+| 场景 | ydx | Coraza | 延迟倍数 | 分配（ydx / Coraza） |
+|---|---:|---:|---:|---|
+| 善意 GET | ~204–226 µs | ~977–1120 µs | ~4.7–5.1× | 187 / 2932 |
+| SQLi GET | ~140–148 µs | ~886–934 µs | ~6.2× | 140 / 2708 |
+| 善意 POST | ~247–293 µs | ~1.57–1.60 ms | ~5.7× | 228 / 3285 |
+| SQLi POST | ~183–188 µs | ~1.18–1.25 ms | ~6.5× | 162 / 2917 |
+| 并发善意 GET | ~35.7–36.8 µs | ~176–187 µs | ~5× | 187 / 2933 |
+| 规则构建 | ~223–229 ms | ~125–130 ms | 约 1.8× 慢（一次性） | — |
+
+### 3.21.4 边界与未覆盖项
+
+1. **WAF 仍依赖 `libinjection-go` 与 `wazero`**：这是 `ydx/waf v0.1.4` 的模块要求，不是 yd
+   可以单方面清理的旧依赖；若要真正零第三方依赖，需在 ydx 侧移除 `@detectSQLi` 或把 WASM
+   插件改为可选构建标签。
+2. **`benchmarks/waf` 仍保留 Coraza 作为对照**：该模块是独立基准，故意依赖 Coraza/goccy 做
+   性能与一致性比较，不属于 yd 根模块、嵌套 WAF 依赖模块或生成项目。
+3. **zsh / csh 未安装**：补全语法检查按既有规则打印原因跳过（执行 2、跳过 2），不是静默通过。
+4. **scaffold 包未整体串行重跑**：本次在 `-short -race` 下跑完全部快速用例，单独以 `-race`
+   跑完 19 项 WAF 功能矩阵，以及 7 组 app-level e2e（消息中心含 WebSocket/附件、鉴权含 SM2
+   与跨租户、附件管理、流程生命周期、验证码、进程级单例），全部通过（101.9s）；其余零散的
+   长时 scaffold 用例未逐一串行重跑。独立的 `e2e` 构建标签套件（生成项目构建/运行、鉴权跨重启、
+   种子幂等与生产拒绝、数据库降级、交叉编译、离线资产）以 `-race` 全部通过，共 7 项、165.7s。
+5. **`yd versions upgrade` 会把 CRS 移到同一主版本的最新补丁**：新项目脚手架仍固定
+   `v4.29.0`（ydx 已验证版本），升级项目到 `v4.30.0` 后行为测试通过；主版本变化仍需人工
+   重新验证规则画像。

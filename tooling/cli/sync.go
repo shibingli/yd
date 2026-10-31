@@ -61,8 +61,6 @@ var syncFlags *pflag.FlagSet
 // syncMeta is the subset of .yd.json needed to render the same project shape. | syncMeta 是重新渲染
 // 同一项目形态所需的 .yd.json 子集。
 type syncMeta struct {
-	Name     string `json:"name"`
-	Module   string `json:"module"`
 	Features struct {
 		DB       string   `json:"db"`
 		HtmxExts []string `json:"htmxExts"`
@@ -72,6 +70,8 @@ type syncMeta struct {
 		I18n     *bool    `json:"i18n"`
 		Tailwind *bool    `json:"tailwind"`
 	} `json:"features"`
+	Name   string `json:"name"`
+	Module string `json:"module"`
 }
 
 // syncKind classifies one planned file. | syncKind 区分一个计划文件的动作。
@@ -102,13 +102,13 @@ type syncFile struct {
 
 // syncPlan is the complete local change set before any write. | syncPlan 是写入前的完整本地变更集。
 type syncPlan struct {
+	// Config is the managed configuration part of the plan. | Config 是计划中受管理的配置部分。
+	Config *syncConfigPlan
 	// Files are the adds and overwrites, sorted by path. | Files 是按路径排序的新增与覆盖。
 	Files []syncFile
 	// Unchanged counts rendered files already identical to the project. | Unchanged 统计已与项目一致的
 	// 渲染文件。
 	Unchanged int
-	// Config is the managed configuration part of the plan. | Config 是计划中受管理的配置部分。
-	Config *syncConfigPlan
 }
 
 // counts returns the add and overwrite counts. | counts 返回新增与覆盖数量。

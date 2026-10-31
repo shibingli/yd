@@ -91,6 +91,9 @@ type view struct {
 	YdxReplaces []ydxReplace
 	// WafModule is the optional WAF module path written into go.mod. | WafModule 是写入 go.mod 的可选 WAF 模块路径。
 	WafModule string
+	// WafCRSModule is the OWASP CRS rule module path written into go.mod. | WafCRSModule 是写入
+	// go.mod 的 OWASP CRS 规则模块路径。
+	WafCRSModule string
 	// WafModuleVersion pins the WAF module from the nested dependency module. | WafModuleVersion
 	// 从嵌套依赖模块锁定 WAF 模块版本。
 	WafModuleVersion string
@@ -163,6 +166,7 @@ func newView(o Options) view {
 		YdxModules:        YdxModules,
 		YdxReplaces:       ydxReplaces(o.LocalReplace, modules),
 		WafModule:         WAFYdxModule,
+		WafCRSModule:      WAFCRSModule,
 		WafModuleVersion:  WafModuleVersion,
 		CRSRulesetVersion: CRSRulesetVersion,
 		GRPC:              o.GRPC,

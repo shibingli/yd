@@ -361,16 +361,20 @@ assembly point.
 
 ## WAF
 
-`yd new` 默认随项目生成 `internal/waf` 并启用 WAF。引擎是 ydx 的 Coraza 中间件，规则围绕
-Go/HTML/SQL/JavaScript 裁剪。
+`yd new` 默认随项目生成 `internal/waf` 并启用 WAF。引擎是
+`github.com/shibingli/ydx/waf`（自研 SecLang，不再内嵌 Coraza），规则来自
+`github.com/corazawaf/coraza-coreruleset/crs/v4 v4.29.0`，围绕 Go/HTML/SQL/JavaScript 裁剪。
 
+- **全局中间件顺序固定**：`recover → request-id → access-log → security → compress → cors → waf → i18n → static-cache`。
+  WAF 在 security 之后，403 也带安全头；在 i18n 与业务链之前，攻击先于鉴权/数据库被拒绝。
 - 配置：`waf.enabled`（缺键即 true）、`waf.mode`（`block`/`detection`/`off`）、
-  `waf.paranoia_level`、`waf.anomaly_threshold`、`waf.inspect_json`、正文上限、
-  `exclude_paths`、`exclude_args`、`extra_rule_files`、`directives`、`trusted_proxies`。
+  `waf.paranoia_level`、`waf.anomaly_threshold`、`waf.inspect_json`、`waf.request_body_limit`
+  （超限 413）、`exclude_paths`、`exclude_args`、`extra_rule_files`、`directives`、`trusted_proxies`。
 - 热启停：修改 `configs/config.yaml` 或 `config.local.yaml` 后 `config.Watch` 自动生效，
   不需要重启。WAF 独占 `config.Watch` 单回调槽，业务代码不得再调用 `cfg.Watch`。
 - 默认排除：`/healthz`、`/static`、`/openapi/assets`、`/events`、`/ws`、`/mgr/ws`
   与附件上传下载路径；`body_markdown`、`json.design` 等富文本/结构化字段免于攻击规则。
+  JSON 叶子在 `ARGS`/`JSON` 中不带 `json.` 前缀，`json.*` 排除会按扁平化路径生成正则。
 - 完整说明见 `docs/waf.md`。
 {{- end }}
 

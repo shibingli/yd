@@ -62,8 +62,8 @@ const testWAFGoMod = `module github.com/shibingli/yd/tooling/versions/waf
 go 1.27.3
 
 require (
-	github.com/corazawaf/coraza-coreruleset v0.0.0-20240226094324-415b1017abdc
-	github.com/shibingli/ydx/middleware/waf v0.1.0
+	github.com/corazawaf/coraza-coreruleset/crs/v4 v4.29.0
+	github.com/shibingli/ydx/waf v0.1.4
 )
 `
 
@@ -486,8 +486,9 @@ func TestCompareSemver(t *testing.T) {
 }
 
 // TestLoadReadsNestedWAFVersions proves the WAF-only dependencies come from the nested module,
-// keeping Coraza out of the framework's root go.mod. | TestLoadReadsNestedWAFVersions 证明 WAF
-// 专用依赖来自嵌套模块，从而让 Coraza 不进入框架根 go.mod。
+// keeping the WAF engine and its third-party requirements out of the framework's root go.mod. |
+// TestLoadReadsNestedWAFVersions 证明 WAF 专用依赖来自嵌套模块，从而让 WAF 引擎及其第三方依赖
+// 不进入框架根 go.mod。
 func TestLoadReadsNestedWAFVersions(t *testing.T) {
 	fsys := newFixture(t)
 	writeFile(t, fsys, "tooling/scaffold/.keep", "")
@@ -496,11 +497,11 @@ func TestLoadReadsNestedWAFVersions(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if inv.WafModuleVersion != "v0.1.0" {
-		t.Errorf("WafModuleVersion = %q, want v0.1.0", inv.WafModuleVersion)
+	if inv.WafModuleVersion != "v0.1.4" {
+		t.Errorf("WafModuleVersion = %q, want v0.1.4", inv.WafModuleVersion)
 	}
-	if inv.CRSRulesetVersion != "v0.0.0-20240226094324-415b1017abdc" {
-		t.Errorf("CRSRulesetVersion = %q, want the pinned pseudo-version", inv.CRSRulesetVersion)
+	if inv.CRSRulesetVersion != "v4.29.0" {
+		t.Errorf("CRSRulesetVersion = %q, want v4.29.0", inv.CRSRulesetVersion)
 	}
 }
 
@@ -523,12 +524,12 @@ func TestGenerateWritesWAFVersions(t *testing.T) {
 	got := string(Generate(&Inventory{
 		GoDirective:       "1.27.3",
 		HtmxVersion:       "4.0.0",
-		WafModuleVersion:  "v0.1.0",
-		CRSRulesetVersion: "v0.0.0-20240226094324-415b1017abdc",
+		WafModuleVersion:  "v0.1.4",
+		CRSRulesetVersion: "v4.29.0",
 	}))
 	for _, want := range []string{
-		`const WafModuleVersion = "v0.1.0"`,
-		`const CRSRulesetVersion = "v0.0.0-20240226094324-415b1017abdc"`,
+		`const WafModuleVersion = "v0.1.4"`,
+		`const CRSRulesetVersion = "v4.29.0"`,
 	} {
 		if !strings.Contains(got, want) {
 			t.Errorf("生成文件缺少 %q:\n%s", want, got)

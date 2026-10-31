@@ -63,6 +63,61 @@ func TestMiddlewareBlocksSQLi(t *testing.T) {
 	}
 }
 
+// TestMiddlewareBlocksXSSAndTraversalAndRCE proves the Go/HTML/SQL/JavaScript profile covers the
+// other attack families, not only SQLi. | TestMiddlewareBlocksXSSAndTraversalAndRCE 证明
+// Go/HTML/SQL/JavaScript 画像覆盖 SQLi 之外的其它攻击族。
+func TestMiddlewareBlocksXSSAndTraversalAndRCE(t *testing.T) {
+	m := newTestManager(t, "")
+	for _, payload := range []string{
+		"<script>alert(1)</script>",
+		"../../etc/passwd",
+		";cat /etc/passwd",
+		"$(id)",
+	} {
+		target := "/login?x=" + url.QueryEscape(payload)
+		if got := serve(t, m, http.MethodGet, target, "", ""); got != http.StatusForbidden {
+			t.Errorf("payload %q status = %d, want 403", payload, got)
+		}
+	}
+}
+
+// TestDetectionModeAllowsAttack proves detection mode records without interrupting. |
+// TestDetectionModeAllowsAttack 证明仅检测模式会记录但不中断。
+func TestDetectionModeAllowsAttack(t *testing.T) {
+	m := newTestManager(t, "waf:\n  mode: detection\n")
+	attack := "/login?x=" + url.QueryEscape("1' OR '1'='1")
+	if got := serve(t, m, http.MethodGet, attack, "", ""); got != http.StatusOK {
+		t.Fatalf("detection status = %d, want 200", got)
+	}
+}
+
+// TestRequestBodyLimitRejectsOversizedBody proves the engine answers 413 instead of reading an
+// unbounded body. | TestRequestBodyLimitRejectsOversizedBody 证明引擎对超限正文返回 413，而不是
+// 无界读取。
+func TestRequestBodyLimitRejectsOversizedBody(t *testing.T) {
+	m := newTestManager(t, "waf:\n  request_body_limit: 1024\n")
+	body := `{"title":"` + strings.Repeat("a", 2048) + `"}`
+	if got := serve(t, m, http.MethodPost, "/api/send", "application/json", body); got != http.StatusRequestEntityTooLarge {
+		t.Fatalf("oversized body status = %d, want 413", got)
+	}
+}
+
+// TestEngineLoadsCRSProfile pins the compiled engine to the CRS rule profile. |
+// TestEngineLoadsCRSProfile 把编译后的引擎钉在 CRS 规则画像上。
+func TestEngineLoadsCRSProfile(t *testing.T) {
+	m := newTestManager(t, "")
+	e := m.current.Load()
+	if e == nil {
+		t.Fatal("engine is not enabled | 引擎未启用")
+	}
+	if got := e.engine.RulesCount(); got < 400 {
+		t.Fatalf("rules = %d, want at least 400", got)
+	}
+	if got := e.engine.RuleVersion(); got != "local" {
+		t.Fatalf("rule version = %q, want local", got)
+	}
+}
+
 // TestMarkdownAndJSONExclusions proves rich-text payloads pass while a plain title stays
 // protected. | TestMarkdownAndJSONExclusions 证明富文本载荷放行，普通标题仍然受保护。
 func TestMarkdownAndJSONExclusions(t *testing.T) {
@@ -84,9 +139,9 @@ func TestMarkdownAndJSONExclusions(t *testing.T) {
 	}
 }
 
-// TestLargeBodyIsAccepted proves a body above the in-memory limit spills to a temp file and is
-// still served. The scratch image must provide /tmp for this path. | TestLargeBodyIsAccepted 证明
-// 超过内存上限的正文会落到临时文件并仍被正常服务；scratch 镜像必须提供 /tmp。
+// TestLargeBodyIsAccepted proves a body above the old in-memory limit is buffered in memory and
+// still served; the engine no longer spills to a temp file. | TestLargeBodyIsAccepted 证明超过
+// 旧内存上限的正文仍会在内存中缓冲并正常服务；引擎不再落临时文件。
 func TestLargeBodyIsAccepted(t *testing.T) {
 	m := newTestManager(t, "")
 	body := `{"body_markdown":"` + strings.Repeat("a", 256<<10) + `"}`

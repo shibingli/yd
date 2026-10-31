@@ -37,9 +37,9 @@ type Options struct {
 	// 本开关只写入两个运行时配置值，因此生成时未开启的项目之后仍可通过 configs/config.yaml 打开。
 	Captcha bool
 	// WAF ships the WAF middleware, its rules and its dependencies with the project and enables it by default.
-	// Passing --waf=false omits the package, the configuration section and the Coraza dependency entirely.
+	// Passing --waf=false omits the package, the configuration section and every WAF dependency entirely.
 	// | WAF 表示随项目生成 WAF 中间件、规则与依赖并默认启用。传 --waf=false 会完全省略包、配置段与
-	// Coraza 依赖。
+	// 全部 WAF 依赖。
 	WAF bool
 	// I18n enables internationalisation. | I18n 表示是否开启国际化。
 	I18n bool
@@ -188,7 +188,10 @@ const (
 	// YdxModule is the module path prefix of the reusable component repository. | YdxModule 是可复用组件仓库的模块路径前缀。
 	YdxModule = "github.com/shibingli/ydx"
 	// WAFYdxModule is the optional WAF component module path. | WAFYdxModule 是可选的 WAF 组件模块路径。
-	WAFYdxModule = "github.com/shibingli/ydx/middleware/waf"
+	WAFYdxModule = "github.com/shibingli/ydx/waf"
+	// WAFCRSModule is the OWASP CRS rule module path pinned for generated projects. | WAFCRSModule 是
+	// 为生成项目锁定的 OWASP CRS 规则模块路径。
+	WAFCRSModule = "github.com/corazawaf/coraza-coreruleset/crs/v4"
 	// AssetRoot is the front-end asset root written into .yd.json. | AssetRoot 是生成项目的前端资产根目录，写入 .yd.json。
 	AssetRoot = "web"
 )

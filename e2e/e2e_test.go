@@ -35,8 +35,8 @@ import (
 	// dialect depends on, and importing it performs the registration.
 	_ "github.com/glebarez/sqlite"
 	"github.com/shibingli/yd/security/authz"
-	"github.com/shibingli/ydx/guomi"
 	"github.com/shibingli/ydx/base64"
+	"github.com/shibingli/ydx/guomi"
 	"github.com/shibingli/ydx/json"
 	"github.com/shibingli/ydx/regexpx"
 )
@@ -1032,10 +1032,23 @@ func startAppEnv(t *testing.T, dir string, extraEnv []string) (string, *appLogs,
 	logs := &appLogs{}
 	ctx, cancel := context.WithCancel(context.Background())
 	cmd := exec.CommandContext(ctx, bin)
+	// Bound the wait for the child's stdout/stderr pipes. On Windows a console app can keep the
+	// pipe open after the context cancels, and Wait would otherwise block forever. |
+	// 限制等待子进程 stdout/stderr 管道的时间。Windows 上控制台程序可能在上下文取消后仍保持管道
+	// 打开，否则 Wait 会永久阻塞。
+	cmd.WaitDelay = 5 * time.Second
 	cmd.Dir = dir
+	// Disable HTTP/2 extended connect for the probes. On Windows app.Run re-execs itself to merge
+	// GODEBUG=http2xconnect=1, and the wrapper/child pair defeats the single-process stop below:
+	// the wrapper exits, the child keeps the port and database open. The probes do not exercise
+	// extended connect, so switching it off keeps the process tree at one level. |
+	// 探针关闭 HTTP/2 extended connect。Windows 上 app.Run 会为合并 GODEBUG=http2xconnect=1 而
+	// 重新执行自身，包装/子进程对会让下面的单进程停止逻辑失效：包装进程退出、子进程继续占着端口
+	// 与数据库。探针不验证 extended connect，因此关闭它可让进程树保持一层。
 	cmd.Env = append(withoutServerEnv(os.Environ()),
 		fmt.Sprintf("YD_SERVER_HOST=127.0.0.1"),
 		fmt.Sprintf("YD_SERVER_PORT=%d", port),
+		"YD_SERVER_HTTP2_EXTENDED_CONNECT=false",
 		"YD_LOG_LEVEL=info",
 	)
 	cmd.Env = append(cmd.Env, extraEnv...)
@@ -1049,6 +1062,13 @@ func startAppEnv(t *testing.T, dir string, extraEnv []string) (string, *appLogs,
 	addr := fmt.Sprintf("127.0.0.1:%d", port)
 	stop := func() {
 		cancel()
+		// Kill the direct process explicitly: some Windows console hosts keep the process
+		// handle alive long enough for Wait to block on the inherited pipes. |
+		// 显式终止直接子进程：某些 Windows 控制台宿主会让进程句柄存活得足够久，导致 Wait 阻塞在
+		// 继承的管道上。
+		if cmd.Process != nil {
+			_ = cmd.Process.Kill()
+		}
 		_ = cmd.Wait()
 	}
 	// 用例提前失败（t.Fatalf）时也要把进程收掉：留下的进程会一直占着数据库文件，

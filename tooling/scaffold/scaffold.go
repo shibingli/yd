@@ -182,6 +182,9 @@ func normalize(o Options) (Options, error) {
 	}
 
 	o.YdVersion = strings.TrimSpace(o.YdVersion)
+	// A dirty worktree build reports vX.Y.Z+dirty, which the module proxy cannot fetch. |
+	// 脏工作区构建报告 vX.Y.Z+dirty，模块代理无法获取该版本。
+	o.YdVersion = strings.TrimSuffix(o.YdVersion, "+dirty")
 	if o.YdVersion == "dev" || o.YdVersion == "(devel)" {
 		o.YdVersion = ""
 	}

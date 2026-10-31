@@ -4476,6 +4476,16 @@ func TestGeneratePinsTheRunningYdVersion(t *testing.T) {
 		t.Errorf("go.mod 未锁定 ydx/cache 版本 %q", cacheVersion)
 	}
 
+	// A dirty worktree reports vX.Y.Z+dirty; the suffix is not fetchable and must not reach go.mod. |
+	// 脏工作区报告 vX.Y.Z+dirty；该后缀不可获取，绝不能写进 go.mod。
+	dirty := scaffold.DefaultOptions("dirty-app")
+	dirty.YdVersion = "v1.2.3+dirty"
+	pr, _ = generateMem(t, dirty)
+	dirtyMod := pr.read("go.mod")
+	if !strings.Contains(dirtyMod, scaffold.YdModule+" v1.2.3") || strings.Contains(dirtyMod, "+dirty") {
+		t.Errorf("go.mod 未去掉 +dirty 后缀:\n%s", dirtyMod)
+	}
+
 	unpinned := scaffold.DefaultOptions("unpinned-app")
 	unpinned.YdVersion = ""
 	pr, _ = generateMem(t, unpinned)
@@ -6225,8 +6235,8 @@ func TestGeneratedGoModPinsWAFWhenEnabled(t *testing.T) {
 	pr, _ := generateMem(t, scaffold.DefaultOptions("waf-pins"))
 	gomod := pr.read("go.mod")
 	for _, want := range []string{
-		"github.com/shibingli/ydx/middleware/waf " + scaffold.WafModuleVersion,
-		"github.com/corazawaf/coraza-coreruleset " + scaffold.CRSRulesetVersion,
+		scaffold.WAFYdxModule + " " + scaffold.WafModuleVersion,
+		scaffold.WAFCRSModule + " " + scaffold.CRSRulesetVersion,
 	} {
 		if !strings.Contains(gomod, want) {
 			t.Errorf("go.mod 缺少 %q:\n%s", want, gomod)
@@ -6237,7 +6247,7 @@ func TestGeneratedGoModPinsWAFWhenEnabled(t *testing.T) {
 	o.WAF = false
 	pr, _ = generateMem(t, o)
 	gomod = pr.read("go.mod")
-	for _, unwanted := range []string{"ydx/middleware/waf", "coraza-coreruleset"} {
+	for _, unwanted := range []string{scaffold.WAFYdxModule, scaffold.WAFCRSModule} {
 		if strings.Contains(gomod, unwanted) {
 			t.Errorf("WAF 关闭时 go.mod 不应包含 %q:\n%s", unwanted, gomod)
 		}
@@ -6264,7 +6274,7 @@ func TestLocalReplaceIncludesWAFFromNestedModule(t *testing.T) {
 	o.LocalReplace = filepath.ToSlash(filepath.Join("..", "yd"))
 	pr, _ := generateMem(t, o)
 	gomod := pr.read("go.mod")
-	if !strings.Contains(gomod, "replace github.com/shibingli/ydx/middleware/waf =>") {
+	if !strings.Contains(gomod, "replace "+scaffold.WAFYdxModule+" =>") {
 		t.Errorf("本地替换缺少 WAF 模块:\n%s", gomod)
 	}
 }
@@ -6341,11 +6351,57 @@ func TestGeneratedProjectWiresWAFInOrder(t *testing.T) {
 			t.Errorf("main.go is missing | main.go 缺少 %[1]q:\n%[2]s", want, main)
 		}
 	}
-	if strings.Index(main, `MetricsDescriptor("security")`) > strings.Index(main, `MetricsDescriptor("waf")`) {
-		t.Error("WAF must be registered after security | WAF 必须在 security 之后注册")
+	// The order is the execution order: recover → request id → access log → security → compress →
+	// CORS → WAF → i18n → static cache. Every step has a reason and must not drift. | 顺序即执行
+	// 顺序：恢复 → 请求 ID → 访问日志 → 安全头 → 压缩 → CORS → WAF → i18n → 静态缓存；每一步都有
+	// 明确理由，不得漂移。
+	markers := []string{
+		`MetricsDescriptor("recover")`,
+		`MetricsDescriptor("request-id")`,
+		`MetricsDescriptor("access-log")`,
+		`MetricsDescriptor("security")`,
+		`MetricsDescriptor("compress")`,
+		`MetricsDescriptor("cors")`,
+		`MetricsDescriptor("waf")`,
 	}
-	if strings.Index(main, `MetricsDescriptor("waf")`) > strings.Index(main, "registerI18n(application, log)") {
+	last := -1
+	wafIndex := -1
+	for _, marker := range markers {
+		index := strings.Index(main, marker)
+		if index < 0 {
+			t.Errorf("main.go is missing the middleware marker | main.go 缺少中间件标记 %q", marker)
+			continue
+		}
+		if index <= last {
+			t.Errorf("middleware order is wrong at | 中间件顺序错误: %q", marker)
+		}
+		last = index
+		if marker == `MetricsDescriptor("waf")` {
+			wafIndex = index
+		}
+	}
+	// i18n and the static cache are mounted through function calls rather than inline UseObserved
+	// lines, so compare the call sites that decide their runtime order. | i18n 与静态缓存通过函数
+	// 调用装配，而不是内联 UseObserved，因此比较决定运行时顺序的调用点。
+	i18nCall := strings.Index(main, "registerI18n(application, log)")
+	staticCacheCall := strings.Index(main, "application.UseObserved(app.StaticCacheDescriptor")
+	if i18nCall < 0 || staticCacheCall < 0 {
+		t.Fatal("main.go is missing the i18n or static-cache call site | main.go 缺少 i18n 或静态缓存调用点")
+	}
+	if wafIndex < 0 || wafIndex > i18nCall {
 		t.Error("WAF must be registered before i18n | WAF 必须在 i18n 之前注册")
+	}
+	if i18nCall > staticCacheCall {
+		t.Error("i18n must be registered before the static cache | i18n 必须在静态缓存之前注册")
+	}
+	if !strings.Contains(main, `MetricsDescriptor("i18n")`) {
+		t.Error("the i18n middleware must register its descriptor | i18n 中间件必须登记描述符")
+	}
+	if strings.Index(main, "appwaf.New(application.Config(), log)") > wafIndex {
+		t.Error("the WAF manager must be built before it is registered | WAF 管理器必须先构建再注册")
+	}
+	if wafIndex > strings.Index(main, "router.Register(application)") {
+		t.Error("WAF must be registered before the routes | WAF 必须在路由登记之前注册")
 	}
 }
 
@@ -6357,12 +6413,15 @@ func TestGeneratedWAFConfigDefaults(t *testing.T) {
 	for _, want := range []string{
 		"waf:", "enabled: true", "mode: block", "paranoia_level: 1",
 		"anomaly_threshold: 5", "inspect_json: true",
-		"request_body_limit: 8388608", "request_body_in_memory_limit: 131072",
+		"request_body_limit: 8388608",
 		"/healthz", "/static", "body_markdown", "json.design",
 	} {
 		if !strings.Contains(cfg, want) {
 			t.Errorf("config is missing | config 缺少 %[1]q:\n%[2]s", want, cfg)
 		}
+	}
+	if strings.Contains(cfg, "request_body_in_memory_limit") {
+		t.Errorf("the removed in-memory limit key must not be generated | 不应再生成已删除的内存上限键:\n%s", cfg)
 	}
 }
 
@@ -6412,7 +6471,6 @@ func TestGeneratedWAFProfileMatchesDesign(t *testing.T) {
 	pr, _ := generateMem(t, scaffold.DefaultOptions("waf-profile"))
 	rules := pr.read("internal/waf/rules.go")
 	for _, want := range []string{
-		"@coraza.conf-recommended",
 		"@crs-setup.conf.example",
 		"@owasp_crs/REQUEST-901-INITIALIZATION.conf",
 		"@owasp_crs/REQUEST-905-COMMON-EXCEPTIONS.conf",
@@ -6439,7 +6497,7 @@ func TestGeneratedWAFProfileMatchesDesign(t *testing.T) {
 		}
 	}
 	for _, unwanted := range []string{
-		"REQUEST-933-", "REQUEST-944-", "RESPONSE-950-", "RESPONSE-959-",
+		"@coraza.conf-recommended", "REQUEST-933-", "REQUEST-944-", "RESPONSE-950-", "RESPONSE-959-",
 	} {
 		if strings.Contains(rules, unwanted) {
 			t.Errorf("rules.go must not load | rules.go 不应加载 %[1]q", unwanted)
@@ -6454,7 +6512,7 @@ func TestGeneratedWAFConfigKeys(t *testing.T) {
 	cfg := pr.read("configs/config.yaml")
 	for _, want := range []string{
 		"waf:", "enabled:", "mode:", "paranoia_level:", "anomaly_threshold:",
-		"inspect_json:", "request_body_limit:", "request_body_in_memory_limit:",
+		"inspect_json:", "request_body_limit:",
 		"exclude_paths:", "exclude_args:", "extra_rule_files:", "directives:",
 		"trusted_proxies:",
 	} {
@@ -6462,10 +6520,14 @@ func TestGeneratedWAFConfigKeys(t *testing.T) {
 			t.Errorf("config.yaml is missing | config.yaml 缺少 %[1]q", want)
 		}
 	}
+	if strings.Contains(cfg, "request_body_in_memory_limit") {
+		t.Error("config.yaml still contains the removed in-memory limit key | config.yaml 仍包含已删除的内存上限键")
+	}
 }
 
-// TestGeneratedDockerfileCreatesTmp proves the scratch image can spill large WAF request bodies to
-// a temp file. | TestGeneratedDockerfileCreatesTmp 证明 scratch 镜像能为大 WAF 请求正文提供临时文件。
+// TestGeneratedDockerfileCreatesTmp proves the scratch image carries a writable runtime temp
+// directory for database and atomic-write paths. | TestGeneratedDockerfileCreatesTmp 证明 scratch
+// 镜像为数据库与原子写路径提供可写的运行时临时目录。
 func TestGeneratedDockerfileCreatesTmp(t *testing.T) {
 	pr, _ := generateMem(t, scaffold.DefaultOptions("waf-tmp"))
 	dockerfile := pr.read("Dockerfile")
@@ -6512,16 +6574,72 @@ func TestGeneratedWithoutWAFCompiles(t *testing.T) {
 	if err != nil {
 		t.Fatalf("关闭 WAF 的生成项目无法编译: %v\n%s", err, output)
 	}
+	graph, err := runGo(goBin, projDir, true, "list", "-mod=mod", "-m", "all")
+	if err != nil {
+		graph, err = runGo(goBin, projDir, false, "list", "-mod=mod", "-m", "all")
+	}
+	if err != nil {
+		t.Fatalf("关闭 WAF 的生成项目无法解析模块图: %v\n%s", err, graph)
+	}
+	for _, unwanted := range []string{scaffold.WAFYdxModule, scaffold.WAFCRSModule, "github.com/corazawaf/", "github.com/tetratelabs/wazero"} {
+		if strings.Contains(string(graph), unwanted) {
+			t.Errorf("关闭 WAF 的模块图不应包含 | the WAF-off module graph must not contain %q", unwanted)
+		}
+	}
 }
 
-// TestGeneratedProjectWithoutWAFHasNoCoraza keeps the opt-out dependency-free. |
-// TestGeneratedProjectWithoutWAFHasNoCoraza 保证关闭时不引入 Coraza。
-func TestGeneratedProjectWithoutWAFHasNoCoraza(t *testing.T) {
-	o := scaffold.DefaultOptions("waf-off-coraza")
+// TestGeneratedWAFModuleGraphIsLean proves the new ydx engine replaced Coraza's dependency tree:
+// the graph keeps the engine, libinjection, wazero and the CRS rule module, and drops the old
+// Coraza engine, goccy, gjson and their companions. |
+// TestGeneratedWAFModuleGraphIsLean 证明新的 ydx 引擎替换了 Coraza 的依赖树：模块图保留引擎、
+// libinjection、wazero 与 CRS 规则模块，并去掉旧的 Coraza 引擎、goccy、gjson 及其同伴。
+func TestGeneratedWAFModuleGraphIsLean(t *testing.T) {
+	if testing.Short() {
+		t.Skip("短模式跳过生成项目依赖图验证 | skipped in short mode")
+	}
+	goBin, projDir := generateWAFProject(t, "yd-waf-deps")
+	output, err := runGo(goBin, projDir, true, "list", "-mod=mod", "-m", "all")
+	if err != nil {
+		t.Logf("GOPROXY=off 模块图解析失败，回退到环境代理重试:\n%s", output)
+		output, err = runGo(goBin, projDir, false, "list", "-mod=mod", "-m", "all")
+	}
+	if err != nil {
+		t.Fatalf("生成项目模块图解析失败: %v\n%s", err, output)
+	}
+	graph := string(output)
+	for _, want := range []string{
+		scaffold.WAFYdxModule,
+		scaffold.WAFCRSModule,
+		"github.com/corazawaf/libinjection-go",
+		"github.com/tetratelabs/wazero",
+	} {
+		if !strings.Contains(graph, want) {
+			t.Errorf("生成的 WAF 模块图缺少 %q", want)
+		}
+	}
+	for _, unwanted := range []string{
+		"github.com/corazawaf/coraza/v3",
+		"github.com/shibingli/ydx/middleware/waf",
+		"github.com/goccy/go-json",
+		"github.com/goccy/go-yaml",
+		"github.com/tidwall/gjson",
+		"github.com/kaptinlin/",
+		"github.com/valllabh/ocsf-schema-golang",
+	} {
+		if strings.Contains(graph, unwanted) {
+			t.Errorf("生成的 WAF 模块图仍包含旧依赖 %q:\n%s", unwanted, graph)
+		}
+	}
+}
+
+// TestGeneratedProjectWithoutWAFHasNoWAFDependencies keeps the opt-out dependency-free. |
+// TestGeneratedProjectWithoutWAFHasNoWAFDependencies 保证关闭 WAF 时不引入任何 WAF 依赖。
+func TestGeneratedProjectWithoutWAFHasNoWAFDependencies(t *testing.T) {
+	o := scaffold.DefaultOptions("waf-off-deps")
 	o.WAF = false
 	pr, res := generateMem(t, o)
 	gomod := pr.read("go.mod")
-	for _, unwanted := range []string{"ydx/middleware/waf", "corazawaf", "coraza-coreruleset"} {
+	for _, unwanted := range []string{scaffold.WAFYdxModule, scaffold.WAFCRSModule, "corazawaf"} {
 		if strings.Contains(gomod, unwanted) {
 			t.Errorf("go.mod must not contain | go.mod 不应包含 %[1]q:\n%[2]s", unwanted, gomod)
 		}
@@ -6534,8 +6652,8 @@ func TestGeneratedProjectWithoutWAFHasNoCoraza(t *testing.T) {
 		if err != nil {
 			t.Fatalf("读取生成文件 %s 失败: %v", generated, err)
 		}
-		if strings.Contains(string(src), "ydx/middleware/waf") || strings.Contains(string(src), "coraza-coreruleset") {
-			t.Errorf("%[1]s must not reference Coraza | %[1]s 不应引用 Coraza", generated)
+		if strings.Contains(string(src), "ydx/waf") || strings.Contains(string(src), "corazawaf") {
+			t.Errorf("%[1]s must not reference the WAF | %[1]s 不应引用 WAF", generated)
 		}
 	}
 }
@@ -6601,6 +6719,23 @@ func TestGeneratedWAFHotToggleWithoutRestart(t *testing.T) {
 	}
 	writeProbeConfig(t, projDir, "waf:\n  enabled: true\n")
 	waitForProbeStatus(t, client, attack, http.StatusForbidden, 10*time.Second)
+
+	// Security headers are registered before the WAF, so even a WAF 403 must carry them. |
+	// 安全头在 WAF 之前注册，因此 WAF 的 403 响应也必须带安全头。
+	resp, err := client.Get(attack)
+	if err != nil {
+		t.Fatalf("GET %s: %v", attack, err)
+	}
+	_, _ = io.Copy(io.Discard, resp.Body)
+	_ = resp.Body.Close()
+	if resp.StatusCode != http.StatusForbidden {
+		t.Fatalf("WAF attack status = %d, want 403", resp.StatusCode)
+	}
+	for _, header := range []string{"Content-Security-Policy", "X-Content-Type-Options", "X-Frame-Options"} {
+		if resp.Header.Get(header) == "" {
+			t.Errorf("WAF 403 is missing the security header %q | WAF 403 缺少安全头 %q", header, header)
+		}
+	}
 
 	writeProbeConfig(t, projDir, "waf:\n  enabled: false\n")
 	waitForProbeNotStatus(t, client, attack, http.StatusForbidden, 10*time.Second)
