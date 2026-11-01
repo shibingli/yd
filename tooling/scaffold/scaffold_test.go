@@ -3977,6 +3977,18 @@ func startGeneratedAppWithStopEnv(t *testing.T, bin, dir string, extra map[strin
 		removed = append(removed, key)
 		extraEnv = append(extraEnv, key+"="+value)
 	}
+	// Every probe app gets its own cache prefix. Probe apps share one Redis, so the deployment
+	// defaults ("yd:cache:" with namespace "gorm") would let one app read another app's cached
+	// tenant list; the seed then sees foreign tenants and fails with auth.ErrNotFound, or resolves
+	// the system dictionary tenant to a tenant that only exists in the other database. |
+	// 每个探针应用使用独立的缓存前缀。探针共享同一个 Redis，部署默认值（"yd:cache:" 与命名空间
+	// "gorm"）会让一个应用读到另一个应用缓存的租户列表：种子看到外部租户后以 auth.ErrNotFound
+	// 失败，或把系统字典租户解析成只存在于另一个数据库里的租户。
+	if _, ok := extra["YD_CACHE_PREFIX"]; !ok {
+		removed = append(removed, "YD_CACHE_PREFIX", "YD_CACHE_REDIS_PREFIX")
+		extraEnv = append(extraEnv, "YD_CACHE_PREFIX=yd:cache:probe:"+
+			strconv.Itoa(os.Getpid())+":"+strconv.FormatInt(time.Now().UnixNano(), 36)+":")
+	}
 	sort.Strings(extraEnv)
 	cmd.Env = append(append(withoutEnv(os.Environ(), removed...),
 		"GOWORK=off",
