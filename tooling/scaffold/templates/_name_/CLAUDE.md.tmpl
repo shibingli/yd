@@ -92,10 +92,11 @@ Redis 客户端由 `internal/service.NewRedis` **唯一**打开，缓存、消�
        logger := ydlog.New(ydlog.Options{Service: "{{ .Name }}"})
        logger.Warn("slow query | 慢查询", ydlog.Dur("elapsed", d), ydlog.Str("sql", sql))
    ```
-4. **JSON / Base64 一律走封装层**：`{{ .YdxModule }}/json`（`Marshal`/`Unmarshal`/`NewEncoder`/`NewDecoder`/`Valid`）
-   与 `{{ .YdxModule }}/base64`（`StdEncoding`/`URLEncoding`/…）。**红线：不允许直接使用标准库编解码**，
-   **禁止**直接 `import "encoding/json"`、`"encoding/json/v2"`、`"encoding/json/jsontext"` 或 `"encoding/base64"`。
-   自检：`grep -rnE '"encoding/(json|json/v2|json/jsontext|base64)"' --include=*.go .` 必须无命中。
+4. **JSON / Base64 / XML 一律走封装层**：`{{ .YdxModule }}/json`（`Marshal`/`Unmarshal`/`NewEncoder`/`NewDecoder`/`Valid`）
+   与 `{{ .YdxModule }}/base64`（`StdEncoding`/`URLEncoding`/…），以及 `{{ .YdxModule }}/xml`
+   （`Marshal`/`MarshalIndent`/`Unmarshal`/`NewDecoder`/`NewEncoder`/`NewTokenDecoder`）。**红线：不允许直接使用标准库编解码**，
+   **禁止**直接 `import "encoding/json"`、`"encoding/json/v2"`、`"encoding/json/jsontext"`、`"encoding/base64"` 或 `"encoding/xml"`。
+   自检：`grep -rnE '"encoding/(json|json/v2|json/jsontext|base64|xml)"' --include=*.go .` 必须无命中。
 5. **安全**：口令哈希走 `guomi`（SM3 + 盐 + 迭代），比较必须常量时间；敏感字段传输前置 SM2 加密（`data-yd-encrypt="sm2"`）；
    严禁在源码、模板、测试夹具中硬编码密钥、口令、Token。
 6. **格式与测试**：`gofmt`、`go vet ./...` 零告警；测试表驱动、涉及并发必须 `-race` 通过；新增包须在包文档注释说明职责边界。
@@ -227,7 +228,7 @@ Redis 客户端由 `internal/service.NewRedis` **唯一**打开，缓存、消�
 
 - 项目默认带 `internal/waf` 并启用 WAF；`yd new --waf=false` 生成的项目没有该包、配置段与任何 WAF 依赖。
 - 引擎是 `github.com/shibingli/ydx/waf`（自研 SecLang，不再内嵌 Coraza），规则来自
-  `github.com/corazawaf/coraza-coreruleset/crs/v4 v4.29.0`；两者由 yd 的嵌套模块锁定，生成项目按标签引用。
+  `github.com/corazawaf/coraza-coreruleset/crs/v4 v4.30.0`；两者由 yd 的嵌套模块锁定，生成项目按标签引用。
 - **全局中间件顺序固定**：`recover → request-id → access-log → security → compress → cors → waf → i18n → static-cache`。
   WAF 必须在 security 之后（403 仍带安全头）、i18n 与业务链之前（攻击先于鉴权/数据库被拒绝）。
 - **WAF 独占 `config.Watch` 的单回调槽**：业务代码不得再调用 `cfg.Watch`，否则会顶掉 WAF 的监视器，

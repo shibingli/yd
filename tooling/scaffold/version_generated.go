@@ -15,12 +15,12 @@ const HtmxVersion = "4.0.0"
 // WafModuleVersion is the ydx WAF module version pinned by the nested WAF dependency module. | WafModuleVersion 是嵌套 WAF 依赖模块锁定的 ydx WAF 模块版本。
 //
 // Source: tooling/versions/waf/go.mod. | 来源：tooling/versions/waf/go.mod。
-const WafModuleVersion = "v0.1.4"
+const WafModuleVersion = "v0.1.5"
 
 // CRSRulesetVersion is the OWASP CRS version pinned by the nested WAF dependency module. | CRSRulesetVersion 是嵌套 WAF 依赖模块锁定的 OWASP CRS 版本。
 //
 // Source: tooling/versions/waf/go.mod. | 来源：tooling/versions/waf/go.mod。
-const CRSRulesetVersion = "v4.29.0"
+const CRSRulesetVersion = "v4.30.0"
 
 // YdxVersions maps each ydx module pinned for generated projects to its own tag version. | YdxVersions 把生成项目锁定的每个 ydx 模块映射到它自己的标签版本。
 //
@@ -28,7 +28,7 @@ const CRSRulesetVersion = "v4.29.0"
 var YdxVersions = map[string]string{
 	"github.com/shibingli/ydx/afs":                   "v0.1.6",
 	"github.com/shibingli/ydx/asynq":                 "v0.1.10",
-	"github.com/shibingli/ydx/base64":                "v0.1.12",
+	"github.com/shibingli/ydx/base64":                "v0.1.13",
 	"github.com/shibingli/ydx/buffpool":              "v0.1.4",
 	"github.com/shibingli/ydx/cache":                 "v0.1.17",
 	"github.com/shibingli/ydx/captcha":               "v0.1.1",
@@ -39,7 +39,7 @@ var YdxVersions = map[string]string{
 	"github.com/shibingli/ydx/gorm":                  "v0.1.13",
 	"github.com/shibingli/ydx/guomi":                 "v0.1.2",
 	"github.com/shibingli/ydx/i18n":                  "v0.1.10",
-	"github.com/shibingli/ydx/json":                  "v0.1.14",
+	"github.com/shibingli/ydx/json":                  "v0.1.15",
 	"github.com/shibingli/ydx/jwt":                   "v0.1.11",
 	"github.com/shibingli/ydx/log":                   "v0.1.11",
 	"github.com/shibingli/ydx/middleware":            "v0.1.15",
@@ -59,12 +59,13 @@ var YdxVersions = map[string]string{
 	"github.com/shibingli/ydx/redis":                 "v0.1.10",
 	"github.com/shibingli/ydx/regexpx":               "v0.1.13",
 	"github.com/shibingli/ydx/render":                "v0.1.10",
-	"github.com/shibingli/ydx/router":                "v0.1.12",
+	"github.com/shibingli/ydx/router":                "v0.1.13",
 	"github.com/shibingli/ydx/sse":                   "v0.1.10",
 	"github.com/shibingli/ydx/sysinfo":               "v0.1.4",
 	"github.com/shibingli/ydx/websocket":             "v0.1.15",
 	"github.com/shibingli/ydx/webtransport":          "v0.1.0",
-	"github.com/shibingli/ydx/workflow":              "v0.1.5",
+	"github.com/shibingli/ydx/workflow":              "v0.1.6",
+	"github.com/shibingli/ydx/xml":                   "v0.1.1",
 }
 
 // YdxModules lists the ydx modules a generated project may import. | YdxModules 列出生成项目可能导入的 ydx 模块。
@@ -110,4 +111,5 @@ var YdxModules = []string{
 	"github.com/shibingli/ydx/websocket",
 	"github.com/shibingli/ydx/webtransport",
 	"github.com/shibingli/ydx/workflow",
+	"github.com/shibingli/ydx/xml",
 }

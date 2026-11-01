@@ -12,7 +12,7 @@ require (
 	github.com/redis/go-redis/v9 v9.23.0
 	github.com/shibingli/ydx/afs v0.1.6
 	github.com/shibingli/ydx/asynq v0.1.10
-	github.com/shibingli/ydx/base64 v0.1.12
+	github.com/shibingli/ydx/base64 v0.1.13
 	github.com/shibingli/ydx/buffpool v0.1.4
 	github.com/shibingli/ydx/cache v0.1.17
 	github.com/shibingli/ydx/captcha v0.1.1
@@ -23,7 +23,7 @@ require (
 	github.com/shibingli/ydx/gorm v0.1.13
 	github.com/shibingli/ydx/guomi v0.1.2
 	github.com/shibingli/ydx/i18n v0.1.10
-	github.com/shibingli/ydx/json v0.1.14
+	github.com/shibingli/ydx/json v0.1.15
 	github.com/shibingli/ydx/jwt v0.1.11
 	github.com/shibingli/ydx/log v0.1.11
 	github.com/shibingli/ydx/middleware v0.1.15
@@ -36,15 +36,15 @@ require (
 	github.com/shibingli/ydx/redis v0.1.10
 	github.com/shibingli/ydx/regexpx v0.1.13
 	github.com/shibingli/ydx/render v0.1.10
-	github.com/shibingli/ydx/router v0.1.12
+	github.com/shibingli/ydx/router v0.1.13
 	github.com/shibingli/ydx/sse v0.1.10
 	github.com/shibingli/ydx/websocket v0.1.15
 	github.com/shibingli/ydx/webtransport v0.1.0
-	github.com/shibingli/ydx/workflow v0.1.5
+	github.com/shibingli/ydx/workflow v0.1.6
 	github.com/spf13/afero v1.15.0
 	github.com/spf13/pflag v1.0.10
 	github.com/yuin/goldmark v1.8.7
-	go.yaml.in/yaml/v3 v3.0.5
+	go.yaml.in/yaml/v3 v3.0.6
 	golang.org/x/crypto v0.58.0
 	google.golang.org/grpc v1.85.0
 	gorm.io/gorm v1.31.2
@@ -65,7 +65,7 @@ require (
 	github.com/hibiken/asynq v0.26.0 // indirect
 	github.com/jackc/pgpassfile v1.0.0 // indirect
 	github.com/jackc/pgservicefile v0.0.0-20240606120523-5a60cdf6a761 // indirect
-	github.com/jackc/pgx/v5 v5.11.0 // indirect
+	github.com/jackc/pgx/v5 v5.12.0 // indirect
 	github.com/jackc/puddle/v2 v2.2.3 // indirect
 	github.com/jinzhu/inflection v1.0.0 // indirect
 	github.com/jinzhu/now v1.1.5 // indirect
@@ -86,6 +86,7 @@ require (
 	github.com/shibingli/ydx/middleware/reqlog v0.1.12 // indirect
 	github.com/shibingli/ydx/middleware/requestid v0.1.14 // indirect
 	github.com/shibingli/ydx/sysinfo v0.1.4 // indirect
+	github.com/shibingli/ydx/xml v0.1.1 // indirect
 	github.com/spf13/cast v1.10.0 // indirect
 	github.com/spf13/viper v1.21.0 // indirect
 	github.com/subosito/gotenv v1.6.0 // indirect
@@ -103,5 +104,5 @@ require (
 	modernc.org/libc v1.79.1 // indirect
 	modernc.org/mathutil v1.7.1 // indirect
 	modernc.org/memory v1.12.1 // indirect
-	modernc.org/sqlite v1.61.0 // indirect
+	modernc.org/sqlite v1.61.1 // indirect
 )

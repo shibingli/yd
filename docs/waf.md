@@ -3,7 +3,7 @@
 `yd new` 默认随项目生成 `internal/waf` 并启用 WAF。引擎是
 [`github.com/shibingli/ydx/waf`](https://github.com/shibingli/ydx/tree/main/waf)：
 ydx 自研的 SecLang 解析与求值引擎，不再内嵌 Coraza，默认规则围绕 **Go 服务端、HTML、SQL 与
-JavaScript** 裁剪，规则数据来自 OWASP CRS v4.29.0（`github.com/corazawaf/coraza-coreruleset/crs/v4`）。
+JavaScript** 裁剪，规则数据来自 OWASP CRS v4.30.0（`github.com/corazawaf/coraza-coreruleset/crs/v4`）。
 
 本文是生成项目里 WAF 的唯一使用入口：配置、规则、热启停、排除清单、依赖、升级与故障排查。
 总开关是 `waf.enabled`（缺键按 `true` 处理），模式是 `waf.mode`；两者都可以在运行时热切换。
@@ -107,7 +107,7 @@ REQUEST-949-BLOCKING-EVALUATION.conf
 已由 `ydxwaf.Options` 的零值安全基线覆盖。严格模式下加载它会直接拒绝启动。
 
 `yd-tuning.conf` 与定向排除由 `internal/waf/rules.go` 生成；规则 ID `900001-900010` 为 yd
-保留段。默认子集约 **446 条规则**（CRS v4.29.0 + tune + JSON processor）；CRS 升级后规则数
+保留段。默认子集约 **447 条规则**（CRS v4.30.0 + tune + JSON processor）；CRS 升级后规则数
 变化是重新调优信号。生成项目的 `rules_test.go` 校验 CRS 主版本并断言规则数量下限，因此
 `yd versions upgrade` 可以安全地把 CRS 移到同一主版本的新补丁；yd 仓库的脚手架测试继续固定
 新项目生成的精确版本。
@@ -227,9 +227,9 @@ recover → request-id → access-log → security → compress → cors → waf
 
 ## 9. 版本、依赖与许可
 
-- `github.com/shibingli/ydx/waf v0.1.4`（Apache-2.0）
-- `github.com/corazawaf/coraza-coreruleset/crs/v4 v4.29.0`（Apache-2.0，仅规则数据）
-- `github.com/corazawaf/libinjection-go v0.3.3`（BSD-3-Clause，`@detectSQLi` 算子）
+- `github.com/shibingli/ydx/waf v0.1.5`（Apache-2.0）
+- `github.com/corazawaf/coraza-coreruleset/crs/v4 v4.30.0`（Apache-2.0，仅规则数据）
+- `github.com/corazawaf/libinjection-go v0.3.5`（BSD-3-Clause，`@detectSQLi` 算子）
 - `github.com/tetratelabs/wazero v1.12.0`（Apache-2.0，WASM 插件运行时）
 
 WAF 专属依赖由 yd 仓库的嵌套模块 `tooling/versions/waf/go.mod` 锁定，生成项目从脚手架常量

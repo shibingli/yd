@@ -363,7 +363,7 @@ assembly point.
 
 `yd new` 默认随项目生成 `internal/waf` 并启用 WAF。引擎是
 `github.com/shibingli/ydx/waf`（自研 SecLang，不再内嵌 Coraza），规则来自
-`github.com/corazawaf/coraza-coreruleset/crs/v4 v4.29.0`，围绕 Go/HTML/SQL/JavaScript 裁剪。
+`github.com/corazawaf/coraza-coreruleset/crs/v4 v4.30.0`，围绕 Go/HTML/SQL/JavaScript 裁剪。
 
 - **全局中间件顺序固定**：`recover → request-id → access-log → security → compress → cors → waf → i18n → static-cache`。
   WAF 在 security 之后，403 也带安全头；在 i18n 与业务链之前，攻击先于鉴权/数据库被拒绝。

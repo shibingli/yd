@@ -6,9 +6,10 @@
 
 - **JSON**：amd64 与 arm64 均为正式支持架构，默认使用自研 `ydx/json` 原生后端（各自选择 SSE2/AVX2/AVX-512BW 或 NEON 内核），其它架构走同一套自研标量路径；`jsonx_std` 构建标签可切换标准库。主模块不再依赖 sonic/jsoniter/goccy。
 - **Base64**：amd64 与 arm64 均为正式支持架构，默认使用自研 `ydx/base64` 内核（amd64 在 `GOEXPERIMENT=simd` 下按 VBMI2/VBMI → 基础 AVX-512 → AVX2 选择，arm64 手写 NEON），其它架构走纯 Go 标量；`b64x_std` 标签切换标准库。主模块不再依赖 cloudwego/base64x/cristalhq。
+- **XML**：amd64 与 arm64 均为正式支持架构，默认使用自研 `ydx/xml` 原生后端（SSE2/AVX2/AVX-512BW 或 NEON 扫描内核），其它架构走可移植 SWAR/标量实现；完整兼容 `encoding/xml` 全量 API，`xml_std` 标签切换标准库。主模块不再依赖第三方 XML 库。
 - **环境自适应**：并行度、分块大小、缓冲与池上限一律由 `ydx/sysinfo` 在运行时读取 GOMAXPROCS、逻辑 CPU 数与 cgroup/主机内存后决定；库 API 不接收核心数或内存容量参数。
 - **基准报告**：所有基准统一在 `ydx/benchmarks/*`；单核/多核、全部对比库、CPU 与峰值 RSS 以 ydx 仓的 `benchmarks/README.md` 与各模块 README 为准。yd 仓库不保留 `benchmarks/` 目录。
-- **组件依赖**：`errs/json/base64/log/buffpool/afs/config/sysinfo/regexpx/router/gorm/redis/asynq/cron/cache/sse/websocket/render/jwt/guomi/waf` 与中间件插件均由 `github.com/shibingli/ydx/*` 提供；yd 只按版本号引用，禁止本地 replace 或复制源码。
+- **组件依赖**：`errs/json/base64/xml/log/buffpool/afs/config/sysinfo/regexpx/router/gorm/redis/asynq/cron/cache/sse/websocket/render/jwt/guomi/waf` 与中间件插件均由 `github.com/shibingli/ydx/*` 提供；yd 只按版本号引用，禁止本地 replace 或复制源码。
 - SIMD 相关构建与测试使用 `GOEXPERIMENT=simd`；Go 1.27.3+ 若已默认启用可省略。
 
 ## 1. 修改权限边界
@@ -84,11 +85,12 @@
       `htmx:ws:error` 也可能只是发送失败，连接状态只响应 `htmx:ws:close` 等真正的断开事件。
       **例外**：CONNECT（含 RFC 8441/9220 Extended CONNECT）的正文是隧道或 WebSocket 字节流，
       不套 `MaxBytesReader`；处理器在 HTTP/2/3 下必须阻塞到连接结束。
-- [ ] **JSON/Base64 统一走封装层**：**不允许直接使用标准库编解码**。全仓禁止
-      `import "encoding/json"`、`"encoding/json/v2"`、`"encoding/json/jsontext"` 与
-      `import "encoding/base64"`，一律使用 `github.com/shibingli/ydx/json` 与
-      `github.com/shibingli/ydx/base64`。
-      自检：`grep -rnE '"encoding/(json|json/v2|json/jsontext|base64)"' --include=*.go .` 无命中。
+- [ ] **JSON/Base64/XML 统一走封装层**：**不允许直接使用标准库编解码**。全仓禁止
+      `import "encoding/json"`、`"encoding/json/v2"`、`"encoding/json/jsontext"`、
+      `import "encoding/base64"` 与 `import "encoding/xml"`，一律使用
+      `github.com/shibingli/ydx/json`、`github.com/shibingli/ydx/base64` 与
+      `github.com/shibingli/ydx/xml`。
+      自检：`grep -rnE '"encoding/(json|json/v2|json/jsontext|base64|xml)"' --include=*.go .` 无命中。
 - [ ] **中英文同步（注释 + 日志文案）**：所有注释与所有日志文案逐行采用
       `English | 中文`（竖线分割，英文在前、中文在后）。豁免：编译指令、生成标记、注释内代码示例/树状图/URL。
 - [ ] **日志统一走 ydx/log（包名 `log`）**：全仓禁止 `import "log"`（`server` 包的 `http.Server.ErrorLog`

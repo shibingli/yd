@@ -23,6 +23,7 @@
 - 命令行：pflag v1.0.10（POSIX 风格，替代标准库 `flag`）
 - JSON：**自研默认** —— amd64 与 arm64 均为正式支持架构，默认使用自研原生后端（各自选择 SSE2/AVX2/AVX-512BW 或 NEON 内核），其它架构走同一套自研标量路径；`jsonx_std` 可强制标准库；主模块不依赖 sonic/jsoniter/goccy
 - Base64：**自研默认** —— amd64 与 arm64 均为正式支持架构，默认使用自研内核（amd64 在 `GOEXPERIMENT=simd` 下按 VBMI2/VBMI → AVX-512 → AVX2 分发，arm64 NEON），其它架构走纯 Go 标量；`b64x_std` 标签回退 `encoding/base64`；主模块不依赖 cloudwego/base64x/cristalhq
+- XML：**自研默认** —— amd64 与 arm64 均为正式支持架构，默认使用自研原生后端（SSE2/AVX2/AVX-512BW 或 NEON 扫描内核），其它架构走可移植 SWAR/标量实现；完整兼容 `encoding/xml` 全量 API，`xml_std` 标签回退标准库；主模块不依赖第三方 XML 库
 - 并行与分配：工作协程数、分块大小与缓冲上限一律由 `ydx/sysinfo` 在运行时读取 GOMAXPROCS 与 cgroup/主机内存后自动决定，**不得**要求调用方传核心数或内存容量
 - 数据：GORM v1.31（默认 `PrepareStmt: true`；支持 MySQL / PostgreSQL / SQLite / 达梦 DM8）、go-redis v9（单机/哨兵/集群）、asynq v0.26（Redis 驱动分布式队列）
 - 网络：HTTP/1.1 + H2C + HTTP/3(QUIC, quic-go) + 内置 ACME 自动签发续期
@@ -47,7 +48,7 @@
 
 - **依赖形态**：`go.mod` 直接引用 `github.com/shibingli/ydx/<module> vX.Y.Z`；**禁止**本地
   `replace`。开发期联调只能在两个仓库之外临时使用 `go.work`，不得提交。
-- **模块清单**（39 个）：`errs`、`sysinfo`、`buffpool`、`protocol`、`nodeid`、`base64`、`json`、`afs`、
+- **模块清单**（40 个）：`errs`、`sysinfo`、`buffpool`、`protocol`、`nodeid`、`base64`、`json`、`xml`、`afs`、
   `config`、`log`、`regexpx`、`router`、`gorm`、`redis`、`asynq`、`cron`、`cache`、`sse`、`websocket`、
   `webtransport`、`realtime`、`render`、`i18n`、`openapi`、`openapi/ydrouter`、`jwt`、`guomi`、
   `captcha`、`waf`、`workflow`、`middleware` 及 8 个 `middleware/*` 插件。
@@ -158,15 +159,17 @@
    常量块用 `@Name`/`@Description`/`@Type`/`@Enum`（缺省时按字面量与 iota 推断），变量用
    `@Name`/`@Schema`/`@Example`，由 `openapi.ParseTypeAnnotations` 解析、`Builder.AddTypeAnnotations` 合并。
 4. **热路径禁止反射**：HTTP 请求处理、序列化、日志、JWT 校验路径不得使用 `reflect`；反射仅允许出现在启动期装配、代码生成与 OpenAPI Schema 构建中。
-4.1 **JSON 与 Base64 必须走框架封装层**（强制）：
+4.1 **JSON、Base64 与 XML 必须走框架封装层**（强制）：
    - **红线：不允许直接使用标准库编解码**。任何 JSON 编解码一律使用
      `github.com/shibingli/ydx/json`（`Marshal`/`Unmarshal`/`NewEncoder`/`NewDecoder`/`Valid`），
      **禁止**直接 `import "encoding/json"`、`"encoding/json/v2"` 或 `"encoding/json/jsontext"`；
    - 任何 Base64 编解码一律使用 `github.com/shibingli/ydx/base64`（`StdEncoding`/`URLEncoding`/`RawStdEncoding`/`RawURLEncoding`
      及其 `Encode`/`Decode`/`AppendEncode`/`AppendDecode`），**禁止**直接 `import "encoding/base64"`；
+   - 任何 XML 编解码一律使用 `github.com/shibingli/ydx/xml`（`Marshal`/`MarshalIndent`/`Unmarshal`/
+     `NewDecoder`/`NewEncoder`/`NewTokenDecoder` 及其完整类型），**禁止**直接 `import "encoding/xml"`；
    - 唯一例外：第三方库（如 gmsm）自身实现内部的编解码，以及 `log` 为满足零拷贝而手写的
      JSON 字节拼装（它不得引入 `encoding/json`）。
-   - 自检命令：`grep -rnE '"encoding/(json|json/v2|json/jsontext|base64)"' --include=*.go .`
+   - 自检命令：`grep -rnE '"encoding/(json|json/v2|json/jsontext|base64|xml)"' --include=*.go .`
      必须无命中（`repotest` 的守卫测试会自动检查）。
 5. **零拷贝优先**：优先 `AppendXxx` 风格 API 与调用方提供的缓冲区；避免不必要的 `string([]byte)` 往返转换。
 6. **并发**：共享状态必须显式加锁或使用 `sync.Pool`/原子操作；每个 `go` 关键路径必须能回答"它何时退出"。
@@ -1361,8 +1364,8 @@ WebSocket、WebTransport 与 SSE 共用 `ydx/realtime` 中枢；使用说明见
 ## 34. WAF 集成（强制）
 
 `yd new` 默认随项目生成 `internal/waf` 并启用 WAF。引擎是
-`github.com/shibingli/ydx/waf v0.1.4`（ydx 自研 SecLang 解析与求值，不再内嵌 Coraza），
-规则数据来自 `github.com/corazawaf/coraza-coreruleset/crs/v4 v4.29.0`；使用说明见
+`github.com/shibingli/ydx/waf v0.1.5`（ydx 自研 SecLang 解析与求值，不再内嵌 Coraza），
+规则数据来自 `github.com/corazawaf/coraza-coreruleset/crs/v4 v4.30.0`；使用说明见
 `docs/waf.md`（随生成项目发布）。以下约束不可绕过：
 
 - **默认开启、可彻底省略**：`--waf=false` 不生成 `internal/waf`、不写 `waf:` 配置段、

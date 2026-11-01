@@ -126,12 +126,12 @@ func scanTemplateFiles(t *testing.T, root string) []goFile {
 	return files
 }
 
-// TestNoDirectEncodingImports 强制 JSON / Base64 编解码统一走 json / base64。
-// TestNoDirectEncodingImports enforces that JSON/Base64 always go through json/base64.
+// TestNoDirectEncodingImports 强制 JSON / Base64 / XML 编解码统一走 json / base64 / xml。
+// TestNoDirectEncodingImports enforces that JSON/Base64/XML always go through json/base64/xml.
 //
-// 生产代码中禁止 import "encoding/json" 与 "encoding/base64"；唯一例外是
+// 生产代码中禁止 import "encoding/json"、"encoding/base64" 与 "encoding/xml"；唯一例外是
 // yd 源码中不再有封装层。测试文件允许把标准库当作独立对照实现（测试预言机）。
-// Production code must not import "encoding/json" or "encoding/base64"; the only
+// Production code must not import "encoding/json", "encoding/base64" or "encoding/xml"; the only
 // yd source has no wrappers left. Test files may
 // use the standard library as an independent oracle.
 func TestNoDirectEncodingImports(t *testing.T) {
@@ -143,6 +143,7 @@ func TestNoDirectEncodingImports(t *testing.T) {
 		{`"encoding/json/v2"`, "请改用 github.com/shibingli/ydx/json；标准库 v2 同样不允许直接使用"},
 		{`"encoding/json/jsontext"`, "请改用 github.com/shibingli/ydx/json；标准库 jsontext 同样不允许直接使用"},
 		{`"encoding/base64"`, "请改用 github.com/shibingli/ydx/base64（StdEncoding/URLEncoding/… 及其 Encode/Decode/AppendEncode/AppendDecode）"},
+		{`"encoding/xml"`, "请改用 github.com/shibingli/ydx/xml（Marshal/MarshalIndent/Unmarshal/NewDecoder/NewEncoder/NewTokenDecoder）"},
 	}
 
 	for _, f := range scanGoFiles(t, repoRoot(t)) {
