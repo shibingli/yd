@@ -4655,9 +4655,9 @@ func TestGeneratedPageAssetsAnnounceCompletion(t *testing.T) {
 // TestGeneratedAppRepairsAlpineScopes pins the two shell repairs that regressions silently undo:
 // hx-history-cache empties every Alpine data stack in the live document before an htmx morph, and
 // EasyMDE's fullscreen toolbar ignores the sticky app bar. The glue must re-initialise the emptied
-// scopes and publish the measured bar height. | TestGeneratedAppRepairsAlpineScopes 固定两项会被
-// 回归悄悄撤销的外壳修复：hx-history-cache 在 htmx morph 前清空活动文档的 Alpine 数据栈，
-// EasyMDE 全屏工具栏又不认识吸顶顶栏。胶水层必须重新初始化空栈并发布实测顶栏高度。
+// scopes before the morph and publish the measured bar height. | TestGeneratedAppRepairsAlpineScopes
+// 固定两项会被回归悄悄撤销的外壳修复：hx-history-cache 在 htmx morph 前清空活动文档的 Alpine 数据栈，
+// EasyMDE 全屏工具栏又不认识吸顶顶栏。胶水层必须在 morph 前重新初始化空栈并发布实测顶栏高度。
 func TestGeneratedAppRepairsAlpineScopes(t *testing.T) {
 	pr, _ := generateMem(t, scaffold.DefaultOptions("alpine-repair-app"))
 
@@ -4666,6 +4666,9 @@ func TestGeneratedAppRepairsAlpineScopes(t *testing.T) {
 		"function reviveAlpineScopes(root)",
 		`"[data-has-alpine-state]"`,
 		"alpine.initTree(el)",
+		"function reviveDestroyedScopes(root)",
+		`"[x-data]"`,
+		`"htmx:before:swap"`,
 		"function syncTopbarOffset()",
 		`"--yd-topbar-offset"`,
 	} {

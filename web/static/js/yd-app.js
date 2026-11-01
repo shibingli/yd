@@ -1215,6 +1215,40 @@
     return revived;
   }
 
+  /* hx-history-cache destroys the live Alpine tree before saving a snapshot, and the morph hook of hx-alpine-compat copies that empty stack onto the incoming nodes. | hx-history-cache 在保存快照前销毁活动 Alpine 树，hx-alpine-compat 的 morph 钩子随后把空栈复制到新节点。
+     Alpine therefore treats those nodes as initialised and evaluates x-show/x-bind against an empty scope before the post-swap repair runs, which floods the console with "Undefined variable". | Alpine 因此认为这些节点已初始化，在交换后的修复运行前就用空作用域执行 x-show/x-bind，控制台因此刷出“Undefined variable”。
+     Re-initialise the destroyed scopes of the swap target before the morph so it receives a complete stack, methods included. | 在 morph 前重建交换目标内被销毁的作用域，让它拿到包含方法的完整栈。 */
+  function reviveDestroyedScopes(root) {
+    var scope = root && root.nodeType === 1 ? root : win().document;
+    if (!scope || typeof scope.querySelectorAll !== 'function') {
+      return 0;
+    }
+    var nodes = Array.prototype.slice.call(scope.querySelectorAll('[x-data]'));
+    if (scope.nodeType === 1 && typeof scope.matches === 'function' && scope.matches('[x-data]')) {
+      nodes.unshift(scope);
+    }
+    var alpine = win().Alpine;
+    var revived = 0;
+    for (var i = 0; i < nodes.length; i++) {
+      var el = nodes[i];
+      /* Only an empty array means the history cache destroyed the scope; undefined belongs to a node Alpine has not booted yet. | 只有空数组才表示作用域被历史缓存销毁；undefined 属于 Alpine 尚未启动的节点。 */
+      if (!el || el.nodeType !== 1 || !el._x_dataStack || el._x_dataStack.length) {
+        continue;
+      }
+      el.removeAttribute('data-has-alpine-state');
+      try {
+        delete el._x_dataStack;
+      } catch (err) {
+        el._x_dataStack = undefined;
+      }
+      if (alpine && typeof alpine.initTree === 'function') {
+        alpine.initTree(el);
+        revived++;
+      }
+    }
+    return revived;
+  }
+
   /* Fullscreen EasyMDE positions itself against the viewport (top: 0 / 50px), while the app bar is
      sticky at the top. Publish the measured bar height so the editor can start below it instead of
      painting its toolbar across the navigation. | EasyMDE 全屏按视口定位（top: 0 / 50px），而应用
@@ -1314,6 +1348,15 @@
       syncTopbarOffset();
       reviveAlpineScopes(win().document);
     });
+    /* The history snapshot is already saved when this fires, so re-initialising here only restores the live tree that morph is about to clone. | 事件触发时历史快照已经保存，此刻重建只会恢复 morph 即将克隆的活动树。 */
+    ['htmx:before:swap', 'htmx:beforeSwap'].forEach(function (name) {
+      onDocument(name, function (event) {
+        var detail = (event && event.detail) || {};
+        var ctx = detail.ctx || {};
+        var target = ctx.target || detail.target || null;
+        reviveDestroyedScopes(target);
+      });
+    });
     onDocument('htmx:after:swap', onAfterSwap);
     onDocument('htmx:sse:before:connection', onSSEBefore);
     onDocument('htmx:sse:after:connection', onSSEAfter);
@@ -1403,6 +1446,7 @@
     formatCells: formatCells,
     setConnection: setConnection,
     reviveAlpineScopes: reviveAlpineScopes,
+    reviveDestroyedScopes: reviveDestroyedScopes,
     syncTopbarOffset: syncTopbarOffset
   };
 
