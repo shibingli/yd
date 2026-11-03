@@ -13,7 +13,7 @@ require (
 	github.com/shibingli/ydx/afs v0.1.6
 	github.com/shibingli/ydx/asynq v0.1.10
 	github.com/shibingli/ydx/base64 v0.1.13
-	github.com/shibingli/ydx/buffpool v0.1.4
+	github.com/shibingli/ydx/buffpool v0.1.5
 	github.com/shibingli/ydx/cache v0.1.17
 	github.com/shibingli/ydx/captcha v0.1.1
 	github.com/shibingli/ydx/config v0.1.8
@@ -26,7 +26,7 @@ require (
 	github.com/shibingli/ydx/json v0.1.15
 	github.com/shibingli/ydx/jwt v0.1.11
 	github.com/shibingli/ydx/log v0.1.11
-	github.com/shibingli/ydx/middleware v0.1.15
+	github.com/shibingli/ydx/middleware v0.1.16
 	github.com/shibingli/ydx/middleware/ratelimit v0.1.12
 	github.com/shibingli/ydx/nodeid v0.1.4
 	github.com/shibingli/ydx/openapi v0.1.10
@@ -78,12 +78,12 @@ require (
 	github.com/remyoudompheng/bigfft v0.0.0-20230129092748-24d4a6f8daec // indirect
 	github.com/robfig/cron/v3 v3.0.1 // indirect
 	github.com/sagikazarmark/locafero v0.12.0 // indirect
-	github.com/shibingli/ydx/middleware/accesslog v0.1.14 // indirect
-	github.com/shibingli/ydx/middleware/asyncafter v0.1.14 // indirect
-	github.com/shibingli/ydx/middleware/compress v0.1.12 // indirect
-	github.com/shibingli/ydx/middleware/cors v0.1.12 // indirect
+	github.com/shibingli/ydx/middleware/accesslog v0.1.15 // indirect
+	github.com/shibingli/ydx/middleware/asyncafter v0.1.15 // indirect
+	github.com/shibingli/ydx/middleware/compress v0.1.13 // indirect
+	github.com/shibingli/ydx/middleware/cors v0.1.13 // indirect
 	github.com/shibingli/ydx/middleware/recovery v0.1.14 // indirect
-	github.com/shibingli/ydx/middleware/reqlog v0.1.12 // indirect
+	github.com/shibingli/ydx/middleware/reqlog v0.1.13 // indirect
 	github.com/shibingli/ydx/middleware/requestid v0.1.14 // indirect
 	github.com/shibingli/ydx/sysinfo v0.1.4 // indirect
 	github.com/shibingli/ydx/xml v0.1.1 // indirect
@@ -101,7 +101,7 @@ require (
 	google.golang.org/protobuf v1.36.12 // indirect
 	gorm.io/driver/mysql v1.6.0 // indirect
 	gorm.io/driver/postgres v1.6.3 // indirect
-	modernc.org/libc v1.79.1 // indirect
+	modernc.org/libc v1.80.0 // indirect
 	modernc.org/mathutil v1.7.1 // indirect
 	modernc.org/memory v1.12.1 // indirect
 	modernc.org/sqlite v1.61.1 // indirect
