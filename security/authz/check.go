@@ -449,8 +449,12 @@ func collectSources(fsys afero.Fs, root string, skip, exts []string) ([]sourceFi
 			}
 			return nil
 		}
-		kind, ok := kindOf(path.Base(rel), exts)
-		if !ok || isTestFile(path.Base(rel)) {
+		name := path.Base(rel)
+		if isMinifiedAsset(name) {
+			return nil
+		}
+		kind, ok := kindOf(name, exts)
+		if !ok || isTestFile(name) {
 			return nil
 		}
 		b, err := afero.ReadFile(fsys, p)
@@ -544,6 +548,14 @@ func isTestFile(name string) bool {
 		strings.HasSuffix(name, "_test.js")
 }
 
+// isMinifiedAsset reports whether name is a generated minified bundle. | isMinifiedAsset 报告 name 是否为生成的压缩产物。
+//
+// A bundle repeats its source on one line; scanning it only duplicates findings and makes the
+// quoted source line unreadable. | 压缩产物把源码重复在一行里；扫描它只会重复发现，并让引用的源码行无法阅读。
+func isMinifiedAsset(name string) bool {
+	return strings.HasSuffix(name, ".min.js") || strings.HasSuffix(name, ".min.mjs")
+}
+
 // The scanners. | 扫描器。
 
 // permissionConstRe matches the Go constant name of a capability or a role. | permissionConstRe 匹配能力或角色的 Go 常量名。
@@ -586,6 +598,12 @@ var assignLineRe = regexpx.MustCompile(`^\s*(?:(?:export\s+)?(?:const|var|let|ty
 // shortAssignLineRe reports a short assignment whose right-hand side is a single literal or name.
 // shortAssignLineRe 报告右侧只有一个字面量或名字的短声明行。
 var shortAssignLineRe = regexpx.MustCompile(`^\s*[\w.]+\s*(?::=|=)\s*(?:"(?:[^"\\]|\\.)*"|` + "`[^`]*`" + `|[A-Za-z_][\w.]*)\s*;?\s*$`)
+
+// registerCallRe matches the head of a framework registration call. Only a Name field passed to
+// one of these functions is a declaration; ordinary structs use the same field shape for data. |
+// registerCallRe 匹配框架注册调用的开头。只有传给这些函数的 Name 字段才算声明；
+// 普通结构体也会用同样的字段形态承载数据。
+var registerCallRe = regexpx.MustCompile(`\bauthz\.Register(?:Role|All)?\s*\(`)
 
 // scanFile runs every scanner that applies to f. | scanFile 对 f 运行所有适用的扫描器。
 func scanFile(f sourceFile, v *vocab) []reference {
@@ -706,6 +724,56 @@ func enclosingCall(src string, off int) (string, bool) {
 		}
 	}
 	return "", false
+}
+
+// inRegisterCall reports whether off sits inside the argument list of an authz.Register,
+// authz.RegisterRole or authz.RegisterAll call. | inRegisterCall 报告 off 是否位于
+// authz.Register、authz.RegisterRole 或 authz.RegisterAll 调用的实参表内。
+func inRegisterCall(text string, off int) bool {
+	for _, loc := range registerCallRe.FindAllStringIndex(text, -1) {
+		open := loc[1] - 1
+		if open >= off {
+			return false
+		}
+		if close, ok := closingParen(text, open); ok && close > off {
+			return true
+		}
+	}
+	return false
+}
+
+// closingParen returns the index of the ')' matching the '(' at open, skipping string literals.
+// | closingParen 返回与 open 处 '(' 配对的 ')' 下标，并跳过字符串字面量。
+func closingParen(text string, open int) (int, bool) {
+	depth := 0
+	var quote byte
+	escaped := false
+	for i := open; i < len(text); i++ {
+		c := text[i]
+		if quote != 0 {
+			switch {
+			case escaped:
+				escaped = false
+			case c == '\\' && quote != '`':
+				escaped = true
+			case c == quote:
+				quote = 0
+			}
+			continue
+		}
+		switch c {
+		case '"', '\'', '`':
+			quote = c
+		case '(':
+			depth++
+		case ')':
+			depth--
+			if depth == 0 {
+				return i, true
+			}
+		}
+	}
+	return 0, false
 }
 
 // scanLiterals finds every string literal that names a capability or a role. | scanLiterals 找出每个指明能力或角色的字符串字面量。
@@ -936,32 +1004,41 @@ func (v *vocab) absorb(f sourceFile) {
 		// 模板不声明任何东西：写在其中的每个能力都是引用。
 		return
 	}
+	start := 0
 	for _, line := range strings.Split(f.text, "\n") {
 		trimmed := strings.TrimSpace(line)
-		if trimmed == "" || !isDefinitionLine(trimmed) {
-			continue
-		}
-		for _, loc := range literalRe.FindAllStringIndex(trimmed, -1) {
-			value := unquote(trimmed[loc[0]:loc[1]])
-			if value == "" {
-				continue
-			}
-			switch name := declaredName(trimmed[:loc[0]]); {
-			case name == "Name" || name == "name":
-				// A registration record: authz.Register(Permission{Name: "invoice:approve"}).
-				// 注册记录：authz.Register(Permission{Name: "invoice:approve"})。
-				switch {
-				case IsPermissionName(value):
-					v.add("", value, false)
-				case IsRoleName(value):
-					v.add("", value, true)
+		if trimmed != "" && isDefinitionLine(trimmed) {
+			indent := strings.Index(line, trimmed)
+			for _, loc := range literalRe.FindAllStringIndex(trimmed, -1) {
+				value := unquote(trimmed[loc[0]:loc[1]])
+				if value == "" {
+					continue
 				}
-			case strings.HasPrefix(name, "Perm") && IsPermissionName(value):
-				v.add(name, value, false)
-			case strings.HasPrefix(name, "Role") && IsRoleName(value):
-				v.add(name, value, true)
+				switch name := declaredName(trimmed[:loc[0]]); {
+				case name == "Name" || name == "name":
+					// A registration record: authz.Register(Permission{Name: "invoice:approve"}).
+					// The same shape also appears in ordinary structs (sse.Event{Name: "yd:close"}),
+					// so the literal must sit inside a registration call to be a declaration.
+					// 注册记录：authz.Register(Permission{Name: "invoice:approve"})。同样的形态也会
+					// 出现在普通结构体里（sse.Event{Name: "yd:close"}），因此字面量必须位于注册调用
+					// 实参内才算声明。
+					if !inRegisterCall(f.text, start+indent+loc[0]) {
+						continue
+					}
+					switch {
+					case IsPermissionName(value):
+						v.add("", value, false)
+					case IsRoleName(value):
+						v.add("", value, true)
+					}
+				case strings.HasPrefix(name, "Perm") && IsPermissionName(value):
+					v.add(name, value, false)
+				case strings.HasPrefix(name, "Role") && IsRoleName(value):
+					v.add(name, value, true)
+				}
 			}
 		}
+		start += len(line) + 1
 	}
 }
 

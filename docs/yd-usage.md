@@ -635,7 +635,9 @@ yd authz list
 ```
 
 `check` 报告三类问题：未注册的能力/角色、裸字符串、已声明但无人引用。
-前两类以非零码退出，可直接进 CI。`list` 打印注册表（能力、Go 常量、模板键、JS 键与角色）。
+前两类以非零码退出，可直接进 CI。扫描跳过测试文件、`testdata` 与生成的 `*.min.js` / `*.min.mjs`；
+只有 `authz.Register*` 实参里的 `Name` 字段会被吸收为项目能力声明，普通结构体（如 `sse.Event{Name: ...}`）不会。
+`list` 打印注册表（能力、Go 常量、模板键、JS 键与角色）。
 
 ```bash
 yd authz check

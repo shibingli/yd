@@ -374,6 +374,80 @@ func write(w any) {
 	}
 }
 
+// TestCheckDoesNotAbsorbSSEEventNames requires an SSE event's Name field to stay a plain string
+// rather than becoming a project capability declaration. | TestCheckDoesNotAbsorbSSEEventNames
+// 要求 SSE 事件的 Name 字段保持普通字符串，而不会被当成项目能力声明。
+//
+// sse.Event{Name: "yd:classroom"} has the same Name/value shape as a registration record, but it
+// declares a wire event, not a capability. Absorbing it adds the resource group "yd" to the
+// vocabulary and turns every other event name in the tree into an "unregistered capability".
+// sse.Event{Name: "yd:classroom"} 与注册记录的 Name/值形态相同，但它声明的是线上事件而不是能力；
+// 一旦吸收就会把资源分组 "yd" 写进词汇表，树里其余事件名便全被读成「未注册能力」。
+func TestCheckDoesNotAbsorbSSEEventNames(t *testing.T) {
+	rep := checkFS(t, map[string]string{
+		"app/internal/sse/broker.go": `package sse
+
+var ev = Event{
+	Name: "yd:classroom",
+	Data: []byte("1"),
+}
+`,
+		"app/web/static/js/app.js": `document.dispatchEvent(new CustomEvent("yd:toast"));
+document.addEventListener("yd:realtime", onRealtime);
+`,
+		"app/web/templates/pages/home.html": `<div hx-sse:connect="/events" hx-sse:close="yd:close"></div>
+`,
+	})
+	if !rep.OK() {
+		t.Fatalf("SSE event names were read as capability declarations: %+v | SSE 事件名被当成了能力声明：%+v", rep.Issues, rep.Issues)
+	}
+}
+
+// TestCheckAbsorbsInlineRegistrationRecords guards the other direction: a record written inside
+// authz.Register is still a declaration, so a typo in its resource group is still caught.
+// | TestCheckAbsorbsInlineRegistrationRecords 守住另一个方向：写在 authz.Register 实参里的记录仍是声明，
+// 因此同组的拼写错误仍会被抓住。
+func TestCheckAbsorbsInlineRegistrationRecords(t *testing.T) {
+	rep := checkFS(t, map[string]string{
+		"app/internal/authz/perms.go": `package authz
+
+func init() {
+	authz.Register(authz.Permission{
+		Name: "invoice:approve",
+	})
+}
+`,
+		"app/internal/billing/billing.go": `package billing
+
+var _ = "invoice:aprove"
+`,
+	})
+	if _, ok := finding(rep, "invoice:aprove"); !ok {
+		t.Fatalf("a typo in the registered group was not reported: %+v | 已注册分组里的拼写错误未被报告：%+v", rep.Issues, rep.Issues)
+	}
+}
+
+// TestCheckSkipsMinifiedAssets requires generated .min.js and .min.mjs bundles to stay out of the
+// scan: they only repeat what the sources already say, and a finding in a one-line bundle is
+// unreadable. | TestCheckSkipsMinifiedAssets 要求生成的 .min.js 与 .min.mjs 不参与扫描：
+// 它们只是重复源码内容，而在一行压缩产物里的发现根本无法阅读。
+func TestCheckSkipsMinifiedAssets(t *testing.T) {
+	rep := checkFS(t, map[string]string{
+		"app/web/static/js/users.js": `export function wire(yd) {
+  return yd.can(yd.PERM.USER_CREATE);
+}
+`,
+		"app/web/static/js/users.min.js":   `export function wire(yd){return yd.can("user:creat")}`,
+		"app/web/static/js/widget.min.mjs": `export const check = (yd) => yd.can("role:creat");`,
+	})
+	if !rep.OK() {
+		t.Fatalf("minified assets were scanned: %+v | 压缩产物被扫描了：%+v", rep.Issues, rep.Issues)
+	}
+	if rep.Files != 1 {
+		t.Errorf("Files = %d, want only the source file | 扫描文件数 = %d，期望只统计源码文件", rep.Files, rep.Files)
+	}
+}
+
 // TestFrameworkTreePassesItsOwnCheck 要求本仓自身通过校验。
 //
 // The framework is the first project the checker has to survive: its own registry, its own
