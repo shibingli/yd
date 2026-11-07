@@ -116,7 +116,7 @@ regexpx v0.1.13 复测（同机、`-benchtime=300ms -count=3` 中位数）：
 - 租户硬边界、全局用户身份、成员关系与角色、首启种子数据。
 - 每用户 JWT `sec_key`、令牌 `kid` 取密钥、禁用 / 删除 / 轮换即时失效。
 - 纯 Go SM2/SM3/SM4；登录与敏感字段 SM2 前置加密；`authz` 注册表与静态校验。
-- 自研 SecLang WAF（`ydx/waf v0.1.5` + OWASP CRS 4.30.0）：热启停、请求级规则画像与 JSON/富文本排除；保留 `libinjection-go` 与 `wazero`，不再依赖 Coraza 引擎。
+- 自研 SecLang WAF（`ydx/waf v0.1.6` + OWASP CRS 4.30.0）：热启停、请求级规则画像与 JSON/富文本排除；保留 `libinjection-go` 与 `wazero`，不再依赖 Coraza 引擎。
 
 **前端与体验**
 - Htmx 4.0 与全部安全官方扩展默认加载、Tailwind v4 `@theme`、Alpine 3.17（CSP 构建）、htmx morph。
@@ -368,7 +368,7 @@ regexpx v0.1.13 re-run (same host, medians of `-benchtime=300ms -count=3`):
 - Hard tenant boundary, global user identity, memberships and roles, first-start seed data.
 - Per-user JWT `sec_key`, key selection via token `kid`, immediate revocation on disable/delete/rotation.
 - Pure-Go SM2/SM3/SM4; SM2 pre-encryption for sign-in and sensitive fields; the `authz` registry and static checks.
-- A self-built SecLang WAF (`ydx/waf v0.1.5` + OWASP CRS 4.30.0): hot toggling, per-request rule profiles and JSON/rich-text exclusions; `libinjection-go` and `wazero` are retained, while the Coraza engine is gone.
+- A self-built SecLang WAF (`ydx/waf v0.1.6` + OWASP CRS 4.30.0): hot toggling, per-request rule profiles and JSON/rich-text exclusions; `libinjection-go` and `wazero` are retained, while the Coraza engine is gone.
 
 **Frontend & UX**
 - Htmx 4.0 with every safe official extension loaded by default, Tailwind v4 `@theme`, Alpine 3.17 (CSP build), htmx morph.

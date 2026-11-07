@@ -227,7 +227,7 @@ recover → request-id → access-log → security → compress → cors → waf
 
 ## 9. 版本、依赖与许可
 
-- `github.com/shibingli/ydx/waf v0.1.5`（Apache-2.0）
+- `github.com/shibingli/ydx/waf v0.1.6`（Apache-2.0）
 - `github.com/corazawaf/coraza-coreruleset/crs/v4 v4.30.0`（Apache-2.0，仅规则数据）
 - `github.com/corazawaf/libinjection-go v0.3.5`（BSD-3-Clause，`@detectSQLi` 算子）
 - `github.com/tetratelabs/wazero v1.12.0`（Apache-2.0，WASM 插件运行时）

@@ -1364,7 +1364,7 @@ WebSocket、WebTransport 与 SSE 共用 `ydx/realtime` 中枢；使用说明见
 ## 34. WAF 集成（强制）
 
 `yd new` 默认随项目生成 `internal/waf` 并启用 WAF。引擎是
-`github.com/shibingli/ydx/waf v0.1.5`（ydx 自研 SecLang 解析与求值，不再内嵌 Coraza），
+`github.com/shibingli/ydx/waf v0.1.6`（ydx 自研 SecLang 解析与求值，不再内嵌 Coraza），
 规则数据来自 `github.com/corazawaf/coraza-coreruleset/crs/v4 v4.30.0`；使用说明见
 `docs/waf.md`（随生成项目发布）。以下约束不可绕过：
 
