@@ -33,6 +33,8 @@ github.com/go-viper/mapstructure/v2 v2.5.0 h1:vM5IJoUAy3d7zRSVtIwQgBj7BiWtMPfmPE
 github.com/go-viper/mapstructure/v2 v2.5.0/go.mod h1:oJDH3BJKyqBA2TXFhDsKDGDTlndYOZ6rGS0BRZIxGhM=
 github.com/godoes/gorm-dameng v0.7.2 h1:REw2sMyN2z/hfYEJqV1VbiCIl+zwyzIdRWFQYqQ4xrQ=
 github.com/godoes/gorm-dameng v0.7.2/go.mod h1:KP1qenBY+T4ZYwcRhM5VNWd33z2w7Mb5gIQw8X6pBeo=
+github.com/golang-jwt/jwt/v5 v5.3.1 h1:kYf81DTWFe7t+1VvL7eS+jKFVWaUnK9cB1qbwn63YCY=
+github.com/golang-jwt/jwt/v5 v5.3.1/go.mod h1:fxCRLWMO43lRc8nhHWY6LGqRcf+1gQWArsqaEUEa5bE=
 github.com/golang/protobuf v1.5.4 h1:i7eJL8qZTpSEXOPTxNKhASYpMn+8e5Q6AdndVa1dWek=
 github.com/golang/protobuf v1.5.4/go.mod h1:lnTiLA8Wa4RWRcIUkrtSVa5nRhsEGBg48fD6rSs7xps=
 github.com/golang/snappy v1.0.0 h1:Oy607GVXHs7RtbggtPBnr2RmDArIsAefDwvrdWvRhGs=
@@ -100,8 +102,10 @@ github.com/shibingli/ydx/afs v0.1.6 h1:SCOdkG0X5xCHkaNUW3XjVyOTJXqSi5QOx+Jqbcqj3
 github.com/shibingli/ydx/afs v0.1.6/go.mod h1:SAC2x4VE/zrJMUDfJm2371Zgx4VLi3lch3DPWk/ZVL0=
 github.com/shibingli/ydx/asynq v0.1.11 h1:vaxYyOllVzwX+xqHLo5jiFUt/Ag9CXOhFYcO2l7dC7E=
 github.com/shibingli/ydx/asynq v0.1.11/go.mod h1:QT64Qh/6z2gtpqsctlfm5w4ElvlGWZHcq+++ff9Z4KI=
-github.com/shibingli/ydx/base64 v0.1.13 h1:S6yBxXASJsPoABqHrz9fkgj7deJYdVYws4Fen83dcEU=
-github.com/shibingli/ydx/base64 v0.1.13/go.mod h1:PaROcW7ashuUWtpu30D3TfA28lDCBop8D39ZrHuK/eE=
+github.com/shibingli/ydx/auth v0.1.3 h1:WTOxuyq7vWa2hxMbiNZb3Hx4Obmz9v6K/NckvHLKDjM=
+github.com/shibingli/ydx/auth v0.1.3/go.mod h1:VLjmnAoyY/AxnhD0E7d4C5/iatVQiqWBp42Zvz3ALyo=
+github.com/shibingli/ydx/base64 v0.1.14 h1:uDqr0ZW5kkmuHDjV74UrCtFm5NNC/7ZJLtzGCO5r0IM=
+github.com/shibingli/ydx/base64 v0.1.14/go.mod h1:PaROcW7ashuUWtpu30D3TfA28lDCBop8D39ZrHuK/eE=
 github.com/shibingli/ydx/buffpool v0.1.5 h1:aKmsDwLkYoZKRPi1ZkuyvPFrsfdFaK7I1cd5nvGXBLs=
 github.com/shibingli/ydx/buffpool v0.1.5/go.mod h1:1PYC8bCUvgsvXzeFHDVo2wqy62bNYps+c1yZGCK4o/Y=
 github.com/shibingli/ydx/cache v0.1.18 h1:HNoDmREiJqqHGs0XSbK5L2Br7umMe4r7XsfgeN2Qrm8=
@@ -122,10 +126,8 @@ github.com/shibingli/ydx/guomi v0.1.2 h1:3oOMJ2poGpqBMgTk5tlaIdSRQuXBeRrjDEJSL2D
 github.com/shibingli/ydx/guomi v0.1.2/go.mod h1:4jBKXYmM3vkchqfvyEKVa1O/hc6olEzEsRJc/ZCeoiw=
 github.com/shibingli/ydx/i18n v0.1.11 h1:KqOTon4rABd3sT3uJPgdvWAzWYettgl1xdtkQyl+pu4=
 github.com/shibingli/ydx/i18n v0.1.11/go.mod h1:RfA1aDYCkFB9xxxEMgpT3DGYZJOt/a5DsK9gJBv1MsA=
-github.com/shibingli/ydx/json v0.1.16 h1:R4pF2vNcHRa32KdJzAv8I0xQeU7NM/0eVdE7Uaxjmz4=
-github.com/shibingli/ydx/json v0.1.16/go.mod h1:eI3oXq++MIcRQOhyJBz/IEEhl9FZoKN80EKM+Jzyj6Q=
-github.com/shibingli/ydx/jwt v0.1.12 h1:3VLStw6lXdZc4PxMJfBPMxAYyUeLguWFzFd9jy7hfzY=
-github.com/shibingli/ydx/jwt v0.1.12/go.mod h1:kxCAjeVOsgqOeXo6HWOCEC64nKr7MytP68MHpVGaCrw=
+github.com/shibingli/ydx/json v0.1.18 h1:QzYpUgLf8hPgfEZ4IsnIpJqXoY0sXHSV6HuB7pHB29w=
+github.com/shibingli/ydx/json v0.1.18/go.mod h1:eI3oXq++MIcRQOhyJBz/IEEhl9FZoKN80EKM+Jzyj6Q=
 github.com/shibingli/ydx/log v0.1.12 h1:JEvTYP6OHnCLmRDq78m2c6P6AcmFstjaJcBGlQ8dobg=
 github.com/shibingli/ydx/log v0.1.12/go.mod h1:JwUz+k2xHzh7TGdzrj34TqxQ36fFAGEhY2TTs8ZNmps=
 github.com/shibingli/ydx/middleware v0.1.17 h1:L62XyPF/Gqk5FV/9Y0ed4f7ZZOyAFcARbAsihBVOkio=
@@ -174,8 +176,8 @@ github.com/shibingli/ydx/webtransport v0.1.0 h1:3DwbXgXyXRFCnCbxj8Z0xlJx9WY9Vhu+
 github.com/shibingli/ydx/webtransport v0.1.0/go.mod h1:irmdW+MRnQEXlijy/TiLYgbbjLnFKRaUsihQNwATdPs=
 github.com/shibingli/ydx/workflow v0.1.7 h1:DySDvCMP5q36JHNWiYAc6HD78TK5eBSYXnEq72Ek+So=
 github.com/shibingli/ydx/workflow v0.1.7/go.mod h1:aGCv/+QNySWj7DSkBmovgFhX+XZVrv5YKtpFJVD7Fxg=
-github.com/shibingli/ydx/xml v0.1.1 h1:7HQET+xWIpkuGYIybHcbtAqoUNAZpaiPAuIBQsMgjE4=
-github.com/shibingli/ydx/xml v0.1.1/go.mod h1:Fhy+RjUDPao+aIPiBXdySTPonqMjjMc7pSTozcqIcKQ=
+github.com/shibingli/ydx/xml v0.1.2 h1:fFVLEwBRLXZWxF/Kg/bVmVP1gWph/wE21ESROzC+mqI=
+github.com/shibingli/ydx/xml v0.1.2/go.mod h1:Fhy+RjUDPao+aIPiBXdySTPonqMjjMc7pSTozcqIcKQ=
 github.com/spf13/afero v1.15.0 h1:b/YBCLWAJdFWJTN9cLhiXXcD7mzKn9Dm86dNnfyQw1I=
 github.com/spf13/afero v1.15.0/go.mod h1:NC2ByUVxtQs4b3sIUphxK0NioZnmxgyCrfzeuq8lxMg=
 github.com/spf13/cast v1.10.0 h1:h2x0u2shc1QuLHfxi+cTJvs30+ZAHOGRic8uyGTDWxY=

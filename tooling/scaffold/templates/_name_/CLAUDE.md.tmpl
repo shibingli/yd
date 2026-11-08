@@ -36,7 +36,7 @@
 - Htmx **{{ .HtmxVersion }}** 作为前端事件总线；Tailwind CSS **{{ .TailwindVersion }}** 作为样式标准（`@theme` 语义化变量，默认蓝色系）
 - 不依赖 Node.js 编译管道：Tailwind 编译由 `yd` 脚手架静默驱动
 - 前端资产一律 `go:embed` 打包进二进制，**严禁**运行时从公网 CDN 动态引入
-- 框架能力（`{{ .YdModule }}` 与 `{{ .YdxModule }}`）：`ydlog` 零拷贝日志（`{{ .YdxModule }}/log`）、`errs` 声明式哨兵错误、`json`/`base64` 硬件自适应编解码、`router`/`htmx`/`sse`/`ws`/`jwt`/`guomi` 等中间件与插件
+- 框架能力（`{{ .YdModule }}` 与 `{{ .YdxModule }}`）：`ydlog` 零拷贝日志（`{{ .YdxModule }}/log`）、`errs` 声明式哨兵错误、`json`/`base64` 硬件自适应编解码、`router`/`htmx`/`sse`/`ws`/`auth/token/jwt`/`guomi` 等中间件与插件
 - 鉴权能力（`{{ .YdModule }}/security/auth`）：租户、用户、角色、能力与令牌签发器；本项目在 `internal/repository` 里装配它，在 `internal/model` 里声明能力常量与展示文案
 
 ## 4. 配置与环境变量

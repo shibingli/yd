@@ -28,7 +28,8 @@ const CRSRulesetVersion = "v4.30.0"
 var YdxVersions = map[string]string{
 	"github.com/shibingli/ydx/afs":                   "v0.1.6",
 	"github.com/shibingli/ydx/asynq":                 "v0.1.11",
-	"github.com/shibingli/ydx/base64":                "v0.1.13",
+	"github.com/shibingli/ydx/auth":                  "v0.1.3",
+	"github.com/shibingli/ydx/base64":                "v0.1.14",
 	"github.com/shibingli/ydx/buffpool":              "v0.1.5",
 	"github.com/shibingli/ydx/cache":                 "v0.1.18",
 	"github.com/shibingli/ydx/captcha":               "v0.1.2",
@@ -39,8 +40,7 @@ var YdxVersions = map[string]string{
 	"github.com/shibingli/ydx/gorm":                  "v0.1.14",
 	"github.com/shibingli/ydx/guomi":                 "v0.1.2",
 	"github.com/shibingli/ydx/i18n":                  "v0.1.11",
-	"github.com/shibingli/ydx/json":                  "v0.1.16",
-	"github.com/shibingli/ydx/jwt":                   "v0.1.12",
+	"github.com/shibingli/ydx/json":                  "v0.1.18",
 	"github.com/shibingli/ydx/log":                   "v0.1.12",
 	"github.com/shibingli/ydx/middleware":            "v0.1.17",
 	"github.com/shibingli/ydx/middleware/accesslog":  "v0.1.16",
@@ -65,7 +65,7 @@ var YdxVersions = map[string]string{
 	"github.com/shibingli/ydx/websocket":             "v0.1.16",
 	"github.com/shibingli/ydx/webtransport":          "v0.1.0",
 	"github.com/shibingli/ydx/workflow":              "v0.1.7",
-	"github.com/shibingli/ydx/xml":                   "v0.1.1",
+	"github.com/shibingli/ydx/xml":                   "v0.1.2",
 }
 
 // YdxModules lists the ydx modules a generated project may import. | YdxModules 列出生成项目可能导入的 ydx 模块。
@@ -74,6 +74,7 @@ var YdxVersions = map[string]string{
 var YdxModules = []string{
 	"github.com/shibingli/ydx/afs",
 	"github.com/shibingli/ydx/asynq",
+	"github.com/shibingli/ydx/auth",
 	"github.com/shibingli/ydx/base64",
 	"github.com/shibingli/ydx/buffpool",
 	"github.com/shibingli/ydx/cache",
@@ -86,7 +87,6 @@ var YdxModules = []string{
 	"github.com/shibingli/ydx/guomi",
 	"github.com/shibingli/ydx/i18n",
 	"github.com/shibingli/ydx/json",
-	"github.com/shibingli/ydx/jwt",
 	"github.com/shibingli/ydx/log",
 	"github.com/shibingli/ydx/middleware",
 	"github.com/shibingli/ydx/middleware/accesslog",

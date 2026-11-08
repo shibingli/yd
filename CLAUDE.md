@@ -50,7 +50,8 @@
   `replace`。开发期联调只能在两个仓库之外临时使用 `go.work`，不得提交。
 - **模块清单**（40 个）：`errs`、`sysinfo`、`buffpool`、`protocol`、`nodeid`、`base64`、`json`、`xml`、`afs`、
   `config`、`log`、`regexpx`、`router`、`gorm`、`redis`、`asynq`、`cron`、`cache`、`sse`、`websocket`、
-  `webtransport`、`realtime`、`render`、`i18n`、`openapi`、`openapi/ydrouter`、`jwt`、`guomi`、
+  `webtransport`、`realtime`、`render`、`i18n`、`openapi`、`openapi/ydrouter`、`auth`
+  （JWT 在 `auth/token/jwt`）、`guomi`、
   `captcha`、`waf`、`workflow`、`middleware` 及 8 个 `middleware/*` 插件。
 - **流程引擎**：`workflow` 是可独立使用的 BPMN 2.0 子集引擎；持久化在 `workflow/gormstore`
   （覆盖 ydx/gorm 支持的 MySQL / PostgreSQL / SQLite / DM8），通知在 `workflow/notify`，

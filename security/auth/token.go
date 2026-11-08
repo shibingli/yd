@@ -5,8 +5,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/shibingli/ydx/auth/token/jwt"
 	"github.com/shibingli/ydx/errs"
-	"github.com/shibingli/ydx/jwt"
 )
 
 // keyLookupTimeout bounds the pre-signature store lookup. KeyFunc carries no request context, so

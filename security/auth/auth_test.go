@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/shibingli/ydx/jwt"
+	"github.com/shibingli/ydx/auth/token/jwt"
 )
 
 // ---------------------------------------------------------------- Shared fixtures | 共享夹具

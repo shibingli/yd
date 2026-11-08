@@ -592,7 +592,7 @@ CGO_ENABLED=1 CC=clang go test -race ./...    44 个包 ok，退出码 0
 
 ### 3.13.1 JWT：补齐每请求验签基准
 
-`ydx/jwt` 之前没有任何基准，本轮新增 `bench_test.go`，覆盖登录期签发、
+`ydx/auth/token/jwt` 之前没有任何基准，本轮新增 `bench_test.go`，覆盖登录期签发、
 每请求对称/非对称验签与并发验签。每轮都启用推荐的校验项（算法白名单、签发者、
 受众、必须含 `exp`）。基准取 Windows / i9-10980HK、`-benchtime=1s -count=5` 中位：
 
