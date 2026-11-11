@@ -1,6 +1,6 @@
 module github.com/shibingli/yd/tooling/versions/waf
 
-go 1.27.3
+go 1.27.4
 
 require (
 	github.com/corazawaf/coraza-coreruleset/crs/v4 v4.30.0

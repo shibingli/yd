@@ -10,7 +10,7 @@
 - **环境自适应**：并行度、分块大小、缓冲与池上限一律由 `ydx/sysinfo` 在运行时读取 GOMAXPROCS、逻辑 CPU 数与 cgroup/主机内存后决定；库 API 不接收核心数或内存容量参数。
 - **基准报告**：所有基准统一在 `ydx/benchmarks/*`；单核/多核、全部对比库、CPU 与峰值 RSS 以 ydx 仓的 `benchmarks/README.md` 与各模块 README 为准。yd 仓库不保留 `benchmarks/` 目录。
 - **组件依赖**：`errs/json/base64/xml/log/buffpool/afs/config/sysinfo/regexpx/router/gorm/redis/asynq/cron/cache/sse/websocket/render/jwt/guomi/waf` 与中间件插件均由 `github.com/shibingli/ydx/*` 提供；yd 只按版本号引用，禁止本地 replace 或复制源码。
-- SIMD 相关构建与测试使用 `GOEXPERIMENT=simd`；Go 1.27.3+ 若已默认启用可省略。
+- SIMD 相关构建与测试使用 `GOEXPERIMENT=simd`；Go 1.27.4+ 若已默认启用可省略。
 
 ## 1. 修改权限边界
 

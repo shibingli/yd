@@ -569,7 +569,7 @@ func sortFiles(files []plannedFile) {
 	sort.Slice(files, func(i, j int) bool { return files[i].path < files[j].path })
 }
 
-// goMajorMinor trims the patch number for Docker image tags: 1.27.3 becomes 1.27. | goMajorMinor 去掉补丁号以用于 Docker 镜像标签：1.27.3 变成 1.27。
+// goMajorMinor trims the patch number for Docker image tags: 1.27.4 becomes 1.27. | goMajorMinor 去掉补丁号以用于 Docker 镜像标签：1.27.4 变成 1.27。
 //
 // The golang images are published with major.minor tags, so deriving this value from the same
 // GoVersion the generated go.mod uses keeps the builder image from drifting behind the language

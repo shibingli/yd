@@ -17,7 +17,7 @@
 
 **后端**
 
-- Go **1.27.3**（go.mod `go 1.27.3`），充分利用泛型优化、低延迟 GC、PGO 与标准库结构体增强
+- Go **1.27.4**（go.mod `go 1.27.4`），充分利用泛型优化、低延迟 GC、PGO 与标准库结构体增强
 - 配置：viper v1.21（多格式 TOML/YAML/YAML v3/JSON + 动态监听）
 - 文件系统：afero v1.15（OsFs / MemFs 无缝切换的 Mockable FS）
 - 命令行：pflag v1.0.10（POSIX 风格，替代标准库 `flag`）

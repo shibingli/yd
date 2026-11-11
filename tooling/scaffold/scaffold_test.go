@@ -447,8 +447,8 @@ func TestGenerateProducesAllRequiredFiles(t *testing.T) {
 	if !strings.Contains(gomod, "module github.com/yun-dev/demo-app") {
 		t.Errorf("go.mod 缺少模块路径:\n%s", gomod)
 	}
-	if !strings.Contains(gomod, "go 1.27.3") {
-		t.Errorf("go.mod 缺少 go 1.27.3:\n%s", gomod)
+	if !strings.Contains(gomod, "go 1.27.4") {
+		t.Errorf("go.mod 缺少 go 1.27.4:\n%s", gomod)
 	}
 	if strings.Contains(gomod, "\nreplace ") {
 		t.Errorf("未指定 --local-replace 时不应出现 replace 指令:\n%s", gomod)
@@ -1744,7 +1744,7 @@ func TestGeneratedGovernanceDocsStateConstraints(t *testing.T) {
 		"base64",
 		"YD_",
 		// Stack versions (the template bolds them; the mandated version literals are checked verbatim). | 技术栈版本（模板以粗体书写，逐字校验需求规定的版本号）。
-		"Go **1.27.3**",
+		"Go **1.27.4**",
 		"Htmx **4.0.0**",
 		"Tailwind CSS **v4**",
 		"redis",
