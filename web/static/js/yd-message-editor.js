@@ -253,6 +253,12 @@
 
     element.setAttribute(READY, "1");
     element.__ydEditor = editor;
+    /* The compact composer's source textarea has a label; pass it to the visible CodeMirror
+       input so assistive technology announces the same field name. | 紧凑撰写区的源 textarea 带有
+       标签；把它传给可见的 CodeMirror 输入框，读屏软件才会报出同一个字段名。 */
+    if (window.ydUI && typeof window.ydUI.labelEditorInput === "function") {
+      window.ydUI.labelEditorInput(editor, textarea, element);
+    }
     /* EasyMDE 的工具栏由脚本在运行时构造；图标统一从隐藏调色板克隆 Lucide SVG，不依赖图标字体。 |
        EasyMDE builds its toolbar at runtime; every icon is cloned from the hidden palette as a Lucide
        SVG, so no icon font is involved. */

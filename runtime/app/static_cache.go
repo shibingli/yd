@@ -36,11 +36,13 @@ func staticCacheMiddleware(production bool) router.Middleware {
 	return func(c *router.Ctx) {
 		if strings.HasPrefix(c.Path(), staticURLPrefix+"/") {
 			// The compression middleware writes Vary only when it actually compresses; a static asset declares it
-			// whether or not this response was compressed, so a shared cache never conflates the two forms. Add keeps
-			// the language dimension the i18n middleware already wrote. | 压缩中间件只在真正压缩时才写 Vary；
-			// 静态资源无论本次是否压缩都声明它，共享缓存才不会把压缩与未压缩的表示混为一谈。
-			// Add 保留 i18n 已写入的语言维度。
-			c.Writer.Header().Add("Vary", "Accept-Encoding")
+			// whether or not this response was compressed, so a shared cache never conflates the two forms. Static
+			// files do not vary by language or cookie, and keeping those dimensions from the i18n middleware would
+			// prevent a CDN from storing them at all, so the value is replaced rather than appended. |
+			// 压缩中间件只在真正压缩时才写 Vary；静态资源无论本次是否压缩都声明它，共享缓存才不会把压缩与未压缩
+			// 的表示混为一谈。静态文件不随语言或 Cookie 变化，保留 i18n 中间件写入的这些维度会让 CDN 完全无法缓存，
+			// 因此这里覆盖而不是追加。
+			c.Writer.Header().Set("Vary", "Accept-Encoding")
 			if production && isContentHash(c.Query("v")) {
 				c.SetHeader("Cache-Control", staticCacheImmutable)
 			} else {

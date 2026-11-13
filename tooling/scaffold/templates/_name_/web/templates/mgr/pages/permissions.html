@@ -37,7 +37,7 @@
   <section class="yd-card yd-section" aria-labelledby="yd-permissions-table-title">
     <h2 class="sr-only" id="yd-permissions-table-title">{{ tr "page.permissions.table_title" }}</h2>
     <div class="yd-table__wrap" data-yd-table>
-      <table class="yd-table" aria-label="{{ tr "page.permissions.title" }}">
+      <table class="yd-table yd-matrix" aria-label="{{ tr "page.permissions.title" }}">
         <caption class="sr-only">{{ tr "page.permissions.title" }}</caption>
         <thead class="yd-table__head">
           <tr>
@@ -59,7 +59,7 @@
               {{/* Whether it is granted comes from model.Role.Granted(capability) and the page infers nothing: the matrix
                    and the authorization path read one and the same method. */}}
               {{ if $role.Granted $item.Key }}
-              <span class="yd-badge yd-badge--success" aria-hidden="true">✓</span>
+              <span class="yd-matrix__grant" aria-hidden="true">{{ template "partials/icon" "lucide-check" }}</span>
               <span class="sr-only">{{ tr "permission.granted" }}</span>
               {{ else }}
               <span class="yd-hint" aria-hidden="true">—</span>

@@ -2532,11 +2532,24 @@ const (
 	// tokenCookieName 是会话 cookie 名，与生成项目的 internal/meta.TokenCookie 一致。
 	// tokenCookieName is the session cookie name, matching internal/meta.TokenCookie of the generated project.
 	tokenCookieName = "yd_token"
-	// forbiddenCopy 是越权兜底文案（controller.msgForbidden）的中文半句：出现它就说明 403 是文档化的拒绝。
-	// forbiddenCopy is the Chinese half of the escalation fallback copy (controller.msgForbidden): its presence proves the
-	// 403 is the documented refusal.
-	forbiddenCopy = "没有权限执行该操作"
 )
+
+// forbiddenCopies 是越权兜底文案（controller.msgForbidden）的两侧。渲染按请求语言只保留一侧，因此
+// 任一侧出现都说明 403 是文档化的拒绝。 | forbiddenCopies holds both sides of the escalation fallback
+// copy (controller.msgForbidden). Rendering keeps one side per request language, so either one proves the
+// 403 is the documented refusal.
+var forbiddenCopies = []string{"没有权限执行该操作", "You are not allowed to perform this action"}
+
+// containsForbidden reports whether a refusal body carries the documented copy in the request language. |
+// containsForbidden 报告拒绝正文是否带有与请求语言一致的文档化文案。
+func containsForbidden(body string) bool {
+	for _, copy := range forbiddenCopies {
+		if strings.Contains(body, copy) {
+			return true
+		}
+	}
+	return false
+}
 
 // assertSeedCredentialsDocumented 逐字回验种子凭据与首登改密提示确实落在生成项目的源码、配置与 README 里，
 // 并回验**没有任何口令被硬编码**：口令只有「配置 / 环境变量」与「那一枚文档化的开发回退」两条来源。
@@ -2951,7 +2964,7 @@ func TestGeneratedAppSupportsAuth(t *testing.T) {
 		if resp.StatusCode != http.StatusForbidden {
 			t.Fatalf("跨租户 GET /users 状态码 = %d, 期望 403\n%s", resp.StatusCode, body)
 		}
-		if !strings.Contains(body, forbiddenCopy) {
+		if !containsForbidden(body) {
 			t.Errorf("跨租户的 403 未回显越权文案:\n%s", body)
 		}
 		assertNoUserData(t, "跨租户 GET /users", body)
@@ -3103,7 +3116,7 @@ func TestGeneratedAppSupportsAuth(t *testing.T) {
 		if respMember.StatusCode != http.StatusForbidden {
 			t.Fatalf("member GET /users 状态码 = %d, 期望 403\n%s", respMember.StatusCode, memberBody)
 		}
-		if !strings.Contains(memberBody, forbiddenCopy) {
+		if !containsForbidden(memberBody) {
 			t.Errorf("member 的 403 未回显越权文案:\n%s", memberBody)
 		}
 		assertNoUserData(t, "member GET /users", memberBody)
@@ -3124,7 +3137,7 @@ func TestGeneratedAppSupportsAuth(t *testing.T) {
 		if respWrite.StatusCode != http.StatusForbidden {
 			t.Fatalf("auditor POST /tenants 状态码 = %d, 期望 403\n%s", respWrite.StatusCode, writeBody)
 		}
-		if !strings.Contains(writeBody, forbiddenCopy) {
+		if !containsForbidden(writeBody) {
 			t.Errorf("auditor 的 403 未回显越权文案:\n%s", writeBody)
 		}
 
@@ -3138,11 +3151,13 @@ func TestGeneratedAppSupportsAuth(t *testing.T) {
 			t.Errorf("被拒绝的越权写入居然生效了:\n%s", tenants)
 		}
 
-		// 默认租户名以中文开头，首字符必须按 rune 截取；按字节截断会产生非法 UTF-8，徽标因此空白。
-		// The default tenant name starts with Chinese, so its initial must be cut by rune; a byte slice yields
-		// invalid UTF-8 and leaves the badge blank.
-		if !strings.Contains(tenants, ">默</span>") {
-			t.Errorf("租户列表的标识徽标未显示首字符「默」:\n%s", tenants)
+		// 默认租户名是双语的，页面按请求语言只显示一侧：中文页首字符是「默」，英文页是「D」。
+		// 无论哪一侧，首字符都必须按 rune 截取；按字节截断会产生非法 UTF-8，徽标因此空白。
+		// The default tenant name is bilingual and the page keeps only the request language's side:
+		// 「默」 on the Chinese page and "D" on the English one. Either way the initial is cut by rune;
+		// a byte slice yields invalid UTF-8 and leaves the badge blank.
+		if !strings.Contains(tenants, ">默</span>") && !strings.Contains(tenants, ">D</span>") {
+			t.Errorf("租户列表的标识徽标未显示本地化首字符（「默」或 D）:\n%s", tenants)
 		}
 		if strings.Contains(tenants, "�") {
 			t.Errorf("租户列表出现替换字符，说明首字符按字节截断:\n%s", tenants)
@@ -3487,6 +3502,10 @@ func TestGeneratedI18nCatalogueCoversEveryTrKey(t *testing.T) {
 	// 这里一并扫描这些引用，否则真正被用到的键会被误报为陈旧键。
 	goKeyPatterns := []*regexpx.Regexp{
 		regexpx.MustCompile(`"(metrics\.[a-z0-9_.]+)"`),
+		// The component gallery builds chart copy through a small label(key, fallback) closure, so
+		// its catalogue keys only ever appear as the first argument of that call. | 组件示例通过
+		// label(key, fallback) 闭包生成图表文案，键名只出现在该调用的第一个参数里。
+		regexpx.MustCompile(`\blabel\("([a-z0-9_.]+)"`),
 		regexpx.MustCompile(`\btr\([^,\n]+,\s*"([a-z0-9_.]+)"`),
 		regexpx.MustCompile(`"Key":\s*"([a-z0-9_.]+)"`),
 	}
@@ -4619,9 +4638,9 @@ func TestGenerateThemeBootAndAutoTokens(t *testing.T) {
 	for _, want := range []string{
 		`@media (prefers-color-scheme: dark)`,
 		":root[data-theme=\"auto\"]",
-		"--color-surface-muted: #111c2f;",
-		"--color-success: #4ade80;",
-		"--color-accent: #60a5fa;",
+		"--color-surface-muted: #14110d;",
+		"--color-success: #9dbf7d;",
+		"--color-accent: #e07a63;",
 	} {
 		if !strings.Contains(cssBody, want) {
 			t.Errorf("generated app.css auto block is missing %q | 生成的 app.css auto 深色块缺少 %q", want, want)
@@ -4886,11 +4905,11 @@ func TestSeedPasswordNoticeAppearsOnceOnHome(t *testing.T) {
 	}
 
 	home := pr.read("web/templates/mgr/pages/home.html")
-	if got := strings.Count(home, "{{ .SeedNotice }}"); got != 1 {
+	if got := strings.Count(home, `{{ tr "account.seed_notice" }}`); got != 1 {
 		t.Errorf("home.html must carry exactly one notice, got %d | home.html 必须恰好包含一条提示，实际为 %d", got, got)
 	}
 	account := pr.read("web/templates/portal/pages/account.html")
-	if !strings.Contains(account, "{{ .SeedNotice }}") {
+	if !strings.Contains(account, `{{ tr "account.seed_notice" }}`) {
 		t.Error("account.html must keep its own password notice | account.html 必须保留自己的改密提示")
 	}
 }
@@ -5032,7 +5051,7 @@ func TestGenerateResponsiveShellHooks(t *testing.T) {
 		{"web/static/js/yd-app.js", "function swapReplacedRail(root)"},
 		{"web/static/css/components.css", "max-width: 63.999rem"},
 		{"web/static/css/components.css", "Responsive layout"},
-		{"web/static/css/components.css", "padding: clamp(1rem, 0.5rem + 1vw, 4rem);"},
+		{"web/static/css/components.css", "padding: clamp(1rem, 0.5rem + 0.5vw, 1.5rem);"},
 	} {
 		if !strings.Contains(pr.read(want.file), want.text) {
 			t.Errorf("%s 缺少 %q", want.file, want.text)
@@ -5179,7 +5198,7 @@ func TestGeneratedMessageCentreUsesInlineNewConversationPanel(t *testing.T) {
 		"message.selected",
 		"message.create_group",
 		"nav.unread_messages",
-		"nav.my_profile",
+		"nav.account",
 	} {
 		if _, ok := zh[key]; !ok {
 			t.Errorf("zh-CN.yaml 缺少 %q", key)

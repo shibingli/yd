@@ -63,8 +63,8 @@
           <span class="yd-label">{{ tr "message.groups" }}</span>
           <div class="yd-checks">
             {{- range .Catalog.Groups }}
-            <label class="yd-check">
-              <input class="yd-check__input" type="checkbox" name="group_ids" value="{{ .ID }}">
+            <label class="yd-check" for="yd-msg-composer-group-{{ .ID }}">
+              <input class="yd-check__input" id="yd-msg-composer-group-{{ .ID }}" type="checkbox" name="group_ids" value="{{ .ID }}">
               <span class="yd-check__box" aria-hidden="true"></span>
               <span class="yd-check__body"><span class="yd-check__label">{{ .Label }}</span></span>
             </label>
@@ -75,8 +75,8 @@
           <span class="yd-label">{{ tr "message.tags" }}</span>
           <div class="yd-checks">
             {{- range .Catalog.Tags }}
-            <label class="yd-check">
-              <input class="yd-check__input" type="checkbox" name="tag_ids" value="{{ .ID }}">
+            <label class="yd-check" for="yd-msg-composer-tag-{{ .ID }}">
+              <input class="yd-check__input" id="yd-msg-composer-tag-{{ .ID }}" type="checkbox" name="tag_ids" value="{{ .ID }}">
               <span class="yd-check__box" aria-hidden="true"></span>
               <span class="yd-check__body"><span class="yd-check__label">#{{ .Label }}</span></span>
             </label>

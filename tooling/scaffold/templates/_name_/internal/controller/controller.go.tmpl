@@ -953,11 +953,13 @@ func (c *Controller) pageView(ctx *router.Ctx, title string, extra map[string]an
 // Fragment templates never read them, yet every partial refresh would otherwise pay a dozen queries — and for the
 // seeded administrator the SeedPassword check adds a password-hash verification on top.
 func (c *Controller) renderData(ctx *router.Ctx, title string, extra map[string]any, full bool) map[string]any {
+	lang := c.lang(ctx)
 	data := map[string]any{
-		"Title":               title,
+		"Title":               localTitle(lang, title),
 		"Name":                meta.Name,
 		"Module":              meta.Module,
 		"Description":         meta.Description,
+		"MetaDescription":     localizeBilingual(lang, meta.Description),
 		"Version":             meta.Version,
 		"GoVersion":           meta.GoVersion,
 		"HtmxVersion":         meta.HtmxVersion,
@@ -968,7 +970,7 @@ func (c *Controller) renderData(ctx *router.Ctx, title string, extra map[string]
 		"Path":                ctx.Path(),
 		"PublicKey":           c.PublicKey(),
 		"KeyEndpoint":         PubkeyPath,
-		"Lang":                c.lang(ctx),
+		"Lang":                lang,
 		"TenantHeader":        meta.TenantHeader,
 		"SeedNotice":          meta.SeedPasswordNotice,
 		"User":                nil,
@@ -1005,6 +1007,14 @@ func (c *Controller) renderData(ctx *router.Ctx, title string, extra map[string]
 	data["Mgr"] = !portal
 	for k, v := range extra {
 		data[k] = v
+	}
+	// 页面级的错误位直接渲染字符串；它们在生成侧可能来自双语哨兵，渲染前按当前语言收成一侧。 |
+	// The page-level error slots render strings; a generated sentinel may be bilingual, so it is reduced to the
+	// current language before rendering.
+	for _, key := range []string{"Error", "MessageError", "AttachmentError", "WorkflowError"} {
+		if text, ok := data[key].(string); ok && text != "" {
+			data[key] = localizeBilingual(lang, text)
+		}
 	}
 
 	user, _ := auth.CurrentUser(ctx)
@@ -1073,7 +1083,7 @@ func (c *Controller) renderData(ctx *router.Ctx, title string, extra map[string]
 		// The top-right tenant dropdown reads exactly this membership list: only tenants the user
 		// belongs to appear, and the switch endpoint verifies the membership again server-side.
 		if members, err := c.users.Tenants(ctx.Request.Context(), user.ID); err == nil {
-			data["Tenants"] = members
+			data["Tenants"] = localizeTenants(lang, members)
 		} else {
 			c.log.Warn("tenant memberships unavailable | 租户成员关系不可用", ydlog.Err(err), ydlog.Str("user", user.ID))
 		}
@@ -1089,7 +1099,7 @@ func (c *Controller) renderData(ctx *router.Ctx, title string, extra map[string]
 		data["TenantID"] = tenantID
 		if full {
 			if tenant, err := c.tenants.Get(ctx.Request.Context(), tenantID); err == nil {
-				data["Tenant"] = tenant
+				data["Tenant"] = localizeTenant(lang, tenant)
 			}
 		}
 	}
@@ -1187,6 +1197,110 @@ func (c *Controller) lang(ctx *router.Ctx) string {
 		return t.Lang()
 	}
 	return meta.DefaultLang
+}
+
+// Favicon 把惯例的 /favicon.ico 请求重定向到随二进制嵌入的 SVG 图标。独立页面（如 OpenAPI 查看器）
+// 没有声明 <link rel="icon">，浏览器会自动请求这个路径；返回 302 而不是 404，也不复制第二份图标。 |
+// Favicon redirects the conventional /favicon.ico request to the SVG icon embedded in the binary. Standalone
+// pages such as the OpenAPI viewer declare no <link rel="icon">, so the browser requests this path by itself;
+// a 302 keeps the console clean without storing a second copy of the icon.
+//
+// @Summary Site icon redirect | 站点图标重定向
+// @Description Redirects the conventional /favicon.ico path to the embedded SVG icon, so standalone pages never
+// @Description produce a 404 in the browser console.
+// @Description 把惯例的 /favicon.ico 请求重定向到随二进制嵌入的 SVG 图标，独立页面因此不会在控制台留下 404。
+// @Tags ops
+// @Produce image/svg+xml
+// @Success 302 {string} string "redirect to /static/img/yd-icon.svg | 重定向到 /static/img/yd-icon.svg"
+// @Router /favicon.ico [get]
+func (c *Controller) Favicon(ctx *router.Ctx) {
+	_ = ctx.Redirect(http.StatusFound, "/static/img/yd-icon.svg")
+}
+
+// localizeBilingual returns the side of a "… | …" pair that matches lang. The scaffold writes UI
+// pairs in both orders — comments are "English | 中文" while toasts are "中文 | English" — so the side
+// is chosen by its script rather than by position. A string without a separator is returned as is. |
+// localizeBilingual 返回「… | …」中与 lang 匹配的一侧。脚手架的界面文案两种顺序都有——注释是
+// 「English | 中文」，提示是「中文 | English」——因此按文字脚本而不是位置选边。没有分隔符时原样返回。
+func localizeBilingual(lang, text string) string {
+	marker := strings.Index(text, " | ")
+	if marker < 0 {
+		return text
+	}
+	left := strings.TrimSpace(text[:marker])
+	right := strings.TrimSpace(text[marker+3:])
+	if left == "" || right == "" {
+		return text
+	}
+	leftHan, rightHan := containsHan(left), containsHan(right)
+	if isEnglishLang(lang) {
+		if leftHan && !rightHan {
+			return right
+		}
+		return left
+	}
+	if rightHan && !leftHan {
+		return right
+	}
+	return left
+}
+
+// containsHan reports whether the string contains a CJK ideograph. | containsHan 报告字符串是否包含中日韩表意文字。
+func containsHan(s string) bool {
+	for _, r := range s {
+		if r >= 0x4E00 && r <= 0x9FFF {
+			return true
+		}
+	}
+	return false
+}
+
+// isEnglishLang reports whether lang selects the English catalogue. | isEnglishLang 报告 lang 是否选择英文目录。
+func isEnglishLang(lang string) bool {
+	return strings.HasPrefix(strings.ToLower(strings.TrimSpace(lang)), "en")
+}
+
+// localTitle keeps only the side of a bilingual document title that matches lang. | localTitle 只保留双语文档标题中
+// 与 lang 匹配的一侧。
+func localTitle(lang, title string) string {
+	return localizeBilingual(lang, title)
+}
+
+// localizeTenant returns a copy of tenant with its display name reduced to lang. The tenant name is
+// scaffold-owned metadata written as a bilingual pair, so the shell, the tenant menus and the tenant
+// list never show both languages at once. | localizeTenant 返回展示名已收成 lang 一侧的租户副本。租户名是
+// 脚手架写入的双语元数据，外壳、租户菜单与租户列表因此不会同时显示两种语言。
+func localizeTenant(lang string, tenant model.Tenant) model.Tenant {
+	tenant.Name = localizeBilingual(lang, tenant.Name)
+	return tenant
+}
+
+// localizeTenants applies localizeTenant to a slice without mutating the caller's records. |
+// localizeTenants 对切片逐项应用 localizeTenant，且不修改调用方的记录。
+func localizeTenants(lang string, tenants []model.Tenant) []model.Tenant {
+	out := make([]model.Tenant, len(tenants))
+	for i, tenant := range tenants {
+		out[i] = localizeTenant(lang, tenant)
+	}
+	return out
+}
+
+// localizeRole reduces the scaffold-owned description of one role to lang; the role name itself is a
+// stable technical token and stays untouched. | localizeRole 把角色说明收成 lang 一侧；角色名本身是稳定的
+// 技术标识，保持不变。
+func localizeRole(lang string, role model.Role) model.Role {
+	role.Description = localizeBilingual(lang, role.Description)
+	return role
+}
+
+// localizeRoles applies localizeRole to a slice without mutating the stored records. |
+// localizeRoles 对切片逐项应用 localizeRole，且不修改已存储的记录。
+func localizeRoles(lang string, roles []model.Role) []model.Role {
+	out := make([]model.Role, len(roles))
+	for i, role := range roles {
+		out[i] = localizeRole(lang, role)
+	}
+	return out
 }
 
 // field 读取并裁剪一个表单字段，同时限制长度。
@@ -1331,7 +1445,14 @@ func (c *Controller) renderShell(ctx *router.Ctx, status int, name string, data 
 // toast 下发一条浏览器提示：事件名由 internal/meta 定义，页面在 body 上订阅。
 // toast fires one browser-side notice: the event name comes from internal/meta and the page subscribes on the body.
 func (c *Controller) toast(ctx *router.Ctx, message string) {
-	htmx.TriggerFromCtx(ctx, htmx.Event{Name: meta.ToastEvent, Detail: message})
+	// htmx 4 把标量 HX-Trigger detail 包装成 {value: …}，前端读的是 text；这里直接给出对象，
+	// 并按当前语言只取一侧，提示因此不会同时显示中英文。 |
+	// htmx 4 wraps a scalar HX-Trigger detail as {value: …} while the front end reads text; send the object
+	// directly and keep only the current language's half, so a toast never shows both languages.
+	htmx.TriggerFromCtx(ctx, htmx.Event{Name: meta.ToastEvent, Detail: map[string]any{
+		"text":  localizeBilingual(c.lang(ctx), message),
+		"level": "",
+	}})
 }
 
 // fail 输出错误片段：状态码 + partials/pages/error.html。
@@ -1352,7 +1473,7 @@ func (c *Controller) fail(ctx *router.Ctx, status int, messages ...string) {
 	}
 	list := make([]map[string]any, 0, len(messages))
 	for _, m := range messages {
-		list = append(list, map[string]any{"Text": m})
+		list = append(list, map[string]any{"Text": localizeBilingual(c.lang(ctx), m)})
 	}
 	templateName := TplError
 	if strings.HasPrefix(ctx.Path(), "/mgr") || strings.HasPrefix(ctx.Path(), "/api/v1") {

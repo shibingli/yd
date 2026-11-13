@@ -132,7 +132,7 @@ htmx 核心
 | `web/templates/components/**` | 全部 UI 组件模板（表单、中国控件、反馈、导航、数据展示、浮层、图表） |
 | `web/templates/partials/base.html` | 整页骨架：`<head>`、主题引导、脚本顺序、资产引用、安全头 |
 | `web/templates/partials/app_shell.html` | 登录后的应用外壳：侧栏、顶栏、错误槽、工作区、提示、页脚、确认框、抽屉 |
-| `web/templates/partials/topbar.html` | 顶栏：侧栏开关、标题、语言/主题、租户菜单、用户菜单、退出 |
+| `web/templates/partials/topbar.html` | 顶栏：侧栏开关、语言/主题、租户菜单、用户菜单、退出；页面标题由工作区的 `<h1>` 承担 |
 | `web/templates/partials/sidebar_brand.html` / `sidebar_footer.html` | 侧栏品牌区与页脚 |
 | `web/templates/partials/flash.html` / `shell-switches.html` | 全局提示与语言/主题控件 |
 | `web/templates/partials/icon.html` | 唯一的图标入口 |
@@ -198,9 +198,10 @@ window.ydUI.CN             // 同 window.ydCN，校验与格式化内核
 - **htmx 交换后自动生效**：Alpine 的变更观察器会初始化新节点；不需要在 `htmx:afterSwap` 里重新注册组件。
 - **样式复用 Tailwind v4**：组件样式来自 `ui.css` 的 `@layer components` 与 `@apply`，颜色只取 `@theme`
   语义令牌；独立页面同样需要 `app.css` 的令牌块（或直接复用编译后的 `yd.css`）。
-- **图标复用同一份 sprite**：`/static/img/icons.svg` 由 `yd icons sync` 生成；组件模板经
-  `{{template "partials/icon" "lucide-x"}}` 引用，独立页面可写
-  `<svg class="yd-icon"><use href="/static/img/icons.svg#i-lucide-x"></use></svg>`。
+- **图标复用同一份 sprite**：`/static/img/icons.svg` 由 `yd icons sync` 生成；组件模板与独立页面一律经
+  `{{template "partials/icon" "lucide-x"}}` 引用。确实需要手写 `<use>` 时，`href` 必须经
+  `{{ asset "/static/img/icons.svg" }}` 解析（生产会指向 `.min.svg`），不得硬编码 `/static/img/icons.svg`，
+  也不得内联 `<svg>` 图标。
 - **CSP 兼容**：组件只使用 Alpine CSP 构建支持的表达式子集；不要在页面里写内联 `<script>`、`onclick=`、
   `new Function` 或 `eval`。
 

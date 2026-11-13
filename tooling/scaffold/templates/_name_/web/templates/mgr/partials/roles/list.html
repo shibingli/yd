@@ -34,7 +34,7 @@
     </header>
     <p class="yd-hint">{{ $role.Description }}</p>
     <p class="yd-role__permissions">
-      {{ range $role.Permissions }}<span class="yd-badge yd-badge--info">{{ . }}</span>{{ else }}<span class="yd-hint">{{ tr "role.no_permission" }}</span>{{ end }}
+      {{ range $role.Permissions }}<span class="yd-cap">{{ . }}</span>{{ else }}<span class="yd-hint">{{ tr "role.no_permission" }}</span>{{ end }}
     </p>
 
     {{- if or (can $.Perm.RoleManage) (can $.Perm.RoleDelete) }}

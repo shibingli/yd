@@ -15,6 +15,8 @@ import (
 	"{{ .YdxModule }}/render"
 	"{{ .YdxModule }}/router"
 	"{{ .YdxModule }}/websocket"
+
+	"{{ .Module }}/internal/meta"
 )
 
 // 指标推送契约：目标选择器与替换策略必须与 mgr/pages/home.html 的连接元素保持一致。
@@ -188,9 +190,13 @@ func (c *Controller) renderLiveMetrics(translator *i18n.Translator) (string, err
 		return "", ErrMetricsRender
 	}
 	snapshot := c.provider.Snapshot()
+	lang := meta.DefaultLang
+	if translator != nil {
+		lang = translator.Lang()
+	}
 	data := map[string]any{
 		"Gauges":     c.metricGauges(snapshot.System),
-		"Middleware": c.middlewareRows(snapshot.Middleware),
+		"Middleware": c.middlewareRows(lang, snapshot.Middleware),
 	}
 	if translator != nil {
 		data[render.TranslatorKey] = translator

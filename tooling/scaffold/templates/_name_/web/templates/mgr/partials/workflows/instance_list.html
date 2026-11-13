@@ -16,7 +16,7 @@
         <th class="yd-table__th" scope="col">{{ tr "workflow.field.initiator" }}</th>
         <th class="yd-table__th" scope="col">{{ tr "field.status" }}</th>
         <th class="yd-table__th" scope="col">{{ tr "workflow.field.started_at" }}</th>
-        <th class="yd-table__th" scope="col">{{ tr "field.actions" }}</th>
+        <th class="yd-table__th yd-table__th--actions" scope="col">{{ tr "field.actions" }}</th>
       </tr>
     </thead>
     <tbody class="yd-table__body">
@@ -52,7 +52,7 @@
                 <input type="hidden" name="return_status" value="{{ $.Status }}">
                 <input type="hidden" name="return_category" value="{{ $.Category }}">
                 <input type="hidden" name="return_page" value="{{ $.Page }}">
-                <button type="submit" class="yd-menu__item yd-menu__item--with-icon" role="menuitem">{{ template "partials/icon" "lucide-undo-2" }}{{ tr "workflow.instances.withdraw" }}</button>
+                <button type="submit" class="yd-menu__item yd-menu__item--danger yd-menu__item--with-icon" role="menuitem">{{ template "partials/icon" "lucide-undo-2" }}{{ tr "workflow.instances.withdraw" }}</button>
               </form>
               <form method="post" action="/mgr/workflow-instances/{{ .ID }}/terminate"
                     hx-post="/mgr/workflow-instances/{{ .ID }}/terminate" hx-target="#yd-workspace" hx-swap="innerMorph"
@@ -64,7 +64,7 @@
                 <input type="hidden" name="return_status" value="{{ $.Status }}">
                 <input type="hidden" name="return_category" value="{{ $.Category }}">
                 <input type="hidden" name="return_page" value="{{ $.Page }}">
-                <button type="submit" class="yd-menu__item yd-menu__item--with-icon" role="menuitem">{{ template "partials/icon" "lucide-octagon-x" }}{{ tr "workflow.instances.terminate" }}</button>
+                <button type="submit" class="yd-menu__item yd-menu__item--danger yd-menu__item--with-icon" role="menuitem">{{ template "partials/icon" "lucide-octagon-x" }}{{ tr "workflow.instances.terminate" }}</button>
               </form>
               {{- end }}
             </div>

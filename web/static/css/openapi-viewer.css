@@ -1,0 +1,78 @@
+/*
+  openapi-viewer.css — 生成项目对 OpenAPI 查看器的窄屏修补贴：先载入模块自带样式，再只覆盖需要
+  响应的几何规则。查看器本体仍以 ydx/openapi 为唯一真源，这里不复制配色与组件样式。
+  openapi-viewer.css — the generated project's narrow-screen patch for the OpenAPI viewer: it loads the
+  module's own stylesheet first and only overrides the geometry that must respond. The viewer itself still
+  has a single source in ydx/openapi; no colour or component rule is copied here.
+*/
+@import url("/openapi/assets/index.css");
+
+@media (max-width: 820px) {
+  /* The viewer's detail column and its tables must shrink with the viewport; a wide schema table or a
+     long parameter name must scroll inside its own box, never widen the document. |
+     查看器详情列与表格必须随视口收缩；宽 schema 表或长参数名应在自己的盒子里滚动，绝不撑宽文档。 */
+  html,
+  body {
+    max-width: 100%;
+    overflow-x: hidden;
+  }
+
+  main {
+    width: 100%;
+    max-width: 100%;
+  }
+
+  aside {
+    padding: 10px 12px;
+  }
+
+  section.detail {
+    width: 100%;
+    max-width: 100%;
+    padding: 14px 12px 40px;
+    overflow-x: auto;
+  }
+
+  header.topbar {
+    padding: 10px 12px;
+  }
+
+  h2 {
+    overflow-wrap: anywhere;
+    font-size: 14px;
+  }
+
+  .description,
+  .meta,
+  .prop-desc,
+  .kv dd {
+    overflow-wrap: anywhere;
+  }
+
+  /* Key/value pairs stack on a phone instead of reserving a max-content first column. |
+     手机上键值对改为上下堆叠，不再为第一列预留 max-content 宽度。 */
+  .kv {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  /* A wide schema/parameter table scrolls inside its own box. | 宽 schema/参数表在自己的盒子内滚动。 */
+  table {
+    display: block;
+    max-width: 100%;
+    overflow-x: auto;
+  }
+
+  pre.code {
+    max-width: 100%;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+  }
+
+  .try {
+    padding: 9px 10px;
+  }
+
+  .try-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}

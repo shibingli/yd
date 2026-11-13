@@ -33,7 +33,7 @@
             <th class="yd-table__th" scope="col">{{ tr "field.status" }}</th>
             <th class="yd-table__th" scope="col">{{ tr "workflow.field.decision" }}</th>
             <th class="yd-table__th" scope="col">{{ tr "workflow.field.completed_at" }}</th>
-            <th class="yd-table__th" scope="col">{{ tr "field.actions" }}</th>
+            <th class="yd-table__th yd-table__th--actions" scope="col">{{ tr "field.actions" }}</th>
           </tr>
         </thead>
         <tbody class="yd-table__body">
@@ -101,7 +101,7 @@
         {{template "components.form.textarea" (dict
           "ID" "yd-workflow-withdraw-reason" "Name" "reason" "Rows" 2
           "Label" (tr "workflow.field.reason") "LabelKey" "workflow.field.reason" "MaxLength" 500)}}
-        {{template "components.form.actions" (dict "SubmitLabel" (tr "workflow.instances.withdraw") "SubmitKey" "workflow.instances.withdraw")}}
+        {{template "components.form.actions" (dict "SubmitLabel" (tr "workflow.instances.withdraw") "SubmitKey" "workflow.instances.withdraw" "SubmitVariant" "danger")}}
       </form>
       {{- end }}
       {{- if .CanTerminate }}
@@ -113,7 +113,7 @@
         {{template "components.form.textarea" (dict
           "ID" "yd-workflow-terminate-reason" "Name" "reason" "Rows" 2
           "Label" (tr "workflow.field.reason") "LabelKey" "workflow.field.reason" "MaxLength" 500)}}
-        {{template "components.form.actions" (dict "SubmitLabel" (tr "workflow.instances.terminate") "SubmitKey" "workflow.instances.terminate")}}
+        {{template "components.form.actions" (dict "SubmitLabel" (tr "workflow.instances.terminate") "SubmitKey" "workflow.instances.terminate" "SubmitVariant" "danger")}}
       </form>
       {{- end }}
       {{- if .CanSignal }}

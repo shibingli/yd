@@ -30,7 +30,7 @@
         <td class="yd-table__td">
           <span class="yd-table__primary">{{ .Tenant.Name }}</span>
           {{/* 当前租户标记：它读的是请求上下文里的租户，而不是页面上的某个下拉框。 */}}
-          {{ if .Current }}<span class="yd-badge yd-badge--info">{{ tr "tenant.current" }}</span>{{ end }}
+          {{ if .Current }}<span class="yd-badge yd-badge--tag">{{ tr "tenant.current" }}</span>{{ end }}
         </td>
         <td class="yd-table__td">
           {{ if .Tenant.Active }}

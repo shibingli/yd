@@ -18,13 +18,13 @@
       <p class="yd-page__subtitle">{{ tr "page.account.subtitle" }}</p>
     </div>
     <div class="yd-page__actions">
-      {{ with .Tenant }}<span class="yd-badge yd-badge--info">{{ .Display }}</span>{{ end }}
+      {{ with .Tenant }}<span class="yd-badge yd-badge--tag">{{ .Display }}</span>{{ end }}
     </div>
   </header>
 
   {{ if .SeedPassword }}
   <div class="yd-banner yd-banner--warn" role="alert">
-    <span class="yd-banner__text">{{ .SeedNotice }}</span>
+    <span class="yd-banner__text">{{ tr "account.seed_notice" }}</span>
   </div>
   {{ end }}
 
@@ -83,7 +83,7 @@
     <section class="yd-card yd-section" aria-labelledby="yd-account-permissions">
       <h2 class="yd-section__title" id="yd-account-permissions">{{ tr "page.account.permissions" }}</h2>
       <p class="yd-role__permissions">
-        {{ range .Permissions }}<span class="yd-badge yd-badge--info">{{ . }}</span>{{ else }}<span class="yd-hint">{{ tr "page.account.no_permission" }}</span>{{ end }}
+        {{ range .Permissions }}<span class="yd-cap">{{ . }}</span>{{ else }}<span class="yd-hint">{{ tr "page.account.no_permission" }}</span>{{ end }}
       </p>
       <p class="yd-section__hint">{{ tr "page.account.permissions_hint" }}</p>
     </section>
@@ -100,7 +100,7 @@
       <li class="yd-list__item">
         <span class="yd-list__primary">{{ .Display }}</span>
         {{- if eq .ID $.DefaultTenantID }}
-        <span class="yd-badge yd-badge--info">{{ tr "tenant.default" }}</span>
+        <span class="yd-badge yd-badge--tag">{{ tr "tenant.default" }}</span>
         {{- else }}
         <form method="post" action="/account/default-tenant" hx-post="/account/default-tenant"
               hx-target="#yd-workspace" hx-swap="innerMorph"
@@ -131,7 +131,7 @@
           hx-disabled-elt="find button[type='submit']"
           data-yd-confirm="{{ tr "confirm.change_password" }}"
           novalidate>
-      <input class="sr-only" type="text" name="username" autocomplete="username" value="{{ .User.Username }}" readonly tabindex="-1">
+      <input class="sr-only" type="text" name="username" autocomplete="username" value="{{ .User.Username }}" aria-label="{{ tr "field.username" }}" readonly tabindex="-1">
       {{template "components.form.field" (dict
         "ID" "yd-account-current" "Name" "current" "Type" "password"
         "Label" (tr "field.current_password") "LabelKey" "field.current_password"
@@ -162,7 +162,7 @@
     <form method="post" action="/account/sec-key" hx-post="/account/sec-key" hx-target="#yd-workspace" hx-swap="innerMorph"
           data-yd-confirm="{{ tr "confirm.rotate_key" }}">
       <div class="yd-form__actions">
-        <button type="submit" class="yd-btn yd-btn--ghost">{{ tr "ui.rotate_key" }}</button>
+        <button type="submit" class="yd-btn yd-btn--danger">{{ tr "ui.rotate_key" }}</button>
       </div>
     </form>
   </section>

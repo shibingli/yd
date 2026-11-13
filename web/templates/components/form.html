@@ -314,11 +314,18 @@
 {{- end -}}
 
 {{/* components.form.actions renders the submit/cancel pair. Dict keys | dict 的键:
-       SubmitKey, SubmitLabel, SubmitAttrs (template.HTMLAttr), SubmitDisabled,
-       CancelKey, CancelLabel, CancelHref, CancelAttrs (template.HTMLAttr), CancelModal, NoCancel */}}
+       SubmitKey, SubmitLabel, SubmitVariant (primary|danger|ghost), SubmitIcon, SubmitAttrs (template.HTMLAttr),
+       SubmitDisabled, CancelKey, CancelLabel, CancelHref, CancelAttrs (template.HTMLAttr), CancelModal, NoCancel.
+       The variant keeps destructive submits destructive without every page copying the button markup. |
+       variant 让破坏性提交保持破坏性外观，而不必每页复制一份按钮标记。 */}}
 {{- define "components.form.actions" -}}
+{{- $variant := .SubmitVariant -}}
+{{- if not $variant }}{{ $variant = "primary" }}{{ end -}}
 <div class="yd-form__actions">
-  <button type="submit" class="yd-btn yd-btn--primary"{{with .SubmitKey}} data-yd-i18n="{{.}}"{{end}}{{if .SubmitDisabled}} disabled{{end}} {{with .SubmitAttrs}}{{.}}{{end}}>{{if .SubmitKey}}{{tr .SubmitKey}}{{else}}{{.SubmitLabel}}{{end}}</button>
+  <button type="submit" class="yd-btn yd-btn--{{$variant}}"{{with .SubmitKey}} data-yd-i18n="{{.}}"{{end}}{{if .SubmitDisabled}} disabled{{end}} {{with .SubmitAttrs}}{{.}}{{end}}>
+    {{- with .SubmitIcon }}{{ template "partials/icon" . }}{{ end -}}
+    {{- if .SubmitKey }}{{ tr .SubmitKey }}{{ else }}{{ .SubmitLabel }}{{ end -}}
+  </button>
   {{if not .NoCancel}}
   {{if .CancelHref}}
   <a class="yd-btn yd-btn--ghost" href="{{.CancelHref}}"{{with .CancelKey}} data-yd-i18n="{{.}}"{{end}} {{with .CancelAttrs}}{{.}}{{end}}>{{if .CancelKey}}{{tr .CancelKey}}{{else}}{{.CancelLabel}}{{end}}</a>

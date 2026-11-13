@@ -22,14 +22,14 @@
   <td class="yd-table__td">
     <span class="yd-avatar yd-avatar--sm" aria-hidden="true">{{ .User.Initial }}</span>
     <span class="yd-table__primary">{{ .User.Display }}</span>
-    <code class="yd-code">{{ .User.Username }}</code>
+    {{- if ne .User.Username .User.Display }}<code class="yd-code">{{ .User.Username }}</code>{{ end }}
     {{- if gt (len .User.TenantIDs) 1 }}
     <span class="yd-badge yd-badge--muted" title="{{ tr "tenant.memberships" }}">{{ len .User.TenantIDs }}</span>
     {{- end }}
   </td>
   <td class="yd-table__td"><a class="yd-link" href="mailto:{{ .User.Email }}">{{ .User.Email }}</a></td>
   <td class="yd-table__td">
-    {{ range .User.Roles }}<span class="yd-badge yd-badge--info">{{ . }}</span>{{ else }}<span class="yd-hint">{{ tr "role.none" }}</span>{{ end }}
+    {{ range .User.Roles }}<span class="yd-badge yd-badge--muted">{{ . }}</span>{{ else }}<span class="yd-hint">{{ tr "role.none" }}</span>{{ end }}
   </td>
   <td class="yd-table__td">
     {{ if .User.Active }}
@@ -39,7 +39,7 @@
     {{ end }}
     {{/* 默认租户标记：切换器默认落在这里，管理员在改动成员关系前先看清它。 */}}
     {{/* The default-tenant marker: the switcher lands here by default, so an administrator sees it before editing memberships. */}}
-    {{ if eq .User.DefaultTenantID .User.TenantID }}<span class="yd-badge yd-badge--info">{{ tr "tenant.default" }}</span>{{ end }}
+    {{ if eq .User.DefaultTenantID .User.TenantID }}<span class="yd-badge yd-badge--tag">{{ tr "tenant.default" }}</span>{{ end }}
   </td>
   <td class="yd-table__td yd-table__td--muted">{{ .User.CreatedAt.Format "2006-01-02 15:04" }}</td>
 
@@ -55,7 +55,7 @@
               hx-post="/mgr/users/{{ .User.ID }}/status" hx-target="#yd-workspace" hx-swap="innerMorph"
               data-yd-confirm="{{ if .User.Active }}{{ tr "confirm.disable_user" }}{{ else }}{{ tr "confirm.enable_user" }}{{ end }}">
           {{ if .User.Active }}
-          <button type="submit" name="status" value="disabled" class="yd-menu__item yd-menu__item--with-icon" role="menuitem">{{ template "partials/icon" "lucide-ban" }}{{ tr "ui.disable" }}</button>
+          <button type="submit" name="status" value="disabled" class="yd-menu__item yd-menu__item--danger yd-menu__item--with-icon" role="menuitem">{{ template "partials/icon" "lucide-ban" }}{{ tr "ui.disable" }}</button>
           {{ else }}
           <button type="submit" name="status" value="active" class="yd-menu__item yd-menu__item--with-icon" role="menuitem">{{ template "partials/icon" "lucide-circle-check" }}{{ tr "ui.enable" }}</button>
           {{ end }}

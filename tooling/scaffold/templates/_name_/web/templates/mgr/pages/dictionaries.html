@@ -106,7 +106,7 @@
                       hx-post="{{ $.BasePath }}/{{ .ID }}/delete" hx-target="#yd-workspace" hx-swap="innerMorph"
                       hx-status:409="target:#yd-errors swap:innerHTML" hx-status:422="target:#yd-errors swap:innerHTML"
                       data-yd-confirm="{{ tr "confirm.delete_dictionary" }}">
-                  <button type="submit" class="yd-menu__item yd-menu__item--with-icon" role="menuitem">{{ template "partials/icon" "lucide-trash-2" }}{{ tr "ui.delete" }}</button>
+                  <button type="submit" class="yd-menu__item yd-menu__item--danger yd-menu__item--with-icon" role="menuitem">{{ template "partials/icon" "lucide-trash-2" }}{{ tr "ui.delete" }}</button>
                 </form>
                 {{- end }}
               </div>
@@ -141,7 +141,7 @@
             {{ .Selected.Label }} <code class="yd-code">{{ .Selected.Code }}</code>
             {{- if eq .Selected.Status .StatusDisabled }} {{ template "components.display.badge" (dict "Tone" "warn" "LabelKey" "status.disabled") }}{{ end }}
           </h2>
-          {{- if .Selected.Description }}<p class="yd-section__hint">{{ .Selected.Description }}</p>{{ end }}
+          {{- if .Selected.DescriptionText }}<p class="yd-section__hint">{{ .Selected.DescriptionText }}</p>{{ end }}
         </div>
         {{- if .CanManage }}
         <button type="button" class="yd-btn yd-btn--primary yd-btn--sm" data-yd-drawer-open
@@ -221,7 +221,7 @@
                       hx-post="{{ $.BasePath }}/{{ $.Selected.ID }}/items/{{ .ID }}/delete" hx-target="#yd-workspace" hx-swap="innerMorph"
                       hx-status:409="target:#yd-errors swap:innerHTML" hx-status:422="target:#yd-errors swap:innerHTML"
                       data-yd-confirm="{{ tr "confirm.delete_dictionary_item" }}">
-                  <button type="submit" class="yd-menu__item yd-menu__item--with-icon" role="menuitem">{{ template "partials/icon" "lucide-trash-2" }}{{ tr "ui.delete" }}</button>
+                  <button type="submit" class="yd-menu__item yd-menu__item--danger yd-menu__item--with-icon" role="menuitem">{{ template "partials/icon" "lucide-trash-2" }}{{ tr "ui.delete" }}</button>
                 </form>
               </div>
             </details>

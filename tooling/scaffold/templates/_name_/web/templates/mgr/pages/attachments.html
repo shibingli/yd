@@ -88,11 +88,11 @@
             <th class="yd-table__th" scope="col">{{ tr "attachment.field.name" }}</th>
             <th class="yd-table__th" scope="col">{{ tr "attachment.field.uploader" }}</th>
             <th class="yd-table__th" scope="col">{{ tr "attachment.field.type" }}</th>
-            <th class="yd-table__th" scope="col">{{ tr "attachment.field.size" }}</th>
+            <th class="yd-table__th yd-table__th--num" scope="col">{{ tr "attachment.field.size" }}</th>
             <th class="yd-table__th" scope="col">{{ tr "attachment.field.status" }}</th>
-            <th class="yd-table__th" scope="col">{{ tr "attachment.field.refs" }}</th>
+            <th class="yd-table__th yd-table__th--num" scope="col">{{ tr "attachment.field.refs" }}</th>
             <th class="yd-table__th" scope="col">{{ tr "attachment.field.created" }}</th>
-            <th class="yd-table__th" scope="col">{{ tr "field.actions" }}</th>
+            <th class="yd-table__th yd-table__th--actions" scope="col">{{ tr "field.actions" }}</th>
           </tr>
         </thead>
         <tbody class="yd-table__body" hx-swap="outerMorph">
@@ -104,9 +104,9 @@
             </td>
             <td class="yd-table__td">{{ .UploaderName }}</td>
             <td class="yd-table__td"><span class="yd-code">{{ .ContentType }}</span></td>
-            <td class="yd-table__td">{{ .SizeText }}</td>
+            <td class="yd-table__td yd-table__td--num">{{ .SizeText }}</td>
             <td class="yd-table__td"><span class="yd-badge yd-badge--{{ .StatusTone }}">{{ tr .StatusKey }}</span></td>
-            <td class="yd-table__td">{{ .RefCount }}</td>
+            <td class="yd-table__td yd-table__td--num">{{ .RefCount }}</td>
             <td class="yd-table__td">{{ .CreatedText }}</td>
             <td class="yd-table__td yd-table__td--actions">
               <details class="yd-menu" data-yd-menu>
@@ -118,7 +118,7 @@
                   </a>
                   {{- end }}
                   {{- if and $.CanManage (not .Deleted) }}
-                  <button type="button" class="yd-menu__item yd-menu__item--with-icon" role="menuitem" data-yd-drawer-open
+                  <button type="button" class="yd-menu__item yd-menu__item--danger yd-menu__item--with-icon" role="menuitem" data-yd-drawer-open
                           hx-get="/mgr/attachments/{{ .ID }}/delete" hx-target="#yd-drawer-body" hx-swap="innerHTML">
                     {{ template "partials/icon" "lucide-trash-2" }}{{ tr "attachment.delete" }}
                   </button>

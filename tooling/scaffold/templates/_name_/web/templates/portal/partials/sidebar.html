@@ -1,12 +1,14 @@
 {{/*
-  portal/partials/sidebar.html —— 门户侧栏：消息、好友、账号与实时演示。
-  portal/partials/sidebar.html — the portal rail: messages, friends, account and the realtime demo.
+  portal/partials/sidebar.html —— 门户侧栏：消息、好友、我的流程、附件与开发演示。
+  portal/partials/sidebar.html — the portal rail: messages, friends, my workflows, attachments and developer demos.
 
   门户只提供普通用户功能：用户、角色、租户、权限、消息治理与站点设置都在 /mgr/** 下，
   门户侧栏不出现这些入口；拥有管理能力的账号只得到一个进入管理后台的链接。
+  账号设置不在侧栏重复出现：顶栏用户名菜单已经是它的唯一入口，两处链接会给出两个不同名称。
   The portal offers ordinary-member functionality only: users, roles, tenants, permissions, message moderation and
   site settings live under /mgr/** and never appear here; an account with management capabilities only gets one link
-  into the back office.
+  into the back office. Account settings are not repeated in the rail: the topbar user menu is their single entry, and
+  two links would expose two different names for one page.
 
   数据契约 | Data contract: .Path、.Name、.Version、.Unread，以及 authz.Data 注入的 .Perm。
 */}}
@@ -15,7 +17,10 @@
   {{ template "partials/sidebar_brand" . }}
 
   <nav class="yd-nav" aria-label="{{ tr "nav.site" }}">
+    {{- $hasWorkspace := or (and .MessageAvailable (can .Perm.MessageRead)) (and .WorkflowAvailable (or (can .Perm.WorkflowUse) (can .Perm.WorkflowApprove))) (and .AttachmentAvailable (can .Perm.AttachmentReadOwn)) }}
+    {{- if $hasWorkspace }}
     <p class="yd-nav__section">{{ tr "nav.group.self" }}</p>
+    {{- end }}
     {{- if and .MessageAvailable (can .Perm.MessageRead) }}
     <a class="yd-nav__link" href="/messages" hx-get="/messages" hx-target="#yd-shell" hx-swap="innerMorph" hx-push-url="true"
        data-yd-nav="messages"{{ if hasPrefix .Path "/messages" }} aria-current="page"{{ end }}>
@@ -40,15 +45,13 @@
       <span class="yd-nav__label">{{ tr "nav.attachments" }}</span>
     </a>
     {{- end }}
-    <a class="yd-nav__link" href="/account" hx-get="/account" hx-target="#yd-shell" hx-swap="innerMorph" hx-push-url="true"
-       data-yd-nav="account"{{ if hasPrefix .Path "/account" }} aria-current="page"{{ end }}>
-      <span class="yd-nav__label">{{ tr "nav.account" }}</span>
-    </a>
+    {{/* 实时推送与组件示例都是开发演示，归入「开发工具」。 | Realtime and the component gallery are developer demos:
+         they belong under Development. */}}
+    <p class="yd-nav__section">{{ tr "nav.group.dev" }}</p>
     <a class="yd-nav__link" href="/realtime" hx-get="/realtime" hx-target="#yd-shell" hx-swap="innerMorph" hx-push-url="true"
        data-yd-nav="realtime"{{ if hasPrefix .Path "/realtime" }} aria-current="page"{{ end }}>
       <span class="yd-nav__label">{{ tr "nav.realtime" }}</span>
     </a>
-    <p class="yd-nav__section">{{ tr "nav.group.dev" }}</p>
     <a class="yd-nav__link" href="/ui-kit" hx-get="/ui-kit" hx-target="#yd-shell" hx-swap="innerMorph" hx-push-url="true"
        data-yd-nav="ui-kit"{{ if hasPrefix .Path "/ui-kit" }} aria-current="page"{{ end }}>
       <span class="yd-nav__label">{{ tr "nav.ui_kit" }}</span>
@@ -60,8 +63,14 @@
          user:read, while an account holding only message moderation or catalogue capabilities goes straight to the
          matching back-office page. */}}
     {{- $mgrHref := "" -}}
-    {{- if or (can .Perm.UserRead) (can .Perm.RoleRead) (can .Perm.TenantRead) (can .Perm.PermissionRead) -}}
+    {{- if can .Perm.UserRead -}}
       {{- $mgrHref = "/mgr" -}}
+    {{- else if can .Perm.RoleRead -}}
+      {{- $mgrHref = "/mgr/roles" -}}
+    {{- else if can .Perm.TenantRead -}}
+      {{- $mgrHref = "/mgr/tenants" -}}
+    {{- else if can .Perm.PermissionRead -}}
+      {{- $mgrHref = "/mgr/permissions" -}}
     {{- else if can .Perm.MessageManage -}}
       {{- $mgrHref = "/mgr/messages" -}}
     {{- else if can .Perm.MessageTypeRead -}}
@@ -72,7 +81,9 @@
       {{- $mgrHref = "/mgr/workflows" -}}
     {{- end -}}
     {{- if $mgrHref }}
-    <p class="yd-nav__section">{{ tr "nav.group.management" }}</p>
+    {{/* 单一出口不另起分组：分组标题与条目会重复「管理」这个词，管理后台也不是一个业务分组。 |
+         A single exit needs no group of its own: a section label would repeat "management", and the back office
+         is not a business group. */}}
     <a class="yd-nav__link" href="{{ $mgrHref }}" data-yd-nav="mgr">
       <span class="yd-nav__label">{{ tr "nav.management" }}</span>
     </a>

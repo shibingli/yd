@@ -26,9 +26,11 @@
    every class that only appears in JavaScript. */
 @source "../../static/js/yd-*.js";
 
-/* 语义化主题变量（蓝色系主色调）：页面只引用语义名，不写颜色字面量。 | Semantic theme variables (blue brand scale): pages reference semantic names, never raw colour literals. */
+/* 语义化主题变量（暖纸色与墨色，蓝色只属于 yd 标记）：页面只引用语义名，不写颜色字面量。 |
+   Semantic theme variables (warm paper and ink; the blue belongs to the yd mark alone): pages reference semantic
+   names, never raw colour literals. */
 @theme {
-  /* 品牌色阶 | brand scale */
+  /* 品牌色阶：yd 标记的蓝色 | brand scale: the blue of the yd mark */
   --color-brand-50: #eff6ff;
   --color-brand-100: #dbeafe;
   --color-brand-200: #bfdbfe;
@@ -36,12 +38,12 @@
   --color-brand-600: #1d4ed8;
   --color-brand-700: #1e40af;
 
-  /* 语义色 | semantic colours */
-  --color-surface: #ffffff;
-  --color-content: #0f172a;
-  --color-content-muted: #64748b;
-  --color-border: #94a3b8;
-  --color-border-subtle: #cbd5e1;
+  /* 语义色：暖纸表面与墨色文字 | semantic colours: warm paper surfaces and ink text */
+  --color-surface: #fdfbf7;
+  --color-content: #1f1b16;
+  --color-content-muted: #5e554a;
+  --color-border: #a39684;
+  --color-border-subtle: #e7dfd2;
 }
 
 @layer components {
@@ -74,18 +76,18 @@
   --color-brand-600: #1d4ed8;
 
   /* 语义色 | semantic colours */
-  --color-surface: #ffffff;
-  --color-content: #0f172a;
-  --color-content-muted: #64748b;
-  --color-border: #94a3b8;
-  --color-border-subtle: #cbd5e1;
+  --color-surface: #fdfbf7;
+  --color-content: #1f1b16;
+  --color-content-muted: #5e554a;
+  --color-border: #a39684;
+  --color-border-subtle: #e7dfd2;
 }
 
 body {
   margin: 0;
-  background: var(--color-surface);
+  background: var(--color-surface-muted);
   color: var(--color-content);
-  font-family: system-ui, -apple-system, "Segoe UI", "Noto Sans SC", sans-serif;
+  font-family: system-ui, -apple-system, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Noto Sans SC", sans-serif;
 }
 
 .yd-skeleton {
@@ -127,16 +129,16 @@ body {
   --color-brand-100: #1e3a8a;
   --color-brand-200: #1e40af;
   --color-brand-500: #3b82f6;
-  --color-brand-600: #2563eb;
+  --color-brand-600: #3b82f6;
   --color-brand-700: #60a5fa;
 
-  --color-danger: #f87171;
+  --color-danger: #f08a84;
 
-  --color-surface: #0b1120;
-  --color-content: #e2e8f0;
-  --color-content-muted: #94a3b8;
-  --color-border: #475569;
-  --color-border-subtle: #334155;
+  --color-surface: #1c1813;
+  --color-content: #efe7da;
+  --color-content-muted: #a79a89;
+  --color-border: #5c5143;
+  --color-border-subtle: #332c24;
 }
 
 /* 跟随系统：同一个变量表，但只在系统偏好为深色时生效，且不能覆盖用户手选的 light/dark。 */
@@ -148,21 +150,21 @@ body {
     --color-brand-100: #1e3a8a;
     --color-brand-200: #1e40af;
     --color-brand-500: #3b82f6;
-    --color-brand-600: #2563eb;
+    --color-brand-600: #3b82f6;
     --color-brand-700: #60a5fa;
 
-    --color-danger: #f87171;
-    --color-success: #4ade80;
-    --color-warning: #fbbf24;
-    --color-info: #38bdf8;
-    --color-accent: #60a5fa;
+    --color-danger: #f08a84;
+    --color-success: #9dbf7d;
+    --color-warning: #e2b264;
+    --color-info: #93b0cc;
+    --color-accent: #e07a63;
 
-    --color-surface: #0b1120;
-    --color-surface-muted: #111c2f;
-    --color-content: #e2e8f0;
-    --color-content-muted: #94a3b8;
-    --color-border: #475569;
-    --color-border-subtle: #334155;
+    --color-surface: #1c1813;
+    --color-surface-muted: #14110d;
+    --color-content: #efe7da;
+    --color-content-muted: #a79a89;
+    --color-border: #5c5143;
+    --color-border-subtle: #332c24;
   }
 }
 

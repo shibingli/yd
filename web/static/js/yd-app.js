@@ -1135,11 +1135,13 @@
 
   // syncDocumentTitle keeps the tab title in step with a shell-only navigation. A shell swap
   // replaces the top bar but never reloads the document, so the browser would otherwise keep the
-  // previous page's title. The project name comes from a body data attribute, not from parsing the
-  // old title. | syncDocumentTitle 让标签页标题跟随只换外壳的导航。外壳交换只替换顶栏、不重载文档，
-  // 不处理的话浏览器会一直显示上一页标题。项目名取自 body 上的数据属性，而不是解析旧标题。
+  // previous page's title. The page H1 is the visible, localized title; the old top-bar heading is
+  // kept as a fallback for shells that still render it. The project name comes from a body data
+  // attribute, not from parsing the old title. | syncDocumentTitle 让标签页标题跟随只换外壳的导航。
+  // 外壳交换只替换顶栏、不重载文档，不处理的话浏览器会一直显示上一页标题。页面 H1 才是可见且已本地化的
+  // 标题；仍在渲染旧顶栏标题的外壳以它作为回退。项目名取自 body 上的数据属性，而不是解析旧标题。
   function syncDocumentTitle() {
-    var heading = document.querySelector('.yd-topbar__title');
+    var heading = document.querySelector('#yd-workspace h1') || document.querySelector('.yd-topbar__title');
     if (!heading) {
       return;
     }

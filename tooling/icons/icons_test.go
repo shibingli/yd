@@ -41,15 +41,16 @@ func TestScanCollectsOnlyPartialCalls(t *testing.T) {
 	writeTestFile(t, fsys, "web/templates/pages/d.html", `<svg><use href="#i-lucide-sun"></use></svg>`)
 	writeTestFile(t, fsys, "web/templates/portal/pages/e.html", `{{ template "portal/partials/icon" "lucide-sun" }}`)
 	writeTestFile(t, fsys, "web/templates/mgr/pages/f.html", `{{template "mgr/partials/icon" "lucide-mail"}}`)
+	writeTestFile(t, fsys, "web/templates/pages/g.html", `{{template "components.form.field" (dict "LeadingIcon" "lucide-search")}}`)
 
 	refs, err := Scan(fsys, []string{"web/templates", "tooling/scaffold/templates/_name_/web/templates"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(refs) != 4 {
-		t.Fatalf("refs = %[1]v, want 4 | 引用为 %[1]v，期望 4 个", refs)
+	if len(refs) != 5 {
+		t.Fatalf("refs = %[1]v, want 5 | 引用为 %[1]v，期望 5 个", refs)
 	}
-	want := []string{"lucide-languages", "lucide-log-in", "lucide-mail", "lucide-sun"}
+	want := []string{"lucide-languages", "lucide-log-in", "lucide-mail", "lucide-search", "lucide-sun"}
 	for i, name := range want {
 		if refs[i].Name != name {
 			t.Fatalf("refs = %[1]v, want %[2]v | 引用为 %[1]v，期望 %[2]v", refs, want)

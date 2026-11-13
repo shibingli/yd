@@ -53,10 +53,10 @@
     "MaxLength" 160)}}
 
   <div class="yd-field">
-    <span class="yd-label">{{ tr "message.body" }}</span>
+    <label class="yd-label" for="yd-compose-body">{{ tr "message.body" }}</label>
     <div class="yd-editor" data-yd-editor data-lang="{{ .Lang }}"
          data-yd-editor-vendor="{{ asset "/static/js/vendored/easymde.min.js" }}">
-      <textarea class="yd-editor__fallback" name="body_markdown" rows="12"
+      <textarea class="yd-editor__fallback" id="yd-compose-body" name="body_markdown" rows="12"
                 aria-label="{{ tr "message.body" }}">{{ .Message.BodyMarkdown }}</textarea>
       {{template "partials/editor-icons" .}}
     </div>
@@ -68,8 +68,8 @@
     <div class="yd-checks">
       {{- range .Catalog.Groups }}
       {{- $gid := .ID }}
-      <label class="yd-check">
-        <input class="yd-check__input" type="checkbox" name="group_ids" value="{{ .ID }}"
+      <label class="yd-check" for="yd-compose-group-{{ .ID }}">
+        <input class="yd-check__input" id="yd-compose-group-{{ .ID }}" type="checkbox" name="group_ids" value="{{ .ID }}"
           {{- range $.Message.Groups }}{{ if eq .ID $gid }} checked{{ end }}{{ end }}>
         <span class="yd-check__box" aria-hidden="true"></span>
         <span class="yd-check__body"><span class="yd-check__label">{{ .Label }}</span></span>
@@ -83,8 +83,8 @@
     <div class="yd-checks">
       {{- range .Catalog.Tags }}
       {{- $tid := .ID }}
-      <label class="yd-check">
-        <input class="yd-check__input" type="checkbox" name="tag_ids" value="{{ .ID }}"
+      <label class="yd-check" for="yd-compose-tag-{{ .ID }}">
+        <input class="yd-check__input" id="yd-compose-tag-{{ .ID }}" type="checkbox" name="tag_ids" value="{{ .ID }}"
           {{- range $.Message.Tags }}{{ if eq .ID $tid }} checked{{ end }}{{ end }}>
         <span class="yd-check__box" aria-hidden="true"></span>
         <span class="yd-check__body"><span class="yd-check__label">#{{ .Label }}</span></span>

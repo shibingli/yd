@@ -52,8 +52,8 @@
       <div class="yd-clock" id="yd-clock" role="timer" aria-live="off"
            hx-sse:connect="/events" hx-sse:close="yd:close"
            hx-target="this" hx-swap="innerMorph">
-        <time class="font-mono text-lg" datetime="">--:--:--</time>
-        <span class="text-content-muted ms-2 text-sm">{{ tr "realtime.connecting" }}</span>
+        <time class="yd-clock__time" datetime="">--:--:--</time>
+        <span class="yd-clock__state">{{ tr "realtime.connecting" }}</span>
       </div>
     </section>
 

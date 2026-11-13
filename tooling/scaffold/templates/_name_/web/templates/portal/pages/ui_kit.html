@@ -65,7 +65,7 @@
             "ID" "yd-kit-otp" "Name" "otp" "Length" 6 "Slots" (list 0 1 2 3 4 5)
             "Label" (tr "showcase.label.otp") "LabelKey" "showcase.label.otp")}}
           {{template "components.form.color" (dict
-            "ID" "yd-kit-color" "Name" "color" "Value" "#2563eb"
+            "ID" "yd-kit-color" "Name" "color" "Value" "#b23a2b"
             "Label" (tr "showcase.label.color") "LabelKey" "showcase.label.color")}}
           {{template "components.form.combobox" (dict
             "ID" "yd-kit-combobox" "Name" "choice" "Value" "alpha" "LabelValue" (tr "showcase.option.alpha")
@@ -134,7 +134,7 @@
            drops nested forms and moves their nodes out of place. Rendering it separately keeps the structure
            valid and still demonstrates the real page-level search. */}}
       {{template "components.form.search" (dict
-        "ID" "yd-kit-search" "Action" "/ui-kit" "Name" "q"
+        "ID" "yd-kit-searchbar" "Action" "/ui-kit" "Name" "q"
         "Label" (tr "showcase.label.search") "LabelKey" "showcase.label.search"
         "Placeholder" (tr "showcase.label.search") "PlaceholderKey" "showcase.label.search"
         "SubmitLabel" (tr "ui.search") "SubmitKey" "ui.search")}}

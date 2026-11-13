@@ -100,16 +100,19 @@ type middlewareCounter struct {
 // @Router /mgr/metrics/middleware [get]
 func (c *Controller) MiddlewareMetrics(ctx *router.Ctx) {
 	c.render(ctx, http.StatusOK, TplMiddlewareMetrics, c.pageView(ctx, "中间件运行时 | Middleware runtime", map[string]any{
-		"Middleware": c.middlewareRows(c.provider.Snapshot().Middleware),
+		"Middleware": c.middlewareRows(c.lang(ctx), c.provider.Snapshot().Middleware),
 	}))
 }
 
 // middlewareRows converts the abstraction snapshots into the fixed template shape. | middlewareRows 把抽象快照转换为
 // 固定的模板形态。
-func (c *Controller) middlewareRows(snaps []metricsx.MiddlewareSnapshot) []middlewareRow {
+func (c *Controller) middlewareRows(lang string, snaps []metricsx.MiddlewareSnapshot) []middlewareRow {
 	rows := make([]middlewareRow, 0, len(snaps))
 	for _, snap := range snaps {
-		title := snap.Title
+		// The fallback title of a framework descriptor is a bilingual pair; reduce it to the request
+		// language so the table never shows both at once. | 框架描述符的兜底标题是双语对；按请求语言收成
+		// 一侧，表格因此不会同时显示两种语言。
+		title := localizeBilingual(lang, snap.Title)
 		if title == "" {
 			title = snap.Name
 		}
@@ -151,15 +154,25 @@ func middlewareTone(state metricsx.State) string {
 	}
 }
 
-// formatLatency renders one duration; a missing reading is a dash. | formatLatency 渲染一个时长；没有读数时为一个短横线。
+// formatLatency renders one duration in a single column format: one unit band per magnitude, at most
+// four significant digits and always a space before the unit. Mixing Go's raw String output would put
+// "921.401ms", "5s" and "33.658148s" in the same column. | formatLatency 以统一列格式渲染时长：
+// 按数量级选一个单位、最多四位有效数字、单位前始终留空格。直接使用 Go 的 String() 会让同一列出现
+// "921.401ms"、"5s" 与 "33.658148s"。
 func formatLatency(d time.Duration) string {
 	if d <= 0 {
 		return missingReading
 	}
-	if d < time.Microsecond {
-		return "<1µs"
+	switch {
+	case d < time.Microsecond:
+		return "<1 µs"
+	case d < time.Millisecond:
+		return strconv.FormatFloat(float64(d)/float64(time.Microsecond), 'f', 1, 64) + " µs"
+	case d < time.Second:
+		return strconv.FormatFloat(float64(d)/float64(time.Millisecond), 'f', 1, 64) + " ms"
+	default:
+		return strconv.FormatFloat(float64(d)/float64(time.Second), 'f', 3, 64) + " s"
 	}
-	return d.Round(time.Microsecond).String()
 }
 
 // formatLastSeen renders the UTC clock time of the last request. | formatLastSeen 渲染最近一次请求的 UTC 时刻。

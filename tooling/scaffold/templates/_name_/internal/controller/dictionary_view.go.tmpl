@@ -50,6 +50,10 @@ type dictionaryTypeView struct {
 	Builtin bool `json:"builtin,omitempty"`
 	// Label is the locale-selected name used by templates only. | Label 是模板使用的按语言选择的名称。
 	Label string `json:"-"`
+	// DescriptionText is the locale-selected description used by list templates only; the edit form
+	// keeps the stored bilingual Description so saving never drops one language. | DescriptionText 是
+	// 列表模板使用的按语言选择的说明；编辑表单仍读双语 Description，保存时不会丢掉一种语言。
+	DescriptionText string `json:"-"`
 	// Href is the workbench URL selecting this type, used by templates only. | Href 是选择该类型的工作台 URL，仅模板使用。
 	Href string `json:"-"`
 	// Active marks the row selected by the current request, used by templates only. | Active 标记当前请求选中的行，仅模板使用。
@@ -178,8 +182,9 @@ func dictionaryTypeViews(types []dictionary.Type, lang string) []dictionaryTypeV
 			Scope:       string(dictionary.ScopeOf(current.TenantID)),
 			Sort:        current.Sort,
 			ItemCount:   current.ItemCount,
-			Builtin:     current.Builtin,
-			Label:       dictionaryDisplay(current.Name, current.NameEN, lang),
+			Builtin:         current.Builtin,
+			Label:           dictionaryDisplay(current.Name, current.NameEN, lang),
+			DescriptionText: localizeBilingual(lang, current.Description),
 		})
 	}
 	return out

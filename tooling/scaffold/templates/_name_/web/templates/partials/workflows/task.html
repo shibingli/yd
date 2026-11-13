@@ -156,7 +156,7 @@
             data-yd-confirm="{{ tr "confirm.workflow_remove_sign" }}">
         {{template "components.form.select" (dict "ID" "yd-workflow-remove-target" "Name" "target_task_id" "Required" true
           "Label" (tr "workflow.task.remove_sign") "LabelKey" "workflow.task.remove_sign" "Options" .SiblingOptions)}}
-        {{template "components.form.actions" (dict "SubmitLabel" (tr "workflow.task.remove_sign") "SubmitKey" "workflow.task.remove_sign")}}
+        {{template "components.form.actions" (dict "SubmitLabel" (tr "workflow.task.remove_sign") "SubmitKey" "workflow.task.remove_sign" "SubmitVariant" "danger")}}
       </form>
       {{- end }}
       {{- end }}

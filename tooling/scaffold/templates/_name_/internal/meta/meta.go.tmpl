@@ -124,18 +124,18 @@ const (
 	// SeedPasswordEnvKey is the environment variable that overrides it (the environment always beats the file), quoted by
 	// the warnings and by the README.
 	SeedPasswordEnvKey = EnvPrefix + "SEED_ADMIN_PASSWORD"
-	// DevSeedAdminPassword 是文档化的开发口令：仅在 seed.admin_password 未配置**且** app.env 为 development 时使用，
-	// 且每次启动都会告警。它存在的意义是让刚生成的项目开箱即可登录；它被印在 README 与登录页上，
-	// 而这正是它绝不允许出现在其它任何环境的原因。
 	// DevSeedAdminPassword is the documented development password: it applies only while seed.admin_password is unset
 	// **and** app.env is development, and every start warns about it. It exists so a freshly generated project is
 	// sign-in-ready; it is printed in the README and on the sign-in page, which is exactly why it must never be used in any
-	// other environment.
+	// other environment. | DevSeedAdminPassword 是文档化的开发口令：仅当 seed.admin_password 未配置且 app.env 为
+	// development 时生效，且每次启动都会告警。它存在的意义是让刚生成的项目开箱即可登录；它被印在 README 与登录页上，
+	// 而这正是它绝不允许出现在其它任何环境的原因。
 	DevSeedAdminPassword = "admin123"
 
-	// SeedPasswordNotice 是首登必改口令的提示文案，首页身份卡、账号页与 README 引用同一句。
-	// SeedPasswordNotice is the mandatory password-change notice shown at first sign-in; the home identity card, the
-	// account page and the README quote the same sentence.
+	// SeedPasswordNotice is the non-page form of the first-sign-in password notice; the home and account
+	// pages read account.seed_notice from web/i18n, while this constant serves the README and other non-page
+	// output. | SeedPasswordNotice 是首登必改口令提示的非页面版本；首页与账号页改读 web/i18n 的
+	// account.seed_notice，这个常量留给 README 与其它非页面输出。
 	SeedPasswordNotice = "首次登录后请立即修改默认口令 | change the default password right after the first sign-in"
 )
 

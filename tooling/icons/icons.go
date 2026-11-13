@@ -148,6 +148,12 @@ var lucideJSON []byte
 // {{template "<tree>/partials/icon" "lucide-user"}} 调用，包括空白裁剪形式与可选的树前缀（portal/ 或 mgr/）。
 var scanPattern = regexpx.MustCompile(`\{\{-?\s*template\s+"(?:[A-Za-z0-9_-]+/)*partials/icon"\s+"([^"]+)"\s*-?\}\}`)
 
+// propIconPattern finds component parameters that carry an icon name: a template that renders
+// {{template "partials/icon" .LeadingIcon}} cannot be found by scanPattern, so the literal passed by
+// the caller must be collected as well. | propIconPattern 匹配携带图标名的组件参数：模板里的
+// {{template "partials/icon" .LeadingIcon}} 无法被 scanPattern 发现，因此调用方传入的字面量也必须收集。
+var propIconPattern = regexpx.MustCompile(`"(?:LeadingIcon|SubmitIcon)"\s+"([^"]+)"`)
+
 // sourceVersionPattern matches the upstream version comment in the vendored JSON, so a replaced
 // file without its metadata update fails loudly. | sourceVersionPattern 匹配随包 JSON 里的上游版本注释，
 // 使「换了文件却没更新元数据」明确失败。
@@ -222,15 +228,21 @@ func Scan(fsys afero.Fs, roots []string) ([]Reference, error) {
 			if readErr != nil {
 				return readErr
 			}
-			for _, match := range scanPattern.FindAllStringSubmatch(string(body), -1) {
-				name := strings.TrimSpace(match[1])
+			collect := func(name string) {
+				name = strings.TrimSpace(name)
 				if name == "" || strings.ContainsAny(name, "{} \t\r\n") {
-					continue
+					return
 				}
 				if seen[name] == nil {
 					seen[name] = make(map[string]struct{})
 				}
 				seen[name][file] = struct{}{}
+			}
+			for _, match := range scanPattern.FindAllStringSubmatch(string(body), -1) {
+				collect(match[1])
+			}
+			for _, match := range propIconPattern.FindAllStringSubmatch(string(body), -1) {
+				collect(match[1])
 			}
 			return nil
 		})

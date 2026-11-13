@@ -633,7 +633,14 @@
   /* askConfirm 打开全局确认对话框，只有点「确认」才执行回调；文案来自模板的 tr，脚本里没有一句业务文案。
      askConfirm opens the global confirmation dialog and runs the callback only on "confirm"; the copy comes from
      the template's tr, so the script holds no business sentence. */
-  function askConfirm(message, onConfirm) {
+  function confirmVariant(el) {
+    if (!el || !el.classList) {
+      return "primary";
+    }
+    return el.classList.contains("yd-btn--danger") || el.classList.contains("yd-menu__item--danger") ? "danger" : "primary";
+  }
+
+  function askConfirm(message, onConfirm, variant) {
     var dialog = document.querySelector(SELECTORS.confirm);
     if (!dialog || typeof dialog.showModal !== "function") {
       /* 不支持 dialog 的浏览器退化为原生确认框：宁可多一次阻断，也不能跳过确认。 | Browsers without dialog fall back to the native prompt: an extra stop is better than skipping the confirmation. */
@@ -645,6 +652,12 @@
     var text = dialog.querySelector(SELECTORS.confirmText);
     if (text) {
       text.textContent = message || "";
+    }
+    var accept = dialog.querySelector("[data-yd-confirm-accept]");
+    if (accept) {
+      var danger = variant === "danger";
+      accept.classList.toggle("yd-btn--danger", danger);
+      accept.classList.toggle("yd-btn--primary", !danger);
     }
     function onClose() {
       dialog.removeEventListener("close", onClose);
@@ -833,7 +846,7 @@
       } finally {
         form.removeAttribute("data-yd-confirmed");
       }
-    });
+    }, confirmVariant(submitter || form.querySelector("button[type='submit'].yd-btn--danger")));
   }, true);
 
   document.addEventListener("click", function (event) {
@@ -850,7 +863,7 @@
       } finally {
         el.removeAttribute("data-yd-confirmed");
       }
-    });
+    }, confirmVariant(el));
   }, true);
 
   /* 抽屉里的写操作成功即关闭抽屉：验证失败（4xx）保持打开，用户可以在原处修正。
@@ -925,7 +938,9 @@
   /* 服务端提示：HX-Trigger 的 detail 直接就是事件负载，控制器不需要拼装任何提示 HTML。 | Server notices: the HX-Trigger detail is the payload itself, so controllers assemble no notice markup. */
   document.addEventListener(EVENTS.toast, function (event) {
     var detail = event.detail || {};
-    appendNotice(detail.text, detail.level);
+    /* htmx 4 会把标量 detail 包装成 {value: …}；服务端现在发对象，但仍兼容旧形态。 |
+       htmx 4 wraps a scalar detail as {value: …}; the server now sends an object, while the old shape stays compatible. */
+    appendNotice(detail.text || detail.value, detail.level);
   });
 
   /* 消息 WebSocket 的 JSON 事件：扩展只在载荷含 content 时交换 DOM，因此不含 content 的事件会原样到达这里。
@@ -1189,12 +1204,14 @@
   }
 
   /* 外壳交换只替换顶栏、不重载文档；标签页标题必须跟着新页面走，否则从后台切到「我的资料」后仍显示旧标题。
-     项目名取自 body 的 data-yd-app-name，不解析旧标题。
+     页面 H1 是可见且已本地化的标题；仍在渲染旧顶栏标题的外壳以它作为回退。项目名取自 body 的
+     data-yd-app-name，不解析旧标题。
      A shell swap replaces the top bar but never reloads the document; the tab title must follow the new page, or
-     switching from the back office to "my profile" keeps the old title. The project name comes from the body's
+     switching from the back office to "my profile" keeps the old title. The page H1 is the visible, localized title;
+     shells that still render the old top-bar heading keep it as a fallback. The project name comes from the body's
      data-yd-app-name attribute rather than from parsing the previous title. */
   function syncDocumentTitle() {
-    var heading = document.querySelector(".yd-topbar__title");
+    var heading = document.querySelector("#yd-workspace h1") || document.querySelector(".yd-topbar__title");
     if (!heading) {
       return;
     }

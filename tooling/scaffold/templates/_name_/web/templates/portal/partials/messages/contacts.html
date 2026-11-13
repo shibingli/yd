@@ -34,8 +34,8 @@
       {{- range .Friends }}
       <div class="yd-msg-contact" data-yd-contact
            data-yd-contact-name="{{ .Name }}" data-yd-contact-username="{{ .Profile.Username }}">
-        <label class="yd-msg-contact__select">
-          <input class="yd-check__input" type="checkbox" name="group_members" value="{{ .Profile.ID }}" data-yd-contact-check>
+        <label class="yd-msg-contact__select" for="yd-contact-check-{{ .Profile.ID }}">
+          <input class="yd-check__input" id="yd-contact-check-{{ .Profile.ID }}" type="checkbox" name="group_members" value="{{ .Profile.ID }}" data-yd-contact-check>
           <span class="yd-check__box" aria-hidden="true"></span>
           <span class="sr-only">{{ tr "message.select_contact" }} {{ .Name }}</span>
         </label>

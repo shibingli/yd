@@ -3344,6 +3344,7 @@
           return;
         }
         rememberEditor(this, editor);
+        labelEditorInput(editor, el, root);
         this.syncTheme();
         this.localizeToolbar();
         self = this;
@@ -3425,11 +3426,39 @@
     });
   }
 
+  // labelEditorInput gives CodeMirror's internal textarea the same accessible name as the
+  // textarea it replaced. EasyMDE hides the source field, and without this the real editing
+  // surface is an unlabelled textarea for screen-reader users. | labelEditorInput 把被替换的
+  // textarea 的无障碍名称交给 CodeMirror 内部输入框。EasyMDE 会隐藏原字段，缺少这一步时真正的
+  // 编辑区对读屏用户就是一个没有标签的 textarea。
+  function labelEditorInput(editor, source, root) {
+    if (!editor || !editor.codemirror || typeof editor.codemirror.getInputField !== 'function') {
+      return;
+    }
+    var input = editor.codemirror.getInputField();
+    if (!input || input.getAttribute('aria-label')) {
+      return;
+    }
+    var scope = root && typeof root.querySelector === 'function' ? root : document;
+    var label = null;
+    if (source && source.id) {
+      label = scope.querySelector('label[for="' + source.id + '"]');
+    }
+    var text = label ? label.textContent.trim() : '';
+    if (!text && source) {
+      text = source.getAttribute('aria-label') || source.getAttribute('placeholder') || '';
+    }
+    if (text) {
+      input.setAttribute('aria-label', text);
+    }
+  }
+
   var api = {
     version: VERSION,
     components: Object.keys(components),
     register: register,
     decorateEditorToolbar: decorateEditorToolbar,
+    labelEditorInput: labelEditorInput,
     CN: CN
   };
 

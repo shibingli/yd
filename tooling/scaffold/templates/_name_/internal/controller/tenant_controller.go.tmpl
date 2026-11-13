@@ -106,7 +106,7 @@ func (c *Controller) tenantsPage(ctx *router.Ctx, status int, keyword, message s
 		if !matches(keyword, tenant.Slug, tenant.Name, tenant.ID) {
 			continue
 		}
-		filtered = append(filtered, tenantRow{Tenant: tenant, Current: tenant.ID == currentTenantID(ctx)})
+		filtered = append(filtered, tenantRow{Tenant: localizeTenant(c.lang(ctx), tenant), Current: tenant.ID == currentTenantID(ctx)})
 	}
 	total := len(filtered)
 	currentPage, pageCountValue, start, end := pageBounds(total, pageNumber(ctx), defaultPageSize)

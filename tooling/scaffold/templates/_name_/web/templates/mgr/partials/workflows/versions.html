@@ -25,17 +25,17 @@
     <table class="yd-table" aria-label="{{ tr "workflow.versions" }}">
       <thead class="yd-table__head">
         <tr>
-          <th class="yd-table__th" scope="col">{{ tr "workflow.field.version" }}</th>
+          <th class="yd-table__th yd-table__th--num" scope="col">{{ tr "workflow.field.version" }}</th>
           <th class="yd-table__th" scope="col">{{ tr "field.status" }}</th>
           <th class="yd-table__th" scope="col">{{ tr "workflow.field.published_at" }}</th>
           <th class="yd-table__th" scope="col">{{ tr "workflow.field.note" }}</th>
-          <th class="yd-table__th" scope="col">{{ tr "field.actions" }}</th>
+          <th class="yd-table__th yd-table__th--actions" scope="col">{{ tr "field.actions" }}</th>
         </tr>
       </thead>
       <tbody class="yd-table__body">
         {{ range .Versions }}
         <tr class="yd-table__row">
-          <td class="yd-table__td">v{{ .Version }}</td>
+          <td class="yd-table__td yd-table__td--num">v{{ .Version }}</td>
           <td class="yd-table__td">
             {{- if eq .Status "published" }}{{ template "components.display.badge" (dict "Tone" "success" "LabelKey" "workflow.version.published") }}
             {{- else }}{{ template "components.display.badge" (dict "Tone" "muted" "LabelKey" "workflow.version.draft") }}{{ end }}
@@ -62,7 +62,7 @@
                       hx-status:409="target:#yd-drawer-errors swap:innerHTML"
                       hx-status:422="target:#yd-drawer-errors swap:innerHTML"
                       data-yd-confirm="{{ tr "confirm.delete_workflow_version" }}" data-yd-drawer-persist>
-                  <button type="submit" class="yd-menu__item yd-menu__item--with-icon" role="menuitem">
+                  <button type="submit" class="yd-menu__item yd-menu__item--danger yd-menu__item--with-icon" role="menuitem">
                     {{ template "partials/icon" "lucide-trash-2" }}{{ tr "ui.delete" }}
                   </button>
                 </form>

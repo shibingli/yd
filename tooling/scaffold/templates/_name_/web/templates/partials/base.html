@@ -136,7 +136,12 @@
 <script src="{{ asset "/static/js/yd-guomi-htmx.js" }}" defer></script>
 <script src="{{ asset "/static/js/yd-authz.js" }}" defer></script>
 <script src="{{ asset "/static/js/yd-progress.js" }}" defer></script>
+{{- /* 两个验证码开关都关闭时不必加载 SDK：大多数页面永远不会打开验证码对话框。
+       关闭时不发请求，页面重量与普通页面一致。 | When both captcha switches are off the SDK is unnecessary:
+       most pages never open the captcha dialog, so leaving it out keeps the page weight identical. */}}
+{{- if or .CaptchaLogin .CaptchaPasswordChange }}
 <script src="{{ asset "/static/js/yd-captcha.js" }}" defer></script>
+{{- end }}
 <script src="{{ asset "/static/js/yd-app.js" }}" defer></script>
 {{- end }}
 {{- range .PageScripts }}

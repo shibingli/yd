@@ -272,6 +272,12 @@ func registerPublic(a *app.App, ctrl *controller.Controller) {
 	g.POST("/logout", ctrl.Logout)
 	g.GET("/healthz", ctrl.Health)
 	g.GET("/guomi/pubkey", ctrl.Pubkey)
+	// 惯例的 /favicon.ico 由浏览器自动请求；OpenAPI 查看器等独立页面不声明 <link rel="icon">，
+	// 没有这条路由就会在控制台留下 404。重定向到内嵌 SVG，不在服务端再存一份图标。 |
+	// Browsers request /favicon.ico automatically; standalone pages such as the OpenAPI viewer do not declare a
+	// <link rel="icon">, so without this route the console keeps a 404. Redirect to the embedded SVG instead of
+	// keeping a second icon on the server.
+	g.GET("/favicon.ico", ctrl.Favicon)
 }
 
 // registerProtected 登记需要有效会话的业务端点，并按能力逐条挂上权限守卫。
@@ -808,9 +814,13 @@ func registerOpenAPI(a *app.App) {
 	// 静态文件挂载不是 API 操作，不计入 OpenAPI 缺失注解统计。
 	// A static file mount is not an API operation, so it is excluded from missing-annotation coverage.
 	opts := openapi.Options{
-		Path:         OpenAPIPath,
-		DocsPath:     DocsPath,
-		AssetsPath:   openapi.DefaultAssetsPath,
+		Path:       OpenAPIPath,
+		DocsPath:   DocsPath,
+		AssetsPath: openapi.DefaultAssetsPath,
+		// 项目只追加窄屏几何修补；查看器的基础样式仍由 @import 从模块资源读取，避免第二份配色。 |
+		// The project only adds a narrow-screen geometry patch; the viewer's base styles still load from
+		// the module through @import, so no second palette is copied.
+		ViewerCSS:    StaticPrefix + "/css/openapi-viewer.css",
 		Title:        meta.Name + " API",
 		SkipPrefixes: []string{StaticPrefix + "/", captcha.Endpoint + "/"},
 	}

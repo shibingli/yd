@@ -78,7 +78,7 @@ func (c *Controller) ManagementHome(ctx *router.Ctx) {
 		"RoleCount":  len(roles),
 		"Permission": len(model.PermissionKeys()),
 		"Gauges":     c.metricGauges(snapshot.System),
-		"Middleware": c.middlewareRows(snapshot.Middleware),
+		"Middleware": c.middlewareRows(c.lang(ctx), snapshot.Middleware),
 	}))
 }
 
@@ -110,37 +110,44 @@ func (c *Controller) Metrics(ctx *router.Ctx) {
 	}))
 }
 
-// metricGauge 是模板渲染一个仪表盘所需的全部取值。
-// metricGauge carries everything the template needs to render one gauge.
+// metricGauge 是模板渲染一个读数所需的全部取值：百分比画弧，计数只写数字。
+// metricGauge carries everything the template needs to render one reading: a percentage draws an arc while a
+// count is written as a figure alone.
 type metricGauge struct {
 	// LabelKey is the i18n key of the caption. | LabelKey 是标题的 i18n 键。
 	LabelKey string
-	// Value is the formatted reading shown in the dial. | Value 是仪表盘中央的格式化读数。
+	// Value is the formatted reading. | Value 是格式化后的读数。
 	Value string
-	// Tone selects the warn/danger colour pair; empty uses the brand colour. | Tone 选择警示/危险配色；为空时使用品牌色。
+	// Tone selects the warn/danger colour pair; empty stays neutral. | Tone 选择警示/危险配色；为空时保持中性。
 	Tone string
 	// Percent is the arc fill in [0, 100]. | Percent 是圆弧填充比例，取值 [0, 100]。
 	Percent float64
+	// Gauge reports whether the value is a real percentage that can fill an arc. | Gauge 报告该取值是否为可画弧的真实百分比。
+	Gauge bool
+	// Lead marks the one reading that leads the panel and is drawn in ink. | Lead 标记唯一领读、以墨色绘制的指标。
+	Lead bool
 	// Supported reports whether the platform exposed the value. | Supported 报告平台是否提供了该取值。
 	Supported bool
 }
 
-// metricGauges turns one snapshot into the six dashboard gauges in a fixed order.
-// | metricGauges 把一次快照转换为固定顺序的六个仪表盘。
+// metricGauges turns one snapshot into the six dashboard readings in a fixed order: four arcs for real
+// percentages and two figures for counts that have no meaningful denominator.
+// | metricGauges 把一次快照转换为固定顺序的六个读数：四个真实百分比画弧，两个没有有意义分母的计数只写数字。
 func (c *Controller) metricGauges(m metricsx.SystemSnapshot) []metricGauge {
 	gauges := []metricGauge{
-		{LabelKey: "metrics.cpu_cores", Value: strconv.Itoa(m.CPUCores), Percent: 100, Supported: true},
-		{LabelKey: "metrics.cpu_usage", Value: formatPercent(m.CPUPercent), Percent: clampPercent(m.CPUPercent), Tone: toneFor(m.CPUPercent), Supported: m.HostCPU},
-		{LabelKey: "metrics.memory_total", Value: formatBytes(m.MemoryTotal), Percent: 100, Supported: m.HostMemory && m.MemoryTotal > 0},
-		{LabelKey: "metrics.memory_usage", Value: formatPercent(m.MemoryPercent), Percent: clampPercent(m.MemoryPercent), Tone: toneFor(m.MemoryPercent), Supported: m.HostMemory},
-		{LabelKey: "metrics.process_cpu", Value: formatPercent(m.ProcessCPUPercent), Percent: clampPercent(m.ProcessCPUPercent), Tone: toneFor(m.ProcessCPUPercent), Supported: true},
-		{LabelKey: "metrics.process_memory", Value: formatBytes(m.ProcessMemory), Percent: clampPercent(m.ProcessMemoryPercent), Tone: toneFor(m.ProcessMemoryPercent), Supported: true},
+		{LabelKey: "metrics.cpu_cores", Value: strconv.Itoa(m.CPUCores), Supported: true},
+		{LabelKey: "metrics.cpu_usage", Value: formatPercent(m.CPUPercent), Percent: clampPercent(m.CPUPercent), Tone: toneFor(m.CPUPercent), Gauge: true, Lead: true, Supported: m.HostCPU},
+		{LabelKey: "metrics.memory_total", Value: formatBytes(m.MemoryTotal), Supported: m.HostMemory && m.MemoryTotal > 0},
+		{LabelKey: "metrics.memory_usage", Value: formatPercent(m.MemoryPercent), Percent: clampPercent(m.MemoryPercent), Tone: toneFor(m.MemoryPercent), Gauge: true, Supported: m.HostMemory},
+		{LabelKey: "metrics.process_cpu", Value: formatPercent(m.ProcessCPUPercent), Percent: clampPercent(m.ProcessCPUPercent), Tone: toneFor(m.ProcessCPUPercent), Gauge: true, Supported: true},
+		{LabelKey: "metrics.process_memory", Value: formatBytes(m.ProcessMemory), Percent: clampPercent(m.ProcessMemoryPercent), Tone: toneFor(m.ProcessMemoryPercent), Gauge: true, Supported: true},
 	}
 	for i := range gauges {
 		if !gauges[i].Supported {
 			gauges[i].Value = "—"
 			gauges[i].Percent = 0
 			gauges[i].Tone = ""
+			gauges[i].Lead = false
 		}
 	}
 	return gauges

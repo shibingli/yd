@@ -20,8 +20,8 @@
       <div>
         <h2 class="yd-msg-thread__title">
           {{- .ActiveConversation.Title }}
-          {{- if .ActiveConversation.IsNotice }} <span class="yd-badge yd-badge--info">{{ tr "message.notice_channel_badge" }}</span>{{ end }}
-          {{- if .ActiveConversation.IsSystem }} <span class="yd-badge yd-badge--info">{{ tr "message.system_channel_badge" }}</span>{{ end }}
+          {{- if .ActiveConversation.IsNotice }} <span class="yd-badge yd-badge--tag">{{ tr "message.notice_channel_badge" }}</span>{{ end }}
+          {{- if .ActiveConversation.IsSystem }} <span class="yd-badge yd-badge--tag">{{ tr "message.system_channel_badge" }}</span>{{ end }}
           {{- if .ActiveConversation.IsGroup }} <span class="yd-badge yd-badge--muted">{{ len .ActiveConversation.Members }}</span>{{ end }}
         </h2>
         <p class="yd-msg-thread__hint">
@@ -50,7 +50,7 @@
           <form method="post" action="/messages/groups/{{ .ActiveConversation.ID }}/dissolve"
                 hx-post="/messages/groups/{{ .ActiveConversation.ID }}/dissolve" hx-target="#yd-workspace"
                 data-yd-confirm="{{ tr "confirm.dissolve_group" }}">
-            <button type="submit" class="yd-menu__item yd-menu__item--with-icon" role="menuitem">{{ template "partials/icon" "lucide-trash-2" }}{{ tr "message.dissolve_group" }}</button>
+            <button type="submit" class="yd-menu__item yd-menu__item--danger yd-menu__item--with-icon" role="menuitem">{{ template "partials/icon" "lucide-trash-2" }}{{ tr "message.dissolve_group" }}</button>
           </form>
           {{- end }}
         </div>

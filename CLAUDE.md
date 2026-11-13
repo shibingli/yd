@@ -32,7 +32,7 @@
 
 **前端**
 
-- Htmx **4.0.0** 作为事件总线，随包发布 **18 个官方扩展全部下载并锁定**（`ws/sse/preload/alpine/targets/head/upsert/pending/multipart/download/browser-indicator/history-cache/live/prompt/ptag/csp/compat/htmx-2-compat`）；框架 UI 默认加载其中 15 个安全扩展，**交互问答不再要求选择扩展子集**；`csp`（需 nonce 策略）与两个 htmx 2 兼容层只锁定、不默认加载，仅由 `yd new --htmx-ext` 显式追加；**Htmx、Tailwind CSS 与 Alpine.js 是基线技术栈，不是开关**：`yd new` 默认集成三者，`hx-alpine-compat` 恒开启，`--htmx-ext` 只追加策略层或显式覆盖子集；Tailwind CSS **v4** 作为样式标准（`@theme` 语义化变量，默认蓝色系）
+- Htmx **4.0.0** 作为事件总线，随包发布 **18 个官方扩展全部下载并锁定**（`ws/sse/preload/alpine/targets/head/upsert/pending/multipart/download/browser-indicator/history-cache/live/prompt/ptag/csp/compat/htmx-2-compat`）；框架 UI 默认加载其中 15 个安全扩展，**交互问答不再要求选择扩展子集**；`csp`（需 nonce 策略）与两个 htmx 2 兼容层只锁定、不默认加载，仅由 `yd new --htmx-ext` 显式追加；**Htmx、Tailwind CSS 与 Alpine.js 是基线技术栈，不是开关**：`yd new` 默认集成三者，`hx-alpine-compat` 恒开启，`--htmx-ext` 只追加策略层或显式覆盖子集；Tailwind CSS **v4** 作为样式标准（`@theme` 语义化变量，默认暖纸色 + 墨色、朱砂作信号；蓝色只属于 yd 标记）
 - 不依赖 Node.js 编译管道：Tailwind 编译由 Go 脚手架工具静默驱动（standalone 二进制）
 - 资产一律 `go:embed` 打包进二进制，**严禁**运行时从公网 CDN 动态引入
 - Alpine.js 3.17 + htmx 内建 morph（Idiomorph 算法）实现精细化 DOM 差量更新

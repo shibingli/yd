@@ -46,9 +46,9 @@
       <button type="button" class="yd-btn yd-btn--ghost yd-btn--sm" data-yd-flow-action="connect" aria-pressed="false">{{ template "partials/icon" "lucide-spline" }}{{ tr "workflow.designer.connect" }}</button>
       <button type="button" class="yd-btn yd-btn--ghost yd-btn--sm" data-yd-flow-action="zoom-out" aria-label="{{ tr "workflow.designer.zoom_out" }}">{{ template "partials/icon" "lucide-zoom-out" }}</button>
       <button type="button" class="yd-btn yd-btn--ghost yd-btn--sm" data-yd-flow-action="zoom-in" aria-label="{{ tr "workflow.designer.zoom_in" }}">{{ template "partials/icon" "lucide-zoom-in" }}</button>
-      <button type="button" class="yd-btn yd-btn--ghost yd-btn--sm" data-yd-flow-action="delete">{{ template "partials/icon" "lucide-trash-2" }}{{ tr "workflow.designer.delete" }}</button>
-      <a class="yd-btn yd-btn--ghost yd-btn--sm" data-yd-flow-action="export-json" href="/mgr/workflows/export?format=json&keys={{ .Definition.Key }}">{{ template "partials/icon" "lucide-download" }}JSON</a>
-      <a class="yd-btn yd-btn--ghost yd-btn--sm" data-yd-flow-action="export-bpmn" href="/mgr/workflows/export?format=bpmn&version={{ .WorkflowVersion.ID }}">{{ template "partials/icon" "lucide-file-code" }}BPMN</a>
+      <button type="button" class="yd-btn yd-btn--danger yd-btn--sm" data-yd-flow-action="delete" data-yd-confirm="{{ tr "workflow.designer.delete_confirm" }}">{{ template "partials/icon" "lucide-trash-2" }}{{ tr "workflow.designer.delete" }}</button>
+      <a class="yd-btn yd-btn--ghost yd-btn--sm" data-yd-flow-action="export-json" href="/mgr/workflows/export?format=json&keys={{ .Definition.Key }}">{{ template "partials/icon" "lucide-download" }}{{ tr "workflow.export_json" }}</a>
+      <a class="yd-btn yd-btn--ghost yd-btn--sm" data-yd-flow-action="export-bpmn" href="/mgr/workflows/export?format=bpmn&version={{ .WorkflowVersion.ID }}">{{ template "partials/icon" "lucide-file-code" }}{{ tr "workflow.export_bpmn" }}</a>
       <button type="button" class="yd-btn yd-btn--primary yd-btn--sm" data-yd-flow-action="save">{{ template "partials/icon" "lucide-save" }}{{ tr "ui.save" }}</button>
       <button type="button" class="yd-btn yd-btn--primary yd-btn--sm" data-yd-flow-action="publish">{{ template "partials/icon" "lucide-rocket" }}{{ tr "workflow.version.publish" }}</button>
     </div>

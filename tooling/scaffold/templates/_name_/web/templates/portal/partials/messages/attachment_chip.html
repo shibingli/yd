@@ -30,7 +30,7 @@
   </a>
   <span class="yd-attachment-chip__size">{{ .Attachment.SizeText }}</span>
   <button type="button" class="yd-icon-btn yd-attachment-chip__remove" data-yd-attachment-remove
-          aria-label="{{ tr "ui.remove" }}">×</button>
+          aria-label="{{ tr "ui.remove" }}">{{ template "partials/icon" "lucide-x" }}</button>
 </span>
 {{- end -}}
 {{ template "portal/partials/messages/attachment_chip" . }}

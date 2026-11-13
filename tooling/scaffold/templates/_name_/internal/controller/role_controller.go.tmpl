@@ -61,7 +61,7 @@ func (c *Controller) NewRoleForm(ctx *router.Ctx) {
 		return
 	}
 	c.render(ctx, http.StatusOK, TplRoleCreateDrawer, c.pageView(ctx, "新建角色 | Create role", map[string]any{
-		"Catalogue": catalogue,
+		"Catalogue": c.localizeCatalogue(ctx, catalogue),
 	}))
 }
 
@@ -108,6 +108,9 @@ func (c *Controller) EditRoleForm(ctx *router.Ctx) {
 	// The key must not be "Role": authz.Data injects the role-name map under that very key and
 	// would overwrite the record. | 键名不能是 "Role"：authz.Data 会在同名键下注入角色名映射，
 	// 从而覆盖这条记录。
+	// The edit drawer keeps the stored description verbatim: the textarea is the source of truth and
+	// localizing it would write one language back over the bilingual pair. | 编辑抽屉原样保留已存储的说明：
+	// 文本域是数据来源，收成单语会在保存时把另一种语言覆盖掉。
 	c.render(ctx, http.StatusOK, TplRoleEditDrawer, c.pageView(ctx, "编辑角色 | Edit role", map[string]any{
 		"Target":            role,
 		"PermissionOptions": options,
@@ -311,7 +314,7 @@ func (c *Controller) Permissions(ctx *router.Ctx) {
 
 	c.render(ctx, http.StatusOK, TplPermissions, c.pageView(ctx, "权限矩阵 | Permission matrix", map[string]any{
 		"Roles":     roles,
-		"Catalogue": catalogue,
+		"Catalogue": c.localizeCatalogue(ctx, catalogue),
 	}))
 }
 
@@ -337,8 +340,8 @@ func (c *Controller) rolesPage(ctx *router.Ctx, status int, message string) {
 		c.toast(ctx, message)
 	}
 	c.render(ctx, status, TplRoles, c.pageView(ctx, "角色管理 | Roles", map[string]any{
-		"Roles":     roles[start:end],
-		"Catalogue": catalogue,
+		"Roles":     localizeRoles(c.lang(ctx), roles[start:end]),
+		"Catalogue": c.localizeCatalogue(ctx, catalogue),
 		"Total":     total,
 		"Empty":     total == 0,
 		"Page":      currentPage,
@@ -347,4 +350,17 @@ func (c *Controller) rolesPage(ctx *router.Ctx, status int, message string) {
 		"PrevHref":  prevHref,
 		"NextHref":  nextHref,
 	}))
+}
+
+// localizeCatalogue 把能力目录的说明收成当前语言的一侧；注册表里保存的是「English | 中文」双语说明。
+// localizeCatalogue reduces the capability catalogue's descriptions to the current language; the registry
+// stores them as bilingual "English | 中文" strings.
+func (c *Controller) localizeCatalogue(ctx *router.Ctx, catalogue []model.PermissionInfo) []model.PermissionInfo {
+	lang := c.lang(ctx)
+	out := make([]model.PermissionInfo, len(catalogue))
+	copy(out, catalogue)
+	for i := range out {
+		out[i].Label = localizeBilingual(lang, out[i].Label)
+	}
+	return out
 }

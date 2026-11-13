@@ -373,10 +373,11 @@ func TestThemeStateSelectorDoesNotMatchToggle(t *testing.T) {
 	}
 }
 
-// TestWideViewportsStayFluid pins the 4K contract: the workspace and page must not cap their
-// width, and the gutter and heading must keep scaling with the viewport instead of stopping at a
-// value chosen for 2560. | TestWideViewportsStayFluid 固定 4K 契约：工作区与页面不得限制宽度，
-// 留白与主标题必须随视口继续缩放，而不是停在为 2560 选定的数值上。
+// TestWideViewportsStayFluid pins the wide-screen contract: the workspace and page must not cap
+// their width, the heading keeps scaling with the viewport, and the gutter is fluid but capped at
+// 1.5rem so a 4K screen shows the functional area edge-to-edge instead of a widening blank band.
+// | TestWideViewportsStayFluid 固定宽屏契约：工作区与页面不得限制宽度，主标题随视口继续缩放，
+// 留白流式增长但封顶 1.5rem，使 4K 屏上的功能区贴近两侧，而不是越拉越宽的空白带。
 func TestWideViewportsStayFluid(t *testing.T) {
 	css := appSource(t)
 
@@ -385,8 +386,8 @@ func TestWideViewportsStayFluid(t *testing.T) {
 	if !ok {
 		t.Fatal(".yd-workspace has no padding | .yd-workspace 没有 padding")
 	}
-	if !strings.HasPrefix(padding, "clamp(") || !strings.HasSuffix(padding, "4rem)") {
-		t.Errorf(".yd-workspace padding must be a clamp ending in 4rem for 4K, got %q | .yd-workspace 的 padding 必须是以 4rem 收尾的 clamp 以适配 4K，实际为 %q", padding, padding)
+	if !strings.HasPrefix(padding, "clamp(") || !strings.HasSuffix(padding, "1.5rem)") {
+		t.Errorf(".yd-workspace padding must be a clamp ending in 1.5rem so wide screens stay edge-to-edge, got %q | .yd-workspace 的 padding 必须是以 1.5rem 收尾的 clamp，使宽屏保持贴近两侧，实际为 %q", padding, padding)
 	}
 
 	for _, selector := range []string{".yd-workspace", ".yd-page"} {

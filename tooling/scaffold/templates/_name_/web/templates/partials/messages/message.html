@@ -56,7 +56,7 @@
                 hx-post="{{ .BasePath }}/{{ .ID }}/revoke" hx-target="#yd-workspace" hx-swap="innerMorph"
                 data-yd-confirm="{{ tr "confirm.revoke_message" }}">
             <input type="hidden" name="conversation_id" value="{{ .ConversationID }}">
-            <button type="submit" class="yd-menu__item yd-menu__item--with-icon" role="menuitem">{{ template "partials/icon" "lucide-x-circle" }}{{ tr "message.revoke" }}</button>
+            <button type="submit" class="yd-menu__item yd-menu__item--danger yd-menu__item--with-icon" role="menuitem">{{ template "partials/icon" "lucide-x-circle" }}{{ tr "message.revoke" }}</button>
           </form>
           {{- end }}
         </div>

@@ -19,15 +19,15 @@
       <tr>
         <th class="yd-table__th" scope="col">{{ tr "metrics.middleware.col.name" }}</th>
         <th class="yd-table__th" scope="col">{{ tr "metrics.middleware.col.state" }}</th>
-        <th class="yd-table__th" scope="col">{{ tr "metrics.middleware.col.requests" }}</th>
-        <th class="yd-table__th" scope="col">{{ tr "metrics.middleware.col.in_flight" }}</th>
-        <th class="yd-table__th" scope="col">{{ tr "metrics.middleware.col.aborted" }}</th>
-        <th class="yd-table__th" scope="col">{{ tr "metrics.middleware.col.errors" }}</th>
-        <th class="yd-table__th" scope="col">{{ tr "metrics.middleware.col.panics" }}</th>
-        <th class="yd-table__th" scope="col">{{ tr "metrics.middleware.col.avg" }}</th>
-        <th class="yd-table__th" scope="col">{{ tr "metrics.middleware.col.p95" }}</th>
-        <th class="yd-table__th" scope="col">{{ tr "metrics.middleware.col.max" }}</th>
-        <th class="yd-table__th" scope="col">{{ tr "metrics.middleware.col.last_seen" }}</th>
+        <th class="yd-table__th yd-num" scope="col">{{ tr "metrics.middleware.col.requests" }}</th>
+        <th class="yd-table__th yd-num" scope="col">{{ tr "metrics.middleware.col.in_flight" }}</th>
+        <th class="yd-table__th yd-num" scope="col">{{ tr "metrics.middleware.col.aborted" }}</th>
+        <th class="yd-table__th yd-num" scope="col">{{ tr "metrics.middleware.col.errors" }}</th>
+        <th class="yd-table__th yd-num" scope="col">{{ tr "metrics.middleware.col.panics" }}</th>
+        <th class="yd-table__th yd-num" scope="col">{{ tr "metrics.middleware.col.avg" }}</th>
+        <th class="yd-table__th yd-num" scope="col">{{ tr "metrics.middleware.col.p95" }}</th>
+        <th class="yd-table__th yd-num" scope="col">{{ tr "metrics.middleware.col.max" }}</th>
+        <th class="yd-table__th yd-num" scope="col">{{ tr "metrics.middleware.col.last_seen" }}</th>
       </tr>
     </thead>
     <tbody class="yd-table__body">
@@ -36,19 +36,19 @@
         <td class="yd-table__td">
           <span class="yd-table__primary">{{ if .TitleKey }}{{ tr .TitleKey }}{{ else }}{{ .Title }}{{ end }}</span>
           <span class="yd-badge yd-badge--muted">{{ if .ScopeKey }}{{ tr .ScopeKey }}{{ else }}{{ .Scope }}{{ end }}</span>
-          {{ range .Counters }}<span class="yd-badge yd-badge--info">{{ .Name }}: {{ .Value }}</span>{{ end }}
-          {{ range .Gauges }}<span class="yd-badge yd-badge--info">{{ .Name }}: {{ .Value }}</span>{{ end }}
+          {{ range .Counters }}<span class="yd-badge yd-badge--muted">{{ .Name }}: {{ .Value }}</span>{{ end }}
+          {{ range .Gauges }}<span class="yd-badge yd-badge--muted">{{ .Name }}: {{ .Value }}</span>{{ end }}
         </td>
         <td class="yd-table__td"><span class="yd-badge yd-badge--{{ .Tone }}">{{ if .StateKey }}{{ tr .StateKey }}{{ else }}{{ .State }}{{ end }}</span></td>
-        <td class="yd-table__td">{{ .Requests }}</td>
-        <td class="yd-table__td">{{ .InFlight }}</td>
-        <td class="yd-table__td">{{ .Aborted }}</td>
-        <td class="yd-table__td">{{ .Errors }}</td>
-        <td class="yd-table__td">{{ .Panics }}</td>
-        <td class="yd-table__td">{{ .Average }}</td>
-        <td class="yd-table__td">{{ .P95 }}</td>
-        <td class="yd-table__td">{{ .Max }}</td>
-        <td class="yd-table__td">{{ .LastSeen }}</td>
+        <td class="yd-table__td yd-num">{{ .Requests }}</td>
+        <td class="yd-table__td yd-num">{{ .InFlight }}</td>
+        <td class="yd-table__td yd-num">{{ .Aborted }}</td>
+        <td class="yd-table__td yd-num">{{ .Errors }}</td>
+        <td class="yd-table__td yd-num">{{ .Panics }}</td>
+        <td class="yd-table__td yd-num">{{ .Average }}</td>
+        <td class="yd-table__td yd-num">{{ .P95 }}</td>
+        <td class="yd-table__td yd-num">{{ .Max }}</td>
+        <td class="yd-table__td yd-num">{{ .LastSeen }}</td>
       </tr>
       {{ else }}
       <tr class="yd-table__row yd-table__row--empty">

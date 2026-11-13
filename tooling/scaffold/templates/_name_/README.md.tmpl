@@ -254,7 +254,8 @@ yd docker --tag {{ .Name }}:latest
 
 > **首次登录后请立即修改默认口令** —— 首页身份卡会提醒，账号页的「修改口令」表单完成改密与 `sec_key` 轮换
 > （改密或轮换 `sec_key` 都会让此前签发的全部令牌立即失效，因此保存后需要重新登录）。
-> README、首页身份卡与账号页引用的是 `internal/meta` 里的同一句 `SeedPasswordNotice`，改文案只需改那一处。
+> 首页身份卡与账号页引用的是 `web/i18n/{zh-CN,en}.yaml` 的 `account.seed_notice`；`internal/meta.SeedPasswordNotice`
+> 保留给 README 等非页面输出。改文案时两处都要同步。
 > 口令明文永不进入日志：启动日志与告警只说「用了哪一个来源」，从不说口令是什么。
 
 种子只创建一个默认租户；需要验证「跨租户不可见」时，用 `admin` 在租户管理页再建一个租户即可，

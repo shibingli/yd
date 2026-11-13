@@ -45,10 +45,10 @@
        Identity and tenant: both come from the token's tid claim and the current user record, so what the page states is
        the tenant this session really lands in rather than the one a header claims. */}}
   {{ if .SignedIn }}
-  <section class="yd-card yd-section" aria-labelledby="yd-home-identity">
+  <section class="yd-card yd-section yd-home-identity" aria-labelledby="yd-home-identity">
     <header class="yd-section__header">
       <h2 class="yd-section__title" id="yd-home-identity">{{ tr "page.home.identity" }}</h2>
-      <span class="yd-badge yd-badge--info">{{ tr "ui.signed_in_as" }} {{ .User.Display }}</span>
+      <span class="yd-badge yd-badge--tag">{{ tr "ui.signed_in_as" }} {{ .User.Display }}</span>
     </header>
     <dl class="yd-meta">
       <dt class="yd-meta__key">{{ tr "field.username" }}</dt>
@@ -67,7 +67,7 @@
          banner and the actual content stays where it belongs. */}}
     {{ if .SeedPassword }}
     <div class="yd-banner yd-banner--warn" role="alert">
-      <span class="yd-banner__text">{{ .SeedNotice }}</span>
+      <span class="yd-banner__text">{{ tr "account.seed_notice" }}</span>
       <a class="yd-btn yd-btn--ghost yd-btn--sm" href="/account"
          hx-get="/account" hx-target="#yd-workspace" hx-swap="innerMorph" hx-push-url="true">{{ tr "account.change_password" }}</a>
     </div>
@@ -82,8 +82,8 @@
       {{/* 初始内容与推送片段保持同样的结构，交换时不会出现布局跳动。
            The initial content keeps the same shape as the pushed fragment so the swap never shifts the layout. */}}
       <div id="yd-clock" class="yd-clock" role="timer" aria-live="off" hx-sse:connect="/events" hx-sse:close="yd:close">
-        <time class="font-mono text-lg" datetime="">--:--:--</time>
-        <span class="text-content-muted ms-2 text-sm">{{ tr "realtime.connecting" }}</span>
+        <time class="yd-clock__time" datetime="">--:--:--</time>
+        <span class="yd-clock__state">{{ tr "realtime.connecting" }}</span>
       </div>
     </section>
 
@@ -91,7 +91,7 @@
          另一个租户的用户不会出现在这些数字里。
          Three counters: the user, role and capability counts all come from this tenant's data, which also makes them
          evidence that the tenant boundary holds — no user of another tenant is ever counted here. */}}
-    <section class="yd-card yd-section" aria-labelledby="yd-home-counts">
+    <section class="yd-card yd-section yd-home-counts" aria-labelledby="yd-home-counts">
       <h2 class="yd-section__title" id="yd-home-counts">{{ tr "page.home.counts" }}</h2>
       <ul class="yd-list yd-list--ordered">
         <li class="yd-list__item"><span class="yd-list__primary">{{ tr "page.home.user_count" }}</span>
@@ -145,7 +145,7 @@
     {{ end }}
   </section>
 
-  <section class="yd-card yd-section">
+  <section class="yd-card yd-section yd-home-next">
     <h2 class="yd-section__title">{{ tr "page.home.next_steps" }}</h2>
     <ol class="yd-list yd-list--ordered">
       <li class="yd-list__item">{{ tr "page.home.next_1" }} <code class="yd-code">internal/router/router.go</code></li>

@@ -16,7 +16,8 @@
 /* Every --color-* entry becomes a Tailwind color (bg-surface, text-content, border-border-subtle, ...) | 每个 --color-* 条目都会生成对应的 Tailwind 颜色（bg-surface、text-content、border-border-subtle 等），
    and is redefined for dark mode in the [data-theme="dark"] block below. | 并在下方的 [data-theme="dark"] 块中为暗色模式重新定义。 */
 @theme {
-  /* Brand scale, blue, 11 steps. | 品牌色阶，蓝色系，共 11 阶。 */
+  /* Brand scale, blue, 11 steps. The blue now belongs to the mark alone and is never the UI accent. |
+     品牌色阶，蓝色系，共 11 阶。蓝色只属于标记本身，不再充当界面强调色。 */
   --color-brand-50: #eff6ff;
   --color-brand-100: #dbeafe;
   --color-brand-200: #bfdbfe;
@@ -29,51 +30,59 @@
   --color-brand-900: #1e3a8a;
   --color-brand-950: #172554;
 
-  /* Semantic surface / content / border tokens. | 语义化的表面、内容与边框令牌。 */
-  --color-surface: #ffffff;
-  --color-surface-muted: #f8fafc;
-  --color-content: #0f172a;
-  --color-content-muted: #64748b;
-  --color-border: #94a3b8;
-  --color-border-subtle: #cbd5e1;
-  --color-danger: #dc2626;
+  /* Warm paper ramp: surfaces, ink and hairlines. | 暖纸色阶：表面、墨色与发丝线。 */
+  --color-surface: #fdfbf7;
+  --color-surface-muted: #f7f4ee;
+  --color-content: #1f1b16;
+  --color-content-muted: #5e554a;
+  --color-content-subtle: #7a7063;
+  --color-border: #a39684;
+  --color-border-subtle: #e7dfd2;
+  --color-danger: #9b1c1c;
 
   /* Status colours of badges, flashes and KPI trends. | 徽标、闪现消息与 KPI 趋势所用的状态色。 */
-  --color-success: #16a34a;
-  --color-warning: #d97706;
-  --color-info: #0284c7;
+  --color-success: #4f6a3a;
+  --color-warning: #8a5a12;
+  --color-info: #3f5c74;
 
-  /* Interactive accent: links, focus rings, active navigation. | 交互强调色：链接、焦点环与当前导航项。 */
-  --color-accent: #2563eb;
+  /* Cinnabar signal: the index tick, links and focus rings. | 朱砂信号色：索引刻线、链接与焦点环。 */
+  --color-accent: #b23a2b;
 
-  /* Foreground drawn on a solid accent fill; the brand scale is shared by both themes, so this value is never overridden. | 实心强调色之上的前景色；品牌色阶为两套主题共用，故本值无需覆盖。 */
-  --color-on-accent: #ffffff;
+  /* Foreground drawn on a solid accent fill. | 实心强调色之上的前景色。 */
+  --color-on-accent: #fffaf3;
 
   /* Form, overlay and feedback surfaces of the UI kit. | UI 组件层的表单、遮罩与反馈表面。 */
-  --color-surface-raised: #ffffff;
-  --color-field: #ffffff;
-  --color-field-border: #cbd5e1;
-  --color-field-placeholder: #94a3b8;
-  --color-focus-ring: #2563eb;
-  --color-overlay: rgb(2 6 23 / 0.55);
-  --color-track: #e2e8f0;
-  --color-on-danger: #ffffff;
+  --color-surface-raised: #fffdf9;
+  --color-field: #fffdf9;
+  --color-field-border: #a39684;
+  --color-field-placeholder: #8a8175;
+  --color-focus-ring: #b23a2b;
+  --color-overlay: rgb(31 27 22 / 0.55);
+  --color-track: #ece3d5;
+  --color-on-danger: #fffaf3;
 
   /* Soft fills behind status text: alerts, tags and empty states. | 状态文字背后的浅色底：提示、标签与空状态。 */
-  --color-accent-soft: #eff6ff;
-  --color-success-soft: #dcfce7;
-  --color-warning-soft: #fef3c7;
-  --color-danger-soft: #fee2e2;
-  --color-info-soft: #e0f2fe;
+  --color-accent-soft: #f3e2dc;
+  --color-success-soft: #e9efe2;
+  --color-warning-soft: #f5ead7;
+  --color-danger-soft: #f3e0dd;
+  --color-info-soft: #e6ebef;
+
+  /* The mark keeps the blue of the shipped yd icon, and its letters stay paper-white in both themes. |
+     标记保留随包发布的 yd 图标蓝色，字母在两套主题下都保持纸白。 */
+  --color-mark: #1d4ed8;
+  --color-on-mark: #fffaf3;
 
   /* Typography. | 字体。 */
-  --font-sans: "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
-  /* Monospace stack for code, translation keys and stream payloads. | 用于代码、翻译键与数据流载荷的等宽字体栈。 */
-  --font-mono: ui-monospace, "SFMono-Regular", "JetBrains Mono", Menlo, Consolas, "Liberation Mono", monospace;
+  --font-sans: system-ui, -apple-system, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Noto Sans SC", sans-serif;
+  /* Monospace stack for figures, metadata, code and stream payloads. | 用于数字、元信息、代码与数据流载荷的等宽字体栈。 */
+  --font-mono: ui-monospace, "Cascadia Mono", "SFMono-Regular", Menlo, Consolas, "Liberation Mono", monospace;
+  /* Display face: page titles only, never labels or controls. | 展示字体：只用于页面标题，绝不用于标签或控件。 */
+  --font-display: Georgia, "Times New Roman", "Songti SC", "Noto Serif SC", "Source Han Serif SC", SimSun, serif;
 
   /* Shape and elevation. | 圆角与阴影。 */
-  --radius-card: 0.875rem;
-  --shadow-card: 0 1px 2px rgb(2 6 23 / 0.06), 0 8px 24px -12px rgb(2 6 23 / 0.18);
+  --radius-card: 0.75rem;
+  --shadow-card: 0 1px 2px rgb(31 27 22 / 0.05), 0 12px 32px -24px rgb(31 27 22 / 0.35);
 
   /* Layout scale. | 布局尺度。 */
   --spacing-sidebar: 16rem;
@@ -83,39 +92,42 @@
 /* Light theme values, the default. | 亮色主题取值，即默认值。 */
 :root {
   color-scheme: light;
-  --color-surface: #ffffff;
-  --color-surface-muted: #f8fafc;
-  --color-content: #0f172a;
-  --color-content-muted: #64748b;
-  --color-border: #94a3b8;
-  --color-border-subtle: #cbd5e1;
-  --color-danger: #dc2626;
-  --color-success: #16a34a;
-  --color-warning: #d97706;
-  --color-info: #0284c7;
-  --color-accent: #2563eb;
+  --color-surface: #fdfbf7;
+  --color-surface-muted: #f7f4ee;
+  --color-content: #1f1b16;
+  --color-content-muted: #5e554a;
+  --color-content-subtle: #7a7063;
+  --color-border: #a39684;
+  --color-border-subtle: #e7dfd2;
+  --color-danger: #9b1c1c;
+  --color-success: #4f6a3a;
+  --color-warning: #8a5a12;
+  --color-info: #3f5c74;
+  --color-accent: #b23a2b;
 
   /* UI-kit surfaces and sizes. | UI 组件层的表面与尺寸。 */
-  --color-surface-raised: #ffffff;
-  --color-field: #ffffff;
-  --color-field-border: #cbd5e1;
-  --color-field-placeholder: #94a3b8;
-  --color-focus-ring: #2563eb;
-  --color-overlay: rgb(2 6 23 / 0.55);
-  --color-track: #e2e8f0;
-  --color-on-danger: #ffffff;
-  --color-accent-soft: #eff6ff;
-  --color-success-soft: #dcfce7;
-  --color-warning-soft: #fef3c7;
-  --color-danger-soft: #fee2e2;
-  --color-info-soft: #e0f2fe;
+  --color-surface-raised: #fffdf9;
+  --color-field: #fffdf9;
+  --color-field-border: #a39684;
+  --color-field-placeholder: #8a8175;
+  --color-focus-ring: #b23a2b;
+  --color-overlay: rgb(31 27 22 / 0.55);
+  --color-track: #ece3d5;
+  --color-on-danger: #fffaf3;
+  --color-accent-soft: #f3e2dc;
+  --color-success-soft: #e9efe2;
+  --color-warning-soft: #f5ead7;
+  --color-danger-soft: #f3e0dd;
+  --color-info-soft: #e6ebef;
+  --color-mark: #1d4ed8;
+  --color-on-mark: #fffaf3;
 
   /* Control geometry in rem: browser zoom and OS display scaling both move it with the root font. | 控件几何尺寸使用 rem：浏览器缩放与系统显示缩放都会随根字号一起移动。 */
   --control-height-sm: 2rem;
   --control-height: 2.5rem;
   --control-height-lg: 3rem;
-  --radius-control: 0.625rem;
-  --radius-panel: 0.875rem;
+  --radius-control: 0.5rem;
+  --radius-panel: 0.75rem;
   --content-measure: 72ch;
 
   /* Stacking order shared by every overlay component. | 全部浮层组件共用的层叠顺序。 */
@@ -125,38 +137,42 @@
   --z-toast: 60;
 
   /* One easing curve for every state transition of the kit. | 组件层所有状态过渡共用的缓动曲线。 */
-  --ease-standard: cubic-bezier(0.2, 0.7, 0.3, 1);
+  --ease-standard: cubic-bezier(0.22, 1, 0.36, 1);
 }
 
 /* Dark theme overrides; must stay after :root so it wins on equal specificity. | 暗色主题覆盖；必须位于 :root 之后，才能在同等特异性下胜出。 */
 [data-theme="dark"] {
   color-scheme: dark;
-  --color-surface: #0b1220;
-  --color-surface-muted: #111c2f;
-  --color-content: #e6edf7;
-  --color-content-muted: #94a3b8;
-  --color-border: #475569;
-  --color-border-subtle: #334155;
-  --color-danger: #f87171;
-  --color-success: #4ade80;
-  --color-warning: #fbbf24;
-  --color-info: #38bdf8;
-  --color-accent: #60a5fa;
+  --color-surface: #1c1813;
+  --color-surface-muted: #14110d;
+  --color-content: #efe7da;
+  --color-content-muted: #a79a89;
+  --color-content-subtle: #8d8172;
+  --color-border: #5c5143;
+  --color-border-subtle: #332c24;
+  --color-danger: #f08a84;
+  --color-success: #9dbf7d;
+  --color-warning: #e2b264;
+  --color-info: #93b0cc;
+  --color-accent: #e07a63;
+  --color-on-accent: #1b1410;
 
   /* UI-kit surfaces and feedback fills for the dark theme. | 暗色主题下的 UI 组件表面与反馈底色。 */
-  --color-surface-raised: #0f1a2c;
-  --color-field: #0b1220;
-  --color-field-border: #334155;
-  --color-field-placeholder: #64748b;
-  --color-focus-ring: #60a5fa;
-  --color-overlay: rgb(2 6 23 / 0.72);
-  --color-track: #1e293b;
-  --color-on-danger: #0b1220;
-  --color-accent-soft: #172554;
-  --color-success-soft: #052e16;
-  --color-warning-soft: #451a03;
-  --color-danger-soft: #450a0a;
-  --color-info-soft: #082f49;
+  --color-surface-raised: #262019;
+  --color-field: #17130f;
+  --color-field-border: #5c5143;
+  --color-field-placeholder: #8a8175;
+  --color-focus-ring: #e07a63;
+  --color-overlay: rgb(0 0 0 / 0.68);
+  --color-track: #3a332a;
+  --color-on-danger: #1b1410;
+  --color-accent-soft: #3a211c;
+  --color-success-soft: #232b1b;
+  --color-warning-soft: #332613;
+  --color-danger-soft: #351b19;
+  --color-info-soft: #1d262e;
+  --color-mark: #1d4ed8;
+  --color-on-mark: #fffaf3;
 }
 
 /* System preference must paint the same tokens as an explicit dark choice. | 跟随系统时必须绘制与显式
@@ -169,30 +185,34 @@
   :root[data-theme="auto"],
   :root[data-theme="system"] {
     color-scheme: dark;
-    --color-surface: #0b1220;
-    --color-surface-muted: #111c2f;
-    --color-content: #e6edf7;
-    --color-content-muted: #94a3b8;
-    --color-border: #475569;
-    --color-border-subtle: #334155;
-    --color-danger: #f87171;
-    --color-success: #4ade80;
-    --color-warning: #fbbf24;
-    --color-info: #38bdf8;
-    --color-accent: #60a5fa;
-    --color-surface-raised: #0f1a2c;
-    --color-field: #0b1220;
-    --color-field-border: #334155;
-    --color-field-placeholder: #64748b;
-    --color-focus-ring: #60a5fa;
-    --color-overlay: rgb(2 6 23 / 0.72);
-    --color-track: #1e293b;
-    --color-on-danger: #0b1220;
-    --color-accent-soft: #172554;
-    --color-success-soft: #052e16;
-    --color-warning-soft: #451a03;
-    --color-danger-soft: #450a0a;
-    --color-info-soft: #082f49;
+    --color-surface: #1c1813;
+    --color-surface-muted: #14110d;
+    --color-content: #efe7da;
+    --color-content-muted: #a79a89;
+    --color-content-subtle: #8d8172;
+    --color-border: #5c5143;
+    --color-border-subtle: #332c24;
+    --color-danger: #f08a84;
+    --color-success: #9dbf7d;
+    --color-warning: #e2b264;
+    --color-info: #93b0cc;
+    --color-accent: #e07a63;
+    --color-on-accent: #1b1410;
+    --color-surface-raised: #262019;
+    --color-field: #17130f;
+    --color-field-border: #5c5143;
+    --color-field-placeholder: #8a8175;
+    --color-focus-ring: #e07a63;
+    --color-overlay: rgb(0 0 0 / 0.68);
+    --color-track: #3a332a;
+    --color-on-danger: #1b1410;
+    --color-accent-soft: #3a211c;
+    --color-success-soft: #232b1b;
+    --color-warning-soft: #332613;
+    --color-danger-soft: #351b19;
+    --color-info-soft: #1d262e;
+    --color-mark: #1d4ed8;
+    --color-on-mark: #fffaf3;
   }
 }
 
@@ -260,6 +280,12 @@
 
   .yd-shell--app .yd-main {
     height: 100dvh;
+    /* Vertical scrolling belongs to the main column; horizontal overflow must never move it. A wide
+       table scrolls inside .yd-table__wrap, and Chrome also propagates that nested scroll area to the
+       column's scrollWidth, so pin this axis or the whole workspace can slide sideways. |
+       纵向滚动归主列所有，横向溢出绝不能移动它。宽表格在 .yd-table__wrap 内滚动，而 Chrome 会把该
+       嵌套滚动区也算进主列的 scrollWidth，因此必须钉住这一轴，否则整个工作区会横向滑动。 */
+    overflow-x: clip;
     overflow-y: auto;
     overscroll-behavior: contain;
   }
@@ -270,13 +296,15 @@
     flex: 1 1 auto;
     flex-direction: column;
     min-width: 0;
-    /* Fluid gutter: 16px on phones, about 27px on 1920, 34px on 2560 and 46px on 3840 CSS px. | 流式留白：
-       手机上 16px，1920 CSS px 约 27px，2560 约 34px，3840（4K@100%）约 46px。 */
-    padding: clamp(1rem, 0.5rem + 1vw, 4rem);
+    /* Fluid gutter: 16px on phones, about 18px on 1920, 21px on 2560 and at most 24px on 3840 CSS px.
+       The cap keeps the functional area edge-to-edge on wide screens instead of growing a blank band. |
+       流式留白：手机 16px，1920 约 18px，2560 约 21px，3840（4K@100%）最多 24px。
+       上限保证宽屏下功能区贴近两侧，不出现越拉越宽的空白带。 */
+    padding: clamp(1rem, 0.5rem + 0.5vw, 1.5rem);
   }
 
   .yd-workspace:focus-visible {
-    outline: 2px solid var(--color-accent);
+    outline: 2px solid var(--color-focus-ring);
     outline-offset: -2px;
   }
 
@@ -288,16 +316,16 @@
     z-index: 80;
     padding: 0.5rem 0.875rem;
     border-radius: 0.5rem;
-    background-color: var(--color-brand-600);
-    color: var(--color-on-accent);
+    background-color: var(--color-content);
+    color: var(--color-surface);
     font-size: 0.875rem;
     text-decoration: none;
-    transition: top 120ms ease;
+    transition: top 140ms var(--ease-standard);
   }
 
   .yd-skip-link:focus-visible {
     top: 0.75rem;
-    outline: 2px solid var(--color-brand-700);
+    outline: 2px solid var(--color-focus-ring);
     outline-offset: 2px;
   }
 
@@ -315,7 +343,7 @@
     pointer-events: none;
     background-color: transparent;
     opacity: 0;
-    transition: opacity 200ms ease;
+    transition: opacity 200ms var(--ease-standard);
   }
 
   .yd-progress--active {
@@ -328,7 +356,7 @@
     background-color: var(--color-accent);
     transform: scaleX(0);
     transform-origin: left center;
-    transition: transform 180ms ease;
+    transition: transform 180ms var(--ease-standard);
   }
 
   /* ---------------------------------------------------------------- sidebar | 侧边栏 */
@@ -348,7 +376,6 @@
     background-color: var(--color-surface);
     border-right: 1px solid var(--color-border-subtle);
     color: var(--color-content);
-    transition: width 180ms ease;
   }
 
   .yd-sidebar.is-collapsed,
@@ -455,16 +482,19 @@
     min-width: 0;
     border-radius: 0.5rem;
     color: var(--color-content);
-    font-weight: 600;
+    font-size: 0.9375rem;
+    font-weight: 500;
+    letter-spacing: 0.01em;
     text-decoration: none;
   }
 
   .yd-brand:focus-visible {
-    outline: 2px solid var(--color-accent);
+    outline: 2px solid var(--color-focus-ring);
     outline-offset: 2px;
   }
 
-  /* Square badge carrying the two letter mark. | 承载两字母标记的方形徽章。 */
+  /* Square seal carrying the two letter mark. The blue is the shipped logo colour, not an accent. |
+     承载两字母标记的方形印章。这里的蓝色是随包发布的 logo 颜色，不是界面强调色。 */
   .yd-brand__mark {
     display: inline-flex;
     align-items: center;
@@ -472,13 +502,19 @@
     flex: 0 0 auto;
     width: 1.75rem;
     height: 1.75rem;
-    border-radius: 0.5rem;
-    background-color: var(--color-brand-600);
-    color: var(--color-on-accent);
+    border-radius: 0.375rem;
+    background-color: var(--color-mark);
+    color: var(--color-on-mark);
     font-size: 0.8125rem;
-    font-weight: 700;
+    font-weight: 600;
     line-height: 1;
-    letter-spacing: 0.02em;
+    letter-spacing: 0.01em;
+    transition: background-color 140ms var(--ease-standard);
+  }
+
+  /* The seal lightens one step on hover; no lift, no shadow. | 印章悬停时提亮一阶；不位移、不投影。 */
+  .yd-brand:hover .yd-brand__mark {
+    background-color: color-mix(in oklab, var(--color-mark) 86%, var(--color-brand-500));
   }
 
   /* Product name beside the mark, ellipsised when the rail narrows. | 标记旁的产品名，导航栏变窄时以省略号截断。 */
@@ -500,14 +536,22 @@
     overflow-y: auto;
   }
 
-  /* Group caption inside the link stack. | 链接列表中的分组标题。 */
+  /* Group caption inside the link stack: sentence case, no tracking, a quiet rule above it. |
+     链接列表中的分组标题：句子式大小写、无字距，上方一条安静的分隔线。 */
   .yd-nav__section {
-    margin: 0.75rem 0.5rem 0.25rem;
-    font-size: 0.6875rem;
-    font-weight: 600;
-    letter-spacing: 0.06em;
-    text-transform: uppercase;
-    color: var(--color-content-muted);
+    margin: 1.25rem 0.625rem 0.25rem;
+    padding-top: 0.75rem;
+    border-top: 1px solid var(--color-border-subtle);
+    font-size: 0.75rem;
+    font-weight: 500;
+    letter-spacing: 0;
+    color: var(--color-content-subtle);
+  }
+
+  .yd-nav__section:first-child {
+    margin-top: 0.25rem;
+    padding-top: 0;
+    border-top: 0;
   }
 
   /* One navigation row in the rail. | 导航栏中的单个导航行。 */
@@ -520,7 +564,7 @@
     color: var(--color-content-muted);
     font-size: 0.875rem;
     text-decoration: none;
-    transition: background-color 120ms ease, color 120ms ease;
+    transition: background-color 140ms var(--ease-standard), color 140ms var(--ease-standard);
   }
 
   .yd-nav__link:hover {
@@ -529,17 +573,29 @@
   }
 
   .yd-nav__link:focus-visible {
-    outline: 2px solid var(--color-accent);
+    outline: 2px solid var(--color-focus-ring);
     outline-offset: -2px;
   }
 
-  /* Current page as marked by yd-app.js: aria-current plus data-active, cued by weight and an inset bar, never by colour alone. | yd-app.js 标记的当前页：aria-current 加 data-active，用字重与内嵌色条提示，绝不只靠颜色。 */
+  /* Current page as marked by yd-app.js: aria-current plus data-active. The cinnabar index tick on the
+     left edge is the one place the accent appears in the chrome; the surface step stays neutral. |
+     yd-app.js 标记的当前页：aria-current 加 data-active。左缘的朱砂索引刻线是外壳中唯一使用强调色的地方，
+     表面本身只做中性的一级抬升。 */
   .yd-nav__link[data-active="true"],
   .yd-nav__link[aria-current="page"] {
-    background-color: color-mix(in oklab, var(--color-accent) 14%, transparent);
+    background-color: var(--color-surface-muted);
     box-shadow: inset 2px 0 0 var(--color-accent);
     color: var(--color-content);
-    font-weight: 600;
+    font-weight: 500;
+  }
+
+  /* Surface switch at the foot of the portal rail: a hairline keeps it from reading as part of the
+     developer group above it. | 门户侧栏底部的界面切换：一条发丝线让它不再被读作上方开发分组的一部分。 */
+  .yd-nav__link[data-yd-nav="mgr"] {
+    margin-top: 0.75rem;
+    padding-top: 0.875rem;
+    border-top: 1px solid var(--color-border-subtle);
+    border-radius: 0 0 0.5rem 0.5rem;
   }
 
   /* Sizing is mandatory: the inline SVGs carry no width or height attribute. | 尺寸不可省略：内联 SVG 没有 width 与 height 属性。 */
@@ -600,7 +656,7 @@
   }
 
   .yd-breadcrumb__link:focus-visible {
-    outline: 2px solid var(--color-accent);
+    outline: 2px solid var(--color-focus-ring);
     outline-offset: 2px;
   }
 
@@ -630,7 +686,7 @@
     text-align: center;
     text-decoration: none;
     cursor: pointer;
-    transition: background-color 120ms ease, border-color 120ms ease, color 120ms ease;
+    transition: background-color 140ms var(--ease-standard), border-color 140ms var(--ease-standard), color 140ms var(--ease-standard);
   }
 
   .yd-btn:not(:disabled):hover {
@@ -638,7 +694,7 @@
   }
 
   .yd-btn:focus-visible {
-    outline: 2px solid var(--color-accent);
+    outline: 2px solid var(--color-focus-ring);
     outline-offset: 2px;
   }
 
@@ -649,15 +705,17 @@
     cursor: not-allowed;
   }
 
-  /* Primary action: the only solid brand fill in the shell. | 主要操作：外壳中唯一的实心品牌填充。 */
+  /* Primary action: an ink fill on paper, an off-white fill on the night ledger. The accent stays for
+     signal, never for the button itself. | 主要操作：纸上用墨色填充，夜色账本上用米白填充；
+     强调色只做信号，不用在按钮上。 */
   .yd-btn--primary {
     border-color: transparent;
-    background-color: var(--color-brand-600);
-    color: var(--color-on-accent);
+    background-color: var(--color-content);
+    color: var(--color-surface);
   }
 
   .yd-btn--primary:not(:disabled):hover {
-    background-color: var(--color-brand-700);
+    background-color: color-mix(in oklab, var(--color-content) 86%, var(--color-accent));
   }
 
   /* Quiet action: no chrome until it is hovered. | 次要操作：悬停前不显示边框与底色。 */
@@ -708,7 +766,7 @@
     background-color: transparent;
     color: var(--color-content-muted);
     cursor: pointer;
-    transition: background-color 120ms ease, color 120ms ease;
+    transition: background-color 140ms var(--ease-standard), color 140ms var(--ease-standard);
   }
 
   .yd-icon-btn:not(:disabled):hover {
@@ -717,7 +775,7 @@
   }
 
   .yd-icon-btn:focus-visible {
-    outline: 2px solid var(--color-accent);
+    outline: 2px solid var(--color-focus-ring);
     outline-offset: 2px;
   }
 
@@ -762,7 +820,7 @@
 
   /* ---------------------------------------------------------------- avatar | 头像 */
 
-  /* Initials bubble; the tint derives from the accent token, so it follows the theme. | 首字母气泡；底色由 accent 令牌派生，因此随主题变化。 */
+  /* Initials bubble: a neutral seal on the paper, never a coloured chip. | 首字母气泡：纸面上的中性印章，不是彩色标签。 */
   .yd-avatar {
     display: inline-flex;
     align-items: center;
@@ -771,10 +829,11 @@
     width: 2rem;
     height: 2rem;
     border-radius: 999px;
-    background-color: color-mix(in oklab, var(--color-accent) 16%, transparent);
-    color: var(--color-accent);
+    background-color: var(--color-surface-raised);
+    box-shadow: inset 0 0 0 1px var(--color-border-subtle);
+    color: var(--color-content-muted);
     font-size: 0.8125rem;
-    font-weight: 600;
+    font-weight: 500;
     line-height: 1;
     vertical-align: middle;
   }
@@ -788,98 +847,121 @@
 
   /* ---------------------------------------------------------------- badge | 徽标 */
 
-  /* Pill for statuses and counters; the base look stays neutral so an unknown level still reads well. | 状态与计数的胶囊标签；基础样式保持中性，未知级别也能正常呈现。 */
+  /* Status badges are a dot and a word, not a pill: the dot carries the level and the label keeps the
+     content colour, so a table of statuses stays quiet. | 状态徽标是一个圆点加一个词，而不是胶囊：
+     圆点承载级别，文字保持内容色，因此整张状态表保持安静。 */
   .yd-badge {
     display: inline-flex;
     align-items: center;
-    gap: 0.25rem;
-    padding: 0.125rem 0.5rem;
-    border: 1px solid transparent;
-    border-radius: 999px;
-    background-color: var(--color-surface-muted);
-    color: var(--color-content-muted);
+    gap: 0.375rem;
+    padding: 0;
+    border: 0;
+    border-radius: 0.25rem;
+    background-color: transparent;
+    color: var(--color-content);
     font-size: 0.75rem;
     font-weight: 500;
     line-height: 1.25rem;
     white-space: nowrap;
   }
 
-  /* Neutral badge for a value that carries no status. | 无状态取值使用的中性徽标。 */
+  .yd-badge::before {
+    content: "";
+    flex: 0 0 auto;
+    width: 0.375rem;
+    height: 0.375rem;
+    border-radius: 999px;
+    background-color: currentColor;
+  }
+
+  /* Neutral badge for a value that carries no status: plain mono text, no dot. | 无状态取值使用的中性徽标：
+     纯等宽文字，不带圆点。 */
   .yd-badge--muted {
+    gap: 0;
+    color: var(--color-content-subtle);
+    font-family: var(--font-mono);
+    font-size: 0.75rem;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .yd-badge--muted::before {
+    display: none;
+  }
+
+  /* Quiet tag for a value that is neither a status nor a count: a tenant, a role, a channel. |
+     安静标签：既不是状态也不是计数——租户、角色、频道。 */
+  .yd-badge--tag {
+    gap: 0;
+    padding: 0.125rem 0.375rem;
+    border-radius: 0.25rem;
     background-color: var(--color-surface-muted);
     color: var(--color-content-muted);
+  }
+
+  .yd-badge--tag::before {
+    display: none;
+  }
+
+  /* Consecutive quiet values (counters, roles, tags) need a separator now that they are text. |
+     连续出现的安静值（计数、角色、标签）现在是文字，需要一处分隔。 */
+  .yd-badge--muted + .yd-badge--muted,
+  .yd-badge--tag + .yd-badge--tag {
+    margin-left: 0.375rem;
   }
 
   /* Informational badge. | 信息类徽标。 */
-  .yd-badge--info {
-    border-color: color-mix(in oklab, var(--color-info) 35%, transparent);
-    background-color: color-mix(in oklab, var(--color-info) 12%, transparent);
-    color: var(--color-info);
+  .yd-badge--info::before {
+    background-color: var(--color-info);
   }
 
   /* Success badge, e.g. an operation that finished cleanly. | 成功徽标，例如干净完成的操作。 */
-  .yd-badge--success {
-    border-color: color-mix(in oklab, var(--color-success) 35%, transparent);
-    background-color: color-mix(in oklab, var(--color-success) 12%, transparent);
-    color: var(--color-success);
-  }
-
-  /* Active badge, the status the account table renders most often. | 启用徽标，账号表格中最常出现的状态。 */
-  .yd-badge--active {
-    border-color: color-mix(in oklab, var(--color-success) 35%, transparent);
-    background-color: color-mix(in oklab, var(--color-success) 12%, transparent);
-    color: var(--color-success);
+  .yd-badge--success::before,
+  .yd-badge--active::before {
+    background-color: var(--color-success);
   }
 
   /* Warning badge. | 警告类徽标。 */
-  .yd-badge--warn {
-    border-color: color-mix(in oklab, var(--color-warning) 35%, transparent);
-    background-color: color-mix(in oklab, var(--color-warning) 14%, transparent);
-    color: var(--color-warning);
+  .yd-badge--warn::before {
+    background-color: var(--color-warning);
   }
 
-  /* Error badge. | 错误徽标。 */
-  .yd-badge--error {
-    border-color: color-mix(in oklab, var(--color-danger) 35%, transparent);
-    background-color: color-mix(in oklab, var(--color-danger) 12%, transparent);
-    color: var(--color-danger);
+  /* Error and disabled badges. | 错误与禁用徽标。 */
+  .yd-badge--error::before,
+  .yd-badge--disabled::before {
+    background-color: var(--color-danger);
   }
 
-  /* Disabled badge. | 禁用徽标。 */
-  .yd-badge--disabled {
-    border-color: color-mix(in oklab, var(--color-danger) 35%, transparent);
-    background-color: color-mix(in oklab, var(--color-danger) 12%, transparent);
-    color: var(--color-danger);
+  /* Realtime badge: yd-app.js writes the stream state onto data-yd-connection-state. | 实时状态徽标：
+     yd-app.js 把数据流状态写入 data-yd-connection-state。 */
+  .yd-badge[data-yd-connection-state="open"]::before {
+    background-color: var(--color-success);
   }
 
-  /* Realtime pill: yd-app.js writes the stream state onto data-yd-connection-state. | 实时状态标签：yd-app.js 把数据流状态写入 data-yd-connection-state。 */
-  .yd-badge[data-yd-connection-state="open"] {
-    border-color: color-mix(in oklab, var(--color-success) 35%, transparent);
-    background-color: color-mix(in oklab, var(--color-success) 12%, transparent);
-    color: var(--color-success);
+  .yd-badge[data-yd-connection-state="connecting"]::before {
+    background-color: var(--color-warning);
   }
 
-  .yd-badge[data-yd-connection-state="connecting"] {
-    border-color: color-mix(in oklab, var(--color-warning) 35%, transparent);
-    background-color: color-mix(in oklab, var(--color-warning) 14%, transparent);
-    color: var(--color-warning);
-  }
-
-  .yd-badge[data-yd-connection-state="closed"] {
-    border-color: color-mix(in oklab, var(--color-danger) 35%, transparent);
-    background-color: color-mix(in oklab, var(--color-danger) 12%, transparent);
-    color: var(--color-danger);
+  .yd-badge[data-yd-connection-state="closed"]::before {
+    background-color: var(--color-danger);
   }
 
   .yd-badge[data-yd-connection-state="idle"] {
-    background-color: var(--color-surface-muted);
-    color: var(--color-content-muted);
+    color: var(--color-content-subtle);
+  }
+
+  .yd-badge[data-yd-connection-state="idle"]::before {
+    background-color: var(--color-content-subtle);
   }
 
   /* ---------------------------------------------------------------- card | 卡片 */
 
   /* Elevated content panel. | 带层级的内容面板。 */
   .yd-card {
+    /* A card is a flex item of .yd-page; without min-width: 0 its min-content width (a wide table)
+       would stretch the column and push a horizontal scrollbar onto the whole workspace. |
+       卡片是 .yd-page 的弹性子项；缺少 min-width: 0 时，其最小内容宽度（宽表格）会撑开整列，
+       把横向滚动条推到整个工作区上。 */
+    min-width: 0;
     padding: 1.25rem;
     background-color: var(--color-surface);
     border: 1px solid var(--color-border-subtle);
@@ -919,9 +1001,11 @@
      在手机上又保持紧凑。 */
   .yd-page__title {
     margin: 0;
-    font-size: clamp(1.5rem, 1.25rem + 0.45vw, 2rem);
-    font-weight: 600;
-    line-height: 1.2;
+    font-family: var(--font-display);
+    font-size: clamp(1.375rem, 1.25rem + 0.35vw, 1.75rem);
+    font-weight: 500;
+    line-height: 1.15;
+    letter-spacing: 0.01em;
     color: var(--color-content);
   }
 
@@ -961,8 +1045,9 @@
   /* Heading of a card section. | 卡片区块的标题。 */
   .yd-section__title {
     margin: 0;
-    font-size: 1rem;
-    font-weight: 600;
+    font-size: 0.9375rem;
+    font-weight: 500;
+    letter-spacing: 0.005em;
     color: var(--color-content);
   }
 
@@ -1003,8 +1088,10 @@
   /* The metric itself, the largest text in the card. | 指标数值，卡片中最大的文字。 */
   .yd-kpi__value {
     margin: 0;
+    font-family: var(--font-mono);
     font-size: 1.75rem;
-    font-weight: 600;
+    font-weight: 500;
+    font-variant-numeric: tabular-nums;
     line-height: 1.15;
     color: var(--color-content);
   }
@@ -1043,15 +1130,26 @@
 
   .yd-table th,
   .yd-table td {
-    padding: 0.625rem 0.875rem;
+    padding: 0.75rem 0.875rem;
     text-align: left;
     border-bottom: 1px solid var(--color-border-subtle);
   }
 
   .yd-table thead th {
     background-color: var(--color-surface-muted);
-    color: var(--color-content-muted);
-    font-weight: 600;
+    color: var(--color-content-subtle);
+    font-size: 0.75rem;
+    font-weight: 500;
+    letter-spacing: 0;
+    white-space: nowrap;
+  }
+
+  /* Figures: right aligned, monospaced and tabular, so a column of counters reads as one column. |
+     数字：右对齐、等宽且表格化，整列计数因此读作一列。 */
+  .yd-table .yd-num {
+    text-align: right;
+    font-family: var(--font-mono);
+    font-variant-numeric: tabular-nums;
     white-space: nowrap;
   }
 
@@ -1081,7 +1179,7 @@
 
   /* Header cell, never wrapped so the column width stays stable. | 表头单元格，不换行以保持列宽稳定。 */
   .yd-table__th {
-    font-weight: 600;
+    font-weight: 500;
     white-space: nowrap;
   }
 
@@ -1092,7 +1190,7 @@
 
   /* One body row; only the hover repaint is animated. | 单个数据行；只有悬停底色参与过渡。 */
   .yd-table__row {
-    transition: background-color 120ms ease;
+    transition: background-color 140ms var(--ease-standard);
   }
 
   /* Empty result set: one centred, muted cell. | 空结果集：一个居中的弱化单元格。 */
@@ -1121,7 +1219,7 @@
 
   /* Primary cell of a row, e.g. the user name next to the avatar. | 行的主单元格，例如头像旁的用户名。 */
   .yd-table__primary {
-    font-weight: 600;
+    font-weight: 500;
     color: var(--color-content);
   }
 
@@ -1197,7 +1295,7 @@
   }
 
   .yd-pagination__link:focus-visible {
-    outline: 2px solid var(--color-accent);
+    outline: 2px solid var(--color-focus-ring);
     outline-offset: 2px;
   }
 
@@ -1241,7 +1339,7 @@
     width: min(32rem, 100%);
     max-height: calc(100vh - 2rem);
     overflow-y: auto;
-    animation: yd-modal-in 140ms ease-out;
+    animation: yd-modal-in 160ms var(--ease-standard);
   }
 
   @keyframes yd-modal-in {
@@ -1352,24 +1450,24 @@
 
   /* Label of a single control. | 单个控件的标签。 */
   .yd-field__label {
-    font-size: 0.875rem;
+    font-size: 0.8125rem;
     font-weight: 500;
-    color: var(--color-content);
+    color: var(--color-content-muted);
   }
 
   /* Permanent helper text under a control. | 控件下方常驻的辅助说明。 */
   .yd-field__hint {
     margin: 0;
     font-size: 0.8125rem;
-    color: var(--color-content-muted);
+    color: var(--color-content-subtle);
   }
 
   /* Text control used by fields, filters, search and the WebSocket composer. | 文本框：字段、筛选、搜索与 WebSocket 输入区使用。 */
   .yd-input {
     padding: 0.5rem 0.75rem;
-    border: 1px solid var(--color-border);
-    border-radius: 0.5rem;
-    background-color: var(--color-surface);
+    border: 1px solid var(--color-field-border);
+    border-radius: var(--radius-control);
+    background-color: var(--color-field);
     color: var(--color-content);
     font: inherit;
     font-size: 0.875rem;
@@ -1377,15 +1475,15 @@
   }
 
   .yd-input::placeholder {
-    color: var(--color-content-muted);
+    color: var(--color-field-placeholder);
   }
 
   /* Native select sharing the skin of the input. | 与输入框共用外观的原生下拉框。 */
   .yd-select {
     padding: 0.5rem 0.75rem;
-    border: 1px solid var(--color-border);
-    border-radius: 0.5rem;
-    background-color: var(--color-surface);
+    border: 1px solid var(--color-field-border);
+    border-radius: var(--radius-control);
+    background-color: var(--color-field);
     color: var(--color-content);
     font: inherit;
     font-size: 0.875rem;
@@ -1394,15 +1492,15 @@
 
   .yd-input:not(:disabled):hover,
   .yd-select:not(:disabled):hover {
-    border-color: color-mix(in oklab, var(--color-accent) 40%, var(--color-border-subtle));
+    border-color: color-mix(in oklab, var(--color-accent) 45%, var(--color-field-border));
   }
 
-  /* Focus ring built from the accent token in both themes, replacing the UA outline. | 两套主题下均由 accent 令牌构建的焦点环，替换浏览器默认轮廓。 */
+  /* Focus ring built from the focus token in both themes, replacing the UA outline. | 两套主题下均由 focus 令牌构建的焦点环，替换浏览器默认轮廓。 */
   .yd-input:focus-visible,
   .yd-select:focus-visible {
     outline: none;
-    border-color: var(--color-accent);
-    box-shadow: 0 0 0 3px color-mix(in oklab, var(--color-accent) 25%, transparent);
+    border-color: var(--color-focus-ring);
+    box-shadow: 0 0 0 3px color-mix(in oklab, var(--color-focus-ring) 22%, transparent);
   }
 
   .yd-input:disabled,
@@ -1449,6 +1547,14 @@
     color: var(--color-content-muted);
   }
 
+  /* Metadata line: counts, timestamps and identifiers sit in mono with tabular figures. | 元信息行：
+     计数、时间戳与标识一律使用等宽表格数字。 */
+  .yd-meta-figure {
+    font-family: var(--font-mono);
+    font-variant-numeric: tabular-nums;
+    color: var(--color-content-muted);
+  }
+
   /* Inline text link. | 行内文字链接。 */
   .yd-link {
     border-radius: 0.25rem;
@@ -1462,8 +1568,33 @@
   }
 
   .yd-link:focus-visible {
-    outline: 2px solid var(--color-accent);
+    outline: 2px solid var(--color-focus-ring);
     outline-offset: 2px;
+  }
+
+
+  /* Keyboard focus on the editor, upload cluster and message links: each surface owns a wrapper, so the
+     ring follows the group instead of a hidden input. | 编辑器、上传簇与消息链接的键盘焦点：三者都有
+     自己的外层，焦点环跟随整组而不是隐藏的输入框。 */
+  .yd-editor:focus-within,
+  .yd-msg-composer__upload:focus-within {
+    outline: 2px solid var(--color-focus-ring);
+    outline-offset: 2px;
+    border-radius: var(--radius-control);
+  }
+
+  .yd-msg-conv:focus-visible,
+  .yd-msg-pin:focus-visible,
+  .yd-msg-back:focus-visible,
+  .yd-attachment:focus-visible,
+  .yd-attachment-chip__link:focus-visible {
+    outline: 2px solid var(--color-focus-ring);
+    outline-offset: 2px;
+  }
+
+  .yd-menu__item:focus-visible {
+    outline: 2px solid var(--color-focus-ring);
+    outline-offset: -2px;
   }
 
   /* ---------------------------------------------------------------- forms in chrome | 顶栏中的表单 */
@@ -1509,8 +1640,8 @@
     align-items: center;
     gap: 0.125rem;
     padding: 0.125rem;
-    border: 1px solid var(--color-border);
-    border-radius: 999px;
+    border: 1px solid var(--color-border-subtle);
+    border-radius: var(--radius-control);
     background-color: var(--color-surface-muted);
   }
 
@@ -1524,7 +1655,7 @@
   .yd-lang__btn {
     padding: 0.25rem 0.625rem;
     border: 1px solid transparent;
-    border-radius: 999px;
+    border-radius: calc(var(--radius-control) - 2px);
     background-color: transparent;
     color: var(--color-content-muted);
     font: inherit;
@@ -1538,7 +1669,7 @@
   }
 
   .yd-lang__btn:focus-visible {
-    outline: 2px solid var(--color-accent);
+    outline: 2px solid var(--color-focus-ring);
     outline-offset: 2px;
   }
 
@@ -1556,7 +1687,7 @@
      单一语言按钮：一个按钮显示当前语言，样式与主题按钮一致。哪个标签可见完全由 <html lang>
      决定，脚本因此不需要改写文案。 */
   .yd-lang-toggle {
-    border-color: var(--color-border);
+    border-color: var(--color-border-subtle);
     background-color: var(--color-surface);
     color: var(--color-content);
   }
@@ -1593,7 +1724,7 @@
     gap: 0.5rem;
     padding: 0.25rem 0.5rem;
     border: 1px solid transparent;
-    border-radius: 999px;
+    border-radius: var(--radius-control);
     background-color: transparent;
     color: var(--color-content);
     font: inherit;
@@ -1606,7 +1737,7 @@
   }
 
   .yd-user__trigger:focus-visible {
-    outline: 2px solid var(--color-accent);
+    outline: 2px solid var(--color-focus-ring);
     outline-offset: 2px;
   }
 
@@ -1676,7 +1807,7 @@
   }
 
   .yd-user__item:focus-visible {
-    outline: 2px solid var(--color-accent);
+    outline: 2px solid var(--color-focus-ring);
     outline-offset: -2px;
   }
 
@@ -1710,7 +1841,7 @@
   }
 
   .yd-user__link:focus-visible {
-    outline: 2px solid var(--color-accent);
+    outline: 2px solid var(--color-focus-ring);
     outline-offset: -2px;
   }
 
@@ -1776,6 +1907,9 @@
     color: var(--color-content);
     font-family: var(--font-mono);
     font-size: 0.8125rem;
+    /* Long module paths and identifiers must break instead of widening the page on a phone. |
+       长模块路径与标识必须断行，而不是在手机上把整页撑宽。 */
+    overflow-wrap: anywhere;
   }
 
   /* Definition list used by the i18n and formatting panels. | i18n 与格式化面板使用的定义列表。 */
@@ -1872,14 +2006,14 @@
   }
 
   .yd-flash__close:focus-visible {
-    outline: 2px solid var(--color-accent);
+    outline: 2px solid var(--color-focus-ring);
     outline-offset: 2px;
   }
 
   /* Request indicator: hidden until htmx marks the issuing element with .htmx-request. | 请求指示器：htmx 给发起元素加上 .htmx-request 之前保持隐藏。 */
   .htmx-indicator {
     opacity: 0;
-    transition: opacity 150ms ease;
+    transition: opacity 150ms var(--ease-standard);
   }
 
   .htmx-request .htmx-indicator,
@@ -1979,6 +2113,7 @@
     justify-content: center;
     min-height: 100vh;
     padding: 1.5rem;
+    background-color: var(--color-surface-muted);
     color: var(--color-content);
     font-family: var(--font-sans);
   }
@@ -1992,7 +2127,8 @@
   .yd-auth__card {
     display: flex;
     flex-direction: column;
-    gap: 0.75rem;
+    gap: 1rem;
+    padding: 2rem;
   }
 
   /* Product lock-up above the login form. | 登录表单上方的产品标识。 */
@@ -2005,8 +2141,10 @@
   /* Sign-in heading. | 登录页标题。 */
   .yd-auth__title {
     margin: 0;
-    font-size: 1.375rem;
-    font-weight: 600;
+    font-family: var(--font-display);
+    font-size: 1.75rem;
+    font-weight: 500;
+    letter-spacing: 0.01em;
     color: var(--color-content);
   }
 
@@ -2026,6 +2164,7 @@
     justify-content: center;
     min-height: 100vh;
     padding: 1.5rem;
+    background-color: var(--color-surface-muted);
     color: var(--color-content);
     font-family: var(--font-sans);
   }
@@ -2049,7 +2188,8 @@
     color: var(--color-accent);
     font-family: var(--font-mono);
     font-size: 2.25rem;
-    font-weight: 700;
+    font-weight: 500;
+    font-variant-numeric: tabular-nums;
     line-height: 1;
   }
 
@@ -2201,7 +2341,7 @@
 
   /* Theme toggle: a solid, high-contrast control in both themes. | 主题切换：两套主题下都保持实心高对比。 */
   .yd-theme-toggle {
-    border-color: var(--color-border);
+    border-color: var(--color-border-subtle);
     background-color: var(--color-surface);
     color: var(--color-content);
   }
@@ -2237,6 +2377,15 @@
     font-weight: 600;
   }
 
+  /* The stable slug, shown only on phone widths where the display name cannot fit. |
+     稳定标识，仅在展示名放不下的手机宽度下显示。 */
+  .yd-tenant__slug {
+    display: none;
+    color: var(--color-content-muted);
+    font-family: var(--font-mono);
+    font-size: 0.75rem;
+  }
+
   .yd-tenant__caret {
     flex: 0 0 auto;
     color: var(--color-content-muted);
@@ -2250,9 +2399,8 @@
 
   .yd-tenant__heading {
     @apply m-0 px-2.5 py-1 text-xs;
-    color: var(--color-content-muted);
-    letter-spacing: 0.04em;
-    text-transform: uppercase;
+    color: var(--color-content-subtle);
+    font-weight: 500;
   }
 
   /* 复合选择器压过 `.yd-menu__item`（单类），不受两条规则的源码顺序影响：默认标签排在名称左侧，
@@ -2282,7 +2430,7 @@
   .yd-tenant__check {
     flex: 0 0 auto;
     color: var(--color-accent);
-    font-weight: 700;
+    font-weight: 500;
   }
 
   .yd-select--sm {
@@ -2420,7 +2568,7 @@
   }
 
   .yd-drawer[open] {
-    animation: yd-drawer-in 180ms ease-out;
+    animation: yd-drawer-in 200ms var(--ease-standard);
   }
 
   .yd-drawer__panel {
@@ -2452,32 +2600,47 @@
      straight into stroke-dasharray; every colour is a semantic token. | 仪表盘仅使用 SVG 路径：
      pathLength="100" 让服务端把百分比直接写进 stroke-dasharray；所有颜色都是语义令牌。 */
   .yd-metrics-grid {
-    @apply grid gap-4 mt-3;
-    grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr));
+    @apply grid gap-6 mt-4;
+    grid-template-columns: repeat(auto-fit, minmax(10rem, 1fr));
+    align-items: end;
   }
 
+  /* One reading: an arc for a real percentage, a figure for a count. | 单个读数：真实百分比画弧，
+     计数只写数字。 */
   .yd-gauge {
     @apply flex flex-col items-center gap-1 m-0;
+    min-width: 0;
+  }
+
+  .yd-gauge--readout {
+    justify-content: center;
   }
 
   .yd-gauge__svg {
     @apply w-full h-auto;
-    max-width: 10rem;
+    max-width: 8rem;
   }
 
   .yd-gauge__track {
     fill: none;
-    stroke: var(--color-border-subtle);
-    stroke-width: 10;
+    stroke: var(--color-track);
+    stroke-width: 5;
     stroke-linecap: round;
   }
 
+  /* Neutral by default; the one metric that leads the panel is drawn in ink, and only a real
+     threshold turns a reading into a warning or a danger. | 默认中性；领读指标以墨色绘制，
+     只有真实越过阈值时才变成警告或危险。 */
   .yd-gauge__value {
     fill: none;
-    stroke: var(--color-brand-600);
-    stroke-width: 10;
+    stroke: var(--color-content-muted);
+    stroke-width: 5;
     stroke-linecap: round;
-    transition: stroke-dasharray 240ms ease;
+    transition: stroke-dasharray 320ms var(--ease-standard);
+  }
+
+  .yd-gauge--lead .yd-gauge__value {
+    stroke: var(--color-content);
   }
 
   .yd-gauge--warn .yd-gauge__value {
@@ -2489,9 +2652,21 @@
   }
 
   .yd-gauge__readout {
-    @apply font-mono font-bold;
+    @apply font-mono;
     fill: var(--color-content);
-    font-size: 16px;
+    font-size: 15px;
+    font-weight: 500;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .yd-readout__value {
+    @apply font-mono;
+    padding: 1.5rem 0;
+    color: var(--color-content);
+    font-size: 1.75rem;
+    font-weight: 500;
+    font-variant-numeric: tabular-nums;
+    line-height: 1;
   }
 
   .yd-gauge__caption {
@@ -2499,7 +2674,7 @@
   }
 
   .yd-gauge__label {
-    @apply text-sm;
+    @apply text-xs;
     color: var(--color-content-muted);
   }
 
@@ -2729,7 +2904,7 @@
 }
 
 .yd-switch__item--on {
-  background: var(--color-brand-600);
+  background: var(--color-content);
   color: var(--color-surface);
 }
 
@@ -2741,7 +2916,7 @@
 }
 
 .yd-user__name {
-  font-weight: 600;
+  font-weight: 500;
 }
 
 /* 横幅：首登提示与登录失败共用同一条带 | banners: the first-sign-in notice and a failed sign-in share one strip */
@@ -2757,7 +2932,8 @@
 }
 
 .yd-banner--warn {
-  border-color: var(--color-brand-500);
+  border-color: color-mix(in oklab, var(--color-warning) 55%, var(--color-border-subtle));
+  background-color: color-mix(in oklab, var(--color-warning-soft) 70%, var(--color-surface));
 }
 
 .yd-banner--error {
@@ -2792,8 +2968,8 @@
 
 .yd-login-card__logo {
   flex: 0 0 auto;
-  width: 3.5rem;
-  height: 3.5rem;
+  width: 2.5rem;
+  height: 2.5rem;
 }
 
 .yd-login-card__identity {
@@ -2802,8 +2978,9 @@
 
 .yd-login-card__name {
   margin: 0;
-  font-size: 1.125rem;
-  font-weight: 700;
+  font-size: 0.9375rem;
+  font-weight: 500;
+  letter-spacing: 0.01em;
   color: var(--color-content);
 }
 
@@ -2811,6 +2988,15 @@
   margin: 0.125rem 0 0;
   font-size: 0.8125rem;
   color: var(--color-content-muted);
+}
+
+/* 登录页标题是页面级标题，因此用展示衬线；表单仍保持系统无衬线。 | The sign-in heading is a page title, so it
+   uses the display serif; the form itself stays in the system sans stack. */
+.yd-login-card .yd-section__title {
+  font-family: var(--font-display);
+  font-size: 1.5rem;
+  font-weight: 500;
+  letter-spacing: 0.01em;
 }
 
 /* 登录表单的呼吸感：标题、说明与字段之间留出明确间距，避免整张卡片挤成一团。 | Breathing room for the sign-in form: a clear rhythm between the title, the hint and the fields keeps the card from feeling cramped. */
@@ -2853,7 +3039,39 @@
 .yd-role__permissions {
   display: flex;
   flex-wrap: wrap;
-  gap: 0.25rem;
+  gap: 0.375rem;
+  max-height: 14rem;
+  overflow-y: auto;
+  align-content: flex-start;
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-border-subtle) transparent;
+}
+
+.yd-role__permissions::-webkit-scrollbar {
+  width: 0.5rem;
+}
+
+.yd-role__permissions::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.yd-role__permissions::-webkit-scrollbar-thumb {
+  border-radius: 0.25rem;
+  background: var(--color-border-subtle);
+}
+
+/* Capability token: mono, neutral, and small enough that a full set reads as an index rather than a
+   wall of pills. | 能力标记：等宽、中性，尺寸小到整套能力读作一份索引而不是一堵胶囊墙。 */
+.yd-cap {
+  display: inline-block;
+  padding: 0.125rem 0.375rem;
+  border-radius: 0.25rem;
+  background-color: var(--color-surface-muted);
+  color: var(--color-content-muted);
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  line-height: 1.25rem;
+  white-space: nowrap;
 }
 
 /* 勾选项：角色与权限都用它，因此标签、说明与输入框的相对位置只定义一次 */
@@ -2917,7 +3135,7 @@
   width: 1rem;
   height: 1rem;
   margin-top: 0.125rem;
-  accent-color: var(--color-brand-600);
+  accent-color: var(--color-accent);
 }
 
 /* 服务器时钟：数字等宽，刷新时不会左右跳动。 | Server clock: tabular digits keep the value from shifting as it refreshes. */
@@ -2926,6 +3144,27 @@
   align-items: baseline;
   gap: 0.5rem;
   font-variant-numeric: tabular-nums;
+}
+
+/* Clock reading and its connection state; both the home card and the realtime page share these classes. |
+   时钟读数与连接状态；首页卡片与实时推送页共用这两个类。 */
+.yd-clock__time {
+  font-family: var(--font-mono);
+  font-size: 1.125rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.yd-clock__state {
+  color: var(--color-content-muted);
+  font-size: 0.875rem;
+}
+
+/* 权限矩阵的「已授予」标记：勾选图标即状态，不再套一枚胶囊。 |
+   The permission matrix's granted mark: a check icon is the state, with no badge around it. */
+.yd-matrix__grant {
+  display: inline-flex;
+  align-items: center;
+  color: var(--color-success);
 }
 
 /* 可折叠表单分组。 | Collapsible form group. */
@@ -3056,8 +3295,9 @@
 /* 计数数值：等宽数字，并靠向列表右侧。 | Counter value: tabular digits pushed to the right of the row. */
 .yd-stat {
   margin-left: auto;
+  font-family: var(--font-mono);
   font-variant-numeric: tabular-nums;
-  font-weight: 700;
+  font-weight: 500;
 }
 
 /* WebSocket 日志：在通用消息流上再加一层等宽与换行约束。 | WebSocket log: the shared message stream with monospace and wrapping constraints. */
@@ -3105,6 +3345,86 @@
 
 }
 
+
+/* ============================================================================================
+   Wide screens (1600 CSS px and above): the extra width becomes denser content, not empty card space.
+   The functional area keeps its fluid gutters and fills the viewport; no side column is introduced. |
+   宽屏（1600 CSS px 及以上）：多出来的宽度用于更密的内容，而不是空白的卡片。
+   功能区继续保持流式留白并填满视口，不引入侧边空列。
+   ============================================================================================ */
+@media (min-width: 100rem) {
+  /* Identity pairs share one row: username/tenant on the first, roles on the second. |
+     身份键值两两成行：第一行登录名与租户，第二行角色。 */
+  .yd-home-identity .yd-meta {
+    grid-template-columns: max-content minmax(0, 1fr) max-content minmax(0, 1fr) max-content minmax(0, 1fr);
+    column-gap: 1rem;
+  }
+
+  /* Counters become three stat blocks instead of a narrow list. | 计数变成三个统计块，而不是一条窄列表。 */
+  .yd-home-counts .yd-list {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 1.25rem;
+    margin: 1rem 0 0;
+  }
+
+  .yd-home-counts .yd-list__item {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    grid-template-rows: auto auto;
+    align-items: center;
+    column-gap: 0.5rem;
+    padding-top: 0.75rem;
+    border-top: 1px solid var(--color-border-subtle);
+    border-bottom: 0;
+  }
+
+  .yd-home-counts .yd-list__item::before {
+    grid-row: 1;
+    grid-column: 1;
+  }
+
+  .yd-home-counts .yd-list__primary {
+    grid-row: 1;
+    grid-column: 2;
+  }
+
+  .yd-home-counts .yd-stat {
+    grid-row: 2;
+    grid-column: 1 / -1;
+    margin-left: 0;
+    font-size: 1.75rem;
+    line-height: 1.1;
+  }
+
+  /* Onboarding steps read across instead of leaving the right half of the card empty. |
+     上手步骤横向铺开，不再让卡片右半部空着。 */
+  .yd-home-next .yd-list {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 1.25rem;
+    align-items: start;
+  }
+
+  .yd-home-next .yd-list__item {
+    align-items: flex-start;
+  }
+
+  .yd-home-next .yd-list__item .yd-code {
+    white-space: normal;
+  }
+
+  /* Six broad instrument readings fill the panel. | 六个仪表读数铺满面板。 */
+  .yd-metrics-grid {
+    grid-template-columns: repeat(6, minmax(0, 1fr));
+    gap: 2rem;
+  }
+
+  .yd-gauge__svg {
+    max-width: 10rem;
+  }
+}
+
 /* ============================================================================================
    Responsive layout | 响应式布局
 
@@ -3131,7 +3451,7 @@
     width: min(18rem, 85vw);
     height: 100dvh;
     transform: translateX(-100%);
-    transition: transform 180ms ease;
+    transition: transform 180ms var(--ease-standard);
     box-shadow: var(--shadow-card);
   }
 
@@ -3157,22 +3477,42 @@
   .yd-topbar {
     padding-inline: 0.75rem;
   }
+
+  /* The tenant name is the one long string in the bar: truncate before it can wrap the row. |
+     租户名是顶栏里唯一的长字符串：先截断，别让它把整行挤到换行。 */
+  .yd-tenant__current {
+    max-width: 9rem;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
 }
 
 @media (max-width: 47.999rem) {
   /* Phones and narrow effective viewports (1366@150%, 1600@200%). | 手机与窄有效视口。 */
   .yd-topbar {
-    flex-wrap: wrap;
+    flex-wrap: nowrap;
     gap: 0.5rem;
     padding-block: 0.5rem;
   }
 
   .yd-topbar__actions,
   .yd-topbar__right {
-    width: 100%;
-    margin-left: 0;
+    width: auto;
+    margin-left: auto;
     justify-content: flex-end;
-    flex-wrap: wrap;
+    flex-wrap: nowrap;
+    min-width: 0;
+  }
+
+  .yd-tenant__current {
+    max-width: 6rem;
+  }
+
+  /* Icon-only sign-out on phones; the aria-label keeps the accessible name. | 手机上的退出按钮只留图标，
+     aria-label 保留无障碍名称。 */
+  .yd-topbar__signout-label {
+    display: none;
   }
 
   .yd-workspace {
@@ -3218,6 +3558,21 @@
     display: none;
   }
 
+  /* The tenant display name is the one long string in the bar; on a phone the slug keeps the trigger
+     compact and leaves the menu to carry the full bilingual name. | 租户展示名是顶栏里唯一的长字符串；
+     手机上用标识保持触发器紧凑，完整双语名称留给菜单。 */
+  .yd-tenant__current {
+    display: none;
+  }
+
+  .yd-tenant__slug {
+    display: inline;
+  }
+
+  .yd-user__trigger {
+    padding-inline: 0.375rem;
+  }
+
   .yd-drawer {
     width: 100vw;
     max-width: 100vw;
@@ -3252,9 +3607,14 @@
    ============================================================================================ */
 @layer components {
   /* Danger badge alias: message views use the semantic "danger" tone name. | 危险徽标别名：消息视图使用语义化的 danger 名称。 */
+  /* Danger alias: the same dot-and-word language as every other status, not a filled pill. |
+     危险别名：与其它状态一样是「圆点 + 文字」，不是实心胶囊。 */
   .yd-badge--danger {
-    background: color-mix(in srgb, var(--color-danger) 14%, var(--color-surface));
-    color: var(--color-danger);
+    color: var(--color-content);
+  }
+
+  .yd-badge--danger::before {
+    background-color: var(--color-danger);
   }
 
   /* Filter bar: search grows, selects keep their intrinsic width. | 过滤栏：搜索框伸展，选择框保持固有宽度。 */
@@ -3363,8 +3723,8 @@
   }
 
   .yd-msg-conv--active {
-    background: color-mix(in srgb, var(--color-accent) 10%, var(--color-surface));
-    box-shadow: inset 3px 0 0 var(--color-accent);
+    background: var(--color-surface-muted);
+    box-shadow: inset 2px 0 0 var(--color-accent);
   }
 
   .yd-msg-conv__main {
@@ -3959,7 +4319,7 @@
 
   .yd-message-notice {
     padding: 0.625rem 0.875rem;
-    transition: opacity 180ms ease, transform 180ms ease;
+    transition: opacity 180ms var(--ease-standard), transform 180ms var(--ease-standard);
     border: 1px solid color-mix(in srgb, var(--color-info) 35%, var(--color-border-subtle));
     border-radius: 0.75rem;
     background: color-mix(in srgb, var(--color-info) 12%, var(--color-surface));
@@ -4122,8 +4482,8 @@
 
   .yd-msg-sidebar__title {
     margin: 0;
-    font-size: 1rem;
-    font-weight: 700;
+    font-size: 0.9375rem;
+    font-weight: 500;
   }
 
   /* Two tabs share the rail without overlaying the thread: switching only swaps the rail's own panel. |
@@ -4158,7 +4518,7 @@
   }
 
   .yd-msg-tab:focus-visible {
-    outline: 2px solid var(--color-accent);
+    outline: 2px solid var(--color-focus-ring);
     outline-offset: -2px;
   }
 
@@ -4260,7 +4620,7 @@
   }
 
   .yd-msg-contact__link:focus-visible {
-    outline: 2px solid var(--color-accent);
+    outline: 2px solid var(--color-focus-ring);
     outline-offset: -2px;
   }
 
@@ -4403,12 +4763,11 @@
 
   .yd-msg-sidebar__section {
     flex: 0 0 auto;
-    padding: 0.5rem 1rem 0.25rem;
-    color: var(--color-content-muted);
-    font-size: 0.6875rem;
-    font-weight: 600;
-    letter-spacing: 0.06em;
-    text-transform: uppercase;
+    padding: 0.75rem 1rem 0.25rem;
+    color: var(--color-content-subtle);
+    font-size: 0.75rem;
+    font-weight: 500;
+    letter-spacing: 0;
   }
 
   .yd-msg-sidebar .yd-msg-conversations {
@@ -4595,30 +4954,60 @@
   }
 
   /* ---------------------------------------------------------------- welcome | 空状态 */
+  /* Empty state as a docket: one quiet sheet, a small mark, and three numbered hints. |
+     空状态是一张安静的卡片：一个小编记、三行编号提示。 */
   .yd-msg-welcome {
-    max-width: 34rem;
+    max-width: 30rem;
     margin: auto;
     padding: 2rem;
-    align-items: center;
-    text-align: center;
+    align-items: flex-start;
+    gap: 0.75rem;
+    text-align: left;
+    background: var(--color-surface);
+    border: 1px solid var(--color-border-subtle);
+    border-radius: var(--radius-card);
   }
 
-  /* 只放大空状态顶部的装饰图标；写成后代选择器会连按钮里的 pen-line 图标一起放大，把按钮撑成一块巨大的色块。
-     Only the decorative icon at the top of the empty state is enlarged; a descendant selector would also inflate the
-     pen icon inside the button below, blowing the button up into an oversized block. */
   .yd-msg-welcome > svg {
-    width: 3rem;
-    height: 3rem;
-    color: var(--color-accent);
+    width: 1.25rem;
+    height: 1.25rem;
+    color: var(--color-content-subtle);
   }
 
   .yd-msg-welcome__title {
     margin: 0;
-    font-size: 1.25rem;
+    font-family: var(--font-display);
+    font-size: 1.375rem;
+    font-weight: 500;
+    letter-spacing: 0.01em;
   }
 
+  /* Numbered hints: the mono index is the only decoration. | 编号提示：等宽序号是唯一的装饰。 */
   .yd-msg-welcome__list {
-    text-align: left;
+    width: 100%;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+    counter-reset: yd-hint;
+  }
+
+  .yd-msg-welcome__list li {
+    display: flex;
+    gap: 0.75rem;
+    padding: 0.5rem 0;
+    border-top: 1px solid var(--color-border-subtle);
+    color: var(--color-content-muted);
+    font-size: 0.8125rem;
+    line-height: 1.45;
+    counter-increment: yd-hint;
+  }
+
+  .yd-msg-welcome__list li::before {
+    content: counter(yd-hint, decimal-leading-zero);
+    flex: 0 0 auto;
+    font-family: var(--font-mono);
+    font-variant-numeric: tabular-nums;
+    color: var(--color-content-subtle);
   }
 
   /* ---------------------------------------------------------------- composer | 撰写区 */

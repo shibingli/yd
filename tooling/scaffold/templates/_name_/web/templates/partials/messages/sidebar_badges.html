@@ -8,9 +8,9 @@
   rendering a node only when unread would leave the push without a target.
 */}}
 {{- define "partials/messages/sidebar_unread" -}}
-<span id="yd-sidebar-unread" class="yd-badge yd-badge--warn"{{ if eq .Unread.Total 0 }} hidden{{ end }}>{{ .Unread.Total }}</span>
+<span id="yd-sidebar-unread" class="yd-badge yd-badge--warn" aria-label="{{ tr "message.unread_count" .Unread.Total }}"{{ if eq .Unread.Total 0 }} hidden{{ end }}>{{ .Unread.Total }}</span>
 {{- end -}}
 {{- define "partials/messages/sidebar_friend_requests" -}}
-<span id="yd-sidebar-friend-requests" class="yd-badge yd-badge--warn"{{ if eq .Unread.FriendRequests 0 }} hidden{{ end }}>{{ .Unread.FriendRequests }}</span>
+<span id="yd-sidebar-friend-requests" class="yd-badge yd-badge--warn" aria-label="{{ tr "friend.request_count" .Unread.FriendRequests }}"{{ if eq .Unread.FriendRequests 0 }} hidden{{ end }}>{{ .Unread.FriendRequests }}</span>
 {{- end -}}
 {{ template "partials/messages/sidebar_unread" . }}{{ template "partials/messages/sidebar_friend_requests" . }}

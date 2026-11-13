@@ -120,13 +120,13 @@
         <details class="yd-msg-pins" id="yd-pinned-announcements">
           <summary class="yd-msg-pins__summary">
             {{ template "partials/icon" "lucide-pin" }}<span>{{ tr "message.pinned_title" }}</span>
-            <span class="yd-badge yd-badge--info">{{ len .Pinned }}</span>
+            <span class="yd-badge yd-badge--muted">{{ len .Pinned }}</span>
           </summary>
           <div class="yd-msg-pins__list">
             {{- range .Pinned }}
             <a class="yd-msg-pin" href="/messages/{{ .ConversationID }}"
                hx-get="/messages/{{ .ConversationID }}" hx-target="#yd-workspace" hx-swap="innerMorph" hx-push-url="true">
-              <span class="yd-badge yd-badge--info">{{ .TypeLabel }}</span>
+              <span class="yd-badge yd-badge--tag">{{ .TypeLabel }}</span>
               <span class="yd-msg-pin__title">{{ if .Title }}{{ .Title }}{{ else }}{{ tr "message.untitled" }}{{ end }}</span>
               <span class="yd-msg-pin__meta">{{ .SenderName }} · {{ .When }}</span>
             </a>

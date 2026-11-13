@@ -1,10 +1,17 @@
 {{/*
-  mgr/partials/sidebar.html —— 管理后台侧栏：概览、访问控制、消息治理与接口文档。
-  mgr/partials/sidebar.html — the back-office rail: overview, access control, message moderation and API documentation.
+  mgr/partials/sidebar.html —— 管理后台侧栏：概览、访问控制、消息治理、流程、数据与文件、接口文档。
+  mgr/partials/sidebar.html — the back-office rail: overview, access control, message moderation, workflow,
+  data and files, API documentation.
 
   管理后台与门户完全隔离：这里的入口只出现在 /mgr/**，门户侧栏不引用本文件，本文件也不引用门户侧栏。
   The back office is isolated from the portal: these entries exist only under /mgr/**, the portal rail never includes
   this file, and this file never includes the portal rail.
+
+  菜单组织原则：概览是入口；访问控制按「用户 → 角色 → 权限 → 租户」的日常使用频率排列；消息与流程是日常操作；
+  数据与文件合为一个维护分组；接口文档是参考出口。返回门户只留在顶栏用户菜单，不在侧栏重复。
+  Menu organising principle: overview is the entry point; access control runs from daily work (users → roles →
+  permissions) to the rarely changed tenant boundary; messages and workflow are daily operations; data and files form
+  one maintenance group; API documentation is a reference exit. Back to portal stays in the topbar user menu only.
 
   数据契约 | Data contract: .Path、.Name、.Version，以及 authz.Data 注入的 .Perm。
 */}}
@@ -13,19 +20,18 @@
   {{ template "partials/sidebar_brand" . }}
 
   <nav class="yd-nav" aria-label="{{ tr "nav.site" }}">
-    <p class="yd-nav__section">{{ tr "nav.group.overview" }}</p>
+    {{/* 概览是入口而非一个分组，直接放在最上方；它要求 user:read，没有该能力时不渲染，避免把一个
+         必然 403 的入口放在第一位。 | Overview is the entry point rather than a group of its own and requires
+         user:read; without it the row is not rendered, so a guaranteed 403 never sits first. */}}
+    {{- if can "PermUserRead" }}
     <a class="yd-nav__link" href="/mgr" hx-get="/mgr" hx-target="#yd-shell" hx-swap="innerMorph" hx-push-url="true"
        data-yd-nav="mgr-home"{{ if eq .Path "/mgr" }} aria-current="page"{{ end }}>
       <span class="yd-nav__label">{{ tr "nav.mgr_home" }}</span>
     </a>
-    {{- if or (can "PermUserRead") (can .Perm.TenantRead) (can .Perm.RoleRead) (can .Perm.PermissionRead) }}
-    <p class="yd-nav__section">{{ tr "nav.group.access" }}</p>
     {{- end }}
-    {{- if can .Perm.TenantRead }}
-    <a class="yd-nav__link" href="/mgr/tenants" hx-get="/mgr/tenants" hx-target="#yd-shell" hx-swap="innerMorph" hx-push-url="true"
-       data-yd-nav="mgr-tenants"{{ if hasPrefix .Path "/mgr/tenants" }} aria-current="page"{{ end }}>
-      <span class="yd-nav__label">{{ tr "nav.tenants" }}</span>
-    </a>
+
+    {{- if or (can .Perm.UserRead) (can .Perm.RoleRead) (can .Perm.PermissionRead) (can .Perm.TenantRead) }}
+    <p class="yd-nav__section">{{ tr "nav.group.access" }}</p>
     {{- end }}
     {{- if can .Perm.UserRead }}
     <a class="yd-nav__link" href="/mgr/users" hx-get="/mgr/users" hx-target="#yd-shell" hx-swap="innerMorph" hx-push-url="true"
@@ -45,12 +51,10 @@
       <span class="yd-nav__label">{{ tr "nav.permissions" }}</span>
     </a>
     {{- end }}
-
-    {{- if and .DictionaryAvailable (can .Perm.DictionaryRead) }}
-    <p class="yd-nav__section">{{ tr "nav.group.data" }}</p>
-    <a class="yd-nav__link" href="/mgr/dictionaries" hx-get="/mgr/dictionaries" hx-target="#yd-shell" hx-swap="innerMorph" hx-push-url="true"
-       data-yd-nav="mgr-dictionaries"{{ if or (hasPrefix .Path "/mgr/dictionaries") (hasPrefix .Path "/mgr/system-dictionaries") }} aria-current="page"{{ end }}>
-      <span class="yd-nav__label">{{ tr "nav.dictionaries" }}</span>
+    {{- if can .Perm.TenantRead }}
+    <a class="yd-nav__link" href="/mgr/tenants" hx-get="/mgr/tenants" hx-target="#yd-shell" hx-swap="innerMorph" hx-push-url="true"
+       data-yd-nav="mgr-tenants"{{ if hasPrefix .Path "/mgr/tenants" }} aria-current="page"{{ end }}>
+      <span class="yd-nav__label">{{ tr "nav.tenants" }}</span>
     </a>
     {{- end }}
 
@@ -72,7 +76,12 @@
 
     {{- if and .WorkflowAvailable (can .Perm.WorkflowRead) }}
     <p class="yd-nav__section">{{ tr "nav.group.workflow" }}</p>
-    {{- if can .Perm.WorkflowRead }}
+    {{/* 顺序按依赖方向：定义引用审批组，实例由定义产生。 |
+         Ordered by dependency: definitions reference approval groups, and instances are produced by definitions. */}}
+    <a class="yd-nav__link" href="/mgr/workflow-groups" hx-get="/mgr/workflow-groups" hx-target="#yd-shell" hx-swap="innerMorph" hx-push-url="true"
+       data-yd-nav="mgr-workflow-groups"{{ if hasPrefix .Path "/mgr/workflow-groups" }} aria-current="page"{{ end }}>
+      <span class="yd-nav__label">{{ tr "nav.workflow_groups" }}</span>
+    </a>
     <a class="yd-nav__link" href="/mgr/workflows" hx-get="/mgr/workflows" hx-target="#yd-shell" hx-swap="innerMorph" hx-push-url="true"
        data-yd-nav="mgr-workflows"{{ if hasPrefix .Path "/mgr/workflows" }} aria-current="page"{{ end }}>
       <span class="yd-nav__label">{{ tr "nav.workflows" }}</span>
@@ -82,19 +91,21 @@
       <span class="yd-nav__label">{{ tr "nav.workflow_instances" }}</span>
     </a>
     {{- end }}
-    {{- if can .Perm.WorkflowRead }}
-    <a class="yd-nav__link" href="/mgr/workflow-groups" hx-get="/mgr/workflow-groups" hx-target="#yd-shell" hx-swap="innerMorph" hx-push-url="true"
-       data-yd-nav="mgr-workflow-groups"{{ if hasPrefix .Path "/mgr/workflow-groups" }} aria-current="page"{{ end }}>
-      <span class="yd-nav__label">{{ tr "nav.workflow_groups" }}</span>
-    </a>
-    {{- end }}
-    {{- end }}
 
+    {{- $hasDataFiles := or (and .AttachmentAvailable (can .Perm.AttachmentRead)) (and .DictionaryAvailable (can .Perm.DictionaryRead)) }}
+    {{- if $hasDataFiles }}
+    <p class="yd-nav__section">{{ tr "nav.group.data_files" }}</p>
+    {{- end }}
     {{- if and .AttachmentAvailable (can .Perm.AttachmentRead) }}
-    <p class="yd-nav__section">{{ tr "nav.group.files" }}</p>
     <a class="yd-nav__link" href="/mgr/attachments" hx-get="/mgr/attachments" hx-target="#yd-shell" hx-swap="innerMorph" hx-push-url="true"
        data-yd-nav="mgr-attachments"{{ if hasPrefix .Path "/mgr/attachments" }} aria-current="page"{{ end }}>
       <span class="yd-nav__label">{{ tr "nav.attachments" }}</span>
+    </a>
+    {{- end }}
+    {{- if and .DictionaryAvailable (can .Perm.DictionaryRead) }}
+    <a class="yd-nav__link" href="/mgr/dictionaries" hx-get="/mgr/dictionaries" hx-target="#yd-shell" hx-swap="innerMorph" hx-push-url="true"
+       data-yd-nav="mgr-dictionaries"{{ if or (hasPrefix .Path "/mgr/dictionaries") (hasPrefix .Path "/mgr/system-dictionaries") }} aria-current="page"{{ end }}>
+      <span class="yd-nav__label">{{ tr "nav.dictionaries" }}</span>
     </a>
     {{- end }}
 
@@ -103,10 +114,7 @@
       <span class="yd-nav__label">{{ tr "nav.docs" }}</span>
     </a>
     <a class="yd-nav__link" href="/api/v1/openapi.json" target="_blank" rel="noopener noreferrer" data-yd-nav="mgr-openapi">
-      <span class="yd-nav__label">OpenAPI 3.0 JSON</span>
-    </a>
-    <a class="yd-nav__link" href="/" data-yd-nav="portal">
-      <span class="yd-nav__label">{{ tr "nav.back_to_portal" }}</span>
+      <span class="yd-nav__label">{{ tr "nav.openapi" }}</span>
     </a>
   </nav>
 
