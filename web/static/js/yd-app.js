@@ -200,6 +200,31 @@
 
   function storedTheme() {
     var theme = read(THEME_KEY) || readCookie(THEME_KEY);
+    // Generated projects spell the follow-system choice "auto"; this UI uses "system". Normalise it
+    // so a cookie written by either surface keeps the same three-state meaning. |
+    // 生成项目把跟随系统写作 "auto"，本 UI 写作 "system"。归一化后，任一侧写入的 cookie 都保持同一
+    // 三态语义。
+    if (theme === 'auto') {
+      theme = 'system';
+    }
+    return VALID_THEMES[theme] ? theme : '';
+  }
+
+  // documentTheme reads the choice pre-rendered by the server or by yd-theme-boot.js. Without it a
+  // returning visitor whose localStorage was cleared but whose cookie survived would be flipped back
+  // to "system" on every boot, overriding the server's first byte. |
+  // documentTheme 读取服务端或 yd-theme-boot.js 预渲染的选择。缺少它时，本地存储已清空但 cookie 仍在
+  // 的访客会在每次启动被翻回 "system"，覆盖服务端的首字节取值。
+  function documentTheme() {
+    var d = win().document;
+    if (!d || !d.documentElement || typeof d.documentElement.getAttribute !== 'function') {
+      return '';
+    }
+    var theme = d.documentElement.getAttribute('data-yd-theme-choice') ||
+      d.documentElement.getAttribute('data-theme');
+    if (theme === 'auto') {
+      theme = 'system';
+    }
     return VALID_THEMES[theme] ? theme : '';
   }
 
@@ -216,6 +241,12 @@
     // the glyph; the stored preference keeps the three-state names. | 切换控件用 "auto" 表示跟随系统，
     // 使一条 CSS 规则同时驱动标签与图标；存储偏好仍使用三态名称。
     var uiChoice = choice === 'system' ? 'auto' : choice;
+    if (d && d.documentElement) {
+      // CSS also keys the first-paint label/glyph off this attribute; keeping it in step is what lets
+      // the interactive switch win over the boot-time value without showing two labels. |
+      // CSS 的首帧标签/图标同样依据该属性；同步它是交互切换覆盖引导期取值、且不会同时显示两个标签的前提。
+      d.documentElement.setAttribute('data-yd-theme-choice', uiChoice);
+    }
     all('[data-yd-theme-toggle]').forEach(function (button) {
       button.setAttribute('aria-pressed', resolved === 'dark' ? 'true' : 'false');
       button.setAttribute('data-yd-theme-state', uiChoice);
@@ -265,6 +296,14 @@
       return;
     }
     aside.setAttribute('data-collapsed', collapsed ? 'true' : 'false');
+    // Mirror the state onto <html> as well: the boot script keys the first-paint rail off this
+    // attribute, and leaving it stale would make the CSS rule outrank a later expansion. |
+    // 同时把状态镜像到 <html>：引导脚本依据该属性决定首帧侧栏形态，若一直保留旧值，CSS 规则会压过
+    // 之后的展开操作。
+    var d = win().document;
+    if (d && d.documentElement) {
+      d.documentElement.setAttribute('data-yd-sidebar', collapsed ? 'collapsed' : 'expanded');
+    }
     all('[data-yd-sidebar-toggle]', aside).forEach(function (button) {
       button.setAttribute('aria-expanded', collapsed ? 'false' : 'true');
     });
@@ -989,12 +1028,17 @@
           options.currency = currency || CURRENCY;
         }
         try {
-          cell.textContent = api.t.n(
+          var formatted = api.t.n(
             kind === 'date' || kind === 'datetime' ? raw : Number(raw),
             options
           );
+          if (cell.textContent !== formatted) {
+            cell.textContent = formatted;
+          }
         } catch (err) {
-          cell.textContent = raw; // never lose the value on a formatting failure | 格式化失败时绝不丢值
+          if (cell.textContent !== raw) {
+            cell.textContent = raw; // never lose the value on a formatting failure | 格式化失败时绝不丢值
+          }
         }
       });
     }
@@ -1425,7 +1469,7 @@
       }
     }
 
-    applyTheme(storedTheme() || 'system', false);
+    applyTheme(storedTheme() || documentTheme() || 'system', false);
     applySidebar(read(SIDEBAR_KEY) === 'true');
     applyMobileSidebar(false);
     syncActiveNav();

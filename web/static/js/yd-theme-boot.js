@@ -32,6 +32,13 @@
 
   // THEME_KEY is the localStorage key, mirrored into a cookie of the same name. | THEME_KEY 是 localStorage 键名，同时镜像为同名 cookie。
   var THEME_KEY = 'yd_theme';
+  // SIDEBAR_KEY is the localStorage key of the rail's collapsed state. The layout cannot render it
+  // (localStorage is invisible to the server), so this head script publishes it on <html> before the
+  // stylesheet paints; otherwise a collapsed rail would paint expanded for one frame and then jump. |
+  // SIDEBAR_KEY 是侧栏折叠状态的 localStorage 键名。布局无法在服务端渲染它（服务端看不到
+  // localStorage），因此由这段 <head> 脚本在样式表绘制前写到 <html> 上；否则折叠的侧栏会先以展开
+  // 状态画出一帧再跳动。
+  var SIDEBAR_KEY = 'yd_sidebar';
   // DARK_QUERY is the media query that answers "does the system ask for dark?" | DARK_QUERY 回答「系统是否偏好深色」的媒体查询。
   var DARK_QUERY = '(prefers-color-scheme: dark)';
   // CHOICES is the three-state whitelist; "auto" is the generated projects' spelling of "system"
@@ -140,10 +147,33 @@
   function boot() {
     var remembered = storedChoice();
     if (remembered) {
-      return apply(remembered);
+      apply(remembered);
+    } else {
+      var rendered = serverChoice();
+      apply(rendered || 'system');
     }
-    var rendered = serverChoice();
-    return apply(rendered || 'system');
+    applySidebar();
+  }
+
+  // applySidebar publishes the remembered rail state on <html>; CSS keys the collapsed width and the
+  // clipped labels off this attribute, so the first painted frame already has the right rail. |
+  // applySidebar 把记住的侧栏状态写到 <html> 上；CSS 依据该属性决定折叠宽度与裁剪后的标签，
+  // 因此首帧的侧栏就是正确形态。
+  function applySidebar() {
+    var collapsed = false;
+    try {
+      var store = env().localStorage;
+      if (store && typeof store.getItem === 'function') {
+        collapsed = store.getItem(SIDEBAR_KEY) === 'true';
+      }
+    } catch (err) {
+      collapsed = false; // private mode may throw on read | 隐私模式下读取可能抛错
+    }
+    var d = doc();
+    if (d && d.documentElement && typeof d.documentElement.setAttribute === 'function') {
+      d.documentElement.setAttribute('data-yd-sidebar', collapsed ? 'collapsed' : 'expanded');
+    }
+    return collapsed;
   }
 
   var resolved = boot();
@@ -154,6 +184,7 @@
     apply: apply,
     resolve: resolve,
     stored: storedChoice,
+    sidebar: applySidebar,
     current: function () {
       return doc() && doc().documentElement
         ? doc().documentElement.getAttribute('data-theme')

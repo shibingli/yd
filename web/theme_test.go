@@ -373,6 +373,48 @@ func TestThemeStateSelectorDoesNotMatchToggle(t *testing.T) {
 	}
 }
 
+// TestThemeLabelFollowsDocumentChoice pins the first-paint contract: the visible theme label and
+// glyph are selected by <html data-yd-theme-choice>, which yd-theme-boot.js writes before the
+// stylesheet paints. Keying them off the button attribute alone made the label appear only after
+// yd-app.js ran and disappear again after every htmx shell swap, shifting the top bar. |
+// TestThemeLabelFollowsDocumentChoice 固定首帧契约：主题标签与图标由 <html data-yd-theme-choice>
+// 选择，该属性由 yd-theme-boot.js 在样式表绘制前写入。只依据按钮属性会让标签等到 yd-app.js 运行
+// 才出现，并在每次 htmx 外壳交换后消失，顶栏因此反复跳动。
+func TestThemeLabelFollowsDocumentChoice(t *testing.T) {
+	css := appSource(t)
+	for _, want := range []string{
+		`:root[data-yd-theme-choice="light"] .yd-theme-toggle .yd-theme__state[data-yd-theme-state="light"]`,
+		`:root[data-yd-theme-choice="dark"] .yd-theme-toggle .yd-theme__state[data-yd-theme-state="dark"]`,
+		`:root[data-yd-theme-choice="auto"] .yd-theme-toggle .yd-theme__state[data-yd-theme-state="auto"]`,
+		`:root[data-yd-theme-choice="system"] .yd-theme-toggle .yd-theme__state[data-yd-theme-state="auto"]`,
+		`:root[data-yd-theme-choice="light"] .yd-theme-toggle [data-yd-theme-glyph="light"]`,
+	} {
+		if !strings.Contains(css, want) {
+			t.Errorf("theme label/glyph visibility is missing %q | 主题标签/图标可见性缺少 %q", want, want)
+		}
+	}
+
+	boot := string(readEmbedded(t, web.FS(), "static/js/yd-theme-boot.js"))
+	for _, want := range []string{"data-yd-theme-choice", "data-yd-sidebar", "yd_sidebar"} {
+		if !strings.Contains(boot, want) {
+			t.Errorf("yd-theme-boot.js is missing %q | yd-theme-boot.js 缺少 %q", want, want)
+		}
+	}
+}
+
+// TestShellReservesScrollbarGutter keeps every page at the same content width. The main column owns
+// the vertical scrollbar; without a stable gutter a short page is 15px wider than a long one, so
+// navigating between them shifted the whole workspace sideways. |
+// TestShellReservesScrollbarGutter 让所有页面保持同一内容宽度。主列持有纵向滚动条；没有稳定
+// gutter 时短页面比长页面宽 15px，二者之间导航会让整个工作区横向跳动。
+func TestShellReservesScrollbarGutter(t *testing.T) {
+	css := appSource(t)
+	main := cssBlock(t, css, ".yd-shell--app .yd-main")
+	if gutter, ok := cssValue(main, "scrollbar-gutter"); !ok || gutter != "stable" {
+		t.Errorf(".yd-shell--app .yd-main must reserve the scrollbar with scrollbar-gutter: stable, got %q | .yd-shell--app .yd-main 必须以 scrollbar-gutter: stable 预留滚动条位置，实际为 %q", gutter, gutter)
+	}
+}
+
 // TestWideViewportsStayFluid pins the wide-screen contract: the workspace and page must not cap
 // their width, the heading keeps scaling with the viewport, and the gutter is fluid but capped at
 // 1.5rem so a 4K screen shows the functional area edge-to-edge instead of a widening blank band.

@@ -406,9 +406,17 @@
       if (!force && getAttr(el, 'data-yd-attr-signature-' + name) === signature) {
         continue;
       }
-      el.setAttribute(name, translate(key, parseArgs(el)));
+      var translatedAttr = translate(key, parseArgs(el));
+      // Writing an identical value still invalidates the text node/attribute and forces a style and
+      // layout pass. The server already renders the active language, so on first paint (and after a
+      // shell swap) almost every attribute is already correct; skip those writes. |
+      // 写入相同的值也会让文本节点/属性失效并触发样式与布局计算。服务端已经按当前语言渲染，
+      // 首帧（以及外壳交换后）几乎所有属性本就正确，因此跳过这些写入。
+      if (getAttr(el, name) !== translatedAttr) {
+        el.setAttribute(name, translatedAttr);
+        touched = true;
+      }
       el.setAttribute('data-yd-attr-signature-' + name, signature);
-      touched = true;
     }
     return touched;
   }
@@ -433,24 +441,42 @@
       return false;
     }
 
+    var touchedText = false;
     if (key) {
       var translated = translate(key, parseArgs(el));
-      el.textContent = translated;
+      // Skip the write when the server already rendered the same text: replacing a text node with an
+      // identical string throws away the browser's text layout for the whole element and shows up as
+      // a full-page reflow on first paint. |
+      // 服务端已渲染出相同文案时跳过写入：把文本节点替换成完全相同的字符串会让浏览器丢弃该元素的
+      // 文本布局，在首帧表现为整页重新排版。
+      if (el.textContent !== translated) {
+        el.textContent = translated;
+        touchedText = true;
+      }
     }
-    applyAttrSpec(el, attrSpec, force);
+    var touchedAttr = applyAttrSpec(el, attrSpec, force);
 
+    var touchedLang = false;
     if (langSwitch !== null && typeof el.setAttribute === 'function') {
       var active = lower(langSwitch) === lower(state.lang);
-      el.setAttribute('aria-pressed', active ? 'true' : 'false');
+      var pressed = active ? 'true' : 'false';
+      if (getAttr(el, 'aria-pressed') !== pressed) {
+        el.setAttribute('aria-pressed', pressed);
+        touchedLang = true;
+      }
       if (active) {
-        el.setAttribute('data-yd-lang-active', 'true');
-      } else if (typeof el.removeAttribute === 'function') {
+        if (getAttr(el, 'data-yd-lang-active') !== 'true') {
+          el.setAttribute('data-yd-lang-active', 'true');
+          touchedLang = true;
+        }
+      } else if (typeof el.removeAttribute === 'function' && getAttr(el, 'data-yd-lang-active') !== null) {
         el.removeAttribute('data-yd-lang-active');
+        touchedLang = true;
       }
     }
 
     el.__ydI18nSignature = signature;
-    return true;
+    return touchedText || touchedAttr || touchedLang;
   }
 
   // collect gathers root itself plus every bound descendant.

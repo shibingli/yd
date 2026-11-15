@@ -954,6 +954,7 @@ func (c *Controller) pageView(ctx *router.Ctx, title string, extra map[string]an
 // seeded administrator the SeedPassword check adds a password-hash verification on top.
 func (c *Controller) renderData(ctx *router.Ctx, title string, extra map[string]any, full bool) map[string]any {
 	lang := c.lang(ctx)
+	themeChoice, themeResolved := themePreference(ctx)
 	data := map[string]any{
 		"Title":               localTitle(lang, title),
 		"Name":                meta.Name,
@@ -971,6 +972,8 @@ func (c *Controller) renderData(ctx *router.Ctx, title string, extra map[string]
 		"PublicKey":           c.PublicKey(),
 		"KeyEndpoint":         PubkeyPath,
 		"Lang":                lang,
+		"ThemeChoice":         themeChoice,
+		"ThemeResolved":       themeResolved,
 		"TenantHeader":        meta.TenantHeader,
 		"SeedNotice":          meta.SeedPasswordNotice,
 		"User":                nil,
@@ -1368,6 +1371,32 @@ func (c *Controller) layoutForPath(path string) (layout, shell string, portal bo
 		return LayoutMgr, ShellMgr, false
 	}
 	return LayoutPortal, ShellPortal, true
+}
+
+// themePreference 读取三态主题 cookie，返回按钮态与首字节 data-theme 取值。
+// themePreference reads the three-state theme cookie and returns the button state and the
+// data-theme value rendered into the first byte.
+//
+// "system" 与前端的 "auto" 都渲染为 auto，让 CSS 的 prefers-color-scheme 分支决定明暗；只有显式
+// light/dark 才直接写进 data-theme。yd-theme-boot.js 会在样式表之前用 localStorage 再覆盖一次，
+// 因此这里的取值只是首字节与无脚本场景的正确答案。 |
+// Both "system" and the front end's "auto" render as auto so the prefers-color-scheme branch
+// decides the concrete theme; only an explicit light/dark goes straight into data-theme.
+// yd-theme-boot.js overrides it from localStorage before the stylesheet, so this value is the
+// correct answer for the first byte and for the no-script case.
+func themePreference(ctx *router.Ctx) (choice, resolved string) {
+	choice = "auto"
+	if ctx != nil && ctx.Request != nil {
+		if cookie, err := ctx.Request.Cookie(meta.ThemeCookie); err == nil && cookie != nil {
+			switch strings.ToLower(strings.TrimSpace(cookie.Value)) {
+			case "light":
+				choice = "light"
+			case "dark":
+				choice = "dark"
+			}
+		}
+	}
+	return choice, choice
 }
 
 // render 渲染片段或整页：app.Render 依据 HX-Request 与 HX-Request-Type 自动选择「只片段」还是「布局包裹片段」。

@@ -1278,9 +1278,14 @@
     }
   }
 
-  /* applyTheme 只改 <html> 上的一个属性：三个标签谁可见由 app.css 决定，脚本里没有一句文案。 | applyTheme writes one attribute on <html> and nothing else: app.css decides which of the three labels shows, so the script holds no copy. */
+  /* applyTheme 只改 <html> 上的属性：三个标签谁可见由样式表决定，脚本里没有一句文案。
+     data-yd-theme-choice 同时记录三态选择，首帧标签与 htmx 交换后的标签都依据它，不再依赖按钮属性。
+     applyTheme writes attributes on <html> only: the stylesheet decides which of the three labels shows, so the
+     script holds no copy. data-yd-theme-choice also records the three-state choice; the first paint and every
+     post-swap shell read the label from it instead of relying on the button attribute. */
   function applyTheme(theme) {
     document.documentElement.setAttribute("data-theme", theme);
+    document.documentElement.setAttribute("data-yd-theme-choice", theme);
     /* 主题按钮同时携带三个图标，data-yd-theme-state 决定显示哪一个。 | The theme button carries all three
        glyphs; data-yd-theme-state decides which one is visible. */
     var toggles = document.querySelectorAll("[data-yd-theme-toggle]");
@@ -1289,9 +1294,16 @@
     }
   }
 
-  /* cycleTheme 按固定顺序循环并记住结果，返回新状态供调用方使用。 | cycleTheme cycles in a fixed order and remembers the result, returning the new state to its caller. */
+  /* cycleTheme 按固定顺序循环并记住结果，返回新状态供调用方使用。 |
+     cycleTheme cycles in a fixed order and remembers the result, returning the new state to its caller.
+
+     三态选择以 data-yd-theme-choice 为准：data-theme 在跟随系统时可能已被引导脚本解析为具体的
+     light/dark，直接读它会让「跟随系统」在第一次点击时被跳过。 |
+     The three-state choice is read from data-yd-theme-choice: when following the system, the boot script may
+     already have resolved data-theme to light or dark, and reading that would skip "follow system" on the
+     first click. */
   function cycleTheme() {
-    var current = document.documentElement.getAttribute("data-theme") || THEMES[0];
+    var current = document.documentElement.getAttribute("data-yd-theme-choice") || readTheme() || THEMES[0];
     var index = THEMES.indexOf(current);
     var next = THEMES[(index + 1) % THEMES.length];
     applyTheme(next);
@@ -1313,10 +1325,22 @@
     document.cookie = LANG_COOKIE + "=" + encodeURIComponent(lang) + ";path=/;max-age=" + LANG_MAX_AGE + ";samesite=lax";
   }
 
-  /* 首屏就应用已存的主题：defer 脚本在解析结束后、首次绘制之前运行，因此不会有可见的闪烁。 */
-  /* The stored theme is applied at first paint: a deferred script runs after parsing and before the first paint, so no
-     flash is visible. */
-  applyTheme(readTheme() || "auto");
+  /* 首屏就应用已存的主题：引导脚本已在 <head> 中把解析结果写到 <html>，这里补上按钮属性与选择状态；
+     样式表依据 data-yd-theme-choice 渲染首帧标签，因此脚本晚到也不会改变布局。 */
+  /* The stored theme is applied at first paint: the boot script already wrote the resolved value on <html> in
+     <head>, and this only fills in the button attributes and the choice state; the stylesheet keys the first-frame
+     label off data-yd-theme-choice, so a late script cannot shift the layout. */
+  applyTheme(readTheme() || document.documentElement.getAttribute("data-yd-theme-choice") || "auto");
+
+  /* htmx 交换会用服务端片段替换主题按钮：片段本身不带按钮属性，交换后按 <html> 上的选择重新补齐，
+     aria-pressed 与 data-yd-theme-state 因此不会停留在缺失状态。 |
+     An htmx swap replaces the theme button with a server fragment that carries no button attribute; refill it
+     from the choice on <html> so aria-pressed and data-yd-theme-state never stay missing. */
+  ["htmx:after:swap", "htmx:afterSwap"].forEach(function (name) {
+    document.addEventListener(name, function () {
+      applyTheme(document.documentElement.getAttribute("data-yd-theme-choice") || readTheme() || "auto");
+    });
+  });
 
   /* 国密装配：加密由 yd-guomi-htmx 以声明式属性接管，这里只负责安装一次。 | Guomi assembly: encryption is taken over by yd-guomi-htmx through declarative attributes, so this only installs it once. */
   if (window.ydGuomiHtmx && typeof window.ydGuomiHtmx.install === "function") {
@@ -1402,6 +1426,68 @@
       if (!quietSwapTarget(event)) {
         loadPageAssets(document);
       }
+    });
+  });
+
+  /* 页面资产在交换前就开始下载：响应正文里已经带有 #yd-page-assets，等到 after:swap 再插入会让
+     消息页的编辑器样式与脚本晚一拍到达，正文先以未升级的 textarea 绘制、随后再换一遍样式。
+     before:swap 仍在交换之前、且 ctx.text 已完整可用，因此在这里插入样式表链接并预加载脚本；
+     交换后 loadPageAssets 只会补齐尚未执行的脚本。 |
+     Start page assets before the swap: the response text already carries #yd-page-assets, and
+     waiting until after:swap makes the message page's editor CSS and scripts arrive one beat late —
+     the composer paints as a plain textarea and restyles afterwards. before:swap still precedes the
+     swap and ctx.text is complete, so the stylesheet link is inserted and scripts are preloaded
+     here; after the swap loadPageAssets only executes the scripts that have not run yet. */
+  function preloadPageAssets(text) {
+    if (!text || text.indexOf("yd-page-assets") < 0) {
+      return;
+    }
+    var Parser = win().DOMParser;
+    if (typeof Parser !== "function") {
+      return;
+    }
+    var fragment;
+    try {
+      fragment = new Parser().parseFromString(text, "text/html");
+    } catch (err) {
+      return;
+    }
+    var node = fragment && fragment.querySelector("#yd-page-assets");
+    if (!node) {
+      return;
+    }
+    var styles = (node.getAttribute("data-yd-styles") || "").split(/\s+/).filter(Boolean);
+    for (var i = 0; i < styles.length; i++) {
+      if (!document.querySelector('link[rel="stylesheet"][href="' + styles[i] + '"]')) {
+        var link = document.createElement("link");
+        link.rel = "stylesheet";
+        link.href = styles[i];
+        document.head.appendChild(link);
+      }
+    }
+    var scripts = (node.getAttribute("data-yd-scripts") || "").split(/\s+/).filter(Boolean);
+    for (var j = 0; j < scripts.length; j++) {
+      if (document.querySelector('script[src="' + scripts[j] + '"]') ||
+          document.querySelector('link[rel="preload"][href="' + scripts[j] + '"]')) {
+        continue;
+      }
+      var hint = document.createElement("link");
+      hint.rel = "preload";
+      hint.as = "script";
+      hint.href = scripts[j];
+      document.head.appendChild(hint);
+      (function (hintNode) {
+        hintNode.addEventListener("load", function () {
+          hintNode.remove();
+        }, { once: true });
+      })(hint);
+    }
+  }
+  ["htmx:before:swap", "htmx:beforeSwap"].forEach(function (name) {
+    document.addEventListener(name, function (event) {
+      var detail = (event && event.detail) || {};
+      var ctx = detail.ctx || {};
+      preloadPageAssets(ctx.text || "");
     });
   });
   loadPageAssets(document);

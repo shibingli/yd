@@ -10,7 +10,7 @@ const GoVersion = "1.27.4"
 // HtmxVersion is the version of the htmx asset in web/assets.lock.json. | HtmxVersion 是 web/assets.lock.json 中 htmx 资产的版本。
 //
 // Source: the asset manifest entry named "htmx". | 来源：资产清单中名为 "htmx" 的条目。
-const HtmxVersion = "4.0.0"
+const HtmxVersion = "4.0.1"
 
 // WafModuleVersion is the ydx WAF module version pinned by the nested WAF dependency module. | WafModuleVersion 是嵌套 WAF 依赖模块锁定的 ydx WAF 模块版本。
 //

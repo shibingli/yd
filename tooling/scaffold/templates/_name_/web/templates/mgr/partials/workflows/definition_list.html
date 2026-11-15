@@ -26,7 +26,9 @@
       <tr class="yd-table__row">
         <td class="yd-table__td"><code class="yd-code">{{ .Definition.Key }}</code></td>
         <td class="yd-table__td">
-          {{- if $.CanManage }}<a class="yd-link" href="/mgr/workflows/{{ .Definition.ID }}/design">{{ .Definition.Name }}</a>
+          {{- if $.CanManage }}<a class="yd-link" href="/mgr/workflows/{{ .Definition.ID }}/design"
+             hx-get="/mgr/workflows/{{ .Definition.ID }}/design" hx-target="#yd-shell"
+             hx-swap="innerMorph" hx-push-url="true">{{ .Definition.Name }}</a>
           {{- else }}{{ .Definition.Name }}{{ end }}
           {{- with .Definition.NameEN }}<span class="yd-table__muted"> · {{ . }}</span>{{ end }}
           {{- with .Definition.Description }}<p class="yd-table__hint">{{ . }}</p>{{ end }}
@@ -49,7 +51,10 @@
             <summary class="yd-icon-btn" aria-label="{{ tr "ui.actions" }}">{{ template "partials/icon" "lucide-more-horizontal" }}</summary>
             <div class="yd-menu__panel" role="menu">
               {{- if $.CanManage }}
-              <a class="yd-menu__item yd-menu__item--with-icon" role="menuitem" href="/mgr/workflows/{{ .Definition.ID }}/design">
+              <a class="yd-menu__item yd-menu__item--with-icon" role="menuitem"
+                 href="/mgr/workflows/{{ .Definition.ID }}/design"
+                 hx-get="/mgr/workflows/{{ .Definition.ID }}/design" hx-target="#yd-shell"
+                 hx-swap="innerMorph" hx-push-url="true">
                 {{ template "partials/icon" "lucide-workflow" }}{{ tr "workflow.design" }}
               </a>
               <button type="button" class="yd-menu__item yd-menu__item--with-icon" role="menuitem" data-yd-drawer-open

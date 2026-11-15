@@ -16,6 +16,7 @@
     .GoVersion .HtmxVersion .TailwindVersion               技术栈版本 | stack versions
     .Features .Scripts                                     启用的特性与本地 htmx 扩展脚本 | features and local htmx extension scripts
     .Path .Lang                                            当前路径与语言 | current path and language
+    .ThemeChoice .ThemeResolved                            yd_theme cookie 预渲染的三态选择与首字节主题 | pre-rendered theme choice and first-byte theme
     .PublicKey .KeyEndpoint .SeedNotice                    登录表单预取与首登提示 | sign-in prefetch and first-sign-in notice
     .User .Tenant .SignedIn .SeedPassword                  当前身份 | the current identity
     .Portal .Mgr                                           所属界面：门户或后台 | owning surface: portal or back office
@@ -37,7 +38,7 @@
 */}}
 {{- define "partials/base" -}}
 <!doctype html>
-<html lang="{{ .Lang }}" data-theme="auto">
+<html lang="{{ .Lang }}" data-theme="{{ .ThemeResolved }}" data-yd-theme-choice="{{ .ThemeChoice }}">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">

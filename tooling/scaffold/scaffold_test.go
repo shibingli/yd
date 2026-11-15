@@ -1745,7 +1745,7 @@ func TestGeneratedGovernanceDocsStateConstraints(t *testing.T) {
 		"YD_",
 		// Stack versions (the template bolds them; the mandated version literals are checked verbatim). | 技术栈版本（模板以粗体书写，逐字校验需求规定的版本号）。
 		"Go **1.27.4**",
-		"Htmx **4.0.0**",
+		"Htmx **4.0.1**",
 		"Tailwind CSS **v4**",
 		"redis",
 		"asynq",
@@ -4298,7 +4298,7 @@ func TestGenerateSupportsTheFullHtmx4ExtensionSet(t *testing.T) {
 	pr, _ := generateMem(t, o)
 
 	lock := pr.read("web/assets.lock.json")
-	for _, name := range []string{"hx-live", "hx-alpine-compat", "hx-browser-indicator", "hx-csp", "hx-compat", "htmx-2-compat"} {
+	for _, name := range []string{"hx-live", "hx-alpine-compat", "hx-browser-indicator", "hx-csp", "htmx-2-compat"} {
 		if !strings.Contains(lock, `"`+name+`"`) {
 			t.Errorf("assets.lock.json 缺少资产 %q", name)
 		}
@@ -4322,7 +4322,6 @@ func TestGenerateSupportsTheFullHtmx4ExtensionSet(t *testing.T) {
 		"/static/js/vendored/hx-prompt.min.js",
 		"/static/js/vendored/hx-ptag.min.js",
 		"/static/js/vendored/hx-csp.min.js",
-		"/static/js/vendored/hx-compat.min.js",
 		"/static/js/vendored/htmx-2-compat.min.js",
 	} {
 		if !strings.Contains(meta, want) {
@@ -4606,17 +4605,30 @@ func TestGeneratedGoModPinsEveryScaffoldYdxModule(t *testing.T) {
 	}
 }
 
-// TestGenerateThemeBootAndAutoTokens pins the generated theme pipeline: the boot script runs before
-// the stylesheet, the default is "auto", and the auto dark block carries every semantic token the
-// shell uses. The last part is what keeps the workspace readable on a system-dark visitor. |
-// TestGenerateThemeBootAndAutoTokens 固定生成项目的主题链路：首屏脚本先于样式表、默认 auto，
-// 且 auto 深色块覆盖外壳使用的全部语义令牌——这正是系统深色下工作区保持可读的关键。
+// TestGenerateThemeBootAndAutoTokens pins the generated theme pipeline: the controller pre-renders
+// the cookie choice onto <html>, the boot script runs before the stylesheet, and the auto dark block
+// carries every semantic token the shell uses. The last part is what keeps the workspace readable on
+// a system-dark visitor. |
+// TestGenerateThemeBootAndAutoTokens 固定生成项目的主题链路：控制器把 cookie 选择预渲染到 <html>，
+// 首屏脚本先于样式表，且 auto 深色块覆盖外壳使用的全部语义令牌——这正是系统深色下工作区保持可读的关键。
 func TestGenerateThemeBootAndAutoTokens(t *testing.T) {
 	pr, _ := generateMem(t, scaffold.DefaultOptions("theme-app"))
 
 	base := pr.read("web/templates/partials/base.html")
-	if !strings.Contains(base, `data-theme="auto"`) {
-		t.Error("generated base.html must default to data-theme=auto | 生成的 base.html 必须默认 data-theme=auto")
+	for _, want := range []string{`data-theme="{{ .ThemeResolved }}"`, `data-yd-theme-choice="{{ .ThemeChoice }}"`} {
+		if !strings.Contains(base, want) {
+			t.Errorf("generated base.html is missing %q | 生成的 base.html 缺少 %q", want, want)
+		}
+	}
+	controller := pr.read("internal/controller/controller.go")
+	for _, want := range []string{"func themePreference", "meta.ThemeCookie", `"ThemeResolved":`, `"ThemeChoice":`} {
+		if !strings.Contains(controller, want) {
+			t.Errorf("generated controller is missing %q | 生成的控制器缺少 %q", want, want)
+		}
+	}
+	meta := pr.read("internal/meta/meta.go")
+	if !strings.Contains(meta, `ThemeCookie = "yd_theme"`) {
+		t.Error("generated meta.go does not declare the theme cookie | 生成的 meta.go 没有声明主题 cookie")
 	}
 	boot, css := strings.Index(base, "yd-theme-boot.js"), strings.Index(base, `asset "/static/css/yd.css"`)
 	if boot < 0 || css < 0 || boot > css {
@@ -4627,7 +4639,7 @@ func TestGenerateThemeBootAndAutoTokens(t *testing.T) {
 	for _, want := range []string{
 		"function rememberTheme(theme)",
 		"document.cookie = THEME_KEY",
-		`applyTheme(readTheme() || "auto")`,
+		`applyTheme(readTheme() || document.documentElement.getAttribute("data-yd-theme-choice") || "auto")`,
 	} {
 		if !strings.Contains(app, want) {
 			t.Errorf("generated yd-app.js is missing %q | 生成的 yd-app.js 缺少 %q", want, want)
@@ -4761,6 +4773,51 @@ func TestGenerateIconsUseTheBundledSprite(t *testing.T) {
 	}
 }
 
+// TestGeneratedShellStaysInsideHtmx pins the navigation and first-paint contracts: in-app links
+// replace the shell through htmx instead of reloading the document, and the app script preloads the
+// destination page's assets before the swap and keeps <html data-yd-theme-choice> in step with the
+// theme button. A plain link or a missing choice attribute is exactly the white flash / top-bar
+// shift this guard is meant to prevent. |
+// TestGeneratedShellStaysInsideHtmx 固定导航与首帧契约：应用内链接经 htmx 替换外壳而不是重新加载
+// 文档；应用脚本在交换前预加载目标页资产，并让 <html data-yd-theme-choice> 与主题按钮保持同步。
+// 裸链接或缺失选择属性正是本守卫要防止的白屏闪烁与顶栏跳动。
+func TestGeneratedShellStaysInsideHtmx(t *testing.T) {
+	pr, _ := generateMem(t, scaffold.DefaultOptions("nav-app"))
+
+	for _, c := range []struct {
+		file string
+		want []string
+	}{
+		{"web/templates/portal/partials/sidebar.html", []string{
+			`href="{{ $mgrHref }}" hx-get="{{ $mgrHref }}" hx-target="#yd-shell"`,
+			`hx-swap="innerMorph" hx-push-url="true" data-yd-nav="mgr"`,
+		}},
+		{"web/templates/partials/topbar.html", []string{
+			`$portalHref := "/account"`, `$portalHref = "/messages"`,
+			`href="{{ $portalHref }}"`, `hx-get="{{ $portalHref }}" hx-target="#yd-shell" hx-swap="innerMorph" hx-push-url="true"`,
+		}},
+		{"web/templates/mgr/pages/workflow_designer.html", []string{
+			`href="/mgr/workflows"`, `hx-get="/mgr/workflows" hx-target="#yd-shell"`,
+		}},
+		{"web/templates/mgr/partials/workflows/definition_list.html", []string{
+			`hx-get="/mgr/workflows/{{ .Definition.ID }}/design" hx-target="#yd-shell"`,
+		}},
+		{"web/templates/mgr/partials/workflows/versions.html", []string{
+			`hx-get="/mgr/workflows/{{ .Definition.ID }}/design" hx-target="#yd-shell"`,
+		}},
+		{"web/static/js/yd-app.js", []string{
+			"preloadPageAssets", `setAttribute("data-yd-theme-choice", theme)`,
+		}},
+	} {
+		body := pr.read(c.file)
+		for _, want := range c.want {
+			if !strings.Contains(body, want) {
+				t.Errorf("%s is missing %q | %s 缺少 %q", c.file, want, c.file, want)
+			}
+		}
+	}
+}
+
 // TestGenerateLanguageToggle pins the generated single language button: it shows the active
 // language, carries the next language for the no-JS link and htmx shell swap, and no longer
 // renders the old segmented control. | TestGenerateLanguageToggle 固定生成项目的单一语言按钮：
@@ -4775,7 +4832,7 @@ func TestGenerateLanguageToggle(t *testing.T) {
 	if strings.Contains(switches, "yd-switch__item") {
 		t.Error("shell-switches.html still renders the old two-link switcher | shell-switches.html 仍渲染旧的双链接切换")
 	}
-	for _, want := range []string{`data-yd-lang-next="`, `hx-target="#yd-shell"`, `hx-swap="innerHTML"`, `href="{{ .Path }}?lang=`} {
+	for _, want := range []string{`data-yd-lang-next="`, `hx-target="#yd-shell"`, `hx-swap="innerMorph"`, `href="{{ .Path }}?lang=`} {
 		if !strings.Contains(switches, want) {
 			t.Errorf("shell-switches.html is missing %q | shell-switches.html 缺少 %q", want, want)
 		}

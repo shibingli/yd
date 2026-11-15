@@ -95,7 +95,6 @@ var extAsset = map[string]string{
 	ExtPrompt:           "hx-prompt",
 	ExtPTag:             "hx-ptag",
 	ExtCSP:              "hx-csp",
-	ExtCompat:           "hx-compat",
 	ExtHtmx2Compat:      "htmx-2-compat",
 }
 

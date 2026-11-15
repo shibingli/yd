@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-10-25T02:05:27.5291945Z",
+  "generated_at": "2026-11-15T16:19:07.2525165Z",
   "sources": [
     "https://cdn.jsdelivr.net/npm/{pkg}@{ver}/{file}",
     "https://unpkg.com/{pkg}@{ver}/{file}"
@@ -38,29 +38,29 @@
     },
     {
       "name": "htmx",
-      "version": "4.0.0",
-      "url": "https://cdn.jsdelivr.net/npm/htmx.org@4.0.0/dist/htmx.min.js",
+      "version": "4.0.1",
+      "url": "https://cdn.jsdelivr.net/npm/htmx.org@4.0.1/dist/htmx.min.js",
       "path": "static/js/vendored/htmx.min.js",
-      "sha256": "e484d9171a9db30a39c8f16e3d709d4137f3211c659f8e6125816635033d593f",
+      "sha256": "a0abb04f2f45a1f89d1d4844023245537e5e6014c87b144553e0607b4cc32130",
       "license": "0BSD",
       "kind": "js",
-      "size": 36716,
+      "size": 37448,
       "required": true
     },
     {
       "name": "htmx-2-compat",
-      "version": "4.0.0",
-      "url": "https://cdn.jsdelivr.net/npm/htmx.org@4.0.0/dist/ext/htmx-2-compat.min.js",
+      "version": "4.0.1",
+      "url": "https://cdn.jsdelivr.net/npm/htmx.org@4.0.1/dist/ext/htmx-2-compat.min.js",
       "path": "static/js/vendored/htmx-2-compat.min.js",
-      "sha256": "7d7fe881d6ae6d4e661b0113e8504bb15acfc1dc1970f07db109bb20c432e53d",
+      "sha256": "e98eff067af00002b0cd8b37c73e42f8d6a7266df3d3aa4c2874234430db2bf6",
       "license": "0BSD",
       "kind": "js",
-      "size": 1728
+      "size": 1763
     },
     {
       "name": "hx-alpine-compat",
-      "version": "4.0.0",
-      "url": "https://cdn.jsdelivr.net/npm/htmx.org@4.0.0/dist/ext/hx-alpine-compat.min.js",
+      "version": "4.0.1",
+      "url": "https://cdn.jsdelivr.net/npm/htmx.org@4.0.1/dist/ext/hx-alpine-compat.min.js",
       "path": "static/js/vendored/hx-alpine-compat.min.js",
       "sha256": "d2047ba85b277df33b44a890a470213246d0e8f7458ffa766e77c7347551767e",
       "license": "0BSD",
@@ -69,8 +69,8 @@
     },
     {
       "name": "hx-browser-indicator",
-      "version": "4.0.0",
-      "url": "https://cdn.jsdelivr.net/npm/htmx.org@4.0.0/dist/ext/hx-browser-indicator.min.js",
+      "version": "4.0.1",
+      "url": "https://cdn.jsdelivr.net/npm/htmx.org@4.0.1/dist/ext/hx-browser-indicator.min.js",
       "path": "static/js/vendored/hx-browser-indicator.min.js",
       "sha256": "b23208327cf7b5e56a8369985dcb3769468c3b22815775167aee2b8a2625998c",
       "license": "0BSD",
@@ -78,79 +78,69 @@
       "size": 995
     },
     {
-      "name": "hx-compat",
-      "version": "4.0.0",
-      "url": "https://cdn.jsdelivr.net/npm/htmx.org@4.0.0/dist/ext/hx-compat.min.js",
-      "path": "static/js/vendored/hx-compat.min.js",
-      "sha256": "44fb26f2c05ac94fae2142b6290afaf6b5c135415d086d87bd42be44b697821c",
-      "license": "0BSD",
-      "kind": "js",
-      "size": 1738
-    },
-    {
       "name": "hx-csp",
-      "version": "4.0.0",
-      "url": "https://cdn.jsdelivr.net/npm/htmx.org@4.0.0/dist/ext/hx-csp.min.js",
+      "version": "4.0.1",
+      "url": "https://cdn.jsdelivr.net/npm/htmx.org@4.0.1/dist/ext/hx-csp.min.js",
       "path": "static/js/vendored/hx-csp.min.js",
-      "sha256": "279f659b9ec8658e3d47230cc545b0bb4e3efa4c2d780454d54db104a5257b7d",
+      "sha256": "a7e1e6711ae6c3e50ad300fba7936cbe8d07599cdae313414a179ddd6b26e143",
       "license": "0BSD",
       "kind": "js",
-      "size": 3423
+      "size": 3447
     },
     {
       "name": "hx-download",
-      "version": "4.0.0",
-      "url": "https://cdn.jsdelivr.net/npm/htmx.org@4.0.0/dist/ext/hx-download.min.js",
+      "version": "4.0.1",
+      "url": "https://cdn.jsdelivr.net/npm/htmx.org@4.0.1/dist/ext/hx-download.min.js",
       "path": "static/js/vendored/hx-download.min.js",
-      "sha256": "dba268e2de5de73bc6bef0b8aa79f642f0e0b20792d7ac2c1e5030f6e4c56ce7",
+      "sha256": "fd8da4273aa437ce3bb1e88e928c15c4e02b01517cba87d48cabaede280527bf",
       "license": "0BSD",
       "kind": "js",
-      "size": 1272
+      "size": 1435
     },
     {
       "name": "hx-head",
-      "version": "4.0.0",
-      "url": "https://cdn.jsdelivr.net/npm/htmx.org@4.0.0/dist/ext/hx-head.min.js",
+      "version": "4.0.1",
+      "url": "https://cdn.jsdelivr.net/npm/htmx.org@4.0.1/dist/ext/hx-head.min.js",
       "path": "static/js/vendored/hx-head.min.js",
-      "sha256": "3a66e5f61dffb79e315d1d9420d3601ebea6e5af90ad4342e5634566ab2e61bd",
+      "sha256": "b44e669ebd7298dbc524d7aa871b9526eeff398963ea816d51ba2535d8dd94cd",
       "license": "0BSD",
       "kind": "js",
-      "size": 2420
+      "size": 2501
     },
     {
       "name": "hx-history-cache",
-      "version": "4.0.0",
-      "url": "https://cdn.jsdelivr.net/npm/htmx.org@4.0.0/dist/ext/hx-history-cache.min.js",
+      "version": "4.0.1",
+      "url": "https://cdn.jsdelivr.net/npm/htmx.org@4.0.1/dist/ext/hx-history-cache.min.js",
       "path": "static/js/vendored/hx-history-cache.min.js",
-      "sha256": "c4c357f544b58294624687bca90bc8ca43dd425a9fb12220eefa0eaeeaa199bc",
+      "sha256": "e91b8d027b3fd465270e3939b8ab7aca5aba5af516ff8351feb62fcad21256f0",
       "license": "0BSD",
       "kind": "js",
-      "size": 4209
+      "size": 4255
     },
     {
       "name": "hx-live",
-      "version": "4.0.0",
-      "url": "https://cdn.jsdelivr.net/npm/htmx.org@4.0.0/dist/ext/hx-live.min.js",
+      "version": "4.0.1",
+      "url": "https://cdn.jsdelivr.net/npm/htmx.org@4.0.1/dist/ext/hx-live.min.js",
       "path": "static/js/vendored/hx-live.min.js",
-      "sha256": "adf9b90949d57baf20dc2eaf1d1fd46c81347ac82c090a5e2912ce6b37726734",
+      "sha256": "b69ba952c4ac81ec908767b14a3dc0465e7954f3f6ab0f2adfcecb32d4b69f7a",
       "license": "0BSD",
       "kind": "js",
-      "size": 14816
+      "size": 14932
     },
     {
       "name": "hx-multipart",
-      "version": "4.0.0",
-      "url": "https://cdn.jsdelivr.net/npm/htmx.org@4.0.0/dist/ext/hx-multipart.min.js",
+      "version": "4.0.1",
+      "url": "https://cdn.jsdelivr.net/npm/htmx.org@4.0.1/dist/ext/hx-multipart.min.js",
       "path": "static/js/vendored/hx-multipart.min.js",
-      "sha256": "961f51d1b7b57c9bf56798a09f3241baf0248593731f8ff41d56037c3de99126",
+      "sha256": "0a0094b466a693c66cca0653ccbc9b6e84314ab0d927f19577f015ff3c2135bb",
       "license": "0BSD",
       "kind": "js",
-      "size": 13892
+      "size": 14230
     },
     {
       "name": "hx-pending",
-      "version": "4.0.0",
-      "url": "https://cdn.jsdelivr.net/npm/htmx.org@4.0.0/dist/ext/hx-pending.min.js",
+      "version": "4.0.1",
+      "url": "https://cdn.jsdelivr.net/npm/htmx.org@4.0.1/dist/ext/hx-pending.min.js",
       "path": "static/js/vendored/hx-pending.min.js",
       "sha256": "6be1cca5a0499e667d84fab7466a6fb0f76990fe7c920dd53f0d1221580c1dc4",
       "license": "0BSD",
@@ -159,28 +149,28 @@
     },
     {
       "name": "hx-preload",
-      "version": "4.0.0",
-      "url": "https://cdn.jsdelivr.net/npm/htmx.org@4.0.0/dist/ext/hx-preload.min.js",
+      "version": "4.0.1",
+      "url": "https://cdn.jsdelivr.net/npm/htmx.org@4.0.1/dist/ext/hx-preload.min.js",
       "path": "static/js/vendored/hx-preload.min.js",
-      "sha256": "4b371ded066297c9648df1eb925cbbe926606951e3a2d2a909657814c6de4472",
+      "sha256": "6526defdf2cafd6a6b9f09fe39136e7af7611d103f05cc7068489ef83993f244",
       "license": "0BSD",
       "kind": "js",
-      "size": 1761
+      "size": 1850
     },
     {
       "name": "hx-prompt",
-      "version": "4.0.0",
-      "url": "https://cdn.jsdelivr.net/npm/htmx.org@4.0.0/dist/ext/hx-prompt.min.js",
+      "version": "4.0.1",
+      "url": "https://cdn.jsdelivr.net/npm/htmx.org@4.0.1/dist/ext/hx-prompt.min.js",
       "path": "static/js/vendored/hx-prompt.min.js",
-      "sha256": "f20978eeb88f280519c43d31a3223a504b1315cc9039b8b23520a3f32a36db40",
+      "sha256": "30ccc64d1ad686183ddf9313c271baaf79668afb68b9c46283cbdaf094c128ea",
       "license": "0BSD",
       "kind": "js",
-      "size": 356
+      "size": 362
     },
     {
       "name": "hx-ptag",
-      "version": "4.0.0",
-      "url": "https://cdn.jsdelivr.net/npm/htmx.org@4.0.0/dist/ext/hx-ptag.min.js",
+      "version": "4.0.1",
+      "url": "https://cdn.jsdelivr.net/npm/htmx.org@4.0.1/dist/ext/hx-ptag.min.js",
       "path": "static/js/vendored/hx-ptag.min.js",
       "sha256": "1993b23e86553100e4f45eed1b756eb8cf53c5b2244caf98e58662dfde9ca069",
       "license": "0BSD",
@@ -189,18 +179,18 @@
     },
     {
       "name": "hx-sse",
-      "version": "4.0.0",
-      "url": "https://cdn.jsdelivr.net/npm/htmx.org@4.0.0/dist/ext/hx-sse.min.js",
+      "version": "4.0.1",
+      "url": "https://cdn.jsdelivr.net/npm/htmx.org@4.0.1/dist/ext/hx-sse.min.js",
       "path": "static/js/vendored/hx-sse.min.js",
-      "sha256": "8a834680c4000a9034d79228872372a92e140c810a075cb6d4a76690dfc13085",
+      "sha256": "18ef2761356ec1fe0bb6d92612315b37517a7c1e9856b661c5ae81fef239d103",
       "license": "0BSD",
       "kind": "js",
-      "size": 6225
+      "size": 6532
     },
     {
       "name": "hx-targets",
-      "version": "4.0.0",
-      "url": "https://cdn.jsdelivr.net/npm/htmx.org@4.0.0/dist/ext/hx-targets.min.js",
+      "version": "4.0.1",
+      "url": "https://cdn.jsdelivr.net/npm/htmx.org@4.0.1/dist/ext/hx-targets.min.js",
       "path": "static/js/vendored/hx-targets.min.js",
       "sha256": "6e9892834f899c471ca935e180ba2b8c3349d0cb9b80a608b81953388fdb690f",
       "license": "0BSD",
@@ -209,8 +199,8 @@
     },
     {
       "name": "hx-upsert",
-      "version": "4.0.0",
-      "url": "https://cdn.jsdelivr.net/npm/htmx.org@4.0.0/dist/ext/hx-upsert.min.js",
+      "version": "4.0.1",
+      "url": "https://cdn.jsdelivr.net/npm/htmx.org@4.0.1/dist/ext/hx-upsert.min.js",
       "path": "static/js/vendored/hx-upsert.min.js",
       "sha256": "9e516c6608f765b568559a4caed3c3121eff2702fb7ce012f21775639d2699c3",
       "license": "0BSD",
@@ -219,8 +209,8 @@
     },
     {
       "name": "hx-ws",
-      "version": "4.0.0",
-      "url": "https://cdn.jsdelivr.net/npm/htmx.org@4.0.0/dist/ext/hx-ws.min.js",
+      "version": "4.0.1",
+      "url": "https://cdn.jsdelivr.net/npm/htmx.org@4.0.1/dist/ext/hx-ws.min.js",
       "path": "static/js/vendored/hx-ws.min.js",
       "sha256": "a7c11e4eca05417d6299bb40aaacca01572e44605389fc4d5ef12be408a4d03b",
       "license": "0BSD",

@@ -92,7 +92,14 @@
           {{ template "partials/icon" "lucide-user-round" }}<span class="yd-user-menu__label">{{ tr "nav.account" }}</span>
         </a>
         {{- if .Mgr }}
-        <a class="yd-menu__item yd-user-menu__item" role="menuitem" href="/">
+        {{/* 返回门户直接落到门户首页，而不是经 / 的 303/HX-Redirect 再跳一次：后者在 htmx 下
+             就是一次整页加载，正好制造本页要避免的闪屏。 | Back to the portal lands on the portal
+             home directly instead of bouncing through /'s 303/HX-Redirect, which under htmx is a full
+             page load and reintroduces the very flash this change removes. */}}
+        {{- $portalHref := "/account" }}
+        {{- if and .MessageAvailable (can .Perm.MessageRead) }}{{ $portalHref = "/messages" }}{{ end }}
+        <a class="yd-menu__item yd-user-menu__item" role="menuitem" href="{{ $portalHref }}"
+           hx-get="{{ $portalHref }}" hx-target="#yd-shell" hx-swap="innerMorph" hx-push-url="true">
           {{ template "partials/icon" "lucide-house" }}<span class="yd-user-menu__label">{{ tr "nav.back_to_portal" }}</span>
         </a>
         {{- end }}

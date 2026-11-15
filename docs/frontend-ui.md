@@ -1,6 +1,6 @@
 # yd 前端 UI 组件层使用手册
 
-> 适用版本：Htmx 4.0.0 · Tailwind CSS v4.3 · Alpine.js 3.17.5（CSP 构建）· Go 1.27
+> 适用版本：Htmx 4.0.1 · Tailwind CSS v4.3 · Alpine.js 3.17.5（CSP 构建）· Go 1.27
 >
 > 本手册同时适用于 **yd 框架自带的示例界面** 与 **`yd new` 生成的项目**。两者的组件层来自同一份源码：
 > `yd new` 把 `web/static/css/components.css`、`web/static/css/ui.css`、`web/templates/components/*.html`

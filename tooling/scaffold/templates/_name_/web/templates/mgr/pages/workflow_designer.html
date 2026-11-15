@@ -31,7 +31,8 @@
          aria-labelledby="yd-flow-title">
   <header class="yd-flow__top">
     <div class="yd-flow__heading">
-      <a class="yd-btn yd-btn--ghost yd-btn--sm" href="/mgr/workflows">{{ template "partials/icon" "lucide-arrow-left" }}{{ tr "workflow.designer.back" }}</a>
+      <a class="yd-btn yd-btn--ghost yd-btn--sm" href="/mgr/workflows"
+         hx-get="/mgr/workflows" hx-target="#yd-shell" hx-swap="innerMorph" hx-push-url="true">{{ template "partials/icon" "lucide-arrow-left" }}{{ tr "workflow.designer.back" }}</a>
       <div>
         <h1 class="yd-page__title" id="yd-flow-title">{{ .Definition.Name }}</h1>
         <p class="yd-page__subtitle">

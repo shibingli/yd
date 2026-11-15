@@ -26,7 +26,7 @@
 
 {{- define "dashboard.open" -}}
 <!doctype html>
-<html lang="{{.Lang}}" data-theme="{{.Theme}}">
+<html lang="{{.Lang}}" data-theme="{{.Theme}}" data-yd-theme-choice="{{.Theme}}">
 {{template "base.head" .}}
 <body class="yd-shell yd-shell--app bg-surface text-content antialiased"
       hx-target:inherited="#yd-workspace"

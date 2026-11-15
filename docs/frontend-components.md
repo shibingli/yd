@@ -1,6 +1,6 @@
 # yd 组件清单与使用手册
 
-> 基础栈：**Htmx 4.0.0 · Tailwind CSS v4.3 · Alpine.js 3.17.5（CSP 构建）**
+> 基础栈：**Htmx 4.0.1 · Tailwind CSS v4.3 · Alpine.js 3.17.5（CSP 构建）**
 >
 > 本文件只列 **已实现且可用** 的组件与组合。组件层的唯一真源是
 > `web/templates/components/**`、`web/static/css/ui.css`、共享组件样式表与

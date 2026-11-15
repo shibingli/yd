@@ -163,9 +163,11 @@ const (
 	ExtPTag = "ptag"
 	// ExtCSP is the CSP nonce enforcement extension. | ExtCSP 是 CSP nonce 强制扩展。
 	ExtCSP = "csp"
-	// ExtCompat is the htmx 2 compatibility extension. | ExtCompat 是 htmx 2 兼容扩展。
-	ExtCompat = "compat"
-	// ExtHtmx2Compat is the alternate htmx 2 compatibility build. | ExtHtmx2Compat 是另一个 htmx 2 兼容构建。
+	// ExtHtmx2Compat is the htmx 2 compatibility build. | ExtHtmx2Compat 是 htmx 2 兼容构建。
+	//
+	// htmx 4.0.1 no longer ships the old `hx-compat` file from dist/ext, so the scaffold publishes
+	// exactly one compatibility layer and it stays opt-in. | htmx 4.0.1 已不再发布 dist/ext 下的
+	// 旧 `hx-compat` 文件，因此脚手架只保留一个兼容层，且仍需显式选择。
 	ExtHtmx2Compat = "htmx-2-compat"
 )
 

@@ -84,7 +84,8 @@
     {{/* 单一出口不另起分组：分组标题与条目会重复「管理」这个词，管理后台也不是一个业务分组。 |
          A single exit needs no group of its own: a section label would repeat "management", and the back office
          is not a business group. */}}
-    <a class="yd-nav__link" href="{{ $mgrHref }}" data-yd-nav="mgr">
+    <a class="yd-nav__link" href="{{ $mgrHref }}" hx-get="{{ $mgrHref }}" hx-target="#yd-shell"
+       hx-swap="innerMorph" hx-push-url="true" data-yd-nav="mgr">
       <span class="yd-nav__label">{{ tr "nav.management" }}</span>
     </a>
     {{- end }}

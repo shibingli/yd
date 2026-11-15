@@ -6,17 +6,17 @@ No file here may be edited by hand — re-run `yd assets update` instead. | 本�
 
 | Library | Version | License (SPDX) | Package | Source URL |
 |---|---|---|---|---|
-| htmx | 4.0.0 | `0BSD` (Zero-Clause BSD) | `htmx.org` | https://cdn.jsdelivr.net/npm/htmx.org@4.0.0/dist/htmx.min.js |
-| htmx `hx-sse` extension | 4.0.0 | `0BSD` (Zero-Clause BSD) | `htmx.org` | https://cdn.jsdelivr.net/npm/htmx.org@4.0.0/dist/ext/hx-sse.min.js |
-| htmx `hx-ws` extension | 4.0.0 | `0BSD` (Zero-Clause BSD) | `htmx.org` | https://cdn.jsdelivr.net/npm/htmx.org@4.0.0/dist/ext/hx-ws.min.js |
-| htmx `hx-preload` extension | 4.0.0 | `0BSD` (Zero-Clause BSD) | `htmx.org` | https://cdn.jsdelivr.net/npm/htmx.org@4.0.0/dist/ext/hx-preload.min.js |
-| htmx `hx-targets` extension | 4.0.0 | `0BSD` (Zero-Clause BSD) | `htmx.org` | https://cdn.jsdelivr.net/npm/htmx.org@4.0.0/dist/ext/hx-targets.min.js |
-| htmx `hx-upsert` extension | 4.0.0 | `0BSD` (Zero-Clause BSD) | `htmx.org` | https://cdn.jsdelivr.net/npm/htmx.org@4.0.0/dist/ext/hx-upsert.min.js |
-| htmx `hx-head` extension | 4.0.0 | `0BSD` (Zero-Clause BSD) | `htmx.org` | https://cdn.jsdelivr.net/npm/htmx.org@4.0.0/dist/ext/hx-head.min.js |
-| htmx `hx-pending` extension | 4.0.0 | `0BSD` (Zero-Clause BSD) | `htmx.org` | https://cdn.jsdelivr.net/npm/htmx.org@4.0.0/dist/ext/hx-pending.min.js |
-| htmx `hx-multipart` extension | 4.0.0 | `0BSD` (Zero-Clause BSD) | `htmx.org` | https://cdn.jsdelivr.net/npm/htmx.org@4.0.0/dist/ext/hx-multipart.min.js |
-| htmx `hx-download` extension | 4.0.0 | `0BSD` (Zero-Clause BSD) | `htmx.org` | https://cdn.jsdelivr.net/npm/htmx.org@4.0.0/dist/ext/hx-download.min.js |
-| htmx `hx-alpine-compat` extension | 4.0.0 | `0BSD` (Zero-Clause BSD) | `htmx.org` | https://cdn.jsdelivr.net/npm/htmx.org@4.0.0/dist/ext/hx-alpine-compat.min.js |
+| htmx | 4.0.1 | `0BSD` (Zero-Clause BSD) | `htmx.org` | https://cdn.jsdelivr.net/npm/htmx.org@4.0.1/dist/htmx.min.js |
+| htmx `hx-sse` extension | 4.0.1 | `0BSD` (Zero-Clause BSD) | `htmx.org` | https://cdn.jsdelivr.net/npm/htmx.org@4.0.1/dist/ext/hx-sse.min.js |
+| htmx `hx-ws` extension | 4.0.1 | `0BSD` (Zero-Clause BSD) | `htmx.org` | https://cdn.jsdelivr.net/npm/htmx.org@4.0.1/dist/ext/hx-ws.min.js |
+| htmx `hx-preload` extension | 4.0.1 | `0BSD` (Zero-Clause BSD) | `htmx.org` | https://cdn.jsdelivr.net/npm/htmx.org@4.0.1/dist/ext/hx-preload.min.js |
+| htmx `hx-targets` extension | 4.0.1 | `0BSD` (Zero-Clause BSD) | `htmx.org` | https://cdn.jsdelivr.net/npm/htmx.org@4.0.1/dist/ext/hx-targets.min.js |
+| htmx `hx-upsert` extension | 4.0.1 | `0BSD` (Zero-Clause BSD) | `htmx.org` | https://cdn.jsdelivr.net/npm/htmx.org@4.0.1/dist/ext/hx-upsert.min.js |
+| htmx `hx-head` extension | 4.0.1 | `0BSD` (Zero-Clause BSD) | `htmx.org` | https://cdn.jsdelivr.net/npm/htmx.org@4.0.1/dist/ext/hx-head.min.js |
+| htmx `hx-pending` extension | 4.0.1 | `0BSD` (Zero-Clause BSD) | `htmx.org` | https://cdn.jsdelivr.net/npm/htmx.org@4.0.1/dist/ext/hx-pending.min.js |
+| htmx `hx-multipart` extension | 4.0.1 | `0BSD` (Zero-Clause BSD) | `htmx.org` | https://cdn.jsdelivr.net/npm/htmx.org@4.0.1/dist/ext/hx-multipart.min.js |
+| htmx `hx-download` extension | 4.0.1 | `0BSD` (Zero-Clause BSD) | `htmx.org` | https://cdn.jsdelivr.net/npm/htmx.org@4.0.1/dist/ext/hx-download.min.js |
+| htmx `hx-alpine-compat` extension | 4.0.1 | `0BSD` (Zero-Clause BSD) | `htmx.org` | https://cdn.jsdelivr.net/npm/htmx.org@4.0.1/dist/ext/hx-alpine-compat.min.js |
 | Alpine.js (CSP build) | 3.17.5 | `MIT` | `@alpinejs/csp` | https://cdn.jsdelivr.net/npm/@alpinejs/csp@3.17.5/dist/cdn.min.js |
 | Idiomorph | 0.8.0 | `0BSD` (Zero-Clause BSD) | `idiomorph` | https://cdn.jsdelivr.net/npm/idiomorph@0.8.0/dist/idiomorph.min.js |
 | EasyMDE | 2.21.0 | `MIT` | `easymde` | https://cdn.jsdelivr.net/npm/easymde@2.21.0/dist/easymde.min.js |

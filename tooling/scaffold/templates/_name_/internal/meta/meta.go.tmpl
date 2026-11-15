@@ -67,6 +67,12 @@ const (
 	BearerPrefix = "Bearer "
 	// TokenCookie is the cookie name of the browser session; the token is written HttpOnly so no script can read it. | TokenCookie 是浏览器会话所用的 cookie 名；令牌以 HttpOnly 写入，脚本读不到它。
 	TokenCookie = "yd_token"
+	// ThemeCookie is the cookie name of the three-state theme choice. yd-theme-boot.js reads it before
+	// the stylesheet paints and the controller pre-renders it onto <html>, so an explicit light/dark
+	// choice is already correct in the first byte. | ThemeCookie 是三态主题选择的 cookie 名。
+	// yd-theme-boot.js 在样式表绘制前读取它，控制器也把它预渲染到 <html> 上，因此明确的浅色/深色
+	// 选择在首字节就已正确。
+	ThemeCookie = "yd_theme"
 	// TokenIssuerName is written into the iss claim of every token. | TokenIssuerName 写入令牌的 iss 声明。
 	TokenIssuerName = "yd"
 

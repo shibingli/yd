@@ -290,8 +290,8 @@ func TestThemeSwitchHasThreeStatesAndNoFlash(t *testing.T) {
 	//    "system" 是唯一留给浏览器处理的情况。
 	for _, name := range []string{"templates/layouts/dashboard.html", "templates/pages/login.html", "templates/pages/error.html"} {
 		html := string(readEmbedded(t, web.FS(), name))
-		if !strings.Contains(html, `<html lang="{{.Lang}}" data-theme="{{.Theme}}">`) {
-			t.Errorf("%s does not pre-render data-theme onto <html> | %s 没有把 data-theme 预渲染到 <html> 上", name, name)
+		if !strings.Contains(html, `<html lang="{{.Lang}}" data-theme="{{.Theme}}" data-yd-theme-choice="{{.Theme}}">`) {
+			t.Errorf("%s does not pre-render data-theme and data-yd-theme-choice onto <html> | %s 没有把 data-theme 与 data-yd-theme-choice 预渲染到 <html> 上", name, name)
 		}
 	}
 	if !strings.Contains(base, `<meta name="color-scheme" content="light dark">`) {

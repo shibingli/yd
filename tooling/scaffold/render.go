@@ -302,7 +302,6 @@ var extScript = map[string]string{
 	ExtPrompt:           "/static/js/vendored/hx-prompt.min.js",
 	ExtPTag:             "/static/js/vendored/hx-ptag.min.js",
 	ExtCSP:              "/static/js/vendored/hx-csp.min.js",
-	ExtCompat:           "/static/js/vendored/hx-compat.min.js",
 	ExtHtmx2Compat:      "/static/js/vendored/htmx-2-compat.min.js",
 }
 
@@ -311,7 +310,7 @@ var extNames = []string{
 	ExtWS, ExtSSE, ExtPreload, ExtAlpine,
 	ExtTargets, ExtHead, ExtUpsert, ExtPending, ExtMultipart, ExtDownload,
 	ExtBrowserIndicator, ExtHistoryCache, ExtLive, ExtPrompt, ExtPTag,
-	ExtCSP, ExtCompat, ExtHtmx2Compat,
+	ExtCSP, ExtHtmx2Compat,
 }
 
 // Extensions returns the supported Htmx 4 extension names in canonical order. | Extensions 按固定顺序返回支持的 Htmx 4 扩展名。
@@ -323,16 +322,16 @@ func Extensions() []string { return append([]string(nil), extNames...) }
 // DefaultExtensions returns every extension a generated project loads without being asked. | DefaultExtensions
 // 返回生成项目无需询问就加载的全部扩展。
 //
-// The three policy / compatibility layers stay opt-in: csp needs a site nonce, while compat and
-// htmx-2-compat restore htmx 2 semantics and would undo the 4.x behaviour the scaffold is built
-// around. Every other extension is part of the baseline, so `yd new` never asks a visitor to pick
-// a subset. | 三个策略/兼容层保持显式选择：csp 需要站点 nonce，compat 与 htmx-2-compat 恢复
-// htmx 2 语义，会抵消脚手架所基于的 4.x 行为。其余扩展都属于基线，因此 `yd new` 不再询问访客挑选子集。
+// The two policy / compatibility layers stay opt-in: csp needs a site nonce, while htmx-2-compat
+// restores htmx 2 semantics and would undo the 4.x behaviour the scaffold is built around. Every
+// other extension is part of the baseline, so `yd new` never asks a visitor to pick a subset. |
+// 两个策略/兼容层保持显式选择：csp 需要站点 nonce，htmx-2-compat 恢复 htmx 2 语义，会抵消
+// 脚手架所基于的 4.x 行为。其余扩展都属于基线，因此 `yd new` 不再询问访客挑选子集。
 func DefaultExtensions() []string {
 	out := make([]string, 0, len(extNames))
 	for _, ext := range extNames {
 		switch ext {
-		case ExtCSP, ExtCompat, ExtHtmx2Compat:
+		case ExtCSP, ExtHtmx2Compat:
 			continue
 		}
 		out = append(out, ext)

@@ -287,6 +287,11 @@
        嵌套滚动区也算进主列的 scrollWidth，因此必须钉住这一轴，否则整个工作区会横向滑动。 */
     overflow-x: clip;
     overflow-y: auto;
+    /* Reserve the vertical scrollbar everywhere. Without a stable gutter a short page has 15px more
+       content width than a long one, so every navigation between them shifted the whole workspace
+       sideways. | 始终预留纵向滚动条的位置。否则短页面比长页面多出 15px 内容宽度，二者之间每次
+       导航都会让整个工作区横向跳动。 */
+    scrollbar-gutter: stable;
     overscroll-behavior: contain;
   }
 
@@ -441,6 +446,42 @@
 
   .yd-sidebar[data-collapsed="true"] .yd-sidebar__footer {
     display: none;
+  }
+
+  /* First-frame rail state: yd-theme-boot.js writes data-yd-sidebar on <html> while <head> is still
+     parsing, before the stylesheet paints. Without this the rail would paint expanded and collapse
+     only when yd-app.js runs, shifting the whole workspace. Desktop only: below the breakpoint the
+     rail is an off-canvas drawer and must keep its drawer width. |
+     首帧侧栏状态：yd-theme-boot.js 在 <head> 解析、样式表绘制之前把 data-yd-sidebar 写到 <html> 上。
+     否则侧栏会先以展开状态绘制，直到 yd-app.js 运行才折叠，整个工作区随之跳动。仅在桌面生效：
+     断点以下侧栏是覆盖式抽屉，必须保持抽屉宽度。 */
+  @media (min-width: 64rem) {
+    :root[data-yd-sidebar="collapsed"] .yd-sidebar {
+      width: var(--spacing-sidebar-collapsed);
+    }
+
+    :root[data-yd-sidebar="collapsed"] .yd-sidebar .yd-brand__name,
+    :root[data-yd-sidebar="collapsed"] .yd-sidebar .yd-nav__section,
+    :root[data-yd-sidebar="collapsed"] .yd-sidebar .yd-nav__label,
+    :root[data-yd-sidebar="collapsed"] .yd-sidebar .yd-sidebar__version {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      margin: -1px;
+      padding: 0;
+      overflow: hidden;
+      clip-path: inset(50%);
+      white-space: nowrap;
+    }
+
+    :root[data-yd-sidebar="collapsed"] .yd-sidebar .yd-brand,
+    :root[data-yd-sidebar="collapsed"] .yd-sidebar .yd-nav__link {
+      justify-content: center;
+    }
+
+    :root[data-yd-sidebar="collapsed"] .yd-sidebar .yd-sidebar__footer {
+      display: none;
+    }
   }
 
   /* ---------------------------------------------------------------- topbar | 顶栏 */
@@ -814,7 +855,16 @@
   .yd-theme-toggle[data-yd-theme-state="dark"] [data-yd-theme-glyph="dark"],
   .yd-theme-toggle[data-yd-theme-state="auto"] [data-yd-theme-glyph="system"],
   .yd-theme-toggle[data-yd-theme-state="system"] [data-yd-theme-glyph="system"],
-  .yd-theme-toggle:not([data-yd-theme-state]) [data-yd-theme-glyph="light"] {
+  :root[data-yd-theme-choice="light"] .yd-theme-toggle [data-yd-theme-glyph="light"],
+  :root[data-yd-theme-choice="dark"] .yd-theme-toggle [data-yd-theme-glyph="dark"],
+  :root[data-yd-theme-choice="auto"] .yd-theme-toggle [data-yd-theme-glyph="system"],
+  :root[data-yd-theme-choice="system"] .yd-theme-toggle [data-yd-theme-glyph="system"],
+  /* Only when the boot script never ran (or was blocked) is there no <html> choice to read; then the
+     light glyph is the honest fallback. Scoping it prevents a second glyph from showing alongside
+     the one selected by <html data-yd-theme-choice>. |
+     只有引导脚本未运行（或被拦截）时 <html> 上才没有可读的选择，此时以浅色图标兜底。限定该作用域
+     可避免它与 <html data-yd-theme-choice> 选中的图标同时显示。 */
+  :root:not([data-yd-theme-choice]) .yd-theme-toggle:not([data-yd-theme-state]) [data-yd-theme-glyph="light"] {
     display: inline-flex;
   }
 
@@ -2874,12 +2924,32 @@
    data-yd-theme-state 用于图标切换，在这里匹配到它会把 .yd-btn 的 inline-flex 覆盖成 display:inline。 */
 /* The button carries the choice; <html data-theme> carries the resolved light/dark value. Scoping
    the label to the button means the "follow system" label stays visible even though the resolved
-   attribute is light or dark. | 按钮携带的是选择，<html data-theme> 携带的是解析后的明暗值。把
-   标签限定在按钮上，意味着即使解析后的属性是 light/dark，「跟随系统」标签仍然可见。 */
+   attribute is light or dark. |
+   按钮携带的是选择，<html data-theme> 携带的是解析后的明暗值。把标签限定在按钮上，意味着即使
+   解析后的属性是 light/dark，「跟随系统」标签仍然可见。
+
+   `<html data-yd-theme-choice>` is published by yd-theme-boot.js before the stylesheet paints, so
+   the label is correct on the very first frame and cannot disappear when a server-rendered shell
+   fragment replaces the button during an htmx swap. The button-attribute selectors stay as the
+   contract for the interactive switch. |
+   `<html data-yd-theme-choice>` 由 yd-theme-boot.js 在样式表绘制前写入，因此首帧的标签就是正确的，
+   也不会在 htmx 交换用服务端片段替换按钮时消失。按钮属性选择器仍保留，作为交互切换的契约。 */
 .yd-theme-toggle[data-yd-theme-state="light"] .yd-theme__state[data-yd-theme-state="light"],
 .yd-theme-toggle[data-yd-theme-state="dark"] .yd-theme__state[data-yd-theme-state="dark"],
 .yd-theme-toggle[data-yd-theme-state="auto"] .yd-theme__state[data-yd-theme-state="auto"],
-.yd-theme-toggle[data-yd-theme-state="system"] .yd-theme__state[data-yd-theme-state="system"] {
+.yd-theme-toggle[data-yd-theme-state="system"] .yd-theme__state[data-yd-theme-state="system"],
+:root[data-yd-theme-choice="light"] .yd-theme-toggle .yd-theme__state[data-yd-theme-state="light"],
+:root[data-yd-theme-choice="dark"] .yd-theme-toggle .yd-theme__state[data-yd-theme-state="dark"],
+:root[data-yd-theme-choice="auto"] .yd-theme-toggle .yd-theme__state[data-yd-theme-state="auto"],
+:root[data-yd-theme-choice="system"] .yd-theme-toggle .yd-theme__state[data-yd-theme-state="auto"] {
+  display: inline;
+}
+
+/* No boot script and no button attribute: show the documented default rather than an empty button.
+   The :not() guards keep this from stacking a second label on top of the selected one. |
+   引导脚本与按钮属性都不存在时显示文档化的默认值，而不是一个空白按钮；:not() 守卫防止它与已选中的
+   标签叠加。 */
+:root:not([data-yd-theme-choice]) .yd-theme-toggle:not([data-yd-theme-state]) .yd-theme__state[data-yd-theme-state="auto"] {
   display: inline;
 }
 

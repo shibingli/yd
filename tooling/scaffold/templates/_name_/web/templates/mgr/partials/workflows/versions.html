@@ -12,7 +12,9 @@
 <div class="yd-stack">
   <div class="yd-toolbar">
     {{- if .CanManage }}
-    <a class="yd-btn yd-btn--ghost" href="/mgr/workflows/{{ .Definition.ID }}/design">{{ template "partials/icon" "lucide-workflow" }}{{ tr "workflow.design" }}</a>
+    <a class="yd-btn yd-btn--ghost" href="/mgr/workflows/{{ .Definition.ID }}/design"
+       hx-get="/mgr/workflows/{{ .Definition.ID }}/design" hx-target="#yd-shell"
+       hx-swap="innerMorph" hx-push-url="true">{{ template "partials/icon" "lucide-workflow" }}{{ tr "workflow.design" }}</a>
     <form method="post" action="/mgr/workflows/{{ .Definition.ID }}/versions"
           data-yd-confirm="{{ tr "confirm.create_workflow_draft" }}" data-yd-drawer-persist
           hx-post="/mgr/workflows/{{ .Definition.ID }}/versions" hx-target="#yd-drawer-body" hx-swap="innerHTML"
